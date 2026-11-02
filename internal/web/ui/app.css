@@ -671,6 +671,7 @@ a.inst-name:hover { text-decoration: underline; text-decoration-color: color-mix
 .progress-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; font-size: var(--fs-sm); }
 .progress-head b { font-weight: var(--fw-semibold); }
 .progress-text { font: var(--fs-xs) var(--mono); color: var(--muted); margin-top: 8px; }
+.task-slow { max-width: 720px; margin-top: 0; } /* 部署页：进度长时间不动时的「下载慢或者在重试」 */
 
 /* 终端类容器：双主题恒深（取方案的终端配色），凹陷 */
 .task-log, .console, .motd-preview {
@@ -699,7 +700,7 @@ a.inst-name:hover { text-decoration: underline; text-decoration-color: color-mix
 .detail-head h1 { max-width: 46vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .detail-head .dh-line { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
 #tab-body { max-width: var(--w-wide); }
-.console { height: calc(100vh - 430px); height: calc(100dvh - 430px); min-height: 240px; overflow-y: auto; font: 12.5px var(--mono); padding: 12px 14px; font-variant-ligatures: none; }
+.console { height: calc(100vh - 456px); height: calc(100dvh - 456px); min-height: 240px; overflow-y: auto; font: 12.5px var(--mono); padding: 12px 14px; font-variant-ligatures: none; }
 .console div { white-space: pre-wrap; word-break: break-all; line-height: 1.6; }
 .console .cmd-echo { color: var(--term-cmd); }
 .console .lv-warn { color: var(--term-warn); }
@@ -708,6 +709,13 @@ a.inst-name:hover { text-decoration: underline; text-decoration-color: color-mix
 .console-bar select { width: 110px; }
 .console-input { display: flex; gap: 8px; margin-top: 10px; position: relative; }
 .console-input input { flex: 1; font-family: var(--mono); }
+/* 命令框下方常驻的快捷键说明（原来写在 placeholder 里，一打字就看不到了） */
+.console-keys { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 8px; }
+.console-keys code.kbd + code.kbd { margin-left: 4px; }
+@media (pointer: coarse) { .console-keys { display: none; } } /* 手机上没有 Tab、↑↓ 这些键，提示了也用不上 */
+/* 定时任务：「5 分钟后」这类快捷项和「每天这个时间执行」的说明 */
+.sc-quick { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.sc-quick .hint { margin: 0; }
 .cmd-suggest {
   display: none; position: absolute; bottom: calc(100% + 4px); left: 0; z-index: 30;
   min-width: 200px; max-width: 340px; max-height: 220px; overflow-y: auto; padding: 5px;

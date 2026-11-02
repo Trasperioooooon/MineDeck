@@ -83,6 +83,7 @@ window.MDMusic = (() => {
     const blockers = () => {
       const s = v.st, out = [];
       if (!s.svc.installed) out.push("先装 Simple Voice Chat");
+      else if (restartHas("Simple Voice Chat")) out.push("装好 Simple Voice Chat 后要重启服务器");
       if (!s.bridge.file) out.push(s.bridge.installed ? "先更新桥接模组" : "先装桥接模组");
       else if (restartHas("桥接模组")) out.push("装好桥接模组后要重启服务器");
       if (s.serverStatus !== "running") out.push(s.serverStatus === "starting" ? "服务器还在启动，等它启动完成" : "先开服");
@@ -251,18 +252,20 @@ window.MDMusic = (() => {
       const box = $("#mu-check");
       const typing = $("#mu-vh") && ($("#mu-vh") === document.activeElement || $("#mu-vh").value !== $("#mu-vh").defaultValue);
       $("#mu-restart").innerHTML = (s.restart || []).length ? `<div class="warn-card"><div class="wc-title">${icon("warn")} 重启服务器后生效</div>
-        <div class="wc-note">${esc(s.restart.join("、"))}是服务器运行中改的：重启服务器以后才生效。</div></div>` : "";
+        <div class="wc-note">${esc(s.restart.join("、"))} 是服务器运行中装上或改过的：重启服务器以后才生效。</div></div>` : "";
       if (box.dataset.sig === sig || typing) return; // 正在手动填 voice_host：先不重绘，免得把填了一半的冲掉
       box.dataset.sig = sig;
       const coreLabel = { neoforge: "NeoForge", forge: "Forge", mohist: "Mohist" }[info.core] || info.core;
-      // SVC
+      // SVC：没装时直接给安装按钮（测试报告观察 13：原来只给「去资源页搜索」，资源页 20 个同名的「安装」容易装错）
       const svc = s.svc;
       const svcRow = svc.installed
-        ? row({ tile: okIco(true), title: "Simple Voice Chat", sub: `已装 ${esc(svc.version || "（版本未知）")}。玩家的客户端也要装 SVC，版本和服务器一样最稳妥。`, key: svc.file })
+        ? row({ tile: okIco(true), titleHTML: `Simple Voice Chat${restartHas("Simple Voice Chat") ? `<span class="tag warn">重启生效</span>` : ""}`,
+          sub: `已装 ${esc(svc.version || "（版本未知）")}。玩家的客户端也要装 SVC，版本和服务器一样最稳妥。`, key: svc.file })
         : row({ tile: okIco(false), title: "Simple Voice Chat：mods 里没有",
-          sub: `音乐靠它推给玩家。到 Modrinth 或 CurseForge 下载 ${esc(coreLabel)} ${esc(info.mc)} 版的 Simple Voice Chat，放进 mods 以后重启服务器；玩家的客户端也要装同一个版本。` +
-            ((svc.disabled || []).length ? `<br>有被停用的：${esc(svc.disabled.join("、"))}` : ""),
-          right: `<a class="btn sm" href="#/inst/${enc}/res">去「资源」页搜索</a>` });
+          sub: `音乐靠它推给玩家。点「安装」从 Modrinth 下载 ${info.core === "neoforge" ? "NeoForge" : "Forge"} ${esc(info.mc)} 版里最新的正式版放进 mods（要联网）` +
+            (s.serverStatus !== "stopped" ? "；服务器在运行，装好后重启才生效。" : "。") + "玩家的客户端也要装同一个版本。" +
+            ((svc.disabled || []).length ? `<br>有被停用的：${esc(svc.disabled.join("、"))}（不会动它）` : ""),
+          right: `<button class="btn sm" id="mu-svc-install" aria-label="安装 Simple Voice Chat">${icon("download")} 安装</button>` });
       // 桥接模组
       const br = s.bridge;
       const variantName = br.variant === "javafml" ? "（备用加载方式）" : "";
@@ -341,6 +344,17 @@ window.MDMusic = (() => {
         row({ tile: okIco(true), title: `核心：${coreLabel} ${info.mc}`, sub: esc(s.note || "支持音乐共享。") }) +
         svcRow + brRow + portRow + row(rmRow), { ico: true });
       // 交互
+      const svcBtn = $("#mu-svc-install");
+      if (svcBtn) svcBtn.onclick = async () => {
+        svcBtn.disabled = true;
+        svcBtn.textContent = "下载中…";
+        try {
+          const r = await api(base + "/svc", { method: "POST" });
+          toast(`已装好 Simple Voice Chat ${r.version || r.name}` + (r.restart ? "：重启服务器后生效" : "") + (r.type ? `（Modrinth 上没有正式版，装的是 ${r.type} 版）` : ""));
+        } catch (e) { toast(e.message, true); }
+        box.dataset.sig = ""; // 失败时也重画，按钮恢复
+        await loadStatus();
+      };
       box.querySelectorAll("[data-install]").forEach(b => b.onclick = async () => {
         b.disabled = true;
         try {

@@ -823,6 +823,35 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await resetMusic(); }
   });
 
+  await run("音乐共享：没装 SVC 时检查清单直接给「安装」按钮（不再让人去资源页认），装好后清单刷新；运行中装的提示重启后生效、不能开始广播；下载失败报原因、按钮恢复（测试报告观察 13）", async () => {
+    try {
+      await openMusic({ inst: { [PACK]: { svc: false } } }, "stopped");
+      let check = await page.textContent("#mu-check");
+      assert(check.includes("Simple Voice Chat：mods 里没有") && check.includes("Forge 1.20.1 版") && !(await page.$('#mu-check a[href$="/res"]')), "没装 SVC 时：" + check);
+      assert((await page.getAttribute("#mu-svc-install", "aria-label")) === "安装 Simple Voice Chat", "按钮的名字应带上模组名");
+      assert(await page.$eval('[data-install="main"]', b => b.disabled), "没装 SVC 时桥接模组不能装");
+      let t0 = posts.length;
+      await page.click("#mu-svc-install"); await settle(500);
+      assert(postsTo(t0, "/music/svc").length === 1, "安装请求：" + JSON.stringify(posts.slice(t0)));
+      assert(await toastHas("已装好 Simple Voice Chat 1.20.1-2.6.27"), "应提示装好了");
+      check = await page.textContent("#mu-check");
+      assert(check.includes("已装 1.20.1-2.6.27") && !(await page.$("#mu-svc-install")) && !(await page.$eval('[data-install="main"]', b => b.disabled)), "装好后清单没刷新：" + check);
+      assert(!(await page.textContent("#mu-restart")).includes("Simple Voice Chat"), "停着时装的不用重启");
+
+      await openMusic({ inst: { [PACK]: { svc: false } } }, "running");
+      await page.click("#mu-svc-install"); await settle(500);
+      assert(await toastHas("重启服务器后生效"), "运行中装的应提示重启后生效");
+      assert((await page.textContent("#mu-restart")).includes("Simple Voice Chat") && (await page.textContent("#mu-check")).includes("重启生效"), "顶上应提示重启：" + await page.textContent("#mu-restart"));
+      assert((await page.textContent("#mu-why")).includes("装好 Simple Voice Chat 后要重启服务器"), "没重启时不能开始：" + await page.textContent("#mu-why"));
+
+      await openMusic({ inst: { [PACK]: { svc: false, svcFail: "在 Modrinth 上查 Simple Voice Chat 的版本失败：连接超时（检查网络或代理后再试）" } } }, "stopped");
+      t0 = posts.length;
+      await page.click("#mu-svc-install"); await settle(500);
+      assert(await toastHas("版本失败：连接超时"), "下载失败应报原因");
+      assert(!(await page.$eval("#mu-svc-install", b => b.disabled)) && (await page.textContent("#mu-svc-install")).includes("安装"), "失败后按钮应恢复");
+    } finally { await resetMusic(); }
+  });
+
   await run("音乐共享：Win11 选一个正在出声的程序开始广播，选音源时电平跟着刷新；广播中显示听众、不再列音源；停止后回到选音源", async () => {
     try {
       await openMusic({ inst: { [PACK]: { bridge: "main" } } });
@@ -1960,6 +1989,95 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await mockState({ listenLan: false, lanSet: false }); }
   });
   // ==================== 窗口与设置结束 ====================
+
+  await run("控制台：快捷键说明常驻在命令框下方，打字后还在；placeholder 只留示例（测试报告观察 7）", async () => {
+    await page.goto(url(`#/inst/${inst}/console`)); await settle();
+    const ph = await page.getAttribute("#cmd-in", "placeholder");
+    assert(!/回车|Tab|翻历史/.test(ph) && ph.includes("say"), "placeholder 应只留示例：" + ph);
+    await page.fill("#cmd-in", "say 你好");
+    const keys = await page.textContent("#cmd-keys");
+    assert(await page.isVisible("#cmd-keys") && ["回车", "发送", "Tab", "补全", "翻历史"].every(s => keys.includes(s)), "打字后快捷键说明应还在：" + keys);
+    assert((await page.getAttribute("#cmd-in", "aria-describedby")) === "cmd-keys", "命令框应关联说明（读屏）");
+    await page.fill("#cmd-in", "");
+  });
+
+  await run("全部配置：搜索按键名和中文名过滤（横线、空格不算），Esc 清空，搜不到时说明；搜索不算未保存的修改（测试报告观察 8）", async () => {
+    await page.goto(url(`#/inst/${inst}/raw`)); await settle();
+    const rows = () => page.$$eval("table.raw tr", rs => rs.filter(r => r.style.display !== "none").map(r => r.dataset.search));
+    const total = (await rows()).length;
+    await page.fill("#raw-search", "rcon");
+    let vis = await rows();
+    assert(vis.length >= 4 && vis.length < total && vis.every(s => s.toLowerCase().includes("rcon")), "搜 rcon：" + JSON.stringify(vis));
+    assert((await page.textContent("#raw-count")) === `找到 ${vis.length} 项（共 ${total} 项）`, "计数：" + await page.textContent("#raw-count"));
+    for (const q of ["视距", "view distance", "VIEW-DISTANCE"]) {
+      await page.fill("#raw-search", q);
+      vis = await rows();
+      assert(vis.some(s => s.startsWith("view-distance ")) && vis.length < 5, `搜「${q}」：` + JSON.stringify(vis));
+    }
+    await page.fill("#raw-search", "没有这个键");
+    assert((await rows()).length === 0 && await page.isVisible("#raw-none"), "搜不到时应说明");
+    assert((await page.$eval(".sb-state", el => el.textContent)).includes("所有修改已保存"), "搜索不该算修改");
+    await page.press("#raw-search", "Escape");
+    assert((await rows()).length === total && (await page.$eval("#raw-search", e => e.value)) === "" && !(await page.isVisible("#raw-none")), "Esc 应清空搜索");
+    assert((await page.textContent("#raw-count")) === `共 ${total} 项`, "清空后计数");
+  });
+
+  await run("常用设置：搜索同样忽略横线和空格，整组都不匹配时整组隐藏", async () => {
+    await page.goto(url(`#/inst/${inst}/common`)); await settle();
+    await page.fill("#cp-search", "view distance");
+    const vis = await page.$$eval(".prop-item", els => els.filter(e => e.offsetParent).map(e => e.dataset.search));
+    assert(vis.length === 1 && vis[0].includes("view-distance"), "搜 view distance：" + JSON.stringify(vis));
+    const groups = await page.$$eval(".cp-group", gs => gs.filter(g => g.style.display !== "none").length);
+    assert(groups === 1, "只剩一组：" + groups);
+    await page.press("#cp-search", "Escape");
+    assert((await page.$$eval(".cp-group", gs => gs.filter(g => g.style.display === "none").length)) === 0, "Esc 后全部回来");
+  });
+
+  await run("定时任务：时间是「时:分」文本框，快捷项填成几分钟后的时刻并说明每天执行；写错就近提示，4:5、2130 这类写法补齐成 HH:MM（测试报告观察 1）", async () => {
+    await page.goto(url(`#/inst/${inst}/tasks`)); await settle();
+    assert((await page.$eval("#sc-at", e => e.type)) === "text", "时间框应是文本框");
+    assert((await page.textContent("#sc-hint")).includes("每天到这个时间执行一次"), "旁边应说明每天执行");
+    await page.click('[data-later="10"]');
+    const [got, a, b] = await page.evaluate(() => {
+      const f = d => String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+      return [document.querySelector("#sc-at").value, f(new Date(Date.now() + 10 * 60000)), f(new Date(Date.now() + 9 * 60000))];
+    });
+    assert(got === a || got === b, `「10 分钟后」填成了 ${got}，应为 ${a}`);
+    assert((await page.textContent("#sc-hint")).includes(`已填成 ${got}`) && (await page.textContent("#sc-hint")).includes("之后每天这个时间都执行"), "快捷项后的说明：" + await page.textContent("#sc-hint"));
+    const n0 = await page.$$eval("#sched-list .java-row", r => r.length);
+    await page.fill("#sc-at", "25:00"); await page.click("#sc-add");
+    assert((await page.textContent("#sc-err")).includes("时:分") && await page.$("#sc-at.invalid"), "写错应就近提示：" + await page.textContent("#sc-err"));
+    assert((await page.$$eval("#sched-list .java-row", r => r.length)) === n0, "写错不该添加");
+    await page.fill("#sc-at", "4:5"); await page.press("#sc-at", "Enter");
+    let list = await page.$$eval("#sched-list .java-row .jv", r => r.map(x => x.textContent));
+    assert(list.length === n0 + 1 && list[n0] === "每天 04:05", "4:5 应补齐成 04:05：" + JSON.stringify(list));
+    assert((await page.$eval("#sc-at", e => e.value)) === "04:05" && !(await page.$("#sc-at.invalid")) && (await page.textContent("#sc-err")) === "", "改对后错误消失");
+    await page.fill("#sc-at", "2130"); await page.click("#sc-add");
+    list = await page.$$eval("#sched-list .java-row .jv", r => r.map(x => x.textContent));
+    assert(list[n0 + 1] === "每天 21:30", "2130 应认成 21:30：" + JSON.stringify(list));
+    assert((await page.$eval(".sb-state", el => el.textContent)).includes("2 项修改未保存") || (await page.$eval(".sb-state", el => el.textContent)).includes("未保存"), "添加后计入未保存");
+    await page.click('[data-sb="discard"]'); await settle(300);
+  });
+
+  await run("部署任务：进度和日志长时间不动时在进度旁提示「下载慢或者在重试」，有进展就收起；后端报了超时时写出哪个地址、第几次（测试报告 B-01）", async () => {
+    try {
+      await page.goto(url("#/instances")); await settle();
+      await page.evaluate(() => { window.__MD_STALL_MS = 1500; location.hash = "#/task/task-7"; });
+      await settle(600);
+      assert(await page.$eval("#t-slow", e => e.hidden), "刚打开不该提示");
+      await page.waitForFunction(() => !document.querySelector("#t-slow").hidden, null, { timeout: 4000 }).catch(() => {});
+      const slow = await page.textContent("#t-slow");
+      assert(!(await page.$eval("#t-slow", e => e.hidden)) && slow.includes("没有新进度") && slow.includes("检查网络或代理"), "进度不动应提示：" + slow);
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskStage: 3 }) }));
+      await page.waitForFunction(() => document.querySelector("#t-slow").hidden, null, { timeout: 1500 }).catch(() => {});
+      assert(await page.$eval("#t-slow", e => e.hidden), "有进展后应收起");
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskNet: { count: 3, host: "maven.neoforged.net", what: "连接超时", ago: 4 } }) }));
+      await page.waitForFunction(() => !document.querySelector("#t-slow").hidden, null, { timeout: 1200 }).catch(() => {});
+      assert((await page.textContent("#t-slow-title")) === "maven.neoforged.net 连接超时，已经 3 次", "后端报的超时：" + await page.textContent("#t-slow-title"));
+    } finally {
+      await page.evaluate(() => { delete window.__MD_STALL_MS; return fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskStage: 2, taskNet: null }) }); });
+    }
+  });
 
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
 

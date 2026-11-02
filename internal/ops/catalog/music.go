@@ -223,6 +223,43 @@ func (c *cat) musicOps() {
 	})
 
 	c.reg.Register(&ops.Op{
+		Name: "music.svc.install", Title: "安装 Simple Voice Chat", Level: ops.Write,
+		Desc: "从 Modrinth 下载 Simple Voice Chat（简单语音聊天，音乐共享靠它把音乐推给玩家，桥接模组也离不开它）装进实例的 mods（要联网）：" +
+			"按服务器的加载器和 MC 版本取最新的正式版，核对 SHA-1、确认 jar 里是 SVC 才装。mods 里已经有 SVC 时不装；服务器运行中装的，重启后生效。",
+		Params: withInst(nil),
+		Preview: func(_ context.Context, _ ops.Caller, a ops.Args) (*ops.Plan, error) {
+			p, err := bind[instArgs](a)
+			if err != nil {
+				return nil, err
+			}
+			pv, err := c.Music.PreviewSVC(p.Inst)
+			if err != nil {
+				return nil, musicErr(err)
+			}
+			plan := &ops.Plan{
+				Summary: fmt.Sprintf("给「%s」从 Modrinth 安装 Simple Voice Chat（%s %s 版里最新的正式版）", p.Inst, pv.Loader, pv.MC),
+				Pre:     map[string]string{"实例状态": pv.Status, "mods 里的 SVC": "无"},
+				Changes: []ops.Change{{What: "mods/（Simple Voice Chat）", Before: "无", After: "从 Modrinth 下载安装"}},
+			}
+			if pv.Running {
+				plan.Summary += "；服务器正在运行，重启后生效"
+			}
+			return plan, nil
+		},
+		Run: func(ctx context.Context, _ ops.Caller, a ops.Args) (any, error) {
+			p, err := bind[instArgs](a)
+			if err != nil {
+				return nil, err
+			}
+			res, err := c.Music.InstallSVC(ctx, p.Inst)
+			if err != nil {
+				return nil, musicErr(err)
+			}
+			return res, nil
+		},
+	})
+
+	c.reg.Register(&ops.Op{
 		Name: "music.voicehost.set", Title: "修改语音地址（voice_host）", Level: ops.Write,
 		Desc: "改 SVC 配置里的 voice_host（远程好友连语音用的地址），只改这一行，改前备份。fromTunnel 为 true 时用语音隧道的公网地址" +
 			"（以后隧道地址变了也会跟着改）；否则用 value（手动填的，MineDeck 不会自动覆盖；空串清掉，只有局域网好友时不需要）。SVC 只在启动时读，运行中改的重启后生效。",
