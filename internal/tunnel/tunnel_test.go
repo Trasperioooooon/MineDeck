@@ -484,6 +484,37 @@ func TestPublicAddrPrefersDomain(t *testing.T) {
 	}
 }
 
+// PublicAddr 跨次保存着：新一次运行连上之前 Online 为 false（界面据此不拿上次的地址盖住这次的报错），
+// 报了成功或拿到地址才算连上；停下以后不再 Online。
+func TestOnlineTracksThisRun(t *testing.T) {
+	tempBase(t)
+	m := NewManager()
+	tt, err := m.Add(Tunnel{Provider: "natfrp", Name: "游戏", Credential: "k", ProxyID: "10"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tun := m.get(tt.ID)
+	m.setPublicAddr(tun, "frp-old.natfrp.cloud:12345") // 上一次运行留下的
+	rs := &runState{}
+	m.mu.Lock()
+	m.running[tt.ID] = rs
+	m.mu.Unlock()
+	m.handleLine(tun, rs, "2026/11/02 15:31:27 [E] [游戏] login to server failed: i/o timeout")
+	if st := m.List()[0]; !st.Running || st.Online || st.LastError == "" || st.PublicAddr != "frp-old.natfrp.cloud:12345" {
+		t.Fatalf("还没连上就报错：%+v", st)
+	}
+	m.handleLine(tun, rs, "2026/11/02 15:31:30 [I] [游戏] 使用 >>frp-abc.natfrp.cloud:12345<< 连接你的隧道")
+	if st := m.List()[0]; !st.Online || st.PublicAddr != "frp-abc.natfrp.cloud:12345" {
+		t.Fatalf("拿到地址后：%+v", st)
+	}
+	m.mu.Lock()
+	delete(m.running, tt.ID)
+	m.mu.Unlock()
+	if st := m.List()[0]; st.Running || st.Online {
+		t.Fatalf("停下以后：%+v", st)
+	}
+}
+
 // 樱花、OpenFrp 的隧道不存 frps 地址和端口（启动时只传隧道 ID，端口在服务商后台填，存着的数会误导）：
 // 新增时清掉；老数据加载时清掉并写回；自定义 frps 的照旧。
 func TestUnusedPortsNotStored(t *testing.T) {

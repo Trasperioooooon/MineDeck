@@ -199,8 +199,9 @@ func openWebView(url string, sig chan os.Signal, minimized bool) (ok bool) {
 	applyWindowIcon(hwnd)   // 任务栏 / Alt-Tab / 托盘图标
 	setupTray(hwnd)         // 子类化窗口过程（含去标题栏）+ 挂托盘图标（关窗最小化 / 右键菜单）
 	if minimized && !trayActive {
-		// 静默启动却没登记上托盘图标（开机时外壳还没就绪最常见）：窗口一直藏着就再也找不回来，退到任务栏最小化
-		pShowWindow.Call(hwnd, _SW_MINIMIZE)
+		// 静默启动却没登记上托盘图标（开机时外壳还没就绪最常见）：窗口一直藏着就再也找不回来，退到任务栏最小化；
+		// 用 SHOWMINNOACTIVE，开机时不改动前台窗口（独立评审发现）
+		pShowWindow.Call(hwnd, _SW_SHOWMINNOACTIVE)
 	}
 	applyFrameless(hwnd) // 触发边框重算，让去标题栏立即生效（须在子类化之后）
 	// 无边框后原生标题栏没了，窗口拖动/最小化/最大化/关闭由前端标题栏经 Bind 桥接驱动

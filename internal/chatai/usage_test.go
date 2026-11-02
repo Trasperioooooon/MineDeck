@@ -20,7 +20,10 @@ func TestCommandOutputWait(t *testing.T) {
 			go func() {
 				time.Sleep(50 * time.Millisecond)
 				f.gc.OnLine(instName, "[20:15:03] [Worker-Main-3/INFO] [somemod/]: 正在生成区块")
-				time.Sleep(250 * time.Millisecond)
+				time.Sleep(50 * time.Millisecond)
+				// 等的时候主线程上冒出来的无关一行（成就、死亡消息、模组日志）：locate 只认自己的反馈，不因为它提前收工
+				f.gc.OnLine(instName, "[20:15:03] [Server thread/INFO] [minecraft/MinecraftServer]: Alex has made the advancement [Stone Age]")
+				time.Sleep(200 * time.Millisecond)
 				f.gc.OnLine(instName, "[20:15:04] [Server thread/INFO] [minecraft/MinecraftServer]: The nearest minecraft:village_plains is at [128, ~, -64] (180 blocks away)")
 			}()
 		}
@@ -75,10 +78,29 @@ func TestReplyLine(t *testing.T) {
 		"[MineDeck] 游戏内 AI 替 Steve 执行：/weather clear":                                               false,
 		"[20:15:03] [Server thread/WARN] [minecraft/MinecraftServer]: Can't keep up! Is the server": false,
 		"[20:15:03] [Worker-Main-3/INFO] [somemod/]: 正在生成区块":                                        false,
+		"[20:15:03] [Server thread/INFO]: Notch joined the game":                                    false,
+		"[20:15:03] [Server thread/INFO]: Notch left the game":                                      false,
+		"[20:15:03] [Server thread/INFO]: Notch lost connection: Disconnected":                      false,
+		"\tat net.minecraft.server.MinecraftServer.tickServer(MinecraftServer.java:1)":              false,
 		"   ": false,
 	} {
 		if got := replyLine(line); got != want {
 			t.Errorf("%q：%v，应为 %v", line, got, want)
+		}
+	}
+	// locate 一类只认自己的反馈和命令写错的报错
+	for line, want := range map[string]bool{
+		"[20:15:04] [Server thread/INFO] [minecraft/MinecraftServer]: The nearest minecraft:village_plains is at [128, ~, -64] (180 blocks away)": true,
+		"[20:15:04] [Server thread/INFO]: Could not find a structure of type \"minecraft:ancient_city\" nearby":                                   true,
+		"[20:15:04 INFO]: There is no structure with type \"minecraft:villige\"":                                                                  true,
+		"[20:15:04] [Server thread/INFO]: Unknown or incomplete command, see below for error":                                                     true,
+		"[20:15:04] [Server thread/INFO]: ...re minecraft:villige<--[HERE]":                                                                       true,
+		"[20:15:04] [Server thread/INFO]: Alex has made the advancement [Stone Age]":                                                              false,
+		"[20:15:04] [Server thread/INFO]: Villager EntityVillager['Villager'/42] died, message: 'Villager was slain by Zombie'":                   false,
+		"[20:15:04] [Worker-Main-3/INFO]: The nearest thing":                                                                                      false,
+	} {
+		if got := slowReplyLine(line); got != want {
+			t.Errorf("slowReplyLine(%q)：%v，应为 %v", line, got, want)
 		}
 	}
 }

@@ -2275,12 +2275,14 @@ async function renderTunnels() {
   const warnSpan = (text, title) => `<span class="jp" style="color:var(--danger-text);display:inline-flex;align-items:center;gap:5px"${title ? ` title="${esc(title)}"` : ""}>${icon("warn")} ${esc(text)}</span>`;
   const tunRow = t => {
     // 最近一次失败原因（启动失败、跟随启动失败、frpc 报错或意外退出）直接写在卡片上，不用点开日志；
-    // 停着时排在上次的公网地址前面，跑起来拿到地址后不再显示（后端在 frpc 起来时也会清掉）
-    const err = !t.credBroken && t.lastError && !(t.running && t.publicAddr) ? t.lastError : "";
+    // 停着时排在上次的公网地址前面，跑起来拿到地址后不再显示（后端在 frpc 起来时也会清掉）。
+    // 公网地址跨次保存着，「这次连上了没有」看 online：新一次运行还没连上就报错，不能让上次的地址盖住这次的错（Codex 复审发现）
+    const err = !t.credBroken && t.lastError && !(t.running && t.online) ? t.lastError : "";
+    const addr = t.publicAddr && (!t.running || t.online) ? t.publicAddr : ""; // 运行中没连上时不拿上次的地址充数
     const state = t.credBroken ? warnSpan("凭据无法解开，请删除后重新添加", "凭据加密绑定当前电脑和 Windows 用户，换了就解不开")
       : err ? warnSpan(t.running ? "连接出错" : "上次出错")
-      : t.publicAddr ? `<span class="jv" style="color:var(--accent-text);font-family:var(--mono)">${esc(t.publicAddr)}</span>
-          <button class="btn sm" data-copy="${esc(t.publicAddr)}">${icon("copy")} 复制</button>`
+      : addr ? `<span class="jv" style="color:var(--accent-text);font-family:var(--mono)">${esc(addr)}</span>
+          <button class="btn sm" data-copy="${esc(addr)}">${icon("copy")} 复制</button>`
       : `<span class="jp">${t.running ? "连接中…" : "尚未启动"}</span>`;
     return `
       <div class="java-row" style="max-width:980px" data-tun="${esc(t.id)}">
@@ -2301,7 +2303,10 @@ async function renderTunnels() {
     const seq = ++drawSeq;
     let list;
     try { list = await api("/api/tunnels"); } catch (e) {
-      if (!stale(gen) && seq === drawSeq) { closeLog(); shown = null; $("#tun-list").innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
+      if (stale(gen) || seq !== drawSeq) return null;
+      // 已经画着列表时偶尔刷新失败（网络抖一下）：列表和展开着的日志留着，摘要那里提示一句，下次刷新成功照常重画（独立评审发现）
+      if (shown !== null && $("#tun-list [data-tun]")) { shown = null; $("#tun-summary").innerHTML = `<span style="color:var(--danger-text)">${icon("warn")} 刷新失败：${esc(e.message)}</span>`; return null; }
+      closeLog(); shown = null; $("#tun-list").innerHTML = `<div class="err-box">${esc(e.message)}</div>`;
       return null;
     }
     if (stale(gen) || seq !== drawSeq) return list; // 晚到的旧响应不画
@@ -2329,7 +2334,7 @@ async function renderTunnels() {
       try { await api(`/api/tunnels/${id}/start`, { method: "POST" }); toast("隧道启动中，公网地址稍后显示在列表"); }
       catch (e) { toast(e.message, true); }
       b.disabled = false; // 列表没变（比如同样的错误）时不会重画，按钮要自己恢复
-      watch(id, t => !t.running || !!t.publicAddr || !!t.lastError); // 拿到公网地址、报错或者停下就算稳定
+      watch(id, t => !t.running || !!t.online || !!t.lastError); // 这次连上（拿到公网地址）、报错或者停下就算稳定
     });
     $("#tun-list").querySelectorAll("[data-tstop]").forEach(b => b.onclick = async () => {
       const id = b.dataset.tstop;
@@ -2704,7 +2709,9 @@ function setRemote(body, info) {
   const lanOn = $("#lan-on"), lanPw = $("#lan-pw");
   const pwErr = msg => { lanPw.classList.toggle("invalid", !!msg); $("#lan-pw-err").innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; };
   const effect = turnOn => turnOn ? (live ? "" : "，重启 MineDeck 后生效") : (live ? "，局域网里的设备现在起打不开管理界面" : "");
-  const saved = b => { info.config.listenLan = b.listenLan; if (b.lanPassword) info.lanSet = true; setRemote(body, info); };
+  // 保存要等一个来回：这期间切去了别的分区或页面，就不再把远程访问画回 body（它可能已经不是当前视图的了）；提示照常弹
+  const gen = viewGen;
+  const saved = b => { info.config.listenLan = b.listenLan; if (b.lanPassword) info.lanSet = true; if (!stale(gen)) setRemote(body, info); };
   let wantOn = false; // 没设密码时拨了开关：记下想开，填好密码点「保存」时一起开
   lanOn.onchange = async () => {
     const turnOn = lanOn.checked;
@@ -2717,12 +2724,12 @@ function setRemote(body, info) {
         return;
       }
       b.lanPassword = lanPw.value; // 密码框里已经填了：和开关一起保存
-    }
+    } else if (lanPw.value) b.lanPassword = lanPw.value; // 已有密码时框里填了新的：也一起保存，不然重画清空了框，用户以为新密码生效了（独立评审发现）
     lanOn.disabled = true;
     try {
       await api("/api/config", { method: "PUT", body: b });
       saved(b);
-      toast((turnOn ? "已开启局域网访问" : "已关闭局域网访问") + effect(turnOn));
+      toast((turnOn ? "已开启局域网访问" : "已关闭局域网访问") + effect(turnOn) + (b.lanPassword && info.lanSet ? "；新的访问密码已保存" : ""));
     } catch (e) { lanOn.checked = !turnOn; lanOn.disabled = false; toast(e.message, true); }
   };
   // 保存密码：开关开着（或刚才因为没密码被拨回去）时一起开启，即「密码和开关一起保存」

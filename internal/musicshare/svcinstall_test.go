@@ -26,6 +26,7 @@ type fakeMR struct {
 	files    map[string][]byte // 路径 → 内容
 	versions []map[string]any
 	queries  []string // 收到的版本查询（loaders、game_versions）
+	onFile   func()   // 下载文件之前调一下（模拟下载途中别处改了 mods）
 }
 
 func newFakeMR(t *testing.T) *fakeMR {
@@ -37,6 +38,9 @@ func newFakeMR(t *testing.T) *fakeMR {
 			f.queries = append(f.queries, r.URL.Query().Get("loaders")+" "+r.URL.Query().Get("game_versions"))
 			_ = json.NewEncoder(w).Encode(f.versions)
 			return
+		}
+		if f.onFile != nil {
+			f.onFile()
 		}
 		b, ok := f.files[r.URL.Path]
 		if !ok {
@@ -206,6 +210,43 @@ func TestInstallSVCRejects(t *testing.T) {
 	}
 	if _, err := e.s.InstallSVC(context.Background(), "没有这个服"); codeOf(err) != 404 {
 		t.Fatalf("实例不存在：%v", err)
+	}
+}
+
+// 下载途中从资源页装上了 SVC（不经 svcMu）：改名前再看一眼，不装第二份，也不留临时文件。
+func TestInstallSVCRaceWithResources(t *testing.T) {
+	e := newEnv(t)
+	mr := newFakeMR(t)
+	e.useModrinth(mr)
+	mr.version("neoforge-1.21.1-2.6.27", "release", "2026-10-01T10:00:00Z", []string{"neoforge"}, []string{"1.21.1"}, "voicechat-neoforge-1.21.1-2.6.27.jar",
+		modJarBytes(t, "META-INF/neoforge.mods.toml", "voicechat", "1.21.1-2.6.27"))
+	other := modJarBytes(t, "META-INF/neoforge.mods.toml", "voicechat", "1.21.1-2.6.25")
+	mr.onFile = func() {
+		_ = os.MkdirAll(filepath.Join(e.dir, "mods"), 0o755)
+		_ = os.WriteFile(filepath.Join(e.dir, "mods", "voicechat-from-resources.jar"), other, 0o644)
+	}
+	if _, err := e.s.InstallSVC(context.Background(), instName); codeOf(err) != 409 || !strings.Contains(err.Error(), "下载期间") {
+		t.Fatalf("下载途中装上了：%v", err)
+	}
+	if got := modsFiles(t, e.dir); !slices.Equal(got, []string{"voicechat-from-resources.jar"}) {
+		t.Fatalf("mods 里：%q", got)
+	}
+}
+
+// 下载途中服务器被开起来了：这次启动没加载新 jar，按装好那一刻的状态记「重启后生效」。
+func TestInstallSVCServerStartedDuringDownload(t *testing.T) {
+	e := newEnv(t)
+	mr := newFakeMR(t)
+	e.useModrinth(mr)
+	mr.version("neoforge-1.21.1-2.6.27", "release", "2026-10-01T10:00:00Z", []string{"neoforge"}, []string{"1.21.1"}, "voicechat-neoforge-1.21.1-2.6.27.jar",
+		modJarBytes(t, "META-INF/neoforge.mods.toml", "voicechat", "1.21.1-2.6.27"))
+	mr.onFile = func() { e.inst.setStatus(instName, "running") }
+	res, err := e.s.InstallSVC(context.Background(), instName)
+	if err != nil || !res.Restart {
+		t.Fatalf("下载途中开了服：%+v %v", res, err)
+	}
+	if st := e.status(); !slices.Equal(st.Restart, []string{"Simple Voice Chat"}) {
+		t.Fatalf("要重启的改动：%v", st.Restart)
 	}
 }
 

@@ -29,6 +29,7 @@ func TestConfigResponsesHidePasswordHash(t *testing.T) {
 		t.Helper()
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Host = "127.0.0.1"
+		req.RemoteAddr = "127.0.0.1:52000" // 关着局域网访问时还要连接来自本机
 		req.Header.Set("X-Token", Token)
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
@@ -77,6 +78,7 @@ func TestFontsServedWithETag(t *testing.T) {
 		t.Helper()
 		req := httptest.NewRequest("GET", path, nil)
 		req.Host = "127.0.0.1"
+		req.RemoteAddr = "127.0.0.1:52000" // 关着局域网访问时还要连接来自本机
 		if inm != "" {
 			req.Header.Set("If-None-Match", inm)
 		}
@@ -119,6 +121,7 @@ func TestConfigChromeColor(t *testing.T) {
 		t.Helper()
 		req := httptest.NewRequest("PUT", "/api/config", strings.NewReader(body))
 		req.Host = "127.0.0.1"
+		req.RemoteAddr = "127.0.0.1:52000" // 关着局域网访问时还要连接来自本机
 		req.Header.Set("X-Token", Token)
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
@@ -149,6 +152,7 @@ func TestConfigResponsesHideCFKey(t *testing.T) {
 		t.Helper()
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Host = "127.0.0.1"
+		req.RemoteAddr = "127.0.0.1:52000" // 关着局域网访问时还要连接来自本机
 		req.Header.Set("X-Token", Token)
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)

@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -167,6 +168,7 @@ type muted struct{ until, reminded time.Time }
 type capture struct {
 	lines []string
 	got   chan struct{}
+	reply func(string) bool // 哪一行算「命令回了输出」：replyLine，locate 一类用 slowReplyLine
 }
 
 type trigger struct {
@@ -224,7 +226,7 @@ func (s *Service) OnLine(inst, line string) {
 	}
 	set, rules := r.set, r.rules
 	r.mu.Unlock()
-	if cp != nil && replyLine(line) {
+	if cp != nil && cp.reply(line) {
 		select {
 		case cp.got <- struct{}{}:
 		default:
@@ -521,13 +523,32 @@ func (r *room) notifyPrivacy() {
 // 要是服务器主线程打的 INFO（控制台执行命令的反馈都是这样）。别的线程、模组打的日志照样收进输出，只是不算「收到了」。
 func replyLine(raw string) bool {
 	l := mclog.Parse(raw)
-	if l.Kind == mclog.Chat || l.Kind == mclog.MineDeck || strings.TrimSpace(l.Text) == "" {
+	// 进服退服也是主线程的 INFO，管道里排在命令前面的那一行会让 locate 这类慢命令提前收工（Codex 复审发现）
+	if l.Kind == mclog.Chat || l.Kind == mclog.MineDeck || l.Kind == mclog.Join || l.Kind == mclog.Leave || strings.TrimSpace(l.Text) == "" {
 		return false
 	}
-	if l.Format == mclog.FormatNone {
-		return true
+	if l.Format == mclog.FormatNone { // 没有前缀的行；异常栈的续行（缩进开头）不算
+		return !strings.HasPrefix(raw, "\t") && !strings.HasPrefix(raw, " ")
 	}
 	return l.Level == "INFO" && (l.Thread == "" || l.Thread == "Server thread")
+}
+
+// slowReplyRe locate 一类命令自己的反馈（服务器控制台固定是英文：原版语言文件 commands.locate.*、commands.locatebiome.*），
+// 以及命令写错时的报错（「Unknown or incomplete command…」下一行是带 <--[HERE] 的原命令）。
+var slowReplyRe = regexp.MustCompile(`^(The nearest |Could not find |There is no |Unknown or incomplete command|Incorrect argument for command|Unknown command)|<--\[HERE\]$`)
+
+// slowReplyLine locate 一类要等好几秒的命令只认它自己的反馈：等的这几秒里成就、死亡消息、模组的日志都可能打在主线程上，
+// 按 replyLine 算会提前收工，坐标还没出来就交给了 AI（独立评审发现）。没等到就等满 SlowCmdWait，期间的行照样收进输出。
+func slowReplyLine(raw string) bool {
+	if !replyLine(raw) {
+		return false
+	}
+	l := mclog.Parse(raw)
+	t := l.Body
+	if l.Format == mclog.FormatNone {
+		t = l.Text
+	}
+	return slowReplyRe.MatchString(strings.TrimSpace(t))
 }
 
 // record 记一条最近的问答（存进实例目录，只留最近 100 条）。

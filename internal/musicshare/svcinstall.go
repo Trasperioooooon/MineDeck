@@ -179,16 +179,25 @@ func (s *Service) InstallSVC(ctx context.Context, name string) (*SVCResult, erro
 	if loader != p.Loader {
 		return nil, errorf(502, "下载的 %s 是给 %s 的，这台服务器要 %s 版，没有安装", fname, loader, p.Loader)
 	}
+	// 下载要几十秒到几分钟，期间可能已经从资源页装上了 SVC（那条路不经 svcMu）：mods 里有两份 SVC 服务器起不来，改名前再看一眼（Codex 复审发现）
+	if svc := s.detectSVC(info.Dir); svc.Installed {
+		return nil, errorf(409, "下载期间 mods 里已经装上了 Simple Voice Chat %s（%s），这次的就不装了", svc.Version, svc.File)
+	}
 	if err := os.Rename(tmp, filepath.Join(mods, fname)); err != nil {
 		return nil, errorf(500, "安装 %s 失败（可能正被占用，停服后再试）：%v", fname, err)
 	}
-	res := &SVCResult{File: fname, Version: ver, Name: v.VersionNumber, Restart: p.Running}
+	// 服务器在不在跑要按装好这一刻算：下载那几分钟里它可能被开起来了（这次启动没加载新 jar，要记「重启后生效」）（独立评审发现）
+	running := p.Running
+	if cur, err := s.d.Instances.Info(name); err == nil {
+		running = cur.Status != "stopped"
+	}
+	res := &SVCResult{File: fname, Version: ver, Name: v.VersionNumber, Restart: running}
 	if v.VersionType != "release" {
 		res.Type = v.VersionType
 	}
-	if p.Running {
+	if running {
 		s.markRestart(name, restartSVC)
 	}
-	s.log(name, "已从 Modrinth 安装 Simple Voice Chat %s（%s）%s", v.VersionNumber, fname, map[bool]string{true: "，重启服务器后生效", false: ""}[p.Running])
+	s.log(name, "已从 Modrinth 安装 Simple Voice Chat %s（%s）%s", v.VersionNumber, fname, map[bool]string{true: "，重启服务器后生效", false: ""}[running])
 	return res, nil
 }

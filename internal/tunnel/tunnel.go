@@ -62,6 +62,9 @@ type runState struct {
 	stopped bool // 用户主动停止
 	// sawDomain 这次运行已经抓到过域名形式的公网地址：之后再出现的 IP 形式不覆盖它（只在读输出的那个 goroutine 里用）
 	sawDomain bool
+	// online 这次运行报过成功或拿到过公网地址（在 m.mu 下读写）。PublicAddr 跨次保存着，
+	// 界面靠它分辨卡片上的地址是不是这次连上的：新一次运行还没连上就报错时，错误不能被上次的地址盖住（Codex 复审发现）
+	online bool
 }
 
 type Manager struct {
@@ -189,6 +192,7 @@ type Status struct {
 	Running    bool   `json:"running"`
 	LastError  string `json:"lastError,omitempty"`
 	CredBroken bool   `json:"credBroken,omitempty"` // 凭据解不开（换了电脑或 Windows 用户），要重填
+	Online     bool   `json:"online,omitempty"`     // 运行中，而且这次运行已经连上（报过成功或拿到过公网地址）
 }
 
 func (m *Manager) List() []Status {
@@ -196,7 +200,8 @@ func (m *Manager) List() []Status {
 	defer m.mu.Unlock()
 	out := make([]Status, 0, len(m.tunnels))
 	for _, t := range m.tunnels {
-		st := Status{Tunnel: *t, Running: m.running[t.ID] != nil, LastError: m.lastErr[t.ID], CredBroken: m.broken[t.ID]}
+		rs := m.running[t.ID]
+		st := Status{Tunnel: *t, Running: rs != nil, Online: rs != nil && rs.online, LastError: m.lastErr[t.ID], CredBroken: m.broken[t.ID]}
 		st.Credential = "" // 凭据绝不下发（前端无需回显）
 		if st.Purpose == "" {
 			st.Purpose = PurposeGame
@@ -451,24 +456,27 @@ func (m *Manager) start(id, why string) error {
 			m.handleLine(t, rs, line)
 		}
 		_ = cmd.Wait()
+		exitMsg := "frpc 意外退出"
+		if ps := cmd.ProcessState; ps != nil {
+			exitMsg += fmt.Sprintf("（退出码 %d）", ps.ExitCode())
+		}
 		m.mu.Lock()
 		userStopped := rs.stopped
-		name := t.Name           // 在锁内取名，避免 delete 后与并发 Update 的 *old=t 竞争读 t.Name
-		if m.running[id] == rs { // 身份判定：只清自己这次运行的登记，避免旧 goroutine 误删并发新运行（对齐 inst.Stop 的 i.proc==p）
+		name := t.Name              // 在锁内取名，避免 delete 后与并发 Update 的 *old=t 竞争读 t.Name
+		mine := m.running[id] == rs // 身份判定：只清自己这次运行的登记，避免旧 goroutine 误删并发新运行（对齐 inst.Stop 的 i.proc==p）
+		if mine {
 			delete(m.running, id)
+			// 「意外退出」和撤登记在同一段锁里记：放到锁外，撤登记之后、记错之前新的一次运行可能已经起来，旧的错会记到它头上（Codex 复审发现）。
+			// frpc 自己报过错的留着那条（更具体），没报就记「意外退出」，卡片上看得到
+			if !userStopped && m.lastErr[id] == "" {
+				m.lastErr[id] = exitMsg + "，检查凭据和隧道 ID，或者点「日志」看 frpc 的输出"
+			}
 		}
 		m.mu.Unlock()
 		if userStopped {
 			con.Append("[MineDeck] 隧道已停止")
-		} else {
+		} else if mine {
 			con.Append("[MineDeck] frpc 意外退出（检查凭据/隧道 ID 是否正确，或查看上方日志）")
-			if m.lastError(id) == "" { // frpc 自己报过错的留着那条（更具体），没报就记「意外退出」，卡片上看得到
-				msg := "frpc 意外退出"
-				if ps := cmd.ProcessState; ps != nil {
-					msg += fmt.Sprintf("（退出码 %d）", ps.ExitCode())
-				}
-				m.setLastErr(id, msg+"，检查凭据和隧道 ID，或者点「日志」看 frpc 的输出")
-			}
 			events.Publish("tunnel.down", map[string]any{"tunnel": name})
 		}
 	}()
@@ -496,6 +504,11 @@ func (m *Manager) handleLine(t *Tunnel, rs *runState, line string) {
 		strings.Contains(line, "启动成功") || strings.Contains(line, "映射启动成功") ||
 		strings.Contains(line, "创建成功") || strings.Contains(low, "proxy added")
 	hasAddr := addrRe.FindString(line)
+	if success {
+		m.mu.Lock()
+		rs.online = true
+		m.mu.Unlock()
+	}
 	if t.Provider == "custom" && success {
 		m.setPublicAddr(t, fmt.Sprintf("%s:%d", t.ServerAddr, t.RemotePort))
 		return
@@ -506,6 +519,9 @@ func (m *Manager) handleLine(t *Tunnel, rs *runState, line string) {
 			// 域名优先：樱花同时打「使用 >>域名:端口<< 连接」和「或使用节点 IP 连接（不推荐）>>IP:端口<<」两行，
 			// IP 会随节点变，发给好友的要是域名。这次运行见过域名之后，后面的 IP 不再覆盖；先 IP 后域名照常换成域名。
 			// 只看这次运行（PublicAddr 跨次保存着，节点换了只给 IP 时不能卡在上次的域名上）。
+			m.mu.Lock()
+			rs.online = true
+			m.mu.Unlock()
 			switch {
 			case !isIPAddr(hasAddr):
 				rs.sawDomain = true

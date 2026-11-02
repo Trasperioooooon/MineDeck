@@ -313,7 +313,10 @@ func (r *room) runCommand(ctx context.Context, j *job, tc ai.ToolCall, ran *int)
 	}
 	*ran++
 	cr.Run = run
-	cp := &capture{got: make(chan struct{}, 1)}
+	cp := &capture{got: make(chan struct{}, 1), reply: replyLine}
+	if slowCmd(run) {
+		cp.reply = slowReplyLine
+	}
 	r.mu.Lock()
 	r.capture = cp
 	r.mu.Unlock()
@@ -340,11 +343,15 @@ func (r *room) runCommand(ctx context.Context, j *job, tc ai.ToolCall, ran *int)
 	return "已执行：" + run + "\n服务器的输出：\n" + wrapData(out), false, cr
 }
 
-// waitFor 执行这条命令后最多等多久的输出：locate 一类要现找结构、生物群系，模组多的世界里要好几秒，等 SlowCmdWait；其余等 CmdWait。
-func (s *Service) waitFor(run string) time.Duration {
+// slowCmd locate 一类要现找结构、生物群系的命令：模组多的世界里要好几秒。
+func slowCmd(run string) bool {
 	head, _, _ := strings.Cut(run, " ")
-	switch head {
-	case "locate", "locatebiome":
+	return head == "locate" || head == "locatebiome"
+}
+
+// waitFor 执行这条命令后最多等多久的输出：慢命令（slowCmd）等 SlowCmdWait，其余等 CmdWait。
+func (s *Service) waitFor(run string) time.Duration {
+	if slowCmd(run) {
 		return s.slowWait
 	}
 	return s.cmdWait

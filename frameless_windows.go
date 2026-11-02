@@ -15,8 +15,9 @@ const (
 	_SM_CYSIZEFRAME    = 33
 	_SM_CXPADDEDBORDER = 92
 
-	_SW_MAXIMIZE = 3
-	_SW_MINIMIZE = 6
+	_SW_MAXIMIZE        = 3
+	_SW_MINIMIZE        = 6
+	_SW_SHOWMINNOACTIVE = 7 // 最小化但不激活别的窗口（SW_MINIMIZE 会激活 Z 序里的下一个顶层窗口）
 
 	_SWP_NOSIZE       = 0x0001
 	_SWP_NOMOVE       = 0x0002

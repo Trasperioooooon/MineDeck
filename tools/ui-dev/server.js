@@ -1311,7 +1311,8 @@ function handler(state, ui, portOf) {
       }
       if (p === "/api/instances" && m === "GET") return ok(res, insts());
       if (p === "/api/instances" && m === "POST") return ok(res, { taskId: "task-1" });
-      if (p === "/api/tunnels" && m === "GET") return ok(res, state.tunnels);
+      // online 同 tunnel.Status.Online：这次运行连上了。启停时由下面显式写；用 /__mock/state 直接改的没写就按「运行中又有地址」算
+      if (p === "/api/tunnels" && m === "GET") return ok(res, state.tunnels.map(t => ({ ...t, online: !!t.running && (t.online ?? !!t.publicAddr) })));
       if (p.startsWith("/api/tunnels/") && p.endsWith("/console")) return sse(res, ["[frpc] login to server success", "[frpc] proxy added: [mc]", "[frpc] start proxy success"]);
       // 启停（同 tunnel.Manager.Start / Stop）：frpc 起来之前就失败的（startError，比如樱花还没放 frpc）报 400，
       // 原因加上「启动失败：」记进 lastError；起来了就清掉 lastError，过 addrDelay 毫秒（默认 1500）拿到 nextAddr 这个公网地址
@@ -1320,13 +1321,13 @@ function handler(state, ui, portOf) {
         if (!t) return err(res, 400, "隧道不存在");
         if (seg[4] === "stop") {
           if (!t.running) return err(res, 400, "隧道未在运行");
-          t.running = false; clearTimeout(tunnelTimers.get(t));
+          t.running = false; delete t.online; clearTimeout(tunnelTimers.get(t));
           return ok(res, "ok");
         }
         if (t.running) return err(res, 400, "隧道已在运行");
         if (t.startError) { t.lastError = "启动失败：" + t.startError; return err(res, 400, t.startError); }
-        t.running = true; t.lastError = "";
-        if (t.nextAddr) tunnelTimers.set(t, setTimeout(() => { if (t.running) t.publicAddr = t.nextAddr; }, t.addrDelay ?? 1500));
+        t.running = true; t.lastError = ""; t.online = false; // 上次的 publicAddr 留着（同真后端），这次还没连上
+        if (t.nextAddr) tunnelTimers.set(t, setTimeout(() => { if (t.running) { t.publicAddr = t.nextAddr; t.online = true; } }, t.addrDelay ?? 1500));
         return ok(res, "ok");
       }
       if (p.startsWith("/api/tunnels")) return ok(res, {});
