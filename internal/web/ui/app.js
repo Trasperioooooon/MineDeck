@@ -370,18 +370,78 @@ function paintThemeBtn() {
   maxBtn.onclick = () => { call("hostWinMaxToggle"); setTimeout(refreshMax, 80); };
   refreshMax();
   // 标题栏空白处按下 → 发起原生拖动；双击 → 最大化/还原。交互元素（按钮/链接/输入/控制键）除外。
+  // 第一下按下就进了系统的拖动循环，松开键被它收走，网页收不到 dblclick；所以双击在 mousedown 里自己认：
+  // 离上一下不超过系统双击间隔、屏幕位置几乎没动（拖动过窗口就不算），第二下改成最大化/还原，不再发起拖动。
   const bar = $("#titlebar");
   const onChrome = e => e.target.closest("button, a, input, select, .win-ctrls");
+  let dblMs = 500, lastDown = null; // 系统双击间隔（宿主告知，取不到按 Windows 默认 500ms）；上一次按下 { t, x, y }
+  if (typeof window.hostDblClickTime === "function") Promise.resolve(window.hostDblClickTime()).then(v => { if (v > 0) dblMs = v; }).catch(() => {});
   bar.addEventListener("mousedown", e => {
     if (e.button !== 0 || onChrome(e)) return;
     e.preventDefault();
+    const d = { t: e.timeStamp, x: e.screenX, y: e.screenY };
+    if (lastDown && d.t - lastDown.t <= dblMs && Math.abs(d.x - lastDown.x) <= 4 && Math.abs(d.y - lastDown.y) <= 4) {
+      lastDown = null; // 第三下重新算起
+      call("hostWinMaxToggle"); setTimeout(refreshMax, 80);
+      return;
+    }
+    lastDown = d;
     call("hostWinDrag");
   });
-  bar.addEventListener("dblclick", e => {
-    if (onChrome(e)) return;
-    call("hostWinMaxToggle"); setTimeout(refreshMax, 80);
-  });
+  // 关窗确认：点 ×、Alt+F4、任务栏「关闭窗口」都先到宿主（WM_CLOSE）；没开「最小化到托盘」又有服务器在运行时，
+  // 宿主请这里问一声（见 tray_windows.go 的 onClose）。先回一声 hostCloseAck：宿主据此知道页面没失联
+  // （失联时宿主等满 3 秒后的下一次关窗直接退出，不把窗口困住）
+  window.__mdCloseAsk = opts => { call("hostCloseAck"); closeAskModal(opts || {}); };
 })();
+
+/* 关窗确认框：tray = 托盘图标在不在（不在就只能停服退出），running = 在运行的服务器台数。
+   三选一：最小化到托盘（可顺带记住，以后关窗都这样）/ 停止服务器并退出 / 取消。默认聚焦不丢数据的「最小化到托盘」。
+   追加进 #modal-root 而不是整个替换：别的对话框开着时不顶掉它（那边的 Promise 会一直等不到结果），
+   同时照样算「弹层打开」（按 1–4 不在底下切页、Esc 不连带关掉 AI 助手面板）。 */
+function closeAskModal({ tray = true, running = 0 }) {
+  const old = $("#close-ask");
+  if (old && !old.dataset.leaving) { old.querySelector(".m-actions .btn:last-child").focus(); return; } // 已经开着，不叠第二个
+  const prev = document.activeElement;
+  const d = document.createElement("div");
+  d.className = "modal-mask enter";
+  d.id = "close-ask";
+  const title = running > 0 ? `有 ${running} 台服务器正在运行` : "有服务器正在运行";
+  d.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="close-ask-title">
+    <h3 id="close-ask-title"><span>${esc(title)}</span></h3>
+    <div class="m-body">退出 MineDeck 会先停止${running > 1 ? "它们" : "它"}（保存世界）。${tray ? "最小化到托盘则服务器继续运行，点托盘图标即可恢复窗口。" : "托盘图标不可用，这次只能停止服务器并退出。"}</div>
+    ${tray ? `<label class="switch" style="margin-bottom:18px"><input type="checkbox" data-k="remember"><span class="sw"></span>
+      <span class="sw-label">以后关闭窗口都最小化到托盘（可在「设置 → 启动与托盘」修改）</span></label>` : ""}
+    <div class="m-actions">
+      <button class="btn" data-x="cancel">取消</button>
+      <button class="btn danger" data-x="quit">停止服务器并退出</button>
+      ${tray ? `<button class="btn primary" data-x="tray">最小化到托盘</button>` : ""}
+    </div></div>`;
+  $("#modal-root").appendChild(d);
+  const close = () => {
+    document.removeEventListener("keydown", onKey);
+    dismiss(d);
+    if (prev && prev.focus) prev.focus();
+  };
+  const onKey = e => { if (e.key === "Escape") close(); };
+  document.addEventListener("keydown", onKey);
+  d.addEventListener("mousedown", e => { if (e.target === e.currentTarget) close(); });
+  d.querySelector('[data-x="cancel"]').onclick = close;
+  d.querySelector('[data-x="quit"]').onclick = () => { close(); try { window.hostWinQuit(); } catch (e) {} };
+  const toTray = d.querySelector('[data-x="tray"]');
+  if (toTray) toTray.onclick = async () => {
+    const remember = d.querySelector('input[data-k="remember"]').checked;
+    close();
+    if (remember) {
+      try {
+        await api("/api/config", { method: "PUT", body: { minimizeToTray: true } });
+        const sw = document.querySelector('input[data-cfg="minimizeToTray"]'); // 设置页正开着时让开关跟上
+        if (sw) sw.checked = true;
+      } catch (e) { toast("没能记住这个选择：" + e.message, true); }
+    }
+    try { window.hostWinHide(); } catch (e) {}
+  };
+  (toTray || d.querySelector('[data-x="cancel"]')).focus();
+}
 
 /* 快捷键：1-4 切换侧栏导航；T 或 / 聚焦控制台输入（MC 聊天习惯） */
 document.addEventListener("keydown", e => {
@@ -2333,9 +2393,9 @@ function setAppearance(body) {
 /* — 启动与托盘 — */
 function setStartup(body, info) {
   const c = info.config || {};
-  body.innerHTML = settingsHead("启动与托盘", "控制关闭窗口的行为与开机自启。托盘图标在程序运行时始终显示，右键可「打开面板 / 全部停止并退出」，左键点击恢复窗口。") +
+  body.innerHTML = settingsHead("启动与托盘", "控制点窗口关闭按钮时做什么，以及开机自启。程序开着时托盘里有它的图标：左键点击恢复窗口，右键可「打开面板 / 全部停止并退出」；程序退出后图标随之消失。") +
     group(
-      switchRow("monitor", "最小化到系统托盘", "开启后点窗口关闭按钮不退出程序，而是收进托盘、服务器继续运行；点托盘图标即可恢复窗口。关闭则保持现状——点关闭即停服退出。", "minimizeToTray", c.minimizeToTray) +
+      switchRow("monitor", "最小化到系统托盘", "开启后点窗口关闭按钮不退出程序，而是收进托盘、服务器继续运行，点托盘图标即可恢复窗口。不开启时点关闭按钮会退出程序并停止服务器；有服务器在运行时会先询问，可以改为最小化到托盘。", "minimizeToTray", c.minimizeToTray) +
       switchRow("power", "开机自动启动", "登录 Windows 后自动在后台（托盘）启动 MineDeck。写入当前用户启动项（HKCU\\…\\Run，免管理员）；程序换目录后重新开关一次即修正路径。", "autoStart", info.autoStart),
       { ico: true }) +
     `<div class="hint">开机自启以「静默进托盘」方式启动（附加 -minimized 参数），配合上面的托盘开关体验最佳。</div>`;
@@ -2493,15 +2553,20 @@ const lanIPRank = ip => /^192\.168\./.test(ip) ? 0 : /^10\./.test(ip) ? 1 : /^17
 function setRemote(body, info) {
   const lanPort = info.port || location.port || "27333"; // 实际监听端口（被占用时会随机化）
   const ips = (info.ips || []).slice().sort((a, b) => lanIPRank(a) - lanIPRank(b));
-  // 开关与密码一起保存（开启局域网访问前必须先设好密码），改动重启程序后生效
-  body.innerHTML = settingsHead("远程访问（手机 / 平板管理）", "开启后本机 IP 可从局域网访问管理界面（密码保护，改动需重启程序生效）。") +
+  // 开关点了即时保存（开启前必须先有访问密码，后端也会拒绝）。监听地址只在程序启动时绑定：
+  // 开启要重启程序才生效，和这次启动不一致时常驻提示；关闭即时生效（后端不再放行局域网的请求）
+  const on = !!info.config.listenLan;
+  const live = info.lanActive ?? on; // 这次启动是否已监听在局域网上
+  body.innerHTML = settingsHead("远程访问（手机 / 平板管理）", "开启后本机 IP 可从局域网访问管理界面（密码保护，开启后需重启程序生效）。") +
     group(
       riRow({ ico: "phone", title: "允许局域网访问", sub: "手机与本机连在同一 Wi-Fi / 路由器下即可打开管理界面",
-        right: `<label class="switch"><input type="checkbox" id="lan-on" ${info.config.listenLan ? "checked" : ""} aria-label="允许局域网访问"><span class="sw"></span></label>` }) +
-      riRow({ ico: "lock", title: "访问密码", sub: info.lanSet ? "已设置；留空则不修改" : "开启局域网访问前必须先设置",
-        field: `<input type="password" id="lan-pw" placeholder="${info.lanSet ? "已设置密码（留空则不修改）" : "设置访问密码（必填）"}" aria-label="访问密码"><button class="btn" id="lan-save">保存</button>` }),
+        right: `<label class="switch"><input type="checkbox" id="lan-on" ${on ? "checked" : ""} aria-label="允许局域网访问"><span class="sw"></span></label>` }) +
+      riRow({ ico: "lock", title: "访问密码", sub: info.lanSet ? "已设置；要修改就输入新密码后保存" : "开启局域网访问前必须先设置",
+        field: `<input type="password" id="lan-pw" placeholder="${info.lanSet ? "已设置（输入新密码可修改）" : "设置访问密码（必填）"}" aria-label="访问密码"><button class="btn" id="lan-save">保存</button>`,
+        after: `<div class="field-err ri-err" id="lan-pw-err"></div>` }),
       { ico: true }) +
-    (!info.config.listenLan ? "" : ips.length ? `<div class="qr-card">
+    (on && !live ? `<div class="hint" id="lan-restart">${icon("info")} 局域网访问已开启，重启 MineDeck 后生效；重启后这里会显示手机扫码地址。</div>` : "") +
+    (!(on && live) ? "" : ips.length ? `<div class="qr-card">
       <div class="qr-box" id="qr-box" role="img"></div>
       <div class="qr-info">
         <div class="ri-title">手机扫码访问</div>
@@ -2512,13 +2577,44 @@ function setRemote(body, info) {
       </div>
     </div>` : `<div class="hint">未检测到本机局域网 IP，请确认已连接网络。</div>`) +
     `<div class="hint">若无法访问，请以管理员运行一次放行防火墙：<code>netsh advfirewall firewall add rule name="MineDeck" dir=in action=allow protocol=TCP localport=${esc(String(lanPort))}</code></div>`;
-  $("#lan-save").onclick = async () => {
-    const b = { listenLan: $("#lan-on").checked };
-    if ($("#lan-pw").value) b.lanPassword = $("#lan-pw").value;
-    try { await api("/api/config", { method: "PUT", body: b }); toast("远程访问设置已保存，重启 MineDeck 后生效"); }
-    catch (e) { toast(e.message, true); }
+  const lanOn = $("#lan-on"), lanPw = $("#lan-pw");
+  const pwErr = msg => { lanPw.classList.toggle("invalid", !!msg); $("#lan-pw-err").innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; };
+  const effect = turnOn => turnOn ? (live ? "" : "，重启 MineDeck 后生效") : (live ? "，局域网里的设备现在起打不开管理界面" : "");
+  const saved = b => { info.config.listenLan = b.listenLan; if (b.lanPassword) info.lanSet = true; setRemote(body, info); };
+  let wantOn = false; // 没设密码时拨了开关：记下想开，填好密码点「保存」时一起开
+  lanOn.onchange = async () => {
+    const turnOn = lanOn.checked;
+    const b = { listenLan: turnOn };
+    if (turnOn && !info.lanSet) {
+      if (!lanPw.value) { // 就地提示，开关拨回去
+        lanOn.checked = false; wantOn = true;
+        pwErr("先设置访问密码：填好后点「保存」，局域网访问会一起开启");
+        lanPw.focus();
+        return;
+      }
+      b.lanPassword = lanPw.value; // 密码框里已经填了：和开关一起保存
+    }
+    lanOn.disabled = true;
+    try {
+      await api("/api/config", { method: "PUT", body: b });
+      saved(b);
+      toast((turnOn ? "已开启局域网访问" : "已关闭局域网访问") + effect(turnOn));
+    } catch (e) { lanOn.checked = !turnOn; lanOn.disabled = false; toast(e.message, true); }
   };
-  if (!info.config.listenLan || !ips.length) return;
+  // 保存密码：开关开着（或刚才因为没密码被拨回去）时一起开启，即「密码和开关一起保存」
+  $("#lan-save").onclick = async () => {
+    if (!lanPw.value) { pwErr(info.lanSet ? "输入新密码再保存" : "请先输入访问密码"); lanPw.focus(); return; }
+    const b = { listenLan: lanOn.checked || wantOn, lanPassword: lanPw.value };
+    const opening = b.listenLan && !on;
+    try {
+      await api("/api/config", { method: "PUT", body: b });
+      saved(b);
+      toast(opening ? "访问密码已保存，已开启局域网访问" + effect(true) : "访问密码已保存");
+    } catch (e) { toast(e.message, true); }
+  };
+  lanPw.oninput = () => pwErr("");
+  lanPw.onkeydown = e => { if (e.key === "Enter") $("#lan-save").click(); };
+  if (!(on && live) || !ips.length) return;
   // 二维码纯前端生成（qrcode.js），多地址时点选切换
   const show = i => {
     const url = `http://${ips[i]}:${lanPort}`;

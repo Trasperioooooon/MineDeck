@@ -1606,6 +1606,192 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   });
   // ==================== MCP 接口结束 ====================
 
+  // ==================== 窗口与设置（测试报告 A-02、观察 3、观察 16）====================
+  // 模拟宿主时把窗口函数换成记账的，看前端调了哪个
+  const winCtx = async (extra = {}) => {
+    const c = await browser.newContext({ viewport: { width: 1280, height: 850 }, locale: "zh-CN" });
+    await c.addInitScript(x => {
+      localStorage.setItem("amh_token", "mock");
+      localStorage.setItem("amh_theme", "dark");
+      window.__win = [];
+      for (const fn of ["hostWinClose", "hostWinMin", "hostWinMaxToggle", "hostWinDrag", "hostCloseAck", "hostWinHide", "hostWinQuit"]) window[fn] = () => { window.__win.push(fn); };
+      window.hostWinIsMax = async () => false;
+      if (x.dbl) window.hostDblClickTime = async () => x.dbl;
+    }, extra);
+    return c;
+  };
+  const winCalls = p => p.evaluate(() => window.__win.filter(f => f !== "hostWinIsMax").join(","));
+
+  await run("标题栏：空白处按下发起原生拖动；同一处快速按两下第二下改为最大化 / 还原、不再拖动；间隔超过系统双击时间或位置挪开都不算；窗口按钮上不触发", async () => {
+    const c = await winCtx({ dbl: 300 }); // 宿主告知系统双击间隔 300ms
+    try {
+      const p = await c.newPage();
+      p.on("pageerror", e => errors.push(pageErr(e)));
+      await p.goto(ORIGIN + "#/instances"); await p.waitForTimeout(500);
+      const r = await p.$eval("#titlebar .grow", el => { const b = el.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; });
+      const reset = () => p.evaluate(() => { window.__win.length = 0; });
+      await p.mouse.click(r.x, r.y);
+      assert((await winCalls(p)) === "hostWinDrag", "单击应只发起拖动：" + await winCalls(p));
+      await p.waitForTimeout(400); await reset();
+      await p.mouse.dblclick(r.x, r.y);
+      assert((await winCalls(p)) === "hostWinDrag,hostWinMaxToggle", "双击应第一下拖动、第二下最大化：" + await winCalls(p));
+      await p.waitForTimeout(400); await reset();
+      await p.mouse.click(r.x, r.y); await p.waitForTimeout(400); await p.mouse.click(r.x, r.y); // 间隔超过宿主告知的 300ms
+      assert((await winCalls(p)) === "hostWinDrag,hostWinDrag", "间隔超过双击时间不算双击：" + await winCalls(p));
+      await p.waitForTimeout(400); await reset();
+      await p.mouse.click(r.x, r.y); await p.mouse.click(r.x + 30, r.y); // 拖动过窗口：屏幕位置变了
+      assert((await winCalls(p)) === "hostWinDrag,hostWinDrag", "位置挪开不算双击：" + await winCalls(p));
+      await p.waitForTimeout(400); await reset();
+      await p.mouse.click(r.x, r.y); await p.mouse.click(r.x, r.y); await p.mouse.click(r.x, r.y); // 三连击：第三下重新算起
+      assert((await winCalls(p)) === "hostWinDrag,hostWinMaxToggle,hostWinDrag", "三连击：" + await winCalls(p));
+      await p.waitForTimeout(400); await reset();
+      await p.dblclick("#wc-min");
+      assert(!(await winCalls(p)).includes("hostWinDrag") && !(await winCalls(p)).includes("hostWinMaxToggle"), "窗口按钮上不该拖动或最大化：" + await winCalls(p));
+    } finally { await c.close(); }
+  });
+
+  await run("关窗确认：宿主请求时弹出三选一（默认聚焦「最小化到托盘」），先回应宿主；不叠第二个；取消 / 停止服务器并退出 / 最小化到托盘（勾「以后都这样」才改设置）；托盘不可用时只剩退出和取消", async () => {
+    const c = await winCtx();
+    try {
+      const p = await c.newPage();
+      p.on("pageerror", e => errors.push(pageErr(e)));
+      const puts = []; // 改了「最小化到托盘」的 PUT（原生窗口还会顺带上报界面底色，不算）
+      p.on("request", rq => {
+        if (rq.method() !== "PUT" || new URL(rq.url()).pathname !== "/api/config") return;
+        const b = JSON.parse(rq.postData() || "{}");
+        if ("minimizeToTray" in b) puts.push(b);
+      });
+      await p.goto(ORIGIN + "#/instances"); await p.waitForTimeout(500);
+      const ask = o => p.evaluate(o => { window.__win.length = 0; window.__mdCloseAsk(o); }, o);
+      const btns = () => p.$$eval("#close-ask:not(.leave) .m-actions .btn", bs => bs.map(b => b.textContent.trim()).join("|"));
+      await ask({ tray: true, running: 2 });
+      await p.waitForSelector("#close-ask");
+      assert((await p.textContent("#close-ask h3")).includes("2 台服务器"), "标题没写几台服务器：" + await p.textContent("#close-ask h3"));
+      assert((await btns()) === "取消|停止服务器并退出|最小化到托盘", "按钮不对：" + await btns());
+      assert((await p.evaluate(() => document.activeElement.textContent.trim())) === "最小化到托盘", "默认焦点不对");
+      assert((await winCalls(p)) === "hostCloseAck", "没先回应宿主：" + await winCalls(p));
+      await p.evaluate(() => window.__mdCloseAsk({ tray: true, running: 2 })); // Alt+F4 再按一次
+      assert((await p.$$("#close-ask")).length === 1, "叠出了第二个确认框");
+      await p.keyboard.press("3"); await p.waitForTimeout(100);
+      assert(p.url().endsWith("#/instances"), "确认框开着时按 3 切了页：" + p.url());
+      await p.keyboard.press("Escape"); await p.waitForTimeout(250);
+      assert((await p.$("#close-ask")) === null && !/Hide|Quit/.test(await winCalls(p)), "Esc 应只关掉确认框：" + await winCalls(p));
+
+      await ask({ tray: true, running: 1 });
+      await p.click('#close-ask [data-x="quit"]'); await p.waitForTimeout(250);
+      assert((await winCalls(p)) === "hostCloseAck,hostWinQuit" && puts.length === 0, "停止服务器并退出：" + await winCalls(p) + " " + JSON.stringify(puts));
+
+      await ask({ tray: true, running: 1 });
+      await p.click('#close-ask [data-x="tray"]'); await p.waitForTimeout(250);
+      assert((await winCalls(p)) === "hostCloseAck,hostWinHide" && puts.length === 0, "最小化到托盘（不记住）不该改设置：" + await winCalls(p) + " " + JSON.stringify(puts));
+
+      await ask({ tray: true, running: 1 });
+      await p.click('#close-ask .switch .sw'); // 勾上「以后关闭窗口都最小化到托盘」
+      await p.click('#close-ask [data-x="tray"]'); await p.waitForTimeout(300);
+      assert((await winCalls(p)) === "hostCloseAck,hostWinHide", "记住后没收进托盘：" + await winCalls(p));
+      assert(puts.length === 1 && puts[0].minimizeToTray === true && Object.keys(puts[0]).length === 1, "记住选择应只保存 minimizeToTray：" + JSON.stringify(puts));
+
+      await ask({ tray: false, running: 3 });
+      await p.waitForSelector("#close-ask:not(.leave)");
+      assert((await btns()) === "取消|停止服务器并退出" && (await p.$("#close-ask:not(.leave) .switch")) === null, "托盘不可用时：" + await btns());
+      assert((await p.evaluate(() => document.activeElement.textContent.trim())) === "取消", "托盘不可用时默认焦点应在取消");
+      await p.click('#close-ask:not(.leave) [data-x="cancel"]'); await p.waitForTimeout(250);
+      assert((await p.$("#close-ask")) === null && (await winCalls(p)) === "hostCloseAck", "取消：" + await winCalls(p));
+    } finally { await c.close(); }
+    // 局域网浏览器（没有宿主函数）不接关窗请求
+    const lanCtx = await browser.newContext({ locale: "zh-CN" });
+    try {
+      const p = await lanCtx.newPage();
+      await p.addInitScript(() => localStorage.setItem("amh_token", "mock"));
+      await p.goto(ORIGIN + "#/instances"); await p.waitForTimeout(300);
+      assert((await p.evaluate(() => typeof window.__mdCloseAsk)) === "undefined", "局域网浏览器不该有关窗确认");
+    } finally { await lanCtx.close(); }
+  });
+
+  await run("启动与托盘：说明写清不开托盘时点关闭会退出、有服务器在运行先询问（不再说「始终显示」）", async () => {
+    await page.goto(url("#/settings/startup")); await settle();
+    const head = await page.textContent("#set-body .set-sec-head .sub");
+    const sub = await page.$eval('.row-item:has([data-cfg="minimizeToTray"]) .ri-sub', el => el.textContent);
+    assert(!head.includes("始终显示") && head.includes("程序退出后图标随之消失"), "分区说明：" + head);
+    assert(sub.includes("会退出程序并停止服务器") && sub.includes("先询问"), "开关说明：" + sub);
+  });
+
+  await run("远程访问：开关即时生效——没设密码时就地提示并拨回、不发请求；有密码直接保存、提示重启后生效（常驻提示，不显示二维码）；关闭即时生效；密码和开关一起保存；后端拒绝时拨回", async () => {
+    const mockState = b => page.evaluate(b => fetch("/__mock/state", { method: "POST", body: JSON.stringify(b) }), b);
+    const lanPuts = since => reqs.slice(since).filter(r => r.m === "PUT" && r.u === "/api/config").map(r => JSON.parse(r.b || "{}")).filter(b => "listenLan" in b || "lanPassword" in b);
+    const sw = () => page.$eval("#lan-on", el => el.checked);
+    const lastToast = () => page.$$eval(".toast", ts => ts.length ? ts[ts.length - 1].textContent : "");
+    const flip = async () => { await page.click(".row-item:has(#lan-on) .sw"); await settle(300); };
+    try {
+      await mockState({ listenLan: false, lanSet: false });
+      await page.goto(url("#/settings/remote")); await settle();
+      let t0 = reqs.length;
+      await flip();
+      assert(!(await sw()) && lanPuts(t0).length === 0, "没设密码时开关应拨回、不发请求：" + JSON.stringify(lanPuts(t0)));
+      assert((await page.textContent("#lan-pw-err")).includes("先设置访问密码"), "没有就地提示：" + await page.textContent("#lan-pw-err"));
+      assert((await page.evaluate(() => document.activeElement.id)) === "lan-pw", "焦点应到密码框");
+      // 填好密码点「保存」：和刚才想开的开关一起保存
+      await page.fill("#lan-pw", "pw-123456");
+      assert((await page.textContent("#lan-pw-err")) === "", "输入后提示应消失");
+      t0 = reqs.length;
+      await page.click("#lan-save"); await settle(400);
+      let ps = lanPuts(t0);
+      assert(ps.length === 1 && ps[0].listenLan === true && ps[0].lanPassword === "pw-123456", "密码和开关应一起保存：" + JSON.stringify(ps));
+      assert(await sw(), "保存后开关应为开");
+      assert((await page.textContent("#lan-restart")).includes("重启 MineDeck 后生效") && (await page.$("#qr-box")) === null, "还没重启：应常驻提示、不显示二维码");
+      assert((await lastToast()).includes("重启 MineDeck 后生效"), "提示没写重启后生效：" + await lastToast());
+      assert((await page.getAttribute("#lan-pw", "placeholder")).includes("已设置"), "密码框应改为已设置");
+      // 关掉：即时保存；这次启动本来就没监听局域网，不用提重启
+      t0 = reqs.length;
+      await flip();
+      ps = lanPuts(t0);
+      assert(ps.length === 1 && ps[0].listenLan === false && !("lanPassword" in ps[0]) && !(await sw()), "关闭应即时保存：" + JSON.stringify(ps));
+      assert((await page.$("#lan-restart")) === null && (await lastToast()) === "已关闭局域网访问", "关闭后：" + await lastToast());
+      // 已有密码：直接开
+      t0 = reqs.length;
+      await flip();
+      ps = lanPuts(t0);
+      assert(ps.length === 1 && ps[0].listenLan === true && !("lanPassword" in ps[0]) && (await sw()), "有密码时应直接保存：" + JSON.stringify(ps));
+      assert((await page.$("#lan-restart")) !== null, "开启后应提示重启");
+      // 只改密码
+      await page.fill("#lan-pw", "pw-654321");
+      t0 = reqs.length;
+      await page.press("#lan-pw", "Enter"); await settle(400);
+      ps = lanPuts(t0);
+      assert(ps.length === 1 && ps[0].listenLan === true && ps[0].lanPassword === "pw-654321" && (await lastToast()) === "访问密码已保存", "回车保存密码：" + JSON.stringify(ps) + " " + await lastToast());
+      // 密码框为空时点保存：就地提示，不发请求
+      t0 = reqs.length;
+      await page.click("#lan-save"); await settle(200);
+      assert(lanPuts(t0).length === 0 && (await page.textContent("#lan-pw-err")).includes("输入新密码"), "空密码保存：" + await page.textContent("#lan-pw-err"));
+
+      // 先填密码再拨开关：一起保存
+      await mockState({ listenLan: false, lanSet: false });
+      await page.goto(url("#/settings/remote")); await settle();
+      await page.fill("#lan-pw", "pw-abcdef");
+      t0 = reqs.length;
+      await flip();
+      ps = lanPuts(t0);
+      assert(ps.length === 1 && ps[0].listenLan === true && ps[0].lanPassword === "pw-abcdef" && (await sw()), "先填密码再拨开关：" + JSON.stringify(ps));
+
+      // 后端拒绝（页面以为有密码，其实没有）：开关拨回并报错
+      await mockState({ listenLan: false, lanSet: true });
+      await page.goto(url("#/settings/remote")); await settle();
+      await mockState({ lanSet: false });
+      await flip();
+      assert(!(await sw()) && (await lastToast()).includes("请先设置访问密码"), "后端拒绝时应拨回：" + await lastToast());
+
+      // 这次启动已在局域网上：关闭即时生效（不再放行局域网），再开也不用重启
+      await mockState({ listenLan: true });
+      await page.goto(url("#/settings/remote")); await settle();
+      assert((await page.$("#qr-box svg.qr")) !== null && (await page.$("#lan-restart")) === null, "已生效时应显示二维码、没有重启提示");
+      await flip();
+      assert((await lastToast()).includes("现在起打不开") && (await page.$("#qr-box")) === null, "关闭已生效的局域网访问：" + await lastToast());
+      await flip();
+      assert((await lastToast()) === "已开启局域网访问" && (await page.$("#qr-box svg.qr")) !== null, "重新开启（这次启动本就在监听）：" + await lastToast());
+    } finally { await mockState({ listenLan: false, lanSet: false }); }
+  });
+  // ==================== 窗口与设置结束 ====================
+
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
 
   await browser.close();

@@ -43,6 +43,8 @@ function newState(ui) {
   const state = {
     config: { source: "auto", onboarded: true, tosAccepted: true, backupKeep: 10, listenLan: false, webhookUrl: "", updateRepo: "Trasperioooooon/MineDeck", checkUpdateOnStart: true, minimizeToTray: true, chromeColor: "" },
     autoStart: false,
+    lanSet: false, // 是否已设局域网访问密码（同 web：密码只写不读，/api/app 只给 lanSet）
+    lanActive: false, // 这次「启动」是否已监听在局域网上：改 listenLan 不变（真机要重启），/__mock/state 的 listenLan 模拟重启后
     cfKey: "", // 同 web：CurseForge API Key 只写不读，不放进 config，/api/app 只给 cfKeySet
     cfKeyBroken: false,
     instances: [
@@ -1176,7 +1178,8 @@ function handler(state, ui, portOf) {
     const p = u.pathname;
     const m = req.method;
     // ---- 仿真控制端点：测试与截图脚本切换场景用，POST 的 JSON 可含 ----
-    //   empty: true 时服务器列表为空；onboarded: false 时弹首启引导；listenLan: 远程访问开关（开启后设置页显示二维码）
+    //   empty: true 时服务器列表为空；onboarded: false 时弹首启引导；listenLan: 远程访问开关，且当作已重启生效（开启后设置页显示二维码，并视为已设密码）
+    //   lanSet: 是否已设局域网访问密码；lanActive: 单独改「这次启动是否已监听在局域网上」（模拟改了开关还没重启）
     //   taskStage: 部署任务进行到第几步（0–4，4 = 完成），"error" = 第 2 步失败
     //   legacy: { name, extraJvm, forceFlags } 把某台服务器设成「老版本」，保存 JVM 参数时补回 forceFlags
     //   status: { 名称: running | starting | stopping | stopped } 直接改某台服务器的运行状态（看状态切换的动效用）
@@ -1193,7 +1196,9 @@ function handler(state, ui, portOf) {
       if ("empty" in b) state.empty = !!b.empty;
       if ("onboarded" in b) { state.config.onboarded = !!b.onboarded; state.config.tosAccepted = !!b.onboarded; }
       if ("taskStage" in b) state.taskStage = b.taskStage;
-      if ("listenLan" in b) state.config.listenLan = !!b.listenLan;
+      if ("listenLan" in b) { state.config.listenLan = state.lanActive = !!b.listenLan; if (b.listenLan) state.lanSet = true; }
+      if ("lanSet" in b) state.lanSet = !!b.lanSet;
+      if ("lanActive" in b) state.lanActive = !!b.lanActive;
       // 模拟老版本实例：保存 JVM 参数时后端强制补回 log4shell 缓解参数（同 inst.UpdateSettings）
       if (b.legacy) { const i = state.instances.find(x => x.name === b.legacy.name); if (i) { i.extraJvm = b.legacy.extraJvm; i.forceFlags = b.legacy.forceFlags; } }
       if ("cfKey" in b) state.cfKey = String(b.cfKey || "");
@@ -1220,7 +1225,7 @@ function handler(state, ui, portOf) {
     const insts = () => state.empty ? [] : state.instances;
     const seg = p.split("/").map(decodeURIComponent); // ["", "api", "instances", name, sub...]
     try {
-      if (p === "/api/app") return ok(res, { version: "2.9.0-beta.2", base: "D:\\MineDeck", ramMb: 16384, availRamMb: 9216, port: portOf(), serversRoot: "D:\\MineDeck\\servers", backupsRoot: "D:\\MineDeck\\backups", config: state.config, lanSet: false, cfKeySet: !!state.cfKey && !state.cfKeyBroken, cfKeyBroken: state.cfKeyBroken, autoStart: state.autoStart, ips: ["172.22.48.1", "192.168.1.23", "10.0.0.5"] });
+      if (p === "/api/app") return ok(res, { version: "2.9.0-beta.2", base: "D:\\MineDeck", ramMb: 16384, availRamMb: 9216, port: portOf(), serversRoot: "D:\\MineDeck\\servers", backupsRoot: "D:\\MineDeck\\backups", config: state.config, lanSet: state.lanSet, lanActive: state.lanActive, cfKeySet: !!state.cfKey && !state.cfKeyBroken, cfKeyBroken: state.cfKeyBroken, autoStart: state.autoStart, ips: ["172.22.48.1", "192.168.1.23", "10.0.0.5"] });
       if (p === "/api/bg") return ok(res, { images: [] });
       if (p === "/api/ops/log") {
         const q = u.searchParams, lim = Math.min(+q.get("limit") || 100, 1000);
@@ -1241,6 +1246,11 @@ function handler(state, ui, portOf) {
           b.chromeColor = b.chromeColor.toLowerCase();
         }
         if ("autoStart" in b) state.autoStart = !!b.autoStart;
+        // 同 appops.go：局域网访问密码只存哈希、不进 config；开启局域网访问前必须已有密码（同一次请求里带上也算），否则整次拒绝
+        const lanSetNow = state.lanSet || !!b.lanPassword;
+        if (b.listenLan && !lanSetNow) return err(res, 400, "开启局域网访问前请先设置访问密码");
+        if (b.lanPassword) state.lanSet = true;
+        delete b.lanPassword;
         // 同 web：Key 加密另存、不进 config，传空串清除；响应里永远没有 Key
         if ("cfApiKey" in b) { state.cfKey = String(b.cfApiKey || "").trim(); state.cfKeyBroken = false; delete b.cfApiKey; }
         Object.assign(state.config, b); delete state.config.autoStart; return ok(res, state.config);

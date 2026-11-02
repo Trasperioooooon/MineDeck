@@ -82,6 +82,7 @@ func main() {
 		}
 	}
 	addr := ln.Addr().(*net.TCPAddr)
+	app.LANListening = bindHost == "0.0.0.0" // 「允许局域网访问」改了要重启才生效，界面拿它和配置比（须在开始服务之前设好）
 	url := fmt.Sprintf("http://127.0.0.1:%d/?token=%s", addr.Port, web.Token)
 	// 操作层的注册表在这里建好：网页接口和应用内助手共用同一个（AI 的提案存在里面）
 	reg := catalog.New(catalog.Env{Mgr: mgr, Tun: tun, AI: aiSvc, Port: addr.Port, Token: web.Token, Shutdown: func() {
@@ -126,6 +127,17 @@ func main() {
 		}
 	}
 
+	// 正在运行（含启动中、停止中）的服务器台数：没开「最小化到托盘」时关窗据此决定要不要先确认（见 tray_windows.go）
+	runningServers = func() int {
+		n := 0
+		for _, i := range mgr.List() {
+			if i.Status() != "stopped" {
+				n++
+			}
+		}
+		return n
+	}
+
 	if *nogui {
 		<-sig
 	} else if !openWebView(url, sig, *minimized) {
@@ -154,6 +166,12 @@ func openWebView(url string, sig chan os.Signal, minimized bool) (ok bool) {
 	runtime.LockOSThread()
 	scale := systemDPIScale() // 窗口尺寸按 DPI 放大，保持高分屏上的视觉大小
 	setWebViewBackground()    // 页面画出来之前的底色取界面标题栏色，冷启动不白闪（须在创建 WebView2 之前）
+	endHidden := func() {}
+	if minimized {
+		// 随开机自启静默进托盘：NewWithOptions 建完窗口就显示、再花几百毫秒初始化 WebView2，
+		// 事后再藏会白窗口一闪；挂钩子让那次显示落空（见 hiddenstart_windows.go）
+		endHidden = beginHiddenCreate("webview")
+	}
 	w := webview2.NewWithOptions(webview2.WebViewOptions{
 		Debug:     false,
 		AutoFocus: true,
@@ -165,12 +183,17 @@ func openWebView(url string, sig chan os.Signal, minimized bool) (ok bool) {
 			Center: true,
 		},
 	})
+	endHidden() // 撤掉钩子：之后从托盘恢复照常显示
 	if w == nil {
 		runtime.UnlockOSThread() // WebView2 不可用，回退浏览器：释放线程绑定
 		return false
 	}
 	defer w.Destroy()
 	hwnd := uintptr(w.Window())
+	if minimized {
+		// 兜底：钩子没挂上时窗口已经露出来了，拿到句柄第一件事就藏起来（后面几步都不会让它重新显示）
+		hideTrayWindow(hwnd)
+	}
 	applyDarkTitleBar(hwnd) // DWM 边框深色化，匹配深色主题
 	applyWindowIcon(hwnd)   // 任务栏 / Alt-Tab / 托盘图标
 	setupTray(hwnd)         // 子类化窗口过程（含去标题栏）+ 挂托盘图标（关窗最小化 / 右键菜单）
@@ -181,8 +204,13 @@ func openWebView(url string, sig chan os.Signal, minimized bool) (ok bool) {
 	w.Bind("hostWinMaxToggle", func() { hostMaximizeToggle(hwnd) })
 	w.Bind("hostWinClose", func() { postWindowClose(hwnd) })
 	w.Bind("hostWinIsMax", func() bool { return isZoomed(hwnd) })
-	if minimized {
-		hideTrayWindow(hwnd) // 随开机自启静默进托盘
+	w.Bind("hostDblClickTime", func() int { return doubleClickTime() }) // 前端标题栏认双击用的系统双击间隔
+	// 关窗确认（见 tray_windows.go 的 onClose）：界面回应一声、收进托盘、停止服务器并退出
+	w.Bind("hostCloseAck", func() { hostCloseAck() })
+	w.Bind("hostWinHide", func() { hideToTray(hwnd) })
+	w.Bind("hostWinQuit", func() { postTrayQuit(hwnd) })
+	askCloseUI = func(tray bool, running int) {
+		w.Eval(fmt.Sprintf("window.__mdCloseAsk && window.__mdCloseAsk({tray: %t, running: %d})", tray, running))
 	}
 	// 退出信号（Ctrl-C / 「退出程序」按钮）线程安全地投递到窗口线程，避免跨线程 Terminate
 	go func() {
