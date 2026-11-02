@@ -1,0 +1,12 @@
+Starting net.minecraft.server.Main
+[20:15:00] [Server thread/INFO]: Done (7.812s)! For help, type "help"
+[20:15:20] [Server thread/INFO]: Steve joined the game
+[20:15:31] [Server thread/INFO]: [Not Secure] <Steve> @AI hello
+[20:15:33] [Server thread/INFO]: [Not Secure] <Steve> @AI /p what time is it
+[20:15:35] [Server thread/INFO]: <Steve> @AI /quota
+[20:15:37] [Server thread/INFO]: [Not Secure] <Steve> @AI 1/2 加 1/3 等于几
+[20:15:39] [Server thread/INFO]: [Not Secure] * Steve @AI 不是聊天
+[20:15:41] [Server thread/INFO]: [Server] @AI 不是聊天
+[20:15:43] [Worker-Main-3/INFO]: <Notch> @AI 不是聊天线程
+[20:15:45] [Server thread/INFO]: [Not Secure] <Steve> @AI
+[20:16:30] [Server thread/INFO]: Steve left the game

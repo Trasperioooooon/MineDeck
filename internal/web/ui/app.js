@@ -134,6 +134,7 @@ function toast(msg, isErr = false) {
   };
   d.onclick = kill;
   setTimeout(kill, isErr ? 6500 : 3500);
+  return d; // 调用方可以换掉点击的行为（如 mcp.js：点一下打开 AI 助手）
 }
 /* 复制到剪贴板：优先 navigator.clipboard；非安全上下文（http 局域网）下其为 undefined，回退 execCommand */
 async function copy(text, okMsg = "已复制") {
@@ -263,6 +264,10 @@ const ICON = {
   link: '<path d="M6.6 9.4 9.4 6.6"/><path d="M7 4.6 8.2 3.4a2.6 2.6 0 013.7 3.7L10.7 8.3"/><path d="M9 11.4 7.8 12.6a2.6 2.6 0 01-3.7-3.7L5.3 7.7"/>',
   more: '<circle cx="3.5" cy="8" r="1.15" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.15" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r="1.15" fill="currentColor" stroke="none"/>',
   trash: '<path d="M2.8 4.4h10.4M6.3 4.4V2.8h3.4v1.6M4.3 4.4l.6 8.8h6.2l.6-8.8"/>',
+  // AI：四角星 + 小星；Key：钥匙；费用：带 ¥ 的钱币
+  sparkle: '<path d="M7 2.4l1.25 3.35L11.6 7l-3.35 1.25L7 11.6 5.75 8.25 2.4 7l3.35-1.25z"/><path d="M12.2 10.2l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5z"/>',
+  key: '<circle cx="5.3" cy="10.7" r="2.7"/><path d="M7.3 8.7l5.2-5.2M10.4 5.6l1.7 1.7M11.9 4.1l1.5 1.5"/>',
+  coin: '<circle cx="8" cy="8" r="5.8"/><path d="M5.9 5.2 8 7.9l2.1-2.7M8 7.9v3.4M6.2 8.9h3.6M6.2 10.3h3.6"/>',
   // 任务步骤状态
   spinner: '<path d="M8 2.2a5.8 5.8 0 105.8 5.8"/>',
   pending: '<circle cx="8" cy="8" r="2.2"/>',
@@ -587,7 +592,7 @@ function bindSaveInput(input, btn, save, gen) {
   const go = async () => {
     if (input.value === base) return;
     btn.disabled = true;
-    try { await save(input.value); base = input.value; } catch (e) { toast(e.message, true); }
+    try { await save(input.value); base = input.value; } catch (e) { if (!e.silent) toast(e.message, true); } // silent：错误已就近显示在字段下方
     paint();
   };
   input.addEventListener("input", paint);
@@ -628,7 +633,7 @@ function wireSaveBar(root, gen, read, save) {
   $('[data-sb="discard"]', bar).onclick = () => { dirtyCheck = null; navigate(); }; // 按服务器上的当前值重绘
   saveBtn.onclick = async () => {
     saveBtn.disabled = true;
-    try { await save(); if (bar.isConnected) base = read(); } catch (e) { toast(e.message, true); }
+    try { if ((await save()) !== false && bar.isConnected) base = read(); } catch (e) { toast(e.message, true); } // save 返回 false：用户取消了，表单仍算没保存
     if (bar.isConnected) paint(); // 保存途中已切走：视图已换，不再读写旧表单
   };
   addDirtySource(gen, () => (bar.isConnected ? diff() : 0));
@@ -1060,7 +1065,7 @@ async function drawImport() {
       <div class="field"><label class="switch"><input type="checkbox" id="im-flight" checked><span class="sw"></span>
         <span><span class="sw-label">允许飞行</span><div class="sw-desc">整合包强烈建议开启</div></span></label></div>
     </div>
-    ${app.config.cfApiKey ? "" : `<div class="hint" style="margin-bottom:10px">提示：CurseForge 格式整合包的模组下载需要 API Key（<a href="https://console.curseforge.com/" target="_blank">免费申请</a>后在「设置 → 下载与网络」填写）；Modrinth 格式无需任何配置。</div>`}
+    ${app.cfKeySet ? "" : `<div class="hint" style="margin-bottom:10px">提示：CurseForge 格式整合包的模组下载需要 API Key（<a href="https://console.curseforge.com/" target="_blank">免费申请</a>后在「设置 → 下载与网络」填写）；Modrinth 格式无需任何配置。</div>`}
     <div class="eula-box">
       <label class="switch"><input type="checkbox" id="im-eula"><span class="sw"></span>
         <span class="sw-label">我已阅读并同意 <a href="https://aka.ms/MinecraftEULA" target="_blank">Minecraft EULA</a></span></label>
@@ -1487,6 +1492,9 @@ async function renderDetail(name, tab = "console") {
       if (!isProxy) tabs.push(["players", "玩家"], ["backups", "备份"]);
       tabs.push(["tasks", "定时任务"]);
       if (info.core !== "vanilla") tabs.push(["res", "资源"]);
+      if (window.MDMusic && MDMusic.applies(info.core)) tabs.push(["music", "音乐共享"]); // 第五阶段，见 music.js
+      if (window.MDGameChat && MDGameChat.applies(info)) tabs.push(["gameai", "游戏内 AI"]); // 第四阶段，见 gamechat.js
+      if (window.MDCompanion && MDCompanion.applies(info)) tabs.push(["companion", "伙伴"]); // 第七阶段，见 companion.js
       if (!isProxy) tabs.push(["common", "常用设置"], ["raw", "全部配置"]);
       tabs.push(["jvm", "内存 / 启动"]);
       const base = "#/inst/" + encodeURIComponent(name) + "/";
@@ -1535,6 +1543,7 @@ async function renderDetail(name, tab = "console") {
         <button class="btn sm ghost icon-only" id="con-copy" title="复制全部" aria-label="复制全部">${icon("copy")}</button>
         <button class="btn sm ghost icon-only" id="con-export" title="导出为 txt" aria-label="导出为 txt">${icon("download")}</button>
       </div>
+      <div class="diag-slot" id="diag-slot"></div>
       <div class="console" id="console"></div>
       <div class="console-input">
         <div class="cmd-suggest" id="cmd-suggest"></div>
@@ -1581,6 +1590,7 @@ async function renderDetail(name, tab = "console") {
       while (con.childNodes.length > 3000) con.removeChild(con.firstChild);
       if ($("#con-scroll").checked) con.scrollTop = con.scrollHeight;
       if (/ (joined|left) the game/.test(line)) schedulePlayerRefresh();
+      window.MDAssist?.consoleLine(name, line); // 报错横幅（assistant.js）：出现报错、退出时重新跑本地规则
     };
     filterEl.oninput = () => {
       const q = filterEl.value.trim().toLowerCase();
@@ -1595,6 +1605,7 @@ async function renderDetail(name, tab = "console") {
     consoleES = new EventSource(`/api/instances/${encodeURIComponent(name)}/console?token=${TOKEN()}`);
     consoleES.onmessage = e => push(JSON.parse(e.data));
     consoleES.onerror = () => push("[MineDeck] 控制台连接中断，切换页面可重连");
+    window.MDAssist?.banner($("#diag-slot"), name, gen);
     const histKey = "amh_hist_" + name;
     let hist = [];
     try { hist = JSON.parse(localStorage.getItem(histKey)) || []; } catch {}
@@ -1999,6 +2010,15 @@ async function renderDetail(name, tab = "console") {
         toast("已保存 server.properties" + (data.running ? "（重启后生效）" : ""));
       });
 
+  } else if (tab === "music" && window.MDMusic) { // 音乐共享（第五阶段）：整块在 music.js
+    await MDMusic.render(body, info, gen, refreshHead);
+
+  } else if (tab === "gameai" && window.MDGameChat) { // 游戏内 AI（第四阶段）：整块在 gamechat.js
+    await MDGameChat.render(body, info, gen);
+
+  } else if (tab === "companion" && window.MDCompanion) { // AI 伙伴（第七阶段）：整块在 companion.js
+    await MDCompanion.render(body, info, gen);
+
   } else if (tab === "jvm") {
     const appInfo = await api("/api/app").catch(() => ({ ramMb: 8192, availRamMb: 4096 }));
     const maxMem = Math.max(2048, appInfo.ramMb - 2048);
@@ -2091,7 +2111,7 @@ async function renderTunnels() {
       <label class="field"><span>绑定实例</span><select id="tn-bound"><option value="">不绑定</option>
         ${insts.map(i => `<option value="${esc(i.name)}">${esc(i.name)}（端口 ${i.port}）</option>`).join("")}</select></label>
       <div class="field"><label class="switch"><input type="checkbox" id="tn-auto" checked><span class="sw"></span>
-        <span><span class="sw-label">跟随实例启动</span><div class="sw-desc">绑定的服务器启动时自动拉起隧道</div></span></label></div>
+        <span><span class="sw-label">跟随实例启动</span><div class="sw-desc">绑定的服务器启动时自动拉起隧道，停服后跟着停</div></span></label></div>
     </div>
     <button class="btn primary" id="tn-add">${icon("plus")} 添加隧道</button>
     </div>`;
@@ -2106,6 +2126,7 @@ async function renderTunnels() {
   };
   provSel.onchange = applyFields;
   applyFields();
+  if (window.MDMusic) MDMusic.tunnelForm(insts, provSel); // 第五阶段：用途（游戏 / 语音）、自定义 frps 的协议
   $("#tn-toggle").onclick = () => {
     const f = $("#tn-form");
     f.hidden = !f.hidden;
@@ -2126,9 +2147,10 @@ async function renderTunnels() {
       <div class="java-row" style="max-width:980px">
         ${stPill(t.running ? "running" : "stopped")}
         <b style="min-width:110px">${esc(t.name)}</b>
-        <span class="badge core">${esc(PROV_NAMES[t.provider] || t.provider)}</span>
+        <span class="badge core">${esc(PROV_NAMES[t.provider] || t.provider)}</span>${window.MDMusic ? MDMusic.tunnelBadge(t) : ""}
         ${t.boundInstance ? `<span class="badge">${icon("link")} ${esc(t.boundInstance)}${t.autoStart ? " · 跟随" : ""}</span>` : ""}
-        ${t.publicAddr ? `<span class="jv" style="color:var(--accent-text);font-family:var(--mono)">${esc(t.publicAddr)}</span>
+        ${t.credBroken ? `<span class="jp" style="color:var(--danger-text);display:inline-flex;align-items:center;gap:5px" title="凭据加密绑定当前电脑和 Windows 用户，换了就解不开">${icon("warn")} 凭据无法解开，请删除后重新添加</span>`
+          : t.publicAddr ? `<span class="jv" style="color:var(--accent-text);font-family:var(--mono)">${esc(t.publicAddr)}</span>
           <button class="btn sm" data-copy="${esc(t.publicAddr)}">${icon("copy")} 复制</button>`
           : t.lastError ? `<span class="jp" style="color:var(--danger-text);display:inline-flex;align-items:center;gap:5px" title="${esc(t.lastError)}">${icon("warn")} ${esc(t.lastError.length > 46 ? t.lastError.slice(0, 46) + "…" : t.lastError)}</span>`
           : `<span class="jp">${t.running ? "连接中…" : "尚未启动"}</span>`}
@@ -2194,6 +2216,7 @@ async function renderTunnels() {
       localPort: +$("#tn-lport").value || 25565,
       boundInstance: $("#tn-bound").value,
       autoStart: $("#tn-auto").checked,
+      ...(window.MDMusic ? MDMusic.tunnelExtra() : {}), // 第五阶段：purpose、proto
     };
     try {
       await api("/api/tunnels", { method: "POST", body });
@@ -2217,6 +2240,7 @@ const SETTINGS_SECTIONS = [
   { id: "java", label: "Java 运行时", icon: "coffee" },
   { id: "remote", label: "远程访问", icon: "phone" },
   { id: "notify", label: "通知与集成", icon: "bell" },
+  { id: "ai", label: "AI（可选）", icon: "sparkle" },
   { id: "startup", label: "启动与托盘", icon: "monitor" },
   { id: "about", label: "更新与关于", icon: "info" },
 ];
@@ -2246,7 +2270,7 @@ async function renderSettings(section) {
   let info;
   try { info = await api("/api/app"); } catch (e) { if (!stale(gen)) body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
   if (stale(gen)) return; // 快速连点分区时，先发后至的旧响应不得覆盖当前分区
-  ({ appearance: setAppearance, download: setDownload, storage: setStorage, java: setJava, remote: setRemote, notify: setNotify, startup: setStartup, about: setAbout }[section])(body, info);
+  ({ appearance: setAppearance, download: setDownload, storage: setStorage, java: setJava, remote: setRemote, notify: setNotify, ai: setAI, startup: setStartup, about: setAbout }[section])(body, info);
   playClass(body, "sec-enter"); // 只动被替换的分区内容（上移 4px 淡入）
 }
 
@@ -2257,11 +2281,11 @@ function settingsHead(t, sub) {
 /* 分组：一组一张卡；ico = 行首带图标瓦片（发丝线随之缩进到文字起点） */
 const group = (rows, { ico = false, cls = "", attrs = "" } = {}) =>
   `<div class="group${ico ? " has-ico" : ""}${cls ? " " + cls : ""}"${attrs ? " " + attrs : ""}>${rows}</div>`;
-/* 分组里的一行：可选图标瓦片 + 标题 / 说明（sub 允许富文本）/ 键名或路径 + 右侧控件 */
-function riRow({ ico = "", title = "", titleHTML = "", sub = "", key = "", right = "", cls = "", attrs = "", field = "" }) {
+/* 分组里的一行：可选图标瓦片 + 标题 / 说明（sub 允许富文本）/ 键名或路径 + 右侧控件；after 放在行内最下面（如字段的报错） */
+function riRow({ ico = "", title = "", titleHTML = "", sub = "", key = "", right = "", cls = "", attrs = "", field = "", after = "" }) {
   return `<div class="row-item${cls ? " " + cls : ""}"${attrs ? " " + attrs : ""}><div class="ri-head">${ico ? `<span class="ri-ico">${icon(ico)}</span>` : ""}
     <div class="ri-main"><div class="ri-title">${titleHTML || esc(title)}</div>${sub ? `<div class="ri-sub">${sub}</div>` : ""}${key ? `<div class="ri-key">${esc(key)}</div>` : ""}</div>
-    ${right ? `<div class="ri-right">${right}</div>` : ""}</div>${field ? `<div class="ri-field">${field}</div>` : ""}</div>`;
+    ${right ? `<div class="ri-right">${right}</div>` : ""}</div>${field ? `<div class="ri-field">${field}</div>` : ""}${after}</div>`;
 }
 /* 行式开关（标题 + 说明 + 右侧开关），data-cfg 携带配置键 */
 const switchRow = (ico, title, desc, key, on) => riRow({ ico, title, sub: esc(desc),
@@ -2325,9 +2349,16 @@ function setStartup(body, info) {
   });
 }
 
+/* CurseForge API Key 只写不读（后端只告诉 cfKeySet）：已设置时输入框留空、占位写「已设置」，旁边给「清除」；
+   存着的 Key 解不开（换了电脑或 Windows 用户）时提示重填，也可以直接清除 */
+const cfKeySub = k => k.broken ? `<span class="warn-text">${icon("warn")} 密钥无法解开，可能换了电脑或 Windows 用户，请重新填写</span>`
+  : "加密保存在本机（Windows DPAPI），换电脑或换 Windows 用户后需要重填";
+const cfKeyHolder = k => k.set ? "已设置（留空不修改）" : "粘贴 API Key";
+
 /* — 下载与网络 — 下载源是一组单选行（选中行右侧打勾，点选即时生效）；API Key 是单字段保存 */
 function setDownload(body, info) {
   const src = info.config.source || "auto";
+  const cf = { set: !!info.cfKeySet, broken: !!info.cfKeyBroken };
   const opts = [
     { v: "auto", t: "自动（推荐）", d: "国内镜像（BMCLAPI / 清华）优先，失败自动切换官方源" },
     { v: "mirror", t: "仅国内镜像", d: "只用 BMCLAPI 与清华镜像（Paper/Purpur 无镜像，仍走官方）" },
@@ -2338,8 +2369,8 @@ function setDownload(body, info) {
     group(opts.map(o => riRow({ title: o.t, sub: esc(o.d), right: check(src === o.v), cls: "choice" + (src === o.v ? " sel" : ""),
       attrs: `role="radio" tabindex="0" aria-checked="${src === o.v}" data-v="${o.v}"` })).join(""), { attrs: `id="src-cards" role="radiogroup" aria-label="下载源"` }) +
     settingsHead("CurseForge API Key（选填）", `导入 CurseForge 格式整合包时解析模组直链用，<a href="https://console.curseforge.com/" target="_blank">免费申请</a>；Modrinth 格式整合包无需配置。`) +
-    group(riRow({ ico: "package", title: "API Key", sub: "只保存在本机的 config.json 里",
-      field: `<input type="password" id="cf-key" value="${esc(info.config.cfApiKey || "")}" placeholder="粘贴 API Key" aria-label="CurseForge API Key"><button class="btn" id="cf-save">保存</button>` }), { ico: true });
+    group(riRow({ ico: "package", title: "API Key", sub: `<span id="cf-sub">${cfKeySub(cf)}</span>`,
+      field: `<input type="password" id="cf-key" autocomplete="off" placeholder="${cfKeyHolder(cf)}" aria-label="CurseForge API Key"><button class="btn" id="cf-save">保存</button><button class="btn ghost" id="cf-clear"${cf.set || cf.broken ? "" : " hidden"}>清除</button>` }), { ico: true });
   const pick = async c => {
     if (c.classList.contains("sel")) return;
     try {
@@ -2357,10 +2388,31 @@ function setDownload(body, info) {
     c.onclick = () => pick(c);
     c.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(c); } };
   });
+  const paintCF = () => {
+    $("#cf-key").placeholder = cfKeyHolder(cf);
+    $("#cf-sub").innerHTML = cfKeySub(cf);
+    $("#cf-clear").hidden = !(cf.set || cf.broken);
+  };
   bindSaveInput($("#cf-key"), $("#cf-save"), async v => {
-    await api("/api/config", { method: "PUT", body: { cfApiKey: v.trim() } });
-    toast("CurseForge API Key 已保存");
+    const k = v.trim();
+    if (k) {
+      await api("/api/config", { method: "PUT", body: { cfApiKey: k } });
+      Object.assign(cf, { set: true, broken: false });
+      toast("CurseForge API Key 已保存");
+    }
+    $("#cf-key").value = ""; // 存好后清空输入框（只填了空白也一样，什么都不存；清除走「清除」按钮）
+    paintCF();
   }, viewGen);
+  $("#cf-clear").onclick = async () => {
+    const r = await confirmModal({ title: "清除 CurseForge API Key？", body: "清除后，导入 CurseForge 格式的整合包时无法自动下载模组。需要时可以重新填写。", okText: "清除", danger: true, icon: "trash" });
+    if (!r) return;
+    try {
+      await api("/api/config", { method: "PUT", body: { cfApiKey: "" } });
+      Object.assign(cf, { set: false, broken: false });
+      paintCF();
+      toast("已清除 CurseForge API Key");
+    } catch (e) { toast(e.message, true); }
+  };
 }
 
 /* — 存储位置 — */
@@ -2494,6 +2546,306 @@ function setNotify(body, info) {
   }, viewGen);
 }
 
+/* — AI（可选）—— 设计文档 §4、§9
+   没配置时只有这个分区，别处没有任何 AI 入口；没配置时后端不连接任何 AI 服务、也不下载价格数据。
+   预设只是方便填写的模板：第一次打开时不预选、不推荐任何一家。
+   服务商设置是多字段表单（吸底保存条）：Key 只写不读，已设置时输入框留空、占位写「已设置」；改了服务商、协议或地址，
+   保存后旧 Key 自动清掉，要重新填写。每日额度是单字段保存（bindSaveInput）。局域网打开时只能看（修改仅本机）。 */
+const AI_EFFORTS = [["", "默认（模型自己定）"], ["low", "低：最快、最省"], ["medium", "中"], ["high", "高"], ["xhigh", "很高"], ["max", "最高：最慢、最贵"]];
+const AI_FEATS = [{ id: "assistant", name: "应用内助手" }, { id: "gamechat", name: "游戏内 AI" }, { id: "companion", name: "AI 伙伴" }]; // 应用内助手：本机和局域网登录的设备共用一份额度；AI 伙伴（第七阶段）：玩家叫着伙伴的名字说话时
+const fmtTokens = n => { n = +n || 0; return n >= 10000 ? (Math.round(n / 1000) / 10).toString() + " 万" : n.toLocaleString("en-US"); };
+const fmtMoney = (amount, cur) => (cur === "CNY" ? "¥" : "$") + (amount > 0 && amount < 0.01 ? amount.toFixed(4) : amount.toFixed(2));
+/* 一段时间的费用合计：按币种分开（不做汇率换算），如「约 $0.12 + ¥0.30」；没有金额时为空 */
+const fmtCost = cost => { const parts = ["USD", "CNY"].filter(c => cost && cost[c] > 0).map(c => fmtMoney(cost[c], c)); return parts.length ? "约 " + parts.join(" + ") : ""; };
+function aiUsageLine(t, m) {
+  t = t || {}; m = m || {};
+  const cost = c => (fmtCost(c.cost) ? `（${fmtCost(c.cost)}）` : "");
+  let line = `今天已用 ${fmtTokens(t.tokens)} token${cost(t)} · 本月 ${fmtTokens(m.tokens)} token${cost(m)}`;
+  if (m.estimated) line += ` · 其中 ${m.estimated} 次按字数估算`;
+  if (m.unpriced) line += ` · ${m.unpriced} 次查不到价格（只记 token）`;
+  return esc(line);
+}
+
+async function setAI(body) {
+  const gen = viewGen;
+  body.innerHTML = settingsHead("AI 服务商（可选）", "") + `<div class="sub">加载中…</div>`;
+  let v;
+  try { v = await api("/api/ai/settings"); }
+  catch (e) { if (!stale(gen)) body.innerHTML = settingsHead("AI 服务商（可选）", "") + `<div class="err-box">${esc(e.message)}</div>`; return; }
+  if (stale(gen)) return;
+  drawAI(body, v, gen);
+}
+
+function drawAI(body, v, gen) {
+  const P = Object.fromEntries(v.presets.map(p => [p.id, p]));
+  const saved = v.provider;
+  const ro = !v.local; // 局域网打开：只能看
+  const dis = ro ? " disabled" : "";
+  const opt = (val, label, cur) => `<option value="${esc(val)}"${val === cur ? " selected" : ""}>${esc(label)}</option>`;
+  body.innerHTML =
+    settingsHead("AI 服务商（可选）", "选好服务商、填好 Key 和模型之后才启用 AI；没配置时 MineDeck 不连接任何 AI 服务，也不下载价格数据。下面的预设只是方便填写的模板，不代表推荐。") +
+    (ro ? `<div class="warn-card"><div class="wc-title">${icon("lock")} AI 设置仅支持在本机修改</div><div class="wc-note">这里只能查看。Key 和接口地址只能在运行 MineDeck 的那台电脑上改。</div></div>` : "") +
+    `<div class="ai-status" id="ai-status"></div>` +
+    group(
+      riRow({ ico: "sparkle", title: "服务商", sub: `<span id="ai-note"></span>`,
+        right: `<select id="ai-preset" aria-label="服务商"${dis}>${saved.preset ? "" : opt("", "未选择", "")}${v.presets.map(p => opt(p.id, p.name, saved.preset)).join("")}</select>` }) +
+      riRow({ ico: "plug", title: "协议", sub: "自定义地址用哪种接口协议", cls: "ai-proto-row",
+        right: `<select id="ai-proto" aria-label="协议"${dis}>${opt("openai", "OpenAI 兼容", saved.protocol)}${opt("anthropic", "Claude（Anthropic）", saved.protocol)}</select>` }) +
+      riRow({ ico: "globe", title: "接口地址", sub: `<span id="ai-url-sub"></span>`,
+        field: `<input type="text" id="ai-url" spellcheck="false" autocomplete="off" value="${esc(saved.baseUrl)}" aria-label="接口地址"${dis}><span class="ai-alts" id="ai-alts"></span>` }) +
+      riRow({ ico: "key", title: "API Key", sub: `<span id="ai-key-sub"></span>`,
+        field: `<input type="password" id="ai-key" autocomplete="off" aria-label="API Key"${dis}><button class="btn ghost" id="ai-key-clear"${dis} hidden>清除</button>` }) +
+      riRow({ ico: "package", title: "模型", sub: `<span id="ai-model-sub">从模型列表里选，也可以直接填写模型名</span>`,
+        field: `<input type="text" id="ai-model" list="ai-models" spellcheck="false" autocomplete="off" value="${esc(saved.model)}" aria-label="模型"${dis}><datalist id="ai-models"></datalist>` +
+          `<button class="btn" id="ai-list"${dis}>${icon("refresh")} 获取模型列表</button>` }) +
+      riRow({ ico: "bolt", title: "思考深度", sub: "只对 Claude 有效：越深越慢、越贵（claude-opus-5-5 默认是「中」）", cls: "ai-effort-row",
+        right: `<select id="ai-effort" aria-label="思考深度"${dis}>${AI_EFFORTS.map(([val, label]) => opt(val, label, saved.effort)).join("")}</select>` }),
+      { ico: true, attrs: `id="ai-form"` }) +
+    (ro ? "" : saveBar("保存")) +
+    group(riRow({ ico: "monitor", title: "测试连接", sub: `<span id="ai-test-sub"></span>`, right: `<button class="btn" id="ai-test"${dis}>${icon("bolt")} 测试连接</button>` }), { ico: true }) +
+    settingsHead("每日额度", "按功能分别设每天最多用多少 token（输入、输出、缓存都算），用完后这项功能暂停到第二天 0 点。留空或填 0 表示不限。") +
+    group(AI_FEATS.map(f => riRow({ ico: "clock", title: f.name, sub: `<span id="q-sub-${f.id}">${aiUsageLine(v.today[f.id], v.month[f.id])}</span>`,
+      field: `<input type="number" id="q-${f.id}" min="0" step="any" inputmode="decimal" placeholder="不限" value="${v.quota[f.id] ? v.quota[f.id] / 10000 : ""}" aria-label="${esc(f.name)}每日额度（万 token）"${dis}>` +
+        `<span class="ri-unit">万 token / 天</span><button class="btn" id="q-save-${f.id}"${dis}>保存</button>`,
+      after: `<div class="field-err ri-err" id="q-err-${f.id}"></div>` })).join(""), { ico: true }) +
+    settingsHead("费用估算", "只是估算：按公开价格或自填单价，不做汇率换算（人民币和美元分开合计）。查不到价格时只显示 token 用量。") +
+    group(
+      riRow({ ico: "doc", title: "价格来源", sub: `<span id="ai-price-src"></span>`, right: `<button class="btn sm" id="ai-price-refresh"${dis}>${icon("refresh")} 刷新</button>` }) +
+      riRow({ ico: "coin", title: "当前模型的单价", sub: `<span id="ai-model-price"></span>`, cls: "ai-mp-row" }),
+      { ico: true }) +
+    `<div class="group has-ico" id="ai-prices"></div>` +
+    `<div id="ai-assist-slot"></div>` +
+    `<div id="ai-mcp-slot"></div>` +
+    (ro ? "" : group(riRow({ ico: "power", title: "停用 AI", sub: "清掉服务商设置和 Key；用量记录、额度和自填单价保留",
+      right: `<button class="btn danger" id="ai-off">停用</button>` }), { ico: true, cls: "danger-zone", attrs: `id="ai-off-zone" style="margin-top:28px"` })) +
+    `<div class="hint" style="margin-top:20px;line-height:1.8">隐私：用 AI 时，提问内容和工具结果（实例信息、配置、日志片段等）会发给所选的服务商，各家的数据保留政策不一样；在意隐私可以用本机的 Ollama。
+      Key 用 Windows DPAPI 加密保存在本机，不会发给界面，也不会写进日志和操作记录。取价格数据只是整份下载 LiteLLM 的公开文件（经 GitHub 加速镜像），不发送任何用户数据。</div>`;
+
+  const f = { preset: $("#ai-preset"), proto: $("#ai-proto"), url: $("#ai-url"), key: $("#ai-key"), model: $("#ai-model"), effort: $("#ai-effort") };
+  const cur = () => P[f.preset.value];
+  // 同一个网站：http/https、域名、端口都一样（和后端 ai.SameSite 一致：URL 的 origin 不管大小写和默认端口）
+  const siteOf = u => { try { const x = new URL(u.trim()); return /^https?:$/.test(x.protocol) ? x.origin : ""; } catch { return ""; } };
+  // 换了服务商，或者地址换到了别的网站：保存后已存的 Key 会清掉（不发给别的网站）；同一网站只改路径或协议，Key 照旧
+  const keyGone = () => f.preset.value !== saved.preset || !siteOf(f.url.value) || siteOf(f.url.value) !== siteOf(saved.baseUrl);
+  const protoNow = () => (cur() ? (cur().id === "custom" ? f.proto.value : cur().protocol) : "");
+  const paintStatus = () => {
+    const p = P[saved.preset];
+    $("#ai-status").innerHTML = v.enabled
+      ? `<span class="tag">已启用</span><span>${esc(p ? p.name : "")} · <code>${esc(saved.model)}</code></span>`
+      : `<span class="tag warn">未启用</span><span>${v.missing ? "还差：" + esc(v.missing) : ""}</span>`;
+    const off = $("#ai-off-zone");
+    if (off) off.hidden = !saved.preset;
+  };
+  const paintForm = () => {
+    const p = cur();
+    const custom = p && p.id === "custom";
+    body.querySelector(".ai-proto-row").hidden = !custom;
+    body.querySelector(".ai-effort-row").hidden = protoNow() !== "anthropic";
+    $("#ai-note").innerHTML = p ? esc(p.note) : "先选一家；只是填写模板，不代表推荐";
+    $("#ai-alts").innerHTML = p && p.altUrls ? p.altUrls.map(a => `<button class="btn sm ghost" type="button" data-alt="${esc(a.url)}"${dis}>换成${esc(a.label)}</button>`).join("") : "";
+    $("#ai-alts").querySelectorAll("[data-alt]").forEach(b => b.onclick = () => { f.url.value = b.dataset.alt; f.url.dispatchEvent(new Event("input", { bubbles: true })); });
+    $("#ai-url-sub").textContent = p && p.id !== "custom" ? `预设地址：${p.baseUrl}` : "任意 OpenAI 兼容的地址，或者走 Claude 协议的中转";
+    const noKey = p && p.noKey;
+    const keepKey = v.keySet && !keyGone();
+    f.key.disabled = ro || noKey;
+    f.key.placeholder = noKey ? "不用 Key" : keepKey ? (ro ? "已设置" : "已设置（留空不修改）") : (ro ? "未设置" : "粘贴 API Key");
+    $("#ai-key-clear").hidden = ro || !(v.keySet || v.keyBroken) || keyGone();
+    let ks;
+    if (noKey) ks = "本机模型不用 Key";
+    else if (v.keyBroken && !keyGone()) ks = `<span class="warn-text">${icon("warn")} 密钥无法解开，可能换了电脑或 Windows 用户，请重新填写</span>`;
+    else if (v.keySet && keyGone()) ks = `<span class="warn-text">${icon("warn")} 换了服务商或接口地址的网站：保存后原来的 Key 会清掉（不会发给新地址），要重新填写</span>`;
+    else ks = "加密保存在本机（Windows DPAPI），换电脑或换 Windows 用户后要重填";
+    if (custom && !noKey) ks += "。注意：中转方能看到全部对话和 Key";
+    $("#ai-key-sub").innerHTML = ks;
+  };
+  const paintPrices = () => {
+    const ps = v.prices || {};
+    let src;
+    if (!v.priceNeeded) src = v.enabled ? "本机模型不花钱，不下载价格数据" : "配置好要花钱的服务商之后，才会下载 LiteLLM 的公开价格（只配了 Ollama 不下载）";
+    else if (ps.fetching) src = "正在下载 LiteLLM 的公开价格…";
+    else src = ps.updated ? `按 LiteLLM 公开价格估算 · ${esc(ps.updated)} 更新 · ${ps.count} 个模型（7 天自动刷新一次）` : "还没取到 LiteLLM 的公开价格";
+    if (v.priceNeeded && ps.error) src += `<br><span class="warn-text">${icon("warn")} ${esc(ps.error)}</span>`;
+    $("#ai-price-src").innerHTML = src;
+    $("#ai-price-refresh").disabled = ro || !v.priceNeeded || ps.fetching;
+    const mp = v.modelPrice;
+    body.querySelector(".ai-mp-row").hidden = !mp;
+    if (mp) {
+      const unit = c => (c === "CNY" ? "¥" : "$");
+      const num = x => (Math.round(x * 10000) / 10000).toString();
+      let t;
+      if (mp.local) t = "本机模型，不计费";
+      else if (!mp.found) t = `查不到 <code>${esc(saved.model)}</code> 的公开价格，只显示 token 用量；可以在下面自填单价`;
+      else {
+        const u = unit(mp.currency);
+        t = esc(`${mp.source === "custom" ? "自填：" : "公开价格："}输入 ${u}${num(mp.input)} · 输出 ${u}${num(mp.output)}` +
+          (mp.cacheRead != null ? ` · 缓存命中 ${u}${num(mp.cacheRead)}` : "") + (mp.cacheWrite != null ? ` · 缓存写入 ${u}${num(mp.cacheWrite)}` : "") + "（每百万 token）");
+        if (mp.tiered) t += "；按输入长度分档，这里是最低一档";
+        if (mp.note) t += `<br>${esc(mp.note)}`;
+      }
+      $("#ai-model-price").innerHTML = t;
+    }
+    // 自填单价：一条一行，可删除；最后一行添加（每百万 token；自填的优先于公开价格）
+    const unitPrice = (x, c) => (c === "CNY" ? "¥" : "$") + (Math.round(x * 10000) / 10000).toString();
+    const rows = (v.customPrices || []).map((c, i) => riRow({ ico: "coin", titleHTML: `<code>${esc(c.model)}</code>`,
+      sub: esc(`输入 ${unitPrice(c.input, c.currency)} · 输出 ${unitPrice(c.output, c.currency)}` +
+        (c.cacheRead != null ? ` · 缓存命中 ${unitPrice(c.cacheRead, c.currency)}` : "") + "（每百万 token）"),
+      right: `<button class="btn sm ghost icon-only" data-del-price="${i}" title="删除" aria-label="删除 ${esc(c.model)} 的自填单价"${dis}>${icon("trash")}</button>` })).join("");
+    $("#ai-prices").innerHTML = rows + riRow({ ico: "plus", title: "自填单价", sub: "给某个模型填每百万 token 的单价（元或美元），优先于公开价格，也能补上查不到的模型",
+      field: `<div class="ai-price-add"><input type="text" id="cp-model" placeholder="模型名" spellcheck="false" aria-label="模型名" value="${esc(saved.model)}"${dis}>
+        <select id="cp-cur" aria-label="币种"${dis}><option value="CNY">元（¥）</option><option value="USD">美元（$）</option></select>
+        <input type="number" id="cp-in" min="0" step="any" placeholder="输入" aria-label="输入单价"${dis}>
+        <input type="number" id="cp-out" min="0" step="any" placeholder="输出" aria-label="输出单价"${dis}>
+        <input type="number" id="cp-cache" min="0" step="any" placeholder="缓存（选填）" aria-label="缓存命中单价"${dis}>
+        <button class="btn" id="cp-add"${dis}>${icon("plus")} 添加</button></div>`, after: `<div class="field-err ri-err" id="cp-err"></div>` });
+    $("#ai-prices").querySelectorAll("[data-del-price]").forEach(b => b.onclick = () => {
+      const list = (v.customPrices || []).filter((_, i) => i !== +b.dataset.delPrice);
+      savePrices(list, "已删除这条自填单价");
+    });
+    $("#cp-add").onclick = () => {
+      const model = $("#cp-model").value.trim(), inp = $("#cp-in").value, out = $("#cp-out").value, cache = $("#cp-cache").value;
+      const bad = x => x === "" || !(+x >= 0);
+      const err = msg => { $("#cp-err").innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; };
+      if (!model) { err("请填写模型名"); $("#cp-model").focus(); return; }
+      if (bad(inp) || bad(out)) { err("输入和输出单价都要填（不小于 0 的数）"); (bad(inp) ? $("#cp-in") : $("#cp-out")).focus(); return; }
+      if (cache !== "" && !(+cache >= 0)) { err("缓存命中单价要是不小于 0 的数"); $("#cp-cache").focus(); return; }
+      err("");
+      const item = { model, currency: $("#cp-cur").value, input: +inp, output: +out };
+      if (cache !== "") item.cacheRead = +cache;
+      savePrices([...(v.customPrices || []).filter(c => c.model !== model), item], "已添加自填单价");
+    };
+  };
+  const savePrices = async (list, msg) => {
+    try { v = await api("/api/ai/prices", { method: "PUT", body: { prices: list } }); toast(msg); }
+    catch (e) { toast(e.message, true); return; }
+    if (!stale(gen)) paintPrices();
+  };
+  const paintTest = () => {
+    const btn = $("#ai-test");
+    btn.disabled = ro || !v.enabled;
+    if (!$("#ai-test-sub").dataset.result) $("#ai-test-sub").textContent = v.enabled ? "按保存的设置发一个很小的请求，看延迟和能不能调用工具（花一点点 token，不计入额度）" : "先把服务商、Key 和模型填好并保存";
+  };
+  const repaint = () => { paintStatus(); paintForm(); paintPrices(); paintTest(); };
+  repaint();
+
+  // 选预设：填好协议、地址和建议模型（都可以改）；Kimi、智谱等没有建议模型的，从模型列表里选
+  f.preset.onchange = () => {
+    const p = cur();
+    if (!p) return;
+    f.url.value = p.id === "custom" ? (saved.preset === "custom" ? saved.baseUrl : "") : p.baseUrl;
+    f.model.value = p.id === saved.preset ? saved.model : (p.model || "");
+    if (p.id === "custom" && saved.preset !== "custom") f.proto.value = "openai";
+    $("#ai-models").innerHTML = "";
+    paintForm();
+  };
+  f.url.addEventListener("input", paintForm);
+  f.proto.addEventListener("change", paintForm);
+
+  const readForm = () => ({ preset: f.preset.value, proto: protoNow(), url: f.url.value.trim(), key: f.key.value.trim() ? "已填" : "", model: f.model.value.trim(), effort: protoNow() === "anthropic" ? f.effort.value : "" });
+  let formBase = JSON.stringify(readForm()); // 测试连接只认已保存的设置
+  if (!ro) wireSaveBar(body, gen, readForm,
+    async () => {
+      const p = cur();
+      if (!p) throw new Error("先选择服务商");
+      const b = { preset: p.id, baseUrl: f.url.value.trim(), model: f.model.value.trim(), effort: protoNow() === "anthropic" ? f.effort.value : "" };
+      if (p.id === "custom") b.protocol = f.proto.value;
+      if (f.key.value.trim()) b.key = f.key.value.trim();
+      else if (v.keySet && keyGone()) { // 会清掉已存的 Key：先说清楚，确认了才存，并且明着传空 Key（操作记录里看得出清过）
+        const r = await confirmModal({ title: "保存后要重新填 Key", body: p.id !== saved.preset
+          ? `换成了「${p.name}」，原来那家的 Key 不会带过去，保存后会清掉。可以先在上面填好新的 Key 再保存。`
+          : "接口地址换到了另一个网站，原来的 Key 不会发给它，保存后会清掉。可以先在上面填好这个地址的 Key 再保存。",
+          okText: "清掉 Key 并保存", danger: true, icon: "key" });
+        if (!r) return false;
+        b.key = "";
+      }
+      v = await api("/api/ai/provider", { method: "PUT", body: b });
+      f.key.value = ""; // 存好后清空（只填了空白也一样，什么都不存）
+      Object.assign(saved, v.provider);
+      f.url.value = saved.baseUrl;
+      f.preset.querySelector('option[value=""]')?.remove(); // 配过之后不再有「未选择」，停用走下面的「停用 AI」
+      formBase = JSON.stringify(readForm());
+      delete $("#ai-test-sub").dataset.result;
+      repaint();
+      window.MDAssist?.refresh(); // 标题栏的助手入口随之更新
+      toast(v.enabled ? "AI 设置已保存" : `已保存；还差：${v.missing}`);
+    });
+
+  $("#ai-key-clear").onclick = async () => {
+    const r = await confirmModal({ title: "清除 AI 的 Key？", body: "清除后 AI 功能停用，需要时可以重新填写。", okText: "清除", danger: true, icon: "trash" });
+    if (!r) return;
+    try { v = await api("/api/ai/provider", { method: "PUT", body: { key: "" } }); repaint(); toast("已清除 Key"); }
+    catch (e) { toast(e.message, true); }
+  };
+
+  // 获取模型列表：用表单里当前的服务商和地址（还没保存也行）；Key 不填时，只有地址没改才用已存的 Key
+  $("#ai-list").onclick = async () => {
+    const p = cur();
+    if (!p) { toast("先选择服务商", true); return; }
+    const btn = $("#ai-list");
+    btn.disabled = true;
+    try {
+      const b = { preset: p.id, baseUrl: f.url.value.trim() };
+      if (p.id === "custom") b.protocol = f.proto.value;
+      if (f.key.value.trim()) b.key = f.key.value.trim();
+      const ms = await api("/api/ai/models", { method: "POST", body: b });
+      if (stale(gen)) return;
+      $("#ai-models").innerHTML = ms.map(m => `<option value="${esc(m.id)}">${esc(m.name || "")}</option>`).join("");
+      $("#ai-model-sub").textContent = ms.length ? `取到 ${ms.length} 个模型：点输入框选一个，也可以直接填写` : "服务商没有返回模型，请直接填写模型名";
+      if (ms.length) { f.model.focus(); toast(`取到 ${ms.length} 个模型`); }
+    } catch (e) { toast(e.message, true); }
+    btn.disabled = ro;
+  };
+
+  $("#ai-test").onclick = async () => {
+    if (JSON.stringify(readForm()) !== formBase) { toast("先保存服务商设置，再测试连接", true); return; }
+    const btn = $("#ai-test"), sub = $("#ai-test-sub");
+    btn.disabled = true;
+    sub.textContent = "测试中…";
+    try {
+      const r = await api("/api/ai/test", { method: "POST" });
+      if (stale(gen)) return;
+      sub.dataset.result = "1";
+      if (!r.ok) sub.innerHTML = `<span class="warn-text">${icon("warn")} 连接失败：${esc(r.error)}</span>`;
+      else {
+        const tools = { yes: "能调用工具", no: `<span class="warn-text">${icon("warn")} 这个模型不支持工具调用，助手用不了</span>`, unknown: `<span class="warn-text">${icon("warn")} 模型这次没有调用工具，可能不支持</span>` }[r.tools] || "";
+        const cost = r.cost && r.cost.source === "local" ? "（本机模型不计费）" : r.cost ? `（约 ${fmtMoney(r.cost.amount, r.cost.currency)}）` : "";
+        sub.innerHTML = `${icon("check")} 连接正常 · 首个回应 ${r.latencyMs} ms · ${tools} · 用了 ${fmtTokens((r.usage.input || 0) + (r.usage.output || 0) + (r.usage.cacheRead || 0) + (r.usage.cacheWrite || 0))} token${esc(cost)}`;
+        v = await api("/api/ai/settings").catch(() => v); // Claude 中转：测出来的功能开关已存进设置
+      }
+    } catch (e) { sub.innerHTML = `<span class="warn-text">${icon("warn")} ${esc(e.message)}</span>`; }
+    btn.disabled = ro || !v.enabled;
+  };
+
+  // 每日额度：单字段保存（万 token），回车即保存；不合法时就近提示，不弹提示框
+  AI_FEATS.forEach(feat => {
+    const inp = $(`#q-${feat.id}`), errBox = $(`#q-err-${feat.id}`);
+    const err = msg => { errBox.innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; inp.classList.toggle("invalid", !!msg); };
+    inp.addEventListener("input", () => err(""));
+    bindSaveInput(inp, $(`#q-save-${feat.id}`), async val => {
+      const n = val.trim() === "" ? 0 : +val;
+      if (!(n >= 0) || n > 1e8) { err("请填不小于 0 的数（单位：万 token）"); throw Object.assign(new Error("额度不对"), { silent: true }); }
+      v = await api("/api/ai/quota", { method: "PUT", body: { [feat.id]: Math.round(n * 10000) } });
+      toast(n ? `${feat.name}每天最多 ${fmtTokens(Math.round(n * 10000))} token` : `${feat.name}不限额度`);
+    }, gen);
+  });
+
+  $("#ai-price-refresh").onclick = async () => {
+    $("#ai-price-refresh").disabled = true;
+    $("#ai-price-src").textContent = "正在下载 LiteLLM 的公开价格…";
+    try { v = await api("/api/ai/prices/refresh", { method: "POST" }); toast("价格数据已更新"); }
+    catch (e) { toast(e.message, true); v = await api("/api/ai/settings").catch(() => v); }
+    if (!stale(gen)) paintPrices();
+  };
+
+  if (!ro) $("#ai-off").onclick = async () => {
+    const r = await confirmModal({ title: "停用 AI？", body: "会清掉服务商设置和 Key；用量记录、每日额度和自填单价保留。之后可以重新配置。", okText: "停用", danger: true, icon: "power" });
+    if (!r) return;
+    try { await api("/api/ai/provider", { method: "PUT", body: { preset: "" } }); toast("已停用 AI"); dirtyCheck = null; navigate(); }
+    catch (e) { toast(e.message, true); }
+  };
+  window.MDAssist?.settings($("#ai-assist-slot"), v, gen); // 应用内助手（assistant.js）
+  window.MDMcp?.settings($("#ai-mcp-slot"), gen); // MCP 接口（mcp.js）
+}
+
 /* — 更新与关于 — */
 function setAbout(body, info) {
   body.innerHTML = `<div class="brand-head about-head">${logoImg()}<div><h2>MineDeck</h2><div class="sub">Windows 本地 Minecraft 开服工具 · v${esc(info.version)}</div></div></div>` +
@@ -2623,6 +2975,8 @@ async function applyBackground() {
     return;
   }
   navigate();
+  window.MDAssist?.init(); // 应用内 AI 助手的入口（assistant.js）
+  window.MDMcp?.init(); // MCP 接口：外部 AI 提出、等你确认的操作（mcp.js）
   document.dispatchEvent(new Event("md-ready")); // 启动画面（若在播）据此在方块拼完后淡出
   chromeReport.last = (info.config && info.config.chromeColor) || "";
   reportChrome();

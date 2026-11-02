@@ -1,0 +1,12 @@
+[MineDeck] 启动: java -Xms1024M -Xmx6144M -Dfile.encoding=UTF-8 @libraries/net/neoforged/neoforge/21.1.265/win_args.txt nogui
+[09:40:02.104] [main/INFO] [loading.moddiscovery.ModDiscoverer/SCAN]: Found mod file "playerengine-neoforge-1.21.1-1.4.0.jar" [locator: {mods folder locator at D:\MineDeck\servers\pack\mods}, reader: mod manifest]
+[09:40:02.106] [main/INFO] [loading.moddiscovery.ModDiscoverer/SCAN]: Found mod file "journeymap-neoforge-1.21.1-6.0.0-beta.33.jar" [locator: {mods folder locator at D:\MineDeck\servers\pack\mods}, reader: mod manifest]
+[09:40:05.506] [main/ERROR] [common.asm.RuntimeDistCleaner/DISTXFORM]: Attempted to load class net/minecraft/client/multiplayer/MultiPlayerGameMode for invalid dist DEDICATED_SERVER
+[09:40:05.523] [main/WARN] [mixin/]: Error loading class: net/minecraft/client/multiplayer/MultiPlayerGameMode (java.lang.RuntimeException: Attempted to load class net/minecraft/client/multiplayer/MultiPlayerGameMode for invalid dist DEDICATED_SERVER)
+[09:40:05.524] [main/WARN] [mixin/]: @Mixin target net.minecraft.client.multiplayer.MultiPlayerGameMode was not found playerengine.mixins.json:ClientBlockBreakMixin from mod playerengine
+[09:40:10] [main/ERROR] [ne.ne.fm.ModLoader/LOADING]: Loading errors encountered:
+	- Mod journeymap has failed to load correctly
+		java.lang.RuntimeException: Attempted to load class net/minecraft/client/KeyMapping for invalid dist DEDICATED_SERVER
+	at net.neoforged.fml.loading.RuntimeDistCleaner.processClassWithFlags(RuntimeDistCleaner.java:61) ~[loader-4.0.45.jar%23106!/:4.0]
+	at journeymap.client.JourneymapClient.<clinit>(JourneymapClient.java:110) ~[journeymap-neoforge-1.21.1-6.0.0-beta.33.jar%23177!/:?]
+[MineDeck] 服务器进程已退出（exit status 1）

@@ -1,0 +1,33 @@
+{
+  "id": "chatcmpl-561",
+  "object": "chat.completion",
+  "created": 1761600000,
+  "model": "qwen3:8b",
+  "system_fingerprint": "fp_ollama",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "call_k3xq9sa1",
+            "index": 0,
+            "type": "function",
+            "function": {
+              "name": "instance_props_get",
+              "arguments": "{\"inst\":\"生存服\"}"
+            }
+          }
+        ]
+      },
+      "finish_reason": "tool_calls"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 210,
+    "completion_tokens": 22,
+    "total_tokens": 232
+  }
+}

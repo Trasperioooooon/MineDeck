@@ -1,0 +1,15 @@
+[20:14:30] [main/INFO] [cp.mo.mo.Launcher/MODLAUNCHER]: ModLauncher running: args [--launchTarget, forgeserver, --fml.neoForgeVersion, 21.1.77, --fml.mcVersion, 1.21.1]
+[20:15:05] [Server thread/INFO] [minecraft/DedicatedServer]: Done (15.012s)! For help, type "help"
+[20:15:21] [Server thread/INFO] [minecraft/MinecraftServer]: Steve joined the game
+[20:15:31] [Server thread/INFO] [minecraft/MinecraftServer]: [Not Secure] <Steve> @AI 几点了
+[20:15:33] [Server thread/INFO] [minecraft/MinecraftServer]: [Not Secure] <Steve> @AI /问 /私 怎么做附魔台
+[20:15:35] [Server thread/INFO] [minecraft/MinecraftServer]: [Not Secure] <Steve> @AI 、私 今晚怎么打末影龙
+[20:15:37] [Server thread/INFO] [minecraft/MinecraftServer]: [Not Secure] <Steve> @AI /tp 怎么用
+[20:15:39] [Server thread/INFO] [minecraft/MinecraftServer]: [Not Secure] <Steve> @AI 今晚怎么打末影龙 /私
+[20:15:41] [Server thread/INFO] [minecraft/DedicatedServer]: [Not Secure] <Steve> @AI /帮助
+[20:15:43] [Server thread/INFO] [minecraft/MinecraftServer]: [Not Secure] <Steve> Notch joined the game
+[20:15:45] [Server thread/INFO] [minecraft/MinecraftServer]: [Not Secure] <Ste ve> @AI 名字带空格
+[20:15:47] [Netty Server IO #2/INFO] [minecraft/MinecraftServer]: <Steve> @AI 线程不对
+[20:15:49] [Server thread/INFO] [minecraft/MinecraftServer]: [Not Secure] <Steve> @AI 把天气改晴
+[20:15:50] [Server thread/WARN] [minecraft/MinecraftServer]: [Not Secure] <Steve> @AI 级别不对
+[20:16:30] [Server thread/INFO] [minecraft/MinecraftServer]: Steve left the game

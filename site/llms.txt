@@ -1,0 +1,34 @@
+# MineDeck
+
+> MineDeck 是 Windows 上的我的世界（Minecraft Java 版）一键开服工具：单文件 exe，自动下载 Java 和服务端，图形界面管理服务器，整合包一键导入，内置樱花穿透、OpenFrp 内网穿透；可选接入自己的 AI Key，提供 AI 开服助手、游戏内 AI、AI 伙伴，以及音乐共享。MineDeck is a one-click Minecraft (Java Edition) server launcher for Windows. Its interface is Chinese only for now. MIT licensed.
+
+- Platform: Windows 10 / 11 (Windows 11 recommended: music sharing can record a single program there).
+- Distribution: a single `MineDeck.exe` (about 13 MB, no installer, no dependencies), downloaded from GitHub Releases. Current version: 2.9.0-beta.2 (beta).
+- Server software: Vanilla, Paper, Purpur, Leaves, Folia, Fabric, NeoForge, Forge, Mohist, Banner, Velocity, Waterfall; Minecraft 1.12.2 to the latest release. Modrinth (`.mrpack`) and CurseForge (zip) modpacks can be imported.
+- Java: picked from Mojang's version metadata and downloaded as a portable runtime; nothing to install by hand.
+- Playing with friends elsewhere: built-in frp tunnels (SakuraFrp, OpenFrp, self-hosted frps).
+- Optional AI (your own API key; OpenAI-compatible or Claude protocol): an in-app assistant that reads logs and configs and only changes things after you confirm; in-game `@AI` chat; AI companions built on PlayerEngine (NeoForge 1.21.1, Forge 1.20.1). Music sharing streams the host's music player through Simple Voice Chat. Without configuration MineDeck connects to no AI service.
+- MCP server (optional, off by default): AI tools on the same PC (Claude Desktop, Cherry Studio, Cursor, VS Code) can use MineDeck over MCP (Streamable HTTP or `MineDeck.exe -mcp` stdio); reads run directly, changes are only proposed and run after the user confirms them in MineDeck.
+
+## Website
+
+- [中文介绍页](https://trasperioooooon.github.io/MineDeck/): 功能、截图、常见问题、系统要求
+- [English page](https://trasperioooooon.github.io/MineDeck/en/): English overview, FAQ and requirements
+
+## Docs
+
+- [README](https://raw.githubusercontent.com/Trasperioooooon/MineDeck/main/README.md): 功能一览、使用、常见问题、从源码构建、架构，末尾有英文简介
+- [v2.9.0-beta.2 发布说明](https://raw.githubusercontent.com/Trasperioooooon/MineDeck/main/docs/releases/v2.9.0-beta.2.md): 和 beta.1 相比的变化（MCP 接口、伙伴模组 0.2.1）、下载哪个文件、已知情况
+- [v2.9.0-beta.1 发布说明](https://raw.githubusercontent.com/Trasperioooooon/MineDeck/main/docs/releases/v2.9.0-beta.1.md): 新功能、下载哪个文件、从 v2.6.1（AutoMCHUB）升级、已知情况
+- [好友测试指南](https://raw.githubusercontent.com/Trasperioooooon/MineDeck/main/docs/%E5%A5%BD%E5%8F%8B%E6%B5%8B%E8%AF%95%E6%8C%87%E5%8D%97.md): 给帮忙测试的好友看的说明
+- [测试计划](https://raw.githubusercontent.com/Trasperioooooon/MineDeck/main/docs/%E6%B5%8B%E8%AF%95%E8%AE%A1%E5%88%92.md): 完整测试清单和反馈格式
+- [API](https://raw.githubusercontent.com/Trasperioooooon/MineDeck/main/docs/API.md): 本地 REST API 与 Webhook 事件
+
+## Download
+
+- [GitHub Releases](https://github.com/Trasperioooooon/MineDeck/releases): `MineDeck.exe`、给好友客户端的伙伴模组、`SHA256SUMS`
+
+## Optional
+
+- [Source code](https://github.com/Trasperioooooon/MineDeck): Go + WebView2, MIT License
+- [LICENSE](https://raw.githubusercontent.com/Trasperioooooon/MineDeck/main/LICENSE): MIT

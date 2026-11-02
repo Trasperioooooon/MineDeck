@@ -1,0 +1,10 @@
+[MineDeck] 启动: java -Xms1024M -Xmx4096M -Dfile.encoding=UTF-8 -jar server.jar nogui
+[12:00:01] [ServerMain/INFO]: Environment: Environment[sessionHost=https://sessionserver.mojang.com, servicesHost=https://api.minecraftservices.com, name=PROD]
+[12:00:04] [Server thread/INFO]: Starting minecraft server version 1.21.1
+[12:00:04] [Server thread/INFO]: Loading properties
+[12:00:05] [Server thread/INFO]: Starting Minecraft server on *:25565
+[12:00:05] [Server thread/WARN]: **** FAILED TO BIND TO PORT!
+[12:00:05] [Server thread/WARN]: The exception was: java.net.BindException: Address already in use: bind
+[12:00:05] [Server thread/WARN]: Perhaps a server is already running on that port?
+[12:00:05] [Server thread/INFO]: Stopping server
+[MineDeck] 服务器已正常关闭

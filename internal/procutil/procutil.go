@@ -40,6 +40,13 @@ func (c *Console) Append(line string) {
 	}
 }
 
+// Lines 当前缓冲里的全部行（最多 3000 行）的副本。
+func (c *Console) Lines() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.lines...)
+}
+
 // Subscribe 返回历史回放与实时通道。
 func (c *Console) Subscribe() (replay []string, ch chan string, cancel func()) {
 	c.mu.Lock()

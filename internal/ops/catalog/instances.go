@@ -1,0 +1,602 @@
+package catalog
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+
+	"minedeck/internal/app"
+	"minedeck/internal/inst"
+	"minedeck/internal/mcsrc"
+	"minedeck/internal/modpack"
+	"minedeck/internal/ops"
+)
+
+type instSummary struct {
+	Name            string   `json:"name"`
+	Core            string   `json:"core"`
+	Kind            string   `json:"kind"`
+	MC              string   `json:"mc"`
+	Build           string   `json:"build"`
+	JavaMajor       int      `json:"javaMajor"`
+	JavaSource      string   `json:"javaSource"` // portable：MineDeck 的便携版；local：本机装的 Java
+	XmxMB           int      `json:"xmxMb"`
+	XmsMB           int      `json:"xmsMb"`
+	Port            int      `json:"port"`
+	Status          string   `json:"status"`
+	MOTD            string   `json:"motd"`
+	Dir             string   `json:"dir"`
+	CreatedAt       string   `json:"createdAt"`
+	ConsoleEncoding string   `json:"consoleEncoding"`
+	OnlineCount     int      `json:"onlineCount"`
+	UptimeSec       int      `json:"uptimeSec"`
+	MaxPlayers      int      `json:"maxPlayers"`
+	ExtraJVM        []string `json:"extraJvm"`
+}
+
+func summarize(i *inst.Instance) instSummary {
+	motd := ""
+	maxP := 20
+	if p, err := inst.LoadProps(i.PropsPath()); err == nil {
+		motd, _ = p.Get("motd")
+		if v, ok := p.Get("max-players"); ok {
+			if n, e := strconv.Atoi(strings.TrimSpace(v)); e == nil && n > 0 {
+				maxP = n
+			}
+		}
+	}
+	xmx, xms, enc := i.MemSnapshot() // 加锁快照，避免与并发的 UpdateSettings 写入构成数据竞争
+	javaMajor, javaPath := i.JavaSnapshot()
+	javaSource := "local"
+	if rel, err := filepath.Rel(app.RuntimesDir, javaPath); err == nil && !strings.HasPrefix(rel, "..") {
+		javaSource = "portable"
+	}
+	if enc == "" {
+		enc = "auto"
+	}
+	return instSummary{
+		Name: i.Name, Core: string(i.Core), Kind: string(mcsrc.KindOf(i.Core)),
+		MC: i.MC, Build: i.Build,
+		JavaMajor: javaMajor, JavaSource: javaSource, XmxMB: xmx, XmsMB: xms,
+		Port: i.Port(), Status: i.Status(), MOTD: motd, Dir: i.Dir,
+		CreatedAt:       i.CreatedAt.Format("2006-01-02 15:04"),
+		ConsoleEncoding: enc,
+		OnlineCount:     i.OnlineCount(), UptimeSec: i.UptimeSec(), MaxPlayers: maxP,
+		ExtraJVM: i.ExtraJVMSnapshot(),
+	}
+}
+
+// createParams 新建实例、导入整合包共用的参数说明。
+var createParams = map[string]*ops.Schema{
+	"name":        ops.String("实例名称，1–40 个字，不能含 \\ / : * ? \" < > |"),
+	"core":        ops.String("核心 id（见 mc.cores），如 paper、neoforge、forge、fabric、vanilla"),
+	"mc":          ops.String("Minecraft 版本（见 mc.versions）"),
+	"build":       ops.String("构建号或加载器版本（见 mc.builds）；空则取推荐的"),
+	"xmxMb":       ops.Integer("最大内存（MB），低于 512 按 2048 算"),
+	"port":        ops.Integer("端口，不在 1–65535 内按 25565 算"),
+	"eula":        ops.Boolean("是否同意 Minecraft EULA（必须由用户本人同意）"),
+	"onlineMode":  ops.Boolean("正版验证"),
+	"allowFlight": ops.Boolean("允许飞行"),
+	"motd":        ops.String("服务器列表里显示的简介"),
+	"difficulty":  ops.String("难度：peaceful、easy、normal、hard；空则用服务端默认"),
+	"gamemode":    ops.String("默认游戏模式：survival、creative、adventure、spectator；空则用服务端默认"),
+	"root":        ops.String("存放目录（仅本机生效；空则用全局默认）"),
+}
+
+func (c *cat) instanceOps() {
+	c.reg.Register(&ops.Op{
+		Name: "instance.list", Title: "查看实例列表", Level: ops.Read,
+		Desc: "所有实例：核心、版本、Java、内存、端口、状态、在线人数、运行时长、MOTD。",
+		Run: func(context.Context, ops.Caller, ops.Args) (any, error) {
+			out := []instSummary{}
+			for _, i := range c.Mgr.List() {
+				out = append(out, summarize(i))
+			}
+			return out, nil
+		},
+	})
+
+	c.reg.Register(&ops.Op{
+		Name: "instance.create", Title: "新建实例", Level: ops.Write,
+		Desc: "在后台下载核心与 Java 并生成配置，返回任务编号（进度见 task.get）。Minecraft EULA 由用户在确认卡片上自己勾选同意，" +
+			"不用也不能替用户传；存放目录用默认的。",
+		Params: ops.Object(createParams),
+		// EULA 只能由人同意（§5.1）、存放目录只能由人指定：AI 提出时这两项去掉，确认卡片上由用户自己勾选同意
+		HumanParams: []string{"eula", "root"},
+		Consent: &ops.Consent{Param: "eula", Text: "我已阅读并同意 Minecraft EULA", URL: "https://aka.ms/MinecraftEULA",
+			Need: func(a ops.Args) bool {
+				req, _ := bind[inst.CreateReq](a)
+				return mcsrc.KindOf(req.Core) != mcsrc.KindProxy // 代理端不运行 Minecraft 本体，不用同意 EULA
+			}},
+		Preview: func(_ context.Context, _ ops.Caller, a ops.Args) (*ops.Plan, error) {
+			req, err := bind[inst.CreateReq](a)
+			if err != nil {
+				return nil, err
+			}
+			taken := "未占用"
+			if _, err := c.Mgr.Get(strings.TrimSpace(req.Name)); err == nil {
+				taken = "已占用"
+			}
+			return &ops.Plan{Summary: fmt.Sprintf("新建实例「%s」（%s %s）", req.Name, req.Core, req.MC),
+				Pre: map[string]string{"实例名": taken}}, nil
+		},
+		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
+			req, err := bind[inst.CreateReq](a)
+			if err != nil {
+				return nil, err
+			}
+			if !caller.Local || caller.Source.AI() {
+				req.Root = "" // 远程 / 局域网请求和 AI 都不得指定主机任意路径，强制落到默认根，防越界写入
+			}
+			id, err := c.Mgr.CreateAsync(req)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]string{"taskId": id}, nil
+		},
+	})
+
+	importParams := map[string]*ops.Schema{"file": ops.String("已上传到缓存目录的整合包文件")}
+	for k, v := range createParams {
+		if k == "name" || k == "xmxMb" || k == "port" || k == "eula" || k == "onlineMode" || k == "allowFlight" || k == "motd" || k == "root" {
+			importParams[k] = v
+		}
+	}
+	c.reg.Register(&ops.Op{
+		Name: "instance.import", Title: "导入整合包", Level: ops.HumanOnly,
+		Desc:   "从已上传的 Modrinth / CurseForge 整合包创建实例（核心、版本、加载器由整合包决定），返回任务编号。",
+		Params: ops.Object(importParams, "file"),
+		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
+			p, err := bind[struct {
+				File string `json:"file"`
+				inst.CreateReq
+			}](a)
+			if err != nil {
+				return nil, err
+			}
+			// 只认网页接口刚存进缓存目录的上传文件，不能拿它去读主机上别的文件
+			if filepath.Dir(filepath.Clean(p.File)) != filepath.Join(app.CacheDir, "import") {
+				return nil, fmt.Errorf("整合包文件不在上传目录里")
+			}
+			pack, err := modpack.Parse(p.File)
+			if err != nil {
+				os.Remove(p.File)
+				return nil, err
+			}
+			req := p.CreateReq
+			if !caller.Local {
+				req.Root = "" // 同 instance.create：远程 / 局域网请求不得指定主机任意路径，强制落到默认根
+			}
+			id, err := c.Mgr.ImportModpackAsync(pack, req, app.CFKey())
+			if err != nil {
+				os.Remove(p.File)
+				return nil, err
+			}
+			return map[string]any{
+				"taskId": id,
+				"pack":   map[string]any{"name": pack.Name, "mc": pack.MC, "core": pack.Core, "loader": pack.Loader, "files": len(pack.Files) + len(pack.CFRefs)},
+			}, nil
+		},
+	})
+
+	c.reg.Register(&ops.Op{
+		Name: "task.get", Title: "查看任务进度", Level: ops.Read,
+		Desc:   "新建实例、导入整合包的后台任务：各步骤状态、下载进度、日志、告警。",
+		Params: ops.Object(map[string]*ops.Schema{"id": ops.String("任务编号")}, "id"),
+		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+			p, err := bind[struct {
+				ID string `json:"id"`
+			}](a)
+			if err != nil {
+				return nil, err
+			}
+			t := c.Mgr.Tasks.Get(p.ID)
+			if t == nil {
+				return nil, ops.Errorf(404, "任务不存在")
+			}
+			return t.Snapshot(), nil
+		},
+	})
+
+	// 启停：预览以实例状态为前置条件，停服、强杀写明在线人数
+	lifecycle := []struct {
+		name, title string
+		level       ops.Level
+		desc        string
+		run         func(name string) error
+		plan        func(i *inst.Instance) (summary, warning string)
+	}{
+		{"instance.start", "启动服务器", ops.Write, "启动实例；绑定在它上面、开了跟随启动的隧道会跟着拉起。",
+			func(name string) error { return c.Mgr.Start(name) }, // 隧道跟随启停在 tunnel.FollowInstances 里（崩溃自动重启也算）
+			func(i *inst.Instance) (string, string) { return fmt.Sprintf("启动「%s」", i.Name), "" }},
+		{"instance.stop", "停止服务器", ops.Danger, "发送 stop 命令，保存世界后停止；30 秒没停下就强制结束。开了跟随启动的隧道随后跟着停。",
+			func(name string) error { return c.Mgr.Stop(name) },
+			func(i *inst.Instance) (string, string) {
+				return fmt.Sprintf("停止「%s」（先保存世界）", i.Name), onlineWarning(i, "停服")
+			}},
+		{"instance.kill", "强制结束服务器", ops.Danger, "立即结束进程，不保存世界。",
+			func(name string) error { return c.Mgr.Kill(name) },
+			func(i *inst.Instance) (string, string) {
+				return fmt.Sprintf("强制结束「%s」", i.Name), onlineWarning(i, "不会保存世界，可能丢失最近的进度")
+			}},
+	}
+	for _, l := range lifecycle {
+		l := l
+		c.reg.Register(&ops.Op{
+			Name: l.name, Title: l.title, Level: l.level, Desc: l.desc, Params: withInst(nil),
+			Preview: func(_ context.Context, _ ops.Caller, a ops.Args) (*ops.Plan, error) {
+				p, err := bind[instArgs](a)
+				if err != nil {
+					return nil, err
+				}
+				i, pre, err := c.statusPre(p.Inst)
+				if err != nil {
+					return nil, err
+				}
+				summary, warning := l.plan(i)
+				return &ops.Plan{Summary: summary, Warning: warning, Pre: pre}, nil
+			},
+			Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+				p, err := bind[instArgs](a)
+				if err != nil {
+					return nil, err
+				}
+				if err := l.run(p.Inst); err != nil {
+					return nil, err
+				}
+				return "ok", nil
+			},
+		})
+	}
+
+	c.reg.Register(&ops.Op{
+		Name: "instance.restart", Title: "重启服务器", Level: ops.Danger, Params: withInst(nil),
+		Desc: "先保存世界并停止（最多等 40 秒），停下来之后再启动。改了配置、换了 Java、禁用了模组之后，用它让改动生效。服务器要在运行。",
+		Preview: func(_ context.Context, _ ops.Caller, a ops.Args) (*ops.Plan, error) {
+			p, err := bind[instArgs](a)
+			if err != nil {
+				return nil, err
+			}
+			i, pre, err := c.statusPre(p.Inst)
+			if err != nil {
+				return nil, err
+			}
+			if st := i.Status(); st != "running" && st != "starting" {
+				return nil, ops.Errorf(400, "「%s」没在运行，不用重启；要启动请用 instance.start", i.Name)
+			}
+			return &ops.Plan{Summary: fmt.Sprintf("重启「%s」（先保存世界）", i.Name), Warning: onlineWarning(i, "重启"), Pre: pre}, nil
+		},
+		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+			p, err := bind[instArgs](a)
+			if err != nil {
+				return nil, err
+			}
+			if err := c.Mgr.Restart(p.Inst); err != nil {
+				return nil, err
+			}
+			return "ok", nil
+		},
+	})
+
+	type cmdArgs struct {
+		Inst string `json:"inst"`
+		Cmd  string `json:"cmd"`
+	}
+	c.reg.Register(&ops.Op{
+		Name: "instance.command", Title: "执行控制台命令", Level: ops.Danger,
+		Desc:   "向服务器控制台发送一条命令（不带开头的 /）。控制台命令能做任何事。",
+		Params: withInst(map[string]*ops.Schema{"cmd": ops.String("命令，如 say hi")}),
+		Preview: func(_ context.Context, _ ops.Caller, a ops.Args) (*ops.Plan, error) {
+			p, err := bind[cmdArgs](a)
+			if err != nil {
+				return nil, err
+			}
+			_, pre, err := c.statusPre(p.Inst)
+			if err != nil {
+				return nil, err
+			}
+			return &ops.Plan{Summary: fmt.Sprintf("在「%s」的控制台执行：%s", p.Inst, strings.TrimSpace(p.Cmd)),
+				Warning: "控制台命令可以做任何事，请确认命令无误", Pre: pre}, nil
+		},
+		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+			p, err := bind[cmdArgs](a)
+			if err != nil {
+				return nil, err
+			}
+			if err := c.Mgr.Command(p.Inst, p.Cmd); err != nil {
+				return nil, err
+			}
+			return "ok", nil
+		},
+	})
+
+	c.reg.Register(&ops.Op{
+		Name: "instance.delete", Title: "删除实例", Level: ops.HumanOnly,
+		Desc:   "从列表移除实例；files 为 true 时连实例目录一起删掉。服务器必须已停止。",
+		Params: withInst(map[string]*ops.Schema{"files": ops.Boolean("同时删除实例目录")}),
+		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+			p, err := bind[struct {
+				Inst  string `json:"inst"`
+				Files bool   `json:"files"`
+			}](a)
+			if err != nil {
+				return nil, err
+			}
+			if err := c.Mgr.Delete(p.Inst, p.Files); err != nil {
+				return nil, err
+			}
+			return "ok", nil
+		},
+	})
+
+	// 与 host.pickdir / host.openpath 同理：资源管理器窗口开在主机桌面上，对远程用户无意义，故仅限本机
+	c.reg.Register(&ops.Op{
+		Name: "instance.opendir", Title: "打开实例目录", Level: ops.HumanOnly, LocalOnly: true, NoLog: true,
+		LocalMsg: "打开目录仅支持在本机操作（远程管理时请在主机上操作）",
+		Desc:     "在主机的资源管理器里打开实例目录，或它下面的 mods、plugins、world、logs、crash-reports。",
+		Params:   withInst(map[string]*ops.Schema{"sub": ops.String("子目录；空则打开实例目录本身")}),
+		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+			p, err := bind[struct {
+				Inst string `json:"inst"`
+				Sub  string `json:"sub"`
+			}](a)
+			if err != nil {
+				return nil, err
+			}
+			if err := c.Mgr.OpenDir(p.Inst, p.Sub); err != nil {
+				return nil, err
+			}
+			return "ok", nil
+		},
+	})
+
+	type settingsArgs struct {
+		Inst            string    `json:"inst"`
+		XmxMB           int       `json:"xmxMb"`
+		XmsMB           int       `json:"xmsMb"`
+		ConsoleEncoding string    `json:"consoleEncoding"`
+		ExtraJVM        *[]string `json:"extraJvm"`
+	}
+	c.reg.Register(&ops.Op{
+		Name: "instance.settings.set", Title: "修改内存与启动参数", Level: ops.Write,
+		Desc: "改最大 / 最小内存、控制台编码、自定义 JVM 参数，并重新生成启动脚本；下次启动生效。",
+		Params: withInst(map[string]*ops.Schema{
+			"xmxMb":           ops.Integer("最大内存（MB），不低于 512；0 表示不改"),
+			"xmsMb":           ops.Integer("最小内存（MB）；不合理时按 min(1024, 最大内存) 算"),
+			"consoleEncoding": ops.String("控制台编码：auto、utf-8、gbk；空表示不改"),
+			"extraJvm":        ops.Array("自定义 JVM 参数，一行一个，传了就整体替换（老版本的 log4shell 缓解参数始终保留）", ops.String("一个参数")),
+		}),
+		Preview: func(_ context.Context, _ ops.Caller, a ops.Args) (*ops.Plan, error) {
+			p, err := bind[settingsArgs](a)
+			if err != nil {
+				return nil, err
+			}
+			i, err := c.get(p.Inst)
+			if err != nil {
+				return nil, err
+			}
+			xmx, xms, enc := i.MemSnapshot()
+			jvm := i.ExtraJVMSnapshot()
+			plan := &ops.Plan{Summary: fmt.Sprintf("修改「%s」的运行参数（下次启动生效）", p.Inst),
+				Pre: map[string]string{"运行参数": fmt.Sprintf("%d/%d/%s/%q", xmx, xms, enc, jvm)}}
+			if p.XmxMB > 0 && p.XmxMB != xmx {
+				plan.Changes = append(plan.Changes, ops.Change{What: "最大内存（MB）", Before: strconv.Itoa(xmx), After: strconv.Itoa(p.XmxMB)})
+			}
+			if p.ConsoleEncoding != "" && p.ConsoleEncoding != enc {
+				plan.Changes = append(plan.Changes, ops.Change{What: "控制台编码", Before: enc, After: p.ConsoleEncoding})
+			}
+			if p.ExtraJVM != nil && !slices.Equal(*p.ExtraJVM, jvm) {
+				plan.Changes = append(plan.Changes, ops.Change{What: "JVM 参数", Before: strings.Join(jvm, " "), After: strings.Join(*p.ExtraJVM, " ")})
+			}
+			return plan, nil
+		},
+		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+			p, err := bind[settingsArgs](a)
+			if err != nil {
+				return nil, err
+			}
+			if err := c.Mgr.UpdateSettings(p.Inst, p.XmxMB, p.XmsMB, p.ConsoleEncoding, p.ExtraJVM); err != nil {
+				return nil, err
+			}
+			return "ok", nil
+		},
+	})
+
+	c.reg.Register(&ops.Op{
+		Name: "instance.props.get", Title: "读取 server.properties", Level: ops.Read,
+		Desc:   "server.properties 的全部键值（按文件里的顺序），以及服务器是否在运行（运行中改的要重启才生效）。",
+		Params: withInst(nil),
+		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+			p, err := bind[instArgs](a)
+			if err != nil {
+				return nil, err
+			}
+			i, err := c.get(p.Inst)
+			if err != nil {
+				return nil, err
+			}
+			props, err := inst.LoadProps(i.PropsPath())
+			if err != nil {
+				return nil, ops.Wrap(500, err)
+			}
+			pairs := props.Pairs()
+			if pairs == nil {
+				pairs = []inst.KV{}
+			}
+			return map[string]any{"pairs": pairs, "running": i.Status() != "stopped"}, nil
+		},
+	})
+
+	type propsArgs struct {
+		Inst  string    `json:"inst"`
+		Pairs []inst.KV `json:"pairs"`
+	}
+	c.reg.Register(&ops.Op{
+		Name: "instance.props.set", Title: "修改 server.properties", Level: ops.Write,
+		Desc: "改 server.properties 里的若干项（其余保持原样）；服务器运行中改的要重启才生效。",
+		Params: withInst(map[string]*ops.Schema{
+			"pairs": ops.Array("要改的键值对", ops.Object(map[string]*ops.Schema{
+				"key":   ops.String("键名，如 max-players"),
+				"value": ops.String("新的值（一律写成字符串）"),
+			}, "key", "value")),
+		}),
+		Preview: func(_ context.Context, _ ops.Caller, a ops.Args) (*ops.Plan, error) {
+			p, err := bind[propsArgs](a)
+			if err != nil {
+				return nil, err
+			}
+			i, err := c.get(p.Inst)
+			if err != nil {
+				return nil, err
+			}
+			props, err := inst.LoadProps(i.PropsPath())
+			if err != nil {
+				return nil, ops.Wrap(500, err)
+			}
+			plan := &ops.Plan{Summary: fmt.Sprintf("修改「%s」的 server.properties", p.Inst),
+				Pre: map[string]string{"server.properties": fileHash(i.PropsPath())}}
+			for _, kv := range p.Pairs {
+				key, val := cleanProp(kv)
+				if key == "" {
+					continue
+				}
+				if old, ok := props.Get(key); !ok || old != val {
+					plan.Changes = append(plan.Changes, ops.Change{What: key, Before: old, After: val})
+				}
+			}
+			if i.Status() != "stopped" {
+				plan.Warning = "服务器正在运行，改动要重启后才生效"
+			}
+			return plan, nil
+		},
+		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+			p, err := bind[propsArgs](a)
+			if err != nil {
+				return nil, err
+			}
+			i, err := c.get(p.Inst)
+			if err != nil {
+				return nil, err
+			}
+			props, err := inst.LoadProps(i.PropsPath())
+			if err != nil {
+				return nil, ops.Wrap(500, err)
+			}
+			for _, kv := range p.Pairs {
+				if key, val := cleanProp(kv); key != "" {
+					props.Set(key, val)
+				}
+			}
+			if err := props.Save(i.PropsPath()); err != nil {
+				return nil, ops.Wrap(500, err)
+			}
+			return "ok", nil
+		},
+	})
+
+	c.reg.Register(&ops.Op{
+		Name: "instance.policies.get", Title: "查看崩溃重启与定时任务", Level: ops.Read,
+		Params: withInst(nil),
+		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+			p, err := bind[instArgs](a)
+			if err != nil {
+				return nil, err
+			}
+			i, err := c.get(p.Inst)
+			if err != nil {
+				return nil, err
+			}
+			pol := i.PoliciesSnapshot()
+			if pol.Schedules == nil {
+				pol.Schedules = []inst.Schedule{}
+			}
+			return pol, nil
+		},
+	})
+
+	c.reg.Register(&ops.Op{
+		Name: "instance.policies.set", Title: "修改崩溃重启与定时任务", Level: ops.Write,
+		Desc: "整体替换：崩溃后是否自动重启，以及每天定时执行的任务（重启、命令、备份）。",
+		Params: withInst(map[string]*ops.Schema{
+			"crashRestart": ops.Boolean("崩溃后自动重启（10 / 30 / 60 秒退避，连续 3 次放弃）"),
+			"schedules": ops.Array("定时任务", ops.Object(map[string]*ops.Schema{
+				"type": ops.String("restart（重启）、command（执行命令）、backup（备份）"),
+				"at":   ops.String("每天几点，HH:MM"),
+				"args": ops.String("type 为 command 时要执行的命令"),
+			})),
+		}),
+		Preview: func(_ context.Context, _ ops.Caller, a ops.Args) (*ops.Plan, error) {
+			p, err := bind[struct {
+				Inst string `json:"inst"`
+				inst.Policies
+			}](a)
+			if err != nil {
+				return nil, err
+			}
+			i, err := c.get(p.Inst)
+			if err != nil {
+				return nil, err
+			}
+			cur := i.PoliciesSnapshot()
+			fp, _ := json.Marshal(cur)
+			plan := &ops.Plan{Summary: fmt.Sprintf("修改「%s」的崩溃重启与定时任务", p.Inst), Pre: map[string]string{"运维策略": string(fp)}}
+			if cur.CrashRestart != p.CrashRestart {
+				plan.Changes = append(plan.Changes, ops.Change{What: "崩溃自动重启", Before: onOff(cur.CrashRestart), After: onOff(p.CrashRestart)})
+			}
+			if before, after := schedText(cur.Schedules), schedText(p.Schedules); before != after {
+				plan.Changes = append(plan.Changes, ops.Change{What: "定时任务", Before: before, After: after})
+			}
+			return plan, nil
+		},
+		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+			p, err := bind[struct {
+				Inst string `json:"inst"`
+				inst.Policies
+			}](a)
+			if err != nil {
+				return nil, err
+			}
+			if err := c.Mgr.UpdatePolicies(p.Inst, p.Policies); err != nil {
+				return nil, err
+			}
+			return "ok", nil
+		},
+	})
+}
+
+// cleanProp 规整一项 server.properties 的修改：键名为空或含 = 和换行的丢弃；
+// 值内换行→空格，防拆行注入额外 key=value（如 enable-rcon）。
+func cleanProp(kv inst.KV) (key, val string) {
+	key = strings.TrimSpace(kv.Key)
+	if key == "" || strings.ContainsAny(key, "=\n\r") {
+		return "", ""
+	}
+	return key, strings.ReplaceAll(strings.ReplaceAll(kv.Value, "\r", " "), "\n", " ")
+}
+
+func onOff(b bool) string {
+	if b {
+		return "开"
+	}
+	return "关"
+}
+
+func schedText(ss []inst.Schedule) string {
+	if len(ss) == 0 {
+		return "无"
+	}
+	var parts []string
+	for _, s := range ss {
+		t := s.At + " " + s.Type
+		if s.Args != "" {
+			t += "：" + s.Args
+		}
+		parts = append(parts, t)
+	}
+	return strings.Join(parts, "；")
+}

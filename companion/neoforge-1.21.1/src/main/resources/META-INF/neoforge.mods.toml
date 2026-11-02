@@ -1,0 +1,46 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "MIT"
+
+[[mods]]
+modId = "minedeck_companion"
+version = "${version}"
+displayName = "MineDeck Companion"
+authors = "MineDeck"
+description = '''
+MineDeck 的 AI 伙伴：PlayerEngine 做身体（寻路、采集、打怪、背包），MineDeck 做大脑。
+服务端要装本模组、PlayerEngine 和 Architectury API；玩家的客户端只要装本模组（用来显示伙伴）。
+'''
+
+[[mixins]]
+config = "minedeck_companion.mixins.json"
+
+[[dependencies.minedeck_companion]]
+modId = "neoforge"
+type = "required"
+versionRange = "[21.1,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.minedeck_companion]]
+modId = "minecraft"
+type = "required"
+versionRange = "[1.21.1,1.21.2)"
+ordering = "NONE"
+side = "BOTH"
+
+# 伙伴的身体在服务端，只有服务端要装 PlayerEngine；客户端不加载任何引用 PlayerEngine 的类。
+# PlayerEngine 没有稳定的 API（1.1 到 1.4 之间 Character 的构造函数就变过），只放行测过的 1.4.x
+[[dependencies.minedeck_companion]]
+modId = "playerengine"
+type = "required"
+versionRange = "[1.21.1-1.4.0,1.21.1-1.5)"
+ordering = "AFTER"
+side = "SERVER"
+
+[[dependencies.minedeck_companion]]
+modId = "architectury"
+type = "required"
+versionRange = "[13.0.8,)"
+ordering = "AFTER"
+side = "SERVER"

@@ -1,0 +1,5 @@
+[MineDeck] 启动: java -Xms1024M -Xmx6144M -Dfile.encoding=UTF-8 @libraries/net/neoforged/neoforge/21.1.77/win_args.txt nogui
+[09:31:02] [main/WARN] [ne.ne.fm.lo.mo.ModDiscoverer/SCAN]: File sodium-fabric-0.6.0+mc1.21.1.jar is a Fabric mod and cannot be loaded
+[09:31:02] [main/WARN] [ne.ne.fm.lo.mo.ModDiscoverer/SCAN]: File mcw-roofs-2.3.0-mc1.20.1forge.jar is for Minecraft Forge or an older version of NeoForge, and cannot be loaded
+[09:31:02] [main/WARN] [ne.ne.fm.lo.mo.ModDiscoverer/SCAN]: File EssentialsX-2.21.0.jar is a Bukkit or Bukkit-implementor (Spigot, Paper, etc.) plugin and cannot be loaded
+[09:31:09] [main/INFO] [minecraft/DedicatedServer]: Done (7.212s)! For help, type "help"

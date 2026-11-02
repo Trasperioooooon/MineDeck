@@ -1,0 +1,34 @@
+{
+  "id": "msg_014p7gG3wDgGV9EUtLvnow3U",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-opus-5-5",
+  "content": [
+    {
+      "type": "thinking",
+      "thinking": "",
+      "signature": "ErUBCkYIBRgCIkDjB0kYJ7r9uQwOdq3e5m"
+    },
+    {
+      "type": "text",
+      "text": "我先看看生存服的配置。"
+    },
+    {
+      "type": "tool_use",
+      "id": "toolu_01T1x1fJ34qAmk2tNTrN7Up6",
+      "name": "instance_props_get",
+      "input": {
+        "inst": "生存服"
+      }
+    }
+  ],
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "stop_details": null,
+  "usage": {
+    "input_tokens": 472,
+    "cache_creation_input_tokens": 3100,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 89
+  }
+}

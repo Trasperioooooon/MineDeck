@@ -1,0 +1,81 @@
+plugins {
+    id 'java'
+    id 'net.neoforged.moddev.legacyforge' version '2.0.148'
+}
+
+version = mod_version
+group = 'minedeck'
+base {
+    archivesName = 'minedeck-companion-forge-1.20.1'
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(17)
+}
+
+repositories {
+    // PlayerEngine、Architectury API 都从 Modrinth 的 Maven 取，只用于编译
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'Modrinth'
+                url = 'https://api.modrinth.com/maven'
+            }
+        }
+        filter {
+            includeGroup 'maven.modrinth'
+        }
+    }
+}
+
+legacyForge {
+    enable {
+        forgeVersion = forge_version
+        // 不反编译 Minecraft：只编译，省时间也省内存
+        disableRecompilation = true
+    }
+    mods {
+        minedeck_companion {
+            sourceSet sourceSets.main
+        }
+    }
+}
+
+// 和 NeoForge 1.21.1 版共用的代码：common 只用 java.*（协议、控制端口、配置文件），
+// shared 用到 Minecraft 和 PlayerEngine、两个版本写法相同的部分（指令、任务、禁挖区域、存档记录）
+sourceSets.main.java.srcDir '../common/src/main/java'
+sourceSets.main.java.srcDir '../shared/src/main/java'
+
+dependencies {
+    // Forge 1.20.1 的模组 jar 是 SRG 名，modCompileOnly 会先把它们换成官方名再编译
+    modCompileOnly "maven.modrinth:playerengine:${playerengine_version}"
+    modCompileOnly "maven.modrinth:architectury-api:${architectury_version}"
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 17
+}
+
+processResources {
+    def props = [version: mod_version]
+    inputs.properties props
+    filesMatching('META-INF/mods.toml') {
+        expand props
+    }
+}
+
+tasks.withType(AbstractArchiveTask).configureEach {
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+}
+
+jar {
+    from(rootProject.file('../LICENSE-NOTICE.md')) {
+        into 'META-INF'
+    }
+    // Forge 1.20.1 从清单里的 MixinConfigs 找 mixin 配置（NeoForge 用 mods.toml 的 [[mixins]]）
+    manifest {
+        attributes 'MixinConfigs': 'minedeck_companion.mixins.json'
+    }
+}

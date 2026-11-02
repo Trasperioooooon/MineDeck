@@ -1,0 +1,9 @@
+[MineDeck] 启动: java -Xms1024M -Xmx4096M -Dfile.encoding=UTF-8 -jar fabric-server-mc.1.21.1-loader.0.16.5-launcher.1.0.1.jar nogui
+[10:00:01] [main/INFO]: Loading Minecraft 1.21.1 with Fabric Loader 0.16.5
+[10:00:01] [main/INFO]: Loading 42 mods:
+	- fabric-api 0.105.0+1.21.1
+	- lithium 0.13.1+mc1.21.1
+[10:00:02] [main/WARN]: Mod lithium uses the version 0.13.1+mc1.21.1 which isn't compatible with Loader's extended semantic version format
+[10:00:05] [main/INFO]: SpongePowered MIXIN Subsystem Version=0.8.7 Source=file:/D:/MineDeck/servers/fabric/.fabric/remappedJars/sponge-mixin-0.15.3+mixin.0.8.7.jar Service=Knot/Fabric Env=SERVER
+[10:00:20] [Server thread/INFO]: Starting Minecraft server on *:25565
+[10:00:30] [Server thread/INFO]: Done (9.003s)! For help, type "help"

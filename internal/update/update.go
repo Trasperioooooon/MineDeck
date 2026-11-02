@@ -26,15 +26,6 @@ type Release struct {
 	checksumURL string
 }
 
-// ghMirrors 把 GitHub 直链包装为国内加速候选（顺序尝试）。
-func ghMirrors(u string) []string {
-	return []string{
-		"https://ghfast.top/" + u,
-		"https://gh-proxy.com/" + u,
-		u,
-	}
-}
-
 // Check 查询最新 Release；repo 形如 "user/MineDeck"。
 func Check(ctx context.Context, repo string) (*Release, bool, error) {
 	repo = strings.Trim(strings.TrimSpace(repo), "/")
@@ -98,7 +89,8 @@ func fetchChecksum(ctx context.Context, url, filename string) string {
 	return ""
 }
 
-// newer 比较 "v1.2.3" 风格版本号。
+// newer 比较 "v1.2.3" 风格版本号。数字相同时，正式版比带后缀的预发布版新
+// （2.9.0 比 2.9.0-beta.1 新），装了测试版的人才能收到同号正式版的更新。
 func newer(tag, current string) bool {
 	pa := verParts(tag)
 	pb := verParts(current)
@@ -107,8 +99,11 @@ func newer(tag, current string) bool {
 			return pa[i] > pb[i]
 		}
 	}
-	return false
+	return !isPre(tag) && isPre(current)
 }
+
+// isPre 报告版本号是否带预发布后缀（如 "2.9.0-beta.1"）。
+func isPre(v string) bool { return strings.Contains(strings.TrimSpace(v), "-") }
 
 func verParts(v string) [3]int {
 	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
@@ -142,7 +137,7 @@ func Apply(ctx context.Context, r *Release) error {
 	defer cancel()
 	// 经镜像下载但以官方 SHA-256 强校验：镜像被投毒/中间人返回的伪 exe 会校验失败、绝不落地执行
 	if err := dl.Fetch(cctx, dl.Request{
-		URLs: ghMirrors(r.AssetURL), Dest: newExe, MinSize: 4 << 20, SHA256: r.SHA256,
+		URLs: dl.GHMirrors(r.AssetURL), Dest: newExe, MinSize: 4 << 20, SHA256: r.SHA256,
 	}, nil); err != nil {
 		return fmt.Errorf("下载新版本失败: %w", err)
 	}

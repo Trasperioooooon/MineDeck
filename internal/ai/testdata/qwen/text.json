@@ -1,0 +1,26 @@
+{
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "你好！我是通义千问，有什么可以帮你的？"
+      },
+      "finish_reason": "stop",
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "object": "chat.completion",
+  "usage": {
+    "prompt_tokens": 3019,
+    "completion_tokens": 104,
+    "total_tokens": 3123,
+    "prompt_tokens_details": {
+      "cached_tokens": 2048
+    }
+  },
+  "created": 1761600000,
+  "system_fingerprint": null,
+  "model": "qwen-plus",
+  "id": "chatcmpl-3f8a9d2e-1b4c-9c1e-a6f0-5d2e7b8c9a01"
+}

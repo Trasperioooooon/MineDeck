@@ -4,7 +4,9 @@
 /servers/
 /backups/
 /bg/
+/logs/
 /config.json
+/secrets.json
 /tunnels.json
 /update.bat
 
@@ -15,3 +17,9 @@
 # 编辑器
 .idea/
 .vscode/
+
+# 宣传图的输出（tools/promo/shoot.js）
+/tools/promo/out/
+
+# 介绍页的发布产物（.github/workflows/pages.yml 组装 site/ 和图片）
+/_site/

@@ -1,0 +1,27 @@
+# Forge 读这个文件（1.20.1 起）。NeoForge 1.21.1 读 neoforge.mods.toml，不看这里。
+# 主 jar 用 lowcodefml：不需要入口类，SVC 自己扫描注解找到插件类。
+# 备用 jar 由构建脚本把下面这行换成 javafml，jar 里多两个空入口类。
+# 两种加载方式在 Forge 上的版本号都是 Forge 的大版本号，1.20.1 是 47。
+modLoader="lowcodefml"
+loaderVersion="[47,)"
+license="MIT"
+issueTrackerURL="https://github.com/Trasperioooooon/MineDeck/issues"
+
+[[mods]]
+modId="minedeck_voicebridge"
+version="0.2.0"
+displayName="MineDeck Voice Bridge"
+description='''把 MineDeck 采集的音乐通过 Simple Voice Chat 推给所有玩家。只需要装在服务端。'''
+# 只装在服务端：客户端没装也不会在服务器列表里显示红叉
+displayTest="IGNORE_SERVER_VERSION"
+
+# 必须有 SVC，不限版本："[0,)" 匹配所有版本。SVC 在 Forge 上的版本号形如 "1.20.1-2.6.27"，
+# 写成 "[2.6,)" 反而匹配不上；模组启动时会检测 SVC 实际提供的 API，旧版自动用兼容写法。
+# 注意 versionRange 不能省略、也不能写空字符串：Forge 1.20.1 把这两种都当成"什么版本都不匹配"。
+# side="SERVER"：只在服务端检查，客户端误装了也不会因此进不了游戏。
+[[dependencies.minedeck_voicebridge]]
+modId="voicechat"
+mandatory=true
+versionRange="[0,)"
+ordering="AFTER"
+side="SERVER"

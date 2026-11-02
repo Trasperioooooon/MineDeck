@@ -1,0 +1,7 @@
+[MineDeck] 启动: java -Xms1024M -Xmx6144M -Dfile.encoding=UTF-8 @libraries/net/minecraftforge/forge/1.20.1-47.3.0/win_args.txt nogui
+[13:00:00] [Server thread/INFO] [minecraft/DedicatedServer]: Done (31.204s)! For help, type "help"
+[14:12:30] [Server thread/ERROR] [minecraft/MinecraftServer]: Encountered an unexpected exception
+java.lang.OutOfMemoryError: Java heap space
+	at java.util.Arrays.copyOf(Arrays.java:3537) ~[?:?]
+	at net.minecraft.world.level.chunk.storage.RegionFile.write(RegionFile.java:301) ~[server-1.20.1-20230612.114412-srg.jar%23256!/:?]
+[MineDeck] 服务器进程已退出（exit status 1）

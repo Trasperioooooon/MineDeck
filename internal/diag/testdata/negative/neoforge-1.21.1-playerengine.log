@@ -1,0 +1,26 @@
+[MineDeck] 启动: java -Xms1024M -Xmx6144M -Dfile.encoding=UTF-8 @libraries/net/neoforged/neoforge/21.1.265/win_args.txt nogui
+[11:51:02.264] [main/INFO] [Launcher/MODLAUNCHER]: ModLauncher running: args [--launchTarget, forgeserver, --fml.neoForgeVersion, 21.1.265, --fml.fmlVersion, 4.0.45, --fml.mcVersion, 1.21.1, --fml.neoFormVersion, 20240808.144430]
+[11:51:03.230] [main/INFO] [loading.moddiscovery.ModDiscoverer/SCAN]: Found mod file "architectury-13.0.11-neoforge.jar" [locator: {mods folder locator at D:\MineDeck\servers\pack\mods}, reader: mod manifest]
+[11:51:03.237] [main/INFO] [loading.moddiscovery.ModDiscoverer/SCAN]: Found mod file "minedeck-companion-neoforge-1.21.1-0.2.0.jar" [locator: {mods folder locator at D:\MineDeck\servers\pack\mods}, reader: mod manifest]
+[11:51:03.245] [main/INFO] [loading.moddiscovery.ModDiscoverer/SCAN]: Found mod file "playerengine-neoforge-1.21.1-1.4.0.jar" [locator: {mods folder locator at D:\MineDeck\servers\pack\mods}, reader: mod manifest]
+[11:51:03.438] [main/INFO] [loading.moddiscovery.ModDiscoverer/SCAN]: Found library file "schematic4j-1.1.0.jar" [parent: playerengine-neoforge-1.21.1-1.4.0.jar, locator: jarinjar]
+[11:51:04.678] [main/INFO] [mixin/]: Compatibility level set to JAVA_17
+[11:51:04.716] [main/INFO] [LaunchServiceHandler/MODLAUNCHER]: Launching target 'forgeserver' with arguments [nogui]
+[11:51:05.506] [main/ERROR] [common.asm.RuntimeDistCleaner/DISTXFORM]: Attempted to load class net/minecraft/client/multiplayer/MultiPlayerGameMode for invalid dist DEDICATED_SERVER
+[11:51:05.523] [main/WARN] [mixin/]: Error loading class: net/minecraft/client/multiplayer/MultiPlayerGameMode (java.lang.RuntimeException: Attempted to load class net/minecraft/client/multiplayer/MultiPlayerGameMode for invalid dist DEDICATED_SERVER)
+[11:51:05.524] [main/WARN] [mixin/]: @Mixin target net.minecraft.client.multiplayer.MultiPlayerGameMode was not found playerengine.mixins.json:ClientBlockBreakMixin from mod playerengine
+[11:51:16] [modloading-worker-0/INFO] [ne.ne.ne.co.NeoForgeMod/NEOFORGE-MOD]: NeoForge mod loading, version 21.1.265, for MC 1.21.1
+[11:51:19] [modloading-sync-worker/ERROR] [minecraft/Util]: Entity playerengine:custom_fishing_bobber has no attributes
+[11:51:24] [Server thread/INFO] [minecraft/DedicatedServer]: Starting minecraft server version 1.21.1
+[11:51:24] [Server thread/INFO] [minecraft/DedicatedServer]: Starting Minecraft server on *:25565
+[11:51:43] [Server thread/INFO] [minecraft/DedicatedServer]: Done (18.710s)! For help, type "help"
+[11:51:43] [Server thread/INFO] [PlayerEngine/]: Server starting, registering MC commands
+[11:51:59] [Server thread/INFO] [minecraft/PlayerList]: Tester[/192.168.1.52:48358] logged in with entity id 85 at (42.5, 63.0, -393.5)
+[11:52:00] [Server thread/INFO] [minecraft/MinecraftServer]: Tester joined the game
+[11:52:00] [Server thread/WARN] [co.pl.pl.pl.ne.Player2ServerNetworking/]: Unable to send the Player2 server-config sync to one player; continuing.
+java.lang.UnsupportedOperationException: Payload playerengine:sync_server_player2 may not be sent to the client!
+	at TRANSFORMER/neoforge@21.1.265/net.neoforged.neoforge.network.registration.NetworkRegistry.checkPacket(NetworkRegistry.java:451) ~[neoforge-21.1.265-universal.jar%23121!/:?] {re:classloading}
+	at TRANSFORMER/playerengine@1.21.1-1.4.0/com.player2.playerengine.player2api.network.Player2ServerNetworking.sendConfigSyncUnchecked(Player2ServerNetworking.java:68) ~[playerengine-neoforge-1.21.1-1.4.0.jar%23124!/:?] {re:classloading}
+> stop
+[11:52:45] [Server thread/INFO] [minecraft/MinecraftServer]: Stopping the server
+[MineDeck] 服务器已正常关闭

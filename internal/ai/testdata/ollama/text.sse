@@ -1,0 +1,12 @@
+data: {"id":"chatcmpl-561","object":"chat.completion.chunk","created":1761600000,"model":"qwen3:8b","system_fingerprint":"fp_ollama","choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":"用户在打招呼。"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-561","object":"chat.completion.chunk","created":1761600000,"model":"qwen3:8b","system_fingerprint":"fp_ollama","choices":[{"index":0,"delta":{"role":"assistant","content":"你好！"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-561","object":"chat.completion.chunk","created":1761600000,"model":"qwen3:8b","system_fingerprint":"fp_ollama","choices":[{"index":0,"delta":{"role":"assistant","content":"我在本机运行。"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-561","object":"chat.completion.chunk","created":1761600000,"model":"qwen3:8b","system_fingerprint":"fp_ollama","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl-561","object":"chat.completion.chunk","created":1761600000,"model":"qwen3:8b","system_fingerprint":"fp_ollama","choices":[],"usage":{"prompt_tokens":26,"completion_tokens":18,"total_tokens":44}}
+
+data: [DONE]
+

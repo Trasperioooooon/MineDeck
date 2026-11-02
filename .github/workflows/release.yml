@@ -15,17 +15,36 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.25"
+      - name: Test
+        run: go test ./...
       - name: Build
         run: go build -trimpath -ldflags="-s -w -H windowsgui" -o MineDeck.exe .
+      - name: Companion mods
+        shell: pwsh
+        run: |
+          # 好友的客户端要装的伙伴模组：从内置的 jar 复制出来，文件名带版本（同 manifest.json 的 installName）
+          $m = Get-Content internal/companion/jar/manifest.json -Raw | ConvertFrom-Json
+          foreach ($j in $m.jars) { Copy-Item "internal/companion/jar/$($j.file)" $j.installName }
       - name: Checksums
         shell: pwsh
         run: |
-          $h = (Get-FileHash MineDeck.exe -Algorithm SHA256).Hash.ToLower()
-          "$h *MineDeck.exe" | Out-File -Encoding ascii SHA256SUMS
+          $files = @("MineDeck.exe") + @(Get-ChildItem minedeck-companion-*.jar | ForEach-Object Name)
+          $files | ForEach-Object { "$((Get-FileHash $_ -Algorithm SHA256).Hash.ToLower()) *$_" } | Out-File -Encoding ascii SHA256SUMS
+      - name: Release notes
+        id: notes
+        shell: pwsh
+        run: |
+          # docs/releases/<标签>.md 存在就用作说明，后面再接上自动生成的变更列表
+          $p = "docs/releases/${{ github.ref_name }}.md"
+          if (Test-Path $p) { "path=$p" >> $env:GITHUB_OUTPUT }
       - name: Release
         uses: softprops/action-gh-release@v3
         with:
           files: |
             MineDeck.exe
+            minedeck-companion-*.jar
             SHA256SUMS
+          body_path: ${{ steps.notes.outputs.path }}
+          # 标签里带「-」（如 v2.9.0-beta.1）的发成预发布：不算 Latest，老版本的检查更新也看不到它
+          prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true

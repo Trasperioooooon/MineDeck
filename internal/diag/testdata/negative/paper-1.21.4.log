@@ -1,0 +1,13 @@
+[MineDeck] 启动: java -Xms1024M -Xmx4096M -Dfile.encoding=UTF-8 -jar server.jar nogui
+[21:30:02 INFO]: Starting minecraft server version 1.21.4
+[21:30:02 INFO]: Loading properties
+[21:30:03 INFO]: This server is running Paper version 1.21.4-232-main@a1b2c3d (2026-10-01T12:00:00Z)
+[21:30:04 WARN]: Using offline mode! Players will not be authenticated.
+[21:30:05 INFO]: Preparing level "world"
+[21:30:09 INFO]: Done (6.812s)! For help, type "help"
+[21:42:17 INFO]: Steve joined the game
+[21:44:30 INFO]: <Steve> Unrecognized VM option 'X' Could not create the Java Virtual Machine
+[21:50:12 ERROR]: Could not pass event PlayerInteractEvent to ExamplePlugin v1.0
+java.lang.NullPointerException: Cannot invoke "String.length()" because "s" is null
+	at com.example.Plugin.onInteract(Plugin.java:42) ~[ExamplePlugin-1.0.jar:?]
+[22:01:40 INFO]: Notch_CN joined the game

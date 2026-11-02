@@ -1,0 +1,7 @@
+{
+  "pack": {
+    "description": "MineDeck Voice Bridge",
+    "pack_format": 15,
+    "supported_formats": [15, 48]
+  }
+}

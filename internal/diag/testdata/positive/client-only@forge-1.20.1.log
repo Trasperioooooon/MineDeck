@@ -1,0 +1,12 @@
+[MineDeck] 启动: java -Xms1024M -Xmx6144M -Dfile.encoding=UTF-8 @libraries/net/minecraftforge/forge/1.20.1-47.3.0/win_args.txt nogui
+[12:02:30] [main/INFO] [ne.mi.fm.lo.LoadingModList/]: Found mod file Xaeros_Minimap_24.5.0_Forge_1.20.jar of type MOD with provider net.minecraftforge.fml.loading.moddiscovery.ModsFolderLocator@6b0d80ed
+[12:02:33] [modloading-worker-0/ERROR] [ne.mi.fm.ja.FMLModContainer/LOADING]: Failed to create mod instance. ModID: xaerominimap, class xaero.minimap.XaeroMinimap
+java.lang.RuntimeException: Attempted to load class net/minecraft/client/gui/screens/Screen for invalid dist DEDICATED_SERVER
+	at net.minecraftforge.fml.loading.RuntimeDistCleaner.processClassWithFlags(RuntimeDistCleaner.java:57) ~[fmlloader-1.20.1-47.3.0.jar%23103!/:1.0]
+	at cpw.mods.modlauncher.LaunchPluginHandler.offerClassNodeToPlugins(LaunchPluginHandler.java:88) ~[modlauncher-10.0.9.jar%2388!/:?]
+	at cpw.mods.modlauncher.ClassTransformer.transform(ClassTransformer.java:120) ~[modlauncher-10.0.9.jar%2388!/:?]
+	at java.lang.ClassLoader.defineClass1(Native Method) ~[?:?]
+	at xaero.common.XaeroMinimapSession.<init>(XaeroMinimapSession.java:31) ~[Xaeros_Minimap_24.5.0_Forge_1.20.jar%23195!/:24.5.0]
+	at xaero.minimap.XaeroMinimap.<init>(XaeroMinimap.java:40) ~[Xaeros_Minimap_24.5.0_Forge_1.20.jar%23195!/:24.5.0]
+[12:02:34] [main/FATAL] [ne.mi.se.lo.ServerModLoader/]: Failed to load mods
+[MineDeck] 服务器进程已退出（exit status 1）

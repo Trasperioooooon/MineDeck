@@ -1,0 +1,15 @@
+[MineDeck] 启动: java -Xms1024M -Xmx6144M -Dfile.encoding=UTF-8 @libraries/net/minecraftforge/forge/1.20.1-47.3.0/win_args.txt nogui
+[12:01:10] [main/INFO] [cp.mo.mo.Launcher/MODLAUNCHER]: ModLauncher running: args [--launchTarget, forgeserver, --fml.forgeVersion, 47.3.0, --fml.mcVersion, 1.20.1, --fml.forgeGroup, net.minecraftforge, --fml.mcpVersion, 20230612.114412]
+[12:01:10] [main/INFO] [cp.mo.mo.Launcher/MODLAUNCHER]: ModLauncher 10.0.9+10.0.9+main.dcd20f30 starting: java version 17.0.12 by Eclipse Adoptium; OS Windows 11 arch amd64 version 10.0
+[12:01:13] [main/INFO] [mixin/]: SpongePowered MIXIN Subsystem Version=0.8.5 Source=union:/D:/MineDeck/servers/create-pack/libraries/org/spongepowered/mixin/0.8.5/mixin-0.8.5.jar%23100!/ Service=ModLauncher Env=SERVER
+[12:01:15] [main/ERROR] [ne.mi.fm.lo.ModSorter/LOADING]: Missing or unsupported mandatory dependencies:
+	Mod ID: 'geckolib', Requested by: 'mowziesmobs', Expected range: '[4.2,)', Actual version: '[MISSING]'
+	Mod ID: 'create', Requested by: 'createaddition', Expected range: '[0.5.1.f,0.5.2)', Actual version: '0.5.0.i'
+[12:01:16] [main/FATAL] [ne.mi.se.lo.ServerModLoader/]: Failed to load mods
+net.minecraftforge.fml.LoadingFailedException: Loading errors encountered: [
+	Mod mowziesmobs requires geckolib 4.2 or above
+	Currently, geckolib is not installed
+]
+	at net.minecraftforge.fml.ModLoader.waitForTransition(ModLoader.java:255) ~[fmlcore-1.20.1-47.3.0.jar%23101!/:?]
+	at net.minecraftforge.server.loading.ServerModLoader.load(ServerModLoader.java:32) ~[forge-1.20.1-47.3.0-universal.jar%23105!/:?]
+[MineDeck] 服务器进程已退出（exit status 1）

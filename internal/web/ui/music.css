@@ -1,0 +1,48 @@
+/* 音乐共享（第五阶段）：实例详情的「音乐共享」标签、隧道表单的「用途」提示（music.js）。
+   只用令牌，沿用分组列表、提示卡、经验条、分段控件等现有组件（design-system/MASTER.md v5），这里只补排版。 */
+.mu { max-width: var(--w-read); }
+.mu-head { margin: 28px 0 10px; }
+.mu-head:first-child { margin-top: 0; }
+.mu-head h3 { margin: 0; }
+.mu-head .sub { margin: 4px 0 0; }
+
+/* 检查清单行首的状态瓦片：就绪 = 成功浅底，要处理 = 警告浅底（浅底 + 同色系深字，§1 配色原则 2） */
+.ri-ico.mu-ok { background: var(--success-subtle); color: var(--success-text); }
+.ri-ico.mu-bad { background: var(--warning-subtle); color: var(--warning-text); }
+
+/* 开始广播的按钮行：主按钮 + 为什么还不能开始 */
+.mu-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.mu-why { font-size: var(--fs-xs); color: var(--muted); }
+.mu-last { margin-top: 10px; font-size: var(--fs-xs); color: var(--muted); }
+.mu-last.err { color: var(--danger-text); }
+
+/* 音源行右侧的电平：10 格分段条（经验条的样式），不做过渡动画 */
+.mu-meter { width: 84px; flex: none; }
+.mu-meter .xp { height: 8px; }
+
+/* 正在广播：数值用等宽字 */
+.mu-live .num { font-family: var(--mono); }
+.mu-warn { margin-top: 10px; }
+
+/* 听众：名字是徽标 */
+.mu-names { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.mu-guide { white-space: pre-line; }
+
+/* 音量滑块 */
+.mu-vol { width: 180px; }
+.mu-vol-v { min-width: 40px; text-align: right; font: var(--fs-xs) var(--mono); color: var(--muted); }
+
+/* 高级选项：标题行可点开，其余行收起时不显示 */
+.mu-adv:not(.open) .mu-adv-row { display: none; }
+.mu-adv .ri-right .seg { flex-wrap: wrap; }
+
+/* 隧道表单里「用途：语音」的说明：中性的次级底（不是警告） */
+.mu-tip { margin: 0 0 16px; padding: 12px 16px; border-radius: var(--r-lg); background: var(--surface-2); border: 1px solid var(--border); max-width: var(--w-read); }
+.mu-tip-title { display: flex; align-items: center; gap: 8px; font-weight: var(--fw-semibold); font-size: var(--fs-body); color: var(--text); margin-bottom: 6px; }
+.mu-tip-title .ico { color: var(--accent-text); }
+.mu-tip ol { margin: 0; padding-left: 20px; font-size: var(--fs-sm); line-height: 1.9; color: var(--text); }
+
+@media (max-width: 640px) {
+  .mu-vol { width: 100%; }
+  .mu-meter { width: 64px; }
+}

@@ -1,0 +1,22 @@
+[MineDeck] 启动: java -Xms1024M -Xmx6144M -Dfile.encoding=UTF-8 @libraries/net/minecraftforge/forge/1.20.1-47.3.0/win_args.txt nogui
+[12:01:10] [main/INFO] [cp.mo.mo.Launcher/MODLAUNCHER]: ModLauncher running: args [--launchTarget, forgeserver, --fml.forgeVersion, 47.3.0, --fml.mcVersion, 1.20.1, --fml.forgeGroup, net.minecraftforge, --fml.mcpVersion, 20230612.114412]
+[12:01:13] [main/INFO] [mixin/]: SpongePowered MIXIN Subsystem Version=0.8.5 Source=union:/D:/MineDeck/servers/create-pack/libraries/org/spongepowered/mixin/0.8.5/mixin-0.8.5.jar%23100!/ Service=ModLauncher Env=SERVER
+[12:01:14] [main/WARN] [mixin/]: Reference map 'createaddition.refmap.json' for createaddition.mixins.json could not be read. If this is a development environment you can ignore this message
+[12:01:14] [main/WARN] [mixin/]: Mixin config jei.mixins.json does not specify "minVersion" property
+[12:01:20] [main/WARN] [ne.mi.co.ForgeConfigSpec/CORE]: Configuration file D:\MineDeck\servers\create-pack\config\jei-server.toml is not correct. Correcting
+[12:01:20] [main/WARN] [ne.mi.co.ForgeConfigSpec/CORE]: Incorrect key general.debugMode was corrected from null to its default, false.
+[12:01:25] [main/INFO] [ne.mi.fm.lo.LoadingModList/]: Found mod file jei-1.20.1-forge-15.3.0.4.jar of type MOD
+[12:01:40] [Server thread/INFO] [minecraft/DedicatedServer]: Starting minecraft server version 1.20.1
+[12:01:40] [Server thread/INFO] [minecraft/DedicatedServer]: Starting Minecraft server on *:25565
+[12:01:40] [Server thread/WARN] [minecraft/DedicatedServer]: **** SERVER IS RUNNING IN OFFLINE/INSECURE MODE!
+[12:01:40] [Server thread/WARN] [minecraft/DedicatedServer]: The server will make no attempt to authenticate usernames. Beware.
+[12:02:10] [Server thread/INFO] [minecraft/DedicatedServer]: Done (31.204s)! For help, type "help"
+[12:05:00] [Server thread/WARN] [minecraft/MinecraftServer]: Can't keep up! Is the server overloaded? Running 2005ms or 40 ticks behind
+[12:06:00] [Server thread/INFO] [minecraft/MinecraftServer]: Steve joined the game
+[12:06:10] [Server thread/INFO] [minecraft/MinecraftServer]: [Not Secure] <Steve> 刚才 FAILED TO BIND TO PORT 是啥意思
+[12:06:20] [Server thread/INFO] [minecraft/MinecraftServer]: [Not Secure] <Steve> java.lang.OutOfMemoryError: Java heap space 哈哈
+[12:06:30] [Server thread/INFO] [minecraft/MinecraftServer]: <Steve> You need to agree to the EULA in order to run the server
+> say Address already in use 只是测试
+[12:06:40] [Server thread/INFO] [minecraft/MinecraftServer]: [Server] Address already in use 只是测试
+[12:07:00] [Server thread/INFO] [minecraft/ServerGamePacketListenerImpl]: Steve lost connection: Disconnected
+[12:07:00] [Server thread/INFO] [minecraft/MinecraftServer]: Steve left the game

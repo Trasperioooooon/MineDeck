@@ -1,0 +1,5 @@
+[MineDeck] 启动: java -Xms1024M -Xmx6144M -Dfile.encoding=UTF-8 @libraries/net/neoforged/neoforge/21.1.77/win_args.txt nogui
+Exception in thread "main" java.lang.UnsupportedClassVersionError: net/neoforged/fml/startup/Server has been compiled by a more recent version of the Java Runtime (class file version 65.0), this version of the Java Runtime only recognizes class file versions up to 61.0
+	at java.base/java.lang.ClassLoader.defineClass1(Native Method)
+	at java.base/java.lang.ClassLoader.defineClass(ClassLoader.java:1017)
+[MineDeck] 服务器进程已退出（exit status 1）

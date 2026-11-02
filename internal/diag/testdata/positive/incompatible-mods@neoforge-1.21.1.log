@@ -1,0 +1,7 @@
+[MineDeck] 启动: java -Xms1024M -Xmx6144M -Dfile.encoding=UTF-8 @libraries/net/neoforged/neoforge/21.1.77/win_args.txt nogui
+[09:33:00] [main/ERROR] [ne.ne.fm.lo.ModSorter/LOADING]: Incompatibilities between mods:
+	Mod ID: 'optifine', Requested by: 'embeddium', Expected range: '*', Actual version: 'HD_U_J1'
+[09:33:01] [main/ERROR] [ne.ne.fm.ModLoader/LOADING]: Loading errors encountered:
+	- Mod embeddium is incompatible with optifine *
+		Reason: OptiFine is not compatible with Embeddium
+[MineDeck] 服务器进程已退出（exit status 1）

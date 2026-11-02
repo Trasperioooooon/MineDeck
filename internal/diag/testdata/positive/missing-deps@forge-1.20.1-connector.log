@@ -1,0 +1,27 @@
+[MineDeck] 启动: java -Xms1024M -Xmx6144M -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 @libraries/net/minecraftforge/forge/1.20.1-47.4.20/win_args.txt nogui
+[22:09:01] [main/INFO] [cp.mo.mo.Launcher/MODLAUNCHER]: ModLauncher running: args [--launchTarget, forgeserver, --fml.forgeVersion, 47.4.20, --fml.mcVersion, 1.20.1, --fml.forgeGroup, net.minecraftforge, --fml.mcpVersion, 20230612.114412, nogui]
+[22:09:01] [main/INFO] [cp.mo.mo.Launcher/MODLAUNCHER]: ModLauncher 10.0.9+10.0.9+main.dcd20f30 starting: java version 17.0.20.1 by Eclipse Adoptium; OS Windows 11 arch amd64 version 10.0
+[22:09:34] [main/ERROR] [ne.mi.fm.lo.ModSorter/LOADING]: Missing or unsupported mandatory dependencies:
+	Mod ID: 'fabric_api', Requested by: 'continuity', Expected range: '', Actual version: '0.92.6+1.11.14+1.20.1'
+	Mod ID: 'connectormod', Requested by: 'continuity', Expected range: '', Actual version: '1.0.0-beta.48+1.20.1'
+[22:09:34] [main/INFO] [or.si.co.se.ha.ModuleLayerMigrator/]: Successfully made module authlib transformable
+[22:09:34] [main/ERROR] [or.si.co.lo.ConnectorEarlyLoader/]: Skipping early mod setup due to previous error
+[22:09:34] [main/INFO] [cp.mo.mo.LaunchServiceHandler/MODLAUNCHER]: Launching target 'forgeserver' with arguments [nogui]
+[22:09:34] [main/WARN] [mixin/]: Reference map '' for adapter.init.mixins.json could not be read. If this is a development environment you can ignore this message
+[22:09:41] [main/FATAL] [ne.mi.fm.ModLoader/CORE]: Error during pre-loading phase
+net.minecraftforge.fml.ModLoadingException: Mod §econtinuity§r requires §6fabric_api§r §o§r
+§7Currently, §6fabric_api§r§7 is §o0.92.6+1.11.14+1.20.1
+	at net.minecraftforge.fml.ModLoadingException.lambda$fromEarlyException$0(ModLoadingException.java:50) ~[fmlcore-1.20.1-47.4.20.jar%23839!/:?]
+	at java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197) ~[?:?]
+	at net.minecraftforge.server.loading.ServerModLoader.load(ServerModLoader.java:30) ~[forge-1.20.1-47.4.20-universal.jar%23843!/:?]
+[22:09:41] [main/FATAL] [ne.mi.se.lo.ServerModLoader/]: Crash report saved to .\crash-reports\crash-2026-11-01_22.09.41-fml.txt
+[22:09:41] [main/ERROR] [ne.mi.se.Main/FATAL]: Failed to start the minecraft server
+net.minecraftforge.fml.LoadingFailedException: Loading errors encountered: [
+	Mod §econtinuity§r requires §6fabric_api§r §o§r
+§7Currently, §6fabric_api§r§7 is §o0.92.6+1.11.14+1.20.1,
+	Mod §econtinuity§r requires §6connectormod§r §o§r
+§7Currently, §6connectormod§r§7 is §o1.0.0-beta.48+1.20.1
+]
+	at net.minecraftforge.fml.ModLoader.gatherAndInitializeMods(ModLoader.java:149) ~[fmlcore-1.20.1-47.4.20.jar%23839!/:?]
+	at net.minecraftforge.server.loading.ServerModLoader.load(ServerModLoader.java:30) ~[forge-1.20.1-47.4.20-universal.jar%23843!/:?]
+[MineDeck] 服务器进程已退出（退出码 0，但没人让它停）

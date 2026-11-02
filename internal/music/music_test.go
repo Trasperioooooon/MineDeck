@@ -118,6 +118,7 @@ func TestValidate(t *testing.T) {
 		{Mode: ModeProcess, PID: 1, Format: FormatNative},
 		{Mode: ModeSystem, Gain: -1},
 		{Mode: 9},
+		{Mode: ModeProcess, PID: 1, Device: "{0.0.0.00000000}.{x}"}, // 只有整机录音能指定设备
 	}
 	for _, o := range bad {
 		if err := validate(o); err == nil {
@@ -128,6 +129,7 @@ func TestValidate(t *testing.T) {
 		{Mode: ModeProcess, PID: 1234},
 		{Mode: ModeSystem},
 		{Mode: ModeSystem, Format: FormatNative, Gain: 2},
+		{Mode: ModeSystem, Device: "{0.0.0.00000000}.{x}"},
 	}
 	for _, o := range good {
 		if err := validate(o); err != nil {

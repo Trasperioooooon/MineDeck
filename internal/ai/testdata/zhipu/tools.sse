@@ -1,0 +1,6 @@
+data: {"id":"20261028115623a1b2c3d4e5f64e2a","created":1761600000,"model":"glm-5.3","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"id":"call_-8962614592938498321","index":0,"type":"function","function":{"name":"instance_props_get","arguments":"{\"inst\": \"生存服\"}"}}]}}]}
+
+data: {"id":"20261028115623a1b2c3d4e5f64e2a","created":1761600000,"model":"glm-5.3","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":300,"completion_tokens":18,"total_tokens":318,"prompt_tokens_details":{"cached_tokens":128}}}
+
+data: [DONE]
+

@@ -829,6 +829,25 @@ input.mem-num { width: 96px; height: 30px; font-size: var(--fs-sm); text-align: 
 .group.has-ico .ri-field { padding-left: 64px; }
 .ri-field input { flex: 1; min-width: 0; }
 
+/* 行内字段的报错（每日额度等）：和输入框左对齐 */
+.ri-err { padding: 0 16px 12px; margin-top: -6px; }
+.group.has-ico .ri-err { padding-left: 64px; }
+.ri-field select { width: auto; flex: none; }
+.ri-right select { width: 220px; }
+.ri-unit { font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; }
+
+/* 设置 → AI：状态行、可选地址、自填单价的添加行 */
+.ai-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; font-size: var(--fs-sm); color: var(--muted); }
+.ai-status code { font: var(--fs-xs) var(--mono); color: var(--text); }
+.ai-alts { display: contents; }
+.save-bar + .group { margin-top: 12px; }
+.ai-price-add { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; min-width: 0; }
+.ai-price-add input { flex: 1 1 96px; min-width: 96px; }
+.ai-price-add #cp-model { flex: 2 1 160px; }
+.ai-price-add #cp-cache { flex-basis: 124px; }
+.ai-price-add select { width: auto; flex: none; }
+.ri-sub code { font: var(--fs-xs) var(--mono); }
+
 /* 单选行（下载源等）：整行可点，选中行右侧打勾（对勾弹出） */
 .row-item.choice { cursor: pointer; }
 .row-item.choice .ri-head { min-height: 58px; transition: background var(--dur-2); }
@@ -1090,4 +1109,7 @@ html[data-splash="play"] .splash-word { animation: label-in var(--dur-3) var(--e
   .ri-right { margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
   .ri-right input[type=text], .ri-right input[type=password] { width: 100%; }
   .group.has-ico .ri-field { padding-left: 16px; }
+  .group.has-ico .ri-err { padding-left: 16px; }
+  .ri-field { flex-wrap: wrap; }
+  .ri-right select { width: 100%; }
 }

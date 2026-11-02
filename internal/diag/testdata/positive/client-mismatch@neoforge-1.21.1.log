@@ -1,0 +1,5 @@
+[MineDeck] 启动: java -Xms1024M -Xmx6144M -Dfile.encoding=UTF-8 @libraries/net/neoforged/neoforge/21.1.77/win_args.txt nogui
+[20:00:00] [Server thread/INFO] [minecraft/DedicatedServer]: Done (12.010s)! For help, type "help"
+[20:15:01] [Server thread/INFO] [minecraft/ServerConfigurationPacketListenerImpl]: Steve (/192.168.1.50:51234) lost connection: Channel of mod "create" failed to connect: This channel is missing on the client side, but required on the server!
+[20:16:20] [Server thread/INFO] [minecraft/ServerConfigurationPacketListenerImpl]: Bob (/192.168.1.51:40000) lost connection: You are trying to connect to a server that is running NeoForge, but you are not. Please install NeoForge Version 21.1.77 to connect to this server.
+[20:20:00] [VoiceChatServerThread/WARN] [voicechat/]: Player Alex has incompatible voice chat version (server=20, client=18)

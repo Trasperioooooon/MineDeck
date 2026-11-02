@@ -1,0 +1,4 @@
+[MineDeck] 启动: java -Xms1024M -Xmx6144M -Dfile.encoding=UTF-8 @libraries/net/neoforged/neoforge/21.1.77/win_args.txt nogui
+[09:36:00] [main/ERROR] [ne.ne.fm.co.ConfigTracker/CONFIG]: Failed to load config file D:\MineDeck\servers\pack\config\farmersdelight-common.toml
+Caused by: com.electronwill.nightconfig.core.io.ParsingException: Not enough data available
+[MineDeck] 服务器进程已退出（exit status 1）

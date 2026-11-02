@@ -264,19 +264,30 @@ func (s *session) openSystem() error {
 	if hr.failed() {
 		return hr.err("CoCreateInstance(MMDeviceEnumerator)")
 	}
-	flow, flowName := uint32(eRender), "eRender"
-	if s.opts.inputDevice {
-		flow, flowName = eCapture, "eCapture"
-	}
-	hr = s.enum.GetDefaultAudioEndpoint(flow, eConsole, &s.device)
-	s.logf("IMMDeviceEnumerator::GetDefaultAudioEndpoint(%s, eConsole) → %s", flowName, hr)
-	if hr.failed() {
-		return hr.err("GetDefaultAudioEndpoint")
+	if s.opts.Device != "" {
+		hr = s.enum.GetDevice(s.opts.Device, &s.device)
+		s.logf("IMMDeviceEnumerator::GetDevice(%s) → %s", s.opts.Device, hr)
+		if hr.failed() || s.device == nil {
+			return fmt.Errorf("找不到指定的播放设备（可能被拔掉或禁用了，请重新选择）：%w", hr.err("IMMDeviceEnumerator::GetDevice"))
+		}
+	} else {
+		flow, flowName := uint32(eRender), "eRender"
+		if s.opts.inputDevice {
+			flow, flowName = eCapture, "eCapture"
+		}
+		hr = s.enum.GetDefaultAudioEndpoint(flow, eConsole, &s.device)
+		s.logf("IMMDeviceEnumerator::GetDefaultAudioEndpoint(%s, eConsole) → %s", flowName, hr)
+		if hr.failed() {
+			return hr.err("GetDefaultAudioEndpoint")
+		}
 	}
 	s.info.Device = s.device.FriendlyName()
-	if s.opts.inputDevice {
+	switch {
+	case s.opts.inputDevice:
 		s.logf("默认录音设备（测试用）：%s", orUnknown(s.info.Device))
-	} else {
+	case s.opts.Device != "":
+		s.logf("指定的播放设备：%s", orUnknown(s.info.Device))
+	default:
 		s.logf("默认播放设备：%s", orUnknown(s.info.Device))
 	}
 	attempts, err := attemptsFor(ModeSystem, s.opts.Format)

@@ -1,0 +1,35 @@
+/* ==========================================================================
+   MineDeck MCP 接口：「设置 → AI」里的「MCP 接口」分组，AI 助手面板顶上「外部 AI 的请求」，外部 AI 的提示。
+   颜色、圆角、投影、动效全部引用 themes.css / app.css 的令牌（design-system/MASTER.md v5），不写死色值。
+   ========================================================================== */
+
+/* 设置 → AI 里的分组（接在「应用内助手」后面） */
+#ai-mcp-slot { margin-top: 28px; }
+#ai-mcp-slot:empty { display: none; }
+#ai-mcp-slot .warn-card { margin-bottom: 12px; }
+.mcp-sub-head { margin: 20px 0 8px; font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--text); }
+.mcp-hint { margin-top: 12px; line-height: 1.8; }
+.modal .mcp-pre { margin: 12px 0 4px; max-height: 40vh; }
+
+/* AI 助手面板顶上：外部 AI 提出、等你确认的操作（卡片和助手的确认卡片是同一个组件） */
+.ap-ext {
+  flex: none; max-height: 46%; overflow-y: auto; scrollbar-gutter: stable;
+  display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.ap-ext[hidden] { display: none; }
+.ax-head { display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--muted); }
+.ax-head .ico { color: var(--accent-text); }
+.ax-head b { color: var(--text); font-weight: var(--fw-semibold); font-size: var(--fs-sm); }
+.ax-note { font-size: var(--fs-2xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ax-list { display: flex; flex-direction: column; gap: 10px; }
+.ax-from { display: flex; align-items: center; gap: 5px; margin: 0 2px 4px; font-size: var(--fs-2xs); color: var(--muted); }
+.ax-from .ico { color: var(--accent-text); }
+
+/* 外部 AI 的提示：图标瓦片用强调色（不是「成功」的绿） */
+.toast.ext { cursor: pointer; }
+.toast.ext .t-ico { background: var(--accent-subtle); color: var(--accent-text); }
+
+@media (max-width: 640px) {
+  .ax-note { display: none; }
+}

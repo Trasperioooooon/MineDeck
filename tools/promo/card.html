@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<!-- MineDeck 的 GitHub 社交预览图（1280×640），由 `node tools/promo/shoot.js card` 渲染：/ui/ 是界面目录（fonts.css 和
+     themes.css：内嵌的 Geist、Noto Sans SC 子集和「方块」的浅色令牌），其余路径是输出目录里的截图和图标。
+     带 data-text 的元素都会检查字体覆盖、离边 40 像素的安全区，以及有没有压到截图框。 -->
+<html lang="zh-CN" data-scheme="craft" data-theme="light" data-accent="auto">
+<head>
+<meta charset="utf-8">
+<title>MineDeck 社交预览图</title>
+<link rel="stylesheet" href="/ui/fonts/fonts.css">
+<link rel="stylesheet" href="/ui/themes.css">
+<style>
+  html, body { margin: 0; }
+  body {
+    width: 1280px; height: 640px; overflow: hidden; position: relative;
+    background: var(--bg); color: var(--text);
+    font-family: "MD Geist", "MD Noto Sans SC", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* 截图后面一圈淡淡的草绿光晕和方块网格 */
+  .glow {
+    position: absolute; inset: 0;
+    background: radial-gradient(700px 560px at 84% 64%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 70%);
+  }
+  .grid {
+    position: absolute; inset: 0;
+    background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 40px 40px; background-position: -1px -1px;
+    -webkit-mask-image: linear-gradient(90deg, transparent 40%, #000 72%);
+            mask-image: linear-gradient(90deg, transparent 40%, #000 72%);
+    opacity: .55;
+  }
+  .left { position: absolute; left: 76px; top: 0; bottom: 0; width: 560px; display: flex; flex-direction: column; justify-content: center; }
+  .icon { width: 128px; height: 128px; image-rendering: pixelated; display: block; margin-bottom: 24px;
+    filter: drop-shadow(0 10px 18px rgb(var(--shadow-rgb) / .22)); }
+  .left p, .left h1 { white-space: nowrap; width: max-content; }
+  h1 { margin: 0; font-size: 100px; line-height: 1; font-weight: 600; letter-spacing: -.035em; }
+  .tagline { margin: 26px 0 0; font-size: 40px; line-height: 1.25; font-weight: 600; letter-spacing: .01em; }
+  .features { margin: 16px 0 0; font-size: 29px; line-height: 1.4; font-weight: 500; color: var(--muted); }
+  .dot { color: var(--accent); }
+  /* 带框的应用截图（03-assistant.png），从 x = 736 处裁开（这一列没有字：裁边落在两个标签之间、横幅和控制台里），
+     露出整个「AI 助手」面板；缩到 0.8125、略微倾斜，只从底边出血 */
+  .shot {
+    position: absolute; left: 668px; top: 92px; width: 572px; height: 731px;
+    border-radius: 12px; overflow: hidden; background: var(--chrome);
+    transform: rotate(-3deg); transform-origin: 50% 50%;
+    box-shadow: 0 0 0 1px var(--border-strong), 0 6px 14px rgb(var(--shadow-rgb) / .12), 0 28px 60px rgb(var(--shadow-rgb) / .26);
+  }
+  .shot img { position: absolute; width: 1170px; height: 731px; left: -598px; top: 0; }
+</style>
+</head>
+<body>
+  <div class="glow"></div>
+  <div class="grid"></div>
+  <div class="shot"><img src="/03-assistant.png" alt=""></div>
+  <div class="left">
+    <img class="icon" src="/assets/icon-256.png" alt="">
+    <h1 data-text="name">MineDeck</h1>
+    <p class="tagline" data-text="tagline">我的世界<span class="dot"> · </span>Windows 一键开服</p>
+    <p class="features" data-text="features">AI 开服助手<span class="dot"> · </span>游戏内 AI<span class="dot"> · </span>AI 伙伴<span class="dot"> · </span>音乐共享</p>
+  </div>
+</body>
+</html>

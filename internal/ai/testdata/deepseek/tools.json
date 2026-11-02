@@ -1,0 +1,48 @@
+{
+  "id": "930c60df-bf64-41c9-a88e-3ec75f81e00e",
+  "object": "chat.completion",
+  "created": 1761600000,
+  "model": "deepseek-v4-flash",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "",
+        "reasoning_content": "先列出实例，再读生存服的配置。",
+        "tool_calls": [
+          {
+            "index": 0,
+            "id": "call_00_Ne7HyFq3iXJkZp",
+            "type": "function",
+            "function": {
+              "name": "instance_list",
+              "arguments": "{}"
+            }
+          },
+          {
+            "index": 1,
+            "id": "call_01_Qa2Wv8LmTt",
+            "type": "function",
+            "function": {
+              "name": "instance_props_get",
+              "arguments": "{\"inst\": \"生存服\"}"
+            }
+          }
+        ]
+      },
+      "logprobs": null,
+      "finish_reason": "tool_calls"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1500,
+    "completion_tokens": 60,
+    "total_tokens": 1560,
+    "prompt_cache_hit_tokens": 1280,
+    "prompt_cache_miss_tokens": 220,
+    "completion_tokens_details": {
+      "reasoning_tokens": 20
+    }
+  }
+}

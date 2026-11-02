@@ -1,0 +1,33 @@
+Starting net.minecraft.server.Main
+[20:14:50] [ServerMain/INFO]: Environment: Environment[sessionHost=https://sessionserver.mojang.com, servicesHost=https://api.minecraftservices.com, name=PROD]
+[20:14:51] [ServerMain/INFO]: Loaded 1290 recipes
+[20:14:51] [ServerMain/INFO]: Loaded 1399 advancements
+[20:14:52] [Server thread/INFO]: Starting minecraft server version 1.21.1
+[20:14:52] [Server thread/INFO]: Loading properties
+[20:14:52] [Server thread/INFO]: Default game type: SURVIVAL
+[20:14:52] [Server thread/INFO]: Generating keypair
+[20:14:52] [Server thread/INFO]: Starting Minecraft server on *:25565
+[20:14:52] [Server thread/INFO]: Using epoll channel type
+[20:14:52] [Server thread/WARN]: **** SERVER IS RUNNING IN OFFLINE/INSECURE MODE!
+[20:14:52] [Server thread/WARN]: The server will make no attempt to authenticate usernames. Beware.
+[20:14:52] [Server thread/INFO]: Preparing level "world"
+[20:14:58] [Server thread/INFO]: Preparing start region for dimension minecraft:overworld
+[20:15:00] [Worker-Main-3/INFO]: Preparing spawn area: 0%
+[20:15:00] [Server thread/INFO]: Time elapsed: 2104 ms
+[20:15:00] [Server thread/INFO]: Done (7.812s)! For help, type "help"
+[20:15:20] [User Authenticator #1/INFO]: UUID of player Steve is 8667ba71-b85a-4004-af54-457a9734eed7
+[20:15:20] [Server thread/INFO]: Steve[/127.0.0.1:51234] logged in with entity id 112 at (8.5, -60.0, 8.5)
+[20:15:20] [Server thread/INFO]: Steve joined the game
+[20:15:31] [Server thread/INFO]: [Not Secure] <Steve> 大家好
+[20:15:40] [Server thread/INFO]: [Not Secure] <Steve> Notch joined the game
+[20:15:44] [Server thread/INFO]: [Not Secure] <Steve> Alex left the game
+[20:15:47] [Server thread/INFO]: [Not Secure] * Steve Notch joined the game
+[20:15:49] [Server thread/INFO]: [Not Secure] <Steve> Notch[/1.2.3.4:5] logged in with entity id 1 at (0, 0, 0)
+[20:15:52] [Server thread/INFO]: [Server] Notch joined the game
+[20:15:55] [Worker-Main-3/INFO]: <Notch> 不是聊天线程，不算
+[20:16:02] [Server thread/INFO]: [Steve: Gave 1 [Diamond] to Steve]
+[20:16:10] [Server thread/INFO]: Bob (formerly known as Rob) joined the game
+[20:16:30] [Server thread/INFO]: Steve lost connection: Disconnected
+[20:16:30] [Server thread/INFO]: Steve left the game
+[20:16:40] [Server thread/INFO]: Stopping the server
+[20:16:40] [Server thread/INFO]: Stopping server

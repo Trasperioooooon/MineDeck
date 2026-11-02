@@ -1,0 +1,12 @@
+data: {"object":"chat.completion.chunk","created":1761600000,"system_fingerprint":null,"model":"qwen-plus","id":"chatcmpl-3f8a9d2e-1b4c-9c1e-a6f0-5d2e7b8c9a01","choices":[{"delta":{"content":"","role":"assistant"},"index":0,"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1761600000,"system_fingerprint":null,"model":"qwen-plus","id":"chatcmpl-3f8a9d2e-1b4c-9c1e-a6f0-5d2e7b8c9a01","choices":[{"delta":{"content":"你好！我是通义千问"},"index":0,"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1761600000,"system_fingerprint":null,"model":"qwen-plus","id":"chatcmpl-3f8a9d2e-1b4c-9c1e-a6f0-5d2e7b8c9a01","choices":[{"delta":{"content":"，有什么可以帮你的？"},"index":0,"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1761600000,"system_fingerprint":null,"model":"qwen-plus","id":"chatcmpl-3f8a9d2e-1b4c-9c1e-a6f0-5d2e7b8c9a01","choices":[{"delta":{"content":""},"index":0,"logprobs":null,"finish_reason":"stop"}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1761600000,"system_fingerprint":null,"model":"qwen-plus","id":"chatcmpl-3f8a9d2e-1b4c-9c1e-a6f0-5d2e7b8c9a01","choices":[],"usage":{"prompt_tokens":3019,"completion_tokens":104,"total_tokens":3123,"prompt_tokens_details":{"cached_tokens":2048}}}
+
+data: [DONE]
+

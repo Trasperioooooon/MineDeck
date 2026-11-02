@@ -1,12 +1,14 @@
 // Package tunnel 内网穿透：托管各服务商的 frpc 客户端进程，
 // 把本地 MC 服务器端口映射到公网。隧道的创建/删除在服务商官网完成，
 // 本包负责凭据保存、frpc 下载、一键启动、公网地址提取与状态管理。
+// 凭据用 DPAPI 加密后存进 tunnels.json（"dpapi:…"），只在启动 frpc 时解开。
 package tunnel
 
 import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +21,7 @@ import (
 	"minedeck/internal/app"
 	"minedeck/internal/events"
 	"minedeck/internal/procutil"
+	"minedeck/internal/secret"
 )
 
 // Tunnel 一条穿透隧道的配置。
@@ -26,7 +29,7 @@ type Tunnel struct {
 	ID         string `json:"id"`
 	Provider   string `json:"provider"` // openfrp | natfrp | custom
 	Name       string `json:"name"`
-	Credential string `json:"credential"`           // openfrp 用户密钥 / natfrp 访问密钥 / custom auth token
+	Credential string `json:"credential"`           // openfrp 用户密钥 / natfrp 访问密钥 / custom auth token；存盘和内存里都是 DPAPI 密文
 	ProxyID    string `json:"proxyId,omitempty"`    // openfrp 隧道ID / natfrp 隧道ID
 	ServerAddr string `json:"serverAddr,omitempty"` // custom: frps 地址
 	ServerPort int    `json:"serverPort,omitempty"` // custom: frps 端口
@@ -35,7 +38,20 @@ type Tunnel struct {
 	Bound      string `json:"boundInstance,omitempty"`
 	AutoStart  bool   `json:"autoStart"` // 跟随绑定实例启动
 	PublicAddr string `json:"publicAddr,omitempty"`
+	// Purpose 用途：game（游戏，默认；老数据没有这一项也按游戏算）或 voice（语音：Simple Voice Chat 的 UDP 端口，
+	// 公网地址会自动写进绑定实例的 voice_host）。樱花、OpenFrp 的隧道类型在服务商后台定，MineDeck 看不出来，只能让用户标。
+	Purpose string `json:"purpose,omitempty"`
+	// Proto 自定义 frps 的协议：tcp（默认）或 udp（语音隧道用）。樱花、OpenFrp 的协议在服务商后台定，这一项不用。
+	Proto string `json:"proto,omitempty"`
 }
+
+const (
+	PurposeGame  = "game"
+	PurposeVoice = "voice"
+)
+
+// IsVoice 是不是语音隧道。
+func (t Tunnel) IsVoice() bool { return t.Purpose == PurposeVoice }
 
 type runState struct {
 	cmd     *exec.Cmd
@@ -51,11 +67,13 @@ type Manager struct {
 	starting map[string]bool // 正在启动中的隧道ID（登记进 running 前的占位，防并发/重复 Start 双启 frpc）
 	consoles map[string]*procutil.Console
 	lastErr  map[string]string // 隧道ID → 最近一条 frpc 失败信息（运行态，不持久化）
+	broken   map[string]bool   // 隧道ID → 凭据解不开（换了电脑或 Windows 用户），不能启动
 }
 
 func NewManager() *Manager {
-	m := &Manager{running: map[string]*runState{}, starting: map[string]bool{}, consoles: map[string]*procutil.Console{}, lastErr: map[string]string{}}
+	m := &Manager{running: map[string]*runState{}, starting: map[string]bool{}, consoles: map[string]*procutil.Console{}, lastErr: map[string]string{}, broken: map[string]bool{}}
 	m.load()
+	scrubCustomConfigs() // 不管 tunnels.json 在不在、读不读得出来都清
 	return m
 }
 
@@ -70,8 +88,51 @@ func (m *Manager) load() {
 		Seq     int       `json:"seq"`
 		Tunnels []*Tunnel `json:"tunnels"`
 	}
-	if json.Unmarshal(b, &data) == nil {
-		m.tunnels, m.seq = data.Tunnels, data.Seq
+	if json.Unmarshal(b, &data) != nil {
+		return
+	}
+	m.tunnels, m.seq = data.Tunnels, data.Seq
+	// 旧版存的明文凭据：加密后写回（失败保持原样、只记日志，启动时照旧能用）；解不开的标记出来，不让启动
+	migrated := false
+	for _, t := range m.tunnels {
+		switch {
+		case t.Credential == "":
+		case !secret.IsSealed(t.Credential):
+			if sealed, err := secret.Seal(t.Credential); err != nil {
+				log.Printf("隧道「%s」的凭据加密失败，暂时保留明文: %v", t.Name, err)
+			} else {
+				t.Credential, migrated = sealed, true
+			}
+		default:
+			if !secret.Readable(t.Credential) {
+				m.broken[t.ID] = true
+			}
+		}
+	}
+	if migrated {
+		m.save()
+	}
+}
+
+// scrubCustomConfigs 删掉旧版留在 runtimes/frpc/custom 里、写着明文 token 的配置文件。
+// 每次启动隧道都会重新生成配置；程序刚启动时上次的 frpc 已随作业对象一起结束，删了没有影响。
+func scrubCustomConfigs() {
+	dir := frpcDir("custom")
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range ents {
+		n := e.Name()
+		if e.IsDir() || !strings.HasPrefix(n, "tun") || !strings.HasSuffix(n, ".toml") {
+			continue
+		}
+		p := filepath.Join(dir, n)
+		if b, err := os.ReadFile(p); err == nil && strings.Contains(string(b), "auth.token") && !strings.Contains(string(b), ".Envs.") {
+			if err := os.Remove(p); err != nil {
+				log.Printf("删除带明文 token 的旧 frpc 配置失败（%s）: %v", p, err)
+			}
+		}
 	}
 }
 
@@ -88,8 +149,9 @@ func (m *Manager) save() {
 // Status 隧道运行状态。
 type Status struct {
 	Tunnel
-	Running   bool   `json:"running"`
-	LastError string `json:"lastError,omitempty"`
+	Running    bool   `json:"running"`
+	LastError  string `json:"lastError,omitempty"`
+	CredBroken bool   `json:"credBroken,omitempty"` // 凭据解不开（换了电脑或 Windows 用户），要重填
 }
 
 func (m *Manager) List() []Status {
@@ -97,8 +159,11 @@ func (m *Manager) List() []Status {
 	defer m.mu.Unlock()
 	out := make([]Status, 0, len(m.tunnels))
 	for _, t := range m.tunnels {
-		st := Status{Tunnel: *t, Running: m.running[t.ID] != nil, LastError: m.lastErr[t.ID]}
+		st := Status{Tunnel: *t, Running: m.running[t.ID] != nil, LastError: m.lastErr[t.ID], CredBroken: m.broken[t.ID]}
 		st.Credential = "" // 凭据绝不下发（前端无需回显）
+		if st.Purpose == "" {
+			st.Purpose = PurposeGame
+		}
 		out = append(out, st)
 	}
 	return out
@@ -142,6 +207,11 @@ func (m *Manager) Add(t Tunnel) (*Tunnel, error) {
 	if err := validate(&t); err != nil {
 		return nil, err
 	}
+	sealed, err := secret.Seal(t.Credential)
+	if err != nil {
+		return nil, fmt.Errorf("凭据%w", err)
+	}
+	t.Credential = sealed
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.seq++
@@ -159,6 +229,10 @@ func (m *Manager) Update(id string, t Tunnel) error {
 	if err := validate(&t); err != nil {
 		return err
 	}
+	sealed, err := secret.Seal(t.Credential)
+	if err != nil {
+		return fmt.Errorf("凭据%w", err)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.running[id] != nil {
@@ -169,8 +243,11 @@ func (m *Manager) Update(id string, t Tunnel) error {
 		return fmt.Errorf("隧道不存在")
 	}
 	t.ID = id
-	if t.Credential == "" {
+	if sealed == "" {
 		t.Credential = old.Credential // 凭据留空表示不修改（列表接口不回显凭据）
+	} else {
+		t.Credential = sealed
+		delete(m.broken, id)
 	}
 	*old = t
 	m.save()
@@ -186,6 +263,7 @@ func (m *Manager) Delete(id string) error {
 	for i, t := range m.tunnels {
 		if t.ID == id {
 			m.tunnels = append(m.tunnels[:i], m.tunnels[i+1:]...)
+			delete(m.broken, id)
 			m.save()
 			return nil
 		}
@@ -198,6 +276,25 @@ func validate(t *Tunnel) error {
 	t.Credential = strings.TrimSpace(t.Credential)
 	if t.Name == "" {
 		return fmt.Errorf("请填写隧道名称")
+	}
+	switch t.Purpose {
+	case "", PurposeGame:
+		t.Purpose = PurposeGame
+	case PurposeVoice:
+	default:
+		return fmt.Errorf("未知的用途：%s（可选 game 游戏、voice 语音）", t.Purpose)
+	}
+	if t.Provider != "custom" {
+		t.Proto = ""
+	} else {
+		switch t.Proto {
+		case "", "tcp", "udp":
+			if t.Proto == "" {
+				t.Proto = "tcp"
+			}
+		default:
+			return fmt.Errorf("自定义 frps 的协议只能是 tcp 或 udp")
+		}
 	}
 	switch t.Provider {
 	case "openfrp", "natfrp":
@@ -230,20 +327,29 @@ func (m *Manager) Start(id string) error {
 		return fmt.Errorf("隧道已在运行")
 	}
 	m.starting[id] = true // 占位：慢速启动（EnsureFrpc 首次可能联网下载 frpc）期间挡住并发/重复 Start，避免双启 frpc 争同一公网端口
+	snap := *t            // 启动参数用锁内拍下的副本，凭据在副本上解开，不写回
 	m.mu.Unlock()
 	defer func() { m.mu.Lock(); delete(m.starting, id); m.mu.Unlock() }()
 
 	con := m.Console(id)
-	p := providerOf(t.Provider)
+	// 先解凭据再准备 frpc：解不开就不必下载 frpc
+	cred, err := secret.Unseal(snap.Credential)
+	if err != nil {
+		err = fmt.Errorf("凭据无法解开（可能换了电脑或 Windows 用户），请重新填写这条隧道的凭据（界面上可以删除后重新添加）")
+		con.Append("[MineDeck] ❌ " + err.Error())
+		return err
+	}
+	snap.Credential = cred
+	p := providerOf(snap.Provider)
 	if p == nil {
-		return fmt.Errorf("未知服务商: %s", t.Provider)
+		return fmt.Errorf("未知服务商: %s", snap.Provider)
 	}
 	exe, err := p.EnsureFrpc(con)
 	if err != nil {
 		con.Append("[MineDeck] ❌ " + err.Error())
 		return err
 	}
-	args, err := p.LaunchArgs(t)
+	args, env, err := p.Launch(&snap)
 	if err != nil {
 		con.Append("[MineDeck] ❌ " + err.Error())
 		return err
@@ -252,7 +358,8 @@ func (m *Manager) Start(id string) error {
 	cmd.Dir = filepath.Dir(exe)
 	// frpc 会读取 HTTP_PROXY 等环境变量并把与 frps 的连接送进 HTTP 代理
 	//（且不遵守 NO_PROXY），穿透流量必须直连，故剥离代理变量。
-	cmd.Env = dropProxyEnv(procutil.CleanEnv())
+	// env 是服务商要额外传给 frpc 的变量（自定义 frps 的 token 走这里，不落盘）。
+	cmd.Env = append(dropProxyEnv(procutil.CleanEnv()), env...)
 	procutil.HideWindow(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -263,7 +370,7 @@ func (m *Manager) Start(id string) error {
 		return err
 	}
 	cmd.Stderr = cmd.Stdout
-	con.Append(fmt.Sprintf("[MineDeck] 启动 frpc（%s）...", t.Provider))
+	con.Append(fmt.Sprintf("[MineDeck] 启动 frpc（%s）...", snap.Provider))
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("frpc 启动失败: %w", err)
 	}
@@ -343,8 +450,12 @@ func (m *Manager) setPublicAddr(t *Tunnel, addr string) {
 	}
 	m.mu.Unlock()
 	if changed {
-		m.Console(t.ID).Append("[MineDeck] ✔ 公网地址: " + addr + "（把它发给朋友直连）")
-		events.Publish("tunnel.up", map[string]any{"tunnel": t.Name, "addr": addr})
+		if t.IsVoice() {
+			m.Console(t.ID).Append("[MineDeck] ✔ 语音公网地址: " + addr + "（MineDeck 会把它写进绑定实例的 voice_host）")
+		} else {
+			m.Console(t.ID).Append("[MineDeck] ✔ 公网地址: " + addr + "（把它发给朋友直连）")
+		}
+		events.Publish("tunnel.up", map[string]any{"tunnel": t.Name, "id": t.ID, "addr": addr})
 	}
 }
 
@@ -364,20 +475,78 @@ func (m *Manager) Stop(id string) error {
 
 // StartBound 启动绑定到某实例且开启了跟随启动的隧道（实例启动后调用）。
 func (m *Manager) StartBound(instance string) {
-	m.mu.Lock()
-	var ids []string
-	for _, t := range m.tunnels {
-		if t.Bound == instance && t.AutoStart && m.running[t.ID] == nil {
-			ids = append(ids, t.ID)
-		}
-	}
-	m.mu.Unlock()
-	for _, id := range ids {
+	for _, id := range m.bound(instance) {
 		id := id
 		go func() {
 			time.Sleep(2 * time.Second) // 等服务器进入启动流程
+			m.mu.Lock()
+			busy := m.running[id] != nil || m.starting[id] // 已经开着（比如重启时没停）就不用再开；等之后再看，免得撞上刚停掉还没收尾的那次
+			m.mu.Unlock()
+			if busy {
+				return
+			}
 			if err := m.Start(id); err != nil {
 				m.Console(id).Append("[MineDeck] 跟随启动失败: " + err.Error())
+			}
+		}()
+	}
+}
+
+// StopBound 停掉绑定到某实例、开了跟随启动、正在运行的隧道（实例停了之后调用），返回停了几条。
+// 和 StartBound 对称：手动开的、没勾跟随启动的隧道不动。
+func (m *Manager) StopBound(instance string) int {
+	n := 0
+	for _, id := range m.bound(instance) {
+		m.mu.Lock()
+		running := m.running[id] != nil
+		m.mu.Unlock()
+		if !running {
+			continue
+		}
+		m.Console(id).Append(fmt.Sprintf("[MineDeck] 服务器「%s」停了，隧道跟着停止", instance))
+		if m.Stop(id) == nil {
+			n++
+		}
+	}
+	return n
+}
+
+// bound 绑定到某实例、开了跟随启动的隧道。
+func (m *Manager) bound(instance string) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var ids []string
+	for _, t := range m.tunnels {
+		if t.Bound == instance && t.AutoStart {
+			ids = append(ids, t.ID)
+		}
+	}
+	return ids
+}
+
+// stopGrace 实例停了之后等多久再停跟随的隧道：重启（先停再开）时不来回开关隧道。
+var stopGrace = 5 * time.Second
+
+// FollowInstances 让开了「跟随实例启动」的隧道跟着实例启停（订阅实例事件；main 里调一次）：实例启动时拉起，
+// 包括崩溃自动重启那次；实例停了（用户停服、强杀、崩溃）stopGrace 之后还是停着，就停掉——停服后公网端口不再开着
+// （测试报告 C-03）。status 查实例现在的状态（stopped | starting | running | stopping）。
+func (m *Manager) FollowInstances(status func(instance string) string) {
+	events.Subscribe(func(e events.Event) { m.follow(e, status) })
+}
+
+func (m *Manager) follow(e events.Event, status func(string) string) {
+	name, _ := e.Data["instance"].(string)
+	if name == "" {
+		return
+	}
+	switch e.Type {
+	case "instance.start":
+		m.StartBound(name)
+	case "instance.stop", "instance.crash":
+		go func() {
+			time.Sleep(stopGrace)
+			if status(name) == "stopped" {
+				m.StopBound(name)
 			}
 		}()
 	}

@@ -1,0 +1,7 @@
+# 构建产物和下载的依赖（SVC API 只在本地编译时用，不能入库）
+/build/
+/.cache/
+*.jar
+*.class
+/testsend/testsend
+/testsend/testsend.exe

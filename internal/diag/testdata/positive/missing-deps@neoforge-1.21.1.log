@@ -1,0 +1,10 @@
+[MineDeck] 启动: java -Xms1024M -Xmx6144M -Dfile.encoding=UTF-8 @libraries/net/neoforged/neoforge/21.1.77/win_args.txt nogui
+[09:30:01] [main/INFO] [cp.mo.mo.Launcher/MODLAUNCHER]: ModLauncher running: args [--launchTarget, neoforgeserver, --fml.neoForgeVersion, 21.1.77, --fml.fmlVersion, 4.0.31, --fml.mcVersion, 1.21.1, --fml.neoFormVersion, 20240808.144430]
+[09:30:03] [main/ERROR] [ne.ne.fm.lo.ModSorter/LOADING]: Missing or unsupported mandatory dependencies:
+	Mod ID: 'geckolib', Requested by: 'create', Expected range: '[4.4,)', Actual version: '[MISSING]'
+[09:30:05] [main/ERROR] [ne.ne.fm.ModLoader/LOADING]: Loading errors encountered:
+	- Mod create requires geckolib 4.4 or above
+		Currently, geckolib is not installed
+	- Mod farmersdelight requires neoforge 21.1.90 or above
+		Currently, neoforge is 21.1.77
+[MineDeck] 服务器进程已退出（exit status 1）

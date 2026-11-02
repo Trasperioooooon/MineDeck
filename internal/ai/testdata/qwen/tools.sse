@@ -1,0 +1,10 @@
+data: {"object":"chat.completion.chunk","created":1761600000,"system_fingerprint":null,"model":"qwen-plus","id":"chatcmpl-3f8a9d2e-1b4c-9c1e-a6f0-5d2e7b8c9a01","choices":[{"delta":{"content":null,"role":"assistant","tool_calls":[{"index":0,"id":"call_8f08d2b0fc0c4d8fab7123","type":"function","function":{"name":"instance_props_get","arguments":""}}]},"index":0,"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1761600000,"system_fingerprint":null,"model":"qwen-plus","id":"chatcmpl-3f8a9d2e-1b4c-9c1e-a6f0-5d2e7b8c9a01","choices":[{"delta":{"tool_calls":[{"index":0,"id":"","type":"function","function":{"arguments":"{\"inst\": \"生存服\"}"}}]},"index":0,"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1761600000,"system_fingerprint":null,"model":"qwen-plus","id":"chatcmpl-3f8a9d2e-1b4c-9c1e-a6f0-5d2e7b8c9a01","choices":[{"delta":{},"index":0,"logprobs":null,"finish_reason":"tool_calls"}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1761600000,"system_fingerprint":null,"model":"qwen-plus","id":"chatcmpl-3f8a9d2e-1b4c-9c1e-a6f0-5d2e7b8c9a01","choices":[],"usage":{"prompt_tokens":420,"completion_tokens":24,"total_tokens":444,"prompt_tokens_details":{"cached_tokens":0}}}
+
+data: [DONE]
+

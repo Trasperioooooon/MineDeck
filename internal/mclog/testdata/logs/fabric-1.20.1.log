@@ -1,0 +1,22 @@
+[20:14:40] [main/INFO]: Loading Minecraft 1.20.1 with Fabric Loader 0.16.9
+[20:14:40] [main/INFO]: Loading 4 mods:
+	- fabric-api 0.92.2+1.20.1
+	- fabricloader 0.16.9
+	- java 21
+	- minecraft 1.20.1
+[20:14:42] [main/INFO]: SpongePowered MIXIN Subsystem Version=0.8.5 Source=file:/D:/MineDeck/servers/fabric/libraries/net/fabricmc/sponge-mixin/0.15.4+mixin.0.8.7/sponge-mixin-0.15.4+mixin.0.8.7.jar Service=Knot/Fabric Env=SERVER
+[20:14:45] [Server thread/INFO]: Starting minecraft server version 1.20.1
+[20:14:45] [Server thread/INFO]: Loading properties
+[20:14:46] [Server thread/INFO]: Preparing level "world"
+[20:15:00] [Server thread/INFO]: Done (8.123s)! For help, type "help"
+[20:15:20] [Server thread/INFO]: Steve[/127.0.0.1:51234] logged in with entity id 112 at (8.5, 64.0, 8.5)
+[20:15:20] [Server thread/INFO]: Steve joined the game
+[20:15:21] [Server thread/INFO]: Alex[/127.0.0.1:51240] logged in with entity id 113 at (8.5, 64.0, 8.5)
+[20:15:21] [Server thread/INFO]: Alex joined the game
+[20:15:31] [Server thread/INFO]: [Not Secure] <Steve> 大家好
+[20:15:40] [Server thread/INFO]: [Not Secure] <Steve> Alex left the game
+[20:15:42] [Server thread/INFO]: [Not Secure] <Steve> Notch joined the game
+[20:15:45] [Worker-Main-2/INFO]: <Notch> @AI 线程不对
+[20:15:50] [Server thread/INFO]: [examplemod] Notch joined the game
+[20:16:30] [Server thread/INFO]: Alex lost connection: Disconnected
+[20:16:30] [Server thread/INFO]: Alex left the game

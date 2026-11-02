@@ -43,6 +43,7 @@ const (
 	sOK                 hresult = 0x00000000
 	eNoInterface        hresult = 0x80004002
 	ePointer            hresult = 0x80004003
+	eInvalidArg         hresult = 0x80070057
 	audclntSBufferEmpty hresult = 0x08890001
 )
 
@@ -241,6 +242,17 @@ func (e *iMMDeviceEnumerator) EnumAudioEndpoints(flow, stateMask uint32, out **i
 
 func (e *iMMDeviceEnumerator) GetDefaultAudioEndpoint(flow, role uint32, out **iMMDevice) hresult {
 	r, _, _ := syscall.SyscallN(e.vtbl.GetDefaultAudioEndpoint, uintptr(unsafe.Pointer(e)), uintptr(flow), uintptr(role), uintptr(unsafe.Pointer(out)))
+	return hresult(r)
+}
+
+// GetDevice 按设备 ID 打开设备。
+func (e *iMMDeviceEnumerator) GetDevice(id string, out **iMMDevice) hresult {
+	p, err := windows.UTF16PtrFromString(id)
+	if err != nil {
+		return eInvalidArg
+	}
+	r, _, _ := syscall.SyscallN(e.vtbl.GetDevice, uintptr(unsafe.Pointer(e)), uintptr(unsafe.Pointer(p)), uintptr(unsafe.Pointer(out)))
+	runtime.KeepAlive(p)
 	return hresult(r)
 }
 

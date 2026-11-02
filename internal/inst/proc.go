@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -55,6 +56,7 @@ func (m *Manager) Start(name string) error {
 	if err != nil {
 		return err
 	}
+	m.beforeStart(i) // 不能持有 procMu：回调里会查实例状态
 	i.procMu.Lock()
 	defer i.procMu.Unlock()
 	if i.state != "" && i.state != "stopped" {
@@ -91,7 +93,8 @@ func (m *Manager) Start(name string) error {
 		return fmt.Errorf("启动失败: %w", err)
 	}
 	assignToJob(cmd.Process)
-	i.proc = &proc{cmd: cmd, stdin: bufio.NewWriter(stdin)}
+	pr := &proc{cmd: cmd, stdin: bufio.NewWriter(stdin)}
+	i.proc = pr
 	i.state = "starting"
 	i.userStop = false
 	i.startedAt = time.Now()
@@ -105,7 +108,12 @@ func (m *Manager) Start(name string) error {
 		for sc.Scan() {
 			line := strings.TrimRight(decodeConsole(sc.Bytes(), i.consoleEnc()), "\r")
 			i.Console.Append(line)
+			if stoppingLineRe.MatchString(line) && !i.markUserStop(pr) {
+				// 游戏里的管理员或 RCON 发了 stop（控制台发的在 CommandEcho 里已经记过）
+				i.Console.Append("[MineDeck] 服务器正在关闭（有人执行了 stop）")
+			}
 			i.trackPlayers(line)
+			m.noteLine(i, line) // 游戏内 AI：在线名单更新过了再认聊天
 			if serverReady(line) {
 				i.procMu.Lock()
 				if i.state == "starting" {
@@ -122,10 +130,13 @@ func (m *Manager) Start(name string) error {
 		i.proc = nil
 		i.procMu.Unlock()
 		i.clearOnline()
-		if err != nil {
+		switch {
+		case err != nil:
 			i.Console.Append(fmt.Sprintf("[MineDeck] 服务器进程已退出（%v）", err))
-		} else {
+		case wasUser:
 			i.Console.Append("[MineDeck] 服务器已正常关闭")
+		default: // 模组加载失败时 Java 也是退出码 0：没人要停服，不能说「正常关闭」（测试报告问题 3）
+			i.Console.Append("[MineDeck] 服务器进程已退出（退出码 0，但没人让它停）")
 		}
 		if wasUser {
 			events.Publish("instance.stop", map[string]any{"instance": i.Name})
@@ -202,8 +213,13 @@ func (m *Manager) Kill(name string) error {
 	return i.proc.cmd.Process.Kill()
 }
 
-// Command 向服务器控制台发送命令。
-func (m *Manager) Command(name, cmd string) error {
+// Command 向服务器控制台发送命令。命令原样写进服务器的标准输入（Go 的字符串，也就是 UTF-8，不按实例的控制台编码转码），
+// 控制台里显示「> 命令」。
+func (m *Manager) Command(name, cmd string) error { return m.CommandEcho(name, cmd, "") }
+
+// CommandEcho 同 Command，控制台里显示 echo（空串时照常显示「> 命令」）。游戏内 AI 用它：tellraw 的文字写成了 \uXXXX，
+// 原样显示没法看，换成一行「[MineDeck] 游戏内 AI 回复……」。
+func (m *Manager) CommandEcho(name, cmd, echo string) error {
 	i, err := m.Get(name)
 	if err != nil {
 		return err
@@ -218,8 +234,50 @@ func (m *Manager) Command(name, cmd string) error {
 	if cmd == "" {
 		return nil
 	}
-	i.Console.Append("> " + cmd)
+	if echo == "" {
+		echo = "> " + cmd
+	}
+	if stopCommand(i.Core, cmd) {
+		i.markUserStop(p) // 发之前就记下：这次退出是用户要停的，不是崩溃（测试报告：控制台 stop 后被崩溃自动重启拉起来）
+	}
+	i.Console.Append(echo)
 	return writeLine(p, cmd)
+}
+
+// stoppingLineRe 服务器执行 stop 时打的那一行：控制台「…]: Stopping the server」，
+// 游戏里的管理员或 RCON 发的是「…]: [Steve: Stopping the server]」。聊天「<Steve> Stopping the server」不算。
+var stoppingLineRe = regexp.MustCompile(`\]: (?:\[[^\[\]<>]+: )?Stopping the server\]?\s*$`)
+
+// stopCommand 控制台发的这条命令是不是停服：服务端是 stop；Velocity 是 shutdown（别名 end、stop），Waterfall 是 end。
+func stopCommand(core mcsrc.Core, cmd string) bool {
+	f := strings.Fields(strings.ToLower(strings.TrimPrefix(cmd, "/")))
+	if len(f) == 0 {
+		return false
+	}
+	switch core {
+	case mcsrc.CoreVelocity:
+		return f[0] == "shutdown" || f[0] == "end" || f[0] == "stop"
+	case mcsrc.CoreWaterfall:
+		return f[0] == "end"
+	}
+	return f[0] == "stop"
+}
+
+// markUserStop 用户自己要停这次运行（控制台或游戏里发了 stop）：退出时不算崩溃、不触发崩溃自动重启，
+// 状态改成 stopping（伙伴、音乐共享据此知道是正常关服）。p 是发命令时的那次运行，已经换了一次运行就不管。
+// 返回之前是不是已经记过（或者那次运行已经结束）。
+func (i *Instance) markUserStop(p *proc) (already bool) {
+	i.procMu.Lock()
+	defer i.procMu.Unlock()
+	if i.proc != p || p == nil {
+		return true
+	}
+	already = i.userStop
+	i.userStop = true
+	if i.state == "starting" || i.state == "running" {
+		i.state = "stopping"
+	}
+	return already
 }
 
 func writeLine(p *proc, line string) error {

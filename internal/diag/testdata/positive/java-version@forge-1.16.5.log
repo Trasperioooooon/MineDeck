@@ -1,0 +1,4 @@
+[MineDeck] 启动: java -Xms1024M -Xmx4096M -Dfile.encoding=UTF-8 -Dlog4j2.formatMsgNoLookups=true -jar forge-1.16.5-36.2.39.jar nogui
+Exception in thread "main" java.lang.ClassCastException: class jdk.internal.loader.ClassLoaders$AppClassLoader cannot be cast to class java.net.URLClassLoader (jdk.internal.loader.ClassLoaders$AppClassLoader and java.net.URLClassLoader are in module java.base of loader 'bootstrap')
+	at cpw.mods.modlauncher.Launcher.main(Launcher.java:66)
+[MineDeck] 服务器进程已退出（exit status 1）

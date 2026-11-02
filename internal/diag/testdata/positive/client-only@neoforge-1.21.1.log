@@ -1,0 +1,7 @@
+[MineDeck] 启动: java -Xms1024M -Xmx6144M -Dfile.encoding=UTF-8 @libraries/net/neoforged/neoforge/21.1.77/win_args.txt nogui
+[09:40:10] [main/ERROR] [ne.ne.fm.ModLoader/LOADING]: Loading errors encountered:
+	- Mod journeymap has failed to load correctly
+		java.lang.RuntimeException: Attempted to load class net/minecraft/client/KeyMapping for invalid dist DEDICATED_SERVER
+	at net.neoforged.fml.loading.RuntimeDistCleaner.processClassWithFlags(RuntimeDistCleaner.java:61) ~[loader-4.0.31.jar%23106!/:4.0]
+	at journeymap.client.JourneymapClient.<clinit>(JourneymapClient.java:110) ~[journeymap-neoforge-1.21.1-6.0.0-beta.33.jar%23177!/:?]
+[MineDeck] 服务器进程已退出（exit status 1）

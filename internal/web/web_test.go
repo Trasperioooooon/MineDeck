@@ -4,17 +4,27 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"minedeck/internal/app"
+	"minedeck/internal/ops/catalog"
 )
+
+// bareServer 不带实例和隧道的路由（和 main 一样：注册表和助手共用一个 AI 接入层），程序目录取当时的 app.Base。
+func bareServer() http.Handler {
+	aiSvc := catalog.NewAI()
+	reg := catalog.New(catalog.Env{AI: aiSvc, Port: 27333})
+	return New(nil, nil, reg, catalog.NewAssistant(reg, aiSvc, Token))
+}
 
 // 下发配置的响应一律不得含访问密码哈希（回归：PUT /api/config 曾原样回传整个 app.Config，
 // 每次保存设置都把 accessPasswordHash 发给前端，局域网登录的手机也不例外）。
 func TestConfigResponsesHidePasswordHash(t *testing.T) {
 	app.Base = t.TempDir() // config.json 落到临时目录，不污染工作区
-	h := New(nil, nil, 0)
+	h := bareServer()
 	call := func(method, path, body string) string {
 		t.Helper()
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -62,7 +72,7 @@ func TestConfigResponsesHidePasswordHash(t *testing.T) {
 // 页面与脚本仍然 no-store，改了前端立即生效。
 func TestFontsServedWithETag(t *testing.T) {
 	app.Base = t.TempDir()
-	h := New(nil, nil, 0)
+	h := bareServer()
 	get := func(path, inm string) *httptest.ResponseRecorder {
 		t.Helper()
 		req := httptest.NewRequest("GET", path, nil)
@@ -104,7 +114,7 @@ func TestFontsServedWithETag(t *testing.T) {
 // chromeColor 只收 #rrggbb（存为小写），格式不对整次拒绝、原值不变；空串清除。
 func TestConfigChromeColor(t *testing.T) {
 	app.Base = t.TempDir()
-	h := New(nil, nil, 0)
+	h := bareServer()
 	put := func(body string) int {
 		t.Helper()
 		req := httptest.NewRequest("PUT", "/api/config", strings.NewReader(body))
@@ -127,5 +137,65 @@ func TestConfigChromeColor(t *testing.T) {
 	}
 	if code := put(`{"chromeColor":""}`); code != http.StatusOK || app.GetConfig().ChromeColor != "" {
 		t.Errorf("空串应清除：HTTP %d，仍为 %q", code, app.GetConfig().ChromeColor)
+	}
+}
+
+// CurseForge API Key 只能写、不能读：保存后任何响应都不含 Key，改由 cfKeySet 告知是否已设置；
+// config.json 里也没有明文（加密存在 secrets.json）。传空串仍是清除。
+func TestConfigResponsesHideCFKey(t *testing.T) {
+	app.Base = t.TempDir()
+	h := bareServer()
+	call := func(method, path, body string) string {
+		t.Helper()
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Host = "127.0.0.1"
+		req.Header.Set("X-Token", Token)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s %s: HTTP %d %s", method, path, rec.Code, rec.Body)
+		}
+		return rec.Body.String()
+	}
+	type appInfo struct {
+		Data struct {
+			CFKeySet    bool `json:"cfKeySet"`
+			CFKeyBroken bool `json:"cfKeyBroken"`
+		} `json:"data"`
+	}
+	state := func() appInfo {
+		var a appInfo
+		if err := json.Unmarshal([]byte(call("GET", "/api/app", "")), &a); err != nil {
+			t.Fatal(err)
+		}
+		return a
+	}
+	if a := state(); a.Data.CFKeySet || a.Data.CFKeyBroken {
+		t.Fatalf("初始应为未设置：%+v", a)
+	}
+	const key = "cf-secret-0123456789abcdef"
+	put := call("PUT", "/api/config", `{"cfApiKey":"  `+key+`  ","backupKeep":7}`)
+	got := call("GET", "/api/app", "")
+	for name, body := range map[string]string{"PUT /api/config": put, "GET /api/app": got} {
+		if strings.Contains(body, key) {
+			t.Errorf("%s 响应里有 Key：%s", name, body)
+		}
+	}
+	if a := state(); !a.Data.CFKeySet || a.Data.CFKeyBroken {
+		t.Errorf("保存后 cfKeySet 应为 true：%+v", a)
+	}
+	if k := app.CFKey(); k != key {
+		t.Errorf("保存的 Key 不对（应去掉首尾空白）：%q", k)
+	}
+	if b, _ := os.ReadFile(filepath.Join(app.Base, "config.json")); strings.Contains(string(b), key) || !strings.Contains(string(b), `"backupKeep": 7`) {
+		t.Errorf("config.json 不对：%s", b)
+	}
+	call("PUT", "/api/config", `{"backupKeep":8}`) // 不带 cfApiKey：不动 Key
+	if app.CFKey() != key {
+		t.Error("没传 cfApiKey 却改动了 Key")
+	}
+	call("PUT", "/api/config", `{"cfApiKey":""}`)
+	if a := state(); a.Data.CFKeySet || app.CFKey() != "" {
+		t.Errorf("传空串应清除 Key：%+v", a)
 	}
 }

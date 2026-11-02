@@ -12,6 +12,8 @@ func Detect() Capability { return Capability{} }
 
 func ListSources() ([]Source, error) { return nil, errUnsupported }
 
+func ListDevices() ([]Device, error) { return nil, errUnsupported }
+
 func Start(opts Options) (*Capture, error) {
 	if err := validate(opts); err != nil {
 		return nil, err

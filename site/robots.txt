@@ -1,0 +1,5 @@
+# MineDeck landing page (GitHub Pages project site)
+User-agent: *
+Allow: /
+
+Sitemap: https://trasperioooooon.github.io/MineDeck/sitemap.xml

@@ -1,0 +1,15 @@
+[MineDeck] 启动: java -Xms1024M -Xmx6144M -Dfile.encoding=UTF-8 @libraries/net/neoforged/neoforge/21.1.77/win_args.txt nogui
+[09:30:01] [main/INFO] [cp.mo.mo.Launcher/MODLAUNCHER]: ModLauncher running: args [--launchTarget, neoforgeserver, --fml.neoForgeVersion, 21.1.77, --fml.fmlVersion, 4.0.31, --fml.mcVersion, 1.21.1, --fml.neoFormVersion, 20240808.144430]
+[09:30:02] [main/INFO] [ne.ne.fm.lo.LoadingModList/]: Found mod file create-1.21.1-6.0.4.jar of type MOD
+[09:30:03] [main/WARN] [ne.ne.fm.lo.mo.ModFileParser/LOADING]: Mod file D:\MineDeck\servers\pack\mods\kotlinforforge.jar is a JiJ library
+[09:30:05] [main/WARN] [mixin/]: @Mixin target net.minecraft.client.gui.Gui was not found create.mixins.json:client.GuiMixin
+[09:30:20] [Server thread/INFO] [minecraft/DedicatedServer]: Starting minecraft server version 1.21.1
+[09:30:20] [Server thread/INFO] [minecraft/DedicatedServer]: Starting Minecraft server on *:25565
+[09:30:31] [Server thread/INFO] [minecraft/DedicatedServer]: Done (11.872s)! For help, type "help"
+[09:31:00] [Server thread/INFO] [minecraft/MinecraftServer]: Alex[/192.168.1.52:50000] logged in with entity id 312 at (12.5, 64.0, -3.5)
+[09:31:00] [Server thread/INFO] [minecraft/MinecraftServer]: Alex joined the game
+[09:32:00] [Server thread/INFO] [minecraft/MinecraftServer]: [Not Secure] <Alex> Mixin [x] from phase [DEFAULT] in config [x.mixins.json] FAILED during APPLY 会怎样
+[09:33:00] [Server thread/INFO] [minecraft/MinecraftServer]: [Not Secure] <Alex> A single server tick took 60.00 seconds (should be max 0.05)
+> stop
+[09:40:00] [Server thread/INFO] [minecraft/MinecraftServer]: Stopping server
+[MineDeck] 服务器已正常关闭

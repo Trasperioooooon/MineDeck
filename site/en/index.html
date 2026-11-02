@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<!-- MineDeck 介绍页（英文）。结构与 ../index.html 相同，内容以 README.md（含英文简介）和 docs/releases/ 的发布说明为准。
+     图片路径同中文页，只是多一层 ../（发布时由 .github/workflows/pages.yml 复制进 images/）。 -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MineDeck · One-click Minecraft server launcher for Windows</title>
+<meta name="description" content="MineDeck is a one-click Minecraft (Java Edition) server launcher for Windows: a single ~13 MB executable that downloads the right Java and server software, imports modpacks and manages servers through a GUI, with built-in frp tunnels. Optional AI features use your own API key. The interface is Chinese only for now.">
+<link rel="canonical" href="https://trasperioooooon.github.io/MineDeck/en/">
+<link rel="alternate" hreflang="zh-CN" href="https://trasperioooooon.github.io/MineDeck/">
+<link rel="alternate" hreflang="zh" href="https://trasperioooooon.github.io/MineDeck/">
+<link rel="alternate" hreflang="en" href="https://trasperioooooon.github.io/MineDeck/en/">
+<link rel="alternate" hreflang="x-default" href="https://trasperioooooon.github.io/MineDeck/en/">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#eae5d7">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0e1210">
+<link rel="icon" href="../favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="../images/icon-256.png">
+<link rel="preload" href="../fonts/Geist-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../style.css">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="MineDeck">
+<meta property="og:title" content="MineDeck · One-click Minecraft server launcher for Windows">
+<meta property="og:description" content="A single ~13 MB executable that sets up Java and the server for you, imports modpacks and has built-in frp tunnels; optional AI server assistant, in-game AI, AI companions and music sharing.">
+<meta property="og:url" content="https://trasperioooooon.github.io/MineDeck/en/">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="zh_CN">
+<meta property="og:image" content="https://trasperioooooon.github.io/MineDeck/images/social-preview.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="MineDeck: one-click Minecraft server launcher for Windows, with AI server assistant, in-game AI, AI companions and music sharing">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="MineDeck · One-click Minecraft server launcher for Windows">
+<meta name="twitter:description" content="A single ~13 MB executable that sets up Java and the server for you, imports modpacks and has built-in frp tunnels; optional AI server assistant, in-game AI, AI companions and music sharing.">
+<meta name="twitter:image" content="https://trasperioooooon.github.io/MineDeck/images/social-preview.png">
+<meta name="twitter:image:alt" content="MineDeck: one-click Minecraft server launcher for Windows, with AI server assistant, in-game AI, AI companions and music sharing">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "@id": "https://trasperioooooon.github.io/MineDeck/#app",
+  "name": "MineDeck",
+  "description": "One-click Minecraft (Java Edition) server launcher for Windows: a single executable that downloads the right Java and server software, imports Modrinth and CurseForge modpacks, and manages servers through a GUI with built-in frp tunnels; optional AI server assistant, in-game AI, AI companions and music sharing. The interface is Chinese only for now.",
+  "url": "https://trasperioooooon.github.io/MineDeck/",
+  "sameAs": "https://github.com/Trasperioooooon/MineDeck",
+  "applicationCategory": "UtilitiesApplication",
+  "operatingSystem": "Windows 10, Windows 11",
+  "softwareVersion": "2.9.0-beta.2",
+  "downloadUrl": "https://github.com/Trasperioooooon/MineDeck/releases",
+  "license": "https://github.com/Trasperioooooon/MineDeck/blob/main/LICENSE",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "image": "https://trasperioooooon.github.io/MineDeck/images/icon-256.png",
+  "screenshot": [
+    "https://trasperioooooon.github.io/MineDeck/images/01-servers.png",
+    "https://trasperioooooon.github.io/MineDeck/images/03-assistant.png",
+    "https://trasperioooooon.github.io/MineDeck/images/02-console-banner.png",
+    "https://trasperioooooon.github.io/MineDeck/images/04-gameai-log.png",
+    "https://trasperioooooon.github.io/MineDeck/images/05-companion.png",
+    "https://trasperioooooon.github.io/MineDeck/images/06-music.png",
+    "https://trasperioooooon.github.io/MineDeck/images/07-settings-ai.png"
+  ]
+}
+</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="./"><img src="../images/icon-256.png" width="32" height="32" alt="">MineDeck</a>
+    <nav class="nav" aria-label="Page">
+      <a class="wide" href="#features">Features</a>
+      <a class="wide" href="#faq">FAQ</a>
+      <a class="wide" href="#download">Download</a>
+      <a href="../" hreflang="zh-CN" lang="zh-CN">中文</a>
+      <a href="https://github.com/Trasperioooooon/MineDeck" aria-label="GitHub repository" title="GitHub repository"><svg class="ico solid" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A8 8 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg></a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+<section class="hero" aria-labelledby="hero-title">
+  <div class="wrap">
+    <div class="hero-text">
+      <p class="eyebrow">v2.9.0-beta.2<span class="sep" aria-hidden="true">·</span>Windows 10 / 11<span class="sep" aria-hidden="true">·</span>MIT licensed</p>
+      <h1 id="hero-title"><span class="name"><img class="hero-icon" src="../images/icon-256.png" width="84" height="84" alt="">MineDeck</span> <span class="tagline">One-click Minecraft server launcher for Windows</span></h1>
+      <p class="lead">A single <code>MineDeck.exe</code> (about 13 MB, no dependencies) that downloads the right Java and server software, imports Modrinth and CurseForge modpacks, and manages your Minecraft (Java Edition) servers through a GUI, with built-in frp tunnels so friends can join from anywhere.</p>
+      <p class="note"><span class="lamp" aria-hidden="true"></span><span><strong>The app's interface is Chinese only for now.</strong> Below, Chinese labels from the app are given with a translation.</span></p>
+      <div class="chips">
+        <span class="label" id="opt-label">Optional:</span>
+        <ul aria-labelledby="opt-label">
+          <li class="chip">AI server assistant</li>
+          <li class="chip">In-game AI</li>
+          <li class="chip">AI companions</li>
+          <li class="chip">Music sharing</li>
+        </ul>
+      </div>
+      <div class="actions">
+        <a class="btn primary" href="https://github.com/Trasperioooooon/MineDeck/releases"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5v7.5M4.7 6.8 8 10l3.3-3.2M3 13h10"/></svg>Download</a>
+        <a class="btn" href="https://github.com/Trasperioooooon/MineDeck"><svg class="ico solid" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A8 8 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>GitHub</a>
+      </div>
+      <p class="hint">On the releases page, download <code>MineDeck.exe</code>, put it in its own folder and double-click it.</p>
+    </div>
+    <div class="hero-shot">
+      <img src="../images/01-servers.png" width="1440" height="900" fetchpriority="high" alt="MineDeck main window (Chinese interface): the Minecraft server list, showing each server's type, version, status, online players and start button">
+    </div>
+  </div>
+</section>
+
+<section id="start" aria-labelledby="start-title">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">Three steps</p>
+      <h2 id="start-title">Pick a version and click create; MineDeck does the rest</h2>
+    </div>
+    <ol class="steps">
+      <li class="step card">
+        <span class="sn" aria-hidden="true">1</span>
+        <h3>Download</h3>
+        <p>Get <code>MineDeck.exe</code> from the releases page and put it in its own folder. All data stays next to the exe: <code>servers/</code> for instances, <code>runtimes/</code> for Java, <code>cache/</code> for downloads.</p>
+      </li>
+      <li class="step card">
+        <span class="sn" aria-hidden="true">2</span>
+        <h3>Create a server</h3>
+        <p>Double-click it, then <span lang="zh-CN">新建服务器</span> (New server) → pick a server type → a version → a build → accept the EULA → create.</p>
+      </li>
+      <li class="step card">
+        <span class="sn" aria-hidden="true">3</span>
+        <h3>Start it and invite friends</h3>
+        <p>Click <span lang="zh-CN">▶ 启动</span> (Start); when the console shows <code>Done (...)!</code>, the server is up. Friends on your LAN connect to <code>your-LAN-IP:port</code>; for friends elsewhere, add a tunnel on the <span lang="zh-CN">内网穿透</span> (tunnels) page and send them the public address.</p>
+      </li>
+    </ol>
+    <p class="flow">After you click create, it does the rest: <b>download a matching portable Java</b> → <b>download the server software</b> → <b>run the installer</b> → <b>accept the EULA</b> → <b>generate the configs and start scripts</b>. Downloads go through mirrors in China (BMCLAPI / Tsinghua TUNA) first, with official sources as automatic fallback.</p>
+  </div>
+</section>
+
+<section id="features" aria-labelledby="features-title">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">Features</p>
+      <h2 id="features-title">Hosting, troubleshooting and playing with friends, plus optional AI</h2>
+      <p>All AI features are optional and use your own API key; they turn on only after you set them up in <span lang="zh-CN">设置 → AI（可选）</span> (Settings → AI). Without that, MineDeck doesn't connect to any AI service, and nothing else changes.</p>
+    </div>
+    <div class="features">
+      <article class="feature">
+        <div class="f-text">
+          <p class="eyebrow">AI server assistant</p>
+          <h3>Checks the logs and configs first, and asks before changing anything</h3>
+          <p>Open the assistant (<span lang="zh-CN">AI 助手</span>) from the top-right of the title bar. Ask why your server won't start, and it reads the logs, configs and crash reports before it answers.</p>
+          <p>Changing a config, switching Java or restarting the server shows a confirmation card first and runs only after you click it. What is sent to the AI is redacted first, and you can always see exactly what was sent.</p>
+        </div>
+        <a class="shot" href="../images/03-assistant.png"><img src="../images/03-assistant.png" width="1440" height="900" loading="lazy" decoding="async" alt="AI assistant panel (Chinese interface): the AI read the mod list, found that the minimap mod is client-only, and proposed disabling it with a confirmation card"></a>
+      </article>
+      <article class="feature">
+        <div class="f-text">
+          <p class="eyebrow">Error banner</p>
+          <h3>Server won't start? The banner tells you why</h3>
+          <p>No AI needed: the banner at the top of the console uses local rules to recognize 13 kinds of common errors, such as a missing required mod, a client-only mod in the server, a port already in use or the wrong Java version, and shows how to fix them.</p>
+          <p>With AI set up, you can also click <span lang="zh-CN">让 AI 分析</span> (Ask AI to analyze).</p>
+        </div>
+        <a class="shot" href="../images/02-console-banner.png"><img src="../images/02-console-banner.png" width="1440" height="900" loading="lazy" decoding="async" alt="Error banner at the top of the console (Chinese interface): the required mod geckolib is missing and a client-only mod is in the server, with fixes and an Ask AI to analyze button"></a>
+      </article>
+      <article class="feature">
+        <div class="f-text">
+          <p class="eyebrow">In-game AI</p>
+          <h3>Players ask @AI in chat</h3>
+          <p>Players type <code>@AI</code> and a question in chat; replies are visible to everyone by default. <code>/私</code> replies only to the asker, <code>/问</code> answers without running commands, <code>/额度</code> shows how many questions are left, and <code>/帮助</code> shows the usage.</p>
+          <p>Players you tick in the panel can have the AI run allowlisted commands: every argument is checked against a template, and commands such as <code>op</code> and <code>execute</code> are hard-blocked. Turning on the server whitelist takes one click.</p>
+        </div>
+        <a class="shot" href="../images/04-gameai-log.png"><img src="../images/04-gameai-log.png" width="1440" height="900" loading="lazy" decoding="async" alt="In-game AI questions and command log (Chinese interface): weather clear was run, op was refused"></a>
+      </article>
+      <article class="feature">
+        <div class="f-text">
+          <p class="eyebrow">AI companions</p>
+          <h3>Companions that follow players, gather wood and fight mobs</h3>
+          <p>Put AI companions (built on PlayerEngine) in NeoForge 1.21.1 and Forge 1.20.1 servers and tell them what to do in chat, for example <span lang="zh-CN">「@伙伴名 跟着我」</span> (follow me), <span lang="zh-CN">「砍 10 个橡木原木」</span> (chop 10 oak logs) or <span lang="zh-CN">「打附近的僵尸」</span> (fight the zombies nearby).</p>
+          <p>No-dig zones and mobs they must not attack are configurable; friends add just one companion mod to their client.</p>
+        </div>
+        <a class="shot" href="../images/05-companion.png"><img src="../images/05-companion.png" width="1440" height="900" loading="lazy" decoding="async" alt="Companions tab (Chinese interface): connected to the companion mod; one companion is collecting oak logs, the other is idle; two no-dig zones"></a>
+      </article>
+      <article class="feature">
+        <div class="f-text">
+          <p class="eyebrow">Music sharing</p>
+          <h3>Play the host's music to everyone on the server</h3>
+          <p>Stream the sound of a music player on the host's PC to everyone on the server through Simple Voice Chat; each player can turn it down or mute it in their voice settings.</p>
+          <p>On Windows 11 it records just that program, without game sound or voice chat. The bridge mod is built in and installs in one click.</p>
+        </div>
+        <a class="shot" href="../images/06-music.png"><img src="../images/06-music.png" width="1440" height="900" loading="lazy" decoding="async" alt="Music sharing tab (Chinese interface): NetEase Cloud Music selected as the source, every checklist item passing"></a>
+      </article>
+      <article class="feature">
+        <div class="f-text">
+          <p class="eyebrow">AI setup (optional)</p>
+          <h3>Seven presets: fill in a key and go</h3>
+          <p>OpenAI-compatible and Claude protocols, with presets for DeepSeek, Qwen, Kimi, Zhipu, OpenAI, Claude and Ollama (local), plus a custom address.</p>
+          <p>Costs are estimated from LiteLLM's public prices, each feature can have a daily limit, and the key is encrypted with Windows DPAPI. Nothing connects until you configure it.</p>
+          <p>You can also turn on the MCP server, so AI tools such as Claude Desktop, Cherry Studio or Cursor can use MineDeck directly: they read state and logs freely, and any change still waits for your confirmation in MineDeck.</p>
+        </div>
+        <a class="shot" href="../images/07-settings-ai.png"><img src="../images/07-settings-ai.png" width="1440" height="900" loading="lazy" decoding="async" alt="AI settings (Chinese interface): DeepSeek enabled, the connection test passed and tool calls are supported"></a>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section id="more" aria-labelledby="more-title">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">At a glance</p>
+      <h2 id="more-title">More features</h2>
+      <p>The full feature table is in the <a href="https://github.com/Trasperioooooon/MineDeck#-%E5%8A%9F%E8%83%BD%E4%B8%80%E8%A7%88">README</a> (Chinese).</p>
+    </div>
+    <ul class="grid">
+      <li class="card"><h3>12 server types</h3><p>Vanilla · Paper / Purpur / Leaves / Folia (plugins) · Fabric / NeoForge / Forge (mods) · Mohist / Banner (mods + plugins) · Velocity / Waterfall (proxies).</p></li>
+      <li class="card"><h3>Automatic Java</h3><p>Matches Java exactly from Mojang's metadata (8 / 16 / 17 / 21 / 25 …) and installs it portably in <code>runtimes/</code> without touching system environment variables; reuses a Java you already have when it fits.</p></li>
+      <li class="card"><h3>Three-tier downloads</h3><p>BMCLAPI / Tsinghua TUNA first → Adoptium / official sources → Mojang's runtimes, with per-source failover, 3 retries and SHA checks.</p></li>
+      <li class="card"><h3>Modpack import</h3><p>Drop in a Modrinth <code>.mrpack</code> and get a server (server type, version and loader detected, client-only files skipped); CurseForge zips work with an API key.</p></li>
+      <li class="card"><h3>Built-in tunnels</h3><p>OpenFrp, SakuraFrp and self-hosted frps: frpc is downloaded and managed for you, starts with the server, and the public address copies in one click.</p></li>
+      <li class="card"><h3>Backups, restarts, schedules</h3><p>World backup / restore (hot backups while running) · crash auto-restart (with backoff) · daily scheduled restarts, commands and backups.</p></li>
+      <li class="card"><h3>Player management</h3><p>Online list (kick / OP); whitelist, ops and bans in the GUI, edited straight in the files while the server is stopped, with offline UUIDs computed for you.</p></li>
+      <li class="card"><h3>Resource browser</h3><p>Search and install Modrinth mods and plugins from inside an instance, filtered for your server type and version.</p></li>
+      <li class="card"><h3>All of server.properties</h3><p>About 60 <code>server.properties</code> settings in 7 groups, with search, descriptions, range checks and "needs restart" tags, shown or hidden by MC version.</p></li>
+      <li class="card"><h3>Better console</h3><p>GBK / UTF-8 switch (fixes garbled text in old packs), WARN / ERROR colors, log filter, command history, and Tab completion for common commands and online player names.</p></li>
+      <li class="card"><h3>Remote management</h3><p>LAN access with a password, so you can manage servers from your phone; an open REST API and webhook events.</p></li>
+      <li class="card"><h3>Safety guards</h3><p>Log4Shell mitigation turned on for old versions; <code>JAVA_HOME</code> and similar environment pollution cleared; download hash checks; a random token on the local API.</p></li>
+    </ul>
+  </div>
+</section>
+
+<section id="faq" aria-labelledby="faq-title">
+  <div class="wrap">
+    <div class="faq-layout">
+    <div class="sec-head">
+      <p class="eyebrow">FAQ</p>
+      <h2 id="faq-title">Frequently asked questions</h2>
+      <p>Anything else? <a href="https://github.com/Trasperioooooon/MineDeck/issues">Open an issue on GitHub</a>.</p>
+    </div>
+    <div class="faq">
+      <article class="card">
+        <h3>Do I need to install Java myself?</h3>
+        <p>No. MineDeck reads Mojang's version metadata to pick the matching Java (8 / 17 / 21 / 25 …), downloads a portable build into <code>runtimes/</code> and leaves your system environment variables alone; if a Java already installed on your PC works, it uses that.</p>
+      </article>
+      <article class="card">
+        <h3>My friends aren't on the same network. How do they join?</h3>
+        <p>On the <span lang="zh-CN">内网穿透</span> (tunnels) page, add a SakuraFrp, OpenFrp or self-hosted frps tunnel, bind it to your server and turn on <span lang="zh-CN">跟随实例启动</span> (start with the server); once the server is up, send your friends the public address. Friends on the same LAN connect directly to <code>your-LAN-IP:port</code>.</p>
+      </article>
+      <article class="card">
+        <h3>Which versions and server types are supported?</h3>
+        <p>MC 1.12.2 up to the latest release (including the year-based version numbers from 26.x on), with 12 server types: Vanilla, Paper, Purpur, Leaves, Folia, Fabric, NeoForge, Forge, Mohist, Banner, Velocity and Waterfall. Modrinth (<code>.mrpack</code>) and CurseForge (zip) modpacks can be imported directly.</p>
+      </article>
+      <article class="card">
+        <h3>My server won't start and I can't read the error. What now?</h3>
+        <p>Look at the error banner at the top of the console: it explains the cause, such as a missing required mod, a client-only mod in the server, a port already in use or the wrong Java version. This step doesn't need AI. With AI set up, you can click <span lang="zh-CN">让 AI 分析</span> (Ask AI to analyze) or just ask in the AI assistant.</p>
+      </article>
+      <article class="card">
+        <h3>Do the AI features cost money? Will MineDeck go online behind my back?</h3>
+        <p>AI is optional and uses your own API key; you pay the provider at the provider's prices. MineDeck estimates what each request costs, and every feature can have a daily limit. If you don't set up AI, MineDeck doesn't connect to any AI service; the key is stored encrypted with Windows DPAPI.</p>
+      </article>
+      <article class="card">
+        <h3>Will the AI mess with my server?</h3>
+        <p>It doesn't act on its own. Reading logs and checking configs happen directly; changing configs, switching Java or restarting only produce a confirmation card and run after you confirm, and every operation is logged in <code>logs\ops\</code>. The in-game AI only answers questions by default; only players you tick can have it run commands, and only allowlisted ones. Commands like <code>op</code> and <code>execute</code> are never run.</p>
+      </article>
+      <article class="card">
+        <h3>What do friends need to install for AI companions and music sharing?</h3>
+        <ul>
+          <li>AI companions: friends install only the companion mod in their client; it's on the releases page.</li>
+          <li>Music sharing: the server and your friends install the same version of Simple Voice Chat; MineDeck installs the bridge mod into the server.</li>
+        </ul>
+      </article>
+      <article class="card">
+        <h3>Where is my data, and how do I uninstall?</h3>
+        <p>Everything is in the folder that holds the exe; only interface preferences are stored in <code>%LocalAppData%\MineDeck</code>. To uninstall, delete those two folders.</p>
+      </article>
+      <article class="card">
+        <h3>Windows says "Windows protected your PC"?</h3>
+        <p>The exe isn't digitally signed. Click "More info → Run anyway". The source is public (MIT), and you can build it yourself; see <a href="https://github.com/Trasperioooooon/MineDeck#-%E4%BB%8E%E6%BA%90%E7%A0%81%E6%9E%84%E5%BB%BA">building from source in the README</a>.</p>
+      </article>
+    </div>
+    </div>
+  </div>
+</section>
+
+<section id="download" aria-labelledby="req-title">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">Download</p>
+      <h2 id="req-title">Requirements</h2>
+    </div>
+    <div class="req">
+      <dl class="card">
+        <div><dt><span class="lamp" aria-hidden="true"></span>System</dt><dd>Windows 10 / 11; Windows 11 recommended: music sharing can record a single program on Windows 11, while Windows 10 can only record all system sound.</dd></div>
+        <div><dt><span class="lamp" aria-hidden="true"></span>Language</dt><dd>The interface is Chinese only for now.</dd></div>
+        <div><dt><span class="lamp" aria-hidden="true"></span>Install</dt><dd>Nothing to install: a single <code>MineDeck.exe</code> (about 13 MB, no dependencies); all data stays in its folder.</dd></div>
+        <div><dt><span class="lamp" aria-hidden="true"></span>Java</dt><dd>Not needed up front: MineDeck downloads a portable Java for each version and uses an installed one when it fits.</dd></div>
+        <div><dt><span class="lamp" aria-hidden="true"></span>Network</dt><dd>Needed to download Java and server software: mirrors in China (BMCLAPI / Tsinghua TUNA) first, official sources as automatic fallback.</dd></div>
+        <div><dt><span class="lamp" aria-hidden="true"></span>Window</dt><dd>A native WebView2 window; if WebView2 is missing, MineDeck opens in your browser.</dd></div>
+        <div><dt><span class="lamp" aria-hidden="true"></span>AI</dt><dd>Optional, with your own API key; without it, MineDeck doesn't connect to any AI service.</dd></div>
+      </dl>
+      <div class="cta card">
+        <h3>Download MineDeck</h3>
+        <p>The host downloads <code>MineDeck.exe</code>. On servers that use AI companions, friends also download the companion mod for that version and put it in their client's <code>mods</code> folder.</p>
+        <div class="actions">
+          <a class="btn primary" href="https://github.com/Trasperioooooon/MineDeck/releases"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5v7.5M4.7 6.8 8 10l3.3-3.2M3 13h10"/></svg>Download</a>
+          <a class="btn" href="https://github.com/Trasperioooooon/MineDeck"><svg class="ico solid" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A8 8 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>GitHub</a>
+        </div>
+        <p class="hint">The exe isn't digitally signed: if Windows says "Windows protected your PC", click More info → Run anyway.</p>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <div class="foot-top">
+      <a class="brand" href="./"><img src="../images/icon-256.png" width="24" height="24" alt="">MineDeck</a>
+      <ul class="foot-links">
+        <li><a href="https://github.com/Trasperioooooon/MineDeck/blob/main/LICENSE">MIT License</a></li>
+        <li><a href="https://github.com/Trasperioooooon/MineDeck">GitHub</a></li>
+        <li><a href="https://github.com/Trasperioooooon/MineDeck/releases">Releases</a></li>
+        <li><a href="https://github.com/Trasperioooooon/MineDeck/blob/main/docs/%E5%A5%BD%E5%8F%8B%E6%B5%8B%E8%AF%95%E6%8C%87%E5%8D%97.md">Friend testing guide (Chinese)</a></li>
+        <li><a href="https://github.com/Trasperioooooon/MineDeck/blob/main/docs/%E6%B5%8B%E8%AF%95%E8%AE%A1%E5%88%92.md">Test plan (Chinese)</a></li>
+        <li><a href="../" hreflang="zh-CN" lang="zh-CN">中文</a></li>
+      </ul>
+    </div>
+    <p class="foot-note">MineDeck is open source under the MIT License. Minecraft is a trademark of Mojang Synergies AB; MineDeck is not an official Minecraft product and is not approved by or associated with Mojang or Microsoft.</p>
+  </div>
+</footer>
+</body>
+</html>

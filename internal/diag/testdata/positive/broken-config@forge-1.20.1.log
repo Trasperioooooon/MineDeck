@@ -1,0 +1,5 @@
+[MineDeck] 启动: java -Xms1024M -Xmx6144M -Dfile.encoding=UTF-8 @libraries/net/minecraftforge/forge/1.20.1-47.3.0/win_args.txt nogui
+[12:00:20] [main/ERROR] [ne.mi.fm.co.ConfigFileTypeHandler/CONFIG]: Failed loading config file create-common.toml of type COMMON for modid create
+com.electronwill.nightconfig.core.io.ParsingException: Invalid bare key: =broken
+	at com.electronwill.nightconfig.toml.TableParser.parseBareKey(TableParser.java:200) ~[toml-3.6.4.jar%2381!/:?]
+[MineDeck] 服务器进程已退出（exit status 1）

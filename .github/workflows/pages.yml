@@ -1,0 +1,73 @@
+name: Pages
+
+# 介绍页：site/ 的静态文件，加上 docs/images 的截图、社交预览图和应用图标，组装成 _site，发布到 GitHub Pages
+# （https://trasperioooooon.github.io/MineDeck/）。第一次发布前，仓库 Settings → Pages 的 Source 要选「GitHub Actions」。
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "docs/images/**"
+      - "assets/social-preview.png"
+      - "assets/icon.ico"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只部署一次：排队中的旧运行让给新的，正在部署的不打断
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/configure-pages@v6
+      - name: 组装 _site
+        run: |
+          # 图片不在 site/ 里重复存一份，发布时从原处复制：截图、社交预览图进 images/，应用图标当 favicon.ico
+          mkdir -p _site/images
+          cp -R site/. _site/
+          cp docs/images/*.png assets/social-preview.png _site/images/
+          cp assets/icon.ico _site/favicon.ico
+          # 页面上的图标和 apple-touch-icon 用 icon.ico 里 256px 的那一帧（它本身就是 PNG）
+          python3 - <<'PY'
+          import struct
+          ico = open("assets/icon.ico", "rb").read()
+          for i in range(struct.unpack_from("<H", ico, 4)[0]):
+              e = 6 + 16 * i
+              if ico[e] == 0 and ico[e + 1] == 0:  # 宽、高写 0 表示 256
+                  size, off = struct.unpack_from("<II", ico, e + 8)
+                  png = ico[off:off + size]
+                  if png[:8] != b"\x89PNG\r\n\x1a\n":
+                      raise SystemExit("assets/icon.ico 里 256px 那一帧不是 PNG")
+                  open("_site/images/icon-256.png", "wb").write(png)
+                  break
+          else:
+              raise SystemExit("assets/icon.ico 里没有 256px 那一帧")
+          PY
+          find _site -type f | sort
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 部署
+        id: deployment
+        uses: actions/deploy-pages@v5

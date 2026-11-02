@@ -1,0 +1,12 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "minedeck.companion.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "ConfigurationInitializationMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

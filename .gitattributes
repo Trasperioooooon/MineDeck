@@ -16,3 +16,6 @@
 *.zip binary
 *.woff2 binary
 *.ttf binary
+
+# 打进 exe 的桥接模组（bridge/voicechat 可复现构建的产物，见那里的 README）
+*.jar binary

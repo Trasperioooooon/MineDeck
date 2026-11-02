@@ -1,0 +1,7 @@
+[MineDeck] 启动: java -Xms1024M -Xmx6144M -Dfile.encoding=UTF-8 @libraries/net/minecraftforge/forge/1.20.1-47.3.0/win_args.txt nogui
+[13:00:00] [Server thread/INFO] [minecraft/DedicatedServer]: Done (31.204s)! For help, type "help"
+[13:09:44] [Server thread/WARN] [minecraft/MinecraftServer]: Can't keep up! Is the server overloaded? Running 5012ms or 100 ticks behind
+[13:10:44] [Server Watchdog/FATAL] [minecraft/ServerWatchdog]: A single server tick took 60.00 seconds (should be max 0.05)
+[13:10:44] [Server Watchdog/FATAL] [minecraft/ServerWatchdog]: Considering it to be crashed, server will forcibly shutdown.
+[13:10:45] [Server Watchdog/ERROR] [minecraft/CrashReport]: This crash report has been saved to: D:\MineDeck\servers\create-pack\.\crash-reports\crash-2026-10-28_13.10.44-server.txt
+[MineDeck] 服务器进程已退出（exit status 1）

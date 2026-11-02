@@ -1,0 +1,5 @@
+[MineDeck] 启动: java -Xms1024M -Xmx4096M -Dfile.encoding=UTF-8 -XX:+UseZGC -XX:+ZGenerational -jar server.jar nogui
+Unrecognized VM option 'ZGenerational'
+Error: Could not create the Java Virtual Machine.
+Error: A fatal exception has occurred. Program will exit.
+[MineDeck] 服务器进程已退出（exit status 1）

@@ -1,0 +1,11 @@
+[20:14:40] [main/INFO]: Loading Minecraft 1.20.1 with Fabric Loader 0.16.9
+[20:15:00] [Server thread/INFO]: Done (8.123s)! For help, type "help"
+[20:15:20] [Server thread/INFO]: Steve joined the game
+[20:15:21] [Server thread/INFO]: Alex joined the game
+[20:15:31] [Server thread/INFO]: [Not Secure] <Alex> @AI /问 把天气改晴
+[20:15:33] [Server thread/INFO]: [Not Secure] <Steve> @AI /私今晚怎么打末影龙
+[20:15:35] [Server thread/INFO]: [Not Secure] <Steve> @AI /额度 今晚怎么打末影龙
+[20:15:37] [Server thread/INFO]: [Not Secure] <Steve> @AI 怎么用 /tp
+[20:15:39] [Worker-Main-2/INFO]: <Notch> @AI 线程不对
+[20:15:41] [Server thread/INFO]: [examplemod] <Notch> @AI 模组的前缀
+[20:16:30] [Server thread/INFO]: Alex left the game

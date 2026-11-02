@@ -1,0 +1,11 @@
+[MineDeck] 启动: java -Xms1024M -Xmx4096M -Dfile.encoding=UTF-8 -jar fabric-server-mc.1.21.1-loader.0.16.5-launcher.1.0.1.jar nogui
+[10:00:01] [main/INFO]: Loading Minecraft 1.21.1 with Fabric Loader 0.16.5
+[10:00:02] [main/ERROR]: Incompatible mods found!
+net.fabricmc.loader.impl.FormattedException: Some of your mods are incompatible with the game or each other!
+A potential solution has been determined, this may resolve your problem:
+	 - Install fabric-api, any version.
+More details:
+	 - Mod 'Sodium Extra' (sodium-extra) 0.6.0+mc1.21.1 requires any version of fabric-api, which is missing!
+	 - Mod 'Create Fabric' (create) 0.5.1-j requires version 0.6.10 or later of mod 'Flywheel' (flywheel), which is missing!
+	at net.fabricmc.loader.impl.FormattedException.ofLocalized(FormattedException.java:51) ~[fabric-loader-0.16.5.jar:?]
+[MineDeck] 服务器进程已退出（exit status 1）

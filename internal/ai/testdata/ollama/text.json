@@ -1,0 +1,23 @@
+{
+  "id": "chatcmpl-561",
+  "object": "chat.completion",
+  "created": 1761600000,
+  "model": "qwen3:8b",
+  "system_fingerprint": "fp_ollama",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "你好！我在本机运行。",
+        "reasoning": "用户在打招呼。"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 26,
+    "completion_tokens": 18,
+    "total_tokens": 44
+  }
+}

@@ -1,0 +1,18 @@
+[MineDeck] 启动: java -Xms1024M -Xmx6144M -Dfile.encoding=UTF-8 @libraries/net/minecraftforge/forge/1.20.1-47.4.28/win_args.txt nogui
+[01:50:50] [main/INFO] [cp.mo.mo.Launcher/MODLAUNCHER]: ModLauncher running: args [--launchTarget, forgeserver, --fml.forgeVersion, 47.4.28, --fml.mcVersion, 1.20.1, --fml.forgeGroup, net.minecraftforge, --fml.mcpVersion, 20230612.114412]
+[01:50:51] [main/INFO] [ne.mi.fm.lo.mo.JarInJarDependencyLocator/]: Found 1 dependencies adding them to mods collection
+[01:50:54] [main/INFO] [mixin/]: Compatibility level set to JAVA_17
+[01:50:54] [main/ERROR] [mixin/]: Mixin config playerengine.mixins.json does not specify "minVersion" property
+[01:50:54] [main/INFO] [cp.mo.mo.LaunchServiceHandler/MODLAUNCHER]: Launching target 'forgeserver' with arguments [nogui]
+[01:50:54] [main/ERROR] [ne.mi.fm.lo.RuntimeDistCleaner/DISTXFORM]: Attempted to load class net/minecraft/client/multiplayer/MultiPlayerGameMode for invalid dist DEDICATED_SERVER
+[01:50:54] [main/WARN] [mixin/]: Error loading class: net/minecraft/client/multiplayer/MultiPlayerGameMode (java.lang.RuntimeException: Attempted to load class net/minecraft/client/multiplayer/MultiPlayerGameMode for invalid dist DEDICATED_SERVER)
+[01:50:54] [main/WARN] [mixin/]: @Mixin target net.minecraft.client.multiplayer.MultiPlayerGameMode was not found playerengine.mixins.json:ClientBlockBreakMixin
+[01:51:03] [modloading-worker-0/INFO] [minedeck_companion/]: MineDeck 伙伴模组 0.2.0 已加载
+[01:51:03] [modloading-worker-0/INFO] [ne.mi.co.ForgeMod/FORGEMOD]: Forge mod loading, version 47.4.28, for MC 1.20.1 with MCP 20230612.114412
+[01:51:03] [modloading-worker-0/INFO] [de.ar.ne.fo.NetworkManagerImpl/]: Registering C2S receiver with id architectury:sync_ids
+[01:51:10] [Server thread/INFO] [minecraft/DedicatedServer]: Starting minecraft server version 1.20.1
+[01:51:10] [Server thread/INFO] [minecraft/DedicatedServer]: Starting Minecraft server on *:25565
+[01:51:26] [Server thread/INFO] [minecraft/DedicatedServer]: Done (16.012s)! For help, type "help"
+> stop
+[01:52:10] [Server thread/INFO] [minecraft/MinecraftServer]: Stopping the server
+[MineDeck] 服务器已正常关闭

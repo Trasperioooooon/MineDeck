@@ -1,0 +1,4 @@
+[MineDeck] 启动: java -Xms1024M -Xmx16384M -Dfile.encoding=UTF-8 -jar server.jar nogui
+Error occurred during initialization of VM
+Could not reserve enough space for 16777216KB object heap
+[MineDeck] 服务器进程已退出（exit status 1）

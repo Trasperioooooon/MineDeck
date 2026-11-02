@@ -1,0 +1,9 @@
+[MineDeck] 启动: java -Xms1024M -Xmx4096M -Dfile.encoding=UTF-8 -jar server.jar nogui
+[12:00:01] [ServerMain/INFO]: Environment: Environment[sessionHost=https://sessionserver.mojang.com, servicesHost=https://api.minecraftservices.com, name=PROD]
+[12:00:04] [Server thread/INFO]: Starting minecraft server version 1.21.1
+[12:00:05] [Server thread/INFO]: Starting Minecraft server on *:25565
+[12:00:09] [Server thread/INFO]: Done (4.201s)! For help, type "help"
+[12:10:00] [Server thread/INFO]: <Steve> Channel of mod "create" failed to connect 是什么
+[MineDeck] 正在保存世界并停止服务器...
+[12:20:00] [Server thread/INFO]: Stopping server
+[MineDeck] 服务器进程已退出（exit status 1）

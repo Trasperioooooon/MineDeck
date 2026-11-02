@@ -98,6 +98,13 @@ type Source struct {
 	Devices []string // 会话所在的播放设备，默认设备带「（默认）」
 }
 
+// Device 是一个播放设备（整机录音时可以指定录哪一个）。
+type Device struct {
+	ID      string `json:"id"`      // 设备 ID（IMMDevice::GetId），传给 Options.Device
+	Name    string `json:"name"`    // 声音设置里显示的名字
+	Default bool   `json:"default"` // 是不是系统默认的播放设备
+}
+
 // Frame 是一帧输出：48kHz、16 位、单声道，FrameSamples 个采样。
 type Frame struct {
 	Seq     uint64 // 帧序号，从 0 开始
@@ -131,6 +138,7 @@ const (
 type Options struct {
 	Mode   Mode
 	PID    uint32  // 按进程录音的目标进程（含其子进程）
+	Device string  // 整机录音时录哪个播放设备（设备 ID，见 ListDevices）；空为系统默认的播放设备
 	Format string  // 见 Format* 常量；空为自动
 	Gain   float64 // 音量增益，0 视为 1
 	FTM    bool    // 备用写法：完成回调对象再聚合自由线程封送器（应答 IMarshal），与 WRL 的 FtmBase 一致
@@ -288,6 +296,9 @@ func validate(opts Options) error {
 	case ModeSystem:
 	default:
 		return fmt.Errorf("未知的采集方式 %d", int(opts.Mode))
+	}
+	if opts.Device != "" && opts.Mode != ModeSystem {
+		return errors.New("只有整机录音才能指定播放设备")
 	}
 	if opts.Gain < 0 {
 		return fmt.Errorf("音量增益不能为负：%v", opts.Gain)

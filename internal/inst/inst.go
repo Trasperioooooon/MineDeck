@@ -2,6 +2,7 @@
 package inst
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -81,6 +82,11 @@ type Manager struct {
 	insts    map[string]*Instance
 	creating map[string]bool // 正在创建中的实例名（注册进 insts 前的占位，防并发/重复创建同名实例）
 	Tasks    *tasks.Manager
+
+	autoMu    sync.Mutex
+	autoHook  func(AutoAction)     // 定时任务、崩溃自动重启执行后的回调（操作层用它写操作记录）
+	startHook func(string)         // 起服务器进程之前的回调（音乐共享在这里写好桥接模组的配置和 voice_host），见 hooks.go
+	lineHook  func(string, string) // 服务器每输出一行的回调（游戏内 AI 认聊天），见 hooks.go
 }
 
 func NewManager() (*Manager, error) {
@@ -96,12 +102,12 @@ func NewManager() (*Manager, error) {
 				continue
 			}
 			dir := filepath.Join(root, e.Name())
-			b, err := os.ReadFile(filepath.Join(dir, "instance.json"))
-			if err != nil {
-				continue
+			s, err := readSettings(dir)
+			if os.IsNotExist(err) {
+				continue // 不是实例目录
 			}
-			var s Settings
-			if json.Unmarshal(b, &s) != nil || s.Name == "" {
+			if err != nil {
+				log.Printf("实例配置读不出来，这个目录没有列出来：%s（%v）", dir, err)
 				continue
 			}
 			if _, dup := m.insts[s.Name]; dup {
@@ -115,12 +121,34 @@ func NewManager() (*Manager, error) {
 	return m, nil
 }
 
+// readSettings 读实例目录里的 instance.json。开头的 UTF-8 BOM 去掉再解析：记事本存成「UTF-8 带 BOM」、
+// PowerShell 5.1 的 Set-Content 写的都有，不去掉这台服务器会从列表里消失（测试报告发现 10）。
+func readSettings(dir string) (Settings, error) {
+	var s Settings
+	b, err := os.ReadFile(filepath.Join(dir, "instance.json"))
+	if err != nil {
+		return s, err
+	}
+	if err := json.Unmarshal(bytes.TrimPrefix(b, []byte("\xef\xbb\xbf")), &s); err != nil {
+		return s, err
+	}
+	if s.Name == "" {
+		return s, fmt.Errorf("没有 name")
+	}
+	return s, nil
+}
+
 func (m *Manager) saveInstance(i *Instance) error {
 	b, err := json.MarshalIndent(i.Settings, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(i.Dir, "instance.json"), b, 0o644)
+	// 先写临时文件再改名：写到一半断电也不会留下半截的 instance.json（那样这台服务器下次就列不出来了）
+	path := filepath.Join(i.Dir, "instance.json")
+	if err := os.WriteFile(path+".tmp", b, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(path+".tmp", path)
 }
 
 func (m *Manager) List() []*Instance {
@@ -171,12 +199,11 @@ func safeRemoveInstanceDir(i *Instance) error {
 	if dir == "" || dir == filepath.Dir(dir) || dir == filepath.Clean(app.Base) {
 		return fmt.Errorf("实例目录异常，已拒绝删除: %s", dir)
 	}
-	b, err := os.ReadFile(filepath.Join(dir, "instance.json"))
-	if err != nil {
+	s, err := readSettings(dir)
+	if os.IsNotExist(err) {
 		return fmt.Errorf("找不到实例标识文件，已拒绝删除: %s", dir)
 	}
-	var s Settings
-	if json.Unmarshal(b, &s) != nil || s.Name != i.Name {
+	if err != nil || s.Name != i.Name {
 		return fmt.Errorf("目录归属校验失败，已拒绝删除: %s", dir)
 	}
 	if err := os.RemoveAll(dir); err != nil {

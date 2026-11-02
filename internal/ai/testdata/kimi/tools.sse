@@ -1,0 +1,12 @@
+data: {"id":"chatcmpl-6810567267ee141b4630dccb","object":"chat.completion.chunk","created":1761600000,"model":"kimi-k2.6","choices":[{"index":0,"delta":{"role":"assistant","content":"我来查一下。"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-6810567267ee141b4630dccb","object":"chat.completion.chunk","created":1761600000,"model":"kimi-k2.6","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"instance_props_get:0","type":"function","function":{"name":"instance_props_get","arguments":""}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-6810567267ee141b4630dccb","object":"chat.completion.chunk","created":1761600000,"model":"kimi-k2.6","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"inst\":\"生"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-6810567267ee141b4630dccb","object":"chat.completion.chunk","created":1761600000,"model":"kimi-k2.6","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"存服\"}"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-6810567267ee141b4630dccb","object":"chat.completion.chunk","created":1761600000,"model":"kimi-k2.6","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls","usage":{"prompt_tokens":380,"completion_tokens":30,"total_tokens":410,"cached_tokens":256}}]}
+
+data: [DONE]
+

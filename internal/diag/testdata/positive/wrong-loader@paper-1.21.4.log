@@ -1,0 +1,7 @@
+[MineDeck] 启动: java -Xms1024M -Xmx4096M -Dfile.encoding=UTF-8 -jar server.jar nogui
+[21:30:02 INFO]: Starting minecraft server version 1.21.4
+[21:30:03 ERROR]: Could not load 'plugins\create-1.21.1-6.0.4.jar' in folder 'plugins'
+org.bukkit.plugin.InvalidDescriptionException: Invalid plugin.yml
+	at org.bukkit.plugin.java.JavaPluginLoader.getPluginDescription(JavaPluginLoader.java:183) ~[paper-api-1.21.4-R0.1-SNAPSHOT.jar:?]
+Caused by: java.io.FileNotFoundException: Jar does not contain plugin.yml
+[21:30:09 INFO]: Done (6.812s)! For help, type "help"

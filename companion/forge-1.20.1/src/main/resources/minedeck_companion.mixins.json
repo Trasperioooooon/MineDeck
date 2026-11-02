@@ -1,0 +1,12 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "minedeck.companion.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "mixins": [
+    "HandshakeHandlerMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

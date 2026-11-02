@@ -1,0 +1,55 @@
+/* 游戏内 AI（第四阶段）：实例详情的「游戏内 AI」标签（gamechat.js）。
+   只用令牌，沿用分组列表、提示卡、开关、徽标、标签等现有组件（design-system/MASTER.md v5），这里只补排版。 */
+.gc { max-width: var(--w-read); }
+.gc-head { margin: 28px 0 10px; }
+.gc-head:first-child, #gc-gate:empty + .gc-head { margin-top: 0; }
+.gc-head h3 { margin: 0; }
+.gc-head .sub { margin: 4px 0 0; }
+#gc-gate .warn-card, #gc-warn .warn-card { margin-bottom: 12px; }
+.gc-note { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: var(--fs-sm); color: var(--muted); }
+.gc-note .ico { color: var(--accent-text); flex: none; }
+.gc-mono { font-family: var(--mono); }
+.gc-badges { display: inline-flex; gap: 6px; flex-wrap: wrap; font-weight: var(--fw-regular); }
+
+/* 一键开启白名单的勾选列表（确认框里） */
+.gc-wl-list { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 16px; max-height: 260px; overflow-y: auto; }
+.gc-wl-item { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); cursor: pointer; }
+.gc-wl-item input { accent-color: var(--accent-solid); flex: none; margin: 0; }
+.gc-wl-list .hint .ico { width: 13px; height: 13px; vertical-align: -2px; }
+
+/* 最近的问答：问 / 答 / 命令 / 输出 / 用量 */
+.gc-rec .ri-head { align-items: flex-start; }
+.gc-rec .ri-title { gap: 6px 8px; }
+.gc-when { font: var(--fs-xs) var(--mono); color: var(--muted); font-weight: var(--fw-regular); }
+.gc-rec .ri-sub p { margin: 4px 0 0; color: var(--text); font-size: var(--fs-sm); word-break: break-word; }
+.gc-rec .ri-sub p b { display: inline-block; min-width: 1.6em; margin-right: 6px; color: var(--muted); font-weight: var(--fw-semibold); }
+.gc-rec .ri-sub p.gc-dim, .gc-dim { color: var(--muted); font-size: var(--fs-xs); }
+.gc-cmd { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.gc-cmd .ico { width: 14px; height: 14px; flex: none; }
+.gc-cmd code { font: var(--fs-xs) var(--mono); color: var(--text); }
+.gc-rec .ri-sub .gc-cmd.ok .ico { color: var(--success-text); }
+.gc-rec .ri-sub .gc-cmd.bad .ico, .gc-rec .ri-sub .gc-cmd.bad span { color: var(--danger-text); }
+.gc-rec .ri-sub .gc-cmd.bad span { font-size: var(--fs-xs); }
+.gc-out { margin: 4px 0 0; padding: 6px 10px; border-radius: var(--r-xs); background: var(--sunken); color: var(--muted);
+  font: var(--fs-xs) / 1.55 var(--mono); white-space: pre-wrap; word-break: break-all; }
+.gc-rec .ri-sub p.gc-err { color: var(--danger-text); font-size: var(--fs-xs); }
+
+/* 识别测试的结果：键值表 + 一句话结论 */
+.gc-kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; padding: 0 16px 12px 64px; font-size: var(--fs-sm); }
+.gc-kv dt { color: var(--muted); }
+.gc-kv dd { margin: 0; min-width: 0; word-break: break-all; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.gc-result { display: flex; align-items: flex-start; gap: 8px; margin: 0 16px 14px 64px; padding: 10px 12px; border-radius: var(--r-md);
+  font-size: var(--fs-sm); line-height: 1.6; background: var(--surface-2); border: 1px solid var(--border); }
+.gc-result .ico { flex: none; margin-top: 3px; }
+.gc-result.hit { background: var(--success-subtle); border-color: transparent; color: var(--success-text); }
+.gc-result.miss .ico { color: var(--muted); }
+
+/* 高级识别：标题行可点开，其余行收起时不显示 */
+.gc-adv:not(.open) .gc-adv-row { display: none; }
+#gc-adv { margin-top: 12px; }
+
+@media (max-width: 640px) {
+  .gc-kv { padding-left: 16px; grid-template-columns: 1fr; gap: 2px; }
+  .gc-kv dd { margin-bottom: 6px; }
+  .gc-result { margin-left: 16px; }
+}

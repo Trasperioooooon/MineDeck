@@ -1,0 +1,4 @@
+[MineDeck] 启动: java -Xms1024M -Xmx4096M -Dfile.encoding=UTF-8 -jar server.jar nogui
+[12:00:01] [ServerMain/WARN]: Failed to load eula.txt
+[12:00:01] [ServerMain/INFO]: You need to agree to the EULA in order to run the server. Go to eula.txt for more info.
+[MineDeck] 服务器已正常关闭

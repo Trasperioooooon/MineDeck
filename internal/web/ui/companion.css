@@ -1,0 +1,49 @@
+/* AI 伙伴（第七阶段）：实例详情的「伙伴」标签（companion.js）。
+   只用令牌，沿用分组列表、提示卡、开关、徽标、状态胶囊、弹窗等现有组件（design-system/MASTER.md v5），这里只补排版。 */
+.cp { max-width: var(--w-read); }
+.cp-head { margin: 28px 0 10px; }
+.cp-head:first-child, #cp-gate:empty + .cp-head { margin-top: 0; }
+.cp-head h3 { margin: 0; }
+.cp-head .sub { margin: 4px 0 0; }
+#cp-gate .warn-card, #cp-set-note .warn-card { margin-bottom: 12px; }
+#cp-set-note .warn-card { margin: 12px 0 0; }
+.cp-note { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; font-size: var(--fs-sm); color: var(--muted); }
+#cp-set-note .cp-note { margin: 10px 0 0; }
+.cp-note .ico { color: var(--accent-text); flex: none; }
+.cp-ver, .cp-xyz { font-family: var(--mono); font-weight: var(--fw-regular); }
+.cp-ver { font-size: var(--fs-xs); color: var(--muted); }
+.cp-dim { color: var(--muted); }
+.cp-mod .ri-title, .cp-comp .ri-title { gap: 6px 8px; flex-wrap: wrap; }
+.cp-ready .ri-ico { background: var(--success-subtle); color: var(--success-text); }
+.cp-linkbox { margin-bottom: 12px; }
+.cp-linkbox .ri-title { gap: 8px; flex-wrap: wrap; }
+
+/* 伙伴列表：血量和位置、正在做的、上次的结果，一行一句 */
+.cp-comp .ri-head { align-items: flex-start; }
+.cp-comp .ri-sub p { margin: 3px 0 0; color: var(--text); font-size: var(--fs-sm); word-break: break-word; }
+.cp-comp .ri-sub p:first-child { margin-top: 2px; }
+.cp-comp .ri-sub .ico { width: 13px; height: 13px; vertical-align: -2px; color: var(--danger-text); }
+.cp-comp .ri-right, .cp-comps .ri-right { gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+
+/* 最近的事件：要留意的（卡住、死了、失败）用警告色的图标 */
+.cp-ev .ri-title { font-weight: var(--fw-regular); }
+.cp-ev.warn .ri-ico { background: var(--warning-subtle); color: var(--warning-text); }
+
+/* 弹窗里的表单：标签在左、输入在右；两个角各三个坐标 */
+.cp-form { width: min(520px, calc(100vw - 32px)); }
+.cp-fields { display: flex; flex-direction: column; gap: 12px; margin: 4px 0 8px; }
+.cp-f { display: grid; grid-template-columns: 72px 1fr; align-items: center; gap: 10px; font-size: var(--fs-sm); }
+.cp-f[hidden] { display: none; }
+.cp-f > span { color: var(--muted); }
+.cp-f input, .cp-f select { width: 100%; min-width: 0; }
+.cp-xyzin { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.cp-xyzin label { display: flex; align-items: center; gap: 6px; }
+.cp-xyzin label span { font: var(--fs-xs) var(--mono); color: var(--muted); }
+.cp-xyzin input { font-family: var(--mono); }
+.cp-form .field-err { min-height: 18px; margin-bottom: 8px; }
+
+@media (max-width: 640px) {
+  .cp-f { grid-template-columns: 1fr; gap: 4px; }
+  .cp-xyzin { grid-template-columns: 1fr; }
+}
+#cp-max { flex: 0 1 160px; }

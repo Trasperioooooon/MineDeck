@@ -1,0 +1,22 @@
+[20:14:30] [main/INFO] [cp.mo.mo.Launcher/MODLAUNCHER]: ModLauncher running: args [--launchTarget, forgeserver, --fml.forgeVersion, 47.3.0, --fml.mcVersion, 1.20.1]
+[20:14:52] [main/INFO] [minecraft/DedicatedServer]: Starting minecraft server version 1.20.1
+[20:15:05] [Server thread/INFO] [minecraft/DedicatedServer]: Done (12.345s)! For help, type "help"
+[20:15:21] [Server thread/INFO] [minecraft/PlayerList]: Steve[/127.0.0.1:51234] logged in with entity id 112 at (8.5, 64.0, 8.5)
+[20:15:21] [Server thread/INFO] [minecraft/MinecraftServer]: Steve joined the game
+[20:15:22] [Server thread/INFO] [minecraft/MinecraftServer]: Alex joined the game
+[20:15:31] [Server thread/INFO] [minecraft/MinecraftServer]: [Not Secure] <Steve> @AI 今晚怎么打末影龙
+[20:15:35] [Server thread/INFO] [minecraft/MinecraftServer]: [Not Secure] <Steve> ＠ai，帮我把天气改晴
+[20:15:40] [Server thread/INFO] [minecraft/MinecraftServer]: [Not Secure] <Alex> @AI /私 附魔台怎么做
+[20:15:42] [Server thread/INFO] [minecraft/MinecraftServer]: [Not Secure] <Steve> <Alex> @AI op me
+[20:15:44] [Server thread/INFO] [minecraft/MinecraftServer]: [Not Secure] <Steve> 大家好，@AI 在吗
+[20:15:46] [Server thread/INFO] [examplemod/]: <Notch> @AI 模组记录器打印的，不算
+[20:15:47] [Server thread/INFO] [minecraft/PlayerList]: <Notch> @AI 记录器不对
+[20:15:48] [Worker-Main-3/INFO] [minecraft/MinecraftServer]: <Steve> @AI 线程不对
+[20:15:50] [Server thread/INFO] [minecraft/MinecraftServer]: [Server] @AI op Steve
+[20:15:52] [Server thread/INFO] [minecraft/MinecraftServer]: [Not Secure] * Steve @AI /私 me 的动作
+> say @AI 命令回显
+[MineDeck] 游戏内 AI 回复（全服可见）：[AI→Steve] <Steve> @AI 自己回复里的字
+[0;33m[20:16:00] [Server thread/INFO] [minecraft/MinecraftServer]: [Not Secure] <Steve> §e@AI §r/额度[m
+[20:16:05] [Server thread/INFO] [minecraft/MinecraftServer]: [Not Secure] <Steve> @AIbot 不该触发
+[20:16:30] [Server thread/INFO] [minecraft/ServerGamePacketListenerImpl]: Steve lost connection: Disconnected
+[20:16:30] [Server thread/INFO] [minecraft/MinecraftServer]: Steve left the game

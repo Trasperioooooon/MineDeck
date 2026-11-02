@@ -22,6 +22,17 @@ import (
 
 const UA = "MineDeck/1.0 (Minecraft server setup tool; Windows)"
 
+// GHMirrors 把 GitHub 直链（github.com 的 Release 资产、raw.githubusercontent.com 的文件）包装成国内加速候选，
+// 依次尝试 ghfast.top、gh-proxy.com，最后直连。自动更新、下载 frp、取 AI 价格数据三处共用。
+// 经镜像取到的内容可能被改过：exe 和 frp 要对上官方 SHA-256，价格数据只用来显示估算、按不可信数据严格校验。
+func GHMirrors(u string) []string {
+	return []string{
+		"https://ghfast.top/" + u,
+		"https://gh-proxy.com/" + u,
+		u,
+	}
+}
+
 var Client = &http.Client{
 	Transport: &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,

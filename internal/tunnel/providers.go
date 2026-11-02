@@ -20,8 +20,9 @@ type Provider interface {
 	ID() string
 	// EnsureFrpc 确保该服务商的 frpc 客户端就绪，返回 exe 绝对路径。
 	EnsureFrpc(con *procutil.Console) (string, error)
-	// LaunchArgs 构造 frpc 启动参数。
-	LaunchArgs(t *Tunnel) ([]string, error)
+	// Launch 构造 frpc 的启动参数，以及要额外传给 frpc 进程的环境变量（"名=值"）。
+	// t.Credential 此时是解开后的明文，只在内存里用，不能写进任何文件。
+	Launch(t *Tunnel) (args, env []string, err error)
 }
 
 func providerOf(id string) Provider {
@@ -147,9 +148,10 @@ func (openfrpProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	return exe, nil
 }
 
-func (openfrpProvider) LaunchArgs(t *Tunnel) ([]string, error) {
-	// 简易启动：frpc -u <用户密钥> -p <隧道ID>（官方 ez_startup 机制）
-	return []string{"-u", t.Credential, "-p", strings.TrimSpace(t.ProxyID)}, nil
+func (openfrpProvider) Launch(t *Tunnel) ([]string, []string, error) {
+	// 简易启动：frpc -u <用户密钥> -p <隧道ID>（官方 ez_startup 机制）。
+	// 已知限制：凭据在命令行参数里，本机进程列表看得到；服务商自己的 frpc 未必支持别的传法，暂不改。
+	return []string{"-u", t.Credential, "-p", strings.TrimSpace(t.ProxyID)}, nil, nil
 }
 
 // ---------- 樱花 SakuraFrp ----------
@@ -170,9 +172,9 @@ func (natfrpProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 			"把 exe 放入 %s 目录后重试（仅需一次）", dir)
 }
 
-func (natfrpProvider) LaunchArgs(t *Tunnel) ([]string, error) {
-	// 官方启动语法：frpc -f <访问密钥>:<隧道ID>
-	return []string{"-f", t.Credential + ":" + strings.TrimSpace(t.ProxyID)}, nil
+func (natfrpProvider) Launch(t *Tunnel) ([]string, []string, error) {
+	// 官方启动语法：frpc -f <访问密钥>:<隧道ID>（同 OpenFrp，凭据在命令行参数里）
+	return []string{"-f", t.Credential + ":" + strings.TrimSpace(t.ProxyID)}, nil, nil
 }
 
 // ---------- 自定义 frps（标准版 frp） ----------
@@ -198,11 +200,7 @@ func (customProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	defer cancel()
 	file := fmt.Sprintf("frp_%s_windows_amd64.zip", frpVersion)
 	ghPath := fmt.Sprintf("https://github.com/fatedier/frp/releases/download/v%s/%s", frpVersion, file)
-	urls := []string{
-		"https://ghfast.top/" + ghPath, // 国内加速
-		"https://gh-proxy.com/" + ghPath,
-		ghPath,
-	}
+	urls := dl.GHMirrors(ghPath) // 国内加速镜像优先，最后直连
 	zipPath := filepath.Join(app.CacheDir, "frpc", file)
 	if err := dl.Fetch(ctx, dl.Request{URLs: urls, Dest: zipPath, SHA256: frpSHA256, MinSize: 1 << 20}, nil); err != nil {
 		return "", fmt.Errorf("下载 frp 客户端失败（可手动将 frpc.exe 放入 %s）: %w", dir, err)
@@ -217,30 +215,57 @@ func (customProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	return exe, nil
 }
 
-func (customProvider) LaunchArgs(t *Tunnel) ([]string, error) {
-	// 生成标准 frp TOML 配置（loginFailExit=false：连不上持续重试而非退出）
-	cfg := fmt.Sprintf(`serverAddr = %q
+// frpTokenEnv 自定义 frps 的 token 放在 frpc 进程的这个环境变量里。
+const frpTokenEnv = "MINEDECK_FRP_TOKEN"
+
+// tomlEscape 把每个字符都写成 TOML 字符串转义 \uXXXX / \UXXXXXXXX。frp 用 html/template 渲染配置文件，
+// 环境变量原样代进去时 + & " ' < > 会被转成 HTML 实体，token 就对不上了；反斜杠和十六进制数字不会被转义，
+// 渲染完再由 TOML 还原成原字符。frpc 0.61.1 实测可用（token 含这些符号、中文和 emoji 都能登录）。
+func tomlEscape(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r > 0xFFFF {
+			fmt.Fprintf(&b, `\U%08X`, r)
+		} else {
+			fmt.Fprintf(&b, `\u%04X`, r)
+		}
+	}
+	return b.String()
+}
+
+func (customProvider) Launch(t *Tunnel) ([]string, []string, error) {
+	// 生成标准 frp TOML 配置（loginFailExit=false：连不上持续重试而非退出）。
+	// token 不落盘：配置里只写模板，frpc 读配置时从自己的环境变量取（frp 配置文件支持 {{ .Envs.变量名 }}）。
+	// 模板放在第一行、早于任何用户填的内容：frp 按 HTML 模板渲染整份文件，前面的文字会影响转义的上下文。
+	var cfg string
+	var env []string
+	if t.Credential != "" {
+		cfg = "auth.token = \"{{ .Envs." + frpTokenEnv + " }}\"\n"
+		env = []string{frpTokenEnv + "=" + tomlEscape(t.Credential)}
+	}
+	cfg += fmt.Sprintf(`serverAddr = %q
 serverPort = %d
 loginFailExit = false
 `, t.ServerAddr, t.ServerPort)
-	if t.Credential != "" {
-		cfg += fmt.Sprintf("auth.token = %q\n", t.Credential)
+	proto := "tcp"
+	if t.Proto == "udp" { // 语音隧道：Simple Voice Chat 走 UDP
+		proto = "udp"
 	}
 	cfg += fmt.Sprintf(`
 [[proxies]]
 name = "minedeck-%s"
-type = "tcp"
+type = %q
 localIP = "127.0.0.1"
 localPort = %d
 remotePort = %d
-`, t.ID, t.LocalPort, t.RemotePort)
+`, t.ID, proto, t.LocalPort, t.RemotePort)
 	dir := frpcDir("custom")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	cfgPath := filepath.Join(dir, t.ID+".toml")
 	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return []string{"-c", cfgPath}, nil
+	return []string{"-c", cfgPath}, env, nil
 }

@@ -1,0 +1,5 @@
+[MineDeck] 启动: java -Xms1024M -Xmx6144M -Dfile.encoding=UTF-8 @libraries/net/neoforged/neoforge/21.1.77/win_args.txt nogui
+[09:35:00] [main/ERROR] [ne.ne.fm.ModLoader/LOADING]: Loading errors encountered:
+	- Mod examplemod is missing a feature it requires to run
+		It requires javaVersion 21 but 17.0.12 is available
+[MineDeck] 服务器进程已退出（exit status 1）

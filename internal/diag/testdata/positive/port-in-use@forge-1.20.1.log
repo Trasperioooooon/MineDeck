@@ -1,0 +1,6 @@
+[MineDeck] 启动: java -Xms1024M -Xmx6144M -Dfile.encoding=UTF-8 @libraries/net/minecraftforge/forge/1.20.1-47.3.0/win_args.txt nogui
+[12:05:01] [Server thread/INFO] [minecraft/DedicatedServer]: Starting Minecraft server on *:25566
+[12:05:01] [Server thread/WARN] [minecraft/DedicatedServer]: **** FAILED TO BIND TO PORT!
+[12:05:01] [Server thread/WARN] [minecraft/DedicatedServer]: The exception was: java.net.BindException: Address already in use: bind
+[12:05:01] [Server thread/WARN] [minecraft/DedicatedServer]: Perhaps a server is already running on that port?
+[MineDeck] 服务器已正常关闭

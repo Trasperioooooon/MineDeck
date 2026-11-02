@@ -179,6 +179,52 @@ func sessionAt(se *iAudioSessionEnumerator, i int32) (sessionInfo, bool) {
 	return info, true
 }
 
+// ListDevices 列出所有启用的播放设备（整机录音时可以指定录哪一个），默认设备排在最前面。
+func ListDevices() ([]Device, error) {
+	var list []Device
+	err := withCOM(func() error {
+		var enum *iMMDeviceEnumerator
+		if hr := coCreateInstance(&clsidMMDeviceEnumerator, &iidIMMDeviceEnumerator, unsafe.Pointer(&enum)); hr.failed() || enum == nil {
+			return hr.err("CoCreateInstance(MMDeviceEnumerator)")
+		}
+		defer release(enum)
+		defaultID := ""
+		var def *iMMDevice
+		if hr := enum.GetDefaultAudioEndpoint(eRender, eConsole, &def); !hr.failed() && def != nil {
+			defaultID = def.ID()
+			release(def)
+		}
+		var coll *iMMDeviceCollection
+		if hr := enum.EnumAudioEndpoints(eRender, deviceStateActive, &coll); hr.failed() || coll == nil {
+			return hr.err("IMMDeviceEnumerator::EnumAudioEndpoints")
+		}
+		defer release(coll)
+		var count uint32
+		if hr := coll.GetCount(&count); hr.failed() {
+			return hr.err("IMMDeviceCollection::GetCount")
+		}
+		for i := uint32(0); i < count; i++ {
+			var dev *iMMDevice
+			if hr := coll.Item(i, &dev); hr.failed() || dev == nil {
+				continue
+			}
+			d := Device{ID: dev.ID(), Name: dev.FriendlyName()}
+			release(dev)
+			if d.ID == "" {
+				continue
+			}
+			if d.Name == "" {
+				d.Name = "（未知设备）"
+			}
+			d.Default = d.ID == defaultID
+			list = append(list, d)
+		}
+		return nil
+	})
+	sort.SliceStable(list, func(i, j int) bool { return list[i].Default && !list[j].Default })
+	return list, err
+}
+
 func processPathByPID(pid uint32) string {
 	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
 	if err != nil {

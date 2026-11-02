@@ -19,6 +19,9 @@ const testManifest = `{"latest":{"release":"1.20.1","snapshot":"1.20.1"},"versio
 {"id":"1.12.2","type":"release"}]}`
 
 func TestMain(m *testing.M) {
+	if os.Getenv(fakeServerEnv) == "1" { // proc_test.go：测试程序自己扮演服务器进程
+		os.Exit(fakeServer())
+	}
 	dir, err := os.MkdirTemp("", "amh-inst-test")
 	if err != nil {
 		panic(err)
@@ -30,6 +33,41 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)
+}
+
+// 控制台输出一律 UTF-8：Java 18 起 System.out 不跟 file.encoding、跟 stdout.encoding（没设时是系统编码，中文 Windows 上是 GBK，
+// 「@小木 停」的 GBK 恰好是合法的 UTF-8，会被解成乱码）。三个参数都在内存参数之后、实例自己的 JVM 参数和启动目标之前，run.bat 里也有。
+func TestLaunchArgsConsoleUTF8(t *testing.T) {
+	dir := t.TempDir()
+	i := &Instance{Settings: Settings{Name: "t", Core: mcsrc.CoreNeoForge, MC: "1.21.1", JavaPath: `C:\java\bin\java.exe`, XmxMB: 4096, XmsMB: 1024,
+		LaunchTarget: "args:libraries/net/neoforged/neoforge/21.1.265/win_args.txt", ExtraJVM: []string{"-XX:+UseG1GC"}}, Dir: dir}
+	got := launchArgs(i)
+	want := []string{"-Xms1024M", "-Xmx4096M", "-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8", "-XX:+UseG1GC",
+		"@" + filepath.FromSlash("libraries/net/neoforged/neoforge/21.1.265/win_args.txt"), "nogui"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("launchArgs = %q\nwant %q", got, want)
+	}
+	if err := writeRunBat(i); err != nil {
+		t.Fatal(err)
+	}
+	bat, err := os.ReadFile(filepath.Join(dir, "run.bat"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range consoleUTF8 {
+		if !strings.Contains(string(bat), batQuoteArg(f)) {
+			t.Errorf("run.bat 里没有 %s：\n%s", f, bat)
+		}
+	}
+
+	// 控制台编码手动选了 GBK：只留 file.encoding，输出还是系统编码，按 GBK 解才对得上
+	i.ConsoleEncoding = "gbk"
+	got = launchArgs(i)
+	want = []string{"-Xms1024M", "-Xmx4096M", "-Dfile.encoding=UTF-8", "-XX:+UseG1GC",
+		"@" + filepath.FromSlash("libraries/net/neoforged/neoforge/21.1.265/win_args.txt"), "nogui"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("GBK 时 launchArgs = %q\nwant %q", got, want)
+	}
 }
 
 // 保存 JVM 参数（套用预设 / 清空 / 手改）后，老版本的 log4shell 缓解参数必须仍在 instance.json、run.bat 与托管启动参数里；

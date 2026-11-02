@@ -175,6 +175,31 @@ func TestListSourcesSmoke(t *testing.T) {
 	waitGoroutines(t, base)
 }
 
+// ListDevices 冒烟：wine 下一般没有播放设备；有的话默认设备排第一个，每个都有 ID 和名字。
+func TestListDevicesSmoke(t *testing.T) {
+	base := runtime.NumGoroutine()
+	list, err := ListDevices()
+	t.Logf("播放设备 %d 个，错误：%v", len(list), err)
+	for i, d := range list {
+		t.Logf("  %+v", d)
+		if d.ID == "" || d.Name == "" || (d.Default && i != 0) {
+			t.Errorf("设备信息不对：%+v（第 %d 个）", d, i)
+		}
+	}
+	waitGoroutines(t, base)
+}
+
+// 整机录音指定了不存在的播放设备：报「找不到指定的播放设备」，采集线程退干净。
+func TestStartUnknownDevice(t *testing.T) {
+	base := runtime.NumGoroutine()
+	_, err := Start(Options{Mode: ModeSystem, Device: "{0.0.0.00000000}.{00000000-0000-0000-0000-000000000000}"})
+	var he *HRError
+	if err == nil || !strings.Contains(err.Error(), "找不到指定的播放设备") || !errors.As(err, &he) {
+		t.Fatalf("应报找不到设备：%v", err)
+	}
+	waitGoroutines(t, base)
+}
+
 // Start 冒烟：录本进程（不出声）。wine 不支持按进程环回，会在激活那一步失败，但完成回调照样会被调用；
 // 真 Win11 上应能启动。无论成败，采集线程都要退干净。
 func TestStartSmoke(t *testing.T) {

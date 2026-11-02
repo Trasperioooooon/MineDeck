@@ -1,0 +1,11 @@
+# Gradle 和构建产物
+.gradle/
+build/
+run/
+runs/
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+!*/gradle/wrapper/gradle-wrapper.jar
+# testctl 编出来的程序
+/testctl/testctl
+/testctl/testctl.exe

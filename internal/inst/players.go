@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
 
 	"minedeck/internal/dl"
 	"minedeck/internal/events"
+	"minedeck/internal/mclog"
 )
 
 func contextWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {
@@ -32,29 +32,31 @@ type PlayerLists struct {
 	Banned    []PlayerEntry `json:"banned"`
 }
 
-var (
-	playerJoinRe = regexp.MustCompile(`([A-Za-z0-9_]{1,16}) joined the game`)
-	playerLeftRe = regexp.MustCompile(`([A-Za-z0-9_]{1,16}) left the game`)
-	playerNameRe = regexp.MustCompile(`^[A-Za-z0-9_]{1,16}$`)
-)
-
-// trackPlayers 从控制台输出维护在线玩家集合。
+// trackPlayers 从控制台输出维护在线玩家集合。识别规则在 mclog：只对拆出前缀后的正文做锚定匹配，
+// 玩家在聊天里打一句「Notch joined the game」不会把 Notch 加进在线列表。
+// 一次进服会有「logged in with entity id」和「joined the game」两行（退服同理），只在名单真的变化时推送事件。
 func (i *Instance) trackPlayers(line string) {
-	if m := playerJoinRe.FindStringSubmatch(line); m != nil {
+	l := mclog.Parse(line)
+	switch l.Kind {
+	case mclog.Join:
 		i.onlineMu.Lock()
 		if i.online == nil {
 			i.online = map[string]bool{}
 		}
-		i.online[m[1]] = true
+		added := !i.online[l.Player]
+		i.online[l.Player] = true
 		i.onlineMu.Unlock()
-		events.Publish("player.join", map[string]any{"instance": i.Name, "player": m[1]})
-		return
-	}
-	if m := playerLeftRe.FindStringSubmatch(line); m != nil {
+		if added {
+			events.Publish("player.join", map[string]any{"instance": i.Name, "player": l.Player})
+		}
+	case mclog.Leave:
 		i.onlineMu.Lock()
-		delete(i.online, m[1])
+		was := i.online[l.Player]
+		delete(i.online, l.Player)
 		i.onlineMu.Unlock()
-		events.Publish("player.leave", map[string]any{"instance": i.Name, "player": m[1]})
+		if was {
+			events.Publish("player.leave", map[string]any{"instance": i.Name, "player": l.Player})
+		}
 	}
 }
 
@@ -89,7 +91,7 @@ func (m *Manager) PlayerAction(name, action, player string) error {
 	if err != nil {
 		return err
 	}
-	if !playerNameRe.MatchString(player) {
+	if !mclog.ValidName(player) {
 		return fmt.Errorf("玩家名不合法（1~16 位字母数字下划线）")
 	}
 	running := i.Status() == "running"
