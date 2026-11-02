@@ -352,8 +352,10 @@ input.invalid, select.invalid {
 .field-err:empty { display: none; }
 
 /* 开关：凹陷的胶囊轨道 + 凸起的圆滑块（正圆端）；滑块带回弹，按住时拉长 */
-.switch { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
-.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch { position: relative; isolation: isolate; display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+/* 透明的 input 叠在胶囊正上方、和胶囊一样大：点胶囊点中的就是它，读屏和自动化读到的位置也是胶囊（原来是 1×1 的点）；
+   整个 label 照样可点。isolation 把 z-index 关在 label 里，不会盖过吸底条、菜单 */
+.switch input { position: absolute; z-index: 1; left: 0; top: 50%; width: 40px; height: 22px; margin: -11px 0 0; opacity: 0; cursor: inherit; }
 .switch input:focus-visible + .sw { outline: 2px solid var(--accent); outline-offset: 2px; }
 .sw {
   width: 40px; height: 22px; flex: none; position: relative;

@@ -34,7 +34,7 @@ function showLogin() {
   d.id = "login-mask";
   d.innerHTML = `<div class="modal"><div class="brand-head">${logoImg()}<h3>MineDeck 远程访问</h3></div>
     <div class="m-body">请输入访问密码（在主机的「设置 → 远程访问」中配置）</div>
-    <input type="password" id="login-pw" style="width:100%;margin-bottom:16px" autofocus>
+    <input type="password" id="login-pw" style="width:100%;margin-bottom:16px" aria-label="访问密码" autofocus>
     <div class="m-actions"><button class="btn primary" id="login-go">登录</button></div></div>`;
   document.body.appendChild(d);
   const go = async () => {
@@ -534,8 +534,8 @@ function renderMemoryControl(mount, o) {
   const g = mb => (mb / 1024).toFixed(1);
   mount.innerHTML = `
     <div class="mem-head"><span>最大内存 -Xmx</span><b class="mem-gb"></b>
-      <span class="mem-mb"><input type="number" class="mem-num" min="${min}" max="${max}" step="256"> MB</span></div>
-    <input type="range" id="${o.sliderId}" class="mem-range" min="${min}" max="${max}" step="512">
+      <span class="mem-mb"><input type="number" class="mem-num" min="${min}" max="${max}" step="256" aria-label="最大内存（MB）"> MB</span></div>
+    <input type="range" id="${o.sliderId}" class="mem-range" min="${min}" max="${max}" step="512" aria-label="最大内存">
     <div class="mem-xp" aria-hidden="true"></div>
     <div class="mem-stat"></div>
     ${o.hint ? `<div class="hint">${esc(o.hint)}</div>` : ""}`;
@@ -917,7 +917,9 @@ async function renderInstances() {
     const collapse = stat
       ? `<div class="collapse${changed && !prevStat ? " closed" : ""}" data-stat><div>${stat}</div></div>`
       : `<div class="collapse${changed && prevStat ? "" : " closed"}" data-stat${changed && prevStat ? " data-close" : ""}><div>${changed ? prevStat : ""}</div></div>`;
-    // 删除、打开文件夹收进「···」：危险操作不与「启动」同排同尺寸，多一步才够得着；「管理」「···」是第三级按钮
+    // 删除、打开文件夹收进「···」：危险操作不与「启动」同排同尺寸，多一步才够得着；「管理」「···」是第三级按钮。
+    // 每张卡片都有同名的「启动」「管理」「···」：可访问名称带上服务器名（「启动 生存服」），读屏、自动化按名字找得到是哪一台
+    const nm = esc(i.name);
     return `
     <div class="card st-${i.status}${enter ? " item-enter" : ""}" style="--i:${n}" data-name="${esc(i.name)}">
       <div class="inst-head">${avatarOf(i.core)}<div class="inst-title"><a class="inst-name" href="${href}">${esc(i.name)}</a><div class="inst-sub">${proxy ? "群组代理" : "游戏服务器"}</div></div>${stPill(i.status)}</div>
@@ -926,11 +928,11 @@ async function renderInstances() {
       ${collapse}
       <div class="inst-meta" data-motd="${esc(i.motd || "")}"></div>
       <div class="inst-actions">
-        ${i.status === "stopped" ? `<button class="btn sm primary" data-act="start">${icon("play")} 启动</button>`
-          : `<button class="btn sm" data-act="stop" ${i.status === "stopping" ? "disabled" : ""}>${icon("stop")} 停止</button>`}
-        <a class="btn sm ghost" href="${href}">管理</a>
+        ${i.status === "stopped" ? `<button class="btn sm primary" data-act="start" aria-label="启动 ${nm}">${icon("play")} 启动</button>`
+          : `<button class="btn sm" data-act="stop" aria-label="停止 ${nm}" ${i.status === "stopping" ? "disabled" : ""}>${icon("stop")} 停止</button>`}
+        <a class="btn sm ghost" href="${href}" aria-label="管理 ${nm}">管理</a>
         <span class="grow"></span>
-        <button class="btn sm ghost icon-only" data-act="more" title="更多操作" aria-label="更多操作" aria-haspopup="menu">${icon("more")}</button>
+        <button class="btn sm ghost icon-only" data-act="more" title="更多操作" aria-label="更多操作 ${nm}" aria-haspopup="menu">${icon("more")}</button>
       </div>
     </div>`;
   };
@@ -1033,8 +1035,8 @@ async function renderCreate() {
   wiz.step = 0; wiz.core = null; wiz.mc = null; wiz.build = null; wiz.root = "";
   Main().innerHTML = pageHead("新建服务器", "选择一种方式开始", "", "", `两种方式${SEP}Java 与服务端自动下载`) + `
     <div class="recipe-grid">
-      <div class="core-card" id="mode-new" role="button" tabindex="0"><span class="recipe-ico">${icon("plusBox")}</span><div><div class="cn">从零创建</div><div class="cd">选择核心与版本，自动下载 Java 与服务端</div></div></div>
-      <div class="core-card" id="mode-import" role="button" tabindex="0"><span class="recipe-ico">${icon("package")}</span><div><div class="cn">导入整合包</div><div class="cd">支持 Modrinth / CurseForge 整合包，自动识别版本</div></div></div>
+      <div class="core-card" id="mode-new" role="button" tabindex="0" aria-label="从零创建" aria-describedby="mode-new-d"><span class="recipe-ico">${icon("plusBox")}</span><div><div class="cn">从零创建</div><div class="cd" id="mode-new-d">选择核心与版本，自动下载 Java 与服务端</div></div></div>
+      <div class="core-card" id="mode-import" role="button" tabindex="0" aria-label="导入整合包" aria-describedby="mode-import-d"><span class="recipe-ico">${icon("package")}</span><div><div class="cn">导入整合包</div><div class="cd" id="mode-import-d">支持 Modrinth / CurseForge 整合包，自动识别版本</div></div></div>
     </div>`;
   $("#mode-new").onclick = () => drawWizard();
   $("#mode-import").onclick = () => drawImport();
@@ -1057,7 +1059,7 @@ async function drawImport() {
       <div class="field full" id="im-mem-mount"></div>
       <label class="field full"><span>存放位置</span>
         <div class="row" style="gap:8px">
-          <input type="text" id="im-root" readonly style="flex:1;cursor:default;background:var(--surface-2)">
+          <input type="text" id="im-root" readonly style="flex:1;cursor:default;background:var(--surface-2)" aria-label="存放位置">
           <button type="button" class="btn" id="im-browse">${icon("folder")} 浏览…</button>
         </div></label>
       <div class="field"><label class="switch"><input type="checkbox" id="im-online"><span class="sw"></span>
@@ -1280,7 +1282,7 @@ async function drawWizard() {
         <div class="field full" id="mem-mount"></div>
         <label class="field full"><span>存放位置</span>
           <div class="row" style="gap:8px">
-            <input type="text" id="f-root" readonly style="flex:1;cursor:default;background:var(--surface-2)">
+            <input type="text" id="f-root" readonly style="flex:1;cursor:default;background:var(--surface-2)" aria-label="存放位置">
             <button type="button" class="btn" id="f-browse">${icon("folder")} 浏览…</button>
           </div>
           <div class="hint" id="f-path"></div>
@@ -1482,8 +1484,8 @@ async function renderDetail(name, tab = "console") {
       <div class="dh-text"><h1>${esc(name)}</h1>
         <div class="dh-line"><span id="d-status">${headStatus(info)}</span>${coreBadge(info.core)}<span class="badge">${info.kind === "proxy" ? "v" : "MC "}${esc(info.mc)}</span><span class="badge">Java ${info.javaMajor}</span></div></div>
       <span class="grow"></span>
-      <button class="btn primary" id="d-start" ${info.status !== "stopped" ? "disabled" : ""}>${icon("play")} 启动</button>
-      <button class="btn" id="d-stop" ${info.status === "stopped" || info.status === "stopping" ? "disabled" : ""}>${icon("stop")} 停止</button>
+      <button class="btn primary" id="d-start" aria-label="启动 ${esc(name)}" ${info.status !== "stopped" ? "disabled" : ""}>${icon("play")} 启动</button>
+      <button class="btn" id="d-stop" aria-label="停止 ${esc(name)}" ${info.status === "stopped" || info.status === "stopping" ? "disabled" : ""}>${icon("stop")} 停止</button>
       <button class="btn" id="d-dir" aria-haspopup="menu">${icon("folder")} 打开目录 ${icon("chevronDown")}</button>
     </div>
     <div class="tabs">${(() => {
@@ -1535,7 +1537,7 @@ async function renderDetail(name, tab = "console") {
         <label class="switch"><input type="checkbox" id="con-scroll" checked><span class="sw"></span><span class="sw-label">自动滚动</span></label>
         <span class="grow"></span>
         <span class="hint">编码</span>
-        <select id="con-enc" style="width:110px">
+        <select id="con-enc" style="width:110px" aria-label="控制台编码">
           ${["auto", "utf-8", "gbk"].map(e => `<option value="${e}" ${info.consoleEncoding === e ? "selected" : ""}>${e}</option>`).join("")}
         </select>
         <button class="btn sm ghost" id="con-fs-dn" title="缩小字号">A-</button>
@@ -1702,21 +1704,22 @@ async function renderDetail(name, tab = "console") {
       let pl;
       try { pl = await api(`/api/instances/${encodeURIComponent(name)}/players`); }
       catch (e) { body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+      // 三个名单的输入框、每个人名后面的「移除」「OP」「踢」都同名：可访问名称带上名单和玩家名
       const section = (title, items, addAction, removeAction, hint) => `
         <div class="p-sec">
           <div class="p-sec-head"><b>${title}</b>（${items.length}）
-            <input type="text" data-add="${addAction}" placeholder="输入玩家名，回车添加">
+            <input type="text" data-add="${addAction}" placeholder="输入玩家名，回车添加" aria-label="添加玩家到${title}">
             ${hint ? `<span class="hint">${hint}</span>` : ""}
           </div>
           <div class="badges">${items.map(p =>
-            `<span class="badge">${esc(p.name)}<a class="p-x" data-act="${removeAction}" data-p="${esc(p.name)}" title="移除" aria-label="移除">${icon("x")}</a></span>`).join("") || `<span class="sub">空</span>`}</div>
+            `<span class="badge">${esc(p.name)}<a class="p-x" data-act="${removeAction}" data-p="${esc(p.name)}" title="移除" aria-label="移除 ${esc(p.name)}（${title}）">${icon("x")}</a></span>`).join("") || `<span class="sub">空</span>`}</div>
         </div>`;
       body.innerHTML = `<div class="players-grid">
         <div class="p-sec">
           <div class="p-sec-head"><b>在线玩家</b>（${pl.online.length}）<button class="btn sm" id="pl-refresh">${icon("refresh")} 刷新</button></div>
           <div class="badges">${pl.online.map(n => `<span class="badge core">${esc(n)}
-            <a class="p-x" data-act="op" data-p="${esc(n)}" title="设为管理员">OP</a>
-            <a class="p-x" data-act="kick" data-p="${esc(n)}" title="踢出">踢</a></span>`).join("") || `<span class="sub">暂无玩家在线</span>`}</div>
+            <a class="p-x" data-act="op" data-p="${esc(n)}" title="设为管理员" aria-label="OP ${esc(n)}">OP</a>
+            <a class="p-x" data-act="kick" data-p="${esc(n)}" title="踢出" aria-label="踢 ${esc(n)}">踢</a></span>`).join("") || `<span class="sub">暂无玩家在线</span>`}</div>
         </div>
         ${section("白名单", pl.whitelist, "whitelist-add", "whitelist-remove", "需在常用设置开启 white-list 才生效")}
         ${section("管理员 OP", pl.ops, "op", "deop", "")}
@@ -1749,8 +1752,8 @@ async function renderDetail(name, tab = "console") {
         <div class="group has-ico bk-list">${(list || []).map(b => `
           <div class="row-item"><div class="ri-head"><span class="ri-ico">${icon("package")}</span>
             <div class="ri-main"><div class="ri-title">${esc(b.file)}</div><div class="ri-key">${b.sizeMb.toFixed(1)} MB · ${esc(b.time)}</div></div>
-            <div class="ri-right"><button class="btn sm" data-restore="${esc(b.file)}">${icon("restore")} 还原</button>
-              <button class="btn sm danger" data-del="${esc(b.file)}">删除</button></div></div></div>`).join("") ||
+            <div class="ri-right"><button class="btn sm" data-restore="${esc(b.file)}" aria-label="还原 ${esc(b.file)}">${icon("restore")} 还原</button>
+              <button class="btn sm danger" data-del="${esc(b.file)}" aria-label="删除 ${esc(b.file)}">删除</button></div></div></div>`).join("") ||
           `<div class="row-item"><div class="ri-head"><div class="ri-main"><div class="ri-sub">暂无备份</div></div></div></div>`}</div>`;
       $("#bk-create").onclick = async () => {
         $("#bk-create").disabled = true;
@@ -1796,12 +1799,12 @@ async function renderDetail(name, tab = "console") {
     body.innerHTML = `<div style="max-width:640px">
       <div class="prop-item" style="margin-bottom:18px">
         <div><div class="pl">崩溃自动重启</div><div class="pd">异常退出后按 10/30/60 秒退避重启；连续 3 次崩溃放弃并提示</div></div>
-        <label class="switch"><input type="checkbox" id="pol-crash" ${pol.crashRestart ? "checked" : ""}><span class="sw"></span></label>
+        <label class="switch"><input type="checkbox" id="pol-crash" ${pol.crashRestart ? "checked" : ""} aria-label="崩溃自动重启"><span class="sw"></span></label>
       </div>
       <h3 style="margin-bottom:8px">每日定时任务</h3>
       <div id="sched-list"></div>
       <div class="row" style="margin:12px 0 4px;flex-wrap:wrap">
-        <select id="sc-type" style="width:130px"><option value="restart">定时重启</option><option value="command">定时命令</option><option value="backup">定时备份</option></select>
+        <select id="sc-type" style="width:130px" aria-label="任务类型"><option value="restart">定时重启</option><option value="command">定时命令</option><option value="backup">定时备份</option></select>
         <input type="time" id="sc-at" value="04:00" style="width:130px">
         <input type="text" id="sc-args" placeholder="命令内容（仅定时命令需要），如 say 大家好" style="flex:1;min-width:200px">
         <button class="btn" id="sc-add">${icon("plus")} 添加</button>
@@ -1815,7 +1818,7 @@ async function renderDetail(name, tab = "console") {
           <span class="jv">每天 ${esc(s.at)}</span>
           <span class="jp">${esc(s.args || "")}</span>
           <span class="grow"></span>
-          <button class="btn sm danger" data-i="${i}">移除</button></div>`).join("") ||
+          <button class="btn sm danger" data-i="${i}" aria-label="移除 ${esc(TYPE_NAMES[s.type] || s.type)} 每天 ${esc(s.at)}${s.args ? " " + esc(s.args) : ""}">移除</button></div>`).join("") ||
         `<div class="sub">暂无定时任务</div>`;
       $("#sched-list").querySelectorAll("[data-i]").forEach(b => b.onclick = () => { scheds.splice(+b.dataset.i, 1); drawScheds(); paintBar(); });
     };
@@ -1856,16 +1859,18 @@ async function renderDetail(name, tab = "console") {
             <div style="flex:1;min-width:0"><b>${esc(h.title)}</b>
               <div class="jp" style="white-space:normal;max-height:32px;overflow:hidden">${esc(h.description)}</div></div>
             <span class="jv" style="color:var(--muted);display:inline-flex;align-items:center;gap:4px">${h.downloads >= 1e6 ? (h.downloads / 1e6).toFixed(1) + "M" : Math.round(h.downloads / 1e3) + "k"}${icon("download")}</span>
-            <button class="btn sm primary" data-rid="${esc(h.project_id)}" data-rt="${esc(h.title)}">${icon("download")} 安装</button>
+            <button class="btn sm primary" data-rid="${esc(h.project_id)}" data-rt="${esc(h.title)}" aria-label="安装 ${esc(h.title)}">${icon("download")} 安装</button>
           </div>`).join("") || `<div class="sub">没有找到兼容 ${esc(info.mc)} 的资源，换个关键词试试</div>`;
+        // 20 个结果的按钮都叫「安装」、模组名又相近，名字带上模组名（测试报告观察 9）；按钮上的字变了，名字跟着变
         $("#res-list").querySelectorAll("[data-rid]").forEach(b => b.onclick = async () => {
+          const label = s => b.setAttribute("aria-label", s + " " + b.dataset.rt);
           b.disabled = true;
-          b.textContent = "安装中…";
+          b.textContent = "安装中…"; label("安装中…");
           try {
             const res = await api(`/api/instances/${encodeURIComponent(name)}/resources/install`, { method: "POST", body: { projectId: b.dataset.rid } });
             toast(`已安装 ${b.dataset.rt} → ${res.file}（重启服务器生效）`);
-            b.innerHTML = icon("check") + " 已安装";
-          } catch (e) { toast(e.message, true); b.disabled = false; b.innerHTML = icon("download") + " 安装"; }
+            b.innerHTML = icon("check") + " 已安装"; label("已安装");
+          } catch (e) { toast(e.message, true); b.disabled = false; b.innerHTML = icon("download") + " 安装"; label("安装"); }
         });
       } catch (e) { $("#res-list").innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
     };
@@ -1893,15 +1898,16 @@ async function renderDetail(name, tab = "console") {
       items.push({ ...p, mode });
     }
     const inGroup = g => items.filter(p => p.group === g);
+    // 每个控件都用设置项的中文名当可访问名称（行里的名字和控件没有 label 关联，读屏和自动化原来读不到名字）
     const fieldHTML = p => {
-      const v = cur[p.key] ?? p.def;
+      const v = cur[p.key] ?? p.def, al = `aria-label="${esc(p.label)}"`;
       if (p.key === "motd") return `<div class="motd-palette" id="motd-pal"></div>
-        <input type="text" data-k="motd" id="motd-in" value="${esc(v ?? "")}" style="width:100%;margin-top:6px"><div class="motd-preview" id="motd-prev"></div>`;
-      if (p.mode === "gamerule") return `<label class="switch" title="游戏规则：服务器运行时通过 /gamerule 即时生效"><input type="checkbox" data-gr="${p.gamerule}" ${v === "true" ? "checked" : ""} ${running ? "" : "disabled"}><span class="sw"></span></label>`;
-      if (p.mode === "bool") return `<label class="switch"><input type="checkbox" data-k="${p.key}" ${v === "true" ? "checked" : ""}><span class="sw"></span></label>`;
-      if (p.mode === "sel") return `<select data-k="${p.key}">${p.opts.map((o, i) => `<option value="${o}" ${v === o ? "selected" : ""}>${esc(p.optNames ? p.optNames[i] : o)}</option>`).join("")}</select>`;
-      if (p.mode === "int") return `<input type="number" data-k="${p.key}" value="${esc(v ?? "")}">`;
-      return `<input type="text" data-k="${p.key}" value="${esc(v ?? "")}" style="width:200px">`;
+        <input type="text" data-k="motd" id="motd-in" value="${esc(v ?? "")}" ${al} style="width:100%;margin-top:6px"><div class="motd-preview" id="motd-prev"></div>`;
+      if (p.mode === "gamerule") return `<label class="switch" title="游戏规则：服务器运行时通过 /gamerule 即时生效"><input type="checkbox" data-gr="${p.gamerule}" ${v === "true" ? "checked" : ""} ${running ? "" : "disabled"} ${al}><span class="sw"></span></label>`;
+      if (p.mode === "bool") return `<label class="switch"><input type="checkbox" data-k="${p.key}" ${v === "true" ? "checked" : ""} ${al}><span class="sw"></span></label>`;
+      if (p.mode === "sel") return `<select data-k="${p.key}" ${al}>${p.opts.map((o, i) => `<option value="${o}" ${v === o ? "selected" : ""}>${esc(p.optNames ? p.optNames[i] : o)}</option>`).join("")}</select>`;
+      if (p.mode === "int") return `<input type="number" data-k="${p.key}" value="${esc(v ?? "")}" ${al}>`;
+      return `<input type="text" data-k="${p.key}" value="${esc(v ?? "")}" ${al} style="width:200px">`;
     };
     const rowHTML = p => {
       const tags = (p.restart ? `<span class="ri-restart">重启生效</span>` : "") + (p.mode === "gamerule" ? `<span class="gr-tag">游戏规则</span>` : "");
@@ -2000,7 +2006,7 @@ async function renderDetail(name, tab = "console") {
     const LABELS = Object.fromEntries((window.PROPS_CATALOG || []).map(p => [p.key, p.label]));
     body.innerHTML = `<div style="max-width:900px"><div class="sub">server.properties 全部键值（高级）。已知项附中文名。</div>
       <table class="raw">${data.pairs.map(p =>
-        `<tr><td>${esc(p.key)}</td><td class="raw-cn">${LABELS[p.key] ? esc(LABELS[p.key]) : ""}</td><td><input type="text" data-k="${esc(p.key)}" value="${esc(p.value)}"></td></tr>`).join("")}</table>
+        `<tr><td>${esc(p.key)}</td><td class="raw-cn">${LABELS[p.key] ? esc(LABELS[p.key]) : ""}</td><td><input type="text" data-k="${esc(p.key)}" value="${esc(p.value)}" aria-label="${esc(p.key)}"></td></tr>`).join("")}</table>
       ${saveBar("保存全部", data.running ? `<span class="warn-text">${icon("warn")} 运行中：保存后需重启生效</span>` : "")}</div>`;
     wireSaveBar(body, gen,
       () => Object.fromEntries([...body.querySelectorAll("input[data-k]")].map(el => [el.dataset.k, el.value])),
@@ -2113,7 +2119,7 @@ async function renderTunnels() {
       <div class="field"><label class="switch"><input type="checkbox" id="tn-auto" checked><span class="sw"></span>
         <span><span class="sw-label">跟随实例启动</span><div class="sw-desc">绑定的服务器启动时自动拉起隧道，停服后跟着停</div></span></label></div>
     </div>
-    <button class="btn primary" id="tn-add">${icon("plus")} 添加隧道</button>
+    <button class="btn primary" id="tn-add" aria-label="确认添加隧道">${icon("plus")} 添加隧道</button>
     </div>`;
 
   const PROV_NAMES = { openfrp: "OpenFrp", natfrp: "樱花frp", custom: "自定义" };
@@ -2151,13 +2157,13 @@ async function renderTunnels() {
         ${t.boundInstance ? `<span class="badge">${icon("link")} ${esc(t.boundInstance)}${t.autoStart ? " · 跟随" : ""}</span>` : ""}
         ${t.credBroken ? `<span class="jp" style="color:var(--danger-text);display:inline-flex;align-items:center;gap:5px" title="凭据加密绑定当前电脑和 Windows 用户，换了就解不开">${icon("warn")} 凭据无法解开，请删除后重新添加</span>`
           : t.publicAddr ? `<span class="jv" style="color:var(--accent-text);font-family:var(--mono)">${esc(t.publicAddr)}</span>
-          <button class="btn sm" data-copy="${esc(t.publicAddr)}">${icon("copy")} 复制</button>`
+          <button class="btn sm" data-copy="${esc(t.publicAddr)}" aria-label="复制 ${esc(t.name)} 的公网地址">${icon("copy")} 复制</button>`
           : t.lastError ? `<span class="jp" style="color:var(--danger-text);display:inline-flex;align-items:center;gap:5px" title="${esc(t.lastError)}">${icon("warn")} ${esc(t.lastError.length > 46 ? t.lastError.slice(0, 46) + "…" : t.lastError)}</span>`
           : `<span class="jp">${t.running ? "连接中…" : "尚未启动"}</span>`}
         <span class="grow"></span>
-        ${t.running ? `<button class="btn sm" data-tstop="${t.id}">${icon("stop")} 停止</button>` : `<button class="btn sm primary" data-tstart="${t.id}">${icon("play")} 启动</button>`}
-        <button class="btn sm" data-tlog="${t.id}">日志</button>
-        <button class="btn sm danger" data-tdel="${t.id}">删除</button>
+        ${t.running ? `<button class="btn sm" data-tstop="${t.id}" aria-label="停止 ${esc(t.name)}">${icon("stop")} 停止</button>` : `<button class="btn sm primary" data-tstart="${t.id}" aria-label="启动 ${esc(t.name)}">${icon("play")} 启动</button>`}
+        <button class="btn sm" data-tlog="${t.id}" aria-label="日志 ${esc(t.name)}">日志</button>
+        <button class="btn sm danger" data-tdel="${t.id}" aria-label="删除 ${esc(t.name)}">删除</button>
       </div>
       <div class="task-log" id="tlog-${t.id}" style="display:none;height:150px;max-width:980px;margin:-2px 0 8px"></div>`).join("");
     $("#tun-list").querySelectorAll("[data-copy]").forEach(b => b.onclick = async () => {
@@ -2416,11 +2422,11 @@ function setDownload(body, info) {
 }
 
 /* — 存储位置 — */
-function storageRow(ico, title, path, desc, pick) {
+function storageRow(ico, title, path, desc, pick) { // 三行都有「打开」「更改…」：名字带上是哪个目录
   return riRow({ ico, title, sub: esc(desc), key: path || "", right: `
-      <button class="btn sm" data-open="${esc(path || "")}">${icon("folder")} 打开</button>
-      ${pick ? `<button class="btn sm" data-pick="${pick}">更改…</button>
-      <button class="btn sm ghost icon-only" data-reset="${pick}" title="恢复默认目录" aria-label="恢复默认目录">${icon("refresh")}</button>` : ""}` });
+      <button class="btn sm" data-open="${esc(path || "")}" aria-label="打开${esc(title)}">${icon("folder")} 打开</button>
+      ${pick ? `<button class="btn sm" data-pick="${pick}" aria-label="更改${esc(title)}…">更改…</button>
+      <button class="btn sm ghost icon-only" data-reset="${pick}" title="恢复默认目录" aria-label="恢复默认的${esc(title)}">${icon("refresh")}</button>` : ""}` });
 }
 function setStorage(body, info) {
   const draw = () => {
@@ -2606,7 +2612,7 @@ function drawAI(body, v, gen) {
     settingsHead("每日额度", "按功能分别设每天最多用多少 token（输入、输出、缓存都算），用完后这项功能暂停到第二天 0 点。留空或填 0 表示不限。") +
     group(AI_FEATS.map(f => riRow({ ico: "clock", title: f.name, sub: `<span id="q-sub-${f.id}">${aiUsageLine(v.today[f.id], v.month[f.id])}</span>`,
       field: `<input type="number" id="q-${f.id}" min="0" step="any" inputmode="decimal" placeholder="不限" value="${v.quota[f.id] ? v.quota[f.id] / 10000 : ""}" aria-label="${esc(f.name)}每日额度（万 token）"${dis}>` +
-        `<span class="ri-unit">万 token / 天</span><button class="btn" id="q-save-${f.id}"${dis}>保存</button>`,
+        `<span class="ri-unit">万 token / 天</span><button class="btn" id="q-save-${f.id}" aria-label="保存${esc(f.name)}每日额度"${dis}>保存</button>`,
       after: `<div class="field-err ri-err" id="q-err-${f.id}"></div>` })).join(""), { ico: true }) +
     settingsHead("费用估算", "只是估算：按公开价格或自填单价，不做汇率换算（人民币和美元分开合计）。查不到价格时只显示 token 用量。") +
     group(

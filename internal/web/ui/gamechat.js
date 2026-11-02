@@ -109,10 +109,10 @@ window.MDGameChat = (() => {
       $("#gc-main").innerHTML = group(
         riRow({ ico: "sparkle", title: "打开游戏内 AI", sub: "关着时 MineDeck 不看聊天，也不会回复任何人。", right: swHTML(`id="gc-on"`, s.enabled, "打开游戏内 AI", dis) }) +
         riRow({ ico: "chat", title: "触发前缀", sub: "聊天以它开头才会触发，比如「@AI 今晚怎么打末影龙」。不分大小写，也认全角的 ＠。",
-          field: `<input type="text" id="gc-prefix" value="${esc(s.prefix)}" maxlength="16" spellcheck="false" aria-label="触发前缀"${dis}><button class="btn" id="gc-prefix-save"${dis}>保存</button>`,
+          field: `<input type="text" id="gc-prefix" value="${esc(s.prefix)}" maxlength="16" spellcheck="false" aria-label="触发前缀"${dis}><button class="btn" id="gc-prefix-save" aria-label="保存触发前缀"${dis}>保存</button>`,
           after: `<div class="field-err ri-err" id="gc-prefix-err"></div>` }) +
         riRow({ ico: "chat", title: "别名（可以不填）", sub: "和前缀一样能触发，比如 @小助手；几个用逗号隔开。",
-          field: `<input type="text" id="gc-alias" value="${esc((s.aliases || []).join("，"))}" maxlength="200" spellcheck="false" placeholder="如 @小助手" aria-label="别名"${dis}><button class="btn" id="gc-alias-save"${dis}>保存</button>`,
+          field: `<input type="text" id="gc-alias" value="${esc((s.aliases || []).join("，"))}" maxlength="200" spellcheck="false" placeholder="如 @小助手" aria-label="别名"${dis}><button class="btn" id="gc-alias-save" aria-label="保存别名"${dis}>保存</button>`,
           after: `<div class="field-err ri-err" id="gc-alias-err"></div>` }) +
         riRow({ ico: "globe", titleHTML: `<span id="gc-prov"></span>`, sub: `<span id="gc-today"></span>` }),
         { ico: true });
@@ -250,7 +250,7 @@ window.MDGameChat = (() => {
       $("#gc-lim").innerHTML = group(LIMITS.map(l => riRow({ ico: "clock", title: l.title,
         sub: `${esc(l.sub)}（默认 ${l.scale ? d[l.k] / l.scale : d[l.k]} ${esc(l.unit)}）`,
         field: `<input type="number" id="gc-l-${l.k}" min="0" step="${l.scale ? "any" : "1"}" inputmode="${l.scale ? "decimal" : "numeric"}" value="${val(l)}" aria-label="${esc(l.title)}（${esc(l.unit)}）"${dis}>` +
-          `<span class="ri-unit">${esc(l.unit)}</span><button class="btn" id="gc-l-save-${l.k}"${dis}>保存</button>`,
+          `<span class="ri-unit">${esc(l.unit)}</span><button class="btn" id="gc-l-save-${l.k}" aria-label="保存${esc(l.title)}"${dis}>保存</button>`,
         after: `<div class="field-err ri-err" id="gc-l-err-${l.k}"></div>` })).join("") +
         riRow({ ico: "coin", title: "游戏内 AI 的每日总额度", sub: `<span id="gc-quota"></span>`, right: ro ? "" : `<a class="btn sm" href="#/settings/ai">去设置</a>` }),
         { ico: true });
@@ -347,9 +347,10 @@ window.MDGameChat = (() => {
     const drawAdv = () => {
       const s = v.settings, box = $("#gc-adv");
       box.innerHTML = group(
-        riRow({ ico: "gear", title: "高级识别", sub: "认不出聊天时再来改：放宽名字规则、不看线程名、自定义正则。",
+        // 整行是一个按钮：名字固定是标题（不然会把副标题一起读成名字），副标题放进描述
+        riRow({ ico: "gear", title: "高级识别", sub: `<span id="gc-adv-desc">认不出聊天时再来改：放宽名字规则、不看线程名、自定义正则。</span>`,
           right: `<span class="ri-chev">${icon("chevronDown")}</span>`, cls: "expandable" + (st.advOpen ? " open" : ""),
-          attrs: `id="gc-adv-head" role="button" tabindex="0" aria-expanded="${st.advOpen}"` }) +
+          attrs: `id="gc-adv-head" role="button" tabindex="0" aria-expanded="${st.advOpen}" aria-label="高级识别" aria-describedby="gc-adv-desc"` }) +
         riRow({ ico: "player", title: "放宽名字规则", cls: "gc-adv-row",
           sub: "默认只认 1–16 位字母、数字、下划线。离线服的名字带 - . 这类字符时打开；以 @ 开头、含 \" \\ 或中文的名字照样不认（没法安全地写进命令）。",
           right: swHTML(`id="gc-loose"`, s.looseNames, "放宽名字规则", dis) }) +
@@ -358,7 +359,7 @@ window.MDGameChat = (() => {
           right: swHTML(`id="gc-thread"`, s.anyThread, "不看线程名", dis) }) +
         riRow({ ico: "doc", title: "自定义正则（可以不填）", cls: "gc-adv-row",
           sub: "给装了聊天格式插件或模组的服用：用 (?P&lt;name&gt;…) 圈出名字、(?P&lt;msg&gt;…) 圈出聊天内容，对整行日志匹配。留空用内置的规则；改之前先在上面的识别测试里试试。",
-          field: `<input type="text" id="gc-pattern" class="gc-mono" value="${esc(s.pattern || "")}" maxlength="500" spellcheck="false" placeholder="如 ${esc(PATTERN_EXAMPLE)}" aria-label="自定义正则"${dis}><button class="btn" id="gc-pattern-save"${dis}>保存</button>`,
+          field: `<input type="text" id="gc-pattern" class="gc-mono" value="${esc(s.pattern || "")}" maxlength="500" spellcheck="false" placeholder="如 ${esc(PATTERN_EXAMPLE)}" aria-label="自定义正则"${dis}><button class="btn" id="gc-pattern-save" aria-label="保存自定义正则"${dis}>保存</button>`,
           after: `<div class="field-err ri-err" id="gc-pattern-err"></div>` }),
         { ico: true, cls: "gc-adv" + (st.advOpen ? " open" : "") });
       const h = $("#gc-adv-head"), toggle = () => {

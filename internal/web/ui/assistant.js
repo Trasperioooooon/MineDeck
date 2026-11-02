@@ -81,7 +81,7 @@ window.MDAssist = (() => {
         <button class="btn ghost sm icon-only" id="ap-back" title="会话记录" aria-label="会话记录">${icon("clock")}</button>
         <div class="ap-title"><b id="ap-title">AI 助手</b><span class="ap-sub" id="ap-sub"></span></div>
         <button class="btn ghost sm" id="ap-new" aria-haspopup="menu">${icon("plus")}<span>新会话</span></button>
-        <button class="btn ghost sm icon-only" id="ap-close" title="关闭（Esc）" aria-label="关闭 AI 助手">${icon("x")}</button>
+        <button class="btn ghost sm icon-only" id="ap-close" title="收起（Esc）" aria-label="收起 AI 助手">${icon("x")}</button>
       </header>
       <div class="ap-ext" id="ap-ext" hidden></div>
       <div class="ap-body" id="ap-body" role="log"></div>
@@ -492,9 +492,11 @@ window.MDAssist = (() => {
       const checks = [];
       if (p.consent) checks.push(`<label class="pc-check"><input type="checkbox" data-k="consent"><span>${esc(p.consent.text)}${/^https?:\/\//.test(p.consent.url || "") ? `（<a href="${esc(p.consent.url)}" target="_blank" rel="noopener noreferrer">条款原文</a>）` : ""}</span></label>`);
       if (danger) checks.push(`<label class="pc-check"><input type="checkbox" data-k="ack"><span>我看过上面的改动，确认执行这个危险操作</span></label>`);
+      // 面板里可能同时有几张待确认的卡片：按钮和输入框的名字带上操作的标题
+      const what = esc(p.title);
       foot = `${checks.join("")}
-        <div class="pc-reason" hidden><input type="text" maxlength="300" placeholder="告诉 AI 为什么不行（可以不填）" aria-label="拒绝的理由"><button class="btn sm" data-x="no">拒绝</button></div>
-        <div class="pc-actions"><button class="btn sm ghost" data-x="reject">拒绝…</button><button class="btn sm ${danger ? "danger solid" : "primary"}" data-x="ok"${checks.length ? " disabled" : ""}>${danger ? "确认执行" : "确认"}</button></div>`;
+        <div class="pc-reason" hidden><input type="text" maxlength="300" placeholder="告诉 AI 为什么不行（可以不填）" aria-label="拒绝「${what}」的理由"><button class="btn sm" data-x="no" aria-label="确认拒绝 ${what}">拒绝</button></div>
+        <div class="pc-actions"><button class="btn sm ghost" data-x="reject" aria-label="拒绝 ${what}…">拒绝…</button><button class="btn sm ${danger ? "danger solid" : "primary"}" data-x="ok" aria-label="${danger ? "确认执行" : "确认"} ${what}"${checks.length ? " disabled" : ""}>${danger ? "确认执行" : "确认"}</button></div>`;
     } else {
       const st = p.outcome === "done" ? "confirmed" : p.outcome || t.status;
       const [ic, label] = TOOL_ST[st] || ["info", st];
@@ -631,7 +633,7 @@ window.MDAssist = (() => {
         <div class="ap-attach" id="ap-attach" hidden>${icon("doc")}<span></span><span class="grow"></span>
           <button class="btn sm ghost" data-x="drop" title="这次不附上">不附上</button></div>
         <div class="ap-compose"><textarea id="ap-in" rows="1" placeholder="问问 AI…（回车发送，Shift + 回车换行）" aria-label="发给 AI 的消息"></textarea>
-          <button class="btn primary" id="ap-send">发送</button><button class="btn" id="ap-stop" hidden>${icon("stop")} 停止</button></div>
+          <button class="btn primary" id="ap-send">发送</button><button class="btn" id="ap-stop" aria-label="停止回复" hidden>${icon("stop")} 停止</button></div>
         <div class="ap-meta" id="ap-meta"></div>`;
       const ta = f.querySelector("#ap-in");
       ta.oninput = () => autosize(ta);
