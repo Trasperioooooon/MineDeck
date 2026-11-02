@@ -171,6 +171,7 @@ func openWebView(url string, sig chan os.Signal, minimized bool) (ok bool) {
 		// 随开机自启静默进托盘：NewWithOptions 建完窗口就显示、再花几百毫秒初始化 WebView2，
 		// 事后再藏会白窗口一闪；挂钩子让那次显示落空（见 hiddenstart_windows.go）
 		endHidden = beginHiddenCreate("webview")
+		defer endHidden() // NewWithOptions 里 panic 被上面的 recover 接住时也撤掉钩子（end 可重复调用）
 	}
 	w := webview2.NewWithOptions(webview2.WebViewOptions{
 		Debug:     false,
