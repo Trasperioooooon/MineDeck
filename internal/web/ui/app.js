@@ -633,7 +633,7 @@ function wireSaveBar(root, gen, read, save) {
   $('[data-sb="discard"]', bar).onclick = () => { dirtyCheck = null; navigate(); }; // 按服务器上的当前值重绘
   saveBtn.onclick = async () => {
     saveBtn.disabled = true;
-    try { await save(); if (bar.isConnected) base = read(); } catch (e) { toast(e.message, true); }
+    try { if ((await save()) !== false && bar.isConnected) base = read(); } catch (e) { toast(e.message, true); } // save 返回 false：用户取消了，表单仍算没保存
     if (bar.isConnected) paint(); // 保存途中已切走：视图已换，不再读写旧表单
   };
   addDirtySource(gen, () => (bar.isConnected ? diff() : 0));
@@ -2111,7 +2111,7 @@ async function renderTunnels() {
       <label class="field"><span>绑定实例</span><select id="tn-bound"><option value="">不绑定</option>
         ${insts.map(i => `<option value="${esc(i.name)}">${esc(i.name)}（端口 ${i.port}）</option>`).join("")}</select></label>
       <div class="field"><label class="switch"><input type="checkbox" id="tn-auto" checked><span class="sw"></span>
-        <span><span class="sw-label">跟随实例启动</span><div class="sw-desc">绑定的服务器启动时自动拉起隧道</div></span></label></div>
+        <span><span class="sw-label">跟随实例启动</span><div class="sw-desc">绑定的服务器启动时自动拉起隧道，停服后跟着停</div></span></label></div>
     </div>
     <button class="btn primary" id="tn-add">${icon("plus")} 添加隧道</button>
     </div>`;
@@ -2623,7 +2623,10 @@ function drawAI(body, v, gen) {
 
   const f = { preset: $("#ai-preset"), proto: $("#ai-proto"), url: $("#ai-url"), key: $("#ai-key"), model: $("#ai-model"), effort: $("#ai-effort") };
   const cur = () => P[f.preset.value];
-  const moved = () => f.preset.value !== saved.preset || f.url.value.trim() !== saved.baseUrl || (cur() && cur().id === "custom" && f.proto.value !== saved.protocol);
+  // 同一个网站：http/https、域名、端口都一样（和后端 ai.SameSite 一致：URL 的 origin 不管大小写和默认端口）
+  const siteOf = u => { try { const x = new URL(u.trim()); return /^https?:$/.test(x.protocol) ? x.origin : ""; } catch { return ""; } };
+  // 换了服务商，或者地址换到了别的网站：保存后已存的 Key 会清掉（不发给别的网站）；同一网站只改路径或协议，Key 照旧
+  const keyGone = () => f.preset.value !== saved.preset || !siteOf(f.url.value) || siteOf(f.url.value) !== siteOf(saved.baseUrl);
   const protoNow = () => (cur() ? (cur().id === "custom" ? f.proto.value : cur().protocol) : "");
   const paintStatus = () => {
     const p = P[saved.preset];
@@ -2643,14 +2646,14 @@ function drawAI(body, v, gen) {
     $("#ai-alts").querySelectorAll("[data-alt]").forEach(b => b.onclick = () => { f.url.value = b.dataset.alt; f.url.dispatchEvent(new Event("input", { bubbles: true })); });
     $("#ai-url-sub").textContent = p && p.id !== "custom" ? `预设地址：${p.baseUrl}` : "任意 OpenAI 兼容的地址，或者走 Claude 协议的中转";
     const noKey = p && p.noKey;
-    const keepKey = v.keySet && !moved();
+    const keepKey = v.keySet && !keyGone();
     f.key.disabled = ro || noKey;
     f.key.placeholder = noKey ? "不用 Key" : keepKey ? (ro ? "已设置" : "已设置（留空不修改）") : (ro ? "未设置" : "粘贴 API Key");
-    $("#ai-key-clear").hidden = ro || !(v.keySet || v.keyBroken) || moved();
+    $("#ai-key-clear").hidden = ro || !(v.keySet || v.keyBroken) || keyGone();
     let ks;
     if (noKey) ks = "本机模型不用 Key";
-    else if (v.keyBroken && !moved()) ks = `<span class="warn-text">${icon("warn")} 密钥无法解开，可能换了电脑或 Windows 用户，请重新填写</span>`;
-    else if (v.keySet && moved()) ks = `<span class="warn-text">${icon("warn")} 改了服务商或接口地址：保存后原来的 Key 会清掉，要重新填写</span>`;
+    else if (v.keyBroken && !keyGone()) ks = `<span class="warn-text">${icon("warn")} 密钥无法解开，可能换了电脑或 Windows 用户，请重新填写</span>`;
+    else if (v.keySet && keyGone()) ks = `<span class="warn-text">${icon("warn")} 换了服务商或接口地址的网站：保存后原来的 Key 会清掉（不会发给新地址），要重新填写</span>`;
     else ks = "加密保存在本机（Windows DPAPI），换电脑或换 Windows 用户后要重填";
     if (custom && !noKey) ks += "。注意：中转方能看到全部对话和 Key";
     $("#ai-key-sub").innerHTML = ks;
@@ -2746,6 +2749,14 @@ function drawAI(body, v, gen) {
       const b = { preset: p.id, baseUrl: f.url.value.trim(), model: f.model.value.trim(), effort: protoNow() === "anthropic" ? f.effort.value : "" };
       if (p.id === "custom") b.protocol = f.proto.value;
       if (f.key.value.trim()) b.key = f.key.value.trim();
+      else if (v.keySet && keyGone()) { // 会清掉已存的 Key：先说清楚，确认了才存，并且明着传空 Key（操作记录里看得出清过）
+        const r = await confirmModal({ title: "保存后要重新填 Key", body: p.id !== saved.preset
+          ? `换成了「${p.name}」，原来那家的 Key 不会带过去，保存后会清掉。可以先在上面填好新的 Key 再保存。`
+          : "接口地址换到了另一个网站，原来的 Key 不会发给它，保存后会清掉。可以先在上面填好这个地址的 Key 再保存。",
+          okText: "清掉 Key 并保存", danger: true, icon: "key" });
+        if (!r) return false;
+        b.key = "";
+      }
       v = await api("/api/ai/provider", { method: "PUT", body: b });
       f.key.value = ""; // 存好后清空（只填了空白也一样，什么都不存）
       Object.assign(saved, v.provider);

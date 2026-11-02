@@ -126,6 +126,12 @@ func TestFindingDetails(t *testing.T) {
 	if len(f.Details) != 2 || !strings.Contains(f.Details[0], "sodium-extra 需要 fabric-api（版本 任意版本）") || !strings.Contains(f.Details[1], "create 需要 flywheel（版本 0.6.10 or later）") {
 		t.Errorf("缺少前置（Fabric）：%+v", f.Details)
 	}
+	// Connector 转过来的 Fabric 模组：版本范围是空的，前置装了但加载器说不满足（测试报告 E-06，S2 实测日志）
+	f = get("missing-deps@forge-1.20.1-connector.log", "missing-deps")
+	if len(f.Details) != 2 || !strings.Contains(f.Details[0], "continuity 需要 fabric_api，装的是 0.92.6+1.11.14+1.20.1，加载器认为版本不对") ||
+		!strings.Contains(f.Details[1], "continuity 需要 connectormod，装的是 1.0.0-beta.48+1.20.1") {
+		t.Errorf("缺少前置（版本范围空着）：%+v", f.Details)
+	}
 	f = get("client-only@forge-1.20.1.log", "client-only")
 	if !slices.Equal(f.Files, []string{"Xaeros_Minimap_24.5.0_Forge_1.20.jar"}) || !slices.Contains(f.Mods, "xaerominimap") || !strings.Contains(f.Summary, "net.minecraft.client.gui.screens.Screen") {
 		t.Errorf("客户端模组（堆栈里带 jar 名）：%+v", f)
@@ -208,6 +214,9 @@ func TestExitState(t *testing.T) {
 		{[]string{start, "[MineDeck] 正在保存世界并停止服务器...", "[MineDeck] 服务器已正常关闭"}, false},
 		{[]string{start, "[MineDeck] 强制结束进程", "[MineDeck] 服务器进程已退出（exit status 1）"}, false},
 		{[]string{start, "> stop", "[MineDeck] 服务器已正常关闭"}, false},
+		{[]string{start, "> /STOP", "[MineDeck] 服务器已正常关闭"}, false},
+		{[]string{start, "[12:00:00] [Server thread/INFO]: [Steve: Stopping the server]", "[MineDeck] 服务器正在关闭（有人执行了 stop）", "[MineDeck] 服务器已正常关闭"}, false},
+		{[]string{start, "> stopsound @a", "[MineDeck] 服务器进程已退出（退出码 0，但没人让它停）"}, true},
 		{[]string{start, "[MineDeck] 服务器进程已退出（exit status -1）"}, true},
 		{[]string{start, "[MineDeck] 服务器进程已退出（exit status 1）", start, "[12:00:00] [Server thread/INFO]: Done (1.0s)!"}, false},
 	}

@@ -185,6 +185,7 @@ func TestVoiceHostSync(t *testing.T) {
 
 	// 运行中换了节点：tunnel.up 时写进去，提示重启
 	e.inst.setStatus(instName, "running")
+	voice.Running = true
 	voice.PublicAddr = "frp-new.natfrp.cloud:23456"
 	e.tun.set(game, voice)
 	e.s.HandleEvent(events.Event{Type: "tunnel.up", Data: map[string]any{"id": "tun3", "tunnel": "语音", "addr": voice.PublicAddr}})
@@ -231,6 +232,63 @@ func TestVoiceHostSync(t *testing.T) {
 	e.tun.set(voice)
 	if _, err := e.s.SetVoiceHost(instName, "", true); codeOf(err) != 400 {
 		t.Errorf("隧道还没地址时改用隧道地址：%v", err)
+	}
+}
+
+// 语音隧道停着（测试报告 G-07）：页面不再说「远程好友连服后就能听到」；开服前隧道既没开、也不会跟着开，
+// 就把 MineDeck 上次写进去的地址清回空（不然谁都连不上语音）；用户自己填的不动；勾了跟随实例启动的照旧写。
+func TestVoiceHostWhenTunnelStopped(t *testing.T) {
+	e := newEnv(t)
+	cfg := filepath.Join(e.dir, "config", "voicechat", "voicechat-server.properties")
+	orig := "port=24454\r\nvoice_host=\r\n"
+	if err := bridge.WriteFileAtomic(cfg, []byte(orig)); err != nil {
+		t.Fatal(err)
+	}
+	voice := tunnel.Status{Tunnel: tunnel.Tunnel{ID: "tun3", Provider: "natfrp", Name: "语音", Bound: instName, Purpose: tunnel.PurposeVoice,
+		PublicAddr: "203.0.113.7:34567"}, Running: true} // 203.0.113.0/24 是文档专用的地址段
+	e.tun.set(voice)
+	e.inst.setStatus(instName, "running")
+	e.s.HandleEvent(events.Event{Type: "tunnel.up", Data: map[string]any{"id": "tun3", "addr": voice.PublicAddr}})
+	if st := e.status(); st.Voice.VoiceHost != voice.PublicAddr || st.Remote.State != "same" {
+		t.Fatalf("隧道开着：%+v %+v", st.Voice, st.Remote)
+	}
+	// 停隧道：地址还留在 tunnels.json 里，页面要说隧道没开
+	voice.Running = false
+	e.tun.set(voice)
+	if st := e.status(); st.Remote.State != "idle" || !st.Remote.Managed {
+		t.Fatalf("隧道停了：%+v", st.Remote)
+	}
+	e.inst.setStatus(instName, "stopped")
+	if st := e.status(); st.Remote.State != "idle" {
+		t.Fatalf("服务器也停了、隧道没勾跟随启动：%+v", st.Remote)
+	}
+	// 下次开服前：清回空
+	e.s.BeforeStart(instName)
+	if got, _ := os.ReadFile(cfg); string(got) != orig {
+		t.Fatalf("隧道没开，voice_host 应清回空：%q", got)
+	}
+	if st := e.status(); st.Remote.State != "idle" || st.Remote.Managed {
+		t.Fatalf("清掉以后：%+v", st.Remote)
+	}
+	// 勾了跟随实例启动：开服时会跟着拉起，照旧写上次的地址
+	voice.AutoStart = true
+	e.tun.set(voice)
+	if st := e.status(); st.Remote.State != "pending" {
+		t.Fatalf("勾了跟随启动、服务器停着：%+v", st.Remote)
+	}
+	e.s.BeforeStart(instName)
+	if st := e.status(); st.Voice.VoiceHost != voice.PublicAddr || st.Remote.State != "same" {
+		t.Fatalf("跟随启动的隧道开服前照旧写：%+v %+v", st.Voice, st.Remote)
+	}
+	// 用户自己填的：隧道没开也不动
+	voice.AutoStart = false
+	e.tun.set(voice)
+	if _, err := e.s.SetVoiceHost(instName, "voice.example.com:24454", false); err != nil {
+		t.Fatal(err)
+	}
+	e.s.BeforeStart(instName)
+	if st := e.status(); st.Voice.VoiceHost != "voice.example.com:24454" || st.Remote.State != "differ" {
+		t.Fatalf("用户填的不该清：%+v %+v", st.Voice, st.Remote)
 	}
 }
 

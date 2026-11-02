@@ -19,6 +19,9 @@ const testManifest = `{"latest":{"release":"1.20.1","snapshot":"1.20.1"},"versio
 {"id":"1.12.2","type":"release"}]}`
 
 func TestMain(m *testing.M) {
+	if os.Getenv(fakeServerEnv) == "1" { // proc_test.go：测试程序自己扮演服务器进程
+		os.Exit(fakeServer())
+	}
 	dir, err := os.MkdirTemp("", "amh-inst-test")
 	if err != nil {
 		panic(err)

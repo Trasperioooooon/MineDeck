@@ -31,7 +31,7 @@ func (c *cat) aiOps() {
 
 	c.reg.Register(&ops.Op{
 		Name: "ai.provider.set", Title: "修改 AI 服务商设置", Level: ops.HumanOnly, LocalOnly: true, LocalMsg: localMsg,
-		Desc: "只改传了的字段。改了服务商、协议或接口地址，旧 Key 自动清掉、必须重填；preset 传空串表示停用 AI。",
+		Desc: "只改传了的字段。换了服务商，或者接口地址换到了别的网站（http/https、域名、端口有一样不同），旧 Key 自动清掉、必须重填；同一个网站只改路径或协议，Key 照旧。preset 传空串表示停用 AI。",
 		Params: ops.Object(map[string]*ops.Schema{
 			"preset":    ops.String("服务商预设的编号；空串停用").OneOf(presetIDs...),
 			"protocol":  ops.String("协议（只有自定义时可选）").OneOf("openai", "anthropic"),
@@ -55,7 +55,7 @@ func (c *cat) aiOps() {
 
 	c.reg.Register(&ops.Op{
 		Name: "ai.models.list", Title: "获取 AI 模型列表", Level: ops.HumanOnly, LocalOnly: true, LocalMsg: localMsg, NoLog: true,
-		Desc: "向服务商要模型列表（要联网）。可以用还没保存的服务商和地址；不传 Key 时，只有地址和已保存的一样才用已存的 Key。",
+		Desc: "向服务商要模型列表（要联网）。可以用还没保存的服务商和地址；不传 Key 时，只有服务商没换、地址还是同一个网站才用已存的 Key。",
 		Params: ops.Object(map[string]*ops.Schema{
 			"preset":   ops.String("服务商预设的编号").OneOf(presetIDs...),
 			"protocol": ops.String("协议（只有自定义时可选）").OneOf("openai", "anthropic"),

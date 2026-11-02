@@ -621,16 +621,34 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await aiState({ reset: true }); }
   });
 
-  await run("AI：改了接口地址先提示旧 Key 会清掉，保存后要重填；清除 Key 要确认；停用 AI 清掉服务商设置", async () => {
+  await run("AI：同一网站只改路径 Key 照旧；换到别的网站先提示、保存要确认（取消不存），确认后明着清 Key；清除 Key 要确认；停用 AI 清掉服务商设置", async () => {
     await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-old" });
     try {
       await page.goto(url("#/settings/ai")); await settle();
       let f = await aiForm();
       assert(f.keyPh.includes("已设置") && f.clear, "已设置 Key：" + JSON.stringify(f));
-      await page.fill("#ai-url", "https://api.deepseek.com/v1"); await settle(100);
+      // 同一个网站只改路径（测试报告问题 1）：不提示、不确认，保存后 Key 还在
+      await page.fill("#ai-url", "https://api.deepseek.com/nonexistent-path"); await settle(100);
       f = await aiForm();
-      assert(f.keySub.includes("原来的 Key 会清掉") && !f.clear && f.keyPh === "粘贴 API Key" && f.dirty, "改地址后应提示：" + JSON.stringify(f));
+      assert(!f.keySub.includes("原来的 Key 会清掉") && f.keyPh.includes("已设置") && f.dirty, "同一网站改路径：" + JSON.stringify(f));
+      let t1 = reqs.length;
       await page.click('[data-sb="save"]'); await settle(300);
+      assert(!(await page.$(".modal")) && !("key" in (putBody(t1, "/api/ai/provider") || {})), "同一网站改路径不该确认、不该带 key");
+      f = await aiForm();
+      assert(f.status.includes("已启用") && f.keyPh.includes("已设置"), "同一网站改路径保存后 Key 还在：" + JSON.stringify(f));
+      // 换到别的网站：提示；保存先确认，取消就不存
+      await page.fill("#ai-url", "https://relay.example/v1"); await settle(100);
+      f = await aiForm();
+      assert(f.keySub.includes("原来的 Key 会清掉") && !f.clear && f.keyPh === "粘贴 API Key" && f.dirty, "换网站后应提示：" + JSON.stringify(f));
+      t1 = reqs.length;
+      await page.click('[data-sb="save"]'); await settle(200);
+      assert(await page.$(".modal"), "会清掉 Key 时保存要先确认");
+      await page.click('.modal [data-x="cancel"]'); await settle(200);
+      f = await aiForm();
+      assert(!putBody(t1, "/api/ai/provider") && f.dirty && f.status.includes("已启用"), "取消后不该保存：" + JSON.stringify(f));
+      await page.click('[data-sb="save"]'); await settle(200);
+      await page.click('.modal [data-x="ok"]'); await settle(300);
+      assert((putBody(t1, "/api/ai/provider") || {}).key === "", "确认后应明着发 key 空串（操作记录里看得出清过）");
       f = await aiForm();
       assert(f.status.includes("未启用") && f.status.includes("填写 Key") && f.keyPh === "粘贴 API Key" && !f.clear && !f.test, "保存后旧 Key 应清掉：" + JSON.stringify(f));
       assert(await toastHas("还差：填写 Key"), "应提示还差什么");
@@ -640,7 +658,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       // 清除 Key：危险操作多一步，确认框默认聚焦「取消」
       await page.click("#ai-key-clear"); await settle(200);
       assert((await page.evaluate(() => document.activeElement && document.activeElement.textContent.trim())) === "取消", "清除确认框应默认聚焦「取消」");
-      let t1 = reqs.length;
+      t1 = reqs.length;
       await page.click('.modal [data-x="ok"]'); await settle(300);
       assert((putBody(t1, "/api/ai/provider") || {}).key === "", "清除应发 key 空串");
       f = await aiForm();
@@ -853,6 +871,18 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click("#mu-start"); await settle(600);
       assert(!(await page.$(".modal")) && postsTo(t0, "/music/start").length === 1, "确认过以后不该再问");
       await page.click("#mu-stop"); await settle(400);
+    } finally { await resetMusic(); }
+  });
+
+  await run("音乐共享：语音隧道停着时不说「远程好友连服后就能听到」；没勾跟随启动的说下次开服前清回 voice_host，勾了的说开服时会跟着启动（测试报告 G-07）", async () => {
+    try {
+      const inst = { [PACK]: { bridge: "main", voiceHost: "frp-abc.natfrp.cloud:34567" } };
+      await openMusic({ voiceTunnel: { running: false, autoStart: false }, inst });
+      let check = await page.textContent("#mu-check");
+      assert(check.includes("语音隧道没开") && check.includes("下次开服前 MineDeck 会把它清回空") && !check.includes("远程好友连服后就能听到"), "隧道停着、没勾跟随启动：" + check);
+      await openMusic({ voiceTunnel: { running: false, autoStart: true }, inst }); // 服务器开着，跟随启动的隧道被手动停了
+      check = await page.textContent("#mu-check");
+      assert(check.includes("语音隧道没开") && check.includes("下次开服时它也会跟着启动") && !check.includes("清回空"), "隧道停着、勾了跟随启动：" + check);
     } finally { await resetMusic(); }
   });
 

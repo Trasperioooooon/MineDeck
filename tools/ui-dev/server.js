@@ -237,7 +237,9 @@ function aiSetProvider(a, b) {
   if (n.protocol !== "anthropic") n.effort = "";
   let key = "key" in b ? String(b.key).trim() : null;
   if (key !== null && /\s/.test(key)) return "Key 的格式不对（不能有空格，最长 4096 个字符）";
-  if (changed || n.protocol !== a.protocol || n.baseUrl !== a.baseUrl) { if (key === null) key = ""; }
+  // 和后端 ai.SameSite 一致：换了服务商、或者地址换到了别的网站，旧 Key 清掉；同一网站只改路径或协议，Key 照旧
+  const site = u => { try { return new URL(u).origin; } catch { return ""; } };
+  if (changed || !site(n.baseUrl) || site(n.baseUrl) !== site(a.baseUrl)) { if (key === null) key = ""; }
   if (key !== null) { n.key = key; n.keyBroken = false; }
   Object.assign(a, n);
   return null;
@@ -321,7 +323,7 @@ function musicMockState(state, b) {
   for (const k of ["cap", "local", "systemConfirmed"]) if (k in b) ms[k] = b[k];
   if (b.inst) for (const [n, v] of Object.entries(b.inst)) Object.assign(musicInst(ms, n), v);
   state.tunnels = state.tunnels.filter(t => t.id !== VOICE_TUNNEL.id);
-  if (b.voiceTunnel) state.tunnels.push({ ...VOICE_TUNNEL });
+  if (b.voiceTunnel) state.tunnels.push({ ...VOICE_TUNNEL, ...(typeof b.voiceTunnel === "object" ? b.voiceTunnel : {}) }); // 对象：改几个字段（比如 running: false）
 }
 // 服务器不在运行了：广播跟着停（同 musicshare 的收尾）
 function musicSync(state) {
@@ -336,7 +338,10 @@ function musicStatus(state, i) {
   const vt = state.tunnels.filter(t => t.purpose === "voice" && t.boundInstance === i.name)
     .map(t => ({ id: t.id, name: t.name, provider: t.provider, running: t.running, autoStart: t.autoStart, publicAddr: t.publicAddr || undefined, lastError: t.lastError || undefined }));
   const addr = (vt.find(t => t.publicAddr) || {}).publicAddr || "";
-  const rstate = !vt.length ? "none" : !addr ? "waiting" : !mi.voiceFound ? "pending" : mi.voiceHost === addr ? "same" : !mi.voiceHost ? "pending" : "differ";
+  // idle：隧道停着、开服时也不会跟着拉起（同 musicshare.remoteView）
+  const live = vt.filter(t => t.running || ((i.status === "stopped" || i.status === "starting") && t.autoStart)).some(t => t.publicAddr);
+  const rstate = !vt.length ? "none" : !addr ? "waiting" : !live && (!mi.voiceHost || mi.voiceHost === addr) ? "idle"
+    : !mi.voiceFound ? "pending" : mi.voiceHost === addr ? "same" : !mi.voiceHost ? "pending" : "differ";
   const online = i.status === "running" ? ["Steve", "Alex", "Notch_CN"] : [];
   const ex = mi.exclude.split(/[,，;；\s]+/).filter(Boolean).map(s => s.toLowerCase());
   const voice = online.filter(n => n !== "Notch_CN");

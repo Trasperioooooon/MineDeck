@@ -460,6 +460,10 @@ func (s *Service) onDown(name string, l *link, err error) {
 	if info, e := s.d.Instances.Info(name); e == nil && (info.Status == "stopping" || info.Status == "stopped") {
 		closing, why = true, map[string]string{"stopping": "服务器正在关闭", "stopped": "服务器已经停了"}[info.Status]
 	}
+	// 模组自己说了「服务器正在关闭」：不管是谁让它停的（游戏里的 /stop、RCON……），实例状态这时可能还没跟上
+	if end := (*EndError)(nil); !closing && errors.As(err, &end) && end.Reason == endServerStopping {
+		closing, why = true, endServerStopping
+	}
 	s.mu.Lock()
 	r := s.roomLocked(name)
 	r.down = err.Error()

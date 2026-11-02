@@ -284,7 +284,8 @@ type RemoteView struct {
 	Addr    string         `json:"addr,omitempty"` // 语音隧道的公网地址
 	// State none：没有语音隧道（只有局域网好友就不用管）；waiting：隧道还没拿到公网地址；
 	// same：voice_host 已经是隧道地址；pending：SVC 的配置还没生成，开一次服后自动写；
-	// differ：voice_host 是别的值（可能是用户自己填的），不自动覆盖，让用户选。
+	// differ：voice_host 是别的值（可能是用户自己填的），不自动覆盖，让用户选；
+	// idle：有地址，但隧道停着、开服时也不会跟着拉起（地址是上次的），voice_host 空着或者还是 MineDeck 写的那个。
 	State   string `json:"state"`
 	Managed bool   `json:"managed"` // voice_host 是 MineDeck 写的
 }
@@ -308,6 +309,17 @@ func (s *Service) voiceTunnels(name string) []RemoteTunnel {
 	return out
 }
 
+// liveTunnels 能用的语音隧道：正在运行的；followable（服务器停着、马上要开或者刚开）时，勾了跟随实例启动的也算——会跟着拉起来。
+func liveTunnels(ts []RemoteTunnel, followable bool) []RemoteTunnel {
+	var out []RemoteTunnel
+	for _, t := range ts {
+		if t.Running || (followable && t.AutoStart) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 // tunnelAddr 语音隧道的公网地址（优先正在运行的）。
 func tunnelAddr(ts []RemoteTunnel) string {
 	for _, t := range ts {
@@ -328,11 +340,17 @@ func (s *Service) remoteView(name string, vc VoiceConfig) RemoteView {
 	}
 	s.mu.Unlock()
 	rv.Managed = vc.VoiceHost != "" && vc.VoiceHost == written
+	followable := true // 跟随启动的隧道还会跟着拉起来：服务器停着，或者刚开、隧道还没轮到（开服 2 秒后才拉）
+	if info, err := s.d.Instances.Info(name); err == nil {
+		followable = info.Status == "stopped" || info.Status == "starting"
+	}
 	switch {
 	case len(rv.Tunnels) == 0:
 		rv.State = "none"
 	case rv.Addr == "":
 		rv.State = "waiting"
+	case tunnelAddr(liveTunnels(rv.Tunnels, followable)) == "" && (vc.VoiceHost == "" || rv.Managed):
+		rv.State = "idle" // 隧道停着（地址是上次的）：不能说「远程好友连服后就能听到」（测试报告 G-07）
 	case !vc.Found:
 		rv.State = "pending"
 	case vc.VoiceHost == rv.Addr:
@@ -346,14 +364,15 @@ func (s *Service) remoteView(name string, vc VoiceConfig) RemoteView {
 }
 
 // syncVoiceHost 把语音隧道的公网地址写进 voice_host：只在 voice_host 为空、或者还是 MineDeck 上次写的值时写；
-// 用户自己填了别的就不覆盖（界面上让用户选）。改之前把原文件备份成 .bak。starting 为真表示马上要开服。
+// 用户自己填了别的就不覆盖（界面上让用户选）。改之前把原文件备份成 .bak。starting 为真表示马上要开服：
+// 这时勾了跟随实例启动的隧道也算数；一条能用的都没有，就把 MineDeck 上次写的地址清回空。
 func (s *Service) syncVoiceHost(name string, starting bool) {
 	info, err := s.d.Instances.Info(name)
 	if err != nil {
 		return
 	}
-	addr := tunnelAddr(s.voiceTunnels(name))
-	if addr == "" {
+	addr := tunnelAddr(liveTunnels(s.voiceTunnels(name), starting))
+	if addr == "" && !starting {
 		return
 	}
 	path := svcConfigPath(info.Dir)
@@ -366,6 +385,22 @@ func (s *Service) syncVoiceHost(name string, starting bool) {
 	s.mu.Lock()
 	is := s.instSet(name)
 	written := is.VoiceHostWritten
+	if addr == "" { // 马上开服，语音隧道却没开、也不会跟着开：上次写进去的隧道地址清回空，不然谁都连不上语音（测试报告 G-07）
+		managed := cur != "" && cur == written
+		if managed {
+			is.VoiceHostWritten = ""
+			_ = s.saveSettingsLocked()
+		}
+		s.mu.Unlock()
+		if managed {
+			if err := writeVoiceHost(path, p, ""); err != nil {
+				s.log(name, "清 voice_host 失败：%v", err)
+				return
+			}
+			s.log(name, "语音隧道没开，已把 voice_host 清回空（本机和局域网的语音照常；要远程好友能听，开语音隧道或勾上「跟随实例启动」）")
+		}
+		return
+	}
 	if cur == addr && written != addr {
 		is.VoiceHostWritten = addr
 		_ = s.saveSettingsLocked()

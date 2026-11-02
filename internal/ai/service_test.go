@@ -147,7 +147,8 @@ func TestNoNetworkUntilConfigured(t *testing.T) {
 	}
 }
 
-// Key 只写不读：存进 KeyStore（不进 settings.json）；改了服务商、协议或接口地址，旧 Key 自动清掉。
+// Key 只写不读：存进 KeyStore（不进 settings.json）；换了服务商、或者地址换到了别的网站，旧 Key 自动清掉；
+// 同一个网站只改路径，Key 照旧（测试报告问题 1）。
 func TestProviderSettingsAndKeyRules(t *testing.T) {
 	dir := t.TempDir()
 	keys := &memKeys{m: map[string]string{}}
@@ -175,7 +176,13 @@ func TestProviderSettingsAndKeyRules(t *testing.T) {
 	if err := s.SetProvider(ProviderPatch{Model: strp("deepseek-v4-pro")}); err != nil || keys.m[KeyName] != key {
 		t.Fatalf("只改模型不该动 Key：%v", err)
 	}
-	// 改接口地址：旧 Key 清掉，要重填
+	// 同一个网站只改路径（大小写、默认端口不同也算同一个）：Key 不动
+	for _, u := range []string{"https://api.deepseek.com/nonexistent-path", "https://API.deepseek.com:443/v1"} {
+		if err := s.SetProvider(ProviderPatch{BaseURL: strp(u)}); err != nil || keys.m[KeyName] != key || !s.View().KeySet {
+			t.Fatalf("改成同一网站的 %s 不该动 Key：%v", u, err)
+		}
+	}
+	// 改到别的网站：旧 Key 清掉，要重填
 	if err := s.SetProvider(ProviderPatch{BaseURL: strp("https://evil.example/v1")}); err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +241,7 @@ func TestProviderSettingsAndKeyRules(t *testing.T) {
 	}
 }
 
-// 模型列表：可以用还没保存的服务商和地址；不传 Key 时只有地址和已保存的一样才用已存的 Key。
+// 模型列表：可以用还没保存的服务商和地址；不传 Key 时只有服务商没换、地址还是同一个网站才用已存的 Key。
 func TestModelsKeyRules(t *testing.T) {
 	f := newFake(t, func(_ int, r recorded, w http.ResponseWriter) { serve(t, w, "openai/models.json") })
 	keys := &memKeys{m: map[string]string{}}
@@ -247,13 +254,17 @@ func TestModelsKeyRules(t *testing.T) {
 	if err != nil || len(ms) != 3 || f.requests()[0].Header.Get("Authorization") != "Bearer sk-saved" {
 		t.Fatalf("同一个地址用已存的 Key：%v %+v", err, ms)
 	}
-	if _, err := s.Models(ctx, ModelsRequest{Preset: "deepseek", BaseURL: f.srv.URL + "/other"}); err == nil || len(f.requests()) != 1 {
-		t.Errorf("换了地址又没给 Key，不能把已存的 Key 发过去：%v", err)
+	if _, err := s.Models(ctx, ModelsRequest{Preset: "deepseek", BaseURL: f.srv.URL + "/other"}); err != nil || f.requests()[1].Header.Get("Authorization") != "Bearer sk-saved" {
+		t.Fatalf("同一个网站换了路径，照样用已存的 Key：%v", err)
 	}
-	if _, err := s.Models(ctx, ModelsRequest{Preset: "deepseek", BaseURL: f.srv.URL + "/other", Key: "sk-new"}); err != nil {
+	other := strings.Replace(f.srv.URL, "127.0.0.1", "localhost", 1) // 同一个服务器，换个名字就算别的网站
+	if _, err := s.Models(ctx, ModelsRequest{Preset: "deepseek", BaseURL: other}); err == nil || len(f.requests()) != 2 {
+		t.Errorf("换了网站又没给 Key，不能把已存的 Key 发过去：%v", err)
+	}
+	if _, err := s.Models(ctx, ModelsRequest{Preset: "deepseek", BaseURL: other, Key: "sk-new"}); err != nil {
 		t.Fatal(err)
 	}
-	if h := f.requests()[1].Header.Get("Authorization"); h != "Bearer sk-new" {
+	if h := f.requests()[2].Header.Get("Authorization"); h != "Bearer sk-new" {
 		t.Errorf("用请求里给的 Key：%q", h)
 	}
 }

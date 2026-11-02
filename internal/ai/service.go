@@ -413,8 +413,8 @@ func hasControl(s string) bool {
 // ---------- 设置接口 ----------
 
 // ProviderPatch 修改服务商设置：只改传了的字段（指针为 nil 表示没传）。
-// Key 只写：非空保存，空串清除，不传不动。改了服务商、协议或接口地址，旧 Key 自动清掉、必须重填（§4.5：
-// 防止有人把地址改成自己的服务器，把 Key 骗过去）。
+// Key 只写：非空保存，空串清除，不传不动。换了服务商、或者接口地址换到了别的网站，旧 Key 自动清掉、必须重填（§4.5：
+// 防止有人把地址改成自己的服务器，把 Key 骗过去）；同一个网站只改路径或协议，Key 照旧（见 SameSite）。
 type ProviderPatch struct {
 	Preset    *string   `json:"preset"`
 	Protocol  *Protocol `json:"protocol"`
@@ -507,17 +507,19 @@ func (s *Service) SetProvider(pt ProviderPatch) error {
 		}
 		newKey = &k
 	}
-	// 换了服务商、协议或地址：旧 Key 作废，Claude 中转的功能探测也要重来
+	// 换了服务商、协议或地址：Claude 中转的功能探测要重来
 	moved := changedPreset || st.Protocol != old.Protocol || st.BaseURL != old.BaseURL
 	if moved {
 		st.Eager, st.Fallback = nil, nil
 		if pt.MaxOutput == nil {
 			st.MaxOutput = 0
 		}
-		if newKey == nil {
-			empty := ""
-			newKey = &empty
-		}
+	}
+	// 换了服务商，或者地址换到了别的网站：旧 Key 不能带过去（免得发给别人），清掉。
+	// 同一个网站只改路径或接口协议，Key 照旧（界面上写着「留空不修改」）。
+	if newKey == nil && (changedPreset || !SameSite(st.BaseURL, old.BaseURL)) {
+		empty := ""
+		newKey = &empty
 	}
 	s.st = st
 	err := s.saveLocked()
@@ -717,8 +719,8 @@ func (s *Service) modelPrice(st Settings, p Preset) *ModelPrice {
 
 // ---------- 模型列表、测试连接 ----------
 
-// ModelsRequest 取模型列表：可以用设置页里还没保存的服务商和地址。Key 不传时，只有地址和已保存的一样才用已存的 Key
-// （不把已存的 Key 发到别的地址去）。
+// ModelsRequest 取模型列表：可以用设置页里还没保存的服务商和地址。Key 不传时，只有服务商没换、地址还是同一个网站
+// 才用已存的 Key（不把已存的 Key 发到别的网站去）。
 type ModelsRequest struct {
 	Preset   string   `json:"preset"`
 	Protocol Protocol `json:"protocol"`
@@ -746,7 +748,7 @@ func (s *Service) Models(ctx context.Context, req ModelsRequest) ([]Model, error
 	key := strings.TrimSpace(req.Key)
 	if key == "" {
 		st := s.snapshot()
-		if st.Preset == p.ID && st.Protocol == proto && st.BaseURL == base {
+		if st.Preset == p.ID && SameSite(st.BaseURL, base) {
 			key = s.key()
 		}
 	}

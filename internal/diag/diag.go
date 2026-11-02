@@ -108,7 +108,8 @@ func Analyze(in Input) Report {
 var sayRe = regexp.MustCompile(`^(\[[A-Za-z0-9_ ]{1,16}\] |\* [A-Za-z0-9_]{1,16} )`)
 
 var (
-	userStopRe = regexp.MustCompile(`^\[MineDeck\] (正在保存世界并停止服务器|强制结束进程|停止超时，强制结束进程)`)
+	userStopRe = regexp.MustCompile(`^\[MineDeck\] (正在保存世界并停止服务器|强制结束进程|停止超时，强制结束进程|服务器正在关闭（有人执行了 stop）)`)
+	stopCmdRe  = regexp.MustCompile(`^> /?(?i:stop)(\s|$)`) // 控制台里打的 stop（inst 的 stopCommand 同样认大小写和前面的 /）
 	exitRe     = regexp.MustCompile(`^\[MineDeck\] (服务器进程已退出|服务器已正常关闭)`)
 )
 
@@ -118,7 +119,7 @@ func exitState(lines []string) (crashed bool, exit string) {
 	user := false
 	for _, l := range lines {
 		switch {
-		case userStopRe.MatchString(l), l == "> stop", strings.HasPrefix(l, "> stop "):
+		case userStopRe.MatchString(l), stopCmdRe.MatchString(l):
 			user = true
 		case exitRe.MatchString(l):
 			return !user, l

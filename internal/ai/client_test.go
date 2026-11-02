@@ -853,3 +853,26 @@ func TestAddUserAfterToolResults(t *testing.T) {
 		}
 	}
 }
+
+// 同一个网站：http/https、域名（不分大小写）、端口都一样，默认端口写不写都算；路径不管。
+func TestSameSite(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		want bool
+	}{
+		{"https://api.deepseek.com", "https://api.deepseek.com/nonexistent-path", true},
+		{"https://api.deepseek.com", "https://API.DeepSeek.com:443/v1/", true},
+		{"http://127.0.0.1:11434/v1", "http://127.0.0.1:11434", true},
+		{"http://[::1]:8080/v1", "http://[::1]:8080", true},
+		{"https://api.deepseek.com", "http://api.deepseek.com", false},
+		{"https://api.deepseek.com", "https://api.deepseek.com:8443", false},
+		{"https://api.deepseek.com", "https://relay.example/v1", false},
+		{"https://api.deepseek.com", "https://deepseek.com", false},
+		{"", "", false},
+		{"https://api.deepseek.com", "ftp://api.deepseek.com", false},
+	} {
+		if got := SameSite(c.a, c.b); got != c.want {
+			t.Errorf("SameSite(%q, %q) = %v，应为 %v", c.a, c.b, got, c.want)
+		}
+	}
+}

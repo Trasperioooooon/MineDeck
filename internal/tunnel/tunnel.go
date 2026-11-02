@@ -475,20 +475,78 @@ func (m *Manager) Stop(id string) error {
 
 // StartBound 启动绑定到某实例且开启了跟随启动的隧道（实例启动后调用）。
 func (m *Manager) StartBound(instance string) {
-	m.mu.Lock()
-	var ids []string
-	for _, t := range m.tunnels {
-		if t.Bound == instance && t.AutoStart && m.running[t.ID] == nil {
-			ids = append(ids, t.ID)
-		}
-	}
-	m.mu.Unlock()
-	for _, id := range ids {
+	for _, id := range m.bound(instance) {
 		id := id
 		go func() {
 			time.Sleep(2 * time.Second) // 等服务器进入启动流程
+			m.mu.Lock()
+			busy := m.running[id] != nil || m.starting[id] // 已经开着（比如重启时没停）就不用再开；等之后再看，免得撞上刚停掉还没收尾的那次
+			m.mu.Unlock()
+			if busy {
+				return
+			}
 			if err := m.Start(id); err != nil {
 				m.Console(id).Append("[MineDeck] 跟随启动失败: " + err.Error())
+			}
+		}()
+	}
+}
+
+// StopBound 停掉绑定到某实例、开了跟随启动、正在运行的隧道（实例停了之后调用），返回停了几条。
+// 和 StartBound 对称：手动开的、没勾跟随启动的隧道不动。
+func (m *Manager) StopBound(instance string) int {
+	n := 0
+	for _, id := range m.bound(instance) {
+		m.mu.Lock()
+		running := m.running[id] != nil
+		m.mu.Unlock()
+		if !running {
+			continue
+		}
+		m.Console(id).Append(fmt.Sprintf("[MineDeck] 服务器「%s」停了，隧道跟着停止", instance))
+		if m.Stop(id) == nil {
+			n++
+		}
+	}
+	return n
+}
+
+// bound 绑定到某实例、开了跟随启动的隧道。
+func (m *Manager) bound(instance string) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var ids []string
+	for _, t := range m.tunnels {
+		if t.Bound == instance && t.AutoStart {
+			ids = append(ids, t.ID)
+		}
+	}
+	return ids
+}
+
+// stopGrace 实例停了之后等多久再停跟随的隧道：重启（先停再开）时不来回开关隧道。
+var stopGrace = 5 * time.Second
+
+// FollowInstances 让开了「跟随实例启动」的隧道跟着实例启停（订阅实例事件；main 里调一次）：实例启动时拉起，
+// 包括崩溃自动重启那次；实例停了（用户停服、强杀、崩溃）stopGrace 之后还是停着，就停掉——停服后公网端口不再开着
+// （测试报告 C-03）。status 查实例现在的状态（stopped | starting | running | stopping）。
+func (m *Manager) FollowInstances(status func(instance string) string) {
+	events.Subscribe(func(e events.Event) { m.follow(e, status) })
+}
+
+func (m *Manager) follow(e events.Event, status func(string) string) {
+	name, _ := e.Data["instance"].(string)
+	if name == "" {
+		return
+	}
+	switch e.Type {
+	case "instance.start":
+		m.StartBound(name)
+	case "instance.stop", "instance.crash":
+		go func() {
+			time.Sleep(stopGrace)
+			if status(name) == "stopped" {
+				m.StopBound(name)
 			}
 		}()
 	}

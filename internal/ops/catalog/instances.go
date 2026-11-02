@@ -211,16 +211,10 @@ func (c *cat) instanceOps() {
 		run         func(name string) error
 		plan        func(i *inst.Instance) (summary, warning string)
 	}{
-		{"instance.start", "启动服务器", ops.Write, "启动实例，并拉起绑定在它上面、开了跟随启动的隧道。",
-			func(name string) error {
-				if err := c.Mgr.Start(name); err != nil {
-					return err
-				}
-				c.Tun.StartBound(name)
-				return nil
-			},
+		{"instance.start", "启动服务器", ops.Write, "启动实例；绑定在它上面、开了跟随启动的隧道会跟着拉起。",
+			func(name string) error { return c.Mgr.Start(name) }, // 隧道跟随启停在 tunnel.FollowInstances 里（崩溃自动重启也算）
 			func(i *inst.Instance) (string, string) { return fmt.Sprintf("启动「%s」", i.Name), "" }},
-		{"instance.stop", "停止服务器", ops.Danger, "发送 stop 命令，保存世界后停止；30 秒没停下就强制结束。",
+		{"instance.stop", "停止服务器", ops.Danger, "发送 stop 命令，保存世界后停止；30 秒没停下就强制结束。开了跟随启动的隧道随后跟着停。",
 			func(name string) error { return c.Mgr.Stop(name) },
 			func(i *inst.Instance) (string, string) {
 				return fmt.Sprintf("停止「%s」（先保存世界）", i.Name), onlineWarning(i, "停服")
@@ -285,7 +279,6 @@ func (c *cat) instanceOps() {
 			if err := c.Mgr.Restart(p.Inst); err != nil {
 				return nil, err
 			}
-			c.Tun.StartBound(p.Inst)
 			return "ok", nil
 		},
 	})

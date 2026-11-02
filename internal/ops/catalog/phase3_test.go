@@ -236,6 +236,16 @@ func TestTroubleshootReads(t *testing.T) {
 			t.Errorf("占端口的应是本进程：%+v", o)
 		}
 	}
+	// 只占 IPv4 的 0.0.0.0（测试报告 E-09 的做法）：Windows 上再绑一次 :端口（IPv6 双栈）照样成功，也得认出被占
+	ln4, err := net.Listen("tcp4", "0.0.0.0:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln4.Close()
+	pc.TCP.Owners = nil
+	if err := do(t, reg, bot, "port.check", `{"port":`+itoa(ln4.Addr().(*net.TCPAddr).Port)+`,"proto":"tcp"}`, &pc); err != nil || pc.TCP.Free || len(pc.TCP.Owners) == 0 {
+		t.Errorf("只占 0.0.0.0 的端口：%v %+v", err, pc)
+	}
 	var pc2 struct {
 		Instances []map[string]string `json:"instances"`
 	}

@@ -335,6 +335,26 @@ func TestServiceServerClosing(t *testing.T) {
 	}
 }
 
+// 游戏里的管理员 /stop、RCON 发的 stop：模组说「服务器正在关闭」时 MineDeck 这边的实例状态可能还是 running
+// （停服那一行还在控制台的管道里没读到）。按模组的原话算正常关服：普通提示、不再重连（测试报告 H-02 发现 8）。
+func TestServiceServerClosingBeforeStatus(t *testing.T) {
+	e := newSvcEnv(t)
+	e.enable(t)
+	e.start()
+	e.live(t)
+	accepts := e.mod.Accepts()
+	e.mod.SendEnd("服务器正在关闭") // 状态没改，还是 running
+	waitFor(t, "断开", func() bool { v, _ := e.s.Status("模组服"); return v.Link.State == "waiting" })
+	time.Sleep(150 * time.Millisecond)
+	if n := e.mod.Accepts(); n != accepts {
+		t.Errorf("模组说服务器正在关闭，不该再重连：握手 %d → %d", accepts, n)
+	}
+	v, _ := e.s.Status("模组服")
+	if ev := v.Events[0]; ev.Event != "disconnected" || ev.Level != "info" || strings.Contains(ev.Text, "会自动重连") {
+		t.Errorf("事件：%+v", ev)
+	}
+}
+
 // task_finished 丢了（模组的 WELCOME 读的是每 tick 末尾才刷新的快照：握手正好落在任务结束的那个 tick 里时，事件发在连接就绪之前，
 // WELCOME 里也还没有这次的 lastResult）：之后的 STATUS 里伙伴的 lastResult 是有人发起、还没通知过的任务，照样通知，只通知一次。
 func TestServiceStatusCatchesLostFinish(t *testing.T) {

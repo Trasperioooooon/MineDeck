@@ -112,6 +112,29 @@ func ParseBaseURL(s string) (*url.URL, error) {
 	return u, nil
 }
 
+// SameSite 两个接口地址是不是同一个网站：http/https、域名（不分大小写）、端口都一样，默认端口写不写都算一样。
+// 已存的 Key 只发给同一个网站；有一个解析不了就算不是。
+func SameSite(a, b string) bool {
+	sa, sb := siteOf(a), siteOf(b)
+	return sa != "" && sa == sb
+}
+
+func siteOf(s string) string {
+	u, err := ParseBaseURL(s)
+	if err != nil {
+		return ""
+	}
+	scheme := strings.ToLower(u.Scheme)
+	host := strings.ToLower(u.Hostname())
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if p := u.Port(); p != "" && !(scheme == "https" && p == "443") && !(scheme == "http" && p == "80") {
+		host += ":" + p
+	}
+	return scheme + "://" + host
+}
+
 // endpoint 拼出接口路径：去掉地址末尾的斜杠再接上（智谱的地址末尾带斜杠，原样存、拼的时候不重复）。
 // Claude 的地址可以写到域名为止，也可以写到 /v1。
 func (c *Client) endpoint(path string) string {

@@ -309,6 +309,15 @@ window.MDMusic = (() => {
             sub: esc(t0.lastError || (t0.running ? "隧道连接中…" : "启动隧道后，MineDeck 会把公网地址自动写进 voice_host。")) + (t0.autoStart ? "" : " 勾上「跟随实例启动」，开服时就会拉起它。"),
             right: manual };
           break;
+        case "idle": // 隧道停着，地址是上次的；勾了跟随启动的，下次开服会跟着拉起来，voice_host 不清
+          rmRow = { tile: okIco(false), title: "远程好友的语音：语音隧道没开",
+            sub: (rm.tunnels || []).some(t => t.autoStart)
+              ? `隧道停着时谁都连不上 ${esc(rm.addr)} 这个地址的语音。启动隧道就恢复；下次开服时它也会跟着启动，voice_host 照旧。`
+              : rm.managed
+              ? `voice_host 还是隧道上次的地址 ${esc(rm.addr)}：隧道停着时谁都连不上这个地址的语音（本机玩家也一样）。启动隧道就恢复；不开的话，下次开服前 MineDeck 会把它清回空。`
+              : `隧道上次的公网地址是 ${esc(rm.addr)}。启动隧道，或者勾上「跟随实例启动」，MineDeck 会把地址写进 voice_host。`,
+            right: `<a class="btn sm" href="#/tunnels">去启动</a>${manual}` };
+          break;
         case "pending":
           rmRow = { tile: okIco(true), title: `远程好友的语音：${rm.addr}`,
             sub: vc.found ? "下次开服前自动写进 voice_host。" : "SVC 的配置还没生成：开一次服，MineDeck 就会把这个地址写进 voice_host。", right: manual };

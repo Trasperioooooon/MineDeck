@@ -55,6 +55,15 @@ func (c *cat) portOps() {
 			}
 			check := func(udp bool) portState {
 				var st portState
+				// 先查谁在监听：Windows 上只占了 0.0.0.0 的端口，再绑一次 :端口（IPv6 双栈）照样成功，
+				// 光靠「试着绑」会把被占说成空闲（测试报告 E-09）
+				for _, pid := range portOwners(p.Port, udp) {
+					st.Owners = append(st.Owners, portOwner{PID: pid, Process: processName(pid), Instance: pids[pid], MineDeck: pid == os.Getpid()})
+				}
+				if len(st.Owners) > 0 {
+					return st
+				}
+				// 查不到（没权限，或者 wine 之类查不了进程）：再试着绑一次
 				if udp {
 					pc, err := net.ListenPacket("udp", fmt.Sprintf(":%d", p.Port))
 					st.Free = err == nil
@@ -68,14 +77,7 @@ func (c *cat) portOps() {
 						ln.Close()
 					}
 				}
-				if st.Free {
-					return st
-				}
-				for _, pid := range portOwners(p.Port, udp) {
-					o := portOwner{PID: pid, Process: processName(pid), Instance: pids[pid], MineDeck: pid == os.Getpid()}
-					st.Owners = append(st.Owners, o)
-				}
-				if len(st.Owners) == 0 {
+				if !st.Free {
 					st.Note = "端口被占用了，但没查到是哪个程序（可能需要管理员权限）"
 				}
 				return st

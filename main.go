@@ -56,6 +56,13 @@ func main() {
 		fatal("加载实例列表失败: " + err.Error())
 	}
 	tun := tunnel.NewManager()
+	tun.FollowInstances(func(name string) string { // 开了跟随启动的隧道跟着实例启停
+		i, err := mgr.Get(name)
+		if err != nil {
+			return "stopped"
+		}
+		return i.Status()
+	})
 	webhook.Init()
 	go java.Scan() // 后台扫描本机已装 Java，创建实例时可直接复用
 	// AI 接入层：没配置 AI 时什么也不做、不联网；配置了要花钱的服务商，才在后台检查价格数据（缓存超过 7 天才下载）

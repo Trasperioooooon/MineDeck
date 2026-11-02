@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"html/template"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -304,5 +305,49 @@ func TestTunnelUpEventHasID(t *testing.T) {
 	}
 	if st := m.List()[0]; st.PublicAddr != "frp-abc.natfrp.cloud:12345" {
 		t.Fatalf("公网地址：%+v", st)
+	}
+}
+
+// 开了跟随启动的隧道跟着实例停（测试报告 C-03）：停服后等一会儿还是停着就停掉；没勾跟随启动的、别的实例的不动；
+// 重启（停了马上又开）不来回开关。
+func TestFollowInstancesStop(t *testing.T) {
+	tempBase(t)
+	old := stopGrace
+	stopGrace = 50 * time.Millisecond
+	t.Cleanup(func() { stopGrace = old })
+	m := NewManager()
+	add := func(name, bound string, auto bool) string {
+		tt, err := m.Add(Tunnel{Provider: "natfrp", Name: name, Credential: "k", ProxyID: "1", Bound: bound, AutoStart: auto})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command("ping", "-n", "30", "127.0.0.1") // 替 frpc 占着一个进程
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+		m.mu.Lock()
+		m.running[tt.ID] = &runState{cmd: cmd}
+		m.mu.Unlock()
+		return tt.ID
+	}
+	follow, manual, other := add("跟随", "S1", true), add("手动", "S1", false), add("别的服", "S2", true)
+	status := map[string]string{"S1": "stopped", "S2": "starting"} // S2：重启中，已经又开起来了
+	st := func(n string) string { return status[n] }
+	m.follow(events.Event{Type: "instance.stop", Data: map[string]any{"instance": "S1"}}, st)
+	m.follow(events.Event{Type: "instance.crash", Data: map[string]any{"instance": "S2"}}, st)
+	time.Sleep(300 * time.Millisecond)
+	stopped := func(id string) bool { m.mu.Lock(); defer m.mu.Unlock(); return m.running[id].stopped }
+	if !stopped(follow) {
+		t.Error("S1 停了，跟随启动的隧道应跟着停")
+	}
+	if stopped(manual) {
+		t.Error("没勾跟随启动的隧道不该停")
+	}
+	if stopped(other) {
+		t.Error("S2 重启中（又开起来了），隧道不该停")
+	}
+	if !strings.Contains(strings.Join(m.Console(follow).Lines(), "\n"), "服务器「S1」停了，隧道跟着停止") {
+		t.Errorf("隧道日志里应说明为什么停：%q", m.Console(follow).Lines())
 	}
 }

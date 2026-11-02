@@ -84,6 +84,9 @@ type State struct {
 // EndError 模组发来 END 结束了连接。
 type EndError struct{ Reason string }
 
+// endServerStopping 服务器关服时模组发的 END 原因（CompanionManager 关服时 control.close 的原话）。
+const endServerStopping = "服务器正在关闭"
+
 func (e *EndError) Error() string {
 	if e.Reason == "" {
 		return "伙伴模组结束了连接"

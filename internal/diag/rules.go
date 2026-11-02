@@ -28,10 +28,12 @@ var rules = []func(*ruleCtx) *Finding{
 
 var (
 	// Forge / NeoForge 的 ModSorter：「Missing or unsupported mandatory dependencies:」下一行起每行一个
-	depLineRe = regexp.MustCompile(`Mod ID: '(.+?)', Requested by: '(.+?)', Expected range: '(.+?)', Actual version: '(.+?)'`)
+	// 版本范围可能是空的：Connector 转过来的 Fabric 模组（测试报告 E-06：Expected range: ''）
+	depLineRe = regexp.MustCompile(`Mod ID: '(.+?)', Requested by: '(.+?)', Expected range: '(.*?)', Actual version: '(.+?)'`)
 	depHeadRe = regexp.MustCompile(`Missing or unsupported mandatory dependencies`)
-	// NeoForge 的汇总：「Mod create requires geckolib 4.2 or above」+「Currently, geckolib is not installed」
-	neoReqRe = regexp.MustCompile(`Mod (\S+) requires (\S+) (.+?)$`)
+	// NeoForge 的汇总：「Mod create requires geckolib 4.2 or above」+「Currently, geckolib is not installed」；
+	// 版本范围空着时只有「Mod continuity requires fabric_api 」
+	neoReqRe = regexp.MustCompile(`Mod (\S+) requires (\S+)(?: (.+?))?\s*$`)
 	neoCurRe = regexp.MustCompile(`Currently, (\S+) is (not installed|\S+)`)
 	// Fabric：「Mod 'Create' (create) 0.5.1 requires version 0.6 or later of 'Flywheel' (flywheel), which is missing!」
 	// 两种写法：「of fabric-api, which is missing」和「of mod 'Flywheel' (flywheel), which is missing」
@@ -82,7 +84,7 @@ func ruleMissingDeps(c *ruleCtx) *Finding {
 			have := ""
 			if i+1 < len(c.ls) {
 				if n := neoCurRe.FindStringSubmatch(c.ls[i+1].text); n != nil && n[1] == m[2] {
-					have = n[2]
+					have = strings.TrimRight(n[2], ",") // 汇总里几条之间用逗号隔开
 				}
 			}
 			if have != "" {
@@ -108,9 +110,16 @@ func ruleMissingDeps(c *ruleCtx) *Finding {
 		if file := c.modFile(m.by); file != "" {
 			f.Files = append(f.Files, file)
 		}
-		if m.have == "[MISSING]" || m.have == "" {
-			f.Details = append(f.Details, fmt.Sprintf("%s 需要 %s（版本 %s），但没有装", m.by, m.dep, m.want))
-		} else {
+		want := m.want
+		if want == "" {
+			want = "任意版本"
+		}
+		switch {
+		case m.have == "[MISSING]" || m.have == "":
+			f.Details = append(f.Details, fmt.Sprintf("%s 需要 %s（版本 %s），但没有装", m.by, m.dep, want))
+		case m.want == "": // 装了却说不满足：模组没写清要哪一版（多见于 Connector 转过来的 Fabric 模组）
+			f.Details = append(f.Details, fmt.Sprintf("%s 需要 %s，装的是 %s，加载器认为版本不对（这个模组没写清要哪一版，一般是要更新的 %s）", m.by, m.dep, m.have, m.dep))
+		default:
 			f.Details = append(f.Details, fmt.Sprintf("%s 需要 %s（版本 %s），装的是 %s，版本不对", m.by, m.dep, m.want, m.have))
 		}
 	}
