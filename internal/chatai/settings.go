@@ -20,7 +20,7 @@ const (
 )
 
 // 限流和额度的默认值（§6.7；2026-11 按 v2.9.0-beta.2 的实测放宽：冷却 15 → 8 秒，每人每天 30 → 60 次）。
-// 默认值只管用户没改过的项：设置文件只存改过的那几项（见 settingsFile 的格式说明），改了默认值，没改过的人自动跟着变。
+// 默认值只管用户没改过的项：设置文件记着哪几项是用户改过的（见 fileSettings），改了默认值，没改过的人自动跟着变。
 const (
 	DefaultPrefix    = "@AI"
 	DefaultCooldown  = 8       // 每人冷却（秒），问 AI 和叫伙伴共用
@@ -61,7 +61,7 @@ type Settings struct {
 	AnyThread bool            `json:"anyThread"`         // 不看线程名
 	Pattern   string          `json:"pattern,omitempty"` // 自定义正则（命名分组 name、msg）
 
-	custom uint8 // 四项限流里用户改过哪几项（customCooldown 这些位）；只有改过的才写进设置文件
+	custom uint8 // 四项限流里用户改过哪几项（customCooldown 这些位）；设置文件的 custom 里只列改过的
 }
 
 // Defaults 没设置过的实例：关着，前缀 @AI，没人能执行命令，模板和限流按 §6.6、§6.7 的默认值。
@@ -233,10 +233,17 @@ func cloneMap(m map[string]bool) map[string]bool {
 	return out
 }
 
-// settingsFileVersion 设置文件的格式：2 起四项限流只写用户改过的（没写的跟着默认值走）；没有 v 的是第一版，四项总是写全。
+// settingsFileVersion 设置文件的格式：2 起多一个 custom，列出四项限流里用户改过哪几项（没列的跟着默认值走）；
+// 四项照样写全，退回旧版程序时读到的还是原来的值（旧版把没写的项当 0，也就是不限）。没有 v 的是第一版。
 const settingsFileVersion = 2
 
-// fileSettings 设置文件里的样子：和 Settings 一样，只是四项限流可以不写。
+// limitNames 四项限流在设置文件里的名字（custom 里用）。
+var limitNames = []struct {
+	bit  uint8
+	name string
+}{{customCooldown, "cooldown"}, {customPerPlayer, "perPlayer"}, {customPerServer, "perServer"}, {customBudget, "budget"}}
+
+// fileSettings 设置文件里的样子：和 Settings 一样，多了 v 和 custom；读的时候四项限流可能没写（手改过的文件）。
 type fileSettings struct {
 	V         int             `json:"v"`
 	Enabled   bool            `json:"enabled"`
@@ -251,10 +258,12 @@ type fileSettings struct {
 	Loose     bool            `json:"looseNames"`
 	AnyThread bool            `json:"anyThread"`
 	Pattern   string          `json:"pattern,omitempty"`
+	Custom    []string        `json:"custom"` // 第 2 版：四项限流里用户改过哪几项（limitNames 里的名字）
 }
 
 // loadSettings 读实例目录里的设置；没有文件或文件坏了按默认值（坏了的部分逐项回到默认）。
-// 四项限流：文件里没写的用默认值；第一版的文件（没有 v）里和当时默认值一样的，也当没改过（见 v1Cooldown）。
+// 四项限流：第 2 版只认 custom 里列出的，其余用默认值；第一版（没有 v）里和当时默认值一样的当没改过（见 v1Cooldown），
+// 不一样的照原样保留。
 func loadSettings(dir string) Settings {
 	s := Defaults()
 	b, err := os.ReadFile(filepath.Join(dir, settingsFile))
@@ -285,8 +294,19 @@ func loadSettings(dir string) Settings {
 		}
 	}
 	legacy := f.V < 2
+	custom := func(bit uint8, v, old int64) bool {
+		if legacy {
+			return v != old
+		}
+		for _, x := range limitNames {
+			if x.bit == bit {
+				return slices.Contains(f.Custom, x.name)
+			}
+		}
+		return false
+	}
 	limit := func(v *int, dst *int, max, old int, bit uint8) {
-		if v == nil || *v < 0 || *v > max || (legacy && *v == old) {
+		if v == nil || *v < 0 || *v > max || !custom(bit, int64(*v), int64(old)) {
 			return
 		}
 		*dst = *v
@@ -295,7 +315,7 @@ func loadSettings(dir string) Settings {
 	limit(f.Cooldown, &s.Cooldown, 3600, v1Cooldown, customCooldown)
 	limit(f.PerPlayer, &s.PerPlayer, 100000, v1PerPlayer, customPerPlayer)
 	limit(f.PerServer, &s.PerServer, 1000000, v1PerServer, customPerServer)
-	if f.Budget != nil && *f.Budget >= 0 && *f.Budget <= 1e11 && !(legacy && *f.Budget == v1Budget) {
+	if f.Budget != nil && *f.Budget >= 0 && *f.Budget <= 1e11 && custom(customBudget, *f.Budget, v1Budget) {
 		s.Budget = *f.Budget
 		s.custom |= customBudget
 	}
@@ -306,21 +326,15 @@ func loadSettings(dir string) Settings {
 	return s
 }
 
-// saveSettings 写设置文件（第 2 版）：四项限流只写用户改过的。
+// saveSettings 写设置文件（第 2 版）：四项限流照样写全（退回旧版程序也读得到），custom 列出用户改过的几项。
 func saveSettings(dir string, s Settings) error {
 	f := fileSettings{V: settingsFileVersion, Enabled: s.Enabled, Prefix: s.Prefix, Aliases: s.Aliases, Allowed: s.Allowed, Templates: s.Templates,
-		Loose: s.Loose, AnyThread: s.AnyThread, Pattern: s.Pattern}
-	if s.custom&customCooldown != 0 {
-		f.Cooldown = &s.Cooldown
-	}
-	if s.custom&customPerPlayer != 0 {
-		f.PerPlayer = &s.PerPlayer
-	}
-	if s.custom&customPerServer != 0 {
-		f.PerServer = &s.PerServer
-	}
-	if s.custom&customBudget != 0 {
-		f.Budget = &s.Budget
+		Cooldown: &s.Cooldown, PerPlayer: &s.PerPlayer, PerServer: &s.PerServer, Budget: &s.Budget,
+		Loose: s.Loose, AnyThread: s.AnyThread, Pattern: s.Pattern, Custom: []string{}}
+	for _, x := range limitNames {
+		if s.custom&x.bit != 0 {
+			f.Custom = append(f.Custom, x.name)
+		}
 	}
 	return writeJSON(filepath.Join(dir, settingsFile), f)
 }

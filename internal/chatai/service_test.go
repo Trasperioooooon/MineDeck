@@ -712,15 +712,15 @@ func TestSettingsPatch(t *testing.T) {
 		!strings.Contains(string(b), `"budget":500000`) || !strings.Contains(string(b), `"gamemode":false`) || !strings.Contains(string(b), `"give":false`) {
 		t.Errorf("默认值（§6.6、§6.7，2026-11 放宽了冷却和每人每天）：%s", b)
 	}
-	// 没改过限流：设置文件里不写这四项（以后改默认值，跟着变）
+	// 没改过限流：custom 是空的（以后改默认值，跟着变）；四项照样写全，退回旧版程序也读得到
 	raw, _ := os.ReadFile(filepath.Join(f.b.dir, settingsFile))
-	if !strings.Contains(string(raw), `"v": 2`) || strings.Contains(string(raw), "cooldown") || strings.Contains(string(raw), "perPlayer") {
-		t.Errorf("没改过的限流不写进文件：%s", raw)
+	if !strings.Contains(string(raw), `"v": 2`) || !strings.Contains(string(raw), `"custom": []`) || !strings.Contains(string(raw), `"cooldown": 8`) {
+		t.Errorf("没改过的限流：%s", raw)
 	}
 }
 
-// 出厂默认值只影响用户没改过的项：第 2 版的设置文件只写改过的（填的正好是默认值也算改过）；第一版的文件（没有 v，四项总是写全）
-// 里和当时的默认值（15 秒、30 次、300 次、50 万）一样的当没改过，用现在的默认值，不一样的照原样保留。
+// 出厂默认值只影响用户没改过的项：第 2 版的设置文件用 custom 列出改过的（填的正好是默认值也算改过），四项照样写全；
+// 第一版的文件（没有 v，四项总是写全）里和当时的默认值（15 秒、30 次、300 次、50 万）一样的当没改过，用现在的默认值，不一样的照原样保留。
 func TestSettingsDefaultsFollow(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, settingsFile)
@@ -740,14 +740,20 @@ func TestSettingsDefaultsFollow(t *testing.T) {
 	if s.Cooldown != 20 || s.PerPlayer != 0 || s.PerServer != DefaultPerServer {
 		t.Errorf("第一版里改过的冷却、不限次数保留：%+v", s)
 	}
-	// 存回去是第 2 版，只写改过的
+	// 存回去是第 2 版：custom 只列改过的两项，四项都写
 	if err := saveSettings(dir, s); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(path)
-	if !strings.Contains(string(raw), `"v": 2`) || !strings.Contains(string(raw), `"cooldown": 20`) || !strings.Contains(string(raw), `"perPlayer": 0`) ||
-		strings.Contains(string(raw), "perServer") || strings.Contains(string(raw), "budget") {
-		t.Errorf("第 2 版只写改过的：%s", raw)
+	var f fileSettings
+	if err := json.Unmarshal(raw, &f); err != nil || f.V != 2 || !slices.Equal(f.Custom, []string{"cooldown", "perPlayer"}) ||
+		f.Cooldown == nil || *f.Cooldown != 20 || f.PerServer == nil || *f.PerServer != DefaultPerServer || f.Budget == nil || *f.Budget != DefaultBudget {
+		t.Errorf("第 2 版的文件：%s", raw)
+	}
+	// 退回旧版程序（按原来的 Settings 读，没写的项是 0，也就是不限）：读到的还是原来的值
+	var old Settings
+	if err := json.Unmarshal(raw, &old); err != nil || old.Cooldown != 20 || old.PerPlayer != 0 || old.PerServer != DefaultPerServer || old.Budget != DefaultBudget {
+		t.Errorf("旧版程序读第 2 版：%+v %v", old, err)
 	}
 	if s2 := loadSettings(dir); s2.Cooldown != 20 || s2.PerPlayer != 0 || s2.PerServer != DefaultPerServer || s2.Budget != DefaultBudget {
 		t.Errorf("读回第 2 版：%+v", s2)
@@ -761,15 +767,16 @@ func TestSettingsDefaultsFollow(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, _ = os.ReadFile(path)
-	if !strings.Contains(string(raw), `"cooldown": 8`) {
-		t.Errorf("填过的默认值也要写：%s", raw)
+	f = fileSettings{}
+	if err := json.Unmarshal(raw, &f); err != nil || !slices.Equal(f.Custom, []string{"cooldown"}) {
+		t.Errorf("填过的默认值也算改过：%s", raw)
 	}
-	write(`{"v":2,"enabled":true,"cooldown":15}`)
+	write(`{"v":2,"enabled":true,"cooldown":15,"perPlayer":30,"custom":["cooldown"]}`)
 	if s := loadSettings(dir); s.Cooldown != 15 || s.PerPlayer != DefaultPerPlayer {
-		t.Errorf("第 2 版里的 15 是用户填的，不能当默认值：%+v", s)
+		t.Errorf("第 2 版只认 custom 里的：15 是用户填的，30 没列就跟着默认值：%+v", s)
 	}
 	// 坏值照旧回到默认
-	write(`{"v":2,"cooldown":99999,"perPlayer":-1}`)
+	write(`{"v":2,"cooldown":99999,"perPlayer":-1,"custom":["cooldown","perPlayer"]}`)
 	if s := loadSettings(dir); s.Cooldown != DefaultCooldown || s.PerPlayer != DefaultPerPlayer {
 		t.Errorf("坏值回到默认：%+v", s)
 	}

@@ -224,6 +224,9 @@ func fitLine(p string, avail int) (string, string) {
 	if n == len(rs) {
 		return p, ""
 	}
+	if n == 0 { // 一个字都放不下（开头太长，正常走不到）：至少切一个字，免得 Fit 原地打转
+		n = 1
+	}
 	// 断点 c 是「在 rs[c] 之前断开」：越靠后越好，但这一行至少要占四成宽，免得断成「前面两三个字 + 后面一大串」
 	best, rank := 0, 0
 	depth, cw := 0, 0
