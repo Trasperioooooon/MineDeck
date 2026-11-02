@@ -17,7 +17,7 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 ### 应用
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/app` | 版本、内存（`ramMb`/`availRamMb`）、实际监听端口 `port`、`serversRoot`/`backupsRoot`、`autoStart`（开机自启真值，查注册表）、`config`、本机 IP；`lanSet`（是否已设访问密码）、`cfKeySet`（是否已设 CurseForge API Key）、`cfKeyBroken`（已存的 Key 解不开，多半是换了电脑或 Windows 用户，需要重填） |
+| GET | `/api/app` | 版本、内存（`ramMb`/`availRamMb`）、实际监听端口 `port`、`serversRoot`/`backupsRoot`、`autoStart`（开机自启真值，查注册表）、`config`、本机 IP；`lanSet`（是否已设访问密码）、`cfKeySet`（是否已设 CurseForge API Key）、`cfKeyBroken`（已存的 Key 解不开，多半是换了电脑或 Windows 用户，需要重填）；`lanActive`：这次启动是否已经监听在局域网上（打开「允许局域网访问」后要重启程序才为真；关掉即时生效） |
 | PUT | `/api/config` | 局部更新配置（见下方「配置键」；仅传要改的键） |
 | POST | `/api/pickdir` | 弹系统文件夹选择框，返回 `{path}`（取消为空）。**仅本机** |
 | POST | `/api/openpath` | 在资源管理器打开 `{path}` 目录。**仅本机** |
@@ -45,7 +45,7 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 | GET | `/api/instances/{name}/console` | SSE 控制台流（先回放后实时） |
 | GET/PUT | `/api/instances/{name}/properties` | server.properties 读写 |
 | PUT | `/api/instances/{name}/settings` | `{xmxMb, xmsMb, consoleEncoding, extraJvm}`（`extraJvm` 为字符串数组，一行一参，传入即整体替换；MC 1.18.1 以下实例的 log4shell 缓解参数始终保留，缺失时自动补回） |
-| GET/PUT | `/api/instances/{name}/policies` | 崩溃重启 + 定时任务（`schedules[].at` 为补零的 `HH:MM`：调度按这个格式逐字比对当前时刻，`9:05` 能通过校验但永远不会触发，界面会补齐成 `09:05`） |
+| GET/PUT | `/api/instances/{name}/policies` | 崩溃重启 + 定时任务（`schedules[].at` 是 `HH:MM`；传 `9:05` 这类没补零的写法，后端保存时规整成 `09:05`） |
 | GET/POST | `/api/instances/{name}/backups`；POST `.../backups/restore`；DELETE `.../backups?file=` | 备份（保留份数由全局 `backupKeep` 控制，跨备份根合计）。新备份写当前备份根；列表 / 还原 / 删除也查内置根与改目录前用过的旧根（config.json `backupRoots`），同名文件视为同一份；`file` 只取文件名，须为 `.zip` |
 | GET/POST | `/api/instances/{name}/players` | 玩家名单与操作 `{action, player}` |
 | GET | `/api/instances/{name}/resources/search?q=` | Modrinth 兼容资源搜索 |
