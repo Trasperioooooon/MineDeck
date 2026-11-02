@@ -198,7 +198,11 @@ func openWebView(url string, sig chan os.Signal, minimized bool) (ok bool) {
 	applyDarkTitleBar(hwnd) // DWM 边框深色化，匹配深色主题
 	applyWindowIcon(hwnd)   // 任务栏 / Alt-Tab / 托盘图标
 	setupTray(hwnd)         // 子类化窗口过程（含去标题栏）+ 挂托盘图标（关窗最小化 / 右键菜单）
-	applyFrameless(hwnd)    // 触发边框重算，让去标题栏立即生效（须在子类化之后）
+	if minimized && !trayActive {
+		// 静默启动却没登记上托盘图标（开机时外壳还没就绪最常见）：窗口一直藏着就再也找不回来，退到任务栏最小化
+		pShowWindow.Call(hwnd, _SW_MINIMIZE)
+	}
+	applyFrameless(hwnd) // 触发边框重算，让去标题栏立即生效（须在子类化之后）
 	// 无边框后原生标题栏没了，窗口拖动/最小化/最大化/关闭由前端标题栏经 Bind 桥接驱动
 	w.Bind("hostWinDrag", func() { hostStartDrag(hwnd) })
 	w.Bind("hostWinMin", func() { hostMinimize(hwnd) })

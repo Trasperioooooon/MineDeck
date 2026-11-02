@@ -1921,6 +1921,9 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await p.waitForSelector("#close-ask:not(.leave)");
       assert((await btns()) === "取消|停止服务器并退出" && (await p.$("#close-ask:not(.leave) .switch")) === null, "托盘不可用时：" + await btns());
       assert((await p.evaluate(() => document.activeElement.textContent.trim())) === "取消", "托盘不可用时默认焦点应在取消");
+      await p.evaluate(() => { document.activeElement.blur(); window.__mdCloseAsk({ tray: false, running: 3 }); }); // 再按一次关闭
+      assert((await p.evaluate(() => document.activeElement.textContent.trim())) === "取消", "再次关闭时焦点不该落到「停止服务器并退出」");
+      await p.evaluate(() => { window.__win.length = 0; window.__win.push("hostCloseAck"); }); // 下面只看取消这一下
       await p.click('#close-ask:not(.leave) [data-x="cancel"]'); await p.waitForTimeout(250);
       assert((await p.$("#close-ask")) === null && (await winCalls(p)) === "hostCloseAck", "取消：" + await winCalls(p));
     } finally { await c.close(); }

@@ -19,6 +19,7 @@ const (
 	_HCBT_CREATEWND       = 3
 	_WM_WINDOWPOSCHANGING = 0x0046
 	_SWP_SHOWWINDOW       = 0x0040
+	_SWP_NOACTIVATE       = 0x0010 // _SWP_NOZORDER 在 frameless_windows.go
 )
 
 var (
@@ -64,6 +65,7 @@ func beginHiddenCreate(className string) (end func()) {
 		if cur, _, _ := pGetWindowLongPtr.Call(hiddenHWND, uintptr(idx)); cur == hiddenWndCB {
 			pSetWindowLongPtr.Call(hiddenHWND, uintptr(idx), hiddenPrev)
 		}
+		hiddenHWND, hiddenPrev = 0, 0 // 再调一次（defer）时不再碰这个窗口，那时它可能已经销毁了
 	}
 }
 
@@ -86,7 +88,7 @@ func hiddenWndProc(hwnd, msg, wparam, lparam uintptr) (ret uintptr) {
 	if uint32(msg) == _WM_WINDOWPOSCHANGING && hiddenSuppress && lparam != 0 {
 		// lparam 由系统指向一个 WINDOWPOS，在本次消息处理期间有效；经 &lparam 取指针，免得 go vet 误报 unsafe.Pointer
 		wp := *(**windowPos)(unsafe.Pointer(&lparam))
-		wp.Flags &^= _SWP_SHOWWINDOW
+		wp.Flags = wp.Flags&^_SWP_SHOWWINDOW | _SWP_NOACTIVATE | _SWP_NOZORDER // 也不激活、不调层次：开机时不抢用户正在用的窗口的焦点
 	}
 	r, _, _ := pCallWindowProc.Call(hiddenPrev, hwnd, msg, wparam, lparam)
 	return r

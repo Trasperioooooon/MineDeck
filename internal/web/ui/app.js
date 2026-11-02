@@ -389,9 +389,9 @@ function paintThemeBtn() {
     call("hostWinDrag");
   });
   // 关窗确认：点 ×、Alt+F4、任务栏「关闭窗口」都先到宿主（WM_CLOSE）；没开「最小化到托盘」又有服务器在运行时，
-  // 宿主请这里问一声（见 tray_windows.go 的 onClose）。先回一声 hostCloseAck：宿主据此知道页面没失联
-  // （失联时宿主等满 3 秒后的下一次关窗直接退出，不把窗口困住）
-  window.__mdCloseAsk = opts => { call("hostCloseAck"); closeAskModal(opts || {}); };
+  // 宿主请这里问一声（见 tray_windows.go 的 onClose）。确认框弹出来之后再回一声 hostCloseAck：宿主据此知道页面没失联
+  // （弹框出错或页面失联时不回，宿主等满 3 秒后的下一次关窗直接退出，不把窗口困住）
+  window.__mdCloseAsk = opts => { closeAskModal(opts || {}); call("hostCloseAck"); };
 })();
 
 /* 关窗确认框：tray = 托盘图标在不在（不在就只能停服退出），running = 在运行的服务器台数。
@@ -399,8 +399,10 @@ function paintThemeBtn() {
    追加进 #modal-root 而不是整个替换：别的对话框开着时不顶掉它（那边的 Promise 会一直等不到结果），
    同时照样算「弹层打开」（按 1–4 不在底下切页、Esc 不连带关掉 AI 助手面板）。 */
 function closeAskModal({ tray = true, running = 0 }) {
+  // 焦点落在不丢数据的按钮上：有托盘就是「最小化到托盘」，没有就是「取消」，不落到「退出」上
+  const focusSafe = m => (m.querySelector('[data-x="tray"]') || m.querySelector('[data-x="cancel"]')).focus();
   const old = $("#close-ask");
-  if (old && !old.dataset.leaving) { old.querySelector(".m-actions .btn:last-child").focus(); return; } // 已经开着，不叠第二个
+  if (old && !old.dataset.leaving) { focusSafe(old); return; } // 已经开着，不叠第二个
   const prev = document.activeElement;
   const d = document.createElement("div");
   d.className = "modal-mask enter";
@@ -417,6 +419,7 @@ function closeAskModal({ tray = true, running = 0 }) {
       ${tray ? `<button class="btn primary" data-x="tray">最小化到托盘</button>` : ""}
     </div></div>`;
   $("#modal-root").appendChild(d);
+  focusSafe(d); // 不然焦点还停在底下页面的按钮上，按回车会点到它
   const close = () => {
     document.removeEventListener("keydown", onKey);
     dismiss(d);

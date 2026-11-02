@@ -44,6 +44,9 @@ func TestCloseAskerUsable(t *testing.T) {
 	if a.usable(t0.Add(closeAckTimeout)) {
 		t.Error("超时没回应：页面失联，应直接关")
 	}
+	if !a.usable(t0.Add(closeAskStale)) {
+		t.Error("太久以前那次没回应的请求已经作废，应能再问")
+	}
 	a.acked = true
 	if !a.usable(t0.Add(time.Hour)) {
 		t.Error("回应过就应能问")
@@ -90,5 +93,40 @@ func TestOnCloseAsksThenFallsBack(t *testing.T) {
 	running = 0
 	if act := onClose(t0.Add(2*time.Minute), true); act != closeDefault {
 		t.Fatalf("没有服务器在跑应直接关：act=%d", act)
+	}
+}
+
+// 评审发现的两种情况：页面没反应时用户每隔一两秒连点关闭，不能一直重新计时把窗口困住；
+// 很久以前一次没回应的请求（页面还没加载完时的关窗）作废，之后正常关窗照常确认，不直接退出停服。
+func TestCloseAskRapidAndStale(t *testing.T) {
+	app.Base = t.TempDir()
+	if _, err := app.UpdateConfig(func(c *app.Config) error { c.MinimizeToTray = false; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	oldRun, oldAsk, oldTray, oldState := runningServers, askCloseUI, trayActive, closeAsk
+	defer func() { runningServers, askCloseUI, trayActive, closeAsk = oldRun, oldAsk, oldTray, oldState }()
+	asked := 0
+	runningServers = func() int { return 1 }
+	askCloseUI = func(bool, int) { asked++ }
+	trayActive = true
+
+	closeAsk = closeAsker{}
+	t0 := time.Now()
+	for _, d := range []time.Duration{0, 1500 * time.Millisecond, 2500 * time.Millisecond} { // 页面没回应，连点
+		if act := onClose(t0.Add(d), true); act != closeConfirm {
+			t.Fatalf("%v：还没等满超时应再请一次：act=%d", d, act)
+		}
+	}
+	if act := onClose(t0.Add(3500*time.Millisecond), true); act != closeDefault {
+		t.Fatalf("从第一次请求算起已过 3 秒没回应，应直接关（连点不重新计时）：act=%d", act)
+	}
+
+	closeAsk = closeAsker{}
+	onClose(t0, true) // 页面还没加载完时的一次关窗，没人回应
+	if act := onClose(t0.Add(2*time.Hour), true); act != closeConfirm {
+		t.Fatalf("两小时前没回应的请求应作废，这次照常确认：act=%d", act)
+	}
+	if !closeAsk.askedAt.Equal(t0.Add(2 * time.Hour)) {
+		t.Errorf("作废后应从这次重新计时：%v", closeAsk.askedAt)
 	}
 }

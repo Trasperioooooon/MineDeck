@@ -33,6 +33,7 @@ const (
 	_SW_RESTORE = 9
 
 	_NIM_ADD     = 0x0
+	_NIM_MODIFY  = 0x1
 	_NIM_DELETE  = 0x2
 	_NIF_MESSAGE = 0x1
 	_NIF_ICON    = 0x2
@@ -138,8 +139,8 @@ func trayWndProc(hwnd, msg, wparam, lparam uintptr) (ret uintptr) {
 			pShowWindow.Call(hwnd, _SW_HIDE)
 			return 0 // 吞掉关闭：仅隐藏到托盘，服务器继续运行
 		case closeConfirm:
-			if isIconic(hwnd) { // 在任务栏上关一个最小化着的窗口：先还原，确认框才看得见
-				pShowWindow.Call(hwnd, _SW_RESTORE)
+			if isIconic(hwnd) { // 在任务栏上关一个最小化着的窗口：先还原并置前，确认框才看得见
+				restoreWindow(hwnd)
 			}
 			return 0 // 吞掉关闭：界面弹确认框，用户选了再经 hostWinHide / hostWinQuit 回来
 		}
@@ -190,9 +191,18 @@ type closeAsker struct {
 	acked   bool      // 界面回应了（确认框弹出来了）
 }
 
-// usable 界面现在能不能接确认请求：没请过、上次回应了，或者上次请求还没等满超时，都算能。
+// closeAskStale 一次没得到回应的请求过了这么久就作废：那多半是页面还没加载完时的一次关窗，
+// 不能让几小时后正常点 × 也被当成「页面失联」直接退出、停掉服务器
+const closeAskStale = 30 * time.Second
+
+// usable 界面现在能不能接确认请求：没请过、上次回应了、上次请求还没等满超时，或者那次请求已经作废，都算能。
+// 只有「请求发出 3～30 秒内还没回应」时不能：用户正在连着点关闭，而页面没反应，这次直接退出。
 func (a *closeAsker) usable(now time.Time) bool {
-	return a.askedAt.IsZero() || a.acked || now.Sub(a.askedAt) < closeAckTimeout
+	if a.askedAt.IsZero() || a.acked {
+		return true
+	}
+	el := now.Sub(a.askedAt)
+	return el < closeAckTimeout || el >= closeAskStale
 }
 
 // decideClose 决定一次关窗请求怎么处理。minToTray：设置里开了「最小化到托盘」；trayOK：托盘图标登记成功；
@@ -218,7 +228,11 @@ func onClose(now time.Time, visible bool) closeAction {
 	}
 	act := decideClose(minToTray, trayActive, running, askCloseUI != nil && visible && closeAsk.usable(now))
 	if act == closeConfirm {
-		closeAsk.askedAt, closeAsk.acked = now, false
+		// 还在等上一次回应时连点关闭不重新计时：页面失联时要让超时走得到，不把窗口困住
+		if closeAsk.askedAt.IsZero() || closeAsk.acked || now.Sub(closeAsk.askedAt) >= closeAskStale {
+			closeAsk.askedAt = now
+		}
+		closeAsk.acked = false
 		askCloseUI(trayActive, running)
 	}
 	return act
@@ -296,6 +310,9 @@ func newNID(hwnd uintptr) *notifyIconData {
 func addTrayIcon(hwnd uintptr) {
 	nid := newNID(hwnd)
 	r, _, _ := pShellNotifyIcon.Call(_NIM_ADD, uintptr(unsafe.Pointer(nid)))
+	if r == 0 { // 别的程序广播了 TaskbarCreated、图标其实还在：重复 ADD 会失败，改成 MODIFY 再确认一次
+		r, _, _ = pShellNotifyIcon.Call(_NIM_MODIFY, uintptr(unsafe.Pointer(nid)))
+	}
 	trayActive = r != 0 // 登记失败时（外壳未就绪等）关窗最小化会退化为正常退出，不困住窗口
 }
 
