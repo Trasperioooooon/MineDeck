@@ -1224,6 +1224,34 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await resetGC(); }
   });
 
+  await run("游戏内 AI：限流的默认值（冷却 8 秒、每人每天 60 次）；全服每天的 token 写明约合多少钱；列出今天谁问了几次；「/tp 怎么用」当提问", async () => {
+    try {
+      await gcState({ gc: { reset: true }, ai: { reset: true, ...AI_DEEPSEEK, key: "sk-x", priceUpdated: "2026-10-28" } });
+      await openGC();
+      const vals = [await page.inputValue("#gc-l-cooldown"), await page.inputValue("#gc-l-perPlayer")];
+      assert(JSON.stringify(vals) === JSON.stringify(["8", "60"]), "出厂默认值：" + vals);
+      const lim = (await page.textContent("#gc-lim")).replace(/\s+/g, " ");
+      assert(lim.includes("默认 8 秒") && lim.includes("默认 60 次") && lim.includes("叫伙伴另算"), "限流的说明：" + lim);
+      assert((await page.textContent("#gc")).includes("静默 3 分钟"), "说明里的静默时长");
+      let cost = await page.textContent("#gc-budget-cost");
+      assert(cost.includes("按当前模型的单价估，每天 50 万 token 约 $0.") && cost.includes("国际站"), "全服每天的 token 约合多少钱：" + cost);
+      assert((await page.textContent("#gc-top")) === "Steve 4 次（叫伙伴 2 次）、Alex 3 次。", "今天谁问了几次：" + await page.textContent("#gc-top"));
+      await page.fill("#gc-l-budget", "100"); await page.press("#gc-l-budget", "Enter"); await settle(300);
+      cost = await page.textContent("#gc-budget-cost");
+      assert(cost.includes("每天 100 万 token 约 $0."), "改了上限，估价跟着变：" + cost);
+      // 识别测试：问命令用法的写法当提问，别的不认识的选项照旧
+      await page.fill("#gc-line", "[20:15:31] [Server thread/INFO]: <Alex> @AI /tp 怎么用"); await page.press("#gc-line", "Enter"); await settle(400);
+      assert((await page.textContent(".gc-result")).includes("Alex 提问「/tp 怎么用」"), "「/tp 怎么用」当提问：" + await page.textContent(".gc-result"));
+      await page.fill("#gc-line", "[20:15:31] [Server thread/INFO]: <Alex> @AI /tp Steve"); await page.press("#gc-line", "Enter"); await settle(400);
+      assert((await page.textContent(".gc-result")).includes("未知选项 /tp"), "别的照旧是未知选项：" + await page.textContent(".gc-result"));
+      // 查不到单价时不写；今天没人问过时写明
+      await gcState({ ai: { priceUpdated: "" }, gc: { inst: { "机械动力整合包": { today: { count: 0, tokens: 0, players: {}, companion: {}, top: [] } } } } });
+      await openGC("机械动力整合包");
+      assert((await page.textContent("#gc-budget-cost")) === "", "查不到单价时不写：" + await page.textContent("#gc-budget-cost"));
+      assert((await page.textContent("#gc-top")) === "今天还没有人问过。", "没人问过：" + await page.textContent("#gc-top"));
+    } finally { await resetGC(); }
+  });
+
   await run("游戏内 AI：识别测试显示认出的玩家、正文、选项和怎么处理；还没保存的别名也能试", async () => {
     try {
       await gcState(gcReady);
