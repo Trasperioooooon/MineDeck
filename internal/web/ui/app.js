@@ -1380,8 +1380,10 @@ async function renderTaskPage(taskId) {
     <div id="task-box"><div class="sub">加载中…</div></div>`;
   // 骨架只建一次，之后每轮轮询只改变化的部分：新完成的步骤对勾弹出，经验条只点亮新增的格子（逐格错峰），不整块重绘重播
   const CELLS = 30;
+  // 进度和日志多久没变就提示「下载慢或者在重试」（测试报告 B-01：安装器连不上时进度条长时间不动）；测试里用 __MD_STALL_MS 调短
+  const STALL_MS = window.__MD_STALL_MS || 30000;
   let ended = false; // 已结束就不再轮询 / 重复提示（首轮即结束时旧逻辑仍会挂上轮询，成功提示弹两次）
-  let built = false, label = null, lit = 0, stepState = [];
+  let built = false, label = null, lit = 0, stepState = [], lastSig = "", lastChange = Date.now();
   const stopPoll = () => { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } };
   const draw = async () => {
     let t;
@@ -1396,6 +1398,8 @@ async function renderTaskPage(taskId) {
           ${xpBar(CELLS, 0, "lg")}
           <div class="progress-text" id="t-sub"></div>
         </div>
+        <div class="warn-card task-slow" id="t-slow" role="status" hidden><div class="wc-title">${icon("clock")} <span id="t-slow-title"></span></div>
+          <div class="wc-note">下载慢，或者在重试：可以检查网络或代理。在重试的话，网络恢复后会自己接着下，不用重新部署。</div></div>
         <div id="t-msgs"></div>
         <div class="task-log" id="task-log"></div>
         <div class="save-bar" id="t-foot"></div>`;
@@ -1449,6 +1453,19 @@ async function renderTaskPage(taskId) {
       </div>`).join("");
     const lg = $("#task-log"), text = (t.log || []).join("\n");
     if (lg.textContent !== text) { lg.textContent = text; lg.scrollTop = lg.scrollHeight; }
+    // 下载慢 / 在重试：后端报了刚发生的超时、重试（t.net，一分钟内的），或者进度、步骤、日志 STALL_MS 没有任何变化。
+    // 只在文字变了时才改，免得读屏软件每轮都念一遍
+    const sig = JSON.stringify([steps.map(s => s.status), t.label, t.done, t.total, (t.log || []).length, (t.log || []).slice(-1)[0]]);
+    if (sig !== lastSig) { lastSig = sig; lastChange = Date.now(); }
+    const idle = Date.now() - lastChange, net = t.net && t.net.ago <= 60 ? t.net : null;
+    const slowEl = $("#t-slow");
+    slowEl.hidden = t.ended || !(net || idle >= STALL_MS);
+    if (!slowEl.hidden) {
+      const sec = Math.floor(idle / 1000);
+      const title = net ? `${net.host ? net.host + " " : ""}${net.what}，已经 ${net.count} 次`
+        : `已经 ${sec < 10 ? sec + " 秒" : sec < 60 ? Math.floor(sec / 10) * 10 + " 多秒" : Math.floor(sec / 60) + " 分多钟"}没有新进度`;
+      if ($("#t-slow-title").textContent !== title) $("#t-slow-title").textContent = title;
+    }
     $("#t-foot").innerHTML = `
       ${success ? `<a class="btn primary" href="#/inst/${encodeURIComponent(t.result)}">${icon("check")} 完成，进入控制台</a>` : ""}
       ${t.ended && t.error ? `<a class="btn" href="#/create">${icon("arrowLeft")} 返回重试</a>` : ""}
@@ -1458,6 +1475,27 @@ async function renderTaskPage(taskId) {
   // 首次 draw 若因任何原因抛错，也必须启动轮询——否则后续状态永远无法刷新，页面会永久停在「加载中…」。
   try { await draw(); } catch (e) { console.warn("首次任务渲染失败，转由轮询接管：", e); }
   if (!ended) startPoll(draw, 800, gen);
+}
+
+/* 设置项搜索（常用设置、全部配置共用）：按每一项的 data-search（中文名 + 键名）过滤，不分大小写，
+   空格、横线、下划线、点都不算（「view distance」「viewdistance」都能找到 view-distance）。返回命中的项数 */
+const searchKey = s => String(s || "").toLowerCase().replace(/[\s\-_.]+/g, "");
+function filterBySearch(q, items) {
+  const k = searchKey(q);
+  let n = 0;
+  items.forEach(it => {
+    const hit = !k || searchKey(it.dataset.search).includes(k);
+    it.style.display = hit ? "" : "none";
+    if (hit) n++;
+  });
+  return n;
+}
+/* 搜索框：边输边过滤，Esc 清空 */
+function wireSearch(input, apply) {
+  input.oninput = apply;
+  input.onkeydown = e => {
+    if (e.key === "Escape" && input.value) { e.preventDefault(); e.stopPropagation(); input.value = ""; apply(); }
+  };
 }
 
 /* ---------- 视图：实例详情 ---------- */
@@ -1547,9 +1585,10 @@ async function renderDetail(name, tab = "console") {
       <div class="console" id="console"></div>
       <div class="console-input">
         <div class="cmd-suggest" id="cmd-suggest"></div>
-        <input type="text" id="cmd-in" autocomplete="off" placeholder="输入服务器命令（回车发送，Tab 补全，↑↓ 翻历史），如 op 玩家名 / say 大家好">
+        <input type="text" id="cmd-in" autocomplete="off" placeholder="如 op 玩家名 / say 大家好" aria-label="服务器命令" aria-describedby="cmd-keys">
         <button class="btn primary" id="cmd-send">发送</button>
-      </div>`;
+      </div>
+      <div class="hint console-keys" id="cmd-keys"><span><code class="kbd">回车</code> 发送</span><span><code class="kbd">Tab</code> 补全</span><span><code class="kbd">↑</code><code class="kbd">↓</code> 翻历史</span><span><code class="kbd">Esc</code> 关掉补全</span><span>在别处按 <code class="kbd">T</code> 或 <code class="kbd">/</code> 跳到这里</span></div>`;
     const con = $("#console");
     const filterEl = $("#con-filter");
     // 命令补全用：在线玩家名（进出游戏时刷新）
@@ -1802,9 +1841,13 @@ async function renderDetail(name, tab = "console") {
       <div id="sched-list"></div>
       <div class="row" style="margin:12px 0 4px;flex-wrap:wrap">
         <select id="sc-type" style="width:130px"><option value="restart">定时重启</option><option value="command">定时命令</option><option value="backup">定时备份</option></select>
-        <input type="time" id="sc-at" value="04:00" style="width:130px">
+        <input type="text" id="sc-at" class="num" value="04:00" inputmode="numeric" maxlength="5" placeholder="时:分" aria-label="每天几点执行（时:分）" aria-describedby="sc-hint" style="width:88px">
         <input type="text" id="sc-args" placeholder="命令内容（仅定时命令需要），如 say 大家好" style="flex:1;min-width:200px">
         <button class="btn" id="sc-add">${icon("plus")} 添加</button>
+      </div>
+      <div class="sc-quick" role="group" aria-label="快捷时间">
+        <button type="button" class="btn sm" data-later="5">5 分钟后</button><button type="button" class="btn sm" data-later="10">10 分钟后</button><button type="button" class="btn sm" data-later="30">30 分钟后</button>
+        <span class="hint" id="sc-hint">每天到这个时间执行一次（24 小时制，如 04:00、21:30）。</span>
       </div>
       <div class="field-err" id="sc-err"></div>
       ${saveBar("保存策略")}</div>`;
@@ -1820,10 +1863,31 @@ async function renderDetail(name, tab = "console") {
       $("#sched-list").querySelectorAll("[data-i]").forEach(b => b.onclick = () => { scheds.splice(+b.dataset.i, 1); drawScheds(); paintBar(); });
     };
     drawScheds();
-    const scErr = msg => { $("#sc-err").innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; };
+    const scErr = (msg, badTime = false) => { $("#sc-err").innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; $("#sc-at").classList.toggle("invalid", badTime); };
+    // 时间：「时:分」文本框（原来的 input[type=time] 两个小格太难点、太难改，见测试报告观察 1）。
+    // 认 4:00、04:00、0400、21：30 这几种写法，一律补齐成 HH:MM——后端按 HH:MM 逐字比对当前时刻，9:05 不补零就永远不会触发
+    const pad2 = n => String(n).padStart(2, "0");
+    const parseHM = v => {
+      const m = String(v).trim().match(/^(\d{1,2})[:：.](\d{1,2})$/) || String(v).trim().match(/^(\d{1,2})(\d{2})$/);
+      if (!m || +m[1] > 23 || +m[2] > 59) return "";
+      return pad2(+m[1]) + ":" + pad2(+m[2]);
+    };
+    const HINT = $("#sc-hint").textContent;
+    $("#sc-at").addEventListener("input", () => { $("#sc-hint").textContent = HINT; if ($("#sc-at").classList.contains("invalid")) scErr(""); });
+    $("#sc-at").addEventListener("blur", () => { const hm = parseHM($("#sc-at").value); if (hm) $("#sc-at").value = hm; });
+    // 快捷项：填成几分钟后的时刻（只是填时间，还要点「添加」、再保存策略）
+    body.querySelectorAll("[data-later]").forEach(b => b.onclick = () => {
+      const d = new Date(Date.now() + b.dataset.later * 60000), hm = pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+      const day = d.toDateString() === new Date().toDateString() ? "今天" : "明天";
+      $("#sc-at").value = hm;
+      scErr("");
+      $("#sc-hint").textContent = `已填成 ${hm}：${day} ${hm} 执行第一次，之后每天这个时间都执行；只想试一次的话，执行完把它移除。点「添加」再保存才生效。`;
+    });
+    ["#sc-at", "#sc-args"].forEach(s => $(s).addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("#sc-add").click(); } }));
     $("#sc-add").onclick = () => {
-      const s = { type: $("#sc-type").value, at: $("#sc-at").value, args: $("#sc-args").value.trim() };
-      if (!s.at) { scErr("请选择执行时间"); $("#sc-at").focus(); return; }
+      const s = { type: $("#sc-type").value, at: parseHM($("#sc-at").value), args: $("#sc-args").value.trim() };
+      if (!s.at) { scErr("时间写成 时:分，如 04:00 或 21:30（24 小时制）", true); $("#sc-at").focus(); return; }
+      $("#sc-at").value = s.at;
       if (s.type === "command" && !s.args) { scErr("定时命令需要填写命令内容，如 say 大家好"); $("#sc-args").focus(); return; }
       scErr("");
       scheds.push(s);
@@ -1925,17 +1989,10 @@ async function renderDetail(name, tab = "console") {
       }).join("")}</div>
       ${saveBar("保存设置", running ? `<span class="warn-text">${icon("warn")} 运行中：保存后需重启生效（游戏规则即时生效）</span>` : "")}`;
     body.querySelectorAll(".cp-chip").forEach(c => c.onclick = () => $("#cpg-" + c.dataset.g, body)?.scrollIntoView({ behavior: "smooth", block: "start" }));
-    $("#cp-search").oninput = () => {
-      const q = $("#cp-search").value.trim().toLowerCase();
-      body.querySelectorAll(".cp-group").forEach(g => {
-        let any = false;
-        g.querySelectorAll(".prop-item").forEach(it => {
-          const hit = !q || (it.dataset.search || "").toLowerCase().includes(q);
-          it.style.display = hit ? "" : "none"; if (hit) any = true;
-        });
-        g.style.display = any ? "" : "none";
-      });
-    };
+    wireSearch($("#cp-search"), () => {
+      const q = $("#cp-search").value;
+      body.querySelectorAll(".cp-group").forEach(g => { g.style.display = filterBySearch(q, g.querySelectorAll(".prop-item")) ? "" : "none"; });
+    });
     // 游戏规则开关：运行时即时发送 /gamerule（不写入 server.properties）
     body.querySelectorAll("[data-gr]").forEach(sw => sw.onchange = async () => {
       const rule = sw.dataset.gr, val = sw.checked;
@@ -1998,10 +2055,22 @@ async function renderDetail(name, tab = "console") {
     try { data = await api(`/api/instances/${encodeURIComponent(name)}/properties`); } catch (e) { body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
     if (!data.pairs.length) { body.innerHTML = `<div class="sub">配置文件为空 —— 首次启动服务器后，服务端会自动生成全部配置项。</div>`; return; }
     const LABELS = Object.fromEntries((window.PROPS_CATALOG || []).map(p => [p.key, p.label]));
+    const total = data.pairs.length;
     body.innerHTML = `<div style="max-width:900px"><div class="sub">server.properties 全部键值（高级）。已知项附中文名。</div>
+      <div class="common-bar">
+        <div class="search-field">${icon("search", "sf-ico")}<input type="text" id="raw-search" placeholder="搜索配置项（键名 / 中文名，如 rcon / 视距）" aria-label="搜索配置项" style="width:320px"></div>
+        <span class="hint" id="raw-count" style="margin:0">共 ${total} 项</span>
+      </div>
       <table class="raw">${data.pairs.map(p =>
-        `<tr><td>${esc(p.key)}</td><td class="raw-cn">${LABELS[p.key] ? esc(LABELS[p.key]) : ""}</td><td><input type="text" data-k="${esc(p.key)}" value="${esc(p.value)}"></td></tr>`).join("")}</table>
+        `<tr data-search="${esc(p.key)} ${esc(LABELS[p.key] || "")}"><td>${esc(p.key)}</td><td class="raw-cn">${LABELS[p.key] ? esc(LABELS[p.key]) : ""}</td><td><input type="text" data-k="${esc(p.key)}" value="${esc(p.value)}"></td></tr>`).join("")}</table>
+      <div class="sub" id="raw-none" hidden>没有匹配的配置项：换个关键词，或者按 Esc 清空搜索。</div>
       ${saveBar("保存全部", data.running ? `<span class="warn-text">${icon("warn")} 运行中：保存后需重启生效</span>` : "")}</div>`;
+    // 搜索（同常用设置）：只是把不匹配的行藏起来，保存时照样提交全部键值
+    wireSearch($("#raw-search"), () => {
+      const q = $("#raw-search").value, n = filterBySearch(q, body.querySelectorAll("table.raw tr"));
+      $("#raw-count").textContent = searchKey(q) ? `找到 ${n} 项（共 ${total} 项）` : `共 ${total} 项`;
+      $("#raw-none").hidden = n > 0;
+    });
     wireSaveBar(body, gen,
       () => Object.fromEntries([...body.querySelectorAll("input[data-k]")].map(el => [el.dataset.k, el.value])),
       async () => {

@@ -188,3 +188,38 @@ func TestWithJVMFlags(t *testing.T) {
 		t.Fatal("返回值与入参共享底层数组")
 	}
 }
+
+// 安装器输出里的网络问题（测试报告 B-01）：一段异常栈只算一次（包括 Caused by 里才出现超时的），记下最近的下载地址；
+// 正常的输出不算。
+func TestInstallerNetWatch(t *testing.T) {
+	lines := []string{
+		"Considering library net.neoforged:coremods:7.0.3",
+		"  Downloading library from https://maven.neoforged.net/releases/net/neoforged/coremods/7.0.3/coremods-7.0.3.jar",
+		"java.net.SocketTimeoutException: Connect timed out",
+		"at java.base/sun.nio.ch.NioSocketImpl.timedFinishConnect(NioSocketImpl.java:546)",
+		"at net.minecraftforge.installer.DownloadUtils.downloadLibrary(DownloadUtils.java:149)",
+		"Considering library net.neoforged:bus:8.0.2",
+		"  Downloading library from https://maven.neoforged.net/releases/net/neoforged/bus/8.0.2/bus-8.0.2.jar",
+		"java.io.IOException: 下载失败",
+		"at net.minecraftforge.installer.DownloadUtils.download(DownloadUtils.java:200)",
+		"Caused by: java.net.SocketTimeoutException: Connect timed out",
+		"... 12 more",
+		"java.net.UnknownHostException: libraries.minecraft.net",
+		"Downloaded library from https://bmclapi2.bangbang93.com/maven/foo.jar",
+		"The server installed successfully",
+	}
+	var w installerNet
+	var got []string
+	for _, l := range lines {
+		if what := w.line(strings.TrimSpace(l)); what != "" {
+			got = append(got, w.host+" "+what)
+		}
+	}
+	want := []string{"maven.neoforged.net 连接超时", "maven.neoforged.net 连接超时", "libraries.minecraft.net 连不上"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("认出的网络问题：%q，应为 %q", got, want)
+	}
+	if w.host != "bmclapi2.bangbang93.com" {
+		t.Fatalf("最近的下载地址：%q", w.host)
+	}
+}

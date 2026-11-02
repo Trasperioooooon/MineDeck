@@ -101,6 +101,7 @@ func (s *Service) Start(req StartReq) (*BroadcastView, error) {
 	confirmed := s.set.SystemConfirmed
 	device := s.set.Device
 	bridgePending := s.restart[req.Inst][restartBridge]
+	svcPending := s.restart[req.Inst][restartSVC]
 	vol := s.set.Instances[req.Inst].volume()
 	s.mu.Unlock()
 	defer func() {
@@ -125,6 +126,9 @@ func (s *Service) Start(req StartReq) (*BroadcastView, error) {
 	}
 	if jar.File == "" {
 		return nil, errorf(400, "还没装桥接模组：先在检查清单里安装，然后重启服务器")
+	}
+	if svcPending {
+		return nil, errorf(400, "Simple Voice Chat 装好以后还没重启服务器：重启后才能广播")
 	}
 	if bridgePending {
 		return nil, errorf(400, "桥接模组装好以后还没重启服务器：重启后才能广播")

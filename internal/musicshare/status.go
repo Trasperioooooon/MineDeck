@@ -44,7 +44,7 @@ type Status struct {
 	Broadcast       *BroadcastView `json:"broadcast,omitempty"` // 正在给这个实例广播
 	Elsewhere       string         `json:"elsewhere,omitempty"` // 正在给别的实例广播：那个实例的名字
 	Last            *EndView       `json:"last,omitempty"`      // 上一次广播是怎么结束的
-	Restart         []string       `json:"restart,omitempty"`   // 要重启服务器才生效的改动
+	Restart         []string       `json:"restart,omitempty"`   // 要重启服务器才生效的改动（「Simple Voice Chat」「桥接模组」「voice_host」）
 	Guide           string         `json:"guide"`               // 发给好友的说明
 	// Local 看的人在不在这台电脑前（操作层按调用方填）：不在时界面上不列音源、不给开始广播
 	Local bool `json:"local"`
@@ -100,7 +100,7 @@ func (s *Service) Status(name string) (*Status, error) {
 		st.Last = &last
 	}
 	for k := range s.restart[name] {
-		st.Restart = append(st.Restart, map[string]string{restartBridge: "桥接模组", restartVoiceHost: "voice_host"}[k])
+		st.Restart = append(st.Restart, map[string]string{restartBridge: "桥接模组", restartVoiceHost: "voice_host", restartSVC: "Simple Voice Chat"}[k])
 	}
 	s.mu.Unlock()
 	sort.Strings(st.Restart)

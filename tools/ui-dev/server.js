@@ -58,6 +58,7 @@ function newState(ui) {
     props: null,
     empty: false,
     taskStage: 2,
+    taskNet: null, // 部署任务的 net（下载超时、重试的情况）：{ count, host, what, ago }
     ai: newAIState(),
     music: newMusicState(), // 第五阶段
     gc: newGcState(), // 第四阶段：游戏内 AI
@@ -291,6 +292,7 @@ async function aiHandler(state, req, res, p, m) {
 // ==================== 第五阶段：音乐共享（同 /api/instances/{name}/music*、/api/music/*，以及隧道的「用途」）====================
 // 数据形状照抄后端（musicshare.Status、SourcesView、InstallResult、VoiceHostChange）；广播、检查都是假的。
 // 场景用 /__mock/state 的 music 字段切换：{ reset, cap: "win11" | "win10", local, systemConfirmed, voiceTunnel, inst: { 名称: {…} } }
+// inst 里可以写 svc: false（没装 SVC，检查清单给「安装」按钮）、svcFail: "错误信息"（点安装时报这个错）
 const MUSIC_CORES = ["neoforge", "forge", "mohist"];
 const MUSIC_CAPS = {
   win11: { os: "Windows 11（10.0.26300）", mode: "process", warn: false },
@@ -400,6 +402,7 @@ async function musicHandler(state, req, res, p, m, seg) {
     if (!supported) return err(res, 400, "音乐共享要用 Simple Voice Chat 和桥接模组，只支持 NeoForge、Forge 服");
     if (i.status !== "running") return err(res, 400, "服务器没在运行：先开服，等它启动完成再开始广播");
     if (!mi.bridge) return err(res, 400, "还没装桥接模组：先在检查清单里安装，然后重启服务器");
+    if (mi.restart.includes("Simple Voice Chat")) return err(res, 400, "Simple Voice Chat 装好以后还没重启服务器：重启后才能广播");
     if (mi.restart.includes("桥接模组")) return err(res, 400, "桥接模组装好以后还没重启服务器：重启后才能广播");
     if (!mi.svc) return err(res, 400, "mods 里没有 Simple Voice Chat：音乐要靠它推给玩家");
     if (b.mode === "process" && !b.pid) return err(res, 400, "先在列表里选一个正在出声的程序");
@@ -436,6 +439,15 @@ async function musicHandler(state, req, res, p, m, seg) {
     mi.bridge = v;
     if (running && !noop && !mi.restart.includes("桥接模组")) mi.restart.push("桥接模组");
     return ok(res, { installed: true, file: `minedeck-voicebridge${v === "javafml" ? "-javafml" : ""}-0.2.0.jar`, variant: v, current: true, version: "0.2.0", removed, restart: running && !noop });
+  }
+  if (sub === "svc" && m === "POST") { // 同 music.svc.install：从 Modrinth 装 SVC（这里是假的，不联网）；svcFail 模拟下载失败
+    if (!supported) return err(res, 400, "音乐共享要用 Simple Voice Chat 和桥接模组，只支持 NeoForge、Forge 服");
+    if (mi.svc) return err(res, 400, `mods 里已经有 Simple Voice Chat ${mi.svcVersion}（voicechat-forge-${mi.svcVersion}.jar），不用再装`);
+    if (mi.svcFail) return err(res, 502, mi.svcFail);
+    const loader = i.core === "neoforge" ? "neoforge" : "forge", running = i.status !== "stopped";
+    mi.svc = true; mi.svcVersion = `${i.mc}-2.6.27`;
+    if (running && !mi.restart.includes("Simple Voice Chat")) mi.restart.push("Simple Voice Chat");
+    return ok(res, { file: `voicechat-${loader}-${mi.svcVersion}.jar`, version: mi.svcVersion, name: `${loader}-${mi.svcVersion}`, restart: running });
   }
   if (sub === "voicehost" && m === "PUT") {
     const st = musicStatus(state, i);
@@ -1178,6 +1190,7 @@ function handler(state, ui, portOf) {
     // ---- 仿真控制端点：测试与截图脚本切换场景用，POST 的 JSON 可含 ----
     //   empty: true 时服务器列表为空；onboarded: false 时弹首启引导；listenLan: 远程访问开关（开启后设置页显示二维码）
     //   taskStage: 部署任务进行到第几步（0–4，4 = 完成），"error" = 第 2 步失败
+    //   taskNet: 部署任务的 net（同 tasks.NetRetry：{ count, host, what, ago }），null 清掉
     //   legacy: { name, extraJvm, forceFlags } 把某台服务器设成「老版本」，保存 JVM 参数时补回 forceFlags
     //   status: { 名称: running | starting | stopping | stopped } 直接改某台服务器的运行状态（看状态切换的动效用）
     //   cfKey: 已存的 CurseForge API Key（空串 = 未设置）；cfKeyBroken: true 模拟「Key 解不开」（换了电脑或 Windows 用户）
@@ -1193,6 +1206,7 @@ function handler(state, ui, portOf) {
       if ("empty" in b) state.empty = !!b.empty;
       if ("onboarded" in b) { state.config.onboarded = !!b.onboarded; state.config.tosAccepted = !!b.onboarded; }
       if ("taskStage" in b) state.taskStage = b.taskStage;
+      if ("taskNet" in b) state.taskNet = b.taskNet;
       if ("listenLan" in b) state.config.listenLan = !!b.listenLan;
       // 模拟老版本实例：保存 JVM 参数时后端强制补回 log4shell 缓解参数（同 inst.UpdateSettings）
       if (b.legacy) { const i = state.instances.find(x => x.name === b.legacy.name); if (i) { i.extraJvm = b.legacy.extraJvm; i.forceFlags = b.legacy.forceFlags; } }
@@ -1260,7 +1274,7 @@ function handler(state, ui, portOf) {
         const names = ["下载 Java 21 运行时", "下载 Paper 1.21.4 核心", "同意 EULA 并生成配置", "生成启动脚本"];
         const steps = names.map((name, i) => ({ name, status: st === "error" ? (i < 1 ? "done" : i === 1 ? "error" : "pending") : i < st ? "done" : i === st ? "running" : "pending" }));
         const ended = st === "error" || st >= names.length;
-        return ok(res, { steps, label: ended ? "" : "下载 paper-1.21.4-232.jar", done: 31457280, total: 52428800, error: st === "error" ? "下载 paper-1.21.4-232.jar 失败：所有下载源均不可用（BMCLAPI 超时、官方源 403）" : "", warnings: [], log: ["[1/4] 检测到本机 Java 21，复用", "[2/4] 正在从 api.papermc.io 下载核心…", "  已下载 30.0 MB / 50.0 MB"], ended, result: "生存服 · 朋友" });
+        return ok(res, { steps, label: ended ? "" : "下载 paper-1.21.4-232.jar", done: 31457280, total: 52428800, error: st === "error" ? "下载 paper-1.21.4-232.jar 失败：所有下载源均不可用（BMCLAPI 超时、官方源 403）" : "", warnings: [], log: ["[1/4] 检测到本机 Java 21，复用", "[2/4] 正在从 api.papermc.io 下载核心…", "  已下载 30.0 MB / 50.0 MB"], ended, result: "生存服 · 朋友", net: !ended && state.taskNet ? state.taskNet : undefined });
       }
       if (p === "/api/instances" && m === "GET") return ok(res, insts());
       if (p === "/api/instances" && m === "POST") return ok(res, { taskId: "task-1" });

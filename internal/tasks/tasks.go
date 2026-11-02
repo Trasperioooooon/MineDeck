@@ -4,8 +4,10 @@ package tasks
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strconv"
 	"sync"
+	"time"
 )
 
 type Step struct {
@@ -27,6 +29,14 @@ type Warning struct {
 	Items []WarnItem `json:"items,omitempty"`
 }
 
+// NetRetry 当前这一步里下载超时、失败重试的情况：部署页据此在进度旁提示「下载慢或者在重试」（测试报告 B-01）。
+type NetRetry struct {
+	Count int    `json:"count"`          // 这一步里一共出过几次
+	Host  string `json:"host,omitempty"` // 最近一次出问题的地址（只到主机名）
+	What  string `json:"what"`           // 最近一次是什么问题，如「连接超时」「下载失败」
+	Ago   int    `json:"ago"`            // 最近一次是几秒前
+}
+
 type Snapshot struct {
 	ID       string    `json:"id"`
 	Title    string    `json:"title"`
@@ -39,6 +49,8 @@ type Snapshot struct {
 	Err      string    `json:"error,omitempty"`
 	Result   string    `json:"result,omitempty"`
 	Warnings []Warning `json:"warnings,omitempty"`
+	// Net 最近一次出问题以后还没有新的下载进度时才有（下载又动起来、换了步骤就清掉）
+	Net *NetRetry `json:"net,omitempty"`
 }
 
 type Task struct {
@@ -55,6 +67,11 @@ type Task struct {
 	result   string
 	warnings []Warning
 	cancel   context.CancelFunc
+
+	netCount int       // 这一步里出过几次网络问题
+	netHost  string    // 最近一次的地址
+	netWhat  string    // 最近一次是什么问题
+	netAt    time.Time // 最近一次的时间；零值表示之后已经有了新进度（或者还没出过问题）
 }
 
 type Manager struct {
@@ -101,6 +118,18 @@ func (t *Task) StartStep(i int) {
 		t.steps[i].Status = "running"
 	}
 	t.label, t.done, t.total = "", 0, 0
+	t.netCount, t.netHost, t.netWhat, t.netAt = 0, "", "", time.Time{}
+}
+
+// NetRetry 记一次下载超时或失败（之后会自动重试）：host 是出问题的地址（可以带路径，只留主机名），what 是什么问题。
+func (t *Task) NetRetry(host, what string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if u, err := url.Parse(host); err == nil && u.Host != "" {
+		host = u.Host
+	}
+	t.netCount++
+	t.netHost, t.netWhat, t.netAt = host, what, time.Now()
 }
 
 func (t *Task) Logf(format string, a ...any) {
@@ -124,6 +153,7 @@ func (t *Task) ProgressFn(label string) func(done, total int64) {
 	return func(done, total int64) {
 		t.mu.Lock()
 		t.label, t.done, t.total = label, done, total
+		t.netAt = time.Time{} // 下载又动起来了：不再提示「在重试」（次数留着，再出问题接着数）
 		t.mu.Unlock()
 	}
 }
@@ -165,6 +195,9 @@ func (t *Task) Snapshot() Snapshot {
 	s.Steps = append(s.Steps, t.steps...)
 	s.Log = append(s.Log, t.log...)
 	s.Warnings = append(s.Warnings, t.warnings...)
+	if !t.netAt.IsZero() && !t.ended {
+		s.Net = &NetRetry{Count: t.netCount, Host: t.netHost, What: t.netWhat, Ago: int(time.Since(t.netAt).Seconds())}
+	}
 	// 空切片显式化为 []：任务刚创建、尚无日志时 nil 切片会被 JSON 编码成 null，
 	// 前端对其做 .map() 会抛错。此处从数据源头兜底，前端另有 (x||[]) 双保险。
 	if s.Steps == nil {

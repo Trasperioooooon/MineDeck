@@ -74,6 +74,8 @@ type Deps struct {
 	Instances Instances
 	Tunnels   Tunnels
 	Dir       string // 设置存在 <Dir>/settings.json（程序目录下的 data/music）
+	// ModrinthAPI 装 Simple Voice Chat 时查版本用的 Modrinth API；空为真的 api.modrinth.com（测试里换成本机的假服务）
+	ModrinthAPI string
 
 	// 为 nil 时用 music 包的真实现（只有 Windows 能用）；测试里换成假的
 	Detect       func() music.Capability
@@ -100,10 +102,11 @@ type Service struct {
 	cur      *broadcast
 	starting bool
 	last     map[string]EndView         // 实例 → 上一次广播是怎么结束的
-	restart  map[string]map[string]bool // 实例 → 要重启服务器才生效的改动（restartBridge、restartVoiceHost）
+	restart  map[string]map[string]bool // 实例 → 要重启服务器才生效的改动（restartBridge、restartVoiceHost、restartSVC）
 	watches  map[string]*voiceWatch
 	set      settings
 	svcCache map[string]svcEntry
+	svcMu    sync.Mutex // 同一时间只装一次 SVC（下载落在同一个临时文件）
 }
 
 // settings 存在 data/music/settings.json 的设置（排除名单在实例的 voicebridge.properties 里，不在这里）。
@@ -308,6 +311,7 @@ func modsDir(dir string) string { return filepath.Join(dir, "mods") }
 const (
 	restartBridge    = "bridge"    // 服务器运行中装了桥接模组
 	restartVoiceHost = "voicehost" // 服务器运行中改了 voice_host（SVC 只在启动时读）
+	restartSVC       = "svc"       // 服务器运行中装了 Simple Voice Chat
 )
 
 // markRestart 记下要重启才生效的改动；调用方不持有 s.mu。
