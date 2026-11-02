@@ -647,7 +647,23 @@ var (
 	voiceRe    = regexp.MustCompile(`has incompatible voice chat version \(server=(\S+), client=(\S+)\)`)
 	mismatchRe = regexp.MustCompile(`mismatched mod channel list|This server has mods that require (?:Forge|NeoForge) to be installed on the client|Mod rejections`)
 	lostRe     = regexp.MustCompile(`^(\S+?) (?:\(/[^)]*\) )?lost connection: `)
+	// 登录阶段断开时（Forge 1.20.1 等）日志里的「玩家名」是 GameProfile 对象的 toString：
+	// com.mojang.authlib.GameProfile@29746d4f[id=<null>,name=TesterA,properties={},legacy=false]
+	profileRe = regexp.MustCompile(`GameProfile@?[0-9a-fA-F]*\[.*?\bname=([^,\]\s]+)`)
 )
+
+// playerName 从断开行里取出的「玩家名」：GameProfile 那种写法只留 name（测试报告 E-06：横幅把整个对象打了出来）；
+// 取不出名字（name=<null>）时返回空。普通玩家名原样返回。
+func playerName(s string) string {
+	if !strings.Contains(s, "GameProfile") {
+		return s
+	}
+	m := profileRe.FindStringSubmatch(s)
+	if m == nil || m[1] == "<null>" || m[1] == "null" {
+		return ""
+	}
+	return m[1]
+}
 
 func ruleClientMismatch(c *ruleCtx) *Finding {
 	var idx []int
@@ -655,7 +671,9 @@ func ruleClientMismatch(c *ruleCtx) *Finding {
 	player := func(i int) {
 		for j := i; j >= 0 && j > i-3; j-- {
 			if m := lostRe.FindStringSubmatch(bodyOf(c.ls[j].text)); m != nil {
-				players = append(players, m[1])
+				if p := playerName(m[1]); p != "" {
+					players = append(players, p)
+				}
 				return
 			}
 		}

@@ -1,0 +1,3 @@
+[MineDeck] 启动: java -Xms1024M -Xmx6144M -Dfile.encoding=UTF-8 @libraries/net/minecraftforge/forge/1.20.1-47.3.0/win_args.txt nogui
+[15:10:00] [Server thread/INFO] [minecraft/DedicatedServer]: Done (48.210s)! For help, type "help"
+[15:20:01] [Server thread/INFO] [minecraft/ServerLoginPacketListenerImpl]: com.mojang.authlib.GameProfile@29746d4f[id=<null>,name=TesterA,properties={},legacy=false] (/192.168.1.52:50111) lost connection: Connection closed - mismatched mod channel list

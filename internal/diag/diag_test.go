@@ -194,6 +194,20 @@ func TestFindingDetails(t *testing.T) {
 	if f.Severity != "warn" || !strings.Contains(f.Summary, "Steve、Bob") || !slices.Equal(f.Mods, []string{"create", "voicechat"}) {
 		t.Errorf("好友进不来：%+v", f)
 	}
+	// 登录阶段断开时日志里是 GameProfile 对象（测试报告 E-06）：横幅只写玩家名
+	f = get("client-mismatch@forge-1.20.1.log", "client-mismatch")
+	if !strings.HasPrefix(f.Summary, "TesterA连服时") || strings.Contains(f.Summary, "GameProfile") {
+		t.Errorf("好友进不来（GameProfile 只取玩家名）：%q", f.Summary)
+	}
+	for in, want := range map[string]string{
+		"Steve": "Steve",
+		"com.mojang.authlib.GameProfile@29746d4f[id=<null>,name=TesterA,properties={},legacy=false]": "TesterA",
+		"com.mojang.authlib.GameProfile@1a2b3c4d[id=<null>,name=<null>,properties={},legacy=false]":  "",
+	} {
+		if got := playerName(in); got != want {
+			t.Errorf("playerName(%q) = %q，应为 %q", in, got, want)
+		}
+	}
 	if f = get("broken-config@forge-1.20.1.log", "broken-config"); !slices.Equal(f.Details, []string{"create-common.toml"}) || !slices.Equal(f.Mods, []string{"create"}) {
 		t.Errorf("配置坏了（Forge）：%+v", f)
 	}

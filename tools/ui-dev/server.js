@@ -1170,6 +1170,8 @@ const CONSOLE = [
   "[22:01:40 INFO]: Notch_CN joined the game",
 ];
 
+const tunnelTimers = new WeakMap(); // 隧道 → 「过一会儿拿到公网地址」的定时器（不挂在隧道对象上：会被编进 JSON）
+
 function handler(state, ui, portOf) {
   return async (req, res) => {
     const u = new URL(req.url, "http://x");
@@ -1182,6 +1184,8 @@ function handler(state, ui, portOf) {
     //   status: { 名称: running | starting | stopping | stopped } 直接改某台服务器的运行状态（看状态切换的动效用）
     //   cfKey: 已存的 CurseForge API Key（空串 = 未设置）；cfKeyBroken: true 模拟「Key 解不开」（换了电脑或 Windows 用户）
     //   credBroken: 隧道编号（如 "t2"），模拟这条隧道的凭据解不开；空串还原
+    //   tunnel: { id, …字段 } 改某条隧道（running、lastError、publicAddr，以及仿真用的 startError：点「启动」时报这个错、
+    //     nextAddr：启动后过 addrDelay 毫秒拿到的公网地址）；tunnelsReset: true 隧道回到初始的两条
     //   ai: { reset: true 回到没配置, local: false 模拟局域网打开（只能看）, keyBroken, testFail, priceUpdated, 以及 preset/baseUrl/model/key 等直接写入 }
     //   gc（第四阶段）: { reset: true 回到初始数据, inst: { 名称: { whitelistOn, seen, log, settings… } } }；响应里的 gc.whitelistReq 是上一次一键开白名单加的人
     //   cp（第七阶段）: 见 cpMockState；响应里的 cp.installs 是点过几次安装、cp.lastDespawn 是上一次移除的请求体
@@ -1199,6 +1203,8 @@ function handler(state, ui, portOf) {
       if ("cfKey" in b) state.cfKey = String(b.cfKey || "");
       if ("cfKeyBroken" in b) state.cfKeyBroken = !!b.cfKeyBroken;
       if ("credBroken" in b) for (const t of state.tunnels) t.credBroken = t.id === b.credBroken;
+      if (b.tunnelsReset) state.tunnels = newState(ui).tunnels; // 隧道回到初始的两条
+      if (b.tunnel) { const t = state.tunnels.find(x => x.id === b.tunnel.id); if (t) Object.assign(t, b.tunnel); }
       if (b.ai) { if (b.ai.reset) state.ai = newAIState(); const { reset, ...rest } = b.ai; Object.assign(state.ai, rest); }
       if (b.music) musicMockState(state, b.music); // 第五阶段
       if (b.gc) gcMockState(state, b.gc); // 第四阶段
@@ -1266,6 +1272,22 @@ function handler(state, ui, portOf) {
       if (p === "/api/instances" && m === "POST") return ok(res, { taskId: "task-1" });
       if (p === "/api/tunnels" && m === "GET") return ok(res, state.tunnels);
       if (p.startsWith("/api/tunnels/") && p.endsWith("/console")) return sse(res, ["[frpc] login to server success", "[frpc] proxy added: [mc]", "[frpc] start proxy success"]);
+      // 启停（同 tunnel.Manager.Start / Stop）：frpc 起来之前就失败的（startError，比如樱花还没放 frpc）报 400，
+      // 原因加上「启动失败：」记进 lastError；起来了就清掉 lastError，过 addrDelay 毫秒（默认 1500）拿到 nextAddr 这个公网地址
+      if (seg[2] === "tunnels" && (seg[4] === "start" || seg[4] === "stop") && m === "POST") {
+        const t = state.tunnels.find(x => x.id === seg[3]);
+        if (!t) return err(res, 400, "隧道不存在");
+        if (seg[4] === "stop") {
+          if (!t.running) return err(res, 400, "隧道未在运行");
+          t.running = false; clearTimeout(tunnelTimers.get(t));
+          return ok(res, "ok");
+        }
+        if (t.running) return err(res, 400, "隧道已在运行");
+        if (t.startError) { t.lastError = "启动失败：" + t.startError; return err(res, 400, t.startError); }
+        t.running = true; t.lastError = "";
+        if (t.nextAddr) tunnelTimers.set(t, setTimeout(() => { if (t.running) t.publicAddr = t.nextAddr; }, t.addrDelay ?? 1500));
+        return ok(res, "ok");
+      }
       if (p.startsWith("/api/tunnels")) return ok(res, {});
       if (seg[2] === "instances" && seg[3]) {
         const name = seg[3], sub = seg[4] || "";

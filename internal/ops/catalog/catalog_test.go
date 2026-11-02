@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"minedeck/internal/app"
 	"minedeck/internal/inst"
@@ -207,5 +208,38 @@ func TestPropsProposalFlow(t *testing.T) {
 	}
 	if _, err := reg.Do(ctx, ai, "instance.stop", ops.Args(`{"inst":"没有这个服"}`)); ops.CodeOf(err) != 404 {
 		t.Fatalf("实例不存在时应直接报 404：%v", err)
+	}
+}
+
+// 隧道跟着实例自动启停也写操作记录（测试报告第五轮）：来源 schedule、actor「跟随实例」、带实例名，失败的带上错误。
+// 这里是首次使用樱花还没放 frpc 时的跟随启动。
+func TestTunnelFollowWritesOpLog(t *testing.T) {
+	newCatalog(t) // 只用它准备好临时程序目录
+	mgr, err := inst.NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tun := tunnel.NewManager()
+	tt, err := tun.Add(tunnel.Tunnel{Provider: "natfrp", Name: "游戏", Credential: "k", ProxyID: "10", Bound: "生存服", AutoStart: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := New(Env{Mgr: mgr, Tun: tun, Port: 27333})
+	tun.StartBound("生存服")
+	deadline := time.Now().Add(8 * time.Second)
+	for {
+		recs, _ := reg.Log.Query(ops.Query{Inst: "生存服", Op: "tunnel."})
+		if len(recs) > 0 {
+			r := recs[0]
+			if r.Op != "tunnel.start" || r.Src != ops.SrcSchedule || r.Actor != "跟随实例" || r.OK || !strings.Contains(r.Err, "首次使用需手动放置樱花 frpc") ||
+				!strings.Contains(string(r.Args), `"id":"`+tt.ID+`"`) || !strings.Contains(string(r.Args), `"tunnel":"游戏"`) {
+				t.Fatalf("跟随启动的操作记录：%+v（args %s）", r, r.Args)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("跟随启动失败没有写操作记录")
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }

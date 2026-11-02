@@ -57,12 +57,18 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 ### 穿透
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET/POST | `/api/tunnels` | 列表（每项含运行态 `lastError`——frpc 最近一条失败原因，成功后清空；`credBroken`——凭据解不开，多半是换了电脑或 Windows 用户，这条隧道不能启动，要重填凭据）/ 新增 |
+| GET/POST | `/api/tunnels` | 列表（每项含运行态 `lastError`——最近一次失败原因：frpc 起来之前就失败的写成「启动失败：…」或「跟随启动失败：…」（比如樱花还没放 frpc），frpc 报的错照原文，没报错就退出的写「frpc 意外退出（退出码 N）…」；frpc 起来或报成功时清空；`credBroken`——凭据解不开，多半是换了电脑或 Windows 用户，这条隧道不能启动，要重填凭据）/ 新增 |
 | PUT/DELETE | `/api/tunnels/{id}` | 修改 / 删除 |
 | POST | `/api/tunnels/{id}/start` \| `/stop` | 启停 frpc |
 | GET | `/api/tunnels/{id}/console` | SSE frpc 日志 |
 
 凭据 `credential` 只写不读：用 Windows DPAPI 加密后存进 `tunnels.json`（`"dpapi:…"`），任何响应都不下发；`PUT` 时留空表示不修改。旧版的明文凭据在启动时自动加密写回。自定义 frps 的 token 不再写进 frpc 的配置文件，而是经环境变量交给 frpc 进程（配置里只有 `{{ .Envs.… }}` 模板）。OpenFrp 和樱花的 frpc 仍然只能从命令行参数接收凭据。
+
+`serverAddr`、`serverPort`、`remotePort`、`localPort` 只有自定义 frps 用。樱花、OpenFrp 的隧道启动时只传「凭据 + 隧道 ID」，端口在服务商后台填，这几项传了也不存、列表里也不给（`localPort` 不再总是出现）；老版本存下的 25565 / 25566 这类数在加载时清掉并写回。
+
+`publicAddr` 从 frpc 的输出里认：同一次运行里既有域名形式又有 IP 形式（樱花会同时打「使用 >>域名:端口<< 连接」和「或使用节点 IP 连接（不推荐）」两行）时取域名，IP 会随节点变。
+
+开了「跟随实例启动」的隧道跟着绑定的实例启停（实例启动后约 2 秒拉起；停服 5 秒后还停着就停掉），每次各记一条操作记录：`op` 为 `tunnel.start` / `tunnel.stop`，`src` 为 `schedule`，`actor` 为「跟随实例」，`inst` 是绑定的实例，`args` 里有隧道编号 `id` 和隧道名 `tunnel`；拉不起来的记为失败并带上错误。
 
 ### 音乐共享（第五阶段）
 
@@ -126,7 +132,7 @@ AI 是可选功能。没配置时（`enabled` 为 false）MineDeck 不连接任�
  "inst":"生存服","args":{"pairs":[{"key":"max-players","value":"10"}]},"ok":true,"ms":12}
 ```
 
-- `src` 是来源：`ui`（本机界面）、`api`（本机的其他程序）、`lan`（局域网设备，`actor` 是它的地址）、`schedule`（定时任务和崩溃自动重启，`actor` 写明是哪一种）；`assistant`（应用内 AI 助手）、`gamechat`（游戏内 AI，`actor` 是玩家名，见「游戏内 AI（第四阶段）」）、`companion`（留给以后的 AI 伙伴）。AI 发起的写操作要人确认后才执行，记录里带 `proposal`（提案编号）和 `approvedBy`（确认的人）。
+- `src` 是来源：`ui`（本机界面）、`api`（本机的其他程序）、`lan`（局域网设备，`actor` 是它的地址）、`schedule`（定时任务、崩溃自动重启和隧道跟随实例自动启停，`actor` 写明是哪一种：「定时任务」「崩溃自动重启」「跟随实例」）；`assistant`（应用内 AI 助手）、`gamechat`（游戏内 AI，`actor` 是玩家名，见「游戏内 AI（第四阶段）」）、`companion`（留给以后的 AI 伙伴）。AI 发起的写操作要人确认后才执行，记录里带 `proposal`（提案编号）和 `approvedBy`（确认的人）。
 - 失败的操作也记，`ok` 为 false，`err` 是错误信息。
 - Key、密码、令牌、凭据、Webhook 地址，以及 server.properties 里像密码的项（如 `rcon.password`），在 `args` 里一律写成 `***`（清空时保留空串）。
 
