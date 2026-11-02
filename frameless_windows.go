@@ -32,6 +32,7 @@ var (
 	pGetSystemMetrics       = user32t.NewProc("GetSystemMetrics")
 	pGetDpiForWindow        = user32t.NewProc("GetDpiForWindow")
 	pGetSystemMetricsForDpi = user32t.NewProc("GetSystemMetricsForDpi")
+	pGetDoubleClickTime     = user32t.NewProc("GetDoubleClickTime")
 )
 
 type nccRect struct{ Left, Top, Right, Bottom int32 }
@@ -89,9 +90,17 @@ func applyFrameless(hwnd uintptr) {
 }
 
 // hostStartDrag 从当前光标发起原生窗口拖动（前端顶栏空白处 mousedown 调用）。
+// 系统的移动循环会收走这一下的松开键，网页因此收不到 dblclick；双击最大化由前端在 mousedown 里自己认
+// （第二下改调 hostWinMaxToggle、不再发起拖动），双击间隔取 doubleClickTime。
 func hostStartDrag(hwnd uintptr) {
 	pReleaseCapture.Call()
 	pSendMessageW.Call(hwnd, _WM_NCLBUTTONDOWN, _HTCAPTION, 0)
+}
+
+// doubleClickTime 系统设置里的双击间隔（毫秒，默认 500）。
+func doubleClickTime() int {
+	r, _, _ := pGetDoubleClickTime.Call()
+	return int(r)
 }
 
 func hostMinimize(hwnd uintptr) { pShowWindow.Call(hwnd, _SW_MINIMIZE) }
