@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,7 +35,9 @@ type Tunnel struct {
 	ServerAddr string `json:"serverAddr,omitempty"` // custom: frps 地址
 	ServerPort int    `json:"serverPort,omitempty"` // custom: frps 端口
 	RemotePort int    `json:"remotePort,omitempty"` // custom: 公网端口
-	LocalPort  int    `json:"localPort"`            // 本地 MC 端口
+	// LocalPort 本地端口，只有自定义 frps 用（写进 frpc 配置）；樱花、OpenFrp 的本地端口和远程端口都在服务商后台填，
+	// 启动时只传隧道 ID，这几项存着反而误导（测试报告第五轮），保存和加载时清掉。
+	LocalPort  int    `json:"localPort,omitempty"`
 	Bound      string `json:"boundInstance,omitempty"`
 	AutoStart  bool   `json:"autoStart"` // 跟随绑定实例启动
 	PublicAddr string `json:"publicAddr,omitempty"`
@@ -57,6 +60,8 @@ type runState struct {
 	cmd     *exec.Cmd
 	stdin   *bufio.Writer
 	stopped bool // 用户主动停止
+	// sawDomain 这次运行已经抓到过域名形式的公网地址：之后再出现的 IP 形式不覆盖它（只在读输出的那个 goroutine 里用）
+	sawDomain bool
 }
 
 type Manager struct {
@@ -66,8 +71,37 @@ type Manager struct {
 	running  map[string]*runState
 	starting map[string]bool // 正在启动中的隧道ID（登记进 running 前的占位，防并发/重复 Start 双启 frpc）
 	consoles map[string]*procutil.Console
-	lastErr  map[string]string // 隧道ID → 最近一条 frpc 失败信息（运行态，不持久化）
+	lastErr  map[string]string // 隧道ID → 最近一次失败原因（启动前的失败、frpc 报的错、意外退出；运行态，不持久化）
 	broken   map[string]bool   // 隧道ID → 凭据解不开（换了电脑或 Windows 用户），不能启动
+
+	autoMu   sync.Mutex
+	autoHook func(AutoAction) // 跟随实例自动启停之后的回调（操作层用它写操作记录）
+}
+
+// AutoAction 跟着实例自动启停隧道的一次操作，交给操作层写一条操作记录（来源 schedule），
+// 事后在 logs\ops 里查得到「隧道是谁拉起来、谁停掉的」。和 inst.AutoAction 一个样子。
+type AutoAction struct {
+	Op    string         // tunnel.start | tunnel.stop
+	Actor string         // "跟随实例"
+	Args  map[string]any // id、隧道名 tunnel、实例名 inst
+	Err   error
+	Dur   time.Duration
+}
+
+// SetAutoHook 登记自动启停的回调（操作层在启动时注入）。
+func (m *Manager) SetAutoHook(fn func(AutoAction)) {
+	m.autoMu.Lock()
+	m.autoHook = fn
+	m.autoMu.Unlock()
+}
+
+func (m *Manager) noteAuto(a AutoAction) {
+	m.autoMu.Lock()
+	fn := m.autoHook
+	m.autoMu.Unlock()
+	if fn != nil {
+		fn(a)
+	}
 }
 
 func NewManager() *Manager {
@@ -95,6 +129,9 @@ func (m *Manager) load() {
 	// 旧版存的明文凭据：加密后写回（失败保持原样、只记日志，启动时照旧能用）；解不开的标记出来，不让启动
 	migrated := false
 	for _, t := range m.tunnels {
+		if clearUnusedPorts(t) { // 老版本给樱花、OpenFrp 隧道存的 25565 / 25566 这类不参与启动的数
+			migrated = true
+		}
 		switch {
 		case t.Credential == "":
 		case !secret.IsSealed(t.Credential):
@@ -169,18 +206,26 @@ func (m *Manager) List() []Status {
 	return out
 }
 
-// setLastErr 记录/清除隧道最近一条失败信息（供前端行内提示）。
+// setLastErr 记录/清除隧道最近一次失败原因（隧道卡片上直接显示）。
 func (m *Manager) setLastErr(id, msg string) {
 	m.mu.Lock()
 	if msg == "" {
 		delete(m.lastErr, id)
 	} else {
-		if len(msg) > 200 {
-			msg = msg[:200]
+		// 按字符截：樱花那条「首次使用需手动放置 frpc」带着目录，中文按字节截会切在半个字上，下发时变成乱码
+		if r := []rune(msg); len(r) > 300 {
+			msg = string(r[:300]) + "…"
 		}
 		m.lastErr[id] = msg
 	}
 	m.mu.Unlock()
+}
+
+// lastError 隧道最近一次失败原因（没有时为空）。
+func (m *Manager) lastError(id string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastErr[id]
 }
 
 func (m *Manager) get(id string) *Tunnel {
@@ -301,6 +346,7 @@ func validate(t *Tunnel) error {
 		if t.Credential == "" || strings.TrimSpace(t.ProxyID) == "" {
 			return fmt.Errorf("请填写凭据与隧道 ID（在服务商官网创建隧道后获取）")
 		}
+		clearUnusedPorts(t)
 	case "custom":
 		if t.ServerAddr == "" || t.ServerPort <= 0 || t.RemotePort <= 0 {
 			return fmt.Errorf("自定义 frps 需填写服务器地址、端口与公网远程端口")
@@ -314,8 +360,22 @@ func validate(t *Tunnel) error {
 	return nil
 }
 
+// clearUnusedPorts 樱花、OpenFrp 的隧道清掉 frps 地址、端口这几项：启动时只传「凭据 + 隧道 ID」，端口在服务商后台填，
+// 存着的数和后台不一致时会让人误判。返回有没有清掉东西。
+func clearUnusedPorts(t *Tunnel) bool {
+	if t.Provider != "openfrp" && t.Provider != "natfrp" || t.ServerAddr == "" && t.ServerPort == 0 && t.RemotePort == 0 && t.LocalPort == 0 {
+		return false
+	}
+	t.ServerAddr, t.ServerPort, t.RemotePort, t.LocalPort = "", 0, 0, 0
+	return true
+}
+
 // Start 启动隧道的 frpc 进程。
-func (m *Manager) Start(id string) error {
+func (m *Manager) Start(id string) error { return m.start(id, "启动失败：") }
+
+// start 启动隧道；frpc 起来之前就失败的（凭据解不开、没有 frpc、启动不了），原因前面加上 why 记进 lastErr，
+// 卡片上直接显示（手动启动和跟随启动的说法不同）。frpc 起来了就清掉上一次的失败原因。
+func (m *Manager) start(id, why string) error {
 	m.mu.Lock()
 	t := m.get(id)
 	if t == nil {
@@ -332,27 +392,28 @@ func (m *Manager) Start(id string) error {
 	defer func() { m.mu.Lock(); delete(m.starting, id); m.mu.Unlock() }()
 
 	con := m.Console(id)
+	fail := func(err error) error {
+		con.Append("[MineDeck] ❌ " + err.Error())
+		m.setLastErr(id, why+err.Error())
+		return err
+	}
 	// 先解凭据再准备 frpc：解不开就不必下载 frpc
 	cred, err := secret.Unseal(snap.Credential)
 	if err != nil {
-		err = fmt.Errorf("凭据无法解开（可能换了电脑或 Windows 用户），请重新填写这条隧道的凭据（界面上可以删除后重新添加）")
-		con.Append("[MineDeck] ❌ " + err.Error())
-		return err
+		return fail(fmt.Errorf("凭据无法解开（可能换了电脑或 Windows 用户），请重新填写这条隧道的凭据（界面上可以删除后重新添加）"))
 	}
 	snap.Credential = cred
 	p := providerOf(snap.Provider)
 	if p == nil {
-		return fmt.Errorf("未知服务商: %s", snap.Provider)
+		return fail(fmt.Errorf("未知服务商: %s", snap.Provider))
 	}
 	exe, err := p.EnsureFrpc(con)
 	if err != nil {
-		con.Append("[MineDeck] ❌ " + err.Error())
-		return err
+		return fail(err)
 	}
 	args, env, err := p.Launch(&snap)
 	if err != nil {
-		con.Append("[MineDeck] ❌ " + err.Error())
-		return err
+		return fail(err)
 	}
 	cmd := exec.Command(exe, args...)
 	cmd.Dir = filepath.Dir(exe)
@@ -363,22 +424,23 @@ func (m *Manager) Start(id string) error {
 	procutil.HideWindow(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return err
+		return fail(err)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return err
+		return fail(err)
 	}
 	cmd.Stderr = cmd.Stdout
 	con.Append(fmt.Sprintf("[MineDeck] 启动 frpc（%s）...", snap.Provider))
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("frpc 启动失败: %w", err)
+		return fail(fmt.Errorf("frpc 启动失败: %w", err))
 	}
 	procutil.AssignToJob(cmd.Process)
 	rs := &runState{cmd: cmd, stdin: bufio.NewWriter(stdin)}
 	m.mu.Lock()
 	m.running[id] = rs
 	m.mu.Unlock()
+	m.setLastErr(id, "") // 运行起来了：上一次的失败原因不再显示（frpc 再报错时 handleLine 会重新记）
 
 	go func() {
 		sc := bufio.NewScanner(stdout)
@@ -400,6 +462,13 @@ func (m *Manager) Start(id string) error {
 			con.Append("[MineDeck] 隧道已停止")
 		} else {
 			con.Append("[MineDeck] frpc 意外退出（检查凭据/隧道 ID 是否正确，或查看上方日志）")
+			if m.lastError(id) == "" { // frpc 自己报过错的留着那条（更具体），没报就记「意外退出」，卡片上看得到
+				msg := "frpc 意外退出"
+				if ps := cmd.ProcessState; ps != nil {
+					msg += fmt.Sprintf("（退出码 %d）", ps.ExitCode())
+				}
+				m.setLastErr(id, msg+"，检查凭据和隧道 ID，或者点「日志」看 frpc 的输出")
+			}
 			events.Publish("tunnel.down", map[string]any{"tunnel": name})
 		}
 	}()
@@ -407,6 +476,12 @@ func (m *Manager) Start(id string) error {
 }
 
 var addrRe = regexp.MustCompile(`([A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z0-9.-]+:\d{2,5}|\d{1,3}(?:\.\d{1,3}){3}:\d{2,5})`)
+
+// isIPAddr 「主机:端口」的主机是不是 IP（addrRe 的第一种写法也能匹配 IP，只能拆出来判断）。
+func isIPAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	return err == nil && net.ParseIP(host) != nil
+}
 
 // handleLine 解析 frpc 输出：提取公网地址、自动应答服务条款确认。
 func (m *Manager) handleLine(t *Tunnel, rs *runState, line string) {
@@ -428,7 +503,16 @@ func (m *Manager) handleLine(t *Tunnel, rs *runState, line string) {
 	if hasAddr != "" && (success || strings.Contains(line, "连接") || strings.Contains(low, "remote")) {
 		// 排除明显的本地/服务器内部地址
 		if !strings.HasPrefix(hasAddr, "127.") && !strings.HasPrefix(hasAddr, "0.0.0.0") {
-			m.setPublicAddr(t, hasAddr)
+			// 域名优先：樱花同时打「使用 >>域名:端口<< 连接」和「或使用节点 IP 连接（不推荐）>>IP:端口<<」两行，
+			// IP 会随节点变，发给好友的要是域名。这次运行见过域名之后，后面的 IP 不再覆盖；先 IP 后域名照常换成域名。
+			// 只看这次运行（PublicAddr 跨次保存着，节点换了只给 IP 时不能卡在上次的域名上）。
+			switch {
+			case !isIPAddr(hasAddr):
+				rs.sawDomain = true
+				m.setPublicAddr(t, hasAddr)
+			case !rs.sawDomain:
+				m.setPublicAddr(t, hasAddr)
+			}
 		}
 	}
 	// 失败信息捕获（供隧道行内红字提示）；成功则清除
@@ -473,27 +557,47 @@ func (m *Manager) Stop(id string) error {
 	return nil
 }
 
-// StartBound 启动绑定到某实例且开启了跟随启动的隧道（实例启动后调用）。
+// followActor 跟随实例自动启停时，操作记录里写的「谁做的」。
+const followActor = "跟随实例"
+
+// startDelay 实例启动后等多久再拉起跟随的隧道：等服务器进入启动流程。
+var startDelay = 2 * time.Second
+
+// followArgs 跟随启停写进操作记录的参数：带上实例名 inst，按实例查操作记录时查得到。
+func (m *Manager) followArgs(id, instance string) map[string]any {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	args := map[string]any{"id": id, "inst": instance}
+	if t := m.get(id); t != nil {
+		args["tunnel"] = t.Name
+	}
+	return args
+}
+
+// StartBound 启动绑定到某实例且开启了跟随启动的隧道（实例启动后调用）。每拉起（或拉不起）一条记一条操作记录。
 func (m *Manager) StartBound(instance string) {
 	for _, id := range m.bound(instance) {
 		id := id
 		go func() {
-			time.Sleep(2 * time.Second) // 等服务器进入启动流程
+			time.Sleep(startDelay)
 			m.mu.Lock()
 			busy := m.running[id] != nil || m.starting[id] // 已经开着（比如重启时没停）就不用再开；等之后再看，免得撞上刚停掉还没收尾的那次
 			m.mu.Unlock()
 			if busy {
 				return
 			}
-			if err := m.Start(id); err != nil {
+			start := time.Now()
+			err := m.start(id, "跟随启动失败：")
+			if err != nil {
 				m.Console(id).Append("[MineDeck] 跟随启动失败: " + err.Error())
 			}
+			m.noteAuto(AutoAction{Op: "tunnel.start", Actor: followActor, Args: m.followArgs(id, instance), Err: err, Dur: time.Since(start)})
 		}()
 	}
 }
 
 // StopBound 停掉绑定到某实例、开了跟随启动、正在运行的隧道（实例停了之后调用），返回停了几条。
-// 和 StartBound 对称：手动开的、没勾跟随启动的隧道不动。
+// 和 StartBound 对称：手动开的、没勾跟随启动的隧道不动。停的每一条记一条操作记录。
 func (m *Manager) StopBound(instance string) int {
 	n := 0
 	for _, id := range m.bound(instance) {
@@ -504,9 +608,12 @@ func (m *Manager) StopBound(instance string) int {
 			continue
 		}
 		m.Console(id).Append(fmt.Sprintf("[MineDeck] 服务器「%s」停了，隧道跟着停止", instance))
-		if m.Stop(id) == nil {
-			n++
+		start := time.Now()
+		if m.Stop(id) != nil { // Stop 只会报「未在运行」：刚好自己退出了，什么也没做，不记
+			continue
 		}
+		n++
+		m.noteAuto(AutoAction{Op: "tunnel.stop", Actor: followActor, Args: m.followArgs(id, instance), Dur: time.Since(start)})
 	}
 	return n
 }

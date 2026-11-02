@@ -55,7 +55,7 @@ type cat struct {
 }
 
 // New 建好注册表并登记全部操作；操作记录写在 <程序目录>/logs/ops/。
-// 定时任务和崩溃自动重启也经 inst 的回调各记一条（来源 schedule）。
+// 定时任务和崩溃自动重启也经 inst 的回调各记一条（来源 schedule），隧道跟随实例自动启停经 tunnel 的回调记。
 func New(env Env) *ops.Registry {
 	reg := ops.NewRegistry(ops.NewLog(filepath.Join(app.Base, "logs", "ops")))
 	if env.AI == nil {
@@ -117,6 +117,11 @@ func New(env Env) *ops.Registry {
 	c.companionOps() // 第七阶段
 	if env.Mgr != nil {
 		env.Mgr.SetAutoHook(func(a inst.AutoAction) {
+			reg.Record(ops.Caller{Source: ops.SrcSchedule, Actor: a.Actor, Local: true}, a.Op, ops.ArgsOf(a.Args), a.Err, a.Dur)
+		})
+	}
+	if env.Tun != nil { // 隧道跟着实例自动启停（「跟随实例」）也各记一条，失败的带上错误
+		env.Tun.SetAutoHook(func(a tunnel.AutoAction) {
 			reg.Record(ops.Caller{Source: ops.SrcSchedule, Actor: a.Actor, Local: true}, a.Op, ops.ArgsOf(a.Args), a.Err, a.Dur)
 		})
 	}

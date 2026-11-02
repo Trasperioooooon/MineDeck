@@ -2134,32 +2134,54 @@ async function renderTunnels() {
     if (!f.hidden) { f.scrollIntoView({ behavior: "smooth", block: "nearest" }); $("#tn-name").focus({ preventScroll: true }); }
   };
 
-  let logOpen = false;
-  const drawList = async () => {
-    if (logOpen) return; // 日志展开时暂停列表刷新，避免打断 SSE 显示
-    let list;
-    try { list = await api("/api/tunnels"); } catch (e) { if (!stale(gen)) $("#tun-list").innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
-    if (stale(gen) || logOpen) return;
-    const runN = list.filter(t => t.running).length;
-    $("#tun-summary").innerHTML = list.length ? `${list.length} 条隧道${SEP}运行中 ${runN}` : "";
-    if (!list.length) { $("#tun-list").innerHTML = `<div class="empty">${MDPixel.emptySVG(200)}<div class="empty-title">还没有隧道</div>点右上角「添加隧道」，开服后就能把本地服务器映射到公网</div>`; return; }
-    $("#tun-list").innerHTML = list.map(t => `
-      <div class="java-row" style="max-width:980px">
+  // 日志展开着的隧道：列表照常刷新（以前日志一展开整个列表就停刷，点了「启动」卡片也不变，测试报告第五轮），
+  // 重绘时把那个日志框摘下来再放回原位，SSE 不断。
+  let logId = null;
+  let shown = null; // 上次画出来的列表；没变就不重画，不打断「已复制」的动效和键盘焦点
+  let drawSeq = 0;
+  const closeLog = () => { logId = null; if (consoleES) { consoleES.close(); consoleES = null; } };
+  const warnSpan = (text, title) => `<span class="jp" style="color:var(--danger-text);display:inline-flex;align-items:center;gap:5px"${title ? ` title="${esc(title)}"` : ""}>${icon("warn")} ${esc(text)}</span>`;
+  const tunRow = t => {
+    // 最近一次失败原因（启动失败、跟随启动失败、frpc 报错或意外退出）直接写在卡片上，不用点开日志；
+    // 停着时排在上次的公网地址前面，跑起来拿到地址后不再显示（后端在 frpc 起来时也会清掉）
+    const err = !t.credBroken && t.lastError && !(t.running && t.publicAddr) ? t.lastError : "";
+    const state = t.credBroken ? warnSpan("凭据无法解开，请删除后重新添加", "凭据加密绑定当前电脑和 Windows 用户，换了就解不开")
+      : err ? warnSpan(t.running ? "连接出错" : "上次出错")
+      : t.publicAddr ? `<span class="jv" style="color:var(--accent-text);font-family:var(--mono)">${esc(t.publicAddr)}</span>
+          <button class="btn sm" data-copy="${esc(t.publicAddr)}">${icon("copy")} 复制</button>`
+      : `<span class="jp">${t.running ? "连接中…" : "尚未启动"}</span>`;
+    return `
+      <div class="java-row" style="max-width:980px" data-tun="${esc(t.id)}">
         ${stPill(t.running ? "running" : "stopped")}
         <b style="min-width:110px">${esc(t.name)}</b>
         <span class="badge core">${esc(PROV_NAMES[t.provider] || t.provider)}</span>${window.MDMusic ? MDMusic.tunnelBadge(t) : ""}
         ${t.boundInstance ? `<span class="badge">${icon("link")} ${esc(t.boundInstance)}${t.autoStart ? " · 跟随" : ""}</span>` : ""}
-        ${t.credBroken ? `<span class="jp" style="color:var(--danger-text);display:inline-flex;align-items:center;gap:5px" title="凭据加密绑定当前电脑和 Windows 用户，换了就解不开">${icon("warn")} 凭据无法解开，请删除后重新添加</span>`
-          : t.publicAddr ? `<span class="jv" style="color:var(--accent-text);font-family:var(--mono)">${esc(t.publicAddr)}</span>
-          <button class="btn sm" data-copy="${esc(t.publicAddr)}">${icon("copy")} 复制</button>`
-          : t.lastError ? `<span class="jp" style="color:var(--danger-text);display:inline-flex;align-items:center;gap:5px" title="${esc(t.lastError)}">${icon("warn")} ${esc(t.lastError.length > 46 ? t.lastError.slice(0, 46) + "…" : t.lastError)}</span>`
-          : `<span class="jp">${t.running ? "连接中…" : "尚未启动"}</span>`}
+        ${state}
         <span class="grow"></span>
-        ${t.running ? `<button class="btn sm" data-tstop="${t.id}">${icon("stop")} 停止</button>` : `<button class="btn sm primary" data-tstart="${t.id}">${icon("play")} 启动</button>`}
-        <button class="btn sm" data-tlog="${t.id}">日志</button>
-        <button class="btn sm danger" data-tdel="${t.id}">删除</button>
+        ${t.running ? `<button class="btn sm" data-tstop="${esc(t.id)}">${icon("stop")} 停止</button>` : `<button class="btn sm primary" data-tstart="${esc(t.id)}">${icon("play")} 启动</button>`}
+        <button class="btn sm" data-tlog="${esc(t.id)}" aria-expanded="${logId === t.id}" aria-controls="tlog-${esc(t.id)}">日志</button>
+        <button class="btn sm danger" data-tdel="${esc(t.id)}">删除</button>
+        ${err ? `<div class="tun-err" style="flex-basis:100%;font-size:var(--fs-xs);color:var(--danger-text);line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere">${esc(err)}</div>` : ""}
       </div>
-      <div class="task-log" id="tlog-${t.id}" style="display:none;height:150px;max-width:980px;margin:-2px 0 8px"></div>`).join("");
+      <div class="task-log" id="tlog-${esc(t.id)}" style="display:none;height:150px;max-width:980px;margin:-2px 0 8px"></div>`;
+  };
+  const drawList = async () => {
+    const seq = ++drawSeq;
+    let list;
+    try { list = await api("/api/tunnels"); } catch (e) {
+      if (!stale(gen) && seq === drawSeq) { closeLog(); shown = null; $("#tun-list").innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
+      return null;
+    }
+    if (stale(gen) || seq !== drawSeq) return list; // 晚到的旧响应不画
+    const sig = JSON.stringify(list);
+    if (sig === shown) return list;
+    shown = sig;
+    const runN = list.filter(t => t.running).length;
+    $("#tun-summary").innerHTML = list.length ? `${list.length} 条隧道${SEP}运行中 ${runN}` : "";
+    if (!list.length) { closeLog(); $("#tun-list").innerHTML = `<div class="empty">${MDPixel.emptySVG(200)}<div class="empty-title">还没有隧道</div>点右上角「添加隧道」，开服后就能把本地服务器映射到公网</div>`; return list; }
+    const logBox = logId ? $("#tlog-" + logId) : null;
+    $("#tun-list").innerHTML = list.map(tunRow).join("");
+    if (logBox) { const ph = $("#tlog-" + logId); if (ph) ph.replaceWith(logBox); else closeLog(); } // 那条隧道删了就关掉日志
     $("#tun-list").querySelectorAll("[data-copy]").forEach(b => b.onclick = async () => {
       await copy(b.dataset.copy, "已复制公网地址：" + b.dataset.copy);
       // 微交互：图标换成弹出的对勾、文字改「已复制」，1.3 秒后换回
@@ -2170,14 +2192,19 @@ async function renderTunnels() {
       setTimeout(() => { b.innerHTML = old; playClass(b, "swap-in"); delete b.dataset.busy; }, 1300);
     });
     $("#tun-list").querySelectorAll("[data-tstart]").forEach(b => b.onclick = async () => {
+      const id = b.dataset.tstart;
       b.disabled = true;
-      try { await api(`/api/tunnels/${b.dataset.tstart}/start`, { method: "POST" }); toast("隧道启动中，公网地址稍后显示在列表"); }
+      try { await api(`/api/tunnels/${id}/start`, { method: "POST" }); toast("隧道启动中，公网地址稍后显示在列表"); }
       catch (e) { toast(e.message, true); }
-      setTimeout(drawList, 600);
+      b.disabled = false; // 列表没变（比如同样的错误）时不会重画，按钮要自己恢复
+      watch(id, t => !t.running || !!t.publicAddr || !!t.lastError); // 拿到公网地址、报错或者停下就算稳定
     });
     $("#tun-list").querySelectorAll("[data-tstop]").forEach(b => b.onclick = async () => {
-      try { await api(`/api/tunnels/${b.dataset.tstop}/stop`, { method: "POST" }); } catch (e) { toast(e.message, true); }
-      setTimeout(drawList, 400);
+      const id = b.dataset.tstop;
+      b.disabled = true;
+      try { await api(`/api/tunnels/${id}/stop`, { method: "POST" }); } catch (e) { toast(e.message, true); }
+      b.disabled = false;
+      watch(id, t => !t.running);
     });
     $("#tun-list").querySelectorAll("[data-tdel]").forEach(b => b.onclick = async () => {
       const r = await confirmModal({ title: "删除隧道？", danger: true, okText: "删除", icon: "trash", body: "仅删除本机配置，服务商侧隧道不受影响。" });
@@ -2186,34 +2213,59 @@ async function renderTunnels() {
       drawList();
     });
     $("#tun-list").querySelectorAll("[data-tlog]").forEach(b => b.onclick = () => {
-      const box = $("#tlog-" + b.dataset.tlog);
-      if (box.style.display !== "none") { box.style.display = "none"; logOpen = false; if (consoleES) { consoleES.close(); consoleES = null; } return; }
+      const id = b.dataset.tlog, box = $("#tlog-" + id), was = logId === id;
       document.querySelectorAll(".task-log[id^=tlog-]").forEach(x => x.style.display = "none");
-      if (consoleES) { consoleES.close(); consoleES = null; }
-      logOpen = true;
+      $("#tun-list").querySelectorAll("[data-tlog]").forEach(x => x.setAttribute("aria-expanded", "false"));
+      closeLog();
+      if (was) return;
+      logId = id;
+      b.setAttribute("aria-expanded", "true");
       box.style.display = "";
       box.textContent = "";
-      consoleES = new EventSource(`/api/tunnels/${b.dataset.tlog}/console?token=${TOKEN()}`);
+      consoleES = new EventSource(`/api/tunnels/${id}/console?token=${TOKEN()}`);
       consoleES.onmessage = e => {
         box.textContent += JSON.parse(e.data) + "\n";
         box.scrollTop = box.scrollHeight;
       };
     });
+    return list;
+  };
+  // 启动、停止之后短间隔刷新：马上刷一次，之后每秒一次，直到这条隧道稳定下来（最多 30 秒）；平时 4 秒一次
+  const pend = new Map(); // 隧道ID → { settled: 判断稳定了没有, until: 截止时间 }
+  let burstT = null;
+  const burst = async () => {
+    burstT = null;
+    if (stale(gen)) return;
+    const list = await drawList();
+    if (stale(gen)) return;
+    const now = Date.now();
+    for (const [id, w] of pend) {
+      const t = list && list.find(x => x.id === id);
+      if (now > w.until || (list && (!t || w.settled(t)))) pend.delete(id);
+    }
+    if (pend.size && !burstT) burstT = setTimeout(burst, 1000);
+  };
+  const watch = (id, settled) => {
+    pend.set(id, { settled, until: Date.now() + 30000 });
+    if (burstT) clearTimeout(burstT);
+    burstT = setTimeout(burst, 0);
   };
   await drawList();
   startPoll(drawList, 4000, gen);
 
   $("#tn-add").onclick = async () => {
-    const p = provSel.value;
+    const p = provSel.value, custom = p === "custom";
+    // frps 地址和端口只有自定义 frps 用：樱花、OpenFrp 的端口在服务商后台填，以前把隐藏着的默认值（25565 / 25566 / 7000）
+    // 也发过去存进了 tunnels.json，看着像真的端口（测试报告第五轮）
     const body = {
       provider: p,
       name: $("#tn-name").value.trim(),
       credential: $("#tn-cred").value.trim(),
       proxyId: $("#tn-proxy").value.trim(),
-      serverAddr: $("#tn-saddr").value.trim(),
-      serverPort: +$("#tn-sport").value || 0,
-      remotePort: +$("#tn-rport").value || 0,
-      localPort: +$("#tn-lport").value || 25565,
+      serverAddr: custom ? $("#tn-saddr").value.trim() : "",
+      serverPort: custom ? +$("#tn-sport").value || 0 : 0,
+      remotePort: custom ? +$("#tn-rport").value || 0 : 0,
+      localPort: custom ? +$("#tn-lport").value || 25565 : 0,
       boundInstance: $("#tn-bound").value,
       autoStart: $("#tn-auto").checked,
       ...(window.MDMusic ? MDMusic.tunnelExtra() : {}), // 第五阶段：purpose、proto

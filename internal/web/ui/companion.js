@@ -81,6 +81,11 @@ window.MDCompanion = (() => {
   }
   const resultWord = r => RESULT[r] || RESULT.failed;
 
+  /* 整合包服务端：好友光装伙伴模组进不来，还要装同一个整合包（测试报告第五轮，实测差 8 个模组被挡在门外）。
+     实例里没有记「是不是整合包导入的」（instance.json 没有导入来源），判断不了，写成条件句，页面和复制给好友的说明里都有 */
+  const PACK_NOTE = "服务器是整合包的话，好友还要先装同一个整合包（版本一致），光装这几个模组进不去。";
+  const PACK_GUIDE = "如果服务器是整合包：先装同一个整合包（版本要和服务器一致），再把上面的模组放进那个整合包的 mods 目录。";
+
   /* 弹窗表单（外观同 confirmModal）：点确定时交给 check(mask)，返回 null 表示有错（错误已就近显示），弹窗留着；
      返回值就交出去。Esc、点外面、取消返回 null。setup(mask) 在弹窗画好后调用（接上弹窗里的联动）。 */
   function formModal({ title, body, okText = "确定", check, setup }) {
@@ -131,7 +136,8 @@ window.MDCompanion = (() => {
       <div id="cp-gate"></div>
       ${head("安装", "服务端要装这三个模组：伙伴模组随 MineDeck 内置；PlayerEngine 和 Architectury API 点「安装」时才从 Modrinth 下载（实测过的那个版本，核对 sha512），不会自动换成新版本。")}
       <div id="cp-install"></div>
-      ${head("好友的客户端", "伙伴是模组新加的实体：好友的客户端也要装下面标了「要装」的模组，版本和服务器的一样，放进客户端的 mods 目录。")}
+      ${head("好友的客户端", "伙伴是模组新加的实体：好友的客户端也要装下面标了「要装」的模组，版本和服务器的一样，放进客户端的 mods 目录。" +
+        PACK_NOTE)}
       <div id="cp-client"></div>
       ${head("设置", "改了以后约 2 秒内生效，不用重启服务器。")}
       <div id="cp-set"></div>
@@ -231,6 +237,7 @@ window.MDCompanion = (() => {
       const need = v.client.filter(c => c.required);
       const lines = need.map((c, i) => `${i + 1}. ${c.name} ${c.version}：${c.page || "找房主要文件 " + (c.file || "")}`);
       return `服务器「${name}」开了 MineDeck 的 AI 伙伴，客户端要装这几个模组（版本和服务器的一样），放进 .minecraft 的 mods 目录：\n${lines.join("\n")}` +
+        `\n${PACK_GUIDE}` +
         `\n进服后在聊天里说「@伙伴的名字 话」就能叫它。`;
     };
 

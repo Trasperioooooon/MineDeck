@@ -1493,9 +1493,15 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click("#mcp-copy"); await settle(250);
       const items = await page.$$eval(".dropmenu button", bs => bs.map(b => b.textContent.trim()));
       assert(items.length === 6 && items[0] === "Claude Desktop（stdio）" && items.includes("Cherry Studio（HTTP）") && items.includes("VS Code（HTTP）"), "复制给谁：" + items);
+      // 名字里已经带了连接方式的不再标一次（测试报告第五轮：「其他（HTTP）（HTTP）」）
+      assert(items.includes("其他（HTTP）") && items.includes("其他（stdio）") && !items.some(x => /（(HTTP|stdio)）（(HTTP|stdio)）/.test(x)), "不重复标连接方式：" + items);
       await page.click('.dropmenu button:has-text("Cherry Studio")'); await page.waitForSelector(".modal .mcp-pre");
       const pv = await page.evaluate(() => ({ pre: document.querySelector(".modal .mcp-pre").textContent, body: document.querySelector(".modal .m-body").textContent }));
       assert(pv.pre.includes('"streamableHttp"') && pv.pre.includes("<令牌，复制时自动带上>") && !pv.pre.includes(tok) && pv.body.includes("从 JSON 导入"), "预览：" + JSON.stringify(pv).slice(0, 300));
+      // 弹窗里的复制按钮和页面上复制接口地址的「复制」名字分得开（读屏、自动化靠名字找按钮）
+      const names = await page.evaluate(() => { const ok = document.querySelector('.modal [data-x="ok"]'), u = document.querySelector("#mcp-url");
+        return { ok: ok.textContent.trim(), okAria: ok.getAttribute("aria-label") || "", url: u.getAttribute("aria-label") || "" }; });
+      assert(names.ok === "复制这段配置" && names.okAria.startsWith("复制这段配置") && names.okAria.includes("Cherry Studio") && names.url === "复制接口地址", "两个复制按钮的名字：" + JSON.stringify(names));
       await page.click('.modal [data-x="ok"]'); await settle(300);
       const copied = await page.evaluate(() => window.__copied.pop() || "");
       assert(copied.includes("Bearer " + tok) && JSON.parse(copied).mcpServers.minedeck.url === "http://127.0.0.1:27333/mcp", "复制的内容：" + copied);
@@ -1604,7 +1610,104 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(pw.wide.length === 0, "手机宽度的外部 AI 卡片：" + JSON.stringify(pw));
     } finally { await c.close(); await mcpState({ reset: true }); await aiState({ reset: true }); }
   });
+  await run("MCP 接口：「连过的 AI 工具」不用刷新页面，有新的 AI 工具来过就自己更新，上面的开关不重画（测试报告第五轮）", async () => {
+    await mcpState({ reset: true, enabled: true }); await aiState({ reset: true });
+    try {
+      await page.goto(url("#/settings/ai")); await settle(700);
+      assert((await page.textContent("#mcp-clients")).includes("还没有 AI 工具连过"), "一开始没有连过的");
+      await page.$eval("#mcp-on", e => { e.dataset.mark = "1"; }); // 认出开关是不是原来那个
+      const now = new Date().toISOString();
+      await mcpState({ clients: [{ name: "cherry-studio", title: "Cherry Studio", version: "1.5.0", transport: "http", protocol: "2025-06-18", first: now, last: now, calls: 2 }] });
+      await page.waitForFunction(() => (document.querySelector("#mcp-clients") || {}).textContent?.includes("Cherry Studio"), null, { timeout: 5000 }).catch(() => {});
+      const v = await page.evaluate(() => ({ text: (document.querySelector("#mcp-clients") || {}).textContent || "", same: (document.querySelector("#mcp-on") || { dataset: {} }).dataset.mark === "1" }));
+      assert(v.text.includes("Cherry Studio") && v.text.includes("调用了 2 次工具") && !v.text.includes("还没有 AI 工具连过") && v.same, "列表自己更新、开关没重画：" + JSON.stringify(v));
+    } finally { await mcpState({ reset: true }); await aiState({ reset: true }); }
+  });
   // ==================== MCP 接口结束 ====================
+
+  // ==================== 内网穿透的隧道卡片（测试报告第五轮）====================
+  // 仿真后端：/__mock/state 的 tunnel 改某条隧道（startError：点「启动」时报的错；nextAddr / addrDelay：启动后多久拿到公网地址），tunnelsReset 还原
+  const tunState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data.tunnels), b);
+  const tunRowText = id => page.$eval(`#tun-list [data-tun="${id}"]`, e => e.textContent.replace(/\s+/g, " ").trim());
+
+  await run("隧道：点「启动」后卡片马上变「运行中」，拿到公网地址前每秒刷新；展开着日志也照常刷新、日志框不断；停止后马上变回", async () => {
+    await tunState({ tunnelsReset: true, tunnel: { id: "t2", lastError: "", nextAddr: "frp.example.com:34567", addrDelay: 1500 } });
+    try {
+      await page.goto(url("#/tunnels")); await settle(600);
+      assert((await page.textContent("#tun-summary")).includes("运行中 1"), "一开始 1 条在运行");
+      await page.click('[data-tlog="t2"]'); await settle(400);
+      assert(await page.$eval("#tlog-t2", e => e.style.display !== "none" && e.textContent.includes("start proxy success")), "日志展开了");
+      await page.$eval("#tlog-t2", e => { e.dataset.mark = "1"; }); // 认出是不是同一个日志框
+      await page.click('[data-tstart="t2"]');
+      await page.waitForFunction(() => document.querySelector("#tun-summary").textContent.includes("运行中 2"), null, { timeout: 1500 }).catch(() => {});
+      const r1 = await tunRowText("t2");
+      assert((await page.textContent("#tun-summary")).includes("运行中 2") && r1.includes("连接中") && r1.includes("停止"), "启动后马上是运行中、连接中（日志开着也刷新）：" + r1);
+      // 公网地址 1.5 秒后才有：每秒刷新一次，3 秒内一定显示出来（4 秒一次的轮询不一定赶得上）
+      await page.waitForFunction(() => (document.querySelector('[data-tun="t2"]') || {}).textContent?.includes("frp.example.com:34567"), null, { timeout: 3000 }).catch(() => {});
+      assert((await tunRowText("t2")).includes("frp.example.com:34567"), "拿到公网地址后很快显示：" + await tunRowText("t2"));
+      const log = await page.$eval("#tlog-t2", e => ({ same: e.dataset.mark === "1", shown: e.style.display !== "none", text: e.textContent.includes("start proxy success") }));
+      assert(log.same && log.shown && log.text, "列表重画时日志框还是原来那个：" + JSON.stringify(log));
+      assert(await page.$eval('[data-tlog="t2"]', b => b.getAttribute("aria-expanded")) === "true", "日志按钮标着展开");
+      await page.click('[data-tstop="t2"]');
+      await page.waitForFunction(() => document.querySelector("#tun-summary").textContent.includes("运行中 1") && !!document.querySelector('[data-tstart="t2"]'), null, { timeout: 1500 }).catch(() => {});
+      assert((await page.textContent("#tun-summary")).includes("运行中 1") && await page.$('[data-tstart="t2"]'), "停止后马上变回：" + await tunRowText("t2"));
+      await page.click('[data-tlog="t2"]'); await settle(200);
+      assert(await page.$eval("#tlog-t2", e => e.style.display === "none") && await page.$eval('[data-tlog="t2"]', b => b.getAttribute("aria-expanded")) === "false", "再点一下日志收起");
+    } finally { await tunState({ tunnelsReset: true }); }
+  });
+
+  await run("隧道：启动失败、跟随启动失败的原因直接写在卡片上（停着时排在上次的公网地址前面），跑起来后不再显示", async () => {
+    const MSG = "首次使用需手动放置樱花 frpc：登录 SakuraFrp 管理面板 → 软件下载 → 下载「frpc」Windows amd64 版，把 exe 放入 D:\\MineDeck\\runtimes\\frpc\\natfrp 目录后重试（仅需一次）";
+    await tunState({ tunnelsReset: true, tunnel: { id: "t1", provider: "natfrp", running: false, lastError: "跟随启动失败：" + MSG } });
+    try {
+      await page.goto(url("#/tunnels")); await settle(600);
+      const r = await tunRowText("t1");
+      assert(r.includes("上次出错") && r.includes("跟随启动失败：首次使用需手动放置樱花 frpc") && r.includes("natfrp 目录后重试") && !r.includes("openfrp.top"), "跟随启动失败：" + r);
+      // 手动启动也失败：提示里有原因，卡片上换成「启动失败：…」，按钮还能再点
+      await tunState({ tunnel: { id: "t1", startError: MSG } });
+      await page.click('[data-tstart="t1"]');
+      assert(await toastHas("首次使用需手动放置樱花 frpc"), "启动失败要提示");
+      await page.waitForFunction(() => (document.querySelector('[data-tun="t1"] .tun-err') || {}).textContent?.startsWith("启动失败："), null, { timeout: 2000 }).catch(() => {});
+      assert((await page.textContent('[data-tun="t1"] .tun-err')).startsWith("启动失败：首次使用"), "手动启动失败的原因：" + await tunRowText("t1"));
+      assert(!(await page.$eval('[data-tstart="t1"]', b => b.disabled)), "失败后启动按钮能再点");
+      // 放好 frpc 再启动：跑起来就不再显示失败原因
+      await tunState({ tunnel: { id: "t1", startError: "", nextAddr: "", publicAddr: "" } });
+      await page.click('[data-tstart="t1"]');
+      await page.waitForFunction(() => !document.querySelector('[data-tun="t1"] .tun-err') && document.querySelector('[data-tun="t1"]').textContent.includes("连接中"), null, { timeout: 2000 }).catch(() => {});
+      const r2 = await tunRowText("t1");
+      assert(!r2.includes("首次使用") && r2.includes("连接中"), "跑起来后不再显示失败原因：" + r2);
+      // 自建备用线（初始数据）：停着、frpc 报过错，错误整句显示在卡片上
+      assert((await tunRowText("t2")).includes("authorization failed"), "停着的隧道显示上次的错误：" + await tunRowText("t2"));
+    } finally { await tunState({ tunnelsReset: true }); }
+  });
+
+  await run("隧道：樱花、OpenFrp 的隧道不带 frps 地址和端口（以前把隐藏着的 25565 / 25566 / 7000 也存了进去）", async () => {
+    try {
+      await musicState({ music: { reset: true } });
+      await page.goto(url("#/tunnels")); await settle();
+      await page.click("#tn-toggle");
+      await page.selectOption("#tn-provider", "natfrp");
+      await page.fill("#tn-name", "樱花游戏"); await page.fill("#tn-cred", "k"); await page.fill("#tn-proxy", "123456");
+      await page.click("#tn-add"); await settle(400);
+      const body = (await musicState({})).music.tunnelBody;
+      assert(body && body.provider === "natfrp" && body.proxyId === "123456" && body.localPort === 0 && body.remotePort === 0 && body.serverPort === 0 && body.serverAddr === "",
+        "请求体：" + JSON.stringify(body));
+    } finally { await resetMusic(); }
+  });
+  // ==================== 内网穿透的隧道卡片结束 ====================
+
+  await run("伙伴：「好友的客户端」写明整合包服务端还要装同一个整合包，复制给好友的说明里也有（测试报告第五轮）", async () => {
+    try {
+      await resetCP();
+      await openCP();
+      const sub = await page.$eval("#cp-client", e => e.previousElementSibling.textContent);
+      assert(sub.includes("整合包") && sub.includes("版本一致"), "好友的客户端那段说明：" + sub);
+      await stubClipboard(page);
+      await page.click("#cp-copy-guide"); await settle(250);
+      const g = await page.evaluate(() => (window.__copied || []).pop() || "");
+      assert(g.includes("如果服务器是整合包") && g.includes("先装同一个整合包") && g.includes("@伙伴的名字"), "复制给好友的说明：" + g);
+    } finally { await resetCP(); }
+  });
 
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
 

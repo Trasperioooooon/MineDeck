@@ -10,6 +10,7 @@ window.MDMcp = (() => {
     pending: [],    // 等确认的外部 AI 提案
     seen: new Set(), // 提示过的提案编号
     first: true,    // 连上后的第一份：已经在等的合成一条提示
+    clientsTimer: null, // 「连过的 AI 工具」的轮询
   };
   const MASK = "<令牌，复制时自动带上>";
 
@@ -99,6 +100,45 @@ window.MDMcp = (() => {
     return d.toDateString() === new Date().toDateString() ? hm : `${p(d.getMonth() + 1)}-${p(d.getDate())} ${hm}`;
   }
 
+  /* 「连过的 AI 工具」那一组 */
+  function clientsGroup(v) {
+    const clients = (v.clients || []).map(c => riRow({ ico: c.transport === "stdio" ? "monitor" : "globe",
+      titleHTML: `${esc(c.title || c.name)}${c.version ? ` <span class="badge">${esc(c.version)}</span>` : ""}`,
+      sub: esc([c.transport === "stdio" ? "stdio" : "HTTP", "协议 " + c.protocol, c.calls ? `调用了 ${c.calls} 次工具` : "", ago(c.last)].filter(Boolean).join(" · ")) })).join("");
+    return group(clients || riRow({ ico: "clock", title: "还没有 AI 工具连过",
+      sub: "配置好以后，在那个 AI 工具里问一句「MineDeck 里有哪些服务器」试试" }), { ico: true, attrs: `id="mcp-clients"` });
+  }
+
+  /* 「连过的 AI 工具」自己刷新（以前要按 F5，测试报告第五轮）：这一页开着时每 3 秒取一次状态，有新的 AI 工具来过、
+     调用次数或时间变了，只重画这一组，不动上面的开关、复制配置的菜单和弹窗。离开这一页（或这一块被重画）就停。
+     事件流只推等确认的提案，不推客户端，所以用轮询。 */
+  function watchClients(slot, gen, drawn) {
+    clearTimeout(M.clientsTimer);
+    let box = slot.querySelector("#mcp-clients");
+    if (!box) return; // 接口关着时没有这一组
+    box.dataset.html = clientsGroup(drawn);
+    const tick = async () => {
+      if (stale(gen) || !slot.isConnected || !box.isConnected) return;
+      let v = null;
+      try { v = await api("/api/mcp"); } catch { /* 偶尔取不到不打扰，下一拍再试 */ }
+      if (stale(gen) || !slot.isConnected || !box.isConnected) return;
+      if (v && !v.enabled) return; // 在别处关掉了：不再取，下次打开时这一块会整个重画
+      if (v) {
+        const html = clientsGroup(v);
+        if (html !== box.dataset.html) {
+          const tmp = document.createElement("div");
+          tmp.innerHTML = html;
+          const next = tmp.firstElementChild;
+          next.dataset.html = html;
+          box.replaceWith(next);
+          box = next;
+        }
+      }
+      M.clientsTimer = setTimeout(tick, 3000);
+    };
+    M.clientsTimer = setTimeout(tick, 3000);
+  }
+
   function draw(slot, v, gen) {
     const ro = !v.local;
     const sw = `<label class="switch" title="开启 MCP 接口"><input type="checkbox" id="mcp-on"${v.enabled ? " checked" : ""}${ro ? " disabled" : ""} aria-label="开启 MCP 接口"><span class="sw"></span></label>`;
@@ -112,20 +152,17 @@ window.MDMcp = (() => {
       sub: esc(v.enabled ? `已开启：外部 AI 能用 ${v.tools} 个工具，写操作和危险操作要你在这里确认` : "关闭时外部 AI 连不上 MineDeck；打开时会生成一个访问令牌"), right: sw });
     if (v.enabled) {
       rows += riRow({ ico: "globe", title: "接口地址", sub: portSub, key: v.url,
-        right: ro ? "" : `<button class="btn sm" id="mcp-url">${icon("copy")} 复制</button>` });
+        right: ro ? "" : `<button class="btn sm" id="mcp-url" aria-label="复制接口地址" title="复制接口地址">${icon("copy")} 复制</button>` });
       rows += riRow({ ico: "key", title: "访问令牌", sub: tokenSub, right: ro ? "" : `<button class="btn" id="mcp-reset">重置令牌</button>` });
       if (!ro) rows += riRow({ ico: "doc", title: "复制配置", sub: "选你用的 AI 工具，复制后按说明粘贴进它的 MCP 配置",
         right: `<button class="btn" id="mcp-copy" aria-haspopup="menu">${icon("copy")} 复制配置…</button>` });
     }
-    const clients = (v.clients || []).map(c => riRow({ ico: c.transport === "stdio" ? "monitor" : "globe",
-      titleHTML: `${esc(c.title || c.name)}${c.version ? ` <span class="badge">${esc(c.version)}</span>` : ""}`,
-      sub: esc([c.transport === "stdio" ? "stdio" : "HTTP", "协议 " + c.protocol, c.calls ? `调用了 ${c.calls} 次工具` : "", ago(c.last)].filter(Boolean).join(" · ")) })).join("");
     slot.innerHTML = settingsHead("MCP 接口", esc(HEAD)) +
       (ro ? `<div class="warn-card"><div class="wc-title">${icon("lock")} MCP 接口的设置仅支持在本机修改</div><div class="wc-note">这里只能查看。令牌和配置只给运行 MineDeck 的那台电脑；外部 AI 提出的操作也只能在那台电脑上确认。</div></div>` : "") +
       group(rows, { ico: true, attrs: `id="mcp-group"` }) +
-      (v.enabled ? `<div class="mcp-sub-head">连过的 AI 工具（本次启动以来）</div>` + group(clients || riRow({ ico: "clock", title: "还没有 AI 工具连过",
-        sub: "配置好以后，在那个 AI 工具里问一句「MineDeck 里有哪些服务器」试试" }), { ico: true, attrs: `id="mcp-clients"` }) : "") +
+      (v.enabled ? `<div class="mcp-sub-head">连过的 AI 工具（本次启动以来）</div>` + clientsGroup(v) : "") +
       `<div class="hint mcp-hint">外部 AI 看到的内容和应用内助手一样先脱敏（Windows 用户名、局域网 IP、Key 都会替换掉）；删实例、改设置这类仅人工的操作不会给它。令牌只给这台电脑上的程序用，别发给别人。</div>`;
+    watchClients(slot, gen, v);
     const on = slot.querySelector("#mcp-on");
     on.onchange = async () => {
       on.disabled = true;
@@ -154,16 +191,25 @@ window.MDMcp = (() => {
       let cfg;
       try { cfg = await api("/api/mcp/config"); } catch (err) { toast(err.message, true); return; }
       dropMenu(anchor, [{ header: "复制给哪个 AI 工具" }, ...cfg.snippets.map(s => ({
-        label: s.name + (s.transport === "stdio" ? "（stdio）" : "（HTTP）"), icon: s.transport === "stdio" ? "monitor" : "globe", onClick: () => snippet(s, cfg.token) }))]);
+        label: menuLabel(s), icon: s.transport === "stdio" ? "monitor" : "globe", onClick: () => snippet(s, cfg.token) }))]);
     };
   }
 
-  /* 一种客户端的配置：说明粘贴到哪儿，预览里令牌是占位，复制的是完整的 */
+  /* 菜单里的名字后面标上连接方式；「其他（HTTP）」这种名字里已经带了的不再标（以前出现过「其他（HTTP）（HTTP）」） */
+  function menuLabel(s) {
+    const tag = s.transport === "stdio" ? "（stdio）" : "（HTTP）";
+    return s.name.toLowerCase().endsWith(tag.toLowerCase()) ? s.name : s.name + tag;
+  }
+
+  /* 一种客户端的配置：说明粘贴到哪儿，预览里令牌是占位，复制的是完整的。
+     弹窗的按钮叫「复制这段配置」，和页面上复制接口地址的「复制」分得开（读屏、自动化都靠名字找按钮） */
   async function snippet(s, token) {
     const shown = token ? s.text.split(token).join(MASK) : s.text;
-    const ok = await confirmModal({ title: `${s.name} 的配置`, okText: "复制", cancelText: "关闭",
+    const wait = confirmModal({ title: `${s.name} 的配置`, okText: "复制这段配置", cancelText: "关闭",
       body: `${esc(s.where)}<pre class="ap-pre mcp-pre">${esc(shown)}</pre>` });
-    if (ok) copy(s.text, `已复制 ${s.name} 的配置`);
+    const okBtn = document.querySelector('#modal-root [data-x="ok"]'); // 弹窗是同步画好的
+    if (okBtn) okBtn.setAttribute("aria-label", `复制这段配置（${s.name}）`); // 读出来的名字以看得见的字开头
+    if (await wait) copy(s.text, `已复制 ${s.name} 的配置`);
   }
 
   return { init, refresh, settings, pending, drop };
