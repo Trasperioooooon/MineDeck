@@ -1606,6 +1606,72 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   });
   // ==================== MCP 接口结束 ====================
 
+  // ==================== 手机布局（测试报告第 15 条）====================
+  // 模拟真手机：isMobile + hasTouch（pointer: coarse）。Playwright 模拟不了地址栏伸缩，这里只验证布局本身：
+  // 底栏在纵向 flex 里排在内容层下面（不是 fixed 盖在内容上），内容层滚到底时最后一行露在底栏上方
+  await run("手机布局：竖屏 390×844、横屏 844×390（触屏）下底部标签栏在视口内且点得到，#main 能滚到最底、整页不滚动、不横向溢出；鼠标的矮窗口仍是桌面布局", async () => {
+    const pages = ["#/instances", `#/inst/${inst}/common`, `#/inst/${inst}/console`, "#/settings/remote", "#/create"];
+    for (const vp of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) {
+      const tag = vp.width + "×" + vp.height;
+      const c = await hostCtx({ host: false }, { viewport: vp, isMobile: true, hasTouch: true });
+      try {
+        const p = await c.newPage();
+        p.on("pageerror", e => errors.push(pageErr(e)));
+        await p.goto(url("#/instances")); await p.waitForTimeout(600);
+        // 先确认真的模拟出了触屏，否则横屏那半条会走桌面布局、白白通过
+        assert(await p.evaluate(() => matchMedia("(pointer: coarse)").matches), tag + "：没模拟出触屏（pointer: coarse）");
+        for (const hash of pages) {
+          await p.goto(url(hash)); await p.waitForTimeout(700);
+          const r = await p.evaluate(() => {
+            const sb = document.querySelector("#sidebar"), m = document.querySelector("#main");
+            const s = sb.getBoundingClientRect();
+            const navs = [...sb.querySelectorAll(".nav-item")].map(a => {
+              const b = a.getBoundingClientRect(), hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+              return !!hit && hit.closest(".nav-item") === a;
+            });
+            m.scrollTop = m.scrollHeight;
+            const mr = m.getBoundingClientRect();
+            const last = Math.max(...[...m.children].filter(e => e.getClientRects().length).map(e => e.getBoundingClientRect().bottom));
+            return { vh: innerHeight, dir: getComputedStyle(document.querySelector("#shell")).flexDirection,
+              sb: [s.top, s.bottom, s.left, s.right], mainBottom: mr.bottom, last, rest: m.scrollHeight - m.scrollTop - m.clientHeight, navs,
+              docH: document.documentElement.scrollHeight, docW: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth,
+              mainW: [m.scrollWidth, m.clientWidth] };
+          });
+          const where = `${tag} ${hash}：${JSON.stringify(r)}`;
+          assert(r.dir === "column", "没走手机布局（底栏应在内容层下面）" + where);
+          assert(r.sb[0] >= 0 && Math.abs(r.sb[1] - r.vh) < 1 && r.sb[2] === 0 && Math.abs(r.sb[3] - vp.width) < 1, "底栏不在视口最下方" + where);
+          assert(r.navs.length === 4 && r.navs.every(Boolean), "底栏有标签被盖住、点不到" + where);
+          assert(r.mainBottom <= r.sb[0] + .5, "内容层伸到了底栏下面" + where);
+          assert(r.rest <= 1 && r.last <= r.mainBottom + .5, "内容层滚不到最底，最后一行被挡" + where);
+          assert(r.docH <= r.vh && r.docW <= r.cw, "整页能滚动或横向溢出" + where);
+          assert(r.mainW[0] <= r.mainW[1], "内容层横向溢出" + where);
+        }
+        // 点底栏切页（手指点按）
+        await p.tap('#sidebar a[data-nav="tunnels"]'); await p.waitForTimeout(500);
+        assert(p.url().endsWith("#/tunnels"), tag + "：点底栏「内网穿透」没切页：" + p.url());
+      } finally { await c.close(); }
+    }
+    // 鼠标操作的矮窗口（不是触屏）：仍是桌面的左侧图标栏，不被「矮」这一条带进手机布局
+    const d = await hostCtx({ host: true }, { viewport: { width: 844, height: 390 } });
+    try {
+      const p = await d.newPage();
+      p.on("pageerror", e => errors.push(pageErr(e)));
+      await p.goto(url("#/instances")); await p.waitForTimeout(600);
+      const r = await p.evaluate(() => ({ dir: getComputedStyle(document.querySelector("#shell")).flexDirection, w: document.querySelector("#sidebar").getBoundingClientRect().width }));
+      assert(r.dir === "row" && r.w === 64, "鼠标的矮窗口不该变成底栏：" + JSON.stringify(r));
+    } finally { await d.close(); }
+    // 手机上开着「减少动态」：切页仍然不播任何动画（手机块里的动效覆盖不带 !important，压不过减少动态）
+    const rm = await hostCtx({ host: false }, { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, reducedMotion: "reduce" });
+    try {
+      const p = await rm.newPage();
+      p.on("pageerror", e => errors.push(pageErr(e)));
+      await p.goto(url("#/instances")); await p.waitForTimeout(600);
+      await p.tap('#sidebar a[data-nav="settings"]');
+      const running = await p.evaluate(() => document.getAnimations().filter(a => a.playState === "running").length);
+      assert(running === 0, "减少动态下手机切页仍有动画：" + running);
+    } finally { await rm.close(); }
+  });
+
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
 
   await browser.close();

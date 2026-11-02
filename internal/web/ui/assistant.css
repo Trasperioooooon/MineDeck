@@ -10,7 +10,7 @@
   height: 28px; padding: 0 10px; margin-right: 10px; border-radius: var(--r-sm);
   background: none; border: 0; color: var(--muted); cursor: pointer;
   font: var(--fw-medium) var(--fs-sm) var(--font);
-  transition: background var(--dur-2), color var(--dur-2);
+  transition: background-color var(--dur-2), color var(--dur-2);
 }
 body.has-host-chrome .tb-ai { margin-right: 2px; }
 .tb-ai .ico { width: 15px; height: 15px; }
@@ -70,7 +70,7 @@ body.has-host-chrome .tb-ai { margin-right: 2px; }
   display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px; cursor: pointer;
   border: 0; border-radius: var(--r-full); font: var(--fw-medium) var(--fs-2xs) var(--font);
   color: var(--muted); background: color-mix(in srgb, var(--text) 6%, transparent);
-  transition: background var(--dur-2), color var(--dur-2);
+  transition: background-color var(--dur-2), color var(--dur-2);
 }
 .ap-chip:hover { color: var(--text); background: var(--hover); }
 .ap-msg.assistant { align-self: stretch; }
@@ -181,7 +181,7 @@ body.has-host-chrome .tb-ai { margin-right: 2px; }
 
 /* ---------- 会话列表 ---------- */
 .ap-list { display: flex; flex-direction: column; gap: 2px; }
-.ap-row { display: flex; align-items: center; gap: 2px; padding-right: 4px; border-radius: var(--r-md); transition: background var(--dur-2); }
+.ap-row { display: flex; align-items: center; gap: 2px; padding-right: 4px; border-radius: var(--r-md); transition: background-color var(--dur-2); }
 .ap-row:hover { background: var(--hover); }
 .ap-row.cur { background: var(--accent-subtle); }
 .ar-open {
@@ -195,7 +195,7 @@ body.has-host-chrome .tb-ai { margin-right: 2px; }
 .ap-list-foot .hint { margin: 0; }
 
 /* ---------- 弹窗：发送预览、实际发送的内容 ---------- */
-.modal.ap-pv { width: 640px; max-height: 88vh; display: flex; flex-direction: column; }
+.modal.ap-pv { width: 640px; max-height: 88vh; max-height: 88dvh; display: flex; flex-direction: column; }
 .modal.ap-pv .m-body { margin-bottom: 12px; }
 .ap-pv-q { display: block; margin-bottom: 10px; }
 .ap-pv-q > span { display: block; margin-bottom: 6px; font-size: var(--fs-xs); font-weight: var(--fw-medium); color: var(--text); }
@@ -203,7 +203,7 @@ body.has-host-chrome .tb-ai { margin-right: 2px; }
 .ap-pv-more { min-height: 0; display: flex; flex-direction: column; margin-bottom: 16px; }
 .ap-pv-more > summary { cursor: pointer; width: fit-content; font-size: var(--fs-sm); color: var(--accent-text); }
 .ap-pre {
-  margin-top: 8px; max-height: 46vh; overflow: auto; padding: 10px 12px;
+  margin-top: 8px; max-height: 46vh; max-height: 46dvh; overflow: auto; padding: 10px 12px;
   font: var(--fs-xs)/1.6 var(--mono); color: var(--text); white-space: pre-wrap; word-break: break-all;
   background: var(--sunken); border-radius: var(--r-md); box-shadow: var(--well);
 }
@@ -236,9 +236,21 @@ body.has-host-chrome .tb-ai { margin-right: 2px; }
 #ai-assist-slot { margin-top: 28px; }
 #ai-assist-slot:empty { display: none; }
 
-@media (max-width: 640px) {
+/* 手机（断点与 app.css 的底部标签栏一致，横屏手机也算）：面板占满标题栏以下，盖住底栏 */
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .ai-panel { left: 0; width: auto; border-left: 0; border-radius: 0; }
   .tb-ai { margin-right: 6px; }
+}
+/* 安全区（同 app.css 末尾，@supports 包住，旧浏览器整段跳过）：面板顶在加高了的标题栏下面；
+   手机上左右让出刘海，输入框不压在底部横条 / 手势条上 */
+@supports (padding: max(0px)) {
+  .ai-panel { top: calc(var(--titlebar-h) + var(--safe-t)); }
+  @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
+    .ai-panel { padding-left: var(--safe-l); padding-right: var(--safe-r); }
+    .ap-foot { padding-bottom: max(12px, var(--safe-b)); }
+  }
+}
+@media (max-width: 640px) {
   .modal.ap-pv { width: 92vw; }
   .db-more > summary, .db-f, .diag-banner .hint { margin-left: 0; }
 }
