@@ -46,15 +46,16 @@ type CmdRecord struct {
 	Run     string `json:"run,omitempty"`    // 实际执行的（规范化以后）
 	OK      bool   `json:"ok"`               // 执行了
 	Reason  string `json:"reason,omitempty"` // 没执行的原因
-	Output  string `json:"output,omitempty"` // 执行后 1 秒内的控制台输出
+	Output  string `json:"output,omitempty"` // 执行后收到的控制台输出（收到就返回；普通命令最多等 2 秒，locate 一类最多 5 秒）
 }
 
 // counters 当天的次数和用量（按本地日期，过了 0 点清零）。
 type counters struct {
-	Day     string         `json:"day"`
-	Players map[string]int `json:"players"` // 名字小写 → 今天问了几次
-	Count   int            `json:"count"`   // 全服今天问了几次
-	Tokens  int64          `json:"tokens"`  // 全服今天用了多少 token
+	Day       string         `json:"day"`
+	Players   map[string]int `json:"players"`             // 名字小写 → 今天问了 AI 几次
+	Companion map[string]int `json:"companion,omitempty"` // 名字小写 → 今天叫了伙伴几次（「@伙伴名」，和问 AI 分开算）
+	Count     int            `json:"count"`               // 全服今天一共受理了几次（问 AI 和叫伙伴合计）
+	Tokens    int64          `json:"tokens"`              // 全服今天用了多少 token
 }
 
 type stateFileV struct {
@@ -66,11 +67,22 @@ type stateFileV struct {
 // roll 换了一天就清零。
 func (c *counters) roll(now time.Time) {
 	if d := now.Local().Format("2006-01-02"); c.Day != d {
-		*c = counters{Day: d, Players: map[string]int{}}
+		*c = counters{Day: d, Players: map[string]int{}, Companion: map[string]int{}}
 	}
 	if c.Players == nil {
 		c.Players = map[string]int{}
 	}
+	if c.Companion == nil {
+		c.Companion = map[string]int{}
+	}
+}
+
+// used 这个人今天用了几次：comp 为 true 时是叫伙伴的次数，否则是问 AI 的次数。
+func (c *counters) used(k string, comp bool) int {
+	if comp {
+		return c.Companion[k]
+	}
+	return c.Players[k]
 }
 
 func loadState(dir string) stateFileV {
@@ -84,6 +96,9 @@ func loadState(dir string) stateFileV {
 	}
 	if st.Counters.Players == nil {
 		st.Counters.Players = map[string]int{}
+	}
+	if st.Counters.Companion == nil {
+		st.Counters.Companion = map[string]int{}
 	}
 	if len(st.History) > maxHistory {
 		st.History = st.History[len(st.History)-maxHistory:]

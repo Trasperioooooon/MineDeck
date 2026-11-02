@@ -48,13 +48,16 @@ window.MDGameChat = (() => {
   const silent = e => Object.assign(e instanceof Error ? e : new Error(e), { silent: true });
   const swHTML = (attrs, on, label, dis) => `<label class="switch" title="${esc(label)}"><input type="checkbox" ${attrs} ${on ? "checked" : ""} aria-label="${esc(label)}"${dis}><span class="sw"></span></label>`;
 
-  /* 四项限流（§6.7）：单字段保存；budget 在界面上按万 token 填 */
+  /* 四项限流（§6.7）：单字段保存；budget 在界面上按万 token 填。说明后面可以跟一段随状态更新的文字（extra：元素 id） */
   const LIMITS = [
-    { k: "cooldown", title: "每人冷却", unit: "秒", sub: "同一个人问完一次，隔多久才能再问" },
-    { k: "perPlayer", title: "每人每天", unit: "次", sub: "每个人每天最多问几次" },
-    { k: "perServer", title: "全服每天", unit: "次", sub: "这台服务器所有人每天合计最多问几次" },
-    { k: "budget", title: "全服每天的 token", unit: "万 token", sub: "这台服务器每天最多用多少 token（输入、输出都算）", scale: 10000 },
+    { k: "cooldown", title: "每人冷却", unit: "秒", sub: "同一个人问完一次，隔多久才能再问（问 AI 和叫伙伴共用）" },
+    { k: "perPlayer", title: "每人每天", unit: "次", sub: "每个人每天最多问几次；「@伙伴名」叫伙伴另算，也是这么多次" },
+    { k: "perServer", title: "全服每天", unit: "次", sub: "这台服务器所有人每天合计最多问几次（问 AI 和叫伙伴合计）" },
+    { k: "budget", title: "全服每天的 token", unit: "万 token", sub: "这台服务器每天最多用多少 token（输入、输出都算）", scale: 10000, extra: "gc-budget-cost" },
   ];
+  /* 今天谁问了几次：「Steve 12 次（叫伙伴 3 次）」 */
+  const usageText = p => p.count ? `${p.name} ${p.count} 次${p.companion ? `（叫伙伴 ${p.companion} 次）` : ""}` : `${p.name} 叫伙伴 ${p.companion} 次`;
+  const TOP_SHOWN = 5;
 
   async function render(body, info, gen) {
     ensureIcons();
@@ -74,7 +77,7 @@ window.MDGameChat = (() => {
       <div id="gc-auth"></div>
       ${head("命令模板", "AI 只能执行打开了的这几类命令，每个参数都按模板检查，「自己」由程序换成提问的人。op、deop、ban、stop、execute 这类命令永远不允许，这里也打不开。")}
       <div id="gc-tpl"></div>
-      ${head("限流和额度", "填 0 表示不限。不调用 AI 的回复（/帮助、/额度、选项写错）不算次数，但同一个人 1 分钟内触发超过 5 次会被静默 10 分钟；同一时间只回答 1 个问题，最多排队 3 个。")}
+      ${head("限流和额度", "填 0 表示不限。不调用 AI 的回复（/帮助、/额度、选项写错）不算次数。同一个人 1 分钟内问了 5 次以上（被冷却、次数挡回的不算）会被静默 3 分钟，游戏里会私下告诉他还要等多久；同一时间只回答 1 个问题，最多排队 3 个。")}
       <div id="gc-lim"></div>
       ${head("最近的问答和执行记录", "游戏里每条回复最多 3 条消息，太长的截掉了；这里是完整的回答。只保存最近 100 条，存在这台服务器的目录里。")}
       <div id="gc-log"></div>
@@ -248,10 +251,11 @@ window.MDGameChat = (() => {
       const s = v.settings, d = v.defaults;
       const val = l => (l.scale ? s[l.k] / l.scale : s[l.k]);
       $("#gc-lim").innerHTML = group(LIMITS.map(l => riRow({ ico: "clock", title: l.title,
-        sub: `${esc(l.sub)}（默认 ${l.scale ? d[l.k] / l.scale : d[l.k]} ${esc(l.unit)}）`,
+        sub: `${esc(l.sub)}（默认 ${l.scale ? d[l.k] / l.scale : d[l.k]} ${esc(l.unit)}）${l.extra ? `<span class="gc-extra" id="${l.extra}"></span>` : ""}`,
         field: `<input type="number" id="gc-l-${l.k}" min="0" step="${l.scale ? "any" : "1"}" inputmode="${l.scale ? "decimal" : "numeric"}" value="${val(l)}" aria-label="${esc(l.title)}（${esc(l.unit)}）"${dis}>` +
           `<span class="ri-unit">${esc(l.unit)}</span><button class="btn" id="gc-l-save-${l.k}"${dis}>保存</button>`,
         after: `<div class="field-err ri-err" id="gc-l-err-${l.k}"></div>` })).join("") +
+        riRow({ ico: "player", title: "今天谁问了几次", sub: `<span id="gc-top"></span>` }) +
         riRow({ ico: "coin", title: "游戏内 AI 的每日总额度", sub: `<span id="gc-quota"></span>`, right: ro ? "" : `<a class="btn sm" href="#/settings/ai">去设置</a>` }),
         { ico: true });
       LIMITS.forEach(l => {
@@ -269,6 +273,22 @@ window.MDGameChat = (() => {
       const a = v.ai, el = $("#gc-quota");
       if (el) el.textContent = `「设置 → AI」里给游戏内 AI 设的每日额度，所有服务器合计：今天用了 ${fmtTokens(a.quotaUsed)} token，` +
         (a.quotaLimit ? `上限 ${fmtTokens(a.quotaLimit)}。` : "没有上限。") + "用完了所有服务器的游戏内 AI 都停到第二天。";
+      /* 全服每天的 token 大约合多少钱：后端按当前模型的单价给出每百万 token 的估价；查不到单价时不写 */
+      const pe = $("#gc-budget-cost"), p = a.price, b = v.settings.budget;
+      if (pe) {
+        const money = n => fmtCost({ [p.currency]: n });
+        let t = "";
+        if (p && p.local) t = "当前是本机模型，不花钱。";
+        else if (p && b > 0 && money(p.perMillion * b / 1e6)) t = `按当前模型的单价估，每天 ${fmtTokens(b)} token ${money(p.perMillion * b / 1e6)}。`;
+        else if (p && money(p.perMillion)) t = `按当前模型的单价估，每 100 万 token ${money(p.perMillion)}。`;
+        if (t && p.note) t += `（${p.note}）`;
+        pe.textContent = t ? " " + t : "";
+      }
+      /* 今天谁问了几次：用得最多的几个人 */
+      const te = $("#gc-top"), top = (v.today.top || []).filter(x => x.count || x.companion);
+      if (te) te.textContent = top.length
+        ? top.slice(0, TOP_SHOWN).map(usageText).join("、") + (top.length > TOP_SHOWN ? `，另有 ${top.length - TOP_SHOWN} 人。` : "。")
+        : "今天还没有人问过。";
     };
 
     /* ---- 最近的问答和执行记录 ---- */

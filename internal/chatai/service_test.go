@@ -3,6 +3,8 @@ package chatai
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -21,17 +23,18 @@ func TestReplyTargets(t *testing.T) {
 	f.advance(16 * time.Second) // 过了冷却
 	f.say("Steve", "@AI /私 附魔台怎么做")
 	got := f.tellraws()
-	if len(got) != 3 {
-		t.Fatalf("应有 3 条（提示、两次回答）：%+v", got)
+	if len(got) != 4 {
+		t.Fatalf("应有 4 条（提示两行、两次回答）：%+v", got)
 	}
-	if got[0].target != "@a" || got[0].head != "[AI] " || !strings.Contains(got[0].body, "会发给") || got[0].color != "gray" {
-		t.Errorf("隐私提示：%+v", got[0])
+	if got[0].target != "@a" || got[0].head != "[AI] " || got[0].body != "提示：向 AI 提的问题会发给 127.0.0.1 处理。" || got[0].color != "gray" ||
+		got[1] != (sentMsg{"@a", "[AI] ", "只想自己看到回答，在问题前加 /私。", "gray"}) {
+		t.Errorf("隐私提示（一句一行）：%+v", got[:2])
 	}
-	if got[1] != (sentMsg{"@a", "[AI→Steve] ", "先准备床和弓。", "white"}) {
-		t.Errorf("默认全服可见：%+v", got[1])
+	if got[2] != (sentMsg{"@a", "[AI→Steve] ", "先准备床和弓。", "white"}) {
+		t.Errorf("默认全服可见：%+v", got[2])
 	}
-	if got[2] != (sentMsg{"Steve", "[AI] ", "附魔台要书、钻石和黑曜石。", "white"}) {
-		t.Errorf("/私 只回 Steve：%+v", got[2])
+	if got[3] != (sentMsg{"Steve", "[AI] ", "附魔台要书、钻石和黑曜石。", "white"}) {
+		t.Errorf("/私 只回 Steve：%+v", got[3])
 	}
 	// 重新开服后再提示一次
 	f.b.mu.Lock()
@@ -41,7 +44,7 @@ func TestReplyTargets(t *testing.T) {
 	f.advance(time.Minute)
 	f.ai.queue(textReply("好的。"))
 	f.say("Alex", "@AI 你好")
-	if got := f.tellraws(); len(got) != 2 || !strings.Contains(got[0].body, "会发给") {
+	if got := f.tellraws(); len(got) != 3 || !strings.Contains(got[0].body, "会发给") {
 		t.Errorf("重新开服后应再提示一次：%+v", got)
 	}
 	// 发给 AI 的用户消息：提问的人和权限；问题脱敏（局域网 IP 换掉）
@@ -235,18 +238,27 @@ func TestNoAIRepliesAreFree(t *testing.T) {
 	if !strings.Contains(all, "用法：@AI 你的问题") || !strings.Contains(all, "/问（只回答、不执行命令）") || !strings.Contains(all, "改天气") {
 		t.Errorf("有执行权限的人的帮助：%s", all)
 	}
-	f.b.reset()
-	for _, m := range []string{"@AI /额度", "@AI /quota", "@AI /tp 怎么用", "@AI /私今晚怎么打末影龙", "@AI 今晚怎么打末影龙 /私"} {
-		f.say("Alex", m)
+	for _, c := range []struct{ msg, want, not string }{
+		{"@AI /额度", "你今天还能问 60 次（每天 60 次）。", ""},
+		{"@AI /quota", "你今天还能问 60 次", ""},
+		{"@AI /tp Steve", "不认识 /tp。", "/问"},
+		{"@AI /私今晚怎么打末影龙", "空一格", ""},
+		{"@AI 今晚怎么打末影龙 /私", "选项要写在问题前面", ""},
+	} {
+		f.b.reset()
+		f.say("Alex", c.msg)
 		f.advance(13 * time.Second)
-	}
-	got = f.tellraws()
-	if len(got) != 5 {
-		t.Fatalf("应各回一条：%+v", got)
-	}
-	if !strings.Contains(got[0].body, "你今天还能问 30 次（每天 30 次）") || !strings.Contains(got[2].body, "不认识 /tp") ||
-		strings.Contains(got[2].body, "/问") || !strings.Contains(got[3].body, "空一格") || !strings.Contains(got[4].body, "选项要写在问题前面") {
-		t.Errorf("额度和提示：%+v", got)
+		got := f.tellraws()
+		var all []string
+		for _, m := range got {
+			if m.target != "Alex" || m.color != "gray" {
+				t.Errorf("%s：系统提示一律私发：%+v", c.msg, m)
+			}
+			all = append(all, m.body)
+		}
+		if body := strings.Join(all, "\n"); len(got) == 0 || !strings.Contains(body, c.want) || (c.not != "" && strings.Contains(body, c.not)) {
+			t.Errorf("%s 的回复：%s", c.msg, body)
+		}
 	}
 	if n := len(f.ai.requests()); n != 0 {
 		t.Errorf("不该调用 AI：%d 次", n)
@@ -272,39 +284,187 @@ func TestNoAIRepliesAreFree(t *testing.T) {
 	}
 }
 
-// 刷屏被限住：同一个人 1 分钟内触发超过 5 次，静默 10 分钟，静默期间什么都不回（不调用 AI 的也算进计数）。
+// 刷屏被限住：同一个人 1 分钟内超过 5 次（不调用 AI 的回复和受理了的提问才算），第 6 次不回答，私下说「你问得太快了，3 分钟后再问」，
+// 静默 3 分钟；静默期间再问，离上次提醒满 1 分钟才再私下提醒一次还要等多久，其余的不出声。开始静默记一条最近的问答和一条操作记录。
 func TestSpamIsSilenced(t *testing.T) {
 	f := newFixture(t)
 	for i := 0; i < 5; i++ {
 		f.say("Steve", "@AI /帮助")
 		f.advance(5 * time.Second)
 	}
-	n := len(f.tellraws())
-	f.say("Steve", "@AI /帮助") // 第 6 次：开始静默
-	f.advance(time.Minute)
+	f.b.reset()
+	f.say("Steve", "@AI /帮助") // 第 6 次：不回帮助，开始静默
+	lastBody := func() []string {
+		var out []string
+		for _, m := range f.tellraws() {
+			if m.target != "Steve" || m.color != "gray" {
+				t.Errorf("静默的提醒只发给本人：%+v", m)
+			}
+			out = append(out, m.body)
+		}
+		f.b.reset()
+		return out
+	}
+	if got := lastBody(); !slices.Equal(got, []string{"你问得太快了，3 分钟后再问。"}) {
+		t.Errorf("第一次静默私下说一句：%v", got)
+	}
+	f.advance(10 * time.Second)
 	f.say("Steve", "@AI 今晚怎么打末影龙")
-	f.advance(8 * time.Minute)
+	if got := lastBody(); len(got) != 0 {
+		t.Errorf("刚提醒过，不再出声：%v", got)
+	}
+	f.advance(51 * time.Second) // 离第一次提醒满 1 分钟：再说一次剩下的时间（还剩 119 秒，按分钟向上取整）
 	f.say("Steve", "@AI /额度")
-	if got := len(f.tellraws()); got != n {
-		t.Errorf("静默期间什么都不回：多了 %d 条", got-n)
+	if got := lastBody(); !slices.Equal(got, []string{"你问得太快了，2 分钟后再问。"}) {
+		t.Errorf("隔 1 分钟再提醒一次：%v", got)
+	}
+	f.advance(50 * time.Second)
+	f.say("Steve", "@AI /帮助")
+	if got := lastBody(); len(got) != 0 {
+		t.Errorf("不满 1 分钟不再提醒：%v", got)
+	}
+	f.advance(59 * time.Second) // 还剩 10 秒
+	f.say("Steve", "@AI 你好")
+	if got := lastBody(); !slices.Equal(got, []string{"你问得太快了，10 秒后再问。"}) {
+		t.Errorf("不满 1 分钟按秒说：%v", got)
 	}
 	if len(f.ai.requests()) != 0 {
 		t.Error("静默期间不调用 AI")
 	}
-	if h := f.history(); !slices.ContainsFunc(h, func(r Record) bool { return r.Kind == "silenced" }) {
-		t.Error("开始静默时记一条给服主看")
+	var sil []Record
+	for _, r := range f.history() {
+		if r.Kind == "silenced" {
+			sil = append(sil, r)
+		}
+	}
+	if len(sil) != 1 || sil[0].Reply != "你问得太快了，3 分钟后再问。" || !sil[0].Private || !strings.Contains(sil[0].Note, "3 分钟") {
+		t.Errorf("开始静默时记一条最近的问答（提醒不再记）：%+v", sil)
+	}
+	var lim []ops.Record
+	for _, r := range f.oplog() {
+		if r.Op == "gameai.limit" {
+			lim = append(lim, r)
+		}
+	}
+	if len(lim) != 1 || lim[0].OK || lim[0].Src != ops.SrcGameChat || lim[0].Actor != "Steve" || lim[0].Inst != instName ||
+		!strings.Contains(string(lim[0].Args), `"result":"silenced"`) || !strings.Contains(string(lim[0].Args), `"minutes":3`) || !strings.Contains(lim[0].Err, "3 分钟") {
+		t.Errorf("静默写进操作记录：%+v", lim)
 	}
 	// 别人不受影响
 	f.say("Alex", "@AI /帮助")
-	if got := len(f.tellraws()); got <= n {
-		t.Error("别人不受影响")
+	if got := f.tellraws(); len(got) == 0 || got[0].target != "Alex" || !strings.Contains(got[0].body, "用法") {
+		t.Errorf("别人不受影响：%+v", got)
 	}
-	// 10 分钟后恢复
-	f.advance(2 * time.Minute)
-	n = len(f.tellraws())
+	f.b.reset()
+	// 3 分钟后恢复
+	f.advance(11 * time.Second)
 	f.say("Steve", "@AI /帮助")
-	if got := len(f.tellraws()); got <= n {
-		t.Error("静默结束后应恢复")
+	if got := f.tellraws(); len(got) == 0 || !strings.Contains(got[0].body, "用法") {
+		t.Errorf("静默结束后应恢复：%+v", got)
+	}
+}
+
+// 被冷却挡回的提问不算进防刷屏（测试报告 F-12：原来越急着问越快被静默）：问一次，冷却期间连问 6 次，
+// 只在第一次被挡时私下说「冷却中」（同一个冷却期不重复说、不重复记），冷却过了照样受理；下一个冷却期被挡再说一次。
+func TestCooldownNotCountedAsSpam(t *testing.T) {
+	f := newFixture(t)
+	f.ai.queue(textReply("答一。"), textReply("答二。"))
+	f.say("Steve", "@AI 一")
+	f.b.reset()
+	for i := 0; i < 6; i++ {
+		f.advance(time.Second)
+		f.say("Steve", "@AI 再问一次")
+	}
+	if got := f.tellraws(); len(got) != 1 || got[0].target != "Steve" || got[0].body != "冷却中，7 秒后再问。" {
+		t.Errorf("同一个冷却期只说一次：%+v", got)
+	}
+	f.advance(2 * time.Second) // 冷却 8 秒过了
+	f.say("Steve", "@AI 二")
+	if n := len(f.ai.requests()); n != 2 {
+		t.Fatalf("冷却过了应受理（被挡的不算刷屏）：请求了 %d 次", n)
+	}
+	f.b.reset()
+	f.advance(time.Second)
+	f.say("Steve", "@AI 三")
+	if got := f.tellraws(); len(got) != 1 || got[0].body != "冷却中，7 秒后再问。" {
+		t.Errorf("下一个冷却期被挡，再说一次：%+v", got)
+	}
+	cd := 0
+	for _, r := range f.history() {
+		if r.Kind == "cooldown" {
+			cd++
+		}
+	}
+	lim := 0
+	for _, r := range f.oplog() {
+		if r.Op == "gameai.limit" && strings.Contains(string(r.Args), `"result":"cooldown"`) && !r.OK && strings.Contains(r.Err, "冷却中") {
+			lim++
+		}
+	}
+	if cd != 2 || lim != 2 {
+		t.Errorf("冷却每个冷却期只记一条：最近的问答 %d 条、操作记录 %d 条", cd, lim)
+	}
+	if v, _ := f.gc.View(instName); v.Today.Players["steve"] != 2 {
+		t.Errorf("被挡回的不算次数：%+v", v.Today)
+	}
+}
+
+// 受理了的提问也算进防刷屏：不冷却时 1 分钟内问到第 6 个，不再回答，改成私下说「你问得太快了」。
+func TestAcceptedQuestionsCountAsSpam(t *testing.T) {
+	f := newFixture(t)
+	f.set(Patch{Cooldown: ptr(0)})
+	for i := 0; i < 5; i++ {
+		f.ai.queue(textReply("答。"))
+		f.say("Steve", "@AI 问题")
+		f.advance(5 * time.Second)
+	}
+	f.b.reset()
+	f.say("Steve", "@AI 第六个问题")
+	if n := len(f.ai.requests()); n != 5 {
+		t.Errorf("第 6 个不该问 AI：请求了 %d 次", n)
+	}
+	if got := f.tellraws(); len(got) != 1 || got[0].body != "你问得太快了，3 分钟后再问。" {
+		t.Errorf("第 6 个：%+v", got)
+	}
+	if v, _ := f.gc.View(instName); v.Today.Players["steve"] != 5 {
+		t.Errorf("没受理的不算次数：%+v", v.Today)
+	}
+}
+
+// 次数用完、正忙这类拒绝：同一个人同一种，隔 30 秒才再说一次（不说的也不记），说出来的次数用完记一条操作记录。
+func TestRefusalThrottle(t *testing.T) {
+	f := newFixture(t)
+	f.set(Patch{PerPlayer: ptr(1), Cooldown: ptr(0)})
+	f.ai.queue(textReply("答。"))
+	f.say("Steve", "@AI 一")
+	f.b.reset()
+	f.say("Steve", "@AI 二")
+	f.advance(10 * time.Second)
+	f.say("Steve", "@AI 三")
+	if got := f.tellraws(); len(got) != 1 || got[0].body != "你今天的 1 次已经用完了，明天再来吧。" {
+		t.Errorf("30 秒内只说一次：%+v", got)
+	}
+	f.advance(21 * time.Second)
+	f.say("Steve", "@AI 四")
+	if got := f.tellraws(); len(got) != 2 {
+		t.Errorf("隔 30 秒再说一次：%+v", got)
+	}
+	n := 0
+	for _, r := range f.oplog() {
+		if r.Op == "gameai.limit" && strings.Contains(string(r.Args), `"result":"limit"`) {
+			n++
+		}
+	}
+	if n != 2 {
+		t.Errorf("说出来的次数用完各记一条操作记录：%d 条", n)
+	}
+	// 被挡回的不算进防刷屏：一直问也不会被静默
+	for i := 0; i < 10; i++ {
+		f.advance(time.Second)
+		f.say("Steve", "@AI 再问")
+	}
+	if slices.ContainsFunc(f.history(), func(r Record) bool { return r.Kind == "silenced" }) {
+		t.Error("被次数挡回的不该算进防刷屏")
 	}
 }
 
@@ -326,8 +486,8 @@ func TestLimits(t *testing.T) {
 	if r := answer("Steve", "一"); r != "答。" {
 		t.Fatalf("第一次：%s", r)
 	}
-	if r := answer("Steve", "二"); !strings.Contains(r, "冷却中") || !strings.Contains(r, "15 秒后再问") {
-		t.Errorf("冷却：%s", r)
+	if r := answer("Steve", "二"); !strings.Contains(r, "冷却中") || !strings.Contains(r, "8 秒后再问") {
+		t.Errorf("冷却（默认 8 秒）：%s", r)
 	}
 	f.advance(16 * time.Second)
 	if r := answer("Steve", "三"); r != "答。" {
@@ -347,8 +507,8 @@ func TestLimits(t *testing.T) {
 	// /额度 看得到
 	f.b.reset()
 	f.say("Alex", "@AI /额度")
-	if got := f.tellraws(); !strings.Contains(got[0].body, "你今天还能问 1 次（每天 2 次）") || !strings.Contains(got[0].body, "全服今天的次数已经用完了") {
-		t.Errorf("/额度：%+v", got)
+	if got := f.tellraws(); len(got) != 2 || got[0].body != "你今天还能问 1 次（每天 2 次）。" || got[1].body != "全服今天的次数已经用完了。" {
+		t.Errorf("/额度（一句一行）：%+v", got)
 	}
 	// 过了 0 点清零
 	f.advance(24 * time.Hour)
@@ -548,9 +708,77 @@ func TestSettingsPatch(t *testing.T) {
 		t.Errorf("读回：%+v", s)
 	}
 	b, _ := json.Marshal(Defaults())
-	if !strings.Contains(string(b), `"cooldown":15`) || !strings.Contains(string(b), `"perPlayer":30`) || !strings.Contains(string(b), `"perServer":300`) ||
+	if !strings.Contains(string(b), `"cooldown":8`) || !strings.Contains(string(b), `"perPlayer":60`) || !strings.Contains(string(b), `"perServer":300`) ||
 		!strings.Contains(string(b), `"budget":500000`) || !strings.Contains(string(b), `"gamemode":false`) || !strings.Contains(string(b), `"give":false`) {
-		t.Errorf("默认值（§6.6、§6.7）：%s", b)
+		t.Errorf("默认值（§6.6、§6.7，2026-11 放宽了冷却和每人每天）：%s", b)
+	}
+	// 没改过限流：custom 是空的（以后改默认值，跟着变）；四项照样写全，退回旧版程序也读得到
+	raw, _ := os.ReadFile(filepath.Join(f.b.dir, settingsFile))
+	if !strings.Contains(string(raw), `"v": 2`) || !strings.Contains(string(raw), `"custom": []`) || !strings.Contains(string(raw), `"cooldown": 8`) {
+		t.Errorf("没改过的限流：%s", raw)
+	}
+}
+
+// 出厂默认值只影响用户没改过的项：第 2 版的设置文件用 custom 列出改过的（填的正好是默认值也算改过），四项照样写全；
+// 第一版的文件（没有 v，四项总是写全）里和当时的默认值（15 秒、30 次、300 次、50 万）一样的当没改过，用现在的默认值，不一样的照原样保留。
+func TestSettingsDefaultsFollow(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, settingsFile)
+	write := func(s string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(`{"enabled":true,"prefix":"@AI","cooldown":15,"perPlayer":30,"perServer":500,"budget":500000}`)
+	s := loadSettings(dir)
+	if !s.Enabled || s.Cooldown != DefaultCooldown || s.PerPlayer != DefaultPerPlayer || s.PerServer != 500 || s.Budget != DefaultBudget {
+		t.Errorf("第一版里没改过的用新默认值，改过的保留：%+v", s)
+	}
+	write(`{"enabled":true,"cooldown":20,"perPlayer":0,"perServer":300,"budget":500000}`)
+	s = loadSettings(dir)
+	if s.Cooldown != 20 || s.PerPlayer != 0 || s.PerServer != DefaultPerServer {
+		t.Errorf("第一版里改过的冷却、不限次数保留：%+v", s)
+	}
+	// 存回去是第 2 版：custom 只列改过的两项，四项都写
+	if err := saveSettings(dir, s); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(path)
+	var f fileSettings
+	if err := json.Unmarshal(raw, &f); err != nil || f.V != 2 || !slices.Equal(f.Custom, []string{"cooldown", "perPlayer"}) ||
+		f.Cooldown == nil || *f.Cooldown != 20 || f.PerServer == nil || *f.PerServer != DefaultPerServer || f.Budget == nil || *f.Budget != DefaultBudget {
+		t.Errorf("第 2 版的文件：%s", raw)
+	}
+	// 退回旧版程序（按原来的 Settings 读，没写的项是 0，也就是不限）：读到的还是原来的值
+	var old Settings
+	if err := json.Unmarshal(raw, &old); err != nil || old.Cooldown != 20 || old.PerPlayer != 0 || old.PerServer != DefaultPerServer || old.Budget != DefaultBudget {
+		t.Errorf("旧版程序读第 2 版：%+v %v", old, err)
+	}
+	if s2 := loadSettings(dir); s2.Cooldown != 20 || s2.PerPlayer != 0 || s2.PerServer != DefaultPerServer || s2.Budget != DefaultBudget {
+		t.Errorf("读回第 2 版：%+v", s2)
+	}
+	// 第 2 版里填的正好是默认值：也算改过，照原样保留（第一版才按值猜）
+	p, err := Patch{Cooldown: ptr(DefaultCooldown)}.Apply(Defaults())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := saveSettings(dir, p); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = os.ReadFile(path)
+	f = fileSettings{}
+	if err := json.Unmarshal(raw, &f); err != nil || !slices.Equal(f.Custom, []string{"cooldown"}) {
+		t.Errorf("填过的默认值也算改过：%s", raw)
+	}
+	write(`{"v":2,"enabled":true,"cooldown":15,"perPlayer":30,"custom":["cooldown"]}`)
+	if s := loadSettings(dir); s.Cooldown != 15 || s.PerPlayer != DefaultPerPlayer {
+		t.Errorf("第 2 版只认 custom 里的：15 是用户填的，30 没列就跟着默认值：%+v", s)
+	}
+	// 坏值照旧回到默认
+	write(`{"v":2,"cooldown":99999,"perPlayer":-1,"custom":["cooldown","perPlayer"]}`)
+	if s := loadSettings(dir); s.Cooldown != DefaultCooldown || s.PerPlayer != DefaultPerPlayer {
+		t.Errorf("坏值回到默认：%+v", s)
 	}
 }
 
@@ -594,7 +822,7 @@ func TestViewPlayers(t *testing.T) {
 	if v.WhitelistOn || !v.Players[1].Whitelist || !v.Players[1].Online || !v.Players[5].Allowed || !v.Players[4].Seen || !v.Players[2].Op {
 		t.Errorf("标记：%+v", v.Players)
 	}
-	if !v.AI.Enabled || v.Defaults.Cooldown != 15 || len(v.Templates) != 10 {
+	if !v.AI.Enabled || v.Defaults.Cooldown != 8 || v.Defaults.PerPlayer != 60 || len(v.Templates) != 10 {
 		t.Errorf("视图：%+v", v)
 	}
 }

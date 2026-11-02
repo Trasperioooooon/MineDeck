@@ -15,17 +15,35 @@ import (
 
 // 设置和状态存在实例目录里（跟着实例走：删实例时一起删掉，同名的新实例不会继承旧的授权名单）。
 const (
-	settingsFile = "gameai.json"       // 用户改的设置
+	settingsFile = "gameai.json"       // 用户改的设置（格式见 fileSettings）
 	stateFile    = "gameai-state.json" // 程序写的状态：当天的次数和用量、最近出现过的名字、最近的问答
 )
 
-// 限流和额度的默认值（§6.7）。
+// 限流和额度的默认值（§6.7；2026-11 按 v2.9.0-beta.2 的实测放宽：冷却 15 → 8 秒，每人每天 30 → 60 次）。
+// 默认值只管用户没改过的项：设置文件记着哪几项是用户改过的（见 fileSettings），改了默认值，没改过的人自动跟着变。
 const (
 	DefaultPrefix    = "@AI"
-	DefaultCooldown  = 15      // 每人冷却（秒）
-	DefaultPerPlayer = 30      // 每人每天几次
-	DefaultPerServer = 300     // 全服每天几次
+	DefaultCooldown  = 8       // 每人冷却（秒），问 AI 和叫伙伴共用
+	DefaultPerPlayer = 60      // 每人每天几次；「@伙伴名」的指令另算，也是这么多次
+	DefaultPerServer = 300     // 全服每天几次（问 AI 和叫伙伴合计）
 	DefaultBudget    = 500_000 // 全服每天多少 token
+)
+
+// 第一版设置文件（没有 v）的默认值：那时保存设置会把四项限流整个写进文件，分不清是用户填的还是默认值。
+// 读第一版的文件时，和当时的默认值一样的就当没改过，用现在的默认值；不一样的照原样保留。
+const (
+	v1Cooldown  = 15
+	v1PerPlayer = 30
+	v1PerServer = 300
+	v1Budget    = 500_000
+)
+
+// 四项限流里用户改过哪几项（Settings.custom 的位）。
+const (
+	customCooldown uint8 = 1 << iota
+	customPerPlayer
+	customPerServer
+	customBudget
 )
 
 // Settings 一个实例的游戏内 AI 设置。
@@ -42,6 +60,8 @@ type Settings struct {
 	Loose     bool            `json:"looseNames"`        // 放宽名字规则
 	AnyThread bool            `json:"anyThread"`         // 不看线程名
 	Pattern   string          `json:"pattern,omitempty"` // 自定义正则（命名分组 name、msg）
+
+	custom uint8 // 四项限流里用户改过哪几项（customCooldown 这些位）；设置文件的 custom 里只列改过的
 }
 
 // Defaults 没设置过的实例：关着，前缀 @AI，没人能执行命令，模板和限流按 §6.6、§6.7 的默认值。
@@ -167,7 +187,9 @@ func (p Patch) Apply(s Settings) (Settings, error) {
 		dst *int
 		max int
 		w   string
-	}{{p.Cooldown, &s.Cooldown, 3600, "冷却"}, {p.PerPlayer, &s.PerPlayer, 100000, "每人每天的次数"}, {p.PerServer, &s.PerServer, 1000000, "全服每天的次数"}} {
+		bit uint8
+	}{{p.Cooldown, &s.Cooldown, 3600, "冷却", customCooldown}, {p.PerPlayer, &s.PerPlayer, 100000, "每人每天的次数", customPerPlayer},
+		{p.PerServer, &s.PerServer, 1000000, "全服每天的次数", customPerServer}} {
 		if x.v == nil {
 			continue
 		}
@@ -175,12 +197,14 @@ func (p Patch) Apply(s Settings) (Settings, error) {
 			return s, fmt.Errorf("%s要在 0 到 %d 之间（0 表示不限）", x.w, x.max)
 		}
 		*x.dst = *x.v
+		s.custom |= x.bit // 用户填过（哪怕填的正好是默认值）：以后改默认值也不动它
 	}
 	if p.Budget != nil {
 		if *p.Budget < 0 || *p.Budget > 1e11 {
 			return s, fmt.Errorf("全服每天的 token 要在 0 到 1000 亿之间（0 表示不限）")
 		}
 		s.Budget = *p.Budget
+		s.custom |= customBudget
 	}
 	if p.Loose != nil {
 		s.Loose = *p.Loose
@@ -209,14 +233,44 @@ func cloneMap(m map[string]bool) map[string]bool {
 	return out
 }
 
+// settingsFileVersion 设置文件的格式：2 起多一个 custom，列出四项限流里用户改过哪几项（没列的跟着默认值走）；
+// 四项照样写全，退回旧版程序时读到的还是原来的值（旧版把没写的项当 0，也就是不限）。没有 v 的是第一版。
+const settingsFileVersion = 2
+
+// limitNames 四项限流在设置文件里的名字（custom 里用）。
+var limitNames = []struct {
+	bit  uint8
+	name string
+}{{customCooldown, "cooldown"}, {customPerPlayer, "perPlayer"}, {customPerServer, "perServer"}, {customBudget, "budget"}}
+
+// fileSettings 设置文件里的样子：和 Settings 一样，多了 v 和 custom；读的时候四项限流可能没写（手改过的文件）。
+type fileSettings struct {
+	V         int             `json:"v"`
+	Enabled   bool            `json:"enabled"`
+	Prefix    string          `json:"prefix"`
+	Aliases   []string        `json:"aliases"`
+	Allowed   []string        `json:"allowed"`
+	Templates map[string]bool `json:"templates"`
+	Cooldown  *int            `json:"cooldown,omitempty"`
+	PerPlayer *int            `json:"perPlayer,omitempty"`
+	PerServer *int            `json:"perServer,omitempty"`
+	Budget    *int64          `json:"budget,omitempty"`
+	Loose     bool            `json:"looseNames"`
+	AnyThread bool            `json:"anyThread"`
+	Pattern   string          `json:"pattern,omitempty"`
+	Custom    []string        `json:"custom"` // 第 2 版：四项限流里用户改过哪几项（limitNames 里的名字）
+}
+
 // loadSettings 读实例目录里的设置；没有文件或文件坏了按默认值（坏了的部分逐项回到默认）。
+// 四项限流：第 2 版只认 custom 里列出的，其余用默认值；第一版（没有 v）里和当时默认值一样的当没改过（见 v1Cooldown），
+// 不一样的照原样保留。
 func loadSettings(dir string) Settings {
 	s := Defaults()
 	b, err := os.ReadFile(filepath.Join(dir, settingsFile))
 	if err != nil {
 		return s
 	}
-	var f Settings
+	var f fileSettings
 	if json.Unmarshal(b, &f) != nil {
 		return s
 	}
@@ -239,17 +293,31 @@ func loadSettings(dir string) Settings {
 			s.Templates[id] = on
 		}
 	}
-	if f.Cooldown >= 0 && f.Cooldown <= 3600 {
-		s.Cooldown = f.Cooldown
+	legacy := f.V < 2
+	custom := func(bit uint8, v, old int64) bool {
+		if legacy {
+			return v != old
+		}
+		for _, x := range limitNames {
+			if x.bit == bit {
+				return slices.Contains(f.Custom, x.name)
+			}
+		}
+		return false
 	}
-	if f.PerPlayer >= 0 {
-		s.PerPlayer = f.PerPlayer
+	limit := func(v *int, dst *int, max, old int, bit uint8) {
+		if v == nil || *v < 0 || *v > max || !custom(bit, int64(*v), int64(old)) {
+			return
+		}
+		*dst = *v
+		s.custom |= bit
 	}
-	if f.PerServer >= 0 {
-		s.PerServer = f.PerServer
-	}
-	if f.Budget >= 0 {
-		s.Budget = f.Budget
+	limit(f.Cooldown, &s.Cooldown, 3600, v1Cooldown, customCooldown)
+	limit(f.PerPlayer, &s.PerPlayer, 100000, v1PerPlayer, customPerPlayer)
+	limit(f.PerServer, &s.PerServer, 1000000, v1PerServer, customPerServer)
+	if f.Budget != nil && *f.Budget >= 0 && *f.Budget <= 1e11 && custom(customBudget, *f.Budget, v1Budget) {
+		s.Budget = *f.Budget
+		s.custom |= customBudget
 	}
 	s.Loose, s.AnyThread = f.Loose, f.AnyThread
 	if _, err := compilePattern(f.Pattern); err == nil {
@@ -258,8 +326,17 @@ func loadSettings(dir string) Settings {
 	return s
 }
 
+// saveSettings 写设置文件（第 2 版）：四项限流照样写全（退回旧版程序也读得到），custom 列出用户改过的几项。
 func saveSettings(dir string, s Settings) error {
-	return writeJSON(filepath.Join(dir, settingsFile), s)
+	f := fileSettings{V: settingsFileVersion, Enabled: s.Enabled, Prefix: s.Prefix, Aliases: s.Aliases, Allowed: s.Allowed, Templates: s.Templates,
+		Cooldown: &s.Cooldown, PerPlayer: &s.PerPlayer, PerServer: &s.PerServer, Budget: &s.Budget,
+		Loose: s.Loose, AnyThread: s.AnyThread, Pattern: s.Pattern, Custom: []string{}}
+	for _, x := range limitNames {
+		if s.custom&x.bit != 0 {
+			f.Custom = append(f.Custom, x.name)
+		}
+	}
+	return writeJSON(filepath.Join(dir, settingsFile), f)
 }
 
 // writeJSON 原子地写一个 JSON 文件（先写临时文件再改名）。

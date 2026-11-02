@@ -261,11 +261,13 @@ func TestGameChatEndToEnd(t *testing.T) {
 		return len(l) > 0 && l[len(l)-1] == reply
 	})
 	lines := e.stdinLines()
-	if len(lines) != 3 || lines[1] != "weather clear" || lines[2] != reply {
+	if len(lines) != 4 || lines[2] != "weather clear" || lines[3] != reply {
 		t.Fatalf("标准输入：\n%s", strings.Join(lines, "\n"))
 	}
-	if !strings.HasPrefix(lines[0], "tellraw @a {\"text\":\"[AI] \",\"color\":\"aqua\",\"extra\":[{\"text\":\"") || !strings.HasSuffix(lines[0], "\"color\":\"gray\"}]}") {
-		t.Errorf("隐私提示：%s", lines[0])
+	for _, l := range lines[:2] { // 隐私提示一句一行（系统提示按聊天框的宽度拆开）
+		if !strings.HasPrefix(l, "tellraw @a {\"text\":\"[AI] \",\"color\":\"aqua\",\"extra\":[{\"text\":\"") || !strings.HasSuffix(l, "\"color\":\"gray\"}]}") {
+			t.Errorf("隐私提示：%s", l)
+		}
 	}
 	b, _ := os.ReadFile(e.stdin)
 	for _, l := range strings.Split(string(b), "\n") {

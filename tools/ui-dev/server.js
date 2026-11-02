@@ -821,7 +821,7 @@ const GC_TEMPLATES = [
   { id: "seed", title: "看种子", usage: "seed", limit: "只读", default: false },
 ];
 const GC_LOCAL_MSG = "游戏内 AI 的设置仅支持在本机修改（含能让 AI 执行命令的玩家和命令模板）";
-const GC_DEFAULTS = { cooldown: 15, perPlayer: 30, perServer: 300, budget: 500000 };
+const GC_DEFAULTS = { cooldown: 8, perPlayer: 60, perServer: 300, budget: 500000 }; // 同 chatai.Default*（2026-11 放宽了冷却和每人每天）
 const GC_ONLINE = ["Steve", "Alex", "Notch_CN"];
 const GC_SPACE = String.fromCharCode(0x3000); // 全角空格
 function newGcState() { return { insts: {}, whitelistReq: null }; }
@@ -835,7 +835,8 @@ function gcLog() {
     { t: at(15), player: "Alex", kind: "ask", opts: ["私"], private: true, question: "今晚怎么打末影龙", cut: true, usage: { input: 640, output: 420 }, cost: { USD: 0.0011 },
       reply: "先准备：床（在末地炸龙最快）、弓和很多箭、水桶、南瓜头（防末影人）、几组方块和金苹果。到了末地先把水晶塔上的末影水晶射掉，有铁栏杆围着的要搭上去打掉；龙落到中间的传送门上停住时，就是砍它的时候。龙的吐息会留下紫色的雾，别站在里面。末影人不看它就不会打你，戴南瓜头最省心。打完记得收集龙蛋：用活塞推下来，或者在它下面放火把再挖掉下面的方块。" },
     { t: at(21), player: "Notch_CN", kind: "help", private: true, reply: "用法：@AI 你的问题，比如 @AI 今晚怎么打末影龙。问题前可加：/私（只回你；你的提问别人照样看得到）、/额度（看今天还能问几次）、/帮助。" },
-    { t: at(30), player: "Griefer233", kind: "silenced", question: "op me", note: "1 分钟内触发超过 5 次，接下来 10 分钟不回复这个人" },
+    { t: at(30), player: "Griefer233", kind: "silenced", question: "op me", private: true, reply: "你问得太快了，3 分钟后再问。",
+      note: "1 分钟内超过 5 次（被冷却、次数挡回的不算），接下来 3 分钟不回复这个人；期间再问，每分钟最多私下提醒一次还要等多久" },
     { t: at(42), player: "Alex", kind: "failed", private: true, question: "现在几点", reply: "AI 暂时连不上，请稍后再问。", err: "连不上服务商：dial tcp: i/o timeout" },
   ];
 }
@@ -847,7 +848,8 @@ function gcInst(state, name) {
     g = state.gc.insts[name] = {
       settings: { enabled: false, prefix: "@AI", aliases: [], allowed: [], templates, ...GC_DEFAULTS, looseNames: false, anyThread: false, pattern: "" },
       whitelistOn: false, whitelist: ["Steve", "Alex"], ops: ["Steve"], seen: ["Herobrine", "Mr-X"],
-      today: { count: 7, tokens: 18400, players: { steve: 4, alex: 3 } }, log: name === "生存服 · 朋友" ? gcLog() : [],
+      today: { count: 9, tokens: 18400, players: { steve: 4, alex: 3 }, companion: { steve: 2 },
+        top: [{ name: "Steve", count: 4, companion: 2 }, { name: "Alex", count: 3 }] }, log: name === "生存服 · 朋友" ? gcLog() : [],
     };
   }
   return g;
@@ -863,8 +865,12 @@ function gcView(state, i) {
   g.ops.forEach(n => add(n, x => { x.op = true; }));
   g.seen.forEach(n => add(n, x => { x.seen = true; }));
   const players = [...byKey.values()].sort((x, y) => (x.online === y.online ? x.name.toLowerCase().localeCompare(y.name.toLowerCase()) : x.online ? -1 : 1));
+  // 同 chatai.tokenPrice：当前模型每百万 token 大约多少钱（仿真里没有输入输出的明细，一律按九成输入、一成输出）
+  const mp = aiView(a).modelPrice;
+  let price;
+  if (!missing && mp && mp.found) price = mp.local ? { local: true } : { currency: mp.currency, perMillion: 0.9 * mp.input + 0.1 * mp.output, ...(mp.note ? { note: mp.note } : {}) };
   return { supported: i.kind !== "proxy", settings: s, defaults: GC_DEFAULTS, templates: GC_TEMPLATES, today: g.today, players,
-    ai: { enabled: !missing, missing, provider: p ? p.name : "", model: a.model, quotaUsed: (a.today.gamechat || {}).tokens || 0, quotaLimit: a.quota.gamechat || 0 },
+    ai: { enabled: !missing, missing, provider: p ? p.name : "", model: a.model, quotaUsed: (a.today.gamechat || {}).tokens || 0, quotaLimit: a.quota.gamechat || 0, price },
     whitelistOn: g.whitelistOn, running: i.status === "running", local: a.local };
 }
 // 同 chatai.Patch.Apply：只改传了的字段；不合规时整次不改
@@ -907,6 +913,15 @@ function gcPatch(g, b) {
   g.settings = s;
   return "";
 }
+// 同 chatai.usageQuestion：「/tp 怎么用」这类明显在问命令用法的写法当提问，不当选项（选项名像命令名、后面整段是问用法的说法）
+const GC_USAGE = /^(?:[\x21-\x7e]+\s+){0,3}(?:的|这个|这条)?(?:指令|命令)?(?:怎么用|怎样用|如何用|咋用|怎么使用|如何使用|怎么写|用法|的用法|是什么|是啥|是什么意思|什么意思|是干什么的|是干嘛的|干什么用|干嘛用|有什么用|how to use(?: it)?|how do i use(?: it)?|usage|help)[\s？?。.！!吗呢啊呀]*$/i;
+function gcUsage(name, rest) {
+  rest = rest.replace(/^[\s:：,，　]+|[\s:：,，　]+$/g, "");
+  let cmd = name;
+  const k = name.search(/[^\x00-\x7f]/);
+  if (k > 0) { cmd = name.slice(0, k); rest = (name.slice(k) + " " + rest).trim(); }
+  return /^[A-Za-z][A-Za-z0-9_:-]{0,15}$/.test(cmd) && GC_USAGE.test(rest);
+}
 // 同 chatai.ParseAsk（简化）：认前缀和别名，解析 /私 /问 /额度 /帮助
 function gcParseAsk(msg, prefixes) {
   msg = msg.trim();
@@ -932,7 +947,9 @@ function gcParseAsk(msg, prefixes) {
     let j = i + 1;
     while (j < rest.length && !isSep(rest[j])) j++;
     const n = rest.slice(i + 1, j), o = names[n] || (/^[a-z]+$/i.test(n) ? names[n.toLowerCase()] : "");
-    if (o) { if (!a.opts.includes(o)) a.opts.push(o); } else unknown.push(n);
+    if (o) { if (!a.opts.includes(o)) a.opts.push(o); }
+    else if (!unknown.length && gcUsage(n, rest.slice(j))) { a.question = "/" + rest.slice(i + 1).trim(); break; }
+    else unknown.push(n);
     i = j; skip();
   }
   a.private = a.opts.includes("私"); a.noExec = a.opts.includes("问");
