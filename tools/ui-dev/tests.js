@@ -1804,6 +1804,44 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await tunState({ tunnelsReset: true }); }
   });
 
+  await run("隧道：新一次运行还没连上就报错，卡片显示这次的错误，不拿上次的公网地址充数；没报错时是「连接中」，连上以后照常显示地址（Codex 复审）", async () => {
+    await tunState({ tunnelsReset: true, tunnel: { id: "t1", running: true, online: false, lastError: "login to the server failed: dial tcp: i/o timeout" } });
+    try {
+      await page.goto(url("#/tunnels")); await settle(600);
+      const r = await tunRowText("t1");
+      assert(r.includes("连接出错") && r.includes("i/o timeout") && !r.includes("openfrp.top"), "没连上就报错：" + r);
+      assert(!(await page.$('[data-tun="t1"] [data-copy]')), "没连上时不给复制上次的地址");
+      await tunState({ tunnel: { id: "t1", lastError: "" } });
+      await page.goto(url("#/tunnels")); await settle(600);
+      const r2 = await tunRowText("t1");
+      assert(r2.includes("连接中") && !r2.includes("openfrp.top"), "没连上、也没报错：" + r2);
+      await tunState({ tunnel: { id: "t1", online: true } });
+      await page.goto(url("#/tunnels")); await settle(600);
+      const r3 = await tunRowText("t1");
+      assert(r3.includes("cn-sz-bgp-1.openfrp.top:23456") && !r3.includes("连接中"), "连上以后：" + r3);
+    } finally { await tunState({ tunnelsReset: true }); }
+  });
+
+  await run("隧道：列表偶尔刷新失败时，展开着的日志不关、列表留着，摘要提示一句；恢复后照常重画、日志框还是原来那个（独立评审）", async () => {
+    const fail = route => route.fulfill({ status: 502, contentType: "text/html", body: "<h1>Bad Gateway</h1>" });
+    await tunState({ tunnelsReset: true });
+    try {
+      await page.goto(url("#/tunnels")); await settle(600);
+      await page.click('[data-tlog="t1"]'); await settle(400);
+      await page.$eval("#tlog-t1", e => { e.dataset.mark = "1"; });
+      await page.route("**/api/tunnels", fail);
+      await page.waitForFunction(() => document.querySelector("#tun-summary").textContent.includes("刷新失败"), null, { timeout: 6000 }).catch(() => {});
+      assert((await page.textContent("#tun-summary")).includes("刷新失败"), "摘要应提示刷新失败：" + await page.textContent("#tun-summary"));
+      const during = await page.$eval("#tlog-t1", e => ({ same: e.dataset.mark === "1", shown: e.style.display !== "none" }));
+      assert(during.same && during.shown && (await page.$$("#tun-list [data-tun]")).length === 2, "刷新失败时列表和日志应留着：" + JSON.stringify(during));
+      await page.unroute("**/api/tunnels", fail);
+      await page.waitForFunction(() => document.querySelector("#tun-summary").textContent.includes("条隧道"), null, { timeout: 6000 }).catch(() => {});
+      assert((await page.textContent("#tun-summary")).includes("条隧道"), "恢复后摘要照常：" + await page.textContent("#tun-summary"));
+      const after = await page.$eval("#tlog-t1", e => ({ same: e.dataset.mark === "1", shown: e.style.display !== "none" }));
+      assert(after.same && after.shown, "恢复后日志框还是原来那个：" + JSON.stringify(after));
+    } finally { await page.unroute("**/api/tunnels", fail).catch(() => {}); await tunState({ tunnelsReset: true }); }
+  });
+
   await run("隧道：樱花、OpenFrp 的隧道不带 frps 地址和端口（以前把隐藏着的 25565 / 25566 / 7000 也存了进去）", async () => {
     try {
       await musicState({ music: { reset: true } });
@@ -2017,6 +2055,20 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert((await lastToast()).includes("现在起打不开") && (await page.$("#qr-box")) === null, "关闭已生效的局域网访问：" + await lastToast());
       await flip();
       assert((await lastToast()) === "已开启局域网访问" && (await page.$("#qr-box svg.qr")) !== null, "重新开启（这次启动本就在监听）：" + await lastToast());
+    } finally { await mockState({ listenLan: false, lanSet: false }); }
+  });
+  await run("远程访问：已有密码时在框里填了新密码再拨开关，新密码一起保存、提示里写明（以前只存了开关，重画清空了框，看着像改好了）（独立评审）", async () => {
+    const mockState = b => page.evaluate(b => fetch("/__mock/state", { method: "POST", body: JSON.stringify(b) }), b);
+    const lanPuts = since => reqs.slice(since).filter(r => r.m === "PUT" && r.u === "/api/config").map(r => JSON.parse(r.b || "{}"));
+    await mockState({ listenLan: false, lanSet: true });
+    try {
+      await page.goto(url("#/settings/remote")); await settle();
+      await page.fill("#lan-pw", "pw-new-777");
+      const t0 = reqs.length;
+      await page.click("#lan-on"); await settle(400);
+      const ps = lanPuts(t0);
+      assert(ps.length === 1 && ps[0].listenLan === true && ps[0].lanPassword === "pw-new-777", "开关和新密码应一起保存：" + JSON.stringify(ps));
+      assert(await toastHas("新的访问密码已保存"), "提示里应写明新密码也保存了");
     } finally { await mockState({ listenLan: false, lanSet: false }); }
   });
   // ==================== 窗口与设置结束 ====================
