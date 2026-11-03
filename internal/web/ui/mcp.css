@@ -9,7 +9,7 @@
 #ai-mcp-slot .warn-card { margin-bottom: 12px; }
 .mcp-sub-head { margin: 20px 0 8px; font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--text); }
 .mcp-hint { margin-top: 12px; line-height: 1.8; }
-.modal .mcp-pre { margin: 12px 0 4px; max-height: 40vh; }
+.modal .mcp-pre { margin: 12px 0 4px; max-height: 40vh; max-height: 40dvh; }
 
 /* AI 助手面板顶上：外部 AI 提出、等你确认的操作（卡片和助手的确认卡片是同一个组件） */
 .ap-ext {

@@ -431,3 +431,20 @@ func TestOpLogAPI(t *testing.T) {
 		t.Errorf("局域网会话看到 %d 条，应为 %d", len(l), len(all))
 	}
 }
+
+// 关掉局域网访问后不重启，程序仍监听在 0.0.0.0 上：局域网来的请求即使自己填了 Host: 127.0.0.1、带着登录拿到的会话，
+// 也一律拒绝，登录接口也不给猜（独立评审发现）；本机照常。
+func TestLANOffRejectsRemoteEvenWithLocalHost(t *testing.T) {
+	e := newFullEnv(t)
+	login := e.call(t, "POST", "/api/login", `{"password":"`+lanPass+`"}`, 200, fromLAN, noToken)
+	cookie := login.Result().Cookies()
+	if len(cookie) == 0 {
+		t.Fatal("登录没有下发 Cookie")
+	}
+	withCookie := func(r *http.Request) { r.AddCookie(cookie[0]) }
+	e.call(t, "GET", "/api/app", "", 200, fromLAN, noToken, withCookie)
+	e.call(t, "PUT", "/api/config", `{"listenLan":false}`, 200)
+	e.call(t, "GET", "/api/app", "", 403, fromLAN, noToken, withCookie)
+	e.call(t, "POST", "/api/login", `{"password":"`+lanPass+`"}`, 403, fromLAN, noToken)
+	e.call(t, "GET", "/api/app", "", 200)
+}

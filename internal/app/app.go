@@ -26,6 +26,10 @@ var (
 	BackupsDir  string // 世界备份（独立于实例目录，删实例后仍保留）
 )
 
+// LANListening 这次启动时网页服务是否监听在所有网卡上（局域网能访问）。main 绑定端口后、开始服务前设好；
+// 监听地址只在启动时绑定，「允许局域网访问」改了要重启才生效，界面拿它和配置比，提示「重启后生效」。
+var LANListening bool
+
 type Config struct {
 	Source             string `json:"source"`                       // auto | mirror | official
 	CFApiKey           string `json:"cfApiKey,omitempty"`           // 旧版明文 CurseForge API Key：启动时加密挪进 secrets.json 后清空，只有迁移失败时才留着（读写走 CFKey / SetCFKey）

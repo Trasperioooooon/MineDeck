@@ -82,7 +82,7 @@ type configPatch struct {
 func (c *cat) appOps() {
 	c.reg.Register(&ops.Op{
 		Name: "app.info", Title: "查看程序信息", Level: ops.Read,
-		Desc: "MineDeck 的版本、本机内存总量和可用量、实际监听端口、实例和备份的存放目录、全局配置（不含任何密钥）、本机的局域网 IP。",
+		Desc: "MineDeck 的版本、本机内存总量和可用量、实际监听端口、实例和备份的存放目录、全局配置（不含任何密钥）、本机的局域网 IP、局域网访问这次启动是否已生效。",
 		Run: func(context.Context, ops.Caller, ops.Args) (any, error) {
 			cfSet, cfBroken := app.CFKeyState()
 			return map[string]any{
@@ -96,6 +96,7 @@ func (c *cat) appOps() {
 				"backupsRoot": app.BackupsRoot(),
 				"config":      publicConfig(),
 				"lanSet":      app.GetConfig().AccessPasswordHash != "",
+				"lanActive":   app.LANListening,    // 局域网访问这次启动是否已生效（listenLan 改了要重启才变）
 				"cfKeySet":    cfSet,               // CurseForge API Key 是否已设置（Key 本身从不下发）
 				"cfKeyBroken": cfBroken,            // 已存的 Key 解不开（换了电脑或 Windows 用户），要重填
 				"autoStart":   autostart.Enabled(), // 开机自启真值以注册表为准

@@ -52,6 +52,9 @@ type Request struct {
 	SHA256  string
 	MD5     string
 	MinSize int64 // 完整性下限（防错误页面被当文件保存）
+	// OnRetry 某个地址这一次没下成时调用（host 只到主机名；后面还有地址或轮次就接着试）；可以为 nil。
+	// 给部署页提示「哪个地址超时、第几次重试」用（测试报告 B-01）
+	OnRetry func(host string, err error)
 }
 
 func (r Request) hasHash() bool { return r.SHA1 != "" || r.SHA256 != "" || r.MD5 != "" }
@@ -140,6 +143,9 @@ func Fetch(ctx context.Context, r Request, prog Progress) error {
 				return ctx.Err()
 			}
 			lastErr = fmt.Errorf("%s: %w", shortURL(u), err)
+			if r.OnRetry != nil {
+				r.OnRetry(shortURL(u), err)
+			}
 		}
 	}
 	return fmt.Errorf("多次尝试后仍下载失败（%w）", lastErr)

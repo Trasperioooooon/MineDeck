@@ -289,9 +289,9 @@ func companionHelp(prefix string, list []companion.Companion, authorized bool) s
 	name := list[0].Name
 	text := fmt.Sprintf("\n也可以直接叫伙伴的名字，比如 @%s 你好（现有：%s）。", name, namesOf(list))
 	if authorized {
-		text += fmt.Sprintf("你能让伙伴跟着你、采集、去某处、打怪、给你东西、停下、说话，比如 @%s 跟着我、%s 让%s砍 10 个木头；活干完了会私下告诉你。", name, prefix, name)
+		text += fmt.Sprintf("\n你能让伙伴跟着你、采集、去某处、打怪、给你东西、停下、说话，比如 @%s 跟着我、%s 让%s砍 10 个木头；活干完了会私下告诉你。", name, prefix, name)
 	} else {
-		text += "只有服主授权的人能让伙伴干活。"
+		text += "\n只有服主授权的人能让伙伴干活。"
 	}
 	return text
 }

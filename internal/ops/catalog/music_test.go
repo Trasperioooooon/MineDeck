@@ -69,7 +69,7 @@ func TestMusicOpsPermissions(t *testing.T) {
 	for _, op := range reg.Available(ops.Caller{Source: ops.SrcAssistant, Local: true}) {
 		avail[op.Name] = true
 	}
-	for name, want := range map[string]bool{"music.status": true, "music.bridge.install": true, "music.voicehost.set": true,
+	for name, want := range map[string]bool{"music.status": true, "music.bridge.install": true, "music.svc.install": true, "music.voicehost.set": true,
 		"music.start": false, "music.stop": false, "music.sources": false, "music.settings.set": false, "music.system.confirm": false} {
 		if avail[name] != want {
 			t.Errorf("助手能不能用 %s：%v，应为 %v", name, avail[name], want)
@@ -109,6 +109,28 @@ func TestMusicOpsPermissions(t *testing.T) {
 	st, err := reg.Do(ctx, ui, "music.status", ops.Args(`{"inst":"生存服"}`))
 	if err != nil || st.(*musicshare.Status).Supported {
 		t.Errorf("Paper 不支持音乐共享：%+v %v", st, err)
+	}
+}
+
+// AI 提议装 SVC：预览不联网，写明按哪个加载器和 MC 版本装；已经装着时连提案都不生成。
+func TestMusicSVCInstallProposal(t *testing.T) {
+	reg, _, dir := newMusicCatalog(t)
+	ctx := context.Background()
+	ai := ops.Caller{Source: ops.SrcAssistant, Actor: "本机", Session: "s1", Local: true}
+	res, err := reg.Do(ctx, ai, "music.svc.install", ops.Args(`{"inst":"模组服"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := res.(*ops.Proposal)
+	if !strings.Contains(p.Plan.Summary, "neoforge 1.21.1") || len(p.Plan.Changes) != 1 || strings.Contains(p.Plan.Summary, "重启") {
+		t.Fatalf("预览：%+v", p.Plan)
+	}
+	if _, err := reg.Do(ctx, ai, "music.svc.install", ops.Args(`{"inst":"生存服"}`)); ops.CodeOf(err) != 400 {
+		t.Fatalf("Paper 服：%v", err)
+	}
+	addSVC(t, dir)
+	if _, err := reg.Do(ctx, ai, "music.svc.install", ops.Args(`{"inst":"模组服"}`)); ops.CodeOf(err) != 400 || !strings.Contains(err.Error(), "已经有") {
+		t.Fatalf("已经装着：%v", err)
 	}
 }
 

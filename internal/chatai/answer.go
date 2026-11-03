@@ -278,8 +278,8 @@ func (r *room) gameInfo(ctx context.Context, caller ops.Caller) (string, bool) {
 	return wrapData(r.redactText(string(b))), false
 }
 
-// runCommand 执行 AI 要的一条命令：先按白名单校验（§6.6），通过了才写进服务器，再收集接下来 1 秒的控制台输出交给 AI。
-// 校验没过、执行失败的都记一条操作记录（来源 gamechat）。
+// runCommand 执行 AI 要的一条命令：先按白名单校验（§6.6），通过了才写进服务器，再收集控制台的输出交给 AI
+// （收到就返回，最多等多久见 waitFor）。校验没过、执行失败的都记一条操作记录（来源 gamechat）。
 func (r *room) runCommand(ctx context.Context, j *job, tc ai.ToolCall, ran *int) (string, bool, CmdRecord) {
 	s := r.s
 	var a struct {
@@ -313,19 +313,20 @@ func (r *room) runCommand(ctx context.Context, j *job, tc ai.ToolCall, ran *int)
 	}
 	*ran++
 	cr.Run = run
-	buf := []string{}
-	r.mu.Lock()
-	r.capture = &buf
-	r.mu.Unlock()
-	err = s.b.Send(r.name, run, "[MineDeck] 游戏内 AI 替 "+j.player+" 执行：/"+run)
-	if err == nil {
-		select {
-		case <-time.After(s.cmdWait):
-		case <-ctx.Done():
-		}
+	cp := &capture{got: make(chan struct{}, 1), reply: replyLine}
+	if slowCmd(run) {
+		cp.reply = slowReplyLine
 	}
 	r.mu.Lock()
-	lines := *r.capture
+	r.capture = cp
+	r.mu.Unlock()
+	wait := s.waitFor(run)
+	err = s.b.Send(r.name, run, "[MineDeck] 游戏内 AI 替 "+j.player+" 执行：/"+run)
+	if err == nil {
+		s.collect(ctx, cp, wait)
+	}
+	r.mu.Lock()
+	lines := cp.lines
 	r.capture = nil
 	r.mu.Unlock()
 	note(run, err)
@@ -337,9 +338,45 @@ func (r *room) runCommand(ctx context.Context, j *job, tc ai.ToolCall, ran *int)
 	cr.Output = r.redactText(outputOf(lines))
 	out := cr.Output
 	if out == "" {
-		out = "（1 秒内服务器没有输出）"
+		out = "（" + secs(wait) + " 秒内服务器没有输出）"
 	}
 	return "已执行：" + run + "\n服务器的输出：\n" + wrapData(out), false, cr
+}
+
+// slowCmd locate 一类要现找结构、生物群系的命令：模组多的世界里要好几秒。
+func slowCmd(run string) bool {
+	head, _, _ := strings.Cut(run, " ")
+	return head == "locate" || head == "locatebiome"
+}
+
+// waitFor 执行这条命令后最多等多久的输出：慢命令（slowCmd）等 SlowCmdWait，其余等 CmdWait。
+func (s *Service) waitFor(run string) time.Duration {
+	if slowCmd(run) {
+		return s.slowWait
+	}
+	return s.cmdWait
+}
+
+// collect 等命令的输出：收到像是命令输出的一行（replyLine）以后，再等 settle 没有新的就返回，多行的输出也收得全；
+// 一直没有，最多等 wait。原来固定等 1 秒：快的命令白等，慢的 locate 又等不到（测试报告观察第 18 条）。
+func (s *Service) collect(ctx context.Context, cp *capture, wait time.Duration) {
+	deadline := time.NewTimer(wait)
+	defer deadline.Stop()
+	quiet := time.NewTimer(time.Hour)
+	quiet.Stop()
+	defer quiet.Stop()
+	for {
+		select {
+		case <-cp.got:
+			quiet.Reset(s.settle)
+		case <-quiet.C:
+			return
+		case <-deadline.C:
+			return
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 // outputOf 执行命令后的控制台输出：去掉日志前缀；聊天行不要（不把其他玩家的聊天交给 AI，§6.4），MineDeck 自己的行也不要。

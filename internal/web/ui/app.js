@@ -34,7 +34,7 @@ function showLogin() {
   d.id = "login-mask";
   d.innerHTML = `<div class="modal"><div class="brand-head">${logoImg()}<h3>MineDeck 远程访问</h3></div>
     <div class="m-body">请输入访问密码（在主机的「设置 → 远程访问」中配置）</div>
-    <input type="password" id="login-pw" style="width:100%;margin-bottom:16px" autofocus>
+    <input type="password" id="login-pw" style="width:100%;margin-bottom:16px" aria-label="访问密码" autofocus>
     <div class="m-actions"><button class="btn primary" id="login-go">登录</button></div></div>`;
   document.body.appendChild(d);
   const go = async () => {
@@ -370,18 +370,81 @@ function paintThemeBtn() {
   maxBtn.onclick = () => { call("hostWinMaxToggle"); setTimeout(refreshMax, 80); };
   refreshMax();
   // 标题栏空白处按下 → 发起原生拖动；双击 → 最大化/还原。交互元素（按钮/链接/输入/控制键）除外。
+  // 第一下按下就进了系统的拖动循环，松开键被它收走，网页收不到 dblclick；所以双击在 mousedown 里自己认：
+  // 离上一下不超过系统双击间隔、屏幕位置几乎没动（拖动过窗口就不算），第二下改成最大化/还原，不再发起拖动。
   const bar = $("#titlebar");
   const onChrome = e => e.target.closest("button, a, input, select, .win-ctrls");
+  let dblMs = 500, lastDown = null; // 系统双击间隔（宿主告知，取不到按 Windows 默认 500ms）；上一次按下 { t, x, y }
+  if (typeof window.hostDblClickTime === "function") Promise.resolve(window.hostDblClickTime()).then(v => { if (v > 0) dblMs = v; }).catch(() => {});
   bar.addEventListener("mousedown", e => {
     if (e.button !== 0 || onChrome(e)) return;
     e.preventDefault();
+    const d = { t: e.timeStamp, x: e.screenX, y: e.screenY };
+    if (lastDown && d.t - lastDown.t <= dblMs && Math.abs(d.x - lastDown.x) <= 4 && Math.abs(d.y - lastDown.y) <= 4) {
+      lastDown = null; // 第三下重新算起
+      call("hostWinMaxToggle"); setTimeout(refreshMax, 80);
+      return;
+    }
+    lastDown = d;
     call("hostWinDrag");
   });
-  bar.addEventListener("dblclick", e => {
-    if (onChrome(e)) return;
-    call("hostWinMaxToggle"); setTimeout(refreshMax, 80);
-  });
+  // 关窗确认：点 ×、Alt+F4、任务栏「关闭窗口」都先到宿主（WM_CLOSE）；没开「最小化到托盘」又有服务器在运行时，
+  // 宿主请这里问一声（见 tray_windows.go 的 onClose）。确认框弹出来之后再回一声 hostCloseAck：宿主据此知道页面没失联
+  // （弹框出错或页面失联时不回，宿主等满 3 秒后的下一次关窗直接退出，不把窗口困住）
+  window.__mdCloseAsk = opts => { closeAskModal(opts || {}); call("hostCloseAck"); };
 })();
+
+/* 关窗确认框：tray = 托盘图标在不在（不在就只能停服退出），running = 在运行的服务器台数。
+   三选一：最小化到托盘（可顺带记住，以后关窗都这样）/ 停止服务器并退出 / 取消。默认聚焦不丢数据的「最小化到托盘」。
+   追加进 #modal-root 而不是整个替换：别的对话框开着时不顶掉它（那边的 Promise 会一直等不到结果），
+   同时照样算「弹层打开」（按 1–4 不在底下切页、Esc 不连带关掉 AI 助手面板）。 */
+function closeAskModal({ tray = true, running = 0 }) {
+  // 焦点落在不丢数据的按钮上：有托盘就是「最小化到托盘」，没有就是「取消」，不落到「退出」上
+  const focusSafe = m => (m.querySelector('[data-x="tray"]') || m.querySelector('[data-x="cancel"]')).focus();
+  const old = $("#close-ask");
+  if (old && !old.dataset.leaving) { focusSafe(old); return; } // 已经开着，不叠第二个
+  const prev = document.activeElement;
+  const d = document.createElement("div");
+  d.className = "modal-mask enter";
+  d.id = "close-ask";
+  const title = running > 0 ? `有 ${running} 台服务器正在运行` : "有服务器正在运行";
+  d.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="close-ask-title">
+    <h3 id="close-ask-title"><span>${esc(title)}</span></h3>
+    <div class="m-body">退出 MineDeck 会先停止${running > 1 ? "它们" : "它"}（保存世界）。${tray ? "最小化到托盘则服务器继续运行，点托盘图标即可恢复窗口。" : "托盘图标不可用，这次只能停止服务器并退出。"}</div>
+    ${tray ? `<label class="switch" style="margin-bottom:18px"><input type="checkbox" data-k="remember"><span class="sw"></span>
+      <span class="sw-label">以后关闭窗口都最小化到托盘（可在「设置 → 启动与托盘」修改）</span></label>` : ""}
+    <div class="m-actions">
+      <button class="btn" data-x="cancel">取消</button>
+      <button class="btn danger" data-x="quit">停止服务器并退出</button>
+      ${tray ? `<button class="btn primary" data-x="tray">最小化到托盘</button>` : ""}
+    </div></div>`;
+  $("#modal-root").appendChild(d);
+  focusSafe(d); // 不然焦点还停在底下页面的按钮上，按回车会点到它
+  const close = () => {
+    document.removeEventListener("keydown", onKey);
+    dismiss(d);
+    if (prev && prev.focus) prev.focus();
+  };
+  const onKey = e => { if (e.key === "Escape") close(); };
+  document.addEventListener("keydown", onKey);
+  d.addEventListener("mousedown", e => { if (e.target === e.currentTarget) close(); });
+  d.querySelector('[data-x="cancel"]').onclick = close;
+  d.querySelector('[data-x="quit"]').onclick = () => { close(); try { window.hostWinQuit(); } catch (e) {} };
+  const toTray = d.querySelector('[data-x="tray"]');
+  if (toTray) toTray.onclick = async () => {
+    const remember = d.querySelector('input[data-k="remember"]').checked;
+    close();
+    if (remember) {
+      try {
+        await api("/api/config", { method: "PUT", body: { minimizeToTray: true } });
+        const sw = document.querySelector('input[data-cfg="minimizeToTray"]'); // 设置页正开着时让开关跟上
+        if (sw) sw.checked = true;
+      } catch (e) { toast("没能记住这个选择：" + e.message, true); }
+    }
+    try { window.hostWinHide(); } catch (e) {}
+  };
+  (toTray || d.querySelector('[data-x="cancel"]')).focus();
+}
 
 /* 快捷键：1-4 切换侧栏导航；T 或 / 聚焦控制台输入（MC 聊天习惯） */
 document.addEventListener("keydown", e => {
@@ -534,8 +597,8 @@ function renderMemoryControl(mount, o) {
   const g = mb => (mb / 1024).toFixed(1);
   mount.innerHTML = `
     <div class="mem-head"><span>最大内存 -Xmx</span><b class="mem-gb"></b>
-      <span class="mem-mb"><input type="number" class="mem-num" min="${min}" max="${max}" step="256"> MB</span></div>
-    <input type="range" id="${o.sliderId}" class="mem-range" min="${min}" max="${max}" step="512">
+      <span class="mem-mb"><input type="number" class="mem-num" min="${min}" max="${max}" step="256" aria-label="最大内存（MB）"> MB</span></div>
+    <input type="range" id="${o.sliderId}" class="mem-range" min="${min}" max="${max}" step="512" aria-label="最大内存">
     <div class="mem-xp" aria-hidden="true"></div>
     <div class="mem-stat"></div>
     ${o.hint ? `<div class="hint">${esc(o.hint)}</div>` : ""}`;
@@ -917,7 +980,9 @@ async function renderInstances() {
     const collapse = stat
       ? `<div class="collapse${changed && !prevStat ? " closed" : ""}" data-stat><div>${stat}</div></div>`
       : `<div class="collapse${changed && prevStat ? "" : " closed"}" data-stat${changed && prevStat ? " data-close" : ""}><div>${changed ? prevStat : ""}</div></div>`;
-    // 删除、打开文件夹收进「···」：危险操作不与「启动」同排同尺寸，多一步才够得着；「管理」「···」是第三级按钮
+    // 删除、打开文件夹收进「···」：危险操作不与「启动」同排同尺寸，多一步才够得着；「管理」「···」是第三级按钮。
+    // 每张卡片都有同名的「启动」「管理」「···」：可访问名称带上服务器名（「启动 生存服」），读屏、自动化按名字找得到是哪一台
+    const nm = esc(i.name);
     return `
     <div class="card st-${i.status}${enter ? " item-enter" : ""}" style="--i:${n}" data-name="${esc(i.name)}">
       <div class="inst-head">${avatarOf(i.core)}<div class="inst-title"><a class="inst-name" href="${href}">${esc(i.name)}</a><div class="inst-sub">${proxy ? "群组代理" : "游戏服务器"}</div></div>${stPill(i.status)}</div>
@@ -926,11 +991,11 @@ async function renderInstances() {
       ${collapse}
       <div class="inst-meta" data-motd="${esc(i.motd || "")}"></div>
       <div class="inst-actions">
-        ${i.status === "stopped" ? `<button class="btn sm primary" data-act="start">${icon("play")} 启动</button>`
-          : `<button class="btn sm" data-act="stop" ${i.status === "stopping" ? "disabled" : ""}>${icon("stop")} 停止</button>`}
-        <a class="btn sm ghost" href="${href}">管理</a>
+        ${i.status === "stopped" ? `<button class="btn sm primary" data-act="start" aria-label="启动 ${nm}">${icon("play")} 启动</button>`
+          : `<button class="btn sm" data-act="stop" aria-label="停止 ${nm}" ${i.status === "stopping" ? "disabled" : ""}>${icon("stop")} 停止</button>`}
+        <a class="btn sm ghost" href="${href}" aria-label="管理 ${nm}">管理</a>
         <span class="grow"></span>
-        <button class="btn sm ghost icon-only" data-act="more" title="更多操作" aria-label="更多操作" aria-haspopup="menu">${icon("more")}</button>
+        <button class="btn sm ghost icon-only" data-act="more" title="更多操作" aria-label="更多操作 ${nm}" aria-haspopup="menu">${icon("more")}</button>
       </div>
     </div>`;
   };
@@ -1033,8 +1098,8 @@ async function renderCreate() {
   wiz.step = 0; wiz.core = null; wiz.mc = null; wiz.build = null; wiz.root = "";
   Main().innerHTML = pageHead("新建服务器", "选择一种方式开始", "", "", `两种方式${SEP}Java 与服务端自动下载`) + `
     <div class="recipe-grid">
-      <div class="core-card" id="mode-new" role="button" tabindex="0"><span class="recipe-ico">${icon("plusBox")}</span><div><div class="cn">从零创建</div><div class="cd">选择核心与版本，自动下载 Java 与服务端</div></div></div>
-      <div class="core-card" id="mode-import" role="button" tabindex="0"><span class="recipe-ico">${icon("package")}</span><div><div class="cn">导入整合包</div><div class="cd">支持 Modrinth / CurseForge 整合包，自动识别版本</div></div></div>
+      <div class="core-card" id="mode-new" role="button" tabindex="0" aria-label="从零创建" aria-describedby="mode-new-d"><span class="recipe-ico">${icon("plusBox")}</span><div><div class="cn">从零创建</div><div class="cd" id="mode-new-d">选择核心与版本，自动下载 Java 与服务端</div></div></div>
+      <div class="core-card" id="mode-import" role="button" tabindex="0" aria-label="导入整合包" aria-describedby="mode-import-d"><span class="recipe-ico">${icon("package")}</span><div><div class="cn">导入整合包</div><div class="cd" id="mode-import-d">支持 Modrinth / CurseForge 整合包，自动识别版本</div></div></div>
     </div>`;
   $("#mode-new").onclick = () => drawWizard();
   $("#mode-import").onclick = () => drawImport();
@@ -1057,7 +1122,7 @@ async function drawImport() {
       <div class="field full" id="im-mem-mount"></div>
       <label class="field full"><span>存放位置</span>
         <div class="row" style="gap:8px">
-          <input type="text" id="im-root" readonly style="flex:1;cursor:default;background:var(--surface-2)">
+          <input type="text" id="im-root" readonly style="flex:1;cursor:default;background:var(--surface-2)" aria-label="存放位置">
           <button type="button" class="btn" id="im-browse">${icon("folder")} 浏览…</button>
         </div></label>
       <div class="field"><label class="switch"><input type="checkbox" id="im-online"><span class="sw"></span>
@@ -1280,7 +1345,7 @@ async function drawWizard() {
         <div class="field full" id="mem-mount"></div>
         <label class="field full"><span>存放位置</span>
           <div class="row" style="gap:8px">
-            <input type="text" id="f-root" readonly style="flex:1;cursor:default;background:var(--surface-2)">
+            <input type="text" id="f-root" readonly style="flex:1;cursor:default;background:var(--surface-2)" aria-label="存放位置">
             <button type="button" class="btn" id="f-browse">${icon("folder")} 浏览…</button>
           </div>
           <div class="hint" id="f-path"></div>
@@ -1380,8 +1445,10 @@ async function renderTaskPage(taskId) {
     <div id="task-box"><div class="sub">加载中…</div></div>`;
   // 骨架只建一次，之后每轮轮询只改变化的部分：新完成的步骤对勾弹出，经验条只点亮新增的格子（逐格错峰），不整块重绘重播
   const CELLS = 30;
+  // 进度和日志多久没变就提示「下载慢或者在重试」（测试报告 B-01：安装器连不上时进度条长时间不动）；测试里用 __MD_STALL_MS 调短
+  const STALL_MS = window.__MD_STALL_MS || 30000;
   let ended = false; // 已结束就不再轮询 / 重复提示（首轮即结束时旧逻辑仍会挂上轮询，成功提示弹两次）
-  let built = false, label = null, lit = 0, stepState = [];
+  let built = false, label = null, lit = 0, stepState = [], lastSig = "", lastChange = Date.now();
   const stopPoll = () => { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } };
   const draw = async () => {
     let t;
@@ -1396,6 +1463,8 @@ async function renderTaskPage(taskId) {
           ${xpBar(CELLS, 0, "lg")}
           <div class="progress-text" id="t-sub"></div>
         </div>
+        <div class="warn-card task-slow" id="t-slow" role="status" hidden><div class="wc-title">${icon("clock")} <span id="t-slow-title"></span></div>
+          <div class="wc-note">下载慢，或者在重试：可以检查网络或代理。在重试的话，网络恢复后会自己接着下，不用重新部署。</div></div>
         <div id="t-msgs"></div>
         <div class="task-log" id="task-log"></div>
         <div class="save-bar" id="t-foot"></div>`;
@@ -1449,6 +1518,19 @@ async function renderTaskPage(taskId) {
       </div>`).join("");
     const lg = $("#task-log"), text = (t.log || []).join("\n");
     if (lg.textContent !== text) { lg.textContent = text; lg.scrollTop = lg.scrollHeight; }
+    // 下载慢 / 在重试：后端报了刚发生的超时、重试（t.net，一分钟内的），或者进度、步骤、日志 STALL_MS 没有任何变化。
+    // 只在文字变了时才改，免得读屏软件每轮都念一遍
+    const sig = JSON.stringify([steps.map(s => s.status), t.label, t.done, t.total, (t.log || []).length, (t.log || []).slice(-1)[0]]);
+    if (sig !== lastSig) { lastSig = sig; lastChange = Date.now(); }
+    const idle = Date.now() - lastChange, net = t.net && t.net.ago <= 60 ? t.net : null;
+    const slowEl = $("#t-slow");
+    slowEl.hidden = t.ended || !(net || idle >= STALL_MS);
+    if (!slowEl.hidden) {
+      const sec = Math.floor(idle / 1000);
+      const title = net ? `${net.host ? net.host + " " : ""}${net.what}，已经 ${net.count} 次`
+        : `已经 ${sec < 10 ? sec + " 秒" : sec < 60 ? Math.floor(sec / 10) * 10 + " 多秒" : Math.floor(sec / 60) + " 分多钟"}没有新进度`;
+      if ($("#t-slow-title").textContent !== title) $("#t-slow-title").textContent = title;
+    }
     $("#t-foot").innerHTML = `
       ${success ? `<a class="btn primary" href="#/inst/${encodeURIComponent(t.result)}">${icon("check")} 完成，进入控制台</a>` : ""}
       ${t.ended && t.error ? `<a class="btn" href="#/create">${icon("arrowLeft")} 返回重试</a>` : ""}
@@ -1458,6 +1540,27 @@ async function renderTaskPage(taskId) {
   // 首次 draw 若因任何原因抛错，也必须启动轮询——否则后续状态永远无法刷新，页面会永久停在「加载中…」。
   try { await draw(); } catch (e) { console.warn("首次任务渲染失败，转由轮询接管：", e); }
   if (!ended) startPoll(draw, 800, gen);
+}
+
+/* 设置项搜索（常用设置、全部配置共用）：按每一项的 data-search（中文名 + 键名）过滤，不分大小写，
+   空格、横线、下划线、点都不算（「view distance」「viewdistance」都能找到 view-distance）。返回命中的项数 */
+const searchKey = s => String(s || "").toLowerCase().replace(/[\s\-_.]+/g, "");
+function filterBySearch(q, items) {
+  const k = searchKey(q);
+  let n = 0;
+  items.forEach(it => {
+    const hit = !k || searchKey(it.dataset.search).includes(k);
+    it.style.display = hit ? "" : "none";
+    if (hit) n++;
+  });
+  return n;
+}
+/* 搜索框：边输边过滤，Esc 清空 */
+function wireSearch(input, apply) {
+  input.oninput = apply;
+  input.onkeydown = e => {
+    if (e.key === "Escape" && input.value) { e.preventDefault(); e.stopPropagation(); input.value = ""; apply(); }
+  };
 }
 
 /* ---------- 视图：实例详情 ---------- */
@@ -1482,8 +1585,8 @@ async function renderDetail(name, tab = "console") {
       <div class="dh-text"><h1>${esc(name)}</h1>
         <div class="dh-line"><span id="d-status">${headStatus(info)}</span>${coreBadge(info.core)}<span class="badge">${info.kind === "proxy" ? "v" : "MC "}${esc(info.mc)}</span><span class="badge">Java ${info.javaMajor}</span></div></div>
       <span class="grow"></span>
-      <button class="btn primary" id="d-start" ${info.status !== "stopped" ? "disabled" : ""}>${icon("play")} 启动</button>
-      <button class="btn" id="d-stop" ${info.status === "stopped" || info.status === "stopping" ? "disabled" : ""}>${icon("stop")} 停止</button>
+      <button class="btn primary" id="d-start" aria-label="启动 ${esc(name)}" ${info.status !== "stopped" ? "disabled" : ""}>${icon("play")} 启动</button>
+      <button class="btn" id="d-stop" aria-label="停止 ${esc(name)}" ${info.status === "stopped" || info.status === "stopping" ? "disabled" : ""}>${icon("stop")} 停止</button>
       <button class="btn" id="d-dir" aria-haspopup="menu">${icon("folder")} 打开目录 ${icon("chevronDown")}</button>
     </div>
     <div class="tabs">${(() => {
@@ -1535,7 +1638,7 @@ async function renderDetail(name, tab = "console") {
         <label class="switch"><input type="checkbox" id="con-scroll" checked><span class="sw"></span><span class="sw-label">自动滚动</span></label>
         <span class="grow"></span>
         <span class="hint">编码</span>
-        <select id="con-enc" style="width:110px">
+        <select id="con-enc" style="width:110px" aria-label="控制台编码">
           ${["auto", "utf-8", "gbk"].map(e => `<option value="${e}" ${info.consoleEncoding === e ? "selected" : ""}>${e}</option>`).join("")}
         </select>
         <button class="btn sm ghost" id="con-fs-dn" title="缩小字号">A-</button>
@@ -1547,9 +1650,10 @@ async function renderDetail(name, tab = "console") {
       <div class="console" id="console"></div>
       <div class="console-input">
         <div class="cmd-suggest" id="cmd-suggest"></div>
-        <input type="text" id="cmd-in" autocomplete="off" placeholder="输入服务器命令（回车发送，Tab 补全，↑↓ 翻历史），如 op 玩家名 / say 大家好">
+        <input type="text" id="cmd-in" autocomplete="off" placeholder="如 op 玩家名 / say 大家好" aria-label="服务器命令" aria-describedby="cmd-keys">
         <button class="btn primary" id="cmd-send">发送</button>
-      </div>`;
+      </div>
+      <div class="hint console-keys" id="cmd-keys"><span><code class="kbd">回车</code> 发送</span><span><code class="kbd">Tab</code> 补全</span><span><code class="kbd">↑</code><code class="kbd">↓</code> 翻历史</span><span><code class="kbd">Esc</code> 关掉补全</span><span>在别处按 <code class="kbd">T</code> 或 <code class="kbd">/</code> 跳到这里</span></div>`;
     const con = $("#console");
     const filterEl = $("#con-filter");
     // 命令补全用：在线玩家名（进出游戏时刷新）
@@ -1702,21 +1806,22 @@ async function renderDetail(name, tab = "console") {
       let pl;
       try { pl = await api(`/api/instances/${encodeURIComponent(name)}/players`); }
       catch (e) { body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+      // 三个名单的输入框、每个人名后面的「移除」「OP」「踢」都同名：可访问名称带上名单和玩家名
       const section = (title, items, addAction, removeAction, hint) => `
         <div class="p-sec">
           <div class="p-sec-head"><b>${title}</b>（${items.length}）
-            <input type="text" data-add="${addAction}" placeholder="输入玩家名，回车添加">
+            <input type="text" data-add="${addAction}" placeholder="输入玩家名，回车添加" aria-label="添加玩家到${title}">
             ${hint ? `<span class="hint">${hint}</span>` : ""}
           </div>
           <div class="badges">${items.map(p =>
-            `<span class="badge">${esc(p.name)}<a class="p-x" data-act="${removeAction}" data-p="${esc(p.name)}" title="移除" aria-label="移除">${icon("x")}</a></span>`).join("") || `<span class="sub">空</span>`}</div>
+            `<span class="badge">${esc(p.name)}<a class="p-x" data-act="${removeAction}" data-p="${esc(p.name)}" title="移除" aria-label="移除 ${esc(p.name)}（${title}）">${icon("x")}</a></span>`).join("") || `<span class="sub">空</span>`}</div>
         </div>`;
       body.innerHTML = `<div class="players-grid">
         <div class="p-sec">
           <div class="p-sec-head"><b>在线玩家</b>（${pl.online.length}）<button class="btn sm" id="pl-refresh">${icon("refresh")} 刷新</button></div>
           <div class="badges">${pl.online.map(n => `<span class="badge core">${esc(n)}
-            <a class="p-x" data-act="op" data-p="${esc(n)}" title="设为管理员">OP</a>
-            <a class="p-x" data-act="kick" data-p="${esc(n)}" title="踢出">踢</a></span>`).join("") || `<span class="sub">暂无玩家在线</span>`}</div>
+            <a class="p-x" data-act="op" data-p="${esc(n)}" title="设为管理员" aria-label="OP ${esc(n)}">OP</a>
+            <a class="p-x" data-act="kick" data-p="${esc(n)}" title="踢出" aria-label="踢 ${esc(n)}">踢</a></span>`).join("") || `<span class="sub">暂无玩家在线</span>`}</div>
         </div>
         ${section("白名单", pl.whitelist, "whitelist-add", "whitelist-remove", "需在常用设置开启 white-list 才生效")}
         ${section("管理员 OP", pl.ops, "op", "deop", "")}
@@ -1749,8 +1854,8 @@ async function renderDetail(name, tab = "console") {
         <div class="group has-ico bk-list">${(list || []).map(b => `
           <div class="row-item"><div class="ri-head"><span class="ri-ico">${icon("package")}</span>
             <div class="ri-main"><div class="ri-title">${esc(b.file)}</div><div class="ri-key">${b.sizeMb.toFixed(1)} MB · ${esc(b.time)}</div></div>
-            <div class="ri-right"><button class="btn sm" data-restore="${esc(b.file)}">${icon("restore")} 还原</button>
-              <button class="btn sm danger" data-del="${esc(b.file)}">删除</button></div></div></div>`).join("") ||
+            <div class="ri-right"><button class="btn sm" data-restore="${esc(b.file)}" aria-label="还原 ${esc(b.file)}">${icon("restore")} 还原</button>
+              <button class="btn sm danger" data-del="${esc(b.file)}" aria-label="删除 ${esc(b.file)}">删除</button></div></div></div>`).join("") ||
           `<div class="row-item"><div class="ri-head"><div class="ri-main"><div class="ri-sub">暂无备份</div></div></div></div>`}</div>`;
       $("#bk-create").onclick = async () => {
         $("#bk-create").disabled = true;
@@ -1796,15 +1901,19 @@ async function renderDetail(name, tab = "console") {
     body.innerHTML = `<div style="max-width:640px">
       <div class="prop-item" style="margin-bottom:18px">
         <div><div class="pl">崩溃自动重启</div><div class="pd">异常退出后按 10/30/60 秒退避重启；连续 3 次崩溃放弃并提示</div></div>
-        <label class="switch"><input type="checkbox" id="pol-crash" ${pol.crashRestart ? "checked" : ""}><span class="sw"></span></label>
+        <label class="switch"><input type="checkbox" id="pol-crash" ${pol.crashRestart ? "checked" : ""} aria-label="崩溃自动重启"><span class="sw"></span></label>
       </div>
       <h3 style="margin-bottom:8px">每日定时任务</h3>
       <div id="sched-list"></div>
       <div class="row" style="margin:12px 0 4px;flex-wrap:wrap">
-        <select id="sc-type" style="width:130px"><option value="restart">定时重启</option><option value="command">定时命令</option><option value="backup">定时备份</option></select>
-        <input type="time" id="sc-at" value="04:00" style="width:130px">
+        <select id="sc-type" style="width:130px" aria-label="任务类型"><option value="restart">定时重启</option><option value="command">定时命令</option><option value="backup">定时备份</option></select>
+        <input type="text" id="sc-at" class="num" value="04:00" inputmode="numeric" maxlength="5" placeholder="时:分" aria-label="每天几点执行（时:分）" aria-describedby="sc-hint" style="width:88px">
         <input type="text" id="sc-args" placeholder="命令内容（仅定时命令需要），如 say 大家好" style="flex:1;min-width:200px">
         <button class="btn" id="sc-add">${icon("plus")} 添加</button>
+      </div>
+      <div class="sc-quick" role="group" aria-label="快捷时间">
+        <button type="button" class="btn sm" data-later="5">5 分钟后</button><button type="button" class="btn sm" data-later="10">10 分钟后</button><button type="button" class="btn sm" data-later="30">30 分钟后</button>
+        <span class="hint" id="sc-hint">每天到这个时间执行一次（24 小时制，如 04:00、21:30）。</span>
       </div>
       <div class="field-err" id="sc-err"></div>
       ${saveBar("保存策略")}</div>`;
@@ -1815,15 +1924,36 @@ async function renderDetail(name, tab = "console") {
           <span class="jv">每天 ${esc(s.at)}</span>
           <span class="jp">${esc(s.args || "")}</span>
           <span class="grow"></span>
-          <button class="btn sm danger" data-i="${i}">移除</button></div>`).join("") ||
+          <button class="btn sm danger" data-i="${i}" aria-label="移除 ${esc(TYPE_NAMES[s.type] || s.type)} 每天 ${esc(s.at)}${s.args ? " " + esc(s.args) : ""}">移除</button></div>`).join("") ||
         `<div class="sub">暂无定时任务</div>`;
       $("#sched-list").querySelectorAll("[data-i]").forEach(b => b.onclick = () => { scheds.splice(+b.dataset.i, 1); drawScheds(); paintBar(); });
     };
     drawScheds();
-    const scErr = msg => { $("#sc-err").innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; };
+    const scErr = (msg, badTime = false) => { $("#sc-err").innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; $("#sc-at").classList.toggle("invalid", badTime); };
+    // 时间：「时:分」文本框（原来的 input[type=time] 两个小格太难点、太难改，见测试报告观察 1）。
+    // 认 4:00、04:00、0400、21：30 这几种写法，一律补齐成 HH:MM——后端按 HH:MM 逐字比对当前时刻，9:05 不补零就永远不会触发
+    const pad2 = n => String(n).padStart(2, "0");
+    const parseHM = v => {
+      const m = String(v).trim().match(/^(\d{1,2})[:：.](\d{1,2})$/) || String(v).trim().match(/^(\d{1,2})(\d{2})$/);
+      if (!m || +m[1] > 23 || +m[2] > 59) return "";
+      return pad2(+m[1]) + ":" + pad2(+m[2]);
+    };
+    const HINT = $("#sc-hint").textContent;
+    $("#sc-at").addEventListener("input", () => { $("#sc-hint").textContent = HINT; if ($("#sc-at").classList.contains("invalid")) scErr(""); });
+    $("#sc-at").addEventListener("blur", () => { const hm = parseHM($("#sc-at").value); if (hm) $("#sc-at").value = hm; });
+    // 快捷项：填成几分钟后的时刻（只是填时间，还要点「添加」、再保存策略）
+    body.querySelectorAll("[data-later]").forEach(b => b.onclick = () => {
+      const d = new Date(Date.now() + b.dataset.later * 60000), hm = pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+      const day = d.toDateString() === new Date().toDateString() ? "今天" : "明天";
+      $("#sc-at").value = hm;
+      scErr("");
+      $("#sc-hint").textContent = `已填成 ${hm}：${day} ${hm} 执行第一次，之后每天这个时间都执行；只想试一次的话，执行完把它移除。点「添加」再保存才生效。`;
+    });
+    ["#sc-at", "#sc-args"].forEach(s => $(s).addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("#sc-add").click(); } }));
     $("#sc-add").onclick = () => {
-      const s = { type: $("#sc-type").value, at: $("#sc-at").value, args: $("#sc-args").value.trim() };
-      if (!s.at) { scErr("请选择执行时间"); $("#sc-at").focus(); return; }
+      const s = { type: $("#sc-type").value, at: parseHM($("#sc-at").value), args: $("#sc-args").value.trim() };
+      if (!s.at) { scErr("时间写成 时:分，如 04:00 或 21:30（24 小时制）", true); $("#sc-at").focus(); return; }
+      $("#sc-at").value = s.at;
       if (s.type === "command" && !s.args) { scErr("定时命令需要填写命令内容，如 say 大家好"); $("#sc-args").focus(); return; }
       scErr("");
       scheds.push(s);
@@ -1856,16 +1986,18 @@ async function renderDetail(name, tab = "console") {
             <div style="flex:1;min-width:0"><b>${esc(h.title)}</b>
               <div class="jp" style="white-space:normal;max-height:32px;overflow:hidden">${esc(h.description)}</div></div>
             <span class="jv" style="color:var(--muted);display:inline-flex;align-items:center;gap:4px">${h.downloads >= 1e6 ? (h.downloads / 1e6).toFixed(1) + "M" : Math.round(h.downloads / 1e3) + "k"}${icon("download")}</span>
-            <button class="btn sm primary" data-rid="${esc(h.project_id)}" data-rt="${esc(h.title)}">${icon("download")} 安装</button>
+            <button class="btn sm primary" data-rid="${esc(h.project_id)}" data-rt="${esc(h.title)}" aria-label="安装 ${esc(h.title)}">${icon("download")} 安装</button>
           </div>`).join("") || `<div class="sub">没有找到兼容 ${esc(info.mc)} 的资源，换个关键词试试</div>`;
+        // 20 个结果的按钮都叫「安装」、模组名又相近，名字带上模组名（测试报告观察 9）；按钮上的字变了，名字跟着变
         $("#res-list").querySelectorAll("[data-rid]").forEach(b => b.onclick = async () => {
+          const label = s => b.setAttribute("aria-label", s + " " + b.dataset.rt);
           b.disabled = true;
-          b.textContent = "安装中…";
+          b.textContent = "安装中…"; label("安装中…");
           try {
             const res = await api(`/api/instances/${encodeURIComponent(name)}/resources/install`, { method: "POST", body: { projectId: b.dataset.rid } });
             toast(`已安装 ${b.dataset.rt} → ${res.file}（重启服务器生效）`);
-            b.innerHTML = icon("check") + " 已安装";
-          } catch (e) { toast(e.message, true); b.disabled = false; b.innerHTML = icon("download") + " 安装"; }
+            b.innerHTML = icon("check") + " 已安装"; label("已安装");
+          } catch (e) { toast(e.message, true); b.disabled = false; b.innerHTML = icon("download") + " 安装"; label("安装"); }
         });
       } catch (e) { $("#res-list").innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
     };
@@ -1893,15 +2025,16 @@ async function renderDetail(name, tab = "console") {
       items.push({ ...p, mode });
     }
     const inGroup = g => items.filter(p => p.group === g);
+    // 每个控件都用设置项的中文名当可访问名称（行里的名字和控件没有 label 关联，读屏和自动化原来读不到名字）
     const fieldHTML = p => {
-      const v = cur[p.key] ?? p.def;
+      const v = cur[p.key] ?? p.def, al = `aria-label="${esc(p.label)}"`;
       if (p.key === "motd") return `<div class="motd-palette" id="motd-pal"></div>
-        <input type="text" data-k="motd" id="motd-in" value="${esc(v ?? "")}" style="width:100%;margin-top:6px"><div class="motd-preview" id="motd-prev"></div>`;
-      if (p.mode === "gamerule") return `<label class="switch" title="游戏规则：服务器运行时通过 /gamerule 即时生效"><input type="checkbox" data-gr="${p.gamerule}" ${v === "true" ? "checked" : ""} ${running ? "" : "disabled"}><span class="sw"></span></label>`;
-      if (p.mode === "bool") return `<label class="switch"><input type="checkbox" data-k="${p.key}" ${v === "true" ? "checked" : ""}><span class="sw"></span></label>`;
-      if (p.mode === "sel") return `<select data-k="${p.key}">${p.opts.map((o, i) => `<option value="${o}" ${v === o ? "selected" : ""}>${esc(p.optNames ? p.optNames[i] : o)}</option>`).join("")}</select>`;
-      if (p.mode === "int") return `<input type="number" data-k="${p.key}" value="${esc(v ?? "")}">`;
-      return `<input type="text" data-k="${p.key}" value="${esc(v ?? "")}" style="width:200px">`;
+        <input type="text" data-k="motd" id="motd-in" value="${esc(v ?? "")}" ${al} style="width:100%;margin-top:6px"><div class="motd-preview" id="motd-prev"></div>`;
+      if (p.mode === "gamerule") return `<label class="switch" title="游戏规则：服务器运行时通过 /gamerule 即时生效"><input type="checkbox" data-gr="${p.gamerule}" ${v === "true" ? "checked" : ""} ${running ? "" : "disabled"} ${al}><span class="sw"></span></label>`;
+      if (p.mode === "bool") return `<label class="switch"><input type="checkbox" data-k="${p.key}" ${v === "true" ? "checked" : ""} ${al}><span class="sw"></span></label>`;
+      if (p.mode === "sel") return `<select data-k="${p.key}" ${al}>${p.opts.map((o, i) => `<option value="${o}" ${v === o ? "selected" : ""}>${esc(p.optNames ? p.optNames[i] : o)}</option>`).join("")}</select>`;
+      if (p.mode === "int") return `<input type="number" data-k="${p.key}" value="${esc(v ?? "")}" ${al}>`;
+      return `<input type="text" data-k="${p.key}" value="${esc(v ?? "")}" ${al} style="width:200px">`;
     };
     const rowHTML = p => {
       const tags = (p.restart ? `<span class="ri-restart">重启生效</span>` : "") + (p.mode === "gamerule" ? `<span class="gr-tag">游戏规则</span>` : "");
@@ -1925,17 +2058,10 @@ async function renderDetail(name, tab = "console") {
       }).join("")}</div>
       ${saveBar("保存设置", running ? `<span class="warn-text">${icon("warn")} 运行中：保存后需重启生效（游戏规则即时生效）</span>` : "")}`;
     body.querySelectorAll(".cp-chip").forEach(c => c.onclick = () => $("#cpg-" + c.dataset.g, body)?.scrollIntoView({ behavior: "smooth", block: "start" }));
-    $("#cp-search").oninput = () => {
-      const q = $("#cp-search").value.trim().toLowerCase();
-      body.querySelectorAll(".cp-group").forEach(g => {
-        let any = false;
-        g.querySelectorAll(".prop-item").forEach(it => {
-          const hit = !q || (it.dataset.search || "").toLowerCase().includes(q);
-          it.style.display = hit ? "" : "none"; if (hit) any = true;
-        });
-        g.style.display = any ? "" : "none";
-      });
-    };
+    wireSearch($("#cp-search"), () => {
+      const q = $("#cp-search").value;
+      body.querySelectorAll(".cp-group").forEach(g => { g.style.display = filterBySearch(q, g.querySelectorAll(".prop-item")) ? "" : "none"; });
+    });
     // 游戏规则开关：运行时即时发送 /gamerule（不写入 server.properties）
     body.querySelectorAll("[data-gr]").forEach(sw => sw.onchange = async () => {
       const rule = sw.dataset.gr, val = sw.checked;
@@ -1998,10 +2124,22 @@ async function renderDetail(name, tab = "console") {
     try { data = await api(`/api/instances/${encodeURIComponent(name)}/properties`); } catch (e) { body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
     if (!data.pairs.length) { body.innerHTML = `<div class="sub">配置文件为空 —— 首次启动服务器后，服务端会自动生成全部配置项。</div>`; return; }
     const LABELS = Object.fromEntries((window.PROPS_CATALOG || []).map(p => [p.key, p.label]));
+    const total = data.pairs.length;
     body.innerHTML = `<div style="max-width:900px"><div class="sub">server.properties 全部键值（高级）。已知项附中文名。</div>
+      <div class="common-bar">
+        <div class="search-field">${icon("search", "sf-ico")}<input type="text" id="raw-search" placeholder="搜索配置项（键名 / 中文名，如 rcon / 视距）" aria-label="搜索配置项" style="width:320px"></div>
+        <span class="hint" id="raw-count" style="margin:0">共 ${total} 项</span>
+      </div>
       <table class="raw">${data.pairs.map(p =>
-        `<tr><td>${esc(p.key)}</td><td class="raw-cn">${LABELS[p.key] ? esc(LABELS[p.key]) : ""}</td><td><input type="text" data-k="${esc(p.key)}" value="${esc(p.value)}"></td></tr>`).join("")}</table>
+        `<tr data-search="${esc(p.key)} ${esc(LABELS[p.key] || "")}"><td>${esc(p.key)}</td><td class="raw-cn">${LABELS[p.key] ? esc(LABELS[p.key]) : ""}</td><td><input type="text" data-k="${esc(p.key)}" value="${esc(p.value)}" aria-label="${esc(p.key)}"></td></tr>`).join("")}</table>
+      <div class="sub" id="raw-none" hidden>没有匹配的配置项：换个关键词，或者按 Esc 清空搜索。</div>
       ${saveBar("保存全部", data.running ? `<span class="warn-text">${icon("warn")} 运行中：保存后需重启生效</span>` : "")}</div>`;
+    // 搜索（同常用设置）：只是把不匹配的行藏起来，保存时照样提交全部键值
+    wireSearch($("#raw-search"), () => {
+      const q = $("#raw-search").value, n = filterBySearch(q, body.querySelectorAll("table.raw tr"));
+      $("#raw-count").textContent = searchKey(q) ? `找到 ${n} 项（共 ${total} 项）` : `共 ${total} 项`;
+      $("#raw-none").hidden = n > 0;
+    });
     wireSaveBar(body, gen,
       () => Object.fromEntries([...body.querySelectorAll("input[data-k]")].map(el => [el.dataset.k, el.value])),
       async () => {
@@ -2113,7 +2251,7 @@ async function renderTunnels() {
       <div class="field"><label class="switch"><input type="checkbox" id="tn-auto" checked><span class="sw"></span>
         <span><span class="sw-label">跟随实例启动</span><div class="sw-desc">绑定的服务器启动时自动拉起隧道，停服后跟着停</div></span></label></div>
     </div>
-    <button class="btn primary" id="tn-add">${icon("plus")} 添加隧道</button>
+    <button class="btn primary" id="tn-add" aria-label="确认添加隧道">${icon("plus")} 添加隧道</button>
     </div>`;
 
   const PROV_NAMES = { openfrp: "OpenFrp", natfrp: "樱花frp", custom: "自定义" };
@@ -2134,32 +2272,59 @@ async function renderTunnels() {
     if (!f.hidden) { f.scrollIntoView({ behavior: "smooth", block: "nearest" }); $("#tn-name").focus({ preventScroll: true }); }
   };
 
-  let logOpen = false;
-  const drawList = async () => {
-    if (logOpen) return; // 日志展开时暂停列表刷新，避免打断 SSE 显示
-    let list;
-    try { list = await api("/api/tunnels"); } catch (e) { if (!stale(gen)) $("#tun-list").innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
-    if (stale(gen) || logOpen) return;
-    const runN = list.filter(t => t.running).length;
-    $("#tun-summary").innerHTML = list.length ? `${list.length} 条隧道${SEP}运行中 ${runN}` : "";
-    if (!list.length) { $("#tun-list").innerHTML = `<div class="empty">${MDPixel.emptySVG(200)}<div class="empty-title">还没有隧道</div>点右上角「添加隧道」，开服后就能把本地服务器映射到公网</div>`; return; }
-    $("#tun-list").innerHTML = list.map(t => `
-      <div class="java-row" style="max-width:980px">
+  // 日志展开着的隧道：列表照常刷新（以前日志一展开整个列表就停刷，点了「启动」卡片也不变，测试报告第五轮），
+  // 重绘时把那个日志框摘下来再放回原位，SSE 不断。
+  let logId = null;
+  let shown = null; // 上次画出来的列表；没变就不重画，不打断「已复制」的动效和键盘焦点
+  let drawSeq = 0;
+  const closeLog = () => { logId = null; if (consoleES) { consoleES.close(); consoleES = null; } };
+  const warnSpan = (text, title) => `<span class="jp" style="color:var(--danger-text);display:inline-flex;align-items:center;gap:5px"${title ? ` title="${esc(title)}"` : ""}>${icon("warn")} ${esc(text)}</span>`;
+  const tunRow = t => {
+    // 最近一次失败原因（启动失败、跟随启动失败、frpc 报错或意外退出）直接写在卡片上，不用点开日志；
+    // 停着时排在上次的公网地址前面，跑起来拿到地址后不再显示（后端在 frpc 起来时也会清掉）。
+    // 公网地址跨次保存着，「这次连上了没有」看 online：新一次运行还没连上就报错，不能让上次的地址盖住这次的错（Codex 复审发现）
+    const err = !t.credBroken && t.lastError && !(t.running && t.online) ? t.lastError : "";
+    const addr = t.publicAddr && (!t.running || t.online) ? t.publicAddr : ""; // 运行中没连上时不拿上次的地址充数
+    const state = t.credBroken ? warnSpan("凭据无法解开，请删除后重新添加", "凭据加密绑定当前电脑和 Windows 用户，换了就解不开")
+      : err ? warnSpan(t.running ? "连接出错" : "上次出错")
+      : addr ? `<span class="jv" style="color:var(--accent-text);font-family:var(--mono)">${esc(addr)}</span>
+          <button class="btn sm" data-copy="${esc(addr)}" aria-label="复制 ${esc(t.name)} 的公网地址">${icon("copy")} 复制</button>`
+      : `<span class="jp">${t.running ? "连接中…" : "尚未启动"}</span>`;
+    return `
+      <div class="java-row" style="max-width:980px" data-tun="${esc(t.id)}">
         ${stPill(t.running ? "running" : "stopped")}
         <b style="min-width:110px">${esc(t.name)}</b>
         <span class="badge core">${esc(PROV_NAMES[t.provider] || t.provider)}</span>${window.MDMusic ? MDMusic.tunnelBadge(t) : ""}
         ${t.boundInstance ? `<span class="badge">${icon("link")} ${esc(t.boundInstance)}${t.autoStart ? " · 跟随" : ""}</span>` : ""}
-        ${t.credBroken ? `<span class="jp" style="color:var(--danger-text);display:inline-flex;align-items:center;gap:5px" title="凭据加密绑定当前电脑和 Windows 用户，换了就解不开">${icon("warn")} 凭据无法解开，请删除后重新添加</span>`
-          : t.publicAddr ? `<span class="jv" style="color:var(--accent-text);font-family:var(--mono)">${esc(t.publicAddr)}</span>
-          <button class="btn sm" data-copy="${esc(t.publicAddr)}">${icon("copy")} 复制</button>`
-          : t.lastError ? `<span class="jp" style="color:var(--danger-text);display:inline-flex;align-items:center;gap:5px" title="${esc(t.lastError)}">${icon("warn")} ${esc(t.lastError.length > 46 ? t.lastError.slice(0, 46) + "…" : t.lastError)}</span>`
-          : `<span class="jp">${t.running ? "连接中…" : "尚未启动"}</span>`}
+        ${state}
         <span class="grow"></span>
-        ${t.running ? `<button class="btn sm" data-tstop="${t.id}">${icon("stop")} 停止</button>` : `<button class="btn sm primary" data-tstart="${t.id}">${icon("play")} 启动</button>`}
-        <button class="btn sm" data-tlog="${t.id}">日志</button>
-        <button class="btn sm danger" data-tdel="${t.id}">删除</button>
+        ${t.running ? `<button class="btn sm" data-tstop="${esc(t.id)}" aria-label="停止 ${esc(t.name)}">${icon("stop")} 停止</button>` : `<button class="btn sm primary" data-tstart="${esc(t.id)}" aria-label="启动 ${esc(t.name)}">${icon("play")} 启动</button>`}
+        <button class="btn sm" data-tlog="${esc(t.id)}" aria-expanded="${logId === t.id}" aria-controls="tlog-${esc(t.id)}" aria-label="日志 ${esc(t.name)}">日志</button>
+        <button class="btn sm danger" data-tdel="${esc(t.id)}" aria-label="删除 ${esc(t.name)}">删除</button>
+        ${err ? `<div class="tun-err" style="flex-basis:100%;font-size:var(--fs-xs);color:var(--danger-text);line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere">${esc(err)}</div>` : ""}
       </div>
-      <div class="task-log" id="tlog-${t.id}" style="display:none;height:150px;max-width:980px;margin:-2px 0 8px"></div>`).join("");
+      <div class="task-log" id="tlog-${esc(t.id)}" style="display:none;height:150px;max-width:980px;margin:-2px 0 8px"></div>`;
+  };
+  const drawList = async () => {
+    const seq = ++drawSeq;
+    let list;
+    try { list = await api("/api/tunnels"); } catch (e) {
+      if (stale(gen) || seq !== drawSeq) return null;
+      // 已经画着列表时偶尔刷新失败（网络抖一下）：列表和展开着的日志留着，摘要那里提示一句，下次刷新成功照常重画（独立评审发现）
+      if (shown !== null && $("#tun-list [data-tun]")) { shown = null; $("#tun-summary").innerHTML = `<span style="color:var(--danger-text)">${icon("warn")} 刷新失败：${esc(e.message)}</span>`; return null; }
+      closeLog(); shown = null; $("#tun-list").innerHTML = `<div class="err-box">${esc(e.message)}</div>`;
+      return null;
+    }
+    if (stale(gen) || seq !== drawSeq) return list; // 晚到的旧响应不画
+    const sig = JSON.stringify(list);
+    if (sig === shown) return list;
+    shown = sig;
+    const runN = list.filter(t => t.running).length;
+    $("#tun-summary").innerHTML = list.length ? `${list.length} 条隧道${SEP}运行中 ${runN}` : "";
+    if (!list.length) { closeLog(); $("#tun-list").innerHTML = `<div class="empty">${MDPixel.emptySVG(200)}<div class="empty-title">还没有隧道</div>点右上角「添加隧道」，开服后就能把本地服务器映射到公网</div>`; return list; }
+    const logBox = logId ? $("#tlog-" + logId) : null;
+    $("#tun-list").innerHTML = list.map(tunRow).join("");
+    if (logBox) { const ph = $("#tlog-" + logId); if (ph) ph.replaceWith(logBox); else closeLog(); } // 那条隧道删了就关掉日志
     $("#tun-list").querySelectorAll("[data-copy]").forEach(b => b.onclick = async () => {
       await copy(b.dataset.copy, "已复制公网地址：" + b.dataset.copy);
       // 微交互：图标换成弹出的对勾、文字改「已复制」，1.3 秒后换回
@@ -2170,14 +2335,19 @@ async function renderTunnels() {
       setTimeout(() => { b.innerHTML = old; playClass(b, "swap-in"); delete b.dataset.busy; }, 1300);
     });
     $("#tun-list").querySelectorAll("[data-tstart]").forEach(b => b.onclick = async () => {
+      const id = b.dataset.tstart;
       b.disabled = true;
-      try { await api(`/api/tunnels/${b.dataset.tstart}/start`, { method: "POST" }); toast("隧道启动中，公网地址稍后显示在列表"); }
+      try { await api(`/api/tunnels/${id}/start`, { method: "POST" }); toast("隧道启动中，公网地址稍后显示在列表"); }
       catch (e) { toast(e.message, true); }
-      setTimeout(drawList, 600);
+      b.disabled = false; // 列表没变（比如同样的错误）时不会重画，按钮要自己恢复
+      watch(id, t => !t.running || !!t.online || !!t.lastError); // 这次连上（拿到公网地址）、报错或者停下就算稳定
     });
     $("#tun-list").querySelectorAll("[data-tstop]").forEach(b => b.onclick = async () => {
-      try { await api(`/api/tunnels/${b.dataset.tstop}/stop`, { method: "POST" }); } catch (e) { toast(e.message, true); }
-      setTimeout(drawList, 400);
+      const id = b.dataset.tstop;
+      b.disabled = true;
+      try { await api(`/api/tunnels/${id}/stop`, { method: "POST" }); } catch (e) { toast(e.message, true); }
+      b.disabled = false;
+      watch(id, t => !t.running);
     });
     $("#tun-list").querySelectorAll("[data-tdel]").forEach(b => b.onclick = async () => {
       const r = await confirmModal({ title: "删除隧道？", danger: true, okText: "删除", icon: "trash", body: "仅删除本机配置，服务商侧隧道不受影响。" });
@@ -2186,34 +2356,59 @@ async function renderTunnels() {
       drawList();
     });
     $("#tun-list").querySelectorAll("[data-tlog]").forEach(b => b.onclick = () => {
-      const box = $("#tlog-" + b.dataset.tlog);
-      if (box.style.display !== "none") { box.style.display = "none"; logOpen = false; if (consoleES) { consoleES.close(); consoleES = null; } return; }
+      const id = b.dataset.tlog, box = $("#tlog-" + id), was = logId === id;
       document.querySelectorAll(".task-log[id^=tlog-]").forEach(x => x.style.display = "none");
-      if (consoleES) { consoleES.close(); consoleES = null; }
-      logOpen = true;
+      $("#tun-list").querySelectorAll("[data-tlog]").forEach(x => x.setAttribute("aria-expanded", "false"));
+      closeLog();
+      if (was) return;
+      logId = id;
+      b.setAttribute("aria-expanded", "true");
       box.style.display = "";
       box.textContent = "";
-      consoleES = new EventSource(`/api/tunnels/${b.dataset.tlog}/console?token=${TOKEN()}`);
+      consoleES = new EventSource(`/api/tunnels/${id}/console?token=${TOKEN()}`);
       consoleES.onmessage = e => {
         box.textContent += JSON.parse(e.data) + "\n";
         box.scrollTop = box.scrollHeight;
       };
     });
+    return list;
+  };
+  // 启动、停止之后短间隔刷新：马上刷一次，之后每秒一次，直到这条隧道稳定下来（最多 30 秒）；平时 4 秒一次
+  const pend = new Map(); // 隧道ID → { settled: 判断稳定了没有, until: 截止时间 }
+  let burstT = null;
+  const burst = async () => {
+    burstT = null;
+    if (stale(gen)) return;
+    const list = await drawList();
+    if (stale(gen)) return;
+    const now = Date.now();
+    for (const [id, w] of pend) {
+      const t = list && list.find(x => x.id === id);
+      if (now > w.until || (list && (!t || w.settled(t)))) pend.delete(id);
+    }
+    if (pend.size && !burstT) burstT = setTimeout(burst, 1000);
+  };
+  const watch = (id, settled) => {
+    pend.set(id, { settled, until: Date.now() + 30000 });
+    if (burstT) clearTimeout(burstT);
+    burstT = setTimeout(burst, 0);
   };
   await drawList();
   startPoll(drawList, 4000, gen);
 
   $("#tn-add").onclick = async () => {
-    const p = provSel.value;
+    const p = provSel.value, custom = p === "custom";
+    // frps 地址和端口只有自定义 frps 用：樱花、OpenFrp 的端口在服务商后台填，以前把隐藏着的默认值（25565 / 25566 / 7000）
+    // 也发过去存进了 tunnels.json，看着像真的端口（测试报告第五轮）
     const body = {
       provider: p,
       name: $("#tn-name").value.trim(),
       credential: $("#tn-cred").value.trim(),
       proxyId: $("#tn-proxy").value.trim(),
-      serverAddr: $("#tn-saddr").value.trim(),
-      serverPort: +$("#tn-sport").value || 0,
-      remotePort: +$("#tn-rport").value || 0,
-      localPort: +$("#tn-lport").value || 25565,
+      serverAddr: custom ? $("#tn-saddr").value.trim() : "",
+      serverPort: custom ? +$("#tn-sport").value || 0 : 0,
+      remotePort: custom ? +$("#tn-rport").value || 0 : 0,
+      localPort: custom ? +$("#tn-lport").value || 25565 : 0,
       boundInstance: $("#tn-bound").value,
       autoStart: $("#tn-auto").checked,
       ...(window.MDMusic ? MDMusic.tunnelExtra() : {}), // 第五阶段：purpose、proto
@@ -2333,9 +2528,9 @@ function setAppearance(body) {
 /* — 启动与托盘 — */
 function setStartup(body, info) {
   const c = info.config || {};
-  body.innerHTML = settingsHead("启动与托盘", "控制关闭窗口的行为与开机自启。托盘图标在程序运行时始终显示，右键可「打开面板 / 全部停止并退出」，左键点击恢复窗口。") +
+  body.innerHTML = settingsHead("启动与托盘", "控制点窗口关闭按钮时做什么，以及开机自启。程序开着时托盘里有它的图标：左键点击恢复窗口，右键可「打开面板 / 全部停止并退出」；程序退出后图标随之消失。") +
     group(
-      switchRow("monitor", "最小化到系统托盘", "开启后点窗口关闭按钮不退出程序，而是收进托盘、服务器继续运行；点托盘图标即可恢复窗口。关闭则保持现状——点关闭即停服退出。", "minimizeToTray", c.minimizeToTray) +
+      switchRow("monitor", "最小化到系统托盘", "开启后点窗口关闭按钮不退出程序，而是收进托盘、服务器继续运行，点托盘图标即可恢复窗口。不开启时点关闭按钮会退出程序并停止服务器；有服务器在运行时会先询问，可以改为最小化到托盘。", "minimizeToTray", c.minimizeToTray) +
       switchRow("power", "开机自动启动", "登录 Windows 后自动在后台（托盘）启动 MineDeck。写入当前用户启动项（HKCU\\…\\Run，免管理员）；程序换目录后重新开关一次即修正路径。", "autoStart", info.autoStart),
       { ico: true }) +
     `<div class="hint">开机自启以「静默进托盘」方式启动（附加 -minimized 参数），配合上面的托盘开关体验最佳。</div>`;
@@ -2416,11 +2611,11 @@ function setDownload(body, info) {
 }
 
 /* — 存储位置 — */
-function storageRow(ico, title, path, desc, pick) {
+function storageRow(ico, title, path, desc, pick) { // 三行都有「打开」「更改…」：名字带上是哪个目录
   return riRow({ ico, title, sub: esc(desc), key: path || "", right: `
-      <button class="btn sm" data-open="${esc(path || "")}">${icon("folder")} 打开</button>
-      ${pick ? `<button class="btn sm" data-pick="${pick}">更改…</button>
-      <button class="btn sm ghost icon-only" data-reset="${pick}" title="恢复默认目录" aria-label="恢复默认目录">${icon("refresh")}</button>` : ""}` });
+      <button class="btn sm" data-open="${esc(path || "")}" aria-label="打开${esc(title)}">${icon("folder")} 打开</button>
+      ${pick ? `<button class="btn sm" data-pick="${pick}" aria-label="更改${esc(title)}…">更改…</button>
+      <button class="btn sm ghost icon-only" data-reset="${pick}" title="恢复默认目录" aria-label="恢复默认的${esc(title)}">${icon("refresh")}</button>` : ""}` });
 }
 function setStorage(body, info) {
   const draw = () => {
@@ -2493,15 +2688,20 @@ const lanIPRank = ip => /^192\.168\./.test(ip) ? 0 : /^10\./.test(ip) ? 1 : /^17
 function setRemote(body, info) {
   const lanPort = info.port || location.port || "27333"; // 实际监听端口（被占用时会随机化）
   const ips = (info.ips || []).slice().sort((a, b) => lanIPRank(a) - lanIPRank(b));
-  // 开关与密码一起保存（开启局域网访问前必须先设好密码），改动重启程序后生效
-  body.innerHTML = settingsHead("远程访问（手机 / 平板管理）", "开启后本机 IP 可从局域网访问管理界面（密码保护，改动需重启程序生效）。") +
+  // 开关点了即时保存（开启前必须先有访问密码，后端也会拒绝）。监听地址只在程序启动时绑定：
+  // 开启要重启程序才生效，和这次启动不一致时常驻提示；关闭即时生效（后端不再放行局域网的请求）
+  const on = !!info.config.listenLan;
+  const live = info.lanActive ?? on; // 这次启动是否已监听在局域网上
+  body.innerHTML = settingsHead("远程访问（手机 / 平板管理）", "开启后本机 IP 可从局域网访问管理界面（密码保护，开启后需重启程序生效）。") +
     group(
       riRow({ ico: "phone", title: "允许局域网访问", sub: "手机与本机连在同一 Wi-Fi / 路由器下即可打开管理界面",
-        right: `<label class="switch"><input type="checkbox" id="lan-on" ${info.config.listenLan ? "checked" : ""} aria-label="允许局域网访问"><span class="sw"></span></label>` }) +
-      riRow({ ico: "lock", title: "访问密码", sub: info.lanSet ? "已设置；留空则不修改" : "开启局域网访问前必须先设置",
-        field: `<input type="password" id="lan-pw" placeholder="${info.lanSet ? "已设置密码（留空则不修改）" : "设置访问密码（必填）"}" aria-label="访问密码"><button class="btn" id="lan-save">保存</button>` }),
+        right: `<label class="switch"><input type="checkbox" id="lan-on" ${on ? "checked" : ""} aria-label="允许局域网访问"><span class="sw"></span></label>` }) +
+      riRow({ ico: "lock", title: "访问密码", sub: info.lanSet ? "已设置；要修改就输入新密码后保存" : "开启局域网访问前必须先设置",
+        field: `<input type="password" id="lan-pw" placeholder="${info.lanSet ? "已设置（输入新密码可修改）" : "设置访问密码（必填）"}" aria-label="访问密码"><button class="btn" id="lan-save">保存</button>`,
+        after: `<div class="field-err ri-err" id="lan-pw-err"></div>` }),
       { ico: true }) +
-    (!info.config.listenLan ? "" : ips.length ? `<div class="qr-card">
+    (on && !live ? `<div class="hint" id="lan-restart">${icon("info")} 局域网访问已开启，重启 MineDeck 后生效；重启后这里会显示手机扫码地址。</div>` : "") +
+    (!(on && live) ? "" : ips.length ? `<div class="qr-card">
       <div class="qr-box" id="qr-box" role="img"></div>
       <div class="qr-info">
         <div class="ri-title">手机扫码访问</div>
@@ -2512,13 +2712,46 @@ function setRemote(body, info) {
       </div>
     </div>` : `<div class="hint">未检测到本机局域网 IP，请确认已连接网络。</div>`) +
     `<div class="hint">若无法访问，请以管理员运行一次放行防火墙：<code>netsh advfirewall firewall add rule name="MineDeck" dir=in action=allow protocol=TCP localport=${esc(String(lanPort))}</code></div>`;
-  $("#lan-save").onclick = async () => {
-    const b = { listenLan: $("#lan-on").checked };
-    if ($("#lan-pw").value) b.lanPassword = $("#lan-pw").value;
-    try { await api("/api/config", { method: "PUT", body: b }); toast("远程访问设置已保存，重启 MineDeck 后生效"); }
-    catch (e) { toast(e.message, true); }
+  const lanOn = $("#lan-on"), lanPw = $("#lan-pw");
+  const pwErr = msg => { lanPw.classList.toggle("invalid", !!msg); $("#lan-pw-err").innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; };
+  const effect = turnOn => turnOn ? (live ? "" : "，重启 MineDeck 后生效") : (live ? "，局域网里的设备现在起打不开管理界面" : "");
+  // 保存要等一个来回：这期间切去了别的分区或页面，就不再把远程访问画回 body（它可能已经不是当前视图的了）；提示照常弹
+  const gen = viewGen;
+  const saved = b => { info.config.listenLan = b.listenLan; if (b.lanPassword) info.lanSet = true; if (!stale(gen)) setRemote(body, info); };
+  let wantOn = false; // 没设密码时拨了开关：记下想开，填好密码点「保存」时一起开
+  lanOn.onchange = async () => {
+    const turnOn = lanOn.checked;
+    const b = { listenLan: turnOn };
+    if (turnOn && !info.lanSet) {
+      if (!lanPw.value) { // 就地提示，开关拨回去
+        lanOn.checked = false; wantOn = true;
+        pwErr("先设置访问密码：填好后点「保存」，局域网访问会一起开启");
+        lanPw.focus();
+        return;
+      }
+      b.lanPassword = lanPw.value; // 密码框里已经填了：和开关一起保存
+    } else if (lanPw.value) b.lanPassword = lanPw.value; // 已有密码时框里填了新的：也一起保存，不然重画清空了框，用户以为新密码生效了（独立评审发现）
+    lanOn.disabled = true;
+    try {
+      await api("/api/config", { method: "PUT", body: b });
+      saved(b);
+      toast((turnOn ? "已开启局域网访问" : "已关闭局域网访问") + effect(turnOn) + (b.lanPassword && info.lanSet ? "；新的访问密码已保存" : ""));
+    } catch (e) { lanOn.checked = !turnOn; lanOn.disabled = false; toast(e.message, true); }
   };
-  if (!info.config.listenLan || !ips.length) return;
+  // 保存密码：开关开着（或刚才因为没密码被拨回去）时一起开启，即「密码和开关一起保存」
+  $("#lan-save").onclick = async () => {
+    if (!lanPw.value) { pwErr(info.lanSet ? "输入新密码再保存" : "请先输入访问密码"); lanPw.focus(); return; }
+    const b = { listenLan: lanOn.checked || wantOn, lanPassword: lanPw.value };
+    const opening = b.listenLan && !on;
+    try {
+      await api("/api/config", { method: "PUT", body: b });
+      saved(b);
+      toast(opening ? "访问密码已保存，已开启局域网访问" + effect(true) : "访问密码已保存");
+    } catch (e) { toast(e.message, true); }
+  };
+  lanPw.oninput = () => pwErr("");
+  lanPw.onkeydown = e => { if (e.key === "Enter") $("#lan-save").click(); };
+  if (!(on && live) || !ips.length) return;
   // 二维码纯前端生成（qrcode.js），多地址时点选切换
   const show = i => {
     const url = `http://${ips[i]}:${lanPort}`;
@@ -2606,7 +2839,7 @@ function drawAI(body, v, gen) {
     settingsHead("每日额度", "按功能分别设每天最多用多少 token（输入、输出、缓存都算），用完后这项功能暂停到第二天 0 点。留空或填 0 表示不限。") +
     group(AI_FEATS.map(f => riRow({ ico: "clock", title: f.name, sub: `<span id="q-sub-${f.id}">${aiUsageLine(v.today[f.id], v.month[f.id])}</span>`,
       field: `<input type="number" id="q-${f.id}" min="0" step="any" inputmode="decimal" placeholder="不限" value="${v.quota[f.id] ? v.quota[f.id] / 10000 : ""}" aria-label="${esc(f.name)}每日额度（万 token）"${dis}>` +
-        `<span class="ri-unit">万 token / 天</span><button class="btn" id="q-save-${f.id}"${dis}>保存</button>`,
+        `<span class="ri-unit">万 token / 天</span><button class="btn" id="q-save-${f.id}" aria-label="保存${esc(f.name)}每日额度"${dis}>保存</button>`,
       after: `<div class="field-err ri-err" id="q-err-${f.id}"></div>` })).join(""), { ico: true }) +
     settingsHead("费用估算", "只是估算：按公开价格或自填单价，不做汇率换算（人民币和美元分开合计）。查不到价格时只显示 token 用量。") +
     group(

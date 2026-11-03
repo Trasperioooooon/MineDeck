@@ -33,19 +33,38 @@ type Limits struct {
 
 // AIStatus AI 接入层的情况。
 type AIStatus struct {
-	Enabled    bool   `json:"enabled"`
-	Missing    string `json:"missing,omitempty"`  // 还差什么没配好
-	Provider   string `json:"provider,omitempty"` // 提问会发给谁（隐私提示里的说法）
-	Model      string `json:"model,omitempty"`
-	QuotaUsed  int64  `json:"quotaUsed"`  // 「设置 → AI」里游戏内 AI 今天用了多少 token（所有实例合计）
-	QuotaLimit int64  `json:"quotaLimit"` // 那里设的每日额度，0 = 不限
+	Enabled    bool        `json:"enabled"`
+	Missing    string      `json:"missing,omitempty"`  // 还差什么没配好
+	Provider   string      `json:"provider,omitempty"` // 提问会发给谁（隐私提示里的说法）
+	Model      string      `json:"model,omitempty"`
+	QuotaUsed  int64       `json:"quotaUsed"`       // 「设置 → AI」里游戏内 AI 今天用了多少 token（所有实例合计）
+	QuotaLimit int64       `json:"quotaLimit"`      // 那里设的每日额度，0 = 不限
+	Price      *TokenPrice `json:"price,omitempty"` // 当前模型大约多少钱一百万 token（界面上据此写「全服每天的 token」约合多少钱）；查不到单价时没有
+}
+
+// TokenPrice 当前模型每百万 token 大约多少钱。输入、输出的单价不一样，按这个月游戏内 AI 实际的比例摊
+// （缓存命中按缓存价）；这个月还没用过时按九成输入、一成输出估（游戏内 AI 的请求大多是系统提示和工具说明，回答很短）。
+type TokenPrice struct {
+	Currency   string  `json:"currency,omitempty"` // USD / CNY
+	PerMillion float64 `json:"perMillion"`
+	Local      bool    `json:"local,omitempty"` // 本机模型，不花钱
+	Note       string  `json:"note,omitempty"`  // 国内几家按国际站美元价估算的说明
 }
 
 // Today 这个实例今天的次数和用量。
 type Today struct {
-	Count   int            `json:"count"`
-	Tokens  int64          `json:"tokens"`
-	Players map[string]int `json:"players"` // 名字小写 → 次数
+	Count     int            `json:"count"`     // 全服今天一共受理了几次（问 AI 和叫伙伴合计）
+	Tokens    int64          `json:"tokens"`    // 全服今天用了多少 token
+	Players   map[string]int `json:"players"`   // 名字小写 → 问了 AI 几次
+	Companion map[string]int `json:"companion"` // 名字小写 → 叫了伙伴几次
+	Top       []PlayerUsage  `json:"top"`       // 今天谁用了几次：按两种合计从多到少，最多 20 个
+}
+
+// PlayerUsage 一个人今天的次数。
+type PlayerUsage struct {
+	Name      string `json:"name"` // 尽量用原来的大小写（最近出现过的名字里找）
+	Count     int    `json:"count"`
+	Companion int    `json:"companion,omitempty"`
 }
 
 // PlayerView 授权列表里的一个人。
@@ -86,9 +105,12 @@ func (s *Service) View(inst string) (*View, error) {
 	set := r.set
 	r.st.Counters.roll(now)
 	c := r.st.Counters
-	today := Today{Count: c.Count, Tokens: c.Tokens, Players: map[string]int{}}
+	today := Today{Count: c.Count, Tokens: c.Tokens, Players: map[string]int{}, Companion: map[string]int{}}
 	for k, v := range c.Players {
 		today.Players[k] = v
+	}
+	for k, v := range c.Companion {
+		today.Companion[k] = v
 	}
 	seen := map[string]bool{}
 	for _, n := range recentNames(r.seen) {
@@ -98,6 +120,7 @@ func (s *Service) View(inst string) (*View, error) {
 		seen[n] = true
 	}
 	r.mu.Unlock()
+	today.Top = topUsers(today, seen, pl.Online, set.Allowed)
 
 	v := &View{Supported: !info.Proxy, Settings: set, Templates: Templates, Today: today, WhitelistOn: pl.WhitelistOn,
 		Running:  info.Status == "running",
@@ -106,6 +129,7 @@ func (s *Service) View(inst string) (*View, error) {
 	v.AI = AIStatus{Enabled: av.Enabled, Missing: av.Missing}
 	if av.Enabled {
 		v.AI.Provider, v.AI.Model = strings.TrimSpace(providerName(s.ai)), av.Provider.Model
+		v.AI.Price = tokenPrice(av.ModelPrice, av.Month[ai.FeatGameChat])
 	}
 	used, limit := s.ai.Usage(ai.FeatGameChat)
 	v.AI.QuotaUsed, v.AI.QuotaLimit = used.Tokens, limit
@@ -158,6 +182,81 @@ func (s *Service) View(inst string) (*View, error) {
 		v.Players = []PlayerView{}
 	}
 	return v, nil
+}
+
+// maxTop 「今天谁用了几次」最多列几个人。
+const maxTop = 20
+
+// topUsers 今天谁用了几次：按问 AI 和叫伙伴的合计从多到少（一样多的按名字），名字尽量换回原来的大小写。
+func topUsers(t Today, seen map[string]bool, more ...[]string) []PlayerUsage {
+	names := map[string]string{} // 小写 → 原样
+	for n := range seen {
+		names[strings.ToLower(n)] = n
+	}
+	for _, list := range more {
+		for _, n := range list {
+			names[strings.ToLower(n)] = n
+		}
+	}
+	byKey := map[string]*PlayerUsage{}
+	get := func(k string) *PlayerUsage {
+		if byKey[k] == nil {
+			n := names[k]
+			if n == "" {
+				n = k
+			}
+			byKey[k] = &PlayerUsage{Name: n}
+		}
+		return byKey[k]
+	}
+	for k, n := range t.Players {
+		if n > 0 {
+			get(k).Count = n
+		}
+	}
+	for k, n := range t.Companion {
+		if n > 0 {
+			get(k).Companion = n
+		}
+	}
+	out := make([]PlayerUsage, 0, len(byKey))
+	for _, p := range byKey {
+		out = append(out, *p)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i].Count+out[i].Companion, out[j].Count+out[j].Companion
+		if a != b {
+			return a > b
+		}
+		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+	})
+	if len(out) > maxTop {
+		out = out[:maxTop]
+	}
+	return out
+}
+
+// tokenPrice 当前模型大约多少钱一百万 token（见 TokenPrice）。mp 是「设置 → AI」里显示的当前模型单价（每百万 token），
+// month 是这个月游戏内 AI 的用量（只用它的输入、输出、缓存的比例）。查不到单价时返回 nil。
+func tokenPrice(mp *ai.ModelPrice, month ai.Totals) *TokenPrice {
+	switch {
+	case mp == nil || !mp.Found:
+		return nil
+	case mp.Local:
+		return &TokenPrice{Local: true}
+	}
+	or := func(p *float64, d float64) float64 {
+		if p == nil {
+			return d
+		}
+		return *p
+	}
+	in, out, cr, cw := float64(month.Input), float64(month.Output), float64(month.CacheRead), float64(month.CacheWrite)
+	if in+out+cr+cw <= 0 {
+		in, out, cr, cw = 0.9, 0.1, 0, 0
+	}
+	per := (in*mp.Input + out*mp.Output + cr*or(mp.CacheRead, mp.Input) + cw*or(mp.CacheWrite, mp.Input)) / (in + out + cr + cw)
+	return &TokenPrice{Currency: mp.Currency, PerMillion: per, Note: mp.Note}
 }
 
 // Update 改设置（只改传了的字段），存进实例目录，马上生效。

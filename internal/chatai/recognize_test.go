@@ -59,7 +59,7 @@ func TestSampleLogs(t *testing.T) {
 			ask("Steve", "几点了"),
 			{"Steve", ActAsk, "怎么做附魔台", true, true},
 			{"Steve", ActAsk, "今晚怎么打末影龙", true, false},
-			{"Steve", ActUnknown, "怎么用", false, false},
+			ask("Steve", "/tp 怎么用"), // 问命令怎么用：当提问（测试报告观察第 17 条）
 			{"Steve", ActMisplaced, "今晚怎么打末影龙 /私", false, false},
 			{"Steve", ActHelp, "", false, false},
 			ask("Steve", "把天气改晴"),

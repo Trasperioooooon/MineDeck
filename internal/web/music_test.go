@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// 八个接口都通、都走操作层：vanilla 实例不支持，开始广播、装桥接模组报原因；开始广播、列音源、
+// 九个接口都通、都走操作层：vanilla 实例不支持，开始广播、装 SVC 和桥接模组报原因；开始广播、列音源、
 // 确认整机录音只能在本机；局域网可以看状态、停止广播；开始广播的尝试也写进操作记录。
 func TestMusicRoutes(t *testing.T) {
 	e := newFullEnv(t)
@@ -29,6 +29,7 @@ func TestMusicRoutes(t *testing.T) {
 		{"PUT", ip + "/music/settings", `{"volume":80,"exclude":"房主"}`, 200, "", nil},
 		{"PUT", ip + "/music/settings", `{"exclude":"a=b"}`, 400, "", nil},
 		{"POST", ip + "/music/install", `{}`, 400, "只支持 NeoForge、Forge 服", nil},
+		{"POST", ip + "/music/svc", "", 400, "只支持 NeoForge、Forge 服", nil},
 		{"PUT", ip + "/music/voicehost", `{"value":"frp-abc.example.com:34567"}`, 400, "先开一次服", nil},
 		{"GET", "/api/music/sources", "", 403, "只能在这台电脑上开始", []reqOpt{fromLAN}},
 		{"GET", "/api/music/sources", "", 200, "", nil},

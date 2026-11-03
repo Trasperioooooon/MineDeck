@@ -138,7 +138,9 @@ func secure(next http.Handler) http.Handler {
 			if h, _, err := splitHostPort(host); err == nil {
 				host = h
 			}
-			if host != "127.0.0.1" && host != "localhost" && host != "[::1]" && host != "::1" {
+			// 还要看连接真的来自本机：关掉局域网访问后不重启，程序仍监听在 0.0.0.0 上，只看 Host 头的话，
+			// 局域网里自己填 Host: 127.0.0.1 的客户端（curl）照样能带着旧会话调接口、对 /api/login 猜密码（独立评审发现）
+			if (host != "127.0.0.1" && host != "localhost" && host != "[::1]" && host != "::1") || !isLoopbackReq(r) {
 				http.Error(w, "forbidden host", http.StatusForbidden)
 				return
 			}

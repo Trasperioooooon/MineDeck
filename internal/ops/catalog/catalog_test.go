@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"minedeck/internal/app"
 	"minedeck/internal/inst"
@@ -72,7 +73,7 @@ func TestLevelsFollowDesign(t *testing.T) {
 
 	// 音乐共享（第五阶段）：开始、停止广播这类操作只能由人来（§8.6）
 	for level, names := range map[ops.Level][]string{
-		ops.Read: {"music.status"}, ops.Write: {"music.bridge.install", "music.voicehost.set"},
+		ops.Read: {"music.status"}, ops.Write: {"music.bridge.install", "music.svc.install", "music.voicehost.set"},
 		ops.HumanOnly: {"music.sources", "music.start", "music.stop", "music.settings.set", "music.system.confirm"},
 	} {
 		want[level] = append(want[level], names...)
@@ -132,9 +133,9 @@ func TestAIToolLists(t *testing.T) {
 			t.Errorf("助手的工具清单里有仅人工的操作 %s", op.Name)
 		}
 	}
-	// +3：音乐共享（第五阶段）的读 1 + 写 2；+1：game.info（第四阶段，助手的工具清单里另外去掉了）；+6：AI 伙伴（第七阶段）的读 1 + 写 5
-	if n := len(reg.Available(ops.Caller{Source: ops.SrcAssistant, Local: true})); n != 23+13+11+3+1+6 {
-		t.Errorf("助手能用 %d 个操作，应为读 23 + 写 13 + 危险 11 + 音乐共享 3 + game.info 1 + AI 伙伴 6", n)
+	// +4：音乐共享（第五阶段）的读 1 + 写 3；+1：game.info（第四阶段，助手的工具清单里另外去掉了）；+6：AI 伙伴（第七阶段）的读 1 + 写 5
+	if n := len(reg.Available(ops.Caller{Source: ops.SrcAssistant, Local: true})); n != 23+13+11+4+1+6 {
+		t.Errorf("助手能用 %d 个操作，应为读 23 + 写 13 + 危险 11 + 音乐共享 4 + game.info 1 + AI 伙伴 6", n)
 	}
 	if l := reg.Available(ops.Caller{Source: ops.SrcGameChat, Actor: "Steve"}); len(l) != 1 || l[0].Name != "game.info" {
 		t.Errorf("游戏内 AI 只能调 game.info：%v", l)
@@ -207,5 +208,38 @@ func TestPropsProposalFlow(t *testing.T) {
 	}
 	if _, err := reg.Do(ctx, ai, "instance.stop", ops.Args(`{"inst":"没有这个服"}`)); ops.CodeOf(err) != 404 {
 		t.Fatalf("实例不存在时应直接报 404：%v", err)
+	}
+}
+
+// 隧道跟着实例自动启停也写操作记录（测试报告第五轮）：来源 schedule、actor「跟随实例」、带实例名，失败的带上错误。
+// 这里是首次使用樱花还没放 frpc 时的跟随启动。
+func TestTunnelFollowWritesOpLog(t *testing.T) {
+	newCatalog(t) // 只用它准备好临时程序目录
+	mgr, err := inst.NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tun := tunnel.NewManager()
+	tt, err := tun.Add(tunnel.Tunnel{Provider: "natfrp", Name: "游戏", Credential: "k", ProxyID: "10", Bound: "生存服", AutoStart: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := New(Env{Mgr: mgr, Tun: tun, Port: 27333})
+	tun.StartBound("生存服")
+	deadline := time.Now().Add(8 * time.Second)
+	for {
+		recs, _ := reg.Log.Query(ops.Query{Inst: "生存服", Op: "tunnel."})
+		if len(recs) > 0 {
+			r := recs[0]
+			if r.Op != "tunnel.start" || r.Src != ops.SrcSchedule || r.Actor != "跟随实例" || r.OK || !strings.Contains(r.Err, "首次使用需手动放置樱花 frpc") ||
+				!strings.Contains(string(r.Args), `"id":"`+tt.ID+`"`) || !strings.Contains(string(r.Args), `"tunnel":"游戏"`) {
+				t.Fatalf("跟随启动的操作记录：%+v（args %s）", r, r.Args)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("跟随启动失败没有写操作记录")
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }

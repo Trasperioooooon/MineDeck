@@ -1,6 +1,7 @@
 package chatai
 
 import (
+	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -138,6 +139,10 @@ func parseOpts(a *Ask, s string) {
 				seen[o] = true
 				a.Opts = append(a.Opts, o)
 			}
+		} else if len(unknown) == 0 && usageQuestion(name, s[j:]) {
+			// 「/tp 怎么用」：玩家最自然的问法，第一次用几乎都这么写（测试报告观察第 17 条）。不当选项，从这里起整句都是问题
+			a.Question = "/" + strings.TrimRightFunc(s[i+n:], unicode.IsSpace)
+			break
 		} else {
 			if len(unknown) == 0 {
 				if noSpace = startsWithOptName(name); noSpace {
@@ -208,6 +213,24 @@ func optPrefixOf(name string) string {
 func startsWithOptName(name string) bool {
 	p := optPrefixOf(name)
 	return p != "" && len(name) > len(p)
+}
+
+// usageRe 明显在问命令用法的说法（选项名后面的整段话）：可以先跟几个西文参数（/gamemode creative 怎么用），
+// 再接「怎么用」「用法」「是什么」这类，结尾可以有问号和语气词。要求整段都是这样，不多不少：
+// 「/si 怎么用附魔台」这种（多半是 /私 打错了）不算，照旧当不认识的选项，免得本想私聊的问题被全服看到。
+var usageRe = regexp.MustCompile(`(?i)^(?:[\x21-\x7e]+\s+){0,3}(?:的|这个|这条)?(?:指令|命令)?(?:` +
+	`怎么用|怎样用|如何用|咋用|怎么使用|如何使用|怎么写|用法|的用法|是什么|是啥|是什么意思|什么意思|是干什么的|是干嘛的|干什么用|干嘛用|有什么用|` +
+	`how to use(?: it)?|how do i use(?: it)?|usage|help)[\s？?。.！!吗呢啊呀]*$`)
+
+// usageQuestion 不认识的选项其实是在问命令怎么用（§6.2 的补充：「/tp 怎么用」当提问）：选项名像个命令名，后面整段是 usageRe 的说法。
+// 也认中间没空格的「/tp怎么用」（选项名会连着后面的字）。
+func usageQuestion(name, rest string) bool {
+	rest = strings.TrimFunc(rest, func(r rune) bool { return isSep(r) || unicode.IsSpace(r) })
+	cmd := name
+	if k := strings.IndexFunc(name, func(r rune) bool { return r >= 0x80 }); k > 0 { // /tp怎么用
+		cmd, rest = name[:k], strings.TrimSpace(name[k:]+" "+rest)
+	}
+	return cmdNameRe.MatchString(cmd) && usageRe.MatchString(rest)
 }
 
 // misplaced 问题的最后一个词正好是 /私 或 /p（标记也认全角和顿号）：选项放错了地方（§6.2 解析规则 7）。

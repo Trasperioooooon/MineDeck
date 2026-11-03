@@ -61,10 +61,11 @@ func TestAskSamples(t *testing.T) {
 		{"@AI /私 /私 今晚怎么打末影龙", &askWant{act: ActAsk, private: true, question: q, opts: []Opt{OptPrivate}}}, // 重复的算一个
 		{"@AI /帮助", help}, {"@AI /h", help}, // 私发帮助，不调用 AI
 		{"@AI", help}, {"@AI /私", &askWant{act: ActHelp, private: true}}, // 没写问题，同 /帮助
-		{"@AI /帮助 今晚怎么打末影龙", &askWant{act: ActHelp, question: q}},                  // 只回帮助
-		{"@AI /tp 怎么用", &askWant{act: ActUnknown, question: "怎么用", unknown: "tp"}}, // 未知选项
-		{"@AI /私今晚怎么打末影龙", &askWant{act: ActNoSpace, unknown: "私今晚怎么打末影龙"}},        // 提示「选项后面空一格」
-		{"@AI 怎么用 /tp", ask("怎么用 /tp")},                                            // 问题里的 / 只是普通文字
+		{"@AI /帮助 今晚怎么打末影龙", &askWant{act: ActHelp, question: q}},                      // 只回帮助
+		{"@AI /tp 怎么用", ask("/tp 怎么用")},                                                // 问命令怎么用：当提问（2026-11 改，原来是未知选项）
+		{"@AI /tp Steve", &askWant{act: ActUnknown, question: "Steve", unknown: "tp"}}, // 别的不认识的选项照旧提示
+		{"@AI /私今晚怎么打末影龙", &askWant{act: ActNoSpace, unknown: "私今晚怎么打末影龙"}},            // 提示「选项后面空一格」
+		{"@AI 怎么用 /tp", ask("怎么用 /tp")},                                                // 问题里的 / 只是普通文字
 		{"@AI 1/2 加 1/3 等于几", ask("1/2 加 1/3 等于几")},
 		{"@AI 今晚怎么打末影龙 /私", &askWant{act: ActMisplaced, question: q + " /私"}}, // 选项要写在问题前面
 		{"@AI /问 /私 怎么做附魔台", &askWant{act: ActAsk, private: true, noExec: true, question: "怎么做附魔台", opts: []Opt{OptAsk, OptPrivate}}},
@@ -123,12 +124,59 @@ func TestTrigger(t *testing.T) {
 	}
 }
 
+// 「/tp 怎么用」这类明显在问命令用法的写法当提问（不当选项）；要整段都是问用法的说法，别的照旧是不认识的选项。
+func TestUsageQuestion(t *testing.T) {
+	for msg, q := range map[string]string{
+		"@AI /tp 怎么用":                  "/tp 怎么用",
+		"@AI /tp 怎么用？":                 "/tp 怎么用？",
+		"@AI /tp怎么用":                   "/tp怎么用",
+		"@AI /gamemode 用法":             "/gamemode 用法",
+		"@AI /locate 是什么":              "/locate 是什么",
+		"@AI /tp 是什么意思啊":               "/tp 是什么意思啊",
+		"@AI /tp 命令怎么用":                "/tp 命令怎么用",
+		"@AI /gamemode creative 怎么用":   "/gamemode creative 怎么用",
+		"@AI ／tp，怎么用":                  "/tp，怎么用",
+		"@AI 、tp 的用法":                  "/tp 的用法",
+		"@AI /tp how to use":           "/tp how to use",
+		"@AI /minecraft:give Usage":    "/minecraft:give Usage",
+		"@AI /effect give Steve 有什么用？": "/effect give Steve 有什么用？",
+	} {
+		checkAsk(t, msg, defPrefixes, &askWant{act: ActAsk, question: q})
+	}
+	// 前面的选项照样认：/私 只回自己
+	checkAsk(t, "@AI /私 /tp 怎么用", defPrefixes, &askWant{act: ActAsk, private: true, question: "/tp 怎么用", opts: []Opt{OptPrivate}})
+	// 不是整段问用法、或者不像命令名的：照旧是不认识的选项（「/si 怎么用附魔台」多半是 /私 打错了，不能全服可见地回答）
+	for msg, unknown := range map[string]string{
+		"@AI /tp":            "tp",
+		"@AI /tp Steve":      "tp",
+		"@AI /si 怎么用附魔台":     "si",
+		"@AI /天气 怎么用":        "天气",
+		"@AI /tp 怎么用 /私":     "tp",
+		"@AI /xyz 你好":        "xyz",
+		"@AI /a b c d e 怎么用": "a", // 最多认 3 个西文参数
+		"@AI /tp怎么用附魔台":      "tp怎么用附魔台",
+		"@AI /tp /帮助 怎么用":    "",
+		"@AI /额度 /tp 怎么用 ok": "tp",
+	} {
+		a := ParseAsk(msg, defPrefixes)
+		if unknown == "" {
+			if a == nil || a.Action != ActHelp {
+				t.Errorf("%q 带了 /帮助 就只回帮助：%+v", msg, a)
+			}
+			continue
+		}
+		if a == nil || a.Action != ActUnknown || a.Unknown != unknown {
+			t.Errorf("%q 应是不认识的选项 /%s：%+v", msg, unknown, a)
+		}
+	}
+}
+
 // 不调用 AI 的几种提示（§6.2）：没有执行权限的人不显示 /问；未知选项提示里的名字最多 16 个字。
 func TestHintText(t *testing.T) {
-	a := ParseAsk("@AI /tp 怎么用", defPrefixes)
+	a := ParseAsk("@AI /tp Steve", defPrefixes)
 	h := hintText("@AI", a, false)
 	if !strings.Contains(h, "不认识 /tp") || !strings.Contains(h, "可用：/私（只回你）、/额度、/帮助") || strings.Contains(h, "/问") ||
-		!strings.Contains(h, "@AI 怎么用 /tp") {
+		!strings.Contains(h, "@AI /tp 怎么用") {
 		t.Errorf("未知选项（没有执行权限）：%s", h)
 	}
 	if h := hintText("@AI", a, true); !strings.Contains(h, "/问（只回答、不执行命令）") {
@@ -153,11 +201,11 @@ func TestHintText(t *testing.T) {
 			t.Errorf("%s：%s", msg, h)
 		}
 	}
-	// 只有一个 /；不认识的不像命令名时，「怎么用 /…」拿 tp 举例
+	// 只有一个 /；不认识的不像命令名时，「/… 怎么用」拿 tp 举例
 	if h := hintText("@AI", ParseAsk("@AI / 你好", defPrefixes), false); !strings.HasPrefix(h, "/ 后面要紧跟选项名，比如 @AI /私 今晚怎么打末影龙。") {
 		t.Errorf("只有一个 /：%s", h)
 	}
-	if h := hintText("@AI", ParseAsk("@AI 、天气 晴", defPrefixes), false); !strings.Contains(h, "不认识 /天气。") || !strings.HasSuffix(h, "比如 @AI 怎么用 /tp") {
+	if h := hintText("@AI", ParseAsk("@AI 、天气 晴", defPrefixes), false); !strings.Contains(h, "不认识 /天气。") || !strings.HasSuffix(h, "可以说 @AI /tp 怎么用。") {
 		t.Errorf("不认识的中文选项：%s", h)
 	}
 }

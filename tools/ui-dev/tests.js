@@ -123,7 +123,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   await run("常用设置：改动后保存条显示未保存项数，切 tab 被拦下；「继续编辑」保留改动与地址", async () => {
     await page.goto(url(`#/inst/${inst}/common`)); await settle();
     assert(await page.$eval('[data-sb="save"]', b => b.disabled), "未改动时保存键应置灰");
-    await page.click('.prop-item:has([data-k="hardcore"]) .sw');
+    await page.click('.prop-item [data-k="hardcore"]');
     const st = await page.$eval(".sb-state", el => el.textContent);
     assert(st.includes("1 项修改未保存"), "保存条状态：" + st);
     await page.click('.tab[data-t="players"]');
@@ -144,7 +144,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
 
   await run("常用设置：保存后恢复干净状态，再切页不再拦截", async () => {
     await page.goto(url(`#/inst/${inst}/common`)); await settle();
-    await page.click('.prop-item:has([data-k="hardcore"]) .sw');
+    await page.click('.prop-item [data-k="hardcore"]');
     const before = reqs.length;
     await page.click('[data-sb="save"]');
     await settle(300);
@@ -217,7 +217,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     assert((await page.$(".toast")) === null || !(await page.$eval(".toast", t => t.classList.contains("error"))), "仍弹了错误 toast");
     await page.fill("#f-name", "测试服");
     await page.fill("#f-port", "25570");
-    await page.click(".eula-box .sw");
+    await page.click(".eula-box .switch input");
     await settle(100);
     const left = await page.$$eval(".field-err", els => els.map(e => e.textContent.trim()).filter(Boolean));
     assert(left.length === 0, "改正后错误未消失：" + JSON.stringify(left));
@@ -444,9 +444,9 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     assert((await page.$eval('.set-nav.cur', a => a.dataset.sec)) === "storage" && (await page.$eval("#set-eyebrow", el => el.textContent)) === "设置/存储位置", "导航当前项或眉标未更新");
     await page.click('.set-nav[data-sec="startup"]'); await settle();
     before = reqs.length;
-    await page.click('.row-item:has([data-cfg="minimizeToTray"]) .sw'); await settle(250);
+    await page.click('[data-cfg="minimizeToTray"]'); await settle(250);
     assert(putConfig(before, "minimizeToTray"), "开关未即时保存");
-    await page.click('.row-item:has([data-cfg="minimizeToTray"]) .sw'); await settle(250); // 复原
+    await page.click('[data-cfg="minimizeToTray"]'); await settle(250); // 复原
   });
 
   await run("状态切换：卡片胶囊换成新状态并播换场，状态行随之展开 / 收起，操作按钮随状态切换", async () => {
@@ -823,6 +823,35 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await resetMusic(); }
   });
 
+  await run("音乐共享：没装 SVC 时检查清单直接给「安装」按钮（不再让人去资源页认），装好后清单刷新；运行中装的提示重启后生效、不能开始广播；下载失败报原因、按钮恢复（测试报告观察 13）", async () => {
+    try {
+      await openMusic({ inst: { [PACK]: { svc: false } } }, "stopped");
+      let check = await page.textContent("#mu-check");
+      assert(check.includes("Simple Voice Chat：mods 里没有") && check.includes("Forge 1.20.1 版") && !(await page.$('#mu-check a[href$="/res"]')), "没装 SVC 时：" + check);
+      assert((await page.getAttribute("#mu-svc-install", "aria-label")) === "安装 Simple Voice Chat", "按钮的名字应带上模组名");
+      assert(await page.$eval('[data-install="main"]', b => b.disabled), "没装 SVC 时桥接模组不能装");
+      let t0 = posts.length;
+      await page.click("#mu-svc-install"); await settle(500);
+      assert(postsTo(t0, "/music/svc").length === 1, "安装请求：" + JSON.stringify(posts.slice(t0)));
+      assert(await toastHas("已装好 Simple Voice Chat 1.20.1-2.6.27"), "应提示装好了");
+      check = await page.textContent("#mu-check");
+      assert(check.includes("已装 1.20.1-2.6.27") && !(await page.$("#mu-svc-install")) && !(await page.$eval('[data-install="main"]', b => b.disabled)), "装好后清单没刷新：" + check);
+      assert(!(await page.textContent("#mu-restart")).includes("Simple Voice Chat"), "停着时装的不用重启");
+
+      await openMusic({ inst: { [PACK]: { svc: false } } }, "running");
+      await page.click("#mu-svc-install"); await settle(500);
+      assert(await toastHas("重启服务器后生效"), "运行中装的应提示重启后生效");
+      assert((await page.textContent("#mu-restart")).includes("Simple Voice Chat") && (await page.textContent("#mu-check")).includes("重启生效"), "顶上应提示重启：" + await page.textContent("#mu-restart"));
+      assert((await page.textContent("#mu-why")).includes("装好 Simple Voice Chat 后要重启服务器"), "没重启时不能开始：" + await page.textContent("#mu-why"));
+
+      await openMusic({ inst: { [PACK]: { svc: false, svcFail: "在 Modrinth 上查 Simple Voice Chat 的版本失败：连接超时（检查网络或代理后再试）" } } }, "stopped");
+      t0 = posts.length;
+      await page.click("#mu-svc-install"); await settle(500);
+      assert(await toastHas("版本失败：连接超时"), "下载失败应报原因");
+      assert(!(await page.$eval("#mu-svc-install", b => b.disabled)) && (await page.textContent("#mu-svc-install")).includes("安装"), "失败后按钮应恢复");
+    } finally { await resetMusic(); }
+  });
+
   await run("音乐共享：Win11 选一个正在出声的程序开始广播，选音源时电平跟着刷新；广播中显示听众、不再列音源；停止后回到选音源", async () => {
     try {
       await openMusic({ inst: { [PACK]: { bridge: "main" } } });
@@ -1087,7 +1116,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.goto(url("#/settings/ai")); await settle();
       assert(await page.$eval("#ai-lan", e => e.checked && !e.disabled), "开关默认开");
       const t0 = reqs.length;
-      await page.click("#ai-assist-slot .switch .sw"); await settle(300);
+      await page.click("#ai-assist-slot .switch input"); await settle(300);
       assert((putBody(t0, "/api/ai/assistant") || {}).lan === false, "关掉应发 lan: false");
       assert(await toastHas("局域网登录的设备不能用"), "应提示已关闭");
       await aiState({ local: false }); // 模拟局域网打开
@@ -1162,7 +1191,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await openGC();
       assert((await page.textContent("#gc-gate")).trim() === "" && (await page.textContent("#gc-prov")).includes("提问会发给 DeepSeek"), "配置了 AI 后不再提示");
       const t0 = reqs.length;
-      await page.click("#gc-on + .sw"); await settle(300);
+      await page.click("#gc-on"); await settle(300);
       assert(JSON.stringify(gcPuts(t0)) === JSON.stringify([{ enabled: true }]), "开关应即时发 PUT：" + JSON.stringify(gcPuts(t0)));
       assert(await toastHas("已打开游戏内 AI"), "应提示已打开");
     } finally { await resetGC(); }
@@ -1174,7 +1203,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await openGC();
       assert(!(await page.$("#gc-wl-warn")), "还没授权时不提醒");
       const t0 = reqs.length;
-      await page.click('[data-allow="Notch_CN"] + .sw'); await settle(400);
+      await page.click('[data-allow="Notch_CN"]'); await settle(400);
       assert(JSON.stringify(gcPuts(t0).pop()) === JSON.stringify({ allowed: ["Notch_CN"] }), "授权应即时发 PUT：" + JSON.stringify(gcPuts(t0)));
       const warn = await page.textContent("#gc-wl-warn");
       assert(warn.includes("这个服没开白名单") && warn.includes("Notch_CN 的名字进服"), "没开白名单应提醒：" + warn);
@@ -1190,7 +1219,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(wl.length === 1 && JSON.stringify(JSON.parse(wl[0].b)) === JSON.stringify({ players: ["Notch_CN"] }), "一键开白名单的请求：" + JSON.stringify(wl));
       assert(!(await page.$("#gc-wl-warn")) && await toastHas("已把 Notch_CN 加进白名单"), "开启后提醒消失");
       const t1 = reqs.length;
-      await page.click('[data-allow="Notch_CN"] + .sw'); await settle(300);
+      await page.click('[data-allow="Notch_CN"]'); await settle(300);
       assert(JSON.stringify(gcPuts(t1).pop()) === JSON.stringify({ allowed: [] }) && await toastHas("已收回 Notch_CN 的执行权限"), "收回授权");
       await page.fill("#gc-add-name", "@a"); await page.press("#gc-add-name", "Enter"); await settle(200);
       assert((await page.textContent("#gc-add-err")).includes("@ 开头"), "以 @ 开头的名字应就近提示");
@@ -1207,7 +1236,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(tpl.join(",") === "time+,weather+,tp+,effect+,spawnpoint+,locate+,gamemode-,give-,difficulty-,seed-", "模板的默认开关：" + tpl);
       assert((await page.$$("#gc-tpl .tag")).length === 4, "默认关的四个要标出来");
       let t0 = reqs.length;
-      await page.click('[data-tpl="gamemode"] + .sw'); await settle(300);
+      await page.click('[data-tpl="gamemode"]'); await settle(300);
       assert(JSON.stringify(gcPuts(t0).pop()) === JSON.stringify({ templates: { gamemode: true } }), "模板开关即时保存");
       assert(await page.$eval("#gc-l-save-cooldown", b => b.disabled), "没改时保存键置灰");
       await page.fill("#gc-l-cooldown", "-1"); await page.press("#gc-l-cooldown", "Enter"); await settle(200);
@@ -1221,6 +1250,34 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert((await page.textContent("#gc-prefix-err")).includes("不能用的字符"), "不合规的前缀应就近提示");
       await page.fill("#gc-prefix", "@小助手"); await page.press("#gc-prefix", "Enter"); await settle(300);
       assert(await toastHas("触发前缀改成了 @小助手") && (await page.textContent("#gc-prefix-err")).trim() === "", "前缀保存");
+    } finally { await resetGC(); }
+  });
+
+  await run("游戏内 AI：限流的默认值（冷却 8 秒、每人每天 60 次）；全服每天的 token 写明约合多少钱；列出今天谁问了几次；「/tp 怎么用」当提问", async () => {
+    try {
+      await gcState({ gc: { reset: true }, ai: { reset: true, ...AI_DEEPSEEK, key: "sk-x", priceUpdated: "2026-10-28" } });
+      await openGC();
+      const vals = [await page.inputValue("#gc-l-cooldown"), await page.inputValue("#gc-l-perPlayer")];
+      assert(JSON.stringify(vals) === JSON.stringify(["8", "60"]), "出厂默认值：" + vals);
+      const lim = (await page.textContent("#gc-lim")).replace(/\s+/g, " ");
+      assert(lim.includes("默认 8 秒") && lim.includes("默认 60 次") && lim.includes("叫伙伴另算"), "限流的说明：" + lim);
+      assert((await page.textContent("#gc")).includes("静默 3 分钟"), "说明里的静默时长");
+      let cost = await page.textContent("#gc-budget-cost");
+      assert(cost.includes("按当前模型的单价估，每天 50 万 token 约 $0.") && cost.includes("国际站"), "全服每天的 token 约合多少钱：" + cost);
+      assert((await page.textContent("#gc-top")) === "Steve 4 次（叫伙伴 2 次）、Alex 3 次。", "今天谁问了几次：" + await page.textContent("#gc-top"));
+      await page.fill("#gc-l-budget", "100"); await page.press("#gc-l-budget", "Enter"); await settle(300);
+      cost = await page.textContent("#gc-budget-cost");
+      assert(cost.includes("每天 100 万 token 约 $0."), "改了上限，估价跟着变：" + cost);
+      // 识别测试：问命令用法的写法当提问，别的不认识的选项照旧
+      await page.fill("#gc-line", "[20:15:31] [Server thread/INFO]: <Alex> @AI /tp 怎么用"); await page.press("#gc-line", "Enter"); await settle(400);
+      assert((await page.textContent(".gc-result")).includes("Alex 提问「/tp 怎么用」"), "「/tp 怎么用」当提问：" + await page.textContent(".gc-result"));
+      await page.fill("#gc-line", "[20:15:31] [Server thread/INFO]: <Alex> @AI /tp Steve"); await page.press("#gc-line", "Enter"); await settle(400);
+      assert((await page.textContent(".gc-result")).includes("未知选项 /tp"), "别的照旧是未知选项：" + await page.textContent(".gc-result"));
+      // 查不到单价时不写；今天没人问过时写明
+      await gcState({ ai: { priceUpdated: "" }, gc: { inst: { "机械动力整合包": { today: { count: 0, tokens: 0, players: {}, companion: {}, top: [] } } } } });
+      await openGC("机械动力整合包");
+      assert((await page.textContent("#gc-budget-cost")) === "", "查不到单价时不写：" + await page.textContent("#gc-budget-cost"));
+      assert((await page.textContent("#gc-top")) === "今天还没有人问过。", "没人问过：" + await page.textContent("#gc-top"));
     } finally { await resetGC(); }
   });
 
@@ -1275,7 +1332,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       const p = await c.newPage();
       p.on("pageerror", e => errors.push(pageErr(e)));
       await p.goto(ORIGIN + "#/inst/" + encodeURIComponent("生存服 · 朋友") + "/gameai"); await p.waitForTimeout(1200);
-      await p.click('[data-allow="Notch_CN"] + .sw'); await p.waitForTimeout(400);
+      await p.click('[data-allow="Notch_CN"]'); await p.waitForTimeout(400);
       await p.click("#gc-sample"); await p.click("#gc-run"); await p.click("#gc-adv-head"); await p.waitForTimeout(400);
       const w = await p.evaluate(() => ({ sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth,
         wide: [...document.querySelectorAll("#tab-body *")].filter(e => e.getClientRects().length && e.getBoundingClientRect().right > innerWidth + 1).map(e => e.id || e.className).slice(0, 5) }));
@@ -1338,7 +1395,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await cpState({ cp: { inst: { [PACK]: { mods: CP_INSTALLED } } } });
       await openCP();
       let t0 = reqs.length;
-      await page.click("#cp-on + .sw"); await settle(300);
+      await page.click("#cp-on"); await settle(300);
       assert(JSON.stringify(cpPuts(t0)) === JSON.stringify([{ enabled: true }]) && await toastHas("已打开 AI 伙伴"), "开关应即时发 PUT：" + JSON.stringify(cpPuts(t0)));
       assert(await page.$eval("#cp-max-save", b => b.disabled), "没改时保存键置灰");
       await page.fill("#cp-max", "0"); await page.press("#cp-max", "Enter"); await settle(200);
@@ -1427,7 +1484,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click('[data-cdel="1"]'); await page.waitForSelector(".modal");
       const focused = await page.evaluate(() => document.activeElement && document.activeElement.textContent.trim());
       assert(focused === "取消", "移除的确认框默认聚焦取消：" + focused);
-      await page.click('.modal .switch .sw');
+      await page.click('.modal .switch input');
       p1 = posts.length;
       await page.click('.modal [data-x="ok"]'); await settle(400);
       assert(JSON.stringify(JSON.parse(postsTo(p1, "/companion/despawn")[0].b)) === JSON.stringify({ companion: 1, drop: true }) && await toastHas("已移除伙伴「小方」"), "移除的请求");
@@ -1482,7 +1539,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         url: !!document.querySelector("#mcp-url"), head: (document.querySelector("#ai-mcp-slot") || {}).textContent || "" }));
       assert(off.sw && !off.url && off.head.includes("MCP 接口") && off.head.includes("默认关闭"), "默认：" + JSON.stringify(off).slice(0, 200));
       let t0 = reqs.length;
-      await page.click("#ai-mcp-slot .switch .sw"); await settle(400);
+      await page.click("#ai-mcp-slot .switch input"); await settle(400);
       assert((putBody(t0, "/api/mcp") || {}).enabled === true, "打开应发 enabled: true");
       assert(await toastHas("MCP 接口已打开"), "应提示已打开");
       const on = await page.evaluate(() => ({ key: (document.querySelector("#mcp-group .ri-key") || {}).textContent || "", reset: !!document.querySelector("#mcp-reset"),
@@ -1493,9 +1550,15 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click("#mcp-copy"); await settle(250);
       const items = await page.$$eval(".dropmenu button", bs => bs.map(b => b.textContent.trim()));
       assert(items.length === 6 && items[0] === "Claude Desktop（stdio）" && items.includes("Cherry Studio（HTTP）") && items.includes("VS Code（HTTP）"), "复制给谁：" + items);
+      // 名字里已经带了连接方式的不再标一次（测试报告第五轮：「其他（HTTP）（HTTP）」）
+      assert(items.includes("其他（HTTP）") && items.includes("其他（stdio）") && !items.some(x => /（(HTTP|stdio)）（(HTTP|stdio)）/.test(x)), "不重复标连接方式：" + items);
       await page.click('.dropmenu button:has-text("Cherry Studio")'); await page.waitForSelector(".modal .mcp-pre");
       const pv = await page.evaluate(() => ({ pre: document.querySelector(".modal .mcp-pre").textContent, body: document.querySelector(".modal .m-body").textContent }));
       assert(pv.pre.includes('"streamableHttp"') && pv.pre.includes("<令牌，复制时自动带上>") && !pv.pre.includes(tok) && pv.body.includes("从 JSON 导入"), "预览：" + JSON.stringify(pv).slice(0, 300));
+      // 弹窗里的复制按钮和页面上复制接口地址的「复制」名字分得开（读屏、自动化靠名字找按钮）
+      const names = await page.evaluate(() => { const ok = document.querySelector('.modal [data-x="ok"]'), u = document.querySelector("#mcp-url");
+        return { ok: ok.textContent.trim(), okAria: ok.getAttribute("aria-label") || "", url: u.getAttribute("aria-label") || "" }; });
+      assert(names.ok === "复制这段配置" && names.okAria.startsWith("复制这段配置") && names.okAria.includes("Cherry Studio") && names.url === "复制接口地址", "两个复制按钮的名字：" + JSON.stringify(names));
       await page.click('.modal [data-x="ok"]'); await settle(300);
       const copied = await page.evaluate(() => window.__copied.pop() || "");
       assert(copied.includes("Bearer " + tok) && JSON.parse(copied).mcpServers.minedeck.url === "http://127.0.0.1:27333/mcp", "复制的内容：" + copied);
@@ -1512,7 +1575,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(reqs.slice(t0).some(r => r.m === "POST" && r.u === "/api/mcp/token") && (await mcpState({})).token !== tok, "应换了令牌");
       assert(await toastHas("已重置令牌"), "应提示已重置");
       t0 = reqs.length;
-      await page.click("#ai-mcp-slot .switch .sw"); await settle(400);
+      await page.click("#ai-mcp-slot .switch input"); await settle(400);
       assert((putBody(t0, "/api/mcp") || {}).enabled === false && !(await page.$("#mcp-url")) && !(await page.$("#mcp-copy")), "关掉后不再显示地址和复制配置");
     } finally { await page.keyboard.press("Escape"); await mcpState({ reset: true }); await aiState({ reset: true }); }
   });
@@ -1604,7 +1667,633 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(pw.wide.length === 0, "手机宽度的外部 AI 卡片：" + JSON.stringify(pw));
     } finally { await c.close(); await mcpState({ reset: true }); await aiState({ reset: true }); }
   });
+  await run("MCP 接口：「连过的 AI 工具」不用刷新页面，有新的 AI 工具来过就自己更新，上面的开关不重画（测试报告第五轮）", async () => {
+    await mcpState({ reset: true, enabled: true }); await aiState({ reset: true });
+    try {
+      await page.goto(url("#/settings/ai")); await settle(700);
+      assert((await page.textContent("#mcp-clients")).includes("还没有 AI 工具连过"), "一开始没有连过的");
+      await page.$eval("#mcp-on", e => { e.dataset.mark = "1"; }); // 认出开关是不是原来那个
+      const now = new Date().toISOString();
+      await mcpState({ clients: [{ name: "cherry-studio", title: "Cherry Studio", version: "1.5.0", transport: "http", protocol: "2025-06-18", first: now, last: now, calls: 2 }] });
+      await page.waitForFunction(() => (document.querySelector("#mcp-clients") || {}).textContent?.includes("Cherry Studio"), null, { timeout: 5000 }).catch(() => {});
+      const v = await page.evaluate(() => ({ text: (document.querySelector("#mcp-clients") || {}).textContent || "", same: (document.querySelector("#mcp-on") || { dataset: {} }).dataset.mark === "1" }));
+      assert(v.text.includes("Cherry Studio") && v.text.includes("调用了 2 次工具") && !v.text.includes("还没有 AI 工具连过") && v.same, "列表自己更新、开关没重画：" + JSON.stringify(v));
+    } finally { await mcpState({ reset: true }); await aiState({ reset: true }); }
+  });
   // ==================== MCP 接口结束 ====================
+
+  // ==================== 手机布局（测试报告第 15 条）====================
+  // 模拟真手机：isMobile + hasTouch（pointer: coarse）。Playwright 模拟不了地址栏伸缩，这里只验证布局本身：
+  // 底栏在纵向 flex 里排在内容层下面（不是 fixed 盖在内容上），内容层滚到底时最后一行露在底栏上方
+  await run("手机布局：竖屏 390×844、横屏 844×390（触屏）下底部标签栏在视口内且点得到，#main 能滚到最底、整页不滚动、不横向溢出；鼠标的矮窗口仍是桌面布局", async () => {
+    const pages = ["#/instances", `#/inst/${inst}/common`, `#/inst/${inst}/console`, "#/settings/remote", "#/create"];
+    for (const vp of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) {
+      const tag = vp.width + "×" + vp.height;
+      const c = await hostCtx({ host: false }, { viewport: vp, isMobile: true, hasTouch: true });
+      try {
+        const p = await c.newPage();
+        p.on("pageerror", e => errors.push(pageErr(e)));
+        await p.goto(url("#/instances")); await p.waitForTimeout(600);
+        // 先确认真的模拟出了触屏，否则横屏那半条会走桌面布局、白白通过
+        assert(await p.evaluate(() => matchMedia("(pointer: coarse)").matches), tag + "：没模拟出触屏（pointer: coarse）");
+        for (const hash of pages) {
+          await p.goto(url(hash)); await p.waitForTimeout(700);
+          const r = await p.evaluate(() => {
+            const sb = document.querySelector("#sidebar"), m = document.querySelector("#main");
+            const s = sb.getBoundingClientRect();
+            const navs = [...sb.querySelectorAll(".nav-item")].map(a => {
+              const b = a.getBoundingClientRect(), hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+              return !!hit && hit.closest(".nav-item") === a;
+            });
+            m.scrollTop = m.scrollHeight;
+            const mr = m.getBoundingClientRect();
+            const last = Math.max(...[...m.children].filter(e => e.getClientRects().length).map(e => e.getBoundingClientRect().bottom));
+            return { vh: innerHeight, dir: getComputedStyle(document.querySelector("#shell")).flexDirection,
+              sb: [s.top, s.bottom, s.left, s.right], mainBottom: mr.bottom, last, rest: m.scrollHeight - m.scrollTop - m.clientHeight, navs,
+              docH: document.documentElement.scrollHeight, docW: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth,
+              mainW: [m.scrollWidth, m.clientWidth] };
+          });
+          const where = `${tag} ${hash}：${JSON.stringify(r)}`;
+          assert(r.dir === "column", "没走手机布局（底栏应在内容层下面）" + where);
+          assert(r.sb[0] >= 0 && Math.abs(r.sb[1] - r.vh) < 1 && r.sb[2] === 0 && Math.abs(r.sb[3] - vp.width) < 1, "底栏不在视口最下方" + where);
+          assert(r.navs.length === 4 && r.navs.every(Boolean), "底栏有标签被盖住、点不到" + where);
+          assert(r.mainBottom <= r.sb[0] + .5, "内容层伸到了底栏下面" + where);
+          assert(r.rest <= 1 && r.last <= r.mainBottom + .5, "内容层滚不到最底，最后一行被挡" + where);
+          assert(r.docH <= r.vh && r.docW <= r.cw, "整页能滚动或横向溢出" + where);
+          assert(r.mainW[0] <= r.mainW[1], "内容层横向溢出" + where);
+        }
+        // 点底栏切页（手指点按）
+        await p.tap('#sidebar a[data-nav="tunnels"]'); await p.waitForTimeout(500);
+        assert(p.url().endsWith("#/tunnels"), tag + "：点底栏「内网穿透」没切页：" + p.url());
+      } finally { await c.close(); }
+    }
+    // 鼠标操作的矮窗口（不是触屏）：仍是桌面的左侧图标栏，不被「矮」这一条带进手机布局
+    const d = await hostCtx({ host: true }, { viewport: { width: 844, height: 390 } });
+    try {
+      const p = await d.newPage();
+      p.on("pageerror", e => errors.push(pageErr(e)));
+      await p.goto(url("#/instances")); await p.waitForTimeout(600);
+      const r = await p.evaluate(() => ({ dir: getComputedStyle(document.querySelector("#shell")).flexDirection, w: document.querySelector("#sidebar").getBoundingClientRect().width }));
+      assert(r.dir === "row" && r.w === 64, "鼠标的矮窗口不该变成底栏：" + JSON.stringify(r));
+    } finally { await d.close(); }
+    // 手机上开着「减少动态」：切页仍然不播任何动画（手机块里的动效覆盖不带 !important，压不过减少动态）
+    const rm = await hostCtx({ host: false }, { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, reducedMotion: "reduce" });
+    try {
+      const p = await rm.newPage();
+      p.on("pageerror", e => errors.push(pageErr(e)));
+      await p.goto(url("#/instances")); await p.waitForTimeout(600);
+      await p.tap('#sidebar a[data-nav="settings"]');
+      const running = await p.evaluate(() => document.getAnimations().filter(a => a.playState === "running").length);
+      assert(running === 0, "减少动态下手机切页仍有动画：" + running);
+    } finally { await rm.close(); }
+  });
+
+  // ==================== 内网穿透的隧道卡片（测试报告第五轮）====================
+  // 仿真后端：/__mock/state 的 tunnel 改某条隧道（startError：点「启动」时报的错；nextAddr / addrDelay：启动后多久拿到公网地址），tunnelsReset 还原
+  const tunState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data.tunnels), b);
+  const tunRowText = id => page.$eval(`#tun-list [data-tun="${id}"]`, e => e.textContent.replace(/\s+/g, " ").trim());
+
+  await run("隧道：点「启动」后卡片马上变「运行中」，拿到公网地址前每秒刷新；展开着日志也照常刷新、日志框不断；停止后马上变回", async () => {
+    await tunState({ tunnelsReset: true, tunnel: { id: "t2", lastError: "", nextAddr: "frp.example.com:34567", addrDelay: 1500 } });
+    try {
+      await page.goto(url("#/tunnels")); await settle(600);
+      assert((await page.textContent("#tun-summary")).includes("运行中 1"), "一开始 1 条在运行");
+      await page.click('[data-tlog="t2"]'); await settle(400);
+      assert(await page.$eval("#tlog-t2", e => e.style.display !== "none" && e.textContent.includes("start proxy success")), "日志展开了");
+      await page.$eval("#tlog-t2", e => { e.dataset.mark = "1"; }); // 认出是不是同一个日志框
+      await page.click('[data-tstart="t2"]');
+      await page.waitForFunction(() => document.querySelector("#tun-summary").textContent.includes("运行中 2"), null, { timeout: 1500 }).catch(() => {});
+      const r1 = await tunRowText("t2");
+      assert((await page.textContent("#tun-summary")).includes("运行中 2") && r1.includes("连接中") && r1.includes("停止"), "启动后马上是运行中、连接中（日志开着也刷新）：" + r1);
+      // 公网地址 1.5 秒后才有：每秒刷新一次，3 秒内一定显示出来（4 秒一次的轮询不一定赶得上）
+      await page.waitForFunction(() => (document.querySelector('[data-tun="t2"]') || {}).textContent?.includes("frp.example.com:34567"), null, { timeout: 3000 }).catch(() => {});
+      assert((await tunRowText("t2")).includes("frp.example.com:34567"), "拿到公网地址后很快显示：" + await tunRowText("t2"));
+      const log = await page.$eval("#tlog-t2", e => ({ same: e.dataset.mark === "1", shown: e.style.display !== "none", text: e.textContent.includes("start proxy success") }));
+      assert(log.same && log.shown && log.text, "列表重画时日志框还是原来那个：" + JSON.stringify(log));
+      assert(await page.$eval('[data-tlog="t2"]', b => b.getAttribute("aria-expanded")) === "true", "日志按钮标着展开");
+      await page.click('[data-tstop="t2"]');
+      await page.waitForFunction(() => document.querySelector("#tun-summary").textContent.includes("运行中 1") && !!document.querySelector('[data-tstart="t2"]'), null, { timeout: 1500 }).catch(() => {});
+      assert((await page.textContent("#tun-summary")).includes("运行中 1") && await page.$('[data-tstart="t2"]'), "停止后马上变回：" + await tunRowText("t2"));
+      await page.click('[data-tlog="t2"]'); await settle(200);
+      assert(await page.$eval("#tlog-t2", e => e.style.display === "none") && await page.$eval('[data-tlog="t2"]', b => b.getAttribute("aria-expanded")) === "false", "再点一下日志收起");
+    } finally { await tunState({ tunnelsReset: true }); }
+  });
+
+  await run("隧道：启动失败、跟随启动失败的原因直接写在卡片上（停着时排在上次的公网地址前面），跑起来后不再显示", async () => {
+    const MSG = "首次使用需手动放置樱花 frpc：登录 SakuraFrp 管理面板 → 软件下载 → 下载「frpc」Windows amd64 版，把 exe 放入 D:\\MineDeck\\runtimes\\frpc\\natfrp 目录后重试（仅需一次）";
+    await tunState({ tunnelsReset: true, tunnel: { id: "t1", provider: "natfrp", running: false, lastError: "跟随启动失败：" + MSG } });
+    try {
+      await page.goto(url("#/tunnels")); await settle(600);
+      const r = await tunRowText("t1");
+      assert(r.includes("上次出错") && r.includes("跟随启动失败：首次使用需手动放置樱花 frpc") && r.includes("natfrp 目录后重试") && !r.includes("openfrp.top"), "跟随启动失败：" + r);
+      // 手动启动也失败：提示里有原因，卡片上换成「启动失败：…」，按钮还能再点
+      await tunState({ tunnel: { id: "t1", startError: MSG } });
+      await page.click('[data-tstart="t1"]');
+      assert(await toastHas("首次使用需手动放置樱花 frpc"), "启动失败要提示");
+      await page.waitForFunction(() => (document.querySelector('[data-tun="t1"] .tun-err') || {}).textContent?.startsWith("启动失败："), null, { timeout: 2000 }).catch(() => {});
+      assert((await page.textContent('[data-tun="t1"] .tun-err')).startsWith("启动失败：首次使用"), "手动启动失败的原因：" + await tunRowText("t1"));
+      assert(!(await page.$eval('[data-tstart="t1"]', b => b.disabled)), "失败后启动按钮能再点");
+      // 放好 frpc 再启动：跑起来就不再显示失败原因
+      await tunState({ tunnel: { id: "t1", startError: "", nextAddr: "", publicAddr: "" } });
+      await page.click('[data-tstart="t1"]');
+      await page.waitForFunction(() => !document.querySelector('[data-tun="t1"] .tun-err') && document.querySelector('[data-tun="t1"]').textContent.includes("连接中"), null, { timeout: 2000 }).catch(() => {});
+      const r2 = await tunRowText("t1");
+      assert(!r2.includes("首次使用") && r2.includes("连接中"), "跑起来后不再显示失败原因：" + r2);
+      // 自建备用线（初始数据）：停着、frpc 报过错，错误整句显示在卡片上
+      assert((await tunRowText("t2")).includes("authorization failed"), "停着的隧道显示上次的错误：" + await tunRowText("t2"));
+    } finally { await tunState({ tunnelsReset: true }); }
+  });
+
+  await run("隧道：新一次运行还没连上就报错，卡片显示这次的错误，不拿上次的公网地址充数；没报错时是「连接中」，连上以后照常显示地址（Codex 复审）", async () => {
+    await tunState({ tunnelsReset: true, tunnel: { id: "t1", running: true, online: false, lastError: "login to the server failed: dial tcp: i/o timeout" } });
+    try {
+      await page.goto(url("#/tunnels")); await settle(600);
+      const r = await tunRowText("t1");
+      assert(r.includes("连接出错") && r.includes("i/o timeout") && !r.includes("openfrp.top"), "没连上就报错：" + r);
+      assert(!(await page.$('[data-tun="t1"] [data-copy]')), "没连上时不给复制上次的地址");
+      await tunState({ tunnel: { id: "t1", lastError: "" } });
+      await page.goto(url("#/tunnels")); await settle(600);
+      const r2 = await tunRowText("t1");
+      assert(r2.includes("连接中") && !r2.includes("openfrp.top"), "没连上、也没报错：" + r2);
+      await tunState({ tunnel: { id: "t1", online: true } });
+      await page.goto(url("#/tunnels")); await settle(600);
+      const r3 = await tunRowText("t1");
+      assert(r3.includes("cn-sz-bgp-1.openfrp.top:23456") && !r3.includes("连接中"), "连上以后：" + r3);
+    } finally { await tunState({ tunnelsReset: true }); }
+  });
+
+  await run("隧道：列表偶尔刷新失败时，展开着的日志不关、列表留着，摘要提示一句；恢复后照常重画、日志框还是原来那个（独立评审）", async () => {
+    const fail = route => route.fulfill({ status: 502, contentType: "text/html", body: "<h1>Bad Gateway</h1>" });
+    await tunState({ tunnelsReset: true });
+    try {
+      await page.goto(url("#/tunnels")); await settle(600);
+      await page.click('[data-tlog="t1"]'); await settle(400);
+      await page.$eval("#tlog-t1", e => { e.dataset.mark = "1"; });
+      await page.route("**/api/tunnels", fail);
+      await page.waitForFunction(() => document.querySelector("#tun-summary").textContent.includes("刷新失败"), null, { timeout: 6000 }).catch(() => {});
+      assert((await page.textContent("#tun-summary")).includes("刷新失败"), "摘要应提示刷新失败：" + await page.textContent("#tun-summary"));
+      const during = await page.$eval("#tlog-t1", e => ({ same: e.dataset.mark === "1", shown: e.style.display !== "none" }));
+      assert(during.same && during.shown && (await page.$$("#tun-list [data-tun]")).length === 2, "刷新失败时列表和日志应留着：" + JSON.stringify(during));
+      await page.unroute("**/api/tunnels", fail);
+      await page.waitForFunction(() => document.querySelector("#tun-summary").textContent.includes("条隧道"), null, { timeout: 6000 }).catch(() => {});
+      assert((await page.textContent("#tun-summary")).includes("条隧道"), "恢复后摘要照常：" + await page.textContent("#tun-summary"));
+      const after = await page.$eval("#tlog-t1", e => ({ same: e.dataset.mark === "1", shown: e.style.display !== "none" }));
+      assert(after.same && after.shown, "恢复后日志框还是原来那个：" + JSON.stringify(after));
+    } finally { await page.unroute("**/api/tunnels", fail).catch(() => {}); await tunState({ tunnelsReset: true }); }
+  });
+
+  await run("隧道：樱花、OpenFrp 的隧道不带 frps 地址和端口（以前把隐藏着的 25565 / 25566 / 7000 也存了进去）", async () => {
+    try {
+      await musicState({ music: { reset: true } });
+      await page.goto(url("#/tunnels")); await settle();
+      await page.click("#tn-toggle");
+      await page.selectOption("#tn-provider", "natfrp");
+      await page.fill("#tn-name", "樱花游戏"); await page.fill("#tn-cred", "k"); await page.fill("#tn-proxy", "123456");
+      await page.click("#tn-add"); await settle(400);
+      const body = (await musicState({})).music.tunnelBody;
+      assert(body && body.provider === "natfrp" && body.proxyId === "123456" && body.localPort === 0 && body.remotePort === 0 && body.serverPort === 0 && body.serverAddr === "",
+        "请求体：" + JSON.stringify(body));
+    } finally { await resetMusic(); }
+  });
+  // ==================== 内网穿透的隧道卡片结束 ====================
+
+  await run("伙伴：「好友的客户端」写明整合包服务端还要装同一个整合包，复制给好友的说明里也有（测试报告第五轮）", async () => {
+    try {
+      await resetCP();
+      await openCP();
+      const sub = await page.$eval("#cp-client", e => e.previousElementSibling.textContent);
+      assert(sub.includes("整合包") && sub.includes("版本一致"), "好友的客户端那段说明：" + sub);
+      await stubClipboard(page);
+      await page.click("#cp-copy-guide"); await settle(250);
+      const g = await page.evaluate(() => (window.__copied || []).pop() || "");
+      assert(g.includes("如果服务器是整合包") && g.includes("先装同一个整合包") && g.includes("@伙伴的名字"), "复制给好友的说明：" + g);
+    } finally { await resetCP(); }
+  });
+
+  // ==================== 窗口与设置（测试报告 A-02、观察 3、观察 16）====================
+  // 模拟宿主时把窗口函数换成记账的，看前端调了哪个
+  const winCtx = async (extra = {}) => {
+    const c = await browser.newContext({ viewport: { width: 1280, height: 850 }, locale: "zh-CN" });
+    await c.addInitScript(x => {
+      localStorage.setItem("amh_token", "mock");
+      localStorage.setItem("amh_theme", "dark");
+      window.__win = [];
+      for (const fn of ["hostWinClose", "hostWinMin", "hostWinMaxToggle", "hostWinDrag", "hostCloseAck", "hostWinHide", "hostWinQuit"]) window[fn] = () => { window.__win.push(fn); };
+      window.hostWinIsMax = async () => false;
+      if (x.dbl) window.hostDblClickTime = async () => x.dbl;
+    }, extra);
+    return c;
+  };
+  const winCalls = p => p.evaluate(() => window.__win.filter(f => f !== "hostWinIsMax").join(","));
+
+  await run("标题栏：空白处按下发起原生拖动；同一处快速按两下第二下改为最大化 / 还原、不再拖动；间隔超过系统双击时间或位置挪开都不算；窗口按钮上不触发", async () => {
+    const c = await winCtx({ dbl: 300 }); // 宿主告知系统双击间隔 300ms
+    try {
+      const p = await c.newPage();
+      p.on("pageerror", e => errors.push(pageErr(e)));
+      await p.goto(ORIGIN + "#/instances"); await p.waitForTimeout(500);
+      const r = await p.$eval("#titlebar .grow", el => { const b = el.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; });
+      const reset = () => p.evaluate(() => { window.__win.length = 0; });
+      await p.mouse.click(r.x, r.y);
+      assert((await winCalls(p)) === "hostWinDrag", "单击应只发起拖动：" + await winCalls(p));
+      await p.waitForTimeout(400); await reset();
+      await p.mouse.dblclick(r.x, r.y);
+      assert((await winCalls(p)) === "hostWinDrag,hostWinMaxToggle", "双击应第一下拖动、第二下最大化：" + await winCalls(p));
+      await p.waitForTimeout(400); await reset();
+      await p.mouse.click(r.x, r.y); await p.waitForTimeout(400); await p.mouse.click(r.x, r.y); // 间隔超过宿主告知的 300ms
+      assert((await winCalls(p)) === "hostWinDrag,hostWinDrag", "间隔超过双击时间不算双击：" + await winCalls(p));
+      await p.waitForTimeout(400); await reset();
+      await p.mouse.click(r.x, r.y); await p.mouse.click(r.x + 30, r.y); // 拖动过窗口：屏幕位置变了
+      assert((await winCalls(p)) === "hostWinDrag,hostWinDrag", "位置挪开不算双击：" + await winCalls(p));
+      await p.waitForTimeout(400); await reset();
+      await p.mouse.click(r.x, r.y); await p.mouse.click(r.x, r.y); await p.mouse.click(r.x, r.y); // 三连击：第三下重新算起
+      assert((await winCalls(p)) === "hostWinDrag,hostWinMaxToggle,hostWinDrag", "三连击：" + await winCalls(p));
+      await p.waitForTimeout(400); await reset();
+      await p.dblclick("#wc-min");
+      assert(!(await winCalls(p)).includes("hostWinDrag") && !(await winCalls(p)).includes("hostWinMaxToggle"), "窗口按钮上不该拖动或最大化：" + await winCalls(p));
+    } finally { await c.close(); }
+  });
+
+  await run("关窗确认：宿主请求时弹出三选一（默认聚焦「最小化到托盘」），先回应宿主；不叠第二个；取消 / 停止服务器并退出 / 最小化到托盘（勾「以后都这样」才改设置）；托盘不可用时只剩退出和取消", async () => {
+    const c = await winCtx();
+    try {
+      const p = await c.newPage();
+      p.on("pageerror", e => errors.push(pageErr(e)));
+      const puts = []; // 改了「最小化到托盘」的 PUT（原生窗口还会顺带上报界面底色，不算）
+      p.on("request", rq => {
+        if (rq.method() !== "PUT" || new URL(rq.url()).pathname !== "/api/config") return;
+        const b = JSON.parse(rq.postData() || "{}");
+        if ("minimizeToTray" in b) puts.push(b);
+      });
+      await p.goto(ORIGIN + "#/instances"); await p.waitForTimeout(500);
+      const ask = o => p.evaluate(o => { window.__win.length = 0; window.__mdCloseAsk(o); }, o);
+      const btns = () => p.$$eval("#close-ask:not(.leave) .m-actions .btn", bs => bs.map(b => b.textContent.trim()).join("|"));
+      await ask({ tray: true, running: 2 });
+      await p.waitForSelector("#close-ask");
+      assert((await p.textContent("#close-ask h3")).includes("2 台服务器"), "标题没写几台服务器：" + await p.textContent("#close-ask h3"));
+      assert((await btns()) === "取消|停止服务器并退出|最小化到托盘", "按钮不对：" + await btns());
+      assert((await p.evaluate(() => document.activeElement.textContent.trim())) === "最小化到托盘", "默认焦点不对");
+      assert((await winCalls(p)) === "hostCloseAck", "没先回应宿主：" + await winCalls(p));
+      await p.evaluate(() => window.__mdCloseAsk({ tray: true, running: 2 })); // Alt+F4 再按一次
+      assert((await p.$$("#close-ask")).length === 1, "叠出了第二个确认框");
+      await p.keyboard.press("3"); await p.waitForTimeout(100);
+      assert(p.url().endsWith("#/instances"), "确认框开着时按 3 切了页：" + p.url());
+      await p.keyboard.press("Escape"); await p.waitForTimeout(250);
+      assert((await p.$("#close-ask")) === null && !/Hide|Quit/.test(await winCalls(p)), "Esc 应只关掉确认框：" + await winCalls(p));
+
+      await ask({ tray: true, running: 1 });
+      await p.click('#close-ask [data-x="quit"]'); await p.waitForTimeout(250);
+      assert((await winCalls(p)) === "hostCloseAck,hostWinQuit" && puts.length === 0, "停止服务器并退出：" + await winCalls(p) + " " + JSON.stringify(puts));
+
+      await ask({ tray: true, running: 1 });
+      await p.click('#close-ask [data-x="tray"]'); await p.waitForTimeout(250);
+      assert((await winCalls(p)) === "hostCloseAck,hostWinHide" && puts.length === 0, "最小化到托盘（不记住）不该改设置：" + await winCalls(p) + " " + JSON.stringify(puts));
+
+      await ask({ tray: true, running: 1 });
+      await p.click('#close-ask .switch input'); // 勾上「以后关闭窗口都最小化到托盘」
+      await p.click('#close-ask [data-x="tray"]'); await p.waitForTimeout(300);
+      assert((await winCalls(p)) === "hostCloseAck,hostWinHide", "记住后没收进托盘：" + await winCalls(p));
+      assert(puts.length === 1 && puts[0].minimizeToTray === true && Object.keys(puts[0]).length === 1, "记住选择应只保存 minimizeToTray：" + JSON.stringify(puts));
+
+      await ask({ tray: false, running: 3 });
+      await p.waitForSelector("#close-ask:not(.leave)");
+      assert((await btns()) === "取消|停止服务器并退出" && (await p.$("#close-ask:not(.leave) .switch")) === null, "托盘不可用时：" + await btns());
+      assert((await p.evaluate(() => document.activeElement.textContent.trim())) === "取消", "托盘不可用时默认焦点应在取消");
+      await p.evaluate(() => { document.activeElement.blur(); window.__mdCloseAsk({ tray: false, running: 3 }); }); // 再按一次关闭
+      assert((await p.evaluate(() => document.activeElement.textContent.trim())) === "取消", "再次关闭时焦点不该落到「停止服务器并退出」");
+      await p.evaluate(() => { window.__win.length = 0; window.__win.push("hostCloseAck"); }); // 下面只看取消这一下
+      await p.click('#close-ask:not(.leave) [data-x="cancel"]'); await p.waitForTimeout(250);
+      assert((await p.$("#close-ask")) === null && (await winCalls(p)) === "hostCloseAck", "取消：" + await winCalls(p));
+    } finally { await c.close(); }
+    // 局域网浏览器（没有宿主函数）不接关窗请求
+    const lanCtx = await browser.newContext({ locale: "zh-CN" });
+    try {
+      const p = await lanCtx.newPage();
+      await p.addInitScript(() => localStorage.setItem("amh_token", "mock"));
+      await p.goto(ORIGIN + "#/instances"); await p.waitForTimeout(300);
+      assert((await p.evaluate(() => typeof window.__mdCloseAsk)) === "undefined", "局域网浏览器不该有关窗确认");
+    } finally { await lanCtx.close(); }
+  });
+
+  await run("启动与托盘：说明写清不开托盘时点关闭会退出、有服务器在运行先询问（不再说「始终显示」）", async () => {
+    await page.goto(url("#/settings/startup")); await settle();
+    const head = await page.textContent("#set-body .set-sec-head .sub");
+    const sub = await page.$eval('.row-item:has([data-cfg="minimizeToTray"]) .ri-sub', el => el.textContent);
+    assert(!head.includes("始终显示") && head.includes("程序退出后图标随之消失"), "分区说明：" + head);
+    assert(sub.includes("会退出程序并停止服务器") && sub.includes("先询问"), "开关说明：" + sub);
+  });
+
+  await run("远程访问：开关即时生效——没设密码时就地提示并拨回、不发请求；有密码直接保存、提示重启后生效（常驻提示，不显示二维码）；关闭即时生效；密码和开关一起保存；后端拒绝时拨回", async () => {
+    const mockState = b => page.evaluate(b => fetch("/__mock/state", { method: "POST", body: JSON.stringify(b) }), b);
+    const lanPuts = since => reqs.slice(since).filter(r => r.m === "PUT" && r.u === "/api/config").map(r => JSON.parse(r.b || "{}")).filter(b => "listenLan" in b || "lanPassword" in b);
+    const sw = () => page.$eval("#lan-on", el => el.checked);
+    const lastToast = () => page.$$eval(".toast", ts => ts.length ? ts[ts.length - 1].textContent : "");
+    const flip = async () => { await page.click("#lan-on"); await settle(300); };
+    try {
+      await mockState({ listenLan: false, lanSet: false });
+      await page.goto(url("#/settings/remote")); await settle();
+      let t0 = reqs.length;
+      await flip();
+      assert(!(await sw()) && lanPuts(t0).length === 0, "没设密码时开关应拨回、不发请求：" + JSON.stringify(lanPuts(t0)));
+      assert((await page.textContent("#lan-pw-err")).includes("先设置访问密码"), "没有就地提示：" + await page.textContent("#lan-pw-err"));
+      assert((await page.evaluate(() => document.activeElement.id)) === "lan-pw", "焦点应到密码框");
+      // 填好密码点「保存」：和刚才想开的开关一起保存
+      await page.fill("#lan-pw", "pw-123456");
+      assert((await page.textContent("#lan-pw-err")) === "", "输入后提示应消失");
+      t0 = reqs.length;
+      await page.click("#lan-save"); await settle(400);
+      let ps = lanPuts(t0);
+      assert(ps.length === 1 && ps[0].listenLan === true && ps[0].lanPassword === "pw-123456", "密码和开关应一起保存：" + JSON.stringify(ps));
+      assert(await sw(), "保存后开关应为开");
+      assert((await page.textContent("#lan-restart")).includes("重启 MineDeck 后生效") && (await page.$("#qr-box")) === null, "还没重启：应常驻提示、不显示二维码");
+      assert((await lastToast()).includes("重启 MineDeck 后生效"), "提示没写重启后生效：" + await lastToast());
+      assert((await page.getAttribute("#lan-pw", "placeholder")).includes("已设置"), "密码框应改为已设置");
+      // 关掉：即时保存；这次启动本来就没监听局域网，不用提重启
+      t0 = reqs.length;
+      await flip();
+      ps = lanPuts(t0);
+      assert(ps.length === 1 && ps[0].listenLan === false && !("lanPassword" in ps[0]) && !(await sw()), "关闭应即时保存：" + JSON.stringify(ps));
+      assert((await page.$("#lan-restart")) === null && (await lastToast()) === "已关闭局域网访问", "关闭后：" + await lastToast());
+      // 已有密码：直接开
+      t0 = reqs.length;
+      await flip();
+      ps = lanPuts(t0);
+      assert(ps.length === 1 && ps[0].listenLan === true && !("lanPassword" in ps[0]) && (await sw()), "有密码时应直接保存：" + JSON.stringify(ps));
+      assert((await page.$("#lan-restart")) !== null, "开启后应提示重启");
+      // 只改密码
+      await page.fill("#lan-pw", "pw-654321");
+      t0 = reqs.length;
+      await page.press("#lan-pw", "Enter"); await settle(400);
+      ps = lanPuts(t0);
+      assert(ps.length === 1 && ps[0].listenLan === true && ps[0].lanPassword === "pw-654321" && (await lastToast()) === "访问密码已保存", "回车保存密码：" + JSON.stringify(ps) + " " + await lastToast());
+      // 密码框为空时点保存：就地提示，不发请求
+      t0 = reqs.length;
+      await page.click("#lan-save"); await settle(200);
+      assert(lanPuts(t0).length === 0 && (await page.textContent("#lan-pw-err")).includes("输入新密码"), "空密码保存：" + await page.textContent("#lan-pw-err"));
+
+      // 先填密码再拨开关：一起保存
+      await mockState({ listenLan: false, lanSet: false });
+      await page.goto(url("#/settings/remote")); await settle();
+      await page.fill("#lan-pw", "pw-abcdef");
+      t0 = reqs.length;
+      await flip();
+      ps = lanPuts(t0);
+      assert(ps.length === 1 && ps[0].listenLan === true && ps[0].lanPassword === "pw-abcdef" && (await sw()), "先填密码再拨开关：" + JSON.stringify(ps));
+
+      // 后端拒绝（页面以为有密码，其实没有）：开关拨回并报错
+      await mockState({ listenLan: false, lanSet: true });
+      await page.goto(url("#/settings/remote")); await settle();
+      await mockState({ lanSet: false });
+      await flip();
+      assert(!(await sw()) && (await lastToast()).includes("请先设置访问密码"), "后端拒绝时应拨回：" + await lastToast());
+
+      // 这次启动已在局域网上：关闭即时生效（不再放行局域网），再开也不用重启
+      await mockState({ listenLan: true });
+      await page.goto(url("#/settings/remote")); await settle();
+      assert((await page.$("#qr-box svg.qr")) !== null && (await page.$("#lan-restart")) === null, "已生效时应显示二维码、没有重启提示");
+      await flip();
+      assert((await lastToast()).includes("现在起打不开") && (await page.$("#qr-box")) === null, "关闭已生效的局域网访问：" + await lastToast());
+      await flip();
+      assert((await lastToast()) === "已开启局域网访问" && (await page.$("#qr-box svg.qr")) !== null, "重新开启（这次启动本就在监听）：" + await lastToast());
+    } finally { await mockState({ listenLan: false, lanSet: false }); }
+  });
+  await run("远程访问：已有密码时在框里填了新密码再拨开关，新密码一起保存、提示里写明（以前只存了开关，重画清空了框，看着像改好了）（独立评审）", async () => {
+    const mockState = b => page.evaluate(b => fetch("/__mock/state", { method: "POST", body: JSON.stringify(b) }), b);
+    const lanPuts = since => reqs.slice(since).filter(r => r.m === "PUT" && r.u === "/api/config").map(r => JSON.parse(r.b || "{}"));
+    await mockState({ listenLan: false, lanSet: true });
+    try {
+      await page.goto(url("#/settings/remote")); await settle();
+      await page.fill("#lan-pw", "pw-new-777");
+      const t0 = reqs.length;
+      await page.click("#lan-on"); await settle(400);
+      const ps = lanPuts(t0);
+      assert(ps.length === 1 && ps[0].listenLan === true && ps[0].lanPassword === "pw-new-777", "开关和新密码应一起保存：" + JSON.stringify(ps));
+      assert(await toastHas("新的访问密码已保存"), "提示里应写明新密码也保存了");
+    } finally { await mockState({ listenLan: false, lanSet: false }); }
+  });
+  // ==================== 窗口与设置结束 ====================
+
+  await run("控制台：快捷键说明常驻在命令框下方，打字后还在；placeholder 只留示例（测试报告观察 7）", async () => {
+    await page.goto(url(`#/inst/${inst}/console`)); await settle();
+    const ph = await page.getAttribute("#cmd-in", "placeholder");
+    assert(!/回车|Tab|翻历史/.test(ph) && ph.includes("say"), "placeholder 应只留示例：" + ph);
+    await page.fill("#cmd-in", "say 你好");
+    const keys = await page.textContent("#cmd-keys");
+    assert(await page.isVisible("#cmd-keys") && ["回车", "发送", "Tab", "补全", "翻历史"].every(s => keys.includes(s)), "打字后快捷键说明应还在：" + keys);
+    assert((await page.getAttribute("#cmd-in", "aria-describedby")) === "cmd-keys", "命令框应关联说明（读屏）");
+    await page.fill("#cmd-in", "");
+  });
+
+  await run("全部配置：搜索按键名和中文名过滤（横线、空格不算），Esc 清空，搜不到时说明；搜索不算未保存的修改（测试报告观察 8）", async () => {
+    await page.goto(url(`#/inst/${inst}/raw`)); await settle();
+    const rows = () => page.$$eval("table.raw tr", rs => rs.filter(r => r.style.display !== "none").map(r => r.dataset.search));
+    const total = (await rows()).length;
+    await page.fill("#raw-search", "rcon");
+    let vis = await rows();
+    assert(vis.length >= 4 && vis.length < total && vis.every(s => s.toLowerCase().includes("rcon")), "搜 rcon：" + JSON.stringify(vis));
+    assert((await page.textContent("#raw-count")) === `找到 ${vis.length} 项（共 ${total} 项）`, "计数：" + await page.textContent("#raw-count"));
+    for (const q of ["视距", "view distance", "VIEW-DISTANCE"]) {
+      await page.fill("#raw-search", q);
+      vis = await rows();
+      assert(vis.some(s => s.startsWith("view-distance ")) && vis.length < 5, `搜「${q}」：` + JSON.stringify(vis));
+    }
+    await page.fill("#raw-search", "没有这个键");
+    assert((await rows()).length === 0 && await page.isVisible("#raw-none"), "搜不到时应说明");
+    assert((await page.$eval(".sb-state", el => el.textContent)).includes("所有修改已保存"), "搜索不该算修改");
+    await page.press("#raw-search", "Escape");
+    assert((await rows()).length === total && (await page.$eval("#raw-search", e => e.value)) === "" && !(await page.isVisible("#raw-none")), "Esc 应清空搜索");
+    assert((await page.textContent("#raw-count")) === `共 ${total} 项`, "清空后计数");
+  });
+
+  await run("常用设置：搜索同样忽略横线和空格，整组都不匹配时整组隐藏", async () => {
+    await page.goto(url(`#/inst/${inst}/common`)); await settle();
+    await page.fill("#cp-search", "view distance");
+    const vis = await page.$$eval(".prop-item", els => els.filter(e => e.offsetParent).map(e => e.dataset.search));
+    assert(vis.length === 1 && vis[0].includes("view-distance"), "搜 view distance：" + JSON.stringify(vis));
+    const groups = await page.$$eval(".cp-group", gs => gs.filter(g => g.style.display !== "none").length);
+    assert(groups === 1, "只剩一组：" + groups);
+    await page.press("#cp-search", "Escape");
+    assert((await page.$$eval(".cp-group", gs => gs.filter(g => g.style.display === "none").length)) === 0, "Esc 后全部回来");
+  });
+
+  await run("定时任务：时间是「时:分」文本框，快捷项填成几分钟后的时刻并说明每天执行；写错就近提示，4:5、2130 这类写法补齐成 HH:MM（测试报告观察 1）", async () => {
+    await page.goto(url(`#/inst/${inst}/tasks`)); await settle();
+    assert((await page.$eval("#sc-at", e => e.type)) === "text", "时间框应是文本框");
+    assert((await page.textContent("#sc-hint")).includes("每天到这个时间执行一次"), "旁边应说明每天执行");
+    await page.click('[data-later="10"]');
+    const [got, a, b] = await page.evaluate(() => {
+      const f = d => String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+      return [document.querySelector("#sc-at").value, f(new Date(Date.now() + 10 * 60000)), f(new Date(Date.now() + 9 * 60000))];
+    });
+    assert(got === a || got === b, `「10 分钟后」填成了 ${got}，应为 ${a}`);
+    assert((await page.textContent("#sc-hint")).includes(`已填成 ${got}`) && (await page.textContent("#sc-hint")).includes("之后每天这个时间都执行"), "快捷项后的说明：" + await page.textContent("#sc-hint"));
+    const n0 = await page.$$eval("#sched-list .java-row", r => r.length);
+    await page.fill("#sc-at", "25:00"); await page.click("#sc-add");
+    assert((await page.textContent("#sc-err")).includes("时:分") && await page.$("#sc-at.invalid"), "写错应就近提示：" + await page.textContent("#sc-err"));
+    assert((await page.$$eval("#sched-list .java-row", r => r.length)) === n0, "写错不该添加");
+    await page.fill("#sc-at", "4:5"); await page.press("#sc-at", "Enter");
+    let list = await page.$$eval("#sched-list .java-row .jv", r => r.map(x => x.textContent));
+    assert(list.length === n0 + 1 && list[n0] === "每天 04:05", "4:5 应补齐成 04:05：" + JSON.stringify(list));
+    assert((await page.$eval("#sc-at", e => e.value)) === "04:05" && !(await page.$("#sc-at.invalid")) && (await page.textContent("#sc-err")) === "", "改对后错误消失");
+    await page.fill("#sc-at", "2130"); await page.click("#sc-add");
+    list = await page.$$eval("#sched-list .java-row .jv", r => r.map(x => x.textContent));
+    assert(list[n0 + 1] === "每天 21:30", "2130 应认成 21:30：" + JSON.stringify(list));
+    assert((await page.$eval(".sb-state", el => el.textContent)).includes("2 项修改未保存") || (await page.$eval(".sb-state", el => el.textContent)).includes("未保存"), "添加后计入未保存");
+    await page.click('[data-sb="discard"]'); await settle(300);
+  });
+
+  await run("部署任务：进度和日志长时间不动时在进度旁提示「下载慢或者在重试」，有进展就收起；后端报了超时时写出哪个地址、第几次（测试报告 B-01）", async () => {
+    try {
+      await page.goto(url("#/instances")); await settle();
+      await page.evaluate(() => { window.__MD_STALL_MS = 1500; location.hash = "#/task/task-7"; });
+      await settle(600);
+      assert(await page.$eval("#t-slow", e => e.hidden), "刚打开不该提示");
+      await page.waitForFunction(() => !document.querySelector("#t-slow").hidden, null, { timeout: 4000 }).catch(() => {});
+      const slow = await page.textContent("#t-slow");
+      assert(!(await page.$eval("#t-slow", e => e.hidden)) && slow.includes("没有新进度") && slow.includes("检查网络或代理"), "进度不动应提示：" + slow);
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskStage: 3 }) }));
+      await page.waitForFunction(() => document.querySelector("#t-slow").hidden, null, { timeout: 1500 }).catch(() => {});
+      assert(await page.$eval("#t-slow", e => e.hidden), "有进展后应收起");
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskNet: { count: 3, host: "maven.neoforged.net", what: "连接超时", ago: 4 } }) }));
+      await page.waitForFunction(() => !document.querySelector("#t-slow").hidden, null, { timeout: 1200 }).catch(() => {});
+      assert((await page.textContent("#t-slow-title")) === "maven.neoforged.net 连接超时，已经 3 次", "后端报的超时：" + await page.textContent("#t-slow-title"));
+    } finally {
+      await page.evaluate(() => { delete window.__MD_STALL_MS; return fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskStage: 2, taskNet: null }) }); });
+    }
+  });
+  // ==================== 无障碍（测试报告「交互与可用性观察」5、6、9–12：测试员用无障碍接口操作界面时撞上的） ====================
+  // 读 Chromium 自己算出的无障碍树：WebView2 交给 Windows UI Automation 的就是这一份（角色、可访问名称、描述、链接地址）
+  const cdp = await ctx.newCDPSession(page);
+  const axProp = (n, k) => ((n.properties || []).find(p => p.name === k) || {}).value;
+  const axTree = async () => (await cdp.send("Accessibility.getFullAXTree")).nodes.filter(n => !n.ignored && n.role).map(n => ({
+    role: n.role.value, name: ((n.name && n.name.value) || "").trim(), desc: ((n.description && n.description.value) || "").trim(),
+    url: (axProp(n, "url") || {}).value || "" }));
+  const AX_CTRL = new Set(["button", "link", "textbox", "searchbox", "combobox", "spinbutton", "checkbox", "switch", "slider"]);
+  // 同一页里可访问名称相同的控件、没有名字的控件。
+  // 例外：同名而且指向同一个地址的链接。侧栏的「服务器」和详情页面包屑的「服务器」、侧栏的「新建服务器」和服务器列表页头的「新建服务器」、
+  // 游戏内 AI 没配置时的两处「去设置」，去的都是同一个地方，名字一样才对
+  const axProblems = async () => {
+    const seen = new Map(), out = [];
+    for (const n of await axTree()) {
+      if (!AX_CTRL.has(n.role)) continue;
+      if (!n.name) { out.push("没有名字的 " + n.role); continue; }
+      const k = n.role + "「" + n.name + "」", urls = seen.get(k) || [];
+      urls.push(n.url); seen.set(k, urls);
+    }
+    for (const [k, urls] of seen) if (urls.length > 1 && !(k.startsWith("link") && urls.every(u => u && u === urls[0]))) out.push(k + "×" + urls.length);
+    return out;
+  };
+  const byName = (role, name) => page.getByRole(role, { name, exact: true });
+
+  await run("无障碍：各主要页面、弹窗和 AI 助手面板里没有同名的按钮 / 链接 / 输入框，也没有读不到名字的控件（同名链接指向同一处的除外）", async () => {
+    const bad = [];
+    const check = async label => { const p = await axProblems(); if (p.length) bad.push(label + "：" + p.join("、")); };
+    const PACK_I = "#/inst/" + encodeURIComponent(PACK) + "/";
+    try {
+      await gcState(gcReady); // AI 配好：设置 → AI、游戏内 AI 的控件都画出来
+      await cpState({ cp: { reset: true, inst: { [PACK]: { mods: CP_INSTALLED, settings: { enabled: true, exists: true } } } }, status: { [PACK]: "running" } });
+      await musicState({ music: { reset: true, inst: { [PACK]: { bridge: "main" } } } });
+      const pages = [["服务器列表", "#/instances"], ["新建服务器", "#/create"], ["隧道", "#/tunnels"],
+        ...["appearance", "download", "storage", "java", "remote", "notify", "ai", "startup", "about"].map(s => ["设置 → " + s, "#/settings/" + s]),
+        ...["console", "players", "backups", "tasks", "res", "gameai", "common", "raw", "jvm"].map(t => ["生存服 → " + t, "#/inst/" + inst + "/" + t]),
+        ...["console", "players", "backups", "tasks", "music", "companion", "common", "jvm"].map(t => ["整合包 → " + t, PACK_I + t])];
+      for (const [label, h] of pages) { await page.goto(url(h)); await settle(700); await check(label); }
+      await page.goto(url("#/inst/" + inst + "/res")); await settle(400);
+      await page.click("#res-go"); await settle(500); await check("资源页搜索结果");
+      await page.goto(url("#/tunnels")); await settle(500);
+      await page.click("#tn-toggle"); await settle(200); await check("隧道的添加表单");
+      await page.goto(url(PACK_I + "companion")); await settle(900);
+      await page.click("#cp-spawn"); await page.waitForSelector(".modal"); await check("刷出伙伴弹窗");
+      await page.keyboard.press("Escape"); await settle(200);
+      await page.goto(url("#/instances")); await settle(600);
+      await page.click("#ai-btn"); await page.waitForSelector("#ai-panel"); await settle(300); await check("服务器列表 + AI 助手面板");
+      await page.keyboard.press("Escape"); await settle(200);
+    } finally { await resetGC(); await resetCP(); await resetMusic(); }
+    assert(!bad.length, bad.join(" | "));
+  });
+
+  await run("无障碍：同名按钮带上对象——卡片上的启动 / 停止 / 管理 / 更多操作带服务器名；游戏内 AI 的 7 个「保存」各不相同；资源页的「安装」带模组名，装好后跟着变", async () => {
+    try {
+      await page.goto(url("#/instances")); await settle(700);
+      const cards = await page.$$eval(".card[data-name]", cs => cs.map(c => ({ n: c.dataset.name, act: c.querySelector('[data-act="start"]') ? "启动" : "停止" })));
+      assert(cards.length === 4, "卡片数：" + cards.length);
+      for (const c of cards)
+        assert(await byName("button", c.act + " " + c.n).count() === 1 && await byName("link", "管理 " + c.n).count() === 1 && await byName("button", "更多操作 " + c.n).count() === 1,
+          `卡片「${c.n}」的按钮名字没带服务器名`);
+      assert(await byName("link", "管理").count() === 0 && await byName("button", "启动").count() === 0 && await byName("button", "停止").count() === 0, "不该再有光秃秃的「管理」「启动」「停止」");
+      // 游戏内 AI：触发前缀、别名、四项限流、自定义正则（展开高级识别后才露出来）
+      await gcState(gcReady); await openGC();
+      await page.click("#gc-adv-head"); await settle(200);
+      const saves = (await axTree()).filter(n => n.role === "button" && n.name.startsWith("保存")).map(n => n.name).sort();
+      const want = ["保存触发前缀", "保存别名", "保存每人冷却", "保存每人每天", "保存全服每天", "保存全服每天的 token", "保存自定义正则"].sort();
+      assert(JSON.stringify(saves) === JSON.stringify(want), "游戏内 AI 的保存按钮：" + saves.join("、"));
+      // 资源页
+      await page.goto(url("#/inst/" + inst + "/res")); await settle(400);
+      await page.click("#res-go"); await settle(500);
+      const titles = await page.$$eval("[data-rt]", bs => bs.map(b => b.dataset.rt));
+      const installs = (await axTree()).filter(n => n.role === "button" && n.name.startsWith("安装")).map(n => n.name);
+      assert(titles.length === 3 && JSON.stringify(installs) === JSON.stringify(titles.map(t => "安装 " + t)), "安装按钮的名字：" + installs.join("、"));
+      await byName("button", "安装 Chunky").click(); await settle(400);
+      assert(await byName("button", "已安装 Chunky").count() === 1, "装好后名字应跟着按钮上的字变成「已安装 Chunky」");
+    } finally { await resetGC(); }
+  });
+
+  await run("无障碍：折叠行「高级识别」「高级选项」的名字就是标题、副标题是描述；伙伴连接那一行名字不带版本号；刷出伙伴弹窗的「主人」按名字找得到；AI 面板的关闭按钮叫「收起 AI 助手」", async () => {
+    try {
+      await gcState(gcReady); await openGC();
+      const adv = (await axTree()).find(n => n.role === "button" && n.name.startsWith("高级识别"));
+      assert(adv && adv.name === "高级识别" && adv.desc.startsWith("认不出聊天时再来改"), "高级识别：" + JSON.stringify(adv));
+      assert(await byName("button", "高级识别").getAttribute("aria-expanded") === "false", "收起时 aria-expanded 应是 false");
+      await byName("button", "高级识别").click(); await settle(200);
+      assert(await byName("button", "高级识别").getAttribute("aria-expanded") === "true", "展开后 aria-expanded 应是 true");
+      await openMusic({ inst: { [PACK]: { bridge: "main" } } });
+      const mu = (await axTree()).find(n => n.role === "button" && n.name.startsWith("高级选项"));
+      assert(mu && mu.name === "高级选项" && mu.desc.includes("桥接模组的加载方式"), "高级选项：" + JSON.stringify(mu));
+      await resetMusic();
+      await cpState({ cp: { reset: true, inst: { [PACK]: { mods: CP_INSTALLED, settings: { enabled: true, exists: true } } } }, ai: { reset: true, ...AI_DEEPSEEK, key: "sk-x" }, status: { [PACK]: "running" } });
+      await openCP();
+      const link = (await axTree()).find(n => n.name.startsWith("和伙伴模组的连接"));
+      assert(link && link.role === "group" && link.name === "和伙伴模组的连接" && link.desc.includes("已连上") && link.desc.includes("0.2.0"), "连接那一行：" + JSON.stringify(link));
+      await page.click("#cp-spawn"); await page.waitForSelector(".modal");
+      const owner = byName("combobox", "主人");
+      assert(await owner.count() === 1 && await byName("textbox", "名字").count() === 1 && await byName("combobox", "出生在").count() === 1, "弹窗里的名字、主人、出生在应能按名字找到");
+      await owner.fill("Steve");
+      assert(await page.$eval("#cs-owner", i => i.value) === "Steve", "按名字找到的应是「主人」输入框");
+      await page.keyboard.press("Escape"); await settle(200);
+    } finally { await resetGC(); await resetCP(); await resetMusic(); }
+    await page.goto(url("#/instances")); await settle(500);
+    await page.click("#ai-btn"); await page.waitForSelector("#ai-panel");
+    const fold = byName("button", "收起 AI 助手");
+    assert(await fold.count() === 1 && await fold.getAttribute("title") === "收起（Esc）", "面板的关闭按钮应叫「收起 AI 助手」，提示同步");
+    assert(await byName("button", "关闭 AI 助手").count() === 0 && await byName("button", "关闭").count() === 1, "窗口三键的「关闭」照旧、只此一个");
+    await fold.click(); await settle(300);
+    assert(!(await page.$("#ai-panel")), "点「收起 AI 助手」应收起面板");
+  });
+
+  await run("无障碍：开关的 input 叠在胶囊上、尺寸相当（不再是 1×1），点胶囊点中的是 input 并即时生效；键盘焦点环画在胶囊上；带说明文字的开关也对得齐", async () => {
+    await page.goto(url("#/settings/startup")); await settle(500);
+    const geo = sel => page.evaluate(s => {
+      const i = document.querySelector(s), a = i.getBoundingClientRect(), b = i.nextElementSibling.getBoundingClientRect();
+      const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+      return { w: a.width, h: a.height, dx: Math.abs(a.left + a.width / 2 - b.left - b.width / 2), dy: Math.abs(a.top + a.height / 2 - b.top - b.height / 2), hit: hit === i };
+    }, sel);
+    const sel = '[data-cfg="minimizeToTray"]';
+    const g = await geo(sel), box = await page.locator(sel).boundingBox();
+    assert(box.width >= 20 && box.height >= 20 && g.dx <= 1 && g.dy <= 1 && g.hit, "开关 input 的位置：" + JSON.stringify({ box, g }));
+    const was = await page.$eval(sel, i => i.checked), before = reqs.length;
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2); await settle(250);
+    assert(await page.$eval(sel, i => i.checked) === !was && putConfig(before, "minimizeToTray"), "点胶囊正中应切换开关并即时保存");
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2); await settle(250); // 复原
+    await page.focus(sel); await page.keyboard.press("Shift+Tab"); await page.keyboard.press("Tab");
+    const ring = await page.$eval(sel, i => document.activeElement === i && getComputedStyle(i.nextElementSibling).outlineStyle);
+    assert(ring === "solid", "Tab 到开关时焦点环应画在胶囊上：" + ring);
+    // 隧道表单里的开关：label 里还有两行说明，胶囊垂直居中，input 也要跟着居中
+    await page.goto(url("#/tunnels")); await settle(500);
+    await page.click("#tn-toggle"); await settle(200);
+    const t = await geo("#tn-auto");
+    assert(t.w >= 20 && t.h >= 20 && t.dx <= 1 && t.dy <= 1 && t.hit, "带说明的开关：" + JSON.stringify(t));
+  });
+  // ==================== 无障碍结束 ====================
 
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
 

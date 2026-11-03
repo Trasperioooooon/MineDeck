@@ -1,10 +1,11 @@
 package main
 
-// 系统托盘 + 关窗最小化：子类化 go-webview2 的窗口过程拦截 WM_CLOSE，挂 Shell_NotifyIcon
-// 托盘图标与右键菜单。所有 Win32 调用均在创建窗口的 UI 线程（消息循环线程）上执行。
+// 系统托盘 + 关窗处理：子类化 go-webview2 的窗口过程拦截 WM_CLOSE（最小化到托盘，或有服务器在运行时先确认），
+// 挂 Shell_NotifyIcon 托盘图标与右键菜单。所有 Win32 调用均在创建窗口的 UI 线程（消息循环线程）上执行。
 
 import (
 	"syscall"
+	"time"
 	"unsafe"
 
 	"minedeck/internal/app"
@@ -32,6 +33,7 @@ const (
 	_SW_RESTORE = 9
 
 	_NIM_ADD     = 0x0
+	_NIM_MODIFY  = 0x1
 	_NIM_DELETE  = 0x2
 	_NIF_MESSAGE = 0x1
 	_NIF_ICON    = 0x2
@@ -55,6 +57,8 @@ var (
 	pSetWindowLongPtr      = user32t.NewProc("SetWindowLongPtrW")
 	pCallWindowProc        = user32t.NewProc("CallWindowProcW")
 	pShowWindow            = user32t.NewProc("ShowWindow")
+	pIsWindowVisible       = user32t.NewProc("IsWindowVisible")
+	pIsIconic              = user32t.NewProc("IsIconic")
 	pSetForegroundWin      = user32t.NewProc("SetForegroundWindow")
 	pDestroyWindow         = user32t.NewProc("DestroyWindow")
 	pPostMessage           = user32t.NewProc("PostMessageW")
@@ -129,12 +133,18 @@ func trayWndProc(hwnd, msg, wparam, lparam uintptr) (ret uintptr) {
 		if ret, handled := framelessNCCalcSize(hwnd, wparam, lparam); handled {
 			return ret // 去掉标题栏；未接管（wparam==0）则落到默认过程
 		}
-	case _WM_CLOSE:
-		if app.GetConfig().MinimizeToTray && trayActive {
+	case _WM_CLOSE: // 窗口的 ×（前端经 hostWinClose 投递）、Alt+F4、任务栏「关闭窗口」都到这里
+		switch onClose(time.Now(), isWindowVisible(hwnd)) {
+		case closeToTray:
 			pShowWindow.Call(hwnd, _SW_HIDE)
 			return 0 // 吞掉关闭：仅隐藏到托盘，服务器继续运行
+		case closeConfirm:
+			if isIconic(hwnd) { // 在任务栏上关一个最小化着的窗口：先还原并置前，确认框才看得见
+				restoreWindow(hwnd)
+			}
+			return 0 // 吞掉关闭：界面弹确认框，用户选了再经 hostWinHide / hostWinQuit 回来
 		}
-		// 未开启或托盘图标登记失败 → 落到原过程（销毁窗口 → 退出），避免窗口既关不掉又无托盘可恢复
+		// closeDefault → 落到原过程（销毁窗口 → 退出）
 	case _WM_TRAYCALLBACK:
 		switch lparam {
 		case _WM_LBUTTONUP, _WM_LBUTTONDBLCLK:
@@ -152,6 +162,95 @@ func trayWndProc(hwnd, msg, wparam, lparam uintptr) (ret uintptr) {
 	}
 	r, _, _ := pCallWindowProc.Call(origWndProc, hwnd, msg, wparam, lparam)
 	return r
+}
+
+// ---- 关窗确认 ----
+// 没开「最小化到托盘」时点 × 会退出程序、停掉所有服务器。有服务器在运行时先请界面问一声
+// （最小化到托盘 / 停止服务器并退出 / 取消），没有服务器在跑就照旧直接关。
+
+type closeAction int
+
+const (
+	closeDefault closeAction = iota // 交给原窗口过程：销毁窗口 → 程序退出（停掉服务器）
+	closeToTray                     // 隐藏到托盘，服务器继续运行
+	closeConfirm                    // 先请界面弹确认框
+)
+
+// closeAckTimeout 请界面确认后等它回应的时长：页面失联（没加载完、脚本出错）时，超时后的下一次关窗直接退出，不把窗口困住
+const closeAckTimeout = 3 * time.Second
+
+var (
+	runningServers func() int                   // 正在运行（含启动中、停止中）的服务器台数，由 main 注入
+	askCloseUI     func(tray bool, running int) // 请界面弹关窗确认框，由 openWebView 注入（WebView2 建好之后才有）
+	closeAsk       closeAsker
+)
+
+// closeAsker 记着上一次请界面确认的情况。只在窗口线程上读写（WM_CLOSE 与 Bind 回调都在这个线程）。
+type closeAsker struct {
+	askedAt time.Time // 上一次请界面确认的时间（零值 = 还没请过）
+	acked   bool      // 界面回应了（确认框弹出来了）
+}
+
+// closeAskStale 一次没得到回应的请求过了这么久就作废：那多半是页面还没加载完时的一次关窗，
+// 不能让几小时后正常点 × 也被当成「页面失联」直接退出、停掉服务器
+const closeAskStale = 30 * time.Second
+
+// usable 界面现在能不能接确认请求：没请过、上次回应了、上次请求还没等满超时，或者那次请求已经作废，都算能。
+// 只有「请求发出 3～30 秒内还没回应」时不能：用户正在连着点关闭，而页面没反应，这次直接退出。
+func (a *closeAsker) usable(now time.Time) bool {
+	if a.askedAt.IsZero() || a.acked {
+		return true
+	}
+	el := now.Sub(a.askedAt)
+	return el < closeAckTimeout || el >= closeAskStale
+}
+
+// decideClose 决定一次关窗请求怎么处理。minToTray：设置里开了「最小化到托盘」；trayOK：托盘图标登记成功；
+// running：在运行的服务器台数；askable：界面能弹确认框。托盘图标登记失败时不隐藏，免得窗口藏起来却没有图标可恢复。
+func decideClose(minToTray, trayOK bool, running int, askable bool) closeAction {
+	if minToTray && trayOK {
+		return closeToTray
+	}
+	if running > 0 && askable {
+		return closeConfirm
+	}
+	return closeDefault
+}
+
+// onClose 处理一次 WM_CLOSE：要确认时顺带把请求发给界面。visible：窗口当前显示着（含最小化）。
+// 窗口藏着时（-minimized 静默启动后没开托盘开关）收到的关闭多半来自别的程序（taskkill、安装程序），
+// 用户看不见确认框，照旧直接退出（会先停掉服务器）。
+func onClose(now time.Time, visible bool) closeAction {
+	minToTray := app.GetConfig().MinimizeToTray
+	running := 0
+	if !(minToTray && trayActive) && runningServers != nil {
+		running = runningServers()
+	}
+	act := decideClose(minToTray, trayActive, running, askCloseUI != nil && visible && closeAsk.usable(now))
+	if act == closeConfirm {
+		// 还在等上一次回应时连点关闭不重新计时：页面失联时要让超时走得到，不把窗口困住
+		if closeAsk.askedAt.IsZero() || closeAsk.acked || now.Sub(closeAsk.askedAt) >= closeAskStale {
+			closeAsk.askedAt = now
+		}
+		closeAsk.acked = false
+		askCloseUI(trayActive, running)
+	}
+	return act
+}
+
+func isWindowVisible(hwnd uintptr) bool { r, _, _ := pIsWindowVisible.Call(hwnd); return r != 0 }
+func isIconic(hwnd uintptr) bool        { r, _, _ := pIsIconic.Call(hwnd); return r != 0 }
+
+// hostCloseAck 界面收到关窗确认请求后回一声（前端 __mdCloseAsk 里调）。
+func hostCloseAck() { closeAsk.acked = true }
+
+// hideToTray 确认框里选了「最小化到托盘」：托盘图标在就收进托盘，不在就退一步最小化到任务栏。
+func hideToTray(hwnd uintptr) {
+	if trayActive {
+		pShowWindow.Call(hwnd, _SW_HIDE)
+	} else {
+		pShowWindow.Call(hwnd, _SW_MINIMIZE)
+	}
 }
 
 // restoreWindow 从托盘/最小化恢复窗口并置前。
@@ -211,6 +310,9 @@ func newNID(hwnd uintptr) *notifyIconData {
 func addTrayIcon(hwnd uintptr) {
 	nid := newNID(hwnd)
 	r, _, _ := pShellNotifyIcon.Call(_NIM_ADD, uintptr(unsafe.Pointer(nid)))
+	if r == 0 { // 别的程序广播了 TaskbarCreated、图标其实还在：重复 ADD 会失败，改成 MODIFY 再确认一次
+		r, _, _ = pShellNotifyIcon.Call(_NIM_MODIFY, uintptr(unsafe.Pointer(nid)))
+	}
 	trayActive = r != 0 // 登记失败时（外壳未就绪等）关窗最小化会退化为正常退出，不困住窗口
 }
 

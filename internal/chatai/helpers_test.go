@@ -288,8 +288,9 @@ func newFixtureWith(t *testing.T, comps Companions) *fixture {
 	if err := os.MkdirAll(f.b.dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	f.gc = New(Options{Backend: f.b, AI: svc, Ops: f.reg, Redact: redactLAN{}, Now: f.clockNow, CmdWait: 30 * time.Millisecond, Timeout: 5 * time.Second,
-		Companions: comps})
+	f.gc = New(Options{Backend: f.b, AI: svc, Ops: f.reg, Redact: redactLAN{}, Now: f.clockNow, CmdWait: 30 * time.Millisecond, SlowCmdWait: 3 * time.Second,
+		Timeout: 5 * time.Second, Companions: comps})
+	f.gc.settle = 10 * time.Millisecond
 	f.b.svc = f.gc
 	t.Cleanup(func() { f.gc.Wait(); f.gc.Close() })
 	f.set(Patch{Enabled: ptr(true)})

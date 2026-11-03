@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -383,6 +384,10 @@ func fetchToInstance(ctx context.Context, t *tasks.Task, art mcsrc.Artifact, cac
 	if err := dl.Fetch(ctx, dl.Request{
 		URLs: art.URLs, Dest: cachePath,
 		SHA1: art.SHA1, SHA256: art.SHA256, MD5: art.MD5, MinSize: art.MinSize,
+		OnRetry: func(host string, err error) {
+			t.Logf("从 %s 下载 %s 没成功（%v），换下一个下载源或稍后重试", host, art.FileName, err)
+			t.NetRetry(host, "下载失败")
+		},
 	}, t.ProgressFn("下载 "+art.FileName)); err != nil {
 		return err
 	}
@@ -416,6 +421,7 @@ func runInstaller(ctx context.Context, t *tasks.Task, javaExe, dir, installerJar
 	for attempt := 1; attempt <= 3; attempt++ {
 		if attempt > 1 {
 			t.Logf("安装器第 %d 次重试（多为瞬时网络问题，已下载的库会被复用）...", attempt)
+			t.NetRetry("", fmt.Sprintf("安装器出错退出，第 %d 次重试", attempt))
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -454,16 +460,55 @@ func runInstallerOnce(ctx context.Context, t *tasks.Task, javaExe, dir, installe
 	}
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	var nw installerNet
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line != "" {
 			t.Logf("[安装器] %s", line)
+			if what := nw.line(line); what != "" {
+				t.NetRetry(nw.host, what)
+			}
 		}
 	}
 	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("安装器退出异常: %w", err)
 	}
 	return nil
+}
+
+// installerNet 从安装器的输出里认出网络问题（测试报告 B-01：NeoForge 安装器直连 maven.neoforged.net，
+// 每次连接超时等 30 秒，界面上只看到进度不动）：记下最近一行提到的下载地址；一段异常栈只算一次。
+type installerNet struct {
+	host    string // 最近提到的下载地址（主机名）
+	inTrace bool   // 正在一段已经算过的异常栈里
+}
+
+var (
+	installerURL    = regexp.MustCompile(`https?://([^/\s"'<>]+)`)
+	installerNetErr = regexp.MustCompile(`(?i)SocketTimeoutException|timed out|ConnectException|UnknownHostException|NoRouteToHostException`)
+	installerNoHost = regexp.MustCompile(`UnknownHostException:\s*([A-Za-z0-9.-]+)`)
+)
+
+// line 看一行输出（已去掉首尾空白）：是一次新的网络问题时返回是什么问题，否则返回空串。
+func (w *installerNet) line(s string) string {
+	if m := installerURL.FindStringSubmatch(s); m != nil {
+		w.host = m[1]
+	} else if m := installerNoHost.FindStringSubmatch(s); m != nil {
+		w.host = m[1]
+	}
+	// 异常栈的后续行（at …、Caused by …、... 12 more）还算同一段；别的行另起一段
+	cont := strings.HasPrefix(s, "at ") || strings.HasPrefix(s, "Caused by") || strings.HasPrefix(s, "...") || strings.HasPrefix(s, "Suppressed")
+	if !cont {
+		w.inTrace = false
+	}
+	if w.inTrace || !installerNetErr.MatchString(s) {
+		return ""
+	}
+	w.inTrace = true
+	if strings.Contains(strings.ToLower(s), "timed out") || strings.Contains(s, "SocketTimeoutException") {
+		return "连接超时"
+	}
+	return "连不上"
 }
 
 // locateLaunchTarget 在安装完成的目录中定位启动方式。

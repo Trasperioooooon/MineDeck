@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"minedeck/internal/app"
 	"minedeck/internal/events"
@@ -332,6 +333,8 @@ func TestFollowInstancesStop(t *testing.T) {
 		return tt.ID
 	}
 	follow, manual, other := add("跟随", "S1", true), add("手动", "S1", false), add("别的服", "S2", true)
+	notes := make(chan AutoAction, 8)
+	m.SetAutoHook(func(a AutoAction) { notes <- a })
 	status := map[string]string{"S1": "stopped", "S2": "starting"} // S2：重启中，已经又开起来了
 	st := func(n string) string { return status[n] }
 	m.follow(events.Event{Type: "instance.stop", Data: map[string]any{"instance": "S1"}}, st)
@@ -349,5 +352,204 @@ func TestFollowInstancesStop(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(m.Console(follow).Lines(), "\n"), "服务器「S1」停了，隧道跟着停止") {
 		t.Errorf("隧道日志里应说明为什么停：%q", m.Console(follow).Lines())
+	}
+	// 跟着停的那一条记一条操作记录（tunnel.stop，「跟随实例」，带实例名）；没停的不记
+	if len(notes) != 1 {
+		t.Fatalf("应只记一条操作记录，实际 %d 条", len(notes))
+	}
+	if a := <-notes; a.Op != "tunnel.stop" || a.Actor != "跟随实例" || a.Err != nil || a.Args["id"] != follow || a.Args["inst"] != "S1" || a.Args["tunnel"] != "跟随" {
+		t.Errorf("跟随停止的操作记录：%+v", a)
+	}
+}
+
+// 跟随启动失败（首次使用樱花还没放 frpc）：记一条失败的 tunnel.start 操作记录（带错误），失败原因记进 lastError，
+// 卡片上直接显示，说明是「跟随启动」失败的；手动启动失败的说法是「启动失败」（测试报告第五轮）。
+func TestFollowStartFailureNotedAndShown(t *testing.T) {
+	tempBase(t)
+	old := startDelay
+	startDelay = 10 * time.Millisecond
+	t.Cleanup(func() { startDelay = old })
+	m := NewManager()
+	tt, err := m.Add(Tunnel{Provider: "natfrp", Name: "游戏", Credential: "k", ProxyID: "10", Bound: "S1", AutoStart: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	notes := make(chan AutoAction, 4)
+	m.SetAutoHook(func(a AutoAction) { notes <- a })
+	m.follow(events.Event{Type: "instance.start", Data: map[string]any{"instance": "S1"}}, func(string) string { return "starting" })
+	select {
+	case a := <-notes:
+		if a.Op != "tunnel.start" || a.Actor != "跟随实例" || a.Err == nil || !strings.Contains(a.Err.Error(), "首次使用需手动放置樱花 frpc") ||
+			a.Args["id"] != tt.ID || a.Args["inst"] != "S1" || a.Args["tunnel"] != "游戏" {
+			t.Fatalf("跟随启动失败的操作记录：%+v", a)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("跟随启动失败没有记操作记录")
+	}
+	le := m.List()[0].LastError
+	if !strings.HasPrefix(le, "跟随启动失败：首次使用需手动放置樱花 frpc") || !strings.Contains(le, "目录后重试") || !utf8.ValidString(le) {
+		t.Fatalf("卡片上的失败原因：%q", le)
+	}
+	// 手动启动失败：说法是「启动失败」，同样记下
+	if err := m.Start(tt.ID); err == nil {
+		t.Fatal("没有 frpc 时应启动失败")
+	}
+	if le := m.List()[0].LastError; !strings.HasPrefix(le, "启动失败：首次使用需手动放置樱花 frpc") {
+		t.Fatalf("手动启动失败的原因：%q", le)
+	}
+}
+
+// 失败原因按字符截断，不会切在半个汉字上（截断前是按字节截的，下发时末尾成了乱码）。
+func TestLastErrorTruncatesByRune(t *testing.T) {
+	m := &Manager{lastErr: map[string]string{}}
+	m.setLastErr("tun1", strings.Repeat("目录", 200))
+	le := m.lastError("tun1")
+	if !utf8.ValidString(le) || utf8.RuneCountInString(le) != 301 || !strings.HasSuffix(le, "…") {
+		t.Fatalf("截断后：%d 个字，合法 UTF-8：%v", utf8.RuneCountInString(le), utf8.ValidString(le))
+	}
+}
+
+// frpc 跑起来时清掉上一次的失败原因；没报错就自己退出时，记一条「意外退出」（卡片上看得到，不用点开日志）。
+func TestUnexpectedExitShownAsLastError(t *testing.T) {
+	tempBase(t)
+	ping, err := exec.LookPath("ping") // 替 frpc：参数不对，马上退出
+	if err != nil {
+		t.Skip("没有 ping")
+	}
+	b, err := os.ReadFile(ping)
+	if err != nil {
+		t.Skip(err)
+	}
+	if err := os.MkdirAll(frpcDir("custom"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(frpcDir("custom"), "frpc.exe"), b, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager()
+	tt, err := m.Add(Tunnel{Provider: "custom", Name: "自建", ServerAddr: "frp.example.com", ServerPort: 7000, RemotePort: 25566, LocalPort: 25565})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.setLastErr(tt.ID, "上一次的错误")
+	if err := m.Start(tt.ID); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		st := m.List()[0]
+		if !st.Running && st.LastError != "" && st.LastError != "上一次的错误" {
+			t.Logf("frpc 退出后卡片上的原因：%s", st.LastError) // ping 的输出里没有报错字样时是「frpc 意外退出（退出码 N）…」
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("frpc 退出后的状态：%+v", st)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// 樱花同时给域名和节点 IP 两种地址时用域名（测试报告第五轮：IP 会随节点变），两行谁先谁后都一样；
+// 新的一次运行只给了 IP（换了节点）就用 IP，不卡在上次的域名上。
+func TestPublicAddrPrefersDomain(t *testing.T) {
+	tempBase(t)
+	m := NewManager()
+	tt, err := m.Add(Tunnel{Provider: "natfrp", Name: "游戏", Credential: "k", ProxyID: "10"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tun := m.get(tt.ID)
+	const (
+		domain = "2026/11/02 15:31:27 [I] [游戏] 使用 >>frp-abc.natfrp.cloud:12345<< 连接你的隧道"
+		ip     = "2026/11/02 15:31:27 [I] [游戏] 或使用节点 IP 连接（不推荐）>>203.0.113.7:12345<<"
+	)
+	addr := func() string { return m.List()[0].PublicAddr }
+	for _, order := range [][]string{{domain, ip}, {ip, domain}} {
+		rs := &runState{} // 每种顺序算一次新的运行
+		for _, l := range order {
+			m.handleLine(tun, rs, l)
+		}
+		if got := addr(); got != "frp-abc.natfrp.cloud:12345" {
+			t.Fatalf("两种地址都有时应取域名，实际 %q（顺序 %q）", got, order)
+		}
+	}
+	m.handleLine(tun, &runState{}, strings.Replace(ip, "203.0.113.7", "203.0.113.9", 1))
+	if got := addr(); got != "203.0.113.9:12345" {
+		t.Fatalf("这次只给了 IP 时应用 IP，实际 %q", got)
+	}
+	for a, want := range map[string]bool{"203.0.113.7:12345": true, "frp-abc.natfrp.cloud:12345": false, "cn-sz-1.openfrp.top:23456": false} {
+		if isIPAddr(a) != want {
+			t.Errorf("isIPAddr(%q) 应为 %v", a, want)
+		}
+	}
+}
+
+// PublicAddr 跨次保存着：新一次运行连上之前 Online 为 false（界面据此不拿上次的地址盖住这次的报错），
+// 报了成功或拿到地址才算连上；停下以后不再 Online。
+func TestOnlineTracksThisRun(t *testing.T) {
+	tempBase(t)
+	m := NewManager()
+	tt, err := m.Add(Tunnel{Provider: "natfrp", Name: "游戏", Credential: "k", ProxyID: "10"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tun := m.get(tt.ID)
+	m.setPublicAddr(tun, "frp-old.natfrp.cloud:12345") // 上一次运行留下的
+	rs := &runState{}
+	m.mu.Lock()
+	m.running[tt.ID] = rs
+	m.mu.Unlock()
+	m.handleLine(tun, rs, "2026/11/02 15:31:27 [E] [游戏] login to server failed: i/o timeout")
+	if st := m.List()[0]; !st.Running || st.Online || st.LastError == "" || st.PublicAddr != "frp-old.natfrp.cloud:12345" {
+		t.Fatalf("还没连上就报错：%+v", st)
+	}
+	m.handleLine(tun, rs, "2026/11/02 15:31:30 [I] [游戏] 使用 >>frp-abc.natfrp.cloud:12345<< 连接你的隧道")
+	if st := m.List()[0]; !st.Online || st.PublicAddr != "frp-abc.natfrp.cloud:12345" {
+		t.Fatalf("拿到地址后：%+v", st)
+	}
+	m.mu.Lock()
+	delete(m.running, tt.ID)
+	m.mu.Unlock()
+	if st := m.List()[0]; st.Running || st.Online {
+		t.Fatalf("停下以后：%+v", st)
+	}
+}
+
+// 樱花、OpenFrp 的隧道不存 frps 地址和端口（启动时只传隧道 ID，端口在服务商后台填，存着的数会误导）：
+// 新增时清掉；老数据加载时清掉并写回；自定义 frps 的照旧。
+func TestUnusedPortsNotStored(t *testing.T) {
+	tempBase(t)
+	legacy := `{"seq":2,"tunnels":[
+{"id":"tun1","provider":"natfrp","name":"语音","credential":"","proxyId":"9","serverPort":7000,"remotePort":25566,"localPort":25565,"autoStart":true},
+{"id":"tun2","provider":"custom","name":"自建","credential":"","serverAddr":"frp.example.com","serverPort":7000,"remotePort":25566,"localPort":25565,"autoStart":false}]}`
+	if err := os.WriteFile(filepath.Join(app.Base, "tunnels.json"), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager()
+	if _, err := m.Add(Tunnel{Provider: "openfrp", Name: "新", Credential: "k", ProxyID: "1", ServerPort: 7000, RemotePort: 25566, LocalPort: 25565}); err != nil {
+		t.Fatal(err)
+	}
+	var data struct {
+		Tunnels []map[string]any `json:"tunnels"`
+	}
+	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(app.Base, "tunnels.json"))), &data); err != nil {
+		t.Fatal(err)
+	}
+	for _, tn := range data.Tunnels {
+		_, lp := tn["localPort"]
+		_, rp := tn["remotePort"]
+		_, sp := tn["serverPort"]
+		if tn["provider"] == "custom" {
+			if tn["localPort"] != 25565.0 || tn["remotePort"] != 25566.0 || tn["serverPort"] != 7000.0 {
+				t.Errorf("自定义 frps 的端口不该动：%v", tn)
+			}
+		} else if lp || rp || sp {
+			t.Errorf("%s 隧道不该存端口：%v", tn["provider"], tn)
+		}
+	}
+	for _, st := range m.List() {
+		if st.Provider != "custom" && (st.LocalPort != 0 || st.RemotePort != 0) {
+			t.Errorf("列表里 %s 的端口应为 0：%+v", st.Name, st)
+		}
 	}
 }

@@ -18,7 +18,7 @@ var tunnelFields = map[string]*ops.Schema{
 	"serverAddr":    ops.String("自建 frps 的地址"),
 	"serverPort":    ops.Integer("自建 frps 的端口"),
 	"remotePort":    ops.Integer("自建 frps 上的公网端口"),
-	"localPort":     ops.Integer("本地端口（MC 服务器端口）"),
+	"localPort":     ops.Integer("本地端口（MC 服务器端口），只有自建 frps 用；樱花、OpenFrp 的端口在服务商后台填，这几项传了也不存"),
 	"boundInstance": ops.String("绑定的实例名"),
 	"autoStart":     ops.Boolean("绑定的实例启动时跟着启动"),
 	"purpose":       ops.String("用途：game 游戏（默认）、voice 语音（Simple Voice Chat 的 UDP 隧道，公网地址会自动写进绑定实例的 voice_host）"),
@@ -41,7 +41,7 @@ func (c *cat) tunnelState(id string) (tunnel.Status, error) {
 func (c *cat) tunnelOps() {
 	c.reg.Register(&ops.Op{
 		Name: "tunnel.list", Title: "查看隧道", Level: ops.Read,
-		Desc: "穿透隧道的配置和状态（不含凭据）：服务商、绑定的实例、公网地址、是否运行、最近一次失败原因。",
+		Desc: "穿透隧道的配置和状态（不含凭据）：服务商、绑定的实例、公网地址、是否运行、最近一次失败原因（启动失败、跟随启动失败、frpc 报错或意外退出；跑起来后清空）。",
 		Run:  func(context.Context, ops.Caller, ops.Args) (any, error) { return c.Tun.List(), nil },
 	})
 

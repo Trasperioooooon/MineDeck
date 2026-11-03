@@ -83,6 +83,7 @@ window.MDMusic = (() => {
     const blockers = () => {
       const s = v.st, out = [];
       if (!s.svc.installed) out.push("先装 Simple Voice Chat");
+      else if (restartHas("Simple Voice Chat")) out.push("装好 Simple Voice Chat 后要重启服务器");
       if (!s.bridge.file) out.push(s.bridge.installed ? "先更新桥接模组" : "先装桥接模组");
       else if (restartHas("桥接模组")) out.push("装好桥接模组后要重启服务器");
       if (s.serverStatus !== "running") out.push(s.serverStatus === "starting" ? "服务器还在启动，等它启动完成" : "先开服");
@@ -251,18 +252,20 @@ window.MDMusic = (() => {
       const box = $("#mu-check");
       const typing = $("#mu-vh") && ($("#mu-vh") === document.activeElement || $("#mu-vh").value !== $("#mu-vh").defaultValue);
       $("#mu-restart").innerHTML = (s.restart || []).length ? `<div class="warn-card"><div class="wc-title">${icon("warn")} 重启服务器后生效</div>
-        <div class="wc-note">${esc(s.restart.join("、"))}是服务器运行中改的：重启服务器以后才生效。</div></div>` : "";
+        <div class="wc-note">${esc(s.restart.join("、"))} 是服务器运行中装上或改过的：重启服务器以后才生效。</div></div>` : "";
       if (box.dataset.sig === sig || typing) return; // 正在手动填 voice_host：先不重绘，免得把填了一半的冲掉
       box.dataset.sig = sig;
       const coreLabel = { neoforge: "NeoForge", forge: "Forge", mohist: "Mohist" }[info.core] || info.core;
-      // SVC
+      // SVC：没装时直接给安装按钮（测试报告观察 13：原来只给「去资源页搜索」，资源页 20 个同名的「安装」容易装错）
       const svc = s.svc;
       const svcRow = svc.installed
-        ? row({ tile: okIco(true), title: "Simple Voice Chat", sub: `已装 ${esc(svc.version || "（版本未知）")}。玩家的客户端也要装 SVC，版本和服务器一样最稳妥。`, key: svc.file })
+        ? row({ tile: okIco(true), titleHTML: `Simple Voice Chat${restartHas("Simple Voice Chat") ? `<span class="tag warn">重启生效</span>` : ""}`,
+          sub: `已装 ${esc(svc.version || "（版本未知）")}。玩家的客户端也要装 SVC，版本和服务器一样最稳妥。`, key: svc.file })
         : row({ tile: okIco(false), title: "Simple Voice Chat：mods 里没有",
-          sub: `音乐靠它推给玩家。到 Modrinth 或 CurseForge 下载 ${esc(coreLabel)} ${esc(info.mc)} 版的 Simple Voice Chat，放进 mods 以后重启服务器；玩家的客户端也要装同一个版本。` +
-            ((svc.disabled || []).length ? `<br>有被停用的：${esc(svc.disabled.join("、"))}` : ""),
-          right: `<a class="btn sm" href="#/inst/${enc}/res">去「资源」页搜索</a>` });
+          sub: `音乐靠它推给玩家。点「安装」从 Modrinth 下载 ${info.core === "neoforge" ? "NeoForge" : "Forge"} ${esc(info.mc)} 版里最新的正式版放进 mods（要联网）` +
+            (s.serverStatus !== "stopped" ? "；服务器在运行，装好后重启才生效。" : "。") + "玩家的客户端也要装同一个版本。" +
+            ((svc.disabled || []).length ? `<br>有被停用的：${esc(svc.disabled.join("、"))}（不会动它）` : ""),
+          right: `<button class="btn sm" id="mu-svc-install" aria-label="安装 Simple Voice Chat">${icon("download")} 安装</button>` });
       // 桥接模组
       const br = s.bridge;
       const variantName = br.variant === "javafml" ? "（备用加载方式）" : "";
@@ -270,11 +273,11 @@ window.MDMusic = (() => {
       if (!br.installed) {
         brRow = row({ tile: okIco(false), title: "MineDeck 桥接模组：还没装",
           sub: svc.installed ? `MineDeck 内置的 ${esc(br.version)} 版，装进 mods 就行，不用联网。` : "先装好 Simple Voice Chat：桥接模组离不开它，没有的话服务器会起不来。",
-          right: `<button class="btn sm" data-install="main"${svc.installed ? "" : " disabled"}>${icon("download")} 安装</button>` });
+          right: `<button class="btn sm" data-install="main" aria-label="安装桥接模组"${svc.installed ? "" : " disabled"}>${icon("download")} 安装</button>` });
       } else if (!br.file || (br.others || []).length) {
         brRow = row({ tile: okIco(false), title: "MineDeck 桥接模组：要更新",
           sub: `mods 里有别的版本（${esc((br.others || []).join("、"))}），换成内置的 ${esc(br.version)} 版。${s.serverStatus !== "stopped" ? "服务器运行中换不了（文件被占用），先停服。" : ""}`,
-          right: `<button class="btn sm" data-install="${br.variant || "main"}"${s.serverStatus !== "stopped" ? " disabled" : ""}>${icon("download")} 更新</button>` });
+          right: `<button class="btn sm" data-install="${br.variant || "main"}" aria-label="更新桥接模组"${s.serverStatus !== "stopped" ? " disabled" : ""}>${icon("download")} 更新</button>` });
       } else if (br.loaded === false) {
         brRow = row({ tile: okIco(false), title: "MineDeck 桥接模组：SVC 没加载它",
           sub: `这次开服 SVC 加载完插件了，却没有桥接模组。可以换${br.variant === "javafml" ? "回默认" : "成备用"}加载方式，停服后安装、再开服试试。`,
@@ -334,13 +337,24 @@ window.MDMusic = (() => {
       if (mismatch) rmRow.sub += `<br><span class="warn-text">${icon("warn")} ${mismatch}</span>`;
       rmRow.cls = v.vhOpen ? "open" : "";
       rmRow.after = `<div class="ri-editor"><div class="ri-field" style="padding:0">
-          <input type="text" id="mu-vh" value="${esc(vh)}" placeholder="如 frp-abc.example.com:34567；清空表示不填" aria-label="voice_host"><button class="btn" id="mu-vh-save">保存</button></div>
+          <input type="text" id="mu-vh" value="${esc(vh)}" placeholder="如 frp-abc.example.com:34567；清空表示不填" aria-label="voice_host"><button class="btn" id="mu-vh-save" aria-label="保存 voice_host">保存</button></div>
         <div class="field-err" id="mu-vh-err"></div>
         <div class="hint">填了以后所有人都走这个地址连语音（局域网的人也会绕到穿透节点）。手动填的 MineDeck 不会自动覆盖。${s.serverStatus !== "stopped" ? "SVC 只在启动时读，重启服务器后生效。" : ""}</div></div>`;
       box.innerHTML = group(
         row({ tile: okIco(true), title: `核心：${coreLabel} ${info.mc}`, sub: esc(s.note || "支持音乐共享。") }) +
         svcRow + brRow + portRow + row(rmRow), { ico: true });
       // 交互
+      const svcBtn = $("#mu-svc-install");
+      if (svcBtn) svcBtn.onclick = async () => {
+        svcBtn.disabled = true;
+        svcBtn.textContent = "下载中…";
+        try {
+          const r = await api(base + "/svc", { method: "POST" });
+          toast(`已装好 Simple Voice Chat ${r.version || r.name}` + (r.restart ? "：重启服务器后生效" : "") + (r.type ? `（Modrinth 上没有正式版，装的是 ${r.type} 版）` : ""));
+        } catch (e) { toast(e.message, true); }
+        box.dataset.sig = ""; // 失败时也重画，按钮恢复
+        await loadStatus();
+      };
       box.querySelectorAll("[data-install]").forEach(b => b.onclick = async () => {
         b.disabled = true;
         try {
@@ -392,7 +406,7 @@ window.MDMusic = (() => {
         if (p.incompatible.length) rows.push(row({ tile: okIco(false), title: `SVC 版本不兼容：${p.incompatible.length} 人`,
           sub: "要装和服务器一样版本的 SVC。" + `<div class="mu-names">${p.incompatible.map(x => `<span class="badge">${esc(x.name)}（客户端 ${x.client} / 服务端 ${x.server}）</span>`).join("")}</div>` }));
       }
-      rows.push(row({ tile: tile("copy"), title: "发给好友的说明", sub: `<span class="mu-guide">${esc(s.guide)}</span>`, right: `<button class="btn sm" id="mu-guide-copy">${icon("copy")} 复制</button>` }));
+      rows.push(row({ tile: tile("copy"), title: "发给好友的说明", sub: `<span class="mu-guide">${esc(s.guide)}</span>`, right: `<button class="btn sm" id="mu-guide-copy" aria-label="复制发给好友的说明">${icon("copy")} 复制</button>` }));
       box.innerHTML = group(rows.join(""), { ico: true });
       $("#mu-guide-copy").onclick = () => copy(v.st.guide, "已复制给好友的说明");
     };
@@ -403,7 +417,7 @@ window.MDMusic = (() => {
       $("#mu-set").innerHTML = group(
         row({ tile: tile("player"), title: "我在游戏里的名字（可以不填）",
           sub: "填了就不把音乐再发给你：你在这台电脑上已经直接听到原声了，SVC 再发一份会听到两遍。几个名字用逗号隔开。",
-          field: `<input type="text" id="mu-ex" value="${esc(s.settings.exclude)}" maxlength="400" placeholder="如 Steve" aria-label="我在游戏里的名字"><button class="btn" id="mu-ex-save">保存</button>`,
+          field: `<input type="text" id="mu-ex" value="${esc(s.settings.exclude)}" maxlength="400" placeholder="如 Steve" aria-label="我在游戏里的名字"><button class="btn" id="mu-ex-save" aria-label="保存我在游戏里的名字">保存</button>`,
           after: `<div class="field-err ri-err" id="mu-ex-err"></div>` }) +
         row({ tile: tile("volume"), title: "音量", sub: "100% 为原样；正在广播时立刻生效。",
           right: `<input type="range" class="mu-vol" id="mu-vol" min="0" max="200" step="5" value="${s.settings.volume}" aria-label="音量"><span class="mu-vol-v" id="mu-vol-v">${s.settings.volume}%</span>` }),
@@ -433,8 +447,10 @@ window.MDMusic = (() => {
       const sig = JSON.stringify([cap.mode, m, devs, v.device, s.bridge.variant, s.bridge.installed, s.serverStatus, s.local, v.advOpen, !!s.broadcast]);
       if (box.dataset.sig === sig) return;
       box.dataset.sig = sig;
-      const rows = [row({ tile: tile("gear"), title: "高级选项", sub: s.local ? "采集方式、整机录音用哪个播放设备、桥接模组的加载方式。" : "桥接模组的加载方式。",
-        right: `<span class="ri-chev">${icon("chevronDown")}</span>`, cls: "expandable" + (v.advOpen ? " open" : ""), attrs: `id="mu-adv-head" role="button" tabindex="0" aria-expanded="${v.advOpen}"` })];
+      // 折叠行的名字固定是标题，副标题放进描述（同游戏内 AI 的「高级识别」）
+      const rows = [row({ tile: tile("gear"), title: "高级选项", sub: `<span id="mu-adv-desc">${s.local ? "采集方式、整机录音用哪个播放设备、桥接模组的加载方式。" : "桥接模组的加载方式。"}</span>`,
+        right: `<span class="ri-chev">${icon("chevronDown")}</span>`, cls: "expandable" + (v.advOpen ? " open" : ""),
+        attrs: `id="mu-adv-head" role="button" tabindex="0" aria-expanded="${v.advOpen}" aria-label="高级选项" aria-describedby="mu-adv-desc"` })];
       if (cap.mode === "process" && s.local) rows.push(row({ tile: tile("music"), title: "采集方式", cls: "mu-adv-row",
         sub: "默认只录一个程序；改成整机录音会把游戏声音、语音聊天一起录进去（有回声）。",
         right: `<div class="seg" role="radiogroup" aria-label="采集方式">${[["process", "只录一个程序"], ["system", "整机录音"]].map(([k, l]) =>

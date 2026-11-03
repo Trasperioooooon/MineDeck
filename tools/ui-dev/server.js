@@ -43,6 +43,8 @@ function newState(ui) {
   const state = {
     config: { source: "auto", onboarded: true, tosAccepted: true, backupKeep: 10, listenLan: false, webhookUrl: "", updateRepo: "Trasperioooooon/MineDeck", checkUpdateOnStart: true, minimizeToTray: true, chromeColor: "" },
     autoStart: false,
+    lanSet: false, // 是否已设局域网访问密码（同 web：密码只写不读，/api/app 只给 lanSet）
+    lanActive: false, // 这次「启动」是否已监听在局域网上：改 listenLan 不变（真机要重启），/__mock/state 的 listenLan 模拟重启后
     cfKey: "", // 同 web：CurseForge API Key 只写不读，不放进 config，/api/app 只给 cfKeySet
     cfKeyBroken: false,
     instances: [
@@ -58,6 +60,7 @@ function newState(ui) {
     props: null,
     empty: false,
     taskStage: 2,
+    taskNet: null, // 部署任务的 net（下载超时、重试的情况）：{ count, host, what, ago }
     ai: newAIState(),
     music: newMusicState(), // 第五阶段
     gc: newGcState(), // 第四阶段：游戏内 AI
@@ -291,6 +294,7 @@ async function aiHandler(state, req, res, p, m) {
 // ==================== 第五阶段：音乐共享（同 /api/instances/{name}/music*、/api/music/*，以及隧道的「用途」）====================
 // 数据形状照抄后端（musicshare.Status、SourcesView、InstallResult、VoiceHostChange）；广播、检查都是假的。
 // 场景用 /__mock/state 的 music 字段切换：{ reset, cap: "win11" | "win10", local, systemConfirmed, voiceTunnel, inst: { 名称: {…} } }
+// inst 里可以写 svc: false（没装 SVC，检查清单给「安装」按钮）、svcFail: "错误信息"（点安装时报这个错）
 const MUSIC_CORES = ["neoforge", "forge", "mohist"];
 const MUSIC_CAPS = {
   win11: { os: "Windows 11（10.0.26300）", mode: "process", warn: false },
@@ -400,6 +404,7 @@ async function musicHandler(state, req, res, p, m, seg) {
     if (!supported) return err(res, 400, "音乐共享要用 Simple Voice Chat 和桥接模组，只支持 NeoForge、Forge 服");
     if (i.status !== "running") return err(res, 400, "服务器没在运行：先开服，等它启动完成再开始广播");
     if (!mi.bridge) return err(res, 400, "还没装桥接模组：先在检查清单里安装，然后重启服务器");
+    if (mi.restart.includes("Simple Voice Chat")) return err(res, 400, "Simple Voice Chat 装好以后还没重启服务器：重启后才能广播");
     if (mi.restart.includes("桥接模组")) return err(res, 400, "桥接模组装好以后还没重启服务器：重启后才能广播");
     if (!mi.svc) return err(res, 400, "mods 里没有 Simple Voice Chat：音乐要靠它推给玩家");
     if (b.mode === "process" && !b.pid) return err(res, 400, "先在列表里选一个正在出声的程序");
@@ -436,6 +441,15 @@ async function musicHandler(state, req, res, p, m, seg) {
     mi.bridge = v;
     if (running && !noop && !mi.restart.includes("桥接模组")) mi.restart.push("桥接模组");
     return ok(res, { installed: true, file: `minedeck-voicebridge${v === "javafml" ? "-javafml" : ""}-0.2.0.jar`, variant: v, current: true, version: "0.2.0", removed, restart: running && !noop });
+  }
+  if (sub === "svc" && m === "POST") { // 同 music.svc.install：从 Modrinth 装 SVC（这里是假的，不联网）；svcFail 模拟下载失败
+    if (!supported) return err(res, 400, "音乐共享要用 Simple Voice Chat 和桥接模组，只支持 NeoForge、Forge 服");
+    if (mi.svc) return err(res, 400, `mods 里已经有 Simple Voice Chat ${mi.svcVersion}（voicechat-forge-${mi.svcVersion}.jar），不用再装`);
+    if (mi.svcFail) return err(res, 502, mi.svcFail);
+    const loader = i.core === "neoforge" ? "neoforge" : "forge", running = i.status !== "stopped";
+    mi.svc = true; mi.svcVersion = `${i.mc}-2.6.27`;
+    if (running && !mi.restart.includes("Simple Voice Chat")) mi.restart.push("Simple Voice Chat");
+    return ok(res, { file: `voicechat-${loader}-${mi.svcVersion}.jar`, version: mi.svcVersion, name: `${loader}-${mi.svcVersion}`, restart: running });
   }
   if (sub === "voicehost" && m === "PUT") {
     const st = musicStatus(state, i);
@@ -807,7 +821,7 @@ const GC_TEMPLATES = [
   { id: "seed", title: "看种子", usage: "seed", limit: "只读", default: false },
 ];
 const GC_LOCAL_MSG = "游戏内 AI 的设置仅支持在本机修改（含能让 AI 执行命令的玩家和命令模板）";
-const GC_DEFAULTS = { cooldown: 15, perPlayer: 30, perServer: 300, budget: 500000 };
+const GC_DEFAULTS = { cooldown: 8, perPlayer: 60, perServer: 300, budget: 500000 }; // 同 chatai.Default*（2026-11 放宽了冷却和每人每天）
 const GC_ONLINE = ["Steve", "Alex", "Notch_CN"];
 const GC_SPACE = String.fromCharCode(0x3000); // 全角空格
 function newGcState() { return { insts: {}, whitelistReq: null }; }
@@ -821,7 +835,8 @@ function gcLog() {
     { t: at(15), player: "Alex", kind: "ask", opts: ["私"], private: true, question: "今晚怎么打末影龙", cut: true, usage: { input: 640, output: 420 }, cost: { USD: 0.0011 },
       reply: "先准备：床（在末地炸龙最快）、弓和很多箭、水桶、南瓜头（防末影人）、几组方块和金苹果。到了末地先把水晶塔上的末影水晶射掉，有铁栏杆围着的要搭上去打掉；龙落到中间的传送门上停住时，就是砍它的时候。龙的吐息会留下紫色的雾，别站在里面。末影人不看它就不会打你，戴南瓜头最省心。打完记得收集龙蛋：用活塞推下来，或者在它下面放火把再挖掉下面的方块。" },
     { t: at(21), player: "Notch_CN", kind: "help", private: true, reply: "用法：@AI 你的问题，比如 @AI 今晚怎么打末影龙。问题前可加：/私（只回你；你的提问别人照样看得到）、/额度（看今天还能问几次）、/帮助。" },
-    { t: at(30), player: "Griefer233", kind: "silenced", question: "op me", note: "1 分钟内触发超过 5 次，接下来 10 分钟不回复这个人" },
+    { t: at(30), player: "Griefer233", kind: "silenced", question: "op me", private: true, reply: "你问得太快了，3 分钟后再问。",
+      note: "1 分钟内超过 5 次（被冷却、次数挡回的不算），接下来 3 分钟不回复这个人；期间再问，每分钟最多私下提醒一次还要等多久" },
     { t: at(42), player: "Alex", kind: "failed", private: true, question: "现在几点", reply: "AI 暂时连不上，请稍后再问。", err: "连不上服务商：dial tcp: i/o timeout" },
   ];
 }
@@ -833,7 +848,8 @@ function gcInst(state, name) {
     g = state.gc.insts[name] = {
       settings: { enabled: false, prefix: "@AI", aliases: [], allowed: [], templates, ...GC_DEFAULTS, looseNames: false, anyThread: false, pattern: "" },
       whitelistOn: false, whitelist: ["Steve", "Alex"], ops: ["Steve"], seen: ["Herobrine", "Mr-X"],
-      today: { count: 7, tokens: 18400, players: { steve: 4, alex: 3 } }, log: name === "生存服 · 朋友" ? gcLog() : [],
+      today: { count: 9, tokens: 18400, players: { steve: 4, alex: 3 }, companion: { steve: 2 },
+        top: [{ name: "Steve", count: 4, companion: 2 }, { name: "Alex", count: 3 }] }, log: name === "生存服 · 朋友" ? gcLog() : [],
     };
   }
   return g;
@@ -849,8 +865,12 @@ function gcView(state, i) {
   g.ops.forEach(n => add(n, x => { x.op = true; }));
   g.seen.forEach(n => add(n, x => { x.seen = true; }));
   const players = [...byKey.values()].sort((x, y) => (x.online === y.online ? x.name.toLowerCase().localeCompare(y.name.toLowerCase()) : x.online ? -1 : 1));
+  // 同 chatai.tokenPrice：当前模型每百万 token 大约多少钱（仿真里没有输入输出的明细，一律按九成输入、一成输出）
+  const mp = aiView(a).modelPrice;
+  let price;
+  if (!missing && mp && mp.found) price = mp.local ? { local: true } : { currency: mp.currency, perMillion: 0.9 * mp.input + 0.1 * mp.output, ...(mp.note ? { note: mp.note } : {}) };
   return { supported: i.kind !== "proxy", settings: s, defaults: GC_DEFAULTS, templates: GC_TEMPLATES, today: g.today, players,
-    ai: { enabled: !missing, missing, provider: p ? p.name : "", model: a.model, quotaUsed: (a.today.gamechat || {}).tokens || 0, quotaLimit: a.quota.gamechat || 0 },
+    ai: { enabled: !missing, missing, provider: p ? p.name : "", model: a.model, quotaUsed: (a.today.gamechat || {}).tokens || 0, quotaLimit: a.quota.gamechat || 0, price },
     whitelistOn: g.whitelistOn, running: i.status === "running", local: a.local };
 }
 // 同 chatai.Patch.Apply：只改传了的字段；不合规时整次不改
@@ -893,6 +913,15 @@ function gcPatch(g, b) {
   g.settings = s;
   return "";
 }
+// 同 chatai.usageQuestion：「/tp 怎么用」这类明显在问命令用法的写法当提问，不当选项（选项名像命令名、后面整段是问用法的说法）
+const GC_USAGE = /^(?:[\x21-\x7e]+\s+){0,3}(?:的|这个|这条)?(?:指令|命令)?(?:怎么用|怎样用|如何用|咋用|怎么使用|如何使用|怎么写|用法|的用法|是什么|是啥|是什么意思|什么意思|是干什么的|是干嘛的|干什么用|干嘛用|有什么用|how to use(?: it)?|how do i use(?: it)?|usage|help)[\s？?。.！!吗呢啊呀]*$/i;
+function gcUsage(name, rest) {
+  rest = rest.replace(/^[\s:：,，　]+|[\s:：,，　]+$/g, "");
+  let cmd = name;
+  const k = name.search(/[^\x00-\x7f]/);
+  if (k > 0) { cmd = name.slice(0, k); rest = (name.slice(k) + " " + rest).trim(); }
+  return /^[A-Za-z][A-Za-z0-9_:-]{0,15}$/.test(cmd) && GC_USAGE.test(rest);
+}
 // 同 chatai.ParseAsk（简化）：认前缀和别名，解析 /私 /问 /额度 /帮助
 function gcParseAsk(msg, prefixes) {
   msg = msg.trim();
@@ -918,7 +947,9 @@ function gcParseAsk(msg, prefixes) {
     let j = i + 1;
     while (j < rest.length && !isSep(rest[j])) j++;
     const n = rest.slice(i + 1, j), o = names[n] || (/^[a-z]+$/i.test(n) ? names[n.toLowerCase()] : "");
-    if (o) { if (!a.opts.includes(o)) a.opts.push(o); } else unknown.push(n);
+    if (o) { if (!a.opts.includes(o)) a.opts.push(o); }
+    else if (!unknown.length && gcUsage(n, rest.slice(j))) { a.question = "/" + rest.slice(i + 1).trim(); break; }
+    else unknown.push(n);
     i = j; skip();
   }
   a.private = a.opts.includes("私"); a.noExec = a.opts.includes("问");
@@ -1170,18 +1201,24 @@ const CONSOLE = [
   "[22:01:40 INFO]: Notch_CN joined the game",
 ];
 
+const tunnelTimers = new WeakMap(); // 隧道 → 「过一会儿拿到公网地址」的定时器（不挂在隧道对象上：会被编进 JSON）
+
 function handler(state, ui, portOf) {
   return async (req, res) => {
     const u = new URL(req.url, "http://x");
     const p = u.pathname;
     const m = req.method;
     // ---- 仿真控制端点：测试与截图脚本切换场景用，POST 的 JSON 可含 ----
-    //   empty: true 时服务器列表为空；onboarded: false 时弹首启引导；listenLan: 远程访问开关（开启后设置页显示二维码）
+    //   empty: true 时服务器列表为空；onboarded: false 时弹首启引导；listenLan: 远程访问开关，且当作已重启生效（开启后设置页显示二维码，并视为已设密码）
+    //   lanSet: 是否已设局域网访问密码；lanActive: 单独改「这次启动是否已监听在局域网上」（模拟改了开关还没重启）
     //   taskStage: 部署任务进行到第几步（0–4，4 = 完成），"error" = 第 2 步失败
+    //   taskNet: 部署任务的 net（同 tasks.NetRetry：{ count, host, what, ago }），null 清掉
     //   legacy: { name, extraJvm, forceFlags } 把某台服务器设成「老版本」，保存 JVM 参数时补回 forceFlags
     //   status: { 名称: running | starting | stopping | stopped } 直接改某台服务器的运行状态（看状态切换的动效用）
     //   cfKey: 已存的 CurseForge API Key（空串 = 未设置）；cfKeyBroken: true 模拟「Key 解不开」（换了电脑或 Windows 用户）
     //   credBroken: 隧道编号（如 "t2"），模拟这条隧道的凭据解不开；空串还原
+    //   tunnel: { id, …字段 } 改某条隧道（running、lastError、publicAddr，以及仿真用的 startError：点「启动」时报这个错、
+    //     nextAddr：启动后过 addrDelay 毫秒拿到的公网地址）；tunnelsReset: true 隧道回到初始的两条
     //   ai: { reset: true 回到没配置, local: false 模拟局域网打开（只能看）, keyBroken, testFail, priceUpdated, 以及 preset/baseUrl/model/key 等直接写入 }
     //   gc（第四阶段）: { reset: true 回到初始数据, inst: { 名称: { whitelistOn, seen, log, settings… } } }；响应里的 gc.whitelistReq 是上一次一键开白名单加的人
     //   cp（第七阶段）: 见 cpMockState；响应里的 cp.installs 是点过几次安装、cp.lastDespawn 是上一次移除的请求体
@@ -1193,12 +1230,17 @@ function handler(state, ui, portOf) {
       if ("empty" in b) state.empty = !!b.empty;
       if ("onboarded" in b) { state.config.onboarded = !!b.onboarded; state.config.tosAccepted = !!b.onboarded; }
       if ("taskStage" in b) state.taskStage = b.taskStage;
-      if ("listenLan" in b) state.config.listenLan = !!b.listenLan;
+      if ("taskNet" in b) state.taskNet = b.taskNet;
+      if ("listenLan" in b) { state.config.listenLan = state.lanActive = !!b.listenLan; if (b.listenLan) state.lanSet = true; }
+      if ("lanSet" in b) state.lanSet = !!b.lanSet;
+      if ("lanActive" in b) state.lanActive = !!b.lanActive;
       // 模拟老版本实例：保存 JVM 参数时后端强制补回 log4shell 缓解参数（同 inst.UpdateSettings）
       if (b.legacy) { const i = state.instances.find(x => x.name === b.legacy.name); if (i) { i.extraJvm = b.legacy.extraJvm; i.forceFlags = b.legacy.forceFlags; } }
       if ("cfKey" in b) state.cfKey = String(b.cfKey || "");
       if ("cfKeyBroken" in b) state.cfKeyBroken = !!b.cfKeyBroken;
       if ("credBroken" in b) for (const t of state.tunnels) t.credBroken = t.id === b.credBroken;
+      if (b.tunnelsReset) state.tunnels = newState(ui).tunnels; // 隧道回到初始的两条
+      if (b.tunnel) { const t = state.tunnels.find(x => x.id === b.tunnel.id); if (t) Object.assign(t, b.tunnel); }
       if (b.ai) { if (b.ai.reset) state.ai = newAIState(); const { reset, ...rest } = b.ai; Object.assign(state.ai, rest); }
       if (b.music) musicMockState(state, b.music); // 第五阶段
       if (b.gc) gcMockState(state, b.gc); // 第四阶段
@@ -1220,7 +1262,7 @@ function handler(state, ui, portOf) {
     const insts = () => state.empty ? [] : state.instances;
     const seg = p.split("/").map(decodeURIComponent); // ["", "api", "instances", name, sub...]
     try {
-      if (p === "/api/app") return ok(res, { version: "2.9.0-beta.2", base: "D:\\MineDeck", ramMb: 16384, availRamMb: 9216, port: portOf(), serversRoot: "D:\\MineDeck\\servers", backupsRoot: "D:\\MineDeck\\backups", config: state.config, lanSet: false, cfKeySet: !!state.cfKey && !state.cfKeyBroken, cfKeyBroken: state.cfKeyBroken, autoStart: state.autoStart, ips: ["172.22.48.1", "192.168.1.23", "10.0.0.5"] });
+      if (p === "/api/app") return ok(res, { version: "2.9.0-beta.2", base: "D:\\MineDeck", ramMb: 16384, availRamMb: 9216, port: portOf(), serversRoot: "D:\\MineDeck\\servers", backupsRoot: "D:\\MineDeck\\backups", config: state.config, lanSet: state.lanSet, lanActive: state.lanActive, cfKeySet: !!state.cfKey && !state.cfKeyBroken, cfKeyBroken: state.cfKeyBroken, autoStart: state.autoStart, ips: ["172.22.48.1", "192.168.1.23", "10.0.0.5"] });
       if (p === "/api/bg") return ok(res, { images: [] });
       if (p === "/api/ops/log") {
         const q = u.searchParams, lim = Math.min(+q.get("limit") || 100, 1000);
@@ -1241,6 +1283,11 @@ function handler(state, ui, portOf) {
           b.chromeColor = b.chromeColor.toLowerCase();
         }
         if ("autoStart" in b) state.autoStart = !!b.autoStart;
+        // 同 appops.go：局域网访问密码只存哈希、不进 config；开启局域网访问前必须已有密码（同一次请求里带上也算），否则整次拒绝
+        const lanSetNow = state.lanSet || !!b.lanPassword;
+        if (b.listenLan && !lanSetNow) return err(res, 400, "开启局域网访问前请先设置访问密码");
+        if (b.lanPassword) state.lanSet = true;
+        delete b.lanPassword;
         // 同 web：Key 加密另存、不进 config，传空串清除；响应里永远没有 Key
         if ("cfApiKey" in b) { state.cfKey = String(b.cfApiKey || "").trim(); state.cfKeyBroken = false; delete b.cfApiKey; }
         Object.assign(state.config, b); delete state.config.autoStart; return ok(res, state.config);
@@ -1260,12 +1307,29 @@ function handler(state, ui, portOf) {
         const names = ["下载 Java 21 运行时", "下载 Paper 1.21.4 核心", "同意 EULA 并生成配置", "生成启动脚本"];
         const steps = names.map((name, i) => ({ name, status: st === "error" ? (i < 1 ? "done" : i === 1 ? "error" : "pending") : i < st ? "done" : i === st ? "running" : "pending" }));
         const ended = st === "error" || st >= names.length;
-        return ok(res, { steps, label: ended ? "" : "下载 paper-1.21.4-232.jar", done: 31457280, total: 52428800, error: st === "error" ? "下载 paper-1.21.4-232.jar 失败：所有下载源均不可用（BMCLAPI 超时、官方源 403）" : "", warnings: [], log: ["[1/4] 检测到本机 Java 21，复用", "[2/4] 正在从 api.papermc.io 下载核心…", "  已下载 30.0 MB / 50.0 MB"], ended, result: "生存服 · 朋友" });
+        return ok(res, { steps, label: ended ? "" : "下载 paper-1.21.4-232.jar", done: 31457280, total: 52428800, error: st === "error" ? "下载 paper-1.21.4-232.jar 失败：所有下载源均不可用（BMCLAPI 超时、官方源 403）" : "", warnings: [], log: ["[1/4] 检测到本机 Java 21，复用", "[2/4] 正在从 api.papermc.io 下载核心…", "  已下载 30.0 MB / 50.0 MB"], ended, result: "生存服 · 朋友", net: !ended && state.taskNet ? state.taskNet : undefined });
       }
       if (p === "/api/instances" && m === "GET") return ok(res, insts());
       if (p === "/api/instances" && m === "POST") return ok(res, { taskId: "task-1" });
-      if (p === "/api/tunnels" && m === "GET") return ok(res, state.tunnels);
+      // online 同 tunnel.Status.Online：这次运行连上了。启停时由下面显式写；用 /__mock/state 直接改的没写就按「运行中又有地址」算
+      if (p === "/api/tunnels" && m === "GET") return ok(res, state.tunnels.map(t => ({ ...t, online: !!t.running && (t.online ?? !!t.publicAddr) })));
       if (p.startsWith("/api/tunnels/") && p.endsWith("/console")) return sse(res, ["[frpc] login to server success", "[frpc] proxy added: [mc]", "[frpc] start proxy success"]);
+      // 启停（同 tunnel.Manager.Start / Stop）：frpc 起来之前就失败的（startError，比如樱花还没放 frpc）报 400，
+      // 原因加上「启动失败：」记进 lastError；起来了就清掉 lastError，过 addrDelay 毫秒（默认 1500）拿到 nextAddr 这个公网地址
+      if (seg[2] === "tunnels" && (seg[4] === "start" || seg[4] === "stop") && m === "POST") {
+        const t = state.tunnels.find(x => x.id === seg[3]);
+        if (!t) return err(res, 400, "隧道不存在");
+        if (seg[4] === "stop") {
+          if (!t.running) return err(res, 400, "隧道未在运行");
+          t.running = false; delete t.online; clearTimeout(tunnelTimers.get(t));
+          return ok(res, "ok");
+        }
+        if (t.running) return err(res, 400, "隧道已在运行");
+        if (t.startError) { t.lastError = "启动失败：" + t.startError; return err(res, 400, t.startError); }
+        t.running = true; t.lastError = ""; t.online = false; // 上次的 publicAddr 留着（同真后端），这次还没连上
+        if (t.nextAddr) tunnelTimers.set(t, setTimeout(() => { if (t.running) { t.publicAddr = t.nextAddr; t.online = true; } }, t.addrDelay ?? 1500));
+        return ok(res, "ok");
+      }
       if (p.startsWith("/api/tunnels")) return ok(res, {});
       if (seg[2] === "instances" && seg[3]) {
         const name = seg[3], sub = seg[4] || "";

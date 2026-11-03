@@ -2,6 +2,7 @@ package inst
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -44,20 +45,31 @@ func (m *Manager) noteAuto(a AutoAction) {
 	}
 }
 
+// normHHMM 把「9:05」「09:5」这类时刻规整成补零的 HH:MM；格式不对或越界时 ok 为假。
+func normHHMM(s string) (string, bool) {
+	var h, mi int
+	var rest string
+	if n, _ := fmt.Sscanf(strings.TrimSpace(s)+" .", "%d:%d %s", &h, &mi, &rest); n != 3 || rest != "." || h < 0 || h > 23 || mi < 0 || mi > 59 {
+		return "", false
+	}
+	return fmt.Sprintf("%02d:%02d", h, mi), true
+}
+
 // UpdatePolicies 更新实例策略。
 func (m *Manager) UpdatePolicies(name string, p Policies) error {
 	i, err := m.Get(name)
 	if err != nil {
 		return err
 	}
-	for _, s := range p.Schedules {
+	for k, s := range p.Schedules {
 		if s.Type != "restart" && s.Type != "command" && s.Type != "backup" {
 			return fmt.Errorf("未知任务类型: %s", s.Type)
 		}
-		var h, mi int
-		if _, err := fmt.Sscanf(s.At, "%d:%d", &h, &mi); err != nil || h < 0 || h > 23 || mi < 0 || mi > 59 {
+		at, ok := normHHMM(s.At)
+		if !ok {
 			return fmt.Errorf("时间格式应为 HH:MM: %s", s.At)
 		}
+		p.Schedules[k].At = at // 存成补零的 HH:MM：调度按 "15:04" 逐字比对，「9:05」原来永远不会触发
 		if s.Type == "command" && s.Args == "" {
 			return fmt.Errorf("定时命令不能为空")
 		}
@@ -122,7 +134,7 @@ func (m *Manager) startScheduler() {
 				scheds := append([]Schedule{}, i.Policies.Schedules...)
 				i.procMu.Unlock()
 				for idx, s := range scheds {
-					if s.At != hhmm {
+					if at, _ := normHHMM(s.At); at != hhmm { // 老配置里可能存着没补零的「9:05」
 						continue
 					}
 					key := fmt.Sprintf("%s|%d|%s", i.Name, idx, s.Type)
