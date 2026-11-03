@@ -123,7 +123,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   await run("常用设置：改动后保存条显示未保存项数，切 tab 被拦下；「继续编辑」保留改动与地址", async () => {
     await page.goto(url(`#/inst/${inst}/common`)); await settle();
     assert(await page.$eval('[data-sb="save"]', b => b.disabled), "未改动时保存键应置灰");
-    await page.click('.prop-item:has([data-k="hardcore"]) .sw');
+    await page.click('.prop-item [data-k="hardcore"]');
     const st = await page.$eval(".sb-state", el => el.textContent);
     assert(st.includes("1 项修改未保存"), "保存条状态：" + st);
     await page.click('.tab[data-t="players"]');
@@ -144,7 +144,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
 
   await run("常用设置：保存后恢复干净状态，再切页不再拦截", async () => {
     await page.goto(url(`#/inst/${inst}/common`)); await settle();
-    await page.click('.prop-item:has([data-k="hardcore"]) .sw');
+    await page.click('.prop-item [data-k="hardcore"]');
     const before = reqs.length;
     await page.click('[data-sb="save"]');
     await settle(300);
@@ -217,7 +217,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     assert((await page.$(".toast")) === null || !(await page.$eval(".toast", t => t.classList.contains("error"))), "仍弹了错误 toast");
     await page.fill("#f-name", "测试服");
     await page.fill("#f-port", "25570");
-    await page.click(".eula-box .sw");
+    await page.click(".eula-box .switch input");
     await settle(100);
     const left = await page.$$eval(".field-err", els => els.map(e => e.textContent.trim()).filter(Boolean));
     assert(left.length === 0, "改正后错误未消失：" + JSON.stringify(left));
@@ -444,9 +444,9 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     assert((await page.$eval('.set-nav.cur', a => a.dataset.sec)) === "storage" && (await page.$eval("#set-eyebrow", el => el.textContent)) === "设置/存储位置", "导航当前项或眉标未更新");
     await page.click('.set-nav[data-sec="startup"]'); await settle();
     before = reqs.length;
-    await page.click('.row-item:has([data-cfg="minimizeToTray"]) .sw'); await settle(250);
+    await page.click('[data-cfg="minimizeToTray"]'); await settle(250);
     assert(putConfig(before, "minimizeToTray"), "开关未即时保存");
-    await page.click('.row-item:has([data-cfg="minimizeToTray"]) .sw'); await settle(250); // 复原
+    await page.click('[data-cfg="minimizeToTray"]'); await settle(250); // 复原
   });
 
   await run("状态切换：卡片胶囊换成新状态并播换场，状态行随之展开 / 收起，操作按钮随状态切换", async () => {
@@ -1116,7 +1116,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.goto(url("#/settings/ai")); await settle();
       assert(await page.$eval("#ai-lan", e => e.checked && !e.disabled), "开关默认开");
       const t0 = reqs.length;
-      await page.click("#ai-assist-slot .switch .sw"); await settle(300);
+      await page.click("#ai-assist-slot .switch input"); await settle(300);
       assert((putBody(t0, "/api/ai/assistant") || {}).lan === false, "关掉应发 lan: false");
       assert(await toastHas("局域网登录的设备不能用"), "应提示已关闭");
       await aiState({ local: false }); // 模拟局域网打开
@@ -1191,7 +1191,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await openGC();
       assert((await page.textContent("#gc-gate")).trim() === "" && (await page.textContent("#gc-prov")).includes("提问会发给 DeepSeek"), "配置了 AI 后不再提示");
       const t0 = reqs.length;
-      await page.click("#gc-on + .sw"); await settle(300);
+      await page.click("#gc-on"); await settle(300);
       assert(JSON.stringify(gcPuts(t0)) === JSON.stringify([{ enabled: true }]), "开关应即时发 PUT：" + JSON.stringify(gcPuts(t0)));
       assert(await toastHas("已打开游戏内 AI"), "应提示已打开");
     } finally { await resetGC(); }
@@ -1203,7 +1203,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await openGC();
       assert(!(await page.$("#gc-wl-warn")), "还没授权时不提醒");
       const t0 = reqs.length;
-      await page.click('[data-allow="Notch_CN"] + .sw'); await settle(400);
+      await page.click('[data-allow="Notch_CN"]'); await settle(400);
       assert(JSON.stringify(gcPuts(t0).pop()) === JSON.stringify({ allowed: ["Notch_CN"] }), "授权应即时发 PUT：" + JSON.stringify(gcPuts(t0)));
       const warn = await page.textContent("#gc-wl-warn");
       assert(warn.includes("这个服没开白名单") && warn.includes("Notch_CN 的名字进服"), "没开白名单应提醒：" + warn);
@@ -1219,7 +1219,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(wl.length === 1 && JSON.stringify(JSON.parse(wl[0].b)) === JSON.stringify({ players: ["Notch_CN"] }), "一键开白名单的请求：" + JSON.stringify(wl));
       assert(!(await page.$("#gc-wl-warn")) && await toastHas("已把 Notch_CN 加进白名单"), "开启后提醒消失");
       const t1 = reqs.length;
-      await page.click('[data-allow="Notch_CN"] + .sw'); await settle(300);
+      await page.click('[data-allow="Notch_CN"]'); await settle(300);
       assert(JSON.stringify(gcPuts(t1).pop()) === JSON.stringify({ allowed: [] }) && await toastHas("已收回 Notch_CN 的执行权限"), "收回授权");
       await page.fill("#gc-add-name", "@a"); await page.press("#gc-add-name", "Enter"); await settle(200);
       assert((await page.textContent("#gc-add-err")).includes("@ 开头"), "以 @ 开头的名字应就近提示");
@@ -1236,7 +1236,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(tpl.join(",") === "time+,weather+,tp+,effect+,spawnpoint+,locate+,gamemode-,give-,difficulty-,seed-", "模板的默认开关：" + tpl);
       assert((await page.$$("#gc-tpl .tag")).length === 4, "默认关的四个要标出来");
       let t0 = reqs.length;
-      await page.click('[data-tpl="gamemode"] + .sw'); await settle(300);
+      await page.click('[data-tpl="gamemode"]'); await settle(300);
       assert(JSON.stringify(gcPuts(t0).pop()) === JSON.stringify({ templates: { gamemode: true } }), "模板开关即时保存");
       assert(await page.$eval("#gc-l-save-cooldown", b => b.disabled), "没改时保存键置灰");
       await page.fill("#gc-l-cooldown", "-1"); await page.press("#gc-l-cooldown", "Enter"); await settle(200);
@@ -1332,7 +1332,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       const p = await c.newPage();
       p.on("pageerror", e => errors.push(pageErr(e)));
       await p.goto(ORIGIN + "#/inst/" + encodeURIComponent("生存服 · 朋友") + "/gameai"); await p.waitForTimeout(1200);
-      await p.click('[data-allow="Notch_CN"] + .sw'); await p.waitForTimeout(400);
+      await p.click('[data-allow="Notch_CN"]'); await p.waitForTimeout(400);
       await p.click("#gc-sample"); await p.click("#gc-run"); await p.click("#gc-adv-head"); await p.waitForTimeout(400);
       const w = await p.evaluate(() => ({ sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth,
         wide: [...document.querySelectorAll("#tab-body *")].filter(e => e.getClientRects().length && e.getBoundingClientRect().right > innerWidth + 1).map(e => e.id || e.className).slice(0, 5) }));
@@ -1395,7 +1395,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await cpState({ cp: { inst: { [PACK]: { mods: CP_INSTALLED } } } });
       await openCP();
       let t0 = reqs.length;
-      await page.click("#cp-on + .sw"); await settle(300);
+      await page.click("#cp-on"); await settle(300);
       assert(JSON.stringify(cpPuts(t0)) === JSON.stringify([{ enabled: true }]) && await toastHas("已打开 AI 伙伴"), "开关应即时发 PUT：" + JSON.stringify(cpPuts(t0)));
       assert(await page.$eval("#cp-max-save", b => b.disabled), "没改时保存键置灰");
       await page.fill("#cp-max", "0"); await page.press("#cp-max", "Enter"); await settle(200);
@@ -1484,7 +1484,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click('[data-cdel="1"]'); await page.waitForSelector(".modal");
       const focused = await page.evaluate(() => document.activeElement && document.activeElement.textContent.trim());
       assert(focused === "取消", "移除的确认框默认聚焦取消：" + focused);
-      await page.click('.modal .switch .sw');
+      await page.click('.modal .switch input');
       p1 = posts.length;
       await page.click('.modal [data-x="ok"]'); await settle(400);
       assert(JSON.stringify(JSON.parse(postsTo(p1, "/companion/despawn")[0].b)) === JSON.stringify({ companion: 1, drop: true }) && await toastHas("已移除伙伴「小方」"), "移除的请求");
@@ -1539,7 +1539,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         url: !!document.querySelector("#mcp-url"), head: (document.querySelector("#ai-mcp-slot") || {}).textContent || "" }));
       assert(off.sw && !off.url && off.head.includes("MCP 接口") && off.head.includes("默认关闭"), "默认：" + JSON.stringify(off).slice(0, 200));
       let t0 = reqs.length;
-      await page.click("#ai-mcp-slot .switch .sw"); await settle(400);
+      await page.click("#ai-mcp-slot .switch input"); await settle(400);
       assert((putBody(t0, "/api/mcp") || {}).enabled === true, "打开应发 enabled: true");
       assert(await toastHas("MCP 接口已打开"), "应提示已打开");
       const on = await page.evaluate(() => ({ key: (document.querySelector("#mcp-group .ri-key") || {}).textContent || "", reset: !!document.querySelector("#mcp-reset"),
@@ -1575,7 +1575,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(reqs.slice(t0).some(r => r.m === "POST" && r.u === "/api/mcp/token") && (await mcpState({})).token !== tok, "应换了令牌");
       assert(await toastHas("已重置令牌"), "应提示已重置");
       t0 = reqs.length;
-      await page.click("#ai-mcp-slot .switch .sw"); await settle(400);
+      await page.click("#ai-mcp-slot .switch input"); await settle(400);
       assert((putBody(t0, "/api/mcp") || {}).enabled === false && !(await page.$("#mcp-url")) && !(await page.$("#mcp-copy")), "关掉后不再显示地址和复制配置");
     } finally { await page.keyboard.press("Escape"); await mcpState({ reset: true }); await aiState({ reset: true }); }
   });
@@ -1912,7 +1912,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert((await winCalls(p)) === "hostCloseAck,hostWinHide" && puts.length === 0, "最小化到托盘（不记住）不该改设置：" + await winCalls(p) + " " + JSON.stringify(puts));
 
       await ask({ tray: true, running: 1 });
-      await p.click('#close-ask .switch .sw'); // 勾上「以后关闭窗口都最小化到托盘」
+      await p.click('#close-ask .switch input'); // 勾上「以后关闭窗口都最小化到托盘」
       await p.click('#close-ask [data-x="tray"]'); await p.waitForTimeout(300);
       assert((await winCalls(p)) === "hostCloseAck,hostWinHide", "记住后没收进托盘：" + await winCalls(p));
       assert(puts.length === 1 && puts[0].minimizeToTray === true && Object.keys(puts[0]).length === 1, "记住选择应只保存 minimizeToTray：" + JSON.stringify(puts));
@@ -1950,7 +1950,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     const lanPuts = since => reqs.slice(since).filter(r => r.m === "PUT" && r.u === "/api/config").map(r => JSON.parse(r.b || "{}")).filter(b => "listenLan" in b || "lanPassword" in b);
     const sw = () => page.$eval("#lan-on", el => el.checked);
     const lastToast = () => page.$$eval(".toast", ts => ts.length ? ts[ts.length - 1].textContent : "");
-    const flip = async () => { await page.click(".row-item:has(#lan-on) .sw"); await settle(300); };
+    const flip = async () => { await page.click("#lan-on"); await settle(300); };
     try {
       await mockState({ listenLan: false, lanSet: false });
       await page.goto(url("#/settings/remote")); await settle();
@@ -2109,6 +2109,139 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.evaluate(() => { delete window.__MD_STALL_MS; return fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskStage: 2, taskNet: null }) }); });
     }
   });
+  // ==================== 无障碍（测试报告「交互与可用性观察」5、6、9–12：测试员用无障碍接口操作界面时撞上的） ====================
+  // 读 Chromium 自己算出的无障碍树：WebView2 交给 Windows UI Automation 的就是这一份（角色、可访问名称、描述、链接地址）
+  const cdp = await ctx.newCDPSession(page);
+  const axProp = (n, k) => ((n.properties || []).find(p => p.name === k) || {}).value;
+  const axTree = async () => (await cdp.send("Accessibility.getFullAXTree")).nodes.filter(n => !n.ignored && n.role).map(n => ({
+    role: n.role.value, name: ((n.name && n.name.value) || "").trim(), desc: ((n.description && n.description.value) || "").trim(),
+    url: (axProp(n, "url") || {}).value || "" }));
+  const AX_CTRL = new Set(["button", "link", "textbox", "searchbox", "combobox", "spinbutton", "checkbox", "switch", "slider"]);
+  // 同一页里可访问名称相同的控件、没有名字的控件。
+  // 例外：同名而且指向同一个地址的链接。侧栏的「服务器」和详情页面包屑的「服务器」、侧栏的「新建服务器」和服务器列表页头的「新建服务器」、
+  // 游戏内 AI 没配置时的两处「去设置」，去的都是同一个地方，名字一样才对
+  const axProblems = async () => {
+    const seen = new Map(), out = [];
+    for (const n of await axTree()) {
+      if (!AX_CTRL.has(n.role)) continue;
+      if (!n.name) { out.push("没有名字的 " + n.role); continue; }
+      const k = n.role + "「" + n.name + "」", urls = seen.get(k) || [];
+      urls.push(n.url); seen.set(k, urls);
+    }
+    for (const [k, urls] of seen) if (urls.length > 1 && !(k.startsWith("link") && urls.every(u => u && u === urls[0]))) out.push(k + "×" + urls.length);
+    return out;
+  };
+  const byName = (role, name) => page.getByRole(role, { name, exact: true });
+
+  await run("无障碍：各主要页面、弹窗和 AI 助手面板里没有同名的按钮 / 链接 / 输入框，也没有读不到名字的控件（同名链接指向同一处的除外）", async () => {
+    const bad = [];
+    const check = async label => { const p = await axProblems(); if (p.length) bad.push(label + "：" + p.join("、")); };
+    const PACK_I = "#/inst/" + encodeURIComponent(PACK) + "/";
+    try {
+      await gcState(gcReady); // AI 配好：设置 → AI、游戏内 AI 的控件都画出来
+      await cpState({ cp: { reset: true, inst: { [PACK]: { mods: CP_INSTALLED, settings: { enabled: true, exists: true } } } }, status: { [PACK]: "running" } });
+      await musicState({ music: { reset: true, inst: { [PACK]: { bridge: "main" } } } });
+      const pages = [["服务器列表", "#/instances"], ["新建服务器", "#/create"], ["隧道", "#/tunnels"],
+        ...["appearance", "download", "storage", "java", "remote", "notify", "ai", "startup", "about"].map(s => ["设置 → " + s, "#/settings/" + s]),
+        ...["console", "players", "backups", "tasks", "res", "gameai", "common", "raw", "jvm"].map(t => ["生存服 → " + t, "#/inst/" + inst + "/" + t]),
+        ...["console", "players", "backups", "tasks", "music", "companion", "common", "jvm"].map(t => ["整合包 → " + t, PACK_I + t])];
+      for (const [label, h] of pages) { await page.goto(url(h)); await settle(700); await check(label); }
+      await page.goto(url("#/inst/" + inst + "/res")); await settle(400);
+      await page.click("#res-go"); await settle(500); await check("资源页搜索结果");
+      await page.goto(url("#/tunnels")); await settle(500);
+      await page.click("#tn-toggle"); await settle(200); await check("隧道的添加表单");
+      await page.goto(url(PACK_I + "companion")); await settle(900);
+      await page.click("#cp-spawn"); await page.waitForSelector(".modal"); await check("刷出伙伴弹窗");
+      await page.keyboard.press("Escape"); await settle(200);
+      await page.goto(url("#/instances")); await settle(600);
+      await page.click("#ai-btn"); await page.waitForSelector("#ai-panel"); await settle(300); await check("服务器列表 + AI 助手面板");
+      await page.keyboard.press("Escape"); await settle(200);
+    } finally { await resetGC(); await resetCP(); await resetMusic(); }
+    assert(!bad.length, bad.join(" | "));
+  });
+
+  await run("无障碍：同名按钮带上对象——卡片上的启动 / 停止 / 管理 / 更多操作带服务器名；游戏内 AI 的 7 个「保存」各不相同；资源页的「安装」带模组名，装好后跟着变", async () => {
+    try {
+      await page.goto(url("#/instances")); await settle(700);
+      const cards = await page.$$eval(".card[data-name]", cs => cs.map(c => ({ n: c.dataset.name, act: c.querySelector('[data-act="start"]') ? "启动" : "停止" })));
+      assert(cards.length === 4, "卡片数：" + cards.length);
+      for (const c of cards)
+        assert(await byName("button", c.act + " " + c.n).count() === 1 && await byName("link", "管理 " + c.n).count() === 1 && await byName("button", "更多操作 " + c.n).count() === 1,
+          `卡片「${c.n}」的按钮名字没带服务器名`);
+      assert(await byName("link", "管理").count() === 0 && await byName("button", "启动").count() === 0 && await byName("button", "停止").count() === 0, "不该再有光秃秃的「管理」「启动」「停止」");
+      // 游戏内 AI：触发前缀、别名、四项限流、自定义正则（展开高级识别后才露出来）
+      await gcState(gcReady); await openGC();
+      await page.click("#gc-adv-head"); await settle(200);
+      const saves = (await axTree()).filter(n => n.role === "button" && n.name.startsWith("保存")).map(n => n.name).sort();
+      const want = ["保存触发前缀", "保存别名", "保存每人冷却", "保存每人每天", "保存全服每天", "保存全服每天的 token", "保存自定义正则"].sort();
+      assert(JSON.stringify(saves) === JSON.stringify(want), "游戏内 AI 的保存按钮：" + saves.join("、"));
+      // 资源页
+      await page.goto(url("#/inst/" + inst + "/res")); await settle(400);
+      await page.click("#res-go"); await settle(500);
+      const titles = await page.$$eval("[data-rt]", bs => bs.map(b => b.dataset.rt));
+      const installs = (await axTree()).filter(n => n.role === "button" && n.name.startsWith("安装")).map(n => n.name);
+      assert(titles.length === 3 && JSON.stringify(installs) === JSON.stringify(titles.map(t => "安装 " + t)), "安装按钮的名字：" + installs.join("、"));
+      await byName("button", "安装 Chunky").click(); await settle(400);
+      assert(await byName("button", "已安装 Chunky").count() === 1, "装好后名字应跟着按钮上的字变成「已安装 Chunky」");
+    } finally { await resetGC(); }
+  });
+
+  await run("无障碍：折叠行「高级识别」「高级选项」的名字就是标题、副标题是描述；伙伴连接那一行名字不带版本号；刷出伙伴弹窗的「主人」按名字找得到；AI 面板的关闭按钮叫「收起 AI 助手」", async () => {
+    try {
+      await gcState(gcReady); await openGC();
+      const adv = (await axTree()).find(n => n.role === "button" && n.name.startsWith("高级识别"));
+      assert(adv && adv.name === "高级识别" && adv.desc.startsWith("认不出聊天时再来改"), "高级识别：" + JSON.stringify(adv));
+      assert(await byName("button", "高级识别").getAttribute("aria-expanded") === "false", "收起时 aria-expanded 应是 false");
+      await byName("button", "高级识别").click(); await settle(200);
+      assert(await byName("button", "高级识别").getAttribute("aria-expanded") === "true", "展开后 aria-expanded 应是 true");
+      await openMusic({ inst: { [PACK]: { bridge: "main" } } });
+      const mu = (await axTree()).find(n => n.role === "button" && n.name.startsWith("高级选项"));
+      assert(mu && mu.name === "高级选项" && mu.desc.includes("桥接模组的加载方式"), "高级选项：" + JSON.stringify(mu));
+      await resetMusic();
+      await cpState({ cp: { reset: true, inst: { [PACK]: { mods: CP_INSTALLED, settings: { enabled: true, exists: true } } } }, ai: { reset: true, ...AI_DEEPSEEK, key: "sk-x" }, status: { [PACK]: "running" } });
+      await openCP();
+      const link = (await axTree()).find(n => n.name.startsWith("和伙伴模组的连接"));
+      assert(link && link.role === "group" && link.name === "和伙伴模组的连接" && link.desc.includes("已连上") && link.desc.includes("0.2.0"), "连接那一行：" + JSON.stringify(link));
+      await page.click("#cp-spawn"); await page.waitForSelector(".modal");
+      const owner = byName("combobox", "主人");
+      assert(await owner.count() === 1 && await byName("textbox", "名字").count() === 1 && await byName("combobox", "出生在").count() === 1, "弹窗里的名字、主人、出生在应能按名字找到");
+      await owner.fill("Steve");
+      assert(await page.$eval("#cs-owner", i => i.value) === "Steve", "按名字找到的应是「主人」输入框");
+      await page.keyboard.press("Escape"); await settle(200);
+    } finally { await resetGC(); await resetCP(); await resetMusic(); }
+    await page.goto(url("#/instances")); await settle(500);
+    await page.click("#ai-btn"); await page.waitForSelector("#ai-panel");
+    const fold = byName("button", "收起 AI 助手");
+    assert(await fold.count() === 1 && await fold.getAttribute("title") === "收起（Esc）", "面板的关闭按钮应叫「收起 AI 助手」，提示同步");
+    assert(await byName("button", "关闭 AI 助手").count() === 0 && await byName("button", "关闭").count() === 1, "窗口三键的「关闭」照旧、只此一个");
+    await fold.click(); await settle(300);
+    assert(!(await page.$("#ai-panel")), "点「收起 AI 助手」应收起面板");
+  });
+
+  await run("无障碍：开关的 input 叠在胶囊上、尺寸相当（不再是 1×1），点胶囊点中的是 input 并即时生效；键盘焦点环画在胶囊上；带说明文字的开关也对得齐", async () => {
+    await page.goto(url("#/settings/startup")); await settle(500);
+    const geo = sel => page.evaluate(s => {
+      const i = document.querySelector(s), a = i.getBoundingClientRect(), b = i.nextElementSibling.getBoundingClientRect();
+      const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+      return { w: a.width, h: a.height, dx: Math.abs(a.left + a.width / 2 - b.left - b.width / 2), dy: Math.abs(a.top + a.height / 2 - b.top - b.height / 2), hit: hit === i };
+    }, sel);
+    const sel = '[data-cfg="minimizeToTray"]';
+    const g = await geo(sel), box = await page.locator(sel).boundingBox();
+    assert(box.width >= 20 && box.height >= 20 && g.dx <= 1 && g.dy <= 1 && g.hit, "开关 input 的位置：" + JSON.stringify({ box, g }));
+    const was = await page.$eval(sel, i => i.checked), before = reqs.length;
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2); await settle(250);
+    assert(await page.$eval(sel, i => i.checked) === !was && putConfig(before, "minimizeToTray"), "点胶囊正中应切换开关并即时保存");
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2); await settle(250); // 复原
+    await page.focus(sel); await page.keyboard.press("Shift+Tab"); await page.keyboard.press("Tab");
+    const ring = await page.$eval(sel, i => document.activeElement === i && getComputedStyle(i.nextElementSibling).outlineStyle);
+    assert(ring === "solid", "Tab 到开关时焦点环应画在胶囊上：" + ring);
+    // 隧道表单里的开关：label 里还有两行说明，胶囊垂直居中，input 也要跟着居中
+    await page.goto(url("#/tunnels")); await settle(500);
+    await page.click("#tn-toggle"); await settle(200);
+    const t = await geo("#tn-auto");
+    assert(t.w >= 20 && t.h >= 20 && t.dx <= 1 && t.dy <= 1 && t.hit, "带说明的开关：" + JSON.stringify(t));
+  });
+  // ==================== 无障碍结束 ====================
 
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
 

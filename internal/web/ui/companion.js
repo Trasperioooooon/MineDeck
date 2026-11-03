@@ -59,7 +59,7 @@ window.MDCompanion = (() => {
     return d.toDateString() === new Date().toDateString() ? hm : `${d.getMonth() + 1} 月 ${d.getDate()} 日 ${hm}`;
   };
   const head = (title, sub, id = "") => `<div class="cp-head"${id ? ` id="${id}"` : ""}><h3>${esc(title)}</h3>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
-  const pill = (cls, text) => `<span class="st-pill ${cls}"><span class="dot ${cls}"></span><span class="st-label">${esc(text)}</span></span>`;
+  const pill = (cls, text, id) => `<span class="st-pill ${cls}"${id ? ` id="${id}"` : ""}><span class="dot ${cls}"></span><span class="st-label">${esc(text)}</span></span>`;
   const fieldErr = (box, inp, msg) => { if (box) box.innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; if (inp) inp.classList.toggle("invalid", !!msg); };
   const silent = e => Object.assign(e instanceof Error ? e : new Error(e), { silent: true });
   const swHTML = (attrs, on, label, dis) => `<label class="switch" title="${esc(label)}"><input type="checkbox" ${attrs} ${on ? "checked" : ""} aria-label="${esc(label)}"${dis ? " disabled" : ""}><span class="sw"></span></label>`;
@@ -185,7 +185,7 @@ window.MDCompanion = (() => {
         if (off.length) lines.push(`停用着的（不动）：${esc(off.join("、"))}`);
         return riRow({ ico: m.kind === "companion" ? "bot" : "package", cls: "cp-mod", attrs: `data-mod="${esc(m.id)}"`,
           titleHTML: `${esc(m.name)}<span class="tag${cls ? " " + cls : ""}">${esc(label)}</span>`, sub: lines.join(" · "), key: m.file,
-          right: m.page ? `<a class="btn sm ghost" href="${esc(m.page)}" target="_blank" rel="noopener">Modrinth</a>` : "" });
+          right: m.page ? `<a class="btn sm ghost" href="${esc(m.page)}" target="_blank" rel="noopener" aria-label="Modrinth 上的 ${esc(m.name)}">Modrinth</a>` : "" });
       });
       const replace = iv.mods.some(m => (m.files || []).some(f => !f.keep));
       const running = v.serverStatus !== "stopped";
@@ -224,7 +224,7 @@ window.MDCompanion = (() => {
         titleHTML: `${esc(c.name)} <span class="cp-ver">${esc(c.version)}</span><span class="tag${c.required ? "" : " neutral"}">${c.required ? "要装" : "不用装"}</span>`,
         sub: c.page ? `${esc(c.license || "")}${c.license ? " · " : ""}从 Modrinth 下载这个版本` : "MineDeck 内置，不在 Modrinth 上：从服务器的 mods 目录里把这个文件发给好友",
         key: c.file || "",
-        right: c.page ? `<a class="btn sm" href="${esc(c.page)}" target="_blank" rel="noopener">${icon("link")} 下载页</a>`
+        right: c.page ? `<a class="btn sm" href="${esc(c.page)}" target="_blank" rel="noopener" aria-label="${esc(c.name)} 的下载页">${icon("link")} 下载页</a>`
           : v.local ? `<button class="btn sm" id="cp-mods-dir">${icon("folder")} 打开 mods 目录</button>` : "" }));
       rows.push(riRow({ ico: "users", title: "复制给好友的说明", sub: "要装哪几个、去哪里下，一段话发到群里就行。",
         right: `<button class="btn sm" id="cp-copy-guide">${icon("copy")} 复制</button>` }));
@@ -248,11 +248,11 @@ window.MDCompanion = (() => {
         riRow({ ico: "power", title: "打开 AI 伙伴", sub: `<span id="cp-on-sub"></span>`, right: swHTML(`id="cp-on"`, s.enabled, "打开 AI 伙伴") }) +
         riRow({ ico: "bot", title: "伙伴上限", sub: `同时最多几个伙伴（1–${s.maxLimit}）。调低了不会移除现有的，只是不能再刷。`,
           field: `<input type="number" id="cp-max" min="1" max="${s.maxLimit}" step="1" inputmode="numeric" value="${s.maxCompanions}" aria-label="伙伴上限">` +
-            `<span class="ri-unit">个</span><button class="btn" id="cp-max-save">保存</button>`,
+            `<span class="ri-unit">个</span><button class="btn" id="cp-max-save" aria-label="保存伙伴上限">保存</button>`,
           after: `<div class="field-err ri-err" id="cp-max-err"></div>` }) +
         riRow({ ico: "shield", title: "攻击时不许打的生物", sub: "生物 ID，逗号隔开；清空表示没有额外限制。玩家、伙伴、驯服的、起了名字的、拴着的生物不管这里怎么写都不打。",
           field: `<input type="text" id="cp-deny" value="${esc((s.attackDeny || []).join(", "))}" spellcheck="false" maxlength="2000" aria-label="不许打的生物">` +
-            `<button class="btn" id="cp-deny-save">保存</button><button class="btn ghost" id="cp-deny-default">恢复默认</button>`,
+            `<button class="btn" id="cp-deny-save" aria-label="保存不许打的生物">保存</button><button class="btn ghost" id="cp-deny-default">恢复默认</button>`,
           after: `<div class="field-err ri-err" id="cp-deny-err"></div>` }) +
         riRow({ ico: "coin", title: "AI 伙伴的每日额度", sub: `<span id="cp-quota"></span>`, right: v.local ? `<a class="btn sm" href="#/settings/ai">去设置</a>` : "" }),
         { ico: true }) + `<div id="cp-set-note"></div>`;
@@ -312,7 +312,7 @@ window.MDCompanion = (() => {
       if (!sig(box, zs)) return;
       const rows = zs.map(z => riRow({ ico: "pick", attrs: `data-zone="${esc(z.name)}"`, title: z.name,
         sub: `${esc(dimName(z.dim))} · <span class="cp-xyz">(${corner(z.min)}) → (${corner(z.max)})</span>`,
-        right: `<button class="btn sm ghost" data-zedit="${esc(z.name)}">编辑</button><button class="btn sm ghost danger" data-zdel="${esc(z.name)}">删除</button>` }));
+        right: `<button class="btn sm ghost" data-zedit="${esc(z.name)}" aria-label="编辑 ${esc(z.name)}">编辑</button><button class="btn sm ghost danger" data-zdel="${esc(z.name)}" aria-label="删除 ${esc(z.name)}">删除</button>` }));
       if (!zs.length) rows.push(riRow({ ico: "pick", title: "还没有禁挖区域", sub: "把家、农场这类不想让伙伴动的地方圈起来。按 F3 能看到自己脚下的坐标。" }));
       rows.push(riRow({ ico: "plus", title: "添加区域", sub: `最多 ${v.settings.maxZones} 个`, right: `<button class="btn sm" id="cp-zone-add">${icon("plus")} 添加</button>` }));
       box.innerHTML = group(rows.join(""), { ico: true });
@@ -385,7 +385,9 @@ window.MDCompanion = (() => {
         case "live": sub = `伙伴模组 ${esc(l.mod)} · PlayerEngine ${esc(l.playerEngine)}${l.rttMs ? ` · 心跳 ${num(l.rttMs)} 毫秒` : ""}`; break;
         default: sub = esc(l.error || "") + (l.busy ? "（别的程序占着伙伴模组的控制连接，比如测试工具、另一台电脑上的 MineDeck）" : "");
       }
-      box.innerHTML = group(riRow({ ico: "plug", titleHTML: `<span>和伙伴模组的连接</span>${pill(cls, label)}`, sub }), { ico: true, cls: "cp-linkbox" });
+      // 这一行当成一个有名字的分组：名字只是标题，连接状态和版本号放进描述（不然读到的名字是一整段、还带版本号，测试报告观察 11）
+      box.innerHTML = group(riRow({ ico: "plug", titleHTML: `<span id="cp-link-t">和伙伴模组的连接</span>${pill(cls, label, "cp-link-st")}`,
+        sub: sub && `<span id="cp-link-d">${sub}</span>`, attrs: `role="group" aria-labelledby="cp-link-t" aria-describedby="cp-link-st cp-link-d"` }), { ico: true, cls: "cp-linkbox" });
     };
     const compRow = c => {
       const [cls, label] = COMP_STATE[c.state] || COMP_STATE.busy;
@@ -398,8 +400,8 @@ window.MDCompanion = (() => {
       return riRow({ ico: "bot", cls: "cp-comp", attrs: `data-comp="${c.id}"`,
         titleHTML: `<span>${esc(c.name)}</span>${pill(cls, label)}${c.owner ? `<span class="badge">主人 ${esc(c.owner)}</span>` : ""}`,
         sub: lines.map(l => `<p>${l}</p>`).join(""),
-        right: (c.task ? `<button class="btn sm" data-cstop="${c.id}">${icon("stop")} 停下</button>` : "") +
-          `<button class="btn sm ghost danger" data-cdel="${c.id}">移除</button>` });
+        right: (c.task ? `<button class="btn sm" data-cstop="${c.id}" aria-label="停下 ${esc(c.name)}">${icon("stop")} 停下</button>` : "") +
+          `<button class="btn sm ghost danger" data-cdel="${c.id}" aria-label="移除 ${esc(c.name)}">移除</button>` });
     };
     const drawList = () => {
       const box = $("#cp-list"), live = v.link.state === "live", list = v.companions || [];
@@ -433,12 +435,14 @@ window.MDCompanion = (() => {
     const spawn = async () => {
       const online = v.online || [];
       const res = await formModal({ title: "刷出伙伴", okText: "刷出",
+        // 三个控件都写明 aria-label：「主人」带在线玩家的候选（list），读屏和 UIA 里是可编辑的下拉框，
+        // 只靠外层 label 时按名字找不到它（测试报告观察 10）
         body: `<div class="m-body">伙伴会出生在主人旁边（主人不在线就在世界出生点），也可以指定出生在某个在线玩家旁边。</div>
           <div class="cp-fields">
-            <label class="cp-f"><span>名字</span><input type="text" id="cs-name" maxlength="16" spellcheck="false" placeholder="如 小方" aria-describedby="cs-err"></label>
-            <label class="cp-f"><span>主人</span><input type="text" id="cs-owner" maxlength="20" spellcheck="false" list="cs-online" placeholder="游戏名，可以不填" value="${esc(online.length === 1 ? online[0] : "")}"></label>
+            <label class="cp-f"><span>名字</span><input type="text" id="cs-name" maxlength="16" spellcheck="false" placeholder="如 小方" aria-label="名字" aria-describedby="cs-err"></label>
+            <label class="cp-f"><span>主人</span><input type="text" id="cs-owner" maxlength="20" spellcheck="false" list="cs-online" placeholder="游戏名，可以不填" value="${esc(online.length === 1 ? online[0] : "")}" aria-label="主人" aria-describedby="cs-err"></label>
             <datalist id="cs-online">${online.map(n => `<option value="${esc(n)}">`).join("")}</datalist>
-            <label class="cp-f"><span>出生在</span><select id="cs-near"><option value="">主人旁边</option>${online.map(n => `<option value="${esc(n)}">${esc(n)} 旁边</option>`).join("")}</select></label>
+            <label class="cp-f"><span>出生在</span><select id="cs-near" aria-label="出生在"><option value="">主人旁边</option>${online.map(n => `<option value="${esc(n)}">${esc(n)} 旁边</option>`).join("")}</select></label>
           </div><div class="field-err" id="cs-err"></div>`,
         check: mask => {
           const q = s => mask.querySelector(s);
