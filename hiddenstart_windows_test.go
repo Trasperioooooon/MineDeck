@@ -120,6 +120,7 @@ func TestHiddenCreateCloak(t *testing.T) {
 	}
 
 	end := beginHiddenCreate("MineDeckCloakTest", true, true)
+	defer end() // 中途跳过时也撤掉钩子（end 可重复调用）
 	if hiddenHook == 0 {
 		t.Fatal("CBT 钩子没挂上")
 	}
@@ -132,6 +133,10 @@ func TestHiddenCreateCloak(t *testing.T) {
 	pShowWindow.Call(h, 4) // SW_SHOWNOACTIVATE
 	if !isWindowVisible(h) {
 		t.Fatal("cloak 模式不该拦显示")
+	}
+	if !hiddenCloaked {
+		// 没有桌面合成的会话里 DwmSetWindowAttribute 会失败；程序在这种环境里照常显示窗口（只是会露白），不算错
+		t.Skip("DWM 隐身用不了，跳过")
 	}
 	if !cloaked(h) {
 		t.Fatal("第一次显示前应已隐身")
