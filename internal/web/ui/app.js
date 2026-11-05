@@ -1223,11 +1223,13 @@ async function drawWizard() {
       { title: "群组代理", ids: ["velocity", "waterfall"] },
     ];
     const REC = "paper";
+    // 一组单选：读屏读得出「单选按钮，已选中」，键盘 Tab 进来、方向键换核心（见下面的 onkeydown）
     const coreCard = c => `
-      <div class="core-card ${wiz.core === c.id ? "sel" : ""}" data-id="${c.id}">
+      <div class="core-card ${wiz.core === c.id ? "sel" : ""}" data-id="${c.id}" role="radio" aria-checked="${wiz.core === c.id}" tabindex="-1"
+        aria-label="${esc(c.name)}${c.id === REC ? "（新手推荐）" : ""}" aria-describedby="cd-${c.id}">
         ${avatarOf(c.id)}
         <div><div class="cn">${esc(c.name)} <span class="badge">${esc(c.tag)}</span>${c.id === REC ? `<span class="rec-badge">新手推荐</span>` : ""}</div>
-        <div class="cd">${esc(c.desc)}</div></div>
+        <div class="cd" id="cd-${c.id}">${esc(c.desc)}</div></div>
         <span class="check" aria-hidden="true">${icon("check")}</span>
       </div>`;
     const byId = Object.fromEntries(cores.map(c => [c.id, c]));
@@ -1240,14 +1242,32 @@ async function drawWizard() {
     const rest = cores.filter(c => !used.has(c.id));
     if (rest.length) coreHtml += `<div class="core-group"><div class="cg-title">其它</div><div class="core-grid">${rest.map(coreCard).join("")}</div></div>`;
     $("#core-grid").innerHTML = coreHtml;
-    $("#core-grid").querySelectorAll(".core-card").forEach(c => {
-      c.onclick = () => {
-        wiz.core = c.dataset.id;
-        $("#core-grid").querySelectorAll(".core-card").forEach(x => x.classList.toggle("sel", x.dataset.id === wiz.core));
-        $("#wnext").disabled = false;
-        paintWizSum();
-      };
+    $("#core-grid").setAttribute("role", "radiogroup");
+    $("#core-grid").setAttribute("aria-label", "服务端核心");
+    // 只有一张卡在 Tab 顺序里（选中的那张，没选就第一张）；方向键在全部卡片间移动并选中，空格选中，回车 = 选中并下一步（同双击）
+    const cards = [...$("#core-grid").querySelectorAll(".core-card")];
+    const pick = c => {
+      wiz.core = c.dataset.id;
+      cards.forEach(x => { const on = x === c; x.classList.toggle("sel", on); x.setAttribute("aria-checked", String(on)); x.tabIndex = on ? 0 : -1; });
+      $("#wnext").disabled = false;
+      paintWizSum();
+    };
+    if (cards.length) (cards.find(x => x.dataset.id === wiz.core) || cards[0]).tabIndex = 0;
+    cards.forEach((c, i) => {
+      c.onclick = () => pick(c);
       c.ondblclick = () => { wiz.core = c.dataset.id; wiz.step = 1; drawWizard(); }; // 双击 = 选中并下一步
+      c.onkeydown = e => {
+        if (e.key === " " || e.key === "Enter") {
+          e.preventDefault();
+          if (e.key === "Enter") { wiz.core = c.dataset.id; wiz.step = 1; drawWizard(); } else pick(c);
+          return;
+        }
+        const d = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+        if (!d) return;
+        e.preventDefault();
+        const n = cards[(i + d + cards.length) % cards.length];
+        pick(n); n.focus();
+      };
     });
     $("#wnext").onclick = () => { wiz.step = 1; drawWizard(); };
     if (wiz.core) $("#wnext").disabled = false;
@@ -1814,14 +1834,14 @@ async function renderDetail(name, tab = "console") {
             ${hint ? `<span class="hint">${hint}</span>` : ""}
           </div>
           <div class="badges">${items.map(p =>
-            `<span class="badge">${esc(p.name)}<a class="p-x" data-act="${removeAction}" data-p="${esc(p.name)}" title="移除" aria-label="移除 ${esc(p.name)}（${title}）">${icon("x")}</a></span>`).join("") || `<span class="sub">空</span>`}</div>
+            `<span class="badge">${esc(p.name)}<button type="button" class="p-x" data-act="${removeAction}" data-p="${esc(p.name)}" title="移除" aria-label="移除 ${esc(p.name)}（${title}）">${icon("x")}</button></span>`).join("") || `<span class="sub">空</span>`}</div>
         </div>`;
       body.innerHTML = `<div class="players-grid">
         <div class="p-sec">
           <div class="p-sec-head"><b>在线玩家</b>（${pl.online.length}）<button class="btn sm" id="pl-refresh">${icon("refresh")} 刷新</button></div>
           <div class="badges">${pl.online.map(n => `<span class="badge core">${esc(n)}
-            <a class="p-x" data-act="op" data-p="${esc(n)}" title="设为管理员" aria-label="OP ${esc(n)}">OP</a>
-            <a class="p-x" data-act="kick" data-p="${esc(n)}" title="踢出" aria-label="踢 ${esc(n)}">踢</a></span>`).join("") || `<span class="sub">暂无玩家在线</span>`}</div>
+            <button type="button" class="p-x" data-act="op" data-p="${esc(n)}" title="设为管理员" aria-label="OP ${esc(n)}">OP</button>
+            <button type="button" class="p-x" data-act="kick" data-p="${esc(n)}" title="踢出" aria-label="踢 ${esc(n)}">踢</button></span>`).join("") || `<span class="sub">暂无玩家在线</span>`}</div>
         </div>
         ${section("白名单", pl.whitelist, "whitelist-add", "whitelist-remove", "要在「常用设置」里打开白名单（white-list）才生效。")}
         ${section("管理员 OP", pl.ops, "op", "deop", "")}

@@ -132,7 +132,9 @@ func New(mgr *inst.Manager, tun *tunnel.Manager, reg *ops.Registry, asst *assist
 // secure 校验 Host、API Token 或局域网会话 Cookie。
 func secure(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		lan := app.GetConfig().ListenLAN && app.GetConfig().AccessPasswordHash != ""
+		cfg := app.GetConfig()
+		session := syncSession(cfg)
+		lan := cfg.ListenLAN && cfg.AccessPasswordHash != ""
 		if !lan {
 			host := r.Host
 			if h, _, err := splitHostPort(host); err == nil {
@@ -150,7 +152,7 @@ func secure(next http.Handler) http.Handler {
 			if tok == "" {
 				tok = r.URL.Query().Get("token")
 			}
-			if tok != Token && !validSession(r) {
+			if tok != Token && !validSession(r, session) {
 				writeErr(w, http.StatusUnauthorized, fmt.Errorf("需要登录"))
 				return
 			}

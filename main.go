@@ -166,13 +166,10 @@ func openWebView(url string, sig chan os.Signal, minimized bool) (ok bool) {
 	runtime.LockOSThread()
 	scale := systemDPIScale() // 窗口尺寸按 DPI 放大，保持高分屏上的视觉大小
 	setWebViewBackground()    // 页面画出来之前的底色取界面标题栏色，冷启动不白闪（须在创建 WebView2 之前）
-	endHidden := func() {}
-	if minimized {
-		// 随开机自启静默进托盘：NewWithOptions 建完窗口就显示、再花几百毫秒初始化 WebView2，
-		// 事后再藏会白窗口一闪；挂钩子让那次显示落空（见 hiddenstart_windows.go）
-		endHidden = beginHiddenCreate("webview")
-		defer endHidden() // NewWithOptions 里 panic 被上面的 recover 接住时也撤掉钩子（end 可重复调用）
-	}
+	// NewWithOptions 建完窗口就显示、再花几百毫秒初始化 WebView2，这段时间窗口是白的（见 hiddenstart_windows.go）：
+	// 随开机自启静默进托盘时挂钩子让那次显示落空；正常启动照常显示，但先隐身，页面要画第一帧了再现身
+	endHidden := beginHiddenCreate("webview", !minimized)
+	defer endHidden() // NewWithOptions 里 panic 被上面的 recover 接住时也撤掉钩子（end 可重复调用）
 	w := webview2.NewWithOptions(webview2.WebViewOptions{
 		Debug:     false,
 		AutoFocus: true,
@@ -215,6 +212,14 @@ func openWebView(url string, sig chan os.Signal, minimized bool) (ok bool) {
 	w.Bind("hostCloseAck", func() { hostCloseAck() })
 	w.Bind("hostWinHide", func() { hideToTray(hwnd) })
 	w.Bind("hostWinQuit", func() { postTrayQuit(hwnd) })
+	// 冷启动隐身的窗口现身：index.html 加载完样式表就调；页面没调（加载失败、脚本出错）也不能一直看不见，3 秒兜底
+	w.Bind("hostReady", func() { revealWindow(hwnd) })
+	if !minimized {
+		go func() {
+			time.Sleep(3 * time.Second)
+			w.Dispatch(func() { revealWindow(hwnd) })
+		}()
+	}
 	askCloseUI = func(tray bool, running int) {
 		w.Eval(fmt.Sprintf("window.__mdCloseAsk && window.__mdCloseAsk({tray: %t, running: %d})", tray, running))
 	}

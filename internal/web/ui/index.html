@@ -58,6 +58,13 @@
 <body>
 <div id="splash" role="status" aria-label="MineDeck 正在启动"><div class="splash-inner"><div class="splash-logo" id="splash-logo"></div><div class="splash-word">MineDeck</div><div class="splash-bar"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div><div class="splash-skip">点击任意处或按任意键跳过</div></div>
 <script>
+/* 原生窗口冷启动时，宿主先把窗口隐身（不然要露出一段白窗口，见 hiddenstart_windows.go）。走到这里样式表都加载完了，
+   等页面真画出两帧（主题底色或启动画面）再叫宿主现身：样式表加载完就叫的话，现身那一下还会白一两帧（约 0.1 秒）。
+   2026-11 实测窗口隐身时浏览器照样出帧，约 0.9 秒现身；万一不出帧，宿主 3 秒后自己现身。
+   局域网里的浏览器没有这个函数，什么也不做。 */
+if (typeof window.hostReady === "function") requestAnimationFrame(function () { requestAnimationFrame(function () { window.hostReady(); }); });
+</script>
+<script>
 /* 启动画面：应用图标（16×16 像素网格）拆成 64 个 2×2 的方块，自下而上逐行落下（单块 200ms，逐行错峰 34ms），
    字标随后进场，下方 8 格进度按节奏点亮。界面就绪（app.js 派发 md-ready）且方块拼完（0.76 秒）后淡出，
    整体封顶约 1 秒；点击或按任意键立即跳过（按键不会再触发 1–4 等快捷键）。 */

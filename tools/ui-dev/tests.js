@@ -1,7 +1,7 @@
 // 交互回归测试：node tests.js [正则]（只跑名字匹配的用例，如 node tests.js 外观）
 // 自带一个全新的仿真后端（随机端口），在无头 Chromium 里操作界面并断言。全部通过时退出码为 0。
 "use strict";
-const { chromium } = require("playwright");
+const { launch } = require("./browser");
 const { start } = require("./server");
 const ONLY = process.argv[2] ? new RegExp(process.argv[2]) : null;
 let ORIGIN, PORT; // 仿真后端启动后赋值
@@ -19,7 +19,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
 (async () => {
   const mock = await start();
   ({ url: ORIGIN, port: PORT } = mock);
-  const browser = await chromium.launch();
+  const browser = await launch();
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 850 }, locale: "zh-CN" });
   await ctx.addInitScript(() => {
     localStorage.setItem("amh_token", "mock");
@@ -2292,6 +2292,31 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     await page.click("#tn-toggle"); await settle(200);
     const t = await geo("#tn-auto");
     assert(t.w >= 20 && t.h >= 20 && t.dx <= 1 && t.dy <= 1 && t.hit, "带说明的开关：" + JSON.stringify(t));
+  });
+
+  await run("无障碍：玩家页的 OP、踢、移除是按钮（键盘 Tab 得到、读屏读得出对象）；新建向导的核心卡是一组单选，方向键换、空格选、回车下一步", async () => {
+    await page.goto(url(`#/inst/${inst}/players`)); await settle(600);
+    const xs = await page.$$eval(".p-x", bs => bs.map(b => ({ tag: b.tagName, name: b.getAttribute("aria-label"), tab: b.tabIndex })));
+    assert(xs.length > 0 && xs.every(x => x.tag === "BUTTON" && x.name && x.tab === 0), "玩家页的小按钮：" + JSON.stringify(xs.slice(0, 3)));
+    assert(xs.some(x => x.name.startsWith("OP ")) && xs.some(x => x.name.startsWith("踢 ")) && xs.some(x => x.name.startsWith("移除 ")), "OP、踢、移除都带上玩家名：" + JSON.stringify(xs.map(x => x.name)));
+    await page.goto(url("#/create")); await settle();
+    await page.click("#mode-new"); await settle();
+    const grid = await page.$eval("#core-grid", g => ({ role: g.getAttribute("role"), name: g.getAttribute("aria-label") }));
+    assert(grid.role === "radiogroup" && grid.name, "核心列表应是一组单选：" + JSON.stringify(grid));
+    const state = () => page.$$eval("#core-grid [role=radio]", cs => cs.map(c => ({ id: c.dataset.id, on: c.getAttribute("aria-checked"), tab: c.tabIndex })));
+    let s = await state();
+    assert(s.filter(c => c.tab === 0).length === 1, "Tab 顺序里只有一张卡：" + JSON.stringify(s));
+    await page.focus("#core-grid [tabindex='0']");
+    const first = await page.evaluate(() => document.activeElement.dataset.id);
+    await page.keyboard.press("ArrowRight"); await settle(100);
+    s = await state();
+    const focused = await page.evaluate(() => document.activeElement.dataset.id);
+    const sel = s.find(c => c.on === "true");
+    assert(sel && sel.id === focused && sel.id !== first && sel.tab === 0 && s.filter(c => c.tab === 0).length === 1, "方向键选中下一张：" + JSON.stringify({ first, focused, sel }));
+    assert(!(await page.$eval("#wnext", b => b.disabled)), "选中后「下一步」可点");
+    await page.keyboard.press("Enter"); await settle();
+    assert((await page.$("#core-grid")) === null, "回车应进入下一步");
+    await page.goto(url("#/instances")); await settle();
   });
   // ==================== 无障碍结束 ====================
 
