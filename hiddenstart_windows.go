@@ -41,7 +41,8 @@ var (
 	hiddenHWND     uintptr // 钩子逮到的窗口
 	hiddenPrev     uintptr // 子类化前的窗口过程
 	hiddenSuppress bool    // 正在拦显示（cloak 模式下是：正在等第一次显示）
-	hiddenCloak    bool    // 正常启动：不拦显示，第一次显示前隐身
+	hiddenCloak    bool    // 不拦显示，第一次显示前隐身
+	hiddenQuiet    bool    // 隐身那次显示也不激活、不调层次（静默启动：开机时不抢用户正在用的窗口的焦点）
 	hiddenCloaked  bool    // 窗口现在是隐身的（等 revealWindow）
 	hiddenHookCB   = syscall.NewCallback(hiddenHookProc)
 	hiddenWndCB    = syscall.NewCallback(hiddenWndProc)
@@ -58,9 +59,10 @@ type windowPos struct {
 // cloak 为 true 时（正常启动）不拦显示，而是在第一次显示之前把窗口隐身，要等 revealWindow 才看得见。
 // 须在建窗的线程上调用（openWebView 已 LockOSThread）。钩子挂不上时 end 什么也不做，调用方照旧事后隐藏
 // （cloak 模式下就是照旧露白，不会隐身不现）。end 可重复调用，不会让隐身的窗口现身。
-func beginHiddenCreate(className string, cloak bool) (end func()) {
+// quiet 只在 cloak 时有用：那次显示不激活窗口、不调层次。
+func beginHiddenCreate(className string, cloak, quiet bool) (end func()) {
 	hiddenClass, hiddenHWND, hiddenPrev, hiddenSuppress = className, 0, 0, false
-	hiddenCloak, hiddenCloaked = cloak, false
+	hiddenCloak, hiddenQuiet, hiddenCloaked = cloak, quiet, false
 	hiddenHook, _, _ = pSetWindowsHookEx.Call(_WH_CBT, hiddenHookCB, 0, uintptr(windows.GetCurrentThreadId()))
 	return func() {
 		if hiddenHook != 0 {
@@ -103,6 +105,9 @@ func hiddenWndProc(hwnd, msg, wparam, lparam uintptr) (ret uintptr) {
 		case !hiddenCloak:
 			wp.Flags = wp.Flags&^_SWP_SHOWWINDOW | _SWP_NOACTIVATE | _SWP_NOZORDER // 也不激活、不调层次：开机时不抢用户正在用的窗口的焦点
 		case wp.Flags&_SWP_SHOWWINDOW != 0:
+			if hiddenQuiet {
+				wp.Flags |= _SWP_NOACTIVATE | _SWP_NOZORDER
+			}
 			hiddenCloaked = setCloak(hwnd, true)
 			hiddenSuppress = false // 只管第一次显示
 		}

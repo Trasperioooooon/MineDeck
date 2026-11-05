@@ -52,7 +52,7 @@ func TestHiddenCreate(t *testing.T) {
 		return r
 	}
 
-	end := beginHiddenCreate("MineDeckHiddenTest", false)
+	end := beginHiddenCreate("MineDeckHiddenTest", false, false)
 	if hiddenHook == 0 {
 		t.Fatal("CBT 钩子没挂上")
 	}
@@ -119,7 +119,7 @@ func TestHiddenCreateCloak(t *testing.T) {
 		return r == 0 && v != 0
 	}
 
-	end := beginHiddenCreate("MineDeckCloakTest", true)
+	end := beginHiddenCreate("MineDeckCloakTest", true, true)
 	if hiddenHook == 0 {
 		t.Fatal("CBT 钩子没挂上")
 	}
