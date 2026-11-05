@@ -112,7 +112,7 @@ func fromTUNA(ctx context.Context, major int, logf func(string, ...any), prog dl
 	re := regexp.MustCompile(`href="(OpenJDK[^"]*jre[^"]*\.zip)"`)
 	ms := re.FindAllStringSubmatch(string(b), -1)
 	if len(ms) == 0 {
-		return fmt.Errorf("镜像目录中没有 Java %d 的 JRE zip", major)
+		return fmt.Errorf("这个镜像里没有 Java %d 的运行时压缩包", major)
 	}
 	name := ms[len(ms)-1][1] // 目录按版本升序，取最新
 	sha := ""
@@ -165,7 +165,7 @@ func fromAdoptium(ctx context.Context, major int, logf func(string, ...any), pro
 			return extractZip(zipPath, Dir(major))
 		}
 	}
-	return fmt.Errorf("Adoptium 无 Java %d 的 Windows x64 构建", major)
+	return fmt.Errorf("Adoptium 没有 Java %d 的 Windows 64 位版本", major)
 }
 
 // ---------- 来源 3：Mojang 官方 Java 运行时（BMCLAPI 可镜像，逐文件下载） ----------
@@ -186,7 +186,7 @@ func fromMojang(ctx context.Context, major int, logf func(string, ...any), prog 
 	}
 	comps, ok := all["windows-x64"]
 	if !ok {
-		return fmt.Errorf("Mojang 运行时清单缺少 windows-x64")
+		return fmt.Errorf("Mojang 的 Java 下载列表里没有 Windows 64 位（windows-x64）")
 	}
 	manifestURL, best := "", ""
 	for _, entries := range comps {

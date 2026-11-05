@@ -200,7 +200,7 @@ func TestSystemCaptureNeedsConfirm(t *testing.T) {
 		t.Fatalf("Win10 的能力：%+v", sv.Capability)
 	}
 	_, err := e.s.Start(StartReq{Inst: instName, Mode: "system"})
-	if codeOf(err) != 409 || !errors.Is(err, ErrNeedConfirm) || !strings.Contains(err.Error(), "游戏声音、语音聊天") {
+	if codeOf(err) != 409 || !errors.Is(err, ErrNeedConfirm) || !strings.Contains(err.Error(), "游戏声音和语音聊天") {
 		t.Fatalf("没确认就开始：%v", err)
 	}
 	if e.caps.count() != 0 {

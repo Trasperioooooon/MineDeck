@@ -168,7 +168,7 @@ window.MDAssist = (() => {
     if (!st) { title = "连不上 MineDeck"; text = "刷新页面再试一次。"; }
     else if (!st.enabled && st.local) {
       title = "AI 还没配置";
-      text = "AI 是可选功能：在「设置 → AI」里选好服务商、填好 Key 和模型之后就能用。不配置也不影响其他功能，控制台的报错横幅照样会显示本地规则的分析。";
+      text = "AI 是可选的。在「设置 → AI」里选好服务商、填好 Key 和模型之后就能用。不配置 AI，其他功能照常用。控制台里的报错提示仍会显示本地规则的分析。";
       action = `<button class="btn primary" data-x="setup">${icon("gear")} 去设置</button>`;
     } else if (!st.enabled) { title = "主机还没配置 AI"; text = "要在运行 MineDeck 的那台电脑上，到「设置 → AI」里配置好才能用。"; }
     else { title = "主机关闭了「局域网可用 AI 助手」"; text = "局域网登录的设备现在不能用助手，可以在主机的「设置 → AI」里打开。"; }
@@ -207,7 +207,7 @@ window.MDAssist = (() => {
       <div class="ap-list-foot"><span class="hint">删掉的会话找不回来</span><span class="grow"></span><button class="btn sm danger" data-x="clear">${icon("trash")} 清空全部</button></div>`;
     body.querySelectorAll("[data-sid]").forEach(b => b.onclick = () => show(b.dataset.sid));
     body.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
-      const ok = await confirmModal({ title: `删除会话「${b.dataset.title}」？`, body: "删掉之后找不回来；还没处理的确认卡片一起作废。", okText: "删除", danger: true, icon: "trash" });
+      const ok = await confirmModal({ title: `删除会话「${b.dataset.title}」？`, body: "删掉之后找不回来。还没处理的确认卡片一起作废。", okText: "删除", danger: true, icon: "trash" });
       if (!ok) return;
       try { await api(sp(b.dataset.del), { method: "DELETE" }); } catch (e) { toast(e.message, true); return; }
       if (b.dataset.del === A.sid) forget();
@@ -422,7 +422,7 @@ window.MDAssist = (() => {
       : ["怎么开一个装模组的服务器？", "Paper 和 Fabric 有什么区别？", "怎么让朋友连进我的服务器？"];
     return `<div class="ap-empty ap-start"><span class="ae-ico">${icon("sparkle")}</span>
       <h4>${s.inst ? `有什么关于「${esc(s.inst)}」的问题？` : "有什么想问的？"}</h4>
-      <p>AI 会先查日志、配置再回答；要改东西时先给你一张确认卡片，你确认了才执行。</p>
+      <p>AI 会先查日志和配置再回答。要改东西时，先给你一张确认卡片，你点了才执行。</p>
       <div class="ap-ideas">${ideas.map(t => `<button class="btn sm" data-idea="${esc(t)}">${esc(t)}</button>`).join("")}</div></div>`;
   }
 
@@ -567,7 +567,7 @@ window.MDAssist = (() => {
     try {
       await api(`/api/ops/proposals/${enc(pid)}/${ok ? "confirm" : "reject"}`, { method: "POST", body });
       // 外部 AI 的：卡片拿掉，告诉一声（外部 AI 用 proposal_status 查得到结果）
-      if (ext) { toast(ok ? "已确认，已经执行；外部 AI 查得到结果" : "已拒绝，外部 AI 查得到你的理由"); window.MDMcp?.drop(pid); }
+      if (ext) { toast(ok ? "已确认，已经执行。外部 AI 查得到结果。" : "已拒绝，外部 AI 查得到你的理由"); window.MDMcp?.drop(pid); }
     } catch (e) {
       toast(e.message, true);
       if (card.isConnected) { btns.forEach(b => b.disabled = false); okBtn.textContent = card.classList.contains("danger") ? "确认执行" : "确认"; okBtn.disabled = [...card.querySelectorAll(".pc-check input")].some(c => !c.checked); }
@@ -590,7 +590,7 @@ window.MDAssist = (() => {
     let r;
     try { r = await api(`${sp(A.sid)}/sent?item=${enc(item)}${tool ? "&tool=" + enc(tool) : ""}`); } catch (e) { toast(e.message, true); return; }
     const res = await sheet({ title: tool ? "交还给 AI 的内容" : "实际发给 AI 的内容", cls: "ap-pv",
-      body: `<div class="m-body">${tool ? "工具的结果脱敏、截断之后交还给 AI，外面加了「以下是数据」的标记。" : "路径里的 Windows 用户名、局域网 IP、Key 和令牌发送前已经替换掉。"}</div><pre class="ap-pre ap-sent">${esc(r.text)}</pre>`,
+      body: `<div class="m-body">${tool ? "工具结果里，路径中的 Windows 用户名、局域网 IP、Key 和令牌已经替换掉，太长的也截掉了，再交还给 AI。外面标了「以下是数据」。玩家名保留。" : "发送前，路径里的 Windows 用户名、局域网 IP、Key 和令牌已经替换掉。玩家名保留。"}</div><pre class="ap-pre ap-sent">${esc(r.text)}</pre>`,
       buttons: [{ x: "copy", html: `${icon("copy")} 复制` }, { x: "close", text: "关闭", cls: "primary" }] });
     if (res && res.x === "copy") copy(r.text);
   }
@@ -646,10 +646,10 @@ window.MDAssist = (() => {
     const st = [];
     if (A.retry) st.push(`<span class="warn-text">${icon("refresh")} ${esc(A.retry)}</span>`);
     if (s.stale) st.push(`<span class="warn-text">${icon("warn")} ${esc(s.stale)}</span><button class="btn sm" data-x="fresh">${icon("plus")} 开新会话</button>`);
-    else if (over) st.push(`<span class="warn-text">${icon("warn")} 今天的额度用完了，明天 0 点恢复；可以在「设置 → AI」里调高</span>`);
-    else if (s.waiting && !s.busy) st.push(`<span>${icon("pending")} 上面有确认卡片等你处理；直接发新消息的话，没处理的卡片会作废</span>`);
+    else if (over) st.push(`<span class="warn-text">${icon("warn")} 今天的额度用完了。明天 0 点恢复。可以在「设置 → AI」里调高。</span>`);
+    else if (s.waiting && !s.busy) st.push(`<span>${icon("pending")} 上面有确认卡片等你处理。直接发新消息的话，没处理的卡片会作废。</span>`);
     else if (s.needReply && !s.busy) st.push(`<span>上一次的回复没完成</span><button class="btn sm" data-x="cont">${icon("refresh")} 继续回复</button>`);
-    if (s.long && !s.stale) st.push(`<span>会话已经很长了，每次发送都更贵，建议开个新会话</span>`);
+    if (s.long && !s.stale) st.push(`<span>会话已经很长了。每次发送都会多用 token，费用也更高。可以开一个新会话。</span>`);
     const box = f.querySelector("#ap-state");
     box.innerHTML = st.join("");
     const fresh = box.querySelector('[data-x="fresh"]');
@@ -720,7 +720,7 @@ window.MDAssist = (() => {
     const who = [st.preset, st.model].filter(Boolean).join(" · ");
     const r = await sheet({ title: "发给 AI 之前，先看一眼", cls: "ap-pv",
       body: `<div class="m-body">将发送约 <b>${pv.chars.toLocaleString("en-US")}</b> 字（约 ${fmtTokens(pv.tokens)} token）给 ${esc(who || "AI 服务商")}，算在今天的额度里。
-          路径里的 Windows 用户名、局域网 IP、Key 和令牌已经替换掉；玩家名保留，排错时常常用得到。</div>
+          路径里的 Windows 用户名、局域网 IP、Key 和令牌已经替换掉。玩家名保留，排错时常常用得到。</div>
         <label class="ap-pv-q"><span>想问 AI 的话</span><textarea rows="2" maxlength="20000">${esc(pv.lead)}</textarea></label>
         <details class="ap-pv-more"><summary>展开查看要发送的排错资料</summary><pre class="ap-pre">${esc(data)}</pre></details>`,
       buttons: [{ x: "cancel", text: "取消" }, { x: "ok", html: `${icon("sparkle")} 发送`, cls: "primary" }] });
@@ -793,13 +793,13 @@ window.MDAssist = (() => {
   function settings(slot, v, gen) {
     if (!slot) return;
     const ro = !v.local;
-    slot.innerHTML = settingsHead("应用内助手", "在标题栏右上角打开。AI 先查日志和配置再回答；要改东西时先给你一张确认卡片，你确认了才执行。") +
+    slot.innerHTML = settingsHead("应用内助手", "在标题栏右上角打开。AI 会先查日志和配置再回答。要改东西时，先给你一张确认卡片，你点了才执行。") +
       group(
         riRow({ ico: "phone", title: "局域网可用 AI 助手",
-          sub: esc("局域网登录的设备（如手机）也能用助手，和本机共用每日额度；确认卡片由那台设备上的人自己确认。关掉后局域网打开的界面里没有助手入口。"),
+          sub: esc("局域网登录的设备（比如手机）也能用助手，和这台电脑共用每天的额度。确认卡片由那台设备上的人自己点。关掉之后，从局域网打开的界面里没有助手入口。"),
           right: `<label class="switch" title="局域网可用 AI 助手"><input type="checkbox" id="ai-lan"${v.lanAssistant ? " checked" : ""}${ro ? " disabled" : ""} aria-label="局域网可用 AI 助手"><span class="sw"></span></label>` }) +
         riRow({ ico: "clock", title: "会话记录",
-          sub: esc(ro ? "这里只能看；局域网设备开的会话可以在助手面板的「会话记录」里删除" : "本机保存最近 20 个会话（data/ai/sessions），删掉之后找不回来"),
+          sub: esc(ro ? "这里只能看；局域网设备开的会话可以在助手面板的「会话记录」里删除" : "本机保存最近 20 个会话。删掉之后找不回来。"),
           right: `<button class="btn danger" id="ai-sess-clear"${ro ? " disabled" : ""}>清空</button>` }),
         { ico: true });
     const lan = slot.querySelector("#ai-lan");

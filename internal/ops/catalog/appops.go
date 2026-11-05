@@ -146,7 +146,7 @@ func (c *cat) appOps() {
 			if body.ChromeColor != nil && *body.ChromeColor != "" {
 				col, ok := app.ParseHexColor(*body.ChromeColor)
 				if !ok {
-					return nil, fmt.Errorf("chromeColor 须为 #rrggbb 形式的颜色")
+					return nil, fmt.Errorf("标题栏颜色要写成 #rrggbb")
 				}
 				chromeColor = col
 			}

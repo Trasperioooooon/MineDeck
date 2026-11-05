@@ -123,7 +123,7 @@ func (m *Manager) createBackup(name, label, spare string) (string, error) {
 	}
 	worlds := i.worldDirs()
 	if len(worlds) == 0 {
-		return "", fmt.Errorf("还没有世界存档（服务器从未启动过？）")
+		return "", fmt.Errorf("还没有世界存档。服务器可能还没启动过。")
 	}
 	if i.Status() == "running" {
 		i.Console.Append("[MineDeck] 开始热备份：暂停自动保存...")

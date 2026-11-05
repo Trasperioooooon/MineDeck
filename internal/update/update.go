@@ -43,10 +43,10 @@ func Check(ctx context.Context, repo string) (*Release, bool, error) {
 	}
 	api := "https://api.github.com/repos/" + repo + "/releases/latest"
 	if err := dl.FetchJSON(ctx, []string{api}, &rel); err != nil {
-		return nil, false, fmt.Errorf("检查更新失败（GitHub API 不可达）: %w", err)
+		return nil, false, fmt.Errorf("检查更新失败（连不上 GitHub）：%w", err)
 	}
 	if rel.TagName == "" {
-		return nil, false, fmt.Errorf("仓库还没有发布任何 Release")
+		return nil, false, fmt.Errorf("这个仓库还没有任何发布版本")
 	}
 	r := &Release{Tag: rel.TagName, Notes: rel.Body}
 	for _, a := range rel.Assets {
@@ -122,11 +122,11 @@ func verParts(v string) [3]int {
 // Apply 下载新版并写入换血脚本；调用方随后应触发程序退出。
 func Apply(ctx context.Context, r *Release) error {
 	if r.AssetURL == "" {
-		return fmt.Errorf("该 Release 未附带 exe 文件")
+		return fmt.Errorf("这个版本没有附带 exe 文件")
 	}
 	if r.SHA256 == "" {
 		// 无官方校验和则拒绝：避免经第三方镜像下载并执行未经校验的 exe（供应链/MITM RCE）
-		return fmt.Errorf("无法获取该版本的官方校验和（SHA256SUMS 资产缺失或不可达），为安全起见已取消更新")
+		return fmt.Errorf("拿不到这个版本的 SHA256SUMS（文件没有，或下不下来）。没有这份校验，已取消更新。")
 	}
 	exe, err := os.Executable()
 	if err != nil {

@@ -1261,7 +1261,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(JSON.stringify(vals) === JSON.stringify(["8", "60"]), "出厂默认值：" + vals);
       const lim = (await page.textContent("#gc-lim")).replace(/\s+/g, " ");
       assert(lim.includes("默认 8 秒") && lim.includes("默认 60 次") && lim.includes("叫伙伴另算"), "限流的说明：" + lim);
-      assert((await page.textContent("#gc")).includes("静默 3 分钟"), "说明里的静默时长");
+      assert((await page.textContent("#gc")).includes("接下来 3 分钟不再回答他"), "说明里的静默时长");
       let cost = await page.textContent("#gc-budget-cost");
       assert(cost.includes("按当前模型的单价估，每天 50 万 token 约 $0.") && cost.includes("国际站"), "全服每天的 token 约合多少钱：" + cost);
       assert((await page.textContent("#gc-top")) === "Steve 4 次（叫伙伴 2 次）、Alex 3 次。", "今天谁问了几次：" + await page.textContent("#gc-top"));
@@ -1979,8 +1979,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     await page.goto(url("#/settings/startup")); await settle();
     const head = await page.textContent("#set-body .set-sec-head .sub");
     const sub = await page.$eval('.row-item:has([data-cfg="minimizeToTray"]) .ri-sub', el => el.textContent);
-    assert(!head.includes("始终显示") && head.includes("程序退出后图标随之消失"), "分区说明：" + head);
-    assert(sub.includes("会退出程序并停止服务器") && sub.includes("先询问"), "开关说明：" + sub);
+    assert(!head.includes("始终显示") && head.includes("程序退出后，图标会消失"), "分区说明：" + head);
+    assert(sub.includes("会退出程序，并停掉服务器") && sub.includes("会先问你"), "开关说明：" + sub);
   });
 
   await run("远程访问：开关即时生效——没设密码时就地提示并拨回、不发请求；有密码直接保存、提示重启后生效（常驻提示，不显示二维码）；关闭即时生效；密码和开关一起保存；后端拒绝时拨回", async () => {
@@ -2126,7 +2126,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       return [document.querySelector("#sc-at").value, f(new Date(Date.now() + 10 * 60000)), f(new Date(Date.now() + 9 * 60000))];
     });
     assert(got === a || got === b, `「10 分钟后」填成了 ${got}，应为 ${a}`);
-    assert((await page.textContent("#sc-hint")).includes(`已填成 ${got}`) && (await page.textContent("#sc-hint")).includes("之后每天这个时间都执行"), "快捷项后的说明：" + await page.textContent("#sc-hint"));
+    assert((await page.textContent("#sc-hint")).includes(`已填成 ${got}`) && (await page.textContent("#sc-hint")).includes("以后每天这个时间都执行"), "快捷项后的说明：" + await page.textContent("#sc-hint"));
     const n0 = await page.$$eval("#sched-list .java-row", r => r.length);
     await page.fill("#sc-at", "25:00"); await page.click("#sc-add");
     assert((await page.textContent("#sc-err")).includes("时:分") && await page.$("#sc-at.invalid"), "写错应就近提示：" + await page.textContent("#sc-err"));

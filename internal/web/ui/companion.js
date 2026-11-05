@@ -1,6 +1,6 @@
 /* MineDeck AI 伙伴（第七阶段，设计文档 §7、§9 第 9 条）：实例详情的「伙伴」标签。
    伙伴是服务器里一个像玩家一样的角色：PlayerEngine 做身体，MineDeck 做大脑；玩家在聊天里用「@名字 话」指挥它（经游戏内 AI）。
-   这一页从上到下：安装（伙伴模组、PlayerEngine、Architectury API 的版本和状态，一键安装或更新）、好友的客户端要装什么（按清单，
+   这一页从上到下：安装（伙伴模组、PlayerEngine、Architectury API 的版本和状态，安装缺少的模组或更新）、好友的客户端要装什么（按清单，
    附 Modrinth 链接）、设置（开关、伙伴上限、attack 不许打的生物）、禁挖区域、伙伴列表（刷出、移除、停下）、最近的事件。
    保存语义（MASTER §11）：开关即时生效；伙伴上限、不许打的生物是单字段保存（没改时保存键置灰，回车即保存）；
    禁挖区域、刷出伙伴在弹窗里填，字段下方就近报错。
@@ -128,13 +128,13 @@ window.MDCompanion = (() => {
     if (!v.install.supported) {
       body.innerHTML = `<div class="cp"><div class="warn-card"><div class="wc-title">${icon("warn")} 这台服务器用不了 AI 伙伴</div>
         <div class="wc-note">${esc(v.install.reason)}</div></div>
-        <div class="hint">AI 伙伴是一个服务端模组（PlayerEngine 做身体，MineDeck 做大脑），每个加载器、每个 Minecraft 版本要各编一个，现在只做了上面列出的这几种。</div></div>`;
+        <div class="hint">AI 伙伴是一个服务端模组。PlayerEngine 负责身体，MineDeck 负责听懂和指挥。每种加载器、每个 Minecraft 版本都要单独做一份，现在只有上面列出的这几种。</div></div>`;
       return;
     }
     const st = { installing: false };
     body.innerHTML = `<div class="cp" id="cp">
       <div id="cp-gate"></div>
-      ${head("安装", "服务端要装这三个模组：伙伴模组随 MineDeck 内置；PlayerEngine 和 Architectury API 点「安装」时才从 Modrinth 下载（实测过的那个版本，核对 sha512），不会自动换成新版本。")}
+      ${head("安装", "服务端要装这三个模组。伙伴模组随 MineDeck 自带。PlayerEngine 和 Architectury API 要点「安装」才从 Modrinth 下载，下的是已经试过的那个版本，不会自动换成新版本。")}
       <div id="cp-install"></div>
       ${head("好友的客户端", "伙伴是模组新加的实体：好友的客户端也要装下面标了「要装」的模组，版本和服务器的一样，放进客户端的 mods 目录。" +
         PACK_NOTE)}
@@ -143,10 +143,10 @@ window.MDCompanion = (() => {
       <div id="cp-set"></div>
       ${head("禁挖区域", "伙伴不拆、也不放区域里的方块（倒水、点火、锄地这类也不做），可以从区域里走过，绕不过去时会报「卡住了」。坐标是方块坐标，包含两端，两个角谁先谁后都行。")}
       <div id="cp-zones"></div>
-      ${head("伙伴", "玩家在游戏里用「@名字 话」跟伙伴说话；只有在「游戏内 AI」标签里授权了的人能让它干活，活干完了会私下告诉发起的人。")}
+      ${head("伙伴", "玩家在游戏里用「@名字 话」跟伙伴说话。只有在「游戏内 AI」里授权过的人能让它干活。活干完了，会私下告诉发起的人。")}
       <div id="cp-link"></div>
       <div id="cp-list"></div>
-      ${head("最近的事件", "这次开服以来伙伴模组报来的事，新的在前（只在内存里，最多 100 条）。")}
+      ${head("最近的事件", "这次开服以来伙伴模组报上来的事。新的排在前面，最多 100 条。不写入文件，程序一关就没有了。")}
       <div id="cp-events"></div>
     </div>`;
 
@@ -170,7 +170,7 @@ window.MDCompanion = (() => {
       box.innerHTML = html;
     };
 
-    /* ---- 安装：三个模组各自的版本和状态，一键安装或更新 ---- */
+    /* ---- 安装：三个模组各自的版本和状态，安装缺少的模组或更新 ---- */
     const drawInstall = () => {
       const box = $("#cp-install"), iv = v.install;
       if (!sig(box, [iv, v.serverStatus, v.restart, st.installing])) return;
@@ -195,8 +195,8 @@ window.MDCompanion = (() => {
         sub: v.restart ? "服务器运行中装的模组，要重启才会加载" : "以后 MineDeck 更新了伙伴模组，这里会提示「要换」" });
       else if (running && replace) action = riRow({ ico: "warn", title: "先停服再安装", sub: "服务器运行中不能替换已经装着的旧版本（文件被服务器占用）",
         right: `<button class="btn primary" id="cp-install-btn" disabled>${icon("download")} 安装</button>` });
-      else action = riRow({ ico: "download", title: iv.ready ? "整理 mods 目录" : "一键安装",
-        sub: (iv.download ? `要从 Modrinth 下载约 ${mb(iv.download)}` : "不用下载") + (running ? "；服务器正在运行，装好后重启才生效" : ""),
+      else action = riRow({ ico: "download", title: iv.ready ? "整理 mods 目录" : "安装缺少的模组",
+        sub: (iv.download ? `要从 Modrinth 下载约 ${mb(iv.download)}` : "不用下载") + (running ? "。服务器正在运行，装好后要重启才生效。" : ""),
         right: `<button class="btn primary" id="cp-install-btn">${icon("download")} ${iv.mods.some(m => m.state === "outdated") ? "更新" : "安装"}</button>` });
       box.innerHTML = group(rows.join("") + action, { ico: true });
       const btn = $("#cp-install-btn");
@@ -250,7 +250,7 @@ window.MDCompanion = (() => {
           field: `<input type="number" id="cp-max" min="1" max="${s.maxLimit}" step="1" inputmode="numeric" value="${s.maxCompanions}" aria-label="伙伴上限">` +
             `<span class="ri-unit">个</span><button class="btn" id="cp-max-save" aria-label="保存伙伴上限">保存</button>`,
           after: `<div class="field-err ri-err" id="cp-max-err"></div>` }) +
-        riRow({ ico: "shield", title: "攻击时不许打的生物", sub: "生物 ID，逗号隔开；清空表示没有额外限制。玩家、伙伴、驯服的、起了名字的、拴着的生物不管这里怎么写都不打。",
+        riRow({ ico: "shield", title: "攻击时不许打的生物", sub: "填生物 ID，用逗号隔开。清空表示没有额外限制。玩家、伙伴、驯服的、起了名字的、拴着的，不管这里怎么写都不打。",
           field: `<input type="text" id="cp-deny" value="${esc((s.attackDeny || []).join(", "))}" spellcheck="false" maxlength="2000" aria-label="不许打的生物">` +
             `<button class="btn" id="cp-deny-save" aria-label="保存不许打的生物">保存</button><button class="btn ghost" id="cp-deny-default">恢复默认</button>`,
           after: `<div class="field-err ri-err" id="cp-deny-err"></div>` }) +
@@ -291,11 +291,11 @@ window.MDCompanion = (() => {
       if (document.activeElement !== on) on.checked = s.enabled;
       on.disabled = missing && !s.enabled;
       $("#cp-on-sub").textContent = missing && !s.enabled ? "先装伙伴模组，再打开。"
-        : s.enabled ? `伙伴模组在 127.0.0.1:${s.port} 上开着控制端口，只有 MineDeck 能连（令牌写在配置文件里，不要外传）。`
+        : s.enabled ? `伙伴模组只接受这台电脑上的 MineDeck 连接。连接用的令牌不要外传。`
           : "关着时伙伴模组不开控制端口，MineDeck 指挥不了伙伴。";
       const q = v.ai;
       $("#cp-quota").textContent = `玩家叫着伙伴的名字说话时记在这里：今天用了 ${fmtTokens(q.quotaUsed)} token，` + (q.quotaLimit ? `每天最多 ${fmtTokens(q.quotaLimit)}。` : "没有上限。") +
-        "活干完了的通知不调用 AI，不花钱。";
+        "活干完了的通知不调用 AI，不计入今天的 token。";
       const box = $("#cp-set-note");
       if (!sig(box, [s.pending, s.problems, s.applied && s.applied.problems])) return;
       const notes = [];
@@ -329,7 +329,7 @@ window.MDCompanion = (() => {
       const cur = z || { name: "", dim: "minecraft:overworld", min: ["", "", ""], max: ["", "", ""] };
       const xyz = (id, c) => ["x", "y", "z"].map((k, i) => `<label><span>${k}</span><input type="text" id="cz-${id}${k}" inputmode="numeric" value="${esc(c[i])}" aria-label="${id === "a" ? "角 1" : "角 2"} 的 ${k}"></label>`).join("");
       const res = await formModal({ title: z ? `编辑禁挖区域「${z.name}」` : "添加禁挖区域", okText: "保存",
-        body: `<div class="m-body">两个角的方块坐标（包含两端），比如家的东北角和西南角；y 不确定的话，填 -64 到 320 就把上下都圈进去了。</div>
+        body: `<div class="m-body">两个角的方块坐标，包含两端，比如家的东北角和西南角。y 不确定的话，填 -64 到 320，就把上下都圈进去了。</div>
           <div class="cp-fields">
             <label class="cp-f"><span>名字</span><input type="text" id="cz-name" maxlength="32" spellcheck="false" value="${esc(cur.name)}" placeholder="如 base、farm"></label>
             <label class="cp-f"><span>维度</span><select id="cz-dim">${DIMS.map(([id, n]) => `<option value="${id}"${cur.dim === id ? " selected" : ""}>${n}（${id}）</option>`).join("")}

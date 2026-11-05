@@ -676,7 +676,7 @@ func (s *Service) download(ctx context.Context, u string, size int64, sum string
 		return nil, fmt.Errorf("下载的文件大小是 %d 字节，应为 %d（可能没下完，或者被网络改过）", len(b), size)
 	}
 	if !strings.EqualFold(sha512Hex(b), sum) {
-		return nil, errors.New("下载的文件 sha512 对不上（可能被网络改过），没有安装")
+		return nil, errors.New("下载的文件校验对不上（可能被网络改过），没有安装。")
 	}
 	return b, nil
 }

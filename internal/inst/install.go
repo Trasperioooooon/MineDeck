@@ -436,7 +436,7 @@ func runInstaller(ctx context.Context, t *tasks.Task, javaExe, dir, installerJar
 			return ctx.Err()
 		}
 	}
-	return fmt.Errorf("安装器多次运行失败: %w（可查看实例目录 installer.jar.log；也可在全局设置切换下载源后重试）", lastErr)
+	return fmt.Errorf("安装器多次运行失败：%w。可以看实例目录里的 installer.jar.log。也可以在全局设置里换下载源再试。", lastErr)
 }
 
 func runInstallerOnce(ctx context.Context, t *tasks.Task, javaExe, dir, installerJar string) error {

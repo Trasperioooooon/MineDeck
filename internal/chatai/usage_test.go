@@ -162,7 +162,7 @@ func TestCompanionCountedSeparately(t *testing.T) {
 	f.b.reset()
 	f.advance(time.Second)
 	f.say("Steve", "@AI 你好")
-	if b := body(); !strings.HasPrefix(b, "冷却中") {
+	if b := body(); !strings.HasPrefix(b, "还要等") {
 		t.Errorf("冷却共用：%s", b)
 	}
 	// 全服的次数两种合计

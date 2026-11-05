@@ -160,7 +160,7 @@ func (m *Manager) lookupUUID(i *Instance, player string) (string, error) {
 	defer cancel()
 	err := dl.FetchJSON(ctx, []string{"https://api.mojang.com/users/profiles/minecraft/" + player}, &resp)
 	if err != nil || len(resp.ID) != 32 {
-		return "", fmt.Errorf("查询正版 UUID 失败（可在服务器运行时再操作，将自动走游戏命令）")
+		return "", fmt.Errorf("查不到这个玩家的正版 UUID。等服务器开着时再试，会改用游戏里的命令查。")
 	}
 	id := resp.ID
 	return id[0:8] + "-" + id[8:12] + "-" + id[12:16] + "-" + id[16:20] + "-" + id[20:32], nil

@@ -262,7 +262,7 @@ type errFatal struct{ error }
 
 func (e errFatal) Unwrap() error { return e.error }
 
-var errBadWelcome = errors.New("桥接模组的 WELCOME 不对")
+var errBadWelcome = errors.New("桥接模组的欢迎信息不对。")
 
 func (c *Client) run() {
 	defer close(c.done)
@@ -297,7 +297,7 @@ func (c *Client) run() {
 			fatal = err
 		case busy:
 			if !everLive && now.Sub(trouble) > c.opts.BusyWait {
-				fatal = fmt.Errorf("已经有别的广播连接（可能是另一台电脑上的 MineDeck，或者测试工具），等了 %v 还没结束", c.opts.BusyWait.Round(time.Second))
+				fatal = fmt.Errorf("已经有别的广播连接（可能是另一台电脑上的 MineDeck）。等了 %v 还没结束。", c.opts.BusyWait.Round(time.Second))
 			}
 		case errors.As(err, &ce), errors.As(err, &me):
 			// 令牌不对、共享已关闭、读不到配置：模组可能还没读到新配置（每 2 秒一次），等一会儿

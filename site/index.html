@@ -7,7 +7,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MineDeck · 我的世界（Minecraft）Windows 一键开服工具</title>
-<meta name="description" content="Windows 上的我的世界（Minecraft Java 版）一键开服工具：单文件 exe，自动下载 Java 和服务端，图形界面管理服务器；整合包一键导入，内置樱花穿透、OpenFrp 内网穿透。可选接入自己的 AI Key：AI 开服助手、游戏内 AI、AI 伙伴，以及音乐共享。">
+<meta name="description" content="Windows 上的我的世界（Minecraft Java 版）开服工具。一个 exe 文件，会下载 Java 和服务端，用窗口管理服务器。整合包可以直接导入。自带樱花穿透和 OpenFrp。AI 开服助手、游戏内 AI、AI 伙伴和音乐共享是可选的，用你自己的 API Key。">
 <link rel="canonical" href="https://trasperioooooon.github.io/MineDeck/">
 <link rel="alternate" hreflang="zh-CN" href="https://trasperioooooon.github.io/MineDeck/">
 <link rel="alternate" hreflang="zh" href="https://trasperioooooon.github.io/MineDeck/">
@@ -23,7 +23,7 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="MineDeck">
 <meta property="og:title" content="MineDeck · 我的世界（Minecraft）Windows 一键开服工具">
-<meta property="og:description" content="单文件 exe，自动下载 Java 和服务端，整合包一键导入，内置樱花穿透、OpenFrp 内网穿透；可选 AI 开服助手、游戏内 AI、AI 伙伴和音乐共享。">
+<meta property="og:description" content="一个 exe 文件，会下载 Java 和服务端。整合包可以直接导入。自带樱花穿透和 OpenFrp。AI 开服助手、游戏内 AI、AI 伙伴和音乐共享是可选的。">
 <meta property="og:url" content="https://trasperioooooon.github.io/MineDeck/">
 <meta property="og:locale" content="zh_CN">
 <meta property="og:locale:alternate" content="en_US">
@@ -31,19 +31,19 @@
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1280">
 <meta property="og:image:height" content="640">
-<meta property="og:image:alt" content="MineDeck：我的世界 · Windows 一键开服；AI 开服助手 · 游戏内 AI · AI 伙伴 · 音乐共享">
+<meta property="og:image:alt" content="MineDeck：我的世界 Windows 开服工具，带 AI 开服助手、游戏内 AI、AI 伙伴和音乐共享">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="MineDeck · 我的世界（Minecraft）Windows 一键开服工具">
-<meta name="twitter:description" content="单文件 exe，自动下载 Java 和服务端，整合包一键导入，内置樱花穿透、OpenFrp 内网穿透；可选 AI 开服助手、游戏内 AI、AI 伙伴和音乐共享。">
+<meta name="twitter:description" content="一个 exe 文件，会下载 Java 和服务端。整合包可以直接导入。自带樱花穿透和 OpenFrp。AI 开服助手、游戏内 AI、AI 伙伴和音乐共享是可选的。">
 <meta name="twitter:image" content="https://trasperioooooon.github.io/MineDeck/images/social-preview.png">
-<meta name="twitter:image:alt" content="MineDeck：我的世界 · Windows 一键开服；AI 开服助手 · 游戏内 AI · AI 伙伴 · 音乐共享">
+<meta name="twitter:image:alt" content="MineDeck：我的世界 Windows 开服工具，带 AI 开服助手、游戏内 AI、AI 伙伴和音乐共享">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "@id": "https://trasperioooooon.github.io/MineDeck/#app",
   "name": "MineDeck",
-  "description": "Windows 上的我的世界（Minecraft Java 版）一键开服工具：单文件 exe，自动下载 Java 和服务端，图形界面管理服务器；整合包一键导入，内置樱花穿透、OpenFrp 内网穿透；可选 AI 开服助手、游戏内 AI、AI 伙伴和音乐共享。",
+  "description": "Windows 上的我的世界（Minecraft Java 版）开服工具。一个 exe 文件，会下载 Java 和服务端，用窗口管理服务器。整合包可以直接导入。自带樱花穿透和 OpenFrp。AI 开服助手、游戏内 AI、AI 伙伴和音乐共享是可选的，用你自己的 API Key。",
   "url": "https://trasperioooooon.github.io/MineDeck/",
   "sameAs": "https://github.com/Trasperioooooon/MineDeck",
   "applicationCategory": "UtilitiesApplication",
@@ -86,7 +86,7 @@
     <div class="hero-text">
       <p class="eyebrow">v2.9.0-beta.2 测试版<span class="sep" aria-hidden="true">·</span>Windows 10 / 11<span class="sep" aria-hidden="true">·</span>MIT 开源</p>
       <h1 id="hero-title"><span class="name"><img class="hero-icon" src="images/icon-256.png" width="84" height="84" alt="">MineDeck</span> <span class="tagline">我的世界（Minecraft）Windows 一键开服工具</span></h1>
-      <p class="lead">单文件 <code>MineDeck.exe</code>（约 13 MB，零依赖），自动下载 Java 和服务端，图形界面管理服务器；整合包一键导入，内置樱花穿透、OpenFrp 内网穿透，好友异地也能联机。</p>
+      <p class="lead">一个文件 <code>MineDeck.exe</code>，大约 13 MB。它会下载 Java 和服务端，用窗口管理服务器。整合包可以直接导入。樱花穿透和 OpenFrp 已经做在里面，不在同一个网络的朋友也能连进来。</p>
       <div class="chips">
         <span class="label" id="opt-label">可选功能：</span>
         <ul aria-labelledby="opt-label">
@@ -112,13 +112,13 @@
   <div class="wrap">
     <div class="sec-head">
       <p class="eyebrow">三步开服</p>
-      <h2 id="start-title">选好版本点创建，<span class="nb">剩下的交给 MineDeck</span></h2>
+      <h2 id="start-title">选好版本，点创建，<span class="nb">后面的步骤会自动做完</span></h2>
     </div>
     <ol class="steps">
       <li class="step card">
         <span class="sn" aria-hidden="true">1</span>
         <h3>下载</h3>
-        <p>在发布页下载 <code>MineDeck.exe</code>，放进一个独立文件夹。所有数据都存在 exe 旁边：<code>servers/</code> 实例、<code>runtimes/</code> Java、<code>cache/</code> 下载缓存。</p>
+        <p>在发布页下载 <code>MineDeck.exe</code>，放进一个单独的文件夹。服务器、下载的 Java 和缓存都放在这个文件夹里，跟程序在一起。</p>
       </li>
       <li class="step card">
         <span class="sn" aria-hidden="true">2</span>
@@ -128,10 +128,10 @@
       <li class="step card">
         <span class="sn" aria-hidden="true">3</span>
         <h3>启动，叫上朋友</h3>
-        <p>点「▶ 启动」，控制台出现 <code>Done (...)!</code> 即开服成功。局域网玩家连 <code>你的内网IP:端口</code>；异地好友：在「内网穿透」页加一条隧道，把公网地址发给他们。</p>
+        <p>点「▶ 启动」。控制台出现 <code>Done (...)!</code>，就是开服成功了。同一个局域网里的朋友，连 <code>你的内网IP:端口</code>。不在同一个网络的朋友，到「内网穿透」页加一条隧道，把公网地址发给他们。</p>
       </li>
     </ol>
-    <p class="flow">点创建以后自动完成：<b>匹配并下载便携式 Java</b> → <b>下载服务端核心</b> → <b>运行安装器</b> → <b>同意 EULA</b> → <b>生成配置与启动脚本</b>。全程使用国内镜像加速（BMCLAPI / 清华 TUNA），官方源自动兜底。</p>
+    <p class="flow">点创建以后，会自动做完这些事：<b>按版本下载 Java</b>、<b>下载服务端</b>、<b>运行安装器</b>、<b>同意 EULA</b>、<b>写出配置和启动脚本</b>。下载 Java 和服务端时优先用国内镜像（BMCLAPI、清华 TUNA），镜像不可用就改用官方源。</p>
   </div>
 </section>
 
@@ -140,7 +140,7 @@
     <div class="sec-head">
       <p class="eyebrow">功能</p>
       <h2 id="features-title">开服、排错、联机，再加上可选的 AI</h2>
-      <p>AI 都是可选的：用你自己的 API Key，在「设置 → AI（可选）」里配置好才会启用；不配置就不会连任何 AI 服务，也不影响原来的用法。</p>
+      <p>AI 都是可选的。要用的话，填你自己的 API Key，在「设置 → AI（可选）」里配置后才会启用。不配置 AI，MineDeck 就不会连接任何 AI 服务，开服和原来的用法也不受影响。</p>
     </div>
     <div class="features">
       <article class="feature">
@@ -148,7 +148,7 @@
           <p class="eyebrow">AI 开服助手</p>
           <h3>先查日志和配置再回答，<span class="nb">改东西先问你</span></h3>
           <p>在标题栏右上角打开「AI 助手」。问它「服务器为什么起不来」，它会先看日志、配置和崩溃报告再回答。</p>
-          <p>要改配置、换 Java、重启服务器时，先弹确认卡片，你点了才执行；发给 AI 的内容先脱敏，随时可看原文。</p>
+          <p>要改配置、换 Java 或重启服务器，会先弹出确认卡片，你点了才执行。发给 AI 的内容会先去掉本机路径、局域网地址和密钥，你随时可以看实际发出去的原文。</p>
         </div>
         <a class="shot" href="images/03-assistant.png"><img src="images/03-assistant.png" width="1440" height="900" loading="lazy" decoding="async" alt="AI 助手面板：AI 读了模组清单，找出小地图模组是客户端模组，提出禁用它的确认卡片"></a>
       </article>
@@ -156,7 +156,7 @@
         <div class="f-text">
           <p class="eyebrow">报错横幅</p>
           <h3>服务器起不来？横幅直接说原因</h3>
-          <p>不需要 AI：控制台顶部的报错横幅用本地规则认出 13 类常见错误，比如少装前置模组、客户端模组放进了服务端、端口被占、Java 版本不对，并附上修复办法。</p>
+          <p>这一步不用 AI。开服失败时，控制台顶部的提示条能认出常见原因，比如缺前置模组、把客户端模组放进了服务器、端口被占、Java 版本不对，并告诉你怎么改。</p>
           <p>配置了 AI 时，可以点「让 AI 分析」。</p>
         </div>
         <a class="shot" href="images/02-console-banner.png"><img src="images/02-console-banner.png" width="1440" height="900" loading="lazy" decoding="async" alt="控制台顶部的报错横幅：缺少前置模组 geckolib，客户端模组放进了服务端，附修复办法和「让 AI 分析」按钮"></a>
@@ -165,8 +165,8 @@
         <div class="f-text">
           <p class="eyebrow">游戏内 AI</p>
           <h3>在聊天里 @AI 提问</h3>
-          <p>玩家在聊天里说「@AI 问题」，回复默认全服可见；<code>/私</code> 只回给自己，<code>/问</code> 只回答、不执行命令，<code>/额度</code> 看还剩几次，<code>/帮助</code> 看用法。</p>
-          <p>你在面板里勾选的玩家，可以让 AI 执行白名单里的命令：按模板逐个参数校验，<code>op</code>、<code>execute</code> 等写死禁止，搭配一键开启白名单。</p>
+          <p>玩家在聊天里说「@AI」再加上问题，回复默认所有人都能看见。问题前面可以加几个选项。<code>/私</code> 只回复提问的人。<code>/问</code> 只回答，不执行命令。<code>/额度</code> 看今天还能问几次。<code>/帮助</code> 看怎么用。</p>
+          <p>你在面板里勾选的玩家，可以让 AI 执行白名单里的命令。每条命令的参数都会按允许的写法核对。<code>op</code>、<code>execute</code> 这类命令不会执行。白名单也可以在面板里打开。</p>
         </div>
         <a class="shot" href="images/04-gameai-log.png"><img src="images/04-gameai-log.png" width="1440" height="900" loading="lazy" decoding="async" alt="游戏内 AI 的问答和执行记录：执行了 weather clear，拒绝了 op"></a>
       </article>
@@ -174,8 +174,8 @@
         <div class="f-text">
           <p class="eyebrow">AI 伙伴</p>
           <h3>会跟随、砍树、打怪的伙伴</h3>
-          <p>在 NeoForge 1.21.1 / Forge 1.20.1 服里放 AI 伙伴（基于 PlayerEngine）：聊天里说「@伙伴名 跟着我」「砍 10 个橡木原木」「打附近的僵尸」，它就去做。</p>
-          <p>禁挖区域、不许打的生物可配；好友的客户端只装一个伙伴模组。</p>
+          <p>可以在 NeoForge 1.21.1 或 Forge 1.20.1 的服务器里放 AI 伙伴。聊天里说「@伙伴名 跟着我」「砍 10 个橡木原木」「打附近的僵尸」，它就会去做。</p>
+          <p>可以设置不让它挖的区域，也可以指定不许打的生物。好友那边只需要装一个伙伴模组。</p>
         </div>
         <a class="shot" href="images/05-companion.png"><img src="images/05-companion.png" width="1440" height="900" loading="lazy" decoding="async" alt="伙伴标签：已连上伙伴模组，小方正在采集橡木原木，阿土空闲，两个禁挖区域"></a>
       </article>
@@ -184,7 +184,7 @@
           <p class="eyebrow">音乐共享</p>
           <h3>把房主的音乐放给全服听</h3>
           <p>把房主电脑上音乐软件的声音经 Simple Voice Chat 广播给服里的人，每人可在语音设置里单独调小或静音。</p>
-          <p>Windows 11 按程序录音，不录游戏声和语音；桥接模组内置，一键安装。</p>
+          <p>在 Windows 11 上，可以只录你选的那个音乐程序，不会录进游戏声音和语音。桥接模组已经带在 MineDeck 里，在音乐共享页安装即可。</p>
         </div>
         <a class="shot" href="images/06-music.png"><img src="images/06-music.png" width="1440" height="900" loading="lazy" decoding="async" alt="音乐共享标签：选网易云音乐作音源，检查清单全部通过"></a>
       </article>
@@ -193,8 +193,8 @@
           <p class="eyebrow">接入 AI（可选）</p>
           <h3>七个预设，填 Key 就能用</h3>
           <p>支持 OpenAI 兼容和 Claude 两种协议，内置 DeepSeek、通义千问、Kimi、智谱、OpenAI、Claude、Ollama（本机）七个预设，也可以填自定义地址。</p>
-          <p>按 LiteLLM 公开价格估算费用，每个功能可设每日额度；Key 经 Windows DPAPI 加密保存；不配置不联网。</p>
-          <p>也可以打开 MCP 接口，让 Claude Desktop、Cherry Studio、Cursor 这些 AI 工具直接用 MineDeck：查状态、看日志直接做，要改东西照样等你在 MineDeck 里确认。</p>
+          <p>MineDeck 会按公开价格估算每次大概花多少钱。每个功能都能设每天的用量上限，按 token 算。Key 加密保存在这台电脑上，除了你选的服务商，不会发给别人。不配置 AI，就不会连接任何 AI 服务。</p>
+          <p>也可以打开 MCP 接口，让 Claude Desktop、Cherry Studio、Cursor 连上 MineDeck。查状态、看日志可以直接做。要改服务器，仍然要你在 MineDeck 里确认。</p>
         </div>
         <a class="shot" href="images/07-settings-ai.png"><img src="images/07-settings-ai.png" width="1440" height="900" loading="lazy" decoding="async" alt="设置里的 AI 分区：已启用 DeepSeek，测试连接正常、能调用工具"></a>
       </article>
@@ -210,18 +210,18 @@
       <p>完整的功能表见 <a href="https://github.com/Trasperioooooon/MineDeck#-%E5%8A%9F%E8%83%BD%E4%B8%80%E8%A7%88">README</a>。</p>
     </div>
     <ul class="grid">
-      <li class="card"><h3>十二种服务端核心</h3><p>原版 · Paper / Purpur / Leaves / Folia（插件服）· Fabric / NeoForge / Forge（模组服）· Mohist / Banner（模组 + 插件混合服）· Velocity / Waterfall（群组代理端）。</p></li>
-      <li class="card"><h3>Java 全自动</h3><p>读取 Mojang 官方元数据精确匹配 Java（8 / 16 / 17 / 21 / 25…），便携部署在 <code>runtimes/</code>，不碰系统环境变量；本机已装的 Java 能复用就不下载。</p></li>
-      <li class="card"><h3>下载三级加速</h3><p>BMCLAPI / 清华 TUNA 优先 → Adoptium / 官方源 → Mojang 官方运行时，逐源故障转移 + 3 轮重试 + SHA 校验。</p></li>
-      <li class="card"><h3>整合包一键导入</h3><p>Modrinth（<code>.mrpack</code>）拖入即开服，自动识别核心、版本、加载器，跳过纯客户端文件；CurseForge zip 配 API Key 可用。</p></li>
-      <li class="card"><h3>内网穿透</h3><p>接入 OpenFrp、樱花frp 和自定义 frps：frpc 自动下载托管、跟随服务器启动，公网地址一键复制。</p></li>
-      <li class="card"><h3>运维三件套</h3><p>世界备份 / 还原（运行中热备）· 崩溃自动重启（退避策略）· 每日定时重启 / 命令 / 备份。</p></li>
-      <li class="card"><h3>玩家管理</h3><p>在线列表（踢出 / OP），白名单、管理员、封禁可视化；停机时直接改名单文件，离线 UUID 自动计算。</p></li>
+      <li class="card"><h3>十二种服务端核心</h3><p>原版。插件服是 Paper、Purpur、Leaves、Folia。模组服是 Fabric、NeoForge、Forge。模组和插件都能用的是 Mohist、Banner。群组代理是 Velocity、Waterfall。</p></li>
+      <li class="card"><h3>Java 不用自己装</h3><p>按游戏版本选择对应的 Java，常见的是 8、16、17、21、25。电脑里已经有合适的就直接用，不再下载。没有的话会下载一份，只给 MineDeck 用，不改系统设置，也不影响你已经装好的 Java。</p></li>
+      <li class="card"><h3>下载与重试</h3><p>下载时按这个顺序尝试：先是国内镜像 BMCLAPI 和清华 TUNA，然后是 Adoptium 和官方源，最后是 Mojang 提供的 Java。某个源失败就换下一个，最多重试 3 轮。下完会校验文件是否完整。</p></li>
+      <li class="card"><h3>整合包导入</h3><p>把 Modrinth 整合包（<code>.mrpack</code>）拖进来，就能建好服务器。核心、版本和加载器会自动识别，只给客户端用的文件会跳过。CurseForge 的 zip 也可以导入，需要自己填 API Key。</p></li>
+      <li class="card"><h3>内网穿透</h3><p>可以接 OpenFrp、樱花穿透，也可以填你自己的 frps。穿透客户端 frpc 会自动下载，并跟着服务器启动。公网地址可以在页面上复制。</p></li>
+      <li class="card"><h3>备份、重启和定时任务</h3><p>可以备份和还原世界，服务器开着的时候也能备份。崩溃后会自动再启动，先等 10 秒，再等 30 秒，再等 60 秒，连续 3 次仍起不来就停止。正常运行超过 10 分钟后，这个计数会清零。还可以按天定时重启、执行命令或备份。</p></li>
+      <li class="card"><h3>玩家管理</h3><p>可以看在线玩家，踢出或设为 OP。白名单、管理员和封禁可以在界面里改。服务器关着的时候，改的是名单文件本身。离线模式的 UUID 会自动算好。</p></li>
       <li class="card"><h3>资源浏览器</h3><p>在实例里直接搜索安装 Modrinth 模组和插件，按核心与版本自动过滤兼容项。</p></li>
-      <li class="card"><h3>配置全量目录</h3><p>约 60 项 <code>server.properties</code> 分 7 组，带搜索、中文说明、范围校验和「需重启」标注，按 MC 版本自动显隐。</p></li>
-      <li class="card"><h3>控制台增强</h3><p>GBK / UTF-8 编码切换（老包乱码克星）、WARN / ERROR 着色、日志过滤、命令历史，常用命令和在线玩家名 Tab 补全。</p></li>
-      <li class="card"><h3>远程管理</h3><p>局域网访问开关 + 密码登录，手机躺床上管服；开放 REST API + Webhook 事件推送。</p></li>
-      <li class="card"><h3>安全防呆</h3><p>老版本自动启用 log4shell 官方缓解方案；清除 <code>JAVA_HOME</code> 等环境污染；下载文件哈希校验；本地 API 带随机令牌。</p></li>
+      <li class="card"><h3>全部服务器配置</h3><p><code>server.properties</code> 里大约 60 项，分成 7 组。可以搜索。每项有中文说明、取值范围，以及要不要重启。当前游戏版本用不到的项会隐藏。</p></li>
+      <li class="card"><h3>控制台</h3><p>可以在 GBK 和 UTF-8 之间切换，老整合包出现乱码时用这个。警告和错误会标上颜色。日志可以过滤，命令有历史记录。常用命令和在线玩家名可以用 Tab 补全。</p></li>
+      <li class="card"><h3>远程管理</h3><p>可以打开局域网访问，用密码登录，手机上也能管服务器。另外有 REST API，也可以用 Webhook 把事件推送给别的程序。</p></li>
+      <li class="card"><h3>启动时的保护</h3><p>较老的版本会自动打开 log4shell 的官方缓解。启动服务器时会清掉 <code>JAVA_HOME</code> 这类环境变量，避免用到别的 Java。下载的文件会做完整性校验。本机接口带一组随机令牌，用来防止别的程序随便调用。</p></li>
     </ul>
   </div>
 </section>
@@ -237,27 +237,27 @@
     <div class="faq">
       <article class="card">
         <h3>要自己装 Java 吗？</h3>
-        <p>不用。MineDeck 按 Mojang 的版本元数据挑对应的 Java（8 / 17 / 21 / 25……），下载便携版放进 <code>runtimes/</code>，不改系统环境变量；本机已经装好的 Java 能用就直接用。</p>
+        <p>不用自己装。电脑里已经有合适的 Java，MineDeck 会直接用。没有的话，它会按游戏版本下载一份对应的 Java，只给 MineDeck 自己用，不改系统设置，也不影响你装的其他软件。</p>
       </article>
       <article class="card">
         <h3>朋友不在同一个网络，怎么连进来？</h3>
-        <p>在「内网穿透」页添加樱花穿透、OpenFrp 或自定义 frps 的隧道，绑定服务器并打开「跟随实例启动」，开服后把公网地址发给朋友。同一个局域网的朋友直接连 <code>你的内网IP:端口</code>。</p>
+        <p>在「内网穿透」页添加一条隧道，樱花穿透、OpenFrp 或你自己的 frps 都可以。把隧道绑定到这台服务器，并打开「跟随实例启动」。开服后把公网地址发给朋友。同一个局域网的朋友不用隧道，直接连 <code>你的内网IP:端口</code>。</p>
       </article>
       <article class="card">
         <h3>支持哪些版本和核心？</h3>
-        <p>MC 1.12.2 到最新版（含 26.x 起的年份版本号），12 种核心：原版、Paper、Purpur、Leaves、Folia、Fabric、NeoForge、Forge、Mohist、Banner、Velocity、Waterfall。Modrinth（<code>.mrpack</code>）和 CurseForge（zip）的整合包可以直接导入。</p>
+        <p>支持 MC 1.12.2 到最新版，包括 26.x 起的年份版本号。核心有 12 种：原版、Paper、Purpur、Leaves、Folia、Fabric、NeoForge、Forge、Mohist、Banner、Velocity、Waterfall。Modrinth（<code>.mrpack</code>）和 CurseForge（zip）的整合包可以直接导入。</p>
       </article>
       <article class="card">
         <h3>服务器起不来、报错看不懂怎么办？</h3>
-        <p>看控制台顶部的报错横幅，它会说明原因，比如少装前置模组、客户端模组放进了服务端、端口被占、Java 版本不对，这一步不需要 AI。接入 AI 以后，可以点「让 AI 分析」，或者在「AI 助手」里直接问。</p>
+        <p>开服失败时，先看控制台顶部的提示条。缺前置模组、把客户端模组放进了服务器、端口被占、Java 版本不对，这些常见原因它都能直接认出来，并告诉你怎么改。接了 AI 的话，还可以点「让 AI 分析」，或者在 AI 助手里直接问。</p>
       </article>
       <article class="card">
         <h3>AI 功能要花钱吗？会不会偷偷联网？</h3>
-        <p>AI 是可选的，用你自己的 API Key，费用按服务商的价格付给服务商。MineDeck 会估算每次的花费，每个功能都能设每日额度。不配置 AI 就不会连任何 AI 服务；Key 用 Windows 的 DPAPI 加密保存。</p>
+        <p>AI 是可选功能。不配置 AI，MineDeck 就不会连接任何 AI 服务。要用的话，填入你自己的 API Key，费用由你选的服务商直接收取。MineDeck 会估算每次大概花多少钱，每个功能都能设每天的用量上限。Key 加密保存在这台电脑上，除了你选的服务商，不会发给别人。</p>
       </article>
       <article class="card">
         <h3>AI 会不会乱改我的服务器？</h3>
-        <p>不会自己动手。读日志、看配置这类操作直接做；改配置、换 Java、重启这类操作只生成确认卡片，你点了确认才执行，所有操作都记在 <code>logs\ops\</code>。游戏内 AI 默认只回答问题，只有你勾选的玩家才能让它执行命令，而且只限白名单里的命令，<code>op</code>、<code>execute</code> 这类一律不执行。</p>
+        <p>AI 不会擅自改你的服务器。看日志、读配置这类只读的事，它可以直接做。改配置、换 Java、重启服务器之前，它会先弹出一张确认卡片，你点了确认才会执行。每一步都会记在本机的操作记录里（<code>logs\ops</code> 文件夹）。游戏内 AI 默认只回答问题。只有你勾选的玩家，才能让它执行命令，而且只能执行白名单里的命令。<code>op</code>、<code>execute</code> 这类命令不会执行。</p>
       </article>
       <article class="card">
         <h3>AI 伙伴和音乐共享，好友要装什么？</h3>
@@ -288,10 +288,10 @@
     <div class="req">
       <dl class="card">
         <div><dt><span class="lamp" aria-hidden="true"></span>系统</dt><dd>Windows 10 / 11，推荐 Windows 11：音乐共享在 Windows 11 上可以只录某一个程序；Windows 10 只能录整机的声音。</dd></div>
-        <div><dt><span class="lamp" aria-hidden="true"></span>安装</dt><dd>不用安装：单文件 <code>MineDeck.exe</code>（约 13 MB，零依赖），数据都存在 exe 所在的文件夹。</dd></div>
+        <div><dt><span class="lamp" aria-hidden="true"></span>安装</dt><dd>不用安装。下载一个 <code>MineDeck.exe</code> 就行，大约 13 MB。数据都放在 exe 所在的文件夹里。</dd></div>
         <div><dt><span class="lamp" aria-hidden="true"></span>Java</dt><dd>不用自己装：按版本自动下载便携版，本机已经装好的能用就直接用。</dd></div>
-        <div><dt><span class="lamp" aria-hidden="true"></span>网络</dt><dd>下载 Java 和服务端时要联网：国内镜像加速（BMCLAPI / 清华 TUNA），官方源自动兜底。</dd></div>
-        <div><dt><span class="lamp" aria-hidden="true"></span>窗口</dt><dd>WebView2 原生窗口，缺失时自动用浏览器打开。</dd></div>
+        <div><dt><span class="lamp" aria-hidden="true"></span>网络</dt><dd>下载 Java 和服务端时要联网。优先用国内镜像（BMCLAPI、清华 TUNA），镜像不可用就改用官方源。</dd></div>
+        <div><dt><span class="lamp" aria-hidden="true"></span>窗口</dt><dd>窗口用 WebView2 打开。电脑里没有 WebView2 时，会改用浏览器。</dd></div>
         <div><dt><span class="lamp" aria-hidden="true"></span>AI</dt><dd>可选：用你自己的 API Key；不配置就不会连任何 AI 服务。</dd></div>
       </dl>
       <div class="cta card">

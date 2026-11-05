@@ -63,7 +63,7 @@ func (m *Manager) Start(name string) error {
 		return fmt.Errorf("服务器当前状态为 %s", i.state)
 	}
 	if _, err := os.Stat(i.JavaPath); err != nil {
-		return fmt.Errorf("Java 运行时缺失（%s），请勿手动删除 runtimes 目录；可删除实例后重新创建", i.JavaPath)
+		return fmt.Errorf("Java 运行时缺失（%s）。不要自己删 runtimes 目录。可以删掉这个实例再新建。", i.JavaPath)
 	}
 	// 代理端端口在其自带配置文件中，跳过 server.properties 端口预检
 	if mcsrc.KindOf(i.Core) != mcsrc.KindProxy {

@@ -375,7 +375,7 @@ func (c *Client) session() (live bool, err error) {
 		lost = errors.New("连接已关闭")
 	}
 	for _, ch := range waiters {
-		ch <- reply{err: fmt.Errorf("还没收到回复，和伙伴模组的连接就断了（%v），指令可能执行了，也可能没执行", lost)}
+		ch <- reply{err: fmt.Errorf("还没收到回复，和伙伴模组的连接就断了（%v）。这条指令可能已经执行，也可能没有。", lost)}
 	}
 	if err != nil && c.o.OnDown != nil {
 		c.o.OnDown(err)
@@ -406,7 +406,7 @@ func (c *Client) handshake(conn net.Conn, br *bufio.Reader, token string) (Welco
 		case TypeWelcome:
 			v, js, err := ParseWelcome(f.Payload)
 			if err != nil {
-				return Welcome{}, errFatal{fmt.Errorf("伙伴模组的 WELCOME 不对：%v", err)}
+				return Welcome{}, errFatal{fmt.Errorf("伙伴模组的欢迎信息不对：%v", err)}
 			}
 			if v < 1 || v > ProtoVersion {
 				reason := fmt.Sprintf("MineDeck 只支持协议 1–%d，模组选的是 %d", ProtoVersion, v)
@@ -416,7 +416,7 @@ func (c *Client) handshake(conn net.Conn, br *bufio.Reader, token string) (Welco
 			var w Welcome
 			if err := json.Unmarshal(js, &w); err != nil {
 				_ = c.write(conn, TypeEnd, []byte("WELCOME 不是合法的 JSON"), endTimeout)
-				return Welcome{}, errFatal{fmt.Errorf("伙伴模组的 WELCOME 不是合法的 JSON：%v", err)}
+				return Welcome{}, errFatal{fmt.Errorf("伙伴模组的欢迎信息读不懂：%v", err)}
 			}
 			if w.Protocol == 0 {
 				w.Protocol = v
@@ -597,7 +597,7 @@ func (c *Client) Request(ctx context.Context, op string, args map[string]any) (*
 		return r.r, r.err
 	case <-t.C:
 		drop()
-		return nil, fmt.Errorf("伙伴模组 %v 没有回复（服务器可能很卡），指令可能执行了，也可能没执行", c.o.request.Round(time.Second))
+		return nil, fmt.Errorf("伙伴模组 %v 没有回复（服务器可能很卡）。这条指令可能已经执行，也可能没有。", c.o.request.Round(time.Second))
 	case <-ctx.Done():
 		drop()
 		return nil, ctx.Err()

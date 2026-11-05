@@ -336,7 +336,7 @@ func TestInstallVerifiesSHA512(t *testing.T) {
 	e.mr.serve(depOf(e.man, "playerengine").Modrinth.Tested.URL, bad)
 	_, err := e.s.Install(context.Background(), "模组服")
 	var ce *companion.Error
-	if !errors.As(err, &ce) || ce.Code != 502 || !strings.Contains(err.Error(), "sha512 对不上") {
+	if !errors.As(err, &ce) || ce.Code != 502 || !strings.Contains(err.Error(), "校验对不上") {
 		t.Fatalf("sha512 对不上应报错：%v", err)
 	}
 	for _, f := range modsList(t, e.dir) {
@@ -422,7 +422,7 @@ func TestInstallFallbackRejects(t *testing.T) {
 			v := version("1.21.1-1.4.7-NeoForge", "release", "2026-03-01T00:00:00Z", "pe.jar", []string{"neoforge"}, b, cdn+"x/pe.jar")
 			e.mr.serve(cdn+"x/pe.jar", append(bytes.Clone(b[:len(b)-1]), b[len(b)-1]^1))
 			return []map[string]any{v}
-		}, "sha512"},
+		}, "校验对不上"},
 		"不在 Modrinth 的 CDN 上": {func(t *testing.T, e *installEnv) []map[string]any {
 			b := modJar(t, "playerengine", "1.21.1-1.4.7")
 			return []map[string]any{version("1.21.1-1.4.7-NeoForge", "release", "2026-03-01T00:00:00Z", "pe.jar", []string{"neoforge"}, b, "https://evil.example/pe.jar")}

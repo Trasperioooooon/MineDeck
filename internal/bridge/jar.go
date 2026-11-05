@@ -67,7 +67,7 @@ func Jar(v Variant) ([]byte, error) {
 		return nil, err
 	}
 	if sha256Hex(b) != sum {
-		return nil, errors.New("内置的桥接模组 jar 校验失败（sha256 对不上），这个 MineDeck 程序可能已损坏，请重新下载")
+		return nil, errors.New("自带的桥接模组文件校验没通过。这个 MineDeck 可能已损坏，请重新下载。")
 	}
 	return b, nil
 }
@@ -141,7 +141,7 @@ func InstallJar(modsDir string, v Variant) (JarStatus, []string, error) {
 
 func installJar(modsDir, name string, data []byte, sum string) (JarStatus, []string, error) {
 	if sha256Hex(data) != sum {
-		return JarStatus{}, nil, errors.New("桥接模组 jar 校验失败（sha256 对不上），没有安装")
+		return JarStatus{}, nil, errors.New("桥接模组的文件校验没通过，没有安装。")
 	}
 	if err := os.MkdirAll(modsDir, 0o755); err != nil {
 		return JarStatus{}, nil, err

@@ -434,7 +434,7 @@ func (r *room) handle(t trigger) {
 		}
 	}
 	if !s.ai.Enabled() {
-		refuse("disabled", "主机的 MineDeck 还没配置 AI，现在问不了问题。")
+		refuse("disabled", "MineDeck 还没配置 AI，现在问不了问题。")
 		return
 	}
 	comp := t.companion != ""
@@ -470,7 +470,7 @@ func (r *room) limit(set Settings, player string, now time.Time, comp bool) (kin
 	k := strings.ToLower(player)
 	if last, ok := r.lastAsk[k]; ok && set.Cooldown > 0 {
 		if left := time.Duration(set.Cooldown)*time.Second - now.Sub(last); left > 0 {
-			return "cooldown", "冷却中，" + secs(left) + " 秒后再问。"
+			return "cooldown", "还要等 " + secs(left) + " 秒才能再问。"
 		}
 	}
 	switch {

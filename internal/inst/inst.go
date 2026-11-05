@@ -201,10 +201,10 @@ func safeRemoveInstanceDir(i *Instance) error {
 	}
 	s, err := readSettings(dir)
 	if os.IsNotExist(err) {
-		return fmt.Errorf("找不到实例标识文件，已拒绝删除: %s", dir)
+		return fmt.Errorf("找不到 instance.json，已拒绝删除: %s", dir)
 	}
 	if err != nil || s.Name != i.Name {
-		return fmt.Errorf("目录归属校验失败，已拒绝删除: %s", dir)
+		return fmt.Errorf("这个目录对不上这台服务器（instance.json 读不出来，或里面的名字不一致），已拒绝删除: %s", dir)
 	}
 	if err := os.RemoveAll(dir); err != nil {
 		return fmt.Errorf("删除文件失败: %w", err)

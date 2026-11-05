@@ -624,8 +624,8 @@ function renderMemoryControl(mount, o) {
     });
     const over = v > availMb;
     let note = "";
-    if (over) note = ` <span class="mem-warn">${icon("warn")} 超过当前可用 ${g(availMb)} GB，可能触发频繁 GC 或分配失败</span>`;
-    else if (v > 16384) note = ` <span class="mem-warn">${icon("warn")} 过大的堆可能增加 GC 停顿</span>`;
+    if (over) note = ` <span class="mem-warn">${icon("warn")} 超过当前可用 ${g(availMb)} GB，可能会卡，或者内存分配失败</span>`;
+    else if (v > 16384) note = ` <span class="mem-warn">${icon("warn")} 内存设得太大时，清理内存会让游戏顿一下</span>`;
     stat.innerHTML = totalMb
       ? `其他程序已用 ${g(usedMb)} GB · 本服分配 <b>${g(v)} GB</b> / 共 ${g(totalMb)} GB · 1 格 = ${cellMb} MB${note}`
       : `本服分配 <b>${g(v)} GB</b>`;
@@ -849,7 +849,7 @@ async function quickStart() {
     const r = await api("/api/instances", { method: "POST", body: {
       name: "我的服务器", core: "paper", mc, build, root: "",
       xmxMb: mem, port: 25565, eula: true, onlineMode: false, allowFlight: true,
-      difficulty: "easy", gamemode: "survival", motd: "MineDeck 一键开服 · 一起来玩！",
+      difficulty: "easy", gamemode: "survival", motd: "MineDeck 开服 · 一起来玩",
     } });
     toast(`正在部署 Paper ${mc}`);
     location.hash = `#/task/${r.taskId}`;
@@ -1130,7 +1130,7 @@ async function drawImport() {
       <div class="field"><label class="switch"><input type="checkbox" id="im-flight" checked><span class="sw"></span>
         <span><span class="sw-label">允许飞行</span><div class="sw-desc">整合包强烈建议开启</div></span></label></div>
     </div>
-    ${app.cfKeySet ? "" : `<div class="hint" style="margin-bottom:10px">提示：CurseForge 格式整合包的模组下载需要 API Key（<a href="https://console.curseforge.com/" target="_blank">免费申请</a>后在「设置 → 下载与网络」填写）；Modrinth 格式无需任何配置。</div>`}
+    ${app.cfKeySet ? "" : `<div class="hint" style="margin-bottom:10px">提示：CurseForge 格式整合包下载模组需要 API Key（<a href="https://console.curseforge.com/" target="_blank">免费申请</a>后在「设置 → 下载与网络」填写）。Modrinth 格式不用填。</div>`}
     <div class="eula-box">
       <label class="switch"><input type="checkbox" id="im-eula"><span class="sw"></span>
         <span class="sw-label">我已阅读并同意 <a href="https://aka.ms/MinecraftEULA" target="_blank">Minecraft EULA</a></span></label>
@@ -1351,7 +1351,7 @@ async function drawWizard() {
           <div class="hint" id="f-path"></div>
         </label>
         ${isProxy ? "" : `
-        <label class="field full"><span>服务器介绍 MOTD（支持中文与 § 色码）</span><input type="text" id="f-motd" value="MineDeck 开服 · 一起来玩！"></label>
+        <label class="field full"><span>服务器介绍 MOTD（支持中文与 § 色码）</span><input type="text" id="f-motd" value="MineDeck 开服 · 一起来玩"></label>
         <div class="field"><label class="switch"><input type="checkbox" id="f-online"><span class="sw"></span>
           <span><span class="sw-label">正版验证（online-mode）</span><div class="sw-desc">默认关闭：离线账户可直接进服</div></span></label></div>
         <div class="field"><label class="switch"><input type="checkbox" id="f-flight" checked><span class="sw"></span>
@@ -1361,7 +1361,7 @@ async function drawWizard() {
         <div class="hint" style="grid-column:1/-1">更多几十项设置（PVP、视距、白名单、命令方块…）可在创建后的「常用设置」中按分组修改。</div>`}
       </div>
       ${isProxy
-        ? `<div class="eula-box">代理端不运行 Minecraft 本体，无需 EULA。其监听端口等配置在首次启动后于实例目录的配置文件中修改。</div>`
+        ? `<div class="eula-box">代理端不跑 Minecraft 游戏本身，不用同意 EULA。端口这些，等第一次启动之后，在这台服务器目录里的配置文件改。</div>`
         : `<div class="eula-box">
         <label class="switch"><input type="checkbox" id="f-eula"><span class="sw"></span>
           <span class="sw-label">我已阅读并同意 <a href="https://aka.ms/MinecraftEULA" target="_blank">Minecraft 最终用户许可协议 (EULA)</a></span></label>
@@ -1392,7 +1392,7 @@ async function drawWizard() {
       $("#f-port").addEventListener("input", () => { if ($("#f-port").classList.contains("invalid")) checkPort(); });
       $("#f-eula").addEventListener("change", () => { if ($(".eula-box").classList.contains("invalid")) checkEula(); });
     }
-    renderMemoryControl($("#mem-mount"), { sliderId: "f-mem", min: 512, max: maxMem, value: defMem, totalMb: app.ramMb, availMb: app.availRamMb, hint: isProxy ? "代理端很省内存，1GB 通常足够" : "模组服建议 4GB 以上；纯净小队游玩 2~4GB 足够" });
+    renderMemoryControl($("#mem-mount"), { sliderId: "f-mem", min: 512, max: maxMem, value: defMem, totalMb: app.ramMb, availMb: app.availRamMb, hint: isProxy ? "代理端很省内存，1GB 通常足够" : "模组服建议 4GB 以上。没有模组的小队，2~4GB 足够。" });
     // 存放位置：目标路径跟随实例名，可浏览改到其它盘（中文名会自动生成英文目录）
     const clientSlug = s => { let o = ""; for (const c of (s || "")) { if (/[0-9A-Za-z_-]/.test(c)) o += c; else if (c === " " || c === ".") o += "-"; } o = o.replace(/^[-_]+|[-_]+$/g, ""); return o || "server-（自动）"; };
     const curRoot = () => wiz.root || app.serversRoot || "程序目录\\servers";
@@ -1441,7 +1441,7 @@ async function drawWizard() {
 /* ---------- 视图：创建任务进度 ---------- */
 async function renderTaskPage(taskId) {
   const gen = viewGen;
-  Main().innerHTML = pageHead("正在部署服务器", "自动下载 Java 与服务端核心，全程无需手动配置", "", "", "", "task-eyebrow") + `
+  Main().innerHTML = pageHead("正在部署服务器", "正在下载 Java 和服务端。这一步不用再改配置。", "", "", "", "task-eyebrow") + `
     <div id="task-box"><div class="sub">加载中…</div></div>`;
   // 骨架只建一次，之后每轮轮询只改变化的部分：新完成的步骤对勾弹出，经验条只点亮新增的格子（逐格错峰），不整块重绘重播
   const CELLS = 30;
@@ -1823,7 +1823,7 @@ async function renderDetail(name, tab = "console") {
             <a class="p-x" data-act="op" data-p="${esc(n)}" title="设为管理员" aria-label="OP ${esc(n)}">OP</a>
             <a class="p-x" data-act="kick" data-p="${esc(n)}" title="踢出" aria-label="踢 ${esc(n)}">踢</a></span>`).join("") || `<span class="sub">暂无玩家在线</span>`}</div>
         </div>
-        ${section("白名单", pl.whitelist, "whitelist-add", "whitelist-remove", "需在常用设置开启 white-list 才生效")}
+        ${section("白名单", pl.whitelist, "whitelist-add", "whitelist-remove", "要在「常用设置」里打开白名单（white-list）才生效。")}
         ${section("管理员 OP", pl.ops, "op", "deop", "")}
         ${section("封禁名单", pl.banned, "ban", "pardon", "")}
       </div>`;
@@ -1850,7 +1850,7 @@ async function renderDetail(name, tab = "console") {
           <label class="hint" style="display:flex;align-items:center;gap:6px;margin:0">保留最近 <input type="number" id="bk-keep" min="1" max="1000" value="${keep}" style="width:72px"> 份</label>
           <button class="btn sm" id="bk-keep-save">保存</button>
         </div>
-        <div class="hint" style="margin-bottom:14px">运行中自动热备（save-off → 压缩 → save-on）；备份数超过保留份数时自动滚动删除最旧的；删除实例不影响已有备份。保留份数为全局设置，对所有实例生效。</div>
+        <div class="hint" style="margin-bottom:14px">服务器开着的时候也会自动备份：先暂停自动存档，再压成压缩包，然后恢复自动存档。份数超过上面的保留份数，会删掉最旧的。删掉服务器不会删掉已经做好的备份。保留份数是全局的，每台服务器都用这一份。</div>
         <div class="group has-ico bk-list">${(list || []).map(b => `
           <div class="row-item"><div class="ri-head"><span class="ri-ico">${icon("package")}</span>
             <div class="ri-main"><div class="ri-title">${esc(b.file)}</div><div class="ri-key">${b.sizeMb.toFixed(1)} MB · ${esc(b.time)}</div></div>
@@ -1874,7 +1874,7 @@ async function renderDetail(name, tab = "console") {
       body.querySelectorAll("[data-restore]").forEach(b => b.onclick = async () => {
         const r = await confirmModal({
           title: "还原备份？", danger: true, okText: "还原", icon: "restore",
-          body: `将把世界回滚到 <b>${esc(b.dataset.restore)}</b>。<br>需要服务器处于停止状态；当前世界会先自动备份一份。`,
+          body: `将把世界回滚到 <b>${esc(b.dataset.restore)}</b>。<br>服务器必须是停止状态。当前世界会先自动备份一份。`,
         });
         if (!r) return;
         try { await api(`/api/instances/${encodeURIComponent(name)}/backups/restore`, { method: "POST", body: { file: b.dataset.restore } }); toast("还原完成"); }
@@ -1900,7 +1900,7 @@ async function renderDetail(name, tab = "console") {
     // 增删定时任务、切换崩溃重启都只是改了草稿：吸底保存条显示未保存项数，离开前会被拦下确认
     body.innerHTML = `<div style="max-width:640px">
       <div class="prop-item" style="margin-bottom:18px">
-        <div><div class="pl">崩溃自动重启</div><div class="pd">异常退出后按 10/30/60 秒退避重启；连续 3 次崩溃放弃并提示</div></div>
+        <div><div class="pl">崩溃自动重启</div><div class="pd">异常退出后，会隔 10 秒、30 秒、60 秒再启动。连续崩溃 3 次就不再自动启动，并给出提示。</div></div>
         <label class="switch"><input type="checkbox" id="pol-crash" ${pol.crashRestart ? "checked" : ""} aria-label="崩溃自动重启"><span class="sw"></span></label>
       </div>
       <h3 style="margin-bottom:8px">每日定时任务</h3>
@@ -1947,7 +1947,7 @@ async function renderDetail(name, tab = "console") {
       const day = d.toDateString() === new Date().toDateString() ? "今天" : "明天";
       $("#sc-at").value = hm;
       scErr("");
-      $("#sc-hint").textContent = `已填成 ${hm}：${day} ${hm} 执行第一次，之后每天这个时间都执行；只想试一次的话，执行完把它移除。点「添加」再保存才生效。`;
+      $("#sc-hint").textContent = `已填成 ${hm}。${day} ${hm} 会执行第一次，以后每天这个时间都执行。只想执行一次的话，执行完把它移除。点「添加」，再保存，才会生效。`;
     });
     ["#sc-at", "#sc-args"].forEach(s => $(s).addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("#sc-add").click(); } }));
     $("#sc-add").onclick = () => {
@@ -1995,7 +1995,7 @@ async function renderDetail(name, tab = "console") {
           b.textContent = "安装中…"; label("安装中…");
           try {
             const res = await api(`/api/instances/${encodeURIComponent(name)}/resources/install`, { method: "POST", body: { projectId: b.dataset.rid } });
-            toast(`已安装 ${b.dataset.rt} → ${res.file}（重启服务器生效）`);
+            toast(`已安装 ${b.dataset.rt}，文件是 ${res.file}。重启服务器后生效`);
             b.innerHTML = icon("check") + " 已安装"; label("已安装");
           } catch (e) { toast(e.message, true); b.disabled = false; b.innerHTML = icon("download") + " 安装"; label("安装"); }
         });
@@ -2006,7 +2006,7 @@ async function renderDetail(name, tab = "console") {
 
   } else if (tab === "common") {
     if (info.kind === "proxy") {
-      body.innerHTML = `<div class="sub">代理端的监听端口、后端服务器列表等配置位于实例目录内其自带的配置文件（Velocity: velocity.toml；Waterfall: config.yml），首次启动后自动生成，用「打开目录」按钮编辑即可。</div>`;
+      body.innerHTML = `<div class="sub">代理端的监听端口、后端服务器列表，在这台服务器目录里的配置文件中。Velocity 是 velocity.toml。Waterfall 是 config.yml。第一次启动之后才会生成。用「打开目录」去改。</div>`;
       return;
     }
     let data;
@@ -2050,13 +2050,13 @@ async function renderDetail(name, tab = "console") {
         <div class="search-field">${icon("search", "sf-ico")}<input type="text" id="cp-search" placeholder="搜索设置项（中文名 / 键名，如 视距 / rcon）" style="width:320px"></div>
         <div class="cp-chips">${GROUPS.map((g, i) => inGroup(g).length ? `<button class="cp-chip" data-g="${i}">${g}</button>` : "").join("")}</div>
       </div>
-      ${data.pairs.length === 0 ? `<div class="warn-text" style="margin-bottom:12px;display:flex;align-items:flex-start;gap:7px;line-height:1.7">${icon("warn")}<span>服务器还未首次启动，部分配置项将在首次启动后由服务端补全；现在设置的值会被保留。</span></div>` : ""}
+      ${data.pairs.length === 0 ? `<div class="warn-text" style="margin-bottom:12px;display:flex;align-items:flex-start;gap:7px;line-height:1.7">${icon("warn")}<span>服务器还没第一次启动。有些项要等第一次启动之后，由服务端补上。现在填的值会留下。</span></div>` : ""}
       <div id="cp-list">${GROUPS.map((g, i) => {
         const gi = inGroup(g);
         return gi.length ? `<div class="cp-group" id="cpg-${i}"><h3 class="cp-gh">${g}<span class="cp-gn">${gi.length}</span></h3>
           <div class="props-grid">${gi.map(rowHTML).join("")}</div></div>` : "";
       }).join("")}</div>
-      ${saveBar("保存设置", running ? `<span class="warn-text">${icon("warn")} 运行中：保存后需重启生效（游戏规则即时生效）</span>` : "")}`;
+      ${saveBar("保存设置", running ? `<span class="warn-text">${icon("warn")} 服务器开着。保存后要重启才生效。游戏规则保存后马上生效。</span>` : "")}`;
     body.querySelectorAll(".cp-chip").forEach(c => c.onclick = () => $("#cpg-" + c.dataset.g, body)?.scrollIntoView({ behavior: "smooth", block: "start" }));
     wireSearch($("#cp-search"), () => {
       const q = $("#cp-search").value;
@@ -2177,13 +2177,13 @@ async function renderDetail(name, tab = "console") {
     body.innerHTML = `
       <div style="max-width:640px">
         <div class="field" id="jm-mem-mount"></div>
-        <label class="field"><span>自定义 JVM 参数（每行一个或空格分隔；-Xmx/-Xms 由上方内存自动生成，无需在此填写）</span>
+        <label class="field"><span>自定义 JVM 参数。每行一个，或用空格分隔。-Xmx 和 -Xms 由上面的内存自动生成，不用在这里填。</span>
           <textarea id="jm-jvm" rows="5" spellcheck="false" placeholder="如：-XX:+UseG1GC">${esc((info.extraJvm || []).join("\n"))}</textarea></label>
         <div class="row" style="margin-bottom:12px;flex-wrap:wrap">
           <button class="btn sm" id="jm-aikar">${icon("bolt")} 套用 Aikar's Flags（G1GC 优化）</button>
           <button class="btn sm" id="jm-clear">清空</button>
         </div>
-        <div class="hint" style="margin-bottom:14px">Java ${info.javaMajor}（便携运行时，独立管理，不影响系统）<br>实例目录：${esc(info.dir)}<br>手动启动：双击实例目录中的 run.bat（与此处配置同步）</div>
+        <div class="hint" style="margin-bottom:14px">Java ${info.javaMajor}（MineDeck 下载的，不改系统里的 Java）<br>服务器目录：${esc(info.dir)}<br>要自己启动：双击这个目录里的 run.bat（和这里的设置是同一份）</div>
         ${saveBar("保存", info.status === "stopped" ? "" : `<span class="warn-text">${icon("warn")} 运行中：保存后需重启生效</span>`)}
       </div>`;
     renderMemoryControl($("#jm-mem-mount"), { sliderId: "jm-mem", min: 1024, max: maxMem, value: Math.min(info.xmxMb, maxMem), totalMb: appInfo.ramMb, availMb: appInfo.availRamMb });
@@ -2224,15 +2224,15 @@ async function renderTunnels() {
   try { insts = await api("/api/instances"); } catch {}
   if (stale(gen)) return;
   Main().innerHTML = pageHead("内网穿透",
-    "把本地服务器映射到公网，异地朋友也能直接连接。基于 <b>OpenFrp OPENAPI</b>，并支持 SakuraFrp 与自建 frps。",
+    "把这台电脑上的服务器映射到公网，不在同一个网络的朋友也能连。可以用 OpenFrp、樱花穿透（SakuraFrp），也可以填自己的 frps。",
     `<button class="btn primary" id="tn-toggle" aria-expanded="false" aria-controls="tn-form">${icon("plus")} 添加隧道</button>`, "", "", "tun-summary") + `
     <div id="tun-list">${skeletonRows(4)}</div>
     <div id="tn-form" class="card" hidden style="margin-top:16px;max-width:var(--w-read)">
     <h3 style="margin-bottom:8px">添加隧道</h3>
     <div class="hint" style="margin-bottom:14px;line-height:1.8">
-      <b>OpenFrp</b>：到 <a href="https://console.openfrp.net" target="_blank">OpenFrp 控制台</a> 创建 TCP 隧道（本地端口填 MC 端口）→「个人中心」复制用户密钥；<br>
-      <b>樱花frp</b>：到 <a href="https://www.natfrp.com" target="_blank">SakuraFrp</a> 创建隧道 → 复制访问密钥与隧道 ID（首次需手动放置其 frpc，按提示操作）；<br>
-      <b>自定义</b>：填自己 frps 服务器的地址、端口与 token。
+      <b>OpenFrp</b>：到 <a href="https://console.openfrp.net" target="_blank">OpenFrp 控制台</a> 创建 TCP 隧道，本地端口填这台服务器的端口。再到「个人中心」复制用户密钥。<br>
+      <b>樱花frp</b>：到 <a href="https://www.natfrp.com" target="_blank">SakuraFrp</a> 创建隧道。复制访问密钥和隧道 ID。第一次要按提示把 frpc 放好。<br>
+      <b>自定义</b>：填自己的 frps 地址、端口和 token。
     </div>
     <div class="form-grid">
       <label class="field"><span>服务商</span><select id="tn-provider">
@@ -2496,7 +2496,7 @@ function setAppearance(body) {
     body.innerHTML = settingsHead("主题模式", "「跟随系统」会随 Windows 的浅色 / 深色设置自动切换。") +
       `<div class="seg" role="radiogroup" aria-label="主题模式">${["auto", "light", "dark"].map(m =>
         `<button type="button" role="radio" aria-checked="${a.mode === m}" class="${a.mode === m ? "on" : ""}" data-mode="${m}">${icon(MODE_ICON[m])}${MODE_LABEL[m]}</button>`).join("")}</div>` +
-      settingsHead("配色方案", "浅色与深色下的文字对比度均已按 WCAG AA 校验。点一下整个界面都会换。") +
+      settingsHead("配色方案", "点一下，整个界面都会换。") +
       `<div class="scheme-grid">${SCHEMES.map(s => `
         <button type="button" class="scheme-card ${a.scheme === s.id ? "on" : ""}" data-scheme-pick="${s.id}" aria-pressed="${a.scheme === s.id}">
           <div class="sc-preview" data-scheme="${s.id}" data-theme="${theme}" data-accent="${a.accent}" aria-hidden="true">
@@ -2528,12 +2528,12 @@ function setAppearance(body) {
 /* — 启动与托盘 — */
 function setStartup(body, info) {
   const c = info.config || {};
-  body.innerHTML = settingsHead("启动与托盘", "控制点窗口关闭按钮时做什么，以及开机自启。程序开着时托盘里有它的图标：左键点击恢复窗口，右键可「打开面板 / 全部停止并退出」；程序退出后图标随之消失。") +
+  body.innerHTML = settingsHead("启动与托盘", "这里管两件事：点窗口关闭按钮时做什么，以及开机要不要自己打开。程序开着的时候，托盘里有图标。左键点一下，恢复窗口。右键可以「打开面板」或「全部停止并退出」。程序退出后，图标会消失。") +
     group(
-      switchRow("monitor", "最小化到系统托盘", "开启后点窗口关闭按钮不退出程序，而是收进托盘、服务器继续运行，点托盘图标即可恢复窗口。不开启时点关闭按钮会退出程序并停止服务器；有服务器在运行时会先询问，可以改为最小化到托盘。", "minimizeToTray", c.minimizeToTray) +
-      switchRow("power", "开机自动启动", "登录 Windows 后自动在后台（托盘）启动 MineDeck。写入当前用户启动项（HKCU\\…\\Run，免管理员）；程序换目录后重新开关一次即修正路径。", "autoStart", info.autoStart),
+      switchRow("monitor", "最小化到系统托盘", "打开之后，点窗口的关闭按钮不会退出，会收到托盘里，服务器继续运行。点托盘图标可以恢复窗口。关掉这个开关时，点关闭按钮会退出程序，并停掉服务器。有服务器在运行时会先问你，也可以改成最小化到托盘。", "minimizeToTray", c.minimizeToTray) +
+      switchRow("power", "开机自动启动", "登录 Windows 后，MineDeck 会在后台（托盘）自己打开。不用管理员权限。程序换了文件夹以后，把这个开关关一次再开，路径就会改过来。", "autoStart", info.autoStart),
       { ico: true }) +
-    `<div class="hint">开机自启以「静默进托盘」方式启动（附加 -minimized 参数），配合上面的托盘开关体验最佳。</div>`;
+    `<div class="hint">开机自启时直接进托盘，不先弹出窗口。上面的「最小化到系统托盘」也开着的话，之后点关闭按钮也会收回托盘，服务器不会停。</div>`;
   body.querySelectorAll("input[data-cfg]").forEach(inp => inp.onchange = async () => {
     const key = inp.dataset.cfg;
     try {
@@ -2547,7 +2547,7 @@ function setStartup(body, info) {
 /* CurseForge API Key 只写不读（后端只告诉 cfKeySet）：已设置时输入框留空、占位写「已设置」，旁边给「清除」；
    存着的 Key 解不开（换了电脑或 Windows 用户）时提示重填，也可以直接清除 */
 const cfKeySub = k => k.broken ? `<span class="warn-text">${icon("warn")} 密钥无法解开，可能换了电脑或 Windows 用户，请重新填写</span>`
-  : "加密保存在本机（Windows DPAPI），换电脑或换 Windows 用户后需要重填";
+  : "加密保存在这台电脑上。换电脑或换 Windows 用户后需要重填";
 const cfKeyHolder = k => k.set ? "已设置（留空不修改）" : "粘贴 API Key";
 
 /* — 下载与网络 — 下载源是一组单选行（选中行右侧打勾，点选即时生效）；API Key 是单字段保存 */
@@ -2556,14 +2556,14 @@ function setDownload(body, info) {
   const cf = { set: !!info.cfKeySet, broken: !!info.cfKeyBroken };
   const opts = [
     { v: "auto", t: "自动（推荐）", d: "国内镜像（BMCLAPI / 清华）优先，失败自动切换官方源" },
-    { v: "mirror", t: "仅国内镜像", d: "只用 BMCLAPI 与清华镜像（Paper/Purpur 无镜像，仍走官方）" },
+    { v: "mirror", t: "仅国内镜像", d: "只用 BMCLAPI 和清华镜像。Paper 和 Purpur 没有国内镜像，这两项仍从官方下载。" },
     { v: "official", t: "仅官方源", d: "只用 Mojang / Forge / Adoptium 等官方源（海外网络适用）" },
   ];
   const check = on => `<span class="ri-check${on ? " on" : ""}" aria-hidden="true">${icon("check")}</span>`;
   body.innerHTML = settingsHead("下载源", "下载 Java 与服务端核心时的线路选择。") +
     group(opts.map(o => riRow({ title: o.t, sub: esc(o.d), right: check(src === o.v), cls: "choice" + (src === o.v ? " sel" : ""),
       attrs: `role="radio" tabindex="0" aria-checked="${src === o.v}" data-v="${o.v}"` })).join(""), { attrs: `id="src-cards" role="radiogroup" aria-label="下载源"` }) +
-    settingsHead("CurseForge API Key（选填）", `导入 CurseForge 格式整合包时解析模组直链用，<a href="https://console.curseforge.com/" target="_blank">免费申请</a>；Modrinth 格式整合包无需配置。`) +
+    settingsHead("CurseForge API Key（选填）", `导入 CurseForge 格式整合包、要下载里面的模组时用。<a href="https://console.curseforge.com/" target="_blank">免费申请</a>。Modrinth 格式不用填。`) +
     group(riRow({ ico: "package", title: "API Key", sub: `<span id="cf-sub">${cfKeySub(cf)}</span>`,
       field: `<input type="password" id="cf-key" autocomplete="off" placeholder="${cfKeyHolder(cf)}" aria-label="CurseForge API Key"><button class="btn" id="cf-save">保存</button><button class="btn ghost" id="cf-clear"${cf.set || cf.broken ? "" : " hidden"}>清除</button>` }), { ico: true });
   const pick = async c => {
@@ -2619,13 +2619,13 @@ function storageRow(ico, title, path, desc, pick) { // 三行都有「打开」�
 }
 function setStorage(body, info) {
   const draw = () => {
-    body.innerHTML = settingsHead("存储位置", "服务器实例与备份的存放根目录。更改仅对之后新建的实例 / 备份生效，已有实例不会自动搬家。") +
+    body.innerHTML = settingsHead("存储位置", "服务器和备份放在哪个文件夹。改了之后，只对新建的服务器和备份生效。已经有的不会自动搬过去。") +
       group(
-        storageRow("server", "服务器存放目录", info.serversRoot, "新实例默认创建于此目录下（每个实例一个子文件夹，中文名自动生成英文目录）", "servers") +
-        storageRow("package", "备份存放目录", info.backupsRoot, "世界热备份的存放位置", "backups") +
-        storageRow("folder", "程序数据目录", info.base, "程序自身、Java 运行时与下载缓存所在（便携，随程序整体迁移）", ""),
+        storageRow("server", "服务器存放目录", info.serversRoot, "新的服务器会建在这个目录里，一台一个子文件夹。中文名字不会直接用作文件夹名。", "servers") +
+        storageRow("package", "备份存放目录", info.backupsRoot, "服务器开着时做的备份，放在这里。", "backups") +
+        storageRow("folder", "程序数据目录", info.base, "程序、下载的 Java 和缓存都在这里。整个文件夹可以一起复制走。", ""),
         { ico: true }) +
-      `<div class="hint">建议放到大容量分区（如 D 盘）以免占满系统盘；点「更改…」会弹出系统文件夹选择框（仅本机可用，手机远程管理时请在主机操作）。</div>`;
+      `<div class="hint">建议放到空间大的盘，比如 D 盘，免得占满系统盘。点「更改…」会打开系统的文件夹选择框。这只在这台电脑上能用。用手机远程管理时，请在这台电脑上改。</div>`;
     body.querySelectorAll("[data-open]").forEach(b => b.onclick = () =>
       api("/api/openpath", { method: "POST", body: { path: b.dataset.open } }).catch(e => toast(e.message, true)));
     body.querySelectorAll("[data-pick]").forEach(b => b.onclick = async () => {
@@ -2655,13 +2655,13 @@ function setStorage(body, info) {
 
 /* — Java 运行时 — */
 async function setJava(body, info) {
-  const head = settingsHead("Java 运行时", "创建实例时优先复用本机已装 Java → 便携运行时 → 自动下载。");
+  const head = settingsHead("Java 运行时", "新建服务器时，先用这台电脑上已经装好的 Java。没有合适的，就用 MineDeck 下载过的。还没有，就再下载一个。");
   body.innerHTML = head + `<div class="sub">加载中…</div>`;
   let javas = { portable: [], scanned: [] };
   try { javas = await api("/api/javas"); } catch {}
   body.innerHTML = head +
     group(
-      riRow({ ico: "package", title: "便携运行时", sub: "MineDeck 自动下载到程序目录 runtimes\\ 下，独立管理、不碰系统环境变量",
+      riRow({ ico: "package", title: "便携运行时", sub: "MineDeck 自己下载的 Java，单独放着，不改你系统里已经装的 Java。",
         right: javas.portable.length ? `<span class="badges">${javas.portable.map(j => `<span class="badge core">Java ${j.major}</span>`).join("")}</span>` : `<span class="ri-summary">暂无</span>` }) +
       (javas.scanned.length ? javas.scanned.map(j => riRow({ ico: "coffee", titleHTML: `Java ${j.major} <span class="badge">${esc(j.version)}</span>`, key: j.path })).join("")
         : riRow({ ico: "coffee", title: "本机已安装的 Java", sub: "尚未发现，点下方「重新扫描」或手动添加" })),
@@ -2700,18 +2700,18 @@ function setRemote(body, info) {
         field: `<input type="password" id="lan-pw" placeholder="${info.lanSet ? "已设置（输入新密码可修改）" : "设置访问密码（必填）"}" aria-label="访问密码"><button class="btn" id="lan-save">保存</button>`,
         after: `<div class="field-err ri-err" id="lan-pw-err"></div>` }),
       { ico: true }) +
-    (on && !live ? `<div class="hint" id="lan-restart">${icon("info")} 局域网访问已开启，重启 MineDeck 后生效；重启后这里会显示手机扫码地址。</div>` : "") +
+    (on && !live ? `<div class="hint" id="lan-restart">${icon("info")} 局域网访问已开启。重启 MineDeck 后生效。重启之后，这里会显示手机扫码用的地址。</div>` : "") +
     (!(on && live) ? "" : ips.length ? `<div class="qr-card">
       <div class="qr-box" id="qr-box" role="img"></div>
       <div class="qr-info">
         <div class="ri-title">手机扫码访问</div>
-        <div class="ri-sub">用手机相机或浏览器扫一扫，打开后输入访问密码即可管理；手机需与本机连在同一局域网（同一 Wi-Fi / 路由器）。</div>
+        <div class="ri-sub">用手机相机或浏览器扫这个码。打开后输入访问密码就能管理。手机要和这台电脑连在同一个局域网（同一个 Wi-Fi 或路由器）。</div>
         <div class="qr-url" id="qr-url"></div>
         ${ips.length > 1 ? `<div class="qr-ips">${ips.map((ip, i) => `<button type="button" class="qr-ip" data-i="${i}">${esc(ip)}</button>`).join("")}</div>
         <div class="hint">本机有多个网络地址：扫码打不开就换一个（家用路由器下通常是 192.168.x.x）。</div>` : ""}
       </div>
     </div>` : `<div class="hint">未检测到本机局域网 IP，请确认已连接网络。</div>`) +
-    `<div class="hint">若无法访问，请以管理员运行一次放行防火墙：<code>netsh advfirewall firewall add rule name="MineDeck" dir=in action=allow protocol=TCP localport=${esc(String(lanPort))}</code></div>`;
+    `<div class="hint">还是打不开的话，用管理员身份运行一次下面这条命令，放行防火墙：<code>netsh advfirewall firewall add rule name="MineDeck" dir=in action=allow protocol=TCP localport=${esc(String(lanPort))}</code></div>`;
   const lanOn = $("#lan-on"), lanPw = $("#lan-pw");
   const pwErr = msg => { lanPw.classList.toggle("invalid", !!msg); $("#lan-pw-err").innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; };
   const effect = turnOn => turnOn ? (live ? "" : "，重启 MineDeck 后生效") : (live ? "，局域网里的设备现在起打不开管理界面" : "");
@@ -2735,7 +2735,7 @@ function setRemote(body, info) {
     try {
       await api("/api/config", { method: "PUT", body: b });
       saved(b);
-      toast((turnOn ? "已开启局域网访问" : "已关闭局域网访问") + effect(turnOn) + (b.lanPassword && info.lanSet ? "；新的访问密码已保存" : ""));
+      toast((turnOn ? "已开启局域网访问" : "已关闭局域网访问") + effect(turnOn) + (b.lanPassword && info.lanSet ? "。新的访问密码已保存" : ""));
     } catch (e) { lanOn.checked = !turnOn; lanOn.disabled = false; toast(e.message, true); }
   };
   // 保存密码：开关开着（或刚才因为没密码被拨回去）时一起开启，即「密码和开关一起保存」
@@ -2771,7 +2771,7 @@ function setRemote(body, info) {
 /* — 通知与集成 — */
 function setNotify(body, info) {
   body.innerHTML = settingsHead("通知与集成", "服务器启停 / 崩溃、玩家进出、备份完成、隧道上线等事件，可以推送到群机器人等外部服务。") +
-    group(riRow({ ico: "bell", title: "Webhook 事件推送（选填）", sub: "事件以 JSON POST 到该地址；留空即关闭",
+    group(riRow({ ico: "bell", title: "Webhook 事件推送（选填）", sub: "有事件时，会向这个地址 POST 一条 JSON。留空就是关闭。",
       field: `<input type="text" id="wh-url" value="${esc(info.config.webhookUrl || "")}" placeholder="https://example.com/hook（留空关闭）" aria-label="Webhook 地址"><button class="btn" id="wh-save">保存</button>` }), { ico: true });
   bindSaveInput($("#wh-url"), $("#wh-save"), async v => {
     await api("/api/config", { method: "PUT", body: { webhookUrl: v.trim() } });
@@ -2816,7 +2816,7 @@ function drawAI(body, v, gen) {
   const dis = ro ? " disabled" : "";
   const opt = (val, label, cur) => `<option value="${esc(val)}"${val === cur ? " selected" : ""}>${esc(label)}</option>`;
   body.innerHTML =
-    settingsHead("AI 服务商（可选）", "选好服务商、填好 Key 和模型之后才启用 AI；没配置时 MineDeck 不连接任何 AI 服务，也不下载价格数据。下面的预设只是方便填写的模板，不代表推荐。") +
+    settingsHead("AI 服务商（可选）", "选好服务商、填好 Key 和模型之后才启用 AI。没配置时，MineDeck 不连接任何 AI 服务，也不下载价格数据。下面的预设只是方便填写的模板，不代表推荐。") +
     (ro ? `<div class="warn-card"><div class="wc-title">${icon("lock")} AI 设置仅支持在本机修改</div><div class="wc-note">这里只能查看。Key 和接口地址只能在运行 MineDeck 的那台电脑上改。</div></div>` : "") +
     `<div class="ai-status" id="ai-status"></div>` +
     group(
@@ -2849,10 +2849,10 @@ function drawAI(body, v, gen) {
     `<div class="group has-ico" id="ai-prices"></div>` +
     `<div id="ai-assist-slot"></div>` +
     `<div id="ai-mcp-slot"></div>` +
-    (ro ? "" : group(riRow({ ico: "power", title: "停用 AI", sub: "清掉服务商设置和 Key；用量记录、额度和自填单价保留",
+    (ro ? "" : group(riRow({ ico: "power", title: "停用 AI", sub: "清掉服务商设置和 Key。用量记录、额度和自填单价会留下。",
       right: `<button class="btn danger" id="ai-off">停用</button>` }), { ico: true, cls: "danger-zone", attrs: `id="ai-off-zone" style="margin-top:28px"` })) +
-    `<div class="hint" style="margin-top:20px;line-height:1.8">隐私：用 AI 时，提问内容和工具结果（实例信息、配置、日志片段等）会发给所选的服务商，各家的数据保留政策不一样；在意隐私可以用本机的 Ollama。
-      Key 用 Windows DPAPI 加密保存在本机，不会发给界面，也不会写进日志和操作记录。取价格数据只是整份下载 LiteLLM 的公开文件（经 GitHub 加速镜像），不发送任何用户数据。</div>`;
+    `<div class="hint" style="margin-top:20px;line-height:1.8">隐私：用 AI 时，提问和查到的结果（服务器信息、配置、日志片段等）会发给你选的那家服务商。各家保留数据的规则不一样。在意这一点，可以用本机的 Ollama。
+      Key 加密保存在这台电脑上，不会发到这个界面，也不会写进日志和操作记录。下载价格只是去取一份公开的价格表（经 GitHub 加速镜像），不发送任何用户数据。</div>`;
 
   const f = { preset: $("#ai-preset"), proto: $("#ai-proto"), url: $("#ai-url"), key: $("#ai-key"), model: $("#ai-model"), effort: $("#ai-effort") };
   const cur = () => P[f.preset.value];
@@ -2887,16 +2887,16 @@ function drawAI(body, v, gen) {
     if (noKey) ks = "本机模型不用 Key";
     else if (v.keyBroken && !keyGone()) ks = `<span class="warn-text">${icon("warn")} 密钥无法解开，可能换了电脑或 Windows 用户，请重新填写</span>`;
     else if (v.keySet && keyGone()) ks = `<span class="warn-text">${icon("warn")} 换了服务商或接口地址的网站：保存后原来的 Key 会清掉（不会发给新地址），要重新填写</span>`;
-    else ks = "加密保存在本机（Windows DPAPI），换电脑或换 Windows 用户后要重填";
+    else ks = "加密保存在这台电脑上。换电脑或换 Windows 用户后要重填";
     if (custom && !noKey) ks += "。注意：中转方能看到全部对话和 Key";
     $("#ai-key-sub").innerHTML = ks;
   };
   const paintPrices = () => {
     const ps = v.prices || {};
     let src;
-    if (!v.priceNeeded) src = v.enabled ? "本机模型不花钱，不下载价格数据" : "配置好要花钱的服务商之后，才会下载 LiteLLM 的公开价格（只配了 Ollama 不下载）";
-    else if (ps.fetching) src = "正在下载 LiteLLM 的公开价格…";
-    else src = ps.updated ? `按 LiteLLM 公开价格估算 · ${esc(ps.updated)} 更新 · ${ps.count} 个模型（7 天自动刷新一次）` : "还没取到 LiteLLM 的公开价格";
+    if (!v.priceNeeded) src = v.enabled ? "本机模型不花钱，不下载价格数据" : "配了要付费的服务商之后，才会下载公开价格（只配了 Ollama 就不下载）";
+    else if (ps.fetching) src = "正在下载公开价格…";
+    else src = ps.updated ? `按公开价格估算 · ${esc(ps.updated)} 更新 · ${ps.count} 个模型（7 天自动刷新一次）` : "还没取到公开价格";
     if (v.priceNeeded && ps.error) src += `<br><span class="warn-text">${icon("warn")} ${esc(ps.error)}</span>`;
     $("#ai-price-src").innerHTML = src;
     $("#ai-price-refresh").disabled = ro || !v.priceNeeded || ps.fetching;
@@ -2999,7 +2999,7 @@ function drawAI(body, v, gen) {
       delete $("#ai-test-sub").dataset.result;
       repaint();
       window.MDAssist?.refresh(); // 标题栏的助手入口随之更新
-      toast(v.enabled ? "AI 设置已保存" : `已保存；还差：${v.missing}`);
+      toast(v.enabled ? "AI 设置已保存" : `已保存。还差：${v.missing}`);
     });
 
   $("#ai-key-clear").onclick = async () => {
@@ -3063,14 +3063,14 @@ function drawAI(body, v, gen) {
 
   $("#ai-price-refresh").onclick = async () => {
     $("#ai-price-refresh").disabled = true;
-    $("#ai-price-src").textContent = "正在下载 LiteLLM 的公开价格…";
+    $("#ai-price-src").textContent = "正在下载公开价格…";
     try { v = await api("/api/ai/prices/refresh", { method: "POST" }); toast("价格数据已更新"); }
     catch (e) { toast(e.message, true); v = await api("/api/ai/settings").catch(() => v); }
     if (!stale(gen)) paintPrices();
   };
 
   if (!ro) $("#ai-off").onclick = async () => {
-    const r = await confirmModal({ title: "停用 AI？", body: "会清掉服务商设置和 Key；用量记录、每日额度和自填单价保留。之后可以重新配置。", okText: "停用", danger: true, icon: "power" });
+    const r = await confirmModal({ title: "停用 AI？", body: "会清掉服务商设置和 Key。用量记录、每日额度和自填单价会留下。之后可以重新配置。", okText: "停用", danger: true, icon: "power" });
     if (!r) return;
     try { await api("/api/ai/provider", { method: "PUT", body: { preset: "" } }); toast("已停用 AI"); dirtyCheck = null; navigate(); }
     catch (e) { toast(e.message, true); }
@@ -3101,7 +3101,7 @@ function setAbout(body, info) {
       Minecraft 是 Mojang Studios 的商标，本工具与 Mojang / Microsoft / 网易均无隶属或授权关系。<br>
       NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.
     </div>` +
-    group(riRow({ ico: "power", title: "退出程序", sub: "优雅停止所有运行中的服务器（保存世界）后退出",
+    group(riRow({ ico: "power", title: "退出程序", sub: "先保存世界，停掉正在运行的服务器，然后退出",
       right: `<button class="btn danger" id="quit-app">${icon("power")} 退出 MineDeck</button>` }), { ico: true, cls: "danger-zone", attrs: `style="margin-top:28px"` });
   bindSaveInput($("#up-repo"), $("#up-save"), async v => {
     await api("/api/config", { method: "PUT", body: { updateRepo: v.trim() } });
@@ -3132,7 +3132,7 @@ function setAbout(body, info) {
     } catch (e) { $("#up-result").textContent = e.message; }
   };
   $("#quit-app").onclick = async () => {
-    const r = await confirmModal({ title: "退出 MineDeck？", body: "将优雅停止所有运行中的服务器（保存世界）后退出程序。", okText: "退出", danger: true, icon: "power" });
+    const r = await confirmModal({ title: "退出 MineDeck？", body: "会先保存世界，停掉正在运行的服务器，然后退出程序。", okText: "退出", danger: true, icon: "power" });
     if (!r) return;
     try { await api("/api/shutdown", { method: "POST" }); document.body.innerHTML = `<div style="padding:80px;text-align:center;color:var(--muted)">MineDeck 正在停止服务器并退出，可以关闭此页面了。</div>`; }
     catch (e) { toast(e.message, true); }
@@ -3146,17 +3146,17 @@ function showOnboarding(info) {
   const SRC = { auto: "自动（推荐）— 国内镜像优先，失败自动回退官方源", mirror: "镜像优先 — 国内下载更快", official: "仅官方源 — 网络直连国外" };
   const cur = (info.config && info.config.source) || "auto";
   root.innerHTML = `<div class="modal-mask enter"><div class="modal onboard" role="dialog" aria-modal="true">
-    <div class="brand-head">${logoImg()}<div><h3>欢迎使用 MineDeck</h3><div class="sub">Minecraft 一键开服工具</div></div></div>
+    <div class="brand-head">${logoImg()}<div><h3>欢迎使用 MineDeck</h3><div class="sub">Minecraft 开服工具</div></div></div>
     <div class="m-body">
       <div class="ob-sec" style="margin-top:0"><div class="ob-label">用户协议与免责声明</div>
         <div class="ob-terms">
-          MineDeck 是开源、非营利的 Minecraft Java 版开服辅助工具：仅从 Mojang、PaperMC 等官方公开渠道下载服务端文件并配置本地运行环境，<b>不包含、不分发游戏客户端，不修改游戏本体，不破解正版验证</b>。
+          MineDeck 是开源、非营利的 Minecraft Java 版开服辅助工具。它只从 Mojang、PaperMC 等官方公开渠道下载服务端，并在你的电脑上配好运行环境。<b>不包含、也不分发游戏客户端，不修改游戏本身，也不破解正版验证</b>。
           <ol>
             <li><b>非官方产品</b>：本工具由社区独立开发，与 Mojang Studios、Microsoft 及网易（中国版《我的世界》运营方）均无任何隶属、合作或授权关系。NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT. "Minecraft" 及相关商标归 Mojang / Microsoft 所有。</li>
             <li><b>遵守官方条款</b>：使用本工具搭建与运行服务器，须遵守 <b>Minecraft EULA</b> 与 Microsoft 服务协议；如你使用网易代理的中国版《我的世界》账号或内容，请另行遵守网易的用户协议（两套账号体系互不相通，本工具仅面向国际 Java 版服务端）。</li>
             <li><b>正版建议</b>：建议使用正版 Mojang / Microsoft 账号并开启正版验证联机。是否使用离线模式由你自行决定并自行承担相应后果，本工具不提供任何绕过正版验证的功能。</li>
             <li><b>对外服务责任自负</b>：通过内网穿透等方式向他人开放服务器时，你是该服务器的运营者，须自行遵守所在地法律法规（含网络安全与未成年人保护相关规定），并对服务器内容与运营行为负责。</li>
-            <li><b>开源免责</b>：本软件基于 MIT 协议按「现状」提供，不作任何明示或默示担保；因使用或无法使用本软件导致的任何数据丢失、账号问题或其他损失，作者及贡献者不承担责任。</li>
+            <li><b>开源免责</b>：本软件基于 MIT 协议按「现状」提供，不作任何明示或默示担保。因使用或无法使用本软件导致的任何数据丢失、账号问题或其他损失，作者及贡献者不承担责任。</li>
           </ol>
         </div>
         <label class="ob-agree"><input type="checkbox" id="ob-agree"><span>我已阅读并同意上述《用户协议与免责声明》及 <a href="https://aka.ms/MinecraftEULA" target="_blank">Minecraft EULA</a></span></label>

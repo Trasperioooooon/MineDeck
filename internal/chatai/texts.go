@@ -18,7 +18,7 @@ import (
 // 没有执行权限的人不显示 /问，因为对他们来说本来就只回答。
 func (r *room) helpText(set Settings, authorized bool, comp string) string {
 	p := set.Prefix
-	opts := []string{"/私（只回你；你的提问别人照样看得到）"}
+	opts := []string{"/私（只回你，但你的提问别人照样看得到）"}
 	if authorized {
 		opts = append(opts, "/问（只回答、不执行命令）")
 	}
@@ -43,7 +43,7 @@ func (r *room) helpText(set Settings, authorized bool, comp string) string {
 		text = "我是伙伴「" + comp + "」。" + text
 	}
 	if !r.s.ai.Enabled() {
-		text += "\n主机的 MineDeck 还没配置 AI，现在问不了问题。"
+		text += "\nMineDeck 还没配置 AI，现在问不了问题。"
 	}
 	return text
 }
@@ -74,9 +74,9 @@ func (r *room) quotaText(set Settings, player string, now time.Time, feat ai.Fea
 		parts = append(parts, fmt.Sprintf("你今天问了 %d 次，没有次数限制", used))
 	}
 	if cd > 0 {
-		parts = append(parts, "冷却还剩 "+secs(cd)+" 秒")
+		parts = append(parts, "还要等 "+secs(cd)+" 秒才能再问")
 	}
-	text := strings.Join(parts, "，") + "。"
+	text := strings.Join(parts, "。") + "。"
 	if _, _, live := r.s.companionsLive(r.name); live && set.PerPlayer > 0 {
 		if comp {
 			text += fmt.Sprintf("\n问 AI 另算，今天还能问 %d 次。", max(0, set.PerPlayer-other))
@@ -167,7 +167,7 @@ func providerName(svc *ai.Service) string {
 	case !ok:
 		return "AI 服务商"
 	case p.Local:
-		return "主机上的本机模型（" + p.Name + "，不出这台电脑）"
+		return "开服那台电脑上的模型（" + p.Name + "，不会发到别处）" // 这句是发给玩家看的：「这台电脑」在玩家眼里是他自己的电脑
 	case p.ID == ai.CustomID:
 		if u, err := url.Parse(cur.BaseURL); err == nil && u.Hostname() != "" {
 			return spaced(u.Hostname())

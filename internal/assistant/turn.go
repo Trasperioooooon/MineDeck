@@ -225,7 +225,7 @@ func (s *Service) settleWait(who ops.Caller, sess *Session) bool {
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
 	if err := sess.conv.AddToolResults(orderedResults(w)); err != nil {
-		s.noticeLocked(sess, "error", "交还工具结果失败："+err.Error())
+		s.noticeLocked(sess, "error", "结果没能交给 AI："+err.Error())
 		return false
 	}
 	sess.Wait = nil
@@ -532,7 +532,7 @@ func (s *Service) runTools(ctx context.Context, sess *Session, it *Item, res *ai
 	}
 	sess.Wait = nil
 	if err := sess.conv.AddToolResults(orderedResults(w)); err != nil {
-		s.noticeLocked(sess, "error", "交还工具结果失败："+err.Error())
+		s.noticeLocked(sess, "error", "结果没能交给 AI："+err.Error())
 		return false
 	}
 	_ = s.saveLocked(sess)

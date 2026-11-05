@@ -156,7 +156,7 @@ func (r *room) converse(ctx context.Context, j *job, set Settings, caller ops.Ca
 			if len(*cmds) > 0 || len(*acts) > 0 {
 				return summary(*cmds, *acts), "", nil
 			}
-			return "", "这个问题有点复杂，AI 没能在几步之内答完，换个问法试试。", errors.New("请求 AI 的次数到上限了")
+			return "", "这个问题有点复杂，AI 没答完，换个问法试试。", errors.New("请求 AI 的次数到上限了")
 		}
 		results := make([]ai.ToolResult, 0, len(res.ToolCalls))
 		for _, tc := range res.ToolCalls {
@@ -201,7 +201,7 @@ func failText(err error) string {
 	case errors.As(err, &qe):
 		return quotaMsg(qe.Feature)
 	case errors.Is(err, ai.ErrDisabled):
-		return "主机的 MineDeck 还没配置 AI，现在问不了问题。"
+		return "MineDeck 还没配置 AI，现在问不了问题。"
 	case errors.Is(err, errRefused):
 		return "AI 拒绝回答这个问题，换个说法试试。"
 	case errors.Is(err, errEmpty):
