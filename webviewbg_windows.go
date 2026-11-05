@@ -13,8 +13,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"os"
+	"strconv"
 	"strings"
 
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 
 	"minedeck/internal/app"
@@ -52,6 +54,33 @@ func systemUsesLightTheme() bool {
 // setWebViewBackground 在创建 WebView2 之前设置默认底色。每次都覆盖：自动更新重启时，新进程会从旧进程继承旧值。
 func setWebViewBackground() {
 	_ = os.Setenv("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", webviewBackground())
+}
+
+var (
+	pCreateSolidBrush = windows.NewLazySystemDLL("gdi32.dll").NewProc("CreateSolidBrush")
+	pSetClassLongPtr  = user32t.NewProc("SetClassLongPtrW")
+	pInvalidateRect   = user32t.NewProc("InvalidateRect")
+)
+
+const _GCLP_HBRBACKGROUND = -10
+
+// paintHostBackground 给宿主窗口配上同一个底色的背景画刷，并整窗重画一次（去标题栏之后调用，覆盖整个窗口）。
+// go-webview2 注册窗口类时没给画刷，宿主窗口从来没画过，是一块白。冷启动时窗口从隐身里现身的头一两帧，
+// WebView2 的画面还没合成上屏，透出来的就是这块白：2026-11 逐帧截图，4 次冷启动里 3 次有一帧整窗全白
+// （#FFFFFF，不是 WebView2 的默认底色）。底色和 WebView2、启动画面一致以后，现身早一点也看不出来。
+func paintHostBackground(hwnd uintptr) {
+	c, err := strconv.ParseUint(webviewBackground()[2:], 16, 32) // RRGGBB
+	if err != nil {
+		return
+	}
+	colorref := c>>16&0xff | c&0xff00 | (c&0xff)<<16 // GDI 的 COLORREF 是 0x00BBGGRR
+	brush, _, _ := pCreateSolidBrush.Call(uintptr(colorref))
+	if brush == 0 {
+		return
+	}
+	idx := _GCLP_HBRBACKGROUND
+	pSetClassLongPtr.Call(hwnd, uintptr(idx), brush) // 画刷跟窗口类走，进程退出时随之释放
+	pInvalidateRect.Call(hwnd, 0, 1)
 }
 
 // bootID 每次进程启动生成一次，经 WebView2 的文档创建脚本注入为 window.__MD_BOOT。

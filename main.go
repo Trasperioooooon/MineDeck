@@ -197,7 +197,8 @@ func openWebView(url string, sig chan os.Signal, minimized bool) (ok bool) {
 		// 用 SHOWMINNOACTIVE，开机时不改动前台窗口（独立评审发现）
 		pShowWindow.Call(hwnd, _SW_SHOWMINNOACTIVE)
 	}
-	applyFrameless(hwnd) // 触发边框重算，让去标题栏立即生效（须在子类化之后）
+	applyFrameless(hwnd)      // 触发边框重算，让去标题栏立即生效（须在子类化之后）
+	paintHostBackground(hwnd) // 整窗铺上启动画面的底色：现身时 WebView 还没上屏的那一两帧不露白
 	// 无边框后原生标题栏没了，窗口拖动/最小化/最大化/关闭由前端标题栏经 Bind 桥接驱动
 	w.Bind("hostWinDrag", func() { hostStartDrag(hwnd) })
 	w.Bind("hostWinMin", func() { hostMinimize(hwnd) })
