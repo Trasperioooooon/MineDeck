@@ -17,6 +17,7 @@ func TestNewer(t *testing.T) {
 		{"v2.9.0-beta.2", "2.9.0-beta.1", false}, // 只比正式版（检查更新取的是 latest，不含预发布）
 		{"v2.9.1", "2.9.0-beta.1", true},
 		{"v2.8.9", "2.9.0-beta.1", false},
+		{"v3.0.0", "2.9.0-beta.2", true}, // 装着测试版的人收得到 3.0.0 正式版
 	} {
 		if got := newer(tc.tag, tc.current); got != tc.want {
 			t.Errorf("newer(%q, %q) = %v，应为 %v", tc.tag, tc.current, got, tc.want)
