@@ -2,7 +2,7 @@
 
 [![Release](https://img.shields.io/github/v/release/Trasperioooooon/MineDeck?color=6fd24b)](https://github.com/Trasperioooooon/MineDeck/releases/latest) [![Downloads](https://img.shields.io/github/downloads/Trasperioooooon/MineDeck/total?color=6fd24b)](https://github.com/Trasperioooooon/MineDeck/releases) [![License](https://img.shields.io/github/license/Trasperioooooon/MineDeck?color=6fd24b)](LICENSE) ![Platform](https://img.shields.io/badge/platform-Windows-2b6cb0) ![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)
 
-Windows 上的**我的世界（Minecraft Java 版）开服工具**。一个文件 `MineDeck.exe`，大约 13 MB。它会下载 Java 和服务端，用窗口管理服务器。整合包可以直接导入。樱花穿透和 OpenFrp 已经做在里面，不在同一个网络的朋友也能连进来。也可以接上你自己的 API Key。接上以后可以用开服助手、游戏内问答、会跟随和砍树打怪的 AI 伙伴，还有音乐共享，把房主正在放的音乐传给服务器里的人。
+Windows 上的**我的世界（Minecraft Java 版）一键开服工具**。一个文件 `MineDeck.exe`，大约 13 MB。它会下载 Java 和服务端，用窗口管理服务器。整合包可以直接导入。樱花穿透和 OpenFrp 已经做在里面，不在同一个网络的朋友也能连进来。也可以接上你自己的 API Key。接上以后可以用开服助手、游戏内问答、会跟随和砍树打怪的 AI 伙伴，还有音乐共享，把房主正在放的音乐传给服务器里的人。
 
 选好版本，点创建，后面会自动做完：按版本下载 Java，下载服务端，运行安装器，同意 EULA，写出配置和启动脚本，然后可以在窗口里管理服务器。下载 Java 和服务端时优先用国内镜像（BMCLAPI、清华 TUNA），镜像不可用就改用官方源。
 
