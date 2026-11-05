@@ -6,6 +6,13 @@ package main
 // 办法：建窗前给本线程挂一个 CBT 钩子，窗口一建出来（HCBT_CREATEWND）就子类化它，
 // 在 WM_WINDOWPOSCHANGING 里去掉 SWP_SHOWWINDOW，那次显示就落空；NewWithOptions 返回后撤掉钩子、摘掉子类化。
 // 之后从托盘恢复照常走 ShowWindow，不受影响。
+//
+// 正常启动也一样会露白：2026-11 在 2560×1440 的屏上逐帧截过，冷启动时先露出带系统标题栏的白窗口，
+// 去掉标题栏以后还白着，前后约 0.8 秒，页面的启动画面才出来。所以正常启动用同一个钩子，只是不拦显示，
+// 而是在第一次显示之前用 DWM 把窗口隐身（DWMWA_CLOAK）：窗口照常显示、能拿到焦点，只是看不见；
+// 页面画出头两帧以后经 hostReady 叫 revealWindow 现身（main.go 另有 3 秒兜底）。实测改完以后，
+// 冷启动约 0.7～0.85 秒时直接出现深色的无边框窗口，不再有系统标题栏。现身的头一两帧 WebView 的画面常常还没上屏，
+// 透出来的是宿主窗口自己的底，所以宿主窗口也铺上同一个底色（webviewbg_windows.go 的 paintHostBackground）。
 
 import (
 	"syscall"
@@ -20,6 +27,7 @@ const (
 	_WM_WINDOWPOSCHANGING = 0x0046
 	_SWP_SHOWWINDOW       = 0x0040
 	_SWP_NOACTIVATE       = 0x0010 // _SWP_NOZORDER 在 frameless_windows.go
+	_DWMWA_CLOAK          = 13
 )
 
 var (
@@ -33,7 +41,10 @@ var (
 	hiddenHook     uintptr // CBT 钩子句柄
 	hiddenHWND     uintptr // 钩子逮到的窗口
 	hiddenPrev     uintptr // 子类化前的窗口过程
-	hiddenSuppress bool    // 正在拦显示
+	hiddenSuppress bool    // 正在拦显示（cloak 模式下是：正在等第一次显示）
+	hiddenCloak    bool    // 不拦显示，第一次显示前隐身
+	hiddenQuiet    bool    // 隐身那次显示也不激活、不调层次（静默启动：开机时不抢用户正在用的窗口的焦点）
+	hiddenCloaked  bool    // 窗口现在是隐身的（等 revealWindow）
 	hiddenHookCB   = syscall.NewCallback(hiddenHookProc)
 	hiddenWndCB    = syscall.NewCallback(hiddenWndProc)
 )
@@ -46,10 +57,13 @@ type windowPos struct {
 }
 
 // beginHiddenCreate 挂钩子：此后本线程建出的第一个 className 类窗口不会被显示出来，直到调用返回的 end。
-// 须在建窗的线程上调用（openWebView 已 LockOSThread）。钩子挂不上时 end 什么也不做，调用方照旧事后隐藏。
-// end 可重复调用。
-func beginHiddenCreate(className string) (end func()) {
+// cloak 为 true 时（正常启动）不拦显示，而是在第一次显示之前把窗口隐身，要等 revealWindow 才看得见。
+// 须在建窗的线程上调用（openWebView 已 LockOSThread）。钩子挂不上时 end 什么也不做，调用方照旧事后隐藏
+// （cloak 模式下就是照旧露白，不会隐身不现）。end 可重复调用，不会让隐身的窗口现身。
+// quiet 只在 cloak 时有用：那次显示不激活窗口、不调层次。
+func beginHiddenCreate(className string, cloak, quiet bool) (end func()) {
 	hiddenClass, hiddenHWND, hiddenPrev, hiddenSuppress = className, 0, 0, false
+	hiddenCloak, hiddenQuiet, hiddenCloaked = cloak, quiet, false
 	hiddenHook, _, _ = pSetWindowsHookEx.Call(_WH_CBT, hiddenHookCB, 0, uintptr(windows.GetCurrentThreadId()))
 	return func() {
 		if hiddenHook != 0 {
@@ -82,16 +96,43 @@ func hiddenHookProc(code, wparam, lparam uintptr) (ret uintptr) {
 	return r
 }
 
-// hiddenWndProc 临时窗口过程：拦显示期间去掉 SWP_SHOWWINDOW，其余原样转交。
+// hiddenWndProc 临时窗口过程：拦显示期间去掉 SWP_SHOWWINDOW（cloak 模式下改成显示前先隐身），其余原样转交。
 func hiddenWndProc(hwnd, msg, wparam, lparam uintptr) (ret uintptr) {
 	defer func() { _ = recover() }()
 	if uint32(msg) == _WM_WINDOWPOSCHANGING && hiddenSuppress && lparam != 0 {
 		// lparam 由系统指向一个 WINDOWPOS，在本次消息处理期间有效；经 &lparam 取指针，免得 go vet 误报 unsafe.Pointer
 		wp := *(**windowPos)(unsafe.Pointer(&lparam))
-		wp.Flags = wp.Flags&^_SWP_SHOWWINDOW | _SWP_NOACTIVATE | _SWP_NOZORDER // 也不激活、不调层次：开机时不抢用户正在用的窗口的焦点
+		switch {
+		case !hiddenCloak:
+			wp.Flags = wp.Flags&^_SWP_SHOWWINDOW | _SWP_NOACTIVATE | _SWP_NOZORDER // 也不激活、不调层次：开机时不抢用户正在用的窗口的焦点
+		case wp.Flags&_SWP_SHOWWINDOW != 0:
+			if hiddenQuiet {
+				wp.Flags |= _SWP_NOACTIVATE | _SWP_NOZORDER
+			}
+			hiddenCloaked = setCloak(hwnd, true)
+			hiddenSuppress = false // 只管第一次显示
+		}
 	}
 	r, _, _ := pCallWindowProc.Call(hiddenPrev, hwnd, msg, wparam, lparam)
 	return r
+}
+
+// setCloak 用 DWM 让窗口隐身或现身（Windows 8 起）。返回调用是否成功。
+func setCloak(hwnd uintptr, on bool) bool {
+	var v int32
+	if on {
+		v = 1
+	}
+	r, _, _ := pDwmSetWindowAttr.Call(hwnd, _DWMWA_CLOAK, uintptr(unsafe.Pointer(&v)), unsafe.Sizeof(v))
+	return r == 0 // S_OK
+}
+
+// revealWindow 冷启动时隐身的窗口现身（页面要画第一帧了，或者兜底超时）。只在窗口线程调用；没隐身时什么也不做，可重复调用。
+func revealWindow(hwnd uintptr) {
+	if hiddenCloaked {
+		setCloak(hwnd, false)
+		hiddenCloaked = false
+	}
 }
 
 func windowClassName(hwnd uintptr) string {

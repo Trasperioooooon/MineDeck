@@ -17,6 +17,8 @@ npm install
 npx playwright install chromium
 ```
 
+第二步可以省掉：找不到 Playwright 自带的 Chromium（没装，或者装的是别的版本）时，测试和截图会自动改用本机装的 Google Chrome（见 `browser.js`）。要指定浏览器，设环境变量 `CHROME=<chrome.exe 的完整路径>` 或 `PW_CHANNEL=msedge`。
+
 ## 用法
 
 ```powershell

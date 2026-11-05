@@ -448,3 +448,26 @@ func TestLANOffRejectsRemoteEvenWithLocalHost(t *testing.T) {
 	e.call(t, "POST", "/api/login", `{"password":"`+lanPass+`"}`, 403, fromLAN, noToken)
 	e.call(t, "GET", "/api/app", "", 200)
 }
+
+// 关掉局域网访问再打开（中间不重启）、或者换了访问密码：之前登录的设备要重新登录，旧 Cookie 不再有效；重新登录照常（独立评审发现）。
+func TestLANSessionRotates(t *testing.T) {
+	e := newFullEnv(t)
+	login := func() reqOpt {
+		t.Helper()
+		c := e.call(t, "POST", "/api/login", `{"password":"`+lanPass+`"}`, 200, fromLAN, noToken).Result().Cookies()
+		if len(c) == 0 {
+			t.Fatal("登录没有下发 Cookie")
+		}
+		return func(r *http.Request) { r.AddCookie(c[0]) }
+	}
+	old := login()
+	e.call(t, "GET", "/api/app", "", 200, fromLAN, noToken, old)
+	e.call(t, "PUT", "/api/config", `{"listenLan":false}`, 200)
+	e.call(t, "PUT", "/api/config", `{"listenLan":true}`, 200)
+	e.call(t, "GET", "/api/app", "", 401, fromLAN, noToken, old)
+	cur := login()
+	e.call(t, "GET", "/api/app", "", 200, fromLAN, noToken, cur)
+	e.call(t, "PUT", "/api/config", `{"lanPassword":"another-pass-123"}`, 200)
+	e.call(t, "GET", "/api/app", "", 401, fromLAN, noToken, cur)
+	e.call(t, "GET", "/api/app", "", 200) // 本机用令牌，不受影响
+}

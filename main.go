@@ -166,13 +166,11 @@ func openWebView(url string, sig chan os.Signal, minimized bool) (ok bool) {
 	runtime.LockOSThread()
 	scale := systemDPIScale() // 窗口尺寸按 DPI 放大，保持高分屏上的视觉大小
 	setWebViewBackground()    // 页面画出来之前的底色取界面标题栏色，冷启动不白闪（须在创建 WebView2 之前）
-	endHidden := func() {}
-	if minimized {
-		// 随开机自启静默进托盘：NewWithOptions 建完窗口就显示、再花几百毫秒初始化 WebView2，
-		// 事后再藏会白窗口一闪；挂钩子让那次显示落空（见 hiddenstart_windows.go）
-		endHidden = beginHiddenCreate("webview")
-		defer endHidden() // NewWithOptions 里 panic 被上面的 recover 接住时也撤掉钩子（end 可重复调用）
-	}
+	// NewWithOptions 建完窗口就显示、再花几百毫秒初始化 WebView2，这段时间窗口是白的（见 hiddenstart_windows.go）：
+	// 挂钩子让窗口照常显示但先隐身，页面画出头两帧后再现身（下面的 ready）。随开机自启静默进托盘时，那次显示也不激活窗口。
+	// 静默启动以前是干脆拦掉那次显示，可 WebView 在从没显示过的窗口里不出画面，之后从托盘恢复一直是白的（2026-11 实测）
+	endHidden := beginHiddenCreate("webview", true, minimized)
+	defer endHidden() // NewWithOptions 里 panic 被上面的 recover 接住时也撤掉钩子（end 可重复调用）
 	w := webview2.NewWithOptions(webview2.WebViewOptions{
 		Debug:     false,
 		AutoFocus: true,
@@ -191,10 +189,6 @@ func openWebView(url string, sig chan os.Signal, minimized bool) (ok bool) {
 	}
 	defer w.Destroy()
 	hwnd := uintptr(w.Window())
-	if minimized {
-		// 兜底：钩子没挂上时窗口已经露出来了，拿到句柄第一件事就藏起来（后面几步都不会让它重新显示）
-		hideTrayWindow(hwnd)
-	}
 	applyDarkTitleBar(hwnd) // DWM 边框深色化，匹配深色主题
 	applyWindowIcon(hwnd)   // 任务栏 / Alt-Tab / 托盘图标
 	setupTray(hwnd)         // 子类化窗口过程（含去标题栏）+ 挂托盘图标（关窗最小化 / 右键菜单）
@@ -203,7 +197,8 @@ func openWebView(url string, sig chan os.Signal, minimized bool) (ok bool) {
 		// 用 SHOWMINNOACTIVE，开机时不改动前台窗口（独立评审发现）
 		pShowWindow.Call(hwnd, _SW_SHOWMINNOACTIVE)
 	}
-	applyFrameless(hwnd) // 触发边框重算，让去标题栏立即生效（须在子类化之后）
+	applyFrameless(hwnd)      // 触发边框重算，让去标题栏立即生效（须在子类化之后）
+	paintHostBackground(hwnd) // 整窗铺上启动画面的底色：现身时 WebView 还没上屏的那一两帧不露白
 	// 无边框后原生标题栏没了，窗口拖动/最小化/最大化/关闭由前端标题栏经 Bind 桥接驱动
 	w.Bind("hostWinDrag", func() { hostStartDrag(hwnd) })
 	w.Bind("hostWinMin", func() { hostMinimize(hwnd) })
@@ -215,6 +210,25 @@ func openWebView(url string, sig chan os.Signal, minimized bool) (ok bool) {
 	w.Bind("hostCloseAck", func() { hostCloseAck() })
 	w.Bind("hostWinHide", func() { hideToTray(hwnd) })
 	w.Bind("hostWinQuit", func() { postTrayQuit(hwnd) })
+	// 页面画出头两帧（index.html 调 hostReady）：正常启动就现身；静默启动先收进托盘、再撤掉隐身，
+	// WebView 已经画过，之后从托盘恢复不白屏。托盘图标没登记上时窗口上面已经最小化到任务栏，不收。
+	// 页面没调（加载失败、脚本出错）也不能一直隐身，3 秒兜底。只做一次：以后刷新页面也会调 hostReady。
+	readyDone := false
+	ready := func() {
+		if readyDone {
+			return
+		}
+		readyDone = true
+		if minimized && trayActive {
+			hideTrayWindow(hwnd)
+		}
+		revealWindow(hwnd)
+	}
+	w.Bind("hostReady", ready)
+	go func() {
+		time.Sleep(3 * time.Second)
+		w.Dispatch(ready)
+	}()
 	askCloseUI = func(tray bool, running int) {
 		w.Eval(fmt.Sprintf("window.__mdCloseAsk && window.__mdCloseAsk({tray: %t, running: %d})", tray, running))
 	}

@@ -40,9 +40,13 @@ type proc struct {
 	inMu  sync.Mutex
 }
 
+// PortProbeHost 试绑端口查占用时用的地址（CheckPort、操作层的 port.check）。空 = 所有网卡：服务器监听的就是所有网卡，这样查得准。
+// 测试里设成 127.0.0.1：每次 go test 编出来的测试程序路径都不一样，绑所有网卡会让 Windows 防火墙每次都弹窗问要不要放行。
+var PortProbeHost = ""
+
 // CheckPort 预检端口是否可绑定（占用检测防呆）。
 func CheckPort(port int) error {
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", PortProbeHost, port))
 	if err != nil {
 		return fmt.Errorf("端口 %d 已被其他程序占用，请在设置中修改 server-port 或关闭占用程序", port)
 	}

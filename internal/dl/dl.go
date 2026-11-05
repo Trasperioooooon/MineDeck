@@ -52,7 +52,8 @@ type Request struct {
 	SHA256  string
 	MD5     string
 	MinSize int64 // 完整性下限（防错误页面被当文件保存）
-	// OnRetry 某个地址这一次没下成时调用（host 只到主机名；后面还有地址或轮次就接着试）；可以为 nil。
+	// OnRetry 某个地址这一次没下成、后面还会接着试（下一个地址或下一轮）时调用（host 只到主机名）；可以为 nil。
+	// 最后一个地址的最后一轮也没下成时不调：不会再试了，原因看 Fetch 返回的错误（以前也调，部署页多写一句「换下一个下载源」）。
 	// 给部署页提示「哪个地址超时、第几次重试」用（测试报告 B-01）
 	OnRetry func(host string, err error)
 }
@@ -109,6 +110,9 @@ func verifyFile(r Request) bool {
 	return hs.check(r) == nil
 }
 
+// retryWait 第 n 轮开始前等多久（测试里改短）。
+var retryWait = func(round int) time.Duration { return time.Duration(round*2) * time.Second }
+
 // Fetch 执行多源下载：URLs 依序尝试，整体最多 3 轮，轮间指数退避。
 func Fetch(ctx context.Context, r Request, prog Progress) error {
 	if len(r.URLs) == 0 {
@@ -131,10 +135,10 @@ func Fetch(ctx context.Context, r Request, prog Progress) error {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(time.Duration(round*2) * time.Second):
+			case <-time.After(retryWait(round)):
 			}
 		}
-		for _, u := range r.URLs {
+		for i, u := range r.URLs {
 			err := fetchOne(ctx, u, r, prog)
 			if err == nil {
 				return nil
@@ -143,7 +147,7 @@ func Fetch(ctx context.Context, r Request, prog Progress) error {
 				return ctx.Err()
 			}
 			lastErr = fmt.Errorf("%s: %w", shortURL(u), err)
-			if r.OnRetry != nil {
+			if r.OnRetry != nil && (round < 2 || i < len(r.URLs)-1) {
 				r.OnRetry(shortURL(u), err)
 			}
 		}

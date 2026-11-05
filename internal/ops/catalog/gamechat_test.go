@@ -260,6 +260,17 @@ func TestGameChatEndToEnd(t *testing.T) {
 		l := e.stdinLines()
 		return len(l) > 0 && l[len(l)-1] == reply
 	})
+	// 回复先发进游戏，问答记录和操作记录 gameai.ask 随后才写（chatai/answer.go），
+	// 慢机器上紧接着查会只看到 gameai.command（2026-11-03 CI 撞到过一次）
+	waitFor(t, "操作记录写完", 5*time.Second, func() bool {
+		recs, _ := e.reg.Log.Query(ops.Query{Src: ops.SrcGameChat})
+		for _, r := range recs {
+			if r.Op == "gameai.ask" {
+				return true
+			}
+		}
+		return false
+	})
 	lines := e.stdinLines()
 	if len(lines) != 4 || lines[2] != "weather clear" || lines[3] != reply {
 		t.Fatalf("标准输入：\n%s", strings.Join(lines, "\n"))

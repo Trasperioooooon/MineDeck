@@ -262,8 +262,9 @@ type fileSettings struct {
 }
 
 // loadSettings 读实例目录里的设置；没有文件或文件坏了按默认值（坏了的部分逐项回到默认）。
-// 四项限流：第 2 版只认 custom 里列出的，其余用默认值；第一版（没有 v）里和当时默认值一样的当没改过（见 v1Cooldown），
-// 不一样的照原样保留。
+// 四项限流：第 2 版只认 custom 里列出的，其余用默认值；第一版（没有 v）里和当时默认值（见 v1Cooldown）或者现在的默认值
+// 一样的当没改过，不一样的照原样保留。和现在的默认值一样也算没改过：新版程序存过一次、又退回旧版程序再存，
+// 文件变回第一版、里面写着新的默认值，再升级时不能把它当成用户填的（独立评审发现）。
 func loadSettings(dir string) Settings {
 	s := Defaults()
 	b, err := os.ReadFile(filepath.Join(dir, settingsFile))
@@ -294,9 +295,9 @@ func loadSettings(dir string) Settings {
 		}
 	}
 	legacy := f.V < 2
-	custom := func(bit uint8, v, old int64) bool {
+	custom := func(bit uint8, v, old, cur int64) bool {
 		if legacy {
-			return v != old
+			return v != old && v != cur
 		}
 		for _, x := range limitNames {
 			if x.bit == bit {
@@ -306,7 +307,7 @@ func loadSettings(dir string) Settings {
 		return false
 	}
 	limit := func(v *int, dst *int, max, old int, bit uint8) {
-		if v == nil || *v < 0 || *v > max || !custom(bit, int64(*v), int64(old)) {
+		if v == nil || *v < 0 || *v > max || !custom(bit, int64(*v), int64(old), int64(*dst)) { // dst 这时还是默认值
 			return
 		}
 		*dst = *v
@@ -315,7 +316,7 @@ func loadSettings(dir string) Settings {
 	limit(f.Cooldown, &s.Cooldown, 3600, v1Cooldown, customCooldown)
 	limit(f.PerPlayer, &s.PerPlayer, 100000, v1PerPlayer, customPerPlayer)
 	limit(f.PerServer, &s.PerServer, 1000000, v1PerServer, customPerServer)
-	if f.Budget != nil && *f.Budget >= 0 && *f.Budget <= 1e11 && custom(customBudget, *f.Budget, v1Budget) {
+	if f.Budget != nil && *f.Budget >= 0 && *f.Budget <= 1e11 && custom(customBudget, *f.Budget, v1Budget, DefaultBudget) {
 		s.Budget = *f.Budget
 		s.custom |= customBudget
 	}

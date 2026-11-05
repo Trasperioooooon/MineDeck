@@ -735,6 +735,11 @@ func TestSettingsDefaultsFollow(t *testing.T) {
 	if !s.Enabled || s.Cooldown != DefaultCooldown || s.PerPlayer != DefaultPerPlayer || s.PerServer != 500 || s.Budget != DefaultBudget {
 		t.Errorf("第一版里没改过的用新默认值，改过的保留：%+v", s)
 	}
+	// 新版存过、又被旧版程序存回第一版：里面写的是现在的默认值，也当没改过（以后改默认值照样跟着走）
+	write(`{"enabled":true,"cooldown":8,"perPlayer":60,"perServer":300,"budget":500000}`)
+	if s := loadSettings(dir); s.custom != 0 || s.Cooldown != DefaultCooldown || s.PerPlayer != DefaultPerPlayer {
+		t.Errorf("第一版里写着现在的默认值：%+v custom=%b", s, s.custom)
+	}
 	write(`{"enabled":true,"cooldown":20,"perPlayer":0,"perServer":300,"budget":500000}`)
 	s = loadSettings(dir)
 	if s.Cooldown != 20 || s.PerPlayer != 0 || s.PerServer != DefaultPerServer {

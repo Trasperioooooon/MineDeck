@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"minedeck/internal/inst"
 	"minedeck/internal/ops"
 )
 
@@ -65,13 +66,13 @@ func (c *cat) portOps() {
 				}
 				// 查不到（没权限，或者 wine 之类查不了进程）：再试着绑一次
 				if udp {
-					pc, err := net.ListenPacket("udp", fmt.Sprintf(":%d", p.Port))
+					pc, err := net.ListenPacket("udp", fmt.Sprintf("%s:%d", inst.PortProbeHost, p.Port))
 					st.Free = err == nil
 					if pc != nil {
 						pc.Close()
 					}
 				} else {
-					ln, err := net.Listen("tcp", fmt.Sprintf(":%d", p.Port))
+					ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", inst.PortProbeHost, p.Port))
 					st.Free = err == nil
 					if ln != nil {
 						ln.Close()

@@ -732,7 +732,9 @@ a.inst-name:hover { text-decoration: underline; text-decoration-color: color-mix
 .p-sec-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .p-sec-head b { white-space: nowrap; font-weight: var(--fw-semibold); }
 .p-sec-head input { flex: 1 1 150px; height: 30px; font-size: var(--fs-sm); }
+/* 玩家名后面的小按钮（OP、踢、移除）：用 <button>，键盘 Tab 得到；去掉按钮自带的边框和字体，样子和原来的链接一样 */
 .p-x {
+  border: 0; font-family: inherit; line-height: inherit;
   margin-left: 2px; cursor: pointer; color: var(--muted); font-size: var(--fs-2xs);
   border-radius: var(--r-full); padding: 1px 6px; display: inline-flex; align-items: center; min-height: 18px;
   background: color-mix(in srgb, var(--text) 8%, transparent); text-decoration: none;

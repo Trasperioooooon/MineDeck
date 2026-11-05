@@ -212,8 +212,8 @@ func TestTroubleshootReads(t *testing.T) {
 	if err := do(t, reg, bot, "instance.mods.list", `{"inst":"整合包","q":"CREATE"}`, &ml); err != nil || len(ml.Mods) != 1 || len(ml.Mods[0].Deps) != 1 {
 		t.Errorf("按关键字带依赖：%v %+v", err, ml)
 	}
-	// 端口：占着的端口查得出来
-	ln, err := net.Listen("tcp", ":0")
+	// 端口：占着的端口查得出来（测试里只占 127.0.0.1，不然每次跑测试 Windows 防火墙都弹窗，见 inst.PortProbeHost）
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,8 +236,9 @@ func TestTroubleshootReads(t *testing.T) {
 			t.Errorf("占端口的应是本进程：%+v", o)
 		}
 	}
-	// 只占 IPv4 的 0.0.0.0（测试报告 E-09 的做法）：Windows 上再绑一次 :端口（IPv6 双栈）照样成功，也得认出被占
-	ln4, err := net.Listen("tcp4", "0.0.0.0:0")
+	// 只占 IPv4（测试报告 E-09：只占 0.0.0.0 时，Windows 上再绑一次 :端口（IPv6 双栈）照样成功）：得靠查进程认出被占。
+	// 测试里占 127.0.0.1 代替 0.0.0.0（防火墙），断言里要求查到占用的进程，走的还是那条路
+	ln4, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}

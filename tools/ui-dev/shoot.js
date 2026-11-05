@@ -5,7 +5,7 @@
 //   --only ：只拍名字匹配的，如 --only=wiz 或 --only="nord-dark"
 // 图片存到本目录的 shots/<组名>/（已被 .gitignore 忽略），每次运行自带一个全新的仿真后端。
 "use strict";
-const { chromium } = require("playwright");
+const { launch } = require("./browser");
 const fs = require("fs");
 const path = require("path");
 const { start } = require("./server");
@@ -149,7 +149,7 @@ async function shootSchemes(browser, mock) {
 
 (async () => {
   const mock = await start();
-  const browser = await chromium.launch();
+  const browser = await launch();
   try {
     if (GROUP !== "schemes") await shootPages(browser, mock);
     if (GROUP !== "pages") await shootSchemes(browser, mock);

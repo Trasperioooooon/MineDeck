@@ -52,7 +52,7 @@ func TestHiddenCreate(t *testing.T) {
 		return r
 	}
 
-	end := beginHiddenCreate("MineDeckHiddenTest")
+	end := beginHiddenCreate("MineDeckHiddenTest", false, false)
 	if hiddenHook == 0 {
 		t.Fatal("CBT 钩子没挂上")
 	}
@@ -85,5 +85,69 @@ func TestHiddenCreate(t *testing.T) {
 	pShowWindow.Call(h, 4)
 	if !visible(h) {
 		t.Error("撤掉钩子后窗口应能正常显示（托盘恢复）")
+	}
+}
+
+// 正常启动（cloak 模式）：不拦显示，窗口照常是「显示着」的，但第一次显示前已经被 DWM 隐身；
+// end 不会让它现身，revealWindow 才现身，重复调用没事。
+func TestHiddenCreateCloak(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	pCreateWindowEx := user32t.NewProc("CreateWindowExW")
+	pRegisterClassEx := user32t.NewProc("RegisterClassExW")
+	pDwmGetWindowAttribute := windows.NewLazySystemDLL("dwmapi.dll").NewProc("DwmGetWindowAttribute")
+	type wndClassEx struct {
+		Size, Style                        uint32
+		WndProc                            uintptr
+		ClsExtra, WndExtra                 int32
+		Instance, Icon, Cursor, Background uintptr
+		MenuName, ClassName                *uint16
+		IconSm                             uintptr
+	}
+	var hinst windows.Handle
+	_ = windows.GetModuleHandleEx(0, nil, &hinst)
+	cls, _ := windows.UTF16PtrFromString("MineDeckCloakTest")
+	wc := wndClassEx{WndProc: pDefWindowProcW.Addr(), Instance: uintptr(hinst), ClassName: cls}
+	wc.Size = uint32(unsafe.Sizeof(wc))
+	if r, _, err := pRegisterClassEx.Call(uintptr(unsafe.Pointer(&wc))); r == 0 {
+		t.Fatalf("注册窗口类失败：%v", err)
+	}
+	cloaked := func(h uintptr) bool {
+		var v uint32
+		r, _, _ := pDwmGetWindowAttribute.Call(h, 14, uintptr(unsafe.Pointer(&v)), 4) // DWMWA_CLOAKED
+		return r == 0 && v != 0
+	}
+
+	end := beginHiddenCreate("MineDeckCloakTest", true, true)
+	defer end() // 中途跳过时也撤掉钩子（end 可重复调用）
+	if hiddenHook == 0 {
+		t.Fatal("CBT 钩子没挂上")
+	}
+	h, _, err := pCreateWindowEx.Call(0, uintptr(unsafe.Pointer(cls)), 0, 0xCF0000, // WS_OVERLAPPEDWINDOW，放在屏幕外
+		uintptr(0xFFFFD8F0), uintptr(0xFFFFD8F0), 200, 200, 0, 0, uintptr(hinst), 0)
+	if h == 0 {
+		t.Fatalf("建窗失败：%v", err)
+	}
+	defer pDestroyWindow.Call(h)
+	pShowWindow.Call(h, 4) // SW_SHOWNOACTIVATE
+	if !isWindowVisible(h) {
+		t.Fatal("cloak 模式不该拦显示")
+	}
+	if !hiddenCloaked {
+		// 没有桌面合成的会话里 DwmSetWindowAttribute 会失败；程序在这种环境里照常显示窗口（只是会露白），不算错
+		t.Skip("DWM 隐身用不了，跳过")
+	}
+	if !cloaked(h) {
+		t.Fatal("第一次显示前应已隐身")
+	}
+	end()
+	if !cloaked(h) {
+		t.Fatal("撤钩子不该让窗口现身（要等页面叫 revealWindow）")
+	}
+	revealWindow(h)
+	revealWindow(h)
+	if cloaked(h) {
+		t.Fatal("revealWindow 后应现身")
 	}
 }
