@@ -129,7 +129,7 @@ func ResultText(e Event) string {
 	case ResultCancelled:
 		verb = "停下了"
 	case ResultSuperseded:
-		verb = "被新任务顶掉了"
+		verb = "被新任务换掉了"
 	case ResultTimeout:
 		verb = "超时了"
 	}

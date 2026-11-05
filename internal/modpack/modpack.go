@@ -159,7 +159,7 @@ func validateDownloads(urls []string) error {
 	for _, raw := range urls {
 		u, err := url.Parse(strings.TrimSpace(raw))
 		if err != nil || u.Scheme != "https" || !modrinthHosts[strings.ToLower(u.Hostname())] {
-			return fmt.Errorf("整合包含不受信任的下载地址（仅允许 https 的 Modrinth / GitHub / GitLab 源）: %s", raw)
+			return fmt.Errorf("整合包里有不允许的下载地址（只允许 https 的 Modrinth、GitHub、GitLab）：%s", raw)
 		}
 	}
 	return nil

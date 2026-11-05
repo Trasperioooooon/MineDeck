@@ -257,7 +257,7 @@ func TestServiceActAndFinish(t *testing.T) {
 		texts = append(texts, ev.Text)
 	}
 	all := strings.Join(texts, "\n")
-	for _, want := range []string{"「小木」开始采集 oak_log ×3", "「小方」去 (100, -20) 被新任务顶掉了", "「小方」跟着 Alex 停下了", "「小方」交出 bread ×2 失败了"} {
+	for _, want := range []string{"「小木」开始采集 oak_log ×3", "「小方」去 (100, -20) 被新任务换掉了", "「小方」跟着 Alex 停下了", "「小方」交出 bread ×2 失败了"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("最近的事件里应有「%s」：\n%s", want, all)
 		}

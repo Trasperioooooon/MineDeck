@@ -118,11 +118,11 @@ func checkCommand(cmd string, c *cmdCtx) (string, error) {
 	for _, r := range cmd {
 		switch {
 		case r == '\n' || r == '\r':
-			return "", fmt.Errorf("命令里不能有换行，一次只能执行一条")
+			return "", fmt.Errorf("命令里不能有换行。一次只能执行一条。")
 		case r == '§':
 			return "", fmt.Errorf("命令里不能有 § 格式码")
 		case r < 0x20 || r == 0x7f:
-			return "", fmt.Errorf("命令里不能有控制字符")
+			return "", fmt.Errorf("命令里不能有控制字符（看不见的符号）。")
 		case r > 0x7e:
 			return "", fmt.Errorf("命令里只能有英文字母、数字和半角符号（不能有中文和全角字符）")
 		}
@@ -138,7 +138,7 @@ func checkCommand(cmd string, c *cmdCtx) (string, error) {
 	}
 	for _, a := range args {
 		if strings.Contains(a, "@") {
-			return "", fmt.Errorf("不能用目标选择器（%s）：要指定玩家就直接写名字，「自己」写提问的人的名字", a)
+			return "", fmt.Errorf("不能用目标选择器（%s）。要指定玩家就直接写名字。「自己」写提问的人的名字。", a)
 		}
 	}
 	var t *Template

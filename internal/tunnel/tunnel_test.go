@@ -135,7 +135,7 @@ func TestUnreadableCredential(t *testing.T) {
 		t.Fatalf("应标出凭据解不开：%+v", l)
 	}
 	err := m.Start("tun1")
-	if err == nil || !strings.Contains(err.Error(), "无法解开") {
+	if err == nil || !strings.Contains(err.Error(), "读不出来") {
 		t.Fatalf("应拒绝启动：%v", err)
 	}
 	if _, err := os.Stat(frpcDir("custom")); !os.IsNotExist(err) {

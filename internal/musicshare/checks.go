@@ -491,7 +491,7 @@ func (s *Service) VoiceHostPlan(name, value string, fromTunnel bool) (VoiceHostC
 	}
 	b, err := os.ReadFile(svcConfigPath(info.Dir))
 	if err != nil {
-		return VoiceHostChange{}, "", errorf(400, "SVC 的配置还没生成：先开一次服（SVC 第一次启动时生成 %s）", svcConfigRel)
+		return VoiceHostChange{}, "", errorf(400, "Simple Voice Chat 的配置还没生成。先开一次服。第一次启动时会生成 %s。", svcConfigRel)
 	}
 	cur, _ := bridge.ParseProps(b).Get("voice_host")
 	cur = strings.TrimSpace(cur)
@@ -572,7 +572,7 @@ func (s *Service) PreviewInstall(name string, v bridge.Variant) (*InstallPreview
 		return nil, errorf(500, "读 mods 目录失败：%v", err)
 	}
 	if svc := s.detectSVC(info.Dir); !svc.Installed {
-		return nil, errorf(400, "先装 Simple Voice Chat：桥接模组声明了必须有它，没有的话服务器会起不来")
+		return nil, errorf(400, "先装 Simple Voice Chat。桥接模组需要它。没装的话服务器起不来。")
 	}
 	p := &InstallPreview{Current: st, File: bridge.JarName(v), Running: info.Status != "stopped", Status: info.Status}
 	p.Remove = append(p.Remove, st.Others...)

@@ -259,7 +259,7 @@ func (m *Manager) Add(t Tunnel) (*Tunnel, error) {
 	}
 	sealed, err := secret.Seal(t.Credential)
 	if err != nil {
-		return nil, fmt.Errorf("凭据%w", err)
+		return nil, fmt.Errorf("凭据：%w", err)
 	}
 	t.Credential = sealed
 	m.mu.Lock()
@@ -281,7 +281,7 @@ func (m *Manager) Update(id string, t Tunnel) error {
 	}
 	sealed, err := secret.Seal(t.Credential)
 	if err != nil {
-		return fmt.Errorf("凭据%w", err)
+		return fmt.Errorf("凭据：%w", err)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -405,7 +405,7 @@ func (m *Manager) start(id, why string) error {
 	// 先解凭据再准备 frpc：解不开就不必下载 frpc
 	cred, err := secret.Unseal(snap.Credential)
 	if err != nil {
-		return fail(fmt.Errorf("凭据无法解开（可能换了电脑或 Windows 用户），请重新填写这条隧道的凭据（界面上可以删除后重新添加）"))
+		return fail(fmt.Errorf("这条隧道的凭据读不出来（可能换了电脑或 Windows 用户）。请重新填写。也可以删掉这条隧道再加一次。"))
 	}
 	snap.Credential = cred
 	p := providerOf(snap.Provider)

@@ -76,7 +76,7 @@ window.MDMcp = (() => {
 
   /* ---------- 设置 → AI 里的「MCP 接口」 ---------- */
 
-  const HEAD = "让这台电脑上的其他 AI 工具（Claude Desktop、Cherry Studio、Cursor、VS Code 等）通过 MCP 用 MineDeck：查看实例、日志、配置直接执行；要改东西时，MineDeck 里会出现确认卡片，你确认了才执行。默认关闭，只接受这台电脑上的连接。";
+  const HEAD = "让这台电脑上的其他 AI 工具通过 MCP 使用 MineDeck，例如 Claude Desktop、Cherry Studio、Cursor、VS Code。查看服务器、日志和配置可以直接查。要改东西时，MineDeck 里会出现确认卡片，你点了才执行。默认关闭。只接受这台电脑上的连接。";
 
   async function settings(slot, gen) {
     if (!slot) return;
@@ -144,12 +144,12 @@ window.MDMcp = (() => {
     const sw = `<label class="switch" title="开启 MCP 接口"><input type="checkbox" id="mcp-on"${v.enabled ? " checked" : ""}${ro ? " disabled" : ""} aria-label="开启 MCP 接口"><span class="sw"></span></label>`;
     const portSub = v.portChanged
       ? `<span class="warn-text">${icon("warn")} 想用的端口被占用，这次用的是 ${esc(String(v.port))}：HTTP 方式的配置要跟着改，或者改用 stdio 方式</span>`
-      : "HTTP 方式连这个地址；stdio 方式（MineDeck.exe -mcp）不受端口影响";
+      : "HTTP 方式连这个地址。stdio 方式（MineDeck.exe -mcp）不受这个端口影响。";
     const tokenSub = v.tokenBroken
       ? `<span class="warn-text">${icon("warn")} 令牌解不开，可能换了电脑或 Windows 用户：请重置</span>`
-      : "已生成，加密保存在本机，复制配置时才带上；泄露了就重置（HTTP 方式的客户端要换新令牌，stdio 方式不用改）";
+      : "已经生成，加密保存在这台电脑上。复制配置的时候才带上。泄露了就重置。用 HTTP 方式的客户端要换新令牌。stdio 方式不用改。";
     let rows = riRow({ ico: "plug", title: "开启 MCP 接口",
-      sub: esc(v.enabled ? `已开启：外部 AI 能用 ${v.tools} 个工具，写操作和危险操作要你在这里确认` : "关闭时外部 AI 连不上 MineDeck；打开时会生成一个访问令牌"), right: sw });
+      sub: esc(v.enabled ? `已开启。外部 AI 能用 ${v.tools} 个工具。写操作和危险操作要你在这里点了才执行。` : "关掉的时候，外部 AI 连不上 MineDeck。打开的时候，会生成一个访问令牌。"), right: sw });
     if (v.enabled) {
       rows += riRow({ ico: "globe", title: "接口地址", sub: portSub, key: v.url,
         right: ro ? "" : `<button class="btn sm" id="mcp-url" aria-label="复制接口地址" title="复制接口地址">${icon("copy")} 复制</button>` });
@@ -158,10 +158,10 @@ window.MDMcp = (() => {
         right: `<button class="btn" id="mcp-copy" aria-haspopup="menu">${icon("copy")} 复制配置…</button>` });
     }
     slot.innerHTML = settingsHead("MCP 接口", esc(HEAD)) +
-      (ro ? `<div class="warn-card"><div class="wc-title">${icon("lock")} MCP 接口的设置仅支持在本机修改</div><div class="wc-note">这里只能查看。令牌和配置只给运行 MineDeck 的那台电脑；外部 AI 提出的操作也只能在那台电脑上确认。</div></div>` : "") +
+      (ro ? `<div class="warn-card"><div class="wc-title">${icon("lock")} MCP 接口的设置仅支持在本机修改</div><div class="wc-note">这里只能查看。令牌和配置只给运行 MineDeck 的那台电脑。外部 AI 提出的操作，也只能在那台电脑上点确认。</div></div>` : "") +
       group(rows, { ico: true, attrs: `id="mcp-group"` }) +
       (v.enabled ? `<div class="mcp-sub-head">连过的 AI 工具（本次启动以来）</div>` + clientsGroup(v) : "") +
-      `<div class="hint mcp-hint">外部 AI 看到的内容和应用内助手一样先脱敏（Windows 用户名、局域网 IP、Key 都会替换掉）；删实例、改设置这类仅人工的操作不会给它。令牌只给这台电脑上的程序用，别发给别人。</div>`;
+      `<div class="hint mcp-hint">发给外部 AI 的内容会先做替换：路径里的 Windows 用户名和程序目录、局域网 IP、计算机名、Key 会换掉。玩家名保留。删实例、改设置不会交给它。上面的访问令牌只给这台电脑上的程序用，别发给别人。</div>`;
     watchClients(slot, gen, v);
     const on = slot.querySelector("#mcp-on");
     on.onchange = async () => {
@@ -179,7 +179,7 @@ window.MDMcp = (() => {
     const reset = slot.querySelector("#mcp-reset");
     if (reset) reset.onclick = async () => {
       const ok = await confirmModal({ title: "重置 MCP 访问令牌？", danger: true, icon: "key", okText: "重置",
-        body: "旧令牌马上失效：用 HTTP 方式连的 AI 工具（Cherry Studio、Cursor、VS Code 等）要换上新令牌才能连上；stdio 方式（Claude Desktop）不用改。" });
+        body: "旧令牌马上失效。用 HTTP 方式连接的 AI 工具要换上新令牌才能连上，包括 Cherry Studio、Cursor、VS Code。stdio 方式（Claude Desktop）不用改。" });
       if (!ok) return;
       try { v = await api("/api/mcp/token", { method: "POST" }); toast("已重置令牌：记得更新 HTTP 方式的配置"); }
       catch (e) { toast(e.message, true); return; }

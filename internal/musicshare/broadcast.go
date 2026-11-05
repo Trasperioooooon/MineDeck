@@ -91,7 +91,7 @@ func (s *Service) Start(req StartReq) (*BroadcastView, error) {
 		if b.inst == req.Inst {
 			return nil, errorf(409, "已经在给「%s」广播了", b.inst)
 		}
-		return nil, errorf(409, "正在给「%s」广播：同一时间只能有一个广播，先停掉它", b.inst)
+		return nil, errorf(409, "正在给「%s」广播。同一时间只能有一个。先停掉正在进行的。", b.inst)
 	}
 	if s.starting {
 		s.mu.Unlock()

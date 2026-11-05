@@ -375,7 +375,7 @@ func TestCooldownNotCountedAsSpam(t *testing.T) {
 		f.advance(time.Second)
 		f.say("Steve", "@AI 再问一次")
 	}
-	if got := f.tellraws(); len(got) != 1 || got[0].target != "Steve" || got[0].body != "冷却中，7 秒后再问。" {
+	if got := f.tellraws(); len(got) != 1 || got[0].target != "Steve" || got[0].body != "还要等 7 秒才能再问。" {
 		t.Errorf("同一个冷却期只说一次：%+v", got)
 	}
 	f.advance(2 * time.Second) // 冷却 8 秒过了
@@ -386,7 +386,7 @@ func TestCooldownNotCountedAsSpam(t *testing.T) {
 	f.b.reset()
 	f.advance(time.Second)
 	f.say("Steve", "@AI 三")
-	if got := f.tellraws(); len(got) != 1 || got[0].body != "冷却中，7 秒后再问。" {
+	if got := f.tellraws(); len(got) != 1 || got[0].body != "还要等 7 秒才能再问。" {
 		t.Errorf("下一个冷却期被挡，再说一次：%+v", got)
 	}
 	cd := 0
@@ -397,7 +397,7 @@ func TestCooldownNotCountedAsSpam(t *testing.T) {
 	}
 	lim := 0
 	for _, r := range f.oplog() {
-		if r.Op == "gameai.limit" && strings.Contains(string(r.Args), `"result":"cooldown"`) && !r.OK && strings.Contains(r.Err, "冷却中") {
+		if r.Op == "gameai.limit" && strings.Contains(string(r.Args), `"result":"cooldown"`) && !r.OK && strings.Contains(r.Err, "还要等") {
 			lim++
 		}
 	}
@@ -486,7 +486,7 @@ func TestLimits(t *testing.T) {
 	if r := answer("Steve", "一"); r != "答。" {
 		t.Fatalf("第一次：%s", r)
 	}
-	if r := answer("Steve", "二"); !strings.Contains(r, "冷却中") || !strings.Contains(r, "8 秒后再问") {
+	if r := answer("Steve", "二"); !strings.Contains(r, "还要等") || !strings.Contains(r, "8 秒才能再问") {
 		t.Errorf("冷却（默认 8 秒）：%s", r)
 	}
 	f.advance(16 * time.Second)

@@ -63,7 +63,7 @@ window.MDMusic = (() => {
     const v = { st, src: null, sel: null, mode: "", device: null, busy: false, advOpen: false, srcLoading: false, vhOpen: false };
     body.innerHTML = `<div class="mu" id="mu">
       <div id="mu-cast"></div>
-      <div class="mu-head"><h3>检查清单</h3><div class="sub">都打勾了才能广播；装了 SVC 的玩家都能听到，各自在 SVC 里能单独静音。</div></div>
+      <div class="mu-head"><h3>检查清单</h3><div class="sub">都打勾了才能广播。装了 SVC 的玩家都能听到。每个人可以在 SVC 里单独静音。</div></div>
       <div id="mu-restart"></div>
       <div id="mu-check"></div>
       <div class="mu-head"><h3>听众</h3></div>
@@ -263,7 +263,7 @@ window.MDMusic = (() => {
           sub: `已装 ${esc(svc.version || "（版本未知）")}。玩家的客户端也要装 SVC，版本和服务器一样最稳妥。`, key: svc.file })
         : row({ tile: okIco(false), title: "Simple Voice Chat：mods 里没有",
           sub: `音乐靠它推给玩家。点「安装」从 Modrinth 下载 ${info.core === "neoforge" ? "NeoForge" : "Forge"} ${esc(info.mc)} 版里最新的正式版放进 mods（要联网）` +
-            (s.serverStatus !== "stopped" ? "；服务器在运行，装好后重启才生效。" : "。") + "玩家的客户端也要装同一个版本。" +
+            (s.serverStatus !== "stopped" ? "。服务器正在运行，装好后要重启才生效。" : "。") + "玩家的客户端也要装同一个版本。" +
             ((svc.disabled || []).length ? `<br>有被停用的：${esc(svc.disabled.join("、"))}（不会动它）` : ""),
           right: `<button class="btn sm" id="mu-svc-install" aria-label="安装 Simple Voice Chat">${icon("download")} 安装</button>` });
       // 桥接模组
@@ -315,9 +315,9 @@ window.MDMusic = (() => {
         case "idle": // 隧道停着，地址是上次的；勾了跟随启动的，下次开服会跟着拉起来，voice_host 不清
           rmRow = { tile: okIco(false), title: "远程好友的语音：语音隧道没开",
             sub: (rm.tunnels || []).some(t => t.autoStart)
-              ? `隧道停着时谁都连不上 ${esc(rm.addr)} 这个地址的语音。启动隧道就恢复；下次开服时它也会跟着启动，voice_host 照旧。`
+              ? `隧道停着的时候，谁都连不上 ${esc(rm.addr)} 这个地址的语音。把隧道启动，就能恢复。下次开服时它也会跟着启动。voice_host 不用改。`
               : rm.managed
-              ? `voice_host 还是隧道上次的地址 ${esc(rm.addr)}：隧道停着时谁都连不上这个地址的语音（本机玩家也一样）。启动隧道就恢复；不开的话，下次开服前 MineDeck 会把它清回空。`
+              ? `voice_host 还是隧道上次的地址 ${esc(rm.addr)}。隧道停着的时候，谁都连不上这个地址的语音，本机玩家也一样。把隧道启动，就能恢复。如果不开，下次开服前 MineDeck 会把它清回空。`
               : `隧道上次的公网地址是 ${esc(rm.addr)}。启动隧道，或者勾上「跟随实例启动」，MineDeck 会把地址写进 voice_host。`,
             right: `<a class="btn sm" href="#/tunnels">去启动</a>${manual}` };
           break;
@@ -330,7 +330,7 @@ window.MDMusic = (() => {
           break;
         default: // differ
           rmRow = { tile: okIco(false), title: "远程好友的语音：voice_host 和隧道地址不一样",
-            sub: `voice_host 现在是 ${esc(vh)}，语音隧道的公网地址是 ${esc(rm.addr)}。是你自己填的就留着；想用隧道的地址就点「改用隧道地址」。`,
+            sub: `voice_host 现在是 ${esc(vh)}，语音隧道的公网地址是 ${esc(rm.addr)}。这是你自己填的，就留着。想用隧道的地址，就点「改用隧道地址」。`,
             right: `<button class="btn sm" id="mu-vh-tunnel">改用隧道地址</button>${manual}` };
       }
       rmRow.key = vhKey;
@@ -397,7 +397,7 @@ window.MDMusic = (() => {
       if (box.dataset.sig === sig) return;
       box.dataset.sig = sig;
       const rows = [];
-      if (s.serverStatus !== "running") rows.push(row({ tile: tile("headphones"), title: "开服后这里会显示谁连上了语音", sub: "连上语音的人都能听到音乐；没连上的多半是没装 SVC，或者版本不对。" }));
+      if (s.serverStatus !== "running") rows.push(row({ tile: tile("headphones"), title: "开服后这里会显示谁连上了语音", sub: "连上语音的人都能听到音乐。没连上的，多半是没装 SVC，或者版本和服务器不一样。" }));
       else {
         rows.push(row({ tile: tile("headphones"), title: p.voice.length ? `会听到音乐：${p.voice.length} 人` : "还没有人连上语音",
           sub: (p.voice.length ? names(p.voice) : "") + (p.known ? "" : `<div class="hint">MineDeck 是开服以后才开始看控制台的，可能漏掉了一些人。</div>`) }));
@@ -452,10 +452,10 @@ window.MDMusic = (() => {
         right: `<span class="ri-chev">${icon("chevronDown")}</span>`, cls: "expandable" + (v.advOpen ? " open" : ""),
         attrs: `id="mu-adv-head" role="button" tabindex="0" aria-expanded="${v.advOpen}" aria-label="高级选项" aria-describedby="mu-adv-desc"` })];
       if (cap.mode === "process" && s.local) rows.push(row({ tile: tile("music"), title: "采集方式", cls: "mu-adv-row",
-        sub: "默认只录一个程序；改成整机录音会把游戏声音、语音聊天一起录进去（有回声）。",
+        sub: "默认只录一个程序。改成整机录音，会把游戏声音和语音聊天一起录进去，会有回声。",
         right: `<div class="seg" role="radiogroup" aria-label="采集方式">${[["process", "只录一个程序"], ["system", "整机录音"]].map(([k, l]) =>
           `<button type="button" role="radio" aria-checked="${m === k}" class="${m === k ? "on" : ""}" data-mode="${k}"${s.broadcast ? " disabled" : ""}>${l}</button>`).join("")}</div>` }));
-      else if (cap.mode === "system" && s.local) rows.push(row({ tile: tile("music"), title: "采集方式：整机录音", cls: "mu-adv-row", sub: `这台电脑（${esc(cap.os)}）只能录整机的声音；Windows 11 才能只录一个程序。` }));
+      else if (cap.mode === "system" && s.local) rows.push(row({ tile: tile("music"), title: "采集方式：整机录音", cls: "mu-adv-row", sub: `这台电脑（${esc(cap.os)}）只能录整机的声音。要只录一个程序，需要 Windows 11。` }));
       if (m === "system" && s.local) {
         const def = devs.find(d => d.default);
         rows.push(row({ tile: tile("volume"), title: "播放设备", cls: "mu-adv-row",
@@ -540,14 +540,14 @@ window.MDMusic = (() => {
       const tip = $("#tn-voice-tip");
       tip.hidden = !voice;
       if (!voice) return;
-      const port = `<b>${svcPort}</b>${portFrom ? `（${esc(portFrom)} 的 SVC 端口）` : "（SVC 默认端口；以实例 config/voicechat/voicechat-server.properties 里的 port 为准）"}`;
+      const port = `<b>${svcPort}</b>${portFrom ? `（${esc(portFrom)} 的 SVC 端口）` : "（这是 SVC 的默认端口。以这台服务器的 config/voicechat/voicechat-server.properties 里的 port 为准）"}`;
       const steps = {
         natfrp: [`在樱花后台新建隧道：类型选 <b>UDP</b>，本地 IP 填 127.0.0.1，本地端口填 ${port}。节点可以和游戏隧道选同一个。`,
-          "复制隧道 ID 填在上面；访问密钥和游戏隧道是同一个。", "绑定同一台服务器，勾上「跟随实例启动」。拿到公网地址后，MineDeck 会自动把它写进这台服务器的 voice_host。"],
+          "把隧道 ID 复制到上面。访问密钥和游戏隧道用的是同一个。", "绑定同一台服务器，勾上「跟随实例启动」。拿到公网地址后，MineDeck 会自动把它写进这台服务器的 voice_host。"],
         openfrp: [`在 OpenFrp 控制台新建 <b>UDP</b> 隧道，本地端口填 ${port}（OpenFrp 的 UDP 隧道还没实测过）。`, "复制隧道 ID 填在上面。",
-          "绑定同一台服务器，勾上「跟随实例启动」；拿到公网地址后自动写进 voice_host。"],
+          "绑定同一台服务器，勾上「跟随实例启动」。拿到公网地址后，会自动写进 voice_host。"],
         custom: [`协议选 <b>UDP</b>，本地端口填 ${port}，公网远程端口填 frps 上给语音开的 UDP 端口（frps 要放行它）。`,
-          "绑定同一台服务器，勾上「跟随实例启动」；公网地址就是「frps 地址:远程端口」，会自动写进 voice_host。"],
+          "绑定同一台服务器，勾上「跟随实例启动」。公网地址就是「frps 地址:远程端口」，会自动写进 voice_host。"],
       }[p] || [];
       tip.innerHTML = `<div class="mu-tip-title">${icon("headphones")} 语音隧道怎么建</div><ol>${steps.map(s => `<li>${s}</li>`).join("")}</ol>`;
     };

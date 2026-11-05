@@ -37,7 +37,7 @@ func errorf(code int, format string, a ...any) error {
 }
 
 // ErrNeedConfirm 要整机录音，但这台电脑还没确认过「会把游戏声音、语音聊天一起播出去」。
-var ErrNeedConfirm = errors.New("这台电脑只能录整机的声音：游戏声音、语音聊天（好友说的话）也会一起播出去，好友会听到自己说话的回声。确认之后才能开始")
+var ErrNeedConfirm = errors.New("这台电脑只能录整机的声音。游戏声音和语音聊天（好友说的话）也会一起播出去。好友会听到自己说话的回声。确认之后才能开始。")
 
 // InstInfo 音乐共享要用到的实例信息。
 type InstInfo struct {

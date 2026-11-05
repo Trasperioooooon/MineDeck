@@ -16,7 +16,7 @@ window.PROPS_CATALOG = [
   { key: 'gamemode', group: '基础与玩法', type: 'sel', opts: ['survival', 'creative', 'adventure', 'spectator'], optNames: ['生存', '创造', '冒险', '旁观'], def: 'survival', label: '默认游戏模式', desc: '新玩家进服时的模式：生存/创造/冒险/旁观。', since: '', removed: '', gamerule: null, restart: false },
   { key: 'force-gamemode', group: '基础与玩法', type: 'bool', def: 'false', label: '强制游戏模式', desc: '开启后玩家每次进服都被改回默认游戏模式。', since: '', removed: '', gamerule: null, restart: false },
   { key: 'difficulty', group: '基础与玩法', type: 'sel', opts: ['peaceful', 'easy', 'normal', 'hard'], optNames: ['和平', '简单', '普通', '困难'], def: 'easy', label: '游戏难度', desc: '和平/简单/普通/困难；和平模式不刷怪、不掉饥饿。', since: '', removed: '', gamerule: null, restart: false },
-  { key: 'hardcore', group: '基础与玩法', type: 'bool', def: 'false', label: '极限模式', desc: '难度锁死困难；玩家死亡后进旁观（旧版为直接封禁）。', since: '', removed: '', gamerule: null, restart: false },
+  { key: 'hardcore', group: '基础与玩法', type: 'bool', def: 'false', label: '极限模式', desc: '难度固定为困难。玩家死亡后进入旁观。旧版是死亡后直接封禁。', since: '', removed: '', gamerule: null, restart: false },
   { key: 'pvp', group: '基础与玩法', type: 'gamerule-bool', def: 'true', label: '玩家互斗', desc: '关闭后玩家之间无法互相攻击造成伤害。1.21.9 起改用游戏规则 pvp。', since: '', removed: '1.21.9', gamerule: 'pvp', restart: false },
   { key: 'allow-flight', group: '基础与玩法', type: 'bool', def: 'false', label: '允许飞行', desc: '允许生存玩家用模组飞行；关闭时悬空玩家会被踢出。', since: '', removed: '', gamerule: null, restart: false },
   { key: 'allow-nether', group: '基础与玩法', type: 'gamerule-bool', def: 'true', label: '允许下界', desc: '关闭后下界传送门失效，玩家无法前往下界。1.21.9 起改用游戏规则 allowEnteringNetherUsingPortals。', since: '', removed: '1.21.9', gamerule: 'allowEnteringNetherUsingPortals', restart: false },
@@ -40,8 +40,8 @@ window.PROPS_CATALOG = [
 
   // ===== 玩家与权限 =====
   { key: 'max-players', group: '玩家与权限', type: 'int', def: '20', label: '最大人数', desc: '服务器最多同时在线的玩家数。', since: '', removed: '', gamerule: null, restart: true },
-  { key: 'online-mode', group: '玩家与权限', type: 'bool', def: 'true', label: '正版验证', desc: '开启只许正版账号进入；关闭则任何人可用任意名字进服。', since: '', removed: '', gamerule: null, restart: true },
-  { key: 'white-list', group: '玩家与权限', type: 'bool', def: 'false', label: '白名单开关', desc: '开启后只有名单内玩家能进服；OP 自动豁免。26.3 快照起默认改为 true。', since: '', removed: '', gamerule: null, restart: false },
+  { key: 'online-mode', group: '玩家与权限', type: 'bool', def: 'true', label: '正版验证', desc: '开启之后，只有正版账号能进。关闭之后，任何人可以用任意名字进服。', since: '', removed: '', gamerule: null, restart: true },
+  { key: 'white-list', group: '玩家与权限', type: 'bool', def: 'false', label: '白名单开关', desc: '开启之后，只有名单里的玩家能进。OP 不受白名单限制。26.3 快照起，默认是开启。', since: '', removed: '', gamerule: null, restart: false },
   { key: 'enforce-whitelist', group: '玩家与权限', type: 'bool', def: 'false', label: '强制白名单', desc: '重载白名单时，把已在线但不在名单里的玩家立即踢出。', since: '1.13', removed: '', gamerule: null, restart: false },
   { key: 'op-permission-level', group: '玩家与权限', type: 'int', def: '4', label: 'OP 权限等级', desc: '/op 授予的权限级别；4 最高，可用 /stop 等全部命令。', since: '', removed: '', gamerule: null, restart: false },
   { key: 'function-permission-level', group: '玩家与权限', type: 'int', def: '2', label: '函数权限等级', desc: '数据包函数执行命令时使用的权限级别。', since: '1.14.4', removed: '', gamerule: null, restart: false },
@@ -50,13 +50,13 @@ window.PROPS_CATALOG = [
 
   // ===== 性能 =====
   { key: 'view-distance', group: '性能', type: 'int', def: '10', label: '视距', desc: '服务器发给玩家的地图范围；越大越吃内存和带宽。', since: '', removed: '', gamerule: null, restart: true },
-  { key: 'simulation-distance', group: '性能', type: 'int', def: '10', label: '模拟距离', desc: '生物、作物等“活动运算”的范围；越大越吃 CPU。', since: '1.18', removed: '', gamerule: null, restart: true },
-  { key: 'entity-broadcast-range-percentage', group: '性能', type: 'int', def: '100', label: '实体可见距离', desc: '实体多远仍发送给玩家的百分比；调低省流量但远处实体消失。', since: '1.16', removed: '', gamerule: null, restart: true },
+  { key: 'simulation-distance', group: '性能', type: 'int', def: '10', label: '模拟距离', desc: '生物和作物会在这个范围内继续活动。范围越大，越占 CPU。', since: '1.18', removed: '', gamerule: null, restart: true },
+  { key: 'entity-broadcast-range-percentage', group: '性能', type: 'int', def: '100', label: '实体可见距离', desc: '实体离玩家多远还发给客户端，按百分比算。调低能少用流量。调低之后，远处的实体会看不到。', since: '1.16', removed: '', gamerule: null, restart: true },
   { key: 'max-tick-time', group: '性能', type: 'int', def: '60000', label: '卡死超时', desc: '单刻卡顿超过该毫秒数即判定死机并强制关服。', since: '', removed: '', gamerule: null, restart: true },
   { key: 'max-chained-neighbor-updates', group: '性能', type: 'int', def: '1000000', label: '连锁更新上限', desc: '限制红石等连锁方块更新数量，防恶意机器卡服。', since: '1.19', removed: '', gamerule: null, restart: true },
   { key: 'network-compression-threshold', group: '性能', type: 'int', def: '256', label: '网络压缩阈值', desc: '数据包超过该字节数才压缩；内网服可设 -1 省 CPU。', since: '', removed: '', gamerule: null, restart: true },
   { key: 'rate-limit', group: '性能', type: 'int', def: '0', label: '发包限速', desc: '玩家发包超过该速率会被踢出，0 为不限制。', since: '1.16.2', removed: '', gamerule: null, restart: true },
-  { key: 'sync-chunk-writes', group: '性能', type: 'bool', def: 'true', label: '同步写区块', desc: '同步写盘更防崩溃丢档；关闭后存档更快但有丢档风险。', since: '1.16', removed: '', gamerule: null, restart: true },
+  { key: 'sync-chunk-writes', group: '性能', type: 'bool', def: 'true', label: '同步写区块', desc: '同步写入磁盘，崩溃时更不容易丢档。关掉之后存档更快，但有丢档的风险。', since: '1.16', removed: '', gamerule: null, restart: true },
   { key: 'use-native-transport', group: '性能', type: 'bool', def: 'true', label: 'Linux 网络优化', desc: '仅 Linux 服务器生效的收发包优化，一般不用动。', since: '', removed: '', gamerule: null, restart: true },
   { key: 'region-file-compression', group: '性能', type: 'sel', opts: ['deflate', 'lz4', 'none'], optNames: ['Deflate 压缩', 'LZ4 快速', '不压缩'], def: 'deflate', label: '区块压缩算法', desc: '存档压缩方式：lz4 读写更快但占盘更大，none 不压缩。', since: '1.20.5', removed: '', gamerule: null, restart: true },
   { key: 'pause-when-empty-seconds', group: '性能', type: 'int', def: '60', label: '空服暂停', desc: '无人在线超过该秒数后暂停世界运算，节省资源。', since: '1.21.2', removed: '', gamerule: null, restart: true },

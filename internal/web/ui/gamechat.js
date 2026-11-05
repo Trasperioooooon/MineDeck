@@ -51,7 +51,7 @@ window.MDGameChat = (() => {
   /* 四项限流（§6.7）：单字段保存；budget 在界面上按万 token 填。说明后面可以跟一段随状态更新的文字（extra：元素 id） */
   const LIMITS = [
     { k: "cooldown", title: "每人冷却", unit: "秒", sub: "同一个人问完一次，隔多久才能再问（问 AI 和叫伙伴共用）" },
-    { k: "perPlayer", title: "每人每天", unit: "次", sub: "每个人每天最多问几次；「@伙伴名」叫伙伴另算，也是这么多次" },
+    { k: "perPlayer", title: "每人每天", unit: "次", sub: "每个人每天最多问几次。「@伙伴名」叫伙伴另算，也是这么多次。" },
     { k: "perServer", title: "全服每天", unit: "次", sub: "这台服务器所有人每天合计最多问几次（问 AI 和叫伙伴合计）" },
     { k: "budget", title: "全服每天的 token", unit: "万 token", sub: "这台服务器每天最多用多少 token（输入、输出都算）", scale: 10000, extra: "gc-budget-cost" },
   ];
@@ -70,18 +70,18 @@ window.MDGameChat = (() => {
     const st = { authName: "", advOpen: false };
     body.innerHTML = `<div class="gc" id="gc">
       <div id="gc-gate"></div>
-      ${head("游戏内 AI", "玩家在聊天里用「前缀 + 问题」提问，回复默认全服都看得到；问题前加 /私 只回提问的人，加 /帮助 看全部用法。")}
+      ${head("游戏内 AI", "玩家在聊天里用「前缀 + 问题」提问。回复默认全服都看得到。问题前面加 /私，只回提问的人。加 /帮助，看全部用法。")}
       <div id="gc-main"></div>
       ${head("能让 AI 执行命令的玩家", "只有勾选的人能让 AI 执行下面打开了的命令，其他人只能提问。按名字授权：离线模式下，名字能被别人冒用。")}
       <div id="gc-warn"></div>
       <div id="gc-auth"></div>
-      ${head("命令模板", "AI 只能执行打开了的这几类命令，每个参数都按模板检查，「自己」由程序换成提问的人。op、deop、ban、stop、execute 这类命令永远不允许，这里也打不开。")}
+      ${head("命令模板", "AI 只能执行这里打开了的几类命令。每个参数都会按模板检查。「自己」会换成提问的人。op、deop、ban、stop、execute 永远不允许，这里也打不开。")}
       <div id="gc-tpl"></div>
-      ${head("限流和额度", "填 0 表示不限。不调用 AI 的回复（/帮助、/额度、选项写错）不算次数。同一个人 1 分钟内问了 5 次以上（被冷却、次数挡回的不算）会被静默 3 分钟，游戏里会私下告诉他还要等多久；同一时间只回答 1 个问题，最多排队 3 个。")}
+      ${head("限流和额度", "填 0 表示不限。不调用 AI 的回复不算次数，包括 /帮助、/额度、选项写错。同一个人 1 分钟内问了 5 次以上，接下来 3 分钟不再回答他。被冷却、被次数挡回的，不算进这 5 次。游戏里会私下告诉他还要等多久。同一时间只回答 1 个问题，最多排队 3 个。")}
       <div id="gc-lim"></div>
-      ${head("最近的问答和执行记录", "游戏里每条回复最多 3 条消息，太长的截掉了；这里是完整的回答。只保存最近 100 条，存在这台服务器的目录里。")}
+      ${head("最近的问答和执行记录", "游戏里每条回复最多 3 条消息，太长的会截掉。这里是完整的回答。只保存最近 100 条，存在这台服务器的目录里。")}
       <div id="gc-log"></div>
-      ${head("识别测试", "贴一行服务器日志，看 MineDeck 认出的玩家、正文和选项，以及会怎么处理。用的是上面填的前缀和下面的高级识别（没保存的也算），不会发任何东西。")}
+      ${head("识别测试", "贴一行服务器日志，看 MineDeck 认出的玩家、正文和选项，以及会怎么处理。用的是上面填的前缀，还有下面的高级识别。没保存的也算。不会发任何东西。")}
       <div id="gc-test"></div>
       <div id="gc-adv"></div>
     </div>`;
@@ -102,7 +102,7 @@ window.MDGameChat = (() => {
       if (!v.ai.enabled) html += `<div class="warn-card"><div class="wc-title">${icon("warn")} AI 还没配置</div>
         <div class="wc-note">游戏内 AI 要先在「设置 → AI」里选好服务商、填好 Key 和模型。没配置时，有人 @AI 提问只会私下收到「主机还没配置 AI」。</div>
         ${ro ? "" : `<a class="btn sm" href="#/settings/ai">${icon("gear")} 去设置</a>`}</div>`;
-      if (ro) html += `<div class="gc-note">${icon("lock")} 局域网打开：只能看设置和最近的问答、做识别测试；改设置要在运行 MineDeck 的那台电脑上。</div>`;
+      if (ro) html += `<div class="gc-note">${icon("lock")} 局域网打开时，只能看设置和最近的问答，也可以做识别测试。改设置要在运行 MineDeck 的那台电脑上。</div>`;
       box.innerHTML = html;
     };
 
@@ -162,7 +162,7 @@ window.MDGameChat = (() => {
       box.dataset.sig = sig;
       box.innerHTML = !v.whitelistOn && allowed.length ? `<div class="warn-card" id="gc-wl-warn"><div class="wc-title">${icon("warn")} 这个服没开白名单</div>
         <div class="wc-note">离线模式下，任何人用 ${esc(who)} 的名字进服，都能让 AI 执行你勾选的命令。开白名单可以挡住不知道名字的陌生人（比如扫到穿透地址的人）；不开也照样能授权。</div>
-        <button class="btn sm" id="gc-wl"${dis}>${icon("shield")} 一键开启白名单</button></div>` : "";
+        <button class="btn sm" id="gc-wl"${dis}>${icon("shield")} 开启白名单</button></div>` : "";
       const b = $("#gc-wl");
       if (b) b.onclick = enableWhitelist;
     };
@@ -175,7 +175,7 @@ window.MDGameChat = (() => {
           `<div class="sub">在线的、最近来过的、授权了的人都已经在白名单里了。</div>`}
         ${bad.length ? `<div class="hint">${icon("warn")} ${esc(bad.map(p => p.name).join("、"))} 的名字不是 1–16 位字母、数字、下划线，加不进白名单。</div>` : ""}
         ${listed.length ? `<div class="hint">已经在白名单里：${esc(listed.join("、"))}</div>` : ""}</div>`;
-      const r = await confirmModal({ title: "一键开启白名单", okText: "加进白名单并开启", icon: "shield", extra,
+      const r = await confirmModal({ title: "开启白名单", okText: "加进白名单并开启", icon: "shield", extra,
         body: `先把勾选的人加进白名单，再开启白名单，免得把好友关在外面。${info.status === "running"
           ? "服务器正在运行：会发送 whitelist add 和 whitelist on。"
           : "服务器停着：直接改名单文件，并把 server.properties 的 white-list 改成 true。"}` });
@@ -199,7 +199,7 @@ window.MDGameChat = (() => {
       const typing = $("#gc-add-name") ? $("#gc-add-name").value : "";
       const rows = v.players.map(p => riRow({ ico: "player", titleHTML: `${esc(p.name)}<span class="gc-badges">${badges(p)}</span>`,
         right: swHTML(`data-allow="${esc(p.name)}"`, p.allowed, `允许 ${p.name} 让 AI 执行命令`, dis) }));
-      if (!v.players.length) rows.push(riRow({ ico: "player", title: "还没有可以授权的玩家", sub: "服务器开着时，在线的人会列在这里；白名单、管理员和最近来过的人也会列出来。也可以在下面直接填名字。" }));
+      if (!v.players.length) rows.push(riRow({ ico: "player", title: "还没有可以授权的玩家", sub: "服务器开着时，在线的人会列在这里。白名单里的人、管理员、最近来过的人也会列出来。也可以在下面直接填名字。" }));
       rows.push(riRow({ ico: "plus", title: "按名字授权", sub: "列表里没有的人（比如还没进过服的好友）",
         field: `<input type="text" id="gc-add-name" maxlength="16" spellcheck="false" placeholder="玩家名，如 Steve" aria-label="按名字授权"${dis}><button class="btn" id="gc-add"${dis}>授权</button>`,
         after: `<div class="field-err ri-err" id="gc-add-err"></div>` }));
@@ -372,13 +372,13 @@ window.MDGameChat = (() => {
           right: `<span class="ri-chev">${icon("chevronDown")}</span>`, cls: "expandable" + (st.advOpen ? " open" : ""),
           attrs: `id="gc-adv-head" role="button" tabindex="0" aria-expanded="${st.advOpen}" aria-label="高级识别" aria-describedby="gc-adv-desc"` }) +
         riRow({ ico: "player", title: "放宽名字规则", cls: "gc-adv-row",
-          sub: "默认只认 1–16 位字母、数字、下划线。离线服的名字带 - . 这类字符时打开；以 @ 开头、含 \" \\ 或中文的名字照样不认（没法安全地写进命令）。",
+          sub: "默认只认 1–16 位字母、数字、下划线。离线服的名字里有 - 或 . 时，把这个打开。以 @ 开头的、含有 \" 或 \\ 的、中文名字，照样不认。这些名字没法安全地写进命令。",
           right: swHTML(`id="gc-loose"`, s.looseNames, "放宽名字规则", dis) }) +
         riRow({ ico: "terminal", title: "不看线程名", cls: "gc-adv-row",
           sub: "默认只认服务器主线程打出的聊天。装了改线程名的模组、聊天认不出来时打开（仍要求是 MinecraftServer 记录的）。",
           right: swHTML(`id="gc-thread"`, s.anyThread, "不看线程名", dis) }) +
         riRow({ ico: "doc", title: "自定义正则（可以不填）", cls: "gc-adv-row",
-          sub: "给装了聊天格式插件或模组的服用：用 (?P&lt;name&gt;…) 圈出名字、(?P&lt;msg&gt;…) 圈出聊天内容，对整行日志匹配。留空用内置的规则；改之前先在上面的识别测试里试试。",
+          sub: "给装了聊天格式插件或模组的服用。用 (?P&lt;name&gt;…) 圈出名字，用 (?P&lt;msg&gt;…) 圈出聊天内容，按整行日志来匹配。留空就用内置的规则。改之前先在上面的识别测试里试试。",
           field: `<input type="text" id="gc-pattern" class="gc-mono" value="${esc(s.pattern || "")}" maxlength="500" spellcheck="false" placeholder="如 ${esc(PATTERN_EXAMPLE)}" aria-label="自定义正则"${dis}><button class="btn" id="gc-pattern-save" aria-label="保存自定义正则"${dis}>保存</button>`,
           after: `<div class="field-err ri-err" id="gc-pattern-err"></div>` }),
         { ico: true, cls: "gc-adv" + (st.advOpen ? " open" : "") });

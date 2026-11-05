@@ -282,10 +282,10 @@ func (s *Service) CanDecide(who ops.Caller, p *ops.Proposal) error {
 		return nil
 	}
 	if !s.ai.LANAssistant() {
-		return ops.Errorf(403, "主机关闭了「局域网可用 AI 助手」，局域网登录的设备不能处理助手的提案")
+		return ops.Errorf(403, "主机关闭了「局域网可用 AI 助手」，局域网登录的设备不能处理确认卡片。")
 	}
 	if p.Caller.Local {
-		return ops.Errorf(403, "这个提案来自主机上的会话，只能在主机上处理")
+		return ops.Errorf(403, "这张确认卡片来自主机上的会话，只能在主机上处理。")
 	}
 	return nil
 }
@@ -648,7 +648,7 @@ func loadSession(path string) (*Session, error) {
 		for pid, callID := range w.Props {
 			if _, ok := w.Results[callID]; !ok {
 				w.Results[callID] = ai.ToolResult{ID: callID, IsError: true, Content: outcomeText(string(ops.OutExpired), "", "")}
-				setOutcome(sess, pid, string(ops.OutExpired), "", "", "程序重启过，提案已失效")
+				setOutcome(sess, pid, string(ops.OutExpired), "", "", "程序重启过，这张确认卡片已失效")
 			}
 		}
 	}

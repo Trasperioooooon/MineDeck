@@ -143,7 +143,7 @@ func (j Jar) read(readFile func(string) ([]byte, error)) ([]byte, error) {
 		return nil, fmt.Errorf("内置的伙伴模组 %s 读不出来：%w", j.File, err)
 	}
 	if int64(len(b)) != j.Size || sha256Hex(b) != j.SHA256 {
-		return nil, fmt.Errorf("内置的伙伴模组 %s 校验失败（大小或 sha256 对不上），这个 MineDeck 程序可能已损坏，请重新下载", j.File)
+		return nil, fmt.Errorf("自带的伙伴模组 %s 对不上（大小或校验值），这个 MineDeck 可能已损坏，请重新下载。", j.File)
 	}
 	return b, nil
 }

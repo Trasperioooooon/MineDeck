@@ -556,7 +556,7 @@ func TestEndFromModAndPendingRequests(t *testing.T) {
 	m.Kick()
 	select {
 	case err := <-errc:
-		if err == nil || !strings.Contains(err.Error(), "可能执行了") {
+		if err == nil || !strings.Contains(err.Error(), "可能已经执行") {
 			t.Errorf("断线时没回复的指令：%v", err)
 		}
 	case <-time.After(5 * time.Second):
