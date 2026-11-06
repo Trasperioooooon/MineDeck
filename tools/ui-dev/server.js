@@ -1371,7 +1371,7 @@ function start({ port = 0, ui = UI_DEFAULT } = {}) {
     server.once("error", reject);
     server.listen(port, "127.0.0.1", () => {
       const p = server.address().port;
-      resolve({ port: p, url: `http://127.0.0.1:${p}/`, close: () => new Promise(r => { server.closeAllConnections(); server.close(r); }) });
+      resolve({ port: p, url: `http://127.0.0.1:${p}/`, state, close: () => new Promise(r => { server.closeAllConnections(); server.close(r); }) });
     });
   });
 }
