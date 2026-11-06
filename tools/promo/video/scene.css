@@ -1,0 +1,126 @@
+/* 颜色取自「方块」浅色（internal/web/ui/themes.css），终端色用作字幕底。只用 transform / opacity 做动画，全部由 scene.js 按时间写入。 */
+:root {
+  --chrome: #eae5d7; --bg: #f0ece1; --surface: #fdfcf7; --surface-2: #faf7ee; --sunken: #e7e2d4;
+  --text: #221f18; --muted: #5d584a; --faint: #8b8574;
+  --border: rgba(62,55,32,.12); --border-strong: rgba(62,55,32,.26); --shadow: 60 50 28;
+  --accent: #3e8f2a; --accent-text: #2b6c1c; --accent-solid: #367d24; --accent-dark: #6fd24b;
+  --warning: #b4830f; --warning-subtle: rgba(201,150,30,.16); --danger: #c23a29; --danger-subtle: rgba(194,58,41,.10);
+  --term-bg: #181c19; --term-fg: #c8d2ca;
+  --font: "MD Geist", "MD Noto Sans SC", sans-serif;
+  --mono: "MD Geist Mono", "MD Noto Sans SC", monospace;
+}
+*, *::before, *::after { box-sizing: border-box; animation: none !important; transition: none !important; }
+html, body { margin: 0; padding: 0; background: var(--bg); overflow: hidden; }
+body { width: 2560px; height: 1440px; font-family: var(--font); color: var(--text); -webkit-font-smoothing: antialiased; font-synthesis-weight: none; }
+#stage { position: absolute; left: 0; top: 0; width: 2560px; height: 1440px; overflow: hidden; background: var(--bg); }
+.abs { position: absolute; left: 0; top: 0; }
+.layer { position: absolute; left: 0; top: 0; width: 2560px; height: 1440px; }
+.scene { position: absolute; left: 0; top: 0; width: 2560px; height: 1440px; }
+
+/* 背景：沙纸底 + 方块网格 + 草绿光晕 */
+#bg-grid { position: absolute; left: -160px; top: -160px; width: 2880px; height: 1760px;
+  background-image: linear-gradient(var(--border) 2px, transparent 2px), linear-gradient(90deg, var(--border) 2px, transparent 2px);
+  background-size: 80px 80px; opacity: .55; }
+#bg-mask { position: absolute; inset: 0; background: radial-gradient(1300px 900px at 50% 46%, transparent 30%, var(--bg) 92%); }
+#bg-glow { position: absolute; inset: 0; background: radial-gradient(900px 700px at 50% 45%, rgba(62,143,42,.13), transparent 70%); }
+.px-deco { position: absolute; left: 0; top: 0; }
+
+/* 截图视图 */
+.sv { position: absolute; overflow: visible; }
+.sv.clip { overflow: hidden; box-shadow: 0 0 0 2px var(--border-strong), 0 30px 70px -20px rgb(var(--shadow) / .35); background: var(--chrome); }
+.win { position: absolute; left: 0; top: 0; transform-origin: 0 0; border-radius: 10px; overflow: hidden; background: var(--chrome);
+  box-shadow: 0 0 0 1px rgba(62,55,32,.22), 0 4px 10px rgb(var(--shadow) / .10), 0 22px 46px -8px rgb(var(--shadow) / .30); }
+.win img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; }
+.mark { position: absolute; left: 0; top: 0; border-radius: 18px; border: 5px solid var(--accent-solid);
+  box-shadow: 0 0 0 3px rgba(255,255,255,.85), 0 0 26px 4px rgba(62,143,42,.45); }
+.spot { position: absolute; left: 0; top: 0; border-radius: 18px; box-shadow: 0 0 0 5000px rgba(28,24,14,.30); }
+.cursor { position: absolute; left: 0; top: 0; width: 60px; height: 60px; transform-origin: 0 0; filter: drop-shadow(0 4px 6px rgba(0,0,0,.35)); }
+.ripple { position: absolute; left: 0; top: 0; border-radius: 50%; border: 7px solid var(--accent-dark); box-shadow: 0 0 0 3px rgba(24,28,25,.55), inset 0 0 0 3px rgba(24,28,25,.35); }
+.tap { position: absolute; left: 0; top: 0; border-radius: 50%; background: rgba(62,143,42,.35); border: 5px solid rgba(255,255,255,.9); }
+
+/* 字幕（左下角，标题安全区 5% 以内） */
+.cap { position: absolute; left: 128px; bottom: 96px; max-width: 1500px; padding: 34px 48px 38px; border-radius: 30px;
+  background: rgba(22,27,24,.94); color: #f7f4ec; box-shadow: 0 24px 60px -18px rgba(0,0,0,.45), 0 0 0 2px rgba(255,255,255,.06); }
+.cap .eb { display: flex; align-items: center; gap: 16px; font-size: 44px; line-height: 1.15; font-weight: 600; color: #8fe06c; letter-spacing: .02em; margin-bottom: 12px; }
+.cap .eb i { width: 18px; height: 18px; background: #8fe06c; box-shadow: 6px 6px 0 -0px rgba(143,224,108,.45); display: block; }
+.cap .main { font-size: 72px; line-height: 1.22; font-weight: 600; letter-spacing: .01em; white-space: nowrap; }
+.cap .sub { font-size: 48px; line-height: 1.3; font-weight: 400; color: #ddd8c9; margin-top: 12px; white-space: nowrap; }
+.cap .chips { display: flex; gap: 16px; margin-top: 20px; }
+.cap .chips span { font-size: 44px; line-height: 1; font-weight: 500; padding: 14px 24px 16px; border-radius: 999px; background: rgba(143,224,108,.16); color: #b9ef9f; box-shadow: inset 0 0 0 2px rgba(143,224,108,.35); }
+
+/* 像素擦除 */
+.wb { position: absolute; left: 0; top: 0; width: 162px; height: 162px; }
+
+/* 开场 */
+.hook-q { position: absolute; left: 0; top: 600px; width: 2560px; text-align: center; font-size: 128px; font-weight: 600; letter-spacing: .01em; white-space: nowrap; }
+.hook-q span { display: inline-block; white-space: pre; }
+.icon-box { position: absolute; }
+.icon-box i { position: absolute; left: 0; top: 0; display: block; }
+.wordmark { position: absolute; left: 0; width: 2560px; text-align: center; font-weight: 600; letter-spacing: -.035em; line-height: 1; white-space: nowrap; }
+.tagline { position: absolute; left: 0; width: 2560px; text-align: center; font-size: 76px; font-weight: 600; letter-spacing: .01em; white-space: nowrap; color: var(--text); }
+.tagline b { color: var(--accent); font-weight: 600; }
+
+/* 一个 exe */
+.exe-tile { position: absolute; width: 720px; height: 760px; border-radius: 64px; background: var(--surface);
+  box-shadow: 0 0 0 2px var(--border), 0 4px 10px rgb(var(--shadow) / .08), 0 40px 90px -24px rgb(var(--shadow) / .40);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.exe-tile img { width: 320px; height: 320px; image-rendering: pixelated; filter: drop-shadow(0 16px 22px rgb(var(--shadow) / .28)); }
+.exe-tile .fn { font-family: var(--mono); font-size: 60px; font-weight: 500; margin-top: 48px; letter-spacing: -.01em; }
+.exe-tile .sz { font-size: 48px; color: var(--muted); margin-top: 16px; }
+.big-title { position: absolute; font-size: 120px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; line-height: 1.1; }
+.row-check { position: absolute; display: flex; align-items: center; gap: 32px; font-size: 64px; font-weight: 500; white-space: nowrap; }
+.row-check .ck { width: 64px; height: 64px; border-radius: 14px; background: var(--accent-solid); display: grid; place-items: center; box-shadow: inset 0 -5px 0 rgba(0,0,0,.18); }
+.row-check .ck svg { width: 40px; height: 40px; }
+
+/* 报错原因卡 */
+.causes { position: absolute; width: 1060px; padding: 52px 56px 40px; border-radius: 44px; background: var(--surface);
+  box-shadow: 0 0 0 2px var(--border), 0 50px 100px -30px rgba(0,0,0,.45); }
+.causes h3 { margin: 0 0 30px; font-size: 56px; font-weight: 600; }
+.causes .it { display: flex; align-items: center; gap: 28px; font-size: 56px; font-weight: 500; padding: 22px 0; border-top: 2px solid var(--border); white-space: nowrap; }
+.causes .it i { width: 56px; height: 56px; border-radius: 12px; background: var(--danger-subtle); display: grid; place-items: center; flex: none; }
+.causes .it i b { width: 18px; height: 18px; background: var(--danger); display: block; }
+
+/* 整合包文件 */
+.file-chip { position: absolute; display: flex; align-items: center; gap: 22px; padding: 22px 34px 22px 26px; border-radius: 26px; background: var(--surface);
+  box-shadow: 0 0 0 2px var(--border-strong), 0 26px 50px -14px rgba(0,0,0,.35); font-size: 44px; font-weight: 500; white-space: nowrap; }
+.file-chip .doc { width: 64px; height: 76px; border-radius: 10px; background: #1bd96a; position: relative; box-shadow: inset 0 -6px 0 rgba(0,0,0,.15); }
+.file-chip .doc::after { content: ""; position: absolute; left: 14px; right: 14px; top: 22px; height: 30px;
+  background: repeating-linear-gradient(#fff 0 6px, transparent 6px 12px); opacity: .9; }
+
+/* 手机 */
+.phone { position: absolute; border-radius: 86px; background: #1d201c; box-shadow: 0 0 0 3px #3a3d38, 0 50px 110px -30px rgba(0,0,0,.55); }
+.phone .scr { position: absolute; overflow: hidden; border-radius: 66px; background: var(--bg); }
+.phone .scr img { position: absolute; left: 0; top: 0; display: block; }
+.phone .cam { position: absolute; width: 34px; height: 34px; border-radius: 50%; background: #0b0c0b; box-shadow: inset 0 0 0 5px #26291f; }
+
+/* AI 标题卡 */
+.ai-l { position: absolute; left: 0; width: 2560px; text-align: center; white-space: nowrap; }
+
+/* 游戏画面（自己画的方块风景，不是游戏素材） */
+.game { position: absolute; overflow: hidden; border-radius: 40px; box-shadow: 0 0 0 3px rgba(0,0,0,.25), 0 50px 100px -30px rgba(0,0,0,.5); }
+.game canvas { position: absolute; left: 0; top: 0; }
+.chat { position: absolute; display: flex; flex-direction: column; gap: 8px; }
+.chat .ln { display: block; padding: 10px 22px 12px; background: rgba(10,12,10,.62); color: #f4f4f0; font-size: 46px; line-height: 1.3; white-space: nowrap; border-radius: 6px; width: max-content; }
+.chat .ln .h { color: #5fe1ee; }
+.chat .ln .who { color: #f4f4f0; }
+.game-tag { position: absolute; display: flex; align-items: center; gap: 18px; padding: 18px 30px; border-radius: 999px; background: rgba(253,252,247,.92);
+  font-size: 44px; font-weight: 600; box-shadow: 0 10px 30px rgba(0,0,0,.25); white-space: nowrap; }
+.game-tag i { width: 22px; height: 22px; background: var(--accent-solid); display: block; }
+
+/* 回顾 */
+.tile { position: absolute; width: 720px; height: 450px; border-radius: 26px; overflow: hidden; background: var(--chrome);
+  box-shadow: 0 0 0 2px var(--border-strong), 0 30px 60px -20px rgb(var(--shadow) / .45); }
+.tile img { width: 100%; height: 100%; display: block; }
+.recap-dim { position: absolute; inset: 0; background: rgba(240,236,225,.80); }
+.recap-words { position: absolute; left: 0; top: 560px; width: 2560px; display: flex; justify-content: center; align-items: center; gap: 70px; }
+.recap-words span { font-size: 200px; font-weight: 600; letter-spacing: .02em; display: inline-block; line-height: 1.2; }
+.recap-words i { width: 36px; height: 36px; background: var(--accent-solid); display: block; }
+
+/* 片尾 */
+.end-line { position: absolute; left: 0; width: 2560px; display: flex; justify-content: center; align-items: center; gap: 36px; white-space: nowrap; }
+.end-line .sep { width: 16px; height: 16px; background: var(--accent); display: block; }
+.end-url { position: absolute; left: 50%; display: flex; align-items: center; gap: 24px; padding: 26px 48px 28px; border-radius: 999px; background: var(--surface);
+  box-shadow: 0 0 0 2px var(--border-strong), 0 20px 50px -18px rgb(var(--shadow) / .35); font-family: var(--mono); font-size: 60px; font-weight: 500; white-space: nowrap; color: var(--accent-text); }
+.end-url svg, .end-line svg { width: 56px; height: 56px; }
+
+#dbg { position: absolute; left: 20px; top: 16px; font: 600 36px/1.2 var(--mono); color: #c00; background: rgba(255,255,255,.8); padding: 6px 14px; z-index: 99; }

@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<!-- MineDeck 宣传视频的画面：2560×1440 的舞台，所有动画都由 window.renderAt(t) 按时间算出来（没有 CSS 动画、过渡）。
+     render.js 逐帧调用 renderAt(i / 60) 再截图；也可以用 serve.js 在浏览器里预览（?t=秒、?play=1、?debug）。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="icon" href="data:,">
+<title>MineDeck 宣传视频</title>
+<link rel="stylesheet" href="/ui/fonts/fonts.css">
+<link rel="stylesheet" href="/scene.css">
+</head>
+<body>
+<div id="stage"></div>
+<script src="/captions.js"></script>
+<script src="/scene.js"></script>
+</body>
+</html>
