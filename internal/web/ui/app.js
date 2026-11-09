@@ -22,7 +22,7 @@ async function api(path, opts = {}) {
   try { j = await res.json(); } catch { throw new Error(`服务异常 (HTTP ${res.status})`); }
   // needLogin 标记：让 boot() 区分「需要登录」与真正的后端故障
   if (res.status === 401) { showLogin(); throw Object.assign(new Error(j.error || "需要登录"), { needLogin: true }); }
-  if (!j.ok) throw new Error(j.error || "未知错误");
+  if (!j.ok) throw Object.assign(new Error(j.error || "未知错误"), { status: res.status });
   return j.data;
 }
 
@@ -767,6 +767,33 @@ function startPoll(fn, ms, gen) {
   pollTimer = setInterval(() => { if (!stale(gen)) fn(); }, ms);
 }
 
+// 向导与导入页也会在同一路由内切换，异步响应必须归属于具体的那一次页面。
+function beginCreateView() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  return ++viewGen;
+}
+
+async function refreshTaskList(slot, gen) {
+  if (stale(gen) || !slot.isConnected || slot._loading) return;
+  slot._loading = true;
+  try {
+    const list = await api("/api/tasks");
+    if (stale(gen) || !slot.isConnected) return;
+    const html = list.length ? `<h2>部署与下载任务</h2>` + list.map(t => {
+      const state = !t.ended ? (t.label || "进行中") : t.error ? "失败" : t.warningCount ? "已完成，有提示" : "已完成";
+      return `<div class="java-row"><div style="flex:1;min-width:0"><b>${esc(t.title)}</b><div class="sub">${esc(state)}</div></div>
+        <a class="btn sm" href="#/task/${encodeURIComponent(t.id)}" aria-label="${t.ended ? "查看结果" : "查看进度"} ${esc(t.title)} ${esc(t.id)}">${t.ended ? "查看结果" : "查看进度"}</a></div>`;
+    }).join("") : "";
+    if (slot._html !== html) { slot.innerHTML = html; slot._html = html; }
+    slot.hidden = !list.length;
+  } catch (e) {
+    if (!stale(gen) && slot.isConnected && slot._html === undefined) {
+      slot.hidden = false;
+      slot.textContent = "暂时无法获取后台任务，稍后自动重试：" + e.message;
+    }
+  } finally { slot._loading = false; }
+}
+
 /* 未保存修改守卫：表单类视图登记 dirtyCheck（返回未保存项数），切页 / 切 tab / 刷新前先确认 */
 let dirtyCheck = null;
 let curHash = null;
@@ -833,6 +860,7 @@ document.addEventListener("click", e => {
 /* 一键开服：Paper 最新正式版 + 推荐设置（空状态入口） */
 let quickBusy = false; // 防重入：代理慢时接口耗时较长，避免用户以为「没反应」而重复点击创建出多台
 async function quickStart() {
+  const gen = viewGen;
   if (quickBusy) { toast("正在创建，请稍候…"); return; }
   const ok = await confirmModal({ title: "一键开服", okText: "同意并开始", body: "将创建一台 <b>Paper 最新正式版</b> 服务器，采用推荐设置（离线模式、允许飞行、默认端口 25565）。<br>继续即表示同意 <a href='https://aka.ms/MinecraftEULA' target='_blank'>Minecraft EULA</a>。" });
   if (!ok) return;
@@ -852,7 +880,7 @@ async function quickStart() {
       difficulty: "easy", gamemode: "survival", motd: "MineDeck 开服 · 一起来玩",
     } });
     toast(`正在部署 Paper ${mc}`);
-    location.hash = `#/task/${r.taskId}`;
+    if (!stale(gen)) location.hash = `#/task/${r.taskId}`;
   } catch (e) { toast(e.message, true); }
   finally { quickBusy = false; }
 }
@@ -968,7 +996,9 @@ async function renderInstances() {
       <div class="search-field">${icon("search", "sf-ico")}<input type="text" id="inst-q" placeholder="搜索服务器名称" aria-label="搜索服务器名称" style="width:280px"></div>
       <select id="inst-sort" style="width:180px" aria-label="排序方式"><option value="recent">排序：最近创建</option><option value="running">排序：运行中优先</option><option value="name">排序：名称</option></select>
     </div></div>
+    <section id="task-list" hidden style="margin-bottom:24px"></section>
     <div id="inst-cards">${skeletonCards(4)}</div>`;
+  const taskList = $("#task-list");
   let lastSig = "", curList = [], prevByName = null; // prevByName：上次渲染时各实例的数据（判定状态切换、播切换动效）
   const cardHTML = (i, n, enter, prev) => {
     const proxy = i.kind === "proxy";
@@ -1052,6 +1082,7 @@ async function renderInstances() {
   };
   let first = true;
   const draw = async () => {
+    refreshTaskList(taskList, gen);
     let list;
     try { list = await api("/api/instances"); } catch (e) { if (!stale(gen)) $("#inst-cards").innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
     if (stale(gen)) return;
@@ -1095,8 +1126,10 @@ async function renderInstances() {
 const wiz = { step: 0, core: null, mc: null, build: null, snapshots: false, root: "" };
 
 async function renderCreate() {
+  const gen = beginCreateView();
   wiz.step = 0; wiz.core = null; wiz.mc = null; wiz.build = null; wiz.root = "";
   Main().innerHTML = pageHead("新建服务器", "选择一种方式开始", "", "", `两种方式${SEP}Java 与服务端自动下载`) + `
+    <section id="task-list" hidden style="margin-bottom:24px"></section>
     <div class="recipe-grid">
       <div class="core-card" id="mode-new" role="button" tabindex="0" aria-label="从零创建" aria-describedby="mode-new-d"><span class="recipe-ico">${icon("plusBox")}</span><div><div class="cn">从零创建</div><div class="cd" id="mode-new-d">选择核心与版本，自动下载 Java 与服务端</div></div></div>
       <div class="core-card" id="mode-import" role="button" tabindex="0" aria-label="导入整合包" aria-describedby="mode-import-d"><span class="recipe-ico">${icon("package")}</span><div><div class="cn">导入整合包</div><div class="cd" id="mode-import-d">支持 Modrinth / CurseForge 整合包，自动识别版本</div></div></div>
@@ -1105,11 +1138,16 @@ async function renderCreate() {
   $("#mode-import").onclick = () => drawImport();
   // 卡片可用键盘激活（回车 / 空格）
   ["#mode-new", "#mode-import"].forEach(s => { $(s).onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $(s).click(); } }; });
+  const taskList = $("#task-list");
+  await refreshTaskList(taskList, gen);
+  startPoll(() => refreshTaskList(taskList, gen), 3000, gen);
 }
 
 /* ---------- 视图：整合包导入 ---------- */
 async function drawImport() {
+  const gen = beginCreateView();
   const app = await api("/api/app").catch(() => ({ ramMb: 8192, availRamMb: 4096, config: {} }));
+  if (stale(gen)) return;
   const maxMem = Math.max(2048, app.ramMb - 2048);
   const defMem = Math.min(6144, maxMem);
   let imRoot = "";
@@ -1142,7 +1180,7 @@ async function drawImport() {
   const imUpdateRoot = () => { $("#im-root").value = imRoot || app.serversRoot || "程序目录\\servers"; };
   imUpdateRoot();
   $("#im-browse").onclick = async () => {
-    try { const r = await api("/api/pickdir", { method: "POST" }); if (r.path) { imRoot = r.path; imUpdateRoot(); toast("已选择：" + r.path); } }
+    try { const r = await api("/api/pickdir", { method: "POST" }); if (!stale(gen) && r.path) { imRoot = r.path; imUpdateRoot(); toast("已选择：" + r.path); } }
     catch (e) { toast(e.message, true); }
   };
   // 行内校验（同向导）：错误显示在对应字段下方，改正后即时消失
@@ -1170,8 +1208,11 @@ async function drawImport() {
       const j = await res.json();
       if (!j.ok) throw new Error(j.error || "导入失败");
       toast(`已识别：${j.data.pack.core} ${j.data.pack.mc}（${j.data.pack.files} 个文件）`);
-      location.hash = `#/task/${j.data.taskId}`;
-    } catch (e) { toast(e.message, true); $("#im-go").disabled = false; $("#im-go").innerHTML = icon("bolt") + " 导入并部署"; }
+      if (!stale(gen)) location.hash = `#/task/${j.data.taskId}`;
+    } catch (e) {
+      toast(e.message, true);
+      if (!stale(gen)) { $("#im-go").disabled = false; $("#im-go").innerHTML = icon("bolt") + " 导入并部署"; }
+    }
   };
 }
 
@@ -1206,14 +1247,15 @@ function paintWizSum() {
 }
 
 async function drawWizard() {
+  const gen = beginCreateView();
   if (wiz.step === 0) {
     wizardShell(`<div id="core-grid">${skeletonRows(6)}</div>
       ${wizFoot("wback0", "返回", `<button class="btn primary" id="wnext" disabled>下一步 ${icon("arrowRight")}</button>`, true)}`);
     $("#wback0").onclick = () => renderCreate();
     paintWizSum();
     let cores;
-    try { cores = await api("/api/cores"); } catch (e) { $("#core-grid").innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
-    if (!$("#core-grid")) return; // 等待期间已离开本步
+    try { cores = await api("/api/cores"); } catch (e) { if (!stale(gen)) $("#core-grid").innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+    if (stale(gen)) return;
     cores.forEach(c => CORES[c.id] = c);
     const CORE_GROUPS = [
       { title: "原版与轻量", ids: ["vanilla"] },
@@ -1302,18 +1344,23 @@ async function drawWizard() {
         $("#wnext").disabled = false;
       });
     };
+    let versionReq = 0;
     const loadVersions = async () => {
+      const req = ++versionReq;
+      const outdated = () => stale(gen) || req !== versionReq;
       $("#ver-list").innerHTML = skeletonRows(8);
+      $("#wnext").disabled = true;
       try {
-        all = await api(`/api/mcversions?core=${wiz.core}&snapshots=${wiz.snapshots ? 1 : 0}`);
-        if (!$("#ver-list")) return; // 等待期间已离开本步
+        const versions = await api(`/api/mcversions?core=${wiz.core}&snapshots=${wiz.snapshots ? 1 : 0}`);
+        if (outdated()) return;
+        all = versions;
         // 合理默认：没选过（或换核心后原选择不在列表里）就预选最新正式版，直接「下一步」即可
         if (!all.some(v => v.id === wiz.mc)) wiz.mc = (all.find(v => v.latest && v.type !== "snapshot") || all.find(v => v.type !== "snapshot") || {}).id || null;
         $("#wnext").disabled = !wiz.mc;
         paintWizSum();
         drawList();
         $("#ver-list .ver-item.sel")?.scrollIntoView({ block: "nearest" });
-      } catch (e) { $("#ver-list").innerHTML = `<div class="err-box">${esc(e.message)}<br>可在「设置 → 下载与网络」切换下载源后重试。</div>`; }
+      } catch (e) { if (!outdated()) $("#ver-list").innerHTML = `<div class="err-box">${esc(e.message)}<br>可在「设置 → 下载与网络」切换下载源后重试。</div>`; }
     };
     $("#ver-search").oninput = drawList;
     // 委托在列表容器上（drawList 每次重建条目）：单击后刷新底栏回显，双击 = 选中并下一步
@@ -1334,7 +1381,7 @@ async function drawWizard() {
     paintWizSum();
     try {
       const builds = await api(`/api/builds?core=${wiz.core}&mc=${encodeURIComponent(wiz.mc)}`);
-      if (!$("#build-list")) return; // 等待期间已离开本步
+      if (stale(gen)) return;
       if (!builds.length) throw new Error(`${wiz.mc} 暂无 ${coreName(wiz.core)} 构建，请换个版本或核心`);
       if (!wiz.build) wiz.build = (builds.find(b => b.recommended) || builds[0]).id;
       paintWizSum();
@@ -1351,11 +1398,12 @@ async function drawWizard() {
         el.ondblclick = () => { wiz.build = el.dataset.id; wiz.step = 3; drawWizard(); };
       });
       $("#wnext").disabled = false;
-    } catch (e) { $("#build-list").innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
+    } catch (e) { if (!stale(gen)) $("#build-list").innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
 
   } else {
     const isProxy = coreKind(wiz.core) === "proxy";
     const app = await api("/api/app").catch(() => ({ ramMb: 8192, availRamMb: 4096 }));
+    if (stale(gen)) return;
     const maxMem = Math.max(2048, app.ramMb - 2048);
     const defMem = isProxy ? 1024 : Math.min(4096, maxMem);
     wizardShell(`
@@ -1422,7 +1470,7 @@ async function drawWizard() {
     };
     $("#f-name").oninput = updateRoot;
     $("#f-browse").onclick = async () => {
-      try { const r = await api("/api/pickdir", { method: "POST" }); if (r.path) { wiz.root = r.path; updateRoot(); toast("已选择：" + r.path); } }
+      try { const r = await api("/api/pickdir", { method: "POST" }); if (!stale(gen) && r.path) { wiz.root = r.path; updateRoot(); toast("已选择：" + r.path); } }
       catch (e) { toast(e.message, true); }
     };
     updateRoot();
@@ -1452,8 +1500,9 @@ async function drawWizard() {
             gamemode: isProxy ? "" : $("#f-mode").value,
           },
         });
-        location.hash = `#/task/${r.taskId}`;
-      } catch (e) { toast(e.message, true); $("#wcreate").disabled = false; }
+        if (!stale(gen)) location.hash = `#/task/${r.taskId}`;
+        else toast("已开始部署，可在新建服务器页查看进度");
+      } catch (e) { toast(e.message, true); if (!stale(gen)) $("#wcreate").disabled = false; }
     };
   }
 }
@@ -1462,19 +1511,31 @@ async function drawWizard() {
 async function renderTaskPage(taskId) {
   const gen = viewGen;
   Main().innerHTML = pageHead("正在部署服务器", "正在下载 Java 和服务端。这一步不用再改配置。", "", "", "", "task-eyebrow") + `
+    <div id="t-fetch-error" class="err-box" role="status" hidden></div>
     <div id="task-box"><div class="sub">加载中…</div></div>`;
   // 骨架只建一次，之后每轮轮询只改变化的部分：新完成的步骤对勾弹出，经验条只点亮新增的格子（逐格错峰），不整块重绘重播
   const CELLS = 30;
   // 进度和日志多久没变就提示「下载慢或者在重试」（测试报告 B-01：安装器连不上时进度条长时间不动）；测试里用 __MD_STALL_MS 调短
   const STALL_MS = window.__MD_STALL_MS || 30000;
   let ended = false; // 已结束就不再轮询 / 重复提示（首轮即结束时旧逻辑仍会挂上轮询，成功提示弹两次）
-  let built = false, label = null, lit = 0, stepState = [], lastSig = "", lastChange = Date.now();
+  let built = false, loading = false, label = null, lit = 0, stepState = [], lastSig = "", lastChange = Date.now();
   const stopPoll = () => { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } };
   const draw = async () => {
+    if (stale(gen) || ended || loading) return;
+    loading = true;
     let t;
-    try { t = await api(`/api/tasks/${taskId}`); }
-    catch (e) { if (stale(gen) || ended) return; ended = true; stopPoll(); $("#task-box").innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+    try { t = await api(`/api/tasks/${encodeURIComponent(taskId)}`); }
+    catch (e) {
+      if (stale(gen) || ended) return;
+      if (e.status === 404) { ended = true; stopPoll(); }
+      const err = $("#t-fetch-error");
+      err.hidden = false;
+      err.textContent = ended ? e.message : "进度刷新失败，正在自动重试：" + e.message;
+      if (ended && !built) $("#task-box").innerHTML = `<a class="btn" href="#/create">返回新建服务器</a>`;
+      return;
+    } finally { loading = false; }
     if (stale(gen) || ended) return;
+    $("#t-fetch-error").hidden = true;
     if (!built) {
       $("#task-box").innerHTML = `
         <div class="task-steps" id="t-steps"></div>
@@ -1823,9 +1884,11 @@ async function renderDetail(name, tab = "console") {
       } catch (e) { toast(e.message, true); }
     };
     const draw = async () => {
+      if (stale(gen)) return;
       let pl;
       try { pl = await api(`/api/instances/${encodeURIComponent(name)}/players`); }
-      catch (e) { body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+      catch (e) { if (!stale(gen)) body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+      if (stale(gen)) return;
       // 三个名单的输入框、每个人名后面的「移除」「OP」「踢」都同名：可访问名称带上名单和玩家名
       const section = (title, items, addAction, removeAction, hint) => `
         <div class="p-sec">
@@ -1857,11 +1920,14 @@ async function renderDetail(name, tab = "console") {
 
   } else if (tab === "backups") {
     const appInfo = await api("/api/app").catch(() => ({ config: {} }));
+    if (stale(gen)) return;
     let keep = (appInfo.config && appInfo.config.backupKeep) || 10;
     const draw = async () => {
+      if (stale(gen)) return;
       let list;
       try { list = await api(`/api/instances/${encodeURIComponent(name)}/backups`); }
-      catch (e) { body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+      catch (e) { if (!stale(gen)) body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+      if (stale(gen)) return;
       body.innerHTML = `
         <div class="row" style="margin-bottom:10px;flex-wrap:wrap">
           <input type="text" id="bk-label" placeholder="备份标签（可选，如：打龙前）" style="max-width:240px">
@@ -1888,7 +1954,7 @@ async function renderDetail(name, tab = "console") {
       bindSaveInput($("#bk-keep"), $("#bk-keep-save"), async v => {
         const n = Math.max(1, Math.min(1000, Math.round(+v) || 10));
         await api("/api/config", { method: "PUT", body: { backupKeep: n } });
-        keep = n; $("#bk-keep").value = n;
+        keep = n; if (!stale(gen)) $("#bk-keep").value = n;
         toast(`已设置保留最近 ${n} 份（下次备份时生效）`);
       }, gen);
       body.querySelectorAll("[data-restore]").forEach(b => b.onclick = async () => {
@@ -1914,7 +1980,8 @@ async function renderDetail(name, tab = "console") {
   } else if (tab === "tasks") {
     let pol;
     try { pol = await api(`/api/instances/${encodeURIComponent(name)}/policies`); }
-    catch (e) { body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+    catch (e) { if (!stale(gen)) body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+    if (stale(gen)) return;
     let scheds = pol.schedules || [];
     const TYPE_NAMES = { restart: "定时重启", command: "定时命令", backup: "定时备份" };
     // 增删定时任务、切换崩溃重启都只是改了草稿：吸底保存条显示未保存项数，离开前会被拦下确认
@@ -1996,10 +2063,14 @@ async function renderDetail(name, tab = "console") {
         <span class="hint">已按当前核心与版本过滤兼容资源 · 数据来自 Modrinth（免费开放）</span>
       </div>
       <div id="res-list"><div class="sub">输入关键词搜索，或直接点搜索看热门资源</div></div>`;
+    let searchReq = 0;
     const search = async () => {
+      const req = ++searchReq;
+      const outdated = () => stale(gen) || req !== searchReq;
       $("#res-list").textContent = "搜索中…";
       try {
         const r = await api(`/api/instances/${encodeURIComponent(name)}/resources/search?q=${encodeURIComponent($("#res-q").value.trim())}`);
+        if (outdated()) return;
         $("#res-list").innerHTML = (r.hits || []).map(h => `
           <div class="java-row" style="max-width:880px">
             ${h.icon_url ? `<img class="res-icon" src="${esc(h.icon_url)}" width="34" height="34" alt="" onerror="this.remove()">` : `<span class="res-noicon">${icon("package")}</span>`}
@@ -2019,7 +2090,7 @@ async function renderDetail(name, tab = "console") {
             b.innerHTML = icon("check") + " 已安装"; label("已安装");
           } catch (e) { toast(e.message, true); b.disabled = false; b.innerHTML = icon("download") + " 安装"; label("安装"); }
         });
-      } catch (e) { $("#res-list").innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
+      } catch (e) { if (!outdated()) $("#res-list").innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
     };
     $("#res-go").onclick = search;
     $("#res-q").onkeydown = e => { if (e.key === "Enter") search(); };
@@ -2030,7 +2101,8 @@ async function renderDetail(name, tab = "console") {
       return;
     }
     let data;
-    try { data = await api(`/api/instances/${encodeURIComponent(name)}/properties`); } catch (e) { body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+    try { data = await api(`/api/instances/${encodeURIComponent(name)}/properties`); } catch (e) { if (!stale(gen)) body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+    if (stale(gen)) return;
     const cur = Object.fromEntries(data.pairs.map(p => [p.key, p.value]));
     const mc = info.mc, running = data.running;
     const GROUPS = ["基础与玩法", "世界生成", "玩家与权限", "性能", "网络与远程管理", "资源包", "安全与杂项"];
@@ -2141,7 +2213,8 @@ async function renderDetail(name, tab = "console") {
 
   } else if (tab === "raw") {
     let data;
-    try { data = await api(`/api/instances/${encodeURIComponent(name)}/properties`); } catch (e) { body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+    try { data = await api(`/api/instances/${encodeURIComponent(name)}/properties`); } catch (e) { if (!stale(gen)) body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+    if (stale(gen)) return;
     if (!data.pairs.length) { body.innerHTML = `<div class="sub">配置文件为空 —— 首次启动服务器后，服务端会自动生成全部配置项。</div>`; return; }
     const LABELS = Object.fromEntries((window.PROPS_CATALOG || []).map(p => [p.key, p.label]));
     const total = data.pairs.length;
@@ -2179,6 +2252,7 @@ async function renderDetail(name, tab = "console") {
 
   } else if (tab === "jvm") {
     const appInfo = await api("/api/app").catch(() => ({ ramMb: 8192, availRamMb: 4096 }));
+    if (stale(gen)) return;
     const maxMem = Math.max(2048, appInfo.ramMb - 2048);
     const aikarsFlags = xmxMb => {
       const big = xmxMb >= 12288;
@@ -2638,7 +2712,9 @@ function storageRow(ico, title, path, desc, pick) { // 三行都有「打开」�
       <button class="btn sm ghost icon-only" data-reset="${pick}" title="恢复默认目录" aria-label="恢复默认的${esc(title)}">${icon("refresh")}</button>` : ""}` });
 }
 function setStorage(body, info) {
+  const gen = viewGen;
   const draw = () => {
+    if (stale(gen)) return;
     body.innerHTML = settingsHead("存储位置", "服务器和备份放在哪个文件夹。改了之后，只对新建的服务器和备份生效。已经有的不会自动搬过去。") +
       group(
         storageRow("server", "服务器存放目录", info.serversRoot, "新的服务器会建在这个目录里，一台一个子文件夹。中文名字不会直接用作文件夹名。", "servers") +
@@ -2675,10 +2751,12 @@ function setStorage(body, info) {
 
 /* — Java 运行时 — */
 async function setJava(body, info) {
+  const gen = viewGen;
   const head = settingsHead("Java 运行时", "新建服务器时，先用这台电脑上已经装好的 Java。没有合适的，就用 MineDeck 下载过的。还没有，就再下载一个。");
   body.innerHTML = head + `<div class="sub">加载中…</div>`;
   let javas = { portable: [], scanned: [] };
   try { javas = await api("/api/javas"); } catch {}
+  if (stale(gen)) return;
   body.innerHTML = head +
     group(
       riRow({ ico: "package", title: "便携运行时", sub: "MineDeck 自己下载的 Java，单独放着，不改你系统里已经装的 Java。",
@@ -2691,12 +2769,12 @@ async function setJava(body, info) {
     `<div class="row" style="margin-top:12px"><button class="btn" id="java-scan">${icon("refresh")} 重新扫描本机 Java</button></div>`;
   $("#java-scan").onclick = async () => {
     $("#java-scan").disabled = true; $("#java-scan").textContent = "扫描中…（约数秒）";
-    try { const list = await api("/api/javas/scan", { method: "POST" }); toast(`扫描完成，发现 ${list.length} 个 Java`); setJava(body, info); }
-    catch (e) { toast(e.message, true); $("#java-scan").disabled = false; $("#java-scan").innerHTML = icon("refresh") + " 重新扫描本机 Java"; }
+    try { const list = await api("/api/javas/scan", { method: "POST" }); toast(`扫描完成，发现 ${list.length} 个 Java`); if (!stale(gen)) setJava(body, info); }
+    catch (e) { toast(e.message, true); if (!stale(gen)) { $("#java-scan").disabled = false; $("#java-scan").innerHTML = icon("refresh") + " 重新扫描本机 Java"; } }
   };
   $("#java-add").onclick = async () => {
     const p = $("#java-path").value.trim(); if (!p) return;
-    try { const j = await api("/api/javas/add", { method: "POST", body: { path: p } }); toast(`已添加 Java ${j.major}（${j.version}）`); setJava(body, info); }
+    try { const j = await api("/api/javas/add", { method: "POST", body: { path: p } }); toast(`已添加 Java ${j.major}（${j.version}）`); if (!stale(gen)) setJava(body, info); }
     catch (e) { toast(e.message, true); }
   };
 }

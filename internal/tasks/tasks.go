@@ -53,6 +53,21 @@ type Snapshot struct {
 	Net *NetRetry `json:"net,omitempty"`
 }
 
+// Summary 任务列表里的一项：只带认出任务、看出状态要用的字段，和 Snapshot 里的同名字段含义相同。
+// 步骤、日志、告警明细不在这里：一个任务的日志最多 400 行，任务又不清理，界面每隔几秒就查一次列表，
+// AI 助手也能查（task.list），全带上的话列表会越来越大。要看明细再查单个任务。
+type Summary struct {
+	ID           string `json:"id"`
+	Title        string `json:"title"`
+	Label        string `json:"label"`
+	Done         int64  `json:"done"`
+	Total        int64  `json:"total"`
+	Ended        bool   `json:"ended"`
+	Err          string `json:"error,omitempty"`
+	Result       string `json:"result,omitempty"`
+	WarningCount int    `json:"warningCount"` // 告警条数，明细在 Snapshot.Warnings
+}
+
 type Task struct {
 	id       string
 	title    string
@@ -101,6 +116,35 @@ func (mg *Manager) Get(id string) *Task {
 	mg.mu.Lock()
 	defer mg.mu.Unlock()
 	return mg.m[id]
+}
+
+// List 按创建时间从新到旧返回本次运行的任务摘要，切页或刷新后仍能找回进度入口；步骤、日志和告警明细用 Get 查单个任务。
+func (mg *Manager) List() []Summary {
+	mg.mu.Lock()
+	ts := make([]*Task, 0, len(mg.m))
+	for n := mg.seq; n > 0; n-- {
+		// 现在任务建了就不删；以后要是清理旧任务，编号中间会缺，缺的跳过
+		if t := mg.m["t"+strconv.Itoa(n)]; t != nil {
+			ts = append(ts, t)
+		}
+	}
+	mg.mu.Unlock()
+	out := make([]Summary, 0, len(ts)) // 没有任务时也是 []，不是 null
+	for _, t := range ts {
+		out = append(out, t.summary())
+	}
+	return out
+}
+
+func (t *Task) summary() Summary {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return Summary{
+		ID: t.id, Title: t.title, Label: t.label,
+		Done: t.done, Total: t.total,
+		Ended: t.ended, Err: t.err, Result: t.result,
+		WarningCount: len(t.warnings),
+	}
 }
 
 func (t *Task) ID() string { return t.id }

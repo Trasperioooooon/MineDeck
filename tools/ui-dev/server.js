@@ -60,6 +60,7 @@ function newState(ui) {
     props: null,
     empty: false,
     taskStage: 2,
+    taskList: [],
     taskNet: null, // 部署任务的 net（下载超时、重试的情况）：{ count, host, what, ago }
     ai: newAIState(),
     music: newMusicState(), // 第五阶段
@@ -1212,6 +1213,7 @@ function handler(state, ui, portOf) {
     //   empty: true 时服务器列表为空；onboarded: false 时弹首启引导；listenLan: 远程访问开关，且当作已重启生效（开启后设置页显示二维码，并视为已设密码）
     //   lanSet: 是否已设局域网访问密码；lanActive: 单独改「这次启动是否已监听在局域网上」（模拟改了开关还没重启）
     //   taskStage: 部署任务进行到第几步（0–4，4 = 完成），"error" = 第 2 步失败
+    //   taskList: 后台任务快照数组；同时覆盖对应任务详情里的字段，模拟并行任务及离开期间完成的任务
     //   taskNet: 部署任务的 net（同 tasks.NetRetry：{ count, host, what, ago }），null 清掉
     //   legacy: { name, extraJvm, forceFlags } 把某台服务器设成「老版本」，保存 JVM 参数时补回 forceFlags
     //   status: { 名称: running | starting | stopping | stopped } 直接改某台服务器的运行状态（看状态切换的动效用）
@@ -1230,6 +1232,7 @@ function handler(state, ui, portOf) {
       if ("empty" in b) state.empty = !!b.empty;
       if ("onboarded" in b) { state.config.onboarded = !!b.onboarded; state.config.tosAccepted = !!b.onboarded; }
       if ("taskStage" in b) state.taskStage = b.taskStage;
+      if ("taskList" in b) state.taskList = b.taskList;
       if ("taskNet" in b) state.taskNet = b.taskNet;
       if ("listenLan" in b) { state.config.listenLan = state.lanActive = !!b.listenLan; if (b.listenLan) state.lanSet = true; }
       if ("lanSet" in b) state.lanSet = !!b.lanSet;
@@ -1302,12 +1305,14 @@ function handler(state, ui, portOf) {
       if (p === "/api/javas/scan") return ok(res, [1, 2]);
       if (p === "/api/pickdir") return ok(res, { path: "E:\\MCServers" });
       if (p === "/api/update/check") return ok(res, { hasUpdate: false, current: "2.9.0-beta.2" });
+      // 和真后端一样只给摘要：步骤、日志、告警明细不在列表里
+      if (p === "/api/tasks") return ok(res, state.taskList.map(t => ({ id: t.id, title: t.title, label: t.label || "", done: t.done || 0, total: t.total || 0, ended: !!t.ended, error: t.error || undefined, result: t.result || undefined, warningCount: (t.warnings || []).length })));
       if (p.startsWith("/api/tasks/")) {
         const st = state.taskStage;
         const names = ["下载 Java 21 运行时", "下载 Paper 1.21.4 核心", "同意 EULA 并生成配置", "生成启动脚本"];
         const steps = names.map((name, i) => ({ name, status: st === "error" ? (i < 1 ? "done" : i === 1 ? "error" : "pending") : i < st ? "done" : i === st ? "running" : "pending" }));
         const ended = st === "error" || st >= names.length;
-        return ok(res, { steps, label: ended ? "" : "下载 paper-1.21.4-232.jar", done: 31457280, total: 52428800, error: st === "error" ? "下载 paper-1.21.4-232.jar 失败：所有下载源均不可用（BMCLAPI 超时、官方源 403）" : "", warnings: [], log: ["[1/4] 检测到本机 Java 21，复用", "[2/4] 正在从 api.papermc.io 下载核心…", "  已下载 30.0 MB / 50.0 MB"], ended, result: "生存服 · 朋友", net: !ended && state.taskNet ? state.taskNet : undefined });
+        return ok(res, { id: seg[3], title: "创建 Paper 服务器", steps, label: ended ? "" : "下载 paper-1.21.4-232.jar", done: 31457280, total: 52428800, error: st === "error" ? "下载 paper-1.21.4-232.jar 失败：所有下载源均不可用（BMCLAPI 超时、官方源 403）" : "", warnings: [], log: ["[1/4] 检测到本机 Java 21，复用", "[2/4] 正在从 api.papermc.io 下载核心…", "  已下载 30.0 MB / 50.0 MB"], ended, result: "生存服 · 朋友", net: !ended && state.taskNet ? state.taskNet : undefined, ...state.taskList.find(t => t.id === seg[3]) });
       }
       if (p === "/api/instances" && m === "GET") return ok(res, insts());
       if (p === "/api/instances" && m === "POST") return ok(res, { taskId: "task-1" });

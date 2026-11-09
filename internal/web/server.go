@@ -77,6 +77,7 @@ func New(mgr *inst.Manager, tun *tunnel.Manager, reg *ops.Registry, asst *assist
 	mux.HandleFunc("GET /api/instances", s.handleListInstances)
 	mux.HandleFunc("POST /api/instances", s.handleCreateInstance)
 	mux.HandleFunc("POST /api/import/modpack", s.handleImportModpack)
+	mux.HandleFunc("GET /api/tasks", s.handleListTasks)
 	mux.HandleFunc("GET /api/tasks/{id}", s.handleTask)
 
 	mux.HandleFunc("GET /api/instances/{name}/backups", s.handleListBackups)
