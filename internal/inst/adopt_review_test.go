@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/sys/windows"
+
 	"minedeck/internal/app"
 	"minedeck/internal/mcsrc"
 )
@@ -409,5 +411,50 @@ func TestReleaseRenamesEvenIfEdited(t *testing.T) {
 		if got := mustRead(t, filepath.Join(dir, "world", "level.dat")); got != "存档" {
 			t.Error("存档被动了")
 		}
+	}
+}
+
+// shortPath 一个已有路径的 8.3 短名写法；这个盘没开短名时原样返回。
+func shortPath(p string) string {
+	u, err := windows.UTF16PtrFromString(p)
+	if err != nil {
+		return p
+	}
+	buf := make([]uint16, 1024)
+	n, err := windows.GetShortPathName(u, &buf[0], uint32(len(buf)))
+	if err != nil || n == 0 || int(n) >= len(buf) {
+		return p
+	}
+	return windows.UTF16ToString(buf[:n])
+}
+
+// 不存在的目录也按真实路径比：上层写成 8.3 短名的，和写长名的算同一个地方。
+// GitHub 的测试机临时目录就是短名（RUNNER~1）：列表里一台服务器的目录已经不在了，选它的上层接管时没认出来，
+// 合入 main 后的第一次 CI 挂在这里，本地的临时目录是长名所以没发现。
+func TestRealPathOfMissingDir(t *testing.T) {
+	m, user := adoptEnv(t)
+	long := filepath.Join(user, "a rather long folder name")
+	writeTree(t, long, map[string]string{"server.jar": vanilla21})
+	want := filepath.Join(realPath(long), "missing", "deeper")
+	if got := realPath(filepath.Join(long, "missing", "deeper")); !strings.EqualFold(got, want) {
+		t.Errorf("不存在的目录：%q，应为 %q", got, want)
+	}
+	if got := realPath(`Q:\no\such\drive`); got != `Q:\no\such\drive` {
+		t.Errorf("一级都打不开时原样返回：%q", got)
+	}
+	short := shortPath(long)
+	if strings.EqualFold(short, long) {
+		t.Skip("这个盘没开 8.3 短名，短名那一半测不了")
+	}
+	if got := realPath(filepath.Join(short, "missing", "deeper")); !strings.EqualFold(got, want) {
+		t.Errorf("上层写成短名的不存在的目录：%q，应为 %q", got, want)
+	}
+	// 列表里一台服务器的目录写的是短名、而且已经不在了：选它的上层，照样认得出里面有它
+	m.insts["inner"] = &Instance{Settings: Settings{Name: "inner"}, Dir: filepath.Join(short, "inner"), Console: newConsole()}
+	if _, err := m.checkAdoptDir(long); err == nil || !strings.Contains(err.Error(), "里面还放着服务器「inner」") {
+		t.Errorf("%v", err)
+	}
+	if _, err := m.checkAdoptDir(short); err == nil || !strings.Contains(err.Error(), "里面还放着服务器「inner」") {
+		t.Errorf("%v", err)
 	}
 }
