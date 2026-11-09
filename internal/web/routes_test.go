@@ -220,6 +220,7 @@ func TestRoutesKeepPathsAndSemantics(t *testing.T) {
 		{"POST", "/api/adopt/scan", `{}`, 400, "", nil},
 		{"POST", "/api/adopt", `{"dir":"relative","name":"x","core":"paper","mc":"1.21.4","launchTarget":"jar:server.jar"}`, 400, "请填完整的路径", nil},
 		{"GET", "/api/tasks/t999", "", 404, "任务不存在", nil},
+		{"GET", "/api/tasks", "", 200, "", nil},
 		{"GET", ip + "/backups", "", 200, "", nil},
 		{"POST", ip + "/backups", "", 200, "", nil}, // 请求体可省略
 		{"POST", ip + "/backups/restore", `{}`, 400, "缺少备份文件名", nil},
@@ -298,8 +299,8 @@ func TestRoutesKeepPathsAndSemantics(t *testing.T) {
 		t.Errorf("GET /bg/x.png：HTTP %d %q", rec.Code, rec.Header().Get("Content-Type"))
 	}
 	seen["GET "+pattern("/bg/x.png")] = true
-	if n := len(seen); n != 47+1+7+2 { // 47 个旧接口 + 第一阶段的 /api/ops/log + 第二阶段的 7 个 /api/ai/* + 接管已有服务器的 2 个 /api/adopt*
-		t.Errorf("覆盖了 %d 个接口，应为 57", n)
+	if n := len(seen); n != 47+1+7+1+2 { // 47 个旧接口 + /api/ops/log + 7 个 /api/ai/* + 后台任务列表 + 接管已有服务器的 2 个 /api/adopt*
+		t.Errorf("覆盖了 %d 个接口，应为 58", n)
 	}
 	if d := e.dials.list(); len(d) != 0 {
 		t.Errorf("只配了 Ollama，不该有任何对外连接：%v", d)

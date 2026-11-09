@@ -82,6 +82,10 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	s.do(w, r, "instance.create", bodyArgs(r))
 }
 
+func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
+	s.do(w, r, "task.list", nil)
+}
+
 func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 	s.do(w, r, "task.get", args(map[string]any{"id": r.PathValue("id")}))
 }

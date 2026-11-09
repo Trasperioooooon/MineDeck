@@ -231,6 +231,149 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     assert(toasts.filter(t => t.includes("创建成功")).length === 1, "成功提示次数：" + JSON.stringify(toasts));
   });
 
+  await run("任务恢复：切页返回、刷新后能找回并行部署、导入结果和失败日志", async () => {
+    const taskList = [
+      { id: "task-pack", title: "导入整合包 测试包", ended: false, label: "下载模组", done: 50, total: 100 },
+      { id: "task-create", title: "创建 Paper 测试服", ended: false },
+      { id: "task-failed", title: "创建失败的服务器", ended: true, error: "下载失败" },
+    ];
+    try {
+      await page.evaluate(taskList => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList }) }), taskList);
+      await page.goto(url("#/task/task-pack")); await settle();
+      await page.click('#sidebar a[data-nav="settings"]'); await settle();
+      await page.click('#sidebar a[data-nav="create"]'); await settle();
+      assert(await page.locator('#task-list a[href="#/task/task-pack"]').count() === 1, "切回来后导入任务入口丢失");
+      assert(await page.locator('#task-list a[href="#/task/task-create"]').count() === 1, "并行创建任务入口丢失");
+      await page.reload(); await settle();
+      await page.click('#task-list a[href="#/task/task-pack"]'); await settle();
+      assert((await page.textContent("#t-label")).includes("下载模组"), "没有恢复真实进度");
+      taskList[0] = { ...taskList[0], ended: true, warnings: [{ title: "1 个模组需手动补装" }] };
+      await page.evaluate(taskList => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList }) }), taskList);
+      await page.click('#sidebar a[data-nav="instances"]'); await settle();
+      assert((await page.textContent("#task-list")).includes("已完成，有提示"), "列表里看不出导入完成后有告警（摘要的 warningCount）");
+      await page.click('#task-list a[href="#/task/task-pack"]'); await settle();
+      assert((await page.textContent("#t-msgs")).includes("需手动补装"), "离开期间完成的导入告警丢失");
+      await page.click('#sidebar a[data-nav="create"]'); await settle();
+      await page.click('#task-list a[href="#/task/task-failed"]'); await settle();
+      assert((await page.textContent("#t-msgs")).includes("下载失败"), "失败任务无法回看");
+    } finally {
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList: [] }) }));
+    }
+  });
+
+  await run("切页竞态：导入页的慢响应不会覆盖服务器列表", async () => {
+    await page.goto(url("#/create")); await settle();
+    let release, seen;
+    const gate = new Promise(r => release = r), requested = new Promise(r => seen = r);
+    await page.route("**/api/app", async route => { seen(); await gate; await route.continue(); });
+    try {
+      await page.click("#mode-import"); await requested;
+      await page.click('#sidebar a[data-nav="instances"]'); await settle();
+      release(); await settle(600);
+      assert(await page.locator("#inst-cards").count() === 1 && await page.locator("#im-file").count() === 0, "旧导入页覆盖了当前页面");
+    } finally { release(); await page.unroute("**/api/app"); }
+  });
+
+  await run("切页竞态：重进向导后旧核心的版本响应不得覆盖新核心", async () => {
+    await page.goto(url("#/create")); await settle();
+    let release, seen;
+    const gate = new Promise(r => release = r), requested = new Promise(r => seen = r);
+    await page.route("**/api/mcversions?core=paper&*", async route => {
+      seen(); await gate;
+      await route.fulfill({ json: { ok: true, data: [{ id: "1.0-old", type: "release", latest: true }] } });
+    });
+    try {
+      await page.click("#mode-new"); await settle();
+      await page.dblclick('.core-card[data-id="paper"]'); await requested;
+      await page.click('#sidebar a[data-nav="create"]'); await settle();
+      await page.click("#mode-new"); await settle();
+      await page.dblclick('.core-card[data-id="fabric"]'); await settle();
+      release(); await settle(600);
+      assert(!(await page.textContent("#ver-list")).includes("1.0-old"), "旧核心的版本响应覆盖了新向导");
+      assert((await page.textContent("#wf-sum")).includes("Fabric · 26.2"), "新核心的选择被改写");
+    } finally { release(); await page.unroute("**/api/mcversions?core=paper&*"); }
+  });
+
+  await run("切页竞态：资源搜索只显示最后一次查询，离开后不再写页面", async () => {
+    let release, seen;
+    let gate = new Promise(r => release = r), requested = new Promise(r => seen = r);
+    const pattern = "**/resources/search?*";
+    await page.route(pattern, async route => {
+      const q = new URL(route.request().url()).searchParams.get("q");
+      if (q === "old" || q === "leave") { seen(); await gate; }
+      await route.fulfill({ json: { ok: true, data: { hits: [{ project_id: q, title: q, description: "测试资源", downloads: 1000 }] } } });
+    });
+    try {
+      await page.goto(url(`#/inst/${inst}/res`)); await settle();
+      await page.fill("#res-q", "old"); await page.click("#res-go"); await requested;
+      await page.fill("#res-q", "new"); await page.click("#res-go"); await settle();
+      release(); await settle(600);
+      assert((await page.textContent("#res-list")).includes("new") && !(await page.textContent("#res-list")).includes("old"), "旧查询覆盖了新结果");
+      gate = new Promise(r => release = r); requested = new Promise(r => seen = r);
+      const beforeErrors = errors.length;
+      await page.fill("#res-q", "leave");
+      await page.click("#res-go"); await requested;
+      await page.click('#sidebar a[data-nav="instances"]'); await settle();
+      release(); await settle(600);
+      assert(await page.locator("#inst-cards").count() === 1 && errors.length === beforeErrors, "离开后的资源响应引发报错或覆盖页面");
+    } finally { if (release) release(); await page.unroute(pattern); }
+  });
+
+  for (const [label, hash, endpoint, target] of [
+    ["玩家", `#/inst/${inst}/players`, "**/players", `#/inst/${inst}/console`],
+    ["备份", `#/inst/${inst}/backups`, "**/backups", `#/inst/${inst}/console`],
+    ["定时任务", `#/inst/${inst}/tasks`, "**/policies", `#/inst/${inst}/console`],
+    ["常用设置", `#/inst/${inst}/common`, "**/properties", `#/inst/${inst}/console`],
+    ["全部配置", `#/inst/${inst}/raw`, "**/properties", `#/inst/${inst}/console`],
+    ["内存启动", `#/inst/${inst}/jvm`, "**/api/app", `#/inst/${inst}/console`],
+    ["Java 设置", "#/settings/java", "**/api/javas", "#/settings/download"],
+  ]) {
+    await run(`切页竞态：${label}慢响应不覆盖新标签、不报错`, async () => {
+      await page.goto(url("#/instances")); await settle();
+      const before = errors.length;
+      let release, seen;
+      const gate = new Promise(r => release = r), requested = new Promise(r => seen = r);
+      await page.route(endpoint, async route => { seen(); await gate; await route.continue(); });
+      try {
+        await page.evaluate(hash => { location.hash = hash; }, hash); await requested;
+        await page.evaluate(hash => { location.hash = hash; }, target); await settle();
+        const expected = await page.textContent(target.startsWith("#/settings") ? "#set-body" : "#tab-body");
+        release(); await settle(500);
+        const actual = await page.textContent(target.startsWith("#/settings") ? "#set-body" : "#tab-body");
+        assert(actual === expected && errors.length === before, "旧响应改写了新标签或产生报错：" + errors.slice(before).join(" | "));
+      } finally { release(); await page.unroute(endpoint); }
+    });
+  }
+
+  await run("任务恢复：进度接口暂时失败后自动恢复，保留上次进度", async () => {
+    let fail = false, calls = 0;
+    await page.route("**/api/tasks/task-retry", async route => {
+      calls++;
+      if (fail) return route.fulfill({ status: 503, json: { ok: false, error: "临时不可用" } });
+      await route.continue();
+    });
+    try {
+      await page.goto(url("#/task/task-retry")); await settle();
+      fail = true; await settle(1000);
+      assert(await page.locator("#task-log").count() === 1, "一次刷新失败就清掉了进度和日志");
+      fail = false; const before = calls; await settle(1800);
+      assert(calls > before && await page.locator("#t-fetch-error:not([hidden])").count() === 0, "失败后永久停止轮询");
+    } finally { await page.unroute("**/api/tasks/task-retry"); }
+  });
+
+  await run("任务恢复：不存在的任务停止轮询并提供返回入口", async () => {
+    let calls = 0;
+    await page.route("**/api/tasks/task-missing", async route => {
+      calls++;
+      await route.fulfill({ status: 404, json: { ok: false, error: "任务不存在" } });
+    });
+    try {
+      await page.goto(url("#/task/task-missing")); await settle(1800);
+      assert(calls === 1, "不存在的任务仍在反复轮询：" + calls);
+      assert(await page.locator('#task-box a[href="#/create"]').count() === 1 && !(await page.textContent("#task-box")).includes("加载中"), "缺少返回入口或仍停在加载中");
+    } finally { await page.unroute("**/api/tasks/task-missing"); }
+  });
+
   await run("设置单字段：没改时保存键置灰，回车即保存", async () => {
     await page.goto(url("#/settings/download")); await settle();
     assert(await page.$eval("#cf-save", b => b.disabled), "未改动时保存键应置灰");

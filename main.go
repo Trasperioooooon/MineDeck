@@ -188,6 +188,9 @@ func openWebView(url string, sig chan os.Signal, minimized bool) (ok bool) {
 		return false
 	}
 	defer w.Destroy()
+	if err := disableWebViewStatusBar(w); err != nil {
+		log.Println("关闭 WebView2 链接状态栏失败:", err)
+	}
 	hwnd := uintptr(w.Window())
 	applyDarkTitleBar(hwnd) // DWM 边框深色化，匹配深色主题
 	applyWindowIcon(hwnd)   // 任务栏 / Alt-Tab / 托盘图标

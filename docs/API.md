@@ -60,6 +60,8 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 
 `POST /api/adopt` 的请求体：`dir`、`name`、`core`、`mc`、`launchTarget`（必须是识别出来的候选之一）必填；`build`、`xmxMb`（低于 512 按 2048 算）、`javaMajor`（0 = 按 Minecraft 版本自动选，本机没有就下载便携版）、`javaPath`（指定用哪一个 java.exe，必须是 `GET /api/javas` 里列出来的，同时要给 `javaMajor`）、`eula`（eula.txt 里没同意过时必须为 true，代理端不用）选填。后端会重新识别一遍文件夹，不信请求里带来的事实。任务成功后往文件夹里写的只有：`instance.json`；`run.bat`（原来有的先另存为 `run.before-minedeck.bat`，备份已存在就不覆盖）；Forge / NeoForge 的 `user_jvm_args.txt`（原来的另存为 `user_jvm_args.before-minedeck.txt`，里面除内存以外的 JVM 参数带到 `extraJvm`）；`eula.txt`（原来没同意过时）；1.12 ~ 1.16.5 的 `log4j2_112-116.xml`（log4shell 缓解，和新建时一样）。任务失败不删任何东西，并且把这次动过的这几个文件恢复原样，文件夹和接管之前一模一样。
 
+`GET /api/tasks` 返回本次程序运行的任务摘要数组，按创建时间从新到旧排列，包括部署中、已完成和失败的任务；没有任务时返回 `[]`。每项是 `{id, title, kind?, label, done, total, ended, error?, result?, warningCount}`，同名字段的含义和单个任务的快照一样（`kind` 见下一段），`warningCount` 是告警条数；步骤、日志和告警明细不在列表里，要看就用 `GET /api/tasks/{id}` 查那一个任务。界面切页或刷新后可据此恢复进度入口，程序重启后任务记录清空。
+
 `GET /api/tasks/{id}` 快照里的 `kind` 说明是哪一类任务：没有这个字段是新建 / 导入（部署），`adopt` 是接管已有服务器，`java` 是换 Java 时下载便携版；界面按它换说法。快照除进度/日志外，还含 `warnings[]`（结构化告警，如 CurseForge 未解析模组清单 `{kind,title,note,items:[{name,url}]}`），供导入完成页醒目呈现。
 还可能有 `net: {count, host?, what, ago}`：当前这一步里下载超时、失败重试的情况——`count` 是这一步一共出过几次，`host` 是最近一次出问题的地址（只到主机名，安装器自己出错重来时为空），`what` 是什么问题（「下载失败」「连接超时」「连不上」「安装器出错退出，第 2 次重试」），`ago` 是几秒前。来源有两处：MineDeck 自己下载核心时某个下载源没下成（换下一个源或稍后重试），以及 Forge / NeoForge 安装器的输出里出现连接超时、连不上的异常（一段异常栈算一次）。之后下载又有了进度、换了步骤或任务结束，就不再有这一项。部署页在它出现、或者进度和日志 30 秒没有任何变化时，在进度旁提示「下载慢，或者在重试」。
 

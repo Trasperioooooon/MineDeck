@@ -189,6 +189,15 @@ func (c *cat) instanceOps() {
 	c.adoptOps()
 
 	c.reg.Register(&ops.Op{
+		Name: "task.list", Title: "查看后台任务", Level: ops.Read,
+		Desc: "本次运行的新建实例、整合包导入、接管已有服务器、Java 下载任务，按创建时间从新到旧排列，包含已完成与失败的任务。" +
+			"每个任务只给摘要（标题、是否结束、当前进度、出错原因、告警条数），步骤、日志和告警明细用 task.get 查。",
+		Run: func(context.Context, ops.Caller, ops.Args) (any, error) {
+			return c.Mgr.Tasks.List(), nil
+		},
+	})
+
+	c.reg.Register(&ops.Op{
 		Name: "task.get", Title: "查看任务进度", Level: ops.Read,
 		Desc:   "新建实例、导入整合包、接管已有服务器、换 Java 的后台任务：各步骤状态、下载进度、日志、告警。",
 		Params: ops.Object(map[string]*ops.Schema{"id": ops.String("任务编号")}, "id"),
