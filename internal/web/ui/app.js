@@ -780,9 +780,11 @@ async function refreshTaskList(slot, gen) {
     const list = await api("/api/tasks");
     if (stale(gen) || !slot.isConnected) return;
     const html = list.length ? `<h2>部署与下载任务</h2>` + list.map(t => {
-      const state = !t.ended ? (t.label || "进行中") : t.error ? "失败" : t.warningCount ? "已完成，有提示" : "已完成";
+      const state = !t.ended ? (t.label || "进行中") : t.error ? "失败"
+        : t.pendingCount ? `已完成，${t.pendingCount} 个文件待处理`
+        : t.warningCount ? "已完成，有提示" : "已完成";
       return `<div class="java-row"><div style="flex:1;min-width:0"><b>${esc(t.title)}</b><div class="sub">${esc(state)}</div></div>
-        <a class="btn sm" href="#/task/${encodeURIComponent(t.id)}" aria-label="${t.ended ? "查看结果" : "查看进度"} ${esc(t.title)} ${esc(t.id)}">${t.ended ? "查看结果" : "查看进度"}</a></div>`;
+        <a class="btn sm" href="#/task/${encodeURIComponent(t.id)}" aria-label="${t.ended ? (t.pendingCount ? "去处理待决文件" : "查看结果") : "查看进度"} ${esc(t.title)} ${esc(t.id)}">${t.ended ? (t.pendingCount ? "去处理" : "查看结果") : "查看进度"}</a></div>`;
     }).join("") : "";
     if (slot._html !== html) { slot.innerHTML = html; slot._html = html; }
     slot.hidden = !list.length;
@@ -1319,6 +1321,12 @@ async function drawImport() {
           <input type="text" id="im-root" readonly style="flex:1;cursor:default;background:var(--surface-2)" aria-label="存放位置">
           <button type="button" class="btn" id="im-browse">${icon("folder")} 浏览…</button>
         </div></label>
+      <label class="field full"><span>本地来源目录（可选）</span>
+        <div class="row" style="gap:8px">
+          <input type="text" id="im-src" style="flex:1" placeholder="还留着的老服务器目录，魔改模组按原样保留会用到" aria-label="本地来源目录">
+          <button type="button" class="btn" id="im-src-browse" aria-label="浏览本地来源目录">${icon("folder")} 浏览…</button>
+        </div>
+        <div class="hint" style="margin-top:6px">没法自动下载的文件（魔改模组的自定义直链、缺校验值等），只要这个目录里已有对应文件，就按原样保留、不再要求线上匹配；也可以导入后在任务面板里逐个处理。</div></label>
       <div class="field"><label class="switch"><input type="checkbox" id="im-online"><span class="sw"></span>
         <span><span class="sw-label">正版验证</span><div class="sw-desc">默认关闭</div></span></label></div>
       <div class="field"><label class="switch"><input type="checkbox" id="im-flight" checked><span class="sw"></span>
@@ -1337,6 +1345,10 @@ async function drawImport() {
   imUpdateRoot();
   $("#im-browse").onclick = async () => {
     try { const r = await api("/api/pickdir", { method: "POST" }); if (!stale(gen) && r.path) { imRoot = r.path; imUpdateRoot(); toast("已选择：" + r.path); } }
+    catch (e) { toast(e.message, true); }
+  };
+  $("#im-src-browse").onclick = async () => {
+    try { const r = await api("/api/pickdir", { method: "POST" }); if (!stale(gen) && r.path) { $("#im-src").value = r.path; toast("已选择：" + r.path); } }
     catch (e) { toast(e.message, true); }
   };
   // 行内校验（同向导）：错误显示在对应字段下方，改正后即时消失
@@ -1359,11 +1371,13 @@ async function drawImport() {
     fd.append("onlineMode", $("#im-online").checked ? "true" : "false");
     fd.append("allowFlight", $("#im-flight").checked ? "true" : "false");
     fd.append("root", imRoot);
+    fd.append("localSource", $("#im-src").value.trim());
     try {
       const res = await fetch("/api/import/modpack", { method: "POST", headers: { "X-Token": TOKEN() }, body: fd });
       const j = await res.json();
       if (!j.ok) throw new Error(j.error || "导入失败");
-      toast(`已识别：${j.data.pack.core} ${j.data.pack.mc}（${j.data.pack.files} 个文件）`);
+      const pending = (j.data.pack.pending || 0) > 0 ? `，${j.data.pack.pending} 个文件待处理` : "";
+      toast(`已识别：${j.data.pack.core} ${j.data.pack.mc}（${j.data.pack.files} 个文件${pending}）` + (pending ? "，完成后再逐个处理" : ""));
       if (!stale(gen)) location.hash = `#/task/${j.data.taskId}`;
     } catch (e) {
       toast(e.message, true);
@@ -1721,6 +1735,8 @@ async function renderTaskPage(taskId) {
         <div class="warn-card task-slow" id="t-slow" role="status" hidden><div class="wc-title">${icon("clock")} <span id="t-slow-title"></span></div>
           <div class="wc-note">下载慢，或者在重试：可以检查网络或代理。在重试的话，网络恢复后会自己接着下，不用重新部署。</div></div>
         <div id="t-msgs"></div>
+        <div id="t-pending-out"></div>
+        <div id="t-pending"></div>
         <div class="task-log" id="task-log"></div>
         <div class="save-bar" id="t-foot"></div>`;
       built = true;
@@ -1770,7 +1786,9 @@ async function renderTaskPage(taskId) {
         ${w.note ? `<div class="wc-note">${esc(w.note)}</div>` : ""}
         ${(w.items || []).length ? `<ul class="wc-list">${w.items.map(it =>
           `<li>${/^https?:\/\//i.test(it.url || "") ? `<a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.name)}</a>` : esc(it.name)}</li>`).join("")}</ul>` : ""}
+        ${w.kind === "java-req" && t.result ? `<div class="wc-note"><a class="btn sm" href="#/inst/${encodeURIComponent(t.result)}/jvm">去「内存 / 启动」换 Java</a></div>` : ""}
       </div>`).join("");
+    drawPending(t.pending || []);
     const lg = $("#task-log"), text = (t.log || []).join("\n");
     if (lg.textContent !== text) { lg.textContent = text; lg.scrollTop = lg.scrollHeight; }
     // 下载慢 / 在重试：后端报了刚发生的超时、重试（t.net，一分钟内的），或者进度、步骤、日志 STALL_MS 没有任何变化。
@@ -1792,7 +1810,100 @@ async function renderTaskPage(taskId) {
       ${!t.ended ? `<span class="warn-text">${icon("warn")} ${K.busy}</span>` : ""}`;
     if (t.ended) { ended = true; stopPoll(); if (!t.error) toast(K.ok); }
   };
-  // 首次 draw 若因任何原因抛错，也必须启动轮询——否则后续状态永远无法刷新，页面会永久停在「加载中…」。
+  // ---- 待决文件面板（整合包导入完成后逐项处理；任务已结束，不再轮询，应用后自己重画） ----
+  let pendingItems = [];
+  let pendingSig = "";
+  const PND_ACT = { skip: "跳过", local: "用本地文件代替", trust: "信任站点并下载" };
+  const drawPending = (items, refresh) => {
+    const box = $("#t-pending");
+    if (!box) return;
+    // 任务页停轮询之前不会再重画（避免盖掉用户正在选的选项）；应用处理后强制重画
+    const sig = JSON.stringify(items || []);
+    if (sig === pendingSig && !refresh) return;
+    const wasEmpty = pendingSig === "[]";
+    pendingSig = sig;
+    pendingItems = items || [];
+    if (!pendingItems.length) {
+      box.innerHTML = wasEmpty ? "" : `<div class="warn-card"><div class="wc-title">${icon("check")} 待决清单已全部处理完</div></div>`;
+      return;
+    }
+    box.innerHTML = `<div class="warn-card">
+      <div class="wc-title">${icon("warn")} 待决文件（${pendingItems.length} 个）</div>
+      <div class="wc-note">这些都是没法自动下载的文件（魔改模组的自定义直链、缺失校验值、下载内容对不上、CurseForge 解析不到）。逐个选一种处理方式后应用；没选的先留着。</div>
+      ${pendingItems.map(it => `
+      <div class="pnd-item" data-id="${esc(it.id)}" style="border-top:1px solid var(--line);margin-top:10px;padding-top:10px">
+        <div><b>${esc(it.path)}</b>${it.host ? ` <span class="badge">${esc(it.host)}</span>` : ""}</div>
+        <div class="wc-note">${esc(it.note || "")}${it.size ? `（整合包标 ${fmtBytes(it.size)}）` : ""}
+          ${(it.urls || []).map(u => ` <a href="${esc(u)}" target="_blank" rel="noopener">下载地址</a>`).join("")}</div>
+        <div class="row" style="flex-wrap:wrap;margin-top:4px" role="radiogroup" aria-label="待决文件 ${esc(it.path)} 的处理方式">
+          ${(it.options || ["skip", "local"]).filter(o => PND_ACT[o]).map(o =>
+            `<label style="display:inline-flex;gap:5px;align-items:center;margin-right:14px"><input type="radio" name="pnd-${esc(it.id)}" value="${o}"><span>${PND_ACT[o]}</span></label>`).join("")}
+        </div>
+        <input type="text" class="pnd-local" style="width:100%;margin-top:6px" placeholder="选择「用本地文件代替」时填写：本地文件或目录的完整路径（目录按文件名匹配）" aria-label="待决文件 ${esc(it.path)} 的本地文件或目录路径" hidden>
+        <label class="pnd-ack" style="display:inline-flex;gap:6px;align-items:flex-start;margin-top:6px" hidden><input type="checkbox" class="pnd-ackbox">
+          <span class="wc-note">我已了解风险：这个文件没有可信来源的校验背书，站点内容也可能中途被换；只在知道 ${it.host ? `「${esc(it.host)}」` : "这个站点"}是什么时才信任它（确认后同一站点以后不用再确认）。</span></label>
+      </div>`).join("")}
+      <div class="row" style="margin-top:12px">
+        <button type="button" class="btn primary" id="t-pending-apply">应用所选的处理</button>
+        <span class="hint">没法自动判断的魔改模组，推荐选「用本地文件代替」指向自己那份</span>
+      </div>
+    </div>`;
+    wirePending();
+  };
+  const wirePending = () => {
+    for (const row of document.querySelectorAll("#t-pending .pnd-item")) {
+      for (const radio of row.querySelectorAll("input[type=radio]")) {
+        radio.onchange = () => {
+          row.querySelector(".pnd-local").hidden = true;
+          row.querySelector("label.pnd-ack").hidden = true;
+          if (radio.value === "local") row.querySelector(".pnd-local").hidden = false;
+          if (radio.value === "trust") row.querySelector("label.pnd-ack").hidden = false;
+        };
+      }
+    }
+    const apply = $("#t-pending-apply");
+    if (!apply) return;
+    apply.onclick = async () => {
+      const acts = [];
+      let missing = "";
+      for (const it of pendingItems) {
+        const radio = document.querySelector(`#t-pending input[name="pnd-${CSS.escape(it.id)}"]:checked`);
+        if (!radio) continue; // 没选的留着下一批
+        const row = document.querySelector(`#t-pending .pnd-item[data-id="${CSS.escape(it.id)}"]`);
+        const act = { id: it.id, act: radio.value };
+        if (radio.value === "local") {
+          act.path = (row.querySelector(".pnd-local").value || "").trim();
+          if (!act.path && !missing) missing = `${it.path} 选了「用本地文件代替」但没给路径`;
+        }
+        if (radio.value === "trust") {
+          act.url = (it.urls || [])[0] || "";
+          act.ack = row.querySelector(".pnd-ackbox").checked;
+        }
+        acts.push(act);
+      }
+      if (missing) { toast(missing, true); return; }
+      if (!acts.length) { toast("先给至少一个文件选处理方式", true); return; }
+      apply.disabled = true;
+      try {
+        const r = await api(`/api/import/pending/${encodeURIComponent(taskId)}`, { method: "POST", body: { items: acts } });
+        if (stale(gen)) return;
+        const out = $("#t-pending-out");
+        if (out) out.innerHTML = `<div class="wc-wrap">${(r.resolved || []).map(o =>
+          `<div class="${o.ok ? "hint" : "err-box"}" style="margin-bottom:6px">${o.ok ? "已处理" : "没处理成"}：${esc(o.path)}${o.note ? "——" + esc(o.note) : ""}</div>`).join("")}</div>`;
+        if (!(r.pending || []).length) {
+          toast("待决清单已全部处理完");
+          drawPending(r.pending || [], true);
+        } else if (JSON.stringify(r.pending || []) !== pendingSig) {
+          // 清单变了才重画：没处理成的批次留着原面板，不把用户已经选好的选项和路径清掉
+          drawPending(r.pending || [], true);
+        }
+      } catch (e) {
+        if (!stale(gen)) toast(e.message, true);
+      } finally {
+        if (!stale(gen) && $("#t-pending-apply")) $("#t-pending-apply").disabled = false;
+      }
+    };
+  };
   try { await draw(); } catch (e) { console.warn("首次任务渲染失败，转由轮询接管：", e); }
   if (!ended) startPoll(draw, 800, gen);
 }
@@ -1884,6 +1995,22 @@ async function renderDetail(name, tab = "console") {
     } catch {}
   };
   startPoll(refreshHead, 2500, gen);
+
+  // 模组声明了比实例更高的 Java 要求时给提示（不阻断：1.20.1 配 Java 25 的魔改模组是允许的组合）。
+  // 只在有模组目录的核心上查一次；vanilla / 代理端会 400，静默忽略。
+  if (info.kind !== "proxy" && info.core !== "vanilla") {
+    api(`/api/instances/${encodeURIComponent(name)}/mods`).then(r => {
+      if (stale(gen) || !r || !r.needJava || r.needJava <= (info.javaMajor || 0)) return;
+      const host = document.querySelector(".dh-text");
+      if (!host || $("#d-java-hint")) return;
+      const hint = document.createElement("div");
+      hint.id = "d-java-hint";
+      hint.className = "dh-line";
+      hint.style.marginTop = "2px";
+      hint.innerHTML = `<a class="warn-text" href="#/inst/${encodeURIComponent(name)}/jvm">${icon("warn")} 有模组要求 Java ${r.needJava}，这台服务器现在是 Java ${info.javaMajor}，启动可能失败。到「内存 / 启动」换一下（也可以先不换）</a>`;
+      host.appendChild(hint);
+    }).catch(() => {});
+  }
 
   const body = $("#tab-body");
   if (tab === "console") {

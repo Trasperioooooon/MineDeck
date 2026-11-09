@@ -1229,6 +1229,8 @@ function handler(state, ui, portOf) {
     //   lanSet: 是否已设局域网访问密码；lanActive: 单独改「这次启动是否已监听在局域网上」（模拟改了开关还没重启）
     //   taskStage: 部署任务进行到第几步（0–4，4 = 完成），"error" = 第 2 步失败
     //   taskList: 后台任务快照数组；同时覆盖对应任务详情里的字段，模拟并行任务及离开期间完成的任务
+    //   modsNeed: { 实例名: needJava } GET /api/instances/{名称}/mods 返回的 needJava（实例详情页的 Java 提示用），空对象还原
+    //   trustedHosts: [站点] 处置待决文件时已确认过的自定义站点（trust 不再要求 ack），空数组还原
     //   taskNet: 部署任务的 net（同 tasks.NetRetry：{ count, host, what, ago }），null 清掉
     //   inst: { name, …字段 } 直接改某台服务器的字段；instReset: true 服务器列表回到初始的四台
     //   adoptScan: 接管已有服务器时「识别」返回的结果（同 inst.AdoptScan），null 还原成默认的；
@@ -1251,6 +1253,8 @@ function handler(state, ui, portOf) {
       if ("onboarded" in b) { state.config.onboarded = !!b.onboarded; state.config.tosAccepted = !!b.onboarded; }
       if ("taskStage" in b) state.taskStage = b.taskStage;
       if ("taskList" in b) state.taskList = b.taskList;
+      if ("modsNeed" in b) state.modsNeed = b.modsNeed || {};
+      if ("trustedHosts" in b) state.trustedHosts = b.trustedHosts || [];
       if ("taskNet" in b) state.taskNet = b.taskNet;
       if (b.inst) { const i = state.instances.find(x => x.name === b.inst.name); if (i) Object.assign(i, b.inst); } // 改某台服务器的字段（adopted、javaMajor…）
       if ("adoptScan" in b) state.adoptScan = b.adoptScan; // 接管：下一次识别返回的结果（null 还原成默认的 NeoForge 整合包）
@@ -1340,6 +1344,46 @@ function handler(state, ui, portOf) {
         state.lastAdopt = b;
         return ok(res, { taskId: "task-adopt" });
       }
+      // 整合包导入的待决文件处置（同 ops/catalog 的 instance.import.pending）：跳过、本地代替、信任下载。
+      // trust 模拟后端的门：候选地址、ack（同站点第二次不用再确认）。
+      if (m === "POST" && p.startsWith("/api/import/pending/")) {
+        const tid = decodeURIComponent(p.slice("/api/import/pending/".length));
+        const b = await readBody(req);
+        const items = Array.isArray(b.items) ? b.items : [];
+        if (!items.length) return err(res, 400, "没有要处理的项");
+        const task = state.taskList.find(t => t.id === tid);
+        if (!task) return err(res, 404, "任务不存在");
+        const resolved = [];
+        const keep = [];
+        for (const it of task.pending || []) {
+          const act = items.find(x => x.id === it.id);
+          if (!act) { keep.push(it); continue; }
+          let done = true, note = "";
+          if (act.act === "skip") note = "已跳过，已记录进任务日志";
+          if (act.act === "local") {
+            if (!String(act.path || "").trim()) { done = false; note = "给出本地文件或目录的路径"; }
+            else note = "已用本地文件原样代替（" + act.path + "）";
+          }
+          if (act.act === "trust") {
+            const host = it.host || "";
+            const hosts = state.trustedHosts || (state.trustedHosts = []);
+            if ((it.urls || []).indexOf(act.url) < 0) { done = false; note = "地址要选这一项列出的候选地址"; }
+            else if (!act.ack && !hosts.includes(host)) { done = false; note = `站点 ${host} 没有确认过：读一遍风险说明并确认后才下载`; }
+            else if (!hosts.includes(host)) { hosts.push(host); note = `确认站点 ${host} 后下载完成，校验通过`; }
+            else note = `站点 ${host} 之前确认过，直接下载完成，校验通过`;
+          }
+          resolved.push({ id: it.id, path: it.path, act: act.act, ok: done, note });
+          if (!done) keep.push(it); // 没处理成的留在清单里
+        }
+        task.pending = keep;
+        return ok(res, { resolved, pending: keep });
+      }
+      // 模组清单（实例详情页的 Java 提示用；真后端见 ops/catalog files.go 的 instance.mods.list）
+      if (seg[2] === "instances" && seg[4] === "mods" && m === "GET") {
+        const need = (state.modsNeed || {})[seg[3]];
+        const mods = need ? [{ file: "modded-fabric.jar", id: "modded", version: "1.0" }] : [];
+        return ok(res, { dir: "mods", count: mods.length, disabled: 0, mods, ...(need ? { needJava: need } : {}) });
+      }
       // 接管、换 Java 的任务（kind 不同，任务页的说法跟着换）：仿真里一查就是已完成
       if (p === "/api/tasks/task-adopt" || p === "/api/tasks/task-java") {
         const adopt = p.endsWith("adopt");
@@ -1349,7 +1393,7 @@ function handler(state, ui, portOf) {
           ended: true, result: adopt ? (state.lastAdopt || {}).name || "create-pack" : (state.lastJava || {}).inst || "机械动力整合包" });
       }
       // 和真后端一样只给摘要：步骤、日志、告警明细不在列表里
-      if (p === "/api/tasks") return ok(res, state.taskList.map(t => ({ id: t.id, title: t.title, label: t.label || "", done: t.done || 0, total: t.total || 0, ended: !!t.ended, error: t.error || undefined, result: t.result || undefined, kind: t.kind || undefined, warningCount: (t.warnings || []).length })));
+      if (p === "/api/tasks") return ok(res, state.taskList.map(t => ({ id: t.id, title: t.title, label: t.label || "", done: t.done || 0, total: t.total || 0, ended: !!t.ended, error: t.error || undefined, result: t.result || undefined, kind: t.kind || undefined, warningCount: (t.warnings || []).length, pendingCount: (t.pending || []).length })));
       if (p.startsWith("/api/tasks/")) {
         const st = state.taskStage;
         const names = ["下载 Java 21 运行时", "下载 Paper 1.21.4 核心", "同意 EULA 并生成配置", "生成启动脚本"];
