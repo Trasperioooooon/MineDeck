@@ -92,3 +92,39 @@ func TestNetRetry(t *testing.T) {
 		t.Fatalf("结束后不该再报：%+v", s.Net)
 	}
 }
+
+// 待决清单（整合包导入）：快照要带出去给处置面板，处置后清单缩小、全部处理完清空；
+// 列表摘要只给条数（pendingCount）。
+func TestPendingList(t *testing.T) {
+	mg := NewManager()
+	tk, _ := mg.New("导入整合包 x", nil)
+	if sn := tk.Snapshot(); len(sn.Pending) != 0 {
+		t.Fatalf("空清单不该有待决文件: %+v", sn.Pending)
+	}
+	tk.SetPending([]PendingItem{
+		{ID: "p1", Path: "mods/custom.jar", Reason: "host", Note: "白名单外", Host: "files.example.net",
+			URLs: []string{"https://files.example.net/a.jar"}, SHA1: "aa", Options: []string{"local", "skip", "trust"}},
+		{ID: "p2", Path: "mods/other.jar", Reason: "nohash", Options: []string{"skip", "local"}},
+	})
+	sn := tk.Snapshot()
+	if len(sn.Pending) != 2 || sn.Pending[0].Host != "files.example.net" || sn.Pending[1].ID != "p2" {
+		t.Fatalf("快照应逐项带出: %+v", sn.Pending)
+	}
+	if s := mg.List()[0]; s.PendingCount != 2 {
+		t.Fatalf("摘要应给待决条数: %+v", s)
+	}
+	removed := tk.ResolvePending([]string{"p1", "p9"})
+	if len(removed) != 1 || removed[0].ID != "p1" {
+		t.Fatalf("只应移走存在的: %+v", removed)
+	}
+	if left := tk.PendingItems(); len(left) != 1 || left[0].ID != "p2" {
+		t.Fatalf("清剩下的不对: %+v", left)
+	}
+	tk.ResolvePending([]string{"p2"})
+	if left := tk.PendingItems(); len(left) != 0 {
+		t.Fatalf("应清空: %+v", left)
+	}
+	if s := mg.List()[0]; s.PendingCount != 0 {
+		t.Fatalf("清空后摘要应为 0: %+v", s)
+	}
+}

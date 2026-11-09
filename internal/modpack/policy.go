@@ -85,6 +85,21 @@ func classifyURLs(urls []string, trusted func(host string) bool) (allowed, pendi
 	return allowed, pending
 }
 
+// Reclassify 把用户已确认过（trusted）的自定义站点的待决文件移回可下载清单：
+// 导入启动时带着已有的信任记忆重新过一遍，同一站点的第二个整合包不再列待决。
+func (p *Pack) Reclassify(trusted func(host string) bool) {
+	keep := p.Pending[:0:0]
+	for _, pf := range p.Pending {
+		allowed, _ := classifyURLs(pf.URLs, trusted)
+		if pf.Reason == ReasonHost && len(allowed) > 0 {
+			p.Files = append(p.Files, File{Path: pf.Path, SHA1: pf.SHA1, URLs: allowed, Size: pf.Size})
+			continue
+		}
+		keep = append(keep, pf)
+	}
+	p.Pending = keep
+}
+
 // HostIsPublic 判断主机是不是公网地址，用来挡把自定义下载地址指到本机、内网或云元数据端点的做法（SSRF）。
 // IP 字面量直接查地址；域名把 DNS 解析出来的每一个 A/AAAA 记录都查一遍，任何一个是内网或不解析就整体拒绝。
 // 授予信任和每次实际下载（信任主机）之前都要过这一关。
