@@ -56,6 +56,8 @@ func TestParseMrpackPerFilePolicy(t *testing.T) {
 		`{"path":"mods/mixed.jar","hashes":{"sha1":"` + goodSHA1 + `"},"downloads":["https://cdn.modrinth.com/e.jar","https://evil.example.org/e.jar"],"fileSize":50}`,
 		// 带端口的自定义主机
 		`{"path":"mods/ported.jar","hashes":{"sha1":"` + goodSHA1 + `"},"downloads":["https://files.example.net:8443/f.jar"],"fileSize":60}`,
+		// 自定义主机但缺 SHA-1：信任站点也过不了校验，不给下载资格（nohash，不是 host）
+		`{"path":"mods/custom-nohash.jar","hashes":{},"downloads":["https://files.example.net/g.jar"],"fileSize":70}`,
 	}, ","))
 	p, err := Parse(mkZip(t, map[string]string{"modrinth.index.json": idx}))
 	if err != nil {
@@ -74,8 +76,8 @@ func TestParseMrpackPerFilePolicy(t *testing.T) {
 			}
 		}
 	}
-	if len(p.Pending) != 4 {
-		t.Fatalf("待决文件应为 4 个，实际 %d: %+v", len(p.Pending), p.Pending)
+	if len(p.Pending) != 5 {
+		t.Fatalf("待决文件应为 5 个，实际 %d: %+v", len(p.Pending), p.Pending)
 	}
 	byPath := map[string]PendingFile{}
 	for _, pf := range p.Pending {
@@ -83,9 +85,14 @@ func TestParseMrpackPerFilePolicy(t *testing.T) {
 	}
 	if pf := byPath["mods/custom-host.jar"]; pf.Reason != ReasonHost || len(pf.URLs) != 1 {
 		t.Errorf("自定义主机文件应为 host 待决: %+v", pf)
+	} else if pf.SHA1 != goodSHA1 {
+		t.Errorf("host 待决文件必须带上 SHA-1（信任站点后下载要过校验）: %+v", pf)
 	}
-	if pf := byPath["mods/ported.jar"]; pf.Reason != ReasonHost || len(pf.URLs) != 1 {
-		t.Errorf("带端口的自定义主机文件应为 host 待决: %+v", pf)
+	if pf := byPath["mods/ported.jar"]; pf.Reason != ReasonHost || len(pf.URLs) != 1 || pf.SHA1 != goodSHA1 {
+		t.Errorf("带端口的自定义主机文件应为 host 待决且带 SHA-1: %+v", pf)
+	}
+	if pf := byPath["mods/custom-nohash.jar"]; pf.Reason != ReasonNoHash || len(pf.URLs) != 0 {
+		t.Errorf("自定义直链但缺 SHA-1 应归 nohash（信任下载也过不了校验，不给下载资格）: %+v", pf)
 	}
 	if pf := byPath["mods/no-hash.jar"]; pf.Reason != ReasonNoHash {
 		t.Errorf("缺哈希应为 nohash 待决: %+v", pf)
@@ -189,5 +196,36 @@ func TestErrVerifySentinel(t *testing.T) {
 	}
 	if dl.ErrVerify.Error() != "哈希校验失败" {
 		t.Fatalf("哨兵文案不对: %s", dl.ErrVerify.Error())
+	}
+}
+
+// Reclassify：用户确认过的站点在下次导入启动时自动移回可下载清单（同站点免确认的记忆），
+// 并且移回的文件带着 SHA-1——自动下载同样要过校验。
+func TestReclassify(t *testing.T) {
+	p := &Pack{
+		Files: []File{{Path: "mods/already.jar", SHA1: "z", URLs: []string{"https://cdn.modrinth.com/x.jar"}}},
+		Pending: []PendingFile{
+			{Path: "mods/trusted.jar", SHA1: "aa", URLs: []string{"https://files.example.net/a.jar", "https://other.example.org/b.jar"}, Size: 10, Reason: ReasonHost},
+			{Path: "mods/untrusted.jar", SHA1: "bb", URLs: []string{"https://nope.example.org/c.jar"}, Size: 20, Reason: ReasonHost},
+			{Path: "mods/other-nohash.jar", Size: 30, Reason: ReasonNoHash},
+		},
+	}
+	p.Reclassify(func(h string) bool { return h == "files.example.net" })
+	if len(p.Files) != 2 || p.Files[1].Path != "mods/trusted.jar" || p.Files[1].SHA1 != "aa" {
+		t.Fatalf("信任站点文件应带 SHA-1 移回 Files: %+v", p.Files)
+	}
+	for _, u := range p.Files[1].URLs {
+		if _, host, _ := strings.Cut(u, "://"); strings.HasPrefix(strings.ToLower(host), "nope.") {
+			t.Errorf("候选地址只应保留白名单/已信任的: %s", u)
+		}
+	}
+	if len(p.Pending) != 2 || p.Pending[0].Path != "mods/untrusted.jar" || p.Pending[1].Reason != ReasonNoHash {
+		t.Fatalf("其余待决原样保留: %+v", p.Pending)
+	}
+	// trusted 为 nil：谁都不放行
+	p2 := &Pack{Pending: []PendingFile{{Path: "mods/x.jar", SHA1: "aa", URLs: []string{"https://files.example.net/a.jar"}, Reason: ReasonHost}}}
+	p2.Reclassify(nil)
+	if len(p2.Files) != 0 || len(p2.Pending) != 1 {
+		t.Fatalf("无信任记忆时不应移任何项: %+v %+v", p2.Files, p2.Pending)
 	}
 }

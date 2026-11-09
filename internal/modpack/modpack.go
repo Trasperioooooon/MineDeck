@@ -138,16 +138,21 @@ func parseMrpack(zipPath string, f *zip.File) (*Pack, error) {
 			continue
 		}
 		// 逐文件分类：能自动下载的进 Files，不能的进 Pending（不再因为一个文件拒绝整个整合包）。
+		// 分类规则（顺序重要）：缺 SHA-1 的文件任何处置都不能下载（下载下来没法核对，信任站点也一样）；
+		// 有 SHA-1 且有白名单地址才能自动下载；只有自定义 https 地址的留待用户信任站点后下载。
 		allowed, pendingURLs := classifyURLs(fl.Downloads, nil)
 		switch {
 		case len(allowed) > 0 && fl.Hashes.SHA1 == "":
-			// 有可下载地址但没有校验值：下载下来没法核对，不自动下载
-			p.Pending = append(p.Pending, PendingFile{Path: rel, URLs: allowed, Size: fl.FileSize, Reason: ReasonNoHash})
+			// 有可下载地址但没有校验值：下载下来没法核对，任何处置都不自动下载（保留地址没有意义）
+			p.Pending = append(p.Pending, PendingFile{Path: rel, Size: fl.FileSize, Reason: ReasonNoHash})
 		case len(allowed) > 0:
 			p.Files = append(p.Files, File{Path: rel, SHA1: fl.Hashes.SHA1, URLs: allowed, Size: fl.FileSize})
+		case len(pendingURLs) > 0 && fl.Hashes.SHA1 == "":
+			// 自定义站点的直链、但缺校验值：trusted 下载也过不了校验，同上不给下载资格
+			p.Pending = append(p.Pending, PendingFile{Path: rel, Size: fl.FileSize, Reason: ReasonNoHash})
 		case len(pendingURLs) > 0:
-			// https 的自定义主机：交给用户确认（可选「信任这个站点」）后再下载
-			p.Pending = append(p.Pending, PendingFile{Path: rel, URLs: pendingURLs, Size: fl.FileSize, Reason: ReasonHost})
+			// https 的自定义主机：交给用户确认（可选「信任这个站点」）后再下载；SHA-1 带上，trust 下载必须过校验
+			p.Pending = append(p.Pending, PendingFile{Path: rel, SHA1: fl.Hashes.SHA1, URLs: pendingURLs, Size: fl.FileSize, Reason: ReasonHost})
 		default:
 			// 一条能用的地址都没有（非 https 或没写地址）：只能保留本地文件 / 手动指定 / 跳过
 			p.Pending = append(p.Pending, PendingFile{Path: rel, Size: fl.FileSize, Reason: ReasonBadURL})

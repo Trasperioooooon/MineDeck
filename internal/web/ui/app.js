@@ -1813,6 +1813,7 @@ async function renderTaskPage(taskId) {
   // ---- 待决文件面板（整合包导入完成后逐项处理；任务已结束，不再轮询，应用后自己重画） ----
   let pendingItems = [];
   let pendingSig = "";
+  let hadPending = false; // 之前画到过待决项（只有从「有待决」清到零才显示收尾卡片，从来没有待决的任务不显示）
   const PND_ACT = { skip: "跳过", local: "用本地文件代替", trust: "信任站点并下载" };
   const drawPending = (items, refresh) => {
     const box = $("#t-pending");
@@ -1820,13 +1821,14 @@ async function renderTaskPage(taskId) {
     // 任务页停轮询之前不会再重画（避免盖掉用户正在选的选项）；应用处理后强制重画
     const sig = JSON.stringify(items || []);
     if (sig === pendingSig && !refresh) return;
-    const wasEmpty = pendingSig === "[]";
     pendingSig = sig;
     pendingItems = items || [];
     if (!pendingItems.length) {
-      box.innerHTML = wasEmpty ? "" : `<div class="warn-card"><div class="wc-title">${icon("check")} 待决清单已全部处理完</div></div>`;
+      box.innerHTML = hadPending ? `<div class="warn-card"><div class="wc-title">${icon("check")} 待决清单已全部处理完</div></div>` : "";
+      hadPending = false;
       return;
     }
+    hadPending = true;
     box.innerHTML = `<div class="warn-card">
       <div class="wc-title">${icon("warn")} 待决文件（${pendingItems.length} 个）</div>
       <div class="wc-note">这些都是没法自动下载的文件（魔改模组的自定义直链、缺失校验值、下载内容对不上、CurseForge 解析不到）。逐个选一种处理方式后应用；没选的先留着。</div>
@@ -1841,7 +1843,7 @@ async function renderTaskPage(taskId) {
         </div>
         <input type="text" class="pnd-local" style="width:100%;margin-top:6px" placeholder="选择「用本地文件代替」时填写：本地文件或目录的完整路径（目录按文件名匹配）" aria-label="待决文件 ${esc(it.path)} 的本地文件或目录路径" hidden>
         <label class="pnd-ack" style="display:inline-flex;gap:6px;align-items:flex-start;margin-top:6px" hidden><input type="checkbox" class="pnd-ackbox">
-          <span class="wc-note">我已了解风险：这个文件没有可信来源的校验背书，站点内容也可能中途被换；只在知道 ${it.host ? `「${esc(it.host)}」` : "这个站点"}是什么时才信任它（确认后同一站点以后不用再确认）。</span></label>
+          <span class="wc-note">我已了解风险：这个文件没有可信来源的校验背书，站点内容也可能中途被换；只在知道 ${it.host ? `「${esc(it.host)}」` : "这个站点"}是什么时才信任它。确认按域名记忆（这个域名的不同端口也一并信任），以后同域名不用再确认。</span></label>
       </div>`).join("")}
       <div class="row" style="margin-top:12px">
         <button type="button" class="btn primary" id="t-pending-apply">应用所选的处理</button>
@@ -1894,8 +1896,29 @@ async function renderTaskPage(taskId) {
           toast("待决清单已全部处理完");
           drawPending(r.pending || [], true);
         } else if (JSON.stringify(r.pending || []) !== pendingSig) {
-          // 清单变了才重画：没处理成的批次留着原面板，不把用户已经选好的选项和路径清掉
+          // 清单变了才重画；没选的、没处理成的那些项，把用户已经选的选项、路径和确认勾原样带回去
+          const keep = {};
+          for (const it of r.pending || []) {
+            const row = document.querySelector(`#t-pending .pnd-item[data-id="${CSS.escape(it.id)}"]`);
+            if (!row) continue;
+            const radio = row.querySelector("input[type=radio]:checked");
+            keep[it.id] = {
+              act: radio ? radio.value : "",
+              path: (row.querySelector(".pnd-local") || {}).value || "",
+              ack: !!(row.querySelector(".pnd-ackbox") || { checked: false }).checked,
+            };
+          }
           drawPending(r.pending || [], true);
+          for (const it of r.pending || []) {
+            const st = keep[it.id];
+            if (!st || !st.act) continue;
+            const row = document.querySelector(`#t-pending .pnd-item[data-id="${CSS.escape(it.id)}"]`);
+            if (!row) continue;
+            const radio = row.querySelector(`input[value="${st.act}"]`);
+            if (radio) { radio.checked = true; radio.dispatchEvent(new Event("change")); }
+            if (st.path && row.querySelector(".pnd-local")) row.querySelector(".pnd-local").value = st.path;
+            if (st.ack && row.querySelector(".pnd-ackbox")) row.querySelector(".pnd-ackbox").checked = true;
+          }
         }
       } catch (e) {
         if (!stale(gen)) toast(e.message, true);

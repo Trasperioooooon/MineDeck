@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"minedeck/internal/dl"
 )
 
 // 整合包文件「无法自动下载」的原因（见 PendingFile.Reason）。
@@ -102,14 +104,14 @@ func (p *Pack) Reclassify(trusted func(host string) bool) {
 
 // HostIsPublic 判断主机是不是公网地址，用来挡把自定义下载地址指到本机、内网或云元数据端点的做法（SSRF）。
 // IP 字面量直接查地址；域名把 DNS 解析出来的每一个 A/AAAA 记录都查一遍，任何一个是内网或不解析就整体拒绝。
-// 授予信任和每次实际下载（信任主机）之前都要过这一关。
+// 授予信任和每次实际下载之前都要过这一关（连接级还有一道见 dl.GuardedClient，防查询与连接之间 DNS 变动）。
 func HostIsPublic(host string) bool {
 	host = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(host), "."))
 	if host == "" {
 		return false
 	}
 	if addr, err := netip.ParseAddr(host); err == nil {
-		return addrIsPublic(addr)
+		return dl.AddrIsPublic(addr)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -119,28 +121,11 @@ func HostIsPublic(host string) bool {
 	}
 	for _, a := range addrs {
 		ip, ok := netip.AddrFromSlice(a.IP)
-		if !ok || !addrIsPublic(ip) {
+		if !ok || !dl.AddrIsPublic(ip) {
 			return false
 		}
 	}
 	return true
-}
-
-// addrIsPublic 单个地址是否公网：回环、内网、链路本地、组播、CGNAT 和未指定地址一律不算。
-func addrIsPublic(addr netip.Addr) bool {
-	addr = addr.Unmap()
-	if !addr.IsValid() || addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast() ||
-		addr.IsLinkLocalMulticast() || addr.IsMulticast() || addr.IsUnspecified() {
-		return false
-	}
-	// CGNAT 100.64.0.0/10（运营商级 NAT 内网）：netip 没有单独的判断，按字节查
-	if addr.Is4() {
-		b := addr.As4()
-		if b[0] == 100 && b[1] >= 64 && b[1] <= 127 {
-			return false
-		}
-	}
-	return addr.IsGlobalUnicast()
 }
 
 // HostOf 返回待决处置用得到的主机展示：一个文件候选地址里全部 https 主机的并集（去重、保序）。

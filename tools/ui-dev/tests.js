@@ -2660,6 +2660,10 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert((await page.textContent("#t-pending-out")).includes("已跳过"), "跳过应记录");
       assert(!(await page.locator("#t-pending .pnd-item").count()), "全部处理完后面板应收起");
       assert((await page.textContent("#t-pending")).includes("待决清单已全部处理完"), "收尾应写已处理完");
+      // 从没有过待决文件的普通任务页不显示任何待决面板（曾误显示「已全部处理完」卡片）
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList: [{ id: "task-plain", title: "创建 Paper 服务器", ended: true }] }) }));
+      await page.goto(url("#/task/task-plain")); await settle();
+      assert(((await page.$eval("#t-pending", e => e.textContent)) || "").trim() === "", "没有待决过的任务不该出现待决面板");
     } finally {
       await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList: [], trustedHosts: [] }) }));
       await page.goto(url("#/instances")); await settle();

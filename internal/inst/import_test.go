@@ -220,10 +220,13 @@ func TestResolveTrustDownload(t *testing.T) {
 		{Path: "mods/b-custom-host.jar", SHA1: sum, URLs: []string{"https://93.184.216.34/b.jar"}, Reason: modpack.ReasonHost},
 	}
 	m.finishImport(tk, CreateReq{Name: "测试服"}, dir, pending, nil)
-	// 下载不真联网：dl.Client 换成见到任何请求都回固定内容的假客户端
-	oldClient := dl.Client
-	dl.Client = &http.Client{Transport: fakeTransport{content: []byte(body)}}
-	t.Cleanup(func() { dl.Client = oldClient })
+	// 下载不真联网：导入的受控客户端换成带假 RoundTripper 的版本（拨号级检查不会发生，
+	// 重定向与 SHA-1 校验照常走）
+	oldHTTP := modpackHTTP
+	modpackHTTP = func() *http.Client {
+		return dl.GuardedClientWithTransport(func(string) bool { return true }, fakeTransport{content: []byte(body)})
+	}
+	t.Cleanup(func() { modpackHTTP = oldHTTP })
 
 	// 没确认（ack=false）→ 留清单
 	out, _, _ := m.ResolveImportPending(context.Background(), tk.ID(), []PendingAction{

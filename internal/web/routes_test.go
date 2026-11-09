@@ -305,7 +305,7 @@ func TestRoutesKeepPathsAndSemantics(t *testing.T) {
 	}
 	seen["GET "+pattern("/bg/x.png")] = true
 	if n := len(seen); n != 47+1+7+1+2+1 { // 47 个旧接口 + /api/ops/log + 7 个 /api/ai/* + 后台任务列表 + 接管已有服务器的 2 个 /api/adopt* + 导入待决处置
-		t.Errorf("覆盖了 %d 个接口，应为 60", n)
+		t.Errorf("覆盖了 %d 个接口，应为 59", n)
 	}
 	if d := e.dials.list(); len(d) != 0 {
 		t.Errorf("只配了 Ollama，不该有任何对外连接：%v", d)

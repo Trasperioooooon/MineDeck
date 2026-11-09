@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path"
 	"path/filepath"
@@ -18,6 +19,14 @@ import (
 	"minedeck/internal/modpack"
 	"minedeck/internal/tasks"
 )
+
+// modpackHTTP 造导入下载用的 HTTP 客户端：受控客户端（dl.GuardedClient）——拨号级与
+// 重定向级都查公网和允许列表，用户确认过的站点日后 DNS 被解析到内网也连不出去。
+// 测试里换成带假 RoundTripper 的版本，不真正联网。
+var modpackHTTP = func() *http.Client {
+	trusted := app.TrustedHostFunc(app.TrustScopeModpack)
+	return dl.GuardedClient(func(host string) bool { return modpack.IsAllowedHost(host, trusted) })
+}
 
 // ImportModpackAsync 从解析好的整合包创建实例（核心/版本/加载器由整合包决定）。
 func (m *Manager) ImportModpackAsync(pack *modpack.Pack, req CreateReq, cfKey string) (string, error) {
@@ -145,6 +154,7 @@ func (m *Manager) runImport(ctx context.Context, t *tasks.Task, pack *modpack.Pa
 	for _, f := range files {
 		total = total + f.Size
 	}
+	client := modpackHTTP()
 	prog := t.ProgressFn("下载整合包文件")
 	var done atomic.Int64
 	sem := make(chan struct{}, 6)
@@ -172,7 +182,7 @@ func (m *Manager) runImport(ctx context.Context, t *tasks.Task, pack *modpack.Pa
 			defer wg.Done()
 			defer func() { <-sem }()
 			dest := filepath.Join(dir, filepath.FromSlash(f.Path))
-			if err := dl.Fetch(ctx, dl.Request{URLs: f.URLs, Dest: dest, SHA1: f.SHA1}, nil); err != nil {
+			if err := dl.Fetch(ctx, dl.Request{URLs: f.URLs, Dest: dest, SHA1: f.SHA1, Client: client}, nil); err != nil {
 				if errors.Is(err, dl.ErrVerify) {
 					_ = os.Remove(dest + ".part")
 					job.add(pendingJob{
@@ -564,7 +574,8 @@ func (m *Manager) pendingTrustDownload(ctx context.Context, inst *Instance, it t
 		app.TrustHost(host, app.TrustScopeModpack)
 	}
 	dest := filepath.Join(inst.Dir, filepath.FromSlash(it.Path))
-	if err := dl.Fetch(ctx, dl.Request{URLs: []string{match}, Dest: dest, SHA1: it.SHA1}, nil); err != nil {
+	// 受控客户端：即使 grant 时查过公网，连接级（DNS 变动、重定向到内网）也再拦一道
+	if err := dl.Fetch(ctx, dl.Request{URLs: []string{match}, Dest: dest, SHA1: it.SHA1, Client: modpackHTTP()}, nil); err != nil {
 		_ = os.Remove(dest + ".part")
 		return false, fmt.Sprintf("下载失败: %v", err)
 	}
