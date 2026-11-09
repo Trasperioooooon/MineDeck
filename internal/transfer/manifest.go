@@ -51,6 +51,10 @@ type Summary struct {
 	Excluded      []string      `json:"excluded"`
 	Entries       int           `json:"entries"`  // 包里的文件条目数
 	PackSize      int64         `json:"packSize"` // 包文件本身的大小，字节
+
+	// InstanceRaw instance.json 的原文（manifest 里原样带来的），导入端用它复原 Settings。
+	// 不序列化进接口：摘要给前端，原文导入端自己留着用。
+	InstanceRaw json.RawMessage `json:"-"`
 }
 
 // errFormat 包本身打不开、或不是 MineDeck 认识的 .mdpack。
@@ -110,7 +114,8 @@ func Inspect(path string) (*Summary, error) {
 		Mods: m.Mods, WorldSize: m.WorldSize, Excluded: m.Excluded,
 		PackSize: st.Size(),
 	}
-	sum.Mods = append([]modinfo.Mod{}, sum.Mods...) // nil → 空切片，前端不太用处理 null
+	sum.InstanceRaw = append([]byte{}, m.Instance...) // 原文给导入端；摘要字段下面解出
+	sum.Mods = append([]modinfo.Mod{}, sum.Mods...)   // nil → 空切片，前端不太用处理 null
 	sum.Excluded = append([]string{}, sum.Excluded...)
 	if sum.Mods == nil {
 		sum.Mods = []modinfo.Mod{}
