@@ -79,6 +79,7 @@ func New(mgr *inst.Manager, tun *tunnel.Manager, reg *ops.Registry, asst *assist
 	mux.HandleFunc("POST /api/import/modpack", s.handleImportModpack)
 	mux.HandleFunc("POST /api/adopt/scan", s.handleAdoptScan)
 	mux.HandleFunc("POST /api/adopt", s.handleAdopt)
+	s.transferRoutes(mux) // 服务器打包 / 收包，见 transfer.go
 	mux.HandleFunc("GET /api/tasks", s.handleListTasks)
 	mux.HandleFunc("GET /api/tasks/{id}", s.handleTask)
 

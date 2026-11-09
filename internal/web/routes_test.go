@@ -219,6 +219,12 @@ func TestRoutesKeepPathsAndSemantics(t *testing.T) {
 		{"POST", "/api/adopt/scan", `{"dir":"C:\\"}`, 400, "不能选整个磁盘", nil},
 		{"POST", "/api/adopt/scan", `{}`, 400, "", nil},
 		{"POST", "/api/adopt", `{"dir":"relative","name":"x","core":"paper","mc":"1.21.4","launchTarget":"jar:server.jar"}`, 400, "请填完整的路径", nil},
+		// 服务器打包 / 收包：同样只许人在本机；包文件只认上传目录里的
+		{"POST", "/api/transfer/export", `{"inst":"生存服","mode":"distributable","dest":"C:\\mdpack"}`, 403, "服务器打包 / 收包仅支持在本机操作", []reqOpt{fromLAN}},
+		{"POST", "/api/transfer/import", `{"file":"C:\\x\\p.mdpack","name":"x"}`, 403, "服务器打包 / 收包仅支持在本机操作", []reqOpt{fromLAN}},
+		{"POST", "/api/transfer/upload", "", 400, "上传解析失败", nil},
+		{"POST", "/api/transfer/export", `{"inst":"没有这台","mode":"distributable","dest":"C:\\mdpack"}`, 404, "实例不存在", nil},
+		{"POST", "/api/transfer/import", `{"file":"C:\\别的目录\\p.mdpack","name":"x"}`, 400, "包文件不在上传目录里", nil},
 		{"GET", "/api/tasks/t999", "", 404, "任务不存在", nil},
 		{"GET", "/api/tasks", "", 200, "", nil},
 		{"GET", ip + "/backups", "", 200, "", nil},
@@ -299,8 +305,8 @@ func TestRoutesKeepPathsAndSemantics(t *testing.T) {
 		t.Errorf("GET /bg/x.png：HTTP %d %q", rec.Code, rec.Header().Get("Content-Type"))
 	}
 	seen["GET "+pattern("/bg/x.png")] = true
-	if n := len(seen); n != 47+1+7+1+2 { // 47 个旧接口 + /api/ops/log + 7 个 /api/ai/* + 后台任务列表 + 接管已有服务器的 2 个 /api/adopt*
-		t.Errorf("覆盖了 %d 个接口，应为 58", n)
+	if n := len(seen); n != 47+1+7+1+2+3 { // 47 个旧接口 + /api/ops/log + 7 个 /api/ai/* + 后台任务列表 + 接管已有服务器的 2 个 /api/adopt* + 服务器打包收包的 3 个
+		t.Errorf("覆盖了 %d 个接口，应为 %d", n, 47+1+7+1+2+3)
 	}
 	if d := e.dials.list(); len(d) != 0 {
 		t.Errorf("只配了 Ollama，不该有任何对外连接：%v", d)
