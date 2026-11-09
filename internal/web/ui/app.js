@@ -780,7 +780,7 @@ async function refreshTaskList(slot, gen) {
     const list = await api("/api/tasks");
     if (stale(gen) || !slot.isConnected) return;
     const html = list.length ? `<h2>部署与下载任务</h2>` + list.map(t => {
-      const state = !t.ended ? (t.label || "进行中") : t.error ? "失败" : (t.warnings || []).length ? "已完成，有提示" : "已完成";
+      const state = !t.ended ? (t.label || "进行中") : t.error ? "失败" : t.warningCount ? "已完成，有提示" : "已完成";
       return `<div class="java-row"><div style="flex:1;min-width:0"><b>${esc(t.title)}</b><div class="sub">${esc(state)}</div></div>
         <a class="btn sm" href="#/task/${encodeURIComponent(t.id)}" aria-label="${t.ended ? "查看结果" : "查看进度"} ${esc(t.title)} ${esc(t.id)}">${t.ended ? "查看结果" : "查看进度"}</a></div>`;
     }).join("") : "";

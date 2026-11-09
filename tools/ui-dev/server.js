@@ -1305,7 +1305,8 @@ function handler(state, ui, portOf) {
       if (p === "/api/javas/scan") return ok(res, [1, 2]);
       if (p === "/api/pickdir") return ok(res, { path: "E:\\MCServers" });
       if (p === "/api/update/check") return ok(res, { hasUpdate: false, current: "2.9.0-beta.2" });
-      if (p === "/api/tasks") return ok(res, state.taskList);
+      // 和真后端一样只给摘要：步骤、日志、告警明细不在列表里
+      if (p === "/api/tasks") return ok(res, state.taskList.map(t => ({ id: t.id, title: t.title, label: t.label || "", done: t.done || 0, total: t.total || 0, ended: !!t.ended, error: t.error || undefined, result: t.result || undefined, warningCount: (t.warnings || []).length })));
       if (p.startsWith("/api/tasks/")) {
         const st = state.taskStage;
         const names = ["下载 Java 21 运行时", "下载 Paper 1.21.4 核心", "同意 EULA 并生成配置", "生成启动脚本"];

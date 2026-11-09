@@ -250,6 +250,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       taskList[0] = { ...taskList[0], ended: true, warnings: [{ title: "1 个模组需手动补装" }] };
       await page.evaluate(taskList => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList }) }), taskList);
       await page.click('#sidebar a[data-nav="instances"]'); await settle();
+      assert((await page.textContent("#task-list")).includes("已完成，有提示"), "列表里看不出导入完成后有告警（摘要的 warningCount）");
       await page.click('#task-list a[href="#/task/task-pack"]'); await settle();
       assert((await page.textContent("#t-msgs")).includes("需手动补装"), "离开期间完成的导入告警丢失");
       await page.click('#sidebar a[data-nav="create"]'); await settle();

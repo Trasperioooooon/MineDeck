@@ -28,12 +28,24 @@ func TestListKeepsRunningAndEndedTasksNewestFirst(t *testing.T) {
 	if len(list) != 12 || list[0].ID != "t12" || list[9].ID != third.ID() || list[10].ID != second.ID() || list[11].ID != first.ID() {
 		t.Fatalf("未按创建顺序倒序返回：%+v", list)
 	}
-	if list[9].Err != "下载失败" || !list[10].Ended || list[10].Result != "测试服" || len(list[10].Warnings) != 1 || list[11].Ended || list[11].Done != 50 {
+	if list[9].Err != "下载失败" || !list[10].Ended || list[10].Result != "测试服" || list[10].WarningCount != 1 || list[11].Ended || list[11].Done != 50 {
 		t.Fatalf("任务进度或结果丢失：%+v", list[9:])
 	}
-	list[11].Steps[0].Name = "改过的快照"
-	if first.Snapshot().Steps[0].Name != "下载" {
-		t.Fatal("修改列表快照影响了原任务")
+	// 列表只给摘要：步骤、日志、告警明细留给单个任务的查询，任务再多也不会把几百行日志带进列表
+	first.Logf("一行日志")
+	b, err := json.Marshal(mg.List())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{`"steps"`, `"log"`, `"warnings"`, "一行日志", "需补装模组"} {
+		if strings.Contains(string(b), s) {
+			t.Fatalf("任务列表里不该有 %s：%s", s, b)
+		}
+	}
+	// 以后要是清理旧任务，编号中间缺一个也照常列出其余的
+	delete(mg.m, second.ID())
+	if list := mg.List(); len(list) != 11 || list[9].ID != third.ID() || list[10].ID != first.ID() {
+		t.Fatalf("缺一个任务时没有跳过它：%+v", list)
 	}
 }
 
