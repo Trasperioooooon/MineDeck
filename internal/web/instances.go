@@ -64,6 +64,16 @@ func (s *Server) handleImportModpack(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleAdoptScan 识别一个已有的服务器文件夹（只读）。仅本机可用。
+func (s *Server) handleAdoptScan(w http.ResponseWriter, r *http.Request) {
+	s.do(w, r, "instance.adopt.scan", bodyArgs(r))
+}
+
+// handleAdopt 接管已有的服务器，返回任务编号。仅本机可用。
+func (s *Server) handleAdopt(w http.ResponseWriter, r *http.Request) {
+	s.do(w, r, "instance.adopt", bodyArgs(r))
+}
+
 func (s *Server) handleListInstances(w http.ResponseWriter, r *http.Request) {
 	s.do(w, r, "instance.list", nil)
 }

@@ -618,6 +618,7 @@ a.inst-name:hover { text-decoration: underline; text-decoration-color: color-mix
 .core-card.sel .check { display: grid; animation: md-pop var(--dur-3) var(--ease-spring) both; }
 .recipe-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: var(--w-read); }
 .recipe-grid .core-card { padding: 22px; align-items: center; }
+.recipe-grid .core-card.full { grid-column: 1 / -1; } /* 第三种方式「接管已有服务器」单占一行 */
 .recipe-ico {
   width: 48px; height: 48px; flex: none; border-radius: var(--r-md);
   display: grid; place-items: center; font-size: 22px;

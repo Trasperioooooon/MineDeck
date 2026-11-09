@@ -32,6 +32,9 @@ type Settings struct {
 	ConsoleEncoding string     `json:"consoleEncoding,omitempty"` // auto | utf-8 | gbk
 	Policies        Policies   `json:"policies"`
 	CreatedAt       time.Time  `json:"createdAt"`
+	// Adopted 这台服务器是「接管」进来的：目录是用户自己原来的文件夹，不是 MineDeck 新建的（见 adopt.go）。
+	// 界面删除时拿它决定默认只移出列表、不删文件。
+	Adopted bool `json:"adopted,omitempty"`
 }
 
 type Instance struct {
@@ -124,8 +127,13 @@ func NewManager() (*Manager, error) {
 // readSettings 读实例目录里的 instance.json。开头的 UTF-8 BOM 去掉再解析：记事本存成「UTF-8 带 BOM」、
 // PowerShell 5.1 的 Set-Content 写的都有，不去掉这台服务器会从列表里消失（测试报告发现 10）。
 func readSettings(dir string) (Settings, error) {
+	return readSettingsFile(filepath.Join(dir, "instance.json"))
+}
+
+// readSettingsFile 读一份实例配置文件（instance.json，或移出列表时留底的 instance.json.bak）。
+func readSettingsFile(path string) (Settings, error) {
 	var s Settings
-	b, err := os.ReadFile(filepath.Join(dir, "instance.json"))
+	b, err := os.ReadFile(path)
 	if err != nil {
 		return s, err
 	}
@@ -173,6 +181,8 @@ func (m *Manager) Get(name string) (*Instance, error) {
 }
 
 // Delete 删除实例；files=true 时同时删除实例目录。
+// files=false 只是移出列表：文件全都留着，instance.json 改名成 instance.json.bak——不改名的话下次启动扫描目录
+// 又会把它认回来。以后想加回来，用「接管已有服务器」选这个文件夹，原来的设置（内存、定时任务等）会从 .bak 里带回来。
 func (m *Manager) Delete(name string, files bool) error {
 	i, err := m.Get(name)
 	if err != nil {
@@ -185,10 +195,29 @@ func (m *Manager) Delete(name string, files bool) error {
 		if err := safeRemoveInstanceDir(i); err != nil {
 			return err
 		}
+	} else if err := releaseInstanceDir(i); err != nil {
+		return err
 	}
 	m.mu.Lock()
 	delete(m.insts, name)
 	m.mu.Unlock()
+	return nil
+}
+
+// settingsBackup 移出列表时 instance.json 改成的名字。
+const settingsBackup = "instance.json.bak"
+
+// releaseInstanceDir 移出列表时把目录里的 instance.json 改名留底。文件已经不在（目录被用户挪走、删掉）不算错。
+// 不看里面的内容：这台服务器就是从这个目录读出来的，即使文件后来被人改坏、改了名字，也照样改名——
+// 留着它，下次启动这个目录又会被认成一台服务器。
+func releaseInstanceDir(i *Instance) error {
+	src := filepath.Join(i.Dir, "instance.json")
+	if st, err := os.Stat(src); err != nil || st.IsDir() {
+		return nil
+	}
+	if err := os.Rename(src, filepath.Join(i.Dir, settingsBackup)); err != nil {
+		return fmt.Errorf("没能把这台服务器移出列表（%w）。可以关掉占用这个文件夹的程序再试。", err)
+	}
 	return nil
 }
 

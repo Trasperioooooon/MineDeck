@@ -208,6 +208,7 @@ func (c *cat) javaSetOp() {
 				return nil, ops.Errorf(400, "%s 不是已知的 Java %d（见 java.list）", p.Path, p.Major)
 			}
 			t, ctx := c.Mgr.Tasks.New(fmt.Sprintf("为「%s」准备 Java %d", i.Name, p.Major), []string{"准备 Java 运行时", "换上新的 Java"})
+			t.SetKind("java")
 			go func() {
 				t.StartStep(0)
 				jp, err := java.Ensure(ctx, p.Major, t.Logf, t.ProgressFn(fmt.Sprintf("下载 Java %d", p.Major)))

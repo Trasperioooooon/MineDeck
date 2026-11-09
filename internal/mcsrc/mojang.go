@@ -147,6 +147,17 @@ func NewerOrEqual(ctx context.Context, a, b string) (bool, error) {
 	return newerOrEqualIdx(idx, a, b), nil
 }
 
+// KnownVersion 官方清单里有没有这个版本号。接管已有服务器时版本是从文件里认出来或用户填的，
+// 不一定在清单里（NewerOrEqual 会把不认识的版本当成较旧，不能拿它判断）。
+func KnownVersion(ctx context.Context, id string) (bool, error) {
+	_, idx, err := getManifest(ctx)
+	if err != nil {
+		return false, err
+	}
+	_, ok := idx[id]
+	return ok, nil
+}
+
 // NewerOrEqualCached 同 NewerOrEqual，但只用本地已有的清单（本次运行已加载的，否则读磁盘缓存）、绝不联网，
 // 供保存设置等须即时返回的路径——联网刷新最坏要等约两分钟，而历史版本的先后顺序不会变，旧清单足以判定。
 // 无本地清单或任一版本不在其中时 ok=false（不像 NewerOrEqual 那样把未知版本当作较旧），由调用方兜底。

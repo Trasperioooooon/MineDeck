@@ -7,7 +7,7 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 - 本机：请求头 `X-Token: <token>`（token 在启动 URL 的 `?token=` 参数中，每次启动随机）
 - 局域网模式：`POST /api/login {"password": "..."}` 换取会话 Cookie
 - SSE 端点可用查询参数 `?token=` 传递
-- **仅本机（loopback）端点**：`/api/pickdir`、`/api/openpath`、`/api/instances/{name}/opendir` 会调起系统对话框 / 资源管理器，`/api/javas/add` 会执行请求中给出的主机路径（`java -version` 探测），均只接受来自本机的请求；局域网会话调用返回 403
+- **仅本机（loopback）端点**：`/api/pickdir`、`/api/openpath`、`/api/instances/{name}/opendir` 会调起系统对话框 / 资源管理器，`/api/javas/add` 会执行请求中给出的主机路径（`java -version` 探测），`/api/adopt/scan` 和 `/api/adopt` 要读主机上任意一个文件夹，均只接受来自本机的请求；局域网会话调用返回 403
 - **主机路径仅本机可指定**：局域网会话不能决定文件写到主机哪里——`POST /api/instances` 与 `POST /api/import/modpack` 的 `root` 会被忽略（实例一律建在默认存放根下）；`PUT /api/config` 只要带了 `serversDir` / `backupsDir`（含置空恢复默认）即整次返回 403、不做任何修改，不带这两个键的其余配置仍可远程修改
 - **AI 设置的修改类接口仅本机**：`/api/ai/*` 里除 `GET /api/ai/settings` 外都只接受本机请求（含 Key 和接口地址）；局域网会话只能看，调用返回 403
 - **免 token 端点**：`GET /bg/{name}` 提供程序旁 `bg/` 目录内的壁纸图片（供前端 CSS `url()` 引用，仅受 Host 校验约束）
@@ -36,9 +36,11 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 ### 实例
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/instances` | 实例列表；每项含 `name/core/kind/mc/build/javaMajor/xmxMb/xmsMb/port/status/motd/dir/createdAt/consoleEncoding/onlineCount/uptimeSec/maxPlayers/extraJvm` |
+| GET | `/api/instances` | 实例列表；每项含 `name/core/kind/mc/build/javaMajor/javaSource/javaPath/adopted/xmxMb/xmsMb/port/status/motd/dir/createdAt/consoleEncoding/onlineCount/uptimeSec/maxPlayers/extraJvm`。`javaSource` 是 `portable`（MineDeck 下载的）或 `local`（本机装的），`javaPath` 是现在用的 java.exe；`adopted` 为 true 表示这台服务器是接管进来的，目录是用户原来的文件夹 |
 | POST | `/api/instances` | 创建（返回 taskId，轮询 `/api/tasks/{id}`）；body 可含 `difficulty/gamemode/root` 等（`root` 仅本机生效） |
 | POST | `/api/import/modpack` | multipart 导入整合包（file + name/xmxMb/port/eula/onlineMode/allowFlight/root；`root` 仅本机生效） |
+| POST | `/api/adopt/scan` | `{dir}`：只读地识别一个已有的服务器文件夹，给接管的表单预填（见下方「接管已有服务器」）。**仅本机** |
+| POST | `/api/adopt` | 接管已有服务器：把文件夹就地登记成实例，返回 taskId（见下方）。**仅本机** |
 | POST | `/api/instances/{name}/start` \| `/stop` \| `/kill` | 进程控制 |
 | POST | `/api/instances/{name}/command` | `{"cmd":"say hi"}` |
 | POST | `/api/instances/{name}/opendir?sub=` | 在资源管理器打开实例目录或其白名单子目录（`sub` ∈ mods/plugins/world/logs/crash-reports），**仅本机** |
@@ -50,11 +52,17 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 | GET/POST | `/api/instances/{name}/players` | 玩家名单与操作 `{action, player}` |
 | GET | `/api/instances/{name}/resources/search?q=` | Modrinth 兼容资源搜索 |
 | POST | `/api/instances/{name}/resources/install` | `{projectId}` 安装到 mods/plugins |
-| DELETE | `/api/instances/{name}?files=1` | 删除实例 |
+| DELETE | `/api/instances/{name}?files=1` | 删除实例。`files=1` 连实例目录一起删；不带就只是移出列表：文件全留着，目录里的 `instance.json` 改名成 `instance.json.bak`（下次启动不会再被扫出来），以后可以用 `/api/adopt` 加回来，原来的设置从 `.bak` 里带回 |
 
-`GET /api/tasks` 返回本次程序运行的任务摘要数组，按创建时间从新到旧排列，包括部署中、已完成和失败的任务；没有任务时返回 `[]`。每项是 `{id, title, label, done, total, ended, error?, result?, warningCount}`，同名字段的含义和单个任务的快照一样，`warningCount` 是告警条数；步骤、日志和告警明细不在列表里，要看就用 `GET /api/tasks/{id}` 查那一个任务。界面切页或刷新后可据此恢复进度入口，程序重启后任务记录清空。
+**接管已有服务器**（`/api/adopt/scan`、`/api/adopt`，操作 `instance.adopt.scan`、`instance.adopt`，都是仅人工、仅本机）：把用户自己以前开的服务器文件夹就地登记成实例，不搬文件，不改存档和配置。
 
-`GET /api/tasks/{id}` 快照除进度/日志外，还含 `warnings[]`（结构化告警，如 CurseForge 未解析模组清单 `{kind,title,note,items:[{name,url}]}`），供导入完成页醒目呈现。
+`POST /api/adopt/scan {dir}` 返回识别结果：`dir`（清理后的绝对路径）、`name`（建议的名称，已避开重名）、`core` / `mc` / `build`（认不出时为空串，由用户选或填）、`launchTarget`（选中的启动方式）和 `targets[]`（全部候选，每项 `{target, label, core, mc, build, javaMajor}`，最可能的在前；`target` 是 `jar:<根目录里的 jar>` 或 `args:<Forge / NeoForge 的 win_args.txt 相对路径>`）、`javaMajor`（服务端自己写明要的 Java，没写为 0）、`xmxMb`（原来的启动脚本里分的内存，没找到为 0）、`extraJvm`（会带过来的 JVM 参数）、`port`、`eula`（eula.txt 里已经同意过）、`hasWorld`、`managed`（目录里有 MineDeck 的 `instance.json` 或 `.bak`，原来的设置会带回来）、`notes[]`（要让用户知道的事）。这些文件夹会被拒绝（400）：整个磁盘、MineDeck 自己的程序目录及其上层、缓存 / 运行时目录里面的、和备份目录叠在一起的（在它里面，或者把它包在里面）、存放服务器的总目录、已经在列表里的服务器的目录及其里外、正在新建或接管中的目录及其里外。比较用的是解开目录联接和符号链接之后的真实路径。文件夹里找不到能启动的东西也是 400，下一层有像服务器的文件夹时错误信息里会点名。
+
+`POST /api/adopt` 的请求体：`dir`、`name`、`core`、`mc`、`launchTarget`（必须是识别出来的候选之一）必填；`build`、`xmxMb`（低于 512 按 2048 算）、`javaMajor`（0 = 按 Minecraft 版本自动选，本机没有就下载便携版）、`javaPath`（指定用哪一个 java.exe，必须是 `GET /api/javas` 里列出来的，同时要给 `javaMajor`）、`eula`（eula.txt 里没同意过时必须为 true，代理端不用）选填。后端会重新识别一遍文件夹，不信请求里带来的事实。任务成功后往文件夹里写的只有：`instance.json`；`run.bat`（原来有的先另存为 `run.before-minedeck.bat`，备份已存在就不覆盖）；Forge / NeoForge 的 `user_jvm_args.txt`（原来的另存为 `user_jvm_args.before-minedeck.txt`，里面除内存以外的 JVM 参数带到 `extraJvm`）；`eula.txt`（原来没同意过时）；1.12 ~ 1.16.5 的 `log4j2_112-116.xml`（log4shell 缓解，和新建时一样）。任务失败不删任何东西，并且把这次动过的这几个文件恢复原样，文件夹和接管之前一模一样。
+
+`GET /api/tasks` 返回本次程序运行的任务摘要数组，按创建时间从新到旧排列，包括部署中、已完成和失败的任务；没有任务时返回 `[]`。每项是 `{id, title, kind?, label, done, total, ended, error?, result?, warningCount}`，同名字段的含义和单个任务的快照一样（`kind` 见下一段），`warningCount` 是告警条数；步骤、日志和告警明细不在列表里，要看就用 `GET /api/tasks/{id}` 查那一个任务。界面切页或刷新后可据此恢复进度入口，程序重启后任务记录清空。
+
+`GET /api/tasks/{id}` 快照里的 `kind` 说明是哪一类任务：没有这个字段是新建 / 导入（部署），`adopt` 是接管已有服务器，`java` 是换 Java 时下载便携版；界面按它换说法。快照除进度/日志外，还含 `warnings[]`（结构化告警，如 CurseForge 未解析模组清单 `{kind,title,note,items:[{name,url}]}`），供导入完成页醒目呈现。
 还可能有 `net: {count, host?, what, ago}`：当前这一步里下载超时、失败重试的情况——`count` 是这一步一共出过几次，`host` 是最近一次出问题的地址（只到主机名，安装器自己出错重来时为空），`what` 是什么问题（「下载失败」「连接超时」「连不上」「安装器出错退出，第 2 次重试」），`ago` 是几秒前。来源有两处：MineDeck 自己下载核心时某个下载源没下成（换下一个源或稍后重试），以及 Forge / NeoForge 安装器的输出里出现连接超时、连不上的异常（一段异常栈算一次）。之后下载又有了进度、换了步骤或任务结束，就不再有这一项。部署页在它出现、或者进度和日志 30 秒没有任何变化时，在进度旁提示「下载慢，或者在重试」。
 
 ### 穿透

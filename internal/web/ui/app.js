@@ -913,19 +913,26 @@ function folderItems(info) {
 }
 
 /* 删除实例：标题点名、按钮写明后果、默认聚焦「保留」。
-   注意后端语义：不删文件时只是从内存列表移除，instance.json 还在，下次启动多根扫描会重新发现它——文案如实说明。 */
-async function deleteInstance(name) {
-  const r = await confirmModal({
-    title: `删除服务器「${name}」？`, danger: true, okText: "删除服务器", cancelText: "保留", icon: "trash",
+   不删文件 = 只移出列表：文件全留着（后端把 instance.json 改名留底，下次启动不会再冒出来），以后能用「接管已有服务器」加回来。
+   接管进来的服务器，文件夹是用户自己原来的：默认不勾「同时删除文件夹」，并写出是哪个文件夹。 */
+async function deleteInstance(info) {
+  const name = info.name;
+  const okText = files => files ? "删除服务器" : "移出列表";
+  const p = confirmModal({
+    title: `删除服务器「${name}」？`, danger: true, okText: okText(!info.adopted), cancelText: "保留", icon: "trash",
     body: "已有的世界备份不受影响，仍保存在备份目录中。",
-    extra: `<label class="switch" style="margin-bottom:4px"><input type="checkbox" data-k="files" checked><span class="sw"></span>
+    extra: `<label class="switch" style="margin-bottom:4px"><input type="checkbox" data-k="files"${info.adopted ? "" : " checked"}><span class="sw"></span>
         <span class="sw-label">同时删除服务器文件夹（含世界存档，无法恢复）</span></label>
-      <div class="hint" style="margin:0 0 16px 48px">关闭则只从列表移除，文件仍在磁盘，下次启动会重新出现。</div>`,
+      <div class="hint" style="margin:0 0 16px 48px">${info.adopted ? `这台服务器是接管进来的，文件夹是你原来的那个：${esc(info.dir)}<br>` : ""}不勾选就只是移出列表，文件原样留在磁盘上。以后想加回来，用「新建服务器 → 接管已有服务器」选这个文件夹。</div>`,
   });
+  // 按钮上的字跟着勾选变：不删文件时写「移出列表」，不让人以为点了会删东西
+  const box = $("#modal-root input[data-k=files]"), ok = $("#modal-root [data-x=ok]");
+  if (box && ok) box.addEventListener("change", () => { ok.textContent = okText(box.checked); });
+  const r = await p;
   if (!r) return false;
   try {
     await api(`/api/instances/${encodeURIComponent(name)}?files=${r.files ? 1 : 0}`, { method: "DELETE" });
-    toast(`已删除「${name}」`);
+    toast(r.files ? `已删除「${name}」` : `已把「${name}」移出列表，文件还在原处`);
     return true;
   } catch (e) { toast(e.message, true); return false; }
 }
@@ -1064,7 +1071,7 @@ async function renderInstances() {
         dropMenu(b, [
           { header: "打开文件夹" }, ...folderItems(info), { sep: true },
           { icon: "trash", label: "删除服务器…", danger: true, disabled: busy, note: busy ? "需先停止服务器" : "",
-            onClick: async () => { if (await deleteInstance(name)) { lastSig = ""; draw(); } } },
+            onClick: async () => { if (await deleteInstance(info)) { lastSig = ""; draw(); } } },
         ]);
         return;
       }
@@ -1128,19 +1135,168 @@ const wiz = { step: 0, core: null, mc: null, build: null, snapshots: false, root
 async function renderCreate() {
   const gen = beginCreateView();
   wiz.step = 0; wiz.core = null; wiz.mc = null; wiz.build = null; wiz.root = "";
-  Main().innerHTML = pageHead("新建服务器", "选择一种方式开始", "", "", `两种方式${SEP}Java 与服务端自动下载`) + `
+  Main().innerHTML = pageHead("新建服务器", "选择一种方式开始", "", "", `三种方式${SEP}Java 与服务端自动下载`) + `
     <section id="task-list" hidden style="margin-bottom:24px"></section>
     <div class="recipe-grid">
       <div class="core-card" id="mode-new" role="button" tabindex="0" aria-label="从零创建" aria-describedby="mode-new-d"><span class="recipe-ico">${icon("plusBox")}</span><div><div class="cn">从零创建</div><div class="cd" id="mode-new-d">选择核心与版本，自动下载 Java 与服务端</div></div></div>
       <div class="core-card" id="mode-import" role="button" tabindex="0" aria-label="导入整合包" aria-describedby="mode-import-d"><span class="recipe-ico">${icon("package")}</span><div><div class="cn">导入整合包</div><div class="cd" id="mode-import-d">支持 Modrinth / CurseForge 整合包，自动识别版本</div></div></div>
+      <div class="core-card full" id="mode-adopt" role="button" tabindex="0" aria-label="接管已有服务器" aria-describedby="mode-adopt-d"><span class="recipe-ico">${icon("folder")}</span><div><div class="cn">接管已有服务器</div><div class="cd" id="mode-adopt-d">以前自己开的服务器，选它的文件夹就能收进来统一管理。文件留在原地，存档和配置都不动</div></div></div>
     </div>`;
   $("#mode-new").onclick = () => drawWizard();
   $("#mode-import").onclick = () => drawImport();
+  $("#mode-adopt").onclick = () => drawAdopt();
   // 卡片可用键盘激活（回车 / 空格）
-  ["#mode-new", "#mode-import"].forEach(s => { $(s).onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $(s).click(); } }; });
+  ["#mode-new", "#mode-import", "#mode-adopt"].forEach(s => { $(s).onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $(s).click(); } }; });
   const taskList = $("#task-list");
   await refreshTaskList(taskList, gen);
   startPoll(() => refreshTaskList(taskList, gen), 3000, gen);
+}
+
+/* ---------- 视图：接管已有服务器 ----------
+   选文件夹 → 后端只读地识别一遍（核心、版本、启动文件、原来分的内存）→ 用户确认或修改 → 后台任务登记。
+   只能在本机用：要读这台电脑上的文件夹（后端 instance.adopt* 是仅本机、仅人工）。 */
+/* 没有时可以下载便携版的 Java 版本（清华镜像 / Adoptium / Mojang 运行时里有的） */
+const JAVA_DOWNLOADABLE = [8, 11, 16, 17, 21, 25];
+async function drawAdopt() {
+  const gen = beginCreateView();
+  const [app, cores, javas] = await Promise.all([
+    api("/api/app").catch(() => ({ ramMb: 8192, availRamMb: 4096, config: {} })),
+    api("/api/cores").catch(() => []),
+    api("/api/javas").catch(() => ({ portable: [], scanned: [] })),
+  ]);
+  if (stale(gen)) return;
+  cores.forEach(c => CORES[c.id] = c);
+  const maxMem = Math.max(2048, app.ramMb - 2048);
+  let scan = null; // 最近一次识别的结果；改了文件夹没重新识别就不能接管
+  Main().innerHTML = pageHead("接管已有服务器", "以前自己开的服务器，选它所在的文件夹，就能收进 MineDeck 统一管理。文件留在原地，存档、模组、插件和配置都不动。", "",
+    `<a href="#/create">新建服务器</a>${icon("chevronRight")}<span>接管已有服务器</span>`) + `
+    <div class="form-grid">
+      <label class="field full"><span>服务器所在的文件夹</span>
+        <div class="row" style="gap:8px">
+          <input type="text" id="ad-dir" spellcheck="false" autocomplete="off" style="flex:1" aria-label="服务器所在的文件夹" placeholder="如 D:\\MyServer：里面有服务端的 jar，或者 libraries 文件夹">
+          <button type="button" class="btn" id="ad-browse">${icon("folder")} 浏览…</button>
+          <button type="button" class="btn primary" id="ad-scan">${icon("search")} 识别</button>
+        </div>
+        <div class="field-err" id="ad-dir-err"></div></label>
+    </div>
+    <div id="ad-form"></div>
+    ${wizFoot("ad-back", "返回", `<button class="btn primary" id="ad-go" disabled>${icon("check")} 接管这台服务器</button>`)}`;
+  $("#ad-back").onclick = () => renderCreate();
+  const dirErr = msg => { $("#ad-dir").classList.toggle("invalid", !!msg); $("#ad-dir-err").innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; };
+  const reset = () => { scan = null; $("#ad-form").innerHTML = ""; $("#ad-go").disabled = true; };
+  $("#ad-dir").addEventListener("input", () => { dirErr(""); reset(); });
+  $("#ad-dir").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("#ad-scan").click(); } });
+  $("#ad-browse").onclick = async () => {
+    try { const r = await api("/api/pickdir", { method: "POST" }); if (!stale(gen) && r.path) { $("#ad-dir").value = r.path; dirErr(""); reset(); $("#ad-scan").click(); } }
+    catch (e) { toast(e.message, true); }
+  };
+
+  const isProxyCore = id => coreKind(id) === "proxy";
+  const drawForm = () => {
+    const s = scan;
+    const known = new Set([...javas.portable, ...javas.scanned].map(j => j.major));
+    const majors = [...new Set([...JAVA_DOWNLOADABLE, ...known])].sort((a, b) => a - b);
+    $("#ad-form").innerHTML = `
+      ${s.notes.length ? `<div class="warn-card w-read" id="ad-notes"><div class="wc-title">${icon("info")} 识别时注意到</div><ul class="wc-list">${s.notes.map(n => `<li>${esc(n)}</li>`).join("")}</ul></div>` : ""}
+      <div class="form-grid">
+        <label class="field"><span>名称</span><input type="text" id="ad-name" maxlength="40" value="${esc(s.name)}"><div class="field-err" id="ad-name-err"></div></label>
+        <label class="field"><span>服务端类型</span><select id="ad-core">
+          <option value=""${s.core ? "" : " selected"} disabled>请选择…</option>
+          ${cores.map(c => `<option value="${esc(c.id)}"${c.id === s.core ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
+          <div class="field-err" id="ad-core-err"></div></label>
+        <label class="field"><span id="ad-mc-label">Minecraft 版本</span><input type="text" id="ad-mc" maxlength="40" spellcheck="false" value="${esc(s.mc)}" placeholder="如 1.20.1"><div class="field-err" id="ad-mc-err"></div></label>
+        <label class="field"><span>启动文件</span><select id="ad-target">${s.targets.map(t =>
+          `<option value="${esc(t.target)}"${t.target === s.launchTarget ? " selected" : ""}>${esc(t.label)}</option>`).join("")}</select></label>
+        <div class="field full" id="ad-mem-mount"></div>
+        <label class="field full"><span>Java</span><select id="ad-java" aria-label="Java">
+          <option value="0">自动：按 Minecraft 版本选，本机没有就下载</option>
+          ${majors.map(m => `<option value="${m}">Java ${m}（${known.has(m) ? "本机已有" : "要下载，约 50 MB"}）</option>`).join("")}</select>
+          <div class="hint">一般选「自动」。整合包说明里写了要用哪个 Java 的，就按它说的选。接管后也能在「内存 / 启动」里换。</div></label>
+      </div>
+      <div class="eula-box" id="ad-eula-box" hidden>
+        <label class="switch"><input type="checkbox" id="ad-eula"><span class="sw"></span>
+          <span class="sw-label">我已阅读并同意 <a href="https://aka.ms/MinecraftEULA" target="_blank">Minecraft 最终用户许可协议 (EULA)</a></span></label>
+        <div class="field-err" id="ad-eula-err"></div>
+      </div>
+      <div class="hint w-read" id="ad-what" style="margin-bottom:16px;line-height:1.8">
+        ${s.managed ? "这个文件夹以前由 MineDeck 管过，原来的名称、内存、定时任务会带回来。<br>" : ""}
+        接管时 MineDeck 只在这个文件夹里写自己的 <code>instance.json</code> 和启动脚本 <code>run.bat</code>。原来就有 <code>run.bat</code> 的，先另存为 <code>run.before-minedeck.bat</code>。别的文件都不动。<br>
+        原来的服务器还开着的话，请先把它关掉再接管，不然启动时端口会冲突。
+        <span id="ad-noworld" hidden><br>${icon("info")} 这个文件夹里没看到存档（world），启动后会生成一个新世界。存档放在别处的话，先确认选对了文件夹。</span>
+      </div>`;
+    renderMemoryControl($("#ad-mem-mount"), { sliderId: "ad-mem", min: 1024, max: Math.max(maxMem, 1024), value: Math.min(Math.max(s.xmxMb || 4096, 1024), maxMem), totalMb: app.ramMb, availMb: app.availRamMb,
+      hint: s.xmxMb ? `原来的启动脚本里分的是 ${(s.xmxMb / 1024).toFixed(1)} GB，已经照着填好` : "模组服建议 4GB 以上。没有模组的小队，2~4GB 足够。" });
+    // 代理端没有 EULA，版本是它自己的版本；已经同意过 EULA 的不用再勾
+    const paintKind = () => {
+      const proxy = isProxyCore($("#ad-core").value);
+      $("#ad-eula-box").hidden = proxy || s.eula;
+      $("#ad-noworld").hidden = proxy || s.hasWorld; // 代理端本来就没有存档
+      $("#ad-mc-label").textContent = proxy ? "代理端版本" : "Minecraft 版本";
+    };
+    $("#ad-core").onchange = () => { $("#ad-core").classList.remove("invalid"); $("#ad-core-err").innerHTML = ""; paintKind(); };
+    // 换了启动文件：核心和版本跟着换成那个文件认出来的
+    $("#ad-target").onchange = () => {
+      const t = s.targets.find(x => x.target === $("#ad-target").value);
+      if (!t) return;
+      if (t.core) $("#ad-core").value = t.core;
+      if (t.mc) $("#ad-mc").value = t.mc;
+      paintKind();
+    };
+    $("#ad-eula").addEventListener("change", () => { if ($("#ad-eula").checked) { $("#ad-eula-box").classList.remove("invalid"); $("#ad-eula-err").innerHTML = ""; } });
+    paintKind();
+    $("#ad-go").disabled = false;
+  };
+
+  $("#ad-scan").onclick = async () => {
+    const dir = $("#ad-dir").value.trim();
+    if (!dir) { dirErr("请先选择或填写服务器所在的文件夹"); $("#ad-dir").focus(); return; }
+    reset();
+    const btn = $("#ad-scan");
+    btn.disabled = true; btn.textContent = "识别中…";
+    try {
+      const found = await api("/api/adopt/scan", { method: "POST", body: { dir } });
+      if (stale(gen)) return; // 等待期间已离开
+      scan = found;
+      dirErr("");
+      $("#ad-dir").value = scan.dir;
+      drawForm();
+      $("#ad-form").scrollIntoView({ behavior: "smooth", block: "nearest" });
+    } catch (e) { if (!stale(gen)) dirErr(e.message); }
+    finally { if (!stale(gen) && btn.isConnected) { btn.disabled = false; btn.innerHTML = icon("search") + " 识别"; } }
+  };
+
+  $("#ad-go").onclick = async () => {
+    if (!scan) return;
+    const fieldErr = (el, errId, msg) => { el.classList.toggle("invalid", !!msg); $(errId).innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; return !msg; };
+    const core = $("#ad-core").value, proxy = isProxyCore(core);
+    const okName = fieldErr($("#ad-name"), "#ad-name-err", $("#ad-name").value.trim() ? "" : "请给服务器起个名字");
+    const okCore = fieldErr($("#ad-core"), "#ad-core-err", core ? "" : "请选一个最接近的类型：插件服选 Paper，模组服按加载器选");
+    const okMC = fieldErr($("#ad-mc"), "#ad-mc-err", $("#ad-mc").value.trim() ? "" : proxy ? "请填代理端的版本，不确定可以填 1" : "请填 Minecraft 版本，如 1.20.1");
+    const needEula = !proxy && !scan.eula;
+    const okEula = !needEula || $("#ad-eula").checked;
+    if (needEula) { $("#ad-eula-box").classList.toggle("invalid", !okEula); $("#ad-eula-err").innerHTML = okEula ? "" : icon("warn") + " 开服前需要同意 Minecraft EULA"; }
+    if (!(okName && okCore && okMC && okEula)) {
+      const first = !okName ? $("#ad-name") : !okCore ? $("#ad-core") : !okMC ? $("#ad-mc") : $("#ad-eula");
+      first.closest(".field, .eula-box").scrollIntoView({ behavior: "smooth", block: "center" });
+      first.focus({ preventScroll: true });
+      return;
+    }
+    const target = $("#ad-target").value, picked = scan.targets.find(x => x.target === target);
+    $("#ad-go").disabled = true;
+    try {
+      const r = await api("/api/adopt", {
+        method: "POST",
+        body: {
+          dir: scan.dir, name: $("#ad-name").value.trim(), core, mc: $("#ad-mc").value.trim(),
+          build: picked && picked.core === core ? picked.build : "",
+          launchTarget: target, xmxMb: +$("#ad-mem").value, javaMajor: +$("#ad-java").value, eula: needEula,
+        },
+      });
+      if (!stale(gen)) location.hash = `#/task/${r.taskId}`;
+      else toast("已开始接管，可在新建服务器页查看进度");
+    } catch (e) { toast(e.message, true); if (!stale(gen)) $("#ad-go").disabled = false; }
+  };
+  $("#ad-dir").focus();
 }
 
 /* ---------- 视图：整合包导入 ---------- */
@@ -1508,6 +1664,18 @@ async function drawWizard() {
 }
 
 /* ---------- 视图：创建任务进度 ---------- */
+/* 后台任务不止「部署」一种（后端 tasks.Snapshot.kind）：接管已有服务器、换 Java 也走这一页，说法跟着换 */
+const TASK_KINDS = {
+  "": { title: "正在部署服务器", sub: "正在下载 Java 和服务端。这一步不用再改配置。", done: "部署完成", doneSub: "Java、服务端与配置均已就绪",
+    ok: "服务器创建成功", fail: "创建失败", failHint: "可返回重试（已下载的文件有缓存，重试很快）。", busy: "部署中，请勿关闭程序…",
+    go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/create", backText: "返回重试" },
+  adopt: { title: "正在接管服务器", sub: "正在检查文件夹、准备 Java。存档和配置不会动。", done: "接管完成", doneSub: "已经收进 MineDeck，可以在这里启动和管理了",
+    ok: "服务器接管成功", fail: "接管失败", failHint: "服务器文件夹里的东西没有被删掉或改坏，可以返回重试。", busy: "接管中，请勿关闭程序…",
+    go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/create", backText: "返回重试" },
+  java: { title: "正在更换 Java", sub: "本机没有这个版本的 Java，正在下载一份（不改系统里的 Java）。", done: "Java 已换好", doneSub: "下次启动这台服务器时生效",
+    ok: "Java 已换好，下次启动生效", fail: "更换失败", failHint: "这台服务器还在用原来的 Java，可以返回重试。", busy: "下载中，请勿关闭程序…",
+    go: "完成，回到服务器", href: name => `#/inst/${encodeURIComponent(name)}/jvm`, back: "#/instances", backText: "返回服务器列表" },
+};
 async function renderTaskPage(taskId) {
   const gen = viewGen;
   Main().innerHTML = pageHead("正在部署服务器", "正在下载 Java 和服务端。这一步不用再改配置。", "", "", "", "task-eyebrow") + `
@@ -1536,7 +1704,13 @@ async function renderTaskPage(taskId) {
     } finally { loading = false; }
     if (stale(gen) || ended) return;
     $("#t-fetch-error").hidden = true;
+    const K = Object.prototype.hasOwnProperty.call(TASK_KINDS, t.kind || "") ? TASK_KINDS[t.kind || ""] : TASK_KINDS[""]; // 不认识的 kind 按部署任务显示
     if (!built) {
+      if (K !== TASK_KINDS[""]) { // 页头先按「部署」画的，知道是哪一类任务后换成它的说法
+        const h1 = Main().querySelector(".page-head h1"), sub = Main().querySelector(".page-head .sub");
+        if (h1) h1.textContent = K.title;
+        if (sub) sub.textContent = K.sub;
+      }
       $("#task-box").innerHTML = `
         <div class="task-steps" id="t-steps"></div>
         <div class="progress-wrap" id="t-prog" hidden>
@@ -1574,7 +1748,7 @@ async function renderTaskPage(taskId) {
     // 经验条式进度：30 格，一格 = 当前下载项的 1/30；换了下载项就清空重来；部署完成时填满并整条闪一下
     const success = t.ended && !t.error;
     const prog = $("#t-prog"), cells = prog.querySelectorAll(".xp i");
-    const cur = success ? "部署完成" : t.label;
+    const cur = success ? K.done : t.label;
     prog.hidden = !cur;
     if (cur) {
       if (cur !== label) { label = cur; lit = 0; cells.forEach(c => { c.className = ""; c.style.animationDelay = ""; }); }
@@ -1587,10 +1761,10 @@ async function renderTaskPage(taskId) {
       lit = Math.max(lit, n);
       $("#t-label").textContent = cur;
       $("#t-pct").textContent = Math.round(pct) + "%";
-      $("#t-sub").textContent = success ? "Java、服务端与配置均已就绪" : `${fmtBytes(t.done) || "0 B"}${t.total > 0 ? " / " + fmtBytes(t.total) : ""}`;
+      $("#t-sub").textContent = success ? K.doneSub : `${fmtBytes(t.done) || "0 B"}${t.total > 0 ? " / " + fmtBytes(t.total) : ""}`;
       if (success) playClass(prog.querySelector(".xp"), "flash");
     }
-    $("#t-msgs").innerHTML = (t.error ? `<div class="err-box"><b>创建失败：</b>${esc(t.error)}<br><br>可返回重试（已下载的文件有缓存，重试很快）。</div>` : "") +
+    $("#t-msgs").innerHTML = (t.error ? `<div class="err-box"><b>${K.fail}：</b>${esc(t.error)}<br><br>${K.failHint}</div>` : "") +
       (t.warnings || []).map(w => `<div class="warn-card">
         <div class="wc-title">${icon("warn")} ${esc(w.title)}</div>
         ${w.note ? `<div class="wc-note">${esc(w.note)}</div>` : ""}
@@ -1613,10 +1787,10 @@ async function renderTaskPage(taskId) {
       if ($("#t-slow-title").textContent !== title) $("#t-slow-title").textContent = title;
     }
     $("#t-foot").innerHTML = `
-      ${success ? `<a class="btn primary" href="#/inst/${encodeURIComponent(t.result)}">${icon("check")} 完成，进入控制台</a>` : ""}
-      ${t.ended && t.error ? `<a class="btn" href="#/create">${icon("arrowLeft")} 返回重试</a>` : ""}
-      ${!t.ended ? `<span class="warn-text">${icon("warn")} 部署中，请勿关闭程序…</span>` : ""}`;
-    if (t.ended) { ended = true; stopPoll(); if (!t.error) toast("服务器创建成功"); }
+      ${success ? `<a class="btn primary" href="${K.href(t.result)}">${icon("check")} ${K.go}</a>` : ""}
+      ${t.ended && t.error ? `<a class="btn" href="${K.back}">${icon("arrowLeft")} ${K.backText}</a>` : ""}
+      ${!t.ended ? `<span class="warn-text">${icon("warn")} ${K.busy}</span>` : ""}`;
+    if (t.ended) { ended = true; stopPoll(); if (!t.error) toast(K.ok); }
   };
   // 首次 draw 若因任何原因抛错，也必须启动轮询——否则后续状态永远无法刷新，页面会永久停在「加载中…」。
   try { await draw(); } catch (e) { console.warn("首次任务渲染失败，转由轮询接管：", e); }
@@ -1664,7 +1838,7 @@ async function renderDetail(name, tab = "console") {
     <div class="detail-head">
       ${avatarOf(info.core, "lg")}
       <div class="dh-text"><h1>${esc(name)}</h1>
-        <div class="dh-line"><span id="d-status">${headStatus(info)}</span>${coreBadge(info.core)}<span class="badge">${info.kind === "proxy" ? "v" : "MC "}${esc(info.mc)}</span><span class="badge">Java ${info.javaMajor}</span></div></div>
+        <div class="dh-line"><span id="d-status">${headStatus(info)}</span>${coreBadge(info.core)}<span class="badge">${info.kind === "proxy" ? "v" : "MC "}${esc(info.mc)}</span><span class="badge" id="d-java">Java ${info.javaMajor}</span></div></div>
       <span class="grow"></span>
       <button class="btn primary" id="d-start" aria-label="启动 ${esc(name)}" ${info.status !== "stopped" ? "disabled" : ""}>${icon("play")} 启动</button>
       <button class="btn" id="d-stop" aria-label="停止 ${esc(name)}" ${info.status === "stopped" || info.status === "stopping" ? "disabled" : ""}>${icon("stop")} 停止</button>
@@ -2277,9 +2451,49 @@ async function renderDetail(name, tab = "console") {
           <button class="btn sm" id="jm-aikar">${icon("bolt")} 套用 Aikar's Flags（G1GC 优化）</button>
           <button class="btn sm" id="jm-clear">清空</button>
         </div>
-        <div class="hint" style="margin-bottom:14px">Java ${info.javaMajor}（MineDeck 下载的，不改系统里的 Java）<br>服务器目录：${esc(info.dir)}<br>要自己启动：双击这个目录里的 run.bat（和这里的设置是同一份）</div>
+        <label class="field" id="jm-java-box"><span>Java</span>
+          <div class="row" style="gap:8px">
+            <select id="jm-java" style="flex:1;min-width:0" aria-label="这台服务器用的 Java" aria-describedby="jm-java-hint"><option>加载中…</option></select>
+            <button type="button" class="btn" id="jm-java-set" disabled>更换 Java</button>
+          </div>
+          <div class="hint" id="jm-java-hint">新建时已经按 Minecraft 版本选好了（1.20.1 是 Java 17，1.21 是 21，26.1 起是 25），一般不用动。整合包说明里要求别的版本时在这里换，换了下次启动生效；起不来就换回原来的。</div>
+        </label>
+        <div class="hint" style="margin-bottom:14px">服务器目录：${esc(info.dir)}<br>要自己启动：双击这个目录里的 run.bat（和这里的设置是同一份）</div>
         ${saveBar("保存", info.status === "stopped" ? "" : `<span class="warn-text">${icon("warn")} 运行中：保存后需重启生效</span>`)}
       </div>`;
+    // 换 Java：列出 MineDeck 下载的、本机装的，再加上本机还没有、可以现下一份的版本。和上面的保存条无关，点「更换」立即生效
+    (async () => {
+      const javas = await api("/api/javas").catch(() => ({ portable: [], scanned: [] }));
+      if (stale(gen) || !$("#jm-java")) return;
+      const norm = p => (p || "").toLowerCase().replace(/\//g, "\\");
+      const opts = [
+        ...javas.portable.map(j => ({ major: j.major, path: j.path || "", text: `Java ${j.major}（MineDeck 下载的）`, portable: true })),
+        ...javas.scanned.map(j => ({ major: j.major, path: j.path, text: `Java ${j.major}（本机装的 ${j.version}：${j.path}）` })),
+      ];
+      // 现在用的这一个：按路径认；/api/javas 里没有它（比如那个 Java 后来被卸载了）就单列一项
+      let cur = opts.findIndex(o => info.javaPath && norm(o.path) === norm(info.javaPath));
+      if (cur < 0) cur = opts.findIndex(o => !o.path && o.portable && o.major === info.javaMajor && info.javaSource === "portable");
+      if (cur < 0) { opts.unshift({ major: info.javaMajor, path: info.javaPath || "", text: `Java ${info.javaMajor}${info.javaPath ? "（" + info.javaPath + "）" : ""}` }); cur = 0; }
+      const have = new Set(opts.map(o => o.major));
+      JAVA_DOWNLOADABLE.filter(m => !have.has(m)).forEach(m => opts.push({ major: m, path: "", text: `Java ${m}（本机没有，下载一份，约 50 MB）`, download: true }));
+      const sel = $("#jm-java"), btn = $("#jm-java-set");
+      sel.innerHTML = opts.map((o, k) => `<option value="${k}"${k === cur ? " selected" : ""}>${esc(o.text)}${k === cur ? " · 现在用的" : ""}</option>`).join("");
+      sel.onchange = () => { btn.disabled = +sel.value === cur; };
+      btn.onclick = async () => {
+        const o = opts[+sel.value];
+        if (!o || +sel.value === cur) return;
+        btn.disabled = true;
+        try {
+          const r = await api(`/api/instances/${encodeURIComponent(name)}/java`, { method: "PUT", body: { major: o.major, path: o.download ? "" : o.path } });
+          if (r && r.taskId) { location.hash = `#/task/${r.taskId}`; return; } // 要先下载：去任务页看进度
+          toast(`已换成 Java ${o.major}` + (info.status === "stopped" ? "，下次启动生效" : "，重启服务器后生效"));
+          info.javaMajor = o.major; info.javaPath = (r && r.java) || o.path; info.javaSource = o.portable ? "portable" : "local";
+          cur = +sel.value;
+          sel.querySelectorAll("option").forEach((el, k) => { el.textContent = opts[k].text + (k === cur ? " · 现在用的" : ""); });
+          if ($("#d-java")) $("#d-java").textContent = "Java " + o.major; // 页头的徽标跟着换
+        } catch (e) { toast(e.message, true); btn.disabled = false; }
+      };
+    })();
     renderMemoryControl($("#jm-mem-mount"), { sliderId: "jm-mem", min: 1024, max: maxMem, value: Math.min(info.xmxMb, maxMem), totalMb: appInfo.ramMb, availMb: appInfo.availRamMb });
     // 老版本创建时加入的 log4shell 缓解参数（后端保存时也会强制补回）：套用预设 / 清空时原样保留
     const LOG4J_FIX = ["-Dlog4j2.formatMsgNoLookups=true", "-Dlog4j.configurationFile=log4j2_112-116.xml"];

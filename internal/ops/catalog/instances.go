@@ -25,6 +25,8 @@ type instSummary struct {
 	Build           string   `json:"build"`
 	JavaMajor       int      `json:"javaMajor"`
 	JavaSource      string   `json:"javaSource"` // portable：MineDeck 的便携版；local：本机装的 Java
+	JavaPath        string   `json:"javaPath"`   // 现在用的 java.exe（「内存 / 启动」里换 Java 时标出当前这一个）
+	Adopted         bool     `json:"adopted"`    // 接管进来的：目录是用户原来的文件夹（删除时默认不删文件）
 	XmxMB           int      `json:"xmxMb"`
 	XmsMB           int      `json:"xmsMb"`
 	Port            int      `json:"port"`
@@ -62,7 +64,7 @@ func summarize(i *inst.Instance) instSummary {
 	return instSummary{
 		Name: i.Name, Core: string(i.Core), Kind: string(mcsrc.KindOf(i.Core)),
 		MC: i.MC, Build: i.Build,
-		JavaMajor: javaMajor, JavaSource: javaSource, XmxMB: xmx, XmsMB: xms,
+		JavaMajor: javaMajor, JavaSource: javaSource, JavaPath: javaPath, Adopted: i.Adopted, XmxMB: xmx, XmsMB: xms,
 		Port: i.Port(), Status: i.Status(), MOTD: motd, Dir: i.Dir,
 		CreatedAt:       i.CreatedAt.Format("2006-01-02 15:04"),
 		ConsoleEncoding: enc,
@@ -184,9 +186,11 @@ func (c *cat) instanceOps() {
 		},
 	})
 
+	c.adoptOps()
+
 	c.reg.Register(&ops.Op{
 		Name: "task.list", Title: "查看后台任务", Level: ops.Read,
-		Desc: "本次运行的新建实例、整合包导入、Java 下载任务，按创建时间从新到旧排列，包含已完成与失败的任务。" +
+		Desc: "本次运行的新建实例、整合包导入、接管已有服务器、Java 下载任务，按创建时间从新到旧排列，包含已完成与失败的任务。" +
 			"每个任务只给摘要（标题、是否结束、当前进度、出错原因、告警条数），步骤、日志和告警明细用 task.get 查。",
 		Run: func(context.Context, ops.Caller, ops.Args) (any, error) {
 			return c.Mgr.Tasks.List(), nil
@@ -195,7 +199,7 @@ func (c *cat) instanceOps() {
 
 	c.reg.Register(&ops.Op{
 		Name: "task.get", Title: "查看任务进度", Level: ops.Read,
-		Desc:   "新建实例、导入整合包的后台任务：各步骤状态、下载进度、日志、告警。",
+		Desc:   "新建实例、导入整合包、接管已有服务器、换 Java 的后台任务：各步骤状态、下载进度、日志、告警。",
 		Params: ops.Object(map[string]*ops.Schema{"id": ops.String("任务编号")}, "id"),
 		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[struct {
@@ -574,6 +578,64 @@ func (c *cat) instanceOps() {
 				return nil, err
 			}
 			return "ok", nil
+		},
+	})
+}
+
+// adoptOps 接管已有的服务器：把用户自己以前开的服务器文件夹就地登记成实例（inst/adopt.go）。
+// 两个操作都要读主机上任意一个文件夹，和 host.pickdir、java.add 一样只许人在本机操作，AI 和别的设备都不行。
+func (c *cat) adoptOps() {
+	const localMsg = "接管已有服务器仅支持在本机操作（要读这台电脑上的文件夹）"
+	c.reg.Register(&ops.Op{
+		Name: "instance.adopt.scan", Title: "识别已有的服务器文件夹", Level: ops.HumanOnly, LocalOnly: true, NoLog: true,
+		LocalMsg: localMsg,
+		Desc:     "只读地看一遍文件夹，认出服务端的类型、版本、启动文件和原来分的内存，给接管的表单预填。",
+		Params:   ops.Object(map[string]*ops.Schema{"dir": ops.String("服务器所在的文件夹")}, "dir"),
+		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+			p, err := bind[struct {
+				Dir string `json:"dir"`
+			}](a)
+			if err != nil {
+				return nil, err
+			}
+			return c.Mgr.ScanAdopt(p.Dir)
+		},
+	})
+
+	c.reg.Register(&ops.Op{
+		Name: "instance.adopt", Title: "接管已有服务器", Level: ops.HumanOnly, LocalOnly: true,
+		LocalMsg: localMsg,
+		Desc: "把一个已有的服务器文件夹就地登记成实例（不搬文件，不改存档和配置；原来的 run.bat 先备份），返回任务编号。" +
+			"没有合适的 Java 时在后台下载便携版。",
+		Params: ops.Object(map[string]*ops.Schema{
+			"dir":          ops.String("服务器所在的文件夹"),
+			"name":         createParams["name"],
+			"core":         createParams["core"],
+			"mc":           ops.String("Minecraft 版本（代理端填它自己的版本）"),
+			"build":        ops.String("构建号或加载器版本，可以不填"),
+			"launchTarget": ops.String("启动方式：instance.adopt.scan 给出的候选之一"),
+			"xmxMb":        createParams["xmxMb"],
+			"javaMajor":    ops.Integer("Java 大版本；0 表示按 Minecraft 版本自动选"),
+			"javaPath":     ops.String("用 java.list 里的哪一个 java.exe；空串自动选"),
+			"eula":         createParams["eula"],
+		}, "dir", "name", "core", "mc", "launchTarget"),
+		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+			req, err := bind[inst.AdoptReq](a)
+			if err != nil {
+				return nil, err
+			}
+			if req.JavaPath != "" { // 只认已知的 Java，不能借这里让程序去执行任意一个 exe
+				jp, ok := knownJava(req.JavaMajor, req.JavaPath)
+				if !ok {
+					return nil, ops.Errorf(400, "%s 不是已知的 Java %d（见 java.list）", req.JavaPath, req.JavaMajor)
+				}
+				req.JavaPath = jp
+			}
+			id, err := c.Mgr.AdoptAsync(req)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]string{"taskId": id}, nil
 		},
 	})
 }

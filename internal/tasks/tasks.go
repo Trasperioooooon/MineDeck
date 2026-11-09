@@ -40,6 +40,7 @@ type NetRetry struct {
 type Snapshot struct {
 	ID       string    `json:"id"`
 	Title    string    `json:"title"`
+	Kind     string    `json:"kind,omitempty"` // 空 = 新建 / 导入（部署）；adopt = 接管已有服务器；java = 换 Java。界面按它换说法
 	Steps    []Step    `json:"steps"`
 	Log      []string  `json:"log"`
 	Label    string    `json:"label"`
@@ -59,6 +60,7 @@ type Snapshot struct {
 type Summary struct {
 	ID           string `json:"id"`
 	Title        string `json:"title"`
+	Kind         string `json:"kind,omitempty"` // 同 Snapshot.Kind：空 = 部署，adopt = 接管已有服务器，java = 换 Java
 	Label        string `json:"label"`
 	Done         int64  `json:"done"`
 	Total        int64  `json:"total"`
@@ -71,6 +73,7 @@ type Summary struct {
 type Task struct {
 	id       string
 	title    string
+	kind     string
 	mu       sync.Mutex
 	steps    []Step
 	log      []string
@@ -140,7 +143,7 @@ func (t *Task) summary() Summary {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return Summary{
-		ID: t.id, Title: t.title, Label: t.label,
+		ID: t.id, Title: t.title, Kind: t.kind, Label: t.label,
 		Done: t.done, Total: t.total,
 		Ended: t.ended, Err: t.err, Result: t.result,
 		WarningCount: len(t.warnings),
@@ -148,6 +151,13 @@ func (t *Task) summary() Summary {
 }
 
 func (t *Task) ID() string { return t.id }
+
+// SetKind 标明这是哪一类任务（见 Snapshot.Kind）；不设就是部署任务。
+func (t *Task) SetKind(kind string) {
+	t.mu.Lock()
+	t.kind = kind
+	t.mu.Unlock()
+}
 
 // StartStep 将第 i 步标记为运行中（前序步骤自动标记完成）。
 func (t *Task) StartStep(i int) {
@@ -232,7 +242,7 @@ func (t *Task) Snapshot() Snapshot {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	s := Snapshot{
-		ID: t.id, Title: t.title, Label: t.label,
+		ID: t.id, Title: t.title, Kind: t.kind, Label: t.label,
 		Done: t.done, Total: t.total,
 		Ended: t.ended, Err: t.err, Result: t.result,
 	}
