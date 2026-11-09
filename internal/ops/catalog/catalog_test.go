@@ -85,6 +85,11 @@ func TestLevelsFollowDesign(t *testing.T) {
 	want[ops.HumanOnly] = append(want[ops.HumanOnly], "gameai.get", "gameai.set", "gameai.test", "gameai.log", "gameai.whitelist")
 	// AI 伙伴（第七阶段）：看状态是读；装模组、改设置、刷出、移除、全部停下是写（AI 只能提出）；伙伴的动作只走游戏内 AI 的工具，不是登记的操作
 	want[ops.Read] = append(want[ops.Read], "companion.status")
+	// 实例交接包：读摘要是读；导出只多写一个 zip，是写（AI 可提出、人确认）；导入解包落任意文件并注册实例，
+	// 同 instance.import（导入整合包）的先例，仅人工
+	want[ops.Read] = append(want[ops.Read], "instance.transfer.scan")
+	want[ops.Write] = append(want[ops.Write], "instance.transfer.export")
+	want[ops.HumanOnly] = append(want[ops.HumanOnly], "instance.transfer.import")
 	want[ops.Write] = append(want[ops.Write], "companion.install", "companion.settings.set", "companion.spawn", "companion.despawn", "companion.stop")
 
 	n := 0
@@ -135,9 +140,10 @@ func TestAIToolLists(t *testing.T) {
 			t.Errorf("助手的工具清单里有仅人工的操作 %s", op.Name)
 		}
 	}
-	// +4：音乐共享（第五阶段）的读 1 + 写 3；+1：game.info（第四阶段，助手的工具清单里另外去掉了）；+6：AI 伙伴（第七阶段）的读 1 + 写 5
-	if n := len(reg.Available(ops.Caller{Source: ops.SrcAssistant, Local: true})); n != 24+13+11+4+1+6 {
-		t.Errorf("助手能用 %d 个操作，应为读 24 + 写 13 + 危险 11 + 音乐共享 4 + game.info 1 + AI 伙伴 6", n)
+	// +4：音乐共享（第五阶段）的读 1 + 写 3；+1：game.info（第四阶段，助手的工具清单里另外去掉了）；+6：AI 伙伴（第七阶段）的读 1 + 写 5；
+	// +2：交接包的读摘要 + 写导出（导入是仅人工）
+	if n := len(reg.Available(ops.Caller{Source: ops.SrcAssistant, Local: true})); n != 24+13+11+4+1+6+2 {
+		t.Errorf("助手能用 %d 个操作，应为读 24 + 写 13 + 危险 11 + 音乐共享 4 + game.info 1 + AI 伙伴 6 + 交接包 2", n)
 	}
 	if l := reg.Available(ops.Caller{Source: ops.SrcGameChat, Actor: "Steve"}); len(l) != 1 || l[0].Name != "game.info" {
 		t.Errorf("游戏内 AI 只能调 game.info：%v", l)
