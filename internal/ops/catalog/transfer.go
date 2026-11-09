@@ -22,7 +22,7 @@ func (c *cat) transferOps() {
 	c.reg.Register(&ops.Op{
 		Name: "instance.transfer.scan", Title: "读交接包摘要", Level: ops.Read, NoLog: true,
 		Desc:   "读上传到缓存目录的 .mdpack 交接包，返回包里是什么：核心、版本、世界大小、模组/插件数量、导出时间。导入向导用。",
-		Params:   ops.Object(map[string]*ops.Schema{"file": ops.String("已上传到缓存目录的交接包文件")}, "file"),
+		Params: ops.Object(map[string]*ops.Schema{"file": ops.String("已上传到缓存目录的交接包文件")}, "file"),
 		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[struct {
 				File string `json:"file"`
