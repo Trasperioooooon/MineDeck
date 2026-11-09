@@ -2320,6 +2320,144 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   });
   // ==================== 无障碍结束 ====================
 
+  // ==================== 接管已有服务器、换 Java ====================
+  {
+    const mockState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
+    const neoArgs = "args:libraries/net/neoforged/neoforge/21.1.265/win_args.txt";
+
+    await run("接管已有服务器：新建页第三张卡片进入；文件夹不对就地提示、不出表单；识别后预填名称、类型、版本、内存，换启动文件时类型跟着换；没同意 EULA 不发请求；接管后任务页说的是「接管」", async () => {
+      await mockState({ instReset: true, adoptScan: null });
+      await page.goto(url("#/create")); await settle();
+      await page.click("#mode-adopt"); await settle(500);
+      assert(await page.textContent(".page-head h1") === "接管已有服务器", "没进入接管页");
+      assert(await page.$eval("#ad-go", b => b.disabled), "还没识别就能点「接管」");
+      // 没填、选了整个磁盘、选到了上一层：错误写在文件夹那一栏下面，表单不出现
+      await page.click("#ad-scan"); await settle(200);
+      assert((await page.textContent("#ad-dir-err")).includes("请先选择"), "没填文件夹时没提示");
+      for (const [dir, want] of [["D:\\", "整个磁盘"], ["E:\\空文件夹", "请选到具体那一个文件夹"]]) {
+        await page.fill("#ad-dir", dir); await page.click("#ad-scan"); await settle(400);
+        assert((await page.textContent("#ad-dir-err")).includes(want), `${dir} 应提示「${want}」：` + await page.textContent("#ad-dir-err"));
+        assert(await page.$eval("#ad-form", f => f.innerHTML === "") && await page.$eval("#ad-go", b => b.disabled), dir + " 识别失败还出了表单");
+      }
+      // 「浏览」选完直接识别（仿真后端选的是 E:\MCServers）
+      await page.click("#ad-browse"); await settle(700);
+      const v = await page.evaluate(() => ({
+        dir: $("#ad-dir").value, err: $("#ad-dir-err").textContent, name: $("#ad-name").value, core: $("#ad-core").value, mc: $("#ad-mc").value,
+        mem: $("#ad-mem").value, targets: $("#ad-target").options.length, java: $("#ad-java").value, notes: $("#ad-notes").textContent,
+        eulaHidden: $("#ad-eula-box").hidden, what: $("#ad-what").textContent, go: $("#ad-go").disabled, noWorldHidden: $("#ad-noworld").hidden,
+      }));
+      assert(v.dir === "E:\\MCServers" && v.err === "", "文件夹：" + JSON.stringify(v));
+      assert(v.name === "create-pack" && v.core === "neoforge" && v.mc === "1.21.1" && v.mem === "6144" && v.targets === 2 && v.java === "0", "预填不对：" + JSON.stringify(v));
+      assert(v.notes.includes("2 个能启动的文件") && !v.eulaHidden && !v.go && v.noWorldHidden, "提醒 / EULA / 按钮 / 有存档时不该说没看到存档：" + JSON.stringify(v));
+      assert(v.what.includes("run.before-minedeck.bat") && v.what.includes("先把它关掉"), "没写明会往文件夹里写什么：" + v.what);
+      // 换启动文件：类型和版本换成那个文件认出来的
+      await page.selectOption("#ad-target", "jar:server.jar");
+      assert(await page.$eval("#ad-core", s => s.value) === "vanilla", "换了启动文件，类型没跟着换");
+      await page.selectOption("#ad-target", neoArgs);
+      assert(await page.$eval("#ad-core", s => s.value) === "neoforge", "换回来后类型没跟着换");
+      // 代理端没有 EULA
+      await page.selectOption("#ad-core", "velocity");
+      assert(await page.$eval("#ad-eula-box", b => b.hidden) && await page.textContent("#ad-mc-label") === "代理端版本", "代理端不该要 EULA");
+      await page.selectOption("#ad-core", "neoforge");
+      // 没同意 EULA、名称为空：就地报错，不发请求
+      await page.fill("#ad-name", "");
+      await page.click("#ad-go"); await settle(300);
+      let st = await mockState({});
+      assert(st.lastAdopt === null, "没同意 EULA 就发了请求");
+      assert((await page.textContent("#ad-name-err")).includes("起个名字") && (await page.textContent("#ad-eula-err")).includes("EULA"), "没有就地提示");
+      await page.fill("#ad-name", "朋友的整合包");
+      await page.check("#ad-eula");
+      await page.selectOption("#ad-java", "25");
+      await page.click("#ad-go"); await settle(1200);
+      st = await mockState({});
+      const a = st.lastAdopt || {};
+      assert(a.dir === "E:\\MCServers" && a.name === "朋友的整合包" && a.core === "neoforge" && a.mc === "1.21.1" && a.build === "21.1.265" &&
+        a.launchTarget === neoArgs && a.xmxMb === 6144 && a.javaMajor === 25 && a.eula === true, "接管的请求：" + JSON.stringify(a));
+      assert(page.url().endsWith("#/task/task-adopt"), "没去任务页：" + page.url());
+      const t = await page.evaluate(() => ({ h1: $(".page-head h1").textContent, label: $("#t-label").textContent, foot: $("#t-foot").textContent, href: $("#t-foot a").getAttribute("href"),
+        toasts: [...document.querySelectorAll(".toast")].map(x => x.textContent) }));
+      assert(t.h1 === "正在接管服务器" && t.label === "接管完成" && t.foot.includes("进入控制台") && t.href === "#/inst/" + encodeURIComponent("朋友的整合包"), "任务页：" + JSON.stringify(t));
+      assert(t.toasts.some(x => x.includes("接管成功")) && !t.toasts.some(x => x.includes("创建成功")), "提示应是接管成功：" + JSON.stringify(t.toasts));
+    });
+
+    await run("接管已有服务器：改了文件夹没重新识别就不能接管；已经同意过 EULA 的不用再勾；MineDeck 管过的文件夹说明设置会带回来", async () => {
+      await mockState({ adoptScan: { dir: "D:\\old\\S1", name: "S1", core: "paper", mc: "1.21.4", build: "", launchTarget: "jar:paper.jar",
+        targets: [{ target: "jar:paper.jar", label: "paper.jar（Paper 1.21.4）", core: "paper", mc: "1.21.4", build: "", javaMajor: 0 }],
+        javaMajor: 0, xmxMb: 0, extraJvm: [], port: 25565, eula: true, hasWorld: false, managed: true, notes: [] } });
+      await page.goto(url("#/create")); await settle();
+      await page.click("#mode-adopt"); await settle(500);
+      await page.fill("#ad-dir", "D:\\old\\S1"); await page.keyboard.press("Enter"); await settle(600);
+      const v = await page.evaluate(() => ({ eulaHidden: $("#ad-eula-box").hidden, what: $("#ad-what").textContent, notes: !!$("#ad-notes"), mem: $("#ad-mem").value, go: $("#ad-go").disabled,
+        noWorldHidden: $("#ad-noworld").hidden, noWorld: $("#ad-noworld").textContent }));
+      assert(v.eulaHidden && !v.notes && !v.go, "已经同意过 EULA 不用再勾、没有提醒时不画提醒框：" + JSON.stringify(v));
+      assert(v.what.includes("以前由 MineDeck 管过") && !v.noWorldHidden && v.noWorld.includes("没看到存档"), "说明：" + JSON.stringify(v));
+      // 代理端本来就没有存档：不提
+      await page.selectOption("#ad-core", "velocity");
+      assert(await page.$eval("#ad-noworld", x => x.hidden), "代理端不该提示没看到存档");
+      await page.selectOption("#ad-core", "paper");
+      assert(v.mem === "4096", "没读到原来的内存时默认 4 GB：" + v.mem);
+      await page.type("#ad-dir", "x"); await settle(200);
+      assert(await page.$eval("#ad-form", f => f.innerHTML === "") && await page.$eval("#ad-go", b => b.disabled), "改了文件夹，旧的识别结果还留着");
+      await mockState({ adoptScan: null });
+    });
+
+    await run("内存 / 启动：能给服务器换 Java——列出 MineDeck 下载的、本机装的和可以现下的，标出现在用的；已有的直接换，本机没有的去任务页下载", async () => {
+      await mockState({ instReset: true });
+      const pack = encodeURIComponent("机械动力整合包");
+      await page.goto(url(`#/inst/${pack}/jvm`)); await settle(900);
+      let o = await page.evaluate(() => ({ opts: [...$("#jm-java").options].map(x => x.textContent), sel: $("#jm-java").selectedOptions[0].textContent, off: $("#jm-java-set").disabled }));
+      assert(o.sel === "Java 17（MineDeck 下载的） · 现在用的" && o.off, "现在用的没标出来，或者没改就能点更换：" + JSON.stringify(o));
+      assert(o.opts.some(x => x.startsWith("Java 8（本机装的 1.8.0_421：C:\\Program Files\\Java\\")) && o.opts.includes("Java 25（本机没有，下载一份，约 50 MB）") &&
+        !o.opts.some(x => x.startsWith("Java 21（本机没有")), "选项：" + JSON.stringify(o.opts));
+      const pick = async text => page.selectOption("#jm-java", { index: await page.$eval("#jm-java", (s, t) => [...s.options].findIndex(x => x.textContent.startsWith(t)), text) });
+      await pick("Java 8（");
+      assert(!(await page.$eval("#jm-java-set", b => b.disabled)), "选了别的 Java，按钮没亮");
+      await page.click("#jm-java-set"); await settle(500);
+      let st = await mockState({});
+      assert(st.lastJava && st.lastJava.inst === "机械动力整合包" && st.lastJava.major === 8 && st.lastJava.path === "C:\\Program Files\\Java\\jre1.8.0_421\\bin\\java.exe", "换 Java 的请求：" + JSON.stringify(st.lastJava));
+      o = await page.evaluate(() => ({ sel: $("#jm-java").selectedOptions[0].textContent, off: $("#jm-java-set").disabled, badge: $("#d-java").textContent,
+        marked: [...$("#jm-java").options].filter(x => x.textContent.includes("现在用的")).length, toasts: [...document.querySelectorAll(".toast")].map(x => x.textContent) }));
+      assert(o.sel.startsWith("Java 8（") && o.sel.endsWith("现在用的") && o.marked === 1 && o.off && o.badge === "Java 8", "换完之后：" + JSON.stringify(o));
+      assert(o.toasts.some(x => x.includes("已换成 Java 8") && x.includes("下次启动生效")), "提示：" + JSON.stringify(o.toasts));
+      // 本机没有的版本：去任务页，说的是「更换 Java」，完成后回到这台服务器的「内存 / 启动」
+      await pick("Java 25（");
+      await page.click("#jm-java-set"); await settle(1200);
+      st = await mockState({});
+      assert(st.lastJava.major === 25 && st.lastJava.path === "", "下载的请求不带路径：" + JSON.stringify(st.lastJava));
+      const t = await page.evaluate(() => ({ url: location.hash, h1: $(".page-head h1").textContent, label: $("#t-label").textContent, link: $("#t-foot a").textContent.trim(), href: $("#t-foot a").getAttribute("href") }));
+      assert(t.url === "#/task/task-java" && t.h1 === "正在更换 Java" && t.label === "Java 已换好" && t.link === "完成，回到服务器" && t.href === `#/inst/${pack}/jvm`, "任务页：" + JSON.stringify(t));
+      await mockState({ instReset: true });
+    });
+
+    await run("删除：不勾「同时删除文件夹」时按钮写「移出列表」；接管进来的服务器默认不勾、写出原来的文件夹，确认后只移出列表", async () => {
+      await mockState({ instReset: true });
+      const open = async () => {
+        await page.goto(url("#/instances")); await settle();
+        await page.click('.card[data-name="机械动力整合包"] [data-act="more"]');
+        await page.click(".dropmenu button.danger");
+        await settle(250);
+        return page.evaluate(() => ({ checked: $("#modal-root input[data-k=files]").checked, ok: $("#modal-root [data-x=ok]").textContent, hint: $("#modal-root .hint").textContent,
+          focused: document.activeElement.textContent.trim() }));
+      };
+      let d = await open();
+      assert(d.checked && d.ok === "删除服务器" && d.focused === "保留" && d.hint.includes("接管已有服务器") && !d.hint.includes("下次启动会重新出现"), "自己新建的：" + JSON.stringify(d));
+      await page.uncheck("#modal-root input[data-k=files]");
+      assert(await page.textContent("#modal-root [data-x=ok]") === "移出列表", "不删文件时按钮应写「移出列表」");
+      await page.click('#modal-root [data-x="cancel"]'); await settle(250);
+      // 接管进来的：默认不删文件
+      await mockState({ inst: { name: "机械动力整合包", adopted: true, dir: "E:\\MCServers\\create-pack" } });
+      d = await open();
+      assert(!d.checked && d.ok === "移出列表" && d.focused === "保留" && d.hint.includes("接管进来的") && d.hint.includes("E:\\MCServers\\create-pack"), "接管进来的：" + JSON.stringify(d));
+      await page.click('#modal-root [data-x="ok"]'); await settle(500);
+      const st = await mockState({});
+      assert(st.lastDelete && st.lastDelete.inst === "机械动力整合包" && st.lastDelete.files === false, "删除的请求：" + JSON.stringify(st.lastDelete));
+      const toasts = await page.$$eval(".toast", ts => ts.map(x => x.textContent));
+      assert(toasts.some(x => x.includes("移出列表") && x.includes("文件还在原处")), "提示：" + JSON.stringify(toasts));
+      await mockState({ instReset: true });
+      await page.goto(url("#/instances")); await settle();
+    });
+  }
+
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
 
   await browser.close();

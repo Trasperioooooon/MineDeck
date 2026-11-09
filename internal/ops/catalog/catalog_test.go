@@ -68,7 +68,9 @@ func TestLevelsFollowDesign(t *testing.T) {
 			"instance.delete", "instance.opendir", "instance.backup.delete", "java.add", "tunnel.add", "tunnel.update", "tunnel.delete",
 			// AI 设置（第二阶段）：AI 永远看不到、也改不了自己的设置和 Key（§3.3）
 			"ai.settings.get", "ai.provider.set", "ai.models.list", "ai.test", "ai.quota.set", "ai.prices.set", "ai.prices.refresh",
-			"ai.assistant.set"},
+			"ai.assistant.set",
+			// 接管已有服务器：要读主机上任意一个文件夹，只许人在本机操作
+			"instance.adopt.scan", "instance.adopt"},
 	}
 
 	// 音乐共享（第五阶段）：开始、停止广播这类操作只能由人来（§8.6）
@@ -119,7 +121,7 @@ func TestLevelsFollowDesign(t *testing.T) {
 	slices.Sort(local)
 	if strings.Join(local, ",") != "ai.assistant.set,ai.models.list,ai.prices.refresh,ai.prices.set,ai.provider.set,ai.quota.set,ai.test,"+
 		"gameai.set,gameai.whitelist,"+ // 第四阶段：授权名单和命令模板只能在本机改（§3.3）
-		"host.openpath,host.pickdir,instance.opendir,java.add"+
+		"host.openpath,host.pickdir,instance.adopt,instance.adopt.scan,instance.opendir,java.add"+
 		",music.sources,music.start,music.system.confirm" { // 第五阶段
 		t.Errorf("仅本机的操作：%v", local)
 	}

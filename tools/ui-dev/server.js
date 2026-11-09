@@ -69,8 +69,23 @@ function newState(ui) {
     mcp: newMcpState(), // MCP 接口
   };
   state.props = catalog(ui).map(p => ({ key: p.key, value: p.key === "motd" ? "§a生存服 §7· §e一起来玩！" : String(p.def ?? "") }));
+  // 同 instance.list 的 javaSource / javaPath / adopted：都用 MineDeck 下载的便携版 Java，都不是接管进来的
+  for (const i of state.instances) Object.assign(i, { javaSource: "portable", javaPath: `D:\\MineDeck\\runtimes\\java-${i.javaMajor}\\bin\\java.exe`, adopted: false });
+  state.adoptScan = state.lastAdopt = state.lastJava = state.lastDelete = null; // 接管、换 Java、删除：见 /__mock/state 的说明
   return state;
 }
+
+// 接管已有服务器时「识别」的默认结果（同 inst.AdoptScan）：一个自己开的 NeoForge 整合包，装过两个版本的加载器，还没同意过 EULA
+const ADOPT_SCAN = {
+  dir: "E:\\MCServers\\create-pack", name: "create-pack", core: "neoforge", mc: "1.21.1", build: "21.1.265",
+  launchTarget: "args:libraries/net/neoforged/neoforge/21.1.265/win_args.txt",
+  targets: [
+    { target: "args:libraries/net/neoforged/neoforge/21.1.265/win_args.txt", label: "NeoForge 21.1.265（Minecraft 1.21.1）", core: "neoforge", mc: "1.21.1", build: "21.1.265", javaMajor: 0 },
+    { target: "jar:server.jar", label: "server.jar（Vanilla 原版 1.21.1）", core: "vanilla", mc: "1.21.1", build: "", javaMajor: 21 },
+  ],
+  javaMajor: 0, xmxMb: 6144, extraJvm: ["-XX:+UseG1GC"], port: 25570, eula: false, hasWorld: true, managed: false,
+  notes: ["这个文件夹里有 2 个能启动的文件，已经选了最可能的那个，不对可以改。", "user_jvm_args.txt 里的 1 个 JVM 参数会带过来。"],
+};
 
 // 操作记录（同 GET /api/ops/log：新的在前，Key、密码、凭据写成 ***）
 const OPLOG = [
@@ -1213,6 +1228,9 @@ function handler(state, ui, portOf) {
     //   lanSet: 是否已设局域网访问密码；lanActive: 单独改「这次启动是否已监听在局域网上」（模拟改了开关还没重启）
     //   taskStage: 部署任务进行到第几步（0–4，4 = 完成），"error" = 第 2 步失败
     //   taskNet: 部署任务的 net（同 tasks.NetRetry：{ count, host, what, ago }），null 清掉
+    //   inst: { name, …字段 } 直接改某台服务器的字段；instReset: true 服务器列表回到初始的四台
+    //   adoptScan: 接管已有服务器时「识别」返回的结果（同 inst.AdoptScan），null 还原成默认的；
+    //     响应里的 lastAdopt / lastJava / lastDelete 是上一次接管、换 Java、删除的请求
     //   legacy: { name, extraJvm, forceFlags } 把某台服务器设成「老版本」，保存 JVM 参数时补回 forceFlags
     //   status: { 名称: running | starting | stopping | stopped } 直接改某台服务器的运行状态（看状态切换的动效用）
     //   cfKey: 已存的 CurseForge API Key（空串 = 未设置）；cfKeyBroken: true 模拟「Key 解不开」（换了电脑或 Windows 用户）
@@ -1231,6 +1249,9 @@ function handler(state, ui, portOf) {
       if ("onboarded" in b) { state.config.onboarded = !!b.onboarded; state.config.tosAccepted = !!b.onboarded; }
       if ("taskStage" in b) state.taskStage = b.taskStage;
       if ("taskNet" in b) state.taskNet = b.taskNet;
+      if (b.inst) { const i = state.instances.find(x => x.name === b.inst.name); if (i) Object.assign(i, b.inst); } // 改某台服务器的字段（adopted、javaMajor…）
+      if ("adoptScan" in b) state.adoptScan = b.adoptScan; // 接管：下一次识别返回的结果（null 还原成默认的 NeoForge 整合包）
+      if (b.instReset) { const fresh = newState(ui); state.instances = fresh.instances; state.lastAdopt = state.lastJava = state.lastDelete = null; }
       if ("listenLan" in b) { state.config.listenLan = state.lanActive = !!b.listenLan; if (b.listenLan) state.lanSet = true; }
       if ("lanSet" in b) state.lanSet = !!b.lanSet;
       if ("lanActive" in b) state.lanActive = !!b.lanActive;
@@ -1298,10 +1319,32 @@ function handler(state, ui, portOf) {
         return ok(res, list);
       }
       if (p === "/api/builds") return ok(res, [232, 231, 230, 229, 228, 225, 220].map((n, i) => ({ id: String(n), label: `2026-10-${String(20 - i * 2).padStart(2, "0")}`, recommended: i === 0 })));
-      if (p === "/api/javas") return ok(res, { portable: [{ major: 21 }, { major: 17 }], scanned: [{ major: 21, version: "21.0.4", path: "C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.4.7-hotspot\\bin\\java.exe" }, { major: 8, version: "1.8.0_421", path: "C:\\Program Files\\Java\\jre1.8.0_421\\bin\\java.exe" }] });
+      if (p === "/api/javas") return ok(res, { portable: [{ major: 21, path: "D:\\MineDeck\\runtimes\\java-21\\bin\\java.exe" }, { major: 17, path: "D:\\MineDeck\\runtimes\\java-17\\bin\\java.exe" }], scanned: [{ major: 21, version: "21.0.4", path: "C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.4.7-hotspot\\bin\\java.exe" }, { major: 8, version: "1.8.0_421", path: "C:\\Program Files\\Java\\jre1.8.0_421\\bin\\java.exe" }] });
       if (p === "/api/javas/scan") return ok(res, [1, 2]);
       if (p === "/api/pickdir") return ok(res, { path: "E:\\MCServers" });
       if (p === "/api/update/check") return ok(res, { hasUpdate: false, current: "2.9.0-beta.2" });
+      // 接管已有服务器（同 web/instances.go 的 /api/adopt/scan、/api/adopt，inst/adopt.go）：识别只读，接管返回任务编号
+      if (p === "/api/adopt/scan" && m === "POST") {
+        const b = await readBody(req), dir = String(b.dir || "").trim();
+        if (!dir) return err(res, 400, "请先选择服务器所在的文件夹");
+        if (/^[A-Za-z]:\\?$/.test(dir)) return err(res, 400, "不能选整个磁盘，请选服务器所在的那个文件夹");
+        if (/empty|空/.test(dir)) return err(res, 400, "这个文件夹里没找到服务端。它下面的「生存服」「模组服」像是服务器，请选到具体那一个文件夹");
+        return ok(res, { ...(state.adoptScan || ADOPT_SCAN), dir: dir.replace(/\\+$/, "") });
+      }
+      if (p === "/api/adopt" && m === "POST") {
+        const b = await readBody(req);
+        if (state.instances.some(x => x.name === b.name)) return err(res, 400, "实例名已存在: " + b.name);
+        state.lastAdopt = b;
+        return ok(res, { taskId: "task-adopt" });
+      }
+      // 接管、换 Java 的任务（kind 不同，任务页的说法跟着换）：仿真里一查就是已完成
+      if (p === "/api/tasks/task-adopt" || p === "/api/tasks/task-java") {
+        const adopt = p.endsWith("adopt");
+        const names = adopt ? ["检查服务器文件夹", "准备 Java 运行时", "登记到 MineDeck"] : ["准备 Java 运行时", "换上新的 Java"];
+        return ok(res, { id: p.split("/").pop(), kind: adopt ? "adopt" : "java", steps: names.map(name => ({ name, status: "done" })), label: "", done: 0, total: 0, warnings: [],
+          log: adopt ? ["服务器文件夹：" + ((state.lastAdopt || {}).dir || ""), "原来的 run.bat 另存为 run.before-minedeck.bat", "接管完成 ✔ 存档、模组、插件和配置文件都没有动"] : ["已换成 Java 25（下次启动生效）"],
+          ended: true, result: adopt ? (state.lastAdopt || {}).name || "create-pack" : (state.lastJava || {}).inst || "机械动力整合包" });
+      }
       if (p.startsWith("/api/tasks/")) {
         const st = state.taskStage;
         const names = ["下载 Java 21 运行时", "下载 Paper 1.21.4 核心", "同意 EULA 并生成配置", "生成启动脚本"];
@@ -1335,6 +1378,22 @@ function handler(state, ui, portOf) {
         const name = seg[3], sub = seg[4] || "";
         const i = state.instances.find(x => x.name === name);
         if (!i) return err(res, 404, "实例不存在");
+        // 删除（同 inst.Manager.Delete）：files=0 只移出列表
+        if (!sub && m === "DELETE") {
+          state.lastDelete = { inst: name, files: u.searchParams.get("files") === "1" };
+          state.instances = state.instances.filter(x => x !== i);
+          return ok(res, "ok");
+        }
+        // 换 Java（同操作 instance.java.set）：已有这个版本直接换，没有就返回下载任务的编号
+        if (sub === "java" && m === "PUT") {
+          const b = await readBody(req);
+          if (!(b.major >= 8 && b.major <= 30)) return err(res, 400, "参数 major 应在 8 到 30 之间");
+          state.lastJava = { inst: name, ...b };
+          if (![21, 17, 8].includes(b.major)) return ok(res, { taskId: "task-java" });
+          i.javaMajor = b.major; i.javaPath = b.path || `D:\\MineDeck\\runtimes\\java-${b.major}\\bin\\java.exe`;
+          i.javaSource = i.javaPath.startsWith("D:\\MineDeck\\runtimes\\") ? "portable" : "local";
+          return ok(res, { java: i.javaPath });
+        }
         if (sub === "settings" && m === "PUT") {
           const b = await readBody(req);
           if (Array.isArray(b.extraJvm)) i.extraJvm = [...b.extraJvm, ...(i.forceFlags || []).filter(f => !b.extraJvm.includes(f))]; // 已有的原位保留，缺的追加

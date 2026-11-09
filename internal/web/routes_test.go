@@ -213,6 +213,12 @@ func TestRoutesKeepPathsAndSemantics(t *testing.T) {
 		{"GET", "/api/instances", "", 200, "", nil},
 		{"POST", "/api/instances", `{"name":"","core":"paper","mc":"1.21.4","eula":true}`, 400, "实例名需为 1~40 个字符", nil},
 		{"POST", "/api/import/modpack", "", 400, "上传解析失败", nil},
+		// 接管已有服务器：要读主机上的文件夹，别的设备一律不行；本机上文件夹不对时就地说明
+		{"POST", "/api/adopt/scan", `{"dir":"C:\\"}`, 403, "接管已有服务器仅支持在本机操作", []reqOpt{fromLAN}},
+		{"POST", "/api/adopt", `{"dir":"C:\\srv","name":"x","core":"paper","mc":"1.21.4","launchTarget":"jar:server.jar"}`, 403, "接管已有服务器仅支持在本机操作", []reqOpt{fromLAN}},
+		{"POST", "/api/adopt/scan", `{"dir":"C:\\"}`, 400, "不能选整个磁盘", nil},
+		{"POST", "/api/adopt/scan", `{}`, 400, "", nil},
+		{"POST", "/api/adopt", `{"dir":"relative","name":"x","core":"paper","mc":"1.21.4","launchTarget":"jar:server.jar"}`, 400, "请填完整的路径", nil},
 		{"GET", "/api/tasks/t999", "", 404, "任务不存在", nil},
 		{"GET", ip + "/backups", "", 200, "", nil},
 		{"POST", ip + "/backups", "", 200, "", nil}, // 请求体可省略
@@ -234,7 +240,7 @@ func TestRoutesKeepPathsAndSemantics(t *testing.T) {
 		{"POST", "/api/tunnels/" + e.tunID + "/start", "", 400, "首次使用需手动放置樱花 frpc", nil},
 		{"POST", "/api/tunnels/" + e.tunID + "/stop", "", 400, "隧道未在运行", nil},
 		{"GET", "/api/tunnels/" + e.tunID + "/console", "", 200, "", nil},
-		{"POST", ip + "/start", "", 400, "Java 运行时缺失", nil},
+		{"POST", ip + "/start", "", 400, "找不到这台服务器用的 Java", nil},
 		{"POST", ip + "/stop", "", 400, "服务器未在运行", nil},
 		{"POST", ip + "/kill", "", 400, "服务器未在运行", nil},
 		{"POST", ip + "/opendir?sub=mods", "", 403, "打开目录仅支持在本机操作（远程管理时请在主机上操作）", []reqOpt{fromLAN}},
@@ -292,8 +298,8 @@ func TestRoutesKeepPathsAndSemantics(t *testing.T) {
 		t.Errorf("GET /bg/x.png：HTTP %d %q", rec.Code, rec.Header().Get("Content-Type"))
 	}
 	seen["GET "+pattern("/bg/x.png")] = true
-	if n := len(seen); n != 47+1+7 { // 47 个旧接口 + 第一阶段的 /api/ops/log + 第二阶段的 7 个 /api/ai/*
-		t.Errorf("覆盖了 %d 个接口，应为 55", n)
+	if n := len(seen); n != 47+1+7+2 { // 47 个旧接口 + 第一阶段的 /api/ops/log + 第二阶段的 7 个 /api/ai/* + 接管已有服务器的 2 个 /api/adopt*
+		t.Errorf("覆盖了 %d 个接口，应为 57", n)
 	}
 	if d := e.dials.list(); len(d) != 0 {
 		t.Errorf("只配了 Ollama，不该有任何对外连接：%v", d)

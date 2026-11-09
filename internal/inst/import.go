@@ -30,6 +30,7 @@ func (m *Manager) ImportModpackAsync(pack *modpack.Pack, req CreateReq, cfKey st
 	t, ctx := m.Tasks.New(fmt.Sprintf("导入整合包 %s（%s %s）", title, req.Core, req.MC), steps)
 	go func() {
 		defer m.releaseCreating(req.Name)
+		defer m.releaseCreating(dirKey(dir))
 		if pack.ZipPath != "" {
 			defer os.Remove(pack.ZipPath) // 导入结束（成功/失败）后删除缓存 zip 副本，避免每次导入累积 100-500MB
 		}

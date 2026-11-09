@@ -14,9 +14,12 @@ import (
 
 // 测试用版本清单（新版本在前），供 mcsrc.NewerOrEqualCached 从磁盘缓存离线读取。
 const testManifest = `{"latest":{"release":"1.20.1","snapshot":"1.20.1"},"versions":[
+{"id":"1.21.1","type":"release"},
 {"id":"1.20.1","type":"release"},{"id":"1.18.1","type":"release"},{"id":"1.18","type":"release"},
 {"id":"1.17.1","type":"release"},{"id":"1.17","type":"release"},{"id":"1.16.5","type":"release"},
 {"id":"1.12.2","type":"release"}]}`
+
+var testJava17 string // 假的本机 Java 17 的路径，TestMain 里准备
 
 func TestMain(m *testing.M) {
 	if os.Getenv(fakeServerEnv) == "1" { // proc_test.go：测试程序自己扮演服务器进程
@@ -29,6 +32,17 @@ func TestMain(m *testing.M) {
 	app.CacheDir = dir
 	if err := os.WriteFile(filepath.Join(dir, "version_manifest_v2.json"), []byte(testManifest), 0o644); err != nil {
 		panic(err)
+	}
+	// adopt_test.go：一个「本机已安装」的假 Java 17（java.Cached 从缓存目录的 javas.json 读）
+	testJava17 = filepath.Join(dir, "jdk17", "bin", "java.exe")
+	javas, _ := json.Marshal([]map[string]any{{"path": testJava17, "major": 17, "version": "17.0.1"}})
+	if err := os.MkdirAll(filepath.Dir(testJava17), 0o755); err != nil {
+		panic(err)
+	}
+	for p, b := range map[string][]byte{testJava17: nil, filepath.Join(dir, "javas.json"): javas} {
+		if err := os.WriteFile(p, b, 0o644); err != nil {
+			panic(err)
+		}
 	}
 	code := m.Run()
 	os.RemoveAll(dir)

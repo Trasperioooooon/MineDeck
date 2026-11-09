@@ -102,6 +102,7 @@ func (m *Manager) validateCreate(req *CreateReq) (string, error) {
 	inflight := m.creating[req.Name]
 	if !taken && !inflight {
 		m.creating[req.Name] = true
+		m.creating[dirKey(dir)] = true // 目录也占上：建到一半的目录不能同时被「接管已有服务器」拿走（见 adopt.go）
 	}
 	m.mu.Unlock()
 	if taken {
@@ -113,7 +114,7 @@ func (m *Manager) validateCreate(req *CreateReq) (string, error) {
 	return dir, nil
 }
 
-// releaseCreating 释放实例名的「创建中」占位；由创建/导入 goroutine 在任务结束时（无论成败）调用。
+// releaseCreating 释放「创建中」占位（实例名，或 dirKey 给出的目录键）；由创建 / 导入 / 接管的 goroutine 在任务结束时（无论成败）调用。
 func (m *Manager) releaseCreating(name string) {
 	m.mu.Lock()
 	delete(m.creating, name)
@@ -147,6 +148,7 @@ func (m *Manager) CreateAsync(req CreateReq) (string, error) {
 	t, ctx := m.Tasks.New(fmt.Sprintf("创建实例 %s（%s %s）", req.Name, req.Core, req.MC), createSteps)
 	go func() {
 		defer m.releaseCreating(req.Name)
+		defer m.releaseCreating(dirKey(dir))
 		if err := m.runCreate(ctx, t, req, dir); err != nil {
 			t.Fail(err)
 			os.RemoveAll(dir) // 清理半成品目录（缓存保留，重试无需重新下载）
