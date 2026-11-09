@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"minedeck/internal/app"
+	"minedeck/internal/inst"
 	"minedeck/internal/ops"
 )
 
@@ -59,8 +61,26 @@ func (s *Server) handleImportModpack(w http.ResponseWriter, r *http.Request) {
 			"onlineMode":  r.FormValue("onlineMode") == "true",
 			"allowFlight": r.FormValue("allowFlight") == "true",
 			"motd":        r.FormValue("motd"),
-			"root":        r.FormValue("root"), // 远程 / 局域网请求的 root 由操作层忽略
+			"root":        r.FormValue("root"),        // 远程 / 局域网请求的 root 由操作层忽略
+			"localSource": r.FormValue("localSource"), // 本地来源目录（老服务器）：同样由操作层只认本机请求
 		}), nil
+	})
+}
+
+// handleImportPending 逐项处置整合包导入任务的待决文件（任务面板用）。
+func (s *Server) handleImportPending(w http.ResponseWriter, r *http.Request) {
+	s.do(w, r, "instance.import.pending", func() (ops.Args, error) {
+		var body struct {
+			Items []inst.PendingAction `json:"items"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+			return nil, fmt.Errorf("请求读不懂: %w", err)
+		}
+		taskID := r.PathValue("taskId")
+		if taskID == "" {
+			return nil, ops.Errorf(400, "缺少任务编号")
+		}
+		return ops.ArgsOf(map[string]any{"taskId": taskID, "items": body.Items}), nil
 	})
 }
 

@@ -149,6 +149,7 @@ func (c *cat) instanceOps() {
 			importParams[k] = v
 		}
 	}
+	importParams["localSource"] = ops.String("本地来源目录（可选）：用户还留着的老服务器目录，待决文件凡在这里有的按原样保留，不要求线上匹配（仅本机生效）")
 	c.reg.Register(&ops.Op{
 		Name: "instance.import", Title: "导入整合包", Level: ops.HumanOnly,
 		Desc:   "从已上传的 Modrinth / CurseForge 整合包创建实例（核心、版本、加载器由整合包决定），返回任务编号。",
@@ -172,7 +173,8 @@ func (c *cat) instanceOps() {
 			}
 			req := p.CreateReq
 			if !caller.Local {
-				req.Root = "" // 同 instance.create：远程 / 局域网请求不得指定主机任意路径，强制落到默认根
+				// 同 instance.create：远程 / 局域网请求不得指定主机任意路径（存放根、本地来源目录）
+				req.Root, req.LocalSource = "", ""
 			}
 			id, err := c.Mgr.ImportModpackAsync(pack, req, app.CFKey())
 			if err != nil {
@@ -181,8 +183,46 @@ func (c *cat) instanceOps() {
 			}
 			return map[string]any{
 				"taskId": id,
-				"pack":   map[string]any{"name": pack.Name, "mc": pack.MC, "core": pack.Core, "loader": pack.Loader, "files": len(pack.Files) + len(pack.CFRefs)},
+				"pack":   map[string]any{"name": pack.Name, "mc": pack.MC, "core": pack.Core, "loader": pack.Loader, "files": len(pack.Files) + len(pack.CFRefs), "pending": len(pack.Pending)},
 			}, nil
+		},
+	})
+
+	// 逐项处置导入的待决文件：跳过、保留本地已有 / 手动指定的文件、确认信任自定义站点后下载。
+	// 触到主机上的任意路径（local 的路径、来源目录），和接管一样只许本机的人操作。
+	const importPendingLocalMsg = "处理导入的待决文件仅支持在本机操作（要读、要收这台电脑上的文件）"
+	c.reg.Register(&ops.Op{
+		Name: "instance.import.pending", Title: "处理导入的待决文件", Level: ops.HumanOnly, LocalOnly: true,
+		LocalMsg: importPendingLocalMsg,
+		Desc: "整合包导入完成后的待决文件（白名单外的下载地址、缺校验值、下载后校验不符、CurseForge 未解析）逐个处置：" +
+			"skip 跳过并记录、local 用本地已有的文件或手动指定的文件原样代替（不校验）、trust 确认信任自定义站点后下载（必须 https、公网，下载后过 SHA-1 校验）。" +
+			"处置成功的那几项移出清单，失败的留在清单里；一批里单项失败不影响其他项。",
+		Params: ops.Object(map[string]*ops.Schema{
+			"taskId": ops.String("导入任务编号（GET /api/tasks/{id} 的 pending 字段列有待决文件）"),
+			"items": ops.Array("一批处置动作", ops.Object(map[string]*ops.Schema{
+				"id":   ops.String("待决文件编号（p1、p2…）"),
+				"act":  ops.String("处理方式：skip 跳过、local 用本地文件代替、trust 信任站点后下载").OneOf("skip", "local", "trust"),
+				"path": ops.String("act=local：本地文件路径，或目录路径（按待决文件的相对路径和 mods 下的同名文件找）").Len(0, 300),
+				"url":  ops.String("act=trust：从候选地址的哪一条下载（要和待决记录里列出的一致）").Len(0, 2000),
+				"ack":  ops.Boolean("act=trust：用户已读过风险说明、确认信任这个站点（每个站点第一次必须确认）"),
+			}, "id", "act")).MaxLen(50),
+		}, "taskId", "items"),
+		Run: func(ctx context.Context, _ ops.Caller, a ops.Args) (any, error) {
+			p, err := bind[struct {
+				TaskID string               `json:"taskId"`
+				Items  []inst.PendingAction `json:"items"`
+			}](a)
+			if err != nil {
+				return nil, err
+			}
+			resolved, pending, err := c.Mgr.ResolveImportPending(ctx, p.TaskID, p.Items)
+			if err != nil {
+				if strings.HasPrefix(err.Error(), "没有这个任务") {
+					return nil, ops.Errorf(404, "任务不存在")
+				}
+				return nil, err
+			}
+			return map[string]any{"resolved": resolved, "pending": pending}, nil
 		},
 	})
 

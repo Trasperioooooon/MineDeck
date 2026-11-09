@@ -56,10 +56,14 @@ func (c *cat) fileOps() {
 			q := strings.ToLower(strings.TrimSpace(p.Q))
 			detail := p.Detail || q != ""
 			disabled := 0
+			needJava := 0 // 模组声明的最高 Java 要求（fabric.mod.json 的 depends.java、mods.toml 的 java 区间；0=没声明）
 			var list []any
 			for _, m := range mods {
 				if m.Disabled {
 					disabled++
+				}
+				if j := modinfo.JavaMajorOf(m); j > needJava {
+					needJava = j
 				}
 				if q != "" && !strings.Contains(strings.ToLower(m.File+" "+m.ID+" "+m.Name), q) {
 					continue
@@ -80,7 +84,11 @@ func (c *cat) fileOps() {
 			if list == nil {
 				list = []any{}
 			}
-			return map[string]any{"dir": dir, "count": len(mods), "disabled": disabled, "mods": list}, nil
+			out := map[string]any{"dir": dir, "count": len(mods), "disabled": disabled, "mods": list}
+			if needJava > 0 {
+				out["needJava"] = needJava // 和实例的 javaMajor 比较：高于时界面提示换 Java（只提示不阻断）
+			}
+			return out, nil
 		},
 	})
 
