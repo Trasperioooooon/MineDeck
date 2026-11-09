@@ -2,9 +2,40 @@ package tasks
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
+
+func TestListKeepsRunningAndEndedTasksNewestFirst(t *testing.T) {
+	mg := NewManager()
+	if b, err := json.Marshal(mg.List()); err != nil || string(b) != "[]" {
+		t.Fatalf("空任务列表：%s, %v", b, err)
+	}
+	first, _ := mg.New("创建服务器", []string{"下载"})
+	first.StartStep(0)
+	first.ProgressFn("下载核心")(50, 100)
+	second, _ := mg.New("导入整合包", []string{"导入"})
+	second.AddWarning(Warning{Title: "需补装模组"})
+	second.Finish("测试服")
+	third, _ := mg.New("失败任务", []string{"下载"})
+	third.Fail(fmt.Errorf("下载失败"))
+	for n := 0; n < 9; n++ {
+		task, _ := mg.New("并行任务", nil)
+		task.Finish("")
+	}
+	list := mg.List()
+	if len(list) != 12 || list[0].ID != "t12" || list[9].ID != third.ID() || list[10].ID != second.ID() || list[11].ID != first.ID() {
+		t.Fatalf("未按创建顺序倒序返回：%+v", list)
+	}
+	if list[9].Err != "下载失败" || !list[10].Ended || list[10].Result != "测试服" || len(list[10].Warnings) != 1 || list[11].Ended || list[11].Done != 50 {
+		t.Fatalf("任务进度或结果丢失：%+v", list[9:])
+	}
+	list[11].Steps[0].Name = "改过的快照"
+	if first.Snapshot().Steps[0].Name != "下载" {
+		t.Fatal("修改列表快照影响了原任务")
+	}
+}
 
 // 下载超时、重试（测试报告 B-01）：记下次数和地址（只留主机名）；下载又有进度时不再报，次数接着数；换步骤清零；任务结束后不报。
 func TestNetRetry(t *testing.T) {

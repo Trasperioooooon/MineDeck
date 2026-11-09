@@ -103,6 +103,17 @@ func (mg *Manager) Get(id string) *Task {
 	return mg.m[id]
 }
 
+// List 按创建时间从新到旧返回本次运行的任务，切页或刷新后仍能找回进度与结果。
+func (mg *Manager) List() []Snapshot {
+	mg.mu.Lock()
+	defer mg.mu.Unlock()
+	out := make([]Snapshot, 0, len(mg.m))
+	for n := mg.seq; n > 0; n-- {
+		out = append(out, mg.m["t"+strconv.Itoa(n)].Snapshot())
+	}
+	return out
+}
+
 func (t *Task) ID() string { return t.id }
 
 // StartStep 将第 i 步标记为运行中（前序步骤自动标记完成）。

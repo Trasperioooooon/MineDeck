@@ -53,7 +53,7 @@ func newCatalog(t *testing.T) (*ops.Registry, string) {
 func TestLevelsFollowDesign(t *testing.T) {
 	reg, _ := newCatalog(t)
 	want := map[ops.Level][]string{
-		ops.Read: {"app.info", "app.update.check", "instance.list", "task.get", "instance.props.get", "instance.policies.get",
+		ops.Read: {"app.info", "app.update.check", "instance.list", "task.list", "task.get", "instance.props.get", "instance.policies.get",
 			"instance.backups.list", "instance.players.get", "instance.resources.search", "mc.cores", "mc.versions", "mc.builds",
 			"java.list", "java.scan", "tunnel.list", "ops.log",
 			// 第三阶段：排错用的读能力
@@ -134,8 +134,8 @@ func TestAIToolLists(t *testing.T) {
 		}
 	}
 	// +4：音乐共享（第五阶段）的读 1 + 写 3；+1：game.info（第四阶段，助手的工具清单里另外去掉了）；+6：AI 伙伴（第七阶段）的读 1 + 写 5
-	if n := len(reg.Available(ops.Caller{Source: ops.SrcAssistant, Local: true})); n != 23+13+11+4+1+6 {
-		t.Errorf("助手能用 %d 个操作，应为读 23 + 写 13 + 危险 11 + 音乐共享 4 + game.info 1 + AI 伙伴 6", n)
+	if n := len(reg.Available(ops.Caller{Source: ops.SrcAssistant, Local: true})); n != 24+13+11+4+1+6 {
+		t.Errorf("助手能用 %d 个操作，应为读 24 + 写 13 + 危险 11 + 音乐共享 4 + game.info 1 + AI 伙伴 6", n)
 	}
 	if l := reg.Available(ops.Caller{Source: ops.SrcGameChat, Actor: "Steve"}); len(l) != 1 || l[0].Name != "game.info" {
 		t.Errorf("游戏内 AI 只能调 game.info：%v", l)
