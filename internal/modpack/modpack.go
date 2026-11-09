@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"path"
 	"strings"
 	"time"
@@ -39,6 +38,7 @@ type Pack struct {
 	Core         mcsrc.Core
 	Loader       string // 加载器/核心构建版本
 	Files        []File
+	Pending      []PendingFile // 解析时就无法自动下载的文件，逐项交给用户处置（不再整包拒绝）
 	CFRefs       []CFRef
 	ZipPath      string
 	OverrideDirs []string // 依序应用
@@ -134,35 +134,26 @@ func parseMrpack(zipPath string, f *zip.File) (*Pack, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := validateDownloads(fl.Downloads); err != nil {
-			return nil, err
+		if rel == "" {
+			continue
 		}
-		if fl.Hashes.SHA1 == "" {
-			return nil, fmt.Errorf("整合包文件缺少 SHA1 校验值: %s", fl.Path)
+		// 逐文件分类：能自动下载的进 Files，不能的进 Pending（不再因为一个文件拒绝整个整合包）。
+		allowed, pendingURLs := classifyURLs(fl.Downloads, nil)
+		switch {
+		case len(allowed) > 0 && fl.Hashes.SHA1 == "":
+			// 有可下载地址但没有校验值：下载下来没法核对，不自动下载
+			p.Pending = append(p.Pending, PendingFile{Path: rel, URLs: allowed, Size: fl.FileSize, Reason: ReasonNoHash})
+		case len(allowed) > 0:
+			p.Files = append(p.Files, File{Path: rel, SHA1: fl.Hashes.SHA1, URLs: allowed, Size: fl.FileSize})
+		case len(pendingURLs) > 0:
+			// https 的自定义主机：交给用户确认（可选「信任这个站点」）后再下载
+			p.Pending = append(p.Pending, PendingFile{Path: rel, URLs: pendingURLs, Size: fl.FileSize, Reason: ReasonHost})
+		default:
+			// 一条能用的地址都没有（非 https 或没写地址）：只能保留本地文件 / 手动指定 / 跳过
+			p.Pending = append(p.Pending, PendingFile{Path: rel, Size: fl.FileSize, Reason: ReasonBadURL})
 		}
-		p.Files = append(p.Files, File{Path: rel, SHA1: fl.Hashes.SHA1, URLs: fl.Downloads, Size: fl.FileSize})
 	}
 	return p, nil
-}
-
-// modrinthHosts 是 Modrinth 整合包规范允许的下载主机白名单，防用户构造的 .mrpack 借直链 SSRF 打内网/云元数据端点。
-var modrinthHosts = map[string]bool{
-	"cdn.modrinth.com": true, "github.com": true, "raw.githubusercontent.com": true,
-	"objects.githubusercontent.com": true, "gitlab.com": true,
-}
-
-// validateDownloads 校验 mrpack 文件下载直链：必须 https 且主机在白名单内，否则拒绝整个整合包。
-func validateDownloads(urls []string) error {
-	if len(urls) == 0 {
-		return fmt.Errorf("整合包文件缺少下载地址")
-	}
-	for _, raw := range urls {
-		u, err := url.Parse(strings.TrimSpace(raw))
-		if err != nil || u.Scheme != "https" || !modrinthHosts[strings.ToLower(u.Hostname())] {
-			return fmt.Errorf("整合包里有不允许的下载地址（只允许 https 的 Modrinth、GitHub、GitLab）：%s", raw)
-		}
-	}
-	return nil
 }
 
 // ---------- CurseForge ----------
