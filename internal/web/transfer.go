@@ -44,13 +44,19 @@ func (s *Server) handleTransferUpload(w http.ResponseWriter, r *http.Request) {
 		if base == "" || base == "." {
 			base = "pack.mdpack"
 		}
+		// 上传名有可能是超长的怪名字：截短，保留扩展名，免得缓存路径超 长 度上限
+		if ext := filepath.Ext(base); len(base) > 80 {
+			base = base[:80-len(ext)] + ext
+		}
 		if ext := strings.ToLower(filepath.Ext(base)); ext != ".mdpack" && ext != ".zip" {
 			return nil, fmt.Errorf("只支持 .mdpack 交接包（收到 %s）", base)
 		}
-		dest := filepath.Join(app.CacheDir, "transfer", "import", fmt.Sprintf("%d-%s", time.Now().UnixMilli(), base))
-		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		dir := filepath.Join(app.CacheDir, "transfer", "import")
+		dest := filepath.Join(dir, fmt.Sprintf("%d-%s", time.Now().UnixMilli(), base))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, ops.Wrap(500, err)
 		}
+		sweepUploads(dir) // 顺手清掉很早以前传了没导入的：交接包动辄几个 GB，不能攒着
 		out, err := os.Create(dest)
 		if err != nil {
 			return nil, ops.Wrap(500, err)
@@ -60,6 +66,7 @@ func (s *Server) handleTransferUpload(w http.ResponseWriter, r *http.Request) {
 			cerr = werr
 		}
 		if cerr != nil {
+			os.Remove(dest) // 传了一半的不留：GB 级的半截文件最占地方
 			return nil, ops.Errorf(500, "保存上传文件失败: %w", cerr)
 		}
 		// 落盘了就顺手校验得上读不出，坏了当场告诉用户，别等导入时才发现
@@ -69,4 +76,21 @@ func (s *Server) handleTransferUpload(w http.ResponseWriter, r *http.Request) {
 		}
 		return ops.ArgsOf(map[string]any{"file": dest}), nil
 	})
+}
+
+// sweepUploads 清掉上传目录里 24 小时还没导入的包（导入任务自己会删用完的；这是给传完没用的兜底）。
+func sweepUploads(dir string) {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-24 * time.Hour)
+	for _, e := range ents {
+		if e.IsDir() {
+			continue
+		}
+		if st, err := e.Info(); err == nil && st.ModTime().Before(cutoff) {
+			_ = os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
 }

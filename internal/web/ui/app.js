@@ -1455,8 +1455,8 @@ async function drawTransfer() {
   Main().innerHTML = pageHead("导入交接包", "别人用 MineDeck 导出的 .mdpack 交接包：存档、配置、模组全保留，装完直接能启动。", "",
     `<a href="#/create">新建服务器</a>${icon("chevronRight")}<span>导入交接包</span>`) + `
     <div class="form-grid">
-      <label class="field full"><span>交接包文件（.mdpack）</span><input type="file" id="tp-file" accept=".mdpack">
-        <div class="hint">交接包动辄几个 GB：上传要等一会儿，进度看按钮上的字。</div>
+      <label class="field full"><span>交接包文件（.mdpack）</span><input type="file" id="tp-file" accept=".mdpack,.zip">
+        <div class="hint">交接包动辄几个 GB：上传要等一会儿，进度看按钮上的字。被改过扩展名的包选「所有文件」再选。</div>
         <div class="field-err" id="tp-file-err"></div></label>
     </div>
     <div id="tp-form"></div>

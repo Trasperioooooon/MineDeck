@@ -104,6 +104,9 @@ func writePack(ctx context.Context, dest string, files []packFile, mf *Manifest,
 			mf.addMod(pf, sum)
 		}
 		done += pf.size
+		if done > mf.Counts.Bytes { // 收集时点之后文件还在变大：不能让进度越过总量
+			done = mf.Counts.Bytes
+		}
 		n++
 		progress(done, mf.Counts.Bytes)
 		if n%2048 == 0 {
@@ -197,7 +200,8 @@ func extractPrefix(ctx context.Context, src, destDir string,
 			rc.Close()
 			return 0, err
 		}
-		k, cerr := io.CopyBuffer(w, rc, buf)
+		// 解压炸弹防线：申报多大就最多解多大——超过申报体积立刻失败，不写到整盘才回头对账
+		k, cerr := io.CopyBuffer(w, io.LimitReader(rc, e.size+1), buf)
 		if werr := w.Close(); cerr == nil {
 			cerr = werr
 		}

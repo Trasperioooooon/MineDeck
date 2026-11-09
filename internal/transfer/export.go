@@ -89,6 +89,10 @@ var slimDirs = []string{"mods", "plugins", "config", "defaultconfigs"}
 
 // runExport 收集清单、打包、落到目标目录，返回交接包的最终路径。
 func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, destDir string) (string, error) {
+	// 交接包要完整一致：打包期间服务器又开起来的话，世界边写边压会不完整
+	if i.Status() != "stopped" {
+		return "", fmt.Errorf("交接前请先停止服务器（运行中打包会不完整）")
+	}
 	mf := &Manifest{
 		FormatVersion:   FormatVersion,
 		Mode:            ModeHandover,
@@ -98,9 +102,11 @@ func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, 
 		Core:            CoreRef{Core: i.Core, MC: i.MC, Build: i.Build, Kind: string(mcsrc.KindOf(i.Core))},
 		Full:            full,
 	}
-	// Settings 是会动的外部结构：拿加锁的快照，导出过程中别的线程改动不进来
+	// Settings 是会动的外部结构：会变的字段拿加锁的快照逐项盖回来（UpdateSettings / SetJava 在锁内写）
 	mf.Instance.ExtraJVM = i.ExtraJVMSnapshot()
 	mf.Instance.Policies = i.PoliciesSnapshot()
+	mf.Instance.XmxMB, mf.Instance.XmsMB, mf.Instance.ConsoleEncoding = i.MemSnapshot()
+	mf.Instance.JavaMajor, mf.Instance.JavaPath = i.JavaSnapshot()
 
 	// ---- 步骤 0：收集清单 ----
 	t.StartStep(0)
@@ -111,6 +117,12 @@ func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, 
 	var files []packFile
 	var worldBytes int64
 	add := func(rel, abs string, st os.FileInfo, mod *modinfo.Mod) {
+		// 同一个文件不重复打（完整模式 LaunchTarget 与 server.jar 常是同一个）
+		for _, f := range files {
+			if f.rel == rel {
+				return
+			}
+		}
 		files = append(files, packFile{rel: rel, abs: abs, size: st.Size(), mod: mod})
 		mf.Counts.Files++
 		mf.Counts.Bytes += st.Size()
@@ -127,7 +139,9 @@ func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, 
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if st.IsDir() || st.Name() == "session.lock" {
+			// 只打普通文件：Walk 不跟符号链接，这里再把目录、链接和特殊文件一并排掉，
+			// 免得实例目录里植根链接把别的位置吃进包
+			if st.IsDir() || !st.Mode().IsRegular() || st.Name() == "session.lock" {
 				return nil
 			}
 			rel, err := filepath.Rel(i.Dir, p)
@@ -228,7 +242,8 @@ func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, 
 	// ---- 步骤 1：打包（先写缓存目录的 .part，成功再挪到目标目录；失败了清掉，随时可以重来） ----
 	t.StartStep(1)
 	name := ExportName(i.Name, time.Now())
-	part := filepath.Join(app.CacheDir, "transfer", name+".part")
+	// .part 带任务号：同一秒里并发导出同名的两个实例也不会写进同一个文件
+	part := filepath.Join(app.CacheDir, "transfer", fmt.Sprintf("%s-%s.part", name, t.ID()))
 	if err := os.MkdirAll(filepath.Dir(part), 0o755); err != nil {
 		return "", err
 	}
@@ -241,17 +256,17 @@ func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, 
 		return "", err
 	}
 
-	// ---- 步骤 2：收尾，落到目标目录 ----
+	// ---- 步骤 2：收尾，落到目标目录（目标已有同名就不覆盖，换一个名字） ----
 	t.StartStep(2)
 	final := filepath.Join(destDir, name)
-	if _, err := os.Stat(final); err == nil { // 同名（同一秒内重复导出）：加个时间尾
-		final = filepath.Join(destDir, fmt.Sprintf("%s-%d.mdpack", strings.TrimSuffix(name, ".mdpack"), time.Now().Unix()))
-	}
-	if err := os.Rename(part, final); err != nil { // 跨盘改名不行，退回拷贝流
-		if err := copyStream(part, final); err != nil {
+	if err := placeFile(part, final); err != nil {
+		if !os.IsExist(err) {
 			return "", err
 		}
-		os.Remove(part)
+		final = filepath.Join(destDir, fmt.Sprintf("%s-%d.mdpack", strings.TrimSuffix(name, ".mdpack"), time.Now().UnixNano()))
+		if err := placeFile(part, final); err != nil {
+			return "", err
+		}
 	}
 	st, err := os.Stat(final)
 	if err != nil {
@@ -262,22 +277,30 @@ func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, 
 	return final, nil
 }
 
-// copyStream 流式拷贝（跨盘落位用），不整读进内存。
-func copyStream(src, dst string) error {
-	in, err := os.Open(src)
+// placeFile 把打包好的 .part 挪到 final（不覆盖已有文件）：同目录改名；跨盘退回
+// 独占创建的流式拷贝（目标已存在报 os.IsExist，由调用方换名重试）。
+func placeFile(part, final string) error {
+	if err := os.Rename(part, final); err == nil {
+		return nil
+	}
+	in, err := os.Open(part)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
-	out, err := os.Create(dst)
+	out, err := os.OpenFile(final, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(out, in)
-	if cerr := out.Close(); err == nil {
-		err = cerr
+	_, cerr := io.Copy(out, in)
+	if werr := out.Close(); cerr == nil {
+		cerr = werr
 	}
-	return err
+	if cerr != nil {
+		os.Remove(final) // 拷一半的不能留
+		return cerr
+	}
+	return nil
 }
 
 // firstSeg 相对路径的第一段目录名（斜杠或反斜杠）。

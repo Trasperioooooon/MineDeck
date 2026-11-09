@@ -173,11 +173,15 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 		launch = target
 		t.Logf("启动目标: %s", launch)
 	}
-	if mf.Full && strings.HasPrefix(launch, "args:") {
-		// 完整模式带来的 args 启动（Forge / NeoForge）：包里的目标就是包里的文件，直接用
-		if rest, ok := strings.CutPrefix(launch, "args:"); ok {
-			if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rest))); err != nil {
-				return fmt.Errorf("包里的启动参数文件 %s 不在", rest)
+	if mf.Full {
+		// 完整模式带来的启动文件必须在包里（陈旧 instance.json 写着的文件被打包时可能已不在）：早失败，别等启动才炸
+		rel, ok := strings.CutPrefix(launch, "jar:")
+		if !ok {
+			rel, ok = strings.CutPrefix(launch, "args:")
+		}
+		if ok {
+			if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
+				return fmt.Errorf("包里缺启动文件 %s（A 那边的实例可能已经不完整）", rel)
 			}
 		}
 	}

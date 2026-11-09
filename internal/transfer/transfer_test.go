@@ -164,7 +164,8 @@ func manager(t *testing.T, name string) *inst.Manager {
 // 完成后只看快照拿不到当时的进度）。
 func waitTask(t *testing.T, mgr *inst.Manager, id string) (snap tasks.Snapshot, maxDone, maxTotal int64, sawFiles bool) {
 	t.Helper()
-	deadline := time.Now().Add(15 * time.Second)
+	// 联网的机器上 mcsrc 的版本清单会先试网络再落磁盘缓存，慢时几秒到几十秒——等足一点
+	deadline := time.Now().Add(60 * time.Second)
 	for {
 		task := mgr.Tasks.Get(id)
 		if task == nil {

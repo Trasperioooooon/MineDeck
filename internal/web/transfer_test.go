@@ -85,9 +85,10 @@ func TestTransferRoutes(t *testing.T) {
 	// 里面没有 manifest.json 的 zip 也拒绝
 	e.uploadForm(t, "file", "plain.zip", mdpacklessZip(), 400)
 
-	// 正经包：上传 → 摘要
+	// 正经包：上传 → 摘要（file 必须带回去，向导提交导入凭这个路径找包）
 	var up struct {
 		Data struct {
+			File  string `json:"file"`
 			Name  string `json:"name"`
 			Core  string `json:"core"`
 			MC    string `json:"mc"`
@@ -104,6 +105,9 @@ func TestTransferRoutes(t *testing.T) {
 	}
 	if up.Data.Name != "A 的服" || up.Data.Core != "vanilla" || up.Data.MC != "1.21.1" || !up.Data.Full || up.Data.Port != 25570 {
 		t.Errorf("摘要不对：%s", upBody)
+	}
+	if up.Data.File == "" {
+		t.Errorf("上传响应缺 file 字段（导入提交要凭它找包）：%s", upBody)
 	}
 	sumFile := filepath.Join(app.CacheDir, "transfer", "import")
 	// 上传的文件确实落在缓存目录（操作层只认这个目录）
@@ -160,8 +164,41 @@ func TestTransferRoutes(t *testing.T) {
 	}
 
 	// 导出：实例停着就能打包（不联网）；远程请求的 dest 被忽略，落缓存目录
-	e.call(t, "POST", ip+"/transfer/export", `{"dest":"C:\\裸奔"}`, 200, fromLAN)
-	e.call(t, "POST", ip+"/transfer/export", `{"full":true}`, 200)
+	var taskIDs []string
+	for _, c := range []struct {
+		uri  string
+		body string
+		opts []reqOpt
+	}{
+		{ip + "/transfer/export", `{"dest":"C:\\裸奔"}`, []reqOpt{fromLAN}},
+		{ip + "/transfer/export", `{"full":true}`, nil},
+	} {
+		rec := e.call(t, "POST", c.uri, c.body, 200, c.opts...)
+		var r struct {
+			Data struct {
+				TaskID string `json:"taskId"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &r); err != nil || r.Data.TaskID == "" {
+			t.Errorf("导出响应：%s (%v)", rec.Body, err)
+		}
+		taskIDs = append(taskIDs, r.Data.TaskID)
+	}
+	// 导出任务在本环境里不联网也跑得完（打包的都是本地文件）：等它结束再收尾，
+	// 免得后台还在写测试的临时目录
+	for _, id := range taskIDs {
+		deadline := time.Now().Add(15 * time.Second)
+		for {
+			body := e.call(t, "GET", "/api/tasks/"+id, "", 200).Body.String()
+			if strings.Contains(body, `"ended":true`) {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("导出任务 %s 没在时限内结束", id)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
 	// 不存在的实例报「实例不存在」
 	e.call(t, "POST", "/api/instances/nope/transfer/export", `{}`, 400)
 

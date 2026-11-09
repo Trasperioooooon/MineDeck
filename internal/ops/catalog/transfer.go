@@ -34,7 +34,15 @@ func (c *cat) transferOps() {
 			if err := inUploadDir(p.File); err != nil {
 				return nil, err
 			}
-			return transfer.Summarize(p.File)
+			sum, err := transfer.Summarize(p.File)
+			if err != nil {
+				return nil, err
+			}
+			// file 一起带回去：向导提交导入时要凭这个路径找包（上传响应直接复用本操作的返回）
+			return struct {
+				File string `json:"file"`
+				*transfer.Summary
+			}{File: p.File, Summary: sum}, nil
 		},
 	})
 
