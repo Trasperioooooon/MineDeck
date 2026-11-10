@@ -1405,7 +1405,8 @@ async function drawUnpack() {
     ${wizFoot("up-back", "返回", `<button class="btn primary" id="up-go" disabled>${icon("restore")} 收包开服</button>`)}`;
   $("#up-back").onclick = () => renderCreate();
   const fileErr = msg => { $("#up-file").classList.toggle("invalid", !!msg); $("#up-file-err").innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; };
-  $("#up-file").addEventListener("change", () => { fileErr(""); $("#up-form").innerHTML = ""; });
+  // 换了文件：之前的清点作废（表单里预填的都来自上一个包），按钮回哑直到重新清点
+  $("#up-file").addEventListener("change", () => { fileErr(""); up = null; $("#up-form").innerHTML = ""; $("#up-go").disabled = true; });
   const fmtMB = b => ((b || 0) / 1048576).toFixed(b >= 10485760 ? 0 : 1) + " MB";
 
   $("#up-scan").onclick = async () => {
@@ -1458,10 +1459,10 @@ async function drawUnpack() {
             <button type="button" class="btn" id="up-port-check">${icon("search")} 检查占用</button>
           </div>
           <div class="field-err" id="up-port-err"></div>
-          <div class="hint" id="up-port-note">填包里带来的端口，同一台电脑上别的服务器用过就要换一个</div></label>
+          <div class="hint" id="up-port-note">${proxy ? "代理端的端口写在它自己的配置文件里（velocity.toml / config.yml），这里不用改" : "填包里带来的端口，同一台电脑上别的服务器用过就要换一个"}</div></label>
         <div class="field full" id="up-mem-mount"></div>
         <label class="field full"><span>Java</span><select id="up-java" aria-label="Java">
-          <option value="0">自动：按 Minecraft 版本选，本机没有就下载</option>
+          <option value="0">自动：优先用包里原来的版本，包里没写再按 Minecraft 版本选；本机没有就下载</option>
           ${brief.javaMajor ? `<option value="${brief.javaMajor}" selected>包里原来用的：Java ${brief.javaMajor}${known.has(brief.javaMajor) ? "（本机已有）" : "（本机没有，会下载一份）"}</option>` : ""}
           ${majors.map(m => `<option value="${m}">Java ${m}（${known.has(m) ? "本机已有" : "本机没有，会下载一份"}）</option>`).join("")}
         </select>
@@ -1499,7 +1500,7 @@ async function drawUnpack() {
 
   // 提交：校验 → 收包任务（页面级挂一次；按钮在清点完才亮）
   $("#up-go").onclick = async () => {
-    if (!up) return;
+    if (!up || !$("#up-form").children.length) return; // 没清点过就点（竞态兜底）：先按哑掉了处理
     const fieldErr = (el, errId, msg) => { el.classList.toggle("invalid", !!msg); $(errId).innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; return !msg; };
     const name = $("#up-name").value.trim();
     const okName = fieldErr($("#up-name"), "#up-name-err", name ? "" : "请起个名字，这台服务器会收进你的列表");
@@ -1526,7 +1527,16 @@ async function drawUnpack() {
       });
       if (!stale(gen)) location.hash = `#/task/${r.taskId}`;
       else toast("已开始收包，可在新建服务器页查看进度");
-    } catch (e) { toast(e.message, true); if (!stale(gen)) go.disabled = false; }
+    } catch (e) {
+      // 后端重读包后发现要勾 EULA（前端静态核对了核心类型，别死在没框可勾）
+      if (/EULA/i.test(e.message) && $("#up-eula-box") && $("#up-eula-box").hidden) {
+        $("#up-eula-box").hidden = false;
+        $("#up-eula-box").classList.add("invalid");
+        $("#up-eula-err").innerHTML = icon("warn") + " " + esc(e.message);
+      }
+      toast(e.message, true);
+      if (!stale(gen)) go.disabled = false;
+    }
   };
 }
 

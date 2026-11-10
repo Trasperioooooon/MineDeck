@@ -2,6 +2,7 @@ package transfer
 
 import (
 	"archive/zip"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -9,6 +10,8 @@ import (
 	"testing"
 	"time"
 )
+
+func ctxbg() context.Context { return context.Background() }
 
 // mkInst 在临时目录里造一个能代表真实实例的目录树。
 func mkInst(t *testing.T) (dir string, instance json.RawMessage) {
@@ -50,7 +53,7 @@ func TestPackInspectUnpackRoundtrip(t *testing.T) {
 	dest := filepath.Join(t.TempDir(), "包.mdpack")
 	when := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
 	calls, last := 0, int64(-1)
-	m, err := Pack(dest, PackOptions{
+	m, err := Pack(ctxbg(), dest, PackOptions{
 		Dir: srcDir, Instance: instance, Mode: ModeDistributable,
 		ModDir: "mods", Exporter: "MineDeck 3.0.0", Now: when,
 		Progress: func(done, total int64) { calls++; last = done },
@@ -101,7 +104,7 @@ func TestPackInspectUnpackRoundtrip(t *testing.T) {
 
 	// unpack 到另一个目录，剔除的不在，其余逐字节一致
 	outDir := filepath.Join(t.TempDir(), "inst")
-	n, err := Unpack(dest, outDir, nil)
+	n, err := Unpack(ctxbg(), dest, outDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +137,7 @@ func TestPackInspectUnpackRoundtrip(t *testing.T) {
 func TestPackHandoverKeepsRecords(t *testing.T) {
 	srcDir, instance := mkInst(t)
 	dest := filepath.Join(t.TempDir(), "h.mdpack")
-	m, err := Pack(dest, PackOptions{Dir: srcDir, Instance: instance, Mode: ModeHandover, ModDir: "mods"})
+	m, err := Pack(ctxbg(), dest, PackOptions{Dir: srcDir, Instance: instance, Mode: ModeHandover, ModDir: "mods"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +168,7 @@ func TestPackHandoverKeepsRecords(t *testing.T) {
 func TestExtraExcludesAndBadExcludes(t *testing.T) {
 	srcDir, instance := mkInst(t)
 	dest := filepath.Join(t.TempDir(), "x.mdpack")
-	m, err := Pack(dest, PackOptions{Dir: srcDir, Instance: instance, Mode: ModeDistributable,
+	m, err := Pack(ctxbg(), dest, PackOptions{Dir: srcDir, Instance: instance, Mode: ModeDistributable,
 		ModDir: "mods", Excludes: []string{"config", "world_nether"}})
 	if err != nil {
 		t.Fatal(err)
@@ -173,7 +176,7 @@ func TestExtraExcludesAndBadExcludes(t *testing.T) {
 	if !containsFold(m.Excluded, "config") || !containsFold(m.Excluded, "world_nether") {
 		t.Errorf("额外剔除应原样进清单: %v", m.Excluded)
 	}
-	_, err = Unpack(dest, t.TempDir(), nil)
+	_, err = Unpack(ctxbg(), dest, t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +188,7 @@ func TestExtraExcludesAndBadExcludes(t *testing.T) {
 		t.Errorf("不带斜杠的剔除应任何深度同名")
 	}
 	// 危险写法拒绝
-	if _, err := Pack(filepath.Join(t.TempDir(), "bad.mdpack"), PackOptions{Dir: srcDir, Instance: instance,
+	if _, err := Pack(ctxbg(), filepath.Join(t.TempDir(), "bad.mdpack"), PackOptions{Dir: srcDir, Instance: instance,
 		Mode: ModeDistributable, ModDir: "mods", Excludes: []string{"../别的服"}}); err == nil {
 		t.Errorf("剔除清单带 .. 应被拒绝")
 	}
@@ -246,7 +249,7 @@ func TestUnpackZipSlip(t *testing.T) {
 	zw.Close()
 	f.Close()
 	out := filepath.Join(t.TempDir(), "out")
-	_, err = Unpack(p, out, nil)
+	_, err = Unpack(ctxbg(), p, out, nil)
 	if err == nil || !strings.Contains(err.Error(), "不安全") {
 		t.Fatalf("穿越条目应报错: %v", err)
 	}
@@ -258,11 +261,11 @@ func TestUnpackZipSlip(t *testing.T) {
 func TestUnpackProgressAndDirs(t *testing.T) {
 	srcDir, instance := mkInst(t)
 	dest := filepath.Join(t.TempDir(), "withdir.mdpack")
-	if _, err := Pack(dest, PackOptions{Dir: srcDir, Instance: instance, Mode: ModeHandover, ModDir: "mods"}); err != nil {
+	if _, err := Pack(ctxbg(), dest, PackOptions{Dir: srcDir, Instance: instance, Mode: ModeHandover, ModDir: "mods"}); err != nil {
 		t.Fatal(err)
 	}
 	var gotDone, gotTotal int64
-	n, err := Unpack(dest, filepath.Join(t.TempDir(), "o"), func(done, total int64) { gotDone, gotTotal = done, total })
+	n, err := Unpack(ctxbg(), dest, filepath.Join(t.TempDir(), "o"), func(done, total int64) { gotDone, gotTotal = done, total })
 	if err != nil {
 		t.Fatal(err)
 	}

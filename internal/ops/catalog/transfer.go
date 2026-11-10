@@ -77,7 +77,7 @@ func (c *cat) transferOps() {
 			if st != "stopped" {
 				return nil, ops.Errorf(400, "打包前请先停止服务器")
 			}
-			sum := fmt.Sprintf("把「%s」（%s %s）打成一个 .mdpack（%s）", p.Inst, i.Core, i.MC, modeName(p.Mode))
+			sum := fmt.Sprintf("把「%s」（%s %s）打成一个 .mdpack（%s）", p.Inst, i.Core, i.MC, transfer.ModeName(p.Mode))
 			return &ops.Plan{Summary: sum, Pre: map[string]string{"实例状态": st}}, nil
 		},
 		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
@@ -114,6 +114,9 @@ func (c *cat) transferOps() {
 				p, _ := bind[struct {
 					File string `json:"file"`
 				}](a)
+				if err := checkTransferFile(p.File); err != nil {
+					return false
+				}
 				sum, err := transfer.Inspect(p.File)
 				if err != nil {
 					return false
@@ -142,8 +145,9 @@ func (c *cat) transferOps() {
 }
 
 // checkTransferFile 收包文件只能来自网页接口刚存进 cache/transfer 的上传，避免拿它读主机上别的文件。
+// 目录比较不分大小写（Windows 同一目录的大小写写法都要认）。
 func checkTransferFile(file string) error {
-	if filepath.Dir(filepath.Clean(file)) != transferUploadDir() {
+	if !strings.EqualFold(filepath.Dir(filepath.Clean(file)), transferUploadDir()) {
 		return fmt.Errorf("包文件不在上传目录里")
 	}
 	if !strings.EqualFold(filepath.Ext(file), transfer.Ext) {
@@ -153,15 +157,4 @@ func checkTransferFile(file string) error {
 		return fmt.Errorf("上传的包已经不在了，请重新选择文件")
 	}
 	return nil
-}
-
-// modeName 模式的中文叫法。
-func modeName(mode string) string {
-	switch mode {
-	case transfer.ModeHandover:
-		return "服主交接"
-	case transfer.ModeDistributable:
-		return "打包下发"
-	}
-	return mode
 }

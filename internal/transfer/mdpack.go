@@ -42,6 +42,17 @@ func ValidMode(mode string) bool {
 	return false
 }
 
+// ModeName 模式的中文叫法（界面 / 任务日志统一用它，别让英文枚举露给用户）。
+func ModeName(mode string) string {
+	switch mode {
+	case ModeHandover:
+		return "服主交接"
+	case ModeDistributable:
+		return "打包下发"
+	}
+	return mode
+}
+
 // ExcludedFor 一个模式默认剔除什么（相对实例目录的路径；匹配规则见 Excluded）。
 // MineDeck 自己写的簿记文件（instance.json、run.bat）接收方落地时会重新生成，剔除一份避免新旧混淆；
 // session.lock 是运行中的锁，带着没有意义。 distributable 面向「收包的人直接开服」：连日志、崩溃报告、

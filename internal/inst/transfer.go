@@ -60,6 +60,12 @@ func (m *Manager) ExportPackAsync(req ExportReq) (string, error) {
 	if !transfer.ValidMode(req.Mode) {
 		return "", fmt.Errorf("打包模式不认识：%s（可用 handover / distributable）", req.Mode)
 	}
+	if err := transfer.ValidateExcludes(req.Excludes); err != nil { // 同步段就拒掉危险写法，别让任务跑一半才失败
+		return "", err
+	}
+	if m.isPacking(req.Inst) {
+		return "", fmt.Errorf("这台服务器正在打包中，请稍候")
+	}
 	dest, err := packDest(req.Dest, i)
 	if err != nil {
 		return "", err
@@ -67,7 +73,9 @@ func (m *Manager) ExportPackAsync(req ExportReq) (string, error) {
 	xmx, _, _ := i.MemSnapshot()
 	t, ctx := m.Tasks.New(fmt.Sprintf("打包服务器 %s（%s %s）", req.Inst, i.Core, i.MC), packSteps)
 	t.SetKind("pack")
+	m.markPacking(req.Inst, true)
 	go func() {
+		defer m.markPacking(req.Inst, false)
 		if err := m.runPack(ctx, t, i, req, dest, xmx); err != nil {
 			t.Fail(err)
 			os.Remove(dest)
@@ -109,13 +117,12 @@ func (m *Manager) runPack(ctx context.Context, t *tasks.Task, i *Instance, req E
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return fmt.Errorf("导出目录建不起来: %w", err)
 	}
-	mode := "打包下发（收包即全员进度都在）"
+	note := "收包即全员进度都在"
 	if req.Mode == transfer.ModeHandover {
-		mode = "服主交接（保留服务器怎么跑过的记录）"
+		note = "保留服务器怎么跑过的记录"
 	}
 	t.Logf("服务器：%s（%s %s），内存 %d MB", i.Name, i.Core, i.MC, xmx)
-	t.Logf("模式：%s", mode)
-	t.Logf("剔除：%s", strings.Join(transfer.ExcludedFor(req.Mode), "、"))
+	t.Logf("模式：%s（%s）", transfer.ModeName(req.Mode), note)
 
 	// ---- 步骤 1：压缩打包 ----
 	t.StartStep(1)
@@ -123,7 +130,7 @@ func (m *Manager) runPack(ctx context.Context, t *tasks.Task, i *Instance, req E
 	if err != nil {
 		return fmt.Errorf("读不了 instance.json: %w", err)
 	}
-	manifest, err := transfer.Pack(dest, transfer.PackOptions{
+	manifest, err := transfer.Pack(ctx, dest, transfer.PackOptions{
 		Dir: i.Dir, Instance: raw, Mode: req.Mode, Excludes: req.Excludes,
 		ModDir: modsDirName(i), Exporter: "MineDeck " + app.Version,
 		Progress: t.ProgressFn("压缩打包"),
@@ -137,7 +144,7 @@ func (m *Manager) runPack(ctx context.Context, t *tasks.Task, i *Instance, req E
 		size = st.Size()
 	}
 	t.Logf("打包完成 ✔ %s（%.1f GB）", filepath.Base(dest), float64(size)/(1<<30))
-	t.Logf("世界 %.1f MB，模组 %d 个", float64(manifest.WorldSize)/(1<<20), len(manifest.Mods))
+	t.Logf("世界 %.1f MB，模组 %d 个，剔除：%s", float64(manifest.WorldSize)/(1<<20), len(manifest.Mods), strings.Join(manifest.Excluded, "、"))
 	return nil
 }
 
@@ -202,10 +209,15 @@ func (m *Manager) ImportPackAsync(req ImportPackReq) (string, error) {
 		return "", fmt.Errorf("「%s」正在创建中，请稍候", req.Name)
 	}
 	dir := filepath.Join(root, slugify(req.Name))
-	for n := 2; ; n++ {
-		if _, err := os.Stat(dir); os.IsNotExist(err) {
-			break
+	// 目录名既不能在磁盘上存在，也不能正被另一台创建 / 接管 / 收包用着（creating 里按 dirKey 占位）：
+	// 两台同时建同名目录会互相覆盖，失败那端的清理还会把另一端刚落地的东西删掉
+	takenDir := func(d string) bool {
+		if _, err := os.Stat(d); !os.IsNotExist(err) {
+			return true
 		}
+		return m.creating[dirKey(d)]
+	}
+	for n := 2; takenDir(dir); n++ {
 		if n > 999 {
 			m.mu.Unlock()
 			return "", fmt.Errorf("无法为实例分配目录（同名目录过多）")
@@ -242,14 +254,14 @@ func (m *Manager) runImportPack(ctx context.Context, t *tasks.Task, req ImportPa
 	// ---- 步骤 0：清点 ----
 	t.StartStep(0)
 	packSize := float64(sum.PackSize) / (1 << 20)
-	t.Logf("包：%s（%s，%.1f MB，%d 个文件）", s.Name, sum.Mode, packSize, sum.Entries)
+	t.Logf("包：%s（%s，%.1f MB，%d 个文件）", s.Name, transfer.ModeName(sum.Mode), packSize, sum.Entries)
 	t.Logf("服主 %s 打的包，导出于 %s", exporterName(sum.Exporter), sum.ExportedAt.Local().Format("2006-01-02 15:04"))
 	t.Logf("核心：%s %s；世界 %.1f MB（全员进度在 playerdata 里，原样带来）；模组 %d 个", s.Core, s.MC, float64(sum.WorldSize)/(1<<20), sum.ModCount)
 	t.Logf("剔除：%s", strings.Join(sum.Excluded, "、"))
 
 	// ---- 步骤 1：解压 ----
 	t.StartStep(1)
-	if _, err := transfer.Unpack(req.File, dir, t.ProgressFn("解压包内容")); err != nil {
+	if _, err := transfer.Unpack(ctx, req.File, dir, t.ProgressFn("解压包内容")); err != nil {
 		return err
 	}
 	t.Logf("解压完成，落在 %s", dir)
@@ -277,6 +289,7 @@ func (m *Manager) runImportPack(ctx context.Context, t *tasks.Task, req ImportPa
 		Dir:      dir, Console: newConsole(),
 	}
 	inst.Name = req.Name
+	inst.Adopted = false // 落地目录是这次收包新建的，不是接管来的：删除时的默认行为按「我们建的目录」走
 	if req.XmxMB > 0 && req.XmxMB != s.XmxMB {
 		inst.XmxMB, inst.XmsMB = req.XmxMB, min(1024, req.XmxMB)
 	}
@@ -320,6 +333,9 @@ func (m *Manager) runImportPack(ctx context.Context, t *tasks.Task, req ImportPa
 	m.mu.Lock()
 	m.insts[inst.Name] = inst
 	m.mu.Unlock()
+	if err := os.Remove(req.File); err != nil && !os.IsNotExist(err) {
+		t.Logf("收包用的临时包删除失败（不影响使用，之后可手动清理 %s）：%v", req.File, err)
+	}
 	t.Logf("收包完成 ✔ 存档、模组和配置都齐了，随时可以启动")
 	return nil
 }

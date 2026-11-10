@@ -2,6 +2,7 @@ package transfer
 
 import (
 	"archive/zip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -33,8 +34,8 @@ type packItem struct {
 	mod  time.Time
 }
 
-// Pack 打包。返回 manifest（调用方可转成日志或写操作记录）。出错时 dest 可能留了半截，调用方负责删。
-func Pack(dest string, o PackOptions) (*Manifest, error) {
+// Pack 打包（ctx 取消时中止）。返回 manifest（调用方可转成日志或写操作记录）。出错时 dest 可能留了半截，调用方负责删。
+func Pack(ctx context.Context, dest string, o PackOptions) (*Manifest, error) {
 	if !ValidMode(o.Mode) {
 		return nil, fmt.Errorf("打包模式不认识：%s（可用 handover / distributable）", o.Mode)
 	}
@@ -44,16 +45,17 @@ func Pack(dest string, o PackOptions) (*Manifest, error) {
 	if o.ModDir == "" {
 		o.ModDir = "mods"
 	}
-	excludes := append([]string{}, ExcludedFor(o.Mode)...)
-	excludes = append(excludes, o.Excludes...)
-	excludes, bad := sanitizeExcludes(excludes)
+	excludes, bad := sanitizeExcludes(append(append([]string{}, ExcludedFor(o.Mode)...), o.Excludes...))
 	if bad > 0 {
 		return nil, fmt.Errorf("额外剔除的 %d 项写法不对（应为实例目录内的相对路径）", bad)
 	}
 
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	world := worldDirs(o.Dir)
 	mods, _ := modinfo.ReadDir(filepath.Join(o.Dir, o.ModDir)) // 读不了的 jar 也在清单里（带着 Err），打包不因此失败
-	items, total, worldSize, err := survey(o.Dir, excludes, world)
+	items, total, worldSize, err := survey(ctx, o.Dir, excludes, world)
 	if err != nil {
 		return nil, err
 	}
@@ -72,17 +74,25 @@ func Pack(dest string, o PackOptions) (*Manifest, error) {
 		WorldSize:       worldSize,
 		Excluded:        excludes,
 	}
-	if err := writePack(dest, m, o.Dir, items, total, o.Progress); err != nil {
+	if err := writePack(ctx, dest, m, o.Dir, items, total, o.Progress); err != nil {
 		return nil, err
 	}
 	return m, nil
 }
 
+// ValidateExcludes 额外剔除清单能不能用：危险写法（..、绝对路径、盘符）在这里拒掉（打包前就报，不是任务里才失败）。
+func ValidateExcludes(excludes []string) error {
+	if _, bad := sanitizeExcludes(excludes); bad > 0 {
+		return fmt.Errorf("额外剔除的 %d 项写法不对（应为实例目录内的相对路径）", bad)
+	}
+	return nil
+}
+
 // survey 清点要打包的文件：剔除清单之外的全部文件，连同总字节数与世界存档大小。
-func survey(dir string, excludes, world []string) (items []packItem, total, worldSize int64, err error) {
+func survey(ctx context.Context, dir string, excludes, world []string) (items []packItem, total, worldSize int64, err error) {
 	err = filepath.WalkDir(dir, func(p string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 		raw, rerr := filepath.Rel(dir, p)
 		if rerr != nil {
@@ -119,7 +129,7 @@ func survey(dir string, excludes, world []string) (items []packItem, total, worl
 }
 
 // writePack 写出 zip：第一个条目是 manifest（收包时不用解压整个包就能清点），其后是 survey 出的文件。
-func writePack(dest string, m *Manifest, dir string, items []packItem, total int64, progress func(done, total int64)) error {
+func writePack(ctx context.Context, dest string, m *Manifest, dir string, items []packItem, total int64, progress func(done, total int64)) error {
 	f, err := os.Create(dest)
 	if err != nil {
 		return err
@@ -144,6 +154,10 @@ func writePack(dest string, m *Manifest, dir string, items []packItem, total int
 	var done int64
 	for _, it := range items {
 		if werr != nil {
+			break
+		}
+		if err := ctx.Err(); err != nil {
+			werr = err
 			break
 		}
 		r, err := os.Open(filepath.Join(dir, filepath.FromSlash(it.rel)))

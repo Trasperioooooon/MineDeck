@@ -143,6 +143,14 @@ func TestImportPackAsyncRoundtrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	pack := waitTaskOf(t, m, id).Result
+	packBytes, err := os.ReadFile(pack) // 收包成功后缓存里的包会被清掉，先留一份原件试重名
+	if err != nil {
+		t.Fatal(err)
+	}
+	pack2 := filepath.Join(t.TempDir(), "again.mdpack")
+	if err := os.WriteFile(pack2, packBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	id2, err := m.ImportPackAsync(ImportPackReq{File: pack, Name: "寒假续上", Port: 25599, XmxMB: 2048, EULA: false})
 	if err != nil {
@@ -187,8 +195,11 @@ func TestImportPackAsyncRoundtrip(t *testing.T) {
 	}
 
 	// 同名再收一次：报已存在
-	if _, err := m.ImportPackAsync(ImportPackReq{File: pack, Name: "寒假续上"}); err == nil || !strings.Contains(err.Error(), "已存在") {
+	if _, err := m.ImportPackAsync(ImportPackReq{File: pack2, Name: "寒假续上"}); err == nil || !strings.Contains(err.Error(), "已存在") {
 		t.Errorf("重名应报错: %v", err)
+	}
+	if _, err := os.Stat(pack); !os.IsNotExist(err) {
+		t.Errorf("收包成功后缓存里的包应该清掉: %v", err)
 	}
 }
 
@@ -244,6 +255,26 @@ func TestImportPackEULAAndBadPackage(t *testing.T) {
 		if i.Name == "缺启动文件" {
 			t.Errorf("失败任务的实例不该留在列表里")
 		}
+	}
+}
+
+func TestPackBusyBlocksStartAndDelete(t *testing.T) {
+	m, _ := adoptEnv(t)
+	mkPackSource(t, m, "生存服")
+	m.markPacking("生存服", true) // 拿占位直接模拟打包任务在跑（免真的开包线程）
+	t.Cleanup(func() { m.markPacking("生存服", false) })
+	if err := m.Start("生存服"); err == nil || !strings.Contains(err.Error(), "正在打包") {
+		t.Errorf("打包中启动应被挡下: %v", err)
+	}
+	if err := m.Delete("生存服", false); err == nil || !strings.Contains(err.Error(), "正在打包") {
+		t.Errorf("打包中删除应被挡下: %v", err)
+	}
+	if _, err := m.ExportPackAsync(ExportReq{Inst: "生存服", Mode: transfer.ModeDistributable, Dest: t.TempDir()}); err == nil || !strings.Contains(err.Error(), "正在打包") {
+		t.Errorf("重复打包应被挡下: %v", err)
+	}
+	m.markPacking("生存服", false)
+	if err := m.Start("生存服"); err == nil || !strings.Contains(err.Error(), "找不到这台服务器用的 Java") {
+		t.Errorf("占位释放后启动应回到正常校验（Java 找不到）: %v", err)
 	}
 }
 

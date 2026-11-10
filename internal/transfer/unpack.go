@@ -2,6 +2,7 @@ package transfer
 
 import (
 	"archive/zip"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -11,8 +12,11 @@ import (
 
 // Unpack 把一个 .mdpack 解压到 destDir（新建实例的目录）。manifest 条目不落盘；条目名先做安全校验：
 // 拒绝绝对路径、盘符、反斜杠混写和 .. 穿越（zip-slip）。progress 的 total 是所有条目未压缩大小之和。
-// 返回解出来的文件条数。
-func Unpack(src, destDir string, progress func(done, total int64)) (int, error) {
+// ctx 取消时中止。返回解出来的文件条数。
+func Unpack(ctx context.Context, src, destDir string, progress func(done, total int64)) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	zr, err := zip.OpenReader(src)
 	if err != nil {
 		return 0, errFormat
@@ -31,6 +35,9 @@ func Unpack(src, destDir string, progress func(done, total int64)) (int, error) 
 	var done int64
 	entries := 0
 	for _, f := range zr.File {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
 		name := filepath.ToSlash(f.Name)
 		if strings.EqualFold(name, ManifestFile) {
 			continue // manifest 只作为清单，不落进实例目录

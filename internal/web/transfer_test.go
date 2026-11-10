@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"mime/multipart"
@@ -60,7 +61,7 @@ func TestTransferRoutes(t *testing.T) {
 	writeTree("world/playerdata/uid.dat", "everyone-progress")
 	writeTree("mods/a.jar", "PK")
 	pack := filepath.Join(t.TempDir(), "朋友的服.mdpack")
-	if _, err := transfer.Pack(pack, transfer.PackOptions{
+	if _, err := transfer.Pack(context.Background(), pack, transfer.PackOptions{
 		Dir: src, Instance: sb, Mode: transfer.ModeDistributable, ModDir: "mods", Exporter: "MineDeck 3.0.0"}); err != nil {
 		t.Fatal(err)
 	}
