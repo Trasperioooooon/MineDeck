@@ -2714,6 +2714,66 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     assert((await page.inputValue("#im-src")).includes("E:\\MCServers"), "浏览应回填 pickdir 的路径");
   });
 
+  // ---- 实例交接包（.mdpack） ----
+  {
+    const mockState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
+    await run("导出交接包：卡片菜单进入、隐私提醒可见、确认后去任务页", async () => {
+      await mockState({ instReset: true });
+      await page.goto(url("#/instances")); await settle();
+      await page.click('.card[data-name="机械动力整合包"] [data-act="more"]');
+      await settle(200);
+      const item = await page.evaluateHandle(() => [...document.querySelectorAll(".dropmenu button")].find(b => b.textContent.includes("交接给其他电脑")));
+      assert(item, "菜单里没有「交接给其他电脑」");
+      assert(await page.evaluate(el => !el.disabled, item), "「交接给其他电脑」被禁用了");
+      await item.asElement().click(); await settle(300);
+      assert(await page.isVisible("#tr-mask"), "确认弹窗没弹出来");
+      const m = await page.evaluate(() => ({ title: $("#tr-title").textContent, privacy: $("#tr-mask .wc-note").textContent, full: $("#tr-full").checked, go: $("#tr-go").textContent }));
+      assert(m.title.includes("机械动力整合包"), "标题里没有实例名：" + m.title);
+      assert(m.privacy.includes("征得服务器成员的同意") && m.privacy.includes("IP"), "隐私提醒：" + m.privacy);
+      assert(m.full === false && m.go.includes("开始打包"), "弹窗状态：" + JSON.stringify(m));
+      await page.fill("#tr-dest", "E:\\交接包");
+      await page.click("#tr-go"); await settle(700);
+      const st = await mockState({});
+      assert(st.lastTransferExport && st.lastTransferExport.inst === "机械动力整合包" && st.lastTransferExport.full === false && st.lastTransferExport.dest === "E:\\交接包",
+        "导出请求：" + JSON.stringify(st.lastTransferExport));
+      assert(page.url().endsWith("#/task/task-transfer-out"), "没去任务页：" + page.url());
+      const t = await page.evaluate(() => ({ h1: $(".page-head h1").textContent, log: $("#task-log").textContent, go: $("#t-foot a").getAttribute("href") }));
+      assert(t.h1 === "正在导出交接包" && t.go === "#/instances", "导出任务页：");
+      await page.click("#t-foot a"); await settle(300);
+      assert(page.url().endsWith("#/instances"), "完成按钮没回列表：" + page.url());
+    });
+
+    await run("导入交接包：新建页第四张卡片、上传出摘要、端口占用提示、提交后任务页说「交接」", async () => {
+      await mockState({ instReset: true });
+      await page.goto(url("#/create")); await settle();
+      await page.click("#mode-transfer"); await settle(300);
+      assert(await page.textContent(".page-head h1") === "导入交接包", "没进入交接包向导");
+      assert(await page.$eval("#tp-go", b => b.disabled), "没有包就能点「导入」");
+      await page.setInputFiles("#tp-file", { name: "pack.mdpack", mimeType: "application/zip", buffer: Buffer.from("PK") });
+      await settle(700);
+      const s = await page.evaluate(() => ({ name: $("#tp-name") && $("#tp-name").value, port: $("#tp-port") && $("#tp-port").value, kv: $("#tp-form") ? $("#tp-form").textContent : "" }));
+      assert(s.name === "A 的服" && s.port === "25570", "摘要没带出名称与端口：" + JSON.stringify(s));
+      assert(s.kv.includes("Paper 1.20.1") && s.kv.includes("36 个模组") && s.kv.includes("2.0 GB"), "包摘要展示：" + JSON.stringify(s.kv));
+      // 端口改成一个被占用的：给出行内提示（不拦提交）
+      await mockState({ portBusy: 25599 });
+      await page.fill("#tp-port", "25599");
+      await settle(500);
+      assert((await page.textContent("#tp-port-err")).includes("占用"), "端口占用没提示：" + await page.textContent("#tp-port-err"));
+      await page.fill("#tp-name", "接手服");
+      await page.fill("#tp-port", "25566");
+      await page.check("#tp-eula");
+      await page.click("#tp-go"); await settle(800);
+      const st = await mockState({});
+      assert(st.lastTransferImport && st.lastTransferImport.name === "接手服" && st.lastTransferImport.eula === true && +st.lastTransferImport.port === 25566 && +st.lastTransferImport.xmxMb >= 2048,
+        "导入请求：" + JSON.stringify(st.lastTransferImport));
+      assert(page.url().endsWith("#/task/task-transfer-in"), "没去任务页：" + page.url());
+      const t = await page.evaluate(() => ({ h1: $(".page-head h1").textContent, steps: $("#t-steps").textContent, go: $("#t-foot a"), href: $("#t-foot a").getAttribute("href") }));
+      assert(t.h1 === "正在导入交接包" && t.steps.includes("解包服务器文件") && t.href === "#/inst/" + encodeURIComponent("接手服"), "任务页：" + JSON.stringify(t));
+      const toasts = await page.$$eval(".toast", ts => ts.map(x => x.textContent));
+      assert(toasts.some(x => x.includes("交接包导入成功")), "成功提示：" + JSON.stringify(toasts));
+    });
+  }
+
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
 
   await browser.close();

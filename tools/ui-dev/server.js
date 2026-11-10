@@ -77,6 +77,12 @@ function newState(ui) {
 }
 
 // 接管已有服务器时「识别」的默认结果（同 inst.AdoptScan）：一个自己开的 NeoForge 整合包，装过两个版本的加载器，还没同意过 EULA
+// 交接包上传后的摘要（同 transfer.Summary）：name/file 之外的字段前端向导都用
+const TRANSFER_SUMMARY = {
+  name: "A 的服", core: "paper", mc: "1.20.1", build: "100", kind: "game", mode: "handover", full: false,
+  port: 25570, worldBytes: 2147483648, mods: 36, plugins: 0, xmxMb: 6144, javaMajor: 17,
+  exportedAt: "2026-11-09 20:15", minedeckVersion: "3.0.0", fileBytes: 1073741824,
+};
 const ADOPT_SCAN = {
   dir: "E:\\MCServers\\create-pack", name: "create-pack", core: "neoforge", mc: "1.21.1", build: "21.1.265",
   launchTarget: "args:libraries/net/neoforged/neoforge/21.1.265/win_args.txt",
@@ -1258,6 +1264,7 @@ function handler(state, ui, portOf) {
       if ("taskNet" in b) state.taskNet = b.taskNet;
       if (b.inst) { const i = state.instances.find(x => x.name === b.inst.name); if (i) Object.assign(i, b.inst); } // 改某台服务器的字段（adopted、javaMajor…）
       if ("adoptScan" in b) state.adoptScan = b.adoptScan; // 接管：下一次识别返回的结果（null 还原成默认的 NeoForge 整合包）
+      if ("portBusy" in b) state.portBusy = b.portBusy; // 交接包向导：端口号等于这个值的端口查询按「被占用」回
       if (b.instReset) { const fresh = newState(ui); state.instances = fresh.instances; state.lastAdopt = state.lastJava = state.lastDelete = null; }
       if ("listenLan" in b) { state.config.listenLan = state.lanActive = !!b.listenLan; if (b.listenLan) state.lanSet = true; }
       if ("lanSet" in b) state.lanSet = !!b.lanSet;
@@ -1384,6 +1391,40 @@ function handler(state, ui, portOf) {
         const mods = need ? [{ file: "modded-fabric.jar", id: "modded", version: "1.0" }] : [];
         return ok(res, { dir: "mods", count: mods.length, disabled: 0, mods, ...(need ? { needJava: need } : {}) });
       }
+      // 实例交接包（.mdpack，同 web/transfer.go）：上传回摘要、导入返回任务号；交接的任务一查就是已完成
+      if (p === "/api/transfer/upload" && m === "POST") {
+        const raw = await new Promise(r => { const cs = []; req.on("data", c => cs.push(c)); req.on("end", () => r(Buffer.concat(cs).toString("latin1"))); });
+        const mfname = raw.match(/filename="([^"]*)"/);
+        const fname = mfname ? mfname[1] : "pack.mdpack";
+        if (/\.(rar|mrpack|7z)$/i.test(fname)) return err(res, 400, "只支持 .mdpack 交接包（收到 " + fname + "）");
+        state.lastTransferUpload = { file: fname };
+        return ok(res, { ...TRANSFER_SUMMARY, file: "C:\\MineDeck\\cache\\transfer\\import\\1731164400000-" + fname });
+      }
+      if (p === "/api/transfer/import" && m === "POST") {
+        const b = await readBody(req);
+        if (state.instances.some(x => x.name === b.name)) return err(res, 400, "实例名已存在: " + b.name);
+        if (!b.file || !String(b.file).includes("transfer\\import")) return err(res, 400, "交接包文件不在上传目录里");
+        state.lastTransferImport = b;
+        return ok(res, { taskId: "task-transfer-in", pack: { name: TRANSFER_SUMMARY.name, core: TRANSFER_SUMMARY.core, mc: TRANSFER_SUMMARY.mc, build: TRANSFER_SUMMARY.build, mods: TRANSFER_SUMMARY.mods, plugins: TRANSFER_SUMMARY.plugins, full: TRANSFER_SUMMARY.full } });
+      }
+      if (p === "/api/tasks/task-transfer-in" || p === "/api/tasks/task-transfer-out") {
+        const isOut = p.endsWith("out");
+        const names = isOut ? ["收集清单", "打包交接包", "收尾"] : ["校验交接包", "准备 Java 运行时", "下载服务端核心", "安装服务端", "解包服务器文件", "生成启动脚本"];
+        const resultIn = ((state.lastTransferImport || {}).name || "接手服");
+        const resultOut = "E:\\服务器备份\\" + ((state.lastTransferExport || {}).inst || "生存服 · 朋友") + "-交接包-20261109-201500.mdpack";
+        return ok(res, { id: isOut ? "task-transfer-out" : "task-transfer-in", kind: isOut ? "transfer-out" : "transfer-in",
+          steps: names.map(name => ({ name, status: "done" })), label: "", done: 0, total: 0, warnings: [],
+          log: isOut ? ["待打包 128 个文件、2.1 GB", "交接包已生成: " + resultOut, "把整个文件发给接手的人，对方在「新建服务器」页选「交接包」导入即可"]
+            : ["交接包：A 的服（paper 1.20.1）", "Java 就绪", "解出 2.0 GB", "交接完成 ✔ 存档、配置和模组都是原来的"],
+          ended: true, result: isOut ? resultOut : resultIn });
+      }
+      // 端口占用查询（同 web：GET /api/ports/{port}）：/__mock/state 里 portBusy 设成哪个端口哪个就占着
+      if (seg[2] === "ports" && seg[3]) {
+        const busy = state.portBusy != null && +seg[3] === +state.portBusy;
+        return ok(res, { port: +seg[3] || 0,
+          tcp: busy ? { free: false, owners: [{ pid: 1414, process: "java.exe", instance: "生存服 · 朋友", minedeck: true }] } : { free: true },
+          udp: { free: true }, instances: busy ? [{ instance: "生存服 · 朋友", status: "running" }] : [] });
+      }
       // 接管、换 Java 的任务（kind 不同，任务页的说法跟着换）：仿真里一查就是已完成
       if (p === "/api/tasks/task-adopt" || p === "/api/tasks/task-java") {
         const adopt = p.endsWith("adopt");
@@ -1442,6 +1483,13 @@ function handler(state, ui, portOf) {
           i.javaMajor = b.major; i.javaPath = b.path || `D:\\MineDeck\\runtimes\\java-${b.major}\\bin\\java.exe`;
           i.javaSource = i.javaPath.startsWith("D:\\MineDeck\\runtimes\\") ? "portable" : "local";
           return ok(res, { java: i.javaPath });
+        }
+        // 交接给其他电脑（同 instance.transfer.export）：记下请求，返回任务编号
+        if (sub === "transfer" && seg[5] === "export" && m === "POST") {
+          if (i.status !== "stopped") return err(res, 400, "交接前请先停止服务器（运行中打包会不完整）");
+          const b = await readBody(req);
+          state.lastTransferExport = { inst: name, ...b };
+          return ok(res, { taskId: "task-transfer-out" });
         }
         if (sub === "settings" && m === "PUT") {
           const b = await readBody(req);

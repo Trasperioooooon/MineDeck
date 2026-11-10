@@ -64,7 +64,7 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 
 `GET /api/tasks` 返回本次程序运行的任务摘要数组，按创建时间从新到旧排列，包括部署中、已完成和失败的任务；没有任务时返回 `[]`。每项是 `{id, title, kind?, label, done, total, ended, error?, result?, warningCount, pendingCount}`，同名字段的含义和单个任务的快照一样（`kind` 见下一段），`warningCount` 是告警条数，`pendingCount` 是待决文件数（整合包导入的任务才会有，明细看那个任务的快照）；步骤、日志和告警明细不在列表里，要看就用 `GET /api/tasks/{id}` 查那一个任务。界面切页或刷新后可据此恢复进度入口，程序重启后任务记录清空。
 
-`GET /api/tasks/{id}` 快照里的 `kind` 说明是哪一类任务：没有这个字段是新建 / 导入（部署），`adopt` 是接管已有服务器，`java` 是换 Java 时下载便携版；界面按它换说法。快照除进度/日志外，还含 `warnings[]`（结构化告警，如 CurseForge 未解析模组清单 `{kind,title,note,items:[{name,url}]}`），供导入完成页醒目呈现。
+`GET /api/tasks/{id}` 快照里的 `kind` 说明是哪一类任务：没有这个字段是新建 / 导入（部署），`adopt` 是接管已有服务器，`java` 是换 Java 时下载便携版，`transfer-out` / `transfer-in` 是交接包的导出 / 导入；界面按它换说法。快照除进度/日志外，还含 `warnings[]`（结构化告警，如 CurseForge 未解析模组清单 `{kind,title,note,items:[{name,url}]}`），供导入完成页醒目呈现。
 整合包导入的任务还有 `pending[]`（待决文件清单，逐项 `{id,path,reason,note,host?,size?,urls?,sha1?,options}`）：导入完成但没法自动下载的文件（`reason=host` 白名单外直链、`nohash` 缺校验值、`badurl` 非 https、`hash` 下载内容与校验值不符、`cf` CurseForge 未解析）。`options` 是这一项可用的处置（`skip`、`local`，host 类另有 `trust`），用 `POST /api/import/pending/{taskId}` 逐项处理，处理成功的那几项从清单里消失；任务快照和列表摘要（`pendingCount`）随之更新，全部处理完清单为空。告警另有三种：`import-kept`（按原样保留清单——来自整合包覆盖目录或本地来源目录、未校验）、`import-pending`（有待决文件待处理）、`java-req`（有模组声明的 Java 要求高于实例当前 javaMajor——只提示不阻断，1.20.1 配要 Java 25 的模组是允许的组合，界面给「内存 / 启动」的换 Java 入口）。
 还可能有 `net: {count, host?, what, ago}`：当前这一步里下载超时、失败重试的情况——`count` 是这一步一共出过几次，`host` 是最近一次出问题的地址（只到主机名，安装器自己出错重来时为空），`what` 是什么问题（「下载失败」「连接超时」「连不上」「安装器出错退出，第 2 次重试」），`ago` 是几秒前。来源有两处：MineDeck 自己下载核心时某个下载源没下成（换下一个源或稍后重试），以及 Forge / NeoForge 安装器的输出里出现连接超时、连不上的异常（一段异常栈算一次）。之后下载又有了进度、换了步骤或任务结束，就不再有这一项。部署页在它出现、或者进度和日志 30 秒没有任何变化时，在进度旁提示「下载慢，或者在重试」。
 
@@ -251,6 +251,20 @@ AI 助手用的读写能力，网页也能直接调。人调用时，写操作�
   - 任务做完、没做够、失败或超时时，按模板私下告诉发起的玩家，开头是伙伴的名字，比如 `[小方] 采集 oak_log ×3 做完了：这次拿到 3 个（要 3 个），背包里共 5 个，用时 10 秒。`；被停下、被新任务顶掉的不通知。不调用 AI、不算次数、不扣额度；他不在线时只记一笔。断开期间结束的任务，重连后从伙伴的 `lastResult` 认出来照样通知。
 - **操作记录**：伙伴的每个动作一条 `companion.action`，`src` 为 `companion`，`actor` 是发起的玩家，`args` 是 `{op, args, companion?, task?}`（实际发给模组的参数）；模组拒绝的记为失败。叫着伙伴的名字问的问题，`gameai.ask` 的 `args` 多了 `companion`（名字）和 `actions`（动作的条数）。最近的问答（`/gameai/log`）里多了 `companion`、`actions: [{op, companion?, title, ok, task?, reason?}]`，`kind` 为 `task` 的是任务通知。
 - **存放**：伙伴的设置在实例的 `config/minedeck/companion.properties`（模组的配置文件，令牌也在里面，不下发）；伙伴存在世界存档里；最近的事件只在内存里。
+
+### 实例交接包（.mdpack）
+
+把一台不再想开的服务器完整地交给别人：A 从实例卡片菜单「交接给其他电脑」导出一个 `.mdpack`（zip），B 在「新建服务器 → 导入交接包」里上传导入，存档、配置、模组全保留，装完直接能启动。三个操作都经操作层：`instance.transfer.export`（写）、`instance.transfer.import`（仅人工）、`instance.transfer.scan`（读、不记操作记录）。上传路径与 `/api/import/modpack` 对称：文件先存进 `<缓存目录>\transfer\import\`，操作层只认这个目录里的文件。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/instances/{name}/transfer/export` | `{full?, dest?}`：后台打包成交接包，返回 `{taskId}`（进度见 `/api/tasks/{id}`，任务 `kind` 为 `transfer-out`，成功时 `result` 是交接包的完整路径）。默认**瘦身模式**：世界、`server.properties`、mods、plugins、config、白名单/OP 名单、`eula.txt` 全包；不含服务端核心（导入时按清单走创建流水线重新下载），也不含 `logs`、崩溃报告、`session.lock`。`full: true` 时**完整模式**：连启动文件与 `libraries` 一起带走，导入不再联网下载核心。`dest` 是导出文件夹（须已存在；空 = 缓存目录 `cache\transfer`）；**主机路径仅本机可指定**：远程 / 局域网请求忽略了也落缓存目录。服务器须已停止。导出过程只读实例目录 |
+| POST | `/api/transfer/upload` | multipart 上传交接包（`file` 字段，`.mdpack`，上限 8 GiB）：存进缓存目录后立刻解析 manifest，返回 `{file, …摘要}`；不是交接包当场删掉上传文件并报错。摘要是 `{name, core, mc, build?, kind, mode, full, port, worldBytes, mods, plugins, xmxMb, javaMajor, exportedAt, minedeckVersion, fileBytes}`——`port` 是包内 `server.properties` 的端口，向导预填用；是否被占用调 `GET /api/ports/{port}` 查 |
+| POST | `/api/transfer/import` | `{file, name, xmxMb?, port?, eula, root?}`：后台导入，返回 `{taskId, pack}`（`kind` 为 `transfer-in`）。校验 manifest（`formatVersion=1`、`mode` 为 `handover`——`distributable` 是另一分支「下发」场景的占位、核心与版本可得），然后走创建流水线变体：确保 Java（`javaMajor` 用包里的，本机没有就下便携版）→ 瘦身模式下核心（`mcsrc` 的源与校验，含 Forge / NeoForge 安装器；完整模式连安装步骤一起跳过，启动方式按包内文件探测）→ 解包到新实例目录（只解 `instance/` 前缀，严格 zip-slip 防护）→ 重新生成 `run.bat` / `instance.json` 并注册。包里的 `server.properties` 原样保留（`online-mode`、`motd`、白名单都是 A 的）；`xmxMb: 0` 沿用包里 A 分配的内存；`port` 给了且与包里不同就改写。EULA：包内 `eula.txt` 同意过的免勾，没有时 `eula` 必须为 true（写入）。`root` 仅本机生效。任务成功后上传的包删掉（导入结束失败也一样）；失败时新建的目录整体清理 |
+
+- **包格式**：zip。根下 `manifest.json`（`formatVersion: 1`、`mode: "handover" | "distributable"`、MineDeck 版本、导出时间、`instance.json` 原文、`mods` / `plugins` 清单 `[{file, id?, name?, version?, loader?, sha1, size}]`——魔改 jar 读不出元数据的这几项留空，导入按文件原样保留、`worldBytes`、剔除清单、`full`、文件数 / 字节合计）；实例文件全部在 `instance/` 前缀下。解包只认这个前缀，越界路径一律拒绝。
+- **隐私**：交接包含玩家数据（`playerdata/<uuid>.dat`、白名单、OP 名单）。日志虽剔除，但可能留有玩家 IP——导出确认框上写明「交接前请征得服务器成员同意」。
+- **进度**：导出与导入都有双维度进度（字节为主、文件数隔批进任务 `label`），`/api/tasks/{id}` 轮询。导出先写缓存目录的 `.part` 再落位，失败清掉，随时重试；多 GB 的包打 / 解全程流式，不整读进内存。
 
 所有响应统一为 `{"ok": true, "data": ...}` 或 `{"ok": false, "error": "..."}`。
 

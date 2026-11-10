@@ -102,6 +102,7 @@ func New(env Env) *ops.Registry {
 	c := &cat{Env: env, reg: reg}
 	c.appOps()
 	c.instanceOps()
+	c.transferOps() // 实例交接包（.mdpack）
 	c.backupOps()
 	c.playerOps()
 	c.resourceOps()

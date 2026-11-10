@@ -263,6 +263,7 @@ const ICON = {
   chevronDown: '<path d="M4 6.5 8 10.5l4-4"/>',
   link: '<path d="M6.6 9.4 9.4 6.6"/><path d="M7 4.6 8.2 3.4a2.6 2.6 0 013.7 3.7L10.7 8.3"/><path d="M9 11.4 7.8 12.6a2.6 2.6 0 01-3.7-3.7L5.3 7.7"/>',
   more: '<circle cx="3.5" cy="8" r="1.15" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.15" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r="1.15" fill="currentColor" stroke="none"/>',
+  share: '<path d="M7 4.4H3.4a1 1 0 00-1 1v7a1 1 0 001 1h7a1 1 0 001-1V8.8"/><path d="M9.7 2.2h4.1v4.1"/><path d="M13.6 2.4 6.7 9.3"/>',
   trash: '<path d="M2.8 4.4h10.4M6.3 4.4V2.8h3.4v1.6M4.3 4.4l.6 8.8h6.2l.6-8.8"/>',
   // AI：四角星 + 小星；Key：钥匙；费用：带 ¥ 的钱币
   sparkle: '<path d="M7 2.4l1.25 3.35L11.6 7l-3.35 1.25L7 11.6 5.75 8.25 2.4 7l3.35-1.25z"/><path d="M12.2 10.2l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5z"/>',
@@ -1072,6 +1073,9 @@ async function renderInstances() {
         const busy = info.status !== "stopped";
         dropMenu(b, [
           { header: "打开文件夹" }, ...folderItems(info), { sep: true },
+          { icon: "share", label: "交接给其他电脑…", disabled: busy, note: busy ? "需先停止服务器" : "",
+            onClick: () => transferExportModal(info) },
+          { sep: true },
           { icon: "trash", label: "删除服务器…", danger: true, disabled: busy, note: busy ? "需先停止服务器" : "",
             onClick: async () => { if (await deleteInstance(info)) { lastSig = ""; draw(); } } },
         ]);
@@ -1137,18 +1141,20 @@ const wiz = { step: 0, core: null, mc: null, build: null, snapshots: false, root
 async function renderCreate() {
   const gen = beginCreateView();
   wiz.step = 0; wiz.core = null; wiz.mc = null; wiz.build = null; wiz.root = "";
-  Main().innerHTML = pageHead("新建服务器", "选择一种方式开始", "", "", `三种方式${SEP}Java 与服务端自动下载`) + `
+  Main().innerHTML = pageHead("新建服务器", "选择一种方式开始", "", "", `四种方式${SEP}Java 与服务端自动下载`) + `
     <section id="task-list" hidden style="margin-bottom:24px"></section>
     <div class="recipe-grid">
       <div class="core-card" id="mode-new" role="button" tabindex="0" aria-label="从零创建" aria-describedby="mode-new-d"><span class="recipe-ico">${icon("plusBox")}</span><div><div class="cn">从零创建</div><div class="cd" id="mode-new-d">选择核心与版本，自动下载 Java 与服务端</div></div></div>
       <div class="core-card" id="mode-import" role="button" tabindex="0" aria-label="导入整合包" aria-describedby="mode-import-d"><span class="recipe-ico">${icon("package")}</span><div><div class="cn">导入整合包</div><div class="cd" id="mode-import-d">支持 Modrinth / CurseForge 整合包，自动识别版本</div></div></div>
+      <div class="core-card" id="mode-transfer" role="button" tabindex="0" aria-label="导入交接包" aria-describedby="mode-transfer-d"><span class="recipe-ico">${icon("share")}</span><div><div class="cn">导入交接包</div><div class="cd" id="mode-transfer-d">别人用 MineDeck 导出的 .mdpack：存档、配置、模组全保留，装完直接能启动</div></div></div>
       <div class="core-card full" id="mode-adopt" role="button" tabindex="0" aria-label="接管已有服务器" aria-describedby="mode-adopt-d"><span class="recipe-ico">${icon("folder")}</span><div><div class="cn">接管已有服务器</div><div class="cd" id="mode-adopt-d">以前自己开的服务器，选它的文件夹就能收进来统一管理。文件留在原地，存档和配置都不动</div></div></div>
     </div>`;
   $("#mode-new").onclick = () => drawWizard();
   $("#mode-import").onclick = () => drawImport();
+  $("#mode-transfer").onclick = () => drawTransfer();
   $("#mode-adopt").onclick = () => drawAdopt();
   // 卡片可用键盘激活（回车 / 空格）
-  ["#mode-new", "#mode-import", "#mode-adopt"].forEach(s => { $(s).onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $(s).click(); } }; });
+  ["#mode-new", "#mode-import", "#mode-transfer", "#mode-adopt"].forEach(s => { $(s).onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $(s).click(); } }; });
   const taskList = $("#task-list");
   await refreshTaskList(taskList, gen);
   startPoll(() => refreshTaskList(taskList, gen), 3000, gen);
@@ -1382,6 +1388,211 @@ async function drawImport() {
     } catch (e) {
       toast(e.message, true);
       if (!stale(gen)) { $("#im-go").disabled = false; $("#im-go").innerHTML = icon("bolt") + " 导入并部署"; }
+    }
+  };
+}
+
+/* ---------- 视图：实例交接包（.mdpack）----------
+   别人开不下去的服务器，从卡片菜单「交接给其他电脑」打包发过来；这里选 .mdpack 导入，
+   存档、配置、模组全保留，装完直接能启动。操作走 instance.transfer.*，导出导入都在任务页看进度。 */
+
+/* 交接给其他电脑：确认弹窗（隐私提醒 + 完整模式 + 导出位置）→ 后台打包（任务页看进度） */
+function transferExportModal(info) {
+  if ($("#tr-mask")) return; // 上一个还开着
+  const d = document.createElement("div");
+  d.className = "modal-mask enter";
+  d.id = "tr-mask";
+  d.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="tr-title">
+    <h3 id="tr-title">交接「${esc(info.name)}」</h3>
+    <div class="m-body">
+      把这台服务器打包成一个 .mdpack 文件，发给接手的人（微信 / 网盘都行）。对方在「新建服务器」页选「导入交接包」，
+      存档、配置、模组和白名单全保留，装完直接能启动。
+      <div class="warn-card" style="margin-top:12px">
+        <div class="wc-title">${icon("warn")} 含玩家数据</div>
+        <div class="wc-note">包里有玩家的存档（playerdata）、白名单和 OP 名单。请先征得服务器成员的同意再交接。
+          日志（logs）不会打进包，但它可能留有玩家 IP，必要时先在服务器目录里处理好。</div>
+      </div>
+      <label class="switch" style="margin-top:12px"><input type="checkbox" id="tr-full"><span class="sw"></span>
+        <span><span class="sw-label">完整模式</span><div class="sw-desc">把服务端核心也一起打包；不勾则对方导入时自动重新下载（包更小）</div></span></label>
+      <label class="field" style="margin-top:12px"><span>导出到哪个文件夹</span>
+        <div class="row" style="gap:8px">
+          <input type="text" id="tr-dest" spellcheck="false" autocomplete="off" style="flex:1" aria-label="导出文件夹" placeholder="默认：数据目录 \\ cache \\ transfer">
+          <button type="button" class="btn" id="tr-browse">${icon("folder")} 浏览…</button>
+        </div>
+        <div class="field-err" id="tr-dest-err"></div>
+      </label>
+      <div class="hint" style="margin-top:6px">世界存档大的话包会有几个 GB，打包进度在任务页看，中断了随时可以重来。</div>
+    </div>
+    <div class="m-actions">
+      <button class="btn" id="tr-cancel">取消</button>
+      <button class="btn primary" id="tr-go">${icon("share")} 开始打包</button>
+    </div></div>`;
+  $("#modal-root").appendChild(d);
+  const close = () => dismiss(d);
+  d.addEventListener("click", e => { if (e.target === d) close(); });
+  document.addEventListener("keydown", function escClose(e) { if (e.key === "Escape" && $("#tr-mask")) { close(); document.removeEventListener("keydown", escClose); } });
+  $("#tr-cancel").onclick = close;
+  $("#tr-browse").onclick = async () => {
+    try { const r = await api("/api/pickdir", { method: "POST" }); if (r.path) { $("#tr-dest").value = r.path; $("#tr-dest").classList.remove("invalid"); $("#tr-dest-err").innerHTML = ""; } }
+    catch (e) { toast(e.message, true); }
+  };
+  $("#tr-go").onclick = async () => {
+    const dest = $("#tr-dest").value.trim();
+    if (dest && !/^[a-zA-Z]:[\\/]/.test(dest)) {
+      $("#tr-dest").classList.add("invalid");
+      $("#tr-dest-err").innerHTML = icon("warn") + " 请填完整的文件夹路径，或清空用默认位置";
+      return;
+    }
+    $("#tr-go").disabled = true;
+    try {
+      const r = await api(`/api/instances/${encodeURIComponent(info.name)}/transfer/export`, {
+        method: "POST", body: { full: $("#tr-full").checked, dest },
+      });
+      close();
+      toast("开始打包交接包");
+      location.hash = `#/task/${r.taskId}`;
+    } catch (e) {
+      toast(e.message, true);
+      $("#tr-go").disabled = false;
+      if (/导出目录不可用/.test(e.message)) { $("#tr-dest").classList.add("invalid"); $("#tr-dest-err").innerHTML = icon("warn") + " " + esc(e.message); }
+    }
+  };
+}
+
+/* 导入交接包向导：选 .mdpack → 上传（顺便出摘要）→ 摘要展示 + 填名称 / 内存 / 端口 / EULA → 后台导入 */
+async function drawTransfer() {
+  const gen = beginCreateView();
+  const app = await api("/api/app").catch(() => ({ ramMb: 8192, availRamMb: 4096, config: {} }));
+  if (stale(gen)) return;
+  const maxMem = Math.max(2048, app.ramMb - 2048);
+  let trapRoot = "", pack = null, packFile = ""; // pack：上传后拿到的摘要；packFile：后端缓存里的包路径
+  Main().innerHTML = pageHead("导入交接包", "别人用 MineDeck 导出的 .mdpack 交接包：存档、配置、模组全保留，装完直接能启动。", "",
+    `<a href="#/create">新建服务器</a>${icon("chevronRight")}<span>导入交接包</span>`) + `
+    <div class="form-grid">
+      <label class="field full"><span>交接包文件（.mdpack）</span><input type="file" id="tp-file" accept=".mdpack,.zip">
+        <div class="hint">交接包动辄几个 GB：上传要等一会儿，进度看按钮上的字。被改过扩展名的包选「所有文件」再选。</div>
+        <div class="field-err" id="tp-file-err"></div></label>
+    </div>
+    <div id="tp-form"></div>
+    ${wizFoot("tp-back", "返回", `<button class="btn primary" id="tp-go" disabled>${icon("bolt")} 导入交接包</button>`)}`;
+  $("#tp-back").onclick = () => renderCreate();
+  const fileErr = msg => { $("#tp-file").classList.toggle("invalid", !!msg); $("#tp-file-err").innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; };
+  $("#tp-file").addEventListener("change", () => fileErr(""));
+
+  const upload = async () => {
+    const f = $("#tp-file").files[0];
+    if (!f) { fileErr("请先选择交接包文件（.mdpack）"); $("#tp-file").focus(); return; }
+    pack = null; packFile = "";
+    $("#tp-form").innerHTML = `<div class="sub" style="margin:8px 0 16px">上传中…</div>`;
+    $("#tp-go").disabled = true;
+    const fd = new FormData();
+    fd.append("file", f);
+    try {
+      const res = await fetch("/api/transfer/upload", { method: "POST", headers: { "X-Token": TOKEN() }, body: fd });
+      const j = await res.json();
+      if (!j.ok) throw new Error(j.error || "上传失败");
+      if (stale(gen)) return;
+      pack = j.data; packFile = j.data.file;
+      drawForm();
+    } catch (e) {
+      if (stale(gen)) return;
+      fileErr(e.message);
+      $("#tp-form").innerHTML = "";
+    }
+  };
+  $("#tp-file").addEventListener("change", upload);
+
+  const drawForm = () => {
+    const s = pack;
+    const mem = Math.min(Math.max(s.xmxMb || 6144, 2048), maxMem);
+    $("#tp-form").innerHTML = `
+      <div class="group" style="margin:16px 0">
+        <div class="wc-title" style="padding:14px 16px 4px">${icon("info")} 这个包里是什么</div>
+        <div class="kv" style="padding:6px 16px 14px;margin-top:4px">
+          <span>原来叫</span><b>${esc(s.name)}</b>
+          <span>核心</span><b>${esc(coreName(s.core))} ${esc(s.mc)}${s.build ? `（构建 ${esc(s.build)}）` : ""}</b>
+          <span>世界大小</span><b>${fmtBytes(s.worldBytes) || "0 B"}</b>
+          <span>模组 / 插件</span><b>${s.mods} 个模组${s.plugins ? ` / ${s.plugins} 个插件` : ""}</b>
+          <span>内存</span><b>${(s.xmxMb / 1024).toFixed(1)} GB（照原样填好）</b>
+          <span>JAVA</span><b>Java ${s.javaMajor || "按版本自动选"}</b>
+          <span>导出自</span><b>MineDeck ${esc(s.minedeckVersion || "")}，${esc(s.exportedAt || "")}</b>
+        </div>
+      </div>
+      <div class="form-grid">
+        <label class="field"><span>接手后的名称</span><input type="text" id="tp-name" maxlength="40" value="${esc(s.name)}"><div class="field-err" id="tp-name-err"></div></label>
+        <label class="field"><span>端口（默认沿用包里的 ${s.port || 25565}）</span>
+          <input type="number" id="tp-port" value="${s.port || 25565}" min="1" max="65535">
+          <div class="field-err" id="tp-port-err"></div></label>
+        <div class="field full" id="tp-mem-mount"></div>
+        <label class="field full"><span>存放位置</span>
+          <div class="row" style="gap:8px">
+            <input type="text" id="tp-root" readonly style="flex:1;cursor:default;background:var(--surface-2)" aria-label="存放位置">
+            <button type="button" class="btn" id="tp-browse">${icon("folder")} 浏览…</button>
+          </div>
+          <div class="hint">存放位置 ${s.full ? "· 完整模式（包里带核心，导入不再下载）" : "· 瘦身包（导入时自动下载核心）"}</div></label>
+      </div>
+      <div class="eula-box">
+        <label class="switch"><input type="checkbox" id="tp-eula"><span class="sw"></span>
+          <span class="sw-label">我已阅读并同意 <a href="https://aka.ms/MinecraftEULA" target="_blank">Minecraft EULA</a></span></label>
+        <div class="hint" style="margin-top:4px">原服主在 MineDeck 里同意过 EULA 的，这步可以不勾。</div>
+        <div class="field-err" id="tp-eula-err"></div>
+      </div>`;
+    renderMemoryControl($("#tp-mem-mount"), { sliderId: "tp-mem", min: 2048, max: maxMem, value: mem, totalMb: app.ramMb, availMb: app.availRamMb,
+      hint: `${(s.xmxMb / 1024).toFixed(1)} GB 是原来的分配，可以照用或调整` });
+    const trUpdateRoot = () => { $("#tp-root").value = trapRoot || app.serversRoot || "程序目录\\servers"; };
+    trUpdateRoot();
+    $("#tp-browse").onclick = async () => {
+      try { const r = await api("/api/pickdir", { method: "POST" }); if (!stale(gen) && r.path) { trapRoot = r.path; trUpdateRoot(); } }
+      catch (e) { toast(e.message, true); }
+    };
+    $("#tp-eula").addEventListener("change", () => { if ($("#tp-eula").checked) { $(".eula-box").classList.remove("invalid"); $("#tp-eula-err").innerHTML = ""; } });
+    // 端口换了就查一下占用（后端 port.check）；被占了提示但不拦着——可能就是想沿用包里的端口。
+    // 挂 input 事件（打字时每敲一下都会查，后面的结果追上前面的），不必等失焦
+    const portErr = msg => { $("#tp-port").classList.toggle("invalid", !!msg); $("#tp-port-err").innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; };
+    let portCheck = 0;
+    $("#tp-port").addEventListener("input", async () => {
+      const v = +$("#tp-port").value;
+      if (!(v >= 1 && v <= 65535)) { portErr("端口要在 1~65535 之间"); return; }
+      if (v === (pack.port || 25565)) { portErr(""); return; }
+      const my = ++portCheck;
+      try {
+        const p = await api(`/api/ports/${v}`);
+        if (stale(gen) || my !== portCheck) return;
+        if (p.tcp && p.tcp.free === false) {
+          const who = (p.tcp.owners || []).map(o => o.instance || o.process).filter(Boolean)[0] || "";
+          portErr(who ? `端口 ${v} 正被「${who}」占用，启动会失败` : `端口 ${v} 正被占用`);
+          return;
+        }
+        if ((p.instances || []).some(x => x.instance && x.instance !== $("#tp-name").value.trim())) {
+          portErr(`端口 ${v} 也是列表里某台服务器要用的`);
+          return;
+        }
+        portErr("");
+      } catch (e) { /* 查不成不拦着 */ }
+    });
+    $("#tp-go").disabled = false;
+  };
+
+  $("#tp-go").onclick = async () => {
+    if (!packFile) { fileErr("交接包还没上传完，或上传失败了"); return; }
+    const name = $("#tp-name") ? $("#tp-name").value.trim() : "";
+    if (!name) { $("#tp-name").classList.add("invalid"); $("#tp-name-err").innerHTML = icon("warn") + " 请给这台服务器起个名字"; $("#tp-name").focus(); return; }
+    $("#tp-go").disabled = true;
+    $("#tp-go").textContent = "导入中…";
+    try {
+      const r = await api("/api/transfer/import", { method: "POST", body: {
+        file: packFile, name, xmxMb: $("#tp-mem") ? +$("#tp-mem").value : 0,
+        port: +$("#tp-port").value || 0, eula: $("#tp-eula").checked, root: trapRoot,
+      } });
+      if (stale(gen)) return;
+      toast(`开始导入：${r.pack.core} ${r.pack.mc}（${r.pack.mods} 个模组）`);
+      location.hash = `#/task/${r.taskId}`;
+    } catch (e) {
+      toast(e.message, true);
+      if (stale(gen)) return;
+      if (/EULA/.test(e.message)) { $(".eula-box").classList.add("invalid"); $("#tp-eula-err").innerHTML = icon("warn") + " " + esc(e.message); $("#tp-eula").focus(); }
+      $("#tp-go").disabled = false;
+      $("#tp-go").innerHTML = icon("bolt") + " 导入交接包";
     }
   };
 }
@@ -1689,6 +1900,12 @@ const TASK_KINDS = {
   java: { title: "正在更换 Java", sub: "本机没有这个版本的 Java，正在下载一份（不改系统里的 Java）。", done: "Java 已换好", doneSub: "下次启动这台服务器时生效",
     ok: "Java 已换好，下次启动生效", fail: "更换失败", failHint: "这台服务器还在用原来的 Java，可以返回重试。", busy: "下载中，请勿关闭程序…",
     go: "完成，回到服务器", href: name => `#/inst/${encodeURIComponent(name)}/jvm`, back: "#/instances", backText: "返回服务器列表" },
+  "transfer-out": { title: "正在导出交接包", sub: "正在把世界、配置和模组打包成一个文件。服务器不会被改动。", done: "导出完成", doneSub: "交接包已生成，文件位置在这一页的日志里",
+    ok: "交接包导出成功", fail: "导出失败", failHint: "没有留下不完整的包，可以重试（包的特征见任务日志）。", busy: "打包中，请勿关闭程序…",
+    go: "完成", href: () => "#/instances", back: "#/instances", backText: "返回服务器列表" },
+  "transfer-in": { title: "正在导入交接包", sub: "正在准备 Java、下载核心并解包。存档、配置和模组都会保留。", done: "交接完成", doneSub: "存档、配置和模组都是原来的，可以启动了",
+    ok: "交接包导入成功", fail: "导入失败", failHint: "半成品的目录已经清理干净，可以重试。", busy: "导入中，请勿关闭程序…",
+    go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/create", backText: "返回重试" },
 };
 async function renderTaskPage(taskId) {
   const gen = viewGen;

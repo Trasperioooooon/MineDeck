@@ -25,14 +25,19 @@ type KV struct {
 }
 
 func LoadProps(path string) (*Props, error) {
-	p := &Props{}
 	b, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return p, nil
+			return &Props{}, nil
 		}
 		return nil, err
 	}
+	return ParseProps(b), nil
+}
+
+// ParseProps 解析一段 server.properties 文本（交接包读包里的端口这类「不落盘」的场景用）。
+func ParseProps(b []byte) *Props {
+	p := &Props{}
 	for _, line := range strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "!") {
@@ -52,7 +57,7 @@ func LoadProps(path string) (*Props, error) {
 	for len(p.lines) > 0 && !p.lines[len(p.lines)-1].isKV && strings.TrimSpace(p.lines[len(p.lines)-1].raw) == "" {
 		p.lines = p.lines[:len(p.lines)-1]
 	}
-	return p, nil
+	return p
 }
 
 func (p *Props) Get(key string) (string, bool) {
