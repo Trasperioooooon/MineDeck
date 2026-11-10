@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -233,9 +234,12 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 	// （-javaagent、-XX:OnError 能直接跑程序；定时任务能每天执行一条服务器命令，比如把原服主重新设成管理员），
 	// 而导入向导上看不到。写进日志，要用的话接手的人自己在设置里加。
 	old := mf.Instance
-	if len(old.ExtraJVM) > 0 {
-		t.Logf("原来的 JVM 参数没有带过来，需要的话到「内存 / 启动」里自己加：%s", shortList(old.ExtraJVM, 12))
-		for _, a := range old.ExtraJVM {
+	// MineDeck 自己加的 log4shell 防护参数不算在里面：下面会按这台电脑重新套一遍，
+	// 列出来叫人「自己加」的话，照做就加重了。
+	dropped := slices.DeleteFunc(slices.Clone(old.ExtraJVM), inst.IsLog4jFlag)
+	if len(dropped) > 0 {
+		t.Logf("原来的 JVM 参数没有带过来，需要的话到「内存 / 启动」里自己加：%s", shortList(dropped, 12))
+		for _, a := range dropped {
 			if strings.HasPrefix(a, "-javaagent:") {
 				t.Logf("⚠ 原来的服务器启动时挂了外部程序（-javaagent，外置登录就是这么接的）：对应的 jar 不在交接包里。还要用的话，向原服主要来这个 jar，确认可信以后放进服务器文件夹，再把这条参数加回去；不加的话依赖它的功能（比如外置登录）不起作用")
 				break

@@ -237,3 +237,40 @@ func TestInstallerNetWatch(t *testing.T) {
 		t.Fatalf("最近的下载地址：%q", w.host)
 	}
 }
+
+// 安装器以 0 退出不等于装好了：老版本 Forge 的安装器证书预检失败时，打两行提示就以 0 退出，什么都没装。
+// 这几段输出是实测里原样留下来的。
+func TestInstallerSaid(t *testing.T) {
+	feed := func(lines ...string) installerSaid {
+		var s installerSaid
+		for _, ln := range lines {
+			s.line(ln)
+		}
+		return s
+	}
+	// 证书预检失败、什么都没装就退出（Forge 1.16.5，重试的那一次）
+	aborted := feed(
+		"JVM info: Temurin - 1.8.0_512 - 25.512-b09",
+		"Host: files.minecraftforge.net [198.18.1.87]",
+		"Error checking https://files.minecraftforge.net/: Remote host terminated the handshake",
+		"Failed to validate certificates for https://files.minecraftforge.net/ this typically means you have an outdated java.",
+		"If instalation fails try updating your java!",
+	)
+	if err := aborted.err(); err == nil || !strings.Contains(err.Error(), "什么都没装") {
+		t.Errorf("证书预检失败又没说装成功，要算这一次失败（好让外面重试）：%v", err)
+	}
+	// 正常装完（Forge、NeoForge 的安装器结尾都是这两行）
+	ok := feed("Target Directory: .", "The server installed successfully", "You can delete this installer file now if you wish")
+	if err := ok.err(); err != nil || !ok.success {
+		t.Errorf("正常装完不该算失败：%v %+v", err, ok)
+	}
+	// 证书那两行出现过，但后面照常装完了：以装完为准
+	if err := feed("Failed to validate certificates for https://x/ this typically means you have an outdated java.", "The server installed successfully").err(); err != nil {
+		t.Errorf("提示过证书问题但最后装成了，不算失败：%v", err)
+	}
+	// 没见过成功那句话、也没有证书问题（不认识的安装器版本）：不拦，只由调用方提醒一句
+	unknown := feed("Target Directory: .", "Done.")
+	if err := unknown.err(); err != nil || unknown.success {
+		t.Errorf("不认识的输出不该拦：%v %+v", err, unknown)
+	}
+}

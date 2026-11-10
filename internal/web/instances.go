@@ -18,9 +18,8 @@ import (
 // handleImportModpack 接收整合包上传（multipart），存进缓存目录后交给操作 instance.import 解析并启动导入任务。
 func (s *Server) handleImportModpack(w http.ResponseWriter, r *http.Request) {
 	s.do(w, r, "instance.import", func() (ops.Args, error) {
-		r.Body = http.MaxBytesReader(w, r.Body, 4<<30)
-		if err := r.ParseMultipartForm(64 << 20); err != nil {
-			return nil, fmt.Errorf("上传解析失败: %w", err)
+		if err := parseUpload(w, r, modpackUploadLimit, modpackTooLarge); err != nil {
+			return nil, err
 		}
 		file, hdr, err := r.FormFile("file")
 		if err != nil {

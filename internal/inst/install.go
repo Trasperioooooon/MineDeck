@@ -468,17 +468,63 @@ func runInstallerOnce(ctx context.Context, t *tasks.Task, javaExe, dir, installe
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	var nw installerNet
+	var said installerSaid
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line != "" {
 			t.Logf("[安装器] %s", line)
+			said.line(line)
 			if what := nw.line(line); what != "" {
 				t.NetRetry(nw.host, what)
 			}
 		}
 	}
+	// 输出没读完（某一行长得离谱、管道出错）：后面的话没看到，不能拿「没说装成功」下结论。
+	// 剩下的输出读掉扔了，免得安装器卡在写不进去的管道上。
+	scanErr := sc.Err()
+	if scanErr != nil {
+		t.Logf("⚠ 安装器的输出没有读完（%v），装没装成只能看它的退出码", scanErr)
+		_, _ = io.Copy(io.Discard, stdout)
+	}
 	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("安装器退出异常: %w", err)
+	}
+	if scanErr != nil {
+		return nil
+	}
+	if err := said.err(); err != nil {
+		return err
+	}
+	if !said.success {
+		t.Logf("⚠ 安装器正常退出了，但没有看到它说安装成功。服务器开不起来的话，删掉这台重新建一次")
+	}
+	return nil
+}
+
+// installerSaid 安装器的输出里和「到底装成没有」有关的两句话。
+// 进程以 0 退出不等于装好了：老版本 Forge 的安装器开头会先连一下 files.minecraftforge.net 验证书，
+// 这一步失败（网络一抖就会）它打两行提示就以 0 退出，什么都没装。第一次安装时这会在后面找启动文件的
+// 地方报出来；可要是发生在重试的那一次，上一次已经把启动文件解出来了，后几步要生成的库却没有，
+// 只看退出码就会把这半截安装当成装好的，服务器一开就崩（实测遇到过：Forge 1.16.5 的交接包导入）。
+type installerSaid struct {
+	success   bool // 说了「The server installed successfully」
+	certAbort bool // 说了证书校验没过
+}
+
+func (o *installerSaid) line(s string) {
+	if strings.Contains(s, "installed successfully") {
+		o.success = true
+	}
+	if strings.Contains(s, "Failed to validate certificates") {
+		o.certAbort = true
+	}
+}
+
+// err 以 0 退出以后还要不要算失败。只认已经见过的那一种：证书校验没过、又没说装成功。
+// 别的情况不拦（没法保证每个版本的安装器成功时都说同一句话），调用方只记一行提醒。
+func (o installerSaid) err() error {
+	if o.certAbort && !o.success {
+		return fmt.Errorf("安装器连不上 Forge 的服务器（证书校验没过），什么都没装就退出了")
 	}
 	return nil
 }

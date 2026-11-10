@@ -383,6 +383,39 @@ func TestImportDropsRuntimeSettings(t *testing.T) {
 	if o, err := m.Get("老版本"); err != nil || len(o.ExtraJVM) != 1 || o.ExtraJVM[0] != inst.Log4jNoLookups {
 		t.Errorf("判断不了版本时要补上 log4shell 防护参数，别的参数一个不带：%v %+v", err, o)
 	}
+	// MineDeck 自己加的 log4shell 防护参数不能列在「没带过来、需要的话自己加」那句话里：导入时会重新套一遍，
+	// 照那句话去手动加就加重了。只有它们俩的包不该出现那句话；混着别的参数时只列别的。
+	for k, c := range []struct {
+		jvm      []string
+		wantLine bool
+	}{
+		{[]string{inst.Log4jNoLookups, "-Dlog4j.configurationFile=log4j2_112-116.xml"}, false},
+		{[]string{inst.Log4jNoLookups, "-XX:+UseG1GC", "-Dlog4j.configurationFile=log4j2_112-116.xml"}, true},
+	} {
+		var mf Manifest
+		if err := json.Unmarshal([]byte(old), &mf); err != nil {
+			t.Fatal(err)
+		}
+		mf.Instance.ExtraJVM = c.jvm
+		b, _ := json.Marshal(mf)
+		id, err = ImportAsync(m, rawPack(t, string(b), files), ImportReq{Name: fmt.Sprintf("防护参数 %d", k), EULA: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		snap, _, _, _ := waitTask(t, m, id)
+		if snap.Err != "" {
+			t.Fatalf("导入失败：%s", snap.Err)
+		}
+		line := ""
+		for _, ln := range snap.Log {
+			if strings.Contains(ln, "JVM 参数没有带过来") {
+				line = ln
+			}
+		}
+		if (line != "") != c.wantLine || strings.Contains(line, "log4j") || (c.wantLine && !strings.Contains(line, "-XX:+UseG1GC")) {
+			t.Errorf("参数 %v：「没带过来」那句话不对：%q", c.jvm, line)
+		}
+	}
 	// 占位放掉了：同名再导入报的是「已存在」而不是「正在创建中」
 	if _, err := ImportAsync(m, rawPack(t, manifest("100", "jar:server.jar"), files), ImportReq{Name: "接手服", EULA: true}); err == nil || strings.Contains(err.Error(), "创建中") {
 		t.Errorf("导入结束后占位应放掉：%v", err)

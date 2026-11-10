@@ -151,11 +151,32 @@ func leftOut(dir string, packed []packFile, launchTarget string) []string {
 				continue
 			}
 		} else {
+			// 空文件夹不提：Forge 一装好就有空的 defaultconfigs，没装模组的服 mods 也是空的，里面没有东西可带，
+			// 提了只会让人以为丢了什么。
+			if !hasRegularFile(filepath.Join(dir, name)) {
+				continue
+			}
 			name += "/"
 		}
 		out = append(out, name)
 	}
 	return out
+}
+
+// hasRegularFile 这个文件夹里（含子文件夹）有没有至少一个普通文件。读不了的当作有：宁可多提一句，不漏提。
+func hasRegularFile(dir string) bool {
+	found := false
+	err := filepath.WalkDir(dir, func(_ string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.Type().IsRegular() {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found || err != nil
 }
 
 // coreJar 根目录下的这个 jar（小写文件名）是不是服务端核心自己的：启动用的那个、原版服务端、Fabric 的启动器、安装器。

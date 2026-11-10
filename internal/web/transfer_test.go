@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"mime/multipart"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -237,4 +239,56 @@ func mdpacklessZip() []byte {
 	w.Write([]byte("只是个 zip"))
 	zw.Close()
 	return buf.Bytes()
+}
+
+// 超过上限的上传：要说清楚是太大了、上限多少、还有什么办法，而不是一句「上传解析失败: http: request body too large」。
+// 两条路都要是这句话：请求头里写明了大小的（不等传完就拒），和没写大小、读到上限才发现的。拒掉以后上传目录里不留东西。
+func TestUploadTooLargeSaysSo(t *testing.T) {
+	e := newFullEnv(t)
+	oldT, oldM := transferUploadLimit, modpackUploadLimit
+	transferUploadLimit, modpackUploadLimit = 4096, 4096
+	t.Cleanup(func() { transferUploadLimit, modpackUploadLimit = oldT, oldM })
+
+	big := bytes.Repeat([]byte("x"), 2<<20) // 上限之外还有 1 MiB 留给表单头的余量，要超过它
+	post := func(path, filename string, withLength bool) (int, string) {
+		t.Helper()
+		var body bytes.Buffer
+		mw := multipart.NewWriter(&body)
+		fw, _ := mw.CreateFormFile("file", filename)
+		fw.Write(big)
+		mw.WriteField("name", "太大的包")
+		mw.Close()
+		req := httptest.NewRequest("POST", path, io.NopCloser(bytes.NewReader(body.Bytes())))
+		if withLength {
+			req.ContentLength = int64(body.Len())
+		} else {
+			req.ContentLength = -1
+		}
+		req.Host = "127.0.0.1"
+		req.RemoteAddr = "127.0.0.1:52000"
+		req.Header.Set("X-Token", Token)
+		req.Header.Set("Content-Type", mw.FormDataContentType())
+		rec := httptest.NewRecorder()
+		e.h.ServeHTTP(rec, req)
+		return rec.Code, rec.Body.String()
+	}
+	for _, c := range []struct{ path, file, want string }{
+		{"/api/transfer/upload", "big.mdpack", "超过了 8 GB 的上限"},
+		{"/api/import/modpack", "big.zip", "超过了 4 GB 的上限"},
+	} {
+		for _, withLength := range []bool{true, false} {
+			code, body := post(c.path, c.file, withLength)
+			if code != http.StatusRequestEntityTooLarge || !strings.Contains(body, c.want) || strings.Contains(body, "too large") || strings.Contains(body, "解析失败") {
+				t.Errorf("%s（请求头带大小=%v）：HTTP %d，%s", c.path, withLength, code, body)
+			}
+		}
+	}
+	if !strings.Contains(transferTooLarge, "接管已有服务器") {
+		t.Errorf("交接包太大时要告诉用户还有接管这条路：%s", transferTooLarge)
+	}
+	for _, sub := range []string{filepath.Join("transfer", "import"), "import"} {
+		if ents, _ := os.ReadDir(filepath.Join(app.CacheDir, sub)); len(ents) != 0 {
+			t.Errorf("被拒的上传不该在 %s 里留下文件：%d 个", sub, len(ents))
+		}
+	}
 }

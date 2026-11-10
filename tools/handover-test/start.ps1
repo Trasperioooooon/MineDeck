@@ -4,9 +4,13 @@
 #
 # 测试目录默认在 D:\MineDeck-handover-test，和项目目录、和你平时用的那份 MineDeck 完全分开。
 # 这个文件要存成带 BOM 的 UTF-8（Windows PowerShell 5.1 不带 BOM 会把中文读成乱码）。
+# 复测修好的问题时，不想用发布版、想用本地编出来的程序：
+#   powershell -ExecutionPolicy Bypass -File start.ps1 -LocalExe <编出来的 MineDeck.exe>
+# 之后再不带这个参数运行一次（或者双击 .bat），两份副本就换回发布版。
 param(
     [string]$Root = 'D:\MineDeck-handover-test',
-    [string]$Tag = 'v3.1.0-beta.1'
+    [string]$Tag = 'v3.1.0-beta.1',
+    [string]$LocalExe = ''
 )
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -52,13 +56,19 @@ function ExeOk {
     try { $got = ([BitConverter]::ToString($sha.ComputeHash($fs)) -replace '-', '').ToLower() } finally { $fs.Dispose(); $sha.Dispose() }
     return ($got -eq $want)
 }
-if (-not (ExeOk)) {
-    Fetch 'SHA256SUMS' $sums
-    Fetch 'MineDeck.exe' $exe
-    [IO.File]::WriteAllText($tagFile, $Tag)
-    if (-not (ExeOk)) { throw "下载回来的 MineDeck.exe 和 SHA256SUMS 对不上，不继续。" }
+if ($LocalExe) {
+    if (-not (Test-Path -LiteralPath $LocalExe -PathType Leaf)) { throw "找不到 -LocalExe 指的文件：$LocalExe" }
+    $exe = (Resolve-Path -LiteralPath $LocalExe).Path
+    Say "这次用本地的程序，不是发布版：$exe"
+} else {
+    if (-not (ExeOk)) {
+        Fetch 'SHA256SUMS' $sums
+        Fetch 'MineDeck.exe' $exe
+        [IO.File]::WriteAllText($tagFile, $Tag)
+        if (-not (ExeOk)) { throw "下载回来的 MineDeck.exe 和 SHA256SUMS 对不上，不继续。" }
+    }
+    Say "MineDeck $Tag 已就绪，SHA-256 核对通过。"
 }
-Say "MineDeck $Tag 已就绪，SHA-256 核对通过。"
 
 # ---------- 启动两份副本 ----------
 $copies = [ordered]@{}

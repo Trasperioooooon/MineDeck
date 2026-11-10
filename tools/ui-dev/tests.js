@@ -2747,6 +2747,50 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(page.url().endsWith("#/instances"), "完成按钮没回列表：" + page.url());
     });
 
+    await run("交接包和整合包超过上限：上传之前就拦下，说清楚是太大了", async () => {
+      await mockState({ instReset: true });
+      await page.goto(url("#/create")); await settle();
+      // 造不出几个 GB 的文件：把名字以 huge 开头的文件说成 9 GB。页面重新加载以后要再设一次
+      const fakeHuge = () => page.evaluate(() => {
+        const real = Object.getOwnPropertyDescriptor(Blob.prototype, "size").get;
+        Object.defineProperty(File.prototype, "size", { configurable: true, get() { return this.name.startsWith("huge") ? 9 * 1024 ** 3 : real.call(this); } });
+      });
+      await fakeHuge();
+      try {
+        await page.click("#mode-transfer"); await settle(300);
+        let since = reqs.length;
+        await page.setInputFiles("#tp-file", { name: "huge.mdpack", mimeType: "application/zip", buffer: Buffer.from("PK") });
+        await settle(600);
+        const tp = await page.textContent("#tp-file-err");
+        assert(tp.includes("9.00 GB") && tp.includes("8 GB 的上限") && tp.includes("接管已有服务器"), "交接包太大的提示：" + tp);
+        assert(!reqs.slice(since).some(r => r.u === "/api/transfer/upload"), "太大的交接包不该开始上传");
+        assert(await page.$eval("#tp-go", b => b.disabled), "太大的包不该能点「导入」");
+        // 换一个正常大小的：提示消掉，照常上传
+        await page.setInputFiles("#tp-file", { name: "pack.mdpack", mimeType: "application/zip", buffer: Buffer.from("PK") });
+        await settle(700);
+        assert((await page.textContent("#tp-file-err")).trim() === "" && await page.$("#tp-name"), "换成正常的包以后应照常出摘要");
+        assert(!(await page.$eval("#tp-go", b => b.disabled)) || await page.$("#tp-eula"), "正常的包应能继续往下填");
+        // 已经传好一个包以后再选一个太大的：上一个包的摘要要清掉、按钮要灰掉，不然点「导入」导的是上一个包
+        await page.setInputFiles("#tp-file", { name: "huge-2.mdpack", mimeType: "application/zip", buffer: Buffer.from("PK") });
+        await settle(500);
+        assert((await page.textContent("#tp-file-err")).includes("8 GB 的上限"), "第二次选太大的包也要提示");
+        assert(!(await page.$("#tp-name")) && (await page.textContent("#tp-form")).trim() === "", "上一个包的摘要应清掉：" + await page.textContent("#tp-form"));
+        assert(await page.$eval("#tp-go", b => b.disabled), "换成太大的包以后「导入」应灰掉");
+
+        await page.goto(url("#/create")); await settle();
+        await fakeHuge();
+        await page.click("#mode-import"); await settle(400);
+        since = reqs.length;
+        await page.setInputFiles("#im-file", { name: "huge.zip", mimeType: "application/zip", buffer: Buffer.from("PK") });
+        await page.click("#im-go"); await settle(400);
+        const im = await page.textContent("#im-file-err");
+        assert(im.includes("9.00 GB") && im.includes("4 GB 的上限"), "整合包太大的提示：" + im);
+        assert(!reqs.slice(since).some(r => r.u === "/api/import/modpack"), "太大的整合包不该开始上传");
+      } finally {
+        await page.evaluate(() => { delete File.prototype.size; });
+      }
+    });
+
     await run("导入交接包：新建页第四张卡片、上传出摘要、端口占用提示、提交后任务页说「交接」", async () => {
       await mockState({ instReset: true });
       await page.goto(url("#/create")); await settle();

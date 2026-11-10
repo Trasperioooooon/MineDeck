@@ -1365,6 +1365,7 @@ async function drawImport() {
   $("#im-go").onclick = async () => {
     const f = $("#im-file").files[0];
     if (!f) { fileErr("请先选择整合包文件（.mrpack 或 .zip）"); $("#im-file").focus(); return; }
+    if (f.size > 4 * 1024 ** 3) { fileErr(`这个整合包有 ${(f.size / 1024 ** 3).toFixed(2)} GB，超过了 4 GB 的上限，导不进来。`); $("#im-file").focus(); return; }
     if (!$("#im-eula").checked) { eulaErr("导入前需要同意 Minecraft EULA"); $("#im-eula").focus(); return; }
     $("#im-go").disabled = true;
     $("#im-go").textContent = "上传中…";
@@ -1485,23 +1486,32 @@ async function drawTransfer() {
   const fileErr = msg => { $("#tp-file").classList.toggle("invalid", !!msg); $("#tp-file-err").innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; };
   $("#tp-file").addEventListener("change", () => fileErr(""));
 
+  let upSeq = 0; // 每选一次文件加一：前一次上传回来得晚，不能把后选的那个顶掉
   const upload = async () => {
+    const seq = ++upSeq;
     const f = $("#tp-file").files[0];
-    if (!f) { fileErr("请先选择交接包文件（.mdpack）"); $("#tp-file").focus(); return; }
+    // 换了文件，上一个包的摘要就不算数了，哪怕这次选的文件有问题：不清掉的话，「导入」点下去导的是上一个包
     pack = null; packFile = "";
-    $("#tp-form").innerHTML = `<div class="sub" style="margin:8px 0 16px">上传中…</div>`;
+    $("#tp-form").innerHTML = "";
     $("#tp-go").disabled = true;
+    if (!f) { fileErr("请先选择交接包文件（.mdpack）"); $("#tp-file").focus(); return; }
+    // 上限是 8 GB（后端同一个数）。超了就不传：几个 GB 传完才被拒，等了半天只得到一句报错
+    if (f.size > 8 * 1024 ** 3) {
+      fileErr(`这个交接包有 ${(f.size / 1024 ** 3).toFixed(2)} GB，超过了 8 GB 的上限，导不进来。存档这么大的服务器，把整个服务器文件夹拷到这台电脑上，再回「新建服务器」页选「接管已有服务器」。`);
+      return;
+    }
+    $("#tp-form").innerHTML = `<div class="sub" style="margin:8px 0 16px">上传中…</div>`;
     const fd = new FormData();
     fd.append("file", f);
     try {
       const res = await fetch("/api/transfer/upload", { method: "POST", headers: { "X-Token": TOKEN() }, body: fd });
       const j = await res.json();
       if (!j.ok) throw new Error(j.error || "上传失败");
-      if (stale(gen)) return;
+      if (stale(gen) || seq !== upSeq) return;
       pack = j.data; packFile = j.data.file;
       drawForm();
     } catch (e) {
-      if (stale(gen)) return;
+      if (stale(gen) || seq !== upSeq) return;
       fileErr(e.message);
       $("#tp-form").innerHTML = "";
     }

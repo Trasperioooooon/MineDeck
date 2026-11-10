@@ -32,6 +32,7 @@ type PendingFile struct {
 	URLs   []string // https 的候选地址（信任主机之后可以从中下载；badurl 时为空）
 	Size   int64
 	Reason string // host | nohash | badurl
+	Note   string // 给用户看的一句话；空着就按 Reason 给通用的（PendingNote）
 }
 
 // AllowedHosts 内置允许的下载主机：Modrinth 整合包规范允许的托管站，

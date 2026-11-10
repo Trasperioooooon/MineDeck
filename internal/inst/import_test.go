@@ -378,3 +378,93 @@ func (f fakeTransport) RoundTrip(*http.Request) (*http.Response, error) {
 		Header:     http.Header{"Content-Length": []string{strconv.Itoa(len(f.content))}},
 	}, nil
 }
+
+// 没法自动下载的 CurseForge 文件：查到了文件名的，待决清单里写真实的落点和项目名、原因；
+// 接口给的文件名不规矩（是 MineDeck 自己的文件、是 Windows 的保留名）时退回只写编号，不拿它当落点。
+func TestCFPendingCarriesNamesAndPlacement(t *testing.T) {
+	pf, wi := cfPendingOf(modpack.CFRef{ProjectID: 5, FileID: 105, FileName: "hapi-1.1.3.jar", Name: "Hybrid API",
+		Dir: "mods", Why: modpack.CFWhyNoDist, URL: "https://www.curseforge.com/minecraft/mc-mods/hapi/files/105"})
+	if pf.Path != "mods/hapi-1.1.3.jar" || pf.Reason != "cf" || !strings.Contains(pf.Note, "「Hybrid API」") || !strings.Contains(pf.Note, "作者不允许") {
+		t.Errorf("作者不让下载的：%+v", pf)
+	}
+	if wi.Name != "mods/hapi-1.1.3.jar（Hybrid API）" || wi.URL != "https://www.curseforge.com/minecraft/mc-mods/hapi/files/105" {
+		t.Errorf("告警里的一行：%+v", wi)
+	}
+	// 资源包进 resourcepacks
+	if pf, _ := cfPendingOf(modpack.CFRef{ProjectID: 2, FileID: 102, FileName: "Faithful.zip", Dir: "resourcepacks", Why: modpack.CFWhyNoDist}); pf.Path != "resourcepacks/Faithful.zip" {
+		t.Errorf("资源包的落点：%s", pf.Path)
+	}
+	// 没查到文件名（没填 Key）：只有编号，链接退回按项目编号拼的那个
+	pf, wi = cfPendingOf(modpack.CFRef{ProjectID: 7, FileID: 107, Why: modpack.CFWhyNoKey})
+	if pf.Path != "mods/（CurseForge 项目 7，文件 107）" || !strings.Contains(pf.Note, "API Key") || !strings.Contains(wi.URL, "/projects/7") {
+		t.Errorf("没查到文件名的：%+v %+v", pf, wi)
+	}
+	// 不规矩的文件名、认不得的文件夹：不拿来当落点
+	for _, r := range []modpack.CFRef{
+		{ProjectID: 8, FileID: 108, FileName: "NUL", Dir: "mods"},                     // Windows 的保留名
+		{ProjectID: 8, FileID: 108, FileName: "x.jar", Dir: "config/minedeck"},        // 文件夹不是那四个之一
+		{ProjectID: 8, FileID: 108, FileName: "x.jar", Dir: ".."},                     // 想往外跑
+		{ProjectID: 8, FileID: 108, FileName: "sub/../../instance.json", Dir: "mods"}, // 接口那边按理已经挡掉，这里再挡一次
+	} {
+		pf, _ := cfPendingOf(r)
+		if !strings.HasPrefix(pf.Path, "mods/") || strings.Contains(pf.Path, "..") || strings.Contains(pf.Path, "minedeck") ||
+			pf.Path == "mods/NUL" || !overrideAllowed(pf.Path) {
+			t.Errorf("%+v 的落点不该是 %q", r, pf.Path)
+		}
+	}
+
+	// 落点的检查要按化简以后的样子来认：绕一圈回到 MineDeck 自己的文件、整段只有点和空格的，都不行
+	for _, bad := range []string{"mods/../instance.json", "mods/sub/../../instance.json", "config/x/../minedeck/companion.properties",
+		"mods/../../outside.jar", "..", "mods/.../x.jar", "mods/ . /x.jar", `mods\..\instance.json`} {
+		if overrideAllowed(bad) {
+			t.Errorf("%q 不该算能写的落点", bad)
+		}
+	}
+	for _, ok := range []string{"mods/a.jar", "mods/sub/../b.jar", "resourcepacks/Faithful 32x.zip", "config/x.toml"} {
+		if !overrideAllowed(ok) {
+			t.Errorf("%q 是正常的落点", ok)
+		}
+	}
+
+	if got := cfWhySummary([]modpack.CFRef{{Why: modpack.CFWhyNoKey}, {Why: modpack.CFWhyNoKey}}); got != "没有填 API Key" {
+		t.Errorf("全是一个原因时只说原因：%q", got)
+	}
+	if got := cfWhySummary([]modpack.CFRef{{Why: modpack.CFWhyNoDist}, {Why: modpack.CFWhyNoDist}, {Why: modpack.CFWhyGone}}); got != "作者不允许第三方下载的 2 个，CurseForge 上找不到的 1 个" {
+		t.Errorf("几个原因时各说几个：%q", got)
+	}
+	if got := cfPlacement([]modpack.File{{Path: "mods/a.jar"}, {Path: "mods/b.jar"}}); got != "" {
+		t.Errorf("全是模组时不用说：%q", got)
+	}
+	got := cfPlacement([]modpack.File{{Path: "mods/a.jar"}, {Path: "resourcepacks/a.zip"}, {Path: "resourcepacks/b.zip"}, {Path: "datapacks/c.zip"}})
+	if !strings.Contains(got, "资源包 2 个进 resourcepacks") || !strings.Contains(got, "数据包 1 个进 datapacks") || strings.Contains(got, "光影") || !strings.Contains(got, "不会自己生效") {
+		t.Errorf("分开放的说明：%q", got)
+	}
+}
+
+// 待决清单里 CurseForge 的项：说明用它自己的那句；用本地文件代替时放进这一项该在的文件夹，文件叫它本来的名字。
+func TestCFPendingNoteAndLocalPlacement(t *testing.T) {
+	m, dir := importEnv(t)
+	tk := newImportTask(m, "测试服", dir)
+	p1, _ := cfPendingOf(modpack.CFRef{ProjectID: 2, FileID: 102, FileName: "Faithful 32x.zip", Name: "Faithful", Dir: "resourcepacks", Why: modpack.CFWhyNoDist})
+	p2, _ := cfPendingOf(modpack.CFRef{ProjectID: 5, FileID: 105, Why: modpack.CFWhyNoKey})
+	m.finishImport(tk, CreateReq{Name: "测试服"}, dir, []modpack.PendingFile{p1, p2}, nil)
+	sn := tk.Snapshot()
+	if len(sn.Pending) != 2 || !strings.Contains(sn.Pending[0].Note, "「Faithful」") || !strings.Contains(sn.Pending[1].Note, "API Key") {
+		t.Fatalf("待决清单里的说明：%+v", sn.Pending)
+	}
+	local := t.TempDir()
+	writeTree(t, local, map[string]string{"我下载的资源包.zip": "资源包", "我下载的模组.jar": "模组"})
+	out, remain, err := m.ResolveImportPending(context.Background(), tk.ID(), []PendingAction{
+		{ID: "p1", Act: "local", Path: filepath.Join(local, "我下载的资源包.zip")},
+		{ID: "p2", Act: "local", Path: filepath.Join(local, "我下载的模组.jar")},
+	})
+	if err != nil || len(out) != 2 || !out[0].OK || !out[1].OK || len(remain) != 0 {
+		t.Fatalf("两项都该处理成功：%v %+v %+v", err, out, remain)
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, "resourcepacks", "我下载的资源包.zip")); err != nil || string(b) != "资源包" {
+		t.Errorf("资源包该进 resourcepacks：%v", err)
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, "mods", "我下载的模组.jar")); err != nil || string(b) != "模组" {
+		t.Errorf("没查到文件名的按模组放进 mods：%v", err)
+	}
+}

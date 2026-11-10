@@ -511,6 +511,12 @@ func TestExportCarriesCoreConfigs(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "gameai.json"), "{}")
 	writeFile(t, filepath.Join(dir, "log4j2_112-116.xml"), "<Configuration/>")
 	writeFile(t, filepath.Join(dir, ".minedeck", "config-backups", "server.properties.1"), "x")
+	// 空文件夹：Forge 装好就有空的 defaultconfigs；清单之外的空文件夹（里面只有空的子文件夹）同理，没有东西可带
+	for _, empty := range []string{"defaultconfigs", filepath.Join("空文件夹", "里面也是空的")} {
+		if err := os.MkdirAll(filepath.Join(dir, empty), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	m := manager(t, "A 的服")
 	for _, full := range []bool{false, true} {
 		id, err := ExportAsync(m, ExportReq{Inst: "A 的服", Full: full})
@@ -554,6 +560,11 @@ func TestExportCarriesCoreConfigs(t *testing.T) {
 		for _, not := range []string{"cache", "usercache.json", "run.bat", "instance.json", "server.jar", "gameai.json", "log4j2", ".minedeck"} {
 			if strings.Contains(excluded, not) {
 				t.Errorf("full=%v：%s 会重新生成或重新下载，不用列进「没进包」：%s", full, not, excluded)
+			}
+		}
+		for _, not := range []string{"defaultconfigs", "空文件夹"} {
+			if strings.Contains(excluded, not) || strings.Contains(log, not) {
+				t.Errorf("full=%v：%s 是空的，没有东西可带，不该提醒「没有进包」\n剔除清单：%s\n日志：%s", full, not, excluded, log)
 			}
 		}
 		os.Remove(snap.Result)

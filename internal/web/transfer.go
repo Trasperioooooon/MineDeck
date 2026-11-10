@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -31,9 +32,8 @@ func (s *Server) transferRoutes(mux *http.ServeMux) {
 func (s *Server) handleTransferUpload(w http.ResponseWriter, r *http.Request) {
 	// 存文件的这半步留在网页层（和整合包上传一样不占单次操作记录）；摘要走 instance.transfer.scan
 	s.do(w, r, "instance.transfer.scan", func() (ops.Args, error) {
-		r.Body = http.MaxBytesReader(w, r.Body, 8<<30) // 交接包常以 GB 计，给 8 GiB 上限
-		if err := r.ParseMultipartForm(64 << 20); err != nil {
-			return nil, fmt.Errorf("上传解析失败: %w", err)
+		if err := parseUpload(w, r, transferUploadLimit, transferTooLarge); err != nil {
+			return nil, err
 		}
 		file, hdr, err := r.FormFile("file")
 		if err != nil {
@@ -75,6 +75,39 @@ func (s *Server) handleTransferUpload(w http.ResponseWriter, r *http.Request) {
 		}
 		return ops.ArgsOf(map[string]any{"file": dest}), nil
 	})
+}
+
+// 上传的上限。包变量是为了测试能调小。
+var (
+	transferUploadLimit int64 = 8 << 30 // 交接包常以 GB 计
+	modpackUploadLimit  int64 = 4 << 30
+)
+
+// 超过上限时给用户看的话。说清楚是太大了、上限是多少、还有什么别的办法：原来报的是
+// 「上传解析失败: http: request body too large」，用户多半以为文件坏了，一遍遍重试。
+const (
+	transferTooLarge = "这个交接包超过了 8 GB 的上限，导不进来。存档这么大的服务器，把整个服务器文件夹拷到这台电脑上，再到「新建服务器」页选「接管已有服务器」。"
+	modpackTooLarge  = "这个整合包超过了 4 GB 的上限，导不进来。"
+)
+
+// parseUpload 解析 multipart 上传。超过 limit 时返回 tooLarge 这句话：请求头里写明了大小的，不等传完就拒掉；
+// 没写或者写小了的，读到上限时拒掉。
+func parseUpload(w http.ResponseWriter, r *http.Request, limit int64, tooLarge string) error {
+	// 请求体比文件本身多出 multipart 的分隔线和别的表单项。界面是按文件大小拦的，这里留 1 MiB 余量，
+	// 免得一个刚好卡在上限以内的文件，界面放行、传完了又被这里拒掉。
+	limit += 1 << 20
+	if r.ContentLength > limit {
+		return ops.Errorf(http.StatusRequestEntityTooLarge, "%s", tooLarge)
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
+	if err := r.ParseMultipartForm(64 << 20); err != nil {
+		var big *http.MaxBytesError
+		if errors.As(err, &big) || strings.Contains(err.Error(), "request body too large") {
+			return ops.Errorf(http.StatusRequestEntityTooLarge, "%s", tooLarge)
+		}
+		return fmt.Errorf("上传解析失败: %w", err)
+	}
+	return nil
 }
 
 // sweepUploads 清掉上传目录里 24 小时还没导入的包（导入任务自己会删用完的；这是给传完没用的兜底）。

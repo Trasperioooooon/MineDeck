@@ -95,6 +95,7 @@ type Task struct {
 	mu       sync.Mutex
 	steps    []Step
 	log      []string
+	logCut   int // 日志太长时从中间丢掉了多少行（见 appendLog）
 	label    string
 	done     int64
 	total    int64
@@ -206,13 +207,39 @@ func (t *Task) NetRetry(host, what string) {
 	t.netHost, t.netWhat, t.netAt = host, what, time.Now()
 }
 
+// 一个任务的日志最多留 logMax 行。超出时不是只留最后的：开头的 logHead 行是任务自己说的话
+// （这是什么包、里面有什么、哪些没带过来、用哪个 Java），后面常常跟着官方安装器几百行的输出，
+// 只留末尾的话，这些说明就被挤掉了，而收尾那句「没带过来的东西见上面几行」还指着它们。
+// 所以开头的留着，从中间往外丢，丢了多少行在快照里标一行。
+const (
+	logHead = 40
+	logMax  = 400
+)
+
 func (t *Task) Logf(format string, a ...any) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.log = append(t.log, fmt.Sprintf(format, a...))
-	if len(t.log) > 400 {
-		t.log = t.log[len(t.log)-400:]
+	t.appendLog(fmt.Sprintf(format, a...))
+}
+
+// appendLog 记一行日志，超出上限时丢掉开头那几十行之后最早的。调用方持有 t.mu。
+func (t *Task) appendLog(line string) {
+	t.log = append(t.log, line)
+	if over := len(t.log) - logMax; over > 0 {
+		t.log = append(t.log[:logHead], t.log[logHead+over:]...)
+		t.logCut += over
 	}
+}
+
+// logLines 给快照用的日志：中间丢过行的话，在断开的地方插一行说明。调用方持有 t.mu。
+func (t *Task) logLines() []string {
+	if t.logCut == 0 {
+		return append([]string(nil), t.log...)
+	}
+	out := make([]string, 0, len(t.log)+1)
+	out = append(out, t.log[:logHead]...)
+	out = append(out, fmt.Sprintf("……（中间的 %d 行太多，没有保留）……", t.logCut))
+	return append(out, t.log[logHead:]...)
 }
 
 // AddWarning 追加一条结构化告警，供结果页醒目呈现。
@@ -291,7 +318,7 @@ func (t *Task) Fail(err error) {
 	}
 	t.ended = true
 	t.err = err.Error()
-	t.log = append(t.log, "❌ "+err.Error())
+	t.appendLog("❌ " + err.Error())
 	t.cancel()
 }
 
@@ -304,7 +331,7 @@ func (t *Task) Snapshot() Snapshot {
 		Ended: t.ended, Err: t.err, Result: t.result,
 	}
 	s.Steps = append(s.Steps, t.steps...)
-	s.Log = append(s.Log, t.log...)
+	s.Log = t.logLines()
 	s.Warnings = append(s.Warnings, t.warnings...)
 	s.Pending = append(s.Pending, t.pending...)
 	if !t.netAt.IsZero() && !t.ended {

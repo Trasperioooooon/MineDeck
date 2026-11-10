@@ -128,3 +128,43 @@ func TestPendingList(t *testing.T) {
 		t.Fatalf("清空后摘要应为 0: %+v", s)
 	}
 }
+
+// 日志超过上限时，开头那几十行要留着：交接包导入先说「包里有什么、哪些没带过来」，
+// 接着官方安装器打几百行，只留末尾的话开头这些说明就没了。
+func TestLogKeepsHeadWhenTooLong(t *testing.T) {
+	mg := NewManager()
+	short, _ := mg.New("短任务", nil)
+	for n := 0; n < logMax; n++ {
+		short.Logf("第 %d 行", n)
+	}
+	if got := short.Snapshot().Log; len(got) != logMax || got[0] != "第 0 行" || got[logMax-1] != fmt.Sprintf("第 %d 行", logMax-1) {
+		t.Fatalf("没超出上限时一行都不该动：共 %d 行，首 %q 尾 %q", len(got), got[0], got[len(got)-1])
+	}
+
+	long, _ := mg.New("长任务", nil)
+	const total = 1500
+	for n := 0; n < total; n++ {
+		long.Logf("第 %d 行", n)
+	}
+	long.Fail(fmt.Errorf("最后出错了"))
+	got := long.Snapshot().Log
+	if len(got) != logMax+1 {
+		t.Fatalf("超出以后应该是 %d 行加一行说明，实际 %d 行", logMax, len(got))
+	}
+	for n := 0; n < logHead; n++ {
+		if got[n] != fmt.Sprintf("第 %d 行", n) {
+			t.Fatalf("开头第 %d 行被动了：%q", n, got[n])
+		}
+	}
+	// 一共写了 total+1 行（含出错那行），留 logMax 行，中间丢掉的就是差额
+	if want := fmt.Sprintf("……（中间的 %d 行太多，没有保留）……", total+1-logMax); got[logHead] != want {
+		t.Fatalf("断开的地方应该标明丢了多少行：%q，想要 %q", got[logHead], want)
+	}
+	if got[len(got)-1] != "❌ 最后出错了" || got[len(got)-2] != fmt.Sprintf("第 %d 行", total-1) {
+		t.Fatalf("末尾应该是最新的几行：%q / %q", got[len(got)-2], got[len(got)-1])
+	}
+	// 说明行之后的第一行，紧接着被丢掉的那一段
+	if got[logHead+1] != fmt.Sprintf("第 %d 行", total+1-(logMax-logHead)) {
+		t.Fatalf("说明行后面接的不对：%q", got[logHead+1])
+	}
+}

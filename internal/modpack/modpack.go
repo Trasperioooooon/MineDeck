@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -29,7 +31,23 @@ type CFRef struct {
 	ProjectID int64
 	FileID    int64
 	Required  bool
+
+	// 下面几项清单里没有，是 ResolveCF 查到以后填的，给没法自动下载的那些用（查不到就空着）。
+	FileName string // 文件名
+	Name     string // 项目的名字
+	URL      string // 这个文件在 CurseForge 网站上的页面，手动下载用
+	Dir      string // 该放进实例的哪个文件夹：mods / resourcepacks / shaderpacks / datapacks
+	Why      string // 为什么没法自动下载，见下面的 CFWhy*
 }
+
+// 没法自动下载的原因。
+const (
+	CFWhyNoKey  = "nokey"  // 没有填 API Key
+	CFWhyAPI    = "api"    // 接口没查成（Key 不对、网络不通）
+	CFWhyNoDist = "nodist" // 作者不允许第三方工具下载这个文件
+	CFWhyGone   = "gone"   // CurseForge 上没有这个文件了
+	CFWhyName   = "name"   // 文件名写不成这台电脑上的普通文件
+)
 
 type Pack struct {
 	Format       string // mrpack | curseforge
@@ -214,34 +232,165 @@ func parseCurseForge(zipPath string, f *zip.File) (*Pack, error) {
 	return p, nil
 }
 
-// ResolveCF 通过 CurseForge 官方 API（需用户 API key）把文件引用解析为直链。
-// 返回可下载文件与未能解析的引用（作者禁止分发或 API 失败）。
-func ResolveCF(ctx context.Context, refs []CFRef, apiKey string) (files []File, unresolved []CFRef, err error) {
-	if apiKey == "" {
-		return nil, refs, fmt.Errorf("未配置 CurseForge API Key（可在全局设置填写，或改用 Modrinth 格式整合包）")
-	}
-	ids := make([]int64, 0, len(refs))
-	for _, r := range refs {
-		ids = append(ids, r.FileID)
-	}
-	body, _ := json.Marshal(map[string]any{"fileIds": ids})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		"https://api.curseforge.com/v1/mods/files", strings.NewReader(string(body)))
+// cfAPIBase CurseForge 官方接口的地址。包变量是为了测试能换成本地的假服务。
+var cfAPIBase = "https://api.curseforge.com"
+
+// cfPost 调一次 CurseForge 的接口（POST，JSON 进 JSON 出）。
+func cfPost(ctx context.Context, apiPath string, payload any, apiKey string, out any) error {
+	body, _ := json.Marshal(payload)
+	cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(cctx, http.MethodPost, cfAPIBase+apiPath, strings.NewReader(string(body)))
 	if err != nil {
-		return nil, refs, err
+		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", apiKey)
 	req.Header.Set("User-Agent", dl.UA)
-	cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
-	resp, err := dl.Client.Do(req.WithContext(cctx))
+	resp, err := dl.Client.Do(req)
 	if err != nil {
-		return nil, refs, err
+		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, refs, fmt.Errorf("CurseForge API HTTP %d（请检查 API Key）", resp.StatusCode)
+		return fmt.Errorf("CurseForge API HTTP %d（请检查 API Key）", resp.StatusCode)
+	}
+	return json.NewDecoder(io.LimitReader(resp.Body, 64<<20)).Decode(out)
+}
+
+// cfProject 一个 CurseForge 项目里这边用得上的几样。
+type cfProject struct {
+	Name    string
+	Site    string // 项目主页（核对过是 CurseForge 自己的 https 地址，不是就为空）
+	ClassID int64
+}
+
+// cfProjects 查一批项目的名字、主页和类别。
+func cfProjects(ctx context.Context, ids []int64, apiKey string) (map[int64]cfProject, error) {
+	var out struct {
+		Data []struct {
+			ID      int64  `json:"id"`
+			Name    string `json:"name"`
+			ClassID int64  `json:"classId"`
+			Links   struct {
+				WebsiteURL string `json:"websiteUrl"`
+			} `json:"links"`
+		} `json:"data"`
+	}
+	if err := cfPost(ctx, "/v1/mods", map[string]any{"modIds": ids}, apiKey, &out); err != nil {
+		return nil, err
+	}
+	m := make(map[int64]cfProject, len(out.Data))
+	for _, d := range out.Data {
+		m[d.ID] = cfProject{Name: cleanName(d.Name), Site: cfSite(d.Links.WebsiteURL), ClassID: d.ClassID}
+	}
+	return m, nil
+}
+
+// cfSite 接口给的项目主页只有是 CurseForge 自己的 https 地址才用（要拿给用户点，也要靠它认类别）。
+func cfSite(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme != "https" || (u.Host != "www.curseforge.com" && u.Host != "curseforge.com") || u.User != nil {
+		return ""
+	}
+	u.RawQuery, u.Fragment = "", ""
+	return strings.TrimRight(u.String(), "/")
+}
+
+// cleanName 项目名要写进日志和清单文件：去掉换行和控制字符，太长的截断。
+func cleanName(name string) string {
+	name = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, name)
+	name = strings.Join(strings.Fields(name), " ")
+	if r := []rune(name); len(r) > 80 {
+		name = string(r[:80]) + "…"
+	}
+	return name
+}
+
+// cfDir 这个项目的文件该放进实例的哪个文件夹。整合包的清单不分模组、资源包、光影和数据包，
+// 全放进 mods 的话，不是模组的那些在那里什么用都没有。
+// 先看主页地址里的那一段（https://www.curseforge.com/minecraft/texture-packs/xxx），它自己写明了是哪一类；
+// 地址认不出来再看类别编号；都认不出来的按模组算，和原来一样。
+// 数据包放在根目录的 datapacks 里不会自己生效，这是有意的：带数据包的整合包通常自己带着加载它们的模组
+// 和一份放好位置的拷贝（比如 config/paxi/datapacks），再塞进世界文件夹就加载两遍了。
+func cfDir(p cfProject) string {
+	if u, err := url.Parse(p.Site); err == nil && p.Site != "" {
+		seg := strings.Split(strings.Trim(u.Path, "/"), "/")
+		if len(seg) >= 2 && seg[0] == "minecraft" {
+			switch seg[1] {
+			case "mc-mods":
+				return "mods"
+			case "texture-packs":
+				return "resourcepacks"
+			case "shaders":
+				return "shaderpacks"
+			case "data-packs":
+				return "datapacks"
+			}
+		}
+	}
+	switch p.ClassID {
+	case 12:
+		return "resourcepacks"
+	case 6552:
+		return "shaderpacks"
+	}
+	return "mods"
+}
+
+// cfFileNameOK 接口给的文件名能不能当落点里的那一段用。只认单独一段、在 Windows 上原样写得出来的名字：
+//   - 带分隔符的不要：mods/../server.properties 化简以后就落到实例根目录去了；
+//   - 只有点的、末尾是点或空格的不要：Windows 会把它们去掉，落下来的名字就不是记下的那个；
+//   - 带冒号（盘符、备用数据流）、Windows 不许用的符号、换行和控制字符的不要（名字还要写进日志和清单文件）。
+func cfFileNameOK(name string) bool {
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\:*?"<>|`) {
+		return false
+	}
+	if strings.TrimRight(name, ". ") != name {
+		return false
+	}
+	for _, r := range name {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	// Windows 的保留设备名（NUL、CON、COM1……）：导入那边的落点检查用的也是 IsLocal，这里和它一个标准，
+	// 这样名字不能用的在这一步就归到「名字不能用」，不会到后面才被挡下、原因却写成别的。
+	return filepath.IsLocal(name)
+}
+
+// ResolveCF 通过 CurseForge 官方 API（需用户 API key）把文件引用解析为直链。
+// 返回可下载的文件和没法自动下载的引用（带着原因，查得到的话还有文件名、项目名和下载页）。
+// err 不为 nil 时也可能有文件可下载：项目的类别没查到只影响往哪个文件夹放，不耽误下载。
+func ResolveCF(ctx context.Context, refs []CFRef, apiKey string) (files []File, unresolved []CFRef, err error) {
+	fail := func(why string, err error) ([]File, []CFRef, error) {
+		out := make([]CFRef, len(refs))
+		for i, r := range refs {
+			r.Why, r.Dir = why, "mods"
+			out[i] = r
+		}
+		return nil, out, err
+	}
+	if len(refs) == 0 {
+		return nil, nil, nil
+	}
+	if apiKey == "" {
+		return fail(CFWhyNoKey, fmt.Errorf("未配置 CurseForge API Key（可在全局设置填写，或改用 Modrinth 格式整合包）"))
+	}
+	fileIDs := make([]int64, 0, len(refs))
+	var projIDs []int64
+	seen := map[int64]bool{}
+	for _, r := range refs {
+		fileIDs = append(fileIDs, r.FileID)
+		if !seen[r.ProjectID] {
+			seen[r.ProjectID] = true
+			projIDs = append(projIDs, r.ProjectID)
+		}
 	}
 	var out struct {
 		Data []struct {
@@ -255,34 +404,55 @@ func ResolveCF(ctx context.Context, refs []CFRef, apiKey string) (files []File, 
 			} `json:"hashes"`
 		} `json:"data"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, refs, err
+	if err := cfPost(ctx, "/v1/mods/files", map[string]any{"fileIds": fileIDs}, apiKey, &out); err != nil {
+		return fail(CFWhyAPI, err)
 	}
+	// 项目的名字、主页、类别另查一次。查不到不耽误下载：文件都按模组放，没法下载的只有编号，和原来一样。
+	projects, projErr := cfProjects(ctx, projIDs, apiKey)
 	byID := map[int64]int{}
 	for i, d := range out.Data {
 		byID[d.ID] = i
 	}
 	for _, r := range refs {
+		proj := projects[r.ProjectID]
+		r.Name, r.Dir = proj.Name, cfDir(proj)
+		if proj.Site != "" {
+			r.URL = fmt.Sprintf("%s/files/%d", proj.Site, r.FileID)
+		}
 		i, ok := byID[r.FileID]
-		if !ok || out.Data[i].DownloadURL == "" {
+		if !ok {
+			r.Why = CFWhyGone
 			unresolved = append(unresolved, r)
 			continue
 		}
 		d := out.Data[i]
+		rel, perr := "", fmt.Errorf("文件名不能用")
+		if cfFileNameOK(d.FileName) {
+			rel, perr = safeRelPath(r.Dir + "/" + d.FileName)
+		}
+		if perr != nil {
+			r.Why = CFWhyName
+			unresolved = append(unresolved, r)
+			continue
+		}
+		r.FileName = d.FileName
+		if d.DownloadURL == "" {
+			r.Why = CFWhyNoDist
+			unresolved = append(unresolved, r)
+			continue
+		}
 		sha1 := ""
 		for _, h := range d.Hashes {
 			if h.Algo == 1 {
 				sha1 = h.Value
 			}
 		}
-		rel, err := safeRelPath("mods/" + d.FileName)
-		if err != nil {
-			unresolved = append(unresolved, r)
-			continue
-		}
 		files = append(files, File{Path: rel, SHA1: sha1, URLs: []string{d.DownloadURL}, Size: d.FileLength})
 	}
-	return files, unresolved, nil
+	if projErr != nil {
+		err = fmt.Errorf("没查到这些文件各属于哪一类（%v），全部按模组放进了 mods", projErr)
+	}
+	return files, unresolved, err
 }
 
 // ExtractOverrides 将整合包内的覆盖目录依序解压到实例目录。

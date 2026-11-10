@@ -138,28 +138,23 @@ func (m *Manager) runImport(ctx context.Context, t *tasks.Task, pack *modpack.Pa
 			t.Logf("⚠ CurseForge 解析受限: %v", err)
 		}
 		files = append(files, cf...)
+		// 清单里不全是模组：资源包、光影、数据包各进各的文件夹（都放进 mods 的话，在那里什么用都没有）
+		if line := cfPlacement(cf); line != "" {
+			t.Logf("%s", line)
+		}
 		if len(unresolved) > 0 {
 			writeUnresolvedReport(dir, unresolved)
-			t.Logf("⚠ %d 个模组无法自动下载（未配 API Key 或作者禁止分发），已列入待决清单，可在任务面板逐个处理", len(unresolved))
+			t.Logf("⚠ %d 个文件无法自动下载（%s），已列入待决清单，可在任务面板逐个处理", len(unresolved), cfWhySummary(unresolved))
 			items := make([]tasks.WarnItem, 0, len(unresolved))
 			for _, r := range unresolved {
-				job.add(pendingJob{
-					file: modpack.PendingFile{
-						Path:   fmt.Sprintf("mods/（CurseForge 项目 %d，文件 %d）", r.ProjectID, r.FileID),
-						Reason: "cf",
-					},
-					origin: "CurseForge",
-					note:   "CurseForge 上解析不到这个模组（未配 API Key 或作者禁止第三方分发），不能自动下载",
-				})
-				items = append(items, tasks.WarnItem{
-					Name: fmt.Sprintf("CurseForge 项目 #%d（文件 %d）", r.ProjectID, r.FileID),
-					URL:  fmt.Sprintf("https://www.curseforge.com/minecraft/mc-mods/projects/%d", r.ProjectID),
-				})
+				pf, wi := cfPendingOf(r)
+				job.add(pendingJob{file: pf, origin: "CurseForge", note: pf.Note})
+				items = append(items, wi)
 			}
 			t.AddWarning(tasks.Warning{
 				Kind:  "cf-unresolved",
-				Title: fmt.Sprintf("%d 个模组需手动补装", len(unresolved)),
-				Note:  "以下模组因作者禁止第三方分发或未配置 CurseForge API Key 而无法自动下载：可从链接手动下载后放入实例的 mods 目录，或在下面的「待决文件」里逐个处理（清单也已保存到实例目录「未解析模组清单.txt」）。",
+				Title: fmt.Sprintf("%d 个文件需手动补装", len(unresolved)),
+				Note:  "这些文件没法自动下载（作者不允许第三方工具下载，或者没有填 CurseForge API Key）：可以点链接到 CurseForge 网站下载，放进名字前面写的那个文件夹，或在下面的「待决文件」里逐个处理（清单也已保存到实例目录「未解析模组清单.txt」）。",
 				Items: items,
 			})
 		}
@@ -316,9 +311,18 @@ func (m *Manager) runImport(ctx context.Context, t *tasks.Task, pack *modpack.Pa
 
 // overrideAllowed 整合包覆盖目录里的这个文件（rel 相对实例目录，斜杠分隔）能不能写进来。规矩见 runImport 里用它的地方。
 func overrideAllowed(rel string) bool {
+	// 先化简再认：mods/../instance.json 落到磁盘上就是 instance.json。现在的调用方传进来的都是化简过的，
+	// 这里不指望这一点。
+	rel = path.Clean(strings.ReplaceAll(rel, "\\", "/"))
+	if !filepath.IsLocal(filepath.FromSlash(rel)) {
+		return false
+	}
 	segs := strings.Split(rel, "/")
 	for k := range segs {
 		segs[k] = strings.TrimRight(segs[k], ". ")
+		if segs[k] == "" {
+			return false // 整段只有点和空格：Windows 会把它们去掉，落点就不是看上去的那个了
+		}
 	}
 	norm := strings.Join(segs, "/")
 	return !IsControlFile(norm) && filepath.IsLocal(filepath.FromSlash(norm))
@@ -350,6 +354,9 @@ func (m *Manager) finishImport(t *tasks.Task, req CreateReq, dir string, pending
 		}
 		if pf.Reason == "cf" {
 			pi.Note = "CurseForge 上解析不到（未配 API Key 或作者禁止分发），保留本地已有文件或手动放一份"
+		}
+		if pf.Note != "" {
+			pi.Note = pf.Note // 这一项有自己的说法（比如查到了是哪个项目、为什么下不了）
 		}
 		if pf.Reason == "hash" {
 			pi.Note = "下载的内容对不上整合包给的校验值，没有采用；可以保留本地已有文件或手动指定一份"
@@ -563,10 +570,11 @@ func (m *Manager) ResolveImportPending(ctx context.Context, taskID string, acts 
 				oc.Note = note
 				break
 			}
-			// CurseForge 的项只知道项目号、不知道文件名：保留哪个文件就叫它本来的名字
+			// CurseForge 的项不一定知道文件名：保留哪个文件就叫它本来的名字，放进这一项该在的文件夹
+			// （模组进 mods，资源包进 resourcepacks……文件夹是清单里那一项的落点决定的，不是用户给的）
 			destRel := it.Path
 			if it.Reason == "cf" {
-				destRel = "mods/" + filepath.Base(src)
+				destRel = path.Dir(it.Path) + "/" + filepath.Base(src)
 			}
 			dest := filepath.Join(inst.Dir, filepath.FromSlash(destRel))
 			if err := copyLocalFile(src, dest); err != nil {
@@ -714,9 +722,103 @@ func (m *Manager) pendingInstance(taskID string) (*Instance, error) {
 
 func writeUnresolvedReport(dir string, refs []modpack.CFRef) {
 	var sb strings.Builder
-	sb.WriteString("以下模组无法自动下载，请从链接手动下载后放入 mods 目录：\r\n\r\n")
+	sb.WriteString("以下文件无法自动下载，请从链接手动下载后放进写明的文件夹：\r\n\r\n")
 	for _, r := range refs {
-		sb.WriteString(fmt.Sprintf("https://www.curseforge.com/minecraft/mc-mods/projects/%d （文件 ID: %d）\r\n", r.ProjectID, r.FileID))
+		pf, wi := cfPendingOf(r)
+		sb.WriteString(fmt.Sprintf("%s\r\n  %s\r\n  %s\r\n\r\n", pf.Path, pf.Note, wi.URL))
 	}
 	_ = os.WriteFile(filepath.Join(dir, "未解析模组清单.txt"), []byte(sb.String()), 0o644)
+}
+
+// cfPendingOf 一个没法自动下载的 CurseForge 文件：待决清单里的一项，和告警列表里可以点的一行。
+// 查到了文件名的，落点写真实的（mods/xxx.jar）：覆盖目录或本地来源目录里有同名文件时能自动认上，
+// 用户也看得出缺的是哪个。没查到的只能写编号。
+func cfPendingOf(r modpack.CFRef) (modpack.PendingFile, tasks.WarnItem) {
+	folder := r.Dir
+	switch folder {
+	case "mods", "resourcepacks", "shaderpacks", "datapacks":
+	default:
+		folder = "mods"
+	}
+	ids := fmt.Sprintf("CurseForge 项目 %d，文件 %d", r.ProjectID, r.FileID)
+	rel := fmt.Sprintf("%s/（%s）", folder, ids)
+	if r.FileName != "" && !strings.ContainsAny(r.FileName, `/\`) {
+		// 文件名是接口给的：只认单独一段的名字，再过一遍和覆盖目录一样的检查，
+		// 不能是 MineDeck 自己的文件，也不能出实例目录
+		if p := folder + "/" + r.FileName; overrideAllowed(p) {
+			rel = p
+		}
+	}
+	var why string
+	switch r.Why {
+	case modpack.CFWhyNoDist:
+		why = "作者不允许第三方工具下载这个文件。到 CurseForge 网站下载以后在这里指定，或者直接放进 " + folder + " 文件夹"
+	case modpack.CFWhyGone:
+		why = "CurseForge 上找不到这个文件了（可能已经被作者删掉）"
+	case modpack.CFWhyName:
+		why = "这个文件的名字在这台电脑上写不成普通文件"
+	case modpack.CFWhyNoKey:
+		why = "没有填 CurseForge API Key，不能自动下载。保留本地已有的文件，或者手动放一份"
+	default:
+		why = "CurseForge 的接口没有查成（检查 API Key 和网络），不能自动下载。保留本地已有的文件，或者手动放一份"
+	}
+	name := rel
+	if r.Name != "" {
+		why = "「" + r.Name + "」：" + why
+		name = rel + "（" + r.Name + "）"
+	}
+	link := r.URL
+	if link == "" {
+		link = fmt.Sprintf("https://www.curseforge.com/minecraft/mc-mods/projects/%d", r.ProjectID)
+	}
+	return modpack.PendingFile{Path: rel, Reason: "cf", Note: why}, tasks.WarnItem{Name: name, URL: link}
+}
+
+// cfWhySummary 这一批没法自动下载的，各是因为什么（写进任务日志的那一行）。
+func cfWhySummary(refs []modpack.CFRef) string {
+	count := map[string]int{}
+	for _, r := range refs {
+		count[r.Why]++
+	}
+	var parts []string
+	for _, c := range []struct{ why, text string }{
+		{modpack.CFWhyNoKey, "没有填 API Key"},
+		{modpack.CFWhyAPI, "接口没有查成"},
+		{modpack.CFWhyNoDist, "作者不允许第三方下载"},
+		{modpack.CFWhyGone, "CurseForge 上找不到"},
+		{modpack.CFWhyName, "文件名写不成普通文件"},
+		{"", "原因不明"},
+	} {
+		if n := count[c.why]; n == len(refs) {
+			return c.text
+		} else if n > 0 {
+			parts = append(parts, fmt.Sprintf("%s的 %d 个", c.text, n))
+		}
+	}
+	return strings.Join(parts, "，")
+}
+
+// cfPlacement 清单里的文件不全是模组时，说一声各放到了哪（全是模组就不说）。
+func cfPlacement(files []modpack.File) string {
+	count := map[string]int{}
+	for _, f := range files {
+		top, _, _ := strings.Cut(f.Path, "/")
+		count[top]++
+	}
+	var parts []string
+	for _, c := range []struct{ folder, text string }{
+		{"resourcepacks", "资源包"}, {"shaderpacks", "光影"}, {"datapacks", "数据包"},
+	} {
+		if n := count[c.folder]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%s %d 个进 %s", c.text, n, c.folder))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	line := "清单里不全是模组，按 CurseForge 上的类别分开放了：" + strings.Join(parts, "，")
+	if count["datapacks"] > 0 {
+		line += "。数据包放在 datapacks 里不会自己生效：带数据包的整合包一般自己带着加载它们的模组"
+	}
+	return line
 }
