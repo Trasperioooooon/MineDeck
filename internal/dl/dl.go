@@ -58,7 +58,7 @@ type Request struct {
 	MD5     string
 	MinSize int64 // 完整性下限（防错误页面被当文件保存）
 	// Client 本次下载用的 HTTP 客户端；nil 用 dl.Client。
-	// 整合包文件下载传 GuardedClient(...)（拨号和重定向级公网检查，平时也一样能走镜像）。
+	// 整合包文件下载传 GuardedClient(...)：每一跳连出去之前都查是不是公网，跳转只跟 https 的。
 	Client *http.Client
 	// OnRetry 某个地址这一次没下成、后面还会接着试（下一个地址或下一轮）时调用（host 只到主机名）；可以为 nil。
 	// 最后一个地址的最后一轮也没下成时不调：不会再试了，原因看 Fetch 返回的错误（以前也调，部署页多写一句「换下一个下载源」）。

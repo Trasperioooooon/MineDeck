@@ -20,12 +20,12 @@ import (
 	"minedeck/internal/tasks"
 )
 
-// modpackHTTP 造导入下载用的 HTTP 客户端：受控客户端（dl.GuardedClient）——拨号级与
-// 重定向级都查公网和允许列表，用户确认过的站点日后 DNS 被解析到内网也连不出去。
+// modpackHTTP 造导入下载用的 HTTP 客户端：受控客户端（dl.GuardedClient）——每一跳连出去之前都查
+// 是不是公网，用户确认过的站点日后 DNS 被解析到内网、或者借跳转指到内网也连不出去。
+// 交给它的是内置的站点名单（不含用户确认过的自定义站点）：走代理时这几个站点不按本机的解析结果拦。
 // 测试里换成带假 RoundTripper 的版本，不真正联网。
 var modpackHTTP = func() *http.Client {
-	trusted := app.TrustedHostFunc(app.TrustScopeModpack)
-	return dl.GuardedClient(func(host string) bool { return modpack.IsAllowedHost(host, trusted) })
+	return dl.GuardedClient(func(host string) bool { return modpack.IsAllowedHost(host, nil) })
 }
 
 // ImportModpackAsync 从解析好的整合包创建实例（核心/版本/加载器由整合包决定）。

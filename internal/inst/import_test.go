@@ -224,7 +224,7 @@ func TestResolveTrustDownload(t *testing.T) {
 	// 重定向与 SHA-1 校验照常走）
 	oldHTTP := modpackHTTP
 	modpackHTTP = func() *http.Client {
-		return dl.GuardedClientWithTransport(func(string) bool { return true }, fakeTransport{content: []byte(body)})
+		return dl.GuardedClientWithTransport(fakeTransport{content: []byte(body)})
 	}
 	t.Cleanup(func() { modpackHTTP = oldHTTP })
 
