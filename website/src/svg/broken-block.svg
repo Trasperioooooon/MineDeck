@@ -1,0 +1,8 @@
+<!-- A9 404：缺了一角的方块，碎片轻轻上下浮动两次。 -->
+<svg class="anim anim-404" viewBox="0 0 160 140" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+ <path d="M30 40H90V70H130V130H30Z" class="bb-dirt"/>
+ <path d="M30 40h60v14H30z" class="bb-grass"/>
+ <path d="M30 40H90V70H130V130H30Z" class="bb-edge"/>
+ <rect x="44" y="84" width="10" height="10" class="bb-spot"/><rect x="70" y="104" width="10" height="10" class="bb-spot"/>
+ <g class="bb-chip"><rect x="104" y="6" width="26" height="22" class="bb-dirt"/><rect x="104" y="6" width="26" height="8" class="bb-grass"/><rect x="104" y="6" width="26" height="22" class="bb-edge"/></g>
+</svg>

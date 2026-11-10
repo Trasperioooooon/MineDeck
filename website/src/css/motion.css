@@ -1,0 +1,77 @@
+/* 动效（ARCH 7）。原则：默认画面就是最终帧，动画只用 backwards 从起始帧过渡；位移用 steps() 保持像素感；
+   只播一次或悬停时播；prefers-reduced-motion 时全部关闭（文件末尾）。编号对应 ARCH.md 第 7 节。 */
+
+/* A1 首页「开服」：三块方块落下 → 状态灯变绿 → 终端打出 Done */
+.anim-hero .hb-dirt{fill:var(--palette-dirt-500)}
+.anim-hero .hb-grass{fill:var(--color-accent)}
+.anim-hero .hb-edge{fill:none;stroke:var(--color-border);stroke-width:3}
+.anim-hero .hb-lamp{fill:var(--color-accent-soft);stroke:var(--color-border);stroke-width:1}
+.anim-hero .hb-screen{fill:var(--color-text);stroke:var(--color-border);stroke-width:3}
+.anim-hero text{font:var(--fs-xs) var(--font-mono)}
+.anim-hero .hb-t1{fill:var(--color-surface-muted)}
+.anim-hero .hb-t2{fill:var(--color-heat-2)}
+.anim-hero .hb{animation:md-drop var(--motion-slow) var(--motion-ease-step) backwards}
+.anim-hero .hb-3{animation-delay:.1s}.anim-hero .hb-2{animation-delay:.5s}.anim-hero .hb-1{animation-delay:.9s}
+.anim-hero .hb-lamp{animation:md-lamp var(--motion-press) steps(1,end) 1.6s backwards}
+.anim-hero .hb-term{animation:md-fade var(--motion-press) steps(1,end) 1.5s backwards}
+.anim-hero .hb-t2{animation:md-type var(--motion-hop) steps(6,end) 2s backwards}
+@keyframes md-drop{from{transform:translateY(-120px);opacity:0}60%{opacity:1}}
+@keyframes md-lamp{from{fill:var(--color-text-muted)}}
+@keyframes md-fade{from{opacity:0}}
+@keyframes md-type{from{clip-path:inset(0 100% 0 0)}}
+
+/* A2 下载按钮：悬停时像素箭头向下跳两格 */
+.btn:hover .icon-arrow .arrow{animation:md-hop var(--motion-hop) steps(2,end)}
+@keyframes md-hop{50%{transform:translateY(2px)}}
+
+/* A3 首页功能卡图标：卡片悬停时播一次 */
+.feat:hover .icon-server .lamp{animation:md-blink var(--motion-slow) steps(2,end)}
+.feat:hover .icon-java .steam{animation:md-steam var(--motion-slow) steps(3,end)}
+.feat:hover .icon-pack .lid{animation:md-lid var(--motion-slow) steps(3,end)}
+.feat:hover .icon-tunnel .packet{animation:md-packet var(--motion-slow) steps(3,end)}
+.icon .lamp{fill:var(--color-accent-soft)}
+@keyframes md-blink{50%{fill:var(--color-accent)}}
+@keyframes md-steam{from{transform:translateY(3px);opacity:0}}
+@keyframes md-lid{50%{transform:translateY(-3px)}}
+@keyframes md-packet{to{transform:translateX(4px)}}
+
+/* A4 热力图 / 发布日历：进入视口时方格按周依次放下。只有 JS 加了 will-anim 才先藏起来 */
+.will-anim:not(.is-in) .cal-grid>*{transform:scale(0)}
+.will-anim.is-in .cal-grid>*{animation:md-pop var(--motion-press) var(--motion-ease-step) backwards;animation-delay:calc(var(--i,0) * var(--motion-stagger))}
+@keyframes md-pop{from{transform:scale(0)}}
+
+/* A6 下载页 SmartScreen 示意：点「播放演示」播 3 帧，默认显示最终帧 */
+.anim-smart .ss-win{fill:var(--color-surface-sky);stroke:var(--color-border);stroke-width:3}
+.anim-smart .ss-bar{fill:var(--palette-sky-100);stroke:var(--color-border);stroke-width:3}
+.anim-smart text{font-family:var(--font-sans);fill:var(--color-text)}
+.anim-smart .ss-h{font-size:var(--fs-lg);font-weight:var(--fw-bold)}
+.anim-smart .ss-p{font-size:var(--fs-sm)}
+.anim-smart .ss-link{font-size:var(--fs-sm);text-decoration:underline;fill:var(--color-accent-strong)}
+.anim-smart .ss-run{fill:var(--color-accent);stroke:var(--color-border);stroke-width:2}
+.anim-smart .ss-ghost{fill:var(--color-surface);stroke:var(--color-border);stroke-width:2}
+.anim-smart .ss-btn{font-size:var(--fs-sm);fill:var(--color-on-accent);font-weight:var(--fw-bold)}
+.anim-smart .ss-btn2{font-size:var(--fs-sm)}
+.anim-smart .ss-ptr{fill:var(--color-surface);stroke:var(--color-border);stroke-width:1.5}
+.anim-smart .ss-cursor{transform:translate(200px,150px)}
+.anim-smart.is-playing .ss-f2{animation:md-fade var(--motion-instant) steps(1,end) var(--motion-demo) backwards}
+.anim-smart.is-playing .ss-f3{animation:md-fade var(--motion-instant) steps(1,end) calc(var(--motion-demo) * 2) backwards}
+.anim-smart.is-playing .ss-cursor{animation:md-cursor calc(var(--motion-demo) * 3) steps(1,end) backwards}
+@keyframes md-cursor{0%{transform:translate(120px,70px)}33%{transform:translate(60px,104px)}66%,100%{transform:translate(200px,150px)}}
+
+/* A8 复制成功：像素勾逐格画出 */
+.is-done .tick{animation:md-tick var(--motion-draw) steps(4,end) backwards}
+@keyframes md-tick{from{stroke-dashoffset:20}}
+
+/* A9 404：缺块处的碎片上下浮动两次 */
+.anim-404 .bb-dirt{fill:var(--palette-dirt-500)}
+.anim-404 .bb-grass{fill:var(--color-accent)}
+.anim-404 .bb-edge{fill:none;stroke:var(--color-border);stroke-width:3}
+.anim-404 .bb-spot{fill:var(--palette-dirt-700)}
+.anim-404 .bb-chip{animation:md-float var(--motion-float) steps(4,end) 2}
+@keyframes md-float{50%{transform:translateY(-6px)}}
+
+/* 按钮与卡片的悬停过渡已在 components.css；这里统一关闭所有动效 */
+@media (prefers-reduced-motion:reduce){
+ *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+ .will-anim .cal-grid>*{transform:none!important}
+}
