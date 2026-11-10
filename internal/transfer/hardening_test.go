@@ -140,17 +140,26 @@ func TestExtractSkipsControlFiles(t *testing.T) {
 	}
 }
 
-// TestExtractKeepExisting 瘦身模式：解包之前目录里已有的文件（刚下载、校验过的核心）不让包里的同名文件顶掉。
-func TestExtractKeepExisting(t *testing.T) {
+// TestExtractSlimKeepsCore 瘦身模式：服务端核心是导入时刚下载、校验过的，包里的东西顶不掉它，也不能预先埋在它的地盘上。
+func TestExtractSlimKeepsCore(t *testing.T) {
 	pack := rawPack(t, "", [][2]string{
-		{"instance/server.jar", "EVIL-FROM-PACK"},
-		{"instance/libraries/net/x/win_args.txt", "-javaagent:evil.jar"},
+		{"instance/server.jar", "EVIL-FROM-PACK"},                              // 和下载的核心重名
+		{"instance/libraries/net/x/win_args.txt", "-javaagent:evil.jar"},       // 和安装器装出来的重名
+		{"instance/Fabric-Server-Launcher.properties", "serverJar=evil.jar\n"}, // 重名，只是大小写不同
+		{"instance/evil.jar", "EVIL"},                                          // 根目录多出来的 jar
+		{"instance/versions/1.20.1/paper-1.20.1.jar", "EVIL"},                  // 第一次启动才会解出来的位置，先埋一份
+		{"instance/libraries/org/apache/logging/log4j/log4j-core.jar", "EVIL"}, // 同上，这时候磁盘上还没有
+		{"instance/cache/mojang_1.20.1.jar", "EVIL"},
+		{"instance/.fabric/server/1.20.1/server.jar", "EVIL"},
 		{"instance/world/level.dat", "level"},
+		{"instance/mods/some-mod.jar", "模组照常带"}, // 子目录里的 jar 是模组、插件，不算核心
+		{"instance/plugins/libraries/x.txt", "插件自己的目录碰巧叫 libraries"},
 	})
 	dest := filepath.Join(t.TempDir(), "dest")
 	writeFile(t, filepath.Join(dest, "server.jar"), "OFFICIAL-VERIFIED")
 	writeFile(t, filepath.Join(dest, "libraries", "net", "x", "win_args.txt"), "official args")
-	res, err := extractPrefix(nil, pack, dest, extractOpts{keepExisting: true}, noProgress, noCount)
+	writeFile(t, filepath.Join(dest, "fabric-server-launcher.properties"), "serverJar=server.jar\n")
+	res, err := extractPrefix(nil, pack, dest, extractOpts{slim: true}, noProgress, noCount)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,13 +169,17 @@ func TestExtractKeepExisting(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(dest, "libraries", "net", "x", "win_args.txt")); string(b) != "official args" {
 		t.Errorf("安装器装出来的文件被顶掉了：%q", b)
 	}
-	if b, _ := os.ReadFile(filepath.Join(dest, "world", "level.dat")); string(b) != "level" {
-		t.Errorf("没有重名的文件要照常解出来：%q", b)
+	if b, _ := os.ReadFile(filepath.Join(dest, "fabric-server-launcher.properties")); string(b) != "serverJar=server.jar\n" {
+		t.Errorf("大小写不同的同名文件也不能顶掉已有的：%q", b)
 	}
-	if len(res.kept) != 2 {
-		t.Errorf("没采用的应有 2 个：%v", res.kept)
+	want := "fabric-server-launcher.properties libraries/net/x/win_args.txt mods/some-mod.jar plugins/libraries/x.txt server.jar world/level.dat"
+	if got := strings.Join(treeOf(t, dest), " "); got != want {
+		t.Errorf("瘦身模式解出来的文件不对：\n得到 %s\n应为 %s", got, want)
 	}
-	// 完整模式（keepExisting=false）：包里的就是要用的那份
+	if len(res.kept) != 8 {
+		t.Errorf("没采用的应有 8 个：%v", res.kept)
+	}
+	// 完整模式（slim=false）：包里的就是要用的那份
 	if _, err := extractPrefix(nil, pack, dest, extractOpts{}, noProgress, noCount); err != nil {
 		t.Fatal(err)
 	}

@@ -134,9 +134,12 @@ func writePack(ctx context.Context, dest string, files []packFile, mf *Manifest,
 
 // extractOpts 解包时的几道限制（交接包是别人给的文件，按恶意输入对待）。
 type extractOpts struct {
-	// keepExisting 目标位置已经有文件时不覆盖，跳过包里的那一条。瘦身模式用：解包之前目录里只有
-	// 刚下载、校验过的核心和安装器装出来的依赖库，不能让包里的同名文件顶掉。
-	keepExisting bool
+	// slim 瘦身模式的包（清单里 full=false）：服务端核心是导入时刚下载、校验过的，包里不该有、有也不采用。
+	//   - 目标位置已经有文件时不覆盖：解包之前目录里只有下载的核心和安装器装出来的依赖库。
+	//   - 核心的地盘上的东西不解：根目录的 jar，和 libraries、versions、cache、.fabric 这几个目录。
+	//     有的核心（Paper、Fabric、原版）第一次启动才把依赖库解到这些目录里，那时候目录里先有一份别人放的就不好说了。
+	//     MineDeck 自己导出的瘦身包里没有这些（见 export.go），所以正常的包不受影响。
+	slim bool
 	// declared 清单里写的字节总数（manifest.counts.bytes）；包里实际申报的总量比它大出一截就拒绝。0 = 不比。
 	declared int64
 	// free 目标盘还剩多少字节；nil = 不查。装不下就在动手之前拒绝，免得把盘写满连累同一块盘上别的服务器。
@@ -147,7 +150,21 @@ type extractOpts struct {
 type extractResult struct {
 	bytes   int64
 	control []string // 包里带了、但没有采用的控制文件（instance.json、run.bat 这类由 MineDeck 按本机生成的）
-	kept    []string // keepExisting 时因为目标已存在而没有解出来的
+	kept    []string // slim 时没有解出来的：和下载的核心重名，或者落在核心的地盘上
+}
+
+// coreTurf 瘦身模式下属于服务端核心的路径（rel 相对实例目录，本机分隔符）：根目录的 jar 和核心自己的几个目录。
+func coreTurf(rel string) bool {
+	low := strings.ToLower(filepath.ToSlash(rel))
+	first, _, nested := strings.Cut(low, "/")
+	if !nested {
+		return strings.HasSuffix(low, ".jar")
+	}
+	switch first {
+	case "libraries", "versions", "cache", ".fabric":
+		return true
+	}
+	return false
 }
 
 // controlRoot 实例根目录下由 MineDeck 自己写、自己读的文件（小写）：包里带了也不采用。
@@ -245,6 +262,10 @@ func extractPrefix(ctx context.Context, src, destDir string, opts extractOpts,
 			res.control = append(res.control, filepath.ToSlash(rel))
 			continue
 		}
+		if opts.slim && coreTurf(rel) {
+			res.kept = append(res.kept, filepath.ToSlash(rel))
+			continue
+		}
 		size := int64(f.UncompressedSize64)
 		if size < 0 || total+size < total {
 			return res, fmt.Errorf("交接包里的文件大小不对: %s", f.Name)
@@ -280,9 +301,9 @@ func extractPrefix(ctx context.Context, src, destDir string, opts extractOpts,
 		if target == cleanDest || !strings.HasPrefix(target, cleanDest+string(os.PathSeparator)) {
 			return res, fmt.Errorf("交接包里有越界路径: %s", e.f.Name)
 		}
-		if opts.keepExisting {
+		if opts.slim {
 			if _, err := os.Lstat(target); err == nil {
-				res.kept = append(res.kept, e.name)
+				res.kept = append(res.kept, filepath.ToSlash(e.name))
 				done += e.size
 				progress(done, total)
 				continue

@@ -163,7 +163,7 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 	// ---- 步骤 4：解包服务器文件（instance/ 前缀，严格 zip-slip） ----
 	t.StartStep(4)
 	res, err := extractPrefix(ctx, path, dir,
-		extractOpts{keepExisting: !mf.Full, declared: mf.Counts.Bytes, free: func() (uint64, error) { return app.DiskFree(dir) }},
+		extractOpts{slim: !mf.Full, declared: mf.Counts.Bytes, free: func() (uint64, error) { return app.DiskFree(dir) }},
 		t.ProgressFn("解包交接包"),
 		func(n int, done, total int64) {
 			t.ProgressFn(fmt.Sprintf("解包交接包（已 %d 个文件）", n))(done, total)
@@ -176,7 +176,7 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 		t.Logf("包里带的 %s 没有采用：这几个文件由 MineDeck 按这台电脑的情况重新生成", strings.Join(res.control, "、"))
 	}
 	if len(res.kept) > 0 {
-		t.Logf("⚠ 包里有 %d 个文件和刚下载的服务端核心重名（%s），用的是下载的那份，包里的没有采用", len(res.kept), shortList(res.kept, 5))
+		t.Logf("⚠ 这个包没带服务端核心，核心用的是刚下载的那份；包里有 %d 个属于核心的文件（%s）没有采用", len(res.kept), shortList(res.kept, 5))
 	}
 
 	// ---- 步骤 5：生成启动脚本 + 注册 ----
