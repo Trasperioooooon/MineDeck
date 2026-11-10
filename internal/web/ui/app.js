@@ -1372,13 +1372,19 @@ async function drawImport() {
   };
 }
 
+/* 向导的步骤序列：非 vanilla 在「选择构建」与「基本设置」之间多一步「选模组」（可选，草稿购物车在外围模块 modcart.js）；
+   原版没有「选模组」，也没有构建，第 3 步照旧按「跳过」画。wiz.step 始终是这份列表的下标，
+   原版的编号与原来完全一致（0 核心 / 1 版本 / 2 跳过的构建 / 3 设置），非 vanilla 各步顺延一位。 */
+const wizSteps = () => wiz.core === "vanilla"
+  ? ["选择核心", "选择版本", "选择构建", "基本设置"]
+  : ["选择核心", "选择版本", "选择构建", "选模组", "基本设置"];
 function wizardShell(inner) {
-  const names = ["选择核心", "选择版本", "选择构建", "基本设置"];
+  const names = wizSteps();
   // 步骤条：方块序号 + 像素虚线；已完成打勾且可点回，当前步实底，未到达描边；眉标写明第几步
   Main().innerHTML = pageHead("新建服务器", "选好核心与版本后，Java 与服务端会自动下载并完成配置。", "", "",
     `第 ${wiz.step + 1} 步<span class="sep">/</span>共 ${names.length} 步`) + `
     <div class="steps">${names.map((n, i) => {
-      const skipped = i === 2 && wiz.core === "vanilla"; // 原版没有「选择构建」，该步不可点回
+      const skipped = n === "选择构建" && wiz.core === "vanilla"; // 原版没有「选择构建」，该步不可点回
       const cls = i === wiz.step ? "cur" : i < wiz.step && !skipped ? "done" : "";
       const tip = cls === "done" ? `title="回到「${n}」"` : skipped ? `title="原版无需选择构建" tabindex="-1"` : `tabindex="-1"`;
       return (i ? `<span class="step-line${i <= wiz.step ? " done" : ""}"></span>` : "") +
@@ -1556,6 +1562,18 @@ async function drawWizard() {
       $("#wnext").disabled = false;
     } catch (e) { if (!stale(gen)) $("#build-list").innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
 
+  } else if (wiz.step === 3 && wiz.core !== "vanilla") {
+    /* 选模组（可选步，列表第 4 项）：搜索 + 草稿购物车整块在外围模块 modcart.js。
+       这一步永远可以「下一步」留空跳过，创建完成后想再加可以去详情页的「购物车」标签。 */
+    wizardShell(`
+      <div id="wiz-mod-body"></div>
+      ${wizFoot("wback", "上一步", `<button class="btn primary" id="wnext">下一步 ${icon("arrowRight")}</button>`)}`);
+    $("#wback").onclick = () => { wiz.step = 2; drawWizard(); };
+    $("#wnext").onclick = () => { wiz.step = 4; drawWizard(); };
+    paintWizSum();
+    if (window.MDModCart) MDModCart.wizardPanel($("#wiz-mod-body"), { core: wiz.core, mc: wiz.mc }, gen);
+    else $("#wiz-mod-body").innerHTML = `<div class="err-box">模组购物车模块没有加载出来。可以先跳过这一步，之后在服务器的「购物车」标签里添加。</div>`;
+
   } else {
     const isProxy = coreKind(wiz.core) === "proxy";
     const app = await api("/api/app").catch(() => ({ ramMb: 8192, availRamMb: 4096 }));
@@ -1592,7 +1610,7 @@ async function drawWizard() {
         <div class="field-err" id="f-eula-err"></div>
       </div>`}
       ${wizFoot("wback", "上一步", `<button class="btn primary" id="wcreate">${icon("bolt")} 开始部署</button>`)}`);
-    $("#wback").onclick = () => { wiz.step = wiz.core === "vanilla" ? 1 : 2; drawWizard(); };
+    $("#wback").onclick = () => { wiz.step = wiz.core === "vanilla" ? 1 : 3; drawWizard(); }; // 原版回版本页，非 vanilla 回「选模组」
     paintWizSum();
     // 行内校验：离开字段时检查，出错后随输入即时复核；提交时全部检查并聚焦第一个出错项（不再用远离字段的 toast）
     const showErr = (input, errId, msg) => { input.classList.toggle("invalid", !!msg); $(errId).innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; return !msg; };
@@ -1638,12 +1656,14 @@ async function drawWizard() {
         first.focus({ preventScroll: true });
         return;
       }
-      $("#wcreate").disabled = true;
+      const name = $("#f-name").value.trim();
+      const createBtn = $("#wcreate");
+      createBtn.disabled = true;
       try {
         const r = await api("/api/instances", {
           method: "POST",
           body: {
-            name: $("#f-name").value.trim(),
+            name,
             core: wiz.core, mc: wiz.mc, build: wiz.build || "",
             root: wiz.root || "",
             xmxMb: +$("#f-mem").value,
@@ -1656,9 +1676,41 @@ async function drawWizard() {
             gamemode: isProxy ? "" : $("#f-mode").value,
           },
         });
-        if (!stale(gen)) location.hash = `#/task/${r.taskId}`;
-        else toast("已开始部署，可在新建服务器页查看进度");
-      } catch (e) { toast(e.message, true); if (!stale(gen)) $("#wcreate").disabled = false; }
+        if (stale(gen)) { toast("已开始部署，可在新建服务器页查看进度"); return; }
+        /* 「选模组」步挑好的内容放在草稿购物车里（不带 inst）。空车照旧直接跳部署任务页；
+           有货时留在向导这一页等建服任务跑完，再把草稿车一起装上（装模组是一条 kind "mods" 的任务，跳到那页看进度）。
+           建服失败仍然跳建服任务页，失败的日志要看得见；跳转本身就是切页，startPoll 停在旧代际上自然失效。 */
+        let draft = null;
+        if (wiz.core !== "vanilla") { // 原版没有「选模组」这一步，草稿车里剩下的（上次没装的）不能装进原版服
+          try { draft = await api("/api/modcart"); } catch { draft = null; } // 老后端没这个接口：当作空车
+          if (stale(gen)) return;
+        }
+        if (!draft || !(draft.count > 0)) { location.hash = `#/task/${r.taskId}`; return; }
+        /* 等建服的这段时间不能回上一步：回去会重画向导（换代号），这里就不再接着装，服务器却已经在建了 */
+        const back = $("#wback");
+        if (back) back.disabled = true;
+        document.querySelectorAll(".step-pill").forEach(p => { p.disabled = true; p.onclick = null; });
+        const say = s => { if (createBtn.isConnected) createBtn.innerHTML = icon("spinner") + " " + esc(s); };
+        let launched = false;
+        const follow = async () => {
+          if (launched || stale(gen)) return;
+          let t;
+          try { t = await api(`/api/tasks/${encodeURIComponent(r.taskId)}`); } catch { return; } // 查询偶发失败：等下一轮轮询再说
+          if (stale(gen) || launched) return;
+          if (!t || !t.ended) { if (t && t.label) say(t.label); return; }
+          launched = true;
+          if (t.error) { location.hash = `#/task/${r.taskId}`; return; } // 建服失败：保持失败可见性
+          try {
+            const r2 = await api(`/api/instances/${encodeURIComponent(name)}/modcart/install`, { method: "POST", body: { includeDraft: true } });
+            if (stale(gen)) return;
+            toast("服务器创建完成，正在安装购物车里的模组…");
+            location.hash = `#/task/${encodeURIComponent(r2.taskId)}`;
+          } catch (e) { toast(e.message, true); if (!stale(gen)) location.hash = `#/task/${r.taskId}`; } // 装模组没发出去：至少让建服结果可见
+        };
+        say("正在等待服务器创建完成…");
+        await follow();
+        if (!launched && !stale(gen)) startPoll(follow, 1500, gen); // 第一次查就结束了的不用再轮询
+      } catch (e) { toast(e.message, true); if (!stale(gen) && createBtn.isConnected) createBtn.disabled = false; }
     };
   }
 }
@@ -1675,6 +1727,9 @@ const TASK_KINDS = {
   java: { title: "正在更换 Java", sub: "本机没有这个版本的 Java，正在下载一份（不改系统里的 Java）。", done: "Java 已换好", doneSub: "下次启动这台服务器时生效",
     ok: "Java 已换好，下次启动生效", fail: "更换失败", failHint: "这台服务器还在用原来的 Java，可以返回重试。", busy: "下载中，请勿关闭程序…",
     go: "完成，回到服务器", href: name => `#/inst/${encodeURIComponent(name)}/jvm`, back: "#/instances", backText: "返回服务器列表" },
+  mods: { title: "正在安装模组", sub: "正在下载购物车里的模组和依赖，放进对应的文件夹。", done: "模组安装完成", doneSub: "新装的内容要重启服务器后才会生效",
+    ok: "模组安装完成", fail: "安装失败", failHint: "可以回到这台服务器的「购物车」标签里重试；已下载的文件有缓存，重试很快。", busy: "安装中，请勿关闭程序…",
+    go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/instances", backText: "返回服务器列表" },
 };
 async function renderTaskPage(taskId) {
   const gen = viewGen;
@@ -1850,6 +1905,7 @@ async function renderDetail(name, tab = "console") {
       if (!isProxy) tabs.push(["players", "玩家"], ["backups", "备份"]);
       tabs.push(["tasks", "定时任务"]);
       if (info.core !== "vanilla") tabs.push(["res", "资源"]);
+      if (window.MDModCart && MDModCart.applies(info)) tabs.push(["cart", "购物车"]); // 自选模组 + 购物车，见 modcart.js
       if (window.MDMusic && MDMusic.applies(info.core)) tabs.push(["music", "音乐共享"]); // 第五阶段，见 music.js
       if (window.MDGameChat && MDGameChat.applies(info)) tabs.push(["gameai", "游戏内 AI"]); // 第四阶段，见 gamechat.js
       if (window.MDCompanion && MDCompanion.applies(info)) tabs.push(["companion", "伙伴"]); // 第七阶段，见 companion.js
@@ -2414,6 +2470,9 @@ async function renderDetail(name, tab = "console") {
         await api(`/api/instances/${encodeURIComponent(name)}/properties`, { method: "PUT", body: { pairs } });
         toast("已保存 server.properties" + (data.running ? "（重启后生效）" : ""));
       });
+
+  } else if (tab === "cart" && window.MDModCart) { // 自选模组 + 购物车：整块在 modcart.js
+    await MDModCart.render(body, info, gen);
 
   } else if (tab === "music" && window.MDMusic) { // 音乐共享（第五阶段）：整块在 music.js
     await MDMusic.render(body, info, gen, refreshHead);

@@ -207,6 +207,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     await page.dblclick('.core-card[data-id="paper"]'); await settle();
     await page.click("#wnext"); await settle();
     await page.click("#wnext"); await settle();
+    await page.click("#wnext"); await settle(); // 非原版多了「选模组」一步（可选，直接下一步）
     await page.fill("#f-name", "");
     await page.fill("#f-port", "70000");
     const before = reqs.length;
@@ -2600,6 +2601,115 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.goto(url("#/instances")); await settle();
     });
   }
+
+  // ==================== 自选模组 + 购物车 ====================
+  const cartState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }), b);
+
+  await run("向导「选模组」步（非 vanilla 第 5 步）：搜索加购草稿车；提交后建服完成即自动装模组，跳到模组安装任务页", async () => {
+    // taskStage 4 = 建服任务一查就是已完成：提交后向导会等它结束，再带上草稿车发安装（安装任务是 kind "mods"）
+    try {
+      await cartState({ modCart: { reset: true }, taskStage: 4 });
+      await page.goto(url("#/create")); await settle();
+      await page.click("#mode-new"); await settle();
+      await page.click('.core-card[data-id="paper"]'); await page.click("#wnext"); await settle();
+      await page.click("#wnext"); await settle();
+      assert((await page.$("#build-list")) !== null, "没到构建步");
+      await page.click("#wnext"); await settle();
+      const pills = await page.$$eval(".step-pill", els => els.map(e => e.textContent));
+      assert(pills.length === 5 && pills.some(t => t.includes("选模组")), "非 vanilla 应是 5 步、「选模组」应在步骤条上：" + JSON.stringify(pills));
+      assert(!(await page.$eval("#wnext", b => b.disabled)), "选模组是可选步，「下一步」应可直接点");
+      // 搜索 → 假 hits → 加购一项：正是因为按钮带对象名，这里才点得到 JEI 那一个
+      await page.fill("#mc-q", "JEI"); await page.click("#mc-go"); await settle();
+      assert((await page.textContent("#mc-hits")).includes("JEI"), "搜索结果没出现");
+      await page.click('button[aria-label="加入购物车 JEI"]'); await settle(700);
+      assert((await page.$$eval("#mc-list .mc-item", els => els.length)) === 1, "草稿车清单不是 1 项");
+      assert((await page.$eval("#mc-count", el => el.textContent)).includes("1"), "草稿车计数不对");
+      // 提交建服：草稿车非空时留在向导页等建服，建完自动把车装上再跳模组安装任务
+      await page.click("#wnext"); await settle();
+      assert((await page.$("#f-name")) !== null, "没到基本设置步");
+      await page.fill("#f-name", "测试的模组服");
+      await page.click(".eula-box .switch input");
+      await page.click("#wcreate");
+      await page.waitForFunction(() => location.hash === "#/task/task-cart", null, { timeout: 8000 });
+      await settle(300);
+      const h1 = await page.textContent(".page-head h1");
+      assert(h1.includes("模组"), "任务页说法没有改成模组：" + h1);
+      await page.waitForSelector("#t-foot a.btn.primary", { timeout: 6000 }); // 第 3 次查询后任务结束
+      assert((await page.getAttribute("#t-foot a.btn.primary", "href")) === "#/inst/" + encodeURIComponent("测试的模组服"), "完成的去处在详情页才能看到");
+    } finally { await cartState({ modCart: { reset: true }, taskStage: 2, instReset: true }); }
+  });
+
+  await run("实例详情「购物车」标签：vanilla 没有；加购 → 查依赖缺项 → 勾选补齐 → 移除清空", async () => {
+    try {
+      await cartState({ modCart: { reset: true } });
+      await page.goto(url("#/inst/" + encodeURIComponent("原版快照测试"))); await settle(600);
+      assert((await page.$('.tabs .tab[data-t="cart"]')) === null, "原版实例不应有购物车标签");
+      await page.goto(url(`#/inst/${inst}/cart`)); await settle(600);
+      assert((await page.$('.tabs .tab[data-t="cart"]')) !== null, "模组实例缺购物车标签");
+      // 提示条（本地依赖核对）：已装的模组缺依赖时先说一声
+      assert((await page.textContent("#mc-local-tip")).includes("缺 1 项依赖"), "本地依赖提示条没出现");
+      // 搜索 → 加购
+      await page.fill("#mc-q", "JEI"); await page.click("#mc-go"); await settle();
+      await page.click('button[aria-label="加入购物车 JEI"]'); await settle(700);
+      assert((await page.textContent("#mc-list")).includes("JEI") && (await page.textContent("#mc-count")).includes("1"), "加购之后的清单不对");
+      assert(!(await page.$eval("#mc-actions", el => el.hidden)), "清空 / 安装按钮在车非空时应出现");
+      // 检查依赖：列缺的必装项（默认勾上），勾选后一并入车
+      await page.click("#mc-dep-go"); await settle();
+      const depText = await page.textContent("#mc-dep-box");
+      assert(depText.includes("Architectury") && depText.includes("必装"), "缺的依赖没有列出来：" + depText.slice(0, 80));
+      assert((await page.$eval(".mc-miss input", el => el.checked)) === true, "缺依赖项应默认勾选");
+      await page.click("#mc-dep-add"); await settle(900);
+      assert((await page.textContent("#mc-count")).includes("2") && (await page.textContent("#mc-list")).includes("Architectury"), "勾选补齐后清单不对");
+      assert((await page.textContent("#mc-dep-box")).includes("没有缺依赖"), "补齐后复查应显示不缺依赖");
+      // 可选依赖按单个加
+      await page.click('button[aria-label="加入购物车 Cloth Config API"]'); await settle(900);
+      assert((await page.textContent("#mc-count")).includes("3"), "可选依赖加不进来");
+      // 移除一项，再把余下的清空
+      await page.click('button[aria-label="移除 JEI"]'); await settle(700);
+      assert(!(await page.textContent("#mc-list")).includes("JEI") && (await page.textContent("#mc-count")).includes("2"), "移除后清单不对");
+      await page.click("#mc-clear"); await settle(700);
+      assert((await page.$$eval("#mc-list .mc-item", els => els.length)) === 0 && (await page.$eval("#mc-actions", el => el.hidden)), "清空后清单与按钮没复位");
+    } finally { await cartState({ modCart: { reset: true } }); }
+  });
+
+  await run("vanilla 向导保持 4 步：步骤条无「选模组」，构建步照旧跳过直达基本设置", async () => {
+    await page.goto(url("#/create")); await settle();
+    await page.click("#mode-new"); await settle();
+    await page.click('.core-card[data-id="vanilla"]'); await page.click("#wnext"); await settle();
+    await page.click("#wnext"); await settle(); // 构建步被跳过，直达基本设置
+    const pills = await page.$$eval(".step-pill", els => els.map(e => e.textContent));
+    assert(pills.length === 4 && !pills.some(t => t.includes("选模组")), "vanilla 步骤条应为 4 步且无「选模组」：" + JSON.stringify(pills));
+    assert((await page.$("#f-name")) !== null, "没从版本页直达基本设置");
+    const titles = await page.$$eval(".step-pill", els => els.map(e => e.getAttribute("title")));
+    assert(titles.includes("原版无需选择构建"), "构建步的跳过提示没了：" + JSON.stringify(titles));
+    await page.click("#wback"); await settle();
+    assert((await page.$("#ver-list")) !== null, "基本设置「上一步」应回到版本页");
+  });
+
+  await run("切页竞态：购物车搜索只显示最后一次查询，离开后不再写页面", async () => {
+    let release, seen;
+    let gate = new Promise(r => release = r), requested = new Promise(r => seen = r);
+    const pattern = "**/api/modcart/search*";
+    await page.route(pattern, async route => {
+      const q = new URL(route.request().url()).searchParams.get("q");
+      if (q === "old" || q === "leave") { seen(); await gate; }
+      await route.fulfill({ json: { ok: true, data: { type: "mod", hits: [{ project_id: q, slug: q, title: q, description: "测试", downloads: 1000, icon_url: "", license: "MIT" }] } } });
+    });
+    try {
+      await page.goto(url(`#/inst/${inst}/cart`)); await settle(600);
+      await page.fill("#mc-q", "old"); await page.click("#mc-go"); await requested;
+      await page.fill("#mc-q", "new"); await page.click("#mc-go"); await settle();
+      release(); await settle(600);
+      const text = await page.textContent("#mc-hits");
+      assert(text.includes("new") && !text.includes("old"), "旧查询覆盖了新结果：" + text.slice(0, 60));
+      gate = new Promise(r => release = r); requested = new Promise(r => seen = r);
+      const beforeErrors = errors.length;
+      await page.fill("#mc-q", "leave"); await page.click("#mc-go"); await requested;
+      await page.click('#sidebar a[data-nav="instances"]'); await settle();
+      release(); await settle(600);
+      assert(await page.locator("#inst-cards").count() === 1 && errors.length === beforeErrors, "离开后的响应引发报错或覆盖页面");
+    } finally { if (release) release(); await page.unroute(pattern); }
+  });
 
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
 
