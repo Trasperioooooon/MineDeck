@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -235,10 +236,10 @@ func (c *cat) modcartOps() {
 		Desc: "联网算出购物车要装的全部内容：files 是会下载的文件（fromDep 的是自动补的必装前置），missing 是购物车之外还需要的必装前置" +
 			"（modcart_install 默认会一起装，也可以先 modcart_add 放进车里），optional 是可选前置（不自动装），conflicts 是不兼容的组合，" +
 			"localHits 是服务器里已经有、安装时跳过的，unresolved 是找不到能装的版本的。给 inst 时会对照服务器里已有的文件；" +
-			"includeDraft=true 把草稿购物车也算进来（和 modcart_install 带 includeDraft 时装的一样）。",
+			"includeDraft=true 把草稿购物车也算进来（和 modcart_install 带 includeDraft 时装的一样）。车很满时 files 会少列，note 里说明。",
 		Params: ops.Object(map[string]*ops.Schema{"inst": cartInst, "core": cartCore, "mc": cartMC,
 			"includeDraft": ops.Boolean("给 inst 时把草稿购物车也算进来（默认 false）")}),
-		Run: func(ctx context.Context, _ ops.Caller, a ops.Args) (any, error) {
+		Run: func(ctx context.Context, caller ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[modcartArgs](a)
 			if err != nil {
 				return nil, err
@@ -258,13 +259,7 @@ func (c *cat) modcartOps() {
 			if err != nil {
 				return nil, cartErr(err)
 			}
-			files := make([]modcart.File, 0, len(plan.Files))
-			for _, f := range plan.Files { // 给 AI 的结果要短：不带下载地址、哈希和原始依赖
-				f.URL, f.SHA1, f.Deps = "", "", nil
-				files = append(files, f)
-			}
-			return map[string]any{"count": len(items), "files": files, "missing": plan.Missing, "optional": plan.Optional,
-				"conflicts": plan.Conflicts, "localHits": plan.LocalHits, "unresolved": plan.Unresolved}, nil
+			return depsView(len(items), plan, caller.Source.AI()), nil
 		},
 	})
 
@@ -394,6 +389,61 @@ func (c *cat) modcartOps() {
 			return map[string]any{"count": len(missing), "missing": missing, "stale": stale, "checked": n}, nil
 		},
 	})
+}
+
+// aiBudget 给 AI 的 modcart.deps 结果最多多大：工具结果超过 16 KB 会被截断，留出脱敏和边界标记的余量。
+const aiBudget = 14 << 10
+
+// depsView modcart.deps 的结果。界面要文件名、大小来画清单；给 AI 的只留它用得上的（项目 ID、名称、版本、许可证、谁需要它），
+// 满满一车（50 项，每项再带一两个前置）时还放不下，就先不逐个列车里的（modcart_list 能看），再不行只给个数，
+// 保证结果完整、不被截成半截 JSON。
+func depsView(n int, plan *modcart.Plan, ai bool) map[string]any {
+	v := map[string]any{"count": n, "conflicts": plan.Conflicts, "localHits": plan.LocalHits, "unresolved": plan.Unresolved}
+	if !ai {
+		files := make([]modcart.File, 0, len(plan.Files))
+		for _, f := range plan.Files { // 下载地址、哈希和原始依赖界面用不着
+			f.URL, f.SHA1, f.Deps = "", "", nil
+			files = append(files, f)
+		}
+		v["files"], v["missing"], v["optional"] = files, plan.Missing, plan.Optional
+		return v
+	}
+	type aiFile struct {
+		ProjectID    string `json:"projectId"`
+		Title        string `json:"title"`
+		Version      string `json:"version"`
+		License      string `json:"license,omitempty"`
+		FromDep      bool   `json:"fromDep,omitempty"`
+		DependencyOf string `json:"dependencyOf,omitempty"`
+	}
+	type aiDep struct {
+		ProjectID    string `json:"projectId"`
+		Title        string `json:"title"`
+		DependencyOf string `json:"dependencyOf,omitempty"`
+	}
+	files := make([]aiFile, 0, len(plan.Files))
+	for _, f := range plan.Files {
+		files = append(files, aiFile{f.ProjectID, f.Title, f.VersionNumber, f.License, f.FromDep, f.DependencyOf})
+	}
+	short := func(ds []modcart.DepInfo) []aiDep {
+		out := make([]aiDep, 0, len(ds))
+		for _, d := range ds {
+			out = append(out, aiDep{d.Project.ProjectID, d.Project.Title, d.DependencyOf})
+		}
+		return out
+	}
+	v["files"], v["missing"], v["optional"] = files, short(plan.Missing), short(plan.Optional)
+	fits := func() bool { b, _ := json.Marshal(v); return len(b) <= aiBudget }
+	if !fits() {
+		deps := slices.DeleteFunc(slices.Clone(files), func(f aiFile) bool { return !f.FromDep })
+		v["files"] = deps
+		v["note"] = fmt.Sprintf("结果太长：files 只列了自动补的 %d 个前置，购物车里要装的 %d 项见 modcart_list", len(deps), len(files)-len(deps))
+		if !fits() {
+			v["files"] = []aiFile{}
+			v["note"] = fmt.Sprintf("结果太长：一共要下载 %d 个文件（其中 %d 个是自动补的前置），没有逐个列出；要补的前置见 missing", len(files), len(deps))
+		}
+	}
+	return v
 }
 
 // filesPrint 要装的确切文件（项目@版本）加上要跳过的已有文件的指纹，不看顺序。

@@ -9,6 +9,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -305,6 +306,50 @@ func TestModCartInstallProposal(t *testing.T) {
 	if _, err := reg.Confirm(context.Background(), cartUI, p.ID, false); ops.CodeOf(err) != 409 {
 		t.Fatalf("车变了，确认应报 409：%v", err)
 	}
+}
+
+// 给 AI 的 modcart.deps 结果放得进 16 KB：一般大小的车逐个列出；满满一车（50 项各带一个前置，名字都很长）时
+// 先不列车里的、再不行只给个数，JSON 始终完整。界面拿到的仍是带文件名和大小的完整结果。
+func TestDepsViewForAI(t *testing.T) {
+	plan := func(n int) *modcart.Plan {
+		p := &modcart.Plan{Files: []modcart.File{}, Missing: []modcart.DepInfo{}, Optional: []modcart.DepInfo{},
+			Conflicts: []string{}, LocalHits: []string{}, Unresolved: []modcart.Unresolved{}}
+		for i := range n {
+			title := fmt.Sprintf("Some Fairly Long Mod Name Number %02d (Fabric Edition)", i)
+			p.Files = append(p.Files, modcart.File{ProjectID: fmt.Sprintf("P%07d", i), Slug: fmt.Sprintf("some-long-mod-%02d", i), Title: title,
+				VersionID: "abcdefgh", VersionNumber: "12.1.785+fabric-1.20.1", VersionType: "release", FileName: fmt.Sprintf("some-long-mod-%02d-12.1.785+fabric-1.20.1.jar", i),
+				URL: "https://cdn.modrinth.com/data/x/versions/y/file.jar", SHA1: strings.Repeat("a", 40), Size: 2 << 20, License: "LGPL-3.0-or-later"})
+			dep := modcart.File{ProjectID: fmt.Sprintf("D%07d", i), Title: fmt.Sprintf("Library Dependency Number %02d API", i), VersionNumber: "0.92.2+1.20.1",
+				FileName: fmt.Sprintf("library-dependency-%02d-0.92.2+1.20.1.jar", i), License: "Apache-2.0", FromDep: true, DependencyOf: title}
+			p.Files = append(p.Files, dep)
+			p.Missing = append(p.Missing, modcart.DepInfo{Project: dep, DependencyType: "required", DependencyOf: title})
+		}
+		return p
+	}
+	size := func(v any) int { return len(mustJSON(v)) }
+	small := depsView(10, plan(10), true)
+	if small["note"] != nil {
+		t.Fatalf("10 项不该省略：%v", small["note"])
+	}
+	if got := len(mustJSONList(small["files"])); got != 20 {
+		t.Fatalf("10 项应逐个列出 20 个文件：%d", got)
+	}
+	full := depsView(50, plan(50), true)
+	if size(full) > 16<<10 || full["note"] == nil {
+		t.Fatalf("满车给 AI 的结果 %d 字节，应在 16 KB 以内并注明省略：%v", size(full), full["note"])
+	}
+	if !strings.Contains(string(mustJSON(full["missing"])), "D0000049") {
+		t.Fatal("要补的前置不能省")
+	}
+	if ui := depsView(50, plan(50), false); len(mustJSONList(ui["files"])) != 100 || strings.Contains(string(mustJSON(ui)), "cdn.modrinth.com") {
+		t.Fatal("界面拿到的应是完整清单（不带下载地址）")
+	}
+}
+
+func mustJSONList(v any) []any {
+	var out []any
+	_ = json.Unmarshal(mustJSON(v), &out)
+	return out
 }
 
 // 复审补的：有文件没下载成功时购物车整辆不动（没下成的是 Alpha 的前置，拿掉 Alpha 下次就不会再补它）；

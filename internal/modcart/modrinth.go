@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -114,7 +115,7 @@ func (s *Service) doJSON(ctx context.Context, method, u string, body []byte, out
 		if try > 0 { // 429、5xx 多半一会儿就好：等一下再试，别马上又撞上
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
+				return ctxErr(ctx)
 			case <-time.After(retryWait):
 			}
 		}
@@ -122,7 +123,7 @@ func (s *Service) doJSON(ctx context.Context, method, u string, body []byte, out
 		switch {
 		case err != nil:
 			if ctx.Err() != nil {
-				return ctx.Err() // 调用方取消的（比如任务被停），不算 Modrinth 的问题
+				return ctxErr(ctx)
 			}
 			last = errorf(502, "连不上 Modrinth：%v", err)
 			continue
@@ -140,6 +141,15 @@ func (s *Service) doJSON(ctx context.Context, method, u string, body []byte, out
 		return nil
 	}
 	return last
+}
+
+// ctxErr 调用方的 ctx 结束了：取消（比如任务被停）原样返回，不算 Modrinth 的问题；
+// 到时间了（操作自己给的时限）是 Modrinth 太慢，报 502。
+func ctxErr(ctx context.Context) error {
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return ctx.Err()
+	}
+	return errorf(502, "连不上 Modrinth：等了太久没有回应")
 }
 
 // retryWait 重试前等多久（测试里改短）。

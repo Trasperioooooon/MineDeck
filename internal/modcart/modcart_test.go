@@ -2,12 +2,16 @@ package modcart
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 var fabric = []string{"fabric"}
@@ -356,6 +360,25 @@ func TestAddKindsAndErrors(t *testing.T) {
 	}
 	if _, err := s.version(context.Background(), "a/b"); !IsNotFound(err) {
 		t.Fatalf("版本 ID 带斜杠应直接拒绝：%v", err)
+	}
+}
+
+// Modrinth 没有回应：操作自己给的时限到了报 502（不是裸的 context deadline exceeded），调用方取消的原样返回取消。
+func TestModrinthTimeout(t *testing.T) {
+	hang := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
+	t.Cleanup(hang.Close)
+	s := New(t.TempDir(), hang.URL)
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	_, err := s.Search(ctx, "x", "mod", fabric, "1.20.1")
+	var e *Error
+	if !errors.As(err, &e) || e.Code != 502 {
+		t.Fatalf("时限到了应报 502：%v", err)
+	}
+	ctx, cancel = context.WithCancel(context.Background())
+	time.AfterFunc(100*time.Millisecond, cancel)
+	if _, _, err := s.Add(ctx, Draft, []string{"aaa"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("取消应原样返回：%v", err)
 	}
 }
 
