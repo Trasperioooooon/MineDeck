@@ -103,7 +103,7 @@ var regenerable = map[string]bool{
 	"run.bat": true, "run.sh": true, "instance.json": true, "user_jvm_args.txt": true,
 	"usercache.json": true, "version_history.json": true, "session.lock": true,
 	"未解析模组清单.txt": true, "导入待决清单.txt": true,
-	// MineDeck 自己的文件：接手的人那边按他的电脑重新生成（见 zip.go 的 controlRoot）
+	// MineDeck 自己的文件：接手的人那边按他的电脑重新生成（见 inst/control.go）
 	"instance.json.bak": true, "instance.json.tmp": true, "run.before-minedeck.bat": true,
 	"log4j2_112-116.xml": true, "gameai.json": true, "gameai-state.json": true, ".minedeck": true,
 }
@@ -111,7 +111,7 @@ var regenerable = map[string]bool{
 // leftOut 实例根目录下没进包、也说不上是可以重新生成的东西（目录名后面带 /）。
 // 交接包按清单收文件，清单之外的东西不会自己跟过去：列出来写进任务日志和剔除清单，
 // 交的人和接的人都看得见，要的话手动拷一份。
-func leftOut(dir string, packed []packFile) []string {
+func leftOut(dir string, packed []packFile, launchTarget string) []string {
 	ents, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
@@ -128,8 +128,11 @@ func leftOut(dir string, packed []packFile) []string {
 			continue
 		}
 		if !e.IsDir() {
-			// 核心 jar 瘦身模式不带（导入时重新下载）；安装器日志这类也不提
-			if ext := filepath.Ext(low); ext == ".jar" || ext == ".log" || ext == ".lck" {
+			// 安装器日志这类不提；核心的 jar 瘦身模式不带（导入时重新下载）也不提。
+			// 别的 jar 要提：比如外置登录用的 authlib-injector，交接包不带它，启动参数里对它的引用也不带，
+			// 不说一声的话对方导入以后玩家登不进来，两边都不知道为什么。
+			ext := filepath.Ext(low)
+			if ext == ".log" || ext == ".lck" || (ext == ".jar" && coreJar(low, launchTarget)) {
 				continue
 			}
 		} else {
@@ -138,6 +141,15 @@ func leftOut(dir string, packed []packFile) []string {
 		out = append(out, name)
 	}
 	return out
+}
+
+// coreJar 根目录下的这个 jar（小写文件名）是不是服务端核心自己的：启动用的那个、原版服务端、Fabric 的启动器、安装器。
+func coreJar(low, launchTarget string) bool {
+	if rest, ok := strings.CutPrefix(launchTarget, "jar:"); ok && strings.EqualFold(rest, low) {
+		return true
+	}
+	return low == "server.jar" || strings.HasPrefix(low, "minecraft_server") || strings.HasPrefix(low, "fabric-server-launch") ||
+		strings.HasSuffix(low, "-installer.jar") || strings.HasPrefix(low, "forge-") || strings.HasPrefix(low, "neoforge-")
 }
 
 // runExport 收集清单、打包、落到目标目录，返回交接包的最终路径。
@@ -204,7 +216,7 @@ func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, 
 			if err != nil {
 				return err
 			}
-			if isControl(rel) {
+			if inst.IsControlFile(rel) {
 				return nil // MineDeck 自己的文件（和自家模组之间的令牌等）不出这台电脑，导入那边也不认
 			}
 			var mod *modinfo.Mod
@@ -315,7 +327,7 @@ func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, 
 	if !full {
 		mf.Excluded = append(mf.Excluded, "服务端核心（导入时自动重新下载）")
 	}
-	if left := leftOut(i.Dir, files); len(left) > 0 {
+	if left := leftOut(i.Dir, files, i.LaunchTarget); len(left) > 0 {
 		shown := left
 		if len(shown) > 30 {
 			shown = append(append([]string{}, left[:30]...), fmt.Sprintf("…等 %d 项", len(left)))

@@ -23,10 +23,22 @@ import (
 
 // modpackHTTP 造导入下载用的 HTTP 客户端：受控客户端（dl.GuardedClient）——每一跳连出去之前都查
 // 是不是公网，用户确认过的站点日后 DNS 被解析到内网、或者借跳转指到内网也连不出去。
-// 交给它的是内置的站点名单（不含用户确认过的自定义站点）：走代理时这几个站点不按本机的解析结果拦。
+// 交给它的是「走代理时不按本机的解析结果拦」的站点：内置的名单（不含用户确认过的自定义站点），
+// 加上它们的文件实际所在的 CDN——GitHub 的发布文件跳到 release-assets.githubusercontent.com，
+// CurseForge 的在 forgecdn.net 上。这些域名在国内常被解析成 0.0.0.0，照本机的结果拦，开着代理也下不了。
 // 测试里换成带假 RoundTripper 的版本，不真正联网。
-var modpackHTTP = func() *http.Client {
-	return dl.GuardedClient(func(host string) bool { return modpack.IsAllowedHost(host, nil) })
+var modpackHTTP = func() *http.Client { return dl.GuardedClient(knownDownloadHost) }
+
+func knownDownloadHost(host string) bool {
+	if modpack.IsAllowedHost(host, nil) {
+		return true
+	}
+	for _, suf := range []string{".githubusercontent.com", ".forgecdn.net", ".modrinth.com"} {
+		if strings.HasSuffix(host, suf) {
+			return true
+		}
+	}
+	return false
 }
 
 // ImportModpackAsync 从解析好的整合包创建实例（核心/版本/加载器由整合包决定）。
@@ -208,7 +220,16 @@ func (m *Manager) runImport(ctx context.Context, t *tasks.Task, pack *modpack.Pa
 
 	// ---- 步骤 7：应用覆盖目录 ----
 	t.StartStep(7)
+	var notTaken []string
 	err := modpack.ExtractOverrides(pack, dir, func(rel string, r io.Reader) error {
+		// 覆盖目录是整合包作者给的文件，写进来的时候实例已经登记好了：MineDeck 自己的文件（instance.json、run.bat、
+		// 老版本的日志配置、游戏内 AI 的设置这些）不能让它顶掉，否则重启 MineDeck 以后用哪个 Java、带什么参数、
+		// 有哪些定时任务就都是整合包说了算。比名字之前先把每一段结尾的点和空格去掉（Windows 落盘时会吃掉它们）；
+		// 保留设备名这类写不成普通文件的名字也不收。
+		if !overrideAllowed(rel) {
+			notTaken = append(notTaken, rel)
+			return nil
+		}
 		dest := filepath.Join(dir, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return err
@@ -225,6 +246,18 @@ func (m *Manager) runImport(ctx context.Context, t *tasks.Task, pack *modpack.Pa
 	})
 	if err != nil {
 		return fmt.Errorf("应用整合包覆盖文件失败: %w", err)
+	}
+	if len(notTaken) > 0 {
+		shown := notTaken
+		if len(shown) > 8 {
+			shown = append(append([]string{}, notTaken[:8]...), fmt.Sprintf("…等 %d 个", len(notTaken)))
+		}
+		t.Logf("整合包覆盖目录里的这些文件没有采用（由 MineDeck 自己生成，或者名字写不成普通文件）：%s", strings.Join(shown, "、"))
+	}
+	// 覆盖目录可以带 server.properties：世界目录的名字指到服务器文件夹外面的整合包不要
+	// （服务器一启动就会去动那个文件夹，备份和还原也跟着找过去）。
+	if name, ok := CheckLevelName(dir); !ok {
+		return fmt.Errorf("整合包覆盖文件里的 server.properties 把世界目录（level-name）指到了服务器文件夹外面：%s", name)
 	}
 
 	// ---- 本地继承：待决文件凡本地已有就算解决 ----
@@ -251,6 +284,16 @@ func (m *Manager) runImport(ctx context.Context, t *tasks.Task, pack *modpack.Pa
 	}
 	m.finishImport(t, req, dir, remain, kept)
 	return nil
+}
+
+// overrideAllowed 整合包覆盖目录里的这个文件（rel 相对实例目录，斜杠分隔）能不能写进来。规矩见 runImport 里用它的地方。
+func overrideAllowed(rel string) bool {
+	segs := strings.Split(rel, "/")
+	for k := range segs {
+		segs[k] = strings.TrimRight(segs[k], ". ")
+	}
+	norm := strings.Join(segs, "/")
+	return !IsControlFile(norm) && filepath.IsLocal(filepath.FromSlash(norm))
 }
 
 // finishImport 收尾：按原样保留的、待决的、Java 要求的提示与记录文件。
@@ -452,7 +495,10 @@ func (m *Manager) ResolveImportPending(ctx context.Context, taskID string, acts 
 		return nil, nil, fmt.Errorf("没有要处理的项")
 	}
 	// 一次只处置一批：两个请求同时处置同一项（开了两个窗口）会一起写同一个 .part，落下来的可能是拼坏的文件
-	m.resolveMu.Lock()
+	// 下载可能要等上一两分钟，所以拿不到锁就直接告诉对方，不让请求干等着转圈
+	if !m.resolveMu.TryLock() {
+		return nil, nil, fmt.Errorf("上一批待处理的文件还在处理（可能在下载），等它完成再试")
+	}
 	defer m.resolveMu.Unlock()
 	t := m.Tasks.Get(taskID)
 	if t == nil {

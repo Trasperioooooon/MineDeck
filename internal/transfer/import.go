@@ -162,7 +162,13 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 	// ---- 步骤 4：解包服务器文件（instance/ 前缀，严格 zip-slip） ----
 	t.StartStep(4)
 	res, err := extractPrefix(ctx, path, dir,
-		extractOpts{slim: !mf.Full, declared: mf.Counts.Bytes, declaredFiles: mf.Counts.Files, free: func() (uint64, error) { return app.DiskFree(dir) }},
+		extractOpts{slim: !mf.Full, declared: mf.Counts.Bytes, declaredFiles: mf.Counts.Files, free: func() (uint64, error) {
+			n, err := app.DiskFree(dir)
+			if err != nil {
+				t.Logf("没查到存放位置所在的盘还剩多少空间（%v），这一步检查跳过", err)
+			}
+			return n, err
+		}},
 		t.ProgressFn("解包交接包"),
 		func(n int, done, total int64) {
 			t.ProgressFn(fmt.Sprintf("解包交接包（已 %d 个文件）", n))(done, total)
@@ -180,7 +186,12 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 	// 解包时已经按名字跳过了控制文件，这里再按磁盘上的实际情况清一遍：名字的比较交给 Windows 自己做
 	// （大小写、8.3 短名这些别名它都认），不管包里用什么写法，目录里都不会留着别人给的这几样。
 	// 瘦身模式下官方安装器生成的 run.bat、user_jvm_args.txt 也在其中，下面收尾时 MineDeck 会重新写。
-	scrubControl(dir)
+	inst.ScrubControlFiles(dir)
+	// 包里的 server.properties 是原样用的：世界目录的名字指到服务器文件夹外面的包不要
+	// （服务器一启动就会去动那个文件夹，备份和还原也跟着找过去）。
+	if name, ok := inst.CheckLevelName(dir); !ok {
+		return fmt.Errorf("交接包里的 server.properties 把世界目录（level-name）指到了服务器文件夹外面：%s", name)
+	}
 
 	// ---- 步骤 5：生成启动脚本 + 注册 ----
 	t.StartStep(5)
@@ -213,6 +224,12 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 	old := mf.Instance
 	if len(old.ExtraJVM) > 0 {
 		t.Logf("原来的 JVM 参数没有带过来，需要的话到「内存 / 启动」里自己加：%s", shortList(old.ExtraJVM, 12))
+		for _, a := range old.ExtraJVM {
+			if strings.HasPrefix(a, "-javaagent:") {
+				t.Logf("⚠ 原来的服务器启动时挂了外部程序（-javaagent，外置登录就是这么接的）：对应的 jar 不在交接包里。还要用的话，向原服主要来这个 jar，确认可信以后放进服务器文件夹，再把这条参数加回去；不加的话依赖它的功能（比如外置登录）不起作用")
+				break
+			}
+		}
 	}
 	if n := len(old.Policies.Schedules); n > 0 || old.Policies.CrashRestart {
 		t.Logf("原来的定时任务（%d 条）和崩溃自动重启的设置没有带过来，需要的话在这台服务器的设置里重新加", n)
@@ -249,6 +266,18 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 				if old != "" {
 					t.Logf("端口按你的填写改成了 %d（包里是 %s）", req.Port, old)
 				}
+			}
+		}
+	}
+	// RCON：包里的 server.properties 开着远程控制台的话，密码是原服主设的、他知道——和不带过来的定时任务是一回事，先关掉。
+	if kind != mcsrc.KindProxy {
+		if props, err := inst.LoadProps(filepath.Join(dir, "server.properties")); err == nil {
+			if v, _ := props.Get("enable-rcon"); strings.EqualFold(strings.TrimSpace(v), "true") {
+				props.Set("enable-rcon", "false")
+				if err := props.Save(filepath.Join(dir, "server.properties")); err != nil {
+					return err
+				}
+				t.Logf("原来开着 RCON（远程控制台），密码是原服主设的，已经先关掉。要用的话到「全部配置」里换一个密码再打开")
 			}
 		}
 	}

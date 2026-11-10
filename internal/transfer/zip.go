@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"minedeck/internal/inst"
 	"minedeck/internal/modinfo"
 )
 
@@ -132,6 +133,9 @@ func writePack(ctx context.Context, dest string, files []packFile, mf *Manifest,
 	return f.Close()
 }
 
+// maxEntries 一个交接包最多有多少个文件。真实的服务器（世界、配置、模组、插件数据）到不了这个数的十分之一。
+const maxEntries = 1_000_000
+
 // extractOpts 解包时的几道限制（交接包是别人给的文件，按恶意输入对待）。
 type extractOpts struct {
 	// slim 瘦身模式的包（清单里 full=false）：服务端核心是导入时刚下载、校验过的，包里不该有、有也不采用。
@@ -165,50 +169,15 @@ func coreTurf(rel string) bool {
 	case "libraries", "versions", "cache", ".fabric":
 		return true
 	}
-	return false
+	// 第一段像 8.3 短名的（LIBRAR~1）也算：Forge、NeoForge 的 libraries 在解包前就存在，
+	// Windows 给它起过短名，包里用短名写的路径会落进同一个目录。正常导出的包里顶层没有这种名字。
+	return shortNameLike(first)
 }
 
-// controlRoot 实例根目录下由 MineDeck 自己写、自己读的文件（小写）：包里带了也不采用。
-//   - instance.json、run.bat、user_jvm_args.txt 决定这台电脑上执行什么。不拦的话，导入在解包之后、收尾之前被打断
-//     （关程序、断电），目录里留下的就是包里那份 instance.json——下次启动扫描会把它登记成一台服务器，
-//     用哪个程序当 Java、带什么参数全由包说了算。
-//   - log4j2_112-116.xml 是老版本的日志配置：MineDeck 看到这个文件在，就给启动参数加上对它的引用；
-//     老版本 log4j 的配置文件能跑脚本、能发 JNDI 请求，和 JVM 参数是同一类东西。导入时按官方的重新下载。
-//   - gameai.json、gameai-state.json 是游戏内 AI 的设置和记账（谁能用、用了多少）：花的是接手的人的钱，不能由包来定。
-var controlRoot = map[string]bool{
-	"instance.json": true, "instance.json.tmp": true, "instance.json.bak": true,
-	"run.bat": true, "run.before-minedeck.bat": true, "user_jvm_args.txt": true,
-	"log4j2_112-116.xml": true,
-	"gameai.json":        true, "gameai-state.json": true,
-}
-
-// controlDirs 整个目录都不采用的（小写、斜杠结尾）：MineDeck 和自家模组之间的端口、令牌（config/minedeck），
-// 以及 MineDeck 给配置文件留的备份（.minedeck）。令牌是原服主那台电脑上的，接手的人要用这些功能时 MineDeck 会重新生成。
-var controlDirs = []string{"config/minedeck/", ".minedeck/"}
-
-// scrubControl 把 dir 里的控制文件和控制目录删掉（不存在就算了）。解包之后、收尾之前调：
-// 名字怎么比由 Windows 自己定，包里不管用大小写、8.3 短名还是别的别名写法，都落不下这几样。
-func scrubControl(dir string) {
-	for name := range controlRoot {
-		_ = os.Remove(filepath.Join(dir, name))
-	}
-	for _, d := range controlDirs {
-		_ = os.RemoveAll(filepath.Join(dir, filepath.FromSlash(d)))
-	}
-}
-
-// isControl rel（相对实例目录，本机分隔符）是不是不采用的控制文件。导出时同样不带这些。
-func isControl(rel string) bool {
-	low := strings.ToLower(filepath.ToSlash(rel))
-	if controlRoot[low] {
-		return true
-	}
-	for _, d := range controlDirs {
-		if strings.HasPrefix(low, d) {
-			return true
-		}
-	}
-	return false
+// shortNameLike 名字像不像 Windows 自动生成的 8.3 短名：波浪号后面跟着数字。
+func shortNameLike(seg string) bool {
+	i := strings.IndexByte(seg, '~')
+	return i > 0 && i+1 < len(seg) && seg[i+1] >= '0' && seg[i+1] <= '9'
 }
 
 // payloadPath 校验一条包内路径，返回前缀内的相对路径（本机分隔符）。ok=false 表示不属于实例文件（前缀之外、目录项），跳过即可；
@@ -243,7 +212,7 @@ func payloadPath(f *zip.File) (rel string, ok bool, err error) {
 }
 
 // extractPrefix 解包 zip 里 PayloadPrefix 前缀下的全部文件到 destDir（严格 zip-slip）。
-// manifest.json 和前缀外的条目一概忽略，控制文件（isControl）不采用。
+// manifest.json 和前缀外的条目一概忽略，控制文件（inst.IsControlFile）不采用。
 func extractPrefix(ctx context.Context, src, destDir string, opts extractOpts,
 	progress func(done, total int64), fileCount func(n int, done, total int64)) (extractResult, error) {
 	var res extractResult
@@ -270,7 +239,7 @@ func extractPrefix(ctx context.Context, src, destDir string, opts extractOpts,
 		if !ok {
 			continue
 		}
-		if isControl(rel) {
+		if inst.IsControlFile(rel) {
 			res.control = append(res.control, filepath.ToSlash(rel))
 			continue
 		}
@@ -292,11 +261,16 @@ func extractPrefix(ctx context.Context, src, destDir string, opts extractOpts,
 		return res, fmt.Errorf("交接包解开后有 %s，清单里写的只有 %s，这个包被改过或者坏了", fmtBytes(total), fmtBytes(opts.declared))
 	}
 	// 文件数也对一遍：几十万个空文件不占字节数，上面两道关都拦不住，却能把导入拖上几十分钟。
+	// 清单里的数是包自己写的，所以另有一个不看清单的上限。
 	if n := int64(len(ents)); opts.declaredFiles > 0 && n > opts.declaredFiles && n-opts.declaredFiles > opts.declaredFiles/8+1024 {
 		return res, fmt.Errorf("交接包里有 %d 个文件，清单里写的只有 %d 个，这个包被改过或者坏了", n, opts.declaredFiles)
 	}
+	if len(ents) > maxEntries {
+		return res, fmt.Errorf("交接包里有 %d 个文件，超过了一次能导入的上限（%d 个）", len(ents), maxEntries)
+	}
 	if opts.free != nil {
-		if free, err := opts.free(); err == nil && uint64(total)+(256<<20) > free {
+		// 每个文件在盘上至少占一条文件记录、内容按簇取整：按每个文件多算 4 KB 估
+		if free, err := opts.free(); err == nil && uint64(total)+uint64(len(ents))*4096+(256<<20) > free {
 			return res, fmt.Errorf("磁盘空间不够：交接包解开要 %s，存放位置所在的盘只剩 %s", fmtBytes(total), fmtBytes(int64(free)))
 		}
 	}

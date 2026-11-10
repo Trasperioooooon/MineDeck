@@ -566,7 +566,8 @@ func applyLog4jMitigation(ctx context.Context, t *tasks.Task, i *Instance) error
 	if !newer117 { // 1.12.2 ~ 1.16.5：官方 xml 配置
 		const xmlURL = "https://launcher.mojang.com/v1/objects/02937d122c86ce73319ef9975b58896fc1b491d1/log4j2_112-116.xml"
 		dest := filepath.Join(i.Dir, log4jXML)
-		if err := dl.Fetch(ctx, dl.Request{URLs: mcsrc.URLPair(xmlURL), Dest: dest, MinSize: 100}, nil); err != nil {
+		// 这份文件可能经镜像下载，按官方的 SHA-1 校验（就是下载地址里那一串；2026-11-10 下载核对过）
+		if err := dl.Fetch(ctx, dl.Request{URLs: mcsrc.URLPair(xmlURL), Dest: dest, MinSize: 100, SHA1: "02937d122c86ce73319ef9975b58896fc1b491d1"}, nil); err != nil {
 			t.Logf("log4j 防护配置下载失败（不影响开服，仅安全性降低）: %v", err)
 			return nil
 		}

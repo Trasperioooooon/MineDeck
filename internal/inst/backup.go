@@ -57,11 +57,14 @@ func backupCopies(name, file string) ([]string, error) {
 }
 
 // worldDirs 返回实例的世界存档目录（vanilla 单目录 / bukkit 三目录）。
+// level-name 指到实例目录外面、或者指回实例目录自己的不认，按 world 算：备份会把这些目录打包，
+// 还原之前还会把它们删掉，而 server.properties 可以是别人给的（交接包、整合包的覆盖目录），也可以是手改的。
+// 原来照单全收，level-name=../别的服务器 再点一次「还原备份」，删掉的就是隔壁那台服务器。
 func (i *Instance) worldDirs() []string {
 	level := "world"
 	if p, err := LoadProps(i.PropsPath()); err == nil {
-		if v, ok := p.Get("level-name"); ok && v != "" {
-			level = v
+		if v, ok := p.Get("level-name"); ok && SafeLevelName(v) {
+			level = strings.TrimSpace(v)
 		}
 	}
 	var out []string
