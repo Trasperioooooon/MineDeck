@@ -34,7 +34,12 @@ type CreateReq struct {
 	MOTD        string     `json:"motd"`
 	Difficulty  string     `json:"difficulty"` // 创建时写入 server.properties（空=不设，用服务端默认）
 	Gamemode    string     `json:"gamemode"`
-	Root        string     `json:"root"` // 自定义存放根目录（空=全局默认），仅创建时使用
+	// LocalSource 整合包导入的「本地来源目录」：用户手里还留着的老服务器目录（如 D:\old-server）。
+	// 待决（无法自动下载）的文件凡在这个目录里有对应的，按原样复制进实例（不校验、要求线上匹配），
+	// 用户的魔改模组因此直接保留；目录里没有的留在待决清单交给用户处置。
+	// 读的是主机上的任意路径，和 root 一样：仅本机请求有效，远程 / 局域网 / AI 一律忽略。
+	LocalSource string `json:"localSource,omitempty"`
+	Root        string `json:"root"` // 自定义存放根目录（空=全局默认），仅创建时使用
 }
 
 // createSteps 创建流水线的步骤名（整合包导入在其后追加额外步骤）。

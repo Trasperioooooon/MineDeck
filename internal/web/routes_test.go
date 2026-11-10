@@ -213,6 +213,11 @@ func TestRoutesKeepPathsAndSemantics(t *testing.T) {
 		{"GET", "/api/instances", "", 200, "", nil},
 		{"POST", "/api/instances", `{"name":"","core":"paper","mc":"1.21.4","eula":true}`, 400, "实例名需为 1~40 个字符", nil},
 		{"POST", "/api/import/modpack", "", 400, "上传解析失败", nil},
+		// 处置导入的待决文件：别的设备不行；空动作清单 400；任务不在 404
+		{"POST", "/api/import/pending/t999", `{"items":[{"id":"p1","act":"skip"}]}`, 403, "处理导入的待决文件仅支持在本机操作", []reqOpt{fromLAN}},
+		{"POST", "/api/import/pending/t999", `{"items":[]}`, 400, "没有要处理的项", nil},
+		{"POST", "/api/import/pending/t999", `{"items":[{"id":"p1","act":"skip"}]}`, 404, "任务不存在", nil},
+		{"POST", "/api/import/pending/t999", `{"items":[{"id":"p1","act":"毁掉"}]}`, 400, "", nil},
 		// 接管已有服务器：要读主机上的文件夹，别的设备一律不行；本机上文件夹不对时就地说明
 		{"POST", "/api/adopt/scan", `{"dir":"C:\\"}`, 403, "接管已有服务器仅支持在本机操作", []reqOpt{fromLAN}},
 		{"POST", "/api/adopt", `{"dir":"C:\\srv","name":"x","core":"paper","mc":"1.21.4","launchTarget":"jar:server.jar"}`, 403, "接管已有服务器仅支持在本机操作", []reqOpt{fromLAN}},
@@ -299,8 +304,8 @@ func TestRoutesKeepPathsAndSemantics(t *testing.T) {
 		t.Errorf("GET /bg/x.png：HTTP %d %q", rec.Code, rec.Header().Get("Content-Type"))
 	}
 	seen["GET "+pattern("/bg/x.png")] = true
-	if n := len(seen); n != 47+1+7+1+2 { // 47 个旧接口 + /api/ops/log + 7 个 /api/ai/* + 后台任务列表 + 接管已有服务器的 2 个 /api/adopt*
-		t.Errorf("覆盖了 %d 个接口，应为 58", n)
+	if n := len(seen); n != 47+1+7+1+2+1 { // 47 个旧接口 + /api/ops/log + 7 个 /api/ai/* + 后台任务列表 + 接管已有服务器的 2 个 /api/adopt* + 导入待决处置
+		t.Errorf("覆盖了 %d 个接口，应为 59", n)
 	}
 	if d := e.dials.list(); len(d) != 0 {
 		t.Errorf("只配了 Ollama，不该有任何对外连接：%v", d)

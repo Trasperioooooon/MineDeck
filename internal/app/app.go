@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -51,7 +52,23 @@ type Config struct {
 	// ChromeColor 界面标题栏的底色（#rrggbb，小写），由原生窗口里的前端在外观变化时上报；
 	// 下次启动时作为 WebView2 画出页面之前的默认底色，避免冷启动白闪。空 = 按系统浅 / 深色取默认值。
 	ChromeColor string `json:"chromeColor,omitempty"`
+
+	// TrustedHosts 用户逐个确认过「可以下载」的自定义站点（整合包里白名单外的魔改模组直链）。
+	// 只由处置流程在用户确认后写入（host 校验过 https、公网），PUT /api/config 不收这个键。
+	TrustedHosts []TrustedHost `json:"trustedHosts,omitempty"`
 }
+
+// TrustedHost 一条已确认的自定义下载站点。Host 是小写主机名（不带协议和端口：协议永远 https，不进配置放松；
+// 端口跟着文件给的地址走）。Scope 是作用域：作用域不同互不影响，以后别的下载场景另用别的 Scope。
+// At 是用户确认的时间。
+type TrustedHost struct {
+	Host  string    `json:"host"`
+	Scope string    `json:"scope"`
+	At    time.Time `json:"at"`
+}
+
+// TrustScopeModpack 整合包文件下载的作用域。
+const TrustScopeModpack = "modpack"
 
 // ParseHexColor 校验并规范化 #rrggbb 形式的颜色，返回小写形式；其它写法（#rgb、颜色名、rgb() 等）一律不认。
 func ParseHexColor(s string) (string, bool) {
@@ -158,6 +175,38 @@ func UpdateConfig(mutate func(*Config) error) (Config, error) {
 func saveLocked() {
 	b, _ := json.MarshalIndent(cfg, "", "  ")
 	_ = os.WriteFile(configPath(), b, 0o644)
+}
+
+// TrustedHostFunc 返回「某个主机是否在作用域 scope 里被用户确认过」的查询函数。
+// 给 modpack.IsAllowedHost 当口子用：解析和下载时各自调用，配置一变就生效。
+func TrustedHostFunc(scope string) func(host string) bool {
+	return func(host string) bool {
+		cfgMu.RLock()
+		defer cfgMu.RUnlock()
+		for _, th := range cfg.TrustedHosts {
+			if th.Host == host && th.Scope == scope {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+// TrustHost 记下用户确认过的自定义站点（同作用域重复记不重复写盘）。host 存储前规范化成小写、去掉尾部点。
+func TrustHost(host, scope string) {
+	host = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(host), "."))
+	if host == "" {
+		return
+	}
+	_, _ = UpdateConfig(func(c *Config) error {
+		for _, th := range c.TrustedHosts {
+			if th.Host == host && th.Scope == scope {
+				return nil
+			}
+		}
+		c.TrustedHosts = append(c.TrustedHosts, TrustedHost{Host: host, Scope: scope, At: time.Now()})
+		return nil
+	})
 }
 
 // ---------- 密钥（secrets.json，DPAPI 加密） ----------

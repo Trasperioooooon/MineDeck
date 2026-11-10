@@ -2601,6 +2601,119 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     });
   }
 
+  // ---- 导入逐文件处置 + Java 提示（fix-custom-mod-choice）----
+  await run("导入的待决文件面板：逐项列出；跳过、本地代替、未确认的信任各自结算；同站点第二次不用再确认", async () => {
+    const mkInst = encodeURIComponent("机械动力整合包");
+    const task = {
+      id: "task-im", title: "导入整合包 魔改模组包", ended: true, result: "机械动力整合包",
+      warnings: [
+        { kind: "import-kept", title: "按原样保留 1 个文件", note: "这些文件没有从网上下载，用的是整合包覆盖目录或本地来源目录里已有的那份。", items: [{ name: "mods/inherited.jar（来自本地来源目录，未校验）" }] },
+        { kind: "import-pending", title: "3 个文件待处理", note: "这些文件没法自动下载。" },
+        { kind: "java-req", title: "有模组要求 Java 25，这台实例现在是 Java 17", note: "这只是提醒，不影响导入结果。", items: [{ name: "modded-fabric.jar（modded，要 Java 25）" }] },
+      ],
+      pending: [
+        { id: "p1", path: "mods/modded-custom-host.jar", reason: "host", host: "files.example.net", note: "下载地址不在 MineDeck 允许的站点列表里（只允许 Modrinth、GitHub、GitLab），确认站点可信后才能下载", urls: ["https://files.example.net/modded-custom-host.jar"], sha1: "aa", size: 12345, options: ["local", "skip", "trust"] },
+        { id: "p2", path: "mods/no-hash.jar", reason: "nohash", note: "整合包没有提供这个文件的校验值，不能自动下载", options: ["skip", "local"] },
+        { id: "p3", path: "mods/same-host-2.jar", reason: "host", host: "files.example.net", note: "下载地址不在 MineDeck 允许的站点列表里", urls: ["https://files.example.net/same-host-2.jar"], options: ["local", "skip", "trust"] },
+      ],
+    };
+    try {
+      await page.evaluate(t => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList: [t], trustedHosts: [] }) }), task);
+      // 任务列表摘要：待决条数用 pendingCount 显示，入口写着「去处理」
+      await page.goto(url("#/create")); await settle();
+      assert((await page.textContent("#task-list")).includes("3 个文件待处理"), "列表摘要应写待决条数");
+      assert((await page.textContent("#task-list")).includes("去处理"), "入口文字应为「去处理」");
+      await page.click('#task-list a[href="#/task/task-im"]'); await settle();
+      // 面板逐项列出；原因、站点、地址、大小都在；处置选项按原因给
+      const rows = await page.$$eval("#t-pending .pnd-item", els => els.map(e => e.textContent));
+      assert(rows.length === 3, "应逐项列出 3 个：" + JSON.stringify(rows));
+      const hostRow = rows.find(r => r.includes("mods/modded-custom-host.jar"));
+      assert(hostRow && hostRow.includes("files.example.net"), "host 项应写出站点");
+      const p1Opts = await page.$$eval('#t-pending .pnd-item[data-id="p1"] input[type=radio]', els => els.map(e => e.value));
+      const p2Opts = await page.$$eval('#t-pending .pnd-item[data-id="p2"] input[type=radio]', els => els.map(e => e.value));
+      assert(JSON.stringify(p1Opts) === JSON.stringify(["local", "skip", "trust"]), "host 项应有三种处置：" + JSON.stringify(p1Opts));
+      assert(JSON.stringify(p2Opts) === JSON.stringify(["skip", "local"]), "缺哈希项不该能信任下载：" + JSON.stringify(p2Opts));
+      // Java 提醒在告警区，带「内存 / 启动」入口
+      const msgs = await page.textContent("#t-msgs");
+      assert(msgs.includes("Java 25") && msgs.includes("Java 17"), "Java 提醒应在告警区：" + msgs);
+      assert(await page.locator('#t-msgs a[href*="/jvm"]').count() === 1, "Java 提醒应有换 Java 入口");
+      assert((await page.getAttribute('#t-msgs a[href*="/jvm"]', "href")).includes(mkInst), "入口应指向这台实例");
+      // 未确认的信任：留在清单，原因是「没有确认过」
+      await page.check('input[name="pnd-p1"][value="trust"]');
+      assert(!(await page.$eval('.pnd-item[data-id="p1"] label.pnd-ack', e => e.hidden)), "选信任应露出风险确认");
+      await page.click("#t-pending-apply"); await settle();
+      let out = await page.textContent("#t-pending-out");
+      assert(out.includes("没处理成") && out.includes("没有确认过"), "未确认信任不应下载：" + out);
+      assert((await page.$$eval("#t-pending .pnd-item", els => els.length)) === 3, "没处理成的应留在清单");
+      // 确认信任（勾风险）后成功；同站点的另一项不再要求确认
+      await page.check('.pnd-item[data-id="p1"] .pnd-ackbox');
+      await page.check('input[name="pnd-p3"][value="trust"]');
+      await page.click("#t-pending-apply"); await settle();
+      out = await page.textContent("#t-pending-out");
+      assert(out.includes("已处理") && out.includes("校验通过") && out.includes("之前确认过"), "信任应下载成功、同站点免确认：" + out);
+      assert((await page.$$eval("#t-pending .pnd-item", els => els.length)) === 1, "成功项应移出清单");
+      const st = await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data));
+      assert((st.trustedHosts || []).includes("files.example.net"), "确认过的站点应记下来：" + JSON.stringify(st.trustedHosts));
+      // 跳过：成功并记录
+      await page.check('input[name="pnd-p2"][value="skip"]');
+      await page.click("#t-pending-apply"); await settle();
+      assert((await page.textContent("#t-pending-out")).includes("已跳过"), "跳过应记录");
+      assert(!(await page.locator("#t-pending .pnd-item").count()), "全部处理完后面板应收起");
+      assert((await page.textContent("#t-pending")).includes("待决清单已全部处理完"), "收尾应写已处理完");
+      // 从没有过待决文件的普通任务页不显示任何待决面板（曾误显示「已全部处理完」卡片）
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList: [{ id: "task-plain", title: "创建 Paper 服务器", ended: true }] }) }));
+      await page.goto(url("#/task/task-plain")); await settle();
+      assert(((await page.$eval("#t-pending", e => e.textContent)) || "").trim() === "", "没有待决过的任务不该出现待决面板");
+    } finally {
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList: [], trustedHosts: [] }) }));
+      await page.goto(url("#/instances")); await settle();
+    }
+  });
+
+  await run("待决面板：选了用本地文件代替但没给路径时拦下，给路径后成功", async () => {
+    const task = {
+      id: "task-im2", title: "导入整合包 魔改模组包", ended: true, result: "机械动力整合包",
+      pending: [{ id: "p1", path: "mods/modded.jar", reason: "host", host: "files.example.net", urls: ["https://files.example.net/modded.jar"], options: ["local", "skip", "trust"] }],
+    };
+    try {
+      await page.evaluate(t => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList: [t], trustedHosts: [] }) }), task);
+      await page.goto(url("#/task/task-im2")); await settle();
+      await page.check('input[name="pnd-p1"][value="local"]');
+      assert(!(await page.$eval('.pnd-item[data-id="p1"] input.pnd-local', e => e.hidden)), "选本地代替应露出路径输入");
+      await page.click("#t-pending-apply"); await settle();
+      const toasts = await page.$$eval(".toast", ts => ts.map(x => x.textContent));
+      assert(toasts.some(x => x.includes("但没给路径")), "没给路径应拦下：" + JSON.stringify(toasts));
+      assert((await page.$$eval("#t-pending .pnd-item", els => els.length)) === 1, "清单不该变");
+      await page.fill('.pnd-item[data-id="p1"] input.pnd-local', "D:\\老服务器\\mods\\modded.jar");
+      await page.click("#t-pending-apply"); await settle();
+      const out = await page.textContent("#t-pending-out");
+      assert(out.includes("已处理") && out.includes("modded.jar"), "给了路径应成功：" + out);
+    } finally {
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList: [] }) }));
+      await page.goto(url("#/instances")); await settle();
+    }
+  });
+
+  await run("实例详情：模组要求比实例高的 Java 时提示换 Java 并给入口；导入表单有本地来源目录", async () => {
+    // 1.20.1（Java 17）的机械动力整合包里有要 Java 25 的魔改模组（用户反馈的主场景）
+    await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ modsNeed: { "机械动力整合包": 25 } }) }));
+    await page.goto(url("#/inst/" + encodeURIComponent("机械动力整合包"))); await settle(600);
+    const hint = await page.textContent("#d-java-hint").catch(() => "");
+    assert(hint.includes("Java 25") && hint.includes("Java 17") && hint.includes("内存 / 启动"), "应提示模组要求与现状：" + hint);
+    await page.click("#d-java-hint a"); await settle();
+    assert(page.url().includes("/jvm"), "入口应到「内存 / 启动」：" + page.url());
+    // 没有声明要求的实例不显示
+    await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ modsNeed: {} }) }));
+    await page.goto(url("#/inst/" + encodeURIComponent("生存服 · 朋友"))); await settle(600);
+    assert(!(await page.locator("#d-java-hint").count()), "没有要求就不该有提示");
+    // 导入表单：本地来源目录字段在，浏览走选目录（从「新建服务器」的第二张卡片进入）
+    await page.goto(url("#/create")); await settle();
+    await page.click("#mode-import"); await settle(600);
+    assert((await page.locator("#im-src").count()) === 1, "导入表单应有本地来源目录输入框");
+    await page.click("#im-src-browse"); await settle();
+    assert((await page.inputValue("#im-src")).includes("E:\\MCServers"), "浏览应回填 pickdir 的路径");
+  });
+
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
 
   await browser.close();

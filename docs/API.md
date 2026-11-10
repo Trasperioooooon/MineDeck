@@ -7,7 +7,7 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 - 本机：请求头 `X-Token: <token>`（token 在启动 URL 的 `?token=` 参数中，每次启动随机）
 - 局域网模式：`POST /api/login {"password": "..."}` 换取会话 Cookie
 - SSE 端点可用查询参数 `?token=` 传递
-- **仅本机（loopback）端点**：`/api/pickdir`、`/api/openpath`、`/api/instances/{name}/opendir` 会调起系统对话框 / 资源管理器，`/api/javas/add` 会执行请求中给出的主机路径（`java -version` 探测），`/api/adopt/scan` 和 `/api/adopt` 要读主机上任意一个文件夹，均只接受来自本机的请求；局域网会话调用返回 403
+- **仅本机（loopback）端点**：`/api/pickdir`、`/api/openpath`、`/api/instances/{name}/opendir` 会调起系统对话框 / 资源管理器，`/api/javas/add` 会执行请求中给出的主机路径（`java -version` 探测），`/api/adopt/scan` 和 `/api/adopt` 要读主机上任意一个文件夹，`/api/import/pending/{taskId}` 要按请求给出的主机路径收文件（或信任后联网下载），均只接受来自本机的请求；局域网会话调用返回 403
 - **主机路径仅本机可指定**：局域网会话不能决定文件写到主机哪里——`POST /api/instances` 与 `POST /api/import/modpack` 的 `root` 会被忽略（实例一律建在默认存放根下）；`PUT /api/config` 只要带了 `serversDir` / `backupsDir`（含置空恢复默认）即整次返回 403、不做任何修改，不带这两个键的其余配置仍可远程修改
 - **AI 设置的修改类接口仅本机**：`/api/ai/*` 里除 `GET /api/ai/settings` 外都只接受本机请求（含 Key 和接口地址）；局域网会话只能看，调用返回 403
 - **免 token 端点**：`GET /bg/{name}` 提供程序旁 `bg/` 目录内的壁纸图片（供前端 CSS `url()` 引用，仅受 Host 校验约束）
@@ -32,13 +32,15 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 
 **配置键**（`PUT /api/config`，均为可选、只更新所传字段）：
 `source`（auto/mirror/official）、`cfApiKey`（**只写**：用 Windows DPAPI 加密存进程序目录的 `secrets.json`，任何响应都不下发——`config` 里的 `cfApiKey` 永远为空；是否已设置看 `GET /api/app` 的 `cfKeySet`；传空串清除）、`webhookUrl`、`updateRepo`、`checkUpdateOnStart`、`serversDir`（实例存放根，空=默认；**仅本机**；改动时旧值并入 `roots`，旧根里的实例照常扫描）、`backupsDir`（备份根；**仅本机**）、`backupKeep`（每实例保留份数 1–1000）、`onboarded`（首启引导完成标记）、`tosAccepted`（用户协议与免责声明已同意标记）、`minimizeToTray`（关窗最小化到托盘）、`autoStart`（开机自启，直写 `HKCU\...\Run`）、`listenLan`、`lanPassword`（明文，服务端存为 bcrypt 哈希；任何响应都不下发该哈希，是否已设密码看 `GET /api/app` 的 `lanSet`）、`chromeColor`（界面标题栏底色，只收 `#rrggbb`，存为小写，其它写法整次返回 400；空串清除。原生窗口里的前端在外观变化时上报，下次启动时宿主把它设为 WebView2 的默认底色，避免冷启动白闪；没有值时按系统浅 / 深色取默认方案的标题栏色）。
+另有 `trustedHosts`（config.json 里 `[{host, scope, at}]`，整合包导入里用户逐个确认过的自定义下载站点）：**不经 `PUT /api/config` 修改**，只能由 `POST /api/import/pending/{taskId}` 的 `trust` 处置在用户明确确认（`ack: true`）且站点校验通过（https、公网）后写入，`scope` 为作用域（现为 `modpack`），之后同站点的整合包导入不再列为待决。
 
 ### 实例
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/instances` | 实例列表；每项含 `name/core/kind/mc/build/javaMajor/javaSource/javaPath/adopted/xmxMb/xmsMb/port/status/motd/dir/createdAt/consoleEncoding/onlineCount/uptimeSec/maxPlayers/extraJvm`。`javaSource` 是 `portable`（MineDeck 下载的）或 `local`（本机装的），`javaPath` 是现在用的 java.exe；`adopted` 为 true 表示这台服务器是接管进来的，目录是用户原来的文件夹 |
 | POST | `/api/instances` | 创建（返回 taskId，轮询 `/api/tasks/{id}`）；body 可含 `difficulty/gamemode/root` 等（`root` 仅本机生效） |
-| POST | `/api/import/modpack` | multipart 导入整合包（file + name/xmxMb/port/eula/onlineMode/allowFlight/root；`root` 仅本机生效） |
+| POST | `/api/import/modpack` | multipart 导入整合包（file + name/xmxMb/port/eula/onlineMode/allowFlight/root；`root` 仅本机生效）；另有可选的 `localSource`（本地来源目录：老服务器目录，导入中无法自动下载的文件凡在此目录已有对应文件即按原样保留、不校验不上线上匹配，也是仅本机生效，远程请求忽略）。之前白名单外直链、缺校验值会让整个整合包被拒绝，现在这些文件改成「待决」，导入照常完成（见 `/api/import/pending/{taskId}`） |
+| POST | `/api/import/pending/{taskId}` | 逐项处置整合包导入的待决文件：body `{"items":[{"id":"p1","act":"skip\|local\|trust","path?":"","url?":"","ack?":false}]}`。`act=skip` 跳过并记入任务日志；`act=local` 用请求给出的本地文件（`path`）或目录（给目录时按待决文件的相对路径、mods/plugins 下的同名文件匹配）原样复制进实例，内容不校验；`act=trust` 确认信任自定义站点后从 `url`（必须为该项列出的候选、必须 https）下载并校验 SHA-1——主机解析到内网或本机地址的一律拒绝，首次信任每个站点必须带 `ack: true`（风险在界面写明，确认按域名记忆、不同端口也一并信任），记入全局配置后才算数。下载全程走受控客户端：拨号级（每个解析出的 IP 连接前再查公网，站点日后被解析到内网也连不出去）与重定向级（302 跳到 http 或允许列表之外的站点即中断）。返回 `{resolved:[{id,path,act,ok,note}], pending:[剩余待决]}`；单项失败留在清单里不影响其他项。**仅本机**，AI 不能调用（操作 `instance.import.pending`） |
 | POST | `/api/adopt/scan` | `{dir}`：只读地识别一个已有的服务器文件夹，给接管的表单预填（见下方「接管已有服务器」）。**仅本机** |
 | POST | `/api/adopt` | 接管已有服务器：把文件夹就地登记成实例，返回 taskId（见下方）。**仅本机** |
 | POST | `/api/instances/{name}/start` \| `/stop` \| `/kill` | 进程控制 |
@@ -60,9 +62,10 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 
 `POST /api/adopt` 的请求体：`dir`、`name`、`core`、`mc`、`launchTarget`（必须是识别出来的候选之一）必填；`build`、`xmxMb`（低于 512 按 2048 算）、`javaMajor`（0 = 按 Minecraft 版本自动选，本机没有就下载便携版）、`javaPath`（指定用哪一个 java.exe，必须是 `GET /api/javas` 里列出来的，同时要给 `javaMajor`）、`eula`（eula.txt 里没同意过时必须为 true，代理端不用）选填。后端会重新识别一遍文件夹，不信请求里带来的事实。任务成功后往文件夹里写的只有：`instance.json`；`run.bat`（原来有的先另存为 `run.before-minedeck.bat`，备份已存在就不覆盖）；Forge / NeoForge 的 `user_jvm_args.txt`（原来的另存为 `user_jvm_args.before-minedeck.txt`，里面除内存以外的 JVM 参数带到 `extraJvm`）；`eula.txt`（原来没同意过时）；1.12 ~ 1.16.5 的 `log4j2_112-116.xml`（log4shell 缓解，和新建时一样）。任务失败不删任何东西，并且把这次动过的这几个文件恢复原样，文件夹和接管之前一模一样。
 
-`GET /api/tasks` 返回本次程序运行的任务摘要数组，按创建时间从新到旧排列，包括部署中、已完成和失败的任务；没有任务时返回 `[]`。每项是 `{id, title, kind?, label, done, total, ended, error?, result?, warningCount}`，同名字段的含义和单个任务的快照一样（`kind` 见下一段），`warningCount` 是告警条数；步骤、日志和告警明细不在列表里，要看就用 `GET /api/tasks/{id}` 查那一个任务。界面切页或刷新后可据此恢复进度入口，程序重启后任务记录清空。
+`GET /api/tasks` 返回本次程序运行的任务摘要数组，按创建时间从新到旧排列，包括部署中、已完成和失败的任务；没有任务时返回 `[]`。每项是 `{id, title, kind?, label, done, total, ended, error?, result?, warningCount, pendingCount}`，同名字段的含义和单个任务的快照一样（`kind` 见下一段），`warningCount` 是告警条数，`pendingCount` 是待决文件数（整合包导入的任务才会有，明细看那个任务的快照）；步骤、日志和告警明细不在列表里，要看就用 `GET /api/tasks/{id}` 查那一个任务。界面切页或刷新后可据此恢复进度入口，程序重启后任务记录清空。
 
 `GET /api/tasks/{id}` 快照里的 `kind` 说明是哪一类任务：没有这个字段是新建 / 导入（部署），`adopt` 是接管已有服务器，`java` 是换 Java 时下载便携版；界面按它换说法。快照除进度/日志外，还含 `warnings[]`（结构化告警，如 CurseForge 未解析模组清单 `{kind,title,note,items:[{name,url}]}`），供导入完成页醒目呈现。
+整合包导入的任务还有 `pending[]`（待决文件清单，逐项 `{id,path,reason,note,host?,size?,urls?,sha1?,options}`）：导入完成但没法自动下载的文件（`reason=host` 白名单外直链、`nohash` 缺校验值、`badurl` 非 https、`hash` 下载内容与校验值不符、`cf` CurseForge 未解析）。`options` 是这一项可用的处置（`skip`、`local`，host 类另有 `trust`），用 `POST /api/import/pending/{taskId}` 逐项处理，处理成功的那几项从清单里消失；任务快照和列表摘要（`pendingCount`）随之更新，全部处理完清单为空。告警另有三种：`import-kept`（按原样保留清单——来自整合包覆盖目录或本地来源目录、未校验）、`import-pending`（有待决文件待处理）、`java-req`（有模组声明的 Java 要求高于实例当前 javaMajor——只提示不阻断，1.20.1 配要 Java 25 的模组是允许的组合，界面给「内存 / 启动」的换 Java 入口）。
 还可能有 `net: {count, host?, what, ago}`：当前这一步里下载超时、失败重试的情况——`count` 是这一步一共出过几次，`host` 是最近一次出问题的地址（只到主机名，安装器自己出错重来时为空），`what` 是什么问题（「下载失败」「连接超时」「连不上」「安装器出错退出，第 2 次重试」），`ago` 是几秒前。来源有两处：MineDeck 自己下载核心时某个下载源没下成（换下一个源或稍后重试），以及 Forge / NeoForge 安装器的输出里出现连接超时、连不上的异常（一段异常栈算一次）。之后下载又有了进度、换了步骤或任务结束，就不再有这一项。部署页在它出现、或者进度和日志 30 秒没有任何变化时，在进度旁提示「下载慢，或者在重试」。
 
 ### 穿透
@@ -199,7 +202,7 @@ AI 助手用的读写能力，网页也能直接调。人调用时，写操作�
 | GET | `/api/instances/{name}/console/tail?lines=&level=&q=&since=` | 控制台最近的输出（内存里最多 3000 行）。`lines` 默认 100；`level` 为 `warn` / `error` 时只看这一级及更严重的；`q` 是关键字；`since=start` 只看最近一次启动以来的 |
 | GET | `/api/instances/{name}/logs?file=&lines=&q=` | 读 `logs/latest.log`（`file=debug` 时读 `debug.log`）末尾 `lines` 行，默认 200。给了 `q` 就改成搜索，最多 50 处，每处带前后 2 行。GBK 编码的日志自动转码 |
 | GET | `/api/instances/{name}/crash-reports?file=&full=` | 不给 `file` 时列出 `crash-reports/` 里的崩溃报告和 `hs_err_pid*.log`：`{reports: [{name, kind: crash/jvm, size, modified, thisStart}]}`，新的在前。给了 `file` 返回摘要（开头、Description、第一个异常、加载器标出的可疑模组、Java 版本和内存）；`full=1` 返回原文的前 16 KB |
-| GET | `/api/instances/{name}/mods?q=&detail=` | 解析 mods 目录（插件服是 plugins）里的 jar：`{dir, count, disabled, mods[]}`。给了 `q` 或 `detail=1` 时，每项带上加载器、依赖、mixin 配置等 |
+| GET | `/api/instances/{name}/mods?q=&detail=` | 解析 mods 目录（插件服是 plugins）里的 jar：`{dir, count, disabled, mods[], needJava?}`。给了 `q` 或 `detail=1` 时，每项带上加载器、依赖、mixin 配置等。`needJava` 是目录里所有模组声明的 Java 要求里最高的（fabric.mod.json 的 `depends.java`、mods.toml 的 java 区间，如 `">=25"`），高于实例当前 `javaMajor` 时界面提示换 Java（只提示不阻断），没声明或读不出时没有这一字段 |
 | POST | `/api/instances/{name}/mods/toggle` | `{file, enable}`：把 jar 改名成 `.jar.disabled` 来禁用，改回来就是启用；不删文件，重启后生效 |
 | GET | `/api/instances/{name}/config?path=&start=&lines=` | 读 `config/`、`defaultconfigs/`、`<世界>/serverconfig/`、`plugins/<插件>/` 下的配置文件，1 MB 以内，按行分页。`path` 为空时列出能读的目录，是目录时列出里面的文件 |
 | PUT | `/api/instances/{name}/config` | 改配置文件 `{path, mode, edits?, content?}`：<br>• `edit`（默认）：`edits: [{find, replace}]` 逐处替换，原文要一字不差且只出现一次；<br>• `replace`：用 `content` 整体替换，文件不存在时新建；<br>• `reset`：备份后删掉，让模组重新生成默认配置；<br>• `undo`：恢复成上一次的备份。<br>改之前自动备份到 `<实例>/.minedeck/config-backups/`，每个文件留 20 份。读和比对按 UTF-8、`\n` 换行，写回时保持原文件的编码（UTF-8、带 BOM 的 UTF-8 或 GBK）和换行。内容里有脱敏占位符（`***`、`<用户名>` 等）时拒绝写入 |

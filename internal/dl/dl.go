@@ -22,6 +22,11 @@ import (
 
 const UA = "MineDeck/1.0 (Minecraft server setup tool; Windows)"
 
+// ErrVerify 下载的内容没有通过哈希校验。和「下载不下来」不同：地址本身没坏，
+// 是拿回来的内容对不上给定的校验值（改动过的文件、坏 CDN 等）。
+// 调用方可以用 errors.Is 认出它，把这样的文件降级成「待用户处置」而不是整次失败。
+var ErrVerify = errors.New("哈希校验失败")
+
 // GHMirrors 把 GitHub 直链（github.com 的 Release 资产、raw.githubusercontent.com 的文件）包装成国内加速候选，
 // 依次尝试 ghfast.top、gh-proxy.com，最后直连。自动更新、下载 frp、取 AI 价格数据三处共用。
 // 经镜像取到的内容可能被改过：exe 和 frp 要对上官方 SHA-256，价格数据只用来显示估算、按不可信数据严格校验。
@@ -52,6 +57,9 @@ type Request struct {
 	SHA256  string
 	MD5     string
 	MinSize int64 // 完整性下限（防错误页面被当文件保存）
+	// Client 本次下载用的 HTTP 客户端；nil 用 dl.Client。
+	// 整合包文件下载传 GuardedClient(...)（拨号和重定向级公网检查，平时也一样能走镜像）。
+	Client *http.Client
 	// OnRetry 某个地址这一次没下成、后面还会接着试（下一个地址或下一轮）时调用（host 只到主机名）；可以为 nil。
 	// 最后一个地址的最后一轮也没下成时不调：不会再试了，原因看 Fetch 返回的错误（以前也调，部署页多写一句「换下一个下载源」）。
 	// 给部署页提示「哪个地址超时、第几次重试」用（测试报告 B-01）
@@ -78,13 +86,13 @@ func (m *multiHash) check(r Request) error {
 		return strings.EqualFold(hex.EncodeToString(h.Sum(nil)), want)
 	}
 	if r.SHA1 != "" && !eq(m.s1, r.SHA1) {
-		return errors.New("SHA-1 校验失败")
+		return fmt.Errorf("%w：SHA-1 校验失败", ErrVerify)
 	}
 	if r.SHA256 != "" && !eq(m.s256, r.SHA256) {
-		return errors.New("SHA-256 校验失败")
+		return fmt.Errorf("%w：SHA-256 校验失败", ErrVerify)
 	}
 	if r.MD5 != "" && !eq(m.m5, r.MD5) {
-		return errors.New("MD5 校验失败")
+		return fmt.Errorf("%w：MD5 校验失败", ErrVerify)
 	}
 	return nil
 }
@@ -178,7 +186,11 @@ func fetchOne(ctx context.Context, url string, r Request, prog Progress) error {
 		return err
 	}
 	req.Header.Set("User-Agent", UA)
-	resp, err := Client.Do(req)
+	client := r.Client
+	if client == nil {
+		client = Client
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
