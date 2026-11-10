@@ -73,6 +73,7 @@ function newState(ui) {
   // 同 instance.list 的 javaSource / javaPath / adopted：都用 MineDeck 下载的便携版 Java，都不是接管进来的
   for (const i of state.instances) Object.assign(i, { javaSource: "portable", javaPath: `D:\\MineDeck\\runtimes\\java-${i.javaMajor}\\bin\\java.exe`, adopted: false });
   state.adoptScan = state.lastAdopt = state.lastJava = state.lastDelete = null; // 接管、换 Java、删除：见 /__mock/state 的说明
+  state.unpackSummary = state.lastImport = state.lastExport = null; // 服务器打包 / 收包：清点结果、收包与打包的请求
   return state;
 }
 
@@ -86,6 +87,18 @@ const ADOPT_SCAN = {
   ],
   javaMajor: 0, xmxMb: 6144, extraJvm: ["-XX:+UseG1GC"], port: 25570, eula: false, hasWorld: true, managed: false,
   notes: ["这个文件夹里有 2 个能启动的文件，已经选了最可能的那个，不对可以改。", "user_jvm_args.txt 里的 1 个 JVM 参数会带过来。"],
+};
+
+// 收包开服（同 transfer.Summary，ops/catalog/transfer.go）：「上传并清点」返回的默认清点结果。
+// 一个 Forge 1.20.1 暑假服的包：世界 448 MB（全员进度在 playerdata 里）、187 个模组、默认端口被「生存服 · 朋友」占着。
+const MDPACK_SUMMARY = {
+  formatVersion: 1, mode: "distributable", exportedAt: "2026-10-28T20:15:00+08:00", exporter: "MineDeck 3.0.0",
+  instance: { name: "暑假生存服", core: "forge", mc: "1.20.1", build: "47.3.0", javaMajor: 17, xmxMb: 6144, createdAt: "2026-07-01T10:05:00+08:00" },
+  port: 25565, eulaAgreed: false, modCount: 187,
+  mods: [],
+  worldSize: 469762048,
+  excluded: [".minedeck", "instance.json", "run.bat", "session.lock", "logs", "crash-reports", "usercache.json"],
+  entries: 1243, packSize: 356515840,
 };
 
 // 操作记录（同 GET /api/ops/log：新的在前，Key、密码、凭据写成 ***）
@@ -1232,7 +1245,9 @@ function handler(state, ui, portOf) {
     //   taskNet: 部署任务的 net（同 tasks.NetRetry：{ count, host, what, ago }），null 清掉
     //   inst: { name, …字段 } 直接改某台服务器的字段；instReset: true 服务器列表回到初始的四台
     //   adoptScan: 接管已有服务器时「识别」返回的结果（同 inst.AdoptScan），null 还原成默认的；
-    //     响应里的 lastAdopt / lastJava / lastDelete 是上一次接管、换 Java、删除的请求
+    //   unpackSummary: 收包「上传并清点」返回的结果（同 transfer.Summary），null 还原成默认的 Forge 1.20.1 暑假服；
+    //     lastImport / lastExport 是上一次收包、打包的请求
+    //     响应里的 lastAdopt / lastJava / lastDelete / lastImport / lastExport 是上一次接管、换 Java、删除、收包、打包的请求
     //   legacy: { name, extraJvm, forceFlags } 把某台服务器设成「老版本」，保存 JVM 参数时补回 forceFlags
     //   status: { 名称: running | starting | stopping | stopped } 直接改某台服务器的运行状态（看状态切换的动效用）
     //   cfKey: 已存的 CurseForge API Key（空串 = 未设置）；cfKeyBroken: true 模拟「Key 解不开」（换了电脑或 Windows 用户）
@@ -1254,7 +1269,8 @@ function handler(state, ui, portOf) {
       if ("taskNet" in b) state.taskNet = b.taskNet;
       if (b.inst) { const i = state.instances.find(x => x.name === b.inst.name); if (i) Object.assign(i, b.inst); } // 改某台服务器的字段（adopted、javaMajor…）
       if ("adoptScan" in b) state.adoptScan = b.adoptScan; // 接管：下一次识别返回的结果（null 还原成默认的 NeoForge 整合包）
-      if (b.instReset) { const fresh = newState(ui); state.instances = fresh.instances; state.lastAdopt = state.lastJava = state.lastDelete = null; }
+      if ("unpackSummary" in b) state.unpackSummary = b.unpackSummary; // 收包：下一次「上传并清点」返回的结果（null 还原成默认的 Forge 1.20.1 暑假服）
+      if (b.instReset) { const fresh = newState(ui); state.instances = fresh.instances; state.lastAdopt = state.lastJava = state.lastDelete = state.lastImport = state.lastExport = null; }
       if ("listenLan" in b) { state.config.listenLan = state.lanActive = !!b.listenLan; if (b.listenLan) state.lanSet = true; }
       if ("lanSet" in b) state.lanSet = !!b.lanSet;
       if ("lanActive" in b) state.lanActive = !!b.lanActive;
@@ -1347,6 +1363,41 @@ function handler(state, ui, portOf) {
         return ok(res, { id: p.split("/").pop(), kind: adopt ? "adopt" : "java", steps: names.map(name => ({ name, status: "done" })), label: "", done: 0, total: 0, warnings: [],
           log: adopt ? ["服务器文件夹：" + ((state.lastAdopt || {}).dir || ""), "原来的 run.bat 另存为 run.before-minedeck.bat", "接管完成 ✔ 存档、模组、插件和配置文件都没有动"] : ["已换成 Java 25（下次启动生效）"],
           ended: true, result: adopt ? (state.lastAdopt || {}).name || "create-pack" : (state.lastJava || {}).inst || "机械动力整合包" });
+      }
+      // 服务器打包 / 收包（同 web/transfer.go、inst/transfer.go）：上传清点返回摘要，打包收包各返回任务编号；端口占用给「生存服 · 朋友」一个占着的默认例
+      if (p === "/api/transfer/upload" && m === "POST") {
+        return ok(res, { file: "D:\\MineDeck\\cache\\transfer\\1769590000000-暑假生存服.mdpack", summary: state.unpackSummary || MDPACK_SUMMARY });
+      }
+      if (p === "/api/transfer/import" && m === "POST") {
+        const b = await readBody(req);
+        if (state.instances.some(x => x.name === b.name)) return err(res, 400, "实例名已存在: " + b.name);
+        state.lastImport = b;
+        return ok(res, { taskId: "task-unpack" });
+      }
+      if (p === "/api/transfer/export" && m === "POST") {
+        const b = await readBody(req);
+        const i = state.instances.find(x => x.name === b.inst);
+        if (!i) return err(res, 404, "实例不存在: " + b.inst);
+        if (i.status !== "stopped") return err(res, 400, "打包前请先停止服务器（打的是停机时的完整包）");
+        state.lastExport = b;
+        return ok(res, { taskId: "task-pack" });
+      }
+      if (p === "/api/tasks/task-unpack" || p === "/api/tasks/task-pack") {
+        const unpack = p.endsWith("unpack");
+        const names = unpack ? ["清点包内容", "解压到实例目录", "适配配置文件", "准备 Java 并登记"] : ["清点实例文件", "压缩打包"];
+        return ok(res, { id: p.split("/").pop(), kind: unpack ? "unpack" : "pack", steps: names.map(name => ({ name, status: "done" })), label: "", done: 0, total: 0, warnings: [],
+          log: unpack
+            ? ["包：暑假生存服（distributable，340.0 MB，1243 个文件）", "服主 MineDeck 3.0.0 打的包，导出于 2026-10-28 20:15", "端口按你的选择改成 25665（包里原来是 25565）", "收包完成 ✔ 存档、模组和配置都齐了，随时可以启动"]
+            : ["服务器：生存服 · 朋友（paper 1.21.4），内存 4096 MB", "模式：打包下发（收包即全员进度都在）", "打包完成 ✔ 生存服-20261129-120000.mdpack（1.2 GB）"],
+          ended: true, result: unpack ? (state.lastImport || {}).name || "暑假生存服" : "D:\\MinePack\\生存服-20261129-120000.mdpack" });
+      }
+      if (p.startsWith("/api/ports/") && m === "GET") {
+        const port = parseInt(p.split("/")[3], 10);
+        if (!(port >= 1 && port <= 65535)) return err(res, 400, "端口需为 1 ~ 65535");
+        const i = state.instances.find(x => String(x.port) === String(port));
+        const occupied = !!i;
+        return ok(res, { port, tcp: { free: !occupied, owners: occupied ? [{ pid: 1436, process: "java.exe", instance: i.name, minedeck: true }] : undefined },
+          udp: { free: true }, instances: occupied ? [{ instance: i.name, status: i.status }] : [] });
       }
       // 和真后端一样只给摘要：步骤、日志、告警明细不在列表里
       if (p === "/api/tasks") return ok(res, state.taskList.map(t => ({ id: t.id, title: t.title, label: t.label || "", done: t.done || 0, total: t.total || 0, ended: !!t.ended, error: t.error || undefined, result: t.result || undefined, kind: t.kind || undefined, warningCount: (t.warnings || []).length })));

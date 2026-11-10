@@ -2601,6 +2601,119 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     });
   }
 
+  // ==================== 服务器打包 / 收包 ====================
+  {
+    const mockState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
+
+    await run("收包开服：新建页第四张卡片进入；没选文件就地提示；清点屏写明服名/核心/世界体量/模组数/打包方式与时间；端口被占点名引导换、空闲端口放行；请求带落地名、端口与包里原 Java；任务页说的是「收包」", async () => {
+      await mockState({ instReset: true, unpackSummary: null });
+      await page.goto(url("#/create")); await settle();
+      await page.click("#mode-unpack"); await settle(500);
+      assert(await page.textContent(".page-head h1") === "收包开服", "没进入收包页");
+      assert(await page.$eval("#up-go", b => b.disabled), "还没清点就能点「收包开服」");
+      // 没选文件点「上传并清点」：就地提示，不出表单
+      await page.click("#up-scan"); await settle(200);
+      assert((await page.textContent("#up-file-err")).includes("请先选择"), "没选文件时没提示");
+      assert(await page.$eval("#up-form", f => f.innerHTML === ""), "没清点就出了表单");
+      // 选文件 → 上传清点（仿真回一个 Forge 1.20.1 的暑假服包）
+      await page.setInputFiles("#up-file", { name: "暑假生存服.mdpack", mimeType: "application/octet-stream", buffer: Buffer.from("mdpack") });
+      await page.click("#up-scan"); await settle(700);
+      const v = await page.evaluate(() => ({
+        name: $("#up-name").value, port: $("#up-port").value, java: $("#up-java").value,
+        sum: $("#up-form .group").textContent, eulaHidden: $("#up-eula-box").hidden,
+        go: $("#up-go").disabled, txt: $("#up-form").textContent,
+      }));
+      assert(v.sum.includes("暑假生存服") && v.sum.includes("Forge") && v.sum.includes("1.20.1") && v.sum.includes("448 MB") &&
+        v.sum.includes("187 个") && v.sum.includes("打包下发") && v.sum.includes("2026/10/28"), "清点屏：" + v.sum);
+      assert(v.name === "暑假生存服" && v.port === "25565" && v.java === "17" && !v.eulaHidden && !v.go, "预填：默认名、包里的端口、包里原 Java 17：" + JSON.stringify(v));
+      assert(v.txt.includes("playerdata") && v.txt.includes("logs"), "应写明全员进度在 playerdata、剔了什么");
+      // 端口被占（25565 被「生存服 · 朋友」占着）：点名引导换端口
+      await page.click("#up-port-check"); await settle(300);
+      let note = await page.textContent("#up-port-note");
+      assert(note.includes("已被") && note.includes("生存服 · 朋友"), "被占应点名是谁：" + note);
+      // 换成空闲端口再查：放行
+      await page.fill("#up-port", "25665");
+      await page.click("#up-port-check"); await settle(300);
+      note = await page.textContent("#up-port-note");
+      assert(note.includes("25665") && note.includes("空着"), "空闲端口应放行：" + note);
+      // 勾 EULA → 提交
+      await page.check("#up-eula");
+      await page.click("#up-go"); await settle(1200);
+      const st = await mockState({});
+      const a = st.lastImport || {};
+      assert(a.file === "D:\\MineDeck\\cache\\transfer\\1769590000000-暑假生存服.mdpack" && a.name === "暑假生存服" &&
+        a.port === 25665 && a.xmxMb === 6144 && a.javaMajor === 17 && a.eula === true, "收包的请求：" + JSON.stringify(a));
+      assert(page.url().endsWith("#/task/task-unpack"), "没去任务页：" + page.url());
+      const t = await page.evaluate(() => ({ h1: $(".page-head h1").textContent, label: $("#t-label").textContent, foot: $("#t-foot").textContent,
+        href: $("#t-foot a").getAttribute("href"), doneSub: $("#t-sub").textContent, toasts: [...document.querySelectorAll(".toast")].map(x => x.textContent) }));
+      assert(t.h1 === "正在收包开服" && t.label === "收包完成" && t.foot.includes("进入控制台") && t.href === "#/inst/" + encodeURIComponent("暑假生存服"), "任务页：" + JSON.stringify(t));
+      assert(t.doneSub.includes("内网穿透") && t.toasts.some(x => x.includes("收包成功")) && !t.toasts.some(x => x.includes("创建成功")), "完成提示：" + JSON.stringify(t));
+    });
+
+    await run("收包开服：端口出范围就地提示；没勾 EULA 不发请求；名称空了就地提示", async () => {
+      await mockState({ instReset: true, unpackSummary: null });
+      await page.goto(url("#/create")); await settle();
+      await page.click("#mode-unpack"); await settle(500);
+      await page.setInputFiles("#up-file", { name: "暑假生存服.mdpack", mimeType: "application/octet-stream", buffer: Buffer.from("mdpack") });
+      await page.click("#up-scan"); await settle(700);
+      // 端口出范围：检查按钮就地提示
+      await page.fill("#up-port", "99999");
+      await page.click("#up-port-check"); await settle(200);
+      let note = await page.textContent("#up-port-note");
+      assert(note.includes("1 ~ 65535"), "端口出范围没提示：" + note);
+      await page.fill("#up-port", "25665");
+      // 没勾 EULA：不发请求，就地提示
+      await page.click("#up-go"); await settle(300);
+      let st = await mockState({});
+      assert(st.lastImport === null, "没勾 EULA 就发了请求");
+      assert((await page.textContent("#up-eula-err")).includes("EULA"), "没就地提示 EULA");
+      // 名字清空也一样
+      await page.check("#up-eula");
+      await page.fill("#up-name", "");
+      await page.click("#up-go"); await settle(300);
+      st = await mockState({});
+      assert(st.lastImport === null, "名字空着就发了请求");
+      assert((await page.textContent("#up-name-err")).includes("请起个名字"), "没就地提示名称");
+    });
+
+    await run("打包发给朋友：运行中的禁用；停着的从「···」进入；模式默认打包下发可选交接；没选目的地不能开始；浏览选目录后提交，任务页说「打包」", async () => {
+      await mockState({ instReset: true });
+      await page.goto(url("#/instances")); await settle();
+      // 运行中的那台：菜单里「打包发给朋友」禁用并说明原因
+      await page.click('.card[data-name="生存服 · 朋友"] [data-act="more"]'); await settle(200);
+      const busy = await page.evaluate(() => {
+        const b = [...document.querySelectorAll(".dropmenu button")].find(x => x.textContent.includes("打包发给朋友"));
+        return { disabled: b?.disabled, note: b?.closest("div,button")?.querySelector(".dm-note")?.textContent || document.querySelector(".dropmenu .dm-note")?.textContent || b?.textContent };
+      });
+      assert(busy.disabled, "运行中的打包应禁用");
+      assert(busy.note.includes("需先停止"), "应说明要停服：" + JSON.stringify(busy));
+      await page.keyboard.press("Escape");
+      await page.waitForSelector(".dropmenu", { state: "detached", timeout: 1000 }).catch(() => {});
+      // 停着的那台可以打
+      await page.click('.card[data-name="机械动力整合包"] [data-act="more"]'); await settle(200);
+      await page.click('text=打包发给朋友…'); await settle(500);
+      assert((await page.textContent(".page-head h1")) === "打包发给朋友", "没进入打包页");
+      const mode = await page.$eval('input[name="tp-mode"]:checked', r => r.value);
+      const modes = await page.$$eval('input[name="tp-mode"]', rs => rs.map(r => r.value));
+      assert(mode === "distributable" && modes.includes("handover"), "默认是打包下发，还能选服主交接：" + JSON.stringify(modes));
+      // 没选目的地：按钮是禁用的
+      assert(await page.$eval("#tp-go", b => b.disabled), "没选目的地就能点「开始打包」");
+      // 浏览选目录（仿真给 E:\MCServers）→ 开始打包
+      await page.click("#tp-browse"); await settle(400);
+      assert((await page.$eval("#tp-dest", i => i.value)) === "E:\\MCServers", "目的地没填上");
+      assert(!(await page.$eval("#tp-go", b => b.disabled)), "选了目的地按钮该亮");
+      await page.click("#tp-go"); await settle(1200);
+      const st = await mockState({});
+      const ex = st.lastExport || {};
+      assert(ex.inst === "机械动力整合包" && ex.mode === "distributable" && ex.dest === "E:\\MCServers", "打包的请求：" + JSON.stringify(ex));
+      assert(page.url().endsWith("#/task/task-pack"), "没去任务页：" + page.url());
+      const t = await page.evaluate(() => ({ h1: $(".page-head h1").textContent, label: $("#t-label").textContent, go: $("#t-foot a").textContent.trim(),
+        doneSub: $("#t-sub").textContent, toasts: [...document.querySelectorAll(".toast")].map(x => x.textContent) }));
+      assert(t.h1 === "正在打包服务器" && t.label === "打包完成" && t.go === "完成，回到服务器" && t.doneSub.includes("发出去"), "任务页：" + JSON.stringify(t));
+      assert(t.toasts.some(x => x.includes("打包完成")), "提示：" + JSON.stringify(t.toasts));
+    });
+  }
+
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
 
   await browser.close();
