@@ -1,14 +1,17 @@
 {
   "name": "minedeck-website",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MineDeck 官网与更新日志墙（纯静态）",
   "type": "module",
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
+    "fetch": "node build.mjs fetch",
     "build": "node build.mjs",
-    "build:offline": "node build.mjs --offline",
-    "build:preview": "node build.mjs --offline --preview",
+    "build:offline": "node build.mjs build",
+    "build:preview": "node build.mjs build --preview",
     "serve": "node serve.mjs"
   },
   "license": "MIT"

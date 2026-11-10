@@ -13,5 +13,57 @@
     "_note": "备案通过后填写。icp 形如「京ICP备XXXXXXXX号-1」；psb 形如「京公网安备XXXXXXXXXXXXXX号」，psbCode 为其中的数字，用于查询链接。留空时页脚显示「待填写」。"
   },
   "timezoneOffsetHours": 8,
-  "changelogInitial": 10
+  "changelogInitial": 10,
+  "contributors": {
+    "exclude": [
+      "claude"
+    ],
+    "max": 12,
+    "showHiddenNote": true,
+    "_note": "排除名单里的账号不进贡献者墙（默认隐藏 AI 编码工具账号）；type 为 Bot 的账号总是排除。"
+  },
+  "stats": {
+    "showStars": true,
+    "showDownloads": false,
+    "_note": "Star 数为构建时快照并注明日期；下载次数只有 GitHub 侧计数，默认不显示。"
+  },
+  "feedback": {
+    "channels": [
+      {
+        "type": "copy"
+      },
+      {
+        "type": "download"
+      },
+      {
+        "type": "github",
+        "labels": [
+          "反馈"
+        ],
+        "maxUrl": 7000
+      },
+      {
+        "type": "endpoint",
+        "enabled": false,
+        "url": "",
+        "timeoutMs": 15000,
+        "label": "直接发送"
+      },
+      {
+        "type": "email",
+        "enabled": false,
+        "address": ""
+      },
+      {
+        "type": "community",
+        "enabled": false,
+        "label": "QQ 群",
+        "value": "",
+        "url": ""
+      }
+    ],
+    "_note": "通道按顺序显示。endpoint 默认关闭，开启后按 minedeck.feedback/v1 POST JSON（见 ARCH.md 6.5）；email、community 留空时隐藏。"
+  },
+  "feedCount": 20,
+  "homeHeatWeeks": 26
 }
