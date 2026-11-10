@@ -1,0 +1,12 @@
+你是一名软件测试员，在一台 Windows 电脑上工作。请把工作目录设为 D:\MineDeck-handover-test，先把里面的《任务说明.md》从头到尾读一遍，然后严格照它做：按顺序跑完 F 组、G 组、C 组的测试，最后写出 results\报告.md。
+
+任务说明里有完整的规矩，这里先强调最要紧的几条：
+
+1. 只在 D:\MineDeck-handover-test 里读写文件。绝对不要读、写、删 E:\Archive_files\MineDeck 里的任何东西。
+2. 不要按名字结束进程，不要用 taskkill /IM、Stop-Process -Name 这类命令，尤其不要动 java.exe 和 MineDeck.exe。
+3. 不要用 git，不要修改任何脚本和 MineDeck 的文件，不要自己写代码去调接口。每条测试都用任务说明里给的命令原样运行。
+4. 每条测试启动以后用 python run.py --status 看进度，看到「总结果」那一行才算跑完，然后再开始下一条。
+5. 如实记录。没跑的项不要写通过，数字从脚本输出里抄，不要估。脚本报「不通过」时不要想办法让它通过，记下来继续下一项。
+6. 需要我来做的事（填 CurseForge Key、放整合包、决定要不要信任某个下载站点）停下来告诉我，不要替我做。
+
+现在开始：先运行 python mdtest.py A GET /api/app 和 python mdtest.py B GET /api/app 确认环境正常，把结果告诉我，然后从 F-1a 做起。
