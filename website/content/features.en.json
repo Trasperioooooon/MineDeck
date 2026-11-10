@@ -1,0 +1,219 @@
+{
+ "title": "Features",
+ "desc": "The full MineDeck feature list: server types, Java, modpacks, console, players, backups, tunnels, AI and more.",
+ "lead": "Based on the stable release {stable}. Items marked “Beta” are only in the 3.1.0 betas such as {beta}. Summarised from the repository README.",
+ "toc": "On this page",
+ "groups": [
+  {
+   "id": "cores",
+   "h": "Server types",
+   "icon": "server",
+   "items": [
+    "12 types: Vanilla, Paper, Purpur, Leaves, Folia, Fabric, NeoForge, Forge, Mohist, Banner, Velocity, Waterfall.",
+    "Minecraft 1.12.2 and later, including the year-numbered 26.x. Which versions each type offers comes from that project's own version list.",
+    "Velocity always uses Java 21 and Waterfall Java 17; proxies have no EULA or server.properties."
+   ]
+  },
+  {
+   "id": "java",
+   "h": "Versions and Java",
+   "icon": "java",
+   "items": [
+    "Uses javaVersion from the version metadata; otherwise a static table: before 1.17 → Java 8, 1.17.x → 16, 1.18–1.20.4 → 17, 1.20.5–1.21.x → 21, 26.1+ → 25.",
+    "Scans installed Java at startup (registry, JAVA_HOME, PATH, common folders) and uses a matching one directly.",
+    "If none matches, downloads a private runtime to runtimes/java-{major}/ without touching system variables. Order: TUNA Adoptium mirror → Adoptium → Mojang runtime via BMCLAPI.",
+    {
+     "t": "Switch Java per server under Memory / Launch; a warning appears when a modpack needs a newer Java, without blocking start.",
+     "channel": "beta"
+    }
+   ]
+  },
+  {
+   "id": "create",
+   "h": "Creating and installing",
+   "icon": "block",
+   "items": [
+    "Wizard: type, version, build, memory, port, difficulty, game mode, EULA.",
+    "Mojang manifests and servers try the BMCLAPI mirror first, then official; choose Auto, Mirror or Official in Settings → Download & network. Paper, Purpur, Folia, Velocity and Waterfall use their official hosts.",
+    "Up to 3 download rounds; files are checked against SHA-1, SHA-256 or MD5 and written atomically. Forge and NeoForge installers get --mirror pointing at BMCLAPI.",
+    "Instances below 1.18.1 get the log4shell noLookups flag; each instance folder has a run.bat equivalent to the UI.",
+    "Stop sends stop first and force-kills after about 30 seconds; quitting MineDeck stops running servers and tunnels."
+   ]
+  },
+  {
+   "id": "modpack",
+   "h": "Modpack import",
+   "icon": "pack",
+   "items": [
+    "Modrinth .mrpack imports directly; type, version and loader are read from the pack and client-only files are skipped.",
+    "CurseForge zips need your own CurseForge API key, stored encrypted with Windows DPAPI.",
+    "Upload limit 4 GiB.",
+    {
+     "t": "Files with disallowed hosts, missing or wrong checksums no longer fail the whole import; they go to a Pending list where you can skip them, supply local files, or download after confirming the risk.",
+     "channel": "beta"
+    },
+    {
+     "t": "CurseForge files are placed by category into mods, resourcepacks, shaderpacks or datapacks.",
+     "channel": "beta"
+    }
+   ]
+  },
+  {
+   "id": "takeover",
+   "h": "Adopting an existing server",
+   "icon": "folder",
+   "channel": "beta",
+   "items": [
+    "Pick an existing server folder; MineDeck reads type, version, start file, memory and port, and registers it in place. Files stay where they are.",
+    "The original run.bat and user_jvm_args.txt are backed up first; if the task fails, touched files are restored.",
+    "Unsafe locations such as a whole drive, the MineDeck folder or the backup folder are refused.",
+    "From v3.1.0-beta.3 only the adopted folder is remembered, so neighbouring servers no longer appear in the list."
+   ]
+  },
+  {
+   "id": "handover",
+   "h": "Handover packs",
+   "icon": "pack",
+   "channel": "beta",
+   "items": [
+    "While a server is stopped, pack it as .mdpack and hand it to MineDeck on another PC.",
+    "Includes worlds, server.properties, server configs, mods, plugins, config, whitelist and ops; excludes logs and crash reports, and the server jar by default.",
+    "Config files go in as-is, including any passwords in them. Check before sharing.",
+    "Upload limit 8 GiB. Java and the server jar are prepared again on the receiving PC."
+   ]
+  },
+  {
+   "id": "mods",
+   "h": "Mods and plugins",
+   "icon": "cart",
+   "items": [
+    "Non-vanilla instances have a Resources tab: search Modrinth by type and version and install into mods or plugins.",
+    "View the mod list, enable or disable per file, and edit mod config files.",
+    {
+     "t": "Mod cart: pick mods in the creation wizard and install them once the server exists; client-only mods are left out and required dependencies come along.",
+     "channel": "beta"
+    }
+   ]
+  },
+  {
+   "id": "console",
+   "h": "Console and configuration",
+   "icon": "terminal",
+   "items": [
+    "The console replays then streams live, switches between GBK and UTF-8, colours warnings and errors, and has history and Tab completion.",
+    "“All settings” edits server.properties: 78 settings in 7 groups, each with a name, description and restart flag, searchable by name or key.",
+    "MOTD colour picker with preview; memory slider checked against physical RAM.",
+    "On 1.21.9 and later, settings marked as game rules apply immediately."
+   ]
+  },
+  {
+   "id": "players",
+   "h": "Players",
+   "icon": "players",
+   "items": [
+    "Online players, plus whitelist, ops and ban lists.",
+    "Whitelist, op, kick, ban and unban. Uses console commands while running and edits list files while stopped.",
+    "Offline-mode UUIDs are computed with the offline algorithm."
+   ]
+  },
+  {
+   "id": "backup",
+   "h": "Backups and schedules",
+   "icon": "backup",
+   "items": [
+    "Back up, restore and delete, including while the server runs. Keeps 10 per server by default (1–1000).",
+    "Crash restart is off by default. When on, it backs off 10, 30 and 60 seconds and stops after 3 failures in a row.",
+    "Daily scheduled tasks at a fixed time: restart, a console command, or a backup."
+   ]
+  },
+  {
+   "id": "tunnel",
+   "h": "Tunnels",
+   "icon": "tunnel",
+   "items": [
+    "OpenFrp, SakuraFrp and your own frps; frpc is downloaded per provider into runtimes/frpc/.",
+    "Credentials are encrypted with DPAPI and never returned in plain text.",
+    "Bind a tunnel to a server and start it with the server; game and voice tunnels, with the voice address written to the instance's voice_host.",
+    "Copy the public address (domain first when available) and view frpc logs in the UI."
+   ]
+  },
+  {
+   "id": "window",
+   "h": "Window and appearance",
+   "icon": "window",
+   "items": [
+    "The UI runs in a WebView2 window, or the default browser when WebView2 is missing. Default port 27333, random if taken.",
+    "7 colour schemes, each light, dark or system; 8 accent colours.",
+    "Close to tray while servers keep running; start with Windows for the current user, no admin needed.",
+    "Server and backup roots can move to another drive.",
+    {
+     "t": "Background tasks can be reopened from the task list after switching pages or refreshing.",
+     "channel": "beta"
+    }
+   ]
+  },
+  {
+   "id": "lan",
+   "h": "LAN and API",
+   "icon": "lan",
+   "items": [
+    "LAN access requires a password, stored with bcrypt; folder pickers, AI settings and similar actions accept local requests only.",
+    "Local HTTP API and webhooks for server start, stop and crash, player join and leave, backup done, tunnel up and down.",
+    "Updates: silent check at startup or in Settings → Update & About. GitHub links try ghfast.top and gh-proxy.com before direct; the exe must match the official SHA-256.",
+    "Stable installs are never offered beta updates."
+   ]
+  },
+  {
+   "id": "ai",
+   "h": "AI (optional)",
+   "icon": "chip",
+   "items": [
+    "With no provider or key set, MineDeck connects to no AI service. OpenAI-compatible and Claude Messages APIs; presets for DeepSeek, Qwen, Kimi, Zhipu, OpenAI, Claude and local Ollama.",
+    "Keys are encrypted with DPAPI; costs are estimated from public prices and each feature can have a daily token budget.",
+    "In-app assistant: reads logs, configs and crash reports first; writes such as config changes, Java switches or restarts need a confirmation card. Local paths, LAN addresses and keys are stripped before sending.",
+    "In-game AI: players ask with @AI in chat; only authorised players can run whitelisted commands, and op and execute are never allowed.",
+    "AI companion: a server-side entity on NeoForge 1.21.1 / Forge 1.20.1 that can follow, gather, walk to coordinates and more; friends need the matching client mod.",
+    "MCP: off by default, local token-authenticated connections only, writes confirmed in MineDeck."
+   ]
+  },
+  {
+   "id": "music",
+   "h": "Music sharing",
+   "icon": "music",
+   "items": [
+    "Sends audio playing on your PC to players through Simple Voice Chat. This does not need AI.",
+    "NeoForge 1.20.5+, Forge 1.20.1+ and Mohist 1.20.1+; Fabric and Banner have no bridge mod.",
+    "Windows 11 captures only the chosen app by default; Windows 10 can only capture all system audio and asks you to confirm first."
+   ]
+  },
+  {
+   "id": "diag",
+   "h": "Error banner and operation log",
+   "icon": "alert",
+   "items": [
+    "The console error banner does not use AI. It checks 13 rule types, such as missing dependencies, client mods on the server, wrong loader, duplicate mods, Mixin conflicts, bad Java flags, port in use, low memory and unaccepted EULA.",
+    "UI actions, confirmed executions, schedules and crash restarts are logged in logs\\ops with secrets masked.",
+    "Each operation has a risk level; manual-only operations cannot be called by AI or schedules."
+   ]
+  }
+ ],
+ "more": {
+  "h": "More questions?",
+  "help": "Read help and FAQ",
+  "download": "Download"
+ },
+ "cores": [
+  "Vanilla",
+  "Paper",
+  "Purpur",
+  "Leaves",
+  "Folia",
+  "Fabric",
+  "NeoForge",
+  "Forge",
+  "Mohist",
+  "Banner",
+  "Velocity",
+  "Waterfall"
+ ]
+}

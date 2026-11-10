@@ -1,0 +1,39 @@
+{
+ "title": "帮助",
+ "desc": "MineDeck 快速开始、常用入口、常见问题、数据位置与已知边界。",
+ "lead": "第一次用 MineDeck，从快速开始看起。整理自仓库 README。",
+ "toc": "本页目录",
+ "start": { "h": "快速开始", "steps": [
+   "打开程序，在窗口里点「新建服务器」。",
+   "选核心、版本、构建，勾选 EULA，创建。",
+   "创建完成后点启动。控制台出现 <code>Done (...)!</code> 时，这台服务器已经起来。",
+   "同一局域网的玩家连接 <code>这台电脑的局域网 IP:端口</code>。局域网以外的玩家，在「内网穿透」里加一条隧道，绑定这台服务器并跟随启动，把公网地址发给他们。" ] },
+ "entries": { "h": "常用入口", "items": [
+   "发命令：实例 → 控制台 → 底部输入框。",
+   "改配置：实例 → 常用设置，或全部配置。需要重启的项会标出来。",
+   "调内存或换 Java：实例 → 内存 / 启动。",
+   "不打开窗口：<code>MineDeck.exe -nogui</code>。默认端口 27333，可加 <code>-port 27333</code>，被占用时改用随机端口。地址和令牌打在日志里。",
+   "开机自启使用的静默方式：<code>MineDeck.exe -minimized</code>。",
+   "给本机 AI 工具做 stdio 桥：<code>MineDeck.exe -mcp</code>，需要 MineDeck 已经在运行。" ] },
+ "faq": { "h": "常见问题", "items": [
+   { "id": "faq-java", "q": "要自己装 Java 吗？", "a": "不用先装。本机已有合适的大版本时直接用；没有则下载一份只给 MineDeck 用的运行时，不改系统 Java。" },
+   { "id": "faq-remote", "q": "局域网以外的玩家怎么连？", "a": "在「内网穿透」添加 OpenFrp、樱花穿透或自己的 frps，绑定这台服务器并打开跟随启动。同一局域网不用隧道。" },
+   { "id": "faq-versions", "q": "支持哪些版本和核心？", "a": "Minecraft 1.12.2 到清单里的最新正式版，含 26.x。核心有 12 种，见功能页。Modrinth .mrpack 和 CurseForge zip 可以导入。" },
+   { "id": "faq-crash", "q": "服务器起不来时先看哪里？", "a": "先看控制台顶部的报错横幅，13 类规则不需要 AI。配了 AI 之后可以点「让 AI 分析」，或在助手里问。" },
+   { "id": "faq-ai", "q": "AI 会不会自己改服务器，会不会另外收费？", "a": "费用由你所填的服务商收取，MineDeck 按公开价格估算，并可以设每日额度。读日志可以直接做；改配置、换 Java、重启、安装模组会先出确认卡片。游戏内命令只在授权玩家和已打开的模板之内，op 和 execute 不执行。" },
+   { "id": "faq-friends", "q": "好友要额外装什么？", "a": "AI 伙伴：好友客户端安装与服务器相同版本的伙伴模组（下载页有）。音乐共享：服务器和好友都安装同一版本的 Simple Voice Chat，桥接模组由 MineDeck 装进服务器。" },
+   { "id": "faq-beta", "q": "稳定版和测试版怎么选？", "a": "稳定版适合日常使用。3.1.0 测试版加入了交接包、购物车、整合包待处理文件、接管已有服务器和按服务器换 Java，可能还有问题。测试版请放在单独的文件夹里，试已有服务器前先备份；测试版之间不会自动更新。" },
+   { "id": "faq-smartscreen", "q": "Windows 提示「已保护你的电脑」？", "a": "MineDeck.exe 没有数字签名，第一次运行时 SmartScreen 可能拦截。点「更多信息 → 仍要运行」。可以先按下载页的方法核对 SHA-256。" },
+   { "id": "faq-firewall", "q": "局域网的朋友连不上？", "a": "首次启动某台服务器时，Windows 防火墙可能询问，允许访问之后局域网玩家才能连上。" } ] },
+ "data": { "h": "数据位置与卸载", "items": [
+   "默认都在 exe 所在文件夹：<code>servers</code>、<code>backups</code>、<code>runtimes</code>、<code>cache</code>，以及 <code>logs\\ops</code>。",
+   "界面偏好在 <code>%LocalAppData%\\MineDeck</code>。",
+   "删掉 <code>runtimes</code> 之后，已经建好的服务器会缺少便携 Java，需要在「内存 / 启动」里重新准备。",
+   "卸载：删掉 exe 所在文件夹，以及 <code>%LocalAppData%\\MineDeck</code>。" ] },
+ "limits": { "h": "已知边界", "items": [
+   "首次启动某台服务器时，Windows 防火墙可能询问。",
+   "Forge、NeoForge 安装时，一部分依赖库仍然要连官方源，镜像和重试之后仍可能失败。",
+   "Windows 10 上的音乐共享只能录整机播放设备。",
+   "Paper 和 Purpur 没有国内镜像。" ] },
+ "more": { "h": "没找到答案？", "feedback": "提交问题" }
+}

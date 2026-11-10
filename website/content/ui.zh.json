@@ -1,0 +1,433 @@
+{
+  "lang": "zh-CN",
+  "skip": "跳到正文",
+  "langSwitchAria": "切换语言",
+  "crumbsAria": "面包屑",
+  "fallback": "备用",
+  "extSr": "（外部链接，在国内可能较慢）",
+  "menu": "菜单",
+  "copy": "复制",
+  "copied": "已复制",
+  "home": {
+    "eyebrow": "Windows · Minecraft Java 版 · MIT 开源",
+    "h1": "在 Windows 上开一台<br>我的世界服务器",
+    "lead": "Windows 上的 Minecraft Java 版服务器管理工具。下载 Java 与服务端，在窗口里创建、导入并管理服务器。",
+    "download": "下载 {version}",
+    "downloadSub": "{file} · {size} · {date}",
+    "otherWays": "其他下载方式与测试版",
+    "tagline": "Windows · 免安装 · MIT 开源",
+    "shotAlt": "MineDeck 服务器列表：四台服务器，含 Paper、Forge、原版和 Velocity",
+    "heroAnimAria": "示意动画：三块方块叠成一台服务器，状态灯变绿",
+    "statsAria": "项目概况",
+    "stars": "GitHub Star",
+    "starsAsOf": "截至 {date}",
+    "coreH": "核心功能",
+    "coreSub": "完整清单见功能页。",
+    "allFeatures": "查看全部功能",
+    "core": [
+      {
+        "t": "一键开服",
+        "d": "12 种服务端核心，从 1.12.2 到 26.x。选核心、版本、构建，勾选 EULA 就能创建。",
+        "icon": "server"
+      },
+      {
+        "t": "Java 与国内镜像",
+        "d": "自动找到或下载合适的 Java；服务端和 Java 优先走 BMCLAPI、清华 TUNA 等国内镜像。",
+        "icon": "java"
+      },
+      {
+        "t": "整合包导入",
+        "d": "Modrinth .mrpack 直接导入；CurseForge zip 用自己的 API Key 导入。",
+        "icon": "pack"
+      },
+      {
+        "t": "内网穿透",
+        "d": "OpenFrp、樱花穿透或自己的 frps，绑定服务器后跟随启动，把公网地址发给朋友。",
+        "icon": "tunnel"
+      }
+    ],
+    "activityH": "最近在更新",
+    "activitySub": "近 26 周的提交与发布",
+    "latestCards": "最新版本",
+    "details": "详情",
+    "allReleases": "全部更新日志",
+    "ossH": "开源与贡献者",
+    "ossP": "MineDeck 以 MIT 协议开源，源码在 GitHub。",
+    "star": "去 GitHub 点 Star",
+    "contribute": "参与贡献",
+    "moreContributors": "+{n}",
+    "helpH": "遇到问题",
+    "reportT": "提交问题",
+    "reportD": "不需要 GitHub 账号。填表后复制报告，或用备用通道提交。",
+    "faqT": "常见问题",
+    "faqD": "Java、穿透、版本、报错、AI 费用、SmartScreen 等。",
+    "sensitive": "提交问题时不要贴 API Key、MCP 令牌、穿透凭据或 CurseForge Key。"
+  },
+  "tzLabel": "北京时间",
+  "site": {
+    "title": "MineDeck · 我的世界 Windows 开服工具",
+    "description": "Windows 上的 Minecraft Java 版服务器管理工具。下载 Java 与服务端，在窗口里创建、导入并管理服务器。开源，MIT 协议。"
+  },
+  "nav": {
+    "download": "下载",
+    "features": "功能",
+    "releases": "更新日志",
+    "help": "帮助",
+    "feedback": "反馈",
+    "about": "关于",
+    "github": "GitHub",
+    "githubAria": "GitHub 源码（外部链接）",
+    "downloadBtn": "下载 {version}"
+  },
+  "footer": {
+    "product": "产品",
+    "support": "支持",
+    "project": "项目",
+    "language": "语言",
+    "feed": "订阅（Atom）",
+    "knownIssues": "已知边界",
+    "contributors": "贡献者",
+    "license": "许可证（MIT）",
+    "source": "源码",
+    "copyright": "© 2026 MineDeck 贡献者 · MIT",
+    "icp": "ICP 备案号：{v}",
+    "psb": "公安备案号：{v}",
+    "pending": "待填写",
+    "disclaimer": "Minecraft 是 Mojang Synergies AB 的商标。MineDeck 与 Mojang Studios、Microsoft 无关。",
+    "fonts": "字体：Fusion Pixel、Geist、Geist Mono、Noto Sans SC，均以 SIL OFL 1.1 授权，裁成子集后在本站托管。",
+    "fontLicenses": "字体许可",
+    "dataAsOf": "数据更新于 {date}（北京时间）"
+  },
+  "heat": {
+    "aria": "活动热力图：近 {weeks} 周每天的提交数，发布日带描边",
+    "less": "少",
+    "more": "多",
+    "release": "有发布",
+    "cell": "{date}：{n} 次提交",
+    "cellRel": "{date}：{n} 次提交，发布 {tags}",
+    "source": "提交数来自 {source}，统计到 {date}。",
+    "sumCommits": "提交",
+    "sumReleases": "发布",
+    "sumDays": "有提交的天数"
+  },
+  "log": {
+    "h": "更新日志",
+    "homeSub": "最近的版本",
+    "sub": "共 {n} 个版本，最近一次 {date}。时间为北京时间。",
+    "all": "全部",
+    "stable": "稳定版",
+    "betaF": "测试版",
+    "latestStable": "当前稳定版",
+    "latestBeta": "当前测试版",
+    "total": "版本总数",
+    "lastRelease": "最近一次发布",
+    "daysAgo": "{n} 天前",
+    "today": "今天",
+    "calendar": "发布记录",
+    "calendarRange": "{from} 至 {to}",
+    "showAll": "查看全部 {n} 个版本",
+    "viewAll": "查看完整更新日志",
+    "expand": "展开全文",
+    "collapse": "收起",
+    "onGithub": "在 GitHub 查看",
+    "mirror": "国内镜像",
+    "github": "GitHub",
+    "otherFiles": "其他文件",
+    "noNotes": "这个版本的发布页只有自动生成的变更记录。",
+    "groupCurrent": "MineDeck",
+    "groupLegacy": "2.x · AutoMCHUB 时期",
+    "legacyNote": "MineDeck 原名 AutoMCHUB，2.x 版本的文件名是 AutoMCHUB.exe。从 v2.6.1 升级时，自动更新找不到改名后的文件，需要手动把 MineDeck.exe 放进原来的文件夹。",
+    "notesLang": "",
+    "filterAria": "按类型筛选",
+    "title": "更新日志 · MineDeck",
+    "desc": "MineDeck 各版本的发布说明，区分稳定版与测试版。",
+    "feed": "订阅更新（Atom）",
+    "details": "详情",
+    "allOnGithub": "在 GitHub 查看全部 Releases",
+    "groupMajor": "{v} 系列",
+    "filterNoJs": "",
+    "sizeLabel": "大小"
+  },
+  "release": {
+    "title": "{tag} · 更新日志 · MineDeck",
+    "desc": "MineDeck {tag} 的发布说明、下载文件与 SHA-256。",
+    "sincePrev": "距上一版 {n} 天",
+    "sameDay": "与上一版同一天",
+    "first": "第一个版本",
+    "newer": "已有更新的{channel} {tag}，建议使用新版",
+    "betaNote": "这是测试版，请放在单独文件夹，试已有服务器前先备份。",
+    "legacyNote": "这是 AutoMCHUB 时期的版本，文件名为 AutoMCHUB.exe。",
+    "files": "下载文件",
+    "file": "文件",
+    "size": "大小",
+    "sha": "SHA-256",
+    "actions": "下载",
+    "mirror": "镜像下载",
+    "copySha": "复制完整 SHA-256",
+    "notes": "发布说明",
+    "notesLang": "",
+    "toc": "本页目录",
+    "prev": "上一版（更早）",
+    "next": "下一版（更新）",
+    "prevSame": "同渠道上一版",
+    "feedback": "反馈这个版本的问题",
+    "viewGithub": "在 GitHub 上查看",
+    "compare": "与上一版本的代码差异",
+    "versions": "全部版本",
+    "jump": "跳到版本",
+    "jumpGo": "前往",
+    "noFiles": "这个版本没有附件。",
+    "fileDesc": {
+      "exe": "Windows 程序",
+      "companion-neoforge": "AI 伙伴客户端模组（NeoForge 1.21.1）",
+      "companion-forge": "AI 伙伴客户端模组（Forge 1.20.1）",
+      "sums": "所有文件的 SHA-256 列表"
+    }
+  },
+  "download": {
+    "title": "下载 · MineDeck",
+    "desc": "下载 MineDeck 稳定版与测试版，国内镜像优先，附 SHA-256 校验。",
+    "h": "下载",
+    "lead": "单个 exe，不需要安装。只提供 Windows 64 位版本。",
+    "recommended": "推荐：稳定版",
+    "beta": "测试版",
+    "betaDiff": "比稳定版多了交接包、购物车、整合包待处理文件、接管已有服务器和按服务器换 Java。",
+    "betaWarn": "测试版请放在单独文件夹，试已有服务器前先备份。测试版之间不会自动更新。",
+    "mirrorBtn": "国内镜像下载",
+    "githubBtn": "从 GitHub 下载",
+    "notesLink": "本版更新内容",
+    "published": "发布于 {date}",
+    "companionH": "伙伴模组（给玩家客户端）",
+    "companionP": "AI 伙伴需要好友的客户端装与服务器相同版本的伙伴模组。按服务器的加载器选一个，放进客户端的 mods。房主在「伙伴」标签里装的是服务端模组，不能代替这个。",
+    "companionNeo": "NeoForge 1.21.1",
+    "companionForge": "Forge 1.20.1",
+    "installH": "安装三步",
+    "install": [
+      "把 MineDeck.exe 放进一个单独的文件夹。服务器、Java、缓存和备份默认都在这个文件夹里。",
+      "双击运行。",
+      "Windows 提示「已保护你的电脑」时，点「更多信息」，再点「仍要运行」。这个 exe 没有数字签名。"
+    ],
+    "demo": "播放演示",
+    "smartAria": "SmartScreen 示意：点「更多信息」后出现「仍要运行」",
+    "verifyH": "校验文件",
+    "verifyP": "在 exe 所在文件夹打开 PowerShell，运行下面的命令，把输出和上面的 SHA-256 对比：",
+    "verifyNote": "每个版本的全部文件和 SHA-256 在版本详情页，也可以下载 SHA256SUMS 对照。",
+    "reqH": "系统要求与升级",
+    "req": [
+      "Windows 64 位。",
+      "界面在 WebView2 窗口里；没有 WebView2 时用系统默认浏览器打开。",
+      "从 v2.6.1 及以前（文件名 AutoMCHUB.exe）升级：自动更新找不到改名后的文件，需要手动把 MineDeck.exe 放进原来的文件夹。旧的开机自启项会被删掉，需要的话在「设置 → 启动与托盘」重新打开。",
+      "卸载：删掉 exe 所在文件夹，以及 %LocalAppData%\\MineDeck。"
+    ],
+    "historyH": "最近的版本",
+    "channel": "渠道",
+    "date": "日期",
+    "allVersions": "全部版本",
+    "mirrorH": "关于国内镜像",
+    "mirrorP": "国内镜像上的文件与 GitHub 相同，SHA-256 一致。镜像缺某个文件时，按钮会改指 GitHub。",
+    "mirrorPlaceholder": "镜像地址目前是占位，上线前会替换。",
+    "version": "版本",
+    "smart": {
+      "title": "Windows 已保护你的电脑",
+      "body": "SmartScreen 阻止了无法识别的应用启动。",
+      "more": "更多信息",
+      "run": "仍要运行",
+      "dont": "不运行"
+    }
+  },
+  "features": {
+    "title": "功能 · MineDeck"
+  },
+  "help": {
+    "title": "帮助 · MineDeck"
+  },
+  "feedback": {
+    "title": "反馈 · MineDeck",
+    "desc": "提交 MineDeck 的问题、建议或测试反馈，不需要 GitHub 账号。",
+    "h": "提交问题或建议",
+    "lead": "不需要 GitHub 账号。填完后可以复制报告，或用下方的通道提交。",
+    "before": "提交前先看",
+    "beforeFaq": "常见问题",
+    "beforeLimits": "已知边界",
+    "beforeLatest": "最新版本 {tag} 是否已修复",
+    "noJs": "这个表单需要 JavaScript。也可以直接在 GitHub 提交 Issue。",
+    "kind": "类型",
+    "kinds": {
+      "bug": "问题（Bug）",
+      "suggestion": "建议",
+      "beta": "测试反馈"
+    },
+    "caseId": "测试编号",
+    "caseIdHint": "测试计划里的编号，比如 F-08；没有就写在做什么",
+    "result": "结果",
+    "results": {
+      "fail": "不通过",
+      "partial": "部分通过",
+      "blocked": "没法测"
+    },
+    "titleF": "标题",
+    "titleHint": "一句话说明，80 字以内",
+    "version": "MineDeck 版本",
+    "versionHint": "在「设置 → 更新与关于」里看",
+    "unsure": "不确定",
+    "os": "Windows 版本",
+    "osOther": "其他",
+    "osBuild": "版本号（可选）",
+    "osBuildHint": "Win+R 输入 winver 查看",
+    "mem": "内存（GB）",
+    "core": "服务端核心",
+    "coreNone": "未涉及",
+    "mc": "游戏版本",
+    "coreVer": "核心版本",
+    "modpack": "整合包",
+    "areas": "涉及模块",
+    "areaNames": {
+      "ai": "AI",
+      "tunnel": "内网穿透",
+      "modpack": "整合包导入",
+      "handover": "交接包",
+      "takeover": "接管已有服务器",
+      "backup": "备份",
+      "music": "音乐共享",
+      "companion": "AI 伙伴",
+      "other": "其他"
+    },
+    "aiModel": "AI 服务商与模型",
+    "aiHint": "不要写 Key",
+    "steps": "复现步骤",
+    "expected": "预期",
+    "actual": "实际",
+    "logs": "日志",
+    "logsHint": "可以把 .log 或 .txt 拖进来，文件只在浏览器里读取，不会上传。超长时保留开头 200 行和结尾 400 行。",
+    "shots": "截图：复制和 GitHub 通道不能附图，请在 Issue 里直接粘贴。",
+    "contact": "联系方式（可选）",
+    "contactHint": "邮箱或 QQ。只在直接发送通道里发送，复制报告和 GitHub 通道不含。",
+    "confirm": "我已检查，报告里没有 API Key、密码和穿透凭据",
+    "warn": "不要贴 API Key、局域网密码、樱花穿透访问密钥、CurseForge Key。生成报告时会自动替换日志里的 Windows 用户名、IP 地址和常见密钥形态，可在预览里检查。",
+    "draft": "草稿只保存在你的浏览器里。",
+    "clear": "清空",
+    "preview": "报告预览",
+    "redacted": "已替换 {n} 处，可在预览里检查。",
+    "required": "请填写：{fields}",
+    "submitH": "提交方式",
+    "copyBtn": "复制报告",
+    "downloadBtn": "下载为 .md",
+    "githubBtn": "在 GitHub 提交 Issue",
+    "githubNote": "需要 GitHub 账号，国内可能打不开。",
+    "githubLong": "日志过长，已复制到剪贴板，请在 Issue 中粘贴。",
+    "endpointBtn": "直接发送",
+    "sending": "正在发送…",
+    "sent": "已收到，编号 {id}。",
+    "sendFail": "发送失败：{msg}。草稿已保留，请改用「复制报告」。",
+    "copiedMsg": "报告已复制，可以发到 Issue 或群里。",
+    "copyManual": "无法自动复制，已选中预览文字，请按 Ctrl+C。",
+    "logsH": "日志在哪",
+    "logsItems": [
+      "MineDeck 操作记录：程序目录的 logs\\ops",
+      "服务器日志：服务器文件夹的 logs\\latest.log",
+      "崩溃报告：服务器文件夹的 crash-reports\\",
+      "客户端日志：游戏目录的 logs\\latest.log"
+    ],
+    "verH": "怎么看版本号",
+    "verP": "MineDeck 里打开「设置 → 更新与关于」。"
+  },
+  "about": {
+    "title": "关于 · MineDeck",
+    "desc": "MineDeck 项目简介、贡献者、活动、参与方式和许可证。",
+    "h": "关于 MineDeck",
+    "introH": "项目简介",
+    "intro": [
+      "MineDeck 是 Windows 上的 Minecraft Java 版服务器管理工具：下载 Java 与服务端，在窗口里创建、导入并管理服务器。",
+      "它管的是本机上的服务器进程和文件，不提供云服务器、不托管存档，也不替你购买或运营服务器。AI 功能是可选项，不填 Key 时不连接任何 AI 服务。",
+      "MineDeck 原名 AutoMCHUB。{renamed} 起改名为 MineDeck，2.x 版本的文件名仍是 AutoMCHUB.exe。"
+    ],
+    "contribH": "贡献者",
+    "contribAsOf": "截至 {date}",
+    "commits": "{n} 次提交",
+    "hiddenNote": "列表不含 AI 编码工具和机器人账号。",
+    "activityH": "活动",
+    "activitySub": "近 52 周每天的提交数；发布日带描边。",
+    "monthly": "每月发布数",
+    "monthlyAria": "每月发布的版本数柱状图",
+    "joinH": "参与贡献",
+    "join": [
+      {
+        "t": "报告问题",
+        "d": "在站内反馈页填写，不需要 GitHub 账号。",
+        "to": "feedback"
+      },
+      {
+        "t": "测试版反馈",
+        "d": "在反馈页选择「测试反馈」类型。",
+        "to": "feedback",
+        "q": "?kind=beta"
+      },
+      {
+        "t": "提交代码",
+        "d": "在 GitHub 上提交 Pull Request。",
+        "ext": "repo"
+      }
+    ],
+    "starH": "Star",
+    "starP": "截至 {date}，GitHub 上有 {n} 个 Star。",
+    "licenseH": "许可证",
+    "licenseP": "程序本身以 MIT License 授权。以下为仓库 LICENSE 原文：",
+    "thanksH": "致谢与第三方",
+    "thanks": [
+      "字体：Fusion Pixel（像素标题）、Geist、Geist Mono、Noto Sans SC，均为 SIL Open Font License 1.1。",
+      "国内镜像服务：BMCLAPI、清华大学 TUNA 镜像站。",
+      "伙伴模组的第三方说明见仓库 companion/LICENSE-NOTICE.md。"
+    ],
+    "disclaimerH": "声明"
+  },
+  "notFound": {
+    "title": "页面不存在",
+    "p": "这个地址没有内容。",
+    "back": "回到首页",
+    "download": "下载",
+    "releases": "更新日志",
+    "aria": "缺了一块的方块"
+  },
+  "shots": {
+    "h": "截图",
+    "sub": "截图拍摄于 v2.9.0-beta.1，不包含测试版新增的界面。",
+    "items": [
+      {
+        "f": "01-servers.png",
+        "c": "服务器列表",
+        "alt": "服务器列表：四台服务器，含 Paper、Forge、原版和 Velocity，以及启动、停止和管理按钮"
+      },
+      {
+        "f": "02-console-banner.png",
+        "c": "控制台报错横幅",
+        "alt": "控制台顶部的报错横幅：缺少前置模组 geckolib，以及客户端模组放进了服务端"
+      },
+      {
+        "f": "03-assistant.png",
+        "c": "AI 助手与确认卡片",
+        "alt": "AI 助手读了模组清单，指出客户端模组，并给出禁用该文件的确认卡片"
+      },
+      {
+        "f": "04-gameai-log.png",
+        "c": "游戏内 AI 的问答记录",
+        "alt": "游戏内 AI 记录：执行了 weather clear，拒绝了 op"
+      },
+      {
+        "f": "05-companion.png",
+        "c": "AI 伙伴",
+        "alt": "伙伴页：已连接模组，一个伙伴在采集，一个空闲，以及两块禁挖区域"
+      },
+      {
+        "f": "06-music.png",
+        "c": "音乐共享",
+        "alt": "音乐共享：选择网易云音乐作为音源，检查清单已通过"
+      },
+      {
+        "f": "07-settings-ai.png",
+        "c": "设置中的 AI 页",
+        "alt": "设置中的 AI 页：已启用 DeepSeek，测试连接成功"
+      }
+    ]
+  },
+  "crumbHome": "首页"
+}

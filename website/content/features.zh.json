@@ -1,0 +1,219 @@
+{
+ "title": "功能",
+ "desc": "MineDeck 的完整功能清单：服务端核心、Java、整合包、控制台、玩家、备份、内网穿透、AI 等。",
+ "lead": "以下以稳定版 {stable} 为准，标有「测试版」的条目只在 {beta} 等 3.1.0 测试版中。整理自仓库 README。",
+ "toc": "本页目录",
+ "groups": [
+  {
+   "id": "cores",
+   "h": "服务端核心",
+   "icon": "server",
+   "items": [
+    "12 种：Vanilla、Paper、Purpur、Leaves、Folia、Fabric、NeoForge、Forge、Mohist、Banner、Velocity、Waterfall。",
+    "Minecraft 版本从 1.12.2 起，包括按年份编号的 26.x。各核心能选哪些版本，以该核心自己的版本清单为准。",
+    "Velocity 固定用 Java 21，Waterfall 固定用 Java 17；代理端没有 EULA 和 server.properties。"
+   ]
+  },
+  {
+   "id": "java",
+   "h": "版本与 Java",
+   "icon": "java",
+   "items": [
+    "优先读版本元数据里的 javaVersion，没有时按静态表：1.17 以前 Java 8，1.17.x Java 16，1.18 至 1.20.4 Java 17，1.20.5 至 1.21.x Java 21，26.1 及以后 Java 25。",
+    "启动时扫描本机已装的 Java（注册表、JAVA_HOME、PATH、常见目录），版本对得上就直接用。",
+    "没有合适的版本时，下载一份只给 MineDeck 用的运行时到 runtimes/java-{大版本}/，不改系统环境变量。下载顺序：清华 TUNA 的 Adoptium 镜像 → Adoptium 官方 → Mojang 运行时（经 BMCLAPI）。",
+    {
+     "t": "每台服务器可以在「内存 / 启动」里换 Java；整合包要求更高的 Java 时会提示，但不阻止启动。",
+     "channel": "beta"
+    }
+   ]
+  },
+  {
+   "id": "create",
+   "h": "创建与安装",
+   "icon": "block",
+   "items": [
+    "向导：选核心、版本、构建、内存、端口、难度、游戏模式、EULA。",
+    "Mojang 清单和服务端优先走 BMCLAPI 镜像，镜像不可用再走官方；可在「设置 → 下载与网络」选自动、镜像或官方。Paper、Purpur、Folia、Velocity、Waterfall 走各自官方地址。",
+    "下载最多 3 轮，按工件上的 SHA-1、SHA-256 或 MD5 校验后原子写入。Forge、NeoForge 安装器带 --mirror 指向 BMCLAPI。",
+    "低于 1.18.1 的实例加上 log4shell 的 noLookups 参数；每个实例目录里有一份与界面等效的 run.bat。",
+    "停止时先发 stop，约 30 秒没退出再强制结束；退出 MineDeck 时正在跑的服务器和隧道一起停。"
+   ]
+  },
+  {
+   "id": "modpack",
+   "h": "整合包导入",
+   "icon": "pack",
+   "items": [
+    "Modrinth .mrpack 直接导入，核心、版本和加载器从包里识别，只给客户端用的文件跳过。",
+    "CurseForge zip 需要自己的 CurseForge API Key，Key 用 Windows DPAPI 加密保存。",
+    "上传上限 4 GiB。",
+    {
+     "t": "下载地址不合规、缺校验值或校验对不上的文件不再让整个导入失败，列进「待处理」，可以跳过、用本地文件补上，或确认风险后下载。",
+     "channel": "beta"
+    },
+    {
+     "t": "CurseForge 清单里的文件按类别放进 mods、resourcepacks、shaderpacks、datapacks。",
+     "channel": "beta"
+    }
+   ]
+  },
+  {
+   "id": "takeover",
+   "h": "接管已有服务器",
+   "icon": "folder",
+   "channel": "beta",
+   "items": [
+    "选择一个已有的服务器文件夹，只读识别核心、版本、启动文件、原来的内存和端口，就地登记成实例，文件留在原地。",
+    "原来的 run.bat、user_jvm_args.txt 先备份；任务失败时，这次动过的文件恢复原样。",
+    "会拒绝整个磁盘、MineDeck 程序目录、备份目录等不安全的位置。",
+    "v3.1.0-beta.3 起只记录被接管的那一个文件夹，旁边的服务器不会跟着出现在列表里。"
+   ]
+  },
+  {
+   "id": "handover",
+   "h": "交接包",
+   "icon": "pack",
+   "channel": "beta",
+   "items": [
+    "服务器停着时，可以把它打成 .mdpack，交给另一台电脑上的 MineDeck。",
+    "包里有存档、server.properties、核心配置、mods、plugins、config、白名单和管理员名单；没有日志和崩溃报告，默认不带服务端核心。",
+    "配置文件原样进入包，其中的密码也在里面，交出去之前请留意。",
+    "上传上限 8 GiB。导入时 Java 与核心按收包的电脑重新准备。"
+   ]
+  },
+  {
+   "id": "mods",
+   "h": "模组与插件",
+   "icon": "cart",
+   "items": [
+    "非原版实例有「资源」标签：按核心和版本在 Modrinth 上搜索，装到 mods 或 plugins。",
+    "可以查看模组清单、按文件启用或禁用、修改模组配置文件。",
+    {
+     "t": "购物车：新建向导里可以先挑模组，服务器建好后安装；只在客户端用的模组不放进来，必装前置一并装上。",
+     "channel": "beta"
+    }
+   ]
+  },
+  {
+   "id": "console",
+   "h": "运行、控制台与配置",
+   "icon": "terminal",
+   "items": [
+    "控制台先回放再实时，可在 GBK 和 UTF-8 之间切换，警告和错误着色，命令有历史和 Tab 补全。",
+    "「全部配置」编辑 server.properties：78 项，分 7 组，每项有中文名、说明和是否要重启，可按中文名或键名搜索。",
+    "MOTD 可以选颜色并预览；内存用滑块和数字框，对照本机物理内存。",
+    "1.21.9 及以后，标成游戏规则的项改完即生效。"
+   ]
+  },
+  {
+   "id": "players",
+   "h": "玩家",
+   "icon": "players",
+   "items": [
+    "查看在线玩家，以及白名单、管理员、封禁三份名单。",
+    "加入或移出白名单、设为 OP、踢出、封禁或解封。服务器开着时走控制台命令，关着时直接改名单文件。",
+    "离线模式的 UUID 按离线算法算好。"
+   ]
+  },
+  {
+   "id": "backup",
+   "h": "备份与定时任务",
+   "icon": "backup",
+   "items": [
+    "立即备份、还原、删除；服务器开着时也能备份。每台默认保留 10 份，可改为 1 到 1000。",
+    "崩溃自动重启默认关闭。打开后按 10、30、60 秒退避，连续 3 次起不来就停止。",
+    "定时任务每天在固定时间执行：重启、一条控制台命令，或备份。"
+   ]
+  },
+  {
+   "id": "tunnel",
+   "h": "内网穿透",
+   "icon": "tunnel",
+   "items": [
+    "支持 OpenFrp、樱花穿透和自己的 frps；frpc 按服务商自动下载到 runtimes/frpc/。",
+    "凭据用 DPAPI 加密保存，响应里不带回明文。",
+    "隧道可以绑定某台服务器并跟随它启动；用途分游戏和语音，语音隧道的地址会写进实例的 voice_host。",
+    "可以复制公网地址，有域名时优先显示域名；frpc 日志可在界面查看。"
+   ]
+  },
+  {
+   "id": "window",
+   "h": "窗口与外观",
+   "icon": "window",
+   "items": [
+    "界面在 WebView2 窗口里；没有 WebView2 时用系统默认浏览器打开本机地址。默认端口 27333，被占用时改用随机端口。",
+    "7 套配色，每套可浅色、深色或跟随系统；强调色 8 种。",
+    "关窗口可缩到托盘，服务器继续运行；可以开机自启（当前用户，不需要管理员）。",
+    "服务器和备份的存放根可以改到别的盘。",
+    {
+     "t": "后台任务在切页或刷新后仍能从任务列表回到进度。",
+     "channel": "beta"
+    }
+   ]
+  },
+  {
+   "id": "lan",
+   "h": "局域网与 API",
+   "icon": "lan",
+   "items": [
+    "「允许局域网访问」要先设访问密码，密码以 bcrypt 保存；选择文件夹、改 AI 设置等操作只接受本机请求。",
+    "本地 HTTP API 和 Webhook：服务器启动、停止、崩溃、玩家进出、备份完成、隧道上下线等事件可以推到你填的地址。",
+    "更新：可以启动时静默检查，或在「设置 → 更新与关于」里检查并应用。GitHub 直链先试 ghfast.top、gh-proxy.com，再直连；exe 要与官方 SHA-256 一致。",
+    "使用稳定版时不会收到测试版的更新提示。"
+   ]
+  },
+  {
+   "id": "ai",
+   "h": "AI（可选）",
+   "icon": "chip",
+   "items": [
+    "不填服务商和 Key 时，程序不连接任何 AI 服务。支持 OpenAI 兼容接口和 Claude Messages；预设 DeepSeek、通义千问、Kimi、智谱、OpenAI、Claude、Ollama（本机）。",
+    "Key 用 DPAPI 加密保存；费用按公开价格估算，每个功能可以设每日 token 额度。",
+    "应用内助手：先读日志、配置和崩溃报告再回答；改配置、换 Java、重启等写操作先出确认卡片。发给模型的文本去掉本机路径、局域网地址和密钥。",
+    "游戏内 AI：玩家在聊天里用 @AI 提问；只有授权的玩家能让它执行白名单里的命令，op 和 execute 不在其中。",
+    "AI 伙伴：NeoForge 1.21.1 / Forge 1.20.1 的服务端实体，可以跟随、采集、走到坐标等；好友客户端需装同版本的伙伴模组。",
+    "MCP：默认关闭，只接受本机带令牌的连接，写操作要在 MineDeck 里确认。"
+   ]
+  },
+  {
+   "id": "music",
+   "h": "音乐共享",
+   "icon": "music",
+   "items": [
+    "把本机正在播放的声音经 Simple Voice Chat 发给服务器里的人。这个功能不需要 AI。",
+    "支持 NeoForge 1.20.5+、Forge 1.20.1+、Mohist 1.20.1+；Fabric 和 Banner 没有桥接模组。",
+    "Windows 11 默认只录所选程序；Windows 10 只能录整机声音，开始前会让你确认。"
+   ]
+  },
+  {
+   "id": "diag",
+   "h": "报错横幅与操作记录",
+   "icon": "alert",
+   "items": [
+    "控制台顶部的报错横幅不调用 AI，按 13 类规则检查：缺少前置、客户端模组放进服务端、装错加载器、重复模组、Mixin 冲突、Java 参数不对、端口被占、内存不够、没同意 EULA 等。",
+    "界面操作、确认后的执行、定时任务和崩溃重启记在程序目录的 logs\\ops，密钥字段以掩码保存。",
+    "每项操作有风险等级；仅人工的操作不能由 AI 或定时任务调用。"
+   ]
+  }
+ ],
+ "more": {
+  "h": "还有问题？",
+  "help": "看帮助与常见问题",
+  "download": "去下载"
+ },
+ "cores": [
+  "Vanilla",
+  "Paper",
+  "Purpur",
+  "Leaves",
+  "Folia",
+  "Fabric",
+  "NeoForge",
+  "Forge",
+  "Mohist",
+  "Banner",
+  "Velocity",
+  "Waterfall"
+ ]
+}

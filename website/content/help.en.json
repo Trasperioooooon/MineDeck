@@ -1,0 +1,39 @@
+{
+ "title": "Help",
+ "desc": "MineDeck quick start, common tasks, FAQ, data locations and known limits.",
+ "lead": "New to MineDeck? Start with the quick start. Summarised from the repository README. The MineDeck interface itself is in Chinese; menu names are translated here.",
+ "toc": "On this page",
+ "start": { "h": "Quick start", "steps": [
+   "Open MineDeck and click New server (新建服务器).",
+   "Choose type, version and build, accept the EULA and create.",
+   "Click Start. When the console shows <code>Done (...)!</code> the server is up.",
+   "Players on the same network connect to <code>this PC's LAN IP:port</code>. For players elsewhere, add a tunnel under Tunnels (内网穿透), bind it to the server with start-with-server, and send them the public address." ] },
+ "entries": { "h": "Common tasks", "items": [
+   "Run a command: instance → Console → input at the bottom.",
+   "Change settings: instance → Common settings or All settings. Settings that need a restart are marked.",
+   "Memory or Java: instance → Memory / Launch.",
+   "No window: <code>MineDeck.exe -nogui</code>. Default port 27333, set with <code>-port 27333</code>; a random port is used if taken. The address and token are written to the log.",
+   "Silent start used by autostart: <code>MineDeck.exe -minimized</code>.",
+   "stdio bridge for local AI tools: <code>MineDeck.exe -mcp</code>; MineDeck must already be running." ] },
+ "faq": { "h": "FAQ", "items": [
+   { "id": "faq-java", "q": "Do I need to install Java?", "a": "No. A matching installed major version is used directly; otherwise MineDeck downloads a private runtime without changing system Java." },
+   { "id": "faq-remote", "q": "How do players outside my network join?", "a": "Add OpenFrp, SakuraFrp or your own frps under Tunnels, bind it to the server and enable start-with-server. Players on the same network need no tunnel." },
+   { "id": "faq-versions", "q": "Which versions and server types are supported?", "a": "Minecraft 1.12.2 up to the latest release in the manifest, including 26.x, across 12 server types (see Features). Modrinth .mrpack and CurseForge zips can be imported." },
+   { "id": "faq-crash", "q": "The server won't start. Where do I look first?", "a": "Check the error banner at the top of the console; its 13 rule types do not need AI. With AI configured you can click Analyse with AI or ask the assistant." },
+   { "id": "faq-ai", "q": "Will AI change my server on its own? Does it cost extra?", "a": "Your provider charges for usage; MineDeck estimates costs from public prices and supports daily budgets. Reading logs happens directly; config changes, Java switches, restarts and mod installs need a confirmation card. In-game commands are limited to authorised players and enabled templates; op and execute never run." },
+   { "id": "faq-friends", "q": "What do my friends need to install?", "a": "AI companion: the companion client mod matching the server version (on the Download page). Music sharing: the same Simple Voice Chat version on server and clients; MineDeck installs the bridge mod on the server." },
+   { "id": "faq-beta", "q": "Stable or beta?", "a": "Use stable for everyday play. The 3.1.0 betas add handover packs, the mod cart, pending modpack files, adopting existing servers and per-server Java, and may still have problems. Run a beta from its own folder, back up before trying an existing server, and note that betas do not auto-update to each other." },
+   { "id": "faq-smartscreen", "q": "Windows says “Windows protected your PC”?", "a": "MineDeck.exe is not code-signed, so SmartScreen may block the first run. Click More info → Run anyway. You can verify the SHA-256 first as described on the Download page." },
+   { "id": "faq-firewall", "q": "Friends on my LAN can't connect?", "a": "The first time a server starts, Windows Firewall may ask for permission. LAN players can connect after you allow it." } ] },
+ "data": { "h": "Data and uninstalling", "items": [
+   "Everything defaults to the exe's folder: <code>servers</code>, <code>backups</code>, <code>runtimes</code>, <code>cache</code> and <code>logs\\ops</code>.",
+   "UI preferences are in <code>%LocalAppData%\\MineDeck</code>.",
+   "If you delete <code>runtimes</code>, existing servers lose their portable Java and need it prepared again under Memory / Launch.",
+   "To uninstall, delete the exe's folder and <code>%LocalAppData%\\MineDeck</code>." ] },
+ "limits": { "h": "Known limits", "items": [
+   "Windows Firewall may prompt the first time a server starts.",
+   "Forge and NeoForge installers still fetch some libraries from official sources and can fail even after mirrors and retries.",
+   "On Windows 10, music sharing can only capture the whole playback device.",
+   "Paper and Purpur have no mirror in mainland China." ] },
+ "more": { "h": "Didn't find an answer?", "feedback": "Report a problem" }
+}
