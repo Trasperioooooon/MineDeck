@@ -141,7 +141,6 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 	}
 
 	// ---- 步骤 2 / 3：下载核心、安装服务端（完整模式跳过） ----
-	s := mf.Instance // A 的设置原样带来，下面逐项换成 B 这边的
 	launch := mf.Instance.LaunchTarget
 	build := mf.Core.Build
 	if mf.Full {
@@ -163,7 +162,7 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 	// ---- 步骤 4：解包服务器文件（instance/ 前缀，严格 zip-slip） ----
 	t.StartStep(4)
 	res, err := extractPrefix(ctx, path, dir,
-		extractOpts{slim: !mf.Full, declared: mf.Counts.Bytes, free: func() (uint64, error) { return app.DiskFree(dir) }},
+		extractOpts{slim: !mf.Full, declared: mf.Counts.Bytes, declaredFiles: mf.Counts.Files, free: func() (uint64, error) { return app.DiskFree(dir) }},
 		t.ProgressFn("解包交接包"),
 		func(n int, done, total int64) {
 			t.ProgressFn(fmt.Sprintf("解包交接包（已 %d 个文件）", n))(done, total)
@@ -178,6 +177,10 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 	if len(res.kept) > 0 {
 		t.Logf("⚠ 这个包没带服务端核心，核心用的是刚下载的那份；包里有 %d 个属于核心的文件（%s）没有采用", len(res.kept), shortList(res.kept, 5))
 	}
+	// 解包时已经按名字跳过了控制文件，这里再按磁盘上的实际情况清一遍：名字的比较交给 Windows 自己做
+	// （大小写、8.3 短名这些别名它都认），不管包里用什么写法，目录里都不会留着别人给的这几样。
+	// 瘦身模式下官方安装器生成的 run.bat、user_jvm_args.txt 也在其中，下面收尾时 MineDeck 会重新写。
+	scrubControl(dir)
 
 	// ---- 步骤 5：生成启动脚本 + 注册 ----
 	t.StartStep(5)
@@ -207,19 +210,23 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 	// 包里的 JVM 参数、定时任务、崩溃自动重启不带过来：它们决定这台电脑上执行什么
 	// （-javaagent、-XX:OnError 能直接跑程序；定时任务能每天执行一条服务器命令，比如把原服主重新设成管理员），
 	// 而导入向导上看不到。写进日志，要用的话接手的人自己在设置里加。
-	if len(s.ExtraJVM) > 0 {
-		t.Logf("原来的 JVM 参数没有带过来，需要的话到「内存 / 启动」里自己加：%s", shortList(s.ExtraJVM, 12))
+	old := mf.Instance
+	if len(old.ExtraJVM) > 0 {
+		t.Logf("原来的 JVM 参数没有带过来，需要的话到「内存 / 启动」里自己加：%s", shortList(old.ExtraJVM, 12))
 	}
-	if n := len(s.Policies.Schedules); n > 0 || s.Policies.CrashRestart {
+	if n := len(old.Policies.Schedules); n > 0 || old.Policies.CrashRestart {
 		t.Logf("原来的定时任务（%d 条）和崩溃自动重启的设置没有带过来，需要的话在这台服务器的设置里重新加", n)
 	}
-	s.ExtraJVM, s.Policies = nil, inst.Policies{}
-	if s.ConsoleEncoding != "utf-8" && s.ConsoleEncoding != "gbk" {
-		s.ConsoleEncoding = ""
+	// 这台服务器的设置从头填，只从包里取两样：分了多少内存、控制台用什么编码。
+	// 不拿包里那份整个改：以后 Settings 加了新字段，不会不知不觉地跟着包进来。
+	s := inst.Settings{
+		Name: req.Name, Core: mf.Core.Core, MC: mf.Core.MC, Build: build,
+		JavaMajor: major, JavaPath: javaPath,
+		XmxMB: old.XmxMB, LaunchTarget: launch, CreatedAt: time.Now(),
 	}
-	s.Name = req.Name
-	s.Core, s.MC, s.Build = mf.Core.Core, mf.Core.MC, build
-	s.JavaMajor, s.JavaPath = major, javaPath
+	if old.ConsoleEncoding == "utf-8" || old.ConsoleEncoding == "gbk" {
+		s.ConsoleEncoding = old.ConsoleEncoding
+	}
 	if req.XmxMB > 0 {
 		s.XmxMB = req.XmxMB
 	}
@@ -227,12 +234,12 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 		s.XmxMB = 2048
 	}
 	s.XmsMB = min(1024, s.XmxMB)
-	s.LaunchTarget = launch
-	s.CreatedAt = time.Now()
-	s.Adopted = false
 	// 端口按 B 的填写改（服务器.properties 就在包里；代理端没有）
 	if req.Port > 0 && req.Port <= 65535 && kind != mcsrc.KindProxy {
 		props, err := inst.LoadProps(filepath.Join(dir, "server.properties"))
+		if os.IsNotExist(err) { // 包里没有 server.properties（那台服务器一次都没开过）：新写一份，免得填的端口白填
+			props, err = inst.ParseProps(nil), nil
+		}
 		if err == nil {
 			if old, _ := props.Get("server-port"); old != fmt.Sprintf("%d", req.Port) {
 				props.Set("server-port", fmt.Sprintf("%d", req.Port))
@@ -267,7 +274,7 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 			// 判断不了版本（离线、清单里没有）：原服主的 JVM 参数已经整个丢掉了，他原来带着的防护参数也在里面，
 			// 所以不能就这么空着。这一条参数对不需要它的新版本没有影响，先加上。
 			s.ExtraJVM = append(s.ExtraJVM, inst.Log4jNoLookups)
-			t.Logf("判断不了这个版本要不要 log4shell 防护，先按老版本加上防护参数（对新版本没有影响）")
+			t.Logf("⚠ 判断不了这个版本要不要 log4shell 防护（多半是没联网），先加上 formatMsgNoLookups 这一条。它对新版本没有影响；1.17 以前的老版本还需要 Mojang 的日志配置文件，这次没能准备，这样的服先不要开给不认识的人进")
 		}
 	}
 	if _, err := m.FinalizeCreate(s, dir); err != nil {

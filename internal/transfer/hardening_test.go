@@ -140,6 +140,20 @@ func TestExtractSkipsControlFiles(t *testing.T) {
 	}
 }
 
+// TestScrubControl 解包之后再按磁盘上的实际情况清一遍控制文件：名字怎么比由 Windows 自己定，
+// 大小写不同的写法、官方安装器生成的同名文件都清得掉；别的文件不动。
+func TestScrubControl(t *testing.T) {
+	dir := t.TempDir()
+	for _, f := range []string{"Instance.JSON", "RUN.bat", "user_jvm_args.txt", "LOG4J2_112-116.XML", "GameAI.json",
+		"config/MineDeck/companion.properties", ".minedeck/config-backups/a", "server.properties", "config/other/x.toml", "world/level.dat"} {
+		writeFile(t, filepath.Join(dir, filepath.FromSlash(f)), "x")
+	}
+	scrubControl(dir)
+	if got := strings.Join(treeOf(t, dir), " "); got != "config/other/x.toml server.properties world/level.dat" {
+		t.Errorf("清完以后剩下的文件不对：%s", got)
+	}
+}
+
 // TestExtractSlimKeepsCore 瘦身模式：服务端核心是导入时刚下载、校验过的，包里的东西顶不掉它，也不能预先埋在它的地盘上。
 func TestExtractSlimKeepsCore(t *testing.T) {
 	pack := rawPack(t, "", [][2]string{
@@ -202,6 +216,23 @@ func TestExtractSizeLimits(t *testing.T) {
 	}
 	if left := treeOf(t, filepath.Dir(dest)); len(left) != 0 {
 		t.Errorf("被拒之前不该落下任何文件：%v", left)
+	}
+	// 清单里的数也是包里来的：写一个大到做加法会溢出的数，不能因此把正常大小的包拒掉，也不能崩
+	if _, err := extractPrefix(nil, pack, dest, extractOpts{declared: 1<<63 - 1}, noProgress, noCount); err != nil {
+		t.Errorf("清单里的字节数写得极大时不该出错：%v", err)
+	}
+	os.RemoveAll(dest)
+	// 文件数也和清单对：一大堆空文件不占字节数，前两道关拦不住
+	var many [][2]string
+	for i := 0; i < 3000; i++ {
+		many = append(many, [2]string{"instance/world/empty/" + strings.Repeat("x", 1+i%7) + "-" + string(rune('a'+i%26)) + "/" + string(rune('0'+i%10)) + strings.Repeat("y", i/10), ""})
+	}
+	flood := rawPack(t, "", many)
+	if _, err := extractPrefix(nil, flood, dest, extractOpts{declaredFiles: 10}, noProgress, noCount); err == nil || !strings.Contains(err.Error(), "个文件") {
+		t.Errorf("文件数比清单多出一大截的包应被拒：%v", err)
+	}
+	if left := treeOf(t, filepath.Dir(dest)); len(left) != 0 {
+		t.Errorf("被拒之前不该落下任何文件：%d 个", len(left))
 	}
 	// 清单对得上、盘也够：照常解
 	roomy := func() (uint64, error) { return 10 << 30, nil }

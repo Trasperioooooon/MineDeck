@@ -24,7 +24,9 @@ func mustAddr(t *testing.T, s string) netip.Addr {
 // TestAddrIsPublic 公网判定的地址段（modpack.HostIsPublic 和连接级检查共用这一份语义）。
 func TestAddrIsPublic(t *testing.T) {
 	// 198.18.0.0/15 是 Clash、sing-box 的 fake-ip 段：开着这类代理时所有域名都解析到这里，必须放行
-	pub := []string{"1.1.1.1", "8.8.8.8", "2001:4860:4860::8888", "198.18.0.1", "198.19.255.254"}
+	// NAT64 / 6to4 地址里套着公网 IPv4 的也放行：只有 IPv6 的网络靠 NAT64 访问 IPv4 的网站
+	pub := []string{"1.1.1.1", "8.8.8.8", "2001:4860:4860::8888", "198.18.0.1", "198.19.255.254",
+		"64:ff9b::808:808", "2002:808:808::1", "::ffff:8.8.8.8"}
 	for _, s := range pub {
 		if !AddrIsPublic(mustAddr(t, s)) {
 			t.Errorf("%s 应判为公网", s)
@@ -34,6 +36,12 @@ func TestAddrIsPublic(t *testing.T) {
 		"127.0.0.1", "::1", "10.1.2.3", "192.168.1.1", "172.16.0.1", "172.31.255.255",
 		"169.254.169.254", "100.64.1.1", "100.127.255.255", "0.0.0.0", "255.255.255.255",
 		"fe80::1", "fd00::1", "fc00::1", "224.0.0.1", "ff02::1",
+		// 保留段：「本网络」、协议和文档保留、240/4、IPv6 站点本地和文档段、Teredo
+		"0.1.2.3", "192.0.0.8", "192.0.2.1", "198.51.100.7", "203.0.113.9", "240.0.0.1",
+		"fec0::1", "2001:db8::1", "2001::1",
+		// 套着内网 IPv4 的 IPv6：NAT64、6to4、IPv4 兼容地址、IPv4 映射地址。有对应网关的网络里连它们就是连里面的地址
+		"64:ff9b::7f00:1", "64:ff9b::a00:1", "64:ff9b::a9fe:a9fe", "64:ff9b:1::1",
+		"2002:7f00:1::1", "2002:c0a8:101::1", "::127.0.0.1", "::10.0.0.1", "::ffff:127.0.0.1", "::ffff:192.168.1.1",
 	}
 	for _, s := range priv {
 		if AddrIsPublic(mustAddr(t, s)) {
@@ -214,6 +222,11 @@ func TestGuardedTransportProxy(t *testing.T) {
 	for _, bad := range []string{
 		"https://127.0.0.1/a", "https://192.168.1.1:8443/a", "https://[::1]/a", "https://169.254.169.254/latest/meta-data",
 		"https://localhost/a", "https://a.localhost/a", "https://rebind.example.net/a",
+		// IP 的另一种写法：Go 不认它是 IP，本机也解析不出来，可代理那头的系统多半认，连过去就是 127.0.0.1
+		"https://2130706433/a", "https://0x7f000001/a", "https://0x7f.1/a", "https://0177.0.0.1/a", "https://127.1/a",
+		"https://[::ffff:127.0.0.1]/a", "https://[64:ff9b::7f00:1]/a",
+		// 没有点的名字、内网专用的后缀：本机解析不出来也不交给代理
+		"https://intranet/a", "https://nas.local/a", "https://router.lan/a", "https://git.corp/a", "https://printer.home.arpa./a",
 	} {
 		if err := get(bad); err == nil {
 			t.Errorf("走代理时 %s 应拒绝", bad)

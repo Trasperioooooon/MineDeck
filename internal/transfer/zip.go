@@ -140,8 +140,9 @@ type extractOpts struct {
 	//     有的核心（Paper、Fabric、原版）第一次启动才把依赖库解到这些目录里，那时候目录里先有一份别人放的就不好说了。
 	//     MineDeck 自己导出的瘦身包里没有这些（见 export.go），所以正常的包不受影响。
 	slim bool
-	// declared 清单里写的字节总数（manifest.counts.bytes）；包里实际申报的总量比它大出一截就拒绝。0 = 不比。
-	declared int64
+	// declared、declaredFiles 清单里写的字节总数和文件数（manifest.counts）；包里实际的比它大出一截就拒绝。0 = 不比。
+	declared      int64
+	declaredFiles int64
 	// free 目标盘还剩多少字节；nil = 不查。装不下就在动手之前拒绝，免得把盘写满连累同一块盘上别的服务器。
 	free func() (uint64, error)
 }
@@ -184,6 +185,17 @@ var controlRoot = map[string]bool{
 // controlDirs 整个目录都不采用的（小写、斜杠结尾）：MineDeck 和自家模组之间的端口、令牌（config/minedeck），
 // 以及 MineDeck 给配置文件留的备份（.minedeck）。令牌是原服主那台电脑上的，接手的人要用这些功能时 MineDeck 会重新生成。
 var controlDirs = []string{"config/minedeck/", ".minedeck/"}
+
+// scrubControl 把 dir 里的控制文件和控制目录删掉（不存在就算了）。解包之后、收尾之前调：
+// 名字怎么比由 Windows 自己定，包里不管用大小写、8.3 短名还是别的别名写法，都落不下这几样。
+func scrubControl(dir string) {
+	for name := range controlRoot {
+		_ = os.Remove(filepath.Join(dir, name))
+	}
+	for _, d := range controlDirs {
+		_ = os.RemoveAll(filepath.Join(dir, filepath.FromSlash(d)))
+	}
+}
 
 // isControl rel（相对实例目录，本机分隔符）是不是不采用的控制文件。导出时同样不带这些。
 func isControl(rel string) bool {
@@ -275,8 +287,13 @@ func extractPrefix(ctx context.Context, src, destDir string, opts extractOpts,
 	}
 	// 总量两道关：和清单对账（申报的比清单多出一截，是有人改过的包）；再看盘上装不装得下。
 	// 单个文件还有按申报体积的限流（见下），所以实际写盘不会超过这里算出来的 total。
-	if opts.declared > 0 && total > opts.declared+opts.declared/8+(64<<20) {
+	// 清单里的数也是包里来的，可以写得很大：比较时用减法，不拿它做加法（加出来会溢出）。
+	if opts.declared > 0 && total > opts.declared && total-opts.declared > opts.declared/8+(64<<20) {
 		return res, fmt.Errorf("交接包解开后有 %s，清单里写的只有 %s，这个包被改过或者坏了", fmtBytes(total), fmtBytes(opts.declared))
+	}
+	// 文件数也对一遍：几十万个空文件不占字节数，上面两道关都拦不住，却能把导入拖上几十分钟。
+	if n := int64(len(ents)); opts.declaredFiles > 0 && n > opts.declaredFiles && n-opts.declaredFiles > opts.declaredFiles/8+1024 {
+		return res, fmt.Errorf("交接包里有 %d 个文件，清单里写的只有 %d 个，这个包被改过或者坏了", n, opts.declaredFiles)
 	}
 	if opts.free != nil {
 		if free, err := opts.free(); err == nil && uint64(total)+(256<<20) > free {
