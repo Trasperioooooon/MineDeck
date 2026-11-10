@@ -93,6 +93,9 @@ func TestLevelsFollowDesign(t *testing.T) {
 	want[ops.Write] = append(want[ops.Write], "instance.transfer.export")
 	want[ops.HumanOnly] = append(want[ops.HumanOnly], "instance.transfer.import")
 	want[ops.Write] = append(want[ops.Write], "companion.install", "companion.settings.set", "companion.spawn", "companion.despawn", "companion.stop")
+	// 自选模组 + 购物车：搜索、看车、加进车、拿出来、清空、查前置都只动暂存的清单，是读；往服务器里放文件的安装是写（AI 只能提出）
+	want[ops.Read] = append(want[ops.Read], "modcart.search", "modcart.list", "modcart.add", "modcart.remove", "modcart.clear", "modcart.deps", "instance.mods.deps")
+	want[ops.Write] = append(want[ops.Write], "modcart.install")
 
 	n := 0
 	for level, names := range want {
@@ -143,9 +146,9 @@ func TestAIToolLists(t *testing.T) {
 		}
 	}
 	// +4：音乐共享（第五阶段）的读 1 + 写 3；+1：game.info（第四阶段，助手的工具清单里另外去掉了）；+6：AI 伙伴（第七阶段）的读 1 + 写 5；
-	// +2：交接包的读摘要 + 写导出（导入是仅人工）
-	if n := len(reg.Available(ops.Caller{Source: ops.SrcAssistant, Local: true})); n != 24+13+11+4+1+6+2 {
-		t.Errorf("助手能用 %d 个操作，应为读 24 + 写 13 + 危险 11 + 音乐共享 4 + game.info 1 + AI 伙伴 6 + 交接包 2", n)
+	// +2：交接包的读摘要 + 写导出（导入是仅人工）；+8：自选模组 + 购物车的读 7 + 写 1
+	if n := len(reg.Available(ops.Caller{Source: ops.SrcAssistant, Local: true})); n != 24+13+11+4+1+6+2+8 {
+		t.Errorf("助手能用 %d 个操作，应为读 24 + 写 13 + 危险 11 + 音乐共享 4 + game.info 1 + AI 伙伴 6 + 交接包 2 + 购物车 8", n)
 	}
 	if l := reg.Available(ops.Caller{Source: ops.SrcGameChat, Actor: "Steve"}); len(l) != 1 || l[0].Name != "game.info" {
 		t.Errorf("游戏内 AI 只能调 game.info：%v", l)

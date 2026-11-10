@@ -68,6 +68,7 @@ function newState(ui) {
     cp: newCpState(), // 第七阶段：AI 伙伴
     asst: newAsstState(), // 第三阶段：应用内 AI 助手
     mcp: newMcpState(), // MCP 接口
+    modcart: newModCartState(), // 自选模组 + 购物车（草稿车 + 各实例的车）
   };
   state.props = catalog(ui).map(p => ({ key: p.key, value: p.key === "motd" ? "§a生存服 §7· §e一起来玩！" : String(p.def ?? "") }));
   // 同 instance.list 的 javaSource / javaPath / adopted：都用 MineDeck 下载的便携版 Java，都不是接管进来的
@@ -1195,6 +1196,76 @@ function cpMockState(state, b) {
   }
 }
 // ============================== 第七阶段结束 ==============================
+// ============================== 自选模组 + 购物车 ==============================
+// 购物车状态存内存：草稿车（向导用，不带 inst）与各实例的车分开存（state.modcart = { draft, insts }）。
+// /__mock/state 的 modCart 开关：{ reset: true 清空草稿车与各实例的车, searchFail / addFail: 报错文案, noDeps: true 依赖检查返回全空 }
+// 响应里的 modcart.lastInstall 是上一次「安装购物车」的请求（inst、withDeps、includeDraft）。
+const MOD_CATALOG = [
+  { projectId: "jei", slug: "jei", title: "JEI", description: "Just Enough Items: view items and use recipes everywhere.", downloads: 15820349, license: "MIT", kind: "mod" },
+  { projectId: "create", slug: "create", title: "Create", description: "Adds a variety of items and blocks with rotating machinery.", downloads: 38216047, license: "MIT", kind: "mod" },
+  { projectId: "architectury", slug: "architectury-api", title: "Architectury API", description: "A cross-platform API for mod developers.", downloads: 5120483, license: "LGPL-3.0", kind: "mod" },
+  { projectId: "cloth-config", slug: "cloth-config", title: "Cloth Config API", description: "A config screen library for mods.", downloads: 8102049, license: "LGPL-3.0", kind: "mod" },
+];
+const PLUGIN_CORES = new Set(["paper", "purpur", "leaves", "folia", "banner", "mohist", "velocity", "waterfall"]); // 搜出来的是插件，其余是模组
+const modCartItem = id => {
+  const m = MOD_CATALOG.find(x => x.projectId === id) || { slug: id, title: id, kind: "mod", license: "" };
+  return { projectId: id, slug: m.slug, title: m.title, icon: "", kind: m.kind, license: m.license, addedAt: new Date().toISOString() };
+};
+function newModCartState() { return { draft: [], insts: {}, searchFail: "", addFail: "", noDeps: false, queries: 0, lastInstall: null }; }
+function modCartMockState(state, b) {
+  if (b.reset) state.modcart = newModCartState();
+  const { reset, ...rest } = b;
+  Object.assign(state.modcart, rest);
+}
+/* inst 有实例名 = 那台实例的购物车；空串 = 向导的草稿车 */
+const modcartBucket = (state, inst) => inst ? (state.modcart.insts[inst] = state.modcart.insts[inst] || []) : state.modcart.draft;
+/* 搜索结果的 type：详情页按实例的核心判断，向导按参数 core 判断 */
+const modcartType = (state, core) => PLUGIN_CORES.has(core) ? "plugin" : "mod";
+/* 依赖检查：必装候选 Architectury、可选候选 Cloth Config，都进车之后就不再列（noDeps 时一律返回全空） */
+function modcartDeps(state, ids) {
+  const miss = id => !ids.has(id);
+  return state.modcart.noDeps ? { files: [], missing: [], optional: [], conflicts: [], localHits: [], unresolved: [] } : {
+    files: [],
+    missing: miss("architectury") ? [{ project: { projectId: "architectury", title: "Architectury API", versionNumber: "9.2.14", fileName: "architectury-9.2.14-forge.jar", size: 580602, license: "LGPL-3.0" }, dependencyOf: "JEI" }] : [],
+    optional: miss("cloth-config") ? [{ project: { projectId: "cloth-config", title: "Cloth Config API", versionNumber: "11.3.0", fileName: "cloth-config-11.3.0-forge.jar", size: 512334, license: "LGPL-3.0" }, dependencyOf: "Create" }] : [],
+    conflicts: [], localHits: [], unresolved: [],
+  };
+}
+async function modcartHandler(state, req, res, p, m, u) {
+  const q = u.searchParams;
+  const bucket = inst => modcartBucket(state, inst);
+  if (p === "/api/modcart/search") {
+    if (state.modcart.searchFail) return err(res, 500, state.modcart.searchFail);
+    const word = (q.get("q") || "").toLowerCase();
+    let core = q.get("core") || "";
+    const inst = q.get("inst");
+    if (inst) { const i = state.instances.find(x => x.name === inst); if (i) core = i.core; }
+    return ok(res, { type: modcartType(state, core),
+      hits: MOD_CATALOG.filter(x => !word || x.title.toLowerCase().includes(word) || x.slug.includes(word))
+        .map(x => ({ project_id: x.projectId, slug: x.slug, title: x.title, description: x.description, downloads: x.downloads, icon_url: "", license: x.license })) });
+  }
+  if (p === "/api/modcart" && m === "GET") { const b = bucket(q.get("inst")); return ok(res, { count: b.length, items: b }); }
+  if (p === "/api/modcart" && m === "POST") {
+    const b = await readBody(req);
+    if (state.modcart.addFail) return err(res, 500, state.modcart.addFail);
+    const cart = bucket(b.inst || "");
+    for (const id of (b.projectIds || [])) if (!cart.some(x => x.projectId === id)) cart.push(modCartItem(id));
+    return ok(res, { count: cart.length, items: cart });
+  }
+  if (p === "/api/modcart/remove" && m === "POST") {
+    const b = await readBody(req), cart = bucket(b.inst || ""), af = cart.filter(x => x.projectId !== b.projectId);
+    cart.length = 0; cart.push(...af);
+    return ok(res, { count: cart.length, items: cart });
+  }
+  if (p === "/api/modcart/clear" && m === "POST") {
+    const b = await readBody(req), cart = bucket(b.inst || "");
+    cart.length = 0;
+    return ok(res, { count: 0, items: [] });
+  }
+  if (p === "/api/modcart/deps") return ok(res, modcartDeps(state, new Set(bucket(q.get("inst")).map(x => x.projectId))));
+  return ok(res, {});
+}
+// ============================== 自选模组 + 购物车结束 ==============================
 
 const VERSIONS = ["26.2", "26.1", "1.21.4", "1.21.3", "1.21.1", "1.21", "1.20.6", "1.20.4", "1.20.2", "1.20.1", "1.19.4", "1.19.2", "1.18.2", "1.17.1", "1.16.5", "1.12.2"];
 const SNAPS = ["26.3-snapshot-2", "26.3-snapshot-1", "26.2-rc1"];
@@ -1253,6 +1324,8 @@ function handler(state, ui, portOf) {
     //   music（第五阶段）: { reset, cap: "win11" | "win10", local, systemConfirmed, voiceTunnel: true 多一条语音隧道, inst: { 名称: { svc, bridge, voiceHost, … } } }
     //   asst（第三阶段）: { reset: true 清空会话和执行记录, lan: false 关掉「局域网可用 AI 助手」, slow: 流式回复每块的间隔（毫秒）}；响应里的 asst.executed 是确认后执行过的操作
     //   mcp（MCP 接口）: 见 mcpMockState；响应里的 mcp.executed / mcp.rejected 是确认、拒绝过的外部 AI 提案
+    //   modCart（自选模组 + 购物车）: { reset: true 清空草稿车与各实例的车, searchFail / addFail: 报错文案, noDeps: true 依赖检查返回全空 }；
+    //     响应里的 modcart.lastInstall 是上一次「安装购物车」的请求
     if (p === "/__mock/state" && m === "POST") {
       const b = await readBody(req);
       if ("empty" in b) state.empty = !!b.empty;
@@ -1282,6 +1355,7 @@ function handler(state, ui, portOf) {
       if (b.cp) cpMockState(state, b.cp); // 第七阶段
       if (b.asst) { if (b.asst.reset) { for (const x of state.asst.sessions) for (const r of x.subs) r.end(); state.asst = newAsstState(); } const { reset, ...rest } = b.asst; Object.assign(state.asst, rest); } // 第三阶段
       if (b.mcp) mcpMockState(state, b.mcp); // MCP 接口
+      if (b.modCart) modCartMockState(state, b.modCart); // 自选模组 + 购物车
       if (b.status) for (const [n, st] of Object.entries(b.status)) { const i = state.instances.find(x => x.name === n); if (i) { i.status = st; i.uptimeSec = st === "stopped" ? 0 : st === "starting" ? 9 : Math.max(i.uptimeSec, 7980); i.onlineCount = st === "running" ? (i.onlineCount || 3) : 0; } }
       return ok(res, state);
     }
@@ -1309,6 +1383,7 @@ function handler(state, ui, portOf) {
       if (seg[2] === "instances" && seg[4] === "gameai") return gcHandler(state, req, res, m, seg, u); // 第四阶段
       if (seg[2] === "instances" && seg[4] === "companion") return cpHandler(state, req, res, m, seg); // 第七阶段
       if (p.startsWith("/api/music/") || (seg[2] === "instances" && seg[4] === "music") || (p === "/api/tunnels" && m === "POST")) return musicHandler(state, req, res, p, m, seg); // 第五阶段
+      if (p.startsWith("/api/modcart")) return modcartHandler(state, req, res, p, m, u); // 自选模组 + 购物车（草稿车与各实例的车分开存）
       if (p === "/api/cores") return ok(res, CORES);
       if (p === "/api/config" && m === "PUT") {
         const b = await readBody(req);
@@ -1433,6 +1508,18 @@ function handler(state, ui, portOf) {
           log: adopt ? ["服务器文件夹：" + ((state.lastAdopt || {}).dir || ""), "原来的 run.bat 另存为 run.before-minedeck.bat", "接管完成 ✔ 存档、模组、插件和配置文件都没有动"] : ["已换成 Java 25（下次启动生效）"],
           ended: true, result: adopt ? (state.lastAdopt || {}).name || "create-pack" : (state.lastJava || {}).inst || "机械动力整合包" });
       }
+      // 购物车安装模组的任务（kind "mods"，任务页的说法跟着换）：第 3 次查询后完成，result = 实例名
+      if (p === "/api/tasks/task-cart") {
+        const mc = state.modcart;
+        mc.queries = (mc.queries || 0) + 1;
+        const ended = mc.queries >= 3, n = Math.min(mc.queries - 1, 2);
+        const names = ["解析购物车清单", "下载模组文件", "放进 mods / plugins 文件夹"];
+        return ok(res, { id: "task-cart", kind: "mods", title: "安装购物车里的模组",
+          steps: names.map((name, i) => ({ name, status: ended || i < n ? "done" : i === n ? "running" : "pending" })),
+          label: ended ? "" : "下载 jei-1.20.1-forge.jar", done: ended ? 21 * 1024 * 1024 : 12582912, total: 21 * 1024 * 1024, error: "", warnings: [],
+          log: ["购物车共 1 项", "命中 Modrinth 缓存，直接复用", "安装完成后重启服务器才会生效"],
+          ended, result: (mc.lastInstall || {}).inst || "生存服 · 朋友" });
+      }
       // 和真后端一样只给摘要：步骤、日志、告警明细不在列表里
       if (p === "/api/tasks") return ok(res, state.taskList.map(t => ({ id: t.id, title: t.title, label: t.label || "", done: t.done || 0, total: t.total || 0, ended: !!t.ended, error: t.error || undefined, result: t.result || undefined, kind: t.kind || undefined, warningCount: (t.warnings || []).length, pendingCount: (t.pending || []).length })));
       if (p.startsWith("/api/tasks/")) {
@@ -1443,7 +1530,18 @@ function handler(state, ui, portOf) {
         return ok(res, { id: seg[3], title: "创建 Paper 服务器", steps, label: ended ? "" : "下载 paper-1.21.4-232.jar", done: 31457280, total: 52428800, error: st === "error" ? "下载 paper-1.21.4-232.jar 失败：所有下载源均不可用（BMCLAPI 超时、官方源 403）" : "", warnings: [], log: ["[1/4] 检测到本机 Java 21，复用", "[2/4] 正在从 api.papermc.io 下载核心…", "  已下载 30.0 MB / 50.0 MB"], ended, result: "生存服 · 朋友", net: !ended && state.taskNet ? state.taskNet : undefined, ...state.taskList.find(t => t.id === seg[3]) });
       }
       if (p === "/api/instances" && m === "GET") return ok(res, insts());
-      if (p === "/api/instances" && m === "POST") return ok(res, { taskId: "task-1" });
+      // 创建实例（向导提交）：真的登记进列表（Java 21 / 已停止等按表单补全），
+      // 这样紧接着带上草稿车的 POST .../modcart/install 才能按名字找到这台实例（真后端此时也已经建好了）
+      if (p === "/api/instances" && m === "POST") {
+        const b = await readBody(req);
+        const c = CORES.find(x => x.id === b.core), kind = c ? c.kind : "game";
+        state.instances.push({ name: String(b.name || "新服务器"), core: b.core || "paper", kind, mc: b.mc || "1.21.4", build: b.build || "",
+          javaMajor: 21, xmxMb: +b.xmxMb || 4096, xmsMb: 0, port: +b.port || 25565, status: "stopped", motd: b.motd || "",
+          dir: "D:\\MineDeck\\servers\\" + (b.name || "new"), createdAt: new Date().toISOString(), consoleEncoding: "auto",
+          onlineCount: 0, uptimeSec: 0, maxPlayers: kind === "proxy" ? 0 : 20, extraJvm: [],
+          javaSource: "portable", javaPath: "D:\\MineDeck\\runtimes\\java-21\\bin\\java.exe", adopted: false });
+        return ok(res, { taskId: "task-1" });
+      }
       // online 同 tunnel.Status.Online：这次运行连上了。启停时由下面显式写；用 /__mock/state 直接改的没写就按「运行中又有地址」算
       if (p === "/api/tunnels" && m === "GET") return ok(res, state.tunnels.map(t => ({ ...t, online: !!t.running && (t.online ?? !!t.publicAddr) })));
       if (p.startsWith("/api/tunnels/") && p.endsWith("/console")) return sse(res, ["[frpc] login to server success", "[frpc] proxy added: [mc]", "[frpc] start proxy success"]);
@@ -1511,6 +1609,17 @@ function handler(state, ui, portOf) {
           { project_id: "a2", title: "LuckPerms", description: "A permissions plugin for Minecraft servers.", icon_url: "", downloads: 8300000 },
           { project_id: "a3", title: "Chunky", description: "Pre-generates chunks, quickly and efficiently.", icon_url: "", downloads: 2100000 },
         ] });
+        // 安装购物车（同 web 的 modcart install）：返回 kind "mods" 的任务编号；
+        // includeDraft 会把草稿车（向导「选模组」步挑的）一起装进这台实例并清空草稿车
+        if (sub === "modcart" && seg[5] === "install" && m === "POST") {
+          const b = await readBody(req), mc = state.modcart, cart = modcartBucket(state, name);
+          mc.lastInstall = { inst: name, withDeps: b.withDeps !== false, includeDraft: !!b.includeDraft };
+          if (b.includeDraft) { for (const it of mc.draft) if (!cart.some(x => x.projectId === it.projectId)) cart.push({ ...it }); mc.draft = []; }
+          mc.queries = 0;
+          return ok(res, { taskId: "task-cart" });
+        }
+        // 已装模组的本地依赖核对（详情页「购物车」标签的提示条用，返回固定形状）
+        if (sub === "mods" && seg[5] === "deps") return ok(res, { count: 1, missing: [{ id: "jei", range: "[1.20.1,)", requiredBy: "Create 的联动模组", file: "jei-1.20.1-forge.jar" }], stale: [{ id: "waystones", range: "[1.0,)", requiredBy: "Create", file: "waystones-forge-1.20.1.jar" }], checked: 7 });
         return ok(res, { file: "x.jar" });
       }
       return ok(res, {});

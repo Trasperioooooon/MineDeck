@@ -18,6 +18,7 @@ import (
 	"minedeck/internal/companion"
 	"minedeck/internal/dl"
 	"minedeck/internal/inst"
+	"minedeck/internal/modcart"
 	"minedeck/internal/musicshare"
 	"minedeck/internal/ops"
 	"minedeck/internal/tunnel"
@@ -41,6 +42,9 @@ type Env struct {
 
 	// Companion AI 伙伴（第七阶段）；nil 时建一个（有 Mgr 时）。任务做完或失败时经游戏内 AI 用模板通知发起的玩家。
 	Companion *companion.Service
+
+	// ModCart 自选模组的购物车；nil 时按程序目录建一个（存在 <程序目录>/data/modcart/，用真的 Modrinth）。测试换成假的 Modrinth。
+	ModCart *modcart.Service
 }
 
 // NewAI 按程序目录建 AI 接入层：设置、价格缓存和用量放在 <程序目录>/data/ai/，Key 用 DPAPI 加密存进
@@ -99,6 +103,9 @@ func New(env Env) *ops.Registry {
 		env.GameChat = NewGameChat(env.Mgr, reg, env.AI, env.Token, comps)
 	}
 	gc = env.GameChat
+	if env.ModCart == nil {
+		env.ModCart = modcart.New(filepath.Join(app.Base, "data", "modcart"), "")
+	}
 	c := &cat{Env: env, reg: reg}
 	c.appOps()
 	c.instanceOps()
@@ -116,6 +123,7 @@ func New(env Env) *ops.Registry {
 	c.musicOps()
 	c.gameChatOps()  // 第四阶段
 	c.companionOps() // 第七阶段
+	c.modcartOps()   // 自选模组 + 购物车
 	if env.Mgr != nil {
 		env.Mgr.SetAutoHook(func(a inst.AutoAction) {
 			reg.Record(ops.Caller{Source: ops.SrcSchedule, Actor: a.Actor, Local: true}, a.Op, ops.ArgsOf(a.Args), a.Err, a.Dur)

@@ -104,6 +104,7 @@ func New(mgr *inst.Manager, tun *tunnel.Manager, reg *ops.Registry, asst *assist
 	s.gameChatRoutes(mux)  // 游戏内 AI（第四阶段），见 gamechat.go
 	s.companionRoutes(mux) // AI 伙伴（第七阶段），见 companion.go
 	s.transferRoutes(mux)  // 实例交接包（.mdpack），见 transfer.go
+	s.modcartRoutes(mux)   // 自选模组 + 购物车，见 modcart.go
 
 	mux.HandleFunc("POST /api/instances/{name}/start", s.handleInstStart)
 	mux.HandleFunc("POST /api/instances/{name}/stop", s.instOp("instance.stop"))

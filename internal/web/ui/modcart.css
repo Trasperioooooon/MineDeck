@@ -1,0 +1,21 @@
+/* MineDeck 自选模组 + 购物车（modcart.js）：实例详情的「购物车」标签与向导的「选模组」步共用。
+   行面（.java-row）、图标（.res-icon / .res-noicon）、提示卡（.warn-card / .hint）都用 app.css 的现成样式，这里只补间距与依赖行的勾选框。 */
+.mc-gh { /* 分区标题：比默认 h3 多一点呼吸，右侧跟一个计数（aria-live） */
+  margin: 20px 0 10px;
+}
+#mc-hits .java-row, .mc-item { max-width: 880px; }
+.mc-actions { margin: 2px 0 4px; }
+.mc-license { color: var(--muted); min-width: 52px; }
+.mc-down { color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+.mc-check { /* 依赖勾选框：行内的方形 checkbox，带更大可点区域 */
+  display: inline-flex; align-items: center;
+  padding: 6px 2px 6px 6px;
+}
+.mc-check input[type="checkbox"] {
+  width: 15px; height: 15px; margin: 0;
+  accent-color: var(--accent);
+}
+.mc-dep-sub { max-width: 880px; }
+.mc-dep-sec { margin: 10px 0; }
+.mc-dep-t { display: block; font-size: var(--fs-sm); margin-bottom: 2px; }
+#mc-dep-box .java-row, #mc-list .java-row { padding-left: 8px; padding-right: 8px; }

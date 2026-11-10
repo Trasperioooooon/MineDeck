@@ -106,6 +106,21 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 - **存放**：整机录音的确认、播放设备、每个实例的音量和上次的选择存在 `<程序目录>/data/music/settings.json`；排除名单、端口和令牌在实例的 `config/minedeck/voicebridge.properties`。
 - **隧道的新字段**（`/api/tunnels`）：`purpose` 为 `game`（游戏，默认，老数据没有这一项也按游戏算）或 `voice`（SVC 的 UDP 隧道，公网地址会写进绑定实例的 voice_host）；自定义 frps 的 `proto` 为 `tcp`（默认）或 `udp`，樱花和 OpenFrp 的协议在服务商后台定，传了也会清掉。Webhook 和事件流里的 `tunnel.up` 多了隧道编号 `id`。
 
+### 自选模组和购物车
+
+自己挑 Modrinth 上的模组或插件放进购物车，算出还缺哪些前置，一次装进服务器。购物车存在后端（`<程序目录>/data/modcart/cart.json`），按实例分开；不带 `inst` 的是**草稿车**，给新建服务器向导和 AI 帮人开服用（实例还没建好），建好以后安装时带上 `includeDraft` 一起装。每辆车最多 50 项。都经过操作层：搜索、看车、加进车、拿出来、清空、查前置是读操作（只动暂存的清单，AI 可以直接调）；安装是写操作，AI 发起的生成提案，卡片上逐个列出要下载的文件和许可证，前置条件是车里有哪些项目和卡片上的确切文件，确认前车变了、或者 Modrinth 上发了新版本，提案作废（409）；没有要下载的文件时不出卡片，直接返回 400 说明原因。原版核心装不了模组，相关接口返回 400；插件核心不按 MC 版本过滤（同资源页）。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/modcart/search?q=&inst=&core=&mc=` | 搜 Modrinth（操作 `modcart.search`）：给 `inst` 按实例的核心和版本，没有实例时给 `core` 和 `mc`。按下载量取前 20 个，只在客户端用的模组不列出来。返回 `{type, hits: [{project_id, slug, title, description, downloads, icon_url, license}]}`，`type` 是 `mod` 或 `plugin`，`license` 是许可证的 ID。上游失败返回 502 |
+| GET | `/api/modcart?inst=` | 一辆车的内容 `{count, items: [{projectId, slug, title, icon, kind, license, addedAt}]}`（`modcart.list`） |
+| POST | `/api/modcart` | 加进车：`{inst?, projectIds}`（1–50 个项目 ID 或 slug，`modcart.add`）。先向 Modrinth 核对，名称、图标、许可证用 Modrinth 的；查不到的、只在客户端用的模组，以及整合包、资源包、光影这类不是模组或插件的项目不放进去，写在 `skipped: [{projectId, title?, reason}]` 里；已经在车里的不重复放。返回整辆车，同 `GET /api/modcart`。全都放不进去时返回 400（全都查不到时 404）；超过 50 项返回 400 |
+| POST | `/api/modcart/remove` | `{inst?, projectId}` 拿掉一项（`modcart.remove`），车里没有它也不报错。返回整辆车 |
+| POST | `/api/modcart/clear` | `{inst?}` 清空（`modcart.clear`），不动服务器里已经装上的文件 |
+| GET | `/api/modcart/deps?inst=&core=&mc=` | 查前置（`modcart.deps`，要联网）：给每一项挑版本（加载器、MC 版本对得上，正式版优先，同一种里取最新），再顺着版本的 `dependencies[]` 往下找必装前置，最多 3 层。返回：<br>• `files`：安装时会下载的文件 `[{projectId, slug, title, versionId, versionNumber, versionType?, fileName, size, license, fromDep?, dependencyOf?}]`，`fromDep` 的是自动补的必装前置；<br>• `missing`：购物车之外还要装的必装前置 `[{project, dependencyType, dependencyOf}]`（安装时默认一起装，也可以先加进车）；<br>• `optional`：可选前置（不自动装）；<br>• `conflicts`：不兼容的组合（文字）；<br>• `localHits`：服务器里已经有、安装时跳过的（文件名或名称）。「已经有」按三样认：同名文件、文件的 SHA-1 在 Modrinth 上属于同一个项目（换过版本的旧文件也认得出）、模组 ID 和项目的 slug 一样；<br>• `unresolved`：找不到能装的版本的 `[{projectId, title, reason}]`。<br>按 Modrinth 的说明，`embedded`（已内嵌）的依赖算满足，不单独装 |
+| POST | `/api/instances/{name}/modcart/install` | 把购物车装进这台服务器（`modcart.install`，写操作）：`{withDeps?, includeDraft?}`。`withDeps` 默认 true，自动补必装前置；`includeDraft` 把草稿车一起装。马上返回 `{taskId}`，后台任务的 `kind` 是 `mods`，三步：挑版本补前置、下载（先落到不以 `.jar` 结尾的临时文件，核对 SHA-1 再改名；用真的 Modrinth 时下载地址只认 `cdn.modrinth.com`）、核对本地依赖。全部下载成功才把装上的从车里拿掉（下载期间新加进车的不动）；有文件没下载成功时整辆车都不动，再装一次时已经装上的会跳过。车里的都已经在服务器上时正常结束并从车里拿掉；没有能装的文件且有找不到版本的，任务失败。任务的 `warnings` 可能有：`unresolved`（找不到能装的版本）、`conflicts`、`download-failed`、`still-missing-deps`（装完以后模组自己声明、目录里还缺的前置）、`stale-deps`（有但版本不对）。车是空的返回 400；同一台正在装返回 409 |
+| GET | `/api/instances/{name}/mods/deps` | 核对已装模组的依赖（`instance.mods.deps`），不联网：读 mods（插件服读 plugins）里每个模组自己声明的必需依赖，对照目录里实际有的模组 ID（含 Fabric 的 `provides`），所以手动放进来的、不在 Modrinth 上的模组按 ID 也算满足。返回 `{count, missing, stale, checked}`，`missing` / `stale` 是 `[{id, range?, have?, requiredBy, file}]`；服务器本身提供的（minecraft、java、各加载器）、只在客户端用的、停用的模组都不算 |
+
 ### AI（可选）
 
 AI 是可选功能。没配置时（`enabled` 为 false）MineDeck 不连接任何 AI 服务，不起后台任务，也不下载价格数据。下表标了「联网」的三个接口才会对外连接，而且都要人在设置页里点了才发：取模型列表、测试连接、刷新价格。AI 的设置和 Key 只能由人来改：它们在操作层里是「仅人工」的操作，以后的 AI 功能看不到也调不了。修改类的接口都**仅本机**，局域网会话只能看。

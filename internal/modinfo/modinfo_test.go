@@ -87,7 +87,7 @@ func TestReadDir(t *testing.T) {
 	writeJar(t, dir, "mowziesmobs-1.6.4.jar", map[string]string{"META-INF/mods.toml": forgeTOML,
 		"META-INF/MANIFEST.MF": "Manifest-Version: 1.0\r\nImplementation-Version: 1.6.4\r\nMixinConfigs: mowziesmobs.mixins.j\r\n son,extra.mixins.json\r\n"})
 	writeJar(t, dir, "sodium-fabric.jar", map[string]string{"fabric.mod.json": `{"schemaVersion":1,"id":"sodium","version":"0.6.0","name":"Sodium",
-		"environment":"client","depends":{"minecraft":["1.21","1.21.1"],"fabricloader":">=0.16"},"breaks":{"optifabric":"*"},
+		"environment":"client","provides":["rubidium","sodium"],"depends":{"minecraft":["1.21","1.21.1"],"fabricloader":">=0.16"},"breaks":{"optifabric":"*"},
 		"mixins":["sodium.mixins.json",{"config":"sodium-extra.mixins.json","environment":"client"}]}`})
 	writeJar(t, dir, "EssentialsX-2.21.jar", map[string]string{"plugin.yml": "name: Essentials\nversion: '2.21.0'\ndepend: [Vault]\nsoftdepend:\n  - LuckPerms\n  - \"PlaceholderAPI\"\nmain: com.earth2me.essentials.Essentials\n"})
 	writeJar(t, dir, "bridge.jar", map[string]string{"META-INF/neoforge.mods.toml": "[[mods]]\nmodId=\"bridge\"\n", "META-INF/mods.toml": "[[mods]]\nmodId=\"bridge\"\n"})
@@ -130,7 +130,8 @@ func TestReadDir(t *testing.T) {
 		t.Errorf("Forge 依赖：%+v", m.Deps)
 	}
 	s := by["sodium-fabric.jar"]
-	if s.Loader != "fabric" || s.ID != "sodium" || s.Env != "client" || !reflect.DeepEqual(s.Mixins, []string{"sodium.mixins.json", "sodium-extra.mixins.json"}) {
+	if s.Loader != "fabric" || s.ID != "sodium" || s.Env != "client" || !reflect.DeepEqual(s.Mixins, []string{"sodium.mixins.json", "sodium-extra.mixins.json"}) ||
+		!reflect.DeepEqual(s.Also, []string{"rubidium"}) { // provides 记进 Also（和自己同名的不重复记）
 		t.Errorf("Fabric 模组：%+v", s)
 	}
 	if want := []Dep{{ID: "fabricloader", Range: ">=0.16", Required: true}, {ID: "minecraft", Range: "1.21 || 1.21.1", Required: true}, {ID: "optifabric", Range: "*", Kind: "incompatible"}}; !reflect.DeepEqual(s.Deps, want) {
