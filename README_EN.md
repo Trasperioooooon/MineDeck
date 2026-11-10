@@ -6,413 +6,196 @@
 
 <h1 align="center">MineDeck</h1>
 
-<p align="center">A Windows tool that downloads Java and a Minecraft Java Edition server, then creates, imports, and manages servers in a window.</p>
+<p align="center">A one-click Minecraft: Java Edition server tool for Windows</p>
 
 <p align="center">
   <a href="https://github.com/Trasperioooooon/MineDeck/releases/latest"><img alt="Latest stable release" src="https://img.shields.io/github/v/release/Trasperioooooon/MineDeck"></a>
-  <a href="https://github.com/Trasperioooooon/MineDeck/releases"><img alt="GitHub Releases total downloads" src="https://img.shields.io/github/downloads/Trasperioooooon/MineDeck/total"></a>
+  <a href="https://github.com/Trasperioooooon/MineDeck/releases"><img alt="Total downloads from GitHub Releases" src="https://img.shields.io/github/downloads/Trasperioooooon/MineDeck/total"></a>
   <a href="https://github.com/Trasperioooooon/MineDeck/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/Trasperioooooon/MineDeck"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/Trasperioooooon/MineDeck"></a>
 </p>
 
-The release badge points at the GitHub release marked Latest, which is the stable release. Pre-releases are not included. `internal/app/app.go` currently sets `Version` to `3.1.0-beta.2`. That string matches tag `v3.1.0-beta.2`, which is the same commit as current `main`.
+MineDeck is a one-click server tool for Minecraft: Java Edition on Windows. The whole program is a single `MineDeck.exe` of under 15 MB, with nothing to install. It downloads Java and the server software for you and lets you create and manage servers in one window. Modpacks can be imported directly. OpenFrp and SakuraFrp tunnels are built in, so friends who are not on your network can still join.
 
-Items with no label are in stable v3.0.0. Items marked **(Beta, v3.1.0-beta.1)** or **(Beta, v3.1.0-beta.2)** are already on current `main` and are not in the stable release. A stable install does not offer those pre-releases as updates. Remote branch `claude/minedeck-server-import-config-6dbe46` has no commits that `main` does not already contain.
+Pick a server type and a version, accept the EULA and press create. MineDeck does the rest: it gets the right Java for that game version, downloads the server, runs the installer, and writes the config and the launch script. Downloads go through mirrors in mainland China first (BMCLAPI, Tsinghua TUNA) and fall back to the official sources.
 
-The interface text is Chinese. Builds are Windows only.
+If you want AI, you can plug in your own API key. An in-app assistant reads the logs and configs before it answers, players can ask an AI in game chat, and you can put AI companions on the server that follow, gather and fight. All of this is optional; unless you set it up, MineDeck does not contact any AI service. There is also music sharing, which needs no AI: it sends the music playing on the host's PC to everyone on the server.
 
-## Features
+**The interface is in Chinese only.** Where this page names a button or a tab, the Chinese label you will see on screen is given in parentheses.
 
-### Server software
+<p align="center"><img src="docs/images/01-servers.png" width="860" alt="MineDeck main window: the server list, showing each server's type, version, status, player count and start button"></p>
 
-The registry in `internal/mcsrc/registry.go` has 12 types, in this order in the UI:
+## What it does
 
-- Vanilla: the Mojang server.
-- Paper: a plugin server. Versions and builds come from PaperMC Fill v3 (`fill.papermc.io`).
-- Purpur: a Paper fork. Versions and builds come from `api.purpurmc.org`.
-- Leaves: a Paper fork aimed at vanilla behavior. Versions and builds come from the Leaves API.
-- Folia: Paper's multithreaded fork. It uses Fill v3, same as Paper.
-- Fabric: a mod loader. Versions, loaders, and the installer come from Fabric Meta, with a BMCLAPI mirror.
-- NeoForge: the mod loader used from 1.20.2 onward. Install uses the official installer and the BMCLAPI mirror.
-- Forge: a mod loader. Install uses the official installer and the BMCLAPI mirror.
-- Mohist: Forge mods and Bukkit plugins on one server. Versions and builds come from the MohistMC API.
-- Banner: Fabric mods and Bukkit plugins on one server, via the same MohistMC API.
-- Velocity: a proxy. Java is fixed at 21. Its version numbers are Velocity's, not Minecraft's. It uses Fill v3.
-- Waterfall: a BungeeCord-fork proxy. Java is fixed at 17. It uses Fill v3.
+This is an overview. Defaults, limits and edge cases for every item are in [docs/功能清单.md](docs/功能清单.md) (the full feature list, in Chinese).
 
-Proxies have no EULA and no `server.properties`.
+### Creating servers
 
-Supported Minecraft versions start at 1.12.2 (`FloorVersion` in `internal/mcsrc/mojang.go`) and include year-numbered 26.x releases. Which versions a given type can actually install comes from that type's own list. When the list includes a release time, the UI keeps it.
+- **Twelve server types**: Vanilla; plugin servers Paper, Purpur, Leaves and Folia; mod loaders Fabric, Forge and NeoForge; Mohist and Banner, which take both mods and plugins; and the proxies Velocity and Waterfall.
+- **Versions**: Minecraft 1.12.2 up to the latest release, including the year-numbered 26.x. The version list is read from the official manifests, so new versions show up on their own.
+- **No need to install Java**: MineDeck picks the Java that the game version needs, usually 8, 16, 17, 21 or 25. If a suitable one is already on the PC, it uses that. Otherwise it downloads a copy for its own use, without changing system settings or touching the Java you already have.
+- **Downloads switch sources and retry**: when one source fails it moves to the next, trying up to 3 rounds in all, and it verifies each file afterwards. Forge and NeoForge installers are pointed at a mirror and, if one fails, run again, up to 3 runs in all.
+- **Modpack import**: a Modrinth `.mrpack` imports directly. The server type, version and loader are detected, and client-only files are skipped. CurseForge zips import too; the files inside are downloaded automatically only after you enter your own CurseForge API key.
 
-### Versions and Java
+### Managing servers
 
-The Java major used at create time is the `javaVersion` field in that Minecraft version's metadata. When the field is absent, `staticJavaFor` uses this table:
+- **Console**: live log with warnings and errors coloured, and a filter. Commands have history, and common commands and online player names complete with Tab. If an old modpack prints garbled text, you can switch between GBK and UTF-8.
+- **Settings without editing files**: Common settings (常用设置) sorts 78 `server.properties` keys into 7 groups, each with a Chinese name and a description, and marks the ones that need a restart. All config (全部配置) lists every key in the file and can be searched. The server description (MOTD) has a colour picker with a preview.
+- **Players**: see who is online; kick, ban, op, and edit the whitelist. While the server is stopped, the list files themselves are edited.
+- **Backups and schedules**: back up and restore the world. A backup can be taken while the server is running, and 10 backups per server are kept by default. Daily schedules can restart the server, run a command or take a backup. Restart-after-crash is off by default. When it is on, it waits 10 seconds, then 30, then 60, and stops after 3 failed attempts in a row.
+- **Window and tray**: closing the window can minimize MineDeck to the system tray while servers keep running. It can also start with Windows, straight into the tray. There are 7 colour schemes, each in light, dark or follow-the-system.
+- **Storage location**: servers and backups can be kept on another drive.
+- **Safeguards at launch**: older game versions get the log4shell mitigation flags automatically. Environment variables such as `JAVA_HOME` are cleared when a server starts, so the wrong Java is not picked up. When MineDeck quits, its servers stop with it and no Java process is left behind.
 
-| Minecraft version | Java |
-| --- | --- |
-| Before 1.17 (including 1.12.2) | 8 |
-| 1.17.x | 16 |
-| 1.18 through 1.20.4 | 17 |
-| 1.20.5 through 1.21.x | 21 |
-| 26.1 and later | 25 |
+### Playing together
 
-Velocity always uses Java 21. Waterfall always uses Java 17.
+- **Tunnels (内网穿透)**: a tunnel gives players outside your network a public address to connect to. MineDeck works with OpenFrp, SakuraFrp (樱花穿透) and your own frps. A tunnel can be bound to a server and start together with it, and the public address can be copied from the page. The client for OpenFrp and for your own frps is downloaded automatically; for SakuraFrp you download it once yourself, following the prompt.
+- **LAN access**: turn on Allow LAN access (允许局域网访问), set an access password and restart MineDeck. After that, phones and other PCs on the same LAN can open the management page.
+- **API and webhook**: there is a local HTTP API. Events such as server start, stop and crash, and players joining and leaving, can be pushed to a URL you provide. See [docs/API.md](docs/API.md) (in Chinese).
 
-- On startup, MineDeck scans Java already installed on the PC: the registry, `JAVA_HOME`, `PATH`, and common install directories. A matching major is reused.
-- Otherwise it downloads a runtime used only by MineDeck, under `runtimes/java-{major}/` next to the program. System environment variables are left unchanged.
-- Java download order: the Tsinghua TUNA Adoptium mirror, then the Adoptium API, then the Mojang runtime (mirrored by BMCLAPI, file by file).
-- Settings → Java runtimes can rescan, or add a local `java.exe` after probing `java -version`. Pointing at a path accepts loopback requests only.
-- **(Beta, v3.1.0-beta.1)** Memory / startup on each server can switch Java: a runtime MineDeck downloaded, one already on the PC, or a new download. If a mod in an imported pack declares a newer Java than the instance uses, the import result and the server page say so and link to that screen. The server can still be started.
+### When something goes wrong
 
-### Create and install
+- **Error banner**: when a server fails to start, a banner at the top of the console names the usual causes directly, for example a missing dependency mod, a client-only mod on the server, a port in use, or the wrong Java version. It covers 13 kinds of cause and needs no AI.
 
-The new-server wizard asks for software, version, build, memory, port, difficulty, game mode, and the EULA. Online mode starts unchecked. Allow flight starts checked (the initial checkbox state in `internal/web/ui/app.js`). Non-vanilla software has an optional mod-picking step before basic settings; see the cart below.
+### AI (optional, with your own key)
 
-- Downloads try each URL in order, up to 3 rounds, with a wait between rounds. The file is checked against the artifact's SHA-1, SHA-256, or MD5, then written atomically.
-- Mojang's version manifest and server jar try the BMCLAPI mirror first, then the official URL. Settings → Download and network can force automatic, mirror, or official.
-- Paper, Purpur, Folia, Velocity, and Waterfall use their own official endpoints. The code does not attach BMCLAPI to those.
-- The Forge and NeoForge installers are passed `--mirror` aimed at BMCLAPI, and the vanilla server jar is placed first. A failed installer run is tried again, up to 3 attempts.
-- **(Beta, v3.1.0-beta.2)** Older Forge installers can exit successfully after their own network check fails and they install nothing. That partial result is treated as a failed attempt, and the retry continues. This applies to new old-Forge servers and to handover imports.
-- Instances below 1.18.1 get the log4shell `noLookups` flag. 1.12.2 through 1.16.5 also get Mojang's log4j XML. Later edits on Memory / startup put those flags back if they are missing.
-- When Java or frpc is started, `JAVA_HOME`, `JAVA_OPTS`, `JAVA_TOOL_OPTIONS`, `_JAVA_OPTIONS`, `JDK_JAVA_OPTIONS`, and `CLASSPATH` are removed from that process environment.
-- Each instance directory contains a `run.bat` that matches the GUI launch.
-- The port is checked before start. Stop sends `stop`, then force-kills after about 30 seconds. Quitting MineDeck stops running servers and tunnels. Java and frpc are placed in one Job object so they do not stay behind.
-- A `stop` typed by a player or in the console is not treated as a crash and does not trigger crash restart.
-- While a deploy step is retrying, the task snapshot can include the last host, the reason, and how long ago. If progress and the log are idle for about 30 seconds, the deploy page says the download is slow or retrying.
-- When an installer log is very long, the first few dozen lines are kept and the omitted middle is counted. **(Beta, v3.1.0-beta.2)** Handover import and modpack import use the same log trimming, so the installer's output does not push the opening notes off the log.
-
-### Modpack import
-
-- A Modrinth `.mrpack` can be imported directly. Software, version, and loader are read from the pack. Files marked client-only are skipped.
-- A CurseForge zip can be imported with your own CurseForge API key. The key is stored with Windows DPAPI in `secrets.json` next to the program. The UI and the API do not return the plaintext.
-- The upload limit is 4 GiB. **(Beta, v3.1.0-beta.2)** A selected file over the limit is reported before the upload, and the limit is included in the message.
-- **(Beta, v3.1.0-beta.2)** CurseForge files are placed by their site category: mods in `mods`, resource packs in `resourcepacks`, shader packs in `shaderpacks`, data packs in `datapacks`. Only a single file name is accepted; a name that contains a path is ignored.
-- **(Beta, v3.1.0-beta.1)** A file whose URL is outside the allowed sites, that has no checksum, that is not https, whose checksum does not match, or that CurseForge could not resolve, no longer fails the whole import. Those files are listed as pending on the task, and each one can be:
-  - skipped;
-  - replaced by copying a local file or folder as-is, with no content check;
-  - downloaded after you read the risk note and confirm, for an https public address. The bytes must match the checksum in the pack. A confirmed host name is stored in `trustedHosts` with scope `modpack`. Later files on that host skip the prompt.
-- **(Beta, v3.1.0-beta.1)** The import form has an optional local source directory. Pending files that already exist there are kept as-is. **(Beta, v3.1.0-beta.2)** Once a CurseForge pending item has a file name and project name, a same-named file in that directory can be picked up automatically.
-- Downloads use a checked client. A direct connection requires each resolved IP to be public before connect. If a proxy is configured, the check uses the host name, and loopback or private names are refused. Redirects follow https only, at most 10 times.
-- Files kept as-is from an override directory or the local source directory are listed on the task as unchecked.
-
-### Adopt an existing server (Beta, v3.1.0-beta.1)
-
-New server can point at a folder that is already a server. MineDeck reads software, version, build, launch file, previous memory, and port, then registers the folder in place. Files stay where they are.
-
-- It writes `instance.json`. An existing `run.bat` is copied to `run.before-minedeck.bat` first (an existing backup is not overwritten). Forge / NeoForge `user_jvm_args.txt` is backed up the same way. JVM arguments other than memory are kept as extra arguments.
-- If `eula.txt` has not been accepted, the form must check the EULA before it is written. 1.12.2 through 1.16.5 receive the same log4shell log config as a new server.
-- If the task fails, files touched by that attempt are put back.
-- Refused folders: a whole drive, the MineDeck program directory and its parents, cache and runtime directories, anything overlapping the backup directory, the servers root, and a folder already listed or currently being created or adopted (including parents and children). Junctions and symbolic links are resolved before the comparison.
-- A folder with nothing that can launch is refused. If a child folder looks like a server, the error names it.
-- Delete can leave the folder on disk and only remove the server from the list. `instance.json` is renamed to `instance.json.bak`. A later adopt can bring the previous settings back from that file.
-
-### Handover pack (Beta, v3.1.0-beta.1)
-
-While a server is stopped, its card menu can pack it as a `.mdpack` for MineDeck on another PC.
-
-- Two purposes, with the same files and different wording for the receiver: `handover` (hand the server to the next owner; the default) and `distributable` (send it to a friend so they can run their own copy).
-- The server jar is omitted by default and downloaded again on import. Full mode includes it.
-- Included: worlds (including extra worlds from multi-world plugins), `server.properties`, the software's own config files (such as `spigot.yml`, `bukkit.yml`, `paper.yml`), `mods`, `plugins`, `config`, `kubejs`, `scripts`, whitelist and operator lists, and an already accepted `eula.txt`.
-- Not included: logs and crash reports. The server jar is omitted unless full mode is on. Files outside the manifest (for example map tiles a plugin wrote in the server root) are left out and listed one by one in the pack log.
-- Previous JVM arguments, schedules, crash-restart, in-game AI, companions, and music sharing are not carried over. RCON that was enabled is turned off. The import log lists what was left behind.
-- Config files are copied as they are, including passwords in them (RCON, databases, bot tokens). Player data, the whitelist, and the operator list are in the pack.
-- Import is New server → Import handover pack. You set a name and a port. Java and the server jar are prepared on the receiving PC. The Java major can be changed. If the pack already contains an accepted EULA, it does not have to be checked again.
-- The upload limit is 8 GiB. **(Beta, v3.1.0-beta.2)** A file over the limit is reported before upload. Choosing a different `.mdpack` clears the previous summary.
-- While a pack or import task is running, that server cannot be started or deleted.
-- A note for the person receiving the pack: [docs/接收者上手指南.md](docs/接收者上手指南.md).
-
-### Mods, plugins, and the cart
-
-On a non-vanilla instance, the Resources tab searches Modrinth for the current software and Minecraft version and installs into `mods` or `plugins`. This tab is in the stable release.
-
-- The mod list for an instance can be viewed. A file can be enabled or disabled by renaming its extension.
-- Mod config files inside the instance can be read and written. Writing goes through a confirmation step.
-
-**(Beta, v3.1.0-beta.1)** The cart is a separate path from Resources:
-
-- The new-server wizard adds an optional Pick mods step for non-vanilla software. It can be skipped. Mod and plugin servers have a Cart tab. Vanilla has neither.
-- Search hits come from Modrinth, filtered by software and version. Client-only mods are not added. Files already in the server are not installed again. Downloads are checked against the checksum Modrinth provides.
-- Dependencies can be checked first. Required dependencies are listed; skipping the check still installs them with the cart.
-- Picks made in the wizard install after the server is created. If the draft cart no longer matches the list that was on screen (for example the assistant added a project), install stops until the current list has been seen.
-- The in-app assistant can search and add to the cart. Installing only creates a confirmation card that lists the files to download. They are written after you confirm.
-
-### Running, console, and config
-
-Instance tabs depend on the software: Console; Players and Backups except on a proxy; Schedules; Resources except on vanilla; Cart, Music sharing, In-game AI, and Companions when they apply; Common settings and All config except on a proxy; then Memory / startup.
-
-- The console is an SSE stream: a replay, then live lines. Encoding can be GBK or UTF-8. Warnings and errors are colored. The log can be filtered. Commands keep a history. Common commands and online player names complete on Tab.
-- Server console output uses UTF-8 unless that instance was set to GBK.
-- The MOTD editor has color choices and a preview. Chinese text and emoji are written in the format the game expects.
-- All config edits `server.properties`. The catalog in `internal/web/ui/props-catalog.js` has 78 keys in 7 groups: basics and gameplay, world generation, players and permissions, performance, network and remote management, resource packs, security and misc. Each key has a Chinese label, a description, and whether a restart is required. Keys the current Minecraft version does not use are hidden. Search matches the Chinese label or the key.
-- From Minecraft 1.21.9, keys the catalog marks as game rules (for example PVP, command blocks, monster spawning) apply immediately.
-- If `level-name` points outside the server folder, backup and restore use the default `world`. **(Beta, v3.1.0-beta.1)** This is a change from v3.0.0, which followed that path.
-- Memory is a slider plus a number, starting at 512 MB, shown against physical RAM. Extra JVM arguments are one per line.
-- Open directory can open the instance root, or `mods`, `plugins`, `world`, `logs`, `crash-reports`. Those calls accept loopback requests only.
-
-### Players
-
-- View online players, plus the whitelist, operators, and bans.
-- Add or remove a whitelist entry; op or deop; kick; ban or pardon.
-- While the server is running, these go through console commands. While it is stopped, the list files are edited directly. Kick requires a running server.
-- Offline-mode UUIDs are computed with the offline algorithm.
-
-### Backups, crash restart, and schedules
-
-- Create, restore, and delete a backup. A backup can be taken while the server is running.
-- Each server keeps 10 backups by default, configurable from 1 to 1000. New backups are written to the current backup root. List, restore, and delete also look at the built-in root and roots used before the directory was changed. The same file name is one backup. Only a `.zip` file name is accepted.
-- Crash restart is off by default. When it is on, waits are 10 seconds, then 30, then 60. After 3 failures in a row it stops. If that run had already been up for more than 10 minutes, the count is cleared before this crash is counted. A manual start or stop in between cancels the pending restart.
-- A schedule runs every day at one `HH:MM`: restart, one console command, or a backup. Times without a leading zero are stored as `HH:MM`.
-
-### Tunnels
-
-- Three providers: OpenFrp, SakuraFrp (provider id `natfrp` in the code), and your own frps.
-- frpc is downloaded per provider into `runtimes/frpc/`. Credentials are DPAPI-encrypted in `tunnels.json` and are not returned by the API. A custom frps token is passed in the process environment, not written into the frpc config. OpenFrp and SakuraFrp still receive the credential as a command-line argument.
-- A tunnel is either game or voice. A voice tunnel's public address is written to the bound instance's `voice_host`. Custom frps can be TCP or UDP. SakuraFrp and OpenFrp protocols are chosen in the provider's own console.
-- A tunnel can be bound to a server and set to follow that server. If the server crash-restarts, a following tunnel comes back up. If the server stays stopped for about 5 seconds, the tunnel stops.
-- The public address can be copied from the page. A domain is shown in preference to a raw address. The card shows the last start error, including a credential that can no longer be decrypted (typical after moving to another PC or Windows user).
-- frpc logs are an SSE stream.
-
-### Window, tray, and appearance
-
-- The UI is an embedded page in a WebView2 window. Without WebView2, the system browser opens the local URL.
-- The default port is 27333. If it is taken, a random port is used. The window title is "MineDeck · MC 一键开服".
-- Seven schemes: Craft (default), Fluent, GitHub, Graphite, Nord, Catppuccin, Solarized. Each can be light, dark, or follow the system. Eight accent colors (blue, indigo, violet, teal, green, orange, rose, graphite), or follow the scheme. Appearance is stored in local `localStorage`, so another device on the LAN can remember its own.
-- Fonts are packed in: subsets of Geist, Geist Mono, and Noto Sans SC. Characters outside the subset fall back to the system font.
-- Each of the 12 server types has a pixel avatar.
-- Before the page paints, the window background is the title-bar color, and a startup screen is shown. The native window stores the current title-bar color and uses it on the next launch before the page draws.
-- The process declares DPI awareness. Window size follows the system scale.
-- Closing the window can minimize to the tray while servers keep running. The tray menu can open the panel, or stop everything and quit. If a server is running and minimize-to-tray is off, closing asks first.
-- Start with Windows is a per-user `HKCU\...\Run` value and does not need an administrator. That launch uses `-minimized`, goes to the tray, and does not activate the foreground window. A leftover AutoMCHUB autostart entry is removed.
-- The first launch has an onboarding card and asks for the terms and disclaimer.
-- Image files placed in a `bg` folder next to the program can be used as the UI background.
-- Server and backup roots can be moved to another drive through the system folder picker. Previous roots stay in the scan list. More than one root is recognized.
-- A display name keeps ASCII letters, digits, hyphens, and underscores. Spaces and dots become hyphens. If nothing remains, the directory is `server-` plus the creation time.
-- **(Beta, v3.1.0-beta.1)** A background task can be opened again after changing pages or refreshing. The list is a summary; steps and the log are loaded per task. Task records for this process are cleared when MineDeck restarts.
-- **(Beta, v3.1.0-beta.1)** The WebView2 window does not show the link status bar at the bottom left.
-- Double-clicking the title bar maximizes or restores.
-- A phone browser on the LAN page keeps the bottom clear of the browser toolbar and the safe area. Landscape uses the phone layout as well.
-
-### LAN access, API, webhooks, and updates
-
-- Allow LAN access requires an access password first. The server stores it as bcrypt (an older SHA-256 hex hash is upgraded after a successful login). The listen address is chosen only at startup: turning LAN on takes a restart to move from `127.0.0.1` to `0.0.0.0`; turning it off applies immediately. Turning it off or changing the password invalidates existing LAN sessions.
-- Loopback requests send the `token` from the startup URL in the `X-Token` header. LAN clients exchange a password at `POST /api/login` for a session cookie.
-- Picking a folder, opening Explorer, adding a local Java, adopt scan and adopt, pending import files, and AI setting changes accept loopback requests only. A LAN session cannot choose where instances or backups are stored.
-- Paths, fields, and limits of the local HTTP API are in [docs/API.md](docs/API.md). The console and frpc logs are SSE.
-- A webhook URL can be set. In-process events are posted. Types include `instance.start`, `instance.stop`, `instance.crash`, `player.join`, `player.leave`, `backup.done`, `tunnel.up`, and `tunnel.down`.
-- The default update repository is `Trasperioooooon/MineDeck` and can be changed. A silent check can run at startup, or you can check and apply from Settings → Updates and about. Applying downloads the new build and restarts.
-- GitHub file URLs are tried via `ghfast.top`, then `gh-proxy.com`, then directly. The exe and frpc must match the published SHA-256.
-- A stable install is not offered a pre-release. Pre-releases do not update to each other automatically; replace `MineDeck.exe` by hand.
-
-### AI connection
-
-AI is optional. With no provider and key in settings, MineDeck does not contact an AI service and does not download price data for estimates.
-
-- Two protocols: OpenAI-compatible Chat Completions, and Claude Messages.
-- Seven presets: DeepSeek, Qwen (Alibaba Cloud Bailian), Kimi (Moonshot), Zhipu, OpenAI, Claude, and Ollama (local, no key). A custom base URL is separate. Default models and URLs are in `internal/ai/presets.go`.
-- The key is stored on this PC with DPAPI. It is sent only to the base URL you set.
-- Cost estimates use LiteLLM's public prices. Cached price data older than 7 days is downloaded again. You can enter your own unit prices, or refresh the public prices.
-- Each feature can have a daily token quota.
-- Changing only the path on the same site keeps the saved key. Switching site or provider asks before clearing it.
-- Changing AI settings, listing models, and testing the connection accept loopback requests only. A LAN session can read settings and cannot change them.
-
-### In-app assistant and the error banner
-
-- The AI assistant in the title bar reads logs, config, and crash reports before it answers. Text sent to the model has local paths, LAN addresses, and secrets removed. You can view the text that was actually sent.
-- Writes such as changing config, switching Java, restarting, or installing the cart produce a confirmation card first. If building the proposal fails, an empty card is not left up.
-- Write requests from an external MCP client show up at the top of the assistant as well, and run only after confirmation in MineDeck.
-- The banner at the top of the console does not call an AI service. Rules in `internal/diag/rules.go` run in order, 13 kinds: missing mod dependency, a client-only mod on the server, the wrong loader, a duplicate mod, mods declaring each other incompatible, a Mixin conflict, the wrong Java or an unsupported JVM flag, port in use, not enough memory, watchdog shutdown, EULA not accepted, a friend failing to join because mods do not match, and a broken config file. With AI configured, the banner can send the case to the assistant.
-- UI actions, confirmed executions, schedules, and crash restarts are written under `logs\ops` next to the program. Secret fields in those records are masked.
-
-### In-game AI
-
-Turn it on from the In-game AI tab. Settings and the day's usage live in that instance as `gameai.json` and `gameai-state.json`. Deleting the instance deletes them.
-
-- The default prefix is `@AI`. Replies are visible to everyone by default.
-- `/私`: the reply goes only to the asker. The question itself is still visible to others.
-- `/问`: answer only, do not run a command. Players without execute permission do not see this option in help.
-- `/额度`: how many questions are left today.
-- `/帮助`: help text built from the options this server actually has enabled.
-- Defaults when those settings have not been changed: 8 seconds of cooldown per player (shared with companion orders); 60 questions per player per day; 300 per server per day (questions and companion orders together); 500000 tokens per server per day.
-- More than 5 counted triggers from the same player within 1 minute (an accepted question, or a non-model reply such as help) silences that player for 3 minutes. A message blocked by cooldown or by the daily cap is not one of those 5.
-- Players ticked in the panel can have the model run allowlisted commands. Templates in `internal/chatai/command.go`:
-  - On by default: time, weather, teleport yourself, effects on yourself, set your own spawn, locate a structure or biome, `list`.
-  - Off by default: change your own game mode, give yourself items, change difficulty, show the seed.
-- `op` and `execute` are not templates and are not run. Each command's arguments are checked against that template.
-- After a command, the reply waits for the server's result. Replies are split to the in-game chat width.
-- The owner's settings page shows the server's tokens today, the estimate, and how many times each player asked.
-- The panel can run a recognition test and can show recent Q&A.
+- **Providers**: two protocols are supported, OpenAI-compatible and Claude. There are seven presets, DeepSeek, Qwen, Kimi, Zhipu, OpenAI, Claude and Ollama (local), plus a custom address. The key is stored encrypted on this PC. MineDeck estimates cost from public prices, and each feature can have a daily token quota.
+- **In-app assistant**: the AI assistant (AI 助手) in the title bar reads logs, configs and crash reports before it answers. To change a config, switch Java or restart a server, it first shows a confirmation card, and nothing runs until you confirm. The Windows user name, LAN addresses and keys are replaced before text is sent to the model, and you can always see exactly what was sent.
+- **In-game AI**: players type `@AI` and a question in chat. Players you tick in the panel can have it run allowlisted commands, such as changing the time or the weather or teleporting themselves. Commands like `op` and `execute` are never run.
+- **AI companions**: on NeoForge 1.21.1 or Forge 1.20.1 servers you can spawn AI companions. Players address one in chat (for example 「@伙伴名 跟着我」, "@name follow me") and it follows, gathers, fights or hands over items. You can mark areas it must not dig in and mobs it must not attack. Friends install one companion mod on their client.
+- **MCP interface**: off by default. When it is on, AI tools that support MCP can connect to MineDeck. They can read status and logs directly; a config change or a restart is only proposed, and runs after you confirm it in MineDeck. It accepts connections from this PC only and requires a token.
 
 ### Music sharing
 
-The tab is shown for NeoForge 1.20.5 and later, Forge 1.20.1 and later, and Mohist 1.20.1 and later. Fabric and Banner have no bridge mod, so the tab is hidden.
+Sends the sound of a music player on the host's PC to everyone on the server through Simple Voice Chat. Each player can turn it down or mute it in their voice settings. On Windows 11 it can record just the music program you pick, without game sound or voice chat; on Windows 10 it can only record the whole PC. It needs a NeoForge server on 1.20.5 or later, or a Forge or Mohist server on 1.20.1 or later.
 
-- MineDeck captures audio playing on this PC and sends it through Simple Voice Chat. Each player can lower or mute it in the voice settings.
-- On Windows 11 (build 20348 or newer) the default is per-process loopback: the chosen program and its children. On Windows 10 only a device-wide loopback is available, which includes game audio and voice; the page asks for confirmation before that starts.
-- Output is 48 kHz, 16-bit, mono, one frame every 20 ms, which is Simple Voice Chat's frame format.
-- The source list is audio sessions on playback devices, without system sounds, ended sessions, or MineDeck itself.
-- The checklist covers software and version, Simple Voice Chat, the bridge mod, and the voice port. If Simple Voice Chat is missing, it can be installed from Modrinth for that loader and version. The bridge jar ships inside MineDeck and is installed from this tab.
-- With no voice tunnel running, the page says remote players will not hear it, instead of assuming that joining the game is enough.
-- `voice_host` can be edited. When a voice tunnel comes up, MineDeck also writes the public address there.
-- Starting or stopping a broadcast, and installing the mods, are done by a person on this PC. Quitting MineDeck stops broadcasts before it stops servers.
+## New in the 3.1.0 betas
 
-Bridge source is in [bridge/voicechat](bridge/voicechat/README.md). The jar packed into the program is under `internal/bridge/jar`.
+The following are only in the v3.1.0 betas for now. Stable v3.0.0 does not have them.
 
-### AI companions
+- **Handover packs**: pack a stopped server into one `.mdpack` file and hand it to MineDeck on another PC to keep running it. The pack holds the worlds, configs, mods, plugins and player lists. Config files go in as they are, so any passwords written in them are handed over too; change the ones you also use elsewhere first. If you receive a pack: the mods and plugins in it will run on your PC, so only import packs from people you trust. A guide for the receiver is in [docs/接收者上手指南.md](docs/接收者上手指南.md) (in Chinese).
+- **Mod cart**: pick mods or plugins into a cart, have their dependencies added automatically, and install them in one go. The new-server wizard also gains an optional step for picking mods (选模组). Files come from Modrinth and are verified after download.
+- **Modpack files that cannot be downloaded are handled one by one**: before, a single file whose download address was not on an allowed site, or that had no checksum, made the whole import fail. Now the modpack imports as usual and such files are listed on the task page under pending files (待决文件). You can skip one, use a local file instead, or trust the site and download it after reading a risk notice.
+- **Adopting an existing server**: point MineDeck at the folder of a server you already run and it is brought in to be managed with the rest. The server type, version, launch file and memory setting are detected. The files stay where they are, and the old launch script is backed up first.
+- **Switching Java in the interface**: each server's Memory / startup tab (内存 / 启动) can switch Java.
+- Two smaller changes: when you delete a server and choose to keep its folder, it now really leaves the list instead of reappearing at the next start, and it can be adopted again later; and a background task can be found again after you switch pages or reload.
 
-The tab covers two mods: NeoForge 1.21.1 and Forge 1.20.1. The mod version packed into the program is 0.2.1. Source is in [companion](companion/README.md). Jars are under `internal/companion/jar`.
+Betas are marked Pre-release on the [releases page](https://github.com/Trasperioooooon/MineDeck/releases) and have to be downloaded by hand. A stable install is not offered betas as updates, and one beta does not update to the next automatically; replace `MineDeck.exe` yourself. Once v3.1.0 is released, people running a beta can update to it under Settings → Updates and about (设置 → 更新与关于).
 
-- A companion is a server-side entity. It does not use a player slot and does not appear in the Tab list. The default cap is 4, configurable from 1 to 16. Companions are saved with the world.
-- Model calls stay in MineDeck. The mod runs fixed actions sent over the local connection.
-- In-game actions: follow, collect, go to coordinates, attack, give items to a player, stop, say, and status. Spawn and remove are not chat actions. They are done on the Companions tab, or through an assistant confirmation card.
-- You can set regions the companion must not dig, and mobs it must not attack. If the attack list is unset, the built-in default list is used.
-- Only players authorized under In-game AI can order a companion.
-- The server mod is installed from the Companions tab. PlayerEngine and Architectury API are fetched from Modrinth for the server. Friends install the companion jar from the release page on the client, at the same version as the server.
-- A stopped companion floats in water. Giving items reports the count actually handed over.
-- Quitting MineDeck sends end to the companion mod. Companions and their tasks remain in the world.
-
-### MCP
-
-Off by default. Turn it on under Settings → AI (optional) → MCP.
-
-- It accepts connections from this PC only, and it requires a token. The token is stored encrypted and can be reset.
-- An MCP client can use HTTP `/mcp`, or start `MineDeck.exe -mcp` as a stdio child. `-mcp` does not open a window. It forwards stdin and stdout to a MineDeck that is already running.
-- Reading status and logs runs directly. Writes such as config changes and restarts only create a proposal, which runs after confirmation in MineDeck. Operations marked human-only are not exposed to the external tool.
-- Text sent to the external tool is redacted the same way as for the in-app assistant.
-- The panel can copy a config snippet for a specific tool. That tool uses its own model, not the API key stored in MineDeck.
-
-### Operation log and local limits
-
-UI actions and AI-initiated actions go through `internal/ops`. Each one has a parameter description and a level: read, write, danger, or human-only. Human-only operations cannot be called by AI or by a schedule.
-
-The local API uses a token chosen at random on each launch. Folder pickers and "open path" do not accept a LAN session.
+Run a beta from its own folder. Before trying it on an existing server, back up that server's whole folder. Known issues for each release are in the release notes under [docs/releases/](docs/releases/) (in Chinese).
 
 ## Screenshots
 
-These seven images are in `docs/images/`. The version in the corner of the window is v2.9.0-beta.1, from when they were captured. They do not show the v3.1.0 handover pack, mod cart, or pending import files.
+| **AI assistant**: checks the mod list first, and asks before changing anything | **Error banner**: points out a missing dependency and a client-only mod, without AI |
+|---|---|
+| <img src="docs/images/03-assistant.png" alt="The AI assistant has read the mod list, found a client-only mod, and shows a confirmation card to disable that file"> | <img src="docs/images/02-console-banner.png" alt="Error banner at the top of the console: missing dependency mod geckolib, and a client-only mod on the server"> |
+| **In-game AI**: ask with @AI in chat; authorised players can have it run allowlisted commands | **AI companions**: spawn them, see what they are doing, and protect your builds with no-dig areas |
+| <img src="docs/images/04-gameai-log.png" alt="In-game AI log: it ran weather clear and refused op"> | <img src="docs/images/05-companion.png" alt="Companions tab: the mod is connected, one companion is gathering, one is idle, and there are two no-dig areas"> |
+| **Music sharing**: pick a music player and play it to the whole server through Simple Voice Chat | **Connecting AI**: seven presets; enter a key, test the connection, set a daily quota |
+| <img src="docs/images/06-music.png" alt="Music sharing: NetEase Cloud Music is chosen as the source and the checklist has passed"> | <img src="docs/images/07-settings-ai.png" alt="The AI page in Settings: DeepSeek is enabled and the connection test succeeded"> |
 
-<!-- TODO: screenshot of v3.1.0-beta handover (.mdpack), mod cart, and pending modpack files. Those screens are not in the repo. -->
+## Download and install
 
-| Server list | Console error banner |
-| --- | --- |
-| <img src="docs/images/01-servers.png" alt="Server list with Paper, Forge, vanilla, and Velocity cards, plus start, stop, and manage buttons"> | <img src="docs/images/02-console-banner.png" alt="Console banner: missing dependency geckolib, and a client-only mod placed on the server"> |
-| In-app assistant and a confirmation card | In-game AI log |
-| <img src="docs/images/03-assistant.png" alt="The assistant read the mod list, identified a client-only mod, and offered a card to disable that file"> | <img src="docs/images/04-gameai-log.png" alt="In-game AI log: weather clear was run, op was refused"> |
-| AI companions | Music sharing |
-| <img src="docs/images/05-companion.png" alt="Companions page: mod connected, one companion collecting, one idle, and two no-dig regions"> | <img src="docs/images/06-music.png" alt="Music sharing with NetEase Cloud Music selected and the checklist passing"> |
+Download `MineDeck.exe` from [GitHub Releases](https://github.com/Trasperioooooon/MineDeck/releases). The release marked Latest is the stable one; those marked Pre-release are betas. A website and a download mirror for mainland China are being prepared, and their addresses will be added here when they are up.
 
-<img src="docs/images/07-settings-ai.png" alt="AI settings with DeepSeek enabled and a successful connection test">
+1. Put `MineDeck.exe` in a folder of its own. Servers, downloaded Java, caches and backups all live in that folder by default. Only interface preferences are kept in `%LocalAppData%\MineDeck`.
+2. Double-click it. If Windows shows "Windows protected your PC", click "More info", then "Run anyway". The exe is not code-signed; the source is public and you can build it yourself.
+3. If you use AI companions, the same release page has the companion mod jar for your friends' clients. Pick the one that matches the server, NeoForge 1.21.1 or Forge 1.20.1, and put it in the client's `mods` folder.
 
-## Installation
+Upgrading from v2.6.1 or earlier, when the file was called `AutoMCHUB.exe`: the in-app update cannot find the renamed file, so put `MineDeck.exe` into the old folder by hand. The old start-with-Windows entry is removed; turn it on again under Settings → Startup and tray (设置 → 启动与托盘) if you want it.
 
-Download `MineDeck.exe` from [GitHub Releases](https://github.com/Trasperioooooon/MineDeck/releases). Latest on that page is the current stable release. [v3.1.0-beta.1](https://github.com/Trasperioooooon/MineDeck/releases/tag/v3.1.0-beta.1) and [v3.1.0-beta.2](https://github.com/Trasperioooooon/MineDeck/releases/tag/v3.1.0-beta.2), published today, are pre-releases and have to be downloaded by hand. A PC running v3.0.0 is not prompted to update to them.
-
-A domestic mirror and the site minedeck.cn are still being prepared. The address will be added here when they are up.
-
-1. Put `MineDeck.exe` in its own folder. Servers, downloaded Java, the cache, and backups live in that folder by default. UI preferences are in `%LocalAppData%\MineDeck`.
-2. Double-click it. If Windows shows "protected your PC", choose More info → Run anyway. The executable is not code-signed.
-3. The same release page includes companion-mod jars for player clients, and `SHA256SUMS`. Pick the NeoForge 1.21.1 jar or the Forge 1.20.1 jar and put it in the client's `mods`. The mod the owner installs from the Companions tab is the server-side mod. It does not replace the client jar.
-
-Upgrading from v2.6.1 (the file was named `AutoMCHUB.exe`) cannot use in-app update to find the renamed file. Place `MineDeck.exe` in the old folder by hand. The old startup entry is removed; turn it back on under Settings → Startup and tray if you want it.
-
-To uninstall, delete the folder that contains the exe, and `%LocalAppData%\MineDeck`.
+Uninstalling: if start-with-Windows is on, turn it off first under Settings → Startup and tray (设置 → 启动与托盘). Then delete the folder that holds the exe, and `%LocalAppData%\MineDeck`. If you moved servers or backups somewhere else, delete those folders separately.
 
 ## Quick start
 
-1. Open the program and choose New server.
-2. Pick the software, version, and build, accept the EULA, and create.
-3. After create finishes, press start. `Done (...)!` in the console means the server is up.
-4. Players on the same LAN connect to `this PC's LAN IP:port`. Players elsewhere add a tunnel under Tunnels, bind it to this server, turn on follow, and use the public address.
+1. Open the program and click New server (新建服务器).
+2. Pick a server type, a version and a build, accept the EULA, and press create.
+3. When creation finishes, press start. When the console prints `Done (...)!`, the server is up.
+4. Friends on the same LAN connect to `this PC's LAN IP:port`. For friends on other networks, you add a tunnel under Tunnels (内网穿透), bind it to this server, turn on "start with the server" (跟随实例启动), and send them the public address.
 
-Common entry points:
+Places you will use often:
 
-- Send a command: instance → Console → the box at the bottom.
-- Change config: instance → Common settings, or All config. Keys that need a restart are marked.
-- Change memory or Java: instance → Memory / startup.
-- No window: `MineDeck.exe -nogui`. The default port is 27333; `-port 27333` sets it. If the port is taken, a random one is used. The URL and token are printed in the log.
-- The silent launch used by start-with-Windows: `MineDeck.exe -minimized`.
-- Stdio bridge for a local AI tool: `MineDeck.exe -mcp`. MineDeck itself must already be running.
+- Sending a command: open the server → Console (控制台) → the input box at the bottom.
+- Changing settings: open the server → Common settings (常用设置) or All config (全部配置). Items that need a restart are marked.
+- Changing memory: open the server → Memory / startup (内存 / 启动).
+- Starting a server by hand: each server's folder contains a `run.bat` that does the same as the interface.
+- Running without a window: `MineDeck.exe -nogui`. The default port is 27333, and a random port is used if that one is taken. The address of the management page and its token are printed to the program's log output. The release build is a windowed program, so you will not see that line if you run it straight from a terminal; redirect standard error to a file.
 
 ## FAQ
 
-### Do I install Java myself?
+### Do I need to install Java myself?
 
-No prior install is required. A matching major already on the PC is reused. Otherwise a portable runtime is downloaded in the order above, and the system Java is left as it is.
+No. If a suitable Java is already on the PC, MineDeck uses it. If not, it downloads one that matches the game version, for its own use only, without changing system settings or affecting your other software.
 
-### How do players outside the LAN connect?
+### My friends are not on my network. How do they join?
 
-Add OpenFrp, SakuraFrp, or your own frps under Tunnels, bind it to this server, and turn on follow. Players on the same LAN do not need a tunnel.
+Add a tunnel under Tunnels (内网穿透), using OpenFrp, SakuraFrp or your own frps. Bind the tunnel to this server and turn on "start with the server" (跟随实例启动). After the server is up, send your friends the public address. Friends on the same LAN do not need a tunnel; they connect to `this PC's LAN IP:port`.
 
 ### Which versions and server types are supported?
 
-Minecraft 1.12.2 through the newest release on the manifest, including 26.x. The 12 types are listed above. Modrinth `.mrpack` and CurseForge zip files can be imported.
+Minecraft 1.12.2 up to the latest release, including 26.x. There are 12 server types: Vanilla, Paper, Purpur, Leaves, Folia, Fabric, NeoForge, Forge, Mohist, Banner, Velocity and Waterfall. Modrinth (`.mrpack`) and CurseForge (zip) modpacks can be imported.
 
-### Where do I look when a server fails to start?
+### The server will not start and I cannot make sense of the error. What now?
 
-Start with the banner at the top of the console. The 13 rules do not need AI. With AI configured, use "have AI look" on the banner, or ask in the assistant.
+Look at the error banner at the top of the console first. A missing dependency mod, a client-only mod on the server, a port in use, the wrong Java version: it recognises these common causes directly and tells you how to fix them. With AI configured, you can also click "Let AI analyse" (让 AI 分析), or ask the AI assistant.
 
-### Will AI change the server on its own, and who is charged?
+### Do the AI features cost money? Do they go online behind my back?
 
-The provider you configure charges for use. MineDeck estimates from public prices and can cap daily tokens. Reading logs runs directly. Config changes, Java switches, restarts, and mod installs show a confirmation card first. In-game commands run only for authorized players and only inside enabled templates. `op` and `execute` are not run.
+AI is optional. Without an AI configuration, MineDeck does not contact any AI service. To use it, you enter your own API key, and the provider you chose bills you directly. MineDeck estimates what was spent, and each feature can have a daily limit. The key is stored encrypted on this PC and is sent only to the endpoint you entered. One thing to be aware of: once LAN access is on, devices signed in from the LAN can use the AI assistant by default, on your quota. You can turn that off in Settings.
 
-### What do friends install?
+### Will the AI change my server on its own?
 
-AI companions: the friend installs the companion mod on the client, at the same version as the server. Music sharing: the server and the friend both install the same Simple Voice Chat version. MineDeck installs the bridge mod on the server.
+Not without asking. Read-only things, such as looking at logs and configs, it does directly. Before it changes a config, switches Java or restarts a server, it shows a confirmation card, and it acts only after you confirm. What was done is recorded on this PC in the `logs\ops` folder. The in-game AI only answers questions by default; only the players you tick can have it run commands, and only allowlisted ones. `op`, `execute` and the like are never run. External AI tools connected through MCP are treated the same way: they can read status and logs directly, but a change to the server runs only after you confirm it in MineDeck.
 
-### Which build should I download: stable, or today's two betas?
+### What do my friends need to install for AI companions and music sharing?
 
-v3.0.0 is the current stable release. v3.1.0-beta.1 adds handover packs, the mod cart, pending files during modpack import, adopting an existing server, switching Java in the UI, and finding a background task again after leaving the page. v3.1.0-beta.2 adds no feature; it changes a few handover and CurseForge import behaviors, marked beta.2 above. Put a beta in its own folder, and back up an existing server before trying it.
+- AI companions: friends install the companion mod on their client. It is on the release page; pick the one that matches the server's loader and game version.
+- Music sharing: the server and your friends all install the same version of Simple Voice Chat. The bridge mod is installed on the server by MineDeck; friends do not need it.
 
-### Where is the data?
+### Stable or beta?
 
-By default, next to the exe: `servers`, `backups`, `runtimes`, `cache`, and `logs\ops`. UI preferences are in `%LocalAppData%\MineDeck`. After `runtimes` is deleted, existing servers are missing their portable Java until Memory / startup prepares it again.
+Use the stable release for everyday hosting. Download a beta when you want to try the new features, such as handover packs, the mod cart and adopting an existing server, and follow the advice in "New in the 3.1.0 betas" above: a folder of its own, and a backup first.
 
-### What else is a known limit?
+### Where is my data, and how do I move it?
 
-- The first start of a server may raise a Windows Firewall prompt. LAN players can connect after access is allowed.
-- Part of a Forge or NeoForge install still contacts official hosts for libraries. Mirrors and retries can still end in failure.
-- Music sharing on Windows 10 can only capture the whole playback device.
-- Paper and Purpur have no domestic mirror in this code.
+It is all in the folder that holds the exe: `servers`, `backups`, `runtimes` (downloaded Java and tunnel clients), `cache`, `logs` and `data`, plus the files `config.json`, `secrets.json` and `tunnels.json`. Only interface preferences are in `%LocalAppData%\MineDeck`. To move, copy the whole folder, then mind two things. The secrets in `secrets.json` and `tunnels.json` are encrypted for this Windows user on this PC, so after moving to another PC or another user you have to enter them again. Each server stores the full path of its Java, so if the new location has a different path, servers that use MineDeck's own Java will report that Java cannot be found and need it set once more: on a beta, pick it under Memory / startup (内存 / 启动); the stable release has no such entry in the interface, but with AI configured you can ask the assistant to switch it.
 
-## Contributing
+## Known limitations
 
-Open a [GitHub Issue](https://github.com/Trasperioooooon/MineDeck/issues). Do not paste API keys, MCP tokens, tunnel credentials, or a CurseForge key.
+- The interface is in Chinese only, and the program is Windows only.
+- Paper, Purpur and some other server types have no mirror in mainland China; the official addresses usually work. When installing Forge or NeoForge, some files still have to come from the official sources, and that step can fail if those cannot be reached.
+- The first time a server starts, Windows Firewall may ask. Choose "Allow access", otherwise friends on the LAN cannot connect.
+- Do not delete the `runtimes` folder. It holds the Java and the tunnel clients MineDeck downloaded, and servers that use that Java will not start without it. On a beta you can pick another Java under Memory / startup (内存 / 启动). The stable release has no such entry in the interface; with AI configured you can ask the assistant to switch it, otherwise you have to delete that server and create it again.
+- Backups contain the world only, not mods, plugins or configs.
+- Stop all servers before updating MineDeck.
+- On Windows 10, music sharing can only record the whole PC.
 
-Building from source on Windows needs Go 1.25 or newer (`go.mod` says 1.25.0):
+## Contributing and building
+
+Please open a [GitHub Issue](https://github.com/Trasperioooooon/MineDeck/issues) for problems and suggestions. Do not paste API keys, MCP tokens, tunnel credentials or CurseForge keys into an issue.
+
+Building from source on Windows needs Go 1.25 or later:
 
 ```powershell
 $env:GOPROXY = 'https://goproxy.cn,direct'
 go build -trimpath -ldflags="-s -w -H windowsgui" -o MineDeck.exe .
 ```
 
-A debug build with a console:
+A debug build with console logging:
 
 ```powershell
 go build -o minedeck-cli.exe .
 .\minedeck-cli.exe -nogui
 ```
 
-The UI font subsets and `rsrc_windows_amd64.syso` are already in the repo, so the build does not need Python. After UI copy changes, check the font subset: [tools/fonts/README.md](tools/fonts/README.md). After replacing `assets/icon.ico`, regenerate the syso; the command is in [design-system/MASTER.md](design-system/MASTER.md).
+The interface font subsets and the exe's icon resource are already in the repository, so the build needs no Python or other tools. If you change interface text, check the font subsets; see [tools/fonts/README.md](tools/fonts/README.md) (in Chinese). If you replace `assets/icon.ico`, regenerate the icon resource; the command is in [design-system/MASTER.md](design-system/MASTER.md) (in Chinese).
 
-Layout:
-
-- `main.go`, `tray_windows.go`, `mcpbridge.go`: process entry, tray, and the MCP stdio bridge.
-- `internal/app`: data directories and global config.
-- `internal/mcsrc`, `internal/java`, `internal/inst`: version lists, portable Java, and instance create and process control.
-- `internal/modpack`: Modrinth and CurseForge packs.
-- `internal/transfer`: `.mdpack` handover packs.
-- `internal/tunnel`: tunnels.
-- `internal/ops`: the operation registry, confirmation, and the operation log. Concrete operations are in `internal/ops/catalog`.
-- `internal/ai`, `internal/assistant`, `internal/diag`, `internal/chatai`: AI clients, the in-app assistant, error rules, and in-game AI.
-- `internal/music`, `internal/musicshare`, `internal/bridge`, `internal/companion`: capture, broadcast, the voice bridge, and the companion mod.
-- `internal/web`: REST, SSE, and the embedded UI (`internal/web/ui`).
-- `tools/ui-dev`: a UI simulator and interaction tests that do not need Windows.
-
-Notes on versions and download sources: [docs/MC自动化开服技术实现方案与版本映射表.md](docs/MC自动化开服技术实现方案与版本映射表.md). Release notes are in `docs/releases/`.
+The local HTTP API is described in [docs/API.md](docs/API.md), and the release notes are under [docs/releases/](docs/releases/). Notes on versions and download sources are in [docs/MC自动化开服技术实现方案与版本映射表.md](docs/MC自动化开服技术实现方案与版本映射表.md). All three are in Chinese.
 
 ## License
 
-The program is under the [MIT License](LICENSE). Copyright (c) 2026 MineDeck Contributors.
+The program is under the [MIT License](LICENSE).
 
-The embedded Geist, Geist Mono, and Noto Sans SC fonts are under the [SIL Open Font License 1.1](https://openfontlicense.org/). The subsets keep the copyright and license text from the fonts, in [`internal/web/ui/fonts/`](internal/web/ui/fonts/). How the subsets were built is in [tools/fonts/README.md](tools/fonts/README.md).
+The Geist, Geist Mono and Noto Sans SC fonts embedded in the interface are under the [SIL Open Font License 1.1](https://openfontlicense.org/). What ships is a subset that keeps the copyright and license information inside the fonts. The license texts are in [`internal/web/ui/fonts/`](internal/web/ui/fonts/), and how the subsets are made is described in [tools/fonts/README.md](tools/fonts/README.md) (in Chinese).
 
-Third-party notices shipped with the companion mod are in [companion/LICENSE-NOTICE.md](companion/LICENSE-NOTICE.md).
+Third-party notices for the companion mod are in [companion/LICENSE-NOTICE.md](companion/LICENSE-NOTICE.md) (in Chinese).
