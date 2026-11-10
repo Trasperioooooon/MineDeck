@@ -2,7 +2,7 @@
 export const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 export const fmt = (s, v = {}) => String(s).replace(/\{(\w+)\}/g, (m, k) => (k in v ? v[k] : m));
 
-const COLORS = ['#5a9e36', '#8b5a3c', '#7aa7d9', '#e8a33d', '#9b8f80', '#d96b4a', '#e6d36a', '#a985d6', '#6fb3a6', '#c77fa8', '#5f7fb8', '#b0a35a'];
+const PALETTE_SIZE = 12; // tokens.json 的 palette 长度
 
 function head(ctx, title, desc) {
   const { L, cfg, page, a } = ctx;
@@ -76,7 +76,7 @@ function footer(ctx) {
 }
 
 function featCard(it, i, badge) {
-  return `<div class="card feat"><div class="ico" style="--c:${COLORS[i % COLORS.length]}" aria-hidden="true"></div><h3>${esc(it.t)}${badge ? ` <span class="badge bt">${esc(badge)}</span>` : ''}</h3><p>${esc(it.d)}</p></div>`;
+  return `<div class="card feat"><div class="ico" style="--c:var(--palette-${i % PALETTE_SIZE})" aria-hidden="true"></div><h3>${esc(it.t)}${badge ? ` <span class="badge bt">${esc(badge)}</span>` : ''}</h3><p>${esc(it.d)}</p></div>`;
 }
 
 function badge(L, r) {
@@ -202,7 +202,7 @@ function calendar(ctx) {
     } else cells.push(`<span title="${k}"></span>`);
   }
   return `<div class="card cal"><div class="cal-scroll"><div class="cal-grid" role="img" aria-label="${esc(L.log.calendar)}">${cells.join('')}</div></div>
- <div class="legend"><span><i style="background:var(--grass)"></i>${esc(L.log.stable)}</span><span><i style="background:var(--beta)"></i>${esc(L.log.betaF)}</span><span>${esc(fmt(L.log.calendarRange, { from, to: end.toISOString().slice(0, 10) }))}</span></div></div>`;
+ <div class="legend"><span><i style="background:var(--color-grass)"></i>${esc(L.log.stable)}</span><span><i style="background:var(--color-beta)"></i>${esc(L.log.betaF)}</span><span>${esc(fmt(L.log.calendarRange, { from, to: end.toISOString().slice(0, 10) }))}</span></div></div>`;
 }
 
 export function changelogPage(ctx) {

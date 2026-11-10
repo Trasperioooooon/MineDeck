@@ -174,7 +174,26 @@ for (const f of ['OFL-Geist.txt', 'OFL-NotoSansSC.txt']) copyFileSync(join(REPO_
 for (const f of readdirSync(join(HERE, 'fonts/licenses'))) copyFileSync(join(HERE, 'fonts/licenses', f), join(OUT, 'assets/licenses', f));
 
 // ---------- 5. CSS / JS ----------
-let css = readFileSync(join(HERE, 'src/style.css'), 'utf8').replace(/\{\{font:(\w+)\}\}/g, (m, k) => assetMap[`${k}.woff2`]);
+// 设计 token：src/tokens.json -> CSS 变量；组件样式不得出现颜色字面量
+const TOKENS = JSON.parse(readFileSync(join(HERE, 'src/tokens.json'), 'utf8'));
+function tokensCss(t) {
+  const out = [];
+  for (const [group, vals] of Object.entries(t)) {
+    if (group.startsWith('_') || group === 'breakpoint') continue;
+    if (Array.isArray(vals)) vals.forEach((v, i) => out.push(`--${group}-${i}:${v}`));
+    else for (const [k, v] of Object.entries(vals)) out.push(`--${group}-${k}:${v}`);
+  }
+  return `:root{${out.join(';')}}\n`;
+}
+const STYLE_FILES = ['base.css', 'components.css', 'pages.css'];
+let css = tokensCss(TOKENS);
+for (const f of STYLE_FILES) {
+  const src = readFileSync(join(HERE, 'src/styles', f), 'utf8');
+  const bad = src.replace(/\/\*[\s\S]*?\*\//g, '').match(/#[0-9a-fA-F]{3,8}\b|rgba?\(/g);
+  if (bad) { console.error(`src/styles/${f} 里有颜色字面量 ${bad.join(' ')}，请改用 tokens.json`); process.exit(1); }
+  css += src + '\n';
+}
+css = css.replace(/\{\{font:(\w+)\}\}/g, (m, k) => assetMap[`${k}.woff2`]);
 emit('style.css', Buffer.from(css));
 emit('app.js', readFileSync(join(HERE, 'src/app.js')));
 
