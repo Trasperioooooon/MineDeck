@@ -564,10 +564,7 @@ func applyLog4jMitigation(ctx context.Context, t *tasks.Task, i *Instance) error
 		return err
 	}
 	if !newer117 { // 1.12.2 ~ 1.16.5：官方 xml 配置
-		const xmlURL = "https://launcher.mojang.com/v1/objects/02937d122c86ce73319ef9975b58896fc1b491d1/log4j2_112-116.xml"
-		dest := filepath.Join(i.Dir, log4jXML)
-		// 这份文件可能经镜像下载，按官方的 SHA-1 校验（就是下载地址里那一串；2026-11-10 下载核对过）
-		if err := dl.Fetch(ctx, dl.Request{URLs: mcsrc.URLPair(xmlURL), Dest: dest, MinSize: 100, SHA1: "02937d122c86ce73319ef9975b58896fc1b491d1"}, nil); err != nil {
+		if err := fetchLog4jXML(ctx, i.Dir); err != nil {
 			t.Logf("log4j 防护配置下载失败（不影响开服，仅安全性降低）: %v", err)
 			return nil
 		}
@@ -575,6 +572,26 @@ func applyLog4jMitigation(ctx context.Context, t *tasks.Task, i *Instance) error
 		t.Logf("已启用 log4shell 漏洞缓解（Mojang 官方方案）")
 	}
 	return nil
+}
+
+// fetchLog4jXML 把 Mojang 给 1.12–1.16.5 的日志配置放进实例目录。已经在、内容也对得上的不重新下载；
+// 内容对不上的（被别的文件顶掉了）会重新下载。这份文件可能经镜像下载，按官方的 SHA-1 校验
+// （就是下载地址里那一串；2026-11-10 下载核对过）。
+func fetchLog4jXML(ctx context.Context, dir string) error {
+	const sum = "02937d122c86ce73319ef9975b58896fc1b491d1"
+	const xmlURL = "https://launcher.mojang.com/v1/objects/" + sum + "/" + log4jXML
+	return dl.Fetch(ctx, dl.Request{URLs: mcsrc.URLPair(xmlURL), Dest: filepath.Join(dir, log4jXML), MinSize: 100, SHA1: sum}, nil)
+}
+
+// restoreLog4jXML 启动参数里引用着官方日志配置的实例，确认那份文件还是官方的（不是就重新下载）。
+// 整合包导入收尾时调：覆盖目录和清单里的文件是在它下载好以后才写进来的。
+func restoreLog4jXML(ctx context.Context, t *tasks.Task, i *Instance) {
+	if !slices.Contains(i.ExtraJVMSnapshot(), log4jConfig) {
+		return
+	}
+	if err := fetchLog4jXML(ctx, i.Dir); err != nil {
+		t.Logf("⚠ 没能确认 log4j 防护配置是官方的那一份（%v）。联网以后可以删掉服务器文件夹里的 %s 再重新导入", err, log4jXML)
+	}
 }
 
 // log4jFlags 给出保存 JVM 参数时须强制保留的 log4shell 缓解参数，判定与创建时的 applyLog4jMitigation 一致；

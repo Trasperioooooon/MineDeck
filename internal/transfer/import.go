@@ -262,34 +262,31 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 		s.XmxMB = 2048
 	}
 	s.XmsMB = min(1024, s.XmxMB)
-	// 端口按 B 的填写改（服务器.properties 就在包里；代理端没有）
+	// 端口按 B 的填写改（server.properties 就在包里；代理端没有）。这里和下面关 RCON 都按服务端的读法来
+	// （inst.JavaProps / inst.ForceProp）：同一项写了两行时服务端认的是最后一行，只改第一行等于没改。
+	propsPath := filepath.Join(dir, "server.properties")
 	if req.Port > 0 && req.Port <= 65535 && kind != mcsrc.KindProxy {
-		props, err := inst.LoadProps(filepath.Join(dir, "server.properties"))
-		if os.IsNotExist(err) { // 包里没有 server.properties（那台服务器一次都没开过）：新写一份，免得填的端口白填
-			props, err = inst.ParseProps(nil), nil
+		want := fmt.Sprintf("%d", req.Port)
+		old := ""
+		if b, err := os.ReadFile(propsPath); err == nil {
+			old = inst.JavaProps(b)["server-port"]
 		}
-		if err == nil {
-			if old, _ := props.Get("server-port"); old != fmt.Sprintf("%d", req.Port) {
-				props.Set("server-port", fmt.Sprintf("%d", req.Port))
-				if err := props.Save(filepath.Join(dir, "server.properties")); err != nil {
-					return err
-				}
-				if old != "" {
-					t.Logf("端口按你的填写改成了 %d（包里是 %s）", req.Port, old)
-				}
+		if old != want { // 包里没有 server.properties（那台服务器一次都没开过）时新写一份，免得填的端口白填
+			if err := inst.ForceProp(propsPath, "server-port", want); err != nil {
+				return err
+			}
+			if old != "" {
+				t.Logf("端口按你的填写改成了 %d（包里是 %s）", req.Port, old)
 			}
 		}
 	}
 	// RCON：包里的 server.properties 开着远程控制台的话，密码是原服主设的、他知道——和不带过来的定时任务是一回事，先关掉。
 	if kind != mcsrc.KindProxy {
-		if props, err := inst.LoadProps(filepath.Join(dir, "server.properties")); err == nil {
-			if v, _ := props.Get("enable-rcon"); strings.EqualFold(strings.TrimSpace(v), "true") {
-				props.Set("enable-rcon", "false")
-				if err := props.Save(filepath.Join(dir, "server.properties")); err != nil {
-					return err
-				}
-				t.Logf("原来开着 RCON（远程控制台），密码是原服主设的，已经先关掉。要用的话到「全部配置」里换一个密码再打开")
+		if b, err := os.ReadFile(propsPath); err == nil && strings.EqualFold(strings.TrimSpace(inst.JavaProps(b)["enable-rcon"]), "true") {
+			if err := inst.ForceProp(propsPath, "enable-rcon", "false"); err != nil {
+				return err
 			}
+			t.Logf("原来开着 RCON（远程控制台），密码是原服主设的，已经先关掉。要用的话到「全部配置」里换一个密码再打开")
 		}
 	}
 	// EULA：包里带了同意过的 eula.txt 就以它为准；没带时靠请求里的勾选写

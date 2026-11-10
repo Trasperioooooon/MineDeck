@@ -61,12 +61,7 @@ func backupCopies(name, file string) ([]string, error) {
 // 还原之前还会把它们删掉，而 server.properties 可以是别人给的（交接包、整合包的覆盖目录），也可以是手改的。
 // 原来照单全收，level-name=../别的服务器 再点一次「还原备份」，删掉的就是隔壁那台服务器。
 func (i *Instance) worldDirs() []string {
-	level := "world"
-	if p, err := LoadProps(i.PropsPath()); err == nil {
-		if v, ok := p.Get("level-name"); ok && SafeLevelName(v) {
-			level = strings.TrimSpace(v)
-		}
-	}
+	level := LevelName(i.Dir)
 	var out []string
 	for _, d := range []string{level, level + "_nether", level + "_the_end"} {
 		full := filepath.Join(i.Dir, d)

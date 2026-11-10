@@ -65,15 +65,11 @@ func (i *Instance) Status() string {
 
 func (i *Instance) PropsPath() string { return filepath.Join(i.Dir, "server.properties") }
 
-// Port 读取当前 server.properties 中的端口。
+// Port 读取当前 server.properties 中的端口：服务端实际会监听的那个（按 Java 的读法取，同一项写了两行时认最后一行）。
 func (i *Instance) Port() int {
-	p, err := LoadProps(i.PropsPath())
-	if err != nil {
-		return 25565
-	}
-	if v, ok := p.Get("server-port"); ok {
+	if v, ok := javaPropsOf(i.PropsPath())["server-port"]; ok {
 		var n int
-		if _, err := fmt.Sscanf(v, "%d", &n); err == nil && n > 0 {
+		if _, err := fmt.Sscanf(strings.TrimSpace(v), "%d", &n); err == nil && n > 0 {
 			return n
 		}
 	}

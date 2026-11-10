@@ -268,7 +268,8 @@ func TestImportDropsRuntimeSettings(t *testing.T) {
 	}
 	files := [][2]string{
 		{"instance/server.jar", "fake"},
-		{"instance/server.properties", "server-port=25570\nenable-rcon=true\nrcon.password=原服主知道的密码\n"},
+		// 同一项写两行：MineDeck 自己的读法认第一行，服务端（Java）认最后一行。RCON 和端口都要按服务端的读法处理
+		{"instance/server.properties", "server-port=25570\nenable-rcon=false\nrcon.password=原服主知道的密码\nenable-rcon=true\nserver-port=2222\n"},
 		{"instance/eula.txt", "#eula=true\neula=false\n"},
 	}
 	// 版本号字段里有路径分隔符：整包拒绝
@@ -324,22 +325,31 @@ func TestImportDropsRuntimeSettings(t *testing.T) {
 	if !strings.Contains(log, "外置登录") {
 		t.Errorf("原来有 -javaagent 时要提醒对应的 jar 不在包里：\n%s", log)
 	}
-	// RCON 的密码是原服主设的：导入后先关掉
-	props, err := inst.LoadProps(filepath.Join(i.Dir, "server.properties"))
+	// RCON 的密码是原服主设的：导入后先关掉。看的是服务端实际会读到的值（包里用重复的行把它藏在后面）
+	raw, err := os.ReadFile(filepath.Join(i.Dir, "server.properties"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := props.Get("enable-rcon"); v != "false" || !strings.Contains(log, "RCON") {
-		t.Errorf("包里开着的 RCON 应关掉并写进日志：enable-rcon=%q\n%s", v, log)
+	if v := inst.JavaProps(raw)["enable-rcon"]; v != "false" || !strings.Contains(log, "RCON") {
+		t.Errorf("包里开着的 RCON 应关掉并写进日志：服务端读到 enable-rcon=%q\n%s\n%s", v, raw, log)
+	}
+	// 端口：没填的时候沿用包里的；这里的包两行端口不一样，服务端认的是后一行，MineDeck 显示的也该是它
+	if got := i.Port(); got != 2222 {
+		t.Errorf("端口应是服务端实际会监听的那个（后一行的 2222）：%d", got)
 	}
 	// 世界目录的名字指到服务器文件夹外面的包：整包不要，隔壁那台服务器的文件夹原样还在。
 	// 原来照单全收，接手的人之后点一次「还原备份」，删掉的就是 level-name 指着的那个文件夹
 	neighbour := filepath.Join(app.ServersDir, "other-server", "precious.txt")
 	writeFile(t, neighbour, "隔壁服务器的东西")
-	for _, bad := range []string{"../other-server", "..", ".", "world/../..", "C:/Windows"} {
+	for _, bad := range []string{
+		"level-name=../other-server", "level-name=..", "level-name=.", "level-name=world/../..", "level-name=C:/Windows", "level-name=...",
+		// 换个写法骗过检查：MineDeck 自己读到的是 world 或者「没写」，服务端读到的是越界的路径
+		"level-name=world\nlevel-name=../other-server", "level-name:../other-server", "level-name ../other-server",
+		`level\-name=../other-server`, `level-name=.\./other-server`, "level-name=w\\\n/../../other-server",
+	} {
 		evil := [][2]string{
 			{"instance/server.jar", "fake"}, {"instance/eula.txt", "eula=true\n"},
-			{"instance/server.properties", "server-port=25570\nlevel-name=" + bad + "\n"},
+			{"instance/server.properties", "server-port=25570\n" + bad + "\n"},
 		}
 		id, err := ImportAsync(m, rawPack(t, manifest("100", "jar:server.jar"), evil), ImportReq{Name: "越界世界", EULA: true})
 		if err != nil {

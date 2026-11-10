@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -163,6 +164,19 @@ func (m *Manager) runImport(ctx context.Context, t *tasks.Task, pack *modpack.Pa
 			})
 		}
 	}
+	// 清单里点名要下载的文件，落点也不能是 MineDeck 自己的文件：实例这时已经登记好了，
+	// 清单里写一条 path 是 instance.json 的，下载下来就把刚登记的那份顶掉了。覆盖目录那边同理（见下面）。
+	var refused []string
+	files = slices.DeleteFunc(files, func(f modpack.File) bool {
+		if overrideAllowed(f.Path) {
+			return false
+		}
+		refused = append(refused, f.Path)
+		return true
+	})
+	if len(refused) > 0 {
+		t.Logf("整合包清单里的这些文件没有下载（由 MineDeck 自己生成，或者名字写不成普通文件）：%s", strings.Join(refused, "、"))
+	}
 	var total int64
 	for _, f := range files {
 		total = total + f.Size
@@ -267,6 +281,9 @@ func (m *Manager) runImport(ctx context.Context, t *tasks.Task, pack *modpack.Pa
 	var kept []keptFile
 	var remain []modpack.PendingFile
 	for _, p := range pending {
+		if p.file.Reason != "cf" && !overrideAllowed(p.file.Path) {
+			continue // 落点是 MineDeck 自己的文件：不继承，也不列进待决清单
+		}
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(p.file.Path))); err == nil {
 			kept = append(kept, keptFile{path: p.file.Path, source: "整合包覆盖目录"})
 			continue
@@ -281,6 +298,17 @@ func (m *Manager) runImport(ctx context.Context, t *tasks.Task, pack *modpack.Pa
 			continue
 		}
 		remain = append(remain, p.file)
+	}
+	// 收尾前把 MineDeck 自己的那几个文件按内存里的设置重写一遍。上面按名字挡过了，这里是兜底：
+	// 开着 8.3 短名的盘上，INSTAN~1.JSO 这样的名字落下来就是 instance.json，按名字是认不出来的。
+	if i, err := m.Get(req.Name); err == nil {
+		if err := m.saveInstance(i); err != nil {
+			return err
+		}
+		if err := writeRunBat(i); err != nil {
+			return err
+		}
+		restoreLog4jXML(ctx, t, i)
 	}
 	m.finishImport(t, req, dir, remain, kept)
 	return nil

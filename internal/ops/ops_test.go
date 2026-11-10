@@ -656,3 +656,45 @@ func TestProposeErrorIsUntypedNil(t *testing.T) {
 		t.Errorf("预览失败不留提案：%d", n)
 	}
 }
+
+// 人确认提案以后执行时，Run 能拿到确认那一刻预览算出来的前置条件（ConfirmedPre）；
+// 人直接调用（不经提案）时拿到的是 nil。执行时还要再核一遍状态的操作靠它（比如按购物车装文件）：
+// 这条接线断了，那类核对就悄悄不做了，所以单独守一条。
+func TestConfirmPassesPreToRun(t *testing.T) {
+	r := NewRegistry(nil)
+	var got []map[string]string
+	r.Register(&Op{
+		Name: "t.bound", Level: Write,
+		Preview: func(context.Context, Caller, Args) (*Plan, error) {
+			return &Plan{Summary: "做一件事", Pre: map[string]string{"状态": "看过的那一份"}}, nil
+		},
+		Run: func(ctx context.Context, _ Caller, _ Args) (any, error) {
+			got = append(got, ConfirmedPre(ctx))
+			return "ok", nil
+		},
+	})
+	ctx := context.Background()
+	res, err := r.Do(ctx, aiLocal, "t.bound", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, ok := res.(*Proposal)
+	if !ok {
+		t.Fatalf("AI 调写操作应生成提案：%T", res)
+	}
+	if len(got) != 0 {
+		t.Fatal("没确认就执行了")
+	}
+	if _, err := r.Confirm(ctx, ui, p.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0]["状态"] != "看过的那一份" {
+		t.Fatalf("确认后执行时应拿到确认的前置条件：%v", got)
+	}
+	if _, err := r.Do(ctx, ui, "t.bound", nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[1] != nil {
+		t.Fatalf("人直接调用时不该有确认的前置条件：%v", got)
+	}
+}

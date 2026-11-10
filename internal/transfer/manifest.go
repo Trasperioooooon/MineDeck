@@ -4,9 +4,9 @@
 // 解包只认这个前缀，包里的路径落不到实例目录之外。manifest 里记有导出时的 instance.json 原文、
 // 模组 / 插件清单（sha1 + 大小）、世界大小与剔除清单。
 //
-// mode 有两种："handover"（A 开的服玩不下去了交给 B，本包和操作 instance.transfer.export / import 实现）
-// 和 "distributable"（整合包下发场景，分支 feat-instance-distribute 按同一份 manifest 契约实现）。
-// 两边共用的字段名以这里为准，改动前先看那个分支。
+// mode 有两种："handover"（服主交接，A 开的服玩不下去了交给 B）和 "distributable"（发给朋友，让他照着开一台）。
+// 两种包的内容和布局一样，只是对方导入时看到的说法不同。PR #8（feat-instance-distribute）原来打算另做一套，
+// 写出来的包格式和这里不兼容，没有采用，它的几样功能并进了这一套（见交接说明）。
 package transfer
 
 import (

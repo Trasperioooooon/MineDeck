@@ -66,19 +66,50 @@ func SafeLevelName(v string) bool {
 		return false
 	}
 	clean := filepath.Clean(filepath.FromSlash(v))
-	return clean != "." && filepath.IsLocal(clean)
+	if clean == "." || !filepath.IsLocal(clean) {
+		return false
+	}
+	// 某一段去掉结尾的点和空格以后什么都不剩的（"..."、". ."）：Windows 会把这种名字解成它所在的目录，
+	// 也就是实例目录自己或者上一层
+	for _, seg := range strings.Split(filepath.ToSlash(clean), "/") {
+		if strings.TrimRight(seg, ". ") == "" {
+			return false
+		}
+	}
+	return true
+}
+
+// LevelName dir 这台服务器的世界目录名：服务端实际会用的那个（按 Java 的读法取 level-name，见 javaprops.go），
+// 没写、或者不能照着用（见 SafeLevelName）时是 world。
+func LevelName(dir string) string {
+	if v, ok := javaPropsOf(filepath.Join(dir, "server.properties"))["level-name"]; ok && SafeLevelName(v) {
+		return strings.TrimSpace(v)
+	}
+	return "world"
 }
 
 // CheckLevelName 看 dir 里 server.properties 的 level-name 有没有指到实例目录外面。没有这个文件、没写这一项都算没问题。
 // 别人给的 server.properties（交接包、整合包的覆盖目录）落盘以后调：有问题就不要这个包。
+// 查的是服务端实际会读到的值（Java 的读法）；它和 MineDeck 自己读到的对不上的（同一项写了两行、
+// 用冒号或空白当分隔、带反斜杠转义这些写法）也算有问题——正常的文件不会这么写，而这正是骗过检查的办法。
 func CheckLevelName(dir string) (name string, ok bool) {
-	p, err := LoadProps(filepath.Join(dir, "server.properties"))
+	b, err := os.ReadFile(filepath.Join(dir, "server.properties"))
 	if err != nil {
 		return "", true
 	}
-	v, has := p.Get("level-name")
-	if !has || strings.TrimSpace(v) == "" {
+	jv := strings.TrimSpace(JavaProps(b)["level-name"])
+	mv, _ := ParseProps(b).Get("level-name")
+	// MineDeck 自己读的时候只解了 Unicode 转义，别的转义还留着（服务端存盘时会给 ! # : = 前面加反斜杠）：
+	// 解完再比，名字里带感叹号的世界不至于被当成有歧义
+	mv = strings.TrimSpace(unescapeJava(mv))
+	if jv != mv {
+		if jv == "" {
+			jv = mv
+		}
+		return jv + "（这一项在文件里的写法有歧义）", false
+	}
+	if jv == "" {
 		return "", true
 	}
-	return v, SafeLevelName(v)
+	return jv, SafeLevelName(jv)
 }
