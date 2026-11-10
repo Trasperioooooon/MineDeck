@@ -1372,7 +1372,7 @@ function handler(state, ui, portOf) {
         const b = await readBody(req);
         if (state.instances.some(x => x.name === b.name)) return err(res, 400, "实例名已存在: " + b.name);
         state.lastImport = b;
-        return ok(res, { taskId: "task-unpack" });
+        return ok(res, { taskId: "task-transfer-unpack" });
       }
       if (p === "/api/transfer/export" && m === "POST") {
         const b = await readBody(req);
@@ -1380,10 +1380,10 @@ function handler(state, ui, portOf) {
         if (!i) return err(res, 404, "实例不存在: " + b.inst);
         if (i.status !== "stopped") return err(res, 400, "打包前请先停止服务器（打的是停机时的完整包）");
         state.lastExport = b;
-        return ok(res, { taskId: "task-pack" });
+        return ok(res, { taskId: "task-transfer-pack" });
       }
-      if (p === "/api/tasks/task-unpack" || p === "/api/tasks/task-pack") {
-        const unpack = p.endsWith("unpack");
+      if (p === "/api/tasks/task-transfer-unpack" || p === "/api/tasks/task-transfer-pack") {
+        const unpack = p.endsWith("task-transfer-unpack");
         const names = unpack ? ["清点包内容", "解压到实例目录", "适配配置文件", "准备 Java 并登记"] : ["清点实例文件", "压缩打包"];
         return ok(res, { id: p.split("/").pop(), kind: unpack ? "unpack" : "pack", steps: names.map(name => ({ name, status: "done" })), label: "", done: 0, total: 0, warnings: [],
           log: unpack

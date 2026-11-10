@@ -2643,7 +2643,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       const a = st.lastImport || {};
       assert(a.file === "D:\\MineDeck\\cache\\transfer\\1769590000000-暑假生存服.mdpack" && a.name === "暑假生存服" &&
         a.port === 25665 && a.xmxMb === 6144 && a.javaMajor === 17 && a.eula === true, "收包的请求：" + JSON.stringify(a));
-      assert(page.url().endsWith("#/task/task-unpack"), "没去任务页：" + page.url());
+      assert(page.url().endsWith("#/task/task-transfer-unpack"), "没去任务页：" + page.url());
       const t = await page.evaluate(() => ({ h1: $(".page-head h1").textContent, label: $("#t-label").textContent, foot: $("#t-foot").textContent,
         href: $("#t-foot a").getAttribute("href"), doneSub: $("#t-sub").textContent, toasts: [...document.querySelectorAll(".toast")].map(x => x.textContent) }));
       assert(t.h1 === "正在收包开服" && t.label === "收包完成" && t.foot.includes("进入控制台") && t.href === "#/inst/" + encodeURIComponent("暑假生存服"), "任务页：" + JSON.stringify(t));
@@ -2706,7 +2706,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       const st = await mockState({});
       const ex = st.lastExport || {};
       assert(ex.inst === "机械动力整合包" && ex.mode === "distributable" && ex.dest === "E:\\MCServers", "打包的请求：" + JSON.stringify(ex));
-      assert(page.url().endsWith("#/task/task-pack"), "没去任务页：" + page.url());
+      assert(page.url().endsWith("#/task/task-transfer-pack"), "没去任务页：" + page.url());
       const t = await page.evaluate(() => ({ h1: $(".page-head h1").textContent, label: $("#t-label").textContent, go: $("#t-foot a").textContent.trim(),
         doneSub: $("#t-sub").textContent, toasts: [...document.querySelectorAll(".toast")].map(x => x.textContent) }));
       assert(t.h1 === "正在打包服务器" && t.label === "打包完成" && t.go === "完成，回到服务器" && t.doneSub.includes("发出去"), "任务页：" + JSON.stringify(t));
