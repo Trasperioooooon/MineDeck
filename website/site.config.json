@@ -1,0 +1,17 @@
+{
+  "repo": "Trasperioooooon/MineDeck",
+  "siteUrl": "https://minedeck.cn",
+  "mirror": {
+    "enabled": true,
+    "template": "https://dl.minedeck.cn/releases/{tag}/{file}",
+    "_note": "占位。镜像地址和同步方式确定后再改；enabled 设为 false 时主按钮改指 GitHub。"
+  },
+  "beian": {
+    "icp": "",
+    "psb": "",
+    "psbCode": "",
+    "_note": "备案通过后填写。icp 形如「京ICP备XXXXXXXX号-1」；psb 形如「京公网安备XXXXXXXXXXXXXX号」，psbCode 为其中的数字，用于查询链接。留空时页脚显示「待填写」。"
+  },
+  "timezoneOffsetHours": 8,
+  "changelogInitial": 10
+}
