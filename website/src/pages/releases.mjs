@@ -19,7 +19,7 @@ export default function releases(ctx) {
  <div class="stats">
   ${st ? stat({ label: G.latestStable, value: st.tag, href: ctx.href('release', { tag: st.tag }), cls: 's1' }) : ''}
   ${bt ? stat({ label: G.latestBeta, value: bt.tag, href: ctx.href('release', { tag: bt.tag }), cls: 's2' }) : ''}
-  ${stat({ label: G.total, value: String(data.releases.length), cls: 's3', count: true })}
+  ${stat({ label: G.total, value: String(data.releases.length), cls: 's3' })}
   ${last ? `<div class="card stat s4"><small>${esc(G.lastRelease)}</small><b data-ago="${esc(last.published_at)}" data-tpl="${esc(G.daysAgo)}" data-today="${esc(G.today)}">${esc(last.day_local)}</b></div>` : ''}
  </div>
  ${releaseCalendar(ctx)}

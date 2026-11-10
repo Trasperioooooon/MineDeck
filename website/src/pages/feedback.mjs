@@ -2,14 +2,14 @@
 import { esc, fmt } from '../partials/util.mjs';
 import { layout } from '../partials/layout.mjs';
 import { pageHead } from '../partials/ui.mjs';
-import { feedbackForm } from '../partials/feedback-form.mjs';
+import { feedbackForm, publicChannels } from '../partials/feedback-form.mjs';
 
 export default function feedback(ctx) {
-  const { L, data } = ctx;
+  const { L, data, cfg } = ctx;
   const F = L.feedback;
   const latest = data.releases[0];
   const before = `<div class="card before"><b>${esc(F.before)}</b><a href="${ctx.href('help')}#faq">${esc(F.beforeFaq)} →</a><a href="${ctx.href('help')}#limits">${esc(F.beforeLimits)} →</a>${latest ? `<a href="${ctx.href('release', { tag: latest.tag })}">${esc(fmt(F.beforeLatest, { tag: latest.tag }))} →</a>` : ''}</div>`;
-  const main = `${pageHead(ctx, { h: F.h, lead: esc(F.lead), crumbs: [ctx.crumb('home', L.crumbHome), ctx.crumb('feedback', L.nav.feedback)] })}
+  const main = `${pageHead(ctx, { h: F.h, lead: esc(publicChannels(cfg).some((ch) => ch.type === 'endpoint') ? F.leadDirect : F.lead), crumbs: [ctx.crumb('home', L.crumbHome), ctx.crumb('feedback', L.nav.feedback)] })}
 ${before}
 <div class="fb-layout">
  <div>${feedbackForm(ctx)}</div>

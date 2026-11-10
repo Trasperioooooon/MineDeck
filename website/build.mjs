@@ -231,5 +231,6 @@ writeFileSync(join(OUT, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\
 const problems = checkDist(OUT);
 if (problems.length) { console.error('构建检查未通过：\n' + problems.map((p) => '  ' + p).join('\n')); process.exit(1); }
 
+if (!(cfg.feedback.channels || []).some((c) => c.type === 'endpoint' && c.enabled && c.url)) log('提醒：反馈页的「直接提交」通道还没开（site.config.json 的 feedback.channels 里 type 为 endpoint 的那一项）。没有 GitHub 账号的人目前只能复制或下载报告。');
 log(`完成：${OUT}（${PAGES.length} 个页面）${cfg.mirror?.enabled ? '；镜像链接为占位模板 ' + cfg.mirror.template : ''}`);
 for (const [k, v] of Object.entries(assetMap)) if (k.endsWith('.woff2')) log(`  ${v}  ${(statSync(join(OUT, 'assets', v)).size / 1024).toFixed(0)} KB`);

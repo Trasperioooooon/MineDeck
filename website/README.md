@@ -10,13 +10,13 @@ minedeck.cn 的源码。纯静态站，中英文各一套页面，构建后只�
 
 | 路径 | 内容 |
 | --- | --- |
-| `/` | 首页：下载、版本状态、核心功能、近 26 周活动、贡献者、问题入口 |
+| `/` | 首页：下载、亮点展示台、核心功能、版本状态与近 26 周活动、贡献者、问题入口 |
 | `/download/` | 稳定版与测试版下载、伙伴模组、安装步骤（SmartScreen 演示）、校验、系统要求、最近版本 |
-| `/features/` | 完整功能清单，测试版功能单独标注 |
+| `/features/` | 功能：按组排列，每组先一句大白话和几条要点，细节和截图折叠起来；测试版功能单独标注 |
 | `/releases/` | 更新日志：按大版本分组，可按稳定版 / 测试版筛选（`?channel=beta`） |
 | `/releases/<tag>/` | 单个版本：文件表、SHA-256、发布说明全文和目录、上一版 / 下一版、版本跳转 |
 | `/help/` | 快速开始、常用入口、FAQ、数据位置与卸载、已知边界 |
-| `/feedback/` | 问题与建议表单：生成脱敏报告，复制、下载或带到 GitHub Issue |
+| `/feedback/` | 问题与建议表单：生成脱敏报告，按有没有 GitHub 账号分两条路提交 |
 | `/about/` | 项目简介、贡献者、52 周活动、每月发布数、许可证、致谢、声明 |
 | `/404.html` | 中英双语 404 |
 | `/feed.xml` | Atom 订阅，最多 20 个最近版本（`feedCount`） |
@@ -48,11 +48,11 @@ website/
 ├── src/
 │   ├── tokens.json        设计 token（颜色、字号、间距、圆角、阴影、尺寸、动效、断点）
 │   ├── routes.mjs         路由表、导航、页脚分组
-│   ├── partials/          layout、nav、footer、ui 组件、release、heatmap、people、feedback-form、svg
+│   ├── partials/          layout、nav、footer、ui 组件、release、heatmap、people、feedback-form、showcase、svg
 │   ├── pages/             每个页面一个模块
 │   ├── css/               base / components / pages / motion，构建时按 @layer 合并
 │   ├── js/                core.js（全站）、releases.js、feedback/*.js
-│   └── svg/               图标集和三幅插画（hero、smartscreen、broken-block）
+│   └── svg/               图标集、三幅插画（hero、smartscreen、broken-block）和七张首页亮点演示（demo-*）
 ├── fonts/                 Fusion Pixel 原始字体与许可证
 └── ci/build-website.example.yml
 ```
@@ -95,17 +95,18 @@ node serve.mjs dist 8080        # 本地看 dist/，含 404 行为
 - `color`：语义色，写成 `{palette.grass-500}` 引用，如 `--color-accent`、`--color-beta`、`--color-heat-0..4`。改主题只需要改这里。
 - 其余：`font`、`fs`、`lh`、`fw`、`space`、`radius`、`border`、`shadow`、`size`、`motion`、`z`、`breakpoint`，对应 `--fs-*`、`--space-*` 等。
 
-CSS 按 `@layer tokens, base, components, pages, motion` 排列。断点用 900px 和 560px。
+CSS 按 `@layer tokens, base, components, pages, motion` 排列。断点用 1100px、900px 和 560px；1100 这一档只管首页大标题降一级字号。手机上那张「这是一个 Windows 程序」的提示另外加了 `pointer:coarse`，只在窄屏的触屏设备上出现，电脑上把窗口拖窄不受影响。
 
 ## 数据与内容
 
 - **Releases**：去掉 draft，按时间倒序。`prerelease` 为测试版。测试版比最新稳定版新时，首页和下载页才显示测试版。2.x 中 exe 名为 `AutoMCHUB.exe` 的版本归入「AutoMCHUB 时期」。
 - **Release 说明**：`lib/markdown.mjs` 渲染，原文 HTML 一律转义，输出过标签白名单。指向本仓库 Release 的链接改成站内 `/releases/<tag>/`，其他 GitHub 链接标为外部链接。小标题生成目录（多于 3 个时显示）。
 - **贡献者**：`contributors.exclude` 中的账号不显示（默认排除 `claude`），`type` 为 Bot 的账号总是排除。`showHiddenNote` 控制是否注明「已隐藏 AI 编码工具和机器人账号」。
-- **统计**：`stats.showStars` 显示构建时的 Star 快照并注明日期；`stats.showDownloads` 默认关闭。
+- **统计**：`stats.showStars` 现在是 false，Star 数还小的时候先不显示；改成 true 就显示构建时的快照并注明日期。`stats.showDownloads` 默认关闭。
 - **时间**：按 `timezoneOffsetHours`（默认 8，北京时间）显示。
 - **镜像链接**：按 `mirror.template` 生成，`{tag}`、`{file}` 会被替换。默认 `https://dl.minedeck.cn/releases/{tag}/{file}` 是占位；镜像上线前改成实际地址，或把 `mirror.enabled` 设为 false，主按钮改指 GitHub。
-- **文案**：`content/*.json`。功能清单里带 `"channel": "beta"` 的条目显示测试版标记；v3.1.0 正式发布后去掉这个字段即可。
+- **文案**：`content/*.json`。功能页的每一组有 `lead`（一句大白话）、`points`（直接显示的要点）和 `details`（折叠起来的细节）；带 `"channel": "beta"` 的条目和整组显示测试版标记，v3.1.0 正式发布后去掉这个字段即可。功能页和帮助页里的事实以仓库的 `docs/功能清单.md` 为准，程序改了行为时两边一起改。
+- **首页亮点展示台**：内容在 `content/ui.*.json` 的 `home.show.items`，一项一个面板。面板里放三种东西之一：`demo`（`src/svg/` 里的演示文件名，文字从 `text` 传进去）、`shot`（`docs/images` 里的截图文件名）、`steps`（三步文字）。现在七项用的都是 `demo`。带 `"beta": true` 的项显示测试版标记和去下载页的链接。
 - **`/data/latest.json`**：给以后客户端检查更新用，字段含 tag、时间、SHA-256、大小、镜像地址和 GitHub 地址。现有客户端代码没有改动。
 
 ## 反馈页
@@ -116,16 +117,17 @@ CSS 按 `@layer tokens, base, components, pages, motion` 排列。断点用 900p
 - 日志可拖入 `.log` / `.txt`，过长时保留开头和结尾。草稿存在 `localStorage`（`md.feedback.draft`）。
 - 支持 `?version=v3.1.0-beta.2`、`?kind=beta|bug|suggestion` 预填，版本页的「反馈这个版本的问题」会带上这些参数。
 - 通道在 `site.config.json` 的 `feedback.channels` 里按顺序配置：
-  - `copy`：复制报告。
-  - `download`：下载为 `.md`。
-  - `github`：打开预填的 `issues/new`，`labels` 为标签。URL 超过 `maxUrl` 时去掉日志，并把日志复制到剪贴板。
-  - `endpoint`：默认关闭。开启后按 `minedeck.feedback/v1` 以 JSON POST 到 `url`，超时 `timeoutMs`。服务端返回 `{ ok, id?, issueUrl?, message? }`。协议见 ARCH.md 第 6.5 节。
+  - `github`：「有 GitHub 账号」那张卡上的按钮。打开预填的 `issues/new`，`labels` 为标签。URL 超过 `maxUrl` 时去掉日志，并把日志复制到剪贴板。
+  - `endpoint`：「没有账号」那张卡上的「直接提交」。默认关闭；`enabled` 设为 true 并填上 `url` 以后，按 `minedeck.feedback/v1` 以 JSON POST 过去，超时 `timeoutMs`。服务端返回 `{ ok, id?, issueUrl?, message? }`。协议见 ARCH.md 第 6.5 节。这个通道没开时，那张卡如实写着还没开通，给复制和下载；构建时也会打一行提醒。
+  - `copy`、`download`：复制报告、下载为 `.md`。直接提交开着时，这两个排在两张卡下面，供人自己留一份。
   - `email`、`community`（如 QQ 群）：默认关闭，地址留空时不显示。
 - 关掉 JavaScript 时表单不显示，改为提示和 GitHub Issues 链接。
 
 ## 动效
 
-插画和图标是内联 SVG。动效只用 CSS，少量由 `core.js` 触发（进入视口、数字计数、SmartScreen 演示）。默认画面就是最终画面，没有 JS 时内容完整。系统设置了「减少动态效果」时全部关闭。
+插画和图标是内联 SVG。动效只用 CSS，少量由 `core.js` 触发（进入视口、数字计数、SmartScreen 演示、首页亮点演示）。默认画面就是最终画面，没有 JS 时内容完整。系统设置了「减少动态效果」时全部关闭。
+
+首页的七张亮点演示（`src/svg/demo-*.svg`）共用一套画法，写在 `css/motion.css` 的 A10 一节：`d-` 开头的类是形状，`t-` 开头的是文字，后面是各张的时间线，每张两秒以内。图里的中文一律从 `content/ui.*.json` 传进去，不直接写在 SVG 里，因为像素字体的子集只按文案里出现过的字来裁。按钮名、面板标题要照程序界面的原文写。演示在进入视口、切到那一项、点「重播」时各播一遍。
 
 ## 中英文
 

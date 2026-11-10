@@ -1,20 +1,34 @@
 // 版本相关组件：下载按钮、版本元信息、摘要卡片、下载格（文件表）、发布日历。
 import { esc, fmt, zhAttr } from './util.mjs';
 import { versionBadge, button, extLink, copyable, go } from './ui.mjs';
+import { icon } from './svg.mjs';
 
 /** 正文里的站内占位链接 md-release:<tag> 换成当前页面的相对地址 */
 export const localBody = (ctx, r) => r.body_html.replace(/href="md-release:([^"]+)"/g, (m, t) => `href="${ctx.href('release', { tag: t })}"`);
 
-/** exe 的主下载按钮：镜像（主）+ GitHub（备用，外链） */
-export function dlButtons(ctx, r, { size, big } = {}) {
+/**
+ * exe 的主下载按钮：镜像（主）+ GitHub（备用，外链）。
+ * quiet=true 时两个按钮都用次要样式（测试版用，免得和稳定版一样显眼）。
+ */
+export function dlButtons(ctx, r, { size, big, quiet } = {}) {
   const { L } = ctx;
   const exe = r.exe;
   if (!exe) return extLink(ctx, r.html_url, L.release.viewGithub, { cls: 'btn sm' });
   const primary = exe.mirror_url
-    ? button({ href: exe.mirror_url, label: big ? fmt(L.home.download, { version: r.tag }) : L.download.mirrorBtn, sub: big ? fmt(L.home.downloadSub, { file: exe.name, size: exe.size_label, date: r.day_local }) : `${exe.name} · ${exe.size_label}`, primary: true, pix: big, size, icon: 'arrow' })
+    ? button({ href: exe.mirror_url, label: big ? fmt(L.home.download, { version: r.tag }) : L.download.mirrorBtn, sub: big ? fmt(L.home.downloadSub, { file: exe.name, size: exe.size_label, date: r.day_local }) : `${exe.name} · ${exe.size_label}`, primary: !quiet, pix: big, size, icon: 'arrow' })
     : '';
-  const gh = button({ href: exe.github_url, label: L.download.githubBtn, sub: primary ? L.fallback : `${exe.name} · ${exe.size_label}`, primary: !primary, size, ext: true, ctx });
+  const gh = button({ href: exe.github_url, label: L.download.githubBtn, sub: primary ? L.fallback : `${exe.name} · ${exe.size_label}`, primary: !primary && !quiet, size, ext: true, ctx });
   return primary + gh;
+}
+
+/**
+ * 手机上的提示：MineDeck 是 Windows 程序，给出下载页地址和复制按钮。
+ * 默认隐藏，只在窄屏的触屏设备上显示（pages.css 的 .on-phone）；紧跟其后的 .cta 加 has-phone-note，届时主按钮降为次要样式。
+ */
+export function phoneNote(ctx) {
+  const { L, cfg } = ctx;
+  const url = cfg.siteUrl.replace(/\/$/, '') + ctx.crumb('download', '').url;
+  return `<div class="card on-phone"><div><b>${esc(L.phone.h)}</b>${esc(L.phone.p)} <code>${esc(url.replace(/^https?:\/\//, ''))}</code></div><button type="button" class="btn sm js-only" data-copy="${esc(url)}">${icon('copy', { cls: 'i-copy' })}${icon('check', { cls: 'i-check' })}<span>${esc(L.phone.copy)}</span></button></div>`;
 }
 
 /** 版本元信息行：版本号、徽章、发布时间、体积 */

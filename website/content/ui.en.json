@@ -8,9 +8,14 @@
   "menu": "Menu",
   "copy": "Copy",
   "copied": "Copied",
+  "phone": {
+    "h": "This is a Windows program",
+    "p": "It will not run on a phone. Open this address on your PC to download it:",
+    "copy": "Copy this address"
+  },
   "home": {
     "eyebrow": "Windows · Minecraft: Java Edition · MIT",
-    "h1": "Run a Minecraft server<br>on Windows",
+    "h1": "Run a Minecraft server on Windows",
     "lead": "A Minecraft: Java Edition server manager for Windows. It downloads Java and the server software, then lets you create, import and manage servers in one window.",
     "download": "Download {version}",
     "downloadSub": "{file} · {size} · {date}",
@@ -24,6 +29,130 @@
     "coreH": "Core features",
     "coreSub": "See the Features page for the full list.",
     "allFeatures": "All features",
+    "show": {
+      "h": "More than getting a server running",
+      "sub": "Pick a name on the left to see it in action.",
+      "tabsAria": "Highlights",
+      "beta": "Beta",
+      "betaNote": "For now this is only in the 3.1.0 betas.",
+      "betaLink": "See the beta on the download page",
+      "moreLink": "Details on the Features page",
+      "replay": "Replay",
+      "shotNote": "Screenshot of the real interface",
+      "items": [
+        {
+          "id": "banner",
+          "t": "It tells you why the server will not start",
+          "d": "A missing dependency, the wrong mod, a port in use, the wrong Java: the cause is written at the top of the console, so you do not have to dig through the log. No AI needed.",
+          "more": "diag",
+          "demo": "demo-banner",
+          "aria": "Illustration: the console prints an error, the status changes to stopped, a banner drops in at the top saying a dependency mod, geckolib, is missing, and the pointer clicks the button that lets AI analyse it",
+          "text": {
+            "tab": "Console",
+            "tab2": "Players",
+            "tab3": "Backups",
+            "run": "Running",
+            "stop": "Stopped",
+            "l1": "[main/INFO] Loading 42 mods",
+            "l2": "[main/INFO] Preparing level \"world\"",
+            "l3": "[main/ERROR] Missing or unsupported",
+            "l4": "  mandatory dependencies: geckolib",
+            "l5": "[main/ERROR] Failed to start the server",
+            "title": "Missing dependency mod",
+            "sum": "A dependency is missing or has the wrong version: geckolib",
+            "btn": "Let AI analyse",
+            "more": "Details and how to fix"
+          }
+        },
+        {
+          "id": "gameai",
+          "t": "Ask @AI from inside the game",
+          "d": "Players ask in chat; people you authorise can also have it change the time or the weather. You can put AI companions on the server that follow, gather and fight. It uses your own API key and stays offline until you set one.",
+          "more": "ai",
+          "demo": "demo-gameai",
+          "aria": "Illustration: at night, a player tells the AI in chat that it is too dark and asks for daytime; the AI replies and the sun comes up",
+          "text": {
+            "q": "<Sam> @AI it is too dark, make it day",
+            "a": "[AI] Done. It is day now."
+          }
+        },
+        {
+          "id": "music",
+          "t": "Play your music to the whole server",
+          "d": "The sound of a music player on the host's PC goes to everyone on the server through Simple Voice Chat. Each player can turn it down or mute it.",
+          "more": "music",
+          "demo": "demo-music",
+          "aria": "Illustration: the host's music player is playing, notes drift to three players on the server; the first two have moving volume bars and the third has muted it",
+          "text": {
+            "src": "Host's music player",
+            "dst": "Players on the server",
+            "mute": "own volume, own mute"
+          }
+        },
+        {
+          "id": "handover",
+          "beta": true,
+          "t": "Hand a whole server to a friend",
+          "d": "Done hosting? Pack the worlds, mods and configs into one file and send it. Your friend imports it and carries on.",
+          "more": "handover",
+          "demo": "demo-handover",
+          "aria": "Illustration: the server on your PC stops, is packed into a .mdpack file, is sent to a friend's PC, and starts again there",
+          "text": {
+            "a": "Your PC",
+            "b": "Friend's PC",
+            "file": ".mdpack",
+            "s1": "1 Pack",
+            "s2": "2 Send",
+            "s3": "3 Import and carry on",
+            "done": "Done!"
+          }
+        },
+        {
+          "id": "cart",
+          "beta": true,
+          "t": "A mod cart that adds dependencies for you",
+          "d": "Pick your own mods and plugins without hunting for each dependency.",
+          "more": "mods",
+          "demo": "demo-cart",
+          "aria": "Illustration: REI is added to the cart, three dependencies are added automatically, then everything is installed and the four items are ticked off one by one",
+          "text": {
+            "add": "Add to cart",
+            "cart": "Cart",
+            "dep": "dep",
+            "install": "Install all"
+          }
+        },
+        {
+          "id": "pending",
+          "beta": true,
+          "t": "Modpack files that will not download, one by one",
+          "d": "Before, one file whose download address was not on an allowed site, or that had no checksum, made the whole modpack import fail.",
+          "more": "modpack",
+          "demo": "demo-pending",
+          "aria": "Illustration: three files that could not be downloaded; one is skipped, one is replaced by a local file, and one is downloaded after trusting the site",
+          "text": {
+            "title": "Pending files (3)",
+            "skip": "Skip",
+            "local": "Use a local file",
+            "trust": "Trust site and download"
+          }
+        },
+        {
+          "id": "adopt",
+          "beta": true,
+          "t": "Bring in a server you already run",
+          "d": "No need to create it again or move any files.",
+          "more": "takeover",
+          "demo": "demo-adopt",
+          "aria": "Illustration: an old server's folder is scanned and recognised as Paper 1.20.1 with 4 GB of memory, and it appears in the server list on the right",
+          "text": {
+            "keep": "Files stay where they are",
+            "list": "Servers",
+            "added": "Just adopted"
+          }
+        }
+      ]
+    },
     "core": [
       {
         "t": "One-click servers",
@@ -37,7 +166,7 @@
       },
       {
         "t": "Modpack import",
-        "d": "Import Modrinth .mrpack directly, or CurseForge zips with your own API key.",
+        "d": "Import a Modrinth .mrpack directly; for CurseForge zips, enter your own API key and the files inside are downloaded for you.",
         "icon": "pack"
       },
       {
@@ -58,7 +187,7 @@
     "moreContributors": "+{n}",
     "helpH": "Having trouble?",
     "reportT": "Report a problem",
-    "reportD": "No GitHub account needed. Fill in the form, copy the report, or use a fallback channel.",
+    "reportD": "Fill in one form and get a redacted report. Open an issue if you have a GitHub account; there is a way without one too.",
     "faqT": "FAQ",
     "faqD": "Java, tunnels, versions, errors, AI costs, SmartScreen and more.",
     "sensitive": "Never include API keys, MCP tokens, tunnel credentials or CurseForge keys in a report."
@@ -191,14 +320,14 @@
     "lead": "A single exe, no installer. Windows 64-bit only. The app interface is in Chinese.",
     "recommended": "Recommended: stable",
     "beta": "Beta",
-    "betaDiff": "Adds handover packs, the mod cart, pending modpack files, adopting existing servers and per-server Java.",
-    "betaWarn": "Run betas from their own folder and back up before trying an existing server. Betas do not auto-update to each other.",
+    "betaDiff": "Adds handover packs, the mod cart, one-by-one handling of modpack files that cannot be downloaded, adopting an existing server, and switching Java in the interface.",
+    "betaWarn": "Run a beta from its own folder and back up before trying it on an existing server. One beta does not update to the next; once the release is out, you can update to it in Settings.",
     "mirrorBtn": "Download from mirror",
     "githubBtn": "Download from GitHub",
     "notesLink": "What's new in this release",
     "published": "Released {date}",
     "companionH": "Companion mods (for player clients)",
-    "companionP": "AI companions need the companion mod on each friend's client, matching the server version. Pick the one for the server's loader and put it in the client's mods folder. The server-side mod installed from the Companion tab does not replace it.",
+    "companionP": "AI companions need the companion mod on each friend's client as well. Pick the one that matches the server's loader and game version and put it in the client's mods folder. What the host installs from the Companions tab is the server side; it does not replace the one on your friends' clients.",
     "companionNeo": "NeoForge 1.21.1",
     "companionForge": "Forge 1.20.1",
     "installH": "Install in three steps",
@@ -217,7 +346,7 @@
       "Windows 64-bit.",
       "The UI runs in a WebView2 window, or your default browser if WebView2 is missing.",
       "Upgrading from v2.6.1 or earlier (file name AutoMCHUB.exe): auto-update cannot find the renamed file, so place MineDeck.exe in the old folder manually. The old autostart entry is removed; turn it back on in Settings → Startup & tray if needed.",
-      "To uninstall, delete the exe's folder and %LocalAppData%\\MineDeck."
+      "To uninstall: if start-with-Windows is on, turn it off first under Settings → Startup and tray. Then delete the exe's folder and %LocalAppData%\\MineDeck. If you moved servers or backups somewhere else, delete those folders separately."
     ],
     "historyH": "Recent releases",
     "channel": "Channel",
@@ -243,9 +372,10 @@
   },
   "feedback": {
     "title": "Feedback · MineDeck",
-    "desc": "Report a MineDeck bug, suggestion or beta feedback without a GitHub account.",
+    "desc": "Report a MineDeck bug, suggestion or beta feedback.",
     "h": "Report a problem or suggestion",
-    "lead": "No GitHub account needed. When you are done, copy the report or send it through one of the channels below.",
+    "lead": "The form produces a redacted report. If you have a GitHub account you can open an issue with it.",
+    "leadDirect": "The form produces a redacted report. If you have a GitHub account you can open an issue with it; without one, you can send it to us directly.",
     "before": "Before you report",
     "beforeFaq": "FAQ",
     "beforeLimits": "Known limits",
@@ -299,6 +429,7 @@
     "actual": "Actual",
     "logs": "Logs",
     "logsHint": "Drop a .log or .txt file here. It is read in your browser and never uploaded. Long logs keep the first 200 and last 400 lines.",
+    "logsHintDirect": "Drop a .log or .txt file here. It is read in your browser. The log in the report is only sent if you press Send directly. Long logs keep the first 200 and last 400 lines.",
     "shots": "Screenshots: the copy and GitHub channels cannot attach images; paste them into the issue.",
     "contact": "Contact (optional)",
     "contactHint": "Email or QQ. Only sent through the direct channel, never in copied or GitHub reports.",
@@ -313,7 +444,13 @@
     "copyBtn": "Copy report",
     "downloadBtn": "Download .md",
     "githubBtn": "Open a GitHub issue",
-    "githubNote": "Needs a GitHub account; may not load in mainland China.",
+    "githubNote": "GitHub may not load in mainland China.",
+    "wayGh": "I have a GitHub account",
+    "wayGhP": "Opens an issue with the report filled in. You are notified of progress, and others can see it.",
+    "wayNo": "I do not have an account",
+    "wayNoP": "Sends the report straight to MineDeck, no sign-up. The author reads these regularly and may use AI to sort them. Leave a contact above if you want a reply.",
+    "wayNoOff": "Direct submission is not open yet. Copy or download the report and send it to the author however you can.",
+    "keep": "You can also keep a copy:",
     "githubLong": "Logs were too long and have been copied to the clipboard; paste them into the issue.",
     "endpointBtn": "Send directly",
     "sending": "Sending…",
@@ -341,7 +478,7 @@
       "It manages server processes and files on your own PC. It does not provide cloud servers, host worlds, or buy or run servers for you. AI features are optional; with no key set it connects to no AI service.",
       "MineDeck was called AutoMCHUB. It was renamed with {renamed}; 2.x releases still ship AutoMCHUB.exe."
     ],
-    "contribH": "Contributors",
+    "contribH": "Author and contributors",
     "contribAsOf": "as of {date}",
     "commits": "{n} commits",
     "hiddenNote": "AI coding tools and bot accounts are not listed.",
@@ -353,7 +490,7 @@
     "join": [
       {
         "t": "Report a problem",
-        "d": "Use the on-site feedback form; no GitHub account needed.",
+        "d": "Fill in the on-site feedback form to get a redacted report.",
         "to": "feedback"
       },
       {
@@ -429,5 +566,9 @@
       }
     ]
   },
-  "crumbHome": "Home"
+  "crumbHome": "Home",
+  "people": {
+    "author": "Author",
+    "contributors": "Contributors"
+  }
 }

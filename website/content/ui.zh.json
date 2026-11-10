@@ -8,6 +8,11 @@
   "menu": "菜单",
   "copy": "复制",
   "copied": "已复制",
+  "phone": {
+    "h": "这是一个 Windows 程序",
+    "p": "下到手机上用不了。请在电脑上打开下面这个地址下载：",
+    "copy": "复制这个地址"
+  },
   "home": {
     "eyebrow": "Windows · Minecraft Java 版 · MIT 开源",
     "h1": "在 Windows 上开一台<br>我的世界服务器",
@@ -24,6 +29,130 @@
     "coreH": "核心功能",
     "coreSub": "完整清单见功能页。",
     "allFeatures": "查看全部功能",
+    "show": {
+      "h": "不只是把服开起来",
+      "sub": "点左边的名字看演示。",
+      "tabsAria": "亮点",
+      "beta": "测试版",
+      "betaNote": "这一项目前只在 3.1.0 测试版里。",
+      "betaLink": "到下载页看测试版",
+      "moreLink": "功能页里的说明",
+      "replay": "重播",
+      "shotNote": "真实界面截图",
+      "items": [
+        {
+          "id": "banner",
+          "t": "起不来时，直接告诉你原因",
+          "d": "缺前置、装错模组、端口被占、Java 不对，控制台顶上直接写出来，不用自己翻日志。这一步不需要 AI。",
+          "more": "diag",
+          "demo": "demo-banner",
+          "aria": "示意动画：控制台打出报错，状态变成已停止，顶部落下横幅，写着缺少前置模组 geckolib，光标点了一下「让 AI 分析」",
+          "text": {
+            "tab": "控制台",
+            "tab2": "玩家",
+            "tab3": "备份",
+            "run": "运行中",
+            "stop": "已停止",
+            "l1": "[main/INFO] Loading 42 mods",
+            "l2": "[main/INFO] Preparing level \"world\"",
+            "l3": "[main/ERROR] Missing or unsupported",
+            "l4": "  mandatory dependencies: geckolib",
+            "l5": "[main/ERROR] Failed to start the server",
+            "title": "缺少前置模组",
+            "sum": "少装了前置模组，或者前置的版本不对：geckolib",
+            "btn": "让 AI 分析",
+            "more": "看详情和怎么修"
+          }
+        },
+        {
+          "id": "gameai",
+          "t": "在游戏里喊一声 @AI",
+          "d": "玩家在聊天里提问；你授权的人还能让它改时间、改天气。服务器里可以放会跟随、采集、打怪的 AI 伙伴。用你自己的 API Key，不配置就不联网。",
+          "more": "ai",
+          "demo": "demo-gameai",
+          "aria": "示意动画：夜里，玩家在聊天栏里对 AI 说天太黑了、改成白天，AI 回了话，天亮了",
+          "text": {
+            "q": "<小明> @AI 天太黑了，改成白天",
+            "a": "[AI] 好，已经改成白天了。"
+          }
+        },
+        {
+          "id": "music",
+          "t": "把正在听的歌放给全服",
+          "d": "房主电脑上音乐软件的声音，经 Simple Voice Chat 传给服务器里的每个人，各自可以调小或静音。",
+          "more": "music",
+          "demo": "demo-music",
+          "aria": "示意动画：房主的音乐软件在放歌，音符飘向服务器里的三个人，前两个人的音量条在跳，第三个人自己静了音",
+          "text": {
+            "src": "房主的音乐软件",
+            "dst": "服务器里的人",
+            "mute": "各自可以调小或静音"
+          }
+        },
+        {
+          "id": "handover",
+          "beta": true,
+          "t": "整台服务器打包交给朋友",
+          "d": "不想开了，把存档、模组和配置打成一个文件发过去，朋友导入就能接着开。",
+          "more": "handover",
+          "demo": "demo-handover",
+          "aria": "示意动画：你的电脑上的服务器停下来，装进一个 .mdpack 文件，发到朋友的电脑，在那里重新开起来",
+          "text": {
+            "a": "你的电脑",
+            "b": "朋友的电脑",
+            "file": ".mdpack",
+            "s1": "1 打包",
+            "s2": "2 发过去",
+            "s3": "3 导入，接着开",
+            "done": "Done!"
+          }
+        },
+        {
+          "id": "cart",
+          "beta": true,
+          "t": "模组放进购物车，前置自动补齐",
+          "d": "自己挑模组和插件，不用一个一个找前置。",
+          "more": "mods",
+          "demo": "demo-cart",
+          "aria": "示意动画：点「加入购物车」把 REI 放进购物车，三个前置自动补上，再点「安装全部」，四项依次打勾",
+          "text": {
+            "add": "加入购物车",
+            "cart": "购物车",
+            "dep": "前置",
+            "install": "安装全部"
+          }
+        },
+        {
+          "id": "pending",
+          "beta": true,
+          "t": "整合包里下不了的文件，逐个处理",
+          "d": "以前只要有一个文件的下载地址不在允许的站点里，或者没有校验值，整个整合包就导不进来。",
+          "more": "modpack",
+          "demo": "demo-pending",
+          "aria": "示意动画：三个下不了的文件，分别选了「跳过」「用本地文件代替」「信任站点并下载」",
+          "text": {
+            "title": "待决文件（3 个）",
+            "skip": "跳过",
+            "local": "用本地文件代替",
+            "trust": "信任站点并下载"
+          }
+        },
+        {
+          "id": "adopt",
+          "beta": true,
+          "t": "以前开的服，收进来接着管",
+          "d": "不用重新建，也不用搬文件。",
+          "more": "takeover",
+          "demo": "demo-adopt",
+          "aria": "示意动画：扫描一个老服务器的文件夹，认出是 Paper 1.20.1、4 GB 内存，右边的服务器列表里多出这一台",
+          "text": {
+            "keep": "文件留在原地",
+            "list": "服务器",
+            "added": "刚接管进来"
+          }
+        }
+      ]
+    },
     "core": [
       {
         "t": "一键开服",
@@ -37,7 +166,7 @@
       },
       {
         "t": "整合包导入",
-        "d": "Modrinth .mrpack 直接导入；CurseForge zip 用自己的 API Key 导入。",
+        "d": "Modrinth 的 .mrpack 直接导入；CurseForge 的 zip 填上自己的 API Key 就能自动下载里面的文件。",
         "icon": "pack"
       },
       {
@@ -58,7 +187,7 @@
     "moreContributors": "+{n}",
     "helpH": "遇到问题",
     "reportT": "提交问题",
-    "reportD": "不需要 GitHub 账号。填表后复制报告，或用备用通道提交。",
+    "reportD": "填一张表，生成一份脱敏的报告。有 GitHub 账号的直接开 Issue，没有账号也有办法交。",
     "faqT": "常见问题",
     "faqD": "Java、穿透、版本、报错、AI 费用、SmartScreen 等。",
     "sensitive": "提交问题时不要贴 API Key、MCP 令牌、穿透凭据或 CurseForge Key。"
@@ -191,14 +320,14 @@
     "lead": "单个 exe，不需要安装。只提供 Windows 64 位版本。",
     "recommended": "推荐：稳定版",
     "beta": "测试版",
-    "betaDiff": "比稳定版多了交接包、购物车、整合包待处理文件、接管已有服务器和按服务器换 Java。",
-    "betaWarn": "测试版请放在单独文件夹，试已有服务器前先备份。测试版之间不会自动更新。",
+    "betaDiff": "比稳定版多了交接包、模组购物车、整合包里下不了的文件逐个处理、接管已有服务器，以及在界面上换 Java。",
+    "betaWarn": "测试版请放在单独的文件夹里，拿已有的服务器试之前先备份。测试版之间不会自动更新；等正式版发布，可以在设置里直接更新过去。",
     "mirrorBtn": "国内镜像下载",
     "githubBtn": "从 GitHub 下载",
     "notesLink": "本版更新内容",
     "published": "发布于 {date}",
     "companionH": "伙伴模组（给玩家客户端）",
-    "companionP": "AI 伙伴需要好友的客户端装与服务器相同版本的伙伴模组。按服务器的加载器选一个，放进客户端的 mods。房主在「伙伴」标签里装的是服务端模组，不能代替这个。",
+    "companionP": "AI 伙伴需要好友的客户端也装伙伴模组。按服务器的加载器和游戏版本选一个，放进客户端的 mods 文件夹。房主在「伙伴」标签里装的是服务器这一侧的，不能代替好友客户端里的这一个。",
     "companionNeo": "NeoForge 1.21.1",
     "companionForge": "Forge 1.20.1",
     "installH": "安装三步",
@@ -217,7 +346,7 @@
       "Windows 64 位。",
       "界面在 WebView2 窗口里；没有 WebView2 时用系统默认浏览器打开。",
       "从 v2.6.1 及以前（文件名 AutoMCHUB.exe）升级：自动更新找不到改名后的文件，需要手动把 MineDeck.exe 放进原来的文件夹。旧的开机自启项会被删掉，需要的话在「设置 → 启动与托盘」重新打开。",
-      "卸载：删掉 exe 所在文件夹，以及 %LocalAppData%\\MineDeck。"
+      "卸载：开过开机自启的，先在「设置 → 启动与托盘」里关掉；然后删掉 exe 所在的文件夹和 %LocalAppData%\\MineDeck。把服务器或备份改存到了别处的，那些文件夹要另外删。"
     ],
     "historyH": "最近的版本",
     "channel": "渠道",
@@ -243,9 +372,10 @@
   },
   "feedback": {
     "title": "反馈 · MineDeck",
-    "desc": "提交 MineDeck 的问题、建议或测试反馈，不需要 GitHub 账号。",
+    "desc": "提交 MineDeck 的问题、建议或测试反馈。",
     "h": "提交问题或建议",
-    "lead": "不需要 GitHub 账号。填完后可以复制报告，或用下方的通道提交。",
+    "lead": "填完会生成一份脱敏的报告。有 GitHub 账号的可以直接开 Issue。",
+    "leadDirect": "填完会生成一份脱敏的报告。有 GitHub 账号的可以直接开 Issue；没有账号也可以直接提交给我们。",
     "before": "提交前先看",
     "beforeFaq": "常见问题",
     "beforeLimits": "已知边界",
@@ -299,9 +429,10 @@
     "actual": "实际",
     "logs": "日志",
     "logsHint": "可以把 .log 或 .txt 拖进来，文件只在浏览器里读取，不会上传。超长时保留开头 200 行和结尾 400 行。",
+    "logsHintDirect": "可以把 .log 或 .txt 拖进来，文件在浏览器里读取。只有你点了「直接提交」，报告里的日志才会发出去。超长时保留开头 200 行和结尾 400 行。",
     "shots": "截图：复制和 GitHub 通道不能附图，请在 Issue 里直接粘贴。",
     "contact": "联系方式（可选）",
-    "contactHint": "邮箱或 QQ。只在直接发送通道里发送，复制报告和 GitHub 通道不含。",
+    "contactHint": "邮箱或 QQ。只随「直接提交」发出，复制的报告和 GitHub Issue 里不含。",
     "confirm": "我已检查，报告里没有 API Key、密码和穿透凭据",
     "warn": "不要贴 API Key、局域网密码、樱花穿透访问密钥、CurseForge Key。生成报告时会自动替换日志里的 Windows 用户名、IP 地址和常见密钥形态，可在预览里检查。",
     "draft": "草稿只保存在你的浏览器里。",
@@ -313,9 +444,15 @@
     "copyBtn": "复制报告",
     "downloadBtn": "下载为 .md",
     "githubBtn": "在 GitHub 提交 Issue",
-    "githubNote": "需要 GitHub 账号，国内可能打不开。",
+    "githubNote": "GitHub 在国内可能打不开。",
+    "wayGh": "有 GitHub 账号",
+    "wayGhP": "会打开一条预填好的 Issue。有进展时你能收到通知，别人也能看到。",
+    "wayNo": "没有账号",
+    "wayNoP": "直接发给 MineDeck，不用注册。作者会定期查看，整理时可能用到 AI。想收到回复，就在上面留个联系方式。",
+    "wayNoOff": "直接提交的通道还没有开通。先把报告复制或下载下来，用你知道的方式发给作者。",
+    "keep": "也可以自己留一份：",
     "githubLong": "日志过长，已复制到剪贴板，请在 Issue 中粘贴。",
-    "endpointBtn": "直接发送",
+    "endpointBtn": "直接提交",
     "sending": "正在发送…",
     "sent": "已收到，编号 {id}。",
     "sendFail": "发送失败：{msg}。草稿已保留，请改用「复制报告」。",
@@ -341,7 +478,7 @@
       "它管的是本机上的服务器进程和文件，不提供云服务器、不托管存档，也不替你购买或运营服务器。AI 功能是可选项，不填 Key 时不连接任何 AI 服务。",
       "MineDeck 原名 AutoMCHUB。{renamed} 起改名为 MineDeck，2.x 版本的文件名仍是 AutoMCHUB.exe。"
     ],
-    "contribH": "贡献者",
+    "contribH": "作者与贡献者",
     "contribAsOf": "截至 {date}",
     "commits": "{n} 次提交",
     "hiddenNote": "列表不含 AI 编码工具和机器人账号。",
@@ -353,7 +490,7 @@
     "join": [
       {
         "t": "报告问题",
-        "d": "在站内反馈页填写，不需要 GitHub 账号。",
+        "d": "在站内反馈页填一张表，生成脱敏的报告。",
         "to": "feedback"
       },
       {
@@ -429,5 +566,9 @@
       }
     ]
   },
-  "crumbHome": "首页"
+  "crumbHome": "首页",
+  "people": {
+    "author": "作者",
+    "contributors": "贡献者"
+  }
 }

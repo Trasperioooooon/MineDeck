@@ -37,7 +37,7 @@ export function heatmap(ctx, { weeks = 52, linkReleases = true, summary = false 
   }
   const src = data.activity.source ? fmt(L.heat.source, { source: data.activity.source.replace(/ origin\/\S+| HEAD/, ''), date: ctx.fmtDate(data.activity.fetched_at || data.generated_at) }) : '';
   const sum = summary ? `<dl class="heat-sum">${[[total, L.heat.sumCommits], [relN, L.heat.sumReleases], [active, L.heat.sumDays]].map(([n, t]) => `<div><dt>${esc(t)}</dt><dd class="pix" data-count="${n}">${n}</dd></div>`).join('')}</dl>` : '';
-  return `<div class="card heat${summary ? ' has-sum' : ''}" data-anim="drop">
+  return `<div class="card heat${summary ? ' has-sum' : ''}${weeks > 26 ? ' is-year' : ''}" data-anim="drop">
  <div class="cal-scroll"><div class="cal-grid heat-grid" role="img" aria-label="${esc(fmt(L.heat.aria, { weeks }))}">${cells.join('')}</div></div>
  <div class="legend"><span>${esc(L.heat.less)}</span><span class="scale"><i class="h0"></i><i class="h1"></i><i class="h2"></i><i class="h3"></i><i class="h4"></i></span><span>${esc(L.heat.more)}</span><span><i class="h2 r"></i>${esc(L.heat.release)}</span>${src ? `<span class="heat-src">${esc(src)}</span>` : ''}</div>
 ${sum}</div>`;

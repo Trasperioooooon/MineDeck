@@ -1,0 +1,41 @@
+<!-- 亮点演示：待决文件。三个下不了的文件，光标依次给每个选一种处理办法：第一个「跳过」，第二个「用本地文件代替」，第三个「信任站点并下载」，选完各打一个勾。
+     默认画面即最终帧。画法和时间线见 css/motion.css 的 A10。面板标题和三个选项照搬程序界面，由调用方传入；文件名是编的，直接写在图里。 -->
+<svg class="anim sc-demo demo-pending" viewBox="0 0 480 270" xmlns="http://www.w3.org/2000/svg">
+ <rect class="d-shadow" x="14" y="14" width="458" height="248" rx="10"/>
+ <rect class="d-win" x="8" y="8" width="458" height="248" rx="10"/>
+ <path class="d-gold" d="M32 22 L42 40 H22 Z"/>
+ <rect class="d-ink" x="31" y="28" width="2" height="6"/><rect class="d-ink" x="31" y="36" width="2" height="2"/>
+ <text class="t-b t-lg" x="52" y="38">{{title}}</text>
+ <path class="d-line" d="M20 50 H454"/>
+
+ <!-- 第一行：跳过 -->
+ <text class="t-mono" x="22" y="74">tweaks-custom-1.2.jar</text>
+ <rect class="d-btn" x="22" y="84" width="54" height="24" rx="12"/><text x="49" y="101" text-anchor="middle">{{skip}}</text>
+ <rect class="d-btn" x="84" y="84" width="130" height="24" rx="12"/><text x="149" y="101" text-anchor="middle">{{local}}</text>
+ <rect class="d-btn" x="222" y="84" width="160" height="24" rx="12"/><text x="302" y="101" text-anchor="middle">{{trust}}</text>
+ <g class="dp-pick dp-p1"><rect class="d-dark" x="22" y="84" width="54" height="24" rx="12"/><text class="t-inv" x="49" y="101" text-anchor="middle">{{skip}}</text></g>
+ <g class="dp-ok dp-k1"><circle class="d-dot-ok" cx="438" cy="96" r="9"/><path class="d-tick" d="M433.5 96 l3 3 l5.5 -6.5"/></g>
+ <path class="d-line" d="M20 118 H454"/>
+
+ <!-- 第二行：用本地文件代替 -->
+ <text class="t-mono" x="22" y="142">legacy-core-0.9.jar</text>
+ <rect class="d-btn" x="22" y="152" width="54" height="24" rx="12"/><text x="49" y="169" text-anchor="middle">{{skip}}</text>
+ <rect class="d-btn" x="84" y="152" width="130" height="24" rx="12"/><text x="149" y="169" text-anchor="middle">{{local}}</text>
+ <rect class="d-btn" x="222" y="152" width="160" height="24" rx="12"/><text x="302" y="169" text-anchor="middle">{{trust}}</text>
+ <g class="dp-pick dp-p2"><rect class="d-dark" x="84" y="152" width="130" height="24" rx="12"/><text class="t-inv" x="149" y="169" text-anchor="middle">{{local}}</text></g>
+ <g class="dp-ok dp-k2"><circle class="d-dot-ok" cx="438" cy="164" r="9"/><path class="d-tick" d="M433.5 164 l3 3 l5.5 -6.5"/></g>
+ <path class="d-line" d="M20 186 H454"/>
+
+ <!-- 第三行：信任站点并下载 -->
+ <text class="t-mono" x="22" y="210">worldgen-pack.zip</text>
+ <rect class="d-btn" x="22" y="220" width="54" height="24" rx="12"/><text x="49" y="237" text-anchor="middle">{{skip}}</text>
+ <rect class="d-btn" x="84" y="220" width="130" height="24" rx="12"/><text x="149" y="237" text-anchor="middle">{{local}}</text>
+ <rect class="d-btn" x="222" y="220" width="160" height="24" rx="12"/><text x="302" y="237" text-anchor="middle">{{trust}}</text>
+ <g class="dp-pick dp-p3"><rect class="d-dark" x="222" y="220" width="160" height="24" rx="12"/><text class="t-inv" x="302" y="237" text-anchor="middle">{{trust}}</text></g>
+ <g class="dp-ok dp-k3"><circle class="d-dot-ok" cx="438" cy="232" r="9"/><path class="d-tick" d="M433.5 232 l3 3 l5.5 -6.5"/></g>
+
+ <circle class="d-ring dp-ring1" cx="64" cy="100" r="13"/>
+ <circle class="d-ring dp-ring2" cx="198" cy="168" r="13"/>
+ <circle class="d-ring dp-ring3" cx="366" cy="236" r="13"/>
+ <g transform="translate(366 236)"><g class="dp-cur"><path class="d-cursor" d="M0 0v14l4-4 3 6 2-1-3-6h5z"/></g></g>
+</svg>

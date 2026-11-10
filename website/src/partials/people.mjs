@@ -12,9 +12,18 @@ export function avatar(ctx, c, { showCount } = {}) {
   return extLink(ctx, c.html_url, '', { cls: 'avatar', html: body, aria: c.login });
 }
 
-/** 一排头像，最多 max 个，超出显示 +N */
-export function avatarRow(ctx, { max = 12, showCount = false } = {}) {
-  const list = ctx.data.contributors.list;
-  const extra = list.length - max;
-  return `<div class="avatars">${list.slice(0, max).map((c) => avatar(ctx, c, { showCount })).join('')}${extra > 0 ? `<a class="avatar more" href="${ctx.href('about')}#contributors"><span class="avatar-ph">${esc(fmt(ctx.L.home.moreContributors, { n: extra }))}</span></a>` : ''}</div>`;
+/**
+ * 作者和贡献者分两栏：仓库所有者（site.config.json 里 repo 的前半段）单独一栏，标「作者」；
+ * 其余提交过改动的人在另一栏，标「贡献者」，最多 max 个，超出显示 +N。没有其他贡献者时只有作者一栏。
+ */
+export function peopleSplit(ctx, { max = 12, showCount = false } = {}) {
+  const { L, cfg, data } = ctx;
+  const owner = cfg.repo.split('/')[0].toLowerCase();
+  const list = data.contributors.list;
+  const authors = list.filter((c) => c.login.toLowerCase() === owner);
+  const others = list.filter((c) => c.login.toLowerCase() !== owner);
+  const extra = others.length - max;
+  const col = (label, body) => `<div class="people-col"><b>${esc(label)}</b><div class="avatars">${body}</div></div>`;
+  const more = extra > 0 ? `<a class="avatar more" href="${ctx.href('about')}#contributors"><span class="avatar-ph">${esc(fmt(L.home.moreContributors, { n: extra }))}</span></a>` : '';
+  return `<div class="people">${authors.length ? col(L.people.author, authors.map((c) => avatar(ctx, c, { showCount })).join('')) : ''}${others.length ? col(L.people.contributors, others.slice(0, max).map((c) => avatar(ctx, c, { showCount })).join('') + more) : ''}</div>`;
 }

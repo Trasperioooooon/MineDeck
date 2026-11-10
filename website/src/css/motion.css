@@ -70,6 +70,172 @@
 .anim-404 .bb-chip{animation:md-float var(--motion-float) steps(4,end) 2}
 @keyframes md-float{50%{transform:translateY(-6px)}}
 
+/* A10 首页亮点演示（src/svg/demo-*.svg，七张）。原则不变：默认画面就是最终帧；JS 给 SVG 加上 is-playing 才从头播一遍
+   （进入视口、切到这一项、点「重播」）。每张都在两秒以内。移动用缓动，只有打字和状态切换是一下跳过去的。
+   下面先是七张图共用的画法（d- 是形状，t- 是文字），再是通用的关键帧，最后是各张的时间线。
+   想让某个东西「到某一刻才出现」：md-fade 配 .01s 和 backwards；「到某一刻就消失」：默认 opacity:0，配 d-hold。 */
+.sc-demo text{font-family:var(--font-sans);font-size:var(--fs-xs);fill:var(--color-text)}
+.sc-demo .d-shadow,.sc-demo .d-dark,.sc-demo .d-ink,.sc-demo .d-note{fill:var(--color-text)}
+.sc-demo .d-win{fill:var(--color-surface);stroke:var(--color-border);stroke-width:2.5}
+.sc-demo .d-bar{fill:var(--color-surface-muted);stroke:var(--color-border);stroke-width:2.5}
+.sc-demo .d-card,.sc-demo .d-btn{fill:var(--color-surface);stroke:var(--color-border);stroke-width:2}
+.sc-demo .d-frame{fill:none;stroke:var(--color-border);stroke-width:2.5}
+.sc-demo .d-soft{fill:var(--color-surface-muted)}
+.sc-demo .d-softer{fill:var(--color-divider)}
+.sc-demo .d-line{fill:none;stroke:var(--color-divider);stroke-width:1.5}
+.sc-demo .d-accent{fill:var(--color-accent-strong);stroke:var(--color-border);stroke-width:2}
+.sc-demo .d-fill,.sc-demo .d-grass{fill:var(--color-accent)}
+.sc-demo .d-ok{fill:var(--color-accent-soft);stroke:var(--color-border);stroke-width:2}
+.sc-demo .d-okbox{fill:var(--color-accent-strong);stroke:var(--color-border);stroke-width:1.5}
+.sc-demo .d-newrow{fill:var(--color-accent-soft);stroke:var(--color-border);stroke-width:2.5}
+.sc-demo .d-tag{fill:var(--color-beta-badge);stroke:var(--color-border);stroke-width:1.5}
+.sc-demo .d-warnbg{fill:var(--color-beta-soft);stroke:var(--color-border);stroke-width:2.5}
+.sc-demo .d-gold,.sc-demo .d-folder{fill:var(--color-beta);stroke:var(--color-border);stroke-width:2;stroke-linejoin:round}
+.sc-demo .d-dot-ok{fill:var(--color-accent);stroke:var(--color-border);stroke-width:1.5}
+.sc-demo .d-dot-off{fill:var(--color-divider);stroke:var(--color-border);stroke-width:1.5}
+.sc-demo .d-dot-err{fill:var(--color-danger);stroke:var(--color-border);stroke-width:1.5}
+.sc-demo .d-tick{fill:none;stroke:var(--color-on-accent);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.sc-demo .d-tick-dark{fill:none;stroke:var(--color-accent-strong);stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.sc-demo .d-path{fill:none;stroke:var(--color-border);stroke-width:2.5;stroke-dasharray:5 6;stroke-linecap:round}
+.sc-demo .d-stand{fill:var(--color-surface-muted);stroke:var(--color-border);stroke-width:2.5}
+.sc-demo .d-dirt{fill:var(--palette-dirt-500)}
+.sc-demo .d-edge{fill:none;stroke:var(--color-border);stroke-width:2}
+.sc-demo .d-seam{fill:none;stroke:var(--palette-dirt-700);stroke-width:2}
+.sc-demo .d-box{fill:var(--palette-dirt-300)}
+.sc-demo .d-tape{fill:var(--color-beta)}
+.sc-demo .d-lens{fill:none;stroke:var(--color-text-muted);stroke-width:2;stroke-linecap:round}
+.sc-demo .d-scan{fill:var(--color-accent);opacity:0}
+.sc-demo .d-mute{fill:none;stroke:var(--color-danger);stroke-width:3;stroke-linecap:round}
+.sc-demo .d-sky{fill:var(--color-surface-sky)}
+.sc-demo .d-cloud,.sc-demo .d-moon{fill:var(--color-surface)}
+.sc-demo .d-night{fill:var(--color-text);opacity:.88}
+.sc-demo .d-chatbg{fill:var(--color-text);opacity:.72}
+.sc-demo .d-cursor{fill:var(--color-surface);stroke:var(--color-border);stroke-width:1.5;stroke-linejoin:round}
+.sc-demo .d-ring{fill:none;stroke:var(--color-accent-strong);stroke-width:3;opacity:0}
+.sc-demo .dg-body{fill:var(--icon-2)}
+.sc-demo .dg-head{fill:var(--palette-dirt-300)}
+.sc-demo .dm-art{fill:var(--icon-7);stroke:var(--color-border);stroke-width:2}
+.sc-demo .dm-a1,.sc-demo .dc-i2{fill:var(--icon-2);stroke:var(--color-border);stroke-width:1.5}
+.sc-demo .dm-a2,.sc-demo .dc-i1{fill:var(--icon-5);stroke:var(--color-border);stroke-width:1.5}
+.sc-demo .dm-a3,.sc-demo .dc-i3{fill:var(--icon-8);stroke:var(--color-border);stroke-width:1.5}
+.sc-demo .t-b{font-weight:var(--fw-bold)}
+.sc-demo .t-lg{font-size:var(--fs-md)}
+.sc-demo .t-muted{fill:var(--color-text-muted)}
+.sc-demo .t-u{text-decoration:underline}
+.sc-demo .t-on{fill:var(--color-on-accent);font-weight:var(--fw-bold);font-size:var(--fs-md)}
+.sc-demo .t-inv{fill:var(--color-surface)}
+.sc-demo .t-px{font-family:var(--font-pixel)}
+.sc-demo .t-mono{font-family:var(--font-mono)}
+.sc-demo .t-log{font-family:var(--font-mono);fill:var(--color-surface-muted)}
+.sc-demo .t-err{fill:var(--color-beta-badge)}
+.sc-demo .t-chat{font-family:var(--font-mono);fill:var(--color-surface)}
+.sc-demo .t-ai{fill:var(--color-heat-2)}
+
+/* 放大缩小都绕自己的中心；进度条从左边长出来；音量条从底下长上来 */
+.sc-demo .d-ring,.sc-demo .dh-new,.sc-demo .dc-row,.sc-demo .dc-ok,.sc-demo .dp-pick,.sc-demo .dp-ok,.sc-demo .da-chip{transform-box:fill-box;transform-origin:center}
+.sc-demo .dh-fill,.sc-demo .dm-prog{transform-box:fill-box;transform-origin:left center}
+.sc-demo .dm-eq rect{transform-box:fill-box;transform-origin:center bottom}
+
+@keyframes d-hold{from,to{opacity:1}}
+@keyframes d-in{from{opacity:0}}
+@keyframes d-pop{from{transform:scale(.5);opacity:0}}
+@keyframes d-drop{from{transform:translateY(-18px);opacity:0}}
+@keyframes d-slide{from{transform:translateX(-26px);opacity:0}}
+@keyframes d-grow{from{transform:scaleX(0)}}
+@keyframes d-click{0%{transform:scale(.3);opacity:1}100%{transform:scale(1.5);opacity:0}}
+@keyframes d-was-ok{from{fill:var(--color-accent)}}
+@keyframes d-was-off{from{fill:var(--color-divider)}}
+
+/* 报错横幅（1.7s）：日志 .05–.5 → 状态变「已停止」.5 → 横幅落下 .65 → 光标过去 1.0 → 点一下 1.42 */
+.demo-banner .db-run{opacity:0}
+.demo-banner.is-playing .db-l1{animation:md-fade .01s steps(1,end) .05s backwards}
+.demo-banner.is-playing .db-l2{animation:md-fade .01s steps(1,end) .17s backwards}
+.demo-banner.is-playing .db-l3{animation:md-fade .01s steps(1,end) .29s backwards}
+.demo-banner.is-playing .db-l4{animation:md-fade .01s steps(1,end) .36s backwards}
+.demo-banner.is-playing .db-l5{animation:md-fade .01s steps(1,end) .5s backwards}
+.demo-banner.is-playing .db-run{animation:d-hold .5s}
+.demo-banner.is-playing .db-stop{animation:md-fade .01s steps(1,end) .5s backwards}
+.demo-banner.is-playing .db-banner{animation:d-drop .26s var(--motion-ease-out) .65s backwards}
+.demo-banner.is-playing .db-cur{animation:db-cur .4s var(--motion-ease-out) 1s backwards}
+.demo-banner.is-playing .db-ring{animation:d-click .3s ease-out 1.42s}
+@keyframes db-cur{from{transform:translate(-150px,92px)}}
+
+/* 交接包（1.5s）：左边灯变灰 .12 → 包出现 .2 → 滑到中间 .4–.9 → 右边服务器出现 .95 → 进度条 1.05–1.45 → 灯变绿、打勾 1.45 */
+.demo-handover.is-playing .dh-l{animation:d-was-ok .01s steps(1,end) .12s backwards}
+.demo-handover.is-playing .dh-box{animation:d-in .15s ease-out .2s backwards,dh-ship .5s cubic-bezier(.5,0,.2,1) .4s backwards}
+.demo-handover.is-playing .dh-new{animation:d-pop .2s var(--motion-ease-out) .95s backwards}
+.demo-handover.is-playing .dh-fill{animation:d-grow .4s linear 1.05s backwards}
+.demo-handover.is-playing .dh-r{animation:d-was-off .01s steps(1,end) 1.45s backwards}
+.demo-handover.is-playing .dh-done{animation:md-fade .01s steps(1,end) 1.45s backwards}
+@keyframes dh-ship{from{transform:translateX(-58px)}}
+
+/* 游戏内 AI（1.3s）：玩家打字 .1–.55 → AI 回话 .7 → 天亮、太阳升起 .75–1.3 */
+.demo-gameai .dg-night{opacity:0}
+.demo-gameai.is-playing .dg-q{animation:md-type .45s steps(14,end) .1s backwards}
+.demo-gameai.is-playing .dg-a{animation:md-fade .01s steps(1,end) .7s backwards}
+.demo-gameai.is-playing .dg-night{animation:dg-dawn .55s ease-in-out .75s backwards}
+.demo-gameai.is-playing .dg-sun{animation:dg-rise .55s var(--motion-ease-out) .75s backwards}
+@keyframes dg-dawn{from{opacity:1}to{opacity:0}}
+@keyframes dg-rise{from{transform:translateY(170px)}}
+
+/* 音乐共享（1.75s）：进度条一直在走 → 三个音符依次飘过去 .1/.28/.46 → 两个人的音量条跳起来 .6/.75 */
+.demo-music.is-playing .dm-prog{animation:dm-prog 1.7s linear backwards}
+.demo-music.is-playing .dm-n{animation:dm-fly .45s var(--motion-ease-out) backwards}
+.demo-music.is-playing .dm-n1{animation-delay:.1s}
+.demo-music.is-playing .dm-n2{animation-delay:.28s}
+.demo-music.is-playing .dm-n3{animation-delay:.46s}
+.demo-music.is-playing .dm-eq rect{animation:dm-eq .5s ease-in-out 2 backwards}
+.demo-music.is-playing .dm-eq1 rect{animation-delay:.6s}
+.demo-music.is-playing .dm-eq2 rect{animation-delay:.75s}
+.demo-music.is-playing .dm-eq rect:nth-child(2){animation-duration:.42s}
+.demo-music.is-playing .dm-eq rect:nth-child(3){animation-duration:.56s}
+@keyframes dm-prog{from{transform:scaleX(.3)}}
+@keyframes dm-fly{from{transform:translate(-34px,10px);opacity:0}}
+@keyframes dm-eq{0%{transform:scaleY(.2)}30%{transform:scaleY(1)}60%{transform:scaleY(.4)}100%{transform:scaleY(1)}}
+
+/* 购物车（1.45s）：光标到「加入购物车」.28，点 .3 → 模组进购物车 .42，三个前置跟上 .58/.66/.74 → 光标到「安装全部」.9，点 .95 → 四个勾 1.05 起 */
+.demo-cart .dc-add{opacity:0}
+.demo-cart.is-playing .dc-cur{animation:dc-cur 1.25s var(--motion-ease-out) backwards}
+.demo-cart.is-playing .dc-ring1{animation:d-click .3s ease-out .3s}
+.demo-cart.is-playing .dc-add{animation:d-hold .36s}
+.demo-cart.is-playing .dc-added{animation:md-fade .01s steps(1,end) .36s backwards}
+.demo-cart.is-playing .dc-row{animation:d-pop .18s var(--motion-ease-out) backwards}
+.demo-cart.is-playing .dc-r1{animation-delay:.42s}
+.demo-cart.is-playing .dc-r2{animation-delay:.58s}
+.demo-cart.is-playing .dc-r3{animation-delay:.66s}
+.demo-cart.is-playing .dc-r4{animation-delay:.74s}
+.demo-cart.is-playing .dc-ring2{animation:d-click .3s ease-out .95s}
+.demo-cart.is-playing .dc-ok{animation:d-pop .16s var(--motion-ease-out) backwards}
+.demo-cart.is-playing .dc-k1{animation-delay:1.05s}
+.demo-cart.is-playing .dc-k2{animation-delay:1.13s}
+.demo-cart.is-playing .dc-k3{animation-delay:1.21s}
+.demo-cart.is-playing .dc-k4{animation-delay:1.29s}
+@keyframes dc-cur{0%{transform:translate(-150px,-60px)}22%,42%{transform:translate(-202px,-144px)}72%,100%{transform:none}}
+
+/* 待决文件（1.4s）：光标依次停在三行各自选中的那个选项上，.23/.65/1.1 各点一下，点完那一项变黑、行尾打勾 */
+.demo-pending.is-playing .dp-cur{animation:dp-cur 1.3s var(--motion-ease-out) backwards}
+.demo-pending.is-playing .dp-ring1{animation:d-click .3s ease-out .23s}
+.demo-pending.is-playing .dp-ring2{animation:d-click .3s ease-out .65s}
+.demo-pending.is-playing .dp-ring3{animation:d-click .3s ease-out 1.1s}
+.demo-pending.is-playing .dp-pick,.demo-pending.is-playing .dp-ok{animation:d-pop .16s var(--motion-ease-out) backwards}
+.demo-pending.is-playing .dp-p1{animation-delay:.28s}
+.demo-pending.is-playing .dp-k1{animation-delay:.36s}
+.demo-pending.is-playing .dp-p2{animation-delay:.7s}
+.demo-pending.is-playing .dp-k2{animation-delay:.78s}
+.demo-pending.is-playing .dp-p3{animation-delay:1.15s}
+.demo-pending.is-playing .dp-k3{animation-delay:1.23s}
+@keyframes dp-cur{0%{transform:translate(-250px,-190px)}16%,30%{transform:translate(-302px,-136px)}48%,62%{transform:translate(-168px,-68px)}82%,100%{transform:none}}
+
+/* 接管（1.3s）：扫描条从上扫到下 .05–.6 → 认出的三样依次冒出来 .5/.6/.7 → 箭头 .85 → 列表里多出这一台 1.0 */
+.demo-adopt.is-playing .da-scan{animation:da-scan .55s linear .05s}
+.demo-adopt.is-playing .da-chip{animation:d-pop .18s var(--motion-ease-out) backwards}
+.demo-adopt.is-playing .da-c1{animation-delay:.5s}
+.demo-adopt.is-playing .da-c2{animation-delay:.6s}
+.demo-adopt.is-playing .da-c3{animation-delay:.7s}
+.demo-adopt.is-playing .da-arrow{animation:d-in .15s ease-out .85s backwards}
+.demo-adopt.is-playing .da-new{animation:d-slide .28s var(--motion-ease-out) 1s backwards}
+@keyframes da-scan{0%{opacity:.3;transform:none}85%{opacity:.3;transform:translateY(90px)}100%{opacity:0;transform:translateY(90px)}}
+
 /* 按钮与卡片的悬停过渡已在 components.css；这里统一关闭所有动效 */
 @media (prefers-reduced-motion:reduce){
  *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}

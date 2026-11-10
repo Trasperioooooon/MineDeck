@@ -3,7 +3,7 @@ import { esc, fmt } from '../partials/util.mjs';
 import { layout } from '../partials/layout.mjs';
 import { pageHead, secHead, extLink, button, toc } from '../partials/ui.mjs';
 import { heatmap, monthlyBars } from '../partials/heatmap.mjs';
-import { avatarRow } from '../partials/people.mjs';
+import { peopleSplit } from '../partials/people.mjs';
 import { repo } from '../routes.mjs';
 
 export default function about(ctx) {
@@ -15,7 +15,7 @@ export default function about(ctx) {
     : `<a class="card join" href="${ctx.href(j.to)}${j.q || ''}"><b>${esc(j.t)} →</b><p>${esc(j.d)}</p></a>`).join('');
   const sections = [
     { id: 'intro', h: A.introH, body: A.intro.map((p) => `<p>${esc(fmt(p, { renamed: data.renamed_in || '' }))}</p>`).join('') },
-    { id: 'contributors', h: A.contribH, p: esc(asOf(data.contributors.fetched_at)), body: avatarRow(ctx, { max: 100, showCount: true }) + (data.contributors.hidden && cfg.contributors.showHiddenNote ? `<p class="note">${esc(A.hiddenNote)}</p>` : '') },
+    { id: 'contributors', h: A.contribH, p: esc(asOf(data.contributors.fetched_at)), body: peopleSplit(ctx, { max: 100, showCount: true }) + (data.contributors.hidden && cfg.contributors.showHiddenNote ? `<p class="note">${esc(A.hiddenNote)}</p>` : '') },
     { id: 'activity', h: A.activityH, p: esc(A.activitySub), body: heatmap(ctx, { weeks: 52 }) + `<h3 class="sub-h">${esc(A.monthly)}</h3>` + monthlyBars(ctx) },
     { id: 'contribute', h: A.joinH, body: `<div class="grid cols-3">${join}</div>` + (cfg.stats.showStars && data.repoInfo ? `<p class="star-line">${esc(fmt(A.starP, { n: data.repoInfo.stargazers_count, date: ctx.fmtDate(data.repoInfo.fetched_at) }))} ${button({ href: repo(cfg), label: L.home.star, size: 'sm', ext: true, ctx })}</p>` : '') },
     { id: 'license', h: A.licenseH, body: `<p>${esc(A.licenseP)}</p><pre class="card license">${esc(data.license)}</pre>` },

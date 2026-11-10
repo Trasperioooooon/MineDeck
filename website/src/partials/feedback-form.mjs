@@ -28,13 +28,24 @@ export function feedbackForm(ctx) {
     labels: { kinds: F.kinds, results: F.results, areas: F.areaNames, title: F.titleF, version: F.version, os: F.os, steps: F.steps, expected: F.expected, actual: F.actual, confirm: F.confirm, caseId: F.caseId, result: F.result },
   };
   const btn = (c) => ({
-    copy: `<button type="button" class="btn primary" data-channel="copy">${icon('copy', { cls: 'btn-ico i-copy' })}${icon('check', { cls: 'btn-ico i-check' })}<span>${esc(F.copyBtn)}</span></button>`,
-    download: `<button type="button" class="btn" data-channel="download"><span>${esc(F.downloadBtn)}</span></button>`,
-    github: `<span class="ch-gh"><button type="button" class="btn ext" data-channel="github"><span>${esc(F.githubBtn)}</span></button><small>${esc(F.githubNote)} · ${esc(L.fallback)}</small></span>`,
+    copy: `<button type="button" class="btn sm" data-channel="copy">${icon('copy', { cls: 'btn-ico i-copy' })}${icon('check', { cls: 'btn-ico i-check' })}<span>${esc(F.copyBtn)}</span></button>`,
+    download: `<button type="button" class="btn sm" data-channel="download"><span>${esc(F.downloadBtn)}</span></button>`,
+    github: `<button type="button" class="btn primary ext" data-channel="github"><span>${esc(F.githubBtn)}</span></button>`,
     endpoint: `<button type="button" class="btn primary" data-channel="endpoint"><span>${esc(c.label || F.endpointBtn)}</span></button>`,
     email: `<button type="button" class="btn" data-channel="email"><span>Email</span></button>`,
     community: `<span class="ch-com"><b>${esc(c.label)}</b> ${esc(c.value || '')}</span>`,
   })[c.type] || '';
+  // 提交方式按有没有 GitHub 账号分两条路。没有账号的那条路走直接提交（endpoint 通道）；
+  // 这个通道还没开时，如实说明还没开通，给复制和下载。开了以后复制和下载放在下面，供人自己留一份。
+  const chs = publicChannels(cfg);
+  const has = (t) => chs.find((c) => c.type === t);
+  const keep = ['copy', 'download'].map(has).filter(Boolean).map(btn).join('');
+  const extra = ['email', 'community'].map(has).filter(Boolean).map(btn).join('');
+  const wayGh = has('github') ? `<div class="card fb-way"><b>${esc(F.wayGh)}</b><p>${esc(F.wayGhP)}</p><div class="cta">${btn(has('github'))}</div><small>${esc(F.githubNote)}</small></div>` : '';
+  const wayNo = has('endpoint')
+    ? `<div class="card fb-way"><b>${esc(F.wayNo)}</b><p>${esc(F.wayNoP)}</p><div class="cta">${btn(has('endpoint'))}${extra}</div></div>`
+    : `<div class="card fb-way"><b>${esc(F.wayNo)}</b><p>${esc(F.wayNoOff)}</p><div class="cta">${keep}${extra}</div></div>`;
+  const submit = `<div class="fb-ways">${wayGh}${wayNo}</div>${has('endpoint') && keep ? `<p class="fb-keep"><span>${esc(F.keep)}</span>${keep}</p>` : ''}`;
   return `<noscript><p class="notice">${esc(F.noJs)} <a href="https://github.com/${esc(cfg.repo)}/issues/new" data-ext target="_blank" rel="noopener">GitHub Issues ↗</a></p></noscript>
 <form class="form card js-only" id="fb" novalidate autocomplete="off">
  <script type="application/json" id="fb-config">${JSON.stringify(cfgJson).replace(/</g, '\\u003c')}</script>
@@ -66,13 +77,13 @@ export function feedbackForm(ctx) {
   ${field('fb-expected', F.expected, '<textarea id="fb-expected" name="expected" rows="3"></textarea>', { cls: 'need-bug', req: true })}
   ${field('fb-actual', F.actual, '<textarea id="fb-actual" name="actual" rows="3"></textarea>', { cls: 'need-bug', req: true })}
  </div>
- ${field('fb-logs', F.logs, '<textarea id="fb-logs" name="logs" rows="6" class="mono" maxlength="60000" spellcheck="false"></textarea>', { hint: F.logsHint, cls: 'drop' })}
+ ${field('fb-logs', F.logs, '<textarea id="fb-logs" name="logs" rows="6" class="mono" maxlength="60000" spellcheck="false"></textarea>', { hint: has('endpoint') ? F.logsHintDirect : F.logsHint, cls: 'drop' })}
  <p class="hint">${esc(F.shots)}</p>
  ${field('fb-contact', F.contact, '<input id="fb-contact" name="contact" type="text" maxlength="80">', { hint: F.contactHint, show: 'endpoint' })}
  <input type="text" name="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
  <label class="confirm"><input type="checkbox" name="confirm" required> ${esc(F.confirm)}</label>
  <div class="field"><label for="fb-preview">${esc(F.preview)}</label><textarea id="fb-preview" class="mono" rows="10" readonly></textarea><span class="hint" id="fb-redact" aria-live="polite"></span></div>
- <div class="fb-submit"><b class="sub-h">${esc(F.submitH)}</b><div class="cta">${publicChannels(cfg).map(btn).join('')}</div><p class="fb-status" role="status" aria-live="polite"></p></div>
+ <div class="fb-submit"><b class="sub-h">${esc(F.submitH)}</b>${submit}<p class="fb-status" role="status" aria-live="polite"></p></div>
  <p class="hint">${esc(F.draft)} <button type="button" class="linkish" data-clear>${esc(F.clear)}</button></p>
 </form>`;
 }

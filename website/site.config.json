@@ -23,9 +23,9 @@
     "_note": "排除名单里的账号不进贡献者墙（默认隐藏 AI 编码工具账号）；type 为 Bot 的账号总是排除。"
   },
   "stats": {
-    "showStars": true,
+    "showStars": false,
     "showDownloads": false,
-    "_note": "Star 数为构建时快照并注明日期；下载次数只有 GitHub 侧计数，默认不显示。"
+    "_note": "Star 数为构建时快照并注明日期，数字还小的时候先不显示，改成 true 即恢复；下载次数只有 GitHub 侧计数，默认不显示。"
   },
   "feedback": {
     "channels": [
@@ -46,8 +46,7 @@
         "type": "endpoint",
         "enabled": false,
         "url": "",
-        "timeoutMs": 15000,
-        "label": "直接发送"
+        "timeoutMs": 15000
       },
       {
         "type": "email",

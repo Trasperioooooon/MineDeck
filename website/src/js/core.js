@@ -80,6 +80,49 @@
     s.addEventListener('change', function () { location.href = s.value; });
   });
 
+  // 首页亮点展示台：点左边的名字换右边的面板，不自动翻。窄屏和没有 JS 时所有面板依次排开（见 pages.css）。
+  // 面板里的演示在进入视口、被切换到时各播一遍；减少动效时不播，画面本来就是最终帧。
+  $$('.showcase').forEach(function (box) {
+    var tabs = $$('.sc-tab', box), panels = $$('.sc-panel', box);
+    if (!tabs.length || !panels.length) return;
+    function play(panel) {
+      var d = panel.querySelector('.sc-demo');
+      if (!d || still) return;
+      d.classList.remove('is-playing'); void d.getBoundingClientRect(); d.classList.add('is-playing');
+    }
+    function show(id) {
+      tabs.forEach(function (t) { if (t.getAttribute('data-sc') === id) t.setAttribute('aria-current', 'true'); else t.removeAttribute('aria-current'); });
+      panels.forEach(function (p) { var on = p.id === 'sc-' + id; p.classList.toggle('is-on', on); if (on) play(p); });
+    }
+    box.classList.add('is-tabs');
+    panels[0].classList.add('is-on');
+    tabs.forEach(function (t) { t.addEventListener('click', function (e) { e.preventDefault(); show(t.getAttribute('data-sc')); }); });
+    if ('IntersectionObserver' in window) {
+      var seenIo = new IntersectionObserver(function (es) {
+        es.forEach(function (e) { if (e.isIntersecting) { seenIo.unobserve(e.target); play(e.target); } });
+      }, { threshold: 0.4 });
+      panels.forEach(function (p) { if (p.querySelector('.sc-demo')) seenIo.observe(p); });
+    }
+  });
+
+  // 页内目录：标出正在看的那一节。取视口上方 40% 处所在的小节，没有 IntersectionObserver 时不标。
+  $$('.toc').forEach(function (toc) {
+    var links = $$('a[href^="#"]', toc), map = {}, seen = {};
+    links.forEach(function (a) { var el = document.getElementById(decodeURIComponent(a.getAttribute('href').slice(1))); if (el) map[el.id] = a; });
+    var ids = Object.keys(map);
+    if (!ids.length || !('IntersectionObserver' in window)) return;
+    function mark() {
+      var cur = null;
+      ids.forEach(function (id) { if (seen[id]) cur = cur || id; });
+      links.forEach(function (a) { if (cur && a === map[cur]) a.setAttribute('aria-current', 'location'); else a.removeAttribute('aria-current'); });
+    }
+    var spy = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { seen[e.target.id] = e.isIntersecting; });
+      mark();
+    }, { rootMargin: '-10% 0px -55% 0px' });
+    ids.forEach(function (id) { spy.observe(document.getElementById(id)); });
+  });
+
   // 菜单：点菜单外关闭
   var menu = document.querySelector('details.menu');
   if (menu) document.addEventListener('click', function (e) { if (menu.open && !menu.contains(e.target)) menu.open = false; });

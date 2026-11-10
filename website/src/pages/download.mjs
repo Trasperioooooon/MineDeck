@@ -2,17 +2,19 @@
 import { esc, fmt } from '../partials/util.mjs';
 import { layout } from '../partials/layout.mjs';
 import { pageHead, secHead, copyable, go, button, extLink, versionBadge } from '../partials/ui.mjs';
-import { dlButtons, releaseMeta } from '../partials/release.mjs';
+import { dlButtons, releaseMeta, phoneNote } from '../partials/release.mjs';
 import { illustration } from '../partials/svg.mjs';
 
 export default function download(ctx) {
   const { L, data, cfg } = ctx;
   const D = L.download;
   const st = data.latest_stable, bt = data.latest_beta;
-  const relCard = (r, { title, cls, extra = '' }) => `<div class="card dl-card ${cls}">
+  // 稳定版用主按钮，并带手机提示；测试版用次要样式，免得不留神下到测试版
+  const relCard = (r, { title, cls, extra = '', quiet = false }) => `<div class="card dl-card ${cls}">
   <div class="dl-card-h"><h2 class="pix">${esc(title)}</h2>${releaseMeta(ctx, r)}</div>
   ${extra}
-  <div class="cta">${dlButtons(ctx, r)}</div>
+  ${quiet ? '' : phoneNote(ctx)}
+  <div class="cta${quiet ? '' : ' has-phone-note'}">${dlButtons(ctx, r, { quiet })}</div>
   ${r.exe && r.exe.sha256 ? `<div class="sha-row"><small>SHA-256 · ${esc(r.exe.name)}</small>${copyable(ctx, r.exe.sha256, { label: L.release.copySha })}</div>` : ''}
   ${go(ctx.href('release', { tag: r.tag }), D.notesLink)}
  </div>`;
@@ -21,11 +23,11 @@ export default function download(ctx) {
     label: D.smartAria, attrs: 'data-frames="3"',
     text: D.smart,
   });
-  const hist = data.releases.slice(0, 5).map((r) => `<tr><td><a href="${ctx.href('release', { tag: r.tag })}">${esc(r.tag)}</a></td><td>${versionBadge(L, r)}</td><td>${esc(r.day_local)}</td><td>${r.exe ? esc(r.exe.size_label) : '—'}</td><td class="acts">${r.exe ? (r.exe.mirror_url ? button({ href: r.exe.mirror_url, label: D.mirrorBtn, size: 'sm', icon: 'arrow' }) : '') + extLink(ctx, r.exe.github_url, 'GitHub', { cls: 'gh-alt' }) : ''}</td></tr>`).join('');
+  const hist = data.releases.slice(0, 5).map((r) => `<tr><td><a href="${ctx.href('release', { tag: r.tag })}">${esc(r.tag)}</a></td><td>${versionBadge(L, r)}</td><td>${esc(r.day_local)}</td><td>${r.exe ? esc(r.exe.size_label) : '—'}</td><td class="acts">${r.exe ? (r.exe.mirror_url ? `<a href="${esc(r.exe.mirror_url)}">${esc(L.log.mirror)}</a>` : '') + extLink(ctx, r.exe.github_url, 'GitHub', { cls: 'gh-alt' }) : ''}</td></tr>`).join('');
   const main = `${pageHead(ctx, { h: D.h, lead: esc(D.lead), crumbs: [ctx.crumb('home', L.crumbHome), ctx.crumb('download', D.h)] })}
 <section class="sec dl-grid">
  ${st ? relCard(st, { title: D.recommended, cls: 'is-stable' }) : ''}
- ${data.show_beta ? relCard(bt, { title: D.beta, cls: 'is-beta', extra: `<p>${esc(D.betaDiff)}</p><p class="notice">${esc(D.betaWarn)}</p>` }) : ''}
+ ${data.show_beta ? relCard(bt, { title: D.beta, cls: 'is-beta', quiet: true, extra: `<p>${esc(D.betaDiff)}</p><p class="notice">${esc(D.betaWarn)}</p>` }) : ''}
 </section>
 
 ${companions.length ? `<section class="sec" id="companion">
