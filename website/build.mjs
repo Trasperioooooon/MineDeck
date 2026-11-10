@@ -1,130 +1,91 @@
 #!/usr/bin/env node
-// MineDeck 官网构建脚本。只用 Node 自带模块（需要 Node 18 及以上，用到全局 fetch）。
-// 字体子集化调用 fonttools 的 pyftsubset（可选）；没有安装时直接复制完整字体并给出提示。
+// MineDeck 官网构建脚本。只用 Node 自带模块（Node 18+，fetch 步骤用到全局 fetch）。
+// 字体子集化调用 fonttools 的 pyftsubset（可选）；头像压缩用 Pillow（可选）。
 //
 // 用法：
-//   node build.mjs              联网拉取 GitHub Releases，更新 data/releases.cache.json，输出到 dist/
-//   node build.mjs --offline    不联网，用 data/releases.cache.json 构建
-//   node build.mjs --preview    链接写成 xxx/index.html，便于双击本地打开（默认输出到 dist-preview/）
-//   node build.mjs --out <dir>  指定输出目录
-// 环境变量：GITHUB_TOKEN 或 GH_TOKEN（可选，避免匿名限流）；SOURCE_DATE_EPOCH（可选，固定构建时间）
+//   node build.mjs fetch        联网：GitHub Releases、仓库信息、贡献者与头像、提交活动 → data/
+//   node build.mjs build        离线、确定性：data/ + content/ + src/ → dist/
+//   node build.mjs              等于 fetch && build；fetch 失败时用已有 data/ 继续并警告
+//   --offline                   同 build（兼容旧用法）
+//   --preview                   链接写成 xxx/index.html，便于双击本地打开（默认输出到 dist-preview/）
+//   --out <dir>                 指定输出目录
+// 环境变量：GITHUB_TOKEN 或 GH_TOKEN（可选）；SOURCE_DATE_EPOCH（可选，固定构建时间）
 
-import { readFileSync, writeFileSync, mkdirSync, rmSync, copyFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, rmSync, copyFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { dirname, join, resolve, basename, extname } from 'node:path';
+import { dirname, join, resolve, basename, extname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
-import { render, sanitize, summary } from './lib/markdown.mjs';
-import { ROUTES, LANGS, NAV, FOOTER_LINKS } from './src/routes.mjs';
+import { fetchAll, hasData, readJson } from './lib/fetch.mjs';
+import { buildModel, pickRelease } from './lib/data.mjs';
+import { ROUTES, LANGS, NAV, FOOTER } from './src/routes.mjs';
+import { checkDist } from './lib/checks.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '..');
+const DATA = join(HERE, 'data');
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
 const opt = (n, d) => { const i = args.indexOf(n); return i >= 0 && args[i + 1] ? args[i + 1] : d; };
-const OFFLINE = flag('--offline');
+const cmd = args.find((a) => a === 'fetch' || a === 'build') || (flag('--offline') ? 'build' : 'all');
 const PREVIEW = flag('--preview');
 const OUT = resolve(HERE, opt('--out', PREVIEW ? 'dist-preview' : 'dist'));
-const CACHE = join(HERE, 'data', 'releases.cache.json');
-const cfg = JSON.parse(readFileSync(join(HERE, 'site.config.json'), 'utf8'));
-const I18N = { zh: JSON.parse(readFileSync(join(HERE, 'src/i18n/zh.json'), 'utf8')), en: JSON.parse(readFileSync(join(HERE, 'src/i18n/en.json'), 'utf8')) };
-const TOKENS = JSON.parse(readFileSync(join(HERE, 'src/tokens.json'), 'utf8'));
 const log = (...a) => console.log('[website]', ...a);
+const readText = (p) => readFileSync(p, 'utf8');
+const cfg = JSON.parse(readText(join(HERE, 'site.config.json')));
+const TOKENS = JSON.parse(readText(join(HERE, 'src/tokens.json')));
 
-// ---------- 1. 取得 Releases ----------
-async function fetchReleases() {
-  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
-  const all = [];
-  for (let page = 1; page < 20; page++) {
-    const url = `https://api.github.com/repos/${cfg.repo}/releases?per_page=100&page=${page}`;
-    const res = await fetch(url, { headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'minedeck-website-build', ...(token ? { Authorization: `Bearer ${token}` } : {}) } });
-    if (!res.ok) throw new Error(`GitHub API ${res.status}: ${(await res.text()).slice(0, 200)}`);
-    const list = await res.json();
-    all.push(...list);
-    if (list.length < 100) break;
-  }
-  // 缓存只留构建用得到的字段
-  return all.map((r) => ({
-    tag_name: r.tag_name, name: r.name, draft: r.draft, prerelease: r.prerelease, published_at: r.published_at, html_url: r.html_url, body: r.body,
-    assets: (r.assets || []).map((a) => ({ name: a.name, size: a.size, digest: a.digest || null, browser_download_url: a.browser_download_url })),
-  }));
+// ---------- 1. fetch ----------
+if (cmd !== 'build') {
+  const ok = await fetchAll({ cfg, dataDir: DATA, repoRoot: REPO_ROOT, log });
+  if (cmd === 'fetch') process.exit(ok ? 0 : 1);
 }
+if (!hasData(DATA)) { console.error('data/releases.cache.json 不存在，先联网运行一次 node build.mjs fetch。'); process.exit(1); }
 
-let raw;
-if (OFFLINE) {
-  if (!existsSync(CACHE)) { console.error(`离线模式需要 ${CACHE}，先联网构建一次。`); process.exit(1); }
-  raw = JSON.parse(readFileSync(CACHE, 'utf8'));
-  log(`离线模式：读取缓存 ${raw.length} 个版本`);
-} else {
-  try {
-    raw = await fetchReleases();
-    mkdirSync(dirname(CACHE), { recursive: true });
-    writeFileSync(CACHE, JSON.stringify(raw, null, 1) + '\n');
-    log(`从 GitHub 拉取 ${raw.length} 个版本，已更新缓存`);
-  } catch (e) {
-    console.error(`拉取 GitHub Releases 失败：${e.message}\n可以改用 --offline，用缓存构建。`);
-    process.exit(1);
+// ---------- 2. 数据与文案 ----------
+const generatedAt = process.env.SOURCE_DATE_EPOCH ? new Date(+process.env.SOURCE_DATE_EPOCH * 1000).toISOString() : new Date().toISOString();
+const data = buildModel({
+  raw: readJson(DATA, 'releases.cache.json'), repoInfo: readJson(DATA, 'repo.json', null),
+  contributors: readJson(DATA, 'contributors.json', null), activity: readJson(DATA, 'activity.json', null), cfg, generatedAt,
+});
+data.license = existsSync(join(REPO_ROOT, 'LICENSE')) ? readText(join(REPO_ROOT, 'LICENSE')) : '';
+const CONTENT = {};
+for (const lang of Object.keys(LANGS)) {
+  CONTENT[lang] = {};
+  for (const f of readdirSync(join(HERE, 'content'))) {
+    const m = f.match(/^(\w+)\.(\w+)\.json$/);
+    if (m && m[2] === lang) CONTENT[lang][m[1]] = JSON.parse(readText(join(HERE, 'content', f)));
   }
 }
-
-// ---------- 2. 整理数据 ----------
-const sizeLabel = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
-const off = cfg.timezoneOffsetHours * 3600e3;
-const localTime = (iso) => new Date(Date.parse(iso) + off).toISOString().slice(0, 16).replace('T', ' ');
-const mirrorUrl = (tag, file) => (cfg.mirror && cfg.mirror.enabled ? cfg.mirror.template.replace('{tag}', encodeURIComponent(tag)).replace('{file}', encodeURIComponent(file)) : null);
-
-const releases = raw
-  .filter((r) => !r.draft && r.published_at)
-  .sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at))
-  .map((r) => {
-    const assets = r.assets.map((a) => ({
-      name: a.name, size: a.size, size_label: sizeLabel(a.size),
-      sha256: a.digest && a.digest.startsWith('sha256:') ? a.digest.slice(7) : null,
-      github_url: a.browser_download_url, mirror_url: mirrorUrl(r.tag_name, a.name),
-    }));
-    const exe = assets.find((a) => /\.exe$/i.test(a.name)) || null;
-    return {
-      tag: r.tag_name, name: r.name || r.tag_name, prerelease: !!r.prerelease, published_at: r.published_at,
-      date_local: localTime(r.published_at), html_url: r.html_url,
-      legacy: !!(exe && /^AutoMCHUB/i.test(exe.name)),
-      summary: summary(r.body), body_html: sanitize(render(r.body || '')), assets, exe,
-    };
-  });
-const generated_at = process.env.SOURCE_DATE_EPOCH ? new Date(+process.env.SOURCE_DATE_EPOCH * 1000).toISOString() : new Date().toISOString();
-const pick = (r) => r && { tag: r.tag, published_at: r.published_at, exe: r.exe };
-const data = {
-  generated_at, repo: cfg.repo, timezone: `UTC+${cfg.timezoneOffsetHours}`, mirror_placeholder: !!(cfg.mirror && cfg.mirror.enabled),
-  latest_stable: releases.find((r) => !r.prerelease) || null,
-  latest_beta: releases.find((r) => r.prerelease) || null,
-  releases,
-};
+log(`数据：${data.releases.length} 个版本，稳定版 ${data.latest_stable?.tag ?? '无'}，测试版 ${data.latest_beta?.tag ?? '无'}，贡献者 ${data.contributors.list.length} 位（隐藏 ${data.contributors.hidden}）`);
 
 // ---------- 3. 输出目录与静态资源 ----------
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(join(OUT, 'assets'), { recursive: true });
 mkdirSync(join(OUT, 'data'), { recursive: true });
-const assetMap = {}; // 逻辑名 -> 带 hash 的文件名
+const assetMap = {}; // 逻辑名 -> 带 hash 的文件名（相对 assets/）
 const hash = (buf) => createHash('sha256').update(buf).digest('hex').slice(0, 10);
 function emit(logical, buf) {
-  const ext = extname(logical), base = basename(logical, ext);
+  const ext = extname(logical), base = logical.slice(0, -ext.length);
   const name = `${base}.${hash(buf)}${ext}`;
+  mkdirSync(dirname(join(OUT, 'assets', name)), { recursive: true });
   writeFileSync(join(OUT, 'assets', name), buf);
   assetMap[logical] = name;
   return name;
 }
-const SHOTS = I18N.zh.shots.items.map((s) => s.f);
-for (const f of SHOTS) emit(f, readFileSync(join(REPO_ROOT, 'docs/images', f)));
+for (const s of CONTENT.zh.ui.shots.items) emit(s.f, readFileSync(join(REPO_ROOT, 'docs/images', s.f)));
 emit('logo-144.png', readFileSync(join(REPO_ROOT, 'internal/web/ui/img/logo-144.png')));
 emit('social-preview.png', readFileSync(join(REPO_ROOT, 'assets/social-preview.png')));
 copyFileSync(join(REPO_ROOT, 'assets/icon.ico'), join(OUT, 'favicon.ico'));
-
-// ---------- 路由 -> 页面列表 ----------
-const outFile = (url) => (url.endsWith('/') ? url + 'index.html' : url).replace(/^\//, '');
-function urlOf(route, lang, params = {}) {
-  const p = route.path.replace(/\{(\w+)\}/g, (m, k) => encodeURIComponent(params[k]));
-  return LANGS[lang] + p;
+for (const c of data.contributors.list) {
+  const f = c.avatar && join(DATA, c.avatar);
+  c.avatarAsset = f && existsSync(f) ? emit(`avatars/${c.login}.png`, readFileSync(f)) && `avatars/${c.login}.png` : null;
 }
+
+// ---------- 4. 路由 -> 页面列表 ----------
+const outFile = (url) => (url.endsWith('/') ? url + 'index.html' : url).replace(/^\//, '');
+const urlOf = (route, lang, params = {}) => LANGS[lang] + route.path.replace(/\{(\w+)\}/g, (m, k) => encodeURIComponent(params[k]));
 const ROUTE_BY_ID = Object.fromEntries(ROUTES.map((r) => [r.id, r]));
 const PAGES = [];
 for (const route of ROUTES) {
@@ -133,15 +94,14 @@ for (const route of ROUTES) {
     const urls = Object.fromEntries(Object.keys(LANGS).map((l) => [l, urlOf(route, l, params)]));
     for (const lang of langs) {
       PAGES.push({ id: route.id, section: route.section || route.id, lang, params, url: urls[lang], urls, out: outFile(urls[lang]),
-        absolute: !!route.absolute, noAlt: !!route.noAlt, noSitemap: !!route.noSitemap, render: route.render });
+        absolute: !!route.absolute, noAlt: !!route.noAlt, noSitemap: !!route.noSitemap, scripts: route.scripts || [], render: route.render });
     }
   }
 }
 
-// 先用占位名渲染一遍页面，收集字符，再做字体子集
 function makeCtx(page, names) {
   const lang = page.lang;
-  const L = I18N[lang];
+  const C = CONTENT[lang];
   const depth = page.out.split('/').length - 1;
   const root = page.absolute ? '/' : '../'.repeat(depth);
   const link = (p) => {
@@ -151,21 +111,24 @@ function makeCtx(page, names) {
     if (PREVIEW && r.endsWith('/')) r += 'index.html';
     return r;
   };
-  // href('changelog') / href('release', { tag }) / href('home', {}, 'en')：站内链接一律经由路由表生成
+  // 站内链接一律经由路由表：href('releases') / href('release', { tag }) / href('home', {}, 'en')
   const href = (id, params = {}, l = lang) => {
     const route = ROUTE_BY_ID[id];
     if (!route) throw new Error(`未知路由 ${id}`);
     return link(urlOf(route, l, params));
   };
   return {
-    preview: PREVIEW, L, L2: I18N[lang === 'zh' ? 'en' : 'zh'], cfg, data, tokens: TOKENS, page, root, link, href,
-    navItems: NAV.filter((n) => !n.route || ROUTE_BY_ID[n.route]), footerLinks: FOOTER_LINKS,
-    a: (n) => root + 'assets/' + (names[n] || n), assetName: (n) => names[n] || n,
+    preview: PREVIEW, lang, L: C.ui, C, L2: CONTENT[lang === 'zh' ? 'en' : 'zh'].ui, cfg, data, tokens: TOKENS, page, root, link, href,
+    nav: NAV, footer: FOOTER, a: (n) => root + 'assets/' + (names[n] || n), assetName: (n) => names[n] || n,
+    fmtDate: (iso) => data.localDay(Date.parse(iso)),
+    // 面包屑项：{ label, href（相对）, url（站点绝对路径，供 JSON-LD） }
+    crumb: (id, label, params = {}) => ({ label, href: href(id, params), url: urlOf(ROUTE_BY_ID[id], lang, params) }),
   };
 }
+// 先用占位名渲染一遍页面，收集字符，再做字体子集
 const draft = PAGES.map((p) => p.render(makeCtx(p, assetMap))).join('');
 
-// ---------- 4. 字体 ----------
+// ---------- 5. 字体 ----------
 const FONT_SRC = {
   pixel: join(HERE, 'fonts/src/fusion-pixel-12px-proportional-zh_hans.otf.woff2'),
   noto: join(REPO_ROOT, 'internal/web/ui/fonts/NotoSansSC-gb2312.woff2'),
@@ -174,9 +137,10 @@ const FONT_SRC = {
 };
 const ascii = Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i)).join('');
 const textOf = (o) => (typeof o === 'string' ? o : Array.isArray(o) ? o.map(textOf).join('') : o && typeof o === 'object' ? Object.values(o).map(textOf).join('') : '');
-// 像素字体只用于标题、按钮、版本号等，字符取文案和版本号；正文字体取所有页面文字
-const pixelChars = new Set(ascii + textOf(I18N) + releases.map((r) => r.tag).join('') + '0123456789');
-const notoChars = new Set(ascii + draft.replace(/<[^>]*>/g, '') + textOf(I18N) + '，。、：；！？「」（）—…·→');
+const pageText = draft.replace(/<script[\s\S]*?<\/script>/g, '').replace(/<[^>]*>/g, '');
+// 像素字体用于标题、按钮、版本号等：取文案和版本号；正文字体取所有页面文字
+const pixelChars = new Set(ascii + textOf(CONTENT) + data.releases.map((r) => r.tag).join('') + '0123456789');
+const notoChars = new Set(ascii + pageText + textOf(CONTENT) + '，。、：；！？「」（）—…·→↗✓');
 const hasSubset = spawnSync('pyftsubset', ['--help'], { stdio: 'ignore' }).status === 0;
 if (!hasSubset) log('未找到 pyftsubset（pip install fonttools brotli），字体不做子集，体积会大很多。');
 function subset(key, chars) {
@@ -192,46 +156,80 @@ emit('pixel.woff2', subset('pixel', pixelChars));
 emit('noto.woff2', subset('noto', notoChars));
 emit('geist.woff2', readFileSync(FONT_SRC.geist));
 emit('geistmono.woff2', readFileSync(FONT_SRC.geistmono));
-// 字体许可证随站点发布
 mkdirSync(join(OUT, 'assets/licenses'), { recursive: true });
 for (const f of ['OFL-Geist.txt', 'OFL-NotoSansSC.txt']) copyFileSync(join(REPO_ROOT, 'internal/web/ui/fonts', f), join(OUT, 'assets/licenses', f));
 for (const f of readdirSync(join(HERE, 'fonts/licenses'))) copyFileSync(join(HERE, 'fonts/licenses', f), join(OUT, 'assets/licenses', f));
+// 许可证目录页（OSS 子目录首页）
+writeFileSync(join(OUT, 'assets/licenses/index.html'), `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>字体许可 · Font licenses · MineDeck</title></head><body><h1>字体许可 · Font licenses</h1><ul>${readdirSync(join(OUT, 'assets/licenses')).filter((f) => f.endsWith('.txt')).sort().map((f) => `<li><a href="${f}">${f}</a></li>`).join('')}</ul></body></html>\n`);
 
-// ---------- 5. CSS / JS ----------
-// 设计 token：src/tokens.json -> CSS 变量；组件样式不得出现颜色字面量
+// ---------- 6. CSS / JS ----------
 function tokensCss(t) {
   const out = [];
+  const val = (v) => String(v).replace(/\{palette\.([\w-]+)\}/g, (m, k) => {
+    if (!(k in t.palette)) throw new Error(`tokens.json: 未知色板 ${k}`);
+    return `var(--palette-${k})`;
+  });
   for (const [group, vals] of Object.entries(t)) {
     if (group.startsWith('_') || group === 'breakpoint') continue;
     if (Array.isArray(vals)) vals.forEach((v, i) => out.push(`--${group}-${i}:${v}`));
-    else for (const [k, v] of Object.entries(vals)) out.push(`--${group}-${k}:${v}`);
+    else for (const [k, v] of Object.entries(vals)) out.push(`--${group}-${k}:${val(v)}`);
   }
-  return `:root{${out.join(';')}}\n`;
+  return `@layer tokens{:root{${out.join(';')}}}\n`;
 }
-const STYLE_FILES = ['base.css', 'components.css', 'pages.css'];
-let css = tokensCss(TOKENS);
-for (const f of STYLE_FILES) {
-  const src = readFileSync(join(HERE, 'src/styles', f), 'utf8');
-  const bad = src.replace(/\/\*[\s\S]*?\*\//g, '').match(/#[0-9a-fA-F]{3,8}\b|rgba?\(/g);
-  if (bad) { console.error(`src/styles/${f} 里有颜色字面量 ${bad.join(' ')}，请改用 tokens.json`); process.exit(1); }
-  css += src + '\n';
+// 层顺序即优先级；每个文件包进自己的 @layer。组件和页面样式里不允许颜色、硬阴影字面量。
+const LAYERS = ['base', 'components', 'pages', 'motion'];
+let css = `@layer tokens,${LAYERS.join(',')};\n` + tokensCss(TOKENS);
+for (const layer of LAYERS) {
+  const src = readText(join(HERE, 'src/css', `${layer}.css`));
+  const bad = src.replace(/\/\*[\s\S]*?\*\//g, '').match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|\d+px \d+px 0 /g);
+  if (bad) { console.error(`src/css/${layer}.css 里有颜色或阴影字面量 ${bad.join(' ')}，请改用 tokens.json`); process.exit(1); }
+  const depth = src.replace(/\/\*[\s\S]*?\*\//g, '').split('').reduce((d, c) => (d < 0 ? d : c === '{' ? d + 1 : c === '}' ? d - 1 : d), 0);
+  if (depth !== 0) { console.error(`src/css/${layer}.css 花括号不配平`); process.exit(1); }
+  css += `@layer ${layer}{\n${src}\n}\n`;
 }
 css = css.replace(/\{\{font:(\w+)\}\}/g, (m, k) => assetMap[`${k}.woff2`]);
 emit('style.css', Buffer.from(css));
-emit('app.js', readFileSync(join(HERE, 'src/app.js')));
+// 浏览器脚本：core 全站；其余按路由的 scripts 加载。feedback 由几个小模块按顺序拼成一个文件。
+const JS = { 'core.js': ['core.js'], 'releases.js': ['releases.js'], 'feedback.js': ['feedback/redact.js', 'feedback/report.js', 'feedback/channels.js', 'feedback/form.js'] };
+for (const [name, parts] of Object.entries(JS)) emit(name, Buffer.from(parts.map((p) => readText(join(HERE, 'src/js', p))).join('\n')));
 
-// ---------- 6. 页面与数据 ----------
+// ---------- 7. 页面与数据 ----------
 for (const p of PAGES) {
   const html = p.render(makeCtx(p, assetMap));
   mkdirSync(dirname(join(OUT, p.out)), { recursive: true });
   writeFileSync(join(OUT, p.out), html);
 }
-writeFileSync(join(OUT, 'data/releases.json'), JSON.stringify({ ...data, latest_stable: pick(data.latest_stable), latest_beta: pick(data.latest_beta) }));
 const site = cfg.siteUrl.replace(/\/$/, '');
+const json = (f, o) => writeFileSync(join(OUT, 'data', f), JSON.stringify(o));
+json('releases.json', {
+  generated_at: data.generated_at, repo: data.repo, timezone: data.timezone, mirror_placeholder: data.mirror_placeholder,
+  latest_stable: pickRelease(data.latest_stable), latest_beta: pickRelease(data.latest_beta),
+  releases: data.releases.map((r) => ({ tag: r.tag, name: r.name, channel: r.channel, published_at: r.published_at, summary: r.summary, url: `${site}/releases/${encodeURIComponent(r.tag)}/`, assets: r.assets.map(({ name, size, sha256, mirror_url, github_url }) => ({ name, size, sha256, mirror_url, github_url })) })),
+});
+const latestOf = (r) => r && { tag: r.tag, date: r.published_at, url: `${site}/releases/${encodeURIComponent(r.tag)}/`, sha256: r.exe?.sha256 ?? null, size: r.exe?.size ?? null, download: r.exe?.mirror_url || r.exe?.github_url || null, github: r.exe?.github_url ?? null };
+json('latest.json', { generated_at: data.generated_at, stable: latestOf(data.latest_stable), beta: latestOf(data.latest_beta) });
+json('stats.json', { generated_at: data.generated_at, repo: data.repoInfo, contributors: data.contributors.list.map(({ login, contributions, html_url }) => ({ login, contributions, html_url })), activity: { source: data.activity.source, days: data.activity.days } });
+// Atom
+const xe = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const feedItems = data.releases.slice(0, cfg.feedCount || 20);
+writeFileSync(join(OUT, 'feed.xml'), `<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="zh-CN">
+<title>MineDeck 更新日志</title>
+<id>${site}/releases/</id>
+<link rel="self" href="${site}/feed.xml"/>
+<link href="${site}/releases/"/>
+<updated>${feedItems[0]?.published_at ?? data.generated_at}</updated>
+<author><name>MineDeck</name></author>
+${feedItems.map((r) => `<entry><title>${xe(r.tag)}${r.prerelease ? '（测试版）' : ''}</title><id>${site}/releases/${encodeURIComponent(r.tag)}/</id><link href="${site}/releases/${encodeURIComponent(r.tag)}/"/><updated>${r.published_at}</updated><summary>${xe(r.summary)}</summary><content type="html">${xe(r.body_html.replace(/href="md-release:([^"]+)"/g, (m, t) => `href="${site}/releases/${encodeURIComponent(t)}/"`))}</content></entry>`).join('\n')}
+</feed>
+`);
 writeFileSync(join(OUT, 'robots.txt'), `User-agent: *\nAllow: /\nSitemap: ${site}/sitemap.xml\n`);
 writeFileSync(join(OUT, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n` +
   PAGES.filter((p) => !p.noSitemap).map((p) => `<url><loc>${site}${p.url}</loc><xhtml:link rel="alternate" hreflang="zh-CN" href="${site}${p.urls.zh}"/><xhtml:link rel="alternate" hreflang="en" href="${site}${p.urls.en}"/></url>`).join('\n') + '\n</urlset>\n');
 
-log(`完成：${OUT}`);
-log(`稳定版 ${data.latest_stable?.tag ?? '无'}，测试版 ${data.latest_beta?.tag ?? '无'}，共 ${releases.length} 个版本${cfg.mirror?.enabled ? '；镜像链接为占位模板 ' + cfg.mirror.template : ''}`);
-for (const [k, v] of Object.entries(assetMap)) if (k.endsWith('.woff2')) log(`  ${v}  ${(readFileSync(join(OUT, 'assets', v)).length / 1024).toFixed(0)} KB`);
+// ---------- 8. 检查：运行时不得请求 GitHub 或国外 CDN ----------
+const problems = checkDist(OUT);
+if (problems.length) { console.error('构建检查未通过：\n' + problems.map((p) => '  ' + p).join('\n')); process.exit(1); }
+
+log(`完成：${OUT}（${PAGES.length} 个页面）${cfg.mirror?.enabled ? '；镜像链接为占位模板 ' + cfg.mirror.template : ''}`);
+for (const [k, v] of Object.entries(assetMap)) if (k.endsWith('.woff2')) log(`  ${v}  ${(statSync(join(OUT, 'assets', v)).size / 1024).toFixed(0)} KB`);

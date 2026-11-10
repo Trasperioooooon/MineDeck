@@ -1,58 +1,69 @@
+// 首页（ARCH 4.1）：这是什么、从哪下载、最近有没有在更新、出了问题去哪。其余内容只给入口。
 import { esc, fmt } from '../partials/util.mjs';
 import { layout } from '../partials/layout.mjs';
-import { featCard, secHead } from '../partials/ui.mjs';
-import { entry } from '../partials/release.mjs';
+import { featCard, secHead, stat, go, button, extLink } from '../partials/ui.mjs';
+import { dlButtons, miniRelease } from '../partials/release.mjs';
+import { heatmap } from '../partials/heatmap.mjs';
+import { avatarRow } from '../partials/people.mjs';
+import { illustration, icon } from '../partials/svg.mjs';
+import { repo } from '../routes.mjs';
 
 export default function home(ctx) {
   const { L, data, cfg } = ctx;
-  const st = data.latest_stable, bt = data.latest_beta;
-  const showBeta = bt && (!st || Date.parse(bt.published_at) > Date.parse(st.published_at));
-  const exe = st && st.exe;
-  const primary = exe ? (exe.mirror_url
-    ? `<a class="btn primary" href="${esc(exe.mirror_url)}"><span class="pix">${esc(fmt(L.hero.download, { version: st.tag }))}</span><small>${esc(fmt(L.hero.mirrorSub, { file: exe.name, size: exe.size_label }))}</small></a>`
-    : `<a class="btn primary" href="${esc(exe.github_url)}"><span class="pix">${esc(fmt(L.hero.download, { version: st.tag }))}</span><small>${esc(exe.name)} · ${esc(exe.size_label)}</small></a>`) : '';
-  const secondary = exe ? `<a class="btn" href="${esc(exe.github_url)}"><span>${esc(L.hero.githubBtn)}</span><small>${esc(L.hero.githubSub)}</small></a>` : '';
-  const cl = ctx.href('changelog');
+  const H = L.home;
+  const st = data.latest_stable, bt = data.latest_beta, last = data.releases[0];
+  const stars = cfg.stats.showStars && data.repoInfo;
+  const stats = [
+    st && stat({ label: L.log.latestStable, value: st.tag, href: ctx.href('release', { tag: st.tag }), cls: 's1' }),
+    data.show_beta && stat({ label: L.log.latestBeta, value: bt.tag, href: ctx.href('release', { tag: bt.tag }), cls: 's2' }),
+    stat({ label: L.log.total, value: String(data.releases.length), href: ctx.href('releases'), cls: 's3', count: true }),
+    last && `<div class="card stat s4"><small>${esc(L.log.lastRelease)}</small><b data-ago="${esc(last.published_at)}" data-tpl="${esc(L.log.daysAgo)}" data-today="${esc(L.log.today)}">${esc(last.day_local)}</b></div>`,
+    stars && stat({ label: H.stars, value: String(data.repoInfo.stargazers_count), cls: 's5', count: true, note: fmt(H.starsAsOf, { date: ctx.fmtDate(data.repoInfo.fetched_at) }) }),
+  ].filter(Boolean).join('');
   const main = `<section class="hero">
  <div>
-  <span class="eyebrow">${esc(L.hero.eyebrow)}</span>
-  <h1>${L.hero.h1}</h1>
-  <p class="lead">${esc(L.hero.lead)}</p>
-  <div class="cta">${primary}${secondary}</div>
-  <div class="sub-links">${showBeta ? `<a href="${cl}#${esc(bt.tag)}">${esc(fmt(L.hero.betaLink, { version: bt.tag }))}</a>` : ''}<a href="https://github.com/${cfg.repo}/releases">${esc(L.hero.allReleases)}</a><a href="${cl}">${esc(L.nav.changelog)}</a></div>
-  <p class="note">${esc(L.hero.note)}</p>
-  ${exe && exe.sha256 ? `<div class="sha">${esc(L.hero.sha)} ${esc(exe.name)}: ${esc(exe.sha256)}</div>` : ''}
+  <span class="eyebrow">${esc(H.eyebrow)}</span>
+  <h1>${H.h1}</h1>
+  <p class="lead">${esc(H.lead)}</p>
+  <div class="cta">${st ? dlButtons(ctx, st, { big: true }) : ''}</div>
+  <div class="sub-links">${go(ctx.href('download'), H.otherWays)}</div>
+  <p class="note">${esc(H.tagline)}</p>
  </div>
- <div class="card shot"><div class="grass-strip" aria-hidden="true"></div><img src="${ctx.a('01-servers.png')}" alt="${esc(L.hero.shotAlt)}" width="1440" height="900"></div>
+ <div class="hero-art">
+  <div class="card shot"><div class="grass-strip" aria-hidden="true"></div><img src="${ctx.a('01-servers.png')}" alt="${esc(H.shotAlt)}" width="1440" height="900"></div>
+  <div class="card hero-anim">${illustration('hero', { label: H.heroAnimAria })}</div>
+ </div>
 </section>
+
+<section class="stats stats-5" aria-label="${esc(H.statsAria)}">${stats}</section>
 
 <section class="sec" id="features">
- ${secHead({ h: L.features.h, p: esc(fmt(L.features.sub, { stable: st ? st.tag : '' })) })}
- <div class="grid">${L.features.items.map((it, i) => featCard(it, i)).join('\n')}</div>
- <div class="band ai">
-  ${secHead({ h: L.ai.h, p: esc(L.ai.sub) })}
-  <div class="grid">${L.ai.items.map((it, i) => featCard(it, i + 7)).join('\n')}</div>
+ ${secHead({ h: H.coreH, p: esc(H.coreSub), more: go(ctx.href('features'), H.allFeatures) })}
+ <div class="grid cols-4">${H.core.map((it, i) => featCard(it, { i: [0, 6, 3, 2][i] })).join('\n')}</div>
+</section>
+
+<section class="sec" id="activity">
+ ${secHead({ h: H.activityH, p: esc(H.activitySub), more: go(ctx.href('releases'), H.allReleases) })}
+ <div class="act">
+  ${heatmap(ctx, { weeks: cfg.homeHeatWeeks || 26, summary: true })}
+  <div class="act-r">${st ? miniRelease(ctx, st, L.log.latestStable) : ''}${data.show_beta ? miniRelease(ctx, bt, L.log.latestBeta) : ''}</div>
  </div>
- ${showBeta ? `<div class="band beta">
-  ${secHead({ h: L.beta.h, p: esc(fmt(L.beta.sub, { introduced: L.beta.introduced })) })}
-  <div class="grid">${L.beta.items.map((it, i) => featCard(it, i + 3, L.beta.badge)).join('\n')}</div>
- </div>` : ''}
-</section>
-
-<section class="sec" id="screenshots">
- ${secHead({ h: L.shots.h, p: esc(L.shots.sub) })}
- <div class="gallery">${L.shots.items.map((s, i) => `<figure class="card${i === 6 ? ' wide' : ''}"><a href="${ctx.a(s.f)}"><img src="${ctx.a(s.f)}" alt="${esc(s.alt)}" width="1440" height="900" loading="lazy"></a><figcaption>${esc(s.c)}</figcaption></figure>`).join('\n')}</div>
-</section>
-
-<section class="sec" id="changelog">
- ${secHead({ h: L.log.h, p: esc(L.log.homeSub) })}
- <div class="log">${data.releases.slice(0, 3).map((r) => entry(ctx, r, { full: false })).join('\n')}</div>
- <div class="more"><a class="btn" href="${cl}">${esc(L.log.viewAll)}</a></div>
 </section>
 
 <section class="sec">
- <div class="card oss"><div><h2>${esc(L.oss.h)}</h2><p>${esc(L.oss.p)}</p></div>
- <div class="row"><a class="btn primary" href="https://github.com/${cfg.repo}"><span>${esc(L.oss.star)}</span></a><a class="btn" href="https://github.com/${cfg.repo}/issues/new/choose"><span>${esc(L.oss.issue)}</span></a></div></div>
+ <div class="card oss">
+  <div><h2>${esc(H.ossH)}</h2><p>${esc(H.ossP)}</p>${avatarRow(ctx, { max: cfg.contributors.max || 12 })}</div>
+  <div class="row">${button({ href: repo(cfg), label: H.star, primary: true, ext: true, ctx })}${button({ href: ctx.href('about') + '#contribute', label: H.contribute })}</div>
+ </div>
+</section>
+
+<section class="sec" id="help">
+ ${secHead({ h: H.helpH })}
+ <div class="grid cols-2">
+  <a class="card help-card" href="${ctx.href('feedback')}">${icon('alert', { cls: 'feat-ico' })}<span><b>${esc(H.reportT)} →</b><small>${esc(H.reportD)}</small></span></a>
+  <a class="card help-card" href="${ctx.href('help')}#faq">${icon('terminal', { cls: 'feat-ico' })}<span><b>${esc(H.faqT)} →</b><small>${esc(H.faqD)}</small></span></a>
+ </div>
+ <p class="note">${esc(H.sensitive)}</p>
 </section>`;
-  return layout(ctx, { title: L.title, desc: L.description, main });
+  return layout(ctx, { title: L.site.title, desc: L.site.description, main });
 }
