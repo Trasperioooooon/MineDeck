@@ -1943,7 +1943,10 @@ async function drawWizard() {
           launched = true;
           if (t.error) { location.hash = `#/task/${r.taskId}`; return; } // 建服失败：保持失败可见性
           try {
-            const r2 = await api(`/api/instances/${encodeURIComponent(name)}/modcart/install`, { method: "POST", body: { includeDraft: true } });
+            /* expect：「选模组」那一步上画出来的那些。草稿车在那之后被改过（AI 助手加了东西），或者同名的旧购物车里还剩着东西，
+               后端都会拒绝，不会把人没看过的东西装进新服务器。 */
+            const seen = (window.MDModCart && MDModCart.draftSeen()) || [];
+            const r2 = await api(`/api/instances/${encodeURIComponent(name)}/modcart/install`, { method: "POST", body: { includeDraft: true, expect: seen } });
             if (stale(gen)) return;
             toast("服务器创建完成，正在安装购物车里的模组…");
             location.hash = `#/task/${encodeURIComponent(r2.taskId)}`;

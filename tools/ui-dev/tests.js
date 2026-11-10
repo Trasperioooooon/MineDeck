@@ -2817,6 +2817,9 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await settle(300);
       const h1 = await page.textContent(".page-head h1");
       assert(h1.includes("模组"), "任务页说法没有改成模组：" + h1);
+      // 带草稿车安装的请求里要有「选模组」那一步上画出来的那些：后端拿它核对，草稿车之后被改过就不装
+      const li = (await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data))).modcart.lastInstall;
+      assert(li && li.includeDraft === true && Array.isArray(li.expect) && li.expect.join() === "jei", "安装请求应带上向导上看到的那一项：" + JSON.stringify(li));
       await page.waitForSelector("#t-foot a.btn.primary", { timeout: 6000 }); // 第 3 次查询后任务结束
       assert((await page.getAttribute("#t-foot a.btn.primary", "href")) === "#/inst/" + encodeURIComponent("测试的模组服"), "完成的去处在详情页才能看到");
     } finally { await cartState({ modCart: { reset: true }, taskStage: 2, instReset: true }); }
@@ -2853,6 +2856,29 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click("#mc-clear"); await settle(700);
       assert((await page.$$eval("#mc-list .mc-item", els => els.length)) === 0 && (await page.$eval("#mc-actions", el => el.hidden)), "清空后清单与按钮没复位");
     } finally { await cartState({ modCart: { reset: true } }); }
+  });
+
+  await run("购物车在打开之后被别处改过：点安装会被拦下并重新列出现在的清单，看过以后再点才装", async () => {
+    // 往车里加东西不用确认（AI 助手、别的窗口都能加）：装的必须是页面上列着的那些
+    try {
+      await cartState({ modCart: { reset: true } });
+      await page.goto(url(`#/inst/${inst}/cart`)); await settle(600);
+      await page.fill("#mc-q", "JEI"); await page.click("#mc-go"); await settle();
+      await page.click('button[aria-label="加入购物车 JEI"]'); await settle(700);
+      assert((await page.textContent("#mc-count")).includes("1"), "清单应是 1 项");
+      // 页面没动的时候，别处又往这台服务器的车里加了一项
+      await page.evaluate(i => fetch("/api/modcart", { method: "POST", body: JSON.stringify({ inst: i, projectIds: ["create"] }) }), decodeURIComponent(inst));
+      await page.click("#mc-install"); await settle(900);
+      const toasts = await page.$$eval(".toast", ts => ts.map(x => x.textContent));
+      assert(toasts.some(x => x.includes("不一样")), "车变了应拦下并说明：" + JSON.stringify(toasts));
+      assert(!page.url().includes("#/task/"), "被拦下时不该跳到任务页：" + page.url());
+      assert((await page.textContent("#mc-count")).includes("2") && (await page.textContent("#mc-list")).includes("Create"), "应重新列出现在的清单");
+      // 看过现在的清单再点：照常装，请求里带着页面上列着的两项
+      await page.click("#mc-install");
+      await page.waitForFunction(() => location.hash === "#/task/task-cart", null, { timeout: 8000 });
+      const li = (await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data))).modcart.lastInstall;
+      assert(li && Array.isArray(li.expect) && li.expect.slice().sort().join() === "create,jei", "安装请求应带上页面上列着的两项：" + JSON.stringify(li));
+    } finally { await cartState({ modCart: { reset: true } }); await page.goto(url("#/instances")); await settle(); }
   });
 
   await run("vanilla 向导保持 4 步：步骤条无「选模组」，构建步照旧跳过直达基本设置", async () => {

@@ -34,6 +34,9 @@ type modcartArgs struct {
 	ProjectID    string   `json:"projectId"`
 	WithDeps     *bool    `json:"withDeps"`
 	IncludeDraft bool     `json:"includeDraft"`
+	// Expect 发起安装的人当时看到的购物车（项目 ID）。给了就核对：和现在要装的不一样就不装。
+	// 往车里加东西是读操作，AI 不用确认就能做；人点「安装」时装的必须是他看见的那些。
+	Expect *[]string `json:"expect"`
 }
 
 var (
@@ -111,6 +114,24 @@ func toInstall(plan *modcart.Plan, withDeps bool) []modcart.File {
 }
 
 func withDeps(p modcartArgs) bool { return p.WithDeps == nil || *p.WithDeps }
+
+// sameProjects 要装的这些项目和 want（项目 ID）是不是同一批（不看顺序）。
+func sameProjects(items []modcart.Item, want []string) bool {
+	if len(items) != len(want) {
+		return false
+	}
+	have := make(map[string]bool, len(items))
+	for _, it := range items {
+		have[it.ProjectID] = true
+	}
+	for _, id := range want {
+		if !have[id] {
+			return false
+		}
+		delete(have, id)
+	}
+	return len(have) == 0
+}
 
 // fileLabel 「Fabric API 0.92.2+1.20.1」，前置写明谁需要它。
 func fileLabel(f modcart.File) string {
@@ -271,6 +292,7 @@ func (c *cat) modcartOps() {
 		Params: withInst(map[string]*ops.Schema{
 			"withDeps":     ops.Boolean("自动补上必装前置（默认 true）"),
 			"includeDraft": ops.Boolean("把草稿购物车也一起装进这台实例（默认 false）"),
+			"expect":       ops.Array("发起安装的人当时看到的购物车里的项目 ID（界面会带上）；给了就核对，和现在要装的不一样就不装", ops.String("项目 ID")),
 		}),
 		Preview: func(ctx context.Context, _ ops.Caller, a ops.Args) (*ops.Plan, error) {
 			p, err := bind[modcartArgs](a)
@@ -338,7 +360,7 @@ func (c *cat) modcartOps() {
 			pl.Warning = strings.Join(warn, "。")
 			return pl, nil
 		},
-		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+		Run: func(ctx context.Context, _ ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[modcartArgs](a)
 			if err != nil {
 				return nil, err
@@ -357,12 +379,28 @@ func (c *cat) modcartOps() {
 				done()
 				return nil, ops.Errorf(400, "购物车是空的")
 			}
+			// 装的必须是人看过、确认过的那些。往车里加东西不用确认（AI 助手、别的窗口都能加），
+			// 所以这里读到的车要和发起的人看到的对一遍：
+			//   - 人在界面上点的：请求里带着他当时看到的项目（expect）；
+			//   - AI 提的、人在卡片上确认的：确认那一刻的购物车指纹（卡片上列的文件在后台算完版本以后再对，见 installCart）。
+			if p.Expect != nil && !sameProjects(items, *p.Expect) {
+				done()
+				return nil, ops.Errorf(409, "购物车里的东西和你刚才看到的不一样了（AI 助手或者别的窗口可能改过）。先看一眼现在的购物车，再点安装")
+			}
+			wantFiles := ""
+			if pre := ops.ConfirmedPre(ctx); pre != nil {
+				if modcart.Fingerprint(items) != pre["购物车"] {
+					done()
+					return nil, ops.Errorf(409, "确认的时候购物车又变了，这次没有装。请让 AI 重新提一次")
+				}
+				wantFiles = pre["要装的文件"]
+			}
 			task, tctx := c.Mgr.Tasks.New(fmt.Sprintf("给「%s」安装购物车里的 %d 项", t.inst.Name, len(items)),
 				[]string{"挑版本、补前置", "下载文件", "核对本地依赖"})
 			task.SetKind("mods")
 			go func() {
 				defer done()
-				c.installCart(tctx, task, t, p, items)
+				c.installCart(tctx, task, t, p, items, wantFiles)
 			}()
 			return map[string]string{"taskId": task.ID()}, nil
 		},
@@ -469,7 +507,9 @@ func unresolvedText(us []modcart.Unresolved) string {
 }
 
 // installCart 后台任务：挑版本、补前置 → 下载 → 核对本地依赖；装上的从购物车里拿掉（下载期间新加进车的不动）。
-func (c *cat) installCart(ctx context.Context, task *tasks.Task, t cartTarget, p modcartArgs, items []modcart.Item) {
+// wantFiles 非空时是人在提案卡片上确认的那份文件清单的指纹：这里重新挑完版本、补完前置以后要和它对上，
+// 对不上（确认之后 Modrinth 上发了新版本、前置变了）就一个文件都不下载。
+func (c *cat) installCart(ctx context.Context, task *tasks.Task, t cartTarget, p modcartArgs, items []modcart.Item, wantFiles string) {
 	dir := filepath.Join(t.inst.Dir, t.sub)
 	task.StartStep(0)
 	task.Logf("购物车共 %d 项：%s", len(items), itemTitles(items))
@@ -504,6 +544,10 @@ func (c *cat) installCart(ctx context.Context, task *tasks.Task, t cartTarget, p
 		task.Logf("服务器里已经有 %s，跳过", h)
 	}
 	files := toInstall(plan, withDeps(p))
+	if wantFiles != "" && filesPrint(files, plan.LocalHits) != wantFiles {
+		task.Fail(errors.New("要装的文件和确认时卡片上列的不一样了（Modrinth 上可能刚发了新版本）。一个文件都没有下载，请让 AI 重新提一次"))
+		return
+	}
 	if len(files) == 0 && len(plan.Unresolved) > 0 {
 		task.Fail(fmt.Errorf("没有能装的文件：%s", unresolvedText(plan.Unresolved)))
 		return

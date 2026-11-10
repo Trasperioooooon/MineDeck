@@ -209,6 +209,11 @@ func (r *Registry) ConfirmWith(ctx context.Context, approver Caller, id string, 
 		if changed := diffPre(p.Plan.Pre, pre); len(changed) > 0 {
 			return void(OutInvalid, Errorf(409, "提案作废：预览之后%s变了，请让 AI 重新预览", strings.Join(changed, "、")))
 		}
+		// 上面的比对和下面的执行之间还隔着一段时间（预览可能要联网几秒到几十秒）：把人确认的这份前置条件
+		// 带给 Run，执行时读到的状态对不上的，由 Run 自己拒绝（见 ConfirmedPre）。
+		if pre != nil {
+			ctx = WithConfirmedPre(ctx, pre)
+		}
 	}
 	args := p.Args
 	if p.Consent != nil {
@@ -221,6 +226,21 @@ func (r *Registry) ConfirmWith(ctx context.Context, approver Caller, id string, 
 	}
 	r.notify(Resolution{Proposal: p.clone(), Outcome: out, Result: res, Err: err, By: approver})
 	return res, err
+}
+
+type confirmedPreKey struct{}
+
+// WithConfirmedPre 标明这次执行是人确认提案以后发起的，带上确认那一刻预览算出来的前置条件（ConfirmedPre 取回，没有返回 nil）。
+// 预览和执行是先后两步，各读各的状态；执行时读到的东西会改变要做什么的操作（比如按购物车装文件），
+// 要在 Run 里拿它再核一遍，对不上就不做——否则在确认和执行之间改一下状态，做的就不是人确认的那件事。
+func WithConfirmedPre(ctx context.Context, pre map[string]string) context.Context {
+	return context.WithValue(ctx, confirmedPreKey{}, pre)
+}
+
+// ConfirmedPre 见 WithConfirmedPre。
+func ConfirmedPre(ctx context.Context) map[string]string {
+	pre, _ := ctx.Value(confirmedPreKey{}).(map[string]string)
+	return pre
 }
 
 // Reject 人拒绝提案；reason 是理由（可以为空，由上层交还给 AI）。过期的提案按作废处理，返回 410。

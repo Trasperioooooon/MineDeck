@@ -1461,7 +1461,7 @@ function handler(state, ui, portOf) {
         return ok(res, { resolved, pending: keep });
       }
       // 模组清单（实例详情页的 Java 提示用；真后端见 ops/catalog files.go 的 instance.mods.list）
-      if (seg[2] === "instances" && seg[4] === "mods" && m === "GET") {
+      if (seg[2] === "instances" && seg[4] === "mods" && !seg[5] && m === "GET") {
         const need = (state.modsNeed || {})[seg[3]];
         const mods = need ? [{ file: "modded-fabric.jar", id: "modded", version: "1.0" }] : [];
         return ok(res, { dir: "mods", count: mods.length, disabled: 0, mods, ...(need ? { needJava: need } : {}) });
@@ -1613,7 +1613,11 @@ function handler(state, ui, portOf) {
         // includeDraft 会把草稿车（向导「选模组」步挑的）一起装进这台实例并清空草稿车
         if (sub === "modcart" && seg[5] === "install" && m === "POST") {
           const b = await readBody(req), mc = state.modcart, cart = modcartBucket(state, name);
-          mc.lastInstall = { inst: name, withDeps: b.withDeps !== false, includeDraft: !!b.includeDraft };
+          // expect：发起的人看到的项目。和这次要装的（实例的车，includeDraft 时再加草稿车）不是同一批就拒绝，同真后端
+          const willInstall = [...cart, ...(b.includeDraft ? mc.draft.filter(it => !cart.some(x => x.projectId === it.projectId)) : [])].map(it => it.projectId);
+          if (Array.isArray(b.expect) && (b.expect.length !== willInstall.length || willInstall.some(id => !b.expect.includes(id))))
+            return err(res, 409, "购物车里的东西和你刚才看到的不一样了（AI 助手或者别的窗口可能改过）。先看一眼现在的购物车，再点安装");
+          mc.lastInstall = { inst: name, withDeps: b.withDeps !== false, includeDraft: !!b.includeDraft, expect: b.expect || null };
           if (b.includeDraft) { for (const it of mc.draft) if (!cart.some(x => x.projectId === it.projectId)) cart.push({ ...it }); mc.draft = []; }
           mc.queries = 0;
           return ok(res, { taskId: "task-cart" });

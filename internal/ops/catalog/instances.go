@@ -383,6 +383,11 @@ func (c *cat) instanceOps() {
 			if err := c.Mgr.Delete(p.Inst, p.Files); err != nil {
 				return nil, err
 			}
+			// 这台服务器的购物车跟着清掉：购物车按实例名存，不清的话以后新建一台同名的，
+			// 旧车里剩下的东西会被当成新服务器的。
+			if c.ModCart != nil {
+				_ = c.ModCart.Clear(p.Inst)
+			}
 			return "ok", nil
 		},
 	})

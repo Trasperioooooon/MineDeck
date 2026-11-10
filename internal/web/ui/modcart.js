@@ -5,6 +5,9 @@
    加载顺序不影响。app.js 里只留了钩子：详情页的标签和分派、TASK_KINDS 的 "mods"、向导的「选模组」步与提交链。 */
 "use strict";
 window.MDModCart = (() => {
+  /* 向导「选模组」那一步上最近一次画出来的草稿车（项目 ID）；还没画过是 null。
+     建服完成后带着草稿车一起装时，把它当成「人看到的那些」发给后端核对（见 app.js 的提交链）。 */
+  let draftSeen = null;
   /* 有「购物车」标签的实例：同「资源」标签的条件——原版没有模组加载器，不需要 */
   const applies = info => !!info && info.core !== "vanilla";
 
@@ -71,6 +74,7 @@ window.MDModCart = (() => {
           <button class="btn sm ghost mc-del" data-pid="${esc(it.projectId)}" data-t="${esc(it.title)}" aria-label="移除 ${esc(it.title)}">${icon("x")} 移除</button>
         </div>`).join("") : `<div class="sub" id="mc-empty">购物车是空的：搜索到的结果里点「加入购物车」，凑齐后一起装。</div>`;
       countEl.textContent = cart.length ? `共 ${cart.length} 项` : "";
+      if (!inst) draftSeen = cart.map(it => it.projectId); // 草稿车：记下画在页面上的是哪些
       actionsEl.hidden = !cart.length;
       const insBtn = $("#mc-install", root);
       if (insBtn) { insBtn.innerHTML = icon("download") + ` 安装全部（${cart.length}）`; insBtn.disabled = installing; }
@@ -252,7 +256,9 @@ window.MDModCart = (() => {
           if (!ok) { reset(); return; }
         }
         const n = cart.length;
-        const r = await api(`/api/instances/${encodeURIComponent(inst)}/modcart/install`, { method: "POST", body: { withDeps: true } });
+        /* expect：现在页面上列着的这些。往车里加东西不用确认（AI 助手、别的窗口都能加），
+           后端发现车里的和这里看到的不一样就不装，免得装上人没看过的东西。 */
+        const r = await api(`/api/instances/${encodeURIComponent(inst)}/modcart/install`, { method: "POST", body: { withDeps: true, expect: cart.map(it => it.projectId) } });
         if (stale(gen)) return;
         const running = ctx.status && ctx.status !== "stopped";
         toast(`已开始安装购物车里的 ${n} 项` + (running ? "；服务器正在运行，装完要重启才生效" : ""));
@@ -260,6 +266,7 @@ window.MDModCart = (() => {
       } catch (e) {
         toast(e.message, true);
         reset();
+        if (!stale(gen) && root.isConnected) { dep = null; depBox.innerHTML = ""; reload(); } // 车可能变了：重新读一遍，旧的依赖检查结果也作废
       }
     };
     depBtn.onclick = checkDeps;
@@ -289,11 +296,12 @@ window.MDModCart = (() => {
   /* 向导「选模组」步（可选）：草稿车（不带 inst），创建完成后由 app.js 一并安装 */
   async function wizardPanel(container, opts, gen) {
     ensureIcons();
+    draftSeen = null; // 新的一轮向导：等清单画出来再记
     container.innerHTML = `
       <div class="sub">想现在就装模组的话，把它们放进草稿购物车：创建完成后 MineDeck 会自动一起安装。可以留空，以后再到服务器的「购物车」标签里添加。</div>
       <div id="mc-panel"></div>`;
     buildPanel($("#mc-panel", container), { core: opts && opts.core, mc: opts && opts.mc }, gen);
   }
 
-  return { applies, render, wizardPanel };
+  return { applies, render, wizardPanel, draftSeen: () => draftSeen };
 })();
