@@ -9,7 +9,7 @@
 # 之后再不带这个参数运行一次（或者双击 .bat），两份副本就换回发布版。
 param(
     [string]$Root = 'D:\MineDeck-handover-test',
-    [string]$Tag = 'v3.1.0-beta.1',
+    [string]$Tag = 'v3.1.0-beta.2',
     [string]$LocalExe = ''
 )
 $ErrorActionPreference = 'Stop'
