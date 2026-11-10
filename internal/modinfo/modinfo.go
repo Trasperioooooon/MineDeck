@@ -400,12 +400,18 @@ func parseFabric(m *Mod, src string) {
 		Depends     map[string]json.RawMessage `json:"depends"`
 		Breaks      map[string]json.RawMessage `json:"breaks"`
 		Mixins      []json.RawMessage          `json:"mixins"`
+		Provides    []string                   `json:"provides"` // 这个 jar 还能顶替哪些模组 ID（别的模组依赖它们时算满足），记进 Also
 	}
 	if err := json.Unmarshal([]byte(src), &f); err != nil {
 		m.Err = "fabric.mod.json 读不懂：" + err.Error()
 		return
 	}
 	m.ID, m.Name, m.Version, m.Env = f.ID, f.Name, f.Version, f.Environment
+	for _, p := range f.Provides {
+		if p != "" && p != m.ID && !contains(m.Also, p) {
+			m.Also = append(m.Also, p)
+		}
+	}
 	rng := func(raw json.RawMessage) string {
 		var s string
 		if json.Unmarshal(raw, &s) == nil {
