@@ -52,6 +52,7 @@ func (c *cat) transferOps() {
 			"默认瘦身模式，对方导入时自动重新下载核心；full 为 true 时连核心一起带。返回任务编号（进度见 task.get）。",
 		Params: withInst(map[string]*ops.Schema{
 			"full": ops.Boolean("完整模式：连服务端核心一起打包（对方导入时就不用再下载）"),
+			"mode": ops.String("这个包给谁：handover 交给下一任服主（默认）；distributable 发给朋友，让他照着开一台。包里的东西一样，只是对方看到的说法不同"),
 			"dest": ops.String("导出到哪个文件夹（空 = MineDeck 数据缓存目录）；仅本机的请求能指定"),
 		}),
 		Preview: func(_ context.Context, _ ops.Caller, a ops.Args) (*ops.Plan, error) {
@@ -86,7 +87,7 @@ func (c *cat) transferOps() {
 			if !caller.Local || caller.Source.AI() {
 				dest = "" // 远程 / 局域网请求和 AI 不能决定写主机哪个目录，落缓存目录
 			}
-			id, err := transfer.ExportAsync(c.Mgr, transfer.ExportReq{Inst: p.Inst, Full: p.Full, Dest: dest})
+			id, err := transfer.ExportAsync(c.Mgr, transfer.ExportReq{Inst: p.Inst, Full: p.Full, Mode: p.Mode, Dest: dest})
 			if err != nil {
 				return nil, err
 			}
@@ -99,12 +100,13 @@ func (c *cat) transferOps() {
 		Desc: "从已上传的 .mdpack 交接包创建实例：存档、配置、模组全保留。瘦身的包按清单重新下载核心，" +
 			"完整模式（包里带核心）不再联网下载。返回任务编号（进度见 task.get）。",
 		Params: ops.Object(map[string]*ops.Schema{
-			"file":  ops.String("已上传到缓存目录的交接包文件"),
-			"name":  createParams["name"],
-			"xmxMb": ops.Integer("最大内存 MB；0 = 沿用包里原来分配的"),
-			"port":  ops.Integer("端口；0 = 沿用包内 server.properties 的端口；给了且与包内不同则改写"),
-			"eula":  ops.Boolean("Minecraft EULA（包里已同意过时不用再勾）"),
-			"root":  ops.String("自定义存放根目录（仅本机生效）"),
+			"file":      ops.String("已上传到缓存目录的交接包文件"),
+			"name":      createParams["name"],
+			"xmxMb":     ops.Integer("最大内存 MB；0 = 沿用包里原来分配的"),
+			"port":      ops.Integer("端口；0 = 沿用包内 server.properties 的端口；给了且与包内不同则改写"),
+			"eula":      ops.Boolean("Minecraft EULA（包里已同意过时不用再勾）"),
+			"javaMajor": ops.Integer("Java 大版本；0 = 包里原来用的那个，包里没写就按 Minecraft 版本选"),
+			"root":      ops.String("自定义存放根目录（仅本机生效）"),
 		}, "file", "name"),
 		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[transferArgs](a)
@@ -123,7 +125,7 @@ func (c *cat) transferOps() {
 				return nil, err
 			}
 			id, err := transfer.ImportAsync(c.Mgr, p.File, transfer.ImportReq{
-				Name: p.Name, XmxMB: p.XmxMB, Port: p.Port, EULA: p.EULA, Root: root,
+				Name: p.Name, XmxMB: p.XmxMB, Port: p.Port, EULA: p.EULA, Root: root, JavaMajor: p.JavaMajor,
 			})
 			if err != nil {
 				return nil, err
@@ -140,15 +142,17 @@ func (c *cat) transferOps() {
 }
 
 type transferArgs struct {
-	Inst  string `json:"inst"`
-	File  string `json:"file"`
-	Name  string `json:"name"`
-	Full  bool   `json:"full"`
-	Dest  string `json:"dest"`
-	XmxMB int    `json:"xmxMb"`
-	Port  int    `json:"port"`
-	EULA  bool   `json:"eula"`
-	Root  string `json:"root"`
+	Inst      string `json:"inst"`
+	File      string `json:"file"`
+	Name      string `json:"name"`
+	Full      bool   `json:"full"`
+	Mode      string `json:"mode"`
+	Dest      string `json:"dest"`
+	XmxMB     int    `json:"xmxMb"`
+	Port      int    `json:"port"`
+	EULA      bool   `json:"eula"`
+	JavaMajor int    `json:"javaMajor"`
+	Root      string `json:"root"`
 }
 
 // inUploadDir 校验交接包文件在网页接口的上传目录里（否则拒绝读它——参数里的路径不可信）。

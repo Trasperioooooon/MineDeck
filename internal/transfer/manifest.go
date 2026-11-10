@@ -30,8 +30,21 @@ const FormatVersion = 1
 // ModeHandover 交接：A 的服务器连同世界、配置、模组交给 B 续服。
 const ModeHandover = "handover"
 
-// ModeDistributable 下发（占位）：另一分支的场景，读到这里就提示用对应入口。
+// ModeDistributable 发给朋友：把服务器打一份发给成员，让他照着开一台。包里的东西和交接一样，
+// 区别只在给谁——接手的人在导入向导和日志里看到的是「发给朋友的一份」而不是「交接」。
+// （这个模式原来是给 PR #8 留的占位；#8 另写了一套不兼容的包格式，没有采用，功能并到了这一套里。）
 const ModeDistributable = "distributable"
+
+// ValidMode mode 是不是认识的两种之一。
+func ValidMode(mode string) bool { return mode == ModeHandover || mode == ModeDistributable }
+
+// ModeName 模式的中文叫法（界面和任务日志用，不把英文枚举露给用户）。
+func ModeName(mode string) string {
+	if mode == ModeDistributable {
+		return "发给朋友的一份"
+	}
+	return "服主交接"
+}
 
 // manifestName 包根下的清单文件名。
 const manifestName = "manifest.json"
@@ -141,11 +154,7 @@ func (m *Manifest) check() error {
 	if m.FormatVersion < 1 || m.Mode == "" {
 		return errors.New("manifest.json 缺少版本或模式信息，这可能不是 MineDeck 的交接包")
 	}
-	switch m.Mode {
-	case ModeHandover:
-	case ModeDistributable:
-		return errors.New("这是「整合包下发」的包，请用资源页的整合包入口打开")
-	default:
+	if !ValidMode(m.Mode) {
 		return fmt.Errorf("不认识的交接包类型：%s", m.Mode)
 	}
 	if !mcsrc.ValidCore(m.Core.Core) {

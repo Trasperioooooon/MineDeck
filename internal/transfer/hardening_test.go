@@ -375,3 +375,67 @@ func TestImportDropsRuntimeSettings(t *testing.T) {
 		t.Errorf("导入结束后占位应放掉：%v", err)
 	}
 }
+
+// TestExportModeAndPackingGuard 包的用途（交接 / 发给朋友）写进清单、导入两种都收；
+// 打包期间这台服务器不能启动、不能删除、不能再开一个打包（PR #8 的做法，移到这一套引擎上）。
+func TestExportModeAndPackingGuard(t *testing.T) {
+	newEnv(t)
+	fakeInstance(t, "A 的服")
+	m := manager(t, "A 的服")
+	if _, err := ExportAsync(m, ExportReq{Inst: "A 的服", Mode: "别的什么"}); err == nil || !strings.Contains(err.Error(), "不认识") {
+		t.Errorf("不认识的打包方式应被拒：%v", err)
+	}
+	// 占着打包的位时：再打包、启动、删除都不行
+	release, ok := m.BeginPacking("A 的服")
+	if !ok {
+		t.Fatal("没人在打包时应能占上位")
+	}
+	if _, again := m.BeginPacking("A 的服"); again {
+		t.Error("同一台服务器不能同时打两个包")
+	}
+	if _, err := ExportAsync(m, ExportReq{Inst: "A 的服"}); err == nil || !strings.Contains(err.Error(), "正在打包") {
+		t.Errorf("打包中再导出应被拒：%v", err)
+	}
+	if err := m.Start("A 的服"); err == nil || !strings.Contains(err.Error(), "正在打包") {
+		t.Errorf("打包中不能启动：%v", err)
+	}
+	if err := m.Delete("A 的服", true); err == nil || !strings.Contains(err.Error(), "正在打包") {
+		t.Errorf("打包中不能删除：%v", err)
+	}
+	release()
+	// 发给朋友的包：清单里是 distributable，导入照常，日志里写的是中文的叫法
+	id, err := ExportAsync(m, ExportReq{Inst: "A 的服", Full: true, Mode: ModeDistributable})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, _, _, _ := waitTask(t, m, id)
+	if snap.Err != "" {
+		t.Fatalf("导出失败：%s", snap.Err)
+	}
+	mf, err := ReadManifest(snap.Result)
+	if err != nil || mf.Mode != ModeDistributable {
+		t.Fatalf("清单里的 mode 应是 distributable：%v %+v", err, mf)
+	}
+	// 任务结束后位要放掉：能再打包，也能删除
+	if rel, ok := m.BeginPacking("A 的服"); !ok {
+		t.Error("打包任务结束后应放掉占位")
+	} else {
+		rel()
+	}
+	// 导入时选的 Java 不像版本号的直接拒（要在真导入之前试：导入结束会把包删掉）
+	if _, err := ImportAsync(m, snap.Result, ImportReq{Name: "乱选 Java", JavaMajor: 999}); err == nil || !strings.Contains(err.Error(), "Java") {
+		t.Errorf("离谱的 Java 版本应被拒：%v", err)
+	}
+	id, err = ImportAsync(m, snap.Result, ImportReq{Name: "朋友那台", JavaMajor: 17})
+	if err != nil {
+		t.Fatal(err)
+	}
+	isnap, _, _, _ := waitTask(t, m, id)
+	if isnap.Err != "" {
+		t.Fatalf("导入失败：%s", isnap.Err)
+	}
+	log := strings.Join(isnap.Log, "\n")
+	if !strings.Contains(log, "发给朋友的一份") || !strings.Contains(log, "按你选的用 Java 17") {
+		t.Errorf("日志里应写明包的用途和选的 Java：\n%s", log)
+	}
+}

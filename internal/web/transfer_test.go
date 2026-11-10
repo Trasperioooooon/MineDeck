@@ -190,15 +190,16 @@ func TestTransferRoutes(t *testing.T) {
 		t.Errorf("导入结束后上传的包该删掉")
 	}
 
-	// 导出：实例停着就能打包（不联网）；远程请求的 dest 被忽略，落缓存目录
-	var taskIDs []string
+	// 导出：实例停着就能打包（不联网）；远程请求的 dest 被忽略，落缓存目录。
+	// 同一台服务器一次只打一个包，所以一个任务结束了再发下一个。导出任务在本环境里不联网也跑得完
+	// （打包的都是本地文件）：等它结束再往下走，也免得后台还在写测试的临时目录。
 	for _, c := range []struct {
 		uri  string
 		body string
 		opts []reqOpt
 	}{
 		{ip + "/transfer/export", `{"dest":"C:\\裸奔"}`, []reqOpt{fromLAN}},
-		{ip + "/transfer/export", `{"full":true}`, nil},
+		{ip + "/transfer/export", `{"full":true,"mode":"distributable"}`, nil},
 	} {
 		rec := e.call(t, "POST", c.uri, c.body, 200, c.opts...)
 		var r struct {
@@ -207,25 +208,22 @@ func TestTransferRoutes(t *testing.T) {
 			} `json:"data"`
 		}
 		if err := json.Unmarshal(rec.Body.Bytes(), &r); err != nil || r.Data.TaskID == "" {
-			t.Errorf("导出响应：%s (%v)", rec.Body, err)
+			t.Fatalf("导出响应：%s (%v)", rec.Body, err)
 		}
-		taskIDs = append(taskIDs, r.Data.TaskID)
-	}
-	// 导出任务在本环境里不联网也跑得完（打包的都是本地文件）：等它结束再收尾，
-	// 免得后台还在写测试的临时目录
-	for _, id := range taskIDs {
 		deadline := time.Now().Add(15 * time.Second)
 		for {
-			body := e.call(t, "GET", "/api/tasks/"+id, "", 200).Body.String()
+			body := e.call(t, "GET", "/api/tasks/"+r.Data.TaskID, "", 200).Body.String()
 			if strings.Contains(body, `"ended":true`) {
 				break
 			}
 			if time.Now().After(deadline) {
-				t.Fatalf("导出任务 %s 没在时限内结束", id)
+				t.Fatalf("导出任务 %s 没在时限内结束", r.Data.TaskID)
 			}
 			time.Sleep(20 * time.Millisecond)
 		}
 	}
+	// 打包方式不认识的直接拒
+	e.call(t, "POST", ip+"/transfer/export", `{"mode":"别的什么"}`, 400)
 	// 不存在的实例报「实例不存在」
 	e.call(t, "POST", "/api/instances/nope/transfer/export", `{}`, 400)
 

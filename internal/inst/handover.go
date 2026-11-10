@@ -24,6 +24,15 @@ func (m *Manager) ReleaseCreate(name, dir string) {
 	m.releaseCreating(dirKey(dir))
 }
 
+// BeginPacking 给实例占上「正在打包」的位，返回放掉它的函数；已经在打包时 ok=false。
+// 占着的时候这台服务器不能启动、不能删除（见 Start 和 Delete）。调用方在打包结束时（无论成败）调一次 release。
+func (m *Manager) BeginPacking(name string) (release func(), ok bool) {
+	if !m.tryMarkPacking(name) {
+		return nil, false
+	}
+	return func() { m.unmarkPacking(name) }, true
+}
+
 // FinalizeCreate 写 run.bat 和 instance.json，记下扫描根，把实例注册进列表。
 // s 里的 Name 必须已经过校验（和 dir 对应），JavaPath 应已在本机确认存在。
 func (m *Manager) FinalizeCreate(s Settings, dir string) (*Instance, error) {

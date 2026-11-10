@@ -84,6 +84,7 @@ type Manager struct {
 	mu       sync.Mutex
 	insts    map[string]*Instance
 	creating map[string]bool // 正在创建中的实例名（注册进 insts 前的占位，防并发/重复创建同名实例）
+	packing  map[string]bool // 正在打包交接包的实例名：这期间不能启动、删除，免得打出来的包里世界是写了一半的
 	Tasks    *tasks.Manager
 
 	autoMu    sync.Mutex
@@ -192,6 +193,9 @@ func (m *Manager) Delete(name string, files bool) error {
 	if err != nil {
 		return err
 	}
+	if m.isPacking(name) { // 正在打包：读文件的在压成包，删掉目录会让它打出一个坏包
+		return fmt.Errorf("这台服务器正在打包，等打包完成后再删除或移出列表")
+	}
 	if i.Status() != "stopped" {
 		return fmt.Errorf("请先停止服务器再删除")
 	}
@@ -243,6 +247,34 @@ func safeRemoveInstanceDir(i *Instance) error {
 		return fmt.Errorf("删除文件失败: %w", err)
 	}
 	return nil
+}
+
+// 打包任务的占位：打包时读着实例目录里的世界和配置，这期间启动、删除都会打出坏包。
+// map 惰性初始化，测试里手工构造的 Manager 也能用。
+func (m *Manager) isPacking(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.packing[name]
+}
+
+// tryMarkPacking 占上打包的位；已经有人占着时返回 false。
+func (m *Manager) tryMarkPacking(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.packing[name] {
+		return false
+	}
+	if m.packing == nil {
+		m.packing = map[string]bool{}
+	}
+	m.packing[name] = true
+	return true
+}
+
+func (m *Manager) unmarkPacking(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.packing, name)
 }
 
 // UpdateSettings 调整实例运行参数（内存、控制台编码、自定义 JVM 参数）并重新生成启动脚本。

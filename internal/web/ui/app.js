@@ -1413,6 +1413,11 @@ function transferExportModal(info) {
           日志（logs）不会打进包，但它可能留有玩家 IP，必要时先在服务器目录里处理好。
           配置文件里写着的密码也会原样交出去，比如 server.properties 里的 RCON 密码、插件配置里的数据库密码和机器人令牌：在别处也用着的，先改掉再交接。</div>
       </div>
+      <div class="field" style="margin-top:12px" role="radiogroup" aria-label="这个包给谁"><span>这个包给谁</span>
+        <label class="ob-radio"><input type="radio" name="tr-mode" value="handover" checked><span>交给下一任服主，由他接着开</span></label>
+        <label class="ob-radio"><input type="radio" name="tr-mode" value="distributable"><span>发给朋友，让他照着开一台</span></label>
+        <div class="hint">包里的东西一样，只是对方导入时看到的说法不同。</div>
+      </div>
       <label class="switch" style="margin-top:12px"><input type="checkbox" id="tr-full"><span class="sw"></span>
         <span><span class="sw-label">完整模式</span><div class="sw-desc">把服务端核心也一起打包；不勾则对方导入时自动重新下载（包更小）</div></span></label>
       <label class="field" style="margin-top:12px"><span>导出到哪个文件夹</span>
@@ -1447,7 +1452,7 @@ function transferExportModal(info) {
     $("#tr-go").disabled = true;
     try {
       const r = await api(`/api/instances/${encodeURIComponent(info.name)}/transfer/export`, {
-        method: "POST", body: { full: $("#tr-full").checked, dest },
+        method: "POST", body: { full: $("#tr-full").checked, mode: (document.querySelector('input[name="tr-mode"]:checked') || {}).value || "handover", dest },
       });
       close();
       toast("开始打包交接包");
@@ -1511,6 +1516,7 @@ async function drawTransfer() {
         <div class="wc-title" style="padding:14px 16px 4px">${icon("info")} 这个包里是什么</div>
         <div class="kv" style="padding:6px 16px 14px;margin-top:4px">
           <span>原来叫</span><b>${esc(s.name)}</b>
+          <span>这个包是</span><b>${s.mode === "distributable" ? "对方发给朋友的一份（照着开一台）" : "服主交接（整台交给你接着开）"}</b>
           <span>核心</span><b>${esc(coreName(s.core))} ${esc(s.mc)}${s.build ? `（构建 ${esc(s.build)}）` : ""}</b>
           <span>世界大小</span><b>${fmtBytes(s.worldBytes) || "0 B"}</b>
           <span>模组 / 插件</span><b>${s.mods} 个模组${s.plugins ? ` / ${s.plugins} 个插件` : ""}</b>
@@ -1530,6 +1536,10 @@ async function drawTransfer() {
           <input type="number" id="tp-port" value="${s.port || 25565}" min="1" max="65535">
           <div class="field-err" id="tp-port-err"></div></label>
         <div class="field full" id="tp-mem-mount"></div>
+        <label class="field full"><span>Java</span><select id="tp-java" aria-label="Java">
+          <option value="0">${s.javaMajor ? `跟原来一样：Java ${s.javaMajor}` : "自动：按 Minecraft 版本选"}（本机没有就下载）</option>
+          ${JAVA_DOWNLOADABLE.filter(m => m !== s.javaMajor).map(m => `<option value="${m}">Java ${m}</option>`).join("")}</select>
+          <div class="hint">一般不用改。原来那台用的 Java 通常就是对的；导入后也能在「内存 / 启动」里换。</div></label>
         <label class="field full"><span>存放位置</span>
           <div class="row" style="gap:8px">
             <input type="text" id="tp-root" readonly style="flex:1;cursor:default;background:var(--surface-2)" aria-label="存放位置">
@@ -1589,6 +1599,7 @@ async function drawTransfer() {
       const r = await api("/api/transfer/import", { method: "POST", body: {
         file: packFile, name, xmxMb: $("#tp-mem") ? +$("#tp-mem").value : 0,
         port: +$("#tp-port").value || 0, eula: $("#tp-eula").checked, root: trapRoot,
+        javaMajor: $("#tp-java") ? +$("#tp-java").value || 0 : 0,
       } });
       if (stale(gen)) return;
       toast(`开始导入：${r.pack.core} ${r.pack.mc}（${r.pack.mods} 个模组）`);

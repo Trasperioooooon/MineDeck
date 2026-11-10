@@ -60,6 +60,9 @@ func (m *Manager) Start(name string) error {
 	if err != nil {
 		return err
 	}
+	if m.isPacking(name) { // 打的是停机时的完整一份，启动了世界就边写边压了：打完再启
+		return fmt.Errorf("这台服务器正在打包交接包，等打包完成后再启动")
+	}
 	m.beforeStart(i) // 不能持有 procMu：回调里会查实例状态
 	i.procMu.Lock()
 	defer i.procMu.Unlock()

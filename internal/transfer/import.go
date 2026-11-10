@@ -31,7 +31,10 @@ type ImportReq struct {
 	XmxMB int    // 0 = 沿用包里 A 分配的内存
 	Port  int    // 0 = 沿用包内 server.properties 的端口；给了且和包里不同会写进 server.properties
 	EULA  bool   // 包里没同意过 EULA 时必须为 true
-	Root  string // 自定义存放根（仅本机有效，远程 / 局域网请求被操作层清空）
+	// JavaMajor 用哪个 Java 大版本；0 = 包里原来用的那个，包里没写就按 Minecraft 版本选。
+	// 魔改模组可能要比官方元数据更新的 Java，原服主用的那个通常就是对的；接手的人想换也可以在这里先选好。
+	JavaMajor int
+	Root      string // 自定义存放根（仅本机有效，远程 / 局域网请求被操作层清空）
 }
 
 // ImportAsync 校验请求并在后台导入，返回任务编号；任务成功后 result 是实例名。
@@ -42,6 +45,9 @@ func ImportAsync(m *inst.Manager, path string, req ImportReq) (string, error) {
 	}
 	if err := mf.check(); err != nil {
 		return "", err
+	}
+	if req.JavaMajor != 0 && (req.JavaMajor < 8 || req.JavaMajor > 40) {
+		return "", fmt.Errorf("Java 版本应在 8 到 40 之间")
 	}
 	kind := mcsrc.KindOf(mf.Core.Core)
 	// EULA 的三种情况：包里带同意过的 eula.txt（以它为准）、包没带但 B 勾了同意（导入时写入）、都没有则拒绝
@@ -89,7 +95,7 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 
 	// ---- 步骤 0：校验交接包 ----
 	t.StartStep(0)
-	t.Logf("交接包：%s（%s %s，%s 导出）", mf.Instance.Name, mf.Core.Core, mf.Core.MC, mf.ExportedAt.Local().Format("2006-01-02 15:04"))
+	t.Logf("交接包：%s（%s %s，%s 导出，%s）", mf.Instance.Name, mf.Core.Core, mf.Core.MC, mf.ExportedAt.Local().Format("2006-01-02 15:04"), ModeName(mf.Mode))
 	t.Logf("包内清单：世界 %s、模组 %d 个、插件 %d 个", fmtBytes(mf.WorldBytes), len(mf.Mods), len(mf.Plugins))
 	if len(mf.Excluded) > 0 {
 		t.Logf("包里没有：%s", strings.Join(mf.Excluded, "、"))
@@ -115,7 +121,12 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 	if major < 8 || major > 40 {
 		major = 0 // 包里写的不像 Java 版本号：当成没写，按 Minecraft 版本选
 	}
+	if req.JavaMajor != 0 {
+		major = req.JavaMajor
+	}
 	switch {
+	case req.JavaMajor != 0:
+		t.Logf("按你选的用 Java %d", major)
 	case major != 0:
 		t.Logf("交接的那台用 Java %d（来自 A 的 instance.json）", major)
 	case kind == mcsrc.KindProxy:

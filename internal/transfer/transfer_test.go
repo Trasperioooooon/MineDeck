@@ -586,8 +586,12 @@ func TestManifestValidation(t *testing.T) {
 	if _, err := Summarize(makePack("v2.mdpack", `{"formatVersion":2,"mode":"handover","instance":{"name":"x"},"core":{"core":"paper","mc":"1.20.1"}}`)); err == nil || !strings.Contains(err.Error(), "升级") {
 		t.Errorf("更新版本的包该报升级： %v", err)
 	}
-	if _, err := Summarize(makePack("dist.mdpack", `{"formatVersion":1,"mode":"distributable","instance":{"name":"x"},"core":{"core":"paper","mc":"1.20.1"}}`)); err == nil || !strings.Contains(err.Error(), "下发") {
-		t.Errorf("下发包该指路：%v", err)
+	// 「发给朋友」的包和交接的包是同一种格式，只是 mode 不同：两种都认（原来把它当成另一种包拒掉）
+	if sum, err := Summarize(makePack("dist.mdpack", `{"formatVersion":1,"mode":"distributable","instance":{"name":"x"},"core":{"core":"paper","mc":"1.20.1"}}`)); err != nil || sum.Mode != ModeDistributable {
+		t.Errorf("发给朋友的包应照常读出摘要：%v %+v", err, sum)
+	}
+	if _, err := Summarize(makePack("odd.mdpack", `{"formatVersion":1,"mode":"别的什么","instance":{"name":"x"},"core":{"core":"paper","mc":"1.20.1"}}`)); err == nil || !strings.Contains(err.Error(), "不认识") {
+		t.Errorf("不认识的 mode 该报错：%v", err)
 	}
 	if _, err := Summarize(makePack("noCore.mdpack", `{"formatVersion":1,"mode":"handover","instance":{"name":"x"},"core":{"core":"什么鬼","mc":"1.20.1"}}`)); err == nil {
 		t.Errorf("认不得的核心该报错")

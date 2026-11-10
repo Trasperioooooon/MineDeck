@@ -26,6 +26,7 @@ var exportSteps = []string{"收集清单", "打包交接包", "收尾"}
 type ExportReq struct {
 	Inst string // 实例名
 	Full bool   // 完整模式：包含核心启动文件
+	Mode string // handover（交接，默认）| distributable（发给朋友）
 	Dest string // 导出目录（用户选的）；空 = MineDeck 的缓存目录。非本机请求的这字段被操作层清空
 }
 
@@ -63,10 +64,23 @@ func ExportAsync(m *inst.Manager, req ExportReq) (string, error) {
 			return "", fmt.Errorf("导出目录不可用: %w", err)
 		}
 	}
+	mode := req.Mode
+	if mode == "" {
+		mode = ModeHandover
+	}
+	if !ValidMode(mode) {
+		return "", fmt.Errorf("打包方式不认识：%s（可用 handover、distributable）", req.Mode)
+	}
+	// 打包期间这台服务器不能启动、不能删除：打的是停机时的一份，世界边写边压出来的包是坏的
+	release, ok := m.BeginPacking(req.Inst)
+	if !ok {
+		return "", fmt.Errorf("这台服务器正在打包中，请稍候")
+	}
 	t, ctx := m.Tasks.New(fmt.Sprintf("导出交接包 %s（%s %s）", i.Name, i.Core, i.MC), exportSteps)
 	t.SetKind("transfer-out")
 	go func() {
-		path, err := runExport(ctx, t, i, req.Full, dest)
+		defer release()
+		path, err := runExport(ctx, t, i, req.Full, mode, dest)
 		if err != nil {
 			t.Fail(err)
 			return
@@ -153,14 +167,14 @@ func coreJar(low, launchTarget string) bool {
 }
 
 // runExport 收集清单、打包、落到目标目录，返回交接包的最终路径。
-func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, destDir string) (string, error) {
+func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, mode, destDir string) (string, error) {
 	// 交接包要完整一致：打包期间服务器又开起来的话，世界边写边压会不完整
 	if i.Status() != "stopped" {
 		return "", fmt.Errorf("交接前请先停止服务器（运行中打包会不完整）")
 	}
 	mf := &Manifest{
 		FormatVersion:   FormatVersion,
-		Mode:            ModeHandover,
+		Mode:            mode,
 		MineDeckVersion: app.Version,
 		ExportedAt:      time.Now(),
 		Instance:        i.Settings,

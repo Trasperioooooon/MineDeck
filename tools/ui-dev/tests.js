@@ -2732,10 +2732,13 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(m.privacy.includes("征得服务器成员的同意") && m.privacy.includes("IP"), "隐私提醒：" + m.privacy);
       assert(m.full === false && m.go.includes("开始打包"), "弹窗状态：" + JSON.stringify(m));
       await page.fill("#tr-dest", "E:\\交接包");
+      // 这个包给谁：默认是交接，这里改成发给朋友
+      assert(await page.isChecked('input[name="tr-mode"][value="handover"]'), "默认应是交给下一任服主");
+      await page.check('input[name="tr-mode"][value="distributable"]');
       await page.click("#tr-go"); await settle(700);
       const st = await mockState({});
-      assert(st.lastTransferExport && st.lastTransferExport.inst === "机械动力整合包" && st.lastTransferExport.full === false && st.lastTransferExport.dest === "E:\\交接包",
-        "导出请求：" + JSON.stringify(st.lastTransferExport));
+      assert(st.lastTransferExport && st.lastTransferExport.inst === "机械动力整合包" && st.lastTransferExport.full === false && st.lastTransferExport.dest === "E:\\交接包"
+        && st.lastTransferExport.mode === "distributable", "导出请求：" + JSON.stringify(st.lastTransferExport));
       assert(page.url().endsWith("#/task/task-transfer-out"), "没去任务页：" + page.url());
       const t = await page.evaluate(() => ({ h1: $(".page-head h1").textContent, log: $("#task-log").textContent, go: $("#t-foot a").getAttribute("href") }));
       assert(t.h1 === "正在导出交接包" && t.go === "#/instances", "导出任务页：");
@@ -2753,7 +2756,10 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await settle(700);
       const s = await page.evaluate(() => ({ name: $("#tp-name") && $("#tp-name").value, port: $("#tp-port") && $("#tp-port").value, kv: $("#tp-form") ? $("#tp-form").textContent : "" }));
       assert(s.name === "A 的服" && s.port === "25570", "摘要没带出名称与端口：" + JSON.stringify(s));
-      assert(s.kv.includes("Paper 1.20.1") && s.kv.includes("36 个模组") && s.kv.includes("2.0 GB"), "包摘要展示：" + JSON.stringify(s.kv));
+      assert(s.kv.includes("Paper 1.20.1") && s.kv.includes("36 个模组") && s.kv.includes("2.0 GB") && s.kv.includes("服主交接"), "包摘要展示：" + JSON.stringify(s.kv));
+      // Java：默认跟原来一样，可以改
+      assert((await page.$eval("#tp-java", e => e.options[0].textContent)).includes("跟原来一样：Java 17"), "Java 默认应是包里原来的");
+      await page.selectOption("#tp-java", "21");
       // 包里的模组、插件是别人电脑上带来的程序：导入前要提醒确认来源，并说明 JVM 参数和定时任务不带过来
       const trust = await page.textContent("#tp-trust");
       assert(trust.includes("信得过") && trust.includes("在你的电脑上运行") && trust.includes("定时任务不会带过来"), "来源提醒：" + trust);
@@ -2767,7 +2773,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.check("#tp-eula");
       await page.click("#tp-go"); await settle(800);
       const st = await mockState({});
-      assert(st.lastTransferImport && st.lastTransferImport.name === "接手服" && st.lastTransferImport.eula === true && +st.lastTransferImport.port === 25566 && +st.lastTransferImport.xmxMb >= 2048,
+      assert(st.lastTransferImport && st.lastTransferImport.name === "接手服" && st.lastTransferImport.eula === true && +st.lastTransferImport.port === 25566 && +st.lastTransferImport.xmxMb >= 2048
+        && st.lastTransferImport.javaMajor === 21,
         "导入请求：" + JSON.stringify(st.lastTransferImport));
       assert(page.url().endsWith("#/task/task-transfer-in"), "没去任务页：" + page.url());
       const t = await page.evaluate(() => ({ h1: $(".page-head h1").textContent, steps: $("#t-steps").textContent, go: $("#t-foot a"), href: $("#t-foot a").getAttribute("href") }));
