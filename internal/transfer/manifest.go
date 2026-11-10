@@ -163,14 +163,16 @@ func (m *Manifest) check() error {
 	return nil
 }
 
-// versionLike 像不像一个版本号：字母、数字、点、横线、下划线、加号，最长 64 个字符，不能有连着的两个点。空串算（没写）。
+// versionLike 像不像一个版本号：字母、数字、点、横线、下划线、加号，中间可以有空格（老快照叫 "1.14 Pre-Release 5" 这样），
+// 最长 64 个字符，不能有连着的两个点，不能以点或空格结尾。空串算（没写）。
+// 2026-11-10 拿 12 种核心的全部版本号和抽查的约 1900 个构建号对过，都在这个范围里。
 func versionLike(v string) bool {
-	if len(v) > 64 || strings.Contains(v, "..") {
+	if len(v) > 64 || strings.Contains(v, "..") || v != strings.Trim(v, " .") {
 		return false
 	}
 	for _, r := range v {
 		switch {
-		case r >= '0' && r <= '9', r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '.', r == '-', r == '_', r == '+':
+		case r >= '0' && r <= '9', r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '.', r == '-', r == '_', r == '+', r == ' ':
 		default:
 			return false
 		}

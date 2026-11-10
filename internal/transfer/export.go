@@ -103,6 +103,9 @@ var regenerable = map[string]bool{
 	"run.bat": true, "run.sh": true, "instance.json": true, "user_jvm_args.txt": true,
 	"usercache.json": true, "version_history.json": true, "session.lock": true,
 	"未解析模组清单.txt": true, "导入待决清单.txt": true,
+	// MineDeck 自己的文件：接手的人那边按他的电脑重新生成（见 zip.go 的 controlRoot）
+	"instance.json.bak": true, "instance.json.tmp": true, "run.before-minedeck.bat": true,
+	"log4j2_112-116.xml": true, "gameai.json": true, "gameai-state.json": true, ".minedeck": true,
 }
 
 // leftOut 实例根目录下没进包、也说不上是可以重新生成的东西（目录名后面带 /）。
@@ -200,6 +203,9 @@ func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, 
 			rel, err := filepath.Rel(i.Dir, p)
 			if err != nil {
 				return err
+			}
+			if isControl(rel) {
+				return nil // MineDeck 自己的文件（和自家模组之间的令牌等）不出这台电脑，导入那边也不认
 			}
 			var mod *modinfo.Mod
 			if meta != nil {

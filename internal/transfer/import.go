@@ -258,15 +258,22 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 			t.Logf("已写入 eula.txt（你在上一步同意了 Minecraft EULA）")
 		}
 	}
-	if kind != mcsrc.KindProxy && known { // log4shell 防护（老版本），和新建、接管时一样按这台电脑重新套一遍
-		if err := inst.ApplyLog4jMitigation(ctx, t, &s, dir); err != nil {
-			t.Logf("没能判断要不要加 log4shell 防护（%v），先跳过", err)
+	if kind != mcsrc.KindProxy { // log4shell 防护（老版本），和新建、接管时一样按这台电脑重新套一遍
+		var err error
+		if known {
+			err = inst.ApplyLog4jMitigation(ctx, t, &s, dir)
+		}
+		if !known || err != nil {
+			// 判断不了版本（离线、清单里没有）：原服主的 JVM 参数已经整个丢掉了，他原来带着的防护参数也在里面，
+			// 所以不能就这么空着。这一条参数对不需要它的新版本没有影响，先加上。
+			s.ExtraJVM = append(s.ExtraJVM, inst.Log4jNoLookups)
+			t.Logf("判断不了这个版本要不要 log4shell 防护，先按老版本加上防护参数（对新版本没有影响）")
 		}
 	}
 	if _, err := m.FinalizeCreate(s, dir); err != nil {
 		return err
 	}
-	t.Logf("交接完成 ✔ 存档、配置和模组都是原来的")
+	t.Logf("交接完成 ✔ 存档、配置和模组都带过来了（没带过来的东西见上面几行）")
 	return nil
 }
 

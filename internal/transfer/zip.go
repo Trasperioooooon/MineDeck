@@ -150,12 +150,36 @@ type extractResult struct {
 	kept    []string // keepExisting 时因为目标已存在而没有解出来的
 }
 
-// controlFiles 实例根目录下由 MineDeck 按本机情况生成的文件（小写）：包里带了也不采用。
-// 不拦的话，导入在解包之后、收尾之前被打断（关程序、断电），目录里留下的就是包里那份 instance.json——
-// 下次启动扫描会把它登记成一台服务器，用哪个程序当 Java、带什么参数全由包说了算。
-var controlFiles = map[string]bool{
+// controlRoot 实例根目录下由 MineDeck 自己写、自己读的文件（小写）：包里带了也不采用。
+//   - instance.json、run.bat、user_jvm_args.txt 决定这台电脑上执行什么。不拦的话，导入在解包之后、收尾之前被打断
+//     （关程序、断电），目录里留下的就是包里那份 instance.json——下次启动扫描会把它登记成一台服务器，
+//     用哪个程序当 Java、带什么参数全由包说了算。
+//   - log4j2_112-116.xml 是老版本的日志配置：MineDeck 看到这个文件在，就给启动参数加上对它的引用；
+//     老版本 log4j 的配置文件能跑脚本、能发 JNDI 请求，和 JVM 参数是同一类东西。导入时按官方的重新下载。
+//   - gameai.json、gameai-state.json 是游戏内 AI 的设置和记账（谁能用、用了多少）：花的是接手的人的钱，不能由包来定。
+var controlRoot = map[string]bool{
 	"instance.json": true, "instance.json.tmp": true, "instance.json.bak": true,
-	"run.bat": true, "user_jvm_args.txt": true,
+	"run.bat": true, "run.before-minedeck.bat": true, "user_jvm_args.txt": true,
+	"log4j2_112-116.xml": true,
+	"gameai.json":        true, "gameai-state.json": true,
+}
+
+// controlDirs 整个目录都不采用的（小写、斜杠结尾）：MineDeck 和自家模组之间的端口、令牌（config/minedeck），
+// 以及 MineDeck 给配置文件留的备份（.minedeck）。令牌是原服主那台电脑上的，接手的人要用这些功能时 MineDeck 会重新生成。
+var controlDirs = []string{"config/minedeck/", ".minedeck/"}
+
+// isControl rel（相对实例目录，本机分隔符）是不是不采用的控制文件。导出时同样不带这些。
+func isControl(rel string) bool {
+	low := strings.ToLower(filepath.ToSlash(rel))
+	if controlRoot[low] {
+		return true
+	}
+	for _, d := range controlDirs {
+		if strings.HasPrefix(low, d) {
+			return true
+		}
+	}
+	return false
 }
 
 // payloadPath 校验一条包内路径，返回前缀内的相对路径（本机分隔符）。ok=false 表示不属于实例文件（前缀之外、目录项），跳过即可；
@@ -190,7 +214,7 @@ func payloadPath(f *zip.File) (rel string, ok bool, err error) {
 }
 
 // extractPrefix 解包 zip 里 PayloadPrefix 前缀下的全部文件到 destDir（严格 zip-slip）。
-// manifest.json 和前缀外的条目一概忽略，控制文件（controlFiles）不采用。
+// manifest.json 和前缀外的条目一概忽略，控制文件（isControl）不采用。
 func extractPrefix(ctx context.Context, src, destDir string, opts extractOpts,
 	progress func(done, total int64), fileCount func(n int, done, total int64)) (extractResult, error) {
 	var res extractResult
@@ -217,8 +241,8 @@ func extractPrefix(ctx context.Context, src, destDir string, opts extractOpts,
 		if !ok {
 			continue
 		}
-		if controlFiles[strings.ToLower(rel)] {
-			res.control = append(res.control, rel)
+		if isControl(rel) {
+			res.control = append(res.control, filepath.ToSlash(rel))
 			continue
 		}
 		size := int64(f.UncompressedSize64)

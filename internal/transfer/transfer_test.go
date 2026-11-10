@@ -506,6 +506,11 @@ func TestExportCarriesCoreConfigs(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "我的笔记.txt"), "自己记的东西")                      // 清单之外的文件
 	writeFile(t, filepath.Join(dir, "cache", "mojang_1.20.1.jar"), "会重新下载")     // 可以重新生成：不带也不提
 	writeFile(t, filepath.Join(dir, "usercache.json"), "[]")
+	// MineDeck 自己的文件不出这台电脑：和自家模组之间的令牌、游戏内 AI 的设置、老版本的日志配置、配置备份
+	writeFile(t, filepath.Join(dir, "config", "minedeck", "companion.properties"), "token=这台电脑上的令牌\n")
+	writeFile(t, filepath.Join(dir, "gameai.json"), "{}")
+	writeFile(t, filepath.Join(dir, "log4j2_112-116.xml"), "<Configuration/>")
+	writeFile(t, filepath.Join(dir, ".minedeck", "config-backups", "server.properties.1"), "x")
 	m := manager(t, "A 的服")
 	for _, full := range []bool{false, true} {
 		id, err := ExportAsync(m, ExportReq{Inst: "A 的服", Full: full})
@@ -523,7 +528,8 @@ func TestExportCarriesCoreConfigs(t *testing.T) {
 				t.Errorf("full=%v：%s 应该进包", full, want)
 			}
 		}
-		for _, not := range []string{"instance/dynmap/", "instance/我的笔记.txt", "instance/cache/", "instance/usercache.json", "instance/logs/", "instance/run.bat", "instance/instance.json"} {
+		for _, not := range []string{"instance/dynmap/", "instance/我的笔记.txt", "instance/cache/", "instance/usercache.json", "instance/logs/", "instance/run.bat", "instance/instance.json",
+			"instance/config/minedeck/", "instance/gameai.json", "instance/log4j2_112-116.xml", "instance/.minedeck/"} {
 			if strings.Contains(ents, not) {
 				t.Errorf("full=%v：%s 不该进包", full, not)
 			}
@@ -545,7 +551,7 @@ func TestExportCarriesCoreConfigs(t *testing.T) {
 				t.Errorf("full=%v：没进包的 %s 要写进剔除清单和任务日志\n剔除清单：%s\n日志：%s", full, want, excluded, log)
 			}
 		}
-		for _, not := range []string{"cache", "usercache.json", "run.bat", "instance.json", "server.jar"} {
+		for _, not := range []string{"cache", "usercache.json", "run.bat", "instance.json", "server.jar", "gameai.json", "log4j2", ".minedeck"} {
 			if strings.Contains(excluded, not) {
 				t.Errorf("full=%v：%s 会重新生成或重新下载，不用列进「没进包」：%s", full, not, excluded)
 			}

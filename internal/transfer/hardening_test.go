@@ -101,8 +101,17 @@ func TestExtractSkipsControlFiles(t *testing.T) {
 		{"instance/Instance.JSON.tmp", "x"},
 		{"instance/RUN.BAT", "calc"},
 		{"instance/user_jvm_args.txt", "-javaagent:evil.jar"},
+		// 老版本的日志配置：MineDeck 看到它在就给启动参数加引用，而老版本 log4j 的配置文件能跑脚本
+		{"instance/log4j2_112-116.xml", `<Configuration><Scripts><Script name="x" language="javascript">evil()</Script></Scripts></Configuration>`},
+		// 游戏内 AI 的设置（谁能用）：花的是接手的人的钱
+		{"instance/gameai.json", `{"enabled":true,"allow":["attacker"]}`},
+		// MineDeck 和自家模组之间的令牌、MineDeck 留的配置备份
+		{"instance/config/minedeck/companion.properties", "enabled=true\ntoken=原服主电脑上的令牌\n"},
+		{"instance/Config/MineDeck/voicebridge.properties", "token=x\n"},
+		{"instance/.minedeck/config-backups/server.properties.1", "x"},
 		{"instance/world/level.dat", "level"},
 		{"instance/config/instance.json", "模组自己的配置，碰巧同名"},
+		{"instance/config/voicechat/voicechat-server.properties", "port=24454\n"}, // 语音模组自己的配置：照常带
 		{"instance/world/", ""}, // 别的压缩工具重新打过的包会有目录项：跳过，不算可疑
 	})
 	dest := filepath.Join(t.TempDir(), "dest")
@@ -110,11 +119,11 @@ func TestExtractSkipsControlFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(treeOf(t, dest), " "); got != "config/instance.json world/level.dat" {
+	if got := strings.Join(treeOf(t, dest), " "); got != "config/instance.json config/voicechat/voicechat-server.properties world/level.dat" {
 		t.Errorf("解出来的文件不对：%s", got)
 	}
-	if len(res.control) != 4 {
-		t.Errorf("没采用的控制文件应有 4 个：%v", res.control)
+	if len(res.control) != 9 {
+		t.Errorf("没采用的控制文件应有 9 个：%v", res.control)
 	}
 	// 半成品目录里没有 instance.json：扫描根不会把它登记成服务器
 	newEnv(t)
@@ -261,6 +270,20 @@ func TestImportDropsRuntimeSettings(t *testing.T) {
 	log := strings.Join(snap.Log, "\n")
 	if !strings.Contains(log, "JVM 参数没有带过来") || !strings.Contains(log, "定时任务") {
 		t.Errorf("日志里要说明哪些没带过来：\n%s", log)
+	}
+	// 1.20.1 不需要 log4shell 防护：JVM 参数是空的（上面断言过）。换一个官方清单里没有的版本号（判断不了新旧，
+	// 离线时任何版本都是这个情况）：原服主的参数整个丢了，他带着的防护参数也在里面，所以要补上这一条，不能空着。
+	// 版本号用一个编出来的：联网时测试会拿到真的官方清单，真实的老版本号在里面，走的就是另一条路了
+	old := strings.ReplaceAll(manifest("100", "jar:server.jar"), `"mc":"1.20.1"`, `"mc":"0.0.1-audit"`)
+	id, err = ImportAsync(m, rawPack(t, old, files), ImportReq{Name: "老版本", EULA: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap, _, _, _ := waitTask(t, m, id); snap.Err != "" {
+		t.Fatalf("导入失败：%s", snap.Err)
+	}
+	if o, err := m.Get("老版本"); err != nil || len(o.ExtraJVM) != 1 || o.ExtraJVM[0] != inst.Log4jNoLookups {
+		t.Errorf("判断不了版本时要补上 log4shell 防护参数，别的参数一个不带：%v %+v", err, o)
 	}
 	// 占位放掉了：同名再导入报的是「已存在」而不是「正在创建中」
 	if _, err := ImportAsync(m, rawPack(t, manifest("100", "jar:server.jar"), files), ImportReq{Name: "接手服", EULA: true}); err == nil || strings.Contains(err.Error(), "创建中") {

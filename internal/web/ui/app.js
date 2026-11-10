@@ -1909,7 +1909,7 @@ const TASK_KINDS = {
   "transfer-out": { title: "正在导出交接包", sub: "正在把世界、配置和模组打包成一个文件。服务器不会被改动。", done: "导出完成", doneSub: "交接包已生成，文件位置在这一页的日志里",
     ok: "交接包导出成功", fail: "导出失败", failHint: "没有留下不完整的包，可以重试（包的特征见任务日志）。", busy: "打包中，请勿关闭程序…",
     go: "完成", href: () => "#/instances", back: "#/instances", backText: "返回服务器列表" },
-  "transfer-in": { title: "正在导入交接包", sub: "正在准备 Java、下载核心并解包。存档、配置和模组都会保留。", done: "交接完成", doneSub: "存档、配置和模组都是原来的，可以启动了",
+  "transfer-in": { title: "正在导入交接包", sub: "正在准备 Java、下载核心并解包。存档、配置和模组都会保留。", done: "交接完成", doneSub: "存档、配置和模组都带过来了，可以启动了。没带过来的东西列在下面的日志里",
     ok: "交接包导入成功", fail: "导入失败", failHint: "半成品的目录已经清理干净，可以重试。", busy: "导入中，请勿关闭程序…",
     go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/create", backText: "返回重试" },
 };

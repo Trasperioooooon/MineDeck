@@ -1415,7 +1415,7 @@ function handler(state, ui, portOf) {
         return ok(res, { id: isOut ? "task-transfer-out" : "task-transfer-in", kind: isOut ? "transfer-out" : "transfer-in",
           steps: names.map(name => ({ name, status: "done" })), label: "", done: 0, total: 0, warnings: [],
           log: isOut ? ["待打包 128 个文件、2.1 GB", "交接包已生成: " + resultOut, "把整个文件发给接手的人，对方在「新建服务器」页选「交接包」导入即可"]
-            : ["交接包：A 的服（paper 1.20.1）", "Java 就绪", "解出 2.0 GB", "交接完成 ✔ 存档、配置和模组都是原来的"],
+            : ["交接包：A 的服（paper 1.20.1）", "Java 就绪", "解出 2.0 GB", "交接完成 ✔ 存档、配置和模组都带过来了（没带过来的东西见上面几行）"],
           ended: true, result: isOut ? resultOut : resultIn });
       }
       // 端口占用查询（同 web：GET /api/ports/{port}）：/__mock/state 里 portBusy 设成哪个端口哪个就占着
