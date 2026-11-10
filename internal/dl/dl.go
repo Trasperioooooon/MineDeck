@@ -137,7 +137,9 @@ func Fetch(ctx context.Context, r Request, prog Progress) error {
 	if err := os.MkdirAll(filepath.Dir(r.Dest), 0o755); err != nil {
 		return err
 	}
-	var lastErr error
+	// 每个地址只留最后一次失败。全部试完再汇总，避免界面上只剩最后一个主机名。
+	var fails []urlFail
+	failAt := map[string]int{}
 	for round := 0; round < 3; round++ {
 		if round > 0 {
 			select {
@@ -154,13 +156,75 @@ func Fetch(ctx context.Context, r Request, prog Progress) error {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			lastErr = fmt.Errorf("%s: %w", shortURL(u), err)
+			if j, ok := failAt[u]; ok {
+				fails[j].err = err
+			} else {
+				failAt[u] = len(fails)
+				fails = append(fails, urlFail{url: u, err: err})
+			}
 			if r.OnRetry != nil && (round < 2 || i < len(r.URLs)-1) {
 				r.OnRetry(shortURL(u), err)
 			}
 		}
 	}
-	return fmt.Errorf("多次尝试后仍下载失败（%w）", lastErr)
+	return newFetchFail(fails)
+}
+
+// urlFail 一个候选地址的最后一次失败。
+type urlFail struct {
+	url string
+	err error
+}
+
+// fetchFailError 多源都没下成。Error 给界面一行摘要（每个源的主机名和原因）；
+// Unwrap 仍是最后一个地址的原始错误，errors.Is 认得出哈希校验失败。
+type fetchFailError struct {
+	msg  string
+	last error
+}
+
+func (e *fetchFailError) Error() string { return e.msg }
+
+func (e *fetchFailError) Unwrap() error { return e.last }
+
+// fetchReasonMax 单条原因的字数上限，整句要能放进隧道卡片（大约 300 字）。
+const fetchReasonMax = 80
+
+func newFetchFail(fails []urlFail) error {
+	seen := make(map[string]struct{}, len(fails))
+	parts := make([]string, 0, len(fails))
+	var last error
+	for _, f := range fails {
+		last = f.err
+		line := shortURL(f.url) + ": " + compactReason(f.err)
+		if _, ok := seen[line]; ok {
+			continue
+		}
+		seen[line] = struct{}{}
+		parts = append(parts, line)
+	}
+	return &fetchFailError{
+		msg:  "多次尝试后仍下载失败（" + strings.Join(parts, "；") + "）",
+		last: last,
+	}
+}
+
+// compactReason 去掉 net/http 错误里的完整 URL，并限制长度。
+func compactReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	s := err.Error()
+	if strings.HasPrefix(s, "Get \"") {
+		if i := strings.Index(s, "\": "); i >= 0 {
+			s = s[i+3:]
+		}
+	}
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > fetchReasonMax {
+		s = string(r[:fetchReasonMax]) + "…"
+	}
+	return s
 }
 
 func shortURL(u string) string {

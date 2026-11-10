@@ -102,37 +102,63 @@ func extractZipFlat(zipPath, destDir string) error {
 
 type openfrpProvider struct{}
 
+// openfrpSoftwareMeta 是 commonQuery?key=software 里和下载 frpc 有关的字段。
+// latest_ver 是纯数字版本（0.68.0），只用于版本比较；下载目录是 latest_full
+// （OF_0.68.0_…）。latest 是同一个目录名再包一层斜杠，不拿来拼地址。
+type openfrpSoftwareMeta struct {
+	Data struct {
+		Latest     string `json:"latest"`
+		LatestFull string `json:"latest_full"`
+		LatestVer  string `json:"latest_ver"`
+		Source     []struct {
+			Label string `json:"label"`
+			Value string `json:"value"`
+		} `json:"source"`
+	} `json:"data"`
+}
+
+// openfrpFrpcZip Windows amd64 定制版 frpc 的文件名（官方文档：windows 用 zip）。
+const openfrpFrpcZip = "frpc_windows_amd64.zip"
+
+// openfrpFrpcURLs 按官方文档拼下载地址：{source}/{latest_full}/frpc_windows_amd64.zip。
+// latest_full 和下载源两端的斜杠去掉。不拼不带版本的地址，那个路径会 404。
+func openfrpFrpcURLs(meta openfrpSoftwareMeta) ([]string, error) {
+	full := strings.Trim(strings.TrimSpace(meta.Data.LatestFull), "/")
+	if full == "" || len(meta.Data.Source) == 0 {
+		return nil, fmt.Errorf("OpenFrp 客户端源信息为空")
+	}
+	urls := make([]string, 0, len(meta.Data.Source))
+	for _, s := range meta.Data.Source {
+		base := strings.TrimRight(strings.TrimSpace(s.Value), "/")
+		if base == "" {
+			continue
+		}
+		urls = append(urls, base+"/"+full+"/"+openfrpFrpcZip)
+	}
+	if len(urls) == 0 {
+		return nil, fmt.Errorf("OpenFrp 客户端源信息为空")
+	}
+	return urls, nil
+}
+
 func (openfrpProvider) ID() string { return "openfrp" }
 
 func (openfrpProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	dir := frpcDir("openfrp")
+	// 已经放好的 frpc 直接用，不在这里比版本。latest_ver 和 latest_full 不是同一串，不能拿来互相比较。
 	if exe := findExe(dir); exe != "" {
 		return exe, nil
 	}
 	con.Append("[MineDeck] 下载 OpenFrp 定制版 frpc ...")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	var meta struct {
-		Data struct {
-			LatestVer string `json:"latest_ver"`
-			Source    []struct {
-				Label string `json:"label"`
-				Value string `json:"value"`
-			} `json:"source"`
-		} `json:"data"`
-	}
+	var meta openfrpSoftwareMeta
 	if err := dl.FetchJSON(ctx, []string{"https://api.openfrp.net/commonQuery/get?key=software"}, &meta); err != nil {
 		return "", fmt.Errorf("获取 OpenFrp 客户端版本失败: %w", err)
 	}
-	if meta.Data.LatestVer == "" || len(meta.Data.Source) == 0 {
-		return "", fmt.Errorf("OpenFrp 客户端源信息为空")
-	}
-	var urls []string
-	for _, s := range meta.Data.Source {
-		base := strings.TrimSuffix(s.Value, "/")
-		urls = append(urls,
-			base+"/"+meta.Data.LatestVer+"/frpc_windows_amd64.zip",
-			base+"/frpc_windows_amd64.zip")
+	urls, err := openfrpFrpcURLs(meta)
+	if err != nil {
+		return "", err
 	}
 	zipPath := filepath.Join(app.CacheDir, "frpc", "openfrp-frpc.zip")
 	if err := dl.Fetch(ctx, dl.Request{URLs: urls, Dest: zipPath, MinSize: 1 << 20}, nil); err != nil {
