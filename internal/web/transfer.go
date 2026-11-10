@@ -40,24 +40,23 @@ func (s *Server) handleTransferUpload(w http.ResponseWriter, r *http.Request) {
 			return nil, fmt.Errorf("缺少交接包文件")
 		}
 		defer file.Close()
-		base := filepath.Base(hdr.Filename)
-		if base == "" || base == "." {
-			base = "pack.mdpack"
-		}
-		// 上传名有可能是超长的怪名字：截短，保留扩展名，免得缓存路径超 长 度上限
-		if ext := filepath.Ext(base); len(base) > 80 {
-			base = base[:80-len(ext)] + ext
-		}
-		if ext := strings.ToLower(filepath.Ext(base)); ext != ".mdpack" && ext != ".zip" {
-			return nil, fmt.Errorf("只支持 .mdpack 交接包（收到 %s）", base)
+		// 只拿上传名的扩展名做判断，落盘的名字自己起：上传名是对方给的，可以超长、可以带冒号
+		// （写下来是备用数据流）、扩展名可以比整条名字的上限还长。
+		ext := strings.ToLower(filepath.Ext(filepath.Base(hdr.Filename)))
+		if ext != ".mdpack" && ext != ".zip" {
+			shown := []rune(filepath.Base(hdr.Filename))
+			if len(shown) > 40 {
+				shown = append(shown[:40], '…')
+			}
+			return nil, fmt.Errorf("只支持 .mdpack 交接包（收到 %s）", string(shown))
 		}
 		dir := filepath.Join(app.CacheDir, "transfer", "import")
-		dest := filepath.Join(dir, fmt.Sprintf("%d-%s", time.Now().UnixMilli(), base))
+		dest := filepath.Join(dir, fmt.Sprintf("%d.mdpack", time.Now().UnixNano()))
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, ops.Wrap(500, err)
 		}
 		sweepUploads(dir) // 顺手清掉很早以前传了没导入的：交接包动辄几个 GB，不能攒着
-		out, err := os.Create(dest)
+		out, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 		if err != nil {
 			return nil, ops.Wrap(500, err)
 		}
@@ -69,8 +68,8 @@ func (s *Server) handleTransferUpload(w http.ResponseWriter, r *http.Request) {
 			os.Remove(dest) // 传了一半的不留：GB 级的半截文件最占地方
 			return nil, ops.Errorf(500, "保存上传文件失败: %w", cerr)
 		}
-		// 落盘了就顺手校验得上读不出，坏了当场告诉用户，别等导入时才发现
-		if _, err := transfer.ReadManifest(dest); err != nil {
+		// 落盘了就顺手校验：不是交接包、版本太新、类型不对的当场告诉用户并删掉，别等导入时才发现，也别留在缓存里占地方
+		if _, err := transfer.Summarize(dest); err != nil {
 			os.Remove(dest)
 			return nil, err
 		}

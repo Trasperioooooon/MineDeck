@@ -7,9 +7,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
+	"minedeck/internal/app"
 	"minedeck/internal/inst"
 	"minedeck/internal/java"
 	"minedeck/internal/mcsrc"
@@ -56,6 +58,9 @@ func ImportAsync(m *inst.Manager, path string, req ImportReq) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// 往下一律用校验过的名字（ReserveCreate 会修剪前后的空格）：占位、注册、失败回滚要是各用各的写法，
+	// 占位放不掉，回滚还可能把另一台名字只差空格的服务器移出列表
+	req.Name = creq.Name
 	title := mf.Instance.Name
 	if strings.TrimSpace(title) == "" {
 		title = req.Name
@@ -107,6 +112,9 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 	// ---- 步骤 1：准备 Java ----
 	t.StartStep(1)
 	major := mf.Instance.JavaMajor
+	if major < 8 || major > 40 {
+		major = 0 // 包里写的不像 Java 版本号：当成没写，按 Minecraft 版本选
+	}
 	switch {
 	case major != 0:
 		t.Logf("交接的那台用 Java %d（来自 A 的 instance.json）", major)
@@ -154,14 +162,22 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 
 	// ---- 步骤 4：解包服务器文件（instance/ 前缀，严格 zip-slip） ----
 	t.StartStep(4)
-	packBytes, err := extractPrefix(ctx, path, dir, t.ProgressFn("解包交接包"),
+	res, err := extractPrefix(ctx, path, dir,
+		extractOpts{keepExisting: !mf.Full, declared: mf.Counts.Bytes, free: func() (uint64, error) { return app.DiskFree(dir) }},
+		t.ProgressFn("解包交接包"),
 		func(n int, done, total int64) {
 			t.ProgressFn(fmt.Sprintf("解包交接包（已 %d 个文件）", n))(done, total)
 		})
 	if err != nil {
 		return err
 	}
-	t.Logf("解出 %s", fmtBytes(packBytes))
+	t.Logf("解出 %s", fmtBytes(res.bytes))
+	if len(res.control) > 0 {
+		t.Logf("包里带的 %s 没有采用：这几个文件由 MineDeck 按这台电脑的情况重新生成", strings.Join(res.control, "、"))
+	}
+	if len(res.kept) > 0 {
+		t.Logf("⚠ 包里有 %d 个文件和刚下载的服务端核心重名（%s），用的是下载的那份，包里的没有采用", len(res.kept), shortList(res.kept, 5))
+	}
 
 	// ---- 步骤 5：生成启动脚本 + 注册 ----
 	t.StartStep(5)
@@ -180,10 +196,26 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 			rel, ok = strings.CutPrefix(launch, "args:")
 		}
 		if ok {
+			if !filepath.IsLocal(filepath.FromSlash(rel)) {
+				return fmt.Errorf("交接包里写的启动文件不在服务器文件夹里：%s", rel)
+			}
 			if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
 				return fmt.Errorf("包里缺启动文件 %s（A 那边的实例可能已经不完整）", rel)
 			}
 		}
+	}
+	// 包里的 JVM 参数、定时任务、崩溃自动重启不带过来：它们决定这台电脑上执行什么
+	// （-javaagent、-XX:OnError 能直接跑程序；定时任务能每天执行一条服务器命令，比如把原服主重新设成管理员），
+	// 而导入向导上看不到。写进日志，要用的话接手的人自己在设置里加。
+	if len(s.ExtraJVM) > 0 {
+		t.Logf("原来的 JVM 参数没有带过来，需要的话到「内存 / 启动」里自己加：%s", shortList(s.ExtraJVM, 12))
+	}
+	if n := len(s.Policies.Schedules); n > 0 || s.Policies.CrashRestart {
+		t.Logf("原来的定时任务（%d 条）和崩溃自动重启的设置没有带过来，需要的话在这台服务器的设置里重新加", n)
+	}
+	s.ExtraJVM, s.Policies = nil, inst.Policies{}
+	if s.ConsoleEncoding != "utf-8" && s.ConsoleEncoding != "gbk" {
+		s.ConsoleEncoding = ""
 	}
 	s.Name = req.Name
 	s.Core, s.MC, s.Build = mf.Core.Core, mf.Core.MC, build
@@ -224,6 +256,11 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 				return err
 			}
 			t.Logf("已写入 eula.txt（你在上一步同意了 Minecraft EULA）")
+		}
+	}
+	if kind != mcsrc.KindProxy && known { // log4shell 防护（老版本），和新建、接管时一样按这台电脑重新套一遍
+		if err := inst.ApplyLog4jMitigation(ctx, t, &s, dir); err != nil {
+			t.Logf("没能判断要不要加 log4shell 防护（%v），先跳过", err)
 		}
 	}
 	if _, err := m.FinalizeCreate(s, dir); err != nil {
@@ -344,10 +381,19 @@ func installCore(ctx context.Context, t *tasks.Task, javaExe, dir, installerJar 
 // eulaText eula.txt 的内容（与创建流水线一致）。
 const eulaText = "# 用户已在 MineDeck 中确认同意 Minecraft EULA (https://aka.ms/MinecraftEULA)\neula=true\n"
 
+// reEULA 和接管已有服务器时用的是同一条：单独一行的 eula=true 才算。
+// 原来只看文件里有没有这几个字，"#eula=true" 加 "eula=false" 也算同意过，导入成功以后服务器却起不来。
+var reEULA = regexp.MustCompile(`(?im)^\s*eula\s*=\s*true\s*$`)
+
 // eulaAccepted eula.txt 的内容里是不是同意过。
-func eulaAccepted(b []byte) bool {
-	s := strings.ToLower(string(b))
-	return strings.Contains(s, "eula=true") || strings.Contains(s, "eula = true")
+func eulaAccepted(b []byte) bool { return reEULA.Match(b) }
+
+// shortList 把一串名字拼成一句话里放得下的样子：最多列 max 个，多的写「等 N 项」。
+func shortList(items []string, max int) string {
+	if len(items) <= max {
+		return strings.Join(items, "、")
+	}
+	return fmt.Sprintf("%s 等 %d 项", strings.Join(items[:max], "、"), len(items))
 }
 
 // packEULAAccepted 只读包内 instance/eula.txt（一条小文件），看 A 那边同意过没有。

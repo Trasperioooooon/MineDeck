@@ -2754,6 +2754,9 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       const s = await page.evaluate(() => ({ name: $("#tp-name") && $("#tp-name").value, port: $("#tp-port") && $("#tp-port").value, kv: $("#tp-form") ? $("#tp-form").textContent : "" }));
       assert(s.name === "A 的服" && s.port === "25570", "摘要没带出名称与端口：" + JSON.stringify(s));
       assert(s.kv.includes("Paper 1.20.1") && s.kv.includes("36 个模组") && s.kv.includes("2.0 GB"), "包摘要展示：" + JSON.stringify(s.kv));
+      // 包里的模组、插件是别人电脑上带来的程序：导入前要提醒确认来源，并说明 JVM 参数和定时任务不带过来
+      const trust = await page.textContent("#tp-trust");
+      assert(trust.includes("信得过") && trust.includes("在你的电脑上运行") && trust.includes("定时任务不会带过来"), "来源提醒：" + trust);
       // 端口改成一个被占用的：给出行内提示（不拦提交）
       await mockState({ portBusy: 25599 });
       await page.fill("#tp-port", "25599");

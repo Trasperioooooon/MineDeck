@@ -1519,6 +1519,11 @@ async function drawTransfer() {
           <span>导出自</span><b>MineDeck ${esc(s.minedeckVersion || "")}，${esc(s.exportedAt || "")}</b>
         </div>
       </div>
+      <div class="warn-card" id="tp-trust" style="margin:0 0 16px">
+        <div class="wc-title">${icon("warn")} 导入前请确认来源</div>
+        <div class="wc-note">交接包里的模组、插件${s.full ? "和服务端核心" : ""}是对方电脑上带过来的程序，启动服务器时会在你的电脑上运行。只导入你信得过的人给的包。
+          原来的 JVM 参数和定时任务不会带过来，导入完成后的日志里会列出来，需要的话自己再加。</div>
+      </div>
       <div class="form-grid">
         <label class="field"><span>接手后的名称</span><input type="text" id="tp-name" maxlength="40" value="${esc(s.name)}"><div class="field-err" id="tp-name-err"></div></label>
         <label class="field"><span>端口（默认沿用包里的 ${s.port || 25565}）</span>

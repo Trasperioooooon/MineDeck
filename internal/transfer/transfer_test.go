@@ -235,7 +235,7 @@ func TestZipProgressCallbacks(t *testing.T) {
 	}
 	// 解包侧
 	out := filepath.Join(dir, "out")
-	_, err := extractPrefix(nil, pack, out,
+	_, err := extractPrefix(nil, pack, out, extractOpts{declared: mf2.Counts.Bytes},
 		func(done, total int64) {
 			if total != mf2.Counts.Bytes || done > total {
 				t.Errorf("解包进度不对：%d/%d", done, total)
@@ -401,15 +401,22 @@ func TestExportImportRoundtripFull(t *testing.T) {
 	if i.LaunchTarget != "jar:server.jar" {
 		t.Errorf("启动方式不对：%s", i.LaunchTarget)
 	}
-	if i.ConsoleEncoding != "gbk" || len(i.ExtraJVM) != 1 || i.ExtraJVM[0] != "-XX:+UseG1GC" {
-		t.Errorf("A 的 JVM 参数 / 控制台编码没带过来：%+v", i.Settings)
+	if i.ConsoleEncoding != "gbk" {
+		t.Errorf("A 的控制台编码没带过来：%+v", i.Settings)
+	}
+	// JVM 参数不带过来（决定这台电脑上执行什么，向导上又看不到），但要在日志里告诉接手的人原来有哪些
+	if len(i.ExtraJVM) != 0 {
+		t.Errorf("A 的 JVM 参数不该自动采用：%v", i.ExtraJVM)
+	}
+	if log := strings.Join(isnap.Log, "\n"); !strings.Contains(log, "-XX:+UseG1GC") {
+		t.Errorf("日志里该写明原来的 JVM 参数没带过来：\n%s", log)
 	}
 	// 到启动参数这一层：run.bat 与托管启动共用 launchArgs
 	got, err := os.ReadFile(filepath.Join(i.Dir, "run.bat"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"-Xmx2048M", "-XX:+UseG1GC", "server.jar", "nogui"} {
+	for _, want := range []string{"-Xmx2048M", "server.jar", "nogui"} {
 		if !strings.Contains(string(got), want) {
 			t.Errorf("run.bat 里没有 %s：\n%s", want, got)
 		}
@@ -493,6 +500,8 @@ func TestExportCarriesCoreConfigs(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "spigot.yml"), "settings:\n  bungeecord: true\n")
 	writeFile(t, filepath.Join(dir, "bukkit.yml"), "spawn-limits:\n  monsters: 50\n")
 	writeFile(t, filepath.Join(dir, "kubejs", "server_scripts", "recipes.js"), "// 配方")
+	writeFile(t, filepath.Join(dir, "lobby", "level.dat"), "多世界插件建的大厅") // level-name 之外的世界
+	writeFile(t, filepath.Join(dir, "lobby", "region", "r.0.0.mca"), "大厅的区块")
 	writeFile(t, filepath.Join(dir, "dynmap", "web", "tiles", "0.png"), "地图瓦片") // 清单之外的目录
 	writeFile(t, filepath.Join(dir, "我的笔记.txt"), "自己记的东西")                      // 清单之外的文件
 	writeFile(t, filepath.Join(dir, "cache", "mojang_1.20.1.jar"), "会重新下载")     // 可以重新生成：不带也不提
@@ -508,7 +517,8 @@ func TestExportCarriesCoreConfigs(t *testing.T) {
 			t.Fatalf("导出失败：%s\n日志：%s", snap.Err, strings.Join(snap.Log, "\n"))
 		}
 		ents := strings.Join(packEntries(t, snap.Result), "\n")
-		for _, want := range []string{"instance/spigot.yml", "instance/bukkit.yml", "instance/kubejs/server_scripts/recipes.js"} {
+		for _, want := range []string{"instance/spigot.yml", "instance/bukkit.yml", "instance/kubejs/server_scripts/recipes.js",
+			"instance/lobby/level.dat", "instance/lobby/region/r.0.0.mca"} {
 			if !strings.Contains(ents, want) {
 				t.Errorf("full=%v：%s 应该进包", full, want)
 			}
@@ -597,7 +607,7 @@ func TestZipSlipRejected(t *testing.T) {
 	zw.Close()
 	f.Close()
 	dest := filepath.Join(dir, "dest")
-	if _, err := extractPrefix(nil, p, dest, func(int64, int64) {}, func(int, int64, int64) {}); err == nil {
+	if _, err := extractPrefix(nil, p, dest, extractOpts{}, func(int64, int64) {}, func(int, int64, int64) {}); err == nil {
 		t.Errorf("带越界路径的包必须被拒")
 	} else if !strings.Contains(err.Error(), "越界") && !strings.Contains(err.Error(), "可疑") {
 		t.Errorf("报错该指明问题：%v", err)

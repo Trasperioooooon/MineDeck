@@ -219,6 +219,25 @@ func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, 
 			return "", fmt.Errorf("清点世界目录失败: %w", err)
 		}
 	}
+	// level-name 之外的世界（Multiverse 这类多世界插件建的大厅、资源世界）：根目录下带 level.dat 的文件夹都是世界
+	if ents, err := os.ReadDir(i.Dir); err == nil {
+		known := map[string]bool{}
+		for _, w := range i.WorldDirs() {
+			known[strings.ToLower(filepath.Clean(w))] = true
+		}
+		for _, e := range ents {
+			if !e.IsDir() || known[strings.ToLower(e.Name())] {
+				continue
+			}
+			if _, err := os.Stat(filepath.Join(i.Dir, e.Name(), "level.dat")); err != nil {
+				continue
+			}
+			if err := walk(e.Name(), &worldBytes, nil); err != nil {
+				return "", fmt.Errorf("清点世界目录失败: %w", err)
+			}
+			t.Logf("另一个世界 %s 也一起带上", e.Name())
+		}
+	}
 	mf.WorldBytes = worldBytes
 
 	// mods / plugins 的 modinfo 元数据（清单的 id / 名称 / 版本 / 加载器）

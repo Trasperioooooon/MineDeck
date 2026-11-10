@@ -154,7 +154,28 @@ func (m *Manifest) check() error {
 	if strings.TrimSpace(m.Instance.Name) == "" {
 		return errors.New("manifest 里没有实例信息")
 	}
+	// 版本号和构建号会拼进下载地址和本机的文件名：只认版本号该有的字符，路径分隔符、冒号、连着的两个点一律不要
+	for what, v := range map[string]string{"Minecraft 版本": m.Core.MC, "构建版本": m.Core.Build} {
+		if !versionLike(v) {
+			return fmt.Errorf("交接包里的%s写法不对：%q", what, v)
+		}
+	}
 	return nil
+}
+
+// versionLike 像不像一个版本号：字母、数字、点、横线、下划线、加号，最长 64 个字符，不能有连着的两个点。空串算（没写）。
+func versionLike(v string) bool {
+	if len(v) > 64 || strings.Contains(v, "..") {
+		return false
+	}
+	for _, r := range v {
+		switch {
+		case r >= '0' && r <= '9', r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '.', r == '-', r == '_', r == '+':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // packPort 读包内 server.properties 里的端口（摘要和导入预填用），读不到返回 0。

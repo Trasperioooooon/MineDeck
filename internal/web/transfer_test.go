@@ -84,6 +84,33 @@ func TestTransferRoutes(t *testing.T) {
 	}
 	// 里面没有 manifest.json 的 zip 也拒绝
 	e.uploadForm(t, "file", "plain.zip", mdpacklessZip(), 400)
+	// 扩展名比整条文件名的上限还长（30 个汉字就够）：原来截短文件名时下标成了负数，处理函数直接崩掉，
+	// multipart 的临时文件留在系统盘上不清。现在当成「不是交接包」正常拒绝
+	e.uploadForm(t, "file", "x."+strings.Repeat("很长的扩展名", 20), mdpackBytes(true), 400)
+	// 清单读得出、但这个版本处理不了的包（更新版本导出的）：拒绝，并且不留在缓存目录里
+	var newer bytes.Buffer
+	nz := zip.NewWriter(&newer)
+	nw, _ := nz.Create("manifest.json")
+	nw.Write([]byte(`{"formatVersion":9,"mode":"handover","instance":{"name":"x"},"core":{"core":"vanilla","mc":"1.21.1"}}`))
+	nz.Close()
+	if msg := e.uploadForm(t, "file", "newer.mdpack", newer.Bytes(), 400); !strings.Contains(string(msg), "升级") {
+		t.Errorf("更新版本的包应提示升级：%s", msg)
+	}
+	if left, _ := os.ReadDir(filepath.Join(app.CacheDir, "transfer", "import")); len(left) != 0 {
+		t.Errorf("被拒的上传不该留在缓存目录里：%v", left)
+	}
+	// 上传名里的冒号、路径、超长名字都不进落盘的文件名（落盘的名字是程序自己起的）
+	odd := e.uploadForm(t, "file", `..\ab:c`+strings.Repeat("长", 200)+".mdpack", mdpackBytes(true), 200)
+	var oddUp struct {
+		Data struct {
+			File string `json:"file"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(odd, &oddUp); err != nil || filepath.Dir(oddUp.Data.File) != filepath.Join(app.CacheDir, "transfer", "import") ||
+		strings.ContainsAny(filepath.Base(oddUp.Data.File), ":长") {
+		t.Errorf("落盘的文件名应由程序自己起：%s", odd)
+	}
+	os.Remove(oddUp.Data.File)
 
 	// 正经包：上传 → 摘要（file 必须带回去，向导提交导入凭这个路径找包）
 	var up struct {

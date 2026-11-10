@@ -209,6 +209,19 @@ func TrustHost(host, scope string) {
 	})
 }
 
+// DiskFree 路径所在的盘还剩多少字节（当前用户能用的）。路径要已经存在。
+func DiskFree(path string) (uint64, error) {
+	p, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return 0, err
+	}
+	var free uint64
+	if err := windows.GetDiskFreeSpaceEx(p, &free, nil, nil); err != nil {
+		return 0, err
+	}
+	return free, nil
+}
+
 // ---------- 密钥（secrets.json，DPAPI 加密） ----------
 
 const cfKeyName = "cf.key" // secrets.json 里 CurseForge API Key 的键名（AI 的 Key 叫 ai.key，见 internal/ai）

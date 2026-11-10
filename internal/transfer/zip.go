@@ -132,18 +132,76 @@ func writePack(ctx context.Context, dest string, files []packFile, mf *Manifest,
 	return f.Close()
 }
 
+// extractOpts 解包时的几道限制（交接包是别人给的文件，按恶意输入对待）。
+type extractOpts struct {
+	// keepExisting 目标位置已经有文件时不覆盖，跳过包里的那一条。瘦身模式用：解包之前目录里只有
+	// 刚下载、校验过的核心和安装器装出来的依赖库，不能让包里的同名文件顶掉。
+	keepExisting bool
+	// declared 清单里写的字节总数（manifest.counts.bytes）；包里实际申报的总量比它大出一截就拒绝。0 = 不比。
+	declared int64
+	// free 目标盘还剩多少字节；nil = 不查。装不下就在动手之前拒绝，免得把盘写满连累同一块盘上别的服务器。
+	free func() (uint64, error)
+}
+
+// extractResult 解包结果。
+type extractResult struct {
+	bytes   int64
+	control []string // 包里带了、但没有采用的控制文件（instance.json、run.bat 这类由 MineDeck 按本机生成的）
+	kept    []string // keepExisting 时因为目标已存在而没有解出来的
+}
+
+// controlFiles 实例根目录下由 MineDeck 按本机情况生成的文件（小写）：包里带了也不采用。
+// 不拦的话，导入在解包之后、收尾之前被打断（关程序、断电），目录里留下的就是包里那份 instance.json——
+// 下次启动扫描会把它登记成一台服务器，用哪个程序当 Java、带什么参数全由包说了算。
+var controlFiles = map[string]bool{
+	"instance.json": true, "instance.json.tmp": true, "instance.json.bak": true,
+	"run.bat": true, "user_jvm_args.txt": true,
+}
+
+// payloadPath 校验一条包内路径，返回前缀内的相对路径（本机分隔符）。ok=false 表示不属于实例文件（前缀之外、目录项），跳过即可；
+// 报错表示路径可疑，整个包都不要。
+// 按 Windows 的规矩查：filepath.IsLocal 拒绝绝对路径、盘符、往上走的 ..、保留设备名（NUL、COM1…）和带冒号的名字
+// （a.txt:x 会写进备用数据流）；某一段以点或空格结尾的也拒绝——Windows 会把结尾的点和空格吃掉，"run.bat." 落下来就是 run.bat。
+func payloadPath(f *zip.File) (rel string, ok bool, err error) {
+	name := strings.ReplaceAll(f.Name, "\\", "/")
+	in, found := strings.CutPrefix(name, PayloadPrefix)
+	if !found {
+		return "", false, nil
+	}
+	if f.FileInfo().IsDir() || strings.HasSuffix(in, "/") {
+		return "", false, nil // 目录由文件的路径带出来（别的压缩工具重新打过的包会有目录项）
+	}
+	if in == "" {
+		return "", false, nil
+	}
+	local := filepath.FromSlash(in)
+	if !filepath.IsLocal(local) || local != filepath.Clean(local) {
+		return "", false, fmt.Errorf("交接包里有可疑路径: %s", f.Name)
+	}
+	for _, seg := range strings.Split(in, "/") {
+		if strings.HasSuffix(seg, ".") || strings.HasSuffix(seg, " ") {
+			return "", false, fmt.Errorf("交接包里有可疑路径: %s", f.Name)
+		}
+	}
+	if !f.Mode().IsRegular() {
+		return "", false, fmt.Errorf("交接包里有不是普通文件的条目: %s", f.Name)
+	}
+	return local, true, nil
+}
+
 // extractPrefix 解包 zip 里 PayloadPrefix 前缀下的全部文件到 destDir（严格 zip-slip）。
-// manifest.json 和前缀外的条目一概忽略。返回解出的字节数。
-func extractPrefix(ctx context.Context, src, destDir string,
-	progress func(done, total int64), fileCount func(n int, done, total int64)) (int64, error) {
+// manifest.json 和前缀外的条目一概忽略，控制文件（controlFiles）不采用。
+func extractPrefix(ctx context.Context, src, destDir string, opts extractOpts,
+	progress func(done, total int64), fileCount func(n int, done, total int64)) (extractResult, error) {
+	var res extractResult
 	zr, err := zip.OpenReader(src)
 	if err != nil {
-		return 0, fmt.Errorf("打不开交接包（%w）", err)
+		return res, fmt.Errorf("打不开交接包（%w）", err)
 	}
 	defer zr.Close()
 	type entry struct {
 		f    *zip.File
-		name string // 前缀内的相对路径（斜杠）
+		name string // 前缀内的相对路径（本机分隔符）
 		size int64
 	}
 	var ents []entry
@@ -152,22 +210,33 @@ func extractPrefix(ctx context.Context, src, destDir string,
 		if f.Name == manifestName {
 			continue
 		}
-		name := strings.ReplaceAll(f.Name, "\\", "/")
-		rel, ok := strings.CutPrefix(name, PayloadPrefix)
-		if !ok || rel == "" {
+		rel, ok, err := payloadPath(f)
+		if err != nil {
+			return res, err
+		}
+		if !ok {
 			continue
 		}
-		if strings.HasPrefix(rel, "./") {
-			rel = strings.TrimPrefix(rel, "./")
+		if controlFiles[strings.ToLower(rel)] {
+			res.control = append(res.control, rel)
+			continue
 		}
-		if rel != filepath.ToSlash(filepath.Clean(filepath.FromSlash(rel))) {
-			return 0, fmt.Errorf("交接包里有可疑路径: %s", f.Name)
+		size := int64(f.UncompressedSize64)
+		if size < 0 || total+size < total {
+			return res, fmt.Errorf("交接包里的文件大小不对: %s", f.Name)
 		}
-		if f.FileInfo().IsDir() {
-			continue // 目录由文件的路径带出来
+		ents = append(ents, entry{f: f, name: rel, size: size})
+		total += size
+	}
+	// 总量两道关：和清单对账（申报的比清单多出一截，是有人改过的包）；再看盘上装不装得下。
+	// 单个文件还有按申报体积的限流（见下），所以实际写盘不会超过这里算出来的 total。
+	if opts.declared > 0 && total > opts.declared+opts.declared/8+(64<<20) {
+		return res, fmt.Errorf("交接包解开后有 %s，清单里写的只有 %s，这个包被改过或者坏了", fmtBytes(total), fmtBytes(opts.declared))
+	}
+	if opts.free != nil {
+		if free, err := opts.free(); err == nil && uint64(total)+(256<<20) > free {
+			return res, fmt.Errorf("磁盘空间不够：交接包解开要 %s，存放位置所在的盘只剩 %s", fmtBytes(total), fmtBytes(int64(free)))
 		}
-		ents = append(ents, entry{f: f, name: rel, size: int64(f.UncompressedSize64)})
-		total += int64(f.UncompressedSize64)
 	}
 	cleanDest := filepath.Clean(destDir)
 	var done int64
@@ -181,24 +250,32 @@ func extractPrefix(ctx context.Context, src, destDir string,
 	}
 	for _, e := range ents {
 		if err := cancelled(); err != nil {
-			return 0, err
+			return res, err
 		}
-		target := filepath.Join(cleanDest, filepath.FromSlash(e.name))
+		target := filepath.Join(cleanDest, e.name)
 		if target == cleanDest || !strings.HasPrefix(target, cleanDest+string(os.PathSeparator)) {
-			return 0, fmt.Errorf("交接包里有越界路径: %s", e.f.Name)
+			return res, fmt.Errorf("交接包里有越界路径: %s", e.f.Name)
+		}
+		if opts.keepExisting {
+			if _, err := os.Lstat(target); err == nil {
+				res.kept = append(res.kept, e.name)
+				done += e.size
+				progress(done, total)
+				continue
+			}
 		}
 		rc, err := e.f.Open()
 		if err != nil {
-			return 0, err
+			return res, err
 		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			rc.Close()
-			return 0, err
+			return res, err
 		}
 		w, err := os.Create(target)
 		if err != nil {
 			rc.Close()
-			return 0, err
+			return res, err
 		}
 		// 解压炸弹防线：申报多大就最多解多大——超过申报体积立刻失败，不写到整盘才回头对账
 		k, cerr := io.CopyBuffer(w, io.LimitReader(rc, e.size+1), buf)
@@ -207,12 +284,13 @@ func extractPrefix(ctx context.Context, src, destDir string,
 		}
 		rc.Close()
 		if cerr != nil {
-			return 0, fmt.Errorf("解包 %s 失败: %w", e.name, cerr)
+			return res, fmt.Errorf("解包 %s 失败: %w", e.name, cerr)
 		}
 		if k != e.size {
-			return 0, fmt.Errorf("解包 %s 后不完整（写到 %d 字节，包里记的是 %d）", e.name, k, e.size)
+			return res, fmt.Errorf("解包 %s 后不完整（写到 %d 字节，包里记的是 %d）", e.name, k, e.size)
 		}
 		done += e.size
+		res.bytes += e.size
 		progress(done, total)
 		n++
 		if n%2048 == 0 {
@@ -220,7 +298,7 @@ func extractPrefix(ctx context.Context, src, destDir string,
 		}
 	}
 	fileCount(n, done, total)
-	return done, nil
+	return res, nil
 }
 
 func modTime(path string) time.Time {

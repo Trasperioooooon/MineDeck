@@ -41,6 +41,16 @@ func (m *Manager) FinalizeCreate(s Settings, dir string) (*Instance, error) {
 	return i, nil
 }
 
+// ApplyLog4jMitigation 按这台电脑的情况给老版本套 log4shell 防护（同新建、接管）：往 s.ExtraJVM 里补上该有的参数，
+// 1.12.2 ~ 1.16.5 还会把官方的日志配置下载到 dir。s.ExtraJVM 里已有的同名参数以这里的为准。
+func ApplyLog4jMitigation(ctx context.Context, t *tasks.Task, s *Settings, dir string) error {
+	i := &Instance{Settings: *s, Dir: dir}
+	own := len(i.ExtraJVM)
+	err := applyLog4jMitigation(ctx, t, i)
+	s.ExtraJVM = withJVMFlags(i.ExtraJVM[:own:own], i.ExtraJVM[own:])
+	return err
+}
+
 // FetchArtifact 下载核心工件到共享缓存，再复制进实例目录（同创建流水线：换源重试记进任务的网络提示）。
 func FetchArtifact(ctx context.Context, t *tasks.Task, art mcsrc.Artifact, cacheKey, dir, destName string) error {
 	return fetchToInstance(ctx, t, art, cacheKey, dir, destName)

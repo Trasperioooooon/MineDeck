@@ -1,0 +1,269 @@
+package transfer
+
+import (
+	"archive/zip"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"minedeck/internal/app"
+	"minedeck/internal/inst"
+	"minedeck/internal/mcsrc"
+)
+
+// 交接包是别人给的文件（微信、网盘转手），按恶意输入对待。这里的用例是 2026-11-10 合并前审计补的：
+// 原来的 zip-slip 测试只覆盖了 Linux 语义下的 ..，Windows 特有的写法、包里夹带控制文件、
+// 顶掉下载的核心、夹带启动参数和定时任务都没有测到。
+
+// rawPack 手工造一个交接包：manifest 加上给定的条目（名字原样写进 zip，不经过任何规整）。
+func rawPack(t *testing.T, manifest string, entries [][2]string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "raw.mdpack")
+	f, err := os.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(f)
+	if manifest != "" {
+		w, _ := zw.Create("manifest.json")
+		w.Write([]byte(manifest))
+	}
+	for _, e := range entries {
+		w, err := zw.CreateHeader(&zip.FileHeader{Name: e[0], Method: zip.Deflate})
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.Write([]byte(e[1]))
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	return p
+}
+
+func noProgress(int64, int64)   {}
+func noCount(int, int64, int64) {}
+
+// treeOf root 下全部文件的相对路径（斜杠）。
+func treeOf(t *testing.T, root string) []string {
+	t.Helper()
+	var out []string
+	filepath.Walk(root, func(p string, st os.FileInfo, err error) error {
+		if err == nil && !st.IsDir() {
+			rel, _ := filepath.Rel(root, p)
+			out = append(out, filepath.ToSlash(rel))
+		}
+		return nil
+	})
+	return out
+}
+
+// TestExtractRejectsWindowsPaths 按 Windows 的规矩，这些名字要么写到别处、要么写进备用数据流或设备、
+// 要么落下来变成另一个名字：整个包都不要，一个字节都不落盘。
+func TestExtractRejectsWindowsPaths(t *testing.T) {
+	for _, name := range []string{
+		`instance/..\evil.txt`, // 反斜杠写的上级目录
+		`instance/a/..\..\evil.txt`,
+		"instance/../evil.txt",
+		"instance//abs.txt",                 // 前缀后面跟着绝对路径
+		"instance/C:/Windows/x.txt",         // 盘符
+		"instance/C:evil.txt",               // 盘符相对路径：落下来是文件 C 的备用数据流
+		"instance/mods/a.jar:hidden",        // 备用数据流
+		"instance/server.properties::$DATA", // 主数据流的另一种写法
+		"instance/NUL",                      // 保留设备名
+		"instance/world/COM1",
+		"instance/run.bat.", // Windows 会吃掉结尾的点：落下来就是 run.bat
+		"instance/run.bat ", // 结尾的空格同理
+		"instance/mods ./a.jar",
+	} {
+		pack := rawPack(t, "", [][2]string{{"instance/world/level.dat", "ok"}, {name, "evil"}})
+		dest := filepath.Join(t.TempDir(), "dest")
+		_, err := extractPrefix(nil, pack, dest, extractOpts{}, noProgress, noCount)
+		if err == nil {
+			t.Errorf("%q 应该让整个包被拒，实际解出了：%v", name, treeOf(t, filepath.Dir(dest)))
+			continue
+		}
+		if left := treeOf(t, filepath.Dir(dest)); len(left) != 0 {
+			t.Errorf("%q 被拒之前不该落下任何文件：%v", name, left)
+		}
+	}
+}
+
+// TestExtractSkipsControlFiles 包里带的 instance.json、run.bat 不采用（大小写怎么写都一样）。
+// 不然导入在解包和收尾之间被打断，目录里留下的就是包里那份 instance.json，下次启动会被登记成一台服务器，
+// 用哪个程序当 Java、带什么参数全由包说了算。子目录里的同名文件是普通文件，照常解。
+func TestExtractSkipsControlFiles(t *testing.T) {
+	pack := rawPack(t, "", [][2]string{
+		{"instance/instance.json", `{"name":"幽灵服","core":"paper","mc":"1.20.1","javaPath":"C:\\Windows\\System32\\cmd.exe","extraJvm":["/c","calc"]}`},
+		{"instance/Instance.JSON.tmp", "x"},
+		{"instance/RUN.BAT", "calc"},
+		{"instance/user_jvm_args.txt", "-javaagent:evil.jar"},
+		{"instance/world/level.dat", "level"},
+		{"instance/config/instance.json", "模组自己的配置，碰巧同名"},
+		{"instance/world/", ""}, // 别的压缩工具重新打过的包会有目录项：跳过，不算可疑
+	})
+	dest := filepath.Join(t.TempDir(), "dest")
+	res, err := extractPrefix(nil, pack, dest, extractOpts{}, noProgress, noCount)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(treeOf(t, dest), " "); got != "config/instance.json world/level.dat" {
+		t.Errorf("解出来的文件不对：%s", got)
+	}
+	if len(res.control) != 4 {
+		t.Errorf("没采用的控制文件应有 4 个：%v", res.control)
+	}
+	// 半成品目录里没有 instance.json：扫描根不会把它登记成服务器
+	newEnv(t)
+	half := filepath.Join(app.ServersDir, "half-imported")
+	if _, err := extractPrefix(nil, pack, half, extractOpts{}, noProgress, noCount); err != nil {
+		t.Fatal(err)
+	}
+	m, err := inst.NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(m.List()); n != 0 {
+		t.Errorf("被打断的导入留下的目录不该被登记成服务器：%d 台", n)
+	}
+}
+
+// TestExtractKeepExisting 瘦身模式：解包之前目录里已有的文件（刚下载、校验过的核心）不让包里的同名文件顶掉。
+func TestExtractKeepExisting(t *testing.T) {
+	pack := rawPack(t, "", [][2]string{
+		{"instance/server.jar", "EVIL-FROM-PACK"},
+		{"instance/libraries/net/x/win_args.txt", "-javaagent:evil.jar"},
+		{"instance/world/level.dat", "level"},
+	})
+	dest := filepath.Join(t.TempDir(), "dest")
+	writeFile(t, filepath.Join(dest, "server.jar"), "OFFICIAL-VERIFIED")
+	writeFile(t, filepath.Join(dest, "libraries", "net", "x", "win_args.txt"), "official args")
+	res, err := extractPrefix(nil, pack, dest, extractOpts{keepExisting: true}, noProgress, noCount)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dest, "server.jar")); string(b) != "OFFICIAL-VERIFIED" {
+		t.Errorf("下载的核心被包里的同名文件顶掉了：%q", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dest, "libraries", "net", "x", "win_args.txt")); string(b) != "official args" {
+		t.Errorf("安装器装出来的文件被顶掉了：%q", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dest, "world", "level.dat")); string(b) != "level" {
+		t.Errorf("没有重名的文件要照常解出来：%q", b)
+	}
+	if len(res.kept) != 2 {
+		t.Errorf("没采用的应有 2 个：%v", res.kept)
+	}
+	// 完整模式（keepExisting=false）：包里的就是要用的那份
+	if _, err := extractPrefix(nil, pack, dest, extractOpts{}, noProgress, noCount); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dest, "server.jar")); string(b) != "EVIL-FROM-PACK" {
+		t.Errorf("完整模式应以包里的为准：%q", b)
+	}
+}
+
+// TestExtractSizeLimits 解开的总量先和清单对账、再看盘上装不装得下，都在动手之前。
+func TestExtractSizeLimits(t *testing.T) {
+	big := strings.Repeat("0", 96<<20) // 96 MB 的零：压完只有几十 KB
+	pack := rawPack(t, "", [][2]string{{"instance/world/region/r.0.0.mca", big}})
+	dest := filepath.Join(t.TempDir(), "dest")
+	if _, err := extractPrefix(nil, pack, dest, extractOpts{declared: 10}, noProgress, noCount); err == nil || !strings.Contains(err.Error(), "清单") {
+		t.Errorf("比清单大出一截的包应被拒：%v", err)
+	}
+	tight := func() (uint64, error) { return 200 << 20, nil }
+	if _, err := extractPrefix(nil, pack, dest, extractOpts{free: tight}, noProgress, noCount); err == nil || !strings.Contains(err.Error(), "磁盘空间不够") {
+		t.Errorf("盘上装不下应在动手前拒绝：%v", err)
+	}
+	if left := treeOf(t, filepath.Dir(dest)); len(left) != 0 {
+		t.Errorf("被拒之前不该落下任何文件：%v", left)
+	}
+	// 清单对得上、盘也够：照常解
+	roomy := func() (uint64, error) { return 10 << 30, nil }
+	if _, err := extractPrefix(nil, pack, dest, extractOpts{declared: 96 << 20, free: roomy}, noProgress, noCount); err != nil {
+		t.Errorf("正常的包不该被拒：%v", err)
+	}
+}
+
+// TestImportDropsRuntimeSettings 包里的 JVM 参数、定时任务、崩溃自动重启不带过来，名字用修剪过的，
+// 版本号字段写法不对的整包拒绝，eula.txt 里注释掉的同意不算数。
+func TestImportDropsRuntimeSettings(t *testing.T) {
+	newEnv(t)
+	m, err := inst.NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := func(build, launch string) string {
+		mf := Manifest{FormatVersion: 1, Mode: ModeHandover, Full: true,
+			Core: CoreRef{Core: mcsrc.CorePaper, MC: "1.20.1", Build: build},
+			Instance: inst.Settings{
+				Name: "A 的服", Core: mcsrc.CorePaper, MC: "1.20.1", JavaMajor: 17, XmxMB: 2048, LaunchTarget: launch,
+				JavaPath:        `C:\Windows\System32\cmd.exe`,
+				ExtraJVM:        []string{`-Dx=1" & calc & "`, "-javaagent:world/x.jar"},
+				ConsoleEncoding: "奇怪的值",
+				Policies:        inst.Policies{CrashRestart: true, Schedules: []inst.Schedule{{}}},
+			}}
+		b, _ := json.Marshal(mf)
+		return string(b)
+	}
+	files := [][2]string{
+		{"instance/server.jar", "fake"}, {"instance/server.properties", "server-port=25570\n"},
+		{"instance/eula.txt", "#eula=true\neula=false\n"},
+	}
+	// 版本号字段里有路径分隔符：整包拒绝
+	if _, err := ImportAsync(m, rawPack(t, manifest(`..\..\x`, "jar:server.jar"), files), ImportReq{Name: "x", EULA: true}); err == nil || !strings.Contains(err.Error(), "写法不对") {
+		t.Errorf("构建版本里带路径的包应被拒：%v", err)
+	}
+	// eula.txt 里只是注释掉的同意：没勾就不让导入
+	if _, err := ImportAsync(m, rawPack(t, manifest("100", "jar:server.jar"), files), ImportReq{Name: "x", EULA: false}); err == nil || !strings.Contains(err.Error(), "EULA") {
+		t.Errorf("注释掉的 eula=true 不算同意过：%v", err)
+	}
+	// 启动文件指到服务器文件夹外面：导入失败，目录清干净
+	id, err := ImportAsync(m, rawPack(t, manifest("100", `jar:..\..\outside.jar`), files), ImportReq{Name: "越界启动", EULA: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap, _, _, _ := waitTask(t, m, id); !strings.Contains(snap.Err, "不在服务器文件夹里") {
+		t.Errorf("启动文件越界应失败：%q", snap.Err)
+	}
+	if left := treeOf(t, app.ServersDir); len(left) != 0 {
+		t.Errorf("导入失败后半成品目录应清干净：%v", left)
+	}
+	// 正常导入：名字前后带空格
+	id, err = ImportAsync(m, rawPack(t, manifest("100", "jar:server.jar"), files), ImportReq{Name: "  接手服  ", EULA: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, _, _, _ := waitTask(t, m, id)
+	if snap.Err != "" {
+		t.Fatalf("导入失败：%s", snap.Err)
+	}
+	if snap.Result != "接手服" {
+		t.Errorf("任务结果里的名字应是修剪过的：%q", snap.Result)
+	}
+	i, err := m.Get("接手服")
+	if err != nil {
+		t.Fatalf("应按修剪过的名字登记：%v", err)
+	}
+	if len(i.ExtraJVM) != 0 || i.Policies.CrashRestart || len(i.Policies.Schedules) != 0 || i.ConsoleEncoding != "" {
+		t.Errorf("包里的 JVM 参数、定时任务、崩溃自动重启、奇怪的编码都不该带过来：%+v", i.Settings)
+	}
+	if i.JavaPath != testJava17 {
+		t.Errorf("Java 应按本机解析，不用包里写的：%s", i.JavaPath)
+	}
+	bat, _ := os.ReadFile(filepath.Join(i.Dir, "run.bat"))
+	if strings.Contains(string(bat), "calc") || strings.Contains(string(bat), "javaagent") {
+		t.Errorf("run.bat 里不该有包带来的参数：\n%s", bat)
+	}
+	log := strings.Join(snap.Log, "\n")
+	if !strings.Contains(log, "JVM 参数没有带过来") || !strings.Contains(log, "定时任务") {
+		t.Errorf("日志里要说明哪些没带过来：\n%s", log)
+	}
+	// 占位放掉了：同名再导入报的是「已存在」而不是「正在创建中」
+	if _, err := ImportAsync(m, rawPack(t, manifest("100", "jar:server.jar"), files), ImportReq{Name: "接手服", EULA: true}); err == nil || strings.Contains(err.Error(), "创建中") {
+		t.Errorf("导入结束后占位应放掉：%v", err)
+	}
+}
