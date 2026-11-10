@@ -26,6 +26,10 @@
 .nf{text-align:center;padding:var(--space-80) 0}
 .nf h1{font:var(--fs-px-4)/var(--lh-heading) var(--font-pixel);margin:0 0 var(--space-10)}
 
+/* 二级页面的页头 */
+.sec.page-top{padding-top:var(--space-12)}
+.page-title{margin:0}
+
 /* 旧版日志页的折叠与下载行（列表页改为摘要后，详情页仍用 .dl） */
 .dl{display:flex;flex-wrap:wrap;gap:var(--space-10);align-items:center;margin-top:var(--space-14);padding-top:var(--space-12);border-top:var(--border-thin) dashed var(--color-line)}
 .gh{font-size:var(--fs-sm);color:var(--color-muted);margin-left:auto}

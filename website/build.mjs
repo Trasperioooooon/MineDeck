@@ -16,7 +16,7 @@ import { dirname, join, resolve, basename, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { render, sanitize, summary } from './lib/markdown.mjs';
-import { homePage, changelogPage, notFoundPage } from './src/templates.mjs';
+import { ROUTES, LANGS, NAV, FOOTER_LINKS } from './src/routes.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '..');
@@ -29,6 +29,7 @@ const OUT = resolve(HERE, opt('--out', PREVIEW ? 'dist-preview' : 'dist'));
 const CACHE = join(HERE, 'data', 'releases.cache.json');
 const cfg = JSON.parse(readFileSync(join(HERE, 'site.config.json'), 'utf8'));
 const I18N = { zh: JSON.parse(readFileSync(join(HERE, 'src/i18n/zh.json'), 'utf8')), en: JSON.parse(readFileSync(join(HERE, 'src/i18n/en.json'), 'utf8')) };
+const TOKENS = JSON.parse(readFileSync(join(HERE, 'src/tokens.json'), 'utf8'));
 const log = (...a) => console.log('[website]', ...a);
 
 // ---------- 1. 取得 Releases ----------
@@ -118,8 +119,28 @@ emit('logo-144.png', readFileSync(join(REPO_ROOT, 'internal/web/ui/img/logo-144.
 emit('social-preview.png', readFileSync(join(REPO_ROOT, 'assets/social-preview.png')));
 copyFileSync(join(REPO_ROOT, 'assets/icon.ico'), join(OUT, 'favicon.ico'));
 
+// ---------- 路由 -> 页面列表 ----------
+const outFile = (url) => (url.endsWith('/') ? url + 'index.html' : url).replace(/^\//, '');
+function urlOf(route, lang, params = {}) {
+  const p = route.path.replace(/\{(\w+)\}/g, (m, k) => encodeURIComponent(params[k]));
+  return LANGS[lang] + p;
+}
+const ROUTE_BY_ID = Object.fromEntries(ROUTES.map((r) => [r.id, r]));
+const PAGES = [];
+for (const route of ROUTES) {
+  const langs = route.langs || Object.keys(LANGS);
+  for (const params of route.params ? route.params(data) : [{}]) {
+    const urls = Object.fromEntries(Object.keys(LANGS).map((l) => [l, urlOf(route, l, params)]));
+    for (const lang of langs) {
+      PAGES.push({ id: route.id, section: route.section || route.id, lang, params, url: urls[lang], urls, out: outFile(urls[lang]),
+        absolute: !!route.absolute, noAlt: !!route.noAlt, noSitemap: !!route.noSitemap, render: route.render });
+    }
+  }
+}
+
 // 先用占位名渲染一遍页面，收集字符，再做字体子集
-function makeCtx(lang, page, names) {
+function makeCtx(page, names) {
+  const lang = page.lang;
   const L = I18N[lang];
   const depth = page.out.split('/').length - 1;
   const root = page.absolute ? '/' : '../'.repeat(depth);
@@ -130,16 +151,19 @@ function makeCtx(lang, page, names) {
     if (PREVIEW && r.endsWith('/')) r += 'index.html';
     return r;
   };
-  return { preview: PREVIEW, L, L2: I18N[lang === 'zh' ? 'en' : 'zh'], cfg, data, page: { ...page, lang }, root, link, a: (n) => root + 'assets/' + (names[n] || n), assetName: (n) => names[n] || n };
+  // href('changelog') / href('release', { tag }) / href('home', {}, 'en')：站内链接一律经由路由表生成
+  const href = (id, params = {}, l = lang) => {
+    const route = ROUTE_BY_ID[id];
+    if (!route) throw new Error(`未知路由 ${id}`);
+    return link(urlOf(route, l, params));
+  };
+  return {
+    preview: PREVIEW, L, L2: I18N[lang === 'zh' ? 'en' : 'zh'], cfg, data, tokens: TOKENS, page, root, link, href,
+    navItems: NAV.filter((n) => !n.route || ROUTE_BY_ID[n.route]), footerLinks: FOOTER_LINKS,
+    a: (n) => root + 'assets/' + (names[n] || n), assetName: (n) => names[n] || n,
+  };
 }
-const PAGES = [
-  { out: 'index.html', lang: 'zh', url: '/', zhUrl: '/', enUrl: '/en/', tpl: homePage },
-  { out: 'changelog/index.html', lang: 'zh', url: '/changelog/', zhUrl: '/changelog/', enUrl: '/en/changelog/', tpl: changelogPage },
-  { out: 'en/index.html', lang: 'en', url: '/en/', zhUrl: '/', enUrl: '/en/', tpl: homePage },
-  { out: 'en/changelog/index.html', lang: 'en', url: '/en/changelog/', zhUrl: '/changelog/', enUrl: '/en/changelog/', tpl: changelogPage },
-  { out: '404.html', lang: 'zh', url: '/404.html', zhUrl: '/', enUrl: '/en/', tpl: notFoundPage, absolute: true, noAlt: true },
-];
-const draft = PAGES.map((p) => p.tpl(makeCtx(p.lang, p, assetMap))).join('');
+const draft = PAGES.map((p) => p.render(makeCtx(p, assetMap))).join('');
 
 // ---------- 4. 字体 ----------
 const FONT_SRC = {
@@ -175,7 +199,6 @@ for (const f of readdirSync(join(HERE, 'fonts/licenses'))) copyFileSync(join(HER
 
 // ---------- 5. CSS / JS ----------
 // 设计 token：src/tokens.json -> CSS 变量；组件样式不得出现颜色字面量
-const TOKENS = JSON.parse(readFileSync(join(HERE, 'src/tokens.json'), 'utf8'));
 function tokensCss(t) {
   const out = [];
   for (const [group, vals] of Object.entries(t)) {
@@ -199,7 +222,7 @@ emit('app.js', readFileSync(join(HERE, 'src/app.js')));
 
 // ---------- 6. 页面与数据 ----------
 for (const p of PAGES) {
-  const html = p.tpl(makeCtx(p.lang, p, assetMap));
+  const html = p.render(makeCtx(p, assetMap));
   mkdirSync(dirname(join(OUT, p.out)), { recursive: true });
   writeFileSync(join(OUT, p.out), html);
 }
@@ -207,7 +230,7 @@ writeFileSync(join(OUT, 'data/releases.json'), JSON.stringify({ ...data, latest_
 const site = cfg.siteUrl.replace(/\/$/, '');
 writeFileSync(join(OUT, 'robots.txt'), `User-agent: *\nAllow: /\nSitemap: ${site}/sitemap.xml\n`);
 writeFileSync(join(OUT, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n` +
-  PAGES.filter((p) => !p.noAlt).map((p) => `<url><loc>${site}${p.url}</loc><xhtml:link rel="alternate" hreflang="zh-CN" href="${site}${p.zhUrl}"/><xhtml:link rel="alternate" hreflang="en" href="${site}${p.enUrl}"/></url>`).join('\n') + '\n</urlset>\n');
+  PAGES.filter((p) => !p.noSitemap).map((p) => `<url><loc>${site}${p.url}</loc><xhtml:link rel="alternate" hreflang="zh-CN" href="${site}${p.urls.zh}"/><xhtml:link rel="alternate" hreflang="en" href="${site}${p.urls.en}"/></url>`).join('\n') + '\n</urlset>\n');
 
 log(`完成：${OUT}`);
 log(`稳定版 ${data.latest_stable?.tag ?? '无'}，测试版 ${data.latest_beta?.tag ?? '无'}，共 ${releases.length} 个版本${cfg.mirror?.enabled ? '；镜像链接为占位模板 ' + cfg.mirror.template : ''}`);
