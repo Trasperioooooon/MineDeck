@@ -62,8 +62,19 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 
 `GET /api/tasks` 返回本次程序运行的任务摘要数组，按创建时间从新到旧排列，包括部署中、已完成和失败的任务；没有任务时返回 `[]`。每项是 `{id, title, kind?, label, done, total, ended, error?, result?, warningCount}`，同名字段的含义和单个任务的快照一样（`kind` 见下一段），`warningCount` 是告警条数；步骤、日志和告警明细不在列表里，要看就用 `GET /api/tasks/{id}` 查那一个任务。界面切页或刷新后可据此恢复进度入口，程序重启后任务记录清空。
 
-`GET /api/tasks/{id}` 快照里的 `kind` 说明是哪一类任务：没有这个字段是新建 / 导入（部署），`adopt` 是接管已有服务器，`java` 是换 Java 时下载便携版；界面按它换说法。快照除进度/日志外，还含 `warnings[]`（结构化告警，如 CurseForge 未解析模组清单 `{kind,title,note,items:[{name,url}]}`），供导入完成页醒目呈现。
+`GET /api/tasks/{id}` 快照里的 `kind` 说明是哪一类任务：没有这个字段是新建 / 导入（部署），`adopt` 是接管已有服务器，`java` 是换 Java 时下载便携版，`pack` / `unpack` 是服务器打包 / 收包；界面按它换说法。快照除进度/日志外，还含 `warnings[]`（结构化告警，如 CurseForge 未解析模组清单 `{kind,title,note,items:[{name,url}]}`），供导入完成页醒目呈现。
 还可能有 `net: {count, host?, what, ago}`：当前这一步里下载超时、失败重试的情况——`count` 是这一步一共出过几次，`host` 是最近一次出问题的地址（只到主机名，安装器自己出错重来时为空），`what` 是什么问题（「下载失败」「连接超时」「连不上」「安装器出错退出，第 2 次重试」），`ago` 是几秒前。来源有两处：MineDeck 自己下载核心时某个下载源没下成（换下一个源或稍后重试），以及 Forge / NeoForge 安装器的输出里出现连接超时、连不上的异常（一段异常栈算一次）。之后下载又有了进度、换了步骤或任务结束，就不再有这一项。部署页在它出现、或者进度和日志 30 秒没有任何变化时，在进度旁提示「下载慢，或者在重试」。
+
+**服务器打包 / 收包**（下表三个接口，操作 `instance.transfer.export` / `instance.transfer.import` / `instance.transfer.inspect`，全部仅人工、仅本机——要往主机写包文件、读收到的包；人机向导见 docs/接收者上手指南.md）。包格式是 `.mdpack`（zip），第一个条目固定为 `mdpack.json`（manifest，双方契约：`formatVersion`（现为 1）、`mode`（`distributable` 打包下发 / `handover` 服主交接，决定默认剔除集）、`exportedAt`、`exporterVersion`（导出方 MineDeck 版本）、`instance`（instance.json 原文）、`mods`（modinfo 解析的模组清单，插件服读 plugins）、`worldSize`（世界存档总大小，字节；`playerdata` 里全员进度原样在包里）、`excluded`（实际剔除的条目清单））。引擎在 `internal/transfer`。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/transfer/upload` | multipart 上传收到的 `.mdpack`（file 字段，上限 8 GB），存进程序目录 `cache/transfer/` 并顺手清点（`instance.transfer.inspect`，不写操作记录）。返回 `{file, summary}`：`file` 是存下的路径，收包时原样带回；`summary`（同 `transfer.Summary`）：`formatVersion` / `mode` / `exportedAt` / `exporter`、`instance{name,core,mc,build,javaMajor,xmxMb,createdAt}`、`port`（包内 server.properties 的 server-port）、`eulaAgreed`（包内 eula.txt 已同意）、`modCount` / `mods`（清单明细）、`worldSize` / `excluded` / `entries` / `packSize`。包打不开、格式版本不认识、mode 不合法、缺 instance 原文都返回 400 |
+| POST | `/api/transfer/export` | `{inst, mode("distributable"/"handover"), dest, excludes?}`：把一台**停着的**实例打成一个 `.mdpack`（运行中 400；`dest` 是完整路径或目录——目录时自动起名，且不能在实例自己的目录里）；失败返回 400。返回 `{taskId}`（kind=`pack`，成功后 `result` 是包文件路径）。`excludes` 为额外剔除（实例目录内的相对路径，与默认清单一起写进包里的剔除清单），危险写法（`..`、绝对路径、盘符）返回 400 |
+| POST | `/api/transfer/import` | `{file, name, port?, xmxMb?, javaMajor?, eula?}`：把包落成一台可开服的实例。`file` 必须是 upload 刚存进 `cache/transfer` 的（否则 400）。世界 / 模组 / 配置按包原样落地，实例名换成 `name`；`port` 默认包里的、`xmxMb` 默认包里的、`javaMajor` 默认包里写的（保真优先，魔改模组就要那个版本），包里没写按 MC 版本自动，解析不到本机就下载便携版；包内 eula.txt 已同意过、或代理端不用再勾。返回 `{taskId}`（kind=`unpack`，成功后 `result` 是落地实例名；失败清除半成品目录） |
+
+`mode` 两种的默认剔除（引擎 `transfer.ExcludedFor`）：`distributable` 剔 MineDeck 簿记（`instance.json`、`run.bat`、`.minedeck`）、`session.lock` 与日志 / 崩溃报告 / 可重建缓存（`logs`、`crash-reports`、`usercache.json`）；`handover` 只剔簿记和锁文件，记录文件（服务器怎么跑过的）保留。剔除清单写进 manifest，收包时看得到。
+
 
 ### 穿透
 | 方法 | 路径 | 说明 |
