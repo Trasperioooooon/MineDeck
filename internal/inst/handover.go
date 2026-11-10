@@ -3,6 +3,7 @@ package inst
 import (
 	"context"
 	"path/filepath"
+	"sync"
 
 	"minedeck/internal/app"
 	"minedeck/internal/mcsrc"
@@ -30,7 +31,8 @@ func (m *Manager) BeginPacking(name string) (release func(), ok bool) {
 	if !m.tryMarkPacking(name) {
 		return nil, false
 	}
-	return func() { m.unmarkPacking(name) }, true
+	var once sync.Once // release 可以调多次（提前放一次、defer 再兜一次），只有第一次算数：不能把之后别人占上的位放掉
+	return func() { once.Do(func() { m.unmarkPacking(name) }) }, true
 }
 
 // FinalizeCreate 写 run.bat 和 instance.json，记下扫描根，把实例注册进列表。

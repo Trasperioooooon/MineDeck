@@ -3,6 +3,7 @@ package transfer
 import (
 	"archive/zip"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -341,7 +342,7 @@ func TestImportDropsRuntimeSettings(t *testing.T) {
 	// 原来照单全收，接手的人之后点一次「还原备份」，删掉的就是 level-name 指着的那个文件夹
 	neighbour := filepath.Join(app.ServersDir, "other-server", "precious.txt")
 	writeFile(t, neighbour, "隔壁服务器的东西")
-	for _, bad := range []string{
+	for k, bad := range []string{
 		"level-name=../other-server", "level-name=..", "level-name=.", "level-name=world/../..", "level-name=C:/Windows", "level-name=...",
 		// 换个写法骗过检查：MineDeck 自己读到的是 world 或者「没写」，服务端读到的是越界的路径
 		"level-name=world\nlevel-name=../other-server", "level-name:../other-server", "level-name ../other-server",
@@ -351,14 +352,16 @@ func TestImportDropsRuntimeSettings(t *testing.T) {
 			{"instance/server.jar", "fake"}, {"instance/eula.txt", "eula=true\n"},
 			{"instance/server.properties", "server-port=25570\n" + bad + "\n"},
 		}
-		id, err := ImportAsync(m, rawPack(t, manifest("100", "jar:server.jar"), evil), ImportReq{Name: "越界世界", EULA: true})
+		// 每一轮用自己的名字：导入失败以后，名字的占位是在任务显示结束之后才放掉的，紧接着用同一个名字再导入会撞上
+		name := fmt.Sprintf("越界世界 %d", k)
+		id, err := ImportAsync(m, rawPack(t, manifest("100", "jar:server.jar"), evil), ImportReq{Name: name, EULA: true})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if snap, _, _, _ := waitTask(t, m, id); !strings.Contains(snap.Err, "level-name") {
 			t.Errorf("level-name=%q 的包应被拒：%q", bad, snap.Err)
 		}
-		if _, err := m.Get("越界世界"); err == nil {
+		if _, err := m.Get(name); err == nil {
 			t.Fatalf("level-name=%q 的包不该导入成功", bad)
 		}
 	}

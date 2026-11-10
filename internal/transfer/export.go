@@ -81,6 +81,7 @@ func ExportAsync(m *inst.Manager, req ExportReq) (string, error) {
 	go func() {
 		defer release()
 		path, err := runExport(ctx, t, i, req.Full, mode, dest)
+		release() // 先放掉占位再报结束：任务一显示完成，马上就能启动这台服务器或者再打一个包（放两次没关系）
 		if err != nil {
 			t.Fail(err)
 			return
