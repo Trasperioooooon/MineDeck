@@ -24,7 +24,9 @@ func adoptEnv(t *testing.T) (*Manager, string) {
 	app.ServersDir = filepath.Join(app.Base, "servers")
 	app.BackupsDir = filepath.Join(app.Base, "backups")
 	app.RuntimesDir = filepath.Join(app.Base, "runtimes")
-	setConfig(t, func(c *app.Config) { c.ServersDir, c.BackupsDir, c.Roots, c.BackupRoots = "", "", nil, nil })
+	setConfig(t, func(c *app.Config) {
+		c.ServersDir, c.BackupsDir, c.Roots, c.BackupRoots, c.InstanceDirs = "", "", nil, nil, nil
+	})
 	return &Manager{insts: map[string]*Instance{}, creating: map[string]bool{}, Tasks: tasks.NewManager()}, t.TempDir()
 }
 
@@ -337,6 +339,10 @@ func TestAdoptNeoForge(t *testing.T) {
 	}
 	writeTree(t, dir, untouched)
 	writeTree(t, dir, map[string]string{"run.bat": userBat, "user_jvm_args.txt": userArgs})
+	// 同一层还有一台 MineDeck 管过的服务器（带 instance.json），这次没有接管它
+	writeTree(t, filepath.Join(user, "neighbor"), map[string]string{
+		"instance.json": `{"name":"邻居","core":"vanilla","mc":"1.21.1","launchTarget":"jar:server.jar"}`,
+	})
 	java := fakeJava(t)
 
 	sc, err := m.ScanAdopt(dir)
@@ -377,17 +383,21 @@ func TestAdoptNeoForge(t *testing.T) {
 	if s, err := readSettings(dir); err != nil || s.Name != "create-pack" || !s.Adopted {
 		t.Errorf("instance.json：%+v %v", s, err)
 	}
-	if !slices.Contains(app.GetConfig().Roots, user) {
-		t.Errorf("上一层目录没记进扫描根，重启后就找不到这台服务器了：%v", app.GetConfig().Roots)
+	// 只单独登记被接管的这一个文件夹，不把它的上一层记成扫描根
+	if c := app.GetConfig(); !slices.Equal(c.InstanceDirs, []string{dir}) || len(c.Roots) != 0 {
+		t.Errorf("应只登记被接管的文件夹：instanceDirs=%v roots=%v", c.InstanceDirs, c.Roots)
 	}
 
-	// 重启后（重新扫描）还在；同一个文件夹不能再接管一次
+	// 重启后（重新扫描）还在；旁边那台没接管过的不会跟着出现；同一个文件夹不能再接管一次
 	m2, err := NewManager()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if i2, err := m2.Get("create-pack"); err != nil || i2.Dir != dir || !i2.Adopted {
 		t.Errorf("重新扫描后没找到：%v", err)
+	}
+	if _, err := m2.Get("邻居"); err == nil || len(m2.List()) != 1 {
+		t.Errorf("旁边那台没接管过的服务器，重启后自己出现在了列表里（现在 %d 台）", len(m2.List()))
 	}
 	if _, err := m.ScanAdopt(dir); err == nil || !strings.Contains(err.Error(), "已经在列表里了") {
 		t.Errorf("%v", err)
@@ -536,6 +546,9 @@ func TestReleaseThenAdoptBack(t *testing.T) {
 	if m2, _ := NewManager(); len(m2.List()) != 0 {
 		t.Errorf("移出列表后重新扫描又出现了：%d 台", len(m2.List()))
 	}
+	if got := app.InstanceDirs(); len(got) != 0 {
+		t.Errorf("移出列表后单独登记还留着：%v", got)
+	}
 
 	sc, err := m.ScanAdopt(dir)
 	if err != nil {
@@ -560,12 +573,18 @@ func TestReleaseThenAdoptBack(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, runBatBackup)); err == nil {
 		t.Error("MineDeck 自己生成的 run.bat 不用备份")
 	}
+	if got := app.InstanceDirs(); !slices.Equal(got, []string{dir}) {
+		t.Errorf("接管回来后应重新登记这个文件夹：%v", got)
+	}
 
-	// 连文件一起删照旧
+	// 连文件一起删照旧，登记也去掉
 	if err := m.Delete("朋友服", true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(dir); err == nil {
 		t.Error("目录还在")
+	}
+	if got := app.InstanceDirs(); len(got) != 0 {
+		t.Errorf("删掉以后单独登记还留着：%v", got)
 	}
 }

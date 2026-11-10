@@ -376,7 +376,9 @@ func (m *Manager) runAdopt(ctx context.Context, t *tasks.Task, req AdoptReq, sc 
 		return err
 	}
 	_ = os.Remove(filepath.Join(dir, settingsBackup)) // 以前移出列表时留的那份已经并进新的 instance.json
-	app.RememberRoot(filepath.Dir(dir))               // 下次启动还能扫到它
+	// 下次启动还要认得它：只登记这一个文件夹。不把上一层记成扫描根——那样上一层里别的带 instance.json 的文件夹
+	// （比如老版本 MineDeck 的 servers 目录里的另外几台）会不经接管就自己出现在列表里
+	app.RememberInstanceDir(dir)
 	m.mu.Lock()
 	m.insts[req.Name] = inst
 	m.mu.Unlock()

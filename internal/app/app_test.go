@@ -3,6 +3,7 @@ package app
 import (
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -70,6 +71,46 @@ func TestRememberRoot(t *testing.T) {
 	restart()
 	if got := GetConfig().Roots; !slices.Equal(got, []string{d}) {
 		t.Fatalf("Roots = %v，应为 [%s]", got, d)
+	}
+}
+
+// 单独登记的服务器文件夹（接管进来的）：去重不看大小写和末尾的分隔符；重启后还在；去掉以后不再有；
+// 不会连带把它的上一层记成扫描根。
+func TestRememberInstanceDir(t *testing.T) {
+	tempBase(t)
+	a, b := filepath.Join(Base, "old", "A"), filepath.Join(Base, "old", "B")
+	RememberInstanceDir(a)
+	RememberInstanceDir(a + string(filepath.Separator))
+	RememberInstanceDir(strings.ToUpper(a))
+	RememberInstanceDir(b)
+	RememberInstanceDir("")
+	restart()
+	if got := InstanceDirs(); !slices.Equal(got, []string{a, b}) {
+		t.Fatalf("InstanceDirs = %v，应为 [%s %s]", got, a, b)
+	}
+	if roots := InstanceRoots(); slices.Contains(roots, filepath.Join(Base, "old")) {
+		t.Fatalf("上一层不该成为扫描根：%v", roots)
+	}
+
+	held := GetConfig().InstanceDirs // 别处早先拿到的一份配置
+	// 去掉再加，让 cfg 里的切片后面留出空位：这时再登记不能写进别处手里那块数组
+	c := filepath.Join(Base, "old", "C")
+	RememberInstanceDir(c)
+	ForgetInstanceDir(c)
+	spare := GetConfig().InstanceDirs
+	RememberInstanceDir(c)
+	if got := spare[:cap(spare)]; len(got) > len(spare) && got[len(spare)] == c {
+		t.Errorf("登记时写进了别处手里那份配置的底层数组：%v", got)
+	}
+	ForgetInstanceDir(c)
+	ForgetInstanceDir(filepath.Join(Base, "old", "没登记过的"))
+	ForgetInstanceDir(strings.ToUpper(a) + string(filepath.Separator))
+	if !slices.Equal(held, []string{a, b}) {
+		t.Errorf("去掉登记时改到了别处手里的那份配置：%v", held)
+	}
+	restart()
+	if got := InstanceDirs(); !slices.Equal(got, []string{b}) {
+		t.Fatalf("去掉 A 之后 InstanceDirs = %v，应为 [%s]", got, b)
 	}
 }
 

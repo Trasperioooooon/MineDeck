@@ -95,6 +95,27 @@ type Manager struct {
 
 func NewManager() (*Manager, error) {
 	m := &Manager{insts: map[string]*Instance{}, creating: map[string]bool{}, Tasks: tasks.NewManager()}
+	seen := map[string]bool{} // 已经登记过的目录（真实路径）：同一个文件夹从两条路都能找到时只算一次
+	load := func(dir string) {
+		s, err := readSettings(dir)
+		if os.IsNotExist(err) {
+			return // 不是实例目录，或者这个文件夹现在不在
+		}
+		if err != nil {
+			log.Printf("实例配置读不出来，这个目录没有列出来：%s（%v）", dir, err)
+			return
+		}
+		key := strings.ToLower(realPath(dir))
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		if _, dup := m.insts[s.Name]; dup {
+			log.Printf("实例名冲突，已跳过重复目录：%s（%s）", s.Name, dir)
+			return
+		}
+		m.insts[s.Name] = &Instance{Settings: s, Dir: dir, Console: newConsole()}
+	}
 	// 多根扫描：内置默认根 + 配置默认根 + 历史自定义根（支持实例散落于不同盘符/目录）
 	for _, root := range app.InstanceRoots() {
 		ents, err := os.ReadDir(root)
@@ -102,24 +123,16 @@ func NewManager() (*Manager, error) {
 			continue // 根目录不存在/不可读则跳过，不再因默认根缺失整体失败
 		}
 		for _, e := range ents {
-			if !e.IsDir() {
-				continue
+			if e.IsDir() {
+				load(filepath.Join(root, e.Name()))
 			}
-			dir := filepath.Join(root, e.Name())
-			s, err := readSettings(dir)
-			if os.IsNotExist(err) {
-				continue // 不是实例目录
-			}
-			if err != nil {
-				log.Printf("实例配置读不出来，这个目录没有列出来：%s（%v）", dir, err)
-				continue
-			}
-			if _, dup := m.insts[s.Name]; dup {
-				log.Printf("实例名冲突，已跳过重复目录：%s（%s）", s.Name, dir)
-				continue
-			}
-			m.insts[s.Name] = &Instance{Settings: s, Dir: dir, Console: newConsole()}
 		}
+	}
+	// 单独登记的文件夹（接管进来的服务器）：只读它自己，不看它的上一层。
+	// 文件夹现在不在（比如在没插上的移动硬盘里）就跳过，登记留着，回来了照样认；
+	// 登记只在这台服务器移出列表或被删掉时去掉（见 Delete）。
+	for _, dir := range app.InstanceDirs() {
+		load(dir)
 	}
 	m.startScheduler()
 	return m, nil
@@ -195,6 +208,17 @@ func (m *Manager) Delete(name string, files bool) error {
 	if i.Status() != "stopped" {
 		return fmt.Errorf("请先停止服务器再删除")
 	}
+	// 这台服务器的单独登记（接管进来的才有）。登记的写法可能和 i.Dir 不一样——比如登记的是一个目录联接，
+	// 而启动时是从某个存放根下面先扫到它的——所以按真实路径找；要赶在删文件夹之前找，删了就解不出真实路径了
+	var registered []string
+	if dirs := app.InstanceDirs(); len(dirs) > 0 {
+		real := realPath(i.Dir)
+		for _, d := range dirs {
+			if strings.EqualFold(realPath(d), real) {
+				registered = append(registered, d)
+			}
+		}
+	}
 	if files {
 		if err := safeRemoveInstanceDir(i); err != nil {
 			return err
@@ -205,6 +229,9 @@ func (m *Manager) Delete(name string, files bool) error {
 	m.mu.Lock()
 	delete(m.insts, name)
 	m.mu.Unlock()
+	for _, d := range registered { // 不是接管进来的本来就没登记，这里什么都不做
+		app.ForgetInstanceDir(d)
+	}
 	return nil
 }
 

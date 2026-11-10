@@ -49,6 +49,10 @@ type Config struct {
 	Onboarded   bool     `json:"onboarded,omitempty"`   // 首次运行引导卡是否已完成
 	TosAccepted bool     `json:"tosAccepted,omitempty"` // 用户协议与免责声明是否已同意（未同意则每次启动重新弹引导卡）
 
+	// InstanceDirs 单独登记的服务器文件夹（接管进来的）。启动时直接读它里面的 instance.json，不扫它的上一层：
+	// 上一层是用户自己的目录，里面别的文件夹没经用户点头不该出现在列表里。
+	InstanceDirs []string `json:"instanceDirs,omitempty"`
+
 	// ChromeColor 界面标题栏的底色（#rrggbb，小写），由原生窗口里的前端在外观变化时上报；
 	// 下次启动时作为 WebView2 画出页面之前的默认底色，避免冷启动白闪。空 = 按系统浅 / 深色取默认值。
 	ChromeColor string `json:"chromeColor,omitempty"`
@@ -398,6 +402,57 @@ func addRoot(c *Config, dir string) bool {
 	}
 	c.Roots = append(c.Roots, dir)
 	return true
+}
+
+// InstanceDirs 返回单独登记的服务器文件夹（接管进来的）。启动时除了扫 InstanceRoots 里的各个根，还逐个读这些文件夹。
+func InstanceDirs() []string {
+	return append([]string{}, GetConfig().InstanceDirs...)
+}
+
+// RememberInstanceDir 单独登记一个服务器文件夹，下次启动直接认它。
+// 接管用这个，不用 RememberRoot：把上一层记成扫描根的话，上一层里别的带 instance.json 的文件夹
+// 下次启动会不声不响地出现在列表里。
+func RememberInstanceDir(dir string) {
+	if dir == "" {
+		return
+	}
+	dir = filepath.Clean(dir)
+	cfgMu.Lock()
+	defer cfgMu.Unlock()
+	for _, d := range cfg.InstanceDirs {
+		if samePath(d, dir) {
+			return
+		}
+	}
+	// 另起一个切片再接：GetConfig 给出去的副本和 cfg 共用同一块底层数组，原地 append 会写到别人手里那块数组的空位上
+	cfg.InstanceDirs = append(append([]string{}, cfg.InstanceDirs...), dir)
+	saveLocked()
+}
+
+// ForgetInstanceDir 去掉一条单独登记（这台服务器移出了列表，或者连文件夹一起删了）。没登记过就什么都不做。
+func ForgetInstanceDir(dir string) {
+	if dir == "" {
+		return
+	}
+	cfgMu.Lock()
+	defer cfgMu.Unlock()
+	// 另起一个切片，不在原来的上面挪：GetConfig 给出去的副本和 cfg 共用同一块底层数组
+	var kept []string
+	for _, d := range cfg.InstanceDirs {
+		if !samePath(d, dir) {
+			kept = append(kept, d)
+		}
+	}
+	if len(kept) == len(cfg.InstanceDirs) {
+		return
+	}
+	cfg.InstanceDirs = kept
+	saveLocked()
+}
+
+// samePath 两个路径写的是不是同一个位置（Windows 的路径不分大小写）。只按字面比，不解链接。
+func samePath(a, b string) bool {
+	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
 }
 
 type memoryStatusEx struct {
