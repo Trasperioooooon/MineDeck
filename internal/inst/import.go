@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"minedeck/internal/app"
 	"minedeck/internal/dl"
@@ -450,6 +451,9 @@ func (m *Manager) ResolveImportPending(ctx context.Context, taskID string, acts 
 	if len(acts) == 0 {
 		return nil, nil, fmt.Errorf("没有要处理的项")
 	}
+	// 一次只处置一批：两个请求同时处置同一项（开了两个窗口）会一起写同一个 .part，落下来的可能是拼坏的文件
+	m.resolveMu.Lock()
+	defer m.resolveMu.Unlock()
 	t := m.Tasks.Get(taskID)
 	if t == nil {
 		return nil, nil, fmt.Errorf("没有这个任务: %s", taskID)
@@ -567,11 +571,12 @@ func (m *Manager) pendingTrustDownload(ctx context.Context, inst *Instance, it t
 	if !modpack.HostIsPublic(host) {
 		return false, fmt.Sprintf("站点 %s 解析到内网或本机地址，不下载", host)
 	}
-	if !app.TrustedHostFunc(app.TrustScopeModpack)(host) {
-		if !ack {
-			return false, fmt.Sprintf("站点 %s 没有确认过：读一遍风险说明并确认后才下载", host)
-		}
-		app.TrustHost(host, app.TrustScopeModpack)
+	if it.SHA1 == "" {
+		return false, "这一项没有校验值，下载下来没法核对，不下载"
+	}
+	known := app.TrustedHostFunc(app.TrustScopeModpack)(host)
+	if !known && !ack {
+		return false, fmt.Sprintf("站点 %s 没有确认过：读一遍风险说明并确认后才下载", host)
 	}
 	dest := filepath.Join(inst.Dir, filepath.FromSlash(it.Path))
 	// 受控客户端：即使 grant 时查过公网，连接级（DNS 变动、重定向到内网）也再拦一道
@@ -579,16 +584,32 @@ func (m *Manager) pendingTrustDownload(ctx context.Context, inst *Instance, it t
 		_ = os.Remove(dest + ".part")
 		return false, fmt.Sprintf("下载失败: %v", err)
 	}
+	// 下载下来、校验也过了，才把站点记成信任：记下以后同站点的文件不再问，以后导入别的整合包也直接下，
+	// 所以不能因为点过一次确认就记——文件没下成（连不上、校验不符）的站点下次照样要确认。
+	if !known {
+		app.TrustHost(host, app.TrustScopeModpack)
+	}
 	return true, ""
+}
+
+// pendingRef 待决清单对应的实例。光记名字不够：那台实例删掉以后再建一台同名的，
+// 回到旧任务页处置，文件会落进新的那台（还会顶掉同名文件），所以连创建时间一起记，处置时核对。
+type pendingRef struct {
+	name    string
+	created time.Time
 }
 
 // rememberPending 记下待决清单对应的实例（处置时要按任务找到实例目录）。
 func (m *Manager) rememberPending(taskID, instName string) {
+	ref := pendingRef{name: instName}
+	if i, err := m.Get(instName); err == nil {
+		ref.created = i.CreatedAt
+	}
 	m.pendMu.Lock()
 	if m.pendingInst == nil {
-		m.pendingInst = map[string]string{}
+		m.pendingInst = map[string]pendingRef{}
 	}
-	m.pendingInst[taskID] = instName
+	m.pendingInst[taskID] = ref
 	m.pendMu.Unlock()
 }
 
@@ -602,14 +623,17 @@ func (m *Manager) forgetPending(taskID string) {
 // pendingInstance 按任务取回对应实例。
 func (m *Manager) pendingInstance(taskID string) (*Instance, error) {
 	m.pendMu.Lock()
-	name, ok := m.pendingInst[taskID]
+	ref, ok := m.pendingInst[taskID]
 	m.pendMu.Unlock()
 	if !ok {
 		return nil, fmt.Errorf("这个任务没有待决的文件")
 	}
-	i, err := m.Get(name)
+	i, err := m.Get(ref.name)
 	if err != nil {
-		return nil, fmt.Errorf("任务对应的实例「%s」不在了（可能已被删除）", name)
+		return nil, fmt.Errorf("任务对应的实例「%s」不在了（可能已被删除）", ref.name)
+	}
+	if !i.CreatedAt.Equal(ref.created) {
+		return nil, fmt.Errorf("任务对应的实例「%s」已经删掉了，现在这台同名的是后来新建的，待决文件不会放进去", ref.name)
 	}
 	return i, nil
 }

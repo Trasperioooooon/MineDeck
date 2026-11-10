@@ -91,8 +91,9 @@ type Manager struct {
 	startHook func(string)         // 起服务器进程之前的回调（音乐共享在这里写好桥接模组的配置、voice_host），见 hooks.go
 	lineHook  func(string, string) // 服务器每输出一行的回调（游戏内 AI 认聊天），见 hooks.go
 
-	pendMu      sync.Mutex // 整合包导入待决的任务 → 实例名（处置时按任务找实例目录）
-	pendingInst map[string]string
+	pendMu      sync.Mutex // 整合包导入待决的任务 → 实例（处置时按任务找实例目录）
+	pendingInst map[string]pendingRef
+	resolveMu   sync.Mutex // 待决文件的处置一次只做一批，见 ResolveImportPending
 }
 
 func NewManager() (*Manager, error) {

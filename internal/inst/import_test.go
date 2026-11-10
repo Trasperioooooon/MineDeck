@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"minedeck/internal/app"
 	"minedeck/internal/dl"
@@ -296,6 +297,65 @@ func TestResolveTrustSecurity(t *testing.T) {
 	}
 	if len(app.GetConfig().TrustedHosts) != 0 {
 		t.Fatalf("一道门都没过去就不该记信任: %+v", app.GetConfig().TrustedHosts)
+	}
+}
+
+// TestResolveTrustOnlyAfterVerified 点了确认但文件没下成（内容对不上校验值）：不能把站点记成信任。
+// 记下以后同站点的文件不再问、以后导入别的整合包也直接下，所以要等下载下来、校验也过了才记。
+func TestResolveTrustOnlyAfterVerified(t *testing.T) {
+	m, dir := importEnv(t)
+	tk := newImportTask(m, "测试服", dir)
+	m.finishImport(tk, CreateReq{Name: "测试服"}, dir, []modpack.PendingFile{
+		{Path: "mods/a.jar", SHA1: sha1Of(t, []byte("整合包说的内容")), URLs: []string{"https://93.184.216.34/a.jar"}, Reason: modpack.ReasonHost},
+	}, nil)
+	oldHTTP := modpackHTTP
+	modpackHTTP = func() *http.Client {
+		return dl.GuardedClientWithTransport(fakeTransport{content: []byte("站点给的是别的东西")})
+	}
+	t.Cleanup(func() { modpackHTTP = oldHTTP })
+
+	out, remain, err := m.ResolveImportPending(context.Background(), tk.ID(), []PendingAction{
+		{ID: "p1", Act: "trust", URL: "https://93.184.216.34/a.jar", Ack: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out[0].OK || len(remain) != 1 {
+		t.Fatalf("校验不符应失败并留在清单: %+v %+v", out, remain)
+	}
+	if hosts := app.GetConfig().TrustedHosts; len(hosts) != 0 {
+		t.Fatalf("文件没下成就不该记信任: %+v", hosts)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "mods", "a.jar")); err == nil {
+		t.Fatal("校验不符的文件不该留在实例里")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "mods", "a.jar.part")); err == nil {
+		t.Fatal("不该留下 .part 半成品")
+	}
+}
+
+// TestResolvePendingInstanceReplaced 待决清单认的是导入出来的那一台：删掉以后再建一台同名的，
+// 回到旧任务处置时要拒绝，不能把文件放进新的那台。
+func TestResolvePendingInstanceReplaced(t *testing.T) {
+	m, dir := importEnv(t)
+	tk := newImportTask(m, "测试服", dir)
+	m.insts["测试服"].CreatedAt = time.Date(2026, 11, 9, 20, 0, 0, 0, time.UTC)
+	m.finishImport(tk, CreateReq{Name: "测试服"}, dir, []modpack.PendingFile{{Path: "mods/a.jar", Reason: modpack.ReasonNoHash}}, nil)
+
+	local := t.TempDir()
+	writeTree(t, local, map[string]string{"a.jar": "旧任务要放的文件"})
+	// 删掉，再建一台同名的（目录是新的，创建时间也是新的）
+	newDir := t.TempDir()
+	m.insts["测试服"] = &Instance{Settings: Settings{Name: "测试服", JavaMajor: 17, CreatedAt: time.Date(2026, 11, 10, 9, 0, 0, 0, time.UTC)}, Dir: newDir}
+
+	_, _, err := m.ResolveImportPending(context.Background(), tk.ID(), []PendingAction{
+		{ID: "p1", Act: "local", Path: filepath.Join(local, "a.jar")},
+	})
+	if err == nil || !strings.Contains(err.Error(), "后来新建的") {
+		t.Fatalf("同名的新实例应被认出来并拒绝: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(newDir, "mods", "a.jar")); err == nil {
+		t.Fatal("文件不该落进后来新建的同名实例")
 	}
 }
 

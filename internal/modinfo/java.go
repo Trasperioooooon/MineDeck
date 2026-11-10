@@ -7,19 +7,26 @@ import (
 
 // JavaMajorOf 从模组声明的依赖里解出「要求的最低 Java 大版本」：fabric.mod.json / quilt 的 depends.java
 // （如 ">=25"、">=17 <21"）、mods.toml 里 modId 为 java 的 versionRange（如 "[25,)"、"[17,25)"）。
-// 多条声明取最高的下界；写法读不出、或解出来不像 Java 版本号（8–40 以外）时返回 0（=没有可识别的要求）。
+// 写法读不出、或解出来不像 Java 版本号（8–40 以外）时返回 0（=没有可识别的要求）。
+// 几条声明之间是「都要满足」，取最高的下界；一条声明里用 || 隔开的几个候选是「满足其一即可」，
+// 取最低的下界，其中有一个候选没有下界（"*"、"<21"）就等于没要求。
+// 「不兼容」「不建议同装」的声明（Fabric 的 breaks、NeoForge 的 incompatible / discouraged）说的是反话，不算要求。
 // 只用来提示（导入结果、实例详情的「建议换 Java」）：1.20.1 的实例配声明 Java 25 的魔改模组是允许存在的，
 // 由用户决定要不要换，不阻断启动。见 internal/inst 的导入扫描和 instance.mods.list 的 needJava。
 func JavaMajorOf(m Mod) int {
 	best := 0
 	for _, d := range m.Deps {
-		if !strings.EqualFold(strings.TrimSpace(d.ID), "java") {
+		if !strings.EqualFold(strings.TrimSpace(d.ID), "java") || d.Kind != "" {
 			continue
 		}
+		need := -1
 		for _, part := range strings.Split(d.Range, "||") {
-			if v := javaMajorOfExpr(part); v > best {
-				best = v
+			if v := javaMajorOfExpr(part); need < 0 || v < need {
+				need = v
 			}
+		}
+		if need > best {
+			best = need
 		}
 	}
 	return best
@@ -77,16 +84,16 @@ func javaMajorOfVersion(v string) int {
 	if v == "" {
 		return 0
 	}
-	// "25.x" 里的 x、范围里的空格都不算数字：只取开头的数字段
-	digits := ""
-	for i := 0; i < len(v); i++ {
-		if v[i] >= '0' && v[i] <= '9' {
-			digits += string(v[i])
-			continue
-		}
-		break
+	// "25.x" 里的 x、范围里的空格都不算数字：只取开头的数字段。
+	// 先数到头再切片，不逐字节拼字符串：这段文字来自别人打的 jar，可以有几 MB 长，拼接的耗时按长度的平方涨。
+	end := 0
+	for end < len(v) && v[end] >= '0' && v[end] <= '9' {
+		end++
 	}
-	n, err := strconv.Atoi(digits)
+	if end == 0 || end > 3 {
+		return 0
+	}
+	n, err := strconv.Atoi(v[:end])
 	if err != nil || n < 8 || n > 40 {
 		return 0
 	}
