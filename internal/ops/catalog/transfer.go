@@ -72,8 +72,8 @@ func (c *cat) transferOps() {
 			}
 			return &ops.Plan{
 				Summary: fmt.Sprintf("把「%s」打包成交接包（%s %s，%s）", p.Inst, i.Core, i.MC, mode),
-				Changes: []ops.Change{{What: "交接包内容", After: "世界、server.properties、mods/plugins、config、白名单/OP 名单、eula.txt；不含 logs 和崩溃报告"}},
-				Warning: "交接包含玩家数据（存档、白名单）。交接前请征得服务器成员同意",
+				Changes: []ops.Change{{What: "交接包内容", After: "世界、server.properties 和核心自己的配置（spigot.yml 等）、mods/plugins、config、kubejs 等脚本目录、白名单/OP 名单、eula.txt；不含 logs 和崩溃报告，清单之外的文件不带（任务日志里会列出来）"}},
+				Warning: "交接包含玩家数据（存档、白名单）。交接前请征得服务器成员同意。配置文件里写着的密码（如 server.properties 的 RCON 密码、插件配置里的数据库密码和令牌）也会原样交出去",
 				Pre:     map[string]string{"实例状态": i.Status()},
 			}, nil
 		},

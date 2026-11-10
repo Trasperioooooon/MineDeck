@@ -484,6 +484,66 @@ func TestExportSlim(t *testing.T) {
 	}
 }
 
+// TestExportCarriesCoreConfigs 各家核心放在根目录的配置（spigot.yml 这些）和整合包的脚本目录（kubejs）要进包；
+// 清单之外的东西不会跟过去，要写进任务日志和剔除清单；清单里不带导出者电脑上的 java.exe 路径。
+// 2026-11-10 真机试出来的：原来 Paper 服的 spigot.yml、bukkit.yml 悄悄丢了，对方开服时按默认值重新生成。
+func TestExportCarriesCoreConfigs(t *testing.T) {
+	newEnv(t)
+	dir := fakeInstance(t, "A 的服")
+	writeFile(t, filepath.Join(dir, "spigot.yml"), "settings:\n  bungeecord: true\n")
+	writeFile(t, filepath.Join(dir, "bukkit.yml"), "spawn-limits:\n  monsters: 50\n")
+	writeFile(t, filepath.Join(dir, "kubejs", "server_scripts", "recipes.js"), "// 配方")
+	writeFile(t, filepath.Join(dir, "dynmap", "web", "tiles", "0.png"), "地图瓦片") // 清单之外的目录
+	writeFile(t, filepath.Join(dir, "我的笔记.txt"), "自己记的东西")                      // 清单之外的文件
+	writeFile(t, filepath.Join(dir, "cache", "mojang_1.20.1.jar"), "会重新下载")     // 可以重新生成：不带也不提
+	writeFile(t, filepath.Join(dir, "usercache.json"), "[]")
+	m := manager(t, "A 的服")
+	for _, full := range []bool{false, true} {
+		id, err := ExportAsync(m, ExportReq{Inst: "A 的服", Full: full})
+		if err != nil {
+			t.Fatal(err)
+		}
+		snap, _, _, _ := waitTask(t, m, id)
+		if snap.Err != "" {
+			t.Fatalf("导出失败：%s\n日志：%s", snap.Err, strings.Join(snap.Log, "\n"))
+		}
+		ents := strings.Join(packEntries(t, snap.Result), "\n")
+		for _, want := range []string{"instance/spigot.yml", "instance/bukkit.yml", "instance/kubejs/server_scripts/recipes.js"} {
+			if !strings.Contains(ents, want) {
+				t.Errorf("full=%v：%s 应该进包", full, want)
+			}
+		}
+		for _, not := range []string{"instance/dynmap/", "instance/我的笔记.txt", "instance/cache/", "instance/usercache.json", "instance/logs/", "instance/run.bat", "instance/instance.json"} {
+			if strings.Contains(ents, not) {
+				t.Errorf("full=%v：%s 不该进包", full, not)
+			}
+		}
+		mf, err := ReadManifest(snap.Result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if mf.Instance.JavaPath != "" {
+			t.Errorf("清单不该带导出者电脑上的 java.exe 路径：%q", mf.Instance.JavaPath)
+		}
+		if mf.Instance.JavaMajor != 17 {
+			t.Errorf("Java 大版本要留着，导入时靠它选 Java：%d", mf.Instance.JavaMajor)
+		}
+		excluded := strings.Join(mf.Excluded, "\n")
+		log := strings.Join(snap.Log, "\n")
+		for _, want := range []string{"dynmap/", "我的笔记.txt"} {
+			if !strings.Contains(excluded, want) || !strings.Contains(log, want) {
+				t.Errorf("full=%v：没进包的 %s 要写进剔除清单和任务日志\n剔除清单：%s\n日志：%s", full, want, excluded, log)
+			}
+		}
+		for _, not := range []string{"cache", "usercache.json", "run.bat", "instance.json", "server.jar"} {
+			if strings.Contains(excluded, not) {
+				t.Errorf("full=%v：%s 会重新生成或重新下载，不用列进「没进包」：%s", full, not, excluded)
+			}
+		}
+		os.Remove(snap.Result)
+	}
+}
+
 // 摘要错误：不是交接包、版本太新、下发包。
 func TestManifestValidation(t *testing.T) {
 	dir := t.TempDir()

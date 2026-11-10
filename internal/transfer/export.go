@@ -81,11 +81,61 @@ func ExportAsync(m *inst.Manager, req ExportReq) (string, error) {
 var slimFiles = []string{
 	"server.properties", "eula.txt",
 	"whitelist.json", "ops.json", "banned-players.json", "banned-ips.json",
-	"velocity.toml", "config.yml", "forwarding.toml", "server-icon.png",
+	"server-icon.png",
+	// Bukkit 一系（Paper / Purpur / Leaves / Folia / Mohist / Banner）放在根目录的配置
+	"bukkit.yml", "spigot.yml", "commands.yml", "permissions.yml", "help.yml", "wepif.yml",
+	"paper.yml", "purpur.yml", "pufferfish.yml", "leaves.yml",
+	// 代理端（Velocity / Waterfall）
+	"velocity.toml", "forwarding.secret", "forwarding.toml",
+	"config.yml", "waterfall.yml", "modules.yml", "locations.yml",
 }
 
 // slimDirs 瘦身模式整目录带上的（存在才带）。世界目录按实例的 level-name 单独找。
-var slimDirs = []string{"mods", "plugins", "config", "defaultconfigs"}
+// kubejs、scripts（CraftTweaker）、local（FTB 系列的数据）是整合包服务器的一部分，少了配方和任务会变；
+// mohist-config 是 Mohist 的配置，modules 是 Waterfall 的模块。
+var slimDirs = []string{"mods", "plugins", "config", "defaultconfigs", "kubejs", "scripts", "local", "mohist-config", "modules"}
+
+// regenerable 实例根目录下不用带、也不用提醒的东西：要么会重新生成或重新下载，要么是 MineDeck 自己按本机写的。
+// 小写比较。logs、crash-reports、session.lock 在剔除清单里另有说明。
+var regenerable = map[string]bool{
+	"logs": true, "crash-reports": true, "debug": true, "cache": true, "libraries": true, "versions": true,
+	".fabric": true, ".mixin.out": true, ".console_history": true,
+	"run.bat": true, "run.sh": true, "instance.json": true, "user_jvm_args.txt": true,
+	"usercache.json": true, "version_history.json": true, "session.lock": true,
+	"未解析模组清单.txt": true, "导入待决清单.txt": true,
+}
+
+// leftOut 实例根目录下没进包、也说不上是可以重新生成的东西（目录名后面带 /）。
+// 交接包按清单收文件，清单之外的东西不会自己跟过去：列出来写进任务日志和剔除清单，
+// 交的人和接的人都看得见，要的话手动拷一份。
+func leftOut(dir string, packed []packFile) []string {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	have := map[string]bool{}
+	for _, f := range packed {
+		have[strings.ToLower(firstSeg(f.rel))] = true
+	}
+	var out []string
+	for _, e := range ents {
+		name := e.Name()
+		low := strings.ToLower(name)
+		if have[low] || regenerable[low] {
+			continue
+		}
+		if !e.IsDir() {
+			// 核心 jar 瘦身模式不带（导入时重新下载）；安装器日志这类也不提
+			if ext := filepath.Ext(low); ext == ".jar" || ext == ".log" || ext == ".lck" {
+				continue
+			}
+		} else {
+			name += "/"
+		}
+		out = append(out, name)
+	}
+	return out
+}
 
 // runExport 收集清单、打包、落到目标目录，返回交接包的最终路径。
 func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, destDir string) (string, error) {
@@ -106,7 +156,10 @@ func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, 
 	mf.Instance.ExtraJVM = i.ExtraJVMSnapshot()
 	mf.Instance.Policies = i.PoliciesSnapshot()
 	mf.Instance.XmxMB, mf.Instance.XmsMB, mf.Instance.ConsoleEncoding = i.MemSnapshot()
-	mf.Instance.JavaMajor, mf.Instance.JavaPath = i.JavaSnapshot()
+	mf.Instance.JavaMajor, _ = i.JavaSnapshot()
+	// java.exe 的完整路径不进清单：那是这台电脑上的位置（常带着 Windows 用户名），对接手的人没用，
+	// 导入时按 javaMajor 在对方电脑上重新找或下载。
+	mf.Instance.JavaPath = ""
 
 	// ---- 步骤 0：收集清单 ----
 	t.StartStep(0)
@@ -236,6 +289,15 @@ func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, 
 	}
 	if !full {
 		mf.Excluded = append(mf.Excluded, "服务端核心（导入时自动重新下载）")
+	}
+	if left := leftOut(i.Dir, files); len(left) > 0 {
+		shown := left
+		if len(shown) > 30 {
+			shown = append(append([]string{}, left[:30]...), fmt.Sprintf("…等 %d 项", len(left)))
+		}
+		list := strings.Join(shown, "、")
+		mf.Excluded = append(mf.Excluded, "服务器文件夹里的这些不在交接范围内，没有进包："+list)
+		t.Logf("⚠ 这些没有进包（交接包只带世界、配置、模组和名单），对方需要的话请另外拷给他：%s", list)
 	}
 	t.Logf("待打包 %d 个文件、%s", mf.Counts.Files, fmtBytes(mf.Counts.Bytes))
 

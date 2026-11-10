@@ -1410,7 +1410,8 @@ function transferExportModal(info) {
       <div class="warn-card" style="margin-top:12px">
         <div class="wc-title">${icon("warn")} 含玩家数据</div>
         <div class="wc-note">包里有玩家的存档（playerdata）、白名单和 OP 名单。请先征得服务器成员的同意再交接。
-          日志（logs）不会打进包，但它可能留有玩家 IP，必要时先在服务器目录里处理好。</div>
+          日志（logs）不会打进包，但它可能留有玩家 IP，必要时先在服务器目录里处理好。
+          配置文件里写着的密码也会原样交出去，比如 server.properties 里的 RCON 密码、插件配置里的数据库密码和机器人令牌：在别处也用着的，先改掉再交接。</div>
       </div>
       <label class="switch" style="margin-top:12px"><input type="checkbox" id="tr-full"><span class="sw"></span>
         <span><span class="sw-label">完整模式</span><div class="sw-desc">把服务端核心也一起打包；不勾则对方导入时自动重新下载（包更小）</div></span></label>
