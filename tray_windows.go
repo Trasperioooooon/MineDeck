@@ -133,6 +133,10 @@ func trayWndProc(hwnd, msg, wparam, lparam uintptr) (ret uintptr) {
 		if ret, handled := framelessNCCalcSize(hwnd, wparam, lparam); handled {
 			return ret // 去掉标题栏；未接管（wparam==0）则落到默认过程
 		}
+	case _WM_GETMINMAXINFO: // 最小窗口 1024×576（见 minsize_windows.go）：先让原过程填默认值，再改最小可拖动尺寸
+		r, _, _ := pCallWindowProc.Call(origWndProc, hwnd, msg, wparam, lparam)
+		applyMinTrackSize(hwnd, lparam)
+		return r
 	case _WM_CLOSE: // 窗口的 ×（前端经 hostWinClose 投递）、Alt+F4、任务栏「关闭窗口」都到这里
 		switch onClose(time.Now(), isWindowVisible(hwnd)) {
 		case closeToTray:

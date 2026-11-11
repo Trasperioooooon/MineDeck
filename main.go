@@ -19,6 +19,7 @@ import (
 	"minedeck/internal/app"
 	"minedeck/internal/autostart"
 	"minedeck/internal/companion"
+	"minedeck/internal/hostdlg"
 	"minedeck/internal/inst"
 	"minedeck/internal/java"
 	"minedeck/internal/musicshare"
@@ -192,6 +193,7 @@ func openWebView(url string, sig chan os.Signal, minimized bool) (ok bool) {
 		log.Println("关闭 WebView2 链接状态栏失败:", err)
 	}
 	hwnd := uintptr(w.Window())
+	hostdlg.SetOwner(hwnd)  // 「选择文件夹」挂在主窗口上：开着的时候主窗口点不动，也不会盖住它
 	applyDarkTitleBar(hwnd) // DWM 边框深色化，匹配深色主题
 	applyWindowIcon(hwnd)   // 任务栏 / Alt-Tab / 托盘图标
 	setupTray(hwnd)         // 子类化窗口过程（含去标题栏）+ 挂托盘图标（关窗最小化 / 右键菜单）
