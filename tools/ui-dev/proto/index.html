@@ -4,10 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MineDeck 界面原型</title>
-<link rel="icon" href="/img/logo-32.png">
-<!-- 字体和配色令牌直接用界面自己的那两份，目录页的明暗和配色跟着右上角的选择一起变 -->
-<link rel="stylesheet" href="/fonts/fonts.css">
-<link rel="stylesheet" href="/themes.css">
+<link rel="icon" href="app/img/logo-32.png">
+<!-- 字体和配色令牌直接用界面自己的那两份，目录页的明暗和配色跟着右上角的选择一起变。
+     地址都是相对的：Node 版这一页在 /__proto/ 下，静态版在产物的根上，界面都在旁边的 app/ 里 -->
+<link rel="stylesheet" href="app/fonts/fonts.css">
+<link rel="stylesheet" href="app/themes.css">
 <style>
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
@@ -82,7 +83,7 @@
 </head>
 <body>
 <aside id="side">
-  <header><img src="/img/logo-32.png" alt=""><div><b>MineDeck 界面原型</b><span>界面是真的，数据是编的</span></div></header>
+  <header><img src="app/img/logo-32.png" alt=""><div><b>MineDeck 界面原型</b><span>界面是真的，数据是编的</span></div></header>
   <div class="filter"><input id="q" type="search" placeholder="筛选场景，比如「隧道」「Forge」" aria-label="筛选场景"></div>
   <nav id="list" aria-label="场景"></nav>
   <footer>右边的界面可以照常点、填、切标签，不会真的下载和开服。<br><kbd>↑</kbd> <kbd>↓</kbd> 换场景，换一个就回到那个场景的初始样子。</footer>
@@ -106,19 +107,30 @@
   </div>
   <div id="stage"><div id="wrap"></div><div id="stat"><span id="stat-l"></span><span id="stat-r"></span></div></div>
 </main>
+<script src="data.js"></script>
+<script src="stage.js"></script>
 <script>
 "use strict";
 const $ = s => document.querySelector(s);
-const VIEWS = { def: [1280, 850], min: [1024, 576], wide: [1600, 900], phone: [390, 844], fit: null };
-const sleep = ms => new Promise(r => setTimeout(r, ms));
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-let groups = [], scenes = [], cur = null, run = 0, frame = null;
+const { groups = [], scenes = [] } = window.MD_PROTO || {};
+let cur = null;
 let viewNow = "def"; // 现在用的窗口大小：场景指定了就用场景的，没指定用自己上次挑的（pref.view）
 const pref = Object.assign({ theme: "dark", scheme: "craft", view: "def", scene: "" }, (() => { try { return JSON.parse(localStorage.getItem("md_proto") || "{}"); } catch { return {}; } })());
 // 地址栏的 #场景编号 优先，方便把某个场景的链接发给别人
 if (location.hash.length > 1) pref.scene = decodeURIComponent(location.hash.slice(1));
 const save = () => { try { localStorage.setItem("md_proto", JSON.stringify(pref)); } catch {} };
+
+// 嵌着的界面：怎么嵌、怎么缩放、怎么自动点到那个状态，见 stage.js
+const stage = MDStage({
+  stage: $("#stage"), wrap: $("#wrap"), pad: [40, 52],
+  onStatus(st) { const t = MDStage.say(st); $("#stat-l").textContent = t.text; $("#stat-l").className = t.warn ? "warn" : ""; },
+  onLayout({ w, h, k, fill }) {
+    $("#wrap").classList.toggle("fit", fill);
+    $("#stat-r").textContent = `${w}×${h}` + (k < 1 ? ` · 缩到 ${Math.round(k * 100)}% 显示（把浏览器窗口拉大就是 1:1）` : "");
+  },
+});
 
 function paintPrefs() {
   document.documentElement.dataset.theme = pref.theme;
@@ -144,75 +156,9 @@ function paintList() {
   $("#list").querySelectorAll(".sc").forEach(b => b.onclick = () => go(b.dataset.id));
 }
 
-// ---- 嵌着的界面 ----
-const appURL = sc => {
-  const host = viewNow === "phone" ? "" : "&host=1"; // 手机上是浏览器里打开的，没有窗口三键
-  return `/?proto=1${host}&theme=${pref.theme}&scheme=${pref.scheme}&_=${Date.now()}${sc.hash}`;
-};
-function layout() {
-  const wrap = $("#wrap"), st = $("#stage"), v = VIEWS[viewNow];
-  if (!frame) return;
-  const availW = st.clientWidth - 40, availH = st.clientHeight - 52;
-  wrap.classList.toggle("fit", !v);
-  if (!v) {
-    frame.style.width = availW + "px"; frame.style.height = availH + "px"; frame.style.transform = "";
-    wrap.style.width = availW + "px"; wrap.style.height = availH + "px";
-    $("#stat-r").textContent = `${availW}×${availH}`;
-    return;
-  }
-  const k = Math.min(1, availW / v[0], availH / v[1]);
-  frame.style.width = v[0] + "px"; frame.style.height = v[1] + "px"; frame.style.transform = k < 1 ? `scale(${k})` : "";
-  wrap.style.width = Math.round(v[0] * k) + "px"; wrap.style.height = Math.round(v[1] * k) + "px";
-  $("#stat-r").textContent = `${v[0]}×${v[1]}` + (k < 1 ? ` · 缩到 ${Math.round(k * 100)}% 显示（把浏览器窗口拉大就是 1:1）` : "");
-}
-
-async function waitFor(doc, sel, ms = 6000) {
-  const end = Date.now() + ms;
-  for (;;) {
-    let el = null;
-    try { el = doc().querySelector(sel); } catch {}
-    if (el) return el;
-    if (Date.now() > end) throw new Error("没等到 " + sel);
-    await sleep(60);
-  }
-}
-// 依次执行场景的那几下：每步先等元素出现；中途换了场景（代号变了）就停
-async function play(sc, my) {
-  const doc = () => frame.contentDocument;
-  const win = () => frame.contentWindow;
-  await waitFor(doc, "#main > *", 10000);
-  await sleep(350);
-  const steps = sc.steps || [];
-  for (let n = 0; n < steps.length; n++) {
-    if (my !== run) return;
-    const st = steps[n];
-    $("#stat-l").textContent = `正在自动走到这个状态（${n + 1} / ${steps.length}）…`;
-    if (st.sleep) { await sleep(st.sleep); continue; }
-    if (st.key) { doc().dispatchEvent(new (win().KeyboardEvent)("keydown", { key: st.key, bubbles: true })); await sleep(120); continue; }
-    const sel = st.click || st.dblclick || st.fill || st.select || st.wait || st.scroll || st.upload;
-    const el = await waitFor(doc, sel);
-    if (my !== run) return;
-    if (st.click) { el.scrollIntoView({ block: "nearest" }); el.click(); }
-    else if (st.dblclick) el.dispatchEvent(new (win().MouseEvent)("dblclick", { bubbles: true }));
-    else if (st.fill) { el.focus(); el.value = st.value; el.dispatchEvent(new (win().Event)("input", { bubbles: true })); el.dispatchEvent(new (win().Event)("change", { bubbles: true })); }
-    else if (st.select) { el.value = st.value; el.dispatchEvent(new (win().Event)("change", { bubbles: true })); }
-    else if (st.scroll) el.scrollTop = st.to === "bottom" ? el.scrollHeight : 0;
-    else if (st.upload) {
-      // 假文件：jar 以 PK 开头（仿真后端靠它认是不是 zip），内容里带上名字，免得几个文件哈希相同被当成同一个
-      const dt = new (win().DataTransfer)();
-      for (const f of st.files) dt.items.add(new (win().File)([f.text !== undefined ? f.text : "PK\u0003\u0004 " + f.name + " ".repeat(f.kb ? f.kb * 1024 : 0)], f.name));
-      el.files = dt.files;
-      el.dispatchEvent(new (win().Event)("change", { bubbles: true }));
-      await sleep(900);
-    }
-    await sleep(st.click || st.select ? 260 : 120);
-  }
-}
-
-async function go(id, keepView) {
+function go(id, keepView) {
   const sc = scenes.find(s => s.id === id) || scenes[0];
   if (!sc) return;
-  const my = ++run;
   cur = sc;
   if (!keepView) viewNow = sc.view || pref.view; // 场景指定了窗口大小（最小窗口、手机）就用它的，看完换别的场景再回到自己挑的
   pref.scene = sc.id; save();
@@ -220,29 +166,10 @@ async function go(id, keepView) {
   paintPrefs(); paintList();
   $("#sc-title").textContent = sc.title;
   $("#sc-note").textContent = sc.note || "";
-  $("#stat-l").textContent = "正在准备数据…"; $("#stat-l").className = "";
   const on = $("#list .sc.on"); if (on) on.scrollIntoView({ block: "nearest" });
-  try {
-    const r = await fetch("/__proto/apply?id=" + encodeURIComponent(sc.id), { method: "POST" });
-    if (!r.ok) throw new Error("切换场景失败（" + r.status + "）");
-    if (my !== run) return;
-    // 每个场景换一个新的 iframe：旧页面里有没保存的修改时，直接改地址会弹「离开此网站？」
-    const f = document.createElement("iframe");
-    f.title = "MineDeck 界面";
-    f.src = appURL(sc);
-    $("#wrap").replaceChildren(f);
-    frame = f;
-    $("#open").href = `/?theme=${pref.theme}&scheme=${pref.scheme}${sc.hash}`;
-    layout();
-    await new Promise(res => f.addEventListener("load", res, { once: true }));
-    if (my !== run) return;
-    await play(sc, my);
-    if (my === run) $("#stat-l").textContent = "";
-  } catch (e) {
-    if (my !== run) return;
-    $("#stat-l").textContent = "自动操作没走完：" + e.message + "。界面停在了半路，可以手动接着点。";
-    $("#stat-l").className = "warn";
-  }
+  const prefs = { view: viewNow, theme: pref.theme, scheme: pref.scheme };
+  stage.go(sc, prefs);
+  $("#open").href = stage.standalone(sc, prefs);
 }
 
 // ---- 工具条 ----
@@ -255,7 +182,6 @@ $("#view").onchange = e => {
 };
 $("#replay").onclick = () => go(cur.id, true);
 $("#q").oninput = paintList;
-addEventListener("resize", layout);
 addEventListener("keydown", e => {
   if (e.target.matches("input, select, textarea") || (e.key !== "ArrowDown" && e.key !== "ArrowUp")) return;
   const vis = [...document.querySelectorAll("#list .sc")].map(b => b.dataset.id);
@@ -263,14 +189,9 @@ addEventListener("keydown", e => {
   if (vis[j]) { e.preventDefault(); go(vis[j]); }
 });
 
-(async () => {
-  paintPrefs();
-  try {
-    const d = (await (await fetch("/__proto/scenes")).json()).data;
-    groups = d.groups; scenes = d.scenes;
-  } catch (e) { $("#sc-title").textContent = "场景清单没读出来"; $("#sc-note").textContent = String(e); return; }
-  go(pref.scene || scenes[0].id);
-})();
+paintPrefs();
+if (!scenes.length) { $("#sc-title").textContent = "场景清单没读出来"; $("#sc-note").textContent = "data.js 没有加载到，或者里面没有场景。"; }
+else go(pref.scene || scenes[0].id);
 </script>
 </body>
 </html>

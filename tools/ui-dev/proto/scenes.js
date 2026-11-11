@@ -6,7 +6,8 @@
 //   { wait: 选择器 }   { sleep: 毫秒 }       { key: "Escape" }            { scroll: 选择器, to: "bottom" }
 //   { upload: 文件选择框的选择器, files: [{ name, kb?, text? }] }  往选择框里放几个假文件（text 不写就是一个假的 jar）
 // setup(state, proto)：state 是仿真后端的内存数据（见 ../server.js 的 newState），直接改；
-//   proto.api("POST /api/pickdir", { code: 500, error: "…" }) 让某个接口在这个场景里固定这样回。
+//   proto.api("POST /api/pickdir", { code: 500, error: "…" }) 让某个接口在这个场景里固定这样回；
+//   proto.create({ name, core, mc, … }) 摆出一台刚点了「创建」的服务器，部署进度从这一刻开始走（见 demo.js）。
 // view：这个场景默认用哪种窗口大小（目录页右上角能改）："min" 最小窗口、"phone" 手机；不写就沿用当前选的。
 // tag："new" 的场景会标一个「本次改动」的记号。
 "use strict";

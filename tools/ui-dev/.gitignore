@@ -4,3 +4,6 @@ package-lock.json
 
 # npm run shots 的输出
 shots/
+
+# 界面原型的静态版（proto-static.js 生成，随时能重新生成）
+proto-dist/

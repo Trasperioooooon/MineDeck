@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark" data-scheme="craft" data-accent="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>MineDeck 在线体验</title>
+<!-- 给访客看的导览页：十来步，顺着看一遍 MineDeck 能干什么。和评审用的目录页（index.html）共用同一套场景、
+     同一个舞台（stage.js），只是外面的样子不同。静态版里它就是产物的 index.html，官网的「在线体验」用的也是它。
+     这一页自己很轻：配色令牌用界面的那一份（21 KB），字体不引（一引，页面上的中文就会把 1.9 MB 的字体拖下来），
+     界面要等点了「开始体验」才加载。地址都是相对的，放在网站的子目录下、双击打开都行。
+     地址参数：lang=en 外面这层说明用英文；autostart=1 不等点按钮，直接开始（自检用）。 -->
+<link rel="icon" href="app/img/logo-32.png">
+<link rel="stylesheet" href="app/themes.css">
+<script>
+/* 明暗和配色在样式生效前落到 <html> 上，免得闪一下。和界面用同一份记忆（amh_theme、amh_scheme、amh_accent）：
+   在界面的「外观」里换了配色，外面这一圈跟着换。 */
+(function () {
+  var get = function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } };
+  var t = get("amh_theme"), root = document.documentElement;
+  root.dataset.theme = t === "light" || t === "dark" ? t : matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  root.dataset.scheme = get("amh_scheme") || "craft";
+  root.dataset.accent = get("amh_accent") || "auto";
+  if (/^en/i.test(new URLSearchParams(location.search).get("lang") || "")) root.lang = "en";
+})();
+</script>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; flex-direction: column; height: 100dvh; overflow: hidden;
+    background: var(--chrome); color: var(--text);
+    font: 14px/1.6 "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Noto Sans SC", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased; -webkit-text-size-adjust: 100%;
+  }
+  button, a.btn { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  [hidden] { display: none !important; }
+  .mono { font-family: "Cascadia Mono", Consolas, "SF Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+  /* ---- 顶栏 ---- */
+  #top { flex: none; display: flex; align-items: center; gap: 14px; min-height: 52px; padding: 8px 16px; padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); border-bottom: 1px solid var(--border); }
+  .brand { display: flex; align-items: center; gap: 9px; flex: none; text-decoration: none; color: inherit; }
+  .brand img { width: 26px; height: 26px; image-rendering: pixelated; }
+  .brand b { font-size: 15px; font-weight: 650; letter-spacing: .01em; }
+  .brand span { color: var(--muted); }
+  /* 「这是演示」：一直看得到。宽屏在顶栏里，窄屏单独占一行 */
+  .notice { display: flex; align-items: center; gap: 8px; margin: 0; padding: 3px 10px 3px 8px; border-radius: 6px; background: var(--warning-subtle); color: var(--warning-text); font-size: 12.5px; line-height: 20px; min-width: 0; }
+  .notice i { flex: none; width: 6px; height: 6px; background: var(--warning); box-shadow: 2px 2px 0 color-mix(in srgb, var(--warning) 35%, transparent); }
+  .ctl { margin-left: auto; display: flex; align-items: center; gap: 8px; flex: none; }
+  .seg { display: inline-flex; padding: 3px; border-radius: 9px; background: var(--sunken); border: 1px solid var(--border); }
+  .seg button { border: 0; background: none; cursor: pointer; height: 26px; padding: 0 11px; border-radius: 6px; color: var(--muted); font-size: 13px; }
+  .seg button:hover { color: var(--text); }
+  .seg button.on { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgb(0 0 0 / .18); }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 34px; padding: 0 14px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--border-strong); background: var(--control); text-decoration: none; white-space: nowrap;
+    transition: background .12s, transform .12s;
+  }
+  .btn:hover { background: var(--control-hov); }
+  .btn:active { transform: translateY(.5px); }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .btn.primary { background: var(--accent-solid); border-color: transparent; color: var(--on-accent); font-weight: 600; }
+  .btn.primary:hover { background: var(--accent-solid-hov); }
+  .btn.big { height: 44px; padding: 0 28px; font-size: 16px; border-radius: 10px; }
+
+  /* ---- 下面：左边步骤，右边说明 + 界面 ---- */
+  #body { flex: 1; min-height: 0; display: flex; position: relative; }
+  #rail { width: 212px; flex: none; overflow-y: auto; border-right: 1px solid var(--border); padding: 12px 8px 16px; scrollbar-width: thin; }
+  #rail h2 { margin: 2px 10px 8px; font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .04em; }
+  #steps { list-style: none; margin: 0; padding: 0; }
+  .sc {
+    display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: 0; background: none; cursor: pointer;
+    padding: 7px 10px; border-radius: 8px; line-height: 20px; position: relative; color: var(--muted);
+  }
+  .sc:hover { background: var(--hover); color: var(--text); }
+  .sc .n { flex: none; width: 22px; height: 22px; display: grid; place-items: center; font-size: 11.5px; border-radius: 5px; background: var(--surface); border: 1px solid var(--border); color: var(--muted); }
+  .sc .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sc.seen .n { color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+  .sc.on { background: var(--accent-subtle); color: var(--text); font-weight: 600; }
+  .sc.on .n { background: var(--accent-solid); border-color: transparent; color: var(--on-accent); box-shadow: 2px 2px 0 color-mix(in srgb, var(--accent) 30%, transparent); }
+  .beta { flex: none; font-size: 11px; font-weight: 600; line-height: 16px; padding: 0 6px; border-radius: 999px; background: var(--warning-subtle); color: var(--warning-text); white-space: nowrap; }
+
+  main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+  #cap { flex: none; display: flex; align-items: flex-end; gap: 20px; padding: 14px 24px 14px; border-bottom: 1px solid var(--border); background: var(--chrome); }
+  .cap-text { flex: 1; min-width: 0; }
+  .kicker { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); line-height: 18px; }
+  #cap h1 { margin: 2px 0 2px; font-size: 19px; font-weight: 650; line-height: 1.35; letter-spacing: .005em; }
+  #cap p { margin: 0; color: var(--muted); max-width: 78ch; }
+  .nav { display: flex; gap: 8px; flex: none; }
+  #pick { display: none; }
+
+  #stage { flex: 1; min-height: 0; position: relative; display: grid; place-items: center; overflow: hidden; padding: 16px 20px 28px; }
+  #wrap { position: relative; border-radius: 10px; overflow: hidden; border: 1px solid var(--border-strong); background: var(--chrome); box-shadow: 0 24px 60px -18px rgb(0 0 0 / .5), 0 6px 16px -6px rgb(0 0 0 / .28); }
+  #wrap:empty { display: none; }
+  #wrap iframe { display: block; border: 0; transform-origin: 0 0; background: var(--chrome); }
+  #stage.playing #wrap iframe { pointer-events: none; } /* 正在自动走到这一步：先别让鼠标点进去打岔 */
+  #stat { position: absolute; left: 20px; right: 20px; bottom: 5px; display: flex; justify-content: space-between; gap: 12px; font-size: 12px; line-height: 18px; color: var(--muted); pointer-events: none; }
+  #stat .warn { color: var(--danger-text); }
+  /* 界面还没画出来的那一小会儿：盖一层，免得看到白屏 */
+  #veil { position: absolute; inset: 0; display: none; place-items: center; background: var(--bg); color: var(--muted); z-index: 2; }
+  #stage.loading #veil { display: grid; }
+  .bar8 { display: flex; gap: 5px; justify-content: center; margin-bottom: 12px; }
+  .bar8 i { width: 9px; height: 9px; background: var(--border-strong); animation: blk 1.1s steps(1) infinite; }
+  .bar8 i:nth-child(2) { animation-delay: .14s; } .bar8 i:nth-child(3) { animation-delay: .28s; } .bar8 i:nth-child(4) { animation-delay: .42s; }
+  .bar8 i:nth-child(5) { animation-delay: .56s; } .bar8 i:nth-child(6) { animation-delay: .7s; }
+  @keyframes blk { 0%, 100% { background: var(--border-strong); } 30%, 60% { background: var(--accent); } }
+
+  /* ---- 开始之前：一张海报，不加载界面 ---- */
+  #poster { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; padding: 20px; background: var(--bg); overflow: auto; }
+  .sk { position: absolute; inset: 22px 28px 34px; border-radius: 10px; border: 1px solid var(--border); background: var(--chrome); display: grid; grid-template-columns: 168px 1fr; overflow: hidden; opacity: .75; }
+  .sk-side { border-right: 1px solid var(--border); padding: 18px 12px; display: grid; gap: 8px; align-content: start; }
+  .sk-side i { height: 30px; border-radius: 7px; background: var(--surface); }
+  .sk-side i:first-child { width: 70%; height: 22px; margin-bottom: 10px; background: var(--surface-2); }
+  .sk-side i:nth-child(2) { background: var(--accent-subtle); }
+  .sk-main { background: var(--bg); padding: 26px 28px; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; align-content: start; }
+  .sk-main i { height: 128px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); }
+  .p-card { position: relative; width: min(460px, 100%); padding: 30px 30px 24px; border-radius: 14px; text-align: center; background: var(--overlay); border: 1px solid var(--border-strong); box-shadow: 0 30px 70px -24px rgb(0 0 0 / .6), 0 8px 20px -8px rgb(0 0 0 / .3); }
+  .p-card img { width: 56px; height: 56px; image-rendering: pixelated; }
+  .p-card h2 { margin: 12px 0 8px; font-size: 21px; font-weight: 650; line-height: 1.3; }
+  .p-card p { margin: 0 0 20px; color: var(--muted); }
+  .p-card .p-size { margin: 12px 0 0; font-size: 12.5px; color: var(--faint); }
+
+  /* ---- 窄屏（手机）：步骤收成顶上的一个下拉，上一步 / 下一步在它两边，界面铺满剩下的地方 ---- */
+  @media (max-width: 760px) {
+    #top { gap: 8px; padding-top: 6px; padding-bottom: 6px; min-height: 46px; flex-wrap: wrap; }
+    .brand b { font-size: 14px; }
+    .notice { order: 3; flex: 1 0 100%; justify-content: center; }
+    #view, #dl { display: none; }
+    .seg button { padding: 0 9px; }
+    .btn { height: 32px; padding: 0 11px; }
+    #body { flex-direction: column; }
+    #rail { display: none; position: absolute; inset: 0; z-index: 5; width: auto; border: 0; background: var(--chrome); padding: 10px 10px calc(16px + env(safe-area-inset-bottom)); }
+    body.rail-open #rail { display: block; }
+    .sc { padding: 10px 10px; font-size: 15px; }
+    /* 第一行：上一步、现在是第几步（点开是全部步骤）、下一步；第二行起是这一步的说明 */
+    #cap { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "prev pick next" "text text text"; gap: 8px; align-items: center; padding: 8px 12px 10px; }
+    .nav { display: contents; }
+    #prev { grid-area: prev; } #next { grid-area: next; }
+    .nav .btn { height: 38px; }
+    .cap-text { grid-area: text; }
+    #pick {
+      grid-area: pick; display: flex; align-items: center; gap: 8px; min-width: 0; height: 38px; padding: 0 10px; border-radius: 8px; cursor: pointer;
+      border: 1px solid var(--border-strong); background: var(--control); text-align: left;
+    }
+    #pick .n { color: var(--muted); font-size: 12.5px; }
+    #pick .t { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #pick .v { flex: none; width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg) translate(-2px, -2px); }
+    .kicker #cap-n { display: none; }
+    .kicker:not(:has(.beta:not([hidden]))) { display: none; }
+    #cap h1 { font-size: 16px; }
+    #cap p { font-size: 13px; line-height: 1.55; }
+    #stage { padding: 0; }
+    #wrap { border-radius: 0; border-width: 0; box-shadow: none; }
+    #stat { left: 12px; right: 12px; bottom: calc(76px + env(safe-area-inset-bottom)); } /* 让开界面自己的底部标签栏 */
+    #stat-r { display: none; }
+    #stat-l:not(:empty) { padding: 2px 8px; border-radius: 6px; background: var(--overlay); border: 1px solid var(--border); }
+    #poster { padding: 16px; }
+    .sk { display: none; }
+    .p-card { padding: 24px 20px 20px; }
+  }
+  @media (max-width: 1000px) and (min-width: 761px) { #rail { width: 176px; } .notice span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } }
+  @media (prefers-reduced-motion: reduce) { .bar8 i { animation: none; } .btn { transition: none; } }
+</style>
+</head>
+<body>
+<header id="top">
+  <span class="brand"><img src="app/img/logo-32.png" alt=""><b>MineDeck</b><span data-t="brand">在线体验</span></span>
+  <p class="notice"><i></i><span data-t="notice">这是演示：数据是编的，不会真的下载和开服</span></p>
+  <div class="ctl">
+    <div class="seg" id="theme" role="group" data-ta="themeLabel" aria-label="明暗"><button data-v="dark" data-t="dark">深色</button><button data-v="light" data-t="light">浅色</button></div>
+    <div class="seg" id="view" role="group" data-ta="viewLabel" aria-label="用什么看"><button data-v="auto" data-t="desktop">电脑</button><button data-v="phone" data-t="phone">手机</button></div>
+    <button class="btn" id="replay" data-t="replay" data-tt="replayTip" title="回到这一步刚打开的样子">重来</button>
+    <a class="btn primary" id="dl" hidden data-t="download">下载 MineDeck</a>
+  </div>
+</header>
+<div id="body">
+  <nav id="rail" data-ta="railLabel" aria-label="导览的步骤"><h2 data-t="railTitle">顺着看一遍</h2><ol id="steps"></ol></nav>
+  <main>
+    <section id="cap">
+      <button id="pick" aria-expanded="false" aria-controls="rail"><span class="n mono" id="pick-n"></span><span class="t" id="pick-t"></span><span class="v"></span></button>
+      <div class="cap-text">
+        <div class="kicker"><span id="cap-n"></span><span class="beta" id="cap-beta" hidden data-t="beta">测试版里的功能</span></div>
+        <h1 id="sc-title"></h1>
+        <p id="sc-note"></p>
+      </div>
+      <div class="nav"><button class="btn" id="prev" data-t="prev">上一步</button><button class="btn primary" id="next" data-t="next">下一步</button></div>
+    </section>
+    <section id="stage">
+      <div id="wrap"></div>
+      <div id="veil"><div><div class="bar8"><i></i><i></i><i></i><i></i><i></i><i></i></div><span data-t="loading">正在打开界面…</span></div></div>
+      <div id="poster">
+        <div class="sk" aria-hidden="true"><div class="sk-side"><i></i><i></i><i></i><i></i><i></i></div><div class="sk-main"><i></i><i></i><i></i><i></i></div></div>
+        <div class="p-card">
+          <img src="app/img/logo-72.png" alt="">
+          <h2 data-t="pTitle">在浏览器里试试 MineDeck</h2>
+          <p data-t="pText">界面是真的，和装好以后看到的一样；里面的服务器、玩家都是编的。可以随便点、随便填，不会真的下载和开服。</p>
+          <button class="btn primary big" id="start" data-t="start">开始体验</button>
+          <p class="p-size" id="p-size"></p>
+        </div>
+      </div>
+      <div id="stat"><span id="stat-l"></span><span id="stat-r"></span></div>
+    </section>
+  </main>
+</div>
+<noscript><p style="padding:16px">在线体验要用到 JavaScript，请在浏览器里把它打开。</p></noscript>
+<script src="data.js"></script>
+<script src="stage.js"></script>
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const P = window.MD_PROTO || {}, tour = P.tour || [], Q = new URLSearchParams(location.search);
+const lang = /^en/i.test(Q.get("lang") || "") ? "en" : "zh";
+
+// 外面这层的文字。界面本身只有中文
+const T = {
+  zh: {
+    title: "MineDeck 在线体验", brand: "在线体验", notice: "这是演示：数据是编的，不会真的下载和开服", dark: "深色", light: "浅色", desktop: "电脑", phone: "手机",
+    themeLabel: "明暗", viewLabel: "用什么看", railLabel: "导览的步骤", railTitle: "顺着看一遍", replay: "重来", replayTip: "回到这一步刚打开的样子", download: "下载 MineDeck",
+    prev: "上一步", next: "下一步", beta: "测试版里的功能", loading: "正在打开界面…", start: "开始体验",
+    pTitle: "在浏览器里试试 MineDeck", pText: "界面是真的，和装好以后看到的一样；里面的服务器、玩家都是编的。可以随便点、随便填，不会真的下载和开服。",
+    size: mb => `点了才开始加载，大约 ${mb} MB`, nOf: (n, all) => `第 ${n} 步，共 ${all} 步`,
+    playing: (n, all) => `正在走到这一步（${n} / ${all}）…`, fail: "这一步没能自动走到位，可以自己接着点。", scaled: pct => `窗口缩小到 ${pct}% 显示`,
+    none: "导览的内容没有读出来。", frame: "MineDeck 界面（演示）",
+  },
+  en: {
+    title: "Try MineDeck in your browser", brand: "Live demo", notice: "Demo with made-up data. Nothing is downloaded and no server is started.", dark: "Dark", light: "Light", desktop: "Desktop", phone: "Phone",
+    themeLabel: "Theme", viewLabel: "View as", railLabel: "Tour steps", railTitle: "Take the tour", replay: "Reset", replayTip: "Put this step back the way it opened", download: "Download MineDeck",
+    prev: "Back", next: "Next", beta: "Beta feature", loading: "Opening the interface…", start: "Start the demo",
+    pTitle: "Try MineDeck in your browser", pText: "This is the real interface, the same one you get after installing. The servers and players in it are made up. Click and type anywhere: nothing is downloaded and no server is started. The interface itself is in Chinese.",
+    size: mb => `Loads only when you click, about ${mb} MB`, nOf: (n, all) => `Step ${n} of ${all}`,
+    playing: (n, all) => `Getting this step ready (${n} / ${all})…`, fail: "This step could not be set up automatically. You can carry on by hand.", scaled: pct => `Window shown at ${pct}%`,
+    none: "The tour could not be loaded.", frame: "MineDeck interface (demo)",
+  },
+}[lang];
+document.title = T.title;
+document.querySelectorAll("[data-t]").forEach(el => { el.textContent = T[el.dataset.t]; });
+document.querySelectorAll("[data-ta]").forEach(el => el.setAttribute("aria-label", T[el.dataset.ta]));
+document.querySelectorAll("[data-tt]").forEach(el => { el.title = T[el.dataset.tt]; });
+const txt = s => (s.text && (s.text[lang] || s.text.zh)) || {};
+
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+const narrow = () => matchMedia("(max-width: 760px)").matches;
+const root = document.documentElement;
+let cur = Math.max(0, tour.findIndex(s => s.id === decodeURIComponent(location.hash.slice(1))));
+let started = false;
+let view = store.get("md_tour_view") === "phone" ? "phone" : "auto"; // 自己挑的；某一步指定了手机就用手机，看完回到自己挑的
+let override = ""; // 在指定了手机的那一步里点了「电脑」：只管这一步，换一步就不算了
+const viewOf = s => override || (s.view === "phone" ? "phone" : view);
+const seen = new Set();
+
+const stage = MDStage({
+  stage: $("#stage"), wrap: $("#wrap"), title: T.frame,
+  pad: () => narrow() ? [0, 0] : [40, 44],
+  onStatus(st) {
+    const waiting = st.state === "loading" || (st.state === "playing" && !st.n);
+    $("#stage").classList.toggle("loading", waiting);
+    $("#stage").classList.toggle("playing", st.state === "playing");
+    const l = $("#stat-l");
+    l.className = st.state === "fail" ? "warn" : "";
+    l.textContent = st.state === "fail" ? T.fail : st.state === "playing" && st.n ? T.playing(st.n, st.total) : st.state === "done" ? "" : T.loading;
+    l.title = st.state === "fail" ? st.message : "";
+  },
+  onLayout({ k }) { $("#stat-r").textContent = k < 1 ? T.scaled(Math.round(k * 100)) : ""; },
+});
+
+// ---- 明暗：和界面用同一份记忆。这里换了，界面下一次加载就是新的；界面的「外观」里换了，这一圈也跟着换 ----
+const theme = () => root.dataset.theme;
+function paintLook() { document.querySelectorAll("#theme button").forEach(b => b.classList.toggle("on", b.dataset.v === theme())); }
+document.querySelectorAll("#theme button").forEach(b => b.onclick = () => { root.dataset.theme = b.dataset.v; store.set("amh_theme", b.dataset.v); paintLook(); if (started) go(cur); });
+addEventListener("storage", e => {
+  if (!/^amh_(theme|scheme|accent)$/.test(e.key || "")) return;
+  const t = store.get("amh_theme");
+  root.dataset.theme = t === "light" || t === "dark" ? t : matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  root.dataset.scheme = store.get("amh_scheme") || "craft";
+  root.dataset.accent = store.get("amh_accent") || "auto";
+  paintLook();
+});
+
+function paint() {
+  const s = tour[cur], t = txt(s), hadFocus = $("#steps").contains(document.activeElement);
+  $("#steps").innerHTML = tour.map((x, i) => `<li><button class="sc${i === cur ? " on" : ""}${seen.has(x.id) ? " seen" : ""}" data-id="${esc(x.id)}"${i === cur ? ' aria-current="step"' : ""}><span class="n mono">${i + 1}</span><span class="t">${esc(txt(x).label || "")}</span>${x.beta ? `<span class="beta">${esc(lang === "en" ? "Beta" : "测试版")}</span>` : ""}</button></li>`).join("");
+  $("#steps").querySelectorAll(".sc").forEach((b, i) => b.onclick = () => go(i));
+  $("#cap-n").textContent = T.nOf(cur + 1, tour.length);
+  $("#cap-beta").hidden = !s.beta;
+  $("#sc-title").textContent = t.title || "";
+  $("#sc-note").textContent = t.note || "";
+  $("#pick-n").textContent = `${cur + 1} / ${tour.length}`;
+  $("#pick-t").textContent = t.label || "";
+  $("#prev").disabled = cur === 0;
+  $("#next").disabled = cur === tour.length - 1;
+  $("#poster").hidden = started;
+  document.querySelectorAll("#view button").forEach(b => b.classList.toggle("on", b.dataset.v === viewOf(s)));
+  const on = $("#steps .sc.on");
+  if (on && !narrow()) on.scrollIntoView({ block: "nearest" });
+  if (on && hadFocus) on.focus(); // 列表是整个重画的：键盘正停在上面的话，把焦点放回当前这一步
+}
+
+function go(i) {
+  i = Math.max(0, Math.min(tour.length - 1, i));
+  if (i !== cur) override = "";
+  cur = i;
+  started = true;
+  const s = tour[cur];
+  seen.add(s.id);
+  document.body.classList.remove("rail-open"); $("#pick").setAttribute("aria-expanded", "false");
+  history.replaceState(null, "", "#" + encodeURIComponent(s.id));
+  paint();
+  // 窄屏上界面直接铺满，就是手机浏览器里打开它的样子；宽屏上是一个窗口，或者一台手机
+  stage.go(s, { view: narrow() ? "fit" : viewOf(s), theme: theme() });
+}
+
+$("#start").onclick = () => go(cur);
+$("#prev").onclick = () => go(cur - 1);
+$("#next").onclick = () => go(cur + 1);
+$("#replay").onclick = () => go(cur);
+document.querySelectorAll("#view button").forEach(b => b.onclick = () => {
+  if (tour[cur].view === "phone") override = b.dataset.v; // 这一步指定了手机：只在这一步里临时换，不算自己的偏好
+  else { view = b.dataset.v; store.set("md_tour_view", view); }
+  if (started) go(cur); else paint();
+});
+$("#pick").onclick = () => { const open = document.body.classList.toggle("rail-open"); $("#pick").setAttribute("aria-expanded", String(open)); if (open) { const on = $("#steps .sc.on"); if (on) on.focus(); } };
+addEventListener("keydown", e => {
+  if (e.key === "Escape" && document.body.classList.contains("rail-open")) { document.body.classList.remove("rail-open"); $("#pick").setAttribute("aria-expanded", "false"); $("#pick").focus(); return; }
+  if (e.target.matches("input, select, textarea") || e.altKey || e.ctrlKey || e.metaKey) return;
+  if (e.key === "ArrowRight" && cur < tour.length - 1) go(cur + 1);
+  else if (e.key === "ArrowLeft" && cur > 0) go(cur - 1);
+});
+
+if (P.links && P.links.download) { $("#dl").href = P.links.download; $("#dl").hidden = false; }
+if (P.bytes) $("#p-size").textContent = T.size((P.bytes / 1048576).toFixed(1));
+paintLook();
+if (!tour.length) { $("#sc-title").textContent = T.none; $("#poster").hidden = true; }
+else if (Q.get("autostart") === "1") go(cur);
+else paint();
+</script>
+</body>
+</html>
