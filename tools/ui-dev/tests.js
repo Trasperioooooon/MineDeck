@@ -2845,10 +2845,10 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       const pills = await page.$$eval(".step-pill", els => els.map(e => e.textContent));
       assert(pills.length === 5 && pills.some(t => t.includes("选插件")), "非 vanilla 应是 5 步、Paper 这一步应叫「选插件」：" + JSON.stringify(pills));
       assert(!(await page.$eval("#wnext", b => b.disabled)), "选模组是可选步，「下一步」应可直接点");
-      // 搜索 → 假 hits → 加购一项：正是因为按钮带对象名，这里才点得到 JEI 那一个
-      await page.fill("#mc-q", "JEI"); await page.click("#mc-go"); await settle();
-      assert((await page.textContent("#mc-hits")).includes("JEI"), "搜索结果没出现");
-      await page.click('button[aria-label="加入清单 JEI"]'); await settle(700);
+      // 搜索 → 假 hits → 加购一项：正是因为按钮带对象名，这里才点得到 LuckPerms 那一个（Paper 是插件端，搜出来的是插件）
+      await page.fill("#mc-q", "LuckPerms"); await page.click("#mc-go"); await settle();
+      assert((await page.textContent("#mc-hits")).includes("LuckPerms") && (await page.textContent("#mc-hits-title")).includes("LuckPerms"), "搜索结果没出现");
+      await page.click('button[aria-label="加入清单 LuckPerms"]'); await settle(700);
       assert((await page.$$eval("#mc-list .mc-item", els => els.length)) === 1, "草稿车清单不是 1 项");
       assert((await page.$eval("#mc-count", el => el.textContent)).includes("1"), "草稿车计数不对");
       // 提交建服：草稿车非空时留在向导页等建服，建完自动把车装上再跳模组安装任务
@@ -2863,7 +2863,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(h1.includes("待装清单"), "任务页说法没有改成安装待装清单：" + h1);
       // 带草稿车安装的请求里要有「选模组」那一步上画出来的那些：后端拿它核对，草稿车之后被改过就不装
       const li = (await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data))).modcart.lastInstall;
-      assert(li && li.includeDraft === true && Array.isArray(li.expect) && li.expect.join() === "jei", "安装请求应带上向导上看到的那一项：" + JSON.stringify(li));
+      assert(li && li.includeDraft === true && Array.isArray(li.expect) && li.expect.join() === "luckperms" && Array.isArray(li.expectLocal) && li.expectLocal.length === 0,
+        "安装请求应带上向导上看到的那一项（没有本地文件时 expectLocal 是空数组）：" + JSON.stringify(li));
       await page.waitForSelector("#t-foot a.btn.primary", { timeout: 6000 }); // 第 3 次查询后任务结束
       assert((await page.getAttribute("#t-foot a.btn.primary", "href")) === "#/inst/" + encodeURIComponent("测试的模组服"), "完成的去处在详情页才能看到");
     } finally { await cartState({ modCart: { reset: true }, taskStage: 2, instReset: true }); }
@@ -2874,12 +2875,13 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await cartState({ modCart: { reset: true } });
       await page.goto(url("#/inst/" + encodeURIComponent("原版快照测试"))); await settle(600);
       assert((await page.$('.tabs .tab[data-t="cart"]')) === null, "原版实例不应有待装清单标签");
-      await page.goto(url(`#/inst/${inst}/cart`)); await settle(600);
+      await page.goto(url(`#/inst/${encodeURIComponent(PACK)}/cart`)); await settle(600);
       assert((await page.$('.tabs .tab[data-t="cart"]')) !== null, "模组实例缺待装清单标签");
       // 提示条（本地依赖核对）：已装的模组缺依赖时先说一声
       assert((await page.textContent("#mc-local-tip")).includes("缺 1 项前置"), "本地前置提示条没出现");
-      // 搜索 → 加购
+      // 搜索 → 加购（这台是 Forge 的模组服：搜出来的是模组）
       await page.fill("#mc-q", "JEI"); await page.click("#mc-go"); await settle();
+      assert((await page.$$eval("#mc-hits .mc-hit", els => els.length)) === 1, "搜 JEI 应只剩一条");
       await page.click('button[aria-label="加入清单 JEI"]'); await settle(700);
       assert((await page.textContent("#mc-list")).includes("JEI") && (await page.textContent("#mc-count")).includes("1"), "加购之后的清单不对");
       assert(!(await page.$eval("#mc-actions", el => el.hidden)), "清空 / 安装按钮在车非空时应出现");
@@ -2892,7 +2894,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert((await page.textContent("#mc-count")).includes("2") && (await page.textContent("#mc-list")).includes("Architectury"), "勾选补齐后清单不对");
       assert((await page.textContent("#mc-dep-box")).includes("不缺前置"), "补齐后复查应显示不缺前置");
       // 可选依赖按单个加
-      await page.click('button[aria-label="加入清单 Cloth Config API"]'); await settle(900);
+      await page.click('button[aria-label="加入清单（可选前置）Cloth Config API"]'); await settle(900);
       assert((await page.textContent("#mc-count")).includes("3"), "可选依赖加不进来");
       // 移除一项，再把余下的清空
       await page.click('button[aria-label="移除 JEI"]'); await settle(700);
@@ -2906,12 +2908,12 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     // 往车里加东西不用确认（AI 助手、别的窗口都能加）：装的必须是页面上列着的那些
     try {
       await cartState({ modCart: { reset: true } });
-      await page.goto(url(`#/inst/${inst}/cart`)); await settle(600);
+      await page.goto(url(`#/inst/${encodeURIComponent(PACK)}/cart`)); await settle(600);
       await page.fill("#mc-q", "JEI"); await page.click("#mc-go"); await settle();
       await page.click('button[aria-label="加入清单 JEI"]'); await settle(700);
       assert((await page.textContent("#mc-count")).includes("1"), "清单应是 1 项");
       // 页面没动的时候，别处又往这台服务器的车里加了一项
-      await page.evaluate(i => fetch("/api/modcart", { method: "POST", body: JSON.stringify({ inst: i, projectIds: ["create"] }) }), decodeURIComponent(inst));
+      await page.evaluate(i => fetch("/api/modcart", { method: "POST", body: JSON.stringify({ inst: i, projectIds: ["create"] }) }), PACK);
       await page.click("#mc-install"); await settle(900);
       const toasts = await page.$$eval(".toast", ts => ts.map(x => x.textContent));
       assert(toasts.some(x => x.includes("不一样")), "车变了应拦下并说明：" + JSON.stringify(toasts));
@@ -2962,6 +2964,276 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       release(); await settle(600);
       assert(await page.locator("#inst-cards").count() === 1 && errors.length === beforeErrors, "离开后的响应引发报错或覆盖页面");
     } finally { if (release) release(); await page.unroute(pattern); }
+  });
+
+  // ---- 热门清单、从电脑添加本地文件、两栏版面（2026-11） ----
+  const cartMock = async () => (await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data))).modcart;
+  const packCart = `#/inst/${encodeURIComponent(PACK)}/cart`; // Forge 1.20.1 的模组服
+  /* 一个「jar」：仿真后端只看开头是不是 PK，内容不同 SHA-1 就不同 */
+  const jarFile = (name, body = name) => ({ name, mimeType: "application/java-archive", buffer: Buffer.from("PK" + body) });
+  /* 走到向导的「选模组 / 选插件」那一步 */
+  const gotoWizMods = async core => {
+    await page.goto(url("#/create")); await settle();
+    await page.click("#mode-new"); await settle();
+    await page.click(`.core-card[data-id="${core}"]`); await page.click("#wnext"); await settle();
+    await page.click("#wnext"); await settle();
+    assert((await page.$("#build-list")) !== null, "没到构建步");
+    await page.click("#wnext"); await settle();
+    assert((await page.$("#wiz-mod-body .mc-wrap")) !== null, "没到选模组这一步");
+  };
+
+  await run("待装清单的热门清单：一打开就列出当前核心下最热门的；加载更多翻到第 5 页为止；类别筛选和关键词搜索，标题行跟着变；插件端叫插件", async () => {
+    try {
+      await cartState({ modCart: { reset: true } });
+      await page.goto(url(packCart)); await settle(700);
+      assert((await page.textContent("#mc-hits-title")) === "热门模组 · 按下载量", "标题行：" + await page.textContent("#mc-hits-title"));
+      assert((await page.textContent(".mc-hits-head")).includes("已按当前核心与版本过滤") && (await page.textContent(".mc-hits-head")).includes("Modrinth"), "标题行旁边的说明没了");
+      let rows = await page.$$eval("#mc-hits .mc-hit b", els => els.map(e => e.textContent));
+      assert(rows.length === 20 && rows[0] === "Create" && rows[1] === "JEI", "没搜就应列出下载量最高的 20 个：" + rows.slice(0, 3).join());
+      assert((await page.inputValue("#mc-q")) === "", "关键词应是空的");
+      // 加载更多：一页 20 条接在后面，翻到第 5 页（100 个）就不给翻了，说清楚去哪儿找别的
+      for (let i = 0; i < 4; i++) {
+        assert((await page.textContent("#mc-more")).includes("加载更多"), "第 " + (i + 1) + " 页后面应有「加载更多」");
+        await page.click("#mc-more"); await settle(350);
+      }
+      rows = await page.$$eval("#mc-hits .mc-hit b", els => els.map(e => e.textContent));
+      assert(rows.length === 100 && new Set(rows).size === 100, "翻了 4 次应有 100 个不重复的：" + rows.length);
+      assert((await page.$("#mc-more")) === null && (await page.textContent("#mc-more-end")).includes("最热门的 100 个"), "第 5 页之后不该再有「加载更多」");
+      let mc = await cartMock();
+      assert(mc.searches.map(x => x.offset).join() === "0,20,40,60,80" && mc.searches.every(x => x.q === "" && x.category === ""), "请求的翻页不对：" + JSON.stringify(mc.searches));
+      // 类别筛选片：单选，默认「全部」
+      assert((await page.getAttribute('.mc-chips .cp-chip[data-cat=""]', "aria-pressed")) === "true", "默认应选中「全部」");
+      const chips = await page.$$eval(".mc-chips .cp-chip", els => els.map(e => e.textContent));
+      assert(chips.join() === "全部,优化,实用,管理,世界生成,冒险,科技,魔法,生物,装备,存储,支持库", "模组的类别：" + chips.join());
+      await page.click('.mc-chips .cp-chip[data-cat="library"]'); await settle(400);
+      assert((await page.textContent("#mc-hits-title")) === "支持库类模组 · 按下载量", "选了类别以后的标题：" + await page.textContent("#mc-hits-title"));
+      const pressed = await page.$$eval(".mc-chips .cp-chip", els => els.filter(e => e.getAttribute("aria-pressed") === "true").map(e => e.textContent));
+      assert(pressed.join() === "支持库", "类别应是单选：" + pressed.join());
+      rows = await page.$$eval("#mc-hits .mc-hit b", els => els.map(e => e.textContent));
+      assert(rows[0] === "Cloth Config API" && rows[1] === "Architectury API" && !rows.includes("Create"), "按类别筛出来的不对：" + rows.slice(0, 4).join());
+      mc = await cartMock();
+      assert(mc.searches.at(-1).category === "library" && mc.searches.at(-1).offset === "0", "换类别应从头查：" + JSON.stringify(mc.searches.at(-1)));
+      // 关键词搜索保留：和类别一起算；没结果给一句话
+      await page.fill("#mc-q", "jei"); await page.press("#mc-q", "Enter"); await settle(400);
+      assert((await page.textContent("#mc-hits-title")) === "“jei” 的搜索结果 · 支持库", "带关键词的标题：" + await page.textContent("#mc-hits-title"));
+      assert((await page.textContent("#mc-hits-empty")).includes("换个关键词或类别"), "空结果应给一句话");
+      await page.click('.mc-chips .cp-chip[data-cat=""]'); await settle(400);
+      assert((await page.textContent("#mc-hits-title")) === "“jei” 的搜索结果", "回到全部以后的标题：" + await page.textContent("#mc-hits-title"));
+      rows = await page.$$eval("#mc-hits .mc-hit b", els => els.map(e => e.textContent));
+      assert(rows.join() === "JEI" && (await page.$("#mc-more")) === null, "搜 jei 应只有 JEI、没有加载更多：" + rows.join());
+      // 同一页里没有同名、没名字的控件（筛选片、加入清单、加载更多、从电脑添加）
+      await page.fill("#mc-q", ""); await page.click("#mc-go"); await settle(400);
+      const bad = await axProblems();
+      assert(!bad.length, "热门清单里有同名或没名字的控件：" + bad.join("、"));
+      // 插件端：名词和类别跟着核心走
+      await page.goto(url(`#/inst/${inst}/cart`)); await settle(700);
+      assert((await page.textContent("#mc-hits-title")) === "热门插件 · 按下载量", "插件端的标题：" + await page.textContent("#mc-hits-title"));
+      const pchips = await page.$$eval(".mc-chips .cp-chip", els => els.map(e => e.textContent));
+      assert(pchips.includes("经济") && pchips.includes("聊天社交") && !pchips.includes("魔法"), "插件的类别：" + pchips.join());
+      assert((await page.$$eval("#mc-hits .mc-hit b", els => els[0].textContent)) === "EssentialsX", "插件端应列出最热门的插件");
+      assert((await page.getAttribute("#mc-q", "aria-label")) === "搜索插件", "搜索框的名字应跟着叫插件");
+    } finally { await cartState({ modCart: { reset: true } }); }
+  });
+
+  await run("待装清单的热门清单加载失败或很慢：只在列表区说明并给「重试」，不弹提示；向导「选模组」这一步的「下一步」照常能点", async () => {
+    try {
+      await cartState({ modCart: { reset: true, searchFail: "连不上 Modrinth：等了太久没有回应" } });
+      await gotoWizMods("fabric"); await settle(500);
+      const errText = await page.textContent("#mc-hits-err");
+      assert(errText.includes("连不上 Modrinth") && errText.includes("重试") && errText.includes("可以先跳过"), "列表区应说明出了什么事、下一步怎么办：" + errText);
+      const toasts = await page.$$eval(".toast", ts => ts.map(x => x.textContent));
+      assert(!toasts.some(x => x.includes("Modrinth")), "自动加载失败不该弹提示：" + JSON.stringify(toasts));
+      assert(!(await page.$eval("#wnext", b => b.disabled)), "加载失败不该挡住「下一步」");
+      assert((await page.$("#mc-local-pick")) !== null && !(await page.$eval("#mc-local-pick", b => b.disabled)), "热门清单坏了，从电脑添加照常能用");
+      // 重试：好了就列出来
+      await cartState({ modCart: { searchFail: "" } });
+      await page.click("#mc-retry"); await settle(500);
+      assert((await page.$$eval("#mc-hits .mc-hit", els => els.length)) === 20 && (await page.$("#mc-hits-err")) === null, "重试以后应列出热门模组");
+      // 很慢：骨架还在转的时候点「下一步」，马上就到下一步；晚到的结果不写页面、不报错
+      await cartState({ modCart: { searchDelay: 1500 } });
+      await page.click("#wback"); await settle(200);
+      await page.click("#wnext"); await settle(200);
+      assert((await page.getAttribute("#mc-hits", "aria-busy")) === "true" && (await page.$("#mc-hits .sk-row")) !== null, "加载中应是骨架");
+      assert(!(await page.$eval("#wnext", b => b.disabled)), "加载很慢也不该挡住「下一步」");
+      const before = errors.length;
+      await page.click("#wnext"); await settle(300);
+      assert((await page.$("#f-name")) !== null, "骨架还在转的时候点「下一步」应直接到基本设置");
+      await settle(1600);
+      assert((await page.$("#f-name")) !== null && errors.length === before, "晚到的热门清单不该写页面或报错");
+    } finally { await cartState({ modCart: { reset: true } }); }
+  });
+
+  await run("待装清单从电脑添加本地文件：逐个上传，没加上的在清单下面逐个说明（不弹提示）；行上写明来源和提醒；加完自动检查前置；计数和「全部安装（N）」把本地文件算进去；移除、清空", async () => {
+    try {
+      await cartState({ modCart: { reset: true } });
+      await page.goto(url(packCart)); await settle(700);
+      assert((await page.textContent("#mc-local-pick")).includes("从电脑添加…"), "缺「从电脑添加…」按钮");
+      assert((await page.getAttribute("#mc-file", "accept")) === ".jar" && (await page.$eval("#mc-file", el => el.multiple && el.type === "file")), "应是能多选 .jar 的文件输入框");
+      // 一次选 4 个：两个能加，一个不是 jar，一个打不开
+      await page.setInputFiles("#mc-file", [jarFile("needs-geckolib-1.0.jar"), jarFile("sodium-fabric-0.5.8.jar"),
+        { name: "readme.txt", mimeType: "text/plain", buffer: Buffer.from("hi") }, { name: "broken.jar", mimeType: "application/java-archive", buffer: Buffer.from("not a zip") }]);
+      await page.waitForSelector("#mc-local-ok", { timeout: 8000 }); await settle(500); // 这一句只在全部传完以后才出现
+      const rows = await page.$$eval("#mc-list .mc-local", els => els.map(e => e.textContent.replace(/\s+/g, " ").trim()));
+      assert(rows.length === 2 && rows[0].includes("本地文件 · needs-geckolib-1.0.jar") && rows[1].includes("本地文件 · sodium-fabric-0.5.8.jar"), "清单里的本地文件：" + JSON.stringify(rows));
+      assert(/本地文件 · needs-geckolib-1\.0\.jar · \d+ B/.test(rows[0]), "副行应是「本地文件 · 文件名 · 大小」：" + rows[0]);
+      assert(rows[1].includes("给 Fabric 用的") && (await page.$$eval("#mc-list .mc-local .mc-local-warn", els => els.length)) === 1, "加载器不对的那一行应有提醒：" + rows[1]);
+      const failText = (await page.textContent("#mc-local-err")).replace(/\s+/g, " ");
+      assert(failText.includes("2 个文件没有加进清单") && failText.includes("readme.txt") && failText.includes("不是 .jar 文件") && failText.includes("broken.jar") && failText.includes("打不开"),
+        "没加上的应逐个说明原因：" + failText);
+      assert((await page.textContent("#mc-local-ok")).includes("已添加 2 个文件"), "应说明加上了几个：" + await page.textContent("#mc-local-ok"));
+      const toasts = await page.$$eval(".toast", ts => ts.map(x => x.textContent));
+      assert(!toasts.some(x => x.includes("readme") || x.includes("broken")), "添加失败不该用提示框堆一串：" + JSON.stringify(toasts));
+      // 计数、安装按钮都把本地文件算进去
+      assert((await page.textContent("#mc-count")).includes("共 2 项"), "计数：" + await page.textContent("#mc-count"));
+      assert((await page.textContent("#mc-install")).includes("全部安装（2）") && !(await page.$eval("#mc-actions", el => el.hidden)), "安装按钮：" + await page.textContent("#mc-install"));
+      // 加完自动查了一遍前置：认出来的说明一下，认不出来的把要自己找的前置单独列出来
+      const dep = (await page.textContent("#mc-dep-box")).replace(/\s+/g, " ");
+      assert(dep.includes("清单里有 2 个本地文件") && dep.includes("1 个在 Modrinth 上认出来了"), "前置里应说明本地文件的情况：" + dep.slice(0, 120));
+      const manual = (await page.textContent("#mc-dep-manual")).replace(/\s+/g, " ");
+      assert(manual.includes("有 1 个前置要自己去找") && manual.includes("geckolib") && manual.includes("没法替你下载"), "要自己去找的前置：" + manual);
+      assert((await page.$("#mc-dep-ok")) === null, "有要自己找的前置时不该说「不缺前置」");
+      // 再加一个 Modrinth 项目：两样列在同一张清单里
+      await page.click('button[aria-label="加入清单 JEI"]'); await settle(700);
+      assert((await page.$$eval("#mc-list .mc-item", els => els.length)) === 3 && (await page.textContent("#mc-count")).includes("共 3 项") &&
+        (await page.textContent("#mc-install")).includes("全部安装（3）"), "本地文件和 Modrinth 项目应列在同一张清单里");
+      const bad = await axProblems();
+      assert(!bad.length, "清单里有同名或没名字的控件：" + bad.join("、"));
+      // 「知道了」收起失败说明；同一个文件再加一次不重复
+      await page.click("#mc-local-dismiss");
+      assert((await page.$("#mc-local-err")) === null, "「知道了」应收起失败说明");
+      await page.setInputFiles("#mc-file", [jarFile("needs-geckolib-1.0.jar")]);
+      await page.waitForFunction(() => (document.querySelector("#mc-local-ok") || {}).textContent?.includes("已经在清单里"), null, { timeout: 8000 }); await settle(300);
+      assert((await page.textContent("#mc-local-ok")).includes("已经在清单里") && (await page.$$eval("#mc-list .mc-local", els => els.length)) === 2, "同一个文件再加不该重复");
+      // 移除一个本地文件：前置跟着重查（要自己找的那个还在，认出来的没了）
+      await page.click('button[aria-label="移除本地文件 sodium-fabric-0.5.8.jar"]'); await settle(900);
+      assert((await page.$$eval("#mc-list .mc-local", els => els.length)) === 1 && (await page.textContent("#mc-count")).includes("共 2 项"), "移除本地文件以后的清单不对");
+      assert(!(await page.textContent("#mc-dep-box")).includes("认出来了") && (await page.$("#mc-dep-manual")) !== null, "移除以后前置应重查");
+      // 把文件拖进来也行，拖偏到左边的列表上也算数（不接的话浏览器会把这个 jar 当网页打开）：清单那一栏高亮，放下就加进清单，页面不跳走
+      const dt = await page.evaluateHandle(() => { const d = new DataTransfer(); d.items.add(new File(["PKdropped"], "dropped-1.0.jar")); return d; });
+      await page.dispatchEvent("#mc-hits", "dragenter", { dataTransfer: dt });
+      assert(await page.$eval("#mc-side", el => el.classList.contains("mc-drop")), "拖着文件经过时清单这一栏应高亮");
+      await page.dispatchEvent("#mc-hits", "dragover", { dataTransfer: dt });
+      await page.dispatchEvent("#mc-hits", "drop", { dataTransfer: dt });
+      await page.waitForFunction(() => document.querySelector("#mc-list").textContent.includes("dropped-1.0.jar"), null, { timeout: 5000 });
+      assert(!(await page.$eval("#mc-side", el => el.classList.contains("mc-drop"))) && decodeURIComponent(page.url()).includes(PACK + "/cart"), "放下以后高亮应收起、页面不该跳走");
+      await settle(600); // 等这次添加之后自动跑的那遍前置检查回来
+      // 清空：两样都清
+      await page.click("#mc-clear"); await settle(700);
+      assert((await page.$$eval("#mc-list .mc-item", els => els.length)) === 0 && (await page.$eval("#mc-actions", el => el.hidden)) && (await page.textContent("#mc-dep-box")) === "", "清空后清单、按钮、前置没复位");
+      const mc = await cartMock();
+      assert(mc.localInsts[PACK].length === 0 && mc.insts[PACK].length === 0, "清空应把本地文件一起清掉：" + JSON.stringify(mc.localInsts));
+    } finally { await cartState({ modCart: { reset: true } }); }
+  });
+
+  await run("向导「选模组」这一步只从电脑添加了本地文件、没挑 Modrinth 项目：这一步放宽成两栏；建好服务器以后照样会装，安装请求带着页面上列着的文件", async () => {
+    try {
+      await cartState({ modCart: { reset: true }, taskStage: 4 });
+      await gotoWizMods("fabric"); await settle(500);
+      // 这一步用数据面的宽度：吸底栏不再套阅读宽度，左边逛、右边清单并排
+      const lay = await page.evaluate(() => { const b = $(".mc-browse").getBoundingClientRect(), s = $(".mc-side").getBoundingClientRect(), f = $(".wizard-foot");
+        return { side: s.left >= b.right, footRead: f.classList.contains("w-read"), footW: f.getBoundingClientRect().width, wrapW: $(".mc-wrap").getBoundingClientRect().width }; });
+      assert(lay.side && !lay.footRead && Math.abs(lay.footW - lay.wrapW) < 2, "向导这一步应放宽成两栏、吸底栏同宽：" + JSON.stringify(lay));
+      assert((await page.$("#mc-install")) === null, "向导里没有「全部安装」（建好服务器后自动装）");
+      // 文件还在传的那几秒先按住「下一步」：不然后加进去的那个不在这一步看到的清单里，建好服务器以后整张清单都装不上。传完立刻放开
+      let letGo;
+      const held = new Promise(r => letGo = r);
+      await page.route("**/api/modcart/local", async route => { await held; await route.continue(); });
+      await page.setInputFiles("#mc-file", [jarFile("my-own-mod-1.0.jar")]);
+      await page.waitForFunction(() => document.querySelector("#wnext").disabled, null, { timeout: 5000 });
+      assert((await page.textContent("#wnext")).includes("正在添加文件") && (await page.textContent("#mc-local-state")).includes("正在添加 1 / 1") &&
+        (await page.$eval("#mc-local-pick", b => b.disabled)), "上传的时候应按住「下一步」并写明正在添加第几个：" + await page.textContent("#wnext"));
+      assert(!(await page.$eval("#wback", b => b.disabled)), "「上一步」不用按住（回去再过来，清单会重新列一遍）");
+      letGo();
+      await page.waitForSelector("#mc-list .mc-local", { timeout: 5000 }); await settle(500);
+      await page.unroute("**/api/modcart/local");
+      assert((await page.textContent("#mc-count")).includes("共 1 项") && (await page.textContent("#mc-list")).includes("本地文件 · my-own-mod-1.0.jar"), "草稿清单里应有这个本地文件");
+      assert(!(await page.$eval("#wnext", b => b.disabled)) && (await page.textContent("#wnext")).includes("下一步"), "加完以后「下一步」应放开");
+      await page.click("#wnext"); await settle();
+      await page.fill("#f-name", "只带本地文件的服");
+      await page.click(".eula-box .switch input");
+      await page.click("#wcreate");
+      await page.waitForFunction(() => location.hash === "#/task/task-cart", null, { timeout: 8000 });
+      const li = (await cartMock()).lastInstall;
+      assert(li && li.inst === "只带本地文件的服" && li.includeDraft === true && Array.isArray(li.expect) && li.expect.length === 0 &&
+        Array.isArray(li.expectLocal) && li.expectLocal.length === 1 && /^[0-9a-f]{40}$/.test(li.expectLocal[0]) && li.copied === 1,
+        "只有本地文件也应发安装，并带上页面上列着的那个文件：" + JSON.stringify(li));
+    } finally { await page.unroute("**/api/modcart/local").catch(() => {}); await cartState({ modCart: { reset: true }, taskStage: 2, instReset: true }); }
+  });
+
+  await run("待装清单里的本地文件在打开之后被别处动过：点安装会被拦下并重新列出现在的清单；向导「选模组」那一步上没列出来过的本地文件不会跟着装进新服务器", async () => {
+    /* 别的窗口往某辆车里加一个本地文件 */
+    const sneak = (instName, name) => page.evaluate(async ([i, n]) => {
+      const fd = new FormData();
+      fd.append("file", new Blob(["PK" + n]), n);
+      if (i) fd.append("inst", i);
+      await fetch("/api/modcart/local", { method: "POST", body: fd });
+    }, [instName, name]);
+    try {
+      await cartState({ modCart: { reset: true }, taskStage: 4 });
+      await page.goto(url(packCart)); await settle(700);
+      await page.setInputFiles("#mc-file", [jarFile("mine-1.0.jar")]);
+      await page.waitForSelector("#mc-list .mc-local", { timeout: 5000 }); await settle(400);
+      await sneak(PACK, "not-seen-2.0.jar"); // 页面没动的时候，别处又加了一个
+      await page.click("#mc-install"); await settle(900);
+      let toasts = await page.$$eval(".toast", ts => ts.map(x => x.textContent));
+      assert(toasts.some(x => x.includes("本地文件") && x.includes("不一样")), "本地文件变了应拦下并说明：" + JSON.stringify(toasts));
+      assert(!page.url().includes("#/task/") && (await cartMock()).lastInstall === null, "被拦下时不该发出安装、不该跳到任务页");
+      assert((await page.$$eval("#mc-list .mc-local", els => els.length)) === 2 && (await page.textContent("#mc-list")).includes("not-seen-2.0.jar"), "应重新列出现在的清单");
+      await page.click("#mc-install"); // 看过现在的清单再点：照常装，带着页面上列着的两个文件
+      await page.waitForFunction(() => location.hash === "#/task/task-cart", null, { timeout: 8000 });
+      const li = (await cartMock()).lastInstall;
+      assert(li && li.expectLocal.length === 2 && li.copied === 2, "安装请求应带上页面上列着的两个文件：" + JSON.stringify(li));
+
+      // 向导：在「选模组」这一步挑了一个 Modrinth 项目，走到下一步以后草稿清单里多出一个本地文件（别的窗口加的、没人看过）
+      await cartState({ modCart: { reset: true }, taskStage: 4, instReset: true });
+      await gotoWizMods("fabric"); await settle(500);
+      await page.click('button[aria-label="加入清单 JEI"]'); await settle(700);
+      await page.click("#wnext"); await settle();
+      await sneak("", "leftover-from-last-time.jar");
+      await page.fill("#f-name", "不该带上陌生文件的服");
+      await page.click(".eula-box .switch input");
+      await page.click("#wcreate");
+      await page.waitForFunction(() => location.hash === "#/task/task-1", null, { timeout: 8000 }); // 装不成：回到建服任务页
+      toasts = await page.$$eval(".toast", ts => ts.map(x => x.textContent));
+      assert(toasts.some(x => x.includes("本地文件") && x.includes("不一样")), "应说明为什么没装：" + JSON.stringify(toasts));
+      const mc = await cartMock();
+      assert(mc.lastInstall === null && mc.localDraft.length === 1 && mc.draft.length === 1, "没人看过的本地文件不该被装上，清单原样留着：" + JSON.stringify(mc.lastInstall));
+    } finally { await cartState({ modCart: { reset: true }, taskStage: 2, instReset: true }); await page.goto(url("#/instances")); await settle(); }
+  });
+
+  await run("待装清单的两栏版面：宽窗口左边逛、右边清单（360px，往下滚时吸顶）；程序窗口最小的 1024×576 放不下就叠成一栏；手机宽度也没有横向滚动", async () => {
+    const geo = () => page.evaluate(() => {
+      const b = $(".mc-browse").getBoundingClientRect(), s = $(".mc-side").getBoundingClientRect(), m = $("#main");
+      return { browseRight: b.right, browseBottom: b.bottom, browseLeft: b.left, sideLeft: s.left, sideTop: s.top, sideW: Math.round(s.width),
+        pos: getComputedStyle($(".mc-side")).position, mainTop: m.getBoundingClientRect().top, overflowX: m.scrollWidth - m.clientWidth,
+        pageOverflowX: document.documentElement.scrollWidth - window.innerWidth };
+    });
+    try {
+      await cartState({ modCart: { reset: true } });
+      await page.goto(url(packCart)); await settle(700);
+      let g = await geo();
+      assert(g.sideLeft >= g.browseRight && g.sideW === 360 && g.pos === "sticky", "1280 宽应是两栏、右栏 360px：" + JSON.stringify(g));
+      assert(g.overflowX <= 0 && g.pageOverflowX <= 0, "1280 宽不该有横向滚动：" + JSON.stringify(g));
+      // 往下滚：左边的列表滚走了，右栏还贴在内容区顶上
+      await page.evaluate(() => { $("#main").scrollTop = 600; }); await settle(150);
+      g = await geo();
+      assert(g.sideTop >= g.mainTop && g.sideTop <= g.mainTop + 40, "往下滚的时候右栏应吸顶：" + JSON.stringify(g));
+      const visible = await page.evaluate(() => { const r = $("#mc-local-pick").getBoundingClientRect(); return r.top >= 0 && r.bottom <= window.innerHeight; });
+      assert(visible, "滚下去以后清单这一栏应还看得到");
+      // 程序窗口最小 1024×576：内容区放不下两栏，叠成一栏（浏览 → 清单 → 检查前置）
+      await page.setViewportSize({ width: 1024, height: 576 }); await settle(300);
+      await page.evaluate(() => { $("#main").scrollTop = 0; }); await settle(100);
+      g = await geo();
+      assert(g.sideTop >= g.browseBottom - 1 && Math.abs(g.sideLeft - g.browseLeft) < 2 && g.pos !== "sticky", "1024 宽应叠成一栏：" + JSON.stringify(g));
+      assert(g.overflowX <= 0 && g.pageOverflowX <= 0, "1024 宽不该有横向滚动：" + JSON.stringify(g));
+      const order = await page.$$eval(".mc-wrap h3", els => els.map(e => e.textContent.trim().replace(/\s+.*$/, "")));
+      assert(order.join() === "热门模组,待装清单,检查前置", "一栏时的顺序应是浏览、清单、检查前置：" + order.join());
+      for (const w of [900, 390]) {
+        await page.setViewportSize({ width: w, height: 800 }); await settle(300);
+        g = await geo();
+        assert(g.overflowX <= 0 && g.pageOverflowX <= 0, w + " 宽不该有横向滚动：" + JSON.stringify(g));
+      }
+    } finally { await page.setViewportSize({ width: 1280, height: 850 }); await cartState({ modCart: { reset: true } }); }
   });
 
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });

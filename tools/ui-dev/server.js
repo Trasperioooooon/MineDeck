@@ -1197,21 +1197,51 @@ function cpMockState(state, b) {
 }
 // ============================== 第七阶段结束 ==============================
 // ============================== 自选模组 + 购物车 ==============================
-// 购物车状态存内存：草稿车（向导用，不带 inst）与各实例的车分开存（state.modcart = { draft, insts }）。
-// /__mock/state 的 modCart 开关：{ reset: true 清空草稿车与各实例的车, searchFail / addFail: 报错文案, noDeps: true 依赖检查返回全空 }
-// 响应里的 modcart.lastInstall 是上一次「安装购物车」的请求（inst、withDeps、includeDraft）。
+// 购物车（界面上叫「待装清单」）状态存内存：草稿车（向导用，不带 inst）与各实例的车分开存（state.modcart = { draft, insts }）；
+// 从电脑添加的本地文件另存一份（localDraft、localInsts），和 Modrinth 项目一样按车分开。
+// /__mock/state 的 modCart 开关：{ reset: true 清空草稿车与各实例的车（连本地文件）,
+//   searchFail / addFail / localFail / depsFail: 报错文案（搜索和热门清单 / 加 Modrinth 项目 / 从电脑添加 / 检查前置）,
+//   searchDelay: 搜索和热门清单晚多少毫秒才回（看慢的时候挡不挡别的操作）, noDeps: true 依赖检查返回全空 }
+// 响应里的 modcart.lastInstall 是上一次「安装购物车」的请求（inst、withDeps、includeDraft、expect、expectLocal），
+// modcart.searches 是到现在为止的搜索请求（q、category、offset）。
+// 本地文件没有真的 jar 可读，按文件名里的字样仿几种情况（同真后端 modcart.deps 的 local / manual / conflicts）：
+//   sodium → 在 Modrinth 上认出来了；needs → 认不出来，还缺一个要自己去找的前置 geckolib；
+//   forge / fabric / plugin → 这种加载器的文件（和服务器对不上时行上有提醒）；unknown → 读不出信息；
+//   dup → 和服务器里已有的文件是同一个模组（冲突提醒）。文件内容不以 PK 开头的当作「不是 jar」。
+const mcCrypto = require("crypto"); // 给上传的文件算 SHA-1（同后端：本地文件按内容的 SHA-1 编号）
+const MOD_CATS = ["optimization", "utility", "management", "worldgen", "adventure", "technology", "magic", "mobs", "equipment", "storage", "library"];
+const PLUGIN_CATS = ["management", "utility", "optimization", "economy", "social", "minigame", "game-mechanics", "worldgen", "library"];
 const MOD_CATALOG = [
-  { projectId: "jei", slug: "jei", title: "JEI", description: "Just Enough Items: view items and use recipes everywhere.", downloads: 15820349, license: "MIT", kind: "mod" },
-  { projectId: "create", slug: "create", title: "Create", description: "Adds a variety of items and blocks with rotating machinery.", downloads: 38216047, license: "MIT", kind: "mod" },
-  { projectId: "architectury", slug: "architectury-api", title: "Architectury API", description: "A cross-platform API for mod developers.", downloads: 5120483, license: "LGPL-3.0", kind: "mod" },
-  { projectId: "cloth-config", slug: "cloth-config", title: "Cloth Config API", description: "A config screen library for mods.", downloads: 8102049, license: "LGPL-3.0", kind: "mod" },
+  { projectId: "create", slug: "create", title: "Create", description: "Adds a variety of items and blocks with rotating machinery.", downloads: 38216047, license: "MIT", kind: "mod", cats: ["technology"] },
+  { projectId: "jei", slug: "jei", title: "JEI", description: "Just Enough Items: view items and use recipes everywhere.", downloads: 15820349, license: "MIT", kind: "mod", cats: ["utility"] },
+  { projectId: "cloth-config", slug: "cloth-config", title: "Cloth Config API", description: "A config screen library for mods.", downloads: 8102049, license: "LGPL-3.0", kind: "mod", cats: ["library"] },
+  { projectId: "architectury", slug: "architectury-api", title: "Architectury API", description: "A cross-platform API for mod developers.", downloads: 5120483, license: "LGPL-3.0", kind: "mod", cats: ["library"] },
+  // 再凑 116 个，一共 120 个：热门清单能一路翻到第 5 页的上限，再往后就不给翻了
+  ...Array.from({ length: 116 }, (_, i) => {
+    const n = String(i + 5).padStart(3, "0");
+    return { projectId: "hot" + n, slug: "hot-mod-" + n, title: "Hot Mod " + n, description: "热门清单里排第 " + (i + 5) + " 的模组。", downloads: 4000000 - i * 30000, license: i % 3 ? "MIT" : "LGPL-3.0", kind: "mod", cats: [MOD_CATS[i % MOD_CATS.length]] };
+  }),
+];
+const PLUGIN_CATALOG = [
+  { projectId: "essentialsx", slug: "essentialsx", title: "EssentialsX", description: "The essential plugin suite for Minecraft servers.", downloads: 12500000, license: "GPL-3.0", kind: "plugin", cats: ["utility", "economy", "management"] },
+  { projectId: "luckperms", slug: "luckperms", title: "LuckPerms", description: "A permissions plugin for Minecraft servers.", downloads: 8300000, license: "MIT", kind: "plugin", cats: ["management"] },
+  { projectId: "vault", slug: "vault", title: "Vault", description: "A permissions, chat & economy API.", downloads: 6100000, license: "LGPL-3.0", kind: "plugin", cats: ["library", "economy"] },
+  { projectId: "chunky", slug: "chunky", title: "Chunky", description: "Pre-generates chunks, quickly and efficiently.", downloads: 2100000, license: "GPL-3.0", kind: "plugin", cats: ["worldgen", "optimization"] },
+  ...Array.from({ length: 26 }, (_, i) => {
+    const n = String(i + 5).padStart(2, "0");
+    return { projectId: "plug" + n, slug: "hot-plugin-" + n, title: "Hot Plugin " + n, description: "热门清单里排第 " + (i + 5) + " 的插件。", downloads: 2000000 - i * 50000, license: "MIT", kind: "plugin", cats: [PLUGIN_CATS[i % PLUGIN_CATS.length]] };
+  }),
 ];
 const PLUGIN_CORES = new Set(["paper", "purpur", "leaves", "folia", "velocity", "waterfall"]); // 搜出来的是插件，其余是模组（同后端 resourceSpec：Mohist、Banner 按模组算）
+const MODCART_PAGE = 20, MODCART_MAX_OFFSET = 80, MODCART_MAX_ITEMS = 50; // 同后端 modcart.PageSize / MaxOffset / MaxItems
 const modCartItem = id => {
-  const m = MOD_CATALOG.find(x => x.projectId === id) || { slug: id, title: id, kind: "mod", license: "" };
+  const m = [...MOD_CATALOG, ...PLUGIN_CATALOG].find(x => x.projectId === id) || { slug: id, title: id, kind: "mod", license: "" };
   return { projectId: id, slug: m.slug, title: m.title, icon: "", kind: m.kind, license: m.license, addedAt: new Date().toISOString() };
 };
-function newModCartState() { return { draft: [], insts: {}, searchFail: "", addFail: "", noDeps: false, queries: 0, lastInstall: null }; }
+function newModCartState() {
+  return { draft: [], insts: {}, localDraft: [], localInsts: {}, searchFail: "", addFail: "", localFail: "", depsFail: "", searchDelay: 0, noDeps: false,
+    queries: 0, lastInstall: null, searches: [] };
+}
 function modCartMockState(state, b) {
   if (b.reset) state.modcart = newModCartState();
   const { reset, ...rest } = b;
@@ -1219,50 +1249,143 @@ function modCartMockState(state, b) {
 }
 /* inst 有实例名 = 那台实例的购物车；空串 = 向导的草稿车 */
 const modcartBucket = (state, inst) => inst ? (state.modcart.insts[inst] = state.modcart.insts[inst] || []) : state.modcart.draft;
+/* 同上，本地文件那一份 */
+const modcartLocals = (state, inst) => inst ? (state.modcart.localInsts[inst] = state.modcart.localInsts[inst] || []) : state.modcart.localDraft;
 /* 搜索结果的 type：详情页按实例的核心判断，向导按参数 core 判断 */
 const modcartType = (state, core) => PLUGIN_CORES.has(core) ? "plugin" : "mod";
-/* 依赖检查：必装候选 Architectury、可选候选 Cloth Config，都进车之后就不再列（noDeps 时一律返回全空） */
-function modcartDeps(state, ids) {
+/* 这次请求针对哪种核心：给了 inst 用实例的，否则用参数里的 core（都没有是空串） */
+const modcartCore = (state, inst, core) => { const i = inst && state.instances.find(x => x.name === inst); return i ? i.core : (core || ""); };
+/* 本地文件在这种核心上的提醒（同后端 modcart.LoaderWarn 的几种主要情况）；核心不知道时不提醒 */
+function modcartLocalWarn(loader, core) {
+  if (!core) return "";
+  if (loader === "unknown") return "没读出这个文件是什么（里面没有模组或插件的说明），没法帮你检查前置。照样会放进服务器。";
+  const NAME = { fabric: "Fabric", forge: "Forge", neoforge: "NeoForge" };
+  const plug = PLUGIN_CORES.has(core), target = plug ? "插件服" : (NAME[core] || core);
+  if (loader === "plugin") return plug ? "" : `这是插件，这台服务器装的是 ${target} 模组，放进去多半不会生效。`;
+  if (plug) return `这是 ${NAME[loader] || loader} 模组，这台服务器是插件服，放进去不会生效。`;
+  return loader === core ? "" : `这个文件是给 ${NAME[loader] || loader} 用的，这台服务器是 ${target}，装上多半不能用。`;
+}
+/* 整张清单的样子（同后端 cartView）：items 是 Modrinth 项目，local 是本地文件，count 是 items 的个数，total 是两样合计 */
+function modcartView(state, inst, core) {
+  const items = modcartBucket(state, inst), locals = modcartLocals(state, inst), c = modcartCore(state, inst, core);
+  return { count: items.length, total: items.length + locals.length, items,
+    local: locals.map(lf => { const warn = modcartLocalWarn(lf.loader, c); return { ...lf, ...(warn ? { warn } : {}) }; }) };
+}
+/* 依赖检查：必装候选 Architectury、可选候选 Cloth Config，都进车之后就不再列（noDeps 时一律返回全空）。
+   本地文件按文件名里的字样仿几种情况，见本节开头。 */
+function modcartDeps(state, inst, core) {
+  const ids = new Set(modcartBucket(state, inst).map(x => x.projectId)), locals = modcartLocals(state, inst), c = modcartCore(state, inst, core);
+  const empty = { files: [], missing: [], optional: [], conflicts: [], localHits: [], unresolved: [], local: [], manual: [] };
+  if (state.modcart.noDeps) return empty;
   const miss = id => !ids.has(id);
-  return state.modcart.noDeps ? { files: [], missing: [], optional: [], conflicts: [], localHits: [], unresolved: [] } : {
-    files: [],
-    missing: miss("architectury") ? [{ project: { projectId: "architectury", title: "Architectury API", versionNumber: "9.2.14", fileName: "architectury-9.2.14-forge.jar", size: 580602, license: "LGPL-3.0" }, dependencyOf: "JEI" }] : [],
-    optional: miss("cloth-config") ? [{ project: { projectId: "cloth-config", title: "Cloth Config API", versionNumber: "11.3.0", fileName: "cloth-config-11.3.0-forge.jar", size: 512334, license: "LGPL-3.0" }, dependencyOf: "Create" }] : [],
-    conflicts: [], localHits: [], unresolved: [],
+  const out = { ...empty,
+    missing: miss("architectury") && ids.size ? [{ project: { projectId: "architectury", title: "Architectury API", versionNumber: "9.2.14", fileName: "architectury-9.2.14-forge.jar", size: 580602, license: "LGPL-3.0" }, dependencyOf: "JEI" }] : [],
+    optional: miss("cloth-config") && ids.size ? [{ project: { projectId: "cloth-config", title: "Cloth Config API", versionNumber: "11.3.0", fileName: "cloth-config-11.3.0-forge.jar", size: 512334, license: "LGPL-3.0" }, dependencyOf: "Create" }] : [],
   };
+  for (const lf of locals) {
+    const low = lf.fileName.toLowerCase(), recognized = low.includes("sodium"), warn = modcartLocalWarn(lf.loader, c);
+    out.local.push({ sha1: lf.sha1, fileName: lf.fileName, title: lf.title, size: lf.size, recognized,
+      ...(recognized ? { projectId: "sodium", versionId: "v-sodium", version: "0.5.8" } : {}), ...(warn ? { warn } : {}) });
+    if (low.includes("needs")) out.manual.push({ id: "geckolib", range: ">=4.2", requiredBy: lf.title, file: lf.fileName });
+    if (low.includes("dup")) out.conflicts.push(`本地文件 ${lf.fileName} 和服务器里已有的 old-${lf.fileName} 是同一个模组，两份都在的话服务器会起不来。先把旧的那份停用或删掉，或者把这个文件从清单里移除`);
+  }
+  return out;
+}
+/* 读 multipart 上传：返回 { fields, file: { name, data } }。浏览器的 FormData 把文件名按 UTF-8 写在分段头里 */
+function modcartMultipart(buf, contentType) {
+  const m = /boundary=(?:"([^"]+)"|([^;]+))/.exec(contentType || ""), out = { fields: {}, file: null };
+  if (!m) return out;
+  const boundary = Buffer.from("--" + (m[1] || m[2]).trim());
+  for (let pos = buf.indexOf(boundary); pos >= 0;) {
+    const next = buf.indexOf(boundary, pos + boundary.length);
+    if (next < 0) break;
+    const part = buf.subarray(pos + boundary.length + 2, next - 2), sep = part.indexOf("\r\n\r\n"); // 去掉分隔线后面和下一条分隔线前面的换行
+    if (sep >= 0) {
+      const head = part.subarray(0, sep).toString("utf8"), body = part.subarray(sep + 4);
+      const name = (/[; ]name="([^"]*)"/.exec(head) || [])[1], fn = /filename="([^"]*)"/.exec(head);
+      if (fn) out.file = { name: fn[1], data: body }; else if (name) out.fields[name] = body.toString("utf8");
+    }
+    pos = next;
+  }
+  return out;
 }
 async function modcartHandler(state, req, res, p, m, u) {
-  const q = u.searchParams;
+  const q = u.searchParams, mc = state.modcart;
   const bucket = inst => modcartBucket(state, inst);
+  // 热门清单和搜索（同 modcart.search）：关键词留空就是最热门的；始终按下载量排，一页 20 条，最多翻到第 5 页
   if (p === "/api/modcart/search") {
-    if (state.modcart.searchFail) return err(res, 500, state.modcart.searchFail);
-    const word = (q.get("q") || "").toLowerCase();
-    let core = q.get("core") || "";
-    const inst = q.get("inst");
-    if (inst) { const i = state.instances.find(x => x.name === inst); if (i) core = i.core; }
-    return ok(res, { type: modcartType(state, core),
-      hits: MOD_CATALOG.filter(x => !word || x.title.toLowerCase().includes(word) || x.slug.includes(word))
-        .map(x => ({ project_id: x.projectId, slug: x.slug, title: x.title, description: x.description, downloads: x.downloads, icon_url: "", license: x.license })) });
+    const word = (q.get("q") || "").toLowerCase(), cat = q.get("category") || "", offRaw = q.get("offset") || "0";
+    const type = modcartType(state, modcartCore(state, q.get("inst"), q.get("core")));
+    mc.searches.push({ q: q.get("q") || "", category: cat, offset: offRaw });
+    if (mc.searchDelay) await new Promise(r => setTimeout(r, mc.searchDelay));
+    if (mc.searchFail) return err(res, 502, mc.searchFail);
+    if (!/^\d+$/.test(offRaw) || +offRaw > MODCART_MAX_OFFSET) return err(res, 400, "参数 offset 应在 0 到 80 之间");
+    if (cat && !(type === "plugin" ? PLUGIN_CATS : MOD_CATS).includes(cat)) return err(res, 400, `${type === "plugin" ? "插件" : "模组"}没有「${cat}」这个类别`);
+    const offset = Math.floor(+offRaw / MODCART_PAGE) * MODCART_PAGE;
+    const all = (type === "plugin" ? PLUGIN_CATALOG : MOD_CATALOG)
+      .filter(x => (!word || x.title.toLowerCase().includes(word) || x.slug.includes(word)) && (!cat || x.cats.includes(cat)));
+    const hits = all.slice(offset, offset + MODCART_PAGE)
+      .map(x => ({ project_id: x.projectId, slug: x.slug, title: x.title, description: x.description, downloads: x.downloads, icon_url: "", license: x.license }));
+    return ok(res, { type, hits, offset, total: all.length, more: hits.length > 0 && offset + MODCART_PAGE < all.length && offset < MODCART_MAX_OFFSET });
   }
-  if (p === "/api/modcart" && m === "GET") { const b = bucket(q.get("inst")); return ok(res, { count: b.length, items: b }); }
+  if (p === "/api/modcart" && m === "GET") return ok(res, modcartView(state, q.get("inst") || "", q.get("core")));
   if (p === "/api/modcart" && m === "POST") {
     const b = await readBody(req);
-    if (state.modcart.addFail) return err(res, 500, state.modcart.addFail);
+    if (mc.addFail) return err(res, 500, mc.addFail);
     const cart = bucket(b.inst || "");
     for (const id of (b.projectIds || [])) if (!cart.some(x => x.projectId === id)) cart.push(modCartItem(id));
-    return ok(res, { count: cart.length, items: cart });
+    return ok(res, modcartView(state, b.inst || "", b.core));
   }
   if (p === "/api/modcart/remove" && m === "POST") {
     const b = await readBody(req), cart = bucket(b.inst || ""), af = cart.filter(x => x.projectId !== b.projectId);
     cart.length = 0; cart.push(...af);
-    return ok(res, { count: cart.length, items: cart });
+    return ok(res, modcartView(state, b.inst || "", b.core));
   }
+  // 清空（界面上是人点的）：Modrinth 项目和本地文件都清
   if (p === "/api/modcart/clear" && m === "POST") {
-    const b = await readBody(req), cart = bucket(b.inst || "");
-    cart.length = 0;
-    return ok(res, { count: 0, items: [] });
+    const b = await readBody(req);
+    bucket(b.inst || "").length = 0; modcartLocals(state, b.inst || "").length = 0;
+    return ok(res, modcartView(state, b.inst || "", b.core));
   }
-  if (p === "/api/modcart/deps") return ok(res, modcartDeps(state, new Set(bucket(q.get("inst")).map(x => x.projectId))));
+  // 从电脑添加一个 jar（同 modcart.local.add）：multipart 的 file，另带 inst / core / mc。返回整张清单，外加 added 和 duplicate
+  if (p === "/api/modcart/local" && m === "POST") {
+    const raw = await new Promise(r => { const cs = []; req.on("data", c => cs.push(c)); req.on("end", () => r(Buffer.concat(cs))); });
+    const { fields, file } = modcartMultipart(raw, req.headers["content-type"]);
+    if (mc.localFail) return err(res, 500, mc.localFail);
+    if (!file) return err(res, 400, "没有收到文件");
+    const inst = fields.inst || "", name = file.name, locals = modcartLocals(state, inst), low = name.toLowerCase();
+    if (!low.endsWith(".jar")) return err(res, 400, "只能添加 .jar 文件：" + name);
+    if (file.data.subarray(0, 2).toString("latin1") !== "PK") return err(res, 400, `「${name}」打不开：它不是一个完整的 jar 文件（可能没下载完整，或者其实是别的格式）。重新下载一份再添加`);
+    const sha1 = mcCrypto.createHash("sha1").update(file.data).digest("hex");
+    let lf = locals.find(x => x.sha1 === sha1);
+    const duplicate = !!lf;
+    if (!lf) {
+      const clash = locals.find(x => x.fileName.toLowerCase() === low);
+      if (clash) return err(res, 409, `清单里已经有一个叫「${clash.fileName}」的文件，内容和这个不一样。想换成这一份，先把清单里那个移除，再添加一次`);
+      const n = bucket(inst).length + locals.length;
+      if (n >= MODCART_MAX_ITEMS) return err(res, 400, `待装清单最多放 ${MODCART_MAX_ITEMS} 项，现在已经有 ${n} 项`);
+      const core = modcartCore(state, inst, fields.core);
+      const loader = low.includes("unknown") ? "unknown" : low.includes("neoforge") ? "neoforge" : low.includes("forge") ? "forge" : low.includes("fabric") ? "fabric"
+        : low.includes("plugin") ? "plugin" : PLUGIN_CORES.has(core) ? "plugin" : ["fabric", "forge", "neoforge"].includes(core) ? core : "fabric";
+      const stem = name.replace(/\.jar$/i, "");
+      lf = { sha1, fileName: name, size: file.data.length, title: loader === "unknown" ? name : stem.replace(/[-_ ]v?\d[\w.+-]*$/, "") || stem,
+        ...(loader === "unknown" ? {} : { modId: stem.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40), version: (/\d[\w.+-]*$/.exec(stem) || ["1.0.0"])[0] }),
+        loader, addedAt: new Date().toISOString() };
+      locals.push(lf);
+    }
+    return ok(res, { ...modcartView(state, inst, fields.core), added: { sha1: lf.sha1, fileName: lf.fileName, title: lf.title, size: lf.size }, duplicate });
+  }
+  if (p === "/api/modcart/local/remove" && m === "POST") {
+    const b = await readBody(req), locals = modcartLocals(state, b.inst || "");
+    if (!/^[0-9a-fA-F]{40}$/.test(b.sha1 || "")) return err(res, 400, "参数 sha1 格式不对");
+    const af = locals.filter(x => x.sha1 !== b.sha1.toLowerCase());
+    locals.length = 0; locals.push(...af);
+    return ok(res, modcartView(state, b.inst || "", b.core));
+  }
+  if (p === "/api/modcart/deps") {
+    if (mc.depsFail) return err(res, 502, mc.depsFail);
+    return ok(res, modcartDeps(state, q.get("inst") || "", q.get("core")));
+  }
   return ok(res, {});
 }
 // ============================== 自选模组 + 购物车结束 ==============================
@@ -1325,8 +1448,11 @@ function handler(state, ui, portOf) {
     //   music（第五阶段）: { reset, cap: "win11" | "win10", local, systemConfirmed, voiceTunnel: true 多一条语音隧道, inst: { 名称: { svc, bridge, voiceHost, … } } }
     //   asst（第三阶段）: { reset: true 清空会话和执行记录, lan: false 关掉「局域网可用 AI 助手」, slow: 流式回复每块的间隔（毫秒）}；响应里的 asst.executed 是确认后执行过的操作
     //   mcp（MCP 接口）: 见 mcpMockState；响应里的 mcp.executed / mcp.rejected 是确认、拒绝过的外部 AI 提案
-    //   modCart（自选模组 + 购物车）: { reset: true 清空草稿车与各实例的车, searchFail / addFail: 报错文案, noDeps: true 依赖检查返回全空 }；
-    //     响应里的 modcart.lastInstall 是上一次「安装购物车」的请求
+    //   modCart（自选模组 + 购物车，界面上叫「待装清单」）: { reset: true 清空草稿车与各实例的车（连从电脑添加的本地文件）,
+    //     searchFail / addFail / localFail / depsFail: 报错文案（搜索和热门清单 / 加 Modrinth 项目 / 从电脑添加 / 检查前置）,
+    //     searchDelay: 搜索和热门清单晚多少毫秒才回, noDeps: true 依赖检查返回全空 }；
+    //     响应里的 modcart.lastInstall 是上一次「安装购物车」的请求（含 expect、expectLocal），modcart.searches 是搜索请求的记录；
+    //     本地文件按文件名里的字样仿几种情况（sodium / needs / forge / unknown / dup…），见 modcart 那一节开头的说明
     if (p === "/__mock/state" && m === "POST") {
       const b = await readBody(req);
       if ("empty" in b) state.empty = !!b.empty;
@@ -1617,10 +1743,19 @@ function handler(state, ui, portOf) {
           const b = await readBody(req), mc = state.modcart, cart = modcartBucket(state, name);
           // expect：发起的人看到的项目。和这次要装的（实例的车，includeDraft 时再加草稿车）不是同一批就拒绝，同真后端
           const willInstall = [...cart, ...(b.includeDraft ? mc.draft.filter(it => !cart.some(x => x.projectId === it.projectId)) : [])].map(it => it.projectId);
+          // expectLocal：发起的人看到的本地文件（SHA-1）。车里有本地文件而请求没带、或者对不上，一律拒绝（比 expect 严：没带也不行），同真后端
+          const locals = modcartLocals(state, name);
+          const willCopy = [...locals, ...(b.includeDraft ? mc.localDraft.filter(lf => !locals.some(x => x.sha1 === lf.sha1)) : [])].map(lf => lf.sha1);
+          if (!willInstall.length && !willCopy.length) return err(res, 400, "待装清单是空的");
           if (Array.isArray(b.expect) && (b.expect.length !== willInstall.length || willInstall.some(id => !b.expect.includes(id))))
             return err(res, 409, "待装清单和你刚才看到的不一样了（AI 助手或者别的窗口可能改过）。先看一眼现在的清单，再点安装");
-          mc.lastInstall = { inst: name, withDeps: b.withDeps !== false, includeDraft: !!b.includeDraft, expect: b.expect || null };
-          if (b.includeDraft) { for (const it of mc.draft) if (!cart.some(x => x.projectId === it.projectId)) cart.push({ ...it }); mc.draft = []; }
+          const seenLocal = Array.isArray(b.expectLocal) ? b.expectLocal.map(h => String(h).toLowerCase()) : null;
+          if ((willCopy.length || seenLocal) && (!seenLocal || seenLocal.length !== willCopy.length || willCopy.some(h => !seenLocal.includes(h))))
+            return err(res, 409, "清单里的本地文件和你刚才看到的不一样了（可能是上次没装完留下的，或者别的窗口加的）。先看一眼现在的清单，再点安装");
+          mc.lastInstall = { inst: name, withDeps: b.withDeps !== false, includeDraft: !!b.includeDraft, expect: b.expect || null, expectLocal: b.expectLocal || null,
+            copied: willCopy.length };
+          if (b.includeDraft) { for (const it of mc.draft) if (!cart.some(x => x.projectId === it.projectId)) cart.push({ ...it }); mc.draft = []; mc.localDraft = []; }
+          locals.length = 0; // 本地文件装进服务器以后就从清单里拿掉了
           mc.queries = 0;
           return ok(res, { taskId: "task-cart" });
         }
@@ -1653,7 +1788,7 @@ function start({ port = 0, ui = UI_DEFAULT, before = null } = {}) {
   });
 }
 
-module.exports = { start, newState, UI_DEFAULT };
+module.exports = { start, newState, UI_DEFAULT, MOD_CATALOG, PLUGIN_CATALOG };
 
 if (require.main === module) {
   const port = +(process.argv[2] || PORT_DEFAULT);

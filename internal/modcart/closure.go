@@ -16,6 +16,9 @@ import (
 //   - embedded（已内嵌）：按 Modrinth 的说明已经打包在模组里了，算满足，不单独装。
 //   - optional（可选）：只列出来（只看购物车里的模组直接依赖的那一层），不自动加。
 //   - incompatible（不兼容）：和购物车里的、服务器上已有的撞上了，写进 Conflicts。
+//
+// 车里的本地文件（人从电脑上添加的 jar，见 staged.go）也算进来，做法在 closure_local.go：在 Modrinth 上认得出的，
+// 它声明的必装前置并进上面这套计算，别的项目依赖它时算已经满足；认不出的按 jar 自己写的依赖核对，缺的列进 Manual。
 // 「服务器上已有」按三样认：文件名一样；文件的 SHA-1 在 Modrinth 上属于同一个项目（换过版本的旧文件也认得出，
 // 不会再下一份，同一个模组两份 jar 服务器起不来）；modinfo 读出来的模组 ID 和项目的 slug 一样。
 
@@ -70,6 +73,8 @@ type Local struct {
 	Files    []string          // jar 文件名（停用的不算）
 	Projects map[string]string // 按 SHA-1 在 Modrinth 上认出来的：项目 ID → 文件名
 	IDs      []string          // modinfo 读出来的模组 ID（含 provides）
+	IDFile   map[string]string // 模组 ID（小写，不含 provides）→ 文件名：认「同一个模组的另一份」用
+	Hashes   map[string]string // 文件内容的 SHA-1 → 文件名：认「一模一样的文件」用
 }
 
 // has 这个项目服务器上已经有了没有；有的话返回那个文件名（按 modinfo 的 ID 认出来的返回名称）。
@@ -94,6 +99,10 @@ type Plan struct {
 	Conflicts  []string     `json:"conflicts"`  // 不兼容的组合
 	LocalHits  []string     `json:"localHits"`  // 服务器目录里已经有的（购物车里的或前置），安装时跳过
 	Unresolved []Unresolved `json:"unresolved"` // 找不到能装的版本的
+	// 车里的本地文件（见 closure_local.go）
+	Local     []LocalCheck `json:"local"`               // 逐个文件：认没认出来、有什么要提醒的、安装时拷不拷
+	Manual    []ManualDep  `json:"manual"`              // 本地文件自己声明、哪儿都没找到的前置：只知道模组 ID，没法代为下载，要人自己去找
+	LocalNote string       `json:"localNote,omitempty"` // 这次没能去 Modrinth 认本地文件时的说明
 }
 
 // resolver 一次闭包计算：缓存查过的项目和版本，查多个项目时并发。
@@ -116,22 +125,51 @@ type resolved struct {
 // Closure 算出一辆车要装的全部内容（见本节开头）。loaders、mc 同 Search；网络失败时报错（502），
 // 某一项找不到能装的版本不算失败，写进 Unresolved。
 func (s *Service) Closure(ctx context.Context, items []Item, local Local, loaders []string, mc string) (*Plan, error) {
+	return s.ClosureWith(ctx, items, nil, local, loaders, mc)
+}
+
+// ClosureWith 同 Closure，车里还有本地文件 staged（Locals 给的）时一起算。
+func (s *Service) ClosureWith(ctx context.Context, items []Item, staged []LocalFile, local Local, loaders []string, mc string) (*Plan, error) {
 	r := &resolver{s: s, loaders: loaders, mc: mc, projects: map[string]mrProject{}, byVersion: map[string]mrVersion{}}
-	plan := &Plan{Files: []File{}, Missing: []DepInfo{}, Optional: []DepInfo{}, Conflicts: []string{}, LocalHits: []string{}, Unresolved: []Unresolved{}}
+	plan := &Plan{Files: []File{}, Missing: []DepInfo{}, Optional: []DepInfo{}, Conflicts: []string{}, LocalHits: []string{}, Unresolved: []Unresolved{},
+		Local: []LocalCheck{}, Manual: []ManualDep{}}
+	st := s.inspectStaged(ctx, staged, loaders, mc, plan)
 	inCart := map[string]bool{}
 	ids := make([]string, 0, len(items))
 	for _, it := range items {
 		inCart[it.ProjectID] = true
-		ids = append(ids, it.ProjectID)
 		p := mrProject{ID: it.ProjectID, Slug: it.Slug, Title: it.Title, ProjectType: it.Kind}
 		p.License.ID = it.License
 		r.projects[it.ProjectID] = p
+		if _, ok := st.covers(p, ""); !ok { // 本地文件就是它的不用去挑版本
+			ids = append(ids, it.ProjectID)
+		}
 	}
 	planned := map[string]bool{}   // 已经处理过的项目（要装、已有、找不到）
 	satisfied := map[string]bool{} // 已经内嵌在要装（或已有）的模组里的
 	var level []File
+	// 认出来的本地文件：它是哪个项目就算哪个项目已经有了（别人依赖它时不再下载），它的必装前置和车里的一样往下追
+	for pid, i := range st.byProject {
+		planned[pid] = true
+		if _, ok := r.projects[pid]; !ok {
+			r.projects[pid] = mrProject{ID: pid, Title: st.files[i].lf.Title}
+		}
+	}
+	for _, f := range st.files {
+		if f.follow {
+			level = append(level, File{ProjectID: f.ver.ProjectID, VersionID: f.ver.ID, Title: f.lf.Title, Deps: depsOf(*f.ver)})
+		}
+	}
 	res := r.resolveMany(ctx, ids)
 	for _, it := range items {
+		if i, ok := st.covers(r.projects[it.ProjectID], ""); ok {
+			// 车里这一项和某个本地文件是同一个模组：只装本地那一份，两份都装服务器起不来
+			planned[it.ProjectID] = true
+			if plan.Local[i].Covers == "" {
+				plan.Local[i].Covers = it.Title
+			}
+			continue
+		}
 		x := res[it.ProjectID]
 		if x.err != nil {
 			return nil, x.err
@@ -245,6 +283,10 @@ func (s *Service) Closure(ctx context.Context, items []Item, local Local, loader
 				continue
 			}
 			p := r.project(pid)
+			if _, ok := st.covers(p, ""); ok { // 车里的本地文件就是它
+				planned[pid] = true
+				continue
+			}
 			if name, ok := local.has(p, ""); ok {
 				plan.addHit(name)
 				planned[pid] = true
@@ -272,6 +314,9 @@ func (s *Service) Closure(ctx context.Context, items []Item, local Local, loader
 				}
 				f = x.file
 			}
+			if _, ok := st.covers(p, f.FileName); ok { // 车里有个同名的本地文件：不再下载一份
+				continue
+			}
 			if name, ok := local.has(p, f.FileName); ok {
 				plan.addHit(name)
 				continue
@@ -287,6 +332,9 @@ func (s *Service) Closure(ctx context.Context, items []Item, local Local, loader
 		for _, n := range opt {
 			pid := n.dep.ProjectID
 			if pid == "" || inCart[pid] || planned[pid] || satisfied[pid] || slices.Contains(optOrder, pid) || slices.Contains(optTodo, pid) {
+				continue
+			}
+			if _, ok := st.covers(r.project(pid), ""); ok {
 				continue
 			}
 			if _, ok := local.has(r.project(pid), ""); ok {
@@ -321,6 +369,9 @@ func (s *Service) Closure(ctx context.Context, items []Item, local Local, loader
 	for _, f := range plan.Files {
 		toInstall[f.ProjectID] = f.VersionID
 	}
+	for pid, i := range st.byProject {
+		toInstall[pid] = st.files[i].ver.ID
+	}
 	var ipids []string
 	for i := range incompat {
 		if err := r.fillProject(ctx, &incompat[i].dep); err != nil {
@@ -347,10 +398,14 @@ func (s *Service) Closure(ctx context.Context, items []Item, local Local, loader
 			}
 		case inCart[pid]:
 			msg = fmt.Sprintf("%s 和 %s 不兼容，不能一起装", n.of, orID(p.Title, pid))
+		case st.has(pid):
+			msg = fmt.Sprintf("%s 和本地文件 %s 不兼容，不能一起装", n.of, st.files[st.byProject[pid]].lf.FileName)
 		case toInstall[pid] != "":
 			msg = fmt.Sprintf("%s 和 %s（自动补的前置）不兼容", n.of, orID(p.Title, pid))
 		default:
-			if name, ok := local.has(p, n.dep.FileName); ok {
+			if i, ok := st.covers(p, n.dep.FileName); ok {
+				msg = fmt.Sprintf("%s 和本地文件 %s 不兼容，不能一起装", n.of, st.files[i].lf.FileName)
+			} else if name, ok := local.has(p, n.dep.FileName); ok {
 				msg = fmt.Sprintf("%s 和服务器里已有的 %s 不兼容", n.of, name)
 			}
 		}
@@ -358,6 +413,7 @@ func (s *Service) Closure(ctx context.Context, items []Item, local Local, loader
 			plan.Conflicts = append(plan.Conflicts, msg)
 		}
 	}
+	st.check(plan, local, loaders)
 	return plan, nil
 }
 
@@ -484,12 +540,18 @@ func (r *resolver) decorate(f File, p mrProject) File {
 func fileOf(v mrVersion) File {
 	pf := primaryFile(v)
 	f := File{ProjectID: v.ProjectID, VersionID: v.ID, VersionNumber: v.VersionNumber, FileName: pf.Filename,
-		URL: pf.URL, SHA1: pf.Hashes.SHA1, Size: pf.Size}
+		URL: pf.URL, SHA1: pf.Hashes.SHA1, Size: pf.Size, Deps: depsOf(v)}
 	if v.VersionType != "release" {
 		f.VersionType = v.VersionType
 	}
-	for _, d := range v.Dependencies {
-		f.Deps = append(f.Deps, MRDep{VersionID: d.VersionID, ProjectID: d.ProjectID, FileName: d.FileName, DependencyType: d.DependencyType})
-	}
 	return f
+}
+
+// depsOf 版本对象里的依赖。
+func depsOf(v mrVersion) []MRDep {
+	var out []MRDep
+	for _, d := range v.Dependencies {
+		out = append(out, MRDep{VersionID: d.VersionID, ProjectID: d.ProjectID, FileName: d.FileName, DependencyType: d.DependencyType})
+	}
+	return out
 }

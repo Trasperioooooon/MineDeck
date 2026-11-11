@@ -96,6 +96,8 @@ func TestLevelsFollowDesign(t *testing.T) {
 	// 自选模组 + 购物车：搜索、看车、加进车、拿出来、清空、查前置都只动暂存的清单，是读；往服务器里放文件的安装是写（AI 只能提出）
 	want[ops.Read] = append(want[ops.Read], "modcart.search", "modcart.list", "modcart.add", "modcart.remove", "modcart.clear", "modcart.deps", "instance.mods.deps")
 	want[ops.Write] = append(want[ops.Write], "modcart.install")
+	// 人从自己电脑上添加、移除 jar：文件是人给的，仅人工（不限本机，同整合包上传 instance.import）
+	want[ops.HumanOnly] = append(want[ops.HumanOnly], "modcart.local.add", "modcart.local.remove")
 
 	n := 0
 	for level, names := range want {

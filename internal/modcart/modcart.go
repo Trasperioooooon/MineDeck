@@ -6,7 +6,10 @@
 // 购物车存在后端（<程序目录>/data/modcart/cart.json），不放浏览器里：应用内 AI 助手和 MCP 也要能看、能加，
 // 新建服务器时实例还不存在，挑好的东西要先放进「草稿车」（键是空串），等实例建好再装。每辆车最多 50 项。
 //
-// 这个包只管购物车、Modrinth 查询、前置闭包、下载和本地依赖核对，不认识实例和任务；
+// 车里有两样东西：Modrinth 上的项目（Item），和人从自己电脑上添加的 jar（LocalFile，见 staged.go）。
+// 本地文件暂存在 <程序目录>/data/modcart/local/ 下面，每辆车一个文件夹，登记在同一份 cart.json 里；两样合计不超过 50 项。
+//
+// 这个包只管购物车、Modrinth 查询、前置闭包、下载、暂存本地文件和本地依赖核对，不认识实例和任务；
 // 操作层（ops/catalog/modcart.go）把它接到实例、后台任务和权限上。
 package modcart
 
@@ -72,8 +75,9 @@ type Service struct {
 	api      string // Modrinth 接口地址，测试时换成本机的假服务
 	official bool   // 用的是真的 Modrinth：下载地址只认它的 CDN
 
-	mu    sync.Mutex
-	carts map[string][]Item
+	mu     sync.Mutex
+	carts  map[string][]Item
+	locals map[string][]LocalFile // 人从电脑上添加的 jar（见 staged.go），键同 carts
 
 	installMu  sync.Mutex
 	installing map[string]bool
@@ -82,7 +86,8 @@ type Service struct {
 // New 建好购物车，读回上次存下的。endpoint 空 = 真的 Modrinth。
 // cart.json 读不懂时另存成 cart.json.bad，从空车开始（不让一个坏文件挡住整个功能）。
 func New(dir, endpoint string) *Service {
-	s := &Service{dir: dir, api: strings.TrimRight(endpoint, "/"), carts: map[string][]Item{}, installing: map[string]bool{}}
+	s := &Service{dir: dir, api: strings.TrimRight(endpoint, "/"), carts: map[string][]Item{}, locals: map[string][]LocalFile{},
+		installing: map[string]bool{}}
 	if s.api == "" {
 		s.api = ModrinthAPI
 	}
@@ -92,16 +97,19 @@ func New(dir, endpoint string) *Service {
 		var f cartFile
 		if json.Unmarshal(b, &f) == nil && f.Carts != nil {
 			s.carts = f.Carts
+			s.locals = s.checkedLocals(f.Locals)
 		} else {
 			_ = os.Rename(s.path(), s.path()+".bad")
 		}
 	}
+	s.sweepStaged()
 	return s
 }
 
 type cartFile struct {
-	Version int               `json:"version"`
-	Carts   map[string][]Item `json:"carts"` // 键：实例名；空串 = 草稿车
+	Version int                    `json:"version"`
+	Carts   map[string][]Item      `json:"carts"`            // 键：实例名；空串 = 草稿车
+	Locals  map[string][]LocalFile `json:"locals,omitempty"` // 暂存的本地文件，键同上
 }
 
 func (s *Service) path() string { return filepath.Join(s.dir, "cart.json") }
@@ -114,26 +122,41 @@ func (s *Service) putLocked(inst string, cart []Item) error {
 	} else {
 		next[inst] = cart
 	}
-	if err := s.write(next); err != nil {
+	if err := s.write(next, s.locals); err != nil {
 		return err
 	}
 	s.carts = next
 	return nil
 }
 
-// write 写 cart.json（先写临时文件再改名）。
-func (s *Service) write(carts map[string][]Item) error {
-	if err := os.MkdirAll(s.dir, 0o755); err != nil {
-		return errorf(500, "保存待装清单失败：%v", err)
+// putLocalsLocked 把 inst 的本地文件登记换成 list：同 putLocked，先写盘再改内存。调用方持有 s.mu。
+func (s *Service) putLocalsLocked(inst string, list []LocalFile) error {
+	next := maps.Clone(s.locals)
+	if len(list) == 0 {
+		delete(next, inst)
+	} else {
+		next[inst] = list
 	}
-	b, _ := json.MarshalIndent(cartFile{Version: 1, Carts: carts}, "", "  ")
+	if err := s.write(s.carts, next); err != nil {
+		return err
+	}
+	s.locals = next
+	return nil
+}
+
+// write 写 cart.json（先写临时文件再改名）。报错里不带路径：这些话会原样给到界面和 AI。
+func (s *Service) write(carts map[string][]Item, locals map[string][]LocalFile) error {
+	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+		return errorf(500, "保存待装清单失败：%v", noPath(err))
+	}
+	b, _ := json.MarshalIndent(cartFile{Version: 1, Carts: carts, Locals: locals}, "", "  ")
 	tmp := s.path() + ".tmp"
 	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return errorf(500, "保存待装清单失败：%v", err)
+		return errorf(500, "保存待装清单失败：%v", noPath(err))
 	}
 	if err := os.Rename(tmp, s.path()); err != nil {
 		os.Remove(tmp)
-		return errorf(500, "保存待装清单失败：%v", err)
+		return errorf(500, "保存待装清单失败：%v", noPath(err))
 	}
 	return nil
 }
@@ -202,8 +225,8 @@ func (s *Service) Add(ctx context.Context, inst string, ids []string) ([]Item, [
 			cart = append(cart, it)
 		}
 	}
-	if len(cart) > MaxItems {
-		return nil, nil, errorf(400, "待装清单最多放 %d 项，现在已经有 %d 项", MaxItems, n)
+	if nl := len(s.locals[inst]); len(cart)+nl > MaxItems { // 本地文件和 Modrinth 项目合起来算
+		return nil, nil, errorf(400, "待装清单最多放 %d 项，现在已经有 %d 项", MaxItems, n+nl)
 	}
 	if len(cart) > n { // 都已经在车里了就不用写盘
 		if err := s.putLocked(inst, cart); err != nil {
@@ -258,7 +281,8 @@ func (s *Service) RemoveMany(inst string, ids []string) ([]Item, error) {
 	return slices.Clone(cart), nil
 }
 
-// Clear 清空一辆车。
+// Clear 清空一辆车里的 Modrinth 项目。人从电脑上添加的本地文件不动（AI 也能调清空，不能把人放的文件清掉），
+// 连本地文件一起清用 ClearAll。
 func (s *Service) Clear(inst string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

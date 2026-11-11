@@ -1807,15 +1807,24 @@ async function drawWizard() {
     } catch (e) { if (!stale(gen)) $("#build-list").innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
 
   } else if (wiz.step === 3 && wiz.core !== "vanilla") {
-    /* 选模组（可选步，列表第 4 项）：搜索 + 草稿购物车整块在外围模块 modcart.js。
-       这一步永远可以「下一步」留空跳过，创建完成后想再加可以去详情页的「待装清单」标签。 */
+    /* 选模组（可选步，列表第 4 项）：热门清单 + 搜索 + 草稿购物车整块在外围模块 modcart.js。
+       这一步永远可以「下一步」留空跳过，创建完成后想再加可以去详情页的「待装清单」标签；热门清单加载得慢、加载失败都不挡「下一步」。
+       这一步是两栏（左边逛、右边清单），用数据面的宽度，吸底栏跟着放宽（wizFoot 的 wide）。 */
     wizardShell(`
       <div id="wiz-mod-body"></div>
-      ${wizFoot("wback", "上一步", `<button class="btn primary" id="wnext">下一步 ${icon("arrowRight")}</button>`)}`);
+      ${wizFoot("wback", "上一步", `<button class="btn primary" id="wnext">下一步 ${icon("arrowRight")}</button>`, true)}`);
     $("#wback").onclick = () => { wiz.step = 2; drawWizard(); };
     $("#wnext").onclick = () => { wiz.step = 4; drawWizard(); };
     paintWizSum();
-    if (window.MDModCart) MDModCart.wizardPanel($("#wiz-mod-body"), { core: wiz.core, mc: wiz.mc }, gen);
+    /* 正在往清单里添加本地文件的那几秒先按住「下一步」：文件还没加完就走，后加进去的那个不在「这一步上看到的那些」里，
+       建好服务器以后后端会认为清单被人动过，整张清单都不装。加完（或者失败）立刻放开。 */
+    const onBusy = busy => {
+      const next = $("#wnext");
+      if (stale(gen) || !next) return;
+      next.disabled = busy;
+      next.innerHTML = busy ? `${icon("spinner")} 正在添加文件…` : `下一步 ${icon("arrowRight")}`;
+    };
+    if (window.MDModCart) MDModCart.wizardPanel($("#wiz-mod-body"), { core: wiz.core, mc: wiz.mc, onBusy }, gen);
     else $("#wiz-mod-body").innerHTML = `<div class="err-box">这一步的界面没有加载出来。可以先跳过，以后在这台服务器的「待装清单」标签里再加。</div>`;
 
   } else {
@@ -1923,13 +1932,14 @@ async function drawWizard() {
         if (stale(gen)) { toast("已开始部署，可在新建服务器页查看进度"); return; }
         /* 「选模组」步挑好的内容放在草稿购物车里（不带 inst）。空车照旧直接跳部署任务页；
            有货时留在向导这一页等建服任务跑完，再把草稿车一起装上（装模组是一条 kind "mods" 的任务，跳到那页看进度）。
+           「有货」两样都算：Modrinth 上挑的项目（count），和从电脑添加的本地文件（local）——只加了本地文件也要装。
            建服失败仍然跳建服任务页，失败的日志要看得见；跳转本身就是切页，startPoll 停在旧代际上自然失效。 */
         let draft = null;
         if (wiz.core !== "vanilla") { // 原版没有「选模组」这一步，草稿车里剩下的（上次没装的）不能装进原版服
           try { draft = await api("/api/modcart"); } catch { draft = null; } // 老后端没这个接口：当作空车
           if (stale(gen)) return;
         }
-        if (!draft || !(draft.count > 0)) { location.hash = `#/task/${r.taskId}`; return; }
+        if (!draft || !(draft.count > 0 || (draft.local || []).length > 0)) { location.hash = `#/task/${r.taskId}`; return; }
         /* 等建服的这段时间不能回上一步：回去会重画向导（换代号），这里就不再接着装，服务器却已经在建了 */
         const back = $("#wback");
         if (back) back.disabled = true;
@@ -1945,10 +1955,12 @@ async function drawWizard() {
           launched = true;
           if (t.error) { location.hash = `#/task/${r.taskId}`; return; } // 建服失败：保持失败可见性
           try {
-            /* expect：「选模组」那一步上画出来的那些。草稿车在那之后被改过（AI 助手加了东西），或者同名的旧购物车里还剩着东西，
+            /* expect / expectLocal：「选模组」那一步上画出来的那些（Modrinth 项目的 ID、本地文件的 SHA-1）。草稿车在那之后被改过
+               （AI 助手加了东西），上次向导半途放弃留下的本地文件这次没在页面上列出来过，或者同名的旧购物车里还剩着东西，
                后端都会拒绝，不会把人没看过的东西装进新服务器。 */
-            const seen = (window.MDModCart && MDModCart.draftSeen()) || [];
-            const r2 = await api(`/api/instances/${encodeURIComponent(name)}/modcart/install`, { method: "POST", body: { includeDraft: true, expect: seen } });
+            const seen = (window.MDModCart && MDModCart.draftSeen()) || { expect: [], expectLocal: [] };
+            const r2 = await api(`/api/instances/${encodeURIComponent(name)}/modcart/install`, { method: "POST",
+              body: { includeDraft: true, expect: seen.expect, expectLocal: seen.expectLocal } });
             if (stale(gen)) return;
             toast(`服务器建好了，正在安装清单里的${wizModNoun()}…`);
             location.hash = `#/task/${encodeURIComponent(r2.taskId)}`;
