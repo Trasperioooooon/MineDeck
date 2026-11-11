@@ -415,7 +415,7 @@ async function musicHandler(state, req, res, p, m, seg) {
   }
   const name = seg[3], sub = seg[5] || "";
   const i = state.instances.find(x => x.name === name);
-  if (!i) return err(res, 404, "实例不存在: " + name);
+  if (!i) return err(res, 404, "服务器不存在：" + name);
   const mi = musicInst(ms, name);
   const supported = MUSIC_CORES.includes(i.core);
   const b = await readBody(req);
@@ -1017,7 +1017,7 @@ function gcTest(state, i, g, b) {
 }
 async function gcHandler(state, req, res, m, seg, u) {
   const i = state.instances.find(x => x.name === seg[3]);
-  if (!i) return err(res, 404, "实例不存在");
+  if (!i) return err(res, 404, "服务器不存在");
   const g = gcInst(state, i.name), sub = seg[5] || "";
   if (!sub && m === "GET") return ok(res, gcView(state, i));
   if (!sub && m === "PUT") {
@@ -1112,7 +1112,7 @@ function cpView(state, i) {
 }
 async function cpHandler(state, req, res, m, seg) {
   const i = state.instances.find(x => x.name === seg[3]);
-  if (!i) return err(res, 404, "实例不存在");
+  if (!i) return err(res, 404, "服务器不存在");
   const c = cpInst(state, i.name), sub = seg[5] || "", b = m === "GET" ? {} : await readBody(req);
   const v = cpView(state, i);
   if (sub === "" && m === "GET") return ok(res, v);
@@ -1550,7 +1550,7 @@ function handler(state, ui, portOf) {
       }
       if (p === "/api/adopt" && m === "POST") {
         const b = await readBody(req);
-        if (state.instances.some(x => x.name === b.name)) return err(res, 400, "实例名已存在: " + b.name);
+        if (state.instances.some(x => x.name === b.name)) return err(res, 400, "已有同名的服务器：" + b.name);
         state.lastAdopt = b;
         return ok(res, { taskId: "task-adopt" });
       }
@@ -1605,7 +1605,7 @@ function handler(state, ui, portOf) {
       }
       if (p === "/api/transfer/import" && m === "POST") {
         const b = await readBody(req);
-        if (state.instances.some(x => x.name === b.name)) return err(res, 400, "实例名已存在: " + b.name);
+        if (state.instances.some(x => x.name === b.name)) return err(res, 400, "已有同名的服务器：" + b.name);
         if (!b.file || !String(b.file).includes("transfer\\import")) return err(res, 400, "交接包文件不在上传目录里");
         state.lastTransferImport = b;
         return ok(res, { taskId: "task-transfer-in", pack: { name: TRANSFER_SUMMARY.name, core: TRANSFER_SUMMARY.core, mc: TRANSFER_SUMMARY.mc, build: TRANSFER_SUMMARY.build, mods: TRANSFER_SUMMARY.mods, plugins: TRANSFER_SUMMARY.plugins, full: TRANSFER_SUMMARY.full } });
@@ -1693,7 +1693,7 @@ function handler(state, ui, portOf) {
       if (seg[2] === "instances" && seg[3]) {
         const name = seg[3], sub = seg[4] || "";
         const i = state.instances.find(x => x.name === name);
-        if (!i) return err(res, 404, "实例不存在");
+        if (!i) return err(res, 404, "服务器不存在");
         // 删除（同 inst.Manager.Delete）：files=0 只移出列表
         if (!sub && m === "DELETE") {
           state.lastDelete = { inst: name, files: u.searchParams.get("files") === "1" };
