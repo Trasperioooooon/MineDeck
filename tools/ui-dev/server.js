@@ -63,6 +63,8 @@ function newState(ui) {
       { id: "t2", name: "自建备用线", provider: "custom", running: false, boundInstance: "", autoStart: false, publicAddr: "", lastError: "login to the server failed: authorization failed. With auth = token, the token is incorrect",
         serverAddr: "frp.example.com", serverPort: 7000, remotePort: 25566, localPort: 25565, proto: "tcp", purpose: "game", hasCredential: true },
     ],
+    // 穿透平台账户（同 /api/tunnel-accounts*）：默认都未连接；用 /__mock/state 的 tunnelAccounts 改
+    tunnelAccounts: newTunnelAccountsState(),
     props: null,
     empty: false,
     taskStage: 2,
@@ -1426,6 +1428,242 @@ const CONSOLE = [
 
 const tunnelTimers = new WeakMap(); // 隧道 → 「过一会儿拿到公网地址」的定时器（不挂在隧道对象上：会被编进 JSON）
 
+// 穿透平台账户（同 web/tunnel_accounts.go + tunnel.Accounts）：连接态、概览、签到、购买、创建/导入。不走外网。
+function newTunnelAccountsState() {
+  return {
+    openfrp: false,
+    natfrp: false,
+    // OpenFrp 登录轮询：{ id, polls, doneAtPoll }；doneAtPoll 默认第 2 次 poll 成功（≥5s 轮询测得过）
+    openfrpLogin: null,
+    lastSign: null, // 最近一次 POST .../sign 的 body（测试用）
+    lastImport: null,
+    lastCreate: null,
+    overviews: {
+      openfrp: {
+        provider: "openfrp",
+        account: {
+          provider: "openfrp", name: "demo-openfrp", group: "普通用户", realname: true,
+          tunnelCount: 1, tunnelLimit: 5, trafficSummary: "剩余 2048 MiB",
+          signedToday: false, consecutiveDays: 3,
+        },
+        nodes: [
+          { id: 1, name: "广州电信", description: "免费节点", canCreate: true, tcp: true, udp: true, portRange: "10000-20000", publicGameAllowed: true },
+          { id: 2, name: "满载节点", description: "演示不可创建", canCreate: false, tcp: true, udp: false, publicGameAllowed: true },
+        ],
+        tunnels: [
+          { id: "1001", name: "朋友联机", type: "tcp", nodeName: "广州电信", localIP: "127.0.0.1", localPort: 25565, remote: "cn-sz-bgp-1.openfrp.top:23456", online: true, enabled: true, canImport: true },
+          { id: "1002", name: "备用线", type: "tcp", nodeName: "广州电信", localIP: "127.0.0.1", localPort: 25566, remote: "cn-sz-bgp-1.openfrp.top:23457", online: false, enabled: true, canImport: true },
+        ],
+      },
+      natfrp: {
+        provider: "natfrp",
+        account: {
+          provider: "natfrp", name: "demo-sakura", group: "普通会员", realname: true,
+          tunnelCount: 1, tunnelLimit: 8, trafficSummary: "剩余 12.5 GiB",
+          signedToday: true, consecutiveDays: 7,
+        },
+        nodes: [
+          { id: 10, name: "上海多线", description: "公开服可用", canCreate: true, tcp: true, udp: true, publicGameAllowed: true },
+          { id: 11, name: "北京联通", description: "仅 TCP", canCreate: true, tcp: true, udp: false, publicGameAllowed: false },
+        ],
+        tunnels: [
+          { id: "2001", name: "樱花联机", type: "tcp", nodeName: "上海多线", localIP: "127.0.0.1", localPort: 25565, remote: "s1.natfrp.com:12345", online: false, enabled: true, canImport: true },
+        ],
+      },
+    },
+  };
+}
+
+async function tunnelAccountsHandler(state, req, res, p, m, seg) {
+  if (!p.startsWith("/api/tunnel-accounts")) return false;
+  const ta = state.tunnelAccounts;
+  if (p === "/api/tunnel-accounts" && m === "GET") {
+    ok(res, { openfrp: !!ta.openfrp, natfrp: !!ta.natfrp });
+    return true;
+  }
+  if (p === "/api/tunnel-accounts/openfrp/login" && m === "POST") {
+    const id = "login-" + Date.now();
+    ta.openfrpLogin = { id, polls: 0, doneAtPoll: ta.openfrpLoginDoneAtPoll || 2 };
+    ok(res, { id, url: "https://console.openfrp.net/oauth?mock=" + id });
+    return true;
+  }
+  if (seg[2] === "tunnel-accounts" && seg[3] === "openfrp" && seg[4] === "login" && seg[6] === "poll" && m === "POST") {
+    const id = seg[5];
+    if (!ta.openfrpLogin || ta.openfrpLogin.id !== id) { err(res, 400, "授权请求不存在或已过期"); return true; }
+    ta.openfrpLogin.polls++;
+    if (ta.openfrpLogin.polls < (ta.openfrpLogin.doneAtPoll || 2)) { ok(res, { pending: true }); return true; }
+    ta.openfrp = true;
+    ta.openfrpLogin = null;
+    ok(res, { pending: false });
+    return true;
+  }
+  if (p === "/api/tunnel-accounts/natfrp/connect" && m === "POST") {
+    const b = await readBody(req);
+    const token = String(b.token || "").trim();
+    if (!token) { err(res, 400, "请填写 SakuraFrp 访问密钥"); return true; }
+    ta.natfrp = true;
+    ok(res, ta.overviews.natfrp.account);
+    return true;
+  }
+  if (seg[2] === "tunnel-accounts" && seg[3] && seg[4] === "weblogin" && m === "GET") {
+    const provider = seg[3];
+    if (provider === "natfrp") {
+      ok(res, {
+        provider: "natfrp",
+        url: "https://www.natfrp.com/cgi/user/login",
+        authorize: "https://openid.13a.com/oauth/authorize?response_type=code&client_id=PYoPownjQEAJYNbgwn7EZ2goa3kMaxQjBsuvTUmE",
+        needToken: true,
+        message: "将打开樱花面板登录入口（跳转 Nyatwork OpenID）。登录成功后请回到 MineDeck，从用户信息页复制访问密钥并粘贴连接。",
+      });
+      return true;
+    }
+    err(res, 400, "未知穿透平台: " + provider);
+    return true;
+  }
+  if (seg[2] === "tunnel-accounts" && seg[3] && !seg[4] && m === "DELETE") {
+    const provider = seg[3];
+    if (provider !== "openfrp" && provider !== "natfrp") { err(res, 400, "未知穿透平台: " + provider); return true; }
+    ta[provider] = false;
+    if (provider === "openfrp") ta.openfrpLogin = null;
+    ok(res, "ok");
+    return true;
+  }
+  if (seg[2] === "tunnel-accounts" && seg[3] && seg[4] === "overview" && m === "GET") {
+    const provider = seg[3];
+    if (!ta[provider]) { err(res, 400, provider === "openfrp" ? "请先连接 OpenFrp" : "请先连接 SakuraFrp"); return true; }
+    ok(res, ta.overviews[provider] || { provider, account: { provider, name: "" }, nodes: [], tunnels: [] });
+    return true;
+  }
+  if (seg[2] === "tunnel-accounts" && seg[3] && seg[4] === "captcha" && m === "GET") {
+    const provider = seg[3];
+    if (provider === "openfrp") {
+      ok(res, {
+        provider: "openfrp", vendor: "naids",
+        appId: "app_a287037f741b44eea03ced98452dc7cc",
+        sdkUrl: "https://cv.naids.com/sdk/load.min.js",
+        mode: "token",
+        openURL: "https://console.openfrp.net/dashboard?action=sign",
+      });
+      return true;
+    }
+    if (provider === "natfrp") {
+      ok(res, { provider: "natfrp", mode: "session", openURL: "https://www.natfrp.com/user/" });
+      return true;
+    }
+    err(res, 400, "未知穿透平台: " + provider);
+    return true;
+  }
+  if (seg[2] === "tunnel-accounts" && seg[3] && seg[4] === "sign" && m === "POST") {
+    const provider = seg[3];
+    const b = await readBody(req);
+    ta.lastSign = { provider, ...b };
+    if (!ta[provider]) { err(res, 400, provider === "openfrp" ? "请先连接 OpenFrp" : "请先连接 SakuraFrp"); return true; }
+    if (provider === "openfrp") {
+      const token = String(b.token || "").trim();
+      if (!token) { err(res, 400, "请先完成人机验证后再签到"); return true; }
+      const ov = ta.overviews.openfrp;
+      ov.account.signedToday = true;
+      ov.account.consecutiveDays = (ov.account.consecutiveDays || 0) + 1;
+      ok(res, { ok: true, message: "签到成功，获得 100 MB 流量", signedToday: true, consecutiveDays: ov.account.consecutiveDays });
+      return true;
+    }
+    if (provider === "natfrp") {
+      ok(res, {
+        ok: false, needSession: true,
+        message: "SakuraFrp 签到需要官网登录会话，访问密钥无法完成；请在浏览器打开用户中心手动签到",
+        openURL: "https://www.natfrp.com/user/",
+      });
+      return true;
+    }
+    err(res, 400, "未知穿透平台: " + provider);
+    return true;
+  }
+  if (seg[2] === "tunnel-accounts" && seg[3] && seg[4] === "purchase" && m === "GET") {
+    const provider = seg[3];
+    if (provider === "openfrp") {
+      ok(res, {
+        provider: "openfrp",
+        options: [
+          { title: "增值服务 / 会员与加量", url: "https://console.openfrp.net/premium", kind: "premium" },
+          { title: "账户中心", url: "https://account.naids.com/dashboard", kind: "account" },
+        ],
+      });
+      return true;
+    }
+    if (provider === "natfrp") {
+      ok(res, {
+        provider: "natfrp",
+        options: [
+          { title: "SakuraFrp 商店", url: "https://www.natfrp.com/shop", kind: "shop" },
+          { title: "隧道套餐", url: "https://www.natfrp.com/tunnel/shop", kind: "tunnel" },
+          { title: "用户中心", url: "https://www.natfrp.com/user/", kind: "account" },
+          { title: "获取访问密钥", url: "https://www.natfrp.com/user/profile", kind: "token" },
+          { title: "付款说明", url: "https://doc.natfrp.com/faq/payment.html", kind: "docs" },
+        ],
+      });
+      return true;
+    }
+    err(res, 400, "未知穿透平台: " + provider);
+    return true;
+  }
+  if (seg[2] === "tunnel-accounts" && seg[3] && seg[4] === "import" && m === "POST") {
+    const provider = seg[3];
+    const b = await readBody(req);
+    ta.lastImport = { provider, ...b };
+    if (!ta[provider]) { err(res, 400, provider === "openfrp" ? "请先连接 OpenFrp" : "请先连接 SakuraFrp"); return true; }
+    const proxyId = String(b.proxyId || "").trim();
+    if (!proxyId) { err(res, 400, "隧道编号无效"); return true; }
+    if (state.tunnels.some(t => t.provider === provider && t.proxyId === proxyId)) {
+      err(res, 400, "这条平台隧道已经添加到 MineDeck");
+      return true;
+    }
+    const ov = ta.overviews[provider];
+    const remote = (ov && ov.tunnels || []).find(t => String(t.id) === proxyId);
+    const id = "t-imp-" + Date.now();
+    const tun = {
+      id, name: (remote && remote.name) || ("导入 " + proxyId), provider, proxyId,
+      running: false, boundInstance: b.boundInstance || "", autoStart: !!b.autoStart,
+      publicAddr: "", lastError: "", purpose: b.purpose || "game",
+    };
+    state.tunnels.push(tun);
+    ok(res, tun);
+    return true;
+  }
+  if (seg[2] === "tunnel-accounts" && seg[3] && seg[4] === "tunnels" && m === "POST") {
+    const provider = seg[3];
+    const b = await readBody(req);
+    ta.lastCreate = { provider, ...b };
+    if (!ta[provider]) { err(res, 400, provider === "openfrp" ? "请先连接 OpenFrp" : "请先连接 SakuraFrp"); return true; }
+    const name = String(b.name || "").trim();
+    const nodeId = +b.nodeId || 0;
+    const localPort = +b.localPort || 0;
+    const type = String(b.type || "tcp").toLowerCase();
+    if (!name || !nodeId || localPort < 1) { err(res, 400, "名称、节点或本地端口无效"); return true; }
+    if (provider === "openfrp" && (!(+b.remotePort > 0))) { err(res, 400, "OpenFrp 需要填写有效的公网端口"); return true; }
+    const proxyId = String(9000 + state.tunnels.length);
+    const id = "t-new-" + Date.now();
+    const tun = {
+      id, name, provider, proxyId, running: false,
+      boundInstance: b.boundInstance || "", autoStart: !!b.autoStart,
+      publicAddr: "", lastError: "", purpose: b.purpose || (type === "udp" ? "voice" : "game"),
+    };
+    state.tunnels.push(tun);
+    const ov = ta.overviews[provider];
+    if (ov) {
+      const node = (ov.nodes || []).find(n => n.id === nodeId);
+      ov.tunnels.push({
+        id: proxyId, name, type, nodeName: (node && node.name) || ("节点 " + nodeId),
+        localIP: "127.0.0.1", localPort, remote: "", online: false, enabled: true, canImport: true,
+      });
+      ov.account.tunnelCount = (ov.account.tunnelCount || 0) + 1;
+    }
+    ok(res, tun);
+    return true;
+  }
+  err(res, 404, "未知账户接口");
+  return true;
+}
+
 function handler(state, ui, portOf) {
   return async (req, res) => {
     const u = new URL(req.url, "http://x");
@@ -1451,6 +1689,8 @@ function handler(state, ui, portOf) {
     //   tunnel: { id, …字段 } 改某条隧道（running、lastError、publicAddr，以及仿真用的 startError：点「启动」时报这个错、
     //     nextAddr：启动后过 addrDelay 毫秒拿到的公网地址）；tunnelsReset: true 隧道回到初始的两条（t2 是存着凭据的自定义 frps）；
     //     响应里的 lastTunnelPut 是上一次修改隧道的请求体（「清除凭据」带 clearCredential）
+    //   tunnelAccounts: { reset: true 回到未连接, openfrp/natfrp: bool, openfrpLoginDoneAtPoll: 第几次 poll 成功（默认 2）,
+    //     overviews: { openfrp|natfrp: 部分覆盖 } }；响应里还有 lastSign / lastImport / lastCreate
     //   ai: { reset: true 回到没配置, local: false 模拟局域网打开（只能看）, keyBroken, testFail, priceUpdated, 以及 preset/baseUrl/model/key 等直接写入 }
     //   gc（第四阶段）: { reset: true 回到初始数据, inst: { 名称: { whitelistOn, seen, log, settings… } } }；响应里的 gc.whitelistReq 是上一次一键开白名单加的人
     //   cp（第七阶段）: 见 cpMockState；响应里的 cp.installs 是点过几次安装、cp.lastDespawn 是上一次移除的请求体
@@ -1488,6 +1728,18 @@ function handler(state, ui, portOf) {
       if (b.tunnelsReset) { state.tunnels = newState(ui).tunnels; state.lastTunnelPut = null; } // 隧道回到初始的两条
       if (Array.isArray(b.tunnels)) state.tunnels = b.tunnels; // 整份换掉（空数组 = 一条隧道都没有，看空状态用）
       if (b.tunnel) { const t = state.tunnels.find(x => x.id === b.tunnel.id); if (t) Object.assign(t, b.tunnel); }
+      // tunnelAccounts: { reset: true 回到未连接, openfrp/natfrp: bool, openfrpLoginDoneAtPoll, overviews… }
+      if (b.tunnelAccounts) {
+        if (b.tunnelAccounts.reset) state.tunnelAccounts = newTunnelAccountsState();
+        const { reset, overviews, ...rest } = b.tunnelAccounts;
+        Object.assign(state.tunnelAccounts, rest);
+        if (overviews) {
+          for (const [k, v] of Object.entries(overviews)) {
+            state.tunnelAccounts.overviews[k] = { ...(state.tunnelAccounts.overviews[k] || {}), ...v,
+              account: { ...((state.tunnelAccounts.overviews[k] || {}).account || {}), ...(v.account || {}) } };
+          }
+        }
+      }
       if (b.ai) { if (b.ai.reset) state.ai = newAIState(); const { reset, ...rest } = b.ai; Object.assign(state.ai, rest); }
       if (b.music) musicMockState(state, b.music); // 第五阶段
       if (b.gc) gcMockState(state, b.gc); // 第四阶段
@@ -1518,6 +1770,7 @@ function handler(state, ui, portOf) {
       }
       if (await mcpHandler(state, req, res, p, m)) return; // MCP 接口（外部 AI 的提案要先于助手的确认接口认出来）
       if (await asstHandler(state, req, res, p, m, u)) return; // 第三阶段：应用内 AI 助手（含 GET /api/ai/settings 的 lanAssistant）
+      if (await tunnelAccountsHandler(state, req, res, p, m, seg)) return; // 穿透平台账户（OpenFrp / Sakura）
       if (p.startsWith("/api/ai/")) return aiHandler(state, req, res, p, m);
       if (seg[2] === "instances" && seg[4] === "gameai") return gcHandler(state, req, res, m, seg, u); // 第四阶段
       if (seg[2] === "instances" && seg[4] === "companion") return cpHandler(state, req, res, m, seg); // 第七阶段

@@ -3193,6 +3193,14 @@ async function renderTunnels() {
   let insts = [];
   try { insts = await api("/api/instances"); } catch {}
   if (stale(gen)) return;
+  const ACC_NAMES = { openfrp: "OpenFrp", natfrp: "樱花frp" };
+  const openExt = (u) => { if (u) try { window.open(u, "_blank", "noopener"); } catch {} };
+  // OpenFrp 授权轮询间隔（≥5s）；测试可设 window.__MD_TUNNEL_POLL_MS 缩短
+  // 正式使用 ≥5s（OpenFrp 限流）；测试可设 window.__MD_TUNNEL_POLL_MS 缩短
+  const pollMs = () => {
+    const n = +window.__MD_TUNNEL_POLL_MS;
+    return Number.isFinite(n) && n > 0 ? Math.max(200, n) : 5000;
+  };
   Main().innerHTML = pageHead("内网穿透",
     "把这台电脑上的服务器映射到公网，不在同一网络的朋友也能连。服务商可选 OpenFrp、樱花穿透（SakuraFrp），或自己的 frps。",
     `<button class="btn primary" id="tn-toggle" aria-expanded="false" aria-controls="tn-form">${icon("plus")} 添加隧道</button>`, "", "", "tun-summary") + `
@@ -3218,6 +3226,14 @@ async function renderTunnels() {
     </div>
     <button class="btn primary" id="tn-add" aria-label="确认添加隧道">${icon("plus")} 添加隧道</button>
     </div>
+    <section id="tn-accounts" class="tun-accounts" aria-label="平台账户">
+      <div class="tun-accounts-head">
+        <h3>平台账户</h3>
+      <p class="hint">基于 OpenFrp OPENAPI。此项目由社区开发，OpenFrp 官方不负责除节点问题以外的技术支持。支付只跳转官网，不代下单；禁止自动签到。</p>
+      </div>
+      <div id="tn-acc-cards" class="tun-accounts-grid">${skeletonRows(2)}</div>
+      <div id="tn-acc-panel" hidden></div>
+    </section>
     <div id="tun-list">${skeletonRows(4)}</div>`;
 
   const PROV_NAMES = { openfrp: "OpenFrp", natfrp: "樱花frp", custom: "自定义" };
@@ -3251,6 +3267,497 @@ async function renderTunnels() {
     formOpen = !formOpen;
     paintForm();
     if (formOpen) { $("#tn-form").scrollIntoView({ behavior: "smooth", block: "nearest" }); $("#tn-name").focus({ preventScroll: true }); }
+  };
+
+  /* —— 平台账户：状态卡 / 概览 / 连接 / 签到 / 购买 / 创建导入 —— */
+  let accStatus = { openfrp: false, natfrp: false };
+  let accPanel = null; // { provider, overview }
+  let openFrpPoll = null; // { id, timer, stop }
+  const stopOpenFrpPoll = () => {
+    if (!openFrpPoll) return;
+    clearTimeout(openFrpPoll.timer);
+    openFrpPoll.stop = true;
+    openFrpPoll = null;
+  };
+  const openCaptchaIsolated = (sdkUrl, appId) => new Promise((resolve, reject) => {
+    let sdk;
+    try { sdk = new URL(sdkUrl); }
+    catch { reject(new Error("验证码 SDK 地址无效")); return; }
+    if (sdk.protocol !== "https:" || sdk.hostname !== "cv.naids.com" || !appId) {
+      reject(new Error("验证码 SDK 地址无效"));
+      return;
+    }
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    const nonce = Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
+    const frameURL = new URL("/captcha.html", location.href);
+    frameURL.hostname = location.hostname === "127.0.0.1" ? "localhost" : "127.0.0.1";
+    frameURL.searchParams.set("sdk", sdk.href);
+    frameURL.searchParams.set("appId", appId);
+    frameURL.searchParams.set("nonce", nonce);
+    frameURL.searchParams.set("parent", location.origin);
+    const captchaOrigin = frameURL.origin;
+    const overlay = document.createElement("div");
+    overlay.style.cssText = "position:fixed;inset:0;z-index:10001;background:rgba(12,18,24,.48)";
+    const frame = document.createElement("iframe");
+    frame.title = "OpenFrp 人机验证";
+    // CaptchaSDK needs web storage; this host alias gives it a separate origin from the token-holding parent.
+    frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms");
+    frame.referrerPolicy = "strict-origin";
+    frame.style.cssText = "position:absolute;inset:0;width:100%;height:100%;border:0;background:transparent";
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "btn";
+    cancel.textContent = "取消验证";
+    cancel.style.cssText = "position:absolute;right:16px;top:16px;z-index:1";
+    overlay.append(frame, cancel);
+    document.body.append(overlay);
+
+    let settled = false;
+    const finish = (err, token) => {
+      if (settled) return;
+      settled = true;
+      window.removeEventListener("message", onMessage);
+      cancel.removeEventListener("click", onCancel);
+      overlay.remove();
+      if (err) reject(err); else resolve(token);
+    };
+    const onCancel = () => finish(new Error("已取消验证"));
+    const onMessage = event => {
+      const data = event.data;
+      if (event.source !== frame.contentWindow || event.origin !== captchaOrigin || !data ||
+          data.channel !== "minedeck-openfrp-captcha" || data.nonce !== nonce) return;
+      if (data.type === "success" && typeof data.token === "string" && data.token.length > 0 && data.token.length <= 8192) {
+        finish(null, data.token);
+      } else if (data.type === "cancel") {
+        finish(new Error("已取消验证"));
+      } else if (data.type === "error") {
+        finish(new Error("人机验证失败，请重试或改用官网签到"));
+      }
+    };
+    window.addEventListener("message", onMessage);
+    cancel.addEventListener("click", onCancel);
+    frame.src = frameURL.href;
+  });
+  const boundSelect = (id, val = "") =>
+    `<select id="${id}" aria-label="绑定实例"><option value="">不绑定</option>${insts.map(i =>
+      `<option value="${esc(i.name)}"${i.name === val ? " selected" : ""}>${esc(i.name)}（端口 ${i.port}）</option>`).join("")}</select>`;
+
+  const paintAccCards = () => {
+    const box = $("#tn-acc-cards");
+    if (!box || stale(gen)) return;
+    const card = (provider) => {
+      const on = !!accStatus[provider];
+      const name = ACC_NAMES[provider];
+      const polling = openFrpPoll && provider === "openfrp";
+      let body, actions;
+      if (provider === "openfrp" && !on) {
+        body = polling
+          ? `<div class="hint">已打开授权页，正在等待你在浏览器里完成授权…</div>`
+          : `<div class="hint">通过 OpenFrp 远程授权连接。MineDeck 不会接收或保存账号密码。</div>`;
+        actions = polling
+          ? `<button class="btn sm" data-acc-cancel-login="openfrp">取消等待</button>`
+          : `<button class="btn sm primary" data-acc-connect="openfrp" aria-label="浏览器授权连接 OpenFrp">${icon("link")} 浏览器授权</button>`;
+      } else if (provider === "natfrp" && !on) {
+        body = `<div class="hint" style="margin-bottom:8px">可先点「网页登录」打开 OpenID 授权；登录成功后仍需到 <a href="https://www.natfrp.com/user/profile" target="_blank">用户信息页</a> 复制访问密钥粘贴回来（自动换票还在完善）。第一次跑樱花隧道仍可能要手动放置 frpc。</div>
+          <label class="field" style="margin:0"><span class="visually-hidden">SakuraFrp 访问密钥</span>
+            <input type="password" id="tn-sakura-token" placeholder="粘贴访问密钥" aria-label="SakuraFrp 访问密钥" autocomplete="off"></label>`;
+        actions = `<button class="btn sm" data-acc-web-login="natfrp" title="打开面板登录入口（跳转 OpenID）">网页登录</button>
+          <button class="btn sm primary" data-acc-connect="natfrp" aria-label="连接樱花frp">${icon("link")} 连接</button>`;
+      } else {
+        const ov = accPanel && accPanel.provider === provider ? accPanel.overview : null;
+        const a = ov && ov.account;
+        const signTxt = a && a.signedToday != null ? (a.signedToday ? "今日已签" : "今日未签") : "";
+        body = a
+          ? `<div style="font-size:var(--fs-sm);line-height:1.7">
+              <b>${esc(a.name || name)}</b>${a.group ? ` · ${esc(a.group)}` : ""}
+              ${a.trafficSummary ? `<div class="hint" style="margin:2px 0 0">${esc(a.trafficSummary)}</div>` : ""}
+              <div class="hint" style="margin:2px 0 0">隧道 ${a.tunnelCount ?? "—"}${a.tunnelLimit ? ` / ${a.tunnelLimit}` : ""}${signTxt ? ` · ${signTxt}` : ""}${a.consecutiveDays ? ` · 连续 ${a.consecutiveDays} 天` : ""}</div>
+            </div>`
+          : `<div class="hint">已连接。点「概览」查看流量、签到与平台隧道。</div>`;
+        actions = `
+          <button class="btn sm" data-acc-overview="${provider}">${accPanel && accPanel.provider === provider ? "收起概览" : "概览"}</button>
+          <button class="btn sm" data-acc-sign="${provider}">签到</button>
+          <button class="btn sm" data-acc-buy="${provider}">购买</button>
+          <button class="btn sm danger" data-acc-disconnect="${provider}">断开</button>`;
+      }
+      return `<div class="java-row" style="max-width:none;align-items:flex-start;flex-direction:column;gap:10px" data-acc="${provider}">
+        <div style="display:flex;align-items:center;gap:8px;width:100%">
+          <b>${esc(name)}</b>
+          <span class="badge ${on ? "core" : ""}">${on ? "已连接" : (polling ? "授权中" : "未连接")}</span>
+          <span class="grow"></span>
+        </div>
+        <div style="width:100%">${body}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;width:100%">${actions}</div>
+      </div>`;
+    };
+    box.innerHTML = card("openfrp") + card("natfrp");
+    box.querySelectorAll("[data-acc-connect]").forEach(b => b.onclick = () => connectAccount(b.dataset.accConnect, b));
+    box.querySelectorAll("[data-acc-web-login]").forEach(b => b.onclick = () => beginWebLogin(b.dataset.accWebLogin, b));
+    box.querySelectorAll("[data-acc-cancel-login]").forEach(b => b.onclick = () => { stopOpenFrpPoll(); paintAccCards(); toast("已取消等待授权"); });
+    box.querySelectorAll("[data-acc-disconnect]").forEach(b => b.onclick = () => disconnectAccount(b.dataset.accDisconnect));
+    box.querySelectorAll("[data-acc-overview]").forEach(b => b.onclick = () => toggleOverview(b.dataset.accOverview));
+    box.querySelectorAll("[data-acc-sign]").forEach(b => b.onclick = () => signAccount(b.dataset.accSign));
+    box.querySelectorAll("[data-acc-buy]").forEach(b => b.onclick = () => buyAccount(b.dataset.accBuy));
+  };
+
+  const paintAccPanel = () => {
+    const el = $("#tn-acc-panel");
+    if (!el || stale(gen)) return;
+    if (!accPanel || !accPanel.overview) { el.hidden = true; el.innerHTML = ""; return; }
+    const { provider, overview: ov } = accPanel;
+    const tunnels = ov.tunnels || [];
+    const nodes = (ov.nodes || []).filter(n => n.canCreate);
+    el.hidden = false;
+    el.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <b>${esc(ACC_NAMES[provider])} 概览</b>
+        <span class="hint" style="margin:0">平台上的隧道可导入到本机；也可在可用节点上创建并导入。</span>
+        <span class="grow"></span>
+        <button class="btn sm primary" data-acc-create="${esc(provider)}">${icon("plus")} 创建隧道并导入</button>
+      </div>
+      <div style="margin-bottom:10px">
+        ${tunnels.length ? tunnels.map(t => `
+          <div class="java-row" style="max-width:none" data-plat-tun="${esc(t.id)}">
+            <b style="min-width:90px">${esc(t.name)}</b>
+            <span class="badge">${esc((t.type || "").toUpperCase() || "?")}</span>
+            ${t.nodeName ? `<span class="badge">${esc(t.nodeName)}</span>` : ""}
+            ${t.remote ? `<span class="jv" style="font-family:var(--mono)">${esc(t.remote)}</span>` : ""}
+            <span class="jp">${t.online ? "在线" : "离线"}${t.enabled === false ? " · 已禁用" : ""}</span>
+            <span class="grow"></span>
+            ${t.canImport ? `<button class="btn sm" data-acc-import="${esc(provider)}" data-proxy="${esc(t.id)}" aria-label="导入 ${esc(t.name)}">导入到 MineDeck</button>` : `<span class="hint" style="margin:0">不可导入</span>`}
+          </div>`).join("") : `<div class="hint">平台上还没有隧道</div>`}
+      </div>
+      ${nodes.length ? `<div class="hint">可创建节点：${nodes.map(n => esc(n.name)).join("、")}</div>` : `<div class="hint">当前没有可创建隧道的节点</div>`}`;
+    el.querySelectorAll("[data-acc-import]").forEach(b => b.onclick = () => importPlatTunnel(b.dataset.accImport, b.dataset.proxy, b));
+    const createBtn = el.querySelector("[data-acc-create]");
+    if (createBtn) createBtn.onclick = () => createPlatTunnel(provider, ov);
+  };
+
+  const refreshAccounts = async (preferProvider) => {
+    try { accStatus = await api("/api/tunnel-accounts") || { openfrp: false, natfrp: false }; }
+    catch (e) { if (!stale(gen)) toast(e.message, true); return; }
+    if (stale(gen)) return;
+    if (preferProvider && accStatus[preferProvider]) {
+      try {
+        accPanel = { provider: preferProvider, overview: await api(`/api/tunnel-accounts/${preferProvider}/overview`) };
+      } catch (e) { toast(e.message, true); accPanel = null; }
+    } else if (accPanel && !accStatus[accPanel.provider]) {
+      accPanel = null;
+    } else if (accPanel && accStatus[accPanel.provider]) {
+      try { accPanel.overview = await api(`/api/tunnel-accounts/${accPanel.provider}/overview`); }
+      catch { /* 保留旧概览 */ }
+    }
+    paintAccCards();
+    paintAccPanel();
+  };
+
+  const beginWebLogin = async (provider, btn) => {
+    if (btn) btn.disabled = true;
+    try {
+      const info = await api(`/api/tunnel-accounts/${provider}/weblogin`);
+      if (!info || !info.url) throw new Error("未返回网页登录入口");
+      openExt(info.url);
+      toast(info.message || (provider === "natfrp"
+        ? "已打开樱花登录页；登录后请复制访问密钥回来粘贴"
+        : "已打开网页登录入口"));
+    } catch (e) { toast(e.message, true); }
+    if (btn) btn.disabled = false;
+  };
+
+  const beginOpenFrpBrowserLogin = async (btn) => {
+    if (btn) btn.disabled = true;
+    try {
+      const login = await api("/api/tunnel-accounts/openfrp/login", { method: "POST" });
+      if (!login || !login.id || !login.url) throw new Error("未返回授权链接");
+      openExt(login.url);
+      stopOpenFrpPoll();
+      const state = { id: login.id, stop: false, timer: null };
+      openFrpPoll = state;
+      paintAccCards();
+      toast("已打开 OpenFrp 授权页，请在浏览器完成授权");
+      const tick = async () => {
+        if (state.stop || stale(gen) || openFrpPoll !== state) return;
+        try {
+          const r = await api(`/api/tunnel-accounts/openfrp/login/${encodeURIComponent(state.id)}/poll`, { method: "POST" });
+          if (state.stop || stale(gen) || openFrpPoll !== state) return;
+          if (r && r.pending === false) {
+            stopOpenFrpPoll();
+            toast("OpenFrp 已连接");
+            await refreshAccounts("openfrp");
+            return;
+          }
+        } catch (e) {
+          if (state.stop || stale(gen)) return;
+          stopOpenFrpPoll();
+          paintAccCards();
+          toast(e.message, true);
+          return;
+        }
+        state.timer = setTimeout(tick, pollMs());
+      };
+      state.timer = setTimeout(tick, pollMs());
+    } catch (e) { toast(e.message, true); }
+    if (btn) btn.disabled = false;
+  };
+
+  const connectAccount = async (provider, btn) => {
+    if (provider === "openfrp") {
+      await beginOpenFrpBrowserLogin(btn);
+      return;
+    }
+    if (provider === "natfrp") {
+      const token = ($("#tn-sakura-token") || {}).value;
+      if (!token || !String(token).trim()) { toast("请先粘贴 SakuraFrp 访问密钥", true); return; }
+      if (btn) btn.disabled = true;
+      try {
+        await api("/api/tunnel-accounts/natfrp/connect", { method: "POST", body: { token: String(token).trim() } });
+        toast("樱花frp 已连接");
+        await refreshAccounts("natfrp");
+      } catch (e) { toast(e.message, true); }
+      if (btn) btn.disabled = false;
+    }
+  };
+
+  const disconnectAccount = async (provider) => {
+    const r = await confirmModal({
+      title: `断开 ${ACC_NAMES[provider]}？`,
+      body: "会清除本机保存的平台凭据。已导入到 MineDeck 的隧道不会删除。",
+      okText: "断开", danger: true, icon: "warn",
+    });
+    if (!r) return;
+    try {
+      await api(`/api/tunnel-accounts/${provider}`, { method: "DELETE" });
+      if (provider === "openfrp") stopOpenFrpPoll();
+      if (accPanel && accPanel.provider === provider) accPanel = null;
+      toast("已断开 " + ACC_NAMES[provider]);
+      await refreshAccounts();
+    } catch (e) { toast(e.message, true); }
+  };
+
+  const toggleOverview = async (provider) => {
+    if (accPanel && accPanel.provider === provider) {
+      accPanel = null;
+      paintAccCards();
+      paintAccPanel();
+      return;
+    }
+    try {
+      const overview = await api(`/api/tunnel-accounts/${provider}/overview`);
+      accPanel = { provider, overview };
+      paintAccCards();
+      paintAccPanel();
+    } catch (e) { toast(e.message, true); }
+  };
+
+  const signAccount = async (provider) => {
+    if (provider === "natfrp") {
+      // 访问密钥不能签到：引导官网（可先调 sign 拿 openURL）
+      let openURL = "https://www.natfrp.com/";
+      let msg = "SakuraFrp 签到需在官网登录后完成，访问密钥无法签到。";
+      try {
+        const r = await api(`/api/tunnel-accounts/natfrp/sign`, { method: "POST", body: {} });
+        if (r && r.openURL) openURL = r.openURL;
+        if (r && r.message) msg = r.message;
+      } catch (e) { /* 仍打开官网 */ }
+      const go = await confirmModal({
+        title: "去官网签到",
+        body: esc(msg) + `<div class="hint" style="margin-top:8px">将打开 ${esc(openURL)}</div>`,
+        okText: "打开官网", cancelText: "取消",
+      });
+      if (go) openExt(openURL);
+      return;
+    }
+    // OpenFrp：拉验证码进 MineDeck，禁止自动签到
+    let captcha;
+    try { captcha = await api("/api/tunnel-accounts/openfrp/captcha"); }
+    catch (e) { toast(e.message, true); return; }
+    const fallbackURL = (captcha && captcha.openURL) || "https://console.openfrp.net/dashboard?action=sign";
+    const root = $("#modal-root");
+    const prev = document.activeElement;
+    root.innerHTML = `<div class="modal-mask enter" id="tn-sign-mask"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="tn-sign-title" style="max-width:420px">
+      <h3 id="tn-sign-title">OpenFrp 签到</h3>
+      <div class="m-body" id="tn-sign-body">正在准备人机验证…</div>
+      <div class="m-actions">
+        <button class="btn" data-x="web">去官网签到</button>
+        <button class="btn" data-x="cancel">取消</button>
+        <button class="btn primary" data-x="start" disabled>开始验证</button>
+      </div></div></div>`;
+    const mask = root.firstElementChild;
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener("keydown", onKey);
+      dismiss(mask);
+      if (prev && prev.focus) prev.focus();
+    };
+    const onKey = e => { if (e.key === "Escape") close(); };
+    document.addEventListener("keydown", onKey);
+    mask.addEventListener("mousedown", e => { if (e.target === e.currentTarget) close(); });
+    mask.querySelector('[data-x="cancel"]').onclick = close;
+    mask.querySelector('[data-x="web"]').onclick = () => { openExt(fallbackURL); close(); };
+    const body = $("#tn-sign-body");
+    const startBtn = mask.querySelector('[data-x="start"]');
+    const runSign = async (token) => {
+      body.textContent = "正在提交签到…";
+      startBtn.disabled = true;
+      try {
+        const r = await api("/api/tunnel-accounts/openfrp/sign", { method: "POST", body: { token } });
+        close();
+        toast((r && r.message) || "签到成功");
+        await refreshAccounts(accPanel && accPanel.provider === "openfrp" ? "openfrp" : null);
+        if (accStatus.openfrp && !(accPanel && accPanel.provider === "openfrp")) {
+          // 轻量刷新状态卡上的签到文案
+          try {
+            const ov = await api("/api/tunnel-accounts/openfrp/overview");
+            if (!accPanel) { /* cards only */ }
+            else if (accPanel.provider === "openfrp") accPanel.overview = ov;
+            paintAccCards();
+            paintAccPanel();
+          } catch {}
+        }
+      } catch (e) {
+        body.innerHTML = `<span style="color:var(--danger-text)">${esc(e.message)}</span><div class="hint" style="margin-top:8px">也可改去官网完成签到。</div>`;
+        startBtn.disabled = false;
+        startBtn.textContent = "重试验证";
+      }
+    };
+    startBtn.onclick = async () => {
+      startBtn.disabled = true;
+      body.textContent = "请完成人机验证…";
+      try {
+        const token = await openCaptchaIsolated(captcha.sdkUrl, captcha.appId);
+        await runSign(token);
+      } catch (e) {
+        if (e.message === "已取消验证") { body.textContent = "已取消验证"; startBtn.disabled = false; return; }
+        body.innerHTML = `<span style="color:var(--danger-text)">${esc(e.message || "验证码失败")}</span>
+          <div class="hint" style="margin-top:8px">可改用官网签到。</div>`;
+        startBtn.disabled = false;
+      }
+    };
+    body.textContent = "点「开始验证」后完成人机验证并提交签到。不会自动签到。";
+    startBtn.disabled = false;
+    startBtn.focus();
+  };
+
+  const buyAccount = async (provider) => {
+    let data;
+    try { data = await api(`/api/tunnel-accounts/${provider}/purchase`); }
+    catch (e) { toast(e.message, true); return; }
+    const opts = (data && data.options) || [];
+    if (!opts.length) { toast("暂无购买入口", true); return; }
+    const root = $("#modal-root");
+    const prev = document.activeElement;
+    root.innerHTML = `<div class="modal-mask enter"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="tn-buy-title" style="max-width:440px">
+      <h3 id="tn-buy-title">${esc(ACC_NAMES[provider])} 购买 / 充值</h3>
+      <div class="m-body">
+        <div class="hint" style="margin-bottom:10px">只打开官方页面，MineDeck 不代下单、不代收。</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${opts.map((o, i) => `<button class="btn" data-buy="${i}" style="justify-content:space-between">${esc(o.title)} ${icon("arrowRight")}</button>`).join("")}
+        </div>
+      </div>
+      <div class="m-actions"><button class="btn" data-x="cancel">关闭</button></div>
+    </div></div>`;
+    const mask = root.firstElementChild;
+    const close = () => { document.removeEventListener("keydown", onKey); dismiss(mask); if (prev && prev.focus) prev.focus(); };
+    const onKey = e => { if (e.key === "Escape") close(); };
+    document.addEventListener("keydown", onKey);
+    mask.addEventListener("mousedown", e => { if (e.target === e.currentTarget) close(); });
+    mask.querySelector('[data-x="cancel"]').onclick = close;
+    mask.querySelectorAll("[data-buy]").forEach(b => b.onclick = () => {
+      const o = opts[+b.dataset.buy];
+      if (o && o.url) openExt(o.url);
+    });
+    mask.querySelector('[data-x="cancel"]').focus();
+  };
+
+  const importPlatTunnel = async (provider, proxyId, btn) => {
+    const r = await confirmModal({
+      title: "导入到 MineDeck？",
+      body: `将平台隧道 <b>${esc(proxyId)}</b> 写入本机隧道列表（凭据由账户密钥填充）。`,
+      okText: "导入",
+      extra: `<div class="form-grid" style="margin-top:12px">
+        <label class="field full"><span>绑定实例</span>${boundSelect("tn-imp-bound")}</label>
+        <div class="field full"><label class="switch"><input type="checkbox" id="tn-imp-auto" checked><span class="sw"></span>
+          <span class="sw-label">跟随实例启动</span></label></div>
+      </div>`,
+    });
+    if (!r) return;
+    if (btn) btn.disabled = true;
+    try {
+      await api(`/api/tunnel-accounts/${provider}/import`, {
+        method: "POST",
+        body: {
+          proxyId,
+          boundInstance: ($("#tn-imp-bound") || {}).value || "",
+          autoStart: !!($("#tn-imp-auto") || {}).checked,
+          purpose: "game",
+        },
+      });
+      toast("已导入到 MineDeck");
+      await drawList();
+      await refreshAccounts(provider);
+    } catch (e) { toast(e.message, true); }
+    if (btn) btn.disabled = false;
+  };
+
+  const createPlatTunnel = async (provider, overview) => {
+    const nodes = (overview.nodes || []).filter(n => n.canCreate);
+    if (!nodes.length) { toast("没有可创建的节点", true); return; }
+    const root = $("#modal-root");
+    const prev = document.activeElement;
+    const needRemote = provider === "openfrp";
+    root.innerHTML = `<div class="modal-mask enter"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="tn-create-title" style="max-width:520px">
+      <h3 id="tn-create-title">在 ${esc(ACC_NAMES[provider])} 创建并导入</h3>
+      <div class="m-body">
+        <div class="form-grid">
+          <label class="field"><span>隧道名称</span><input type="text" id="tn-cr-name" value="我的隧道" maxlength="30"></label>
+          <label class="field"><span>节点</span><select id="tn-cr-node">${nodes.map(n =>
+            `<option value="${n.id}">${esc(n.name)}${n.udp ? "" : "（无 UDP）"}</option>`).join("")}</select></label>
+          <label class="field"><span>类型</span><select id="tn-cr-type"><option value="tcp">TCP</option><option value="udp">UDP</option></select></label>
+          <label class="field"><span>本地端口</span><input type="number" id="tn-cr-lport" value="25565" min="1" max="65535"></label>
+          <label class="field"${needRemote ? "" : " hidden"}><span>公网端口</span><input type="number" id="tn-cr-rport" value="25566" min="1" max="65535"></label>
+          <label class="field full"><span>绑定实例</span>${boundSelect("tn-cr-bound")}</label>
+          <div class="field full"><label class="switch"><input type="checkbox" id="tn-cr-auto" checked><span class="sw"></span>
+            <span class="sw-label">跟随实例启动</span></label></div>
+        </div>
+      </div>
+      <div class="m-actions">
+        <button class="btn" data-x="cancel">取消</button>
+        <button class="btn primary" data-x="ok">创建并导入</button>
+      </div>
+    </div></div>`;
+    const mask = root.firstElementChild;
+    const close = () => { document.removeEventListener("keydown", onKey); dismiss(mask); if (prev && prev.focus) prev.focus(); };
+    const onKey = e => { if (e.key === "Escape") close(); };
+    document.addEventListener("keydown", onKey);
+    mask.addEventListener("mousedown", e => { if (e.target === e.currentTarget) close(); });
+    mask.querySelector('[data-x="cancel"]').onclick = close;
+    mask.querySelector('[data-x="ok"]').onclick = async () => {
+      const body = {
+        name: $("#tn-cr-name").value.trim(),
+        nodeId: +$("#tn-cr-node").value,
+        type: $("#tn-cr-type").value,
+        localPort: +$("#tn-cr-lport").value || 0,
+        remotePort: +($("#tn-cr-rport") || {}).value || 0,
+        boundInstance: $("#tn-cr-bound").value,
+        autoStart: $("#tn-cr-auto").checked,
+        purpose: $("#tn-cr-type").value === "udp" ? "voice" : "game",
+      };
+      const okBtn = mask.querySelector('[data-x="ok"]');
+      okBtn.disabled = true;
+      try {
+        await api(`/api/tunnel-accounts/${provider}/tunnels`, { method: "POST", body });
+        close();
+        toast("已创建并导入");
+        await drawList();
+        await refreshAccounts(provider);
+      } catch (e) {
+        toast(e.message, true);
+        okBtn.disabled = false;
+      }
+    };
+    $("#tn-cr-name").focus();
   };
 
   // 日志展开着的隧道：列表照常刷新（以前日志一展开整个列表就停刷，点了「启动」卡片也不变，测试报告第五轮），
@@ -3392,6 +3899,7 @@ async function renderTunnels() {
     if (burstT) clearTimeout(burstT);
     burstT = setTimeout(burst, 0);
   };
+  await refreshAccounts();
   await drawList();
   startPoll(drawList, 4000, gen);
 

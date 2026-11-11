@@ -76,6 +76,29 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 | POST | `/api/tunnels/{id}/start` \| `/stop` | 启停 frpc |
 | GET | `/api/tunnels/{id}/console` | SSE frpc 日志 |
 
+#### 穿透平台账户（OpenFrp / SakuraFrp）
+
+经操作层登记，全部 **HumanOnly**（不给 AI）；账户写操作还要求 **LocalOnly**，拒绝局域网会话。凭据用 DPAPI 存进 `secrets.json`（`tunnel.openfrp.authorization` / `tunnel.sakura.token`），响应不下发明文。请求须带应用程序 UA；界面需注明基于 OpenFrp OPENAPI 和社区开发声明。**禁止自动签到**；支付只跳转官方页，不代下单。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/tunnel-accounts` | `{ openfrp, natfrp }` 是否已保存凭据 |
+| POST | `/api/tunnel-accounts/openfrp/login` | 默认连接方式：开始浏览器远程授权，返回 `{ id, url }` |
+| POST | `/api/tunnel-accounts/openfrp/login/{id}/poll` | `{ pending }`；建议 ≥5s 一次；成功后保存 Authorization |
+| POST | `/api/tunnel-accounts/natfrp/connect` | `{ token }` 校验并保存 SakuraFrp 访问密钥（暂不支持自动账密换票） |
+| GET | `/api/tunnel-accounts/{provider}/weblogin` | 网页登录入口。Sakura：`{ url:"https://www.natfrp.com/cgi/user/login", authorize, needToken:true, message }`（会跳转 OpenID；登录后仍需粘贴访问密钥） |
+| DELETE | `/api/tunnel-accounts/{provider}` | 断开并清除本机凭据（`openfrp` / `natfrp`） |
+| GET | `/api/tunnel-accounts/{provider}/overview` | 账户信息、节点、平台隧道列表 |
+| GET | `/api/tunnel-accounts/{provider}/captcha` | OpenFrp：`{ vendor:naids, appId, sdkUrl, mode:"token", openURL }`；樱花：`{ mode:"session", openURL }` |
+| POST | `/api/tunnel-accounts/{provider}/sign` | 手动签到。OpenFrp body `{ token }`（CaptchaSDK.open 结果）；樱花访问密钥不可签，返回 `{ ok:false, needSession, openURL, message }` |
+| GET | `/api/tunnel-accounts/{provider}/purchase` | `{ options:[{ title, url, kind }] }`，前端打开 URL |
+| POST | `/api/tunnel-accounts/{provider}/tunnels` | 在平台创建隧道并导入本机：`{ name, nodeId, type, localPort, remotePort?, boundInstance?, autoStart?, purpose?, publicServer? }` |
+| POST | `/api/tunnel-accounts/{provider}/import` | 导入已有平台隧道：`{ proxyId, boundInstance?, autoStart?, purpose? }` |
+
+OpenFrp 不提供公开的账号密码登录 API，因此客户端只使用 Remote Login。签到 CaptchaSDK 运行于 loopback 主机名别名构成的跨 origin iframe（`127.0.0.1` / `localhost`），并受 sandbox 限制；父页面仅接受来自该 iframe、origin 精确匹配且 nonce 匹配的一次性消息。iframe 有独立的浏览器存储，无法读取父页面 localStorage；其 URL 不包含应用 API token。
+
+协议细节见 [`docs/frp-account-api-notes.md`](frp-account-api-notes.md)。
+
 凭据 `credential` 只写不读：用 Windows DPAPI 加密后存进 `tunnels.json`（`"dpapi:…"`），任何响应都不下发；`PUT` 时留空表示不修改。旧版的明文凭据在启动时自动加密写回。自定义 frps 的 token 不再写进 frpc 的配置文件，而是经环境变量交给 frpc 进程（配置里只有 `{{ .Envs.… }}` 模板）。OpenFrp 和樱花的 frpc 仍然只能从命令行参数接收凭据。
 
 `serverAddr`、`serverPort`、`remotePort`、`localPort` 只有自定义 frps 用。樱花、OpenFrp 的隧道启动时只传「凭据 + 隧道 ID」，端口在服务商后台填，这几项传了也不存、列表里也不给（`localPort` 不再总是出现）；老版本存下的 25565 / 25566 这类数在加载时清掉并写回。

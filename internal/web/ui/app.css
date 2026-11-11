@@ -650,6 +650,13 @@ a.inst-name:hover { text-decoration: underline; text-decoration-color: color-mix
 .form-grid.tun-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); max-width: none; }
 .tun-grid > div.field { align-self: end; }
 .tun-form .mu-tip { max-width: none; }
+.tun-accounts { margin: 16px 0; padding: 16px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.tun-accounts-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px 20px; flex-wrap: wrap; margin-bottom: 10px; }
+.tun-accounts-head h3 { margin: 0; }
+.tun-accounts-head .hint { margin: 0; }
+.tun-accounts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 12px; }
+.tun-accounts-grid .java-row { min-width: 0; }
+.tun-accounts-grid .java-row > div { min-width: 0; }
 .java-row.tun-row { max-width: none; }
 .empty.tun-empty { padding-top: 20px; }
 .eula-box { padding: 14px 16px; margin: 4px 0 16px; max-width: var(--w-read); transition: border-color var(--dur-2), box-shadow var(--dur-2); }

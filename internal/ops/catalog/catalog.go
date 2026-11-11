@@ -32,6 +32,9 @@ type Env struct {
 	Port     int         // 实际监听端口
 	Shutdown func()      // 退出程序（「退出 MineDeck」和自动更新用）
 
+	// Accounts 穿透平台账户（OpenFrp / Sakura）；nil 时不登记账户相关操作。
+	Accounts *tunnel.Accounts
+
 	// Music 音乐共享（第五阶段）；nil 时按程序目录建一个（Mgr、Tun 都有时）
 	Music *musicshare.Service
 
@@ -115,6 +118,7 @@ func New(env Env) *ops.Registry {
 	c.resourceOps()
 	c.mcOps()
 	c.tunnelOps()
+	c.accountOps() // 穿透平台账户（OpenFrp / Sakura），Accounts 为 nil 时跳过
 	c.logOps()
 	c.aiOps()
 	c.troubleshootOps()

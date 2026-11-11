@@ -118,7 +118,8 @@ func newFullEnv(t *testing.T) *fullEnv {
 	}
 	nd := &noDial{}
 	aiSvc := ai.NewService(ai.Options{Dir: filepath.Join(app.Base, "data", "ai"), Keys: app.Secrets(), HTTP: nd.client(), Mirrors: dl.GHMirrors})
-	reg := catalog.New(catalog.Env{Mgr: mgr, Tun: tun, AI: aiSvc, Port: 27333})
+	accounts := tunnel.NewAccounts(tun, app.Secrets())
+	reg := catalog.New(catalog.Env{Mgr: mgr, Tun: tun, Accounts: accounts, AI: aiSvc, Port: 27333})
 	asst := catalog.NewAssistant(reg, aiSvc, Token)
 	mcpSvc := catalog.NewMCP(reg, Token)
 	mcpSvc.Start(27333, 27333)

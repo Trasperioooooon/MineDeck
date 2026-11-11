@@ -2046,6 +2046,203 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   });
   // ==================== 内网穿透的隧道卡片结束 ====================
 
+  // ==================== 平台账户 ====================
+  // 仿真后端：/__mock/state 的 tunnelAccounts（reset / openfrp / natfrp / openfrpLoginDoneAtPoll）；响应里有 lastSign / lastImport
+  const taState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data.tunnelAccounts), b);
+  const resetTA = () => taState({ tunnelAccounts: { reset: true }, tunnelsReset: true });
+  const hookOpens = () => page.evaluate(() => {
+    window.__opens = [];
+    window.open = u => { window.__opens.push(String(u || "")); return null; };
+  });
+  const opened = () => page.evaluate(() => window.__opens || []);
+
+  await run("平台账户：OpenFrp 默认使用远程授权，樱花保留密钥输入", async () => {
+    await resetTA();
+    try {
+      errors.length = 0;
+      await page.goto(url("#/tunnels")); await settle(600);
+      await page.waitForSelector('#tn-accounts [data-acc="openfrp"] [data-acc-connect="openfrp"]');
+      const ui = await page.evaluate(() => {
+        const of = document.querySelector('#tn-accounts [data-acc="openfrp"]');
+        const sk = document.querySelector('#tn-accounts [data-acc="natfrp"]');
+        return {
+          title: (document.querySelector("#tn-accounts h3") || {}).textContent || "",
+          declaration: (document.querySelector("#tn-accounts .tun-accounts-head .hint") || {}).textContent || "",
+          ofText: (of && of.textContent || "").replace(/\s+/g, " ").trim(),
+          ofInputs: !!(of && of.querySelector("input")),
+          ofConnect: !!(of && of.querySelector('[data-acc-connect="openfrp"]')),
+          ofBrowser: !!(of && of.querySelector('[data-acc-browser-login="openfrp"]')),
+          skToken: !!(sk && sk.querySelector("#tn-sakura-token")),
+          skConnect: !!(sk && sk.querySelector('[data-acc-connect="natfrp"]')),
+          skWeb: !!(sk && sk.querySelector('[data-acc-web-login="natfrp"]')),
+          skText: (sk && sk.textContent || "").replace(/\s+/g, " ").trim(),
+        };
+      });
+      assert(ui.title.includes("平台账户") && ui.declaration.includes("OPENAPI") && ui.declaration.includes("社区开发") &&
+        ui.declaration.includes("节点问题") && ui.ofConnect && !ui.ofInputs && !ui.ofBrowser && ui.ofText.includes("远程授权"),
+        "OpenFrp 未连接态：" + JSON.stringify(ui));
+      assert(ui.skToken && ui.skConnect && ui.skWeb && ui.skText.includes("访问密钥"),
+        "樱花密钥输入/网页登录：" + JSON.stringify(ui));
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await resetTA(); }
+  });
+
+  await run("平台账户：樱花网页登录打开 /cgi/user/login 入口", async () => {
+    await resetTA();
+    try {
+      errors.length = 0;
+      await page.goto(url("#/tunnels")); await settle(600);
+      await page.waitForSelector('[data-acc-web-login="natfrp"]');
+      await hookOpens();
+      const before = reqs.length;
+      await page.click('[data-acc-web-login="natfrp"]');
+      await page.waitForFunction(() => (window.__opens || []).some(u => /cgi\/user\/login/.test(u)), null, { timeout: 3000 }).catch(() => {});
+      assert(reqs.slice(before).some(r => r.m === "GET" && r.u === "/api/tunnel-accounts/natfrp/weblogin"),
+        "应 GET weblogin：" + reqs.slice(before).map(r => r.m + " " + r.u).join(", "));
+      const urls = await opened();
+      assert(urls.some(u => u.includes("www.natfrp.com/cgi/user/login")), "应打开面板登录入口：" + JSON.stringify(urls));
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await resetTA(); }
+  });
+
+  await run("平台账户：OpenFrp 默认远程授权并轮询到已连接", async () => {
+    await taState({ tunnelAccounts: { reset: true, openfrpLoginDoneAtPoll: 1 }, tunnelsReset: true });
+    try {
+      errors.length = 0;
+      await page.goto(url("#/tunnels")); await settle(600);
+      await page.evaluate(() => { window.__MD_TUNNEL_POLL_MS = 300; });
+      await hookOpens();
+      const before = reqs.length;
+      await page.click('[data-acc-connect="openfrp"]');
+      await page.waitForFunction(() => (window.__opens || []).some(u => /openfrp\.net\/oauth/.test(u)), null, { timeout: 3000 }).catch(() => {});
+      assert(reqs.slice(before).some(r => r.m === "POST" && r.u === "/api/tunnel-accounts/openfrp/login"),
+        "应 POST /api/tunnel-accounts/openfrp/login：" + reqs.slice(before).map(r => r.m + " " + r.u).join(", "));
+      const urls = await opened();
+      assert(urls.some(u => u.includes("console.openfrp.net/oauth")), "应打开授权链接：" + JSON.stringify(urls));
+      await page.waitForFunction(() => {
+        const el = document.querySelector('#tn-accounts [data-acc="openfrp"]');
+        return el && el.textContent.includes("已连接") && !!el.querySelector('[data-acc-overview="openfrp"]');
+      }, null, { timeout: 4000 }).catch(() => {});
+      const card = await page.$eval('#tn-accounts [data-acc="openfrp"]', e => e.textContent.replace(/\s+/g, " ").trim());
+      assert(card.includes("已连接") && !card.includes("未连接"), "轮询成功后应变已连接：" + card);
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await resetTA(); }
+  });
+
+  await run("平台账户：概览里导入平台隧道时 POST import 带 proxyId", async () => {
+    await taState({ tunnelAccounts: { reset: true, openfrp: true }, tunnelsReset: true });
+    try {
+      errors.length = 0;
+      await page.goto(url("#/tunnels")); await settle(600);
+      await page.click('[data-acc-overview="openfrp"]');
+      await page.waitForSelector('#tn-acc-panel [data-acc-import="openfrp"][data-proxy="1001"]');
+      await page.click('#tn-acc-panel [data-acc-import="openfrp"][data-proxy="1001"]');
+      await page.waitForSelector('.modal [data-x="ok"]');
+      await page.click('.modal [data-x="ok"]');
+      await page.waitForFunction(async () => {
+        const j = await fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json());
+        return !!(j.data.tunnelAccounts && j.data.tunnelAccounts.lastImport);
+      }, null, { timeout: 3000 }).catch(() => {});
+      const last = (await taState({})).lastImport;
+      assert(last && last.provider === "openfrp" && String(last.proxyId) === "1001",
+        "import 应带 proxyId=1001：" + JSON.stringify(last));
+      assert(await toastHas("已导入到 MineDeck"), "应提示已导入");
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await resetTA(); }
+  });
+
+  await run("平台账户：隔离 iframe 的消息必须匹配来源、origin 和 nonce", async () => {
+    await taState({ tunnelAccounts: { reset: true, openfrp: true }, tunnelsReset: true });
+    const frameMock = route => route.fulfill({
+      contentType: "text/html",
+      body: '<!doctype html><html><body><script>' +
+        'const q=new URLSearchParams(location.search),nonce=q.get("nonce"),parentOrigin=q.get("parent");' +
+        'parent.postMessage({__captchaMockReady:true},parentOrigin);' +
+        'window.addEventListener("message",e=>{' +
+        'if(e.data&&e.data.wrongNonce)parent.postMessage({channel:"minedeck-openfrp-captcha",nonce:"wrong",type:"success",token:"forged"},parentOrigin);' +
+        'if(e.data&&e.data.release)parent.postMessage({channel:"minedeck-openfrp-captcha",nonce,type:"success",token:"tok-test"},parentOrigin);' +
+        '});</script></body></html>',
+    });
+    await ctx.route("**/captcha.html*", frameMock);
+    try {
+      errors.length = 0;
+      await page.goto(url("#/tunnels")); await settle(600);
+      await page.evaluate(() => {
+        window.__captchaMockOrigin = "";
+        window.addEventListener("message", e => {
+          if (e.data && e.data.__captchaMockReady) window.__captchaMockOrigin = e.origin;
+        });
+      });
+      await page.click('[data-acc-sign="openfrp"]');
+      await page.click('#tn-sign-mask [data-x="start"]');
+      await page.waitForSelector('iframe[title="OpenFrp 人机验证"]');
+      await page.waitForFunction(() => window.__captchaMockOrigin !== "", null, { timeout: 3000 });
+      const isolation = await page.$eval('iframe[title="OpenFrp 人机验证"]', frame => {
+        const frameURL = new URL(frame.src);
+        let canReadParentStorage = true;
+        try { void frame.contentWindow.localStorage; } catch { canReadParentStorage = false; }
+        return {
+          sandbox: frame.getAttribute("sandbox"),
+          origin: frameURL.origin,
+          parentOrigin: location.origin,
+          canReadParentStorage,
+          hasSDKInParent: !!document.querySelector("script[src*='cv.naids.com']"),
+          hasParentSDK: !!window.CaptchaSDK,
+          nonce: frameURL.searchParams.get("nonce"),
+        };
+      });
+      assert(isolation.sandbox === "allow-scripts allow-same-origin allow-forms" &&
+        isolation.origin !== isolation.parentOrigin && !isolation.canReadParentStorage &&
+        !isolation.hasSDKInParent && !isolation.hasParentSDK && isolation.nonce &&
+        await page.evaluate(() => window.__captchaMockOrigin) === isolation.origin,
+      "CaptchaSDK 必须在与主界面隔离的 origin 中运行：" + JSON.stringify(isolation));
+      const before = reqs.length;
+      await page.evaluate(info => {
+        const frame = document.querySelector('iframe[title="OpenFrp 人机验证"]');
+        window.postMessage({ channel: "minedeck-openfrp-captcha", nonce: info.nonce, type: "success", token: "forged-parent" }, "*");
+        frame.contentWindow.postMessage({ wrongNonce: true }, info.origin);
+      }, isolation);
+      await settle(150);
+      assert(!reqs.slice(before).some(r => r.m === "POST" && r.u === "/api/tunnel-accounts/openfrp/sign"),
+        "错误 source/origin 或 nonce 的消息不应提交签到");
+      await page.evaluate(origin => document.querySelector('iframe[title="OpenFrp 人机验证"]').contentWindow.postMessage({ release: true }, origin), isolation.origin);
+      await page.waitForFunction(async () => {
+        const j = await fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json());
+        const s = j.data.tunnelAccounts && j.data.tunnelAccounts.lastSign;
+        return !!(s && s.provider === "openfrp" && s.token);
+      }, null, { timeout: 4000 }).catch(() => {});
+      const last = (await taState({})).lastSign;
+      assert(last && last.provider === "openfrp" && last.token === "tok-test",
+        "sign 应带隔离 iframe 的 token：" + JSON.stringify(last));
+      assert(await toastHas("签到成功"), "应提示签到成功");
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally {
+      await ctx.unroute("**/captcha.html*", frameMock);
+      await resetTA();
+    }
+  });
+
+  await run("平台账户：Sakura 签到出现官网引导，不要求本机真签成功", async () => {
+    await taState({ tunnelAccounts: { reset: true, natfrp: true }, tunnelsReset: true });
+    try {
+      errors.length = 0;
+      await page.goto(url("#/tunnels")); await settle(600);
+      await hookOpens();
+      await page.click('[data-acc-sign="natfrp"]');
+      await page.waitForSelector('.modal');
+      const modal = await page.evaluate(() => {
+        const m = document.querySelector(".modal");
+        return m ? m.textContent.replace(/\s+/g, " ").trim() : "";
+      });
+      assert(/去官网签到|打开官网|用户中心|访问密钥无法/.test(modal), "应出现官网签到引导：" + modal);
+      await page.click('.modal [data-x="ok"]'); await settle(300);
+      const urls = await opened();
+      assert(urls.some(u => /natfrp\.com/.test(u)), "确认后应打开樱花官网：" + JSON.stringify(urls));
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await resetTA(); }
+  });
+  // ==================== 平台账户结束 ====================
+
   await run("伙伴：「好友的客户端」写明整合包服务端还要装同一个整合包，复制给好友的说明里也有（测试报告第五轮）", async () => {
     try {
       await resetCP();

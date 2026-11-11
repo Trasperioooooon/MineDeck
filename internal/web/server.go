@@ -100,6 +100,7 @@ func New(mgr *inst.Manager, tun *tunnel.Manager, reg *ops.Registry, asst *assist
 	mux.HandleFunc("POST /api/tunnels/{id}/start", s.handleTunnelStart)
 	mux.HandleFunc("POST /api/tunnels/{id}/stop", s.handleTunnelStop)
 	mux.HandleFunc("GET /api/tunnels/{id}/console", s.handleTunnelConsole)
+	s.tunnelAccountRoutes(mux) // 穿透平台账户（OpenFrp / Sakura），见 tunnel_accounts.go
 
 	s.musicRoutes(mux)     // 音乐共享（第五阶段），见 music.go
 	s.gameChatRoutes(mux)  // 游戏内 AI（第四阶段），见 gamechat.go
