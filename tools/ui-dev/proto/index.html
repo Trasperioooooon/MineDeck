@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark" data-scheme="craft" data-accent="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MineDeck 界面原型</title>
+<link rel="icon" href="/img/logo-32.png">
+<!-- 字体和配色令牌直接用界面自己的那两份，目录页的明暗和配色跟着右上角的选择一起变 -->
+<link rel="stylesheet" href="/fonts/fonts.css">
+<link rel="stylesheet" href="/themes.css">
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; background: var(--chrome); color: var(--text);
+    font: 13px/1.5 "MD Geist", "MD Noto Sans SC", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input, select { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---- 左边：场景目录 ---- */
+  #side { width: 312px; flex: none; display: flex; flex-direction: column; border-right: 1px solid var(--border); min-height: 0; }
+  #side header { display: flex; align-items: center; gap: 10px; padding: 16px 16px 12px; }
+  #side header img { width: 32px; height: 32px; image-rendering: pixelated; }
+  #side header b { display: block; font-size: 15px; font-weight: 600; line-height: 20px; }
+  #side header span { color: var(--muted); font-size: 12px; }
+  .filter { padding: 0 12px 10px; }
+  .filter input {
+    width: 100%; height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border-strong);
+    background: var(--field); outline: none;
+  }
+  .filter input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-subtle); }
+  #list { flex: 1; overflow-y: auto; padding: 0 8px 12px; scrollbar-width: thin; }
+  details { margin-bottom: 4px; }
+  summary {
+    list-style: none; cursor: pointer; display: flex; align-items: baseline; gap: 8px; padding: 8px 8px 6px;
+    font-weight: 600; font-size: 12px; color: var(--muted); letter-spacing: .02em; user-select: none; border-radius: 6px;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: ""; width: 6px; height: 6px; flex: none; background: var(--accent); align-self: center; box-shadow: 2px 2px 0 color-mix(in srgb, var(--accent) 35%, transparent); }
+  details:not([open]) summary::before { background: var(--border-strong); box-shadow: none; }
+  summary .n { margin-left: auto; font-weight: 400; font-family: "MD Geist Mono", Consolas, monospace; font-size: 11px; color: var(--faint); }
+  summary:hover { color: var(--text); }
+  .gnote { padding: 0 8px 6px 22px; font-size: 12px; color: var(--muted); }
+  .sc {
+    display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: 0; background: none; cursor: pointer;
+    padding: 6px 8px 6px 22px; border-radius: 8px; line-height: 18px; position: relative;
+  }
+  .sc:hover { background: var(--hover); }
+  .sc.on { background: var(--accent-subtle); font-weight: 600; }
+  .sc.on::before { content: ""; position: absolute; left: 8px; top: 8px; bottom: 8px; width: 3px; background: var(--accent); }
+  .sc .t { flex: 1; min-width: 0; }
+  .tag { flex: none; font-size: 10.5px; font-weight: 600; line-height: 16px; padding: 0 6px; border-radius: 999px; background: var(--accent-subtle); color: var(--accent-text); }
+  .none { padding: 16px; color: var(--muted); }
+  #side footer { padding: 10px 16px 14px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; line-height: 1.6; }
+  kbd { font: 11px "MD Geist Mono", Consolas, monospace; padding: 1px 5px; border-radius: 4px; border: 1px solid var(--border-strong); background: var(--surface); }
+
+  /* ---- 右边：工具条 + 嵌着的界面 ---- */
+  main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  #bar { display: flex; align-items: flex-start; gap: 16px; padding: 14px 20px 12px; border-bottom: 1px solid var(--border); }
+  .ttl { flex: 1; min-width: 0; }
+  .ttl h1 { margin: 0; font-size: 16px; font-weight: 600; line-height: 22px; }
+  .ttl p { margin: 2px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.6; max-width: 86ch; min-height: 20px; }
+  .ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .seg { display: inline-flex; padding: 3px; border-radius: 9px; background: var(--sunken); border: 1px solid var(--border); }
+  .seg button { border: 0; background: none; cursor: pointer; height: 24px; padding: 0 10px; border-radius: 6px; color: var(--muted); }
+  .seg button.on { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgb(0 0 0 / .18); }
+  select, .btn {
+    height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--control); cursor: pointer; text-decoration: none;
+    display: inline-flex; align-items: center; gap: 6px; color: var(--text);
+  }
+  select:hover, .btn:hover { background: var(--control-hov); }
+  #stage { flex: 1; min-height: 0; position: relative; overflow: hidden; display: grid; place-items: center; padding: 20px; }
+  #wrap { position: relative; border-radius: 10px; overflow: hidden; border: 1px solid var(--border-strong); box-shadow: 0 24px 60px -18px rgb(0 0 0 / .55), 0 6px 16px -6px rgb(0 0 0 / .3); background: var(--bg); }
+  #wrap.fit { border-radius: 0; border-width: 0; box-shadow: none; }
+  #wrap iframe { display: block; border: 0; transform-origin: 0 0; background: var(--chrome); }
+  #stat { position: absolute; left: 20px; bottom: 6px; right: 20px; display: flex; justify-content: space-between; gap: 12px; font-size: 11.5px; color: var(--muted); pointer-events: none; }
+  #stat .warn { color: var(--danger-text); }
+  @media (max-width: 900px) { #side { width: 240px; } }
+</style>
+</head>
+<body>
+<aside id="side">
+  <header><img src="/img/logo-32.png" alt=""><div><b>MineDeck 界面原型</b><span>界面是真的，数据是编的</span></div></header>
+  <div class="filter"><input id="q" type="search" placeholder="筛选场景，比如「隧道」「Forge」" aria-label="筛选场景"></div>
+  <nav id="list" aria-label="场景"></nav>
+  <footer>右边的界面可以照常点、填、切标签，不会真的下载和开服。<br><kbd>↑</kbd> <kbd>↓</kbd> 换场景，换一个就回到那个场景的初始样子。</footer>
+</aside>
+<main>
+  <div id="bar">
+    <div class="ttl"><h1 id="sc-title">正在加载场景…</h1><p id="sc-note"></p></div>
+    <div class="ctl">
+      <div class="seg" id="theme" role="group" aria-label="明暗"><button data-v="dark">深色</button><button data-v="light">浅色</button></div>
+      <select id="scheme" aria-label="配色方案">
+        <option value="craft">方块（默认）</option><option value="fluent">Fluent</option><option value="github">GitHub</option>
+        <option value="graphite">石墨</option><option value="nord">Nord</option><option value="catppuccin">Catppuccin</option><option value="solarized">Solarized</option>
+      </select>
+      <select id="view" aria-label="窗口大小">
+        <option value="def">默认窗口 1280×850</option><option value="min">最小窗口 1024×576</option><option value="wide">大窗口 1600×900</option>
+        <option value="phone">手机 390×844</option><option value="fit">铺满这块区域</option>
+      </select>
+      <button class="btn" id="replay" title="回到这个场景的初始样子">重来</button>
+      <a class="btn" id="open" target="_blank" rel="noopener" title="在新标签页里单独打开当前这一页">单独打开</a>
+    </div>
+  </div>
+  <div id="stage"><div id="wrap"></div><div id="stat"><span id="stat-l"></span><span id="stat-r"></span></div></div>
+</main>
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const VIEWS = { def: [1280, 850], min: [1024, 576], wide: [1600, 900], phone: [390, 844], fit: null };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+let groups = [], scenes = [], cur = null, run = 0, frame = null;
+let viewNow = "def"; // 现在用的窗口大小：场景指定了就用场景的，没指定用自己上次挑的（pref.view）
+const pref = Object.assign({ theme: "dark", scheme: "craft", view: "def", scene: "" }, (() => { try { return JSON.parse(localStorage.getItem("md_proto") || "{}"); } catch { return {}; } })());
+// 地址栏的 #场景编号 优先，方便把某个场景的链接发给别人
+if (location.hash.length > 1) pref.scene = decodeURIComponent(location.hash.slice(1));
+const save = () => { try { localStorage.setItem("md_proto", JSON.stringify(pref)); } catch {} };
+
+function paintPrefs() {
+  document.documentElement.dataset.theme = pref.theme;
+  document.documentElement.dataset.scheme = pref.scheme;
+  document.querySelectorAll("#theme button").forEach(b => b.classList.toggle("on", b.dataset.v === pref.theme));
+  $("#scheme").value = pref.scheme;
+  $("#view").value = viewNow;
+}
+
+// ---- 目录 ----
+function paintList() {
+  const q = $("#q").value.trim().toLowerCase();
+  const hit = s => !q || (s.title + " " + (s.note || "")).toLowerCase().includes(q);
+  const html = groups.map(g => {
+    const items = scenes.filter(s => s.group === g.id && hit(s));
+    if (!items.length) return "";
+    return `<details open><summary>${esc(g.title)}<span class="n">${items.length}</span></summary>
+      ${g.note ? `<div class="gnote">${esc(g.note)}</div>` : ""}
+      ${items.map(s => `<button class="sc${cur && cur.id === s.id ? " on" : ""}" data-id="${esc(s.id)}"${cur && cur.id === s.id ? ' aria-current="true"' : ""}><span class="t">${esc(s.title)}</span>${s.tag === "new" && g.id !== "changed" ? '<span class="tag">本次改动</span>' : ""}</button>`).join("")}
+    </details>`;
+  }).join("");
+  $("#list").innerHTML = html || `<div class="none">没有叫这个名字的场景。</div>`;
+  $("#list").querySelectorAll(".sc").forEach(b => b.onclick = () => go(b.dataset.id));
+}
+
+// ---- 嵌着的界面 ----
+const appURL = sc => {
+  const host = viewNow === "phone" ? "" : "&host=1"; // 手机上是浏览器里打开的，没有窗口三键
+  return `/?proto=1${host}&theme=${pref.theme}&scheme=${pref.scheme}&_=${Date.now()}${sc.hash}`;
+};
+function layout() {
+  const wrap = $("#wrap"), st = $("#stage"), v = VIEWS[viewNow];
+  if (!frame) return;
+  const availW = st.clientWidth - 40, availH = st.clientHeight - 52;
+  wrap.classList.toggle("fit", !v);
+  if (!v) {
+    frame.style.width = availW + "px"; frame.style.height = availH + "px"; frame.style.transform = "";
+    wrap.style.width = availW + "px"; wrap.style.height = availH + "px";
+    $("#stat-r").textContent = `${availW}×${availH}`;
+    return;
+  }
+  const k = Math.min(1, availW / v[0], availH / v[1]);
+  frame.style.width = v[0] + "px"; frame.style.height = v[1] + "px"; frame.style.transform = k < 1 ? `scale(${k})` : "";
+  wrap.style.width = Math.round(v[0] * k) + "px"; wrap.style.height = Math.round(v[1] * k) + "px";
+  $("#stat-r").textContent = `${v[0]}×${v[1]}` + (k < 1 ? ` · 缩到 ${Math.round(k * 100)}% 显示（把浏览器窗口拉大就是 1:1）` : "");
+}
+
+async function waitFor(doc, sel, ms = 6000) {
+  const end = Date.now() + ms;
+  for (;;) {
+    let el = null;
+    try { el = doc().querySelector(sel); } catch {}
+    if (el) return el;
+    if (Date.now() > end) throw new Error("没等到 " + sel);
+    await sleep(60);
+  }
+}
+// 依次执行场景的那几下：每步先等元素出现；中途换了场景（代号变了）就停
+async function play(sc, my) {
+  const doc = () => frame.contentDocument;
+  const win = () => frame.contentWindow;
+  await waitFor(doc, "#main > *", 10000);
+  await sleep(350);
+  const steps = sc.steps || [];
+  for (let n = 0; n < steps.length; n++) {
+    if (my !== run) return;
+    const st = steps[n];
+    $("#stat-l").textContent = `正在自动走到这个状态（${n + 1} / ${steps.length}）…`;
+    if (st.sleep) { await sleep(st.sleep); continue; }
+    if (st.key) { doc().dispatchEvent(new (win().KeyboardEvent)("keydown", { key: st.key, bubbles: true })); await sleep(120); continue; }
+    const sel = st.click || st.dblclick || st.fill || st.select || st.wait || st.scroll;
+    const el = await waitFor(doc, sel);
+    if (my !== run) return;
+    if (st.click) { el.scrollIntoView({ block: "nearest" }); el.click(); }
+    else if (st.dblclick) el.dispatchEvent(new (win().MouseEvent)("dblclick", { bubbles: true }));
+    else if (st.fill) { el.focus(); el.value = st.value; el.dispatchEvent(new (win().Event)("input", { bubbles: true })); el.dispatchEvent(new (win().Event)("change", { bubbles: true })); }
+    else if (st.select) { el.value = st.value; el.dispatchEvent(new (win().Event)("change", { bubbles: true })); }
+    else if (st.scroll) el.scrollTop = st.to === "bottom" ? el.scrollHeight : 0;
+    await sleep(st.click || st.select ? 260 : 120);
+  }
+}
+
+async function go(id, keepView) {
+  const sc = scenes.find(s => s.id === id) || scenes[0];
+  if (!sc) return;
+  const my = ++run;
+  cur = sc;
+  if (!keepView) viewNow = sc.view || pref.view; // 场景指定了窗口大小（最小窗口、手机）就用它的，看完换别的场景再回到自己挑的
+  pref.scene = sc.id; save();
+  history.replaceState(null, "", "#" + encodeURIComponent(sc.id));
+  paintPrefs(); paintList();
+  $("#sc-title").textContent = sc.title;
+  $("#sc-note").textContent = sc.note || "";
+  $("#stat-l").textContent = "正在准备数据…"; $("#stat-l").className = "";
+  const on = $("#list .sc.on"); if (on) on.scrollIntoView({ block: "nearest" });
+  try {
+    const r = await fetch("/__proto/apply?id=" + encodeURIComponent(sc.id), { method: "POST" });
+    if (!r.ok) throw new Error("切换场景失败（" + r.status + "）");
+    if (my !== run) return;
+    // 每个场景换一个新的 iframe：旧页面里有没保存的修改时，直接改地址会弹「离开此网站？」
+    const f = document.createElement("iframe");
+    f.title = "MineDeck 界面";
+    f.src = appURL(sc);
+    $("#wrap").replaceChildren(f);
+    frame = f;
+    $("#open").href = `/?theme=${pref.theme}&scheme=${pref.scheme}${sc.hash}`;
+    layout();
+    await new Promise(res => f.addEventListener("load", res, { once: true }));
+    if (my !== run) return;
+    await play(sc, my);
+    if (my === run) $("#stat-l").textContent = "";
+  } catch (e) {
+    if (my !== run) return;
+    $("#stat-l").textContent = "自动操作没走完：" + e.message + "。界面停在了半路，可以手动接着点。";
+    $("#stat-l").className = "warn";
+  }
+}
+
+// ---- 工具条 ----
+document.querySelectorAll("#theme button").forEach(b => b.onclick = () => { pref.theme = b.dataset.v; save(); go(cur.id, true); });
+$("#scheme").onchange = e => { pref.scheme = e.target.value; save(); go(cur.id, true); };
+$("#view").onchange = e => {
+  viewNow = e.target.value;
+  if (!cur.view) { pref.view = viewNow; save(); } // 在指定了大小的场景里临时改一下，不算自己的偏好
+  go(cur.id, true);
+};
+$("#replay").onclick = () => go(cur.id, true);
+$("#q").oninput = paintList;
+addEventListener("resize", layout);
+addEventListener("keydown", e => {
+  if (e.target.matches("input, select, textarea") || (e.key !== "ArrowDown" && e.key !== "ArrowUp")) return;
+  const vis = [...document.querySelectorAll("#list .sc")].map(b => b.dataset.id);
+  const i = vis.indexOf(cur && cur.id), j = e.key === "ArrowDown" ? i + 1 : i - 1;
+  if (vis[j]) { e.preventDefault(); go(vis[j]); }
+});
+
+(async () => {
+  paintPrefs();
+  try {
+    const d = (await (await fetch("/__proto/scenes")).json()).data;
+    groups = d.groups; scenes = d.scenes;
+  } catch (e) { $("#sc-title").textContent = "场景清单没读出来"; $("#sc-note").textContent = String(e); return; }
+  go(pref.scene || scenes[0].id);
+})();
+</script>
+</body>
+</html>

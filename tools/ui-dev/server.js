@@ -1633,11 +1633,17 @@ function handler(state, ui, portOf) {
   };
 }
 
-// 启动一份全新的仿真后端。port=0 表示随机空闲端口。返回 { port, url, close() }。
-function start({ port = 0, ui = UI_DEFAULT } = {}) {
+// 启动一份全新的仿真后端。port=0 表示随机空闲端口。返回 { port, url, state, close() }。
+// before(req, res, state)：可选，在仿真接口之前先过一遍，返回 true 表示这个请求它已经答了（界面原型 proto.js 用它加自己的页面和场景接口）。
+function start({ port = 0, ui = UI_DEFAULT, before = null } = {}) {
   ui = path.resolve(ui);
   const state = newState(ui);
-  const server = http.createServer(handler(state, ui, () => server.address().port));
+  const mock = handler(state, ui, () => server.address().port);
+  const server = http.createServer(async (req, res) => {
+    try { if (before && await before(req, res, state)) return; }
+    catch (e) { res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" }); return res.end(String(e && e.stack || e)); }
+    return mock(req, res);
+  });
   return new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, "127.0.0.1", () => {
@@ -1647,7 +1653,7 @@ function start({ port = 0, ui = UI_DEFAULT } = {}) {
   });
 }
 
-module.exports = { start };
+module.exports = { start, newState, UI_DEFAULT };
 
 if (require.main === module) {
   const port = +(process.argv[2] || PORT_DEFAULT);
