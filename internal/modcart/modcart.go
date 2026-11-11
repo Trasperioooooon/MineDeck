@@ -1,5 +1,8 @@
 // Package modcart 自选模组的购物车：从 Modrinth 挑模组或插件放进购物车，算出还缺哪些前置，一次装进服务器。
 //
+// 叫法：界面和给人看的文字里这个东西叫「待装清单」（2026-11 改的，原来叫「购物车」）；代码里的标识符、
+// 接口路径 /api/modcart、存盘文件 cart.json 和下面的注释都还沿用 cart / 购物车 / 车，指的是同一个东西。
+//
 // 购物车存在后端（<程序目录>/data/modcart/cart.json），不放浏览器里：应用内 AI 助手和 MCP 也要能看、能加，
 // 新建服务器时实例还不存在，挑好的东西要先放进「草稿车」（键是空串），等实例建好再装。每辆车最多 50 项。
 //
@@ -121,16 +124,16 @@ func (s *Service) putLocked(inst string, cart []Item) error {
 // write 写 cart.json（先写临时文件再改名）。
 func (s *Service) write(carts map[string][]Item) error {
 	if err := os.MkdirAll(s.dir, 0o755); err != nil {
-		return errorf(500, "保存购物车失败：%v", err)
+		return errorf(500, "保存待装清单失败：%v", err)
 	}
 	b, _ := json.MarshalIndent(cartFile{Version: 1, Carts: carts}, "", "  ")
 	tmp := s.path() + ".tmp"
 	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return errorf(500, "保存购物车失败：%v", err)
+		return errorf(500, "保存待装清单失败：%v", err)
 	}
 	if err := os.Rename(tmp, s.path()); err != nil {
 		os.Remove(tmp)
-		return errorf(500, "保存购物车失败：%v", err)
+		return errorf(500, "保存待装清单失败：%v", err)
 	}
 	return nil
 }
@@ -200,7 +203,7 @@ func (s *Service) Add(ctx context.Context, inst string, ids []string) ([]Item, [
 		}
 	}
 	if len(cart) > MaxItems {
-		return nil, nil, errorf(400, "购物车最多放 %d 项，现在已经有 %d 项", MaxItems, n)
+		return nil, nil, errorf(400, "待装清单最多放 %d 项，现在已经有 %d 项", MaxItems, n)
 	}
 	if len(cart) > n { // 都已经在车里了就不用写盘
 		if err := s.putLocked(inst, cart); err != nil {

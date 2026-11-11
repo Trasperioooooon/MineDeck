@@ -19,7 +19,7 @@ import (
 	"minedeck/internal/tasks"
 )
 
-// 自选模组 + 购物车。
+// 自选模组 + 购物车（界面和给人看的文字里叫「待装清单」，代码和注释沿用 cart / 购物车 / 车，见 internal/modcart 的包说明）。
 //
 // 风险等级：搜索、看车、加进车、拿出来、清空、查前置都是读操作——购物车只是一张暂存的清单，不动服务器里的任何文件，
 // AI 可以直接帮人挑；真正往服务器里放文件的 modcart.install 是写操作，AI 发起时生成提案卡片，卡片上逐个列出要下载的文件。
@@ -40,7 +40,7 @@ type modcartArgs struct {
 }
 
 var (
-	cartInst  = ops.String("实例名称（实例列表里的 name）；不填 = 草稿购物车：服务器还没建好时先放这里，建好后 modcart_install 带上 includeDraft 一起装").Len(0, 100)
+	cartInst  = ops.String("实例名称（实例列表里的 name）；不填 = 草稿清单：服务器还没建好时先放这里，建好后 modcart_install 带上 includeDraft 一起装").Len(0, 100)
 	cartCore  = ops.String("服务器核心，如 fabric、forge、neoforge、paper（不给 inst 时必填；给了 inst 就用实例的）").Len(0, 20)
 	cartMC    = ops.String("Minecraft 版本，如 1.20.1（不给 inst 时装模组必填；给了 inst 就用实例的）").Len(0, 40)
 	projectID = ops.String("Modrinth 项目 ID 或 slug（见 modcart_search 结果的 project_id）").Len(1, 100)
@@ -149,7 +149,7 @@ func mib(n int64) string { return fmt.Sprintf("%.1f MB", float64(n)/(1<<20)) }
 
 func (c *cat) modcartOps() {
 	c.reg.Register(&ops.Op{
-		Name: "modcart.search", Title: "在 Modrinth 搜索模组或插件（购物车）", Level: ops.Read,
+		Name: "modcart.search", Title: "在 Modrinth 搜索模组或插件（待装清单）", Level: ops.Read,
 		Desc: "按核心对应的加载器和 MC 版本搜 Modrinth（要联网），按下载量排序取前 20 个，只在客户端用的模组不列出来。" +
 			"给 inst 按实例的核心和版本搜；服务器还没建好时给 core 和 mc。结果的 project_id 用于 modcart_add。",
 		Params: ops.Object(map[string]*ops.Schema{"q": ops.String("搜索词（英文名效果更好）").Len(0, 100),
@@ -174,8 +174,8 @@ func (c *cat) modcartOps() {
 	})
 
 	c.reg.Register(&ops.Op{
-		Name: "modcart.list", Title: "查看模组购物车", Level: ops.Read,
-		Desc:   "购物车里有什么（按加入的先后，最多 50 项）。不给 inst 看草稿购物车。",
+		Name: "modcart.list", Title: "查看待装清单", Level: ops.Read,
+		Desc:   "待装清单里有什么（按加入的先后，最多 50 项）。不给 inst 看草稿清单。",
 		Params: ops.Object(map[string]*ops.Schema{"inst": cartInst}),
 		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[modcartArgs](a)
@@ -187,9 +187,9 @@ func (c *cat) modcartOps() {
 	})
 
 	c.reg.Register(&ops.Op{
-		Name: "modcart.add", Title: "把模组加进购物车", Level: ops.Read,
-		Desc: "把 Modrinth 项目加进购物车（一次可以加多个），只是暂存，不下载、不改服务器。加入时会向 Modrinth 核对：" +
-			"查不到的、只在客户端用的模组不放进去，在 skipped 里说明原因。返回整辆车。每辆车最多 50 项。",
+		Name: "modcart.add", Title: "把模组或插件加进待装清单", Level: ops.Read,
+		Desc: "把 Modrinth 项目加进待装清单（一次可以加多个），只是暂存，不下载、不改服务器。加入时会向 Modrinth 核对：" +
+			"查不到的、只在客户端用的模组不放进去，在 skipped 里说明原因。返回整份清单。每份清单最多 50 项。",
 		Params: ops.Object(map[string]*ops.Schema{"inst": cartInst,
 			"projectIds": ops.Array("要加入的 Modrinth 项目 ID 或 slug", projectID).MaxLen(modcart.MaxItems)}, "projectIds"),
 		Run: func(ctx context.Context, _ ops.Caller, a ops.Args) (any, error) {
@@ -220,8 +220,8 @@ func (c *cat) modcartOps() {
 	})
 
 	c.reg.Register(&ops.Op{
-		Name: "modcart.remove", Title: "从购物车拿掉一项", Level: ops.Read,
-		Desc:   "把一个项目从购物车里拿掉（车里没有它也不报错）。返回整辆车。",
+		Name: "modcart.remove", Title: "从待装清单拿掉一项", Level: ops.Read,
+		Desc:   "把一个项目从待装清单里拿掉（清单里没有它也不报错）。返回整份清单。",
 		Params: ops.Object(map[string]*ops.Schema{"inst": cartInst, "projectId": projectID}, "projectId"),
 		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[modcartArgs](a)
@@ -237,8 +237,8 @@ func (c *cat) modcartOps() {
 	})
 
 	c.reg.Register(&ops.Op{
-		Name: "modcart.clear", Title: "清空购物车", Level: ops.Read,
-		Desc:   "清空购物车（只清清单，不动服务器里已经装上的文件）。",
+		Name: "modcart.clear", Title: "清空待装清单", Level: ops.Read,
+		Desc:   "清空待装清单（只清这份清单，不动服务器里已经装上的文件）。",
 		Params: ops.Object(map[string]*ops.Schema{"inst": cartInst}),
 		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[modcartArgs](a)
@@ -253,13 +253,13 @@ func (c *cat) modcartOps() {
 	})
 
 	c.reg.Register(&ops.Op{
-		Name: "modcart.deps", Title: "检查购物车的前置", Level: ops.Read,
-		Desc: "联网算出购物车要装的全部内容：files 是会下载的文件（fromDep 的是自动补的必装前置），missing 是购物车之外还需要的必装前置" +
-			"（modcart_install 默认会一起装，也可以先 modcart_add 放进车里），optional 是可选前置（不自动装），conflicts 是不兼容的组合，" +
+		Name: "modcart.deps", Title: "检查待装清单的前置", Level: ops.Read,
+		Desc: "联网算出待装清单要装的全部内容：files 是会下载的文件（fromDep 的是自动补的必装前置），missing 是清单之外还需要的必装前置" +
+			"（modcart_install 默认会一起装，也可以先 modcart_add 放进清单里），optional 是可选前置（不自动装），conflicts 是不兼容的组合，" +
 			"localHits 是服务器里已经有、安装时跳过的，unresolved 是找不到能装的版本的。给 inst 时会对照服务器里已有的文件；" +
-			"includeDraft=true 把草稿购物车也算进来（和 modcart_install 带 includeDraft 时装的一样）。车很满时 files 会少列，note 里说明。",
+			"includeDraft=true 把草稿清单也算进来（和 modcart_install 带 includeDraft 时装的一样）。清单很满时 files 会少列，note 里说明。",
 		Params: ops.Object(map[string]*ops.Schema{"inst": cartInst, "core": cartCore, "mc": cartMC,
-			"includeDraft": ops.Boolean("给 inst 时把草稿购物车也算进来（默认 false）")}),
+			"includeDraft": ops.Boolean("给 inst 时把草稿清单也算进来（默认 false）")}),
 		Run: func(ctx context.Context, caller ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[modcartArgs](a)
 			if err != nil {
@@ -285,14 +285,14 @@ func (c *cat) modcartOps() {
 	})
 
 	c.reg.Register(&ops.Op{
-		Name: "modcart.install", Title: "安装购物车里的模组", Level: ops.Write,
-		Desc: "把实例购物车里的模组或插件装进服务器的 mods / plugins：挑兼容的版本、自动补上必装前置（withDeps=false 只装车里的），" +
+		Name: "modcart.install", Title: "安装待装清单里的模组或插件", Level: ops.Write,
+		Desc: "把这台实例待装清单里的模组或插件装进服务器的 mods / plugins：挑兼容的版本、自动补上必装前置（withDeps=false 只装清单里的），" +
 			"在后台下载（核对 SHA-1），返回任务编号（进度见 task_get）。服务器里已经有的跳过；装完核对本地依赖，还缺的写在任务的提示里。" +
-			"includeDraft=true 把草稿购物车一起装进这台实例（新建服务器后用）。确认卡片上会列出要下载的每个文件。",
+			"includeDraft=true 把草稿清单一起装进这台实例（新建服务器后用）。确认卡片上会列出要下载的每个文件。",
 		Params: withInst(map[string]*ops.Schema{
 			"withDeps":     ops.Boolean("自动补上必装前置（默认 true）"),
-			"includeDraft": ops.Boolean("把草稿购物车也一起装进这台实例（默认 false）"),
-			"expect":       ops.Array("发起安装的人当时看到的购物车里的项目 ID（界面会带上）；给了就核对，和现在要装的不一样就不装", ops.String("项目 ID")),
+			"includeDraft": ops.Boolean("把草稿清单也一起装进这台实例（默认 false）"),
+			"expect":       ops.Array("发起安装的人当时看到的待装清单里的项目 ID（界面会带上）；给了就核对，和现在要装的不一样就不装", ops.String("项目 ID")),
 		}),
 		Preview: func(ctx context.Context, _ ops.Caller, a ops.Args) (*ops.Plan, error) {
 			p, err := bind[modcartArgs](a)
@@ -305,7 +305,7 @@ func (c *cat) modcartOps() {
 			}
 			items := c.installItems(p)
 			if len(items) == 0 {
-				return nil, ops.Errorf(400, "购物车是空的")
+				return nil, ops.Errorf(400, "待装清单是空的")
 			}
 			ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 			defer cancel()
@@ -321,13 +321,13 @@ func (c *cat) modcartOps() {
 					why = append(why, "找不到能装的版本："+unresolvedText(plan.Unresolved))
 				}
 				if len(plan.LocalHits) > 0 {
-					why = append(why, "服务器里已经有了："+strings.Join(plan.LocalHits, "、")+"（可以用 modcart_remove 从车里拿掉）")
+					why = append(why, "服务器里已经有了："+strings.Join(plan.LocalHits, "、")+"（可以用 modcart_remove 从清单里拿掉）")
 				}
 				return nil, ops.Errorf(400, "没有要下载的文件。%s", strings.Join(why, "；"))
 			}
 			deps, size := 0, int64(0)
 			// 前置条件：车里有哪些项目，和这张卡片列出的确切文件。确认前车变了、或者 Modrinth 上发了新版本，卡片作废
-			pl := &ops.Plan{Pre: map[string]string{"购物车": modcart.Fingerprint(items), "要装的文件": filesPrint(files, plan.LocalHits)}}
+			pl := &ops.Plan{Pre: map[string]string{"待装清单": modcart.Fingerprint(items), "要装的文件": filesPrint(files, plan.LocalHits)}}
 			for _, f := range files {
 				if f.FromDep {
 					deps++
@@ -339,7 +339,7 @@ func (c *cat) modcartOps() {
 				}
 				pl.Changes = append(pl.Changes, ops.Change{What: "安装 " + fileLabel(f), Before: "未安装", After: after})
 			}
-			pl.Summary = fmt.Sprintf("把购物车里的 %d 项装进「%s」", len(items), t.inst.Name)
+			pl.Summary = fmt.Sprintf("把待装清单里的 %d 项装进「%s」", len(items), t.inst.Name)
 			if deps > 0 {
 				pl.Summary += fmt.Sprintf("（另补 %d 个必装前置）", deps)
 			}
@@ -377,7 +377,7 @@ func (c *cat) modcartOps() {
 			items := c.installItems(p)
 			if len(items) == 0 {
 				done()
-				return nil, ops.Errorf(400, "购物车是空的")
+				return nil, ops.Errorf(400, "待装清单是空的")
 			}
 			// 装的必须是人看过、确认过的那些。往车里加东西不用确认（AI 助手、别的窗口都能加），
 			// 所以这里读到的车要和发起的人看到的对一遍：
@@ -385,17 +385,17 @@ func (c *cat) modcartOps() {
 			//   - AI 提的、人在卡片上确认的：确认那一刻的购物车指纹（卡片上列的文件在后台算完版本以后再对，见 installCart）。
 			if p.Expect != nil && !sameProjects(items, *p.Expect) {
 				done()
-				return nil, ops.Errorf(409, "购物车里的东西和你刚才看到的不一样了（AI 助手或者别的窗口可能改过）。先看一眼现在的购物车，再点安装")
+				return nil, ops.Errorf(409, "待装清单和你刚才看到的不一样了（AI 助手或者别的窗口可能改过）。先看一眼现在的清单，再点安装")
 			}
 			wantFiles := ""
 			if pre := ops.ConfirmedPre(ctx); pre != nil {
-				if modcart.Fingerprint(items) != pre["购物车"] {
+				if modcart.Fingerprint(items) != pre["待装清单"] {
 					done()
-					return nil, ops.Errorf(409, "确认的时候购物车又变了，这次没有装。请让 AI 重新提一次")
+					return nil, ops.Errorf(409, "确认的时候待装清单又变了，这次没有装。请让 AI 重新提一次")
 				}
 				wantFiles = pre["要装的文件"]
 			}
-			task, tctx := c.Mgr.Tasks.New(fmt.Sprintf("给「%s」安装购物车里的 %d 项", t.inst.Name, len(items)),
+			task, tctx := c.Mgr.Tasks.New(fmt.Sprintf("给「%s」安装待装清单里的 %d 项", t.inst.Name, len(items)),
 				[]string{"挑版本、补前置", "下载文件", "核对本地依赖"})
 			task.SetKind("mods")
 			go func() {
@@ -475,7 +475,7 @@ func depsView(n int, plan *modcart.Plan, ai bool) map[string]any {
 	if !fits() {
 		deps := slices.DeleteFunc(slices.Clone(files), func(f aiFile) bool { return !f.FromDep })
 		v["files"] = deps
-		v["note"] = fmt.Sprintf("结果太长：files 只列了自动补的 %d 个前置，购物车里要装的 %d 项见 modcart_list", len(deps), len(files)-len(deps))
+		v["note"] = fmt.Sprintf("结果太长：files 只列了自动补的 %d 个前置，待装清单里要装的 %d 项见 modcart_list", len(deps), len(files)-len(deps))
 		if !fits() {
 			v["files"] = []aiFile{}
 			v["note"] = fmt.Sprintf("结果太长：一共要下载 %d 个文件（其中 %d 个是自动补的前置），没有逐个列出；要补的前置见 missing", len(files), len(deps))
@@ -512,7 +512,7 @@ func unresolvedText(us []modcart.Unresolved) string {
 func (c *cat) installCart(ctx context.Context, task *tasks.Task, t cartTarget, p modcartArgs, items []modcart.Item, wantFiles string) {
 	dir := filepath.Join(t.inst.Dir, t.sub)
 	task.StartStep(0)
-	task.Logf("购物车共 %d 项：%s", len(items), itemTitles(items))
+	task.Logf("待装清单共 %d 项：%s", len(items), itemTitles(items))
 	rctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	local := c.ModCart.ScanLocal(rctx, dir)
 	plan, err := c.ModCart.Closure(rctx, items, local, t.loaders, t.mc)
@@ -553,7 +553,7 @@ func (c *cat) installCart(ctx context.Context, task *tasks.Task, t cartTarget, p
 		return
 	}
 	if len(files) == 0 {
-		task.Logf("车里的都已经在服务器里了，不用下载")
+		task.Logf("清单里的都已经在服务器里了，不用下载")
 	}
 
 	task.StartStep(1)
@@ -590,7 +590,7 @@ func (c *cat) installCart(ctx context.Context, task *tasks.Task, t cartTarget, p
 	}
 	if len(failed) > 0 {
 		task.AddWarning(tasks.Warning{Kind: "download-failed", Title: fmt.Sprintf("%d 个文件没下载成功", len(failed)),
-			Note: "购物车先不动：检查网络或代理后再装一次，已经装上的会自动跳过，只补没装上的。", Items: failed})
+			Note: "待装清单先不动：检查网络或代理后再装一次，已经装上的会自动跳过，只补没装上的。", Items: failed})
 	}
 
 	task.StartStep(2)
@@ -624,11 +624,11 @@ func (c *cat) installCart(ctx context.Context, task *tasks.Task, t cartTarget, p
 			done = append(done, id)
 		}
 		if _, err := c.ModCart.RemoveMany(t.inst.Name, done); err != nil {
-			task.Logf("从购物车里拿掉装好的项目失败：%v", err)
+			task.Logf("从待装清单里拿掉装好的项目失败：%v", err)
 		}
 		if p.IncludeDraft {
 			if _, err := c.ModCart.RemoveMany(modcart.Draft, done); err != nil {
-				task.Logf("从草稿购物车里拿掉装好的项目失败：%v", err)
+				task.Logf("从草稿清单里拿掉装好的项目失败：%v", err)
 			}
 		}
 	}

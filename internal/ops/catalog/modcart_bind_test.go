@@ -157,7 +157,7 @@ func TestModCartProposalBoundAtRun(t *testing.T) {
 	if _, err := cart.Remove("模组服", "aaa"); err != nil {
 		t.Fatal(err)
 	}
-	stale := map[string]string{"购物车": confirmed["购物车"], "要装的文件": "和卡片上不一样的指纹"}
+	stale := map[string]string{"待装清单": confirmed["待装清单"], "要装的文件": "和卡片上不一样的指纹"}
 	res, err := op.Run(ops.WithConfirmedPre(context.Background(), stale), cartUI, args)
 	if err != nil {
 		t.Fatalf("车对得上时应先建任务：%v", err)

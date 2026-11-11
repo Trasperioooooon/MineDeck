@@ -1206,7 +1206,7 @@ const MOD_CATALOG = [
   { projectId: "architectury", slug: "architectury-api", title: "Architectury API", description: "A cross-platform API for mod developers.", downloads: 5120483, license: "LGPL-3.0", kind: "mod" },
   { projectId: "cloth-config", slug: "cloth-config", title: "Cloth Config API", description: "A config screen library for mods.", downloads: 8102049, license: "LGPL-3.0", kind: "mod" },
 ];
-const PLUGIN_CORES = new Set(["paper", "purpur", "leaves", "folia", "banner", "mohist", "velocity", "waterfall"]); // 搜出来的是插件，其余是模组
+const PLUGIN_CORES = new Set(["paper", "purpur", "leaves", "folia", "velocity", "waterfall"]); // 搜出来的是插件，其余是模组（同后端 resourceSpec：Mohist、Banner 按模组算）
 const modCartItem = id => {
   const m = MOD_CATALOG.find(x => x.projectId === id) || { slug: id, title: id, kind: "mod", license: "" };
   return { projectId: id, slug: m.slug, title: m.title, icon: "", kind: m.kind, license: m.license, addedAt: new Date().toISOString() };
@@ -1316,6 +1316,7 @@ function handler(state, ui, portOf) {
     //   status: { 名称: running | starting | stopping | stopped } 直接改某台服务器的运行状态（看状态切换的动效用）
     //   cfKey: 已存的 CurseForge API Key（空串 = 未设置）；cfKeyBroken: true 模拟「Key 解不开」（换了电脑或 Windows 用户）
     //   credBroken: 隧道编号（如 "t2"），模拟这条隧道的凭据解不开；空串还原
+    //   tunnels: [...] 把隧道整份换掉（空数组 = 一条都没有）
     //   tunnel: { id, …字段 } 改某条隧道（running、lastError、publicAddr，以及仿真用的 startError：点「启动」时报这个错、
     //     nextAddr：启动后过 addrDelay 毫秒拿到的公网地址）；tunnelsReset: true 隧道回到初始的两条
     //   ai: { reset: true 回到没配置, local: false 模拟局域网打开（只能看）, keyBroken, testFail, priceUpdated, 以及 preset/baseUrl/model/key 等直接写入 }
@@ -1348,6 +1349,7 @@ function handler(state, ui, portOf) {
       if ("cfKeyBroken" in b) state.cfKeyBroken = !!b.cfKeyBroken;
       if ("credBroken" in b) for (const t of state.tunnels) t.credBroken = t.id === b.credBroken;
       if (b.tunnelsReset) state.tunnels = newState(ui).tunnels; // 隧道回到初始的两条
+      if (Array.isArray(b.tunnels)) state.tunnels = b.tunnels; // 整份换掉（空数组 = 一条隧道都没有，看空状态用）
       if (b.tunnel) { const t = state.tunnels.find(x => x.id === b.tunnel.id); if (t) Object.assign(t, b.tunnel); }
       if (b.ai) { if (b.ai.reset) state.ai = newAIState(); const { reset, ...rest } = b.ai; Object.assign(state.ai, rest); }
       if (b.music) musicMockState(state, b.music); // 第五阶段
@@ -1513,11 +1515,11 @@ function handler(state, ui, portOf) {
         const mc = state.modcart;
         mc.queries = (mc.queries || 0) + 1;
         const ended = mc.queries >= 3, n = Math.min(mc.queries - 1, 2);
-        const names = ["解析购物车清单", "下载模组文件", "放进 mods / plugins 文件夹"];
-        return ok(res, { id: "task-cart", kind: "mods", title: "安装购物车里的模组",
+        const names = ["核对待装清单", "下载文件", "放进 mods / plugins 文件夹"];
+        return ok(res, { id: "task-cart", kind: "mods", title: "安装待装清单里的模组",
           steps: names.map((name, i) => ({ name, status: ended || i < n ? "done" : i === n ? "running" : "pending" })),
           label: ended ? "" : "下载 jei-1.20.1-forge.jar", done: ended ? 21 * 1024 * 1024 : 12582912, total: 21 * 1024 * 1024, error: "", warnings: [],
-          log: ["购物车共 1 项", "命中 Modrinth 缓存，直接复用", "安装完成后重启服务器才会生效"],
+          log: ["待装清单共 1 项", "命中 Modrinth 缓存，直接复用", "安装完成后重启服务器才会生效"],
           ended, result: (mc.lastInstall || {}).inst || "生存服 · 朋友" });
       }
       // 和真后端一样只给摘要：步骤、日志、告警明细不在列表里
@@ -1616,7 +1618,7 @@ function handler(state, ui, portOf) {
           // expect：发起的人看到的项目。和这次要装的（实例的车，includeDraft 时再加草稿车）不是同一批就拒绝，同真后端
           const willInstall = [...cart, ...(b.includeDraft ? mc.draft.filter(it => !cart.some(x => x.projectId === it.projectId)) : [])].map(it => it.projectId);
           if (Array.isArray(b.expect) && (b.expect.length !== willInstall.length || willInstall.some(id => !b.expect.includes(id))))
-            return err(res, 409, "购物车里的东西和你刚才看到的不一样了（AI 助手或者别的窗口可能改过）。先看一眼现在的购物车，再点安装");
+            return err(res, 409, "待装清单和你刚才看到的不一样了（AI 助手或者别的窗口可能改过）。先看一眼现在的清单，再点安装");
           mc.lastInstall = { inst: name, withDeps: b.withDeps !== false, includeDraft: !!b.includeDraft, expect: b.expect || null };
           if (b.includeDraft) { for (const it of mc.draft) if (!cart.some(x => x.projectId === it.projectId)) cart.push({ ...it }); mc.draft = []; }
           mc.queries = 0;

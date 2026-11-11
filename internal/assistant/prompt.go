@@ -19,7 +19,7 @@ const systemPrompt = `你是 MineDeck 里的 AI 助手。MineDeck 是一个 Wind
 5. Minecraft EULA 只能由用户本人在确认卡片上勾选同意，你不能替用户同意，也不要在参数里传 eula。
 6. 工具结果里的 <用户名>、<局域网IP>、<程序目录>、<计算机名> 和 *** 是 MineDeck 为了保护隐私替换掉的内容，不用追问原值，也不要把它们写进配置文件。
 7. 一轮最多调用 8 次工具。单个工具结果太长时会被截断，需要的话缩小范围再查（比如按关键字搜索日志）。
-8. 帮用户挑模组、装模组用 modcart 工具：modcart_search 搜 Modrinth（可直接给核心和版本，不用实例存在），modcart_add 把项目加进购物车（不传 inst 就进草稿购物车），modcart_deps 检查还缺哪些前置，modcart_install 把购物车装进实例（自动补必需前置，确认卡片上会列出要下载的文件清单）。要先开服再装模组时：模组先加进草稿购物车，服务器建好（task_get 看到建服任务结束）后再 modcart_install 带上 includeDraft=true。安装进度用 task_get 查，装完可用 instance_mods_deps 看本地还缺什么前置。`
+8. 帮用户挑模组、装模组用 modcart 工具：modcart_search 搜 Modrinth（可直接给核心和版本，不用实例存在），modcart_add 把项目加进待装清单（界面上「待装清单」标签里看得到；不传 inst 就进新建服务器用的草稿清单），modcart_deps 检查还缺哪些前置，modcart_install 把待装清单装进实例（自动补必需前置，确认卡片上会列出要下载的文件清单）。要先开服再装模组时：模组先加进草稿清单，服务器建好（task_get 看到建服任务结束）后再 modcart_install 带上 includeDraft=true。安装进度用 task_get 查，装完可用 instance_mods_deps 看本地还缺什么前置。`
 
 // sessionPrompt 系统提示加上这个会话关联的实例（创建时定下来）。
 func sessionPrompt(inst string) string {

@@ -261,6 +261,7 @@ const ICON = {
   arrowUp: '<path d="M8 13V3.4M4.4 7 8 3.4 11.6 7"/>',
   lock: '<rect x="3.5" y="7" width="9" height="6.5" rx="1.4"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/>',
   chevronDown: '<path d="M4 6.5 8 10.5l4-4"/>',
+  chevronUp: '<path d="M4 9.5 8 5.5l4 4"/>',
   link: '<path d="M6.6 9.4 9.4 6.6"/><path d="M7 4.6 8.2 3.4a2.6 2.6 0 013.7 3.7L10.7 8.3"/><path d="M9 11.4 7.8 12.6a2.6 2.6 0 01-3.7-3.7L5.3 7.7"/>',
   more: '<circle cx="3.5" cy="8" r="1.15" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.15" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r="1.15" fill="currentColor" stroke="none"/>',
   share: '<path d="M7 4.4H3.4a1 1 0 00-1 1v7a1 1 0 001 1h7a1 1 0 001-1V8.8"/><path d="M9.7 2.2h4.1v4.1"/><path d="M13.6 2.4 6.7 9.3"/>',
@@ -845,7 +846,7 @@ async function navigate() {
   samePage = animKey === lastAnimKey;
   if (!samePage) playClass(mainEl, "view-enter"); // 重触发跨页入场（淡入 + 上移 8px，320ms）
   lastAnimKey = animKey;
-  if (view === "create") renderCreate();
+  if (view === "create") renderCreate(arg);
   else if (view === "inst" && arg) { const sl = arg.indexOf("/"); sl >= 0 ? renderDetail(arg.slice(0, sl), arg.slice(sl + 1)) : renderDetail(arg); }
   else if (view === "settings") renderSettings(arg);
   else if (view === "tunnels") renderTunnels();
@@ -859,34 +860,6 @@ document.addEventListener("click", e => {
   const a = e.target.closest('a[href^="#/"]');
   if (a && !e.defaultPrevented && a.getAttribute("href") === (location.hash || "#/instances")) { e.preventDefault(); navigate(); }
 });
-
-/* 一键开服：Paper 最新正式版 + 推荐设置（空状态入口） */
-let quickBusy = false; // 防重入：代理慢时接口耗时较长，避免用户以为「没反应」而重复点击创建出多台
-async function quickStart() {
-  const gen = viewGen;
-  if (quickBusy) { toast("正在创建，请稍候…"); return; }
-  const ok = await confirmModal({ title: "一键开服", okText: "同意并开始", body: "将创建一台 <b>Paper 最新正式版</b> 服务器，采用推荐设置（离线模式、允许飞行、默认端口 25565）。<br>继续即表示同意 <a href='https://aka.ms/MinecraftEULA' target='_blank'>Minecraft EULA</a>。" });
-  if (!ok) return;
-  quickBusy = true;
-  try {
-    const app = await api("/api/app");
-    const vers = await api("/api/mcversions?core=paper&snapshots=0");
-    if (!vers || !vers.length) throw new Error("暂时获取不到 Paper 版本，请改用向导手动创建");
-    const mc = (vers.find(v => v.latest) || vers[0]).id;
-    const builds = await api(`/api/builds?core=paper&mc=${encodeURIComponent(mc)}`);
-    if (!builds || !builds.length) throw new Error("暂时获取不到 Paper 构建，请改用向导手动创建");
-    const build = (builds.find(b => b.recommended) || builds[0]).id;
-    const mem = Math.max(2048, Math.min(4096, (app.ramMb || 8192) - 2048));
-    const r = await api("/api/instances", { method: "POST", body: {
-      name: "我的服务器", core: "paper", mc, build, root: "",
-      xmxMb: mem, port: 25565, eula: true, onlineMode: false, allowFlight: true,
-      difficulty: "easy", gamemode: "survival", motd: "MineDeck 开服 · 一起来玩",
-    } });
-    toast(`正在部署 Paper ${mc}`);
-    if (!stale(gen)) location.hash = `#/task/${r.taskId}`;
-  } catch (e) { toast(e.message, true); }
-  finally { quickBusy = false; }
-}
 
 /* ---------- 视图：实例列表 ---------- */
 /* 时长秒 → 2h13m / 5m / 45s */
@@ -1106,13 +1079,14 @@ async function renderInstances() {
     if (!list.length) {
       $("#inst-chrome").hidden = true; // 没有实例时不显示「服务器」标题与搜索/排序
       $("#inst-cards").classList.add("page-fill");
-      // 一个主行动 + 一个安静的次要入口（两个同权重按钮等于没有主按钮）
+      // 一个主行动 + 一个安静的次要入口（两个同权重按钮等于没有主按钮）。
+      // 主按钮直接进「从零创建」的向导（不替人选核心）；整合包、交接包、接管这三种走次要入口去「新建服务器」页挑
       $("#inst-cards").innerHTML = `<div class="empty${first ? " sec-enter" : ""}">${MDPixel.emptySVG(240)}
         <div class="empty-title">还没有服务器</div>
-        一键创建一台推荐配置的服务器，Java 与服务端会自动下载。<br>
-        <button class="btn primary" id="quick-start">${icon("bolt")} 一键开服（Paper 最新正式版）</button><br>
-        <a class="quiet-link" href="#/create">或使用向导，自选核心与版本 →</a></div>`;
-      $("#quick-start").onclick = quickStart; lastSig = "empty"; first = false; return;
+        挑一个核心和版本就能开服，Java 和服务端会自动下载、配好。<br>
+        <a class="btn primary" id="empty-new" href="#/create/new">${icon("plus")} 新建服务器</a><br>
+        <a class="quiet-link" href="#/create">手里有整合包、交接包，或者已经开着一台服务器？看看其他方式 →</a></div>`;
+      lastSig = "empty"; first = false; return;
     }
     $("#inst-chrome").hidden = false;
     $("#inst-cards").classList.remove("page-fill");
@@ -1138,23 +1112,39 @@ async function renderInstances() {
 /* ---------- 视图：新建向导 ---------- */
 const wiz = { step: 0, core: null, mc: null, build: null, snapshots: false, root: "" };
 
-async function renderCreate() {
+/* 四种方式各有自己的地址（#/create/new、import、transfer、adopt）：首页空状态能直接进「从零创建」，
+   后退键能回到这一页。「返回」一律走 goCreateHome，不直接重画（地址不变的话，再点同一张卡片不会触发路由）。 */
+const CREATE_MODES = { new: () => drawWizard(), import: () => drawImport(), transfer: () => drawTransfer(), adopt: () => drawAdopt() };
+const goCreateHome = () => { if ((location.hash || "") === "#/create") navigate(); else location.hash = "#/create"; };
+
+async function renderCreate(mode) {
   const gen = beginCreateView();
   wiz.step = 0; wiz.core = null; wiz.mc = null; wiz.build = null; wiz.root = "";
-  Main().innerHTML = pageHead("新建服务器", "选择一种方式开始", "", "", `四种方式${SEP}Java 与服务端自动下载`) + `
+  if (mode && CREATE_MODES[mode]) { CREATE_MODES[mode](); return; }
+  const card = (id, ico, name, desc) => `<div class="core-card" id="mode-${id}" data-mode="${id}" role="button" tabindex="0" aria-label="${name}" aria-describedby="mode-${id}-d"><span class="recipe-ico">${icon(ico)}</span><div><div class="cn">${name}</div><div class="cd" id="mode-${id}-d">${desc}</div></div></div>`;
+  Main().innerHTML = pageHead("新建服务器", "选一种方式开始。", "", "", `四种方式${SEP}Java 与服务端自动下载`) + `
     <section id="task-list" hidden style="margin-bottom:24px"></section>
-    <div class="recipe-grid">
-      <div class="core-card" id="mode-new" role="button" tabindex="0" aria-label="从零创建" aria-describedby="mode-new-d"><span class="recipe-ico">${icon("plusBox")}</span><div><div class="cn">从零创建</div><div class="cd" id="mode-new-d">选择核心与版本，自动下载 Java 与服务端</div></div></div>
-      <div class="core-card" id="mode-import" role="button" tabindex="0" aria-label="导入整合包" aria-describedby="mode-import-d"><span class="recipe-ico">${icon("package")}</span><div><div class="cn">导入整合包</div><div class="cd" id="mode-import-d">支持 Modrinth / CurseForge 整合包，自动识别版本</div></div></div>
-      <div class="core-card" id="mode-transfer" role="button" tabindex="0" aria-label="导入交接包" aria-describedby="mode-transfer-d"><span class="recipe-ico">${icon("share")}</span><div><div class="cn">导入交接包</div><div class="cd" id="mode-transfer-d">别人用 MineDeck 导出的 .mdpack：存档、配置、模组全保留，装完直接能启动</div></div></div>
-      <div class="core-card full" id="mode-adopt" role="button" tabindex="0" aria-label="接管已有服务器" aria-describedby="mode-adopt-d"><span class="recipe-ico">${icon("folder")}</span><div><div class="cn">接管已有服务器</div><div class="cd" id="mode-adopt-d">以前自己开的服务器，选它的文件夹就能收进来统一管理。文件留在原地，存档和配置都不动</div></div></div>
+    <div class="recipe-groups">
+      <div class="core-group">
+        <div class="cg-title">新开一台</div>
+        <div class="recipe-grid">
+          ${card("new", "plusBox", "从零创建", "自己挑核心和版本，Java 和服务端自动下载")}
+          ${card("import", "package", "导入整合包", "Modrinth 或 CurseForge 的整合包，核心和版本自动识别")}
+        </div>
+      </div>
+      <div class="core-group">
+        <div class="cg-title">把现成的搬进来</div>
+        <div class="recipe-grid">
+          ${card("transfer", "share", "导入交接包", "别人用 MineDeck 导出的 .mdpack，存档、配置和模组都带着，导完就能开")}
+          ${card("adopt", "folder", "接管已有服务器", "以前自己开的服务器，选中它的文件夹就能收进来管理，文件留在原处不动")}
+        </div>
+      </div>
     </div>`;
-  $("#mode-new").onclick = () => drawWizard();
-  $("#mode-import").onclick = () => drawImport();
-  $("#mode-transfer").onclick = () => drawTransfer();
-  $("#mode-adopt").onclick = () => drawAdopt();
   // 卡片可用键盘激活（回车 / 空格）
-  ["#mode-new", "#mode-import", "#mode-transfer", "#mode-adopt"].forEach(s => { $(s).onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $(s).click(); } }; });
+  document.querySelectorAll(".recipe-grid .core-card").forEach(c => {
+    c.onclick = () => { location.hash = "#/create/" + c.dataset.mode; };
+    c.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); c.click(); } };
+  });
   const taskList = $("#task-list");
   await refreshTaskList(taskList, gen);
   startPoll(() => refreshTaskList(taskList, gen), 3000, gen);
@@ -1189,7 +1179,7 @@ async function drawAdopt() {
     </div>
     <div id="ad-form"></div>
     ${wizFoot("ad-back", "返回", `<button class="btn primary" id="ad-go" disabled>${icon("check")} 接管这台服务器</button>`)}`;
-  $("#ad-back").onclick = () => renderCreate();
+  $("#ad-back").onclick = goCreateHome;
   const dirErr = msg => { $("#ad-dir").classList.toggle("invalid", !!msg); $("#ad-dir-err").innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; };
   const reset = () => { scan = null; $("#ad-form").innerHTML = ""; $("#ad-go").disabled = true; };
   $("#ad-dir").addEventListener("input", () => { dirErr(""); reset(); });
@@ -1345,7 +1335,7 @@ async function drawImport() {
       <div class="field-err" id="im-eula-err"></div>
     </div>
     ${wizFoot("im-back", "返回", `<button class="btn primary" id="im-go">${icon("bolt")} 导入并部署</button>`)}`;
-  $("#im-back").onclick = () => renderCreate(); // 直接重绘（hash 相同不会触发路由，不能用 location.hash）
+  $("#im-back").onclick = goCreateHome;
   renderMemoryControl($("#im-mem-mount"), { sliderId: "im-mem", min: 2048, max: maxMem, value: defMem, totalMb: app.ramMb, availMb: app.availRamMb, hint: "整合包服建议 6GB 以上" });
   const imUpdateRoot = () => { $("#im-root").value = imRoot || app.serversRoot || "程序目录\\servers"; };
   imUpdateRoot();
@@ -1482,7 +1472,7 @@ async function drawTransfer() {
     </div>
     <div id="tp-form"></div>
     ${wizFoot("tp-back", "返回", `<button class="btn primary" id="tp-go" disabled>${icon("bolt")} 导入交接包</button>`)}`;
-  $("#tp-back").onclick = () => renderCreate();
+  $("#tp-back").onclick = goCreateHome;
   const fileErr = msg => { $("#tp-file").classList.toggle("invalid", !!msg); $("#tp-file-err").innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; };
   $("#tp-file").addEventListener("change", () => fileErr(""));
 
@@ -1627,9 +1617,11 @@ async function drawTransfer() {
 /* 向导的步骤序列：非 vanilla 在「选择构建」与「基本设置」之间多一步「选模组」（可选，草稿购物车在外围模块 modcart.js）；
    原版没有「选模组」，也没有构建，第 3 步照旧按「跳过」画。wiz.step 始终是这份列表的下标，
    原版的编号与原来完全一致（0 核心 / 1 版本 / 2 跳过的构建 / 3 设置），非 vanilla 各步顺延一位。 */
+/* 「选模组」那一步的名字跟着核心走：插件端（Paper 一系、代理端）装的是插件，叫「选插件」 */
+const wizModNoun = () => window.MDModCart ? MDModCart.nounOf(wiz.core) : "模组";
 const wizSteps = () => wiz.core === "vanilla"
   ? ["选择核心", "选择版本", "选择构建", "基本设置"]
-  : ["选择核心", "选择版本", "选择构建", "选模组", "基本设置"];
+  : ["选择核心", "选择版本", "选择构建", "选" + wizModNoun(), "基本设置"];
 function wizardShell(inner) {
   const names = wizSteps();
   // 步骤条：方块序号 + 像素虚线；已完成打勾且可点回，当前步实底，未到达描边；眉标写明第几步
@@ -1665,7 +1657,7 @@ async function drawWizard() {
   if (wiz.step === 0) {
     wizardShell(`<div id="core-grid">${skeletonRows(6)}</div>
       ${wizFoot("wback0", "返回", `<button class="btn primary" id="wnext" disabled>下一步 ${icon("arrowRight")}</button>`, true)}`);
-    $("#wback0").onclick = () => renderCreate();
+    $("#wback0").onclick = goCreateHome;
     paintWizSum();
     let cores;
     try { cores = await api("/api/cores"); } catch (e) { if (!stale(gen)) $("#core-grid").innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
@@ -1816,7 +1808,7 @@ async function drawWizard() {
 
   } else if (wiz.step === 3 && wiz.core !== "vanilla") {
     /* 选模组（可选步，列表第 4 项）：搜索 + 草稿购物车整块在外围模块 modcart.js。
-       这一步永远可以「下一步」留空跳过，创建完成后想再加可以去详情页的「购物车」标签。 */
+       这一步永远可以「下一步」留空跳过，创建完成后想再加可以去详情页的「待装清单」标签。 */
     wizardShell(`
       <div id="wiz-mod-body"></div>
       ${wizFoot("wback", "上一步", `<button class="btn primary" id="wnext">下一步 ${icon("arrowRight")}</button>`)}`);
@@ -1824,7 +1816,7 @@ async function drawWizard() {
     $("#wnext").onclick = () => { wiz.step = 4; drawWizard(); };
     paintWizSum();
     if (window.MDModCart) MDModCart.wizardPanel($("#wiz-mod-body"), { core: wiz.core, mc: wiz.mc }, gen);
-    else $("#wiz-mod-body").innerHTML = `<div class="err-box">模组购物车模块没有加载出来。可以先跳过这一步，之后在服务器的「购物车」标签里添加。</div>`;
+    else $("#wiz-mod-body").innerHTML = `<div class="err-box">这一步的界面没有加载出来。可以先跳过，以后在这台服务器的「待装清单」标签里再加。</div>`;
 
   } else {
     const isProxy = coreKind(wiz.core) === "proxy";
@@ -1958,7 +1950,7 @@ async function drawWizard() {
             const seen = (window.MDModCart && MDModCart.draftSeen()) || [];
             const r2 = await api(`/api/instances/${encodeURIComponent(name)}/modcart/install`, { method: "POST", body: { includeDraft: true, expect: seen } });
             if (stale(gen)) return;
-            toast("服务器创建完成，正在安装购物车里的模组…");
+            toast(`服务器建好了，正在安装清单里的${wizModNoun()}…`);
             location.hash = `#/task/${encodeURIComponent(r2.taskId)}`;
           } catch (e) { toast(e.message, true); if (!stale(gen)) location.hash = `#/task/${r.taskId}`; } // 装模组没发出去：至少让建服结果可见
         };
@@ -1988,8 +1980,8 @@ const TASK_KINDS = {
   "transfer-in": { title: "正在导入交接包", sub: "正在准备 Java、下载核心并解包。存档、配置和模组都会保留。", done: "交接完成", doneSub: "存档、配置和模组都带过来了，可以启动了。没带过来的东西列在下面的日志里",
     ok: "交接包导入成功", fail: "导入失败", failHint: "半成品的目录已经清理干净，可以重试。", busy: "导入中，请勿关闭程序…",
     go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/create", backText: "返回重试" },
-  mods: { title: "正在安装模组", sub: "正在下载购物车里的模组和依赖，放进对应的文件夹。", done: "模组安装完成", doneSub: "新装的内容要重启服务器后才会生效",
-    ok: "模组安装完成", fail: "安装失败", failHint: "可以回到这台服务器的「购物车」标签里重试；已下载的文件有缓存，重试很快。", busy: "安装中，请勿关闭程序…",
+  mods: { title: "正在安装待装清单", sub: "正在下载清单里的内容和它们的前置，放进服务器的 mods 或 plugins 文件夹。", done: "安装完成", doneSub: "新装的内容要重启服务器后才会生效",
+    ok: "安装完成", fail: "安装失败", failHint: "可以回到这台服务器的「待装清单」标签里再装一次。已经下载的文件有缓存，重试很快。", busy: "安装中，请勿关闭程序…",
     go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/instances", backText: "返回服务器列表" },
 };
 async function renderTaskPage(taskId) {
@@ -2286,7 +2278,7 @@ async function renderDetail(name, tab = "console") {
       if (!isProxy) tabs.push(["players", "玩家"], ["backups", "备份"]);
       tabs.push(["tasks", "定时任务"]);
       if (info.core !== "vanilla") tabs.push(["res", "资源"]);
-      if (window.MDModCart && MDModCart.applies(info)) tabs.push(["cart", "购物车"]); // 自选模组 + 购物车，见 modcart.js
+      if (window.MDModCart && MDModCart.applies(info)) tabs.push(["cart", "待装清单"]); // 自选模组 + 待装清单（原来叫购物车），见 modcart.js
       if (window.MDMusic && MDMusic.applies(info.core)) tabs.push(["music", "音乐共享"]); // 第五阶段，见 music.js
       if (window.MDGameChat && MDGameChat.applies(info)) tabs.push(["gameai", "游戏内 AI"]); // 第四阶段，见 gamechat.js
       if (window.MDCompanion && MDCompanion.applies(info)) tabs.push(["companion", "伙伴"]); // 第七阶段，见 companion.js
@@ -2990,15 +2982,10 @@ async function renderTunnels() {
   Main().innerHTML = pageHead("内网穿透",
     "把这台电脑上的服务器映射到公网，不在同一个网络的朋友也能连。可以用 OpenFrp、樱花穿透（SakuraFrp），也可以填自己的 frps。",
     `<button class="btn primary" id="tn-toggle" aria-expanded="false" aria-controls="tn-form">${icon("plus")} 添加隧道</button>`, "", "", "tun-summary") + `
-    <div id="tun-list">${skeletonRows(4)}</div>
-    <div id="tn-form" class="card" hidden style="margin-top:16px;max-width:var(--w-read)">
-    <h3 style="margin-bottom:8px">添加隧道</h3>
-    <div class="hint" style="margin-bottom:14px;line-height:1.8">
-      <b>OpenFrp</b>：到 <a href="https://console.openfrp.net" target="_blank">OpenFrp 控制台</a> 创建 TCP 隧道，本地端口填这台服务器的端口。再到「个人中心」复制用户密钥。<br>
-      <b>樱花frp</b>：到 <a href="https://www.natfrp.com" target="_blank">SakuraFrp</a> 创建隧道。复制访问密钥和隧道 ID。第一次要按提示把 frpc 放好。<br>
-      <b>自定义</b>：填自己的 frps 地址、端口和 token。
-    </div>
-    <div class="form-grid">
+    <div id="tn-form" class="card tun-form" hidden>
+    <h3>添加隧道</h3>
+    <div class="hint tun-help" id="tn-help" aria-live="polite"></div>
+    <div class="form-grid tun-grid">
       <label class="field"><span>服务商</span><select id="tn-provider">
         <option value="openfrp">OpenFrp（免费公益）</option>
         <option value="natfrp">樱花frp SakuraFrp</option>
@@ -3016,7 +3003,8 @@ async function renderTunnels() {
         <span><span class="sw-label">跟随实例启动</span><div class="sw-desc">绑定的服务器启动时自动拉起隧道，停服后跟着停</div></span></label></div>
     </div>
     <button class="btn primary" id="tn-add" aria-label="确认添加隧道">${icon("plus")} 添加隧道</button>
-    </div>`;
+    </div>
+    <div id="tun-list">${skeletonRows(4)}</div>`;
 
   const PROV_NAMES = { openfrp: "OpenFrp", natfrp: "樱花frp", custom: "自定义" };
   const provSel = $("#tn-provider");
@@ -3025,15 +3013,30 @@ async function renderTunnels() {
     const show = { cred: true, proxy: p !== "custom", saddr: p === "custom", sport: p === "custom", rport: p === "custom", lport: p === "custom" };
     document.querySelectorAll("[data-f]").forEach(el => el.hidden = !show[el.dataset.f]);
     $("#tn-cred-label").textContent = { openfrp: "用户密钥（个人中心复制）", natfrp: "访问密钥", custom: "auth token（frps 未设可留空）" }[p];
+    $("#tn-help").innerHTML = {
+      openfrp: `先到 <a href="https://console.openfrp.net" target="_blank">OpenFrp 控制台</a> 新建一条 TCP 隧道，本地端口填这台服务器的端口。然后把隧道 ID 填到下面，用户密钥在控制台的「个人中心」里复制。`,
+      natfrp: `先到 <a href="https://www.natfrp.com" target="_blank">SakuraFrp</a> 新建一条隧道，把访问密钥和隧道 ID 复制到下面。第一次启动时要按提示把 frpc 放好。`,
+      custom: `填你自己的 frps 的地址、端口和 token。公网远程端口是朋友连进来用的端口，本地端口是这台服务器的端口。`,
+    }[p];
   };
   provSel.onchange = applyFields;
   applyFields();
   if (window.MDMusic) MDMusic.tunnelForm(insts, provSel); // 第五阶段：用途（游戏 / 语音）、自定义 frps 的协议
+  /* 表单在列表上方。没有隧道时一直开着，页头的「添加隧道」收起来（一屏只留一个主按钮）；
+     有隧道时由页头的按钮展开 / 收起，展开后那个按钮改成「收起」。轮询重画列表不动表单里填到一半的内容。 */
+  let formOpen = false, isEmpty = false;
+  const paintForm = () => {
+    const f = $("#tn-form"), tg = $("#tn-toggle"), open = isEmpty || formOpen;
+    f.hidden = !open;
+    tg.hidden = isEmpty;
+    tg.setAttribute("aria-expanded", String(open));
+    tg.classList.toggle("primary", !open);
+    tg.innerHTML = open ? `${icon("chevronUp")} 收起` : `${icon("plus")} 添加隧道`;
+  };
   $("#tn-toggle").onclick = () => {
-    const f = $("#tn-form");
-    f.hidden = !f.hidden;
-    $("#tn-toggle").setAttribute("aria-expanded", String(!f.hidden));
-    if (!f.hidden) { f.scrollIntoView({ behavior: "smooth", block: "nearest" }); $("#tn-name").focus({ preventScroll: true }); }
+    formOpen = !formOpen;
+    paintForm();
+    if (formOpen) { $("#tn-form").scrollIntoView({ behavior: "smooth", block: "nearest" }); $("#tn-name").focus({ preventScroll: true }); }
   };
 
   // 日志展开着的隧道：列表照常刷新（以前日志一展开整个列表就停刷，点了「启动」卡片也不变，测试报告第五轮），
@@ -3055,7 +3058,7 @@ async function renderTunnels() {
           <button class="btn sm" data-copy="${esc(addr)}" aria-label="复制 ${esc(t.name)} 的公网地址">${icon("copy")} 复制</button>`
       : `<span class="jp">${t.running ? "连接中…" : "尚未启动"}</span>`;
     return `
-      <div class="java-row" style="max-width:980px" data-tun="${esc(t.id)}">
+      <div class="java-row tun-row" data-tun="${esc(t.id)}">
         ${stPill(t.running ? "running" : "stopped")}
         <b style="min-width:110px">${esc(t.name)}</b>
         <span class="badge core">${esc(PROV_NAMES[t.provider] || t.provider)}</span>${window.MDMusic ? MDMusic.tunnelBadge(t) : ""}
@@ -3067,7 +3070,7 @@ async function renderTunnels() {
         <button class="btn sm danger" data-tdel="${esc(t.id)}" aria-label="删除 ${esc(t.name)}">删除</button>
         ${err ? `<div class="tun-err" style="flex-basis:100%;font-size:var(--fs-xs);color:var(--danger-text);line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere">${esc(err)}</div>` : ""}
       </div>
-      <div class="task-log" id="tlog-${esc(t.id)}" style="display:none;height:150px;max-width:980px;margin:-2px 0 8px"></div>`;
+      <div class="task-log" id="tlog-${esc(t.id)}" style="display:none;height:150px;margin:-2px 0 8px"></div>`;
   };
   const drawList = async () => {
     const seq = ++drawSeq;
@@ -3085,7 +3088,9 @@ async function renderTunnels() {
     shown = sig;
     const runN = list.filter(t => t.running).length;
     $("#tun-summary").innerHTML = list.length ? `${list.length} 条隧道${SEP}运行中 ${runN}` : "";
-    if (!list.length) { closeLog(); $("#tun-list").innerHTML = `<div class="empty">${MDPixel.emptySVG(200)}<div class="empty-title">还没有隧道</div>点右上角「添加隧道」，开服后就能把本地服务器映射到公网</div>`; return list; }
+    isEmpty = !list.length;
+    paintForm();
+    if (isEmpty) { closeLog(); $("#tun-list").innerHTML = `<div class="empty tun-empty">${MDPixel.emptySVG(160)}<div class="empty-title">还没有隧道</div>填好上面的表单，添加第一条。添加之后隧道会列在这里，启动它就能拿到公网地址，发给朋友就能连。</div>`; return list; }
     const logBox = logId ? $("#tlog-" + logId) : null;
     $("#tun-list").innerHTML = list.map(tunRow).join("");
     if (logBox) { const ph = $("#tlog-" + logId); if (ph) ph.replaceWith(logBox); else closeLog(); } // 那条隧道删了就关掉日志
@@ -3181,10 +3186,10 @@ async function renderTunnels() {
       await api("/api/tunnels", { method: "POST", body });
       toast("隧道已添加");
       // 收起表单并清空密钥类字段，回到列表看新隧道
-      $("#tn-form").hidden = true;
-      $("#tn-toggle").setAttribute("aria-expanded", "false");
+      formOpen = false;
       ["#tn-cred", "#tn-proxy", "#tn-saddr"].forEach(s => { $(s).value = ""; });
-      drawList();
+      await drawList();
+      if (!stale(gen)) paintForm();
     } catch (e) { toast(e.message, true); }
   };
 }
