@@ -993,6 +993,10 @@ func (c *cat) installCart(ctx context.Context, task *tasks.Task, t cartTarget, p
 		task.Logf("核对本地依赖失败：%v", err)
 	} else {
 		task.Logf("读了 %d 个模组的依赖声明", n)
+		// 前面「要自己去找」里已经说过的那几个不再报一遍（同一个模组 ID、同一个需要它的文件）
+		missing = slices.DeleteFunc(missing, func(m modcart.MissingMod) bool {
+			return slices.ContainsFunc(plan.Manual, func(x modcart.ManualDep) bool { return strings.EqualFold(x.ID, m.ID) && x.File == m.File })
+		})
 		if len(missing) > 0 {
 			w := tasks.Warning{Kind: "still-missing-deps", Title: fmt.Sprintf("还缺 %d 个前置", len(missing)),
 				Note: "这些前置是模组自己声明的，Modrinth 上没写，或者自动补装没成功；缺了它们服务器可能起不来。"}
