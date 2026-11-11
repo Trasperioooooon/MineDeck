@@ -34,7 +34,7 @@ func TestCompanionRoutes(t *testing.T) {
 	}{
 		{"GET", ip + "/companion", "", 200, "", nil},
 		{"GET", ip + "/companion", "", 200, "", []reqOpt{fromLAN}},
-		{"GET", "/api/instances/nope/companion", "", 404, "实例不存在", nil},
+		{"GET", "/api/instances/nope/companion", "", 404, "服务器不存在", nil},
 		{"POST", ip + "/companion/install", "", 400, "只支持", nil},
 		{"PUT", ip + "/companion/settings", `{"maxCompanions":2}`, 400, "只支持", []reqOpt{fromLAN}},
 		{"PUT", ip + "/companion/settings", `{"maxCompanions":99}`, 400, "maxCompanions", nil},

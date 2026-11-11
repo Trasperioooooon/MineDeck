@@ -226,7 +226,7 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 				return fmt.Errorf("交接包里写的启动文件不在服务器文件夹里：%s", rel)
 			}
 			if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
-				return fmt.Errorf("包里缺启动文件 %s（A 那边的实例可能已经不完整）", rel)
+				return fmt.Errorf("包里缺少启动文件 %s（导出端服务器文件可能已损坏或不完整）", rel)
 			}
 		}
 	}

@@ -110,16 +110,19 @@ function slideKeys(before, which) {
   }
 }
 
-/* 提示：标题栏下方右侧，从上方落入；离场向右淡出，其余提示平移补位；可点击关闭 */
+/* 提示：标题栏下方右侧，从上方落入；离场向右淡出，其余提示平移补位。
+   普通提示停 3.5 秒，点一下关闭。报错提示停 8 秒，带「详情」（点开是只读的对话框，原文可以选中、复制）和关闭键，
+   点提示本身也是看详情（见 docs/文案重写/00-报错信息.md）。 */
 function toast(msg, isErr = false) {
   const box = $("#toasts");
   const d = document.createElement("div");
   d.className = "toast enter" + (isErr ? " error" : "");
   d.innerHTML = `<span class="t-ico">${icon(isErr ? "warn" : "check")}</span>`;
   const t = document.createElement("span");
+  t.className = "t-msg";
   t.textContent = msg;
   d.appendChild(t);
-  d.title = "点击关闭";
+  d.title = isErr ? "点击查看详情" : "点击关闭";
   box.appendChild(d);
   let gone = false;
   const kill = () => {
@@ -132,9 +135,52 @@ function toast(msg, isErr = false) {
     d.addEventListener("animationend", done, { once: true });
     setTimeout(done, 400);
   };
-  d.onclick = kill;
-  setTimeout(kill, isErr ? 6500 : 3500);
+  if (isErr) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn sm ghost";
+    b.textContent = "详情";
+    b.setAttribute("aria-label", "查看报错详情");
+    b.onclick = ev => { ev.stopPropagation(); showErrDetail(msg); };
+    d.appendChild(b);
+    const x = document.createElement("button");
+    x.type = "button";
+    x.className = "t-x";
+    x.innerHTML = icon("x");
+    x.setAttribute("aria-label", "关闭这条提示");
+    x.onclick = ev => { ev.stopPropagation(); kill(); };
+    d.appendChild(x);
+    d.onclick = () => showErrDetail(msg);
+  } else {
+    d.onclick = kill;
+  }
+  setTimeout(kill, isErr ? 8000 : 3500);
   return d; // 调用方可以换掉点击的行为（如 mcp.js：点一下打开 AI 助手）
+}
+/* 错误详情的只读对话框：原文可选中，一键复制（做法见 docs/文案重写/00-报错信息.md） */
+function showErrDetail(text) {
+  const root = $("#modal-root");
+  const prev = document.activeElement;
+  root.innerHTML = `<div class="modal-mask enter"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="errd-title">
+    <h3 id="errd-title">报错信息</h3>
+    <div class="m-body"><div class="err-detail" tabindex="0">${esc(String(text || ""))}</div></div>
+    <div class="m-actions"><button class="btn" data-x="copy">复制报错信息</button><button class="btn primary" data-x="close">关闭</button></div>
+  </div></div>`;
+  const mask = root.firstElementChild;
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    document.removeEventListener("keydown", onKey);
+    dismiss(mask);
+    if (prev && prev.focus) prev.focus();
+  };
+  const onKey = e => { if (e.key === "Escape") close(); }; // 同 confirmModal：Esc 关闭
+  document.addEventListener("keydown", onKey);
+  mask.querySelector('[data-x="close"]').onclick = close;
+  mask.querySelector('[data-x="copy"]').onclick = () => copy(String(text || ""), "已复制报错信息");
+  mask.addEventListener("mousedown", e => { if (e.target === e.currentTarget) close(); });
+  mask.querySelector('[data-x="close"]').focus();
 }
 /* 复制到剪贴板：优先 navigator.clipboard；非安全上下文（http 局域网）下其为 undefined，回退 execCommand */
 async function copy(text, okMsg = "已复制") {
@@ -412,7 +458,7 @@ function closeAskModal({ tray = true, running = 0 }) {
   const title = running > 0 ? `有 ${running} 台服务器正在运行` : "有服务器正在运行";
   d.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="close-ask-title">
     <h3 id="close-ask-title"><span>${esc(title)}</span></h3>
-    <div class="m-body">退出 MineDeck 会先停止${running > 1 ? "它们" : "它"}（保存世界）。${tray ? "最小化到托盘则服务器继续运行，点托盘图标即可恢复窗口。" : "托盘图标不可用，这次只能停止服务器并退出。"}</div>
+    <div class="m-body">退出 MineDeck 会先停止${running > 1 ? "它们" : "它"}并保存世界。${tray ? "选择最小化到托盘时，服务器继续运行，点托盘图标恢复窗口。" : "托盘图标不可用，这次只能停止服务器并退出。"}</div>
     ${tray ? `<label class="switch" style="margin-bottom:18px"><input type="checkbox" data-k="remember"><span class="sw"></span>
       <span class="sw-label">以后关闭窗口都最小化到托盘（可在「设置 → 启动与托盘」修改）</span></label>` : ""}
     <div class="m-actions">
@@ -627,7 +673,7 @@ function renderMemoryControl(mount, o) {
     const over = v > availMb;
     let note = "";
     if (over) note = ` <span class="mem-warn">${icon("warn")} 超过当前可用 ${g(availMb)} GB，可能会卡，或者内存分配失败</span>`;
-    else if (v > 16384) note = ` <span class="mem-warn">${icon("warn")} 内存设得太大时，清理内存会让游戏顿一下</span>`;
+    else if (v > 16384) note = ` <span class="mem-warn">${icon("warn")} 分配内存过大可能加剧 Java 垃圾回收（GC）停顿，导致游戏周期性掉帧。</span>`;
     stat.innerHTML = totalMb
       ? `其他程序已用 ${g(usedMb)} GB · 本服分配 <b>${g(v)} GB</b> / 共 ${g(totalMb)} GB · 1 格 = ${cellMb} MB${note}`
       : `本服分配 <b>${g(v)} GB</b>`;
@@ -784,7 +830,7 @@ async function refreshTaskList(slot, gen) {
     const html = list.length ? `<h2>部署与下载任务</h2>` + list.map(t => {
       const state = !t.ended ? (t.label || "进行中") : t.error ? "失败"
         : t.pendingCount ? `已完成，${t.pendingCount} 个文件待处理`
-        : t.warningCount ? "已完成，有提示" : "已完成";
+        : t.warningCount ? `已完成，${t.warningCount} 条提示` : "已完成";
       return `<div class="java-row"><div style="flex:1;min-width:0"><b>${esc(t.title)}</b><div class="sub">${esc(state)}</div></div>
         <a class="btn sm" href="#/task/${encodeURIComponent(t.id)}" aria-label="${t.ended ? (t.pendingCount ? "去处理待决文件" : "查看结果") : "查看进度"} ${esc(t.title)} ${esc(t.id)}">${t.ended ? (t.pendingCount ? "去处理" : "查看结果") : "查看进度"}</a></div>`;
     }).join("") : "";
@@ -793,7 +839,9 @@ async function refreshTaskList(slot, gen) {
   } catch (e) {
     if (!stale(gen) && slot.isConnected && slot._html === undefined) {
       slot.hidden = false;
-      slot.textContent = "暂时无法获取后台任务，稍后自动重试：" + e.message;
+      slot.innerHTML = `暂时无法获取后台任务，稍后自动重试 <button class="btn sm ghost" data-copy-task-err>${icon("copy")} 复制报错信息</button>`;
+      const b = slot.querySelector("[data-copy-task-err]");
+      if (b) b.onclick = () => copy(String((e && e.message) || e), "已复制报错信息");
     }
   } finally { slot._loading = false; }
 }
@@ -876,11 +924,11 @@ function folderItems(info) {
   const isProxy = info.kind === "proxy";
   const hasMods = ["fabric", "forge", "neoforge", "mohist", "banner"].includes(info.core);
   const hasPlugins = ["paper", "purpur", "leaves", "folia", "mohist", "banner", "velocity", "waterfall"].includes(info.core);
-  const dirs = [["", "folder", "实例目录"]];
-  if (hasMods) dirs.push(["mods", "package", "模组 mods"]);
-  if (hasPlugins) dirs.push(["plugins", "plug", "插件 plugins"]);
-  if (!isProxy) dirs.push(["world", "globe", "世界存档"], ["logs", "doc", "日志 logs"], ["crash-reports", "warn", "崩溃报告"]);
-  else dirs.push(["logs", "doc", "日志 logs"]);
+  const dirs = [["", "folder", "服务器文件夹"]];
+  if (hasMods) dirs.push(["mods", "package", "模组"]);
+  if (hasPlugins) dirs.push(["plugins", "plug", "插件"]);
+  if (!isProxy) dirs.push(["world", "globe", "世界存档"], ["logs", "doc", "日志"], ["crash-reports", "warn", "崩溃报告"]);
+  else dirs.push(["logs", "doc", "日志"]);
   return dirs.map(([sub, ic, label]) => ({
     icon: ic, label,
     onClick: () => api(`/api/instances/${encodeURIComponent(info.name)}/opendir${sub ? "?sub=" + encodeURIComponent(sub) : ""}`, { method: "POST" })
@@ -899,7 +947,7 @@ async function deleteInstance(info) {
     body: "已有的世界备份不受影响，仍保存在备份目录中。",
     extra: `<label class="switch" style="margin-bottom:4px"><input type="checkbox" data-k="files"${info.adopted ? "" : " checked"}><span class="sw"></span>
         <span class="sw-label">同时删除服务器文件夹（含世界存档，无法恢复）</span></label>
-      <div class="hint" style="margin:0 0 16px 48px">${info.adopted ? `这台服务器是接管进来的，文件夹是你原来的那个：${esc(info.dir)}<br>` : ""}不勾选就只是移出列表，文件原样留在磁盘上。以后想加回来，用「新建服务器 → 接管已有服务器」选这个文件夹。</div>`,
+      <div class="hint" style="margin:0 0 16px 48px">${info.adopted ? `这台服务器是接管进来的，文件夹是你原来的那个：${esc(info.dir)}<br>` : ""}不勾选时只从列表移出，文件留在磁盘上；以后可以用「新建服务器 → 接管已有服务器」把它加回来。</div>`,
   });
   // 按钮上的字跟着勾选变：不删文件时写「移出列表」，不让人以为点了会删东西
   const box = $("#modal-root input[data-k=files]"), ok = $("#modal-root [data-x=ok]");
@@ -985,7 +1033,7 @@ async function renderInstances() {
   let lastSig = "", curList = [], prevByName = null; // prevByName：上次渲染时各实例的数据（判定状态切换、播切换动效）
   const cardHTML = (i, n, enter, prev) => {
     const proxy = i.kind === "proxy";
-    const gb = (i.xmxMb / 1024).toFixed(1) + "G";
+    const gb = (i.xmxMb / 1024).toFixed(1) + " GB";
     const href = `#/inst/${encodeURIComponent(i.name)}`;
     const changed = prev && prev.status !== i.status;
     const stat = statRow(i), prevStat = changed ? statRow(prev) : "";
@@ -999,8 +1047,8 @@ async function renderInstances() {
     return `
     <div class="card st-${i.status}${enter ? " item-enter" : ""}" style="--i:${n}" data-name="${esc(i.name)}">
       <div class="inst-head">${avatarOf(i.core)}<div class="inst-title"><a class="inst-name" href="${href}">${esc(i.name)}</a><div class="inst-sub">${proxy ? "群组代理" : "游戏服务器"}</div></div>${stPill(i.status)}</div>
-      <div class="badges">${coreBadge(i.core)}<span class="badge">${proxy ? "v" : "MC "}${esc(i.mc)}</span>${proxy ? `<span class="badge">代理端</span>` : ""}</div>
-      <div class="kv inst-config">${proxy ? "" : `<span>端口<b>:${i.port}</b></span>`}<span>内存<b>${gb}</b></span><span>Java<b>${i.javaMajor}</b></span></div>
+      <div class="badges">${coreBadge(i.core)}<span class="badge">${proxy ? "v" : "MC "}${esc(i.mc)}</span></div>
+      <div class="kv inst-config">${proxy ? "" : `<span>端口<b>${i.port}</b></span>`}<span>内存<b>${gb}</b></span><span>Java<b>${i.javaMajor}</b></span></div>
       ${collapse}
       <div class="inst-meta" data-motd="${esc(i.motd || "")}"></div>
       <div class="inst-actions">
@@ -1034,7 +1082,7 @@ async function renderInstances() {
     else if (sort === "running") list = list.slice().sort((a, b) => (b.status === "running") - (a.status === "running"));
     const prev = prevByName;
     prevByName = new Map(curList.map(i => [i.name, i]));
-    if (!list.length) { $("#inst-cards").innerHTML = `<div class="empty" style="padding:40px 0">没有匹配「${esc(q)}」的服务器</div>`; return; }
+    if (!list.length) { $("#inst-cards").innerHTML = `<div class="empty" style="padding:40px 0">没有名称包含「${esc(q)}」的服务器</div>`; return; }
     $("#inst-cards").innerHTML = `<div class="cards">` + list.map((i, n) => cardHTML(i, n, enter, prev && prev.get(i.name))).join("") + `</div>`;
     animateChanges(prev);
     $("#inst-cards").querySelectorAll(".inst-meta").forEach(el => { if (el.dataset.motd) renderMotd(el, el.dataset.motd); });
@@ -1046,7 +1094,7 @@ async function renderInstances() {
         const busy = info.status !== "stopped";
         dropMenu(b, [
           { header: "打开文件夹" }, ...folderItems(info), { sep: true },
-          { icon: "share", label: "交接给其他电脑…", disabled: busy, note: busy ? "需先停止服务器" : "",
+          { icon: "share", label: "导出交接包…", disabled: busy, note: busy ? "需先停止服务器" : "",
             onClick: () => transferExportModal(info) },
           { sep: true },
           { icon: "trash", label: "删除服务器…", danger: true, disabled: busy, note: busy ? "需先停止服务器" : "",
@@ -1070,12 +1118,20 @@ async function renderInstances() {
   const draw = async () => {
     refreshTaskList(taskList, gen);
     let list;
-    try { list = await api("/api/instances"); } catch (e) { if (!stale(gen)) $("#inst-cards").innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+    try { list = await api("/api/instances"); } catch (e) {
+      if (!stale(gen)) {
+        $("#inst-cards").innerHTML = `<div class="err-box">无法获取服务器列表，正在自动重试
+          <div style="margin-top:8px"><button class="btn sm ghost" data-copy-err>${icon("copy")} 复制报错信息</button></div></div>`;
+        const b = $("#inst-cards [data-copy-err]");
+        if (b) b.onclick = () => copy(String((e && e.message) || e), "已复制报错信息");
+      }
+      return;
+    }
     if (stale(gen)) return;
     curList = list;
     const running = list.filter(i => i.status === "running").length;
     const online = list.reduce((s, i) => s + (i.onlineCount || 0), 0);
-    $("#inst-summary").innerHTML = list.length ? `共 ${list.length} 台${SEP}运行中 ${running}${online ? `${SEP}在线 ${online} 人` : ""}` : "";
+    $("#inst-summary").innerHTML = list.length ? `共 ${list.length} 台${SEP}运行中 ${running} 台${online ? `${SEP}在线 ${online} 人` : ""}` : "";
     if (!list.length) {
       $("#inst-chrome").hidden = true; // 没有实例时不显示「服务器」标题与搜索/排序
       $("#inst-cards").classList.add("page-fill");
@@ -1083,9 +1139,9 @@ async function renderInstances() {
       // 主按钮直接进「从零创建」的向导（不替人选核心）；整合包、交接包、接管这三种走次要入口去「新建服务器」页挑
       $("#inst-cards").innerHTML = `<div class="empty${first ? " sec-enter" : ""}">${MDPixel.emptySVG(240)}
         <div class="empty-title">还没有服务器</div>
-        挑一个核心和版本就能开服，Java 和服务端会自动下载、配好。<br>
-        <a class="btn primary" id="empty-new" href="#/create/new">${icon("plus")} 新建服务器</a><br>
-        <a class="quiet-link" href="#/create">手里有整合包、交接包，或者已经开着一台服务器？看看其他方式 →</a></div>`;
+        选择核心与版本后，MineDeck 将自动补全服务端文件及匹配的 Java 运行环境。<br>
+        <a class="btn primary" id="empty-new" href="#/create/new">${icon("plus")} 从零创建</a><br>
+        <a class="quiet-link" href="#/create">导入整合包、导入交接包或接管已有服务器 →</a></div>`;
       lastSig = "empty"; first = false; return;
     }
     $("#inst-chrome").hidden = false;
@@ -1122,21 +1178,21 @@ async function renderCreate(mode) {
   wiz.step = 0; wiz.core = null; wiz.mc = null; wiz.build = null; wiz.root = "";
   if (mode && CREATE_MODES[mode]) { CREATE_MODES[mode](); return; }
   const card = (id, ico, name, desc) => `<div class="core-card" id="mode-${id}" data-mode="${id}" role="button" tabindex="0" aria-label="${name}" aria-describedby="mode-${id}-d"><span class="recipe-ico">${icon(ico)}</span><div><div class="cn">${name}</div><div class="cd" id="mode-${id}-d">${desc}</div></div></div>`;
-  Main().innerHTML = pageHead("新建服务器", "选一种方式开始。", "", "", `四种方式${SEP}Java 与服务端自动下载`) + `
+  Main().innerHTML = pageHead("新建服务器", "选一种方式开始。", "", "", `四种方式`) + `
     <section id="task-list" hidden style="margin-bottom:24px"></section>
     <div class="recipe-groups">
       <div class="core-group">
-        <div class="cg-title">新开一台</div>
+        <div class="cg-title">新建</div>
         <div class="recipe-grid">
-          ${card("new", "plusBox", "从零创建", "自己挑核心和版本，Java 和服务端自动下载")}
-          ${card("import", "package", "导入整合包", "Modrinth 或 CurseForge 的整合包，核心和版本自动识别")}
+          ${card("new", "plusBox", "从零创建", "自选核心与版本；Java 和服务端自动下载。")}
+          ${card("import", "package", "导入整合包", "Modrinth（.mrpack）或 CurseForge（zip）的整合包，核心与版本自动识别。")}
         </div>
       </div>
       <div class="core-group">
-        <div class="cg-title">把现成的搬进来</div>
+        <div class="cg-title">导入与接管</div>
         <div class="recipe-grid">
-          ${card("transfer", "share", "导入交接包", "别人用 MineDeck 导出的 .mdpack，存档、配置和模组都带着，导完就能开")}
-          ${card("adopt", "folder", "接管已有服务器", "以前自己开的服务器，选中它的文件夹就能收进来管理，文件留在原处不动")}
+          ${card("transfer", "share", "导入交接包", "MineDeck 导出的 .mdpack 交接包；存档、配置和模组在包里。")}
+          ${card("adopt", "folder", "接管已有服务器", "接管本机外部服务器：选择目录直接关联，原文件保留在本地路径。")}
         </div>
       </div>
     </div>`;
@@ -1166,12 +1222,12 @@ async function drawAdopt() {
   cores.forEach(c => CORES[c.id] = c);
   const maxMem = Math.max(2048, app.ramMb - 2048);
   let scan = null; // 最近一次识别的结果；改了文件夹没重新识别就不能接管
-  Main().innerHTML = pageHead("接管已有服务器", "以前自己开的服务器，选它所在的文件夹，就能收进 MineDeck 统一管理。文件留在原地，存档、模组、插件和配置都不动。", "",
+  Main().innerHTML = pageHead("接管已有服务器", "接管本机外部服务器：选择服务器所在文件夹即可直接关联。文件留在原地，存档、模组、插件与配置均不改动。", "",
     `<a href="#/create">新建服务器</a>${icon("chevronRight")}<span>接管已有服务器</span>`) + `
     <div class="form-grid">
       <label class="field full"><span>服务器所在的文件夹</span>
         <div class="row" style="gap:8px">
-          <input type="text" id="ad-dir" spellcheck="false" autocomplete="off" style="flex:1" aria-label="服务器所在的文件夹" placeholder="如 D:\\MyServer：里面有服务端的 jar，或者 libraries 文件夹">
+          <input type="text" id="ad-dir" spellcheck="false" autocomplete="off" style="flex:1" aria-label="服务器所在的文件夹" placeholder="如 D:\\MyServer（包含服务端核心或启动文件的目录）">
           <button type="button" class="btn" id="ad-browse">${icon("folder")} 浏览…</button>
           <button type="button" class="btn primary" id="ad-scan">${icon("search")} 识别</button>
         </div>
@@ -1209,7 +1265,7 @@ async function drawAdopt() {
         <label class="field full"><span>Java</span><select id="ad-java" aria-label="Java">
           <option value="0">自动：按 Minecraft 版本选，本机没有就下载</option>
           ${majors.map(m => `<option value="${m}">Java ${m}（${known.has(m) ? "本机已有" : "要下载，约 50 MB"}）</option>`).join("")}</select>
-          <div class="hint">一般选「自动」。整合包说明里写了要用哪个 Java 的，就按它说的选。接管后也能在「内存 / 启动」里换。</div></label>
+          <div class="hint">通常选「自动」。整合包说明里指定了 Java 版本的，按它选；接管后也能在「内存 / 启动」里换。</div></label>
       </div>
       <div class="eula-box" id="ad-eula-box" hidden>
         <label class="switch"><input type="checkbox" id="ad-eula"><span class="sw"></span>
@@ -1217,13 +1273,13 @@ async function drawAdopt() {
         <div class="field-err" id="ad-eula-err"></div>
       </div>
       <div class="hint w-read" id="ad-what" style="margin-bottom:16px;line-height:1.8">
-        ${s.managed ? "这个文件夹以前由 MineDeck 管过，原来的名称、内存、定时任务会带回来。<br>" : ""}
+        ${s.managed ? "该文件夹曾由 MineDeck 管理，原有的名称、内存和定时任务配置会自动恢复。<br>" : ""}
         接管时 MineDeck 只在这个文件夹里写自己的 <code>instance.json</code> 和启动脚本 <code>run.bat</code>。原来就有 <code>run.bat</code> 的，先另存为 <code>run.before-minedeck.bat</code>。别的文件都不动。<br>
-        原来的服务器还开着的话，请先把它关掉再接管，不然启动时端口会冲突。
+        接管前需先停止原来的服务器，否则启动时端口会冲突。
         <span id="ad-noworld" hidden><br>${icon("info")} 这个文件夹里没看到存档（world），启动后会生成一个新世界。存档放在别处的话，先确认选对了文件夹。</span>
       </div>`;
     renderMemoryControl($("#ad-mem-mount"), { sliderId: "ad-mem", min: 1024, max: Math.max(maxMem, 1024), value: Math.min(Math.max(s.xmxMb || 4096, 1024), maxMem), totalMb: app.ramMb, availMb: app.availRamMb,
-      hint: s.xmxMb ? `原来的启动脚本里分的是 ${(s.xmxMb / 1024).toFixed(1)} GB，已经照着填好` : "模组服建议 4GB 以上。没有模组的小队，2~4GB 足够。" });
+      hint: s.xmxMb ? `原启动脚本里分配的是 ${(s.xmxMb / 1024).toFixed(1)} GB，已按它填好` : "推荐分配：模组服 4 GB 以上；无模组的小型服务器 2~4 GB。" });
     // 代理端没有 EULA，版本是它自己的版本；已经同意过 EULA 的不用再勾
     const paintKind = () => {
       const proxy = isProxyCore($("#ad-core").value);
@@ -1269,7 +1325,7 @@ async function drawAdopt() {
     const core = $("#ad-core").value, proxy = isProxyCore(core);
     const okName = fieldErr($("#ad-name"), "#ad-name-err", $("#ad-name").value.trim() ? "" : "请给服务器起个名字");
     const okCore = fieldErr($("#ad-core"), "#ad-core-err", core ? "" : "请选一个最接近的类型：插件服选 Paper，模组服按加载器选");
-    const okMC = fieldErr($("#ad-mc"), "#ad-mc-err", $("#ad-mc").value.trim() ? "" : proxy ? "请填代理端的版本，不确定可以填 1" : "请填 Minecraft 版本，如 1.20.1");
+    const okMC = fieldErr($("#ad-mc"), "#ad-mc-err", $("#ad-mc").value.trim() ? "" : proxy ? "请填代理端的版本号" : "请填 Minecraft 版本，如 1.20.1");
     const needEula = !proxy && !scan.eula;
     const okEula = !needEula || $("#ad-eula").checked;
     if (needEula) { $("#ad-eula-box").classList.toggle("invalid", !okEula); $("#ad-eula-err").innerHTML = okEula ? "" : icon("warn") + " 开服前需要同意 Minecraft EULA"; }
@@ -1305,11 +1361,11 @@ async function drawImport() {
   const maxMem = Math.max(2048, app.ramMb - 2048);
   const defMem = Math.min(6144, maxMem);
   let imRoot = "";
-  Main().innerHTML = pageHead("导入整合包", "支持 Modrinth (.mrpack) 与 CurseForge (zip)。核心、MC 版本与加载器将从整合包自动识别。", "",
+  Main().innerHTML = pageHead("导入整合包", "Modrinth（.mrpack）或 CurseForge（zip）整合包；核心、Minecraft 版本与加载器自动识别。", "",
     `<a href="#/create">新建服务器</a>${icon("chevronRight")}<span>导入整合包</span>`) + `
     <div class="form-grid">
       <label class="field full"><span>整合包文件</span><input type="file" id="im-file" accept=".mrpack,.zip"><div class="field-err" id="im-file-err"></div></label>
-      <label class="field"><span>实例名称</span><input type="text" id="im-name" value="我的整合包服务器" maxlength="40"></label>
+      <label class="field"><span>名称</span><input type="text" id="im-name" value="我的整合包服务器" maxlength="40"></label>
       <label class="field"><span>端口</span><input type="number" id="im-port" value="25565" min="1" max="65535"></label>
       <div class="field full" id="im-mem-mount"></div>
       <label class="field full"><span>存放位置</span>
@@ -1319,16 +1375,16 @@ async function drawImport() {
         </div></label>
       <label class="field full"><span>本地来源目录（可选）</span>
         <div class="row" style="gap:8px">
-          <input type="text" id="im-src" style="flex:1" placeholder="还留着的老服务器目录，魔改模组按原样保留会用到" aria-label="本地来源目录">
+          <input type="text" id="im-src" style="flex:1" placeholder="整合包配套的服务器文件夹（可选）" aria-label="本地来源目录">
           <button type="button" class="btn" id="im-src-browse" aria-label="浏览本地来源目录">${icon("folder")} 浏览…</button>
         </div>
-        <div class="hint" style="margin-top:6px">没法自动下载的文件（魔改模组的自定义直链、缺校验值等），只要这个目录里已有对应文件，就按原样保留、不再要求线上匹配；也可以导入后在任务面板里逐个处理。</div></label>
+        <div class="hint" style="margin-top:6px">优先使用此目录下的同名文件补全缺失项（跳过线上校验）；未命中的文件可在导入后前往任务面板手动处理。</div></label>
       <div class="field"><label class="switch"><input type="checkbox" id="im-online"><span class="sw"></span>
         <span><span class="sw-label">正版验证</span><div class="sw-desc">默认关闭</div></span></label></div>
       <div class="field"><label class="switch"><input type="checkbox" id="im-flight" checked><span class="sw"></span>
-        <span><span class="sw-label">允许飞行</span><div class="sw-desc">整合包强烈建议开启</div></span></label></div>
+        <span><span class="sw-label">允许飞行</span><div class="sw-desc">整合包建议开启</div></span></label></div>
     </div>
-    ${app.cfKeySet ? "" : `<div class="hint" style="margin-bottom:10px">提示：CurseForge 格式整合包下载模组需要 API Key（<a href="https://console.curseforge.com/" target="_blank">免费申请</a>后在「设置 → 下载与网络」填写）。Modrinth 格式不用填。</div>`}
+    ${app.cfKeySet ? "" : `<div class="hint" style="margin-bottom:10px">解析 CurseForge 整合包需配置 API Key。可先前往 <a href="https://console.curseforge.com/" target="_blank">免费申请</a>，并在「设置 → 下载与网络」中完成绑定。（Modrinth 整合包不受此限制）</div>`}
     <div class="eula-box">
       <label class="switch"><input type="checkbox" id="im-eula"><span class="sw"></span>
         <span class="sw-label">我已阅读并同意 <a href="https://aka.ms/MinecraftEULA" target="_blank">Minecraft EULA</a></span></label>
@@ -1336,7 +1392,7 @@ async function drawImport() {
     </div>
     ${wizFoot("im-back", "返回", `<button class="btn primary" id="im-go">${icon("bolt")} 导入并部署</button>`)}`;
   $("#im-back").onclick = goCreateHome;
-  renderMemoryControl($("#im-mem-mount"), { sliderId: "im-mem", min: 2048, max: maxMem, value: defMem, totalMb: app.ramMb, availMb: app.availRamMb, hint: "整合包服建议 6GB 以上" });
+  renderMemoryControl($("#im-mem-mount"), { sliderId: "im-mem", min: 2048, max: maxMem, value: defMem, totalMb: app.ramMb, availMb: app.availRamMb, hint: "推荐分配 6 GB 以上" });
   const imUpdateRoot = () => { $("#im-root").value = imRoot || app.serversRoot || "程序目录\\servers"; };
   imUpdateRoot();
   $("#im-browse").onclick = async () => {
@@ -1355,7 +1411,7 @@ async function drawImport() {
   $("#im-go").onclick = async () => {
     const f = $("#im-file").files[0];
     if (!f) { fileErr("请先选择整合包文件（.mrpack 或 .zip）"); $("#im-file").focus(); return; }
-    if (f.size > 4 * 1024 ** 3) { fileErr(`这个整合包有 ${(f.size / 1024 ** 3).toFixed(2)} GB，超过了 4 GB 的上限，导不进来。`); $("#im-file").focus(); return; }
+    if (f.size > 4 * 1024 ** 3) { fileErr(`该整合包大小（${(f.size / 1024 ** 3).toFixed(2)} GB）超过 4 GB 导入上限。若这是完整服务端压缩包而非标准整合包，请先解压至本地文件夹，再通过「新建服务器 → 接管已有服务器」导入。`); $("#im-file").focus(); return; }
     if (!$("#im-eula").checked) { eulaErr("导入前需要同意 Minecraft EULA"); $("#im-eula").focus(); return; }
     $("#im-go").disabled = true;
     $("#im-go").textContent = "上传中…";
@@ -1374,7 +1430,7 @@ async function drawImport() {
       const j = await res.json();
       if (!j.ok) throw new Error(j.error || "导入失败");
       const pending = (j.data.pack.pending || 0) > 0 ? `，${j.data.pack.pending} 个文件待处理` : "";
-      toast(`已识别：${j.data.pack.core} ${j.data.pack.mc}（${j.data.pack.files} 个文件${pending}）` + (pending ? "，完成后再逐个处理" : ""));
+      toast(`已识别 ${j.data.pack.core} ${j.data.pack.mc}（${j.data.pack.files} 个组件）` + (pending ? "；其中" + j.data.pack.pending + " 项待处理，导入后到任务页逐个处理" : ""));
       if (!stale(gen)) location.hash = `#/task/${j.data.taskId}`;
     } catch (e) {
       toast(e.message, true);
@@ -1396,29 +1452,26 @@ function transferExportModal(info) {
   d.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="tr-title">
     <h3 id="tr-title">交接「${esc(info.name)}」</h3>
     <div class="m-body">
-      把这台服务器打包成一个 .mdpack 文件，发给接手的人（微信 / 网盘都行）。对方在「新建服务器」页选「导入交接包」，
-      存档、配置、模组和白名单全保留，装完直接能启动。
+      将服务器打包为 .mdpack 文件发给接手的人，对方通过「新建服务器 → 导入交接包」即可导入：存档、配置、模组和白名单都在包里。
       <div class="warn-card" style="margin-top:12px">
         <div class="wc-title">${icon("warn")} 含玩家数据</div>
-        <div class="wc-note">包里有玩家的存档（playerdata）、白名单和 OP 名单。请先征得服务器成员的同意再交接。
-          日志（logs）不会打进包，但它可能留有玩家 IP，必要时先在服务器目录里处理好。
-          配置文件里写着的密码也会原样交出去，比如 server.properties 里的 RCON 密码、插件配置里的数据库密码和机器人令牌：在别处也用着的，先改掉再交接。</div>
+        <div class="wc-note">包内含玩家存档、白名单和 OP 名单（不包含运行日志）。注意：配置文件中的密码会原样打包（如 server.properties 的 RCON 密码、插件配置中的数据库密码与机器人令牌），在别处复用的密码请先修改后再交接。</div>
       </div>
       <div class="field" style="margin-top:12px" role="radiogroup" aria-label="这个包给谁"><span>这个包给谁</span>
-        <label class="ob-radio"><input type="radio" name="tr-mode" value="handover" checked><span>交给下一任服主，由他接着开</span></label>
-        <label class="ob-radio"><input type="radio" name="tr-mode" value="distributable"><span>发给朋友，让他照着开一台</span></label>
+        <label class="ob-radio"><input type="radio" name="tr-mode" value="handover" checked><span>交给下一任服主</span></label>
+        <label class="ob-radio"><input type="radio" name="tr-mode" value="distributable"><span>发给朋友，照着开一台</span></label>
         <div class="hint">包里的东西一样，只是对方导入时看到的说法不同。</div>
       </div>
       <label class="switch" style="margin-top:12px"><input type="checkbox" id="tr-full"><span class="sw"></span>
         <span><span class="sw-label">完整模式</span><div class="sw-desc">把服务端核心也一起打包；不勾则对方导入时自动重新下载（包更小）</div></span></label>
       <label class="field" style="margin-top:12px"><span>导出到哪个文件夹</span>
         <div class="row" style="gap:8px">
-          <input type="text" id="tr-dest" spellcheck="false" autocomplete="off" style="flex:1" aria-label="导出文件夹" placeholder="默认：数据目录 \\ cache \\ transfer">
+          <input type="text" id="tr-dest" spellcheck="false" autocomplete="off" style="flex:1" aria-label="导出文件夹" placeholder="默认：程序数据文件夹 \\ cache \\ transfer">
           <button type="button" class="btn" id="tr-browse">${icon("folder")} 浏览…</button>
         </div>
         <div class="field-err" id="tr-dest-err"></div>
       </label>
-      <div class="hint" style="margin-top:6px">世界存档大的话包会有几个 GB，打包进度在任务页看，中断了随时可以重来。</div>
+      <div class="hint" style="margin-top:6px">世界存档较大时交接包可能达数 GB；可在任务页查看打包进度，中断后可重新导出。</div>
     </div>
     <div class="m-actions">
       <button class="btn" id="tr-cancel">取消</button>
@@ -1463,11 +1516,11 @@ async function drawTransfer() {
   if (stale(gen)) return;
   const maxMem = Math.max(2048, app.ramMb - 2048);
   let trapRoot = "", pack = null, packFile = ""; // pack：上传后拿到的摘要；packFile：后端缓存里的包路径
-  Main().innerHTML = pageHead("导入交接包", "别人用 MineDeck 导出的 .mdpack 交接包：存档、配置、模组全保留，装完直接能启动。", "",
+  Main().innerHTML = pageHead("导入交接包", "MineDeck 导出的 .mdpack 交接包；存档、配置和模组都在包里，导入后可以启动。", "",
     `<a href="#/create">新建服务器</a>${icon("chevronRight")}<span>导入交接包</span>`) + `
     <div class="form-grid">
       <label class="field full"><span>交接包文件（.mdpack）</span><input type="file" id="tp-file" accept=".mdpack,.zip">
-        <div class="hint">交接包动辄几个 GB：上传要等一会儿，进度看按钮上的字。被改过扩展名的包选「所有文件」再选。</div>
+        <div class="hint">交接包通常有几个 GB，上传需要等待，进度显示在按钮上。扩展名被改过的包，选文件时切到「所有文件」。</div>
         <div class="field-err" id="tp-file-err"></div></label>
     </div>
     <div id="tp-form"></div>
@@ -1487,7 +1540,7 @@ async function drawTransfer() {
     if (!f) { fileErr("请先选择交接包文件（.mdpack）"); $("#tp-file").focus(); return; }
     // 上限是 8 GB（后端同一个数）。超了就不传：几个 GB 传完才被拒，等了半天只得到一句报错
     if (f.size > 8 * 1024 ** 3) {
-      fileErr(`这个交接包有 ${(f.size / 1024 ** 3).toFixed(2)} GB，超过了 8 GB 的上限，导不进来。存档这么大的服务器，把整个服务器文件夹拷到这台电脑上，再回「新建服务器」页选「接管已有服务器」。`);
+      fileErr(`该交接包大小（${(f.size / 1024 ** 3).toFixed(2)} GB）超过 8 GB 导入上限。大体积服务器请直接将文件夹复制到本机，再通过「新建服务器 → 接管已有服务器」导入。`);
       return;
     }
     $("#tp-form").innerHTML = `<div class="sub" style="margin:8px 0 16px">上传中…</div>`;
@@ -1515,37 +1568,37 @@ async function drawTransfer() {
       <div class="group" style="margin:16px 0">
         <div class="wc-title" style="padding:14px 16px 4px">${icon("info")} 这个包里是什么</div>
         <div class="kv" style="padding:6px 16px 14px;margin-top:4px">
-          <span>原来叫</span><b>${esc(s.name)}</b>
-          <span>这个包是</span><b>${s.mode === "distributable" ? "对方发给朋友的一份（照着开一台）" : "服主交接（整台交给你接着开）"}</b>
+          <span>原名称</span><b>${esc(s.name)}</b>
+          <span>包用途</span><b>${s.mode === "distributable" ? "发给朋友，照着开一台" : "服主交接（整台交给你）"}</b>
           <span>核心</span><b>${esc(coreName(s.core))} ${esc(s.mc)}${s.build ? `（构建 ${esc(s.build)}）` : ""}</b>
           <span>世界大小</span><b>${fmtBytes(s.worldBytes) || "0 B"}</b>
-          <span>模组 / 插件</span><b>${s.mods} 个模组${s.plugins ? ` / ${s.plugins} 个插件` : ""}</b>
-          <span>内存</span><b>${(s.xmxMb / 1024).toFixed(1)} GB（照原样填好）</b>
-          <span>JAVA</span><b>Java ${s.javaMajor || "按版本自动选"}</b>
+          <span>模组与插件</span><b>${s.mods} 个模组${s.plugins ? ` / ${s.plugins} 个插件` : ""}</b>
+          <span>内存</span><b>${(s.xmxMb / 1024).toFixed(1)} GB（原服务器的分配）</b>
+          <span>Java</span><b>Java ${s.javaMajor || "按版本自动选"}</b>
           <span>导出自</span><b>MineDeck ${esc(s.minedeckVersion || "")}，${esc(s.exportedAt || "")}</b>
         </div>
       </div>
       <div class="warn-card" id="tp-trust" style="margin:0 0 16px">
         <div class="wc-title">${icon("warn")} 导入前请确认来源</div>
-        <div class="wc-note">交接包里的模组、插件${s.full ? "和服务端核心" : ""}是对方电脑上带过来的程序，启动服务器时会在你的电脑上运行。只导入你信得过的人给的包。
-          原来的 JVM 参数和定时任务不会带过来，导入完成后的日志里会列出来，需要的话自己再加。${s.full ? "这个包带着核心：核心自己的启动参数文件也是包里的那份。" : ""}</div>
+        <div class="wc-note">包里的模组、插件${s.full ? "和服务端核心" : ""}是对方电脑上的程序，启动服务器时会在你的电脑上运行。只导入信得过的人给的包。</div>
       </div>
+      <div class="hint" style="margin:0 0 16px">原来的 JVM 参数和定时任务不会带过来，导入完成后的日志里会列出；包里有核心时，核心的启动参数也是包里的那份。</div>
       <div class="form-grid">
-        <label class="field"><span>接手后的名称</span><input type="text" id="tp-name" maxlength="40" value="${esc(s.name)}"><div class="field-err" id="tp-name-err"></div></label>
-        <label class="field"><span>端口（默认沿用包里的 ${s.port || 25565}）</span>
+        <label class="field"><span>名称</span><input type="text" id="tp-name" maxlength="40" value="${esc(s.name)}"><div class="field-err" id="tp-name-err"></div></label>
+        <label class="field"><span>端口</span>
           <input type="number" id="tp-port" value="${s.port || 25565}" min="1" max="65535">
           <div class="field-err" id="tp-port-err"></div></label>
         <div class="field full" id="tp-mem-mount"></div>
         <label class="field full"><span>Java</span><select id="tp-java" aria-label="Java">
           <option value="0">${s.javaMajor ? `跟原来一样：Java ${s.javaMajor}` : "自动：按 Minecraft 版本选"}（本机没有就下载）</option>
           ${JAVA_DOWNLOADABLE.filter(m => m !== s.javaMajor).map(m => `<option value="${m}">Java ${m}</option>`).join("")}</select>
-          <div class="hint">一般不用改。原来那台用的 Java 通常就是对的；导入后也能在「内存 / 启动」里换。</div></label>
+          <div class="hint">通常不用改；导入后也能在「内存 / 启动」里换。</div></label>
         <label class="field full"><span>存放位置</span>
           <div class="row" style="gap:8px">
             <input type="text" id="tp-root" readonly style="flex:1;cursor:default;background:var(--surface-2)" aria-label="存放位置">
             <button type="button" class="btn" id="tp-browse">${icon("folder")} 浏览…</button>
           </div>
-          <div class="hint">存放位置 ${s.full ? "· 完整模式（包里带核心，导入不再下载）" : "· 瘦身包（导入时自动下载核心）"}</div></label>
+          <div class="hint">${s.full ? "完整模式：包里有核心，导入时不再下载。" : "瘦身包：导入时下载核心。"}</div></label>
       </div>
       <div class="eula-box">
         <label class="switch"><input type="checkbox" id="tp-eula"><span class="sw"></span>
@@ -1554,7 +1607,7 @@ async function drawTransfer() {
         <div class="field-err" id="tp-eula-err"></div>
       </div>`;
     renderMemoryControl($("#tp-mem-mount"), { sliderId: "tp-mem", min: 2048, max: maxMem, value: mem, totalMb: app.ramMb, availMb: app.availRamMb,
-      hint: `${(s.xmxMb / 1024).toFixed(1)} GB 是原来的分配，可以照用或调整` });
+      hint: `${(s.xmxMb / 1024).toFixed(1)} GB 是原来的分配，可沿用或调整` });
     const trUpdateRoot = () => { $("#tp-root").value = trapRoot || app.serversRoot || "程序目录\\servers"; };
     trUpdateRoot();
     $("#tp-browse").onclick = async () => {
@@ -1568,7 +1621,7 @@ async function drawTransfer() {
     let portCheck = 0;
     $("#tp-port").addEventListener("input", async () => {
       const v = +$("#tp-port").value;
-      if (!(v >= 1 && v <= 65535)) { portErr("端口要在 1~65535 之间"); return; }
+      if (!(v >= 1 && v <= 65535)) { portErr("端口需为 1 ~ 65535 的整数"); return; }
       if (v === (pack.port || 25565)) { portErr(""); return; }
       const my = ++portCheck;
       try {
@@ -1620,8 +1673,8 @@ async function drawTransfer() {
 /* 「选模组」那一步的名字跟着核心走：插件端（Paper 一系、代理端）装的是插件，叫「选插件」 */
 const wizModNoun = () => window.MDModCart ? MDModCart.nounOf(wiz.core) : "模组";
 const wizSteps = () => wiz.core === "vanilla"
-  ? ["选择核心", "选择版本", "选择构建", "基本设置"]
-  : ["选择核心", "选择版本", "选择构建", "选" + wizModNoun(), "基本设置"];
+  ? ["选核心", "选版本", "选构建", "基本设置"]
+  : ["选核心", "选版本", "选构建", "选" + wizModNoun(), "基本设置"];
 function wizardShell(inner) {
   const names = wizSteps();
   // 步骤条：方块序号 + 像素虚线；已完成打勾且可点回，当前步实底，未到达描边；眉标写明第几步
@@ -1766,7 +1819,7 @@ async function drawWizard() {
         paintWizSum();
         drawList();
         $("#ver-list .ver-item.sel")?.scrollIntoView({ block: "nearest" });
-      } catch (e) { if (!outdated()) $("#ver-list").innerHTML = `<div class="err-box">${esc(e.message)}<br>可在「设置 → 下载与网络」切换下载源后重试。</div>`; }
+      } catch (e) { if (!outdated()) $("#ver-list").innerHTML = `<div class="err-box">无法获取版本清单。<br>可在「设置 → 下载与网络」换一个下载源后重试。</div>`; }
     };
     $("#ver-search").oninput = drawList;
     // 委托在列表容器上（drawList 每次重建条目）：单击后刷新底栏回显，双击 = 选中并下一步
@@ -1835,7 +1888,7 @@ async function drawWizard() {
     const defMem = isProxy ? 1024 : Math.min(4096, maxMem);
     wizardShell(`
       <div class="form-grid">
-        <label class="field"><span>实例名称</span><input type="text" id="f-name" value="我的${coreName(wiz.core)}服务器" maxlength="40"><div class="field-err" id="f-name-err"></div></label>
+        <label class="field"><span>名称</span><input type="text" id="f-name" value="我的${coreName(wiz.core)}服务器" maxlength="40"><div class="field-err" id="f-name-err"></div></label>
         ${isProxy ? "" : `<label class="field"><span>端口（默认 25565）</span><input type="number" id="f-port" value="25565" min="1" max="65535"><div class="field-err" id="f-port-err"></div></label>`}
         <div class="field full" id="mem-mount"></div>
         <label class="field full"><span>存放位置</span>
@@ -1846,17 +1899,17 @@ async function drawWizard() {
           <div class="hint" id="f-path"></div>
         </label>
         ${isProxy ? "" : `
-        <label class="field full"><span>服务器介绍 MOTD（支持中文与 § 色码）</span><input type="text" id="f-motd" value="MineDeck 开服 · 一起来玩"></label>
+        <label class="field full"><span>服务器介绍（MOTD）</span><input type="text" id="f-motd" value="MineDeck 开服 · 一起来玩"></label>
         <div class="field"><label class="switch"><input type="checkbox" id="f-online"><span class="sw"></span>
           <span><span class="sw-label">正版验证（online-mode）</span><div class="sw-desc">默认关闭：离线账户可直接进服</div></span></label></div>
         <div class="field"><label class="switch"><input type="checkbox" id="f-flight" checked><span class="sw"></span>
           <span><span class="sw-label">允许飞行（allow-flight）</span><div class="sw-desc">默认开启：防止模组移动被误踢</div></span></label></div>
         <label class="field"><span>游戏难度</span><select id="f-diff"><option value="peaceful">和平</option><option value="easy" selected>简单</option><option value="normal">普通</option><option value="hard">困难</option></select></label>
         <label class="field"><span>默认游戏模式</span><select id="f-mode"><option value="survival" selected>生存</option><option value="creative">创造</option><option value="adventure">冒险</option><option value="spectator">旁观</option></select></label>
-        <div class="hint" style="grid-column:1/-1">更多几十项设置（PVP、视距、白名单、命令方块…）可在创建后的「常用设置」中按分组修改。</div>`}
+        <div class="hint" style="grid-column:1/-1">PVP、视距、白名单等高级参数，可在服务器创建后随时调整。</div>`}
       </div>
       ${isProxy
-        ? `<div class="eula-box">代理端不跑 Minecraft 游戏本身，不用同意 EULA。端口这些，等第一次启动之后，在这台服务器目录里的配置文件改。</div>`
+        ? `<div class="eula-box">代理端无需签署 Mojang EULA。监听端口及转发规则将在首次启动生成配置文件后开放配置。</div>`
         : `<div class="eula-box">
         <label class="switch"><input type="checkbox" id="f-eula"><span class="sw"></span>
           <span class="sw-label">我已阅读并同意 <a href="https://aka.ms/MinecraftEULA" target="_blank">Minecraft 最终用户许可协议 (EULA)</a></span></label>
@@ -1887,13 +1940,13 @@ async function drawWizard() {
       $("#f-port").addEventListener("input", () => { if ($("#f-port").classList.contains("invalid")) checkPort(); });
       $("#f-eula").addEventListener("change", () => { if ($(".eula-box").classList.contains("invalid")) checkEula(); });
     }
-    renderMemoryControl($("#mem-mount"), { sliderId: "f-mem", min: 512, max: maxMem, value: defMem, totalMb: app.ramMb, availMb: app.availRamMb, hint: isProxy ? "代理端很省内存，1GB 通常足够" : "模组服建议 4GB 以上。没有模组的小队，2~4GB 足够。" });
+    renderMemoryControl($("#mem-mount"), { sliderId: "f-mem", min: 512, max: maxMem, value: defMem, totalMb: app.ramMb, availMb: app.availRamMb, hint: isProxy ? "推荐 1 GB；代理端只做转发，占用很低" : "推荐分配：模组服 4 GB 以上；无模组的小型服务器 2~4 GB。" });
     // 存放位置：目标路径跟随实例名，可浏览改到其它盘（中文名会自动生成英文目录）
     const clientSlug = s => { let o = ""; for (const c of (s || "")) { if (/[0-9A-Za-z_-]/.test(c)) o += c; else if (c === " " || c === ".") o += "-"; } o = o.replace(/^[-_]+|[-_]+$/g, ""); return o || "server-（自动）"; };
     const curRoot = () => wiz.root || app.serversRoot || "程序目录\\servers";
     const updateRoot = () => {
       $("#f-root").value = curRoot();
-      $("#f-path").innerHTML = `将创建于：<b>${esc(curRoot())}\\${esc(clientSlug($("#f-name").value.trim()))}</b>${wiz.root ? "" : "（可点「浏览」改到其它盘）"}`;
+      $("#f-path").innerHTML = `将创建于：<b>${esc(curRoot())}\\${esc(clientSlug($("#f-name").value.trim()))}</b>${wiz.root ? "" : "（可点「浏览」改到其他盘）"}`;
     };
     $("#f-name").oninput = updateRoot;
     $("#f-browse").onclick = async () => {
@@ -1977,7 +2030,7 @@ async function drawWizard() {
 /* ---------- 视图：创建任务进度 ---------- */
 /* 后台任务不止「部署」一种（后端 tasks.Snapshot.kind）：接管已有服务器、换 Java 也走这一页，说法跟着换 */
 const TASK_KINDS = {
-  "": { title: "正在部署服务器", sub: "正在下载 Java 和服务端。这一步不用再改配置。", done: "部署完成", doneSub: "Java、服务端与配置均已就绪",
+  "": { title: "正在部署服务器", sub: "正在下载 Java 和服务端。", done: "部署完成", doneSub: "Java、服务端与配置均已就绪",
     ok: "服务器创建成功", fail: "创建失败", failHint: "可返回重试（已下载的文件有缓存，重试很快）。", busy: "部署中，请勿关闭程序…",
     go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/create", backText: "返回重试" },
   adopt: { title: "正在接管服务器", sub: "正在检查文件夹、准备 Java。存档和配置不会动。", done: "接管完成", doneSub: "已经收进 MineDeck，可以在这里启动和管理了",
@@ -1998,7 +2051,7 @@ const TASK_KINDS = {
 };
 async function renderTaskPage(taskId) {
   const gen = viewGen;
-  Main().innerHTML = pageHead("正在部署服务器", "正在下载 Java 和服务端。这一步不用再改配置。", "", "", "", "task-eyebrow") + `
+  Main().innerHTML = pageHead("正在部署服务器", "正在下载 Java 和服务端。", "", "", "", "task-eyebrow") + `
     <div id="t-fetch-error" class="err-box" role="status" hidden></div>
     <div id="task-box"><div class="sub">加载中…</div></div>`;
   // 骨架只建一次，之后每轮轮询只改变化的部分：新完成的步骤对勾弹出，经验条只点亮新增的格子（逐格错峰），不整块重绘重播
@@ -2039,7 +2092,7 @@ async function renderTaskPage(taskId) {
           <div class="progress-text" id="t-sub"></div>
         </div>
         <div class="warn-card task-slow" id="t-slow" role="status" hidden><div class="wc-title">${icon("clock")} <span id="t-slow-title"></span></div>
-          <div class="wc-note">下载慢，或者在重试：可以检查网络或代理。在重试的话，网络恢复后会自己接着下，不用重新部署。</div></div>
+          <div class="wc-note">下载慢或在重试。可以检查网络或代理；网络恢复后会自动接着下载，不需要重新部署。</div></div>
         <div id="t-msgs"></div>
         <div id="t-pending-out"></div>
         <div id="t-pending"></div>
@@ -2086,7 +2139,8 @@ async function renderTaskPage(taskId) {
       $("#t-sub").textContent = success ? K.doneSub : `${fmtBytes(t.done) || "0 B"}${t.total > 0 ? " / " + fmtBytes(t.total) : ""}`;
       if (success) playClass(prog.querySelector(".xp"), "flash");
     }
-    $("#t-msgs").innerHTML = (t.error ? `<div class="err-box"><b>${K.fail}：</b>${esc(t.error)}<br><br>${K.failHint}</div>` : "") +
+    $("#t-msgs").innerHTML = (t.error ? `<div class="err-box"><b>${K.fail}：</b>${esc(t.error)}<br><br>${K.failHint}
+        <div style="margin-top:8px"><button class="btn sm ghost" data-copy-task-fail>复制报错信息</button></div></div>` : "") +
       (t.warnings || []).map(w => `<div class="warn-card">
         <div class="wc-title">${icon("warn")} ${esc(w.title)}</div>
         ${w.note ? `<div class="wc-note">${esc(w.note)}</div>` : ""}
@@ -2094,6 +2148,8 @@ async function renderTaskPage(taskId) {
           `<li>${/^https?:\/\//i.test(it.url || "") ? `<a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.name)}</a>` : esc(it.name)}</li>`).join("")}</ul>` : ""}
         ${w.kind === "java-req" && t.result ? `<div class="wc-note"><a class="btn sm" href="#/inst/${encodeURIComponent(t.result)}/jvm">去「内存 / 启动」换 Java</a></div>` : ""}
       </div>`).join("");
+    const cpf = body.querySelector("[data-copy-task-fail]");
+    if (cpf) cpf.onclick = () => copy(String(t.error || ""), "已复制报错信息");
     drawPending(t.pending || []);
     const lg = $("#task-log"), text = (t.log || []).join("\n");
     if (lg.textContent !== text) { lg.textContent = text; lg.scrollTop = lg.scrollHeight; }
@@ -2106,7 +2162,7 @@ async function renderTaskPage(taskId) {
     slowEl.hidden = t.ended || !(net || idle >= STALL_MS);
     if (!slowEl.hidden) {
       const sec = Math.floor(idle / 1000);
-      const title = net ? `${net.host ? net.host + " " : ""}${net.what}，已经 ${net.count} 次`
+      const title = net ? `${net.host ? net.host + " " : ""}${net.what}，已重试 ${net.count} 次`
         : `已经 ${sec < 10 ? sec + " 秒" : sec < 60 ? Math.floor(sec / 10) * 10 + " 多秒" : Math.floor(sec / 60) + " 分多钟"}没有新进度`;
       if ($("#t-slow-title").textContent !== title) $("#t-slow-title").textContent = title;
     }
@@ -2137,7 +2193,7 @@ async function renderTaskPage(taskId) {
     hadPending = true;
     box.innerHTML = `<div class="warn-card">
       <div class="wc-title">${icon("warn")} 待决文件（${pendingItems.length} 个）</div>
-      <div class="wc-note">这些都是没法自动下载的文件（魔改模组的自定义直链、缺失校验值、下载内容对不上、CurseForge 解析不到）。逐个选一种处理方式后应用；没选的先留着。</div>
+      <div class="wc-note">以下文件因校验失败、链接失效或平台限制无法自动获取。请为待处理项选择操作方式后点「应用所选的处理」；未选项将暂不处理。</div>
       ${pendingItems.map(it => `
       <div class="pnd-item" data-id="${esc(it.id)}" style="border-top:1px solid var(--line);margin-top:10px;padding-top:10px">
         <div><b>${esc(it.path)}</b>${it.host ? ` <span class="badge">${esc(it.host)}</span>` : ""}</div>
@@ -2147,13 +2203,13 @@ async function renderTaskPage(taskId) {
           ${(it.options || ["skip", "local"]).filter(o => PND_ACT[o]).map(o =>
             `<label style="display:inline-flex;gap:5px;align-items:center;margin-right:14px"><input type="radio" name="pnd-${esc(it.id)}" value="${o}"><span>${PND_ACT[o]}</span></label>`).join("")}
         </div>
-        <input type="text" class="pnd-local" style="width:100%;margin-top:6px" placeholder="选择「用本地文件代替」时填写：本地文件或目录的完整路径（目录按文件名匹配）" aria-label="待决文件 ${esc(it.path)} 的本地文件或目录路径" hidden>
+        <input type="text" class="pnd-local" style="width:100%;margin-top:6px" placeholder="本地文件或文件夹的完整路径；填文件夹时按文件名匹配" aria-label="待决文件 ${esc(it.path)} 的本地文件或目录路径" hidden>
         <label class="pnd-ack" style="display:inline-flex;gap:6px;align-items:flex-start;margin-top:6px" hidden><input type="checkbox" class="pnd-ackbox">
-          <span class="wc-note">我已了解风险：这个文件没有可信来源的校验背书，站点内容也可能中途被换；只在知道 ${it.host ? `「${esc(it.host)}」` : "这个站点"}是什么时才信任它。确认按域名记忆（这个域名的不同端口也一并信任），以后同域名不用再确认。</span></label>
+          <span class="wc-note">我已知晓风险并信任来自 ${it.host ? `「${esc(it.host)}」` : "这个站点"}的文件：该文件缺少校验值，存在传输被篡改风险。勾选后按域名记住（包含该域名的其他端口），以后同域名不再确认。</span></label>
       </div>`).join("")}
       <div class="row" style="margin-top:12px">
         <button type="button" class="btn primary" id="t-pending-apply">应用所选的处理</button>
-        <span class="hint">没法自动判断的魔改模组，推荐选「用本地文件代替」指向自己那份</span>
+        <span class="hint">无法自动识别的自定义/魔改模组，可选「用本地文件代替」并指定本地文件路径。</span>
       </div>
     </div>`;
     wirePending();
@@ -2197,7 +2253,7 @@ async function renderTaskPage(taskId) {
         if (stale(gen)) return;
         const out = $("#t-pending-out");
         if (out) out.innerHTML = `<div class="wc-wrap">${(r.resolved || []).map(o =>
-          `<div class="${o.ok ? "hint" : "err-box"}" style="margin-bottom:6px">${o.ok ? "已处理" : "没处理成"}：${esc(o.path)}${o.note ? "——" + esc(o.note) : ""}</div>`).join("")}</div>`;
+          `<div class="${o.ok ? "hint" : "err-box"}" style="margin-bottom:6px">${o.ok ? "已处理" : "处理失败"}：${esc(o.path)}${o.note ? "，" + esc(o.note) : ""}</div>`).join("")}</div>`;
         if (!(r.pending || []).length) {
           toast("待决清单已全部处理完");
           drawPending(r.pending || [], true);
@@ -2272,7 +2328,7 @@ async function renderDetail(name, tab = "console") {
   try { list = await api("/api/instances"); } catch (e) { if (!stale(gen)) Main().innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
   if (stale(gen)) return; // 等待期间已切走：不再建 SSE / 定时器
   const info = list.find(i => i.name === name);
-  if (!info) { Main().innerHTML = `<div class="err-box">实例不存在</div>`; return; }
+  if (!info) { Main().innerHTML = `<div class="err-box">服务器不存在</div>`; return; }
   // 页头：大号像素头像 + 标题，标题下一行是状态胶囊与徽标；操作按钮靠右
   Main().innerHTML = `<nav class="crumbs" aria-label="位置"><a href="#/instances">服务器</a>${icon("chevronRight")}<span>${esc(name)}</span></nav>
     <div class="detail-head">
@@ -2282,7 +2338,7 @@ async function renderDetail(name, tab = "console") {
       <span class="grow"></span>
       <button class="btn primary" id="d-start" aria-label="启动 ${esc(name)}" ${info.status !== "stopped" ? "disabled" : ""}>${icon("play")} 启动</button>
       <button class="btn" id="d-stop" aria-label="停止 ${esc(name)}" ${info.status === "stopped" || info.status === "stopping" ? "disabled" : ""}>${icon("stop")} 停止</button>
-      <button class="btn" id="d-dir" aria-haspopup="menu">${icon("folder")} 打开目录 ${icon("chevronDown")}</button>
+      <button class="btn" id="d-dir" aria-haspopup="menu">${icon("folder")} 打开文件夹 ${icon("chevronDown")}</button>
     </div>
     <div class="tabs">${(() => {
       const isProxy = info.kind === "proxy";
@@ -2337,7 +2393,7 @@ async function renderDetail(name, tab = "console") {
       hint.id = "d-java-hint";
       hint.className = "dh-line";
       hint.style.marginTop = "2px";
-      hint.innerHTML = `<a class="warn-text" href="#/inst/${encodeURIComponent(name)}/jvm">${icon("warn")} 有模组要求 Java ${r.needJava}，这台服务器现在是 Java ${info.javaMajor}，启动可能失败。到「内存 / 启动」换一下（也可以先不换）</a>`;
+      hint.innerHTML = `<a class="warn-text" href="#/inst/${encodeURIComponent(name)}/jvm">${icon("warn")} 有模组要求 Java ${r.needJava}，这台服务器现在是 Java ${info.javaMajor}，启动可能失败。可在「内存 / 启动」里换 Java。</a>`;
       host.appendChild(hint);
     }).catch(() => {});
   }
@@ -2351,7 +2407,7 @@ async function renderDetail(name, tab = "console") {
         <span class="grow"></span>
         <span class="hint">编码</span>
         <select id="con-enc" style="width:110px" aria-label="控制台编码">
-          ${["auto", "utf-8", "gbk"].map(e => `<option value="${e}" ${info.consoleEncoding === e ? "selected" : ""}>${e}</option>`).join("")}
+          ${["auto", "utf-8", "gbk"].map(e => `<option value="${e}" ${info.consoleEncoding === e ? "selected" : ""}>${e === "auto" ? "自动" : e.toUpperCase()}</option>`).join("")}
         </select>
         <button class="btn sm ghost" id="con-fs-dn" title="缩小字号">A-</button>
         <button class="btn sm ghost" id="con-fs-up" title="放大字号">A+</button>
@@ -2510,7 +2566,7 @@ async function renderDetail(name, tab = "console") {
     const act = async (action, player) => {
       try {
         await api(`/api/instances/${encodeURIComponent(name)}/players`, { method: "POST", body: { action, player } });
-        toast(`已执行 ${action} ${player}` + (info.status === "stopped" ? "" : "（名单文件稍后由服务器刷新）"));
+        toast(({ "whitelist-add": `已把 ${player} 加入白名单`, "whitelist-remove": `已把 ${player} 移出白名单`, op: `已把 ${player} 设为管理员`, deop: `已取消 ${player} 的管理员`, kick: `已踢出 ${player}`, ban: `已封禁 ${player}`, pardon: `已解除 ${player} 的封禁` }[action] || `已执行 ${action} ${player}`) + (info.status === "stopped" ? "" : "（名单文件稍后由服务器刷新）"));
         setTimeout(draw, 800);
       } catch (e) { toast(e.message, true); }
     };
@@ -2561,13 +2617,13 @@ async function renderDetail(name, tab = "console") {
       if (stale(gen)) return;
       body.innerHTML = `
         <div class="row" style="margin-bottom:10px;flex-wrap:wrap">
-          <input type="text" id="bk-label" placeholder="备份标签（可选，如：打龙前）" style="max-width:240px">
+          <input type="text" id="bk-label" placeholder="备份标签（可选，如：更新模组前）" style="max-width:240px">
           <button class="btn primary" id="bk-create">${icon("camera")} 立即备份世界</button>
           <span class="grow"></span>
           <label class="hint" style="display:flex;align-items:center;gap:6px;margin:0">保留最近 <input type="number" id="bk-keep" min="1" max="1000" value="${keep}" style="width:72px"> 份</label>
           <button class="btn sm" id="bk-keep-save">保存</button>
         </div>
-        <div class="hint" style="margin-bottom:14px">服务器开着的时候也会自动备份：先暂停自动存档，再压成压缩包，然后恢复自动存档。份数超过上面的保留份数，会删掉最旧的。删掉服务器不会删掉已经做好的备份。保留份数是全局的，每台服务器都用这一份。</div>
+        <div class="hint" style="margin-bottom:14px">服务器运行时也能备份：先暂停自动存档，压成压缩包，再恢复自动存档。超过保留份数时删掉最旧的。删除服务器不会删掉备份。保留份数是全局设置，所有服务器共用。</div>
         <div class="group has-ico bk-list">${(list || []).map(b => `
           <div class="row-item"><div class="ri-head"><span class="ri-ico">${icon("package")}</span>
             <div class="ri-main"><div class="ri-title">${esc(b.file)}</div><div class="ri-key">${b.sizeMb.toFixed(1)} MB · ${esc(b.time)}</div></div>
@@ -2599,7 +2655,7 @@ async function renderDetail(name, tab = "console") {
         draw();
       });
       body.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
-        const r = await confirmModal({ title: "删除备份？", danger: true, okText: "删除", icon: "trash", body: esc(b.dataset.del) });
+        const r = await confirmModal({ title: "删除备份？", danger: true, okText: "删除", icon: "trash", body: "删除后无法恢复：" + esc(b.dataset.del) });
         if (!r) return;
         try { await api(`/api/instances/${encodeURIComponent(name)}/backups?file=${encodeURIComponent(b.dataset.del)}`, { method: "DELETE" }); }
         catch (e) { toast(e.message, true); }
@@ -2665,7 +2721,7 @@ async function renderDetail(name, tab = "console") {
       const day = d.toDateString() === new Date().toDateString() ? "今天" : "明天";
       $("#sc-at").value = hm;
       scErr("");
-      $("#sc-hint").textContent = `已填成 ${hm}。${day} ${hm} 会执行第一次，以后每天这个时间都执行。只想执行一次的话，执行完把它移除。点「添加」，再保存，才会生效。`;
+      $("#sc-hint").textContent = `已设为 ${hm}。${day} ${hm} 执行第一次，之后每天该时间执行（若只需执行一次，触发后移除即可）。点「添加」并保存后生效。`;
     });
     ["#sc-at", "#sc-args"].forEach(s => $(s).addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("#sc-add").click(); } }));
     $("#sc-add").onclick = () => {
@@ -2689,9 +2745,9 @@ async function renderDetail(name, tab = "console") {
   } else if (tab === "res") {
     body.innerHTML = `
       <div class="row" style="margin-bottom:12px;flex-wrap:wrap">
-        <div class="search-field">${icon("search", "sf-ico")}<input type="text" id="res-q" placeholder="搜索 Modrinth 模组/插件（英文名效果更好）" style="width:340px"></div>
+        <div class="search-field">${icon("search", "sf-ico")}<input type="text" id="res-q" placeholder="搜索 Modrinth ${["paper","purpur","leaves","folia","velocity","waterfall"].includes(info.core) ? "插件" : "模组"}（英文名效果更好）" style="width:340px"></div>
         <button class="btn" id="res-go">${icon("search")} 搜索</button>
-        <span class="hint">已按当前核心与版本过滤兼容资源 · 数据来自 Modrinth（免费开放）</span>
+        <span class="hint">按当前核心与版本过滤；数据来自 Modrinth</span>
       </div>
       <div id="res-list"><div class="sub">输入关键词搜索，或直接点搜索看热门资源</div></div>`;
     let searchReq = 0;
@@ -2709,7 +2765,7 @@ async function renderDetail(name, tab = "console") {
               <div class="jp" style="white-space:normal;max-height:32px;overflow:hidden">${esc(h.description)}</div></div>
             <span class="jv" style="color:var(--muted);display:inline-flex;align-items:center;gap:4px">${h.downloads >= 1e6 ? (h.downloads / 1e6).toFixed(1) + "M" : Math.round(h.downloads / 1e3) + "k"}${icon("download")}</span>
             <button class="btn sm primary" data-rid="${esc(h.project_id)}" data-rt="${esc(h.title)}" aria-label="安装 ${esc(h.title)}">${icon("download")} 安装</button>
-          </div>`).join("") || `<div class="sub">没有找到兼容 ${esc(info.mc)} 的资源，换个关键词试试</div>`;
+          </div>`).join("") || `<div class="sub">没有兼容 ${esc(info.mc)} 的结果。换个关键词，或者清空搜索看热门资源</div>`;
         // 20 个结果的按钮都叫「安装」、模组名又相近，名字带上模组名（测试报告观察 9）；按钮上的字变了，名字跟着变
         $("#res-list").querySelectorAll("[data-rid]").forEach(b => b.onclick = async () => {
           const label = s => b.setAttribute("aria-label", s + " " + b.dataset.rt);
@@ -2717,7 +2773,7 @@ async function renderDetail(name, tab = "console") {
           b.textContent = "安装中…"; label("安装中…");
           try {
             const res = await api(`/api/instances/${encodeURIComponent(name)}/resources/install`, { method: "POST", body: { projectId: b.dataset.rid } });
-            toast(`已安装 ${b.dataset.rt}，文件是 ${res.file}。重启服务器后生效`);
+            toast(`已安装 ${b.dataset.rt}（${res.file}）。重启服务器后生效`);
             b.innerHTML = icon("check") + " 已安装"; label("已安装");
           } catch (e) { toast(e.message, true); b.disabled = false; b.innerHTML = icon("download") + " 安装"; label("安装"); }
         });
@@ -2728,7 +2784,7 @@ async function renderDetail(name, tab = "console") {
 
   } else if (tab === "common") {
     if (info.kind === "proxy") {
-      body.innerHTML = `<div class="sub">代理端的监听端口、后端服务器列表，在这台服务器目录里的配置文件中。Velocity 是 velocity.toml。Waterfall 是 config.yml。第一次启动之后才会生成。用「打开目录」去改。</div>`;
+      body.innerHTML = `<div class="sub">代理端的监听端口和后端服务器列表在配置文件里：Velocity 是 velocity.toml，Waterfall 是 config.yml，第一次启动后生成。用「打开文件夹」修改。</div>`;
       return;
     }
     let data;
@@ -2764,7 +2820,7 @@ async function renderDetail(name, tab = "console") {
       const notice = (p.key === "white-list" && verGte(mc, "26.3")) ? `<div class="pd" style="color:var(--warning-text)">注意：此版本起白名单默认开启</div>` : "";
       const grHint = (p.mode === "gamerule" && !running) ? "（服务器启动后可切换）" : "";
       if (p.key === "motd") return `<div class="prop-item wide" data-search="${esc(p.label)} ${p.key}"><div style="flex:1">
-        <div class="pl">${esc(p.label)} ${tags}</div><div class="pd">${esc(p.desc || "")}</div><div class="pk">${p.key}</div>${fieldHTML(p)}</div></div>`;
+        <div class="pl">${esc(p.label)} ${tags}</div><div class="pd">${esc(p.desc || "")} 支持中文与 § 色码。</div><div class="pk">${p.key}</div>${fieldHTML(p)}</div></div>`;
       return `<div class="prop-item" data-search="${esc(p.label)} ${p.key}"><div>
         <div class="pl">${esc(p.label)} ${tags}</div><div class="pd">${esc(p.desc || "")}${grHint}</div>${notice}<div class="pk">${p.key}</div></div>${fieldHTML(p)}</div>`;
     };
@@ -2773,13 +2829,13 @@ async function renderDetail(name, tab = "console") {
         <div class="search-field">${icon("search", "sf-ico")}<input type="text" id="cp-search" placeholder="搜索设置项（中文名 / 键名，如 视距 / rcon）" style="width:320px"></div>
         <div class="cp-chips">${GROUPS.map((g, i) => inGroup(g).length ? `<button class="cp-chip" data-g="${i}">${g}</button>` : "").join("")}</div>
       </div>
-      ${data.pairs.length === 0 ? `<div class="warn-text" style="margin-bottom:12px;display:flex;align-items:flex-start;gap:7px;line-height:1.7">${icon("warn")}<span>服务器还没第一次启动。有些项要等第一次启动之后，由服务端补上。现在填的值会留下。</span></div>` : ""}
+      ${data.pairs.length === 0 ? `<div class="warn-text" style="margin-bottom:12px;display:flex;align-items:flex-start;gap:7px;line-height:1.7">${icon("warn")}<span>服务器尚未首次启动：部分配置项需等首次启动后由服务端生成，当前已填的值会保留。</span></div>` : ""}
       <div id="cp-list">${GROUPS.map((g, i) => {
         const gi = inGroup(g);
         return gi.length ? `<div class="cp-group" id="cpg-${i}"><h3 class="cp-gh">${g}<span class="cp-gn">${gi.length}</span></h3>
           <div class="props-grid">${gi.map(rowHTML).join("")}</div></div>` : "";
       }).join("")}</div>
-      ${saveBar("保存设置", running ? `<span class="warn-text">${icon("warn")} 服务器开着。保存后要重启才生效。游戏规则保存后马上生效。</span>` : "")}`;
+      ${saveBar("保存设置", running ? `<span class="warn-text">${icon("warn")} 服务器运行中：保存后需重启生效；游戏规则立即生效。</span>` : "")}`;
     body.querySelectorAll(".cp-chip").forEach(c => c.onclick = () => $("#cpg-" + c.dataset.g, body)?.scrollIntoView({ behavior: "smooth", block: "start" }));
     wireSearch($("#cp-search"), () => {
       const q = $("#cp-search").value;
@@ -2788,7 +2844,7 @@ async function renderDetail(name, tab = "console") {
     // 游戏规则开关：运行时即时发送 /gamerule（不写入 server.properties）
     body.querySelectorAll("[data-gr]").forEach(sw => sw.onchange = async () => {
       const rule = sw.dataset.gr, val = sw.checked;
-      try { await api(`/api/instances/${encodeURIComponent(name)}/command`, { method: "POST", body: { cmd: `gamerule ${rule} ${val}` } }); toast(`已设置 gamerule ${rule} ${val}`); }
+      try { await api(`/api/instances/${encodeURIComponent(name)}/command`, { method: "POST", body: { cmd: `gamerule ${rule} ${val}` } }); toast(`已应用游戏规则 ${rule} = ${val}`); }
       catch (e) { toast(e.message, true); sw.checked = !val; }
     });
     // MOTD 编辑器：色码调色板 + 实时预览
@@ -2846,10 +2902,10 @@ async function renderDetail(name, tab = "console") {
     let data;
     try { data = await api(`/api/instances/${encodeURIComponent(name)}/properties`); } catch (e) { if (!stale(gen)) body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
     if (stale(gen)) return;
-    if (!data.pairs.length) { body.innerHTML = `<div class="sub">配置文件为空 —— 首次启动服务器后，服务端会自动生成全部配置项。</div>`; return; }
+    if (!data.pairs.length) { body.innerHTML = `<div class="sub">配置文件暂未生成；首次启动服务器后，服务端会自动生成全部配置项。</div>`; return; }
     const LABELS = Object.fromEntries((window.PROPS_CATALOG || []).map(p => [p.key, p.label]));
     const total = data.pairs.length;
-    body.innerHTML = `<div style="max-width:900px"><div class="sub">server.properties 全部键值（高级）。已知项附中文名。</div>
+    body.innerHTML = `<div style="max-width:900px"><div class="sub">server.properties 的全部键值；已知项附中文名。</div>
       <div class="common-bar">
         <div class="search-field">${icon("search", "sf-ico")}<input type="text" id="raw-search" placeholder="搜索配置项（键名 / 中文名，如 rcon / 视距）" aria-label="搜索配置项" style="width:320px"></div>
         <span class="hint" id="raw-count" style="margin:0">共 ${total} 项</span>
@@ -2857,7 +2913,7 @@ async function renderDetail(name, tab = "console") {
       <table class="raw">${data.pairs.map(p =>
         `<tr data-search="${esc(p.key)} ${esc(LABELS[p.key] || "")}"><td>${esc(p.key)}</td><td class="raw-cn">${LABELS[p.key] ? esc(LABELS[p.key]) : ""}</td><td><input type="text" data-k="${esc(p.key)}" value="${esc(p.value)}" aria-label="${esc(p.key)}"></td></tr>`).join("")}</table>
       <div class="sub" id="raw-none" hidden>没有匹配的配置项：换个关键词，或者按 Esc 清空搜索。</div>
-      ${saveBar("保存全部", data.running ? `<span class="warn-text">${icon("warn")} 运行中：保存后需重启生效</span>` : "")}</div>`;
+      ${saveBar("保存全部", data.running ? `<span class="warn-text">${icon("warn")} 服务器运行中：保存后需重启生效</span>` : "")}</div>`;
     // 搜索（同常用设置）：只是把不匹配的行藏起来，保存时照样提交全部键值
     wireSearch($("#raw-search"), () => {
       const q = $("#raw-search").value, n = filterBySearch(q, body.querySelectorAll("table.raw tr"));
@@ -2905,21 +2961,22 @@ async function renderDetail(name, tab = "console") {
     body.innerHTML = `
       <div style="max-width:640px">
         <div class="field" id="jm-mem-mount"></div>
-        <label class="field"><span>自定义 JVM 参数。每行一个，或用空格分隔。-Xmx 和 -Xms 由上面的内存自动生成，不用在这里填。</span>
+        <label class="field"><span>自定义 JVM 参数</span><div class="hint">每行一个，或用空格分隔；-Xmx、-Xms 由上面的内存自动生成，不在这里填。</div>
           <textarea id="jm-jvm" rows="5" spellcheck="false" placeholder="如：-XX:+UseG1GC">${esc((info.extraJvm || []).join("\n"))}</textarea></label>
         <div class="row" style="margin-bottom:12px;flex-wrap:wrap">
           <button class="btn sm" id="jm-aikar">${icon("bolt")} 套用 Aikar's Flags（G1GC 优化）</button>
           <button class="btn sm" id="jm-clear">清空</button>
         </div>
+        <div class="hint" style="margin:-4px 0 12px">套用后将替换下方输入框中的全部现有参数。</div>
         <label class="field" id="jm-java-box"><span>Java</span>
           <div class="row" style="gap:8px">
             <select id="jm-java" style="flex:1;min-width:0" aria-label="这台服务器用的 Java" aria-describedby="jm-java-hint"><option>加载中…</option></select>
             <button type="button" class="btn" id="jm-java-set" disabled>更换 Java</button>
           </div>
-          <div class="hint" id="jm-java-hint">新建时已经按 Minecraft 版本选好了（1.20.1 是 Java 17，1.21 是 21，26.1 起是 25），一般不用动。整合包说明里要求别的版本时在这里换，换了下次启动生效；起不来就换回原来的。</div>
+          <div class="hint" id="jm-java-hint">新建时已按 Minecraft 版本选好（1.20.1 用 Java 17，1.21 用 21，26.1 起用 25）。整合包要求其他版本时在这里换，下次启动生效。</div>
         </label>
-        <div class="hint" style="margin-bottom:14px">服务器目录：${esc(info.dir)}<br>要自己启动：双击这个目录里的 run.bat（和这里的设置是同一份）</div>
-        ${saveBar("保存", info.status === "stopped" ? "" : `<span class="warn-text">${icon("warn")} 运行中：保存后需重启生效</span>`)}
+        <div class="hint" style="margin-bottom:14px">服务器文件夹：${esc(info.dir)}<br>自己启动时双击这个文件：run.bat（与这里的设置是同一份）</div>
+        ${saveBar("保存", info.status === "stopped" ? "" : `<span class="warn-text">${icon("warn")} 服务器运行中：保存后需重启生效</span>`)}
       </div>`;
     // 换 Java：列出 MineDeck 下载的、本机装的，再加上本机还没有、可以现下一份的版本。和上面的保存条无关，点「更换」立即生效
     (async () => {
@@ -2992,27 +3049,27 @@ async function renderTunnels() {
   try { insts = await api("/api/instances"); } catch {}
   if (stale(gen)) return;
   Main().innerHTML = pageHead("内网穿透",
-    "把这台电脑上的服务器映射到公网，不在同一个网络的朋友也能连。可以用 OpenFrp、樱花穿透（SakuraFrp），也可以填自己的 frps。",
+    "把这台电脑上的服务器映射到公网，不在同一网络的朋友也能连。服务商可选 OpenFrp、樱花穿透（SakuraFrp），或自己的 frps。",
     `<button class="btn primary" id="tn-toggle" aria-expanded="false" aria-controls="tn-form">${icon("plus")} 添加隧道</button>`, "", "", "tun-summary") + `
     <div id="tn-form" class="card tun-form" hidden>
     <h3>添加隧道</h3>
     <div class="hint tun-help" id="tn-help" aria-live="polite"></div>
     <div class="form-grid tun-grid">
       <label class="field"><span>服务商</span><select id="tn-provider">
-        <option value="openfrp">OpenFrp（免费公益）</option>
+        <option value="openfrp">OpenFrp（免费）</option>
         <option value="natfrp">樱花frp SakuraFrp</option>
         <option value="custom">自定义 frps</option></select></label>
       <label class="field"><span>隧道名称</span><input type="text" id="tn-name" value="我的隧道" maxlength="30"></label>
-      <label class="field" data-f="cred"><span id="tn-cred-label">用户密钥（个人中心复制）</span><input type="password" id="tn-cred" placeholder="仅保存在本机"></label>
+      <label class="field" data-f="cred"><span id="tn-cred-label">用户密钥</span><input type="password" id="tn-cred" placeholder="仅保存在本机"></label>
       <label class="field" data-f="proxy"><span>隧道 ID</span><input type="text" id="tn-proxy" placeholder="如 123456"></label>
       <label class="field" data-f="saddr" hidden><span>frps 服务器地址</span><input type="text" id="tn-saddr" placeholder="1.2.3.4 或 frp.example.com"></label>
       <label class="field" data-f="sport" hidden><span>frps 端口</span><input type="number" id="tn-sport" value="7000"></label>
       <label class="field" data-f="rport" hidden><span>公网远程端口</span><input type="number" id="tn-rport" value="25566"></label>
-      <label class="field" data-f="lport" hidden><span>本地端口（MC 服务器端口）</span><input type="number" id="tn-lport" value="25565"></label>
-      <label class="field"><span>绑定实例</span><select id="tn-bound"><option value="">不绑定</option>
+      <label class="field" data-f="lport" hidden><span>本地端口（这台服务器的端口）</span><input type="number" id="tn-lport" value="25565"></label>
+      <label class="field"><span>绑定服务器</span><select id="tn-bound"><option value="">不绑定</option>
         ${insts.map(i => `<option value="${esc(i.name)}">${esc(i.name)}（端口 ${i.port}）</option>`).join("")}</select></label>
       <div class="field"><label class="switch"><input type="checkbox" id="tn-auto" checked><span class="sw"></span>
-        <span><span class="sw-label">跟随实例启动</span><div class="sw-desc">绑定的服务器启动时自动拉起隧道，停服后跟着停</div></span></label></div>
+        <span><span class="sw-label">跟随服务器启动</span><div class="sw-desc">绑定的服务器启动时自动拉起隧道，停服后跟着停</div></span></label></div>
     </div>
     <button class="btn primary" id="tn-add" aria-label="确认添加隧道">${icon("plus")} 添加隧道</button>
     </div>
@@ -3102,7 +3159,7 @@ async function renderTunnels() {
     $("#tun-summary").innerHTML = list.length ? `${list.length} 条隧道${SEP}运行中 ${runN}` : "";
     isEmpty = !list.length;
     paintForm();
-    if (isEmpty) { closeLog(); $("#tun-list").innerHTML = `<div class="empty tun-empty">${MDPixel.emptySVG(160)}<div class="empty-title">还没有隧道</div>填好上面的表单，添加第一条。添加之后隧道会列在这里，启动它就能拿到公网地址，发给朋友就能连。</div>`; return list; }
+    if (isEmpty) { closeLog(); $("#tun-list").innerHTML = `<div class="empty tun-empty">${MDPixel.emptySVG(160)}<div class="empty-title">还没有隧道</div>在上面填好表单添加第一条。启动隧道后会显示公网地址，发给朋友即可连接。</div>`; return list; }
     const logBox = logId ? $("#tlog-" + logId) : null;
     $("#tun-list").innerHTML = list.map(tunRow).join("");
     if (logBox) { const ph = $("#tlog-" + logId); if (ph) ph.replaceWith(logBox); else closeLog(); } // 那条隧道删了就关掉日志
@@ -3309,12 +3366,12 @@ function setAppearance(body) {
 /* — 启动与托盘 — */
 function setStartup(body, info) {
   const c = info.config || {};
-  body.innerHTML = settingsHead("启动与托盘", "这里管两件事：点窗口关闭按钮时做什么，以及开机要不要自己打开。程序开着的时候，托盘里有图标。左键点一下，恢复窗口。右键可以「打开面板」或「全部停止并退出」。程序退出后，图标会消失。") +
+  body.innerHTML = settingsHead("启动与托盘", "关闭按钮的行为，以及开机是否自动启动。") +
     group(
-      switchRow("monitor", "最小化到系统托盘", "打开之后，点窗口的关闭按钮不会退出，会收到托盘里，服务器继续运行。点托盘图标可以恢复窗口。关掉这个开关时，点关闭按钮会退出程序，并停掉服务器。有服务器在运行时会先问你，也可以改成最小化到托盘。", "minimizeToTray", c.minimizeToTray) +
-      switchRow("power", "开机自动启动", "登录 Windows 后，MineDeck 会在后台（托盘）自己打开。不用管理员权限。程序换了文件夹以后，把这个开关关一次再开，路径就会改过来。", "autoStart", info.autoStart),
+      switchRow("monitor", "最小化到系统托盘", "开启后，点关闭按钮不退出程序，窗口收到托盘，服务器继续运行；点托盘图标恢复窗口。关闭后，点关闭按钮会退出程序并停掉服务器（有服务器在运行时先确认）。", "minimizeToTray", c.minimizeToTray) +
+      switchRow("power", "开机自动启动", "登录 Windows 后自动在托盘里启动，不需要管理员权限（若移动过本程序所在文件夹，需重新开关一次以更新路径）。", "autoStart", info.autoStart),
       { ico: true }) +
-    `<div class="hint">开机自启时直接进托盘，不先弹出窗口。上面的「最小化到系统托盘」也开着的话，之后点关闭按钮也会收回托盘，服务器不会停。</div>`;
+    ``;
   body.querySelectorAll("input[data-cfg]").forEach(inp => inp.onchange = async () => {
     const key = inp.dataset.cfg;
     try {
@@ -3404,11 +3461,11 @@ function setStorage(body, info) {
     if (stale(gen)) return;
     body.innerHTML = settingsHead("存储位置", "服务器和备份放在哪个文件夹。改了之后，只对新建的服务器和备份生效。已经有的不会自动搬过去。") +
       group(
-        storageRow("server", "服务器存放目录", info.serversRoot, "新的服务器会建在这个目录里，一台一个子文件夹。中文名字不会直接用作文件夹名。", "servers") +
-        storageRow("package", "备份存放目录", info.backupsRoot, "服务器开着时做的备份，放在这里。", "backups") +
-        storageRow("folder", "程序数据目录", info.base, "程序、下载的 Java 和缓存都在这里。整个文件夹可以一起复制走。", ""),
+        storageRow("server", "服务器存放文件夹", info.serversRoot, "新的服务器会建在这个目录里，一台一个子文件夹。中文名字不会直接用作文件夹名。", "servers") +
+        storageRow("package", "备份存放文件夹", info.backupsRoot, "服务器开着时做的备份，放在这里。", "backups") +
+        storageRow("folder", "程序数据文件夹", info.base, "程序、下载的 Java 和缓存都在这里。整个文件夹可以一起复制走。", ""),
         { ico: true }) +
-      `<div class="hint">建议放到空间大的盘，比如 D 盘，免得占满系统盘。点「更改…」会打开系统的文件夹选择框。这只在这台电脑上能用。用手机远程管理时，请在这台电脑上改。</div>`;
+      `<div class="hint">修改数据目录仅在这台电脑上可用；用手机远程管理时需在主机上更改。</div>`;
     body.querySelectorAll("[data-open]").forEach(b => b.onclick = () =>
       api("/api/openpath", { method: "POST", body: { path: b.dataset.open } }).catch(e => toast(e.message, true)));
     body.querySelectorAll("[data-pick]").forEach(b => b.onclick = async () => {
@@ -3439,7 +3496,7 @@ function setStorage(body, info) {
 /* — Java 运行时 — */
 async function setJava(body, info) {
   const gen = viewGen;
-  const head = settingsHead("Java 运行时", "新建服务器时，先用这台电脑上已经装好的 Java。没有合适的，就用 MineDeck 下载过的。还没有，就再下载一个。");
+  const head = settingsHead("Java 运行时", "新建服务器时优先用本机已装的 Java；没有合适的，则使用 MineDeck 下载过的或自动新下一份。");
   body.innerHTML = head + `<div class="sub">加载中…</div>`;
   let javas = { portable: [], scanned: [] };
   try { javas = await api("/api/javas"); } catch {}
@@ -3477,7 +3534,7 @@ function setRemote(body, info) {
   // 开启要重启程序才生效，和这次启动不一致时常驻提示；关闭即时生效（后端不再放行局域网的请求）
   const on = !!info.config.listenLan;
   const live = info.lanActive ?? on; // 这次启动是否已监听在局域网上
-  body.innerHTML = settingsHead("远程访问（手机 / 平板管理）", "开启后本机 IP 可从局域网访问管理界面（密码保护，开启后需重启程序生效）。") +
+  body.innerHTML = settingsHead("远程访问（手机 / 平板管理）", "开启后，同一局域网内的设备可以用本机 IP 打开管理界面，需要访问密码；重启程序后生效。") +
     group(
       riRow({ ico: "phone", title: "允许局域网访问", sub: "手机与本机连在同一 Wi-Fi / 路由器下即可打开管理界面",
         right: `<label class="switch"><input type="checkbox" id="lan-on" ${on ? "checked" : ""} aria-label="允许局域网访问"><span class="sw"></span></label>` }) +
@@ -3490,7 +3547,7 @@ function setRemote(body, info) {
       <div class="qr-box" id="qr-box" role="img"></div>
       <div class="qr-info">
         <div class="ri-title">手机扫码访问</div>
-        <div class="ri-sub">用手机相机或浏览器扫这个码。打开后输入访问密码就能管理。手机要和这台电脑连在同一个局域网（同一个 Wi-Fi 或路由器）。</div>
+        <div class="ri-sub">用手机相机或浏览器扫码，输入访问密码即可管理；手机要和这台电脑在同一个局域网（同一 Wi-Fi 或路由器）。</div>
         <div class="qr-url" id="qr-url"></div>
         ${ips.length > 1 ? `<div class="qr-ips">${ips.map((ip, i) => `<button type="button" class="qr-ip" data-i="${i}">${esc(ip)}</button>`).join("")}</div>
         <div class="hint">本机有多个网络地址：扫码打不开就换一个（家用路由器下通常是 192.168.x.x）。</div>` : ""}
@@ -3601,7 +3658,7 @@ function drawAI(body, v, gen) {
   const dis = ro ? " disabled" : "";
   const opt = (val, label, cur) => `<option value="${esc(val)}"${val === cur ? " selected" : ""}>${esc(label)}</option>`;
   body.innerHTML =
-    settingsHead("AI 服务商（可选）", "选好服务商、填好 Key 和模型之后才启用 AI。没配置时，MineDeck 不连接任何 AI 服务，也不下载价格数据。下面的预设只是方便填写的模板，不代表推荐。") +
+    settingsHead("AI 服务商（可选）", "填好服务商、Key 和模型后才启用。未配置时 MineDeck 不连接任何 AI 服务，也不下载价格数据。") +
     (ro ? `<div class="warn-card"><div class="wc-title">${icon("lock")} AI 设置仅支持在本机修改</div><div class="wc-note">这里只能查看。Key 和接口地址只能在运行 MineDeck 的那台电脑上改。</div></div>` : "") +
     `<div class="ai-status" id="ai-status"></div>` +
     group(
@@ -3928,7 +3985,7 @@ function setAbout(body, info) {
    同意后写 config.onboarded / tosAccepted，二者齐备才不再弹出） */
 function showOnboarding(info) {
   const root = $("#modal-root");
-  const SRC = { auto: "自动（推荐）— 国内镜像优先，失败自动回退官方源", mirror: "镜像优先 — 国内下载更快", official: "仅官方源 — 网络直连国外" };
+  const SRC = { auto: "自动（推荐）：国内镜像优先，失败自动切换官方源", mirror: "仅国内镜像：仅使用 BMCLAPI 与清华镜像", official: "仅官方源：仅使用官方源（海外网络适用）" };
   const cur = (info.config && info.config.source) || "auto";
   root.innerHTML = `<div class="modal-mask enter"><div class="modal onboard" role="dialog" aria-modal="true">
     <div class="brand-head">${logoImg()}<div><h3>欢迎使用 MineDeck</h3><div class="sub">Minecraft 开服工具</div></div></div>
@@ -3989,7 +4046,7 @@ async function applyBackground() {
   } catch (e) {
     // 局域网访问（如手机扫码打开）尚未登录：api() 已弹出密码遮罩，保留它，不整页覆盖成「无法连接」；登录成功后 reload 重跑 boot
     if (e.needLogin) return;
-    document.body.innerHTML = `<div style="padding:60px;text-align:center;color:var(--danger-text)">无法连接 MineDeck 后端：${esc(e.message)}<br><br>请通过程序窗口打开本页面。</div>`;
+    document.body.innerHTML = `<div style="padding:60px;text-align:center;color:var(--danger-text)">无法连接 MineDeck 后端。请通过程序窗口打开本页面。</div>`;
     return;
   }
   navigate();

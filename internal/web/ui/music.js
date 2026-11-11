@@ -118,7 +118,7 @@ window.MDMusic = (() => {
       sub: "同一时间只能有一个广播：先在那边停掉，再回来开始。", right: `<a class="btn sm" href="#/inst/${encodeURIComponent(other)}/music">去看看</a>` }), { ico: true }) +
       `<div class="mu-last" id="mu-last" hidden></div>`;
     const remoteHTML = () => castHead("") + group(row({ tile: tile("music"), title: "开始广播只能在主机上操作",
-      sub: "音乐录的是主机这台电脑的声音：到主机上的 MineDeck 里开始。这里可以看状态、停止广播。" }), { ico: true }) +
+      sub: "录的是主机这台电脑的声音，需到主机上的 MineDeck 里开始；这里可以看状态、停止广播。" }), { ico: true }) +
       `<div class="mu-last" id="mu-last" hidden></div>`;
     const idleHTML = () => {
       const s = v.st, cap = s.capability, m = curMode();
@@ -131,7 +131,7 @@ window.MDMusic = (() => {
         `<div class="group has-ico" id="mu-src" role="radiogroup" aria-label="音源">${row({ title: "正在找出声的程序…" })}</div>` + start;
       return castHead(cap.warn ? "" : "整机录音：录这台电脑放出来的全部声音。") +
         `<div class="warn-card"><div class="wc-title">${icon("warn")} ${cap.warn ? "这台电脑只能录整机的声音" : "整机录音会把所有声音一起播出去"}</div>
-          <div class="wc-note">游戏声音、语音聊天（好友说的话）也会一起播出去，好友会听到自己说话的回声。想少点回声：主机别在这台电脑上进游戏，或者把游戏和语音的音量调低。${s.systemConfirmed ? "" : "开始前会再确认一次（每台电脑一次）。"}</div></div>` + start;
+          <div class="wc-note">游戏声音、语音聊天（好友说的话）也会一起播出去，好友会听到自己的回声。减少回声：主机不要在这台电脑上进游戏，或调低游戏与语音的音量。${s.systemConfirmed ? "" : "开始前会再确认一次（每台电脑一次）。"}</div></div>` + start;
     };
     const wireCast = () => {
       const stop = $("#mu-stop");
@@ -189,7 +189,7 @@ window.MDMusic = (() => {
             right: `<span class="mu-meter" title="当前电平">${xpBar(10, meterCells(x.peak), "success")}</span><span class="ri-check${on ? " on" : ""}" aria-hidden="true">${icon("check")}</span>`,
             cls: "choice" + (on ? " sel" : ""), attrs: `role="radio" tabindex="0" aria-checked="${on}" data-pid="${x.pid}" data-exe="${esc(x.exe)}"` });
         }).join("") : row({ title: v.src.error ? "列不出正在出声的程序" : "没有程序在出声",
-          sub: esc(v.src.error || "先在音乐软件里放一首歌，再点「刷新列表」。游戏本身（java）不列出来，录进去会有回声。") });
+          sub: esc(v.src.error || "先在音乐软件里放一首歌，再点「刷新列表」。游戏本身（java）不会列出，录进去会有回声。") });
         box.querySelectorAll("[data-pid]").forEach(r => {
           const pick = () => { v.sel = { pid: +r.dataset.pid, exe: r.dataset.exe }; drawSources(); paintStart(); $(`#mu-src [data-pid="${r.dataset.pid}"]`)?.focus(); };
           r.onclick = pick;
@@ -309,7 +309,7 @@ window.MDMusic = (() => {
           break;
         case "waiting":
           rmRow = { tile: okIco(false, "clock"), title: `远程好友的语音：隧道「${t0.name}」还没拿到公网地址`,
-            sub: esc(t0.lastError || (t0.running ? "隧道连接中…" : "启动隧道后，MineDeck 会把公网地址自动写进 voice_host。")) + (t0.autoStart ? "" : " 勾上「跟随实例启动」，开服时就会拉起它。"),
+            sub: esc(t0.lastError || (t0.running ? "隧道连接中…" : "启动隧道后，MineDeck 会把公网地址自动写进 voice_host。")) + (t0.autoStart ? "" : " 勾上「跟随服务器启动」，开服时就会拉起它。"),
             right: manual };
           break;
         case "idle": // 隧道停着，地址是上次的；勾了跟随启动的，下次开服会跟着拉起来，voice_host 不清
@@ -318,7 +318,7 @@ window.MDMusic = (() => {
               ? `隧道停着的时候，谁都连不上 ${esc(rm.addr)} 这个地址的语音。把隧道启动，就能恢复。下次开服时它也会跟着启动。voice_host 不用改。`
               : rm.managed
               ? `voice_host 还是隧道上次的地址 ${esc(rm.addr)}。隧道停着的时候，谁都连不上这个地址的语音，本机玩家也一样。把隧道启动，就能恢复。如果不开，下次开服前 MineDeck 会把它清回空。`
-              : `隧道上次的公网地址是 ${esc(rm.addr)}。启动隧道，或者勾上「跟随实例启动」，MineDeck 会把地址写进 voice_host。`,
+              : `隧道上次的公网地址是 ${esc(rm.addr)}。启动隧道，或者勾上「跟随服务器启动」，MineDeck 会把地址写进 voice_host。`,
             right: `<a class="btn sm" href="#/tunnels">去启动</a>${manual}` };
           break;
         case "pending":
@@ -536,18 +536,18 @@ window.MDMusic = (() => {
     const paint = () => {
       const p = provSel.value, voice = purpose.value === "voice";
       $("#tn-proto-f").hidden = p !== "custom";
-      if (lportLabel) lportLabel.textContent = voice ? "本地端口（SVC 的语音端口）" : "本地端口（MC 服务器端口）";
+      if (lportLabel) lportLabel.textContent = voice ? "本地端口（SVC 的语音端口）" : "本地端口（这台服务器的端口）";
       const tip = $("#tn-voice-tip");
       tip.hidden = !voice;
       if (!voice) return;
       const port = `<b>${svcPort}</b>${portFrom ? `（${esc(portFrom)} 的 SVC 端口）` : "（这是 SVC 的默认端口。以这台服务器的 config/voicechat/voicechat-server.properties 里的 port 为准）"}`;
       const steps = {
         natfrp: [`在樱花后台新建隧道：类型选 <b>UDP</b>，本地 IP 填 127.0.0.1，本地端口填 ${port}。节点可以和游戏隧道选同一个。`,
-          "把隧道 ID 复制到上面。访问密钥和游戏隧道用的是同一个。", "绑定同一台服务器，勾上「跟随实例启动」。拿到公网地址后，MineDeck 会自动把它写进这台服务器的 voice_host。"],
+          "把隧道 ID 复制到上面。访问密钥和游戏隧道用的是同一个。", "绑定同一台服务器，勾上「跟随服务器启动」。拿到公网地址后，MineDeck 会自动把它写进这台服务器的 voice_host。"],
         openfrp: [`在 OpenFrp 控制台新建 <b>UDP</b> 隧道，本地端口填 ${port}（OpenFrp 的 UDP 隧道还没实测过）。`, "复制隧道 ID 填在上面。",
-          "绑定同一台服务器，勾上「跟随实例启动」。拿到公网地址后，会自动写进 voice_host。"],
+          "绑定同一台服务器，勾上「跟随服务器启动」。拿到公网地址后，会自动写进 voice_host。"],
         custom: [`协议选 <b>UDP</b>，本地端口填 ${port}，公网远程端口填 frps 上给语音开的 UDP 端口（frps 要放行它）。`,
-          "绑定同一台服务器，勾上「跟随实例启动」。公网地址就是「frps 地址:远程端口」，会自动写进 voice_host。"],
+          "绑定同一台服务器，勾上「跟随服务器启动」。公网地址就是「frps 地址:远程端口」，会自动写进 voice_host。"],
       }[p] || [];
       tip.innerHTML = `<div class="mu-tip-title">${icon("headphones")} 语音隧道怎么建</div><ol>${steps.map(s => `<li>${s}</li>`).join("")}</ol>`;
     };

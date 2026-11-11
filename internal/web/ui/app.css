@@ -975,7 +975,21 @@ input.mem-num { width: 96px; height: 30px; font-size: var(--fs-sm); text-align: 
 }
 .toast .t-ico { width: 24px; height: 24px; flex: none; display: grid; place-items: center; border-radius: var(--r-sm); background: var(--success-subtle); color: var(--success-text); }
 .toast.error .t-ico { background: var(--danger-subtle); color: var(--danger-text); }
-.toast > span:last-child { padding-top: 1px; min-width: 0; overflow-wrap: anywhere; }
+.toast .t-msg { flex: 1; padding-top: 1px; min-width: 0; overflow-wrap: anywhere; }
+/* 报错提示右边的「详情」和关闭键 */
+.toast .btn.sm { flex: none; margin: -2px 0; }
+.toast .t-x {
+  flex: none; width: 24px; height: 24px; display: grid; place-items: center; margin-right: -4px;
+  border: 0; background: none; color: var(--muted); border-radius: var(--r-sm); cursor: pointer;
+  transition: background-color var(--dur-2), color var(--dur-2);
+}
+.toast .t-x:hover { background: var(--hover); color: var(--text); }
+/* 报错详情对话框里的原文：等宽、可选中、太长时自己滚 */
+.err-detail {
+  white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; max-height: 40vh; overflow: auto;
+  font-family: var(--mono); font-size: var(--fs-xs); line-height: 1.6; color: var(--text);
+  background: var(--sunken); border-radius: var(--r-md); box-shadow: var(--well); padding: 10px 12px;
+}
 .modal-mask {
   position: fixed; inset: 0; z-index: 50;
   display: flex; align-items: center; justify-content: center;

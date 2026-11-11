@@ -189,7 +189,7 @@ func (m *Manager) Get(name string) (*Instance, error) {
 	defer m.mu.Unlock()
 	i, ok := m.insts[name]
 	if !ok {
-		return nil, fmt.Errorf("实例不存在: %s", name)
+		return nil, fmt.Errorf("服务器不存在：%s", name)
 	}
 	return i, nil
 }
@@ -391,13 +391,13 @@ var invalidNameChars = `\/:*?"<>|`
 func validateName(name string) error {
 	name = strings.TrimSpace(name)
 	if name == "" || len([]rune(name)) > 40 {
-		return fmt.Errorf("实例名需为 1~40 个字符")
+		return fmt.Errorf("服务器名称需为 1~40 个字符")
 	}
 	if strings.ContainsAny(name, invalidNameChars) {
 		return fmt.Errorf(`实例名不能包含字符 %s`, invalidNameChars)
 	}
 	if name == "." || name == ".." || strings.HasSuffix(name, ".") || strings.HasSuffix(name, " ") {
-		return fmt.Errorf("实例名不合法")
+		return fmt.Errorf("服务器名称不合法")
 	}
 	return nil
 }

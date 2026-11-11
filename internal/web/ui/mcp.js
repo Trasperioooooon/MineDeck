@@ -76,7 +76,7 @@ window.MDMcp = (() => {
 
   /* ---------- 设置 → AI 里的「MCP 接口」 ---------- */
 
-  const HEAD = "让这台电脑上的其他 AI 工具通过 MCP 使用 MineDeck，例如 Claude Desktop、Cherry Studio、Cursor、VS Code。查看服务器、日志和配置可以直接查。要改东西时，MineDeck 里会出现确认卡片，你点了才执行。默认关闭。只接受这台电脑上的连接。";
+  const HEAD = "让这台电脑上的其他 AI 工具（Claude Desktop、Cherry Studio、Cursor、VS Code）通过 MCP 使用 MineDeck：查服务器、日志和配置可以直接查；要改动时，MineDeck 里会出现确认卡片，点了才执行。默认关闭，只接受本机连接。";
 
   async function settings(slot, gen) {
     if (!slot) return;
@@ -161,7 +161,7 @@ window.MDMcp = (() => {
       (ro ? `<div class="warn-card"><div class="wc-title">${icon("lock")} MCP 接口的设置仅支持在本机修改</div><div class="wc-note">这里只能查看。令牌和配置只给运行 MineDeck 的那台电脑。外部 AI 提出的操作，也只能在那台电脑上点确认。</div></div>` : "") +
       group(rows, { ico: true, attrs: `id="mcp-group"` }) +
       (v.enabled ? `<div class="mcp-sub-head">连过的 AI 工具（本次启动以来）</div>` + clientsGroup(v) : "") +
-      `<div class="hint mcp-hint">发给外部 AI 的内容会先做替换：路径里的 Windows 用户名和程序目录、局域网 IP、计算机名、Key 会换掉。玩家名保留。删实例、改设置不会交给它。上面的访问令牌只给这台电脑上的程序用，别发给别人。</div>`;
+      `<div class="hint mcp-hint">发给外部 AI 的内容会先做替换：路径里的 Windows 用户名和程序目录、局域网 IP、计算机名、Key 会换掉。玩家名保留。删除服务器、修改设置不会交给外部 AI。访问令牌只给这台电脑上的程序用，不要发给别人。</div>`;
     watchClients(slot, gen, v);
     const on = slot.querySelector("#mcp-on");
     on.onchange = async () => {

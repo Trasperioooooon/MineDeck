@@ -453,12 +453,12 @@ func ruleJava(c *ruleCtx) *Finding {
 		need, have = need-44, have-44 // 类文件版本 52 是 Java 8，61 是 Java 17，65 是 Java 21
 		return &Finding{Rule: "java-version", Title: "Java 版本不对", Evidence: c.evidence(idx),
 			Summary: fmt.Sprintf("%s 要 Java %d 或更新，现在用的是 Java %d", strings.ReplaceAll(m[1], "/", "."), need, have),
-			Fixes:   []string{fmt.Sprintf("给这个实例换成 Java %d（MineDeck 可以自动下载便携版）", need)}}
+			Fixes:   []string{fmt.Sprintf("给这台服务器换成 Java %d（MineDeck 可以自动下载便携版）", need)}}
 	}
 	if idx := c.find(urlLoaderRe); len(idx) > 0 {
 		return &Finding{Rule: "java-version", Title: "Java 版本不对", Evidence: c.evidence(idx),
 			Summary: "老版本的 Forge（1.16.5 及更早）只能用 Java 8，现在用的 Java 太新了",
-			Fixes:   []string{"给这个实例换成 Java 8"}}
+			Fixes:   []string{"给这台服务器换成 Java 8"}}
 	}
 	if idx := c.find(featureRe); len(idx) > 0 {
 		f := &Finding{Rule: "java-version", Title: "Java 版本不对", Evidence: c.evidence(idx)}
@@ -475,9 +475,9 @@ func ruleJava(c *ruleCtx) *Finding {
 		}
 		f.Mods = uniq(mods)
 		f.Summary = "模组声明了运行环境的要求（多半是 Java 版本），现在的环境不满足：" + strings.Join(f.Mods, "、")
-		f.Fixes = []string{"按要求给实例换 Java（MineDeck 可以自动下载便携版）"}
+		f.Fixes = []string{"按要求给这台服务器换 Java（MineDeck 可以自动下载便携版）"}
 		if need != "" {
-			f.Fixes[0] = fmt.Sprintf("给实例换成满足 %s 的 Java", need)
+			f.Fixes[0] = fmt.Sprintf("给这台服务器换成满足 %s 的 Java", need)
 		}
 		return f
 	}
@@ -635,7 +635,7 @@ func ruleEULA(c *ruleCtx) *Finding {
 	}
 	return &Finding{Rule: "eula", Title: "没同意 EULA", Evidence: c.evidence(idx),
 		Summary: "服务器要求先同意 Minecraft EULA（最终用户许可协议）才能运行",
-		Fixes: []string{"阅读 https://aka.ms/MinecraftEULA ，同意的话由你本人在实例目录的 eula.txt 里把 eula=false 改成 eula=true，再启动",
+		Fixes: []string{"请阅读 https://aka.ms/MinecraftEULA ；若同意协议，请手动将服务器文件夹下 eula.txt 中的 eula=false 改为 eula=true 后重新启动",
 			"这一步只能由你自己决定，AI 不能替你同意"}}
 }
 

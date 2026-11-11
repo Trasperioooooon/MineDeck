@@ -278,7 +278,7 @@ func showTrayMenu(hwnd uintptr) {
 		}
 		pAppendMenu.Call(menu, _MF_STRING, id, uintptr(unsafe.Pointer(p)))
 	}
-	appendItem(_idTrayOpen, "打开面板")
+	appendItem(_idTrayOpen, "打开 MineDeck")
 	appendItem(_idTrayQuit, "全部停止并退出")
 
 	var pt point

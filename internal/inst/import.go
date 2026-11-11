@@ -395,7 +395,7 @@ func (m *Manager) finishImport(t *tasks.Task, req CreateReq, dir string, pending
 		}
 		t.AddWarning(tasks.Warning{
 			Kind:  "java-req",
-			Title: fmt.Sprintf("有模组要求 Java %d，这台实例现在是 Java %d", need, javaMajor),
+			Title: fmt.Sprintf("有模组要求 Java %d，这台服务器现在是 Java %d", need, javaMajor),
 			Note:  "这只是提醒，不影响导入结果。装着这样的模组启动可能失败或部分功能不工作；要换的话到「内存 / 启动」里选（MineDeck 可以自动下载便携版），也可以先保持现状。",
 			Items: warn,
 		})

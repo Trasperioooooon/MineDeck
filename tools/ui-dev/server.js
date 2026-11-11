@@ -24,18 +24,18 @@ function catalog(ui) {
 }
 
 const CORES = [
-  ["vanilla", "Vanilla 原版", "纯净", "Mojang 官方服务端，原汁原味", "game"],
-  ["paper", "Paper", "插件", "最流行的高性能插件服务端", "game"],
+  ["vanilla", "Vanilla 原版", "纯净", "Mojang 官方服务端，原汁原味！", "game"],
+  ["paper", "Paper", "插件", "高性能插件服务端，Bukkit 插件生态最完整。", "game"],
   ["purpur", "Purpur", "插件+", "Paper 分支，更多可调项与特性", "game"],
-  ["leaves", "Leaves", "插件·仿原版", "Paper 分支，修复原版特性（刷铁轨等），国人维护", "game"],
-  ["folia", "Folia", "插件·多线程", "Paper 官方多线程分支，适合大量玩家分散场景", "game"],
+  ["leaves", "Leaves", "插件·仿原版", "Paper 分支，修回被改动过的原版特性（如刷铁轨），国内开发者维护。", "game"],
+  ["folia", "Folia", "插件·多线程", "Paper 官方多线程分支，按区域分线程，适合玩家多且分散的服务器。", "game"],
   ["fabric", "Fabric", "模组·轻量", "轻量模组加载器，启动快、更新快", "game"],
-  ["neoforge", "NeoForge", "模组·主流", "1.20.2+ 模组生态主流（Forge 的社区继任者）", "game"],
+  ["neoforge", "NeoForge", "模组·主流", "1.20.2 起的模组加载器，Forge 的社区继任者。", "game"],
   ["forge", "Forge", "模组·经典", "经典模组加载器，适合 1.20.1 及更早的整合包", "game"],
-  ["mohist", "Mohist", "混合·Forge+插件", "Forge 模组与 Bukkit 插件共存，整合包服首选之一", "hybrid"],
-  ["banner", "Banner", "混合·Fabric+插件", "Mohist 团队出品，Fabric 模组与 Bukkit 插件共存", "hybrid"],
-  ["velocity", "Velocity", "代理·主流", "PaperMC 出品的现代群组代理端，搭配多后端服使用", "proxy"],
-  ["waterfall", "Waterfall", "代理·经典", "BungeeCord 分支（已停更但仍可用），老群组服兼容", "proxy"],
+  ["mohist", "Mohist", "混合·Forge+插件", "Forge 模组与 Bukkit 插件共存，整合包服首选之一。", "hybrid"],
+  ["banner", "Banner", "混合·Fabric+插件", "Mohist 团队出品，Fabric 模组与 Bukkit 插件共存。", "hybrid"],
+  ["velocity", "Velocity", "代理·主流", "PaperMC 出品的现代群组代理端，搭配多后端服使用。", "proxy"],
+  ["waterfall", "Waterfall", "代理·经典", "BungeeCord 分支，上游已停止更新，仍可运行。", "proxy"],
 ].map(([id, name, tag, desc, kind]) => ({ id, name, tag, desc, kind }));
 
 // 每次 start() 都从这份初始数据开始：4 台服务器（运行中 / 已停止 / 启动中 / 代理端）、2 条隧道、已完成首启

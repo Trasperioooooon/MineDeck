@@ -58,7 +58,7 @@ window.MDModCart = (() => {
           </div>
           <div class="mc-hits-head">
             <h3 id="mc-hits-title" aria-live="polite"></h3>
-            <span class="hint">已按当前核心与版本过滤 · 数据来自 Modrinth（免费开放）</span>
+            <span class="hint">按当前核心与版本过滤；数据来自 Modrinth</span>
           </div>
           <div id="mc-hits"></div>
           <div id="mc-more-row" class="mc-more-row" hidden></div>
@@ -69,7 +69,7 @@ window.MDModCart = (() => {
           <div class="row mc-local-row">
             <button class="btn" id="mc-local-pick">${icon("folder")} 从电脑添加…</button>
             <input type="file" id="mc-file" multiple accept=".jar" hidden>
-            <span class="hint">自己下载的 jar，也可以直接拖到这里</span>
+            <span class="hint">自己下载的 jar 也可以拖到这里</span>
           </div>
           <div id="mc-local-state" aria-live="polite"></div>
           <div class="row mc-actions" id="mc-actions" hidden>
@@ -141,7 +141,7 @@ window.MDModCart = (() => {
           <button class="btn sm ghost mc-del-local" data-sha="${esc(lf.sha1)}" aria-label="移除本地文件 ${esc(lf.fileName)}">${icon("x")} 移除</button>
         </div>`));
       listEl.innerHTML = rows.length ? rows.join("")
-        : `<div class="sub" id="mc-empty">清单还是空的。在${noun}列表里点「加入清单」，或者用下面的「从电脑添加…」放进自己下载的文件，挑齐了再一起装。</div>`;
+        : `<div class="sub" id="mc-empty">清单是空的。在列表里点「加入清单」，或用下面的「从电脑添加…」放入自己下载的文件，挑齐后一起安装。</div>`;
       countEl.textContent = total() ? `共 ${total()} 项` : "";
       if (!inst) draftSeen = { expect: cart.map(it => it.projectId), expectLocal: local.map(lf => lf.sha1) }; // 草稿车：记下画在页面上的是哪些
       paintActions();
@@ -200,7 +200,7 @@ window.MDModCart = (() => {
       moreRow.innerHTML = (moreErr ? `<div class="err-box" id="mc-more-err">后面的没有加载出来：${esc(moreErr)}。再点一次「加载更多」试试。</div>` : "") +
         (more ? `<button class="btn" id="mc-more"${loadingMore ? " disabled" : ""}>${loadingMore ? icon("spinner") + " 加载中…" : icon("chevronDown") + " 加载更多"}</button>
             <span class="hint">已列出 ${hits.length} 个</span>`
-          : `<span class="hint" id="mc-more-end">${hits.length >= 100 ? `只列出最热门的 ${hits.length} 个。想找别的，用上面的搜索或类别。` : `就这 ${hits.length} 个了。`}</span>`);
+          : `<span class="hint" id="mc-more-end">${hits.length >= 100 ? `只列出最热门的 ${hits.length} 个。想找别的，用上面的搜索或类别。` : `已显示全部 ${hits.length} 个。`}</span>`);
       const moreBtn = $("#mc-more", root);
       if (moreBtn) moreBtn.onclick = () => load(true);
     };

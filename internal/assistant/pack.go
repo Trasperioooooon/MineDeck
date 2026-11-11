@@ -45,7 +45,7 @@ func (s *Service) pack(ctx context.Context, c ops.Caller, inst string) (string, 
 		}
 	}
 	if idx < 0 {
-		return "", ops.Errorf(404, "实例不存在：%s", inst)
+		return "", ops.Errorf(404, "服务器不存在：%s", inst)
 	}
 	i := list[idx]
 	var app struct {

@@ -485,7 +485,7 @@ func TestWriteOps(t *testing.T) {
 	if _, err := reg.ConfirmWith(ctx, human, p.ID, ops.ConfirmInput{}); err == nil || !strings.Contains(err.Error(), "EULA") {
 		t.Fatalf("不勾同意不能执行：%v", err)
 	}
-	if _, err := reg.ConfirmWith(ctx, human, p.ID, ops.ConfirmInput{Consent: true}); err == nil || !strings.Contains(err.Error(), "实例名已存在") {
+	if _, err := reg.ConfirmWith(ctx, human, p.ID, ops.ConfirmInput{Consent: true}); err == nil || !strings.Contains(err.Error(), "已有同名的服务器") {
 		t.Fatalf("勾了同意应带上 eula 执行（校验到实例名才失败）：%v", err)
 	}
 	if strings.Contains(string(reg.Op("instance.create").AISchema()), "eula") {

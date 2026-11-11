@@ -483,7 +483,7 @@ func TestValidateAdopt(t *testing.T) {
 	m.insts["已有的"] = &Instance{Settings: Settings{Name: "已有的"}, Dir: filepath.Join(user, "x"), Console: newConsole()}
 	ok := AdoptReq{Dir: dir, Name: "新的", Core: mcsrc.CoreVanilla, MC: "1.21.1", LaunchTarget: "jar:server.jar"}
 	for want, mutate := range map[string]func(*AdoptReq){
-		"实例名已存在":     func(r *AdoptReq) { r.Name = "已有的" },
+		"已有同名的服务器":   func(r *AdoptReq) { r.Name = "已有的" },
 		"实例名不能包含":    func(r *AdoptReq) { r.Name = "a:b" },
 		"服务端的类型":     func(r *AdoptReq) { r.Core = "arclight" },
 		"版本号":        func(r *AdoptReq) { r.MC = " " },

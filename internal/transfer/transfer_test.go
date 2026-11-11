@@ -693,7 +693,7 @@ func TestImportDuplicateName(t *testing.T) {
 	if snap.Err != "" {
 		t.Fatalf("导出失败：%s", snap.Err)
 	}
-	if _, err := ImportAsync(m, snap.Result, ImportReq{Name: "A 的服", EULA: true}); err == nil || !strings.Contains(err.Error(), "已存在") {
+	if _, err := ImportAsync(m, snap.Result, ImportReq{Name: "A 的服", EULA: true}); err == nil || !strings.Contains(err.Error(), "已有同名的服务器") {
 		t.Errorf("重名导入该被拒：%v", err)
 	}
 }

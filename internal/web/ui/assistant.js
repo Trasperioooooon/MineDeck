@@ -193,7 +193,7 @@ window.MDAssist = (() => {
     if (A.view !== "list" || !A.panel) return;
     if (!l.length) {
       body.innerHTML = `<div class="ap-empty"><span class="ae-ico">${icon("sparkle")}</span><h4>还没有会话</h4>
-        <p>问问 AI：服务器为什么起不来、怎么让朋友连进来、某个设置是什么意思。要改东西时，它会先给你一张确认卡片。</p>
+        <p>可以问它：服务器为什么起不来、怎么让朋友连进来、某个设置是什么意思。要改动时它会先给出确认卡片。</p>
         <button class="btn primary" data-x="new">${icon("plus")} 开始新会话</button></div>`;
       body.querySelector('[data-x="new"]').onclick = e => newMenu(e.currentTarget);
       return;
@@ -646,10 +646,10 @@ window.MDAssist = (() => {
     const st = [];
     if (A.retry) st.push(`<span class="warn-text">${icon("refresh")} ${esc(A.retry)}</span>`);
     if (s.stale) st.push(`<span class="warn-text">${icon("warn")} ${esc(s.stale)}</span><button class="btn sm" data-x="fresh">${icon("plus")} 开新会话</button>`);
-    else if (over) st.push(`<span class="warn-text">${icon("warn")} 今天的额度用完了。明天 0 点恢复。可以在「设置 → AI」里调高。</span>`);
+    else if (over) st.push(`<span class="warn-text">${icon("warn")} 今天的额度已用完，明天 0 点恢复；可在「设置 → AI」里调高。</span>`);
     else if (s.waiting && !s.busy) st.push(`<span>${icon("pending")} 上面有确认卡片等你处理。直接发新消息的话，没处理的卡片会作废。</span>`);
     else if (s.needReply && !s.busy) st.push(`<span>上一次的回复没完成</span><button class="btn sm" data-x="cont">${icon("refresh")} 继续回复</button>`);
-    if (s.long && !s.stale) st.push(`<span>会话已经很长了。每次发送都会多用 token，费用也更高。可以开一个新会话。</span>`);
+    if (s.long && !s.stale) st.push(`<span>会话已经很长：每次发送都会多用 token、费用更高。可以开一个新会话。</span>`);
     const box = f.querySelector("#ap-state");
     box.innerHTML = st.join("");
     const fresh = box.querySelector('[data-x="fresh"]');

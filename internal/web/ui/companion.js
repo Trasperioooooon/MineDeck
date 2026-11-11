@@ -83,7 +83,7 @@ window.MDCompanion = (() => {
 
   /* 整合包服务端：好友光装伙伴模组进不来，还要装同一个整合包（测试报告第五轮，实测差 8 个模组被挡在门外）。
      实例里没有记「是不是整合包导入的」（instance.json 没有导入来源），判断不了，写成条件句，页面和复制给好友的说明里都有 */
-  const PACK_NOTE = "服务器是整合包的话，好友还要先装同一个整合包（版本一致），光装这几个模组进不去。";
+  const PACK_NOTE = "服务器是整合包时，好友还要装同一个版本的整合包；只装这几个模组进不去。";
   const PACK_GUIDE = "如果服务器是整合包：先装同一个整合包（版本要和服务器一致），再把上面的模组放进那个整合包的 mods 目录。";
 
   /* 弹窗表单（外观同 confirmModal）：点确定时交给 check(mask)，返回 null 表示有错（错误已就近显示），弹窗留着；
@@ -126,7 +126,7 @@ window.MDCompanion = (() => {
     try { v = await api(base); } catch (e) { if (!stale(gen)) body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
     if (stale(gen)) return;
     if (!v.install.supported) {
-      body.innerHTML = `<div class="cp"><div class="warn-card"><div class="wc-title">${icon("warn")} 这台服务器用不了 AI 伙伴</div>
+      body.innerHTML = `<div class="cp"><div class="warn-card"><div class="wc-title">${icon("warn")} 这台服务器用不了伙伴</div>
         <div class="wc-note">${esc(v.install.reason)}</div></div>
         <div class="hint">AI 伙伴是一个服务端模组。PlayerEngine 负责身体，MineDeck 负责听懂和指挥。每种加载器、每个 Minecraft 版本都要单独做一份，现在只有上面列出的这几种。</div></div>`;
       return;
@@ -165,7 +165,7 @@ window.MDCompanion = (() => {
       if (!v.ai.enabled) html += `<div class="warn-card"><div class="wc-title">${icon("warn")} AI 还没配置</div>
         <div class="wc-note">伙伴靠 AI 听懂玩家的话：先在「设置 → AI」里选好服务商、填好 Key 和模型。没配置时伙伴照样能刷出、移除，只是没人能在游戏里指挥它。</div>
         <a class="btn sm" href="#/settings/ai">${icon("gear")} 去设置</a></div>`;
-      else if (v.settings.enabled && !v.gameai.enabled) html += `<div class="cp-note">${icon("info")} 玩家要在聊天里叫伙伴，还得在「游戏内 AI」标签里打开游戏内 AI。
+      else if (v.settings.enabled && !v.gameai.enabled) html += `<div class="cp-note">${icon("info")} 玩家要在聊天里叫伙伴，需要先在「游戏内 AI」标签里开启该功能。
         <a href="#/inst/${enc}/gameai">去打开</a></div>`;
       box.innerHTML = html;
     };
@@ -193,7 +193,7 @@ window.MDCompanion = (() => {
       if (st.installing) action = riRow({ ico: "download", title: "正在安装…", sub: iv.download ? `正在从 Modrinth 下载约 ${mb(iv.download)}，网络慢的话要等一会儿` : "正在写进 mods 目录" });
       else if (!iv.needed) action = riRow({ ico: "check", title: v.restart ? "装好了，重启服务器后生效" : "三个都装好了", cls: "cp-ready",
         sub: v.restart ? "服务器运行中装的模组，要重启才会加载" : "以后 MineDeck 更新了伙伴模组，这里会提示「要换」" });
-      else if (running && replace) action = riRow({ ico: "warn", title: "先停服再安装", sub: "服务器运行中不能替换已经装着的旧版本（文件被服务器占用）",
+      else if (running && replace) action = riRow({ ico: "warn", title: "先停服再安装", sub: "服务器运行中无法替换已装的旧版本（文件被占用），需先停止服务器。",
         right: `<button class="btn primary" id="cp-install-btn" disabled>${icon("download")} 安装</button>` });
       else action = riRow({ ico: "download", title: iv.ready ? "整理 mods 目录" : "安装缺少的模组",
         sub: (iv.download ? `要从 Modrinth 下载约 ${mb(iv.download)}` : "不用下载") + (running ? "。服务器正在运行，装好后要重启才生效。" : ""),
@@ -226,7 +226,7 @@ window.MDCompanion = (() => {
         key: c.file || "",
         right: c.page ? `<a class="btn sm" href="${esc(c.page)}" target="_blank" rel="noopener" aria-label="${esc(c.name)} 的下载页">${icon("link")} 下载页</a>`
           : v.local ? `<button class="btn sm" id="cp-mods-dir">${icon("folder")} 打开 mods 目录</button>` : "" }));
-      rows.push(riRow({ ico: "users", title: "复制给好友的说明", sub: "要装哪几个、去哪里下，一段话发到群里就行。",
+      rows.push(riRow({ ico: "users", title: "复制给好友的说明", sub: "要装哪几个、去哪里下载；复制后直接发出去即可。",
         right: `<button class="btn sm" id="cp-copy-guide">${icon("copy")} 复制</button>` }));
       box.innerHTML = group(rows.join(""), { ico: true });
       const dir = $("#cp-mods-dir");
@@ -245,7 +245,7 @@ window.MDCompanion = (() => {
     const drawSettings = () => {
       const s = v.settings;
       $("#cp-set").innerHTML = group(
-        riRow({ ico: "power", title: "打开 AI 伙伴", sub: `<span id="cp-on-sub"></span>`, right: swHTML(`id="cp-on"`, s.enabled, "打开 AI 伙伴") }) +
+        riRow({ ico: "power", title: "打开伙伴", sub: `<span id="cp-on-sub"></span>`, right: swHTML(`id="cp-on"`, s.enabled, "打开伙伴") }) +
         riRow({ ico: "bot", title: "伙伴上限", sub: `同时最多几个伙伴（1–${s.maxLimit}）。调低了不会移除现有的，只是不能再刷。`,
           field: `<input type="number" id="cp-max" min="1" max="${s.maxLimit}" step="1" inputmode="numeric" value="${s.maxCompanions}" aria-label="伙伴上限">` +
             `<span class="ri-unit">个</span><button class="btn" id="cp-max-save" aria-label="保存伙伴上限">保存</button>`,
@@ -260,7 +260,7 @@ window.MDCompanion = (() => {
         const on = e.target.checked;
         try {
           await put({ enabled: on });
-          toast(on ? "已打开 AI 伙伴：服务器开着的话，MineDeck 会自动连上伙伴模组" : "已关掉 AI 伙伴：伙伴还在游戏里，只是 MineDeck 指挥不了它们");
+          toast(on ? "已打开伙伴：服务器开着的话，MineDeck 会自动连上伙伴模组" : "已关掉伙伴：伙伴还在游戏里，但 MineDeck 不再指挥它们");
         } catch (err) { e.target.checked = !on; toast(err.message, true); }
       };
       const maxErr = msg => fieldErr($("#cp-max-err"), $("#cp-max"), msg);
