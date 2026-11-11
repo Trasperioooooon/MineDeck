@@ -142,7 +142,7 @@ module.exports = { startProto };
 function openBrowser(url) {
   const { spawn } = require("child_process");
   const [cmd, args] = process.platform === "win32" ? ["cmd", ["/c", "start", "", url]] : process.platform === "darwin" ? ["open", [url]] : ["xdg-open", [url]];
-  try { spawn(cmd, args, { stdio: "ignore", detached: true }).unref(); } catch {}
+  try { spawn(cmd, args, { stdio: "ignore", detached: true, windowsHide: true }).unref(); } catch {}
 }
 
 if (require.main === module) {

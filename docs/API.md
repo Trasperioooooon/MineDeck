@@ -19,7 +19,7 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 |---|---|---|
 | GET | `/api/app` | 版本、内存（`ramMb`/`availRamMb`）、实际监听端口 `port`、`serversRoot`/`backupsRoot`、`autoStart`（开机自启真值，查注册表）、`config`、本机 IP；`lanSet`（是否已设访问密码）、`cfKeySet`（是否已设 CurseForge API Key）、`cfKeyBroken`（已存的 Key 解不开，多半是换了电脑或 Windows 用户，需要重填）；`lanActive`：这次启动是否已经监听在局域网上（打开「允许局域网访问」后要重启程序才为真；关掉即时生效） |
 | PUT | `/api/config` | 局部更新配置（见下方「配置键」；仅传要改的键） |
-| POST | `/api/pickdir` | 弹系统文件夹选择框，返回 `{path}`（取消为空）。**仅本机** |
+| POST | `/api/pickdir` | 弹系统文件夹选择框，返回 `{path}`（取消为空）。对话框关掉之前请求不返回；已经开着一个时再调返回 409；对话框打不开时返回 500（原因在日志里）。**仅本机** |
 | POST | `/api/openpath` | 在资源管理器打开 `{path}` 目录。**仅本机** |
 | GET | `/api/bg` | 列出 `bg/` 目录内壁纸文件名 `{images:[...]}` |
 | GET | `/bg/{name}` | 提供单张壁纸图片（免 token，`filepath.Base` 防穿越） |
