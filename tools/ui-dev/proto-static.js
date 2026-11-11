@@ -1,6 +1,7 @@
 // MineDeck 界面原型 · 静态版：把原型做成一个不需要任何服务器的文件夹。
 // 用法：node proto-static.js [输出目录=proto-dist] [--ui=<界面目录>] [--version=<版本号>] [--no-catalog] [--open] [--serve[=端口]]
-//   --open 生成后用默认浏览器打开 index.html（file://）；--serve 生成后起一个只发文件的静态服务器（默认 27392 端口），看放到网站上的样子
+//   --open 生成后用默认浏览器打开 index.html（file://）；--serve 生成后起一个只发文件的静态服务器（默认 27392 端口），看放到网站上的样子；
+//   --download=<地址> 导览页顶栏多一个「下载 MineDeck」的按钮，指向这个地址（官网用）
 // 或者双击同目录的「生成并打开在线体验.bat」。
 //
 // 产物双击 index.html 就能看（file://），整个文件夹丢到随便哪个静态托管上也能看，放在网站的子目录下也行：
@@ -89,8 +90,9 @@ function bundle(ui, version, preloads) {
 
 const sizeOf = dir => fs.readdirSync(dir, { withFileTypes: true }).reduce((n, e) => n + (e.isDirectory() ? sizeOf(path.join(dir, e.name)) : fs.statSync(path.join(dir, e.name)).size), 0);
 
-// 生成静态版。out：输出目录；ui：界面目录；version：侧栏左下角显示的版本号；catalog: false 不出评审用的目录页（官网用）
-function buildStatic({ out = OUT_DEFAULT, ui = UI_DEFAULT, version = versionOf(), catalog = true } = {}) {
+// 生成静态版。out：输出目录；ui：界面目录；version：侧栏左下角显示的版本号；catalog: false 不出评审用的目录页（官网用）；
+// links：{ download: 地址 }，给了的话导览页顶栏多一个「下载 MineDeck」的按钮（官网用，写相对地址或站内地址）
+function buildStatic({ out = OUT_DEFAULT, ui = UI_DEFAULT, version = versionOf(), catalog = true, links = null } = {}) {
   out = path.resolve(out); ui = path.resolve(ui);
   if (!fs.existsSync(path.join(ui, "index.html"))) throw new Error("界面目录里没有 index.html：" + ui);
   // 输出目录生成前要整个清空，所以不许它是仓库或界面目录本身，也不许是它们的上层；也不许在界面目录里面（会把自己拷进自己）
@@ -115,7 +117,7 @@ function buildStatic({ out = OUT_DEFAULT, ui = UI_DEFAULT, version = versionOf()
   if (catalog) fs.copyFileSync(path.join(HERE, "proto", "index.html"), path.join(out, "catalog.html"));
   // bytes：点「开始体验」以后要加载多少（界面 + 仿真后端），导览页拿它告诉访客
   const bytes = sizeOf(path.join(out, "app")) + fs.statSync(path.join(out, "mock.js")).size;
-  const data = protoData({ static: true, version, bytes, pages: { catalog: catalog ? "catalog.html" : "", tour: "index.html" }, ...(catalog ? {} : { groups: [], scenes: [] }) });
+  const data = protoData({ static: true, version, bytes, pages: { catalog: catalog ? "catalog.html" : "", tour: "index.html" }, ...(links ? { links } : {}), ...(catalog ? {} : { groups: [], scenes: [] }) });
   fs.writeFileSync(path.join(out, "data.js"), "window.MD_PROTO = " + JSON.stringify(data) + ";\n");
 
   return { out, bytes, total: sizeOf(out), tour: data.tour.length, scenes: data.scenes.length };
@@ -151,7 +153,7 @@ if (require.main === module) {
   const dir = argv.find(a => !a.startsWith("--"));
   const mb = n => (n / 1048576).toFixed(1) + " MB";
   try {
-    const r = buildStatic({ out: dir, ui: opt("ui"), version: opt("version"), catalog: !argv.includes("--no-catalog") });
+    const r = buildStatic({ out: dir, ui: opt("ui"), version: opt("version"), catalog: !argv.includes("--no-catalog"), links: opt("download") ? { download: opt("download") } : null });
     const index = path.join(r.out, "index.html");
     console.log(`静态版已生成：${r.out}
 整个文件夹 ${mb(r.total)}；导览 ${r.tour} 步${r.scenes ? `，评审用的目录页 ${r.scenes} 个场景` : ""}。

@@ -42,12 +42,12 @@ step("v-version", "n-version", {}, {
   en: { label: "Pick version", title: "Step two: pick the game version", note: "Choose a version from the list. No hunting for download links. MineDeck works out which Java that version needs and downloads it if your PC does not have it." },
 });
 step("v-mods", "n-mods", { beta: true }, {
-  zh: { label: "挑模组", title: "顺手把模组挑好", note: "开模组服的话，这一步可以先挑模组：左边是 Modrinth 上最热门的，点「加入」就进右边的待装清单，服务器建好以后自动装上，缺的前置模组也一起补齐。自己下载的 jar 也能放进来。" },
+  zh: { label: "挑模组", title: "顺手把模组挑好", note: "开模组服的话，这一步可以先挑模组：左边是 Modrinth 上最热门的，点「加入清单」就进右边的待装清单，服务器建好以后自动装上，缺的前置模组也一起补齐。自己下载的 jar 也能放进来。" },
   en: { label: "Pick mods", title: "Choose your mods while you are here", note: "For a modded server you can pick mods right in the wizard. The left side lists the most popular ones on Modrinth; add them to the list on the right and they are installed once the server is created, together with any required dependencies. Jar files you downloaded yourself can go in too." },
 });
 step("v-settings", "n-settings", {}, {
-  zh: { label: "基本设置", title: "最后：起名字、定内存", note: "起个名字，定一下内存和端口，同意 Minecraft 的用户协议（EULA），点「创建」。下一步看创建的过程。" },
-  en: { label: "Settings", title: "Last step: name and memory", note: "Give it a name, set memory and port, accept the Minecraft EULA and click Create. The next step shows what happens then." },
+  zh: { label: "基本设置", title: "最后：起名字、定内存", note: "起个名字，定一下内存和端口，同意 Minecraft 的用户协议（EULA），点「开始部署」。下一步看部署的过程。" },
+  en: { label: "Settings", title: "Last step: name and memory", note: "Give it a name, set memory and port, accept the Minecraft EULA and start the deployment. The next step shows what happens then." },
 });
 step("v-task", "", {
   hash: "#/task/task-1",
