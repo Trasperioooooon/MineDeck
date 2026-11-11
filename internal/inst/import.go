@@ -154,7 +154,7 @@ func (m *Manager) runImport(ctx context.Context, t *tasks.Task, pack *modpack.Pa
 			t.AddWarning(tasks.Warning{
 				Kind:  "cf-unresolved",
 				Title: fmt.Sprintf("%d 个文件需手动补装", len(unresolved)),
-				Note:  "这些文件没法自动下载（作者不允许第三方工具下载，或者没有填 CurseForge API Key）：可以点链接到 CurseForge 网站下载，放进名字前面写的那个文件夹，或在下面的「待决文件」里逐个处理（清单也已保存到实例目录「未解析模组清单.txt」）。",
+				Note:  "这些文件没法自动下载（作者不允许第三方工具下载，或者没有填 CurseForge API Key）：可以点链接到 CurseForge 网站下载，放进名字前面写的那个文件夹，或在下面的「待决文件」里逐个处理（清单也已保存到服务器文件夹里的「未解析模组清单.txt」）。",
 				Items: items,
 			})
 		}
@@ -712,10 +712,10 @@ func (m *Manager) pendingInstance(taskID string) (*Instance, error) {
 	}
 	i, err := m.Get(ref.name)
 	if err != nil {
-		return nil, fmt.Errorf("任务对应的实例「%s」不在了（可能已被删除）", ref.name)
+		return nil, fmt.Errorf("任务对应的服务器「%s」不在了（可能已被删除）", ref.name)
 	}
 	if !i.CreatedAt.Equal(ref.created) {
-		return nil, fmt.Errorf("任务对应的实例「%s」已经删掉了，现在这台同名的是后来新建的，待决文件不会放进去", ref.name)
+		return nil, fmt.Errorf("任务对应的服务器「%s」已经删掉了，现在这台同名的是后来新建的，待决文件不会放进去", ref.name)
 	}
 	return i, nil
 }

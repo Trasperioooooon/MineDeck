@@ -484,7 +484,7 @@ func TestValidateAdopt(t *testing.T) {
 	ok := AdoptReq{Dir: dir, Name: "新的", Core: mcsrc.CoreVanilla, MC: "1.21.1", LaunchTarget: "jar:server.jar"}
 	for want, mutate := range map[string]func(*AdoptReq){
 		"已有同名的服务器":   func(r *AdoptReq) { r.Name = "已有的" },
-		"实例名不能包含":    func(r *AdoptReq) { r.Name = "a:b" },
+		"服务器名称不能包含":  func(r *AdoptReq) { r.Name = "a:b" },
 		"服务端的类型":     func(r *AdoptReq) { r.Core = "arclight" },
 		"版本号":        func(r *AdoptReq) { r.MC = " " },
 		"启动文件不在":     func(r *AdoptReq) { r.LaunchTarget = "jar:other/evil.jar" },

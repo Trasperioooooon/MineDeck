@@ -263,7 +263,7 @@ func (c *cat) appOps() {
 			// 防止换血期间新旧进程并发管理同一存档
 			for _, i := range c.Mgr.List() {
 				if i.Status() != "stopped" {
-					return nil, fmt.Errorf("实例「%s」仍在运行，请先停止所有服务器再更新", i.Name)
+					return nil, fmt.Errorf("服务器「%s」仍在运行，请先停止所有服务器再更新", i.Name)
 				}
 			}
 			ctx := context.Background() // 独立于请求生命周期

@@ -324,7 +324,7 @@ func (m *Manager) runCreate(ctx context.Context, t *tasks.Task, req CreateReq, d
 	// ---- 步骤 4：写入配置 ----
 	t.StartStep(4)
 	if kind == mcsrc.KindProxy {
-		t.Logf("代理端无需 EULA 与 server.properties，首次启动后在实例目录编辑其自带配置文件")
+		t.Logf("代理端无需 EULA 与 server.properties，首次启动后在服务器文件夹里编辑它自带的配置文件")
 	} else {
 		if err := os.WriteFile(filepath.Join(dir, "eula.txt"),
 			[]byte("# 用户已在 MineDeck 中确认同意 Minecraft EULA (https://aka.ms/MinecraftEULA)\neula=true\n"), 0o644); err != nil {
