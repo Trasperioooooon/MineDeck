@@ -416,6 +416,11 @@ func (c *cat) modcartOps() {
 			if p.File == "" || filepath.Dir(filepath.Clean(p.File)) != LocalUploadDir() {
 				return nil, ops.Errorf(400, "文件不在上传目录里")
 			}
+			p.File = filepath.Clean(p.File)
+			// 必须是个普通文件：下面的 os.Remove 连空文件夹也删，不能让它碰到上传目录里的别的东西
+			if st, err := os.Lstat(p.File); err != nil || !st.Mode().IsRegular() {
+				return nil, ops.Errorf(400, "没有收到文件，再添加一次")
+			}
 			defer os.Remove(p.File) // 放进清单时已经被挪走了；没放进去的不留
 			if utf8Len(p.Inst) > 100 {
 				return nil, ops.Errorf(400, "实例名太长")
@@ -981,11 +986,6 @@ func (c *cat) installCart(ctx context.Context, task *tasks.Task, t cartTarget, p
 		task.AddWarning(tasks.Warning{Kind: "local-failed", Title: fmt.Sprintf("%d 个本地文件没装上", len(broken)),
 			Note: "这几个文件还留在待装清单里，看看原因，处理好以后再装一次。", Items: broken})
 	}
-	// 这次只有本地文件要放，而且一个都没放进去：算失败，不能写「安装完成」（原因已经列在上面的提示里）
-	if len(files) == 0 && len(items) == 0 && len(locals) > 0 && len(kept)+len(broken) == len(locals) {
-		task.Fail(fmt.Errorf("%d 个本地文件一个都没放进服务器，原因见上面的提示。这几个文件还留在待装清单里", len(locals)))
-		return
-	}
 
 	task.StartStep(3)
 	missing, stale, n, err := modcart.CheckLocal(dir)
@@ -1029,6 +1029,12 @@ func (c *cat) installCart(ctx context.Context, task *tasks.Task, t cartTarget, p
 				task.Logf("从草稿清单里拿掉装好的项目失败：%v", err)
 			}
 		}
+	}
+	// 这次没有下载任何文件，本地文件又一个都没放进去：算失败，不能写「安装完成」（原因已经列在上面的提示里）。
+	// 放在收尾之后：本来就在服务器里的那些项目照样从清单里拿掉了，没放进去的本地文件和被它顶替的项目都还留着。
+	if len(files) == 0 && len(locals) > 0 && len(kept)+len(broken) == len(locals) {
+		task.Fail(fmt.Errorf("%d 个本地文件一个都没放进服务器，原因见上面的提示。这几个文件还留在待装清单里", len(locals)))
+		return
 	}
 	if t.inst.Status() != "stopped" {
 		task.Logf("服务器正在运行：重启后新装的才生效")

@@ -5,9 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
-	"time"
 
 	"minedeck/internal/modcart"
 	"minedeck/internal/ops"
@@ -92,11 +90,12 @@ func (s *Server) handleModcartLocal(w http.ResponseWriter, r *http.Request) {
 			return nil, ops.Errorf(500, "保存上传文件失败")
 		}
 		sweepUploads(dir) // 兜底：程序中途退出留下的临时文件
-		path := filepath.Join(dir, fmt.Sprintf("%d.upload", time.Now().UnixNano()))
-		out, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		// 名字交给 CreateTemp 起（随机、独占创建）：几个上传同时到的时候不会撞名
+		out, err := os.CreateTemp(dir, "*.upload")
 		if err != nil {
 			return nil, ops.Errorf(500, "保存上传文件失败")
 		}
+		path := out.Name()
 		dest = path
 		_, cerr := io.Copy(out, file)
 		if werr := out.Close(); cerr == nil {

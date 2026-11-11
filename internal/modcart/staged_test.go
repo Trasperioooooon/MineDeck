@@ -83,14 +83,15 @@ func (f *fakeMR) verZip(pid, vid, num, mc string, body []byte, deps ...mrDep) {
 
 // 文件名：必须是单独一段、以 .jar 结尾，不带路径、控制字符、看不见的排版字符和 Windows 不许的字符，长度有上限。
 func TestCheckLocalName(t *testing.T) {
-	for _, ok := range []string{"a.jar", "【优化】钠 Sodium-0.5.8+mc1.20.1.JAR", "my mod (1).jar", strings.Repeat("长", 60) + ".jar"} {
+	for _, ok := range []string{"a.jar", "【优化】钠 Sodium-0.5.8+mc1.20.1.JAR", "my mod (1).jar", strings.Repeat("长", 60) + ".jar",
+		"complete-mod~1.jar", "a~b.jar", "com10.jar", "comet.jar"} { // 带 ~ 但不是 8.3 短名形状的、长得像设备名但不是的，都能用
 		if err := CheckLocalName(ok); err != nil {
 			t.Errorf("%q 应该能用：%v", ok, err)
 		}
 	}
 	bad := []string{"", ".", "..", "a.zip", "a.jar.disabled", "jar", "../a.jar", "a/b.jar", `a\b.jar`, `..\a.jar`, "C:a.jar", "a:b.jar",
 		".hidden.jar", "a\x00.jar", "a\n.jar", "a\x7f.jar", "a\u0085.jar", "evil\u202egnp.jar", "a\u200b.jar", "a*.jar", "a?.jar", `a".jar`, "a<b>.jar", "a|b.jar",
-		"NUL.jar", "com1.jar", "a.jar ", "a.jar.", strings.Repeat("a", 197) + ".jar", strings.Repeat("长", 97) + ".jar", "a\xff.jar"}
+		"NUL.jar", "com1.jar", "COM¹.jar", "lpt³.jar", "PROGRA~1.jar", "mod~12.JAR", "a.jar ", "a.jar.", strings.Repeat("a", 197) + ".jar", strings.Repeat("长", 97) + ".jar", "a\xff.jar"}
 	for _, name := range bad {
 		if err := CheckLocalName(name); codeOf(err) != 400 {
 			t.Errorf("%q 应拒绝（400）：%v", name, err)
@@ -582,5 +583,33 @@ func TestClosureLocalConflicts(t *testing.T) {
 	}
 	if len(s.Locals(Draft)) != 6 {
 		t.Error("检查前置不该动清单")
+	}
+}
+
+// 放进服务器的最后一步不替换已有的文件：拷贝的那会儿目标位置冒出来一个同名文件，就不动它。
+func TestPlaceNoReplace(t *testing.T) {
+	dir := t.TempDir()
+	tmp, dest := filepath.Join(dir, ".a.jar.copy"), filepath.Join(dir, "a.jar")
+	if err := os.WriteFile(tmp, []byte("新的"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if taken, err := placeNoReplace(tmp, dest); taken || err != nil {
+		t.Fatalf("目标不存在时应放进去：taken=%v err=%v", taken, err)
+	}
+	if b, _ := os.ReadFile(dest); string(b) != "新的" {
+		t.Fatalf("放进去的内容不对：%q", b)
+	}
+	if _, err := os.Stat(tmp); err == nil {
+		t.Fatal("放进去以后临时文件应当没有了")
+	}
+	// 目标已经在了：不动它，告诉调用方
+	if err := os.WriteFile(tmp, []byte("另一份"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if taken, err := placeNoReplace(tmp, dest); !taken || err != nil {
+		t.Fatalf("目标已经存在时应返回 taken：taken=%v err=%v", taken, err)
+	}
+	if b, _ := os.ReadFile(dest); string(b) != "新的" {
+		t.Fatalf("已有的文件被换掉了：%q", b)
 	}
 }

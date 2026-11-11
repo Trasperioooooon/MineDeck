@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -77,6 +78,9 @@ func CheckLocalName(name string) error {
 	case name != filepath.Base(name) || strings.ContainsAny(name, `/\`) || name == "." || name == ".." ||
 		strings.HasPrefix(name, ".") || badName.MatchString(name) || !filepath.IsLocal(name) || reservedName(name):
 		return errorf(400, "文件名里有不能用的字符（比如 / \\ : * ? \" < > |），改个名字再添加：%s", short)
+	case shortAlias.MatchString(name):
+		// 长得像 Windows 的 8.3 短文件名（PROGRA~1.jar）：开着短文件名的盘上，它会指到目录里另一个长名字的文件
+		return errorf(400, "「%s」这种名字（几个字符加 ~ 和数字）在 Windows 上可能指到别的文件，改个名字再添加", short)
 	}
 	for _, r := range name {
 		// 控制字符（含 \x7f 和 C1 区）、看不见的排版字符（如从右到左覆盖符，能把 exe 伪装成 jar 的样子）
@@ -87,8 +91,12 @@ func CheckLocalName(name string) error {
 	return nil
 }
 
+// shortAlias 长得像 8.3 短文件名的名字：最多 6 个字符，接 ~ 和数字（PROGRA~1.jar）。
+var shortAlias = regexp.MustCompile(`(?i)^[^.~]{1,6}~[0-9]{1,3}\.jar$`)
+
 // reservedName 是不是 Windows 的设备名（NUL.jar、com1.jar 这种）。filepath.IsLocal 只在当前这台 Windows 真把它当设备时才拦
 // （Windows 11 上带扩展名的已经不算了，老一些的 Windows 还算），这里不看系统版本，一律不收。
+// COM、LPT 后面的编号除了 0–9，上标的 ¹ ² ³ 也算（Windows 的文档里列着 COM¹、LPT³ 这些）。
 func reservedName(name string) bool {
 	base, _, _ := strings.Cut(strings.ToUpper(name), ".")
 	base = strings.TrimRight(base, " ")
@@ -96,8 +104,8 @@ func reservedName(name string) bool {
 	case "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$":
 		return true
 	}
-	if len(base) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) {
-		return base[3] >= '0' && base[3] <= '9'
+	if r := []rune(base); len(r) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) {
+		return (r[3] >= '0' && r[3] <= '9') || r[3] == '¹' || r[3] == '²' || r[3] == '³'
 	}
 	return false
 }
@@ -414,11 +422,18 @@ func (s *Service) InstallLocal(lf LocalFile, destDir string) (status string, err
 		return "", errorf(404, "暂存的「%s」找不到了，重新添加一次", lf.FileName)
 	}
 	dest := filepath.Join(destDir, lf.FileName)
-	if _, err := os.Lstat(dest); err == nil {
+	// 已经有同名文件：内容一样算装好了，不一样不覆盖
+	existing := func() string {
 		if have, herr := fileSHA1(dest); herr == nil && have == lf.SHA1 {
-			return LocalSame, nil
+			return LocalSame
 		}
-		return LocalDiffers, nil
+		return LocalDiffers
+	}
+	if _, err := os.Lstat(dest); err == nil {
+		return existing(), nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		// 看不清那里有没有同名文件（权限、占用）：不往下走，免得把已有的文件盖掉
+		return "", errorf(500, "看不了 %s 里有没有叫「%s」的文件，没有装：%v", filepath.Base(destDir), lf.FileName, noPath(err))
 	}
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return "", errorf(500, "建 %s 目录失败：%v", filepath.Base(destDir), noPath(err))
@@ -433,10 +448,30 @@ func (s *Service) InstallLocal(lf LocalFile, destDir string) (status string, err
 	if got != lf.SHA1 {
 		return "", errorf(500, "暂存的「%s」内容变了（和添加时不一样），没有装。从清单里移除后重新添加", lf.FileName)
 	}
-	if err := os.Rename(tmp, dest); err != nil {
+	taken, err := placeNoReplace(tmp, dest)
+	if err != nil {
 		return "", errorf(500, "把「%s」放进 %s 失败（可能正被占用，停服后再试）：%v", lf.FileName, filepath.Base(destDir), noPath(err))
 	}
+	if taken { // 拷的这会儿，那里冒出来一个同名文件（别的安装、人手放的）：照「已经有同名文件」办，不覆盖
+		return existing(), nil
+	}
 	return LocalCopied, nil
+}
+
+// placeNoReplace 把 tmp 改名成 dest，dest 已经存在时不动它、返回 taken=true。
+// 不能直接 os.Rename：Windows 上它会把已有的 dest 换掉，而前面查「有没有同名文件」和这里之间隔着一整次拷贝。
+// 用硬链接来放：链接是原子的，目标已经存在就失败。盘不支持硬链接（FAT、exFAT、有的网络盘）时退回改名，改名前再看一眼。
+func placeNoReplace(tmp, dest string) (taken bool, err error) {
+	if err := os.Link(tmp, dest); err == nil {
+		_ = os.Remove(tmp)
+		return false, nil
+	} else if errors.Is(err, fs.ErrExist) {
+		return true, nil
+	}
+	if _, err := os.Lstat(dest); err == nil {
+		return true, nil
+	}
+	return false, os.Rename(tmp, dest)
 }
 
 // DropLocal 装好以后把这个本地文件从它所在的那辆车里拿掉（暂存的文件一起删）。

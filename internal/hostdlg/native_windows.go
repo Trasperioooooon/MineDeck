@@ -49,6 +49,13 @@ const (
 )
 
 // comCall 调 COM 对象虚表里第 idx 个方法（this 指针自动带上）。obj 是接口指针。
+//
+// go:uintptrescapes 不能少：调用处把 &opts、&item、标题字符串这些指针转成 uintptr 传进来，没有这个指示的话，
+// 它们在 Go 眼里只是整数——栈上的变量可能在这次调用里因为栈增长被挪走，堆上的可能被回收，COM 那边就写到了别处。
+// 加上以后，写在调用参数里的 uintptr(unsafe.Pointer(…)) 所指的东西会放到堆上，并且一直活到调用返回
+// （和 windows.LazyProc.Call 是同一个办法）。所以转换必须直接写在 comCall 的参数里，不能先存进变量。
+//
+//go:uintptrescapes
 func comCall(obj unsafe.Pointer, idx int, args ...uintptr) uintptr {
 	vtbl := *(**[32]uintptr)(obj)
 	a := make([]uintptr, 0, len(args)+1)
