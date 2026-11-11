@@ -63,11 +63,11 @@ const wizTo = (core, upto) => {
 
 // ==================== 这次改了的地方 ====================
 add("changed", "c-home-empty", "④ 首页：还没有服务器", {
-  tag: "new", note: "主按钮不再是「一键开服（Paper）」，点了直接进从零创建的向导；下面那行小字去新建页挑别的方式。",
+  tag: "new", note: "主按钮不再是「一键开服（Paper）」，现在叫「从零创建」，点了直接进向导；下面那行小字去新建页挑别的方式。",
   setup: s => { s.empty = true; },
 });
 add("changed", "c-create", "③ 新建页：四张卡片分两组", {
-  tag: "new", hash: "#/create", note: "四张卡片一样大，分「新开一台」和「把现成的搬进来」。每种方式有自己的地址，后退键能回到这里。",
+  tag: "new", hash: "#/create", note: "四张卡片一样大，分「新建」和「导入与接管」两组。每种方式有自己的地址，后退键能回到这里。",
 });
 add("changed", "c-tunnel-empty", "⑥ 内网穿透：还没有隧道", {
   tag: "new", hash: "#/tunnels", note: "表单在上面、铺满到右边，插画在下面。说明只写当前选中的那家服务商，换一家试试。",
@@ -121,6 +121,10 @@ add("list", "l-empty", "还没有服务器", { setup: s => { s.empty = true; } }
 add("list", "l-onboard", "第一次打开：引导和用户协议", { setup: s => { s.empty = true; s.config.onboarded = false; s.config.tosAccepted = false; } });
 add("list", "l-four", "四台：运行中、已停止、启动中、代理端", { setup: s => { s.instances = four(); } });
 add("list", "l-all", "十二种核心各一台", { note: "每种核心的像素头像、徽标和状态都在这一页。" });
+add("list", "l-error", "拿不到服务器列表", {
+  note: "报错的呈现方式：页面上只写一句中文结论，原始报错收进「复制报错信息」，点一下复制到剪贴板。",
+  setup: (s, p) => p.api("GET /api/instances", { code: 500, error: "instance store unavailable: open E:\\MineDeck\\servers: Access is denied" }),
+});
 add("list", "l-search", "搜索：只留名字里带「服」的", { steps: [{ fill: "#inst-q", value: "服" }] });
 add("list", "l-search-none", "搜索：没有匹配的", { steps: [{ fill: "#inst-q", value: "不存在的名字" }] });
 add("list", "l-menu", "卡片上的「···」菜单", { setup: s => { s.instances = four(); }, steps: [{ click: `.card[data-name="机械动力整合包"] [data-act="more"]` }] });
@@ -133,10 +137,10 @@ add("create", "n-home-tasks", "入口：有后台任务在跑", {
   hash: "#/create",
   setup: s => { s.taskList = [{ id: "task-pack", title: "导入 机械动力整合包", ended: false }, { id: "task-create", title: "创建 Paper 测试服", ended: false }, { id: "task-failed", title: "创建失败的服务器", ended: true, error: "下载失败" }]; },
 });
-add("create", "n-core", "从零创建 ① 选择核心", { hash: "#/create/new" });
-add("create", "n-version", "从零创建 ② 选择版本（Paper）", { hash: "#/create/new", steps: wizTo("paper", "version") });
-add("create", "n-version-vanilla", "从零创建 ② 选择版本（原版，带发布日期）", { hash: "#/create/new", steps: wizTo("vanilla", "version") });
-add("create", "n-build", "从零创建 ③ 选择构建", { hash: "#/create/new", steps: wizTo("paper", "build") });
+add("create", "n-core", "从零创建 ① 选核心", { hash: "#/create/new" });
+add("create", "n-version", "从零创建 ② 选版本（Paper）", { hash: "#/create/new", steps: wizTo("paper", "version") });
+add("create", "n-version-vanilla", "从零创建 ② 选版本（原版，带发布日期）", { hash: "#/create/new", steps: wizTo("vanilla", "version") });
+add("create", "n-build", "从零创建 ③ 选构建", { hash: "#/create/new", steps: wizTo("paper", "build") });
 add("create", "n-mods", "从零创建 ④ 选模组（NeoForge）", { hash: "#/create/new", steps: wizTo("neoforge", "mods") });
 add("create", "n-mods-search", "从零创建 ④ 选模组：搜「JEI」并加入清单", {
   hash: "#/create/new",
@@ -228,6 +232,16 @@ add("overlay", "o-delete", "删除服务器的确认框", {
 add("overlay", "o-guard", "还有修改没保存就想走", {
   hash: `#/inst/${enc("生存服 · 朋友")}/common`,
   steps: [{ click: '.prop-item:has([data-k="hardcore"]) .switch input' }, { click: '.tabs .tab[data-t="console"]' }],
+});
+add("overlay", "o-toast-err", "右上角的报错提示：停 8 秒，带「详情」和关闭", {
+  hash: "#/settings/storage",
+  setup: (s, p) => p.api("POST /api/pickdir", { code: 500, error: "没能打开选择文件夹的窗口，请再试一次" }),
+  steps: [{ click: '[data-pick="servers"]' }],
+});
+add("overlay", "o-err-detail", "报错详情：原文可以选中、复制", {
+  hash: "#/settings/storage",
+  setup: (s, p) => p.api("POST /api/pickdir", { code: 500, error: "没能打开选择文件夹的窗口，请再试一次" }),
+  steps: [{ click: '[data-pick="servers"]' }, { click: '.toast.error button[aria-label="查看报错详情"]' }],
 });
 add("overlay", "o-toast", "右上角的提示", { setup: s => { s.instances = four(); }, steps: [{ click: `.card[data-name="机械动力整合包"] [data-act="start"]` }] });
 add("overlay", "o-asst", "AI 助手面板", { steps: [{ click: 'button[aria-label^="AI 助手"]' }] });

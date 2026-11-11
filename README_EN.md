@@ -111,7 +111,7 @@ Uninstalling: if start-with-Windows is on, turn it off first under Settings → 
 1. Open the program and click New server (新建服务器).
 2. Pick a server type, a version and a build, accept the EULA, and press create.
 3. When creation finishes, press start. When the console prints `Done (...)!`, the server is up.
-4. Friends on the same LAN connect to `this PC's LAN IP:port`. For friends on other networks, you add a tunnel under Tunnels (内网穿透), bind it to this server, turn on "start with the server" (跟随实例启动), and send them the public address.
+4. Friends on the same LAN connect to `this PC's LAN IP:port`. For friends on other networks, you add a tunnel under Tunnels (内网穿透), bind it to this server, turn on "start with the server" (跟随服务器启动), and send them the public address.
 
 Places you will use often:
 
@@ -129,7 +129,7 @@ No. If a suitable Java is already on the PC, MineDeck uses it. If not, it downlo
 
 ### My friends are not on my network. How do they join?
 
-Add a tunnel under Tunnels (内网穿透), using OpenFrp, SakuraFrp or your own frps. Bind the tunnel to this server and turn on "start with the server" (跟随实例启动). After the server is up, send your friends the public address. Friends on the same LAN do not need a tunnel; they connect to `this PC's LAN IP:port`.
+Add a tunnel under Tunnels (内网穿透), using OpenFrp, SakuraFrp or your own frps. Bind the tunnel to this server and turn on "start with the server" (跟随服务器启动). After the server is up, send your friends the public address. Friends on the same LAN do not need a tunnel; they connect to `this PC's LAN IP:port`.
 
 ### Which versions and server types are supported?
 

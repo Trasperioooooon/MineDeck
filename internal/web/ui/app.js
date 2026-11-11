@@ -1681,9 +1681,9 @@ function wizardShell(inner) {
   Main().innerHTML = pageHead("新建服务器", "选好核心与版本后，Java 与服务端会自动下载并完成配置。", "", "",
     `第 ${wiz.step + 1} 步<span class="sep">/</span>共 ${names.length} 步`) + `
     <div class="steps">${names.map((n, i) => {
-      const skipped = n === "选择构建" && wiz.core === "vanilla"; // 原版没有「选择构建」，该步不可点回
+      const skipped = n === "选构建" && wiz.core === "vanilla"; // 原版没有「选构建」，该步不可点回
       const cls = i === wiz.step ? "cur" : i < wiz.step && !skipped ? "done" : "";
-      const tip = cls === "done" ? `title="回到「${n}」"` : skipped ? `title="原版无需选择构建" tabindex="-1"` : `tabindex="-1"`;
+      const tip = cls === "done" ? `title="回到「${n}」"` : skipped ? `title="原版无需选构建" tabindex="-1"` : `tabindex="-1"`;
       return (i ? `<span class="step-line${i <= wiz.step ? " done" : ""}"></span>` : "") +
         `<button type="button" class="step-pill ${cls}" data-step="${i}" ${tip}><span class="sn">${cls === "done" ? icon("check") : i + 1}</span>${n}</button>`;
     }).join("")}</div>
@@ -2140,7 +2140,7 @@ async function renderTaskPage(taskId) {
       if (success) playClass(prog.querySelector(".xp"), "flash");
     }
     $("#t-msgs").innerHTML = (t.error ? `<div class="err-box"><b>${K.fail}：</b>${esc(t.error)}<br><br>${K.failHint}
-        <div style="margin-top:8px"><button class="btn sm ghost" data-copy-task-fail>复制报错信息</button></div></div>` : "") +
+        <div style="margin-top:8px"><button class="btn sm ghost" data-copy-task-fail>${icon("copy")} 复制报错信息</button></div></div>` : "") +
       (t.warnings || []).map(w => `<div class="warn-card">
         <div class="wc-title">${icon("warn")} ${esc(w.title)}</div>
         ${w.note ? `<div class="wc-note">${esc(w.note)}</div>` : ""}
@@ -2148,7 +2148,7 @@ async function renderTaskPage(taskId) {
           `<li>${/^https?:\/\//i.test(it.url || "") ? `<a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.name)}</a>` : esc(it.name)}</li>`).join("")}</ul>` : ""}
         ${w.kind === "java-req" && t.result ? `<div class="wc-note"><a class="btn sm" href="#/inst/${encodeURIComponent(t.result)}/jvm">去「内存 / 启动」换 Java</a></div>` : ""}
       </div>`).join("");
-    const cpf = body.querySelector("[data-copy-task-fail]");
+    const cpf = $("#t-msgs").querySelector("[data-copy-task-fail]");
     if (cpf) cpf.onclick = () => copy(String(t.error || ""), "已复制报错信息");
     drawPending(t.pending || []);
     const lg = $("#task-log"), text = (t.log || []).join("\n");

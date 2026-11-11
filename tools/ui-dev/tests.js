@@ -251,7 +251,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       taskList[0] = { ...taskList[0], ended: true, warnings: [{ title: "1 个模组需手动补装" }] };
       await page.evaluate(taskList => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList }) }), taskList);
       await page.click('#sidebar a[data-nav="instances"]'); await settle();
-      assert((await page.textContent("#task-list")).includes("已完成，有提示"), "列表里看不出导入完成后有告警（摘要的 warningCount）");
+      assert(/已完成，\d+ 条提示/.test(await page.textContent("#task-list")), "列表里看不出导入完成后有告警（摘要的 warningCount）");
       await page.click('#task-list a[href="#/task/task-pack"]'); await settle();
       assert((await page.textContent("#t-msgs")).includes("需手动补装"), "离开期间完成的导入告警丢失");
       await page.click('#sidebar a[data-nav="create"]'); await settle();
@@ -670,7 +670,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     const importHint = async () => {
       await page.goto(url("#/create")); await settle();
       await page.click("#mode-import"); await settle();
-      return page.evaluate(() => [...document.querySelectorAll(".hint")].some(h => h.textContent.includes("需要 API Key")));
+      return page.evaluate(() => [...document.querySelectorAll(".hint")].some(h => h.textContent.includes("需配置 API Key")));
     };
     const field = () => page.evaluate(() => ({ v: document.querySelector("#cf-key").value, ph: document.querySelector("#cf-key").placeholder,
       clear: !document.querySelector("#cf-clear").hidden, save: !document.querySelector("#cf-save").disabled, sub: document.querySelector("#cf-sub").textContent }));
@@ -1350,7 +1350,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click('[data-allow="Notch_CN"]'); await settle(400);
       assert(JSON.stringify(gcPuts(t0).pop()) === JSON.stringify({ allowed: ["Notch_CN"] }), "授权应即时发 PUT：" + JSON.stringify(gcPuts(t0)));
       const warn = await page.textContent("#gc-wl-warn");
-      assert(warn.includes("这个服没开白名单") && warn.includes("Notch_CN 的名字进服"), "没开白名单应提醒：" + warn);
+      assert(warn.includes("没有开启白名单") && warn.includes("Notch_CN 的名字进服"), "没开白名单应提醒：" + warn);
       await page.click("#gc-wl"); await page.waitForSelector(".modal");
       const items = await page.$$eval(".gc-wl-item", ls => ls.map(l => l.querySelector("span").textContent + (l.querySelector("input").checked ? "✓" : "")));
       assert(JSON.stringify(items) === JSON.stringify(["Notch_CN✓", "Herobrine✓"]), "要加进白名单的人：" + items);
@@ -1405,7 +1405,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(JSON.stringify(vals) === JSON.stringify(["8", "60"]), "出厂默认值：" + vals);
       const lim = (await page.textContent("#gc-lim")).replace(/\s+/g, " ");
       assert(lim.includes("默认 8 秒") && lim.includes("默认 60 次") && lim.includes("叫伙伴另算"), "限流的说明：" + lim);
-      assert((await page.textContent("#gc")).includes("接下来 3 分钟不再回答他"), "说明里的静默时长");
+      assert((await page.textContent("#gc")).includes("接下来 3 分钟不再回答"), "说明里的静默时长");
       let cost = await page.textContent("#gc-budget-cost");
       assert(cost.includes("按当前模型的单价估，每天 50 万 token 约 $0.") && cost.includes("国际站"), "全服每天的 token 约合多少钱：" + cost);
       assert((await page.textContent("#gc-top")) === "Steve 4 次（叫伙伴 2 次）、Alex 3 次。", "今天谁问了几次：" + await page.textContent("#gc-top"));
@@ -1540,7 +1540,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await openCP();
       let t0 = reqs.length;
       await page.click("#cp-on"); await settle(300);
-      assert(JSON.stringify(cpPuts(t0)) === JSON.stringify([{ enabled: true }]) && await toastHas("已打开 AI 伙伴"), "开关应即时发 PUT：" + JSON.stringify(cpPuts(t0)));
+      assert(JSON.stringify(cpPuts(t0)) === JSON.stringify([{ enabled: true }]) && await toastHas("已打开伙伴"), "开关应即时发 PUT：" + JSON.stringify(cpPuts(t0)));
       assert(await page.$eval("#cp-max-save", b => b.disabled), "没改时保存键置灰");
       await page.fill("#cp-max", "0"); await page.press("#cp-max", "Enter"); await settle(200);
       assert((await page.textContent("#cp-max-err")).includes("1 到 16") && await page.$("#cp-max.invalid"), "上限填错就近提示");
@@ -2006,7 +2006,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await resetCP();
       await openCP();
       const sub = await page.$eval("#cp-client", e => e.previousElementSibling.textContent);
-      assert(sub.includes("整合包") && sub.includes("版本一致"), "好友的客户端那段说明：" + sub);
+      assert(sub.includes("整合包") && sub.includes("版本和服务器的一样"), "好友的客户端那段说明：" + sub);
       await stubClipboard(page);
       await page.click("#cp-copy-guide"); await settle(250);
       const g = await page.evaluate(() => (window.__copied || []).pop() || "");
@@ -2123,8 +2123,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     await page.goto(url("#/settings/startup")); await settle();
     const head = await page.textContent("#set-body .set-sec-head .sub");
     const sub = await page.$eval('.row-item:has([data-cfg="minimizeToTray"]) .ri-sub', el => el.textContent);
-    assert(!head.includes("始终显示") && head.includes("程序退出后，图标会消失"), "分区说明：" + head);
-    assert(sub.includes("会退出程序，并停掉服务器") && sub.includes("会先问你"), "开关说明：" + sub);
+    assert(!head.includes("始终显示") && head.includes("关闭按钮的行为"), "分区说明：" + head);
+    assert(sub.includes("会退出程序并停掉服务器") && sub.includes("先确认"), "开关说明：" + sub);
   });
 
   await run("远程访问：开关即时生效——没设密码时就地提示并拨回、不发请求；有密码直接保存、提示重启后生效（常驻提示，不显示二维码）；关闭即时生效；密码和开关一起保存；后端拒绝时拨回", async () => {
@@ -2270,7 +2270,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       return [document.querySelector("#sc-at").value, f(new Date(Date.now() + 10 * 60000)), f(new Date(Date.now() + 9 * 60000))];
     });
     assert(got === a || got === b, `「10 分钟后」填成了 ${got}，应为 ${a}`);
-    assert((await page.textContent("#sc-hint")).includes(`已填成 ${got}`) && (await page.textContent("#sc-hint")).includes("以后每天这个时间都执行"), "快捷项后的说明：" + await page.textContent("#sc-hint"));
+    assert((await page.textContent("#sc-hint")).includes(`已设为 ${got}`) && (await page.textContent("#sc-hint")).includes("之后每天该时间执行"), "快捷项后的说明：" + await page.textContent("#sc-hint"));
     const n0 = await page.$$eval("#sched-list .java-row", r => r.length);
     await page.fill("#sc-at", "25:00"); await page.click("#sc-add");
     assert((await page.textContent("#sc-err")).includes("时:分") && await page.$("#sc-at.invalid"), "写错应就近提示：" + await page.textContent("#sc-err"));
@@ -2300,7 +2300,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(await page.$eval("#t-slow", e => e.hidden), "有进展后应收起");
       await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskNet: { count: 3, host: "maven.neoforged.net", what: "连接超时", ago: 4 } }) }));
       await page.waitForFunction(() => !document.querySelector("#t-slow").hidden, null, { timeout: 1200 }).catch(() => {});
-      assert((await page.textContent("#t-slow-title")) === "maven.neoforged.net 连接超时，已经 3 次", "后端报的超时：" + await page.textContent("#t-slow-title"));
+      assert((await page.textContent("#t-slow-title")) === "maven.neoforged.net 连接超时，已重试 3 次", "后端报的超时：" + await page.textContent("#t-slow-title"));
     } finally {
       await page.evaluate(() => { delete window.__MD_STALL_MS; return fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskStage: 2, taskNet: null }) }); });
     }
@@ -2493,7 +2493,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(v.dir === "E:\\MCServers" && v.err === "", "文件夹：" + JSON.stringify(v));
       assert(v.name === "create-pack" && v.core === "neoforge" && v.mc === "1.21.1" && v.mem === "6144" && v.targets === 2 && v.java === "0", "预填不对：" + JSON.stringify(v));
       assert(v.notes.includes("2 个能启动的文件") && !v.eulaHidden && !v.go && v.noWorldHidden, "提醒 / EULA / 按钮 / 有存档时不该说没看到存档：" + JSON.stringify(v));
-      assert(v.what.includes("run.before-minedeck.bat") && v.what.includes("先把它关掉"), "没写明会往文件夹里写什么：" + v.what);
+      assert(v.what.includes("run.before-minedeck.bat") && v.what.includes("先停止原来的服务器"), "没写明会往文件夹里写什么：" + v.what);
       // 换启动文件：类型和版本换成那个文件认出来的
       await page.selectOption("#ad-target", "jar:server.jar");
       assert(await page.$eval("#ad-core", s => s.value) === "vanilla", "换了启动文件，类型没跟着换");
@@ -2534,7 +2534,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       const v = await page.evaluate(() => ({ eulaHidden: $("#ad-eula-box").hidden, what: $("#ad-what").textContent, notes: !!$("#ad-notes"), mem: $("#ad-mem").value, go: $("#ad-go").disabled,
         noWorldHidden: $("#ad-noworld").hidden, noWorld: $("#ad-noworld").textContent }));
       assert(v.eulaHidden && !v.notes && !v.go, "已经同意过 EULA 不用再勾、没有提醒时不画提醒框：" + JSON.stringify(v));
-      assert(v.what.includes("以前由 MineDeck 管过") && !v.noWorldHidden && v.noWorld.includes("没看到存档"), "说明：" + JSON.stringify(v));
+      assert(v.what.includes("曾由 MineDeck 管理") && !v.noWorldHidden && v.noWorld.includes("没看到存档"), "说明：" + JSON.stringify(v));
       // 代理端本来就没有存档：不提
       await page.selectOption("#ad-core", "velocity");
       assert(await page.$eval("#ad-noworld", x => x.hidden), "代理端不该提示没看到存档");
@@ -2644,7 +2644,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(!(await page.$eval('.pnd-item[data-id="p1"] label.pnd-ack', e => e.hidden)), "选信任应露出风险确认");
       await page.click("#t-pending-apply"); await settle();
       let out = await page.textContent("#t-pending-out");
-      assert(out.includes("没处理成") && out.includes("没有确认过"), "未确认信任不应下载：" + out);
+      assert(out.includes("处理失败") && out.includes("没有确认过"), "未确认信任不应下载：" + out);
       assert((await page.$$eval("#t-pending .pnd-item", els => els.length)) === 3, "没处理成的应留在清单");
       // 确认信任（勾风险）后成功；同站点的另一项不再要求确认
       await page.check('.pnd-item[data-id="p1"] .pnd-ackbox');
@@ -2723,14 +2723,14 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.goto(url("#/instances")); await settle();
       await page.click('.card[data-name="机械动力整合包"] [data-act="more"]');
       await settle(200);
-      const item = await page.evaluateHandle(() => [...document.querySelectorAll(".dropmenu button")].find(b => b.textContent.includes("交接给其他电脑")));
-      assert(item, "菜单里没有「交接给其他电脑」");
-      assert(await page.evaluate(el => !el.disabled, item), "「交接给其他电脑」被禁用了");
+      const item = await page.evaluateHandle(() => [...document.querySelectorAll(".dropmenu button")].find(b => b.textContent.includes("导出交接包")));
+      assert(item, "菜单里没有「导出交接包」");
+      assert(await page.evaluate(el => !el.disabled, item), "「导出交接包」被禁用了");
       await item.asElement().click(); await settle(300);
       assert(await page.isVisible("#tr-mask"), "确认弹窗没弹出来");
       const m = await page.evaluate(() => ({ title: $("#tr-title").textContent, privacy: $("#tr-mask .wc-note").textContent, full: $("#tr-full").checked, go: $("#tr-go").textContent }));
       assert(m.title.includes("机械动力整合包"), "标题里没有实例名：" + m.title);
-      assert(m.privacy.includes("征得服务器成员的同意") && m.privacy.includes("IP"), "隐私提醒：" + m.privacy);
+      assert(m.privacy.includes("白名单") && m.privacy.includes("密码会原样打包"), "隐私提醒：" + m.privacy);
       assert(m.full === false && m.go.includes("开始打包"), "弹窗状态：" + JSON.stringify(m));
       await page.fill("#tr-dest", "E:\\交接包");
       // 这个包给谁：默认是交接，这里改成发给朋友
@@ -2762,7 +2762,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         await page.setInputFiles("#tp-file", { name: "huge.mdpack", mimeType: "application/zip", buffer: Buffer.from("PK") });
         await settle(600);
         const tp = await page.textContent("#tp-file-err");
-        assert(tp.includes("9.00 GB") && tp.includes("8 GB 的上限") && tp.includes("接管已有服务器"), "交接包太大的提示：" + tp);
+        assert(tp.includes("9.00 GB") && tp.includes("8 GB 导入上限") && tp.includes("接管已有服务器"), "交接包太大的提示：" + tp);
         assert(!reqs.slice(since).some(r => r.u === "/api/transfer/upload"), "太大的交接包不该开始上传");
         assert(await page.$eval("#tp-go", b => b.disabled), "太大的包不该能点「导入」");
         // 换一个正常大小的：提示消掉，照常上传
@@ -2773,7 +2773,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         // 已经传好一个包以后再选一个太大的：上一个包的摘要要清掉、按钮要灰掉，不然点「导入」导的是上一个包
         await page.setInputFiles("#tp-file", { name: "huge-2.mdpack", mimeType: "application/zip", buffer: Buffer.from("PK") });
         await settle(500);
-        assert((await page.textContent("#tp-file-err")).includes("8 GB 的上限"), "第二次选太大的包也要提示");
+        assert((await page.textContent("#tp-file-err")).includes("8 GB 导入上限"), "第二次选太大的包也要提示");
         assert(!(await page.$("#tp-name")) && (await page.textContent("#tp-form")).trim() === "", "上一个包的摘要应清掉：" + await page.textContent("#tp-form"));
         assert(await page.$eval("#tp-go", b => b.disabled), "换成太大的包以后「导入」应灰掉");
 
@@ -2784,7 +2784,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         await page.setInputFiles("#im-file", { name: "huge.zip", mimeType: "application/zip", buffer: Buffer.from("PK") });
         await page.click("#im-go"); await settle(400);
         const im = await page.textContent("#im-file-err");
-        assert(im.includes("9.00 GB") && im.includes("4 GB 的上限"), "整合包太大的提示：" + im);
+        assert(im.includes("9.00 GB") && im.includes("4 GB 导入上限"), "整合包太大的提示：" + im);
         assert(!reqs.slice(since).some(r => r.u === "/api/import/modpack"), "太大的整合包不该开始上传");
       } finally {
         await page.evaluate(() => { delete File.prototype.size; });
@@ -2806,8 +2806,10 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert((await page.$eval("#tp-java", e => e.options[0].textContent)).includes("跟原来一样：Java 17"), "Java 默认应是包里原来的");
       await page.selectOption("#tp-java", "21");
       // 包里的模组、插件是别人电脑上带来的程序：导入前要提醒确认来源，并说明 JVM 参数和定时任务不带过来
+      // 来源提醒和「哪些不带过来」分成了两段：前一段是警告卡，后一段是紧跟着的一行说明
       const trust = await page.textContent("#tp-trust");
-      assert(trust.includes("信得过") && trust.includes("在你的电脑上运行") && trust.includes("定时任务不会带过来"), "来源提醒：" + trust);
+      const carry = await page.$eval("#tp-trust", e => e.nextElementSibling.textContent);
+      assert(trust.includes("信得过") && trust.includes("在你的电脑上运行") && carry.includes("定时任务不会带过来"), "来源提醒：" + trust + " / " + carry);
       // 端口改成一个被占用的：给出行内提示（不拦提交）
       await mockState({ portBusy: 25599 });
       await page.fill("#tp-port", "25599");
@@ -2936,7 +2938,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     assert(pills.length === 4 && !pills.some(t => /选模组|选插件/.test(t)), "vanilla 步骤条应为 4 步且无「选模组」：" + JSON.stringify(pills));
     assert((await page.$("#f-name")) !== null, "没从版本页直达基本设置");
     const titles = await page.$$eval(".step-pill", els => els.map(e => e.getAttribute("title")));
-    assert(titles.includes("原版无需选择构建"), "构建步的跳过提示没了：" + JSON.stringify(titles));
+    assert(titles.includes("原版无需选构建"), "构建步的跳过提示没了：" + JSON.stringify(titles));
     await page.click("#wback"); await settle();
     assert((await page.$("#ver-list")) !== null, "基本设置「上一步」应回到版本页");
   });
@@ -2987,7 +2989,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await cartState({ modCart: { reset: true } });
       await page.goto(url(packCart)); await settle(700);
       assert((await page.textContent("#mc-hits-title")) === "热门模组 · 按下载量", "标题行：" + await page.textContent("#mc-hits-title"));
-      assert((await page.textContent(".mc-hits-head")).includes("已按当前核心与版本过滤") && (await page.textContent(".mc-hits-head")).includes("Modrinth"), "标题行旁边的说明没了");
+      assert((await page.textContent(".mc-hits-head")).includes("按当前核心与版本过滤") && (await page.textContent(".mc-hits-head")).includes("Modrinth"), "标题行旁边的说明没了");
       let rows = await page.$$eval("#mc-hits .mc-hit b", els => els.map(e => e.textContent));
       assert(rows.length === 20 && rows[0] === "Create" && rows[1] === "JEI", "没搜就应列出下载量最高的 20 个：" + rows.slice(0, 3).join());
       assert((await page.inputValue("#mc-q")) === "", "关键词应是空的");
