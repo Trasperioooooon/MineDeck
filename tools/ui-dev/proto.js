@@ -13,9 +13,10 @@
 const fs = require("fs");
 const path = require("path");
 const { URL } = require("url");
-const { start, newState, UI_DEFAULT } = require("./server");
+const { start, newState, UI_DEFAULT, MOD_CATALOG, PLUGIN_CATALOG } = require("./server");
 const { GROUPS, SCENES, base } = require("./proto/scenes");
 const { PLAYERS, BACKUPS, CONSOLES } = require("./proto/fiction");
+const { MODS, PLUGINS } = require("./proto/catalog");
 
 const PORT_DEFAULT = 27391; // 仿真后端单独跑用 27390，MineDeck 自己用 27333，三个互不相撞
 const DIR = path.join(__dirname, "proto");
@@ -117,8 +118,19 @@ function makeBefore(ui) {
   };
 }
 
+// 热门清单的目录：仿真后端自带的那份开头四个留着（测试和前置检查的假数据认它们的编号），
+// 后面「Hot Mod 005」这种占位的换成 proto/catalog.js 里像样的名字。只影响这个进程，测试用的仿真后端不受影响。
+function dressCatalog(list, real) {
+  const keep = list.slice(0, 4), have = new Set(keep.map(x => x.projectId));
+  list.length = 0;
+  list.push(...keep, ...real.filter(x => !have.has(x.projectId)));
+  list.sort((a, b) => b.downloads - a.downloads);
+}
+
 async function startProto({ port = PORT_DEFAULT, ui = UI_DEFAULT } = {}) {
   ui = path.resolve(ui);
+  dressCatalog(MOD_CATALOG, MODS);
+  dressCatalog(PLUGIN_CATALOG, PLUGINS);
   const m = await start({ port, ui, before: makeBefore(ui) });
   reset(m.state, ui);
   return { ...m, url: m.url + "__proto/" };

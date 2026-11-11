@@ -189,7 +189,7 @@ async function play(sc, my) {
     $("#stat-l").textContent = `正在自动走到这个状态（${n + 1} / ${steps.length}）…`;
     if (st.sleep) { await sleep(st.sleep); continue; }
     if (st.key) { doc().dispatchEvent(new (win().KeyboardEvent)("keydown", { key: st.key, bubbles: true })); await sleep(120); continue; }
-    const sel = st.click || st.dblclick || st.fill || st.select || st.wait || st.scroll;
+    const sel = st.click || st.dblclick || st.fill || st.select || st.wait || st.scroll || st.upload;
     const el = await waitFor(doc, sel);
     if (my !== run) return;
     if (st.click) { el.scrollIntoView({ block: "nearest" }); el.click(); }
@@ -197,6 +197,14 @@ async function play(sc, my) {
     else if (st.fill) { el.focus(); el.value = st.value; el.dispatchEvent(new (win().Event)("input", { bubbles: true })); el.dispatchEvent(new (win().Event)("change", { bubbles: true })); }
     else if (st.select) { el.value = st.value; el.dispatchEvent(new (win().Event)("change", { bubbles: true })); }
     else if (st.scroll) el.scrollTop = st.to === "bottom" ? el.scrollHeight : 0;
+    else if (st.upload) {
+      // 假文件：jar 以 PK 开头（仿真后端靠它认是不是 zip），内容里带上名字，免得几个文件哈希相同被当成同一个
+      const dt = new (win().DataTransfer)();
+      for (const f of st.files) dt.items.add(new (win().File)([f.text !== undefined ? f.text : "PK\u0003\u0004 " + f.name + " ".repeat(f.kb ? f.kb * 1024 : 0)], f.name));
+      el.files = dt.files;
+      el.dispatchEvent(new (win().Event)("change", { bubbles: true }));
+      await sleep(900);
+    }
     await sleep(st.click || st.select ? 260 : 120);
   }
 }

@@ -4,6 +4,7 @@
 // steps 是一串动作，在嵌着的界面里依次执行（每步都会先等元素出现）：
 //   { click: 选择器 }  { dblclick: 选择器 }  { fill: 选择器, value: 文字 }  { select: 选择器, value: 值 }
 //   { wait: 选择器 }   { sleep: 毫秒 }       { key: "Escape" }            { scroll: 选择器, to: "bottom" }
+//   { upload: 文件选择框的选择器, files: [{ name, kb?, text? }] }  往选择框里放几个假文件（text 不写就是一个假的 jar）
 // setup(state, proto)：state 是仿真后端的内存数据（见 ../server.js 的 newState），直接改；
 //   proto.api("POST /api/pickdir", { code: 500, error: "…" }) 让某个接口在这个场景里固定这样回。
 // view：这个场景默认用哪种窗口大小（目录页右上角能改）："min" 最小窗口、"phone" 手机；不写就沿用当前选的。
@@ -21,6 +22,15 @@ function base(state) {
   state.instances = all();
   state.empty = false;
 }
+
+// 「从电脑添加」的几个假文件。仿真后端没有真的 jar 可读，是按文件名里的字样装样子的（见 ../server.js 里 modcart 一节的说明）：
+// 带 sodium 的算在 Modrinth 上认出来了，带 needs 的认不出来、还缺一个要自己找的前置，带 fabric / forge 的是那种加载器的文件
+const LOCAL_FILES = [
+  { name: "sodium-extra-neoforge-0.6.0.jar", kb: 412 },
+  { name: "needs-geckolib-cataclysm-2.43.jar", kb: 2380 },
+  { name: "lithium-fabric-0.13.1.jar", kb: 690 },
+  { name: "安装说明.txt", text: "把 jar 放进 mods 文件夹" },
+];
 
 const GROUPS = [
   { id: "changed", title: "这次改了的地方", note: "对着 PR 说明里的六条看" },
@@ -71,6 +81,20 @@ add("changed", "c-wiz-mods", "⑤ 选模组：一进来就是热门清单", {
   tag: "new", hash: "#/create/new", note: "NeoForge 26.1 为例。左边按下载量列热门，可以按类别筛、往下翻页；右边是待装清单，可以「从电脑添加」自己下载的 jar。",
   steps: wizTo("neoforge", "mods"),
 });
+add("changed", "c-wiz-local", "⑤ 选模组：自己下载的 jar 也能放进清单", {
+  tag: "new", hash: "#/create/new",
+  note: "右边点「从电脑添加…」选了四个文件：一个加载器不对（行上有提醒），一个不是 jar（下面说明原因）。加完自动检查前置：认不出来的文件缺的前置会单独列出，要自己去找。",
+  steps: [...wizTo("neoforge", "mods"), { click: '.mc-add[data-pid="create"]' }, { upload: "#mc-file", files: LOCAL_FILES }, { sleep: 1200 }],
+});
+add("changed", "c-wiz-cats", "⑤ 选模组：按类别筛、往下翻页", {
+  tag: "new", hash: "#/create/new", note: "点了「优化」。列表底下有「加载更多」，每次 20 个。",
+  steps: [...wizTo("fabric", "mods"), { click: '.mc-chips .cp-chip[data-cat="optimization"]' }],
+});
+add("changed", "c-wiz-offline", "⑤ 选模组：热门清单没加载出来", {
+  tag: "new", hash: "#/create/new", note: "连不上 Modrinth 时只在列表区说明并给「重试」，不弹提示，也不挡「下一步」；从电脑添加照样能用。",
+  setup: s => { s.modcart.searchFail = "连不上 Modrinth（api.modrinth.com），检查一下网络或代理"; },
+  steps: wizTo("neoforge", "mods"),
+});
 add("changed", "c-wiz-plugins", "⑤ 选插件：Paper 这一步叫「选插件」", {
   tag: "new", hash: "#/create/new", note: "插件端（Paper 一系和代理端）这一步的名字和文案都写「插件」。",
   steps: wizTo("paper", "mods"),
@@ -118,6 +142,14 @@ add("create", "n-mods-search", "从零创建 ④ 选模组：搜「JEI」并加�
   hash: "#/create/new",
   steps: [...wizTo("fabric", "mods"), { fill: "#mc-q", value: "JEI" }, { click: "#mc-go" }, { click: '.mc-add[data-pid="jei"]' }],
 });
+add("create", "n-mods-local", "从零创建 ④ 选模组：从电脑添加了几个文件", {
+  hash: "#/create/new", tag: "new",
+  steps: [...wizTo("neoforge", "mods"), { upload: "#mc-file", files: LOCAL_FILES }, { sleep: 1200 }],
+});
+add("create", "n-mods-more", "从零创建 ④ 选模组：翻到第二页", {
+  hash: "#/create/new", tag: "new", steps: [...wizTo("neoforge", "mods"), { click: "#mc-more" }],
+});
+add("create", "n-plugins", "从零创建 ④ 选插件（Paper）", { hash: "#/create/new", tag: "new", steps: wizTo("paper", "mods") });
 add("create", "n-settings", "从零创建 ⑤ 基本设置", { hash: "#/create/new", steps: wizTo("paper", "settings") });
 add("create", "n-settings-vanilla", "从零创建：原版只有四步", { hash: "#/create/new", steps: wizTo("vanilla", "settings") });
 add("create", "n-settings-proxy", "从零创建：代理端（Velocity）的基本设置", { hash: "#/create/new", steps: wizTo("velocity", "settings") });
@@ -152,6 +184,11 @@ add("detail", "d-cart", "待装清单：加了一项并检查前置", {
   hash: `#/inst/${enc("机械动力整合包")}/cart`, tag: "new",
   steps: [{ fill: "#mc-q", value: "JEI" }, { click: "#mc-go" }, { click: '.mc-add[data-pid="jei"]' }, { sleep: 500 }, { click: "#mc-dep-go" }],
 });
+add("detail", "d-cart-local", "待装清单：有本地文件，检查出要自己找的前置", {
+  hash: `#/inst/${enc("机械动力整合包")}/cart`, tag: "new",
+  steps: [{ click: '.mc-add[data-pid="create"]' }, { upload: "#mc-file", files: [{ name: "sodium-extra-forge-0.6.0.jar", kb: 412 }, { name: "needs-geckolib-cataclysm-forge-2.43.jar", kb: 2380 }, { name: "lithium-fabric-0.13.1.jar", kb: 690 }] }, { sleep: 1200 }],
+});
+add("detail", "d-cart-plugin", "待装清单：插件端（Purpur）", { hash: `#/inst/${enc("空岛生存")}/cart`, tag: "new" });
 add("detail", "d-common", "常用设置", { hash: `#/inst/${enc("生存服 · 朋友")}/common` });
 add("detail", "d-common-dirty", "常用设置：改了没保存", { hash: `#/inst/${enc("生存服 · 朋友")}/common`, steps: [{ click: '.prop-item:has([data-k="hardcore"]) .switch input' }] });
 add("detail", "d-raw", "全部配置", { hash: `#/inst/${enc("生存服 · 朋友")}/raw` });
