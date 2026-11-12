@@ -462,10 +462,11 @@ func TestOpLogRecords(t *testing.T) {
 }
 
 // Key、密码、凭据写成 ***：键名像密钥的字段，以及 server.properties 里像密码的键值对；空值保留（看得出是清除）。
+// 真假值原样留着（clearCredential 这类开关藏不了密钥）。
 func TestOpLogRedaction(t *testing.T) {
 	f := newFixture(t)
 	args := `{"cfApiKey":"cf-secret-1","lanPassword":"pw-secret-2","webhookUrl":"https://hook.example/x?access_token=tk-3",
-		"credential":"cred-4","key":"ai-key-5","backupKeep":5,"source":"mirror","cleared":{"cfApiKey":""},
+		"credential":"cred-4","key":"ai-key-5","backupKeep":5,"source":"mirror","cleared":{"cfApiKey":""},"clearCredential":true,
 		"pairs":[{"key":"rcon.password","value":"hunter2"},{"key":"max-players","value":"10"},{"key":"management-server-secret","value":"ms-6"}],
 		"tunnels":[{"name":"自建","token":"frps-7"}]}`
 	if _, err := f.reg.Do(context.Background(), ui, "t.cfg", Args(args)); err != nil {
@@ -481,7 +482,7 @@ func TestOpLogRedaction(t *testing.T) {
 	if err := json.Unmarshal(f.records(t)[0].Args, &got); err != nil {
 		t.Fatal(err)
 	}
-	want := `{"backupKeep":5,"cfApiKey":"***","cleared":{"cfApiKey":""},"credential":"***","key":"***","lanPassword":"***",` +
+	want := `{"backupKeep":5,"cfApiKey":"***","clearCredential":true,"cleared":{"cfApiKey":""},"credential":"***","key":"***","lanPassword":"***",` +
 		`"pairs":[{"key":"rcon.password","value":"***"},{"key":"max-players","value":"10"},{"key":"management-server-secret","value":"***"}],` +
 		`"source":"mirror","tunnels":[{"name":"自建","token":"***"}],"webhookUrl":"***"}`
 	if s := string(encode(got)); s != want {

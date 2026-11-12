@@ -57,20 +57,27 @@ func (c *cat) tunnelOps() {
 		},
 	})
 
-	updateFields := map[string]*ops.Schema{"id": ops.String("隧道编号")}
+	updateFields := map[string]*ops.Schema{
+		"id":              ops.String("隧道编号"),
+		"clearCredential": ops.Boolean("删掉存着的凭据，之后启动不带凭据（只有自定义 frps 能这样；这时 credential 要留空）"),
+	}
 	for k, v := range tunnelFields {
 		updateFields[k] = v
 	}
 	c.reg.Register(&ops.Op{
 		Name: "tunnel.update", Title: "修改隧道", Level: ops.HumanOnly,
-		Desc:   "整体替换隧道配置（运行中不能改）；凭据留空表示不修改。",
+		Desc:   "整体替换隧道配置（运行中不能改）；凭据留空表示不修改，要删掉存着的凭据传 clearCredential。",
 		Params: ops.Object(updateFields, "id"),
 		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
-			t, err := bind[tunnel.Tunnel](a) // 编号也在 Tunnel 的 id 字段里
+			// 编号也在 Tunnel 的 id 字段里；clearCredential 不是隧道配置，单独取出来，不进 Tunnel（Tunnel 会存盘）
+			t, err := bind[struct {
+				tunnel.Tunnel
+				ClearCredential bool `json:"clearCredential"`
+			}](a)
 			if err != nil {
 				return nil, err
 			}
-			if err := c.Tun.Update(t.ID, t); err != nil {
+			if err := c.Tun.UpdateOpt(t.ID, t.Tunnel, tunnel.UpdateOpts{ClearCredential: t.ClearCredential}); err != nil {
 				return nil, err
 			}
 			return "ok", nil

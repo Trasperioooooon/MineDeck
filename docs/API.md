@@ -71,7 +71,7 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 ### 穿透
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET/POST | `/api/tunnels` | 列表（每项含运行态 `lastError`——最近一次失败原因：frpc 起来之前就失败的写成「启动失败：…」或「跟随启动失败：…」（比如樱花还没放 frpc），frpc 报的错照原文，没报错就退出的写「frpc 意外退出（退出码 N）…」；frpc 起来或报成功时清空；`credBroken`——凭据解不开，多半是换了电脑或 Windows 用户，这条隧道不能启动，要重填凭据）/ 新增 |
+| GET/POST | `/api/tunnels` | 列表（每项含运行态 `lastError`——最近一次失败原因：frpc 起来之前就失败的写成「启动失败：…」或「跟随启动失败：…」（比如樱花还没放 frpc），frpc 报的错照原文，没报错就退出的写「frpc 意外退出（退出码 N）…」；frpc 起来或报成功时清空；`credBroken`——凭据解不开，多半是换了电脑或 Windows 用户，这条隧道不能启动，要重填凭据；`hasCredential`——存着凭据，凭据本身不下发）/ 新增 |
 | PUT/DELETE | `/api/tunnels/{id}` | 修改 / 删除 |
 | POST | `/api/tunnels/{id}/start` \| `/stop` | 启停 frpc |
 | GET | `/api/tunnels/{id}/console` | SSE frpc 日志 |
@@ -81,6 +81,8 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 `serverAddr`、`serverPort`、`remotePort`、`localPort` 只有自定义 frps 用。樱花、OpenFrp 的隧道启动时只传「凭据 + 隧道 ID」，端口在服务商后台填，这几项传了也不存、列表里也不给（`localPort` 不再总是出现）；老版本存下的 25565 / 25566 这类数在加载时清掉并写回。
 
 `serverAddr` 只能是域名或 IP：域名每段是字母（中文也行）、数字、连字符、下划线，用点隔开；不能带 `http://`、端口、空白、引号、花括号，不合规的回 400。前后空格和 IPv6 的方括号会去掉再存。地址会原样写进 frpc 的配置，而 frpc 把整份配置当模板渲染，所以要挡住模板写法；启动前再查一遍，以前存下的不合规地址启动时报错，不生成配置。`PUT` 时凭据留空表示不改，但换了 `provider`，或者自定义 frps 换了 `serverAddr`、`serverPort`，凭据留空回 400（「换了服务商或 frps 地址、端口，要重新填一次凭据」），免得旧令牌被带到新的服务器上。
+
+要把自定义 frps 存着的凭据删掉，`PUT` 时带 `clearCredential: true`（`credential` 留空，其余字段照常整体提交）：`tunnels.json` 里的凭据清空，之后启动不带 token；这是明说不要凭据，换了地址、端口也放行。凭据解不开的（`credBroken`）也能这样清掉。樱花、OpenFrp 启动时必须带凭据，传了回 400；同时填了新凭据也回 400。
 
 `publicAddr` 从 frpc 的输出里认：同一次运行里既有域名形式又有 IP 形式（樱花会同时打「使用 >>域名:端口<< 连接」和「或使用节点 IP 连接（不推荐）」两行）时取域名，IP 会随节点变。
 
@@ -178,7 +180,7 @@ AI 是可选功能。没配置时（`enabled` 为 false）MineDeck 不连接任�
 
 - `src` 是来源：`ui`（本机界面）、`api`（本机的其他程序）、`lan`（局域网设备，`actor` 是它的地址）、`schedule`（定时任务、崩溃自动重启和隧道跟随实例自动启停，`actor` 写明是哪一种：「定时任务」「崩溃自动重启」「跟随实例」）；`assistant`（应用内 AI 助手）、`gamechat`（游戏内 AI，`actor` 是玩家名，见「游戏内 AI（第四阶段）」）、`companion`（留给以后的 AI 伙伴）。AI 发起的写操作要人确认后才执行，记录里带 `proposal`（提案编号）和 `approvedBy`（确认的人）。
 - 失败的操作也记，`ok` 为 false，`err` 是错误信息。
-- Key、密码、令牌、凭据、Webhook 地址，以及 server.properties 里像密码的项（如 `rcon.password`），在 `args` 里一律写成 `***`（清空时保留空串）。
+- Key、密码、令牌、凭据、Webhook 地址，以及 server.properties 里像密码的项（如 `rcon.password`），在 `args` 里一律写成 `***`（清空时保留空串；`clearCredential` 这类真假值原样记）。
 
 ### 应用内 AI 助手（第三阶段）
 

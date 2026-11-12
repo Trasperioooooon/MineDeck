@@ -55,7 +55,8 @@ function newState(ui) {
     ],
     tunnels: [
       { id: "t1", name: "朋友联机", provider: "openfrp", running: true, boundInstance: "生存服 · 朋友", autoStart: true, publicAddr: "cn-sz-bgp-1.openfrp.top:23456", lastError: "" },
-      { id: "t2", name: "自建备用线", provider: "custom", running: false, boundInstance: "", autoStart: false, publicAddr: "", lastError: "login to the server failed: authorization failed. With auth = token, the token is incorrect" },
+      { id: "t2", name: "自建备用线", provider: "custom", running: false, boundInstance: "", autoStart: false, publicAddr: "", lastError: "login to the server failed: authorization failed. With auth = token, the token is incorrect",
+        serverAddr: "frp.example.com", serverPort: 7000, remotePort: 25566, localPort: 25565, proto: "tcp", purpose: "game", hasCredential: true },
     ],
     props: null,
     empty: false,
@@ -74,6 +75,7 @@ function newState(ui) {
   // 同 instance.list 的 javaSource / javaPath / adopted：都用 MineDeck 下载的便携版 Java，都不是接管进来的
   for (const i of state.instances) Object.assign(i, { javaSource: "portable", javaPath: `D:\\MineDeck\\runtimes\\java-${i.javaMajor}\\bin\\java.exe`, adopted: false });
   state.adoptScan = state.lastAdopt = state.lastJava = state.lastDelete = null; // 接管、换 Java、删除：见 /__mock/state 的说明
+  state.lastTunnelPut = null; // 上一次修改隧道（PUT /api/tunnels/{id}）的请求体，见 /__mock/state 的说明
   return state;
 }
 
@@ -1441,7 +1443,8 @@ function handler(state, ui, portOf) {
     //   credBroken: 隧道编号（如 "t2"），模拟这条隧道的凭据解不开；空串还原
     //   tunnels: [...] 把隧道整份换掉（空数组 = 一条都没有）
     //   tunnel: { id, …字段 } 改某条隧道（running、lastError、publicAddr，以及仿真用的 startError：点「启动」时报这个错、
-    //     nextAddr：启动后过 addrDelay 毫秒拿到的公网地址）；tunnelsReset: true 隧道回到初始的两条
+    //     nextAddr：启动后过 addrDelay 毫秒拿到的公网地址）；tunnelsReset: true 隧道回到初始的两条（t2 是存着凭据的自定义 frps）；
+    //     响应里的 lastTunnelPut 是上一次修改隧道的请求体（「清除凭据」带 clearCredential）
     //   ai: { reset: true 回到没配置, local: false 模拟局域网打开（只能看）, keyBroken, testFail, priceUpdated, 以及 preset/baseUrl/model/key 等直接写入 }
     //   gc（第四阶段）: { reset: true 回到初始数据, inst: { 名称: { whitelistOn, seen, log, settings… } } }；响应里的 gc.whitelistReq 是上一次一键开白名单加的人
     //   cp（第七阶段）: 见 cpMockState；响应里的 cp.installs 是点过几次安装、cp.lastDespawn 是上一次移除的请求体
@@ -1474,7 +1477,7 @@ function handler(state, ui, portOf) {
       if ("cfKey" in b) state.cfKey = String(b.cfKey || "");
       if ("cfKeyBroken" in b) state.cfKeyBroken = !!b.cfKeyBroken;
       if ("credBroken" in b) for (const t of state.tunnels) t.credBroken = t.id === b.credBroken;
-      if (b.tunnelsReset) state.tunnels = newState(ui).tunnels; // 隧道回到初始的两条
+      if (b.tunnelsReset) { state.tunnels = newState(ui).tunnels; state.lastTunnelPut = null; } // 隧道回到初始的两条
       if (Array.isArray(b.tunnels)) state.tunnels = b.tunnels; // 整份换掉（空数组 = 一条隧道都没有，看空状态用）
       if (b.tunnel) { const t = state.tunnels.find(x => x.id === b.tunnel.id); if (t) Object.assign(t, b.tunnel); }
       if (b.ai) { if (b.ai.reset) state.ai = newAIState(); const { reset, ...rest } = b.ai; Object.assign(state.ai, rest); }
@@ -1687,6 +1690,21 @@ function handler(state, ui, portOf) {
         if (t.startError) { t.lastError = "启动失败：" + t.startError; return err(res, 400, t.startError); }
         t.running = true; t.lastError = ""; t.online = false; // 上次的 publicAddr 留着（同真后端），这次还没连上
         if (t.nextAddr) tunnelTimers.set(t, setTimeout(() => { if (t.running) { t.publicAddr = t.nextAddr; t.online = true; } }, t.addrDelay ?? 1500));
+        return ok(res, "ok");
+      }
+      // 修改（同 tunnel.Manager.UpdateOpt）：整体替换，运行中不能改；clearCredential 只有自定义 frps 能用、不能同时填新凭据，
+      // 清掉以后列表里不再有 hasCredential；凭据留空表示不改，填了就算存上
+      if (seg[2] === "tunnels" && seg[3] && !seg[4] && m === "PUT") {
+        const t = state.tunnels.find(x => x.id === seg[3]);
+        if (!t) return err(res, 400, "隧道不存在");
+        const b = await readBody(req);
+        state.lastTunnelPut = b;
+        if (b.clearCredential && b.provider !== "custom") return err(res, 400, "只有自定义 frps 的隧道能清除凭据，OpenFrp 和樱花穿透启动时必须带凭据");
+        if (b.clearCredential && String(b.credential || "").trim()) return err(res, 400, "要清除凭据，就不要同时填新的凭据");
+        if (t.running) return err(res, 400, "请先停止隧道再修改");
+        const { credential, clearCredential, id, ...cfg } = b;
+        Object.assign(t, cfg);
+        if (clearCredential) { t.hasCredential = false; t.credBroken = false; } else if (String(credential || "").trim()) { t.hasCredential = true; t.credBroken = false; }
         return ok(res, "ok");
       }
       if (p.startsWith("/api/tunnels")) return ok(res, {});
