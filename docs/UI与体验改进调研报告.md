@@ -341,7 +341,7 @@ Radix Colors 暖中性三阶（核实自官方仓库 `src/light.ts`）：
 
 | 键名 | 值类型与可选值 | 默认值 | 中文名称 | 说明 | 版本备注 |
 |---|---|---|---|---|---|
-| motd | 字符串（支持 § 颜色代码） | A Minecraft Server | 服务器简介 | 显示在多人游戏服务器列表里的介绍文字。 | |
+| motd | 字符串（支持 § 颜色代码） | A Minecraft Server | 服务器介绍 | 显示在多人游戏服务器列表里的介绍文字。 | |
 | gamemode | 枚举：survival / creative / adventure / spectator；旧版用数字 0/1/2/3（新版仍兼容数字） | survival | 默认游戏模式 | 新玩家进服时的模式：生存/创造/冒险/旁观。 | 名称写法 1.14+，1.13 及以前只能写数字 |
 | force-gamemode | 布尔：true / false | false | 强制游戏模式 | 开启后玩家每次进服都被改回默认游戏模式。 | |
 | difficulty | 枚举：peaceful / easy / normal / hard；旧版用数字 0/1/2/3（新版仍兼容数字） | easy | 游戏难度 | 和平/简单/普通/困难；和平模式不刷怪、不掉饥饿。 | 名称写法 1.14+，1.13 及以前只能写数字 |
@@ -405,7 +405,7 @@ Radix Colors 暖中性三阶（核实自官方仓库 `src/light.ts`）：
 |---|---|---|---|---|---|
 | server-ip | 字符串（IP 地址） | 空 | 监听 IP | 绑定的本机 IP；一般留空即监听全部网卡。 | |
 | server-port | 整数 1–65534 | 25565 | 服务器端口 | 玩家连接用的 TCP 端口，需在防火墙/路由器放行。 | |
-| enable-status | 布尔 | true | 列表在线状态 | 关闭后服务器在列表中显示“离线”，也看不到简介和人数。 | 1.16+ |
+| enable-status | 布尔 | true | 列表在线状态 | 关闭后服务器在列表中显示“离线”，也看不到服务器介绍和人数。 | 1.16+ |
 | hide-online-players | 布尔 | false | 隐藏在线名单 | 开启后状态查询不返回在线玩家名字。 | 1.18+ |
 | enable-query | 布尔 | false | Query 查询 | 开启 GameSpy4 协议，供面板/网站查询服务器信息。 | |
 | query.port | 整数 1–65534 | 25565 | Query 端口 | Query 查询使用的 UDP 端口。 | |

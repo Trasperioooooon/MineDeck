@@ -12,7 +12,7 @@
 //       如需增删字段，应回到附录 B 同步后整体重生成。
 window.PROPS_CATALOG = [
   // ===== 基础与玩法 =====
-  { key: 'motd', group: '基础与玩法', type: 'str', def: 'A Minecraft Server', label: '服务器简介', desc: '显示在多人游戏服务器列表里的介绍文字。', since: '', removed: '', gamerule: null, restart: false },
+  { key: 'motd', group: '基础与玩法', type: 'str', def: 'A Minecraft Server', label: '服务器介绍', desc: '显示在多人游戏服务器列表里的介绍文字。', since: '', removed: '', gamerule: null, restart: false },
   { key: 'gamemode', group: '基础与玩法', type: 'sel', opts: ['survival', 'creative', 'adventure', 'spectator'], optNames: ['生存', '创造', '冒险', '旁观'], def: 'survival', label: '默认游戏模式', desc: '新玩家进服时的模式：生存/创造/冒险/旁观。', since: '', removed: '', gamerule: null, restart: false },
   { key: 'force-gamemode', group: '基础与玩法', type: 'bool', def: 'false', label: '强制游戏模式', desc: '开启后玩家每次进服都被改回默认游戏模式。', since: '', removed: '', gamerule: null, restart: false },
   { key: 'difficulty', group: '基础与玩法', type: 'sel', opts: ['peaceful', 'easy', 'normal', 'hard'], optNames: ['和平', '简单', '普通', '困难'], def: 'easy', label: '游戏难度', desc: '和平/简单/普通/困难；和平模式不刷怪、不掉饥饿。', since: '', removed: '', gamerule: null, restart: false },
@@ -64,7 +64,7 @@ window.PROPS_CATALOG = [
   // ===== 网络与远程管理 =====
   { key: 'server-ip', group: '网络与远程管理', type: 'str', def: '', label: '监听 IP', desc: '绑定的本机 IP；一般留空即监听全部网卡。', since: '', removed: '', gamerule: null, restart: true },
   { key: 'server-port', group: '网络与远程管理', type: 'int', def: '25565', label: '服务器端口', desc: '玩家连接用的 TCP 端口，需在防火墙/路由器放行。', since: '', removed: '', gamerule: null, restart: true },
-  { key: 'enable-status', group: '网络与远程管理', type: 'bool', def: 'true', label: '列表在线状态', desc: '关闭后服务器在列表中显示“离线”，也看不到简介和人数。', since: '1.16', removed: '', gamerule: null, restart: true },
+  { key: 'enable-status', group: '网络与远程管理', type: 'bool', def: 'true', label: '列表在线状态', desc: '关闭后服务器在列表中显示“离线”，也看不到服务器介绍和人数。', since: '1.16', removed: '', gamerule: null, restart: true },
   { key: 'hide-online-players', group: '网络与远程管理', type: 'bool', def: 'false', label: '隐藏在线名单', desc: '开启后状态查询不返回在线玩家名字。', since: '1.18', removed: '', gamerule: null, restart: false },
   { key: 'enable-query', group: '网络与远程管理', type: 'bool', def: 'false', label: 'Query 查询', desc: '开启 GameSpy4 协议，供面板/网站查询服务器信息。', since: '', removed: '', gamerule: null, restart: true },
   { key: 'query.port', group: '网络与远程管理', type: 'int', def: '25565', label: 'Query 端口', desc: 'Query 查询使用的 UDP 端口。', since: '', removed: '', gamerule: null, restart: true },
