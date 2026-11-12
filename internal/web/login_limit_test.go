@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -39,7 +40,7 @@ func TestLoginGlobalLimit(t *testing.T) {
 	var releases []func()
 	for i := 0; i < loginMaxConcurrent; i++ {
 		r, _ := http.NewRequest("POST", "/api/login", nil)
-		r.RemoteAddr = "192.168.7." + string(rune('a'+i)) + ":1"
+		r.RemoteAddr = "192.168.7." + strconv.Itoa(i+1) + ":1"
 		rel, ok := acquireLogin(r)
 		if !ok {
 			t.Fatalf("第 %d 个来源应能占到名额", i+1)
