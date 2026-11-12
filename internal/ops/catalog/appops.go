@@ -53,6 +53,13 @@ func maskWebhook(u string) string {
 	return p.Scheme + "://" + p.Host + "/" + webhookMask
 }
 
+// webhookURLOK 存 Webhook 地址之前再查一道：解析得了，而且带主机名。只看开头的话，「https://」「https:///x」这种
+// 也存得进去，到推送时才失败；局域网那边看到的也只是整个遮掉的 ***，看不出存的是什么。
+func webhookURLOK(u string) bool {
+	p, err := url.Parse(u)
+	return err == nil && p.Hostname() != ""
+}
+
 func localIPs() []string {
 	var out []string
 	addrs, err := net.InterfaceAddrs()
@@ -190,6 +197,8 @@ func (c *cat) appOps() {
 						return errors.New("Webhook 地址里的 *** 是藏起来的部分，要改就把整个地址重新填一遍")
 					case u != "" && !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://"):
 						return fmt.Errorf("Webhook 地址需以 http(s):// 开头")
+					case u != "" && !webhookURLOK(u):
+						return errors.New("Webhook 地址的格式不对，要写成 https://主机名/路径 这样")
 					default:
 						c.WebhookURL = u
 					}

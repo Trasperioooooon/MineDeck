@@ -1537,6 +1537,8 @@ function handler(state, ui, portOf) {
           if (!state.local && v === maskWebhook(state.config.webhookUrl)) delete b.webhookUrl;
           else if (!state.local && v.includes("***")) return err(res, 400, "Webhook 地址里的 *** 是藏起来的部分，要改就把整个地址重新填一遍");
           else if (v && !/^https?:\/\//.test(v)) return err(res, 400, "Webhook 地址需以 http(s):// 开头");
+          // 同 webhookURLOK：要带主机名（「https:///x」浏览器的 URL 会把 x 当主机名，所以先看 // 后面紧跟的不是 /）
+          else if (v && !(/^https?:\/\/[^/?#]/.test(v) && (() => { try { return !!new URL(v).hostname; } catch { return false; } })())) return err(res, 400, "Webhook 地址的格式不对，要写成 https://主机名/路径 这样");
           else b.webhookUrl = v;
         }
         if ("autoStart" in b) state.autoStart = !!b.autoStart;

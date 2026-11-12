@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -101,9 +102,9 @@ func openExternalURL(raw string, onFail func(error)) error {
 	return nil
 }
 
-// shellOpenURL 用 ShellExecute 的 open 把网址交给系统，系统按 http / https 的关联（默认浏览器）打开。
+// shellOpenURL 用 ShellExecuteEx 的 open 把网址交给系统，系统按 http / https 的关联（默认浏览器）打开。
 // 网址作为一个整体交过去，不经过 cmd、rundll32 这类会重新拆命令行的中间程序，也不按 PATH 找程序。
-// 微软的文档要求调用 ShellExecute 的线程先初始化 COM（单线程套间）：它可能经 COM 交给外壳扩展去执行。
+// 微软的文档要求调用的线程先初始化 COM（单线程套间）：它可能经 COM 交给外壳扩展去执行。
 func shellOpenURL(target string) error {
 	runtime.LockOSThread() // COM 的初始化跟着线程走，这段时间把 goroutine 固定在同一个线程上
 	defer runtime.UnlockOSThread()
@@ -112,15 +113,61 @@ func shellOpenURL(target string) error {
 	if hr := windows.CoInitializeEx(0, windows.COINIT_APARTMENTTHREADED|windows.COINIT_DISABLE_OLE1DDE); hr == nil || hr == syscall.Errno(windows.S_FALSE) {
 		defer windows.CoUninitialize()
 	}
+	return shellOpen(target)
+}
+
+var procShellExecuteExW = windows.NewLazySystemDLL("shell32.dll").NewProc("ShellExecuteExW")
+
+// shellExecuteInfo 对应 Windows 的 SHELLEXECUTEINFOW（x/sys 里没有）。字段的顺序和类型照 C 的定义写，
+// 中间的对齐 Go 会照样补上；hIcon 和 hMonitor 在 C 里共用一个位置。
+type shellExecuteInfo struct {
+	cbSize       uint32
+	fMask        uint32
+	hwnd         windows.Handle
+	lpVerb       *uint16
+	lpFile       *uint16
+	lpParameters *uint16
+	lpDirectory  *uint16
+	nShow        int32
+	hInstApp     windows.Handle
+	lpIDList     uintptr
+	lpClass      *uint16
+	hkeyClass    windows.Handle
+	dwHotKey     uint32
+	hIcon        windows.Handle
+	hProcess     windows.Handle
+}
+
+const (
+	// seeMaskNoAsync 等交给外壳扩展的活儿（DDE、COM 激活）做完再返回。我们在后台线程上调、调完就撤掉 COM，
+	// 不带它的话，异步的那一半可能还没走完就断了，浏览器没打开，返回的却是成功（微软的文档就是这么要求的）。
+	seeMaskNoAsync = 0x00000100
+	// seeMaskFlagNoUI 出错时不弹系统的对话框（没有主窗口，它会跑到别的窗口后面去），由页面上的报错提示来说。
+	seeMaskFlagNoUI = 0x00000400
+)
+
+// shellOpen 用 ShellExecuteEx 的 open 打开 file，调用的线程要已经初始化好 COM（见 shellOpenURL）。
+func shellOpen(file string) error {
 	verb, err := windows.UTF16PtrFromString("open")
 	if err != nil {
 		return err
 	}
-	file, err := windows.UTF16PtrFromString(target)
+	f, err := windows.UTF16PtrFromString(file)
 	if err != nil {
 		return err
 	}
-	return windows.ShellExecute(0, verb, file, nil, nil, windows.SW_SHOWNORMAL)
+	info := shellExecuteInfo{fMask: seeMaskNoAsync | seeMaskFlagNoUI, lpVerb: verb, lpFile: f, nShow: windows.SW_SHOWNORMAL}
+	info.cbSize = uint32(unsafe.Sizeof(info))
+	r, _, callErr := procShellExecuteExW.Call(uintptr(unsafe.Pointer(&info)))
+	runtime.KeepAlive(verb)
+	runtime.KeepAlive(f)
+	if r != 0 {
+		return nil
+	}
+	if errno, ok := callErr.(syscall.Errno); ok && errno != 0 {
+		return errno
+	}
+	return errors.New("系统没能打开它（ShellExecuteEx 失败）")
 }
 
 // openURLFailedJS 拼出告诉页面「没打开」的脚本，app.js 的 window.__mdOpenURLFailed 接着弹报错提示。

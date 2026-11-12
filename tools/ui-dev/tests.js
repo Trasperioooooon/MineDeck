@@ -3460,6 +3460,22 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         "window.open：" + JSON.stringify({ nulls, got }));
       await p.waitForTimeout(200);
       assert(c.pages().length === 1 && p.url().endsWith("#/settings/about"), "window.open 开了窗口或让主窗口跳走了：" + p.url());
+      // SVG 里的链接（href 是 SVGAnimatedString，不是字符串）也交给宿主，主窗口不跳走
+      await p.evaluate(() => {
+        const ns = "http://www.w3.org/2000/svg", mk = n => document.createElementNS(ns, n);
+        const svg = mk("svg"), a = mk("a"), r = mk("rect");
+        svg.id = "svg-link-test"; svg.setAttribute("width", "40"); svg.setAttribute("height", "40");
+        svg.style.cssText = "position:fixed;left:200px;top:200px;z-index:99999";
+        a.setAttribute("href", "https://example.com/svg?x=1");
+        r.setAttribute("width", "40"); r.setAttribute("height", "40");
+        a.appendChild(r); svg.appendChild(a); document.body.appendChild(svg);
+      });
+      await p.click("#svg-link-test rect");
+      await p.waitForTimeout(300);
+      got = await opened();
+      assert(JSON.stringify(got) === JSON.stringify(["https://example.com/svg?x=1"]) && p.url().endsWith("#/settings/about"),
+        "SVG 链接：" + JSON.stringify({ got, url: p.url() }));
+      await p.evaluate(() => document.getElementById("svg-link-test").remove());
       // 站内地址（字体许可原文）照旧开窗口，不交给宿主
       const [pop] = await Promise.all([c.waitForEvent("page"), p.click('a[href="fonts/OFL-Geist.txt"]')]);
       await pop.close();

@@ -163,7 +163,15 @@ func (s *Service) keyState() (set, broken bool) {
 }
 
 // missing 还差什么没配好；空串表示已启用。
-func (s *Service) missing(st Settings) string {
+func (s *Service) missing(st Settings) string { return missingWith(st, s.keyState) }
+
+// missingWithKey 同 missing，Key 用调用方手里那个来判断：Client、Test 用 current 和设置一起取到的 Key，
+// 不另去问 Key 现在的状态——换服务商的保存可能正好夹在中间，问到的是换过以后的那个，和手里的设置配不上对。
+func missingWithKey(st Settings, key string) string {
+	return missingWith(st, func() (bool, bool) { return key != "", false }) // 解不开的 Key 取出来就是空的，按没填算
+}
+
+func missingWith(st Settings, keyState func() (set, broken bool)) string {
 	p, ok := PresetByID(st.Preset)
 	switch {
 	case !ok:
@@ -172,7 +180,7 @@ func (s *Service) missing(st Settings) string {
 		return "填写接口地址"
 	}
 	if !p.NoKey && p.ID != CustomID {
-		if set, broken := s.keyState(); broken {
+		if set, broken := keyState(); broken {
 			return "重新填写 Key（原来的 Key 解不开，可能换了电脑或 Windows 用户）"
 		} else if !set {
 			return "填写 Key"
@@ -306,7 +314,7 @@ func (s *Service) key() string {
 // Client 按当前设置建一个客户端（第三、四阶段用）。没配置 AI 返回 ErrDisabled。
 func (s *Service) Client(stream bool) (*Client, error) {
 	st, key := s.current()
-	if s.missing(st) != "" {
+	if missingWithKey(st, key) != "" {
 		return nil, ErrDisabled
 	}
 	return NewClient(s.config(st, key, stream))
@@ -825,7 +833,7 @@ var pingTool = Tool{Name: "minedeck_ping", Description: "连接测试用的工�
 // 测试花的 token 不计入每日额度。
 func (s *Service) Test(ctx context.Context) (*TestResult, error) {
 	st, key := s.current()
-	if s.missing(st) != "" {
+	if missingWithKey(st, key) != "" {
 		return nil, ErrDisabled
 	}
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)

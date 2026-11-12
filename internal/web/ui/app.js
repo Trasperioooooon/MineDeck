@@ -542,9 +542,12 @@ function paintThemeBtn() {
   const openExternal = url => { try { Promise.resolve(window.hostOpenURL(url)).catch(fail); } catch (e) { fail(e); } };
   window.__mdOpenURLFailed = fail; // 宿主在后台打开浏览器，打不开（很少见）时回头调这里
   const onLink = e => {
-    if (e.defaultPrevented || (e.type === "auxclick" && e.button !== 1)) return; // auxclick 只接中键，右键不管
+    // click 只接左键（在链接上按回车也算左键）；auxclick 只接中键，右键不管
+    if (e.defaultPrevented || e.button !== (e.type === "auxclick" ? 1 : 0)) return;
     const a = e.target instanceof Element ? e.target.closest("a[href], area[href]") : null;
-    const url = a ? externalURL(a.href) : "";
+    // SVG 里的 <a> 的 href 不是字符串（SVGAnimatedString），取它写着的原文，再按页面地址补全
+    const href = !a ? "" : typeof a.href === "string" ? a.href : a.getAttribute("href") || "";
+    const url = href ? externalURL(href) : "";
     if (!url) return;
     e.preventDefault(); // WebView2 就不会自己开窗口，也不会在主窗口里跳过去
     openExternal(url);

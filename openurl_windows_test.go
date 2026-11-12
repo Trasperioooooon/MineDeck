@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -11,7 +12,7 @@ import (
 )
 
 // 页面交来的地址：只认 http / https 的绝对地址，原样交出去；别的协议、相对地址、带空白引号控制字符的一律拒绝。
-// 这里的测试都不碰真正的 ShellExecute，跑测试时不会打开浏览器。
+// 这里的测试不拿网址碰真正的 ShellExecuteEx，跑测试时不会打开浏览器（TestShellOpenReportsMissingFile 只打开一个不存在的文件）。
 func TestCheckExternalURL(t *testing.T) {
 	atLimit := "https://example.com/" + strings.Repeat("a", maxExternalURLLen-len("https://example.com/"))
 	for _, ok := range []string{
@@ -142,6 +143,19 @@ func TestOpenExternalURLReportsLaunchFailure(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("打开失败时没有通知页面")
+	}
+}
+
+// 真调一次 ShellExecuteEx，验证自己声明的结构体和调用对得上：打开一个不存在的文件，应该报「找不到」，
+// 不弹任何窗口（带了 SEE_MASK_FLAG_NO_UI）。结构体的大小或字段排错了，报的会是参数不对一类的错。
+// 不拿网址试：那会真的打开浏览器。
+func TestShellOpenReportsMissingFile(t *testing.T) {
+	err := shellOpenURL(filepath.Join(t.TempDir(), "不存在的文件.txt"))
+	if err == nil {
+		t.Fatal("打开不存在的文件应该失败")
+	}
+	if !errors.Is(err, windows.ERROR_FILE_NOT_FOUND) && !errors.Is(err, windows.ERROR_PATH_NOT_FOUND) {
+		t.Errorf("应报找不到文件：%v", err)
 	}
 }
 

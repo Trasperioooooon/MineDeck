@@ -84,6 +84,9 @@ func TestExportLaunchJarCaseAndBadNames(t *testing.T) {
 	if jars != 1 {
 		t.Errorf("Server.jar 和 server.jar 是同一个文件，应只打一份，实际 %d 份", jars)
 	}
+	if log := strings.Join(snap.Log, "\n"); strings.Contains(log, "只差大小写") {
+		t.Errorf("Server.jar 和 server.jar 是同一个文件，不该当成只差大小写的另一个文件：\n%s", log)
+	}
 	if badName {
 		mf, err := ReadManifest(snap.Result)
 		if err != nil {
