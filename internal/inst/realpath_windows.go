@@ -1,6 +1,9 @@
 package inst
 
 import (
+	"errors"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -30,6 +33,48 @@ func realPath(p string) string {
 		rest = filepath.Join(filepath.Base(cur), rest)
 		cur = parent
 	}
+}
+
+// ErrRealPath 查不清一个路径的真实落点（见 RealPathStrict）。
+var ErrRealPath = errors.New("查不清这个路径实际指到哪里")
+
+// RealPathStrict 和 realPath 一样解开目录联接、符号链接这些，但查不清时报 ErrRealPath，不原样返回：
+// 给「查不清就不让做」的检查用，比如写配置之前看落点还在不在服务器文件夹里（v3.1.0 正式版前检查 B-9）。
+//
+// p 还不存在时（要新建的文件），解开还在的那一级上层，后面不存在的几级原样接上。只有这一级确实不存在
+// （Lstat 说没有）才往上找；条目在、却打不开的（断掉的目录联接、没有权限），直接报错，不当作不存在放过去。
+func RealPathStrict(p string) (string, error) {
+	p = filepath.Clean(p)
+	rest := ""
+	for cur := p; ; {
+		if r, ok := finalPath(longPath(cur)); ok {
+			return filepath.Join(r, rest), nil
+		}
+		if _, err := os.Lstat(cur); !errors.Is(err, fs.ErrNotExist) {
+			return "", ErrRealPath
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return "", ErrRealPath
+		}
+		rest = filepath.Join(filepath.Base(cur), rest)
+		cur = parent
+	}
+}
+
+// longPath 很长的绝对路径加上 \\?\ 前缀，CreateFile 才打得开（os 包自己也是这么做的；
+// 不加的话路径一过 MAX_PATH，RealPathStrict 就会把在的文件当成查不清）。
+func longPath(p string) string {
+	if len(p) < 248 || strings.HasPrefix(p, `\\?\`) {
+		return p
+	}
+	if strings.HasPrefix(p, `\\`) {
+		return `\\?\UNC\` + p[2:]
+	}
+	if filepath.IsAbs(p) {
+		return `\\?\` + p
+	}
+	return p
 }
 
 // finalPath 问系统一个已有的文件或文件夹的最终路径；打不开返回 false。
