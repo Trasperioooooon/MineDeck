@@ -863,7 +863,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       sub = await page.textContent("#ai-test-sub");
       // 原文里带着 HTTP 状态码和服务商的英文原话，整句接不上；接的是后端另给的那句人话（hint），原文收进只有图标的「复制报错信息」
       const raw = await page.getAttribute("#ai-test-sub [data-err-raw]", "data-err-raw");
-      assert(sub.trim() === "连接失败：Key 不对或已失效" && (raw || "").includes("HTTP 401") && (await page.getAttribute("#ai-test-sub [data-err-raw]", "aria-label")) === "复制报错信息",
+      assert(sub.trim() === "连接失败：Key 不对或已失效" && (raw || "").includes("HTTP 401") && (await page.getAttribute("#ai-test-sub [data-err-raw]", "aria-label")) === "复制报错信息 AI 测试连接",
         "测试失败时：" + sub + " / 原文：" + raw);
     } finally { await aiState({ reset: true }); }
   });
@@ -2747,6 +2747,13 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(m.title.includes("机械动力整合包"), "标题里没有实例名：" + m.title);
       assert(m.privacy.includes("白名单") && m.privacy.includes("密码会原样打包"), "隐私提醒：" + m.privacy);
       assert(m.full === false && m.go.includes("开始打包"), "弹窗状态：" + JSON.stringify(m));
+      // 导出位置不存在：后端报「导出文件夹不可用: 路径」，输入框标红、下面写原因，弹窗留着；提示只写结论（原文带路径）
+      await page.fill("#tr-dest", "Z:\\nope");
+      await page.click("#tr-go"); await settle(400);
+      const bad = await page.evaluate(() => ({ invalid: $("#tr-dest").classList.contains("invalid"), err: $("#tr-dest-err").textContent }));
+      assert(bad.invalid && bad.err.includes("导出文件夹不可用") && await page.isVisible("#tr-mask"), "导出文件夹不可用时：" + JSON.stringify(bad));
+      assert(await toastHas("无法导出交接包"), "应提示无法导出交接包");
+      assert(!(await page.evaluate(() => [...document.querySelectorAll(".toast")].some(t => t.textContent.includes("Z:")))), "提示正文里不该有路径");
       await page.fill("#tr-dest", "E:\\交接包");
       // 这个包给谁：默认是交接，这里改成发给朋友
       assert(await page.isChecked('input[name="tr-mode"][value="handover"]'), "默认应是交给下一任服主");
@@ -3272,6 +3279,17 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         ["无法启动隧道", E("这".repeat(60))],
         ["无法获取模型列表", E("Key 不对或已失效（HTTP 401，authentication_error）：invalid x-api-key", { status: 502, hint: "Key 不对或已失效" })],
         ["无法获取模型列表", E("服务商返回错误（HTTP 418）：teapot", { status: 502, hint: "" })],
+        // Codex 复审构造的：给人看的话别误杀，路径和英文报错别漏放
+        ["无法创建服务器", E("服务器名称不能包含「\\」")],
+        ["无法创建服务器", E("仅支持 Minecraft 1.20/1.21")],
+        ["保存失败", E("接口地址必须以「https://」开头")],
+        ["无法读取配置", E("无法读取：/usr/local/config")],
+        ["无法读取配置", E("无法读取「配置/服务器.json」")],
+        ["无法读取配置", E("读不了 D:\\MineDeck\\世界\\level.dat")],
+        ["连接失败", E("连接失败：Bad Gateway")],
+        ["连接失败", E("连接失败：ACCESS DENIED")],
+        ["无法开启局域网访问", E("请先设置访问密码")],
+        ["无法安装 Simple Voice Chat", E("Simple Voice Chat 要求 Fabric API")],
       ].map(([what, e]) => errSummary(what, e).text);
     });
     const want = [
@@ -3289,6 +3307,16 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       "无法启动隧道：" + "这".repeat(60),
       "无法获取模型列表：Key 不对或已失效",
       "无法获取模型列表",
+      "无法创建服务器：服务器名称不能包含「\\」",
+      "无法创建服务器：仅支持 Minecraft 1.20/1.21",
+      "保存失败：接口地址必须以「https://」开头",
+      "无法读取配置",
+      "无法读取配置",
+      "无法读取配置",
+      "连接失败",
+      "连接失败",
+      "无法开启局域网访问：请先设置访问密码",
+      "无法安装 Simple Voice Chat：Simple Voice Chat 要求 Fabric API",
     ];
     for (let i = 0; i < want.length; i++) assert(got[i] === want[i], `第 ${i + 1} 条：${got[i]}（应为 ${want[i]}）`);
     // 提示：正文只写结论，「详情」里是原文

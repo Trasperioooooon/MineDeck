@@ -1714,6 +1714,8 @@ function handler(state, ui, portOf) {
         if (sub === "transfer" && seg[5] === "export" && m === "POST") {
           if (i.status !== "stopped") return err(res, 400, "交接前请先停止服务器（运行中打包会不完整）");
           const b = await readBody(req);
+          // 同 transfer/export.go：填的导出位置不存在或不是文件夹。仿真里 Z 盘开头的都算不存在
+          if (/^Z:/i.test(String(b.dest || "").trim())) return err(res, 400, "导出文件夹不可用: " + String(b.dest).trim());
           state.lastTransferExport = { inst: name, ...b };
           return ok(res, { taskId: "task-transfer-out" });
         }

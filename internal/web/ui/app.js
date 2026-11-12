@@ -215,13 +215,15 @@ async function copy(text, okMsg = "已复制") {
 const ERR_INLINE_MAX = 60; // 按字符数算，英文字母、数字、空格也各算一个。提示框正文一行放 15 个汉字上下，结论加 60 个汉字是五行
 const ERR_TRACES = [
   /(?:^|[^A-Za-z0-9])[A-Za-z]:[\\/]/,      // Windows 路径：C:\Users\…、D:/MC（「http://」里的「p:/」不算）
-  /[^\s\\]\\[^\s\\]/,                       // 反斜杠隔开的路径：bin\java.exe（单独列出来的「\」这个字符不算）
-  /(?:^|[\s(（「"'])\/[\w.-]+\//,            // 斜杠开头的路径：/usr/lib/…
-  /[\w.-]+\/[^\s/]*\.[A-Za-z0-9]{1,8}\b/,   // 带扩展名的相对路径：mods/xxx.jar
+  /[\w.%~)\u3400-\u9fff-]\\[\w.%~(\u3400-\u9fff$-]/, // 反斜杠隔开的路径：bin\java.exe、世界\region（单独列出来的「\」这个字符不算）
+  /(?:^|[^\w.\/\\-])\/[\w.\u3400-\u9fff-]+\//, // 斜杠开头的路径：/usr/lib/…，冒号、括号后面的也算（「启动 / 停止」「TCP/UDP」不算）
+  /[\w.\u3400-\u9fff-]+\/[^\s/]*\.[A-Za-z][A-Za-z0-9]{0,7}\b/, // 带扩展名的相对路径：mods/xxx.jar、配置/服务器.json（「1.20/1.21」这种版本号不算）
   /fork\/exec|exit status|\bi\/o\b/i,       // 外部程序没起来或退出异常（fork/exec、exit status 1）、读写超时（i/o timeout）
-  /\b[a-z][a-z0-9+.-]*:\/\/\S/i,            // 网址（只提到「http://」这几个字的不算）
+  /\b[a-z][a-z0-9+.-]*:\/\/[\w[]/i,         // 网址：「://」后面跟着主机名才算（只提到「http://」「「https://」」这几个字的不算）
   /: /,                                     // Go 拼出来的「xxx: yyy」：给人看的中文用全角冒号
   /\b[a-z]{2,}(?: [a-z]{2,})+\b/,          // 连着两个以上的小写英文单词，就是英文报错句：connection refused、Access is denied
+  // 大写开头或全大写的常见英文报错：Bad Gateway、ACCESS DENIED。只认这几句，不对所有英文词放宽大小写，免得误伤 Simple Voice Chat 这类名字
+  /\b(?:bad gateway|bad request|not found|forbidden|unauthori[sz]ed|internal server error|service unavailable|gateway time-?out|too many requests|access denied|permission denied|connection (?:refused|reset|closed)|timed out|no such host|broken pipe)\b/i,
   /\bEOF\b/,                                // 连接被意外断开：EOF、unexpected EOF
   /\bHTTP\s*\d{3}\b/i,                      // HTTP 状态码
   /\b0x[0-9a-f]{4,}\b/i,                    // 十六进制的系统错误码
@@ -3956,14 +3958,14 @@ function drawAI(body, v, gen) {
       const r = await api("/api/ai/test", { method: "POST" });
       if (stale(gen)) return;
       sub.dataset.result = "1";
-      if (!r.ok) sub.innerHTML = errInline("连接失败", { message: r.error, hint: r.hint });
+      if (!r.ok) sub.innerHTML = errInline("连接失败", { message: r.error, hint: r.hint }, { label: "AI 测试连接" }); // 这一页可能同时有 MCP 设置的报错框
       else {
         const tools = { yes: "能调用工具", no: `<span class="warn-text">${icon("warn")} 这个模型不支持工具调用，助手用不了</span>`, unknown: `<span class="warn-text">${icon("warn")} 模型这次没有调用工具，可能不支持</span>` }[r.tools] || "";
         const cost = r.cost && r.cost.source === "local" ? "（本机模型不计费）" : r.cost ? `（约 ${fmtMoney(r.cost.amount, r.cost.currency)}）` : "";
         sub.innerHTML = `${icon("check")} 连接正常 · 首个回应 ${r.latencyMs} ms · ${tools} · 用了 ${fmtTokens((r.usage.input || 0) + (r.usage.output || 0) + (r.usage.cacheRead || 0) + (r.usage.cacheWrite || 0))} token${esc(cost)}`;
         v = await api("/api/ai/settings").catch(() => v); // Claude 中转：测出来的功能开关已存进设置
       }
-    } catch (e) { sub.innerHTML = errInline("无法测试连接", e); }
+    } catch (e) { sub.innerHTML = errInline("无法测试连接", e, { label: "AI 测试连接" }); }
     btn.disabled = ro || !v.enabled;
   };
 

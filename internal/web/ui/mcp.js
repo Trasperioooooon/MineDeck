@@ -83,7 +83,7 @@ window.MDMcp = (() => {
     slot.innerHTML = settingsHead("MCP 接口", esc(HEAD)) + `<div class="sub">加载中…</div>`;
     let v;
     try { v = await api("/api/mcp"); }
-    catch (e) { if (!stale(gen) && slot.isConnected) slot.innerHTML = settingsHead("MCP 接口", esc(HEAD)) + errBox("无法读取 MCP 接口的设置", e); return; }
+    catch (e) { if (!stale(gen) && slot.isConnected) slot.innerHTML = settingsHead("MCP 接口", esc(HEAD)) + errBox("无法读取 MCP 接口的设置", e, { label: "MCP 设置" }); return; } // 和 AI 测试连接的报错同在一页
     if (stale(gen) || !slot.isConnected) return;
     M.st = v;
     connect();
