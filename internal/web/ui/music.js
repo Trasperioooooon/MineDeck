@@ -52,7 +52,7 @@ window.MDMusic = (() => {
     const name = info.name, enc = encodeURIComponent(name), base = `/api/instances/${enc}/music`;
     body.innerHTML = `<div class="mu">${skeletonRows(6)}</div>`;
     let st;
-    try { st = await api(base); } catch (e) { if (!stale(gen)) body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+    try { st = await api(base); } catch (e) { if (!stale(gen)) body.innerHTML = errBox("无法读取音乐共享的状态", e); return; }
     if (stale(gen)) return;
     if (!st.supported) {
       body.innerHTML = `<div class="mu"><div class="warn-card"><div class="wc-title">${icon("warn")} 这台服务器用不了音乐共享</div>
@@ -240,7 +240,7 @@ window.MDMusic = (() => {
       try {
         await api(base + "/start", { method: "POST", body: req });
         toast(m === "process" ? `开始广播 ${v.sel.exe} 的声音` : "开始广播整机的声音");
-      } catch (e) { toast(e.message, true); }
+      } catch (e) { toastErr("无法开始广播", e); }
       v.busy = false;
       await loadStatus();
     };
@@ -351,7 +351,7 @@ window.MDMusic = (() => {
         try {
           const r = await api(base + "/svc", { method: "POST" });
           toast(`已装好 Simple Voice Chat ${r.version || r.name}` + (r.restart ? "：重启服务器后生效" : "") + (r.type ? `（Modrinth 上没有正式版，装的是 ${r.type} 版）` : ""));
-        } catch (e) { toast(e.message, true); }
+        } catch (e) { toastErr("无法安装 Simple Voice Chat", e); }
         box.dataset.sig = ""; // 失败时也重画，按钮恢复
         await loadStatus();
       };

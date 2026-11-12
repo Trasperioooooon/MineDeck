@@ -698,6 +698,8 @@ a.inst-name:hover { text-decoration: underline; text-decoration-color: color-mix
   border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
   border-radius: var(--r-lg); padding: 12px 14px; margin: 12px 0; font-size: var(--fs-sm); line-height: 1.7;
 }
+/* 报错框底下那一排按钮（errBox：「复制报错信息」，有的前面还有「重试」） */
+.err-box .err-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
 .warn-card {
   margin: 14px 0; padding: 14px 16px; border-radius: var(--r-lg);
   background: var(--warning-subtle); border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);

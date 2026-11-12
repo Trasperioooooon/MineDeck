@@ -255,7 +255,7 @@ window.MDModCart = (() => {
         if (skipped.length) toast(skipped.map(x => `${x.title || x.projectId}：${x.reason}`).join("；"), true);
         else toast(projectIds.length > 1 ? `已加入清单：${projectIds.length} 项前置` : `已加入清单：${one || "1 项"}`);
       } catch (e) {
-        toast(e.message, true);
+        toastErr("无法加入清单", e);
         if (!gone()) paintList(); // 加购失败也逐个按钮复位
       }
     };
@@ -448,7 +448,7 @@ window.MDModCart = (() => {
         toast(`已开始安装清单里的 ${n} 项` + (running ? "。服务器正在运行，装完要重启才生效" : ""));
         location.hash = `#/task/${encodeURIComponent(r.taskId)}`;
       } catch (e) {
-        toast(e.message, true);
+        toastErr("无法开始安装", e);
         reset();
         if (!gone()) { dep = null; depBox.innerHTML = ""; reload(); } // 车可能变了：重新读一遍，旧的依赖检查结果也作废
       }

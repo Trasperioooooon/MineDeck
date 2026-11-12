@@ -189,7 +189,7 @@ window.MDAssist = (() => {
     body.innerHTML = `<div class="ap-loading">${icon("spinner")} 加载中…</div>`;
     let l;
     try { l = await api("/api/assistant/sessions"); }
-    catch (e) { if (A.view === "list" && A.panel) body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+    catch (e) { if (A.view === "list" && A.panel) body.innerHTML = errBox("无法读取会话记录", e); return; }
     if (A.view !== "list" || !A.panel) return;
     if (!l.length) {
       body.innerHTML = `<div class="ap-empty"><span class="ae-ico">${icon("sparkle")}</span><h4>还没有会话</h4>
@@ -688,7 +688,7 @@ window.MDAssist = (() => {
       ta.value = "";
       autosize(ta);
       A.attach = false;
-    } catch (e) { toast(e.message, true); }
+    } catch (e) { toastErr("发送失败", e); }
     btn.disabled = false;
     paintFoot();
   }

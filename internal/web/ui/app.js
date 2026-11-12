@@ -112,8 +112,9 @@ function slideKeys(before, which) {
 
 /* 提示：标题栏下方右侧，从上方落入；离场向右淡出，其余提示平移补位。
    普通提示停 3.5 秒，点一下关闭。报错提示停 8 秒，带「详情」（点开是只读的对话框，原文可以选中、复制）和关闭键，
-   点提示本身也是看详情（见 docs/文案重写/00-报错信息.md）。 */
-function toast(msg, isErr = false) {
+   点提示本身也是看详情（见 docs/文案重写/00-报错信息.md）。
+   detail：「详情」里放的原文，不给就是 msg。拿接口的报错拼提示用 toastErr，不要直接传 e.message。 */
+function toast(msg, isErr = false, detail) {
   const box = $("#toasts");
   const d = document.createElement("div");
   d.className = "toast enter" + (isErr ? " error" : "");
@@ -136,12 +137,13 @@ function toast(msg, isErr = false) {
     setTimeout(done, 400);
   };
   if (isErr) {
+    const full = detail === undefined ? msg : detail;
     const b = document.createElement("button");
     b.type = "button";
     b.className = "btn sm ghost";
     b.textContent = "详情";
     b.setAttribute("aria-label", "查看报错详情");
-    b.onclick = ev => { ev.stopPropagation(); showErrDetail(msg); };
+    b.onclick = ev => { ev.stopPropagation(); showErrDetail(full); };
     d.appendChild(b);
     const x = document.createElement("button");
     x.type = "button";
@@ -150,7 +152,7 @@ function toast(msg, isErr = false) {
     x.setAttribute("aria-label", "关闭这条提示");
     x.onclick = ev => { ev.stopPropagation(); kill(); };
     d.appendChild(x);
-    d.onclick = () => showErrDetail(msg);
+    d.onclick = () => showErrDetail(full);
   } else {
     d.onclick = kill;
   }
@@ -194,6 +196,67 @@ async function copy(text, okMsg = "已复制") {
     document.execCommand("copy"); ta.remove(); toast(okMsg);
   } catch (e) { toast("复制失败，请手动复制", true); }
 }
+
+/* ---------- 报错的正文（规矩见 docs/文案重写/01-补完口径.md 第一、二节）----------
+   调用处只给一句结论 what，说这一步没做成什么，如「无法启动服务器」「保存失败」。正文按下面的顺序拼：
+   1. 请求根本没发出去（浏览器给的 TypeError「Failed to fetch」）：结论 +「：连不上 MineDeck」；
+   2. 后端的话是一句给人看的中文：结论 +「：」+ 后端那句，整句接上（「无法删除服务器：请先停止服务器再删除」）；
+   3. 其余只写结论。
+   「详情」和「复制报错信息」里永远是完整原文，一个字不删。
+   判断只看文字本身，不看 HTTP 状态码：同一个 400 既可能是「服务器名称需为 1~40 个字符」，也可能带着 fork/exec 的系统原文。
+   后端的话要么整句接上，要么不接，不截短。
+   toastErr（右上角的提示）和 errBox（页面报错框）都走 errSummary，规则只写在这一处；要调规则，改下面三个常量。 */
+
+/* 「给人看的话」= 含中文，不超过 ERR_INLINE_MAX 个字，并且没有 ERR_TRACES 里的任何一种痕迹 */
+const ERR_INLINE_MAX = 60; // 按字符数算，英文字母、数字、空格也各算一个。提示框正文一行放 15 个汉字上下，结论加 60 个汉字是五行
+const ERR_TRACES = [
+  /(?:^|[^A-Za-z0-9])[A-Za-z]:[\\/]/,      // Windows 路径：C:\Users\…、D:/MC（「http://」里的「p:/」不算）
+  /[^\s\\]\\[^\s\\]/,                       // 反斜杠隔开的路径：bin\java.exe（单独列出来的「\」这个字符不算）
+  /(?:^|[\s(（「"'])\/[\w.-]+\//,            // 斜杠开头的路径：/usr/lib/…
+  /[\w.-]+\/[^\s/]*\.[A-Za-z0-9]{1,8}\b/,   // 带扩展名的相对路径：mods/xxx.jar
+  /fork\/exec|exit status|\bi\/o\b/i,       // 外部程序没起来或退出异常（fork/exec、exit status 1）、读写超时（i/o timeout）
+  /\b[a-z][a-z0-9+.-]*:\/\/\S/i,            // 网址（只提到「http://」这几个字的不算）
+  /: /,                                     // Go 拼出来的「xxx: yyy」：给人看的中文用全角冒号
+  /\b[a-z]{2,}(?: [a-z]{2,})+\b/,          // 连着两个以上的小写英文单词，就是英文报错句：connection refused、Access is denied
+  /\bEOF\b/,                                // 连接被意外断开：EOF、unexpected EOF
+  /\bHTTP\s*\d{3}\b/i,                      // HTTP 状态码
+  /\b0x[0-9a-f]{4,}\b/i,                    // 十六进制的系统错误码
+  /[\r\n]/,                                 // 好几行的：提示里放不下
+];
+/* 请求根本没发出去时浏览器给的原文：WebView2 / Chrome 是「Failed to fetch」，Firefox 是「NetworkError when attempting…」，Safari 是「Load failed」。
+   还得同时是 TypeError：同一个 try 里代码自己出错（读了 undefined 的属性）也是 TypeError，但原文对不上 */
+const ERR_OFFLINE = /^(?:Failed to fetch|NetworkError when attempting to fetch resource|Load failed)\b/i;
+
+function errSummary(what, e) {
+  const raw = e == null ? "" : String(typeof e === "object" ? e.message || e : e);
+  const msg = raw.trim();
+  const typeErr = !!e && typeof e === "object" && (e instanceof TypeError || e.name === "TypeError");
+  let text = what;
+  if (typeErr && ERR_OFFLINE.test(msg)) text = what + "：连不上 MineDeck";
+  else if (msg && msg !== what && /[\u3400-\u9fff]/.test(msg) && [...msg].length <= ERR_INLINE_MAX && !ERR_TRACES.some(re => re.test(msg)))
+    text = what + "：" + msg;
+  return { text, raw: raw || what };
+}
+/* 报错提示：正文按 errSummary 拼，「详情」里是完整原文。返回提示的元素（同 toast） */
+function toastErr(what, e) {
+  const { text, raw } = errSummary(what, e);
+  return toast(text, true, raw);
+}
+/* 页面报错框（.err-box）：一句结论（拼法同 toastErr），下面「复制报错信息」，复制完整原文。返回 HTML，复制键的点击由下面的委托统一接。
+   hint：下一步怎么办，纯文本，单独一行（「可在「设置 → 下载与网络」换一个下载源后重试。」）；
+   actions：和复制键排在一行、放在它前面的按钮（HTML，调用方负责转义），如「重试」；id：报错框自己的 id；
+   label：同一页可能同时出几个报错框时，复制键的名字带上是哪一块（「复制报错信息 前置检查」），不然读屏和无障碍测试分不开 */
+function errBox(what, e, { hint = "", actions = "", id = "", label = "" } = {}) {
+  const { text, raw } = errSummary(what, e);
+  // 原文转义后放在复制键的 data-err-raw 上；回车符写成字符引用，不然 HTML 解析时 \r\n 会被并成 \n
+  return `<div class="err-box"${id ? ` id="${esc(id)}"` : ""}>${esc(text)}${hint ? `<div>${esc(hint)}</div>` : ""}
+    <div class="err-acts">${actions}<button type="button" class="btn sm ghost" data-err-raw="${esc(raw).replace(/\r/g, "&#13;")}"${label ? ` aria-label="复制报错信息 ${esc(label)}"` : ""}>${icon("copy")} 复制报错信息</button></div></div>`;
+}
+document.addEventListener("click", ev => {
+  const b = ev.target instanceof Element ? ev.target.closest("[data-err-raw]") : null;
+  if (b) copy(b.getAttribute("data-err-raw"), "已复制报错信息");
+});
+
 function fmtBytes(n) {
   if (n <= 0) return "";
   const u = ["B", "KB", "MB", "GB"];
@@ -744,7 +807,7 @@ function wireSaveBar(root, gen, read, save) {
   $('[data-sb="discard"]', bar).onclick = () => { dirtyCheck = null; navigate(); }; // 按服务器上的当前值重绘
   saveBtn.onclick = async () => {
     saveBtn.disabled = true;
-    try { if ((await save()) !== false && bar.isConnected) base = read(); } catch (e) { toast(e.message, true); } // save 返回 false：用户取消了，表单仍算没保存
+    try { if ((await save()) !== false && bar.isConnected) base = read(); } catch (e) { toastErr("保存失败", e); } // save 返回 false：用户取消了，表单仍算没保存
     if (bar.isConnected) paint(); // 保存途中已切走：视图已换，不再读写旧表单
   };
   addDirtySource(gen, () => (bar.isConnected ? diff() : 0));
@@ -958,7 +1021,7 @@ async function deleteInstance(info) {
     await api(`/api/instances/${encodeURIComponent(name)}?files=${r.files ? 1 : 0}`, { method: "DELETE" });
     toast(r.files ? `已删除「${name}」` : `已把「${name}」移出列表，文件还在原处`);
     return true;
-  } catch (e) { toast(e.message, true); return false; }
+  } catch (e) { toastErr(r.files ? "无法删除服务器" : "无法把服务器移出列表", e); return false; }
 }
 
 /* 运行状态：像素状态灯 + 文字（不能只靠颜色） */
@@ -1105,7 +1168,7 @@ async function renderInstances() {
       try {
         if (act === "start") { b.disabled = true; await api(`/api/instances/${encodeURIComponent(name)}/start`, { method: "POST" }); toast(`「${name}」正在启动`); }
         else if (act === "stop") { b.disabled = true; await api(`/api/instances/${encodeURIComponent(name)}/stop`, { method: "POST" }); toast(`「${name}」正在停止并保存世界`); }
-      } catch (e) { toast(e.message, true); }
+      } catch (e) { toastErr(act === "start" ? "无法启动服务器" : "无法停止服务器", e); }
       lastSig = ""; draw();
     });
     // 整卡可点：点卡片空白处进入详情（卡内按钮 / 链接各自处理）
@@ -1433,7 +1496,7 @@ async function drawImport() {
       toast(`已识别 ${j.data.pack.core} ${j.data.pack.mc}（${j.data.pack.files} 个组件）` + (pending ? "；其中" + j.data.pack.pending + " 项待处理，导入后到任务页逐个处理" : ""));
       if (!stale(gen)) location.hash = `#/task/${j.data.taskId}`;
     } catch (e) {
-      toast(e.message, true);
+      toastErr("无法导入整合包", e);
       if (!stale(gen)) { $("#im-go").disabled = false; $("#im-go").innerHTML = icon("bolt") + " 导入并部署"; }
     }
   };
@@ -1713,7 +1776,7 @@ async function drawWizard() {
     $("#wback0").onclick = goCreateHome;
     paintWizSum();
     let cores;
-    try { cores = await api("/api/cores"); } catch (e) { if (!stale(gen)) $("#core-grid").innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+    try { cores = await api("/api/cores"); } catch (e) { if (!stale(gen)) $("#core-grid").innerHTML = errBox("无法获取服务端核心列表", e); return; }
     if (stale(gen)) return;
     cores.forEach(c => CORES[c.id] = c);
     const CORE_GROUPS = [
@@ -1819,7 +1882,7 @@ async function drawWizard() {
         paintWizSum();
         drawList();
         $("#ver-list .ver-item.sel")?.scrollIntoView({ block: "nearest" });
-      } catch (e) { if (!outdated()) $("#ver-list").innerHTML = `<div class="err-box">无法获取版本清单。<br>可在「设置 → 下载与网络」换一个下载源后重试。</div>`; }
+      } catch (e) { if (!outdated()) $("#ver-list").innerHTML = errBox("无法获取版本清单", e, { hint: "可在「设置 → 下载与网络」换一个下载源后重试。" }); }
     };
     $("#ver-search").oninput = drawList;
     // 委托在列表容器上（drawList 每次重建条目）：单击后刷新底栏回显，双击 = 选中并下一步
@@ -2022,7 +2085,7 @@ async function drawWizard() {
         say("正在等待服务器创建完成…");
         await follow();
         if (!launched && !stale(gen)) startPoll(follow, 1500, gen); // 第一次查就结束了的不用再轮询
-      } catch (e) { toast(e.message, true); if (!stale(gen) && createBtn.isConnected) createBtn.disabled = false; }
+      } catch (e) { toastErr("无法创建服务器", e); if (!stale(gen) && createBtn.isConnected) createBtn.disabled = false; }
     };
   }
 }
@@ -2360,11 +2423,11 @@ async function renderDetail(name, tab = "console") {
   $("#d-dir").onclick = () => dropMenu($("#d-dir"), folderItems(info));
   $("#d-start").onclick = async () => {
     try { $("#d-start").disabled = true; await api(`/api/instances/${encodeURIComponent(name)}/start`, { method: "POST" }); toast("正在启动，首次生成世界可能需要一两分钟"); refreshHead(); }
-    catch (e) { toast(e.message, true); $("#d-start").disabled = false; }
+    catch (e) { toastErr("无法启动服务器", e); $("#d-start").disabled = false; }
   };
   $("#d-stop").onclick = async () => {
     try { $("#d-stop").disabled = true; await api(`/api/instances/${encodeURIComponent(name)}/stop`, { method: "POST" }); toast("正在保存世界并停止"); refreshHead(); }
-    catch (e) { toast(e.message, true); $("#d-stop").disabled = false; }
+    catch (e) { toastErr("无法停止服务器", e); $("#d-stop").disabled = false; }
   };
   const refreshHead = async () => {
     try {
@@ -3477,7 +3540,7 @@ function setStorage(body, info) {
         if (b.dataset.pick === "servers") info.serversRoot = r.path; else info.backupsRoot = r.path;
         toast("已更新目录（对新建生效）");
         draw();
-      } catch (e) { toast(e.message, true); }
+      } catch (e) { toastErr(b.dataset.pick === "servers" ? "无法更改服务器存放文件夹" : "无法更改备份存放文件夹", e); }
     });
     body.querySelectorAll("[data-reset]").forEach(b => b.onclick = async () => {
       try {
