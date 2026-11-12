@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,20 +40,6 @@ type proc struct {
 	inMu  sync.Mutex
 }
 
-// PortProbeHost 试绑端口查占用时用的地址（CheckPort、操作层的 port.check）。空 = 所有网卡：服务器监听的就是所有网卡，这样查得准。
-// 测试里设成 127.0.0.1：每次 go test 编出来的测试程序路径都不一样，绑所有网卡会让 Windows 防火墙每次都弹窗问要不要放行。
-var PortProbeHost = ""
-
-// CheckPort 预检端口是否可绑定（占用检测防呆）。
-func CheckPort(port int) error {
-	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", PortProbeHost, port))
-	if err != nil {
-		return fmt.Errorf("端口 %d 已被其他程序占用，请在设置中修改 server-port 或关闭占用程序", port)
-	}
-	ln.Close()
-	return nil
-}
-
 // startBusyMsg 服务器没停下时又点启动的说法，状态的叫法和界面上的状态标签一致。
 func startBusyMsg(state string) string {
 	switch state {
@@ -88,9 +73,10 @@ func (m *Manager) Start(name string) error {
 		i.Console.Append(fmt.Sprintf("[MineDeck] 找不到 Java：%s", i.JavaPath))
 		return errors.New("找不到这台服务器用的 Java，请到「内存 / 启动」里重新选一个 Java。")
 	}
-	// 代理端端口在其自带配置文件中，跳过 server.properties 端口预检
-	if mcsrc.KindOf(i.Core) != mcsrc.KindProxy {
-		if err := CheckPort(i.Port()); err != nil {
+	// 端口被占着就直接报错，不先起 Java、等它自己报 BindException（检查报告 D-5）。按服务器真正要绑的地址查
+	//（server-ip、server-port）；代理端的端口在它自己的配置文件里，不查（见 startPort）
+	if host, port, ok := startPort(i); ok {
+		if err := checkBindPort(host, port); err != nil {
 			return err
 		}
 	}

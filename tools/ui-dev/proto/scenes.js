@@ -255,7 +255,7 @@ add("overlay", "o-err-detail", "报错详情：原文可以选中、复制", {
 });
 add("overlay", "o-toast-err-why", "报错提示：后端说的原因接在结论后面", {
   tag: "new", note: "结论（这一步没做成什么）在前；后端给的是一句看得懂的中文时整句接在后面。原文照样在「详情」里。",
-  setup: (s, p) => { s.instances = four(); p.api(`POST /api/instances/${enc("机械动力整合包")}/start`, { code: 400, error: "端口 25566 已被其他程序占用，请在设置中修改 server-port 或关闭占用程序" }); },
+  setup: (s, p) => { s.instances = four(); p.api(`POST /api/instances/${enc("机械动力整合包")}/start`, { code: 400, error: "端口 25566 被别的程序占着，换个端口或关掉占用它的程序" }); },
   steps: [{ click: `.card[data-name="机械动力整合包"] [data-act="start"]` }],
 });
 add("overlay", "o-toast-err-raw", "报错提示：原文带路径和英文时只写结论，「详情」里是原文", {

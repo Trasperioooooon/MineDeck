@@ -64,5 +64,6 @@ func (m *Manager) Restart(name string) error {
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
+	m.waitPortFree(i) // 进程刚退出，端口万一还没放开就等几秒
 	return m.Start(name)
 }
