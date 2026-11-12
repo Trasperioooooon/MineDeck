@@ -15,5 +15,6 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27" # 和 release.yml 用同一个版本，见那里的说明
+          check-latest: true
       - name: Go 测试
         run: go test ./...

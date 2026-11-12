@@ -14,8 +14,10 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
-          # 要用还在维护的 Go 编：停止维护的版本不再出标准库的安全补丁（1.25 已停，2026-11 维护中的是 1.27 和 1.26）
+          # 要用还在维护的 Go 编：停止维护的版本不再出标准库的安全补丁（1.25 已停，2026-11 维护中的是 1.27 和 1.26）。
+          # check-latest：每次都取 1.27 最新的补丁版。不开的话运行机缓存里有 1.27.x 就直接用，可能比最新的早几个补丁。
           go-version: "1.27"
+          check-latest: true
       - name: Test
         run: go test ./...
       - name: Build
