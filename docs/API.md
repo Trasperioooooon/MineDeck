@@ -5,7 +5,7 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 ## 认证
 
 - 本机：请求头 `X-Token: <token>`（token 在启动 URL 的 `?token=` 参数中，每次启动随机）
-- 局域网模式：`POST /api/login {"password": "..."}` 换取会话 Cookie
+- 局域网模式：`POST /api/login {"password": "..."}` 换取会话 Cookie。请求体上限 4 KB，超了回 413；同一个来源同时只校验一个，全部来源合计最多 8 个，占不到的回 429（「请求太频繁，稍等几秒再试」）；密码错误等 0.7 秒再回 401，这段时间名额一直占着
 - SSE 端点可用查询参数 `?token=` 传递
 - **仅本机（loopback）端点**：`/api/pickdir`、`/api/openpath`、`/api/instances/{name}/opendir` 会调起系统对话框 / 资源管理器，`/api/javas/add` 会执行请求中给出的主机路径（`java -version` 探测），`/api/adopt/scan` 和 `/api/adopt` 要读主机上任意一个文件夹，`/api/import/pending/{taskId}` 要按请求给出的主机路径收文件（或信任后联网下载），均只接受来自本机的请求；局域网会话调用返回 403
 - **主机路径仅本机可指定**：局域网会话不能决定文件写到主机哪里——`POST /api/instances` 与 `POST /api/import/modpack` 的 `root` 会被忽略（实例一律建在默认存放根下）；`PUT /api/config` 只要带了 `serversDir` / `backupsDir`（含置空恢复默认）即整次返回 403、不做任何修改，不带这两个键的其余配置仍可远程修改
@@ -39,7 +39,7 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 |---|---|---|
 | GET | `/api/instances` | 实例列表；每项含 `name/core/kind/mc/build/javaMajor/javaSource/javaPath/adopted/xmxMb/xmsMb/port/status/motd/dir/createdAt/consoleEncoding/onlineCount/uptimeSec/maxPlayers/extraJvm`。`javaSource` 是 `portable`（MineDeck 下载的）或 `local`（本机装的），`javaPath` 是现在用的 java.exe；`adopted` 为 true 表示这台服务器是接管进来的，目录是用户原来的文件夹 |
 | POST | `/api/instances` | 创建（返回 taskId，轮询 `/api/tasks/{id}`）；body 可含 `difficulty/gamemode/root` 等（`root` 仅本机生效） |
-| POST | `/api/import/modpack` | multipart 导入整合包（file + name/xmxMb/port/eula/onlineMode/allowFlight/root；`root` 仅本机生效；上限 4 GiB，超过时返回 413 和一句说明）；另有可选的 `localSource`（本地来源目录：老服务器目录，导入中无法自动下载的文件凡在此目录已有对应文件即按原样保留、不校验不上线上匹配，也是仅本机生效，远程请求忽略）。清单可以在压缩包最外层，也可以只套一层文件夹（`整合包名/manifest.json`）。没有清单、但能看出是现成服务端的 zip（mods、plugins、server.properties 或服务端 jar，同样可以套一层文件夹）会直接解压成实例，核心和版本按「接管已有服务器」的办法识别；`pack.format` 为 `server`，后台任务的 `kind` 是 `server-in`。核心要已经在包里：Forge / NeoForge 认装好以后 `libraries` 里的参数文件（1.16.5 以前的 Forge 认最外层的 `forge-<版本>.jar`），其他认最外层的服务端 jar，文件名带 installer 的安装器不算；只有启动脚本或安装器的压缩包返回 400。压缩包里已有 `server.properties` 时只改 `server-port`，`onlineMode`、`allowFlight` 不用；没有时按请求写，离线的 1.19 起另写 `enforce-secure-profile=false`。解析失败的 400 带 `hint`（见本节末尾的响应格式）。之前白名单外直链、缺校验值会让整个整合包被拒绝，现在这些文件改成「待决」，导入照常完成（见 `/api/import/pending/{taskId}`） |
+| POST | `/api/import/modpack` | multipart 导入整合包（file + name/xmxMb/port/eula/onlineMode/allowFlight/root；`root` 仅本机生效；上限 4 GiB，超过时返回 413 和一句说明）；另有可选的 `localSource`（本地来源目录：老服务器目录，导入中无法自动下载的文件凡在此目录已有对应文件即按原样保留、不校验不上线上匹配，也是仅本机生效，远程请求忽略）。清单可以在压缩包最外层，也可以只套一层文件夹（`整合包名/manifest.json`）。没有清单、但能看出是现成服务端的 zip（mods、plugins、server.properties 或服务端 jar，同样可以套一层文件夹）会直接解压成实例，核心和版本按「接管已有服务器」的办法识别；`pack.format` 为 `server`，后台任务的 `kind` 是 `server-in`。核心要已经在包里：Forge / NeoForge 认装好以后 `libraries` 里的参数文件（1.16.5 以前的 Forge 认最外层的 `forge-<版本>.jar`），其他认最外层的服务端 jar，文件名带 installer 的安装器不算；只有启动脚本或安装器的压缩包返回 400。压缩包里已有 `server.properties` 时只改 `server-port`，`onlineMode`、`allowFlight` 不用；没有时按请求写，离线的 1.19 起另写 `enforce-secure-profile=false`。解析失败的 400 带 `hint`（见本节末尾的响应格式）。整合包的覆盖目录（`overrides`、`server-overrides`）和现成服务端压缩包用同一个上限：按 zip 里写的大小合计超过 20 万个文件或 8 GB 的，导入任务在写覆盖文件之前就失败，一个都不写；实际解出来的大小和写的对不上也算失败。之前白名单外直链、缺校验值会让整个整合包被拒绝，现在这些文件改成「待决」，导入照常完成（见 `/api/import/pending/{taskId}`） |
 | POST | `/api/import/pending/{taskId}` | 逐项处置整合包导入的待决文件：body `{"items":[{"id":"p1","act":"skip\|local\|trust","path?":"","url?":"","ack?":false}]}`。`act=skip` 跳过并记入任务日志；`act=local` 用请求给出的本地文件（`path`）或目录（给目录时按待决文件的相对路径、mods/plugins 下的同名文件匹配）原样复制进实例，内容不校验；`act=trust` 确认信任自定义站点后从 `url`（必须为该项列出的候选、必须 https）下载并校验 SHA-1——主机解析到内网或本机地址的一律拒绝，首次信任每个站点必须带 `ack: true`（风险在界面写明，确认按域名记忆、不同端口也一并信任）；文件下载下来、校验通过以后才把站点记进全局配置，没下成的站点下次照样要确认。整合包的文件（包括白名单站点和 CurseForge 的）下载全程走受控客户端：直连时每个解析出的 IP 连接前查是不是公网，站点日后被解析到内网也连不出去；环境变量里配了代理时连的是代理，改按主机名查目标（IP 字面量必须公网，本机、内网的名字不连）；跳转只跟 https 的、最多 10 次，跳到哪个主机不限（GitHub、CurseForge 的文件都会跳到各自的 CDN），跳转目标一样要过公网检查。返回 `{resolved:[{id,path,act,ok,note}], pending:[剩余待决]}`；单项失败留在清单里不影响其他项。**仅本机**，AI 不能调用（操作 `instance.import.pending`） |
 | POST | `/api/adopt/scan` | `{dir}`：只读地识别一个已有的服务器文件夹，给接管的表单预填（见下方「接管已有服务器」）。**仅本机** |
 | POST | `/api/adopt` | 接管已有服务器：把文件夹就地登记成实例，返回 taskId（见下方）。**仅本机** |
@@ -48,7 +48,7 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 | POST | `/api/instances/{name}/opendir?sub=` | 在资源管理器打开实例目录或其白名单子目录（`sub` ∈ mods/plugins/world/logs/crash-reports），**仅本机** |
 | GET | `/api/instances/{name}/console` | SSE 控制台流（先回放后实时） |
 | GET/PUT | `/api/instances/{name}/properties` | server.properties 读写 |
-| PUT | `/api/instances/{name}/settings` | `{xmxMb, xmsMb, consoleEncoding, extraJvm}`（`extraJvm` 为字符串数组，一行一参，传入即整体替换；MC 1.18.1 以下实例的 log4shell 缓解参数始终保留，缺失时自动补回） |
+| PUT | `/api/instances/{name}/settings` | `{xmxMb, xmsMb, consoleEncoding, extraJvm}`（`extraJvm` 为字符串数组，一行一参，传入即整体替换；新加或改过的参数里有双引号或换行、制表符这类控制字符的回 400，原来就有的不查（界面只改内存时也会把整张参数表发过来）；数组里一项就是一个参数，带空格也不用加引号；MC 1.18.1 以下实例的 log4shell 缓解参数始终保留，缺失时自动补回） |
 | GET/PUT | `/api/instances/{name}/policies` | 崩溃重启 + 定时任务（`schedules[].at` 是 `HH:MM`；传 `9:05` 这类没补零的写法，后端保存时规整成 `09:05`） |
 | GET/POST | `/api/instances/{name}/backups`；POST `.../backups/restore`；DELETE `.../backups?file=` | 备份（保留份数由全局 `backupKeep` 控制，跨备份根合计）。新备份写当前备份根；列表 / 还原 / 删除也查内置根与改目录前用过的旧根（config.json `backupRoots`），同名文件视为同一份；`file` 只取文件名，须为 `.zip` |
 | GET/POST | `/api/instances/{name}/players` | 玩家名单与操作 `{action, player}` |
@@ -79,6 +79,8 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 凭据 `credential` 只写不读：用 Windows DPAPI 加密后存进 `tunnels.json`（`"dpapi:…"`），任何响应都不下发；`PUT` 时留空表示不修改。旧版的明文凭据在启动时自动加密写回。自定义 frps 的 token 不再写进 frpc 的配置文件，而是经环境变量交给 frpc 进程（配置里只有 `{{ .Envs.… }}` 模板）。OpenFrp 和樱花的 frpc 仍然只能从命令行参数接收凭据。
 
 `serverAddr`、`serverPort`、`remotePort`、`localPort` 只有自定义 frps 用。樱花、OpenFrp 的隧道启动时只传「凭据 + 隧道 ID」，端口在服务商后台填，这几项传了也不存、列表里也不给（`localPort` 不再总是出现）；老版本存下的 25565 / 25566 这类数在加载时清掉并写回。
+
+`serverAddr` 只能是域名或 IP：域名每段是字母（中文也行）、数字、连字符、下划线，用点隔开；不能带 `http://`、端口、空白、引号、花括号，不合规的回 400。前后空格和 IPv6 的方括号会去掉再存。地址会原样写进 frpc 的配置，而 frpc 把整份配置当模板渲染，所以要挡住模板写法；启动前再查一遍，以前存下的不合规地址启动时报错，不生成配置。`PUT` 时凭据留空表示不改，但换了 `provider`，或者自定义 frps 换了 `serverAddr`、`serverPort`，凭据留空回 400（「换了服务商或 frps 地址、端口，要重新填一次凭据」），免得旧令牌被带到新的服务器上。
 
 `publicAddr` 从 frpc 的输出里认：同一次运行里既有域名形式又有 IP 形式（樱花会同时打「使用 >>域名:端口<< 连接」和「或使用节点 IP 连接（不推荐）」两行）时取域名，IP 会随节点变。
 

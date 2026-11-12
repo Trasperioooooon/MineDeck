@@ -469,32 +469,65 @@ func ResolveCF(ctx context.Context, refs []CFRef, apiKey string) (files []File, 
 	return files, unresolved, err
 }
 
+// 整合包覆盖目录解开后的上限，和现成服务端压缩包一样（serverMaxFiles、serverMaxBytes）。
+// 写成变量只是为了测试能调小。
+var (
+	overrideMaxFiles       = serverMaxFiles
+	overrideMaxBytes int64 = serverMaxBytes
+)
+
 // ExtractOverrides 将整合包内的覆盖目录依序解压到实例目录。
+// 先按 zip 里写的大小把要解的文件数一遍，个数或总大小超过上限就一个都不写。
+// 实际大小由 zip 库核对：每读一次都查有没有超过写的大小，读到结尾再查够不够、校验和对不对，对不上就报错；
+// 写的时候再套一层 LimitReader 兜底。以前没有上限，一个 8 MB 的整合包，overrides 里能解出 8 GB，
+// 导入一个恶意整合包就能把磁盘写满（v3.1.0 正式版前检查 B-4）。后面的覆盖目录照旧后写，同名文件以它为准。
+// 跳过哪些条目和解现成服务端时一样：目录（Windows 工具打的包里，目录可能写成反斜杠结尾）、符号链接这类不是普通文件的。
 func ExtractOverrides(p *Pack, destDir string, writeFile func(rel string, r io.Reader) error) error {
 	zr, err := zip.OpenReader(p.ZipPath)
 	if err != nil {
 		return err
 	}
 	defer zr.Close()
+	type entry struct {
+		f    *zip.File
+		rel  string
+		size int64
+	}
+	var ents []entry
+	var total int64
 	for _, prefix := range p.OverrideDirs {
 		for _, f := range zr.File {
-			name := strings.ReplaceAll(f.Name, "\\", "/")
-			if !strings.HasPrefix(name, prefix+"/") || f.FileInfo().IsDir() {
+			name := zipNameOf(f)
+			if !strings.HasPrefix(name, prefix+"/") || isZipDir(f, name) || !f.Mode().IsRegular() {
 				continue
 			}
 			rel, err := safeRelPath(strings.TrimPrefix(name, prefix+"/"))
 			if err != nil {
 				return err
 			}
-			rc, err := f.Open()
-			if err != nil {
-				return err
+			size := int64(f.UncompressedSize64)
+			if size < 0 || total+size < total {
+				return fmt.Errorf("整合包里的文件大小不对: %s", f.Name)
 			}
-			werr := writeFile(rel, rc)
-			rc.Close()
-			if werr != nil {
-				return werr
-			}
+			total += size
+			ents = append(ents, entry{f: f, rel: rel, size: size})
+		}
+	}
+	if len(ents) > overrideMaxFiles {
+		return fmt.Errorf("整合包的覆盖文件有 %d 个，超过了一次能导入的上限（%d 个）", len(ents), overrideMaxFiles)
+	}
+	if total > overrideMaxBytes {
+		return fmt.Errorf("整合包的覆盖文件解开后有 %.1f GB，超过了一次能导入的上限（%d GB）", float64(total)/(1<<30), overrideMaxBytes>>30)
+	}
+	for _, e := range ents {
+		rc, err := e.f.Open()
+		if err != nil {
+			return err
+		}
+		werr := writeFile(e.rel, io.LimitReader(rc, e.size+1))
+		rc.Close()
+		if werr != nil {
+			return werr
 		}
 	}
 	return nil

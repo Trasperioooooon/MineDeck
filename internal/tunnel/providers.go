@@ -270,6 +270,12 @@ func (customProvider) Launch(t *Tunnel) ([]string, []string, error) {
 	// 生成标准 frp TOML 配置（loginFailExit=false：连不上持续重试而非退出）。
 	// token 不落盘：配置里只写模板，frpc 读配置时从自己的环境变量取（frp 配置文件支持 {{ .Envs.变量名 }}）。
 	// 模板放在第一行、早于任何用户填的内容：frp 按 HTML 模板渲染整份文件，前面的文字会影响转义的上下文。
+	// 地址是配置里唯一原样写进去的用户文字：保存时已经只认域名和 IP，启动前再查一遍，兜住以前存下的（B-5）。
+	// 以前存下的可能带着空格、方括号，按保存时的写法整理一遍，写进配置的就是查过的这个。
+	addr := normServerAddr(t.ServerAddr)
+	if err := checkServerAddr(addr); err != nil {
+		return nil, nil, err
+	}
 	var cfg string
 	var env []string
 	if t.Credential != "" {
@@ -279,7 +285,7 @@ func (customProvider) Launch(t *Tunnel) ([]string, []string, error) {
 	cfg += fmt.Sprintf(`serverAddr = %q
 serverPort = %d
 loginFailExit = false
-`, t.ServerAddr, t.ServerPort)
+`, addr, t.ServerPort)
 	proto := "tcp"
 	if t.Proto == "udp" { // 语音隧道：Simple Voice Chat 走 UDP
 		proto = "udp"

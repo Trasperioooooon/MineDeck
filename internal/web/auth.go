@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -57,12 +59,54 @@ func validSession(r *http.Request, current string) bool {
 	return err == nil && subtle.ConstantTimeCompare([]byte(c.Value), []byte(current)) == 1
 }
 
+// loginMaxBody 登录请求里只有一个密码，几 KB 足够。以前整个请求体读完才校验，
+// 没登录的人发几 MB 的 JSON 也会被整份读进内存（v3.1.0 正式版前检查 B-1）。
+const loginMaxBody = 4 << 10
+
+// 校验密码时的并发上限：同一个来源同时只校验一个，全部来源加起来最多 loginMaxConcurrent 个。
+// bcrypt 每次要几十毫秒 CPU，猜错还要等 0.7 秒；以前同时发很多请求，这个等待就形同虚设（B-1）。
+// 全局上限是给换着 IPv6 地址来的情况兜底。
+const loginMaxConcurrent = 8
+
+var loginGate = struct {
+	sync.Mutex
+	busy  map[string]bool // 正在校验的来源
+	count int
+}{busy: map[string]bool{}}
+
+// acquireLogin 占一个校验名额；占不到（这个来源正在校验，或者总数满了）返回 false。
+func acquireLogin(r *http.Request) (release func(), ok bool) {
+	src := r.RemoteAddr
+	if h, _, err := net.SplitHostPort(src); err == nil {
+		src = h
+	}
+	loginGate.Lock()
+	defer loginGate.Unlock()
+	if loginGate.busy[src] || loginGate.count >= loginMaxConcurrent {
+		return nil, false
+	}
+	loginGate.busy[src] = true
+	loginGate.count++
+	return func() {
+		loginGate.Lock()
+		delete(loginGate.busy, src)
+		loginGate.count--
+		loginGate.Unlock()
+	}, true
+}
+
 // handleLogin 局域网访问的密码登录。
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, loginMaxBody)
 	var body struct {
 		Password string `json:"password"`
 	}
 	if err := readJSON(r, &body); err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			writeErr(w, http.StatusRequestEntityTooLarge, fmt.Errorf("请求太大"))
+			return
+		}
 		writeErr(w, 400, err)
 		return
 	}
@@ -71,6 +115,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, fmt.Errorf("未启用远程访问"))
 		return
 	}
+	// 读完请求体再占名额：慢慢发请求体的连接不会一直占着名额
+	release, ok := acquireLogin(r)
+	if !ok {
+		writeErr(w, http.StatusTooManyRequests, fmt.Errorf("请求太频繁，稍等几秒再试"))
+		return
+	}
+	defer release()
 	if !checkPassword(hash, body.Password) {
 		time.Sleep(700 * time.Millisecond) // 抑制暴力尝试
 		writeErr(w, 401, fmt.Errorf("密码错误"))

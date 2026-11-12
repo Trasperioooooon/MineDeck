@@ -25,6 +25,14 @@ const (
 	maxJarInspect  = 96 << 20 // 比这还大的 jar 先看文件名，导入落到磁盘后再用接管那套完整打开
 )
 
+// indexSniffMax 找清单时要看 manifest.json 的内容（见 isIndexFile），一次最多解开这么多字节，和解析清单的上限一样。
+// 超了的不看内容、只按文件名算（和以前一样），免得压缩包里塞上几千份大 manifest.json，导入时反复解压到卡住。
+// 写成变量只是为了测试能调小。
+var indexSniffMax int64 = 64 << 20
+
+// indexSniffMin 每看一份至少按这么多扣：申报大小写成 0 的也要扣，一次能看的份数就有了上限（64 MB 里最多 1024 份）。
+const indexSniffMin = 64 << 10
+
 var (
 	reLegacyForge = regexp.MustCompile(`(?i)^forge-(\d+(?:\.\d+)+)-(\d+(?:\.\d+)+)(?:-shim)?\.jar$`)
 	reArgsFile    = regexp.MustCompile(`(?i)^libraries/net/(neoforged/neoforge|minecraftforge/forge)/([^/]+)/win_args\.txt$`)
@@ -47,20 +55,18 @@ type nestHit struct {
 // 最外层有就用最外层（和以前一样，zip 里谁排在前面用谁）。
 // 否则只接受唯一的一层包装目录。两处都有、或同一层里两种清单都在，不猜。
 func findIndex(files []*zip.File) (*indexLoc, error) {
-	var root *indexLoc
 	nests := map[string]*nestHit{}
 	var order []string
+	budget := indexSniffMax
 	for _, f := range files {
 		name := zipNameOf(f)
 		if name == "" || isZipDir(f, name) {
 			continue
 		}
 		if !strings.Contains(name, "/") {
-			kind, ok := indexKind(name)
-			if !ok || root != nil {
-				continue
+			if kind, ok := indexKind(name); ok && isIndexFile(f, kind, &budget) {
+				return &indexLoc{file: f, kind: kind}, nil // 最外层的就用它，后面的不用再看
 			}
-			root = &indexLoc{file: f, kind: kind}
 			continue
 		}
 		dir, base, ok := oneLevel(name)
@@ -72,20 +78,22 @@ func findIndex(files []*zip.File) (*indexLoc, error) {
 			continue
 		}
 		n := nests[dir]
+		if n != nil && (kind == FormatMrpack && n.mr != nil || kind == FormatCurseForge && n.cf != nil) {
+			continue // 这一层已经有一份同类的了（zip 里可以有同名的条目）：用前面那份，后面的不再解开看
+		}
+		if !isIndexFile(f, kind, &budget) {
+			continue
+		}
 		if n == nil {
 			n = &nestHit{}
 			nests[dir] = n
 			order = append(order, dir)
 		}
-		if kind == FormatMrpack && n.mr == nil {
+		if kind == FormatMrpack {
 			n.mr = f
-		}
-		if kind == FormatCurseForge && n.cf == nil {
+		} else {
 			n.cf = f
 		}
-	}
-	if root != nil {
-		return root, nil
 	}
 	switch len(nests) {
 	case 0:
@@ -119,6 +127,41 @@ func indexKind(base string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// isIndexFile 文件名对上以后，再看一眼内容是不是真的整合包清单。
+// manifest.json 这个名字不止 CurseForge 在用。最常见的是 ServerPackCreator 打的服务端包：最外层放一份它自己的
+// manifest.json（files 是一串路径，带 serverPackCreatorVersion）。以前它被当成 CurseForge 清单去解析，
+// 报一句 JSON 类型错误，走不到服务端的识别。CurseForge 的清单写着 manifestType: minecraftModpack；
+// 老一些或别的工具导出的可能没写这一项，但一定有 minecraft 那一段（版本和加载器在里面）。两样都没有的不算。
+// 读不出来、不是 JSON 的仍然当成清单，让解析那一步把原因报出来。
+// budget 是这一次找清单还能解开的字节数（从 indexSniffMax 起扣，每份至少扣 indexSniffMin），不够看这一份的，也按清单算。
+func isIndexFile(f *zip.File, kind string, budget *int64) bool {
+	if kind != FormatCurseForge {
+		return true
+	}
+	size := int64(f.UncompressedSize64)
+	cost := max(size, indexSniffMin)
+	if size < 0 || cost > *budget {
+		return true
+	}
+	*budget -= cost
+	b, err := readZipEntry(f, size) // zip 库读的时候会核对实际大小，写小了、写大了都读不出来
+	if err != nil {
+		return true
+	}
+	b = bytes.TrimPrefix(b, []byte("\xef\xbb\xbf")) // 记事本这类存出来的开头带 BOM，json 不认
+	var m struct {
+		ManifestType string          `json:"manifestType"`
+		Minecraft    json.RawMessage `json:"minecraft"`
+	}
+	if json.Unmarshal(b, &m) != nil {
+		return true
+	}
+	if m.ManifestType != "" {
+		return m.ManifestType == "minecraftModpack"
+	}
+	return len(m.Minecraft) > 0 && string(m.Minecraft) != "null"
 }
 
 // oneLevel 路径是不是「刚好一层目录 + 文件名」。../、绝对路径、再深一层都不算。
@@ -183,7 +226,7 @@ func hinted(hint, format string, a ...any) error {
 
 // ServerUnknownError 能看出是服务端、但核心或版本认不出来时给用户的说明。
 func ServerUnknownError() error {
-	return hinted("看着像现成服务端，但没认出核心和版本", "这个压缩包像是一台现成的服务端（有 mods、plugins、server.properties 或服务端 jar），但没认出核心和 Minecraft 版本。请确认 Forge / NeoForge 的 libraries，或 Fabric / Paper / 原版的服务端 jar 就在里面（可以套一层文件夹）。仍认不出的话，先解压，用「新建服务器 → 接管已有服务器」选中那个文件夹，类型和版本可以自己填。")
+	return hinted("看着像现成服务端，但没认出核心和版本", "这个压缩包像是一台现成的服务端（有 mods、plugins、server.properties 或服务端 jar），但没认出核心和 Minecraft 版本。请确认 Forge / NeoForge 的 libraries，或 Fabric / Paper / 原版的服务端 jar 就在里面（可以套一层文件夹）。只有启动脚本或加载器安装器的 Server Pack，需要先解压，按包作者的说明运行包里的启动脚本或安装器，把加载器装好，再用「新建服务器 → 接管已有服务器」选中那个文件夹。加载器已装好但仍认不出时，也可以解压后用接管，类型和版本可以自己填。")
 }
 
 func unrecognizedPackError() error {
