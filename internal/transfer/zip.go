@@ -200,15 +200,32 @@ func payloadPath(f *zip.File) (rel string, ok bool, err error) {
 	}
 	local := filepath.FromSlash(in)
 	if !filepath.IsLocal(local) || local != filepath.Clean(local) || !winname.PathOK(in) {
-		// 设备名、结尾是点或空格这类名字在 Windows 11 上建得出来，3.1.0 及以前在那种电脑上导出的包里可能有，
-		// 不一定是包被改过，所以两种可能都说，也说清怎么办
-		return "", false, fmt.Errorf("交接包里有用不了的路径：%s。可能是包被改过；也可能是这个文件的名字在 Windows 上不能用"+
-			"（CON、AUX 这类设备名，或者结尾是点、空格），那样在原来的电脑上改个名字、再导出一次就行", f.Name)
+		if onlyBadNames(in) {
+			// 路径本身没问题，只是某一段的名字在 Windows 上不能用：设备名、结尾是点或空格这类名字在 Windows 11 上建得出来，
+			// 3.1.0 及以前在那种电脑上导出的包里可能有，不一定是包被改过，说清怎么办
+			return "", false, fmt.Errorf("交接包里的 %s 在 Windows 上不能当文件名（CON、AUX 这类设备名，或者结尾是点、空格），"+
+				"整个包没有导入。在原来的电脑上把它改个名字，再导出一次就行", f.Name)
+		}
+		return "", false, fmt.Errorf("交接包里有可疑路径: %s", f.Name)
 	}
 	if !f.Mode().IsRegular() {
 		return "", false, fmt.Errorf("交接包里有不是普通文件的条目: %s", f.Name)
 	}
 	return local, true, nil
+}
+
+// onlyBadNames 路径的样子没问题（不往上走、不是绝对路径、没有盘符和冒号、没有空段），毛病只在某一段的名字本身
+// （设备名、结尾是点或空格、带 Windows 不收的字符）。用来决定报哪一种错。
+func onlyBadNames(rel string) bool {
+	if strings.HasPrefix(rel, "/") || strings.Contains(rel, ":") {
+		return false
+	}
+	for _, seg := range strings.Split(rel, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 // extractPrefix 解包 zip 里 PayloadPrefix 前缀下的全部文件到 destDir（严格 zip-slip）。
