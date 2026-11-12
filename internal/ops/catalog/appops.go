@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,13 +23,34 @@ import (
 )
 
 // publicConfig 返回可下发的配置副本：抹去访问密码哈希和 CurseForge API Key
-// （是否已设置由 app.info 的 lanSet、cfKeySet 告知）。
+// （是否已设置由 app.info 的 lanSet、cfKeySet 告知）；不是本机的调用方（局域网登录的设备），Webhook 地址只给遮掉的。
 // 凡是把配置写进响应的地方都必须经由此函数，不得直接下发 app.GetConfig()。
-func publicConfig() app.Config {
+func publicConfig(caller ops.Caller) app.Config {
 	cfg := app.GetConfig()
 	cfg.AccessPasswordHash = "" // 不下发哈希
 	cfg.CFApiKey = ""           // Key 只能写、不能读（迁移没成功时这里还留着明文）
+	if !caller.Local {
+		cfg.WebhookURL = maskWebhook(cfg.WebhookURL)
+	}
 	return cfg
+}
+
+// webhookMask Webhook 地址里遮掉的那部分写成的样子。
+const webhookMask = "***"
+
+// maskWebhook 给局域网看的 Webhook 地址：只留协议和主机（含端口），后面的路径、查询串、片段，还有地址里的用户名和密码，
+// 都换成 ***（v3.1.0 正式版前检查 B-2：群机器人的令牌常常就写在地址里，局域网登录的人不该看到）。
+// 解析不了的整个遮掉；空串还是空串，看得出是关着的。本机照旧看完整的地址。
+// 局域网那边保存设置时原样传回这个遮掉的地址，表示没改，见 app.config.set。
+func maskWebhook(u string) string {
+	if u == "" {
+		return ""
+	}
+	p, err := url.Parse(u)
+	if err != nil || p.Scheme == "" || p.Host == "" {
+		return webhookMask
+	}
+	return p.Scheme + "://" + p.Host + "/" + webhookMask
 }
 
 func localIPs() []string {
@@ -68,7 +90,7 @@ func (c *cat) appOps() {
 	c.reg.Register(&ops.Op{
 		Name: "app.info", Title: "查看程序信息", Level: ops.Read,
 		Desc: "MineDeck 的版本、本机内存总量和可用量、实际监听端口、实例和备份的存放目录、全局配置（不含任何密钥）、本机的局域网 IP、局域网访问这次启动是否已生效。",
-		Run: func(context.Context, ops.Caller, ops.Args) (any, error) {
+		Run: func(_ context.Context, caller ops.Caller, _ ops.Args) (any, error) {
 			cfSet, cfBroken := app.CFKeyState()
 			return map[string]any{
 				"version":     app.Version,
@@ -79,7 +101,8 @@ func (c *cat) appOps() {
 				"port":        c.Port,
 				"serversRoot": app.ServersRoot(),
 				"backupsRoot": app.BackupsRoot(),
-				"config":      publicConfig(),
+				"config":      publicConfig(caller),
+				"local":       caller.Local, // 请求来自本机；不是本机时 config 里的 Webhook 地址是遮掉的
 				"lanSet":      app.GetConfig().AccessPasswordHash != "",
 				"lanActive":   app.LANListening,    // 局域网访问这次启动是否已生效（listenLan 改了要重启才变）
 				"cfKeySet":    cfSet,               // CurseForge API Key 是否已设置（Key 本身从不下发）
@@ -120,13 +143,8 @@ func (c *cat) appOps() {
 			if (body.ServersDir != nil || body.BackupsDir != nil) && !caller.Local {
 				return nil, ops.Errorf(403, "存放文件夹仅支持在本机修改")
 			}
-			// 可失败的校验与 I/O（建目录、算哈希）在锁外先做完，锁内只做字段套用
-			if body.WebhookURL != nil {
-				u := strings.TrimSpace(*body.WebhookURL)
-				if u != "" && !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
-					return nil, fmt.Errorf("Webhook 地址需以 http(s):// 开头")
-				}
-			}
+			// 可失败的校验与 I/O（建目录、算哈希）在锁外先做完，锁内只做字段套用。
+			// Webhook 地址例外，在锁里查：局域网那边原样传回遮掉的地址算不算「没改」，要拿当时存着的那个比
 			var chromeColor string
 			if body.ChromeColor != nil && *body.ChromeColor != "" {
 				col, ok := app.ParseHexColor(*body.ChromeColor)
@@ -163,7 +181,18 @@ func (c *cat) appOps() {
 					c.Source = *body.Source
 				}
 				if body.WebhookURL != nil {
-					c.WebhookURL = strings.TrimSpace(*body.WebhookURL)
+					u := strings.TrimSpace(*body.WebhookURL)
+					switch {
+					case !caller.Local && u == maskWebhook(c.WebhookURL):
+						// 局域网那边看到的就是遮掉的地址：原样传回来表示没改，不能拿它盖掉真地址
+					case !caller.Local && strings.Contains(u, webhookMask):
+						// 遮掉的地址改了一半（或者这期间本机换过地址）：存进去就把真地址换成了一个用不了的
+						return errors.New("Webhook 地址里的 *** 是藏起来的部分，要改就把整个地址重新填一遍")
+					case u != "" && !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://"):
+						return fmt.Errorf("Webhook 地址需以 http(s):// 开头")
+					default:
+						c.WebhookURL = u
+					}
 				}
 				if body.UpdateRepo != nil {
 					c.UpdateRepo = strings.TrimSpace(*body.UpdateRepo)
@@ -224,7 +253,7 @@ func (c *cat) appOps() {
 					return nil, ops.Errorf(500, "设置开机自启失败: %w", err)
 				}
 			}
-			return publicConfig(), nil
+			return publicConfig(caller), nil
 		},
 	})
 

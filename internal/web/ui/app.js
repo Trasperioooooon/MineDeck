@@ -3697,11 +3697,16 @@ function setRemote(body, info) {
   show(0);
 }
 
-/* — 通知与集成 — */
+/* — 通知与集成 —
+   从局域网打开时，后端只给 Webhook 地址的开头（协议和主机），后面常带着令牌，换成了 ***（ops/catalog 的 maskWebhook）。
+   原样保存表示没改；带着 *** 改了一半的后端不收，所以点进去就全选，输入就是整个换掉 */
 function setNotify(body, info) {
+  const masked = info.local === false && !!info.config.webhookUrl;
   body.innerHTML = settingsHead("通知与集成", "服务器启停 / 崩溃、玩家进出、备份完成、隧道上线等事件，可以推送到群机器人等外部服务。") +
-    group(riRow({ ico: "bell", title: "Webhook 事件推送（选填）", sub: "有事件时，会向这个地址 POST 一条 JSON。留空就是关闭。",
+    group(riRow({ ico: "bell", title: "Webhook 事件推送（选填）",
+      sub: "有事件时，会向这个地址 POST 一条 JSON。留空就是关闭。" + (masked ? "从局域网打开时只显示地址的开头，后面的部分藏起来了，要改就把整个地址重新填一遍。" : ""),
       field: `<input type="text" id="wh-url" value="${esc(info.config.webhookUrl || "")}" placeholder="https://example.com/hook（留空关闭）" aria-label="Webhook 地址"><button class="btn" id="wh-save">保存</button>` }), { ico: true });
+  if (masked) $("#wh-url").addEventListener("focus", e => e.target.select());
   bindSaveInput($("#wh-url"), $("#wh-save"), async v => {
     await api("/api/config", { method: "PUT", body: { webhookUrl: v.trim() } });
     toast(v.trim() ? "Webhook 已保存，即时生效" : "已关闭 Webhook 推送");
