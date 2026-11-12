@@ -43,7 +43,7 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 | POST | `/api/import/pending/{taskId}` | 逐项处置整合包导入的待决文件：body `{"items":[{"id":"p1","act":"skip\|local\|trust","path?":"","url?":"","ack?":false}]}`。`act=skip` 跳过并记入任务日志；`act=local` 用请求给出的本地文件（`path`）或目录（给目录时按待决文件的相对路径、mods/plugins 下的同名文件匹配）原样复制进实例，内容不校验；`act=trust` 确认信任自定义站点后从 `url`（必须为该项列出的候选、必须 https）下载并校验 SHA-1——主机解析到内网或本机地址的一律拒绝，首次信任每个站点必须带 `ack: true`（风险在界面写明，确认按域名记忆、不同端口也一并信任）；文件下载下来、校验通过以后才把站点记进全局配置，没下成的站点下次照样要确认。整合包的文件（包括白名单站点和 CurseForge 的）下载全程走受控客户端：直连时每个解析出的 IP 连接前查是不是公网，站点日后被解析到内网也连不出去；环境变量里配了代理时连的是代理，改按主机名查目标（IP 字面量必须公网，本机、内网的名字不连）；跳转只跟 https 的、最多 10 次，跳到哪个主机不限（GitHub、CurseForge 的文件都会跳到各自的 CDN），跳转目标一样要过公网检查。返回 `{resolved:[{id,path,act,ok,note}], pending:[剩余待决]}`；单项失败留在清单里不影响其他项。**仅本机**，AI 不能调用（操作 `instance.import.pending`） |
 | POST | `/api/adopt/scan` | `{dir}`：只读地识别一个已有的服务器文件夹，给接管的表单预填（见下方「接管已有服务器」）。**仅本机** |
 | POST | `/api/adopt` | 接管已有服务器：把文件夹就地登记成实例，返回 taskId（见下方）。**仅本机** |
-| POST | `/api/instances/{name}/start` \| `/stop` \| `/kill` | 进程控制 |
+| POST | `/api/instances/{name}/start` \| `/stop` \| `/kill` | 进程控制。`start` 之前照服务端的办法试绑 `server.properties` 里的 `server-ip` 和 `server-port`，被占着直接返回错误「端口 N 被别的程序占着，…」，不起服务器（代理端不查） |
 | POST | `/api/instances/{name}/command` | `{"cmd":"say hi"}` |
 | POST | `/api/instances/{name}/opendir?sub=` | 在资源管理器打开实例目录或其白名单子目录（`sub` ∈ mods/plugins/world/logs/crash-reports），**仅本机** |
 | GET | `/api/instances/{name}/console` | SSE 控制台流（先回放后实时） |
