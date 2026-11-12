@@ -505,7 +505,7 @@ const ASST_DIAG = {
     crashed: true, exit: "[MineDeck] 服务器进程已退出（exit status 1）", lines: 186,
     findings: [
       { rule: "missing-deps", title: "缺少前置模组", summary: "少装了前置模组：geckolib（create 需要）", severity: "error", mods: ["geckolib", "create"],
-        details: ["create 需要 geckolib（版本 [4.4,)），但 mods 目录里没有"],
+        details: ["create 需要 geckolib（版本 [4.4,)），但没有装"],
         fixes: ["在「资源」里搜索 geckolib，装 Forge 1.20.1 的 4.4 以上版本", "或者先禁用 create"],
         evidence: ["Missing or unsupported mandatory dependencies:", "\tMod ID: 'geckolib', Requested by: 'create', Expected range: '[4.4,)', Actual version: '[MISSING]'"] },
       { rule: "client-only", title: "客户端模组放进了服务端", summary: "xaerominimap.jar 只能装在客户端", severity: "error", files: ["xaerominimap.jar"],
@@ -767,7 +767,7 @@ function mcpConfig(state) {
   return { url, token: M.token, exe, snippets: [
     { id: "claude", name: "Claude Desktop", transport: "stdio", where: "Claude Desktop：「设置 → 开发者 → 编辑配置」打开 claude_desktop_config.json，把 minedeck 这一项合并进 mcpServers，保存后完全退出 Claude Desktop 再打开。stdio 方式不用填令牌，MineDeck 换了端口也不受影响。", text: wrap("mcpServers", { command: exe, args: ["-mcp"] }) },
     { id: "cherry", name: "Cherry Studio", transport: "http", where: "Cherry Studio：「设置 → MCP 服务器 → 添加 → 从 JSON 导入」，粘贴后确定。", text: wrap("mcpServers", { type: "streamableHttp", url, headers: auth }) },
-    { id: "cursor", name: "Cursor", transport: "http", where: "Cursor：在 Cursor 的设置里打开 MCP，添加服务器会打开 mcp.json（全局的在用户目录的 .cursor\\mcp.json），把 minedeck 合并进 mcpServers。", text: wrap("mcpServers", { url, headers: auth }) },
+    { id: "cursor", name: "Cursor", transport: "http", where: "Cursor：在 Cursor 的设置里打开 MCP，添加服务器会打开 mcp.json（全局的在用户文件夹下的 .cursor\\mcp.json），把 minedeck 合并进 mcpServers。", text: wrap("mcpServers", { url, headers: auth }) },
     { id: "vscode", name: "VS Code", transport: "http", where: "VS Code：命令面板里运行「MCP: Open User Configuration」打开 mcp.json，把 minedeck 合并进 servers。", text: wrap("servers", { type: "http", url, headers: auth }) },
     { id: "http", name: "其他（HTTP）", transport: "http", where: "其他支持 Streamable HTTP 的客户端：按下面填地址和请求头。", text: `地址：${url}\n请求头：Authorization: Bearer ${M.token}` },
     { id: "stdio", name: "其他（stdio）", transport: "stdio", where: "其他支持 stdio 的客户端：命令填 MineDeck.exe 的完整路径，参数填 -mcp。", text: `命令：${exe}\n参数：-mcp` },
@@ -1571,7 +1571,7 @@ function handler(state, ui, portOf) {
           let done = true, note = "";
           if (act.act === "skip") note = "已跳过，已记录进任务日志";
           if (act.act === "local") {
-            if (!String(act.path || "").trim()) { done = false; note = "给出本地文件或目录的路径"; }
+            if (!String(act.path || "").trim()) { done = false; note = "给出本地文件或文件夹的路径"; }
             else note = "已用本地文件原样代替（" + act.path + "）";
           }
           if (act.act === "trust") {
