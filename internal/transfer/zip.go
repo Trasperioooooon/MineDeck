@@ -200,7 +200,10 @@ func payloadPath(f *zip.File) (rel string, ok bool, err error) {
 	}
 	local := filepath.FromSlash(in)
 	if !filepath.IsLocal(local) || local != filepath.Clean(local) || !winname.PathOK(in) {
-		return "", false, fmt.Errorf("交接包里有可疑路径: %s", f.Name)
+		// 设备名、结尾是点或空格这类名字在 Windows 11 上建得出来，3.1.0 及以前在那种电脑上导出的包里可能有，
+		// 不一定是包被改过，所以两种可能都说，也说清怎么办
+		return "", false, fmt.Errorf("交接包里有用不了的路径：%s。可能是包被改过；也可能是这个文件的名字在 Windows 上不能用"+
+			"（CON、AUX 这类设备名，或者结尾是点、空格），那样在原来的电脑上改个名字、再导出一次就行", f.Name)
 	}
 	if !f.Mode().IsRegular() {
 		return "", false, fmt.Errorf("交接包里有不是普通文件的条目: %s", f.Name)

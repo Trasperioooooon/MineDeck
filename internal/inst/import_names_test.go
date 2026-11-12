@@ -10,8 +10,8 @@ import (
 )
 
 // 整合包的覆盖目录（v3.1.0 正式版前检查 C-2e）：名字在 Windows 上写不出原样的不采用（带扩展名的设备名、结尾是点或空格的）；
-// 同一层里只差大小写的两个文件留前一个、后一个不写，都记下来给日志。写法一模一样的照旧以后一个为准：
-// 那是后一层（server-overrides）有意盖掉前一层（overrides）。跨层只差大小写的也按重名算，留前一个。
+// 只差大小写的两个文件在 Windows 上是同一个，照旧以后写的为准，但都记下来给日志：后一层（server-overrides）本来就要盖掉
+// 前一层（overrides），跨层只差大小写时也该它说了算。写法一模一样的不算重名。
 func TestOverrideSinkNamesAndCaseDuplicates(t *testing.T) {
 	z := zipOrdered(t, [][2]string{
 		{"overrides/config/A.toml", "a1"},
@@ -31,8 +31,8 @@ func TestOverrideSinkNamesAndCaseDuplicates(t *testing.T) {
 	if got := dirNames(t, filepath.Join(dir, "config")); !slices.Equal(got, []string{"A.toml", "b.toml"}) {
 		t.Errorf("config 里应是 A.toml 和 b.toml：%q", got)
 	}
-	if b, _ := os.ReadFile(filepath.Join(dir, "config", "A.toml")); string(b) != "a1" {
-		t.Errorf("只差大小写的应留前一个：%q", b)
+	if b, _ := os.ReadFile(filepath.Join(dir, "config", "A.toml")); string(b) != "a3" {
+		t.Errorf("只差大小写的以后写的为准，跨层时 server-overrides 说了算：%q", b)
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, "config", "b.toml")); string(b) != "b2" {
 		t.Errorf("后一层覆盖目录里写法一样的应盖掉前一层：%q", b)

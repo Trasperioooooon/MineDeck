@@ -247,7 +247,7 @@ func (m *Manager) runImport(ctx context.Context, t *tasks.Task, pack *modpack.Pa
 		t.Logf("整合包覆盖文件夹里的这些文件没有采用（由 MineDeck 自己生成，或者名字写不成普通文件）：%s", shortNames(sink.notTaken, 8))
 	}
 	if len(sink.dups) > 0 {
-		t.Logf("整合包覆盖文件夹里的这些文件和前面的文件只差大小写，在 Windows 上是同一个文件，没有采用（留的是前面那个）：%s", shortNames(sink.dups, 8))
+		t.Logf("整合包覆盖文件夹里的这些文件和前面的文件只差大小写，在 Windows 上是同一个文件，用的是后面这个：%s", shortNames(sink.dups, 8))
 	}
 	// 覆盖目录可以带 server.properties：世界目录的名字指到服务器文件夹外面的整合包不要
 	// （服务器一启动就会去动那个文件夹，备份和还原也跟着找过去）。
@@ -330,12 +330,12 @@ func (s *overrideSink) write(rel string, r io.Reader) error {
 		s.notTaken = append(s.notTaken, rel)
 		return nil
 	}
-	// 只差大小写的两个名字在 Windows 上是同一个文件，后一个会把前一个盖掉：留前一个，后一个不写（v3.1.0 正式版前检查 C-2e）。
-	// 写法一模一样的照旧以后一个为准：那是后一层覆盖目录（server-overrides）有意盖掉前一层的
+	// 只差大小写的两个名字在 Windows 上是同一个文件，后写的会把先写的盖掉。照旧以后一个为准：覆盖目录是一层层写的，
+	// 后一层（server-overrides）本来就是要盖掉前一层（overrides）的，跨层只差大小写时也该它说了算；同一层里的
+	// 只差大小写，包本身就说不清要哪个。不一样的是记下来写进日志，不再悄悄盖掉（v3.1.0 正式版前检查 C-2e）
 	k := winname.Fold(rel)
 	if first, ok := s.seen[k]; ok && first != rel {
 		s.dups = append(s.dups, rel)
-		return nil
 	}
 	s.seen[k] = rel
 	dest := filepath.Join(s.dir, filepath.FromSlash(rel))

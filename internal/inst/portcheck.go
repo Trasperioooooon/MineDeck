@@ -63,7 +63,9 @@ func checkBindPort(host string, port int) error {
 	}
 	lc := net.ListenConfig{Control: func(_, _ string, c syscall.RawConn) error {
 		// 设不上（比如 wine 不认这个选项）就按普通方式试绑，不因为这个报错
-		return c.Control(func(fd uintptr) { _ = windows.SetsockoptInt(windows.Handle(fd), windows.SOL_SOCKET, soExclusiveAddrUse, 1) })
+		return c.Control(func(fd uintptr) {
+			_ = windows.SetsockoptInt(windows.Handle(fd), windows.SOL_SOCKET, soExclusiveAddrUse, 1)
+		})
 	}}
 	ln, err := lc.Listen(context.Background(), "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
 	if err == nil {
