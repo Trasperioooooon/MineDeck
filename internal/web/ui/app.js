@@ -215,15 +215,15 @@ async function copy(text, okMsg = "已复制") {
 const ERR_INLINE_MAX = 60; // 按字符数算，英文字母、数字、空格也各算一个。提示框正文一行放 15 个汉字上下，结论加 60 个汉字是五行
 const ERR_TRACES = [
   /(?:^|[^A-Za-z0-9])[A-Za-z]:[\\/]/,      // Windows 路径：C:\Users\…、D:/MC（「http://」里的「p:/」不算）
-  /[\w.%~)\u3400-\u9fff-]\\[\w.%~(\u3400-\u9fff$-]/, // 反斜杠隔开的路径：bin\java.exe、世界\region（单独列出来的「\」这个字符不算）
+  /[^\s\\「『"'“‘(（]\\[^\s\\」』"'”’)）]/, // 反斜杠隔开的路径：bin\java.exe、世界\region、[1.20.1]\java.exe（单独引着、前后有空格的「\」这个字符不算）
   /(?:^|[^\w.\/\\\u3400-\u9fff-])\/[\w.\u3400-\u9fff-]+\//, // 斜杠开头的路径：/usr/lib/…，冒号、括号后面的也算（「启动 / 停止」「TCP/UDP」「原版/Fabric/Forge」「启用/禁用/删除」不算）
   /[\w.\u3400-\u9fff-]+\/[^\s/]*\.[A-Za-z][A-Za-z0-9]{0,7}\b/, // 带扩展名的相对路径：mods/xxx.jar、配置/服务器.json（「1.20/1.21」这种版本号不算）
   /fork\/exec|exit status|\bi\/o\b/i,       // 外部程序没起来或退出异常（fork/exec、exit status 1）、读写超时（i/o timeout）
-  /\b[a-z][a-z0-9+.-]*:\/\/[\w[]/i,         // 网址：「://」后面跟着主机名才算（只提到「http://」「「https://」」这几个字的不算）
+  /\b[a-z][a-z0-9+.-]*:\/\/[^\s」』"'”’)）>]/i, // 网址：「://」后面跟着主机名才算，中文域名也算（只提到「http://」「「https://」」这几个字的不算）
   /: /,                                     // Go 拼出来的「xxx: yyy」：给人看的中文用全角冒号
   /\b[a-z]{2,}(?: [a-z]{2,})+\b/,          // 连着两个以上的小写英文单词，就是英文报错句：connection refused、Access is denied
   // 大写开头或全大写的常见英文报错：Bad Gateway、ACCESS DENIED。只认这几句，不对所有英文词放宽大小写，免得误伤 Simple Voice Chat 这类名字
-  /\b(?:bad gateway|bad request|not found|forbidden|unauthori[sz]ed|internal server error|service unavailable|gateway time-?out|too many requests|access denied|permission denied|connection (?:refused|reset|closed)|timed out|no such host|broken pipe)\b/i,
+  /\b(?:bad gateway|bad request|not found|forbidden|unauthori[sz]ed|internal server error|service unavailable|gateway time-?out|too many requests|access denied|permission denied|connection (?:refused|reset|closed)|timed out|no such host|broken pipe)\b(?!\.[A-Za-z0-9])/i, // 后面紧跟扩展名的是文件名（「Forbidden.jar」），不算
   /\bEOF\b/,                                // 连接被意外断开：EOF、unexpected EOF
   /\bHTTP\s*\d{3}\b/i,                      // HTTP 状态码
   /\b0x[0-9a-f]{4,}\b/i,                    // 十六进制的系统错误码

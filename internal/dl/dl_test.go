@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -70,30 +71,31 @@ func TestAnyFailureSeesEarlierRounds(t *testing.T) {
 	}
 }
 
-// 前一次失败以后，重试拖到了整体超时：报错还是超时（说法和 errors.Is 都不变），AnyFailure 仍认得出前一次的失败。
-func TestAnyFailureAfterDeadline(t *testing.T) {
+// 前一次失败以后，重试途中整体超时或被取消：报错还是 ctx 的错误（说法和 errors.Is 都不变），AnyFailure 仍认得出前一次的失败。
+// 超时和取消走的是同一条路。用取消、而且等第二次请求到了才取消，免得慢机器上第一次请求还没回来就到点了（Codex 复审提醒）。
+func TestAnyFailureAfterCancel(t *testing.T) {
 	old := retryWait
 	retryWait = func(int) time.Duration { return time.Millisecond }
 	defer func() { retryWait = old }()
-	var hits int
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits++
-		if hits == 1 {
+		if hits.Add(1) == 1 {
 			http.Error(w, "no", http.StatusNotFound)
 			return
 		}
-		<-r.Context().Done() // 第二次起一直不回，等到客户端超时断开
+		cancel()             // 第二次请求到了：整体取消
+		<-r.Context().Done() // 等客户端断开
 	}))
 	defer srv.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancel()
 	err := Fetch(ctx, Request{
 		URLs:    []string{srv.URL + "/frpc_windows_amd64.zip"},
 		Dest:    filepath.Join(t.TempDir(), "frpc.zip"),
 		MinSize: 1 << 20,
 	}, nil)
-	if !errors.Is(err, context.DeadlineExceeded) || err.Error() != context.DeadlineExceeded.Error() {
-		t.Fatalf("应该还是超时的错误：%v", err)
+	if !errors.Is(err, context.Canceled) || err.Error() != context.Canceled.Error() {
+		t.Fatalf("应该还是取消的错误：%v", err)
 	}
 	if !AnyFailure(err, func(e error) bool { return e.Error() == "HTTP 404" }) {
 		t.Fatal("AnyFailure 应认出超时之前那次 404")

@@ -3292,6 +3292,9 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         ["无法安装 Simple Voice Chat", E("Simple Voice Chat 要求 Fabric API")],
         ["无法安装", E("支持原版/Fabric/Forge 三种核心")],
         ["无法安装", E("可以启用/禁用/删除这个模组")],
+        ["无法添加模组", E("「Forbidden.jar」是空文件（可能没下载完整），换一份再添加")],
+        ["无法检查 Java", E("[1.20.1]\\java.exe 不是已知的 Java 17（见 java.list）")],
+        ["无法连接", E("无法连接：https://镜像.中国")],
       ].map(([what, e]) => errSummary(what, e).text);
     });
     const want = [
@@ -3321,6 +3324,9 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       "无法安装 Simple Voice Chat：Simple Voice Chat 要求 Fabric API",
       "无法安装：支持原版/Fabric/Forge 三种核心",
       "无法安装：可以启用/禁用/删除这个模组",
+      "无法添加模组：「Forbidden.jar」是空文件（可能没下载完整），换一份再添加",
+      "无法检查 Java",
+      "无法连接",
     ];
     for (let i = 0; i < want.length; i++) assert(got[i] === want[i], `第 ${i + 1} 条：${got[i]}（应为 ${want[i]}）`);
     // 提示：正文只写结论，「详情」里是原文
