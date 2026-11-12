@@ -246,7 +246,7 @@ func TestTunnelFollowWritesOpLog(t *testing.T) {
 		recs, _ := reg.Log.Query(ops.Query{Inst: "生存服", Op: "tunnel."})
 		if len(recs) > 0 {
 			r := recs[0]
-			if r.Op != "tunnel.start" || r.Src != ops.SrcSchedule || r.Actor != "跟随实例" || r.OK || !strings.Contains(r.Err, "首次使用需手动放置樱花 frpc") ||
+			if r.Op != "tunnel.start" || r.Src != ops.SrcSchedule || r.Actor != "跟随服务器" || r.OK || !strings.Contains(r.Err, "首次使用需手动放置樱花 frpc") ||
 				!strings.Contains(string(r.Args), `"id":"`+tt.ID+`"`) || !strings.Contains(string(r.Args), `"tunnel":"游戏"`) {
 				t.Fatalf("跟随启动的操作记录：%+v（args %s）", r, r.Args)
 			}

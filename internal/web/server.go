@@ -9,6 +9,7 @@ import (
 	"embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"mime"
@@ -217,10 +218,19 @@ func writeJSON(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": v})
 }
 
+// writeErr 报错：error 是完整原文。报错链上有错误另给了一句给人看的话（Hint()，例如 AI 服务商的「Key 不对或已失效」）时，
+// 放进 hint：原文带着状态码和服务商的英文原话，界面的报错正文整句接不上，就接这一句（app.js 的 errSummary），原文照旧进「详情」。
 func writeErr(w http.ResponseWriter, code int, err error) {
+	body := map[string]any{"ok": false, "error": err.Error()}
+	var h interface{ Hint() string }
+	if errors.As(err, &h) {
+		if s := h.Hint(); s != "" {
+			body["hint"] = s
+		}
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": err.Error()})
+	_ = json.NewEncoder(w).Encode(body)
 }
 
 func readJSON(r *http.Request, v any) error {

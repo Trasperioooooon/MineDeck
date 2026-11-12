@@ -64,7 +64,7 @@ window.MDGameChat = (() => {
     const base = `/api/instances/${encodeURIComponent(info.name)}/gameai`;
     body.innerHTML = `<div class="gc">${skeletonRows(6)}</div>`;
     let v;
-    try { v = await api(base); } catch (e) { if (!stale(gen)) body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+    try { v = await api(base); } catch (e) { if (!stale(gen)) body.innerHTML = errBox("无法读取游戏内 AI 的设置", e); return; }
     if (stale(gen)) return;
     const ro = !v.local, dis = ro ? " disabled" : "";
     const st = { authName: "", advOpen: false };
@@ -79,7 +79,7 @@ window.MDGameChat = (() => {
       <div id="gc-tpl"></div>
       ${head("限流和额度", "填 0 表示不限。不调用 AI 的回复不计次数（/帮助、/额度、选项写错）。同一玩家 1 分钟内问超过 5 次，接下来 3 分钟不再回答，游戏内会私聊提示剩余冷却时间（冷却或超额挡回的不重复计入）。同一时间只回答 1 个问题，最多排队 3 个。")}
       <div id="gc-lim"></div>
-      ${head("最近的问答和执行记录", "游戏里每条回复最多 3 条消息，太长的会截掉。这里是完整的回答。只保存最近 100 条，存在这台服务器的目录里。")}
+      ${head("最近的问答和执行记录", "游戏里每条回复最多 3 条消息，太长的会截掉。这里是完整的回答。只保存最近 100 条，存在这台服务器的文件夹里。")}
       <div id="gc-log"></div>
       ${head("识别测试", "贴一行服务器日志，看 MineDeck 认出的玩家、正文和选项，以及会怎么处理。用的是上面填的前缀，还有下面的高级识别。没保存的也算。不会发任何东西。")}
       <div id="gc-test"></div>
@@ -124,7 +124,7 @@ window.MDGameChat = (() => {
         try {
           await put({ enabled: on });
           toast(on ? `已打开游戏内 AI：玩家在聊天里说「${v.settings.prefix} 问题」就能问` : "已关闭游戏内 AI");
-        } catch (err) { e.target.checked = !on; toast(err.message, true); }
+        } catch (err) { e.target.checked = !on; toastErr(on ? "无法打开游戏内 AI" : "无法关闭游戏内 AI", err); }
       };
       const pErr = msg => fieldErr($("#gc-prefix-err"), $("#gc-prefix"), msg);
       $("#gc-prefix").addEventListener("input", () => pErr(""));
@@ -186,7 +186,7 @@ window.MDGameChat = (() => {
         if (stale(gen)) return;
         drawLive();
         toast(players.length ? `已把 ${players.join("、")} 加进白名单，并开启了白名单` : "已开启白名单");
-      } catch (e) { toast(e.message, true); }
+      } catch (e) { toastErr("无法开启白名单", e); }
     };
     const badges = p => [p.online && "在线", p.whitelist && "白名单", p.op && "管理员", !p.online && p.seen && "最近来过"]
       .filter(Boolean).map(t => `<span class="badge">${t}</span>`).join("");
@@ -227,7 +227,7 @@ window.MDGameChat = (() => {
         await put({ allowed: cur });
         toast(on ? `已允许 ${name} 让 AI 执行命令${v.whitelistOn ? "" : "（没有开启白名单，见上面的提醒）"}` : `已收回 ${name} 的执行权限`);
         return true;
-      } catch (e) { if (box) box.checked = !on; toast(e.message, true); return false; }
+      } catch (e) { if (box) box.checked = !on; toastErr(on ? `无法允许 ${name} 让 AI 执行命令` : `无法收回 ${name} 的执行权限`, e); return false; }
     };
 
     /* ---- 命令模板：开关即时生效 ---- */
@@ -242,7 +242,7 @@ window.MDGameChat = (() => {
       box.querySelectorAll("[data-tpl]").forEach(c => c.onchange = async () => {
         const t = v.templates.find(x => x.id === c.dataset.tpl), on = c.checked;
         try { await put({ templates: { [t.id]: on } }); toast(`${on ? "已打开" : "已关闭"}「${t.title}」`); }
-        catch (e) { c.checked = !on; toast(e.message, true); }
+        catch (e) { c.checked = !on; toastErr(`${on ? "无法打开" : "无法关闭"}「${t.title}」`, e); }
       });
     };
 
@@ -311,7 +311,7 @@ window.MDGameChat = (() => {
     };
     const drawLog = async () => {
       let list;
-      try { list = await api(base + "/log?limit=50"); } catch (e) { if (!stale(gen) && !$("#gc-log").dataset.sig) $("#gc-log").innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+      try { list = await api(base + "/log?limit=50"); } catch (e) { if (!stale(gen) && !$("#gc-log").dataset.sig) $("#gc-log").innerHTML = errBox("无法读取最近的问答", e); return; }
       if (stale(gen)) return;
       const box = $("#gc-log"), sig = JSON.stringify(list);
       if (box.dataset.sig === sig) return;
@@ -390,12 +390,12 @@ window.MDGameChat = (() => {
       };
       h.onclick = toggle;
       h.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } };
-      const sw = (id, key, onMsg, offMsg) => $(id).onchange = async e => {
+      const sw = (id, key, title, onMsg, offMsg) => $(id).onchange = async e => { // title：开关那一行的标题，报错时说是哪个开关没拨成
         const on = e.target.checked;
-        try { await put({ [key]: on }); toast(on ? onMsg : offMsg); } catch (err) { e.target.checked = !on; toast(err.message, true); }
+        try { await put({ [key]: on }); toast(on ? onMsg : offMsg); } catch (err) { e.target.checked = !on; toastErr(`${on ? "无法打开" : "无法关闭"}「${title}」`, err); }
       };
-      sw("#gc-loose", "looseNames", "已放宽名字规则", "名字只认字母、数字、下划线");
-      sw("#gc-thread", "anyThread", "已不看线程名", "只认服务器主线程打出的聊天");
+      sw("#gc-loose", "looseNames", "放宽名字规则", "已放宽名字规则", "名字只认字母、数字、下划线");
+      sw("#gc-thread", "anyThread", "不看线程名", "已不看线程名", "只认服务器主线程打出的聊天");
       const pErr = msg => fieldErr($("#gc-pattern-err"), $("#gc-pattern"), msg);
       $("#gc-pattern").addEventListener("input", () => pErr(""));
       bindSaveInput($("#gc-pattern"), $("#gc-pattern-save"), async val => {

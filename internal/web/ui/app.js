@@ -22,7 +22,7 @@ async function api(path, opts = {}) {
   try { j = await res.json(); } catch { throw new Error(`服务异常 (HTTP ${res.status})`); }
   // needLogin 标记：让 boot() 区分「需要登录」与真正的后端故障
   if (res.status === 401) { showLogin(); throw Object.assign(new Error(j.error || "需要登录"), { needLogin: true }); }
-  if (!j.ok) throw Object.assign(new Error(j.error || "未知错误"), { status: res.status });
+  if (!j.ok) throw Object.assign(new Error(j.error || "未知错误"), { status: res.status, hint: j.hint }); // hint：后端另给的一句人话，见 errSummary
   return j.data;
 }
 
@@ -47,7 +47,7 @@ function showLogin() {
       if (!j.ok) throw new Error(j.error || "登录失败");
       d.remove();
       location.reload();
-    } catch (e) { toast(e.message, true); }
+    } catch (e) { toastErr("登录失败", e); }
   };
   d.querySelector("#login-go").onclick = go;
   d.querySelector("#login-pw").onkeydown = e => { if (e.key === "Enter") go(); };
@@ -112,8 +112,9 @@ function slideKeys(before, which) {
 
 /* 提示：标题栏下方右侧，从上方落入；离场向右淡出，其余提示平移补位。
    普通提示停 3.5 秒，点一下关闭。报错提示停 8 秒，带「详情」（点开是只读的对话框，原文可以选中、复制）和关闭键，
-   点提示本身也是看详情（见 docs/文案重写/00-报错信息.md）。 */
-function toast(msg, isErr = false) {
+   点提示本身也是看详情（见 docs/文案重写/00-报错信息.md）。
+   detail：「详情」里放的原文，不给就是 msg。拿接口的报错拼提示用 toastErr，不要直接传 e.message。 */
+function toast(msg, isErr = false, detail) {
   const box = $("#toasts");
   const d = document.createElement("div");
   d.className = "toast enter" + (isErr ? " error" : "");
@@ -136,12 +137,13 @@ function toast(msg, isErr = false) {
     setTimeout(done, 400);
   };
   if (isErr) {
+    const full = detail === undefined ? msg : detail;
     const b = document.createElement("button");
     b.type = "button";
     b.className = "btn sm ghost";
     b.textContent = "详情";
     b.setAttribute("aria-label", "查看报错详情");
-    b.onclick = ev => { ev.stopPropagation(); showErrDetail(msg); };
+    b.onclick = ev => { ev.stopPropagation(); showErrDetail(full); };
     d.appendChild(b);
     const x = document.createElement("button");
     x.type = "button";
@@ -150,7 +152,7 @@ function toast(msg, isErr = false) {
     x.setAttribute("aria-label", "关闭这条提示");
     x.onclick = ev => { ev.stopPropagation(); kill(); };
     d.appendChild(x);
-    d.onclick = () => showErrDetail(msg);
+    d.onclick = () => showErrDetail(full);
   } else {
     d.onclick = kill;
   }
@@ -194,6 +196,86 @@ async function copy(text, okMsg = "已复制") {
     document.execCommand("copy"); ta.remove(); toast(okMsg);
   } catch (e) { toast("复制失败，请手动复制", true); }
 }
+
+/* ---------- 报错的正文（规矩见 docs/文案重写/01-补完口径.md 第一、二节，补完记录见 03-报错提示补完记录.md）----------
+   调用处只给一句结论 what，说这一步没做成什么，如「无法启动服务器」「保存失败」。正文按下面的顺序拼：
+   1. 请求根本没发出去（浏览器给的 TypeError「Failed to fetch」）：结论 +「：连不上 MineDeck」；
+   2. 后端的话是一句给人看的中文：整句接在结论后面（「无法删除服务器：请先停止服务器再删除」）。
+      后端那句自己带着全角冒号时用句号接，免得一句里两个冒号（「发送失败。AI 未启用：先在…」）。
+      后端另给了一句人话（e.hint，例如 AI 服务商报错的「Key 不对或已失效」）时，拿它代替原文来判断、来接：
+      原文里带着状态码和服务商的英文原话，整句接不上；
+   3. 其余只写结论。
+   「详情」和「复制报错信息」里永远是完整原文，一个字不删。
+   判断只看文字本身，不看 HTTP 状态码：同一个 400 既可能是「服务器名称需为 1~40 个字符」，也可能带着 fork/exec 的系统原文。
+   后端的话要么整句接上，要么不接，不截短。
+   toastErr（右上角的提示）、errBox（页面报错框）、errInline（一行字里的报错）都走 errSummary，规则只写在这一处；
+   要调规则，改下面几个常量。 */
+
+/* 「给人看的话」= 含中文，不超过 ERR_INLINE_MAX 个字，并且没有 ERR_TRACES 里的任何一种痕迹 */
+const ERR_INLINE_MAX = 60; // 按字符数算，英文字母、数字、空格也各算一个。提示框正文一行放 15 个汉字上下，结论加 60 个汉字是五行
+const ERR_TRACES = [
+  /(?:^|[^A-Za-z0-9])[A-Za-z]:[\\/]/,      // Windows 路径：C:\Users\…、D:/MC（「http://」里的「p:/」不算）
+  /[^\s\\「『"'“‘(（]\\[^\s\\」』"'”’)）]/, // 反斜杠隔开的路径：bin\java.exe、世界\region、[1.20.1]\java.exe（单独引着、前后有空格的「\」这个字符不算）
+  /(?:^|[^\w.\/\\\u3400-\u9fff-])\/[\w.\u3400-\u9fff-]+\//, // 斜杠开头的路径：/usr/lib/…，冒号、括号后面的也算（「启动 / 停止」「TCP/UDP」「原版/Fabric/Forge」「启用/禁用/删除」不算）
+  /[\w.\u3400-\u9fff-]+\/[^\s/]*\.[A-Za-z][A-Za-z0-9]{0,7}\b/, // 带扩展名的相对路径：mods/xxx.jar、配置/服务器.json（「1.20/1.21」这种版本号不算）
+  /fork\/exec|exit status|\bi\/o\b/i,       // 外部程序没起来或退出异常（fork/exec、exit status 1）、读写超时（i/o timeout）
+  /\b[a-z][a-z0-9+.-]*:\/\/[^\s」』"'”’)）>]/i, // 网址：「://」后面跟着主机名才算，中文域名也算（只提到「http://」「「https://」」这几个字的不算）
+  /: /,                                     // Go 拼出来的「xxx: yyy」：给人看的中文用全角冒号
+  /\b[a-z]{2,}(?: [a-z]{2,})+\b/,          // 连着两个以上的小写英文单词，就是英文报错句：connection refused、Access is denied
+  // 大写开头或全大写的常见英文报错：Bad Gateway、ACCESS DENIED。只认这几句，不对所有英文词放宽大小写，免得误伤 Simple Voice Chat 这类名字
+  /\b(?:bad gateway|bad request|not found|forbidden|unauthori[sz]ed|internal server error|service unavailable|gateway time-?out|too many requests|access denied|permission denied|connection (?:refused|reset|closed)|timed out|no such host|broken pipe)\b(?!\.[A-Za-z0-9])/i, // 后面紧跟扩展名的是文件名（「Forbidden.jar」），不算
+  /\bEOF\b/,                                // 连接被意外断开：EOF、unexpected EOF
+  /\bHTTP\s*\d{3}\b/i,                      // HTTP 状态码
+  /\b0x[0-9a-f]{4,}\b/i,                    // 十六进制的系统错误码
+  /[\r\n]/,                                 // 好几行的：提示里放不下
+];
+/* 请求根本没发出去时浏览器给的原文：WebView2 / Chrome 是「Failed to fetch」，Firefox 是「NetworkError when attempting…」，Safari 是「Load failed」。
+   还得同时是 TypeError：同一个 try 里代码自己出错（读了 undefined 的属性）也是 TypeError，但原文对不上 */
+const ERR_OFFLINE = /^(?:Failed to fetch|NetworkError when attempting to fetch resource|Load failed)\b/i;
+/* 前端自己编的兜底词：后端没给原因时才用得上（api() 的「未知错误」，裸 fetch 的「导入失败」「上传失败」「添加失败」，登录框的「登录失败」）。
+   原文正好是其中一个时只写结论，不然会拼出「无法导入整合包：导入失败」。只认整句相等，不做「X失败」这类模糊匹配。
+   「需要登录」不在里面：它也是后端 401 自己说的话（internal/web/server.go），是有用的原因 */
+const ERR_FALLBACKS = new Set(["未知错误", "导入失败", "上传失败", "添加失败", "登录失败"]);
+
+function errSummary(what, e) {
+  const raw = e == null ? "" : String(typeof e === "object" ? e.message || e : e);
+  const msg = raw.trim();
+  const typeErr = !!e && typeof e === "object" && (e instanceof TypeError || e.name === "TypeError");
+  const say = (e && typeof e === "object" && typeof e.hint === "string" && e.hint.trim()) || msg; // 要接的那句：后端另给的人话优先
+  let text = what;
+  if (typeErr && ERR_OFFLINE.test(msg)) text = what + "：连不上 MineDeck";
+  else if (say && say !== what && /[\u3400-\u9fff]/.test(say) && [...say].length <= ERR_INLINE_MAX && !ERR_TRACES.some(re => re.test(say)) && !ERR_FALLBACKS.has(say))
+    text = what + (say.includes("：") ? "。" : "：") + say;
+  return { text, raw: raw || what };
+}
+/* 原文放进复制键的 data-err-raw：转义以后原样保留；回车符写成字符引用，不然 HTML 解析时 \r\n 会被并成 \n */
+const errRawAttr = raw => esc(raw).replace(/\r/g, "&#13;");
+/* 报错提示：正文按 errSummary 拼，「详情」里是完整原文。返回提示的元素（同 toast） */
+function toastErr(what, e) {
+  const { text, raw } = errSummary(what, e);
+  return toast(text, true, raw);
+}
+/* 页面报错框（.err-box）：一句结论（拼法同 toastErr），下面「复制报错信息」，复制完整原文。返回 HTML，复制键的点击由下面的委托统一接。
+   hint：下一步怎么办，纯文本，单独一行（「可在「设置 → 下载与网络」换一个下载源后重试。」）；
+   actions：和复制键排在一行、放在它前面的按钮（HTML，调用方负责转义），如「重试」；id：报错框自己的 id；
+   label：同一页可能同时出几个报错框时，复制键的名字带上是哪一块（「复制报错信息 前置检查」），不然读屏和无障碍测试分不开 */
+function errBox(what, e, { hint = "", actions = "", id = "", label = "" } = {}) {
+  const { text, raw } = errSummary(what, e);
+  return `<div class="err-box"${id ? ` id="${esc(id)}"` : ""}>${esc(text)}${hint ? `<div>${esc(hint)}</div>` : ""}
+    <div class="err-acts">${actions}<button type="button" class="btn sm ghost" data-err-raw="${errRawAttr(raw)}"${label ? ` aria-label="复制报错信息 ${esc(label)}"` : ""}>${icon("copy")} 复制报错信息</button></div></div>`;
+}
+/* 一行字里的报错（摘要行、测试结果、检查更新的结果）：警告图标 + 正文（拼法同 toastErr）+ 只有图标的「复制报错信息」。返回 HTML。
+   label：同一页可能同时有几处时，复制键的名字带上是哪一处 */
+function errInline(what, e, { label = "" } = {}) {
+  const { text, raw } = errSummary(what, e);
+  const name = esc("复制报错信息" + (label ? " " + label : ""));
+  return `<span class="err-inline">${icon("warn")}<span>${esc(text)}</span><button type="button" class="btn sm ghost icon-only" data-err-raw="${errRawAttr(raw)}" aria-label="${name}" title="${name}">${icon("copy")}</button></span>`;
+}
+document.addEventListener("click", ev => {
+  const b = ev.target instanceof Element ? ev.target.closest("[data-err-raw]") : null;
+  if (b) copy(b.getAttribute("data-err-raw"), "已复制报错信息");
+});
+
 function fmtBytes(n) {
   if (n <= 0) return "";
   const u = ["B", "KB", "MB", "GB"];
@@ -487,7 +569,7 @@ function closeAskModal({ tray = true, running = 0 }) {
         await api("/api/config", { method: "PUT", body: { minimizeToTray: true } });
         const sw = document.querySelector('input[data-cfg="minimizeToTray"]'); // 设置页正开着时让开关跟上
         if (sw) sw.checked = true;
-      } catch (e) { toast("没能记住这个选择：" + e.message, true); }
+      } catch (e) { toastErr("没能记住这个选择", e); }
     }
     try { window.hostWinHide(); } catch (e) {}
   };
@@ -703,7 +785,7 @@ function bindSaveInput(input, btn, save, gen) {
   const go = async () => {
     if (input.value === base) return;
     btn.disabled = true;
-    try { await save(input.value); base = input.value; } catch (e) { if (!e.silent) toast(e.message, true); } // silent：错误已就近显示在字段下方
+    try { await save(input.value); base = input.value; } catch (e) { if (!e.silent) toastErr("保存失败", e); } // silent：错误已就近显示在字段下方
     paint();
   };
   input.addEventListener("input", paint);
@@ -744,7 +826,7 @@ function wireSaveBar(root, gen, read, save) {
   $('[data-sb="discard"]', bar).onclick = () => { dirtyCheck = null; navigate(); }; // 按服务器上的当前值重绘
   saveBtn.onclick = async () => {
     saveBtn.disabled = true;
-    try { if ((await save()) !== false && bar.isConnected) base = read(); } catch (e) { toast(e.message, true); } // save 返回 false：用户取消了，表单仍算没保存
+    try { if ((await save()) !== false && bar.isConnected) base = read(); } catch (e) { toastErr("保存失败", e); } // save 返回 false：用户取消了，表单仍算没保存
     if (bar.isConnected) paint(); // 保存途中已切走：视图已换，不再读写旧表单
   };
   addDirtySource(gen, () => (bar.isConnected ? diff() : 0));
@@ -932,7 +1014,7 @@ function folderItems(info) {
   return dirs.map(([sub, ic, label]) => ({
     icon: ic, label,
     onClick: () => api(`/api/instances/${encodeURIComponent(info.name)}/opendir${sub ? "?sub=" + encodeURIComponent(sub) : ""}`, { method: "POST" })
-      .catch(e => toast(e.message, true)),
+      .catch(e => toastErr("无法打开文件夹", e)),
   }));
 }
 
@@ -944,7 +1026,7 @@ async function deleteInstance(info) {
   const okText = files => files ? "删除服务器" : "移出列表";
   const p = confirmModal({
     title: `删除服务器「${name}」？`, danger: true, okText: okText(!info.adopted), cancelText: "保留", icon: "trash",
-    body: "已有的世界备份不受影响，仍保存在备份目录中。",
+    body: "已有的世界备份不受影响，仍保存在备份文件夹中。",
     extra: `<label class="switch" style="margin-bottom:4px"><input type="checkbox" data-k="files"${info.adopted ? "" : " checked"}><span class="sw"></span>
         <span class="sw-label">同时删除服务器文件夹（含世界存档，无法恢复）</span></label>
       <div class="hint" style="margin:0 0 16px 48px">${info.adopted ? `这台服务器是接管进来的，文件夹是你原来的那个：${esc(info.dir)}<br>` : ""}不勾选时只从列表移出，文件留在磁盘上；以后可以用「新建服务器 → 接管已有服务器」把它加回来。</div>`,
@@ -958,7 +1040,7 @@ async function deleteInstance(info) {
     await api(`/api/instances/${encodeURIComponent(name)}?files=${r.files ? 1 : 0}`, { method: "DELETE" });
     toast(r.files ? `已删除「${name}」` : `已把「${name}」移出列表，文件还在原处`);
     return true;
-  } catch (e) { toast(e.message, true); return false; }
+  } catch (e) { toastErr(r.files ? "无法删除服务器" : "无法把服务器移出列表", e); return false; }
 }
 
 /* 运行状态：像素状态灯 + 文字（不能只靠颜色） */
@@ -1105,7 +1187,7 @@ async function renderInstances() {
       try {
         if (act === "start") { b.disabled = true; await api(`/api/instances/${encodeURIComponent(name)}/start`, { method: "POST" }); toast(`「${name}」正在启动`); }
         else if (act === "stop") { b.disabled = true; await api(`/api/instances/${encodeURIComponent(name)}/stop`, { method: "POST" }); toast(`「${name}」正在停止并保存世界`); }
-      } catch (e) { toast(e.message, true); }
+      } catch (e) { toastErr(act === "start" ? "无法启动服务器" : "无法停止服务器", e); }
       lastSig = ""; draw();
     });
     // 整卡可点：点卡片空白处进入详情（卡内按钮 / 链接各自处理）
@@ -1119,12 +1201,7 @@ async function renderInstances() {
     refreshTaskList(taskList, gen);
     let list;
     try { list = await api("/api/instances"); } catch (e) {
-      if (!stale(gen)) {
-        $("#inst-cards").innerHTML = `<div class="err-box">无法获取服务器列表，正在自动重试
-          <div style="margin-top:8px"><button class="btn sm ghost" data-copy-err>${icon("copy")} 复制报错信息</button></div></div>`;
-        const b = $("#inst-cards [data-copy-err]");
-        if (b) b.onclick = () => copy(String((e && e.message) || e), "已复制报错信息");
-      }
+      if (!stale(gen)) $("#inst-cards").innerHTML = errBox("无法获取服务器列表", e, { hint: "正在自动重试" });
       return;
     }
     if (stale(gen)) return;
@@ -1192,7 +1269,7 @@ async function renderCreate(mode) {
         <div class="cg-title">导入与接管</div>
         <div class="recipe-grid">
           ${card("transfer", "share", "导入交接包", "MineDeck 导出的 .mdpack 交接包；存档、配置和模组在包里。")}
-          ${card("adopt", "folder", "接管已有服务器", "接管本机外部服务器：选择目录直接关联，原文件保留在本地路径。")}
+          ${card("adopt", "folder", "接管已有服务器", "接管本机外部服务器：选择文件夹直接关联，原文件保留在本地路径。")}
         </div>
       </div>
     </div>`;
@@ -1227,7 +1304,7 @@ async function drawAdopt() {
     <div class="form-grid">
       <label class="field full"><span>服务器所在的文件夹</span>
         <div class="row" style="gap:8px">
-          <input type="text" id="ad-dir" spellcheck="false" autocomplete="off" style="flex:1" aria-label="服务器所在的文件夹" placeholder="如 D:\\MyServer（包含服务端核心或启动文件的目录）">
+          <input type="text" id="ad-dir" spellcheck="false" autocomplete="off" style="flex:1" aria-label="服务器所在的文件夹" placeholder="如 D:\\MyServer（包含服务端核心或启动文件的文件夹）">
           <button type="button" class="btn" id="ad-browse">${icon("folder")} 浏览…</button>
           <button type="button" class="btn primary" id="ad-scan">${icon("search")} 识别</button>
         </div>
@@ -1242,7 +1319,7 @@ async function drawAdopt() {
   $("#ad-dir").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("#ad-scan").click(); } });
   $("#ad-browse").onclick = async () => {
     try { const r = await api("/api/pickdir", { method: "POST" }); if (!stale(gen) && r.path) { $("#ad-dir").value = r.path; dirErr(""); reset(); $("#ad-scan").click(); } }
-    catch (e) { toast(e.message, true); }
+    catch (e) { toastErr("无法选择服务器所在的文件夹", e); }
   };
 
   const isProxyCore = id => coreKind(id) === "proxy";
@@ -1348,7 +1425,7 @@ async function drawAdopt() {
       });
       if (!stale(gen)) location.hash = `#/task/${r.taskId}`;
       else toast("已开始接管，可在新建服务器页查看进度");
-    } catch (e) { toast(e.message, true); if (!stale(gen)) $("#ad-go").disabled = false; }
+    } catch (e) { toastErr("无法接管服务器", e); if (!stale(gen)) $("#ad-go").disabled = false; }
   };
   $("#ad-dir").focus();
 }
@@ -1373,12 +1450,12 @@ async function drawImport() {
           <input type="text" id="im-root" readonly style="flex:1;cursor:default;background:var(--surface-2)" aria-label="存放位置">
           <button type="button" class="btn" id="im-browse">${icon("folder")} 浏览…</button>
         </div></label>
-      <label class="field full"><span>本地来源目录（可选）</span>
+      <label class="field full"><span>本地来源文件夹（可选）</span>
         <div class="row" style="gap:8px">
-          <input type="text" id="im-src" style="flex:1" placeholder="整合包配套的服务器文件夹（可选）" aria-label="本地来源目录">
-          <button type="button" class="btn" id="im-src-browse" aria-label="浏览本地来源目录">${icon("folder")} 浏览…</button>
+          <input type="text" id="im-src" style="flex:1" placeholder="整合包配套的服务器文件夹（可选）" aria-label="本地来源文件夹">
+          <button type="button" class="btn" id="im-src-browse" aria-label="浏览本地来源文件夹">${icon("folder")} 浏览…</button>
         </div>
-        <div class="hint" style="margin-top:6px">优先使用此目录下的同名文件补全缺失项（跳过线上校验）；未命中的文件可在导入后前往任务面板手动处理。</div></label>
+        <div class="hint" style="margin-top:6px">优先使用此文件夹里的同名文件补全缺失项（跳过线上校验）；未命中的文件可在导入后前往任务面板手动处理。</div></label>
       <div class="field"><label class="switch"><input type="checkbox" id="im-online"><span class="sw"></span>
         <span><span class="sw-label">正版验证</span><div class="sw-desc">默认关闭</div></span></label></div>
       <div class="field"><label class="switch"><input type="checkbox" id="im-flight" checked><span class="sw"></span>
@@ -1393,15 +1470,15 @@ async function drawImport() {
     ${wizFoot("im-back", "返回", `<button class="btn primary" id="im-go">${icon("bolt")} 导入并部署</button>`)}`;
   $("#im-back").onclick = goCreateHome;
   renderMemoryControl($("#im-mem-mount"), { sliderId: "im-mem", min: 2048, max: maxMem, value: defMem, totalMb: app.ramMb, availMb: app.availRamMb, hint: "推荐分配 6 GB 以上" });
-  const imUpdateRoot = () => { $("#im-root").value = imRoot || app.serversRoot || "程序目录\\servers"; };
+  const imUpdateRoot = () => { $("#im-root").value = imRoot || app.serversRoot || "程序文件夹\\servers"; };
   imUpdateRoot();
   $("#im-browse").onclick = async () => {
     try { const r = await api("/api/pickdir", { method: "POST" }); if (!stale(gen) && r.path) { imRoot = r.path; imUpdateRoot(); toast("已选择：" + r.path); } }
-    catch (e) { toast(e.message, true); }
+    catch (e) { toastErr("无法选择存放位置", e); }
   };
   $("#im-src-browse").onclick = async () => {
     try { const r = await api("/api/pickdir", { method: "POST" }); if (!stale(gen) && r.path) { $("#im-src").value = r.path; toast("已选择：" + r.path); } }
-    catch (e) { toast(e.message, true); }
+    catch (e) { toastErr("无法选择本地来源文件夹", e); }
   };
   // 行内校验（同向导）：错误显示在对应字段下方，改正后即时消失
   const fileErr = msg => { $("#im-file").classList.toggle("invalid", !!msg); $("#im-file-err").innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; };
@@ -1433,7 +1510,7 @@ async function drawImport() {
       toast(`已识别 ${j.data.pack.core} ${j.data.pack.mc}（${j.data.pack.files} 个组件）` + (pending ? "；其中" + j.data.pack.pending + " 项待处理，导入后到任务页逐个处理" : ""));
       if (!stale(gen)) location.hash = `#/task/${j.data.taskId}`;
     } catch (e) {
-      toast(e.message, true);
+      toastErr("无法导入整合包", e);
       if (!stale(gen)) { $("#im-go").disabled = false; $("#im-go").innerHTML = icon("bolt") + " 导入并部署"; }
     }
   };
@@ -1484,7 +1561,7 @@ function transferExportModal(info) {
   $("#tr-cancel").onclick = close;
   $("#tr-browse").onclick = async () => {
     try { const r = await api("/api/pickdir", { method: "POST" }); if (r.path) { $("#tr-dest").value = r.path; $("#tr-dest").classList.remove("invalid"); $("#tr-dest-err").innerHTML = ""; } }
-    catch (e) { toast(e.message, true); }
+    catch (e) { toastErr("无法选择导出文件夹", e); }
   };
   $("#tr-go").onclick = async () => {
     const dest = $("#tr-dest").value.trim();
@@ -1502,9 +1579,9 @@ function transferExportModal(info) {
       toast("开始打包交接包");
       location.hash = `#/task/${r.taskId}`;
     } catch (e) {
-      toast(e.message, true);
+      toastErr("无法导出交接包", e);
       $("#tr-go").disabled = false;
-      if (/导出目录不可用/.test(e.message)) { $("#tr-dest").classList.add("invalid"); $("#tr-dest-err").innerHTML = icon("warn") + " " + esc(e.message); }
+      if (/导出(?:目录|文件夹)不可用/.test(e.message)) { $("#tr-dest").classList.add("invalid"); $("#tr-dest-err").innerHTML = icon("warn") + " " + esc(e.message); }
     }
   };
 }
@@ -1608,11 +1685,11 @@ async function drawTransfer() {
       </div>`;
     renderMemoryControl($("#tp-mem-mount"), { sliderId: "tp-mem", min: 2048, max: maxMem, value: mem, totalMb: app.ramMb, availMb: app.availRamMb,
       hint: `${(s.xmxMb / 1024).toFixed(1)} GB 是原来的分配，可沿用或调整` });
-    const trUpdateRoot = () => { $("#tp-root").value = trapRoot || app.serversRoot || "程序目录\\servers"; };
+    const trUpdateRoot = () => { $("#tp-root").value = trapRoot || app.serversRoot || "程序文件夹\\servers"; };
     trUpdateRoot();
     $("#tp-browse").onclick = async () => {
       try { const r = await api("/api/pickdir", { method: "POST" }); if (!stale(gen) && r.path) { trapRoot = r.path; trUpdateRoot(); } }
-      catch (e) { toast(e.message, true); }
+      catch (e) { toastErr("无法选择存放位置", e); }
     };
     $("#tp-eula").addEventListener("change", () => { if ($("#tp-eula").checked) { $(".eula-box").classList.remove("invalid"); $("#tp-eula-err").innerHTML = ""; } });
     // 端口换了就查一下占用（后端 port.check）；被占了提示但不拦着——可能就是想沿用包里的端口。
@@ -1658,7 +1735,7 @@ async function drawTransfer() {
       toast(`开始导入：${r.pack.core} ${r.pack.mc}（${r.pack.mods} 个模组）`);
       location.hash = `#/task/${r.taskId}`;
     } catch (e) {
-      toast(e.message, true);
+      toastErr("无法导入交接包", e);
       if (stale(gen)) return;
       if (/EULA/.test(e.message)) { $(".eula-box").classList.add("invalid"); $("#tp-eula-err").innerHTML = icon("warn") + " " + esc(e.message); $("#tp-eula").focus(); }
       $("#tp-go").disabled = false;
@@ -1713,7 +1790,7 @@ async function drawWizard() {
     $("#wback0").onclick = goCreateHome;
     paintWizSum();
     let cores;
-    try { cores = await api("/api/cores"); } catch (e) { if (!stale(gen)) $("#core-grid").innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+    try { cores = await api("/api/cores"); } catch (e) { if (!stale(gen)) $("#core-grid").innerHTML = errBox("无法获取服务端核心列表", e); return; }
     if (stale(gen)) return;
     cores.forEach(c => CORES[c.id] = c);
     const CORE_GROUPS = [
@@ -1819,7 +1896,7 @@ async function drawWizard() {
         paintWizSum();
         drawList();
         $("#ver-list .ver-item.sel")?.scrollIntoView({ block: "nearest" });
-      } catch (e) { if (!outdated()) $("#ver-list").innerHTML = `<div class="err-box">无法获取版本清单。<br>可在「设置 → 下载与网络」换一个下载源后重试。</div>`; }
+      } catch (e) { if (!outdated()) $("#ver-list").innerHTML = errBox("无法获取版本清单", e, { hint: "可在「设置 → 下载与网络」换一个下载源后重试。" }); }
     };
     $("#ver-search").oninput = drawList;
     // 委托在列表容器上（drawList 每次重建条目）：单击后刷新底栏回显，双击 = 选中并下一步
@@ -1857,7 +1934,7 @@ async function drawWizard() {
         el.ondblclick = () => { wiz.build = el.dataset.id; wiz.step = 3; drawWizard(); };
       });
       $("#wnext").disabled = false;
-    } catch (e) { if (!stale(gen)) $("#build-list").innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
+    } catch (e) { if (!stale(gen)) $("#build-list").innerHTML = errBox("无法获取构建列表", e, { hint: "可在「设置 → 下载与网络」换一个下载源后重试。" }); }
 
   } else if (wiz.step === 3 && wiz.core !== "vanilla") {
     /* 选模组（可选步，列表第 4 项）：热门清单 + 搜索 + 草稿购物车整块在外围模块 modcart.js。
@@ -1943,7 +2020,7 @@ async function drawWizard() {
     renderMemoryControl($("#mem-mount"), { sliderId: "f-mem", min: 512, max: maxMem, value: defMem, totalMb: app.ramMb, availMb: app.availRamMb, hint: isProxy ? "推荐 1 GB；代理端只做转发，占用很低" : "推荐分配：模组服 4 GB 以上；无模组的小型服务器 2~4 GB。" });
     // 存放位置：目标路径跟随实例名，可浏览改到其它盘（中文名会自动生成英文目录）
     const clientSlug = s => { let o = ""; for (const c of (s || "")) { if (/[0-9A-Za-z_-]/.test(c)) o += c; else if (c === " " || c === ".") o += "-"; } o = o.replace(/^[-_]+|[-_]+$/g, ""); return o || "server-（自动）"; };
-    const curRoot = () => wiz.root || app.serversRoot || "程序目录\\servers";
+    const curRoot = () => wiz.root || app.serversRoot || "程序文件夹\\servers";
     const updateRoot = () => {
       $("#f-root").value = curRoot();
       $("#f-path").innerHTML = `将创建于：<b>${esc(curRoot())}\\${esc(clientSlug($("#f-name").value.trim()))}</b>${wiz.root ? "" : "（可点「浏览」改到其他盘）"}`;
@@ -1951,7 +2028,7 @@ async function drawWizard() {
     $("#f-name").oninput = updateRoot;
     $("#f-browse").onclick = async () => {
       try { const r = await api("/api/pickdir", { method: "POST" }); if (!stale(gen) && r.path) { wiz.root = r.path; updateRoot(); toast("已选择：" + r.path); } }
-      catch (e) { toast(e.message, true); }
+      catch (e) { toastErr("无法选择存放位置", e); }
     };
     updateRoot();
     $("#wcreate").onclick = async () => {
@@ -2017,12 +2094,12 @@ async function drawWizard() {
             if (stale(gen)) return;
             toast(`服务器建好了，正在安装清单里的${wizModNoun()}…`);
             location.hash = `#/task/${encodeURIComponent(r2.taskId)}`;
-          } catch (e) { toast(e.message, true); if (!stale(gen)) location.hash = `#/task/${r.taskId}`; } // 装模组没发出去：至少让建服结果可见
+          } catch (e) { toastErr(`无法安装清单里的${wizModNoun()}`, e); if (!stale(gen)) location.hash = `#/task/${r.taskId}`; } // 装模组没发出去：至少让建服结果可见
         };
         say("正在等待服务器创建完成…");
         await follow();
         if (!launched && !stale(gen)) startPoll(follow, 1500, gen); // 第一次查就结束了的不用再轮询
-      } catch (e) { toast(e.message, true); if (!stale(gen) && createBtn.isConnected) createBtn.disabled = false; }
+      } catch (e) { toastErr("无法创建服务器", e); if (!stale(gen) && createBtn.isConnected) createBtn.disabled = false; }
     };
   }
 }
@@ -2043,7 +2120,7 @@ const TASK_KINDS = {
     ok: "交接包导出成功", fail: "导出失败", failHint: "没有留下不完整的包，可以重试（包的特征见任务日志）。", busy: "打包中，请勿关闭程序…",
     go: "完成", href: () => "#/instances", back: "#/instances", backText: "返回服务器列表" },
   "transfer-in": { title: "正在导入交接包", sub: "正在准备 Java、下载核心并解包。存档、配置和模组都会保留。", done: "交接完成", doneSub: "存档、配置和模组都带过来了，可以启动了。没带过来的东西列在下面的日志里",
-    ok: "交接包导入成功", fail: "导入失败", failHint: "半成品的目录已经清理干净，可以重试。", busy: "导入中，请勿关闭程序…",
+    ok: "交接包导入成功", fail: "导入失败", failHint: "半成品的文件夹已经清理干净，可以重试。", busy: "导入中，请勿关闭程序…",
     go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/create", backText: "返回重试" },
   mods: { title: "正在安装待装清单", sub: "正在下载清单里的内容和它们的前置，放进服务器的 mods 或 plugins 文件夹。", done: "安装完成", doneSub: "新装的内容要重启服务器后才会生效",
     ok: "安装完成", fail: "安装失败", failHint: "可以回到这台服务器的「待装清单」标签里再装一次。已经下载的文件有缓存，重试很快。", busy: "安装中，请勿关闭程序…",
@@ -2052,7 +2129,7 @@ const TASK_KINDS = {
 async function renderTaskPage(taskId) {
   const gen = viewGen;
   Main().innerHTML = pageHead("正在部署服务器", "正在下载 Java 和服务端。", "", "", "", "task-eyebrow") + `
-    <div id="t-fetch-error" class="err-box" role="status" hidden></div>
+    <div id="t-fetch-error" role="status" hidden></div>
     <div id="task-box"><div class="sub">加载中…</div></div>`;
   // 骨架只建一次，之后每轮轮询只改变化的部分：新完成的步骤对勾弹出，经验条只点亮新增的格子（逐格错峰），不整块重绘重播
   const CELLS = 30;
@@ -2071,7 +2148,9 @@ async function renderTaskPage(taskId) {
       if (e.status === 404) { ended = true; stopPoll(); }
       const err = $("#t-fetch-error");
       err.hidden = false;
-      err.textContent = ended ? e.message : "进度刷新失败，正在自动重试：" + e.message;
+      // 每轮轮询失败都会走到这里：内容没变就不重画，免得「复制报错信息」正要点时被换掉、读屏一遍遍重念
+      const html = errBox("无法刷新任务进度", e, ended ? {} : { hint: "正在自动重试" });
+      if (err.dataset.html !== html) { err.innerHTML = html; err.dataset.html = html; }
       if (ended && !built) $("#task-box").innerHTML = `<a class="btn" href="#/create">返回新建服务器</a>`;
       return;
     } finally { loading = false; }
@@ -2203,7 +2282,7 @@ async function renderTaskPage(taskId) {
           ${(it.options || ["skip", "local"]).filter(o => PND_ACT[o]).map(o =>
             `<label style="display:inline-flex;gap:5px;align-items:center;margin-right:14px"><input type="radio" name="pnd-${esc(it.id)}" value="${o}"><span>${PND_ACT[o]}</span></label>`).join("")}
         </div>
-        <input type="text" class="pnd-local" style="width:100%;margin-top:6px" placeholder="本地文件或文件夹的完整路径；填文件夹时按文件名匹配" aria-label="待决文件 ${esc(it.path)} 的本地文件或目录路径" hidden>
+        <input type="text" class="pnd-local" style="width:100%;margin-top:6px" placeholder="本地文件或文件夹的完整路径；填文件夹时按文件名匹配" aria-label="待决文件 ${esc(it.path)} 的本地文件或文件夹路径" hidden>
         <label class="pnd-ack" style="display:inline-flex;gap:6px;align-items:flex-start;margin-top:6px" hidden><input type="checkbox" class="pnd-ackbox">
           <span class="wc-note">我已知晓风险并信任来自 ${it.host ? `「${esc(it.host)}」` : "这个站点"}的文件：该文件缺少校验值，存在传输被篡改风险。勾选后按域名记住（包含该域名的其他端口），以后同域名不再确认。</span></label>
       </div>`).join("")}
@@ -2283,7 +2362,7 @@ async function renderTaskPage(taskId) {
           }
         }
       } catch (e) {
-        if (!stale(gen)) toast(e.message, true);
+        if (!stale(gen)) toastErr("无法处理待决文件", e);
       } finally {
         if (!stale(gen) && $("#t-pending-apply")) $("#t-pending-apply").disabled = false;
       }
@@ -2325,7 +2404,7 @@ function headStatus(i) {
 async function renderDetail(name, tab = "console") {
   const gen = viewGen;
   let list;
-  try { list = await api("/api/instances"); } catch (e) { if (!stale(gen)) Main().innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+  try { list = await api("/api/instances"); } catch (e) { if (!stale(gen)) Main().innerHTML = errBox("无法获取服务器信息", e); return; }
   if (stale(gen)) return; // 等待期间已切走：不再建 SSE / 定时器
   const info = list.find(i => i.name === name);
   if (!info) { Main().innerHTML = `<div class="err-box">服务器不存在</div>`; return; }
@@ -2360,11 +2439,11 @@ async function renderDetail(name, tab = "console") {
   $("#d-dir").onclick = () => dropMenu($("#d-dir"), folderItems(info));
   $("#d-start").onclick = async () => {
     try { $("#d-start").disabled = true; await api(`/api/instances/${encodeURIComponent(name)}/start`, { method: "POST" }); toast("正在启动，首次生成世界可能需要一两分钟"); refreshHead(); }
-    catch (e) { toast(e.message, true); $("#d-start").disabled = false; }
+    catch (e) { toastErr("无法启动服务器", e); $("#d-start").disabled = false; }
   };
   $("#d-stop").onclick = async () => {
     try { $("#d-stop").disabled = true; await api(`/api/instances/${encodeURIComponent(name)}/stop`, { method: "POST" }); toast("正在保存世界并停止"); refreshHead(); }
-    catch (e) { toast(e.message, true); $("#d-stop").disabled = false; }
+    catch (e) { toastErr("无法停止服务器", e); $("#d-stop").disabled = false; }
   };
   const refreshHead = async () => {
     try {
@@ -2472,7 +2551,7 @@ async function renderDetail(name, tab = "console") {
       try {
         await api(`/api/instances/${encodeURIComponent(name)}/settings`, { method: "PUT", body: { xmxMb: 0, xmsMb: 0, consoleEncoding: $("#con-enc").value } });
         toast("编码已切换，对之后的新输出生效");
-      } catch (e) { toast(e.message, true); }
+      } catch (e) { toastErr("无法切换控制台编码", e); }
     };
     consoleES = new EventSource(`/api/instances/${encodeURIComponent(name)}/console?token=${TOKEN()}`);
     consoleES.onmessage = e => push(JSON.parse(e.data));
@@ -2490,7 +2569,7 @@ async function renderDetail(name, tab = "console") {
       if (hist[0] !== v) { hist.unshift(v); hist = hist.slice(0, 50); localStorage.setItem(histKey, JSON.stringify(hist)); }
       histIdx = -1;
       try { await api(`/api/instances/${encodeURIComponent(name)}/command`, { method: "POST", body: { cmd: v } }); }
-      catch (e) { toast(e.message, true); }
+      catch (e) { toastErr("无法发送命令", e); }
     };
     $("#cmd-send").onclick = send;
 
@@ -2568,13 +2647,13 @@ async function renderDetail(name, tab = "console") {
         await api(`/api/instances/${encodeURIComponent(name)}/players`, { method: "POST", body: { action, player } });
         toast(({ "whitelist-add": `已把 ${player} 加入白名单`, "whitelist-remove": `已把 ${player} 移出白名单`, op: `已把 ${player} 设为管理员`, deop: `已取消 ${player} 的管理员`, kick: `已踢出 ${player}`, ban: `已封禁 ${player}`, pardon: `已解除 ${player} 的封禁` }[action] || `已执行 ${action} ${player}`) + (info.status === "stopped" ? "" : "（名单文件稍后由服务器刷新）"));
         setTimeout(draw, 800);
-      } catch (e) { toast(e.message, true); }
+      } catch (e) { toastErr(({ "whitelist-add": `无法把 ${player} 加入白名单`, "whitelist-remove": `无法把 ${player} 移出白名单`, op: `无法把 ${player} 设为管理员`, deop: `无法取消 ${player} 的管理员`, kick: `无法踢出 ${player}`, ban: `无法封禁 ${player}`, pardon: `无法解除 ${player} 的封禁` }[action] || `无法执行 ${action} ${player}`), e); }
     };
     const draw = async () => {
       if (stale(gen)) return;
       let pl;
       try { pl = await api(`/api/instances/${encodeURIComponent(name)}/players`); }
-      catch (e) { if (!stale(gen)) body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+      catch (e) { if (!stale(gen)) body.innerHTML = errBox("无法读取玩家列表", e); return; }
       if (stale(gen)) return;
       // 三个名单的输入框、每个人名后面的「移除」「OP」「踢」都同名：可访问名称带上名单和玩家名
       const section = (title, items, addAction, removeAction, hint) => `
@@ -2613,7 +2692,7 @@ async function renderDetail(name, tab = "console") {
       if (stale(gen)) return;
       let list;
       try { list = await api(`/api/instances/${encodeURIComponent(name)}/backups`); }
-      catch (e) { if (!stale(gen)) body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+      catch (e) { if (!stale(gen)) body.innerHTML = errBox("无法读取备份列表", e); return; }
       if (stale(gen)) return;
       body.innerHTML = `
         <div class="row" style="margin-bottom:10px;flex-wrap:wrap">
@@ -2635,7 +2714,7 @@ async function renderDetail(name, tab = "console") {
         try {
           const r = await api(`/api/instances/${encodeURIComponent(name)}/backups`, { method: "POST", body: { label: $("#bk-label").value.trim() } });
           toast(`备份完成：${r.file}`);
-        } catch (e) { toast(e.message, true); }
+        } catch (e) { toastErr("备份失败", e); }
         draw();
       };
       bindSaveInput($("#bk-keep"), $("#bk-keep-save"), async v => {
@@ -2651,14 +2730,14 @@ async function renderDetail(name, tab = "console") {
         });
         if (!r) return;
         try { await api(`/api/instances/${encodeURIComponent(name)}/backups/restore`, { method: "POST", body: { file: b.dataset.restore } }); toast("还原完成"); }
-        catch (e) { toast(e.message, true); }
+        catch (e) { toastErr("还原失败", e); }
         draw();
       });
       body.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
         const r = await confirmModal({ title: "删除备份？", danger: true, okText: "删除", icon: "trash", body: "删除后无法恢复：" + esc(b.dataset.del) });
         if (!r) return;
         try { await api(`/api/instances/${encodeURIComponent(name)}/backups?file=${encodeURIComponent(b.dataset.del)}`, { method: "DELETE" }); }
-        catch (e) { toast(e.message, true); }
+        catch (e) { toastErr("无法删除备份", e); }
         draw();
       });
     };
@@ -2667,7 +2746,7 @@ async function renderDetail(name, tab = "console") {
   } else if (tab === "tasks") {
     let pol;
     try { pol = await api(`/api/instances/${encodeURIComponent(name)}/policies`); }
-    catch (e) { if (!stale(gen)) body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+    catch (e) { if (!stale(gen)) body.innerHTML = errBox("无法读取定时任务", e); return; }
     if (stale(gen)) return;
     let scheds = pol.schedules || [];
     const TYPE_NAMES = { restart: "定时重启", command: "定时命令", backup: "定时备份" };
@@ -2775,9 +2854,9 @@ async function renderDetail(name, tab = "console") {
             const res = await api(`/api/instances/${encodeURIComponent(name)}/resources/install`, { method: "POST", body: { projectId: b.dataset.rid } });
             toast(`已安装 ${b.dataset.rt}（${res.file}）。重启服务器后生效`);
             b.innerHTML = icon("check") + " 已安装"; label("已安装");
-          } catch (e) { toast(e.message, true); b.disabled = false; b.innerHTML = icon("download") + " 安装"; label("安装"); }
+          } catch (e) { toastErr(`无法安装 ${b.dataset.rt}`, e); b.disabled = false; b.innerHTML = icon("download") + " 安装"; label("安装"); }
         });
-      } catch (e) { if (!outdated()) $("#res-list").innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
+      } catch (e) { if (!outdated()) $("#res-list").innerHTML = errBox("无法获取资源列表", e); }
     };
     $("#res-go").onclick = search;
     $("#res-q").onkeydown = e => { if (e.key === "Enter") search(); };
@@ -2788,7 +2867,7 @@ async function renderDetail(name, tab = "console") {
       return;
     }
     let data;
-    try { data = await api(`/api/instances/${encodeURIComponent(name)}/properties`); } catch (e) { if (!stale(gen)) body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+    try { data = await api(`/api/instances/${encodeURIComponent(name)}/properties`); } catch (e) { if (!stale(gen)) body.innerHTML = errBox("无法读取服务器配置", e); return; }
     if (stale(gen)) return;
     const cur = Object.fromEntries(data.pairs.map(p => [p.key, p.value]));
     const mc = info.mc, running = data.running;
@@ -2845,7 +2924,7 @@ async function renderDetail(name, tab = "console") {
     body.querySelectorAll("[data-gr]").forEach(sw => sw.onchange = async () => {
       const rule = sw.dataset.gr, val = sw.checked;
       try { await api(`/api/instances/${encodeURIComponent(name)}/command`, { method: "POST", body: { cmd: `gamerule ${rule} ${val}` } }); toast(`已应用游戏规则 ${rule} = ${val}`); }
-      catch (e) { toast(e.message, true); sw.checked = !val; }
+      catch (e) { toastErr(`无法应用游戏规则 ${rule}`, e); sw.checked = !val; }
     });
     // MOTD 编辑器：色码调色板 + 实时预览
     const motdIn = $("#motd-in", body);
@@ -2900,7 +2979,7 @@ async function renderDetail(name, tab = "console") {
 
   } else if (tab === "raw") {
     let data;
-    try { data = await api(`/api/instances/${encodeURIComponent(name)}/properties`); } catch (e) { if (!stale(gen)) body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+    try { data = await api(`/api/instances/${encodeURIComponent(name)}/properties`); } catch (e) { if (!stale(gen)) body.innerHTML = errBox("无法读取服务器配置", e); return; }
     if (stale(gen)) return;
     if (!data.pairs.length) { body.innerHTML = `<div class="sub">配置文件暂未生成；首次启动服务器后，服务端会自动生成全部配置项。</div>`; return; }
     const LABELS = Object.fromEntries((window.PROPS_CATALOG || []).map(p => [p.key, p.label]));
@@ -3008,7 +3087,7 @@ async function renderDetail(name, tab = "console") {
           cur = +sel.value;
           sel.querySelectorAll("option").forEach((el, k) => { el.textContent = opts[k].text + (k === cur ? " · 现在用的" : ""); });
           if ($("#d-java")) $("#d-java").textContent = "Java " + o.major; // 页头的徽标跟着换
-        } catch (e) { toast(e.message, true); btn.disabled = false; }
+        } catch (e) { toastErr("无法更换 Java", e); btn.disabled = false; }
       };
     })();
     renderMemoryControl($("#jm-mem-mount"), { sliderId: "jm-mem", min: 1024, max: maxMem, value: Math.min(info.xmxMb, maxMem), totalMb: appInfo.ramMb, availMb: appInfo.availRamMb });
@@ -3147,8 +3226,8 @@ async function renderTunnels() {
     try { list = await api("/api/tunnels"); } catch (e) {
       if (stale(gen) || seq !== drawSeq) return null;
       // 已经画着列表时偶尔刷新失败（网络抖一下）：列表和展开着的日志留着，摘要那里提示一句，下次刷新成功照常重画（独立评审发现）
-      if (shown !== null && $("#tun-list [data-tun]")) { shown = null; $("#tun-summary").innerHTML = `<span style="color:var(--danger-text)">${icon("warn")} 刷新失败：${esc(e.message)}</span>`; return null; }
-      closeLog(); shown = null; $("#tun-list").innerHTML = `<div class="err-box">${esc(e.message)}</div>`;
+      if (shown !== null && $("#tun-list [data-tun]")) { shown = null; $("#tun-summary").innerHTML = errInline("无法刷新隧道列表", e); return null; }
+      closeLog(); shown = null; $("#tun-list").innerHTML = errBox("无法获取隧道列表", e);
       return null;
     }
     if (stale(gen) || seq !== drawSeq) return list; // 晚到的旧响应不画
@@ -3176,21 +3255,21 @@ async function renderTunnels() {
       const id = b.dataset.tstart;
       b.disabled = true;
       try { await api(`/api/tunnels/${id}/start`, { method: "POST" }); toast("隧道启动中，公网地址稍后显示在列表"); }
-      catch (e) { toast(e.message, true); }
+      catch (e) { toastErr("无法启动隧道", e); }
       b.disabled = false; // 列表没变（比如同样的错误）时不会重画，按钮要自己恢复
       watch(id, t => !t.running || !!t.online || !!t.lastError); // 这次连上（拿到公网地址）、报错或者停下就算稳定
     });
     $("#tun-list").querySelectorAll("[data-tstop]").forEach(b => b.onclick = async () => {
       const id = b.dataset.tstop;
       b.disabled = true;
-      try { await api(`/api/tunnels/${id}/stop`, { method: "POST" }); } catch (e) { toast(e.message, true); }
+      try { await api(`/api/tunnels/${id}/stop`, { method: "POST" }); } catch (e) { toastErr("无法停止隧道", e); }
       b.disabled = false;
       watch(id, t => !t.running);
     });
     $("#tun-list").querySelectorAll("[data-tdel]").forEach(b => b.onclick = async () => {
       const r = await confirmModal({ title: "删除隧道？", danger: true, okText: "删除", icon: "trash", body: "仅删除本机配置，服务商侧隧道不受影响。" });
       if (!r) return;
-      try { await api(`/api/tunnels/${b.dataset.tdel}`, { method: "DELETE" }); } catch (e) { toast(e.message, true); }
+      try { await api(`/api/tunnels/${b.dataset.tdel}`, { method: "DELETE" }); } catch (e) { toastErr("无法删除隧道", e); }
       drawList();
     });
     $("#tun-list").querySelectorAll("[data-tlog]").forEach(b => b.onclick = () => {
@@ -3259,7 +3338,7 @@ async function renderTunnels() {
       ["#tn-cred", "#tn-proxy", "#tn-saddr"].forEach(s => { $(s).value = ""; });
       await drawList();
       if (!stale(gen)) paintForm();
-    } catch (e) { toast(e.message, true); }
+    } catch (e) { toastErr("无法添加隧道", e); }
   };
 }
 
@@ -3301,7 +3380,7 @@ async function renderSettings(section) {
   if (samePage) slideKeys(keysBefore, ["set"]); // 换分区：导航键帽从旧分区滑到新分区
   const body = $("#set-body");
   let info;
-  try { info = await api("/api/app"); } catch (e) { if (!stale(gen)) body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+  try { info = await api("/api/app"); } catch (e) { if (!stale(gen)) body.innerHTML = errBox("无法读取设置", e); return; }
   if (stale(gen)) return; // 快速连点分区时，先发后至的旧响应不得覆盖当前分区
   ({ appearance: setAppearance, download: setDownload, storage: setStorage, java: setJava, remote: setRemote, notify: setNotify, ai: setAI, startup: setStartup, about: setAbout }[section])(body, info);
   playClass(body, "sec-enter"); // 只动被替换的分区内容（上移 4px 淡入）
@@ -3348,7 +3427,7 @@ function setAppearance(body) {
         <button type="button" role="radio" aria-checked="${a.accent === "auto"}" class="acc-swatch acc-auto ${a.accent === "auto" ? "on" : ""}" data-accent-pick="auto">跟随方案</button>
         ${ACCENTS.map(c => `<button type="button" role="radio" aria-checked="${a.accent === c.id}" class="acc-swatch ${a.accent === c.id ? "on" : ""}" style="--sw:${c.sw}" data-accent-pick="${c.id}" title="${c.name}" aria-label="${c.name}">${a.accent === c.id ? icon("check") : ""}</button>`).join("")}
       </div>
-      <div class="hint" style="margin-top:20px">想换背景图？在程序所在目录新建 <code>bg</code> 文件夹并放入图片，下次打开时随机选一张作为壁纸。</div>`;
+      <div class="hint" style="margin-top:20px">想换背景图？在程序所在的文件夹里新建 <code>bg</code> 文件夹并放入图片，下次打开时随机选一张作为壁纸。</div>`;
     body.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => {
       refocus = `[data-mode="${b.dataset.mode}"]`;
       const before = keyRects();
@@ -3378,7 +3457,7 @@ function setStartup(body, info) {
       await api("/api/config", { method: "PUT", body: { [key]: inp.checked } });
       if (key === "minimizeToTray") c.minimizeToTray = inp.checked; else info.autoStart = inp.checked;
       toast(inp.checked ? "已开启" : "已关闭");
-    } catch (e) { toast(e.message, true); inp.checked = !inp.checked; }
+    } catch (e) { toastErr(`${inp.checked ? "无法开启" : "无法关闭"}「${key === "minimizeToTray" ? "最小化到系统托盘" : "开机自动启动"}」`, e); inp.checked = !inp.checked; }
   });
 }
 
@@ -3415,7 +3494,7 @@ function setDownload(body, info) {
         x.querySelector(".ri-check").classList.toggle("on", on);
       });
       toast("下载源已切换");
-    } catch (e) { toast(e.message, true); }
+    } catch (e) { toastErr("无法切换下载源", e); }
   };
   $("#src-cards").querySelectorAll(".row-item").forEach(c => {
     c.onclick = () => pick(c);
@@ -3444,7 +3523,7 @@ function setDownload(body, info) {
       Object.assign(cf, { set: false, broken: false });
       paintCF();
       toast("已清除 CurseForge API Key");
-    } catch (e) { toast(e.message, true); }
+    } catch (e) { toastErr("无法清除 CurseForge API Key", e); }
   };
 }
 
@@ -3453,7 +3532,7 @@ function storageRow(ico, title, path, desc, pick) { // 三行都有「打开」�
   return riRow({ ico, title, sub: esc(desc), key: path || "", right: `
       <button class="btn sm" data-open="${esc(path || "")}" aria-label="打开${esc(title)}">${icon("folder")} 打开</button>
       ${pick ? `<button class="btn sm" data-pick="${pick}" aria-label="更改${esc(title)}…">更改…</button>
-      <button class="btn sm ghost icon-only" data-reset="${pick}" title="恢复默认目录" aria-label="恢复默认的${esc(title)}">${icon("refresh")}</button>` : ""}` });
+      <button class="btn sm ghost icon-only" data-reset="${pick}" title="恢复默认文件夹" aria-label="恢复默认的${esc(title)}">${icon("refresh")}</button>` : ""}` });
 }
 function setStorage(body, info) {
   const gen = viewGen;
@@ -3461,13 +3540,13 @@ function setStorage(body, info) {
     if (stale(gen)) return;
     body.innerHTML = settingsHead("存储位置", "服务器和备份放在哪个文件夹。改了之后，只对新建的服务器和备份生效。已经有的不会自动搬过去。") +
       group(
-        storageRow("server", "服务器存放文件夹", info.serversRoot, "新的服务器会建在这个目录里，一台一个子文件夹。中文名字不会直接用作文件夹名。", "servers") +
+        storageRow("server", "服务器存放文件夹", info.serversRoot, "新的服务器会建在这个文件夹里，一台一个子文件夹。中文名字不会直接用作文件夹名。", "servers") +
         storageRow("package", "备份存放文件夹", info.backupsRoot, "服务器开着时做的备份，放在这里。", "backups") +
         storageRow("folder", "程序数据文件夹", info.base, "程序、下载的 Java 和缓存都在这里。整个文件夹可以一起复制走。", ""),
         { ico: true }) +
-      `<div class="hint">修改数据目录仅在这台电脑上可用；用手机远程管理时需在主机上更改。</div>`;
+      `<div class="hint">更改存放文件夹只能在这台电脑上操作；用手机远程管理时，需要到主机上更改。</div>`;
     body.querySelectorAll("[data-open]").forEach(b => b.onclick = () =>
-      api("/api/openpath", { method: "POST", body: { path: b.dataset.open } }).catch(e => toast(e.message, true)));
+      api("/api/openpath", { method: "POST", body: { path: b.dataset.open } }).catch(e => toastErr("无法打开文件夹", e)));
     body.querySelectorAll("[data-pick]").forEach(b => b.onclick = async () => {
       try {
         const r = await api("/api/pickdir", { method: "POST" });
@@ -3475,9 +3554,9 @@ function setStorage(body, info) {
         const key = b.dataset.pick === "servers" ? "serversDir" : "backupsDir";
         await api("/api/config", { method: "PUT", body: { [key]: r.path } });
         if (b.dataset.pick === "servers") info.serversRoot = r.path; else info.backupsRoot = r.path;
-        toast("已更新目录（对新建生效）");
+        toast("已更改存放文件夹，只对新建的生效");
         draw();
-      } catch (e) { toast(e.message, true); }
+      } catch (e) { toastErr(b.dataset.pick === "servers" ? "无法更改服务器存放文件夹" : "无法更改备份存放文件夹", e); }
     });
     body.querySelectorAll("[data-reset]").forEach(b => b.onclick = async () => {
       try {
@@ -3485,9 +3564,9 @@ function setStorage(body, info) {
         await api("/api/config", { method: "PUT", body: { [key]: "" } });
         const fresh = await api("/api/app");
         info.serversRoot = fresh.serversRoot; info.backupsRoot = fresh.backupsRoot;
-        toast("已恢复默认目录");
+        toast("已恢复默认的存放文件夹");
         draw();
-      } catch (e) { toast(e.message, true); }
+      } catch (e) { toastErr(b.dataset.reset === "servers" ? "无法恢复默认的服务器存放文件夹" : "无法恢复默认的备份存放文件夹", e); }
     });
   };
   draw();
@@ -3508,18 +3587,18 @@ async function setJava(body, info) {
       (javas.scanned.length ? javas.scanned.map(j => riRow({ ico: "coffee", titleHTML: `Java ${j.major} <span class="badge">${esc(j.version)}</span>`, key: j.path })).join("")
         : riRow({ ico: "coffee", title: "本机已安装的 Java", sub: "尚未发现，点下方「重新扫描」或手动添加" })),
       { ico: true }) +
-    group(riRow({ ico: "plus", title: "手动添加", sub: "粘贴 java.exe 或 JDK 目录的路径",
+    group(riRow({ ico: "plus", title: "手动添加", sub: "粘贴 java.exe 或 JDK 文件夹的路径",
       field: `<input type="text" id="java-path" placeholder="如 C:\\Program Files\\Java\\jdk-21\\bin\\java.exe" aria-label="Java 路径"><button class="btn" id="java-add">添加</button>` }), { ico: true }) +
     `<div class="row" style="margin-top:12px"><button class="btn" id="java-scan">${icon("refresh")} 重新扫描本机 Java</button></div>`;
   $("#java-scan").onclick = async () => {
     $("#java-scan").disabled = true; $("#java-scan").textContent = "扫描中…（约数秒）";
     try { const list = await api("/api/javas/scan", { method: "POST" }); toast(`扫描完成，发现 ${list.length} 个 Java`); if (!stale(gen)) setJava(body, info); }
-    catch (e) { toast(e.message, true); if (!stale(gen)) { $("#java-scan").disabled = false; $("#java-scan").innerHTML = icon("refresh") + " 重新扫描本机 Java"; } }
+    catch (e) { toastErr("无法扫描本机 Java", e); if (!stale(gen)) { $("#java-scan").disabled = false; $("#java-scan").innerHTML = icon("refresh") + " 重新扫描本机 Java"; } }
   };
   $("#java-add").onclick = async () => {
     const p = $("#java-path").value.trim(); if (!p) return;
     try { const j = await api("/api/javas/add", { method: "POST", body: { path: p } }); toast(`已添加 Java ${j.major}（${j.version}）`); if (!stale(gen)) setJava(body, info); }
-    catch (e) { toast(e.message, true); }
+    catch (e) { toastErr("无法添加这个 Java", e); }
   };
 }
 
@@ -3578,7 +3657,7 @@ function setRemote(body, info) {
       await api("/api/config", { method: "PUT", body: b });
       saved(b);
       toast((turnOn ? "已开启局域网访问" : "已关闭局域网访问") + effect(turnOn) + (b.lanPassword && info.lanSet ? "。新的访问密码已保存" : ""));
-    } catch (e) { lanOn.checked = !turnOn; lanOn.disabled = false; toast(e.message, true); }
+    } catch (e) { lanOn.checked = !turnOn; lanOn.disabled = false; toastErr(turnOn ? "无法开启局域网访问" : "无法关闭局域网访问", e); }
   };
   // 保存密码：开关开着（或刚才因为没密码被拨回去）时一起开启，即「密码和开关一起保存」
   $("#lan-save").onclick = async () => {
@@ -3589,7 +3668,7 @@ function setRemote(body, info) {
       await api("/api/config", { method: "PUT", body: b });
       saved(b);
       toast(opening ? "访问密码已保存，已开启局域网访问" + effect(true) : "访问密码已保存");
-    } catch (e) { toast(e.message, true); }
+    } catch (e) { toastErr("无法保存访问密码", e); }
   };
   lanPw.oninput = () => pwErr("");
   lanPw.onkeydown = e => { if (e.key === "Enter") $("#lan-save").click(); };
@@ -3646,7 +3725,7 @@ async function setAI(body) {
   body.innerHTML = settingsHead("AI 服务商（可选）", "") + `<div class="sub">加载中…</div>`;
   let v;
   try { v = await api("/api/ai/settings"); }
-  catch (e) { if (!stale(gen)) body.innerHTML = settingsHead("AI 服务商（可选）", "") + `<div class="err-box">${esc(e.message)}</div>`; return; }
+  catch (e) { if (!stale(gen)) body.innerHTML = settingsHead("AI 服务商（可选）", "") + errBox("无法读取 AI 设置", e); return; }
   if (stale(gen)) return;
   drawAI(body, v, gen);
 }
@@ -3791,7 +3870,7 @@ function drawAI(body, v, gen) {
   };
   const savePrices = async (list, msg) => {
     try { v = await api("/api/ai/prices", { method: "PUT", body: { prices: list } }); toast(msg); }
-    catch (e) { toast(e.message, true); return; }
+    catch (e) { toastErr("无法保存自填单价", e); return; }
     if (!stale(gen)) paintPrices();
   };
   const paintTest = () => {
@@ -3848,7 +3927,7 @@ function drawAI(body, v, gen) {
     const r = await confirmModal({ title: "清除 AI 的 Key？", body: "清除后 AI 功能停用，需要时可以重新填写。", okText: "清除", danger: true, icon: "trash" });
     if (!r) return;
     try { v = await api("/api/ai/provider", { method: "PUT", body: { key: "" } }); repaint(); toast("已清除 Key"); }
-    catch (e) { toast(e.message, true); }
+    catch (e) { toastErr("无法清除 Key", e); }
   };
 
   // 获取模型列表：用表单里当前的服务商和地址（还没保存也行）；Key 不填时，只有地址没改才用已存的 Key
@@ -3866,7 +3945,7 @@ function drawAI(body, v, gen) {
       $("#ai-models").innerHTML = ms.map(m => `<option value="${esc(m.id)}">${esc(m.name || "")}</option>`).join("");
       $("#ai-model-sub").textContent = ms.length ? `取到 ${ms.length} 个模型：点输入框选一个，也可以直接填写` : "服务商没有返回模型，请直接填写模型名";
       if (ms.length) { f.model.focus(); toast(`取到 ${ms.length} 个模型`); }
-    } catch (e) { toast(e.message, true); }
+    } catch (e) { toastErr("无法获取模型列表", e); }
     btn.disabled = ro;
   };
 
@@ -3879,14 +3958,14 @@ function drawAI(body, v, gen) {
       const r = await api("/api/ai/test", { method: "POST" });
       if (stale(gen)) return;
       sub.dataset.result = "1";
-      if (!r.ok) sub.innerHTML = `<span class="warn-text">${icon("warn")} 连接失败：${esc(r.error)}</span>`;
+      if (!r.ok) sub.innerHTML = errInline("连接失败", { message: r.error, hint: r.hint }, { label: "AI 测试连接" }); // 这一页可能同时有 MCP 设置的报错框
       else {
         const tools = { yes: "能调用工具", no: `<span class="warn-text">${icon("warn")} 这个模型不支持工具调用，助手用不了</span>`, unknown: `<span class="warn-text">${icon("warn")} 模型这次没有调用工具，可能不支持</span>` }[r.tools] || "";
         const cost = r.cost && r.cost.source === "local" ? "（本机模型不计费）" : r.cost ? `（约 ${fmtMoney(r.cost.amount, r.cost.currency)}）` : "";
         sub.innerHTML = `${icon("check")} 连接正常 · 首个回应 ${r.latencyMs} ms · ${tools} · 用了 ${fmtTokens((r.usage.input || 0) + (r.usage.output || 0) + (r.usage.cacheRead || 0) + (r.usage.cacheWrite || 0))} token${esc(cost)}`;
         v = await api("/api/ai/settings").catch(() => v); // Claude 中转：测出来的功能开关已存进设置
       }
-    } catch (e) { sub.innerHTML = `<span class="warn-text">${icon("warn")} ${esc(e.message)}</span>`; }
+    } catch (e) { sub.innerHTML = errInline("无法测试连接", e, { label: "AI 测试连接" }); }
     btn.disabled = ro || !v.enabled;
   };
 
@@ -3907,7 +3986,7 @@ function drawAI(body, v, gen) {
     $("#ai-price-refresh").disabled = true;
     $("#ai-price-src").textContent = "正在下载公开价格…";
     try { v = await api("/api/ai/prices/refresh", { method: "POST" }); toast("价格数据已更新"); }
-    catch (e) { toast(e.message, true); v = await api("/api/ai/settings").catch(() => v); }
+    catch (e) { toastErr("无法更新价格数据", e); v = await api("/api/ai/settings").catch(() => v); }
     if (!stale(gen)) paintPrices();
   };
 
@@ -3915,7 +3994,7 @@ function drawAI(body, v, gen) {
     const r = await confirmModal({ title: "停用 AI？", body: "会清掉服务商设置和 Key。用量记录、每日额度和自填单价会留下。之后可以重新配置。", okText: "停用", danger: true, icon: "power" });
     if (!r) return;
     try { await api("/api/ai/provider", { method: "PUT", body: { preset: "" } }); toast("已停用 AI"); dirtyCheck = null; navigate(); }
-    catch (e) { toast(e.message, true); }
+    catch (e) { toastErr("无法停用 AI", e); }
   };
   window.MDAssist?.settings($("#ai-assist-slot"), v, gen); // 应用内助手（assistant.js）
   window.MDMcp?.settings($("#ai-mcp-slot"), gen); // MCP 接口（mcp.js）
@@ -3951,7 +4030,7 @@ function setAbout(body, info) {
   }, viewGen);
   $("#up-silent").onchange = async () => {
     try { await api("/api/config", { method: "PUT", body: { checkUpdateOnStart: $("#up-silent").checked } }); toast($("#up-silent").checked ? "已开启启动时检查更新" : "已关闭启动时检查更新"); }
-    catch (e) { toast(e.message, true); $("#up-silent").checked = !$("#up-silent").checked; }
+    catch (e) { toastErr($("#up-silent").checked ? "无法开启启动时检查更新" : "无法关闭启动时检查更新", e); $("#up-silent").checked = !$("#up-silent").checked; }
   };
   $("#up-check").onclick = async () => {
     $("#up-result").textContent = "检查中…";
@@ -3965,19 +4044,19 @@ function setAbout(body, info) {
         btn.onclick = async () => {
           btn.disabled = true;
           try { await api("/api/update/apply", { method: "POST" }); document.body.innerHTML = `<div style="padding:80px;text-align:center;color:var(--muted)">正在更新，程序将自动重启…</div>`; }
-          catch (e) { toast(e.message, true); btn.disabled = false; }
+          catch (e) { toastErr("无法更新 MineDeck", e); btn.disabled = false; }
         };
         $("#up-result").appendChild(btn);
       } else {
         $("#up-result").textContent = `已是最新（v${r.current}）`;
       }
-    } catch (e) { $("#up-result").textContent = e.message; }
+    } catch (e) { $("#up-result").innerHTML = errInline("无法检查更新", e); }
   };
   $("#quit-app").onclick = async () => {
     const r = await confirmModal({ title: "退出 MineDeck？", body: "会先保存世界，停掉正在运行的服务器，然后退出程序。", okText: "退出", danger: true, icon: "power" });
     if (!r) return;
     try { await api("/api/shutdown", { method: "POST" }); document.body.innerHTML = `<div style="padding:80px;text-align:center;color:var(--muted)">MineDeck 正在停止服务器并退出，可以关闭此页面了。</div>`; }
-    catch (e) { toast(e.message, true); }
+    catch (e) { toastErr("无法退出 MineDeck", e); }
   };
 }
 
@@ -4008,7 +4087,7 @@ function showOnboarding(info) {
     `<label class="ob-radio"><input type="radio" name="ob-src" value="${v}" ${v === cur ? "checked" : ""}><span>${esc(label)}</span></label>`).join("")}</div>
       </div>
       <div class="ob-sec"><div class="ob-label">你的服务器将存放在</div>
-        <div class="ob-path">${esc(info.serversRoot || "程序目录\\servers")}</div>
+        <div class="ob-path">${esc(info.serversRoot || "程序文件夹\\servers")}</div>
         <div class="hint" style="margin-top:6px">每台服务器一个子文件夹。想放到 D 盘等大容量分区，可到「设置 → 存储位置」更改。</div>
       </div>
     </div>
@@ -4019,7 +4098,7 @@ function showOnboarding(info) {
   go.onclick = async () => {
     const sel = root.querySelector('input[name="ob-src"]:checked');
     try { await api("/api/config", { method: "PUT", body: { source: sel ? sel.value : cur, onboarded: true, tosAccepted: true } }); }
-    catch (e) { toast(e.message, true); }
+    catch (e) { toastErr("无法保存首次使用的设置", e); }
     dismiss(root.firstElementChild);
   };
 }

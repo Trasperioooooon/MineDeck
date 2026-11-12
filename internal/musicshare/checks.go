@@ -569,7 +569,7 @@ func (s *Service) PreviewInstall(name string, v bridge.Variant) (*InstallPreview
 	}
 	st, err := bridge.InspectJar(modsDir(info.Dir))
 	if err != nil {
-		return nil, errorf(500, "读 mods 目录失败：%v", err)
+		return nil, errorf(500, "读取 mods 文件夹失败：%v", err)
 	}
 	if svc := s.detectSVC(info.Dir); !svc.Installed {
 		return nil, errorf(400, "先装 Simple Voice Chat。桥接模组需要它。没装的话服务器起不来。")

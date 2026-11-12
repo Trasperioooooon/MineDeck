@@ -189,7 +189,7 @@ window.MDAssist = (() => {
     body.innerHTML = `<div class="ap-loading">${icon("spinner")} 加载中…</div>`;
     let l;
     try { l = await api("/api/assistant/sessions"); }
-    catch (e) { if (A.view === "list" && A.panel) body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+    catch (e) { if (A.view === "list" && A.panel) body.innerHTML = errBox("无法读取会话记录", e); return; }
     if (A.view !== "list" || !A.panel) return;
     if (!l.length) {
       body.innerHTML = `<div class="ap-empty"><span class="ae-ico">${icon("sparkle")}</span><h4>还没有会话</h4>
@@ -209,7 +209,7 @@ window.MDAssist = (() => {
     body.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
       const ok = await confirmModal({ title: `删除会话「${b.dataset.title}」？`, body: "删掉之后找不回来。还没处理的确认卡片一起作废。", okText: "删除", danger: true, icon: "trash" });
       if (!ok) return;
-      try { await api(sp(b.dataset.del), { method: "DELETE" }); } catch (e) { toast(e.message, true); return; }
+      try { await api(sp(b.dataset.del), { method: "DELETE" }); } catch (e) { toastErr("无法删除会话", e); return; }
       if (b.dataset.del === A.sid) forget();
       list();
     });
@@ -225,7 +225,7 @@ window.MDAssist = (() => {
       const r = await api("/api/assistant/sessions", { method: "DELETE" });
       forget();
       toast(r.deleted ? `已清空 ${r.deleted} 个会话` : "没有要清空的会话");
-    } catch (e) { toast(e.message, true); return false; }
+    } catch (e) { toastErr("无法清空会话", e); return false; }
     if (A.panel && A.view !== "gate") list();
     return true;
   }
@@ -259,7 +259,7 @@ window.MDAssist = (() => {
       const v = await api("/api/assistant/sessions", { method: "POST", body: { inst } });
       if (!A.panel) mount();
       show(v.id, v);
-    } catch (e) { toast(e.message, true); }
+    } catch (e) { toastErr("无法开始新会话", e); }
   }
 
   /* ---------- 对话 ---------- */
@@ -569,7 +569,7 @@ window.MDAssist = (() => {
       // 外部 AI 的：卡片拿掉，告诉一声（外部 AI 用 proposal_status 查得到结果）
       if (ext) { toast(ok ? "已确认，已经执行。外部 AI 查得到结果。" : "已拒绝，外部 AI 查得到你的理由"); window.MDMcp?.drop(pid); }
     } catch (e) {
-      toast(e.message, true);
+      toastErr(ok ? "无法执行这项操作" : "无法拒绝这项操作", e);
       if (card.isConnected) { btns.forEach(b => b.disabled = false); okBtn.textContent = card.classList.contains("danger") ? "确认执行" : "确认"; okBtn.disabled = [...card.querySelectorAll(".pc-check input")].some(c => !c.checked); }
     }
     // 助手的：结果经事件流回来（卡片变成「已确认」「已拒绝」，AI 接着回复）
@@ -588,7 +588,7 @@ window.MDAssist = (() => {
   /* 实际发给 AI 的内容（脱敏、附上排错资料之后的样子），或者工具交还给 AI 的内容 */
   async function sentModal(item, tool) {
     let r;
-    try { r = await api(`${sp(A.sid)}/sent?item=${enc(item)}${tool ? "&tool=" + enc(tool) : ""}`); } catch (e) { toast(e.message, true); return; }
+    try { r = await api(`${sp(A.sid)}/sent?item=${enc(item)}${tool ? "&tool=" + enc(tool) : ""}`); } catch (e) { toastErr(tool ? "无法查看交还给 AI 的内容" : "无法查看发给 AI 的内容", e); return; }
     const res = await sheet({ title: tool ? "交还给 AI 的内容" : "实际发给 AI 的内容", cls: "ap-pv",
       body: `<div class="m-body">${tool ? "工具结果里，路径中的 Windows 用户名、局域网 IP、Key 和令牌已经替换掉，太长的也截掉了，再交还给 AI。外面标了「以下是数据」。玩家名保留。" : "发送前，路径里的 Windows 用户名、局域网 IP、Key 和令牌已经替换掉。玩家名保留。"}</div><pre class="ap-pre ap-sent">${esc(r.text)}</pre>`,
       buttons: [{ x: "copy", html: `${icon("copy")} 复制` }, { x: "close", text: "关闭", cls: "primary" }] });
@@ -639,7 +639,7 @@ window.MDAssist = (() => {
       ta.oninput = () => autosize(ta);
       ta.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); send(); } };
       f.querySelector("#ap-send").onclick = send;
-      f.querySelector("#ap-stop").onclick = () => api(sp(A.sid) + "/stop", { method: "POST" }).catch(e => toast(e.message, true));
+      f.querySelector("#ap-stop").onclick = () => api(sp(A.sid) + "/stop", { method: "POST" }).catch(e => toastErr("无法停止回复", e));
       f.querySelector('[data-x="drop"]').onclick = () => { A.attach = false; paintFoot(); };
     }
     const qt = s.quota || {}, over = qt.limit > 0 && qt.used >= qt.limit;
@@ -655,7 +655,7 @@ window.MDAssist = (() => {
     const fresh = box.querySelector('[data-x="fresh"]');
     if (fresh) fresh.onclick = e => newMenu(e.currentTarget);
     const cont = box.querySelector('[data-x="cont"]');
-    if (cont) cont.onclick = () => api(sp(A.sid) + "/continue", { method: "POST" }).catch(e => toast(e.message, true));
+    if (cont) cont.onclick = () => api(sp(A.sid) + "/continue", { method: "POST" }).catch(e => toastErr("无法继续回复", e));
     const at = f.querySelector("#ap-attach");
     at.hidden = !(A.attach && s.attach > 0);
     at.querySelector("span").textContent = `发送时附上排错资料（约 ${s.attach} 字）`;
@@ -688,7 +688,7 @@ window.MDAssist = (() => {
       ta.value = "";
       autosize(ta);
       A.attach = false;
-    } catch (e) { toast(e.message, true); }
+    } catch (e) { toastErr("发送失败", e); }
     btn.disabled = false;
     paintFoot();
   }
@@ -701,16 +701,16 @@ window.MDAssist = (() => {
     if (btn) btn.disabled = true;
     try {
       let v;
-      try { v = await api("/api/assistant/sessions", { method: "POST", body: { inst: name } }); } catch (e) { toast(e.message, true); return; }
+      try { v = await api("/api/assistant/sessions", { method: "POST", body: { inst: name } }); } catch (e) { toastErr("无法开始新会话", e); return; }
       let pv;
       try { pv = await api(sp(v.id) + "/context", { method: "POST" }); }
-      catch (e) { toast(e.message, true); api(sp(v.id), { method: "DELETE" }).catch(() => {}); return; }
+      catch (e) { toastErr("无法收集排错资料", e); api(sp(v.id), { method: "DELETE" }).catch(() => {}); return; }
       const r = await previewModal(pv, st);
       if (!r) { api(sp(v.id), { method: "DELETE" }).catch(() => {}); return; } // 不发：刚开的空会话删掉
       if (!A.panel) mount();
       show(v.id, v);
       try { await api(sp(v.id) + "/messages", { method: "POST", body: { text: r.text, attach: true } }); }
-      catch (e) { toast(e.message, true); A.attach = true; paintFoot(); }
+      catch (e) { toastErr("发送失败", e); A.attach = true; paintFoot(); }
     } finally { if (btn) btn.disabled = false; }
   }
 
@@ -807,7 +807,7 @@ window.MDAssist = (() => {
       try {
         await api("/api/ai/assistant", { method: "PUT", body: { lan: lan.checked } });
         toast(lan.checked ? "局域网登录的设备可以用 AI 助手了" : "已关闭：局域网登录的设备不能用 AI 助手");
-      } catch (e) { toast(e.message, true); if (!stale(gen)) lan.checked = !lan.checked; }
+      } catch (e) { toastErr(lan.checked ? "无法开启「局域网可用 AI 助手」" : "无法关闭「局域网可用 AI 助手」", e); if (!stale(gen)) lan.checked = !lan.checked; }
       refresh();
     };
     slot.querySelector("#ai-sess-clear").onclick = clearAll;

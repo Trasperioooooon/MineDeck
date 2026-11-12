@@ -73,9 +73,9 @@ func (c *cat) transferOps() {
 			}
 			return &ops.Plan{
 				Summary: fmt.Sprintf("把「%s」打包成交接包（%s %s，%s）", p.Inst, i.Core, i.MC, mode),
-				Changes: []ops.Change{{What: "交接包内容", After: "世界、server.properties 和核心自己的配置（spigot.yml 等）、mods/plugins、config、kubejs 等脚本目录、白名单/OP 名单、eula.txt；不含 logs 和崩溃报告，清单之外的文件不带（任务日志里会列出来）"}},
+				Changes: []ops.Change{{What: "交接包内容", After: "世界、server.properties 和核心自己的配置（spigot.yml 等）、mods/plugins、config、kubejs 等脚本文件夹、白名单/OP 名单、eula.txt；不含 logs 和崩溃报告，清单之外的文件不带（任务日志里会列出来）"}},
 				Warning: "交接包含玩家数据（存档、白名单）。交接前请征得服务器成员同意。配置文件里写着的密码（如 server.properties 的 RCON 密码、插件配置里的数据库密码和令牌）也会原样交出去",
-				Pre:     map[string]string{"实例状态": i.Status()},
+				Pre:     map[string]string{"服务器状态": i.Status()},
 			}, nil
 		},
 		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
@@ -158,7 +158,7 @@ type transferArgs struct {
 // inUploadDir 校验交接包文件在网页接口的上传目录里（否则拒绝读它——参数里的路径不可信）。
 func inUploadDir(file string) error {
 	if filepath.Dir(filepath.Clean(file)) != filepath.Join(app.CacheDir, "transfer", "import") {
-		return fmt.Errorf("交接包文件不在上传目录里")
+		return fmt.Errorf("交接包文件不在上传文件夹里")
 	}
 	if _, err := os.Stat(file); err != nil {
 		return ops.Errorf(404, "交接包文件不在了，请重新上传")

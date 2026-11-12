@@ -489,11 +489,12 @@ func (m *Manager) start(id, why string) error {
 		if mine {
 			delete(m.running, id)
 			// 「意外退出」和撤登记在同一段锁里记：放到锁外，撤登记之后、记错之前新的一次运行可能已经起来，旧的错会记到它头上（Codex 复审发现）。
-			// frpc 自己报过错的留着那条（更具体），没报就记「意外退出」，卡片上看得到
-			if !userStopped && m.lastErr[id] == "" {
+			// exe 也没了的，说被杀毒软件删了：这比 frpc 之前自己报的错要紧（不处理它，再启动也起不来；Codex 复审发现）。
+			// 否则 frpc 自己报过错的留着那条（更具体），没报就记「意外退出」，卡片上看得到
+			if !userStopped {
 				if gone != "" {
 					m.lastErr[id] = clipLastErr(gone)
-				} else {
+				} else if m.lastErr[id] == "" {
 					m.lastErr[id] = exitMsg + "，检查凭据和隧道 ID，或者点「日志」看 frpc 的输出"
 				}
 			}
@@ -581,7 +582,7 @@ func (m *Manager) setPublicAddr(t *Tunnel, addr string) {
 	m.mu.Unlock()
 	if changed {
 		if t.IsVoice() {
-			m.Console(t.ID).Append("[MineDeck] ✔ 语音公网地址: " + addr + "（MineDeck 会把它写进绑定实例的 voice_host）")
+			m.Console(t.ID).Append("[MineDeck] ✔ 语音公网地址: " + addr + "（MineDeck 会把它写进绑定服务器的 voice_host）")
 		} else {
 			m.Console(t.ID).Append("[MineDeck] ✔ 公网地址: " + addr + "（把它发给朋友直连）")
 		}
@@ -604,7 +605,7 @@ func (m *Manager) Stop(id string) error {
 }
 
 // followActor 跟随实例自动启停时，操作记录里写的「谁做的」。
-const followActor = "跟随实例"
+const followActor = "跟随服务器"
 
 // startDelay 实例启动后等多久再拉起跟随的隧道：等服务器进入启动流程。
 var startDelay = 2 * time.Second

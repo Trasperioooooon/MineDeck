@@ -83,7 +83,7 @@ window.MDMcp = (() => {
     slot.innerHTML = settingsHead("MCP 接口", esc(HEAD)) + `<div class="sub">加载中…</div>`;
     let v;
     try { v = await api("/api/mcp"); }
-    catch (e) { if (!stale(gen) && slot.isConnected) slot.innerHTML = settingsHead("MCP 接口", esc(HEAD)) + `<div class="err-box">${esc(e.message)}</div>`; return; }
+    catch (e) { if (!stale(gen) && slot.isConnected) slot.innerHTML = settingsHead("MCP 接口", esc(HEAD)) + errBox("无法读取 MCP 接口的设置", e, { label: "MCP 设置" }); return; } // 和 AI 测试连接的报错同在一页
     if (stale(gen) || !slot.isConnected) return;
     M.st = v;
     connect();
@@ -161,7 +161,7 @@ window.MDMcp = (() => {
       (ro ? `<div class="warn-card"><div class="wc-title">${icon("lock")} MCP 接口的设置仅支持在本机修改</div><div class="wc-note">这里只能查看。令牌和配置只给运行 MineDeck 的那台电脑。外部 AI 提出的操作，也只能在那台电脑上点确认。</div></div>` : "") +
       group(rows, { ico: true, attrs: `id="mcp-group"` }) +
       (v.enabled ? `<div class="mcp-sub-head">连过的 AI 工具（本次启动以来）</div>` + clientsGroup(v) : "") +
-      `<div class="hint mcp-hint">发给外部 AI 的内容会先做替换：路径里的 Windows 用户名和程序目录、局域网 IP、计算机名、Key 会换掉。玩家名保留。删除服务器、修改设置不会交给外部 AI。访问令牌只给这台电脑上的程序用，不要发给别人。</div>`;
+      `<div class="hint mcp-hint">发给外部 AI 的内容会先做替换：路径里的 Windows 用户名和程序所在的文件夹、局域网 IP、计算机名、Key 会换掉。玩家名保留。删除服务器、修改设置不会交给外部 AI。访问令牌只给这台电脑上的程序用，不要发给别人。</div>`;
     watchClients(slot, gen, v);
     const on = slot.querySelector("#mcp-on");
     on.onchange = async () => {
@@ -169,7 +169,7 @@ window.MDMcp = (() => {
       try {
         v = await api("/api/mcp", { method: "PUT", body: { enabled: on.checked } });
         toast(v.enabled ? "MCP 接口已打开" : "MCP 接口已关闭：外部 AI 连不上了，没处理的请求已作废");
-      } catch (e) { toast(e.message, true); on.checked = !on.checked; on.disabled = false; return; }
+      } catch (e) { toastErr(on.checked ? "无法打开 MCP 接口" : "无法关闭 MCP 接口", e); on.checked = !on.checked; on.disabled = false; return; }
       M.st = v;
       connect();
       if (!stale(gen) && slot.isConnected) draw(slot, v, gen);
@@ -182,14 +182,14 @@ window.MDMcp = (() => {
         body: "旧令牌马上失效。用 HTTP 方式连接的 AI 工具要换上新令牌才能连上，包括 Cherry Studio、Cursor、VS Code。stdio 方式（Claude Desktop）不用改。" });
       if (!ok) return;
       try { v = await api("/api/mcp/token", { method: "POST" }); toast("已重置令牌：记得更新 HTTP 方式的配置"); }
-      catch (e) { toast(e.message, true); return; }
+      catch (e) { toastErr("无法重置令牌", e); return; }
       if (!stale(gen) && slot.isConnected) draw(slot, v, gen);
     };
     const cp = slot.querySelector("#mcp-copy");
     if (cp) cp.onclick = async e => {
       const anchor = e.currentTarget;
       let cfg;
-      try { cfg = await api("/api/mcp/config"); } catch (err) { toast(err.message, true); return; }
+      try { cfg = await api("/api/mcp/config"); } catch (err) { toastErr("无法读取 MCP 配置", err); return; }
       dropMenu(anchor, [{ header: "复制给哪个 AI 工具" }, ...cfg.snippets.map(s => ({
         label: menuLabel(s), icon: s.transport === "stdio" ? "monitor" : "globe", onClick: () => snippet(s, cfg.token) }))]);
     };

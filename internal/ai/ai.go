@@ -196,6 +196,11 @@ func (e *APIError) Error() string {
 // Retryable 429 和 5xx（含 Claude 的 529 过载）可以重试。
 func (e *APIError) Retryable() bool { return e.Status == 429 || e.Status >= 500 }
 
+// Hint 给人看的那一句：状态码对应的原因（「Key 不对或已失效」），不带状态码和服务商的原话。
+// 界面上的报错正文遇到状态码、英文原话只写结论（docs/文案重写/01-补完口径.md），
+// 接口把这一句另放在 hint 里给它接（web 的 writeErr、TestResult.Hint）；完整原文照旧是 Error()。认不出的状态码返回空串。
+func (e *APIError) Hint() string { return statusHint(e.Status) }
+
 func statusHint(code int) string {
 	switch {
 	case code == 400:
@@ -225,6 +230,18 @@ type NetError struct{ Err error }
 
 func (e *NetError) Error() string { return "连不上服务商：" + e.Err.Error() }
 func (e *NetError) Unwrap() error { return e.Err }
+
+// Hint 见 APIError.Hint。
+func (e *NetError) Hint() string { return "连不上服务商，检查网络、代理和接口地址" }
+
+// hintOf 报错链上第一个带 Hint() 的错误给的那一句；没有就是空串。
+func hintOf(err error) string {
+	var h interface{ Hint() string }
+	if errors.As(err, &h) {
+		return h.Hint()
+	}
+	return ""
+}
 
 // scrub 把错误信息里的 Key 换成 ***（有的服务商会在报错里回显 Key）。
 func scrub(s, key string) string {

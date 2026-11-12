@@ -160,7 +160,7 @@ window.MDModCart = (() => {
         if (gone()) return;
         take(d);
         if (isLocal && dep) checkDeps(); // 本地文件少了一个，上次查的前置不作数了，重查一遍
-      } catch (e) { toast(e.message, true); if (!gone() && btn.isConnected) btn.disabled = false; }
+      } catch (e) { toastErr("无法从清单里移除", e); if (!gone() && btn.isConnected) btn.disabled = false; }
     };
 
     /* ---- 浏览区：热门清单 / 搜索结果（最近一批结果 + 当前车状态）---- */
@@ -174,9 +174,10 @@ window.MDModCart = (() => {
       if (hitState === "loading") { hitsEl.innerHTML = skeletonRows(5); moreRow.hidden = true; return; }
       if (hitState === "error") {
         /* 出错只在列表区说，不弹提示打扰；这一块坏了不影响别的（清单、从电脑添加、向导的下一步都照常能用） */
-        hitsEl.innerHTML = `<div class="err-box" id="mc-hits-err">${noun}列表没有加载出来：${esc(hitErr)}
-          <div>检查一下网络或代理，再点「重试」。${inst ? "" : "这一步可以先跳过，不影响建服务器；"}自己下载好的文件仍然可以用「从电脑添加…」放进清单。</div>
-          <div class="row" style="margin-top:8px"><button class="btn sm" id="mc-retry" aria-label="重试加载${noun}列表">${icon("refresh")} 重试</button></div></div>`;
+        hitsEl.innerHTML = errBox(`${noun}列表没有加载出来`, hitErr, {
+          id: "mc-hits-err", label: `${noun}列表`,
+          hint: `检查一下网络或代理，再点「重试」。${inst ? "" : "这一步可以先跳过，不影响建服务器；"}自己下载好的文件仍然可以用「从电脑添加…」放进清单。`,
+          actions: `<button class="btn sm" id="mc-retry" aria-label="重试加载${noun}列表">${icon("refresh")} 重试</button>` });
         $("#mc-retry", root).onclick = () => load(false);
         moreRow.hidden = true;
         return;
@@ -197,7 +198,7 @@ window.MDModCart = (() => {
       hitsEl.querySelectorAll(".mc-add").forEach(b => b.onclick = () => add([b.dataset.pid], [b]));
       /* 往后翻：还有下一页给按钮；翻到头了（最多 5 页）说一声去哪儿找别的 */
       moreRow.hidden = !hits.length;
-      moreRow.innerHTML = (moreErr ? `<div class="err-box" id="mc-more-err">后面的没有加载出来：${esc(moreErr)}。再点一次「加载更多」试试。</div>` : "") +
+      moreRow.innerHTML = (moreErr ? errBox("后面的没有加载出来", moreErr, { id: "mc-more-err", label: "加载更多", hint: "再点一次「加载更多」试试。" }) : "") +
         (more ? `<button class="btn" id="mc-more"${loadingMore ? " disabled" : ""}>${loadingMore ? icon("spinner") + " 加载中…" : icon("chevronDown") + " 加载更多"}</button>
             <span class="hint">已列出 ${hits.length} 个</span>`
           : `<span class="hint" id="mc-more-end">${hits.length >= 100 ? `只列出最热门的 ${hits.length} 个。想找别的，用上面的搜索或类别。` : `已显示全部 ${hits.length} 个。`}</span>`);
@@ -226,7 +227,7 @@ window.MDModCart = (() => {
       } catch (e) {
         if (outdated()) return;
         loadingMore = false;
-        if (append) moreErr = e.message; else { hitState = "error"; hitErr = e.message; }
+        if (append) moreErr = e; else { hitState = "error"; hitErr = e; } // 留着整个报错：报错框要按它拼正文、复制原文
       }
       paintHits();
     };
@@ -255,7 +256,7 @@ window.MDModCart = (() => {
         if (skipped.length) toast(skipped.map(x => `${x.title || x.projectId}：${x.reason}`).join("；"), true);
         else toast(projectIds.length > 1 ? `已加入清单：${projectIds.length} 项前置` : `已加入清单：${one || "1 项"}`);
       } catch (e) {
-        toast(e.message, true);
+        toastErr("无法加入清单", e);
         if (!gone()) paintList(); // 加购失败也逐个按钮复位
       }
     };
@@ -365,7 +366,7 @@ window.MDModCart = (() => {
         ${(dep.conflicts || []).length ? `<div class="warn-card" style="margin:8px 0">
           <div class="wc-title">${icon("warn")} 有冲突，装之前先看一眼</div>
           <ul class="wc-list">${dep.conflicts.map(c => `<li>${esc(c)}</li>`).join("")}</ul></div>` : ""}
-        ${(dep.localHits || []).length ? `<div class="hint" style="margin:8px 0">服务器目录里已有的文件，安装时会跳过：${dep.localHits.map(esc).join("、")}</div>` : ""}
+        ${(dep.localHits || []).length ? `<div class="hint" style="margin:8px 0">服务器文件夹里已有的文件，安装时会跳过：${dep.localHits.map(esc).join("、")}</div>` : ""}
         ${(dep.unresolved || []).length ? `<div class="warn-card" style="margin:8px 0">
           <div class="wc-title">${icon("warn")} 查不到的前置</div>
           <ul class="wc-list">${dep.unresolved.map(x => `<li>${esc(x.title)}：${esc(x.reason)}</li>`).join("")}</ul></div>` : ""}`;
@@ -395,7 +396,7 @@ window.MDModCart = (() => {
         if (outdated()) return;
         dep = null;
         depState.textContent = "";
-        depBox.innerHTML = `<div class="err-box">前置没有查出来：${esc(e.message)}<div>检查一下网络，再点一次「检查前置」。</div></div>`;
+        depBox.innerHTML = errBox("前置没有查出来", e, { label: "前置检查", hint: "检查一下网络，再点一次「检查前置」。" });
       } finally { if (!outdated()) depBtn.disabled = false; }
     };
 
@@ -407,7 +408,7 @@ window.MDModCart = (() => {
         const d = await api("/api/modcart" + (targetQuery() ? "?" + targetQuery() : ""));
         if (outdated()) return;
         take(d);
-      } catch (e) { if (!outdated()) listEl.innerHTML = `<div class="err-box">待装清单没有读出来：${esc(e.message)}</div>`; }
+      } catch (e) { if (!outdated()) listEl.innerHTML = errBox("待装清单没有读出来", e, { label: "待装清单" }); }
     };
 
     /* ---- 清空 / 安装（详情页）---- */
@@ -416,7 +417,7 @@ window.MDModCart = (() => {
       if (!total() || clearBtn.disabled) return;
       clearBtn.disabled = true;
       try { await api("/api/modcart/clear", { method: "POST", body: target() }); }
-      catch (e) { toast(e.message, true); if (!gone() && clearBtn.isConnected) clearBtn.disabled = false; return; }
+      catch (e) { toastErr("无法清空清单", e); if (!gone() && clearBtn.isConnected) clearBtn.disabled = false; return; }
       if (gone()) return;
       clearBtn.disabled = false;
       if (dep) { dep = null; depBox.innerHTML = ""; } // 清单空了，上次查的前置不作数了
@@ -448,7 +449,7 @@ window.MDModCart = (() => {
         toast(`已开始安装清单里的 ${n} 项` + (running ? "。服务器正在运行，装完要重启才生效" : ""));
         location.hash = `#/task/${encodeURIComponent(r.taskId)}`;
       } catch (e) {
-        toast(e.message, true);
+        toastErr("无法开始安装", e);
         reset();
         if (!gone()) { dep = null; depBox.innerHTML = ""; reload(); } // 车可能变了：重新读一遍，旧的依赖检查结果也作废
       }

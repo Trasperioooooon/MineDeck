@@ -27,7 +27,7 @@ func TestGameChatRoutes(t *testing.T) {
 	}{
 		{"GET", ip + "/gameai", "", 200, "", nil},
 		{"GET", ip + "/gameai", "", 200, "", []reqOpt{fromLAN}},
-		{"GET", "/api/instances/nope/gameai", "", 404, "服务器不存在", nil},
+		{"GET", "/api/instances/nope/gameai", "", 404, "服务器「nope」不存在", nil},
 		{"PUT", ip + "/gameai", `{"enabled":true}`, 403, "游戏内 AI 的设置仅支持在本机修改", []reqOpt{fromLAN}},
 		{"PUT", ip + "/gameai", `{"prefix":"/ai"}`, 400, "前缀", nil},
 		{"PUT", ip + "/gameai", `{"templates":{"op":true}}`, 400, "没有这个命令模板", nil},

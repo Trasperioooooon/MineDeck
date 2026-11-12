@@ -2,6 +2,7 @@ package inst
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -54,6 +55,19 @@ func CheckPort(port int) error {
 	return nil
 }
 
+// startBusyMsg 服务器没停下时又点启动的说法，状态的叫法和界面上的状态标签一致。
+func startBusyMsg(state string) string {
+	switch state {
+	case "running":
+		return "服务器已经在运行了"
+	case "starting":
+		return "服务器正在启动，等它启动完成"
+	case "stopping":
+		return "服务器正在停止，等它停下来再启动"
+	}
+	return "服务器现在的状态是 " + state + "，停下来以后才能启动"
+}
+
 // Start 启动服务器进程。
 func (m *Manager) Start(name string) error {
 	i, err := m.Get(name)
@@ -67,10 +81,12 @@ func (m *Manager) Start(name string) error {
 	i.procMu.Lock()
 	defer i.procMu.Unlock()
 	if i.state != "" && i.state != "stopped" {
-		return fmt.Errorf("服务器当前状态为 %s", i.state)
+		return errors.New(startBusyMsg(i.state))
 	}
 	if _, err := os.Stat(i.JavaPath); err != nil {
-		return fmt.Errorf("找不到这台服务器用的 Java（%s）。请到「内存 / 启动」里重新选一个 Java。", i.JavaPath)
+		// 路径不放进报错：界面上的提示遇到路径只写结论，这句「去哪里改」就看不到了。路径记在控制台里，「内存 / 启动」页也看得到
+		i.Console.Append(fmt.Sprintf("[MineDeck] 找不到 Java：%s", i.JavaPath))
+		return errors.New("找不到这台服务器用的 Java，请到「内存 / 启动」里重新选一个 Java。")
 	}
 	// 代理端端口在其自带配置文件中，跳过 server.properties 端口预检
 	if mcsrc.KindOf(i.Core) != mcsrc.KindProxy {
@@ -374,12 +390,12 @@ func (m *Manager) OpenDir(name, sub string) error {
 	if sub = strings.TrimSpace(sub); sub != "" {
 		clean := filepath.Clean(sub)
 		if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-			return fmt.Errorf("非法子目录")
+			return fmt.Errorf("只能打开服务器文件夹里面的文件夹")
 		}
 		target = filepath.Join(i.Dir, clean)
 	}
 	if st, err := os.Stat(target); err != nil || !st.IsDir() {
-		return fmt.Errorf("目录尚不存在（服务器可能还没生成它）")
+		return fmt.Errorf("这个文件夹还不存在（服务器可能还没生成它）")
 	}
 	return exec.Command("explorer.exe", filepath.Clean(target)).Start()
 }
