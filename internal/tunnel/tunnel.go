@@ -7,7 +7,9 @@ package tunnel
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"net"
 	"os"
@@ -217,13 +219,17 @@ func (m *Manager) setLastErr(id, msg string) {
 	if msg == "" {
 		delete(m.lastErr, id)
 	} else {
-		// 按字符截：樱花那条「首次使用需手动放置 frpc」带着目录，中文按字节截会切在半个字上，下发时变成乱码
-		if r := []rune(msg); len(r) > 300 {
-			msg = string(r[:300]) + "…"
-		}
-		m.lastErr[id] = msg
+		m.lastErr[id] = clipLastErr(msg)
 	}
 	m.mu.Unlock()
+}
+
+// clipLastErr 失败原因按字符截到 300 字：樱花那条「首次使用需手动放置 frpc」带着目录，中文按字节截会切在半个字上，下发时变成乱码。
+func clipLastErr(msg string) string {
+	if r := []rune(msg); len(r) > 300 {
+		return string(r[:300]) + "…"
+	}
+	return msg
 }
 
 // lastError 隧道最近一次失败原因（没有时为空）。
@@ -402,6 +408,17 @@ func (m *Manager) start(id, why string) error {
 		m.setLastErr(id, why+err.Error())
 		return err
 	}
+	// failFrpc 准备或启动 frpc 失败。认得出是被杀毒软件拦下或删掉的，换成中文说明（卡片上、日志里都是这句），
+	// 系统给的原文跟在日志里。dir 是 frpc 所在的文件夹。
+	failFrpc := func(err error, dir string) error {
+		hint, ok := frpcBlockedHint(err, dir)
+		if !ok {
+			return fail(err)
+		}
+		e := fail(errors.New(hint))
+		con.Append("[MineDeck] 系统报错原文：" + err.Error())
+		return e
+	}
 	// 先解凭据再准备 frpc：解不开就不必下载 frpc
 	cred, err := secret.Unseal(snap.Credential)
 	if err != nil {
@@ -414,7 +431,7 @@ func (m *Manager) start(id, why string) error {
 	}
 	exe, err := p.EnsureFrpc(con)
 	if err != nil {
-		return fail(err)
+		return failFrpc(err, frpcDir(snap.Provider))
 	}
 	args, env, err := p.Launch(&snap)
 	if err != nil {
@@ -437,8 +454,12 @@ func (m *Manager) start(id, why string) error {
 	}
 	cmd.Stderr = cmd.Stdout
 	con.Append(fmt.Sprintf("[MineDeck] 启动 frpc（%s）...", snap.Provider))
-	if err := cmd.Start(); err != nil {
-		return fail(fmt.Errorf("frpc 启动失败: %w", err))
+	if err := startFrpc(cmd); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			// EnsureFrpc 刚找到它，启动时却说文件不存在：转眼被删了
+			err = fmt.Errorf("%w（%w）", errFrpcGone, err)
+		}
+		return failFrpc(fmt.Errorf("frpc 启动失败: %w", err), filepath.Dir(exe))
 	}
 	procutil.AssignToJob(cmd.Process)
 	rs := &runState{cmd: cmd, stdin: bufio.NewWriter(stdin)}
@@ -460,6 +481,7 @@ func (m *Manager) start(id, why string) error {
 		if ps := cmd.ProcessState; ps != nil {
 			exitMsg += fmt.Sprintf("（退出码 %d）", ps.ExitCode())
 		}
+		gone := frpcGoneHint(exe) // 跑着被杀毒软件掐掉、隔离了，exe 也跟着没了：卡片上说这个，不让人去查凭据
 		m.mu.Lock()
 		userStopped := rs.stopped
 		name := t.Name              // 在锁内取名，避免 delete 后与并发 Update 的 *old=t 竞争读 t.Name
@@ -469,14 +491,22 @@ func (m *Manager) start(id, why string) error {
 			// 「意外退出」和撤登记在同一段锁里记：放到锁外，撤登记之后、记错之前新的一次运行可能已经起来，旧的错会记到它头上（Codex 复审发现）。
 			// frpc 自己报过错的留着那条（更具体），没报就记「意外退出」，卡片上看得到
 			if !userStopped && m.lastErr[id] == "" {
-				m.lastErr[id] = exitMsg + "，检查凭据和隧道 ID，或者点「日志」看 frpc 的输出"
+				if gone != "" {
+					m.lastErr[id] = clipLastErr(gone)
+				} else {
+					m.lastErr[id] = exitMsg + "，检查凭据和隧道 ID，或者点「日志」看 frpc 的输出"
+				}
 			}
 		}
 		m.mu.Unlock()
 		if userStopped {
 			con.Append("[MineDeck] 隧道已停止")
 		} else if mine {
-			con.Append("[MineDeck] frpc 意外退出（检查凭据/隧道 ID 是否正确，或查看上方日志）")
+			if gone != "" {
+				con.Append("[MineDeck] " + exitMsg + "。" + gone)
+			} else {
+				con.Append("[MineDeck] frpc 意外退出（检查凭据/隧道 ID 是否正确，或查看上方日志）")
+			}
 			events.Publish("tunnel.down", map[string]any{"tunnel": name})
 		}
 	}()
@@ -578,6 +608,9 @@ const followActor = "跟随实例"
 
 // startDelay 实例启动后等多久再拉起跟随的隧道：等服务器进入启动流程。
 var startDelay = 2 * time.Second
+
+// startFrpc 启动 frpc 进程。测试里换掉它，模拟被杀毒软件拦下。
+var startFrpc = func(cmd *exec.Cmd) error { return cmd.Start() }
 
 // followArgs 跟随启停写进操作记录的参数：带上实例名 inst，按实例查操作记录时查得到。
 func (m *Manager) followArgs(id, instance string) map[string]any {

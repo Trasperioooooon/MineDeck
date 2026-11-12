@@ -51,24 +51,30 @@ func findExe(dir string) string {
 	}
 	ents, _ := os.ReadDir(dir)
 	for _, e := range ents {
-		if !e.IsDir() && strings.HasSuffix(strings.ToLower(e.Name()), ".exe") &&
-			strings.Contains(strings.ToLower(e.Name()), "frpc") {
+		if !e.IsDir() && isFrpcExeName(e.Name()) {
 			return filepath.Join(dir, e.Name())
 		}
 	}
 	return ""
 }
 
-// extractZipFlat 解压 zip 并抹平目录层级（frp 发行包带一层目录）。
-func extractZipFlat(zipPath, destDir string) error {
+// isFrpcExeName 文件名像不像 frpc 的 exe（findExe 和解压后的检查用同一套规则）。
+func isFrpcExeName(name string) bool {
+	n := strings.ToLower(name)
+	return strings.HasSuffix(n, ".exe") && strings.Contains(n, "frpc")
+}
+
+// extractZipFlat 解压 zip 并抹平目录层级（frp 发行包带一层目录），返回解压出来的文件名。
+func extractZipFlat(zipPath, destDir string) ([]string, error) {
 	zr, err := zip.OpenReader(zipPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer zr.Close()
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
-		return err
+		return nil, err
 	}
+	var names []string
 	for _, f := range zr.File {
 		if f.FileInfo().IsDir() {
 			continue
@@ -79,12 +85,12 @@ func extractZipFlat(zipPath, destDir string) error {
 		}
 		rc, err := f.Open()
 		if err != nil {
-			return err
+			return names, err
 		}
 		w, err := os.Create(filepath.Join(destDir, base))
 		if err != nil {
 			rc.Close()
-			return err
+			return names, err
 		}
 		_, cerr := io.Copy(w, rc)
 		rc.Close()
@@ -92,10 +98,11 @@ func extractZipFlat(zipPath, destDir string) error {
 			cerr = werr
 		}
 		if cerr != nil {
-			return cerr
+			return names, cerr
 		}
+		names = append(names, base)
 	}
-	return nil
+	return names, nil
 }
 
 // ---------- OpenFrp（基于 OpenFrp OPENAPI，接入条款要求显著署名） ----------
@@ -164,14 +171,11 @@ func (openfrpProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	if err := dl.Fetch(ctx, dl.Request{URLs: urls, Dest: zipPath, MinSize: 1 << 20}, nil); err != nil {
 		return "", fmt.Errorf("下载 OpenFrp frpc 失败: %w", err)
 	}
-	if err := extractZipFlat(zipPath, dir); err != nil {
+	names, err := extractZipFlat(zipPath, dir)
+	if err != nil {
 		return "", err
 	}
-	exe := findExe(dir)
-	if exe == "" {
-		return "", fmt.Errorf("OpenFrp frpc 解压后未找到可执行文件")
-	}
-	return exe, nil
+	return frpcAfterExtract(dir, names, fmt.Errorf("OpenFrp frpc 解压后未找到可执行文件"))
 }
 
 func (openfrpProvider) Launch(t *Tunnel) ([]string, []string, error) {
@@ -191,11 +195,13 @@ func (natfrpProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	if exe := findExe(dir); exe != "" {
 		return exe, nil
 	}
-	// 樱花未提供稳定的直链下载 API，引导用户手动放置（一次性操作）
+	// 樱花未提供稳定的直链下载 API，引导用户手动放置（一次性操作）。
+	// 放过又不见了的，多半是被杀毒软件删了（见 blocked.go）：程序分不出是没放过还是被删了，两种都说到。
 	_ = os.MkdirAll(dir, 0o755)
 	return "", fmt.Errorf(
 		"首次使用需手动放置樱花 frpc：登录 SakuraFrp 管理面板 → 软件下载 → 下载「frpc」Windows amd64 版，"+
-			"把 exe 放入 %s 目录后重试（仅需一次）", dir)
+			"把 exe 放入 %s 目录后重试（仅需一次）。放过以后又不见了的，多半是被杀毒软件删了，"+
+			"到 Windows 安全中心的「保护历史记录」里允许或还原它", dir)
 }
 
 func (natfrpProvider) Launch(t *Tunnel) ([]string, []string, error) {
@@ -231,12 +237,13 @@ func (customProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	if err := dl.Fetch(ctx, dl.Request{URLs: urls, Dest: zipPath, SHA256: frpSHA256, MinSize: 1 << 20}, nil); err != nil {
 		return "", fmt.Errorf("下载 frp 客户端失败（可手动将 frpc.exe 放入 %s）: %w", dir, err)
 	}
-	if err := extractZipFlat(zipPath, dir); err != nil {
+	names, err := extractZipFlat(zipPath, dir)
+	if err != nil {
 		return "", err
 	}
-	exe := findExe(dir)
-	if exe == "" {
-		return "", fmt.Errorf("frp 解压后未找到 frpc.exe")
+	exe, err := frpcAfterExtract(dir, names, fmt.Errorf("frp 解压后未找到 frpc.exe"))
+	if err != nil {
+		return "", err
 	}
 	return exe, nil
 }
