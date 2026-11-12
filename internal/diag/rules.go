@@ -126,7 +126,7 @@ func ruleMissingDeps(c *ruleCtx) *Finding {
 	f.Mods, f.Files = uniq(f.Mods), uniq(f.Files)
 	f.Summary = fmt.Sprintf("少装了前置模组，或者前置的版本不对：%s", strings.Join(uniq(names), "、"))
 	f.Fixes = []string{
-		"按模组 ID 去 Modrinth 搜这个前置（选和服务器一样的加载器和 MC 版本），装进 mods 目录",
+		"按模组 ID 去 Modrinth 搜这个前置（选和服务器一样的加载器和 MC 版本），装进 mods 文件夹",
 		"版本不对的，换成满足版本范围的那一版",
 		"好友的客户端也要装同样的前置",
 	}
@@ -219,7 +219,7 @@ func ruleClientOnly(c *ruleCtx) *Finding {
 		who = strings.Join(f.Mods, "、")
 	}
 	f.Summary = fmt.Sprintf("%s 只能装在客户端（小地图、界面美化、光影一类），服务端加载它时用到了客户端才有的类 %s", who, strings.ReplaceAll(cls, "/", "."))
-	f.Fixes = []string{"把这个模组从服务端禁用（mods 目录里改名成 .jar.disabled），客户端照常装着就行"}
+	f.Fixes = []string{"把这个模组从服务端禁用（mods 文件夹里改名成 .jar.disabled），客户端照常装着就行"}
 	if len(f.Files) == 0 {
 		f.Fixes = append(f.Fixes, "认不出是哪个 jar：看报错下面的堆栈，第一个不是 net.minecraft、net.neoforged、net.minecraftforge 开头的类属于哪个模组")
 	}

@@ -52,16 +52,16 @@ func ExportAsync(m *inst.Manager, req ExportReq) (string, error) {
 	if dest != "" {
 		dest = filepath.Clean(dest)
 		if st, err := os.Stat(dest); err != nil || !st.IsDir() {
-			return "", fmt.Errorf("导出目录不可用: %s", dest)
+			return "", fmt.Errorf("导出文件夹不可用: %s", dest)
 		}
 		// 目录在本实例的文件夹里的话，下一次导出会把上次的包也打进去
 		if rel, err := filepath.Rel(i.Dir, dest); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-			return "", fmt.Errorf("导出目录不能放在这台服务器的文件夹里面，请另选一个位置")
+			return "", fmt.Errorf("导出文件夹不能放在这台服务器的文件夹里面，请另选一个位置")
 		}
 	} else {
 		dest = filepath.Join(app.CacheDir, "transfer")
 		if err := os.MkdirAll(dest, 0o755); err != nil {
-			return "", fmt.Errorf("导出目录不可用: %w", err)
+			return "", fmt.Errorf("导出文件夹不可用: %w", err)
 		}
 	}
 	mode := req.Mode
@@ -270,7 +270,7 @@ func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, 
 	}
 	for _, w := range i.WorldDirs() {
 		if err := walk(w, &worldBytes, nil); err != nil {
-			return "", fmt.Errorf("清点世界目录失败: %w", err)
+			return "", fmt.Errorf("清点世界文件夹失败: %w", err)
 		}
 	}
 	// level-name 之外的世界（Multiverse 这类多世界插件建的大厅、资源世界）：根目录下带 level.dat 的文件夹都是世界
@@ -287,7 +287,7 @@ func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, 
 				continue
 			}
 			if err := walk(e.Name(), &worldBytes, nil); err != nil {
-				return "", fmt.Errorf("清点世界目录失败: %w", err)
+				return "", fmt.Errorf("清点世界文件夹失败: %w", err)
 			}
 			t.Logf("另一个世界 %s 也一起带上", e.Name())
 		}

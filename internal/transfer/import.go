@@ -78,9 +78,10 @@ func ImportAsync(m *inst.Manager, path string, req ImportReq) (string, error) {
 		defer m.ReleaseCreate(req.Name, dir)
 		defer os.Remove(path) // 上传的包在导入结束（成功/失败）后删除：交接包动辄几个 GB，不能留副本攒着
 		if err := runImport(ctx, t, m, mf, path, req, dir); err != nil {
-			t.Fail(err)
+			// 先清后报失败：失败框上写着「半成品已经清理干净，可以重试」，任务一显示失败就得是真的（测试也是一看到失败就去查文件夹）
 			_ = m.Delete(req.Name, false) // 万一已经注册（收尾失败）：从列表移出
 			os.RemoveAll(dir)             // 目录是本程序新建的半成品，整体清掉
+			t.Fail(err)
 			return
 		}
 		t.Finish(req.Name)
@@ -202,7 +203,7 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 	// 包里的 server.properties 是原样用的：世界目录的名字指到服务器文件夹外面的包不要
 	// （服务器一启动就会去动那个文件夹，备份和还原也跟着找过去）。
 	if name, ok := inst.CheckLevelName(dir); !ok {
-		return fmt.Errorf("交接包里的 server.properties 把世界目录（level-name）指到了服务器文件夹外面：%s", name)
+		return fmt.Errorf("交接包里的 server.properties 把世界文件夹（level-name）指到了服务器文件夹外面：%s", name)
 	}
 
 	// ---- 步骤 5：生成启动脚本 + 注册 ----

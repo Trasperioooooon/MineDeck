@@ -303,7 +303,7 @@ func TestCheckAdoptDirRealPaths(t *testing.T) {
 	bk := filepath.Join(user, "with-backups", "bk")
 	writeTree(t, filepath.Join(user, "with-backups"), map[string]string{"server.jar": vanilla21, "bk/x.zip": "x"})
 	setConfig(t, func(c *app.Config) { c.BackupsDir = bk })
-	if _, err := m.checkAdoptDir(filepath.Join(user, "with-backups")); err == nil || !strings.Contains(err.Error(), "备份目录") {
+	if _, err := m.checkAdoptDir(filepath.Join(user, "with-backups")); err == nil || !strings.Contains(err.Error(), "备份文件夹") {
 		t.Errorf("里面放着备份目录的文件夹应拒绝：%v", err)
 	}
 	setConfig(t, func(c *app.Config) { c.BackupsDir, c.BackupRoots = "", nil })

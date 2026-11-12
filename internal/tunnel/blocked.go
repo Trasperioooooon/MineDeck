@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+
+	"minedeck/internal/dl"
 )
 
 // ---------- frpc 被杀毒软件拦下 ----------
@@ -26,19 +28,26 @@ const (
 // 或者跑着跑着退出、exe 也没了。多半是杀毒软件把它隔离了。
 var errFrpcGone = errors.New("frpc 不见了")
 
+// isVirusErr 系统报「文件里有病毒或可能不需要的软件」。225、226 是 Windows 的通用错误码，
+// Windows 安全中心和别的杀毒软件拦文件时都会给，所以说明里不咬定是哪一家。
+func isVirusErr(err error) bool {
+	return errors.Is(err, errVirusInfected) || errors.Is(err, errVirusDeleted)
+}
+
 // frpcBlockedHint 认出 frpc 被杀毒软件拦下或删掉时，返回给人看的说明；认不出时 ok 为 false。dir 是 frpc 所在的文件夹。
+// 下载 frpc 的多个源里，有一个写盘时被拦下、最后一个只是 404 的，也要认出来（dl.AnyFailure 逐个看每个源）。
 func frpcBlockedHint(err error, dir string) (hint string, ok bool) {
 	var head string
 	switch {
-	case errors.Is(err, errVirusInfected), errors.Is(err, errVirusDeleted):
-		head = "frpc 被 Windows 安全中心拦下了"
+	case dl.AnyFailure(err, isVirusErr):
+		head = "frpc 被杀毒软件拦下了"
 	case errors.Is(err, errFrpcGone):
-		head = "frpc 不见了，多半是被 Windows 安全中心或别的杀毒软件删掉了"
+		head = "frpc 不见了，多半是被杀毒软件删掉了"
 	default:
 		return "", false
 	}
-	return head + "（frp 这类内网穿透程序常被当成风险软件）。要继续用，到 Windows 安全中心的「保护历史记录」里找到 frpc，" +
-		"允许或还原它，再启动隧道；用别的杀毒软件的，到它的隔离区里恢复。frpc 在这个文件夹：" + dir, true
+	return head + "（frp 这类内网穿透程序常被当成风险软件）。要继续用：Windows 自带的防护，到 Windows 安全中心的「保护历史记录」里找到 frpc，" +
+		"允许或还原它；别的杀毒软件，到它的隔离区里恢复。然后再启动隧道。frpc 在这个文件夹：" + dir, true
 }
 
 // frpcGoneHint frpc 意外退出以后 exe 也不在了（跑着被杀毒软件掐掉、隔离），返回说明；exe 还在时返回空串。

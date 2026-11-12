@@ -190,7 +190,7 @@ func (c *cat) musicOps() {
 				return nil, musicErr(err)
 			}
 			plan := &ops.Plan{Pre: map[string]string{
-				"实例状态":        pv.Status,
+				"服务器状态":       pv.Status,
 				"mods 里的桥接模组": strings.Join(append([]string{pv.Current.File}, pv.Current.Others...), "、"),
 			}}
 			if pv.Noop {
@@ -238,7 +238,7 @@ func (c *cat) musicOps() {
 			}
 			plan := &ops.Plan{
 				Summary: fmt.Sprintf("给「%s」从 Modrinth 安装 Simple Voice Chat（%s %s 版里最新的正式版）", p.Inst, pv.Loader, pv.MC),
-				Pre:     map[string]string{"实例状态": pv.Status, "mods 里的 SVC": "无"},
+				Pre:     map[string]string{"服务器状态": pv.Status, "mods 里的 SVC": "无"},
 				Changes: []ops.Change{{What: "mods/（Simple Voice Chat）", Before: "无", After: "从 Modrinth 下载安装"}},
 			}
 			if pv.Running {
@@ -280,7 +280,7 @@ func (c *cat) musicOps() {
 			if err != nil {
 				return nil, err
 			}
-			plan := &ops.Plan{Pre: map[string]string{"SVC 的配置文件": sum, "实例状态": i.Status(), "要写的地址": ch.After}}
+			plan := &ops.Plan{Pre: map[string]string{"SVC 的配置文件": sum, "服务器状态": i.Status(), "要写的地址": ch.After}}
 			if !ch.Changed {
 				plan.Summary = fmt.Sprintf("「%s」的 voice_host 已经是「%s」，不用改", p.Inst, orEmpty(ch.After))
 				return plan, nil

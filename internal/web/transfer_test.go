@@ -226,7 +226,7 @@ func TestTransferRoutes(t *testing.T) {
 	}
 	// 打包方式不认识的直接拒
 	e.call(t, "POST", ip+"/transfer/export", `{"mode":"别的什么"}`, 400)
-	// 不存在的实例报「服务器不存在」
+	// 不存在的服务器直接报错
 	e.call(t, "POST", "/api/instances/nope/transfer/export", `{}`, 400)
 
 }

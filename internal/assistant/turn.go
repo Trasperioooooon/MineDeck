@@ -725,7 +725,7 @@ func (s *Service) Context(ctx context.Context, who ops.Caller, id string) (*Prev
 	inst, caller := sess.Inst, sess.caller()
 	sess.mu.Unlock()
 	if inst == "" {
-		return nil, ops.Errorf(400, "这个会话没有关联实例")
+		return nil, ops.Errorf(400, "这个会话没有关联服务器")
 	}
 	text, err := s.pack(ctx, caller, inst)
 	if err != nil {
