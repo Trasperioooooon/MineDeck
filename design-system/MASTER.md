@@ -215,7 +215,7 @@ v5 的层级色由脚本从 v4 推导：保持每套方案的色相与彩度，�
 - 形状要能区分：例如「设置」用带齿的齿轮，不能和「浅色」的太阳图标混淆。
 - 不用 emoji 作界面图标或标题装饰（用户内容如 MOTD、控制台输出除外）。
 - 纯图标按钮必须有 `aria-label` 或 `title`；图标栏模式下侧栏标签进 `title`。
-- **应用图标：方案 B「体素机柜」**——等距视角的方块：草皮盖 + 深色机柜身，左面指示灯与插槽、右面散热条。逐尺寸绘制的像素画：16 / 24 / 32 各画一张原生网格，48 = 24 网格 ×2，64 / 128 / 256 = 32 网格 ×2 / ×4 / ×8，全部最近邻放大，没有半像素。`assets/icon.ico` 含这 7 档，用于窗口、任务栏与托盘（`icon_windows.go` 经 `go:embed` 内嵌）；exe 文件图标由 `rsrc_windows_amd64.syso` 提供，**换图标后须重新生成它**：`go run github.com/akavel/rsrc@v0.10.2 -ico assets/icon.ico -arch amd64 -o rsrc_windows_amd64.syso`（或用 mingw 的 windres 编译只含 `1 ICON "assets/icon.ico"` 的 .rc）。
+- **应用图标：方案 B「体素机柜」**——等距视角的方块：草皮盖 + 深色机柜身，左面指示灯与插槽、右面散热条。逐尺寸绘制的像素画：16 / 24 / 32 各画一张原生网格，48 = 24 网格 ×2，64 / 128 / 256 = 32 网格 ×2 / ×4 / ×8，全部最近邻放大，没有半像素。`assets/icon.ico` 含这 7 档，用于窗口、任务栏与托盘（`assets/assets.go` 经 `go:embed` 内嵌，`cmd/minedeck/icon_windows.go` 取用）；exe 文件图标由 `cmd/minedeck/rsrc_windows_amd64.syso` 提供，**换图标后须重新生成它**：`go run github.com/akavel/rsrc@v0.10.2 -ico assets/icon.ico -arch amd64 -o cmd/minedeck/rsrc_windows_amd64.syso`（或用 mingw 的 windres 编译只含 `1 ICON "assets/icon.ico"` 的 .rc）。
 - **Logo**：界面里用同一套像素画，固定配色、不随强调色变化：标题栏 16px（`img/logo-16/20/24/32/48.png`，按屏幕缩放取原生网格；125% 用 16 网格加 2px 透明边的 20px 版 1:1 显示）；引导卡、关于页、局域网登录框 48px（`logo-48/72/96/144.png`）；网页标签图标 `logo-16/32.png`。一律 `image-rendering: pixelated`。启动画面的方块拼图取自 16px 那一张。
 
 ## 8. 异步视图三态

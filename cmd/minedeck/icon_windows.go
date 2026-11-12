@@ -6,18 +6,19 @@ package main
 // - 深色标题栏：DwmSetWindowAttribute(DWMWA_USE_IMMERSIVE_DARK_MODE) 让系统标题栏转深色，匹配深色主题。
 
 import (
-	_ "embed"
 	"os"
 	"path/filepath"
 	"sync"
 	"syscall"
 	"unsafe"
 
+	"minedeck/assets"
+
 	"golang.org/x/sys/windows"
 )
 
-//go:embed assets/icon.ico
-var icoData []byte
+// 图标文件在仓库根的 assets/ 里，go:embed 够不到上级目录，所以由 assets 包内嵌、这里取用。
+var icoData = assets.IconICO
 
 const (
 	_IMAGE_ICON      = 1

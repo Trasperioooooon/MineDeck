@@ -176,13 +176,13 @@ Building from source on Windows needs Go 1.25 or later:
 
 ```powershell
 $env:GOPROXY = 'https://goproxy.cn,direct'
-go build -trimpath -ldflags="-s -w -H windowsgui" -o MineDeck.exe .
+go build -trimpath -ldflags="-s -w -H windowsgui" -o MineDeck.exe ./cmd/minedeck
 ```
 
 A debug build with console logging:
 
 ```powershell
-go build -o minedeck-cli.exe .
+go build -o minedeck-cli.exe ./cmd/minedeck
 .\minedeck-cli.exe -nogui
 ```
 

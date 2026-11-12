@@ -364,7 +364,7 @@ func TestSchemeListsInSync(t *testing.T) {
 // 必须等于默认方案的标题栏色 --chrome，否则冷启动会先闪一下别的颜色。
 func TestDefaultWindowBackground(t *testing.T) {
 	schemes, _ := parseThemes(t)
-	src, err := os.ReadFile("../../webviewbg_windows.go")
+	src, err := os.ReadFile("../../cmd/minedeck/webviewbg_windows.go")
 	if err != nil {
 		t.Fatal(err)
 	}

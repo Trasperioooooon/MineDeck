@@ -21,7 +21,7 @@ jobs:
       - name: Test
         run: go test ./...
       - name: Build
-        run: go build -trimpath -ldflags="-s -w -H windowsgui" -o MineDeck.exe .
+        run: go build -trimpath -ldflags="-s -w -H windowsgui" -o MineDeck.exe ./cmd/minedeck
       - name: Companion mods
         shell: pwsh
         run: |
