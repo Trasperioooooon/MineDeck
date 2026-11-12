@@ -341,11 +341,11 @@ Radix Colors 暖中性三阶（核实自官方仓库 `src/light.ts`）：
 
 | 键名 | 值类型与可选值 | 默认值 | 中文名称 | 说明 | 版本备注 |
 |---|---|---|---|---|---|
-| motd | 字符串（支持 § 颜色代码） | A Minecraft Server | 服务器简介 | 显示在多人游戏服务器列表里的介绍文字。 | |
+| motd | 字符串（支持 § 颜色代码） | A Minecraft Server | 服务器介绍 | 显示在多人游戏服务器列表里的介绍文字。 | |
 | gamemode | 枚举：survival / creative / adventure / spectator；旧版用数字 0/1/2/3（新版仍兼容数字） | survival | 默认游戏模式 | 新玩家进服时的模式：生存/创造/冒险/旁观。 | 名称写法 1.14+，1.13 及以前只能写数字 |
 | force-gamemode | 布尔：true / false | false | 强制游戏模式 | 开启后玩家每次进服都被改回默认游戏模式。 | |
 | difficulty | 枚举：peaceful / easy / normal / hard；旧版用数字 0/1/2/3（新版仍兼容数字） | easy | 游戏难度 | 和平/简单/普通/困难；和平模式不刷怪、不掉饥饿。 | 名称写法 1.14+，1.13 及以前只能写数字 |
-| hardcore | 布尔 | false | 极限模式 | 难度锁死困难；玩家死亡后进旁观（旧版为直接封禁）。 | |
+| hardcore | 布尔 | false | 极限模式 | 难度固定为困难。玩家死亡后进入旁观。 | |
 | pvp | 布尔 | true | 玩家互斗 | 关闭后玩家之间无法互相攻击造成伤害。 | 1.21.9 移除，改用游戏规则 pvp |
 | allow-flight | 布尔 | false | 允许飞行 | 允许生存玩家用模组飞行；关闭时悬空玩家会被踢出。 | |
 | allow-nether | 布尔 | true | 允许下界 | 关闭后下界传送门失效，玩家无法前往下界。 | 1.21.9 移除，改用游戏规则 allowEnteringNetherUsingPortals |
@@ -375,8 +375,8 @@ Radix Colors 暖中性三阶（核实自官方仓库 `src/light.ts`）：
 | 键名 | 值类型与可选值 | 默认值 | 中文名称 | 说明 | 版本备注 |
 |---|---|---|---|---|---|
 | max-players | 整数 0–2147483647 | 20 | 最大人数 | 服务器最多同时在线的玩家数。 | |
-| online-mode | 布尔 | true | 正版验证 | 开启只许正版账号进入；关闭则任何人可用任意名字进服。 | |
-| white-list | 布尔 | false | 白名单开关 | 开启后只有名单内玩家能进服；OP 自动豁免。 | 26.3 快照起默认改为 true |
+| online-mode | 布尔 | true | 正版验证 | 开启之后，只有正版账号能进。关闭之后，任何人可以用任意名字进服。 | |
+| white-list | 布尔 | false | 白名单开关 | 开启之后，只有名单里的玩家能进。OP 不受白名单限制。 | 26.3 快照起默认改为 true |
 | enforce-whitelist | 布尔 | false | 强制白名单 | 重载白名单时，把已在线但不在名单里的玩家立即踢出。 | 1.13+ |
 | op-permission-level | 整数 0–4 | 4 | OP 权限等级 | /op 授予的权限级别；4 最高，可用 /stop 等全部命令。 | |
 | function-permission-level | 整数 1–4 | 2 | 函数权限等级 | 数据包函数执行命令时使用的权限级别。 | 1.14.4+ |
@@ -388,13 +388,13 @@ Radix Colors 暖中性三阶（核实自官方仓库 `src/light.ts`）：
 | 键名 | 值类型与可选值 | 默认值 | 中文名称 | 说明 | 版本备注 |
 |---|---|---|---|---|---|
 | view-distance | 整数 3–32（区块） | 10 | 视距 | 服务器发给玩家的地图范围；越大越吃内存和带宽。 | |
-| simulation-distance | 整数 3–32（区块） | 10 | 模拟距离 | 生物、作物等"活动运算"的范围；越大越吃 CPU。 | 1.18+ |
-| entity-broadcast-range-percentage | 整数 10–1000（%） | 100 | 实体可见距离 | 实体多远仍发送给玩家的百分比；调低省流量但远处实体消失。 | 1.16+ |
+| simulation-distance | 整数 3–32（区块） | 10 | 模拟距离 | 生物和作物会在这个范围内继续活动。范围越大，越占 CPU。 | 1.18+ |
+| entity-broadcast-range-percentage | 整数 10–1000（%） | 100 | 实体可见距离 | 实体离玩家多远还发给客户端，按百分比算。调低能少用流量，但远处的实体会看不到。 | 1.16+ |
 | max-tick-time | 整数（毫秒；-1=关闭看门狗） | 60000 | 卡死超时 | 单刻卡顿超过该毫秒数即判定死机并强制关服。 | |
 | max-chained-neighbor-updates | 整数（负数=不限制） | 1000000 | 连锁更新上限 | 限制红石等连锁方块更新数量，防恶意机器卡服。 | 1.19+ |
 | network-compression-threshold | 整数（-1=不压缩；0=全压缩） | 256 | 网络压缩阈值 | 数据包超过该字节数才压缩；内网服可设 -1 省 CPU。 | |
 | rate-limit | 整数（0=不限制） | 0 | 发包限速 | 玩家发包超过该速率会被踢出，0 为不限制。 | 1.16.2+ |
-| sync-chunk-writes | 布尔 | true | 同步写区块 | 同步写盘更防崩溃丢档；关闭后存档更快但有丢档风险。 | 1.16+ |
+| sync-chunk-writes | 布尔 | true | 同步写区块 | 同步写入磁盘，崩溃时更不容易丢档。关掉之后存档更快，但有丢档的风险。 | 1.16+ |
 | use-native-transport | 布尔 | true | Linux 网络优化 | 仅 Linux 服务器生效的收发包优化，一般不用动。 | |
 | region-file-compression | 枚举：deflate / lz4 / none | deflate | 区块压缩算法 | 存档压缩方式：lz4 读写更快但占盘更大，none 不压缩。 | 1.20.5+ |
 | pause-when-empty-seconds | 整数（秒） | 60 | 空服暂停 | 无人在线超过该秒数后暂停世界运算，节省资源。 | 1.21.2+ |
@@ -405,7 +405,7 @@ Radix Colors 暖中性三阶（核实自官方仓库 `src/light.ts`）：
 |---|---|---|---|---|---|
 | server-ip | 字符串（IP 地址） | 空 | 监听 IP | 绑定的本机 IP；一般留空即监听全部网卡。 | |
 | server-port | 整数 1–65534 | 25565 | 服务器端口 | 玩家连接用的 TCP 端口，需在防火墙/路由器放行。 | |
-| enable-status | 布尔 | true | 列表在线状态 | 关闭后服务器在列表中显示"离线"，也看不到简介和人数。 | 1.16+ |
+| enable-status | 布尔 | true | 列表在线状态 | 关闭后服务器在列表中显示“离线”，也看不到服务器介绍和人数。 | 1.16+ |
 | hide-online-players | 布尔 | false | 隐藏在线名单 | 开启后状态查询不返回在线玩家名字。 | 1.18+ |
 | enable-query | 布尔 | false | Query 查询 | 开启 GameSpy4 协议，供面板/网站查询服务器信息。 | |
 | query.port | 整数 1–65534 | 25565 | Query 端口 | Query 查询使用的 UDP 端口。 | |
@@ -418,13 +418,13 @@ Radix Colors 暖中性三阶（核实自官方仓库 `src/light.ts`）：
 | log-ips | 布尔 | true | 记录玩家 IP | 玩家进服时是否把其 IP 地址写入日志。 | 1.20.2+ |
 | accepts-transfers | 布尔 | false | 接受转移 | 允许其他服务器用转移包把玩家直接送进本服。 | 1.20.5+ |
 | status-heartbeat-interval | 整数（秒；0=关闭） | 0 | 状态心跳 | 管理协议定时推送服务器状态的间隔秒数。 | 1.21.9+ |
-| management-server-enabled | 布尔 | false | 管理协议开关 | 开启官方"服务器管理协议"，供面板实时管理服务器。 | 1.21.9+ |
+| management-server-enabled | 布尔 | false | 管理协议开关 | 开启官方“服务器管理协议”，供面板实时管理服务器。 | 1.21.9+ |
 | management-server-host | 字符串 | localhost | 管理协议地址 | 管理协议监听的主机地址。 | 1.21.9+ |
 | management-server-port | 整数 0–65534（0=自动分配） | 0 | 管理协议端口 | 管理协议监听端口，0 为自动分配。 | 1.21.9+ |
-| management-server-secret | 字符串（40 位字母数字） | 自动生成 | 管理协议密钥 | 连接管理协议时的身份认证密钥。 | 1.21.9+ |
+| management-server-secret | 字符串（40 位字母数字） | 自动生成 | 管理协议密钥 | 连接管理协议时的身份认证密钥；留空由服务器自动生成 40 位密钥。 | 1.21.9+ |
 | management-server-tls-enabled | 布尔 | true | 管理 TLS | 管理协议连接是否使用 TLS 加密。 | 1.21.9+ |
 | management-server-tls-keystore | 字符串（文件路径） | 空 | TLS 证书库 | 自定义 TLS 证书库（keystore）文件路径。 | 1.21.9+ |
-| management-server-tls-keystore-password | 字符串 | 空 | 证书库密码 | 上述证书库文件的密码。 | 1.21.9+ |
+| management-server-tls-keystore-password | 字符串 | 空 | 证书库密码 | TLS 证书库文件的密码。 | 1.21.9+ |
 | management-server-allowed-origins | 字符串（逗号分隔） | 空 | 管理跨域来源 | 允许连接管理协议的网页来源（Origin）列表。 | 1.21.9+ |
 
 ### 资源包
@@ -443,9 +443,9 @@ Radix Colors 暖中性三阶（核实自官方仓库 `src/light.ts`）：
 |---|---|---|---|---|---|
 | prevent-proxy-connections | 布尔 | false | 阻止代理连接 | 踢出疑似用 VPN/代理连接的玩家；仅正版验证下有效。 | |
 | text-filtering-config | 字符串 | 空 | 聊天过滤配置 | Realms 内部使用的聊天过滤接口，普通服务器勿动。 | 1.16.4+ |
-| text-filtering-version | 整数：0 / 1 | 0 | 过滤配置版本 | 上述聊天过滤配置所用的格式版本号。 | 1.21.2+ |
+| text-filtering-version | 整数：0 / 1 | 0 | 过滤配置版本 | 聊天过滤配置所用的格式版本号。 | 1.21.2+ |
 | chat-spam-threshold-seconds | 整数（秒） | 10 | 聊天刷屏阈值 | 连续刷屏超过阈值会被踢出；调大更宽容。 | 26.2+ |
-| command-spam-threshold-seconds | 整数（秒） | 10 | 命令刷屏阈值 | 同上，针对连续执行命令的刷屏判定。 | 26.2+ |
-| bug-report-link | 字符串（URL） | 空 | 问题反馈链接 | 客户端"报告服务器问题"按钮指向的网址。 | 1.21+ |
+| command-spam-threshold-seconds | 整数（秒） | 10 | 命令刷屏阈值 | 连续执行命令超过阈值会被踢出；调大更宽容。 | 26.2+ |
+| bug-report-link | 字符串（URL） | 空 | 问题反馈链接 | 客户端“报告服务器问题”按钮指向的网址。 | 1.21+ |
 | snooper-enabled | 布尔 | true | 数据上报 | 是否向 Mojang 发送匿名统计数据。 | 1.18 移除 |
 | previews-chat | 布尔 | false | 聊天预览 | 发送前向服务器请求聊天样式预览。 | 仅 1.19–1.19.2 存在 |

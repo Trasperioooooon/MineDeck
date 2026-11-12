@@ -776,6 +776,7 @@ type TestResult struct {
 	Eager     *bool  `json:"eager,omitempty"`    // Claude：eager_input_streaming 能不能用
 	Fallback  *bool  `json:"fallback,omitempty"` // Claude：服务端回退能不能用
 	Error     string `json:"error,omitempty"`
+	Hint      string `json:"hint,omitempty"` // 失败原因里给人看的那一句（见 APIError.Hint），界面的正文接它；完整原文是 Error
 	Stop      string `json:"stop,omitempty"`
 }
 
@@ -806,7 +807,7 @@ func (s *Service) Test(ctx context.Context) (*TestResult, error) {
 		tools = "no"
 	}
 	if err != nil {
-		return &TestResult{Error: err.Error(), Tools: "unknown"}, nil
+		return &TestResult{Error: err.Error(), Hint: hintOf(err), Tools: "unknown"}, nil
 	}
 	out := res.out
 	out.OK, out.Tools = true, tools

@@ -83,7 +83,7 @@ func (m *Manager) checkAdoptDir(dir string) (string, error) {
 		return "", fmt.Errorf("不能选整个磁盘，请选服务器所在的那个文件夹")
 	}
 	if within(realPath(app.Base), real) {
-		return "", fmt.Errorf("不能选 MineDeck 自己的程序目录（或它的上层）。服务器和 MineDeck.exe 放在同一个文件夹里的话，请先把 MineDeck.exe 挪到一个单独的文件夹")
+		return "", fmt.Errorf("不能选 MineDeck 自己的程序文件夹（或它的上层）。服务器和 MineDeck.exe 放在同一个文件夹里的话，请先把 MineDeck.exe 挪到一个单独的文件夹")
 	}
 	for _, r := range []string{app.RuntimesDir, app.CacheDir} {
 		if r != "" && within(real, realPath(r)) {
@@ -96,13 +96,13 @@ func (m *Manager) checkAdoptDir(dir string) (string, error) {
 			continue
 		}
 		if rr := realPath(r); within(real, rr) || within(rr, real) {
-			return "", fmt.Errorf("这个文件夹和 MineDeck 的备份目录（%s）叠在一起了，不能当服务器接管", r)
+			return "", fmt.Errorf("这个文件夹和 MineDeck 的备份文件夹（%s）叠在一起了，不能当服务器接管", r)
 		}
 	}
 	// 新建的服务器都放在这两个目录下面：把它们（或它们的上层）当成一台服务器，以后新建的就建到这台服务器里面去了
 	for _, r := range []string{app.ServersDir, app.ServersRoot()} {
 		if r != "" && within(realPath(r), real) {
-			return "", fmt.Errorf("这是存放服务器的总目录，请选到里面具体那一台服务器的文件夹")
+			return "", fmt.Errorf("这是存放服务器的总文件夹，请选到里面具体那一台服务器的文件夹")
 		}
 	}
 	for _, i := range m.List() {
@@ -119,7 +119,7 @@ func overlapErr(dir, other, name string) error {
 	case sameDir(other, dir):
 		return fmt.Errorf("这个文件夹已经在列表里了，就是「%s」", name)
 	case within(dir, other):
-		return fmt.Errorf("这个文件夹在服务器「%s」的目录里面，不能单独接管", name)
+		return fmt.Errorf("这个文件夹在服务器「%s」的文件夹里面，不能单独接管", name)
 	case within(other, dir):
 		return fmt.Errorf("这个文件夹里面还放着服务器「%s」，请选到具体那一台服务器的文件夹", name)
 	}
@@ -242,7 +242,7 @@ func (m *Manager) validateAdopt(req *AdoptReq) (*AdoptScan, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, taken := m.insts[req.Name]; taken {
-		return nil, fmt.Errorf("已有同名的服务器：%s", req.Name)
+		return nil, fmt.Errorf("已有同名的服务器「%s」", req.Name)
 	}
 	if m.creating[req.Name] {
 		return nil, fmt.Errorf("「%s」正在创建中，请稍候", req.Name)
@@ -449,7 +449,7 @@ func snapshotFiles(dir string, names []string) (restore func(), err error) {
 			continue
 		}
 		if st.IsDir() || st.Size() > 4<<20 {
-			return nil, fmt.Errorf("文件夹里的 %s 不是正常的文件（是个目录，或者大得反常），没有接管", n)
+			return nil, fmt.Errorf("文件夹里的 %s 不是正常的文件（是个文件夹，或者大得反常），没有接管", n)
 		}
 		b, err := os.ReadFile(p)
 		if err != nil {

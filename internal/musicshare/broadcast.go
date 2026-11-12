@@ -122,7 +122,7 @@ func (s *Service) Start(req StartReq) (*BroadcastView, error) {
 	}
 	jar, err := bridge.InspectJar(modsDir(info.Dir))
 	if err != nil {
-		return nil, errorf(500, "读 mods 目录失败：%v", err)
+		return nil, errorf(500, "读取 mods 文件夹失败：%v", err)
 	}
 	if jar.File == "" {
 		return nil, errorf(400, "还没装桥接模组：先在检查清单里安装，然后重启服务器")

@@ -357,7 +357,7 @@ func TestFollowInstancesStop(t *testing.T) {
 	if len(notes) != 1 {
 		t.Fatalf("应只记一条操作记录，实际 %d 条", len(notes))
 	}
-	if a := <-notes; a.Op != "tunnel.stop" || a.Actor != "跟随实例" || a.Err != nil || a.Args["id"] != follow || a.Args["inst"] != "S1" || a.Args["tunnel"] != "跟随" {
+	if a := <-notes; a.Op != "tunnel.stop" || a.Actor != "跟随服务器" || a.Err != nil || a.Args["id"] != follow || a.Args["inst"] != "S1" || a.Args["tunnel"] != "跟随" {
 		t.Errorf("跟随停止的操作记录：%+v", a)
 	}
 }
@@ -379,7 +379,7 @@ func TestFollowStartFailureNotedAndShown(t *testing.T) {
 	m.follow(events.Event{Type: "instance.start", Data: map[string]any{"instance": "S1"}}, func(string) string { return "starting" })
 	select {
 	case a := <-notes:
-		if a.Op != "tunnel.start" || a.Actor != "跟随实例" || a.Err == nil || !strings.Contains(a.Err.Error(), "首次使用需手动放置樱花 frpc") ||
+		if a.Op != "tunnel.start" || a.Actor != "跟随服务器" || a.Err == nil || !strings.Contains(a.Err.Error(), "首次使用需手动放置樱花 frpc") ||
 			a.Args["id"] != tt.ID || a.Args["inst"] != "S1" || a.Args["tunnel"] != "游戏" {
 			t.Fatalf("跟随启动失败的操作记录：%+v", a)
 		}
@@ -387,7 +387,7 @@ func TestFollowStartFailureNotedAndShown(t *testing.T) {
 		t.Fatal("跟随启动失败没有记操作记录")
 	}
 	le := m.List()[0].LastError
-	if !strings.HasPrefix(le, "跟随启动失败：首次使用需手动放置樱花 frpc") || !strings.Contains(le, "目录后重试") || !utf8.ValidString(le) {
+	if !strings.HasPrefix(le, "跟随启动失败：首次使用需手动放置樱花 frpc") || !strings.Contains(le, "文件夹后重试") || !utf8.ValidString(le) {
 		t.Fatalf("卡片上的失败原因：%q", le)
 	}
 	// 手动启动失败：说法是「启动失败」，同样记下

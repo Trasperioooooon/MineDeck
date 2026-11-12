@@ -92,7 +92,7 @@ var createParams = map[string]*ops.Schema{
 
 func (c *cat) instanceOps() {
 	c.reg.Register(&ops.Op{
-		Name: "instance.list", Title: "查看实例列表", Level: ops.Read,
+		Name: "instance.list", Title: "查看服务器列表", Level: ops.Read,
 		Desc: "所有实例：核心、版本、Java、内存、端口、状态、在线人数、运行时长、MOTD。",
 		Run: func(context.Context, ops.Caller, ops.Args) (any, error) {
 			out := []instSummary{}
@@ -104,7 +104,7 @@ func (c *cat) instanceOps() {
 	})
 
 	c.reg.Register(&ops.Op{
-		Name: "instance.create", Title: "新建实例", Level: ops.Write,
+		Name: "instance.create", Title: "新建服务器", Level: ops.Write,
 		Desc: "在后台下载核心与 Java 并生成配置，返回任务编号（进度见 task.get）。Minecraft EULA 由用户在确认卡片上自己勾选同意，" +
 			"不用也不能替用户传；存放目录用默认的。",
 		Params: ops.Object(createParams),
@@ -124,8 +124,8 @@ func (c *cat) instanceOps() {
 			if _, err := c.Mgr.Get(strings.TrimSpace(req.Name)); err == nil {
 				taken = "已占用"
 			}
-			return &ops.Plan{Summary: fmt.Sprintf("新建实例「%s」（%s %s）", req.Name, req.Core, req.MC),
-				Pre: map[string]string{"实例名": taken}}, nil
+			return &ops.Plan{Summary: fmt.Sprintf("新建服务器「%s」（%s %s）", req.Name, req.Core, req.MC),
+				Pre: map[string]string{"服务器名称": taken}}, nil
 		},
 		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
 			req, err := bind[inst.CreateReq](a)
@@ -165,7 +165,7 @@ func (c *cat) instanceOps() {
 			}
 			// 只认网页接口刚存进缓存目录的上传文件，不能拿它去读主机上别的文件
 			if filepath.Dir(filepath.Clean(p.File)) != filepath.Join(app.CacheDir, "import") {
-				return nil, fmt.Errorf("整合包文件不在上传目录里")
+				return nil, fmt.Errorf("整合包文件不在上传文件夹里")
 			}
 			pack, err := modpack.Parse(p.File)
 			if err != nil {
@@ -373,7 +373,7 @@ func (c *cat) instanceOps() {
 	})
 
 	c.reg.Register(&ops.Op{
-		Name: "instance.delete", Title: "删除实例", Level: ops.HumanOnly,
+		Name: "instance.delete", Title: "删除服务器", Level: ops.HumanOnly,
 		Desc:   "从列表移除实例；files 为 true 时连实例目录一起删掉。服务器必须已停止。",
 		Params: withInst(map[string]*ops.Schema{"files": ops.Boolean("同时删除实例目录")}),
 		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
@@ -398,8 +398,8 @@ func (c *cat) instanceOps() {
 
 	// 与 host.pickdir / host.openpath 同理：资源管理器窗口开在主机桌面上，对远程用户无意义，故仅限本机
 	c.reg.Register(&ops.Op{
-		Name: "instance.opendir", Title: "打开实例目录", Level: ops.HumanOnly, LocalOnly: true, NoLog: true,
-		LocalMsg: "打开目录仅支持在本机操作（远程管理时请在主机上操作）",
+		Name: "instance.opendir", Title: "打开服务器文件夹", Level: ops.HumanOnly, LocalOnly: true, NoLog: true,
+		LocalMsg: "打开文件夹仅支持在本机操作（远程管理时请在主机上操作）",
 		Desc:     "在主机的资源管理器里打开实例目录，或它下面的 mods、plugins、world、logs、crash-reports。",
 		Params:   withInst(map[string]*ops.Schema{"sub": ops.String("子目录；空则打开实例目录本身")}),
 		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {

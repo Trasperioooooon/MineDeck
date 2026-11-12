@@ -56,7 +56,7 @@ func TestCompanionOpsPermissions(t *testing.T) {
 		t.Fatal(err)
 	}
 	p, ok := res.(*ops.Proposal)
-	if !ok || !strings.Contains(p.Plan.Summary, "要从 Modrinth 下载") || len(p.Plan.Changes) != 3 || p.Plan.Pre["实例状态"] != "stopped" {
+	if !ok || !strings.Contains(p.Plan.Summary, "要从 Modrinth 下载") || len(p.Plan.Changes) != 3 || p.Plan.Pre["服务器状态"] != "stopped" {
 		t.Fatalf("装模组应生成提案：%+v", res)
 	}
 	if err := reg.Reject(ops.Caller{Source: ops.SrcUI, Actor: "本机", Local: true}, p.ID, "不装"); err != nil {

@@ -99,7 +99,7 @@ func (c *cat) cartTarget(p modcartArgs) (cartTarget, error) {
 		}
 		t.inst, core, mc = i, i.Core, i.MC
 	} else if core == "" {
-		return t, ops.Errorf(400, "要给实例名 inst，或者给核心 core 和 MC 版本 mc")
+		return t, ops.Errorf(400, "要给服务器名称 inst，或者给核心 core 和 MC 版本 mc")
 	}
 	rtype, loaders, sub, ok := resourceSpec(core)
 	if !ok {
@@ -414,7 +414,7 @@ func (c *cat) modcartOps() {
 			}
 			// 只认网页接口刚存进上传目录的文件：不能拿这个操作去读（或者删）主机上别的文件
 			if p.File == "" || filepath.Dir(filepath.Clean(p.File)) != LocalUploadDir() {
-				return nil, ops.Errorf(400, "文件不在上传目录里")
+				return nil, ops.Errorf(400, "文件不在上传文件夹里")
 			}
 			p.File = filepath.Clean(p.File)
 			// 必须是个普通文件：下面的 os.Remove 连空文件夹也删，不能让它碰到上传目录里的别的东西
@@ -423,7 +423,7 @@ func (c *cat) modcartOps() {
 			}
 			defer os.Remove(p.File) // 放进清单时已经被挪走了；没放进去的不留
 			if utf8Len(p.Inst) > 100 {
-				return nil, ops.Errorf(400, "实例名太长")
+				return nil, ops.Errorf(400, "服务器名称太长")
 			}
 			if p.Inst != "" {
 				if _, err := c.cartTarget(p); err != nil {

@@ -139,13 +139,15 @@ func Fetch(ctx context.Context, r Request, prog Progress) error {
 		return err
 	}
 	// 每个地址只留最后一次失败。全部试完再汇总，避免界面上只剩最后一个主机名。
+	// 每一次失败另外都记进 tried：同一个源前一轮写盘被杀毒软件拦下、后一轮超时，AnyFailure 仍要认得出前一轮（Codex 复审发现）
 	var fails []urlFail
+	var tried []error
 	failAt := map[string]int{}
 	for round := 0; round < 3; round++ {
 		if round > 0 {
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
+				return ctxFail(ctx, tried)
 			case <-time.After(retryWait(round)):
 			}
 		}
@@ -155,8 +157,9 @@ func Fetch(ctx context.Context, r Request, prog Progress) error {
 				return nil
 			}
 			if ctx.Err() != nil {
-				return ctx.Err()
+				return ctxFail(ctx, tried)
 			}
+			tried = append(tried, err)
 			if j, ok := failAt[u]; ok {
 				fails[j].err = err
 			} else {
@@ -168,7 +171,16 @@ func Fetch(ctx context.Context, r Request, prog Progress) error {
 			}
 		}
 	}
-	return newFetchFail(fails)
+	return newFetchFail(fails, tried)
+}
+
+// ctxFail 重试途中整体超时或被取消时返回的错误：说法和 errors.Is 都还是 ctx 的错误，
+// 之前每一次的失败带在里面给 AnyFailure。前一次写盘被杀毒软件拦下、后面拖到了总超时，界面上仍要说是被拦下了（Codex 复审发现）。
+func ctxFail(ctx context.Context, tried []error) error {
+	if len(tried) == 0 {
+		return ctx.Err()
+	}
+	return &fetchFailError{msg: ctx.Err().Error(), last: ctx.Err(), all: tried}
 }
 
 // urlFail 一个候选地址的最后一次失败。
@@ -178,19 +190,47 @@ type urlFail struct {
 }
 
 // fetchFailError 多源都没下成。Error 给界面一行摘要（每个源的主机名和原因，原因不截断）；
-// Unwrap 仍是最后一个地址的原始错误，errors.Is 认得出哈希校验失败。
+// Unwrap 仍是最后一个地址的原始错误，errors.Is 认得出哈希校验失败。每一次尝试的错误都留在 all 里，见 AnyFailure。
 type fetchFailError struct {
 	msg  string
 	last error
+	all  []error
 }
 
 func (e *fetchFailError) Error() string { return e.msg }
 
 func (e *fetchFailError) Unwrap() error { return e.last }
 
-func newFetchFail(fails []urlFail) error {
+// AnyFailure 判断这次失败里有没有一个错误让 match 返回 true：先看 err 本身（含包装链），
+// 是 Fetch 的多源汇总错误时，再逐个看每一次尝试的错误（不只是每个地址的最后一次）。
+// errors.Is 只认最后一个地址：那是 ErrVerify 的老语义，导入整合包靠它分「转待决」还是「整次失败」，不能变。
+// 要问「有没有哪个源是因为某种原因没下成的」（比如写盘时被杀毒软件拦下，后面的源只是 404）用这个。
+func AnyFailure(err error, match func(error) bool) bool {
+	if match(err) {
+		return true
+	}
+	var ff *fetchFailError
+	if errors.As(err, &ff) {
+		for _, e := range ff.all {
+			if match(e) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// newFetchFail 汇总多源失败。tried 是按顺序的每一次失败，给 AnyFailure 用；为空时用每个地址的最后一次。
+func newFetchFail(fails []urlFail, tried []error) error {
 	seen := make(map[string]struct{}, len(fails))
 	parts := make([]string, 0, len(fails))
+	all := tried
+	if len(all) == 0 {
+		all = make([]error, 0, len(fails))
+		for _, f := range fails {
+			all = append(all, f.err)
+		}
+	}
 	var last error
 	for _, f := range fails {
 		last = f.err
@@ -204,6 +244,7 @@ func newFetchFail(fails []urlFail) error {
 	return &fetchFailError{
 		msg:  "多次尝试后仍下载失败（" + strings.Join(parts, "；") + "）",
 		last: last,
+		all:  all,
 	}
 }
 

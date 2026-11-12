@@ -260,13 +260,13 @@ func TestCheckAdoptDir(t *testing.T) {
 		"relative\\dir":                 "完整的路径",
 		filepath.Join(user, "nope"):     "找不到这个文件夹",
 		filepath.VolumeName(user) + `\`: "整个磁盘",
-		app.Base:                        "程序目录",
-		filepath.Dir(app.Base):          "程序目录",
-		app.ServersDir:                  "总目录",
+		app.Base:                        "程序文件夹",
+		filepath.Dir(app.Base):          "程序文件夹",
+		app.ServersDir:                  "总文件夹",
 		filepath.Join(app.CacheDir, "vanilla", "1.21.1"): "MineDeck 自己用的",
 		mine:                         "已经在列表里了，就是「mine」",
 		strings.ToUpper(mine):        "已经在列表里了",
-		filepath.Join(mine, "world"): "在服务器「mine」的目录里面",
+		filepath.Join(mine, "world"): "在服务器「mine」的文件夹里面",
 	} {
 		if _, err := m.checkAdoptDir(dir); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q 应拒绝（%s）：%v", dir, want, err)

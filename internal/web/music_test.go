@@ -21,7 +21,7 @@ func TestMusicRoutes(t *testing.T) {
 	}{
 		{"GET", ip + "/music", "", 200, "", nil},
 		{"GET", ip + "/music", "", 200, "", []reqOpt{fromLAN}},
-		{"GET", "/api/instances/nope/music", "", 404, "服务器不存在", nil},
+		{"GET", "/api/instances/nope/music", "", 404, "服务器「nope」不存在", nil},
 		{"POST", ip + "/music/start", `{"mode":"process","pid":4242,"exe":"cloudmusic.exe"}`, 400, "只支持 NeoForge、Forge 服", nil},
 		{"POST", ip + "/music/start", `{"mode":"process","pid":4242}`, 403, "只能在这台电脑上开始", []reqOpt{fromLAN}},
 		{"POST", ip + "/music/start", `{"mode":"radio"}`, 400, "mode", nil},

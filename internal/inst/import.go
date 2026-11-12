@@ -54,7 +54,7 @@ func (m *Manager) ImportModpackAsync(pack *modpack.Pack, req CreateReq, cfKey st
 	pack.Reclassify(app.TrustedHostFunc(app.TrustScopeModpack))
 	if src := strings.TrimSpace(req.LocalSource); src != "" {
 		if st, err := os.Stat(src); err != nil || !st.IsDir() {
-			return "", fmt.Errorf("本地来源目录不可用（待决文件会从这里按原样保留）: %s", src)
+			return "", fmt.Errorf("本地来源文件夹不可用（待决文件会从这里按原样保留）: %s", src)
 		}
 	}
 	dir, err := m.validateCreate(&req)
@@ -265,12 +265,12 @@ func (m *Manager) runImport(ctx context.Context, t *tasks.Task, pack *modpack.Pa
 		if len(shown) > 8 {
 			shown = append(append([]string{}, notTaken[:8]...), fmt.Sprintf("…等 %d 个", len(notTaken)))
 		}
-		t.Logf("整合包覆盖目录里的这些文件没有采用（由 MineDeck 自己生成，或者名字写不成普通文件）：%s", strings.Join(shown, "、"))
+		t.Logf("整合包覆盖文件夹里的这些文件没有采用（由 MineDeck 自己生成，或者名字写不成普通文件）：%s", strings.Join(shown, "、"))
 	}
 	// 覆盖目录可以带 server.properties：世界目录的名字指到服务器文件夹外面的整合包不要
 	// （服务器一启动就会去动那个文件夹，备份和还原也跟着找过去）。
 	if name, ok := CheckLevelName(dir); !ok {
-		return fmt.Errorf("整合包覆盖文件里的 server.properties 把世界目录（level-name）指到了服务器文件夹外面：%s", name)
+		return fmt.Errorf("整合包覆盖文件里的 server.properties 把世界文件夹（level-name）指到了服务器文件夹外面：%s", name)
 	}
 
 	// ---- 本地继承：待决文件凡本地已有就算解决 ----
@@ -284,7 +284,7 @@ func (m *Manager) runImport(ctx context.Context, t *tasks.Task, pack *modpack.Pa
 			continue // 落点是 MineDeck 自己的文件：不继承，也不列进待决清单
 		}
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(p.file.Path))); err == nil {
-			kept = append(kept, keptFile{path: p.file.Path, source: "整合包覆盖目录"})
+			kept = append(kept, keptFile{path: p.file.Path, source: "整合包覆盖文件夹"})
 			continue
 		}
 		if src := findLocalFile(req.LocalSource, p.file.Path); src != "" {
@@ -293,7 +293,7 @@ func (m *Manager) runImport(ctx context.Context, t *tasks.Task, pack *modpack.Pa
 				remain = append(remain, p.file)
 				continue
 			}
-			kept = append(kept, keptFile{path: p.file.Path, source: "本地来源目录"})
+			kept = append(kept, keptFile{path: p.file.Path, source: "本地来源文件夹"})
 			continue
 		}
 		remain = append(remain, p.file)
@@ -342,10 +342,10 @@ func (m *Manager) finishImport(t *tasks.Task, req CreateReq, dir string, pending
 		t.AddWarning(tasks.Warning{
 			Kind:  "import-kept",
 			Title: fmt.Sprintf("按原样保留 %d 个文件", len(kept)),
-			Note:  "这些文件没有从网上下载，用的是整合包覆盖目录或本地来源目录里已有的那份，内容没有校验（魔改的模组因此能原样保留）。还有没法自动下载的文件在待决清单里。",
+			Note:  "这些文件没有从网上下载，用的是整合包覆盖文件夹或本地来源文件夹里已有的那份，内容没有校验（魔改的模组因此能原样保留）。还有没法自动下载的文件在待决清单里。",
 			Items: items,
 		})
-		t.Logf("✔ 按原样保留 %d 个文件（整合包覆盖目录 / 本地来源目录）", len(kept))
+		t.Logf("✔ 按原样保留 %d 个文件（整合包覆盖文件夹 / 本地来源文件夹）", len(kept))
 	}
 	items := make([]tasks.PendingItem, 0, len(pending))
 	for _, pf := range pending {
@@ -617,17 +617,17 @@ func (m *Manager) ResolveImportPending(ctx context.Context, taskID string, acts 
 func resolveLocalSource(value, relPath string) (src, why string) {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return "", "给出本地文件或目录的路径"
+		return "", "给出本地文件或文件夹的路径"
 	}
 	st, err := os.Stat(value)
 	if err != nil {
-		return "", "文件或目录不存在（给完整路径，如 D:\\old\\mods\\xxx.jar）"
+		return "", "文件或文件夹不存在（给完整路径，如 D:\\old\\mods\\xxx.jar）"
 	}
 	if st.IsDir() {
 		if found := findLocalFile(value, relPath); found != "" {
 			return found, ""
 		}
-		return "", "这个目录里没有对得上的文件（按相对路径或 mods / plugins 下的同名文件找）"
+		return "", "这个文件夹里没有对得上的文件（按相对路径或 mods / plugins 下的同名文件找）"
 	}
 	return value, ""
 }

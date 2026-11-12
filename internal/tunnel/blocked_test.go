@@ -21,11 +21,11 @@ func TestFrpcBlockedHint(t *testing.T) {
 		err  error
 		head string // 空串：不该认出来
 	}{
-		{"启动时被拦下", fmt.Errorf("frpc 启动失败: %w", &os.PathError{Op: "fork/exec", Path: exe, Err: errVirusInfected}), "frpc 被 Windows 安全中心拦下了"},
-		{"拦下并删除", &os.PathError{Op: "open", Path: exe, Err: errVirusDeleted}, "frpc 被 Windows 安全中心拦下了"},
+		{"启动时被拦下", fmt.Errorf("frpc 启动失败: %w", &os.PathError{Op: "fork/exec", Path: exe, Err: errVirusInfected}), "frpc 被杀毒软件拦下了"},
+		{"拦下并删除", &os.PathError{Op: "open", Path: exe, Err: errVirusDeleted}, "frpc 被杀毒软件拦下了"},
 		{"下载时压缩包被拦下", fmt.Errorf("下载 OpenFrp frpc 失败: %w", fmt.Errorf("多次尝试后仍下载失败: %w",
-			&os.LinkError{Op: "rename", Old: "openfrp-frpc.zip.part", New: "openfrp-frpc.zip", Err: errVirusInfected})), "frpc 被 Windows 安全中心拦下了"},
-		{"解压后不见了", fmt.Errorf("解压出来的 frpc.exe：%w", errFrpcGone), "frpc 不见了，多半是被 Windows 安全中心或别的杀毒软件删掉了"},
+			&os.LinkError{Op: "rename", Old: "openfrp-frpc.zip.part", New: "openfrp-frpc.zip", Err: errVirusInfected})), "frpc 被杀毒软件拦下了"},
+		{"解压后不见了", fmt.Errorf("解压出来的 frpc.exe：%w", errFrpcGone), "frpc 不见了，多半是被杀毒软件删掉了"},
 		{"单纯的文件不存在不算", &os.PathError{Op: "open", Path: exe, Err: fs.ErrNotExist}, ""},
 		{"别的错误不算", errors.New("dial tcp: i/o timeout"), ""},
 	}
@@ -69,11 +69,13 @@ func TestStartShowsAntivirusHint(t *testing.T) {
 		raw   bool   // 日志里有没有「系统报错原文」
 	}{
 		{"被拦下", func(cmd *exec.Cmd) error {
-			return &os.PathError{Op: "fork/exec", Path: cmd.Path, Err: errVirusInfected}
-		}, "启动失败：frpc 被 Windows 安全中心拦下了", true},
+			// 设上 cmd.Err 再走 Start：Start 失败时会收掉已经建好的管道，不靠 GC
+			cmd.Err = &os.PathError{Op: "fork/exec", Path: cmd.Path, Err: errVirusInfected}
+			return cmd.Start()
+		}, "启动失败：frpc 被杀毒软件拦下了", true},
 		// 真删掉再启动，拿系统真实的「找不到文件」：EnsureFrpc 刚找到它，算被删了
 		{"转眼被删", func(cmd *exec.Cmd) error { _ = os.Remove(cmd.Path); return cmd.Start() }, "启动失败：frpc 不见了，多半是", true},
-		{"别的错误照旧", func(*exec.Cmd) error { return errors.New("boom") }, "启动失败：frpc 启动失败: boom", false},
+		{"别的错误照旧", func(cmd *exec.Cmd) error { cmd.Err = errors.New("boom"); return cmd.Start() }, "启动失败：frpc 启动失败: boom", false},
 	}
 	for _, c := range cases {
 		place()

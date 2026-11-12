@@ -436,7 +436,7 @@ func (s *Service) InstallLocal(lf LocalFile, destDir string) (status string, err
 		return "", errorf(500, "看不了 %s 里有没有叫「%s」的文件，没有装：%v", filepath.Base(destDir), lf.FileName, noPath(err))
 	}
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
-		return "", errorf(500, "建 %s 目录失败：%v", filepath.Base(destDir), noPath(err))
+		return "", errorf(500, "创建 %s 文件夹失败：%v", filepath.Base(destDir), noPath(err))
 	}
 	tmp := filepath.Join(destDir, "."+lf.FileName+".copy")
 	_ = os.Remove(tmp)
