@@ -55,6 +55,7 @@ func TestRunBatArgsReachJava(t *testing.T) {
 		"md.pct":        "%PATH%",
 		"md.amp":        "x & echo AMP_INJECTED",
 		"md.quote":      `say "hi"`,
+		"md.quote2":     `say "hello world"`, // 引号里带空格：java.exe 在引号里看到两个双引号，收一个、仍在引号里
 		"md.slashquote": `a\"b`,
 	}
 	var extra []string
