@@ -581,7 +581,7 @@ func (m *Manager) setPublicAddr(t *Tunnel, addr string) {
 	m.mu.Unlock()
 	if changed {
 		if t.IsVoice() {
-			m.Console(t.ID).Append("[MineDeck] ✔ 语音公网地址: " + addr + "（MineDeck 会把它写进绑定实例的 voice_host）")
+			m.Console(t.ID).Append("[MineDeck] ✔ 语音公网地址: " + addr + "（MineDeck 会把它写进绑定服务器的 voice_host）")
 		} else {
 			m.Console(t.ID).Append("[MineDeck] ✔ 公网地址: " + addr + "（把它发给朋友直连）")
 		}
@@ -604,7 +604,7 @@ func (m *Manager) Stop(id string) error {
 }
 
 // followActor 跟随实例自动启停时，操作记录里写的「谁做的」。
-const followActor = "跟随实例"
+const followActor = "跟随服务器"
 
 // startDelay 实例启动后等多久再拉起跟随的隧道：等服务器进入启动流程。
 var startDelay = 2 * time.Second

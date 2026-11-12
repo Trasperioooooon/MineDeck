@@ -202,7 +202,7 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 	// 包里的 server.properties 是原样用的：世界目录的名字指到服务器文件夹外面的包不要
 	// （服务器一启动就会去动那个文件夹，备份和还原也跟着找过去）。
 	if name, ok := inst.CheckLevelName(dir); !ok {
-		return fmt.Errorf("交接包里的 server.properties 把世界目录（level-name）指到了服务器文件夹外面：%s", name)
+		return fmt.Errorf("交接包里的 server.properties 把世界文件夹（level-name）指到了服务器文件夹外面：%s", name)
 	}
 
 	// ---- 步骤 5：生成启动脚本 + 注册 ----

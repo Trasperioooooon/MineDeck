@@ -156,7 +156,7 @@ func (c *cat) javaSetOp() {
 		Path  string `json:"path"`
 	}
 	c.reg.Register(&ops.Op{
-		Name: "instance.java.set", Title: "给实例换 Java", Level: ops.Write,
+		Name: "instance.java.set", Title: "给服务器换 Java", Level: ops.Write,
 		Desc: "换成指定大版本的 Java，下次启动生效。本机或 MineDeck 已经有这个版本就直接换；没有的话在后台下载便携版（不改系统环境），" +
 			"返回任务编号（进度见 task.get）。path 可以指定用哪一个（必须是 java.list 里列出来的）。",
 		Params: withInst(map[string]*ops.Schema{

@@ -118,7 +118,7 @@ func (c *cat) appOps() {
 			// 存放 / 备份目录决定之后实例与备份写到主机何处（下方还会 MkdirAll）：与创建实例的 root 同理仅限本机，
 			// 远程 / 局域网请求带这两个键（含置空恢复默认）即整次拒绝，其余键不受影响
 			if (body.ServersDir != nil || body.BackupsDir != nil) && !caller.Local {
-				return nil, ops.Errorf(403, "存放目录仅支持在本机修改")
+				return nil, ops.Errorf(403, "存放文件夹仅支持在本机修改")
 			}
 			// 可失败的校验与 I/O（建目录、算哈希）在锁外先做完，锁内只做字段套用
 			if body.WebhookURL != nil {
@@ -138,14 +138,14 @@ func (c *cat) appOps() {
 			if body.ServersDir != nil {
 				if d := strings.TrimSpace(*body.ServersDir); d != "" {
 					if err := os.MkdirAll(d, 0o755); err != nil {
-						return nil, fmt.Errorf("存放目录不可用: %w", err)
+						return nil, fmt.Errorf("存放文件夹不可用: %w", err)
 					}
 				}
 			}
 			if body.BackupsDir != nil {
 				if d := strings.TrimSpace(*body.BackupsDir); d != "" {
 					if err := os.MkdirAll(d, 0o755); err != nil {
-						return nil, fmt.Errorf("备份目录不可用: %w", err)
+						return nil, fmt.Errorf("备份文件夹不可用: %w", err)
 					}
 				}
 			}
@@ -305,8 +305,8 @@ func (c *cat) appOps() {
 	})
 
 	c.reg.Register(&ops.Op{
-		Name: "host.openpath", Title: "在资源管理器中打开目录", Level: ops.HumanOnly, LocalOnly: true, NoLog: true,
-		LocalMsg: "打开目录仅支持在本机操作",
+		Name: "host.openpath", Title: "在资源管理器中打开文件夹", Level: ops.HumanOnly, LocalOnly: true, NoLog: true,
+		LocalMsg: "打开文件夹仅支持在本机操作",
 		Params:   ops.Object(map[string]*ops.Schema{"path": ops.String("要打开的目录")}),
 		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
 			body, err := bind[struct {
@@ -317,7 +317,7 @@ func (c *cat) appOps() {
 			}
 			p := filepath.Clean(strings.TrimSpace(body.Path))
 			if st, err := os.Stat(p); err != nil || !st.IsDir() {
-				return nil, fmt.Errorf("目录不存在")
+				return nil, fmt.Errorf("文件夹不存在")
 			}
 			_ = exec.Command("explorer.exe", p).Start()
 			return "ok", nil

@@ -80,7 +80,7 @@ func (m *Manager) validateCreate(req *CreateReq) (string, error) {
 	}
 	root = filepath.Clean(root)
 	if err := os.MkdirAll(root, 0o755); err != nil {
-		return "", fmt.Errorf("存放目录不可用: %w", err)
+		return "", fmt.Errorf("存放文件夹不可用: %w", err)
 	}
 	// 目录名用 slug（与中文显示名解耦）；同名自动追加序号
 	slug := slugify(req.Name)
@@ -97,7 +97,7 @@ func (m *Manager) validateCreate(req *CreateReq) (string, error) {
 	// Mohist/Banner 的 javaagent 自举对非 ASCII 路径不兼容——校验最终路径而非实例名，
 	// 因此中文实例名在纯英文路径下也可正常使用。
 	if (req.Core == mcsrc.CoreMohist || req.Core == mcsrc.CoreBanner) && !isASCII(dir) {
-		return "", fmt.Errorf("Mohist/Banner 与非英文路径不兼容，请把存放目录设为纯英文路径（当前将创建于：%s）", dir)
+		return "", fmt.Errorf("Mohist/Banner 与非英文路径不兼容，请把存放文件夹设为纯英文路径（当前将创建于：%s）", dir)
 	}
 	// 所有校验通过后，原子性登记「创建中」占位。实例要到流水线末尾（Finish）才写入 m.insts，
 	// 期间同名请求（一键部署双击 / 重复 POST）此前都能各自通过校验并建目录，完成时相互覆盖 map

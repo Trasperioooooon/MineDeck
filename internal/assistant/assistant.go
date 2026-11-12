@@ -343,7 +343,7 @@ func (s *Service) Create(who ops.Caller, inst string) (*View, error) {
 	}
 	inst = strings.TrimSpace(inst)
 	if len([]rune(inst)) > 100 {
-		return nil, ops.Errorf(400, "实例名太长")
+		return nil, ops.Errorf(400, "服务器名称太长")
 	}
 	cl, err := s.ai.Client(true)
 	if err != nil {

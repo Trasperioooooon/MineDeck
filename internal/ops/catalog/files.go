@@ -47,7 +47,7 @@ func (c *cat) fileOps() {
 			}
 			dir := modsDir(i)
 			if dir == "" {
-				return nil, ops.Errorf(400, "「%s」是 %s 核心，没有模组或插件目录", i.Name, i.Core)
+				return nil, ops.Errorf(400, "「%s」是 %s 核心，没有模组或插件文件夹", i.Name, i.Core)
 			}
 			mods, err := modinfo.ReadDir(filepath.Join(i.Dir, dir))
 			if err != nil {
@@ -104,13 +104,13 @@ func (c *cat) fileOps() {
 		}
 		dir := modsDir(i)
 		if dir == "" {
-			err = ops.Errorf(400, "「%s」没有模组或插件目录", i.Name)
+			err = ops.Errorf(400, "「%s」没有模组或插件文件夹", i.Name)
 			return
 		}
 		name := filepath.Base(strings.TrimSpace(p.File))
 		base := strings.TrimSuffix(name, ".disabled")
 		if !strings.HasSuffix(strings.ToLower(base), ".jar") || name != strings.TrimSpace(p.File) {
-			err = ops.Errorf(400, "file 应是 %s 目录里的 jar 文件名（如 xxx.jar 或 xxx.jar.disabled）", dir)
+			err = ops.Errorf(400, "file 应是 %s 文件夹里的 jar 文件名（如 xxx.jar 或 xxx.jar.disabled）", dir)
 			return
 		}
 		on, off := filepath.Join(i.Dir, dir, base), filepath.Join(i.Dir, dir, base+".disabled")
@@ -124,7 +124,7 @@ func (c *cat) fileOps() {
 		case e2 == nil:
 			state = "禁用"
 		default:
-			err = ops.Errorf(404, "%s 目录里没有 %s", dir, base)
+			err = ops.Errorf(404, "%s 文件夹里没有 %s", dir, base)
 			return
 		}
 		if p.Enable {
@@ -472,7 +472,7 @@ func configPath(i *inst.Instance, p string, file bool) (rel, abs string, err err
 	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(p)))
 	if p == "" || filepath.IsAbs(filepath.FromSlash(p)) || strings.Contains(p, ":") || strings.HasPrefix(p, "/") ||
 		clean == ".." || strings.HasPrefix(clean, "../") {
-		return "", "", ops.Errorf(400, "路径不对：要写相对实例目录的路径，如 config/xxx.toml")
+		return "", "", ops.Errorf(400, "路径不对：要写相对服务器文件夹的路径，如 config/xxx.toml")
 	}
 	ok := false
 	for _, r := range configRoots(i) {
@@ -499,7 +499,7 @@ func configPath(i *inst.Instance, p string, file bool) (rel, abs string, err err
 	root, err1 := filepath.EvalSymlinks(i.Dir)
 	if real, err2 := filepath.EvalSymlinks(abs); err1 == nil && err2 == nil {
 		if r, err := filepath.Rel(root, real); err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
-			return "", "", ops.Errorf(400, "路径不对：指到了实例目录外面")
+			return "", "", ops.Errorf(400, "路径不对：指到了服务器文件夹外面")
 		}
 	}
 	return clean, abs, nil

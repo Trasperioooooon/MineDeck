@@ -842,7 +842,7 @@ func noServerErr(dir string) error {
 	if len(subs) > 0 {
 		return fmt.Errorf("这个文件夹里没找到服务端。它下面的%s像是服务器，请选到具体那一个文件夹", strings.Join(subs, ""))
 	}
-	return fmt.Errorf("这个文件夹里没找到服务端：根目录里没有能启动的 jar，也没有 Forge / NeoForge 装好后的 libraries 目录。请选服务端 jar 所在的那个文件夹")
+	return fmt.Errorf("这个文件夹里没找到服务端：最外层没有能启动的 jar，也没有 Forge / NeoForge 装好后的 libraries 文件夹。请选服务端 jar 所在的那个文件夹")
 }
 
 // looksLikeServer 粗看一个文件夹像不像服务器：有服务端常见的文件，或者根上直接放着 jar（只用来在报错里提示，不当识别结果）。

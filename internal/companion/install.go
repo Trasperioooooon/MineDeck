@@ -263,7 +263,7 @@ func (s *Service) installView(info InstInfo) InstallView {
 	}
 	mods, err := inspect(man, j, filepath.Join(info.Dir, "mods"))
 	if err != nil {
-		v.Supported, v.Reason = false, "读 mods 目录失败："+err.Error()
+		v.Supported, v.Reason = false, "读取 mods 文件夹失败："+err.Error()
 		return v
 	}
 	v.Mods, v.Ready = mods, true

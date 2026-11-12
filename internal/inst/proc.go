@@ -374,12 +374,12 @@ func (m *Manager) OpenDir(name, sub string) error {
 	if sub = strings.TrimSpace(sub); sub != "" {
 		clean := filepath.Clean(sub)
 		if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-			return fmt.Errorf("非法子目录")
+			return fmt.Errorf("只能打开服务器文件夹里面的文件夹")
 		}
 		target = filepath.Join(i.Dir, clean)
 	}
 	if st, err := os.Stat(target); err != nil || !st.IsDir() {
-		return fmt.Errorf("目录尚不存在（服务器可能还没生成它）")
+		return fmt.Errorf("这个文件夹还不存在（服务器可能还没生成它）")
 	}
 	return exec.Command("explorer.exe", filepath.Clean(target)).Start()
 }

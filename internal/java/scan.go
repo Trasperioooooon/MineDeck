@@ -217,7 +217,7 @@ func AddManual(path string) (*ScannedJava, error) {
 	}
 	// 只允许指向 java 可执行文件本身，避免把任意 exe 交给 probeJava 执行
 	if base := strings.ToLower(filepath.Base(p)); base != "java.exe" && base != "javaw.exe" {
-		return nil, fmt.Errorf("请选择 java.exe（或 Java 安装目录）")
+		return nil, fmt.Errorf("请选择 java.exe（或 Java 的安装文件夹）")
 	}
 	ver, major, ok := probeJava(p)
 	if !ok {
