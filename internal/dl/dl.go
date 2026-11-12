@@ -14,6 +14,7 @@ import (
 	"hash"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -176,7 +177,7 @@ type urlFail struct {
 	err error
 }
 
-// fetchFailError 多源都没下成。Error 给界面一行摘要（每个源的主机名和原因）；
+// fetchFailError 多源都没下成。Error 给界面一行摘要（每个源的主机名和原因，原因不截断）；
 // Unwrap 仍是最后一个地址的原始错误，errors.Is 认得出哈希校验失败。
 type fetchFailError struct {
 	msg  string
@@ -186,9 +187,6 @@ type fetchFailError struct {
 func (e *fetchFailError) Error() string { return e.msg }
 
 func (e *fetchFailError) Unwrap() error { return e.last }
-
-// fetchReasonMax 单条原因的字数上限，整句要能放进隧道卡片（大约 300 字）。
-const fetchReasonMax = 80
 
 func newFetchFail(fails []urlFail) error {
 	seen := make(map[string]struct{}, len(fails))
@@ -209,22 +207,19 @@ func newFetchFail(fails []urlFail) error {
 	}
 }
 
-// compactReason 去掉 net/http 错误里的完整 URL，并限制长度。
+// compactReason 一个源的失败原因，压成一行。
+// 连不上、超时这类错误（*url.Error）只留底层原因：主机名已经写在前面，完整地址只会把句子拉长，
+// 还可能带着签名用的查询串。其余的原样保留，不截断：本机写文件出错时报错是「操作 路径: 原因」，
+// 原因在最后，截断正好把它截掉（磁盘满、文件被杀毒软件占用）。
+// 整句太长时隧道卡片自己会截（tunnel 的 setLastErr），控制台里留的是全文。
 func compactReason(err error) string {
 	if err == nil {
 		return ""
 	}
-	s := err.Error()
-	if strings.HasPrefix(s, "Get \"") {
-		if i := strings.Index(s, "\": "); i >= 0 {
-			s = s[i+3:]
-		}
+	if ue, ok := err.(*url.Error); ok && ue.Err != nil {
+		err = ue.Err
 	}
-	s = strings.Join(strings.Fields(s), " ")
-	if r := []rune(s); len(r) > fetchReasonMax {
-		s = string(r[:fetchReasonMax]) + "…"
-	}
-	return s
+	return strings.Join(strings.Fields(err.Error()), " ")
 }
 
 func shortURL(u string) string {

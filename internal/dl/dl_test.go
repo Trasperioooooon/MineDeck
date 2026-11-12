@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,36 +109,73 @@ func TestFetchReportsEachSource(t *testing.T) {
 }
 
 // 哈希对不上时，汇总后的错误仍能被 errors.Is 认出，调用方好把文件标成待用户处置。
+// 多个地址时认的是最后一个地址最后一次的错误，和汇总之前一样。
 func TestFetchFailureUnwrapsVerify(t *testing.T) {
 	old := retryWait
 	retryWait = func(int) time.Duration { return time.Millisecond }
 	defer func() { retryWait = old }()
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "no", http.StatusNotFound)
+	}))
+	defer bad.Close()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(strings.Repeat("x", 2048)))
 	}))
 	defer srv.Close()
-	err := Fetch(context.Background(), Request{
-		URLs:    []string{srv.URL + "/a"},
-		Dest:    filepath.Join(t.TempDir(), "a.jar"),
-		MinSize: 1024,
-		SHA256:  strings.Repeat("ab", 32),
-	}, nil)
-	if !errors.Is(err, ErrVerify) {
-		t.Fatalf("应仍能认出校验失败：%v", err)
-	}
-	if !strings.Contains(err.Error(), "SHA-256") {
-		t.Fatalf("摘要里应有校验失败：%v", err)
+	for _, urls := range [][]string{
+		{srv.URL + "/a"},
+		{bad.URL + "/a", srv.URL + "/a"},
+	} {
+		err := Fetch(context.Background(), Request{
+			URLs:    urls,
+			Dest:    filepath.Join(t.TempDir(), "a.jar"),
+			MinSize: 1024,
+			SHA256:  strings.Repeat("ab", 32),
+		}, nil)
+		if !errors.Is(err, ErrVerify) {
+			t.Fatalf("%d 个地址：应仍能认出校验失败：%v", len(urls), err)
+		}
+		if !strings.Contains(err.Error(), "SHA-256") {
+			t.Fatalf("摘要里应有校验失败：%v", err)
+		}
 	}
 }
 
+// 连不上的源：摘要里只有主机名和底层原因，不带完整地址和查询串。
+func TestFetchFailureHidesURL(t *testing.T) {
+	old := retryWait
+	retryWait = func(int) time.Duration { return time.Millisecond }
+	defer func() { retryWait = old }()
+	err := Fetch(context.Background(), Request{
+		URLs:    []string{"http://127.0.0.1:0/client/frpc_windows_amd64.zip?sig=secret"},
+		Dest:    filepath.Join(t.TempDir(), "frpc.zip"),
+		MinSize: 1 << 20,
+	}, nil)
+	if err == nil {
+		t.Fatal("应该失败")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "（127.0.0.1:0: ") || strings.Contains(msg, "sig=secret") || strings.Contains(msg, "frpc_windows_amd64.zip") {
+		t.Fatalf("摘要应只有主机名和原因：%s", msg)
+	}
+}
+
+// 连接类错误去掉地址。本机写文件出错时报错是「操作 路径: 原因」，原因在最后，要原样保留，不能截掉。
 func TestCompactReason(t *testing.T) {
-	got := compactReason(errors.New(`Get "https://staticassets.naids.com/client/OF_x/frpc_windows_amd64.zip": dial tcp: i/o timeout`))
-	if got != "dial tcp: i/o timeout" {
+	ue := &url.Error{Op: "Get", URL: "https://staticassets.naids.com/client/OF_x/frpc_windows_amd64.zip?sig=abc", Err: errors.New("dial tcp: i/o timeout")}
+	if got := compactReason(ue); got != "dial tcp: i/o timeout" {
 		t.Fatalf("应去掉 URL：%q", got)
 	}
-	long := strings.Repeat("错", fetchReasonMax+10)
-	got = compactReason(errors.New(long))
-	if r := []rune(got); len(r) != fetchReasonMax+1 || !strings.HasSuffix(got, "…") {
-		t.Fatalf("超长原因应截断：%q（%d）", got, len([]rune(got)))
+	part := `C:\Users\张三\Desktop\MineDeck\cache\frpc\openfrp-frpc.zip.part`
+	for _, e := range []error{
+		&os.LinkError{Op: "rename", Old: part, New: strings.TrimSuffix(part, ".part"), Err: errors.New("The process cannot access the file because it is being used by another process.")},
+		&os.PathError{Op: "write", Path: part, Err: errors.New("There is not enough space on the disk.")},
+	} {
+		if got := compactReason(e); got != e.Error() {
+			t.Fatalf("本机文件报错应原样保留：\n得到 %q\n原文 %q", got, e.Error())
+		}
+	}
+	if got := compactReason(errors.New("a\n  b\tc")); got != "a b c" {
+		t.Fatalf("换行和连续空白应压成一个空格：%q", got)
 	}
 }
