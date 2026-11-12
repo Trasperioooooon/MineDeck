@@ -751,12 +751,41 @@ func batEscapeTitle(s string) string {
 	).Replace(batNoControl(s))
 }
 
-// batQuoteArg 参数一律加引号并把 % 翻倍，防实例名 / JVM 参数含 cmd 元字符时用户双击 run.bat 触发命令注入。
-// 参数里自带的双引号写成两个：cmd 看到的是「关上、马上又打开」，中间没有露在引号外面的字，& 这类符号始终在引号里；
-// Java 收到的仍是一个双引号。以前原样写进去，自带的引号会把外面的引号提前关掉，后面的 & echo … 就成了命令。
-// 控制字符同样换成空格（B-7）。
+// batQuoteArg 把一个参数写成 run.bat 里的一段：cmd 读这一行时不会多执行命令，java.exe 拆参数时拿回原样的一个参数。
+// 两边的规矩不一样，要同时照顾到：
+//   - cmd：参数一律加引号，& | < > 这类符号在引号里不起作用；% 写成两个，不然批处理会把它当成变量。
+//   - 参数里自带的双引号写成两个：cmd 看到的是「关上、马上又打开」，中间没有露在引号外的字；java.exe 在引号里
+//     看到两个双引号，收一个字面的双引号。不能写成 \"：cmd 不认反斜杠，会以为引号到这里就关上了。
+//     以前自带的引号原样写进去，会把外面的引号提前关掉，后面的 & echo … 就成了命令（v3.1.0 正式版前检查 B-7）。
+//   - java.exe 拆参数的规矩和 VC 运行库一样：反斜杠挨着双引号时才算转义。所以双引号前面的反斜杠、参数结尾的
+//     反斜杠都要写成两个，不然收尾的引号被转义掉，后面的参数全都串位（-Ddir=C:\My Server\ 这种就会）。
+//     这一条是复审时发现的，以前就有。
+//
+// 控制字符换成空格。保存设置时 JVM 参数里已经不许有双引号和控制字符，这里兜住以前存下的、接管来的。
 func batQuoteArg(s string) string {
-	return `"` + strings.NewReplacer("%", "%%", `"`, `""`).Replace(batNoControl(s)) + `"`
+	var b strings.Builder
+	b.WriteByte('"')
+	slashes := 0 // 还没写出去的连续反斜杠：后面跟的是什么，决定写一倍还是两倍
+	for _, r := range batNoControl(s) {
+		switch r {
+		case '\\':
+			slashes++
+			continue
+		case '"':
+			b.WriteString(strings.Repeat(`\`, 2*slashes))
+			b.WriteString(`""`)
+		case '%':
+			b.WriteString(strings.Repeat(`\`, slashes))
+			b.WriteString("%%")
+		default:
+			b.WriteString(strings.Repeat(`\`, slashes))
+			b.WriteRune(r)
+		}
+		slashes = 0
+	}
+	b.WriteString(strings.Repeat(`\`, 2*slashes))
+	b.WriteByte('"')
+	return b.String()
 }
 
 // batNoControl 把换行、制表符这类控制字符换成空格，免得一个值在 run.bat 里断成好几行。
