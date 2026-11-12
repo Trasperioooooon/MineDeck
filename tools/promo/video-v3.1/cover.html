@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<!-- v3.1.0 宣传片的封面：底图是作者照「封面.md」用 Gemini 生成的（cover/底图-16x9.png、cover/底图-9x16.png），
+     图标是 assets/icon.ico 里的像素图（out/assets/icon-256.png），字用界面内嵌的 Geist 和思源黑体子集。
+     cover.js 用 ?r=16x9（1920×1080）和 ?r=9x16（1080×1920）各截一张。竖版的字和主体都在中间 1080×1440 里（列表页会裁成 3:4）。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="icon" href="data:,">
+<title>MineDeck v3.1.0 封面</title>
+<link rel="stylesheet" href="/ui/fonts/fonts.css">
+<style>
+  :root { --bg: #f0ece1; --text: #221f18; --muted: #5d584a; --faint: #8b8574; --accent: #3e8f2a; --accent-solid: #367d24; --accent-text: #2b6c1c;
+    --surface: #fdfcf7; --border-strong: rgba(62,55,32,.26); --shadow: 60 50 28; }
+  html, body { margin: 0; padding: 0; overflow: hidden; background: var(--bg); }
+  body { font-family: "MD Geist", "MD Noto Sans SC", sans-serif; color: var(--text); -webkit-font-smoothing: antialiased; font-synthesis-weight: none; }
+  #c { position: relative; overflow: hidden; }
+  #c > img.bg { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+  .brand { display: flex; align-items: center; white-space: nowrap; }
+  .brand img { image-rendering: pixelated; display: block; filter: drop-shadow(0 10px 16px rgb(var(--shadow) / .25)); }
+  .word { font-weight: 600; letter-spacing: -.035em; line-height: 1; }
+  .tag { font-family: "MD Noto Sans SC", sans-serif; font-weight: 600; color: var(--accent-text); background: var(--surface); border-radius: 999px; line-height: 1;
+    box-shadow: 0 0 0 2px rgba(62,143,42,.35), 0 10px 24px -12px rgb(var(--shadow) / .4); }
+  .ver { font-weight: 600; color: var(--accent-solid); letter-spacing: -.005em; line-height: 1; white-space: nowrap; }
+  .title { font-weight: 600; line-height: 1; letter-spacing: .02em; white-space: nowrap; }
+  .list { display: flex; flex-direction: column; }
+  .row { display: flex; align-items: center; white-space: nowrap; font-weight: 600; }
+  .ck { flex: none; background: var(--accent-solid); display: grid; place-items: center; box-shadow: inset 0 -4px 0 rgba(0,0,0,.18); }
+  .ck svg { display: block; }
+  .chips { display: flex; justify-content: center; }
+  .chip { display: flex; align-items: center; white-space: nowrap; font-weight: 600; background: var(--surface); border-radius: 999px;
+    box-shadow: 0 0 0 2px var(--border-strong), 0 14px 30px -16px rgb(var(--shadow) / .45); }
+  .chip i { display: block; background: var(--accent-solid); }
+  .small { color: var(--muted); font-weight: 500; white-space: nowrap; display: flex; align-items: center; }
+  .small i { display: block; background: var(--accent); }
+
+  /* 横版 1920×1080：左边约 45% 放字 */
+  [data-r="16x9"] #c { width: 1920px; height: 1080px; }
+  [data-r="16x9"] .box { position: absolute; left: 128px; top: 128px; }
+  [data-r="16x9"] .brand { gap: 24px; }
+  [data-r="16x9"] .brand img { width: 104px; height: 104px; }
+  [data-r="16x9"] .word { font-size: 92px; }
+  [data-r="16x9"] .tag { font-size: 40px; padding: 14px 26px 16px; margin-left: 8px; }
+  [data-r="16x9"] .ver { font-size: 156px; margin-top: 52px; }
+  [data-r="16x9"] .title { font-size: 152px; margin-top: 16px; }
+  [data-r="16x9"] .list { gap: 20px; margin-top: 48px; }
+  [data-r="16x9"] .row { gap: 22px; font-size: 44px; }
+  [data-r="16x9"] .ck { width: 48px; height: 48px; border-radius: 11px; }
+  [data-r="16x9"] .ck svg { width: 30px; height: 30px; }
+  [data-r="16x9"] .small { position: absolute; left: 128px; bottom: 64px; font-size: 32px; gap: 18px; }
+  [data-r="16x9"] .small i { width: 10px; height: 10px; }
+  [data-r="16x9"] .chips { display: none; }
+
+  /* 竖版 1080×1920：字在上面居中，都在中间 1080×1440（y 240–1680）里 */
+  [data-r="9x16"] #c { width: 1080px; height: 1920px; }
+  [data-r="9x16"] .box { position: absolute; left: 0; top: 252px; width: 1080px; display: flex; flex-direction: column; align-items: center; }
+  [data-r="9x16"] .brand { gap: 20px; }
+  [data-r="9x16"] .brand img { width: 92px; height: 92px; }
+  [data-r="9x16"] .word { font-size: 80px; }
+  [data-r="9x16"] .tag { font-size: 36px; padding: 13px 24px 15px; margin-left: 6px; }
+  [data-r="9x16"] .ver { font-size: 140px; margin-top: 44px; }
+  [data-r="9x16"] .title { font-size: 160px; margin-top: 14px; }
+  [data-r="9x16"] .list { display: none; }
+  [data-r="9x16"] .chips { gap: 16px; margin-top: 40px; }
+  [data-r="9x16"] .chip { gap: 14px; font-size: 36px; padding: 14px 26px 16px 22px; }
+  [data-r="9x16"] .chip i { width: 14px; height: 14px; }
+  [data-r="9x16"] .small { position: absolute; left: 0; width: 1080px; justify-content: center; top: 1596px; font-size: 34px; gap: 18px; }
+  [data-r="9x16"] .small i { width: 10px; height: 10px; }
+</style>
+</head>
+<body>
+<div id="c">
+  <img class="bg" alt="">
+  <div class="box">
+    <div class="brand"><img src="/out/assets/icon-256.png" alt=""><span class="word" data-text>MineDeck</span><span class="tag" data-text>开服工具</span></div>
+    <div class="ver" data-text>V3.1.0</div>
+    <div class="title" data-text>抢先预览</div>
+    <div class="list">
+      <div class="row"><span class="ck"></span><span data-text>接管已有服务器</span></div>
+      <div class="row"><span class="ck"></span><span data-text>自己挑模组，一次装好</span></div>
+      <div class="row"><span class="ck"></span><span data-text>整台服务器打包交给朋友</span></div>
+    </div>
+    <div class="chips">
+      <span class="chip"><i></i><span data-text>接管已有服务器</span></span>
+      <span class="chip"><i></i><span data-text>自己挑模组</span></span>
+      <span class="chip"><i></i><span data-text>打包交给朋友</span></span>
+    </div>
+  </div>
+  <div class="small"><span data-text>免费开源</span><i></i><span data-text>Windows 10/11</span></div>
+</div>
+<script>
+  const r = new URLSearchParams(location.search).get("r") || "16x9";
+  document.documentElement.dataset.r = r;
+  document.querySelector("img.bg").src = r === "9x16" ? "/cover/底图-9x16.png" : "/cover/底图-16x9.png";
+  const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+  document.querySelectorAll(".ck").forEach(e => { e.innerHTML = CHECK; });
+  window.__ready = (async () => {
+    const text = [...document.querySelectorAll("[data-text]")].map(e => e.textContent).join("");
+    await Promise.all(["MD Geist", "MD Noto Sans SC"].flatMap(f => [500, 600].map(w => document.fonts.load(`${w} 64px "${f}"`, text))));
+    await document.fonts.ready;
+    await Promise.all([...document.images].map(i => i.decode()));
+    return r;
+  })();
+</script>
+</body>
+</html>
