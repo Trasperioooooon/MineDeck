@@ -2001,6 +2001,36 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await page.unroute("**/api/tunnels", fail).catch(() => {}); await tunState({ tunnelsReset: true }); }
   });
 
+  await run("隧道：存着凭据的自定义 frps 有「清除凭据」，确认后带 clearCredential 整体提交、其余配置原样带回；服务商的隧道没有这个按钮", async () => {
+    const lastPut = () => page.evaluate(() => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data.lastTunnelPut));
+    await tunState({ tunnelsReset: true });
+    try {
+      await page.goto(url("#/tunnels")); await settle(600);
+      assert(await page.$('[data-tclear="t2"]') && !(await page.$('[data-tclear="t1"]')), "只有存着凭据的自定义 frps 有「清除凭据」");
+      assert(await page.getAttribute('[data-tclear="t2"]', "aria-label") === "清除 自建备用线 保存的凭据", "按钮的名字带上隧道名");
+      // 先点取消：什么也不发
+      await page.click('[data-tclear="t2"]'); await settle(300);
+      assert((await page.textContent(".modal")).includes("清除「自建备用线」保存的凭据？"), "要先确认");
+      await page.click('.modal [data-x="cancel"]'); await settle(300);
+      assert(await lastPut() === null, "取消了不该发请求");
+      await page.click('[data-tclear="t2"]'); await settle(300);
+      await page.click('.modal [data-x="ok"]'); await settle(300);
+      assert(await toastHas("已清除「自建备用线」保存的凭据"), "清除后要提示");
+      const b = await lastPut();
+      assert(b && b.clearCredential === true && b.credential === "" && b.provider === "custom" && b.name === "自建备用线" &&
+        b.serverAddr === "frp.example.com" && b.serverPort === 7000 && b.remotePort === 25566 && b.localPort === 25565 &&
+        b.proto === "tcp" && b.purpose === "game" && b.autoStart === false && b.boundInstance === "", "请求体：" + JSON.stringify(b));
+      await page.waitForFunction(() => !document.querySelector('[data-tclear="t2"]'), null, { timeout: 2000 }).catch(() => {});
+      assert(!(await page.$('[data-tclear="t2"]')), "清掉以后不再显示这个按钮");
+      // 运行中不能改：后端的原因接在结论后面
+      await tunState({ tunnelsReset: true, tunnel: { id: "t2", running: true } });
+      await page.goto(url("#/tunnels")); await settle(600);
+      await page.click('[data-tclear="t2"]'); await settle(300);
+      await page.click('.modal [data-x="ok"]'); await settle(300);
+      assert(await toastHas("无法清除凭据：请先停止隧道再修改"), "运行中清除要说明原因");
+    } finally { await tunState({ tunnelsReset: true }); }
+  });
+
   await run("隧道：樱花、OpenFrp 的隧道不带 frps 地址和端口（以前把隐藏着的 25565 / 25566 / 7000 也存了进去）", async () => {
     try {
       await musicState({ music: { reset: true } });

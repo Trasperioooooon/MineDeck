@@ -3223,6 +3223,7 @@ async function renderTunnels() {
         <span class="grow"></span>
         ${t.running ? `<button class="btn sm" data-tstop="${esc(t.id)}" aria-label="停止 ${esc(t.name)}">${icon("stop")} 停止</button>` : `<button class="btn sm primary" data-tstart="${esc(t.id)}" aria-label="启动 ${esc(t.name)}">${icon("play")} 启动</button>`}
         <button class="btn sm" data-tlog="${esc(t.id)}" aria-expanded="${logId === t.id}" aria-controls="tlog-${esc(t.id)}" aria-label="日志 ${esc(t.name)}">日志</button>
+        ${t.provider === "custom" && t.hasCredential ? `<button class="btn sm" data-tclear="${esc(t.id)}" aria-label="清除 ${esc(t.name)} 保存的凭据">清除凭据</button>` : ""}
         <button class="btn sm danger" data-tdel="${esc(t.id)}" aria-label="删除 ${esc(t.name)}">删除</button>
         ${err ? `<div class="tun-err" style="flex-basis:100%;font-size:var(--fs-xs);color:var(--danger-text);line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere">${esc(err)}</div>` : ""}
       </div>
@@ -3278,6 +3279,21 @@ async function renderTunnels() {
       const r = await confirmModal({ title: "删除隧道？", danger: true, okText: "删除", icon: "trash", body: "仅删除本机配置，服务商侧隧道不受影响。" });
       if (!r) return;
       try { await api(`/api/tunnels/${b.dataset.tdel}`, { method: "DELETE" }); } catch (e) { toastErr("无法删除隧道", e); }
+      drawList();
+    });
+    /* 自定义 frps 存过 token 以后，修改时凭据留空是「不改」，靠这个按钮明说不要了（clearCredential），之后启动不带 token。
+       修改接口是整体替换：其余配置按列表里的原样带回去 */
+    $("#tun-list").querySelectorAll("[data-tclear]").forEach(b => b.onclick = async () => {
+      const t = list.find(x => x.id === b.dataset.tclear);
+      if (!t) return;
+      const r = await confirmModal({ title: `清除「${t.name}」保存的凭据？`, danger: true, okText: "清除", icon: "trash",
+        body: "之后启动这条隧道不带 auth token。frps 设了 token 的话会连不上，到时删掉这条隧道重新添加、填上 token 就行。" });
+      if (!r) return;
+      const body = { provider: t.provider, name: t.name, proxyId: t.proxyId || "", serverAddr: t.serverAddr || "", serverPort: t.serverPort || 0,
+        remotePort: t.remotePort || 0, localPort: t.localPort || 0, boundInstance: t.boundInstance || "", autoStart: !!t.autoStart,
+        publicAddr: t.publicAddr || "", purpose: t.purpose || "", proto: t.proto || "", credential: "", clearCredential: true };
+      try { await api(`/api/tunnels/${t.id}`, { method: "PUT", body }); toast(`已清除「${t.name}」保存的凭据`); }
+      catch (e) { toastErr("无法清除凭据", e); }
       drawList();
     });
     $("#tun-list").querySelectorAll("[data-tlog]").forEach(b => b.onclick = () => {
