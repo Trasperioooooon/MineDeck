@@ -76,6 +76,9 @@ func TestExtractRejectsWindowsPaths(t *testing.T) {
 		"instance/server.properties::$DATA", // 主数据流的另一种写法
 		"instance/NUL",                      // 保留设备名
 		"instance/world/COM1",
+		"instance/config/CON.txt", // 带扩展名的设备名：不看这台 Windows 把它当不当设备（C-2e）
+		"instance/world/com1.log",
+		"instance/LPT¹.txt",
 		"instance/run.bat.", // Windows 会吃掉结尾的点：落下来就是 run.bat
 		"instance/run.bat ", // 结尾的空格同理
 		"instance/mods ./a.jar",

@@ -117,6 +117,9 @@ func TestOverrideAllowed(t *testing.T) {
 		"user_jvm_args.txt", "log4j2_112-116.xml", "gameai.json", "config/minedeck/companion.properties",
 		"config ./minedeck/x", ".minedeck/config-backups/a", "logs/latest.log",
 		"NUL", "world/COM1", "a:b", // 写不成普通文件的名字
+		// 带扩展名的设备名（Windows 11 上能建，老一些的是设备）、上标数字的，结尾是点或空格的（Windows 会去掉它们）：
+		// 不看这台 Windows 怎么认，一律不收（v3.1.0 正式版前检查 C-2e）
+		"CON.txt", "config/com1.log", "world/LPT¹.dat", "config/x.toml.", "config/x.toml ", "mods/a.jar.", "config ./x.toml",
 	} {
 		if overrideAllowed(bad) {
 			t.Errorf("覆盖目录里的 %q 不该写进实例", bad)

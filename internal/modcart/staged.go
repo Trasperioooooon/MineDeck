@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"minedeck/internal/modinfo"
+	"minedeck/internal/winname"
 )
 
 // ---- 人从自己电脑上添加的 jar（本地文件）----
@@ -76,7 +77,7 @@ func CheckLocalName(name string) error {
 	case !strings.HasSuffix(strings.ToLower(name), ".jar"):
 		return errorf(400, "只能添加 .jar 文件：%s", short)
 	case name != filepath.Base(name) || strings.ContainsAny(name, `/\`) || name == "." || name == ".." ||
-		strings.HasPrefix(name, ".") || badName.MatchString(name) || !filepath.IsLocal(name) || reservedName(name):
+		strings.HasPrefix(name, ".") || badName.MatchString(name) || !filepath.IsLocal(name) || !winname.OK(name):
 		return errorf(400, "文件名里有不能用的字符（比如 / \\ : * ? \" < > |），改个名字再添加：%s", short)
 	case shortAlias.MatchString(name):
 		// 长得像 Windows 的 8.3 短文件名（PROGRA~1.jar）：开着短文件名的盘上，它会指到目录里另一个长名字的文件
@@ -93,22 +94,6 @@ func CheckLocalName(name string) error {
 
 // shortAlias 长得像 8.3 短文件名的名字：最多 6 个字符，接 ~ 和数字（PROGRA~1.jar）。
 var shortAlias = regexp.MustCompile(`(?i)^[^.~]{1,6}~[0-9]{1,3}\.jar$`)
-
-// reservedName 是不是 Windows 的设备名（NUL.jar、com1.jar 这种）。filepath.IsLocal 只在当前这台 Windows 真把它当设备时才拦
-// （Windows 11 上带扩展名的已经不算了，老一些的 Windows 还算），这里不看系统版本，一律不收。
-// COM、LPT 后面的编号除了 0–9，上标的 ¹ ² ³ 也算（Windows 的文档里列着 COM¹、LPT³ 这些）。
-func reservedName(name string) bool {
-	base, _, _ := strings.Cut(strings.ToUpper(name), ".")
-	base = strings.TrimRight(base, " ")
-	switch base {
-	case "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$":
-		return true
-	}
-	if r := []rune(base); len(r) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) {
-		return (r[3] >= '0' && r[3] <= '9') || r[3] == '¹' || r[3] == '²' || r[3] == '³'
-	}
-	return false
-}
 
 // noPath 去掉系统错误里的路径（*PathError、*LinkError 的 Error() 带着完整路径），只留原因。
 func noPath(err error) error {

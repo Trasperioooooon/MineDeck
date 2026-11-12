@@ -13,6 +13,7 @@ import (
 
 	"minedeck/internal/dl"
 	"minedeck/internal/modinfo"
+	"minedeck/internal/winname"
 )
 
 // badName 文件名里不许有的字符（路径分隔符、Windows 不允许的字符、控制字符）。
@@ -24,7 +25,7 @@ var badName = regexp.MustCompile(`[\\/:*?"<>|\x00-\x1f]`)
 func (s *Service) Download(ctx context.Context, f File, destDir string, prog func(done, total int64)) (path string, skipped bool, err error) {
 	fn := f.FileName
 	if fn == "" || fn != filepath.Base(fn) || badName.MatchString(fn) || strings.HasPrefix(fn, ".") ||
-		!strings.HasSuffix(strings.ToLower(fn), ".jar") || !filepath.IsLocal(fn) { // IsLocal 还挡住 Windows 的 NUL、COM1 这类保留名
+		!strings.HasSuffix(strings.ToLower(fn), ".jar") || !filepath.IsLocal(fn) || !winname.OK(fn) { // winname.OK 还挡住 nul.jar、COM1.jar 这类保留名（带扩展名的也算）
 		return "", false, errorf(502, "Modrinth 给的文件名不对：%q", fn)
 	}
 	if len(f.SHA1) != 40 {
