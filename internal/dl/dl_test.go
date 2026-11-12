@@ -23,7 +23,7 @@ func TestAnyFailure(t *testing.T) {
 	err := fmt.Errorf("下载 OpenFrp frpc 失败: %w", newFetchFail([]urlFail{
 		{url: "https://a.example/x.zip", err: &os.LinkError{Op: "rename", Old: "x.zip.part", New: "x.zip", Err: virus}},
 		{url: "https://b.example/x.zip", err: errors.New("HTTP 404")},
-	}))
+	}, nil))
 	if errors.Is(err, virus) {
 		t.Fatal("errors.Is 只该认最后一个地址")
 	}
@@ -35,6 +35,38 @@ func TestAnyFailure(t *testing.T) {
 	}
 	if !AnyFailure(fmt.Errorf("启动失败: %w", virus), isVirus) || AnyFailure(errors.New("boom"), isVirus) {
 		t.Fatal("不是多源汇总的错误时，看它自己的包装链")
+	}
+}
+
+// 同一个源前一轮的失败被后一轮盖掉了（摘要里只留最后一次），AnyFailure 仍要认得出前一轮：
+// 真实情形是前一轮写盘被杀毒软件拦下、后一轮超时，这里用先 404 后 419 代替。
+func TestAnyFailureSeesEarlierRounds(t *testing.T) {
+	old := retryWait
+	retryWait = func(int) time.Duration { return time.Millisecond }
+	defer func() { retryWait = old }()
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		if hits == 1 {
+			http.Error(w, "no", http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(419)
+	}))
+	defer srv.Close()
+	err := Fetch(context.Background(), Request{
+		URLs:    []string{srv.URL + "/frpc_windows_amd64.zip"},
+		Dest:    filepath.Join(t.TempDir(), "frpc.zip"),
+		MinSize: 1 << 20,
+	}, nil)
+	if err == nil {
+		t.Fatal("应该失败")
+	}
+	if strings.Contains(err.Error(), "HTTP 404") {
+		t.Fatalf("摘要只留最后一次：%s", err)
+	}
+	if !AnyFailure(err, func(e error) bool { return e.Error() == "HTTP 404" }) {
+		t.Fatal("AnyFailure 应认出第一轮的 404")
 	}
 }
 
