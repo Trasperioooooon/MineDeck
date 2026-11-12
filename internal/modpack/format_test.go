@@ -383,7 +383,7 @@ func TestParseErrorsHaveHint(t *testing.T) {
 	for name, files := range map[string]map[string]string{
 		"认不出":   {"readme.txt": "hi"},
 		"两台服务端": {"A/server.properties": "x", "A/mods/a.jar": "mod", "B/server.properties": "x", "B/plugins/b.jar": "plugin"},
-		"两处清单":  {"A/modrinth.index.json": "{}", "B/manifest.json": "{}"},
+		"两处清单":  {"A/modrinth.index.json": "{}", "B/manifest.json": cfManifest("1.20.1", "forge-47.3.0")}, // 空的 {} 不算 CurseForge 清单，见 isIndexFile
 		"认不出核心": {"server.properties": "x", "plugins/a.jar": "plugin"},
 	} {
 		_, err := Parse(mkZip(t, files))

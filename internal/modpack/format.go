@@ -57,7 +57,7 @@ func findIndex(files []*zip.File) (*indexLoc, error) {
 		}
 		if !strings.Contains(name, "/") {
 			kind, ok := indexKind(name)
-			if !ok || root != nil {
+			if !ok || root != nil || !isIndexFile(f, kind) {
 				continue
 			}
 			root = &indexLoc{file: f, kind: kind}
@@ -68,7 +68,7 @@ func findIndex(files []*zip.File) (*indexLoc, error) {
 			continue
 		}
 		kind, ok := indexKind(base)
-		if !ok {
+		if !ok || !isIndexFile(f, kind) {
 			continue
 		}
 		n := nests[dir]
@@ -119,6 +119,33 @@ func indexKind(base string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// isIndexFile 文件名对上以后，再看一眼内容是不是真的整合包清单。
+// manifest.json 这个名字不止 CurseForge 在用。最常见的是 ServerPackCreator 打的服务端包：最外层放一份它自己的
+// manifest.json（files 是一串路径，带 serverPackCreatorVersion）。以前它被当成 CurseForge 清单去解析，
+// 报一句 JSON 类型错误，走不到服务端的识别。CurseForge 的清单写着 manifestType: minecraftModpack；
+// 老一些或别的工具导出的可能没写这一项，但一定有 minecraft 那一段（版本和加载器在里面）。两样都没有的不算。
+// 读不出来、不是 JSON 的仍然当成清单，让解析那一步把原因报出来。
+func isIndexFile(f *zip.File, kind string) bool {
+	if kind != FormatCurseForge {
+		return true
+	}
+	b, err := readZipEntry(f, 64<<20)
+	if err != nil {
+		return true
+	}
+	var m struct {
+		ManifestType string          `json:"manifestType"`
+		Minecraft    json.RawMessage `json:"minecraft"`
+	}
+	if json.Unmarshal(b, &m) != nil {
+		return true
+	}
+	if m.ManifestType != "" {
+		return m.ManifestType == "minecraftModpack"
+	}
+	return len(m.Minecraft) > 0 && string(m.Minecraft) != "null"
 }
 
 // oneLevel 路径是不是「刚好一层目录 + 文件名」。../、绝对路径、再深一层都不算。
