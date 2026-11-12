@@ -5,6 +5,7 @@
 /backups/
 /bg/
 /logs/
+/data/
 /config.json
 /secrets.json
 /tunnels.json
@@ -17,6 +18,13 @@
 # 编辑器
 .idea/
 .vscode/
+
+# AI 工具留在本机的东西（技能包、工作树、评审草稿）
+.claude/
+.agents/
+.review/
+.mimocode/
+.mimocode-project-id
 
 # 宣传图的输出（tools/promo/shoot.js）
 /tools/promo/out/
