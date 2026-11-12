@@ -15,6 +15,10 @@ const PORT_DEFAULT = 27390; // 避开 MineDeck 自己的默认端口 27333，本
 const ok = (res, data) => { res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" }); res.end(JSON.stringify({ ok: true, data })); };
 const err = (res, code, msg) => { res.writeHead(code, { "Content-Type": "application/json; charset=utf-8" }); res.end(JSON.stringify({ ok: false, error: msg })); };
 const readBody = req => new Promise(r => { let b = ""; req.on("data", c => b += c); req.on("end", () => { try { r(JSON.parse(b || "{}")); } catch { r({}); } }); });
+// 同 ops/catalog 的 maskWebhook：只留协议和主机（含端口），后面常带着令牌，换成 ***；解析不了的整个遮掉，空串还是空串
+const maskWebhook = u => { if (!u) return ""; try { const x = new URL(u); return x.host ? `${x.protocol}//${x.host}/***` : "***"; } catch { return "***"; } };
+// 同 publicConfig：从局域网打开时（state.local 为 false）Webhook 地址只给遮掉的
+const publicCfg = state => (state.local ? state.config : { ...state.config, webhookUrl: maskWebhook(state.config.webhookUrl) });
 
 // props-catalog.js 在 Node 中求值，取默认值生成一份「已首启」的 server.properties
 function catalog(ui) {
@@ -47,6 +51,7 @@ function newState(ui) {
     lanActive: false, // 这次「启动」是否已监听在局域网上：改 listenLan 不变（真机要重启），/__mock/state 的 listenLan 模拟重启后
     cfKey: "", // 同 web：CurseForge API Key 只写不读，不放进 config，/api/app 只给 cfKeySet
     cfKeyBroken: false,
+    local: true, // false 模拟从局域网打开：/api/app 的 local 为 false，config 里的 Webhook 地址是遮掉的（同 ops/catalog 的 publicConfig）
     instances: [
       { name: "生存服 · 朋友", core: "paper", kind: "game", mc: "1.21.4", build: "232", javaMajor: 21, xmxMb: 4096, xmsMb: 0, port: 25565, status: "running", motd: "§a生存服 §7· §e一起来玩！", dir: "D:\\MineDeck\\servers\\server-20261020-2130", createdAt: "2026-10-20T21:30:00+08:00", consoleEncoding: "auto", onlineCount: 3, uptimeSec: 7980, maxPlayers: 20, extraJvm: [] },
       { name: "机械动力整合包", core: "forge", kind: "game", mc: "1.20.1", build: "47.3.0", javaMajor: 17, xmxMb: 8192, xmsMb: 0, port: 25566, status: "stopped", motd: "§6Create 机械动力 §f整合包", dir: "D:\\MineDeck\\servers\\create-pack", createdAt: "2026-10-18T10:00:00+08:00", consoleEncoding: "gbk", onlineCount: 0, uptimeSec: 0, maxPlayers: 20, extraJvm: ["-XX:+UseG1GC"] },
@@ -1440,6 +1445,7 @@ function handler(state, ui, portOf) {
     //   legacy: { name, extraJvm, forceFlags } 把某台服务器设成「老版本」，保存 JVM 参数时补回 forceFlags
     //   status: { 名称: running | starting | stopping | stopped } 直接改某台服务器的运行状态（看状态切换的动效用）
     //   cfKey: 已存的 CurseForge API Key（空串 = 未设置）；cfKeyBroken: true 模拟「Key 解不开」（换了电脑或 Windows 用户）
+    //   local: false 模拟从局域网打开（/api/app 的 Webhook 地址只给开头，原样传回算没改）；webhookUrl: 直接改存着的 Webhook 地址
     //   credBroken: 隧道编号（如 "t2"），模拟这条隧道的凭据解不开；空串还原
     //   tunnels: [...] 把隧道整份换掉（空数组 = 一条都没有）
     //   tunnel: { id, …字段 } 改某条隧道（running、lastError、publicAddr，以及仿真用的 startError：点「启动」时报这个错、
@@ -1476,6 +1482,8 @@ function handler(state, ui, portOf) {
       if (b.legacy) { const i = state.instances.find(x => x.name === b.legacy.name); if (i) { i.extraJvm = b.legacy.extraJvm; i.forceFlags = b.legacy.forceFlags; } }
       if ("cfKey" in b) state.cfKey = String(b.cfKey || "");
       if ("cfKeyBroken" in b) state.cfKeyBroken = !!b.cfKeyBroken;
+      if ("local" in b) state.local = !!b.local; // false 模拟从局域网打开（Webhook 地址只给开头）
+      if ("webhookUrl" in b) state.config.webhookUrl = String(b.webhookUrl || ""); // 直接改存着的 Webhook 地址
       if ("credBroken" in b) for (const t of state.tunnels) t.credBroken = t.id === b.credBroken;
       if (b.tunnelsReset) { state.tunnels = newState(ui).tunnels; state.lastTunnelPut = null; } // 隧道回到初始的两条
       if (Array.isArray(b.tunnels)) state.tunnels = b.tunnels; // 整份换掉（空数组 = 一条隧道都没有，看空状态用）
@@ -1502,7 +1510,7 @@ function handler(state, ui, portOf) {
     const insts = () => state.empty ? [] : state.instances;
     const seg = p.split("/").map(decodeURIComponent); // ["", "api", "instances", name, sub...]
     try {
-      if (p === "/api/app") return ok(res, { version: "2.9.0-beta.2", base: "D:\\MineDeck", ramMb: 16384, availRamMb: 9216, port: portOf(), serversRoot: "D:\\MineDeck\\servers", backupsRoot: "D:\\MineDeck\\backups", config: state.config, lanSet: state.lanSet, lanActive: state.lanActive, cfKeySet: !!state.cfKey && !state.cfKeyBroken, cfKeyBroken: state.cfKeyBroken, autoStart: state.autoStart, ips: ["172.22.48.1", "192.168.1.23", "10.0.0.5"] });
+      if (p === "/api/app") return ok(res, { version: "2.9.0-beta.2", base: "D:\\MineDeck", ramMb: 16384, availRamMb: 9216, port: portOf(), serversRoot: "D:\\MineDeck\\servers", backupsRoot: "D:\\MineDeck\\backups", config: publicCfg(state), local: state.local, lanSet: state.lanSet, lanActive: state.lanActive, cfKeySet: !!state.cfKey && !state.cfKeyBroken, cfKeyBroken: state.cfKeyBroken, autoStart: state.autoStart, ips: ["172.22.48.1", "192.168.1.23", "10.0.0.5"] });
       if (p === "/api/bg") return ok(res, { images: [] });
       if (p === "/api/ops/log") {
         const q = u.searchParams, lim = Math.min(+q.get("limit") || 100, 1000);
@@ -1523,6 +1531,14 @@ function handler(state, ui, portOf) {
           if (b.chromeColor !== "" && !/^#[0-9a-f]{6}$/i.test(b.chromeColor)) return err(res, 400, "chromeColor 须为 #rrggbb 形式的颜色");
           b.chromeColor = b.chromeColor.toLowerCase();
         }
+        // 同 appops.go：局域网那边原样传回遮掉的 Webhook 地址表示没改；带着 *** 改了一半的不收
+        if ("webhookUrl" in b) {
+          const v = String(b.webhookUrl || "").trim();
+          if (!state.local && v === maskWebhook(state.config.webhookUrl)) delete b.webhookUrl;
+          else if (!state.local && v.includes("***")) return err(res, 400, "Webhook 地址里的 *** 是藏起来的部分，要改就把整个地址重新填一遍");
+          else if (v && !/^https?:\/\//.test(v)) return err(res, 400, "Webhook 地址需以 http(s):// 开头");
+          else b.webhookUrl = v;
+        }
         if ("autoStart" in b) state.autoStart = !!b.autoStart;
         // 同 appops.go：局域网访问密码只存哈希、不进 config；开启局域网访问前必须已有密码（同一次请求里带上也算），否则整次拒绝
         const lanSetNow = state.lanSet || !!b.lanPassword;
@@ -1531,7 +1547,7 @@ function handler(state, ui, portOf) {
         delete b.lanPassword;
         // 同 web：Key 加密另存、不进 config，传空串清除；响应里永远没有 Key
         if ("cfApiKey" in b) { state.cfKey = String(b.cfApiKey || "").trim(); state.cfKeyBroken = false; delete b.cfApiKey; }
-        Object.assign(state.config, b); delete state.config.autoStart; return ok(res, state.config);
+        Object.assign(state.config, b); delete state.config.autoStart; return ok(res, publicCfg(state));
       }
       if (p === "/api/mcversions") {
         const snaps = u.searchParams.get("snapshots") === "1";

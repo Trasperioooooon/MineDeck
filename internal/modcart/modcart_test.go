@@ -339,7 +339,8 @@ func TestDownload(t *testing.T) {
 	if len(ents) != 1 {
 		t.Fatalf("失败后目录里多了东西：%v", ents)
 	}
-	for _, name := range []string{"../evil.jar", "a/b.jar", ".hidden.jar", "x.zip", "con:.jar", ""} {
+	// 带扩展名的设备名（nul.jar、COM1.jar）：Windows 11 上 IsLocal 放过，这里不看系统版本一律不收（C-2e）
+	for _, name := range []string{"../evil.jar", "a/b.jar", ".hidden.jar", "x.zip", "con:.jar", "", "nul.jar", "COM1.jar", "lpt³.jar"} {
 		h := f
 		h.FileName = name
 		if _, _, err := s.Download(context.Background(), h, mods, nil); err == nil {

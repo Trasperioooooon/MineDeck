@@ -141,12 +141,15 @@ func sanitize(st Settings) Settings {
 	return st
 }
 
-func (s *Service) saveLocked() error {
+func (s *Service) saveLocked() error { return s.save(s.st) }
+
+// save 把 st 写进 settings.json（先写临时文件再改名），不动内存里的设置。调用时持有 s.mu。
+func (s *Service) save(st Settings) error {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
-	if err := enc.Encode(s.st); err != nil {
+	if err := enc.Encode(st); err != nil {
 		return err
 	}
 	return writeFileAtomic(s.settingsPath(), buf.Bytes())
@@ -184,6 +187,18 @@ func (s *Service) missing(st Settings) string {
 func (s *Service) snapshot() Settings {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.snapshotLocked()
+}
+
+// current 当前的设置和与它配对的 Key，在锁里一起取：换服务商的那次保存也一直拿着这把锁（见 commitLocked），
+// 所以不会先拿到旧地址、等那边换完了再拿到新 Key（或者反过来）。要发请求的都从这里取。
+func (s *Service) current() (Settings, string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.snapshotLocked(), s.key()
+}
+
+func (s *Service) snapshotLocked() Settings {
 	st := s.st
 	st.Quota = map[Feature]int64{}
 	for k, v := range s.st.Quota {
@@ -290,11 +305,11 @@ func (s *Service) key() string {
 
 // Client 按当前设置建一个客户端（第三、四阶段用）。没配置 AI 返回 ErrDisabled。
 func (s *Service) Client(stream bool) (*Client, error) {
-	st := s.snapshot()
+	st, key := s.current()
 	if s.missing(st) != "" {
 		return nil, ErrDisabled
 	}
-	return NewClient(s.config(st, s.key(), stream))
+	return NewClient(s.config(st, key, stream))
 }
 
 // Begin 用 AI 之前先调：没配置报 ErrDisabled，今天的额度用完了报 *QuotaError。
@@ -426,29 +441,34 @@ type ProviderPatch struct {
 }
 
 // SetProvider 保存服务商设置。preset 传空串表示停用 AI（同时清掉 Key）。
+// 新设置和与它配对的 Key 都存好了才生效，中途写盘失败就退回原样（见 commitLocked）。
 func (s *Service) SetProvider(pt ProviderPatch) error {
+	if err := s.setProvider(pt); err != nil {
+		return err
+	}
+	if s.paid(s.snapshot()) {
+		s.prices.MaybeRefresh()
+	}
+	return nil
+}
+
+func (s *Service) setProvider(pt ProviderPatch) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	old := s.st
 	st := s.st
 	if pt.Preset != nil {
 		st.Preset = *pt.Preset
 	} else if st.Preset == "" {
-		s.mu.Unlock()
 		return errors.New("先选择服务商")
 	}
-	if st.Preset == "" { // 停用
+	if st.Preset == "" { // 停用：设置和 Key 一起清掉
 		st.Preset, st.Protocol, st.BaseURL, st.Model, st.MaxOutput, st.Effort, st.Eager, st.Fallback = "", "", "", "", 0, "", nil, nil
-		s.st = st
-		err := s.saveLocked()
-		s.mu.Unlock()
-		if err != nil {
-			return fmt.Errorf("保存设置失败：%w", err)
-		}
-		return s.setKey("")
+		empty := ""
+		return s.commitLocked(st, &empty)
 	}
 	p, ok := PresetByID(st.Preset)
 	if !ok {
-		s.mu.Unlock()
 		return fmt.Errorf("未知的服务商：%q", st.Preset)
 	}
 	changedPreset := st.Preset != old.Preset
@@ -461,7 +481,6 @@ func (s *Service) SetProvider(pt ProviderPatch) error {
 		st.Protocol = OpenAI
 	}
 	if !st.Protocol.valid() {
-		s.mu.Unlock()
 		return errors.New("协议只能是 openai 或 anthropic")
 	}
 	if pt.BaseURL != nil {
@@ -473,7 +492,6 @@ func (s *Service) SetProvider(pt ProviderPatch) error {
 		st.BaseURL = p.BaseURL
 	}
 	if _, err := ParseBaseURL(st.BaseURL); err != nil {
-		s.mu.Unlock()
 		return err
 	}
 	if pt.Model != nil {
@@ -482,7 +500,6 @@ func (s *Service) SetProvider(pt ProviderPatch) error {
 		st.Model = p.Model
 	}
 	if len([]rune(st.Model)) > 200 || hasControl(st.Model) {
-		s.mu.Unlock()
 		return errors.New("模型名不对（最长 200 个字）")
 	}
 	if pt.MaxOutput != nil {
@@ -492,7 +509,6 @@ func (s *Service) SetProvider(pt ProviderPatch) error {
 		st.Effort = *pt.Effort
 	}
 	if !validEffort(st.Effort) {
-		s.mu.Unlock()
 		return errors.New("思考深度只能是 low、medium、high、xhigh、max，或留空用模型默认值")
 	}
 	if st.Protocol != Anthropic {
@@ -502,7 +518,6 @@ func (s *Service) SetProvider(pt ProviderPatch) error {
 	if pt.Key != nil {
 		k := strings.TrimSpace(*pt.Key)
 		if len(k) > 4096 || hasControl(k) || strings.ContainsAny(k, " \t") {
-			s.mu.Unlock()
 			return errors.New("Key 的格式不对（不能有空格，最长 4096 个字符）")
 		}
 		newKey = &k
@@ -521,20 +536,43 @@ func (s *Service) SetProvider(pt ProviderPatch) error {
 		empty := ""
 		newKey = &empty
 	}
-	s.st = st
-	err := s.saveLocked()
-	s.mu.Unlock()
-	if err != nil {
+	return s.commitLocked(st, newKey)
+}
+
+// commitLocked 把新设置 st 和与它配对的 Key 一起存好，都存好了才换掉内存里的设置；newKey 为 nil 表示 Key 不动。
+// 调用时持有 s.mu，存完才放开：要发请求的从 current 一起取设置和 Key，也要这把锁，看不到存到一半的样子。
+//
+// 中途写盘失败就退回原样（v3.1.0 正式版前检查 B-10）。以前先改内存再写盘：写设置失败的话，内存里已经是新地址、
+// Key 还是旧的，后面的请求会把旧 Key 发到新地址；设置存好了、新 Key 没存上的话，盘上也是这样，重启以后照旧。
+// 现在 Key 要变时先清掉旧 Key，再写设置，最后存新 Key；退回时先写回旧设置，写回成功了才放回旧 Key。
+// 哪一步失败、退回时又失败，最坏也只是「某个地址 + 没有 Key」（要重填），不会是「新地址 + 旧 Key」。
+func (s *Service) commitLocked(st Settings, newKey *string) error {
+	if newKey == nil {
+		if err := s.save(st); err != nil {
+			return fmt.Errorf("保存设置失败：%w", err)
+		}
+		s.st = st
+		return nil
+	}
+	old, oldKey := s.st, s.key() // 旧 Key 解不开的按没有算：退回以后就是没填 Key
+	if err := s.setKey(""); err != nil {
+		return err
+	}
+	if err := s.save(st); err != nil {
+		_ = s.setKey(oldKey) // 设置没写进去：放回旧 Key，还是原来那一对（放不回去就是没填 Key，不会配错）
 		return fmt.Errorf("保存设置失败：%w", err)
 	}
-	if newKey != nil {
+	if *newKey != "" {
 		if err := s.setKey(*newKey); err != nil {
+			if s.save(old) == nil {
+				_ = s.setKey(oldKey)
+			} else {
+				s.st = st // 旧设置也写不回去：内存跟着盘上的新设置走，Key 空着，要重填
+			}
 			return err
 		}
 	}
-	if s.paid(s.snapshot()) {
-		s.prices.MaybeRefresh()
-	}
+	s.st = st
 	return nil
 }
 
@@ -747,9 +785,8 @@ func (s *Service) Models(ctx context.Context, req ModelsRequest) ([]Model, error
 	}
 	key := strings.TrimSpace(req.Key)
 	if key == "" {
-		st := s.snapshot()
-		if st.Preset == p.ID && SameSite(st.BaseURL, base) {
-			key = s.key()
+		if st, saved := s.current(); st.Preset == p.ID && SameSite(st.BaseURL, base) {
+			key = saved
 		}
 	}
 	if key == "" && !p.NoKey && p.ID != CustomID {
@@ -787,13 +824,13 @@ var pingTool = Tool{Name: "minedeck_ping", Description: "连接测试用的工�
 // Claude 的中转：先打开 eager_input_streaming 和服务端回退试，不认的自动关掉，结果存进设置（§4.3）。
 // 测试花的 token 不计入每日额度。
 func (s *Service) Test(ctx context.Context) (*TestResult, error) {
-	st := s.snapshot()
+	st, key := s.current()
 	if s.missing(st) != "" {
 		return nil, ErrDisabled
 	}
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
-	cfg := s.config(st, s.key(), true)
+	cfg := s.config(st, key, true)
 	if cfg.Protocol == Anthropic {
 		cfg.Eager, cfg.Fallback = true, true
 		cfg.MaxTokens = min(cfg.MaxTokens, 4096)

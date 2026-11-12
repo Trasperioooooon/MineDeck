@@ -10,12 +10,12 @@ import (
 	"net/http"
 	"net/url"
 	"path"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"minedeck/internal/dl"
 	"minedeck/internal/mcsrc"
+	"minedeck/internal/winname"
 )
 
 // File 一个待下载的整合包文件。
@@ -357,25 +357,14 @@ func cfDir(p cfProject) string {
 	return "mods"
 }
 
-// cfFileNameOK 接口给的文件名能不能当落点里的那一段用。只认单独一段、在 Windows 上原样写得出来的名字：
+// cfFileNameOK 接口给的文件名能不能当落点里的那一段用。只认单独一段、在 Windows 上原样写得出来的名字（winname.OK）：
 //   - 带分隔符的不要：mods/../server.properties 化简以后就落到实例根目录去了；
 //   - 只有点的、末尾是点或空格的不要：Windows 会把它们去掉，落下来的名字就不是记下的那个；
-//   - 带冒号（盘符、备用数据流）、Windows 不许用的符号、换行和控制字符的不要（名字还要写进日志和清单文件）。
+//   - 带冒号（盘符、备用数据流）、Windows 不许用的符号、换行和控制字符的不要（名字还要写进日志和清单文件，DEL 也不要）；
+//   - 保留设备名不要，带扩展名的（con.jar）也算。导入那边的落点检查（inst 的 overrideAllowed）用的是同一套，
+//     这样名字不能用的在这一步就归到「名字不能用」，不会到后面才被挡下、原因却写成别的。
 func cfFileNameOK(name string) bool {
-	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\:*?"<>|`) {
-		return false
-	}
-	if strings.TrimRight(name, ". ") != name {
-		return false
-	}
-	for _, r := range name {
-		if r < 0x20 || r == 0x7f {
-			return false
-		}
-	}
-	// Windows 的保留设备名（NUL、CON、COM1……）：导入那边的落点检查用的也是 IsLocal，这里和它一个标准，
-	// 这样名字不能用的在这一步就归到「名字不能用」，不会到后面才被挡下、原因却写成别的。
-	return filepath.IsLocal(name)
+	return winname.OK(name) && !strings.ContainsRune(name, 0x7f)
 }
 
 // ResolveCF 通过 CurseForge 官方 API（需用户 API key）把文件引用解析为直链。

@@ -20,6 +20,7 @@ import (
 	"minedeck/internal/modinfo"
 	"minedeck/internal/modpack"
 	"minedeck/internal/tasks"
+	"minedeck/internal/winname"
 )
 
 // modpackHTTP 造导入下载用的 HTTP 客户端：受控客户端（dl.GuardedClient）——每一跳连出去之前都查
@@ -177,6 +178,10 @@ func (m *Manager) runImport(ctx context.Context, t *tasks.Task, pack *modpack.Pa
 	if len(refused) > 0 {
 		t.Logf("整合包清单里的这些文件没有下载（由 MineDeck 自己生成，或者名字写不成普通文件）：%s", strings.Join(refused, "、"))
 	}
+	files, dupDL := dedupeDownloads(files)
+	if len(dupDL) > 0 {
+		t.Logf("整合包清单里的这些文件和前面的落点只差大小写，在 Windows 上是同一个文件，没有下载（留的是前面那个）：%s", shortNames(dupDL, 8))
+	}
 	var total int64
 	for _, f := range files {
 		total = total + f.Size
@@ -234,39 +239,15 @@ func (m *Manager) runImport(ctx context.Context, t *tasks.Task, pack *modpack.Pa
 
 	// ---- 步骤 7：应用覆盖目录 ----
 	t.StartStep(7)
-	var notTaken []string
-	err := modpack.ExtractOverrides(pack, dir, func(rel string, r io.Reader) error {
-		// 覆盖目录是整合包作者给的文件，写进来的时候实例已经登记好了：MineDeck 自己的文件（instance.json、run.bat、
-		// 老版本的日志配置、游戏内 AI 的设置这些）不能让它顶掉，否则重启 MineDeck 以后用哪个 Java、带什么参数、
-		// 有哪些定时任务就都是整合包说了算。比名字之前先把每一段结尾的点和空格去掉（Windows 落盘时会吃掉它们）；
-		// 保留设备名这类写不成普通文件的名字也不收。
-		if !overrideAllowed(rel) {
-			notTaken = append(notTaken, rel)
-			return nil
-		}
-		dest := filepath.Join(dir, filepath.FromSlash(rel))
-		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-			return err
-		}
-		w, err := os.Create(dest)
-		if err != nil {
-			return err
-		}
-		_, cerr := io.Copy(w, r)
-		if werr := w.Close(); cerr == nil {
-			cerr = werr
-		}
-		return cerr
-	})
-	if err != nil {
+	sink := newOverrideSink(dir)
+	if err := modpack.ExtractOverrides(pack, dir, sink.write); err != nil {
 		return fmt.Errorf("应用整合包覆盖文件失败: %w", err)
 	}
-	if len(notTaken) > 0 {
-		shown := notTaken
-		if len(shown) > 8 {
-			shown = append(append([]string{}, notTaken[:8]...), fmt.Sprintf("…等 %d 个", len(notTaken)))
-		}
-		t.Logf("整合包覆盖文件夹里的这些文件没有采用（由 MineDeck 自己生成，或者名字写不成普通文件）：%s", strings.Join(shown, "、"))
+	if len(sink.notTaken) > 0 {
+		t.Logf("整合包覆盖文件夹里的这些文件没有采用（由 MineDeck 自己生成，或者名字写不成普通文件）：%s", shortNames(sink.notTaken, 8))
+	}
+	if len(sink.dups) > 0 {
+		t.Logf("整合包覆盖文件夹里的这些文件和前面的文件只差大小写，在 Windows 上是同一个文件，没有采用（留的是前面那个）：%s", shortNames(sink.dups, 8))
 	}
 	// 覆盖目录可以带 server.properties：世界目录的名字指到服务器文件夹外面的整合包不要
 	// （服务器一启动就会去动那个文件夹，备份和还原也跟着找过去）。
@@ -314,23 +295,81 @@ func (m *Manager) runImport(ctx context.Context, t *tasks.Task, pack *modpack.Pa
 	return nil
 }
 
+// dedupeDownloads 清单里落点只差大小写的（一模一样的也算）在 Windows 上是同一个文件，而下载是并发的，会同时写它：
+// 留第一条，后面的不下载，返回给日志列出来（v3.1.0 正式版前检查 C-2e）。
+func dedupeDownloads(files []modpack.File) (kept []modpack.File, dups []string) {
+	seen := map[string]bool{}
+	for _, f := range files {
+		k := winname.Fold(path.Clean(f.Path))
+		if seen[k] {
+			dups = append(dups, f.Path)
+			continue
+		}
+		seen[k] = true
+		kept = append(kept, f)
+	}
+	return kept, dups
+}
+
+// overrideSink 应用覆盖目录时一个一个写文件（ExtractOverrides 的回调，见 runImport），记下没采用的和只差大小写的。
+type overrideSink struct {
+	dir            string
+	seen           map[string]string // 已经写进来的：不分大小写的路径 → 包里的写法
+	notTaken, dups []string
+}
+
+func newOverrideSink(dir string) *overrideSink {
+	return &overrideSink{dir: dir, seen: map[string]string{}}
+}
+
+func (s *overrideSink) write(rel string, r io.Reader) error {
+	// 覆盖目录是整合包作者给的文件，写进来的时候实例已经登记好了：MineDeck 自己的文件（instance.json、run.bat、
+	// 老版本的日志配置、游戏内 AI 的设置这些）不能让它顶掉，否则重启 MineDeck 以后用哪个 Java、带什么参数、
+	// 有哪些定时任务就都是整合包说了算。名字在 Windows 上写不出原样的（设备名、结尾是点或空格的）也不收。
+	if !overrideAllowed(rel) {
+		s.notTaken = append(s.notTaken, rel)
+		return nil
+	}
+	// 只差大小写的两个名字在 Windows 上是同一个文件，后一个会把前一个盖掉：留前一个，后一个不写（v3.1.0 正式版前检查 C-2e）。
+	// 写法一模一样的照旧以后一个为准：那是后一层覆盖目录（server-overrides）有意盖掉前一层的
+	k := winname.Fold(rel)
+	if first, ok := s.seen[k]; ok && first != rel {
+		s.dups = append(s.dups, rel)
+		return nil
+	}
+	s.seen[k] = rel
+	dest := filepath.Join(s.dir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	w, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	_, cerr := io.Copy(w, r)
+	if werr := w.Close(); cerr == nil {
+		cerr = werr
+	}
+	return cerr
+}
+
+// shortNames 写进任务日志的文件清单：最多列 max 个，多的说一共几个。
+func shortNames(items []string, max int) string {
+	if len(items) <= max {
+		return strings.Join(items, "、")
+	}
+	return strings.Join(items[:max], "、") + fmt.Sprintf("、…等 %d 个", len(items))
+}
+
 // overrideAllowed 整合包覆盖目录里的这个文件（rel 相对实例目录，斜杠分隔）能不能写进来。规矩见 runImport 里用它的地方。
 func overrideAllowed(rel string) bool {
 	// 先化简再认：mods/../instance.json 落到磁盘上就是 instance.json。现在的调用方传进来的都是化简过的，
 	// 这里不指望这一点。
 	rel = path.Clean(strings.ReplaceAll(rel, "\\", "/"))
-	if !filepath.IsLocal(filepath.FromSlash(rel)) {
-		return false
-	}
-	segs := strings.Split(rel, "/")
-	for k := range segs {
-		segs[k] = strings.TrimRight(segs[k], ". ")
-		if segs[k] == "" {
-			return false // 整段只有点和空格：Windows 会把它们去掉，落点就不是看上去的那个了
-		}
-	}
-	norm := strings.Join(segs, "/")
-	return !IsControlFile(norm) && filepath.IsLocal(filepath.FromSlash(norm))
+	// 每一段都要在 Windows 上原样写得出来（winname.PathOK）：设备名（带不带扩展名都算，CON.txt、COM1.log）、
+	// 结尾是点或空格的（Windows 落盘时会去掉它们，"run.bat." 落下来就是 run.bat）都不收。
+	// 以前结尾的点和空格是去掉以后再认，名字照收；带扩展名的设备名在 Windows 11 上也照收（v3.1.0 正式版前检查 C-2e）
+	return winname.PathOK(rel) && filepath.IsLocal(filepath.FromSlash(rel)) && !IsControlFile(rel)
 }
 
 // finishImport 收尾：按原样保留的、待决的、Java 要求的提示与记录文件。

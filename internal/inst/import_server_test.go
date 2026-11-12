@@ -322,18 +322,23 @@ func TestImportServerArchiveLog4j(t *testing.T) {
 	}
 }
 
-// 名字在 Windows 上不能用的文件（设备名、整段只有点的）不解压，日志里列出来；别的照常。
-// 结尾带一个点的（a.txt.）不算：Windows 落盘时会去掉那个点，就是 a.txt。
+// 名字在 Windows 上不能用的文件不解压，日志里列出来；别的照常。设备名不管带不带扩展名都算（CON.txt、com1.log：
+// Windows 11 上能建，老一些的 Windows 上是设备），结尾是点或空格的也算——以前 a.txt. 照收，Windows 落盘时去掉那个点，
+// 就成了 a.txt，能把同名的另一个文件盖掉（v3.1.0 正式版前检查 C-2e）。
+// 断言只看文件夹里列出来的名字，不对这些名字做 Stat、Open：老一些的 Windows 上那样会打开设备或者别的文件。
 func TestImportServerArchiveSkipsBadNames(t *testing.T) {
 	m, _ := importEnv(t)
-	pack, err := modpack.Parse(zipOf(t, map[string]string{
+	bad := []string{"config/NUL", "config/...", "config/CON.txt", "config/com1.log", "config/LPT¹.cfg", "config/trail.txt.", "config/space.txt "}
+	files := map[string]string{
 		"paper-1.20.1-100.jar": paperJarBytes(t),
 		"server.properties":    "server-port=25565\n",
 		"eula.txt":             "eula=true\n",
-		"config/NUL":           "x",
-		"config/...":           "x",
 		"config/ok.txt":        "ok",
-	}))
+	}
+	for _, b := range bad {
+		files[b] = "x"
+	}
+	pack, err := modpack.Parse(zipOf(t, files))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,8 +350,93 @@ func TestImportServerArchiveSkipsBadNames(t *testing.T) {
 	if b, err := os.ReadFile(filepath.Join(dir, "config", "ok.txt")); err != nil || string(b) != "ok" {
 		t.Fatalf("正常的文件应解压：%v %q", err, b)
 	}
+	if got := dirNames(t, filepath.Join(dir, "config")); !slices.Equal(got, []string{"ok.txt"}) {
+		t.Errorf("config 里只该有 ok.txt：%q", got)
+	}
 	log := strings.Join(tk.Snapshot().Log, "\n")
-	if !strings.Contains(log, "config/NUL") || !strings.Contains(log, "config/...") {
-		t.Fatalf("日志应列出没解压的文件：%s", log)
+	for _, b := range bad {
+		if !strings.Contains(log, b) {
+			t.Errorf("日志应列出没解压的 %q：%s", b, log)
+		}
+	}
+}
+
+// dirNames 一个文件夹里的条目名（只列，不打开）。
+func dirNames(t *testing.T, dir string) []string {
+	t.Helper()
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, e := range ents {
+		out = append(out, e.Name())
+	}
+	slices.Sort(out)
+	return out
+}
+
+// zipOrdered 按给的顺序写一个 zip（同名的条目也照写）。
+func zipOrdered(t *testing.T, entries [][2]string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "pack.zip")
+	f, err := os.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(f)
+	for _, e := range entries {
+		w, err := zw.Create(e[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write([]byte(e[1])); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// 只差大小写的两个文件在 Windows 上是同一个文件，以前后一个把前一个盖掉，什么也不说（v3.1.0 正式版前检查 C-2e）。
+// 现在和名字不能用的一样：留前一个，后面的跳过，日志里列出来；不整包拒绝（服务端包常在 Linux 上打，那边这是两个文件）。
+// 写法一模一样出现两次的照旧以后一个为准。
+func TestImportServerArchiveCaseDuplicates(t *testing.T) {
+	m, _ := importEnv(t)
+	pack, err := modpack.Parse(zipOrdered(t, [][2]string{
+		{"paper-1.20.1-100.jar", paperJarBytes(t)},
+		{"server.properties", "server-port=25565\n"},
+		{"eula.txt", "eula=true\n"},
+		{"config/Dup.toml", "first"},
+		{"config/dup.toml", "second"},
+		{"CONFIG/DUP.TOML", "third"},
+		{"config/same.toml", "a"},
+		{"config/same.toml", "b"},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(app.ServersDir, "dups")
+	tk, _ := m.Tasks.New("导入服务端", serverImportSteps)
+	if err := m.runServerImport(context.Background(), tk, pack, CreateReq{Name: "重名", XmxMB: 2048, Port: 25575, EULA: true}, dir); err != nil {
+		t.Fatalf("导入失败: %v", err)
+	}
+	if got := dirNames(t, filepath.Join(dir, "config")); !slices.Equal(got, []string{"Dup.toml", "same.toml"}) {
+		t.Errorf("config 里应是 Dup.toml 和 same.toml：%q", got)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "config", "Dup.toml")); string(b) != "first" {
+		t.Errorf("只差大小写的应留前一个：%q", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "config", "same.toml")); string(b) != "b" {
+		t.Errorf("写法一样的照旧以后一个为准：%q", b)
+	}
+	log := strings.Join(tk.Snapshot().Log, "\n")
+	if !strings.Contains(log, "只差大小写") || !strings.Contains(log, "config/dup.toml") || !strings.Contains(log, "CONFIG/DUP.TOML") || strings.Contains(log, "config/same.toml") {
+		t.Errorf("日志应列出只差大小写、没解压的那两个：%s", log)
 	}
 }

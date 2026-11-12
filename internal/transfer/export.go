@@ -14,6 +14,7 @@ import (
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/modinfo"
 	"minedeck/internal/tasks"
+	"minedeck/internal/winname"
 )
 
 // 交接包导出：把实例打包成 .mdpack，交给另一台电脑上的 MineDeck 续服。
@@ -220,13 +221,22 @@ func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, 
 	}
 	var files []packFile
 	var worldBytes int64
+	added := map[string]bool{} // 已经打进去的路径（winname.Fold：不分大小写）
+	var badNames []string      // 名字在别的 Windows 上写不出原样、没打进包的
 	add := func(rel, abs string, st os.FileInfo, mod *modinfo.Mod) {
-		// 同一个文件不重复打（完整模式 LaunchTarget 与 server.jar 常是同一个）
-		for _, f := range files {
-			if f.rel == rel {
-				return
-			}
+		// 同一个文件不重复打（完整模式 LaunchTarget 与 server.jar 常是同一个）。按 Windows 的规矩不分大小写：
+		// 启动 jar 叫 Server.jar 时，它和 server.jar 是同一个文件，以前会打进去两份
+		k := winname.Fold(rel)
+		if added[k] {
+			return
 		}
+		// 名字在别的 Windows 上写不出原样的（CON.txt 这类：Windows 11 上能建，老一些的 Windows 上是设备）不打进包，
+		// 导入那边会把它当可疑路径、整包拒绝（v3.1.0 正式版前检查 C-2e）
+		if !winname.PathOK(filepath.ToSlash(rel)) {
+			badNames = append(badNames, filepath.ToSlash(rel))
+			return
+		}
+		added[k] = true
 		files = append(files, packFile{rel: rel, abs: abs, size: st.Size(), mod: mod})
 		mf.Counts.Files++
 		mf.Counts.Bytes += st.Size()
@@ -359,6 +369,11 @@ func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, 
 		"logs（日志可能含玩家 IP，不进包）",
 		"crash-reports（崩溃报告）",
 		"session.lock（世界锁定文件）",
+	}
+	if len(badNames) > 0 {
+		list := shortList(badNames, 12)
+		mf.Excluded = append(mf.Excluded, "名字在别的 Windows 上不能用的文件（设备名这类），没有进包："+list)
+		t.Logf("这些文件的名字在别的 Windows 上不能用（设备名这类），没有打进包，要的话改个名字再导出：%s", list)
 	}
 	if !full {
 		mf.Excluded = append(mf.Excluded, "服务端核心（导入时自动重新下载）")

@@ -15,6 +15,7 @@ import (
 
 	"minedeck/internal/inst"
 	"minedeck/internal/modinfo"
+	"minedeck/internal/winname"
 )
 
 // 交接包的 zip 原语。备份的 zipDirs / unzipTo（internal/inst/backup.go）打的是「几个世界子目录」，
@@ -182,8 +183,9 @@ func shortNameLike(seg string) bool {
 
 // payloadPath 校验一条包内路径，返回前缀内的相对路径（本机分隔符）。ok=false 表示不属于实例文件（前缀之外、目录项），跳过即可；
 // 报错表示路径可疑，整个包都不要。
-// 按 Windows 的规矩查：filepath.IsLocal 拒绝绝对路径、盘符、往上走的 ..、保留设备名（NUL、COM1…）和带冒号的名字
-// （a.txt:x 会写进备用数据流）；某一段以点或空格结尾的也拒绝——Windows 会把结尾的点和空格吃掉，"run.bat." 落下来就是 run.bat。
+// 按 Windows 的规矩查：filepath.IsLocal 拒绝绝对路径、盘符、往上走的 ..；每一段还要能原样写到 Windows 上（winname.PathOK）：
+// 保留设备名不管带不带扩展名都拒绝（NUL、COM1、CON.txt，不看这台 Windows 把它当不当设备），带冒号的拒绝
+// （a.txt:x 会写进备用数据流），以点或空格结尾的也拒绝——Windows 会把结尾的点和空格吃掉，"run.bat." 落下来就是 run.bat。
 func payloadPath(f *zip.File) (rel string, ok bool, err error) {
 	name := strings.ReplaceAll(f.Name, "\\", "/")
 	in, found := strings.CutPrefix(name, PayloadPrefix)
@@ -197,13 +199,8 @@ func payloadPath(f *zip.File) (rel string, ok bool, err error) {
 		return "", false, nil
 	}
 	local := filepath.FromSlash(in)
-	if !filepath.IsLocal(local) || local != filepath.Clean(local) {
+	if !filepath.IsLocal(local) || local != filepath.Clean(local) || !winname.PathOK(in) {
 		return "", false, fmt.Errorf("交接包里有可疑路径: %s", f.Name)
-	}
-	for _, seg := range strings.Split(in, "/") {
-		if strings.HasSuffix(seg, ".") || strings.HasSuffix(seg, " ") {
-			return "", false, fmt.Errorf("交接包里有可疑路径: %s", f.Name)
-		}
 	}
 	if !f.Mode().IsRegular() {
 		return "", false, fmt.Errorf("交接包里有不是普通文件的条目: %s", f.Name)
@@ -228,6 +225,7 @@ func extractPrefix(ctx context.Context, src, destDir string, opts extractOpts,
 	}
 	var ents []entry
 	var total int64
+	seen := map[string]int{} // 要解出来的文件：不分大小写的路径 → 在 ents 里的位置
 	for _, f := range zr.File {
 		if f.Name == manifestName {
 			continue
@@ -251,6 +249,18 @@ func extractPrefix(ctx context.Context, src, destDir string, opts extractOpts,
 		if size < 0 || total+size < total {
 			return res, fmt.Errorf("交接包里的文件大小不对: %s", f.Name)
 		}
+		// 只差大小写（或者一模一样）的两个文件在 Windows 上是同一个，后一个会把前一个盖掉（v3.1.0 正式版前检查 C-2e）。
+		// 内容一样的是同一个文件打了两遍（3.1.0 及以前导出完整包时，启动 jar 叫 Server.jar 就会和 server.jar 各打一份），
+		// 跳过后一个；内容不一样的是被改过的包，和可疑路径一样整包不要
+		k := winname.Fold(filepath.ToSlash(rel))
+		if j, dup := seen[k]; dup {
+			if p := ents[j]; p.f.CRC32 == f.CRC32 && p.size == size {
+				continue
+			}
+			return res, fmt.Errorf("交接包里的 %s 和 %s 在 Windows 上是同一个文件，内容却不一样，这个包被改过或者坏了",
+				filepath.ToSlash(ents[j].name), filepath.ToSlash(rel))
+		}
+		seen[k] = len(ents)
 		ents = append(ents, entry{f: f, name: rel, size: size})
 		total += size
 	}

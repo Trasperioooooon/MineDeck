@@ -17,7 +17,7 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 ### 应用
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/app` | 版本、内存（`ramMb`/`availRamMb`）、实际监听端口 `port`、`serversRoot`/`backupsRoot`、`autoStart`（开机自启真值，查注册表）、`config`、本机 IP；`lanSet`（是否已设访问密码）、`cfKeySet`（是否已设 CurseForge API Key）、`cfKeyBroken`（已存的 Key 解不开，多半是换了电脑或 Windows 用户，需要重填）；`lanActive`：这次启动是否已经监听在局域网上（打开「允许局域网访问」后要重启程序才为真；关掉即时生效） |
+| GET | `/api/app` | 版本、内存（`ramMb`/`availRamMb`）、实际监听端口 `port`、`serversRoot`/`backupsRoot`、`autoStart`（开机自启真值，查注册表）、`config`、本机 IP；`lanSet`（是否已设访问密码）、`cfKeySet`（是否已设 CurseForge API Key）、`cfKeyBroken`（已存的 Key 解不开，多半是换了电脑或 Windows 用户，需要重填）；`lanActive`：这次启动是否已经监听在局域网上（打开「允许局域网访问」后要重启程序才为真；关掉即时生效）；`local`：请求是不是来自本机（不是本机时 `config.webhookUrl` 是遮掉的，见下方配置键） |
 | PUT | `/api/config` | 局部更新配置（见下方「配置键」；仅传要改的键） |
 | POST | `/api/pickdir` | 弹系统文件夹选择框，返回 `{path}`（取消为空）。对话框关掉之前请求不返回；已经开着一个时再调返回 409；对话框打不开时返回 500（原因在日志里）。**仅本机** |
 | POST | `/api/openpath` | 在资源管理器打开 `{path}` 目录。**仅本机** |
@@ -31,7 +31,7 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 | GET | `/api/javas` · POST `/api/javas/scan` · POST `/api/javas/add` | Java 管理（`add` **仅本机**） |
 
 **配置键**（`PUT /api/config`，均为可选、只更新所传字段）：
-`source`（auto/mirror/official）、`cfApiKey`（**只写**：用 Windows DPAPI 加密存进程序目录的 `secrets.json`，任何响应都不下发——`config` 里的 `cfApiKey` 永远为空；是否已设置看 `GET /api/app` 的 `cfKeySet`；传空串清除）、`webhookUrl`、`updateRepo`、`checkUpdateOnStart`、`serversDir`（实例存放根，空=默认；**仅本机**；改动时旧值并入 `roots`，旧根里的实例照常扫描；返回的配置里还有只读的 `instanceDirs`，是接管进来的服务器各自的文件夹，启动时逐个读，不扫它们的上一层）、`backupsDir`（备份根；**仅本机**）、`backupKeep`（每实例保留份数 1–1000）、`onboarded`（首启引导完成标记）、`tosAccepted`（用户协议与免责声明已同意标记）、`minimizeToTray`（关窗最小化到托盘）、`autoStart`（开机自启，直写 `HKCU\...\Run`）、`listenLan`、`lanPassword`（明文，服务端存为 bcrypt 哈希；任何响应都不下发该哈希，是否已设密码看 `GET /api/app` 的 `lanSet`）、`chromeColor`（界面标题栏底色，只收 `#rrggbb`，存为小写，其它写法整次返回 400；空串清除。原生窗口里的前端在外观变化时上报，下次启动时宿主把它设为 WebView2 的默认底色，避免冷启动白闪；没有值时按系统浅 / 深色取默认方案的标题栏色）。
+`source`（auto/mirror/official）、`cfApiKey`（**只写**：用 Windows DPAPI 加密存进程序目录的 `secrets.json`，任何响应都不下发——`config` 里的 `cfApiKey` 永远为空；是否已设置看 `GET /api/app` 的 `cfKeySet`；传空串清除）、`webhookUrl`（局域网登录的设备读到的只有协议和主机，后面换成 `***`，如 `https://hook.example/***`，地址里的令牌不下发；原样传回这个遮掉的地址表示不改，带着 `***` 的其他写法返回 400；本机读写的都是完整地址）、`updateRepo`、`checkUpdateOnStart`、`serversDir`（实例存放根，空=默认；**仅本机**；改动时旧值并入 `roots`，旧根里的实例照常扫描；返回的配置里还有只读的 `instanceDirs`，是接管进来的服务器各自的文件夹，启动时逐个读，不扫它们的上一层）、`backupsDir`（备份根；**仅本机**）、`backupKeep`（每实例保留份数 1–1000）、`onboarded`（首启引导完成标记）、`tosAccepted`（用户协议与免责声明已同意标记）、`minimizeToTray`（关窗最小化到托盘）、`autoStart`（开机自启，直写 `HKCU\...\Run`）、`listenLan`、`lanPassword`（明文，服务端存为 bcrypt 哈希；任何响应都不下发该哈希，是否已设密码看 `GET /api/app` 的 `lanSet`）、`chromeColor`（界面标题栏底色，只收 `#rrggbb`，存为小写，其它写法整次返回 400；空串清除。原生窗口里的前端在外观变化时上报，下次启动时宿主把它设为 WebView2 的默认底色，避免冷启动白闪；没有值时按系统浅 / 深色取默认方案的标题栏色）。
 另有 `trustedHosts`（config.json 里 `[{host, scope, at}]`，整合包导入里用户逐个确认过的自定义下载站点）：**不经 `PUT /api/config` 修改**，只能由 `POST /api/import/pending/{taskId}` 的 `trust` 处置在用户明确确认（`ack: true`）且站点校验通过（https、公网）后写入，`scope` 为作用域（现为 `modpack`），之后同站点的整合包导入不再列为待决。
 
 ### 实例

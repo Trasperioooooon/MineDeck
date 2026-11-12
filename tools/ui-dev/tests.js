@@ -2260,6 +2260,42 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(await toastHas("新的访问密码已保存"), "提示里应写明新密码也保存了");
     } finally { await mockState({ listenLan: false, lanSet: false }); }
   });
+  await run("通知与集成：从局域网打开时 Webhook 地址只显示开头，原样传回不会盖掉真地址，接着改了一半的不收，填新的照常存；本机看完整的（v3.1.0 正式版前检查 B-2）", async () => {
+    const mockState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
+    const real = "https://hook.example.com/robot/send?access_token=tk-secret-123";
+    const sub = () => page.$eval(".row-item:has(#wh-url) .ri-sub", el => el.textContent);
+    try {
+      await mockState({ local: true, webhookUrl: real });
+      await page.goto(url("#/settings/notify")); await settle();
+      assert((await page.inputValue("#wh-url")) === real && !(await sub()).includes("藏起来"), "本机应看到完整地址：" + await page.inputValue("#wh-url"));
+
+      await mockState({ local: false });
+      await page.goto(url("#/settings/notify")); await settle();
+      const shown = await page.inputValue("#wh-url");
+      assert(shown === "https://hook.example.com/***", "局域网应只看到开头：" + shown);
+      assert((await sub()).includes("藏起来了"), "应说明后面藏起来了：" + await sub());
+      assert(await page.$eval("#wh-save", b => b.disabled), "没改时保存键应置灰");
+      // 点进去就全选：直接输入就是整个换掉
+      await page.click("#wh-url");
+      const sel = await page.$eval("#wh-url", el => [el.selectionStart, el.selectionEnd, el.value.length]);
+      assert(sel[0] === 0 && sel[1] === sel[2], "点进遮掉的地址应全选：" + sel);
+      // 原样传回（比如别的程序拿这份配置整份写回）：真地址不变
+      await page.evaluate(v => fetch("/api/config", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ webhookUrl: v }) }), shown);
+      let st = await mockState({});
+      assert(st.config.webhookUrl === real, "原样传回不该盖掉真地址：" + st.config.webhookUrl);
+      // 在遮掉的地址后面接着改：不收，真地址不变，提示说清楚
+      await page.fill("#wh-url", shown + "x");
+      await page.click("#wh-save"); await settle(300);
+      st = await mockState({});
+      assert(st.config.webhookUrl === real, "改了一半的不该存：" + st.config.webhookUrl);
+      assert(await toastHas("藏起来的部分"), "提示里应说明 *** 是藏起来的部分");
+      // 填全新的地址：存进去
+      await page.fill("#wh-url", "https://bot.example.com/new?key=k2");
+      await page.click("#wh-save"); await settle(300);
+      st = await mockState({});
+      assert(st.config.webhookUrl === "https://bot.example.com/new?key=k2" && await toastHas("Webhook 已保存"), "填新地址应存进去：" + st.config.webhookUrl);
+    } finally { await mockState({ local: true, webhookUrl: "" }); }
+  });
   // ==================== 窗口与设置结束 ====================
 
   await run("控制台：快捷键说明常驻在命令框下方，打字后还在；placeholder 只留示例（测试报告观察 7）", async () => {

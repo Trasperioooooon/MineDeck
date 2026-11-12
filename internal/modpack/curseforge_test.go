@@ -210,6 +210,9 @@ func TestResolveCFRejectsBadFileNames(t *testing.T) {
 		"NUL:",
 		"NUL", // Windows 的保留设备名
 		"con",
+		"con.jar", // 带扩展名的设备名：Windows 11 上能建，老一些的 Windows 上是设备，一律不收（C-2e）
+		"COM1.jar",
+		"lpt².zip",
 		"a\nb.jar",
 		"what?.jar",
 		"",
