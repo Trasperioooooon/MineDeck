@@ -137,7 +137,7 @@ window.MDMusic = (() => {
       const stop = $("#mu-stop");
       if (stop) stop.onclick = async () => {
         stop.disabled = true;
-        try { await api(base + "/stop", { method: "POST" }); toast("已停止广播"); } catch (e) { toast(e.message, true); }
+        try { await api(base + "/stop", { method: "POST" }); toast("已停止广播"); } catch (e) { toastErr("无法停止广播", e); }
         await loadStatus();
       };
       const startBtn = $("#mu-start");
@@ -188,8 +188,8 @@ window.MDMusic = (() => {
             sub: `<span data-playing>${x.playing ? "正在出声" : "没有声音"}</span>${(x.devices || []).length ? " · " + esc(x.devices.join("、")) : ""}`,
             right: `<span class="mu-meter" title="当前电平">${xpBar(10, meterCells(x.peak), "success")}</span><span class="ri-check${on ? " on" : ""}" aria-hidden="true">${icon("check")}</span>`,
             cls: "choice" + (on ? " sel" : ""), attrs: `role="radio" tabindex="0" aria-checked="${on}" data-pid="${x.pid}" data-exe="${esc(x.exe)}"` });
-        }).join("") : row({ title: v.src.error ? "列不出正在出声的程序" : "没有程序在出声",
-          sub: esc(v.src.error || "先在音乐软件里放一首歌，再点「刷新列表」。游戏本身（java）不会列出，录进去会有回声。") });
+        }).join("") : v.src.error ? row({ titleHTML: errInline("列不出正在出声的程序", v.src.err || v.src.error) })
+          : row({ title: "没有程序在出声", sub: esc("先在音乐软件里放一首歌，再点「刷新列表」。游戏本身（java）不会列出，录进去会有回声。") });
         box.querySelectorAll("[data-pid]").forEach(r => {
           const pick = () => { v.sel = { pid: +r.dataset.pid, exe: r.dataset.exe }; drawSources(); paintStart(); $(`#mu-src [data-pid="${r.dataset.pid}"]`)?.focus(); };
           r.onclick = pick;
@@ -219,7 +219,7 @@ window.MDMusic = (() => {
         drawSources();
         drawAdv();
       } catch (e) {
-        if (!stale(gen)) { v.src = { sources: [], devices: [], error: e.message }; drawSources(); }
+        if (!stale(gen)) { v.src = { sources: [], devices: [], error: e.message, err: e }; drawSources(); } // error 进签名，err 给行内报错拼正文、复制原文
       } finally { v.srcLoading = false; }
     };
 
@@ -233,7 +233,7 @@ window.MDMusic = (() => {
         });
         if (!ok || stale(gen)) return;
         try { await api("/api/music/confirm-system", { method: "POST" }); v.st.systemConfirmed = true; }
-        catch (e) { toast(e.message, true); return; }
+        catch (e) { toastErr("无法记下这次确认", e); return; }
       }
       const req = m === "process" ? { mode: "process", pid: v.sel.pid, exe: v.sel.exe } : { mode: "system", device: v.device || "" };
       v.busy = true; paintStart();
@@ -360,14 +360,14 @@ window.MDMusic = (() => {
         try {
           const r = await api(base + "/install", { method: "POST", body: { variant: b.dataset.install } });
           toast((r.restart ? "已装好桥接模组：重启服务器后生效" : "已装好桥接模组") + ((r.removed || []).length ? `（删掉了 ${r.removed.join("、")}）` : ""));
-        } catch (e) { toast(e.message, true); }
+        } catch (e) { toastErr("无法安装桥接模组", e); }
         await loadStatus();
       });
       const tb = $("#mu-vh-tunnel");
       if (tb) tb.onclick = async () => {
         tb.disabled = true;
         try { const r = await api(base + "/voicehost", { method: "PUT", body: { fromTunnel: true } }); toast(vhMsg(r)); }
-        catch (e) { toast(e.message, true); }
+        catch (e) { toastErr("无法改用隧道地址", e); }
         await loadStatus();
       };
       $("#mu-vh-toggle").onclick = () => {
@@ -436,7 +436,7 @@ window.MDMusic = (() => {
       vol.oninput = () => { $("#mu-vol-v").textContent = vol.value + "%"; };
       vol.onchange = async () => {
         try { await api(base + "/settings", { method: "PUT", body: { volume: +vol.value } }); }
-        catch (e) { toast(e.message, true); }
+        catch (e) { toastErr("无法调整音量", e); }
       };
     };
 
@@ -490,7 +490,7 @@ window.MDMusic = (() => {
         try {
           const r = await api(base + "/install", { method: "POST", body: { variant: b.dataset.installAdv } });
           toast(`已换成${b.dataset.installAdv === "main" ? "默认" : "备用"}加载方式：${r.file}，开服后看 SVC 有没有加载它`);
-        } catch (e) { toast(e.message, true); }
+        } catch (e) { toastErr(`无法换成${b.dataset.installAdv === "main" ? "默认" : "备用"}加载方式`, e); }
         await loadStatus();
       });
     };
