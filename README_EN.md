@@ -33,9 +33,11 @@ This is an overview. Defaults, limits and edge cases for every item are in [docs
 
 - **Twelve server types**: Vanilla; plugin servers Paper, Purpur, Leaves and Folia; mod loaders Fabric, Forge and NeoForge; Mohist and Banner, which take both mods and plugins; and the proxies Velocity and Waterfall.
 - **Versions**: Minecraft 1.12.2 up to the latest release, including the year-numbered 26.x. The version list is read from the official manifests, so new versions show up on their own.
-- **No need to install Java**: MineDeck picks the Java that the game version needs, usually 8, 16, 17, 21 or 25. If a suitable one is already on the PC, it uses that. Otherwise it downloads a copy for its own use, without changing system settings or touching the Java you already have.
+- **No need to install Java**: MineDeck picks the Java that the game version needs, usually 8, 16, 17, 21 or 25. If a suitable one is already on the PC, it uses that. Otherwise it downloads a copy for its own use, without changing system settings or touching the Java you already have. Once a server is created, you can switch its Java under Memory / startup (内存 / 启动).
 - **Downloads switch sources and retry**: when one source fails it moves to the next, trying up to 3 rounds in all, and it verifies each file afterwards. Forge and NeoForge installers are pointed at a mirror and, if one fails, run again, up to 3 runs in all.
 - **Modpack import**: a Modrinth `.mrpack` imports directly. The server type, version and loader are detected, and client-only files are skipped. CurseForge zips import too; the files inside are downloaded automatically only after you enter your own CurseForge API key.
+- **Modpack files that cannot be downloaded are handled one by one**: a file whose download address is not on an allowed site, or that has no checksum, does not stop the whole modpack. The modpack imports as usual and such files are listed on the task page under pending files (待决文件). You can skip one, use a local file instead, or trust the site and download it after reading a risk notice.
+- **Ready-made server archives**: a server archive from a modpack author can be imported directly under Import modpack (导入整合包) and unpacked into a new server, as long as the server software is already installed in it. A Server Pack that only has a start script or a loader installer cannot be imported directly: unpack it and run its script to install the loader first, then bring the folder in with Adopt an existing server (接管已有服务器).
 
 ### Managing servers
 
@@ -46,6 +48,7 @@ This is an overview. Defaults, limits and edge cases for every item are in [docs
 - **Window and tray**: closing the window can minimize MineDeck to the system tray while servers keep running. It can also start with Windows, straight into the tray. There are 7 colour schemes, each in light, dark or follow-the-system.
 - **Storage location**: servers and backups can be kept on another drive.
 - **Safeguards at launch**: older game versions get the log4shell mitigation flags automatically. Environment variables such as `JAVA_HOME` are cleared when a server starts, so the wrong Java is not picked up. When MineDeck quits, its servers stop with it and no Java process is left behind.
+- **Background tasks**: if you switch to another page or reload while something slow is running, such as creating a server or importing a modpack, you can find its progress again when you come back.
 
 ### Playing together
 
@@ -69,20 +72,11 @@ This is an overview. Defaults, limits and edge cases for every item are in [docs
 
 Sends the sound of a music player on the host's PC to everyone on the server through Simple Voice Chat. Each player can turn it down or mute it in their voice settings. On Windows 11 it can record just the music program you pick, without game sound or voice chat; on Windows 10 it can only record the whole PC. It needs a NeoForge server on 1.20.5 or later, or a Forge or Mohist server on 1.20.1 or later.
 
-## New in the 3.1.0 betas
-
-The following are only in the v3.1.0 betas for now. Stable v3.0.0 does not have them.
+### Handover packs, the to-install list and adopting servers
 
 - **Handover packs**: pack a stopped server into one `.mdpack` file and hand it to MineDeck on another PC to keep running it. The pack holds the worlds, configs, mods, plugins and player lists. Config files go in as they are, so any passwords written in them are handed over too; change the ones you also use elsewhere first. If you receive a pack: the mods and plugins in it will run on your PC, so only import packs from people you trust. A guide for the receiver is in [docs/接收者上手指南.md](docs/接收者上手指南.md) (in Chinese).
-- **To-install list** (待装清单): the most popular mods or plugins for your server type and version are listed up front. Filter by category or search, add what you want to the list, have the dependencies filled in automatically, and install everything in one go. A jar you downloaded yourself can be added from your PC as well, and MineDeck checks which dependencies it still needs. The new-server wizard also gains an optional step for picking mods (选模组; on plugin servers it is 选插件). Files that come from Modrinth are verified after download.
-- **Modpack files that cannot be downloaded are handled one by one**: before, a single file whose download address was not on an allowed site, or that had no checksum, made the whole import fail. Now the modpack imports as usual and such files are listed on the task page under pending files (待决文件). You can skip one, use a local file instead, or trust the site and download it after reading a risk notice.
-- **Adopting an existing server**: point MineDeck at the folder of a server you already run and it is brought in to be managed with the rest. The server type, version, launch file and memory setting are detected. The files stay where they are, and the old launch script is backed up first.
-- **Switching Java in the interface**: each server's Memory / startup tab (内存 / 启动) can switch Java.
-- Two smaller changes: when you delete a server and choose to keep its folder, it now really leaves the list instead of reappearing at the next start, and it can be adopted again later; and a background task can be found again after you switch pages or reload.
-
-Betas are marked Pre-release on the [releases page](https://github.com/Trasperioooooon/MineDeck/releases) and have to be downloaded by hand. A stable install is not offered betas as updates, and one beta does not update to the next automatically; replace `MineDeck.exe` yourself. Once v3.1.0 is released, people running a beta can update to it under Settings → Updates and about (设置 → 更新与关于).
-
-Run a beta from its own folder. Before trying it on an existing server, back up that server's whole folder. Known issues for each release are in the release notes under [docs/releases/](docs/releases/) (in Chinese).
+- **To-install list** (待装清单): the most popular mods or plugins for your server type and version are listed up front. Filter by category or search, add what you want to the list, have the dependencies filled in automatically, and install everything in one go. A jar you downloaded yourself can be added from your PC as well, and MineDeck checks which dependencies it still needs. The new-server wizard also has an optional step for picking mods (选模组; on plugin servers it is 选插件). Files that come from Modrinth are verified after download.
+- **Adopting an existing server**: point MineDeck at the folder of a server you already run and it is brought in to be managed with the rest. The server type, version, launch file and memory setting are detected. The files stay where they are, and the old launch script is backed up first. When you delete a server and leave "also delete the server folder" (同时删除服务器文件夹) unticked, it only leaves the list, and it can be adopted again later.
 
 ## Screenshots
 
@@ -101,6 +95,8 @@ Download `MineDeck.exe` from [GitHub Releases](https://github.com/Trasperioooooo
 1. Put `MineDeck.exe` in a folder of its own. Servers, downloaded Java, caches and backups all live in that folder by default. Only interface preferences are kept in `%LocalAppData%\MineDeck`.
 2. Double-click it. If Windows shows "Windows protected your PC", click "More info", then "Run anyway". The exe is not code-signed; the source is public and you can build it yourself.
 3. If you use AI companions, the same release page has the companion mod jar for your friends' clients. Pick the one that matches the server, NeoForge 1.21.1 or Forge 1.20.1, and put it in the client's `mods` folder.
+
+Upgrading from v3.0.0 or a v3.1.0 beta: check for updates under Settings → Updates and about (设置 → 更新与关于), and you can update to v3.1.0 directly.
 
 Upgrading from v2.6.1 or earlier, when the file was called `AutoMCHUB.exe`: the in-app update cannot find the renamed file, so put `MineDeck.exe` into the old folder by hand. The old start-with-Windows entry is removed; turn it on again under Settings → Startup and tray (设置 → 启动与托盘) if you want it.
 
@@ -154,18 +150,20 @@ Not without asking. Read-only things, such as looking at logs and configs, it do
 
 ### Stable or beta?
 
-Use the stable release for everyday hosting. Download a beta when you want to try the new features, such as handover packs, the to-install list and adopting an existing server, and follow the advice in "New in the 3.1.0 betas" above: a folder of its own, and a backup first.
+Use the stable release for everyday hosting. Handover packs, the to-install list, adopting an existing server and the like are in the stable release from v3.1.0 on.
+
+Betas are marked Pre-release on the [releases page](https://github.com/Trasperioooooon/MineDeck/releases) and have to be downloaded by hand. A stable install is not offered betas as updates, and one beta does not update to the next automatically; replace `MineDeck.exe` yourself. Once the stable release with the same version number is out, people running a beta can update to it under Settings → Updates and about (设置 → 更新与关于). Run a beta from its own folder. Before trying it on an existing server, back up that server's whole folder. Known issues for each release are in the release notes under [docs/releases/](docs/releases/) (in Chinese).
 
 ### Where is my data, and how do I move it?
 
-It is all in the folder that holds the exe: `servers`, `backups`, `runtimes` (downloaded Java and tunnel clients), `cache`, `logs` and `data`, plus the files `config.json`, `secrets.json` and `tunnels.json`. Only interface preferences are in `%LocalAppData%\MineDeck`. To move, copy the whole folder, then mind two things. The secrets in `secrets.json` and `tunnels.json` are encrypted for this Windows user on this PC, so after moving to another PC or another user you have to enter them again. Each server stores the full path of its Java, so if the new location has a different path, servers that use MineDeck's own Java will report that Java cannot be found and need it set once more: on a beta, pick it under Memory / startup (内存 / 启动); the stable release has no such entry in the interface, but with AI configured you can ask the assistant to switch it.
+It is all in the folder that holds the exe: `servers`, `backups`, `runtimes` (downloaded Java and tunnel clients), `cache`, `logs` and `data`, plus the files `config.json`, `secrets.json` and `tunnels.json`. Only interface preferences are in `%LocalAppData%\MineDeck`. To move, copy the whole folder, then mind two things. The secrets in `secrets.json` and `tunnels.json` are encrypted for this Windows user on this PC, so after moving to another PC or another user you have to enter them again. Each server stores the full path of its Java, so if the new location has a different path, servers that use MineDeck's own Java will report that Java cannot be found and need it picked once more under that server's Memory / startup (内存 / 启动).
 
 ## Known limitations
 
 - The interface is in Chinese only, and the program is Windows only.
 - Paper, Purpur and some other server types have no mirror in mainland China; the official addresses usually work. When installing Forge or NeoForge, some files still have to come from the official sources, and that step can fail if those cannot be reached.
 - The first time a server starts, Windows Firewall may ask. Choose "Allow access", otherwise friends on the LAN cannot connect.
-- Do not delete the `runtimes` folder. It holds the Java and the tunnel clients MineDeck downloaded, and servers that use that Java will not start without it. On a beta you can pick another Java under Memory / startup (内存 / 启动). The stable release has no such entry in the interface; with AI configured you can ask the assistant to switch it, otherwise you have to delete that server and create it again.
+- Do not delete the `runtimes` folder. It holds the Java and the tunnel clients MineDeck downloaded, and servers that use that Java will not start without it. If that happens, pick another Java under that server's Memory / startup (内存 / 启动).
 - Backups contain the world only, not mods, plugins or configs.
 - Stop all servers before updating MineDeck.
 - On Windows 10, music sharing can only record the whole PC.
