@@ -415,7 +415,7 @@ async function musicHandler(state, req, res, p, m, seg) {
   }
   const name = seg[3], sub = seg[5] || "";
   const i = state.instances.find(x => x.name === name);
-  if (!i) return err(res, 404, "服务器不存在：" + name);
+  if (!i) return err(res, 404, "服务器「" + name + "」不存在");
   const mi = musicInst(ms, name);
   const supported = MUSIC_CORES.includes(i.core);
   const b = await readBody(req);
@@ -1550,7 +1550,7 @@ function handler(state, ui, portOf) {
       }
       if (p === "/api/adopt" && m === "POST") {
         const b = await readBody(req);
-        if (state.instances.some(x => x.name === b.name)) return err(res, 400, "已有同名的服务器：" + b.name);
+        if (state.instances.some(x => x.name === b.name)) return err(res, 400, "已有同名的服务器「" + b.name + "」");
         state.lastAdopt = b;
         return ok(res, { taskId: "task-adopt" });
       }
@@ -1605,7 +1605,7 @@ function handler(state, ui, portOf) {
       }
       if (p === "/api/transfer/import" && m === "POST") {
         const b = await readBody(req);
-        if (state.instances.some(x => x.name === b.name)) return err(res, 400, "已有同名的服务器：" + b.name);
+        if (state.instances.some(x => x.name === b.name)) return err(res, 400, "已有同名的服务器「" + b.name + "」");
         if (!b.file || !String(b.file).includes("transfer\\import")) return err(res, 400, "交接包文件不在上传文件夹里");
         state.lastTransferImport = b;
         return ok(res, { taskId: "task-transfer-in", pack: { name: TRANSFER_SUMMARY.name, core: TRANSFER_SUMMARY.core, mc: TRANSFER_SUMMARY.mc, build: TRANSFER_SUMMARY.build, mods: TRANSFER_SUMMARY.mods, plugins: TRANSFER_SUMMARY.plugins, full: TRANSFER_SUMMARY.full } });

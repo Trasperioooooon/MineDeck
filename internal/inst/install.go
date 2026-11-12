@@ -65,7 +65,7 @@ func (m *Manager) validateCreate(req *CreateReq) (string, error) {
 	_, exists := m.insts[req.Name]
 	m.mu.Unlock()
 	if exists {
-		return "", fmt.Errorf("已有同名的服务器：%s", req.Name)
+		return "", fmt.Errorf("已有同名的服务器「%s」", req.Name)
 	}
 	if req.Port <= 0 || req.Port > 65535 {
 		req.Port = 25565
@@ -111,7 +111,7 @@ func (m *Manager) validateCreate(req *CreateReq) (string, error) {
 	}
 	m.mu.Unlock()
 	if taken {
-		return "", fmt.Errorf("已有同名的服务器：%s", req.Name)
+		return "", fmt.Errorf("已有同名的服务器「%s」", req.Name)
 	}
 	if inflight {
 		return "", fmt.Errorf("「%s」正在创建中，请稍候", req.Name)

@@ -189,7 +189,7 @@ func (m *Manager) Get(name string) (*Instance, error) {
 	defer m.mu.Unlock()
 	i, ok := m.insts[name]
 	if !ok {
-		return nil, fmt.Errorf("服务器不存在：%s", name)
+		return nil, fmt.Errorf("服务器「%s」不存在", name)
 	}
 	return i, nil
 }

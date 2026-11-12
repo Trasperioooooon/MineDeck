@@ -242,7 +242,7 @@ func (m *Manager) validateAdopt(req *AdoptReq) (*AdoptScan, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, taken := m.insts[req.Name]; taken {
-		return nil, fmt.Errorf("已有同名的服务器：%s", req.Name)
+		return nil, fmt.Errorf("已有同名的服务器「%s」", req.Name)
 	}
 	if m.creating[req.Name] {
 		return nil, fmt.Errorf("「%s」正在创建中，请稍候", req.Name)
