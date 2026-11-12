@@ -3517,6 +3517,62 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await c.close(); }
   });
 
+  // 用 CDP 的 Input.dispatchDragEvent 走浏览器真正的拖放流程。无头 Chromium 松手后本来就不跳转，看不出拦没拦住，
+  // 所以在 window 上（排在页面自己的处理后面）记下 dragover 有没有被页面接下、dropEffect 是什么、drop 有没有发出来：
+  // dropEffect 是 none 时浏览器不发 drop、也不跳转（WebView2 跳转就发生在没人接的 drop 上），光标显示「不能放」
+  await run("拖进窗口：原生窗口里没地方接的链接和文件，页面接下来、标成不能放（WebView2 就不会跳过去，窗口没有返回键）；输入框照旧能拖进文字；局域网浏览器里不管", async () => {
+    const LINK = [{ mimeType: "text/uri-list", data: "https://example.com/dropped" }, { mimeType: "text/plain", data: "https://example.com/dropped" }];
+    const FILE = { items: [], files: [require("path").join(__dirname, "README.md")] };
+    const open = async host => {
+      const c = await extCtx(host);
+      const p = await c.newPage();
+      p.on("pageerror", e => errors.push(pageErr(e)));
+      await p.goto(ORIGIN + "#/settings/notify");
+      await p.waitForSelector("#wh-url");
+      const cdp = await c.newCDPSession(p);
+      const drag = async (sel, data) => {
+        const b = await p.locator(sel).first().boundingBox();
+        const at = { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) };
+        await p.evaluate(() => {
+          if (!window.__dragOn) { // 换过页面（整页重新加载）以后再挂一次
+            window.__dragOn = true;
+            for (const t of ["dragover", "drop"]) window.addEventListener(t, e => window.__drag.push(`${t}:${e.defaultPrevented}:${e.dataTransfer.dropEffect}`));
+          }
+          window.__drag = [];
+        });
+        for (const type of ["dragEnter", "dragOver", "drop"]) await cdp.send("Input.dispatchDragEvent", { type, ...at, data: { dragOperationsMask: 1 | 2 | 16, ...data } });
+        await p.waitForTimeout(300);
+        return [...new Set(await p.evaluate(() => window.__drag))];
+      };
+      return { c, p, drag };
+    };
+    const w = await open(true);
+    try {
+      for (const [what, data] of [["链接", { items: LINK }], ["文件", FILE]]) {
+        const got = await w.drag(".set-sec-head h2", data);
+        assert(JSON.stringify(got) === JSON.stringify(["dragover:true:none"]) && w.p.url().endsWith("#/settings/notify"),
+          `拖进来的${what}应被页面接下、标成不能放，不发 drop：` + JSON.stringify({ got, url: w.p.url() }));
+      }
+      await w.p.fill("#wh-url", "");
+      const got = await w.drag("#wh-url", { items: [{ mimeType: "text/plain", data: "https://example.com/hook" }] });
+      assert((await w.p.inputValue("#wh-url")) === "https://example.com/hook" && !got.some(x => x.startsWith("dragover:true")),
+        "输入框应能拖进文字：" + JSON.stringify({ v: await w.p.inputValue("#wh-url"), got }));
+      const intoInput = await w.drag("#wh-url", FILE); // 文件拖到输入框上也不让打开
+      assert(JSON.stringify(intoInput) === JSON.stringify(["dragover:true:none"]), "文件拖到输入框上：" + JSON.stringify(intoInput));
+      // 待装清单接文件的地方照旧接得住：那边自己接下（copy），这里不改成不能放，drop 照常发给它
+      await w.p.goto(url(packCart));
+      await w.p.waitForSelector("#mc-local-pick");
+      const cart = await w.drag("#mc-side", FILE);
+      assert(cart.includes("dragover:true:copy") && cart.some(x => x.startsWith("drop:true")) && decodeURIComponent(w.p.url()).includes(PACK + "/cart"),
+        "待装清单应照旧接住拖进来的文件：" + JSON.stringify({ cart, url: w.p.url() }));
+    } finally { await w.c.close(); }
+    const lan = await open(false);
+    try {
+      const got = await lan.drag(".set-sec-head h2", { items: LINK });
+      assert(got.every(x => !x.startsWith("dragover:true")), "局域网浏览器里不该拦拖放：" + JSON.stringify(got));
+    } finally { await lan.c.close(); }
+  });
+
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
 
   await browser.close();

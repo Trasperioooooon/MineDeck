@@ -564,6 +564,23 @@ function paintThemeBtn() {
   };
 })();
 
+/* 拖进窗口的文件和链接（3.1.1 起，只在窗口版）：没地方接的，页面自己接下来、标成「不能放」。
+   不接的话 WebView2 会把主窗口跳到拖进来的网页或文件上去，窗口版没有返回键，跳过去就回不来了。
+   dragover 时 dropEffect 设成 none：光标显示不能放，松手后浏览器不发 drop，也不跳转。
+   接拖放的地方（待装清单的「从电脑添加」）自己先 preventDefault，这里不管；文字、链接拖进输入框照旧放得进去，文件不行。 */
+(function guardDrops() {
+  if (typeof window.hostWinClose !== "function") return;
+  const intoText = e => !(e.dataTransfer && [...(e.dataTransfer.types || [])].includes("Files")) &&
+    e.target instanceof Element && !!e.target.closest('input, textarea, [contenteditable]:not([contenteditable="false"])');
+  const guard = e => {
+    if (e.defaultPrevented || intoText(e)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "none";
+  };
+  window.addEventListener("dragover", guard);
+  window.addEventListener("drop", guard);
+})();
+
 /* 关窗确认框：tray = 托盘图标在不在（不在就只能停服退出），running = 在运行的服务器台数。
    三选一：最小化到托盘（可顺带记住，以后关窗都这样）/ 停止服务器并退出 / 取消。默认聚焦不丢数据的「最小化到托盘」。
    追加进 #modal-root 而不是整个替换：别的对话框开着时不顶掉它（那边的 Promise 会一直等不到结果），
