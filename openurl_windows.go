@@ -17,6 +17,7 @@ import (
 	"log"
 	"net/url"
 	"runtime"
+	"strings"
 	"syscall"
 
 	"golang.org/x/sys/windows"
@@ -44,7 +45,7 @@ func checkExternalURL(raw string) (string, error) {
 			return "", errors.New("地址里有空格、引号或别的不该出现的字符")
 		}
 	}
-	u, err := url.Parse(raw)
+	u, err := url.Parse(escapeStrayPercent(raw))
 	if err != nil {
 		return "", errors.New("地址的格式不对")
 	}
@@ -56,6 +57,22 @@ func checkExternalURL(raw string) (string, error) {
 		return "", errors.New("网址里没有主机名")
 	}
 	return raw, nil
+}
+
+// escapeStrayPercent 把后面没跟两位十六进制数的「%」写成 %25，只给 url.Parse 检查用。
+// 浏览器整理地址时不管路径、# 后面零散的「%」（比如 /50%off），a.href 里原样留着；url.Parse 却当成写错的转义整个拒收，
+// 这种链接就打不开了。协议、主机名照样由 url.Parse 查，交给浏览器的还是原样的地址。
+func escapeStrayPercent(s string) string {
+	isHex := func(c byte) bool { return '0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F' }
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '%' && !(i+2 < len(s) && isHex(s[i+1]) && isHex(s[i+2])) {
+			b.WriteString("%25")
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }
 
 // launchURL 是真正把地址交给系统的那一步。测试里换成记账的假函数，跑测试时不会真去开浏览器。

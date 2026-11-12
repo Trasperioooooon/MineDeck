@@ -27,6 +27,10 @@ func TestCheckExternalURL(t *testing.T) {
 		"https://zh.wikipedia.org/wiki/%E6%88%91%E7%9A%84%E4%B8%96%E7%95%8C", // 浏览器把中文转成了 %XX
 		"https://xn--fiqs8s.example/",                                        // 中文域名转成了 punycode
 		`https://example.com/search?q={a|b}\c`,                               // 查询串里浏览器原样保留的符号
+		"https://example.com/50%off",                                         // 零散的「%」浏览器也原样保留，url.Parse 本来会拒收
+		"https://example.com/a%",
+		"https://example.com/#50%off",
+		"https://us%er@example.com/",
 		atLimit,
 	} {
 		got, err := checkExternalURL(ok)
@@ -72,6 +76,21 @@ func TestCheckExternalURL(t *testing.T) {
 	} {
 		if got, err := checkExternalURL(bad); err == nil {
 			t.Errorf("%.80q 应该拒绝，实际放行成 %.80q", bad, got)
+		}
+	}
+}
+
+// 只给检查用的副本：零散的「%」写成 %25，正常的 %XX 不动。
+func TestEscapeStrayPercent(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://example.com/50%off":     "https://example.com/50%25off",
+		"https://example.com/a%":         "https://example.com/a%25",
+		"https://example.com/a%2":        "https://example.com/a%252",
+		"https://example.com/%E6%88%91":  "https://example.com/%E6%88%91",
+		"https://example.com/%2f%zz%4F%": "https://example.com/%2f%25zz%4F%25",
+	} {
+		if got := escapeStrayPercent(in); got != want {
+			t.Errorf("%q 应写成 %q，实际 %q", in, want, got)
 		}
 	}
 }
