@@ -178,22 +178,44 @@ type urlFail struct {
 }
 
 // fetchFailError 多源都没下成。Error 给界面一行摘要（每个源的主机名和原因，原因不截断）；
-// Unwrap 仍是最后一个地址的原始错误，errors.Is 认得出哈希校验失败。
+// Unwrap 仍是最后一个地址的原始错误，errors.Is 认得出哈希校验失败。每个地址的错误都留在 all 里，见 AnyFailure。
 type fetchFailError struct {
 	msg  string
 	last error
+	all  []error
 }
 
 func (e *fetchFailError) Error() string { return e.msg }
 
 func (e *fetchFailError) Unwrap() error { return e.last }
 
+// AnyFailure 判断这次失败里有没有一个错误让 match 返回 true：先看 err 本身（含包装链），
+// 是 Fetch 的多源汇总错误时，再逐个看每个地址最后一次的错误。
+// errors.Is 只认最后一个地址：那是 ErrVerify 的老语义，导入整合包靠它分「转待决」还是「整次失败」，不能变。
+// 要问「有没有哪个源是因为某种原因没下成的」（比如写盘时被杀毒软件拦下，后面的源只是 404）用这个。
+func AnyFailure(err error, match func(error) bool) bool {
+	if match(err) {
+		return true
+	}
+	var ff *fetchFailError
+	if errors.As(err, &ff) {
+		for _, e := range ff.all {
+			if match(e) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func newFetchFail(fails []urlFail) error {
 	seen := make(map[string]struct{}, len(fails))
 	parts := make([]string, 0, len(fails))
+	all := make([]error, 0, len(fails))
 	var last error
 	for _, f := range fails {
 		last = f.err
+		all = append(all, f.err)
 		line := shortURL(f.url) + ": " + compactReason(f.err)
 		if _, ok := seen[line]; ok {
 			continue
@@ -204,6 +226,7 @@ func newFetchFail(fails []urlFail) error {
 	return &fetchFailError{
 		msg:  "多次尝试后仍下载失败（" + strings.Join(parts, "；") + "）",
 		last: last,
+		all:  all,
 	}
 }
 

@@ -3,15 +3,40 @@ package dl
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
+
+// 多源都没下成：errors.Is 只认最后一个地址（ErrVerify 的老语义不变），AnyFailure 逐个看每个地址。
+// 例子是下载 frpc 时第一个源写盘被杀毒软件拦下（Windows 225 号错误），后面的源只是 404。
+func TestAnyFailure(t *testing.T) {
+	virus := syscall.Errno(225)
+	isVirus := func(e error) bool { return errors.Is(e, virus) }
+	err := fmt.Errorf("下载 OpenFrp frpc 失败: %w", newFetchFail([]urlFail{
+		{url: "https://a.example/x.zip", err: &os.LinkError{Op: "rename", Old: "x.zip.part", New: "x.zip", Err: virus}},
+		{url: "https://b.example/x.zip", err: errors.New("HTTP 404")},
+	}))
+	if errors.Is(err, virus) {
+		t.Fatal("errors.Is 只该认最后一个地址")
+	}
+	if !AnyFailure(err, isVirus) {
+		t.Fatal("AnyFailure 应认出第一个地址的错误")
+	}
+	if AnyFailure(err, func(e error) bool { return errors.Is(e, ErrVerify) }) {
+		t.Fatal("没有哈希校验失败，不该认出来")
+	}
+	if !AnyFailure(fmt.Errorf("启动失败: %w", virus), isVirus) || AnyFailure(errors.New("boom"), isVirus) {
+		t.Fatal("不是多源汇总的错误时，看它自己的包装链")
+	}
+}
 
 // 第一个地址没下成时调 OnRetry（只给主机名和原因），换第二个地址下成；成功的那次不调。
 func TestFetchOnRetry(t *testing.T) {
