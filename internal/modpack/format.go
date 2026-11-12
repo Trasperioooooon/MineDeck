@@ -94,7 +94,7 @@ func findIndex(files []*zip.File) (*indexLoc, error) {
 		dir := order[0]
 		n := nests[dir]
 		if n.mr != nil && n.cf != nil {
-			return nil, fmt.Errorf("「%s」里同时有 modrinth.index.json 和 manifest.json，没法判断是哪种整合包。请只留一份再导入。", dir)
+			return nil, hinted("同一个文件夹里两种整合包清单都有，没法判断是哪种", "「%s」里同时有 modrinth.index.json 和 manifest.json，没法判断是哪种整合包。请只留一份再导入。", dir)
 		}
 		if n.mr != nil {
 			return &indexLoc{file: n.mr, kind: FormatMrpack, root: dir}, nil
@@ -106,7 +106,7 @@ func findIndex(files []*zip.File) (*indexLoc, error) {
 		if len(shown) > 4 {
 			shown = append(append([]string{}, order[:4]...), "…")
 		}
-		return nil, fmt.Errorf("压缩包里有不止一处整合包清单（%s），没法判断该用哪一份。请只留一份，或把 modrinth.index.json / manifest.json 放到最外层再导入。", strings.Join(shown, "、"))
+		return nil, hinted("压缩包里有不止一份整合包清单，没法判断用哪份", "压缩包里有不止一处整合包清单（%s），没法判断该用哪一份。请只留一份，或把 modrinth.index.json / manifest.json 放到最外层再导入。", strings.Join(shown, "、"))
 	}
 }
 
@@ -170,13 +170,24 @@ func isZipDir(f *zip.File, name string) bool {
 
 // ---------- 现成服务端压缩包 ----------
 
+// hintError 报错原文之外另给一句给人看的话（Hint）。原文里有长长的下一步说明，界面的提示正文只放得下一句，
+// 正文接这一句，原文进「详情」。web 的 writeErr 会把它放进响应的 hint（同 internal/ai 的 APIError.Hint）。
+type hintError struct{ hint, msg string }
+
+func (e *hintError) Error() string { return e.msg }
+func (e *hintError) Hint() string  { return e.hint }
+
+func hinted(hint, format string, a ...any) error {
+	return &hintError{hint: hint, msg: fmt.Sprintf(format, a...)}
+}
+
 // ServerUnknownError 能看出是服务端、但核心或版本认不出来时给用户的说明。
 func ServerUnknownError() error {
-	return fmt.Errorf("这个压缩包像是一台现成的服务端（有 mods、plugins、server.properties 或服务端 jar），但没认出核心和 Minecraft 版本。请确认 Forge / NeoForge 的 libraries，或 Fabric / Quilt / Paper / 原版的服务端 jar 就在里面（可以套一层文件夹）。仍认不出的话，先解压，用「新建服务器 → 接管已有服务器」选中那个文件夹，类型和版本可以自己填。")
+	return hinted("看着像现成服务端，但没认出核心和版本", "这个压缩包像是一台现成的服务端（有 mods、plugins、server.properties 或服务端 jar），但没认出核心和 Minecraft 版本。请确认 Forge / NeoForge 的 libraries，或 Fabric / Paper / 原版的服务端 jar 就在里面（可以套一层文件夹）。仍认不出的话，先解压，用「新建服务器 → 接管已有服务器」选中那个文件夹，类型和版本可以自己填。")
 }
 
 func unrecognizedPackError() error {
-	return fmt.Errorf("无法识别这个压缩包。Modrinth 整合包要有 modrinth.index.json，CurseForge 整合包要有 manifest.json，放在最外层，或只套一层文件夹（例如「整合包名/manifest.json」）。如果这是作者给的现成服务端，压缩包里应能看到 mods、plugins、server.properties 或服务端 jar。也可以先解压，再用「新建服务器 → 接管已有服务器」选中那个文件夹。")
+	return hinted("没认出这个压缩包，既没有整合包清单，也看不出是服务端", "无法识别这个压缩包。Modrinth 整合包要有 modrinth.index.json，CurseForge 整合包要有 manifest.json，放在最外层，或只套一层文件夹（例如「整合包名/manifest.json」）。如果这是作者给的现成服务端，压缩包里应能看到 mods、plugins、server.properties 或服务端 jar。也可以先解压，再用「新建服务器 → 接管已有服务器」选中那个文件夹。")
 }
 
 func ambiguousServerError(dirs []string) error {
@@ -185,7 +196,7 @@ func ambiguousServerError(dirs []string) error {
 	if len(shown) > 4 {
 		shown = append(append([]string{}, dirs[:4]...), "…")
 	}
-	return fmt.Errorf("压缩包里有好几个看起来像服务端的文件夹（%s），没法判断该导入哪一个。请只打包其中一台，或用「新建服务器 → 接管已有服务器」选中具体的文件夹。", strings.Join(shown, "、"))
+	return hinted("压缩包里有好几台服务端，一次只能导入一台", "压缩包里有好几个看起来像服务端的文件夹（%s），没法判断该导入哪一个。请只打包其中一台，或用「新建服务器 → 接管已有服务器」选中具体的文件夹。", strings.Join(shown, "、"))
 }
 
 // recognizeServer 没有整合包清单时，看是不是一台现成的服务端（可能也套了一层文件夹）。
@@ -211,7 +222,7 @@ func recognizeServer(zipPath string, files []*zip.File) (*Pack, error) {
 	sortCands(cands)
 	best := cands[0]
 	if best.quilt {
-		return nil, fmt.Errorf("暂不支持 Quilt 加载器。可以换用 Fabric 版，或者解压后用「新建服务器 → 接管已有服务器」手动选一个接近的类型。")
+		return nil, hinted("暂不支持 Quilt，可以换用 Fabric 版", "暂不支持 Quilt 加载器。可以换用 Fabric 版，或者解压后用「新建服务器 → 接管已有服务器」手动选一个接近的类型。")
 	}
 	if best.core == "" && !unread {
 		return nil, ServerUnknownError()
@@ -431,10 +442,7 @@ func candFromJar(f *zip.File, rel string) (srvCand, bool) {
 	}
 	zr, err := zip.NewReader(bytes.NewReader(b), int64(len(b)))
 	if err != nil {
-		if c, ok := candFromName(name); ok {
-			return c, true
-		}
-		return srvCand{}, true
+		return srvCand{}, true // 读出来了却不是 jar：不是能启动的服务端，也不按文件名猜
 	}
 	files := map[string][]byte{}
 	for _, inner := range zr.File {
@@ -556,9 +564,8 @@ func candFromJarBytes(name string, files map[string][]byte) srvCand {
 	case strings.HasPrefix(main, "org.bukkit.craftbukkit."):
 		c.core, c.rank = mcsrc.CorePaper, rankServer
 	default:
-		if named, ok := candFromName(name); ok {
-			return named
-		}
+		// jar 打开了、Main-Class 却认不出：不按文件名猜。PaperLib-1.20.1.jar 这类库的名字里也有 paper 和版本号，
+		// 猜了会登记出一台起不来的服务器。和接管的识别一样，认不出就是认不出；文件名只在 jar 太大没打开时用（candFromJar）。
 		c.rank = rankUnknown
 	}
 	if c.mc == "" && c.core != mcsrc.CoreFabric && !c.quilt {
@@ -766,7 +773,7 @@ func ExtractServer(p *Pack, writeFile func(rel string, r io.Reader) error) (int,
 		return 0, fmt.Errorf("压缩包里有 %d 个文件，超过了一次能导入的上限（%d 个）", len(ents), serverMaxFiles)
 	}
 	if total > serverMaxBytes {
-		return 0, fmt.Errorf("压缩包解开后大约 %d GB，超过了一次能导入的上限", total>>30)
+		return 0, fmt.Errorf("压缩包解开后有 %.1f GB，超过了一次能导入的上限（%d GB）", float64(total)/(1<<30), serverMaxBytes>>30)
 	}
 	n := 0
 	for _, e := range ents {

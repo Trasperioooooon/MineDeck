@@ -51,14 +51,16 @@ func (m *Manager) importServerAsync(pack *modpack.Pack, req CreateReq) (string, 
 		title = req.Name
 	}
 	t, ctx := m.Tasks.New(fmt.Sprintf("导入服务端 %s", title), serverImportSteps)
+	t.SetKind("server-in") // 任务页按它换说法：这条路不下载服务端
 	go func() {
 		defer m.releaseCreating(req.Name)
 		defer m.releaseCreating(dirKey(dir))
 		defer os.Remove(pack.ZipPath)
 		if err := m.runServerImport(ctx, t, pack, req, dir); err != nil {
-			t.Fail(err)
+			// 先清后报失败：任务一显示失败，半成品就得已经删干净了（失败框上写着可以重试；交接包导入同样的顺序）
 			_ = m.Delete(req.Name, false)
 			os.RemoveAll(dir)
+			t.Fail(err)
 			return
 		}
 		t.Finish(req.Name)
@@ -80,12 +82,17 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 	}
 	t.Logf("按现成服务端解压（文件在%s）", where)
 	cleanDest := filepath.Clean(dir)
+	var skipped []string // 名字在 Windows 上不能用、没有解压的文件（最多记 20 个）
 	n, err := modpack.ExtractServer(pack, func(rel string, r io.Reader) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		// 和交接包一样：别人给的 instance.json、run.bat 不能落下来，不然下次启动就按包里写的去跑。
-		if IsControlFile(rel) {
+		// 名字在 Windows 上不能用的（CON、NUL 这类设备名，结尾是点或空格的）也和整合包覆盖目录一样跳过。
+		if !overrideAllowed(rel) {
+			if !IsControlFile(rel) && len(skipped) < 20 {
+				skipped = append(skipped, rel)
+			}
 			return nil
 		}
 		target := filepath.Join(cleanDest, filepath.FromSlash(rel))
@@ -110,8 +117,11 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 	}
 	ScrubControlFiles(dir)
 	t.Logf("解压了 %d 个文件", n)
+	if len(skipped) > 0 {
+		t.Logf("这些文件的名字在 Windows 上不能用，没有解压：%s", strings.Join(skipped, "、"))
+	}
 	if name, ok := CheckLevelName(dir); !ok {
-		return fmt.Errorf("服务端的 server.properties 把世界目录（level-name）指到了服务器文件夹外面：%s", name)
+		return fmt.Errorf("服务端的 server.properties 把世界文件夹（level-name）指到了服务器文件夹外面：%s", name)
 	}
 
 	t.StartStep(1)
@@ -120,7 +130,7 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 		return err
 	}
 	if (core == mcsrc.CoreMohist || core == mcsrc.CoreBanner) && !isASCII(dir) {
-		return fmt.Errorf("Mohist/Banner 与非英文路径不兼容，请把存放目录设为纯英文路径（当前将创建于：%s）", dir)
+		return fmt.Errorf("Mohist/Banner 与非英文路径不兼容，请把存放文件夹设为纯英文路径（当前将创建于：%s）", dir)
 	}
 	kind := mcsrc.KindOf(core)
 	t.Logf("按接管已有服务器的办法认出：%s %s，启动文件 %s", core, mc, strings.TrimPrefix(strings.TrimPrefix(launch, "jar:"), "args:"))
@@ -160,7 +170,7 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 		Dir: dir, Console: newConsole(),
 	}
 	if kind != mcsrc.KindProxy {
-		applyServerProps(t, dir, req)
+		applyServerProps(ctx, t, dir, req, mc)
 		if b, err := os.ReadFile(filepath.Join(dir, "eula.txt")); err != nil || !reEULA.Match(b) {
 			if !req.EULA {
 				return fmt.Errorf("需要同意 Minecraft EULA 才能开服")
@@ -171,7 +181,15 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 			}
 			t.Logf("已写入 eula.txt")
 		}
-		applyCachedLog4j(t, inst)
+		// log4shell 防护和新建、接管一样：1.12–1.16.5 还要下载官方的日志配置（压缩包里自带的那份是控制文件，不采用）。
+		// 只在官方清单里有这个版本时加：清单不认识的版本分不出新旧，NewerOrEqual 会把它当成老版本。
+		if known, kerr := mcsrc.KnownVersion(ctx, mc); kerr != nil {
+			t.Logf("没拿到 Minecraft 版本清单（%v），log4shell 防护先跳过", kerr)
+		} else if known {
+			if err := applyLog4jMitigation(ctx, t, inst); err != nil {
+				t.Logf("没能判断要不要加 log4shell 防护（%v），先跳过", err)
+			}
+		}
 	}
 	if err := writeRunBat(inst); err != nil {
 		return err
@@ -194,8 +212,9 @@ func detectImportedServer(dir string, pack *modpack.Pack) (core mcsrc.Core, mc, 
 		if mcsrc.ValidCore(mcsrc.Core(sc.Core)) && sc.MC != "" && sc.LaunchTarget != "" {
 			return mcsrc.Core(sc.Core), sc.MC, sc.Build, sc.LaunchTarget, sc.JavaMajor, nil
 		}
-		// 认出了启动文件但核心或版本是空的：解析阶段若已经有，就补上，启动文件仍用扫描的。
-		if sc.LaunchTarget != "" && mcsrc.ValidCore(pack.Core) && pack.MC != "" {
+		// 认出了启动文件但核心或版本是空的：解析阶段看的是同一个启动文件、而且认出了核心和版本，才拿它补上。
+		// 两边说的不是同一个 jar 时不拼凑，不然核心、版本、启动文件可能出自两个 jar。
+		if sc.LaunchTarget != "" && sc.LaunchTarget == pack.Launch && mcsrc.ValidCore(pack.Core) && pack.MC != "" {
 			build = pack.Loader
 			if sc.Build != "" {
 				build = sc.Build
@@ -215,22 +234,55 @@ func detectImportedServer(dir string, pack *modpack.Pack) (core mcsrc.Core, mc, 
 	return "", "", "", "", 0, modpack.ServerUnknownError()
 }
 
-// applyServerProps 端口、正版验证、允许飞行按导入页上填的改；server.properties 里的其他项（世界名、MOTD）留着。
-func applyServerProps(t *tasks.Task, dir string, req CreateReq) {
+// applyServerProps 端口按导入页上填的改。压缩包里本来就有 server.properties 时，正版验证和允许飞行保留原样：
+// 正版和离线下同一个名字的 UUID 不同，改了以后玩家的背包、进度、白名单、管理员都对不上；接管、导入交接包也都不动这两项。
+// 压缩包里没有 server.properties 时，三项都按导入页写，离线的 1.19 起和新建一样关掉 enforce-secure-profile。
+func applyServerProps(ctx context.Context, t *tasks.Task, dir string, req CreateReq, mc string) {
 	path := filepath.Join(dir, "server.properties")
+	_, statErr := os.Stat(path)
+	had := statErr == nil
 	props, err := LoadProps(path)
 	if err != nil {
 		t.Logf("没改 server.properties（%v）", err)
 		return
 	}
 	props.Set("server-port", fmt.Sprintf("%d", req.Port))
-	props.Set("online-mode", fmt.Sprintf("%t", req.OnlineMode))
-	props.Set("allow-flight", fmt.Sprintf("%t", req.AllowFlight))
+	if !had {
+		props.Set("online-mode", fmt.Sprintf("%t", req.OnlineMode))
+		props.Set("allow-flight", fmt.Sprintf("%t", req.AllowFlight))
+		if !req.OnlineMode {
+			if ge, err := mcsrc.NewerOrEqual(ctx, mc, "1.19"); err == nil && ge {
+				props.Set("enforce-secure-profile", "false")
+			}
+		}
+	}
 	if err := props.Save(path); err != nil {
 		t.Logf("没改 server.properties（%v）", err)
 		return
 	}
-	t.Logf("端口已设为 %d（正版验证 %t，允许飞行 %t）；server.properties 里的其他项保留", req.Port, req.OnlineMode, req.AllowFlight)
+	if had {
+		online, _ := props.Get("online-mode")
+		flight, _ := props.Get("allow-flight")
+		t.Logf("端口已设为 %d。正版验证（%s）和允许飞行（%s）沿用压缩包里 server.properties 的设置，导入页上的这两项没有用上，要改到「常用设置」里改",
+			req.Port, onOff(online, true), onOff(flight, false))
+		return
+	}
+	t.Logf("压缩包里没有 server.properties，按导入页新建：端口 %d，正版验证%s，允许飞行%s",
+		req.Port, onOff(fmt.Sprint(req.OnlineMode), false), onOff(fmt.Sprint(req.AllowFlight), false))
+}
+
+// onOff 把 server.properties 里的布尔值说成开、关；没写时按游戏的默认值说。
+func onOff(v string, def bool) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "true":
+		return "开"
+	case "false":
+		return "关"
+	}
+	if def {
+		return "没写，默认开"
+	}
+	return "没写，默认关"
 }
 
 // javaFromCachedManifest 用本地已有的版本清单估 Java，不上网。清单里没有这个版本就返回 0。
@@ -251,16 +303,4 @@ func javaFromCachedManifest(mc string) int {
 		return 8
 	}
 	return 0
-}
-
-// applyCachedLog4j 老版本补 log4shell 缓解。只看本地版本清单，不在导入这一步上网。
-func applyCachedLog4j(t *tasks.Task, inst *Instance) {
-	newer, ok := mcsrc.NewerOrEqualCached(inst.MC, "1.18.1")
-	if !ok || newer {
-		return
-	}
-	inst.ExtraJVM = append(inst.ExtraJVM, log4jNoLookups)
-	if newer117, ok := mcsrc.NewerOrEqualCached(inst.MC, "1.17"); ok && !newer117 {
-		t.Logf("这个版本需要 log4shell 防护配置。导入时没有下载它；保存一次设置，或重新导入并联网后会补上。")
-	}
 }

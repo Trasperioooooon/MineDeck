@@ -74,9 +74,10 @@ func (m *Manager) ImportModpackAsync(pack *modpack.Pack, req CreateReq, cfKey st
 			defer os.Remove(pack.ZipPath) // 导入结束（成功/失败）后删除缓存 zip 副本，避免每次导入累积 100-500MB
 		}
 		if err := m.runImport(ctx, t, pack, req, dir, cfKey); err != nil {
-			t.Fail(err)
+			// 先清后报失败：任务一显示失败，半成品就得已经删干净了
 			_ = m.Delete(req.Name, false) // 从列表移除（可能已注册）
 			os.RemoveAll(dir)
+			t.Fail(err)
 			return
 		}
 		t.Finish(req.Name)

@@ -2,10 +2,12 @@ package modpack
 
 import (
 	"archive/zip"
+	"errors"
 	"io"
 	"os"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"minedeck/internal/mcsrc"
 )
@@ -373,5 +375,37 @@ func TestExtractServerStripsWrapper(t *testing.T) {
 		if strings.HasPrefix(rel, "MyServer/") {
 			t.Fatalf("还带着包装目录: %s", rel)
 		}
+	}
+}
+
+// 解析阶段的长说明另给一句 60 字以内的人话（Hint）：界面的提示正文接这一句，长说明进「详情」。
+func TestParseErrorsHaveHint(t *testing.T) {
+	for name, files := range map[string]map[string]string{
+		"认不出":   {"readme.txt": "hi"},
+		"两台服务端": {"A/server.properties": "x", "A/mods/a.jar": "mod", "B/server.properties": "x", "B/plugins/b.jar": "plugin"},
+		"两处清单":  {"A/modrinth.index.json": "{}", "B/manifest.json": "{}"},
+		"认不出核心": {"server.properties": "x", "plugins/a.jar": "plugin"},
+	} {
+		_, err := Parse(mkZip(t, files))
+		var h interface{ Hint() string }
+		if err == nil || !errors.As(err, &h) {
+			t.Fatalf("%s：应带一句人话：%v", name, err)
+		}
+		if hint := h.Hint(); hint == "" || utf8.RuneCountInString(hint) > 60 || len(err.Error()) <= len(hint) {
+			t.Fatalf("%s：人话 %q 应在 60 字以内、比原文短：%q", name, hint, err.Error())
+		}
+	}
+}
+
+// 打得开、Main-Class 认不出的 jar 不按文件名猜核心：PaperLib-1.20.1.jar 是库，不是 Paper。
+func TestLibraryJarNotGuessedByName(t *testing.T) {
+	lib := jarOf(t, map[string]string{"META-INF/MANIFEST.MF": "Manifest-Version: 1.0\r\n\r\n"})
+	pack, err := Parse(mkZip(t, map[string]string{
+		"server.properties":   "x",
+		"plugins/a.jar":       "plugin",
+		"PaperLib-1.20.1.jar": lib,
+	}))
+	if err == nil {
+		t.Fatalf("库 jar 不该被当成 Paper 服务端：%+v", pack)
 	}
 }
