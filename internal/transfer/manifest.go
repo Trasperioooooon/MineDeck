@@ -161,7 +161,7 @@ func (m *Manifest) check() error {
 		return fmt.Errorf("交接包里的服务端类型 %q 不被这个版本支持", m.Core.Core)
 	}
 	if strings.TrimSpace(m.Instance.Name) == "" {
-		return errors.New("manifest 里没有实例信息")
+		return errors.New("manifest 里没有服务器信息")
 	}
 	// 版本号和构建号会拼进下载地址和本机的文件名：只认版本号该有的字符，路径分隔符、冒号、连着的两个点一律不要
 	for what, v := range map[string]string{"Minecraft 版本": m.Core.MC, "构建版本": m.Core.Build} {

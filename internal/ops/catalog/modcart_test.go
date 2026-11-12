@@ -142,9 +142,9 @@ func TestModCartReadOps(t *testing.T) {
 		t.Fatalf("按核心和版本搜：%v %v", m, err)
 	}
 	for args, want := range map[string]map[string]any{
-		"要给实例名": {"q": "x"},
-		"装不了":   {"q": "x", "core": "vanilla", "mc": "1.20.1"},
-		"MC 版本": {"q": "x", "core": "fabric"},
+		"要给服务器名称": {"q": "x"},
+		"装不了":     {"q": "x", "core": "vanilla", "mc": "1.20.1"},
+		"MC 版本":   {"q": "x", "core": "fabric"},
 	} {
 		if _, err := cartDo(t, reg, cartUI, "modcart.search", want); err == nil || ops.CodeOf(err) != 400 || !strings.Contains(err.Error(), args) {
 			t.Errorf("%v：应报 400「%s」，得到 %v", want, args, err)

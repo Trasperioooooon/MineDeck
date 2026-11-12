@@ -165,7 +165,7 @@ func (s *Service) InstallSVC(ctx context.Context, name string) (*SVCResult, erro
 
 	mods := modsDir(info.Dir)
 	if err := os.MkdirAll(mods, 0o755); err != nil {
-		return nil, errorf(500, "建 mods 目录失败：%v", err)
+		return nil, errorf(500, "创建 mods 文件夹失败：%v", err)
 	}
 	tmp := filepath.Join(mods, "."+fname+".download") // 不以 .jar 结尾：下载、检查途中服务器（重）启动也不会加载它
 	defer os.Remove(tmp)

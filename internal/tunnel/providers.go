@@ -200,8 +200,8 @@ func (natfrpProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	_ = os.MkdirAll(dir, 0o755)
 	return "", fmt.Errorf(
 		"首次使用需手动放置樱花 frpc：登录 SakuraFrp 管理面板 → 软件下载 → 下载「frpc」Windows amd64 版，"+
-			"把 exe 放入 %s 目录后重试（仅需一次）。放过以后又不见了的，多半是被杀毒软件删了，"+
-			"到 Windows 安全中心的「保护历史记录」里允许或还原它", dir)
+			"把 exe 放入 %s 文件夹后重试（仅需一次）。放过以后又不见了的，多半是被杀毒软件删了："+
+			"到 Windows 安全中心的「保护历史记录」或杀毒软件的隔离区里恢复它", dir)
 }
 
 func (natfrpProvider) Launch(t *Tunnel) ([]string, []string, error) {

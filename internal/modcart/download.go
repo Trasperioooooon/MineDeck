@@ -39,7 +39,7 @@ func (s *Service) Download(ctx context.Context, f File, destDir string, prog fun
 		return dest, true, nil
 	}
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
-		return "", false, errorf(500, "建 %s 目录失败：%v", filepath.Base(destDir), err)
+		return "", false, errorf(500, "创建 %s 文件夹失败：%v", filepath.Base(destDir), err)
 	}
 	tmp := filepath.Join(destDir, "."+fn+".download")
 	defer os.Remove(tmp)

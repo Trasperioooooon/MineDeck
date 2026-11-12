@@ -45,7 +45,7 @@ func main() {
 	setDPIAware() // 高 DPI 屏清晰渲染：必须在任何窗口创建前声明 DPI 感知（解析命令行参数不建窗口，放在后面也一样）
 
 	if err := app.Init(); err != nil {
-		fatal("初始化数据目录失败: " + err.Error())
+		fatal("初始化数据文件夹失败: " + err.Error())
 	}
 	procutil.InitJob() // 确保程序退出后不残留 java/frpc 进程
 	if err := autostart.RemoveLegacy(); err != nil {
@@ -54,7 +54,7 @@ func main() {
 
 	mgr, err := inst.NewManager()
 	if err != nil {
-		fatal("加载实例列表失败: " + err.Error())
+		fatal("加载服务器列表失败: " + err.Error())
 	}
 	tun := tunnel.NewManager()
 	tun.FollowInstances(func(name string) string { // 开了跟随启动的隧道跟着实例启停

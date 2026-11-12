@@ -61,7 +61,7 @@ func (s *Service) Config() (*Config, error) {
 			Where: "Cherry Studio：「设置 → MCP 服务器 → 添加 → 从 JSON 导入」，粘贴后确定。",
 			Text:  wrap("mcpServers", httpEntry{Type: "streamableHttp", URL: url, Headers: auth})},
 		Snippet{ID: "cursor", Name: "Cursor", Transport: "http",
-			Where: "Cursor：在 Cursor 的设置里打开 MCP，添加服务器会打开 mcp.json（全局的在用户目录的 .cursor\\mcp.json），把 minedeck 合并进 mcpServers。",
+			Where: "Cursor：在 Cursor 的设置里打开 MCP，添加服务器会打开 mcp.json（全局的在用户文件夹下的 .cursor\\mcp.json），把 minedeck 合并进 mcpServers。",
 			Text:  wrap("mcpServers", httpEntry{URL: url, Headers: auth})},
 		Snippet{ID: "vscode", Name: "VS Code", Transport: "http",
 			Where: "VS Code：命令面板里运行「MCP: Open User Configuration」打开 mcp.json，把 minedeck 合并进 servers。",

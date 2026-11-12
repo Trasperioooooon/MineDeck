@@ -189,7 +189,7 @@ func (m *Manager) Get(name string) (*Instance, error) {
 	defer m.mu.Unlock()
 	i, ok := m.insts[name]
 	if !ok {
-		return nil, fmt.Errorf("服务器不存在：%s", name)
+		return nil, fmt.Errorf("服务器「%s」不存在", name)
 	}
 	return i, nil
 }
@@ -264,7 +264,7 @@ func safeRemoveInstanceDir(i *Instance) error {
 		return fmt.Errorf("找不到 instance.json，已拒绝删除: %s", dir)
 	}
 	if err != nil || s.Name != i.Name {
-		return fmt.Errorf("这个目录对不上这台服务器（instance.json 读不出来，或里面的名字不一致），已拒绝删除: %s", dir)
+		return fmt.Errorf("这个文件夹对不上这台服务器（instance.json 读不出来，或里面的名字不一致），已拒绝删除: %s", dir)
 	}
 	if err := os.RemoveAll(dir); err != nil {
 		return fmt.Errorf("删除文件失败: %w", err)

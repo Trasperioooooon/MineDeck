@@ -198,7 +198,7 @@ func (c *cat) companionOps() {
 			if err != nil {
 				return nil, companionErr(err)
 			}
-			plan := &ops.Plan{Pre: map[string]string{"实例状态": pv.Status, "mods 里的相关文件": pv.Files}}
+			plan := &ops.Plan{Pre: map[string]string{"服务器状态": pv.Status, "mods 里的相关文件": pv.Files}}
 			if pv.Noop {
 				plan.Summary = fmt.Sprintf("「%s」的伙伴模组和两个依赖都装好了，不用改", p.Inst)
 				return plan, nil

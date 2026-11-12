@@ -172,7 +172,7 @@ func (c *cat) statusPre(name string) (*inst.Instance, map[string]string, error) 
 	if err != nil {
 		return nil, nil, err
 	}
-	return i, map[string]string{"实例状态": i.Status()}, nil
+	return i, map[string]string{"服务器状态": i.Status()}, nil
 }
 
 // fileHash 文件内容的指纹；文件不存在记为「无」。

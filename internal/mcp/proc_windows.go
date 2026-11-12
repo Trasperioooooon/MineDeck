@@ -27,7 +27,7 @@ func processAlive(pid int, base string) error {
 	}
 	exe := windows.UTF16ToString(buf[:n])
 	if !strings.EqualFold(filepath.Clean(filepath.Dir(exe)), filepath.Clean(base)) {
-		return fmt.Errorf("进程 %d 不是这个目录下的 MineDeck（%s）", pid, exe)
+		return fmt.Errorf("进程 %d 不是这个文件夹下的 MineDeck（%s）", pid, exe)
 	}
 	return nil
 }

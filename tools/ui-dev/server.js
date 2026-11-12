@@ -415,7 +415,7 @@ async function musicHandler(state, req, res, p, m, seg) {
   }
   const name = seg[3], sub = seg[5] || "";
   const i = state.instances.find(x => x.name === name);
-  if (!i) return err(res, 404, "服务器不存在：" + name);
+  if (!i) return err(res, 404, "服务器「" + name + "」不存在");
   const mi = musicInst(ms, name);
   const supported = MUSIC_CORES.includes(i.core);
   const b = await readBody(req);
@@ -558,7 +558,7 @@ function asstScript(s, text, attach) {
   ];
   if (/新建/.test(text)) return [
     { text: "可以，按你说的建一台 Paper 1.21.4：",
-      propose: { op: "instance.create", title: "新建实例", level: "W", args: { name: "新服", core: "paper", mc: "1.21.4" },
+      propose: { op: "instance.create", title: "新建服务器", level: "W", args: { name: "新服", core: "paper", mc: "1.21.4" },
         plan: { summary: "新建 Paper 1.21.4 服务器「新服」" }, consent: { param: "eula", text: "我已阅读并同意 Minecraft EULA", url: "https://aka.ms/MinecraftEULA" } },
       done: "开始创建了，可以在「新建服务器」里看进度。", rejected: () => "好的，不建了。" },
   ];
@@ -694,7 +694,7 @@ async function asstHandler(state, req, res, p, m, u) {
   }
   if (sub === "context" && m === "POST") {
     if (!st.enabled) return err(res, 400, AI_DISABLED), true;
-    if (!s.inst) return err(res, 400, "这个会话没有关联实例"), true;
+    if (!s.inst) return err(res, 400, "这个会话没有关联服务器"), true;
     s.attachText = `## 实例信息\n名称：${s.inst}；核心：forge 47.3.0（Minecraft 1.20.1）；状态：stopped\nJava：17（MineDeck 便携版）；内存：最大 8192 MB；本机内存 16384 MB，可用 9216 MB\n` +
       `\n## MineDeck 本地规则的结论\n1. 缺少前置模组：少装了前置模组：geckolib（create 需要）\n2. 客户端模组放进了服务端：xaerominimap.jar 只能装在客户端\n` +
       `\n## 控制台（最近一次启动以来，只留 WARN / ERROR、异常和最后几行）\n[MineDeck] 启动: java -Xmx8192M -jar <程序目录>\\servers\\create-pack\\server.jar nogui\n` +
@@ -1550,7 +1550,7 @@ function handler(state, ui, portOf) {
       }
       if (p === "/api/adopt" && m === "POST") {
         const b = await readBody(req);
-        if (state.instances.some(x => x.name === b.name)) return err(res, 400, "已有同名的服务器：" + b.name);
+        if (state.instances.some(x => x.name === b.name)) return err(res, 400, "已有同名的服务器「" + b.name + "」");
         state.lastAdopt = b;
         return ok(res, { taskId: "task-adopt" });
       }
@@ -1605,8 +1605,8 @@ function handler(state, ui, portOf) {
       }
       if (p === "/api/transfer/import" && m === "POST") {
         const b = await readBody(req);
-        if (state.instances.some(x => x.name === b.name)) return err(res, 400, "已有同名的服务器：" + b.name);
-        if (!b.file || !String(b.file).includes("transfer\\import")) return err(res, 400, "交接包文件不在上传目录里");
+        if (state.instances.some(x => x.name === b.name)) return err(res, 400, "已有同名的服务器「" + b.name + "」");
+        if (!b.file || !String(b.file).includes("transfer\\import")) return err(res, 400, "交接包文件不在上传文件夹里");
         state.lastTransferImport = b;
         return ok(res, { taskId: "task-transfer-in", pack: { name: TRANSFER_SUMMARY.name, core: TRANSFER_SUMMARY.core, mc: TRANSFER_SUMMARY.mc, build: TRANSFER_SUMMARY.build, mods: TRANSFER_SUMMARY.mods, plugins: TRANSFER_SUMMARY.plugins, full: TRANSFER_SUMMARY.full } });
       }
