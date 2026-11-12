@@ -75,8 +75,8 @@ func (m *Manager) Start(name string) error {
 	}
 	// 端口被占着就直接报错，不先起 Java、等它自己报 BindException（检查报告 D-5）。按服务器真正要绑的地址查
 	//（server-ip、server-port）；代理端的端口在它自己的配置文件里，不查（见 startPort）
-	if host, port, ok := startPort(i); ok {
-		if err := checkBindPort(host, port); err != nil {
+	if t, ok := startPort(i, i.ExtraJVM); ok { // 拿着 procMu，直接读 ExtraJVM
+		if err := checkBindPort(t); err != nil {
 			return err
 		}
 	}

@@ -69,14 +69,14 @@ func TestStartRejectsBusyPort(t *testing.T) {
 		}
 	}
 	// server-ip 填的是另一个回环地址：127.0.0.1 上占着同一个端口不妨碍它，服务端能绑上，这里也不拦
-	if err := checkBindPort("127.0.0.2", port); err != nil {
+	if err := checkBindPort(bindTarget{"tcp", "127.0.0.2", port}); err != nil {
 		t.Errorf("别的地址上占着同一个端口不算被占：%v", err)
 	}
-	if _, port2 := occupy(t, "127.0.0.2"); checkBindPort("127.0.0.2", port2) == nil {
+	if _, port2 := occupy(t, "127.0.0.2"); checkBindPort(bindTarget{"tcp", "127.0.0.2", port2}) == nil {
 		t.Error("server-ip 上占着的端口应查得出来")
 	}
 	// 查不了的情况（地址不是这台电脑的）不下结论，交给服务端自己报
-	if err := checkBindPort("192.0.2.1", port); err != nil {
+	if err := checkBindPort(bindTarget{"tcp", "192.0.2.1", port}); err != nil {
 		t.Errorf("绑不上的原因不是被占着时，不该说端口被占：%v", err)
 	}
 }
@@ -95,12 +95,12 @@ func TestStartPortFreeProceeds(t *testing.T) {
 	waitStatus(t, i, "stopped")
 
 	_, i2 := portInst(t, "没有配置", "", mcsrc.CoreVanilla)
-	if host, p, ok := startPort(i2); !ok || host != "" || p != 25565 {
-		t.Errorf("没有 server.properties 时按所有网卡、25565 查：%q %d %v", host, p, ok)
+	if bt, ok := startPort(i2, nil); !ok || bt != (bindTarget{"tcp", "", 25565}) {
+		t.Errorf("没有 server.properties 时按所有网卡、25565 查：%+v %v", bt, ok)
 	}
 	// 代理端的端口在它自己的配置文件里：不查（server.properties 里的数不是它监听的）
 	_, px := portInst(t, "代理", "server-port=25565\n", mcsrc.CoreVelocity)
-	if _, _, ok := startPort(px); ok {
+	if _, ok := startPort(px, nil); ok {
 		t.Error("代理端不该按 server.properties 查端口")
 	}
 }
@@ -119,7 +119,7 @@ func TestWaitPortFree(t *testing.T) {
 	if d := time.Since(start); d < 150*time.Millisecond || d > 1500*time.Millisecond {
 		t.Errorf("应等到端口放开再返回，等了 %v", d)
 	}
-	if checkBindPort("127.0.0.1", port) != nil {
+	if checkBindPort(bindTarget{"tcp", "127.0.0.1", port}) != nil {
 		t.Error("返回时端口应已放开")
 	}
 	if lines := i.Console.Lines(); len(lines) != 1 || !strings.Contains(lines[0], fmt.Sprintf("端口 %d 还被占着", port)) {
@@ -162,9 +162,85 @@ func TestBusyPortOnWildcard(t *testing.T) {
 			t.Logf("占着 %s:%d 时，以前的试绑查不出来", occ.host, port)
 		}
 		var busy *portBusyError
-		if err := checkBindPort("", port); !errors.As(err, &busy) {
+		if err := checkBindPort(bindTarget{"tcp", "", port}); !errors.As(err, &busy) {
 			t.Errorf("占着 %s:%d，没填 server-ip 时应查出被占：%v", occ.host, port, err)
 		}
 		ln.Close()
+	}
+}
+
+// 查哪个地址、用哪种协议栈，跟着服务端走（3.1.1 复审意见）：
+// server-ip 写成带方括号的 IPv6（Java 认）要去掉括号；server-port=0 服务端自己挑端口，不查；
+// JVM 参数打开了 java.net.preferIPv4Stack 时 Java 只用 IPv4，按 IPv4 查（Java 读它不分大小写、不去空格，以最后一次为准）。
+func TestStartPortTarget(t *testing.T) {
+	for _, c := range []struct {
+		props string
+		jvm   []string
+		want  bindTarget
+		ok    bool
+	}{
+		{"server-port=25570\n", nil, bindTarget{"tcp", "", 25570}, true},
+		{"server-ip=[::1]\nserver-port=25570\n", nil, bindTarget{"tcp", "::1", 25570}, true},
+		{"server-ip= 192.168.1.5 \nserver-port=25570\n", nil, bindTarget{"tcp", "192.168.1.5", 25570}, true},
+		{"server-port=0\n", nil, bindTarget{}, false},
+		{"server-port=abc\n", nil, bindTarget{"tcp", "", 25565}, true}, // 写错了服务端按默认的 25565
+		{"server-port=25570\n", []string{"-Djava.net.preferIPv4Stack=true"}, bindTarget{"tcp4", "", 25570}, true},
+		{"server-port=25570\n", []string{"-Xss4M", "-Djava.net.preferIPv4Stack=TRUE"}, bindTarget{"tcp4", "", 25570}, true},
+		{"server-port=25570\n", []string{"-Djava.net.preferIPv4Stack=true", "-Djava.net.preferIPv4Stack=false"}, bindTarget{"tcp", "", 25570}, true},
+		{"server-port=25570\n", []string{"-Djava.net.preferIPv4Stack= true"}, bindTarget{"tcp", "", 25570}, true},
+		{"server-port=25570\n", []string{"-Djava.net.preferIPv4Stack"}, bindTarget{"tcp", "", 25570}, true},
+	} {
+		_, i := portInst(t, "目标", c.props, mcsrc.CoreVanilla)
+		if got, ok := startPort(i, c.jvm); got != c.want || ok != c.ok {
+			t.Errorf("%q %q：应为 %+v %v，实际 %+v %v", c.props, c.jvm, c.want, c.ok, got, ok)
+		}
+	}
+	// 只按 IPv4 查时，别的程序只在 IPv6 上占着同一个端口不算被占
+	ln, err := net.Listen("tcp6", "[::1]:0")
+	if err != nil {
+		t.Skipf("这台电脑没有 IPv6 回环：%v", err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+	if err := checkBindPort(bindTarget{"tcp4", "", port}); err != nil {
+		t.Errorf("只在 [::1] 上占着，按 IPv4 查不该说被占：%v", err)
+	}
+	var busy *portBusyError
+	if err := checkBindPort(bindTarget{"tcp", "::1", port}); !errors.As(err, &busy) {
+		t.Errorf("server-ip 是 ::1、那里占着，应查出被占：%v", err)
+	}
+}
+
+// 重启前等端口的时候，用户已经把服务器启动了：端口是它自己占的，马上不等了，也不在控制台说「还被占着」。
+func TestWaitPortFreeStopsWhenStarted(t *testing.T) {
+	oldTimes, oldGap := portWaitTimes, portWaitGap
+	t.Cleanup(func() { portWaitTimes, portWaitGap = oldTimes, oldGap })
+	portWaitTimes, portWaitGap = 40, 50*time.Millisecond
+
+	_, port := occupy(t, "127.0.0.1")
+	m, i := portInst(t, "已经起来了", fmt.Sprintf("server-ip=127.0.0.1\nserver-port=%d\n", port), mcsrc.CoreVanilla)
+	i.procMu.Lock()
+	i.state = "running"
+	i.procMu.Unlock()
+	start := time.Now()
+	m.waitPortFree(i)
+	if d := time.Since(start); d > 500*time.Millisecond {
+		t.Errorf("服务器已经在运行，不该再等：等了 %v", d)
+	}
+	if lines := i.Console.Lines(); len(lines) != 0 {
+		t.Errorf("不该说端口还被占着：%q", lines)
+	}
+}
+
+// 重启时端口一直被占着、Start 报错：控制台说清楚不再自动重试；别的失败不加这句。
+func TestRestartGaveUp(t *testing.T) {
+	if s := restartGaveUp(&portBusyError{port: 25565}); !strings.Contains(s, "不再自动重试") {
+		t.Errorf("端口被占时应说不再自动重试：%q", s)
+	}
+	if s := restartGaveUp(fmt.Errorf("包了一层：%w", &portBusyError{port: 25565})); s == "" {
+		t.Error("包了一层的端口被占也要认出来")
+	}
+	if s := restartGaveUp(errors.New("找不到这台服务器用的 Java")); s != "" {
+		t.Errorf("别的失败不加这句：%q", s)
 	}
 }

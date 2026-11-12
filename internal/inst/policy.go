@@ -120,7 +120,7 @@ func (m *Manager) crashRestart(i *Instance, gen int64) {
 	start := time.Now()
 	err := m.Start(i.Name)
 	if err != nil {
-		i.Console.Append("[MineDeck] 自动重启失败: " + err.Error())
+		i.Console.Append("[MineDeck] 自动重启失败: " + err.Error() + restartGaveUp(err))
 	}
 	m.noteAuto(AutoAction{Op: "instance.start", Actor: "崩溃自动重启", Args: map[string]any{"inst": i.Name, "attempt": n}, Err: err, Dur: time.Since(start)})
 }
@@ -198,7 +198,7 @@ func (m *Manager) execSchedule(i *Instance, s Schedule) {
 		if i.Status() == "stopped" {
 			m.waitPortFree(i) // 进程刚退出，端口万一还没放开就等几秒
 			if err = m.Start(i.Name); err != nil {
-				i.Console.Append("[MineDeck] 定时重启失败: " + err.Error())
+				i.Console.Append("[MineDeck] 定时重启失败: " + err.Error() + restartGaveUp(err))
 			}
 		}
 		note("instance.restart", map[string]any{}, err)
