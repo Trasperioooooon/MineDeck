@@ -84,7 +84,7 @@ window.MDCompanion = (() => {
   /* 整合包服务端：好友光装伙伴模组进不来，还要装同一个整合包（测试报告第五轮，实测差 8 个模组被挡在门外）。
      实例里没有记「是不是整合包导入的」（instance.json 没有导入来源），判断不了，写成条件句，页面和复制给好友的说明里都有 */
   const PACK_NOTE = "服务器是整合包时，好友还要装同一个版本的整合包；只装这几个模组进不去。";
-  const PACK_GUIDE = "如果服务器是整合包：先装同一个整合包（版本要和服务器一致），再把上面的模组放进那个整合包的 mods 目录。";
+  const PACK_GUIDE = "如果服务器是整合包：先装同一个整合包（版本要和服务器一致），再把上面的模组放进那个整合包的 mods 文件夹。";
 
   /* 弹窗表单（外观同 confirmModal）：点确定时交给 check(mask)，返回 null 表示有错（错误已就近显示），弹窗留着；
      返回值就交出去。Esc、点外面、取消返回 null。setup(mask) 在弹窗画好后调用（接上弹窗里的联动）。 */
@@ -123,7 +123,7 @@ window.MDCompanion = (() => {
     const name = info.name, enc = encodeURIComponent(name), base = `/api/instances/${enc}/companion`;
     body.innerHTML = `<div class="cp">${skeletonRows(6)}</div>`;
     let v;
-    try { v = await api(base); } catch (e) { if (!stale(gen)) body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+    try { v = await api(base); } catch (e) { if (!stale(gen)) body.innerHTML = errBox("无法读取伙伴的状态", e); return; }
     if (stale(gen)) return;
     if (!v.install.supported) {
       body.innerHTML = `<div class="cp"><div class="warn-card"><div class="wc-title">${icon("warn")} 这台服务器用不了伙伴</div>
@@ -136,7 +136,7 @@ window.MDCompanion = (() => {
       <div id="cp-gate"></div>
       ${head("安装", "服务端要装这三个模组。伙伴模组随 MineDeck 自带。PlayerEngine 和 Architectury API 要点「安装」才从 Modrinth 下载，下的是已经试过的那个版本，不会自动换成新版本。")}
       <div id="cp-install"></div>
-      ${head("好友的客户端", "伙伴是模组新加的实体：好友的客户端也要装下面标了「要装」的模组，版本和服务器的一样，放进客户端的 mods 目录。" +
+      ${head("好友的客户端", "伙伴是模组新加的实体：好友的客户端也要装下面标了「要装」的模组，版本和服务器的一样，放进客户端的 mods 文件夹。" +
         PACK_NOTE)}
       <div id="cp-client"></div>
       ${head("设置", "改了以后约 2 秒内生效，不用重启服务器。")}
@@ -190,12 +190,12 @@ window.MDCompanion = (() => {
       const replace = iv.mods.some(m => (m.files || []).some(f => !f.keep));
       const running = v.serverStatus !== "stopped";
       let action;
-      if (st.installing) action = riRow({ ico: "download", title: "正在安装…", sub: iv.download ? `正在从 Modrinth 下载约 ${mb(iv.download)}，网络慢的话要等一会儿` : "正在写进 mods 目录" });
+      if (st.installing) action = riRow({ ico: "download", title: "正在安装…", sub: iv.download ? `正在从 Modrinth 下载约 ${mb(iv.download)}，网络慢的话要等一会儿` : "正在写进 mods 文件夹" });
       else if (!iv.needed) action = riRow({ ico: "check", title: v.restart ? "装好了，重启服务器后生效" : "三个都装好了", cls: "cp-ready",
         sub: v.restart ? "服务器运行中装的模组，要重启才会加载" : "以后 MineDeck 更新了伙伴模组，这里会提示「要换」" });
       else if (running && replace) action = riRow({ ico: "warn", title: "先停服再安装", sub: "服务器运行中无法替换已装的旧版本（文件被占用），需先停止服务器。",
         right: `<button class="btn primary" id="cp-install-btn" disabled>${icon("download")} 安装</button>` });
-      else action = riRow({ ico: "download", title: iv.ready ? "整理 mods 目录" : "安装缺少的模组",
+      else action = riRow({ ico: "download", title: iv.ready ? "整理 mods 文件夹" : "安装缺少的模组",
         sub: (iv.download ? `要从 Modrinth 下载约 ${mb(iv.download)}` : "不用下载") + (running ? "。服务器正在运行，装好后要重启才生效。" : ""),
         right: `<button class="btn primary" id="cp-install-btn">${icon("download")} ${iv.mods.some(m => m.state === "outdated") ? "更新" : "安装"}</button>` });
       box.innerHTML = group(rows.join("") + action, { ico: true });
@@ -210,7 +210,7 @@ window.MDCompanion = (() => {
         if (stale(gen)) return;
         toast(r.installed.length ? `已安装：${r.installed.join("、")}${r.restart ? "（重启服务器后生效）" : ""}` : "都装好了，没什么要改的");
         for (const f of r.fallback || []) toast(f, true);
-      } catch (e) { toast(e.message, true); }
+      } catch (e) { toastErr("无法安装伙伴模组", e); }
       st.installing = false;
       await refresh();
       if (!stale(gen)) drawInstall();
@@ -222,21 +222,21 @@ window.MDCompanion = (() => {
       if (!sig(box, [v.client, v.local])) return;
       const rows = v.client.map(c => riRow({ ico: c.page ? "package" : "bot", attrs: `data-client="${esc(c.id)}"`,
         titleHTML: `${esc(c.name)} <span class="cp-ver">${esc(c.version)}</span><span class="tag${c.required ? "" : " neutral"}">${c.required ? "要装" : "不用装"}</span>`,
-        sub: c.page ? `${esc(c.license || "")}${c.license ? " · " : ""}从 Modrinth 下载这个版本` : "MineDeck 内置，不在 Modrinth 上：从服务器的 mods 目录里把这个文件发给好友",
+        sub: c.page ? `${esc(c.license || "")}${c.license ? " · " : ""}从 Modrinth 下载这个版本` : "MineDeck 内置，不在 Modrinth 上：从服务器的 mods 文件夹里把这个文件发给好友",
         key: c.file || "",
         right: c.page ? `<a class="btn sm" href="${esc(c.page)}" target="_blank" rel="noopener" aria-label="${esc(c.name)} 的下载页">${icon("link")} 下载页</a>`
-          : v.local ? `<button class="btn sm" id="cp-mods-dir">${icon("folder")} 打开 mods 目录</button>` : "" }));
+          : v.local ? `<button class="btn sm" id="cp-mods-dir">${icon("folder")} 打开 mods 文件夹</button>` : "" }));
       rows.push(riRow({ ico: "users", title: "复制给好友的说明", sub: "要装哪几个、去哪里下载；复制后直接发出去即可。",
         right: `<button class="btn sm" id="cp-copy-guide">${icon("copy")} 复制</button>` }));
       box.innerHTML = group(rows.join(""), { ico: true });
       const dir = $("#cp-mods-dir");
-      if (dir) dir.onclick = () => api(`/api/instances/${enc}/opendir?sub=mods`, { method: "POST" }).catch(e => toast(e.message, true));
+      if (dir) dir.onclick = () => api(`/api/instances/${enc}/opendir?sub=mods`, { method: "POST" }).catch(e => toastErr("无法打开 mods 文件夹", e));
       $("#cp-copy-guide").onclick = () => copy(guide(), "已复制给好友的说明");
     };
     const guide = () => {
       const need = v.client.filter(c => c.required);
       const lines = need.map((c, i) => `${i + 1}. ${c.name} ${c.version}：${c.page || "找房主要文件 " + (c.file || "")}`);
-      return `服务器「${name}」开了 MineDeck 的 AI 伙伴，客户端要装这几个模组（版本和服务器的一样），放进 .minecraft 的 mods 目录：\n${lines.join("\n")}` +
+      return `服务器「${name}」开了 MineDeck 的 AI 伙伴，客户端要装这几个模组（版本和服务器的一样），放进 .minecraft 的 mods 文件夹：\n${lines.join("\n")}` +
         `\n${PACK_GUIDE}` +
         `\n进服后在聊天里说「@伙伴的名字 话」就能叫它。`;
     };
@@ -261,7 +261,7 @@ window.MDCompanion = (() => {
         try {
           await put({ enabled: on });
           toast(on ? "已打开伙伴：服务器开着的话，MineDeck 会自动连上伙伴模组" : "已关掉伙伴：伙伴还在游戏里，但 MineDeck 不再指挥它们");
-        } catch (err) { e.target.checked = !on; toast(err.message, true); }
+        } catch (err) { e.target.checked = !on; toastErr(on ? "无法打开伙伴" : "无法关掉伙伴", err); }
       };
       const maxErr = msg => fieldErr($("#cp-max-err"), $("#cp-max"), msg);
       $("#cp-max").addEventListener("input", () => maxErr(""));
@@ -283,7 +283,7 @@ window.MDCompanion = (() => {
       }, gen);
       $("#cp-deny-default").onclick = async () => {
         try { await put({ denyDefault: true }); $("#cp-deny").value = v.settings.attackDeny.join(", "); $("#cp-deny").dispatchEvent(new Event("input")); toast("已恢复默认：不打村民、流浪商人、铁傀儡、雪傀儡、悦灵"); }
-        catch (e) { toast(e.message, true); }
+        catch (e) { toastErr("无法恢复默认的「攻击时不许打的生物」", e); }
       };
     };
     const drawSetLive = () => {
@@ -321,7 +321,7 @@ window.MDCompanion = (() => {
       box.querySelectorAll("[data-zdel]").forEach(b => b.onclick = () => delZone(b.dataset.zdel));
     };
     const saveZones = async (zs, msg) => {
-      try { await put({ zones: zs }); toast(msg); return true; } catch (e) { toast(e.message, true); return false; }
+      try { await put({ zones: zs }); toast(msg); return true; } catch (e) { toastErr("无法保存禁挖区域", e); return false; }
     };
     const editZone = async z => {
       const zs = v.settings.zones || [];
@@ -422,7 +422,7 @@ window.MDCompanion = (() => {
       box.querySelectorAll("[data-cdel]").forEach(b => b.onclick = () => despawn(list.find(c => c.id === +b.dataset.cdel)));
     };
     const stopTasks = async (payload, msg) => {
-      try { const r = await post("stop", payload); toast(r.stopped.length ? msg : "本来就没有在做的任务"); } catch (e) { toast(e.message, true); }
+      try { const r = await post("stop", payload); toast(r.stopped.length ? msg : "本来就没有在做的任务"); } catch (e) { toastErr(payload.all ? "无法让伙伴全部停下" : "无法让伙伴停下", e); }
     };
     const despawn = async c => {
       if (!c) return;
@@ -430,7 +430,7 @@ window.MDCompanion = (() => {
         body: "伙伴会从世界里消失。默认背包里的东西一起消失；想留下来，勾上下面这项。",
         extra: `<label class="switch" style="margin-bottom:16px"><input type="checkbox" data-k="drop"><span class="sw"></span><span class="sw-label">背包里的东西掉在原地</span></label>` });
       if (!r || stale(gen)) return;
-      try { await post("despawn", { companion: c.id, drop: !!r.drop }); toast(`已移除伙伴「${c.name}」`); } catch (e) { toast(e.message, true); }
+      try { await post("despawn", { companion: c.id, drop: !!r.drop }); toast(`已移除伙伴「${c.name}」`); } catch (e) { toastErr(`无法移除伙伴「${c.name}」`, e); }
     };
     const spawn = async () => {
       const online = v.online || [];
@@ -458,7 +458,7 @@ window.MDCompanion = (() => {
       try {
         const c = await post("spawn", res);
         toast(`刷出了伙伴「${c.name}」：玩家在聊天里说「@${c.name} 跟着我」试试`);
-      } catch (e) { toast(e.message, true); }
+      } catch (e) { toastErr("无法刷出伙伴", e); }
     };
 
     /* ---- 最近的事件 ---- */
