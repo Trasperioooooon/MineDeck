@@ -183,7 +183,7 @@ func hinted(hint, format string, a ...any) error {
 
 // ServerUnknownError 能看出是服务端、但核心或版本认不出来时给用户的说明。
 func ServerUnknownError() error {
-	return hinted("看着像现成服务端，但没认出核心和版本", "这个压缩包像是一台现成的服务端（有 mods、plugins、server.properties 或服务端 jar），但没认出核心和 Minecraft 版本。请确认 Forge / NeoForge 的 libraries，或 Fabric / Paper / 原版的服务端 jar 就在里面（可以套一层文件夹）。仍认不出的话，先解压，用「新建服务器 → 接管已有服务器」选中那个文件夹，类型和版本可以自己填。")
+	return hinted("看着像现成服务端，但没认出核心和版本", "这个压缩包像是一台现成的服务端（有 mods、plugins、server.properties 或服务端 jar），但没认出核心和 Minecraft 版本。请确认 Forge / NeoForge 的 libraries，或 Fabric / Paper / 原版的服务端 jar 就在里面（可以套一层文件夹）。只有启动脚本或加载器安装器的 Server Pack，需要先解压，按包作者的说明运行包里的启动脚本或安装器，把加载器装好，再用「新建服务器 → 接管已有服务器」选中那个文件夹。加载器已装好但仍认不出时，也可以解压后用接管，类型和版本可以自己填。")
 }
 
 func unrecognizedPackError() error {
