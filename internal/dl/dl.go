@@ -147,7 +147,7 @@ func Fetch(ctx context.Context, r Request, prog Progress) error {
 		if round > 0 {
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
+				return ctxFail(ctx, tried)
 			case <-time.After(retryWait(round)):
 			}
 		}
@@ -157,7 +157,7 @@ func Fetch(ctx context.Context, r Request, prog Progress) error {
 				return nil
 			}
 			if ctx.Err() != nil {
-				return ctx.Err()
+				return ctxFail(ctx, tried)
 			}
 			tried = append(tried, err)
 			if j, ok := failAt[u]; ok {
@@ -172,6 +172,15 @@ func Fetch(ctx context.Context, r Request, prog Progress) error {
 		}
 	}
 	return newFetchFail(fails, tried)
+}
+
+// ctxFail 重试途中整体超时或被取消时返回的错误：说法和 errors.Is 都还是 ctx 的错误，
+// 之前每一次的失败带在里面给 AnyFailure。前一次写盘被杀毒软件拦下、后面拖到了总超时，界面上仍要说是被拦下了（Codex 复审发现）。
+func ctxFail(ctx context.Context, tried []error) error {
+	if len(tried) == 0 {
+		return ctx.Err()
+	}
+	return &fetchFailError{msg: ctx.Err().Error(), last: ctx.Err(), all: tried}
 }
 
 // urlFail 一个候选地址的最后一次失败。

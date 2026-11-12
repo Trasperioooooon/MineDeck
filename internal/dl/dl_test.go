@@ -70,6 +70,36 @@ func TestAnyFailureSeesEarlierRounds(t *testing.T) {
 	}
 }
 
+// 前一次失败以后，重试拖到了整体超时：报错还是超时（说法和 errors.Is 都不变），AnyFailure 仍认得出前一次的失败。
+func TestAnyFailureAfterDeadline(t *testing.T) {
+	old := retryWait
+	retryWait = func(int) time.Duration { return time.Millisecond }
+	defer func() { retryWait = old }()
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		if hits == 1 {
+			http.Error(w, "no", http.StatusNotFound)
+			return
+		}
+		<-r.Context().Done() // 第二次起一直不回，等到客户端超时断开
+	}))
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	err := Fetch(ctx, Request{
+		URLs:    []string{srv.URL + "/frpc_windows_amd64.zip"},
+		Dest:    filepath.Join(t.TempDir(), "frpc.zip"),
+		MinSize: 1 << 20,
+	}, nil)
+	if !errors.Is(err, context.DeadlineExceeded) || err.Error() != context.DeadlineExceeded.Error() {
+		t.Fatalf("应该还是超时的错误：%v", err)
+	}
+	if !AnyFailure(err, func(e error) bool { return e.Error() == "HTTP 404" }) {
+		t.Fatal("AnyFailure 应认出超时之前那次 404")
+	}
+}
+
 // 第一个地址没下成时调 OnRetry（只给主机名和原因），换第二个地址下成；成功的那次不调。
 func TestFetchOnRetry(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
