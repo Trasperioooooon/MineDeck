@@ -122,7 +122,7 @@ add("list", "l-onboard", "第一次打开：引导和用户协议", { setup: s =
 add("list", "l-four", "四台：运行中、已停止、启动中、代理端", { setup: s => { s.instances = four(); } });
 add("list", "l-all", "十二种核心各一台", { note: "每种核心的像素头像、徽标和状态都在这一页。" });
 add("list", "l-error", "拿不到服务器列表", {
-  note: "报错的呈现方式：页面上只写一句中文结论，原始报错收进「复制报错信息」，点一下复制到剪贴板。",
+  note: "报错的呈现方式：页面上一句中文结论，下一行写下一步（正在自动重试），原始报错收进「复制报错信息」，点一下复制到剪贴板。",
   setup: (s, p) => p.api("GET /api/instances", { code: 500, error: "instance store unavailable: open E:\\MineDeck\\servers: Access is denied" }),
 });
 add("list", "l-search", "搜索：只留名字里带「服」的", { steps: [{ fill: "#inst-q", value: "服" }] });
@@ -198,7 +198,7 @@ add("detail", "d-common-dirty", "常用设置：改了没保存", { hash: `#/ins
 add("detail", "d-raw", "全部配置", { hash: `#/inst/${enc("生存服 · 朋友")}/raw` });
 add("detail", "d-jvm", "内存 / 启动", { hash: `#/inst/${enc("机械动力整合包")}/jvm` });
 add("detail", "d-proxy-common", "代理端没有游戏设置", { hash: `#/inst/${enc("群组代理")}/jvm` });
-add("detail", "d-dirmenu", "「打开目录」菜单", { hash: `#/inst/${enc("生存服 · 朋友")}/console`, steps: [{ click: "#d-dir" }] });
+add("detail", "d-dirmenu", "「打开文件夹」菜单", { hash: `#/inst/${enc("生存服 · 朋友")}/console`, steps: [{ click: "#d-dir" }] });
 add("detail", "d-min", "详情页：最小窗口下", { view: "min", hash: `#/inst/${enc("周末活动服")}/console` });
 add("detail", "d-phone", "详情页：手机上", { view: "phone", hash: `#/inst/${enc("生存服 · 朋友")}/console` });
 
@@ -211,6 +211,10 @@ add("tunnel", "u-form-custom", "添加表单：自定义 frps", { hash: "#/tunne
 add("tunnel", "u-form-voice", "添加表单：语音隧道（给音乐共享用）", { hash: "#/tunnels", setup: s => { s.tunnels = []; }, steps: [{ select: "#tn-purpose", value: "voice" }] });
 add("tunnel", "u-cred", "凭据解不开（换了电脑或 Windows 用户）", { hash: "#/tunnels", setup: s => { for (const t of s.tunnels) t.credBroken = t.id === "t2"; } });
 add("tunnel", "u-log", "展开日志", { hash: "#/tunnels", steps: [{ click: '[data-tlog="t1"]' }] });
+add("tunnel", "u-list-error", "拿不到隧道列表", {
+  hash: "#/tunnels", tag: "new", note: "页面报错框：一句结论，下面「复制报错信息」。原文带着路径和英文，所以正文不接它。",
+  setup: (s, p) => p.api("GET /api/tunnels", { code: 500, error: "读取隧道配置失败: open D:\\MineDeck\\tunnels.json: Access is denied." }),
+});
 add("tunnel", "u-min", "最小窗口下", { view: "min", hash: "#/tunnels", setup: s => { s.tunnels = []; } });
 add("tunnel", "u-phone", "手机上", { view: "phone", hash: "#/tunnels" });
 
@@ -222,6 +226,12 @@ add("settings", "s-remote-on", "远程访问：已开启（二维码）", { hash
 add("settings", "s-ai-on", "AI：已经配好一家", {
   hash: "#/settings/ai",
   setup: s => { Object.assign(s.ai, { preset: "deepseek", protocol: "openai", baseUrl: "https://api.deepseek.com", model: "deepseek-v4-flash", key: "sk-demo-not-a-real-key" }); },
+});
+add("settings", "s-ai-test-fail", "AI：测试连接失败（一行字里的报错）", {
+  hash: "#/settings/ai", tag: "new",
+  note: "一行字里的报错：警告图标、结论，后面一个只有图标的「复制报错信息」。这次的原因带着 HTTP 状态码，按规矩只写结论，原文点复制键拿走。",
+  setup: s => { Object.assign(s.ai, { preset: "deepseek", protocol: "openai", baseUrl: "https://api.deepseek.com", model: "deepseek-v4-flash", key: "sk-demo-not-a-real-key", testFail: true }); },
+  steps: [{ click: "#ai-test" }, { wait: "#ai-test-sub .err-inline" }],
 });
 
 // ==================== 弹窗、提示和助手 ====================
@@ -242,6 +252,16 @@ add("overlay", "o-err-detail", "报错详情：原文可以选中、复制", {
   hash: "#/settings/storage",
   setup: (s, p) => p.api("POST /api/pickdir", { code: 500, error: "没能打开选择文件夹的窗口，请再试一次" }),
   steps: [{ click: '[data-pick="servers"]' }, { click: '.toast.error button[aria-label="查看报错详情"]' }],
+});
+add("overlay", "o-toast-err-why", "报错提示：后端说的原因接在结论后面", {
+  tag: "new", note: "结论（这一步没做成什么）在前；后端给的是一句看得懂的中文时整句接在后面。原文照样在「详情」里。",
+  setup: (s, p) => { s.instances = four(); p.api(`POST /api/instances/${enc("机械动力整合包")}/start`, { code: 400, error: "端口 25566 已被其他程序占用，请在设置中修改 server-port 或关闭占用程序" }); },
+  steps: [{ click: `.card[data-name="机械动力整合包"] [data-act="start"]` }],
+});
+add("overlay", "o-toast-err-raw", "报错提示：原文带路径和英文时只写结论，「详情」里是原文", {
+  tag: "new", note: "原文里有文件路径、英文报错句、网址这类痕迹，或者超过 60 个字时，正文只写结论；原文一个字不少地放在「详情」里，可以选中、复制。",
+  setup: (s, p) => { s.instances = four(); p.api(`POST /api/instances/${enc("机械动力整合包")}/start`, { code: 500, error: "启动失败: fork/exec D:\\MineDeck\\runtimes\\java17\\bin\\java.exe: The system cannot find the file specified." }); },
+  steps: [{ click: `.card[data-name="机械动力整合包"] [data-act="start"]` }, { click: '.toast.error button[aria-label="查看报错详情"]' }],
 });
 add("overlay", "o-toast", "右上角的提示", { setup: s => { s.instances = four(); }, steps: [{ click: `.card[data-name="机械动力整合包"] [data-act="start"]` }] });
 add("overlay", "o-asst", "AI 助手面板", { steps: [{ click: 'button[aria-label^="AI 助手"]' }] });

@@ -724,6 +724,13 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   // ---- 设置 → AI（设计文档 §4）：仿真后端的 /api/ai/* 与 ai.Service 同一套规则 ----
   const aiState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ ai: x }) }), b);
   const toastHas = (s, timeout = 2000) => page.waitForFunction(x => [...document.querySelectorAll(".toast")].some(t => t.textContent.includes(x)), s, { timeout }).then(() => true, () => false);
+  // 报错提示「详情」里的原文：点开正文里含 s 的那条报错提示的「详情」，读完按 Esc 关掉
+  const toastDetail = async s => {
+    await page.locator(".toast.error", { hasText: s }).last().locator('button[aria-label="查看报错详情"]').click();
+    const d = await page.textContent(".err-detail");
+    await page.keyboard.press("Escape"); await settle(250);
+    return d;
+  };
   const aiForm = () => page.evaluate(() => {
     const q = s => document.querySelector(s);
     return { preset: q("#ai-preset").value, opts: [...q("#ai-preset").options].map(o => o.textContent), url: q("#ai-url").value, model: q("#ai-model").value,
@@ -830,7 +837,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       f = await aiForm();
       assert(!f.proto && f.effort && f.url === "https://api.anthropic.com" && f.model === "claude-opus-5-5", "选 Claude 后：" + JSON.stringify(f));
       await page.click("#ai-list");
-      assert(await toastHas("先填写 Key"), "没填 Key 时获取模型列表应提示");
+      assert(await toastHas("无法获取模型列表：先填写 Key"), "没填 Key 时获取模型列表应提示（结论接上后端的原因）");
       await page.fill("#ai-key", "sk-ant-test");
       await page.click("#ai-list"); await settle(300);
       const opts = await page.$$eval("#ai-models option", os => os.map(o => o.value));
@@ -854,7 +861,10 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await aiState({ testFail: true });
       await page.click("#ai-test"); await settle(300);
       sub = await page.textContent("#ai-test-sub");
-      assert(sub.includes("连接失败") && sub.includes("Key 不对"), "测试失败时：" + sub);
+      // 原因里带着 HTTP 状态码，按报错的规矩只写结论，原文收进只有图标的「复制报错信息」
+      const raw = await page.getAttribute("#ai-test-sub [data-err-raw]", "data-err-raw");
+      assert(sub.trim() === "连接失败" && (raw || "").includes("Key 不对") && (await page.getAttribute("#ai-test-sub [data-err-raw]", "aria-label")) === "复制报错信息",
+        "测试失败时：" + sub + " / 原文：" + raw);
     } finally { await aiState({ reset: true }); }
   });
 
@@ -991,7 +1001,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await openMusic({ inst: { [PACK]: { svc: false, svcFail: "在 Modrinth 上查 Simple Voice Chat 的版本失败：连接超时（检查网络或代理后再试）" } } }, "stopped");
       t0 = posts.length;
       await page.click("#mu-svc-install"); await settle(500);
-      assert(await toastHas("版本失败：连接超时"), "下载失败应报原因");
+      // 后端那句自己带着全角冒号：用句号接在结论后面
+      assert(await toastHas("无法安装 Simple Voice Chat。在 Modrinth 上查 Simple Voice Chat 的版本失败：连接超时"), "下载失败应报原因");
       assert(!(await page.$eval("#mu-svc-install", b => b.disabled)) && (await page.textContent("#mu-svc-install")).includes("安装"), "失败后按钮应恢复");
     } finally { await resetMusic(); }
   });
@@ -1513,10 +1524,10 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(postsTo(t0, "/companion/install").length === 1, "应发安装请求");
       assert(await toastHas("已安装：minedeck-companion-forge-1.20.1-0.2.0.jar、playerengine-forge-1.20.1-1.4.0.jar"), "应提示装了什么");
       assert((await page.textContent("#cp-install")).includes("三个都装好了") && !(await page.$("#cp-install-btn")), "装好以后不再给安装按钮");
-      // 好友的客户端：0.2.0 起两个依赖只装服务端，好友只装伙伴模组（随 MineDeck 内置，打开 mods 目录发给好友）
+      // 好友的客户端：0.2.0 起两个依赖只装服务端，好友只装伙伴模组（随 MineDeck 内置，打开 mods 文件夹发给好友）
       const cl = await page.$$eval("#cp-client [data-client]", rs => rs.map(r => r.dataset.client + ":" + r.querySelector(".tag").textContent));
       assert(JSON.stringify(cl) === JSON.stringify(["minedeck_companion:要装", "playerengine:不用装", "architectury:不用装"]), "side 是 server 的依赖不用装：" + cl);
-      assert(await page.$("#cp-mods-dir"), "打开 mods 目录");
+      assert(await page.$("#cp-mods-dir"), "应有「打开 mods 文件夹」");
       // 清单里依赖的 side 是 both 时（老装法），好友三个都要装，两个依赖附 Modrinth 链接
       await cpState({ cp: { clientSide: "both" } });
       await openCP();
@@ -1933,7 +1944,9 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       // 手动启动也失败：提示里有原因，卡片上换成「启动失败：…」，按钮还能再点
       await tunState({ tunnel: { id: "t1", startError: MSG } });
       await page.click('[data-tstart="t1"]');
-      assert(await toastHas("首次使用需手动放置樱花 frpc"), "启动失败要提示");
+      // 这句又长又带路径：提示里只写结论，原文在「详情」里；卡片上照样整句显示（下面断言 .tun-err）
+      assert(await toastHas("无法启动隧道"), "启动失败要提示");
+      assert(await toastDetail("无法启动隧道") === MSG, "提示的「详情」里应是完整原文");
       await page.waitForFunction(() => (document.querySelector('[data-tun="t1"] .tun-err') || {}).textContent?.startsWith("启动失败："), null, { timeout: 2000 }).catch(() => {});
       assert((await page.textContent('[data-tun="t1"] .tun-err')).startsWith("启动失败：首次使用"), "手动启动失败的原因：" + await tunRowText("t1"));
       assert(!(await page.$eval('[data-tstart="t1"]', b => b.disabled)), "失败后启动按钮能再点");
@@ -1974,8 +1987,10 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click('[data-tlog="t1"]'); await settle(400);
       await page.$eval("#tlog-t1", e => { e.dataset.mark = "1"; });
       await page.route("**/api/tunnels", fail);
-      await page.waitForFunction(() => document.querySelector("#tun-summary").textContent.includes("刷新失败"), null, { timeout: 6000 }).catch(() => {});
-      assert((await page.textContent("#tun-summary")).includes("刷新失败"), "摘要应提示刷新失败：" + await page.textContent("#tun-summary"));
+      await page.waitForFunction(() => document.querySelector("#tun-summary").textContent.includes("无法刷新隧道列表"), null, { timeout: 6000 }).catch(() => {});
+      // 回的不是 JSON（Bad Gateway），原文是「服务异常 (HTTP 502)」：只写结论，原文收进行内的复制键
+      assert((await page.textContent("#tun-summary")).trim() === "无法刷新隧道列表" && (await page.getAttribute("#tun-summary [data-err-raw]", "data-err-raw")) === "服务异常 (HTTP 502)",
+        "摘要应提示刷新失败：" + await page.textContent("#tun-summary"));
       const during = await page.$eval("#tlog-t1", e => ({ same: e.dataset.mark === "1", shown: e.style.display !== "none" }));
       assert(during.same && during.shown && (await page.$$("#tun-list [data-tun]")).length === 2, "刷新失败时列表和日志应留着：" + JSON.stringify(during));
       await page.unroute("**/api/tunnels", fail);
@@ -2189,7 +2204,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.goto(url("#/settings/remote")); await settle();
       await mockState({ lanSet: false });
       await flip();
-      assert(!(await sw()) && (await lastToast()).includes("请先设置访问密码"), "后端拒绝时应拨回：" + await lastToast());
+      assert(!(await sw()) && (await lastToast()).includes("无法开启局域网访问：开启局域网访问前请先设置访问密码"), "后端拒绝时应拨回：" + await lastToast());
 
       // 这次启动已在局域网上：关闭即时生效（不再放行局域网），再开也不用重启
       await mockState({ listenLan: true });
@@ -2608,9 +2623,9 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     const task = {
       id: "task-im", title: "导入整合包 魔改模组包", ended: true, result: "机械动力整合包",
       warnings: [
-        { kind: "import-kept", title: "按原样保留 1 个文件", note: "这些文件没有从网上下载，用的是整合包覆盖目录或本地来源目录里已有的那份。", items: [{ name: "mods/inherited.jar（来自本地来源目录，未校验）" }] },
+        { kind: "import-kept", title: "按原样保留 1 个文件", note: "这些文件没有从网上下载，用的是整合包覆盖文件夹或本地来源文件夹里已有的那份。", items: [{ name: "mods/inherited.jar（来自本地来源文件夹，未校验）" }] },
         { kind: "import-pending", title: "3 个文件待处理", note: "这些文件没法自动下载。" },
-        { kind: "java-req", title: "有模组要求 Java 25，这台实例现在是 Java 17", note: "这只是提醒，不影响导入结果。", items: [{ name: "modded-fabric.jar（modded，要 Java 25）" }] },
+        { kind: "java-req", title: "有模组要求 Java 25，这台服务器现在是 Java 17", note: "这只是提醒，不影响导入结果。", items: [{ name: "modded-fabric.jar（modded，要 Java 25）" }] },
       ],
       pending: [
         { id: "p1", path: "mods/modded-custom-host.jar", reason: "host", host: "files.example.net", note: "下载地址不在 MineDeck 允许的站点列表里（只允许 Modrinth、GitHub、GitLab），确认站点可信后才能下载", urls: ["https://files.example.net/modded-custom-host.jar"], sha1: "aa", size: 12345, options: ["local", "skip", "trust"] },
@@ -2695,7 +2710,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     }
   });
 
-  await run("实例详情：模组要求比实例高的 Java 时提示换 Java 并给入口；导入表单有本地来源目录", async () => {
+  await run("实例详情：模组要求比实例高的 Java 时提示换 Java 并给入口；导入表单有本地来源文件夹", async () => {
     // 1.20.1（Java 17）的机械动力整合包里有要 Java 25 的魔改模组（用户反馈的主场景）
     await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ modsNeed: { "机械动力整合包": 25 } }) }));
     await page.goto(url("#/inst/" + encodeURIComponent("机械动力整合包"))); await settle(600);
@@ -2707,10 +2722,10 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ modsNeed: {} }) }));
     await page.goto(url("#/inst/" + encodeURIComponent("生存服 · 朋友"))); await settle(600);
     assert(!(await page.locator("#d-java-hint").count()), "没有要求就不该有提示");
-    // 导入表单：本地来源目录字段在，浏览走选目录（从「新建服务器」的第二张卡片进入）
+    // 导入表单：本地来源文件夹字段在，浏览走选文件夹（从「新建服务器」的第二张卡片进入）
     await page.goto(url("#/create")); await settle();
     await page.click("#mode-import"); await settle(600);
-    assert((await page.locator("#im-src").count()) === 1, "导入表单应有本地来源目录输入框");
+    assert((await page.locator("#im-src").count()) === 1, "导入表单应有本地来源文件夹输入框");
     await page.click("#im-src-browse"); await settle();
     assert((await page.inputValue("#im-src")).includes("E:\\MCServers"), "浏览应回填 pickdir 的路径");
   });
@@ -2918,7 +2933,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.evaluate(i => fetch("/api/modcart", { method: "POST", body: JSON.stringify({ inst: i, projectIds: ["create"] }) }), PACK);
       await page.click("#mc-install"); await settle(900);
       const toasts = await page.$$eval(".toast", ts => ts.map(x => x.textContent));
-      assert(toasts.some(x => x.includes("不一样")), "车变了应拦下并说明：" + JSON.stringify(toasts));
+      assert(toasts.some(x => x.includes("无法开始安装：待装清单和你刚才看到的不一样了")), "车变了应拦下并说明：" + JSON.stringify(toasts));
       assert(!page.url().includes("#/task/"), "被拦下时不该跳到任务页：" + page.url());
       assert((await page.textContent("#mc-count")).includes("2") && (await page.textContent("#mc-list")).includes("Create"), "应重新列出现在的清单");
       // 看过现在的清单再点：照常装，请求里带着页面上列着的两项
@@ -3178,7 +3193,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await sneak(PACK, "not-seen-2.0.jar"); // 页面没动的时候，别处又加了一个
       await page.click("#mc-install"); await settle(900);
       let toasts = await page.$$eval(".toast", ts => ts.map(x => x.textContent));
-      assert(toasts.some(x => x.includes("本地文件") && x.includes("不一样")), "本地文件变了应拦下并说明：" + JSON.stringify(toasts));
+      assert(toasts.some(x => x.includes("无法开始安装：清单里的本地文件和你刚才看到的不一样了")), "本地文件变了应拦下并说明：" + JSON.stringify(toasts));
       assert(!page.url().includes("#/task/") && (await cartMock()).lastInstall === null, "被拦下时不该发出安装、不该跳到任务页");
       assert((await page.$$eval("#mc-list .mc-local", els => els.length)) === 2 && (await page.textContent("#mc-list")).includes("not-seen-2.0.jar"), "应重新列出现在的清单");
       await page.click("#mc-install"); // 看过现在的清单再点：照常装，带着页面上列着的两个文件
@@ -3197,7 +3212,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click("#wcreate");
       await page.waitForFunction(() => location.hash === "#/task/task-1", null, { timeout: 8000 }); // 装不成：回到建服任务页
       toasts = await page.$$eval(".toast", ts => ts.map(x => x.textContent));
-      assert(toasts.some(x => x.includes("本地文件") && x.includes("不一样")), "应说明为什么没装：" + JSON.stringify(toasts));
+      assert(toasts.some(x => x.includes("无法安装清单里的模组：清单里的本地文件和你刚才看到的不一样了")), "应说明为什么没装：" + JSON.stringify(toasts));
       const mc = await cartMock();
       assert(mc.lastInstall === null && mc.localDraft.length === 1 && mc.draft.length === 1, "没人看过的本地文件不该被装上，清单原样留着：" + JSON.stringify(mc.lastInstall));
     } finally { await cartState({ modCart: { reset: true }, taskStage: 2, instReset: true }); await page.goto(url("#/instances")); await settle(); }
@@ -3236,6 +3251,58 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         assert(g.overflowX <= 0 && g.pageOverflowX <= 0, w + " 宽不该有横向滚动：" + JSON.stringify(g));
       }
     } finally { await page.setViewportSize({ width: 1280, height: 850 }); await cartState({ modCart: { reset: true } }); }
+  });
+
+  await run("报错的正文：结论在前，看得懂的后端原句整句接上（自带冒号时用句号接）；带技术痕迹、超过 60 字、前端兜底词只写结论；连不上时说连不上；「详情」和复制键里是完整原文", async () => {
+    await page.goto(url("#/instances")); await settle();
+    const got = await page.evaluate(() => {
+      const E = (m, x = {}) => Object.assign(new Error(m), x);
+      return [
+        ["无法删除服务器", E("请先停止服务器再删除", { status: 400 })],
+        ["发送失败", E("AI 未启用：先在「设置 → AI」里选择服务商，填好 Key 和模型", { status: 400 })],
+        ["保存失败", E("需要登录", { status: 401 })],
+        ["无法启动服务器", E("启动失败: fork/exec D:\\MineDeck\\runtimes\\java17\\bin\\java.exe: The system cannot find the file specified.", { status: 400 })],
+        ["无法读取会话记录", E("拒绝访问：unexpected EOF")],
+        ["无法检查更新", E("服务异常 (HTTP 502)")],
+        ["无法导入整合包", E("导入失败")],
+        ["保存失败", E("未知错误")],
+        ["无法启动服务器", new TypeError("Failed to fetch")],
+        ["无法启动服务器", new TypeError("Cannot read properties of undefined (reading 'pending')")],
+        ["无法启动隧道", E("这".repeat(61))],
+        ["无法启动隧道", E("这".repeat(60))],
+      ].map(([what, e]) => errSummary(what, e).text);
+    });
+    const want = [
+      "无法删除服务器：请先停止服务器再删除",
+      "发送失败。AI 未启用：先在「设置 → AI」里选择服务商，填好 Key 和模型",
+      "保存失败：需要登录",
+      "无法启动服务器",
+      "无法读取会话记录",
+      "无法检查更新",
+      "无法导入整合包",
+      "保存失败",
+      "无法启动服务器：连不上 MineDeck",
+      "无法启动服务器",
+      "无法启动隧道",
+      "无法启动隧道：" + "这".repeat(60),
+    ];
+    for (let i = 0; i < want.length; i++) assert(got[i] === want[i], `第 ${i + 1} 条：${got[i]}（应为 ${want[i]}）`);
+    // 提示：正文只写结论，「详情」里是原文
+    const raw = "启动失败: fork/exec D:\\MineDeck\\runtimes\\java17\\bin\\java.exe: The system cannot find the file specified.";
+    await page.evaluate(x => toastErr("无法启动服务器", new Error(x)), raw);
+    assert(await toastHas("无法启动服务器"), "应弹出报错提示");
+    assert(await toastDetail("无法启动服务器") === raw, "「详情」里应是完整原文");
+    // 报错框、行内报错：复制键带着完整原文（回车换行也原样），名字是「复制报错信息」，同页有几处时带上是哪一处
+    const crlf = "第一行\r\n第二行: open C:\\x: Access is denied.";
+    const b = await page.evaluate(x => {
+      const d = document.createElement("div");
+      d.innerHTML = errBox("无法获取版本清单", new Error(x), { hint: "可在「设置 → 下载与网络」换一个下载源后重试。" }) + errInline("无法刷新隧道列表", x, { label: "隧道" });
+      const box = d.querySelector(".err-box"), btn = box.querySelector("[data-err-raw]"), inl = d.querySelector(".err-inline [data-err-raw]");
+      return { text: box.firstChild.textContent.trim(), hint: box.children[0].textContent, raw: btn.getAttribute("data-err-raw"), name: btn.textContent.trim(),
+        inlineText: d.querySelector(".err-inline").textContent.trim(), inlineRaw: inl.getAttribute("data-err-raw"), inlineName: inl.getAttribute("aria-label"), inlineTitle: inl.title };
+    }, crlf);
+    assert(b.text === "无法获取版本清单" && b.hint.startsWith("可在") && b.raw === crlf && b.name === "复制报错信息", "报错框：" + JSON.stringify(b));
+    assert(b.inlineText === "无法刷新隧道列表" && b.inlineRaw === crlf && b.inlineName === "复制报错信息 隧道" && b.inlineTitle === "复制报错信息 隧道", "行内报错：" + JSON.stringify(b));
   });
 
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
