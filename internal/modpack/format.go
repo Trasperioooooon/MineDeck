@@ -25,6 +25,11 @@ const (
 	maxJarInspect  = 96 << 20 // 比这还大的 jar 先看文件名，导入落到磁盘后再用接管那套完整打开
 )
 
+// indexSniffMax 找清单时要看 manifest.json 的内容（见 isIndexFile），一次最多解开这么多字节，和解析清单的上限一样。
+// 超了的不看内容、只按文件名算（和以前一样），免得压缩包里塞上几千份大 manifest.json，导入时反复解压到卡住。
+// 写成变量只是为了测试能调小。
+var indexSniffMax int64 = 64 << 20
+
 var (
 	reLegacyForge = regexp.MustCompile(`(?i)^forge-(\d+(?:\.\d+)+)-(\d+(?:\.\d+)+)(?:-shim)?\.jar$`)
 	reArgsFile    = regexp.MustCompile(`(?i)^libraries/net/(neoforged/neoforge|minecraftforge/forge)/([^/]+)/win_args\.txt$`)
@@ -50,6 +55,7 @@ func findIndex(files []*zip.File) (*indexLoc, error) {
 	var root *indexLoc
 	nests := map[string]*nestHit{}
 	var order []string
+	budget := indexSniffMax
 	for _, f := range files {
 		name := zipNameOf(f)
 		if name == "" || isZipDir(f, name) {
@@ -57,7 +63,7 @@ func findIndex(files []*zip.File) (*indexLoc, error) {
 		}
 		if !strings.Contains(name, "/") {
 			kind, ok := indexKind(name)
-			if !ok || root != nil || !isIndexFile(f, kind) {
+			if !ok || root != nil || !isIndexFile(f, kind, &budget) {
 				continue
 			}
 			root = &indexLoc{file: f, kind: kind}
@@ -68,7 +74,7 @@ func findIndex(files []*zip.File) (*indexLoc, error) {
 			continue
 		}
 		kind, ok := indexKind(base)
-		if !ok || !isIndexFile(f, kind) {
+		if !ok || !isIndexFile(f, kind, &budget) {
 			continue
 		}
 		n := nests[dir]
@@ -127,11 +133,17 @@ func indexKind(base string) (string, bool) {
 // 报一句 JSON 类型错误，走不到服务端的识别。CurseForge 的清单写着 manifestType: minecraftModpack；
 // 老一些或别的工具导出的可能没写这一项，但一定有 minecraft 那一段（版本和加载器在里面）。两样都没有的不算。
 // 读不出来、不是 JSON 的仍然当成清单，让解析那一步把原因报出来。
-func isIndexFile(f *zip.File, kind string) bool {
+// budget 是这一次找清单还能解开的字节数（从 indexSniffMax 起扣），不够看这一份的，也按清单算。
+func isIndexFile(f *zip.File, kind string, budget *int64) bool {
 	if kind != FormatCurseForge {
 		return true
 	}
-	b, err := readZipEntry(f, 64<<20)
+	size := int64(f.UncompressedSize64)
+	if size < 0 || size > *budget {
+		return true
+	}
+	*budget -= size
+	b, err := readZipEntry(f, size) // zip 库读的时候会核对实际大小，写小了、写大了都读不出来
 	if err != nil {
 		return true
 	}

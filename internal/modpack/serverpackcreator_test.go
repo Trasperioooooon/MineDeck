@@ -1,6 +1,7 @@
 package modpack
 
 import (
+	"archive/zip"
 	"errors"
 	"strings"
 	"testing"
@@ -80,5 +81,31 @@ func TestCurseForgeManifestDetection(t *testing.T) {
 	// 不是 JSON：仍当成清单，让用户看到解析失败的原因
 	if _, err = Parse(mkZip(t, map[string]string{"manifest.json": "不是 JSON"})); err == nil || !strings.Contains(err.Error(), "解析 manifest.json 失败") {
 		t.Fatalf("坏掉的 manifest.json 应报解析失败：%v", err)
+	}
+}
+
+// 为了看 manifest.json 的内容解开的总量有上限：只够看一份时，另一份不看内容、按文件名算，成了唯一的一处清单。
+func TestIndexSniffBudget(t *testing.T) {
+	files := map[string]string{"A/manifest.json": spcManifest, "B/manifest.json": spcManifest}
+	find := func() *indexLoc {
+		zr, err := zip.OpenReader(mkZip(t, files))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer zr.Close()
+		loc, err := findIndex(zr.File)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return loc
+	}
+	if loc := find(); loc != nil {
+		t.Fatalf("两份都是 ServerPackCreator 的，都不该算清单：%+v", loc)
+	}
+	old := indexSniffMax
+	indexSniffMax = int64(len(spcManifest)) + 10
+	defer func() { indexSniffMax = old }()
+	if loc := find(); loc == nil || loc.kind != FormatCurseForge {
+		t.Fatalf("上限只够看一份时，另一份应按文件名算成清单：%+v", loc)
 	}
 }
