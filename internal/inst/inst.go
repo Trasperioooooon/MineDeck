@@ -313,16 +313,16 @@ func (m *Manager) UpdateSettings(name string, xmxMB, xmsMB int, consoleEnc strin
 	default:
 		return fmt.Errorf("不支持的控制台编码: %s", consoleEnc)
 	}
-	if extraJVM != nil {
-		if err := validateJVMArgs(*extraJVM); err != nil {
-			return err
-		}
-	}
 	// 运行中控制台 goroutine 会并发读这些字段，写入必须持锁；
 	// 落盘（saveInstance 序列化 i.Settings、writeRunBat 读取 i 字段）也在锁内完成，
 	// 避免与并发的 UpdateSettings 竞争地读写 i.Settings
 	i.procMu.Lock()
 	defer i.procMu.Unlock()
+	if extraJVM != nil { // 要和现有的参数比，所以放在锁里；任何字段都还没改
+		if err := validateJVMArgs(*extraJVM, i.ExtraJVM); err != nil {
+			return err
+		}
+	}
 	if xmxMB > 0 {
 		if xmxMB < 512 {
 			return fmt.Errorf("最大内存不能低于 512MB")
@@ -394,17 +394,27 @@ func (i *Instance) ExtraJVMSnapshot() []string {
 
 var invalidNameChars = `\/:*?"<>|`
 
-// validateJVMArgs 自定义 JVM 参数一行一个：不能有换行这类控制字符，也不能有双引号。
-// 一行就是一个参数，带空格也不用加引号。参数会写进 run.bat，引号会把外面加的引号提前关掉、换行会另起一行，
-// 手动双击 run.bat 时 cmd 就会多执行别的命令（v3.1.0 正式版前检查 B-7）。界面按空白拆参数，本来就带不进换行；
-// 这里拦的是 AI、MCP 和直接调接口传进来的。
-func validateJVMArgs(args []string) error {
+// validateJVMArgs 查这次新加或改过的 JVM 参数：不能有换行这类控制字符，也不能有双引号。
+// 以前它们原样写进 run.bat，引号会把外面加的引号提前关掉、换行会另起一行，手动双击 run.bat 时 cmd 就会多执行
+// 别的命令（v3.1.0 正式版前检查 B-7）。界面按空白拆参数，带不进换行，加了引号也拆不成一个参数；
+// 控制字符拦的是 AI、MCP 和直接调接口传进来的。
+// keep 是现在存着的参数，里面原样有的不查：界面每次保存都把整张参数表发过来，只改内存也一样，
+// 要是连老参数一起查，带双引号的老参数就让什么都存不了。老参数写进 run.bat 时照规矩转义（见 batQuoteArg），
+// 不会多执行命令。
+func validateJVMArgs(args, keep []string) error {
+	old := make(map[string]bool, len(keep))
+	for _, a := range keep {
+		old[a] = true
+	}
 	for _, a := range args {
+		if old[a] {
+			continue
+		}
 		if strings.IndexFunc(a, unicode.IsControl) >= 0 {
 			return fmt.Errorf("JVM 参数里不能有换行、制表符这类控制字符")
 		}
 		if strings.Contains(a, `"`) {
-			return fmt.Errorf("JVM 参数里不能有双引号。一行就是一个参数，有空格也不用加引号")
+			return fmt.Errorf("JVM 参数里不能有双引号")
 		}
 	}
 	return nil

@@ -139,14 +139,38 @@ func TestValidateNameRejectsControl(t *testing.T) {
 	}
 }
 
-// 保存设置时，JVM 参数里不许有控制字符和双引号；一行一个、带空格的照常。
+// 保存设置时，新加或改过的 JVM 参数里不许有控制字符和双引号；带空格的照常（接口传数组时一项就是一个参数）。
+// 原来就有的不查。
 func TestValidateJVMArgs(t *testing.T) {
 	for _, a := range []string{`-Dx="a"`, "-Dx=a\nb", "-Dx=a\rb", "-Dx=\x00"} {
-		if validateJVMArgs([]string{"-XX:+UseG1GC", a}) == nil {
+		if validateJVMArgs([]string{"-XX:+UseG1GC", a}, nil) == nil {
 			t.Errorf("%q 应被拒绝", a)
 		}
 	}
-	if err := validateJVMArgs([]string{"-XX:+UseG1GC", "-Dpath=C:\\My Server\\x", "-Dpct=%TEMP%"}); err != nil {
+	if err := validateJVMArgs([]string{"-XX:+UseG1GC", "-Dpath=C:\\My Server\\x", "-Dpct=%TEMP%"}, nil); err != nil {
 		t.Errorf("正常参数被拒：%v", err)
+	}
+	old := []string{`-Dold="x"`}
+	if err := validateJVMArgs([]string{`-Dold="x"`, "-XX:+UseG1GC"}, old); err != nil {
+		t.Errorf("原来就有的带双引号的参数不该拦：%v", err)
+	}
+	if validateJVMArgs([]string{`-Dold="x"`, `-Dnew="y"`}, old) == nil {
+		t.Error("新加的带双引号的参数应被拒绝")
+	}
+}
+
+// 只改内存时，界面也会把整张参数表发过来：老参数里有双引号的照样能存；新加带双引号的拒绝，而且什么都不改。
+func TestUpdateSettingsKeepsOldQuotedArgs(t *testing.T) {
+	dir := t.TempDir()
+	i := &Instance{Settings: Settings{Name: "t", Core: mcsrc.CorePaper, MC: "1.20.1", JavaPath: `C:\java\bin\java.exe`,
+		XmxMB: 2048, XmsMB: 1024, LaunchTarget: "jar:server.jar", ExtraJVM: []string{`-Dold="x"`}}, Dir: dir}
+	m := &Manager{insts: map[string]*Instance{"t": i}, creating: map[string]bool{}}
+	same := []string{`-Dold="x"`}
+	if err := m.UpdateSettings("t", 4096, 0, "", &same); err != nil || i.XmxMB != 4096 {
+		t.Fatalf("只改内存应能保存：%v，XmxMB=%d", err, i.XmxMB)
+	}
+	added := []string{`-Dold="x"`, `-Dnew="y"`}
+	if err := m.UpdateSettings("t", 8192, 0, "", &added); err == nil || i.XmxMB != 4096 || len(i.ExtraJVM) != 1 {
+		t.Fatalf("新加带双引号的参数应拒绝、什么都不改：%v，XmxMB=%d，ExtraJVM=%q", err, i.XmxMB, i.ExtraJVM)
 	}
 }
