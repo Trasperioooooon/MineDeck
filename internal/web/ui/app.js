@@ -524,6 +524,43 @@ function paintThemeBtn() {
   window.__mdCloseAsk = opts => { closeAskModal(opts || {}); call("hostCloseAck"); };
 })();
 
+/* 外部链接交给系统默认浏览器（只在原生窗口里）：界面上指向别的网站的 http / https 链接（EULA、申请 CurseForge Key、
+   openfrp.net、AI 回答里的链接……），左键、Ctrl / Shift 点、中键、键盘回车，还有脚本里的 window.open，都拦下来交给宿主函数
+   hostOpenURL，由宿主用系统默认浏览器打开（宿主那边再查一遍，只认 http / https，见 openurl_windows.go）。
+   不拦的话 WebView2 会用自带的简易窗口打开，用不了自己浏览器里的密码管理器、扩展和登录状态。
+   不带 target 的外部链接也拦，主窗口不会被带到别的网站去。MineDeck 自己的地址（同源）和别的协议照旧。
+   只在宿主给了 hostOpenURL 时启用：局域网里的浏览器、没有 WebView2 时用浏览器打开界面，都按浏览器自己的规矩开。 */
+(function initExternalLinks() {
+  if (typeof window.hostOpenURL !== "function") return;
+  // 交给宿主的是浏览器整理过的绝对地址（中文、空格都已转成 %XX）；不是别的网站的 http / https 地址时给空串
+  const externalURL = href => {
+    let u;
+    try { u = new URL(href, location.href); } catch { return ""; }
+    return (u.protocol === "http:" || u.protocol === "https:") && u.origin !== location.origin ? u.href : "";
+  };
+  const fail = e => toastErr("没能用浏览器打开链接", e);
+  const openExternal = url => { try { Promise.resolve(window.hostOpenURL(url)).catch(fail); } catch (e) { fail(e); } };
+  window.__mdOpenURLFailed = fail; // 宿主在后台打开浏览器，打不开（很少见）时回头调这里
+  const onLink = e => {
+    if (e.defaultPrevented || (e.type === "auxclick" && e.button !== 1)) return; // auxclick 只接中键，右键不管
+    const a = e.target instanceof Element ? e.target.closest("a[href], area[href]") : null;
+    const url = a ? externalURL(a.href) : "";
+    if (!url) return;
+    e.preventDefault(); // WebView2 就不会自己开窗口，也不会在主窗口里跳过去
+    openExternal(url);
+  };
+  // 在捕获阶段接：页面里别处 stopPropagation 也挡不住
+  document.addEventListener("click", onLink, true);
+  document.addEventListener("auxclick", onLink, true);
+  const nativeOpen = window.open;
+  window.open = function (url) {
+    const ext = url == null ? "" : externalURL(String(url));
+    if (!ext) return nativeOpen.apply(window, arguments);
+    openExternal(ext);
+    return null; // 没有窗口对象可给，跟弹窗被浏览器拦下时一样
+  };
+})();
+
 /* 关窗确认框：tray = 托盘图标在不在（不在就只能停服退出），running = 在运行的服务器台数。
    三选一：最小化到托盘（可顺带记住，以后关窗都这样）/ 停止服务器并退出 / 取消。默认聚焦不丢数据的「最小化到托盘」。
    追加进 #modal-root 而不是整个替换：别的对话框开着时不顶掉它（那边的 Promise 会一直等不到结果），

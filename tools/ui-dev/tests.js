@@ -3347,6 +3347,94 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     assert(b.inlineText === "无法刷新隧道列表" && b.inlineRaw === crlf && b.inlineName === "复制报错信息 隧道" && b.inlineTitle === "复制报错信息 隧道", "行内报错：" + JSON.stringify(b));
   });
 
+  // ==================== 外部链接交给默认浏览器（3.1.1；测试报告「外部链接没有用默认浏览器打开」）====================
+  // host=true 模拟原生窗口：宿主函数 hostOpenURL 只记下交过来的地址，__openFail 不为空时像宿主拒绝那样让 Promise 落空。
+  // 别的网站的请求一律拦下、给一个空页面：测试不真的上网，万一没拦住弹了窗口，打开的也只是这个空页面
+  const extCtx = async host => {
+    const c = await browser.newContext({ viewport: { width: 1280, height: 850 }, locale: "zh-CN" });
+    const origin = new URL(ORIGIN).origin;
+    await c.route(u => u.origin !== origin, r => r.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: "<title>别的网站</title>" }));
+    await c.addInitScript(h => {
+      localStorage.setItem("amh_token", "mock");
+      localStorage.setItem("amh_theme", "dark");
+      if (!h) return;
+      for (const fn of ["hostWinClose", "hostWinMin", "hostWinMaxToggle", "hostWinDrag"]) window[fn] = () => {};
+      window.hostWinIsMax = async () => false;
+      window.__opened = []; window.__openFail = "";
+      window.hostOpenURL = async u => { window.__opened.push(u); if (window.__openFail) throw window.__openFail; };
+    }, host);
+    return c;
+  };
+  const EXT_LINK = 'a[href="https://www.openfrp.net"]'; // 「设置 → 更新与关于」里的 openfrp.net，带 target="_blank"
+
+  await run("外部链接：原生窗口里左键、Ctrl / Shift 点、中键、回车、window.open 都交给宿主用默认浏览器打开，不弹 WebView2 的窗口、主窗口不跳走；右键不算；站内链接照旧开窗口；宿主拒绝或打不开时弹报错提示", async () => {
+    const c = await extCtx(true);
+    try {
+      const p = await c.newPage();
+      p.on("pageerror", e => errors.push(pageErr(e)));
+      await p.goto(ORIGIN + "#/settings/about");
+      await p.waitForSelector(EXT_LINK);
+      const opened = () => p.evaluate(() => window.__opened.splice(0));
+      await p.click(EXT_LINK);
+      await p.click(EXT_LINK, { modifiers: ["Control"] });
+      await p.click(EXT_LINK, { modifiers: ["Shift"] });
+      await p.click(EXT_LINK, { button: "middle" });
+      await p.focus(EXT_LINK); await p.keyboard.press("Enter");
+      await p.click(EXT_LINK, { button: "right" });
+      await p.waitForTimeout(1500); // 不拦的话 Ctrl 点开的窗口要过半秒多才出来，等够了再数
+      let got = await opened();
+      // 交给宿主的是浏览器整理过的地址（补上了末尾的斜杠）
+      assert(got.length === 5 && got.every(u => u === "https://www.openfrp.net/"), "交给宿主的地址不对：" + JSON.stringify(got));
+      assert(c.pages().length === 1, "弹出了别的窗口：" + c.pages().map(x => x.url()).join(", "));
+      assert(p.url().endsWith("#/settings/about"), "主窗口跳走了：" + p.url());
+      // 脚本里的 window.open：外部地址交给宿主（中文、空格转成 %XX），返回 null；_self 也不让主窗口跳过去
+      const nulls = await p.evaluate(() => [window.open("https://example.com/a b?q=我的世界", "_blank"), window.open("http://example.com/x", "_self")].map(w => w === null));
+      got = await opened();
+      assert(nulls.every(Boolean) && JSON.stringify(got) === JSON.stringify(["https://example.com/a%20b?q=%E6%88%91%E7%9A%84%E4%B8%96%E7%95%8C", "http://example.com/x"]),
+        "window.open：" + JSON.stringify({ nulls, got }));
+      await p.waitForTimeout(200);
+      assert(c.pages().length === 1 && p.url().endsWith("#/settings/about"), "window.open 开了窗口或让主窗口跳走了：" + p.url());
+      // 站内地址（字体许可原文）照旧开窗口，不交给宿主
+      const [pop] = await Promise.all([c.waitForEvent("page"), p.click('a[href="fonts/OFL-Geist.txt"]')]);
+      await pop.close();
+      const [pop2] = await Promise.all([c.waitForEvent("page"), p.evaluate(() => { window.open("fonts/OFL-NotoSansSC.txt"); })]);
+      await pop2.close();
+      assert((await opened()).length === 0, "站内地址不该交给宿主");
+      // 宿主拒绝（Promise 落空，原话是一句中文）：结论接上原话
+      await p.evaluate(() => { window.__openFail = "只能打开 http 或 https 开头的网址"; });
+      await p.click(EXT_LINK);
+      const msgs = () => p.$$eval(".toast.error .t-msg", ts => ts.map(t => t.textContent));
+      await p.waitForFunction(() => document.querySelectorAll(".toast.error").length >= 1, null, { timeout: 2000 });
+      assert((await msgs()).includes("没能用浏览器打开链接：只能打开 http 或 https 开头的网址"), "宿主拒绝时的提示：" + JSON.stringify(await msgs()));
+      // 宿主在后台打不开（回调 __mdOpenURLFailed，原话带着网址和系统的英文原文）：只写结论，「详情」里是原文
+      const raw = "用默认浏览器打开 https://www.openfrp.net/ 失败：No application is associated with the specified file for this operation.";
+      await p.evaluate(x => window.__mdOpenURLFailed(x), raw);
+      await p.waitForFunction(() => document.querySelectorAll(".toast.error").length >= 2, null, { timeout: 2000 });
+      assert((await msgs()).includes("没能用浏览器打开链接"), "打不开时的提示：" + JSON.stringify(await msgs()));
+      await p.locator(".toast.error").last().locator('button[aria-label="查看报错详情"]').click();
+      assert((await p.textContent(".err-detail")) === raw, "「详情」里应是完整原文");
+      await p.keyboard.press("Escape");
+    } finally { await c.close(); }
+  });
+
+  await run("外部链接：局域网浏览器里（没有 hostOpenURL）照浏览器自己的规矩开，window.open 不动", async () => {
+    const c = await extCtx(false);
+    try {
+      const p = await c.newPage();
+      p.on("pageerror", e => errors.push(pageErr(e)));
+      await p.goto(ORIGIN + "#/settings/about");
+      await p.waitForSelector(EXT_LINK);
+      for (const opts of [{}, { button: "middle" }]) {
+        const [pop] = await Promise.all([c.waitForEvent("page"), p.click(EXT_LINK, opts)]);
+        await pop.waitForLoadState();
+        assert(pop.url() === "https://www.openfrp.net/", "新窗口的地址：" + pop.url());
+        await pop.close();
+      }
+      const st = await p.evaluate(() => ({ native: /\[native code\]/.test(Function.prototype.toString.call(window.open)), hook: typeof window.__mdOpenURLFailed }));
+      assert(st.native && st.hook === "undefined", "局域网浏览器里不该改 window.open：" + JSON.stringify(st));
+    } finally { await c.close(); }
+  });
+
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
 
   await browser.close();
