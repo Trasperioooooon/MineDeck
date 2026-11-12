@@ -300,7 +300,15 @@ func (m *Manager) Update(id string, t Tunnel) error {
 	}
 	t.ID = id
 	if sealed == "" {
-		t.Credential = old.Credential // 凭据留空表示不修改（列表接口不回显凭据）
+		// 凭据留空表示不修改（列表接口不回显凭据）。但换了服务商，或者自定义 frps 换了地址、端口，要重新填：
+		// 不然留着的凭据会被带到新的服务器上去。局域网登录的人读不到凭据，却能改隧道，
+		// 改个地址就能把令牌送到自己的服务器（v3.1.0 正式版前检查 B-5）。
+		oldAddr := strings.Trim(strings.TrimSpace(old.ServerAddr), "[]") // 以前存下的没去空格和方括号，按同样的写法比
+		if old.Credential != "" && (t.Provider != old.Provider ||
+			(t.Provider == "custom" && (t.ServerAddr != oldAddr || t.ServerPort != old.ServerPort))) {
+			return fmt.Errorf("换了服务商或 frps 地址、端口，要重新填一次凭据")
+		}
+		t.Credential = old.Credential
 	} else {
 		t.Credential = sealed
 		delete(m.broken, id)
@@ -325,6 +333,22 @@ func (m *Manager) Delete(id string) error {
 		}
 	}
 	return fmt.Errorf("隧道不存在")
+}
+
+// reHostname 域名：几段字母、数字、连字符，用点隔开。
+var reHostname = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.?$`)
+
+// checkServerAddr 自定义 frps 的地址只认域名或 IP。地址会原样写进 frpc 的配置，frpc 读配置时把整份文件当模板渲染：
+// 地址里写 {{ .Envs.MINEDECK_FRP_TOKEN }} 这类东西，令牌就被拼进主机名，frpc 一解析这个域名就带出去了
+// （v3.1.0 正式版前检查 B-5）。顺带挡住把 http:// 和端口一起填进地址的常见误填。
+func checkServerAddr(addr string) error {
+	if net.ParseIP(strings.Trim(addr, "[]")) != nil {
+		return nil
+	}
+	if len(addr) <= 253 && reHostname.MatchString(addr) {
+		return nil
+	}
+	return fmt.Errorf("frps 地址只能填域名或 IP，比如 frp.example.com 或 1.2.3.4，不要带 http:// 和端口")
 }
 
 func validate(t *Tunnel) error {
@@ -359,9 +383,14 @@ func validate(t *Tunnel) error {
 		}
 		clearUnusedPorts(t)
 	case "custom":
+		t.ServerAddr = strings.TrimSpace(t.ServerAddr)
 		if t.ServerAddr == "" || t.ServerPort <= 0 || t.RemotePort <= 0 {
 			return fmt.Errorf("自定义 frps 需填写服务器地址、端口与公网远程端口")
 		}
+		if err := checkServerAddr(t.ServerAddr); err != nil {
+			return err
+		}
+		t.ServerAddr = strings.Trim(t.ServerAddr, "[]") // IPv6 带方括号的去掉，frpc 自己会加
 		if t.LocalPort <= 0 {
 			return fmt.Errorf("请填写本地端口（MC 服务器端口）")
 		}
