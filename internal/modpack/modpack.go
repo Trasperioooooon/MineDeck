@@ -49,8 +49,15 @@ const (
 	CFWhyName   = "name"   // 文件名写不成这台电脑上的普通文件
 )
 
+// 压缩包是哪种。server 是作者给的现成服务端，没有整合包清单，解压后直接当实例。
+const (
+	FormatMrpack     = "mrpack"
+	FormatCurseForge = "curseforge"
+	FormatServer     = "server"
+)
+
 type Pack struct {
-	Format       string // mrpack | curseforge
+	Format       string // mrpack | curseforge | server
 	Name         string
 	MC           string
 	Core         mcsrc.Core
@@ -59,25 +66,31 @@ type Pack struct {
 	Pending      []PendingFile // 解析时就无法自动下载的文件，逐项交给用户处置（不再整包拒绝）
 	CFRefs       []CFRef
 	ZipPath      string
-	OverrideDirs []string // 依序应用
+	OverrideDirs []string // 依序应用。清单外面若套了一层目录，这里已经带上那一层
+	Root         string   // 清单或服务端文件外面多套的那一层；空表示就在压缩包最外层
+	Launch       string   // 仅 server：认出来的启动方式（jar:… 或 args:…）。导入时还会用接管已有服务器的识别再对一遍
 }
 
-// Parse 识别并解析整合包 zip。
+// Parse 识别并解析整合包 zip，或一份现成的服务端压缩包。
 func Parse(zipPath string) (*Pack, error) {
 	zr, err := zip.OpenReader(zipPath)
 	if err != nil {
 		return nil, fmt.Errorf("无法打开整合包（需为 .mrpack 或 zip）: %w", err)
 	}
 	defer zr.Close()
-	for _, f := range zr.File {
-		switch f.Name {
-		case "modrinth.index.json":
-			return parseMrpack(zipPath, f)
-		case "manifest.json":
-			return parseCurseForge(zipPath, f)
+	loc, err := findIndex(zr.File)
+	if err != nil {
+		return nil, err
+	}
+	if loc != nil {
+		switch loc.kind {
+		case FormatMrpack:
+			return parseMrpack(zipPath, loc.file, loc.root)
+		default:
+			return parseCurseForge(zipPath, loc.file, loc.root)
 		}
 	}
-	return nil, fmt.Errorf("无法识别整合包格式：缺少 modrinth.index.json 或 manifest.json")
+	return recognizeServer(zipPath, zr.File)
 }
 
 func readZipFile(f *zip.File, out any) error {
@@ -106,7 +119,7 @@ func safeRelPath(p string) (string, error) {
 
 // ---------- Modrinth .mrpack ----------
 
-func parseMrpack(zipPath string, f *zip.File) (*Pack, error) {
+func parseMrpack(zipPath string, f *zip.File, root string) (*Pack, error) {
 	var idx struct {
 		FormatVersion int               `json:"formatVersion"`
 		Name          string            `json:"name"`
@@ -126,8 +139,8 @@ func parseMrpack(zipPath string, f *zip.File) (*Pack, error) {
 	if err := readZipFile(f, &idx); err != nil {
 		return nil, fmt.Errorf("解析 modrinth.index.json 失败: %w", err)
 	}
-	p := &Pack{Format: "mrpack", Name: idx.Name, ZipPath: zipPath,
-		OverrideDirs: []string{"overrides", "server-overrides"}}
+	p := &Pack{Format: FormatMrpack, Name: idx.Name, ZipPath: zipPath, Root: root,
+		OverrideDirs: []string{joinRoot(root, "overrides"), joinRoot(root, "server-overrides")}}
 	p.MC = idx.Dependencies["minecraft"]
 	if p.MC == "" {
 		return nil, fmt.Errorf("整合包未声明 Minecraft 版本")
@@ -181,7 +194,7 @@ func parseMrpack(zipPath string, f *zip.File) (*Pack, error) {
 
 // ---------- CurseForge ----------
 
-func parseCurseForge(zipPath string, f *zip.File) (*Pack, error) {
+func parseCurseForge(zipPath string, f *zip.File, root string) (*Pack, error) {
 	var man struct {
 		Name      string `json:"name"`
 		Overrides string `json:"overrides"`
@@ -201,12 +214,13 @@ func parseCurseForge(zipPath string, f *zip.File) (*Pack, error) {
 	if err := readZipFile(f, &man); err != nil {
 		return nil, fmt.Errorf("解析 manifest.json 失败: %w", err)
 	}
-	p := &Pack{Format: "curseforge", Name: man.Name, ZipPath: zipPath, MC: man.Minecraft.Version}
+	p := &Pack{Format: FormatCurseForge, Name: man.Name, ZipPath: zipPath, Root: root, MC: man.Minecraft.Version}
 	ov := man.Overrides
 	if ov == "" {
 		ov = "overrides"
 	}
-	p.OverrideDirs = []string{ov}
+	// 清单写的覆盖目录是相对清单所在的那一层，不是相对压缩包最外层
+	p.OverrideDirs = []string{joinRoot(root, ov)}
 	loaderID := ""
 	for _, l := range man.Minecraft.ModLoaders {
 		if l.Primary || loaderID == "" {

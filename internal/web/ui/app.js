@@ -1185,7 +1185,7 @@ async function renderCreate(mode) {
         <div class="cg-title">新建</div>
         <div class="recipe-grid">
           ${card("new", "plusBox", "从零创建", "自选核心与版本；Java 和服务端自动下载。")}
-          ${card("import", "package", "导入整合包", "Modrinth（.mrpack）或 CurseForge（zip）的整合包，核心与版本自动识别。")}
+          ${card("import", "package", "导入整合包", "Modrinth / CurseForge，或作者给的现成服务端压缩包。")}
         </div>
       </div>
       <div class="core-group">
@@ -1361,7 +1361,7 @@ async function drawImport() {
   const maxMem = Math.max(2048, app.ramMb - 2048);
   const defMem = Math.min(6144, maxMem);
   let imRoot = "";
-  Main().innerHTML = pageHead("导入整合包", "Modrinth（.mrpack）或 CurseForge（zip）整合包；核心、Minecraft 版本与加载器自动识别。", "",
+  Main().innerHTML = pageHead("导入整合包", "Modrinth（.mrpack）、CurseForge（zip），或作者打包好的现成服务端。清单和服务端文件可以在最外层，也可以只套一层文件夹。核心和版本会自动识别。", "",
     `<a href="#/create">新建服务器</a>${icon("chevronRight")}<span>导入整合包</span>`) + `
     <div class="form-grid">
       <label class="field full"><span>整合包文件</span><input type="file" id="im-file" accept=".mrpack,.zip"><div class="field-err" id="im-file-err"></div></label>
@@ -1429,8 +1429,14 @@ async function drawImport() {
       const res = await fetch("/api/import/modpack", { method: "POST", headers: { "X-Token": TOKEN() }, body: fd });
       const j = await res.json();
       if (!j.ok) throw new Error(j.error || "导入失败");
-      const pending = (j.data.pack.pending || 0) > 0 ? `，${j.data.pack.pending} 个文件待处理` : "";
-      toast(`已识别 ${j.data.pack.core} ${j.data.pack.mc}（${j.data.pack.files} 个组件）` + (pending ? "；其中" + j.data.pack.pending + " 项待处理，导入后到任务页逐个处理" : ""));
+      const pack = j.data.pack || {};
+      const pending = (pack.pending || 0) > 0 ? `，${pack.pending} 个文件待处理` : "";
+      if (pack.format === "server") {
+        const who = (pack.core && pack.mc) ? `${pack.core} ${pack.mc}` : "解压后会再识别一次核心和版本";
+        toast(`已按现成服务端导入（${who}）`);
+      } else {
+        toast(`已识别 ${pack.core} ${pack.mc}（${pack.files} 个组件）` + (pending ? "；其中" + pack.pending + " 项待处理，导入后到任务页逐个处理" : ""));
+      }
       if (!stale(gen)) location.hash = `#/task/${j.data.taskId}`;
     } catch (e) {
       toast(e.message, true);

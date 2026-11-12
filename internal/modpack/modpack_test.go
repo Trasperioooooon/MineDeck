@@ -118,9 +118,10 @@ func TestParseMrpackStillRefusesPackLevelProblems(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "Quilt") {
 		t.Fatalf("Quilt 应拒绝: %v", err)
 	}
-	// 认不出的 zip
-	if _, err := Parse(mkZip(t, map[string]string{"dummy.txt": "x"})); err == nil {
-		t.Fatal("无索引的 zip 应拒绝")
+	// 认不出的 zip：要告诉用户缺什么、或者改走接管已有服务器
+	_, err = Parse(mkZip(t, map[string]string{"dummy.txt": "x"}))
+	if err == nil || !strings.Contains(err.Error(), "modrinth.index.json") || !strings.Contains(err.Error(), "接管已有服务器") {
+		t.Fatalf("无索引的 zip 应拒绝并说明怎么办: %v", err)
 	}
 }
 
@@ -132,6 +133,9 @@ func TestParseCurseForgeUnchanged(t *testing.T) {
 	}
 	if p.Format != "curseforge" || p.Core != "forge" || p.Loader != "47.3.0" || len(p.CFRefs) != 1 {
 		t.Fatalf("CurseForge 解析结果不对: %+v", p)
+	}
+	if p.Root != "" || len(p.OverrideDirs) != 1 || p.OverrideDirs[0] != "overrides" {
+		t.Fatalf("最外层的覆盖目录不应再加前缀: %+v", p.OverrideDirs)
 	}
 }
 
