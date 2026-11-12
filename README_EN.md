@@ -15,7 +15,7 @@
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/Trasperioooooon/MineDeck"></a>
 </p>
 
-MineDeck is a one-click server tool for Minecraft: Java Edition on Windows. The whole program is a single `MineDeck.exe` of under 15 MB, with nothing to install. It downloads Java and the server software for you and lets you create and manage servers in one window. Modpacks can be imported directly. OpenFrp and SakuraFrp tunnels are built in, so friends who are not on your network can still join.
+MineDeck is a one-click server tool for Minecraft: Java Edition on Windows. The whole program is a single `MineDeck.exe` of about 15 MB, with nothing to install. It downloads Java and the server software for you and lets you create and manage servers in one window. Modpacks can be imported directly. OpenFrp and SakuraFrp tunnels are built in, so friends who are not on your network can still join.
 
 Pick a server type and a version, accept the EULA and press create. MineDeck does the rest: it gets the right Java for that game version, downloads the server, runs the installer, and writes the config and the launch script. Downloads go through mirrors in mainland China first (BMCLAPI, Tsinghua TUNA) and fall back to the official sources.
 

@@ -48,7 +48,7 @@
   "sameAs": "https://github.com/Trasperioooooon/MineDeck",
   "applicationCategory": "UtilitiesApplication",
   "operatingSystem": "Windows 10, Windows 11",
-  "softwareVersion": "3.0.0",
+  "softwareVersion": "3.1.0",
   "downloadUrl": "https://github.com/Trasperioooooon/MineDeck/releases",
   "license": "https://github.com/Trasperioooooon/MineDeck/blob/main/LICENSE",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
@@ -84,9 +84,9 @@
 <section class="hero" aria-labelledby="hero-title">
   <div class="wrap">
     <div class="hero-text">
-      <p class="eyebrow">v3.0.0<span class="sep" aria-hidden="true">·</span>Windows 10 / 11<span class="sep" aria-hidden="true">·</span>MIT 开源</p>
+      <p class="eyebrow">v3.1.0<span class="sep" aria-hidden="true">·</span>Windows 10 / 11<span class="sep" aria-hidden="true">·</span>MIT 开源</p>
       <h1 id="hero-title"><span class="name"><img class="hero-icon" src="images/icon-256.png" width="84" height="84" alt="">MineDeck</span> <span class="tagline">我的世界（Minecraft）Windows 一键开服工具</span></h1>
-      <p class="lead">一个文件 <code>MineDeck.exe</code>，大约 13 MB。它会下载 Java 和服务端，用窗口管理服务器。整合包可以直接导入。樱花穿透和 OpenFrp 已经做在里面，不在同一个网络的朋友也能连进来。</p>
+      <p class="lead">一个文件 <code>MineDeck.exe</code>，大约 15 MB。它会下载 Java 和服务端，用窗口管理服务器。整合包可以直接导入。樱花穿透和 OpenFrp 已经做在里面，不在同一个网络的朋友也能连进来。</p>
       <div class="chips">
         <span class="label" id="opt-label">可选功能：</span>
         <ul aria-labelledby="opt-label">
@@ -217,7 +217,7 @@
       <li class="card"><h3>内网穿透</h3><p>可以接 OpenFrp、樱花穿透，也可以填你自己的 frps。穿透客户端 frpc 会自动下载，并跟着服务器启动。公网地址可以在页面上复制。</p></li>
       <li class="card"><h3>备份、重启和定时任务</h3><p>可以备份和还原世界，服务器开着的时候也能备份。崩溃后会自动再启动，先等 10 秒，再等 30 秒，再等 60 秒，连续 3 次仍起不来就停止。正常运行超过 10 分钟后，这个计数会清零。还可以按天定时重启、执行命令或备份。</p></li>
       <li class="card"><h3>玩家管理</h3><p>可以看在线玩家，踢出或设为 OP。白名单、管理员和封禁可以在界面里改。服务器关着的时候，改的是名单文件本身。离线模式的 UUID 会自动算好。</p></li>
-      <li class="card"><h3>资源浏览器</h3><p>在实例里直接搜索安装 Modrinth 模组和插件，按核心与版本自动过滤兼容项。</p></li>
+      <li class="card"><h3>资源浏览器</h3><p>在服务器里直接搜索安装 Modrinth 模组和插件，按核心与版本自动过滤兼容项。</p></li>
       <li class="card"><h3>全部服务器配置</h3><p><code>server.properties</code> 里大约 60 项，分成 7 组。可以搜索。每项有中文说明、取值范围，以及要不要重启。当前游戏版本用不到的项会隐藏。</p></li>
       <li class="card"><h3>控制台</h3><p>可以在 GBK 和 UTF-8 之间切换，老整合包出现乱码时用这个。警告和错误会标上颜色。日志可以过滤，命令有历史记录。常用命令和在线玩家名可以用 Tab 补全。</p></li>
       <li class="card"><h3>远程管理</h3><p>可以打开局域网访问，用密码登录，手机上也能管服务器。另外有 REST API，也可以用 Webhook 把事件推送给别的程序。</p></li>
@@ -288,7 +288,7 @@
     <div class="req">
       <dl class="card">
         <div><dt><span class="lamp" aria-hidden="true"></span>系统</dt><dd>Windows 10 / 11，推荐 Windows 11：音乐共享在 Windows 11 上可以只录某一个程序；Windows 10 只能录整机的声音。</dd></div>
-        <div><dt><span class="lamp" aria-hidden="true"></span>安装</dt><dd>不用安装。下载一个 <code>MineDeck.exe</code> 就行，大约 13 MB。数据都放在 exe 所在的文件夹里。</dd></div>
+        <div><dt><span class="lamp" aria-hidden="true"></span>安装</dt><dd>不用安装。下载一个 <code>MineDeck.exe</code> 就行，大约 15 MB。数据都放在 exe 所在的文件夹里。</dd></div>
         <div><dt><span class="lamp" aria-hidden="true"></span>Java</dt><dd>不用自己装：按版本自动下载便携版，本机已经装好的能用就直接用。</dd></div>
         <div><dt><span class="lamp" aria-hidden="true"></span>网络</dt><dd>下载 Java 和服务端时要联网。优先用国内镜像（BMCLAPI、清华 TUNA），镜像不可用就改用官方源。</dd></div>
         <div><dt><span class="lamp" aria-hidden="true"></span>窗口</dt><dd>窗口用 WebView2 打开。电脑里没有 WebView2 时，会改用浏览器。</dd></div>

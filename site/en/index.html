@@ -47,7 +47,7 @@
   "sameAs": "https://github.com/Trasperioooooon/MineDeck",
   "applicationCategory": "UtilitiesApplication",
   "operatingSystem": "Windows 10, Windows 11",
-  "softwareVersion": "3.0.0",
+  "softwareVersion": "3.1.0",
   "downloadUrl": "https://github.com/Trasperioooooon/MineDeck/releases",
   "license": "https://github.com/Trasperioooooon/MineDeck/blob/main/LICENSE",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
@@ -83,9 +83,9 @@
 <section class="hero" aria-labelledby="hero-title">
   <div class="wrap">
     <div class="hero-text">
-      <p class="eyebrow">v3.0.0<span class="sep" aria-hidden="true">·</span>Windows 10 / 11<span class="sep" aria-hidden="true">·</span>MIT licensed</p>
+      <p class="eyebrow">v3.1.0<span class="sep" aria-hidden="true">·</span>Windows 10 / 11<span class="sep" aria-hidden="true">·</span>MIT licensed</p>
       <h1 id="hero-title"><span class="name"><img class="hero-icon" src="../images/icon-256.png" width="84" height="84" alt="">MineDeck</span> <span class="tagline">One-click Minecraft server launcher for Windows</span></h1>
-      <p class="lead">One file, <code>MineDeck.exe</code>, about 13 MB. It downloads Java and the server software and manages servers in a window. Modpacks can be imported directly. SakuraFrp and OpenFrp are built in, so friends who are not on the same network can join.</p>
+      <p class="lead">One file, <code>MineDeck.exe</code>, about 15 MB. It downloads Java and the server software and manages servers in a window. Modpacks can be imported directly. SakuraFrp and OpenFrp are built in, so friends who are not on the same network can join.</p>
       <p class="note"><span class="lamp" aria-hidden="true"></span><span><strong>The app's interface is Chinese only for now.</strong> Below, Chinese labels from the app are given with a translation.</span></p>
       <div class="chips">
         <span class="label" id="opt-label">Optional:</span>
@@ -217,7 +217,7 @@
       <li class="card"><h3>Built-in tunnels</h3><p>You can use OpenFrp or SakuraFrp, or fill in your own frps. The frpc client is downloaded for you and can start with the server. The public address can be copied on the page.</p></li>
       <li class="card"><h3>Backups, restarts and schedules</h3><p>You can back up and restore the world, including while the server is running. After a crash it starts again, waiting 10 seconds, then 30, then 60. After 3 crashes in a row it stops trying and tells you. The count resets after the server has run normally for more than 10 minutes. You can also schedule a daily restart, command or backup.</p></li>
       <li class="card"><h3>Player management</h3><p>You can see who is online, kick them or make them OP. The whitelist, operator list and ban list can be edited in the window. While the server is stopped, those edits go into the list files. Offline-mode UUIDs are filled in for you.</p></li>
-      <li class="card"><h3>Resource browser</h3><p>Search and install Modrinth mods and plugins from inside an instance, filtered for your server type and version.</p></li>
+      <li class="card"><h3>Resource browser</h3><p>Search and install Modrinth mods and plugins from inside a server, filtered for your server type and version.</p></li>
       <li class="card"><h3>All server settings</h3><p>About 60 entries in <code>server.properties</code>, in 7 groups. You can search. Each one has a description, an allowed range, and whether a restart is required. Entries the current game version does not use are hidden.</p></li>
       <li class="card"><h3>Console</h3><p>You can switch between GBK and UTF-8, which helps when an old modpack shows garbled text. Warnings and errors are colored. The log can be filtered, and commands have a history. Common commands and online player names can be completed with Tab.</p></li>
       <li class="card"><h3>Remote management</h3><p>You can turn on LAN access and sign in with a password, including from a phone. There is also a REST API, and webhooks can send events to other programs.</p></li>
@@ -241,7 +241,7 @@
       </article>
       <article class="card">
         <h3>My friends aren't on the same network. How do they join?</h3>
-        <p>On the <span lang="zh-CN">内网穿透</span> (tunnels) page, add a tunnel. SakuraFrp, OpenFrp or your own frps all work. Bind the tunnel to this server and turn on <span lang="zh-CN">跟随实例启动</span> (start with the server). After the server is up, send your friends the public address. Friends on the same LAN do not need a tunnel. They connect to <code>your-LAN-IP:port</code>.</p>
+        <p>On the <span lang="zh-CN">内网穿透</span> (tunnels) page, add a tunnel. SakuraFrp, OpenFrp or your own frps all work. Bind the tunnel to this server and turn on <span lang="zh-CN">跟随服务器启动</span> (start with the server). After the server is up, send your friends the public address. Friends on the same LAN do not need a tunnel. They connect to <code>your-LAN-IP:port</code>.</p>
       </article>
       <article class="card">
         <h3>Which versions and server types are supported?</h3>
@@ -289,7 +289,7 @@
       <dl class="card">
         <div><dt><span class="lamp" aria-hidden="true"></span>System</dt><dd>Windows 10 / 11; Windows 11 recommended: music sharing can record a single program on Windows 11, while Windows 10 can only record all system sound.</dd></div>
         <div><dt><span class="lamp" aria-hidden="true"></span>Language</dt><dd>The interface is Chinese only for now.</dd></div>
-        <div><dt><span class="lamp" aria-hidden="true"></span>Install</dt><dd>Nothing to install. Download one <code>MineDeck.exe</code>, about 13 MB. Data stays in the folder that holds the exe.</dd></div>
+        <div><dt><span class="lamp" aria-hidden="true"></span>Install</dt><dd>Nothing to install. Download one <code>MineDeck.exe</code>, about 15 MB. Data stays in the folder that holds the exe.</dd></div>
         <div><dt><span class="lamp" aria-hidden="true"></span>Java</dt><dd>Not needed up front: MineDeck downloads a portable Java for each version and uses an installed one when it fits.</dd></div>
         <div><dt><span class="lamp" aria-hidden="true"></span>Network</dt><dd>A network connection is needed to download Java and the server software. Mirrors in China (BMCLAPI and Tsinghua TUNA) are tried first. If a mirror is unavailable, MineDeck uses the official source.</dd></div>
         <div><dt><span class="lamp" aria-hidden="true"></span>Window</dt><dd>The window uses WebView2. If this PC does not have WebView2, MineDeck opens in the browser.</dd></div>
