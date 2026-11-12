@@ -31,6 +31,11 @@ func TestServerPackCreatorManifestIsNotModpack(t *testing.T) {
 			"BMC4_ServerPack/start.bat":     "@echo off\r\n",
 			"BMC4_ServerPack/mods/a.jar":    "mod",
 		},
+		"开头带 BOM": { // 用记事本这类存过的
+			"manifest.json": "\xef\xbb\xbf" + spcManifest,
+			"start.bat":     "@echo off\r\n",
+			"mods/a.jar":    "mod",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := Parse(mkZip(t, files))
@@ -84,9 +89,11 @@ func TestCurseForgeManifestDetection(t *testing.T) {
 	}
 }
 
-// 为了看 manifest.json 的内容解开的总量有上限：只够看一份时，另一份不看内容、按文件名算，成了唯一的一处清单。
+// 为了看 manifest.json 的内容解开的总量有上限，每看一份至少扣 indexSniffMin（申报大小写成 0 的也扣）：
+// 上限只够看两份时，第三份不看内容、按文件名算，成了唯一的一处清单。
+// 三份实际都只有两百来字节：要是只按实际大小扣，三份都看得了，就都不算清单。
 func TestIndexSniffBudget(t *testing.T) {
-	files := map[string]string{"A/manifest.json": spcManifest, "B/manifest.json": spcManifest}
+	files := map[string]string{"A/manifest.json": spcManifest, "B/manifest.json": spcManifest, "C/manifest.json": spcManifest}
 	find := func() *indexLoc {
 		zr, err := zip.OpenReader(mkZip(t, files))
 		if err != nil {
@@ -100,12 +107,12 @@ func TestIndexSniffBudget(t *testing.T) {
 		return loc
 	}
 	if loc := find(); loc != nil {
-		t.Fatalf("两份都是 ServerPackCreator 的，都不该算清单：%+v", loc)
+		t.Fatalf("三份都是 ServerPackCreator 的，都不该算清单：%+v", loc)
 	}
 	old := indexSniffMax
-	indexSniffMax = int64(len(spcManifest)) + 10
+	indexSniffMax = 2 * indexSniffMin
 	defer func() { indexSniffMax = old }()
 	if loc := find(); loc == nil || loc.kind != FormatCurseForge {
-		t.Fatalf("上限只够看一份时，另一份应按文件名算成清单：%+v", loc)
+		t.Fatalf("上限只够看两份时，第三份应按文件名算成清单：%+v", loc)
 	}
 }

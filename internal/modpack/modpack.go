@@ -477,9 +477,11 @@ var (
 )
 
 // ExtractOverrides 将整合包内的覆盖目录依序解压到实例目录。
-// 先按 zip 里写的大小把要解的文件数一遍，个数或总大小超过上限就一个都不写（zip 库读的时候还会核对实际大小）。
-// 以前没有上限，一个 8 MB 的整合包，overrides 里能解出 8 GB，导入一个恶意整合包就能把磁盘写满
-// （v3.1.0 正式版前检查 B-4）。后面的覆盖目录照旧后写，同名文件以它为准。
+// 先按 zip 里写的大小把要解的文件数一遍，个数或总大小超过上限就一个都不写。
+// 实际大小由 zip 库核对：每读一次都查有没有超过写的大小，读到结尾再查够不够、校验和对不对，对不上就报错；
+// 写的时候再套一层 LimitReader 兜底。以前没有上限，一个 8 MB 的整合包，overrides 里能解出 8 GB，
+// 导入一个恶意整合包就能把磁盘写满（v3.1.0 正式版前检查 B-4）。后面的覆盖目录照旧后写，同名文件以它为准。
+// 跳过哪些条目和解现成服务端时一样：目录（Windows 工具打的包里，目录可能写成反斜杠结尾）、符号链接这类不是普通文件的。
 func ExtractOverrides(p *Pack, destDir string, writeFile func(rel string, r io.Reader) error) error {
 	zr, err := zip.OpenReader(p.ZipPath)
 	if err != nil {
@@ -495,8 +497,8 @@ func ExtractOverrides(p *Pack, destDir string, writeFile func(rel string, r io.R
 	var total int64
 	for _, prefix := range p.OverrideDirs {
 		for _, f := range zr.File {
-			name := strings.ReplaceAll(f.Name, "\\", "/")
-			if !strings.HasPrefix(name, prefix+"/") || f.FileInfo().IsDir() {
+			name := zipNameOf(f)
+			if !strings.HasPrefix(name, prefix+"/") || isZipDir(f, name) || !f.Mode().IsRegular() {
 				continue
 			}
 			rel, err := safeRelPath(strings.TrimPrefix(name, prefix+"/"))
