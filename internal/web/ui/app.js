@@ -1262,7 +1262,7 @@ async function renderCreate(mode) {
         <div class="cg-title">新建</div>
         <div class="recipe-grid">
           ${card("new", "plusBox", "从零创建", "自选核心与版本；Java 和服务端自动下载。")}
-          ${card("import", "package", "导入整合包", "Modrinth（.mrpack）或 CurseForge（zip）的整合包，核心与版本自动识别。")}
+          ${card("import", "package", "导入整合包", "Modrinth / CurseForge，或作者给的现成服务端压缩包。")}
         </div>
       </div>
       <div class="core-group">
@@ -1438,7 +1438,7 @@ async function drawImport() {
   const maxMem = Math.max(2048, app.ramMb - 2048);
   const defMem = Math.min(6144, maxMem);
   let imRoot = "";
-  Main().innerHTML = pageHead("导入整合包", "Modrinth（.mrpack）或 CurseForge（zip）整合包；核心、Minecraft 版本与加载器自动识别。", "",
+  Main().innerHTML = pageHead("导入整合包", "Modrinth（.mrpack）、CurseForge（zip），或作者打包好的现成服务端。清单和服务端文件可以在最外层，也可以只套一层文件夹。核心和版本会自动识别。", "",
     `<a href="#/create">新建服务器</a>${icon("chevronRight")}<span>导入整合包</span>`) + `
     <div class="form-grid">
       <label class="field full"><span>整合包文件</span><input type="file" id="im-file" accept=".mrpack,.zip"><div class="field-err" id="im-file-err"></div></label>
@@ -1505,9 +1505,14 @@ async function drawImport() {
     try {
       const res = await fetch("/api/import/modpack", { method: "POST", headers: { "X-Token": TOKEN() }, body: fd });
       const j = await res.json();
-      if (!j.ok) throw new Error(j.error || "导入失败");
-      const pending = (j.data.pack.pending || 0) > 0 ? `，${j.data.pack.pending} 个文件待处理` : "";
-      toast(`已识别 ${j.data.pack.core} ${j.data.pack.mc}（${j.data.pack.files} 个组件）` + (pending ? "；其中" + j.data.pack.pending + " 项待处理，导入后到任务页逐个处理" : ""));
+      if (!j.ok) throw Object.assign(new Error(j.error || "导入失败"), { hint: j.hint }); // hint：解析报错另给的一句人话，见 errSummary
+      const pack = j.data.pack || {};
+      const pending = (pack.pending || 0) > 0 ? `，${pack.pending} 个文件待处理` : "";
+      if (pack.format === "server") {
+        toast(pack.core && pack.mc ? `已识别为现成服务端（${pack.core} ${pack.mc}），开始导入` : "已识别为现成服务端，核心和版本解压后再认");
+      } else {
+        toast(`已识别 ${pack.core} ${pack.mc}（${pack.files} 个组件）` + (pending ? "；其中" + pack.pending + " 项待处理，导入后到任务页逐个处理" : ""));
+      }
       if (!stale(gen)) location.hash = `#/task/${j.data.taskId}`;
     } catch (e) {
       toastErr("无法导入整合包", e);
@@ -2121,6 +2126,9 @@ const TASK_KINDS = {
     go: "完成", href: () => "#/instances", back: "#/instances", backText: "返回服务器列表" },
   "transfer-in": { title: "正在导入交接包", sub: "正在准备 Java、下载核心并解包。存档、配置和模组都会保留。", done: "交接完成", doneSub: "存档、配置和模组都带过来了，可以启动了。没带过来的东西列在下面的日志里",
     ok: "交接包导入成功", fail: "导入失败", failHint: "半成品的文件夹已经清理干净，可以重试。", busy: "导入中，请勿关闭程序…",
+    go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/create", backText: "返回重试" },
+  "server-in": { title: "正在导入服务端", sub: "正在解压服务端文件、准备 Java。存档、模组和配置用压缩包里的。", done: "导入完成", doneSub: "存档、模组和配置都是压缩包里的那份，可以启动了",
+    ok: "服务端导入成功", fail: "导入失败", failHint: "半成品的文件夹已经清理干净，可以重试。", busy: "导入中，请勿关闭程序…",
     go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/create", backText: "返回重试" },
   mods: { title: "正在安装待装清单", sub: "正在下载清单里的内容和它们的前置，放进服务器的 mods 或 plugins 文件夹。", done: "安装完成", doneSub: "新装的内容要重启服务器后才会生效",
     ok: "安装完成", fail: "安装失败", failHint: "可以回到这台服务器的「待装清单」标签里再装一次。已经下载的文件有缓存，重试很快。", busy: "安装中，请勿关闭程序…",

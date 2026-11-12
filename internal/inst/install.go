@@ -47,20 +47,36 @@ var createSteps = []string{"解析版本信息", "准备 Java 运行时", "下�
 
 // validateCreate 校验创建请求并返回目标目录（供普通创建与整合包导入共用）。
 func (m *Manager) validateCreate(req *CreateReq) (string, error) {
-	req.Name = strings.TrimSpace(req.Name)
-	if err := validateName(req.Name); err != nil {
+	if err := checkInstanceReq(req, true); err != nil {
 		return "", err
 	}
-	if !mcsrc.ValidCore(req.Core) {
-		return "", fmt.Errorf("未知核心类型: %s", req.Core)
+	return m.reserveInstanceDir(req)
+}
+
+// checkInstanceReq 查名字、要不要已经知道核心、EULA。
+// needCore 为 false 是现成服务端压缩包：核心要等解压之后，用接管已有服务器那套识别才知道。
+func checkInstanceReq(req *CreateReq, needCore bool) error {
+	req.Name = strings.TrimSpace(req.Name)
+	if err := validateName(req.Name); err != nil {
+		return err
 	}
-	if req.MC == "" {
-		return "", fmt.Errorf("请选择版本")
+	if needCore {
+		if !mcsrc.ValidCore(req.Core) {
+			return fmt.Errorf("未知核心类型: %s", req.Core)
+		}
+		if req.MC == "" {
+			return fmt.Errorf("请选择版本")
+		}
 	}
-	// 代理端不运行 Minecraft 本体，无需 Mojang EULA
+	// 代理端不运行 Minecraft 本体，无需 Mojang EULA。核心还没认出来时按普通服务器算，仍然要同意。
 	if !req.EULA && mcsrc.KindOf(req.Core) != mcsrc.KindProxy {
-		return "", fmt.Errorf("需要同意 Minecraft EULA 才能开服")
+		return fmt.Errorf("需要同意 Minecraft EULA 才能开服")
 	}
+	return nil
+}
+
+// reserveInstanceDir 分配实例目录并占上「创建中」。调用方的 goroutine 结束时要 releaseCreating。
+func (m *Manager) reserveInstanceDir(req *CreateReq) (string, error) {
 	m.mu.Lock()
 	_, exists := m.insts[req.Name]
 	m.mu.Unlock()
@@ -155,8 +171,8 @@ func (m *Manager) CreateAsync(req CreateReq) (string, error) {
 		defer m.releaseCreating(req.Name)
 		defer m.releaseCreating(dirKey(dir))
 		if err := m.runCreate(ctx, t, req, dir); err != nil {
+			os.RemoveAll(dir) // 先清理半成品目录再报失败（缓存保留，重试无需重新下载）
 			t.Fail(err)
-			os.RemoveAll(dir) // 清理半成品目录（缓存保留，重试无需重新下载）
 			return
 		}
 		t.Finish(req.Name)
@@ -623,7 +639,7 @@ func applyLog4jMitigation(ctx context.Context, t *tasks.Task, i *Instance) error
 // fetchLog4jXML 把 Mojang 给 1.12–1.16.5 的日志配置放进实例目录。已经在、内容也对得上的不重新下载；
 // 内容对不上的（被别的文件顶掉了）会重新下载。这份文件可能经镜像下载，按官方的 SHA-1 校验
 // （就是下载地址里那一串；2026-11-10 下载核对过）。
-func fetchLog4jXML(ctx context.Context, dir string) error {
+var fetchLog4jXML = func(ctx context.Context, dir string) error { // 是变量：测试里换成不联网的
 	const sum = "02937d122c86ce73319ef9975b58896fc1b491d1"
 	const xmlURL = "https://launcher.mojang.com/v1/objects/" + sum + "/" + log4jXML
 	return dl.Fetch(ctx, dl.Request{URLs: mcsrc.URLPair(xmlURL), Dest: filepath.Join(dir, log4jXML), MinSize: 100, SHA1: sum}, nil)

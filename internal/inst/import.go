@@ -43,7 +43,11 @@ func knownDownloadHost(host string) bool {
 }
 
 // ImportModpackAsync 从解析好的整合包创建实例（核心/版本/加载器由整合包决定）。
+// 现成服务端压缩包不走下载核心那条流水线，解压后用接管已有服务器的识别来登记。
 func (m *Manager) ImportModpackAsync(pack *modpack.Pack, req CreateReq, cfKey string) (string, error) {
+	if pack.Format == modpack.FormatServer {
+		return m.importServerAsync(pack, req)
+	}
 	req.Core, req.MC, req.Build = pack.Core, pack.MC, pack.Loader
 	// 之前逐个确认过的自定义站点直接用（记忆存 app.Config.TrustedHosts，作用域 modpack）：
 	// 这次导入再遇到同站点的待决文件就不再列为待决、直接下载。
@@ -70,9 +74,10 @@ func (m *Manager) ImportModpackAsync(pack *modpack.Pack, req CreateReq, cfKey st
 			defer os.Remove(pack.ZipPath) // 导入结束（成功/失败）后删除缓存 zip 副本，避免每次导入累积 100-500MB
 		}
 		if err := m.runImport(ctx, t, pack, req, dir, cfKey); err != nil {
-			t.Fail(err)
+			// 先清后报失败：任务一显示失败，半成品就得已经删干净了
 			_ = m.Delete(req.Name, false) // 从列表移除（可能已注册）
 			os.RemoveAll(dir)
+			t.Fail(err)
 			return
 		}
 		t.Finish(req.Name)

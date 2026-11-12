@@ -15,7 +15,7 @@ import (
 // 测试用版本清单（新版本在前），供 mcsrc.NewerOrEqualCached 从磁盘缓存离线读取。
 const testManifest = `{"latest":{"release":"1.20.1","snapshot":"1.20.1"},"versions":[
 {"id":"1.21.1","type":"release"},
-{"id":"1.20.1","type":"release"},{"id":"1.18.1","type":"release"},{"id":"1.18","type":"release"},
+{"id":"1.20.1","type":"release"},{"id":"1.19","type":"release"},{"id":"1.18.1","type":"release"},{"id":"1.18","type":"release"},
 {"id":"1.17.1","type":"release"},{"id":"1.17","type":"release"},{"id":"1.16.5","type":"release"},
 {"id":"1.12.2","type":"release"}]}`
 

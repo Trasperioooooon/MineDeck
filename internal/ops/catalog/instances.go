@@ -152,7 +152,8 @@ func (c *cat) instanceOps() {
 	importParams["localSource"] = ops.String("本地来源目录（可选）：用户还留着的老服务器目录，待决文件凡在这里有的按原样保留，不要求线上匹配（仅本机生效）")
 	c.reg.Register(&ops.Op{
 		Name: "instance.import", Title: "导入整合包", Level: ops.HumanOnly,
-		Desc:   "从已上传的 Modrinth / CurseForge 整合包创建实例（核心、版本、加载器由整合包决定），返回任务编号。",
+		Desc: "从已上传的 Modrinth / CurseForge 整合包创建实例（核心、版本、加载器由整合包决定），返回任务编号。" +
+			"没有清单、但是 mods、plugins、server.properties 或服务端 jar 的压缩包，按现成服务端解压，核心和版本用接管已有服务器的同一套识别。",
 		Params: ops.Object(importParams, "file"),
 		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[struct {
@@ -183,7 +184,10 @@ func (c *cat) instanceOps() {
 			}
 			return map[string]any{
 				"taskId": id,
-				"pack":   map[string]any{"name": pack.Name, "mc": pack.MC, "core": pack.Core, "loader": pack.Loader, "files": len(pack.Files) + len(pack.CFRefs), "pending": len(pack.Pending)},
+				"pack": map[string]any{
+					"name": pack.Name, "mc": pack.MC, "core": pack.Core, "loader": pack.Loader,
+					"format": pack.Format, "files": len(pack.Files) + len(pack.CFRefs), "pending": len(pack.Pending),
+				},
 			}, nil
 		},
 	})
