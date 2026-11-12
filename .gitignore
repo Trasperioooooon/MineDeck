@@ -6,14 +6,22 @@
 /bg/
 /logs/
 /data/
-/config.json
-/secrets.json
-/tunnels.json
 /update.bat
+# 配置和密钥，连同保存时的临时文件和手工备份（secrets.json.tmp、config.json.bak 之类）
+/config.json*
+/secrets.json*
+/tunnels.json*
 
 # 构建产物
 *.exe
 *.exe~
+# README 里让在仓库根目录编的两个测试小工具，Linux 上编出来没有 .exe 后缀
+/testsend
+/testctl
+
+# Python 工具的缓存（tools/handover-test 的脚本互相导入时会生成）
+__pycache__/
+*.pyc
 
 # 编辑器
 .idea/
@@ -23,6 +31,7 @@
 .claude/
 .agents/
 .review/
+.codex-review/
 .mimocode/
 .mimocode-project-id
 
