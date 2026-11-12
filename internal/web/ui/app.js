@@ -216,7 +216,7 @@ const ERR_INLINE_MAX = 60; // 按字符数算，英文字母、数字、空格�
 const ERR_TRACES = [
   /(?:^|[^A-Za-z0-9])[A-Za-z]:[\\/]/,      // Windows 路径：C:\Users\…、D:/MC（「http://」里的「p:/」不算）
   /[\w.%~)\u3400-\u9fff-]\\[\w.%~(\u3400-\u9fff$-]/, // 反斜杠隔开的路径：bin\java.exe、世界\region（单独列出来的「\」这个字符不算）
-  /(?:^|[^\w.\/\\-])\/[\w.\u3400-\u9fff-]+\//, // 斜杠开头的路径：/usr/lib/…，冒号、括号后面的也算（「启动 / 停止」「TCP/UDP」不算）
+  /(?:^|[^\w.\/\\\u3400-\u9fff-])\/[\w.\u3400-\u9fff-]+\//, // 斜杠开头的路径：/usr/lib/…，冒号、括号后面的也算（「启动 / 停止」「TCP/UDP」「原版/Fabric/Forge」「启用/禁用/删除」不算）
   /[\w.\u3400-\u9fff-]+\/[^\s/]*\.[A-Za-z][A-Za-z0-9]{0,7}\b/, // 带扩展名的相对路径：mods/xxx.jar、配置/服务器.json（「1.20/1.21」这种版本号不算）
   /fork\/exec|exit status|\bi\/o\b/i,       // 外部程序没起来或退出异常（fork/exec、exit status 1）、读写超时（i/o timeout）
   /\b[a-z][a-z0-9+.-]*:\/\/[\w[]/i,         // 网址：「://」后面跟着主机名才算（只提到「http://」「「https://」」这几个字的不算）

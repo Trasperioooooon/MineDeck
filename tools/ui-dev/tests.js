@@ -3290,6 +3290,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         ["连接失败", E("连接失败：ACCESS DENIED")],
         ["无法开启局域网访问", E("请先设置访问密码")],
         ["无法安装 Simple Voice Chat", E("Simple Voice Chat 要求 Fabric API")],
+        ["无法安装", E("支持原版/Fabric/Forge 三种核心")],
+        ["无法安装", E("可以启用/禁用/删除这个模组")],
       ].map(([what, e]) => errSummary(what, e).text);
     });
     const want = [
@@ -3317,6 +3319,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       "连接失败",
       "无法开启局域网访问：请先设置访问密码",
       "无法安装 Simple Voice Chat：Simple Voice Chat 要求 Fabric API",
+      "无法安装：支持原版/Fabric/Forge 三种核心",
+      "无法安装：可以启用/禁用/删除这个模组",
     ];
     for (let i = 0; i < want.length; i++) assert(got[i] === want[i], `第 ${i + 1} 条：${got[i]}（应为 ${want[i]}）`);
     // 提示：正文只写结论，「详情」里是原文
