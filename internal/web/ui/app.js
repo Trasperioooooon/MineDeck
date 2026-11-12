@@ -22,7 +22,7 @@ async function api(path, opts = {}) {
   try { j = await res.json(); } catch { throw new Error(`服务异常 (HTTP ${res.status})`); }
   // needLogin 标记：让 boot() 区分「需要登录」与真正的后端故障
   if (res.status === 401) { showLogin(); throw Object.assign(new Error(j.error || "需要登录"), { needLogin: true }); }
-  if (!j.ok) throw Object.assign(new Error(j.error || "未知错误"), { status: res.status });
+  if (!j.ok) throw Object.assign(new Error(j.error || "未知错误"), { status: res.status, hint: j.hint }); // hint：后端另给的一句人话，见 errSummary
   return j.data;
 }
 
@@ -201,7 +201,9 @@ async function copy(text, okMsg = "已复制") {
    调用处只给一句结论 what，说这一步没做成什么，如「无法启动服务器」「保存失败」。正文按下面的顺序拼：
    1. 请求根本没发出去（浏览器给的 TypeError「Failed to fetch」）：结论 +「：连不上 MineDeck」；
    2. 后端的话是一句给人看的中文：整句接在结论后面（「无法删除服务器：请先停止服务器再删除」）。
-      后端那句自己带着全角冒号时用句号接，免得一句里两个冒号（「发送失败。AI 未启用：先在…」）；
+      后端那句自己带着全角冒号时用句号接，免得一句里两个冒号（「发送失败。AI 未启用：先在…」）。
+      后端另给了一句人话（e.hint，例如 AI 服务商报错的「Key 不对或已失效」）时，拿它代替原文来判断、来接：
+      原文里带着状态码和服务商的英文原话，整句接不上；
    3. 其余只写结论。
    「详情」和「复制报错信息」里永远是完整原文，一个字不删。
    判断只看文字本身，不看 HTTP 状态码：同一个 400 既可能是「服务器名称需为 1~40 个字符」，也可能带着 fork/exec 的系统原文。
@@ -237,10 +239,11 @@ function errSummary(what, e) {
   const raw = e == null ? "" : String(typeof e === "object" ? e.message || e : e);
   const msg = raw.trim();
   const typeErr = !!e && typeof e === "object" && (e instanceof TypeError || e.name === "TypeError");
+  const say = (e && typeof e === "object" && typeof e.hint === "string" && e.hint.trim()) || msg; // 要接的那句：后端另给的人话优先
   let text = what;
   if (typeErr && ERR_OFFLINE.test(msg)) text = what + "：连不上 MineDeck";
-  else if (msg && msg !== what && /[\u3400-\u9fff]/.test(msg) && [...msg].length <= ERR_INLINE_MAX && !ERR_TRACES.some(re => re.test(msg)) && !ERR_FALLBACKS.has(msg))
-    text = what + (msg.includes("：") ? "。" : "：") + msg;
+  else if (say && say !== what && /[\u3400-\u9fff]/.test(say) && [...say].length <= ERR_INLINE_MAX && !ERR_TRACES.some(re => re.test(say)) && !ERR_FALLBACKS.has(say))
+    text = what + (say.includes("：") ? "。" : "：") + say;
   return { text, raw: raw || what };
 }
 /* 原文放进复制键的 data-err-raw：转义以后原样保留；回车符写成字符引用，不然 HTML 解析时 \r\n 会被并成 \n */
@@ -3953,7 +3956,7 @@ function drawAI(body, v, gen) {
       const r = await api("/api/ai/test", { method: "POST" });
       if (stale(gen)) return;
       sub.dataset.result = "1";
-      if (!r.ok) sub.innerHTML = errInline("连接失败", r.error);
+      if (!r.ok) sub.innerHTML = errInline("连接失败", { message: r.error, hint: r.hint });
       else {
         const tools = { yes: "能调用工具", no: `<span class="warn-text">${icon("warn")} 这个模型不支持工具调用，助手用不了</span>`, unknown: `<span class="warn-text">${icon("warn")} 模型这次没有调用工具，可能不支持</span>` }[r.tools] || "";
         const cost = r.cost && r.cost.source === "local" ? "（本机模型不计费）" : r.cost ? `（约 ${fmtMoney(r.cost.amount, r.cost.currency)}）` : "";

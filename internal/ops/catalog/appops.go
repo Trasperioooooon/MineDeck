@@ -203,7 +203,7 @@ func (c *cat) appOps() {
 				}
 				if body.ListenLAN != nil {
 					if *body.ListenLAN && c.AccessPasswordHash == "" {
-						return fmt.Errorf("开启局域网访问前请先设置访问密码")
+						return fmt.Errorf("请先设置访问密码") // 界面上接在「无法开启局域网访问：」后面
 					}
 					c.ListenLAN = *body.ListenLAN
 				}

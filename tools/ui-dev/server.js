@@ -287,7 +287,7 @@ async function aiHandler(state, req, res, p, m) {
   }
   if (p === "/api/ai/test" && m === "POST") {
     if (aiMissing(a)) return err(res, 400, AI_DISABLED);
-    if (a.testFail) return ok(res, { ok: false, tools: "unknown", error: "Key 不对或已失效（HTTP 401，authentication_error）：invalid x-api-key", latencyMs: 0, totalMs: 0, usage: { input: 0, output: 0 } });
+    if (a.testFail) return ok(res, { ok: false, tools: "unknown", error: "Key 不对或已失效（HTTP 401，authentication_error）：invalid x-api-key", hint: "Key 不对或已失效", latencyMs: 0, totalMs: 0, usage: { input: 0, output: 0 } });
     const pr = AI_PRESETS.find(x => x.id === a.preset);
     return ok(res, { ok: true, latencyMs: 820, totalMs: 1310, model: a.model, tools: "yes", stop: "tool_use", usage: { input: 156, output: 12 },
       cost: pr.local ? { amount: 0, currency: "USD", source: "local" } : { amount: 0.0001, currency: "USD", source: "litellm" } });
@@ -1523,7 +1523,7 @@ function handler(state, ui, portOf) {
         if ("autoStart" in b) state.autoStart = !!b.autoStart;
         // 同 appops.go：局域网访问密码只存哈希、不进 config；开启局域网访问前必须已有密码（同一次请求里带上也算），否则整次拒绝
         const lanSetNow = state.lanSet || !!b.lanPassword;
-        if (b.listenLan && !lanSetNow) return err(res, 400, "开启局域网访问前请先设置访问密码");
+        if (b.listenLan && !lanSetNow) return err(res, 400, "请先设置访问密码");
         if (b.lanPassword) state.lanSet = true;
         delete b.lanPassword;
         // 同 web：Key 加密另存、不进 config，传空串清除；响应里永远没有 Key

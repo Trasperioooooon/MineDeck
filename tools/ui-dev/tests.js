@@ -861,9 +861,9 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await aiState({ testFail: true });
       await page.click("#ai-test"); await settle(300);
       sub = await page.textContent("#ai-test-sub");
-      // 原因里带着 HTTP 状态码，按报错的规矩只写结论，原文收进只有图标的「复制报错信息」
+      // 原文里带着 HTTP 状态码和服务商的英文原话，整句接不上；接的是后端另给的那句人话（hint），原文收进只有图标的「复制报错信息」
       const raw = await page.getAttribute("#ai-test-sub [data-err-raw]", "data-err-raw");
-      assert(sub.trim() === "连接失败" && (raw || "").includes("Key 不对") && (await page.getAttribute("#ai-test-sub [data-err-raw]", "aria-label")) === "复制报错信息",
+      assert(sub.trim() === "连接失败：Key 不对或已失效" && (raw || "").includes("HTTP 401") && (await page.getAttribute("#ai-test-sub [data-err-raw]", "aria-label")) === "复制报错信息",
         "测试失败时：" + sub + " / 原文：" + raw);
     } finally { await aiState({ reset: true }); }
   });
@@ -2204,7 +2204,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.goto(url("#/settings/remote")); await settle();
       await mockState({ lanSet: false });
       await flip();
-      assert(!(await sw()) && (await lastToast()).includes("无法开启局域网访问：开启局域网访问前请先设置访问密码"), "后端拒绝时应拨回：" + await lastToast());
+      assert(!(await sw()) && (await lastToast()).includes("无法开启局域网访问：请先设置访问密码"), "后端拒绝时应拨回：" + await lastToast());
 
       // 这次启动已在局域网上：关闭即时生效（不再放行局域网），再开也不用重启
       await mockState({ listenLan: true });
@@ -3270,6 +3270,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         ["无法启动服务器", new TypeError("Cannot read properties of undefined (reading 'pending')")],
         ["无法启动隧道", E("这".repeat(61))],
         ["无法启动隧道", E("这".repeat(60))],
+        ["无法获取模型列表", E("Key 不对或已失效（HTTP 401，authentication_error）：invalid x-api-key", { status: 502, hint: "Key 不对或已失效" })],
+        ["无法获取模型列表", E("服务商返回错误（HTTP 418）：teapot", { status: 502, hint: "" })],
       ].map(([what, e]) => errSummary(what, e).text);
     });
     const want = [
@@ -3285,6 +3287,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       "无法启动服务器",
       "无法启动隧道",
       "无法启动隧道：" + "这".repeat(60),
+      "无法获取模型列表：Key 不对或已失效",
+      "无法获取模型列表",
     ];
     for (let i = 0; i < want.length; i++) assert(got[i] === want[i], `第 ${i + 1} 条：${got[i]}（应为 ${want[i]}）`);
     // 提示：正文只写结论，「详情」里是原文

@@ -317,7 +317,20 @@ func TestServiceTestConnection(t *testing.T) {
 		s.retryDelay = time.Millisecond
 		_ = s.SetProvider(ProviderPatch{Preset: strp("openai"), Model: strp("gpt-5"), Key: strp("sk-1")})
 		r, err := s.Test(context.Background())
-		if err != nil || r.OK || !strings.Contains(r.Error, "连不上服务商") {
+		if err != nil || r.OK || !strings.Contains(r.Error, "连不上服务商") || r.Hint != "连不上服务商，检查网络、代理和接口地址" {
+			t.Fatalf("%v %+v", err, r)
+		}
+	})
+	// 原文带着状态码和服务商的原话，另给一句人话（Hint），界面的报错正文接它
+	t.Run("Key 不对", func(t *testing.T) {
+		f := newFake(t, func(_ int, _ recorded, w http.ResponseWriter) {
+			w.WriteHeader(401)
+			_, _ = w.Write([]byte(`{"error":{"message":"Incorrect API key provided","type":"invalid_request_error"}}`))
+		})
+		s := NewService(Options{Dir: t.TempDir(), Keys: &memKeys{m: map[string]string{}}, HTTP: f.srv.Client()})
+		_ = s.SetProvider(ProviderPatch{Preset: strp("openai"), BaseURL: strp(f.srv.URL), Model: strp("gpt-5"), Key: strp("sk-1")})
+		r, err := s.Test(context.Background())
+		if err != nil || r.OK || !strings.Contains(r.Error, "HTTP 401") || !strings.Contains(r.Error, "Incorrect API key provided") || r.Hint != "Key 不对或已失效" {
 			t.Fatalf("%v %+v", err, r)
 		}
 	})
