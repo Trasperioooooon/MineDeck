@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"minedeck/internal/app"
 	"minedeck/internal/dl"
@@ -741,16 +742,31 @@ func launchArgs(i *Instance) []string {
 }
 
 // batEscapeTitle 转义 title 行中的 cmd 元字符（title 命令无法用引号包裹，只能逐字符转义）。
+// 换行这类控制字符换成空格：换行会让 title 那一行断开，后半截成了另一条命令。新建时名字已经不许带控制字符，
+// 这里兜住以前存下的、或者接管来的 instance.json 里的名字（v3.1.0 正式版前检查 B-7）。
 func batEscapeTitle(s string) string {
 	return strings.NewReplacer(
 		"%", "%%", "^", "^^", "&", "^&", "|", "^|",
 		"<", "^<", ">", "^>", "(", "^(", ")", "^)",
-	).Replace(s)
+	).Replace(batNoControl(s))
 }
 
 // batQuoteArg 参数一律加引号并把 % 翻倍，防实例名 / JVM 参数含 cmd 元字符时用户双击 run.bat 触发命令注入。
+// 参数里自带的双引号写成两个：cmd 看到的是「关上、马上又打开」，中间没有露在引号外面的字，& 这类符号始终在引号里；
+// Java 收到的仍是一个双引号。以前原样写进去，自带的引号会把外面的引号提前关掉，后面的 & echo … 就成了命令。
+// 控制字符同样换成空格（B-7）。
 func batQuoteArg(s string) string {
-	return `"` + strings.ReplaceAll(s, "%", "%%") + `"`
+	return `"` + strings.NewReplacer("%", "%%", `"`, `""`).Replace(batNoControl(s)) + `"`
+}
+
+// batNoControl 把换行、制表符这类控制字符换成空格，免得一个值在 run.bat 里断成好几行。
+func batNoControl(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, s)
 }
 
 // writeRunBat 生成可手动双击的启动脚本（与 GUI 内启动等效）。

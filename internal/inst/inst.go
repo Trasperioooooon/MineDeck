@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"minedeck/internal/app"
 	"minedeck/internal/mcsrc"
@@ -312,6 +313,11 @@ func (m *Manager) UpdateSettings(name string, xmxMB, xmsMB int, consoleEnc strin
 	default:
 		return fmt.Errorf("不支持的控制台编码: %s", consoleEnc)
 	}
+	if extraJVM != nil {
+		if err := validateJVMArgs(*extraJVM); err != nil {
+			return err
+		}
+	}
 	// 运行中控制台 goroutine 会并发读这些字段，写入必须持锁；
 	// 落盘（saveInstance 序列化 i.Settings、writeRunBat 读取 i 字段）也在锁内完成，
 	// 避免与并发的 UpdateSettings 竞争地读写 i.Settings
@@ -388,10 +394,30 @@ func (i *Instance) ExtraJVMSnapshot() []string {
 
 var invalidNameChars = `\/:*?"<>|`
 
+// validateJVMArgs 自定义 JVM 参数一行一个：不能有换行这类控制字符，也不能有双引号。
+// 一行就是一个参数，带空格也不用加引号。参数会写进 run.bat，引号会把外面加的引号提前关掉、换行会另起一行，
+// 手动双击 run.bat 时 cmd 就会多执行别的命令（v3.1.0 正式版前检查 B-7）。界面按空白拆参数，本来就带不进换行；
+// 这里拦的是 AI、MCP 和直接调接口传进来的。
+func validateJVMArgs(args []string) error {
+	for _, a := range args {
+		if strings.IndexFunc(a, unicode.IsControl) >= 0 {
+			return fmt.Errorf("JVM 参数里不能有换行、制表符这类控制字符")
+		}
+		if strings.Contains(a, `"`) {
+			return fmt.Errorf("JVM 参数里不能有双引号。一行就是一个参数，有空格也不用加引号")
+		}
+	}
+	return nil
+}
+
 func validateName(name string) error {
 	name = strings.TrimSpace(name)
 	if name == "" || len([]rune(name)) > 40 {
 		return fmt.Errorf("服务器名称需为 1~40 个字符")
+	}
+	// 名字会写进 run.bat 的 title 那一行：换行能让手动双击 run.bat 时多执行一行命令（v3.1.0 正式版前检查 B-7）
+	if strings.IndexFunc(name, unicode.IsControl) >= 0 {
+		return fmt.Errorf("服务器名称不能包含换行、制表符这类控制字符")
 	}
 	if strings.ContainsAny(name, invalidNameChars) {
 		return fmt.Errorf(`服务器名称不能包含字符 %s`, invalidNameChars)
