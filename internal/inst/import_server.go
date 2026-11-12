@@ -181,15 +181,7 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 			}
 			t.Logf("已写入 eula.txt")
 		}
-		// log4shell 防护和新建、接管一样：1.12–1.16.5 还要下载官方的日志配置（压缩包里自带的那份是控制文件，不采用）。
-		// 只在官方清单里有这个版本时加：清单不认识的版本分不出新旧，NewerOrEqual 会把它当成老版本。
-		if known, kerr := mcsrc.KnownVersion(ctx, mc); kerr != nil {
-			t.Logf("没拿到 Minecraft 版本清单（%v），log4shell 防护先跳过", kerr)
-		} else if known {
-			if err := applyLog4jMitigation(ctx, t, inst); err != nil {
-				t.Logf("没能判断要不要加 log4shell 防护（%v），先跳过", err)
-			}
-		}
+		applyImportLog4j(ctx, t, inst)
 	}
 	if err := writeRunBat(inst); err != nil {
 		return err
@@ -250,10 +242,8 @@ func applyServerProps(ctx context.Context, t *tasks.Task, dir string, req Create
 	if !had {
 		props.Set("online-mode", fmt.Sprintf("%t", req.OnlineMode))
 		props.Set("allow-flight", fmt.Sprintf("%t", req.AllowFlight))
-		if !req.OnlineMode {
-			if ge, err := mcsrc.NewerOrEqual(ctx, mc, "1.19"); err == nil && ge {
-				props.Set("enforce-secure-profile", "false")
-			}
+		if !req.OnlineMode && newerOrEqualLocalFirst(ctx, mc, "1.19") {
+			props.Set("enforce-secure-profile", "false")
 		}
 	}
 	if err := props.Save(path); err != nil {
@@ -269,6 +259,49 @@ func applyServerProps(ctx context.Context, t *tasks.Task, dir string, req Create
 	}
 	t.Logf("压缩包里没有 server.properties，按导入页新建：端口 %d，正版验证%s，允许飞行%s",
 		req.Port, onOff(fmt.Sprint(req.OnlineMode), false), onOff(fmt.Sprint(req.AllowFlight), false))
+}
+
+// applyImportLog4j 老版本的 log4shell 防护，和新建、接管的 applyLog4jMitigation 一样：1.18.1 以前加参数，
+// 1.17 以前再下载官方的日志配置（压缩包里自带的那份是控制文件，不采用）。
+// 版本新旧先只看本地清单：getManifest 冷启动时先联网刷新，网络不通能等上两分钟，文件和 Java 都已经就绪了，
+// 不为这一步干等（Codex 复审提醒）。本地清单不认识这个版本时才联网问；官方清单也不认识的分不出新旧，不加（和接管一样）。
+func applyImportLog4j(ctx context.Context, t *tasks.Task, inst *Instance) {
+	newer1181, ok := mcsrc.NewerOrEqualCached(inst.MC, "1.18.1")
+	if !ok {
+		known, err := mcsrc.KnownVersion(ctx, inst.MC)
+		if err != nil {
+			t.Logf("没拿到 Minecraft 版本清单（%v），log4shell 防护先跳过", err)
+			return
+		}
+		if known {
+			if err := applyLog4jMitigation(ctx, t, inst); err != nil {
+				t.Logf("没能判断要不要加 log4shell 防护（%v），先跳过", err)
+			}
+		}
+		return
+	}
+	if newer1181 {
+		return
+	}
+	inst.ExtraJVM = append(inst.ExtraJVM, log4jNoLookups)
+	if newer117, _ := mcsrc.NewerOrEqualCached(inst.MC, "1.17"); newer117 {
+		return
+	}
+	if err := fetchLog4jXML(ctx, inst.Dir); err != nil {
+		t.Logf("log4j 防护配置下载失败（不影响开服，仅安全性降低）: %v", err)
+		return
+	}
+	inst.ExtraJVM = append(inst.ExtraJVM, log4jConfig)
+	t.Logf("已启用 log4shell 漏洞缓解（Mojang 官方方案）")
+}
+
+// newerOrEqualLocalFirst 版本 a 是否不老于 b：先只看本地清单，两个版本它都认识就不联网；不认识再问官方清单。
+func newerOrEqualLocalFirst(ctx context.Context, a, b string) bool {
+	if newer, ok := mcsrc.NewerOrEqualCached(a, b); ok {
+		return newer
+	}
+	newer, err := mcsrc.NewerOrEqual(ctx, a, b)
+	return err == nil && newer
 }
 
 // onOff 把 server.properties 里的布尔值说成开、关；没写时按游戏的默认值说。
