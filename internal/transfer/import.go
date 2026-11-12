@@ -78,9 +78,10 @@ func ImportAsync(m *inst.Manager, path string, req ImportReq) (string, error) {
 		defer m.ReleaseCreate(req.Name, dir)
 		defer os.Remove(path) // 上传的包在导入结束（成功/失败）后删除：交接包动辄几个 GB，不能留副本攒着
 		if err := runImport(ctx, t, m, mf, path, req, dir); err != nil {
-			t.Fail(err)
+			// 先清后报失败：失败框上写着「半成品已经清理干净，可以重试」，任务一显示失败就得是真的（测试也是一看到失败就去查文件夹）
 			_ = m.Delete(req.Name, false) // 万一已经注册（收尾失败）：从列表移出
 			os.RemoveAll(dir)             // 目录是本程序新建的半成品，整体清掉
+			t.Fail(err)
 			return
 		}
 		t.Finish(req.Name)
