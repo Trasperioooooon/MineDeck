@@ -1,11 +1,13 @@
 {
   "name": "minedeck-ui-dev",
   "private": true,
-  "description": "MineDeck 前端开发工具：仿真后端、交互回归测试、截图",
+  "description": "MineDeck 前端开发工具：仿真后端、交互回归测试、截图、界面原型",
   "scripts": {
     "mock": "node server.js",
     "test": "node tests.js",
-    "shots": "node shoot.js"
+    "shots": "node shoot.js",
+    "proto": "node proto.js --open",
+    "proto:check": "node proto-check.js"
   },
   "engines": {
     "node": ">=18"

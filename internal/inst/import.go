@@ -154,7 +154,7 @@ func (m *Manager) runImport(ctx context.Context, t *tasks.Task, pack *modpack.Pa
 			t.AddWarning(tasks.Warning{
 				Kind:  "cf-unresolved",
 				Title: fmt.Sprintf("%d 个文件需手动补装", len(unresolved)),
-				Note:  "这些文件没法自动下载（作者不允许第三方工具下载，或者没有填 CurseForge API Key）：可以点链接到 CurseForge 网站下载，放进名字前面写的那个文件夹，或在下面的「待决文件」里逐个处理（清单也已保存到实例目录「未解析模组清单.txt」）。",
+				Note:  "这些文件没法自动下载（作者不允许第三方工具下载，或者没有填 CurseForge API Key）：可以点链接到 CurseForge 网站下载，放进名字前面写的那个文件夹，或在下面的「待决文件」里逐个处理（清单也已保存到服务器文件夹里的「未解析模组清单.txt」）。",
 				Items: items,
 			})
 		}
@@ -395,7 +395,7 @@ func (m *Manager) finishImport(t *tasks.Task, req CreateReq, dir string, pending
 		}
 		t.AddWarning(tasks.Warning{
 			Kind:  "java-req",
-			Title: fmt.Sprintf("有模组要求 Java %d，这台实例现在是 Java %d", need, javaMajor),
+			Title: fmt.Sprintf("有模组要求 Java %d，这台服务器现在是 Java %d", need, javaMajor),
 			Note:  "这只是提醒，不影响导入结果。装着这样的模组启动可能失败或部分功能不工作；要换的话到「内存 / 启动」里选（MineDeck 可以自动下载便携版），也可以先保持现状。",
 			Items: warn,
 		})
@@ -712,10 +712,10 @@ func (m *Manager) pendingInstance(taskID string) (*Instance, error) {
 	}
 	i, err := m.Get(ref.name)
 	if err != nil {
-		return nil, fmt.Errorf("任务对应的实例「%s」不在了（可能已被删除）", ref.name)
+		return nil, fmt.Errorf("任务对应的服务器「%s」不在了（可能已被删除）", ref.name)
 	}
 	if !i.CreatedAt.Equal(ref.created) {
-		return nil, fmt.Errorf("任务对应的实例「%s」已经删掉了，现在这台同名的是后来新建的，待决文件不会放进去", ref.name)
+		return nil, fmt.Errorf("任务对应的服务器「%s」已经删掉了，现在这台同名的是后来新建的，待决文件不会放进去", ref.name)
 	}
 	return i, nil
 }

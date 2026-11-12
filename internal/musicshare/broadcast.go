@@ -281,7 +281,7 @@ func (b *broadcast) supervise() {
 			info, err := b.s.d.Instances.Info(b.inst)
 			switch {
 			case err != nil:
-				b.stop("实例不见了", endAuto)
+				b.stop("服务器已不存在", endAuto)
 				return
 			case info.Status == "stopping":
 				b.stop("服务器正在停止", endAuto)

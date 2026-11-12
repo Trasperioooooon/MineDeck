@@ -6,11 +6,13 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -30,6 +32,9 @@ type fakeMR struct {
 	files    map[string][]byte      // 文件名 → 内容
 	mu       sync.Mutex
 	hits     map[string]int // 路径 → 请求次数
+	// 搜索：记下最近一次请求带的 facets / offset / limit；noFiles 为真时 /version_files 报 500（认不了本地文件）
+	lastFacets, lastOffset, lastLimit string
+	noFiles                           bool
 }
 
 func jarBody(name string) []byte {
@@ -168,6 +173,13 @@ func (f *fakeMR) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		http.NotFound(w, r)
 	case p == "/version_files" && r.Method == http.MethodPost:
+		f.mu.Lock()
+		down := f.noFiles
+		f.mu.Unlock()
+		if down {
+			http.Error(w, "坏了", http.StatusInternalServerError)
+			return
+		}
 		var body struct {
 			Hashes    []string `json:"hashes"`
 			Algorithm string   `json:"algorithm"`
@@ -185,10 +197,37 @@ func (f *fakeMR) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		reply(out)
 	case p == "/search":
-		reply(map[string]any{"hits": []map[string]any{
-			{"project_id": "aaa", "slug": "alpha", "title": "Alpha", "description": "d", "downloads": 10, "icon_url": "", "license": "MIT", "server_side": "required"},
-			{"project_id": "client", "slug": "client-only", "title": "Client Only", "description": "d", "downloads": 5, "icon_url": "", "license": "MIT", "server_side": "unsupported"},
-		}, "query": r.URL.Query().Get("query"), "facets": r.URL.Query().Get("facets")})
+		// 形状同真的 Modrinth：hits + total_hits，认 offset / limit；facets 里的 categories:<类别> 也认（只对带了 categories 的条目）。
+		// server_side!=unsupported 这条故意不认：回来以后的兜底筛选也要测到。查询词是 bulk 时回 45 条，测翻页用。
+		q := r.URL.Query()
+		f.mu.Lock()
+		f.lastFacets, f.lastOffset, f.lastLimit = q.Get("facets"), q.Get("offset"), q.Get("limit")
+		f.mu.Unlock()
+		all := []map[string]any{
+			{"project_id": "aaa", "slug": "alpha", "title": "Alpha", "description": "d", "downloads": 10, "icon_url": "", "license": "MIT", "server_side": "required", "categories": []string{"fabric", "optimization"}},
+			{"project_id": "client", "slug": "client-only", "title": "Client Only", "description": "d", "downloads": 5, "icon_url": "", "license": "MIT", "server_side": "unsupported", "categories": []string{"fabric", "utility"}},
+		}
+		if q.Get("query") == "bulk" {
+			all = nil
+			for i := range 45 {
+				id := fmt.Sprintf("bulk%02d", i)
+				all = append(all, map[string]any{"project_id": id, "slug": id, "title": id, "description": "d", "downloads": 1000 - i, "icon_url": "", "license": "MIT", "server_side": "required", "categories": []string{"fabric"}})
+			}
+		}
+		var groups [][]string
+		_ = json.Unmarshal([]byte(q.Get("facets")), &groups)
+		for _, g := range groups {
+			for _, cond := range g {
+				if cat, ok := strings.CutPrefix(cond, "categories:"); ok && slices.Contains(AllCategories(), cat) {
+					all = slices.DeleteFunc(all, func(h map[string]any) bool { return !slices.Contains(h["categories"].([]string), cat) })
+				}
+			}
+		}
+		offset, _ := strconv.Atoi(q.Get("offset"))
+		limit, _ := strconv.Atoi(q.Get("limit"))
+		page := all[min(offset, len(all)):]
+		page = page[:min(limit, len(page))]
+		reply(map[string]any{"hits": page, "offset": offset, "limit": limit, "total_hits": len(all)})
 	case strings.HasPrefix(p, "/files/"):
 		b, ok := f.files[strings.TrimPrefix(p, "/files/")]
 		if !ok {

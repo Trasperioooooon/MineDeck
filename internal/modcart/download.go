@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 
 	"minedeck/internal/dl"
@@ -55,10 +54,10 @@ func (s *Service) Download(ctx context.Context, f File, destDir string, prog fun
 	return dest, false, nil
 }
 
-// ScanLocal 看服务器目录里已经有什么：jar 文件名、modinfo 读出来的模组 ID、按 SHA-1 在 Modrinth 认出来的项目。
+// ScanLocal 看服务器目录里已经有什么：jar 文件名和内容的 SHA-1、modinfo 读出来的模组 ID、按 SHA-1 在 Modrinth 认出来的项目。
 // 认项目要联网，失败时只少了这一样（不报错）：文件名和模组 ID 照样能挡住大部分重复下载。
 func (s *Service) ScanLocal(ctx context.Context, dir string) Local {
-	l := Local{Projects: map[string]string{}}
+	l := Local{Projects: map[string]string{}, IDFile: map[string]string{}, Hashes: map[string]string{}}
 	ents, err := os.ReadDir(dir)
 	if err != nil {
 		return l
@@ -73,7 +72,8 @@ func (s *Service) ScanLocal(ctx context.Context, dir string) Local {
 		l.Files = append(l.Files, n)
 		if h, err := fileSHA1(filepath.Join(dir, n)); err == nil {
 			hashOf[n] = h
-			if !slices.Contains(hashes, h) {
+			if _, seen := l.Hashes[h]; !seen {
+				l.Hashes[h] = n
 				hashes = append(hashes, h)
 			}
 		}
@@ -85,6 +85,9 @@ func (s *Service) ScanLocal(ctx context.Context, dir string) Local {
 			}
 			l.IDs = append(l.IDs, m.ID)
 			l.IDs = append(l.IDs, m.Also...)
+			if id := strings.ToLower(m.ID); l.IDFile[id] == "" {
+				l.IDFile[id] = m.File
+			}
 		}
 	}
 	if len(hashes) > 0 {

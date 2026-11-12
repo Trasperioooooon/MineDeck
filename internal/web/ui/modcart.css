@@ -1,12 +1,70 @@
-/* MineDeck 自选模组 + 购物车（modcart.js）：实例详情的「购物车」标签与向导的「选模组」步共用。
-   行面（.java-row）、图标（.res-icon / .res-noicon）、提示卡（.warn-card / .hint）都用 app.css 的现成样式，这里只补间距与依赖行的勾选框。 */
+/* MineDeck 自选模组 + 待装清单（modcart.js）：实例详情的「待装清单」标签与向导的「选模组 / 选插件」步共用。
+   行面（.java-row）、图标（.res-icon / .res-noicon）、筛选片（.cp-chip）、提示卡（.warn-card / .err-box / .hint）都用 app.css 的现成样式，
+   这里只管两栏的版面、间距、筛选片的选中态与依赖行的勾选框。 */
+
+/* 版面：左边逛（搜索、类别、热门清单 / 搜索结果、加载更多），右边是待装清单和检查前置。
+   放得下两栏时并排，右栏 360px、吸顶——边逛边看得到已经选了什么；放不下就叠成一栏（浏览 → 清单 → 检查前置）。
+   两栏要内容区有 870px 左右：程序窗口最小 1024 宽，去掉 232px 的侧栏和两边留白只剩 728px，这时是一栏；
+   窗口到 1180px 才分栏（侧栏在 960px 以下已经收成图标栏，那时本来就是一栏）。 */
+.mc-wrap {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px 24px; align-items: start;
+  --mc-foot: 0px; /* 右栏底下要让出的高度：向导里有吸底栏 */
+}
+.mc-wrap.in-wiz { --mc-foot: 66px; }
+.mc-browse, .mc-side { min-width: 0; }
+@media (min-width: 1180px) {
+  .mc-wrap { grid-template-columns: minmax(0, 1fr) 360px; }
+  .mc-side {
+    position: sticky; top: 0; /* 吸在内容区的上留白下面（#main 的 padding 之内） */
+    /* 清单很长时在栏里自己滚，不把「检查前置」挤出屏幕。92px = 标题栏 40 + 内容区上下留白 26 + 24 + 描边和一点余量 */
+    max-height: calc(100vh - 92px - var(--mc-foot)); max-height: calc(100dvh - 92px - var(--mc-foot));
+    overflow-y: auto; overscroll-behavior: contain;
+    padding: 0 4px 4px 2px; /* 给焦点环和滚动条留一点边 */
+  }
+  .mc-side > .mc-gh:first-child { margin-top: 0; }
+}
+.mc-side.mc-drop { /* 正拖着文件经过：整栏描一圈，告诉人可以放在这儿 */
+  outline: 2px dashed var(--accent); outline-offset: 2px; border-radius: var(--r-lg);
+}
+
+/* 浏览区 */
+.mc-searchbar { flex-wrap: wrap; margin-bottom: 10px; }
+.mc-searchbar .search-field { flex: 1 1 220px; max-width: 420px; }
+.mc-searchbar .search-field input[type=text] { width: 100%; }
+.mc-chips { margin-bottom: 16px; }
+.mc-chips .cp-chip[aria-pressed="true"] { /* 选中的类别：强调浅底 + 强调色描边，字保持正文色（同 .qr-ip.cur 的做法） */
+  background: var(--accent-subtle); border-color: var(--accent); color: var(--text);
+}
+.mc-hits-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 12px; margin-bottom: 10px; }
+.mc-hits-head h3 { margin: 0; }
+.mc-hits-head .hint { margin: 0; }
+.mc-more-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: 4px 0 8px; }
+.mc-more-row .err-box { flex: 1 1 100%; margin: 4px 0; }
+.mc-more-row .hint { margin: 0; }
+#mc-hits .java-row, .mc-item { max-width: none; }
+/* 结果行：名称和一行说明占住剩下的宽度（至少留 150px，再窄就让右边的许可证、下载量、按钮换到下一行）；
+   Modrinth 上的许可证 ID 有的很长（LicenseRef-All-Rights-Reserved），截到 120px，完整的在 title 里 */
+.mc-hit-main { flex: 1 1 150px; min-width: 0; }
+.mc-hit-main > b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-license { color: var(--muted); min-width: 52px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 640px) { /* 手机上说明可以换行（app.css 的 .java-row .jp），但最多两行 */
+  .mc-hit .jp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+}
+.mc-down { color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+
+/* 清单和检查前置 */
 .mc-gh { /* 分区标题：比默认 h3 多一点呼吸，右侧跟一个计数（aria-live） */
   margin: 20px 0 10px;
 }
-#mc-hits .java-row, .mc-item { max-width: 880px; }
-.mc-actions { margin: 2px 0 4px; }
-.mc-license { color: var(--muted); min-width: 52px; }
-.mc-down { color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+.mc-local-row { flex-wrap: wrap; margin: 10px 0 4px; gap: 6px 10px; }
+.mc-local-row .hint { margin: 0; }
+.mc-actions { margin: 10px 0 4px; flex-wrap: wrap; }
+.mc-local-warn { display: flex; align-items: flex-start; margin-top: 4px; line-height: 1.5; }
+.mc-local-warn .ico { margin-top: 2px; }
+.mc-local-info { margin-top: 2px; }
+.mc-local-prog { display: flex; align-items: center; gap: 6px; margin: 8px 0 0; }
+#mc-local-state .err-box { margin: 8px 0 0; }
+#mc-local-state .wc-list { line-height: 1.7; }
 .mc-check { /* 依赖勾选框：行内的方形 checkbox，带更大可点区域 */
   display: inline-flex; align-items: center;
   padding: 6px 2px 6px 6px;
@@ -15,7 +73,7 @@
   width: 15px; height: 15px; margin: 0;
   accent-color: var(--accent);
 }
-.mc-dep-sub { max-width: 880px; }
+.mc-wiz-sub { max-width: var(--w-read); }
 .mc-dep-sec { margin: 10px 0; }
 .mc-dep-t { display: block; font-size: var(--fs-sm); margin-bottom: 2px; }
 #mc-dep-box .java-row, #mc-list .java-row { padding-left: 8px; padding-right: 8px; }

@@ -222,16 +222,88 @@ func TestPickVersion(t *testing.T) {
 func TestSearch(t *testing.T) {
 	mr := newFakeMR(t)
 	s := New(t.TempDir(), mr.srv.URL)
-	hits, err := s.Search(context.Background(), "a", "mod", fabric, "1.20.1")
+	res, err := s.Search(context.Background(), SearchQuery{Q: "a", Type: "mod", Loaders: fabric, MC: "1.20.1"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	hits := res.Hits
 	if len(hits) != 1 || hits[0].ProjectID != "aaa" || hits[0].License != "MIT" || hits[0].ServerSide != "" {
 		t.Fatalf("搜索结果：%+v", hits)
 	}
-	plugins, err := s.Search(context.Background(), "a", "plugin", []string{"paper"}, "")
-	if err != nil || len(plugins) != 2 {
+	// 让 Modrinth 那边就把只在客户端用的筛掉（每页条数才是齐的）；一页要 20 条
+	if !strings.Contains(mr.lastFacets, `["server_side!=unsupported"]`) || !strings.Contains(mr.lastFacets, `["project_type:mod"]`) ||
+		!strings.Contains(mr.lastFacets, `["categories:fabric"]`) || !strings.Contains(mr.lastFacets, `["versions:1.20.1"]`) ||
+		mr.lastLimit != "20" || mr.lastOffset != "0" {
+		t.Fatalf("发给 Modrinth 的：facets=%s offset=%s limit=%s", mr.lastFacets, mr.lastOffset, mr.lastLimit)
+	}
+	plugins, err := s.Search(context.Background(), SearchQuery{Q: "a", Type: "plugin", Loaders: []string{"paper"}})
+	if err != nil || len(plugins.Hits) != 2 {
 		t.Fatalf("插件不按客户端筛：%+v %v", plugins, err)
+	}
+	if strings.Contains(mr.lastFacets, "server_side") || strings.Contains(mr.lastFacets, "versions:") {
+		t.Fatalf("插件不带 server_side、不卡版本：%s", mr.lastFacets)
+	}
+}
+
+// 热门清单：关键词留空、按类别筛、一页 20 条往后翻，最多翻到第 5 页；类别只认白名单里的。
+func TestSearchPagesAndCategories(t *testing.T) {
+	mr := newFakeMR(t)
+	s := New(t.TempDir(), mr.srv.URL)
+	ctx := context.Background()
+	page := func(offset int) *SearchResult {
+		t.Helper()
+		res, err := s.Search(ctx, SearchQuery{Q: "bulk", Type: "mod", Loaders: fabric, MC: "1.20.1", Offset: offset})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	p1, p2, p3 := page(0), page(20), page(40)
+	if len(p1.Hits) != 20 || !p1.More || p1.Total != 45 || p1.Hits[0].ProjectID != "bulk00" {
+		t.Fatalf("第 1 页：%d 条 more=%v total=%d", len(p1.Hits), p1.More, p1.Total)
+	}
+	if len(p2.Hits) != 20 || !p2.More || p2.Offset != 20 || p2.Hits[0].ProjectID != "bulk20" {
+		t.Fatalf("第 2 页：%d 条 more=%v 从 %s 开始", len(p2.Hits), p2.More, p2.Hits[0].ProjectID)
+	}
+	if len(p3.Hits) != 5 || p3.More {
+		t.Fatalf("最后一页：%d 条 more=%v", len(p3.Hits), p3.More)
+	}
+	// 不是整页的 offset 按页对齐；超过上限的按上限取，到了第 5 页就不再往后
+	if got := page(27); got.Offset != 20 || mr.lastOffset != "20" {
+		t.Fatalf("offset 27 应对齐到 20：%d（发出去的是 %s）", got.Offset, mr.lastOffset)
+	}
+	if got := page(500); got.Offset != MaxOffset || got.More || mr.lastOffset != "80" {
+		t.Fatalf("offset 最多到 %d：%d more=%v", MaxOffset, got.Offset, got.More)
+	}
+	if got := page(-5); got.Offset != 0 {
+		t.Fatalf("负的 offset 按 0：%d", got.Offset)
+	}
+	// 关键词留空 + 类别：facets 里多一组 categories:<类别>
+	res, err := s.Search(ctx, SearchQuery{Type: "mod", Loaders: fabric, MC: "1.20.1", Category: "optimization"})
+	if err != nil || len(res.Hits) != 1 || res.Hits[0].ProjectID != "aaa" || !strings.Contains(mr.lastFacets, `["categories:optimization"]`) {
+		t.Fatalf("按类别筛：%+v %v facets=%s", res, err, mr.lastFacets)
+	}
+	// 白名单外的类别不发给 Modrinth
+	before := mr.count("/search")
+	for _, q := range []SearchQuery{
+		{Type: "mod", Loaders: fabric, MC: "1.20.1", Category: `x"],["project_type:modpack`},
+		{Type: "mod", Loaders: fabric, MC: "1.20.1", Category: "economy"}, // 插件才有的类别
+		{Type: "plugin", Loaders: []string{"paper"}, Category: "magic"},   // 模组才有的类别
+	} {
+		if _, err := s.Search(ctx, q); err == nil || err.(*Error).Code != 400 {
+			t.Errorf("类别 %q（%s）应报 400：%v", q.Category, q.Type, err)
+		}
+	}
+	if mr.count("/search") != before {
+		t.Error("类别不对时不该去问 Modrinth")
+	}
+	if _, err := s.Search(ctx, SearchQuery{Type: "plugin", Loaders: []string{"paper"}, Category: "economy"}); err != nil {
+		t.Errorf("插件的类别：%v", err)
+	}
+	for _, c := range append(Categories("mod"), Categories("plugin")...) {
+		if !validID(c) {
+			t.Errorf("类别 %q 不该出现在白名单里", c)
+		}
 	}
 }
 
@@ -370,7 +442,7 @@ func TestModrinthTimeout(t *testing.T) {
 	s := New(t.TempDir(), hang.URL)
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	_, err := s.Search(ctx, "x", "mod", fabric, "1.20.1")
+	_, err := s.Search(ctx, SearchQuery{Q: "x", Type: "mod", Loaders: fabric, MC: "1.20.1"})
 	var e *Error
 	if !errors.As(err, &e) || e.Code != 502 {
 		t.Fatalf("时限到了应报 502：%v", err)

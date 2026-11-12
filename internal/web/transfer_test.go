@@ -156,7 +156,7 @@ func TestTransferRoutes(t *testing.T) {
 
 	// 导入：重名拒
 	dup := e.call(t, "POST", "/api/transfer/import", `{"file":"`+filepath.ToSlash(cachedFile)+`","name":"生存服","eula":true}`, 400)
-	if !strings.Contains(dup.Body.String(), "已存在") {
+	if !strings.Contains(dup.Body.String(), "已有同名的服务器") {
 		t.Errorf("重名导入的报错：%s", dup.Body)
 	}
 	// 导入：文件不在上传目录里拒
@@ -226,7 +226,7 @@ func TestTransferRoutes(t *testing.T) {
 	}
 	// 打包方式不认识的直接拒
 	e.call(t, "POST", ip+"/transfer/export", `{"mode":"别的什么"}`, 400)
-	// 不存在的实例报「实例不存在」
+	// 不存在的实例报「服务器不存在」
 	e.call(t, "POST", "/api/instances/nope/transfer/export", `{}`, 400)
 
 }

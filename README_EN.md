@@ -74,7 +74,7 @@ Sends the sound of a music player on the host's PC to everyone on the server thr
 The following are only in the v3.1.0 betas for now. Stable v3.0.0 does not have them.
 
 - **Handover packs**: pack a stopped server into one `.mdpack` file and hand it to MineDeck on another PC to keep running it. The pack holds the worlds, configs, mods, plugins and player lists. Config files go in as they are, so any passwords written in them are handed over too; change the ones you also use elsewhere first. If you receive a pack: the mods and plugins in it will run on your PC, so only import packs from people you trust. A guide for the receiver is in [docs/接收者上手指南.md](docs/接收者上手指南.md) (in Chinese).
-- **Mod cart**: pick mods or plugins into a cart, have their dependencies added automatically, and install them in one go. The new-server wizard also gains an optional step for picking mods (选模组). Files come from Modrinth and are verified after download.
+- **To-install list** (待装清单): the most popular mods or plugins for your server type and version are listed up front. Filter by category or search, add what you want to the list, have the dependencies filled in automatically, and install everything in one go. A jar you downloaded yourself can be added from your PC as well, and MineDeck checks which dependencies it still needs. The new-server wizard also gains an optional step for picking mods (选模组; on plugin servers it is 选插件). Files that come from Modrinth are verified after download.
 - **Modpack files that cannot be downloaded are handled one by one**: before, a single file whose download address was not on an allowed site, or that had no checksum, made the whole import fail. Now the modpack imports as usual and such files are listed on the task page under pending files (待决文件). You can skip one, use a local file instead, or trust the site and download it after reading a risk notice.
 - **Adopting an existing server**: point MineDeck at the folder of a server you already run and it is brought in to be managed with the rest. The server type, version, launch file and memory setting are detected. The files stay where they are, and the old launch script is backed up first.
 - **Switching Java in the interface**: each server's Memory / startup tab (内存 / 启动) can switch Java.
@@ -111,7 +111,7 @@ Uninstalling: if start-with-Windows is on, turn it off first under Settings → 
 1. Open the program and click New server (新建服务器).
 2. Pick a server type, a version and a build, accept the EULA, and press create.
 3. When creation finishes, press start. When the console prints `Done (...)!`, the server is up.
-4. Friends on the same LAN connect to `this PC's LAN IP:port`. For friends on other networks, you add a tunnel under Tunnels (内网穿透), bind it to this server, turn on "start with the server" (跟随实例启动), and send them the public address.
+4. Friends on the same LAN connect to `this PC's LAN IP:port`. For friends on other networks, you add a tunnel under Tunnels (内网穿透), bind it to this server, turn on "start with the server" (跟随服务器启动), and send them the public address.
 
 Places you will use often:
 
@@ -129,7 +129,7 @@ No. If a suitable Java is already on the PC, MineDeck uses it. If not, it downlo
 
 ### My friends are not on my network. How do they join?
 
-Add a tunnel under Tunnels (内网穿透), using OpenFrp, SakuraFrp or your own frps. Bind the tunnel to this server and turn on "start with the server" (跟随实例启动). After the server is up, send your friends the public address. Friends on the same LAN do not need a tunnel; they connect to `this PC's LAN IP:port`.
+Add a tunnel under Tunnels (内网穿透), using OpenFrp, SakuraFrp or your own frps. Bind the tunnel to this server and turn on "start with the server" (跟随服务器启动). After the server is up, send your friends the public address. Friends on the same LAN do not need a tunnel; they connect to `this PC's LAN IP:port`.
 
 ### Which versions and server types are supported?
 
@@ -154,7 +154,7 @@ Not without asking. Read-only things, such as looking at logs and configs, it do
 
 ### Stable or beta?
 
-Use the stable release for everyday hosting. Download a beta when you want to try the new features, such as handover packs, the mod cart and adopting an existing server, and follow the advice in "New in the 3.1.0 betas" above: a folder of its own, and a backup first.
+Use the stable release for everyday hosting. Download a beta when you want to try the new features, such as handover packs, the to-install list and adopting an existing server, and follow the advice in "New in the 3.1.0 betas" above: a folder of its own, and a backup first.
 
 ### Where is my data, and how do I move it?
 

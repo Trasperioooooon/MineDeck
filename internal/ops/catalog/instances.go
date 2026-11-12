@@ -384,9 +384,9 @@ func (c *cat) instanceOps() {
 				return nil, err
 			}
 			// 这台服务器的购物车跟着清掉：购物车按实例名存，不清的话以后新建一台同名的，
-			// 旧车里剩下的东西会被当成新服务器的。
+			// 旧车里剩下的东西会被当成新服务器的。人从电脑上添加、暂存着的本地文件也一起删。
 			if c.ModCart != nil {
-				_ = c.ModCart.Clear(p.Inst)
+				_ = c.ModCart.ClearAll(p.Inst)
 			}
 			return "ok", nil
 		},

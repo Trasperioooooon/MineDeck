@@ -616,9 +616,11 @@ a.inst-name:hover { text-decoration: underline; text-decoration-color: color-mix
 }
 .core-card .check .ico { width: 13px; height: 13px; }
 .core-card.sel .check { display: grid; animation: md-pop var(--dur-3) var(--ease-spring) both; }
-.recipe-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: var(--w-read); }
-.recipe-grid .core-card { padding: 22px; align-items: center; }
-.recipe-grid .core-card.full { grid-column: 1 / -1; } /* 第三种方式「接管已有服务器」单占一行 */
+/* 新建页的四种方式：分「新开一台」「把现成的搬进来」两组，四张卡一样大（同一行等高，两组之间靠最小高度对齐：够放两行说明） */
+.recipe-groups { max-width: var(--w-read); }
+.recipe-groups .core-group { margin-bottom: 24px; }
+.recipe-grid { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; gap: 16px; max-width: var(--w-read); }
+.recipe-grid .core-card { padding: 22px; align-items: center; min-height: 108px; }
 .recipe-ico {
   width: 48px; height: 48px; flex: none; border-radius: var(--r-md);
   display: grid; place-items: center; font-size: 22px;
@@ -641,6 +643,15 @@ a.inst-name:hover { text-decoration: underline; text-decoration-color: color-mix
 .ver-date { display: block; margin-top: 2px; font-family: var(--mono); font-size: var(--fs-2xs); font-weight: var(--fw-regular); color: var(--muted); }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; max-width: var(--w-read); }
 .form-grid .full { grid-column: 1 / -1; }
+/* 内网穿透：添加表单在列表上方，和列表一样铺满内容宽度；字段按宽度自动排成 1–4 列（偏离 --w-read 的原因见 design-system/pages/tunnels.md） */
+.tun-form { margin-bottom: 16px; }
+.tun-form h3 { margin-bottom: 6px; }
+.tun-help { margin-bottom: 16px; line-height: 1.7; }
+.form-grid.tun-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); max-width: none; }
+.tun-grid > div.field { align-self: end; }
+.tun-form .mu-tip { max-width: none; }
+.java-row.tun-row { max-width: none; }
+.empty.tun-empty { padding-top: 20px; }
 .eula-box { padding: 14px 16px; margin: 4px 0 16px; max-width: var(--w-read); transition: border-color var(--dur-2), box-shadow var(--dur-2); }
 .eula-box.invalid { border-color: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 18%, transparent); }
 .eula-box .field-err { margin: 8px 0 0 50px; }
@@ -964,7 +975,21 @@ input.mem-num { width: 96px; height: 30px; font-size: var(--fs-sm); text-align: 
 }
 .toast .t-ico { width: 24px; height: 24px; flex: none; display: grid; place-items: center; border-radius: var(--r-sm); background: var(--success-subtle); color: var(--success-text); }
 .toast.error .t-ico { background: var(--danger-subtle); color: var(--danger-text); }
-.toast > span:last-child { padding-top: 1px; min-width: 0; overflow-wrap: anywhere; }
+.toast .t-msg { flex: 1; padding-top: 1px; min-width: 0; overflow-wrap: anywhere; }
+/* 报错提示右边的「详情」和关闭键 */
+.toast .btn.sm { flex: none; margin: -2px 0; }
+.toast .t-x {
+  flex: none; width: 24px; height: 24px; display: grid; place-items: center; margin-right: -4px;
+  border: 0; background: none; color: var(--muted); border-radius: var(--r-sm); cursor: pointer;
+  transition: background-color var(--dur-2), color var(--dur-2);
+}
+.toast .t-x:hover { background: var(--hover); color: var(--text); }
+/* 报错详情对话框里的原文：等宽、可选中、太长时自己滚 */
+.err-detail {
+  white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; max-height: 40vh; overflow: auto;
+  font-family: var(--mono); font-size: var(--fs-xs); line-height: 1.6; color: var(--text);
+  background: var(--sunken); border-radius: var(--r-md); box-shadow: var(--well); padding: 10px 12px;
+}
 .modal-mask {
   position: fixed; inset: 0; z-index: 50;
   display: flex; align-items: center; justify-content: center;

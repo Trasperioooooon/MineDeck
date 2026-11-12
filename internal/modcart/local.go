@@ -16,6 +16,11 @@ import (
 // hostIDs 不是模组、由服务器本身提供的依赖：不算缺失。
 var hostIDs = []string{"minecraft", "java", "forge", "neoforge", "fabricloader", "fabric-loader", "quilt_loader", "mohist"}
 
+// mustHave 这条依赖是不是「服务器上必须另有一个模组」：必需的、不是不兼容声明、不是只在客户端要的、不是服务器本身提供的。
+func mustHave(d modinfo.Dep) bool {
+	return d.Required && d.Kind == "" && !strings.EqualFold(d.Side, "CLIENT") && !slices.Contains(hostIDs, strings.ToLower(d.ID))
+}
+
 // MissingMod 缺的或版本不对的依赖。
 type MissingMod struct {
 	ID         string `json:"id"`              // 缺的模组 ID
@@ -53,7 +58,7 @@ func CheckLocal(dir string) (missing, stale []MissingMod, checked int, err error
 		by := orID(m.Name, m.ID)
 		for _, d := range m.Deps {
 			id := strings.ToLower(d.ID)
-			if !d.Required || d.Kind != "" || strings.EqualFold(d.Side, "CLIENT") || slices.Contains(hostIDs, id) {
+			if !mustHave(d) {
 				continue
 			}
 			v, ok := have[id]

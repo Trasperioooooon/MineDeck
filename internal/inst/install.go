@@ -65,7 +65,7 @@ func (m *Manager) validateCreate(req *CreateReq) (string, error) {
 	_, exists := m.insts[req.Name]
 	m.mu.Unlock()
 	if exists {
-		return "", fmt.Errorf("实例名已存在: %s", req.Name)
+		return "", fmt.Errorf("已有同名的服务器：%s", req.Name)
 	}
 	if req.Port <= 0 || req.Port > 65535 {
 		req.Port = 25565
@@ -90,7 +90,7 @@ func (m *Manager) validateCreate(req *CreateReq) (string, error) {
 			break
 		}
 		if n > 999 {
-			return "", fmt.Errorf("无法为实例分配目录（同名目录过多）")
+			return "", fmt.Errorf("无法为新服务器分配文件夹（同名文件夹过多）")
 		}
 		dir = filepath.Join(root, fmt.Sprintf("%s-%d", slug, n))
 	}
@@ -111,7 +111,7 @@ func (m *Manager) validateCreate(req *CreateReq) (string, error) {
 	}
 	m.mu.Unlock()
 	if taken {
-		return "", fmt.Errorf("实例名已存在: %s", req.Name)
+		return "", fmt.Errorf("已有同名的服务器：%s", req.Name)
 	}
 	if inflight {
 		return "", fmt.Errorf("「%s」正在创建中，请稍候", req.Name)
@@ -150,7 +150,7 @@ func (m *Manager) CreateAsync(req CreateReq) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	t, ctx := m.Tasks.New(fmt.Sprintf("创建实例 %s（%s %s）", req.Name, req.Core, req.MC), createSteps)
+	t, ctx := m.Tasks.New(fmt.Sprintf("创建服务器 %s（%s %s）", req.Name, req.Core, req.MC), createSteps)
 	go func() {
 		defer m.releaseCreating(req.Name)
 		defer m.releaseCreating(dirKey(dir))
@@ -324,7 +324,7 @@ func (m *Manager) runCreate(ctx context.Context, t *tasks.Task, req CreateReq, d
 	// ---- 步骤 4：写入配置 ----
 	t.StartStep(4)
 	if kind == mcsrc.KindProxy {
-		t.Logf("代理端无需 EULA 与 server.properties，首次启动后在实例目录编辑其自带配置文件")
+		t.Logf("代理端无需 EULA 与 server.properties，首次启动后在服务器文件夹里编辑它自带的配置文件")
 	} else {
 		if err := os.WriteFile(filepath.Join(dir, "eula.txt"),
 			[]byte("# 用户已在 MineDeck 中确认同意 Minecraft EULA (https://aka.ms/MinecraftEULA)\neula=true\n"), 0o644); err != nil {
@@ -372,7 +372,7 @@ func (m *Manager) runCreate(ctx context.Context, t *tasks.Task, req CreateReq, d
 	m.mu.Lock()
 	m.insts[req.Name] = inst
 	m.mu.Unlock()
-	t.Logf("实例创建完成 ✔")
+	t.Logf("服务器创建完成 ✔")
 	return nil
 }
 
@@ -443,7 +443,7 @@ func runInstaller(ctx context.Context, t *tasks.Task, javaExe, dir, installerJar
 			return ctx.Err()
 		}
 	}
-	return fmt.Errorf("安装器多次运行失败：%w。可以看实例目录里的 installer.jar.log。也可以在全局设置里换下载源再试。", lastErr)
+	return fmt.Errorf("安装器多次运行失败：%w。请查看服务器文件夹里的 installer.jar.log，或在「设置 → 下载与网络」中切换下载源后重试。", lastErr)
 }
 
 func runInstallerOnce(ctx context.Context, t *tasks.Task, javaExe, dir, installerJar string) error {
@@ -588,7 +588,7 @@ func locateLaunchTarget(dir string, core mcsrc.Core, ctx context.Context, mc str
 			}
 		}
 	}
-	return "", fmt.Errorf("安装器未生成可识别的服务端启动文件，请查看实例目录中的 installer.log")
+	return "", fmt.Errorf("安装器未生成可识别的服务端启动文件，请查看服务器文件夹中的 installer.log")
 }
 
 // log4shell 缓解参数（Mojang 官方方案）：<1.18.1 加 noLookups，1.12.2 ~ 1.16.5 另引用官方 xml 日志配置。

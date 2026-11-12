@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,7 +18,7 @@ import (
 
 // ---- Modrinth 的接口（公开，不需要 Key）----
 //
-// 用到的：/search 搜索、/projects?ids=[…] 批量查项目（ID、slug 都认，查不到的直接略过）、
+// 用到的：/search 搜索（关键词留空 + 按下载量排 = 热门清单；offset 翻页，类别走 facets）、/projects?ids=[…] 批量查项目（ID、slug 都认，查不到的直接略过）、
 // /project/{id}/version 按加载器和 MC 版本列版本、/version/{id} 查单个版本、
 // POST /version_files 按 SHA-1 认出服务器目录里已有的 jar 属于哪个项目。
 // 字段名按 2026-11 实际返回的核对过（测试里的假服务照这个形状回）。
@@ -210,28 +211,90 @@ func (s *Service) projects(ctx context.Context, ids []string) (projectSet, error
 	return out, nil
 }
 
-// Search 按项目类型（mod / plugin）、加载器和 MC 版本在 Modrinth 搜索，按下载量排序取前 20 个。
-// mc 空串不按版本过滤（插件兼容面广，现有的资源页也不卡版本）。只在客户端用的模组不列出来：装到服务器上没用。
-func (s *Service) Search(ctx context.Context, q, rtype string, loaders []string, mc string) ([]Hit, error) {
-	loaderFacet := make([]string, 0, len(loaders))
-	for _, l := range loaders {
+// PageSize 搜索一页几条；MaxOffset 最多从第几条开始取（第 5 页）：热门清单往后翻到这里为止，再往后的该用关键词找了。
+const (
+	PageSize  = 20
+	MaxOffset = 80
+)
+
+// 类别筛选的白名单（Modrinth 的 category slug，2026-11 对照 /v2/tag/category 核对过：Modrinth 上插件和模组共用 mod 这一套类别）。
+// 界面上的筛选片按这个顺序排；别的 slug 一律不认，不拿调用方给的字符串去拼 facets。
+var (
+	modCategories    = []string{"optimization", "utility", "management", "worldgen", "adventure", "technology", "magic", "mobs", "equipment", "storage", "library"}
+	pluginCategories = []string{"management", "utility", "optimization", "economy", "social", "minigame", "game-mechanics", "worldgen", "library"}
+)
+
+// Categories 这种项目类型（mod / plugin）能按哪些类别筛。
+func Categories(rtype string) []string {
+	if rtype == "plugin" {
+		return slices.Clone(pluginCategories)
+	}
+	return slices.Clone(modCategories)
+}
+
+// AllCategories 两种类型的类别合在一起（去重），给参数说明用。
+func AllCategories() []string {
+	out := slices.Clone(modCategories)
+	for _, c := range pluginCategories {
+		if !slices.Contains(out, c) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// SearchQuery 一次搜索。Q 留空就是「最热门的」：结果始终按下载量排。
+type SearchQuery struct {
+	Q        string
+	Type     string   // mod / plugin
+	Loaders  []string // Modrinth 的加载器
+	MC       string   // 空串不按版本过滤（插件兼容面广，现有的资源页也不卡版本）
+	Category string   // 空串不按类别筛；否则必须在 Categories(Type) 里
+	Offset   int      // 从第几条开始，0 到 MaxOffset；按 PageSize 对齐（Modrinth 自己也是按页取的）
+}
+
+// SearchResult 一页结果。Hits 最多 PageSize 条，不会是 nil。
+type SearchResult struct {
+	Hits   []Hit `json:"hits"`
+	Offset int   `json:"offset"` // 这一页实际从第几条开始
+	Total  int   `json:"total"`  // Modrinth 上一共有多少条符合
+	More   bool  `json:"more"`   // 还能不能往后翻（没到头，也没到 MaxOffset）
+}
+
+// Search 在 Modrinth 搜索，按下载量排序，一页 PageSize 条。只在客户端用的模组不列出来：装到服务器上没用
+// （让 Modrinth 那边就筛掉，这样每页条数是齐的、翻页不会重复或漏；回来以后再筛一遍兜底）。
+func (s *Service) Search(ctx context.Context, q SearchQuery) (*SearchResult, error) {
+	if q.Category != "" && !slices.Contains(Categories(q.Type), q.Category) {
+		return nil, errorf(400, "没有「%s」这个类别", q.Category)
+	}
+	offset := min(max(q.Offset, 0), MaxOffset) / PageSize * PageSize
+	loaderFacet := make([]string, 0, len(q.Loaders))
+	for _, l := range q.Loaders {
 		loaderFacet = append(loaderFacet, "categories:"+l)
 	}
-	facets := []any{[]string{"project_type:" + rtype}, loaderFacet}
-	if mc != "" {
-		facets = append(facets, []string{"versions:" + mc})
+	facets := []any{[]string{"project_type:" + q.Type}, loaderFacet}
+	if q.MC != "" {
+		facets = append(facets, []string{"versions:" + q.MC})
+	}
+	if q.Type == "mod" {
+		facets = append(facets, []string{"server_side!=unsupported"})
+	}
+	if q.Category != "" {
+		facets = append(facets, []string{"categories:" + q.Category})
 	}
 	fb, _ := json.Marshal(facets)
 	var resp struct {
-		Hits []Hit `json:"hits"`
+		Hits      []Hit `json:"hits"`
+		TotalHits int   `json:"total_hits"`
 	}
-	err := s.getJSON(ctx, "/search", url.Values{"query": {q}, "limit": {"30"}, "index": {"downloads"}, "facets": {string(fb)}}, &resp)
+	err := s.getJSON(ctx, "/search", url.Values{"query": {q.Q}, "limit": {strconv.Itoa(PageSize)}, "offset": {strconv.Itoa(offset)},
+		"index": {"downloads"}, "facets": {string(fb)}}, &resp)
 	if err != nil {
 		return nil, err
 	}
-	hits := slices.DeleteFunc(resp.Hits, func(h Hit) bool { return rtype == "mod" && h.ServerSide == "unsupported" })
-	if len(hits) > 20 {
-		hits = hits[:20]
+	hits := slices.DeleteFunc(resp.Hits, func(h Hit) bool { return q.Type == "mod" && h.ServerSide == "unsupported" })
+	if len(hits) > PageSize {
+		hits = hits[:PageSize]
 	}
 	for i := range hits {
 		hits[i].ServerSide = ""
@@ -239,7 +302,8 @@ func (s *Service) Search(ctx context.Context, q, rtype string, loaders []string,
 	if hits == nil {
 		hits = []Hit{}
 	}
-	return hits, nil
+	return &SearchResult{Hits: hits, Offset: offset, Total: resp.TotalHits,
+		More: len(resp.Hits) > 0 && offset+PageSize < resp.TotalHits && offset < MaxOffset}, nil
 }
 
 // versions 一个项目在这些加载器（和 MC 版本）下的全部版本。

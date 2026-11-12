@@ -397,7 +397,7 @@ func (s *Service) syncVoiceHost(name string, starting bool) {
 				s.log(name, "清 voice_host 失败：%v", err)
 				return
 			}
-			s.log(name, "语音隧道没开，已把 voice_host 清回空（本机和局域网的语音照常；要远程好友能听，开语音隧道或勾上「跟随实例启动」）")
+			s.log(name, "语音隧道没开，已把 voice_host 清回空（本机和局域网的语音照常；要远程好友能听，开语音隧道或勾上「跟随服务器启动」）")
 		}
 		return
 	}

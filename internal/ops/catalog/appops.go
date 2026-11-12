@@ -1,9 +1,10 @@
 package catalog
 
 import (
-	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -15,8 +16,8 @@ import (
 
 	"minedeck/internal/app"
 	"minedeck/internal/autostart"
+	"minedeck/internal/hostdlg"
 	"minedeck/internal/ops"
-	"minedeck/internal/procutil"
 	"minedeck/internal/update"
 )
 
@@ -42,22 +43,6 @@ func localIPs() []string {
 		}
 	}
 	return out
-}
-
-// pickFolder 通过 PowerShell 调用系统 FolderBrowserDialog（-STA），返回所选目录。
-func pickFolder() (string, error) {
-	const ps = "Add-Type -AssemblyName System.Windows.Forms | Out-Null; " +
-		"$f = New-Object System.Windows.Forms.FolderBrowserDialog; " +
-		"$f.Description = 'Choose a folder for MineDeck'; $f.ShowNewFolderButton = $true; " +
-		"if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($f.SelectedPath) }"
-	cmd := exec.Command("powershell", "-STA", "-NoProfile", "-NonInteractive", "-Command", ps)
-	cmd.Env = procutil.CleanEnv()
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("打开文件夹对话框失败: %w", err)
-	}
-	return strings.TrimSpace(out.String()), nil
 }
 
 // configPatch 修改全局配置的参数：只更新传了的键（指针为 nil 表示没传）。
@@ -278,7 +263,7 @@ func (c *cat) appOps() {
 			// 防止换血期间新旧进程并发管理同一存档
 			for _, i := range c.Mgr.List() {
 				if i.Status() != "stopped" {
-					return nil, fmt.Errorf("实例「%s」仍在运行，请先停止所有服务器再更新", i.Name)
+					return nil, fmt.Errorf("服务器「%s」仍在运行，请先停止所有服务器再更新", i.Name)
 				}
 			}
 			ctx := context.Background() // 独立于请求生命周期
@@ -307,7 +292,11 @@ func (c *cat) appOps() {
 		LocalMsg: "文件夹选择仅支持在本机操作（远程管理时请手动填写路径）",
 		Desc:     "在主机桌面上弹出系统的文件夹选择框，返回所选目录（取消为空）。",
 		Run: func(context.Context, ops.Caller, ops.Args) (any, error) {
-			path, err := pickFolder()
+			// 对话框的实现和后备在 internal/hostdlg：取消返回空路径；打不开时原因进日志，界面上只说「请再试一次」
+			path, err := hostdlg.PickFolder("选择文件夹", log.Printf)
+			if errors.Is(err, hostdlg.ErrBusy) {
+				return nil, ops.Wrap(409, err)
+			}
 			if err != nil {
 				return nil, ops.Wrap(500, err)
 			}
