@@ -82,15 +82,31 @@ body.has-host-chrome .tb-ai { margin-right: 2px; }
 .ap-note.warn { color: var(--warning-text); }
 .ap-note.error { color: var(--danger-text); }
 
-/* AI 回复里的 Markdown（自己渲染，先转义） */
+/* AI 回复里的 Markdown（自己渲染，先转义）。块与块之间留空；标题按级别放大，正文仍是小字 */
 .md { overflow-wrap: anywhere; }
-.md > * + * { margin-top: 8px; }
-.md .md-h { font-size: var(--fs-sm); line-height: 1.6; font-weight: var(--fw-semibold); }
-.md > * + .md-h { margin-top: 12px; }
+.md > * + *, .md-b + .md-b { margin-top: 8px; }
+.md-b + .md-b:has(> .md-h) { margin-top: 12px; }
+.md .md-h { font-weight: var(--fw-semibold); line-height: 1.4; }
+.md .md-h1 { font-size: var(--fs-title); line-height: 1.35; }
+.md .md-h2 { font-size: var(--fs-h3); }
+.md .md-h3 { font-size: var(--fs-body); }
+.md .md-h4 { font-size: var(--fs-sm); }
+.md .md-h5, .md .md-h6 { font-size: var(--fs-xs); color: var(--muted); }
 .md ul, .md ol { padding-left: 20px; }
 .md li + li, .md li > ul, .md li > ol { margin-top: 2px; }
+.md .md-task { list-style: none; }
+.md .md-task label { cursor: default; }
+.md .md-task input { margin: 0 6px 0 0; accent-color: var(--accent-solid); vertical-align: -1px; }
 .md code { font: .92em var(--mono); padding: 0 5px; border-radius: var(--r-xs); background: var(--sunken); border: 1px solid var(--border); }
-.md .md-pre { padding: 8px 10px; border-radius: var(--r-md); background: var(--sunken); box-shadow: var(--well); overflow-x: auto; font: var(--fs-xs)/1.6 var(--mono); }
+.md-code { border-radius: var(--r-md); background: var(--sunken); box-shadow: var(--well); }
+.md-code-bar { display: flex; align-items: center; gap: 8px; padding: 4px 8px 4px 10px; border-bottom: 1px solid var(--border); font-size: var(--fs-2xs); color: var(--muted); }
+.md-lang { font-family: var(--mono); }
+.md-lang:empty { display: none; }
+.md-open-note { color: var(--warning-text); }
+.md-copy { margin-left: auto; background: none; border: 0; padding: 2px 4px; color: var(--accent-text); font: inherit; cursor: pointer; }
+.md-copy:hover { text-decoration: underline; }
+.md .md-pre { max-height: 320px; padding: 8px 10px; overflow: auto; font: var(--fs-xs)/1.6 var(--mono); }
+.md-code .md-pre { border-radius: 0 0 var(--r-md) var(--r-md); }
 .md .md-pre code { padding: 0; background: none; border: 0; font: inherit; white-space: pre; }
 .md blockquote { padding-left: 10px; border-left: 3px solid var(--border-strong); color: var(--muted); }
 .md hr { border: 0; border-top: 1px solid var(--border); }
@@ -98,6 +114,17 @@ body.has-host-chrome .tb-ai { margin-right: 2px; }
 .md table { border-collapse: collapse; font-size: var(--fs-xs); line-height: 1.6; }
 .md th, .md td { padding: 3px 8px; text-align: left; vertical-align: top; border: 1px solid var(--border); }
 .md th { background: var(--surface-2); font-weight: var(--fw-semibold); }
+
+/* 思考：默认收起。展开后限高，避免长思考把对话顶出屏幕 */
+.ap-think { margin-bottom: 8px; border-radius: var(--r-md); background: var(--surface); box-shadow: inset 0 0 0 1px var(--border); font-size: var(--fs-xs); }
+.ap-think > summary { cursor: pointer; padding: 6px 10px; color: var(--muted); list-style: none; }
+.ap-think > summary::-webkit-details-marker { display: none; }
+.ap-think > summary:hover { color: var(--text); }
+.ap-think-body { margin: 0; padding: 0 10px 8px; max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: break-word; color: var(--muted); line-height: 1.6; }
+
+/* 拖左边改宽度。手机上面板占满，不显示这条 */
+.ap-resize { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; margin-left: -3px; cursor: ew-resize; touch-action: none; z-index: 2; }
+.ap-resize:hover, .ap-resize.drag { background: color-mix(in srgb, var(--accent) 40%, transparent); }
 
 /* 工具调用：一行一个，点开看参数和交还给 AI 的内容 */
 .ap-tools { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
@@ -115,7 +142,7 @@ body.has-host-chrome .tb-ai { margin-right: 2px; }
 .at-err { color: var(--danger-text); line-height: 1.6; }
 .ap-kv {
   align-self: stretch; margin: 0; padding: 6px 8px; max-height: 220px; overflow: auto;
-  font: var(--fs-2xs)/1.6 var(--mono); color: var(--text); white-space: pre-wrap; word-break: break-all;
+  font: var(--fs-2xs)/1.6 var(--mono); color: var(--text); white-space: pre-wrap; overflow-wrap: break-word; word-break: normal;
   background: var(--sunken); border-radius: var(--r-sm); box-shadow: var(--well);
 }
 .ap-kv b { font-weight: var(--fw-semibold); }
@@ -145,7 +172,7 @@ body.has-host-chrome .tb-ai { margin-right: 2px; }
 .pc-warn .ico { margin-top: 3px; }
 .pc-diff {
   margin: 0; padding: 8px 10px; max-height: 260px; overflow: auto;
-  font: var(--fs-2xs)/1.6 var(--mono); color: var(--text); white-space: pre-wrap; word-break: break-all;
+  font: var(--fs-2xs)/1.6 var(--mono); color: var(--text); white-space: pre-wrap; overflow-wrap: break-word; word-break: normal;
   background: var(--sunken); border-radius: var(--r-md); box-shadow: var(--well);
 }
 .pc-diff .add { color: var(--success-text); }
@@ -204,7 +231,7 @@ body.has-host-chrome .tb-ai { margin-right: 2px; }
 .ap-pv-more > summary { cursor: pointer; width: fit-content; font-size: var(--fs-sm); color: var(--accent-text); }
 .ap-pre {
   margin-top: 8px; max-height: 46vh; max-height: 46dvh; overflow: auto; padding: 10px 12px;
-  font: var(--fs-xs)/1.6 var(--mono); color: var(--text); white-space: pre-wrap; word-break: break-all;
+  font: var(--fs-xs)/1.6 var(--mono); color: var(--text); white-space: pre-wrap; overflow-wrap: break-word; word-break: normal;
   background: var(--sunken); border-radius: var(--r-md); box-shadow: var(--well);
 }
 .ap-pre.ap-sent { margin: 0 0 16px; }
@@ -227,7 +254,7 @@ body.has-host-chrome .tb-ai { margin-right: 2px; }
 .db-fix { margin-top: 4px; font-weight: var(--fw-semibold); }
 .db-ev {
   margin-top: 6px; padding: 6px 9px; overflow-x: auto;
-  font: var(--fs-2xs)/1.6 var(--mono); white-space: pre-wrap; word-break: break-all;
+  font: var(--fs-2xs)/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: break-word; word-break: normal;
   background: var(--term-bg); color: var(--term-fg); border-radius: var(--r-sm);
 }
 .diag-banner .hint { margin: 10px 0 0 38px; color: var(--text); opacity: .8; }
@@ -239,6 +266,7 @@ body.has-host-chrome .tb-ai { margin-right: 2px; }
 /* 手机（断点与 app.css 的底部标签栏一致，横屏手机也算）：面板占满标题栏以下，盖住底栏 */
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .ai-panel { left: 0; width: auto; border-left: 0; border-radius: 0; }
+  .ap-resize { display: none; }
   .tb-ai { margin-right: 6px; }
 }
 /* 安全区（同 app.css 末尾，@supports 包住，旧浏览器整段跳过）：面板顶在加高了的标题栏下面；

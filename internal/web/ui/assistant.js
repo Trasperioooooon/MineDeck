@@ -20,6 +20,14 @@ window.MDAssist = (() => {
   const enc = encodeURIComponent;
   const sp = id => "/api/assistant/sessions/" + enc(id);
   const LAST = "amh_ai_sid"; // 上次打开的会话（每台设备各自记）
+  const WIDTH_KEY = "amh_ai_w"; // 面板宽度，320–720
+  function applyWidth(px) {
+    let w = px;
+    if (w == null) { try { w = +localStorage.getItem(WIDTH_KEY); } catch { w = 0; } }
+    if (!(w >= 320 && w <= 720)) w = 440;
+    document.documentElement.style.setProperty("--ai-w", w + "px");
+    return w;
+  }
   const store = {
     get: () => { try { return localStorage.getItem(LAST) || ""; } catch { return ""; } },
     set: v => { try { v ? localStorage.setItem(LAST, v) : localStorage.removeItem(LAST); } catch {} },
@@ -36,6 +44,7 @@ window.MDAssist = (() => {
     b.innerHTML = `${icon("sparkle")}<span>AI 助手</span><i class="tb-dot" hidden></i>`;
     b.onclick = () => (A.panel ? close() : open());
     document.getElementById("win-ctrls").before(b);
+    applyWidth();
     document.addEventListener("keydown", e => {
       // Esc 关面板；弹窗、菜单开着时先让它们处理（它们的监听在后面登记，这里先判断）
       if (e.key !== "Escape" || !A.panel || $("#modal-root").childElementCount || document.querySelector(".dropmenu:not(.leave)")) return;
@@ -88,6 +97,13 @@ window.MDAssist = (() => {
       <div class="ap-foot" id="ap-foot" hidden></div>`;
     document.body.appendChild(p);
     A.panel = p;
+    wireResize(p);
+    p.addEventListener("click", e => {
+      const b = e.target.closest && e.target.closest(".md-copy");
+      if (!b || !p.contains(b)) return;
+      const code = b.closest(".md-code") && b.closest(".md-code").querySelector("code");
+      if (code) copy(code.textContent, "已复制代码");
+    });
     p.addEventListener("animationend", () => p.classList.remove("enter"), { once: true });
     q("#ap-close").onclick = close;
     q("#ap-back").onclick = () => (A.view === "list" && A.sess ? backToChat() : list());
@@ -126,6 +142,39 @@ window.MDAssist = (() => {
   }
 
   function ext() { paintExt(); paintBtn(); }
+
+  /* 拖左边改宽度，松手后记在这台设备上。往左拖变宽。 */
+  function wireResize(p) {
+    const h = document.createElement("div");
+    h.className = "ap-resize";
+    h.setAttribute("role", "separator");
+    h.setAttribute("aria-orientation", "vertical");
+    h.setAttribute("aria-label", "调整助手面板宽度");
+    h.title = "拖动调整宽度";
+    p.prepend(h);
+    h.addEventListener("pointerdown", e => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const startX = e.clientX, startW = p.getBoundingClientRect().width;
+      h.classList.add("drag");
+      h.setPointerCapture(e.pointerId);
+      const move = ev => {
+        const max = Math.min(720, Math.max(320, window.innerWidth - 48));
+        const w = Math.round(Math.min(max, Math.max(320, startW - (ev.clientX - startX))));
+        applyWidth(w);
+        h.dataset.w = String(w);
+      };
+      const up = () => {
+        h.classList.remove("drag");
+        h.removeEventListener("pointermove", move);
+        h.removeEventListener("pointerup", up);
+        const w = +h.dataset.w;
+        if (w) { try { localStorage.setItem(WIDTH_KEY, String(w)); } catch {} }
+      };
+      h.addEventListener("pointermove", move);
+      h.addEventListener("pointerup", up);
+    });
+  }
 
   async function open(id) {
     if (!A.panel) mount();
@@ -326,7 +375,14 @@ window.MDAssist = (() => {
         break;
       }
       case "tool_start": { const it = find(ev.id); if (it) { it._tool = ev.name; later(it); } break; }
-      case "thinking": { const it = find(ev.id); if (it && !it._thinking) { it._thinking = true; later(it); } break; }
+      case "thinking": {
+        const it = find(ev.id);
+        if (!it) return;
+        if (ev.text) it.think = (it.think || "") + ev.text;
+        it._thinking = true;
+        later(it);
+        break;
+      }
       case "remove": {
         s.items = s.items.filter(x => x.id !== ev.id);
         const el = itemEl(ev.id);
@@ -375,6 +431,7 @@ window.MDAssist = (() => {
     }
     paintHead();
     body.innerHTML = A.sess.items.length ? A.sess.items.map(itemHTML).join("") : startHTML();
+    hydrate(body);
     wire(body);
     paintFoot();
     body.scrollTop = body.scrollHeight;
@@ -388,23 +445,41 @@ window.MDAssist = (() => {
 
   const itemEl = id => A.panel && A.panel.querySelector(`[data-item="${CSS.escape(id)}"]`);
 
+  function toolsSig(it) {
+    return (it.tools || []).map(t => [t.id, t.status, (t.proposal && t.proposal.outcome) || "", t.error || ""].join(":")).join("|");
+  }
+
+  function hydrate(root) {
+    if (!A.sess) return;
+    root.querySelectorAll(".ap-msg.assistant").forEach(msg => {
+      const it = A.sess.items.find(x => x.id === msg.dataset.item);
+      if (!it) return;
+      msg._tsig = toolsSig(it);
+      const md = msg.querySelector(".md");
+      if (md && it.text) md._parts = MDMarkdown.parts(it.text);
+    });
+  }
+
   function paintItem(it, fresh) {
     if (!A.panel || A.view !== "chat" || !A.sess) return;
     const body = q("#ap-body");
     const stick = body.scrollHeight - body.scrollTop - body.clientHeight < 48;
     const old = itemEl(it.id);
+    if (old && it.kind === "assistant" && old._tsig === toolsSig(it) && old.classList.contains("partial") === !!it.partial) {
+      updateStream(old, it);
+      if (stick) body.scrollTop = body.scrollHeight;
+      return;
+    }
     const t = document.createElement("div");
     t.innerHTML = itemHTML(it);
     const n = t.firstElementChild;
+    if (it.kind === "assistant") {
+      n._tsig = toolsSig(it);
+      const md = n.querySelector(".md");
+      if (md && it.text) md._parts = MDMarkdown.parts(it.text);
+    }
     if (old) {
-      // 保留展开的详情和没写完的拒绝理由
-      const open = [...old.querySelectorAll("details[open]")].map(d => d.dataset.k);
-      open.forEach(k => { const d = n.querySelector(`details[data-k="${CSS.escape(k)}"]`); if (d) d.open = true; });
-      old.querySelectorAll(".pc-reason:not([hidden]) input").forEach(inp => {
-        const card = inp.closest("[data-pid]");
-        const nc = card && n.querySelector(`[data-pid="${CSS.escape(card.dataset.pid)}"] .pc-reason`);
-        if (nc) { nc.hidden = false; nc.querySelector("input").value = inp.value; }
-      });
+      restoreState(old, n);
       old.replaceWith(n);
     } else {
       const start = body.querySelector(".ap-start");
@@ -414,6 +489,106 @@ window.MDAssist = (() => {
     }
     wire(n);
     if (stick) body.scrollTop = body.scrollHeight;
+  }
+
+  /* 整段替换时留下：展开的详情、拒绝理由、确认卡片已勾的框、代码块和表格的滚动位置 */
+  function restoreState(old, n) {
+    [...old.querySelectorAll("details[open]")].map(d => d.dataset.k).filter(Boolean).forEach(k => {
+      const d = n.querySelector(`details[data-k="${CSS.escape(k)}"]`);
+      if (d) d.open = true;
+    });
+    old.querySelectorAll(".pc-reason:not([hidden]) input").forEach(inp => {
+      const card = inp.closest("[data-pid]");
+      const nc = card && n.querySelector(`[data-pid="${CSS.escape(card.dataset.pid)}"] .pc-reason`);
+      if (nc) { nc.hidden = false; const i = nc.querySelector("input"); if (i) i.value = inp.value; }
+    });
+    old.querySelectorAll(".pc-check input").forEach(inp => {
+      if (!inp.checked) return;
+      const card = inp.closest("[data-pid]");
+      const box = card && n.querySelector(`[data-pid="${CSS.escape(card.dataset.pid)}"] input[data-k="${CSS.escape(inp.dataset.k || "")}"]`);
+      if (box) box.checked = true;
+    });
+    const prev = [...old.querySelectorAll(".md-pre, .md-table, .ap-kv, .pc-diff, .ap-think-body")];
+    const next = [...n.querySelectorAll(".md-pre, .md-table, .ap-kv, .pc-diff, .ap-think-body")];
+    prev.forEach((el, i) => { if (next[i]) { next[i].scrollLeft = el.scrollLeft; next[i].scrollTop = el.scrollTop; } });
+  }
+
+  /* 流式：已完成的 Markdown 块不动，只重画最后一块，这样选区和横向滚动留得住 */
+  function paintMd(el, src) {
+    const next = MDMarkdown.parts(src);
+    const prev = el._parts || [];
+    const kids = [...el.children];
+    let i = 0;
+    if (kids.length && kids.every(n => n.classList.contains("md-b"))) {
+      while (i < next.length && i < prev.length && prev[i].sig === next[i].sig && kids[i]) i++;
+    }
+    const saved = [];
+    for (let k = i; k < kids.length; k++) kids[k].querySelectorAll(".md-pre, .md-table").forEach(n => saved.push({ left: n.scrollLeft, top: n.scrollTop }));
+    while (el.children.length > i) el.lastElementChild.remove();
+    for (let k = i; k < next.length; k++) {
+      const d = document.createElement("div");
+      d.className = "md-b";
+      d.innerHTML = next[k].html;
+      el.appendChild(d);
+      let s = 0;
+      d.querySelectorAll(".md-pre, .md-table").forEach(n => { const sv = saved[s++]; if (sv) { n.scrollLeft = sv.left; n.scrollTop = sv.top; } });
+    }
+    el._parts = next;
+  }
+
+  function typingLabel(it) {
+    if (!A.sess || !A.sess.busy) return "";
+    if (it._tool) return "正在调用 " + toolTitle(it._tool) + "…";
+    const last = A.sess.items[A.sess.items.length - 1] === it;
+    if (last && !it.text && !(it.tools || []).length && !it.think) return it._thinking ? "思考中…" : "正在回复…";
+    return "";
+  }
+
+  function updateStream(root, it) {
+    let think = root.querySelector(":scope > .ap-think");
+    if (it.think) {
+      if (!think) {
+        think = document.createElement("details");
+        think.className = "ap-think";
+        think.dataset.k = "think";
+        think.innerHTML = "<summary></summary><div class=\"ap-think-body\"></div>";
+        root.prepend(think);
+      }
+      const live = A.sess.busy && A.sess.items[A.sess.items.length - 1] === it && !it.text;
+      think.querySelector("summary").textContent = live ? "思考中…" : "思考";
+      const tb = think.querySelector(".ap-think-body");
+      if (tb.textContent !== it.think) {
+        const top = tb.scrollTop, left = tb.scrollLeft;
+        tb.textContent = it.think;
+        tb.scrollTop = top; tb.scrollLeft = left;
+      }
+    } else if (think) think.remove();
+    let md = root.querySelector(":scope > .md");
+    if (it.text) {
+      if (!md) {
+        md = document.createElement("div");
+        md.className = "md";
+        if (think && think.parentNode === root) think.after(md);
+        else root.prepend(md);
+      }
+      paintMd(md, it.text);
+    } else if (md) md.remove();
+    const label = typingLabel(it);
+    let typing = root.querySelector(":scope > .ap-typing");
+    if (label) {
+      if (!typing) {
+        typing = document.createElement("div");
+        typing.className = "ap-typing";
+        typing.innerHTML = icon("spinner") + "<span></span>";
+        const anchor = root.querySelector(":scope > .ap-note, :scope > .ap-usage");
+        if (anchor) anchor.before(typing); else root.appendChild(typing);
+      }
+      typing.querySelector("span").textContent = label;
+    } else if (typing) typing.remove();
+    const u = usageHTML(it);
+    const usage = root.querySelector(":scope > .ap-usage");
+    if (u) { if (!usage) root.insertAdjacentHTML("beforeend", u); else if (usage.outerHTML !== u) usage.outerHTML = u; }
+    else if (usage) usage.remove();
   }
 
   function startHTML() {
@@ -447,14 +622,13 @@ window.MDAssist = (() => {
       return `<div class="ap-note ${lv}" data-item="${id}">${icon(lv === "info" ? "info" : "warn")}<span>${esc(it.text)}</span></div>`;
     }
     const tools = (it.tools || []).map(toolHTML).join("");
-    const last = A.sess && A.sess.items[A.sess.items.length - 1] === it;
-    let typing = "";
-    if (it._tool && A.sess.busy) typing = `正在调用 ${esc(toolTitle(it._tool))}…`;
-    else if (last && A.sess.busy && !it.text && !tools) typing = it._thinking ? "思考中…" : "正在回复…";
+    const typing = typingLabel(it);
+    const liveThink = A.sess && A.sess.busy && A.sess.items[A.sess.items.length - 1] === it && !it.text;
     return `<div class="ap-msg assistant${it.partial ? " partial" : ""}" data-item="${id}">
-      ${it.text ? `<div class="md">${md(it.text)}</div>` : ""}
+      ${it.think ? `<details class="ap-think" data-k="think"><summary>${liveThink ? "思考中…" : "思考"}</summary><div class="ap-think-body">${esc(it.think)}</div></details>` : ""}
+      ${it.text ? `<div class="md">${mdBlocks(it.text)}</div>` : ""}
       ${tools ? `<div class="ap-tools">${tools}</div>` : ""}
-      ${typing ? `<div class="ap-typing">${icon("spinner")}<span>${typing}</span></div>` : ""}
+      ${typing ? `<div class="ap-typing">${icon("spinner")}<span>${esc(typing)}</span></div>` : ""}
       ${it.partial ? `<div class="ap-note">${icon("info")}<span>没说完就停了</span></div>` : ""}
       ${usageHTML(it)}</div>`;
   }
@@ -542,6 +716,7 @@ window.MDAssist = (() => {
       const boxes = [...card.querySelectorAll(".pc-check input")];
       const paint = () => { ok.disabled = boxes.some(c => !c.checked); };
       boxes.forEach(c => c.onchange = paint);
+      paint();
       ok.onclick = () => decide(card, true);
       const reason = card.querySelector(".pc-reason");
       card.querySelector('[data-x="reject"]').onclick = () => { reason.hidden = !reason.hidden; if (!reason.hidden) reason.querySelector("input").focus(); };
@@ -814,96 +989,9 @@ window.MDAssist = (() => {
     refresh();
   }
 
-  /* ---------- Markdown（只认常用写法；先整体转义 HTML，链接只放行 http(s)） ---------- */
-
-  function md(src) { return mdLines(esc(src).replace(/\r\n?/g, "\n").split("\n")); }
-
-  const isFence = s => /^\s*```/.test(s);
-  const isHr = s => /^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(s);
-  const heading = s => s.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
-  const listItem = s => s.match(/^(\s*)([-*+•]|\d{1,3}[.)、])\s+(.*)$/);
-  const isQuote = s => /^\s{0,3}&gt;/.test(s);
-  const isSep = s => s.includes("|") && /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(s);
-  const isTable = (L, i) => L[i].includes("|") && i + 1 < L.length && isSep(L[i + 1]);
-
-  function mdLines(L) {
-    const out = [];
-    let i = 0;
-    while (i < L.length) {
-      const s = L[i];
-      if (!s.trim()) { i++; continue; }
-      let m;
-      if (isFence(s)) {
-        const buf = [];
-        for (i++; i < L.length && !isFence(L[i]); i++) buf.push(L[i]);
-        i++;
-        out.push(`<pre class="md-pre"><code>${buf.join("\n")}</code></pre>`);
-      } else if ((m = heading(s))) {
-        out.push(`<h4 class="md-h">${inline(m[2])}</h4>`);
-        i++;
-      } else if (isHr(s)) {
-        out.push("<hr>");
-        i++;
-      } else if (isQuote(s)) {
-        const buf = [];
-        for (; i < L.length && isQuote(L[i]); i++) buf.push(L[i].replace(/^\s{0,3}&gt;\s?/, ""));
-        out.push(`<blockquote>${mdLines(buf)}</blockquote>`);
-      } else if (isTable(L, i)) {
-        const cells = r => r.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(c => c.trim());
-        const hd = cells(s);
-        const rows = [];
-        for (i += 2; i < L.length && L[i].includes("|") && L[i].trim(); i++) rows.push(cells(L[i]));
-        out.push(`<div class="md-table"><table><thead><tr>${hd.map(c => `<th>${inline(c)}</th>`).join("")}</tr></thead><tbody>` +
-          rows.map(r => `<tr>${hd.map((_, k) => `<td>${inline(r[k] || "")}</td>`).join("")}</tr>`).join("") + `</tbody></table></div>`);
-      } else if (listItem(s)) {
-        const items = [];
-        while (i < L.length) {
-          const t = L[i], li = listItem(t);
-          if (li) { items.push({ ind: li[1].replace(/\t/g, "    ").length, ord: /\d/.test(li[2]), n: parseInt(li[2], 10), text: [li[3]] }); i++; continue; }
-          if (!t.trim()) { // 空行之后还是列表（或缩进的续行）就接着算
-            const nx = L[i + 1];
-            if (nx !== undefined && (listItem(nx) || /^\s{2,}\S/.test(nx)) && !isFence(nx)) { i++; continue; }
-            break;
-          }
-          if (/^\s{2,}\S/.test(t) && !isFence(t)) { items[items.length - 1].text.push(t.trim()); i++; continue; }
-          break;
-        }
-        out.push(listHTML(items));
-      } else {
-        const buf = [];
-        for (; i < L.length && L[i].trim() && !isFence(L[i]) && !heading(L[i]) && !isHr(L[i]) && !isQuote(L[i]) && !listItem(L[i]) && !isTable(L, i); i++) buf.push(L[i].trim());
-        out.push(`<p>${buf.map(inline).join("<br>")}</p>`);
-      }
-    }
-    return out.join("");
-  }
-
-  // 按缩进嵌套的列表
-  function listHTML(items) {
-    let html = "";
-    const stack = [];
-    for (const it of items) {
-      while (stack.length && it.ind < stack[stack.length - 1].ind) html += `</li></${stack.pop().tag}>`;
-      const top = stack[stack.length - 1];
-      if (!top || it.ind > top.ind) {
-        const tag = it.ord ? "ol" : "ul";
-        html += `<${tag}${it.ord && it.n > 1 ? ` start="${it.n}"` : ""}>`;
-        stack.push({ ind: it.ind, tag });
-      } else html += "</li>";
-      html += `<li>${it.text.map(inline).join("<br>")}`;
-    }
-    while (stack.length) html += `</li></${stack.pop().tag}>`;
-    return html;
-  }
-
-  // 行内：`代码`、**加粗**、~~删除线~~、[链接](http…)。代码里的内容原样显示
-  function inline(s) {
-    return s.split(/(`[^`]+`)/).map((seg, k) => k % 2 ? `<code>${seg.slice(1, -1)}</code>` : seg
-      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, t, u) => `<a href="${u}" target="_blank" rel="noopener noreferrer">${t}</a>`)
-      .replace(/\*\*(?=\S)(.+?)\*\*/g, "<b>$1</b>")
-      .replace(/__(?=\S)(.+?)__/g, "<b>$1</b>")
-      .replace(/~~(?=\S)(.+?)~~/g, "<s>$1</s>")).join("");
-  }
+  /* Markdown 在 md.js：先整体转义，链接只放行 http(s)，不渲染图片。这里只负责拼进消息。 */
+  function md(src) { return MDMarkdown.render(src); }
+  function mdBlocks(src) { return MDMarkdown.parts(src).map(p => `<div class="md-b">${p.html}</div>`).join(""); }
 
   function when(t) {
     const d = new Date(t);

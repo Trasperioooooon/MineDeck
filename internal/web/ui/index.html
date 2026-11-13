@@ -27,6 +27,9 @@
   root.dataset.theme = pref === "auto" ? sys : pref;
   root.dataset.scheme = scheme;
   root.dataset.accent = accent;
+  var aw = parseInt(get("amh_ai_w", "440"), 10);
+  if (!(aw >= 320 && aw <= 720)) aw = 440;
+  root.style.setProperty("--ai-w", aw + "px");
   /* 启动画面：只在原生 WebView2 窗口里（宿主注入了 hostWin* 桥接函数）、本次进程启动后第一次加载页面时播放。
      宿主每次启动生成一个 ID（window.__MD_BOOT，由 WebView2 的文档创建脚本注入，刷新后不变），
      sessionStorage 记下播过的 ID：刷新页面不再播；从托盘恢复窗口不会重新加载页面，也不播；
@@ -134,6 +137,7 @@ if (typeof window.hostReady === "function") requestAnimationFrame(function () { 
 <script src="props-catalog.js"></script>
 <script src="qrcode.js"></script>
 <script src="pixel.js"></script>
+<script src="md.js"></script>
 <script src="assistant.js"></script>
 <script src="music.js"></script>
 <script src="gamechat.js"></script>
