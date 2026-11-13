@@ -297,6 +297,28 @@ AI 助手用的读写能力，网页也能直接调。人调用时，写操作�
 - **隐私**：交接包含玩家数据（`playerdata/<uuid>.dat`、白名单、OP 名单）。日志虽剔除，但可能留有玩家 IP——导出确认框上写明「交接前请征得服务器成员同意」。配置文件原样进包，里面写着的密码（`server.properties` 的 `rcon.password`、插件配置里的数据库密码和令牌）也会交出去，确认框上同样写了。
 - **进度**：导出与导入都有双维度进度（字节为主、文件数隔批进任务 `label`），`/api/tasks/{id}` 轮询。导出先写缓存目录的 `.part` 再落位，失败清掉，随时重试；多 GB 的包打 / 解全程流式，不整读进内存。
 
+### 地图导入（已有的 Java 版世界）
+
+把一份已有的 Java 版世界用于新建服务器，或者替换一台服务器正在用的默认世界（level-name 指的那个，旧 Bukkit 布局连同 `_nether`、`_the_end`）。设计见 `docs/地图导入-设计.md`。逻辑在 `internal/worldimport`，操作都在操作层 `world.*`：检测本机路径仅人工且仅本机；检测上传、读说明书、预览、导入、取消、换回、删除恢复点、重试恢复都仅人工（AI 和 MCP 调不了）；只有 `world.status` 是读操作。检测结果和计划由后端保管，只认发起检测的那个调用方（本机界面、局域网某台设备），检测结果 2 小时、计划 30 分钟过期，计划用一次就作废。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/world/scan` | `{path}`：检测本机的世界文件夹或 ZIP 文件（**仅本机**）。返回 `Scan`：`{id, source{kind,name,uploaded}, kind, candidates[], issues[], files, bytes, createdAt, expiresAt}`。`kind` 是 `java-world`（能导入）、`damaged-world`、`bedrock`、`structure`、`resource-pack`、`datapack`、`modpack`、`server`、`mdpack`、`archive`（RAR、7z、加密、分卷、不支持的压缩方式）、`unknown`；不能导入的在 `issues` 里说清是什么、该去哪。每个候选 `{id, root, group?, folderName, layout, meta, dimensions[], playerFiles, datapacks?, resourcePack, hasIcon, readme?, files, bytes, issues?, sourceHints?}`；`layout` 是 `legacy`、`legacy-bukkit`、`modern`（26.1 起）、`modern-paper`；`meta` 是从 level.dat 只读出来的（版本名、数据版本号、快照、`ServerBrands`、`WasModded`、单人主人的 `Data.Player` / `singleplayer_uuid`、`version_history`、数据包、游戏规则、维度…，缺的字段就是缺）。`issues` 的每一项 `{sev, code, msg, detail?}`，`sev` 是 `block`（不能导入）、`confirm`（要用户明确确认）、`warn`、`info` |
+| POST | `/api/world/upload` | multipart 上传（`file` 字段，上限 8 GiB，超过返回 413）：流式写进 `<缓存目录>\worldimport\uploads\`（文件名由程序起，上传名只用来显示和认扩展名），然后同上返回 `Scan` |
+| POST | `/api/world/readme` | `{scanId, candidate, file}`：读来源里和地图放在一起的说明书，返回 `{text}`（去掉控制字符和格式码、限长；界面按纯文本显示） |
+| POST | `/api/world/plan` | 替换已有服务器：`{scanId, candidate, inst}`；新建服务器：`{scanId, candidate, newInst: true, core, mc}`。不改任何东西，返回 `Plan`：`{id, inst, newInst, core, mc, levelName, relation, layout, moves[], replace[], missing[], settings[], issues[], needBytes, freeBytes, mustStop, blocked, needConfirm, expiresAt}`。`relation` 是地图最后保存的版本和服务器版本的关系：`same`、`older`（第一次启动时游戏升级这份副本）、`newer`（拦下）、`unknown`。`replace` 是会被整体移进恢复点的旧世界目录；`missing` 是地图没提供的维度；`settings` 是建议改的服务器设置 `{key, before, after, why}`（只列目标 `server.properties` 里已有的键，用户勾了才改）。代理端（Velocity、Waterfall）直接报错 |
+| POST | `/api/world/import` | `{planId, confirm: "replace", acknowledge?, settings?: [键], stopFirst?}`：执行替换，返回 `{taskId}`（任务 `kind` 为 `world`）。后端自己核对：`confirm` 必须是 `replace`；计划有 `confirm` 级的项时 `acknowledge` 必须为 true；有 `block` 的计划拒绝；服务器在运行时必须 `stopFirst`（发 `stop`、等进程自己退出，2 分钟没停下就放弃导入、不强杀）。执行前重算来源和目标的指纹，预览以后变过就不换。步骤：复制到暂存区（服务器照常运行，可以取消）→ 停服并占用这台服务器（之后不能启动、删除、备份、还原、打包、改 `server.properties`）→ 把旧世界目录整体移进恢复点、新世界移到位、写勾选的设置 → 完成。中途失败自动退回旧世界；退不回去时什么都不删，这台服务器封锁启动，`world.status` 里给出路径。成功后服务器保持停止 |
+| POST | `/api/world/cancel` | `{taskId}`：取消还在复制的导入（开始换以后做完或退回再结束） |
+| POST | `/api/world/discard` | `{scanId}`：放弃检测结果，删掉上传的文件 |
+| GET | `/api/instances/{name}/world` | `{levelName, status, busy?, proxy, points[]}`。`busy` 是正在换地图、或有没处理完的记录时的原因。`points` 是以前导入留下的记录（新的在前）：`{id, state, created, source, candidate, levelName, hasOld, oldBytes, keptBytes, canReturn, error?, stuck?}`，`state` 是 `committed`、`rolled-back`、`restored`、`stuck` 等；`stuck` 是要人看的文件夹（只给本机的人看完整路径） |
+| POST | `/api/instances/{name}/world/restore` | `{id, confirm: "restore"}`：换回这次导入之前的地图（服务器要停着），返回 `{taskId}`。当前的世界（导入的那份，可能已被游戏改写）整体移到这次记录的 `after-restore` 里留着；旧世界搬回原位，导入时改过的设置改回去（之后又被用户改过的不动），再核对旧世界的 level.dat。导入以后 `level-name` 改过的拒绝 |
+| POST | `/api/instances/{name}/world/delete` | `{id, confirm: "delete"}`：删掉一次导入留下的东西（恢复点、换回时留在旁边的世界），删了就不能再换回 |
+| POST | `/api/instances/{name}/world/retry` | 卡住的记录再试一次自动恢复（服务器要停着） |
+
+用已有地图新建服务器：先 `/api/world/plan`（`newInst: true`），再把 `worldPlan`（计划编号）和 `worldAck`（确认过要确认的项）放进 `instance.create` 的请求。地图在实例登记之前放进新服务器的 `world`，放不进去整台不建。AI 发起的新建不能带 `worldPlan`。
+
+换地图的记录、暂存区和恢复点都在实例目录的 `.minedeck/world-import/<编号>/`（`journal.json`、`new/`、`old/`、`after-restore/`）。`.minedeck/` 是控制目录，交接包和整合包带了不收、导出也不带。MineDeck 启动时，加载实例就先按记录封锁没走完的那台的启动，处理完（提交到一半的退回旧世界）才放开。
+
 所有响应统一为 `{"ok": true, "data": ...}` 或 `{"ok": false, "error": "..."}`。失败时可能另带 `hint`：后端在原文之外给的一句短的人话（错误实现了 `Hint()`，由 `writeErr` 放进来），界面提示的正文接这一句，`error` 原文进「详情」。目前 AI 服务商的报错和导入整合包的解析报错带它。
 
 ### MCP 接口（外部 AI 工具）
