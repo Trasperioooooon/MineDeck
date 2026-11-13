@@ -1,13 +1,19 @@
 package tunnel
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"minedeck/internal/app"
@@ -147,15 +153,21 @@ func TestOpenfrpEnsureFrpcDownloadFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client := &http.Client{Transport: openfrpRoundTripFunc(func(r *http.Request) (*http.Response, error) {
-		clone := r.Clone(r.Context())
-		clone.URL.Scheme = target.Scheme
-		clone.URL.Host = target.Host
-		clone.Host = ""
-		return http.DefaultTransport.RoundTrip(clone)
-	})}
+	// 两个客户端分开，各记下自己经手的路径：frpc 的 zip 必须走 openfrpHTTPClient（只报 TLS 1.3 的那个），
+	// 走成默认的 dl.Client 就又会被下载源当成机器人拦掉。
+	var viaDefault, viaOpenfrp []string
+	redirectTo := func(seen *[]string) *http.Client {
+		return &http.Client{Transport: openfrpRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+			*seen = append(*seen, r.URL.Path)
+			clone := r.Clone(r.Context())
+			clone.URL.Scheme = target.Scheme
+			clone.URL.Host = target.Host
+			clone.Host = ""
+			return http.DefaultTransport.RoundTrip(clone)
+		})}
+	}
 	oldDLClient, oldOpenFrpClient := dl.Client, openfrpHTTPClient
-	dl.Client, openfrpHTTPClient = client, client
+	dl.Client, openfrpHTTPClient = redirectTo(&viaDefault), redirectTo(&viaOpenfrp)
 	t.Cleanup(func() { dl.Client, openfrpHTTPClient = oldDLClient, oldOpenFrpClient })
 
 	oldRuntimes, oldCache := app.RuntimesDir, app.CacheDir
@@ -188,5 +200,63 @@ func TestOpenfrpEnsureFrpcDownloadFailure(t *testing.T) {
 	}
 	if cause.Error() != "HTTP 567" {
 		t.Fatalf("错误链末端应是原始状态码错误：%v", cause)
+	}
+	if len(viaOpenfrp) == 0 {
+		t.Fatal("frpc 的 zip 没有经 openfrpHTTPClient 下载")
+	}
+	for _, p := range viaOpenfrp {
+		if !strings.HasSuffix(p, "/"+openfrpFrpcZip) {
+			t.Errorf("openfrpHTTPClient 只该用来下 frpc 的 zip，却请求了 %s", p)
+		}
+	}
+	for _, p := range viaDefault {
+		if strings.HasSuffix(p, "/"+openfrpFrpcZip) {
+			t.Errorf("frpc 的 zip 走了默认客户端：%s", p)
+		}
+	}
+	// 提示里叫人把 exe 放进这个文件夹，它得已经在那儿
+	if fi, err := os.Stat(frpcDir("openfrp")); err != nil || !fi.IsDir() {
+		t.Errorf("下载失败后应已建好放 frpc 的文件夹：%v", err)
+	}
+}
+
+// openfrpHTTPClient 的握手只报 TLS 1.3：这是它过得了下载源机器人防护的全部原因（见 providers.go 里的说明）。
+// 起一个本机的 TLS 服务，记下客户端在 ClientHello 里报的版本。证书是测试自签的，握手后面会失败，不影响看这一项。
+// 默认的 dl.Client 作对照：它会连 TLS 1.2 一起报。
+func TestOpenfrpHTTPClientOffersOnlyTLS13(t *testing.T) {
+	var mu sync.Mutex
+	var offered [][]uint16
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	srv.TLS = &tls.Config{GetConfigForClient: func(h *tls.ClientHelloInfo) (*tls.Config, error) {
+		mu.Lock()
+		offered = append(offered, append([]uint16(nil), h.SupportedVersions...))
+		mu.Unlock()
+		return nil, nil
+	}}
+	srv.Config.ErrorLog = log.New(io.Discard, "", 0) // 握手失败是预料之中的，不往测试输出里写
+	srv.StartTLS()
+	defer srv.Close()
+
+	hello := func(c *http.Client) []uint16 {
+		t.Helper()
+		mu.Lock()
+		offered = nil
+		mu.Unlock()
+		if resp, err := c.Get(srv.URL); err == nil {
+			resp.Body.Close()
+			t.Fatal("自签证书应该通不过校验")
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if len(offered) == 0 {
+			t.Fatal("服务端没有收到 ClientHello")
+		}
+		return offered[0]
+	}
+	if got := hello(openfrpHTTPClient); len(got) != 1 || got[0] != tls.VersionTLS13 {
+		t.Errorf("openfrpHTTPClient 应只报 TLS 1.3，实际报了 %#x", got)
+	}
+	if got := hello(dl.Client); !slices.Contains(got, uint16(tls.VersionTLS12)) {
+		t.Errorf("对照用的 dl.Client 应该也报 TLS 1.2（不报的话这条测试就分不出两者了），实际 %#x", got)
 	}
 }

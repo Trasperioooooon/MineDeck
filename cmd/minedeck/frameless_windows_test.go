@@ -18,7 +18,8 @@ var (
 
 // WM_NCCALCSIZE：真建一个带标题栏的窗口，照系统的办法递一份 NCCALCSIZE_PARAMS 进去。
 // 处理完以后客户区的顶边要留在窗口顶（标题栏抹掉了），左、右、下三边由默认过程收进一个缩放边框。
-// 这条测试守的是「经 lparam 读写的就是系统给的那块内存」：指针取错的话，顶边不会是原值，三边也不会动。
+// 这条测试守的是「经 lparam 读写的就是系统给的那块内存」：指针取错的话，顶边留不在原处（默认过程照样会把三边收进去，
+// 抓住错的是顶边那条断言）。最大化那一支这里没测，在真窗口里量过。
 func TestFramelessNCCalcSize(t *testing.T) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()

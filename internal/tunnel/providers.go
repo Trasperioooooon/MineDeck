@@ -185,6 +185,7 @@ func (openfrpProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	}
 	zipPath := filepath.Join(app.CacheDir, "frpc", "openfrp-frpc.zip")
 	if err := dl.Fetch(ctx, dl.Request{URLs: urls, Dest: zipPath, MinSize: 1 << 20, Client: openfrpHTTPClient}, nil); err != nil {
+		_ = os.MkdirAll(dir, 0o755) // 提示里叫人把 exe 放进这个文件夹，先建好（同樱花那条）
 		return "", fmt.Errorf("下载 OpenFrp frpc 失败（可手动从 OpenFrp 下载 frpc_windows_amd64.zip，把 zip 里的 frpc_windows_amd64.exe 放入 %s 文件夹后重试）: %w", dir, err)
 	}
 	names, err := extractZipFlat(zipPath, dir)

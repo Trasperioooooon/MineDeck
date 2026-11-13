@@ -162,7 +162,7 @@ func TestHTTPStatusHints(t *testing.T) {
 		want   string
 	}{
 		{status: 567, want: "被源站 CDN 的机器人防护拦截"},
-		{status: 403, want: "被源站 CDN 的机器人防护拦截"},
+		{status: 403, want: "源站拒绝访问：可能是机器人防护、链接失效或没有权限"},
 		{status: 520, want: "源站故障或超时"},
 		{status: 521, want: "源站故障或超时"},
 		{status: 522, want: "源站故障或超时"},

@@ -16,5 +16,8 @@ jobs:
         with:
           go-version: "1.27" # 和 release.yml 用同一个版本，见那里的说明
           check-latest: true
+      # 3.1.2 起全仓 vet 没有任何提醒，这一步守着它：再冒出来的就是真该看的
+      - name: go vet
+        run: go vet ./...
       - name: Go 测试
         run: go test ./...

@@ -229,8 +229,10 @@ func (e *httpStatusError) Error() string { return fmt.Sprintf("HTTP %d", e.statu
 
 func httpStatusHint(status int) string {
 	switch status {
-	case 567, 403:
+	case 567: // 腾讯 EdgeOne 拦机器人时回的状态码
 		return "被源站 CDN 的机器人防护拦截"
+	case 403: // 所有下载源共用这句话，单凭 403 断定不了是哪一种，只能把常见的几种都说到
+		return "源站拒绝访问：可能是机器人防护、链接失效或没有权限"
 	case 520, 521, 522, 523, 524:
 		return "源站故障或超时"
 	case 404:
