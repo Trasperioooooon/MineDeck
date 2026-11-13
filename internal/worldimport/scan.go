@@ -236,6 +236,10 @@ func (r *scanResult) findWorlds() {
 		if d != "" && strings.Count(d, "/")+1 > maxWorldDepth {
 			continue
 		}
+		// MineDeck 自己的控制目录（换地图的暂存区、恢复点）：选一个 MineDeck 服务器文件夹当来源时，不把它们当成地图
+		if strings.HasPrefix(e.fold, ".MINEDECK/") || strings.Contains(e.fold, "/.MINEDECK/") {
+			continue
+		}
 		k := winname.Fold(d)
 		if base == "LEVEL.DAT_OLD" {
 			if !have[k] {

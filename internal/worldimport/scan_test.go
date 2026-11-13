@@ -251,6 +251,13 @@ func TestScanOtherInputs(t *testing.T) {
 	if r := mustScan(t, sv, "server"); r.Kind != KindJavaWorld || !slices.Contains(codes(r.Issues), "server-folder") {
 		t.Errorf("server folder: kind=%s issues=%v", r.Kind, codes(r.Issues))
 	}
+	// MineDeck 服务器文件夹里的恢复点不算地图
+	if err := wt.Legacy(filepath.Join(sv, ".minedeck", "world-import", "w1", "old", "world"), wt.WorldOpts{Level: lv("1.20.4", 3700)}); err != nil {
+		t.Fatal(err)
+	}
+	if r := mustScan(t, sv, "server"); len(r.Candidates) != 1 {
+		t.Errorf("恢复点被当成了地图：%d 个候选", len(r.Candidates))
+	}
 }
 
 func TestScanDamaged(t *testing.T) {
