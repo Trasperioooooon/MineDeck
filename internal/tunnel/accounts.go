@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,21 +28,24 @@ const (
 	openFrpLogin   = "https://access.openfrp.net"
 	sakuraAPI      = "https://api.natfrp.com/v4"
 
-	// OpenFrp 人机验证：控制台前端加载的 CaptchaSDK（禁止自动签到，只能由用户手动点）。
-	openFrpCaptchaAppID = "app_a287037f741b44eea03ced98452dc7cc"
-	openFrpCaptchaSDK   = "https://cv.naids.com/sdk/load.min.js"
-	openFrpPremiumURL   = "https://console.openfrp.net/premium"
-	openFrpAccountURL   = "https://account.naids.com/dashboard"
-	openFrpSignURL      = "https://console.openfrp.net/dashboard?action=sign"
-	sakuraUserURL       = "https://www.natfrp.com/user/"
-	sakuraProfileURL    = "https://www.natfrp.com/user/profile"
-	sakuraShopURL       = "https://www.natfrp.com/shop"
-	sakuraTunnelShop    = "https://www.natfrp.com/tunnel/shop"
-	sakuraPaymentFAQ    = "https://doc.natfrp.com/faq/payment.html"
-	// 面板→OpenID OAuth 入口（未登录 GET 会 302 到 openid.13a.com/oauth/authorize?...）
-	sakuraWebLoginURL = "https://www.natfrp.com/cgi/user/login"
-	sakuraOpenIDAuth  = "https://openid.13a.com/oauth/authorize?response_type=code&client_id=PYoPownjQEAJYNbgwn7EZ2goa3kMaxQjBsuvTUmE"
+	// 只给浏览器打开的官方页面。签到和支付都在官网完成，MineDeck 不代签、不代下单。
+	// OpenFrp 的签到加了人机验证，官方 OPENAPI 写明这部分「暂不可供参考」，所以只跳控制台的签到深链，
+	// 控制台打开后会自己拉起验证码。
+	openFrpPremiumURL = "https://console.openfrp.net/premium"
+	openFrpAccountURL = "https://account.naids.com/dashboard"
+	openFrpSignURL    = "https://console.openfrp.net/dashboard?action=sign"
+	sakuraUserURL     = "https://www.natfrp.com/user/"
+	sakuraProfileURL  = "https://www.natfrp.com/user/profile"
+	sakuraShopURL     = "https://www.natfrp.com/shop"
+	sakuraTunnelShop  = "https://www.natfrp.com/tunnel/shop"
+	sakuraPaymentFAQ  = "https://doc.natfrp.com/faq/payment.html"
+
+	// overviewTTL 概览缓存多久：一次概览要向平台连发好几个请求，OpenFrp 超出阈值会一律回 429。
+	overviewTTL = 30 * time.Second
 )
+
+// openFrpTunnelName OpenFrp 的 newProxy 文档写明隧道名不支持中文；这里只放行最稳的字符。
+var openFrpTunnelName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,30}$`)
 
 type Accounts struct {
 	tunnels   *Manager
@@ -53,8 +57,19 @@ type Accounts struct {
 	userAgent string
 	now       func() time.Time
 
-	mu      sync.Mutex
-	pending map[string]*openFrpLoginState
+	// mu 管 pending、两家的连接代数和概览缓存。凭据的写入也在 mu 里做：
+	// 断开会把代数加一，在途的登录、连接、授权轮换回来时代数对不上就不写，断开的账户不会被悄悄连回去。
+	mu        sync.Mutex
+	pending   map[string]*openFrpLoginState
+	openGen   uint64
+	sakuraGen uint64
+	overviews map[string]cachedOverview
+}
+
+type cachedOverview struct {
+	at  time.Time
+	gen uint64
+	ov  AccountOverview
 }
 
 type openFrpLoginState struct {
@@ -83,12 +98,18 @@ func NewAccounts(tunnels *Manager, keys *secret.Store) *Accounts {
 		userAgent: fmt.Sprintf("MineDeck/%s", app.Version),
 		now:       time.Now,
 		pending:   map[string]*openFrpLoginState{},
+		overviews: map[string]cachedOverview{},
 	}
 }
 
+// AccountStatus 两家是否已连接。Local 是调用方是否在本机：局域网打开时界面只读。
+// *Unreadable 表示存过凭据但解不开（多半换了电脑或 Windows 用户），界面提示重新连接。
 type AccountStatus struct {
-	OpenFrp bool `json:"openfrp"`
-	Sakura  bool `json:"natfrp"`
+	OpenFrp           bool `json:"openfrp"`
+	Sakura            bool `json:"natfrp"`
+	Local             bool `json:"local"`
+	OpenFrpUnreadable bool `json:"openfrpUnreadable,omitempty"`
+	SakuraUnreadable  bool `json:"natfrpUnreadable,omitempty"`
 }
 
 type AccountInfo struct {
@@ -164,38 +185,12 @@ type OpenFrpLoginPoll struct {
 	Pending bool `json:"pending"`
 }
 
-// WebLoginInfo 引导用户完成网页授权/登录。Sakura 目前只能打开面板 CGI→OpenID，登录后仍需粘贴访问密钥。
-type WebLoginInfo struct {
-	Provider  string `json:"provider"`
-	URL       string `json:"url"`
-	Authorize string `json:"authorize,omitempty"` // OpenID authorize 直链（对照用）
-	Message   string `json:"message,omitempty"`
-	NeedToken bool   `json:"needToken,omitempty"`
-}
-
-// CaptchaInfo 前端拉起人机验证所需的配置。OpenFrp 用 CaptchaSDK.open() 拿 token；Sakura 暂无密钥可用的验证码签到。
-type CaptchaInfo struct {
-	Provider string `json:"provider"`
-	Vendor   string `json:"vendor,omitempty"` // OpenFrp：naids
-	AppID    string `json:"appId,omitempty"`
-	SDKURL   string `json:"sdkUrl,omitempty"`
-	Mode     string `json:"mode"`              // token：前端把隔离 iframe 返回的 token 交给 Sign；session：需浏览器 SESSION
-	OpenURL  string `json:"openURL,omitempty"` // SDK 失败时打开官网手动签到
-}
-
-// SignPayload 签到请求。OpenFrp 必填 Token（人机验证结果）；Sakura 目前访问密钥无法签到。
-type SignPayload struct {
-	Token string `json:"token,omitempty"`
-}
-
-// SignResult 签到结果。禁止自动签到：本接口只在用户手动操作后由前端调用。
+// SignResult 签到引导。两家的签到都要在官网完成（OpenFrp 有人机验证，樱花只认官网登录会话），
+// MineDeck 不发任何签到请求，只告诉前端打开哪个官方页面。OK 恒为 false：这里没有签成。
 type SignResult struct {
-	OK              bool   `json:"ok"`
-	Message         string `json:"message,omitempty"`
-	NeedSession     bool   `json:"needSession,omitempty"`
-	OpenURL         string `json:"openURL,omitempty"`
-	SignedToday     *bool  `json:"signedToday,omitempty"`
-	ConsecutiveDays int    `json:"consecutiveDays,omitempty"`
+	OK      bool   `json:"ok"`
+	Message string `json:"message,omitempty"`
+	OpenURL string `json:"openURL"`
 }
 
 // PurchaseOption 购买/充值跳转入口（公开 OPENAPI 无支付接口时返回官方页）。
@@ -211,10 +206,47 @@ type PurchaseOptionsResult struct {
 	Options  []PurchaseOption `json:"options"`
 }
 
-func (a *Accounts) Status() AccountStatus {
-	open, _ := a.keys.State(openFrpAuthKey)
-	sakura, _ := a.keys.State(sakuraAuthKey)
-	return AccountStatus{OpenFrp: open, Sakura: sakura}
+func (a *Accounts) Status(local bool) AccountStatus {
+	open, openBad := a.keys.State(openFrpAuthKey)
+	sakura, sakuraBad := a.keys.State(sakuraAuthKey)
+	return AccountStatus{OpenFrp: open, Sakura: sakura, Local: local, OpenFrpUnreadable: openBad, SakuraUnreadable: sakuraBad}
+}
+
+// validAuthorization 平台给的 Authorization / 访问密钥是否像样：不空、不超长、不含换行（会被当成请求头注入）。
+func validAuthorization(s string) bool {
+	return len(s) >= 8 && len(s) <= 4096 && !strings.ContainsAny(s, "\r\n")
+}
+
+// generation 取某家当前的连接代数（调用方不持锁）。
+func (a *Accounts) generation(provider string) uint64 {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.generationLocked(provider)
+}
+
+// generationLocked 同 generation，调用方已持有 a.mu。
+func (a *Accounts) generationLocked(provider string) uint64 {
+	if provider == "openfrp" {
+		return a.openGen
+	}
+	return a.sakuraGen
+}
+
+// bumpLocked 某家的连接变了（新连上、断开）：代数加一，概览缓存作废。调用方持有 a.mu。
+func (a *Accounts) bumpLocked(provider string) {
+	if provider == "openfrp" {
+		a.openGen++
+	} else {
+		a.sakuraGen++
+	}
+	delete(a.overviews, provider)
+}
+
+// forgetOverview 平台上的隧道变了（创建、导入）：下次概览重新拉。
+func (a *Accounts) forgetOverview(provider string) {
+	a.mu.Lock()
+	delete(a.overviews, provider)
+	a.mu.Unlock()
 }
 
 func (a *Accounts) BeginOpenFrpLogin(ctx context.Context) (OpenFrpLogin, error) {
@@ -295,6 +327,7 @@ func (a *Accounts) PollOpenFrpLogin(ctx context.Context, id string) (OpenFrpLogi
 	state.lastPoll = now
 	privateKey := *state.privateKey
 	a.mu.Unlock()
+	defer clear(privateKey[:])
 
 	data, headers, status, err := a.request(ctx, http.MethodGet, a.openLogin, "/argoAccess/pollLogin", "", map[string]string{"request_uuid": state.requestUUID}, true)
 	if err != nil {
@@ -327,24 +360,26 @@ func (a *Accounts) PollOpenFrpLogin(ctx context.Context, id string) (OpenFrpLogi
 		return OpenFrpLoginPoll{}, fmt.Errorf("OpenFrp 登录轮询失败: %s", safeMessage(resp.Msg))
 	}
 	plain, err := decryptOpenFrpAuthorization(resp.Data.AuthorizationData, headers.Get("X-Request-Public-Key"), &privateKey)
-	clear(privateKey[:])
 	if err != nil {
 		return OpenFrpLoginPoll{}, fmt.Errorf("解密 OpenFrp 授权信息失败: %w", err)
 	}
 	authorization := strings.TrimSpace(string(plain))
 	clear(plain)
-	if len(authorization) < 8 || len(authorization) > 4096 || strings.ContainsAny(authorization, "\r\n") {
+	if !validAuthorization(authorization) {
 		return OpenFrpLoginPoll{}, fmt.Errorf("OpenFrp 返回的授权信息无效")
+	}
+	// 在锁里确认这次登录还在等：用户在授权途中点了「断开」或「取消等待」重来，就不能再把授权写进去。
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.pending[id] != state {
+		return OpenFrpLoginPoll{}, fmt.Errorf("这次 OpenFrp 授权已经取消，请重新连接")
 	}
 	if err := a.keys.Set(openFrpAuthKey, authorization); err != nil {
 		return OpenFrpLoginPoll{}, fmt.Errorf("保存 OpenFrp 授权失败: %w", err)
 	}
-	a.mu.Lock()
-	if current := a.pending[id]; current == state {
-		clear(state.privateKey[:])
-		delete(a.pending, id)
-	}
-	a.mu.Unlock()
+	clear(state.privateKey[:])
+	delete(a.pending, id)
+	a.bumpLocked("openfrp")
 	return OpenFrpLoginPoll{Pending: false}, nil
 }
 
@@ -387,9 +422,10 @@ func decryptOpenFrpAuthorization(ciphertext, serverPublic string, private *[32]b
 func (a *Accounts) ConnectSakura(ctx context.Context, token string) (AccountInfo, error) {
 	token = strings.TrimSpace(token)
 	token = strings.TrimPrefix(token, "Bearer ")
-	if token == "" || len(token) > 4096 || strings.ContainsAny(token, "\r\n") {
+	if !validAuthorization(token) {
 		return AccountInfo{}, fmt.Errorf("请填写有效的 SakuraFrp 访问密钥")
 	}
+	gen := a.generation("natfrp")
 	info, err := a.sakuraUserInfo(ctx, token)
 	if err != nil {
 		return AccountInfo{}, err
@@ -397,24 +433,32 @@ func (a *Accounts) ConnectSakura(ctx context.Context, token string) (AccountInfo
 	if info.Token == "" || info.Name == "" {
 		return AccountInfo{}, fmt.Errorf("SakuraFrp 未返回有效的访问账户信息")
 	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.sakuraGen != gen {
+		return AccountInfo{}, fmt.Errorf("连接期间 SakuraFrp 账户被断开或换了密钥，请重新连接")
+	}
 	if err := a.keys.Set(sakuraAuthKey, token); err != nil {
 		return AccountInfo{}, fmt.Errorf("保存 SakuraFrp 访问密钥失败: %w", err)
 	}
+	a.bumpLocked("natfrp")
 	return sakuraAccount(info), nil
 }
 
+// Disconnect 清掉本机保存的平台凭据。只管 secrets.json 里这一项：已导入的隧道各自存着 frpc 用的密钥，不动；
+// 平台那边的授权也不会作废（OpenFrp 的 Authorization 最长 30 天后失效，樱花的访问密钥要用户去官网重置）。
 func (a *Accounts) Disconnect(provider string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	switch provider {
 	case "openfrp":
 		if err := a.keys.Set(openFrpAuthKey, ""); err != nil {
 			return err
 		}
-		a.mu.Lock()
 		for id, state := range a.pending {
 			clear(state.privateKey[:])
 			delete(a.pending, id)
 		}
-		a.mu.Unlock()
 	case "natfrp":
 		if err := a.keys.Set(sakuraAuthKey, ""); err != nil {
 			return err
@@ -422,140 +466,55 @@ func (a *Accounts) Disconnect(provider string) error {
 	default:
 		return fmt.Errorf("未知穿透平台: %s", provider)
 	}
+	a.bumpLocked(provider)
 	return nil
 }
 
+// Overview 账户、节点和平台隧道。结果按平台缓存 overviewTTL：界面上来回点「概览」不会每次都向平台连发请求。
 func (a *Accounts) Overview(ctx context.Context, provider string) (AccountOverview, error) {
-	switch provider {
-	case "openfrp":
-		return a.openFrpOverview(ctx)
-	case "natfrp":
-		return a.sakuraOverview(ctx)
-	default:
+	if provider != "openfrp" && provider != "natfrp" {
 		return AccountOverview{}, fmt.Errorf("未知穿透平台: %s", provider)
 	}
+	gen := a.generation(provider)
+	a.mu.Lock()
+	if c, ok := a.overviews[provider]; ok && c.gen == gen && a.now().Sub(c.at) < overviewTTL {
+		a.mu.Unlock()
+		return c.ov, nil
+	}
+	a.mu.Unlock()
+	var ov AccountOverview
+	var err error
+	if provider == "openfrp" {
+		ov, err = a.openFrpOverview(ctx)
+	} else {
+		ov, err = a.sakuraOverview(ctx)
+	}
+	if err != nil {
+		return AccountOverview{}, err
+	}
+	a.mu.Lock()
+	if a.generationLocked(provider) == gen {
+		a.overviews[provider] = cachedOverview{at: a.now(), gen: gen, ov: ov}
+	}
+	a.mu.Unlock()
+	return ov, nil
 }
 
-// CaptchaInfo 返回前端拉起签到人机验证所需配置。禁止自动签到。
-func (a *Accounts) CaptchaInfo(provider string) (CaptchaInfo, error) {
+// Sign 签到引导。不发任何签到请求：OpenFrp 的签到要过控制台的人机验证（官方 OPENAPI 写明这部分暂不可供参考，
+// 也明令禁止自动签到），樱花的签到只认官网登录会话、访问密钥签不了。前端拿 OpenURL 让用户自己去官网点。
+func (a *Accounts) Sign(provider string) (SignResult, error) {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "openfrp":
-		return CaptchaInfo{
-			Provider: "openfrp",
-			Vendor:   "naids",
-			AppID:    openFrpCaptchaAppID,
-			SDKURL:   openFrpCaptchaSDK,
-			Mode:     "token",
-			OpenURL:  "https://console.openfrp.net/dashboard?action=sign",
-		}, nil
+		return SignResult{OpenURL: openFrpSignURL, Message: "OpenFrp 签到需要在官方控制台完成人机验证，MineDeck 不代签。"}, nil
 	case "natfrp":
-		// Sakura /user/sign 仅支持 SESSION；访问密钥无法完成验证码签到。
-		return CaptchaInfo{Provider: "natfrp", Mode: "session", OpenURL: sakuraUserURL}, nil
-	default:
-		return CaptchaInfo{}, fmt.Errorf("未知穿透平台: %s", provider)
-	}
-}
-
-// WebLogin 返回网页登录/授权入口。Sakura：面板 /cgi/user/login → OpenID OAuth；成功后暂需用户粘贴访问密钥。
-func (a *Accounts) WebLogin(provider string) (WebLoginInfo, error) {
-	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "natfrp":
-		return WebLoginInfo{
-			Provider:  "natfrp",
-			URL:       sakuraWebLoginURL,
-			Authorize: sakuraOpenIDAuth,
-			NeedToken: true,
-			Message:   "将打开樱花面板登录入口（跳转 Nyatwork OpenID）。登录成功后请回到 MineDeck，从用户信息页复制访问密钥并粘贴连接。自动换票尚需抓包补齐。",
-		}, nil
-	default:
-		return WebLoginInfo{}, fmt.Errorf("未知穿透平台: %s", provider)
-	}
-}
-
-// Sign 手动签到。OpenFrp 用前端 CaptchaSDK 的 token 调 userSign；Sakura 访问密钥不可用时引导去官网。
-// 禁止自动签到（违反 OpenFrp 服务条款）。
-func (a *Accounts) Sign(ctx context.Context, provider string, payload SignPayload) (SignResult, error) {
-	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "openfrp":
-		return a.signOpenFrp(ctx, payload)
-	case "natfrp":
-		return a.signSakura(ctx)
+		return SignResult{OpenURL: sakuraUserURL, Message: "SakuraFrp 签到需要在官网登录后完成，访问密钥不能签到。"}, nil
 	default:
 		return SignResult{}, fmt.Errorf("未知穿透平台: %s", provider)
 	}
 }
 
-func (a *Accounts) signOpenFrp(ctx context.Context, payload SignPayload) (SignResult, error) {
-	token := strings.TrimSpace(payload.Token)
-	if token == "" || len(token) > 8192 || strings.ContainsAny(token, "\r\n") {
-		return SignResult{}, fmt.Errorf("请先完成人机验证后再签到")
-	}
-	var raw json.RawMessage
-	if err := a.openFrpPost(ctx, "/frp/api/userSign", map[string]any{"token": token}, &raw); err != nil {
-		return SignResult{}, err
-	}
-	msg := "签到成功"
-	var s string
-	if json.Unmarshal(raw, &s) == nil && strings.TrimSpace(s) != "" {
-		msg = strings.TrimSpace(s)
-	}
-	result := SignResult{OK: true, Message: msg}
-	if info, err := a.openFrpSignInfo(ctx); err == nil {
-		result.SignedToday = &info.signed
-		result.ConsecutiveDays = info.total
-	}
-	return result, nil
-}
-
-type openFrpSignState struct {
-	signed bool
-	total  int
-}
-
-func (a *Accounts) openFrpSignInfo(ctx context.Context) (openFrpSignState, error) {
-	var raw map[string]any
-	if err := a.openFrpPost(ctx, "/frp/api/getSignInfo", map[string]any{}, &raw); err != nil {
-		return openFrpSignState{}, err
-	}
-	st := openFrpSignState{}
-	if v, ok := raw["totalsign"]; ok {
-		switch n := v.(type) {
-		case float64:
-			st.total = int(n)
-		case json.Number:
-			i, _ := n.Int64()
-			st.total = int(i)
-		}
-	}
-	signdate, _ := raw["signdate"].(string)
-	if signdate != "" {
-		if t, err := time.ParseInLocation("2006-01-02", signdate[:min(len(signdate), 10)], time.Local); err == nil {
-			now := a.now()
-			start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-			st.signed = !t.Before(start)
-		}
-	}
-	return st, nil
-}
-
-func (a *Accounts) signSakura(ctx context.Context) (SignResult, error) {
-	if _, err := a.sakuraToken(); err != nil {
-		return SignResult{}, err
-	}
-	// TODO(frp-api-research): Sakura /v4/user/sign 明确「仅支持 SESSION 鉴权」，访问密钥会 401。
-	// 等调研补齐 SESSION cookie / 请求体后，可在此用浏览器登录态完成签到；当前稳定返回引导。
-	_ = ctx
-	return SignResult{
-		OK:          false,
-		NeedSession: true,
-		OpenURL:     sakuraUserURL,
-		Message:     "SakuraFrp 签到需要官网登录会话，访问密钥无法完成；请在浏览器打开用户中心手动签到",
-	}, nil
-}
-
-// PurchaseOptions 返回购买/充值跳转入口。公开 OPENAPI 无支付接口时只给官方页 URL。
-func (a *Accounts) PurchaseOptions(ctx context.Context, provider string) (PurchaseOptionsResult, error) {
-	_ = ctx
+// PurchaseOptions 返回购买/充值跳转入口。两家的公开 API 都没有支付接口，只给官方页面。
+func (a *Accounts) PurchaseOptions(provider string) (PurchaseOptionsResult, error) {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "openfrp":
 		return PurchaseOptionsResult{
@@ -572,8 +531,8 @@ func (a *Accounts) PurchaseOptions(ctx context.Context, provider string) (Purcha
 				{Title: "SakuraFrp 商店", URL: sakuraShopURL, Kind: "shop"},
 				{Title: "隧道套餐", URL: sakuraTunnelShop, Kind: "tunnel"},
 				{Title: "用户中心", URL: sakuraUserURL, Kind: "account"},
-				{Title: "获取访问密钥", URL: "https://www.natfrp.com/user/profile", Kind: "token"},
-				{Title: "付款说明", URL: "https://doc.natfrp.com/faq/payment.html", Kind: "docs"},
+				{Title: "获取访问密钥", URL: sakuraProfileURL, Kind: "token"},
+				{Title: "付款说明", URL: sakuraPaymentFAQ, Kind: "docs"},
 			},
 		}, nil
 	default:
@@ -611,11 +570,7 @@ func (a *Accounts) openFrpOverview(ctx context.Context) (AccountOverview, error)
 		Nodes:   make([]AccountNode, 0, len(nodes.List)),
 		Tunnels: make([]AccountTunnel, 0, len(proxies.List)),
 	}
-	if info, err := a.openFrpSignInfo(ctx); err == nil {
-		signed := info.signed
-		overview.Account.SignedToday = &signed
-		overview.Account.ConsecutiveDays = info.total
-	}
+	// 不查签到状态：getSignInfo 不在 OpenFrp 的公开 OPENAPI 里，签到也只跳控制台。
 	for _, node := range nodes.List {
 		overview.Nodes = append(overview.Nodes, AccountNode{
 			ID: node.ID, Name: node.Name, Description: node.Description,
@@ -674,12 +629,11 @@ func (a *Accounts) sakuraOverview(ctx context.Context) (AccountOverview, error) 
 		}
 		nodeNames[id] = node.Name
 		canUDP := node.Flag&(1<<5) != 0
-		publicGameAllowed := node.Flag&(1<<11) != 0 || strings.Contains(node.Name, "多线")
 		overview.Nodes = append(overview.Nodes, AccountNode{
 			ID: id, Name: node.Name, Description: node.Description,
 			CanCreate: node.Flag&(1<<2) != 0,
 			TCP:       node.Flag&(1<<2) != 0, UDP: canUDP,
-			PublicGameAllowed: publicGameAllowed,
+			PublicGameAllowed: sakuraPublicGameNode(node),
 		})
 	}
 	for _, proxy := range proxies {
@@ -729,19 +683,28 @@ func (a *Accounts) CreateTunnel(ctx context.Context, o AccountTunnelOptions) (St
 	if o.Purpose == PurposeVoice && o.Type != "udp" {
 		return Status{}, fmt.Errorf("语音隧道必须使用 UDP")
 	}
-	if o.Provider == "openfrp" {
+	var st Status
+	var err error
+	switch o.Provider {
+	case "openfrp":
+		if !openFrpTunnelName.MatchString(o.Name) {
+			return Status{}, fmt.Errorf("OpenFrp 的隧道名只能用英文字母、数字、下划线和连字符，最长 30 个字符")
+		}
 		if o.RemotePort < 1 || o.RemotePort > 65535 {
 			return Status{}, fmt.Errorf("OpenFrp 需要填写有效的公网端口")
 		}
-		return a.createOpenFrpTunnel(ctx, o)
-	}
-	if o.Provider == "natfrp" {
+		st, err = a.createOpenFrpTunnel(ctx, o)
+	case "natfrp":
 		if o.RemotePort < 0 || o.RemotePort > 65535 {
 			return Status{}, fmt.Errorf("公网端口无效")
 		}
-		return a.createSakuraTunnel(ctx, o)
+		st, err = a.createSakuraTunnel(ctx, o)
+	default:
+		return Status{}, fmt.Errorf("未知穿透平台: %s", o.Provider)
 	}
-	return Status{}, fmt.Errorf("未知穿透平台: %s", o.Provider)
+	// 平台上可能已经建成（哪怕后面导入失败），概览一律重新拉
+	a.forgetOverview(o.Provider)
+	return st, err
 }
 
 func (a *Accounts) createOpenFrpTunnel(ctx context.Context, o AccountTunnelOptions) (Status, error) {
@@ -816,8 +779,10 @@ func (a *Accounts) createSakuraTunnel(ctx context.Context, o AccountTunnelOption
 	if o.Type == "udp" && node.Flag&(1<<5) == 0 {
 		return Status{}, fmt.Errorf("所选 SakuraFrp 节点不支持 UDP")
 	}
-	if o.PublicServer && node.Flag&(1<<11) == 0 && !strings.Contains(node.Name, "多线") {
-		return Status{}, fmt.Errorf("SakuraFrp 公开游戏服务器只能使用标记为公开服专用或名称含「多线」的节点")
+	// 樱花官方 API 文档的规定：公开游戏服务器只能用 flag&2048 != 0 或名称含「多线」的节点（「三线」不算），
+	// 违反会被封号且不退款。
+	if o.PublicServer && !sakuraPublicGameNode(node) {
+		return Status{}, fmt.Errorf("公开游戏服务器只能用樱花的公开服专用节点（名称含「多线」或标有公开游戏标记的节点）")
 	}
 	request := map[string]any{
 		"name": o.Name, "type": o.Type, "node": o.NodeID,
@@ -844,10 +809,12 @@ func (a *Accounts) ImportTunnel(ctx context.Context, o AccountTunnelImport) (Sta
 		return Status{}, fmt.Errorf("隧道管理器不可用")
 	}
 	o.Provider = strings.ToLower(strings.TrimSpace(o.Provider))
-	o.ProxyID = strings.TrimSpace(o.ProxyID)
-	if o.ProxyID == "" || len(o.ProxyID) > 32 {
+	// 编号统一写成平台的十进制形式：「007」「+7」都能被 Atoi 认成 7，原样存下会绕过下面的重复检查，还会原样进 frpc 的参数
+	id, err := strconv.Atoi(strings.TrimSpace(o.ProxyID))
+	if err != nil || id <= 0 || strings.ContainsAny(strings.TrimSpace(o.ProxyID), "+-") {
 		return Status{}, fmt.Errorf("隧道编号无效")
 	}
+	o.ProxyID = strconv.Itoa(id)
 	for _, local := range a.tunnels.List() {
 		if local.Provider == o.Provider && local.ProxyID == o.ProxyID {
 			return Status{}, fmt.Errorf("这条平台隧道已经添加到 MineDeck")
@@ -861,7 +828,6 @@ func (a *Accounts) ImportTunnel(ctx context.Context, o AccountTunnelImport) (Sta
 		if err := a.openFrpPost(ctx, "/frp/api/getUserProxies", map[string]any{}, &list); err != nil {
 			return Status{}, err
 		}
-		id, _ := strconv.Atoi(o.ProxyID)
 		for _, proxy := range list.List {
 			if proxy.ID == id {
 				remote = AccountTunnel{ID: o.ProxyID, Name: proxy.ProxyName, Type: strings.ToLower(proxy.ProxyType), NodeName: proxy.FriendlyNode}
@@ -885,7 +851,6 @@ func (a *Accounts) ImportTunnel(ctx context.Context, o AccountTunnelImport) (Sta
 		if err := a.sakuraGet(ctx, "/tunnels", token, &list); err != nil {
 			return Status{}, err
 		}
-		id, _ := strconv.Atoi(o.ProxyID)
 		for _, proxy := range list {
 			if proxy.ID == id {
 				remote = AccountTunnel{ID: o.ProxyID, Name: proxy.Name, Type: strings.ToLower(proxy.Type), LocalIP: proxy.LocalIP, LocalPort: proxy.LocalPort}
@@ -917,7 +882,11 @@ func (a *Accounts) ImportTunnel(ctx context.Context, o AccountTunnelImport) (Sta
 			options.Purpose = PurposeGame
 		}
 	}
-	return a.addLocalTunnel(o.Provider, o.ProxyID, remote.Name, credential, options)
+	st, err := a.addLocalTunnel(o.Provider, o.ProxyID, remote.Name, credential, options)
+	if err == nil {
+		a.forgetOverview(o.Provider)
+	}
+	return st, err
 }
 
 func (a *Accounts) addLocalTunnel(provider, proxyID, name, credential string, o AccountTunnelOptions) (Status, error) {
@@ -952,20 +921,28 @@ func (a *Accounts) openFrpPost(ctx context.Context, path string, body any, out a
 	if authorization == "" {
 		return fmt.Errorf("请先连接 OpenFrp 账户")
 	}
+	gen := a.generation("openfrp")
 	data, headers, status, err := a.request(ctx, http.MethodPost, a.openAPI, path, authorization, body, true)
 	if err != nil {
 		return err
-	}
-	if rotated := strings.TrimSpace(headers.Get("Authorization")); rotated != "" && rotated != authorization {
-		if err := a.keys.Set(openFrpAuthKey, rotated); err != nil {
-			return fmt.Errorf("更新 OpenFrp 授权失败: %w", err)
-		}
 	}
 	if status == http.StatusUnauthorized {
 		return fmt.Errorf("OpenFrp 登录已失效，请重新连接账户")
 	}
 	if status < 200 || status >= 300 {
 		return responseError(status, data)
+	}
+	// OpenFrp 文档说请求任意接口时「有概率返回新值」，但没写放在哪；这里按响应头 Authorization 收。
+	// 只认成功响应里的、像样的新值，并且这期间账户没被断开或重新登录过，否则宁可不收。
+	if rotated := strings.TrimSpace(headers.Get("Authorization")); rotated != "" && rotated != authorization && validAuthorization(rotated) {
+		a.mu.Lock()
+		if a.openGen == gen {
+			err = a.keys.Set(openFrpAuthKey, rotated)
+		}
+		a.mu.Unlock()
+		if err != nil {
+			return fmt.Errorf("更新 OpenFrp 授权失败: %w", err)
+		}
 	}
 	var envelope struct {
 		Flag bool            `json:"flag"`
@@ -1101,18 +1078,27 @@ func responseError(status int, data []byte) error {
 		Data string `json:"data"`
 	}
 	_ = json.Unmarshal(data, &resp)
+	if status == http.StatusTooManyRequests {
+		return fmt.Errorf("穿透平台说请求太频繁（HTTP 429），稍等一会儿再试")
+	}
 	if msg := safeMessage(resp.Msg); msg != "" {
 		return fmt.Errorf("穿透平台返回 HTTP %d: %s", status, msg)
 	}
 	return fmt.Errorf("穿透平台返回 HTTP %d", status)
 }
 
+// safeMessage 平台报错原文去空白、截到 120 个字符（按字符截，不把中文切成半个字）。
 func safeMessage(s string) string {
 	s = strings.TrimSpace(s)
-	if len(s) > 240 {
-		s = s[:240]
+	if r := []rune(s); len(r) > 120 {
+		s = string(r[:120])
 	}
 	return s
+}
+
+// sakuraPublicGameNode 樱花官方 API 文档对公开游戏服务器节点的判定：flag&2048 != 0，或名称含「多线」（「三线」不算）。
+func sakuraPublicGameNode(n sakuraNode) bool {
+	return n.Flag&(1<<11) != 0 || strings.Contains(n.Name, "多线")
 }
 
 type openFrpUser struct {

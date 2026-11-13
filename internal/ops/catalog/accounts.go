@@ -8,8 +8,9 @@ import (
 	"minedeck/internal/tunnel"
 )
 
-// 穿透平台账户（OpenFrp / SakuraFrp）：连接、概览、手动签到、购买跳转、在平台创建/导入隧道。
-// 全部 HumanOnly：凭据与支付相关，不给 AI。
+// 穿透平台账户（OpenFrp / SakuraFrp）：连接、概览、签到和购买的官网入口、在平台创建/导入隧道。
+// 全部 HumanOnly：凭据与支付相关，不给 AI。会用到保存的平台凭据、或者会改它的操作都是仅本机：
+// 局域网里知道访问密码的设备也不能看账户概览、不能替这台电脑连接或断开账户。
 
 func (c *cat) accountOps() {
 	if c.Accounts == nil {
@@ -17,11 +18,14 @@ func (c *cat) accountOps() {
 	}
 	providerField := ops.String("穿透平台：openfrp、natfrp（樱花）")
 	providerOnly := ops.Object(map[string]*ops.Schema{"provider": providerField}, "provider")
+	const localMsg = "穿透平台账户只能在运行 MineDeck 的这台电脑上操作"
 
 	c.reg.Register(&ops.Op{
 		Name: "tunnel.account.status", Title: "查看穿透账户连接状态", Level: ops.HumanOnly, NoLog: true,
-		Desc: "是否已保存 OpenFrp Authorization / SakuraFrp 访问密钥（不含明文）。",
-		Run:  func(context.Context, ops.Caller, ops.Args) (any, error) { return c.Accounts.Status(), nil },
+		Desc: "是否已保存 OpenFrp Authorization / SakuraFrp 访问密钥（不含明文），以及调用方是否在本机（局域网打开时界面只读）。",
+		Run: func(_ context.Context, caller ops.Caller, _ ops.Args) (any, error) {
+			return c.Accounts.Status(caller.Local), nil
+		},
 	})
 
 	c.reg.Register(&ops.Op{
@@ -64,20 +68,6 @@ func (c *cat) accountOps() {
 	})
 
 	c.reg.Register(&ops.Op{
-		Name: "tunnel.account.weblogin", Title: "获取穿透平台网页登录入口", Level: ops.HumanOnly, NoLog: true, Params: providerOnly,
-		Desc: "Sakura：返回面板 /cgi/user/login（会跳转 OpenID）；登录后仍需粘贴访问密钥。OpenFrp：账户中心链接。",
-		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
-			p, err := bind[struct {
-				Provider string `json:"provider"`
-			}](a)
-			if err != nil {
-				return nil, err
-			}
-			return c.Accounts.WebLogin(p.Provider)
-		},
-	})
-
-	c.reg.Register(&ops.Op{
 		Name: "tunnel.account.disconnect", Title: "断开穿透账户", Level: ops.HumanOnly, LocalOnly: true, Params: providerOnly,
 		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[struct {
@@ -94,8 +84,8 @@ func (c *cat) accountOps() {
 	})
 
 	c.reg.Register(&ops.Op{
-		Name: "tunnel.account.overview", Title: "查看穿透账户概览", Level: ops.HumanOnly, NoLog: true, Params: providerOnly,
-		Desc: "账户信息、可用节点、平台上的隧道列表（不含 frpc 密钥明文）。",
+		Name: "tunnel.account.overview", Title: "查看穿透账户概览", Level: ops.HumanOnly, LocalOnly: true, LocalMsg: localMsg, NoLog: true, Params: providerOnly,
+		Desc: "账户信息、可用节点、平台上的隧道列表（不含 frpc 密钥明文）。会用本机保存的凭据向平台发请求，结果缓存 30 秒。",
 		Run: func(ctx context.Context, _ ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[struct {
 				Provider string `json:"provider"`
@@ -108,8 +98,8 @@ func (c *cat) accountOps() {
 	})
 
 	c.reg.Register(&ops.Op{
-		Name: "tunnel.account.captcha", Title: "获取签到验证码配置", Level: ops.HumanOnly, NoLog: true, Params: providerOnly,
-		Desc: "OpenFrp 返回 CaptchaSDK 的 appId/sdkUrl；Sakura 标明需 SESSION。禁止自动签到。",
+		Name: "tunnel.account.sign", Title: "签到入口", Level: ops.HumanOnly, NoLog: true, Params: providerOnly,
+		Desc: "返回官网签到页地址，由用户在浏览器里自己签。不发任何签到请求：OpenFrp 要过控制台的人机验证且禁止自动签到，樱花只认官网登录会话。",
 		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[struct {
 				Provider string `json:"provider"`
@@ -117,39 +107,21 @@ func (c *cat) accountOps() {
 			if err != nil {
 				return nil, err
 			}
-			return c.Accounts.CaptchaInfo(p.Provider)
-		},
-	})
-
-	c.reg.Register(&ops.Op{
-		Name: "tunnel.account.sign", Title: "手动签到", Level: ops.HumanOnly, LocalOnly: true, Params: ops.Object(map[string]*ops.Schema{
-			"provider": providerField,
-			"token":    ops.String("OpenFrp CaptchaSDK.open() 得到的 token；Sakura 暂不使用"),
-		}, "provider"),
-		Desc: "仅用户手动触发。OpenFrp 带人机验证 token；Sakura 访问密钥不可用时返回官网引导。禁止自动签到。",
-		Run: func(ctx context.Context, _ ops.Caller, a ops.Args) (any, error) {
-			p, err := bind[struct {
-				Provider string `json:"provider"`
-				Token    string `json:"token"`
-			}](a)
-			if err != nil {
-				return nil, err
-			}
-			return c.Accounts.Sign(ctx, p.Provider, tunnel.SignPayload{Token: p.Token})
+			return c.Accounts.Sign(p.Provider)
 		},
 	})
 
 	c.reg.Register(&ops.Op{
 		Name: "tunnel.account.purchase", Title: "查看购买入口", Level: ops.HumanOnly, NoLog: true, Params: providerOnly,
 		Desc: "返回官方商店/充值页 URL，供前端打开；不代下单。",
-		Run: func(ctx context.Context, _ ops.Caller, a ops.Args) (any, error) {
+		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[struct {
 				Provider string `json:"provider"`
 			}](a)
 			if err != nil {
 				return nil, err
 			}
-			return c.Accounts.PurchaseOptions(ctx, p.Provider)
+			return c.Accounts.PurchaseOptions(p.Provider)
 		},
 	})
 
@@ -165,12 +137,16 @@ func (c *cat) accountOps() {
 			"boundInstance": ops.String("绑定的实例名"),
 			"autoStart":     ops.Boolean("实例启动时跟随启动"),
 			"purpose":       ops.String("用途：game 或 voice"),
-			"publicServer":  ops.Boolean("Sakura 公开游戏服（仅多线/公开服节点）"),
+			"publicServer":  ops.Boolean("樱花：是否公开游戏服务器（只能用名称含「多线」或带公开游戏标记的节点）"),
 		}, "provider", "name", "nodeId", "type", "localPort"),
 		Run: func(ctx context.Context, _ ops.Caller, a ops.Args) (any, error) {
 			o, err := bind[tunnel.AccountTunnelOptions](a)
 			if err != nil {
 				return nil, err
+			}
+			// 把 MineDeck 自己的网页端口映射到公网，外来请求经 frpc 进来就是本机地址，「仅本机」的限制会失效
+			if c.Port > 0 && o.LocalPort == c.Port {
+				return nil, ops.Errorf(400, "本地端口 %d 是 MineDeck 自己的网页端口，不能映射到公网", c.Port)
 			}
 			return c.Accounts.CreateTunnel(ctx, o)
 		},

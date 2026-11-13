@@ -27,9 +27,15 @@ func TestAccountOpsHumanOnly(t *testing.T) {
 	reg = New(Env{Mgr: mgr, Tun: tunnel.NewManager(), Accounts: accounts, Port: 27333})
 	names := []string{
 		"tunnel.account.status", "tunnel.account.openfrp.login", "tunnel.account.openfrp.poll",
-		"tunnel.account.natfrp.connect", "tunnel.account.weblogin", "tunnel.account.disconnect", "tunnel.account.overview",
-		"tunnel.account.captcha", "tunnel.account.sign", "tunnel.account.purchase",
+		"tunnel.account.natfrp.connect", "tunnel.account.disconnect", "tunnel.account.overview",
+		"tunnel.account.sign", "tunnel.account.purchase",
 		"tunnel.account.create", "tunnel.account.import",
+	}
+	// 验证码和网页登录已经拿掉：签到只给官网入口，樱花只收访问密钥
+	for _, gone := range []string{"tunnel.account.captcha", "tunnel.account.weblogin"} {
+		if reg.Op(gone) != nil {
+			t.Errorf("%s 不应再登记", gone)
+		}
 	}
 	for _, name := range names {
 		op := reg.Op(name)
@@ -43,7 +49,7 @@ func TestAccountOpsHumanOnly(t *testing.T) {
 	}
 	for _, name := range []string{
 		"tunnel.account.openfrp.login", "tunnel.account.openfrp.poll", "tunnel.account.natfrp.connect",
-		"tunnel.account.disconnect", "tunnel.account.sign", "tunnel.account.create", "tunnel.account.import",
+		"tunnel.account.disconnect", "tunnel.account.overview", "tunnel.account.create", "tunnel.account.import",
 	} {
 		op := reg.Op(name)
 		if op == nil || !op.LocalOnly {
@@ -67,15 +73,29 @@ func TestAccountOpsHumanOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	status, ok := st.(tunnel.AccountStatus)
-	if !ok || status.OpenFrp || status.Sakura {
+	if !ok || status.OpenFrp || status.Sakura || !status.Local {
 		t.Fatalf("status: %+v", st)
 	}
-	cap, err := reg.Do(context.Background(), ops.Caller{Source: ops.SrcUI, Local: true}, "tunnel.account.captcha", ops.ArgsOf(map[string]any{"provider": "openfrp"}))
+	// 局域网会话看状态时 local=false，界面据此只读
+	st, err = reg.Do(context.Background(), ops.Caller{Source: ops.SrcLAN, Actor: "192.168.1.9"}, "tunnel.account.status", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	info := cap.(tunnel.CaptchaInfo)
-	if info.Mode != "token" || info.AppID == "" || info.Vendor != "naids" || info.OpenURL == "" {
-		t.Fatalf("captcha: %+v", info)
+	if status := st.(tunnel.AccountStatus); status.Local {
+		t.Fatalf("局域网的 status 应为 local=false: %+v", status)
+	}
+	sign, err := reg.Do(context.Background(), ops.Caller{Source: ops.SrcUI, Local: true}, "tunnel.account.sign", ops.ArgsOf(map[string]any{"provider": "openfrp"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := sign.(tunnel.SignResult); r.OK || r.OpenURL != "https://console.openfrp.net/dashboard?action=sign" {
+		t.Fatalf("sign: %+v", r)
+	}
+	// 不能把 MineDeck 自己的网页端口映射到公网
+	_, err = reg.Do(context.Background(), ops.Caller{Source: ops.SrcUI, Local: true}, "tunnel.account.create", ops.ArgsOf(map[string]any{
+		"provider": "openfrp", "name": "minedeck_ab12", "nodeId": 1, "type": "tcp", "localPort": 27333, "remotePort": 30000,
+	}))
+	if err == nil || !strings.Contains(err.Error(), "网页端口") {
+		t.Fatalf("映射 MineDeck 自己的端口应被拒: %v", err)
 	}
 }
