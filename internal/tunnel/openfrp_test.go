@@ -2,8 +2,17 @@ package tunnel
 
 import (
 	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"minedeck/internal/app"
+	"minedeck/internal/dl"
+	"minedeck/internal/procutil"
 )
 
 func TestOpenfrpFrpcURLsFromAPI(t *testing.T) {
@@ -111,5 +120,73 @@ func TestOpenfrpFrpcURLsFromAPI(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+type openfrpRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f openfrpRoundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+func TestOpenfrpEnsureFrpcDownloadFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/commonQuery/get":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{"latest_full":"OF_test","source":[{"value":"https://frpc.test/client"}]}}`))
+		case "/client/OF_test/frpc_windows_amd64.zip":
+			w.WriteHeader(567)
+		default:
+			t.Errorf("意外请求：%s", r.URL)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	target, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Transport: openfrpRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		clone := r.Clone(r.Context())
+		clone.URL.Scheme = target.Scheme
+		clone.URL.Host = target.Host
+		clone.Host = ""
+		return http.DefaultTransport.RoundTrip(clone)
+	})}
+	oldDLClient, oldOpenFrpClient := dl.Client, openfrpHTTPClient
+	dl.Client, openfrpHTTPClient = client, client
+	t.Cleanup(func() { dl.Client, openfrpHTTPClient = oldDLClient, oldOpenFrpClient })
+
+	oldRuntimes, oldCache := app.RuntimesDir, app.CacheDir
+	base := t.TempDir()
+	app.RuntimesDir = filepath.Join(base, "runtimes")
+	app.CacheDir = filepath.Join(base, "cache")
+	t.Cleanup(func() { app.RuntimesDir, app.CacheDir = oldRuntimes, oldCache })
+
+	_, err = (openfrpProvider{}).EnsureFrpc(procutil.NewConsole())
+	if err == nil {
+		t.Fatal("应该下载失败")
+	}
+	msg := err.Error()
+	for _, want := range []string{
+		frpcDir("openfrp"),
+		"frpc_windows_amd64.zip",
+		"frpc_windows_amd64.exe",
+		"HTTP 567（被源站 CDN 的机器人防护拦截）",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("错误文案缺少 %q：%s", want, msg)
+		}
+	}
+	cause := errors.Unwrap(err)
+	if cause == nil || !strings.Contains(cause.Error(), "多次尝试后仍下载失败") {
+		t.Fatalf("第一层包装应保留下载汇总错误：%v", err)
+	}
+	for errors.Unwrap(cause) != nil {
+		cause = errors.Unwrap(cause)
+	}
+	if cause.Error() != "HTTP 567" {
+		t.Fatalf("错误链末端应是原始状态码错误：%v", cause)
 	}
 }

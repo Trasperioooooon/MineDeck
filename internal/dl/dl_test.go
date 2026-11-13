@@ -156,6 +156,52 @@ func TestFetchOnRetryNotOnLastAttempt(t *testing.T) {
 	}
 }
 
+func TestHTTPStatusHints(t *testing.T) {
+	tests := []struct {
+		status int
+		want   string
+	}{
+		{status: 567, want: "被源站 CDN 的机器人防护拦截"},
+		{status: 403, want: "被源站 CDN 的机器人防护拦截"},
+		{status: 520, want: "源站故障或超时"},
+		{status: 521, want: "源站故障或超时"},
+		{status: 522, want: "源站故障或超时"},
+		{status: 523, want: "源站故障或超时"},
+		{status: 524, want: "源站故障或超时"},
+		{status: 404, want: "该源没有这个文件"},
+		{status: 502},
+		{status: 419},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("HTTP_%d", tt.status), func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.status)
+			}))
+			defer srv.Close()
+			err := fetchOne(context.Background(), srv.URL, Request{Dest: filepath.Join(t.TempDir(), "file")}, nil)
+			var statusErr *httpStatusError
+			if !errors.As(err, &statusErr) || statusErr.status != tt.status {
+				t.Fatalf("应保留状态码 %d：%v", tt.status, err)
+			}
+			wantStatus := fmt.Sprintf("HTTP %d", tt.status)
+			if err.Error() != wantStatus {
+				t.Fatalf("原始错误文案变了：%q", err)
+			}
+			if got := httpStatusHint(tt.status); got != tt.want {
+				t.Fatalf("归类：得到 %q，想要 %q", got, tt.want)
+			}
+			wantReason := wantStatus
+			if tt.want != "" {
+				wantReason += "（" + tt.want + "）"
+			}
+			summary := newFetchFail([]urlFail{{url: srv.URL, err: err}}, nil).Error()
+			if !strings.Contains(summary, strings.TrimPrefix(srv.URL, "http://")+": "+wantReason) {
+				t.Fatalf("汇总归类：得到 %q，想要包含 %q", summary, wantReason)
+			}
+		})
+	}
+}
+
 // 每个源的最后一次失败都留在最终错误里（主机名 + 状态），三轮重试不把同一条重复三遍。
 // 同一源先 404 再 419 时，摘要里只留最后的 419。
 func TestFetchReportsEachSource(t *testing.T) {
@@ -187,7 +233,7 @@ func TestFetchReportsEachSource(t *testing.T) {
 	msg := err.Error()
 	hostA := strings.TrimPrefix(a.URL, "http://")
 	hostB := strings.TrimPrefix(b.URL, "http://")
-	wantA := hostA + ": HTTP 404"
+	wantA := hostA + ": HTTP 404（该源没有这个文件）"
 	wantB := hostB + ": HTTP 419"
 	if !strings.Contains(msg, "多次尝试后仍下载失败（"+wantA+"；"+wantB+"）") {
 		t.Fatalf("应列出两个源的最后一次失败：%s", msg)

@@ -220,6 +220,26 @@ func AnyFailure(err error, match func(error) bool) bool {
 	return false
 }
 
+// httpStatusError 保留状态码供最终摘要归类；Error 的子串格式不变，重试回调等原有调用方不受影响。
+type httpStatusError struct {
+	status int
+}
+
+func (e *httpStatusError) Error() string { return fmt.Sprintf("HTTP %d", e.status) }
+
+func httpStatusHint(status int) string {
+	switch status {
+	case 567, 403:
+		return "被源站 CDN 的机器人防护拦截"
+	case 520, 521, 522, 523, 524:
+		return "源站故障或超时"
+	case 404:
+		return "该源没有这个文件"
+	default:
+		return ""
+	}
+}
+
 // newFetchFail 汇总多源失败。tried 是按顺序的每一次失败，给 AnyFailure 用；为空时用每个地址的最后一次。
 func newFetchFail(fails []urlFail, tried []error) error {
 	seen := make(map[string]struct{}, len(fails))
@@ -234,7 +254,14 @@ func newFetchFail(fails []urlFail, tried []error) error {
 	var last error
 	for _, f := range fails {
 		last = f.err
-		line := shortURL(f.url) + ": " + compactReason(f.err)
+		reason := compactReason(f.err)
+		var statusErr *httpStatusError
+		if errors.As(f.err, &statusErr) {
+			if hint := httpStatusHint(statusErr.status); hint != "" {
+				reason += "（" + hint + "）"
+			}
+		}
+		line := shortURL(f.url) + ": " + reason
 		if _, ok := seen[line]; ok {
 			continue
 		}
@@ -296,7 +323,7 @@ func fetchOne(ctx context.Context, url string, r Request, prog Progress) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d", resp.StatusCode)
+		return &httpStatusError{status: resp.StatusCode}
 	}
 	total := resp.ContentLength
 	part := r.Dest + ".part"

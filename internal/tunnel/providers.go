@@ -3,8 +3,10 @@ package tunnel
 import (
 	"archive/zip"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -109,6 +111,20 @@ func extractZipFlat(zipPath, destDir string) ([]string, error) {
 
 type openfrpProvider struct{}
 
+// openfrpHTTPClient 只给 OpenFrp 的 frpc zip 下载使用。staticassets.naids.com 的腾讯 EdgeOne
+// 会把 Go 默认 ClientHello 当机器人并返回 567；只宣告 TLS 1.3 会改变 ClientHello，实测可以过闸。
+// 这是在绕过 CDN 机器人防护，不是普通的 TLS 兼容设置。EdgeOne 随时可能把「只报 TLS 1.3 的 Go 指纹」
+// 也加进黑名单；失效时这里要重新判断，不能当成永久有效的固定配置。
+// 不设 http.Client.Timeout：总时限仍由 EnsureFrpc 的 context 和 dl 的无进展看门狗控制。
+var openfrpHTTPClient = &http.Client{Transport: &http.Transport{
+	Proxy:                 http.ProxyFromEnvironment,
+	TLSHandshakeTimeout:   15 * time.Second,
+	ResponseHeaderTimeout: 60 * time.Second,
+	MaxIdleConnsPerHost:   8,
+	ForceAttemptHTTP2:     true, // 设置 TLSClientConfig 后 Go 不再自动升 h2，必须显式打开。
+	TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS13},
+}}
+
 // openfrpSoftwareMeta 是 commonQuery?key=software 里和下载 frpc 有关的字段。
 // latest_ver 是纯数字版本（0.68.0），只用于版本比较；下载目录是 latest_full
 // （OF_0.68.0_…）。latest 是同一个目录名再包一层斜杠，不拿来拼地址。
@@ -168,8 +184,8 @@ func (openfrpProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 		return "", err
 	}
 	zipPath := filepath.Join(app.CacheDir, "frpc", "openfrp-frpc.zip")
-	if err := dl.Fetch(ctx, dl.Request{URLs: urls, Dest: zipPath, MinSize: 1 << 20}, nil); err != nil {
-		return "", fmt.Errorf("下载 OpenFrp frpc 失败: %w", err)
+	if err := dl.Fetch(ctx, dl.Request{URLs: urls, Dest: zipPath, MinSize: 1 << 20, Client: openfrpHTTPClient}, nil); err != nil {
+		return "", fmt.Errorf("下载 OpenFrp frpc 失败（可手动从 OpenFrp 下载 frpc_windows_amd64.zip，把 zip 里的 frpc_windows_amd64.exe 放入 %s 文件夹后重试）: %w", dir, err)
 	}
 	names, err := extractZipFlat(zipPath, dir)
 	if err != nil {
