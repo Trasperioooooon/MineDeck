@@ -2047,7 +2047,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   // ==================== 内网穿透的隧道卡片结束 ====================
 
   // ==================== 平台账户 ====================
-  // 仿真后端：/__mock/state 的 tunnelAccounts（reset / openfrp / natfrp / openfrpLoginDoneAtPoll）；响应里有 lastSign / lastImport
+  // 仿真后端：/__mock/state 的 tunnelAccounts（reset / openfrp / natfrp / local / openfrpUnreadable / natfrpUnreadable /
+  // openfrpLoginDoneAtPoll / overviews）；响应里有 lastSign / lastImport / lastCreate
   const taState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data.tunnelAccounts), b);
   const resetTA = () => taState({ tunnelAccounts: { reset: true }, tunnelsReset: true });
   const hookOpens = () => page.evaluate(() => {
@@ -2055,6 +2056,24 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     window.open = u => { window.__opens.push(String(u || "")); return null; };
   });
   const opened = () => page.evaluate(() => window.__opens || []);
+  const TA_API = "/api/tunnel-accounts";
+  const taReqs = since => reqs.slice(since).filter(r => r.u.startsWith(TA_API)).map(r => r.m + " " + r.u);
+  // 等仿真后端记下某次请求（lastSign / lastImport / lastCreate），拿不到就返回当时的值，由后面的断言报错
+  const taWait = async (key, okFn, timeout = 4000) => {
+    const end = Date.now() + timeout;
+    for (;;) {
+      const v = (await taState({}))[key];
+      if ((v && okFn(v)) || Date.now() > end) return v;
+      await settle(100);
+    }
+  };
+  const modalGone = () => page.waitForFunction(() => !document.querySelector("#modal-root .modal-mask"), null, { timeout: 3000 }).catch(() => {});
+  // 打开隧道页并展开某一家的概览（要先把那一家设成已连接）
+  const openOverview = async provider => {
+    await page.goto(url("#/tunnels")); await settle(600);
+    await page.click(`[data-acc-overview="${provider}"]`);
+    await page.waitForSelector(`#tn-acc-panel [data-acc-create="${provider}"]`);
+  };
 
   await run("平台账户：OpenFrp 默认使用远程授权，樱花保留密钥输入", async () => {
     await resetTA();
@@ -2075,32 +2094,39 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
           skToken: !!(sk && sk.querySelector("#tn-sakura-token")),
           skConnect: !!(sk && sk.querySelector('[data-acc-connect="natfrp"]')),
           skWeb: !!(sk && sk.querySelector('[data-acc-web-login="natfrp"]')),
+          skGetToken: !!(sk && sk.querySelector('[data-acc-get-token="natfrp"]')),
           skText: (sk && sk.textContent || "").replace(/\s+/g, " ").trim(),
+          roTip: !!document.querySelector("#tn-acc-ro:not([hidden])"),
         };
       });
       assert(ui.title.includes("平台账户") && ui.declaration.includes("OPENAPI") && ui.declaration.includes("社区开发") &&
         ui.declaration.includes("节点问题") && ui.ofConnect && !ui.ofInputs && !ui.ofBrowser && ui.ofText.includes("远程授权"),
         "OpenFrp 未连接态：" + JSON.stringify(ui));
-      assert(ui.skToken && ui.skConnect && ui.skWeb && ui.skText.includes("访问密钥"),
-        "樱花密钥输入/网页登录：" + JSON.stringify(ui));
+      assert(ui.skToken && ui.skConnect && ui.skGetToken && !ui.skWeb && ui.skText.includes("访问密钥"),
+        "樱花密钥输入 / 获取访问密钥：" + JSON.stringify(ui));
+      assert(!ui.roTip, "本机打开时不该有局域网只读的提示");
       assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
     } finally { await resetTA(); }
   });
 
-  await run("平台账户：樱花网页登录打开 /cgi/user/login 入口", async () => {
+  await run("平台账户：樱花未连接时「获取访问密钥」打开官网用户信息页，不再有网页登录", async () => {
     await resetTA();
     try {
       errors.length = 0;
       await page.goto(url("#/tunnels")); await settle(600);
-      await page.waitForSelector('[data-acc-web-login="natfrp"]');
+      await page.waitForSelector('[data-acc-get-token="natfrp"]');
       await hookOpens();
       const before = reqs.length;
-      await page.click('[data-acc-web-login="natfrp"]');
-      await page.waitForFunction(() => (window.__opens || []).some(u => /cgi\/user\/login/.test(u)), null, { timeout: 3000 }).catch(() => {});
-      assert(reqs.slice(before).some(r => r.m === "GET" && r.u === "/api/tunnel-accounts/natfrp/weblogin"),
-        "应 GET weblogin：" + reqs.slice(before).map(r => r.m + " " + r.u).join(", "));
+      const btn = await page.$eval('[data-acc-get-token="natfrp"]', e => e.textContent.trim());
+      assert(btn === "获取访问密钥", "按钮文字：" + btn);
+      await page.click('[data-acc-get-token="natfrp"]'); await settle(300);
       const urls = await opened();
-      assert(urls.some(u => u.includes("www.natfrp.com/cgi/user/login")), "应打开面板登录入口：" + JSON.stringify(urls));
+      assert(urls.length === 1 && urls[0] === "https://www.natfrp.com/user/profile", "应打开樱花的用户信息页：" + JSON.stringify(urls));
+      assert(taReqs(before).length === 0, "点「获取访问密钥」不该请求后端：" + taReqs(before).join(", "));
+      const text = await page.evaluate(() => document.body.innerText);
+      const card = await page.$eval('#tn-accounts [data-acc="natfrp"]', e => e.textContent.replace(/\s+/g, " ").trim());
+      assert(card.includes("在樱花官网的用户信息页复制访问密钥，粘贴到这里连接。"), "卡片说明：" + card);
+      for (const w of ["OpenID", "自动换票", "抓包", "网页登录"]) assert(!text.includes(w), `页面上不该再出现「${w}」`);
       assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
     } finally { await resetTA(); }
   });
@@ -2151,93 +2177,285 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await resetTA(); }
   });
 
-  await run("平台账户：隔离 iframe 的消息必须匹配来源、origin 和 nonce", async () => {
+  await run("平台账户：导入平台隧道时用途跟着类型走（udp 是语音，tcp 是游戏）", async () => {
     await taState({ tunnelAccounts: { reset: true, openfrp: true }, tunnelsReset: true });
-    const frameMock = route => route.fulfill({
-      contentType: "text/html",
-      body: '<!doctype html><html><body><script>' +
-        'const q=new URLSearchParams(location.search),nonce=q.get("nonce"),parentOrigin=q.get("parent");' +
-        'parent.postMessage({__captchaMockReady:true},parentOrigin);' +
-        'window.addEventListener("message",e=>{' +
-        'if(e.data&&e.data.wrongNonce)parent.postMessage({channel:"minedeck-openfrp-captcha",nonce:"wrong",type:"success",token:"forged"},parentOrigin);' +
-        'if(e.data&&e.data.release)parent.postMessage({channel:"minedeck-openfrp-captcha",nonce,type:"success",token:"tok-test"},parentOrigin);' +
-        '});</script></body></html>',
-    });
-    await ctx.route("**/captcha.html*", frameMock);
+    try {
+      errors.length = 0;
+      await openOverview("openfrp");
+      const importOne = async id => {
+        const sel = `#tn-acc-panel [data-acc-import="openfrp"][data-proxy="${id}"]`;
+        await page.waitForSelector(sel);
+        await page.click(sel);
+        await page.waitForSelector('.modal [data-x="ok"]');
+        await page.click('.modal [data-x="ok"]');
+        const last = await taWait("lastImport", v => v.proxyId === id);
+        await modalGone(); await settle(500); // 等弹窗退场、概览重画完，再点下一条
+        return last;
+      };
+      const types = await page.$$eval("#tn-acc-panel [data-acc-import]", bs => Object.fromEntries(bs.map(b => [b.dataset.proxy, b.dataset.type])));
+      assert(types["1003"] === "udp" && types["1001"] === "tcp", "导入按钮上应带着平台隧道的类型：" + JSON.stringify(types));
+      const udp = await importOne("1003");
+      assert(udp && udp.proxyId === "1003" && udp.purpose === "voice", "udp 隧道应按语音导入：" + JSON.stringify(udp));
+      const tcp = await importOne("1001");
+      assert(tcp && tcp.proxyId === "1001" && tcp.purpose === "game", "tcp 隧道应按游戏导入：" + JSON.stringify(tcp));
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await resetTA(); }
+  });
+
+  await run("平台账户：OpenFrp 签到只引导去官方控制台，页面上没有内嵌验证码", async () => {
+    await taState({ tunnelAccounts: { reset: true, openfrp: true }, tunnelsReset: true });
     try {
       errors.length = 0;
       await page.goto(url("#/tunnels")); await settle(600);
-      await page.evaluate(() => {
-        window.__captchaMockOrigin = "";
-        window.addEventListener("message", e => {
-          if (e.data && e.data.__captchaMockReady) window.__captchaMockOrigin = e.origin;
-        });
-      });
-      await page.click('[data-acc-sign="openfrp"]');
-      await page.click('#tn-sign-mask [data-x="start"]');
-      await page.waitForSelector('iframe[title="OpenFrp 人机验证"]');
-      await page.waitForFunction(() => window.__captchaMockOrigin !== "", null, { timeout: 3000 });
-      const isolation = await page.$eval('iframe[title="OpenFrp 人机验证"]', frame => {
-        const frameURL = new URL(frame.src);
-        let canReadParentStorage = true;
-        try { void frame.contentWindow.localStorage; } catch { canReadParentStorage = false; }
-        return {
-          sandbox: frame.getAttribute("sandbox"),
-          origin: frameURL.origin,
-          parentOrigin: location.origin,
-          canReadParentStorage,
-          hasSDKInParent: !!document.querySelector("script[src*='cv.naids.com']"),
-          hasParentSDK: !!window.CaptchaSDK,
-          nonce: frameURL.searchParams.get("nonce"),
-        };
-      });
-      assert(isolation.sandbox === "allow-scripts allow-same-origin allow-forms" &&
-        isolation.origin !== isolation.parentOrigin && !isolation.canReadParentStorage &&
-        !isolation.hasSDKInParent && !isolation.hasParentSDK && isolation.nonce &&
-        await page.evaluate(() => window.__captchaMockOrigin) === isolation.origin,
-      "CaptchaSDK 必须在与主界面隔离的 origin 中运行：" + JSON.stringify(isolation));
+      await hookOpens();
       const before = reqs.length;
-      await page.evaluate(info => {
-        const frame = document.querySelector('iframe[title="OpenFrp 人机验证"]');
-        window.postMessage({ channel: "minedeck-openfrp-captcha", nonce: info.nonce, type: "success", token: "forged-parent" }, "*");
-        frame.contentWindow.postMessage({ wrongNonce: true }, info.origin);
-      }, isolation);
-      await settle(150);
-      assert(!reqs.slice(before).some(r => r.m === "POST" && r.u === "/api/tunnel-accounts/openfrp/sign"),
-        "错误 source/origin 或 nonce 的消息不应提交签到");
-      await page.evaluate(origin => document.querySelector('iframe[title="OpenFrp 人机验证"]').contentWindow.postMessage({ release: true }, origin), isolation.origin);
-      await page.waitForFunction(async () => {
-        const j = await fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json());
-        const s = j.data.tunnelAccounts && j.data.tunnelAccounts.lastSign;
-        return !!(s && s.provider === "openfrp" && s.token);
-      }, null, { timeout: 4000 }).catch(() => {});
+      await page.click('[data-acc-sign="openfrp"]');
+      await page.waitForSelector('.modal [data-x="ok"]');
+      const modal = await page.$eval(".modal", m => m.textContent.replace(/\s+/g, " ").trim());
+      assert(modal.includes("OpenFrp 签到需要在官方控制台完成人机验证，MineDeck 不代签。") &&
+        modal.includes("将打开 https://console.openfrp.net/dashboard?action=sign"), "签到引导：" + modal);
+      assert((await opened()).length === 0, "确认之前不该打开任何页面");
+      await page.click('.modal [data-x="ok"]'); await settle(300);
+      const urls = await opened();
+      assert(urls.length === 1 && urls[0] === "https://console.openfrp.net/dashboard?action=sign", "确认后应打开官方控制台的签到页：" + JSON.stringify(urls));
+      const frames = await page.evaluate(() => document.querySelectorAll("iframe").length);
+      assert(frames === 0 && page.frames().length === 1, "页面上不该有 iframe：" + frames + " / " + page.frames().length);
+      const all = reqs.slice(before).map(r => r.m + " " + r.u);
+      assert(all.includes("POST /api/tunnel-accounts/openfrp/sign") && !all.some(x => /captcha/i.test(x)),
+        "只该请求 sign，不该再取验证码：" + all.join(", "));
       const last = (await taState({})).lastSign;
-      assert(last && last.provider === "openfrp" && last.token === "tok-test",
-        "sign 应带隔离 iframe 的 token：" + JSON.stringify(last));
-      assert(await toastHas("签到成功"), "应提示签到成功");
+      assert(last && last.provider === "openfrp" && Object.keys(last).length === 1, "sign 的请求体应为空对象：" + JSON.stringify(last));
       assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
-    } finally {
-      await ctx.unroute("**/captcha.html*", frameMock);
-      await resetTA();
-    }
+    } finally { await resetTA(); }
   });
 
-  await run("平台账户：Sakura 签到出现官网引导，不要求本机真签成功", async () => {
+  await run("平台账户：樱花签到确认后打开官网用户中心", async () => {
     await taState({ tunnelAccounts: { reset: true, natfrp: true }, tunnelsReset: true });
     try {
       errors.length = 0;
       await page.goto(url("#/tunnels")); await settle(600);
       await hookOpens();
       await page.click('[data-acc-sign="natfrp"]');
-      await page.waitForSelector('.modal');
-      const modal = await page.evaluate(() => {
-        const m = document.querySelector(".modal");
-        return m ? m.textContent.replace(/\s+/g, " ").trim() : "";
-      });
-      assert(/去官网签到|打开官网|用户中心|访问密钥无法/.test(modal), "应出现官网签到引导：" + modal);
+      await page.waitForSelector('.modal [data-x="ok"]');
+      const modal = await page.$eval(".modal", m => m.textContent.replace(/\s+/g, " ").trim());
+      assert(modal.includes("SakuraFrp 签到需要在官网登录后完成，访问密钥不能签到。") &&
+        modal.includes("将打开 https://www.natfrp.com/user/"), "签到引导：" + modal);
       await page.click('.modal [data-x="ok"]'); await settle(300);
       const urls = await opened();
-      assert(urls.some(u => /natfrp\.com/.test(u)), "确认后应打开樱花官网：" + JSON.stringify(urls));
+      assert(urls.length === 1 && urls[0] === "https://www.natfrp.com/user/", "确认后应打开樱花官网的用户中心：" + JSON.stringify(urls));
+      assert(await page.evaluate(() => document.querySelectorAll("iframe").length) === 0, "页面上不该有 iframe");
+      // 取消则什么都不打开
+      await hookOpens();
+      await modalGone();
+      await page.click('[data-acc-sign="natfrp"]');
+      await page.waitForSelector('.modal [data-x="cancel"]');
+      await page.click('.modal [data-x="cancel"]'); await settle(300);
+      assert((await opened()).length === 0, "取消后不该打开页面：" + JSON.stringify(await opened()));
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await resetTA(); }
+  });
+
+  await run("平台账户：局域网打开时账户区只读，不出按钮也不拉概览", async () => {
+    const RO_TIP = "在局域网里打开时只能看连接状态，连接、签到、创建和导入隧道请在运行 MineDeck 的这台电脑上操作。";
+    const look = () => page.evaluate(() => {
+      const sec = document.querySelector("#tn-accounts");
+      const txt = sel => ((sec.querySelector(sel) || {}).textContent || "").replace(/\s+/g, " ").trim();
+      const tip = sec.querySelector("#tn-acc-ro");
+      return {
+        buttons: [...sec.querySelectorAll("button, [role=button], a.btn")].map(b => b.textContent.trim()),
+        inputs: sec.querySelectorAll("input, select, textarea").length,
+        tip: tip && !tip.hidden ? tip.textContent.trim() : "",
+        of: txt('[data-acc="openfrp"]'), sk: txt('[data-acc="natfrp"]'),
+        panel: !!sec.querySelector("#tn-acc-panel:not([hidden])"),
+      };
+    });
+    try {
+      errors.length = 0;
+      // 两家都已连接
+      await taState({ tunnelAccounts: { reset: true, openfrp: true, natfrp: true, local: false }, tunnelsReset: true });
+      let before = reqs.length;
+      await page.goto(url("#/tunnels")); await settle(600);
+      await page.waitForSelector('#tn-accounts [data-acc="natfrp"]');
+      let ui = await look();
+      assert(ui.buttons.length === 0 && ui.inputs === 0, "只读时账户区不该有按钮和输入框：" + JSON.stringify(ui));
+      assert(ui.tip === RO_TIP, "只读提示：" + JSON.stringify(ui.tip));
+      assert(ui.of.includes("已连接") && ui.sk.includes("已连接") && !ui.panel, "只显示连接状态：" + JSON.stringify(ui));
+      for (const w of ["概览", "签到", "购买", "断开", "浏览器授权"]) assert(!(ui.of + ui.sk).includes(w), `只读时卡片上不该有「${w}」：` + JSON.stringify(ui));
+      assert(!taReqs(before).some(x => x.includes("/overview")), "只读时不该请求 overview：" + taReqs(before).join(", "));
+      assert(taReqs(before).join(",") === "GET " + TA_API, "只读时只该查一次连接状态：" + taReqs(before).join(", "));
+      // 两家都没连接：也不出输入框和连接按钮
+      await taState({ tunnelAccounts: { reset: true, local: false } });
+      before = reqs.length;
+      await page.goto(url("#/tunnels")); await settle(600);
+      await page.waitForSelector('#tn-accounts [data-acc="natfrp"]');
+      ui = await look();
+      assert(ui.buttons.length === 0 && ui.inputs === 0 && ui.tip === RO_TIP && ui.of.includes("未连接") && ui.sk.includes("未连接"),
+        "只读且未连接：" + JSON.stringify(ui));
+      assert(!taReqs(before).some(x => x.includes("/overview")), "只读时不该请求 overview：" + taReqs(before).join(", "));
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await resetTA(); }
+  });
+
+  await run("平台账户：凭据读不出来时按未连接显示，并提示重新连接", async () => {
+    const LOST = "之前保存的凭据在这台电脑上读不出来（可能换了电脑或 Windows 用户），请重新连接。";
+    const cards = () => page.evaluate(() => Object.fromEntries(["openfrp", "natfrp"].map(p => {
+      const c = document.querySelector(`#tn-accounts [data-acc="${p}"]`);
+      return [p, {
+        text: c.textContent.replace(/\s+/g, " ").trim(),
+        connect: !!c.querySelector(`[data-acc-connect="${p}"]`),
+        overview: !!c.querySelector(`[data-acc-overview="${p}"]`),
+        token: !!c.querySelector("#tn-sakura-token"),
+      }];
+    })));
+    try {
+      errors.length = 0;
+      await taState({ tunnelAccounts: { reset: true, openfrp: true, openfrpUnreadable: true }, tunnelsReset: true });
+      const before = reqs.length;
+      await page.goto(url("#/tunnels")); await settle(600);
+      await page.waitForSelector('#tn-accounts [data-acc="natfrp"]');
+      let c = await cards();
+      assert(c.openfrp.text.includes("未连接") && !c.openfrp.text.includes("已连接") && c.openfrp.text.includes(LOST) &&
+        c.openfrp.connect && !c.openfrp.overview, "OpenFrp 凭据读不出来：" + JSON.stringify(c.openfrp));
+      assert(!c.natfrp.text.includes(LOST), "另一家不该跟着提示：" + JSON.stringify(c.natfrp));
+      assert(!taReqs(before).some(x => x.includes("/overview")), "按未连接算，不该请求 overview：" + taReqs(before).join(", "));
+      await taState({ tunnelAccounts: { reset: true, natfrp: true, natfrpUnreadable: true } });
+      await page.goto(url("#/tunnels")); await settle(600);
+      await page.waitForSelector('#tn-accounts [data-acc="natfrp"]');
+      c = await cards();
+      assert(c.natfrp.text.includes("未连接") && c.natfrp.text.includes(LOST) && c.natfrp.connect && c.natfrp.token && !c.natfrp.overview,
+        "樱花凭据读不出来：" + JSON.stringify(c.natfrp));
+      assert(!c.openfrp.text.includes(LOST), "另一家不该跟着提示：" + JSON.stringify(c.openfrp));
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await resetTA(); }
+  });
+
+  await run("平台账户：OpenFrp 创建隧道默认给英文名，名称不合规时在对话框里提示且不发请求", async () => {
+    await taState({ tunnelAccounts: { reset: true, openfrp: true }, tunnelsReset: true });
+    try {
+      errors.length = 0;
+      await openOverview("openfrp");
+      await page.click('#tn-acc-panel [data-acc-create="openfrp"]');
+      await page.waitForSelector("#tn-cr-name");
+      const dlg = await page.evaluate(() => ({
+        name: document.querySelector("#tn-cr-name").value,
+        hint: (document.querySelector("#tn-cr-name-hint") || {}).textContent || "",
+        pub: !!document.querySelector("#tn-cr-public"),
+        rportShown: !document.querySelector("#tn-cr-rport").closest(".field").hidden,
+      }));
+      assert(/^minedeck_[a-z0-9]{4}$/.test(dlg.name), "默认隧道名应是 minedeck_ 加 4 位小写字母数字：" + dlg.name);
+      assert(dlg.hint === "OpenFrp 的隧道名只能用英文字母、数字、下划线和连字符" && !dlg.pub && dlg.rportShown, "对话框：" + JSON.stringify(dlg));
+      // 中文名：对话框里提示，不发请求
+      const before = reqs.length;
+      await page.fill("#tn-cr-name", "我的隧道");
+      await page.click('.modal [data-x="ok"]'); await settle(400);
+      const bad = await page.evaluate(() => ({
+        open: !!document.querySelector("#tn-cr-name"),
+        err: (document.querySelector("#tn-cr-err") || {}).textContent || "",
+      }));
+      assert(bad.open && bad.err.includes("OpenFrp 的隧道名只能用英文字母、数字、下划线和连字符"), "应在对话框里提示名称不合规：" + JSON.stringify(bad));
+      assert(taReqs(before).length === 0, "名称不合规时不该发请求：" + taReqs(before).join(", "));
+      assert((await taState({})).lastCreate === null, "仿真后端不该收到创建请求：" + JSON.stringify((await taState({})).lastCreate));
+      // 改回英文：提示清掉，创建成功
+      await page.fill("#tn-cr-name", "mc_friends-1");
+      assert(await page.$eval("#tn-cr-err", e => e.textContent) === "", "改了名称后提示应清掉");
+      await page.click('.modal [data-x="ok"]');
+      const last = await taWait("lastCreate", v => !!v.name);
+      assert(last && last.provider === "openfrp" && last.name === "mc_friends-1" && last.nodeId === 1 && last.type === "tcp" &&
+        last.localPort === 25565 && last.remotePort === 25566 && last.purpose === "game" && !("publicServer" in last),
+        "创建请求：" + JSON.stringify(last));
+      assert(await toastHas("已创建并导入"), "应提示已创建并导入");
+      await modalGone();
+      assert(await page.$("#tn-cr-name") === null, "创建成功后对话框应关闭");
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await resetTA(); }
+  });
+
+  await run("平台账户：樱花创建隧道勾了「这是公开服务器」只列公开服专用节点，请求带 publicServer", async () => {
+    const nodeNames = () => page.$$eval("#tn-cr-node option", os => os.map(o => o.textContent.trim()));
+    const openCreate = async () => {
+      await openOverview("natfrp");
+      await page.click('#tn-acc-panel [data-acc-create="natfrp"]');
+      await page.waitForSelector("#tn-cr-public");
+    };
+    try {
+      errors.length = 0;
+      await taState({ tunnelAccounts: { reset: true, natfrp: true }, tunnelsReset: true });
+      await openCreate();
+      const dlg = await page.evaluate(() => ({
+        name: document.querySelector("#tn-cr-name").value,
+        ofHint: !!document.querySelector("#tn-cr-name-hint"),
+        label: document.querySelector("#tn-cr-public").closest(".switch").textContent.trim(),
+        desc: (document.querySelector("#tn-cr-public-desc") || {}).textContent || "",
+        checked: document.querySelector("#tn-cr-public").checked,
+        rportHidden: document.querySelector("#tn-cr-rport").closest(".field").hidden,
+      }));
+      assert(/^minedeck_[a-z0-9]{4}$/.test(dlg.name) && !dlg.ofHint && dlg.rportHidden, "樱花的对话框：" + JSON.stringify(dlg));
+      assert(dlg.label === "这是公开服务器" && !dlg.checked && dlg.desc.includes("用错节点会被封号且不退款") && dlg.desc.includes("只和熟人小范围联机可以不勾"),
+        "公开服务器开关和说明：" + JSON.stringify(dlg));
+      const allNodes = await nodeNames();
+      assert(allNodes.length === 2 && allNodes[0].startsWith("上海多线") && allNodes[1].startsWith("北京联通"), "没勾时列出全部可创建的节点：" + allNodes.join(" | "));
+      await page.click("#tn-cr-public"); await settle(200);
+      const pubNodes = await nodeNames();
+      assert(pubNodes.length === 1 && pubNodes[0].startsWith("上海多线"), "勾了以后只剩公开服专用节点：" + pubNodes.join(" | "));
+      await page.click('.modal [data-x="ok"]');
+      const last = await taWait("lastCreate", v => !!v.name);
+      assert(last && last.provider === "natfrp" && last.publicServer === true && last.nodeId === 10 && /^minedeck_[a-z0-9]{4}$/.test(last.name),
+        "创建请求应带 publicServer: true 和公开服节点：" + JSON.stringify(last));
+      assert(await toastHas("已创建并导入"), "应提示已创建并导入");
+      await modalGone();
+
+      // 没勾：请求里 publicServer 为 false，普通节点也能选
+      await taState({ tunnelAccounts: { reset: true, natfrp: true }, tunnelsReset: true });
+      await openCreate();
+      await page.selectOption("#tn-cr-node", "11");
+      await page.click('.modal [data-x="ok"]');
+      const plain = await taWait("lastCreate", v => !!v.name);
+      assert(plain && plain.publicServer === false && plain.nodeId === 11, "没勾时的创建请求：" + JSON.stringify(plain));
+      await modalGone();
+
+      // 一个公开服专用节点都没有：勾上后提示没有可用节点，「创建并导入」点不了；取消勾选恢复
+      await taState({ tunnelAccounts: { reset: true, natfrp: true, overviews: { natfrp: { nodes: [
+        { id: 11, name: "北京联通", description: "仅 TCP", canCreate: true, tcp: true, udp: false, publicGameAllowed: false },
+      ] } } }, tunnelsReset: true });
+      await openCreate();
+      await page.click("#tn-cr-public"); await settle(200);
+      const none = await page.evaluate(() => ({
+        options: document.querySelectorAll("#tn-cr-node option").length,
+        okDisabled: document.querySelector('.modal [data-x="ok"]').disabled,
+        err: document.querySelector("#tn-cr-err").textContent,
+      }));
+      assert(none.options === 0 && none.okDisabled && none.err.includes("没有可用的公开服专用节点"), "没有公开服节点时：" + JSON.stringify(none));
+      await page.click("#tn-cr-public"); await settle(200);
+      const back = await page.evaluate(() => ({
+        options: document.querySelectorAll("#tn-cr-node option").length,
+        okDisabled: document.querySelector('.modal [data-x="ok"]').disabled,
+        err: document.querySelector("#tn-cr-err").textContent,
+      }));
+      assert(back.options === 1 && !back.okDisabled && back.err === "", "取消勾选后恢复：" + JSON.stringify(back));
+      assert((await taState({})).lastCreate === null, "这一段没有点创建，不该有创建请求");
+      await page.click('.modal [data-x="cancel"]'); await modalGone();
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await resetTA(); }
+  });
+
+  await run("平台账户：断开樱花时说明已导入的隧道里还留着访问密钥", async () => {
+    try {
+      errors.length = 0;
+      await taState({ tunnelAccounts: { reset: true, openfrp: true, natfrp: true }, tunnelsReset: true });
+      await page.goto(url("#/tunnels")); await settle(600);
+      const ask = async provider => {
+        await page.click(`[data-acc-disconnect="${provider}"]`);
+        await page.waitForSelector('.modal [data-x="cancel"]');
+        const body = await page.$eval(".modal .m-body", e => e.textContent.replace(/\s+/g, " ").trim());
+        await page.click('.modal [data-x="cancel"]'); await modalGone();
+        return body;
+      };
+      const sk = await ask("natfrp");
+      assert(sk === "会清除本机保存的樱花访问密钥。已导入到 MineDeck 的樱花隧道里仍保存着同一把访问密钥，要彻底清除请删除这些隧道，必要时到樱花官网重置访问密钥。", "樱花的断开文案：" + sk);
+      const of = await ask("openfrp");
+      assert(of === "会清除本机保存的平台凭据。已导入到 MineDeck 的隧道不会删除。", "OpenFrp 的断开文案：" + of);
+      const st = await taState({});
+      assert(st.openfrp === true && st.natfrp === true, "取消后不该真的断开：" + JSON.stringify({ openfrp: st.openfrp, natfrp: st.natfrp }));
       assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
     } finally { await resetTA(); }
   });

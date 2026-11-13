@@ -3196,7 +3196,6 @@ async function renderTunnels() {
   const ACC_NAMES = { openfrp: "OpenFrp", natfrp: "樱花frp" };
   const openExt = (u) => { if (u) try { window.open(u, "_blank", "noopener"); } catch {} };
   // OpenFrp 授权轮询间隔（≥5s）；测试可设 window.__MD_TUNNEL_POLL_MS 缩短
-  // 正式使用 ≥5s（OpenFrp 限流）；测试可设 window.__MD_TUNNEL_POLL_MS 缩短
   const pollMs = () => {
     const n = +window.__MD_TUNNEL_POLL_MS;
     return Number.isFinite(n) && n > 0 ? Math.max(200, n) : 5000;
@@ -3229,8 +3228,9 @@ async function renderTunnels() {
     <section id="tn-accounts" class="tun-accounts" aria-label="平台账户">
       <div class="tun-accounts-head">
         <h3>平台账户</h3>
-      <p class="hint">基于 OpenFrp OPENAPI。此项目由社区开发，OpenFrp 官方不负责除节点问题以外的技术支持。支付只跳转官网，不代下单；禁止自动签到。</p>
+      <p class="hint">OpenFrp 部分基于 <a href="https://github.com/ZGIT-Network/OPENFRP-APIDOC" target="_blank" rel="noopener">OpenFrp OPENAPI</a>。此项目由社区开发，OpenFrp 官方不负责除节点问题以外的技术支持，MineDeck 本身的问题请到 <a href="https://github.com/Trasperioooooon/MineDeck/issues" target="_blank" rel="noopener">GitHub Issues</a> 反馈。签到和购买都只打开官网，MineDeck 不代签、不代下单。</p>
       </div>
+      <div id="tn-acc-ro" class="hint" style="margin:0 0 10px" hidden>在局域网里打开时只能看连接状态，连接、签到、创建和导入隧道请在运行 MineDeck 的这台电脑上操作。</div>
       <div id="tn-acc-cards" class="tun-accounts-grid">${skeletonRows(2)}</div>
       <div id="tn-acc-panel" hidden></div>
     </section>
@@ -3270,7 +3270,12 @@ async function renderTunnels() {
   };
 
   /* —— 平台账户：状态卡 / 概览 / 连接 / 签到 / 购买 / 创建导入 —— */
-  let accStatus = { openfrp: false, natfrp: false };
+  let accStatus = { openfrp: false, natfrp: false, local: true };
+  // local 不为 true 是局域网设备在看：账户区只读（只显示连接状态，不出按钮，也不拉概览；后端对这些接口本来就回 403）。
+  // 响应里没有 local 这一项时也按只读算（同 AI 设置页的 !v.local）
+  const accRO = () => !accStatus.local;
+  // 「已连接」：凭据解不开（openfrpUnreadable / natfrpUnreadable）的那家按未连接算
+  const accOn = provider => !!accStatus[provider] && !accStatus[provider + "Unreadable"];
   let accPanel = null; // { provider, overview }
   let openFrpPoll = null; // { id, timer, stop }
   const stopOpenFrpPoll = () => {
@@ -3279,65 +3284,6 @@ async function renderTunnels() {
     openFrpPoll.stop = true;
     openFrpPoll = null;
   };
-  const openCaptchaIsolated = (sdkUrl, appId) => new Promise((resolve, reject) => {
-    let sdk;
-    try { sdk = new URL(sdkUrl); }
-    catch { reject(new Error("验证码 SDK 地址无效")); return; }
-    if (sdk.protocol !== "https:" || sdk.hostname !== "cv.naids.com" || !appId) {
-      reject(new Error("验证码 SDK 地址无效"));
-      return;
-    }
-    const bytes = crypto.getRandomValues(new Uint8Array(16));
-    const nonce = Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
-    const frameURL = new URL("/captcha.html", location.href);
-    frameURL.hostname = location.hostname === "127.0.0.1" ? "localhost" : "127.0.0.1";
-    frameURL.searchParams.set("sdk", sdk.href);
-    frameURL.searchParams.set("appId", appId);
-    frameURL.searchParams.set("nonce", nonce);
-    frameURL.searchParams.set("parent", location.origin);
-    const captchaOrigin = frameURL.origin;
-    const overlay = document.createElement("div");
-    overlay.style.cssText = "position:fixed;inset:0;z-index:10001;background:rgba(12,18,24,.48)";
-    const frame = document.createElement("iframe");
-    frame.title = "OpenFrp 人机验证";
-    // CaptchaSDK needs web storage; this host alias gives it a separate origin from the token-holding parent.
-    frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms");
-    frame.referrerPolicy = "strict-origin";
-    frame.style.cssText = "position:absolute;inset:0;width:100%;height:100%;border:0;background:transparent";
-    const cancel = document.createElement("button");
-    cancel.type = "button";
-    cancel.className = "btn";
-    cancel.textContent = "取消验证";
-    cancel.style.cssText = "position:absolute;right:16px;top:16px;z-index:1";
-    overlay.append(frame, cancel);
-    document.body.append(overlay);
-
-    let settled = false;
-    const finish = (err, token) => {
-      if (settled) return;
-      settled = true;
-      window.removeEventListener("message", onMessage);
-      cancel.removeEventListener("click", onCancel);
-      overlay.remove();
-      if (err) reject(err); else resolve(token);
-    };
-    const onCancel = () => finish(new Error("已取消验证"));
-    const onMessage = event => {
-      const data = event.data;
-      if (event.source !== frame.contentWindow || event.origin !== captchaOrigin || !data ||
-          data.channel !== "minedeck-openfrp-captcha" || data.nonce !== nonce) return;
-      if (data.type === "success" && typeof data.token === "string" && data.token.length > 0 && data.token.length <= 8192) {
-        finish(null, data.token);
-      } else if (data.type === "cancel") {
-        finish(new Error("已取消验证"));
-      } else if (data.type === "error") {
-        finish(new Error("人机验证失败，请重试或改用官网签到"));
-      }
-    };
-    window.addEventListener("message", onMessage);
-    cancel.addEventListener("click", onCancel);
-    frame.src = frameURL.href;
-  });
   const boundSelect = (id, val = "") =>
     `<select id="${id}" aria-label="绑定实例"><option value="">不绑定</option>${insts.map(i =>
       `<option value="${esc(i.name)}"${i.name === val ? " selected" : ""}>${esc(i.name)}（端口 ${i.port}）</option>`).join("")}</select>`;
@@ -3345,23 +3291,33 @@ async function renderTunnels() {
   const paintAccCards = () => {
     const box = $("#tn-acc-cards");
     if (!box || stale(gen)) return;
+    const ro = accRO();
+    const roTip = $("#tn-acc-ro");
+    if (roTip) roTip.hidden = !ro;
     const card = (provider) => {
-      const on = !!accStatus[provider];
+      const on = accOn(provider);
       const name = ACC_NAMES[provider];
-      const polling = openFrpPoll && provider === "openfrp";
+      const polling = !ro && openFrpPoll && provider === "openfrp";
+      // 本机存过凭据但解不开（多半换了电脑或 Windows 用户）：按未连接显示，多一句提示
+      const lost = accStatus[provider + "Unreadable"]
+        ? `<div class="hint" style="margin:0 0 8px;color:var(--warning-text)" data-acc-unreadable="${provider}">之前保存的凭据在这台电脑上读不出来（可能换了电脑或 Windows 用户），请重新连接。</div>` : "";
       let body, actions;
-      if (provider === "openfrp" && !on) {
-        body = polling
+      if (ro) {
+        // 局域网打开：只留名称和连接状态，不出输入框和任何按钮
+        body = lost;
+        actions = "";
+      } else if (provider === "openfrp" && !on) {
+        body = lost + (polling
           ? `<div class="hint">已打开授权页，正在等待你在浏览器里完成授权…</div>`
-          : `<div class="hint">通过 OpenFrp 远程授权连接。MineDeck 不会接收或保存账号密码。</div>`;
+          : `<div class="hint">通过 OpenFrp 远程授权连接。MineDeck 不会接收或保存账号密码。</div>`);
         actions = polling
           ? `<button class="btn sm" data-acc-cancel-login="openfrp">取消等待</button>`
           : `<button class="btn sm primary" data-acc-connect="openfrp" aria-label="浏览器授权连接 OpenFrp">${icon("link")} 浏览器授权</button>`;
       } else if (provider === "natfrp" && !on) {
-        body = `<div class="hint" style="margin-bottom:8px">可先点「网页登录」打开 OpenID 授权；登录成功后仍需到 <a href="https://www.natfrp.com/user/profile" target="_blank">用户信息页</a> 复制访问密钥粘贴回来（自动换票还在完善）。第一次跑樱花隧道仍可能要手动放置 frpc。</div>
-          <label class="field" style="margin:0"><span class="visually-hidden">SakuraFrp 访问密钥</span>
+        body = lost + `<div class="hint" style="margin-bottom:8px">在樱花官网的用户信息页复制访问密钥，粘贴到这里连接。第一次跑樱花隧道仍可能要手动放置 frpc。</div>
+          <label class="field" style="margin:0">
             <input type="password" id="tn-sakura-token" placeholder="粘贴访问密钥" aria-label="SakuraFrp 访问密钥" autocomplete="off"></label>`;
-        actions = `<button class="btn sm" data-acc-web-login="natfrp" title="打开面板登录入口（跳转 OpenID）">网页登录</button>
+        actions = `<button class="btn sm" data-acc-get-token="natfrp" title="在浏览器里打开樱花官网的用户信息页">获取访问密钥</button>
           <button class="btn sm primary" data-acc-connect="natfrp" aria-label="连接樱花frp">${icon("link")} 连接</button>`;
       } else {
         const ov = accPanel && accPanel.provider === provider ? accPanel.overview : null;
@@ -3386,13 +3342,13 @@ async function renderTunnels() {
           <span class="badge ${on ? "core" : ""}">${on ? "已连接" : (polling ? "授权中" : "未连接")}</span>
           <span class="grow"></span>
         </div>
-        <div style="width:100%">${body}</div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px;width:100%">${actions}</div>
+        ${body ? `<div style="width:100%">${body}</div>` : ""}
+        ${actions ? `<div style="display:flex;flex-wrap:wrap;gap:6px;width:100%">${actions}</div>` : ""}
       </div>`;
     };
     box.innerHTML = card("openfrp") + card("natfrp");
     box.querySelectorAll("[data-acc-connect]").forEach(b => b.onclick = () => connectAccount(b.dataset.accConnect, b));
-    box.querySelectorAll("[data-acc-web-login]").forEach(b => b.onclick = () => beginWebLogin(b.dataset.accWebLogin, b));
+    box.querySelectorAll("[data-acc-get-token]").forEach(b => b.onclick = () => openExt("https://www.natfrp.com/user/profile"));
     box.querySelectorAll("[data-acc-cancel-login]").forEach(b => b.onclick = () => { stopOpenFrpPoll(); paintAccCards(); toast("已取消等待授权"); });
     box.querySelectorAll("[data-acc-disconnect]").forEach(b => b.onclick = () => disconnectAccount(b.dataset.accDisconnect));
     box.querySelectorAll("[data-acc-overview]").forEach(b => b.onclick = () => toggleOverview(b.dataset.accOverview));
@@ -3424,44 +3380,35 @@ async function renderTunnels() {
             ${t.remote ? `<span class="jv" style="font-family:var(--mono)">${esc(t.remote)}</span>` : ""}
             <span class="jp">${t.online ? "在线" : "离线"}${t.enabled === false ? " · 已禁用" : ""}</span>
             <span class="grow"></span>
-            ${t.canImport ? `<button class="btn sm" data-acc-import="${esc(provider)}" data-proxy="${esc(t.id)}" aria-label="导入 ${esc(t.name)}">导入到 MineDeck</button>` : `<span class="hint" style="margin:0">不可导入</span>`}
+            ${t.canImport ? `<button class="btn sm" data-acc-import="${esc(provider)}" data-proxy="${esc(t.id)}" data-type="${esc(t.type || "")}" aria-label="导入 ${esc(t.name)}">导入到 MineDeck</button>` : `<span class="hint" style="margin:0">不可导入</span>`}
           </div>`).join("") : `<div class="hint">平台上还没有隧道</div>`}
       </div>
       ${nodes.length ? `<div class="hint">可创建节点：${nodes.map(n => esc(n.name)).join("、")}</div>` : `<div class="hint">当前没有可创建隧道的节点</div>`}`;
-    el.querySelectorAll("[data-acc-import]").forEach(b => b.onclick = () => importPlatTunnel(b.dataset.accImport, b.dataset.proxy, b));
+    el.querySelectorAll("[data-acc-import]").forEach(b => b.onclick = () => importPlatTunnel(b.dataset.accImport, b.dataset.proxy, b.dataset.type, b));
     const createBtn = el.querySelector("[data-acc-create]");
     if (createBtn) createBtn.onclick = () => createPlatTunnel(provider, ov);
   };
 
   const refreshAccounts = async (preferProvider) => {
-    try { accStatus = await api("/api/tunnel-accounts") || { openfrp: false, natfrp: false }; }
+    try { accStatus = await api("/api/tunnel-accounts") || { openfrp: false, natfrp: false, local: true }; }
     catch (e) { if (!stale(gen)) toast(e.message, true); return; }
     if (stale(gen)) return;
-    if (preferProvider && accStatus[preferProvider]) {
+    if (accRO()) {
+      // 局域网打开：概览是仅本机的接口，不去拉
+      stopOpenFrpPoll();
+      accPanel = null;
+    } else if (preferProvider && accOn(preferProvider)) {
       try {
         accPanel = { provider: preferProvider, overview: await api(`/api/tunnel-accounts/${preferProvider}/overview`) };
       } catch (e) { toast(e.message, true); accPanel = null; }
-    } else if (accPanel && !accStatus[accPanel.provider]) {
+    } else if (accPanel && !accOn(accPanel.provider)) {
       accPanel = null;
-    } else if (accPanel && accStatus[accPanel.provider]) {
+    } else if (accPanel && accOn(accPanel.provider)) {
       try { accPanel.overview = await api(`/api/tunnel-accounts/${accPanel.provider}/overview`); }
       catch { /* 保留旧概览 */ }
     }
     paintAccCards();
     paintAccPanel();
-  };
-
-  const beginWebLogin = async (provider, btn) => {
-    if (btn) btn.disabled = true;
-    try {
-      const info = await api(`/api/tunnel-accounts/${provider}/weblogin`);
-      if (!info || !info.url) throw new Error("未返回网页登录入口");
-      openExt(info.url);
-      toast(info.message || (provider === "natfrp"
-        ? "已打开樱花登录页；登录后请复制访问密钥回来粘贴"
-        : "已打开网页登录入口"));
-    } catch (e) { toast(e.message, true); }
-    if (btn) btn.disabled = false;
   };
 
   const beginOpenFrpBrowserLogin = async (btn) => {
@@ -3521,7 +3468,9 @@ async function renderTunnels() {
   const disconnectAccount = async (provider) => {
     const r = await confirmModal({
       title: `断开 ${ACC_NAMES[provider]}？`,
-      body: "会清除本机保存的平台凭据。已导入到 MineDeck 的隧道不会删除。",
+      body: provider === "natfrp"
+        ? "会清除本机保存的樱花访问密钥。已导入到 MineDeck 的樱花隧道里仍保存着同一把访问密钥，要彻底清除请删除这些隧道，必要时到樱花官网重置访问密钥。"
+        : "会清除本机保存的平台凭据。已导入到 MineDeck 的隧道不会删除。",
       okText: "断开", danger: true, icon: "warn",
     });
     if (!r) return;
@@ -3549,95 +3498,20 @@ async function renderTunnels() {
     } catch (e) { toast(e.message, true); }
   };
 
+  // 签到：两家都不代签。后端只回官网入口（openURL）和一句说明，确认后在浏览器里打开，签到在官网完成
   const signAccount = async (provider) => {
-    if (provider === "natfrp") {
-      // 访问密钥不能签到：引导官网（可先调 sign 拿 openURL）
-      let openURL = "https://www.natfrp.com/";
-      let msg = "SakuraFrp 签到需在官网登录后完成，访问密钥无法签到。";
-      try {
-        const r = await api(`/api/tunnel-accounts/natfrp/sign`, { method: "POST", body: {} });
-        if (r && r.openURL) openURL = r.openURL;
-        if (r && r.message) msg = r.message;
-      } catch (e) { /* 仍打开官网 */ }
-      const go = await confirmModal({
-        title: "去官网签到",
-        body: esc(msg) + `<div class="hint" style="margin-top:8px">将打开 ${esc(openURL)}</div>`,
-        okText: "打开官网", cancelText: "取消",
-      });
-      if (go) openExt(openURL);
-      return;
-    }
-    // OpenFrp：拉验证码进 MineDeck，禁止自动签到
-    let captcha;
-    try { captcha = await api("/api/tunnel-accounts/openfrp/captcha"); }
+    let r;
+    try { r = await api(`/api/tunnel-accounts/${provider}/sign`, { method: "POST", body: {} }); }
     catch (e) { toast(e.message, true); return; }
-    const fallbackURL = (captcha && captcha.openURL) || "https://console.openfrp.net/dashboard?action=sign";
-    const root = $("#modal-root");
-    const prev = document.activeElement;
-    root.innerHTML = `<div class="modal-mask enter" id="tn-sign-mask"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="tn-sign-title" style="max-width:420px">
-      <h3 id="tn-sign-title">OpenFrp 签到</h3>
-      <div class="m-body" id="tn-sign-body">正在准备人机验证…</div>
-      <div class="m-actions">
-        <button class="btn" data-x="web">去官网签到</button>
-        <button class="btn" data-x="cancel">取消</button>
-        <button class="btn primary" data-x="start" disabled>开始验证</button>
-      </div></div></div>`;
-    const mask = root.firstElementChild;
-    let closed = false;
-    const close = () => {
-      if (closed) return;
-      closed = true;
-      document.removeEventListener("keydown", onKey);
-      dismiss(mask);
-      if (prev && prev.focus) prev.focus();
-    };
-    const onKey = e => { if (e.key === "Escape") close(); };
-    document.addEventListener("keydown", onKey);
-    mask.addEventListener("mousedown", e => { if (e.target === e.currentTarget) close(); });
-    mask.querySelector('[data-x="cancel"]').onclick = close;
-    mask.querySelector('[data-x="web"]').onclick = () => { openExt(fallbackURL); close(); };
-    const body = $("#tn-sign-body");
-    const startBtn = mask.querySelector('[data-x="start"]');
-    const runSign = async (token) => {
-      body.textContent = "正在提交签到…";
-      startBtn.disabled = true;
-      try {
-        const r = await api("/api/tunnel-accounts/openfrp/sign", { method: "POST", body: { token } });
-        close();
-        toast((r && r.message) || "签到成功");
-        await refreshAccounts(accPanel && accPanel.provider === "openfrp" ? "openfrp" : null);
-        if (accStatus.openfrp && !(accPanel && accPanel.provider === "openfrp")) {
-          // 轻量刷新状态卡上的签到文案
-          try {
-            const ov = await api("/api/tunnel-accounts/openfrp/overview");
-            if (!accPanel) { /* cards only */ }
-            else if (accPanel.provider === "openfrp") accPanel.overview = ov;
-            paintAccCards();
-            paintAccPanel();
-          } catch {}
-        }
-      } catch (e) {
-        body.innerHTML = `<span style="color:var(--danger-text)">${esc(e.message)}</span><div class="hint" style="margin-top:8px">也可改去官网完成签到。</div>`;
-        startBtn.disabled = false;
-        startBtn.textContent = "重试验证";
-      }
-    };
-    startBtn.onclick = async () => {
-      startBtn.disabled = true;
-      body.textContent = "请完成人机验证…";
-      try {
-        const token = await openCaptchaIsolated(captcha.sdkUrl, captcha.appId);
-        await runSign(token);
-      } catch (e) {
-        if (e.message === "已取消验证") { body.textContent = "已取消验证"; startBtn.disabled = false; return; }
-        body.innerHTML = `<span style="color:var(--danger-text)">${esc(e.message || "验证码失败")}</span>
-          <div class="hint" style="margin-top:8px">可改用官网签到。</div>`;
-        startBtn.disabled = false;
-      }
-    };
-    body.textContent = "点「开始验证」后完成人机验证并提交签到。不会自动签到。";
-    startBtn.disabled = false;
-    startBtn.focus();
+    if (stale(gen)) return;
+    const openURL = r && typeof r.openURL === "string" && /^https:\/\//i.test(r.openURL) ? r.openURL : "";
+    if (!openURL) { toast((r && r.message) || "没有拿到官网的签到入口", true); return; }
+    const go = await confirmModal({
+      title: "去官网签到",
+      body: esc(r.message || `${ACC_NAMES[provider]} 的签到要在官网完成。`) + `<div class="hint" style="margin-top:8px">将打开 ${esc(openURL)}</div>`,
+      okText: "打开官网", cancelText: "取消",
+    });
+    if (go) openExt(openURL);
   };
 
   const buyAccount = async (provider) => {
@@ -3671,7 +3545,8 @@ async function renderTunnels() {
     mask.querySelector('[data-x="cancel"]').focus();
   };
 
-  const importPlatTunnel = async (provider, proxyId, btn) => {
+  // 用途跟着平台隧道的类型走：udp 是语音，其余是游戏
+  const importPlatTunnel = async (provider, proxyId, type, btn) => {
     const r = await confirmModal({
       title: "导入到 MineDeck？",
       body: `将平台隧道 <b>${esc(proxyId)}</b> 写入本机隧道列表（凭据由账户密钥填充）。`,
@@ -3691,7 +3566,7 @@ async function renderTunnels() {
           proxyId,
           boundInstance: ($("#tn-imp-bound") || {}).value || "",
           autoStart: !!($("#tn-imp-auto") || {}).checked,
-          purpose: "game",
+          purpose: String(type || "").toLowerCase() === "udp" ? "voice" : "game",
         },
       });
       toast("已导入到 MineDeck");
@@ -3701,26 +3576,40 @@ async function renderTunnels() {
     if (btn) btn.disabled = false;
   };
 
+  // OpenFrp 的隧道名规则（同后端）；两家的默认名都给英文：minedeck_ 加 4 位随机小写字母或数字
+  const OPENFRP_NAME_RE = /^[A-Za-z0-9_-]{1,30}$/;
+  const defaultPlatTunName = () => {
+    const abc = "abcdefghijklmnopqrstuvwxyz0123456789";
+    let s = "minedeck_";
+    for (let i = 0; i < 4; i++) s += abc[Math.floor(Math.random() * abc.length)];
+    return s;
+  };
   const createPlatTunnel = async (provider, overview) => {
     const nodes = (overview.nodes || []).filter(n => n.canCreate);
     if (!nodes.length) { toast("没有可创建的节点", true); return; }
     const root = $("#modal-root");
     const prev = document.activeElement;
-    const needRemote = provider === "openfrp";
+    const isOpenFrp = provider === "openfrp", isSakura = provider === "natfrp";
+    const nodeOpts = list => list.map(n =>
+      `<option value="${esc(n.id)}">${esc(n.name)}${n.udp ? "" : "（无 UDP）"}</option>`).join("");
     root.innerHTML = `<div class="modal-mask enter"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="tn-create-title" style="max-width:520px">
       <h3 id="tn-create-title">在 ${esc(ACC_NAMES[provider])} 创建并导入</h3>
       <div class="m-body">
         <div class="form-grid">
-          <label class="field"><span>隧道名称</span><input type="text" id="tn-cr-name" value="我的隧道" maxlength="30"></label>
-          <label class="field"><span>节点</span><select id="tn-cr-node">${nodes.map(n =>
-            `<option value="${n.id}">${esc(n.name)}${n.udp ? "" : "（无 UDP）"}</option>`).join("")}</select></label>
+          <label class="field"><span>隧道名称</span><input type="text" id="tn-cr-name" value="${esc(defaultPlatTunName())}" maxlength="30" autocomplete="off" spellcheck="false">
+            ${isOpenFrp ? `<small class="hint" id="tn-cr-name-hint" style="display:block">OpenFrp 的隧道名只能用英文字母、数字、下划线和连字符</small>` : ""}</label>
+          <label class="field"><span>节点</span><select id="tn-cr-node">${nodeOpts(nodes)}</select></label>
           <label class="field"><span>类型</span><select id="tn-cr-type"><option value="tcp">TCP</option><option value="udp">UDP</option></select></label>
           <label class="field"><span>本地端口</span><input type="number" id="tn-cr-lport" value="25565" min="1" max="65535"></label>
-          <label class="field"${needRemote ? "" : " hidden"}><span>公网端口</span><input type="number" id="tn-cr-rport" value="25566" min="1" max="65535"></label>
+          <label class="field"${isOpenFrp ? "" : " hidden"}><span>公网端口</span><input type="number" id="tn-cr-rport" value="25566" min="1" max="65535"></label>
+          ${isSakura ? `<div class="field full"><label class="switch"><input type="checkbox" id="tn-cr-public"><span class="sw"></span>
+            <span class="sw-label">这是公开服务器</span></label>
+            <div class="hint" id="tn-cr-public-desc">公开服务器指把连接方式发到论坛、服务器列表、QQ 大群，或在 B 站、抖音、小红书等公开平台宣传招人的服务器。樱花规定公开服务器只能用公开服专用节点（名称含「多线」或带公开游戏标记），用错节点会被封号且不退款。只和熟人小范围联机可以不勾。</div></div>` : ""}
           <label class="field full"><span>绑定实例</span>${boundSelect("tn-cr-bound")}</label>
           <div class="field full"><label class="switch"><input type="checkbox" id="tn-cr-auto" checked><span class="sw"></span>
             <span class="sw-label">跟随实例启动</span></label></div>
         </div>
+        <div class="field-err" id="tn-cr-err" role="alert"></div>
       </div>
       <div class="m-actions">
         <button class="btn" data-x="cancel">取消</button>
@@ -3733,10 +3622,34 @@ async function renderTunnels() {
     document.addEventListener("keydown", onKey);
     mask.addEventListener("mousedown", e => { if (e.target === e.currentTarget) close(); });
     mask.querySelector('[data-x="cancel"]').onclick = close;
-    mask.querySelector('[data-x="ok"]').onclick = async () => {
+    const okBtn = mask.querySelector('[data-x="ok"]');
+    const nameIn = $("#tn-cr-name"), nodeSel = $("#tn-cr-node"), pub = $("#tn-cr-public"), errEl = $("#tn-cr-err");
+    // 对话框里的提示：kind 记下是哪一类（name 名称不合规 / node 没有可用节点），改了对应的地方才清掉
+    const showErr = (msg, kind = "") => { errEl.textContent = msg || ""; errEl.dataset.kind = msg ? kind : ""; };
+    nameIn.oninput = () => { if (errEl.dataset.kind === "name") showErr(""); };
+    // 樱花勾了「这是公开服务器」：节点只列公开服专用的（publicGameAllowed）；一个都没有就不让创建
+    const paintNodes = () => {
+      const list = pub && pub.checked ? nodes.filter(n => n.publicGameAllowed === true) : nodes;
+      const keep = nodeSel.value;
+      nodeSel.innerHTML = nodeOpts(list);
+      if (list.some(n => String(n.id) === keep)) nodeSel.value = keep;
+      nodeSel.disabled = okBtn.disabled = !list.length;
+      if (!list.length) showErr("没有可用的公开服专用节点，公开服务器暂时不能在这里创建隧道。", "node");
+      else if (errEl.dataset.kind === "node") showErr("");
+    };
+    if (pub) pub.onchange = paintNodes;
+    okBtn.onclick = async () => {
+      const name = nameIn.value.trim();
+      if (isOpenFrp && !OPENFRP_NAME_RE.test(name)) {
+        showErr("OpenFrp 的隧道名只能用英文字母、数字、下划线和连字符，最长 30 个字符", "name");
+        nameIn.focus();
+        return;
+      }
+      if (!name) { showErr("请填写隧道名称", "name"); nameIn.focus(); return; }
+      showErr("");
       const body = {
-        name: $("#tn-cr-name").value.trim(),
-        nodeId: +$("#tn-cr-node").value,
+        name,
+        nodeId: +nodeSel.value,
         type: $("#tn-cr-type").value,
         localPort: +$("#tn-cr-lport").value || 0,
         remotePort: +($("#tn-cr-rport") || {}).value || 0,
@@ -3744,7 +3657,7 @@ async function renderTunnels() {
         autoStart: $("#tn-cr-auto").checked,
         purpose: $("#tn-cr-type").value === "udp" ? "voice" : "game",
       };
-      const okBtn = mask.querySelector('[data-x="ok"]');
+      if (isSakura) body.publicServer = !!(pub && pub.checked);
       okBtn.disabled = true;
       try {
         await api(`/api/tunnel-accounts/${provider}/tunnels`, { method: "POST", body });
@@ -3757,7 +3670,7 @@ async function renderTunnels() {
         okBtn.disabled = false;
       }
     };
-    $("#tn-cr-name").focus();
+    nameIn.focus();
   };
 
   // 日志展开着的隧道：列表照常刷新（以前日志一展开整个列表就停刷，点了「启动」卡片也不变，测试报告第五轮），
