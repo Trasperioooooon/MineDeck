@@ -16,6 +16,7 @@
 .wi-pt .ri-ico, .wi-cand .ri-ico { margin-top: 2px; }
 .wi-pt-acts { flex-wrap: wrap; justify-content: flex-end; }
 .wi-need-stop { color: var(--warning-text); }
+.wi-where { word-break: break-all; }
 .wi-busybox { max-width: 900px; margin-top: 0; }
 .wi-stuck { word-break: break-all; margin-bottom: 8px; }
 .wi-now code, .wi-plan code, .wi-cands code { font: var(--fs-xs) var(--mono); word-break: break-all; }
@@ -41,6 +42,7 @@
 .wi-detail { margin-top: 2px; }
 .wi-detail > summary { display: inline-block; cursor: pointer; font-size: var(--fs-xs); color: var(--accent-text); border-radius: var(--r-xs); }
 .wi-detail > summary:hover { text-decoration: underline; }
+.err-box .wi-detail > summary, .warn-card .wi-detail > summary { color: inherit; text-decoration: underline; } /* 带底色的框里跟着正文的颜色走，不叠一层强调色 */
 .wi-detail-body {
   margin-top: 4px; padding: 8px 10px; font: var(--fs-xs)/1.6 var(--mono); color: var(--text);
   background: var(--sunken); border-radius: var(--r-md); box-shadow: var(--well); white-space: pre-wrap; word-break: break-all;
@@ -83,6 +85,7 @@
 .wi-check > span { min-width: 0; overflow-wrap: anywhere; }
 .wi-check .hint { display: block; }
 .wi-check .ico { width: 12px; height: 12px; vertical-align: -1px; color: var(--muted); }
+.wi-stop .hint { color: var(--text); }
 .wi-stop { margin-top: 16px; padding: 12px 14px; background: var(--warning-subtle); border-radius: var(--r-lg); border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent); }
 .wi-readme { margin-top: 8px; }
 .wi-readme .wi-row { margin-top: 0; }

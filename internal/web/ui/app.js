@@ -2133,7 +2133,7 @@ async function drawWizard() {
             ...(world || {}),
           },
         });
-        if (world) MDWorldImport.wizardCreated(); // 新建任务还要读这份地图：检测结果不能再清
+        if (world) MDWorldImport.wizardCreated(); // 请求被收下了：后端把地图钉在新建任务上，界面这边的检测结果可以放手了
         if (stale(gen)) { toast("已开始部署，可在新建服务器页查看进度"); return; }
         /* 「选模组」步挑好的内容放在草稿购物车里（不带 inst）。空车照旧直接跳部署任务页；
            有货时留在向导这一页等建服任务跑完，再把草稿车一起装上（装模组是一条 kind "mods" 的任务，跳到那页看进度）。
@@ -2177,7 +2177,7 @@ async function drawWizard() {
       } catch (e) {
         toastErr("无法创建服务器", e);
         if (!stale(gen) && createBtn.isConnected) createBtn.disabled = false;
-        if (world && !stale(gen)) MDWorldImport.wizardCreateFailed(e, wiz); // 计划过期或对不上了：重新核对
+        if (world && !stale(gen)) MDWorldImport.wizardCreateFailed(e, wiz); // 计划过期或对不上了就重新核对；别的原因（重名）计划还能用，改好再点
       }
     };
   }

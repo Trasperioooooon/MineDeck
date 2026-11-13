@@ -5,8 +5,8 @@
    来源：坐在这台电脑前的人可以选文件夹或填路径（/api/world/scan，后端只认本机）；任何设备都可以上传 ZIP（/api/world/upload）。
    不可信的文字：地图名、文件夹名、来源名、检查结果、数据包名、说明书、卡住的路径都是别人给的，一律转义或用 textContent，
    说明书只当纯文字显示，里面的网址不变成链接。
-   检测结果由后端保管（上传的文件也在它那儿）：人放弃了就调 /api/world/discard 清掉；导入或创建的请求一旦发出去就不能再清，
-   后台任务还要回头读这份来源。
+   检测结果由后端保管（上传的文件也在它那儿）：人放弃了就调 /api/world/discard 清掉。导入的请求发出去以后先留着
+   （没完成时可以回去重新核对，不用再传一遍），任务成功了再清；新建服务器的请求被收下以后就清（后端把来源钉在新建任务上，用完才删文件）。
    在 app.js 之前加载；用到的 app.js 工具（api、esc、$、icon、toast、toastErr、errBox、confirmModal、stale、startPoll、fmtBytes、xpBar、
    coreName、ST_TEXT、TOKEN、showLogin、viewGen）都在调用时才取，加载顺序不影响。app.js 里只留了钩子：详情页的标签和分派、
    TASK_KINDS 的 "world"、向导的地图条、版本预选、最后一步的核对和提交。 */
@@ -25,7 +25,7 @@ window.MDWorldImport = (() => {
   const pad = x => String(x).padStart(2, "0");
   const when = (iso, sec = false) => {
     const d = new Date(iso);
-    if (isNaN(d)) return "";
+    if (isNaN(d) || d.getFullYear() < 2000) return ""; // 读不出来的记录没有时间（后端给的是零值）
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}${sec ? ":" + pad(d.getSeconds()) : ""}`;
   };
   const clip = (s, n) => { const a = [...String(s || "")]; return a.length > n ? a.slice(0, n).join("") + "…" : a.join(""); };
@@ -123,7 +123,8 @@ window.MDWorldImport = (() => {
 
   /* ---------- 选来源、检测、挑地图 ----------
      o.local：是不是坐在运行 MineDeck 的那台电脑前（/api/app 的 local）；o.gone()：这块界面还在不在；
-     o.hold(scan)：拿到检测结果了，登记「人走了就清掉」；o.onPicked(scan, cand)：选定了一张地图。
+     o.hold(scan)：拿到检测结果了，登记「人走了就清掉」；o.onPicked(scan, cand)：选定了一张地图；
+     o.quiet：同屏已经有主按钮（向导的「下一步」），这里的按钮都用普通样子。
      返回 { source(), cands() }：回到选来源、回到候选列表。 */
   function sourceUI(root, o) {
     let scan = null, busy = false;
@@ -147,7 +148,7 @@ window.MDWorldImport = (() => {
           ${o.local ? `
           <div class="field"><span>这台电脑上的地图</span>
             <div class="row wi-row">
-              <button type="button" class="btn primary" id="wi-browse">${icon("folder")} 选择地图文件夹</button>
+              <button type="button" class="btn${o.quiet ? "" : " primary"}" id="wi-browse">${icon("folder")} 选择地图文件夹</button>
               <span class="hint">选存档文件夹（里面有 level.dat），或者它的上一层。</span>
             </div>
             <div class="row wi-row">
@@ -159,7 +160,7 @@ window.MDWorldImport = (() => {
           <div class="hint wi-remote">${icon("info")} 选文件夹只能在运行 MineDeck 的那台电脑上操作。在这台设备上，请把地图压成 ZIP 再上传。</div>`}
           <div class="field"><span>${o.local ? "或者上传 ZIP 压缩包" : "上传地图的 ZIP 压缩包"}</span>
             <div class="row wi-row">
-              <button type="button" class="btn${o.local ? "" : " primary"}" id="wi-upload">${icon("arrowUp")} 上传 ZIP</button>
+              <button type="button" class="btn${o.local || o.quiet ? "" : " primary"}" id="wi-upload">${icon("arrowUp")} 上传 ZIP</button>
               <input type="file" id="wi-file" hidden>
               <span class="hint">最大 8 GB。更大的地图，请在运行 MineDeck 的那台电脑上直接选文件夹。</span>
             </div>
@@ -423,14 +424,23 @@ window.MDWorldImport = (() => {
     restoring: ["warn", "正在换回", "正在换回导入前的地图。"],
     restored: ["neutral", "已换回", "已经换回导入前的地图。"],
     stuck: ["warn", "要人处理", "自动恢复没有成功。文件都还在，服务器已暂停启动。"],
+    unreadable: ["warn", "要人处理", "这份换地图的记录读不出来。为了不在半成品的世界上启动，服务器已暂停启动。文件都还在，处理好之前不要动这个文件夹里的东西。"],
   };
   const DELETABLE = new Set(["committed", "rolled-back", "restored"]);
-  function pointSay(pt) {
+  /* 一条恢复点现在是什么情况：[标签的样式, 标签, 一句话]。
+     能换回的只有一条：这个世界名最近一次导入、而且导入前有旧世界的那一条（后端的 canReturn）。
+     多次导入要从最近的一次往前换，乱序换回会把中间那张图困在恢复点里；导入前没有世界的（用地图新建的服务器）没有可以换回的东西。 */
+  const sameLevel = (a, b) => String(a || "").toLowerCase() === String(b || "").toLowerCase();
+  function pointSay(pt, st) {
     if (pt.state === "committed") {
-      if (!pt.canReturn) return ["", "已导入", `正在用这张地图。导入以后 level-name 改过，现在不能自动换回；把 level-name 改回 ${pt.levelName || "原来的名字"} 就可以。`];
-      return ["", "已导入", pt.hasOld
-        ? "正在用这张地图。导入前的世界留在恢复点里，可以换回。"
-        : "正在用这张地图。这台服务器导入前没有世界：换回的话，导入的地图会移到旁边，下次启动时生成新世界。"];
+      if (pt.levelName && !sameLevel(pt.levelName, st.levelName))
+        return ["neutral", "已导入", `这次导入的是世界文件夹 ${pt.levelName}，现在的 level-name 不是它，不能自动换回。把 level-name 改回 ${pt.levelName} 就可以。`];
+      const newest = (st.points || []).find(x => x.state === "committed" && sameLevel(x.levelName, pt.levelName)); // 列表是新的在前
+      const noOld = "这次导入之前服务器还没有世界，没有可以换回的旧地图。";
+      if (newest && newest.id !== pt.id) return ["neutral", "更早的导入", "这之后又导入过别的地图。" + (!pt.hasOld ? noOld
+        : newest.hasOld ? "要先换回最近那一次，才能换回这一次之前的世界。" : "现在不能直接换回这一次之前的世界。")];
+      if (pt.canReturn) return ["", "已导入", "正在用这张地图。导入前的世界留在恢复点里，可以换回。"];
+      return ["", "已导入", "正在用这张地图。" + (pt.hasOld ? "现在不能换回导入前的世界。" : noOld)];
     }
     const s = POINT[pt.state] || ["neutral", "状态不明", "读不出这次导入的状态。"];
     if (pt.state === "restored" && pt.keptBytes > 0) return [s[0], s[1], s[2] + "导入的那份地图（包括之后的改动）留在旁边，确认不要了可以删掉。"];
@@ -473,7 +483,9 @@ window.MDWorldImport = (() => {
         <button type="button" class="btn" id="wi-retry">${icon("refresh")} 重试恢复</button></div>`;
     };
     const pointRow = pt => {
-      const [cls, tag, say] = pointSay(pt), t = when(pt.created), nm = pt.candidate || "没有名字的地图";
+      const bad = pt.state === "unreadable";
+      const [cls, tag, say] = pointSay(pt, st), t = when(pt.created), nm = pt.candidate || (bad ? "读不出来的换地图记录" : "没有名字的地图");
+      const where = bad || pt.state === "stuck" ? pt.stuck || [] : []; // 要人看的地方：本机给路径，别的设备上后端只给一句话，都只当文字
       const who = `${nm} ${when(pt.created, true)}`; // 按钮的名字带上是哪一次导入
       const stopped = st.status === "stopped";
       const sizes = [pt.oldBytes > 0 ? `导入前的世界占 ${size(pt.oldBytes)}` : "", pt.keptBytes > 0 ? `留在旁边的导入地图占 ${size(pt.keptBytes)}` : ""].filter(Boolean).join(" · ");
@@ -481,8 +493,10 @@ window.MDWorldImport = (() => {
         <div class="ri-main">
           <div class="ri-title"><span>${esc(nm)}</span><span class="tag${cls ? " " + cls : ""}">${esc(tag)}</span></div>
           <div class="ri-sub">${esc(say)}</div>
-          ${pt.error ? `<div class="ri-sub">当时的原因：<span>${esc(pt.error)}</span></div>` : ""}
-          <div class="ri-sub">${esc(t)} 导入 · 来源 <span>${esc(pt.source || "不明")}</span>${sizes ? " · " + sizes : ""}</div>
+          ${pt.error ? `<div class="ri-sub">${bad ? "读不出来的原因" : "当时的原因"}：<span>${esc(pt.error)}</span></div>` : ""}
+          ${where.length ? `<div class="ri-sub wi-where">在这里：${where.map(x => `<span>${esc(x)}</span>`).join("、")}</div>` : ""}
+          ${bad ? (sizes ? `<div class="ri-sub">${sizes}</div>` : "")
+            : `<div class="ri-sub">${t ? esc(t) + " 导入 · " : ""}来源 <span>${esc(pt.source || "不明")}</span>${sizes ? " · " + sizes : ""}</div>`}
           ${pt.canReturn && !stopped ? `<div class="ri-sub wi-need-stop">要换回，先停止服务器。</div>` : ""}
         </div>
         <div class="ri-right wi-pt-acts">
@@ -504,7 +518,10 @@ window.MDWorldImport = (() => {
         <div class="group has-ico wi-group" id="wi-points">${pts.map(pointRow).join("") ||
           `<div class="row-item"><div class="ri-head"><div class="ri-main"><div class="ri-sub">还没有恢复点。导入地图时，原来的世界会留在这里。</div></div></div></div>`}</div>
         ${pts.length ? `<div class="hint wi-lead">恢复点是原样留下的世界文件夹，不在普通备份里，也不会被定时备份挤掉。它一直留着，直到你在这里删掉。</div>` : ""}`;
-      tick = () => loadHome(false);
+      /* 自动刷新要省着来：后端每次都要把各个恢复点的文件夹数一遍大小。平时十来秒一次，正在换地图（或卡住）时三秒一次；
+         页头看到服务器状态变了（刚停下、刚启动）就马上刷一次，「恢复导入前的地图」能不能点跟着它走 */
+      let n = 0;
+      tick = () => { n++; if (info.status !== st.status || n % (st.busy ? 2 : 8) === 0) loadHome(false); };
       $("#wi-start", body).onclick = () => startFlow();
       const retry = $("#wi-retry", body);
       if (retry) retry.onclick = async () => {
@@ -521,9 +538,7 @@ window.MDWorldImport = (() => {
       const r = await confirmModal({
         title: "恢复导入前的地图？", danger: true, icon: "restore", okText: "换回导入前的地图",
         body: `将把「${esc(name)}」换回 ${esc(when(pt.created))} 导入「${esc(pt.candidate || "地图")}」之前的世界。<br>` +
-          (pt.hasOld ? "现在这张地图（包括导入以后服务器里的所有改动）会移到旁边留着，不会删。"
-            : "这台服务器在那次导入之前没有世界：导入的地图会移到旁边留着，下次启动时生成一个全新的世界。") +
-          "<br>服务器必须是停止状态。",
+          "现在这张地图（包括导入以后服务器里的所有改动）会移到旁边留着，不会删。<br>服务器必须是停止状态。",
       });
       if (!r || gone()) return;
       try {
@@ -538,7 +553,7 @@ window.MDWorldImport = (() => {
       if (!pt) return;
       const what = pt.state === "committed"
         ? (pt.hasOld ? `删掉的是 ${esc(when(pt.created))} 导入「${esc(pt.candidate || "地图")}」之前的那份世界${pt.oldBytes > 0 ? "（" + size(pt.oldBytes) + "）" : ""}。删了以后就不能再换回导入前的地图。`
-          : "这台服务器导入前没有世界，删掉的只是这次导入的记录。删了以后就不能再从这里把导入的地图移走。")
+          : "这次导入之前服务器还没有世界，删掉的只是这次导入的记录。")
         : pt.state === "restored" ? `删掉的是换回旧地图时留在旁边的那份导入地图${pt.keptBytes > 0 ? "（" + size(pt.keptBytes) + "）" : ""}，连同这次导入的记录。`
         : "这次导入没有生效，删掉的是它留下的记录和临时文件。";
       const r = await confirmModal({
@@ -745,7 +760,7 @@ window.MDWorldImport = (() => {
 
   /* 进新建页（renderCreate）时调：向导从头开始，上一次没用掉的检测清掉 */
   function wizardReset() {
-    drop(); // 握着的那次检测（选定了的，或者候选列表还开着的）；创建请求发出去以后 pending 已经放开，这里清不到
+    drop(); // 握着的那次检测（选定了的，或者候选列表还开着的）；创建请求被收下时已经清过，这里不会再清一遍
     wz = null; wzOpen = false;
     if (activeUpload) activeUpload.abort();
   }
@@ -791,7 +806,9 @@ window.MDWorldImport = (() => {
       const c = wz.cand, m = c.meta || {};
       el.innerHTML = `<div class="wi-strip chosen" id="wi-wiz-chosen"><span class="ri-ico">${icon("globe")}</span>
         <div class="wi-strip-main"><div class="wi-strip-title">用地图「<span id="wi-wiz-name">${esc(candName(c))}</span>」开服</div>
-          <div class="hint">${m.versionName ? "保存于 " + esc(m.versionName) + (m.snapshot ? "（快照）" : "") : "没有记录版本"} · ${size(c.bytes)} · ${esc(wz.hint || "")}核心和版本可以改，最后一步会核对这张地图能不能用。</div>
+          <div class="hint">${m.versionName ? "保存于 " + esc(m.versionName) + (m.snapshot ? "（快照）" : "") : "没有记录版本"} · ${size(c.bytes)} · ${
+            wiz.step === 0 ? esc(wz.hint || "") + "核心和版本可以改，最后一步会核对这张地图能不能用。"
+            : $("#wiz-world") ? "能不能用这个核心和版本开服，核对结果在下面。" : "最后一步会核对这张地图能不能用。"}</div>
           <div class="hint wi-strip-note" id="wi-wiz-note" hidden></div></div>
         <button type="button" class="btn sm" id="wi-wiz-change">换一张</button>
         <button type="button" class="btn sm ghost" id="wi-wiz-drop">不用地图</button></div>`;
@@ -801,7 +818,7 @@ window.MDWorldImport = (() => {
       return;
     }
     if (wiz.step !== 0) { // 没选地图就往后走了：入口只在第一步，开着的选择面板收掉
-      if (wzOpen) { wzOpen = false; drop(); }
+      if (wzOpen) { wzOpen = false; drop(); if (activeUpload) activeUpload.abort(); }
       el.hidden = true;
       return;
     }
@@ -822,7 +839,7 @@ window.MDWorldImport = (() => {
     api("/api/app").catch(() => ({})).then(app => {
       if (gone() || !el.isConnected || wz) return;
       sourceUI($("#wi-wiz-stage", el), {
-        local: app.local !== false, gone: () => gone() || !el.isConnected,
+        local: app.local !== false, quiet: true, gone: () => gone() || !el.isConnected,
         hold: s => hold(s.id, inWizard),
         onPicked: (scan, cand) => {
           const core = suggestCore(cand), brands = ((cand.meta && cand.meta.serverBrands) || []).join("、");
@@ -895,16 +912,18 @@ window.MDWorldImport = (() => {
     if (errEl) errEl.innerHTML = "";
     return { worldPlan: wz.plan.id, worldAck: !!(ack && ack.checked) };
   }
-  /* 创建请求发出去了：新建任务要读这份来源，从这一刻起不能再清 */
+  /* 创建请求被收下了：后端把计划和来源都钉在新建任务上（上传的文件等任务结束才删），
+     这里就可以告诉它检测结果不要了，不用等它自己过期。请求还没被收下之前不能清 */
   function wizardCreated() {
     if (!wz) return;
     wz.created = true;
-    keep(wz.scan.id);
+    drop();
   }
-  /* 创建请求被拒了：是计划的问题（过期、核心版本对不上）就重新核对一遍 */
+  /* 创建请求被拒了：是计划的问题（过期、用过了、核心版本对不上）就重新核对一遍。
+     别的原因（比如重名）计划还在后端那儿，核对结果和勾过的确认都留着，改好再点就行 */
   function wizardCreateFailed(e, wiz) {
     if (!wz || wz.created) return;
-    if (/计划|重新检测|过期|重新选择地图/.test(String((e && e.message) || ""))) wizardFinal($("#wiz-world"), wiz);
+    if (/计划|重新检测|过期|用过了|重新选择地图/.test(String((e && e.message) || ""))) wizardFinal($("#wiz-world"), wiz);
   }
 
   return { TAB, TAB_LABEL, applies, render, wizardReset, wizardMap, wizardVersion, wizardStrip, wizardFinal, wizardCreateFields, wizardCreated, wizardCreateFailed };

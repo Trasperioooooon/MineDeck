@@ -1413,7 +1413,9 @@ const SNAPS = ["26.3-snapshot-2", "26.3-snapshot-1", "26.2-rc1"];
 // 任务（kind "world"）按查询次数往前走：导入查到第 5 次结束（前两次在「复制地图到暂存区」，这时取消才有用），换回旧地图第 3 次结束。
 // /__mock/state 的 world：{ reset: true 回到初始数据, quick: true 任务第 2 次查询就结束, free: 目标盘剩下多少字节,
 //   scanFail / planFail / importFail: 这一步直接报这句错, taskFail: 任务最后以这句话失败, dropPlans: true 存着的计划全部作废（同过期）,
-//   inst: { 服务器名: { busy, levelName, noWorld, retryFail, points: [...] } } 直接改某台服务器的世界状态 }；
+//   createFail: 新建服务器的请求在收下计划以后报这句错（同重名：计划放回去，改好还能用同一份）,
+//   inst: { 服务器名: { busy, levelName, noWorld, retryFail, points: [...] } } 直接改某台服务器的世界状态
+//     （points 里 state "unreadable" 是记录读不出来的：只有 id、error、stuck、oldBytes；有它在「重试恢复」一直失败）}；
 //   响应里的 world.lastScan / lastPlan / lastImport / lastRestore / lastDelete / lastCreate 是上一次对应的请求，
 //   world.discards 是放弃过的检测编号，world.cancels 是取消过的任务，world.retries 是点过「重试恢复」的服务器
 const W_MB = 1024 ** 2, W_GB = 1024 ** 3;
@@ -1424,22 +1426,24 @@ const WORLD_RESTORE_STEPS = ["占用这台服务器", "换回旧地图", "核对
 const WORLD_LOCAL_MSG = "选本机的地图文件夹只能在这台电脑上操作；在别的设备上请上传地图的 ZIP 压缩包";
 const WORLD_BUKKIT = new Set(["paper", "purpur", "leaves", "folia", "mohist", "banner"]); // 旧版本里世界分三个文件夹的核心
 const WORLD_XSS = `<img src=x onerror="window.__wixss=1">`;
-// 初始数据里只有「机械动力整合包」导入过地图：一次还能换回的，一次已经换回、导入的那份留在旁边的，一次中途取消没生效的
+// 初始数据里只有「机械动力整合包」导入过地图（新的在前）：最近一次，能换回；更早的一次，要先换回最近那次才轮得到它；
+// 一次已经换回、导入的那份留在旁边的；一次中途取消没生效的。canReturn 不存在这里，查的时候现算（见 worldCanReturn）
 const WORLD_POINTS = {
   "机械动力整合包": [
-    { id: "w7f3a9c21", state: "committed", created: "2026-11-10T21:14:05+08:00", source: "SkyCity.zip", candidate: "天空之城", levelName: "world", hasOld: true, oldBytes: 1286 * W_MB, keptBytes: 0, canReturn: true },
+    { id: "w7f3a9c21", state: "committed", created: "2026-11-10T21:14:05+08:00", source: "SkyCity.zip", candidate: "天空之城", levelName: "world", hasOld: true, oldBytes: 1286 * W_MB, keptBytes: 0 },
+    { id: "w6e2b8d10", state: "committed", created: "2026-11-06T20:02:31+08:00", source: "oneblock", candidate: "单方块空岛", levelName: "world", hasOld: true, oldBytes: 96 * W_MB, keptBytes: 0 },
     { id: "w51b0e77a", state: "restored", created: "2026-11-02T19:40:12+08:00", source: "old-survival", candidate: "三年老存档", levelName: "world", hasOld: false, oldBytes: 0, keptBytes: 640 * W_MB, canReturn: false },
     { id: "w3c9d1e02", state: "rolled-back", created: "2026-10-30T22:03:48+08:00", source: "parkour-pack.zip", candidate: "跑酷合集", levelName: "world", hasOld: false, oldBytes: 0, keptBytes: 0, canReturn: false, error: "已取消，没有替换任何文件" },
   ],
 };
 function newWorldState() {
-  return { scans: {}, plans: {}, tasks: {}, insts: {}, quick: false, free: 118 * W_GB, scanFail: "", planFail: "", importFail: "", taskFail: "",
+  return { scans: {}, plans: {}, tasks: {}, insts: {}, quick: false, free: 118 * W_GB, scanFail: "", planFail: "", importFail: "", taskFail: "", createFail: "",
     lastScan: null, lastPlan: null, lastImport: null, lastRestore: null, lastDelete: null, lastCreate: null, discards: [], cancels: [], retries: [] };
 }
 function worldMockState(state, b) {
   if (b.reset) state.world = newWorldState();
   const w = state.world;
-  for (const k of ["quick", "free", "scanFail", "planFail", "importFail", "taskFail"]) if (k in b) w[k] = b[k];
+  for (const k of ["quick", "free", "scanFail", "planFail", "importFail", "taskFail", "createFail"]) if (k in b) w[k] = b[k];
   if (b.dropPlans) w.plans = {}; // 存着的计划全部作废（同计划过期）
   for (const [name, patch] of Object.entries(b.inst || {})) Object.assign(worldInst(state, name), patch);
 }
@@ -1447,6 +1451,17 @@ function worldMockState(state, b) {
 function worldInst(state, name) {
   const w = state.world;
   return w.insts[name] || (w.insts[name] = { levelName: "world", busy: "", points: JSON.parse(JSON.stringify(WORLD_POINTS[name] || [])) });
+}
+// 能换回的只有一条（同 worldimport.restorable）：已提交、恢复点里有导入前的世界、世界名没改过，而且是这个世界名最近的一次导入。
+// 不能换回时返回后端的那句原因，能换回返回空串
+const worldSameLevel = (a, b) => String(a || "").toLowerCase() === String(b || "").toLowerCase();
+function worldCantReturn(iw, pt) {
+  if (pt.state !== "committed") return `这次导入现在不能换回（状态：${pt.state}）`;
+  if (!pt.hasOld) return "这次导入之前服务器还没有世界，没有可以换回的旧地图";
+  if (!worldSameLevel(pt.levelName, iw.levelName)) return `导入以后 level-name 改过了（现在是 ${iw.levelName}，导入时是 ${pt.levelName}），没法自动换回。先把 level-name 改回去`;
+  const latest = iw.points.find(x => x.state === "committed" && worldSameLevel(x.levelName, pt.levelName)); // points 是新的在前
+  if (latest !== pt) return "这之后又导入过别的地图。请先换回最近那一次导入前的地图，再往前换";
+  return "";
 }
 const worldCand = (id, o) => ({
   id, root: "", folderName: "world", layout: "legacy", dimensions: [{ id: "minecraft:overworld", rel: "", regions: 12 }],
@@ -1574,16 +1589,16 @@ function worldTask(state, id) {
       else if (isImport) {
         if (inst && t.stopFirst) { inst.status = "stopped"; inst.uptimeSec = 0; inst.onlineCount = 0; }
         iw.points.unshift({ id: worldId("w"), state: "committed", created: new Date().toISOString(), source: t.source, candidate: t.candidate, levelName: iw.levelName,
-          hasOld: t.plan.replace.length > 0, oldBytes: t.plan.replace.length ? 412 * W_MB : 0, keptBytes: 0, canReturn: true });
+          hasOld: t.plan.replace.length > 0, oldBytes: t.plan.replace.length ? 412 * W_MB : 0, keptBytes: 0 });
         t.result = "地图文件已导入，尚未启动检查。服务器保持停止，启动后进服看看是不是这张地图";
       } else {
         const pt = iw.points.find(x => x.id === t.point);
-        if (pt) Object.assign(pt, { state: "restored", canReturn: false, hasOld: false, keptBytes: pt.keptBytes || 431 * W_MB, oldBytes: 0 });
+        if (pt) Object.assign(pt, { state: "restored", hasOld: false, keptBytes: pt.keptBytes || 431 * W_MB, oldBytes: 0 });
         t.result = "已经换回导入前的地图，旧地图的 level.dat 核对一致。导入的那份（包括启动后的改动）留在旁边，确认不要了可以删掉";
       }
     }
     if (t.ended && t.error && isImport) iw.points.unshift({ id: worldId("w"), state: "rolled-back", created: new Date().toISOString(), source: t.source, candidate: t.candidate,
-      levelName: iw.levelName, hasOld: false, oldBytes: 0, keptBytes: 0, canReturn: false, error: t.error });
+      levelName: iw.levelName, hasOld: false, oldBytes: 0, keptBytes: 0, error: t.error });
   }
   const copying = isImport && !t.ended && t.step === 1, total = t.bytes || 0;
   return { id, title: isImport ? `导入地图到 ${t.inst}` : `把 ${t.inst} 换回导入前的地图`, kind: "world",
@@ -1672,7 +1687,8 @@ async function worldInstHandler(state, req, res, m, seg, i) {
   const w = state.world, iw = worldInst(state, i.name), act = seg[5] || "";
   if (!act && m === "GET") {
     // 同 world.status：不在本机打开时，卡住的路径只给一句「在这台电脑上查看」
-    const points = iw.points.map(pt => ({ ...pt, stuck: (pt.stuck || []).length && !state.local ? [`（${pt.stuck.length} 个文件夹，在这台电脑上查看）`] : pt.stuck }));
+    const points = iw.points.map(pt => ({ ...pt, canReturn: !worldCantReturn(iw, pt),
+      stuck: (pt.stuck || []).length && !state.local ? [`（${pt.stuck.length} 个文件夹，在这台电脑上查看）`] : pt.stuck }));
     return ok(res, { levelName: iw.levelName, status: i.status, busy: iw.busy || undefined, points, proxy: i.kind === "proxy" });
   }
   if (m !== "POST") return err(res, 405, "方法不对");
@@ -1681,8 +1697,9 @@ async function worldInstHandler(state, req, res, m, seg, i) {
     w.lastRestore = { inst: i.name, ...b };
     if (i.status !== "stopped") return err(res, 400, "请先停止服务器再换回旧地图");
     if (b.confirm !== "restore") return err(res, 400, "换回旧地图需要明确确认");
-    if (!pt) return err(res, 400, "找不到这次导入的记录");
-    if (pt.state !== "committed") return err(res, 400, `这次导入现在不能换回（状态：${pt.state}）`);
+    if (!pt || pt.state === "unreadable") return err(res, 400, "找不到这次导入的记录");
+    const why = worldCantReturn(iw, pt);
+    if (why) return err(res, 400, why);
     const id = "task-" + worldId("world-");
     w.tasks[id] = { kind: "restore", inst: i.name, q: 0, step: 0, point: pt.id };
     return ok(res, { taskId: id });
@@ -1699,7 +1716,8 @@ async function worldInstHandler(state, req, res, m, seg, i) {
   if (act === "retry") {
     w.retries.push(i.name);
     if (i.status !== "stopped") return err(res, 400, "请先停止服务器");
-    if (iw.retryFail) return err(res, 400, iw.busy || "上次换地图没能自动恢复，服务器已暂停启动");
+    // 读不出来的记录处理不了：封锁不解除，一直报这句
+    if (iw.retryFail || iw.points.some(x => x.state === "unreadable")) return err(res, 400, iw.busy || "上次换地图没能自动恢复，服务器已暂停启动");
     iw.busy = "";
     for (const x of iw.points) if (x.state === "stuck") Object.assign(x, { state: "rolled-back", stuck: [], error: "换地图中断，已恢复到之前的世界" });
     return ok(res, "ok");
@@ -1997,7 +2015,10 @@ function handler(state, ui, portOf) {
         const b = await readBody(req);
         // 用已有地图开服：记下请求；带了计划编号就按真后端那样核对（计划在不在、核心版本对不对得上、有没有被拦下、要确认的确认了没有）
         state.world.lastCreate = { name: b.name, core: b.core, mc: b.mc, worldPlan: b.worldPlan || "", worldAck: !!b.worldAck, difficulty: b.difficulty, gamemode: b.gamemode };
-        if (b.worldPlan) { const why = worldCreateCheck(state, b); if (why) return err(res, 400, why); delete state.world.plans[b.worldPlan]; }
+        // 核对通过就收下计划（不能再用第二次）；请求没能开始（createFail，比如重名）时计划放回去，改好还能用同一份
+        if (b.worldPlan) { const why = worldCreateCheck(state, b); if (why) return err(res, 400, why); }
+        if (state.world.createFail) return err(res, 400, state.world.createFail);
+        if (b.worldPlan) delete state.world.plans[b.worldPlan];
         const c = CORES.find(x => x.id === b.core), kind = c ? c.kind : "game";
         state.instances.push({ name: String(b.name || "新服务器"), core: b.core || "paper", kind, mc: b.mc || "1.21.4", build: b.build || "",
           javaMajor: 21, xmxMb: +b.xmxMb || 4096, xmsMb: 0, port: +b.port || 25565, status: "stopped", motd: b.motd || "",

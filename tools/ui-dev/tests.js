@@ -3608,7 +3608,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     assert(page.url().endsWith("/world") && (await page.$eval('.tabs .tab[data-t="world"]', a => a.classList.contains("cur"))), "点标签没有进地图页：" + page.url());
   });
 
-  await run("地图：当前世界和恢复点列表（哪次导入、现在什么状态、占多大），能换回的那一条才有「恢复导入前的地图」", async () => {
+  await run("地图：当前世界和恢复点列表（哪次导入、现在什么状态、占多大），只有最近一次导入有「恢复导入前的地图」", async () => {
     await wReset();
     await page.goto(url(worldTab(PACK))); await page.waitForSelector("#wi-points [data-wi-point]");
     const v = await page.evaluate(() => ({ level: document.querySelector("#wi-level").textContent, status: document.querySelector("#wi-status").textContent,
@@ -3616,8 +3616,9 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       rows: [...document.querySelectorAll("#wi-points [data-wi-point]")].map(r => ({ state: r.dataset.state, text: r.textContent.replace(/\s+/g, " "),
         restore: !!r.querySelector("[data-wi-restore]"), del: !!r.querySelector("[data-wi-del]") })) }));
     assert(v.level === "world" && v.status === "已停止" && v.start && !v.busy, "当前世界：" + JSON.stringify(v));
-    assert(v.rows.length === 3, "恢复点条数：" + v.rows.length);
-    const [a, b, c] = v.rows;
+    assert(v.rows.length === 4, "恢复点条数：" + v.rows.length);
+    const [a, old, b, c] = v.rows;
+    assert(old.state === "committed" && !old.restore && old.del && old.text.includes("单方块空岛") && old.text.includes("更早的导入") && old.text.includes("要先换回最近那一次"), "更早的那次导入：" + JSON.stringify(old));
     assert(a.state === "committed" && a.restore && a.del && a.text.includes("天空之城") && a.text.includes("已导入") && a.text.includes("SkyCity.zip") && a.text.includes("1.3 GB"), "能换回的那条：" + JSON.stringify(a));
     assert(b.state === "restored" && !b.restore && b.del && b.text.includes("三年老存档") && b.text.includes("已换回") && b.text.includes("640.0 MB"), "已换回的那条：" + JSON.stringify(b));
     assert(c.state === "rolled-back" && !c.restore && c.del && c.text.includes("没有生效") && c.text.includes("已取消，没有替换任何文件"), "没生效的那条：" + JSON.stringify(c));
@@ -3871,6 +3872,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click("#wi-task-ok"); await page.waitForSelector('[data-wi-point="w7f3a9c21"]');
       const row = await page.$eval('[data-wi-point="w7f3a9c21"]', r => ({ state: r.dataset.state, text: r.textContent, restore: !!r.querySelector("[data-wi-restore]") }));
       assert(row.state === "restored" && row.text.includes("已换回") && !row.restore, "换回以后那一条：" + JSON.stringify(row));
+      assert((await page.$$("[data-wi-restore]")).length === 1 && (await page.$('[data-wi-restore="w6e2b8d10"]')), "换回最近一次以后，应轮到更早的那一次能换回");
       // 删除恢复点
       await page.click('[data-wi-del="w3c9d1e02"]'); await page.waitForSelector(".modal");
       const d = await page.evaluate(() => ({ title: document.querySelector("#modal-title").textContent.trim(), body: document.querySelector(".modal .m-body").textContent,
@@ -3925,6 +3927,56 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await wReset(); }
   });
 
+  await run("地图：导入过几次时只有最近那一次能换回，更早的写明要先换回最近的；导入前没有世界的没有换回键；读不出来的记录写明原因和文件夹、没有换回和删除键", async () => {
+    await wReset();
+    try {
+      const pts = [
+        { id: "wc3000003", state: "committed", created: "2026-11-12T20:00:00+08:00", source: "C.zip", candidate: "第三张", levelName: "world", hasOld: true, oldBytes: 3e8, keptBytes: 0 },
+        { id: "wc2000002", state: "committed", created: "2026-11-11T20:00:00+08:00", source: "B.zip", candidate: "第二张", levelName: "world", hasOld: true, oldBytes: 2e8, keptBytes: 0 },
+        { id: "wc1000001", state: "committed", created: "2026-11-10T20:00:00+08:00", source: "A.zip", candidate: "开服时的地图", levelName: "world", hasOld: false, oldBytes: 0, keptBytes: 0 },
+      ];
+      const rowsOf = () => page.$$eval("#wi-points [data-wi-point]", els => Object.fromEntries(els.map(r => [r.dataset.wiPoint, { state: r.dataset.state, text: r.textContent.replace(/\s+/g, " "),
+        restore: !!r.querySelector("[data-wi-restore]"), del: !!r.querySelector("[data-wi-del]"), warn: !!r.querySelector(".tag.warn") }])));
+      await wState({ world: { quick: true, inst: { [PACK]: { points: pts } } } });
+      await page.goto(url(worldTab(PACK))); await page.waitForSelector("#wi-points [data-wi-point]");
+      let r = await rowsOf();
+      assert(Object.values(r).filter(x => x.restore).length === 1 && r.wc3000003.restore && r.wc3000003.text.includes("可以换回"), "只有最近那一次能换回：" + JSON.stringify(r));
+      assert(!r.wc2000002.restore && r.wc2000002.del && r.wc2000002.text.includes("更早的导入") && r.wc2000002.text.includes("这之后又导入过别的地图") && r.wc2000002.text.includes("要先换回最近那一次"), "更早的那一次：" + JSON.stringify(r.wc2000002));
+      assert(!r.wc1000001.restore && r.wc1000001.del && r.wc1000001.text.includes("这次导入之前服务器还没有世界") && !r.wc1000001.text.includes("要先换回"), "导入前没有世界的那一次：" + JSON.stringify(r.wc1000001));
+      // 换回最近的那一次以后，才轮到第二张
+      await page.click('[data-wi-restore="wc3000003"]'); await page.waitForSelector(".modal");
+      await page.click('.modal [data-x="ok"]');
+      await page.waitForSelector("#wi-task-done-text", { timeout: 15000 });
+      await page.click("#wi-task-ok"); await page.waitForSelector('[data-wi-point="wc3000003"][data-state="restored"]');
+      r = await rowsOf();
+      assert(Object.values(r).filter(x => x.restore).length === 1 && r.wc2000002.restore && r.wc2000002.text.includes("正在用这张地图") && !r.wc3000003.restore, "换回以后应轮到第二张：" + JSON.stringify(r));
+      // 只有「用地图新建」留下的那一条：没有可以换回的旧地图，不出换回键
+      await wState({ world: { inst: { [PACK]: { points: [pts[2]] } } } });
+      await page.goto(url(worldTab(PACK))); await page.waitForSelector("#wi-points [data-wi-point]");
+      r = await rowsOf();
+      assert(!r.wc1000001.restore && r.wc1000001.del && r.wc1000001.text.includes("正在用这张地图") && r.wc1000001.text.includes("没有可以换回的旧地图"), "用地图新建的服务器：" + JSON.stringify(r));
+      // 读不出来的记录：按要人处理显示，写明原因和文件夹，没有换回和删除键；它在的时候「重试恢复」一直失败
+      const BAD = "D:\\MineDeck\\servers\\create-pack\\.minedeck\\world-import\\w0bad0001";
+      await wState({ world: { inst: { [PACK]: { busy: "换地图的记录读不出来，为了不在半成品的世界上启动，已暂停启动。请到「地图 / 世界」里查看",
+        points: [pts[0], { id: "w0bad0001", state: "unreadable", created: "0001-01-01T00:00:00Z", source: "", candidate: "", levelName: "", hasOld: false, oldBytes: 5e8, keptBytes: 0, error: "unexpected end of JSON input", stuck: [BAD] }] } } } });
+      await page.goto(url(worldTab(PACK))); await page.waitForSelector('[data-wi-point="w0bad0001"]');
+      r = await rowsOf();
+      const bad = r.w0bad0001, banner = await page.evaluate(() => ({ text: document.querySelector("#wi-busy").textContent, items: [...document.querySelectorAll("#wi-busy .wi-stuck li")].map(li => li.textContent),
+        start: document.querySelector("#wi-start").disabled, restoreOff: document.querySelector('[data-wi-restore="wc3000003"]').disabled }));
+      assert(bad.state === "unreadable" && bad.warn && !bad.restore && !bad.del && bad.text.includes("读不出来") && bad.text.includes("unexpected end of JSON input") && bad.text.includes(BAD) && bad.text.includes("476.8 MB"), "读不出来的记录：" + JSON.stringify(bad));
+      assert(!/\d{4}-\d\d-\d\d/.test(bad.text) && !bad.text.includes("NaN") && !bad.text.includes(" 导入 ·") && !bad.text.includes("来源"), "读不出来的记录没有时间和来源，不该硬凑：" + bad.text);
+      assert(banner.text.includes("换地图的记录读不出来") && banner.items.length === 1 && banner.items[0] === BAD && banner.start && banner.restoreOff, "读不出来时页面顶上的提示：" + JSON.stringify(banner));
+      await page.click("#wi-retry"); await page.waitForSelector(".toast.error");
+      await settle(500);
+      assert((await page.$("#wi-busy")) && (await page.$('[data-wi-point="w0bad0001"]')) && (await wState({})).world.retries.length === 1, "记录还读不出来时重试应失败、提示还在");
+      // 别的设备上：文件夹只给一句话
+      await wState({ local: false });
+      await page.goto(url(worldTab(PACK))); await page.waitForSelector('[data-wi-point="w0bad0001"]');
+      const lan = (await rowsOf()).w0bad0001.text;
+      assert(lan.includes("在这台电脑上查看") && !lan.includes("D:\\MineDeck"), "别的设备上不该出现本机路径：" + lan);
+    } finally { await wReset(); }
+  });
+
   // 新建向导里选一张地图：点「用已有地图开服」→ 填路径检测 → 停在第一步（核心已经按地图预选）
   const wWizPick = async pth => {
     await page.goto(url("#/create/new")); await page.waitForSelector("#wi-wiz-pick");
@@ -3933,7 +3985,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   };
   const wCreates = since => reqs.slice(since).filter(r => r.m === "POST" && r.u === "/api/instances").length;
 
-  await run("新建向导：用已有地图开服——按地图预选核心和版本（不换成最新版），最后一步核对，创建请求带上计划编号；创建以后不清检测结果", async () => {
+  await run("新建向导：用已有地图开服——按地图预选核心和版本（不换成最新版），最后一步核对，创建请求带上计划编号；请求被收下以后才清检测结果", async () => {
     await wReset();
     try {
       await page.goto(url("#/create/new")); await page.waitForSelector("#wi-wiz-pick");
@@ -3979,10 +4031,13 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       st = await wState({});
       const lc = st.world.lastCreate;
       assert(wCreates(t0) === 1 && lc.worldPlan === plan2.id && lc.worldAck === false && lc.core === "vanilla" && lc.mc === "1.19.4" && lc.difficulty === "normal" && lc.gamemode === "adventure", "创建请求：" + JSON.stringify(lc));
-      assert(st.world.discards.length === 0, "创建以后不该清检测结果（新建任务还要读这份地图）：" + JSON.stringify(st.world.discards));
+      // 检测结果：创建请求被收下之前不能清（后端收下以后把地图钉在新建任务上，这时界面才放手，只清一次）
+      const order = reqs.slice(tx).filter(r => r.m === "POST" && (r.u === "/api/instances" || r.u === "/api/world/discard")).map(r => r.u);
+      assert(JSON.stringify(order) === JSON.stringify(["/api/instances", "/api/instances", "/api/world/discard"]) && JSON.stringify(st.world.discards) === JSON.stringify([scanId]),
+        "应在创建被收下以后才清检测结果，而且只清一次：" + JSON.stringify([order, st.world.discards]));
       await page.goto(url("#/create")); await settle(500);
       await page.goto(url("#/create/new")); await page.waitForSelector("#wi-wiz-pick");
-      assert((await wState({})).world.discards.length === 0, "回到新建页也不该清：" + JSON.stringify((await wState({})).world.discards));
+      assert((await wState({})).world.discards.length === 1, "回到新建页不该再清一遍：" + JSON.stringify((await wState({})).world.discards));
     } finally { await wReset(); }
   });
 
@@ -4021,6 +4076,14 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(plan2.id !== plan1.id && plan2.mc === "1.20.6" && !(await page.$eval("#wi-ack", el => el.checked)), "改了版本应重新核对、重新确认：" + JSON.stringify(plan2));
       await page.check("#wi-ack");
       await page.click("#f-eula");
+      // 创建被别的原因拒了（比如重名）：计划还在后端那儿，不重新核对、勾过的确认留着，检测结果不清；改好再点用的还是同一份
+      await wState({ world: { createFail: "已经有一台叫这个名字的服务器了，换个名字" } });
+      t0 = reqs.length;
+      await page.click("#wcreate"); await page.waitForSelector(".toast.error"); await settle(400);
+      st = await wState({});
+      assert(wCreates(t0) === 1 && st.world.lastPlan.id === plan2.id && st.world.discards.length === 0 && (await page.$eval("#wi-ack", el => el.checked)) && !(await page.$eval("#wcreate", b => b.disabled)),
+        "重名这类失败不该重新核对、不该清检测结果：" + JSON.stringify([st.world.lastPlan, st.world.discards]));
+      await wState({ world: { createFail: "" } });
       t0 = reqs.length;
       await page.click("#wcreate");
       await page.waitForFunction(() => location.hash.startsWith("#/task/"));
