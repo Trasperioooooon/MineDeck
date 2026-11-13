@@ -445,3 +445,44 @@ func TestPinnedUploadSurvivesSweep(t *testing.T) {
 		t.Fatal("检测结果没从缓存里拿掉")
 	}
 }
+
+// 界面复审（Grok 4.7）带出来的两处后端：同一台服务器一次只导入一张（复制阶段还没占位，别的设备能再发起一次）；
+// 世界状态分开说「启动被封锁」（重试恢复有用）和一般的忙。
+func TestOneImportAtATimeAndBlocked(t *testing.T) {
+	e := newEnv(t, "")
+	src := filepath.Join(e.tmp, "A")
+	if err := wt.Legacy(src, wt.WorldOpts{Level: lv("1.20.4", 3700), Tag: "A", Overworld: true}); err != nil {
+		t.Fatal(err)
+	}
+	p := e.plan(src)
+	e.s.mu.Lock()
+	e.s.importing["生存服"] = true // 另一个导入还在复制
+	e.s.mu.Unlock()
+	st, _ := e.s.Status("生存服")
+	if st.Busy == "" || st.Blocked != "" {
+		t.Fatalf("复制阶段：busy=%q blocked=%q", st.Busy, st.Blocked)
+	}
+	if _, err := e.s.Execute(me, ExecReq{PlanID: p.ID, Confirm: "replace", Acknowledge: true}); err == nil || !strings.Contains(err.Error(), "另一张") {
+		t.Fatalf("同一台服务器同时导入两张：%v", err)
+	}
+	e.s.mu.Lock()
+	delete(e.s.importing, "生存服")
+	e.s.mu.Unlock()
+	id, err := e.s.Execute(me, ExecReq{PlanID: p.ID, Confirm: "replace", Acknowledge: true})
+	if err != nil {
+		t.Fatalf("前一个做完以后计划应该还能用：%v", err)
+	}
+	if _, msg := e.wait(id); msg != "" {
+		t.Fatal(msg)
+	}
+	e.s.mu.Lock()
+	left := e.s.importing["生存服"]
+	e.s.mu.Unlock()
+	if left {
+		t.Fatal("导入做完了还登记着")
+	}
+	e.m.SetWorldBlock("生存服", "上次换地图没能自动恢复")
+	if st, _ := e.s.Status("生存服"); st.Blocked == "" || st.Busy == "" {
+		t.Fatalf("封锁时：busy=%q blocked=%q", st.Busy, st.Blocked)
+	}
+}

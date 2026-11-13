@@ -35,6 +35,9 @@ type Service struct {
 	// active 正在进行的导入的事务目录（小写的绝对路径）。暂存在占位之外进行，「重试恢复」不能把它们当成
 	// 上次没走完的暂存清掉：清掉以后复制还在往里写，最后会把半份地图当成整份换上去
 	active map[string]bool
+	// importing 正在导入的服务器：同一台一次只导入一张。复制到暂存区时还没占位（WorldBusy 是空的），
+	// 不拦的话别的设备能再发起一次，两边各复制一份，后到的在占位时失败、白复制
+	importing map[string]bool
 
 	order versionOrder
 	now   func() time.Time
@@ -68,7 +71,7 @@ type createClaim struct {
 // NewService 建服务，并把「新建服务器时放地图」的钩子挂到实例管理器上。
 func NewService(m *inst.Manager) *Service {
 	s := &Service{M: m, scans: map[string]*scanResult{}, plans: map[string]*Plan{}, cancels: map[string]cancelEntry{},
-		claims: map[string]*createClaim{}, active: map[string]bool{}, order: manifestOrder, now: time.Now, StopTimeout: 2 * time.Minute}
+		claims: map[string]*createClaim{}, active: map[string]bool{}, importing: map[string]bool{}, order: manifestOrder, now: time.Now, StopTimeout: 2 * time.Minute}
 	m.SetWorldPlacer(s.placeForCreate, s.ReleaseCreate)
 	return s
 }
@@ -708,8 +711,13 @@ func (s *Service) Execute(owner string, req ExecReq) (string, error) {
 		s.mu.Unlock()
 		return "", fmt.Errorf("这次检测的结果已经过期，请重新选择地图")
 	}
+	if s.importing[p.Inst] {
+		s.mu.Unlock()
+		return "", fmt.Errorf("这台服务器正在导入另一张地图，等它完成再导入")
+	}
 	delete(s.plans, p.ID)
 	r.pins++
+	s.importing[p.Inst] = true
 	s.mu.Unlock()
 	t, tctx := s.M.Tasks.New(fmt.Sprintf("导入地图到 %s", p.Inst), importSteps)
 	t.SetKind("world")
@@ -721,6 +729,7 @@ func (s *Service) Execute(owner string, req ExecReq) (string, error) {
 		defer func() {
 			s.mu.Lock()
 			delete(s.cancels, t.ID())
+			delete(s.importing, p.Inst)
 			s.mu.Unlock()
 			cancel()
 			s.unpin(r)
@@ -1071,11 +1080,14 @@ type RestorePoint struct {
 
 // WorldStatus 「地图」页要的东西。
 type WorldStatus struct {
-	LevelName string         `json:"levelName"`
-	Status    string         `json:"status"`
-	Busy      string         `json:"busy,omitempty"`
-	Points    []RestorePoint `json:"points"`
-	Proxy     bool           `json:"proxy"`
+	LevelName string `json:"levelName"`
+	Status    string `json:"status"`
+	Busy      string `json:"busy,omitempty"`
+	// Blocked 启动被封锁的原因（没走完、卡住或读不出来的记录），这时「重试恢复」才有用；
+	// Busy 还包括正在换地图、正在复制这类一会儿就完的情况
+	Blocked string         `json:"blocked,omitempty"`
+	Points  []RestorePoint `json:"points"`
+	Proxy   bool           `json:"proxy"`
 }
 
 // Status 一台服务器的世界状态和恢复点。
@@ -1085,7 +1097,13 @@ func (s *Service) Status(name string) (*WorldStatus, error) {
 		return nil, err
 	}
 	ws := &WorldStatus{LevelName: inst.LevelName(i.Dir), Status: i.Status(), Busy: s.M.WorldBusy(name), Points: []RestorePoint{},
-		Proxy: mcsrc.KindOf(i.Core) == mcsrc.KindProxy}
+		Proxy: mcsrc.KindOf(i.Core) == mcsrc.KindProxy, Blocked: s.M.WorldBlocked()[name]}
+	s.mu.Lock()
+	importing := s.importing[name]
+	s.mu.Unlock()
+	if ws.Busy == "" && importing {
+		ws.Busy = "正在导入一张地图（还在复制，原来的世界没有动），等它做完"
+	}
 	good, bad := listJournals(i.Dir)
 	latest := latestCommitted(good, ws.LevelName)
 	for _, j := range good {

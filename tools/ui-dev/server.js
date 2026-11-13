@@ -1689,7 +1689,10 @@ async function worldInstHandler(state, req, res, m, seg, i) {
     // 同 world.status：不在本机打开时，卡住的路径只给一句「在这台电脑上查看」
     const points = iw.points.map(pt => ({ ...pt, canReturn: !worldCantReturn(iw, pt),
       stuck: (pt.stuck || []).length && !state.local ? [`（${pt.stuck.length} 个文件夹，在这台电脑上查看）`] : pt.stuck }));
-    return ok(res, { levelName: iw.levelName, status: i.status, busy: iw.busy || undefined, points, proxy: i.kind === "proxy" });
+    // blocked 同 WorldStatus.Blocked：启动被封锁（有卡住、读不出来的记录，或者直接给了 blocked），「重试恢复」只在这时出现
+    const blocked = iw.blocked !== undefined ? iw.blocked
+      : iw.busy && iw.points.some(x => ["stuck", "unreadable"].includes(x.state)) ? iw.busy : "";
+    return ok(res, { levelName: iw.levelName, status: i.status, busy: iw.busy || undefined, blocked: blocked || undefined, points, proxy: i.kind === "proxy" });
   }
   if (m !== "POST") return err(res, 405, "方法不对");
   const b = await readBody(req), pt = iw.points.find(x => x.id === b.id);
@@ -1708,6 +1711,7 @@ async function worldInstHandler(state, req, res, m, seg, i) {
     w.lastDelete = { inst: i.name, ...b };
     if (b.confirm !== "delete") return err(res, 400, "删除恢复点需要明确确认");
     if (iw.busy) return err(res, 400, iw.busy);
+    if (i.status !== "stopped") return err(res, 400, "服务器还没停下，没有替换任何文件"); // 同 BeginWorldChange
     if (!pt) return err(res, 400, "找不到这次导入的记录");
     if (!["committed", "rolled-back", "restored"].includes(pt.state)) return err(res, 400, `这次导入还没处理完（状态：${pt.state}），现在不能删`);
     iw.points = iw.points.filter(x => x !== pt);

@@ -2117,6 +2117,15 @@ async function drawWizard() {
       const name = $("#f-name").value.trim();
       const createBtn = $("#wcreate");
       createBtn.disabled = true;
+      /* 带地图时，请求发出去到回来这段也不能换地图、回上一步：回来时收下的是发出去的那份计划，界面上却已经换了 */
+      let unlockNav = null;
+      if (world) {
+        const back = $("#wback"), pills = [...document.querySelectorAll(".step-pill")].map(p => [p, p.onclick, p.disabled]);
+        if (back) back.disabled = true;
+        pills.forEach(([p]) => { p.onclick = null; p.disabled = true; });
+        MDWorldImport.wizardSubmitting(true);
+        unlockNav = () => { if (back) back.disabled = false; pills.forEach(([p, fn, d]) => { p.onclick = fn; p.disabled = d; }); };
+      }
       try {
         const r = await api("/api/instances", {
           method: "POST",
@@ -2135,7 +2144,7 @@ async function drawWizard() {
             ...(world || {}),
           },
         });
-        if (world) MDWorldImport.wizardCreated(); // 请求被收下了：后端把地图钉在新建任务上，界面这边的检测结果可以放手了
+        if (world) MDWorldImport.wizardCreated(world.worldPlan, r.taskId); // 请求被收下了：跟着建服任务，成了才清检测结果（见 worldimport.js）
         if (stale(gen)) { toast("已开始部署，可在新建服务器页查看进度"); return; }
         /* 「选模组」步挑好的内容放在草稿购物车里（不带 inst）。空车照旧直接跳部署任务页；
            有货时留在向导这一页等建服任务跑完，再把草稿车一起装上（装模组是一条 kind "mods" 的任务，跳到那页看进度）。
@@ -2179,6 +2188,7 @@ async function drawWizard() {
       } catch (e) {
         toastErr("无法创建服务器", e);
         if (!stale(gen) && createBtn.isConnected) createBtn.disabled = false;
+        if (unlockNav && !stale(gen)) unlockNav();
         if (world && !stale(gen)) MDWorldImport.wizardCreateFailed(e, wiz); // 计划过期或对不上了就重新核对；别的原因（重名）计划还能用，改好再点
       }
     };

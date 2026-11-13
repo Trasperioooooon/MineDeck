@@ -388,7 +388,7 @@ window.MDWorldImport = (() => {
 
         ${g.info.length ? `<div class="wi-sec" id="wi-info"><h3>说明</h3>${issueList(g.info, "muted")}</div>` : ""}
 
-        <div class="hint" id="wi-space">需要大约 ${size(p.needBytes)} 的空间（地图加一点余量），服务器所在的盘还剩 ${size(p.freeBytes)}。</div>
+        <div class="hint" id="wi-space">需要大约 ${size(p.needBytes)} 的空间（地图加一点余量），${p.freeBytes > 0 ? "服务器所在的盘还剩 " + size(p.freeBytes) : "读不出服务器所在的盘还剩多少空间"}。</div>
 
         ${mode === "replace" && p.mustStop ? `<label class="ob-agree wi-check wi-stop"><input type="checkbox" id="wi-stop">
           <span><b>停服并导入</b><span class="hint">服务器现在开着。勾上以后，导入时先让它自己保存并退出（不强制结束）；等不到它停下就放弃导入，一个文件都不换。</span></span></label>` : ""}
@@ -457,7 +457,7 @@ window.MDWorldImport = (() => {
     let app;
     try { app = await api("/api/app"); } catch { app = {}; }
     if (gone()) return;
-    const local = app.local !== false;
+    const local = app.local === true; // 查不到就按别的设备算：本机路径的入口后端也只给本机用
     let st = null, sig = "", tick = null;
 
     /* ---- 首页：当前世界、恢复点 ---- */
@@ -479,8 +479,10 @@ window.MDWorldImport = (() => {
       const stuck = (st.points || []).flatMap(p => p.stuck || []);
       return `<div class="warn-card wi-busybox" id="wi-busy" role="status"><div class="wc-title">${icon("warn")} <span>${esc(st.busy)}</span></div>
         ${stuck.length ? `<div class="wc-note">文件都还在，没有删任何东西。这些地方要先看一下：</div><ul class="wc-list wi-stuck">${stuck.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
-        <div class="wc-note">正在换地图的话，等它做完就好，这一页会自己刷新。如果是上次没换完：先关掉占着世界文件夹的程序（在 MineDeck 之外手动启动的服务器、开着存档的地图工具），停止这台服务器，再点「重试恢复」。</div>
-        <button type="button" class="btn" id="wi-retry">${icon("refresh")} 重试恢复</button></div>`;
+        ${st.blocked
+          ? `<div class="wc-note">先关掉占着世界文件夹的程序（在 MineDeck 之外手动启动的服务器、开着存档的地图工具），停止这台服务器，再点「重试恢复」。</div>
+        <button type="button" class="btn" id="wi-retry">${icon("refresh")} 重试恢复</button>`
+          : `<div class="wc-note">等它做完就好，这一页会自己刷新。</div>`}</div>`;
     };
     const pointRow = pt => {
       const bad = pt.state === "unreadable";
@@ -497,11 +499,11 @@ window.MDWorldImport = (() => {
           ${where.length ? `<div class="ri-sub wi-where">在这里：${where.map(x => `<span>${esc(x)}</span>`).join("、")}</div>` : ""}
           ${bad ? (sizes ? `<div class="ri-sub">${sizes}</div>` : "")
             : `<div class="ri-sub">${t ? esc(t) + " 导入 · " : ""}来源 <span>${esc(pt.source || "不明")}</span>${sizes ? " · " + sizes : ""}</div>`}
-          ${pt.canReturn && !stopped ? `<div class="ri-sub wi-need-stop">要换回，先停止服务器。</div>` : ""}
+          ${!stopped && (pt.canReturn || DELETABLE.has(pt.state)) ? `<div class="ri-sub wi-need-stop">${pt.canReturn ? "要换回或删除，先停止服务器。" : "要删除恢复点，先停止服务器。"}</div>` : ""}
         </div>
         <div class="ri-right wi-pt-acts">
           ${pt.canReturn ? `<button type="button" class="btn sm" data-wi-restore="${esc(pt.id)}" aria-label="恢复导入前的地图 ${esc(who)}"${stopped && !st.busy ? "" : " disabled"}>${icon("restore")} 恢复导入前的地图</button>` : ""}
-          ${DELETABLE.has(pt.state) ? `<button type="button" class="btn sm danger" data-wi-del="${esc(pt.id)}" aria-label="删除恢复点 ${esc(who)}"${st.busy ? " disabled" : ""}>删除恢复点</button>` : ""}
+          ${DELETABLE.has(pt.state) ? `<button type="button" class="btn sm danger" data-wi-del="${esc(pt.id)}" aria-label="删除恢复点 ${esc(who)}"${stopped && !st.busy ? "" : " disabled"}>删除恢复点</button>` : ""}
         </div></div></div>`;
     };
     const drawHome = () => {
@@ -513,7 +515,7 @@ window.MDWorldImport = (() => {
             <div class="ri-sub">世界文件夹 <code id="wi-level">${esc(st.levelName || "world")}</code>（server.properties 的 level-name）· 服务器<span id="wi-status">${esc(ST_TEXT[st.status] || st.status || "")}</span></div></div>
           <div class="ri-right"><button type="button" class="btn primary" id="wi-start"${st.busy ? " disabled" : ""}>${icon("download")} 导入并替换当前地图</button></div>
         </div></div></div>
-        <div class="hint wi-lead">把一份现成的 Java 版世界（下载的地图、单人存档、别的服务器的世界）换到这台服务器上。原来的世界不会删，整体留在恢复点里，随时可以换回。核心、版本、模组插件和各项设置都不动。</div>
+        <div class="hint wi-lead">把一份现成的 Java 版世界（下载的地图、单人存档、别的服务器的世界）换到这台服务器上。原来的世界不会删，整体留在恢复点里，可以换回；导入过几次的话，从最近的一次往前一次次换。核心、版本、模组插件和各项设置都不动。</div>
         <h2 class="wi-h">恢复点</h2>
         <div class="group has-ico wi-group" id="wi-points">${pts.map(pointRow).join("") ||
           `<div class="row-item"><div class="ri-head"><div class="ri-main"><div class="ri-sub">还没有恢复点。导入地图时，原来的世界会留在这里。</div></div></div></div>`}</div>
@@ -533,6 +535,8 @@ window.MDWorldImport = (() => {
       body.querySelectorAll("[data-wi-restore]").forEach(b => b.onclick = () => askRestore(pts.find(x => x.id === b.dataset.wiRestore)));
       body.querySelectorAll("[data-wi-del]").forEach(b => b.onclick = () => askDelete(pts.find(x => x.id === b.dataset.wiDel)));
     };
+    // 点了确认、请求还没回来：这一行的两个按钮都点不了（请求失败会整页重画，按钮跟着状态回来）
+    const lockPoint = id => body.querySelectorAll(`[data-wi-point="${CSS.escape(id)}"] button`).forEach(b => { b.disabled = true; });
     const askRestore = async pt => {
       if (!pt) return;
       const r = await confirmModal({
@@ -541,6 +545,7 @@ window.MDWorldImport = (() => {
           "现在这张地图（包括导入以后服务器里的所有改动）会移到旁边留着，不会删。<br>服务器必须是停止状态。",
       });
       if (!r || gone()) return;
+      lockPoint(pt.id);
       try {
         const res = await post(base + "/restore", { id: pt.id, confirm: "restore" });
         if (gone()) return;
@@ -561,6 +566,7 @@ window.MDWorldImport = (() => {
         body: `${what}<br><b>删除后无法恢复。</b>正在用的世界不受影响。`,
       });
       if (!r || gone()) return;
+      lockPoint(pt.id);
       try { await post(base + "/delete", { id: pt.id, confirm: "delete" }); toast("恢复点已删除"); }
       catch (e) { toastErr("无法删除恢复点", e); }
       if (!gone()) loadHome(true);
@@ -631,7 +637,8 @@ window.MDWorldImport = (() => {
               : `「${esc(name)}」现在没有世界文件夹，会直接放进地图「${esc(candName(cand))}」。`) +
             (settings.length ? `<br>同时改这些设置：${settings.map(k => esc(SET_NAME[k] || k)).join("、")}。` : "") +
             (stopFirst ? "<br>服务器会先停止（等它自己保存退出，不强制结束）。" : "") +
-            "<br>核心、版本、模组插件和其他设置不变。导入以后可以在这一页换回导入前的地图。",
+            "<br>核心、版本、模组插件和其他设置不变。" +
+            (repl ? "导入以后可以在这一页换回导入前的地图。" : "这次导入之前没有世界，导入以后没有可以换回的旧地图。"),
         });
         if (!r || gone()) return;
         go.disabled = true;
@@ -705,7 +712,9 @@ window.MDWorldImport = (() => {
         if (lg.textContent !== text) lg.textContent = text;
         // 取消只在复制到暂存区之前和期间有用：开始停服、换地图以后，后端会换完或者自己退回
         const run = steps.findIndex(s => s.status === "running");
-        const canCancel = isImport && !t.ended && run >= 0 && run <= 1;
+        // 一个步骤都还没开始（任务刚建好）也算还能取消
+        const notYet = run < 0 && !steps.some(s => s.status === "done");
+        const canCancel = isImport && !t.ended && (notYet || (run >= 0 && run <= 1));
         const acts = $("#wi-task-acts", body);
         const sigNow = t.ended ? "ended" : canCancel ? (cancelling ? "cancelling" : "cancel") : isImport ? "late" : "busy";
         if (sigNow !== actsSig) {
@@ -755,6 +764,10 @@ window.MDWorldImport = (() => {
      wz：向导里选定的地图。{ scan, cand, plan, planning, planErr, seq, verMissing, created, hint }。
      选定以后按地图预选核心和版本（人可以改）；走到最后一步时按当时的核心和版本生成计划，核对通过才让创建。 */
   let wz = null, wzOpen = false;
+  /* lastCreate：上一次用地图建服、建服任务失败了的那张 { scan, cand }。检测结果没清（后端还留着），
+     下次进向导时可以「接着用这张」，不用再传一遍；换了别的地图就清掉它 */
+  let lastCreate = null;
+  const watchMs = () => window.__MD_WI_WATCH_MS || 3000; // 跟着建服任务看结果的间隔；测试里调短
   const inWizard = () => /^#\/create\/(new|world)/.test(location.hash || "");
   const wizardMap = () => (wz ? wz.cand : null);
 
@@ -816,9 +829,9 @@ window.MDWorldImport = (() => {
         <button type="button" class="btn sm" id="wi-wiz-change">换一张</button>
         <button type="button" class="btn sm ghost" id="wi-wiz-drop">不用地图</button></div>`;
       paintNote();
-      $("#wi-wiz-change", el).onclick = () => { if (wz && wz.created) return; wizardReset(); wzOpen = true; wiz.step = 0; redraw(); };
-      $("#wi-wiz-drop", el).onclick = () => { if (wz && wz.created) return; wizardReset(); redraw(); };
-      if (wz.created) lockStrip();
+      $("#wi-wiz-change", el).onclick = () => { if (wz && (wz.created || wz.submitting)) return; wizardReset(); wzOpen = true; wiz.step = 0; redraw(); };
+      $("#wi-wiz-drop", el).onclick = () => { if (wz && (wz.created || wz.submitting)) return; wizardReset(); redraw(); };
+      if (wz.created || wz.submitting) lockStrip();
       return;
     }
     if (wiz.step !== 0) { // 没选地图就往后走了：入口只在第一步，开着的选择面板收掉
@@ -829,9 +842,12 @@ window.MDWorldImport = (() => {
     if (!wzOpen) {
       el.innerHTML = `<div class="wi-strip" id="wi-wiz-offer"><span class="ri-ico">${icon("globe")}</span>
         <div class="wi-strip-main"><div class="wi-strip-title">手里有现成的地图？</div>
-          <div class="hint">下载的冒险、空岛、跑酷地图，自己的单人存档，朋友发来的旧服世界，都可以直接拿来开服。</div></div>
+          <div class="hint">下载的冒险、空岛、跑酷地图，自己的单人存档，朋友发来的旧服世界，都可以直接拿来开服。</div>
+          ${lastCreate ? `<div class="hint wi-last" id="wi-wiz-last-line">上次用地图「${esc(candName(lastCreate.cand))}」建服没有成功。<button type="button" class="btn sm" id="wi-wiz-last">接着用这张</button></div>` : ""}</div>
         <button type="button" class="btn" id="wi-wiz-pick">${icon("globe")} 用已有地图开服</button></div>`;
       $("#wi-wiz-pick", el).onclick = () => { wzOpen = true; redraw(); };
+      const last = $("#wi-wiz-last", el);
+      if (last) last.onclick = () => { const l = lastCreate; if (l) chooseMap(l.scan, l.cand, wiz, redraw); };
       return;
     }
     el.innerHTML = `<div class="wi-panel" id="wi-wiz-panel">
@@ -843,23 +859,27 @@ window.MDWorldImport = (() => {
     api("/api/app").catch(() => ({})).then(app => {
       if (gone() || !el.isConnected || wz) return;
       sourceUI($("#wi-wiz-stage", el), {
-        local: app.local !== false, quiet: true, gone: () => gone() || !el.isConnected,
+        local: app.local === true, quiet: true, gone: () => gone() || !el.isConnected,
         hold: s => hold(s.id, inWizard),
-        onPicked: (scan, cand) => {
-          const core = suggestCore(cand), brands = ((cand.meta && cand.meta.serverBrands) || []).join("、");
-          wz = { scan, cand, seq: 0, plan: null,
-            hint: core === "vanilla" ? "存档里没有别的核心的线索，先预选了原版。" : `按存档里的线索（${brands}）预选了 ${coreName(core)}。` };
-          wzOpen = false;
-          hold(scan.id, inWizard);
-          wiz.core = core;
-          wiz.mc = (cand.meta && cand.meta.versionName) || null;
-          wiz.build = null;
-          if (cand.meta && cand.meta.snapshot) wiz.snapshots = true;
-          wiz.step = 0;
-          redraw();
-        },
+        onPicked: (scan, cand) => chooseMap(scan, cand, wiz, redraw),
       });
     });
+  }
+  /* 选定一张地图（刚检测的，或者上次没建成的那张）：按存档预选核心和版本，回到第一步 */
+  function chooseMap(scan, cand, wiz, redraw) {
+    if (lastCreate && lastCreate.scan.id !== scan.id) discard(lastCreate.scan.id); // 换了别的地图：上次留着的那次检测不要了
+    lastCreate = null;
+    const core = suggestCore(cand), brands = ((cand.meta && cand.meta.serverBrands) || []).join("、");
+    wz = { scan, cand, seq: 0, plan: null,
+      hint: core === "vanilla" ? "存档里没有别的核心的线索，先预选了原版。" : `按存档里的线索（${brands}）预选了 ${coreName(core)}。` };
+    wzOpen = false;
+    hold(scan.id, inWizard);
+    wiz.core = core;
+    wiz.mc = (cand.meta && cand.meta.versionName) || null;
+    wiz.build = null;
+    if (cand.meta && cand.meta.snapshot) wiz.snapshots = true;
+    wiz.step = 0;
+    redraw();
   }
   /* 最后一步（基本设置）画完以后调：按现在选的核心和版本生成计划，把核对结果放进 mount。
      每次进这一步都重新生成：中途改过核心或版本的话，旧计划后端不认 */
@@ -916,13 +936,42 @@ window.MDWorldImport = (() => {
     if (errEl) errEl.innerHTML = "";
     return { worldPlan: wz.plan.id, worldAck: !!(ack && ack.checked) };
   }
-  /* 创建请求被收下了：后端把计划和来源都钉在新建任务上（上传的文件等任务结束才删），
-     这里就可以告诉它检测结果不要了，不用等它自己过期。请求还没被收下之前不能清 */
-  function wizardCreated() {
+  /* 点了「开始部署」、请求还没回来：「换一张」「不用地图」点不了（app.js 同时按住「上一步」和步骤条）。请求被拒了再放开 */
+  function wizardSubmitting(on) {
     if (!wz) return;
-    wz.created = true;
-    drop();
+    wz.submitting = on;
+    for (const id of ["#wi-wiz-change", "#wi-wiz-drop"]) { const b = $(id); if (b) b.disabled = on || !!wz.created; }
+  }
+  /* 创建请求被收下了：后端把计划和来源钉在新建任务上。这时还不能清检测结果——清了，建服任务要是在放地图之前失败
+     （下载核心失败这类），后端就不会把计划放回去，上传的文件也跟着删了。所以先留着，跟着建服任务看结果：
+     成了再清；没成就记下这张地图，下次进向导可以「接着用这张」。planId 是这次提交的计划：不是现在这张就不动它 */
+  function wizardCreated(planId, taskId) {
+    if (!wz || !wz.plan || wz.plan.id !== planId) return;
+    wz.created = true; wz.submitting = false;
+    const scan = wz.scan, cand = wz.cand;
+    keep(scan.id); // 切页也不清
     lockStrip();
+    if (taskId) watchCreate(taskId, scan, cand); else discard(scan.id);
+  }
+  /* 不挂在哪个页面上：建服任务结束以前人多半已经去了任务页。同一时间只跟一个：又用地图建了一台的话，
+     前一台的检测结果不再管，留给后端按时清（不会丢东西，只是上传的文件多留一会儿） */
+  let watching = 0;
+  function watchCreate(taskId, scan, cand) {
+    let misses = 0;
+    const my = ++watching;
+    const poll = async () => {
+      if (my !== watching) return;
+      let t = null;
+      try { t = await api(`/api/tasks/${E(taskId)}`); misses = 0; }
+      catch { if (++misses > 20) { discard(scan.id); return; } } // 一直查不到（任务没了）：不再留着
+      if (my !== watching) return;
+      if (t && t.ended) {
+        if (t.error) lastCreate = { scan, cand }; else discard(scan.id);
+        return;
+      }
+      setTimeout(poll, watchMs());
+    };
+    setTimeout(poll, watchMs());
   }
   /* 服务器已经在建了：「换一张」「不用地图」不能再点。待装清单里有东西时向导会留在这一页等建完再装（app.js 那时也按住了「上一步」和步骤条），
      这时重画向导，后面那一步就没人接着做了 */
@@ -933,8 +982,12 @@ window.MDWorldImport = (() => {
      别的原因（比如重名）计划还在后端那儿，核对结果和勾过的确认都留着，改好再点就行 */
   function wizardCreateFailed(e, wiz) {
     if (!wz || wz.created) return;
-    if (/计划|重新检测|过期|用过了|重新选择地图/.test(String((e && e.message) || ""))) wizardFinal($("#wiz-world"), wiz);
+    wizardSubmitting(false);
+    const msg = String((e && e.message) || "");
+    // 重名、正在创建：后端已经把计划放回去了，原样留着（服务器名里可能正好有「计划」「过期」这些字，先排除这两句）
+    if (/^已有同名的服务器「|」正在创建中，请稍候$/.test(msg)) return;
+    if (/导入计划|请重新检测|检测的结果|请重新选择地图|不能用这个核心和版本/.test(msg)) wizardFinal($("#wiz-world"), wiz);
   }
 
-  return { TAB, TAB_LABEL, applies, render, homeLink, wizardOpen, wizardReset, wizardMap, wizardVersion, wizardStrip, wizardFinal, wizardCreateFields, wizardCreated, wizardCreateFailed };
+  return { TAB, TAB_LABEL, applies, render, homeLink, wizardOpen, wizardReset, wizardMap, wizardVersion, wizardStrip, wizardFinal, wizardCreateFields, wizardSubmitting, wizardCreated, wizardCreateFailed };
 })();
