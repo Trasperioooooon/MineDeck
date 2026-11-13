@@ -524,6 +524,63 @@ function paintThemeBtn() {
   window.__mdCloseAsk = opts => { closeAskModal(opts || {}); call("hostCloseAck"); };
 })();
 
+/* 外部链接交给系统默认浏览器（只在原生窗口里）：界面上指向别的网站的 http / https 链接（EULA、申请 CurseForge Key、
+   openfrp.net、AI 回答里的链接……），左键、Ctrl / Shift 点、中键、键盘回车，还有脚本里的 window.open，都拦下来交给宿主函数
+   hostOpenURL，由宿主用系统默认浏览器打开（宿主那边再查一遍，只认 http / https，见 openurl_windows.go）。
+   不拦的话 WebView2 会用自带的简易窗口打开，用不了自己浏览器里的密码管理器、扩展和登录状态。
+   不带 target 的外部链接也拦，主窗口不会被带到别的网站去。MineDeck 自己的地址（同源）和别的协议照旧。
+   只在宿主给了 hostOpenURL 时启用：局域网里的浏览器、没有 WebView2 时用浏览器打开界面，都按浏览器自己的规矩开。 */
+(function initExternalLinks() {
+  if (typeof window.hostOpenURL !== "function") return;
+  // 交给宿主的是浏览器整理过的绝对地址（中文、空格都已转成 %XX）；不是别的网站的 http / https 地址时给空串
+  const externalURL = href => {
+    let u;
+    try { u = new URL(href, location.href); } catch { return ""; }
+    return (u.protocol === "http:" || u.protocol === "https:") && u.origin !== location.origin ? u.href : "";
+  };
+  const fail = e => toastErr("没能用浏览器打开链接", e);
+  const openExternal = url => { try { Promise.resolve(window.hostOpenURL(url)).catch(fail); } catch (e) { fail(e); } };
+  window.__mdOpenURLFailed = fail; // 宿主在后台打开浏览器，打不开（很少见）时回头调这里
+  const onLink = e => {
+    // click 只接左键（在链接上按回车也算左键）；auxclick 只接中键，右键不管
+    if (e.defaultPrevented || e.button !== (e.type === "auxclick" ? 1 : 0)) return;
+    const a = e.target instanceof Element ? e.target.closest("a[href], area[href]") : null;
+    // SVG 里的 <a> 的 href 不是字符串（SVGAnimatedString），取它写着的原文，再按页面地址补全
+    const href = !a ? "" : typeof a.href === "string" ? a.href : a.getAttribute("href") || "";
+    const url = href ? externalURL(href) : "";
+    if (!url) return;
+    e.preventDefault(); // WebView2 就不会自己开窗口，也不会在主窗口里跳过去
+    openExternal(url);
+  };
+  // 在捕获阶段接：页面里别处 stopPropagation 也挡不住
+  document.addEventListener("click", onLink, true);
+  document.addEventListener("auxclick", onLink, true);
+  const nativeOpen = window.open;
+  window.open = function (url) {
+    const ext = url == null ? "" : externalURL(String(url));
+    if (!ext) return nativeOpen.apply(window, arguments);
+    openExternal(ext);
+    return null; // 没有窗口对象可给，跟弹窗被浏览器拦下时一样
+  };
+})();
+
+/* 拖进窗口的文件和链接（3.1.1 起，只在窗口版）：没地方接的，页面自己接下来、标成「不能放」。
+   不接的话 WebView2 会把主窗口跳到拖进来的网页或文件上去，窗口版没有返回键，跳过去就回不来了。
+   dragover 时 dropEffect 设成 none：光标显示不能放，松手后浏览器不发 drop，也不跳转。
+   接拖放的地方（待装清单的「从电脑添加」）自己先 preventDefault，这里不管；文字、链接拖进输入框照旧放得进去，文件不行。 */
+(function guardDrops() {
+  if (typeof window.hostWinClose !== "function") return;
+  const intoText = e => !(e.dataTransfer && [...(e.dataTransfer.types || [])].includes("Files")) &&
+    e.target instanceof Element && !!e.target.closest('input, textarea, [contenteditable]:not([contenteditable="false"])');
+  const guard = e => {
+    if (e.defaultPrevented || intoText(e)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "none";
+  };
+  window.addEventListener("dragover", guard);
+  window.addEventListener("drop", guard);
+})();
+
 /* 关窗确认框：tray = 托盘图标在不在（不在就只能停服退出），running = 在运行的服务器台数。
    三选一：最小化到托盘（可顺带记住，以后关窗都这样）/ 停止服务器并退出 / 取消。默认聚焦不丢数据的「最小化到托盘」。
    追加进 #modal-root 而不是整个替换：别的对话框开着时不顶掉它（那边的 Promise 会一直等不到结果），
@@ -3223,6 +3280,7 @@ async function renderTunnels() {
         <span class="grow"></span>
         ${t.running ? `<button class="btn sm" data-tstop="${esc(t.id)}" aria-label="停止 ${esc(t.name)}">${icon("stop")} 停止</button>` : `<button class="btn sm primary" data-tstart="${esc(t.id)}" aria-label="启动 ${esc(t.name)}">${icon("play")} 启动</button>`}
         <button class="btn sm" data-tlog="${esc(t.id)}" aria-expanded="${logId === t.id}" aria-controls="tlog-${esc(t.id)}" aria-label="日志 ${esc(t.name)}">日志</button>
+        ${t.provider === "custom" && t.hasCredential ? `<button class="btn sm" data-tclear="${esc(t.id)}" aria-label="清除 ${esc(t.name)} 保存的凭据">清除凭据</button>` : ""}
         <button class="btn sm danger" data-tdel="${esc(t.id)}" aria-label="删除 ${esc(t.name)}">删除</button>
         ${err ? `<div class="tun-err" style="flex-basis:100%;font-size:var(--fs-xs);color:var(--danger-text);line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere">${esc(err)}</div>` : ""}
       </div>
@@ -3278,6 +3336,21 @@ async function renderTunnels() {
       const r = await confirmModal({ title: "删除隧道？", danger: true, okText: "删除", icon: "trash", body: "仅删除本机配置，服务商侧隧道不受影响。" });
       if (!r) return;
       try { await api(`/api/tunnels/${b.dataset.tdel}`, { method: "DELETE" }); } catch (e) { toastErr("无法删除隧道", e); }
+      drawList();
+    });
+    /* 自定义 frps 存过 token 以后，修改时凭据留空是「不改」，靠这个按钮明说不要了（clearCredential），之后启动不带 token。
+       修改接口是整体替换：其余配置按列表里的原样带回去 */
+    $("#tun-list").querySelectorAll("[data-tclear]").forEach(b => b.onclick = async () => {
+      const t = list.find(x => x.id === b.dataset.tclear);
+      if (!t) return;
+      const r = await confirmModal({ title: `清除「${t.name}」保存的凭据？`, danger: true, okText: "清除", icon: "trash",
+        body: "之后启动这条隧道不带 auth token。frps 设了 token 的话会连不上，到时删掉这条隧道重新添加、填上 token 就行。" });
+      if (!r) return;
+      const body = { provider: t.provider, name: t.name, proxyId: t.proxyId || "", serverAddr: t.serverAddr || "", serverPort: t.serverPort || 0,
+        remotePort: t.remotePort || 0, localPort: t.localPort || 0, boundInstance: t.boundInstance || "", autoStart: !!t.autoStart,
+        publicAddr: t.publicAddr || "", purpose: t.purpose || "", proto: t.proto || "", credential: "", clearCredential: true };
+      try { await api(`/api/tunnels/${t.id}`, { method: "PUT", body }); toast(`已清除「${t.name}」保存的凭据`); }
+      catch (e) { toastErr("无法清除凭据", e); }
       drawList();
     });
     $("#tun-list").querySelectorAll("[data-tlog]").forEach(b => b.onclick = () => {
@@ -3697,11 +3770,16 @@ function setRemote(body, info) {
   show(0);
 }
 
-/* — 通知与集成 — */
+/* — 通知与集成 —
+   从局域网打开时，后端只给 Webhook 地址的开头（协议和主机），后面常带着令牌，换成了 ***（ops/catalog 的 maskWebhook）。
+   原样保存表示没改；带着 *** 改了一半的后端不收，所以点进去就全选，输入就是整个换掉 */
 function setNotify(body, info) {
+  const masked = info.local === false && !!info.config.webhookUrl;
   body.innerHTML = settingsHead("通知与集成", "服务器启停 / 崩溃、玩家进出、备份完成、隧道上线等事件，可以推送到群机器人等外部服务。") +
-    group(riRow({ ico: "bell", title: "Webhook 事件推送（选填）", sub: "有事件时，会向这个地址 POST 一条 JSON。留空就是关闭。",
+    group(riRow({ ico: "bell", title: "Webhook 事件推送（选填）",
+      sub: "有事件时，会向这个地址 POST 一条 JSON。留空就是关闭。" + (masked ? "从局域网打开时只显示地址的开头，后面的部分藏起来了，要改就把整个地址重新填一遍。" : ""),
       field: `<input type="text" id="wh-url" value="${esc(info.config.webhookUrl || "")}" placeholder="https://example.com/hook（留空关闭）" aria-label="Webhook 地址"><button class="btn" id="wh-save">保存</button>` }), { ico: true });
+  if (masked) $("#wh-url").addEventListener("focus", e => e.target.select());
   bindSaveInput($("#wh-url"), $("#wh-save"), async v => {
     await api("/api/config", { method: "PUT", body: { webhookUrl: v.trim() } });
     toast(v.trim() ? "Webhook 已保存，即时生效" : "已关闭 Webhook 推送");

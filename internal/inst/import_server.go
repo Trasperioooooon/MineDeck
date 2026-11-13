@@ -14,6 +14,7 @@ import (
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/modpack"
 	"minedeck/internal/tasks"
+	"minedeck/internal/winname"
 )
 
 // 作者给的现成服务端压缩包：没有 modrinth.index.json / manifest.json，
@@ -82,19 +83,32 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 	}
 	t.Logf("按现成服务端解压（文件在%s）", where)
 	cleanDest := filepath.Clean(dir)
-	var skipped []string // 名字在 Windows 上不能用、没有解压的文件（最多记 20 个）
+	var skipped []string        // 名字在 Windows 上不能用、没有解压的文件（最多记 20 个）
+	var dups []string           // 和前面的文件只差大小写、没有解压的（最多记 20 个）
+	seen := map[string]string{} // 已经解压的文件：不分大小写的路径 → 包里的写法
 	n, err := modpack.ExtractServer(pack, func(rel string, r io.Reader) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		// 和交接包一样：别人给的 instance.json、run.bat 不能落下来，不然下次启动就按包里写的去跑。
-		// 名字在 Windows 上不能用的（CON、NUL 这类设备名，结尾是点或空格的）也和整合包覆盖目录一样跳过。
+		// 名字在 Windows 上不能用的（CON、CON.txt、COM1.log 这类设备名，结尾是点或空格的）也和整合包覆盖目录一样跳过。
 		if !overrideAllowed(rel) {
 			if !IsControlFile(rel) && len(skipped) < 20 {
 				skipped = append(skipped, rel)
 			}
 			return nil
 		}
+		// 只差大小写的两个名字在 Windows 上是同一个文件，后一个会把前一个盖掉（v3.1.0 正式版前检查 C-2e）：
+		// 和名字不能用的一样跳过、日志里列出来，留前一个。不整包拒绝：服务端包常在 Linux 上打，那边这是两个文件，
+		// 拒了整包就导不进来了。写法一模一样出现两次的照旧以后一个为准
+		k := winname.Fold(rel)
+		if first, ok := seen[k]; ok && first != rel {
+			if len(dups) < 20 {
+				dups = append(dups, rel)
+			}
+			return nil
+		}
+		seen[k] = rel
 		target := filepath.Join(cleanDest, filepath.FromSlash(rel))
 		if target == cleanDest || !strings.HasPrefix(target, cleanDest+string(os.PathSeparator)) {
 			return fmt.Errorf("整合包内含非法路径: %s", rel)
@@ -119,6 +133,9 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 	t.Logf("解压了 %d 个文件", n)
 	if len(skipped) > 0 {
 		t.Logf("这些文件的名字在 Windows 上不能用，没有解压：%s", strings.Join(skipped, "、"))
+	}
+	if len(dups) > 0 {
+		t.Logf("这些文件和压缩包里前面的文件只差大小写，在 Windows 上是同一个文件，没有解压（留的是前面那个）：%s", strings.Join(dups, "、"))
 	}
 	if name, ok := CheckLevelName(dir); !ok {
 		return fmt.Errorf("服务端的 server.properties 把世界文件夹（level-name）指到了服务器文件夹外面：%s", name)

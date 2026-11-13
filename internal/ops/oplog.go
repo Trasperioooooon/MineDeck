@@ -237,5 +237,8 @@ func mask(v any) any {
 	if v == nil || v == "" {
 		return v
 	}
+	if _, ok := v.(bool); ok { // 真假藏不了密钥：clearCredential 这类开关原样记，看得出是不是要清除
+		return v
+	}
 	return "***"
 }

@@ -799,9 +799,12 @@ func batNoControl(s string) string {
 }
 
 // writeRunBat 生成可手动双击的启动脚本（与 GUI 内启动等效）。
+// 开头关掉延迟展开：有人在注册表里给 cmd 全局打开了它的话，名字和参数里成对的感叹号之间的字会被当成变量换掉
+// （v3.1.0 正式版前检查「可以放到以后的」里那条）。
 func writeRunBat(i *Instance) error {
 	var sb strings.Builder
 	sb.WriteString("@echo off\r\n")
+	sb.WriteString("setlocal DisableDelayedExpansion\r\n")
 	sb.WriteString("chcp 65001 >nul\r\n")
 	sb.WriteString(fmt.Sprintf("title %s - MineDeck\r\n", batEscapeTitle(i.Name)))
 	sb.WriteString("cd /d \"%~dp0\"\r\n")

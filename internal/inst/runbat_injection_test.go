@@ -57,6 +57,8 @@ func TestRunBatArgsReachJava(t *testing.T) {
 		"md.quote":      `say "hi"`,
 		"md.quote2":     `say "hello world"`, // 引号里带空格：java.exe 在引号里看到两个双引号，收一个、仍在引号里
 		"md.slashquote": `a\"b`,
+		"md.bang":       "a!PATH!b", // 延迟展开开着时，成对的感叹号之间会被当成变量换掉
+		"md.bangcaret":  "x^y!z",    // 延迟展开开着时，带感叹号的行里 ^ 还会再被吃一遍
 	}
 	var extra []string
 	for k, v := range want {
@@ -71,23 +73,28 @@ func TestRunBatArgsReachJava(t *testing.T) {
 	if err := writeRunBat(i); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("cmd", "/c", filepath.Join(dir, "run.bat"))
-	cmd.Dir = dir
-	out, _ := cmd.CombinedOutput() // pause 读到空输入就结束
-	got := map[string]string{}
-	for _, line := range strings.Split(strings.ReplaceAll(string(out), "\r\n", "\n"), "\n") {
-		if k, v, ok := strings.Cut(strings.TrimLeft(line, " "), " = "); ok && strings.HasPrefix(k, "md.") {
-			got[k] = v
+	// 第二遍用 /v:on 打开延迟展开，和有人在注册表里给 cmd 全局打开它是一回事
+	for _, mode := range [][]string{{"/c"}, {"/v:on", "/c"}} {
+		cmd := exec.Command("cmd", append(mode, filepath.Join(dir, "run.bat"))...)
+		cmd.Dir = dir
+		out, _ := cmd.CombinedOutput() // pause 读到空输入就结束
+		got := map[string]string{}
+		for _, line := range strings.Split(strings.ReplaceAll(string(out), "\r\n", "\n"), "\n") {
+			if k, v, ok := strings.Cut(strings.TrimLeft(line, " "), " = "); ok && strings.HasPrefix(k, "md.") {
+				got[k] = v
+			}
 		}
-	}
-	for k, v := range want {
-		if got[k] != v {
-			t.Errorf("%s：java 收到 %q，应为 %q", k, got[k], v)
+		failed := false
+		for k, v := range want {
+			if got[k] != v {
+				t.Errorf("cmd %s：%s：java 收到 %q，应为 %q", strings.Join(mode, " "), k, got[k], v)
+				failed = true
+			}
 		}
-	}
-	if t.Failed() {
-		bat, _ := os.ReadFile(filepath.Join(dir, "run.bat"))
-		t.Logf("run.bat：\n%s\n输出：\n%s", bat, out)
+		if failed {
+			bat, _ := os.ReadFile(filepath.Join(dir, "run.bat"))
+			t.Logf("run.bat：\n%s\n输出：\n%s", bat, out)
+		}
 	}
 }
 
@@ -114,8 +121,8 @@ func TestRunBatNoInjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := strings.Count(string(bat), "\r\n"); n != 6 {
-		t.Errorf("run.bat 应正好 6 行，实际 %d 行：\n%s", n, bat)
+	if n := strings.Count(string(bat), "\r\n"); n != 7 { // @echo off、setlocal、chcp、title、cd、java 那一行、pause
+		t.Errorf("run.bat 应正好 7 行，实际 %d 行：\n%s", n, bat)
 	}
 	cmd := exec.Command("cmd", "/c", filepath.Join(dir, "run.bat"))
 	cmd.Dir = dir

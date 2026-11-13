@@ -215,6 +215,12 @@ func openWebView(url string, sig chan os.Signal, minimized bool) (ok bool) {
 	w.Bind("hostCloseAck", func() { hostCloseAck() })
 	w.Bind("hostWinHide", func() { hideToTray(hwnd) })
 	w.Bind("hostWinQuit", func() { postTrayQuit(hwnd) })
+	// 外部链接（EULA、申请 CurseForge Key、openfrp.net 等）交给系统默认浏览器，不再弹 WebView2 自带的简易窗口：
+	// app.js 的 initExternalLinks 拦下点击和 window.open 后调它。页面里谁都能调宿主函数，地址由 openExternalURL 把关，
+	// 只认 http / https（见 openurl_windows.go）；后台打开失败时回头叫页面弹报错提示
+	w.Bind("hostOpenURL", func(raw string) error {
+		return openExternalURL(raw, func(err error) { w.Dispatch(func() { w.Eval(openURLFailedJS(err)) }) })
+	})
 	// 页面画出头两帧（index.html 调 hostReady）：正常启动就现身；静默启动先收进托盘、再撤掉隐身，
 	// WebView 已经画过，之后从托盘恢复不白屏。托盘图标没登记上时窗口上面已经最小化到任务栏，不收。
 	// 页面没调（加载失败、脚本出错）也不能一直隐身，3 秒兜底。只做一次：以后刷新页面也会调 hostReady。

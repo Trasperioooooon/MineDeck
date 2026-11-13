@@ -15,6 +15,7 @@ import (
 
 	"minedeck/internal/inst"
 	"minedeck/internal/modinfo"
+	"minedeck/internal/winname"
 )
 
 // 交接包的 zip 原语。备份的 zipDirs / unzipTo（internal/inst/backup.go）打的是「几个世界子目录」，
@@ -182,8 +183,9 @@ func shortNameLike(seg string) bool {
 
 // payloadPath 校验一条包内路径，返回前缀内的相对路径（本机分隔符）。ok=false 表示不属于实例文件（前缀之外、目录项），跳过即可；
 // 报错表示路径可疑，整个包都不要。
-// 按 Windows 的规矩查：filepath.IsLocal 拒绝绝对路径、盘符、往上走的 ..、保留设备名（NUL、COM1…）和带冒号的名字
-// （a.txt:x 会写进备用数据流）；某一段以点或空格结尾的也拒绝——Windows 会把结尾的点和空格吃掉，"run.bat." 落下来就是 run.bat。
+// 按 Windows 的规矩查：filepath.IsLocal 拒绝绝对路径、盘符、往上走的 ..；每一段还要能原样写到 Windows 上（winname.PathOK）：
+// 保留设备名不管带不带扩展名都拒绝（NUL、COM1、CON.txt，不看这台 Windows 把它当不当设备），带冒号的拒绝
+// （a.txt:x 会写进备用数据流），以点或空格结尾的也拒绝——Windows 会把结尾的点和空格吃掉，"run.bat." 落下来就是 run.bat。
 func payloadPath(f *zip.File) (rel string, ok bool, err error) {
 	name := strings.ReplaceAll(f.Name, "\\", "/")
 	in, found := strings.CutPrefix(name, PayloadPrefix)
@@ -197,18 +199,33 @@ func payloadPath(f *zip.File) (rel string, ok bool, err error) {
 		return "", false, nil
 	}
 	local := filepath.FromSlash(in)
-	if !filepath.IsLocal(local) || local != filepath.Clean(local) {
-		return "", false, fmt.Errorf("交接包里有可疑路径: %s", f.Name)
-	}
-	for _, seg := range strings.Split(in, "/") {
-		if strings.HasSuffix(seg, ".") || strings.HasSuffix(seg, " ") {
-			return "", false, fmt.Errorf("交接包里有可疑路径: %s", f.Name)
+	if !filepath.IsLocal(local) || local != filepath.Clean(local) || !winname.PathOK(in) {
+		if onlyBadNames(in) {
+			// 路径本身没问题，只是某一段的名字在 Windows 上不能用：设备名、结尾是点或空格这类名字在 Windows 11 上建得出来，
+			// 3.1.0 及以前在那种电脑上导出的包里可能有，不一定是包被改过，说清怎么办
+			return "", false, fmt.Errorf("交接包里的 %s 在 Windows 上不能当文件名（CON、AUX 这类设备名，或者结尾是点、空格），"+
+				"整个包没有导入。在原来的电脑上把它改个名字，再导出一次就行", f.Name)
 		}
+		return "", false, fmt.Errorf("交接包里有可疑路径: %s", f.Name)
 	}
 	if !f.Mode().IsRegular() {
 		return "", false, fmt.Errorf("交接包里有不是普通文件的条目: %s", f.Name)
 	}
 	return local, true, nil
+}
+
+// onlyBadNames 路径的样子没问题（不往上走、不是绝对路径、没有盘符和冒号、没有空段），毛病只在某一段的名字本身
+// （设备名、结尾是点或空格、带 Windows 不收的字符）。用来决定报哪一种错。
+func onlyBadNames(rel string) bool {
+	if strings.HasPrefix(rel, "/") || strings.Contains(rel, ":") {
+		return false
+	}
+	for _, seg := range strings.Split(rel, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 // extractPrefix 解包 zip 里 PayloadPrefix 前缀下的全部文件到 destDir（严格 zip-slip）。
@@ -228,6 +245,7 @@ func extractPrefix(ctx context.Context, src, destDir string, opts extractOpts,
 	}
 	var ents []entry
 	var total int64
+	seen := map[string]int{} // 要解出来的文件：不分大小写的路径 → 在 ents 里的位置
 	for _, f := range zr.File {
 		if f.Name == manifestName {
 			continue
@@ -251,6 +269,18 @@ func extractPrefix(ctx context.Context, src, destDir string, opts extractOpts,
 		if size < 0 || total+size < total {
 			return res, fmt.Errorf("交接包里的文件大小不对: %s", f.Name)
 		}
+		// 只差大小写（或者一模一样）的两个文件在 Windows 上是同一个，后一个会把前一个盖掉（v3.1.0 正式版前检查 C-2e）。
+		// 内容一样的是同一个文件打了两遍（3.1.0 及以前导出完整包时，启动 jar 叫 Server.jar 就会和 server.jar 各打一份），
+		// 跳过后一个；内容不一样的是被改过的包，和可疑路径一样整包不要
+		k := winname.Fold(filepath.ToSlash(rel))
+		if j, dup := seen[k]; dup {
+			if p := ents[j]; p.f.CRC32 == f.CRC32 && p.size == size {
+				continue
+			}
+			return res, fmt.Errorf("交接包里的 %s 和 %s 在 Windows 上是同一个文件，内容却不一样，这个包被改过或者坏了",
+				filepath.ToSlash(ents[j].name), filepath.ToSlash(rel))
+		}
+		seen[k] = len(ents)
 		ents = append(ents, entry{f: f, name: rel, size: size})
 		total += size
 	}

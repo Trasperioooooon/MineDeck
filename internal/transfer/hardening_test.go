@@ -64,31 +64,40 @@ func treeOf(t *testing.T, root string) []string {
 
 // TestExtractRejectsWindowsPaths 按 Windows 的规矩，这些名字要么写到别处、要么写进备用数据流或设备、
 // 要么落下来变成另一个名字：整个包都不要，一个字节都不落盘。
+// 报错分两种：路径的样子就不对的（往上走、绝对路径、盘符、数据流）说「可疑路径」；路径没问题、只是名字在 Windows 上
+// 不能用的（设备名、结尾是点或空格）说「不能当文件名」并说清怎么办——这类名字在 Windows 11 上建得出来，不一定是包被改过。
 func TestExtractRejectsWindowsPaths(t *testing.T) {
-	for _, name := range []string{
-		`instance/..\evil.txt`, // 反斜杠写的上级目录
-		`instance/a/..\..\evil.txt`,
-		"instance/../evil.txt",
-		"instance//abs.txt",                 // 前缀后面跟着绝对路径
-		"instance/C:/Windows/x.txt",         // 盘符
-		"instance/C:evil.txt",               // 盘符相对路径：落下来是文件 C 的备用数据流
-		"instance/mods/a.jar:hidden",        // 备用数据流
-		"instance/server.properties::$DATA", // 主数据流的另一种写法
-		"instance/NUL",                      // 保留设备名
-		"instance/world/COM1",
-		"instance/run.bat.", // Windows 会吃掉结尾的点：落下来就是 run.bat
-		"instance/run.bat ", // 结尾的空格同理
-		"instance/mods ./a.jar",
+	const suspicious, badName = "可疑路径", "不能当文件名"
+	for _, c := range []struct{ name, want string }{
+		{`instance/..\evil.txt`, suspicious}, // 反斜杠写的上级目录
+		{`instance/a/..\..\evil.txt`, suspicious},
+		{"instance/../evil.txt", suspicious},
+		{"instance//abs.txt", suspicious},                 // 前缀后面跟着绝对路径
+		{"instance/C:/Windows/x.txt", suspicious},         // 盘符
+		{"instance/C:evil.txt", suspicious},               // 盘符相对路径：落下来是文件 C 的备用数据流
+		{"instance/mods/a.jar:hidden", suspicious},        // 备用数据流
+		{"instance/server.properties::$DATA", suspicious}, // 主数据流的另一种写法
+		{"instance/NUL", badName},                         // 保留设备名
+		{"instance/world/COM1", badName},
+		{"instance/config/CON.txt", badName}, // 带扩展名的设备名：不看这台 Windows 把它当不当设备（C-2e）
+		{"instance/world/com1.log", badName},
+		{"instance/LPT¹.txt", badName},
+		{"instance/run.bat.", badName}, // Windows 会吃掉结尾的点：落下来就是 run.bat
+		{"instance/run.bat ", badName}, // 结尾的空格同理
+		{"instance/mods ./a.jar", badName},
 	} {
-		pack := rawPack(t, "", [][2]string{{"instance/world/level.dat", "ok"}, {name, "evil"}})
+		pack := rawPack(t, "", [][2]string{{"instance/world/level.dat", "ok"}, {c.name, "evil"}})
 		dest := filepath.Join(t.TempDir(), "dest")
 		_, err := extractPrefix(nil, pack, dest, extractOpts{}, noProgress, noCount)
 		if err == nil {
-			t.Errorf("%q 应该让整个包被拒，实际解出了：%v", name, treeOf(t, filepath.Dir(dest)))
+			t.Errorf("%q 应该让整个包被拒，实际解出了：%v", c.name, treeOf(t, filepath.Dir(dest)))
 			continue
 		}
+		if !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%q 的报错应说「%s」：%v", c.name, c.want, err)
+		}
 		if left := treeOf(t, filepath.Dir(dest)); len(left) != 0 {
-			t.Errorf("%q 被拒之前不该落下任何文件：%v", name, left)
+			t.Errorf("%q 被拒之前不该落下任何文件：%v", c.name, left)
 		}
 	}
 }

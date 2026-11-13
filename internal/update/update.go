@@ -141,18 +141,6 @@ func Apply(ctx context.Context, r *Release) error {
 	}, nil); err != nil {
 		return fmt.Errorf("下载新版本失败: %w", err)
 	}
-	// 轮询等待旧进程真正退出（而非固定延时），避免文件占用与双进程
-	bat := fmt.Sprintf(`@echo off
-cd /d "%s"
-:wait
-tasklist /FI "PID eq %d" 2>nul | find "%d" >nul && (ping 127.0.0.1 -n 2 >nul & goto wait)
-move /y "MineDeck.new.exe" "%s" >nul
-start "" "%s"
-del "%%~f0"
-`, app.Base, os.Getpid(), os.Getpid(), filepath.Base(exe), filepath.Base(exe))
-	batPath := filepath.Join(app.Base, "update.bat")
-	if err := os.WriteFile(batPath, []byte(bat), 0o755); err != nil {
-		return err
-	}
-	return runDetached(batPath)
+	// 换 exe 的脚本等本进程退出以后才动手，怎么写的、为什么这么写见 run_windows.go 的 swapScript
+	return startSwap(app.Base, exe, newExe, os.Getpid())
 }

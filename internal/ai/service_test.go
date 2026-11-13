@@ -19,9 +19,16 @@ type memKeys struct {
 	mu     sync.Mutex
 	m      map[string]string
 	broken bool
+	// failSet 模拟写盘失败：返回非 nil 时这次 Set 什么都不改，原样报这个错
+	failSet func(name, v string) error
+	// beforeGet 每次 Get 读值之前调（不拿着 mu），测试用它卡住读 Key 的那一方
+	beforeGet func()
 }
 
 func (k *memKeys) Get(n string) (string, error) {
+	if k.beforeGet != nil {
+		k.beforeGet()
+	}
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	if k.broken && k.m[n] != "" {
@@ -33,6 +40,11 @@ func (k *memKeys) Get(n string) (string, error) {
 func (k *memKeys) Set(n, v string) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
+	if k.failSet != nil {
+		if err := k.failSet(n, v); err != nil {
+			return err
+		}
+	}
 	if v == "" {
 		delete(k.m, n)
 	} else {

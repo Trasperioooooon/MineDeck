@@ -17,7 +17,7 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 ### 应用
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/app` | 版本、内存（`ramMb`/`availRamMb`）、实际监听端口 `port`、`serversRoot`/`backupsRoot`、`autoStart`（开机自启真值，查注册表）、`config`、本机 IP；`lanSet`（是否已设访问密码）、`cfKeySet`（是否已设 CurseForge API Key）、`cfKeyBroken`（已存的 Key 解不开，多半是换了电脑或 Windows 用户，需要重填）；`lanActive`：这次启动是否已经监听在局域网上（打开「允许局域网访问」后要重启程序才为真；关掉即时生效） |
+| GET | `/api/app` | 版本、内存（`ramMb`/`availRamMb`）、实际监听端口 `port`、`serversRoot`/`backupsRoot`、`autoStart`（开机自启真值，查注册表）、`config`、本机 IP；`lanSet`（是否已设访问密码）、`cfKeySet`（是否已设 CurseForge API Key）、`cfKeyBroken`（已存的 Key 解不开，多半是换了电脑或 Windows 用户，需要重填）；`lanActive`：这次启动是否已经监听在局域网上（打开「允许局域网访问」后要重启程序才为真；关掉即时生效）；`local`：请求是不是来自本机（不是本机时 `config.webhookUrl` 是遮掉的，见下方配置键） |
 | PUT | `/api/config` | 局部更新配置（见下方「配置键」；仅传要改的键） |
 | POST | `/api/pickdir` | 弹系统文件夹选择框，返回 `{path}`（取消为空）。对话框关掉之前请求不返回；已经开着一个时再调返回 409；对话框打不开时返回 500（原因在日志里）。**仅本机** |
 | POST | `/api/openpath` | 在资源管理器打开 `{path}` 目录。**仅本机** |
@@ -31,7 +31,7 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 | GET | `/api/javas` · POST `/api/javas/scan` · POST `/api/javas/add` | Java 管理（`add` **仅本机**） |
 
 **配置键**（`PUT /api/config`，均为可选、只更新所传字段）：
-`source`（auto/mirror/official）、`cfApiKey`（**只写**：用 Windows DPAPI 加密存进程序目录的 `secrets.json`，任何响应都不下发——`config` 里的 `cfApiKey` 永远为空；是否已设置看 `GET /api/app` 的 `cfKeySet`；传空串清除）、`webhookUrl`、`updateRepo`、`checkUpdateOnStart`、`serversDir`（实例存放根，空=默认；**仅本机**；改动时旧值并入 `roots`，旧根里的实例照常扫描；返回的配置里还有只读的 `instanceDirs`，是接管进来的服务器各自的文件夹，启动时逐个读，不扫它们的上一层）、`backupsDir`（备份根；**仅本机**）、`backupKeep`（每实例保留份数 1–1000）、`onboarded`（首启引导完成标记）、`tosAccepted`（用户协议与免责声明已同意标记）、`minimizeToTray`（关窗最小化到托盘）、`autoStart`（开机自启，直写 `HKCU\...\Run`）、`listenLan`、`lanPassword`（明文，服务端存为 bcrypt 哈希；任何响应都不下发该哈希，是否已设密码看 `GET /api/app` 的 `lanSet`）、`chromeColor`（界面标题栏底色，只收 `#rrggbb`，存为小写，其它写法整次返回 400；空串清除。原生窗口里的前端在外观变化时上报，下次启动时宿主把它设为 WebView2 的默认底色，避免冷启动白闪；没有值时按系统浅 / 深色取默认方案的标题栏色）。
+`source`（auto/mirror/official）、`cfApiKey`（**只写**：用 Windows DPAPI 加密存进程序目录的 `secrets.json`，任何响应都不下发——`config` 里的 `cfApiKey` 永远为空；是否已设置看 `GET /api/app` 的 `cfKeySet`；传空串清除）、`webhookUrl`（局域网登录的设备读到的只有协议和主机，后面换成 `***`，如 `https://hook.example/***`，地址里的令牌不下发；原样传回这个遮掉的地址表示不改，带着 `***` 的其他写法返回 400；本机读写的都是完整地址）、`updateRepo`、`checkUpdateOnStart`、`serversDir`（实例存放根，空=默认；**仅本机**；改动时旧值并入 `roots`，旧根里的实例照常扫描；返回的配置里还有只读的 `instanceDirs`，是接管进来的服务器各自的文件夹，启动时逐个读，不扫它们的上一层）、`backupsDir`（备份根；**仅本机**）、`backupKeep`（每实例保留份数 1–1000）、`onboarded`（首启引导完成标记）、`tosAccepted`（用户协议与免责声明已同意标记）、`minimizeToTray`（关窗最小化到托盘）、`autoStart`（开机自启，直写 `HKCU\...\Run`）、`listenLan`、`lanPassword`（明文，服务端存为 bcrypt 哈希；任何响应都不下发该哈希，是否已设密码看 `GET /api/app` 的 `lanSet`）、`chromeColor`（界面标题栏底色，只收 `#rrggbb`，存为小写，其它写法整次返回 400；空串清除。原生窗口里的前端在外观变化时上报，下次启动时宿主把它设为 WebView2 的默认底色，避免冷启动白闪；没有值时按系统浅 / 深色取默认方案的标题栏色）。
 另有 `trustedHosts`（config.json 里 `[{host, scope, at}]`，整合包导入里用户逐个确认过的自定义下载站点）：**不经 `PUT /api/config` 修改**，只能由 `POST /api/import/pending/{taskId}` 的 `trust` 处置在用户明确确认（`ack: true`）且站点校验通过（https、公网）后写入，`scope` 为作用域（现为 `modpack`），之后同站点的整合包导入不再列为待决。
 
 ### 实例
@@ -43,7 +43,7 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 | POST | `/api/import/pending/{taskId}` | 逐项处置整合包导入的待决文件：body `{"items":[{"id":"p1","act":"skip\|local\|trust","path?":"","url?":"","ack?":false}]}`。`act=skip` 跳过并记入任务日志；`act=local` 用请求给出的本地文件（`path`）或目录（给目录时按待决文件的相对路径、mods/plugins 下的同名文件匹配）原样复制进实例，内容不校验；`act=trust` 确认信任自定义站点后从 `url`（必须为该项列出的候选、必须 https）下载并校验 SHA-1——主机解析到内网或本机地址的一律拒绝，首次信任每个站点必须带 `ack: true`（风险在界面写明，确认按域名记忆、不同端口也一并信任）；文件下载下来、校验通过以后才把站点记进全局配置，没下成的站点下次照样要确认。整合包的文件（包括白名单站点和 CurseForge 的）下载全程走受控客户端：直连时每个解析出的 IP 连接前查是不是公网，站点日后被解析到内网也连不出去；环境变量里配了代理时连的是代理，改按主机名查目标（IP 字面量必须公网，本机、内网的名字不连）；跳转只跟 https 的、最多 10 次，跳到哪个主机不限（GitHub、CurseForge 的文件都会跳到各自的 CDN），跳转目标一样要过公网检查。返回 `{resolved:[{id,path,act,ok,note}], pending:[剩余待决]}`；单项失败留在清单里不影响其他项。**仅本机**，AI 不能调用（操作 `instance.import.pending`） |
 | POST | `/api/adopt/scan` | `{dir}`：只读地识别一个已有的服务器文件夹，给接管的表单预填（见下方「接管已有服务器」）。**仅本机** |
 | POST | `/api/adopt` | 接管已有服务器：把文件夹就地登记成实例，返回 taskId（见下方）。**仅本机** |
-| POST | `/api/instances/{name}/start` \| `/stop` \| `/kill` | 进程控制 |
+| POST | `/api/instances/{name}/start` \| `/stop` \| `/kill` | 进程控制。`start` 之前照服务端的办法试绑 `server.properties` 里的 `server-ip` 和 `server-port`，被占着直接返回错误「端口 N 被别的程序占着，…」，不起服务器（代理端不查） |
 | POST | `/api/instances/{name}/command` | `{"cmd":"say hi"}` |
 | POST | `/api/instances/{name}/opendir?sub=` | 在资源管理器打开实例目录或其白名单子目录（`sub` ∈ mods/plugins/world/logs/crash-reports），**仅本机** |
 | GET | `/api/instances/{name}/console` | SSE 控制台流（先回放后实时） |
@@ -71,7 +71,7 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 ### 穿透
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET/POST | `/api/tunnels` | 列表（每项含运行态 `lastError`——最近一次失败原因：frpc 起来之前就失败的写成「启动失败：…」或「跟随启动失败：…」（比如樱花还没放 frpc），frpc 报的错照原文，没报错就退出的写「frpc 意外退出（退出码 N）…」；frpc 起来或报成功时清空；`credBroken`——凭据解不开，多半是换了电脑或 Windows 用户，这条隧道不能启动，要重填凭据）/ 新增 |
+| GET/POST | `/api/tunnels` | 列表（每项含运行态 `lastError`——最近一次失败原因：frpc 起来之前就失败的写成「启动失败：…」或「跟随启动失败：…」（比如樱花还没放 frpc），frpc 报的错照原文，没报错就退出的写「frpc 意外退出（退出码 N）…」；frpc 起来或报成功时清空；`credBroken`——凭据解不开，多半是换了电脑或 Windows 用户，这条隧道不能启动，要重填凭据；`hasCredential`——存着凭据，凭据本身不下发）/ 新增 |
 | PUT/DELETE | `/api/tunnels/{id}` | 修改 / 删除 |
 | POST | `/api/tunnels/{id}/start` \| `/stop` | 启停 frpc |
 | GET | `/api/tunnels/{id}/console` | SSE frpc 日志 |
@@ -81,6 +81,8 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 `serverAddr`、`serverPort`、`remotePort`、`localPort` 只有自定义 frps 用。樱花、OpenFrp 的隧道启动时只传「凭据 + 隧道 ID」，端口在服务商后台填，这几项传了也不存、列表里也不给（`localPort` 不再总是出现）；老版本存下的 25565 / 25566 这类数在加载时清掉并写回。
 
 `serverAddr` 只能是域名或 IP：域名每段是字母（中文也行）、数字、连字符、下划线，用点隔开；不能带 `http://`、端口、空白、引号、花括号，不合规的回 400。前后空格和 IPv6 的方括号会去掉再存。地址会原样写进 frpc 的配置，而 frpc 把整份配置当模板渲染，所以要挡住模板写法；启动前再查一遍，以前存下的不合规地址启动时报错，不生成配置。`PUT` 时凭据留空表示不改，但换了 `provider`，或者自定义 frps 换了 `serverAddr`、`serverPort`，凭据留空回 400（「换了服务商或 frps 地址、端口，要重新填一次凭据」），免得旧令牌被带到新的服务器上。
+
+要把自定义 frps 存着的凭据删掉，`PUT` 时带 `clearCredential: true`（`credential` 留空，其余字段照常整体提交）：`tunnels.json` 里的凭据清空，之后启动不带 token；这是明说不要凭据，换了地址、端口也放行。凭据解不开的（`credBroken`）也能这样清掉。樱花、OpenFrp 启动时必须带凭据，传了回 400；同时填了新凭据也回 400。
 
 `publicAddr` 从 frpc 的输出里认：同一次运行里既有域名形式又有 IP 形式（樱花会同时打「使用 >>域名:端口<< 连接」和「或使用节点 IP 连接（不推荐）」两行）时取域名，IP 会随节点变。
 
@@ -178,7 +180,7 @@ AI 是可选功能。没配置时（`enabled` 为 false）MineDeck 不连接任�
 
 - `src` 是来源：`ui`（本机界面）、`api`（本机的其他程序）、`lan`（局域网设备，`actor` 是它的地址）、`schedule`（定时任务、崩溃自动重启和隧道跟随实例自动启停，`actor` 写明是哪一种：「定时任务」「崩溃自动重启」「跟随实例」）；`assistant`（应用内 AI 助手）、`gamechat`（游戏内 AI，`actor` 是玩家名，见「游戏内 AI（第四阶段）」）、`companion`（留给以后的 AI 伙伴）。AI 发起的写操作要人确认后才执行，记录里带 `proposal`（提案编号）和 `approvedBy`（确认的人）。
 - 失败的操作也记，`ok` 为 false，`err` 是错误信息。
-- Key、密码、令牌、凭据、Webhook 地址，以及 server.properties 里像密码的项（如 `rcon.password`），在 `args` 里一律写成 `***`（清空时保留空串）。
+- Key、密码、令牌、凭据、Webhook 地址，以及 server.properties 里像密码的项（如 `rcon.password`），在 `args` 里一律写成 `***`（清空时保留空串；`clearCredential` 这类真假值原样记）。
 
 ### 应用内 AI 助手（第三阶段）
 

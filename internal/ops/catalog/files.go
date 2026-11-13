@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -288,6 +289,12 @@ func (c *cat) fileOps() {
 		if pl.rel, pl.abs, err = configPath(i, p.Path, true); err != nil {
 			return
 		}
+		// 改之前的备份、撤销用的备份都在 .minedeck/config-backups 里：它被换成指到外面的目录联接的话，
+		// 备份会写到外面去，清理旧备份、撤销时还会删外面的文件。真实落点也要在服务器文件夹里
+		if realInside(i.Dir, backupDir(i)) != nil {
+			err = ops.Errorf(400, "放配置备份的文件夹指到了服务器文件夹外面，或者查不清在哪里，没有修改")
+			return
+		}
 		rel := pl.rel
 		b, rerr := os.ReadFile(pl.abs)
 		pl.exists = rerr == nil
@@ -495,14 +502,35 @@ func configPath(i *inst.Instance, p string, file bool) (rel, abs string, err err
 		}
 	}
 	abs = filepath.Join(i.Dir, filepath.FromSlash(clean))
-	// 符号链接：解析出真实路径，必须还在实例目录里
-	root, err1 := filepath.EvalSymlinks(i.Dir)
-	if real, err2 := filepath.EvalSymlinks(abs); err1 == nil && err2 == nil {
-		if r, err := filepath.Rel(root, real); err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
-			return "", "", ops.Errorf(400, "路径不对：指到了服务器文件夹外面")
-		}
+	// 目录联接、符号链接：解开以后的真实落点必须还在实例目录里。查不清的不放行（v3.1.0 正式版前检查 B-9：
+	// 以前这一步出错就跳过检查，服务器文件夹里有一个指到外面的目录联接，就能顺着它读写到外面去）
+	switch err := realInside(i.Dir, abs); {
+	case errors.Is(err, errOutside):
+		return "", "", ops.Errorf(400, "路径不对：指到了服务器文件夹外面")
+	case err != nil:
+		return "", "", ops.Errorf(400, "查不清这个路径实际指到哪里（可能是断掉的目录联接），没有读写")
 	}
 	return clean, abs, nil
+}
+
+var errOutside = errors.New("真实落点在服务器文件夹外面")
+
+// realInside p 的真实落点（解开目录联接、符号链接以后）在不在 root 里面：在返回 nil，不在返回 errOutside，
+// 查不清（root 或 p 解不开）返回 inst.ErrRealPath。p 还不存在时按它还在的那一级上层算，新建文件也管得住。
+// 不用 filepath.EvalSymlinks：Go 1.23 起它在 Windows 上不解开目录联接，经过联接的路径直接报错。
+func realInside(root, p string) error {
+	r, err := inst.RealPathStrict(root)
+	if err != nil {
+		return err
+	}
+	real, err := inst.RealPathStrict(p)
+	if err != nil {
+		return err
+	}
+	if rel, err := filepath.Rel(r, real); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return errOutside
+	}
+	return nil
 }
 
 func isDir(p string) bool { st, err := os.Stat(p); return err == nil && st.IsDir() }

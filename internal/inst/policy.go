@@ -105,16 +105,22 @@ func (m *Manager) crashRestart(i *Instance, gen int64) {
 	delay := []time.Duration{10 * time.Second, 30 * time.Second, 60 * time.Second}[n-1]
 	i.Console.Append(fmt.Sprintf("[MineDeck] 检测到服务器异常退出，%v 后自动重启（第 %d/3 次）...", delay, n))
 	time.Sleep(delay)
-	i.procMu.Lock()
-	abort := i.runGen != gen || (i.state != "" && i.state != "stopped")
-	i.procMu.Unlock()
-	if abort {
-		return // 用户已手动处理（重启过或正在运行）
+	handled := func() bool { // 用户已手动处理（重启过或正在运行）
+		i.procMu.Lock()
+		defer i.procMu.Unlock()
+		return i.runGen != gen || (i.state != "" && i.state != "stopped")
+	}
+	if handled() {
+		return
+	}
+	m.waitPortFree(i) // 端口一般早放开了；还占着就再等几秒，不让一下子的状态把这次重启取消掉
+	if handled() {
+		return
 	}
 	start := time.Now()
 	err := m.Start(i.Name)
 	if err != nil {
-		i.Console.Append("[MineDeck] 自动重启失败: " + err.Error())
+		i.Console.Append("[MineDeck] 自动重启失败: " + err.Error() + restartGaveUp(err))
 	}
 	m.noteAuto(AutoAction{Op: "instance.start", Actor: "崩溃自动重启", Args: map[string]any{"inst": i.Name, "attempt": n}, Err: err, Dur: time.Since(start)})
 }
@@ -190,8 +196,9 @@ func (m *Manager) execSchedule(i *Instance, s Schedule) {
 		}
 		err := fmt.Errorf("等了 40 秒服务器还没停下来，没有重新启动")
 		if i.Status() == "stopped" {
+			m.waitPortFree(i) // 进程刚退出，端口万一还没放开就等几秒
 			if err = m.Start(i.Name); err != nil {
-				i.Console.Append("[MineDeck] 定时重启失败: " + err.Error())
+				i.Console.Append("[MineDeck] 定时重启失败: " + err.Error() + restartGaveUp(err))
 			}
 		}
 		note("instance.restart", map[string]any{}, err)

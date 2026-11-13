@@ -2001,6 +2001,36 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await page.unroute("**/api/tunnels", fail).catch(() => {}); await tunState({ tunnelsReset: true }); }
   });
 
+  await run("隧道：存着凭据的自定义 frps 有「清除凭据」，确认后带 clearCredential 整体提交、其余配置原样带回；服务商的隧道没有这个按钮", async () => {
+    const lastPut = () => page.evaluate(() => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data.lastTunnelPut));
+    await tunState({ tunnelsReset: true });
+    try {
+      await page.goto(url("#/tunnels")); await settle(600);
+      assert(await page.$('[data-tclear="t2"]') && !(await page.$('[data-tclear="t1"]')), "只有存着凭据的自定义 frps 有「清除凭据」");
+      assert(await page.getAttribute('[data-tclear="t2"]', "aria-label") === "清除 自建备用线 保存的凭据", "按钮的名字带上隧道名");
+      // 先点取消：什么也不发
+      await page.click('[data-tclear="t2"]'); await settle(300);
+      assert((await page.textContent(".modal")).includes("清除「自建备用线」保存的凭据？"), "要先确认");
+      await page.click('.modal [data-x="cancel"]'); await settle(300);
+      assert(await lastPut() === null, "取消了不该发请求");
+      await page.click('[data-tclear="t2"]'); await settle(300);
+      await page.click('.modal [data-x="ok"]'); await settle(300);
+      assert(await toastHas("已清除「自建备用线」保存的凭据"), "清除后要提示");
+      const b = await lastPut();
+      assert(b && b.clearCredential === true && b.credential === "" && b.provider === "custom" && b.name === "自建备用线" &&
+        b.serverAddr === "frp.example.com" && b.serverPort === 7000 && b.remotePort === 25566 && b.localPort === 25565 &&
+        b.proto === "tcp" && b.purpose === "game" && b.autoStart === false && b.boundInstance === "", "请求体：" + JSON.stringify(b));
+      await page.waitForFunction(() => !document.querySelector('[data-tclear="t2"]'), null, { timeout: 2000 }).catch(() => {});
+      assert(!(await page.$('[data-tclear="t2"]')), "清掉以后不再显示这个按钮");
+      // 运行中不能改：后端的原因接在结论后面
+      await tunState({ tunnelsReset: true, tunnel: { id: "t2", running: true } });
+      await page.goto(url("#/tunnels")); await settle(600);
+      await page.click('[data-tclear="t2"]'); await settle(300);
+      await page.click('.modal [data-x="ok"]'); await settle(300);
+      assert(await toastHas("无法清除凭据：请先停止隧道再修改"), "运行中清除要说明原因");
+    } finally { await tunState({ tunnelsReset: true }); }
+  });
+
   await run("隧道：樱花、OpenFrp 的隧道不带 frps 地址和端口（以前把隐藏着的 25565 / 25566 / 7000 也存了进去）", async () => {
     try {
       await musicState({ music: { reset: true } });
@@ -2229,6 +2259,42 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(ps.length === 1 && ps[0].listenLan === true && ps[0].lanPassword === "pw-new-777", "开关和新密码应一起保存：" + JSON.stringify(ps));
       assert(await toastHas("新的访问密码已保存"), "提示里应写明新密码也保存了");
     } finally { await mockState({ listenLan: false, lanSet: false }); }
+  });
+  await run("通知与集成：从局域网打开时 Webhook 地址只显示开头，原样传回不会盖掉真地址，接着改了一半的不收，填新的照常存；本机看完整的（v3.1.0 正式版前检查 B-2）", async () => {
+    const mockState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
+    const real = "https://hook.example.com/robot/send?access_token=tk-secret-123";
+    const sub = () => page.$eval(".row-item:has(#wh-url) .ri-sub", el => el.textContent);
+    try {
+      await mockState({ local: true, webhookUrl: real });
+      await page.goto(url("#/settings/notify")); await settle();
+      assert((await page.inputValue("#wh-url")) === real && !(await sub()).includes("藏起来"), "本机应看到完整地址：" + await page.inputValue("#wh-url"));
+
+      await mockState({ local: false });
+      await page.goto(url("#/settings/notify")); await settle();
+      const shown = await page.inputValue("#wh-url");
+      assert(shown === "https://hook.example.com/***", "局域网应只看到开头：" + shown);
+      assert((await sub()).includes("藏起来了"), "应说明后面藏起来了：" + await sub());
+      assert(await page.$eval("#wh-save", b => b.disabled), "没改时保存键应置灰");
+      // 点进去就全选：直接输入就是整个换掉
+      await page.click("#wh-url");
+      const sel = await page.$eval("#wh-url", el => [el.selectionStart, el.selectionEnd, el.value.length]);
+      assert(sel[0] === 0 && sel[1] === sel[2], "点进遮掉的地址应全选：" + sel);
+      // 原样传回（比如别的程序拿这份配置整份写回）：真地址不变
+      await page.evaluate(v => fetch("/api/config", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ webhookUrl: v }) }), shown);
+      let st = await mockState({});
+      assert(st.config.webhookUrl === real, "原样传回不该盖掉真地址：" + st.config.webhookUrl);
+      // 在遮掉的地址后面接着改：不收，真地址不变，提示说清楚
+      await page.fill("#wh-url", shown + "x");
+      await page.click("#wh-save"); await settle(300);
+      st = await mockState({});
+      assert(st.config.webhookUrl === real, "改了一半的不该存：" + st.config.webhookUrl);
+      assert(await toastHas("藏起来的部分"), "提示里应说明 *** 是藏起来的部分");
+      // 填全新的地址：存进去
+      await page.fill("#wh-url", "https://bot.example.com/new?key=k2");
+      await page.click("#wh-save"); await settle(300);
+      st = await mockState({});
+      assert(st.config.webhookUrl === "https://bot.example.com/new?key=k2" && await toastHas("Webhook 已保存"), "填新地址应存进去：" + st.config.webhookUrl);
+    } finally { await mockState({ local: true, webhookUrl: "" }); }
   });
   // ==================== 窗口与设置结束 ====================
 
@@ -3345,6 +3411,166 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     }, crlf);
     assert(b.text === "无法获取版本清单" && b.hint.startsWith("可在") && b.raw === crlf && b.name === "复制报错信息", "报错框：" + JSON.stringify(b));
     assert(b.inlineText === "无法刷新隧道列表" && b.inlineRaw === crlf && b.inlineName === "复制报错信息 隧道" && b.inlineTitle === "复制报错信息 隧道", "行内报错：" + JSON.stringify(b));
+  });
+
+  // ==================== 外部链接交给默认浏览器（3.1.1；测试报告「外部链接没有用默认浏览器打开」）====================
+  // host=true 模拟原生窗口：宿主函数 hostOpenURL 只记下交过来的地址，__openFail 不为空时像宿主拒绝那样让 Promise 落空。
+  // 别的网站的请求一律拦下、给一个空页面：测试不真的上网，万一没拦住弹了窗口，打开的也只是这个空页面
+  const extCtx = async host => {
+    const c = await browser.newContext({ viewport: { width: 1280, height: 850 }, locale: "zh-CN" });
+    const origin = new URL(ORIGIN).origin;
+    await c.route(u => u.origin !== origin, r => r.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: "<title>别的网站</title>" }));
+    await c.addInitScript(h => {
+      localStorage.setItem("amh_token", "mock");
+      localStorage.setItem("amh_theme", "dark");
+      if (!h) return;
+      for (const fn of ["hostWinClose", "hostWinMin", "hostWinMaxToggle", "hostWinDrag"]) window[fn] = () => {};
+      window.hostWinIsMax = async () => false;
+      window.__opened = []; window.__openFail = "";
+      window.hostOpenURL = async u => { window.__opened.push(u); if (window.__openFail) throw window.__openFail; };
+    }, host);
+    return c;
+  };
+  const EXT_LINK = 'a[href="https://www.openfrp.net"]'; // 「设置 → 更新与关于」里的 openfrp.net，带 target="_blank"
+
+  await run("外部链接：原生窗口里左键、Ctrl / Shift 点、中键、回车、window.open 都交给宿主用默认浏览器打开，不弹 WebView2 的窗口、主窗口不跳走；右键不算；站内链接照旧开窗口；宿主拒绝或打不开时弹报错提示", async () => {
+    const c = await extCtx(true);
+    try {
+      const p = await c.newPage();
+      p.on("pageerror", e => errors.push(pageErr(e)));
+      await p.goto(ORIGIN + "#/settings/about");
+      await p.waitForSelector(EXT_LINK);
+      const opened = () => p.evaluate(() => window.__opened.splice(0));
+      await p.click(EXT_LINK);
+      await p.click(EXT_LINK, { modifiers: ["Control"] });
+      await p.click(EXT_LINK, { modifiers: ["Shift"] });
+      await p.click(EXT_LINK, { button: "middle" });
+      await p.focus(EXT_LINK); await p.keyboard.press("Enter");
+      await p.click(EXT_LINK, { button: "right" });
+      await p.waitForTimeout(1500); // 不拦的话 Ctrl 点开的窗口要过半秒多才出来，等够了再数
+      let got = await opened();
+      // 交给宿主的是浏览器整理过的地址（补上了末尾的斜杠）
+      assert(got.length === 5 && got.every(u => u === "https://www.openfrp.net/"), "交给宿主的地址不对：" + JSON.stringify(got));
+      assert(c.pages().length === 1, "弹出了别的窗口：" + c.pages().map(x => x.url()).join(", "));
+      assert(p.url().endsWith("#/settings/about"), "主窗口跳走了：" + p.url());
+      // 脚本里的 window.open：外部地址交给宿主（中文、空格转成 %XX），返回 null；_self 也不让主窗口跳过去
+      const nulls = await p.evaluate(() => [window.open("https://example.com/a b?q=我的世界", "_blank"), window.open("http://example.com/x", "_self")].map(w => w === null));
+      got = await opened();
+      assert(nulls.every(Boolean) && JSON.stringify(got) === JSON.stringify(["https://example.com/a%20b?q=%E6%88%91%E7%9A%84%E4%B8%96%E7%95%8C", "http://example.com/x"]),
+        "window.open：" + JSON.stringify({ nulls, got }));
+      await p.waitForTimeout(200);
+      assert(c.pages().length === 1 && p.url().endsWith("#/settings/about"), "window.open 开了窗口或让主窗口跳走了：" + p.url());
+      // SVG 里的链接（href 是 SVGAnimatedString，不是字符串）也交给宿主，主窗口不跳走
+      await p.evaluate(() => {
+        const ns = "http://www.w3.org/2000/svg", mk = n => document.createElementNS(ns, n);
+        const svg = mk("svg"), a = mk("a"), r = mk("rect");
+        svg.id = "svg-link-test"; svg.setAttribute("width", "40"); svg.setAttribute("height", "40");
+        svg.style.cssText = "position:fixed;left:200px;top:200px;z-index:99999";
+        a.setAttribute("href", "https://example.com/svg?x=1");
+        r.setAttribute("width", "40"); r.setAttribute("height", "40");
+        a.appendChild(r); svg.appendChild(a); document.body.appendChild(svg);
+      });
+      await p.click("#svg-link-test rect");
+      await p.waitForTimeout(300);
+      got = await opened();
+      assert(JSON.stringify(got) === JSON.stringify(["https://example.com/svg?x=1"]) && p.url().endsWith("#/settings/about"),
+        "SVG 链接：" + JSON.stringify({ got, url: p.url() }));
+      await p.evaluate(() => document.getElementById("svg-link-test").remove());
+      // 站内地址（字体许可原文）照旧开窗口，不交给宿主
+      const [pop] = await Promise.all([c.waitForEvent("page"), p.click('a[href="fonts/OFL-Geist.txt"]')]);
+      await pop.close();
+      const [pop2] = await Promise.all([c.waitForEvent("page"), p.evaluate(() => { window.open("fonts/OFL-NotoSansSC.txt"); })]);
+      await pop2.close();
+      assert((await opened()).length === 0, "站内地址不该交给宿主");
+      // 宿主拒绝（Promise 落空，原话是一句中文）：结论接上原话
+      await p.evaluate(() => { window.__openFail = "只能打开 http 或 https 开头的网址"; });
+      await p.click(EXT_LINK);
+      const msgs = () => p.$$eval(".toast.error .t-msg", ts => ts.map(t => t.textContent));
+      await p.waitForFunction(() => document.querySelectorAll(".toast.error").length >= 1, null, { timeout: 2000 });
+      assert((await msgs()).includes("没能用浏览器打开链接：只能打开 http 或 https 开头的网址"), "宿主拒绝时的提示：" + JSON.stringify(await msgs()));
+      // 宿主在后台打不开（回调 __mdOpenURLFailed，原话带着网址和系统的英文原文）：只写结论，「详情」里是原文
+      const raw = "用默认浏览器打开 https://www.openfrp.net/ 失败：No application is associated with the specified file for this operation.";
+      await p.evaluate(x => window.__mdOpenURLFailed(x), raw);
+      await p.waitForFunction(() => document.querySelectorAll(".toast.error").length >= 2, null, { timeout: 2000 });
+      assert((await msgs()).includes("没能用浏览器打开链接"), "打不开时的提示：" + JSON.stringify(await msgs()));
+      await p.locator(".toast.error").last().locator('button[aria-label="查看报错详情"]').click();
+      assert((await p.textContent(".err-detail")) === raw, "「详情」里应是完整原文");
+      await p.keyboard.press("Escape");
+    } finally { await c.close(); }
+  });
+
+  await run("外部链接：局域网浏览器里（没有 hostOpenURL）照浏览器自己的规矩开，window.open 不动", async () => {
+    const c = await extCtx(false);
+    try {
+      const p = await c.newPage();
+      p.on("pageerror", e => errors.push(pageErr(e)));
+      await p.goto(ORIGIN + "#/settings/about");
+      await p.waitForSelector(EXT_LINK);
+      for (const opts of [{}, { button: "middle" }]) {
+        const [pop] = await Promise.all([c.waitForEvent("page"), p.click(EXT_LINK, opts)]);
+        await pop.waitForLoadState();
+        assert(pop.url() === "https://www.openfrp.net/", "新窗口的地址：" + pop.url());
+        await pop.close();
+      }
+      const st = await p.evaluate(() => ({ native: /\[native code\]/.test(Function.prototype.toString.call(window.open)), hook: typeof window.__mdOpenURLFailed }));
+      assert(st.native && st.hook === "undefined", "局域网浏览器里不该改 window.open：" + JSON.stringify(st));
+    } finally { await c.close(); }
+  });
+
+  // 用 CDP 的 Input.dispatchDragEvent 走浏览器真正的拖放流程。无头 Chromium 松手后本来就不跳转，看不出拦没拦住，
+  // 所以在 window 上（排在页面自己的处理后面）记下 dragover 有没有被页面接下、dropEffect 是什么、drop 有没有发出来：
+  // dropEffect 是 none 时浏览器不发 drop、也不跳转（WebView2 跳转就发生在没人接的 drop 上），光标显示「不能放」
+  await run("拖进窗口：原生窗口里没地方接的链接和文件，页面接下来、标成不能放（WebView2 就不会跳过去，窗口没有返回键）；输入框照旧能拖进文字；局域网浏览器里不管", async () => {
+    const LINK = [{ mimeType: "text/uri-list", data: "https://example.com/dropped" }, { mimeType: "text/plain", data: "https://example.com/dropped" }];
+    const FILE = { items: [], files: [require("path").join(__dirname, "README.md")] };
+    const open = async host => {
+      const c = await extCtx(host);
+      const p = await c.newPage();
+      p.on("pageerror", e => errors.push(pageErr(e)));
+      await p.goto(ORIGIN + "#/settings/notify");
+      await p.waitForSelector("#wh-url");
+      const cdp = await c.newCDPSession(p);
+      const drag = async (sel, data) => {
+        const b = await p.locator(sel).first().boundingBox();
+        const at = { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) };
+        await p.evaluate(() => {
+          if (!window.__dragOn) { // 换过页面（整页重新加载）以后再挂一次
+            window.__dragOn = true;
+            for (const t of ["dragover", "drop"]) window.addEventListener(t, e => window.__drag.push(`${t}:${e.defaultPrevented}:${e.dataTransfer.dropEffect}`));
+          }
+          window.__drag = [];
+        });
+        for (const type of ["dragEnter", "dragOver", "drop"]) await cdp.send("Input.dispatchDragEvent", { type, ...at, data: { dragOperationsMask: 1 | 2 | 16, ...data } });
+        await p.waitForTimeout(300);
+        return [...new Set(await p.evaluate(() => window.__drag))];
+      };
+      return { c, p, drag };
+    };
+    const w = await open(true);
+    try {
+      for (const [what, data] of [["链接", { items: LINK }], ["文件", FILE]]) {
+        const got = await w.drag(".set-sec-head h2", data);
+        assert(JSON.stringify(got) === JSON.stringify(["dragover:true:none"]) && w.p.url().endsWith("#/settings/notify"),
+          `拖进来的${what}应被页面接下、标成不能放，不发 drop：` + JSON.stringify({ got, url: w.p.url() }));
+      }
+      await w.p.fill("#wh-url", "");
+      const got = await w.drag("#wh-url", { items: [{ mimeType: "text/plain", data: "https://example.com/hook" }] });
+      assert((await w.p.inputValue("#wh-url")) === "https://example.com/hook" && !got.some(x => x.startsWith("dragover:true")),
+        "输入框应能拖进文字：" + JSON.stringify({ v: await w.p.inputValue("#wh-url"), got }));
+      const intoInput = await w.drag("#wh-url", FILE); // 文件拖到输入框上也不让打开
+      assert(JSON.stringify(intoInput) === JSON.stringify(["dragover:true:none"]), "文件拖到输入框上：" + JSON.stringify(intoInput));
+      // 待装清单接文件的地方照旧接得住：那边自己接下（copy），这里不改成不能放，drop 照常发给它
+      await w.p.goto(url(packCart));
+      await w.p.waitForSelector("#mc-local-pick");
+      const cart = await w.drag("#mc-side", FILE);
+      assert(cart.includes("dragover:true:copy") && cart.some(x => x.startsWith("drop:true")) && decodeURIComponent(w.p.url()).includes(PACK + "/cart"),
+        "待装清单应照旧接住拖进来的文件：" + JSON.stringify({ cart, url: w.p.url() }));
+    } finally { await w.c.close(); }
+    const lan = await open(false);
+    try {
+      const got = await lan.drag(".set-sec-head h2", { items: LINK });
+      assert(got.every(x => !x.startsWith("dragover:true")), "局域网浏览器里不该拦拖放：" + JSON.stringify(got));
+    } finally { await lan.c.close(); }
   });
 
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });

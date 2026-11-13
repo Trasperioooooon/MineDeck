@@ -196,6 +196,8 @@ type Status struct {
 	LastError  string `json:"lastError,omitempty"`
 	CredBroken bool   `json:"credBroken,omitempty"` // 凭据解不开（换了电脑或 Windows 用户），要重填
 	Online     bool   `json:"online,omitempty"`     // 运行中，而且这次运行已经连上（报过成功或拿到过公网地址）
+	// HasCredential 存着凭据（凭据本身不下发）。界面靠它决定给不给自定义 frps 的隧道显示「清除凭据」
+	HasCredential bool `json:"hasCredential,omitempty"`
 }
 
 func (m *Manager) List() []Status {
@@ -204,7 +206,8 @@ func (m *Manager) List() []Status {
 	out := make([]Status, 0, len(m.tunnels))
 	for _, t := range m.tunnels {
 		rs := m.running[t.ID]
-		st := Status{Tunnel: *t, Running: rs != nil, Online: rs != nil && rs.online, LastError: m.lastErr[t.ID], CredBroken: m.broken[t.ID]}
+		st := Status{Tunnel: *t, Running: rs != nil, Online: rs != nil && rs.online, LastError: m.lastErr[t.ID], CredBroken: m.broken[t.ID],
+			HasCredential: t.Credential != ""}
 		st.Credential = "" // 凭据绝不下发（前端无需回显）
 		if st.Purpose == "" {
 			st.Purpose = PurposeGame
@@ -281,8 +284,27 @@ func (m *Manager) Add(t Tunnel) (*Tunnel, error) {
 	return &resp, nil
 }
 
-// Update 更新隧道配置（运行中不可改）。
-func (m *Manager) Update(id string, t Tunnel) error {
+// UpdateOpts 修改隧道时的附加要求。它不是隧道配置的一部分，不存盘。
+type UpdateOpts struct {
+	// ClearCredential 删掉存着的凭据，之后启动不带凭据。要明说，不能靠凭据留空来猜：留空表示「不改」。
+	// 只有自定义 frps 能这样（frps 可以不设 token）；OpenFrp、樱花穿透启动时必须带凭据，validate 也要求填。
+	ClearCredential bool
+}
+
+// Update 更新隧道配置（运行中不可改）。凭据留空表示不改。
+func (m *Manager) Update(id string, t Tunnel) error { return m.UpdateOpt(id, t, UpdateOpts{}) }
+
+// UpdateOpt 同 Update，另带附加要求（比如清除凭据）。
+func (m *Manager) UpdateOpt(id string, t Tunnel, opt UpdateOpts) error {
+	if opt.ClearCredential {
+		// 先于 validate 查：服务商的隧道凭据留空时 validate 只会说「请填写凭据」，说不清为什么不能清
+		if t.Provider != "custom" {
+			return fmt.Errorf("只有自定义 frps 的隧道能清除凭据，OpenFrp 和樱花穿透启动时必须带凭据")
+		}
+		if strings.TrimSpace(t.Credential) != "" {
+			return fmt.Errorf("要清除凭据，就不要同时填新的凭据")
+		}
+	}
 	if err := validate(&t); err != nil {
 		return err
 	}
@@ -300,7 +322,12 @@ func (m *Manager) Update(id string, t Tunnel) error {
 		return fmt.Errorf("隧道不存在")
 	}
 	t.ID = id
-	if sealed == "" {
+	if opt.ClearCredential {
+		// 明说了不要凭据：换了地址、端口也放行（没有凭据可带走）。存着的密文只在 tunnels.json 和内存里这一份，
+		// 下面 save 写回去就没了；frpc 的配置文件里从来只有模板，下次启动时重写，不带 auth.token
+		t.Credential = ""
+		delete(m.broken, id) // 解不开的凭据也一起清掉，这条隧道又能启动了
+	} else if sealed == "" {
 		// 凭据留空表示不修改（列表接口不回显凭据）。但换了服务商，或者自定义 frps 换了地址、端口，要重新填：
 		// 不然留着的凭据会被带到新的服务器上去。局域网登录的人读不到凭据，却能改隧道，
 		// 改个地址就能把令牌送到自己的服务器（v3.1.0 正式版前检查 B-5）。
