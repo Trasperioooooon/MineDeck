@@ -238,7 +238,38 @@ func verify(name string, blocks [3]string, what string) {
 
 // ---------- 导入 ----------
 
+// snapshot 来源目录的样子（相对路径 → 大小和修改时间）：导入前后比一遍，证明来源没被动过。
+func snapshot(dir string) map[string]string {
+	out := map[string]string{}
+	_ = filepath.Walk(dir, func(p string, fi os.FileInfo, err error) error {
+		if err == nil && !fi.IsDir() {
+			rel, _ := filepath.Rel(dir, p)
+			if !strings.HasPrefix(rel, ".minedeck") && !strings.HasPrefix(rel, "logs") {
+				out[rel] = fmt.Sprintf("%d|%d", fi.Size(), fi.ModTime().UnixNano())
+			}
+		}
+		return nil
+	})
+	return out
+}
+
+func sameSnap(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if b[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
 func importInto(target, srcPath, prefer string) string {
+	before := snapshot(srcPath)
+	defer func() {
+		check(sameSnap(before, snapshot(srcPath)), fmt.Sprintf("导入以后来源 %s 一个文件都没变（%d 个文件）", srcPath, len(before)))
+	}()
 	sc, err := svc.ScanPath(owner, srcPath)
 	must(err, "scan")
 	if len(sc.Candidates) == 0 {

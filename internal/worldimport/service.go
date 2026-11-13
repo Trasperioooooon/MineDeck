@@ -521,9 +521,12 @@ func playNotes(c *Candidate) []Issue {
 		is = append(is, Issue{Sev: SevWarn, Code: "resources-zip",
 			Msg: "地图带了资源包（resources.zip）。专用服务器不会把它自动发给玩家：要大家看到正确的材质，请把它放到一个大家都能下载的地址，在设置里填资源包地址，或者让每个人自己安装"})
 	}
-	if c.Meta.AllowCommands {
+	if v, ok := c.Meta.gameRule("commandBlocksWork", "command_blocks_work"); ok && (v == "0" || v == "false") {
+		is = append(is, Issue{Sev: SevWarn, Code: "command-blocks-off",
+			Msg: "这张地图的游戏规则里关掉了命令方块（command_blocks_work）。如果地图靠命令方块运作，要在游戏里用 /gamerule 打开"})
+	} else if c.Meta.AllowCommands {
 		is = append(is, Issue{Sev: SevInfo, Code: "commands",
-			Msg: "地图允许使用命令。如果地图用到命令方块，要在服务器设置里打开命令方块（enable-command-block）；MineDeck 不会自动打开"})
+			Msg: "地图允许使用命令。如果地图用到命令方块，要确认服务器允许命令方块运行：老版本在 server.properties 的 enable-command-block，1.21.11 起由游戏规则 command_blocks_work 管。MineDeck 不会自动改"})
 	}
 	if len(c.Readme) > 0 {
 		is = append(is, Issue{Sev: SevInfo, Code: "readme",

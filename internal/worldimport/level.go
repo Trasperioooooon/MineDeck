@@ -54,6 +54,21 @@ func parseLevel(root nbt.Compound) (LevelMeta, error) {
 	if n, ok := d.Int("Difficulty"); ok {
 		m.Difficulty, m.HasDifficulty = int(n), true
 	}
+	// 26.x：难度和极限放进了 difficulty_settings（难度写成名字，实服 26.3 的存档核对过）
+	if ds, ok := d.Compound("difficulty_settings"); ok {
+		if s, ok := ds.String("difficulty"); ok {
+			for k, n := range []string{"peaceful", "easy", "normal", "hard"} {
+				if strings.EqualFold(s, n) {
+					m.Difficulty, m.HasDifficulty = k, true
+				}
+			}
+		} else if n, ok := ds.Int("difficulty"); ok {
+			m.Difficulty, m.HasDifficulty = int(n), true
+		}
+		if h, ok := ds.Bool("hardcore"); ok {
+			m.Hardcore = h
+		}
+	}
 	m.AllowCommands, _ = d.Bool("allowCommands")
 	if n, ok := d.Int("WorldGenSettings", "seed"); ok {
 		m.Seed = fmt.Sprint(n)
@@ -83,27 +98,15 @@ func parseLevel(root nbt.Compound) (LevelMeta, error) {
 	if s, ok := d.Strings("DataPacks", "Disabled"); ok {
 		m.DisabledPacks = capStrings(s, 200)
 	}
+	// 游戏规则：老版本是 GameRules（值都是字符串），1.21.11 起是 game_rules（带命名空间的键、值是数字），
+	// 26.1 起搬到 data/minecraft/game_rules.dat（见 readSharedData）
 	if g, ok := d.Compound("GameRules"); ok {
-		m.GameRules = map[string]string{}
-		for k, v := range g {
-			if len(m.GameRules) >= 200 {
-				break
-			}
-			switch x := v.(type) {
-			case string:
-				m.GameRules[cleanText(k, 64)] = cleanText(x, 64)
-			case int8, int16, int32, int64:
-				m.GameRules[cleanText(k, 64)] = fmt.Sprint(x)
-			}
-		}
+		m.GameRules = gameRules(g)
+	} else if g, ok := d.Compound("game_rules"); ok {
+		m.GameRules = gameRules(g)
 	}
 	if dims, ok := d.Compound("WorldGenSettings", "dimensions"); ok {
-		for k := range dims {
-			if len(m.Dimensions) < 64 {
-				m.Dimensions = append(m.Dimensions, cleanText(k, 128))
-			}
-		}
-		sort.Strings(m.Dimensions)
+		m.Dimensions = dimKeys(dims)
 	}
 	// 加载器留在 level.dat 根上或 Data 里的标记（Forge 1.12–1.16 的 fml / FML，以及别的加载器的同类键）
 	for _, k := range []string{"fml", "FML", "forge", "Forge", "neoforge", "fabric", "quilt"} {
@@ -139,6 +142,8 @@ func historyStrings(l nbt.List) []string {
 			break
 		}
 		switch x := it.(type) {
+		case int32: // 实服 26.3：数据版本号的列表
+			out = append(out, fmt.Sprint(x))
 		case string:
 			out = append(out, cleanText(x, 64))
 		case nbt.Compound:
@@ -192,4 +197,59 @@ func cleanText(s string, max int) string {
 		n++
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func gameRules(g nbt.Compound) map[string]string {
+	out := map[string]string{}
+	for k, v := range g {
+		if len(out) >= 200 {
+			break
+		}
+		switch x := v.(type) {
+		case string:
+			out[cleanText(k, 64)] = cleanText(x, 64)
+		case int8, int16, int32, int64:
+			out[cleanText(k, 64)] = fmt.Sprint(x)
+		}
+	}
+	return out
+}
+
+func dimKeys(dims nbt.Compound) []string {
+	var out []string
+	for k := range dims {
+		if len(out) < 64 {
+			out = append(out, cleanText(k, 128))
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// gameRule 按名字取游戏规则，新旧两种写法都认（keepInventory / minecraft:keep_inventory）。
+func (m LevelMeta) gameRule(old, modern string) (string, bool) {
+	if v, ok := m.GameRules[old]; ok {
+		return v, true
+	}
+	v, ok := m.GameRules["minecraft:"+modern]
+	return v, ok
+}
+
+// applySharedData 26.1 起游戏规则、生成设置搬出了 level.dat，放在共用数据文件里（根上是 {DataVersion, data}）。
+func (m *LevelMeta) applySharedData(gameRulesFile, worldGenFile nbt.Compound) {
+	if gameRulesFile != nil && m.GameRules == nil {
+		if d, ok := gameRulesFile.Compound("data"); ok {
+			m.GameRules = gameRules(d)
+		}
+	}
+	if worldGenFile != nil {
+		if d, ok := worldGenFile.Compound("data"); ok {
+			if n, ok := d.Int("seed"); ok && m.Seed == "" {
+				m.Seed = fmt.Sprint(n)
+			}
+			if dims, ok := d.Compound("dimensions"); ok && m.Dimensions == nil {
+				m.Dimensions = dimKeys(dims)
+			}
+		}
+	}
 }

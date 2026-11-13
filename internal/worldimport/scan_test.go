@@ -503,8 +503,47 @@ func TestModChecks(t *testing.T) {
 	if is := modChecks(c, "neoforge"); !slices.Contains(codes(is), "mods-mismatch") {
 		t.Fatalf("neoforge target: %v", codes(is))
 	}
-	plain := &Candidate{Meta: LevelMeta{ServerBrands: []string{"vanilla", "Paper"}}}
+	// Paper 也会把 WasModded 记成 1（实服 1.21.11、26.3 的 Paper 存档都是这样）：不能当成模组世界
+	plain := &Candidate{Meta: LevelMeta{ServerBrands: []string{"vanilla", "Paper"}, WasModded: true}}
 	if is := modChecks(plain, "vanilla"); len(is) != 0 {
 		t.Fatalf("paper brand is not a mod: %v", codes(is))
+	}
+	if is := modChecks(&Candidate{Meta: LevelMeta{WasModded: true}}, "vanilla"); len(is) != 1 || is[0].Code != "was-modded" || is[0].Sev != SevWarn {
+		t.Fatalf("WasModded without brands: %v", codes(is))
+	}
+}
+
+// 新版本 level.dat 的写法（按实服 1.21.11、26.3 生成的存档核对过）：难度在 difficulty_settings，
+// 游戏规则是 game_rules（带命名空间、值是数字），version_history 是数据版本号的列表。
+func TestNewLevelFields(t *testing.T) {
+	tmp := t.TempDir()
+	o := lv("26.3", 5023)
+	o.DataExtra = wt.Compound{
+		{Name: "difficulty_settings", Value: wt.Compound{{Name: "difficulty", Value: wt.String("hard")}, {Name: "hardcore", Value: wt.Byte(1)}}},
+		{Name: "game_rules", Value: wt.Compound{{Name: "minecraft:command_blocks_work", Value: wt.Byte(0)}, {Name: "minecraft:keep_inventory", Value: wt.Byte(1)}}},
+		{Name: "version_history", Value: wt.List{Elem: wt.TagInt, Items: []any{wt.Int(4671), wt.Int(5023)}}},
+	}
+	d := filepath.Join(tmp, "w")
+	if err := wt.Modern(d, wt.WorldOpts{Level: o, Overworld: true}); err != nil {
+		t.Fatal(err)
+	}
+	c := mustScan(t, d, "w").Candidates[0]
+	m := c.Meta
+	if !m.HasDifficulty || m.Difficulty != 3 || !m.Hardcore || strings.Join(m.VersionHistory, ",") != "4671,5023" {
+		t.Fatalf("meta = %+v", m)
+	}
+	if v, ok := m.gameRule("keepInventory", "keep_inventory"); !ok || v != "1" {
+		t.Fatalf("keep_inventory = %q %v", v, ok)
+	}
+	if !slices.Contains(codes(playNotes(&c)), "command-blocks-off") {
+		t.Fatalf("notes = %v", codes(playNotes(&c)))
+	}
+	sug := settingSuggestions(m, map[string]string{"difficulty": "easy", "hardcore": "false", "gamemode": "survival"})
+	var keys []string
+	for _, s := range sug {
+		keys = append(keys, s.Key+"="+s.After)
+	}
+	if strings.Join(keys, ",") != "difficulty=hard,hardcore=true" {
+		t.Fatalf("suggestions = %v", keys)
 	}
 }

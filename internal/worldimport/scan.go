@@ -379,6 +379,13 @@ func (r *scanResult) addCandidate(id, d string) {
 	}
 	c.Meta = meta
 	c.Layout = r.layoutOf(&c)
+	if perr == nil && (c.Layout == LayoutModern || c.Layout == LayoutModernPaper) {
+		dataDir := join(d, "data/minecraft")
+		if c.Layout == LayoutModernPaper {
+			dataDir = join(d, "dimensions/minecraft/overworld/data/minecraft")
+		}
+		c.Meta.applySharedData(r.readNBT(dataDir+"/game_rules.dat"), r.readNBT(dataDir+"/world_gen_settings.dat"))
+	}
 	c.Dimensions = r.dimensionsOf(&c)
 	r.playersOf(&c)
 	r.extrasOf(&c)
@@ -407,6 +414,24 @@ func (r *scanResult) readLevel(e *entry) (LevelMeta, error) {
 		return LevelMeta{}, err
 	}
 	return parseLevel(root)
+}
+
+// readNBT 读来源里的一个小 NBT 文件（读不了返回 nil）。
+func (r *scanResult) readNBT(rel string) nbt.Compound {
+	e := r.src.find(rel)
+	if e == nil || e.size > nbt.LevelLimits.MaxFile {
+		return nil
+	}
+	rc, err := r.src.open(e)
+	if err != nil {
+		return nil
+	}
+	defer rc.Close()
+	_, root, _, err := nbt.Read(rc, nbt.LevelLimits)
+	if err != nil {
+		return nil
+	}
+	return root
 }
 
 func join(d, name string) string {

@@ -298,8 +298,19 @@ func modChecks(c *Candidate, fam string) []Issue {
 			custom = append(custom, d.ID)
 		}
 	}
-	if !modded && !c.Meta.WasModded {
-		if len(custom) > 0 {
+	pluginCore := false // Paper、Spigot 这类插件服的核心也会把 WasModded 记成 1，它们不改世界格式
+	for _, l := range loaders {
+		if strings.HasPrefix(l, "bukkit:") {
+			pluginCore = true
+		}
+	}
+	if !modded {
+		switch {
+		case c.Meta.WasModded && !pluginCore:
+			is = append(is, Issue{Sev: SevWarn, Code: "was-modded",
+				Msg:    "存档记着它被改版的游戏或服务端打开过，但没有留下是哪一种。如果原来用过模组，请在服务器上装好同样的模组；没用过可以不管",
+				Detail: strings.Join(detail, "；")})
+		case len(custom) > 0:
 			is = append(is, Issue{Sev: SevWarn, Code: "custom-dims",
 				Msg:    "地图里有自定义维度（" + strings.Join(firstN(custom, 4), "、") + "）。来自数据包的会跟着地图走；来自模组的需要装上同样的模组",
 				Detail: strings.Join(detail, "；")})
@@ -330,9 +341,6 @@ func modChecks(c *Candidate, fam string) []Issue {
 		}
 	}
 	names := strings.Join(want, " / ")
-	if names == "" {
-		names = "模组"
-	}
 	if match {
 		is = append(is, Issue{Sev: SevWarn, Code: "mods-needed",
 			Msg:    "这张地图用过 " + names + " 的模组。世界里没有完整的模组清单，MineDeck 不能自动补齐：请在这台服务器上装好和原来一样的模组（版本也要对得上），否则模组的方块、物品、维度会丢失",
