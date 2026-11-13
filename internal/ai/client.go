@@ -30,8 +30,9 @@ type Config struct {
 	Eager     bool   // Claude 流式时给工具打开 eager_input_streaming
 	Official  bool   // Claude 官方地址：只发 x-api-key；中转另外再带一个 Authorization: Bearer
 
-	EchoReasoning  bool // OpenAI 兼容：回复里的 reasoning_content 存进历史、下一轮原样带回（DeepSeek 思考模式的工具循环要）
-	ToolResultName bool // OpenAI 兼容：tool 消息带上工具名（Kimi）
+	Auth           AuthMode // OpenAI 兼容的鉴权头；空 = Bearer。Claude 协议另有自己的头（见 claudeHeader）
+	Echo           EchoMode // 见 EchoMode。空 = 不回传
+	ToolResultName bool     // OpenAI 兼容：tool 消息带上工具名（Kimi）
 
 	HTTP        *http.Client
 	RetryDelay  time.Duration // 重试的基础等待，默认 1 秒（第二次翻倍）
@@ -51,10 +52,11 @@ const (
 type Client struct {
 	cfg Config
 
-	mu       sync.Mutex
-	eager    bool // 中转不认 eager_input_streaming 时关掉
-	fallback bool // 中转不认服务端回退时关掉
-	noUsage  bool // OpenAI 兼容：服务不认 stream_options 时不再要求流末尾带用量
+	mu            sync.Mutex
+	eager         bool // 中转不认 eager_input_streaming 时关掉
+	fallback      bool // 中转不认服务端回退时关掉
+	noUsage       bool // OpenAI 兼容：服务不认 stream_options 时不再要求流末尾带用量
+	dropReasoning bool // 对方不认 reasoning_content：这次客户端不再带回
 }
 
 // NewClient 检查配置，返回客户端。
@@ -260,6 +262,11 @@ func (c *Client) downgrade(conv *Conversation, err error) bool {
 			c.noUsage = true
 			return true
 		}
+		// 带了思考字段对方不认：去掉再发一次。已经去掉过就不再试，避免来回。
+		if !c.dropReasoning && c.cfg.Echo != EchoOff && c.cfg.Echo != "" && reasoningRejected(msg) {
+			c.dropReasoning = true
+			return true
+		}
 		return false
 	}
 	switch {
@@ -271,6 +278,19 @@ func (c *Client) downgrade(conv *Conversation, err error) bool {
 		conv.eager = false
 		conv.encodeFixed()
 		return true
+	}
+	return false
+}
+
+// reasoningRejected 400 的原文是在拒绝 reasoning_content 这个字段，而不是在要求把它传回。
+func reasoningRejected(msg string) bool {
+	if !strings.Contains(msg, "reasoning") {
+		return false
+	}
+	for _, s := range []string{"unknown", "unexpected", "unrecognized", "extra", "not support", "unsupported", "not permitted", "does not support", "invalid field"} {
+		if strings.Contains(msg, s) {
+			return true
+		}
 	}
 	return false
 }

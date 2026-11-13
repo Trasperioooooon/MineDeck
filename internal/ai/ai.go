@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -196,10 +197,44 @@ func (e *APIError) Error() string {
 // Retryable 429 和 5xx（含 Claude 的 529 过载）可以重试。
 func (e *APIError) Retryable() bool { return e.Status == 429 || e.Status >= 500 }
 
-// Hint 给人看的那一句：状态码对应的原因（「Key 不对或已失效」），不带状态码和服务商的原话。
-// 界面上的报错正文遇到状态码、英文原话只写结论（docs/文案重写/01-补完口径.md），
-// 接口把这一句另放在 hint 里给它接（web 的 writeErr、TestResult.Hint）；完整原文照旧是 Error()。认不出的状态码返回空串。
-func (e *APIError) Hint() string { return statusHint(e.Status) }
+// Hint 给人看的那一句。按状态码区分，再按服务商原文里的关键词说得更具体一点；
+// 仍是中文短句，不把英文原文、状态码或 Key 拼进来（界面正文只接这一句，完整原文在 Error()，复制时看得到）。
+func (e *APIError) Hint() string {
+	msg := strings.ToLower(e.Message)
+	switch e.Status {
+	case 400:
+		if strings.Contains(msg, "reasoning") {
+			return "请求被拒绝：多轮对话要把思考内容原样传回，或者这个服务商不接受思考字段"
+		}
+		if strings.Contains(msg, "model") {
+			return "请求被拒绝，多半是模型名不对，或者这个模型不支持这次请求里的参数"
+		}
+		return "请求被服务商拒绝"
+	case 401:
+		if strings.Contains(msg, "token plan") || strings.Contains(msg, "mismatch") || strings.Contains(msg, "mix") {
+			return "Key 和这个地址不匹配：按量付费和订阅套餐的 Key 不能混用"
+		}
+		return "Key 不对或已失效"
+	case 403:
+		if strings.Contains(msg, "country") || strings.Contains(msg, "region") || strings.Contains(msg, "location") || strings.Contains(msg, "地区") {
+			return "没有权限：多半是地区限制"
+		}
+		return "没有权限（可能是地区限制，或者账号没开通这个模型）"
+	case 404:
+		if strings.Contains(msg, "model") {
+			return "模型名不对，或者这个地址上没有这个模型"
+		}
+		return "接口地址或模型名不对"
+	case 429:
+		if strings.Contains(msg, "quota") || strings.Contains(msg, "insufficient") || strings.Contains(msg, "balance") ||
+			strings.Contains(msg, "credit") || strings.Contains(msg, "exhaust") || strings.Contains(msg, "额度") || strings.Contains(msg, "余额") {
+			return "服务商那边的额度用完了"
+		}
+		return "请求太频繁，等一会儿再试"
+	default:
+		return statusHint(e.Status)
+	}
+}
 
 func statusHint(code int) string {
 	switch {
@@ -216,7 +251,7 @@ func statusHint(code int) string {
 	case code == 413:
 		return "请求太大"
 	case code == 429:
-		return "请求太频繁，或者服务商那边的额度用完了"
+		return "请求太频繁，或者服务商那边的额度用完了" // Hint() 会再分成「太频繁」和「额度用完」
 	case code == 529:
 		return "服务商繁忙"
 	case code >= 500:
@@ -243,10 +278,13 @@ func hintOf(err error) string {
 	return ""
 }
 
+// keyLike 报错里出现的另一把 Key（不一定是我们发出去的那把）。
+var keyLike = regexp.MustCompile(`(?:sk|tp|ttp|ak)-[A-Za-z0-9_\-]{8,}`)
+
 // scrub 把错误信息里的 Key 换成 ***（有的服务商会在报错里回显 Key）。
 func scrub(s, key string) string {
 	if len(key) >= 6 {
 		s = strings.ReplaceAll(s, key, "***")
 	}
-	return s
+	return keyLike.ReplaceAllString(s, "***")
 }

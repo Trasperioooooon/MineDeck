@@ -36,11 +36,14 @@ func (c *Client) openaiBody(conv *Conversation) []byte {
 		b.Write(conv.sysRaw)
 		n++
 	}
+	c.mu.Lock()
+	drop := c.dropReasoning
+	c.mu.Unlock()
 	for _, m := range conv.msgs {
 		if n > 0 {
 			b.WriteByte(',')
 		}
-		b.Write(m)
+		b.Write(adjustReasoning(m, c.cfg.Echo, drop))
 		n++
 	}
 	b.WriteByte(']')
@@ -57,13 +60,61 @@ func (c *Client) openaiBody(conv *Conversation) []byte {
 
 func (c *Client) openaiHeader() http.Header {
 	h := http.Header{}
-	if c.cfg.Key != "" {
-		h.Set("Authorization", "Bearer "+c.cfg.Key)
-	}
+	c.applyKey(h)
 	if c.cfg.Stream {
 		h.Set("Accept", "text/event-stream")
 	}
 	return h
+}
+
+// applyKey 按配置写鉴权头。Key 为空时什么都不写（Ollama）。
+func (c *Client) applyKey(h http.Header) {
+	if c.cfg.Key == "" {
+		return
+	}
+	switch c.cfg.Auth {
+	case AuthAPIKey:
+		h.Set("api-key", c.cfg.Key)
+	case AuthBoth:
+		h.Set("Authorization", "Bearer "+c.cfg.Key)
+		h.Set("api-key", c.cfg.Key)
+	default:
+		h.Set("Authorization", "Bearer "+c.cfg.Key)
+	}
+}
+
+// adjustReasoning 决定这条助手消息要不要带 reasoning_content。
+// 历史里只要收到过就存着；发出去之前再按当前策略删掉或补上空串，这样降级重试不用改历史。
+func adjustReasoning(raw json.RawMessage, echo EchoMode, drop bool) json.RawMessage {
+	if len(raw) == 0 || raw[0] != '{' {
+		return raw
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(raw, &m) != nil || rawText(m["role"]) != "assistant" {
+		return raw
+	}
+	_, has := m["reasoning_content"]
+	_, hasAlt := m["reasoning"]
+	if drop || echo == "" || echo == EchoOff {
+		if !has && !hasAlt {
+			return raw
+		}
+		delete(m, "reasoning_content")
+		delete(m, "reasoning")
+		return mustJSON(m)
+	}
+	if echo == EchoOn && !has && !hasAlt {
+		if _, tools := m["tool_calls"]; tools {
+			m["reasoning_content"] = mustJSON("")
+			return mustJSON(m)
+		}
+	}
+	if hasAlt && !has {
+		m["reasoning_content"] = m["reasoning"]
+		delete(m, "reasoning")
+		return mustJSON(m)
+	}
+	return raw
 }
 
 // oaiUsage 各家用量的写法合在一起。
@@ -319,7 +370,8 @@ func (a *oaiAcc) result(partial bool, bodyLen int) *Result {
 	} else {
 		m["content"] = r.Text
 	}
-	if a.c.cfg.EchoReasoning && r.Reasoning != "" {
+	// 思考内容先存进历史。发不发由 adjustReasoning 在组请求时决定（对方不认可以去掉重发，不用改历史）。
+	if r.Reasoning != "" {
 		m["reasoning_content"] = r.Reasoning
 	}
 	if r.Text == "" && len(calls) == 0 {
@@ -464,9 +516,7 @@ func (c *Client) openaiModels(ctx context.Context) ([]Model, error) {
 	if err != nil {
 		return nil, err
 	}
-	if c.cfg.Key != "" {
-		req.Header.Set("Authorization", "Bearer "+c.cfg.Key)
-	}
+	c.applyKey(req.Header)
 	resp, err := c.do(req)
 	if err != nil {
 		return nil, err

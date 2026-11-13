@@ -61,9 +61,22 @@ func (c *Client) claudeBody(conv *Conversation) []byte {
 
 func (c *Client) claudeHeader(withBeta bool) http.Header {
 	h := http.Header{}
-	h.Set("x-api-key", c.cfg.Key)
-	if !c.cfg.Official && c.cfg.Key != "" {
-		h.Set("Authorization", "Bearer "+c.cfg.Key) // 中转有的只认这个（推断）
+	if c.cfg.Key != "" {
+		switch c.cfg.Auth {
+		case AuthAPIKey:
+			h.Set("api-key", c.cfg.Key)
+		case AuthBearer:
+			h.Set("Authorization", "Bearer "+c.cfg.Key)
+		case AuthBoth:
+			h.Set("x-api-key", c.cfg.Key)
+			h.Set("api-key", c.cfg.Key)
+			h.Set("Authorization", "Bearer "+c.cfg.Key)
+		default:
+			h.Set("x-api-key", c.cfg.Key)
+			if !c.cfg.Official {
+				h.Set("Authorization", "Bearer "+c.cfg.Key) // 中转有的只认这个（推断）
+			}
+		}
 	}
 	h.Set("anthropic-version", anthropicVersion)
 	if withBeta {
@@ -471,11 +484,12 @@ func (c *Client) claudeOnce(ctx context.Context, conv *Conversation, emit func(E
 		ti := 0
 		for i, raw := range m.Content {
 			var blk struct {
-				Type  string          `json:"type"`
-				ID    string          `json:"id"`
-				Name  string          `json:"name"`
-				Input json.RawMessage `json:"input"`
-				Text  string          `json:"text"`
+				Type     string          `json:"type"`
+				ID       string          `json:"id"`
+				Name     string          `json:"name"`
+				Input    json.RawMessage `json:"input"`
+				Text     string          `json:"text"`
+				Thinking string          `json:"thinking"`
 			}
 			_ = json.Unmarshal(raw, &blk)
 			switch blk.Type {
@@ -486,6 +500,10 @@ func (c *Client) claudeOnce(ctx context.Context, conv *Conversation, emit func(E
 				ti++
 			case "text":
 				emit(Event{Type: EvText, Text: blk.Text})
+			case "thinking":
+				if blk.Thinking != "" {
+					emit(Event{Type: EvReasoning, Text: blk.Thinking})
+				}
 			case "fallback":
 				var fb struct {
 					To struct {

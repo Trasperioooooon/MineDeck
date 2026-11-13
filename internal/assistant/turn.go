@@ -19,6 +19,32 @@ const maxRounds = maxTools + 3
 // attachTTL 打包好的排错资料多久内发送有效（过期了要重新预览，免得发出去的和看到的不一样）。
 const attachTTL = 30 * time.Minute
 
+// 思考片段合并后再推：第一段马上发，之后最多约 100ms 一次，避免每个 token 都刷一次界面。
+const (
+	thinkGap   = 100 * time.Millisecond
+	thinkBatch = 240
+)
+
+type thinkBuf struct {
+	b    strings.Builder
+	last time.Time
+}
+
+func (tb *thinkBuf) add(s string) { tb.b.WriteString(s) }
+
+func (tb *thinkBuf) flush(force bool, emit func(string)) {
+	if tb.b.Len() == 0 {
+		return
+	}
+	if !force && !tb.last.IsZero() && time.Since(tb.last) < thinkGap && tb.b.Len() < thinkBatch {
+		return
+	}
+	s := tb.b.String()
+	tb.b.Reset()
+	tb.last = time.Now()
+	emit(s)
+}
+
 // ---------- 事件 ----------
 
 // 发给界面的事件：
@@ -26,6 +52,7 @@ const attachTTL = 30 * time.Minute
 //	{"type":"session","session":View}        订阅时先发一份完整的会话
 //	{"type":"item","item":Item}              新增或更新一条（按 id 替换）
 //	{"type":"delta","id":"i3","text":"…"}    AI 回复的文字片段（追加到这一条）
+//	{"type":"thinking","id":"i3","text":"…"} 思考片段（节流后的一小段，追加；默认折叠）
 //	{"type":"state","busy":…,"waiting":…,"needReply":…,"quota":…}
 //	{"type":"retry","attempt":1,"err":"…"}  服务商出错，正在重试
 type event map[string]any
@@ -335,6 +362,12 @@ func (s *Service) loop(ctx context.Context, sess *Session) {
 		sess.mu.Unlock()
 		s.publishItem(sess, it)
 
+		var think thinkBuf
+		flushThink := func(force bool) {
+			think.flush(force, func(text string) {
+				sess.hub.publish(event{"type": "thinking", "id": it.ID, "text": text})
+			})
+		}
 		res, err := cl.Chat(ctx, conv, func(e ai.Event) {
 			switch e.Type {
 			case ai.EvText:
@@ -349,14 +382,22 @@ func (s *Service) loop(ctx context.Context, sess *Session) {
 			case ai.EvRetry:
 				sess.hub.publish(event{"type": "retry", "attempt": e.Attempt, "err": s.redact.Text(e.Err)})
 			case ai.EvReasoning:
-				sess.hub.publish(event{"type": "thinking", "id": it.ID})
+				sess.mu.Lock()
+				it.Think += e.Text
+				sess.mu.Unlock()
+				think.add(e.Text)
+				flushThink(false)
 			}
 		})
+		flushThink(true)
 		cost := s.ai.Record(ai.FeatAssistant, res) // 不管成没成功，花了的都要记
 		sess.mu.Lock()
 		if res != nil {
 			u := res.Usage
 			it.Usage, it.Cost, it.Model = &u, cost, res.Model
+			if res.Reasoning != "" {
+				it.Think = res.Reasoning
+			}
 			if res.Usage.Prompt() > 100000 {
 				sess.Long = true
 			}
@@ -402,7 +443,7 @@ func (s *Service) fail(sess *Session, it *Item, err error) {
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
 	if it != nil {
-		if it.Text == "" && len(it.Tools) == 0 {
+		if it.Text == "" && it.Think == "" && len(it.Tools) == 0 {
 			sess.Items = removeItem(sess.Items, it.ID)
 			sess.hub.publish(event{"type": "remove", "id": it.ID})
 		} else {
