@@ -1502,8 +1502,9 @@ async function tunnelAccountsHandler(state, req, res, p, m, seg) {
   if (seg[2] === "tunnel-accounts" && seg[3] === "openfrp" && seg[4] === "login" && seg[6] === "cancel" && m === "POST") {
     // 取消等待：这次授权作废（同后端 CancelOpenFrpLogin），之后的轮询按不存在处理
     ta.lastCancel = seg[5];
-    if (ta.openfrpLogin && ta.openfrpLogin.id === seg[5]) ta.openfrpLogin = null;
-    ok(res, "ok");
+    const had = !!(ta.openfrpLogin && ta.openfrpLogin.id === seg[5]);
+    if (had) ta.openfrpLogin = null;
+    ok(res, { cancelled: had }); // false：这次授权已经不在等了（完成或过期），同后端
     return true;
   }
   if (seg[2] === "tunnel-accounts" && seg[3] === "openfrp" && seg[4] === "login" && seg[6] === "poll" && m === "POST") {
@@ -1590,14 +1591,16 @@ async function tunnelAccountsHandler(state, req, res, p, m, seg) {
     const b = await readBody(req);
     ta.lastImport = { provider, ...b };
     if (!connected(provider)) { err(res, 400, provider === "openfrp" ? "请先连接 OpenFrp" : "请先连接 SakuraFrp"); return true; }
-    const proxyId = typeof b.proxyId === "string" ? b.proxyId : "";
-    if (!/^[0-9]+$/.test(proxyId)) { err(res, 400, "隧道编号无效"); return true; } // 只接受纯数字字符串
+    const rawId = typeof b.proxyId === "string" ? b.proxyId : "";
+    if (!/^[0-9]+$/.test(rawId) || !(+rawId > 0)) { err(res, 400, "隧道编号无效"); return true; } // 只接受纯数字字符串
+    const proxyId = String(parseInt(rawId, 10)); // 同后端：「007」按 7 存
     if (state.tunnels.some(t => t.provider === provider && t.proxyId === proxyId)) {
       err(res, 400, "这条平台隧道已经添加到 MineDeck");
       return true;
     }
     const ov = ta.overviews[provider];
     const remote = (ov && ov.tunnels || []).find(t => String(t.id) === proxyId);
+    if (!remote) { err(res, 400, provider === "openfrp" ? "OpenFrp 账户中找不到这条隧道" : "SakuraFrp 账户中找不到这条隧道"); return true; }
     const id = "t-imp-" + Date.now();
     const tun = {
       id, name: (remote && remote.name) || ("导入 " + proxyId), provider, proxyId,

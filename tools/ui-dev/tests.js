@@ -2243,6 +2243,29 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await page.evaluate(() => { delete window.__MD_TUNNEL_POLL_MS; }); await resetTA(); }
   });
 
+  await run("平台账户：取消等待时授权刚好已经完成，界面以后端为准显示已连接", async () => {
+    await taState({ tunnelAccounts: { reset: true, openfrpLoginDoneAtPoll: 99 }, tunnelsReset: true });
+    try {
+      errors.length = 0;
+      await page.goto(url("#/tunnels")); await settle(600);
+      await page.evaluate(() => { window.__MD_TUNNEL_POLL_MS = 60000; }); // 这条用例里不让前端自己轮询
+      await hookOpens();
+      await page.click('[data-acc-connect="openfrp"]');
+      await page.waitForSelector('[data-acc-cancel-login="openfrp"]');
+      // 用户在浏览器里刚好授权完成：后端已连上、这次登录不在等了
+      await taState({ tunnelAccounts: { openfrp: true, openfrpLogin: null } });
+      await page.click('[data-acc-cancel-login="openfrp"]');
+      await page.waitForFunction(() => {
+        const el = document.querySelector('#tn-accounts [data-acc="openfrp"]');
+        return el && el.textContent.includes("已连接") && !el.textContent.includes("未连接");
+      }, null, { timeout: 4000 }).catch(() => {});
+      const card = await page.$eval('#tn-accounts [data-acc="openfrp"]', e => e.textContent.replace(/\s+/g, " ").trim());
+      assert(card.includes("已连接") && !card.includes("未连接"), "取消时授权已完成，应以后端为准显示已连接：" + card);
+      assert(await toastHas("取消前已经完成"), "应说明这次授权在取消前已经完成");
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await page.evaluate(() => { delete window.__MD_TUNNEL_POLL_MS; }); await resetTA(); }
+  });
+
   await run("平台账户：OpenFrp 签到只引导去官方控制台，页面上没有内嵌验证码", async () => {
     await taState({ tunnelAccounts: { reset: true, openfrp: true }, tunnelsReset: true });
     try {
@@ -2442,7 +2465,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       const last = await taWait("lastCreate", v => !!v.name);
       assert(last && last.provider === "natfrp" && last.publicServer === true && last.nodeId === 10 && /^minedeck_[a-z0-9]{4}$/.test(last.name),
         "创建请求应带 publicServer: true 和公开服节点：" + JSON.stringify(last));
-      assert(!(+last.remotePort > 0), "樱花没有公网端口输入，请求里不该带隐藏框的默认值：" + JSON.stringify(last));
+      assert(last.remotePort === 0, "樱花没有公网端口输入，请求里公网端口应为 0、不带隐藏框的默认值：" + JSON.stringify(last));
       assert(await toastHas("已创建并导入"), "应提示已创建并导入");
       await modalGone();
 

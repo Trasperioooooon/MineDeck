@@ -62,8 +62,8 @@ func (c *cat) accountOps() {
 			if err != nil {
 				return nil, err
 			}
-			c.Accounts.CancelOpenFrpLogin(strings.TrimSpace(p.ID))
-			return "ok", nil
+			// cancelled=false：这次授权已经不在等了（多半刚好授权成功），界面要重新查连接状态
+			return map[string]bool{"cancelled": c.Accounts.CancelOpenFrpLogin(strings.TrimSpace(p.ID))}, nil
 		},
 	})
 

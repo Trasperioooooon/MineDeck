@@ -3279,6 +3279,13 @@ async function renderTunnels() {
   // 「已连接」：凭据解不开（openfrpUnreadable / natfrpUnreadable）的那家按未连接算
   const accOn = provider => !!accStatus[provider] && !accStatus[provider + "Unreadable"];
   let accPanel = null; // { provider, overview }
+  // 概览请求的序号：每发一次加一，回来时不是最新的一次、或者那家已经不算连着（期间断开了），就丢掉不画
+  let ovSeq = 0;
+  const fetchOverview = async provider => {
+    const seq = ++ovSeq;
+    const ov = await api(`/api/tunnel-accounts/${provider}/overview`);
+    return seq === ovSeq && !stale(gen) && accOn(provider) ? ov : null;
+  };
   let openFrpPoll = null; // { id, timer, stop }
   const stopOpenFrpPoll = () => {
     if (!openFrpPoll) return;
@@ -3351,13 +3358,27 @@ async function renderTunnels() {
     box.innerHTML = card("openfrp") + card("natfrp");
     box.querySelectorAll("[data-acc-connect]").forEach(b => b.onclick = () => connectAccount(b.dataset.accConnect, b));
     box.querySelectorAll("[data-acc-get-token]").forEach(b => b.onclick = () => openExt("https://www.natfrp.com/user/profile"));
-    box.querySelectorAll("[data-acc-cancel-login]").forEach(b => b.onclick = () => {
+    box.querySelectorAll("[data-acc-cancel-login]").forEach(b => b.onclick = async () => {
       const id = openFrpPoll && openFrpPoll.id;
       stopOpenFrpPoll();
-      // 后端那边也作废：已经发出去的轮询就算拿到授权也不保存
-      if (id) api(`/api/tunnel-accounts/openfrp/login/${encodeURIComponent(id)}/cancel`, { method: "POST" }).catch(() => {});
       paintAccCards();
-      toast("已取消等待授权");
+      if (!id) { toast("已取消等待授权"); return; }
+      // 后端那边也作废：已经发出去的轮询就算拿到授权也不保存。等它回话再说结果
+      try {
+        const r = await api(`/api/tunnel-accounts/openfrp/login/${encodeURIComponent(id)}/cancel`, { method: "POST" });
+        if (stale(gen)) return;
+        if (r && r.cancelled === false) {
+          // 这次授权已经不在等了：多半是取消前刚好授权成功，以后端的连接状态为准
+          await refreshAccounts("openfrp");
+          toast(accOn("openfrp") ? "这次授权在取消前已经完成，OpenFrp 已连接" : "这次授权已经过期，没有连上");
+          return;
+        }
+        toast("已取消等待授权");
+      } catch (e) {
+        if (stale(gen)) return;
+        toast("取消授权没有成功：" + e.message + "。如果之后在浏览器里完成了授权，账户仍可能连上。", true);
+        await refreshAccounts();
+      }
     });
     box.querySelectorAll("[data-acc-disconnect]").forEach(b => b.onclick = () => disconnectAccount(b.dataset.accDisconnect));
     box.querySelectorAll("[data-acc-overview]").forEach(b => b.onclick = () => toggleOverview(b.dataset.accOverview));
@@ -3408,13 +3429,17 @@ async function renderTunnels() {
       accPanel = null;
     } else if (preferProvider && accOn(preferProvider)) {
       try {
-        accPanel = { provider: preferProvider, overview: await api(`/api/tunnel-accounts/${preferProvider}/overview`) };
+        const ov = await fetchOverview(preferProvider);
+        if (ov) accPanel = { provider: preferProvider, overview: ov };
       } catch (e) { toast(e.message, true); accPanel = null; }
     } else if (accPanel && !accOn(accPanel.provider)) {
       accPanel = null;
     } else if (accPanel && accOn(accPanel.provider)) {
-      try { accPanel.overview = await api(`/api/tunnel-accounts/${accPanel.provider}/overview`); }
-      catch { /* 保留旧概览 */ }
+      const p = accPanel.provider;
+      try {
+        const ov = await fetchOverview(p);
+        if (ov && accPanel && accPanel.provider === p) accPanel.overview = ov;
+      } catch { /* 保留旧概览 */ }
     }
     paintAccCards();
     paintAccPanel();
@@ -3487,6 +3512,7 @@ async function renderTunnels() {
       await api(`/api/tunnel-accounts/${provider}`, { method: "DELETE" });
       if (provider === "openfrp") stopOpenFrpPoll();
       if (accPanel && accPanel.provider === provider) accPanel = null;
+      ovSeq++; // 断开前发出的概览请求回来也不再画
       toast("已断开 " + ACC_NAMES[provider]);
       await refreshAccounts();
     } catch (e) { toast(e.message, true); }
@@ -3500,7 +3526,8 @@ async function renderTunnels() {
       return;
     }
     try {
-      const overview = await api(`/api/tunnel-accounts/${provider}/overview`);
+      const overview = await fetchOverview(provider);
+      if (!overview) return; // 期间点了别的、或者账户已经断开：这份过期了
       accPanel = { provider, overview };
       paintAccCards();
       paintAccPanel();

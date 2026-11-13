@@ -636,3 +636,107 @@ func TestErrorsScrubCredentials(t *testing.T) {
 		t.Fatalf("太短的值不替换: %q", got)
 	}
 }
+
+func TestOpenFrpMultiStepStopsWhenAccountChanges(t *testing.T) {
+	f := newOpenFrpServer(t)
+	a, _ := testAccounts(t, f.srv.URL, f.srv.URL, f.srv.URL)
+	loginOpenFrp(t, a)
+	// 创建：查完节点和现有隧道之后账户被断开，后面的 newProxy 不能再发
+	f.onRequest = func(path string) {
+		if path == "/frp/api/getUserProxies" {
+			if err := a.Disconnect("openfrp"); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	if _, err := a.CreateTunnel(context.Background(), AccountTunnelOptions{
+		Provider: "openfrp", Name: "minedeck_ab12", NodeID: 3, Type: "tcp", LocalPort: 25566, RemotePort: 10002,
+	}); err == nil || !strings.Contains(err.Error(), "操作途中") {
+		t.Fatalf("创建途中断开应停下: %v", err)
+	}
+	if f.created {
+		t.Fatal("账户断开后不应再向平台发创建请求")
+	}
+
+	// 概览：加载途中断开，报错而不是把旧结果交回去
+	f.onRequest = nil
+	loginOpenFrp(t, a)
+	f.onRequest = func(path string) {
+		if path == "/frp/api/getUserProxies" {
+			if err := a.Disconnect("openfrp"); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	if _, err := a.Overview(context.Background(), "openfrp"); err == nil || !strings.Contains(err.Error(), "重新打开概览") {
+		t.Fatalf("加载概览途中断开应报错: %v", err)
+	}
+}
+
+func TestConcurrentImportKeepsOneLocalTunnel(t *testing.T) {
+	f := newOpenFrpServer(t)
+	a, _ := testAccounts(t, f.srv.URL, f.srv.URL, f.srv.URL)
+	loginOpenFrp(t, a)
+	done := make(chan error, 4)
+	for i := 0; i < 4; i++ {
+		go func() {
+			_, err := a.ImportTunnel(context.Background(), AccountTunnelImport{Provider: "openfrp", ProxyID: "7"})
+			done <- err
+		}()
+	}
+	for i := 0; i < 4; i++ {
+		<-done // 先到的导入成功，后到的要么报「已经添加」，要么拿到同一条
+	}
+	n := 0
+	for _, st := range a.tunnels.List() {
+		if st.Provider == "openfrp" && st.ProxyID == "7" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("同一条平台隧道只该导入一次，实际 %d 条", n)
+	}
+}
+
+func TestCancelReportsWhetherLoginWasPending(t *testing.T) {
+	f := newOpenFrpServer(t)
+	a, _ := testAccounts(t, f.srv.URL, f.srv.URL, f.srv.URL)
+	if a.CancelOpenFrpLogin("no-such-login") {
+		t.Fatal("不存在的登录不算取消")
+	}
+	login, err := a.BeginOpenFrpLogin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !a.CancelOpenFrpLogin(login.ID) {
+		t.Fatal("等待中的登录应能取消")
+	}
+	if a.CancelOpenFrpLogin(login.ID) {
+		t.Fatal("取消过的登录再取消应报 false")
+	}
+}
+
+func TestSakuraCreateStopsWhenDisconnectedBeforePost(t *testing.T) {
+	var a *Accounts
+	armed := false
+	srv, lastCreate := sakuraServerHooks(t, func() {
+		if armed {
+			if err := a.Disconnect("natfrp"); err != nil {
+				t.Error(err)
+			}
+		}
+	}, nil)
+	a, _ = testAccounts(t, srv.URL, srv.URL, srv.URL)
+	if _, err := a.ConnectSakura(context.Background(), "sakura-access-key"); err != nil {
+		t.Fatal(err)
+	}
+	armed = true // 下一次 /user/info（创建的第一步）时断开
+	if _, err := a.CreateTunnel(context.Background(), AccountTunnelOptions{
+		Provider: "natfrp", Name: "mc", NodeID: 1, Type: "tcp", LocalPort: 25565,
+	}); err == nil || !strings.Contains(err.Error(), "操作途中") {
+		t.Fatalf("创建途中断开应停下: %v", err)
+	}
+	if *lastCreate != nil {
+		t.Fatal("断开后不应再向樱花发创建请求")
+	}
+}
