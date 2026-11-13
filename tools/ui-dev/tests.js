@@ -3588,7 +3588,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     await page.goto(url(worldTab(name))); await page.waitForSelector("#wi-start");
     await page.click("#wi-start"); await page.waitForSelector("#wi-upload");
   };
-  const WI_STUCK = { busy: "上次换地图没能自动恢复，服务器已暂停启动。请到「地图 / 世界」里查看恢复步骤",
+  const WI_STUCK = { busy: "上次换地图没能自动恢复，服务器已暂停启动。请到「地图」里查看恢复步骤",
     points: [{ id: "w9aa10001", state: "stuck", created: "2026-11-12T20:10:00+08:00", source: "SkyCity.zip", candidate: "天空之城", levelName: "world", hasOld: true, oldBytes: 5e8, keptBytes: 0, canReturn: false,
       error: "rename world: Access is denied.", stuck: ["D:\\MineDeck\\servers\\create-pack\\world", "D:\\MineDeck\\servers\\create-pack\\.minedeck\\world-import\\w9aa10001\\old\\world"] }] };
 
@@ -3957,7 +3957,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(!r.wc1000001.restore && r.wc1000001.del && r.wc1000001.text.includes("正在用这张地图") && r.wc1000001.text.includes("没有可以换回的旧地图"), "用地图新建的服务器：" + JSON.stringify(r));
       // 读不出来的记录：按要人处理显示，写明原因和文件夹，没有换回和删除键；它在的时候「重试恢复」一直失败
       const BAD = "D:\\MineDeck\\servers\\create-pack\\.minedeck\\world-import\\w0bad0001";
-      await wState({ world: { inst: { [PACK]: { busy: "换地图的记录读不出来，为了不在半成品的世界上启动，已暂停启动。请到「地图 / 世界」里查看",
+      await wState({ world: { inst: { [PACK]: { busy: "换地图的记录读不出来，为了不在半成品的世界上启动，已暂停启动。请到「地图」里查看",
         points: [pts[0], { id: "w0bad0001", state: "unreadable", created: "0001-01-01T00:00:00Z", source: "", candidate: "", levelName: "", hasOld: false, oldBytes: 5e8, keptBytes: 0, error: "unexpected end of JSON input", stuck: [BAD] }] } } } });
       await page.goto(url(worldTab(PACK))); await page.waitForSelector('[data-wi-point="w0bad0001"]');
       r = await rowsOf();

@@ -217,7 +217,7 @@ add("detail", "d-world-reject", "地图：选到的是基岩版世界", {
 add("detail", "d-world-stuck", "地图：上次换地图卡住了", {
   hash: `#/inst/${enc("机械动力整合包")}/world`, tag: "new", note: "自动恢复没成功时服务器暂停启动。页面顶上写原因和要看的文件夹，处理完点「重试恢复」。",
   setup: s => {
-    s.world.insts["机械动力整合包"] = { levelName: "world", busy: "上次换地图没能自动恢复，服务器已暂停启动。请到「地图 / 世界」里查看恢复步骤",
+    s.world.insts["机械动力整合包"] = { levelName: "world", busy: "上次换地图没能自动恢复，服务器已暂停启动。请到「地图」里查看恢复步骤",
       points: [{ id: "w9aa10001", state: "stuck", created: "2026-11-12T20:10:00+08:00", source: "SkyCity.zip", candidate: "天空之城", levelName: "world", hasOld: true, oldBytes: 5e8, keptBytes: 0, canReturn: false,
         error: "rename world: Access is denied.", stuck: ["D:\\MineDeck\\servers\\create-pack\\world", "D:\\MineDeck\\servers\\create-pack\\.minedeck\\world-import\\w9aa10001\\old\\world"] }] };
   },
@@ -225,7 +225,7 @@ add("detail", "d-world-stuck", "地图：上次换地图卡住了", {
 add("detail", "d-world-unreadable", "地图：有一份换地图的记录读不出来", {
   hash: `#/inst/${enc("机械动力整合包")}/world`, tag: "new", note: "记录文件坏了的时候服务器暂停启动。这一条按「要人处理」显示：写明原因和它所在的文件夹，没有换回和删除键；它还在的时候「重试恢复」会一直报错。",
   setup: s => {
-    s.world.insts["机械动力整合包"] = { levelName: "world", busy: "换地图的记录读不出来，为了不在半成品的世界上启动，已暂停启动。请到「地图 / 世界」里查看",
+    s.world.insts["机械动力整合包"] = { levelName: "world", busy: "换地图的记录读不出来，为了不在半成品的世界上启动，已暂停启动。请到「地图」里查看",
       points: [{ id: "w7f3a9c21", state: "committed", created: "2026-11-10T21:14:05+08:00", source: "SkyCity.zip", candidate: "天空之城", levelName: "world", hasOld: true, oldBytes: 1286 * 1024 * 1024, keptBytes: 0 },
         { id: "w0bad0001", state: "unreadable", created: "0001-01-01T00:00:00Z", source: "", candidate: "", levelName: "", hasOld: false, oldBytes: 5e8, keptBytes: 0,
           error: "unexpected end of JSON input", stuck: ["D:\\MineDeck\\servers\\create-pack\\.minedeck\\world-import\\w0bad0001"] }] };
