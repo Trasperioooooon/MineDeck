@@ -15,13 +15,22 @@
      回复的内容不全由模型决定（它会引用日志、玩家的聊天），所以解析要扛得住故意构造的输入：
      正则都是线性的、嵌套有上限；万一还是出了异常，整段按转义过的纯文本显示，不让界面卡死或空白。 */
   function parts(src) {
-    const lines = esc(String(src ?? "").replace(/\u0001/g, "")).replace(/\r\n?/g, "\n").split("\n");
+    const text = String(src ?? "");
+    const lines = esc(text.replace(/\u0001/g, "")).replace(/\r\n?/g, "\n").split("\n");
+    const plain = () => [{ sig: lines.join("\n"), html: `<p>${lines.join("<br>")}</p>` }];
+    cellsLeft = MAX_CELLS; // 表格格子的额度按整段算：几十张都卡在上限以内的表加起来照样能撑爆
     try {
-      return partsOfLines(lines, 0);
+      const out = partsOfLines(lines, 0);
+      // 兜底：输出比输入大太多，说明有哪种还没想到的写法在放大，整段按转义过的纯文字显示，不让界面卡死。
+      // 正常的回复放大不到这个程度（最多的是一串空代码块，二十来倍）
+      let size = 0;
+      for (const p of out) size += p.html.length;
+      return size > MAX_OUT_BASE + MAX_OUT_RATIO * text.length ? plain() : out;
     } catch {
-      return [{ sig: lines.join("\n"), html: `<p>${lines.join("<br>")}</p>` }];
+      return plain();
     }
   }
+  const MAX_OUT_BASE = 65536, MAX_OUT_RATIO = 32;
 
   const MAX_NEST = 12; // 引用、强调最多嵌套几层；再往里按普通文字处理
 
@@ -160,7 +169,8 @@
     const cells = splitCells(s);
     return cells.length > 0 && cells.every(c => alignOf(c));
   }
-  const MAX_COLS = 64, MAX_CELLS = 20000; // 表格最多画多少列、多少个格子（含表头）
+  const MAX_COLS = 64, MAX_CELLS = 20000; // 表格最多画多少列；一段回复里所有表格加起来最多画多少个格子（含表头）
+  let cellsLeft = MAX_CELLS; // 这一次 parts() 还剩多少格子的额度（parts 入口重置；渲染是同步的，不会交叉）
   function isTable(lines, i) { return lines[i].includes("|") && i + 1 < lines.length && isSep(lines[i + 1]); }
   function readTable(lines, i) {
     const head = splitCells(lines[i]);
@@ -169,10 +179,12 @@
     let k = i + 2;
     for (; k < lines.length && lines[k].trim() && lines[k].includes("|"); k++) rows.push(splitCells(lines[k]));
     // 每行都按表头补齐格子：几千列的表头配几千行「|x|」，十几 KB 的输入能变出几百万个格子。
-    // 列太多或格子总数太大就不画表格，按原样（已经转义过）一行一行显示
-    if (head.length > MAX_COLS || head.length * (rows.length + 1) > MAX_CELLS) {
+    // 列太多、或者这一段回复里表格的格子额度用完了，就不画表格，按原样（已经转义过）一行一行显示
+    const cells = head.length * (rows.length + 1);
+    if (head.length > MAX_COLS || cells > cellsLeft) {
       return { end: k, html: `<p>${lines.slice(i, k).map(inline).join("<br>")}</p>` };
     }
+    cellsLeft -= cells;
     const th =(c, n) => `<th${align[n] && align[n] !== "left" ? ` style="text-align:${align[n]}"` : ""}>${inline(c)}</th>`;
     const td = (c, n) => `<td${align[n] && align[n] !== "left" ? ` style="text-align:${align[n]}"` : ""}>${inline(c || "")}</td>`;
     const html = `<div class="md-table"><table><thead><tr>${head.map(th).join("")}</tr></thead><tbody>` +

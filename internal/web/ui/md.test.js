@@ -294,8 +294,17 @@ test("故意构造的输入不卡住界面、不抛异常（回复里会引用�
   const out = render(sparse);
   lacks(out, "<td");
   assert.ok(out.length < sparse.length * 2, `稀疏表格的输出 ${out.length} 字`);
-  const wide = "|" + "h|".repeat(64) + "\n|" + "--|".repeat(64) + "\n" + "|x|\n".repeat(300);
-  assert.equal((render(wide).match(/<td/g) || []).length, 64 * 300);
+  // 格子正好到上限（10 列 × 2000 行，含表头）的正常表格照常画；第二张就没有额度了，按原样显示
+  const full = "|" + "h|".repeat(10) + "\n|" + "--|".repeat(10) + "\n" + ("|" + "1|".repeat(10) + "\n").repeat(1999);
+  assert.equal((render(full).match(/<td/g) || []).length, 10 * 1999);
+  assert.equal((render(full + "\n" + full).match(/<td/g) || []).length, 10 * 1999);
+  // 几十张各自卡在上限以内的表，加起来也不超过额度（Codex 第三轮之后自查出来的）；
+  // 稀疏的宽表格每行四个字就能变出六十多个格子，输出太大就整段按纯文字显示
+  const many = ("|" + "h|".repeat(64) + "\n|" + "--|".repeat(64) + "\n" + "|x|\n".repeat(311) + "\n").repeat(30);
+  const manyOut = render(many);
+  assert.ok((manyOut.match(/<td/g) || []).length <= 20000 && manyOut.length < many.length * 32 + 65536, `几十张表：${manyOut.length} 字`);
+  assert.equal(render(null), "");
+  assert.equal(render(123), "<p>123</p>");
   // 列表：连着的空行只算一次分段；同一项里空行隔开的两段不拼成一个词
   assert.equal(render("- a\n\n\n\n- b"), "<ul><li>a</li><li>b</li></ul>");
   assert.equal(render("- a\n\n  续行\n- b"), "<ul><li>a<br><br>续行</li><li>b</li></ul>");
