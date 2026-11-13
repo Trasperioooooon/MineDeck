@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -88,6 +89,8 @@ var createParams = map[string]*ops.Schema{
 	"difficulty":  ops.String("难度：peaceful、easy、normal、hard；空则用服务端默认"),
 	"gamemode":    ops.String("默认游戏模式：survival、creative、adventure、spectator；空则用服务端默认"),
 	"root":        ops.String("存放目录（仅本机生效；空则用全局默认）"),
+	"worldPlan":   ops.String("用已有地图开服：地图导入的计划编号（world.import.plan 生成，只能由人选择）"),
+	"worldAck":    ops.Boolean("地图预览里要确认的项已确认"),
 }
 
 func (c *cat) instanceOps() {
@@ -109,7 +112,7 @@ func (c *cat) instanceOps() {
 			"不用也不能替用户传；存放目录用默认的。",
 		Params: ops.Object(createParams),
 		// EULA 只能由人同意（§5.1）、存放目录只能由人指定：AI 提出时这两项去掉，确认卡片上由用户自己勾选同意
-		HumanParams: []string{"eula", "root"},
+		HumanParams: []string{"eula", "root", "worldPlan", "worldAck"},
 		Consent: &ops.Consent{Param: "eula", Text: "我已阅读并同意 Minecraft EULA", URL: "https://aka.ms/MinecraftEULA",
 			Need: func(a ops.Args) bool {
 				req, _ := bind[inst.CreateReq](a)
@@ -134,6 +137,12 @@ func (c *cat) instanceOps() {
 			}
 			if !caller.Local || caller.Source.AI() {
 				req.Root = "" // 远程 / 局域网请求和 AI 都不得指定主机任意路径，强制落到默认根，防越界写入
+			}
+			if req.WorldPlan != "" { // 用已有地图开服：计划只认发起检测的那个人，核心和版本要对得上
+				if err := c.worldCreateCheck(caller, req.WorldPlan, req.Core, req.MC, req.WorldAck); err != nil {
+					return nil, err
+				}
+				req.WorldOwner = string(caller.Source) + "|" + caller.Actor
 			}
 			id, err := c.Mgr.CreateAsync(req)
 			if err != nil {
@@ -544,6 +553,9 @@ func (c *cat) instanceOps() {
 			i, err := c.get(p.Inst)
 			if err != nil {
 				return nil, err
+			}
+			if why := c.Mgr.WorldBusy(p.Inst); why != "" { // 换地图到一半，世界和设置都可能在动
+				return nil, errors.New(why)
 			}
 			props, err := inst.LoadProps(i.PropsPath())
 			if err != nil {
