@@ -2294,25 +2294,30 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   await run("平台账户：导入后的刷新还在等状态时收起概览，状态回来也不再把概览展开", async () => {
     await taState({ tunnelAccounts: { reset: true, openfrp: true }, tunnelsReset: true });
     const statusURL = u => u.pathname === "/api/tunnel-accounts";
-    let release;
+    let release, gotHeld;
     const gate = new Promise(r => { release = r; });
+    const held = new Promise(r => { gotHeld = r; });
     try {
       errors.length = 0;
       await openOverview("openfrp");
-      // 从现在起连接状态的请求先卡住
+      // 从现在起连接状态的请求先卡住；卡住第一条时通知测试
       await page.route(statusURL, async route => {
-        if (route.request().method() === "GET") await gate;
+        if (route.request().method() === "GET") { gotHeld(); await gate; }
         return route.continue();
       });
       await page.click('#tn-acc-panel [data-acc-import="openfrp"][data-proxy="1001"]');
       await page.waitForSelector('.modal [data-x="ok"]');
       await page.click('.modal [data-x="ok"]');
-      await taWait("lastImport", v => v.proxyId === "1001");
-      await modalGone(); await settle(400); // 导入完成，刷新正卡在状态请求上
+      const last = await taWait("lastImport", v => v.proxyId === "1001");
+      assert(last && last.proxyId === "1001", "导入请求没有到后端");
+      // 导入完成，刷新正卡在状态请求上
+      await Promise.race([held, settle(4000).then(() => { throw new Error("导入后的状态请求没有被拦下"); })]);
       await page.click('[data-acc-overview="openfrp"]'); // 用户收起概览
-      await page.waitForFunction(() => document.querySelector("#tn-acc-panel").hidden, null, { timeout: 3000 }).catch(() => {});
+      await page.waitForFunction(() => document.querySelector("#tn-acc-panel").hidden, null, { timeout: 3000 });
+      const statusBack = page.waitForResponse(r => statusURL(new URL(r.url())) && r.request().method() === "GET", { timeout: 4000 });
       release();
-      await settle(900);
+      await statusBack;
+      await settle(600); // 状态回来以后旧刷新还要走完（旧代码会在这里再拉一次概览并展开）
       const hidden = await page.$eval("#tn-acc-panel", el => el.hidden);
       assert(hidden, "用户收起以后，迟到的刷新不该把概览重新展开");
       assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
