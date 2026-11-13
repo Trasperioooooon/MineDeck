@@ -865,14 +865,14 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 	stuck, err := commitTx(tg.Dir, j, props)
 	if err != nil {
 		if stuck {
-			s.M.SetWorldBlock(p.Inst, "换地图没有完成，自动恢复也失败了，服务器已暂停启动。请到「地图 / 世界」里查看恢复步骤")
+			s.M.SetWorldBlock(p.Inst, "换地图没有完成，自动恢复也失败了，服务器已暂停启动。请到「地图」里查看恢复步骤")
 			return "", fmt.Errorf("恢复未完成，服务器已暂停启动：%v。所有文件都还在，查看恢复步骤：%s", err, txAbs(tg.Dir, id))
 		}
 		return "", fmt.Errorf("导入中断，已恢复到导入前的世界：%v", err)
 	}
 	t.StartStep(4)
 	if len(j.OldOut) > 0 {
-		t.Logf("导入前的世界留在恢复点里（%s），随时可以在「地图 / 世界」里换回来", fmtBytes(j.OldBytes))
+		t.Logf("导入前的世界留在恢复点里（%s），随时可以在「地图」里换回来", fmtBytes(j.OldBytes))
 	}
 	return "地图文件已导入，尚未启动检查。服务器保持停止，启动后进服看看是不是这张地图", nil
 }
@@ -1051,7 +1051,7 @@ func (s *Service) placeForCreate(ctx context.Context, t *tasks.Task, owner, plan
 
 // ---------- 恢复点、换回旧图、启动时恢复 ----------
 
-// RestorePoint 一次导入留下的记录（界面「地图 / 世界」页列出）。
+// RestorePoint 一次导入留下的记录（界面「地图」页列出）。
 type RestorePoint struct {
 	ID        string    `json:"id"`
 	State     string    `json:"state"`
@@ -1069,7 +1069,7 @@ type RestorePoint struct {
 	CanReturn bool `json:"canReturn"`
 }
 
-// WorldStatus 「地图 / 世界」页要的东西。
+// WorldStatus 「地图」页要的东西。
 type WorldStatus struct {
 	LevelName string         `json:"levelName"`
 	Status    string         `json:"status"`
@@ -1187,7 +1187,7 @@ func (s *Service) Restore(name, txID, confirm string) (string, error) {
 		stuck, err := restoreTx(i.Dir, j)
 		if err != nil {
 			if stuck {
-				s.M.SetWorldBlock(name, "换回旧地图没有完成，自动恢复也失败了，服务器已暂停启动。请到「地图 / 世界」里查看恢复步骤")
+				s.M.SetWorldBlock(name, "换回旧地图没有完成，自动恢复也失败了，服务器已暂停启动。请到「地图」里查看恢复步骤")
 				t.Fail(fmt.Errorf("恢复未完成，服务器已暂停启动：%v", err))
 				return
 			}
@@ -1297,7 +1297,7 @@ func (s *Service) recoverInstance(i *inst.Instance, withCommit bool) {
 		s.M.SetWorldBlock(i.Name, inst.WorldTxUnreadable)
 	case !withCommit:
 	case !ok:
-		s.M.SetWorldBlock(i.Name, "上次换地图没能自动恢复，服务器已暂停启动。请到「地图 / 世界」里查看恢复步骤")
+		s.M.SetWorldBlock(i.Name, "上次换地图没能自动恢复，服务器已暂停启动。请到「地图」里查看恢复步骤")
 	default:
 		// 处理完再按盘上的记录看一遍（和加载实例时设封锁的是同一个判断）：还没走完的还在，就不解除
 		s.M.SetWorldBlock(i.Name, inst.PendingWorldTx(i.Dir))
@@ -1377,7 +1377,7 @@ func realOr(p string) string {
 	return strings.ToLower(filepath.Clean(p))
 }
 
-// noPath 错误说明里不带本机路径（读文件的错误会带上完整路径；「地图 / 世界」页也给局域网里的人看）。
+// noPath 错误说明里不带本机路径（读文件的错误会带上完整路径；「地图」页也给局域网里的人看）。
 func noPath(err error) string {
 	var pe *fs.PathError
 	if errors.As(err, &pe) {

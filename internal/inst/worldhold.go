@@ -33,7 +33,7 @@ var worldTxDone = map[string]bool{"committed": true, "rolled-back": true, "resto
 var worldTxPending = map[string]bool{"committing": true, "rolling-back": true, "restoring": true}
 
 // WorldTxUnreadable 有换地图的记录读不出来时封锁启动用的说明。
-const WorldTxUnreadable = "换地图的记录读不出来，为了不在半成品的世界上启动，已暂停启动。请到「地图 / 世界」里查看"
+const WorldTxUnreadable = "换地图的记录读不出来，为了不在半成品的世界上启动，已暂停启动。请到「地图」里查看"
 
 // PendingWorldTx 实例目录里有没有没走完（或读不出来）的换地图记录；有的话返回给人看的原因。
 // staging / staged 不算：那时候还没碰目标世界，丢下不管也不影响服务器（暂存区由 worldimport 清理）。
@@ -65,7 +65,7 @@ func PendingWorldTx(dir string) string {
 			return WorldTxUnreadable
 		}
 		if j.State == "stuck" {
-			return "上次换地图没能自动恢复，服务器已暂停启动。请到「地图 / 世界」里查看恢复步骤"
+			return "上次换地图没能自动恢复，服务器已暂停启动。请到「地图」里查看恢复步骤"
 		}
 		if worldTxPending[j.State] {
 			return "上次换地图没有完成，正在恢复到换图前的世界，完成前不能启动"
