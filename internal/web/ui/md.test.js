@@ -256,6 +256,10 @@ test("故意构造的输入不卡住界面、不抛异常（回复里会引用�
     "一行几万个没收尾的星号": "*a ".repeat(20000),
     "一行几万个没收尾的下划线": "_a ".repeat(20000),
     "分隔线后面几万个空格": "-" + " ".repeat(40000) + "x",
+    // Codex 第二轮：成串没收尾的链接，每个 [ 都往后扫到行尾
+    "一行几万个没收尾的链接": "[](".repeat(16000),
+    "一行几千个没收尾的 https 链接": "[x](https://".repeat(8000),
+    "很多行、每行都在上限以内的没收尾链接": ("[x](https://".repeat(330) + "\n").repeat(30),
   };
   for (const [name, src] of Object.entries(cases)) {
     const t = Date.now();
@@ -272,4 +276,9 @@ test("故意构造的输入不卡住界面、不抛异常（回复里会引用�
   has(render("- - -"), "<hr>");
   has(render("***"), "<hr>");
   lacks(render("-- x"), "<hr>");
+  // 链接照常：括号配对、网址里的括号；太长的网址（超过 2048 字）不当链接
+  has(render("[wiki](https://en.wikipedia.org/wiki/Foo_(bar))"), 'href="https://en.wikipedia.org/wiki/Foo_(bar)"');
+  has(render("**[a](https://x.y)** 后面"), '<b><a href="https://x.y"');
+  lacks(render("[a](https://x.y/" + "a".repeat(3000) + ")"), "<a ");
+  lacks(render("[a](javascript:alert(1))"), "<a ");
 });

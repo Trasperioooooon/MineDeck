@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -351,17 +352,31 @@ func (s *Service) noticeDetailLocked(sess *Session, level, text, detail string) 
 	return it
 }
 
-// failText 请求失败时提示的正文和原文。正文只写结论（docs/文案重写/01-补完口径.md）：有 Hint 的接 Hint；
-// 本来就是一句短的中文（比如「还没选模型」）的照用；剩下带状态码、英文原话的只写「请求 AI 失败」，原文放进 detail。
+// failText 请求失败时提示的正文和原文。正文只写结论（docs/文案重写/01-补完口径.md）：
+//   - 有 Hint 的接 Hint；回复中途断开的单独说（流里来的错误、网络断开的 Hint 接在后面）；
+//   - 本来就是一句短的中文、不夹英文单词的（比如「还没选模型」「先填写 Key」）照用；
+//   - 剩下带状态码、英文原话、路径的只写「请求 AI 失败」，原文放进 detail（界面上「复制原文」）。
 func failText(err error, raw string) (text, detail string) {
-	if h := ai.HintOf(err); h != "" {
+	h := ai.HintOf(err)
+	if errors.Is(err, ai.ErrDisconnected) {
+		if h != "" {
+			return "回复中途断开了：" + h, raw
+		}
+		return "回复中途断开了", raw
+	}
+	if h != "" {
 		return "请求 AI 失败：" + h, raw
 	}
-	if utf8.RuneCountInString(raw) <= 60 && !strings.Contains(raw, "HTTP") && hasHan(raw) {
+	if utf8.RuneCountInString(raw) <= 60 && hasHan(raw) && !englishWord.MatchString(urlLike.ReplaceAllString(raw, "")) {
 		return "请求 AI 失败：" + raw, ""
 	}
 	return "请求 AI 失败", raw
 }
+
+var (
+	urlLike     = regexp.MustCompile(`https?://\S*`)
+	englishWord = regexp.MustCompile(`[A-Za-z]{4,}`) // 「Key」「AI」这样的短词不算
+)
 
 func hasHan(s string) bool {
 	for _, r := range s {

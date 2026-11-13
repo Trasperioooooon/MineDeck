@@ -4019,7 +4019,7 @@ function drawAI(body, v, gen) {
     f.url.value = p.id === "custom" ? (saved.preset === "custom" ? saved.baseUrl : "") : p.baseUrl;
     f.model.value = p.id === saved.preset ? saved.model : (p.model || "");
     if (p.id === "custom" && saved.preset !== "custom") { f.proto.value = "openai"; f.auth.value = ""; f.echo.value = "auto"; }
-    closeModelPop();
+    invalidateModels(false);
     paintForm();
   };
   f.url.addEventListener("input", paintForm);
@@ -4055,6 +4055,7 @@ function drawAI(body, v, gen) {
       f.url.value = saved.baseUrl;
       f.preset.querySelector('option[value=""]')?.remove(); // 配过之后不再有「未选择」，停用走下面的「停用 AI」
       formBase = JSON.stringify(readForm());
+      invalidateModels(true);
       delete $("#ai-test-sub").dataset.result;
       repaint();
       window.MDAssist?.refresh(); // 标题栏的助手入口随之更新
@@ -4064,13 +4065,14 @@ function drawAI(body, v, gen) {
   $("#ai-key-clear").onclick = async () => {
     const r = await confirmModal({ title: "清除 AI 的 Key？", body: "清除后 AI 功能停用，需要时可以重新填写。", okText: "清除", danger: true, icon: "trash" });
     if (!r) return;
-    try { v = await api("/api/ai/provider", { method: "PUT", body: { key: "" } }); repaint(); toast("已清除 Key"); }
+    try { v = await api("/api/ai/provider", { method: "PUT", body: { key: "" } }); invalidateModels(true); repaint(); toast("已清除 Key"); }
     catch (e) { toastErr("无法清除 Key", e); }
   };
 
   // 模型框：手填 + 自己的箭头。列表按「服务商 + 协议 + 地址」缓存。点箭头时没有缓存就去拉。
   const pop = $("#ai-model-pop"), listEl = $("#ai-model-list"), qEl = $("#ai-model-q"), msgEl = $("#ai-model-msg"), errEl = $("#ai-model-err");
-  let modelPack = null, active = -1, modelSeq = 0;
+  let modelPack = null, active = -1, modelSeq = 0, loading = false;
+  const modelSubText = $("#ai-model-sub").textContent;
   // 缓存和「这次结果还算不算数」都按这个上下文：服务商、协议、地址，自定义再加鉴权方式
   const modelKey = () => [f.preset.value, protoNow(), f.url.value.trim(), cur() && cur().id === "custom" ? f.auth.value : ""].join("\n");
   const setExpanded = on => { f.model.setAttribute("aria-expanded", on ? "true" : "false"); pop.hidden = !on; };
@@ -4139,6 +4141,7 @@ function drawAI(body, v, gen) {
     btn.disabled = true;
     const seq = ++modelSeq; // 箭头和「刷新」连着点、或者拉的时候改了地址、协议、鉴权、Key：只认最后一次
     const ctx = modelKey();
+    modelPack = null; loading = true;
     try {
       const pack = await loadModels(force, ctx);
       if (stale(gen) || seq !== modelSeq) return; // 后面又发了一次：这次作废，也不写缓存（不然先回来的新结果会被晚到的旧结果盖掉）
@@ -4146,28 +4149,33 @@ function drawAI(body, v, gen) {
       if (pop.hidden || modelKey() !== ctx) return;
       modelPack = pack;
       showModelErr(null);
-      const curId = f.model.value.trim();
-      active = Math.max(0, (modelPack.models || []).findIndex(m => m.id === curId));
+      // 拉的时候已经在搜索框里打了字：按打的字筛，第一项高亮；没打就高亮当前填的模型
+      const curId = f.model.value.trim(), typed = qEl.value;
+      active = typed ? 0 : Math.max(0, (modelPack.models || []).findIndex(m => m.id === curId));
       qEl.focus();
-      renderModelList("");
+      renderModelList(typed);
       $("#ai-model-sub").textContent = modelPack.warning || (modelPack.models.length ? `已有 ${modelPack.models.length} 个模型，也可以直接填写` : "没有拉到模型，请直接填写模型名");
     } catch (e) {
-      if (stale(gen) || seq !== modelSeq) return;
+      if (stale(gen) || seq !== modelSeq || modelKey() !== ctx) return; // 作废了，或者已经换了服务商、地址：这个错误不属于现在这一行
       showModelErr(e);
       if (pop.hidden) return;
       modelPack = suggestedPack("列表没拉到，下面是预设里的建议，也可以直接填写。");
-      if (modelPack.models.length) { active = 0; qEl.focus(); renderModelList(""); }
+      if (modelPack.models.length) { active = 0; qEl.focus(); renderModelList(qEl.value); }
       else { msgEl.textContent = "列表没拉到，请直接填写模型名"; listEl.innerHTML = ""; }
     } finally {
       // 拉的时候弹层被关掉（点了别处、按了 Esc）也要恢复箭头，不然它一直灰着
-      if (!stale(gen) && seq === modelSeq) btn.disabled = ro;
+      if (!stale(gen) && seq === modelSeq) { btn.disabled = ro; loading = false; }
     }
   }
   // 改了地址、协议、鉴权或 Key：在途的那次作废，弹层收起，箭头恢复可点；Key 变了缓存也不再可信
   const invalidateModels = keyChanged => {
     modelSeq++;
+    loading = false;
     if (keyChanged) aiModelCache.clear();
     if (!pop.hidden) closeModelPop();
+    modelPack = null; // 旧上下文的列表、报错和说明都不再属于这一行
+    showModelErr(null);
+    $("#ai-model-sub").textContent = modelSubText;
     $("#ai-model-btn").disabled = ro;
   };
   f.url.addEventListener("input", () => invalidateModels(false));
@@ -4176,7 +4184,7 @@ function drawAI(body, v, gen) {
   f.key.addEventListener("input", () => invalidateModels(true));
   $("#ai-model-btn").onclick = () => { if (!pop.hidden) closeModelPop(); else openModelPop(false); };
   $("#ai-list").onclick = () => openModelPop(true);
-  qEl.addEventListener("input", () => { active = 0; renderModelList(qEl.value); });
+  qEl.addEventListener("input", () => { if (loading) return; active = 0; renderModelList(qEl.value); }); // 拉的时候不拿旧数据搜
   const onComboKey = e => {
     if (pop.hidden) {
       if (e.key === "ArrowDown") { e.preventDefault(); openModelPop(false); }

@@ -968,6 +968,51 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await page.unroute("**/api/ai/models", fake); await aiState({ reset: true }); }
   });
 
+  await run("AI：模型列表拉的时候搜索不翻旧列表、回来后按打的字筛；拉的时候换了服务商，箭头能点、报错不留；清除 Key 后不再用缓存（Codex 第二轮）", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" });
+    let n = 0, mode = "fast";
+    const fake = async r => {
+      n++;
+      if (mode === "fast") return r.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, data: { models: [{ id: "old-a" }, { id: "old-b" }], source: "live" } }) });
+      await new Promise(x => setTimeout(x, 600));
+      if (mode === "slow-err") return r.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ ok: false, error: "服务商出错（旧地址）" }) }).catch(() => {});
+      await r.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, data: { models: [{ id: "new-a" }, { id: "new-old" }, { id: "new-b" }], source: "live" } }) }).catch(() => {});
+    };
+    const ids = () => page.$$eval("#ai-model-list .ai-opt", os => os.map(o => o.dataset.id).join());
+    try {
+      await page.goto(url("#/settings/ai")); await settle();
+      await page.route("**/api/ai/models", fake);
+      await page.click("#ai-model-btn"); await settle(200);
+      assert((await ids()) === "old-a,old-b", "先拉到一次：" + await ids());
+      await page.keyboard.press("Escape"); await settle(100);
+      // 1. 刷新：拉的时候在搜索框里打字，不拿旧列表搜；回来以后按打的字筛
+      mode = "slow";
+      await page.click("#ai-list"); await settle(100);
+      await page.fill("#ai-model-q", "old"); await settle(100);
+      assert((await ids()) === "", "拉的时候不该翻出旧列表：" + await ids());
+      await settle(700);
+      assert((await ids()) === "new-old", "回来以后按打的字筛：" + await ids());
+      await page.keyboard.press("Escape"); await settle(100);
+      // 2. 拉的时候换了服务商：弹层收起、箭头能点；旧服务商的报错回来也不显示
+      mode = "slow-err";
+      await page.click("#ai-list"); await settle(100);
+      await page.selectOption("#ai-preset", "kimi"); await settle(100);
+      assert(await page.$eval("#ai-model-pop", e => e.hidden) && !(await page.$eval("#ai-model-btn", b => b.disabled)), "换了服务商：弹层收起、箭头能点");
+      await settle(700);
+      assert((await page.textContent("#ai-model-err")) === "" && await page.$eval("#ai-model-pop", e => e.hidden), "旧服务商的报错不该显示：" + await page.textContent("#ai-model-err"));
+      // 3. 换回来（不保存）再展开：缓存还在，不发请求；清除 Key 以后缓存作废，再展开要重新拉
+      await page.selectOption("#ai-preset", "deepseek"); await settle(100);
+      mode = "fast"; n = 0;
+      await page.click("#ai-model-btn"); await settle(200);
+      assert(n === 0 && (await ids()).startsWith("new-"), `换回来走缓存（请求 ${n} 次）：` + await ids());
+      await page.keyboard.press("Escape"); await settle(100);
+      await page.click("#ai-key-clear"); await settle(200);
+      await page.click('.modal [data-x="ok"]'); await settle(300);
+      await page.click("#ai-model-btn"); await settle(200);
+      assert(n === 1 && (await ids()) === "old-a,old-b", `清除 Key 后应重新拉（请求 ${n} 次）：` + await ids());
+    } finally { await page.unroute("**/api/ai/models", fake); await aiState({ reset: true }); }
+  });
+
   await run("AI：每日额度按万 token 保存，填错就近提示；自填单价可添加、删除，优先于公开价格；只配本机模型时不取价格", async () => {
     await aiState({ reset: true, ...AI_CLAUDE, key: "sk-ant" });
     try {
@@ -1516,8 +1561,11 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(note.includes("请求 AI 失败：Key 不对或已失效") && !note.includes("HTTP") && !note.includes("invalid"), "正文不该有原文：" + note);
       const btn = await page.$("#ap-body .ap-note.error [data-copy-raw]");
       assert(btn && (await btn.getAttribute("aria-label")) === "复制报错原文：请求 AI 失败：Key 不对或已失效", "应有「复制原文」");
+      await page.evaluate(() => { window.__copied = []; Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async t => { window.__copied.push(t); } } }); });
       await btn.click(); await settle(200);
+      const copied = await page.evaluate(() => window.__copied);
       assert(await toastHas("已复制报错原文"), "点了应复制原文");
+      assert(copied.length === 1 && copied[0].includes("HTTP 401") && copied[0].includes("invalid x-api-key") && !copied[0].includes("请求 AI 失败"), "复制的应是原文本身：" + JSON.stringify(copied));
       assert((await page.textContent("#ap-body")).includes("这句已从对话里撤回"), "失败时提问撤回");
     } finally { await page.keyboard.press("Escape"); await asstState({ reset: true }); await aiState({ reset: true }); }
   });
@@ -1536,6 +1584,25 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       const last = s.msgs[s.msgs.length - 1];
       assert(last && last.md && last.sum === "思考" && !last.typing && s.msgs.every(m => m.sum !== "思考中…"), "停下之后：" + J(s));
       assert(body.includes("没说完就停了") && body.includes("已停止"), "应标出没说完、已停止：" + body.slice(0, 200));
+      // 这是第二次请求（第一次查了控制台）：提问不撤回，可以「继续回复」
+      assert(!body.includes("这句已从对话里撤回") && await page.$('#ap-state [data-x="cont"]'), "第二次请求停下不撤回提问、给「继续回复」：" + body.slice(-300) + " | " + await page.textContent("#ap-state"));
+    } finally { await page.keyboard.press("Escape"); await asstState({ reset: true }); await aiState({ reset: true }); }
+  });
+
+  await run("AI 助手：第一次请求说了一半就停，这一条留着标成没说完，提问照样撤回（同后端 conv.UndoUser），没有「继续回复」（Codex 第二轮）", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" }); await asstState({ reset: true });
+    try {
+      await newChat();
+      await asstState({ slow: 250 });
+      await page.fill("#ap-in", "最大人数改成 10"); await page.press("#ap-in", "Enter");
+      await snapWhen(m => m.some(x => x.md), "正文开始");
+      await page.click("#ap-stop");
+      await idle();
+      const s = await asstSnap();
+      const body = await page.textContent("#ap-body");
+      const last = s.msgs[s.msgs.length - 1];
+      assert(last && last.md && body.includes("没说完就停了") && body.includes("已停止"), "说了一半的留着、标成没说完：" + J(s));
+      assert(body.includes("这句已从对话里撤回") && await page.$("#ap-body [data-reuse]") && !(await page.$('#ap-state [data-x="cont"]')), "第一次请求停下应撤回提问、不给继续回复：" + body.slice(-300) + " | " + await page.textContent("#ap-state"));
     } finally { await page.keyboard.press("Escape"); await asstState({ reset: true }); await aiState({ reset: true }); }
   });
 

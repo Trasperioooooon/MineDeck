@@ -281,6 +281,9 @@
   }
 
   function inlineRest(s) {
+    // 一行几千字（多半是贴进来的日志）就不认链接、加粗、斜体了：成串没收尾的 [](、*、_ 会让查找变成平方级，
+    // 这样的行原样显示（已经转义过）最稳
+    if (s.length > MAX_STYLE_LINE) return s;
     const slots = [];
     const fill = t => t.replace(SLOT, (_, n) => slots[+n]);
     const put = html => { slots.push(fill(html)); return "\u0001" + (slots.length - 1) + "\u0001"; };
@@ -303,27 +306,29 @@
       out += s.slice(i, j < 0 ? s.length : j);
       i = j < 0 ? s.length : j;
     }
-    // 一行几千字（多半是贴进来的日志）就不认加粗、斜体了：成串没有收尾的 * 或 _ 会让正则的查找变成平方级
-    return fill(out.length > MAX_STYLE_LINE ? out : style(out, put));
+    return fill(style(out, put));
   }
 
   const MAX_STYLE_LINE = 4000;
+  const MAX_URL = 2048; // 网址最长认多少字；再长的不当链接，免得每个 [ 都一路扫到行尾
 
   /* URL 可以含成对括号。协议只认 http / https（转义之后仍是这两个开头）。 */
   function readLink(s, i, close) {
     if (close < 0 || s[close + 1] !== "(") return null;
     const inner = s.indexOf("[", i + 1);
     if (inner >= 0 && inner < close) return null;
-    let url = "", depth = 1, j = close + 2;
-    for (; j < s.length; j++) {
+    // 开头不是 http(s):// 的直接不认，不用往后扫
+    if (!/^https?:\/\//i.test(s.slice(close + 2, close + 10))) return null;
+    const from = close + 2, stop = Math.min(s.length, from + MAX_URL);
+    let depth = 1, j = from;
+    for (; j < stop; j++) {
       const c = s[j];
-      if (c === "(") { depth++; url += c; }
-      else if (c === ")") { depth--; if (depth === 0) { j++; break; } url += c; }
+      if (c === "(") depth++;
+      else if (c === ")") { depth--; if (depth === 0) break; }
       else if (c === " " || c === "\n" || c === "<" || c === ">" || c === '"') return null;
-      else url += c;
     }
-    if (depth !== 0 || !/^https?:\/\//i.test(url)) return null;
-    return { text: s.slice(i + 1, close), href: url, end: j };
+    if (depth !== 0) return null;
+    return { text: s.slice(i + 1, close), href: s.slice(from, j), end: j + 1 };
   }
 
   /* 加粗、斜体、删除线。认出来的片段经 put 换成占位，包在里面的再过一遍（外层斜体里的加粗、删除线都还在）。

@@ -3,6 +3,7 @@ package assistant
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -180,6 +181,14 @@ func TestFailText(t *testing.T) {
 		{errors.New("还没选模型"), "请求 AI 失败：还没选模型", ""},
 		{errors.New("unexpected EOF"), "请求 AI 失败", "unexpected EOF"},
 		{&ai.APIError{Status: 429, Message: "Rate limit reached"}, "请求 AI 失败：请求太频繁，等一会儿再试", "x"},
+		// Codex 第二轮：说了一半断开的，提示别丢，也别说成「请求失败」
+		{fmt.Errorf("%w：%w", ai.ErrDisconnected, &ai.APIError{Status: 400, Message: "maximum context length is 8192 tokens"}), "回复中途断开了：对话太长，超过了模型能读的长度。开一个新会话再问", "x"},
+		{fmt.Errorf("%w：没有收到 message_stop", ai.ErrDisconnected), "回复中途断开了", "x"},
+		// 短的中文原文直接显示（Key 只有三个字母，不算英文单词）；夹着英文的放进「复制原文」；网址不算英文
+		{errors.New("先填写 Key"), "请求 AI 失败：先填写 Key", ""},
+		{errors.New("连不上服务商：dial tcp: connection refused"), "请求 AI 失败", "x"},
+		{errors.New("连不上 https://api.example.com/v1，检查地址"), "请求 AI 失败：连不上 https://api.example.com/v1，检查地址", ""},
+		{errors.New(strings.Repeat("长", 61)), "请求 AI 失败", "x"},
 	} {
 		text, detail := failText(c.err, c.err.Error())
 		if text != c.text || (c.detail == "" && detail != "") || (c.detail != "" && detail == "") {

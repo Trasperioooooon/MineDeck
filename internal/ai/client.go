@@ -76,9 +76,17 @@ func NewClient(cfg Config) (*Client, error) {
 	if cfg.HTTP == nil {
 		cfg.HTTP = DefaultHTTPClient()
 	}
-	if cfg.HTTP.CheckRedirect == nil {
-		hc := *cfg.HTTP // 浅拷贝：连接池（Transport）照旧共用，只换掉跟随重定向的规则
-		hc.CheckRedirect = keepKeyOnSite
+	{
+		// 浅拷贝：连接池（Transport）照旧共用，只换掉跟随重定向的规则。调用方自己设了规则的，先过我们的再过它的，
+		// 不让传进来的客户端绕开这道检查
+		hc := *cfg.HTTP
+		own := hc.CheckRedirect
+		hc.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			if err := keepKeyOnSite(req, via); err != nil || own == nil {
+				return err
+			}
+			return own(req, via)
+		}
 		cfg.HTTP = &hc
 	}
 	if cfg.MaxTokens <= 0 {
@@ -96,15 +104,25 @@ func NewClient(cfg Config) (*Client, error) {
 	return &Client{cfg: cfg, eager: cfg.Eager && cfg.Stream, fallback: cfg.Fallback, dropReasoning: cfg.DropReasoning && cfg.Echo == EchoAuto}, nil
 }
 
-// keepKeyOnSite 只跟随同一个网站里的重定向（http 升到 https 也算）。Go 换网站时只会去掉 Authorization 和 Cookie，
-// 不认识 api-key、x-api-key，跟过去 Key 就到了别人手里。转到别的网站时不跟，把这个 3xx 原样交给调用方报错。
+// keepKeyOnSite 只跟随同一个网站里的重定向。Go 换网站时只会去掉 Authorization 和 Cookie，不认识 api-key、x-api-key，
+// 而且同一台主机换个端口它也当成同一个网站，跟过去 Key 就到了别人手里。规则：
+//   - 每一跳都要和最初的地址是同一个网站（协议、主机、端口都一样；端口没写按默认算）；
+//   - 唯一的例外是标准的升级：最初是 http 的默认端口，转到同一主机 https 的默认端口；
+//   - 上一跳已经是 https 的，不许再降回 http。
+//
+// 不符合的不跟，把这个 3xx 原样交给调用方报错（见 statusHint）。
 func keepKeyOnSite(req *http.Request, via []*http.Request) error {
 	if len(via) >= 10 {
 		return errors.New("重定向太多次")
 	}
-	from, to := via[0].URL, req.URL
-	same := strings.EqualFold(from.Hostname(), to.Hostname()) && portOf(from) == portOf(to) && strings.EqualFold(from.Scheme, to.Scheme)
-	upgrade := strings.EqualFold(from.Hostname(), to.Hostname()) && strings.EqualFold(from.Scheme, "http") && strings.EqualFold(to.Scheme, "https")
+	first, prev, to := via[0].URL, via[len(via)-1].URL, req.URL
+	if strings.EqualFold(prev.Scheme, "https") && !strings.EqualFold(to.Scheme, "https") {
+		return http.ErrUseLastResponse
+	}
+	sameHost := strings.EqualFold(first.Hostname(), to.Hostname())
+	same := sameHost && strings.EqualFold(first.Scheme, to.Scheme) && portOf(first) == portOf(to)
+	upgrade := sameHost && strings.EqualFold(first.Scheme, "http") && portOf(first) == "80" &&
+		strings.EqualFold(to.Scheme, "https") && portOf(to) == "443"
 	if same || upgrade {
 		return nil
 	}
@@ -114,7 +132,7 @@ func keepKeyOnSite(req *http.Request, via []*http.Request) error {
 // portOf 端口；没写时按协议的默认端口算（https://a.com 和 https://a.com:443 是同一个）。
 func portOf(u *url.URL) string {
 	if p := u.Port(); p != "" {
-		return p
+		return normPort(p)
 	}
 	if strings.EqualFold(u.Scheme, "https") {
 		return "443"
@@ -168,10 +186,18 @@ func siteOf(s string) string {
 	if strings.Contains(host, ":") {
 		host = "[" + host + "]"
 	}
-	if p := u.Port(); p != "" && !(scheme == "https" && p == "443") && !(scheme == "http" && p == "80") {
+	if p := normPort(u.Port()); p != "" && !(scheme == "https" && p == "443") && !(scheme == "http" && p == "80") {
 		host += ":" + p
 	}
 	return scheme + "://" + host
+}
+
+// normPort 端口按数值写（「0443」就是 443），和浏览器的 URL 规范化一致；不是数字的原样返回。
+func normPort(p string) string {
+	if n, err := strconv.Atoi(p); err == nil && n >= 0 {
+		return strconv.Itoa(n)
+	}
+	return p
 }
 
 // endpoint 拼出接口路径：去掉地址末尾的斜杠再接上（智谱的地址末尾带斜杠，原样存、拼的时候不重复）。

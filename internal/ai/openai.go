@@ -454,7 +454,7 @@ func (c *Client) openaiOnce(ctx context.Context, conv *Conversation, emit func(E
 		}
 		if err != nil {
 			if got {
-				return acc.result(true, len(body)), fmt.Errorf("%w：%v", ErrDisconnected, c.cutErr(ctx, dog, err))
+				return acc.result(true, len(body)), fmt.Errorf("%w：%w", ErrDisconnected, c.cutErr(ctx, dog, err))
 			}
 			return nil, c.cutErr(ctx, dog, err)
 		}
@@ -473,7 +473,7 @@ func (c *Client) openaiOnce(ctx context.Context, conv *Conversation, emit func(E
 		if len(chunk.Error) > 0 && string(chunk.Error) != "null" {
 			e := c.oaiStreamError(chunk.Error)
 			if got {
-				return acc.result(true, len(body)), fmt.Errorf("%w：%v", ErrDisconnected, e)
+				return acc.result(true, len(body)), fmt.Errorf("%w：%w", ErrDisconnected, e)
 			}
 			return nil, e
 		}

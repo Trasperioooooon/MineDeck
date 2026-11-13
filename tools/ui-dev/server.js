@@ -402,7 +402,9 @@ async function aiHandler(state, req, res, p, m) {
     const base = (b.baseUrl || pr.baseUrl).trim();
     // 同后端：文档写明没有模型列表的地址不发请求，直接给预设里的建议（返回 {models, source, warning}）
     if (aiMatchURL(pr, base).noModels) return ok(res, { models: aiSuggested(pr), source: "preset", warning: "这个地址的官方文档没有模型列表，下面是预设里的建议，也可以直接填写模型名。" });
-    const key = (b.key || "").trim() || (a.preset === pr.id && a.baseUrl === base ? a.key : "");
+    // 同后端 ai.SameSite：服务商没换、地址还是同一个网站（只改了路径也算）才用已存的 Key
+    const site = u => { try { return new URL(u).origin; } catch { return ""; } };
+    const key = (b.key || "").trim() || (a.preset === pr.id && site(base) && site(base) === site(a.baseUrl) ? a.key : "");
     if (!key && !pr.noKey && pr.id !== "custom") return err(res, 400, "先填写 Key");
     return ok(res, { models: (AI_MODELS[pr.id] || []).map(x => (typeof x === "string" ? { id: x } : x)), source: "live" });
   }
@@ -699,18 +701,23 @@ function asstScript(s, text, attach) {
   ];
   return [{ text: ASST_MD, tools: [{ name: "instance_console_tail", op: "instance.console.tail", title: "查看控制台输出", args: { inst, lines: 200 }, result: { lines: ["[21:30:09 INFO]: Done (6.812s)!"] } }] }];
 }
-// 跑一轮：逐段流式推文字、执行读操作、遇到写操作就停下等确认
-async function asstTurn(state, s, steps) {
+// 跑一轮：逐段流式推文字、执行读操作、遇到写操作就停下等确认。
+// fromUser：这一轮是用户刚说了话开的（不是确认卡片处理完、也不是「继续回复」接着说）。
+// 同后端 conv.UndoUser()：只有这种轮次的第一次请求失败或被停下，对话最后一条才是用户的话，才把它撤回
+async function asstTurn(state, s, steps, fromUser = false) {
   const S = state.asst;
   s.busy = true; s.needReply = false; asstState(state, s);
   const wait = ms => asstSleep(S.slow || ms);
-  for (const step of steps) {
+  const undoUser = () => {
+    const u = [...s.items].reverse().find(x => x.kind === "user" && !x.withdrawn);
+    if (u) { u.withdrawn = true; asstEmit(s, { type: "item", item: u }); s.withdrew = true; }
+  };
+  for (const [k, step] of steps.entries()) {
     const it = { id: "i" + (++s.next), kind: "assistant", t: new Date().toISOString(), text: "", tools: [] };
     s.items.push(it); asstEmit(s, { type: "item", item: asstSlim(it) });
     if (step.fail) {
       s.items = s.items.filter(x => x.id !== it.id); asstEmit(s, { type: "remove", id: it.id });
-      const u = [...s.items].reverse().find(x => x.kind === "user" && !x.withdrawn);
-      if (u) { u.withdrawn = true; asstEmit(s, { type: "item", item: u }); }
+      if (fromUser && k === 0) undoUser();
       const n = { id: "i" + (++s.next), kind: "notice", level: "error", t: new Date().toISOString(), text: step.fail.text, detail: step.fail.detail };
       s.items.push(n); asstEmit(s, { type: "item", item: n });
       break;
@@ -727,13 +734,11 @@ async function asstTurn(state, s, steps) {
     // 模型开始写工具调用：这时这一轮还没结束，工具还没进 item（同后端的 tool_start）
     for (const tl of s.stop ? [] : step.tools || []) { asstEmit(s, { type: "tool_start", id: it.id, name: tl.name }); await wait(12); }
     if (s.stop) {
-      // 同后端 fail()：什么都没说出来（没有正文、没有工具调用，只有思考也算）就撤掉这一条；
-      // 要是这一轮的第一次请求，用户的话也从对话里撤回（界面上给「放回输入框」）。说了一半的标成没说完
-      if (!it.text && !it.tools.length) {
-        s.items = s.items.filter(x => x.id !== it.id); asstEmit(s, { type: "remove", id: it.id });
-        const u = steps.indexOf(step) === 0 && [...s.items].reverse().find(x => x.kind === "user" && !x.withdrawn);
-        if (u) { u.withdrawn = true; asstEmit(s, { type: "item", item: u }); s.withdrew = true; }
-      } else { it.partial = true; asstEmit(s, { type: "item", item: asstSlim(it) }); }
+      // 同后端 fail()：什么都没说出来（没有正文、没有工具调用，只有思考也算）就撤掉这一条，说了一半的标成没说完；
+      // 这两种情况下，只要是用户开的这一轮的第一次请求，用户的话都从对话里撤回（界面上给「放回输入框」）
+      if (!it.text && !it.tools.length) { s.items = s.items.filter(x => x.id !== it.id); asstEmit(s, { type: "remove", id: it.id }); }
+      else { it.partial = true; asstEmit(s, { type: "item", item: asstSlim(it) }); }
+      if (fromUser && k === 0) undoUser();
       break;
     }
     it.usage = { input: 1820, output: 96, cacheRead: 1024 }; it.cost = { amount: 0.0021, currency: "CNY", source: "litellm" }; it.model = state.ai.model;
@@ -883,7 +888,7 @@ async function asstHandler(state, req, res, p, m, u) {
     if (pack) s.attachText = "";
     if (/^新会话/.test(s.title)) s.title = pack && s.inst ? `分析「${s.inst}」的问题` : text.slice(0, 30);
     s.items.push(it); asstEmit(s, { type: "item", item: asstSlim(it) });
-    asstTurn(state, s, asstScript(s, text, !!pack));
+    asstTurn(state, s, asstScript(s, text, !!pack), true);
     return ok(res, "ok"), true;
   }
   return err(res, 404, "not found"), true;

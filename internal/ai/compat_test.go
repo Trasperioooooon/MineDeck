@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -60,6 +61,36 @@ func TestModelsFallback(t *testing.T) {
 	}
 	if h := f.requests()[0].Header; h.Get("Authorization") == "" || h.Get("api-key") == "" {
 		t.Errorf("MiMo 应同时带 Bearer 和 api-key：%v", h)
+	}
+}
+
+// 模型列表接口的各种回应：405、501、空列表退回预设里的建议；401、403 是 Key 的问题，照常报错，不拿建议糊过去。
+func TestModelsFallbackStatuses(t *testing.T) {
+	replies := []struct {
+		status int
+		body   string
+	}{{405, `{"error":{"message":"method not allowed"}}`}, {501, `{"error":{"message":"not implemented"}}`}, {200, `{"data":[]}`},
+		{401, `{"error":{"message":"bad key","type":"authentication_error"}}`}, {403, `{"error":{"message":"forbidden","type":"permission_error"}}`}}
+	f := newFake(t, func(n int, _ recorded, w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(replies[n].status)
+		_, _ = w.Write([]byte(replies[n].body))
+	})
+	s := NewService(Options{Dir: t.TempDir(), Keys: &memKeys{m: map[string]string{}}, HTTP: f.srv.Client()})
+	_ = s.SetProvider(ProviderPatch{Preset: strp("mimo"), BaseURL: strp(f.srv.URL + "/v1"), Key: strp("sk-test-0123")})
+	ctx := context.Background()
+	for _, r := range replies {
+		ml, err := s.Models(ctx, ModelsRequest{Preset: "mimo", BaseURL: f.srv.URL + "/v1"})
+		if r.status == 401 || r.status == 403 {
+			var ae *APIError
+			if !errors.As(err, &ae) || ae.Status != r.status || ml.Source != "" {
+				t.Errorf("%d 应照常报错：%v %+v", r.status, err, ml)
+			}
+			continue
+		}
+		if err != nil || ml.Source != "preset" || len(ml.Models) == 0 || ml.Warning == "" {
+			t.Errorf("%d 应退回建议：%v %+v", r.status, err, ml)
+		}
 	}
 }
 

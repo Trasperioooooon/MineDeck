@@ -535,7 +535,7 @@ func (c *Client) claudeOnce(ctx context.Context, conv *Conversation, emit func(E
 		}
 		if err != nil {
 			if acc.started {
-				return acc.assemble(true, len(body)), fmt.Errorf("%w：%v", ErrDisconnected, c.cutErr(ctx, dog, err))
+				return acc.assemble(true, len(body)), fmt.Errorf("%w：%w", ErrDisconnected, c.cutErr(ctx, dog, err))
 			}
 			return nil, c.cutErr(ctx, dog, err)
 		}
@@ -596,7 +596,7 @@ func (c *Client) claudeOnce(ctx context.Context, conv *Conversation, emit func(E
 			e.InStream = true
 			if acc.started {
 				// 已经开始输出：当作断开，不重试
-				return acc.assemble(true, len(body)), fmt.Errorf("%w：%v", ErrDisconnected, e)
+				return acc.assemble(true, len(body)), fmt.Errorf("%w：%w", ErrDisconnected, e)
 			}
 			return nil, e // 还没开始：按它对应的 429、529 等错误处理，可以重试
 		default:
