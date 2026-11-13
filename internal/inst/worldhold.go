@@ -42,8 +42,11 @@ func PendingWorldTx(dir string) string {
 			continue
 		}
 		b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(WorldTxDir), e.Name(), "journal.json"))
-		if err != nil {
-			continue
+		if errors.Is(err, os.ErrNotExist) {
+			continue // 没有记录：还没开始（记录是建暂存区之前头一个写下的）
+		}
+		if err != nil { // 有记录却读不了（被占用、没权限）：不知道走到哪一步了，按没走完算
+			return "换地图的记录读不出来，为了不在半成品的世界上启动，已暂停启动。请到「地图 / 世界」里查看"
 		}
 		var j struct {
 			State string `json:"state"`

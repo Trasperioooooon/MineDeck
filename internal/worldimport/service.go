@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -31,6 +32,9 @@ type Service struct {
 	plans   map[string]*Plan
 	cancels map[string]cancelEntry  // 导入任务编号 → 取消（只在暂存阶段生效）
 	claims  map[string]*createClaim // 建服请求占着的计划编号 → 计划和扫描结果
+	// active 正在进行的导入的事务目录（小写的绝对路径）。暂存在占位之外进行，「重试恢复」不能把它们当成
+	// 上次没走完的暂存清掉：清掉以后复制还在往里写，最后会把半份地图当成整份换上去
+	active map[string]bool
 
 	order versionOrder
 	now   func() time.Time
@@ -64,9 +68,28 @@ type createClaim struct {
 // NewService 建服务，并把「新建服务器时放地图」的钩子挂到实例管理器上。
 func NewService(m *inst.Manager) *Service {
 	s := &Service{M: m, scans: map[string]*scanResult{}, plans: map[string]*Plan{}, cancels: map[string]cancelEntry{},
-		claims: map[string]*createClaim{}, order: manifestOrder, now: time.Now, StopTimeout: 2 * time.Minute}
+		claims: map[string]*createClaim{}, active: map[string]bool{}, order: manifestOrder, now: time.Now, StopTimeout: 2 * time.Minute}
 	m.SetWorldPlacer(s.placeForCreate, s.ReleaseCreate)
 	return s
+}
+
+// setActive 登记一个正在进行的导入的事务目录，返回撤销登记的函数。
+func (s *Service) setActive(txDir string) func() {
+	k := strings.ToLower(filepath.Clean(txDir))
+	s.mu.Lock()
+	s.active[k] = true
+	s.mu.Unlock()
+	return func() {
+		s.mu.Lock()
+		delete(s.active, k)
+		s.mu.Unlock()
+	}
+}
+
+func (s *Service) isActive(txDir string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.active[strings.ToLower(filepath.Clean(txDir))]
 }
 
 // unpin 一个任务用完了扫描结果；它已经过期或被放弃、又没有别的任务在用时，删掉上传的文件。
@@ -675,6 +698,10 @@ func (s *Service) Execute(owner string, req ExecReq) (string, error) {
 		s.mu.Unlock()
 		return "", fmt.Errorf("这份导入计划已经用过了，请重新检测")
 	}
+	if r.dropped { // 刚刚过期或被放弃，上传的文件可能已经删了
+		s.mu.Unlock()
+		return "", fmt.Errorf("这次检测的结果已经过期，请重新选择地图")
+	}
 	delete(s.plans, p.ID)
 	r.pins++
 	s.mu.Unlock()
@@ -754,6 +781,7 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 	if err := saveJournal(tg.Dir, j); err != nil {
 		return "", fmt.Errorf("没能在服务器文件夹里建暂存区：%w", err)
 	}
+	defer s.setActive(txAbs(tg.Dir, id))()
 	abandon := func(cause error) (string, error) {
 		_ = os.RemoveAll(filepath.Join(txAbs(tg.Dir, id), stageSub))
 		j.State, j.Err = TxRolledBack, cause.Error()
@@ -791,7 +819,10 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 		}
 		t.Logf("正在停止服务器（等它自己保存退出，不会强制结束）…")
 		if err := s.M.StopAndWait(p.Inst, s.StopTimeout); err != nil {
-			return abandon(fmt.Errorf("服务器在 %v 内没有停下，导入已取消，没有替换任何文件。服务器会继续自己关闭，可以在控制台看情况", s.StopTimeout))
+			if errors.Is(err, inst.ErrStopTimeout) {
+				return abandon(fmt.Errorf("服务器在 %v 内没有停下，导入已取消，没有替换任何文件。服务器会继续自己关闭，可以在控制台看情况", s.StopTimeout))
+			}
+			return abandon(fmt.Errorf("没能停下服务器，导入已取消，没有替换任何文件：%w", err))
 		}
 	}
 	release, err := s.M.BeginWorldChange(p.Inst, "换地图")
@@ -912,6 +943,9 @@ func (s *Service) CheckCreatePlan(owner, planID string, core mcsrc.Core, mc stri
 	defer s.mu.Unlock()
 	if s.plans[planID] != p || s.claims[planID] != nil {
 		return fmt.Errorf("这份导入计划已经用过了，请重新检测")
+	}
+	if r.dropped { // 刚刚过期或被放弃，上传的文件可能已经删了
+		return fmt.Errorf("这次检测的结果已经过期，请重新选择地图")
 	}
 	delete(s.plans, planID)
 	r.pins++
@@ -1060,7 +1094,7 @@ func (s *Service) Status(name string) (*WorldStatus, error) {
 	}
 	// 读不出来的记录也列出来：它可能管着一份移到一半的世界，不能当它不存在
 	for _, b := range bad {
-		ws.Points = append(ws.Points, RestorePoint{ID: b.id, State: TxUnreadable, Err: b.err.Error(),
+		ws.Points = append(ws.Points, RestorePoint{ID: b.id, State: TxUnreadable, Err: noPath(b.err),
 			Stuck:    []string{txAbs(i.Dir, b.id)},
 			OldBytes: dirBytes(filepath.Join(txAbs(i.Dir, b.id), oldSub))})
 	}
@@ -1235,6 +1269,9 @@ func (s *Service) recoverInstance(i *inst.Instance, withCommit bool) {
 		case TxCommitted, TxRolledBack, TxRestored:
 			continue
 		case TxStaging, TxStaged:
+			if s.isActive(txAbs(i.Dir, j.ID)) { // 正在进行的导入（重试恢复时可能碰上），不是上次留下的
+				continue
+			}
 		default:
 			if !withCommit {
 				continue
@@ -1331,4 +1368,13 @@ func realOr(p string) string {
 		p = a
 	}
 	return strings.ToLower(filepath.Clean(p))
+}
+
+// noPath 错误说明里不带本机路径（读文件的错误会带上完整路径；「地图 / 世界」页也给局域网里的人看）。
+func noPath(err error) string {
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		return "记录文件打不开：" + pe.Err.Error()
+	}
+	return err.Error()
 }

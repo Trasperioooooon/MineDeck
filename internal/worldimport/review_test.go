@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"minedeck/internal/app"
 	"minedeck/internal/inst"
 	wt "minedeck/internal/worldimport/worldtest"
 )
@@ -280,5 +281,64 @@ func TestImportWithUncleanLevelName(t *testing.T) {
 	}
 	if got := e.marker("world/region/r.0.0.mca"); got != "MARK:minecraft:overworld:OLD" {
 		t.Fatalf("换回以后 = %s", got)
+	}
+}
+
+// 第 1 条的补充：记录文件在却读不了（这里用同名文件夹模拟被占用、没权限），也要封锁；
+// 给人看的说明里不带本机路径。
+func TestJournalReadErrorKeepsBlock(t *testing.T) {
+	e := newEnv(t, "")
+	if err := os.MkdirAll(filepath.Join(txAbs(e.dir, "wlock"), "journal.json"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m2, err := inst.NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m2.WorldBusy("生存服") == "" {
+		t.Fatal("加载时没有封锁")
+	}
+	s2 := NewService(m2)
+	s2.RecoverAll()
+	if m2.WorldBusy("生存服") == "" {
+		t.Fatal("读不了的记录还在，封锁却被解除了")
+	}
+	st, _ := s2.Status("生存服")
+	if len(st.Points) != 1 || st.Points[0].State != TxUnreadable {
+		t.Fatalf("points = %+v", st.Points)
+	}
+	if strings.Contains(strings.ToLower(st.Points[0].Err), strings.ToLower(filepath.Base(e.dir))+string(filepath.Separator)) ||
+		strings.Contains(st.Points[0].Err, app.Base) {
+		t.Fatalf("说明里带了本机路径：%s", st.Points[0].Err)
+	}
+}
+
+// 第 5 条在同一台服务器上的情况：一个导入还在复制（暂存在占位之外进行）时点「重试恢复」，
+// 不能把它的暂存区当成上次留下的清掉。
+func TestRetrySkipsActiveStaging(t *testing.T) {
+	e := newEnv(t, "")
+	id := "wlive"
+	stage := filepath.Join(txAbs(e.dir, id), stageSub)
+	write(t, stage, map[string]string{"world/level.dat": "复制到一半"})
+	if err := saveJournal(e.dir, &Journal{ID: id, Inst: "生存服", State: TxStaging, Created: time.Now(), LevelName: "world"}); err != nil {
+		t.Fatal(err)
+	}
+	done := e.s.setActive(txAbs(e.dir, id))
+	if err := e.s.Retry("生存服"); err != nil {
+		t.Fatal(err)
+	}
+	if !exists(filepath.Join(stage, "world", "level.dat")) {
+		t.Fatal("正在进行的导入的暂存区被清掉了")
+	}
+	if j, _ := loadJournal(e.dir, id); j.State != TxStaging {
+		t.Fatalf("state = %s", j.State)
+	}
+	done()
+	// 导入任务已经不在了（比如程序在复制时崩了又没重启）：照常清掉
+	if err := e.s.Retry("生存服"); err != nil {
+		t.Fatal(err)
+	}
+	if exists(stage) {
+		t.Fatal("没人用的暂存区没清掉")
 	}
 }
