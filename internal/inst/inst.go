@@ -4,6 +4,7 @@ package inst
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -49,7 +50,9 @@ type Instance struct {
 	userStop   bool   // 本次退出是否用户主动触发（区分崩溃）
 	startedAt  time.Time
 	crashCount int
-	runGen     int64 // 每次 Start 自增，用于让崩溃重启只作用于其对应的那次运行
+	runGen     int64  // 每次 Start 自增，用于让崩溃重启只作用于其对应的那次运行
+	killing    bool   // 这次运行是被强制结束的（Kill、停止超时）
+	lastExit   string // 上一次进程怎么结束的，见 LastExit
 
 	onlineMu sync.Mutex
 	online   map[string]bool
@@ -82,7 +85,11 @@ type Manager struct {
 	insts    map[string]*Instance
 	creating map[string]bool // 正在创建中的实例名（注册进 insts 前的占位，防并发/重复创建同名实例）
 	packing  map[string]bool // 正在打包交接包的实例名：这期间不能启动、删除，免得打出来的包里世界是写了一半的
-	Tasks    *tasks.Manager
+	// worldHold 正在换地图 / 还原备份的实例名 → 在做什么；worldBlock 有没走完的换地图记录的实例名 → 原因（见 worldhold.go）
+	worldHold   map[string]string
+	worldBlock  map[string]string
+	worldPlacer WorldPlacer
+	Tasks       *tasks.Manager
 
 	autoMu    sync.Mutex
 	autoHook  func(AutoAction)     // 定时任务、崩溃自动重启执行后的回调（操作层用它写操作记录）
@@ -116,6 +123,13 @@ func NewManager() (*Manager, error) {
 			return
 		}
 		m.insts[s.Name] = &Instance{Settings: s, Dir: dir, Console: newConsole()}
+		// 上次换地图没走完：先封住启动，等 worldimport 按记录处理完再放开（比调度器和任何启动入口都早）
+		if why := pendingWorldTx(dir); why != "" {
+			if m.worldBlock == nil {
+				m.worldBlock = map[string]string{}
+			}
+			m.worldBlock[s.Name] = why
+		}
 	}
 	// 多根扫描：内置默认根 + 配置默认根 + 历史自定义根（支持实例散落于不同盘符/目录）
 	for _, root := range app.InstanceRoots() {
@@ -205,6 +219,9 @@ func (m *Manager) Delete(name string, files bool) error {
 	}
 	if m.isPacking(name) { // 正在打包：读文件的在压成包，删掉目录会让它打出一个坏包
 		return fmt.Errorf("这台服务器正在打包，等打包完成后再删除或移出列表")
+	}
+	if why := m.WorldBusy(name); why != "" { // 换地图到一半：删掉目录会连恢复点一起删掉
+		return errors.New(why)
 	}
 	if i.Status() != "stopped" {
 		return fmt.Errorf("请先停止服务器再删除")

@@ -116,6 +116,8 @@ type Candidate struct {
 	Bytes       int64    `json:"bytes"`                 // 这张地图的总大小
 	Issues      []Issue  `json:"issues,omitempty"`      // 只和这张地图有关的检查结果
 	SourceHints []string `json:"sourceHints,omitempty"` // 来源包里和地图并列、不会导入的东西（mods/、plugins/、server.jar…）
+
+	players []string // 玩家文件的 UUID（文件名），不发给前端
 }
 
 // SourceRef 来源在哪里。Path 是主机上的路径，只在后端用，不发给前端和 AI。
@@ -230,11 +232,18 @@ type Journal struct {
 
 	OldOut []Step `json:"oldOut"` // 旧世界的目录：实例里的原位 → 恢复点
 	NewIn  []Step `json:"newIn"`  // 新世界的目录：暂存区 → 实例里的原位
+	// 换回导入前的地图时：当前的世界目录（导入的那份，可能已经被游戏改过）移到 after-restore/，恢复点里的旧世界搬回原位
+	CurOut []Step `json:"curOut,omitempty"`
+	OldIn  []Step `json:"oldIn,omitempty"`
 
 	PropsBefore map[string]string `json:"propsBefore,omitempty"` // 改了的设置原来的值（键不存在记为 nil 语义见实现）
 	PropsAfter  map[string]string `json:"propsAfter,omitempty"`
 
-	OldLevelSHA string `json:"oldLevelSha,omitempty"` // 旧主世界 level.dat 的 SHA-256：换回后核对
-	NewLevelSHA string `json:"newLevelSha,omitempty"`
-	Err         string `json:"error,omitempty"`
+	OldLevelSHA string   `json:"oldLevelSha,omitempty"` // 旧主世界 level.dat 的 SHA-256：换回后核对
+	NewLevelSHA string   `json:"newLevelSha,omitempty"`
+	OldBytes    int64    `json:"oldBytes,omitempty"` // 恢复点占的空间（移出时数的）
+	NewBytes    int64    `json:"newBytes,omitempty"`
+	LastExit    string   `json:"lastExit,omitempty"` // 换图前服务器上一次是怎么停的（killed 时旧图最后几分钟可能没存上）
+	Err         string   `json:"error,omitempty"`
+	Stuck       []string `json:"stuck,omitempty"` // 自动退不回去时，要人看的具体路径
 }
