@@ -174,13 +174,13 @@ AI 是可选的。不配置 AI，MineDeck 就不会连接任何 AI 服务。要�
 
 ```powershell
 $env:GOPROXY = 'https://goproxy.cn,direct'
-go build -trimpath -ldflags="-s -w -H windowsgui" -o MineDeck.exe .
+go build -trimpath -ldflags="-s -w -H windowsgui" -o MineDeck.exe ./cmd/minedeck
 ```
 
 带控制台日志的调试构建：
 
 ```powershell
-go build -o minedeck-cli.exe .
+go build -o minedeck-cli.exe ./cmd/minedeck
 .\minedeck-cli.exe -nogui
 ```
 
