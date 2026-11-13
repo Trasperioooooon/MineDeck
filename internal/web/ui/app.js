@@ -565,8 +565,9 @@ function paintThemeBtn() {
 })();
 
 /* 拖进窗口的文件和链接（3.1.1 起，只在窗口版）：没地方接的，页面自己接下来、标成「不能放」。
-   不接的话 WebView2 会把主窗口跳到拖进来的网页或文件上去，窗口版没有返回键，跳过去就回不来了。
-   dragover 时 dropEffect 设成 none：光标显示不能放，松手后浏览器不发 drop，也不跳转。
+   不接的话 WebView2 会另开一个自带的小窗把拖进来的网页或文件打开，和外部链接以前弹的是同一种窗口
+   （主窗口不动：3.1.1 发版前拿正式版 3.1.0 在真窗口里对照过）。
+   dragover 时 dropEffect 设成 none：浏览器按不能放处理，松手后不发 drop，也不另开窗口。
    接拖放的地方（待装清单的「从电脑添加」）自己先 preventDefault，这里不管；文字、链接拖进输入框照旧放得进去，文件不行。 */
 (function guardDrops() {
   if (typeof window.hostWinClose !== "function") return;

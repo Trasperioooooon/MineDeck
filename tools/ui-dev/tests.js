@@ -3517,10 +3517,11 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await c.close(); }
   });
 
-  // 用 CDP 的 Input.dispatchDragEvent 走浏览器真正的拖放流程。无头 Chromium 松手后本来就不跳转，看不出拦没拦住，
+  // 用 CDP 的 Input.dispatchDragEvent 走浏览器真正的拖放流程。无头 Chromium 松手后什么都不开，看不出拦没拦住，
   // 所以在 window 上（排在页面自己的处理后面）记下 dragover 有没有被页面接下、dropEffect 是什么、drop 有没有发出来：
-  // dropEffect 是 none 时浏览器不发 drop、也不跳转（WebView2 跳转就发生在没人接的 drop 上），光标显示「不能放」
-  await run("拖进窗口：原生窗口里没地方接的链接和文件，页面接下来、标成不能放（WebView2 就不会跳过去，窗口没有返回键）；输入框照旧能拖进文字；局域网浏览器里不管", async () => {
+  // dropEffect 是 none 时浏览器不发 drop，WebView2 也就不会另开小窗（没人接的拖放，它是另开一个窗口打开的，主窗口不动；
+  // 3.1.1 发版前拿正式版 3.1.0 在真窗口里对照过）
+  await run("拖进窗口：原生窗口里没地方接的链接和文件，页面接下来、标成不能放（WebView2 就不会另开小窗把它打开）；输入框照旧能拖进文字；局域网浏览器里不管", async () => {
     const LINK = [{ mimeType: "text/uri-list", data: "https://example.com/dropped" }, { mimeType: "text/plain", data: "https://example.com/dropped" }];
     const FILE = { items: [], files: [require("path").join(__dirname, "README.md")] };
     const open = async host => {
