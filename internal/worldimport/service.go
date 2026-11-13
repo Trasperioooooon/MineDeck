@@ -359,6 +359,19 @@ func (s *Service) evaluate(ctx context.Context, r *scanResult, info *candInfo, t
 				Detail: strings.Join(firstN(others, 8), "、")})
 		}
 	}
+	// 来源和要替换的世界是同一个位置（选了这台服务器自己的世界文件夹）：换的时候会把来源移进恢复点
+	if t.Dir != "" && r.Source.Kind == "folder" {
+		for _, root := range info.roots {
+			src := filepath.Join(r.Source.Path, filepath.FromSlash(root))
+			for _, n := range worldDirNames(t.LevelName) {
+				dst := filepath.Join(t.Dir, filepath.FromSlash(n))
+				if sameOrInside(src, dst) || sameOrInside(dst, src) {
+					p.Issues = append(p.Issues, Issue{Sev: SevBlock, Code: "source-is-target",
+						Msg: "选的地图就是这台服务器正在用的世界（或者在它里面），不能拿它替换它自己"})
+				}
+			}
+		}
+	}
 	// 空间：暂存一份新地图，加 256 MB 余量；旧世界是改名移走的，不再占一份
 	p.NeedBytes = c.Bytes + 256<<20
 	root := t.Dir
@@ -1019,35 +1032,49 @@ func (s *Service) DeletePoint(name, txID, confirm string) error {
 	return os.RemoveAll(txAbs(i.Dir, txID))
 }
 
-// RecoverAll 程序启动时调：处理每台服务器没走完的换地图记录，处理好了解除启动封锁。
+// RecoverAll 程序启动时调（在任何导入开始之前）：处理每台服务器没走完的换地图记录，处理好了解除启动封锁；
+// 暂存到一半就退出的（没碰目标世界，也没封锁启动），顺手把暂存区清掉。
 func (s *Service) RecoverAll() {
-	for name := range s.M.WorldBlocked() {
-		i, err := s.M.Get(name)
-		if err != nil {
-			continue
-		}
-		ok := true
-		for _, j := range listJournals(i.Dir) {
-			switch j.State {
-			case TxCommitted, TxRolledBack, TxRestored:
-				continue
-			}
-			if err := recoverTx(i.Dir, j); err != nil || j.State == TxStuck {
-				ok = false
-				i.Console.Append("[MineDeck] 上次换地图没有完成，自动恢复失败：" + errString(err) + "。服务器已暂停启动，所有文件都还在：" + txAbs(i.Dir, j.ID))
-				continue
-			}
-			i.Console.Append("[MineDeck] 上次换地图没有完成，已经恢复到之前的世界")
-		}
-		if ok {
-			s.M.SetWorldBlock(name, "")
-		} else {
-			s.M.SetWorldBlock(name, "上次换地图没能自动恢复，服务器已暂停启动。请到「地图 / 世界」里查看恢复步骤")
-		}
+	blocked := s.M.WorldBlocked()
+	for _, i := range s.M.List() {
+		_, isBlocked := blocked[i.Name]
+		s.recoverInstance(i, isBlocked)
 	}
 }
 
-// Retry 对卡住的记录再试一次自动恢复（界面「重试恢复」）。
+// recoverInstance 处理一台服务器的记录。withCommit 为假时只清暂存到一半的（这台没有封锁，说明没有切换到一半的）。
+func (s *Service) recoverInstance(i *inst.Instance, withCommit bool) {
+	ok := true
+	for _, j := range listJournals(i.Dir) {
+		switch j.State {
+		case TxCommitted, TxRolledBack, TxRestored:
+			continue
+		case TxStaging, TxStaged:
+		default:
+			if !withCommit {
+				continue
+			}
+		}
+		if err := recoverTx(i.Dir, j); err != nil || j.State == TxStuck {
+			ok = false
+			i.Console.Append("[MineDeck] 上次换地图没有完成，自动恢复失败：" + errString(err) + "。服务器已暂停启动，所有文件都还在：" + txAbs(i.Dir, j.ID))
+			continue
+		}
+		if j.State == TxRolledBack && withCommit {
+			i.Console.Append("[MineDeck] 上次换地图没有完成，已经恢复到之前的世界")
+		}
+	}
+	if !withCommit {
+		return
+	}
+	if ok {
+		s.M.SetWorldBlock(i.Name, "")
+	} else {
+		s.M.SetWorldBlock(i.Name, "上次换地图没能自动恢复，服务器已暂停启动。请到「地图 / 世界」里查看恢复步骤")
+	}
+}
+
+// Retry 对卡住的记录再试一次自动恢复（界面「重试恢复」）。只处理这一台：别的服务器上可能正有导入在暂存。
 func (s *Service) Retry(name string) error {
 	i, err := s.M.Get(name)
 	if err != nil {
@@ -1056,7 +1083,12 @@ func (s *Service) Retry(name string) error {
 	if i.Status() != "stopped" {
 		return fmt.Errorf("请先停止服务器")
 	}
-	s.RecoverAll()
+	release, err := s.M.BeginWorldChange(name, "恢复地图")
+	if err != nil {
+		return err
+	}
+	s.recoverInstance(i, true)
+	release()
 	if why := s.M.WorldBusy(name); why != "" {
 		return errors.New(why)
 	}
@@ -1097,3 +1129,20 @@ func SaveUpload(r io.Reader, limit int64) (string, error) {
 
 // ErrUploadTooLarge 上传超过上限。
 var ErrUploadTooLarge = errors.New("上传的文件太大")
+
+// sameOrInside a 是不是 b 本身或者在 b 里面（按真实路径、不分大小写比）。
+func sameOrInside(a, b string) bool {
+	ra, rb := realOr(a), realOr(b)
+	rel, err := filepath.Rel(rb, ra)
+	return err == nil && (rel == "." || filepath.IsLocal(rel))
+}
+
+func realOr(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		p = r
+	}
+	if a, err := filepath.Abs(p); err == nil {
+		p = a
+	}
+	return strings.ToLower(filepath.Clean(p))
+}

@@ -203,6 +203,29 @@ func TestStalePlan(t *testing.T) {
 	}
 }
 
+// 选了这台服务器自己的世界当来源：拦下。暂存到一半退出的，下次启动清掉暂存区、不封锁。
+func TestSourceIsTargetAndStagingLeftover(t *testing.T) {
+	e := newEnv(t, "")
+	if p := e.plan(filepath.Join(e.dir, "world")); !p.Blocked || !strings.Contains(strings.Join(codes(p.Issues), ","), "source-is-target") {
+		t.Fatalf("issues = %v", codes(p.Issues))
+	}
+	id := "wleft"
+	write(t, filepath.Join(txAbs(e.dir, id), stageSub), map[string]string{"world/level.dat": "half"})
+	if err := saveJournal(e.dir, &Journal{ID: id, State: TxStaging, LevelName: "world"}); err != nil {
+		t.Fatal(err)
+	}
+	e.s.RecoverAll()
+	if exists(filepath.Join(txAbs(e.dir, id), stageSub)) {
+		t.Fatal("暂存区没清掉")
+	}
+	if j, _ := loadJournal(e.dir, id); j.State != TxRolledBack {
+		t.Fatalf("state = %s", j.State)
+	}
+	if why := e.m.WorldBusy("生存服"); why != "" {
+		t.Fatalf("不该封锁：%s", why)
+	}
+}
+
 // 版本更新的地图拦下；代理端直接拒绝。
 func TestBlocks(t *testing.T) {
 	e := newEnv(t, "")
