@@ -445,7 +445,9 @@ func join(d, name string) string {
 func (r *scanResult) layoutOf(c *Candidate) Layout {
 	s, d := r.src, c.Root
 	if s.isDir(join(d, "dimensions/minecraft/overworld")) || s.isDir(join(d, "players")) && !s.isDir(join(d, "playerdata")) && !s.isDir(join(d, "region")) {
-		if s.isDir(join(d, "data/paper")) || r.anyFile(join(d, "dimensions/minecraft/overworld/data/minecraft"), sharedDataFiles) ||
+		// Paper 26.x：data/paper 和 paper-world.yml 在每个维度的目录里（实服 26.3 核对过），没有 uid.dat
+		if s.isDir(join(d, "data/paper")) || s.isDir(join(d, "dimensions/minecraft/overworld/data/paper")) ||
+			r.anyFile(join(d, "dimensions/minecraft/overworld/data/minecraft"), sharedDataFiles) ||
 			s.find(join(d, "dimensions/minecraft/overworld/paper-world.yml")) != nil {
 			return LayoutModernPaper
 		}

@@ -28,6 +28,7 @@ import (
 	"minedeck/internal/inst"
 	"minedeck/internal/java"
 	"minedeck/internal/mcsrc"
+	"minedeck/internal/procutil"
 	"minedeck/internal/worldimport"
 )
 
@@ -70,7 +71,9 @@ func main() {
 	legacy := flag.String("legacy", "1.21.4", "26.1 以前的测试版本（空 = 跳过）")
 	modern := flag.String("modern", "", "26.1 起的测试版本（空 = 跳过）")
 	flag.IntVar(&port, "port", 25611, "第一台测试服务器的端口")
+	suites := flag.String("suites", "legacy,modern,upgrade", "要跑哪几组（逗号分隔）：legacy、modern、upgrade（upgrade 要 legacy 和 modern 两个版本都给）")
 	flag.Parse()
+	want := func(s string) bool { return strings.Contains(","+*suites+",", ","+s+",") }
 
 	abs, err := filepath.Abs(*base)
 	must(err, "base")
@@ -92,17 +95,21 @@ func main() {
 	defer out.Close()
 	logf("==== 开始 base=%s legacy=%q modern=%q", abs, *legacy, *modern)
 
+	procutil.InitJob() // 和 MineDeck 一样：这个程序退出（包括中途 ABORT）时，它起的服务端一起结束
 	java.Scan()
 	mgr, err = inst.NewManager()
 	must(err, "NewManager")
 	svc = worldimport.NewService(mgr)
 	svc.RecoverAll()
 
-	if *legacy != "" {
+	if *legacy != "" && want("legacy") {
 		legacySuite(*legacy)
 	}
-	if *modern != "" {
+	if *modern != "" && want("modern") {
 		modernSuite(*modern)
+	}
+	if *legacy != "" && *modern != "" && want("upgrade") {
+		upgradeSuite(*legacy, *modern)
 	}
 	logf("==== 结束：%d 项失败", fail)
 	if fail > 0 {
@@ -218,6 +225,8 @@ var dims = []string{"minecraft:overworld", "minecraft:the_nether", "minecraft:th
 func mark(name string, blocks [3]string) {
 	for k, d := range dims {
 		run(name, "execute in "+d+" run forceload add 0 0", "Marked", "already", "forceloaded", "chunk")
+		// 已经是这种方块时 setblock 会报「Could not set the block」：放之前先清成空气，重跑同一个测试文件夹也能用
+		run(name, fmt.Sprintf("execute in %s run setblock 0 100 0 minecraft:air", d), "Changed the block", "Could not set")
 		got := run(name, fmt.Sprintf("execute in %s run setblock 0 100 0 %s", d, blocks[k]), "Changed the block", "Could not set")
 		if got == "" || strings.Contains(got, "Could not") {
 			must(fmt.Errorf("%s：%q", d, got), "mark "+name)
@@ -410,4 +419,49 @@ func modernSuite(mc string) {
 	start(v2)
 	verify(v2, oldVanilla, "原版 "+mc+" 换回导入前的地图")
 	stop(v2)
+}
+
+// upgradeSuite 旧版本的地图导入新版本的服务器（26.1 以前 → 26.1 起，要用户确认升级）：
+// 原版地图 → 原版、原版地图 → Paper（靠核心自己升级和迁移），Paper 三目录地图 → 原版、→ Paper
+// （导入时先按 Paper 文档摆成原版布局，再由核心升级）。要先跑过 legacy 和 modern 两组，服务器和标记都沿用。
+func upgradeSuite(oldMC, newMC string) {
+	logf("---- 升级 %s → %s", oldMC, newMC)
+	vOld := mustInst("V-" + oldMC).Dir
+	pOld := mustInst("P-" + oldMC).Dir
+	v2 := "V2-" + newMC
+	p := "P-" + newMC
+	copper := [3]string{"minecraft:copper_block", "minecraft:copper_block", "minecraft:copper_block"}
+
+	tx := importInto(v2, filepath.Join(vOld, "world"), "world")
+	start(v2)
+	verify(v2, srcBlocks, "原版 "+oldMC+" 地图升级进原版 "+newMC)
+	stop(v2)
+	restore(v2, tx)
+
+	tx = importInto(v2, pOld, "world")
+	start(v2)
+	verify(v2, oldPaper, "Paper "+oldMC+" 三目录地图升级进原版 "+newMC)
+	stop(v2)
+	restore(v2, tx)
+	start(v2)
+	verify(v2, oldVanilla, "原版 "+newMC+" 两次换回以后还是原来的地图")
+	stop(v2)
+
+	start(p)
+	mark(p, copper)
+	stop(p)
+	tx = importInto(p, filepath.Join(vOld, "world"), "world")
+	start(p)
+	verify(p, srcBlocks, "原版 "+oldMC+" 地图升级进 Paper "+newMC)
+	stop(p)
+	restore(p, tx)
+
+	tx = importInto(p, pOld, "world")
+	start(p)
+	verify(p, oldPaper, "Paper "+oldMC+" 三目录地图升级进 Paper "+newMC)
+	stop(p)
+	restore(p, tx)
+	start(p)
+	verify(p, copper, "Paper "+newMC+" 两次换回以后还是原来的地图")
+	stop(p)
 }

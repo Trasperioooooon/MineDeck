@@ -236,7 +236,7 @@ func (s *Service) targetOf(name string) (*Target, *inst.Instance, error) {
 	if mcsrc.KindOf(i.Core) == mcsrc.KindProxy {
 		return nil, nil, fmt.Errorf("「%s」是代理端（Velocity / Waterfall），它本身没有世界，不能导入地图。请把地图导入到它后面的游戏服务器", name)
 	}
-	t := &Target{Inst: name, Dir: i.Dir, Core: i.Core, MC: i.MC, LevelName: inst.LevelName(i.Dir), Props: map[string]string{}}
+	t := &Target{Inst: name, Dir: i.Dir, Core: i.Core, MC: i.MC, LevelName: inst.LevelName(i.Dir), Props: map[string]string{}, launch: i.LaunchTarget}
 	if b, err := os.ReadFile(i.PropsPath()); err == nil {
 		t.Props = inst.JavaProps(b)
 	}
@@ -473,6 +473,9 @@ func playerNotes(c *Candidate, t *Target) []Issue {
 			file = "playerdata/" + owner + ".dat"
 		}
 	}
+	if owner == "00000000-0000-0000-0000-000000000000" {
+		owner, file = "", "" // 迁移时找不到主人 UUID 会写成占位的 UUID，对应不上任何账号
+	}
 	if m.HasPlayerTag || m.SingleplayerUUID != "" {
 		base := "这是单人存档。世界和建筑会保留；单人角色身上的背包、经验、末影箱、位置能不能接上，要看主人用哪个账号进服。"
 		var how string
@@ -521,12 +524,16 @@ func playNotes(c *Candidate) []Issue {
 		is = append(is, Issue{Sev: SevWarn, Code: "resources-zip",
 			Msg: "地图带了资源包（resources.zip）。专用服务器不会把它自动发给玩家：要大家看到正确的材质，请把它放到一个大家都能下载的地址，在设置里填资源包地址，或者让每个人自己安装"})
 	}
-	if v, ok := c.Meta.gameRule("commandBlocksWork", "command_blocks_work"); ok && (v == "0" || v == "false") {
+	v, ok := c.Meta.gameRule("commandBlocksEnabled", "command_blocks_work")
+	if !ok {
+		v, ok = c.Meta.gameRule("commandBlocksWork", "command_blocks_work")
+	}
+	if ok && (v == "0" || v == "false") {
 		is = append(is, Issue{Sev: SevWarn, Code: "command-blocks-off",
 			Msg: "这张地图的游戏规则里关掉了命令方块（command_blocks_work）。如果地图靠命令方块运作，要在游戏里用 /gamerule 打开"})
 	} else if c.Meta.AllowCommands {
 		is = append(is, Issue{Sev: SevInfo, Code: "commands",
-			Msg: "地图允许使用命令。如果地图用到命令方块，要确认服务器允许命令方块运行：老版本在 server.properties 的 enable-command-block，1.21.11 起由游戏规则 command_blocks_work 管。MineDeck 不会自动改"})
+			Msg: "地图允许使用命令。如果地图用到命令方块，要确认服务器允许命令方块运行：老版本在 server.properties 的 enable-command-block，新版本 server.properties 里没有这一项，改由游戏规则管（1.21.11 起叫 command_blocks_work）。MineDeck 不会自动改"})
 	}
 	if len(c.Readme) > 0 {
 		is = append(is, Issue{Sev: SevInfo, Code: "readme",

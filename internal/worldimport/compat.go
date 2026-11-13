@@ -31,6 +31,7 @@ type Target struct {
 	LevelName string
 	Props     map[string]string // server.properties（按 Java 的读法）；新建时是将要写的值
 	jarWV     int32             // 目标核心 jar 里 version.json 的 world_version（读不到为 0）
+	launch    string            // 实例的启动方式（jar:… / args:…）
 }
 
 // coreFamily 核心属于哪一类：决定世界怎么摆、模组线索怎么比。
@@ -404,6 +405,20 @@ func worldRootChecks(t *Target) []Issue {
 					is = append(is, Issue{Sev: SevBlock, Code: "world-container",
 						Msg:    "这台服务器在 bukkit.yml 里把世界放到了别的文件夹（world-container），首版导入不支持这种摆法",
 						Detail: "settings.world-container: " + v})
+				}
+			}
+		}
+	}
+	// 启动参数文件（Forge / NeoForge 的 win_args.txt 这类）里改了世界根：原版认 --universe、--world，
+	// Bukkit 一类还认 -W、--world-dir、--world-container。MineDeck 自己启动时不加这些，有人手改过就拦下
+	if rest, ok := strings.CutPrefix(t.launch, "args:"); ok && rest != "" {
+		if b, err := os.ReadFile(filepath.Join(t.Dir, filepath.FromSlash(rest))); err == nil {
+			for _, f := range strings.Fields(string(b)) {
+				switch strings.ToLower(strings.SplitN(f, "=", 2)[0]) {
+				case "--universe", "--world", "-w", "--world-dir", "--world-container":
+					is = append(is, Issue{Sev: SevBlock, Code: "world-root-arg",
+						Msg:    "这台服务器的启动参数改了世界的位置，首版导入不支持这种摆法",
+						Detail: rest + "：" + f})
 				}
 			}
 		}

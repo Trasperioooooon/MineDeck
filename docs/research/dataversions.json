@@ -1,0 +1,366 @@
+[
+    {
+        "version": "1.12.2",
+        "dataVersion": 1343,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.13",
+        "dataVersion": 1519,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.13.1",
+        "dataVersion": 1628,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.13.2",
+        "dataVersion": 1631,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.14",
+        "dataVersion": 1952,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.14.1",
+        "dataVersion": 1957,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.14.2",
+        "dataVersion": 1963,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.14.3",
+        "dataVersion": 1968,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.14.4",
+        "dataVersion": 1976,
+        "source": "server jar version.json",
+        "checked": true,
+        "url": "https://piston-data.mojang.com/v1/objects/3dc3d84a581f14691199cf6831b71ed1296a9fdf/server.jar"
+    },
+    {
+        "version": "1.15",
+        "dataVersion": 2225,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.15.1",
+        "dataVersion": 2227,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.15.2",
+        "dataVersion": 2230,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.16",
+        "dataVersion": 2566,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.16.1",
+        "dataVersion": 2567,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.16.2",
+        "dataVersion": 2578,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.16.3",
+        "dataVersion": 2580,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.16.4",
+        "dataVersion": 2584,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.16.5",
+        "dataVersion": 2586,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.17",
+        "dataVersion": 2724,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.17.1",
+        "dataVersion": 2730,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.18",
+        "dataVersion": 2860,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.18.1",
+        "dataVersion": 2865,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.18.2",
+        "dataVersion": 2975,
+        "source": "server jar version.json",
+        "checked": true,
+        "url": "https://piston-data.mojang.com/v1/objects/c8f83c5655308435b3dcf03c06d9fe8740a77469/server.jar"
+    },
+    {
+        "version": "1.19",
+        "dataVersion": 3105,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.19.1",
+        "dataVersion": 3117,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.19.2",
+        "dataVersion": 3120,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.19.3",
+        "dataVersion": 3218,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.19.4",
+        "dataVersion": 3337,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.20",
+        "dataVersion": 3463,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.20.1",
+        "dataVersion": 3465,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.20.2",
+        "dataVersion": 3578,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.20.3",
+        "dataVersion": 3698,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.20.4",
+        "dataVersion": 3700,
+        "source": "server jar version.json",
+        "checked": true,
+        "url": "https://piston-data.mojang.com/v1/objects/8dd1a28015f51b1803213892b50b7b4fc76e594d/server.jar"
+    },
+    {
+        "version": "1.20.5",
+        "dataVersion": 3837,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.20.6",
+        "dataVersion": 3839,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.21",
+        "dataVersion": 3953,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.21.1",
+        "dataVersion": 3955,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.21.2",
+        "dataVersion": 4080,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.21.3",
+        "dataVersion": 4082,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.21.4",
+        "dataVersion": 4189,
+        "source": "server jar version.json",
+        "checked": true,
+        "url": "https://piston-data.mojang.com/v1/objects/4707d00eb834b446575d89a61a11b5d548d8c001/server.jar"
+    },
+    {
+        "version": "1.21.5",
+        "dataVersion": 4325,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.21.6",
+        "dataVersion": 4435,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.21.7",
+        "dataVersion": 4438,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.21.8",
+        "dataVersion": 4440,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.21.9",
+        "dataVersion": 4554,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.21.10",
+        "dataVersion": 4556,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "1.21.11",
+        "dataVersion": 4671,
+        "source": "server jar version.json",
+        "checked": true,
+        "url": "https://piston-data.mojang.com/v1/objects/64bb6d763bed0a9f1d632ec347938594144943ed/server.jar"
+    },
+    {
+        "version": "26.1",
+        "dataVersion": 4786,
+        "source": "server jar version.json",
+        "checked": true,
+        "url": "https://piston-data.mojang.com/v1/objects/3872a7f07a1a595e651aef8b058dfc2bb3772f46/server.jar"
+    },
+    {
+        "version": "26.1.1",
+        "dataVersion": 4788,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "26.1.2",
+        "dataVersion": 4790,
+        "source": "minecraft.wiki Data version (secondary)",
+        "checked": false,
+        "url": "https://minecraft.wiki/w/Data_version#List_of_data_versions"
+    },
+    {
+        "version": "26.2",
+        "dataVersion": 4903,
+        "source": "server jar version.json",
+        "checked": true,
+        "url": "https://piston-data.mojang.com/v1/objects/823e2250d24b3ddac457a60c92a6a941943fcd6a/server.jar"
+    },
+    {
+        "version": "26.3",
+        "dataVersion": 5023,
+        "source": "server jar version.json",
+        "checked": true,
+        "url": "https://piston-data.mojang.com/v1/objects/33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c/server.jar"
+    }
+]
