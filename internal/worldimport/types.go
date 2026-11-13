@@ -178,13 +178,13 @@ type Plan struct {
 	MC        string `json:"mc"`        // 目标 Minecraft 版本
 	LevelName string `json:"levelName"` // 目标实际生效的 level-name
 
-	Relation Relation      `json:"relation"`
-	Layout   Layout        `json:"layout"`  // 摆放后的布局
-	Moves    []Move        `json:"moves"`   // 暂存摆放
-	Replace  []string      `json:"replace"` // 目标里会被整体移进恢复点的目录（相对实例目录）
-	Missing  []string      `json:"missing,omitempty"`
+	Relation Relation        `json:"relation"`
+	Layout   Layout          `json:"layout"`  // 摆放后的布局
+	Moves    []Move          `json:"moves"`   // 暂存摆放
+	Replace  []string        `json:"replace"` // 目标里会被整体移进恢复点的目录（相对实例目录）
+	Missing  []string        `json:"missing,omitempty"`
 	Settings []SettingChange `json:"settings,omitempty"`
-	Issues   []Issue       `json:"issues"`
+	Issues   []Issue         `json:"issues"`
 
 	NeedBytes   int64 `json:"needBytes"`   // 暂存要多少空间
 	FreeBytes   int64 `json:"freeBytes"`   // 目标盘还剩多少
