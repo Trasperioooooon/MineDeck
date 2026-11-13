@@ -29,6 +29,12 @@ const WorldTxDir = ".minedeck/world-import"
 // worldTxDone 不用封锁启动的状态（和 worldimport 的 Tx* 常量一致）：已提交、已退回、已换回，以及还没碰目标世界的暂存。
 var worldTxDone = map[string]bool{"committed": true, "rolled-back": true, "restored": true, "staging": true, "staged": true}
 
+// worldTxPending 没走完、要封锁启动的状态。不在这两张表里的状态（包括空的）按记录坏了算。
+var worldTxPending = map[string]bool{"committing": true, "rolling-back": true, "restoring": true}
+
+// WorldTxUnreadable 有换地图的记录读不出来时封锁启动用的说明。
+const WorldTxUnreadable = "换地图的记录读不出来，为了不在半成品的世界上启动，已暂停启动。请到「地图 / 世界」里查看"
+
 // PendingWorldTx 实例目录里有没有没走完（或读不出来）的换地图记录；有的话返回给人看的原因。
 // staging / staged 不算：那时候还没碰目标世界，丢下不管也不影响服务器（暂存区由 worldimport 清理）。
 // 加载实例时据此封锁启动；worldimport 处理完记录以后也用它再看一遍盘上，没问题了才解除封锁。
@@ -46,18 +52,22 @@ func PendingWorldTx(dir string) string {
 			continue // 没有记录：还没开始（记录是建暂存区之前头一个写下的）
 		}
 		if err != nil { // 有记录却读不了（被占用、没权限）：不知道走到哪一步了，按没走完算
-			return "换地图的记录读不出来，为了不在半成品的世界上启动，已暂停启动。请到「地图 / 世界」里查看"
+			return WorldTxUnreadable
 		}
 		var j struct {
-			State string `json:"state"`
+			ID        string `json:"id"`
+			State     string `json:"state"`
+			LevelName string `json:"levelName"`
 		}
-		if json.Unmarshal(b, &j) != nil {
-			return "换地图的记录读不出来，为了不在半成品的世界上启动，已暂停启动。请到「地图 / 世界」里查看"
+		// 读得出来但内容对不上的（编号和文件夹不一致、世界名不安全、状态不认识）也是坏的：
+		// 里面的状态不可信，不能因为它写着「已提交」就放行。步骤里的路径由 worldimport 核对（见 Journal.validate）
+		if json.Unmarshal(b, &j) != nil || j.ID != e.Name() || !SafeLevelName(j.LevelName) || !worldTxDone[j.State] && !worldTxPending[j.State] && j.State != "stuck" {
+			return WorldTxUnreadable
 		}
 		if j.State == "stuck" {
 			return "上次换地图没能自动恢复，服务器已暂停启动。请到「地图 / 世界」里查看恢复步骤"
 		}
-		if !worldTxDone[j.State] {
+		if worldTxPending[j.State] {
 			return "上次换地图没有完成，正在恢复到换图前的世界，完成前不能启动"
 		}
 	}

@@ -92,21 +92,29 @@ func (s *Service) isActive(txDir string) bool {
 	return s.active[strings.ToLower(filepath.Clean(txDir))]
 }
 
-// unpin 一个任务用完了扫描结果；它已经过期或被放弃、又没有别的任务在用时，删掉上传的文件。
+// unpin 一个任务用完了扫描结果；它已经过期或被放弃、又没有别的任务在用时，从缓存里拿掉并删掉上传的文件。
 func (s *Service) unpin(r *scanResult) {
 	s.mu.Lock()
 	r.pins--
-	drop := r.pins <= 0 && r.dropped && r.Source.Uploaded
+	gone := r.pins <= 0 && r.dropped
+	if gone && s.scans[r.ID] == r {
+		delete(s.scans, r.ID)
+	}
 	s.mu.Unlock()
-	if drop {
+	if gone && r.Source.Uploaded {
 		_ = os.Remove(r.Source.Path)
 	}
 }
 
-// dropScanLocked 把扫描结果标成不要了；有任务在用时不删上传的文件（用完再删），返回现在就该删的文件。
-func dropScanLocked(r *scanResult) string {
+// dropScanLocked 把扫描结果标成不要了（getScan 从此找不到它）。有任务在用时留在缓存里、不删上传的文件，
+// 好让 sweep 认得出这个文件还在用，等最后一个任务用完由 unpin 收拾；没人用就现在拿掉，返回该删的文件。
+func (s *Service) dropScanLocked(r *scanResult) string {
 	r.dropped = true
-	if r.pins > 0 || !r.Source.Uploaded {
+	if r.pins > 0 {
+		return ""
+	}
+	delete(s.scans, r.ID)
+	if !r.Source.Uploaded {
 		return ""
 	}
 	return r.Source.Path
@@ -167,7 +175,7 @@ func (s *Service) getScan(owner, id string) (*scanResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r := s.scans[id]
-	if r == nil || r.Owner != owner {
+	if r == nil || r.Owner != owner || r.dropped {
 		return nil, fmt.Errorf("找不到这次检测的结果，可能已经过期，请重新选择地图")
 	}
 	if s.now().After(r.ExpiresAt) {
@@ -230,12 +238,11 @@ func (s *Service) sweep() {
 	now := s.now()
 	s.mu.Lock()
 	var drop []string
-	for id, r := range s.scans {
-		if now.After(r.ExpiresAt) {
-			if p := dropScanLocked(r); p != "" {
+	for _, r := range s.scans {
+		if now.After(r.ExpiresAt) && !r.dropped {
+			if p := s.dropScanLocked(r); p != "" {
 				drop = append(drop, p)
 			}
-			delete(s.scans, id)
 		}
 	}
 	for id, p := range s.plans {
@@ -250,14 +257,11 @@ func (s *Service) sweep() {
 			delete(s.claims, id)
 		}
 	}
-	inUse := map[string]bool{} // 正在用的上传文件：放久了也不删
+	inUse := map[string]bool{} // 正在用的上传文件（钉住的检测结果都还在缓存里，见 dropScanLocked）：放久了也不删
 	for _, r := range s.scans {
 		if r.pins > 0 {
 			inUse[strings.ToLower(filepath.Base(r.Source.Path))] = true
 		}
-	}
-	for _, c := range s.claims {
-		inUse[strings.ToLower(filepath.Base(c.r.Source.Path))] = true
 	}
 	s.mu.Unlock()
 	for _, c := range stale {
@@ -286,13 +290,12 @@ func (s *Service) Discard(owner, scanID string) {
 		s.mu.Unlock()
 		return
 	}
-	delete(s.scans, scanID)
 	for id, p := range s.plans {
 		if p.ScanID == scanID {
 			delete(s.plans, id)
 		}
 	}
-	drop := dropScanLocked(r) // 已经开始的导入、建服任务不受影响：上传的文件等它们用完再删
+	drop := s.dropScanLocked(r) // 已经开始的导入、建服任务不受影响：上传的文件等它们用完再删
 	s.mu.Unlock()
 	if drop != "" {
 		_ = os.Remove(drop)
@@ -380,6 +383,9 @@ func (s *Service) MakePlan(ctx context.Context, owner string, req PlanReq) (*Pla
 	p.ExpiresAt = p.CreatedAt.Add(planTTL)
 	s.mu.Lock()
 	s.plans[p.ID] = p
+	if r.ExpiresAt.Before(p.ExpiresAt) { // 计划不能比它用的检测结果活得久
+		r.ExpiresAt = p.ExpiresAt
+	}
 	s.mu.Unlock()
 	out := *p
 	return &out, nil
@@ -778,10 +784,10 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 	id := newID("w")
 	j := &Journal{ID: id, Inst: p.Inst, State: TxStaging, Created: s.now(), Source: r.Source.Name,
 		Candidate: candName(info.c), LevelName: tg.LevelName}
+	defer s.setActive(txAbs(tg.Dir, id))() // 记录落盘之前就登记：重试恢复看到这份记录时，它一定已经在册
 	if err := saveJournal(tg.Dir, j); err != nil {
 		return "", fmt.Errorf("没能在服务器文件夹里建暂存区：%w", err)
 	}
-	defer s.setActive(txAbs(tg.Dir, id))()
 	abandon := func(cause error) (string, error) {
 		_ = os.RemoveAll(filepath.Join(txAbs(tg.Dir, id), stageSub))
 		j.State, j.Err = TxRolledBack, cause.Error()
@@ -963,7 +969,7 @@ func (s *Service) ReleaseCreate(owner, planID string) {
 		return
 	}
 	delete(s.claims, planID)
-	if !c.used && !s.now().After(c.p.ExpiresAt) && !c.r.dropped {
+	if !c.used && !s.now().After(c.p.ExpiresAt) && !s.now().After(c.r.ExpiresAt) && !c.r.dropped {
 		s.plans[planID] = c.p
 	}
 	s.mu.Unlock()
@@ -1260,9 +1266,7 @@ func (s *Service) recoverInstance(i *inst.Instance, withCommit bool) {
 	ok := true
 	js, bad := listJournals(i.Dir)
 	for _, b := range bad {
-		if withCommit {
-			i.Console.Append("[MineDeck] 有一份换地图的记录读不出来（" + b.err.Error() + "），为了不在半成品的世界上启动，服务器已暂停启动。所有文件都还在：" + txAbs(i.Dir, b.id))
-		}
+		i.Console.Append("[MineDeck] 有一份换地图的记录读不出来（" + b.err.Error() + "），为了不在半成品的世界上启动，服务器已暂停启动。所有文件都还在：" + txAbs(i.Dir, b.id))
 	}
 	for _, j := range js {
 		switch j.State {
@@ -1286,15 +1290,18 @@ func (s *Service) recoverInstance(i *inst.Instance, withCommit bool) {
 			i.Console.Append("[MineDeck] 上次换地图没有完成，已经恢复到之前的世界")
 		}
 	}
-	if !withCommit {
-		return
-	}
-	if !ok {
+	switch {
+	case len(bad) > 0:
+		// 读不出来的记录不管写着什么状态都封锁（状态本身不可信）：加载实例时的检查只看得出一部分坏法，
+		// 步骤里的路径对不上这类要到这里才查得出来，所以没封锁的实例（withCommit 为假）也要在这里封上
+		s.M.SetWorldBlock(i.Name, inst.WorldTxUnreadable)
+	case !withCommit:
+	case !ok:
 		s.M.SetWorldBlock(i.Name, "上次换地图没能自动恢复，服务器已暂停启动。请到「地图 / 世界」里查看恢复步骤")
-		return
+	default:
+		// 处理完再按盘上的记录看一遍（和加载实例时设封锁的是同一个判断）：还没走完的还在，就不解除
+		s.M.SetWorldBlock(i.Name, inst.PendingWorldTx(i.Dir))
 	}
-	// 处理完再按盘上的记录看一遍（和加载实例时设封锁的是同一个判断）：读不出来的、还没走完的都还在，就不解除
-	s.M.SetWorldBlock(i.Name, inst.PendingWorldTx(i.Dir))
 }
 
 // Retry 对卡住的记录再试一次自动恢复（界面「重试恢复」）。只处理这一台：别的服务器上可能正有导入在暂存。

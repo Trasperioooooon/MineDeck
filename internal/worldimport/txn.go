@@ -102,6 +102,11 @@ func loadJournal(dir, id string) (*Journal, error) {
 // validate 记录里的每个路径都只能是这台服务器的世界目录、或者这次事务自己的目录：记录虽然在控制目录里，
 // 也不拿它里面的路径去改别处的东西。
 func (j *Journal) validate() error {
+	switch j.State {
+	case TxStaging, TxStaged, TxCommitting, TxCommitted, TxRollingBack, TxRolledBack, TxRestoring, TxRestored, TxStuck:
+	default:
+		return fmt.Errorf("记录里的状态不认识：%q", j.State)
+	}
 	if !inst.SafeLevelName(j.LevelName) {
 		return fmt.Errorf("记录里的世界名不安全：%q", j.LevelName)
 	}

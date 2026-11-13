@@ -17,27 +17,35 @@ import (
 
 // 第 1 条：记录读不出来（文件坏了，或者内容通不过核对）时，启动时的恢复不能把启动封锁解掉，
 // 「地图 / 世界」页也要把它列出来。
+// 复审第二轮（对 4a0ae14）补的：写着「已提交」的坏记录也要封锁，封锁的说明要说记录读不出来，不是「正在恢复」。
 func TestUnreadableJournalKeepsBlock(t *testing.T) {
-	for name, body := range map[string]string{
-		"坏的 JSON":   `{"id":"wbad","state":"committ`,
-		"路径对不上":     `{"id":"wbad","state":"committing","levelName":"world","oldOut":[{"from":"world","to":"../../elsewhere"}]}`,
-		"编号对不上":     `{"id":"wother","state":"committing","levelName":"world"}`,
-		"世界名在控制目录里": `{"id":"wbad","state":"rolling-back","levelName":".minedeck"}`,
+	for _, c := range []struct {
+		name, body string
+		loadBlocks bool // 加载实例时就封上（步骤路径要 worldimport 才查得出来，那种在启动恢复时封）
+	}{
+		{"坏的 JSON", `{"id":"wbad","state":"committ`, true},
+		{"路径对不上", `{"id":"wbad","state":"committing","levelName":"world","oldOut":[{"from":"world","to":"../../elsewhere"}]}`, true},
+		{"编号对不上", `{"id":"wother","state":"committing","levelName":"world"}`, true},
+		{"世界名在控制目录里", `{"id":"wbad","state":"rolling-back","levelName":".minedeck"}`, true},
+		{"写着已提交但编号对不上", `{"id":"wother","state":"committed","levelName":"world"}`, true},
+		{"写着暂存但世界名不安全", `{"id":"wbad","state":"staged","levelName":"../other"}`, true},
+		{"状态不认识", `{"id":"wbad","state":"","levelName":"world"}`, true},
+		{"写着已提交但路径对不上", `{"id":"wbad","state":"committed","levelName":"world","oldOut":[{"from":"world","to":"../../elsewhere"}]}`, false},
 	} {
-		t.Run(name, func(t *testing.T) {
+		t.Run(c.name, func(t *testing.T) {
 			e := newEnv(t, "")
-			write(t, txAbs(e.dir, "wbad"), map[string]string{"journal.json": body, "old/world/level.dat": "旧世界的一部分"})
+			write(t, txAbs(e.dir, "wbad"), map[string]string{"journal.json": c.body, "old/world/level.dat": "旧世界的一部分"})
 			m2, err := inst.NewManager()
 			if err != nil {
 				t.Fatal(err)
 			}
-			if m2.WorldBusy("生存服") == "" {
+			if c.loadBlocks && m2.WorldBusy("生存服") == "" {
 				t.Fatal("加载时没有封锁")
 			}
 			s2 := NewService(m2)
 			s2.RecoverAll()
-			if why := m2.WorldBusy("生存服"); why == "" {
-				t.Fatal("读不出来的记录还在，封锁却被解除了")
+			if why := m2.WorldBusy("生存服"); !strings.Contains(why, "读不出来") {
+				t.Fatalf("读不出来的记录还在，封锁是 %q", why)
 			}
 			if err := m2.Start("生存服"); err == nil {
 				t.Fatal("封锁时还能启动")
@@ -49,8 +57,8 @@ func TestUnreadableJournalKeepsBlock(t *testing.T) {
 			if len(st.Points) != 1 || st.Points[0].State != TxUnreadable || st.Points[0].CanReturn || len(st.Points[0].Stuck) != 1 {
 				t.Fatalf("points = %+v", st.Points)
 			}
-			if err := s2.Retry("生存服"); err == nil {
-				t.Fatal("重试以后也不该解除")
+			if err := s2.Retry("生存服"); err == nil || !strings.Contains(err.Error(), "读不出来") {
+				t.Fatalf("重试以后也不该解除：%v", err)
 			}
 			if !exists(filepath.Join(txAbs(e.dir, "wbad"), "old", "world", "level.dat")) {
 				t.Fatal("恢复点里的文件被动了")
@@ -105,14 +113,22 @@ func (e *env) importFolder(tag string) string {
 
 func (e *env) restore(txID string) error {
 	e.t.Helper()
+	_, err := e.restoreRes(txID)
+	return err
+}
+
+// restoreRes 换回并返回任务结果（给人看的那句话）。
+func (e *env) restoreRes(txID string) (string, error) {
+	e.t.Helper()
 	id, err := e.s.Restore("生存服", txID, "restore")
 	if err != nil {
-		return err
+		return "", err
 	}
-	if _, msg := e.wait(id); msg != "" {
+	res, msg := e.wait(id)
+	if msg != "" {
 		e.t.Fatal(msg)
 	}
-	return nil
+	return res, nil
 }
 
 func canReturn(st *WorldStatus) map[string]bool {
@@ -140,8 +156,12 @@ func TestRestoreLIFO(t *testing.T) {
 	if _, err := e.s.Restore("生存服", w1, "restore"); err == nil || !strings.Contains(err.Error(), "最近") {
 		t.Fatalf("乱序换回：%v", err)
 	}
-	if err := e.restore(w2); err != nil {
+	res, err := e.restoreRes(w2)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if !strings.Contains(res, "核对一致") { // 旧世界有 level.dat，核对过
+		t.Fatalf("换回的提示 = %q", res)
 	}
 	if got := e.marker("world/region/r.0.0.mca"); got != "MARK:minecraft:overworld:A" {
 		t.Fatalf("换回最近一次以后 = %s", got)
@@ -340,5 +360,88 @@ func TestRetrySkipsActiveStaging(t *testing.T) {
 	}
 	if exists(stage) {
 		t.Fatal("没人用的暂存区没清掉")
+	}
+}
+
+// 第 9 条后半：导入前的旧世界没有 level.dat（没核对可核），换回的提示不能说核对一致。
+func TestRestoreMessageWithoutLevelDat(t *testing.T) {
+	e := newEnv(t, "")
+	if err := os.Remove(filepath.Join(e.dir, "world", "level.dat")); err != nil {
+		t.Fatal(err)
+	}
+	w := e.importFolder("A")
+	res, err := e.restoreRes(w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(res, "核对") || !strings.Contains(res, "已经换回") {
+		t.Fatalf("换回的提示 = %q", res)
+	}
+	if got := e.marker("world/region/r.0.0.mca"); got != "MARK:minecraft:overworld:OLD" {
+		t.Fatalf("换回以后 = %s", got)
+	}
+}
+
+// 复审第二轮 3.1：替换地图的任务钉着检测结果时用户放弃了检测，它过期很久、文件也放了很久，
+// 都不能删上传的文件；任务结束再删。计划不能比它用的检测结果活得久。
+func TestPinnedUploadSurvivesSweep(t *testing.T) {
+	e := newEnv(t, "")
+	src := filepath.Join(e.tmp, "m")
+	if err := wt.Legacy(src, wt.WorldOpts{Level: lv("1.20.4", 3700), Tag: "NEW", Overworld: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(UploadDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	up := filepath.Join(UploadDir(), "u2.upload")
+	if err := wt.ZipTree(up, src, "", wt.ZipOpts{}); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now()
+	e.s.now = func() time.Time { return base }
+	sc, err := e.s.ScanUpload(me, up, "map.zip")
+	if err != nil || len(sc.Candidates) != 1 {
+		t.Fatalf("scan: %v", err)
+	}
+
+	// 快过期时做的计划会把检测结果的有效期顺延到计划过期
+	e.s.now = func() time.Time { return base.Add(scanTTL - 10*time.Minute) }
+	p, err := e.s.MakePlan(context.Background(), me, PlanReq{ScanID: sc.ID, Candidate: sc.Candidates[0].ID, Inst: "生存服"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.s.now = func() time.Time { return base.Add(scanTTL + 10*time.Minute) }
+	if _, err := e.s.getScan(me, sc.ID); err != nil {
+		t.Fatalf("计划还没过期，检测结果先过期了：%v", err)
+	}
+	_ = p
+
+	// 模拟一个正在跑的替换任务钉着它（Execute 里的 r.pins++），然后用户放弃检测
+	e.s.mu.Lock()
+	r := e.s.scans[sc.ID]
+	r.pins++
+	e.s.mu.Unlock()
+	e.s.Discard(me, sc.ID)
+	if _, err := e.s.getScan(me, sc.ID); err == nil {
+		t.Fatal("放弃以后还能用这次检测")
+	}
+	old := base.Add(-5 * time.Hour)
+	if err := os.Chtimes(up, old, old); err != nil {
+		t.Fatal(err)
+	}
+	e.s.now = func() time.Time { return base.Add(5 * time.Hour) }
+	e.s.sweep()
+	if !exists(up) {
+		t.Fatal("任务还在用，上传的文件被删了")
+	}
+	e.s.unpin(r)
+	if exists(up) {
+		t.Fatal("任务结束、检测已放弃，上传的文件应该删掉")
+	}
+	e.s.mu.Lock()
+	_, still := e.s.scans[sc.ID]
+	e.s.mu.Unlock()
+	if still {
+		t.Fatal("检测结果没从缓存里拿掉")
 	}
 }

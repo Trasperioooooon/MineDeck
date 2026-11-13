@@ -286,19 +286,21 @@ func TestRestoreFaultKeepsImported(t *testing.T) {
 
 func TestJournalValidate(t *testing.T) {
 	bad := []Journal{
-		{ID: "x", LevelName: "../evil"},
-		{ID: "x", LevelName: "world", OldOut: []Step{{From: "plugins", To: txRel("x") + "/old/plugins"}}},
-		{ID: "x", LevelName: "world", OldOut: []Step{{From: "world", To: "../elsewhere"}}},
-		{ID: "x", LevelName: "world", NewIn: []Step{{From: txRel("y") + "/new/world", To: "world"}}},
-		{ID: "x", LevelName: "world", NewIn: []Step{{From: txRel("x") + "/new/../../../world", To: "world"}}},
-		{ID: "x", LevelName: "world", NewIn: []Step{{From: `C:/Windows`, To: "world"}}},
+		{ID: "x", State: TxCommitting, LevelName: "../evil"},
+		{ID: "x", State: TxCommitting, LevelName: "world", OldOut: []Step{{From: "plugins", To: txRel("x") + "/old/plugins"}}},
+		{ID: "x", State: TxCommitting, LevelName: "world", OldOut: []Step{{From: "world", To: "../elsewhere"}}},
+		{ID: "x", State: TxCommitting, LevelName: "world", NewIn: []Step{{From: txRel("y") + "/new/world", To: "world"}}},
+		{ID: "x", State: TxCommitting, LevelName: "world", NewIn: []Step{{From: txRel("x") + "/new/../../../world", To: "world"}}},
+		{ID: "x", State: TxCommitting, LevelName: "world", NewIn: []Step{{From: `C:/Windows`, To: "world"}}},
+		{ID: "x", State: "done", LevelName: "world"},
+		{ID: "x", LevelName: "world"},
 	}
 	for k, j := range bad {
 		if err := j.validate(); err == nil {
 			t.Errorf("case %d 应该被拒绝", k)
 		}
 	}
-	good := Journal{ID: "x", LevelName: "worlds/main", OldOut: []Step{{From: "worlds/main", To: txRel("x") + "/old/worlds/main"}}}
+	good := Journal{ID: "x", State: TxCommitting, LevelName: "worlds/main", OldOut: []Step{{From: "worlds/main", To: txRel("x") + "/old/worlds/main"}}}
 	if err := good.validate(); err != nil {
 		t.Fatal(err)
 	}
