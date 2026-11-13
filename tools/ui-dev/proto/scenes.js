@@ -165,6 +165,21 @@ add("create", "n-adopt-scan", "接管已有服务器：识别出来了", {
   hash: "#/create/adopt", steps: [{ fill: "#ad-dir", value: "E:\\MCServers\\create-pack" }, { click: "#ad-scan" }],
 });
 add("create", "n-create-min", "入口：最小窗口下", { view: "min", hash: "#/create" });
+// 用已有地图开服：仿真后端的地图是按来源的名字装样子的（见 ../server.js「地图导入」一节），「选择地图文件夹」选到的那个是一张 1.19.4 的冒险地图
+const wizMap = [{ click: "#wi-wiz-pick" }, { click: "#wi-browse" }, { wait: "#wi-wiz-chosen" }];
+add("create", "n-world", "从零创建：第一步的「用已有地图开服」", {
+  hash: "#/create/new", tag: "new", note: "步骤条下面多了一条。点进去选地图文件夹（这台电脑上）或者上传 ZIP；别的设备上只有上传。",
+  steps: [{ click: "#wi-wiz-pick" }, { wait: "#wi-upload" }],
+});
+add("create", "n-world-chosen", "从零创建：选好了地图，核心和版本按地图预选", {
+  hash: "#/create/new", tag: "new", note: "核心按存档里的线索预选（这张没有线索，预选原版），版本预选地图保存的 1.19.4，不是最新版。两样都可以改；「换一张」「不用地图」在那一条的右边。",
+  steps: [...wizMap, { click: "#wnext" }, { wait: ".ver-item.sel" }],
+});
+add("create", "n-world-final", "从零创建：最后一步核对这张地图", {
+  hash: "#/create/new", tag: "new", note: "换成 Paper 1.21.4 以后地图比服务器旧，要勾「我已了解上面需要确认的事项」才能创建；被标红拦下时创建键点了也不发请求。难度和默认模式不替人改，点「按地图的填」才改。",
+  steps: [...wizMap, { click: '.core-card[data-id="paper"]' }, { click: "#wnext" }, { wait: ".ver-item.sel" }, { click: '.ver-item[data-id="1.21.4"]' }, { click: "#wnext" },
+    { wait: "#build-list .ver-item" }, { click: "#wnext" }, { wait: "#wiz-mod-body" }, { click: "#wnext" }, { wait: "#wi-wiz-plan #wi-rel" }, { scroll: "#main", to: "bottom" }],
+});
 
 // ==================== 部署与后台任务 ====================
 add("task", "t-running", "部署中", { hash: "#/task/task-1", setup: s => { s.taskStage = 2; } });
@@ -182,6 +197,45 @@ for (const i of INSTANCES) {
 add("detail", "d-players", "玩家：在线、白名单、管理员、封禁", { hash: `#/inst/${enc("周末活动服")}/players` });
 add("detail", "d-backups", "备份", { hash: `#/inst/${enc("生存服 · 朋友")}/backups` });
 add("detail", "d-backups-empty", "备份：一份都没有", { hash: `#/inst/${enc("Banner 试验场")}/backups` });
+add("detail", "d-world", "地图：当前世界和恢复点", {
+  hash: `#/inst/${enc("机械动力整合包")}/world`, tag: "new",
+  note: "四条恢复点各是一种情况：最近一次导入（能换回）、更早的一次（要先换回最近那次才轮得到它）、已经换回（导入的那份留在旁边）的、中途取消没生效的。同一时间只有一条有「恢复导入前的地图」。换回和删除都要过确认框。",
+});
+add("detail", "d-world-plan", "地图：导入前的核对页", {
+  hash: `#/inst/${enc("生存服 · 朋友")}/world`, tag: "new",
+  note: "最要紧的一屏：版本关系、要确认的事（只有一个勾选框）、地图里有什么、会换掉什么、可以一起改的设置（默认都不勾）、说明书。服务器开着，所以底下还有「停服并导入」。",
+  steps: [{ click: "#wi-start" }, { click: "#wi-browse" }, { wait: "#wi-go" }],
+});
+add("detail", "d-world-cands", "地图：一个压缩包里有三张地图", {
+  hash: `#/inst/${enc("机械动力整合包")}/world`, tag: "new", note: "列出来让人选，不替人挑第一张；level.dat 读不出来的那张选不了。",
+  steps: [{ click: "#wi-start" }, { fill: "#wi-path", value: "D:\\Maps\\multi-pack.zip" }, { click: "#wi-scan" }, { wait: "[data-wi-pick]" }],
+});
+add("detail", "d-world-reject", "地图：选到的是基岩版世界", {
+  hash: `#/inst/${enc("机械动力整合包")}/world`, tag: "new", note: "不是能导入的 Java 版世界时，原因摆在最前面，到此为止。蓝图、资源包、整合包、RAR 也是这个样子。",
+  steps: [{ click: "#wi-start" }, { fill: "#wi-path", value: "D:\\Maps\\bedrock-world" }, { click: "#wi-scan" }, { wait: "#wi-reject" }],
+});
+add("detail", "d-world-stuck", "地图：上次换地图卡住了", {
+  hash: `#/inst/${enc("机械动力整合包")}/world`, tag: "new", note: "自动恢复没成功时服务器暂停启动。页面顶上写原因和要看的文件夹，处理完点「重试恢复」。",
+  setup: s => {
+    s.world.insts["机械动力整合包"] = { levelName: "world", busy: "上次换地图没能自动恢复，服务器已暂停启动。请到「地图 / 世界」里查看恢复步骤",
+      points: [{ id: "w9aa10001", state: "stuck", created: "2026-11-12T20:10:00+08:00", source: "SkyCity.zip", candidate: "天空之城", levelName: "world", hasOld: true, oldBytes: 5e8, keptBytes: 0, canReturn: false,
+        error: "rename world: Access is denied.", stuck: ["D:\\MineDeck\\servers\\create-pack\\world", "D:\\MineDeck\\servers\\create-pack\\.minedeck\\world-import\\w9aa10001\\old\\world"] }] };
+  },
+});
+add("detail", "d-world-unreadable", "地图：有一份换地图的记录读不出来", {
+  hash: `#/inst/${enc("机械动力整合包")}/world`, tag: "new", note: "记录文件坏了的时候服务器暂停启动。这一条按「要人处理」显示：写明原因和它所在的文件夹，没有换回和删除键；它还在的时候「重试恢复」会一直报错。",
+  setup: s => {
+    s.world.insts["机械动力整合包"] = { levelName: "world", busy: "换地图的记录读不出来，为了不在半成品的世界上启动，已暂停启动。请到「地图 / 世界」里查看",
+      points: [{ id: "w7f3a9c21", state: "committed", created: "2026-11-10T21:14:05+08:00", source: "SkyCity.zip", candidate: "天空之城", levelName: "world", hasOld: true, oldBytes: 1286 * 1024 * 1024, keptBytes: 0 },
+        { id: "w0bad0001", state: "unreadable", created: "0001-01-01T00:00:00Z", source: "", candidate: "", levelName: "", hasOld: false, oldBytes: 5e8, keptBytes: 0,
+          error: "unexpected end of JSON input", stuck: ["D:\\MineDeck\\servers\\create-pack\\.minedeck\\world-import\\w0bad0001"] }] };
+  },
+});
+add("detail", "d-world-phone", "地图：手机上（只能上传 ZIP）", {
+  view: "phone", hash: `#/inst/${enc("机械动力整合包")}/world`, tag: "new",
+  setup: s => { s.local = false; },
+  steps: [{ click: "#wi-start" }, { wait: "#wi-upload" }],
+});
 add("detail", "d-sched", "定时任务", { hash: `#/inst/${enc("生存服 · 朋友")}/tasks` });
 add("detail", "d-res", "资源（搜到就装）", { hash: `#/inst/${enc("生存服 · 朋友")}/res`, steps: [{ click: "#res-go" }] });
 add("detail", "d-cart", "待装清单：加了一项并检查前置", {

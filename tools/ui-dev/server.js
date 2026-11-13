@@ -75,6 +75,7 @@ function newState(ui) {
     asst: newAsstState(), // 第三阶段：应用内 AI 助手
     mcp: newMcpState(), // MCP 接口
     modcart: newModCartState(), // 自选模组 + 购物车（草稿车 + 各实例的车）
+    world: newWorldState(), // 地图导入：检测结果、导入计划、任务、各服务器的恢复点
   };
   state.props = catalog(ui).map(p => ({ key: p.key, value: p.key === "motd" ? "§a生存服 §7· §e一起来玩！" : String(p.def ?? "") }));
   // 同 instance.list 的 javaSource / javaPath / adopted：都用 MineDeck 下载的便携版 Java，都不是接管进来的
@@ -1400,6 +1401,330 @@ async function modcartHandler(state, req, res, p, m, u) {
 const VERSIONS = ["26.2", "26.1", "1.21.4", "1.21.3", "1.21.1", "1.21", "1.20.6", "1.20.4", "1.20.2", "1.20.1", "1.19.4", "1.19.2", "1.18.2", "1.17.1", "1.16.5", "1.12.2"];
 const SNAPS = ["26.3-snapshot-2", "26.3-snapshot-1", "26.2-rc1"];
 
+// ---------- 地图导入（仿 internal/worldimport 与 internal/web/worldimport.go，界面在 worldimport.js）----------
+// 来源是按名字装样子的（本机路径的最后一段，或者上传的文件名），不分大小写：
+//   带 bedrock 或以 .mcworld 结尾 → 基岩版；.rar / .7z → 读不了的压缩包；带 schem → 建筑蓝图；带 resource → 资源包；
+//   带 modpack 或以 .mrpack 结尾 → 整合包；带 missing → 找不到这个文件夹（这几种都不能导入，只给原因）；
+//   带 multi → 一个来源里三张地图（其中一张 level.dat 读不出来）；带 newer → 26.2 保存的地图（比多数服务器新，计划里被拦下）；
+//   带 1193 → 1.19.3 保存的（版本列表里没有这个版本）；带 forge → 用过 Forge 模组的世界；带 plain → 1.20.1 的纯原版世界，没有说明书和资源包；
+//   带 xss → 地图名和说明书里夹着一段 HTML（看界面是不是只当文字）；其余 → 「天空之城」，1.19.4 保存的冒险地图
+// 计划按 VERSIONS 里的先后比新旧：地图更新 = 拦下，更旧 = 要确认，不在表里 = 版本不明、要确认；
+//   单人存档、资源包各给一条提醒；难度和默认模式跟服务器不一样时给设置建议；服务器没停时 mustStop。
+// 任务（kind "world"）按查询次数往前走：导入查到第 5 次结束（前两次在「复制地图到暂存区」，这时取消才有用），换回旧地图第 3 次结束。
+// /__mock/state 的 world：{ reset: true 回到初始数据, quick: true 任务第 2 次查询就结束, free: 目标盘剩下多少字节,
+//   scanFail / planFail / importFail: 这一步直接报这句错, taskFail: 任务最后以这句话失败, dropPlans: true 存着的计划全部作废（同过期）,
+//   createFail: 新建服务器的请求在收下计划以后报这句错（同重名：计划放回去，改好还能用同一份）,
+//   inst: { 服务器名: { busy, levelName, noWorld, retryFail, points: [...] } } 直接改某台服务器的世界状态
+//     （points 里 state "unreadable" 是记录读不出来的：只有 id、error、stuck、oldBytes；有它在「重试恢复」一直失败）}；
+//   响应里的 world.lastScan / lastPlan / lastImport / lastRestore / lastDelete / lastCreate 是上一次对应的请求，
+//   world.discards 是放弃过的检测编号，world.cancels 是取消过的任务，world.retries 是点过「重试恢复」的服务器
+const W_MB = 1024 ** 2, W_GB = 1024 ** 3;
+let worldSeq = 0; // 检测、计划、任务、恢复点的编号：整个进程里只增不减，场景之间重置数据也不会撞号
+const worldId = prefix => prefix + (0x5a31c0 + (++worldSeq) * 0x1f3d).toString(16);
+const WORLD_IMPORT_STEPS = ["核对地图和服务器", "复制地图到暂存区", "停服并占用这台服务器", "换上新地图", "完成"];
+const WORLD_RESTORE_STEPS = ["占用这台服务器", "换回旧地图", "核对"];
+const WORLD_LOCAL_MSG = "选本机的地图文件夹只能在这台电脑上操作；在别的设备上请上传地图的 ZIP 压缩包";
+const WORLD_BUKKIT = new Set(["paper", "purpur", "leaves", "folia", "mohist", "banner"]); // 旧版本里世界分三个文件夹的核心
+const WORLD_XSS = `<img src=x onerror="window.__wixss=1">`;
+// 初始数据里只有「机械动力整合包」导入过地图（新的在前）：最近一次，能换回；更早的一次，要先换回最近那次才轮得到它；
+// 一次已经换回、导入的那份留在旁边的；一次中途取消没生效的。canReturn 不存在这里，查的时候现算（见 worldCanReturn）
+const WORLD_POINTS = {
+  "机械动力整合包": [
+    { id: "w7f3a9c21", state: "committed", created: "2026-11-10T21:14:05+08:00", source: "SkyCity.zip", candidate: "天空之城", levelName: "world", hasOld: true, oldBytes: 1286 * W_MB, keptBytes: 0 },
+    { id: "w6e2b8d10", state: "committed", created: "2026-11-06T20:02:31+08:00", source: "oneblock", candidate: "单方块空岛", levelName: "world", hasOld: true, oldBytes: 96 * W_MB, keptBytes: 0 },
+    { id: "w51b0e77a", state: "restored", created: "2026-11-02T19:40:12+08:00", source: "old-survival", candidate: "三年老存档", levelName: "world", hasOld: false, oldBytes: 0, keptBytes: 640 * W_MB, canReturn: false },
+    { id: "w3c9d1e02", state: "rolled-back", created: "2026-10-30T22:03:48+08:00", source: "parkour-pack.zip", candidate: "跑酷合集", levelName: "world", hasOld: false, oldBytes: 0, keptBytes: 0, canReturn: false, error: "已取消，没有替换任何文件" },
+  ],
+};
+function newWorldState() {
+  return { scans: {}, plans: {}, tasks: {}, insts: {}, quick: false, free: 118 * W_GB, scanFail: "", planFail: "", importFail: "", taskFail: "", createFail: "",
+    lastScan: null, lastPlan: null, lastImport: null, lastRestore: null, lastDelete: null, lastCreate: null, discards: [], cancels: [], retries: [] };
+}
+function worldMockState(state, b) {
+  if (b.reset) state.world = newWorldState();
+  const w = state.world;
+  for (const k of ["quick", "free", "scanFail", "planFail", "importFail", "taskFail", "createFail"]) if (k in b) w[k] = b[k];
+  if (b.dropPlans) w.plans = {}; // 存着的计划全部作废（同计划过期）
+  for (const [name, patch] of Object.entries(b.inst || {})) Object.assign(worldInst(state, name), patch);
+}
+// 一台服务器的世界状态（同 worldimport.WorldStatus 里跟着服务器走的那几项）
+function worldInst(state, name) {
+  const w = state.world;
+  return w.insts[name] || (w.insts[name] = { levelName: "world", busy: "", points: JSON.parse(JSON.stringify(WORLD_POINTS[name] || [])) });
+}
+// 能换回的只有一条（同 worldimport.restorable）：已提交、恢复点里有导入前的世界、世界名没改过，而且是这个世界名最近的一次导入。
+// 不能换回时返回后端的那句原因，能换回返回空串
+const worldSameLevel = (a, b) => String(a || "").toLowerCase() === String(b || "").toLowerCase();
+function worldCantReturn(iw, pt) {
+  if (pt.state !== "committed") return `这次导入现在不能换回（状态：${pt.state}）`;
+  if (!pt.hasOld) return "这次导入之前服务器还没有世界，没有可以换回的旧地图";
+  if (!worldSameLevel(pt.levelName, iw.levelName)) return `导入以后 level-name 改过了（现在是 ${iw.levelName}，导入时是 ${pt.levelName}），没法自动换回。先把 level-name 改回去`;
+  const latest = iw.points.find(x => x.state === "committed" && worldSameLevel(x.levelName, pt.levelName)); // points 是新的在前
+  if (latest !== pt) return "这之后又导入过别的地图。请先换回最近那一次导入前的地图，再往前换";
+  return "";
+}
+const worldCand = (id, o) => ({
+  id, root: "", folderName: "world", layout: "legacy", dimensions: [{ id: "minecraft:overworld", rel: "", regions: 12 }],
+  playerFiles: 0, datapacks: [], resourcePack: false, hasIcon: false, readme: [], files: 120, bytes: 96 * W_MB, issues: [], sourceHints: [], ...o,
+  meta: { hasVersion: true, versionName: "1.20.4", versionId: 3700, dataVersion: 3700, levelName: "", gameType: 0, hasGameType: true, difficulty: 2, hasDifficulty: true, ...(o.meta || {}) },
+});
+// 按名字造一份检测结果（同 worldimport.Scan）。readmes 是说明书的内容，只留在仿真后端里，不随检测结果发给界面
+function worldScan(state, name, uploaded) {
+  const n = String(name || "").toLowerCase(), now = Date.now();
+  const scan = { id: worldId("s"), source: { kind: uploaded || /\.zip$/.test(n) ? "zip" : "folder", name: String(name || ""), uploaded: !!uploaded },
+    kind: "java-world", candidates: [], issues: [], files: 0, bytes: 0, createdAt: new Date(now).toISOString(), expiresAt: new Date(now + 3600e3).toISOString(), readmes: {} };
+  const reject = (kind, code, msg, detail) => { scan.kind = kind; scan.issues.push({ sev: "block", code, msg, ...(detail ? { detail } : {}) }); };
+  if (/bedrock|\.mcworld$/.test(n)) reject("bedrock", "bedrock", "这是基岩版的世界（.mcworld）。基岩版和 Java 版的存档格式不一样，改扩展名转不过来，不能导入到 Java 版服务器", "认出了 db/ 和 levelname.txt");
+  else if (/\.(rar|7z)$/.test(n)) reject("archive", "method", "这个压缩包用了不支持的压缩方式。先用解压软件解开，再选解出来的地图文件夹");
+  else if (/schem|litematic/.test(n)) reject("structure", "structure", "这是建筑蓝图，不是一张完整的地图。蓝图要在游戏里用 WorldEdit 或 Litematica 粘贴到已有的世界里", "castle.schem");
+  else if (/resource/.test(n)) reject("resource-pack", "resource-pack", "这是资源包（材质包），不是地图。资源包由每个玩家自己安装，或者在服务器设置里填资源包地址", "pack.mcmeta + assets/");
+  else if (/modpack|\.mrpack$/.test(n)) reject("modpack", "modpack", "这是整合包，不是单独的地图。请用「新建服务器 → 导入整合包」", "modrinth.index.json");
+  else if (/missing/.test(n)) reject("unknown", "not-found", "找不到这个文件夹", "CreateFile " + name + ": The system cannot find the file specified.");
+  else if (/multi/.test(n)) {
+    scan.issues.push({ sev: "info", code: "multi", msg: "这个来源里有 3 张地图，选一张导入" });
+    scan.candidates = [
+      worldCand("c1", { root: "maps/adventure", folderName: "adventure", bytes: 380 * W_MB, files: 264, readme: ["maps/adventure/README.txt"],
+        dimensions: [{ id: "minecraft:overworld", rel: "", regions: 18 }, { id: "minecraft:the_nether", rel: "DIM-1", regions: 2 }],
+        meta: { levelName: "冒险之旅", gameType: 2 } }),
+      worldCand("c2", { root: "server/survival", group: ["server/survival_nether", "server/survival_the_end"], folderName: "survival", layout: "legacy-bukkit", bytes: 1940 * W_MB, files: 2210, playerFiles: 14,
+        dimensions: [{ id: "minecraft:overworld", rel: "", regions: 96 }, { id: "minecraft:the_nether", rel: "../survival_nether/DIM-1", regions: 20 }, { id: "minecraft:the_end", rel: "../survival_the_end/DIM1", regions: 9 }],
+        meta: { levelName: "survival", versionName: "1.21.4", versionId: 4189, dataVersion: 4189, serverBrands: ["Paper"] },
+        issues: [{ sev: "info", code: "bukkit-three", msg: "这是旧版 Paper 的三个文件夹，会当成一张地图的三个维度一起导入" }] }),
+      worldCand("c3", { root: "old/broken", folderName: "broken", bytes: 42 * W_MB, files: 31, meta: { levelName: "", hasVersion: false, versionName: "" },
+        issues: [{ sev: "block", code: "level-dat-broken", msg: "这个世界的 level.dat 读不出来，可能复制到一半或者已经损坏。MineDeck 不会替你造一份", detail: "gzip: invalid header" }] }),
+    ];
+    scan.readmes["maps/adventure/README.txt"] = "冒险之旅 v1.2\n推荐 2-4 人，难度普通。\n";
+  } else {
+    const xss = /xss/.test(n), plain = /plain/.test(n);
+    const c = worldCand("c1", plain
+      ? { folderName: "New World", bytes: 58 * W_MB, files: 96, playerFiles: 1, meta: { levelName: "新的世界", versionName: "1.20.1", versionId: 3465, dataVersion: 3465, difficulty: 1 },
+        dimensions: [{ id: "minecraft:overworld", rel: "", regions: 9 }, { id: "minecraft:the_nether", rel: "DIM-1", regions: 1 }, { id: "minecraft:the_end", rel: "DIM1", regions: 1 }] }
+      : { folderName: "SkyCity", bytes: 431 * W_MB, files: 312, playerFiles: 1, datapacks: ["skycity-rules"], resourcePack: true, hasIcon: true, readme: ["SkyCity/说明.txt"], sourceHints: ["mods/", "server.jar"],
+        dimensions: [{ id: "minecraft:overworld", rel: "", regions: 24 }, { id: "minecraft:the_nether", rel: "DIM-1", regions: 4 }],
+        meta: { levelName: "天空之城" + (xss ? WORLD_XSS : ""), versionName: "1.19.4", versionId: 3337, dataVersion: 3337, gameType: 2, allowCommands: true,
+          hasPlayerTag: true, playerUuid: "069a79f4-44e9-4726-a5be-fca90e38aaf5", enabledPacks: ["vanilla", "file/skycity-rules"] } });
+    if (/newer/.test(n)) Object.assign(c.meta, { versionName: "26.2", versionId: 4800, dataVersion: 4800 });
+    if (/1193/.test(n)) Object.assign(c.meta, { versionName: "1.19.3", versionId: 3218, dataVersion: 3218 });
+    if (/forge/.test(n)) Object.assign(c.meta, { serverBrands: ["forge"], wasModded: true, modMarkers: ["fml"] });
+    scan.candidates = [c];
+    scan.readmes["SkyCity/说明.txt"] = "【天空之城】冒险地图\n作者：云上工坊\n\n推荐 1.19.4，2-6 人，冒险模式。\n要打开命令方块：enable-command-block=true\n更新地址 https://example.com/skycity\n" +
+      (xss ? "看这里 " + WORLD_XSS + " <b>不该变粗</b>\n" : "");
+  }
+  scan.files = scan.candidates.reduce((a, c) => a + c.files, 0);
+  scan.bytes = scan.candidates.reduce((a, c) => a + c.bytes, 0);
+  state.world.scans[scan.id] = scan;
+  state.world.lastScan = { name: scan.source.name, uploaded: !!uploaded, id: scan.id };
+  return { ...scan, readmes: undefined };
+}
+// 生成导入计划（同 worldimport.Plan）。inst 为空 = 用这张地图新建服务器
+function worldPlan(state, scan, cand, inst, core, mc) {
+  const w = state.world, m = cand.meta, iw = inst ? worldInst(state, inst.name) : null, level = iw ? iw.levelName : "world";
+  const issues = [...scan.issues.filter(x => x.code !== "multi"), ...cand.issues];
+  const at = v => VERSIONS.indexOf(v), a = at(m.versionName), b = at(mc);
+  let relation = "unknown";
+  if (!m.versionName || a < 0 || b < 0) issues.push({ sev: "confirm", code: "version-unknown", msg: m.versionName
+    ? `认不出地图保存的版本「${m.versionName}」和 ${mc} 谁新谁旧。继续的话，服务器第一次启动时可能升级这张地图，也可能读不了`
+    : "地图里没有记录是哪个版本保存的。继续的话，服务器第一次启动时可能升级这张地图，也可能读不了", detail: `Data.Version.Name = ${JSON.stringify(m.versionName || "")}，DataVersion = ${m.dataVersion || 0}` });
+  else if (a === b) relation = "same";
+  else if (a < b) { relation = "newer"; issues.push({ sev: "block", code: "newer", msg: `地图是用 ${m.versionName} 保存的，比 ${mc} 新，${mc} 的服务器不能安全读取。建议新建一台 ${m.versionName} 的服务器来用这张地图`, detail: `DataVersion ${m.dataVersion}` }); }
+  else { relation = "older"; issues.push({ sev: "confirm", code: "older", msg: `地图是用 ${m.versionName} 保存的，比 ${mc} 旧。第一次启动时游戏会升级这份副本，升级以后不能再给 ${m.versionName} 用${inst ? "；原来的世界留在恢复点里" : ""}`, detail: `DataVersion ${m.dataVersion} → ${mc}` }); }
+  const brands = (m.serverBrands || []).join(" ").toLowerCase();
+  if (/forge|fabric/.test(brands) && !brands.includes(core)) issues.push({ sev: "confirm", code: "mods-mismatch",
+    msg: `这张地图用过模组（${m.serverBrands.join("、")}），而目标是 ${core}。缺了对应的模组，地图里模组加的方块和物品会消失`, detail: `ServerBrands: ${m.serverBrands.join(", ")}；WasModded: ${!!m.wasModded}` });
+  if (m.hasPlayerTag) issues.push({ sev: "warn", code: "singleplayer-owner", msg: "这是单人存档。世界和建筑会保留；单人角色身上的背包、经验、末影箱、位置能不能接上，要看主人用哪个账号进服。主人用玩单人时的同一个正版账号进服，一般就接上了",
+    detail: "主人 UUID：" + (m.playerUuid || "") });
+  if (cand.resourcePack) issues.push({ sev: "warn", code: "resources-zip", msg: "地图带了资源包（resources.zip）。专用服务器不会把它自动发给玩家：要大家看到正确的材质，请把它放到一个大家都能下载的地址，在设置里填资源包地址，或者让每个人自己安装" });
+  const missing = [["minecraft:the_nether", "下界"], ["minecraft:the_end", "末地"]].filter(([id]) => !cand.dimensions.some(d => d.id === id)).map(x => x[1]);
+  if (missing.length) issues.push({ sev: "info", code: "dims-not-provided", msg: `地图没有提供${missing.join("、")}。这不是导入丢了：服务器第一次用到时会生成全新的${missing.join("、")}，不会沿用旧地图的` });
+  if (cand.playerFiles > 0) issues.push({ sev: "info", code: "players-kept", msg: `地图带了 ${cand.playerFiles} 个玩家的进度文件，会原样保留，不会和这台服务器原来的玩家文件混在一起` });
+  if (cand.datapacks.length) issues.push({ sev: "info", code: "datapacks", msg: `地图自带 ${cand.datapacks.length} 个数据包，导入后由游戏按存档里的设置加载。导入本身不运行包里的任何程序`, detail: cand.datapacks.join("、") });
+  if (m.allowCommands) issues.push({ sev: "info", code: "commands", msg: "地图允许使用命令。如果地图用到命令方块，要在服务器设置里打开命令方块（enable-command-block）；MineDeck 不会自动打开" });
+  if (cand.readme.length) issues.push({ sev: "info", code: "readme", msg: "地图带了说明书，里面可能写着推荐的版本、人数和需要的设置，导入前看一眼" });
+  const replace = !inst || iw.noWorld ? [] : WORLD_BUKKIT.has(inst.core) ? [level, level + "_nether", level + "_the_end"] : [level];
+  const settings = [];
+  if (inst) {
+    const prop = k => (state.props.find(p => p.key === k) || {}).value;
+    const want = { difficulty: ["peaceful", "easy", "normal", "hard"][m.difficulty], gamemode: ["survival", "creative", "adventure", "spectator"][m.gameType] };
+    if (m.hasDifficulty && prop("difficulty") !== undefined && prop("difficulty") !== want.difficulty) settings.push({ key: "difficulty", before: prop("difficulty"), after: want.difficulty, why: `地图存档的难度是 ${want.difficulty}。服务器每次启动都以 server.properties 的难度为准` });
+    if (m.hasGameType && prop("gamemode") !== undefined && prop("gamemode") !== want.gamemode) settings.push({ key: "gamemode", before: prop("gamemode"), after: want.gamemode, why: `地图存档的默认模式是 ${want.gamemode}（冒险地图常用 adventure）。服务器给新进服的玩家用 server.properties 里的模式` });
+  }
+  const need = cand.bytes + 256 * W_MB;
+  if (need > w.free) issues.push({ sev: "block", code: "disk-full", msg: `磁盘空间不够：这张地图要 ${(need / W_GB).toFixed(1)} GB，服务器所在的盘只剩 ${(w.free / W_GB).toFixed(1)} GB` });
+  const rank = { block: 0, confirm: 1, warn: 2, info: 3 };
+  issues.sort((x, y) => rank[x.sev] - rank[y.sev]);
+  const now = Date.now();
+  const plan = { id: worldId("p"), scanId: scan.id, candidateId: cand.id, inst: inst ? inst.name : "", newInst: !inst, core, mc, levelName: level,
+    relation, layout: cand.layout === "legacy-bukkit" && !WORLD_BUKKIT.has(core) ? "legacy" : cand.layout, moves: [{ from: cand.root, to: level }], replace, missing, settings, issues,
+    needBytes: need, freeBytes: w.free, mustStop: !!inst && inst.status !== "stopped", blocked: issues.some(x => x.sev === "block"), needConfirm: issues.some(x => x.sev === "confirm"),
+    createdAt: new Date(now).toISOString(), expiresAt: new Date(now + 1800e3).toISOString() };
+  w.plans[plan.id] = plan;
+  w.lastPlan = { scanId: scan.id, candidate: cand.id, inst: plan.inst, newInst: plan.newInst, core, mc, id: plan.id };
+  return plan;
+}
+// 新建服务器的请求带着计划编号时的核对（同 worldimport.CheckCreatePlan）。有问题返回那句报错
+function worldCreateCheck(state, b) {
+  const p = state.world.plans[b.worldPlan];
+  if (!p) return "找不到这份导入计划，可能已经过期，请重新检测";
+  if (!p.newInst) return "这份计划不是给新建服务器用的";
+  if (p.core !== b.core || p.mc !== b.mc) return "选的核心或版本和检测地图时不一样了，请重新检测";
+  if (p.blocked) return "这张地图不能用这个核心和版本开服，先看预览里标红的原因";
+  if (p.needConfirm && !b.worldAck) return "预览里有需要你确认的项（版本、模组等），确认后再开服";
+  return "";
+}
+// 查一次任务（同 tasks.Snapshot，kind "world"）：每查一次往前走一步，走完时把结果落到服务器的世界状态上
+function worldTask(state, id) {
+  const w = state.world, t = w.tasks[id];
+  if (!t) return null;
+  const isImport = t.kind === "import", names = isImport ? WORLD_IMPORT_STEPS : WORLD_RESTORE_STEPS;
+  const iw = worldInst(state, t.inst), inst = state.instances.find(x => x.name === t.inst);
+  if (!t.ended) {
+    t.q++;
+    // 导入：第 1、2 次查询在「复制地图到暂存区」（下标 1），第 3 次停服，第 4 次换地图，第 5 次结束；quick 时第 2 次就结束
+    const last = w.quick ? 2 : isImport ? 5 : 3;
+    t.step = isImport ? (t.q <= 2 ? 1 : Math.min(t.q - 1, 3)) : Math.min(t.q - 1, 2);
+    if (isImport && t.cancelled && t.step <= 1) { t.ended = true; t.error = "已取消，没有替换任何文件"; }
+    else if (t.q >= last) {
+      t.ended = true;
+      if (w.taskFail) t.error = w.taskFail;
+      else if (isImport) {
+        if (inst && t.stopFirst) { inst.status = "stopped"; inst.uptimeSec = 0; inst.onlineCount = 0; }
+        iw.points.unshift({ id: worldId("w"), state: "committed", created: new Date().toISOString(), source: t.source, candidate: t.candidate, levelName: iw.levelName,
+          hasOld: t.plan.replace.length > 0, oldBytes: t.plan.replace.length ? 412 * W_MB : 0, keptBytes: 0 });
+        t.result = "地图文件已导入，尚未启动检查。服务器保持停止，启动后进服看看是不是这张地图";
+      } else {
+        const pt = iw.points.find(x => x.id === t.point);
+        if (pt) Object.assign(pt, { state: "restored", hasOld: false, keptBytes: pt.keptBytes || 431 * W_MB, oldBytes: 0 });
+        t.result = "已经换回导入前的地图，旧地图的 level.dat 核对一致。导入的那份（包括启动后的改动）留在旁边，确认不要了可以删掉";
+      }
+    }
+    if (t.ended && t.error && isImport) iw.points.unshift({ id: worldId("w"), state: "rolled-back", created: new Date().toISOString(), source: t.source, candidate: t.candidate,
+      levelName: iw.levelName, hasOld: false, oldBytes: 0, keptBytes: 0, error: t.error });
+  }
+  const copying = isImport && !t.ended && t.step === 1, total = t.bytes || 0;
+  return { id, title: isImport ? `导入地图到 ${t.inst}` : `把 ${t.inst} 换回导入前的地图`, kind: "world",
+    steps: names.map((name, k) => ({ name, status: t.ended ? (t.error ? (k < t.step ? "done" : k === t.step ? "error" : "pending") : "done") : k < t.step ? "done" : k === t.step ? "running" : "pending" })),
+    label: copying ? "复制地图" : "", done: copying ? Math.round(total * Math.min(1, t.q * 0.4)) : 0, total: copying ? total : 0, warnings: [],
+    log: isImport ? ["来源和服务器都和预览时一样", ...(t.step >= 2 || t.ended && !t.error ? [`地图已复制到暂存区（${(total / W_MB).toFixed(1)} MB）`] : []), ...(t.error ? ["❌ " + t.error] : [])]
+      : ["正在把导入前的世界搬回原位", ...(t.error ? ["❌ " + t.error] : [])],
+    ended: !!t.ended, error: t.error || undefined, result: t.result || undefined };
+}
+// /api/world/* 的接口。答了返回 true
+async function worldHandler(state, req, res, p, m) {
+  const w = state.world;
+  if (!p.startsWith("/api/world/") || m !== "POST") return false;
+  if (p === "/api/world/upload") {
+    const raw = await new Promise(r => { const cs = []; req.on("data", c => cs.push(c)); req.on("end", () => r(Buffer.concat(cs))); });
+    const { file } = modcartMultipart(raw, req.headers["content-type"]);
+    if (!file) return err(res, 400, "缺少地图文件"), true;
+    if (!file.data.length) return err(res, 400, "上传的文件是空的"), true;
+    if (w.scanFail) return err(res, 500, w.scanFail), true;
+    return ok(res, worldScan(state, file.name, true)), true;
+  }
+  const b = await readBody(req);
+  if (p === "/api/world/scan") {
+    if (!state.local) return err(res, 403, WORLD_LOCAL_MSG), true;
+    const pth = String(b.path || "").trim();
+    if (!/^([a-zA-Z]:[\\/]|\\\\|\/)/.test(pth)) return err(res, 400, "请选一个完整的路径"), true;
+    if (w.scanFail) return err(res, 500, w.scanFail), true;
+    return ok(res, worldScan(state, pth.replace(/[\\/]+$/, "").split(/[\\/]/).pop(), false)), true;
+  }
+  if (p === "/api/world/discard") { w.discards.push(b.scanId); delete w.scans[b.scanId]; return ok(res, "ok"), true; }
+  if (p === "/api/world/cancel") {
+    const t = w.tasks[b.taskId];
+    w.cancels.push(b.taskId);
+    if (!t || t.ended) return err(res, 400, "这个任务已经不能取消了"), true;
+    t.cancelled = true;
+    return ok(res, "ok"), true;
+  }
+  if (p === "/api/world/readme" || p === "/api/world/plan") {
+    const scan = w.scans[b.scanId];
+    if (!scan) return err(res, 400, "找不到这次检测的结果，可能已经过期，请重新选择地图"), true;
+    const cand = scan.candidates.find(c => c.id === b.candidate);
+    if (!cand) return err(res, 400, "请选择要导入的地图"), true;
+    if (p === "/api/world/readme") {
+      if (!cand.readme.includes(b.file)) return err(res, 400, "这张地图里没有这份说明"), true;
+      return ok(res, { text: scan.readmes[b.file] || "" }), true;
+    }
+    if (w.planFail) return err(res, 500, w.planFail), true;
+    if (b.newInst) {
+      const c = CORES.find(x => x.id === b.core);
+      if (!c || !b.mc) return err(res, 400, "请选择核心和版本"), true;
+      if (c.kind === "proxy") return err(res, 400, "代理端（Velocity / Waterfall）没有世界，不能用地图开服"), true;
+      return ok(res, worldPlan(state, scan, cand, null, b.core, b.mc)), true;
+    }
+    const i = state.instances.find(x => x.name === b.inst);
+    if (!i) return err(res, 400, b.inst ? "服务器不存在" : "请选择要替换地图的服务器"), true;
+    if (i.kind === "proxy") return err(res, 400, `「${i.name}」是代理端（Velocity / Waterfall），它本身没有世界，不能导入地图。请把地图导入到它后面的游戏服务器`), true;
+    return ok(res, worldPlan(state, scan, cand, i, i.core, i.mc)), true;
+  }
+  if (p === "/api/world/import") {
+    const plan = w.plans[b.planId];
+    w.lastImport = { ...b, inst: plan ? plan.inst : "" };
+    if (!plan) return err(res, 400, "找不到这份导入计划，可能已经过期，请重新检测"), true;
+    if (plan.newInst) return err(res, 400, "这份计划是给新建服务器用的"), true;
+    if (b.confirm !== "replace") return err(res, 400, "替换地图需要明确确认"), true;
+    if (plan.blocked) return err(res, 400, "这张地图现在不能导入到这台服务器，先看预览里标红的原因"), true;
+    if (plan.needConfirm && !b.acknowledge) return err(res, 400, "预览里有需要你确认的项（版本、模组等），确认后再导入"), true;
+    const i = state.instances.find(x => x.name === plan.inst);
+    if (i && i.status !== "stopped" && !b.stopFirst) return err(res, 400, "服务器正在运行。请先停止服务器，或者选「停服并导入」"), true;
+    for (const k of b.settings || []) if (!plan.settings.some(s => s.key === k)) return err(res, 400, `计划里没有「${k}」这项设置`), true;
+    const iw = worldInst(state, plan.inst);
+    if (iw.busy) return err(res, 400, iw.busy), true;
+    if (w.importFail) return err(res, 500, w.importFail), true;
+    const scan = w.scans[plan.scanId];
+    if (!scan) return err(res, 400, "找不到这次检测的结果，可能已经过期，请重新选择地图"), true;
+    const cand = scan.candidates.find(c => c.id === plan.candidateId);
+    delete w.plans[plan.id]; // 计划一次只用一回
+    const id = "task-" + worldId("world-");
+    w.tasks[id] = { kind: "import", inst: plan.inst, q: 0, step: 0, plan, source: scan.source.name, candidate: cand.meta.levelName || cand.folderName,
+      bytes: cand.bytes, stopFirst: !!b.stopFirst, settings: b.settings || [] };
+    return ok(res, { taskId: id }), true;
+  }
+  return err(res, 404, "没有这个接口"), true;
+}
+// /api/instances/{名称}/world 和它下面的 restore / delete / retry。i 是这台服务器
+async function worldInstHandler(state, req, res, m, seg, i) {
+  const w = state.world, iw = worldInst(state, i.name), act = seg[5] || "";
+  if (!act && m === "GET") {
+    // 同 world.status：不在本机打开时，卡住的路径只给一句「在这台电脑上查看」
+    const points = iw.points.map(pt => ({ ...pt, canReturn: !worldCantReturn(iw, pt),
+      stuck: (pt.stuck || []).length && !state.local ? [`（${pt.stuck.length} 个文件夹，在这台电脑上查看）`] : pt.stuck }));
+    return ok(res, { levelName: iw.levelName, status: i.status, busy: iw.busy || undefined, points, proxy: i.kind === "proxy" });
+  }
+  if (m !== "POST") return err(res, 405, "方法不对");
+  const b = await readBody(req), pt = iw.points.find(x => x.id === b.id);
+  if (act === "restore") {
+    w.lastRestore = { inst: i.name, ...b };
+    if (i.status !== "stopped") return err(res, 400, "请先停止服务器再换回旧地图");
+    if (b.confirm !== "restore") return err(res, 400, "换回旧地图需要明确确认");
+    if (!pt || pt.state === "unreadable") return err(res, 400, "找不到这次导入的记录");
+    const why = worldCantReturn(iw, pt);
+    if (why) return err(res, 400, why);
+    const id = "task-" + worldId("world-");
+    w.tasks[id] = { kind: "restore", inst: i.name, q: 0, step: 0, point: pt.id };
+    return ok(res, { taskId: id });
+  }
+  if (act === "delete") {
+    w.lastDelete = { inst: i.name, ...b };
+    if (b.confirm !== "delete") return err(res, 400, "删除恢复点需要明确确认");
+    if (iw.busy) return err(res, 400, iw.busy);
+    if (!pt) return err(res, 400, "找不到这次导入的记录");
+    if (!["committed", "rolled-back", "restored"].includes(pt.state)) return err(res, 400, `这次导入还没处理完（状态：${pt.state}），现在不能删`);
+    iw.points = iw.points.filter(x => x !== pt);
+    return ok(res, "ok");
+  }
+  if (act === "retry") {
+    w.retries.push(i.name);
+    if (i.status !== "stopped") return err(res, 400, "请先停止服务器");
+    // 读不出来的记录处理不了：封锁不解除，一直报这句
+    if (iw.retryFail || iw.points.some(x => x.state === "unreadable")) return err(res, 400, iw.busy || "上次换地图没能自动恢复，服务器已暂停启动");
+    iw.busy = "";
+    for (const x of iw.points) if (x.state === "stuck") Object.assign(x, { state: "rolled-back", stuck: [], error: "换地图中断，已恢复到之前的世界" });
+    return ok(res, "ok");
+  }
+  return err(res, 404, "没有这个接口");
+}
+
 function sse(res, lines, keep = true) {
   res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
   for (const l of lines) res.write(`data: ${JSON.stringify(l)}\n\n`);
@@ -1462,6 +1787,7 @@ function handler(state, ui, portOf) {
     //     searchDelay: 搜索和热门清单晚多少毫秒才回, noDeps: true 依赖检查返回全空 }；
     //     响应里的 modcart.lastInstall 是上一次「安装购物车」的请求（含 expect、expectLocal），modcart.searches 是搜索请求的记录；
     //     本地文件按文件名里的字样仿几种情况（sodium / needs / forge / unknown / dup…），见 modcart 那一节开头的说明
+    //   world（地图导入）: 见「地图导入」那一节开头的说明（worldMockState）；来源按名字仿几种情况（bedrock / multi / newer / xss…）
     if (p === "/__mock/state" && m === "POST") {
       const b = await readBody(req);
       if ("empty" in b) state.empty = !!b.empty;
@@ -1495,6 +1821,7 @@ function handler(state, ui, portOf) {
       if (b.asst) { if (b.asst.reset) { for (const x of state.asst.sessions) for (const r of x.subs) r.end(); state.asst = newAsstState(); } const { reset, ...rest } = b.asst; Object.assign(state.asst, rest); } // 第三阶段
       if (b.mcp) mcpMockState(state, b.mcp); // MCP 接口
       if (b.modCart) modCartMockState(state, b.modCart); // 自选模组 + 购物车
+      if (b.world) worldMockState(state, b.world); // 地图导入
       if (b.status) for (const [n, st] of Object.entries(b.status)) { const i = state.instances.find(x => x.name === n); if (i) { i.status = st; i.uptimeSec = st === "stopped" ? 0 : st === "starting" ? 9 : Math.max(i.uptimeSec, 7980); i.onlineCount = st === "running" ? (i.onlineCount || 3) : 0; } }
       return ok(res, state);
     }
@@ -1523,6 +1850,7 @@ function handler(state, ui, portOf) {
       if (seg[2] === "instances" && seg[4] === "companion") return cpHandler(state, req, res, m, seg); // 第七阶段
       if (p.startsWith("/api/music/") || (seg[2] === "instances" && seg[4] === "music") || (p === "/api/tunnels" && m === "POST")) return musicHandler(state, req, res, p, m, seg); // 第五阶段
       if (p.startsWith("/api/modcart")) return modcartHandler(state, req, res, p, m, u); // 自选模组 + 购物车（草稿车与各实例的车分开存）
+      if (p.startsWith("/api/world/") && await worldHandler(state, req, res, p, m)) return; // 地图导入：检测、说明书、计划、导入、取消、放弃
       if (p === "/api/cores") return ok(res, CORES);
       if (p === "/api/config" && m === "PUT") {
         const b = await readBody(req);
@@ -1669,6 +1997,8 @@ function handler(state, ui, portOf) {
           log: ["待装清单共 1 项", "命中 Modrinth 缓存，直接复用", "安装完成后重启服务器才会生效"],
           ended, result: (mc.lastInstall || {}).inst || "生存服 · 朋友" });
       }
+      // 地图导入、换回旧地图的任务（kind "world"）：按查询次数往前走，见 worldTask
+      if (p.startsWith("/api/tasks/task-world-")) { const t = worldTask(state, seg[3]); return t ? ok(res, t) : err(res, 404, "任务不存在"); }
       // 和真后端一样只给摘要：步骤、日志、告警明细不在列表里
       if (p === "/api/tasks") return ok(res, state.taskList.map(t => ({ id: t.id, title: t.title, label: t.label || "", done: t.done || 0, total: t.total || 0, ended: !!t.ended, error: t.error || undefined, result: t.result || undefined, kind: t.kind || undefined, warningCount: (t.warnings || []).length, pendingCount: (t.pending || []).length })));
       if (p.startsWith("/api/tasks/")) {
@@ -1683,6 +2013,12 @@ function handler(state, ui, portOf) {
       // 这样紧接着带上草稿车的 POST .../modcart/install 才能按名字找到这台实例（真后端此时也已经建好了）
       if (p === "/api/instances" && m === "POST") {
         const b = await readBody(req);
+        // 用已有地图开服：记下请求；带了计划编号就按真后端那样核对（计划在不在、核心版本对不对得上、有没有被拦下、要确认的确认了没有）
+        state.world.lastCreate = { name: b.name, core: b.core, mc: b.mc, worldPlan: b.worldPlan || "", worldAck: !!b.worldAck, difficulty: b.difficulty, gamemode: b.gamemode };
+        // 核对通过就收下计划（不能再用第二次）；请求没能开始（createFail，比如重名）时计划放回去，改好还能用同一份
+        if (b.worldPlan) { const why = worldCreateCheck(state, b); if (why) return err(res, 400, why); }
+        if (state.world.createFail) return err(res, 400, state.world.createFail);
+        if (b.worldPlan) delete state.world.plans[b.worldPlan];
         const c = CORES.find(x => x.id === b.core), kind = c ? c.kind : "game";
         state.instances.push({ name: String(b.name || "新服务器"), core: b.core || "paper", kind, mc: b.mc || "1.21.4", build: b.build || "",
           javaMajor: 21, xmxMb: +b.xmxMb || 4096, xmsMb: 0, port: +b.port || 25565, status: "stopped", motd: b.motd || "",
@@ -1736,6 +2072,7 @@ function handler(state, ui, portOf) {
           state.instances = state.instances.filter(x => x !== i);
           return ok(res, "ok");
         }
+        if (sub === "world") return worldInstHandler(state, req, res, m, seg, i); // 地图：世界状态、换回旧地图、删除恢复点、重试恢复
         // 换 Java（同操作 instance.java.set）：已有这个版本直接换，没有就返回下载任务的编号
         if (sub === "java" && m === "PUT") {
           const b = await readBody(req);
