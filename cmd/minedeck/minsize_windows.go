@@ -87,9 +87,9 @@ func applyMinTrackSize(hwnd, lparam uintptr) {
 	if lparam == 0 {
 		return
 	}
-	// lparam 由系统指向一个 MINMAXINFO，本次消息处理期间有效（同 frameless_windows.go 里对 WM_NCCALCSIZE 的写法，
-	// go vet 的「possible misuse of unsafe.Pointer」在这里是已知误报）。
-	mmi := (*minMaxInfo)(unsafe.Pointer(lparam)) //nolint:govet
+	// lparam 由系统指向一个 MINMAXINFO，本次消息处理期间有效。经 &lparam 取指针，免得 go vet 报
+	// 「possible misuse of unsafe.Pointer」（同 frameless_windows.go 里对 WM_NCCALCSIZE 的写法，缘由写在那里）。
+	mmi := *(**minMaxInfo)(unsafe.Pointer(&lparam))
 	workW, workH := workAreaSize(hwnd)
 	w, h := minTrackSize(windowDPI(hwnd), workW, workH)
 	mmi.MinTrackSize = point{X: w, Y: h}

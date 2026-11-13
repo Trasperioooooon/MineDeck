@@ -48,10 +48,10 @@ func framelessNCCalcSize(hwnd, wparam, lparam uintptr) (ret uintptr, handled boo
 	if wparam == 0 { // 非计算请求，交给默认过程
 		return 0, false
 	}
-	// lparam 由系统指向一个 NCCALCSIZE_PARAMS，在本次消息处理期间有效。
-	// go vet 会对 uintptr→unsafe.Pointer 报「possible misuse」——这是 WndProc 回调解引用参数的
-	// 固有写法（go-webview2 处理 WM_GETMINMAXINFO 亦然），此处安全，为已知误报。
-	p := (*nccalcsizeParams)(unsafe.Pointer(lparam)) //nolint:govet
+	// lparam 由系统指向一个 NCCALCSIZE_PARAMS，在本次消息处理期间有效。它不是 Go 管的内存，垃圾回收不会挪它，
+	// 解引用是安全的。经 &lparam 取指针（同 hiddenstart_windows.go 里对 WINDOWPOS 的写法）：
+	// 直接写 unsafe.Pointer(lparam) 的话 go vet 分不清，会报「possible misuse of unsafe.Pointer」。
+	p := *(**nccalcsizeParams)(unsafe.Pointer(&lparam))
 	origTop := p.Rgrc[0].Top
 	pDefWindowProcW.Call(hwnd, _WM_NCCALCSIZE, wparam, lparam) // 先算标准边框（含侧/底缩放边框）
 	if isZoomed(hwnd) {
