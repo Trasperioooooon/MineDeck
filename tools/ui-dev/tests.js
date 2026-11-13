@@ -2291,6 +2291,34 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     }
   });
 
+  await run("平台账户：导入后的刷新还在等状态时收起概览，状态回来也不再把概览展开", async () => {
+    await taState({ tunnelAccounts: { reset: true, openfrp: true }, tunnelsReset: true });
+    const statusURL = u => u.pathname === "/api/tunnel-accounts";
+    let release;
+    const gate = new Promise(r => { release = r; });
+    try {
+      errors.length = 0;
+      await openOverview("openfrp");
+      // 从现在起连接状态的请求先卡住
+      await page.route(statusURL, async route => {
+        if (route.request().method() === "GET") await gate;
+        return route.continue();
+      });
+      await page.click('#tn-acc-panel [data-acc-import="openfrp"][data-proxy="1001"]');
+      await page.waitForSelector('.modal [data-x="ok"]');
+      await page.click('.modal [data-x="ok"]');
+      await taWait("lastImport", v => v.proxyId === "1001");
+      await modalGone(); await settle(400); // 导入完成，刷新正卡在状态请求上
+      await page.click('[data-acc-overview="openfrp"]'); // 用户收起概览
+      await page.waitForFunction(() => document.querySelector("#tn-acc-panel").hidden, null, { timeout: 3000 }).catch(() => {});
+      release();
+      await settle(900);
+      const hidden = await page.$eval("#tn-acc-panel", el => el.hidden);
+      assert(hidden, "用户收起以后，迟到的刷新不该把概览重新展开");
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { release(); await page.unroute(statusURL); await resetTA(); }
+  });
+
   await run("平台账户：OpenFrp 签到只引导去官方控制台，页面上没有内嵌验证码", async () => {
     await taState({ tunnelAccounts: { reset: true, openfrp: true }, tunnelsReset: true });
     try {

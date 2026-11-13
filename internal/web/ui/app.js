@@ -3430,6 +3430,7 @@ async function renderTunnels() {
   // 返回是否拿到了当前的连接状态（失败、被后一次刷新盖过、页面已经换了都算没拿到）
   const refreshAccounts = async (preferProvider) => {
     const seq = ++stSeq;
+    const ov0 = ovSeq; // 发状态请求时的概览版本：等状态的这段时间用户收起、切换或断开过，就不再按这次的意图动面板
     let st;
     try { st = await api("/api/tunnel-accounts"); }
     catch (e) { if (seq === stSeq && !stale(gen)) toast(e.message, true); return false; }
@@ -3439,11 +3440,18 @@ async function renderTunnels() {
       // 局域网打开：概览是仅本机的接口，不去拉
       stopOpenFrpPoll();
       accPanel = null;
+    } else if (ovSeq !== ov0) {
+      // 等状态的时候用户已经动过概览：以用户的操作为准，这次刷新不展开、不换面板，只清掉已经断开的那家
+      if (accPanel && !accOn(accPanel.provider)) accPanel = null;
     } else if (preferProvider && accOn(preferProvider)) {
       try {
         const ov = await fetchOverview(preferProvider);
         if (ov) accPanel = { provider: preferProvider, overview: ov };
-      } catch (e) { if (!stale(gen)) toast(e.message, true); accPanel = null; }
+      } catch (e) {
+        // fetchOverview 只在这次仍是最新的概览请求时才抛，抛了才清面板
+        if (!stale(gen)) toast(e.message, true);
+        accPanel = null;
+      }
     } else if (accPanel && !accOn(accPanel.provider)) {
       accPanel = null;
     } else if (accPanel && accOn(accPanel.provider)) {
@@ -3456,13 +3464,17 @@ async function renderTunnels() {
     if (stale(gen)) return false;
     paintAccCards();
     paintAccPanel();
-    return true;
+    return seq === stSeq; // 等概览的时候又开始了一次刷新：这次拿到的不算最新
   };
 
   const beginOpenFrpBrowserLogin = async (btn) => {
     if (btn) btn.disabled = true;
     try {
       const login = await api("/api/tunnel-accounts/openfrp/login", { method: "POST" });
+      if (stale(gen)) {
+        if (login && login.id) api(`/api/tunnel-accounts/openfrp/login/${encodeURIComponent(login.id)}/cancel`, { method: "POST" }).catch(() => {});
+        return;
+      }
       if (!login || !login.id || !login.url) throw new Error("未返回授权链接");
       openExt(login.url);
       stopOpenFrpPoll();
@@ -3481,6 +3493,7 @@ async function renderTunnels() {
             await refreshAccounts("openfrp");
             return;
           }
+          if (state.stop || stale(gen) || openFrpPoll !== state) return;
         } catch (e) {
           if (state.stop || stale(gen)) return;
           stopOpenFrpPoll();
@@ -3491,7 +3504,7 @@ async function renderTunnels() {
         state.timer = setTimeout(tick, pollMs());
       };
       state.timer = setTimeout(tick, pollMs());
-    } catch (e) { toast(e.message, true); }
+    } catch (e) { if (!stale(gen)) toast(e.message, true); }
     if (btn) btn.disabled = false;
   };
 
@@ -3506,9 +3519,10 @@ async function renderTunnels() {
       if (btn) btn.disabled = true;
       try {
         await api("/api/tunnel-accounts/natfrp/connect", { method: "POST", body: { token: String(token).trim() } });
+        if (stale(gen)) return;
         toast("樱花frp 已连接");
         await refreshAccounts("natfrp");
-      } catch (e) { toast(e.message, true); }
+      } catch (e) { if (!stale(gen)) toast(e.message, true); }
       if (btn) btn.disabled = false;
     }
   };
@@ -3521,15 +3535,16 @@ async function renderTunnels() {
         : "会清除本机保存的平台凭据。已导入到 MineDeck 的隧道不会删除。",
       okText: "断开", danger: true, icon: "warn",
     });
-    if (!r) return;
+    if (!r || stale(gen)) return;
     try {
       await api(`/api/tunnel-accounts/${provider}`, { method: "DELETE" });
+      if (stale(gen)) return;
       if (provider === "openfrp") stopOpenFrpPoll();
       if (accPanel && accPanel.provider === provider) accPanel = null;
       ovSeq++; // 断开前发出的概览请求回来也不再画
       toast("已断开 " + ACC_NAMES[provider]);
       await refreshAccounts();
-    } catch (e) { toast(e.message, true); }
+    } catch (e) { if (!stale(gen)) toast(e.message, true); }
   };
 
   const toggleOverview = async (provider) => {
@@ -3553,7 +3568,7 @@ async function renderTunnels() {
   const signAccount = async (provider) => {
     let r;
     try { r = await api(`/api/tunnel-accounts/${provider}/sign`, { method: "POST", body: {} }); }
-    catch (e) { toast(e.message, true); return; }
+    catch (e) { if (!stale(gen)) toast(e.message, true); return; }
     if (stale(gen)) return;
     const openURL = r && typeof r.openURL === "string" && /^https:\/\//i.test(r.openURL) ? r.openURL : "";
     if (!openURL) { toast((r && r.message) || "没有拿到官网的签到入口", true); return; }
@@ -3609,7 +3624,7 @@ async function renderTunnels() {
           <span class="sw-label">跟随实例启动</span></label></div>
       </div>`,
     });
-    if (!r) return;
+    if (!r || stale(gen)) return;
     if (btn) btn.disabled = true;
     try {
       await api(`/api/tunnel-accounts/${provider}/import`, {
@@ -3621,10 +3636,12 @@ async function renderTunnels() {
           purpose: String(type || "").toLowerCase() === "udp" ? "voice" : "game",
         },
       });
+      if (stale(gen)) return;
       toast("已导入到 MineDeck");
       await drawList();
+      if (stale(gen)) return;
       await refreshAccounts(provider);
-    } catch (e) { toast(e.message, true); }
+    } catch (e) { if (!stale(gen)) toast(e.message, true); }
     if (btn) btn.disabled = false;
   };
 
@@ -3714,10 +3731,13 @@ async function renderTunnels() {
       try {
         await api(`/api/tunnel-accounts/${provider}/tunnels`, { method: "POST", body });
         close();
+        if (stale(gen)) return;
         toast("已创建并导入");
         await drawList();
+        if (stale(gen)) return;
         await refreshAccounts(provider);
       } catch (e) {
+        if (stale(gen)) { close(); return; }
         toast(e.message, true);
         okBtn.disabled = false;
       }
