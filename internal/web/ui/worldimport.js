@@ -424,7 +424,7 @@ window.MDWorldImport = (() => {
     restoring: ["warn", "正在换回", "正在换回导入前的地图。"],
     restored: ["neutral", "已换回", "已经换回导入前的地图。"],
     stuck: ["warn", "要人处理", "自动恢复没有成功。文件都还在，服务器已暂停启动。"],
-    unreadable: ["warn", "要人处理", "这份换地图的记录读不出来。为了不在半成品的世界上启动，服务器已暂停启动。文件都还在，处理好之前不要动这个文件夹里的东西。"],
+    unreadable: ["warn", "记录读不出来", "MineDeck 不知道这次换地图走到了哪一步。为了不在半成品的世界上启动，服务器已暂停启动。文件都还在，处理好之前不要动这个文件夹里的东西。"],
   };
   const DELETABLE = new Set(["committed", "rolled-back", "restored"]);
   /* 一条恢复点现在是什么情况：[标签的样式, 标签, 一句话]。
@@ -484,7 +484,7 @@ window.MDWorldImport = (() => {
     };
     const pointRow = pt => {
       const bad = pt.state === "unreadable";
-      const [cls, tag, say] = pointSay(pt, st), t = when(pt.created), nm = pt.candidate || (bad ? "读不出来的换地图记录" : "没有名字的地图");
+      const [cls, tag, say] = pointSay(pt, st), t = when(pt.created), nm = pt.candidate || (bad ? "一次换地图的记录" : "没有名字的地图");
       const where = bad || pt.state === "stuck" ? pt.stuck || [] : []; // 要人看的地方：本机给路径，别的设备上后端只给一句话，都只当文字
       const who = `${nm} ${when(pt.created, true)}`; // 按钮的名字带上是哪一次导入
       const stopped = st.status === "stopped";
@@ -755,9 +755,12 @@ window.MDWorldImport = (() => {
      wz：向导里选定的地图。{ scan, cand, plan, planning, planErr, seq, verMissing, created, hint }。
      选定以后按地图预选核心和版本（人可以改）；走到最后一步时按当时的核心和版本生成计划，核对通过才让创建。 */
   let wz = null, wzOpen = false;
-  const inWizard = () => /^#\/create\/new/.test(location.hash || "");
+  const inWizard = () => /^#\/create\/(new|world)/.test(location.hash || "");
   const wizardMap = () => (wz ? wz.cand : null);
 
+  /* 「新建服务器」页卡片下面的那一行入口。地址 #/create/world 进的是同一个向导，只是选地图的面板一上来就开着 */
+  const homeLink = () => `<div class="hint wi-home-link">手里有现成的地图（下载的地图、单人存档、别的服务器的世界）？<a href="#/create/world" id="mode-world">用已有地图开服</a></div>`;
+  function wizardOpen() { wzOpen = true; }
   /* 进新建页（renderCreate）时调：向导从头开始，上一次没用掉的检测清掉 */
   function wizardReset() {
     drop(); // 握着的那次检测（选定了的，或者候选列表还开着的）；创建请求被收下时已经清过，这里不会再清一遍
@@ -813,8 +816,9 @@ window.MDWorldImport = (() => {
         <button type="button" class="btn sm" id="wi-wiz-change">换一张</button>
         <button type="button" class="btn sm ghost" id="wi-wiz-drop">不用地图</button></div>`;
       paintNote();
-      $("#wi-wiz-change", el).onclick = () => { wizardReset(); wzOpen = true; wiz.step = 0; redraw(); };
-      $("#wi-wiz-drop", el).onclick = () => { wizardReset(); redraw(); };
+      $("#wi-wiz-change", el).onclick = () => { if (wz && wz.created) return; wizardReset(); wzOpen = true; wiz.step = 0; redraw(); };
+      $("#wi-wiz-drop", el).onclick = () => { if (wz && wz.created) return; wizardReset(); redraw(); };
+      if (wz.created) lockStrip();
       return;
     }
     if (wiz.step !== 0) { // 没选地图就往后走了：入口只在第一步，开着的选择面板收掉
@@ -918,6 +922,12 @@ window.MDWorldImport = (() => {
     if (!wz) return;
     wz.created = true;
     drop();
+    lockStrip();
+  }
+  /* 服务器已经在建了：「换一张」「不用地图」不能再点。待装清单里有东西时向导会留在这一页等建完再装（app.js 那时也按住了「上一步」和步骤条），
+     这时重画向导，后面那一步就没人接着做了 */
+  function lockStrip() {
+    for (const id of ["#wi-wiz-change", "#wi-wiz-drop"]) { const b = $(id); if (b) b.disabled = true; }
   }
   /* 创建请求被拒了：是计划的问题（过期、用过了、核心版本对不上）就重新核对一遍。
      别的原因（比如重名）计划还在后端那儿，核对结果和勾过的确认都留着，改好再点就行 */
@@ -926,5 +936,5 @@ window.MDWorldImport = (() => {
     if (/计划|重新检测|过期|用过了|重新选择地图/.test(String((e && e.message) || ""))) wizardFinal($("#wiz-world"), wiz);
   }
 
-  return { TAB, TAB_LABEL, applies, render, wizardReset, wizardMap, wizardVersion, wizardStrip, wizardFinal, wizardCreateFields, wizardCreated, wizardCreateFailed };
+  return { TAB, TAB_LABEL, applies, render, homeLink, wizardOpen, wizardReset, wizardMap, wizardVersion, wizardStrip, wizardFinal, wizardCreateFields, wizardCreated, wizardCreateFailed };
 })();

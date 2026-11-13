@@ -3988,9 +3988,13 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   await run("新建向导：用已有地图开服——按地图预选核心和版本（不换成最新版），最后一步核对，创建请求带上计划编号；请求被收下以后才清检测结果", async () => {
     await wReset();
     try {
+      // 两个入口：向导第一步上方的那一条，和「新建服务器」页卡片下面的那一行（从那儿进来，选地图的面板一上来就开着）
       await page.goto(url("#/create/new")); await page.waitForSelector("#wi-wiz-pick");
       assert((await page.$eval("#wi-wiz-offer", el => el.textContent)).includes("手里有现成的地图"), "第一步应有「用已有地图开服」的入口");
-      await page.click("#wi-wiz-pick"); await page.waitForSelector("#wi-browse");
+      await page.goto(url("#/create")); await page.waitForSelector("#mode-world");
+      assert((await page.$$(".recipe-grid .core-card")).length === 4 && (await page.$eval("#mode-world", a => a.textContent)) === "用已有地图开服", "新建页应还是四张卡片，下面多一行入口");
+      await page.click("#mode-world"); await page.waitForSelector("#wi-browse");
+      assert(page.url().endsWith("#/create/world") && (await page.$("#wi-wiz-panel")) && (await page.$(".steps .step-pill.cur")), "从新建页的入口进来应是向导第一步、选地图的面板开着：" + page.url());
       await page.click("#wi-browse"); await page.waitForSelector("#wi-wiz-chosen");
       await page.waitForSelector(".core-card.sel");
       const s0 = await page.evaluate(() => ({ name: document.querySelector("#wi-wiz-name").textContent, strip: document.querySelector("#wi-wiz-chosen").textContent,
@@ -4023,7 +4027,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       let plan2 = plan;
       for (let k = 0; k < 30 && plan2.id === plan.id; k++) { await settle(150); plan2 = (await wState({})).world.lastPlan; }
       await page.waitForSelector("#wi-wiz-plan #wi-rel");
-      assert(plan2.id !== plan.id && wCreates(tx) === 1 && page.url().includes("#/create/new") && !(await page.$eval("#wcreate", b => b.disabled)), "计划过期后应重新核对：" + JSON.stringify(plan2));
+      assert(plan2.id !== plan.id && wCreates(tx) === 1 && page.url().includes("#/create/world") && !(await page.$eval("#wcreate", b => b.disabled)), "计划过期后应重新核对：" + JSON.stringify(plan2));
       const t0 = reqs.length;
       await page.click("#wcreate");
       await page.waitForFunction(() => location.hash.startsWith("#/task/"));
@@ -4133,6 +4137,40 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click("#wcreate"); await settle(400);
       assert(wCreates(t0) === 0 && (await page.$eval("#wi-wiz-plan", el => el.textContent)).includes("代理端"), "代理端配地图不该发创建请求");
     } finally { await wReset(); }
+  });
+
+  await run("新建向导带地图、待装清单里有东西：服务器开始建了以后，地图条上的「换一张」「不用地图」和「上一步」一样点不了，建完照常接着装", async () => {
+    await wReset();
+    try {
+      await cartState({ modCart: { reset: true }, taskStage: 2 }); // 建服任务还在跑：向导留在这一页等它
+      await wWizPick("D:\\Maps\\plain-world");
+      const scanId = (await wState({})).world.lastScan.id;
+      await page.waitForSelector('.core-card[data-id="paper"]');
+      await page.click('.core-card[data-id="paper"]');
+      await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
+      assert((await page.$eval(".ver-item.sel", el => el.dataset.id)) === "1.20.1", "版本应预选地图的 1.20.1");
+      await page.click("#wnext"); await page.waitForSelector("#build-list .ver-item");
+      await page.click("#wnext"); await page.waitForSelector("#mc-q");
+      await page.fill("#mc-q", "LuckPerms"); await page.click("#mc-go");
+      await page.click('button[aria-label="加入清单 LuckPerms"]'); await settle(700);
+      await page.click("#wnext"); await page.waitForSelector("#f-name");
+      await page.waitForSelector("#wi-wiz-plan #wi-rel");
+      assert(!(await page.$eval("#wi-wiz-change", b => b.disabled)) && !(await page.$eval("#wi-wiz-drop", b => b.disabled)), "创建之前地图条上的键应能点");
+      await page.fill("#f-name", "带地图的插件服");
+      await page.click("#f-eula");
+      await page.click("#wcreate");
+      await page.waitForFunction(() => document.querySelector("#wback").disabled); // 向导进了「等建服」：按钮上的字接着会换成任务的进度
+      const w = await page.evaluate(() => ({ change: document.querySelector("#wi-wiz-change").disabled, drop: document.querySelector("#wi-wiz-drop").disabled, back: document.querySelector("#wback").disabled }));
+      let st = await wState({});
+      assert(w.change && w.drop && w.back && st.world.lastCreate.worldPlan && JSON.stringify(st.world.discards) === JSON.stringify([scanId]), "等建服时地图条应锁住：" + JSON.stringify([w, st.world.discards]));
+      await page.$eval("#wi-wiz-drop", b => b.click()); await page.$eval("#wi-wiz-change", b => b.click()); await settle(300);
+      assert((await page.$("#f-name")) && (await page.$("#wi-wiz-chosen")) && (await page.$eval("#wcreate", b => b.disabled)) && (await page.$eval("#wback", b => b.disabled)), "硬点地图条不该把向导重画");
+      // 建好了：照常接着装待装清单
+      await cartState({ taskStage: 4 });
+      await page.waitForFunction(() => location.hash === "#/task/task-cart", null, { timeout: 8000 });
+      st = await wState({});
+      assert(st.modcart.lastInstall && st.modcart.lastInstall.inst === "带地图的插件服" && st.modcart.lastInstall.includeDraft === true && st.world.discards.length === 1, "建完应接着装清单：" + JSON.stringify(st.modcart.lastInstall));
+    } finally { await cartState({ modCart: { reset: true }, taskStage: 2, instReset: true }); await wReset(); }
   });
 
   await run("地图：手机宽度（390）下地图标签、选来源、核对页和向导的地图条都不横向溢出", async () => {

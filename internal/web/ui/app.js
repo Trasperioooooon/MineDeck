@@ -1305,7 +1305,8 @@ const wiz = { step: 0, core: null, mc: null, build: null, snapshots: false, root
 
 /* 四种方式各有自己的地址（#/create/new、import、transfer、adopt）：首页空状态能直接进「从零创建」，
    后退键能回到这一页。「返回」一律走 goCreateHome，不直接重画（地址不变的话，再点同一张卡片不会触发路由）。 */
-const CREATE_MODES = { new: () => drawWizard(), import: () => drawImport(), transfer: () => drawTransfer(), adopt: () => drawAdopt() };
+const CREATE_MODES = { new: () => drawWizard(), import: () => drawImport(), transfer: () => drawTransfer(), adopt: () => drawAdopt(),
+  world: () => { if (window.MDWorldImport) MDWorldImport.wizardOpen(); drawWizard(); } }; // 用已有地图开服：同一个向导，选地图的面板一上来就开着
 const goCreateHome = () => { if ((location.hash || "") === "#/create") navigate(); else location.hash = "#/create"; };
 
 async function renderCreate(mode) {
@@ -1331,7 +1332,8 @@ async function renderCreate(mode) {
           ${card("adopt", "folder", "接管已有服务器", "接管本机外部服务器：选择文件夹直接关联，原文件保留在本地路径。")}
         </div>
       </div>
-    </div>`;
+    </div>
+    ${window.MDWorldImport ? MDWorldImport.homeLink() : ""}`;
   // 卡片可用键盘激活（回车 / 空格）
   document.querySelectorAll(".recipe-grid .core-card").forEach(c => {
     c.onclick = () => { location.hash = "#/create/" + c.dataset.mode; };

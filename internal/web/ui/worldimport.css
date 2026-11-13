@@ -102,6 +102,7 @@
 .wi-done .ico { flex: none; margin-top: 3px; }
 
 /* 新建向导：步骤条下面的那一条，和最后一步的核对框 */
+.wi-home-link { margin-top: 20px; font-size: var(--fs-sm); }
 .wi-wiz { max-width: 900px; margin-bottom: 18px; }
 .wi-wiz[hidden] { display: none; }
 .wi-strip {
