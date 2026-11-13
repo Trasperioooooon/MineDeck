@@ -1013,6 +1013,32 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await page.unroute("**/api/ai/models", fake); await aiState({ reset: true }); }
   });
 
+  await run("AI：框里临时填的 Key 拉到的模型列表不进缓存，「放弃修改」以后再展开按已存的 Key 重新拉；用已存的 Key 拉到的照常缓存（Codex 第三轮）", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" });
+    let n = 0;
+    const fake = async r => {
+      n++;
+      const temp = !!(r.request().postDataJSON() || {}).key;
+      await r.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, data: { models: [{ id: temp ? "temp-key-model" : "saved-key-model" }], source: "live" } }) });
+    };
+    const ids = () => page.$$eval("#ai-model-list .ai-opt", os => os.map(o => o.dataset.id).join());
+    try {
+      await page.goto(url("#/settings/ai")); await settle();
+      await page.route("**/api/ai/models", fake);
+      await page.fill("#ai-key", "sk-temp-0123456789"); await settle(100);
+      await page.click("#ai-model-btn"); await settle(200);
+      assert((await ids()) === "temp-key-model" && n === 1, "临时 Key 拉到的：" + await ids());
+      await page.keyboard.press("Escape"); await settle(100);
+      await page.click('[data-sb="discard"]'); await settle(300);
+      assert((await page.$eval("#ai-key", e => e.value)) === "", "放弃修改后 Key 框清空");
+      await page.click("#ai-model-btn"); await settle(200);
+      assert((await ids()) === "saved-key-model" && n === 2, `放弃修改后应按已存的 Key 重新拉（请求 ${n} 次）：` + await ids());
+      await page.keyboard.press("Escape"); await settle(100);
+      await page.click("#ai-model-btn"); await settle(200);
+      assert((await ids()) === "saved-key-model" && n === 2, `已存 Key 的列表照常缓存（请求 ${n} 次）：` + await ids());
+    } finally { await page.unroute("**/api/ai/models", fake); await aiState({ reset: true }); }
+  });
+
   await run("AI：每日额度按万 token 保存，填错就近提示；自填单价可添加、删除，优先于公开价格；只配本机模型时不取价格", async () => {
     await aiState({ reset: true, ...AI_CLAUDE, key: "sk-ant" });
     try {
@@ -1603,6 +1629,33 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       const last = s.msgs[s.msgs.length - 1];
       assert(last && last.md && body.includes("没说完就停了") && body.includes("已停止"), "说了一半的留着、标成没说完：" + J(s));
       assert(body.includes("这句已从对话里撤回") && await page.$("#ap-body [data-reuse]") && !(await page.$('#ap-state [data-x="cont"]')), "第一次请求停下应撤回提问、不给继续回复：" + body.slice(-300) + " | " + await page.textContent("#ap-state"));
+    } finally { await page.keyboard.press("Escape"); await asstState({ reset: true }); await aiState({ reset: true }); }
+  });
+
+  await run("AI 助手：工具结果交回去以后那次请求失败，提问不撤回、给「继续回复」；停在工具结果上再发一句、第一次请求就停下，撤回这句以后仍给「继续回复」（同后端 NeedsReply，Codex 第三轮）", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" }); await asstState({ reset: true });
+    const cont = () => page.$('#ap-state [data-x="cont"]');
+    try {
+      // 1. 查完控制台再报错
+      await newChat();
+      await page.fill("#ap-in", "查完再报错"); await page.press("#ap-in", "Enter");
+      await page.waitForSelector("#ap-body .ap-note.error", { timeout: 5000 }); await idle();
+      let body = await page.textContent("#ap-body");
+      assert(!body.includes("这句已从对话里撤回") && await cont(), "工具结果之后失败：提问不撤回、给继续回复：" + body.slice(-300) + " | " + await page.textContent("#ap-state"));
+      // 2. 停在工具结果上（第二次请求说到一半停），再发一句、第一次请求就停
+      await page.keyboard.press("Escape"); await asstState({ reset: true });
+      await newChat();
+      await asstState({ slow: 120 });
+      await page.fill("#ap-in", "服务器有点卡"); await page.press("#ap-in", "Enter");
+      await snapWhen(m => m.some(x => x.md), "第二次请求的正文开始");
+      await page.click("#ap-stop"); await idle();
+      assert(await cont(), "第二次请求停下：给继续回复");
+      await asstState({ slow: 250 });
+      await page.fill("#ap-in", "最大人数改成 10"); await page.press("#ap-in", "Enter");
+      await page.waitForFunction(() => [...document.querySelectorAll("#ap-body .ap-msg.assistant")].pop()?.textContent.includes("我先看"), null, { timeout: 5000 });
+      await page.click("#ap-stop"); await idle();
+      body = await page.textContent("#ap-body");
+      assert(body.includes("这句已从对话里撤回") && await cont(), "撤回新的这句以后，对话回到工具结果上，仍给继续回复：" + body.slice(-300) + " | " + await page.textContent("#ap-state"));
     } finally { await page.keyboard.press("Escape"); await asstState({ reset: true }); await aiState({ reset: true }); }
   });
 

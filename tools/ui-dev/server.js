@@ -389,6 +389,14 @@ function aiSetProvider(a, b) {
   Object.assign(a, n);
   return null;
 }
+// 同后端 ai.ParseBaseURL：只认 http / https，不能带账号密码、问号或井号后面的部分，端口在 0 到 65535 之间（浏览器的 URL 自己会拦）
+function aiBadBase(u) {
+  let x;
+  try { x = new URL(u); } catch { return "接口地址要以 http:// 或 https:// 开头"; }
+  if (!/^https?:$/.test(x.protocol) || !x.host) return "接口地址要以 http:// 或 https:// 开头";
+  if (x.username || x.password || x.search || x.hash) return "接口地址里不能带账号密码、问号或井号后面的部分";
+  return "";
+}
 async function aiHandler(state, req, res, p, m) {
   const a = state.ai;
   const local = a.local;
@@ -400,6 +408,8 @@ async function aiHandler(state, req, res, p, m) {
     const pr = AI_PRESETS.find(x => x.id === b.preset);
     if (!pr) return err(res, 400, "先选择服务商");
     const base = (b.baseUrl || pr.baseUrl).trim();
+    const bad = aiBadBase(base); // 同后端：先按 ai.ParseBaseURL 校验地址，再决定发不发、用不用已存的 Key
+    if (bad) return err(res, 400, bad);
     // 同后端：文档写明没有模型列表的地址不发请求，直接给预设里的建议（返回 {models, source, warning}）
     if (aiMatchURL(pr, base).noModels) return ok(res, { models: aiSuggested(pr), source: "preset", warning: "这个地址的官方文档没有模型列表，下面是预设里的建议，也可以直接填写模型名。" });
     // 同后端 ai.SameSite：服务商没换、地址还是同一个网站（只改了路径也算）才用已存的 Key
@@ -662,6 +672,11 @@ function asstState(state, s) {
 const asstSleep = ms => new Promise(r => setTimeout(r, ms));
 function asstScript(s, text, attach) {
   // 请求失败（同后端 fail()）：提示的正文只写结论，带状态码和英文原话的原文放 detail，界面给「复制原文」
+  // 查完控制台、把结果交回去以后的那次请求失败：提问不撤回，对话停在工具结果上，可以「继续回复」
+  if (/查完再报错/.test(text)) return [
+    { text: "我先看看控制台。", tools: [{ name: "instance_console_tail", op: "instance.console.tail", title: "查看控制台输出", args: { inst: s.inst || "生存服 · 朋友", lines: 200 }, result: { lines: ["[21:30:09 INFO]: Done (6.812s)!"] } }] },
+    { fail: { text: "请求 AI 失败：服务商那边出错了，稍后再试", detail: "服务商那边出错了（HTTP 500，server_error）：internal error" } },
+  ];
   if (/模拟报错/.test(text)) return [{ fail: { text: "请求 AI 失败：Key 不对或已失效", detail: "Key 不对或已失效（HTTP 401，authentication_error）：invalid x-api-key: sk-a***" } }];
   const inst = s.inst || "生存服 · 朋友";
   if (attach) return [
@@ -703,9 +718,12 @@ function asstScript(s, text, attach) {
 }
 // 跑一轮：逐段流式推文字、执行读操作、遇到写操作就停下等确认。
 // fromUser：这一轮是用户刚说了话开的（不是确认卡片处理完、也不是「继续回复」接着说）。
-// 同后端 conv.UndoUser()：只有这种轮次的第一次请求失败或被停下，对话最后一条才是用户的话，才把它撤回
+// 同后端 conv.UndoUser()：只有这种轮次的第一次请求失败或被停下，对话最后一条才是用户的话，才把它撤回。
+// 收尾时「有没有等着回复的消息」同后端 Conversation.NeedsReply()：看对话最后一条是不是用户的话或工具结果
 async function asstTurn(state, s, steps, fromUser = false) {
   const S = state.asst;
+  const before = s.needReply; // 这一轮开始前对话的末尾：撤回了这次的提问，就回到它
+  let ended = ""; // 中途结束："stop" 停下、"fail" 请求失败
   s.busy = true; s.needReply = false; asstState(state, s);
   const wait = ms => asstSleep(S.slow || ms);
   const undoUser = () => {
@@ -720,6 +738,7 @@ async function asstTurn(state, s, steps, fromUser = false) {
       if (fromUser && k === 0) undoUser();
       const n = { id: "i" + (++s.next), kind: "notice", level: "error", t: new Date().toISOString(), text: step.fail.text, detail: step.fail.detail };
       s.items.push(n); asstEmit(s, { type: "item", item: n });
+      ended = "fail";
       break;
     }
     for (const c of (step.think || "").match(/[\s\S]{1,12}/g) || []) {
@@ -739,6 +758,7 @@ async function asstTurn(state, s, steps, fromUser = false) {
       if (!it.text && !it.tools.length) { s.items = s.items.filter(x => x.id !== it.id); asstEmit(s, { type: "remove", id: it.id }); }
       else { it.partial = true; asstEmit(s, { type: "item", item: asstSlim(it) }); }
       if (fromUser && k === 0) undoUser();
+      ended = "stop";
       break;
     }
     it.usage = { input: 1820, output: 96, cacheRead: 1024 }; it.cost = { amount: 0.0021, currency: "CNY", source: "litellm" }; it.model = state.ai.model;
@@ -764,8 +784,11 @@ async function asstTurn(state, s, steps, fromUser = false) {
   if (s.stop) {
     s.items.push({ id: "i" + (++s.next), kind: "notice", level: "info", t: new Date().toISOString(), text: "已停止" });
     asstEmit(s, { type: "item", item: s.items[s.items.length - 1] });
-    s.needReply = !s.withdrew; // 撤回了用户的话就没有「等着回复」的消息了
   }
+  // 中途结束：撤回了提问，对话回到这一轮开始前的样子；没撤回（不是第一次请求），末尾是上一步交回的工具结果，等着回复。
+  // 工具跑着的时候点了停止、这一步又是脚本的最后一步（真实后端会接着发下一次请求、再停下），也按等着回复算
+  if (ended) s.needReply = s.withdrew ? before : true;
+  else if (s.stop) s.needReply = true;
   s.stop = false; s.withdrew = false; s.busy = false; s.updated = new Date().toISOString();
   asstState(state, s);
 }

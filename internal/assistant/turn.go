@@ -354,8 +354,9 @@ func (s *Service) noticeDetailLocked(sess *Session, level, text, detail string) 
 
 // failText 请求失败时提示的正文和原文。正文只写结论（docs/文案重写/01-补完口径.md）：
 //   - 有 Hint 的接 Hint；回复中途断开的单独说（流里来的错误、网络断开的 Hint 接在后面）；
-//   - 本来就是一句短的中文、不夹英文单词的（比如「还没选模型」「先填写 Key」）照用；
+//   - 本来就是一句短的中文、除了网址和几个固定叫法（Key、AI、服务商名）不夹英文的（比如「还没选模型」「先填写 Key」）照用；
 //   - 剩下带状态码、英文原话、路径的只写「请求 AI 失败」，原文放进 detail（界面上「复制原文」）。
+//     拿不准的宁可放进 detail：正文里少一句，比正文里冒出一串英文好。
 func failText(err error, raw string) (text, detail string) {
 	h := ai.HintOf(err)
 	if errors.Is(err, ai.ErrDisconnected) {
@@ -367,15 +368,27 @@ func failText(err error, raw string) (text, detail string) {
 	if h != "" {
 		return "请求 AI 失败：" + h, raw
 	}
-	if utf8.RuneCountInString(raw) <= 60 && hasHan(raw) && !englishWord.MatchString(urlLike.ReplaceAllString(raw, "")) {
+	if plainChinese(raw) {
 		return "请求 AI 失败：" + raw, ""
 	}
 	return "请求 AI 失败", raw
 }
 
+// plainChinese 能不能原样放进正文：六十字以内、有汉字，去掉网址和固定叫法以后没有两个字母以上的英文。
+func plainChinese(raw string) bool {
+	if utf8.RuneCountInString(raw) > 60 || !hasHan(raw) {
+		return false
+	}
+	rest := knownWord.ReplaceAllString(urlLike.ReplaceAllString(raw, ""), "")
+	return !englishWord.MatchString(rest)
+}
+
 var (
-	urlLike     = regexp.MustCompile(`https?://\S*`)
-	englishWord = regexp.MustCompile(`[A-Za-z]{4,}`) // 「Key」「AI」这样的短词不算
+	// 网址只算到第一个非 ASCII 字符（后面紧跟的中文标点、中文说明不算网址）；不分大小写
+	urlLike = regexp.MustCompile(`(?i)https?://[!-~]*`)
+	// 程序自己的中文提示里会出现的固定叫法
+	knownWord   = regexp.MustCompile(`\b(?:AI|API|Key|Token|token|MB|Claude|OpenAI|DeepSeek|MiMo|Kimi|Qwen|Ollama)\b`)
+	englishWord = regexp.MustCompile(`[A-Za-z]{2,}`)
 )
 
 func hasHan(s string) bool {

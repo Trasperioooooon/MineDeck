@@ -260,6 +260,9 @@ test("故意构造的输入不卡住界面、不抛异常（回复里会引用�
     "一行几万个没收尾的链接": "[](".repeat(16000),
     "一行几千个没收尾的 https 链接": "[x](https://".repeat(8000),
     "很多行、每行都在上限以内的没收尾链接": ("[x](https://".repeat(330) + "\n").repeat(30),
+    // Codex 第三轮：列表里几万个空行（每个空行都重扫后面的空行）；几千列的稀疏表格（每行按表头补齐格子）
+    "列表里几万个空行": "- a\n" + "\n".repeat(32000) + "- b",
+    "几千列的稀疏表格": "|" + "h|".repeat(2000) + "\n|" + "--|".repeat(2000) + "\n" + "|x|\n".repeat(2000),
   };
   for (const [name, src] of Object.entries(cases)) {
     const t = Date.now();
@@ -281,4 +284,19 @@ test("故意构造的输入不卡住界面、不抛异常（回复里会引用�
   has(render("**[a](https://x.y)** 后面"), '<b><a href="https://x.y"');
   lacks(render("[a](https://x.y/" + "a".repeat(3000) + ")"), "<a ");
   lacks(render("[a](javascript:alert(1))"), "<a ");
+  // 网址正好 2048 字还算链接，2049 字不算
+  const url = n => "https://x.y/" + "a".repeat(n - 12);
+  has(render("[a](" + url(2047) + ")"), "<a ");
+  has(render("[a](" + url(2048) + ")"), "<a ");
+  lacks(render("[a](" + url(2049) + ")"), "<a ");
+  // 表格：格子太多不画表格，原样一行一行显示，输出和输入差不多大；正常大小的照常画
+  const sparse = "|" + "h|".repeat(2000) + "\n|" + "--|".repeat(2000) + "\n" + "|x|\n".repeat(2000);
+  const out = render(sparse);
+  lacks(out, "<td");
+  assert.ok(out.length < sparse.length * 2, `稀疏表格的输出 ${out.length} 字`);
+  const wide = "|" + "h|".repeat(64) + "\n|" + "--|".repeat(64) + "\n" + "|x|\n".repeat(300);
+  assert.equal((render(wide).match(/<td/g) || []).length, 64 * 300);
+  // 列表：连着的空行只算一次分段；同一项里空行隔开的两段不拼成一个词
+  assert.equal(render("- a\n\n\n\n- b"), "<ul><li>a</li><li>b</li></ul>");
+  assert.equal(render("- a\n\n  续行\n- b"), "<ul><li>a<br><br>续行</li><li>b</li></ul>");
 });

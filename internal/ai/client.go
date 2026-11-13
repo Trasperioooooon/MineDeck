@@ -166,6 +166,12 @@ func ParseBaseURL(s string) (*url.URL, error) {
 	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return nil, errors.New("接口地址里不能带账号密码、问号或井号后面的部分")
 	}
+	// 端口要在 0 到 65535 之间（浏览器的 URL 同样会拒绝），不然前后端认出的网站对不上
+	if p := u.Port(); p != "" {
+		if n, err := strconv.Atoi(p); err != nil || n > 65535 {
+			return nil, errors.New("接口地址的端口不对（要在 0 到 65535 之间）")
+		}
+	}
 	return u, nil
 }
 

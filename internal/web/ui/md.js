@@ -160,6 +160,7 @@
     const cells = splitCells(s);
     return cells.length > 0 && cells.every(c => alignOf(c));
   }
+  const MAX_COLS = 64, MAX_CELLS = 20000; // 表格最多画多少列、多少个格子（含表头）
   function isTable(lines, i) { return lines[i].includes("|") && i + 1 < lines.length && isSep(lines[i + 1]); }
   function readTable(lines, i) {
     const head = splitCells(lines[i]);
@@ -167,7 +168,12 @@
     const rows = [];
     let k = i + 2;
     for (; k < lines.length && lines[k].trim() && lines[k].includes("|"); k++) rows.push(splitCells(lines[k]));
-    const th = (c, n) => `<th${align[n] && align[n] !== "left" ? ` style="text-align:${align[n]}"` : ""}>${inline(c)}</th>`;
+    // 每行都按表头补齐格子：几千列的表头配几千行「|x|」，十几 KB 的输入能变出几百万个格子。
+    // 列太多或格子总数太大就不画表格，按原样（已经转义过）一行一行显示
+    if (head.length > MAX_COLS || head.length * (rows.length + 1) > MAX_CELLS) {
+      return { end: k, html: `<p>${lines.slice(i, k).map(inline).join("<br>")}</p>` };
+    }
+    const th =(c, n) => `<th${align[n] && align[n] !== "left" ? ` style="text-align:${align[n]}"` : ""}>${inline(c)}</th>`;
     const td = (c, n) => `<td${align[n] && align[n] !== "left" ? ` style="text-align:${align[n]}"` : ""}>${inline(c || "")}</td>`;
     const html = `<div class="md-table"><table><thead><tr>${head.map(th).join("")}</tr></thead><tbody>` +
       rows.map(r => `<tr>${head.map((_, n) => td(r[n], n)).join("")}</tr>`).join("") + `</tbody></table></div>`;
@@ -196,8 +202,9 @@
         const ind = indentOf(lines[j]);
         const cont = (mk && mk.ind >= minIndent) || ind >= minIndent + 2 || (fenceOpen(lines[j]) && ind >= minIndent + 2);
         if (!cont) break;
+        // 连着的空行只记一次、一次跳过（逐行 i++ 的话每个空行都要把后面的空行重扫一遍，几万个空行就是平方级）
         items[items.length - 1].chunks.push({ type: "blank" });
-        i++;
+        i = j;
         continue;
       }
       const mk = listMarker(line);
@@ -229,12 +236,16 @@
     return { end: i, html: renderItems(items) };
   }
   function chunksHTML(chunks) {
-    let html = "", para = [];
-    const flush = () => { if (para.length) { html += para.map(inline).join("<br>"); para = []; } };
+    // 同一项里空行隔开的两段之间空一行（原来直接拼在一起，「a」「续行」成了「a续行」）
+    let html = "", para = [], gap = false, lastText = false;
+    const flush = () => {
+      if (para.length) { html += (gap && lastText ? "<br><br>" : "") + para.map(inline).join("<br>"); para = []; lastText = true; }
+      gap = false;
+    };
     for (const c of chunks) {
-      if (c.type === "blank") flush();
+      if (c.type === "blank") { flush(); gap = true; }
       else if (c.type === "text") para.push(c.text);
-      else { flush(); html += c.html; }
+      else { flush(); html += c.html; lastText = false; }
     }
     flush();
     return html;
@@ -319,7 +330,7 @@
     if (inner >= 0 && inner < close) return null;
     // 开头不是 http(s):// 的直接不认，不用往后扫
     if (!/^https?:\/\//i.test(s.slice(close + 2, close + 10))) return null;
-    const from = close + 2, stop = Math.min(s.length, from + MAX_URL);
+    const from = close + 2, stop = Math.min(s.length, from + MAX_URL + 1); // 多看一个字：第 2048 字后面的「)」也要认
     let depth = 1, j = from;
     for (; j < stop; j++) {
       const c = s[j];

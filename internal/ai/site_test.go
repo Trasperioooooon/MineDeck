@@ -88,6 +88,49 @@ func TestCheckRedirectComposedAndCallerUntouched(t *testing.T) {
 	}
 }
 
+// 调用方的回调什么都放行（返回 nil），转到别的网站也照样不跟：检查在回调之前，不会因为有回调就跳过（Codex 第三轮）。
+func TestCheckRedirectPermissiveCallerStillGuarded(t *testing.T) {
+	var leaked int
+	other := newFake(t, func(_ int, _ recorded, w http.ResponseWriter) {
+		leaked++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	})
+	jump := newFake(t, func(_ int, r recorded, w http.ResponseWriter) {
+		w.Header().Set("Location", other.srv.URL+r.Path)
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	})
+	hc := jump.srv.Client()
+	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return nil }
+	cl, _ := NewClient(Config{Protocol: OpenAI, BaseURL: jump.srv.URL + "/v1", Key: "sk-test-0123456789", Model: "m", Auth: AuthAPIKey, HTTP: hc})
+	_, err := cl.ListModels(context.Background())
+	var ae *APIError
+	if !errors.As(err, &ae) || ae.Status != http.StatusTemporaryRedirect || leaked != 0 {
+		t.Fatalf("调用方放行也不该跟到别的网站：err=%v 别的网站收到 %d 次", err, leaked)
+	}
+}
+
+// 端口超出 0–65535 的地址不认（浏览器的 URL 也不认），免得前后端认出的网站不一样。
+func TestParseBaseURLPortRange(t *testing.T) {
+	for _, c := range []struct {
+		url string
+		ok  bool
+	}{
+		{"https://api.a.com:65535/v1", true},
+		{"https://api.a.com:0443/v1", true},
+		{"http://127.0.0.1:11434/v1", true},
+		{"https://api.a.com:65536/v1", false},
+		{"https://api.a.com:99999999999999999999/v1", false},
+	} {
+		if _, err := ParseBaseURL(c.url); (err == nil) != c.ok {
+			t.Errorf("ParseBaseURL(%q)：%v", c.url, err)
+		}
+	}
+	if SameSite("https://api.a.com:65536/v1", "https://api.a.com:65536/v2") {
+		t.Error("解析不了的地址不能算同一个网站")
+	}
+}
+
 // 端口号的写法：前导零、默认端口都归一，和浏览器的 URL 一致（前后端认出的是不是同一个网站要对得上）。
 func TestSiteNormalizesPort(t *testing.T) {
 	for _, c := range []struct {
@@ -127,5 +170,44 @@ func TestDisconnectKeepsHint(t *testing.T) {
 	var ae *APIError
 	if !errors.As(err, &ae) || !strings.Contains(HintOf(err), "对话太长") {
 		t.Fatalf("断开后原来的报错和提示丢了：%v hint=%q", err, HintOf(err))
+	}
+}
+
+// 同上，Claude 协议流里来的报错，以及两种协议读到一半网络断了（不是正常的流结束）（Codex 第三轮）。
+func TestDisconnectKeepsHintBothProtocols(t *testing.T) {
+	// 声明的长度比实际写的多：客户端读到一半连接就没了（unexpected EOF），走的是读流失败，不是流里的报错
+	cut := func(body string) func(int, recorded, http.ResponseWriter) {
+		return func(_ int, _ recorded, w http.ResponseWriter) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Content-Length", "100000")
+			_, _ = w.Write([]byte(body))
+		}
+	}
+	claudeHead := `event: message_start` + "\n" + `data: {"type":"message_start","message":{"id":"m","type":"message","role":"assistant","model":"claude-opus-5-5","content":[],"usage":{"input_tokens":5,"output_tokens":1}}}` + "\n\n" +
+		`event: content_block_start` + "\n" + `data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}` + "\n\n" +
+		`event: content_block_delta` + "\n" + `data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"先看一下"}}` + "\n\n"
+	for _, c := range []struct {
+		name, preset string
+		reply        func(int, recorded, http.ResponseWriter)
+		api          bool // 错误链上应该有 *APIError（否则应该有 *NetError）
+	}{
+		{"Claude 流里来的报错", "claude", func(_ int, _ recorded, w http.ResponseWriter) { serve(t, w, "claude/error-after-start.sse") }, true},
+		{"Claude 读到一半断网", "claude", cut(claudeHead), false},
+		{"OpenAI 读到一半断网", "openai", cut(`data: {"choices":[{"index":0,"delta":{"content":"先看一下"}}]}` + "\n\n"), false},
+	} {
+		f := newFake(t, c.reply)
+		cl, _ := NewClient(presetConfig(t, c.preset, f.srv.URL, true))
+		conv, _ := cl.NewConversation("", nil)
+		_ = conv.AddUser("x")
+		res, err := cl.Chat(context.Background(), conv, nil)
+		if !errors.Is(err, ErrDisconnected) || res == nil || !res.Partial {
+			t.Errorf("%s：应当作断开：%v %+v", c.name, err, res)
+			continue
+		}
+		var ae *APIError
+		var ne *NetError
+		if c.api && !errors.As(err, &ae) || !c.api && !errors.As(err, &ne) || HintOf(err) == "" {
+			t.Errorf("%s：断开后原来的错误或提示丢了：%v hint=%q", c.name, err, HintOf(err))
+		}
 	}
 }

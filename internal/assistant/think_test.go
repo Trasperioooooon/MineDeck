@@ -189,9 +189,19 @@ func TestFailText(t *testing.T) {
 		{errors.New("连不上服务商：dial tcp: connection refused"), "请求 AI 失败", "x"},
 		{errors.New("连不上 https://api.example.com/v1，检查地址"), "请求 AI 失败：连不上 https://api.example.com/v1，检查地址", ""},
 		{errors.New(strings.Repeat("长", 61)), "请求 AI 失败", "x"},
+		// Codex 第三轮：网址后面紧跟中文标点和英文的、短英文、大写的网址、固定叫法
+		{errors.New("连不上 https://api.test，error=invalid_key"), "请求 AI 失败", "x"},
+		{errors.New("连不上 https://api.test：HTTP401"), "请求 AI 失败", "x"},
+		{errors.New("读取失败：EOF"), "请求 AI 失败", "x"},
+		{errors.New(`写不进 C:\Users\<用户名>\AppData`), "请求 AI 失败", "x"},
+		{errors.New("请检查 Claude 模型名"), "请求 AI 失败：请检查 Claude 模型名", ""},
+		{errors.New("连不上 HTTPS://a.test，检查地址"), "请求 AI 失败：连不上 HTTPS://a.test，检查地址", ""},
+		{errors.New("接口地址要以 http:// 或 https:// 开头"), "请求 AI 失败：接口地址要以 http:// 或 https:// 开头", ""},
 	} {
-		text, detail := failText(c.err, c.err.Error())
-		if text != c.text || (c.detail == "" && detail != "") || (c.detail != "" && detail == "") {
+		raw := c.err.Error()
+		text, detail := failText(c.err, raw)
+		// 有原文的，放进去的就是传进来的原文本身（界面「复制原文」拿到的就是它）
+		if text != c.text || (c.detail == "" && detail != "") || (c.detail != "" && detail != raw) {
 			t.Errorf("%v：%q %q", c.err, text, detail)
 		}
 	}

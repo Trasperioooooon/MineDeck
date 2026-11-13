@@ -3793,7 +3793,7 @@ function setNotify(body, info) {
    服务商设置是多字段表单（吸底保存条）：Key 只写不读，已设置时输入框留空、占位写「已设置」；改了服务商、协议或地址，
    保存后旧 Key 自动清掉，要重新填写。每日额度是单字段保存（bindSaveInput）。局域网打开时只能看（修改仅本机）。 */
 const AI_EFFORTS = [["", "默认（模型自己定）"], ["low", "低：最快、最省"], ["medium", "中"], ["high", "高"], ["xhigh", "很高"], ["max", "最高：最慢、最贵"]];
-const aiModelCache = new Map(); // 服务商 + 协议 + 地址 → { models, warning, source }
+const aiModelCache = new Map(); // 服务商 + 协议 + 地址（自定义再加鉴权）→ { models, warning, source }；只存用已保存的 Key 拉到的
 /* 和后端 ai.KeyWarning 同一条规则：前缀对不上当前地址就提醒，不拦截。认不出的前缀不提醒。
    只比主机名：Key 绑定的是域名，地址后面多一截路径不算对不上（和后端 sameHost 一致）。 */
 function keyWarn(p, url, key) {
@@ -4122,7 +4122,7 @@ function drawAI(body, v, gen) {
   async function loadModels(force, key) {
     const p = cur();
     if (!p) throw new Error("先选择服务商");
-    if (!force && aiModelCache.has(key)) return aiModelCache.get(key);
+    if (!force && !f.key.value.trim() && aiModelCache.has(key)) return aiModelCache.get(key);
     const b = { preset: p.id, baseUrl: f.url.value.trim() };
     if (p.id === "custom") { b.protocol = f.proto.value; b.auth = f.auth.value; b.echo = f.echo.value; }
     if (f.key.value.trim()) b.key = f.key.value.trim();
@@ -4145,7 +4145,8 @@ function drawAI(body, v, gen) {
     try {
       const pack = await loadModels(force, ctx);
       if (stale(gen) || seq !== modelSeq) return; // 后面又发了一次：这次作废，也不写缓存（不然先回来的新结果会被晚到的旧结果盖掉）
-      aiModelCache.set(ctx, pack);
+      // 只缓存用已保存的 Key 拉到的列表：框里临时填的 Key 拉到的不进缓存，免得「放弃修改」以后还拿它冒充已存 Key 的列表
+      if (!f.key.value.trim()) aiModelCache.set(ctx, pack);
       if (pop.hidden || modelKey() !== ctx) return;
       modelPack = pack;
       showModelErr(null);
@@ -4255,7 +4256,7 @@ function drawAI(body, v, gen) {
   if (!ro) $("#ai-off").onclick = async () => {
     const r = await confirmModal({ title: "停用 AI？", body: "会清掉服务商设置和 Key。用量记录、每日额度和自填单价会留下。之后可以重新配置。", okText: "停用", danger: true, icon: "power" });
     if (!r) return;
-    try { await api("/api/ai/provider", { method: "PUT", body: { preset: "" } }); toast("已停用 AI"); dirtyCheck = null; navigate(); }
+    try { await api("/api/ai/provider", { method: "PUT", body: { preset: "" } }); aiModelCache.clear(); toast("已停用 AI"); dirtyCheck = null; navigate(); }
     catch (e) { toastErr("无法停用 AI", e); }
   };
   window.MDAssist?.settings($("#ai-assist-slot"), v, gen); // 应用内助手（assistant.js）
