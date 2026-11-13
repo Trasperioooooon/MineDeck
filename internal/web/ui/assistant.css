@@ -122,9 +122,11 @@ body.has-host-chrome .tb-ai { margin-right: 2px; }
 .ap-think > summary:hover { color: var(--text); }
 .ap-think-body { margin: 0; padding: 0 10px 8px; max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: break-word; color: var(--muted); line-height: 1.6; }
 
-/* 拖左边改宽度。手机上面板占满，不显示这条 */
+/* 拖左边改宽度，也能用键盘（焦点在这条上时按左右方向键）。手机上面板占满，不显示这条 */
 .ap-resize { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; margin-left: -3px; cursor: ew-resize; touch-action: none; z-index: 2; }
-.ap-resize:hover, .ap-resize.drag { background: color-mix(in srgb, var(--accent) 40%, transparent); }
+.ap-resize:hover, .ap-resize.drag, .ap-resize:focus-visible { background: color-mix(in srgb, var(--accent) 40%, transparent); }
+/* 键盘焦点：全局的焦点环收进这条窄边里，不在两侧各多画一道线 */
+.ap-resize:focus-visible { outline-offset: -2px; }
 
 /* 工具调用：一行一个，点开看参数和交还给 AI 的内容 */
 .ap-tools { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }

@@ -611,11 +611,13 @@ async function musicHandler(state, req, res, p, m, seg) {
 // ==================== 第五阶段结束 ====================
 // ================================ 第三阶段：应用内 AI 助手 ================================
 // 同 /api/assistant/*、/api/ops/proposals*、PUT /api/ai/assistant、GET /api/instances/{name}/diag（本地规则排错）。
-// 假的 AI：按用户的话挑一段写好的回复，流式推给界面（同后端的事件：session / item / delta / thinking / state）——
-//   附上排错资料：按「机械动力整合包」的报错分析，先查模组清单（读操作，不弹确认），再提议禁用 xaerominimap.jar（写操作）；
+// 假的 AI：按用户的话挑一段写好的回复，流式推给界面（同后端的事件：session / item / delta / thinking / tool_start / state）——
+//   附上排错资料：按「机械动力整合包」的报错分析，先想一下、查模组清单（读操作，不弹确认），再提议禁用 xaerominimap.jar（写操作）；
 //   含「人数」：先读 server.properties，再提议把 max-players 改成 10（写操作）；
 //   含「重启」：提议重启服务器（危险操作，确认时要多勾一次）；含「新建」：提议新建实例（要用户自己勾 EULA）；
+//   含「卡」：第一轮只有思考和工具调用、一个字的正文都没有（查控制台），第二轮先思考、再说话（正文里有一行很长的代码），最后提议把视距调小（写操作）；
 //   其余：一段带 Markdown（含一段想注入 HTML 的文字）的普通回复。
+// 步骤里的 think 是这一轮的思考：同后端一样一小段一小段推 {type:"thinking", id, text}（只带这一段，界面自己接起来），全文在这一轮结束时随 item 的 think 给出。
 // state.ai.local 为 false 时模拟局域网打开：只看得见局域网开的会话，处理不了本机会话的提案。
 function newAsstState() {
   return { sessions: [], seq: 0, lan: true, executed: [], slow: 0 };
@@ -636,6 +638,7 @@ const ASST_DIAG = {
   },
 };
 const ASST_MD = "按你说的情况，常见原因有这几个：\n\n### 先检查\n\n1. **端口**有没有被占用（默认 `25565`）\n2. 防火墙有没有放行 Java\n   - 内网穿透的隧道是不是在运行\n\n| 项目 | 现在 | 建议 |\n| --- | --- | --- |\n| 内存 | 4 GB | 6 GB |\n\n```\n/whitelist add Steve\n```\n\n> 改设置之前我都会先问你。\n\n顺便：<img src=x onerror=\"window.__xss=1\"> 这段 HTML 应该原样显示。详见 [Paper 文档](https://docs.papermc.io/)。";
+const ASST_LAG = "[21:42:10] [Server thread/WARN]: Can't keep up! Is the server overloaded? Running 5210ms or 104 ticks behind";
 function asstQuota(state) { return { used: (state.ai.today.assistant || {}).tokens || 0, limit: state.ai.quota.assistant || 0 }; }
 function asstStatus(state) {
   const a = state.ai, missing = aiMissing(a), enabled = !missing;
@@ -658,7 +661,7 @@ const asstSleep = ms => new Promise(r => setTimeout(r, ms));
 function asstScript(s, text, attach) {
   const inst = s.inst || "生存服 · 朋友";
   if (attach) return [
-    { thinking: true, text: "我先看看模组清单。", tools: [{ name: "instance_mods_list", op: "instance.mods.list", title: "查看模组清单", args: { inst, q: "xaero" }, result: { count: 87, mods: [{ id: "xaerominimap", file: "xaerominimap.jar", env: "client" }] } }] },
+    { think: "附来的资料里有一行 invalid dist DEDICATED_SERVER，像是客户端模组进了服务端。先看模组清单里有没有小地图。", text: "我先看看模组清单。", tools: [{ name: "instance_mods_list", op: "instance.mods.list", title: "查看模组清单", args: { inst, q: "xaero" }, result: { count: 87, mods: [{ id: "xaerominimap", file: "xaerominimap.jar", env: "client" }] } }] },
     { text: "原因找到了：\n\n- `xaerominimap.jar` 是**客户端模组**，服务端加载时报 `invalid dist DEDICATED_SERVER`\n- 另外还少了前置 geckolib\n\n先把小地图禁用掉：",
       propose: { op: "instance.mods.toggle", title: "启用 / 禁用模组", level: "W", args: { inst, file: "xaerominimap.jar", enable: false },
         plan: { summary: `禁用「${inst}」的 xaerominimap.jar`, changes: [{ what: "mods/xaerominimap.jar", before: "启用", after: "禁用（改名为 .jar.disabled）" }] } },
@@ -683,6 +686,15 @@ function asstScript(s, text, attach) {
         plan: { summary: "新建 Paper 1.21.4 服务器「新服」" }, consent: { param: "eula", text: "我已阅读并同意 Minecraft EULA", url: "https://aka.ms/MinecraftEULA" } },
       done: "开始创建了，可以在「新建服务器」里看进度。", rejected: () => "好的，不建了。" },
   ];
+  if (/卡/.test(text)) return [
+    { think: "用户说服务器卡。先别猜原因，看看控制台里有没有「跟不上」的警告，再决定往哪边查。这一轮不用先说话，直接查。",
+      tools: [{ name: "instance_console_tail", op: "instance.console.tail", title: "查看控制台输出", args: { inst, lines: 200 }, result: { lines: [ASST_LAG] } }] },
+    { think: "控制台里确实有 Can't keep up，落后了一百多刻。视距 10 对这台机器偏大，先建议调到 8，改动小，也好改回去。",
+      text: "控制台里有这样一行，说明服务器算不过来了：\n\n```\n" + ASST_LAG + "\n```\n\n先把视距调小试试：",
+      propose: { op: "instance.props.set", title: "修改 server.properties", level: "W", args: { inst, pairs: [{ key: "view-distance", value: "8" }] },
+        plan: { summary: `把「${inst}」的 view-distance 从 10 改成 8`, changes: [{ what: "view-distance", before: "10", after: "8" }] } },
+      done: "改好了，**重启服务器**后生效。", rejected: r => `好的，先不改${r ? `。你说「${r}」，我记下了` : ""}。` },
+  ];
   return [{ text: ASST_MD, tools: [{ name: "instance_console_tail", op: "instance.console.tail", title: "查看控制台输出", args: { inst, lines: 200 }, result: { lines: ["[21:30:09 INFO]: Done (6.812s)!"] } }] }];
 }
 // 跑一轮：逐段流式推文字、执行读操作、遇到写操作就停下等确认
@@ -693,12 +705,17 @@ async function asstTurn(state, s, steps) {
   for (const step of steps) {
     const it = { id: "i" + (++s.next), kind: "assistant", t: new Date().toISOString(), text: "", tools: [] };
     s.items.push(it); asstEmit(s, { type: "item", item: asstSlim(it) });
-    if (step.thinking) { asstEmit(s, { type: "thinking", id: it.id }); await wait(60); }
+    for (const c of (step.think || "").match(/[\s\S]{1,12}/g) || []) {
+      if (s.stop) break;
+      it.think = (it.think || "") + c; asstEmit(s, { type: "thinking", id: it.id, text: c }); await wait(12);
+    }
     const chunks = (step.text || "").match(/[\s\S]{1,6}/g) || [];
     for (const c of chunks) {
       if (s.stop) break;
       it.text += c; asstEmit(s, { type: "delta", id: it.id, text: c }); await wait(8);
     }
+    // 模型开始写工具调用：这时这一轮还没结束，工具还没进 item（同后端的 tool_start）
+    for (const tl of s.stop ? [] : step.tools || []) { asstEmit(s, { type: "tool_start", id: it.id, name: tl.name }); await wait(12); }
     if (s.stop) { it.partial = true; asstEmit(s, { type: "item", item: asstSlim(it) }); break; }
     it.usage = { input: 1820, output: 96, cacheRead: 1024 }; it.cost = { amount: 0.0021, currency: "CNY", source: "litellm" }; it.model = state.ai.model;
     state.ai.today.assistant.tokens += 2940;

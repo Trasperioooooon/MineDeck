@@ -1325,7 +1325,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await reply("应该原样显示"); await idle();
       const m = await page.evaluate(() => {
         const md = [...document.querySelectorAll(".ap-msg.assistant .md")].pop();
-        return { h: !!md.querySelector("h4"), nest: !!md.querySelector("ol li ul li"), table: !!md.querySelector("table td"), pre: !!md.querySelector("pre code"),
+        return { h: !!md.querySelector("h3.md-h.md-h3"), nest: !!md.querySelector("ol li ul li"), table: !!md.querySelector("table td"), pre: !!md.querySelector("pre code"),
           img: md.querySelectorAll("img").length, link: (md.querySelector("a") || {}).href, xss: window.__xss, text: md.textContent };
       });
       assert(m.h && m.nest && m.table && m.pre && m.img === 0 && !m.xss && m.text.includes("<img src=x") && m.link === "https://docs.papermc.io/", "Markdown：" + JSON.stringify(m).slice(0, 300));
@@ -1386,9 +1386,192 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
             .map(e => e.className || e.tagName).slice(0, 5) };
       });
       assert(w.left === 0 && w.width === 390 && w.sw <= w.cw && w.wide.length === 0, "手机宽度：" + JSON.stringify(w));
+      assert(await p.$eval(".ap-resize", e => getComputedStyle(e).display === "none"), "手机宽度下面板占满，拖宽手柄应隐藏（也就不会被 Tab 到）");
       await p.focus("#ap-in"); await p.keyboard.press("2"); await p.waitForTimeout(200);
       assert(p.url().endsWith("#/instances"), "输入框里按 2 不应切页：" + p.url());
     } finally { await c.close(); await asstState({ reset: true }); await aiState({ reset: true }); }
+  });
+
+  // 思考、流式重画、拖宽手柄。假 AI 听到「卡」：第一轮只有思考和工具调用，第二轮先思考再出正文，最后给一张确认卡片（见 server.js 的 asstScript）
+  // 开一个不关联服务器的新会话，面板停在对话里
+  const newChat = async () => {
+    await page.goto(url("#/instances")); await settle(500);
+    await page.evaluate(() => localStorage.removeItem("amh_ai_sid"));
+    await page.click("#ai-btn"); await settle(300);
+    await page.click('#ap-body [data-x="new"]'); await settle(200);
+    await page.click(".dropmenu button >> text=不关联服务器"); await settle(300);
+  };
+  // 一次取下所有助手消息的样子（同一时刻的）：思考的摘要、是否展开、思考有多少字，有没有正文，「正在…」那一行，工具的状态；mark 是测试自己打在元素上的记号，整条重画后就没了
+  const asstSnap = () => page.evaluate(() => ({
+    busy: !(document.querySelector("#ap-stop") || { hidden: true }).hidden,
+    msgs: [...document.querySelectorAll("#ap-body .ap-msg.assistant")].map(m => {
+      const d = m.querySelector(":scope > .ap-think"), ty = m.querySelector(":scope > .ap-typing");
+      return { sum: d ? d.querySelector("summary").textContent : "", open: !!(d && d.open), think: d ? d.querySelector(".ap-think-body").textContent.length : 0,
+        md: !!m.querySelector(":scope > .md"), typing: ty ? ty.textContent.trim() : "",
+        tools: [...m.querySelectorAll(".ap-tool")].map(t => t.className.replace("ap-tool ", "")), mark: m.dataset.mark || "" };
+    }),
+  }));
+  // 等到某个中间状态出现，返回那一刻的样子（条件和断言看的是同一份，不会等到了再去取时已经变了）
+  const snapWhen = async (cond, what, timeout = 6000) => {
+    const t0 = Date.now();
+    for (;;) {
+      const s = await asstSnap();
+      if (cond(s.msgs, s)) return s;
+      if (Date.now() - t0 > timeout) throw new Error("没等到「" + what + "」，最后看到的是 " + JSON.stringify(s).slice(0, 500));
+      await page.waitForTimeout(15);
+    }
+  };
+  const J = x => JSON.stringify(x).slice(0, 500);
+
+  await run("AI 助手：思考默认折叠，进行中摘要写「思考中…」，开始调工具或有了正文就写「思考」；下一轮开始后上一条不停在「思考中…」；展开的思考在流式更新和整条重画后保持展开", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" }); await asstState({ reset: true });
+    try {
+      await newChat();
+      await asstState({ slow: 250 }); // 每一小段隔 250 毫秒，中间状态才看得见
+      await page.fill("#ap-in", "服务器有点卡"); await page.press("#ap-in", "Enter");
+      // 第一轮：只有思考和工具调用，一个字的正文都没有
+      let s = await snapWhen(m => m.length === 1 && !!m[0].sum, "第一条开始思考");
+      assert(s.msgs[0].sum === "思考中…" && !s.msgs[0].open && !s.msgs[0].md && s.busy, "思考进行中、还没正文：默认折叠，摘要写「思考中…」：" + J(s));
+      const len0 = s.msgs[0].think;
+      await page.click("#ap-body .ap-msg.assistant .ap-think > summary");
+      await page.evaluate(() => { document.querySelector("#ap-body .ap-msg.assistant").dataset.mark = "1"; });
+      s = await snapWhen(m => m[0].think > len0, "思考的文字接着增加");
+      assert(s.msgs[0].open && s.msgs[0].mark === "1" && s.msgs[0].sum === "思考中…", "流式更新时展开的思考应保持展开（元素没换）：" + J(s));
+      // 模型开始写工具调用（工具还没进这一条）：思考已经结束了
+      s = await snapWhen(m => m[0].typing.startsWith("正在调用"), "开始调用工具");
+      assert(s.msgs[0].sum === "思考" && s.msgs[0].open, "开始调工具后摘要不该还是「思考中…」：" + J(s));
+      // 工具执行中：这一条整条重画过（记号没了），思考仍然展开
+      s = await snapWhen(m => m[0].tools.some(t => t.includes("running")), "工具执行中");
+      assert(s.msgs[0].sum === "思考" && s.msgs[0].open && !s.msgs[0].mark && !s.msgs[0].md && s.busy, "工具执行期间：" + J(s));
+      // 第二轮开始：上一条不再是最后一条
+      s = await snapWhen(m => m.length === 2 && !!m[1].sum, "第二条开始思考");
+      assert(s.msgs[0].sum === "思考" && s.msgs[0].open && !s.msgs[0].typing && s.msgs[0].tools.join() === "done", "下一轮开始后，上一条的摘要不该停在「思考中…」：" + J(s));
+      assert(s.msgs[1].sum === "思考中…" && !s.msgs[1].open && !s.msgs[1].md && s.busy, "第二条思考进行中：" + J(s));
+      // 正文来了，回复还没结束
+      s = await snapWhen(m => m[1].md, "第二条开始出正文");
+      assert(s.msgs[1].sum === "思考" && !s.msgs[1].open && s.busy, "有了正文之后摘要应是「思考」：" + J(s));
+      await asstState({ slow: 0 });
+      await page.waitForSelector("#ap-body .ap-card.pending", { timeout: 8000 }); await idle();
+      s = await asstSnap();
+      assert(s.msgs.length === 2 && s.msgs.every(x => x.sum === "思考" && !x.typing && x.think > 20) && s.msgs[0].open && !s.msgs[1].open && !s.busy, "整个回复结束后：" + J(s));
+    } finally { await page.keyboard.press("Escape"); await asstState({ reset: true }); await aiState({ reset: true }); }
+  });
+
+  await run("AI 助手：思考到一半点停止，这一条标成没说完，摘要不停在「思考中…」", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" }); await asstState({ reset: true });
+    try {
+      await newChat();
+      await asstState({ slow: 250 });
+      await page.fill("#ap-in", "服务器有点卡"); await page.press("#ap-in", "Enter");
+      let s = await snapWhen(m => m.length === 1 && m[0].sum === "思考中…", "开始思考");
+      await page.click("#ap-stop");
+      await idle();
+      s = await asstSnap();
+      const body = await page.textContent("#ap-body");
+      assert(s.msgs.length === 1 && s.msgs[0].sum === "思考" && !s.msgs[0].typing && !s.msgs[0].md && !s.msgs[0].tools.length, "停下之后摘要不该还是「思考中…」：" + J(s));
+      assert(body.includes("没说完就停了") && body.includes("已停止"), "应标出没说完、已停止：" + body.slice(0, 200));
+    } finally { await page.keyboard.press("Escape"); await asstState({ reset: true }); await aiState({ reset: true }); }
+  });
+
+  await run("AI 助手：确认卡片处理后这一条整条重画，正文里代码块的横向滚动位置和展开的思考都留着", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" }); await asstState({ reset: true });
+    try {
+      await newChat();
+      await page.fill("#ap-in", "服务器有点卡"); await page.press("#ap-in", "Enter");
+      await page.waitForSelector("#ap-body .ap-card.pending", { timeout: 5000 }); await idle();
+      await page.click("#ap-body .ap-msg.assistant:has(.ap-card) .ap-think > summary");
+      const before = await page.evaluate(() => {
+        const m = document.querySelector("#ap-body .ap-card").closest(".ap-msg");
+        m.dataset.mark = "1";
+        const pre = m.querySelector(".md-pre");
+        pre.scrollLeft = 90;
+        return { left: pre.scrollLeft, room: pre.scrollWidth - pre.clientWidth, open: m.querySelector(".ap-think").open };
+      });
+      assert(before.left === 90 && before.room > 120 && before.open, "那行长代码应该能横向滚动：" + J(before));
+      await page.click('.ap-card.pending [data-x="ok"]');
+      await reply("改好了"); await idle();
+      const after = await page.evaluate(() => {
+        const m = document.querySelector("#ap-body .ap-card").closest(".ap-msg");
+        return { mark: m.dataset.mark || "", left: m.querySelector(".md-pre").scrollLeft, open: m.querySelector(".ap-think").open, out: m.querySelector(".pc-out").textContent };
+      });
+      assert(!after.mark && after.out.includes("已确认"), "确认后这一条应整条重画：" + J(after));
+      assert(after.left === 90 && after.open, "重画后滚动位置和展开的思考应留着：" + J(after));
+    } finally { await page.keyboard.press("Escape"); await asstState({ reset: true }); await aiState({ reset: true }); }
+  });
+
+  await run("AI 助手：拖宽手柄能用键盘（← 变宽、→ 变窄，按住 Shift 步子大），松键后才记下，到头不乱跳，刷新后还在；拖到一半被打断也会收尾", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" }); await asstState({ reset: true });
+    const W = () => page.evaluate(() => {
+      const h = document.querySelector(".ap-resize");
+      return { v: document.documentElement.style.getPropertyValue("--ai-w"), panel: Math.round(document.querySelector("#ai-panel").getBoundingClientRect().width),
+        saved: localStorage.getItem("amh_ai_w"), now: h.getAttribute("aria-valuenow"), min: h.getAttribute("aria-valuemin"), max: h.getAttribute("aria-valuemax"),
+        drag: h.classList.contains("drag"), focus: document.activeElement === h };
+    });
+    const openPanel = async () => { await page.goto(url("#/instances")); await settle(500); await page.click("#ai-btn"); await page.waitForSelector("#ai-panel"); await settle(300); };
+    const grip = () => page.$eval(".ap-resize", e => { const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + 240 }; });
+    try {
+      await page.goto(url("#/instances")); await settle(300);
+      await page.evaluate(() => localStorage.removeItem("amh_ai_w"));
+      await openPanel();
+      const h = await page.$eval(".ap-resize", e => ({ tab: e.tabIndex, role: e.getAttribute("role"), ori: e.getAttribute("aria-orientation"), label: e.getAttribute("aria-label") }));
+      assert(h.tab === 0 && h.role === "separator" && h.ori === "vertical" && !!h.label, "手柄应能被 Tab 到、有名字：" + J(h));
+      // 用键盘走到手柄上（它排在面板里第一个按钮的前面）：脚本直接设的焦点不算键盘焦点，不出焦点高亮
+      await page.focus("#ap-back"); await page.keyboard.press("Shift+Tab");
+      let w = await W();
+      assert(w.focus && w.panel === 440 && w.now === "440" && w.min === "320" && w.max === "720" && w.saved === null, "一开始：" + J(w));
+      const ring = await page.$eval(".ap-resize", e => { const c = getComputedStyle(e); return { bg: c.backgroundColor, outline: c.outlineStyle }; });
+      assert(!/rgba\(0, 0, 0, 0\)|transparent/.test(ring.bg), "键盘焦点落在手柄上时应有高亮：" + J(ring));
+      await page.keyboard.down("ArrowLeft");
+      w = await W();
+      assert(w.v === "456px" && w.panel === 456 && w.now === "456" && w.saved === null, "按下 ←：宽 16，松键之前不写：" + J(w));
+      await page.keyboard.up("ArrowLeft");
+      assert((await W()).saved === "456", "松键后记下：" + J(await W()));
+      await page.keyboard.press("Shift+ArrowLeft");
+      w = await W();
+      assert(w.panel === 520 && w.saved === "520" && w.now === "520", "Shift + ←：宽 64：" + J(w));
+      await page.keyboard.press("ArrowRight");
+      w = await W();
+      assert(w.panel === 504 && w.saved === "504", "→：窄 16：" + J(w));
+      for (let i = 0; i < 4; i++) await page.keyboard.press("Shift+ArrowRight"); // 504 → 440 → 376 → 320（到头）→ 320
+      w = await W();
+      assert(w.v === "320px" && w.panel === 320 && w.now === "320" && w.saved === "320", "最窄 320，到头再按不该跳回默认宽度：" + J(w));
+      for (let i = 0; i < 8; i++) await page.keyboard.press("Shift+ArrowLeft"); // 到 720 为止
+      w = await W();
+      assert(w.v === "720px" && w.panel === 720 && w.now === "720" && w.saved === "720", "最宽 720：" + J(w));
+      await page.keyboard.press("ArrowRight");
+      await openPanel(); // 刷新
+      w = await W();
+      assert(w.v === "704px" && w.panel === 704 && w.now === "704" && w.saved === "704", "刷新后宽度还在：" + J(w));
+      // 鼠标拖：往右拖变窄，松手后记下、高亮去掉
+      let g = await grip();
+      await page.mouse.move(g.x, g.y); await page.mouse.down();
+      await page.mouse.move(g.x + 104, g.y, { steps: 4 });
+      w = await W();
+      assert(w.drag && w.panel === 600 && w.now === "600" && w.saved === "704", "拖动中：" + J(w));
+      await page.mouse.up();
+      w = await W();
+      assert(!w.drag && w.panel === 600 && w.saved === "600", "松手后：" + J(w));
+      // 拖到一半被打断（没有松手这一步，只是失去了指针捕获）：照样收尾，之后鼠标再动也不跟着变
+      await page.evaluate(() => document.querySelector(".ap-resize").addEventListener("pointerdown", e => { window.__pid = e.pointerId; }, { once: true }));
+      g = await grip();
+      await page.mouse.move(g.x, g.y); await page.mouse.down();
+      await page.mouse.move(g.x - 40, g.y, { steps: 2 });
+      assert((await W()).panel === 640, "第二次拖动中：" + J(await W()));
+      await page.evaluate(() => document.querySelector(".ap-resize").releasePointerCapture(window.__pid));
+      await page.mouse.move(g.x - 41, g.y); await page.mouse.move(g.x - 42, g.y);
+      w = await W();
+      assert(!w.drag && w.panel === 640 && w.saved === "640", "被打断后应去掉高亮、记下当时的宽度：" + J(w));
+      await page.mouse.move(g.x - 42, g.y + 30, { steps: 2 });
+      await page.mouse.up();
+      assert((await W()).panel === 640, "打断之后不该还跟着鼠标变：" + J(await W()));
+      // 再拖一次：只有这一次的监听在起作用
+      g = await grip();
+      await page.mouse.move(g.x, g.y); await page.mouse.down();
+      await page.mouse.move(g.x + 20, g.y, { steps: 2 });
+      await page.mouse.up();
+      w = await W();
+      assert(!w.drag && w.panel === 620 && w.saved === "620" && w.now === "620", "打断之后再拖一次：" + J(w));
+    } finally { await page.mouse.up(); await page.keyboard.press("Escape"); await page.evaluate(() => localStorage.removeItem("amh_ai_w")); await asstState({ reset: true }); await aiState({ reset: true }); }
   });
   // ============================== 第三阶段结束 ==============================
 

@@ -1,6 +1,6 @@
 /* MineDeck 助手回复的 Markdown。自己写，不引库，也不做代码高亮。
    先把整段转义成文本，再认写法：标题、斜体、加粗、删除线、链接、代码、引用、表格、列表。
-   链接只放行 http(s)，不渲染图片。行内替换在链接切开之后做，避免把标签写进 href。
+   链接只放行 http(s)，不渲染图片。合法链接先整体换成占位再做行内替换，标签写不进 href。
    浏览器里挂到 MDMarkdown；Node 测试用 module.exports。不依赖 DOM。 */
 (function (root, factory) {
   const api = factory();
@@ -11,8 +11,13 @@
 
   const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
+  /* 外层：整段只在这里转义一遍，再切成行。\u0001 留给行内占位用，源文里有的先去掉。 */
   function parts(src) {
-    const lines = esc(src).replace(/\r\n?/g, "\n").split("\n");
+    return partsOfLines(esc(String(src ?? "").replace(/\u0001/g, "")).replace(/\r\n?/g, "\n").split("\n"));
+  }
+
+  /* 内层：只处理已经转义过的行。引用块去掉行首的 > 之后递归调这里，不再转义第二遍。 */
+  function partsOfLines(lines) {
     const out = [];
     let i = 0;
     while (i < lines.length) {
@@ -30,7 +35,7 @@
         else if (isQuote(lines[i])) {
           const buf = [];
           for (; i < lines.length && isQuote(lines[i]); i++) buf.push(lines[i].replace(/^\s{0,3}&gt;\s?/, ""));
-          end = i; html = `<blockquote>${render(buf.join("\n"))}</blockquote>`;
+          end = i; html = `<blockquote>${partsOfLines(buf).map(p => p.html).join("")}</blockquote>`;
         } else if (isTable(lines, i)) {
           const t = readTable(lines, i);
           end = t.end; html = t.html;
@@ -227,8 +232,12 @@
     return html;
   }
 
-  /* ---------- 行内：先切代码，再切链接，最后才加粗 / 斜体 / 删除线。__ 不当加粗 ---------- */
+  /* ---------- 行内：先切代码；合法链接整体换成占位，再对整段做加粗 / 斜体 / 删除线，最后换回。__ 不当加粗 ----------
+     占位写成 \u0001序号\u0001（源文里的 \u0001 在 parts() 入口已经去掉，撞不上正文）。
+     片段放进去之前先把它里面的占位换回，所以每个片段都是换干净的，最后换一遍就够，不会漏在外面。 */
   function inline(s) { return splitCode(s).map(p => p.code ? `<code>${p.text}</code>` : inlineRest(p.text)).join(""); }
+
+  const SLOT = /\u0001(\d+)\u0001/g;
 
   function splitCode(s) {
     const out = [];
@@ -246,18 +255,26 @@
   }
 
   function inlineRest(s) {
+    const slots = [];
+    const fill = t => t.replace(SLOT, (_, n) => slots[+n]);
+    const put = html => { slots.push(fill(html)); return "\u0001" + (slots.length - 1) + "\u0001"; };
     let out = "", i = 0;
     while (i < s.length) {
       if (s[i] === "[" && (i === 0 || s[i - 1] !== "!")) {
         const link = readLink(s, i);
-        if (link) { out += `<a href="${link.href}" target="_blank" rel="noopener noreferrer">${inlineRest(link.text)}</a>`; i = link.end; continue; }
+        if (link) {
+          // 链接文字里的强调照常；文字是空的就显示网址本身（已经转义过，不再认写法）
+          const text = link.text.trim() ? inlineRest(link.text) : link.href;
+          out += put(`<a href="${link.href}" target="_blank" rel="noopener noreferrer">${text}</a>`);
+          i = link.end;
+          continue;
+        }
       }
-      let j = i + 1;
-      while (j < s.length && !(s[j] === "[" && s[j - 1] !== "!")) j++;
-      out += style(s.slice(i, j));
-      i = j;
+      const j = s.indexOf("[", i + 1);
+      out += s.slice(i, j < 0 ? s.length : j);
+      i = j < 0 ? s.length : j;
     }
-    return out;
+    return fill(style(out, put));
   }
 
   /* URL 可以含成对括号。协议只认 http / https（转义之后仍是这两个开头）。 */
@@ -276,14 +293,15 @@
     return { text: s.slice(i + 1, close), href: url, end: j };
   }
 
-  function style(s) {
-    const slots = [];
-    const put = html => { slots.push(html); return "\u0001" + (slots.length - 1) + "\u0001"; };
-    s = s.replace(/\*\*(?=\S)([\s\S]+?)\*\*(?!\*)/g, (_, t) => put("<b>" + style(t) + "</b>"));
-    s = s.replace(/(?<!\*)\*(?!\*)(?=\S)([\s\S]+?)\*(?!\*)/g, (_, t) => put("<em>" + t + "</em>"));
-    s = s.replace(/(?<![A-Za-z0-9_])_(?!_)(?=\S)([\s\S]+?)_(?![A-Za-z0-9_])/g, (_, t) => put("<em>" + t + "</em>"));
-    s = s.replace(/~~(?=\S)([\s\S]+?)~~/g, (_, t) => put("<s>" + t + "</s>"));
-    return s.replace(/\u0001(\d+)\u0001/g, (_, n) => slots[+n]);
+  /* 加粗、斜体、删除线。认出来的片段经 put 换成占位，包在里面的再过一遍（外层斜体里的加粗、删除线都还在）。
+     * 斜体：结束的 * 前面不能是空白；开头的 * 后面紧跟「.后缀」的是通配写法（*.jar、*.zip、*.log），不当斜体。
+     _ 斜体：前后挨着字母或数字（含中文）的 _ 是名字的一部分（server_properties_file、配置_文件_名），不当斜体。 */
+  function style(s, put) {
+    s = s.replace(/\*\*(?=\S)([\s\S]+?)\*\*(?!\*)/g, (_, t) => put("<b>" + style(t, put) + "</b>"));
+    s = s.replace(/(?<!\*)\*(?!\*)(?!\.[A-Za-z0-9])(?=\S)([\s\S]+?)(?<=\S)\*(?!\*)/g, (_, t) => put("<em>" + style(t, put) + "</em>"));
+    s = s.replace(/(?<![\p{L}\p{N}_])_(?!_)(?=\S)([\s\S]+?)(?<=\S)_(?![\p{L}\p{N}_])/gu, (_, t) => put("<em>" + style(t, put) + "</em>"));
+    s = s.replace(/~~(?=\S)([\s\S]+?)~~/g, (_, t) => put("<s>" + style(t, put) + "</s>"));
+    return s;
   }
 
   return { parts, render };

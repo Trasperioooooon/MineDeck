@@ -143,37 +143,61 @@ window.MDAssist = (() => {
 
   function ext() { paintExt(); paintBtn(); }
 
-  /* 拖左边改宽度，松手后记在这台设备上。往左拖变宽。 */
+  /* 拖左边改宽度，松手后记在这台设备上。往左拖变宽。
+     键盘：焦点在手柄上时 ← 变宽、→ 变窄（和拖动的方向一致），一次 16px，按住 Shift 一次 64px，松键后记下。 */
   function wireResize(p) {
     const h = document.createElement("div");
     h.className = "ap-resize";
+    h.tabIndex = 0;
     h.setAttribute("role", "separator");
     h.setAttribute("aria-orientation", "vertical");
     h.setAttribute("aria-label", "调整助手面板宽度");
-    h.title = "拖动调整宽度";
+    h.title = "拖动调整宽度，也可以按左右方向键";
     p.prepend(h);
+    const max = () => Math.min(720, Math.max(320, window.innerWidth - 48));
+    const now = () => Math.round(p.getBoundingClientRect().width);
+    const aria = w => {
+      h.setAttribute("aria-valuemin", "320");
+      h.setAttribute("aria-valuemax", String(max()));
+      h.setAttribute("aria-valuenow", String(w));
+    };
+    // 先夹到范围里再交给 applyWidth（它遇到范围外的值会回到默认宽度）
+    const set = px => { const w = Math.round(Math.min(max(), Math.max(320, px))); applyWidth(w); aria(w); return w; };
+    const save = w => { try { localStorage.setItem(WIDTH_KEY, String(w)); } catch {} };
+    aria(now());
+    h.addEventListener("focus", () => aria(now())); // 窗口大小可能变过
+    let dragging = false;
     h.addEventListener("pointerdown", e => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || dragging) return;
       e.preventDefault();
-      const startX = e.clientX, startW = p.getBoundingClientRect().width;
-      h.classList.add("drag");
-      h.setPointerCapture(e.pointerId);
-      const move = ev => {
-        const max = Math.min(720, Math.max(320, window.innerWidth - 48));
-        const w = Math.round(Math.min(max, Math.max(320, startW - (ev.clientX - startX))));
-        applyWidth(w);
-        h.dataset.w = String(w);
-      };
-      const up = () => {
+      const id = e.pointerId, startX = e.clientX, startW = p.getBoundingClientRect().width;
+      let w = 0; // 这次拖动改到的宽度；没动过就不记
+      const move = ev => { if (ev.pointerId === id) w = set(startW - (ev.clientX - startX)); };
+      // 松手、切走窗口、触控被系统取消，都会丢掉指针捕获：统一在这里收尾
+      const end = ev => {
+        if (ev && ev.pointerId !== id) return;
+        dragging = false;
         h.classList.remove("drag");
         h.removeEventListener("pointermove", move);
-        h.removeEventListener("pointerup", up);
-        const w = +h.dataset.w;
-        if (w) { try { localStorage.setItem(WIDTH_KEY, String(w)); } catch {} }
+        h.removeEventListener("lostpointercapture", end);
+        if (w) save(w);
       };
+      dragging = true;
+      h.classList.add("drag");
       h.addEventListener("pointermove", move);
-      h.addEventListener("pointerup", up);
+      h.addEventListener("lostpointercapture", end);
+      try { h.setPointerCapture(id); } catch { end(); }
     });
+    let keyed = 0; // 键盘改到的宽度，松键（或焦点移走）时记下
+    const keyDone = () => { if (keyed) { save(keyed); keyed = 0; } };
+    h.addEventListener("keydown", e => {
+      if ((e.key !== "ArrowLeft" && e.key !== "ArrowRight") || e.altKey || e.ctrlKey || e.metaKey) return;
+      e.preventDefault();
+      const step = e.shiftKey ? 64 : 16;
+      keyed = set(now() + (e.key === "ArrowLeft" ? step : -step));
+    });
+    h.addEventListener("keyup", e => { if (e.key === "ArrowLeft" || e.key === "ArrowRight") keyDone(); });
+    h.addEventListener("blur", keyDone);
   }
 
   async function open(id) {
@@ -362,6 +386,9 @@ window.MDAssist = (() => {
         if (k >= 0) s.items[k] = ev.item; else s.items.push(ev.item);
         pend.delete(ev.item.id);
         A.retry = "";
+        // 后面多了一条（下一轮的回复、提示……）：前一条助手消息不再是最后一条，重画一次，「思考中…」「正在回复…」才换得掉
+        const prev = k < 0 ? s.items[s.items.length - 2] : null;
+        if (prev && prev.kind === "assistant" && itemEl(prev.id)) paintItem(prev, false);
         paintItem(ev.item, k < 0);
         break;
       }
@@ -397,9 +424,9 @@ window.MDAssist = (() => {
         if (A.panel && A.view === "chat") {
           paintHead();
           paintFoot();
-          // 回复结束：去掉「正在回复」的提示
-          const last = s.items[s.items.length - 1];
-          if (!s.busy && last && last.kind === "assistant") paintItem(last, false);
+          // 回复结束：去掉「正在回复」「思考中…」的提示。最后一条可能是「已停止」这样的提示，所以找的是最后一条助手消息
+          const last = s.busy ? null : [...s.items].reverse().find(x => x.kind === "assistant");
+          if (last) paintItem(last, false);
         }
         paintBtn();
         break;
@@ -479,8 +506,9 @@ window.MDAssist = (() => {
       if (md && it.text) md._parts = MDMarkdown.parts(it.text);
     }
     if (old) {
-      restoreState(old, n);
+      const scroll = restoreState(old, n);
       old.replaceWith(n);
+      scroll(); // 滚动位置要等新元素进了页面才设得上
     } else {
       const start = body.querySelector(".ap-start");
       if (start) start.remove();
@@ -491,7 +519,25 @@ window.MDAssist = (() => {
     if (stick) body.scrollTop = body.scrollHeight;
   }
 
-  /* 整段替换时留下：展开的详情、拒绝理由、确认卡片已勾的框、代码块和表格的滚动位置 */
+  /* 一条消息里能自己滚动的小块。键 = 在哪儿（正文的第几块 / 哪张确认卡片 / 哪个折叠块）+ 哪一类 + 那里面的第几个，
+     这样前面多出或少了一块代码，后面的也不会对错 */
+  const SCROLLERS = ["md-pre", "md-table", "ap-kv", "pc-diff", "ap-think-body"];
+  function scrollers(root) {
+    const map = new Map(), seen = new Map();
+    const blocks = [...root.querySelectorAll(".md-b")];
+    root.querySelectorAll(SCROLLERS.map(c => "." + c).join(", ")).forEach(el => {
+      const b = el.closest(".md-b"), host = b ? null : el.closest("[data-pid], details[data-k]");
+      const where = b ? "b" + blocks.indexOf(b) : host ? (host.dataset.pid ? "p" + host.dataset.pid : "k" + host.dataset.k) : "";
+      const base = where + "|" + SCROLLERS.find(c => el.classList.contains(c));
+      const i = seen.get(base) || 0;
+      seen.set(base, i + 1);
+      map.set(base + "|" + i, el);
+    });
+    return map;
+  }
+
+  /* 整段替换时留下：展开的详情、拒绝理由、确认卡片已勾的框、代码块和表格的滚动位置。
+     滚动位置在这里先记下（旧元素一离开页面就读不到了），返回的函数等新元素换上去之后再调 */
   function restoreState(old, n) {
     [...old.querySelectorAll("details[open]")].map(d => d.dataset.k).filter(Boolean).forEach(k => {
       const d = n.querySelector(`details[data-k="${CSS.escape(k)}"]`);
@@ -508,9 +554,9 @@ window.MDAssist = (() => {
       const box = card && n.querySelector(`[data-pid="${CSS.escape(card.dataset.pid)}"] input[data-k="${CSS.escape(inp.dataset.k || "")}"]`);
       if (box) box.checked = true;
     });
-    const prev = [...old.querySelectorAll(".md-pre, .md-table, .ap-kv, .pc-diff, .ap-think-body")];
-    const next = [...n.querySelectorAll(".md-pre, .md-table, .ap-kv, .pc-diff, .ap-think-body")];
-    prev.forEach((el, i) => { if (next[i]) { next[i].scrollLeft = el.scrollLeft; next[i].scrollTop = el.scrollTop; } });
+    const next = scrollers(n), saved = [];
+    scrollers(old).forEach((el, key) => { if ((el.scrollLeft || el.scrollTop) && next.has(key)) saved.push([next.get(key), el.scrollLeft, el.scrollTop]); });
+    return () => saved.forEach(([el, left, top]) => { el.scrollLeft = left; el.scrollTop = top; });
   }
 
   /* 流式：已完成的 Markdown 块不动，只重画最后一块，这样选区和横向滚动留得住 */
@@ -525,12 +571,12 @@ window.MDAssist = (() => {
     const saved = [];
     for (let k = i; k < kids.length; k++) kids[k].querySelectorAll(".md-pre, .md-table").forEach(n => saved.push({ left: n.scrollLeft, top: n.scrollTop }));
     while (el.children.length > i) el.lastElementChild.remove();
+    let s = 0; // saved 是这几块合在一起按顺序记的，下标跨块接着数
     for (let k = i; k < next.length; k++) {
       const d = document.createElement("div");
       d.className = "md-b";
       d.innerHTML = next[k].html;
       el.appendChild(d);
-      let s = 0;
       d.querySelectorAll(".md-pre, .md-table").forEach(n => { const sv = saved[s++]; if (sv) { n.scrollLeft = sv.left; n.scrollTop = sv.top; } });
     }
     el._parts = next;
@@ -544,6 +590,13 @@ window.MDAssist = (() => {
     return "";
   }
 
+  /* 思考那一块的摘要写不写「思考中…」：回复还在进行、这一条是最后一条，而且还没有正文、没开始调工具、也没被停下。
+     一轮可以只有思考和工具调用，所以不能只看「没有正文」 */
+  function thinkLive(it) {
+    const s = A.sess;
+    return !!(s && s.busy && s.items[s.items.length - 1] === it && !it.text && !it._tool && !(it.tools || []).length && !it.partial);
+  }
+
   function updateStream(root, it) {
     let think = root.querySelector(":scope > .ap-think");
     if (it.think) {
@@ -554,8 +607,7 @@ window.MDAssist = (() => {
         think.innerHTML = "<summary></summary><div class=\"ap-think-body\"></div>";
         root.prepend(think);
       }
-      const live = A.sess.busy && A.sess.items[A.sess.items.length - 1] === it && !it.text;
-      think.querySelector("summary").textContent = live ? "思考中…" : "思考";
+      think.querySelector("summary").textContent = thinkLive(it) ? "思考中…" : "思考";
       const tb = think.querySelector(".ap-think-body");
       if (tb.textContent !== it.think) {
         const top = tb.scrollTop, left = tb.scrollLeft;
@@ -623,7 +675,7 @@ window.MDAssist = (() => {
     }
     const tools = (it.tools || []).map(toolHTML).join("");
     const typing = typingLabel(it);
-    const liveThink = A.sess && A.sess.busy && A.sess.items[A.sess.items.length - 1] === it && !it.text;
+    const liveThink = thinkLive(it);
     return `<div class="ap-msg assistant${it.partial ? " partial" : ""}" data-item="${id}">
       ${it.think ? `<details class="ap-think" data-k="think"><summary>${liveThink ? "思考中…" : "思考"}</summary><div class="ap-think-body">${esc(it.think)}</div></details>` : ""}
       ${it.text ? `<div class="md">${mdBlocks(it.text)}</div>` : ""}
