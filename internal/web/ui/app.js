@@ -1311,6 +1311,7 @@ const goCreateHome = () => { if ((location.hash || "") === "#/create") navigate(
 async function renderCreate(mode) {
   const gen = beginCreateView();
   wiz.step = 0; wiz.core = null; wiz.mc = null; wiz.build = null; wiz.root = "";
+  if (window.MDWorldImport) MDWorldImport.wizardReset(); // 用已有地图开服：上一次选的地图不带进这一次
   if (mode && CREATE_MODES[mode]) { CREATE_MODES[mode](); return; }
   const card = (id, ico, name, desc) => `<div class="core-card" id="mode-${id}" data-mode="${id}" role="button" tabindex="0" aria-label="${name}" aria-describedby="mode-${id}-d"><span class="recipe-ico">${icon(ico)}</span><div><div class="cn">${name}</div><div class="cd" id="mode-${id}-d">${desc}</div></div></div>`;
   Main().innerHTML = pageHead("新建服务器", "选一种方式开始。", "", "", `四种方式`) + `
@@ -1829,6 +1830,7 @@ function wizardShell(inner) {
     }).join("")}</div>
     <div id="wiz-body" class="sec-enter">${inner}</div>`;
   document.querySelectorAll(".step-pill.done").forEach(p => p.onclick = () => { wiz.step = +p.dataset.step; drawWizard(); });
+  if (window.MDWorldImport) MDWorldImport.wizardStrip(wiz, drawWizard); // 步骤条下面的「用已有地图开服」/ 已选的地图，见 worldimport.js
 }
 
 /* 向导吸底栏：左「返回」、中间回显已选内容、右主按钮；表单步与内容列同宽（w-read） */
@@ -1954,7 +1956,10 @@ async function drawWizard() {
         if (outdated()) return;
         all = versions;
         // 合理默认：没选过（或换核心后原选择不在列表里）就预选最新正式版，直接「下一步」即可
-        if (!all.some(v => v.id === wiz.mc)) wiz.mc = (all.find(v => v.latest && v.type !== "snapshot") || all.find(v => v.type !== "snapshot") || {}).id || null;
+        // 用已有地图开服时预选地图保存的那个版本；列表里没有它就不预选，让人自己挑，不悄悄换成最新版（mapVer：没在用地图是 undefined）
+        const mapVer = window.MDWorldImport ? MDWorldImport.wizardVersion(all) : undefined;
+        if (!all.some(v => v.id === wiz.mc)) wiz.mc = mapVer !== undefined ? mapVer
+          : (all.find(v => v.latest && v.type !== "snapshot") || all.find(v => v.type !== "snapshot") || {}).id || null;
         $("#wnext").disabled = !wiz.mc;
         paintWizSum();
         drawList();
@@ -2048,6 +2053,7 @@ async function drawWizard() {
         <label class="field"><span>默认游戏模式</span><select id="f-mode"><option value="survival" selected>生存</option><option value="creative">创造</option><option value="adventure">冒险</option><option value="spectator">旁观</option></select></label>
         <div class="hint" style="grid-column:1/-1">PVP、视距、白名单等高级参数，可在服务器创建后随时调整。</div>`}
       </div>
+      <div id="wiz-world"></div>
       ${isProxy
         ? `<div class="eula-box">代理端无需签署 Mojang EULA。监听端口及转发规则将在首次启动生成配置文件后开放配置。</div>`
         : `<div class="eula-box">
@@ -2058,6 +2064,7 @@ async function drawWizard() {
       ${wizFoot("wback", "上一步", `<button class="btn primary" id="wcreate">${icon("bolt")} 开始部署</button>`)}`);
     $("#wback").onclick = () => { wiz.step = wiz.core === "vanilla" ? 1 : 3; drawWizard(); }; // 原版回版本页，非 vanilla 回「选模组」
     paintWizSum();
+    if (window.MDWorldImport) MDWorldImport.wizardFinal($("#wiz-world"), wiz); // 用已有地图开服：按现在的核心和版本核对这张地图
     // 行内校验：离开字段时检查，出错后随输入即时复核；提交时全部检查并聚焦第一个出错项（不再用远离字段的 toast）
     const showErr = (input, errId, msg) => { input.classList.toggle("invalid", !!msg); $(errId).innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; return !msg; };
     const checkName = () => showErr($("#f-name"), "#f-name-err", $("#f-name").value.trim() ? "" : "请给服务器起个名字");
@@ -2102,6 +2109,9 @@ async function drawWizard() {
         first.focus({ preventScroll: true });
         return;
       }
+      // 用已有地图开服：核对没过（标红、没确认、还在核对）就不发请求，原因写在核对框下面；过了就带上计划编号
+      const world = window.MDWorldImport ? MDWorldImport.wizardCreateFields() : null;
+      if (world === false) return;
       const name = $("#f-name").value.trim();
       const createBtn = $("#wcreate");
       createBtn.disabled = true;
@@ -2120,8 +2130,10 @@ async function drawWizard() {
             motd: isProxy ? "" : $("#f-motd").value.trim(),
             difficulty: isProxy ? "" : $("#f-diff").value,
             gamemode: isProxy ? "" : $("#f-mode").value,
+            ...(world || {}),
           },
         });
+        if (world) MDWorldImport.wizardCreated(); // 新建任务还要读这份地图：检测结果不能再清
         if (stale(gen)) { toast("已开始部署，可在新建服务器页查看进度"); return; }
         /* 「选模组」步挑好的内容放在草稿购物车里（不带 inst）。空车照旧直接跳部署任务页；
            有货时留在向导这一页等建服任务跑完，再把草稿车一起装上（装模组是一条 kind "mods" 的任务，跳到那页看进度）。
@@ -2162,7 +2174,11 @@ async function drawWizard() {
         say("正在等待服务器创建完成…");
         await follow();
         if (!launched && !stale(gen)) startPoll(follow, 1500, gen); // 第一次查就结束了的不用再轮询
-      } catch (e) { toastErr("无法创建服务器", e); if (!stale(gen) && createBtn.isConnected) createBtn.disabled = false; }
+      } catch (e) {
+        toastErr("无法创建服务器", e);
+        if (!stale(gen) && createBtn.isConnected) createBtn.disabled = false;
+        if (world && !stale(gen)) MDWorldImport.wizardCreateFailed(e, wiz); // 计划过期或对不上了：重新核对
+      }
     };
   }
 }
@@ -2191,6 +2207,10 @@ const TASK_KINDS = {
   mods: { title: "正在安装待装清单", sub: "正在下载清单里的内容和它们的前置，放进服务器的 mods 或 plugins 文件夹。", done: "安装完成", doneSub: "新装的内容要重启服务器后才会生效",
     ok: "安装完成", fail: "安装失败", failHint: "可以回到这台服务器的「待装清单」标签里再装一次。已经下载的文件有缓存，重试很快。", busy: "安装中，请勿关闭程序…",
     go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/instances", backText: "返回服务器列表" },
+  // 导入地图、换回导入前的地图（worldimport.js）。这类任务的 result 是一句给人看的话，不是服务器名：resultText 让完成后显示它，去处固定是服务器列表
+  world: { title: "正在更换地图", sub: "导入地图，或者换回导入前的地图。出错时会自动退回原来的世界。", done: "已完成", doneSub: "可以到这台服务器的「地图」标签里查看", resultText: true,
+    ok: "地图已处理完", fail: "没有完成", failHint: "所有文件都还在。到这台服务器的「地图」标签里看现在用的是哪一份。", busy: "正在处理地图，请勿关闭程序…",
+    go: "完成，回到服务器列表", href: () => "#/instances", back: "#/instances", backText: "返回服务器列表" },
 };
 async function renderTaskPage(taskId) {
   const gen = viewGen;
@@ -2281,7 +2301,7 @@ async function renderTaskPage(taskId) {
       lit = Math.max(lit, n);
       $("#t-label").textContent = cur;
       $("#t-pct").textContent = Math.round(pct) + "%";
-      $("#t-sub").textContent = success ? K.doneSub : `${fmtBytes(t.done) || "0 B"}${t.total > 0 ? " / " + fmtBytes(t.total) : ""}`;
+      $("#t-sub").textContent = success ? (K.resultText && t.result ? t.result : K.doneSub) : `${fmtBytes(t.done) || "0 B"}${t.total > 0 ? " / " + fmtBytes(t.total) : ""}`;
       if (success) playClass(prog.querySelector(".xp"), "flash");
     }
     $("#t-msgs").innerHTML = (t.error ? `<div class="err-box"><b>${K.fail}：</b>${esc(t.error)}<br><br>${K.failHint}
@@ -2489,6 +2509,7 @@ async function renderDetail(name, tab = "console") {
       const isProxy = info.kind === "proxy";
       const tabs = [["console", "控制台"]];
       if (!isProxy) tabs.push(["players", "玩家"], ["backups", "备份"]);
+      if (window.MDWorldImport && MDWorldImport.applies(info)) tabs.push([MDWorldImport.TAB, MDWorldImport.TAB_LABEL]); // 地图导入与恢复点，见 worldimport.js
       tabs.push(["tasks", "定时任务"]);
       if (info.core !== "vanilla") tabs.push(["res", "资源"]);
       if (window.MDModCart && MDModCart.applies(info)) tabs.push(["cart", "待装清单"]); // 自选模组 + 待装清单（原来叫购物车），见 modcart.js
@@ -3075,6 +3096,9 @@ async function renderDetail(name, tab = "console") {
 
   } else if (tab === "cart" && window.MDModCart) { // 自选模组 + 购物车：整块在 modcart.js
     await MDModCart.render(body, info, gen);
+
+  } else if (tab === "world" && window.MDWorldImport) { // 地图：导入并替换当前地图、恢复点，整块在 worldimport.js
+    await MDWorldImport.render(body, info, gen, refreshHead);
 
   } else if (tab === "music" && window.MDMusic) { // 音乐共享（第五阶段）：整块在 music.js
     await MDMusic.render(body, info, gen, refreshHead);
