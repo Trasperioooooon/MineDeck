@@ -3,7 +3,7 @@
 > MineDeck 是 Windows 上的我的世界（Minecraft Java 版）一键开服工具：单文件 exe，自动下载 Java 和服务端，图形界面管理服务器，整合包一键导入，内置樱花穿透、OpenFrp 内网穿透；可选接入自己的 AI Key，提供 AI 开服助手、游戏内 AI、AI 伙伴，以及音乐共享。MineDeck is a one-click Minecraft (Java Edition) server launcher for Windows. Its interface is Chinese only for now. MIT licensed.
 
 - Platform: Windows 10 / 11 (Windows 11 recommended: music sharing can record a single program there).
-- Distribution: a single `MineDeck.exe` (about 15 MB, no installer, no dependencies), downloaded from GitHub Releases. Current version: 3.1.1 (stable).
+- Distribution: a single `MineDeck.exe` (about 15 MB, no installer, no dependencies), downloaded from GitHub Releases. Current version: 3.1.2 (stable).
 - Server software: Vanilla, Paper, Purpur, Leaves, Folia, Fabric, NeoForge, Forge, Mohist, Banner, Velocity, Waterfall; Minecraft 1.12.2 to the latest release. Modrinth (`.mrpack`) and CurseForge (zip) modpacks can be imported.
 - Java: picked from Mojang's version metadata and downloaded as a portable runtime; nothing to install by hand.
 - Playing with friends elsewhere: built-in frp tunnels (SakuraFrp, OpenFrp, self-hosted frps).
@@ -18,6 +18,7 @@
 ## Docs
 
 - [README](https://raw.githubusercontent.com/Trasperioooooon/MineDeck/main/README.md): 功能一览、使用、常见问题、从源码构建、架构，末尾有英文简介
+- [v3.1.2 发布说明](https://raw.githubusercontent.com/Trasperioooooon/MineDeck/main/docs/releases/v3.1.2.md): 和 v3.1.1 相比的变化（OpenFrp 隧道第一次启动时下不了 frpc 的问题修好、下载失败时报错里带上原因、OpenFrp 的 frpc 下不来时写明手动放的办法）、怎么升级、OpenFrp 下载以后可能又被拦和网络出口不支持 TLS 1.3 这两条已知情况
 - [v3.1.1 发布说明](https://raw.githubusercontent.com/Trasperioooooon/MineDeck/main/docs/releases/v3.1.1.md): 和 v3.1.0 相比的变化（点了更新换不了程序的更新脚本修好、窗口版的外部链接改用系统默认浏览器、端口被占时马上提示、自定义 frps 的凭据能清掉、四处安全加固、首次启动协议的两处措辞）、怎么升级、从 3.1.0 及以前升级时可能换不了程序的两种情况和处理办法
 - [v3.1.0 发布说明](https://raw.githubusercontent.com/Trasperioooooon/MineDeck/main/docs/releases/v3.1.0.md): 和 v3.0.0 相比的变化（服务器交接包 `.mdpack`、自选模组与待装清单、整合包里下载不了的文件逐个处理、核心已在包里的现成服务端压缩包直接导入、接管已有服务器、在「内存 / 启动」里换 Java、OpenFrp 的 frpc 下载修复、界面文字重写和报错先说结论）、从 v3.0.0 或测试版升级、下载哪个文件、已知情况
 - [v3.0.0 发布说明](https://raw.githubusercontent.com/Trasperioooooon/MineDeck/main/docs/releases/v3.0.0.md): 第一个正式版：和 beta.2 相比的变化、下载哪个文件、从测试版或 v2.6.1（AutoMCHUB）升级、已知情况
