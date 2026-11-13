@@ -424,7 +424,7 @@ window.MDWorldImport = (() => {
     restoring: ["warn", "正在换回", "正在换回导入前的地图。"],
     restored: ["neutral", "已换回", "已经换回导入前的地图。"],
     stuck: ["warn", "要人处理", "自动恢复没有成功。文件都还在，服务器已暂停启动。"],
-    unreadable: ["warn", "记录读不出来", "MineDeck 不知道这次换地图走到了哪一步。为了不在半成品的世界上启动，服务器已暂停启动。文件都还在，处理好之前不要动这个文件夹里的东西。"],
+    unreadable: ["warn", "记录读不出来", "MineDeck 不知道这次换地图走到了哪一步。为了不在半成品的世界上启动，服务器已暂停启动。里面的世界一个都没删，需要人去看；拿不准的话先别动这个文件夹。"],
   };
   const DELETABLE = new Set(["committed", "rolled-back", "restored"]);
   /* 一条恢复点现在是什么情况：[标签的样式, 标签, 一句话]。
