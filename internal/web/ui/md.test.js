@@ -303,6 +303,13 @@ test("故意构造的输入不卡住界面、不抛异常（回复里会引用�
   const many = ("|" + "h|".repeat(64) + "\n|" + "--|".repeat(64) + "\n" + "|x|\n".repeat(311) + "\n").repeat(30);
   const manyOut = render(many);
   assert.ok((manyOut.match(/<td/g) || []).length <= 20000 && manyOut.length < many.length * 32 + 65536, `几十张表：${manyOut.length} 字`);
+  // 输出兜底（Codex 第四轮：原来没有直接测到）：一张格子没超额度、但每行四个字变出六十四个格子的宽表格，
+  // 单独一段时输出超过「64 KB + 原文 32 倍」，整段按纯文字显示，只剩转义过的文字和 <p>、<br>；后面字多了就照常画表格
+  const wideSparse = "|" + "h|".repeat(64) + "\n|" + "--|".repeat(64) + "\n" + "|x|\n".repeat(311);
+  const fb = render(wideSparse + "<img src=x onerror=alert(1)>");
+  lacks(fb, "<td"); lacks(fb, "<img");
+  assert.ok(fb.startsWith("<p>") && fb.replace(/<\/?p>|<br>/g, "").indexOf("<") < 0 && fb.length < 65536, `兜底的输出：${fb.slice(0, 80)}`);
+  has(render(wideSparse + "\n" + "说".repeat(3000)), "<td");
   assert.equal(render(null), "");
   assert.equal(render(123), "<p>123</p>");
   // 列表：连着的空行只算一次分段；同一项里空行隔开的两段不拼成一个词

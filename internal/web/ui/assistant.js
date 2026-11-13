@@ -573,7 +573,8 @@ window.MDAssist = (() => {
     const kids = [...el.children];
     let i = 0;
     if (kids.length && kids.every(n => n.classList.contains("md-b"))) {
-      while (i < next.length && i < prev.length && prev[i].sig === next[i].sig && kids[i]) i++;
+      // 原文一样、渲染结果也一样才沿用：表格的格子额度和输出兜底是按整段算的，后面多了字，前面同一张表可能从纯文字变回表格
+      while (i < next.length && i < prev.length && prev[i].sig === next[i].sig && prev[i].html === next[i].html && kids[i]) i++;
     }
     const saved = [];
     for (let k = i; k < kids.length; k++) kids[k].querySelectorAll(".md-pre, .md-table").forEach(n => saved.push({ left: n.scrollLeft, top: n.scrollTop }));

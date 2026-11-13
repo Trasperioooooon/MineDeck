@@ -1632,6 +1632,42 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await page.keyboard.press("Escape"); await asstState({ reset: true }); await aiState({ reset: true }); }
   });
 
+  await run("AI 助手：流式重画时，原文没变、渲染结果变了的块也重画（宽表格后面的字多了，同一张表从纯文字变回表格）（Codex 第四轮）", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" }); await asstState({ reset: true });
+    const look = () => page.evaluate(() => {
+      const ms = document.querySelectorAll("#ap-body .ap-msg.assistant .md"), el = ms[ms.length - 1];
+      const first = el && el.querySelector(":scope > .md-b");
+      return { says: el ? (el.textContent.match(/说/g) || []).length : 0, table: !!(first && first.querySelector("table")), busy: !document.querySelector("#ap-stop").hidden };
+    });
+    try {
+      await newChat();
+      await asstState({ slow: 250 });
+      await page.fill("#ap-in", "宽表格"); await page.press("#ap-in", "Enter");
+      // 第一段正好是整张表：整段输出放大太多，按纯文字显示（不是这样的话这条测不到要测的东西）
+      await page.waitForFunction(() => { const ms = document.querySelectorAll("#ap-body .ap-msg.assistant .md"), el = ms[ms.length - 1]; return el && el.textContent.includes("|h|"); }, null, { timeout: 8000 });
+      const early = await look();
+      assert(!early.table && !early.says && early.busy, "表格刚写完时应按纯文字显示：" + JSON.stringify(early));
+      // 后面的字够多了、还在流式输出：同一张表（原文没变）应该已经画成表格（回复结束时整条会重画，所以要在输出途中看）
+      await page.waitForFunction(() => { const ms = document.querySelectorAll("#ap-body .ap-msg.assistant .md"), el = ms[ms.length - 1]; return el && (el.textContent.match(/说/g) || []).length >= 2200; }, null, { timeout: 15000 });
+      const mid = await look();
+      assert(mid.table && mid.busy, "后面的字多了以后、回复还没结束，表格应该已经画出来：" + JSON.stringify(mid));
+      await page.waitForFunction(() => document.querySelector("#ap-stop").hidden, null, { timeout: 15000 });
+    } finally { await page.keyboard.press("Escape"); await asstState({ reset: true }); await aiState({ reset: true }); }
+  });
+
+  await run("AI 助手：确认卡片没处理就发了新消息、这句第一次请求就失败，撤回以后仍给「继续回复」（作废的结果已经交回，对话停在工具结果上；Codex 第四轮）", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" }); await asstState({ reset: true });
+    try {
+      await newChat();
+      await page.fill("#ap-in", "重启"); await page.press("#ap-in", "Enter");
+      await page.waitForSelector("#ap-body .ap-card.pending", { timeout: 5000 }); await idle();
+      await page.fill("#ap-in", "模拟报错"); await page.press("#ap-in", "Enter");
+      await page.waitForSelector("#ap-body .ap-note.error", { timeout: 5000 }); await idle();
+      const body = await page.textContent("#ap-body");
+      assert(body.includes("这句已从对话里撤回") && await page.$('#ap-state [data-x="cont"]'), "撤回新消息以后应回到作废的工具结果上、给继续回复：" + body.slice(-300) + " | " + await page.textContent("#ap-state"));
+    } finally { await page.keyboard.press("Escape"); await asstState({ reset: true }); await aiState({ reset: true }); }
+  });
+
   await run("AI 助手：工具结果交回去以后那次请求失败，提问不撤回、给「继续回复」；停在工具结果上再发一句、第一次请求就停下，撤回这句以后仍给「继续回复」（同后端 NeedsReply，Codex 第三轮）", async () => {
     await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" }); await asstState({ reset: true });
     const cont = () => page.$('#ap-state [data-x="cont"]');

@@ -391,6 +391,12 @@ function aiSetProvider(a, b) {
 }
 // 同后端 ai.ParseBaseURL：只认 http / https，不能带账号密码、问号或井号后面的部分，端口在 0 到 65535 之间（浏览器的 URL 自己会拦）
 function aiBadBase(u) {
+  // 先看原文：浏览器的 URL 会把「https:a.com」「https:///a.com」自动补正，「https://@a.com」的账号密码是空串，后端都不认
+  const m = /^https?:\/\/([^/?#]*)/i.exec(u);
+  if (!m || !m[1]) return "接口地址要以 http:// 或 https:// 开头";
+  if (m[1].includes("@")) return "接口地址里不能带账号密码、问号或井号后面的部分";
+  const port = /:(\d+)$/.exec(m[1]);
+  if (port && +port[1] > 65535) return "接口地址的端口不对（要在 0 到 65535 之间）";
   let x;
   try { x = new URL(u); } catch { return "接口地址要以 http:// 或 https:// 开头"; }
   if (!/^https?:$/.test(x.protocol) || !x.host) return "接口地址要以 http:// 或 https:// 开头";
@@ -672,6 +678,12 @@ function asstState(state, s) {
 const asstSleep = ms => new Promise(r => setTimeout(r, ms));
 function asstScript(s, text, attach) {
   // 请求失败（同后端 fail()）：提示的正文只写结论，带状态码和英文原话的原文放 detail，界面给「复制原文」
+  // 一张很宽的稀疏表格，后面跟一大段说明。第一段正好是整张表（末尾不带换行）：整段输出放大太多、按纯文字显示，
+  // 这时整段只有一块，原文就是这张表；第二段的字够多了，又够画表格，第一块的原文没变、渲染结果变了（流式重画不能只看原文）
+  if (/宽表格/.test(text)) {
+    const table = ("|" + "h|".repeat(64) + "\n|" + "--|".repeat(64) + "\n" + "|x|\n".repeat(311)).trimEnd();
+    return [{ pieces: [table, "\n" + "说".repeat(2200), ...Array(10).fill("说".repeat(200))] }];
+  }
   // 查完控制台、把结果交回去以后的那次请求失败：提问不撤回，对话停在工具结果上，可以「继续回复」
   if (/查完再报错/.test(text)) return [
     { text: "我先看看控制台。", tools: [{ name: "instance_console_tail", op: "instance.console.tail", title: "查看控制台输出", args: { inst: s.inst || "生存服 · 朋友", lines: 200 }, result: { lines: ["[21:30:09 INFO]: Done (6.812s)!"] } }] },
@@ -745,7 +757,7 @@ async function asstTurn(state, s, steps, fromUser = false) {
       if (s.stop) break;
       it.think = (it.think || "") + c; asstEmit(s, { type: "thinking", id: it.id, text: c }); await wait(12);
     }
-    const chunks = (step.text || "").match(/[\s\S]{1,6}/g) || [];
+    const chunks = step.pieces || (step.text || "").match(/[\s\S]{1,6}/g) || []; // pieces：指定每次推哪一段（默认每次 6 个字）
     for (const c of chunks) {
       if (s.stop) break;
       it.text += c; asstEmit(s, { type: "delta", id: it.id, text: c }); await wait(8);
@@ -800,7 +812,10 @@ function asstResolve(state, s, t, outcome, by, reason) {
   const it = s.items.find(x => (x.tools || []).includes(t));
   asstEmit(s, { type: "item", item: asstSlim(it) });
   const step = s.after; s.after = null;
-  if (outcome === "canceled" || !step) return;
+  // 作废（没处理就发了新消息）：同后端 settleWait，「已作废」的结果照样交回给工具，对话末尾是工具结果；
+  // 接着那句新消息要是第一次请求就失败或停下、被撤回，对话回到这里，仍然等着回复
+  if (outcome === "canceled") { s.needReply = true; return; }
+  if (!step) return;
   asstTurn(state, s, [{ text: outcome === "done" ? step.done : step.rejected(reason) }]);
 }
 async function asstHandler(state, req, res, p, m, u) {
