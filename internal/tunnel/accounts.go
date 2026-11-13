@@ -839,6 +839,9 @@ func (a *Accounts) createSakuraTunnel(ctx context.Context, o AccountTunnelOption
 	if err := a.sakuraGet(ctx, "/user/info", token, &info); err != nil {
 		return Status{}, err
 	}
+	if err := a.checkGen("natfrp", gen); err != nil {
+		return Status{}, err
+	}
 	var nodes map[string]sakuraNode
 	if err := a.sakuraGet(ctx, "/nodes", token, &nodes); err != nil {
 		return Status{}, err

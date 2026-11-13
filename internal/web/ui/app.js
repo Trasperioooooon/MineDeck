@@ -3279,13 +3279,19 @@ async function renderTunnels() {
   // 「已连接」：凭据解不开（openfrpUnreadable / natfrpUnreadable）的那家按未连接算
   const accOn = provider => !!accStatus[provider] && !accStatus[provider + "Unreadable"];
   let accPanel = null; // { provider, overview }
-  // 概览请求的序号：每发一次加一，回来时不是最新的一次、或者那家已经不算连着（期间断开了），就丢掉不画
+  // 概览请求的序号：每发一次加一（收起、断开时也加一），回来时不是最新的一次、页面已经换了、或者那家已经不算连着，
+  // 成功的结果丢掉不画，失败的也不报错（返回 null）；只有当前这一次的失败才往外抛
   let ovSeq = 0;
   const fetchOverview = async provider => {
     const seq = ++ovSeq;
-    const ov = await api(`/api/tunnel-accounts/${provider}/overview`);
-    return seq === ovSeq && !stale(gen) && accOn(provider) ? ov : null;
+    const current = () => seq === ovSeq && !stale(gen);
+    let ov;
+    try { ov = await api(`/api/tunnel-accounts/${provider}/overview`); }
+    catch (e) { if (current()) throw e; return null; }
+    return current() && accOn(provider) ? ov : null;
   };
+  // 连接状态请求的序号：先发后到的旧响应不能盖掉后发先到的新状态
+  let stSeq = 0;
   let openFrpPoll = null; // { id, timer, stop }
   const stopOpenFrpPoll = () => {
     if (!openFrpPoll) return;
@@ -3368,9 +3374,11 @@ async function renderTunnels() {
         const r = await api(`/api/tunnel-accounts/openfrp/login/${encodeURIComponent(id)}/cancel`, { method: "POST" });
         if (stale(gen)) return;
         if (r && r.cancelled === false) {
-          // 这次授权已经不在等了：多半是取消前刚好授权成功，以后端的连接状态为准
-          await refreshAccounts("openfrp");
-          toast(accOn("openfrp") ? "这次授权在取消前已经完成，OpenFrp 已连接" : "这次授权已经过期，没有连上");
+          // 这次授权已经不在等了：多半是取消前刚好授权成功，也可能过期了。以后端的连接状态为准，查不到就不下结论
+          const known = await refreshAccounts("openfrp");
+          if (stale(gen)) return;
+          if (!known) toast("这次授权在取消前已经结束，但没能确认现在的连接状态，请稍后刷新页面看看", true);
+          else toast(accOn("openfrp") ? "这次授权在取消前已经完成，OpenFrp 已连接" : "这次授权已经结束，OpenFrp 没有连上");
           return;
         }
         toast("已取消等待授权");
@@ -3419,10 +3427,14 @@ async function renderTunnels() {
     if (createBtn) createBtn.onclick = () => createPlatTunnel(provider, ov);
   };
 
+  // 返回是否拿到了当前的连接状态（失败、被后一次刷新盖过、页面已经换了都算没拿到）
   const refreshAccounts = async (preferProvider) => {
-    try { accStatus = await api("/api/tunnel-accounts") || { openfrp: false, natfrp: false, local: true }; }
-    catch (e) { if (!stale(gen)) toast(e.message, true); return; }
-    if (stale(gen)) return;
+    const seq = ++stSeq;
+    let st;
+    try { st = await api("/api/tunnel-accounts"); }
+    catch (e) { if (seq === stSeq && !stale(gen)) toast(e.message, true); return false; }
+    if (stale(gen) || seq !== stSeq) return false;
+    accStatus = st || { openfrp: false, natfrp: false, local: true };
     if (accRO()) {
       // 局域网打开：概览是仅本机的接口，不去拉
       stopOpenFrpPoll();
@@ -3431,7 +3443,7 @@ async function renderTunnels() {
       try {
         const ov = await fetchOverview(preferProvider);
         if (ov) accPanel = { provider: preferProvider, overview: ov };
-      } catch (e) { toast(e.message, true); accPanel = null; }
+      } catch (e) { if (!stale(gen)) toast(e.message, true); accPanel = null; }
     } else if (accPanel && !accOn(accPanel.provider)) {
       accPanel = null;
     } else if (accPanel && accOn(accPanel.provider)) {
@@ -3441,8 +3453,10 @@ async function renderTunnels() {
         if (ov && accPanel && accPanel.provider === p) accPanel.overview = ov;
       } catch { /* 保留旧概览 */ }
     }
+    if (stale(gen)) return false;
     paintAccCards();
     paintAccPanel();
+    return true;
   };
 
   const beginOpenFrpBrowserLogin = async (btn) => {
@@ -3521,6 +3535,7 @@ async function renderTunnels() {
   const toggleOverview = async (provider) => {
     if (accPanel && accPanel.provider === provider) {
       accPanel = null;
+      ovSeq++; // 收起以后，在途的概览请求回来也不再把它展开
       paintAccCards();
       paintAccPanel();
       return;
@@ -3531,7 +3546,7 @@ async function renderTunnels() {
       accPanel = { provider, overview };
       paintAccCards();
       paintAccPanel();
-    } catch (e) { toast(e.message, true); }
+    } catch (e) { if (!stale(gen)) toast(e.message, true); }
   };
 
   // 签到：两家都不代签。后端只回官网入口（openURL）和一句说明，确认后在浏览器里打开，签到在官网完成
@@ -3553,7 +3568,8 @@ async function renderTunnels() {
   const buyAccount = async (provider) => {
     let data;
     try { data = await api(`/api/tunnel-accounts/${provider}/purchase`); }
-    catch (e) { toast(e.message, true); return; }
+    catch (e) { if (!stale(gen)) toast(e.message, true); return; }
+    if (stale(gen)) return; // 已经切到别的页面：不在那里弹购买窗
     const opts = (data && data.options) || [];
     if (!opts.length) { toast("暂无购买入口", true); return; }
     const root = $("#modal-root");
@@ -3849,7 +3865,9 @@ async function renderTunnels() {
     burstT = setTimeout(burst, 0);
   };
   await refreshAccounts();
+  if (stale(gen)) return;
   await drawList();
+  if (stale(gen)) return; // 等的时候已经切走：不再给（可能是另一个页面的）按钮挂事件、也不起轮询
   startPoll(drawList, 4000, gen);
 
   $("#tn-add").onclick = async () => {

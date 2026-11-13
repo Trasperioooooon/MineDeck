@@ -2266,6 +2266,31 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await page.evaluate(() => { delete window.__MD_TUNNEL_POLL_MS; }); await resetTA(); }
   });
 
+  await run("平台账户：取消等待后查不到连接状态时不下「没有连上」的结论", async () => {
+    await taState({ tunnelAccounts: { reset: true, openfrpLoginDoneAtPoll: 99 }, tunnelsReset: true });
+    const statusFails = u => u.pathname === "/api/tunnel-accounts"; // page.route 的匹配函数拿到的是 URL
+    try {
+      errors.length = 0;
+      await page.goto(url("#/tunnels")); await settle(600);
+      await page.evaluate(() => { window.__MD_TUNNEL_POLL_MS = 60000; });
+      await hookOpens();
+      await page.click('[data-acc-connect="openfrp"]');
+      await page.waitForSelector('[data-acc-cancel-login="openfrp"]');
+      await taState({ tunnelAccounts: { openfrp: true, openfrpLogin: null } }); // 授权刚好已完成
+      await page.route(statusFails, route => route.request().method() === "GET"
+        ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ ok: false, error: "后端暂时连不上" }) })
+        : route.continue());
+      await page.click('[data-acc-cancel-login="openfrp"]');
+      await page.waitForFunction(() => document.body.textContent.includes("没能确认现在的连接状态"), null, { timeout: 4000 }).catch(() => {});
+      assert(await toastHas("没能确认现在的连接状态"), "查不到状态时应说没能确认");
+      assert(!(await toastHas("没有连上")), "查不到状态时不该断言没有连上");
+    } finally {
+      await page.unroute(statusFails);
+      await page.evaluate(() => { delete window.__MD_TUNNEL_POLL_MS; });
+      await resetTA();
+    }
+  });
+
   await run("平台账户：OpenFrp 签到只引导去官方控制台，页面上没有内嵌验证码", async () => {
     await taState({ tunnelAccounts: { reset: true, openfrp: true }, tunnelsReset: true });
     try {

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -97,6 +98,7 @@ func TestStatusReportsLocalAndUnreadable(t *testing.T) {
 
 // openFrpServer 模拟 OpenFrp 的登录网关和 OPENAPI。签到相关的接口（userSign、getSignInfo）一旦被调用就判失败。
 type openFrpServer struct {
+	mu        sync.Mutex // 保护下面这些字段：测试里可能有并发请求
 	t         *testing.T
 	srv       *httptest.Server
 	auth      string // 当前有效的 Authorization
@@ -161,6 +163,8 @@ func newOpenFrpServer(t *testing.T) *openFrpServer {
 	})
 	api := func(path string, data func() any) {
 		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
 			if got := r.Header.Get("Authorization"); got != f.auth {
 				t.Errorf("%s Authorization=%q, want %q", path, got, f.auth)
 			}
@@ -217,6 +221,8 @@ func newOpenFrpServer(t *testing.T) *openFrpServer {
 		}}}
 	})
 	mux.HandleFunc("/frp/api/newProxy", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		name, _ := body["name"].(string)
@@ -390,7 +396,11 @@ func sakuraServer(t *testing.T, onInfo func()) (*httptest.Server, *map[string]an
 	return sakuraServerHooks(t, onInfo, nil)
 }
 
+// nodesCalls 樱花假服务器上 /nodes 被请求的次数（每个用例开头清零）。
+var nodesCalls atomic.Int32
+
 func sakuraServerHooks(t *testing.T, onInfo, onCreate func()) (*httptest.Server, *map[string]any) {
+	nodesCalls.Store(0)
 	var lastCreate map[string]any
 	mux := http.NewServeMux()
 	mux.HandleFunc("/user/info", func(w http.ResponseWriter, r *http.Request) {
@@ -409,6 +419,7 @@ func sakuraServerHooks(t *testing.T, onInfo, onCreate func()) (*httptest.Server,
 		})
 	})
 	mux.HandleFunc("/nodes", func(w http.ResponseWriter, r *http.Request) {
+		nodesCalls.Add(1)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"1": map[string]any{"name": "上海多线1", "description": "公开服", "flag": (1 << 2) | (1 << 5)},
 			"2": map[string]any{"name": "北京三线", "description": "仅 TCP", "flag": 1 << 2},
@@ -738,5 +749,8 @@ func TestSakuraCreateStopsWhenDisconnectedBeforePost(t *testing.T) {
 	}
 	if *lastCreate != nil {
 		t.Fatal("断开后不应再向樱花发创建请求")
+	}
+	if n := nodesCalls.Load(); n != 0 {
+		t.Fatalf("断开后连 /nodes 也不该再请求，实际 %d 次", n)
 	}
 }
