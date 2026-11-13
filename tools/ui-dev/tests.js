@@ -2202,6 +2202,47 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await resetTA(); }
   });
 
+  await run("平台账户：开了「减少动态」时导入弹窗关掉也不丢绑定实例和跟随启动", async () => {
+    await taState({ tunnelAccounts: { reset: true, openfrp: true }, tunnelsReset: true });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    try {
+      errors.length = 0;
+      await openOverview("openfrp");
+      await page.click('#tn-acc-panel [data-acc-import="openfrp"][data-proxy="1001"]');
+      await page.waitForSelector(".modal #tn-imp-bound");
+      const inst = await page.$eval(".modal #tn-imp-bound", s => [...s.options].map(o => o.value).find(v => v) || "");
+      assert(inst, "导入弹窗里应能选实例");
+      await page.selectOption(".modal #tn-imp-bound", inst);
+      await page.click('.modal [data-x="ok"]');
+      const last = await taWait("lastImport", v => v.proxyId === "1001");
+      assert(last && last.boundInstance === inst && last.autoStart === true,
+        "弹窗立刻移除时也要带上选好的实例和跟随启动：" + JSON.stringify(last));
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await page.emulateMedia({ reducedMotion: null }); await resetTA(); }
+  });
+
+  await run("平台账户：取消等待 OpenFrp 授权时通知后端作废这次授权", async () => {
+    await taState({ tunnelAccounts: { reset: true, openfrpLoginDoneAtPoll: 99 }, tunnelsReset: true });
+    try {
+      errors.length = 0;
+      await page.goto(url("#/tunnels")); await settle(600);
+      await page.evaluate(() => { window.__MD_TUNNEL_POLL_MS = 300; });
+      await hookOpens();
+      await page.click('[data-acc-connect="openfrp"]');
+      await page.waitForSelector('[data-acc-cancel-login="openfrp"]');
+      const id = ((await taState({})).openfrpLogin || {}).id;
+      assert(id, "应已发起授权");
+      await page.click('[data-acc-cancel-login="openfrp"]');
+      const cancelled = await taWait("lastCancel", v => v === id);
+      assert(cancelled === id, "取消时应 POST cancel 带上这次的登录 ID：" + JSON.stringify(cancelled));
+      const st = await taState({});
+      assert(!st.openfrpLogin && !st.openfrp, "取消后这次授权应作废、仍未连接：" + JSON.stringify({ login: st.openfrpLogin, openfrp: st.openfrp }));
+      const card = await page.$eval('#tn-accounts [data-acc="openfrp"]', e => e.textContent.replace(/\s+/g, " ").trim());
+      assert(card.includes("未连接"), "卡片应回到未连接：" + card);
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await page.evaluate(() => { delete window.__MD_TUNNEL_POLL_MS; }); await resetTA(); }
+  });
+
   await run("平台账户：OpenFrp 签到只引导去官方控制台，页面上没有内嵌验证码", async () => {
     await taState({ tunnelAccounts: { reset: true, openfrp: true }, tunnelsReset: true });
     try {
@@ -2401,6 +2442,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       const last = await taWait("lastCreate", v => !!v.name);
       assert(last && last.provider === "natfrp" && last.publicServer === true && last.nodeId === 10 && /^minedeck_[a-z0-9]{4}$/.test(last.name),
         "创建请求应带 publicServer: true 和公开服节点：" + JSON.stringify(last));
+      assert(!(+last.remotePort > 0), "樱花没有公网端口输入，请求里不该带隐藏框的默认值：" + JSON.stringify(last));
       assert(await toastHas("已创建并导入"), "应提示已创建并导入");
       await modalGone();
 

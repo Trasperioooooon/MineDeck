@@ -14,6 +14,9 @@ func (s *Server) tunnelAccountRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/tunnel-accounts/openfrp/login/{id}/poll", func(w http.ResponseWriter, r *http.Request) {
 		s.do(w, r, "tunnel.account.openfrp.poll", args(map[string]any{"id": r.PathValue("id")}))
 	})
+	mux.HandleFunc("POST /api/tunnel-accounts/openfrp/login/{id}/cancel", func(w http.ResponseWriter, r *http.Request) {
+		s.do(w, r, "tunnel.account.openfrp.cancel", args(map[string]any{"id": r.PathValue("id")}))
+	})
 	mux.HandleFunc("POST /api/tunnel-accounts/natfrp/connect", func(w http.ResponseWriter, r *http.Request) {
 		s.do(w, r, "tunnel.account.natfrp.connect", bodyArgs(r))
 	})

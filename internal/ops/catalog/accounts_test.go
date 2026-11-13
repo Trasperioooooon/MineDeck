@@ -26,7 +26,7 @@ func TestAccountOpsHumanOnly(t *testing.T) {
 	accounts := tunnel.NewAccounts(tunnel.NewManager(), keys)
 	reg = New(Env{Mgr: mgr, Tun: tunnel.NewManager(), Accounts: accounts, Port: 27333})
 	names := []string{
-		"tunnel.account.status", "tunnel.account.openfrp.login", "tunnel.account.openfrp.poll",
+		"tunnel.account.status", "tunnel.account.openfrp.login", "tunnel.account.openfrp.poll", "tunnel.account.openfrp.cancel",
 		"tunnel.account.natfrp.connect", "tunnel.account.disconnect", "tunnel.account.overview",
 		"tunnel.account.sign", "tunnel.account.purchase",
 		"tunnel.account.create", "tunnel.account.import",
@@ -48,7 +48,7 @@ func TestAccountOpsHumanOnly(t *testing.T) {
 		}
 	}
 	for _, name := range []string{
-		"tunnel.account.openfrp.login", "tunnel.account.openfrp.poll", "tunnel.account.natfrp.connect",
+		"tunnel.account.openfrp.login", "tunnel.account.openfrp.poll", "tunnel.account.openfrp.cancel", "tunnel.account.natfrp.connect",
 		"tunnel.account.disconnect", "tunnel.account.overview", "tunnel.account.create", "tunnel.account.import",
 	} {
 		op := reg.Op(name)

@@ -64,11 +64,16 @@ type Accounts struct {
 	openGen   uint64
 	sakuraGen uint64
 	overviews map[string]cachedOverview
+	ovVer     map[string]uint64 // 平台上的隧道变了就加一：在途的旧概览回来时不再写进缓存
+
+	// guardPort MineDeck 自己的网页端口：不许建成或导入指向它的隧道（映射到公网后经 frpc 进来的请求都来自本机地址）
+	guardPort int
 }
 
 type cachedOverview struct {
 	at  time.Time
 	gen uint64
+	ver uint64
 	ov  AccountOverview
 }
 
@@ -77,6 +82,7 @@ type openFrpLoginState struct {
 	privateKey  *[32]byte
 	expires     time.Time
 	lastPoll    time.Time
+	gen         uint64 // 发起时的 OpenFrp 连接代数：期间断开过或别的登录先成功了，这次就作废
 }
 
 func NewAccounts(tunnels *Manager, keys *secret.Store) *Accounts {
@@ -99,7 +105,25 @@ func NewAccounts(tunnels *Manager, keys *secret.Store) *Accounts {
 		now:       time.Now,
 		pending:   map[string]*openFrpLoginState{},
 		overviews: map[string]cachedOverview{},
+		ovVer:     map[string]uint64{},
 	}
+}
+
+// SetGuardPort 告诉账户层 MineDeck 自己的网页端口，创建和导入时拒绝指向它的隧道。
+func (a *Accounts) SetGuardPort(port int) {
+	a.mu.Lock()
+	a.guardPort = port
+	a.mu.Unlock()
+}
+
+func (a *Accounts) checkGuardPort(port int) error {
+	a.mu.Lock()
+	guard := a.guardPort
+	a.mu.Unlock()
+	if guard > 0 && port == guard {
+		return fmt.Errorf("本地端口 %d 是 MineDeck 自己的网页端口，不能映射到公网", port)
+	}
+	return nil
 }
 
 // AccountStatus 两家是否已连接。Local 是调用方是否在本机：局域网打开时界面只读。
@@ -242,10 +266,11 @@ func (a *Accounts) bumpLocked(provider string) {
 	delete(a.overviews, provider)
 }
 
-// forgetOverview 平台上的隧道变了（创建、导入）：下次概览重新拉。
+// forgetOverview 平台上的隧道变了（创建、导入）：下次概览重新拉，在途的旧概览也不再写进缓存。
 func (a *Accounts) forgetOverview(provider string) {
 	a.mu.Lock()
 	delete(a.overviews, provider)
+	a.ovVer[provider]++
 	a.mu.Unlock()
 }
 
@@ -254,6 +279,7 @@ func (a *Accounts) BeginOpenFrpLogin(ctx context.Context) (OpenFrpLogin, error) 
 	if err != nil {
 		return OpenFrpLogin{}, fmt.Errorf("生成 OpenFrp 授权密钥失败: %w", err)
 	}
+	gen := a.generation("openfrp")
 	body := map[string]string{"public_key": base64.URLEncoding.EncodeToString(public[:])}
 	data, _, status, err := a.request(ctx, http.MethodPost, a.openLogin, "/argoAccess/requestLogin", "", body, true)
 	if err != nil {
@@ -286,6 +312,12 @@ func (a *Accounts) BeginOpenFrpLogin(ctx context.Context) (OpenFrpLogin, error) 
 	}
 	now := a.now()
 	a.mu.Lock()
+	if a.openGen != gen {
+		// 发起授权期间账户被断开或别的登录先成功了：这次不算
+		a.mu.Unlock()
+		clear(private[:])
+		return OpenFrpLogin{}, fmt.Errorf("发起授权期间 OpenFrp 账户状态变了，请重新连接")
+	}
 	for id, state := range a.pending {
 		if now.After(state.expires) {
 			clear(state.privateKey[:])
@@ -296,6 +328,7 @@ func (a *Accounts) BeginOpenFrpLogin(ctx context.Context) (OpenFrpLogin, error) 
 		requestUUID: resp.Data.RequestUUID,
 		privateKey:  private,
 		expires:     now.Add(5 * time.Minute),
+		gen:         gen,
 	}
 	a.mu.Unlock()
 	return OpenFrpLogin{ID: resp.Data.RequestUUID, URL: resp.Data.AuthorizationURL}, nil
@@ -371,16 +404,29 @@ func (a *Accounts) PollOpenFrpLogin(ctx context.Context, id string) (OpenFrpLogi
 	// 在锁里确认这次登录还在等：用户在授权途中点了「断开」或「取消等待」重来，就不能再把授权写进去。
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.pending[id] != state {
+	if a.pending[id] != state || a.openGen != state.gen {
 		return OpenFrpLoginPoll{}, fmt.Errorf("这次 OpenFrp 授权已经取消，请重新连接")
 	}
 	if err := a.keys.Set(openFrpAuthKey, authorization); err != nil {
 		return OpenFrpLoginPoll{}, fmt.Errorf("保存 OpenFrp 授权失败: %w", err)
 	}
-	clear(state.privateKey[:])
-	delete(a.pending, id)
+	// 连上了：这次和其余还在等的登录全部作废，较早发起的登录不能再回来覆盖这次的授权
+	for pid, ps := range a.pending {
+		clear(ps.privateKey[:])
+		delete(a.pending, pid)
+	}
 	a.bumpLocked("openfrp")
 	return OpenFrpLoginPoll{Pending: false}, nil
+}
+
+// CancelOpenFrpLogin 用户点了「取消等待」：这次登录作废。此后即使有在途的轮询拿到授权，也不会写进去。
+func (a *Accounts) CancelOpenFrpLogin(id string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if state := a.pending[id]; state != nil {
+		clear(state.privateKey[:])
+		delete(a.pending, id)
+	}
 }
 
 func decryptOpenFrpAuthorization(ciphertext, serverPublic string, private *[32]byte) ([]byte, error) {
@@ -475,9 +521,9 @@ func (a *Accounts) Overview(ctx context.Context, provider string) (AccountOvervi
 	if provider != "openfrp" && provider != "natfrp" {
 		return AccountOverview{}, fmt.Errorf("未知穿透平台: %s", provider)
 	}
-	gen := a.generation(provider)
 	a.mu.Lock()
-	if c, ok := a.overviews[provider]; ok && c.gen == gen && a.now().Sub(c.at) < overviewTTL {
+	gen, ver := a.generationLocked(provider), a.ovVer[provider]
+	if c, ok := a.overviews[provider]; ok && c.gen == gen && c.ver == ver && a.now().Sub(c.at) < overviewTTL {
 		a.mu.Unlock()
 		return c.ov, nil
 	}
@@ -493,8 +539,8 @@ func (a *Accounts) Overview(ctx context.Context, provider string) (AccountOvervi
 		return AccountOverview{}, err
 	}
 	a.mu.Lock()
-	if a.generationLocked(provider) == gen {
-		a.overviews[provider] = cachedOverview{at: a.now(), gen: gen, ov: ov}
+	if a.generationLocked(provider) == gen && a.ovVer[provider] == ver {
+		a.overviews[provider] = cachedOverview{at: a.now(), gen: gen, ver: ver, ov: ov}
 	}
 	a.mu.Unlock()
 	return ov, nil
@@ -667,6 +713,9 @@ func (a *Accounts) CreateTunnel(ctx context.Context, o AccountTunnelOptions) (St
 	if o.NodeID <= 0 || o.LocalPort < 1 || o.LocalPort > 65535 {
 		return Status{}, fmt.Errorf("节点编号或本地端口无效")
 	}
+	if err := a.checkGuardPort(o.LocalPort); err != nil {
+		return Status{}, err
+	}
 	if o.Type != "tcp" && o.Type != "udp" {
 		return Status{}, fmt.Errorf("目前只支持创建 TCP 或 UDP 隧道")
 	}
@@ -685,6 +734,7 @@ func (a *Accounts) CreateTunnel(ctx context.Context, o AccountTunnelOptions) (St
 	}
 	var st Status
 	var err error
+	gen := a.generation(o.Provider)
 	switch o.Provider {
 	case "openfrp":
 		if !openFrpTunnelName.MatchString(o.Name) {
@@ -693,12 +743,12 @@ func (a *Accounts) CreateTunnel(ctx context.Context, o AccountTunnelOptions) (St
 		if o.RemotePort < 1 || o.RemotePort > 65535 {
 			return Status{}, fmt.Errorf("OpenFrp 需要填写有效的公网端口")
 		}
-		st, err = a.createOpenFrpTunnel(ctx, o)
+		st, err = a.createOpenFrpTunnel(ctx, o, gen)
 	case "natfrp":
 		if o.RemotePort < 0 || o.RemotePort > 65535 {
 			return Status{}, fmt.Errorf("公网端口无效")
 		}
-		st, err = a.createSakuraTunnel(ctx, o)
+		st, err = a.createSakuraTunnel(ctx, o, gen)
 	default:
 		return Status{}, fmt.Errorf("未知穿透平台: %s", o.Provider)
 	}
@@ -707,7 +757,7 @@ func (a *Accounts) CreateTunnel(ctx context.Context, o AccountTunnelOptions) (St
 	return st, err
 }
 
-func (a *Accounts) createOpenFrpTunnel(ctx context.Context, o AccountTunnelOptions) (Status, error) {
+func (a *Accounts) createOpenFrpTunnel(ctx context.Context, o AccountTunnelOptions, gen uint64) (Status, error) {
 	var nodes openFrpNodeList
 	if err := a.openFrpPost(ctx, "/frp/api/getNodeList", map[string]any{}, &nodes); err != nil {
 		return Status{}, err
@@ -756,10 +806,10 @@ func (a *Accounts) createOpenFrpTunnel(ctx context.Context, o AccountTunnelOptio
 	if err := a.openFrpPost(ctx, "/frp/api/getUserInfo", map[string]any{}, &user); err != nil {
 		return Status{}, fmt.Errorf("OpenFrp 隧道已创建，但读取客户端密钥失败；请刷新后手动导入：%w", err)
 	}
-	return a.addLocalTunnel("openfrp", strconv.Itoa(created[0].ID), created[0].ProxyName, user.Token, o)
+	return a.addLocalTunnel("openfrp", strconv.Itoa(created[0].ID), created[0].ProxyName, user.Token, o, gen)
 }
 
-func (a *Accounts) createSakuraTunnel(ctx context.Context, o AccountTunnelOptions) (Status, error) {
+func (a *Accounts) createSakuraTunnel(ctx context.Context, o AccountTunnelOptions, gen uint64) (Status, error) {
 	token, err := a.sakuraToken()
 	if err != nil {
 		return Status{}, err
@@ -801,7 +851,7 @@ func (a *Accounts) createSakuraTunnel(ctx context.Context, o AccountTunnelOption
 	if info.Token == "" {
 		return Status{}, fmt.Errorf("SakuraFrp 隧道已创建，但账户没有可用于 frpc 的访问密钥")
 	}
-	return a.addLocalTunnel("natfrp", strconv.Itoa(created.ID), created.Name, info.Token, o)
+	return a.addLocalTunnel("natfrp", strconv.Itoa(created.ID), created.Name, info.Token, o, gen)
 }
 
 func (a *Accounts) ImportTunnel(ctx context.Context, o AccountTunnelImport) (Status, error) {
@@ -815,6 +865,7 @@ func (a *Accounts) ImportTunnel(ctx context.Context, o AccountTunnelImport) (Sta
 		return Status{}, fmt.Errorf("隧道编号无效")
 	}
 	o.ProxyID = strconv.Itoa(id)
+	gen := a.generation(o.Provider)
 	for _, local := range a.tunnels.List() {
 		if local.Provider == o.Provider && local.ProxyID == o.ProxyID {
 			return Status{}, fmt.Errorf("这条平台隧道已经添加到 MineDeck")
@@ -830,7 +881,7 @@ func (a *Accounts) ImportTunnel(ctx context.Context, o AccountTunnelImport) (Sta
 		}
 		for _, proxy := range list.List {
 			if proxy.ID == id {
-				remote = AccountTunnel{ID: o.ProxyID, Name: proxy.ProxyName, Type: strings.ToLower(proxy.ProxyType), NodeName: proxy.FriendlyNode}
+				remote = AccountTunnel{ID: o.ProxyID, Name: proxy.ProxyName, Type: strings.ToLower(proxy.ProxyType), NodeName: proxy.FriendlyNode, LocalPort: proxy.LocalPort}
 				break
 			}
 		}
@@ -871,6 +922,9 @@ func (a *Accounts) ImportTunnel(ctx context.Context, o AccountTunnelImport) (Sta
 	if remote.Type != "tcp" && remote.Type != "udp" {
 		return Status{}, fmt.Errorf("MineDeck 只导入 TCP 或 UDP 隧道")
 	}
+	if a.checkGuardPort(remote.LocalPort) != nil {
+		return Status{}, fmt.Errorf("这条平台隧道的本地端口 %d 是 MineDeck 自己的网页端口，不能导入：映射到公网后管理界面会暴露出去", remote.LocalPort)
+	}
 	if credential == "" {
 		return Status{}, fmt.Errorf("平台没有返回 frpc 访问密钥")
 	}
@@ -882,16 +936,21 @@ func (a *Accounts) ImportTunnel(ctx context.Context, o AccountTunnelImport) (Sta
 			options.Purpose = PurposeGame
 		}
 	}
-	st, err := a.addLocalTunnel(o.Provider, o.ProxyID, remote.Name, credential, options)
+	st, err := a.addLocalTunnel(o.Provider, o.ProxyID, remote.Name, credential, options, gen)
 	if err == nil {
 		a.forgetOverview(o.Provider)
 	}
 	return st, err
 }
 
-func (a *Accounts) addLocalTunnel(provider, proxyID, name, credential string, o AccountTunnelOptions) (Status, error) {
+// addLocalTunnel 把平台隧道写进本机。gen 是整个创建/导入开始时的连接代数：途中账户被断开或换了，
+// 前后几步可能用的不是同一个账户，不再写进本机。
+func (a *Accounts) addLocalTunnel(provider, proxyID, name, credential string, o AccountTunnelOptions, gen uint64) (Status, error) {
 	if credential == "" {
 		return Status{}, fmt.Errorf("平台没有返回 frpc 访问密钥")
+	}
+	if a.generation(provider) != gen {
+		return Status{}, fmt.Errorf("操作途中账户被断开或换了，没有写进 MineDeck；平台上的隧道可能已经建好，请重新连接后在概览里导入")
 	}
 	for _, local := range a.tunnels.List() {
 		if local.Provider == provider && local.ProxyID == proxyID {
@@ -914,14 +973,17 @@ func (a *Accounts) addLocalTunnel(provider, proxyID, name, credential string, o 
 }
 
 func (a *Accounts) openFrpPost(ctx context.Context, path string, body any, out any) error {
+	// 凭据和代数在同一把锁里读：读完凭据才断开的话，代数也已经对不上，换发的新值不会把账户连回去
+	a.mu.Lock()
+	gen := a.openGen
 	authorization, err := a.keys.Get(openFrpAuthKey)
+	a.mu.Unlock()
 	if err != nil {
 		return fmt.Errorf("读取 OpenFrp 授权失败: %w", err)
 	}
 	if authorization == "" {
 		return fmt.Errorf("请先连接 OpenFrp 账户")
 	}
-	gen := a.generation("openfrp")
 	data, headers, status, err := a.request(ctx, http.MethodPost, a.openAPI, path, authorization, body, true)
 	if err != nil {
 		return err
@@ -930,7 +992,7 @@ func (a *Accounts) openFrpPost(ctx context.Context, path string, body any, out a
 		return fmt.Errorf("OpenFrp 登录已失效，请重新连接账户")
 	}
 	if status < 200 || status >= 300 {
-		return responseError(status, data)
+		return responseError(status, data, authorization)
 	}
 	// OpenFrp 文档说请求任意接口时「有概率返回新值」，但没写放在哪；这里按响应头 Authorization 收。
 	// 只认成功响应里的、像样的新值，并且这期间账户没被断开或重新登录过，否则宁可不收。
@@ -953,7 +1015,7 @@ func (a *Accounts) openFrpPost(ctx context.Context, path string, body any, out a
 		return fmt.Errorf("OpenFrp API 响应格式无效")
 	}
 	if !envelope.Flag {
-		return fmt.Errorf("OpenFrp API 请求失败: %s", safeMessage(envelope.Msg))
+		return fmt.Errorf("OpenFrp API 请求失败: %s", safeMessage(scrub(envelope.Msg, authorization)))
 	}
 	if out != nil && len(envelope.Data) != 0 && string(envelope.Data) != "null" {
 		if err := json.Unmarshal(envelope.Data, out); err != nil {
@@ -1012,14 +1074,14 @@ func (a *Accounts) sakuraRequest(ctx context.Context, method, path, token string
 		return nil, err
 	}
 	if status < 200 || status >= 300 {
-		return nil, responseError(status, data)
+		return nil, responseError(status, data, token)
 	}
 	var apiErr struct {
 		Code int    `json:"code"`
 		Msg  string `json:"msg"`
 	}
 	if json.Unmarshal(data, &apiErr) == nil && apiErr.Code >= 400 {
-		return nil, fmt.Errorf("SakuraFrp API 请求失败: %s", safeMessage(apiErr.Msg))
+		return nil, fmt.Errorf("SakuraFrp API 请求失败: %s", safeMessage(scrub(apiErr.Msg, token)))
 	}
 	return data, nil
 }
@@ -1072,7 +1134,8 @@ func (a *Accounts) doJSON(ctx context.Context, client *http.Client, method, base
 	return data, resp.Header, resp.StatusCode, nil
 }
 
-func responseError(status int, data []byte) error {
+// responseError 平台的错误响应。secrets 是这次请求带的凭据：平台万一在报错里回显，先抹掉再给人看、进记录。
+func responseError(status int, data []byte, secrets ...string) error {
 	var resp struct {
 		Msg  string `json:"msg"`
 		Data string `json:"data"`
@@ -1081,10 +1144,20 @@ func responseError(status int, data []byte) error {
 	if status == http.StatusTooManyRequests {
 		return fmt.Errorf("穿透平台说请求太频繁（HTTP 429），稍等一会儿再试")
 	}
-	if msg := safeMessage(resp.Msg); msg != "" {
+	if msg := safeMessage(scrub(resp.Msg, secrets...)); msg != "" {
 		return fmt.Errorf("穿透平台返回 HTTP %d: %s", status, msg)
 	}
 	return fmt.Errorf("穿透平台返回 HTTP %d", status)
+}
+
+// scrub 把文本里出现的凭据换成 ***。
+func scrub(s string, secrets ...string) string {
+	for _, v := range secrets {
+		if v = strings.TrimSpace(strings.TrimPrefix(v, "Bearer ")); len(v) >= 4 {
+			s = strings.ReplaceAll(s, v, "***")
+		}
+	}
+	return s
 }
 
 // safeMessage 平台报错原文去空白、截到 120 个字符（按字符截，不把中文切成半个字）。

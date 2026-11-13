@@ -19,6 +19,7 @@ func (c *cat) accountOps() {
 	providerField := ops.String("穿透平台：openfrp、natfrp（樱花）")
 	providerOnly := ops.Object(map[string]*ops.Schema{"provider": providerField}, "provider")
 	const localMsg = "穿透平台账户只能在运行 MineDeck 的这台电脑上操作"
+	c.Accounts.SetGuardPort(c.Port) // 创建、导入时拒绝指向 MineDeck 自己网页端口的隧道
 
 	c.reg.Register(&ops.Op{
 		Name: "tunnel.account.status", Title: "查看穿透账户连接状态", Level: ops.HumanOnly, NoLog: true,
@@ -47,6 +48,22 @@ func (c *cat) accountOps() {
 				return nil, err
 			}
 			return c.Accounts.PollOpenFrpLogin(ctx, strings.TrimSpace(p.ID))
+		},
+	})
+
+	c.reg.Register(&ops.Op{
+		Name: "tunnel.account.openfrp.cancel", Title: "取消 OpenFrp 远程授权", Level: ops.HumanOnly, LocalOnly: true, NoLog: true,
+		Params: ops.Object(map[string]*ops.Schema{"id": ops.String("BeginOpenFrpLogin 返回的 request UUID")}, "id"),
+		Desc:   "用户点了「取消等待」：这次授权作废，之后即使在途的轮询拿到授权也不保存。",
+		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+			p, err := bind[struct {
+				ID string `json:"id"`
+			}](a)
+			if err != nil {
+				return nil, err
+			}
+			c.Accounts.CancelOpenFrpLogin(strings.TrimSpace(p.ID))
+			return "ok", nil
 		},
 	})
 
@@ -144,10 +161,7 @@ func (c *cat) accountOps() {
 			if err != nil {
 				return nil, err
 			}
-			// 把 MineDeck 自己的网页端口映射到公网，外来请求经 frpc 进来就是本机地址，「仅本机」的限制会失效
-			if c.Port > 0 && o.LocalPort == c.Port {
-				return nil, ops.Errorf(400, "本地端口 %d 是 MineDeck 自己的网页端口，不能映射到公网", c.Port)
-			}
+			// 指向 MineDeck 自己网页端口的隧道由账户层拒绝（SetGuardPort）：映射到公网后经 frpc 进来的请求都来自本机地址
 			return c.Accounts.CreateTunnel(ctx, o)
 		},
 	})

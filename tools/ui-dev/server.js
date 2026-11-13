@@ -1441,6 +1441,7 @@ function newTunnelAccountsState() {
     lastSign: null, // 最近一次 POST .../sign 的 body（测试用）
     lastImport: null,
     lastCreate: null,
+    lastCancel: null, // 最近一次「取消等待」的登录 ID
     overviews: {
       openfrp: {
         provider: "openfrp",
@@ -1487,14 +1488,22 @@ async function tunnelAccountsHandler(state, req, res, p, m, seg) {
     ok(res, st);
     return true;
   }
-  // 除了上面的状态，其余接口都只给本机用（同后端：局域网设备 403）
-  if (ta.local === false) { err(res, 403, "这项操作只能在运行 MineDeck 的这台电脑上进行"); return true; }
+  // 除了状态、签到入口、购买入口，其余接口都只给本机用（同后端：局域网设备 403）
+  const roOK = m === "POST" ? seg[4] === "sign" : m === "GET" && seg[4] === "purchase";
+  if (ta.local === false && !roOK) { err(res, 403, "这项操作只能在运行 MineDeck 的这台电脑上进行"); return true; }
   // 凭据解不开的那家按未连接算
   const connected = provider => !!ta[provider] && !ta[provider + "Unreadable"];
   if (p === "/api/tunnel-accounts/openfrp/login" && m === "POST") {
     const id = "login-" + Date.now();
     ta.openfrpLogin = { id, polls: 0, doneAtPoll: ta.openfrpLoginDoneAtPoll || 2 };
     ok(res, { id, url: "https://console.openfrp.net/oauth?mock=" + id });
+    return true;
+  }
+  if (seg[2] === "tunnel-accounts" && seg[3] === "openfrp" && seg[4] === "login" && seg[6] === "cancel" && m === "POST") {
+    // 取消等待：这次授权作废（同后端 CancelOpenFrpLogin），之后的轮询按不存在处理
+    ta.lastCancel = seg[5];
+    if (ta.openfrpLogin && ta.openfrpLogin.id === seg[5]) ta.openfrpLogin = null;
+    ok(res, "ok");
     return true;
   }
   if (seg[2] === "tunnel-accounts" && seg[3] === "openfrp" && seg[4] === "login" && seg[6] === "poll" && m === "POST") {

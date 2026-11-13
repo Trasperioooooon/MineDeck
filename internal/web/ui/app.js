@@ -310,8 +310,10 @@ function confirmModal({ title, body, okText = "确定", cancelText = "取消", d
     mask.addEventListener("mousedown", e => { if (e.target === e.currentTarget) close(null); });
     mask.querySelector('[data-x="cancel"]').onclick = () => close(null);
     mask.querySelector('[data-x="ok"]').onclick = () => {
+      // 表单的值在关弹窗之前读出来交回去：开了「减少动态」时弹窗是立刻移除的，关掉以后再查 DOM 就什么也拿不到
       const checks = {};
       mask.querySelectorAll("input[type=checkbox][data-k]").forEach(c => checks[c.dataset.k] = c.checked);
+      mask.querySelectorAll("select[data-k]").forEach(c => checks[c.dataset.k] = c.value);
       close(checks);
     };
     mask.querySelector(danger ? '[data-x="cancel"]' : '[data-x="ok"]').focus();
@@ -3284,8 +3286,8 @@ async function renderTunnels() {
     openFrpPoll.stop = true;
     openFrpPoll = null;
   };
-  const boundSelect = (id, val = "") =>
-    `<select id="${id}" aria-label="绑定实例"><option value="">不绑定</option>${insts.map(i =>
+  const boundSelect = (id, val = "", k = "") =>
+    `<select id="${id}"${k ? ` data-k="${k}"` : ""} aria-label="绑定实例"><option value="">不绑定</option>${insts.map(i =>
       `<option value="${esc(i.name)}"${i.name === val ? " selected" : ""}>${esc(i.name)}（端口 ${i.port}）</option>`).join("")}</select>`;
 
   const paintAccCards = () => {
@@ -3349,7 +3351,14 @@ async function renderTunnels() {
     box.innerHTML = card("openfrp") + card("natfrp");
     box.querySelectorAll("[data-acc-connect]").forEach(b => b.onclick = () => connectAccount(b.dataset.accConnect, b));
     box.querySelectorAll("[data-acc-get-token]").forEach(b => b.onclick = () => openExt("https://www.natfrp.com/user/profile"));
-    box.querySelectorAll("[data-acc-cancel-login]").forEach(b => b.onclick = () => { stopOpenFrpPoll(); paintAccCards(); toast("已取消等待授权"); });
+    box.querySelectorAll("[data-acc-cancel-login]").forEach(b => b.onclick = () => {
+      const id = openFrpPoll && openFrpPoll.id;
+      stopOpenFrpPoll();
+      // 后端那边也作废：已经发出去的轮询就算拿到授权也不保存
+      if (id) api(`/api/tunnel-accounts/openfrp/login/${encodeURIComponent(id)}/cancel`, { method: "POST" }).catch(() => {});
+      paintAccCards();
+      toast("已取消等待授权");
+    });
     box.querySelectorAll("[data-acc-disconnect]").forEach(b => b.onclick = () => disconnectAccount(b.dataset.accDisconnect));
     box.querySelectorAll("[data-acc-overview]").forEach(b => b.onclick = () => toggleOverview(b.dataset.accOverview));
     box.querySelectorAll("[data-acc-sign]").forEach(b => b.onclick = () => signAccount(b.dataset.accSign));
@@ -3552,8 +3561,8 @@ async function renderTunnels() {
       body: `将平台隧道 <b>${esc(proxyId)}</b> 写入本机隧道列表（凭据由账户密钥填充）。`,
       okText: "导入",
       extra: `<div class="form-grid" style="margin-top:12px">
-        <label class="field full"><span>绑定实例</span>${boundSelect("tn-imp-bound")}</label>
-        <div class="field full"><label class="switch"><input type="checkbox" id="tn-imp-auto" checked><span class="sw"></span>
+        <label class="field full"><span>绑定实例</span>${boundSelect("tn-imp-bound", "", "bound")}</label>
+        <div class="field full"><label class="switch"><input type="checkbox" id="tn-imp-auto" data-k="auto" checked><span class="sw"></span>
           <span class="sw-label">跟随实例启动</span></label></div>
       </div>`,
     });
@@ -3564,8 +3573,8 @@ async function renderTunnels() {
         method: "POST",
         body: {
           proxyId,
-          boundInstance: ($("#tn-imp-bound") || {}).value || "",
-          autoStart: !!($("#tn-imp-auto") || {}).checked,
+          boundInstance: r.bound || "",
+          autoStart: !!r.auto,
           purpose: String(type || "").toLowerCase() === "udp" ? "voice" : "game",
         },
       });
@@ -3652,7 +3661,7 @@ async function renderTunnels() {
         nodeId: +nodeSel.value,
         type: $("#tn-cr-type").value,
         localPort: +$("#tn-cr-lport").value || 0,
-        remotePort: +($("#tn-cr-rport") || {}).value || 0,
+        remotePort: isOpenFrp ? (+($("#tn-cr-rport") || {}).value || 0) : 0, // 樱花不填公网端口，由平台分配
         boundInstance: $("#tn-cr-bound").value,
         autoStart: $("#tn-cr-auto").checked,
         purpose: $("#tn-cr-type").value === "udp" ? "voice" : "game",

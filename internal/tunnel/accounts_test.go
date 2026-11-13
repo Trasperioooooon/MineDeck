@@ -118,6 +118,9 @@ func newOpenFrpServer(t *testing.T) *openFrpServer {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/argoAccess/requestLogin", func(w http.ResponseWriter, r *http.Request) {
+		if f.onRequest != nil {
+			f.onRequest(r.URL.Path)
+		}
 		var body struct {
 			PublicKey string `json:"public_key"`
 		}
@@ -384,6 +387,10 @@ func TestOpenFrpDisconnectWinsOverInFlightRequests(t *testing.T) {
 
 // sakuraServer 模拟樱花 API v4。节点 1 是公开服专用（名称含「多线」），节点 2 只能 TCP、不能放公开服。
 func sakuraServer(t *testing.T, onInfo func()) (*httptest.Server, *map[string]any) {
+	return sakuraServerHooks(t, onInfo, nil)
+}
+
+func sakuraServerHooks(t *testing.T, onInfo, onCreate func()) (*httptest.Server, *map[string]any) {
 	var lastCreate map[string]any
 	mux := http.NewServeMux()
 	mux.HandleFunc("/user/info", func(w http.ResponseWriter, r *http.Request) {
@@ -405,10 +412,14 @@ func sakuraServer(t *testing.T, onInfo func()) (*httptest.Server, *map[string]an
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"1": map[string]any{"name": "上海多线1", "description": "公开服", "flag": (1 << 2) | (1 << 5)},
 			"2": map[string]any{"name": "北京三线", "description": "仅 TCP", "flag": 1 << 2},
+			"3": map[string]any{"name": "广州电信", "description": "标了公开游戏", "flag": (1 << 2) | (1 << 11)},
 		})
 	})
 	mux.HandleFunc("/tunnels", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
+			if onCreate != nil {
+				onCreate()
+			}
 			if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 				t.Errorf("创建隧道的 Content-Type: %q", r.Header.Get("Content-Type"))
 			}
@@ -444,15 +455,15 @@ func TestSakuraConnectOverviewCreateImport(t *testing.T) {
 		t.Fatalf("saved token: %q", got)
 	}
 	ov, err := a.Overview(context.Background(), "natfrp")
-	if err != nil || len(ov.Nodes) != 2 || len(ov.Tunnels) != 1 {
+	if err != nil || len(ov.Nodes) != 3 || len(ov.Tunnels) != 1 {
 		t.Fatalf("overview: %+v %v", ov, err)
 	}
 	public := map[int]bool{}
 	for _, n := range ov.Nodes {
 		public[n.ID] = n.PublicGameAllowed
 	}
-	if !public[1] || public[2] {
-		t.Fatalf("公开服节点判定（含「多线」可以，「三线」不行）: %+v", public)
+	if !public[1] || public[2] || !public[3] {
+		t.Fatalf("公开服节点判定（含「多线」可以，「三线」不行，只有 flag&2048 也可以）: %+v", public)
 	}
 
 	// 公开服务器不能放在非公开服节点上
@@ -516,4 +527,112 @@ func TestResponseErrorMessages(t *testing.T) {
 
 func writeOpenFrp(w http.ResponseWriter, data any) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"flag": true, "msg": "OK", "data": data})
+}
+
+func TestOpenFrpLoginCancelAndRaces(t *testing.T) {
+	f := newOpenFrpServer(t)
+	a, keys := testAccounts(t, f.srv.URL, f.srv.URL, f.srv.URL)
+
+	// 取消等待之后，再轮询也拿不到、存不进
+	login, err := a.BeginOpenFrpLogin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.CancelOpenFrpLogin(login.ID)
+	if _, err := a.PollOpenFrpLogin(context.Background(), login.ID); err == nil {
+		t.Fatal("取消后的轮询应报错")
+	}
+
+	// 轮询在途时取消：回来的授权不写
+	login, err = a.BeginOpenFrpLogin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.onRequest = func(path string) {
+		if path == "/argoAccess/pollLogin" {
+			a.CancelOpenFrpLogin(login.ID)
+		}
+	}
+	if _, err := a.PollOpenFrpLogin(context.Background(), login.ID); err == nil || !strings.Contains(err.Error(), "取消") {
+		t.Fatalf("轮询在途时取消应报已取消: %v", err)
+	}
+	if got, _ := keys.Get(openFrpAuthKey); got != "" {
+		t.Fatalf("取消后不应写入授权: %q", got)
+	}
+}
+
+func TestOpenFrpBeginDuringDisconnect(t *testing.T) {
+	f := newOpenFrpServer(t)
+	a, _ := testAccounts(t, f.srv.URL, f.srv.URL, f.srv.URL)
+	// 发起授权的请求还没回来时用户点了断开：这次授权作废，不留下等待中的登录
+	f.onRequest = func(path string) {
+		if path == "/argoAccess/requestLogin" {
+			if err := a.Disconnect("openfrp"); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	if _, err := a.BeginOpenFrpLogin(context.Background()); err == nil || !strings.Contains(err.Error(), "重新连接") {
+		t.Fatalf("发起授权途中断开应报错: %v", err)
+	}
+	a.mu.Lock()
+	n := len(a.pending)
+	a.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("不应留下等待中的登录: %d", n)
+	}
+}
+
+func TestGuardPortRejectsManagementPort(t *testing.T) {
+	f := newOpenFrpServer(t)
+	a, _ := testAccounts(t, f.srv.URL, f.srv.URL, f.srv.URL)
+	loginOpenFrp(t, a)
+	a.SetGuardPort(25565)
+	if _, err := a.CreateTunnel(context.Background(), AccountTunnelOptions{
+		Provider: "openfrp", Name: "minedeck_ab12", NodeID: 3, Type: "tcp", LocalPort: 25565, RemotePort: 10002,
+	}); err == nil || !strings.Contains(err.Error(), "网页端口") {
+		t.Fatalf("指向管理端口的创建应被拒: %v", err)
+	}
+	if f.created {
+		t.Fatal("被拒的创建不应发到 OpenFrp")
+	}
+	// 平台上 7 号隧道的本地端口是 25565
+	if _, err := a.ImportTunnel(context.Background(), AccountTunnelImport{Provider: "openfrp", ProxyID: "7"}); err == nil || !strings.Contains(err.Error(), "网页端口") {
+		t.Fatalf("指向管理端口的导入应被拒: %v", err)
+	}
+	if n := len(a.tunnels.List()); n != 0 {
+		t.Fatalf("不应导入: %d", n)
+	}
+}
+
+func TestSakuraDisconnectDuringCreateDoesNotSaveLocally(t *testing.T) {
+	var a *Accounts
+	srv, _ := sakuraServerHooks(t, nil, func() {
+		if err := a.Disconnect("natfrp"); err != nil {
+			t.Error(err)
+		}
+	})
+	a, _ = testAccounts(t, srv.URL, srv.URL, srv.URL)
+	if _, err := a.ConnectSakura(context.Background(), "sakura-access-key"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := a.CreateTunnel(context.Background(), AccountTunnelOptions{
+		Provider: "natfrp", Name: "mc", NodeID: 1, Type: "tcp", LocalPort: 25565,
+	})
+	if err == nil || !strings.Contains(err.Error(), "操作途中") {
+		t.Fatalf("创建途中断开应报错并提示去平台导入: %v", err)
+	}
+	if n := len(a.tunnels.List()); n != 0 {
+		t.Fatalf("途中断开后不应写进本机: %d", n)
+	}
+}
+
+func TestErrorsScrubCredentials(t *testing.T) {
+	err := responseError(400, []byte(`{"msg":"访问密钥 sakura-access-key 无效"}`), "Bearer sakura-access-key")
+	if strings.Contains(err.Error(), "sakura-access-key") || !strings.Contains(err.Error(), "***") {
+		t.Fatalf("报错里的凭据应被抹掉: %v", err)
+	}
+	if got := scrub("a b", "", "x"); got != "a b" {
+		t.Fatalf("太短的值不替换: %q", got)
+	}
 }
