@@ -473,7 +473,7 @@ func (r *scanResult) regionCount(dir string) int {
 	n := 0
 	rd := join(dir, "region")
 	for _, e := range r.src.under(rd) {
-		rest := e.fold[len(rd)+1:]
+		rest := relRest(e.fold, rd)
 		if !strings.Contains(rest, "/") && strings.HasSuffix(rest, ".MCA") {
 			n++
 		}
@@ -492,7 +492,7 @@ func (r *scanResult) dimensionsOf(c *Candidate) []Dimension {
 		// dimensions/<命名空间>/<路径…>：含 region、entities、poi 或 data 的目录算一个维度
 		seen := map[string]bool{}
 		for _, e := range s.under(base) {
-			rest := e.rel[len(base)+1:]
+			rest := relRest(e.rel, base)
 			segs := strings.Split(rest, "/")
 			for k := 2; k < len(segs); k++ {
 				switch strings.ToLower(segs[k]) {
@@ -552,7 +552,7 @@ func (r *scanResult) playersOf(c *Candidate) {
 		dir = join(c.Root, "players/data")
 	}
 	for _, e := range r.src.under(dir) {
-		rest := e.fold[len(dir)+1:]
+		rest := relRest(e.fold, dir)
 		if !strings.Contains(rest, "/") && strings.HasSuffix(rest, ".DAT") {
 			c.PlayerFiles++
 			if len(c.players) < 10000 {

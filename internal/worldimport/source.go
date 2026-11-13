@@ -116,12 +116,8 @@ func (s *source) under(dir string) []entry {
 // children dir 下面直接的子项名字（文件和目录，原样大小写，去重）。
 func (s *source) children(dir string) (files, subdirs []string) {
 	seenF, seenD := map[string]bool{}, map[string]bool{}
-	prefix := ""
-	if dir != "" {
-		prefix = dir + "/"
-	}
 	for _, e := range s.under(dir) {
-		rest := e.rel[len(prefix):]
+		rest := relRest(e.rel, dir)
 		if first, _, nested := strings.Cut(rest, "/"); nested {
 			if k := strings.ToUpper(first); !seenD[k] {
 				seenD[k] = true
@@ -133,6 +129,20 @@ func (s *source) children(dir string) (files, subdirs []string) {
 		}
 	}
 	return files, subdirs
+}
+
+// relRest rel 在目录前缀 dir 后面的部分（不带开头的斜杠）。前缀是按 winname.Fold 不分大小写比上的，
+// 所以按路径段数切，不按字节数切：strings.ToUpper 会改变个别字符（土耳其语的 ı、ſ、ȿ…）的字节长度。
+func relRest(rel, dir string) string {
+	if dir == "" {
+		return rel
+	}
+	n := strings.Count(dir, "/") + 1
+	segs := strings.SplitN(rel, "/", n+1)
+	if len(segs) <= n {
+		return ""
+	}
+	return segs[n]
 }
 
 // fingerprint 一组文件的指纹：路径、大小、修改时间（ZIP 再加 CRC）。提交前重算比对，来源被改过就要重新检测。

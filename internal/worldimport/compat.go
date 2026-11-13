@@ -169,8 +169,11 @@ func planMapping(c *Candidate, fam string, modernTarget bool, level string) (map
 		if bukkitLike(fam) && !modernTarget {
 			mp.moves = []Move{{From: c.Root, To: L}}
 			for _, g := range c.Group {
-				suf := g[len(c.Root):] // _nether / _the_end（保留原来的大小写也无妨，Windows 不分）
-				mp.moves = append(mp.moves, Move{From: g, To: L + strings.ToLower(suf)})
+				suf := "_the_end"
+				if strings.HasSuffix(strings.ToLower(g), "_nether") {
+					suf = "_nether"
+				}
+				mp.moves = append(mp.moves, Move{From: g, To: L + suf})
 			}
 			mp.layout = LayoutLegacyBukkit
 		} else {

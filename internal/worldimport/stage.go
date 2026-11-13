@@ -53,14 +53,8 @@ func resolveMoves(info *candInfo, mp mapping) ([]stagedFile, []string, error) {
 			dropped = append(dropped, e.rel)
 			continue
 		}
-		rest := e.rel
-		if best.From != "" {
-			rest = e.rel[len(best.From):]
-		} else {
-			rest = "/" + rest
-		}
-		to := best.To + rest
-		if strings.EqualFold(e.rel, best.From) {
+		to := best.To + "/" + relRest(e.rel, best.From) // 按段数切，见 relRest
+		if best.From != "" && winname.Fold(e.rel) == winname.Fold(best.From) {
 			to = best.To
 		}
 		k := winname.Fold(to)

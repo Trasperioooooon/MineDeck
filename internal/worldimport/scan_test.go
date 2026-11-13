@@ -547,3 +547,40 @@ func TestNewLevelFields(t *testing.T) {
 		t.Fatalf("suggestions = %v", keys)
 	}
 }
+
+// 复审 #2：名字里有大小写换算以后字节数会变的字符（土耳其语的 ı、ſ、ȿ），按字节切会切错位置甚至越界。
+func TestFoldByteLength(t *testing.T) {
+	tmp := t.TempDir()
+	for _, name := range []string{"kıta", "ıııııııııı", "ſky ȿ", "ɐɐ"} {
+		src := filepath.Join(tmp, "src-"+name)
+		if err := wt.Legacy(filepath.Join(src, name), wt.WorldOpts{Level: lv("1.20.4", 3700), Overworld: true, Nether: true,
+			Players: []string{"069a79f4-44e9-4726-a1a5-95721e2c6d2a"}, Datapacks: []string{"p"}}); err != nil {
+			t.Fatal(err)
+		}
+		z := filepath.Join(tmp, "z-"+name+".zip")
+		if err := wt.ZipTree(z, src, "包/", wt.ZipOpts{}); err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range []string{src, z} {
+			r := mustScan(t, p, name)
+			if len(r.Candidates) != 1 {
+				t.Fatalf("%s: %d 个候选", name, len(r.Candidates))
+			}
+			c := r.Candidates[0]
+			if c.Dimensions[0].Regions != 1 || c.PlayerFiles != 1 || len(c.Datapacks) != 1 {
+				t.Fatalf("%s: regions=%d players=%d packs=%v", name, c.Dimensions[0].Regions, c.PlayerFiles, c.Datapacks)
+			}
+			info := r.cands[c.ID]
+			mp, _ := planMapping(info.c, "vanilla", false, "world")
+			files, _, err := resolveMoves(info, mp)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, f := range files {
+				if !strings.HasPrefix(f.to, "world/") || strings.Contains(f.to, name) {
+					t.Fatalf("%s: 落点不对 %s ← %s", name, f.to, f.e.rel)
+				}
+			}
+		}
+	}
+}
