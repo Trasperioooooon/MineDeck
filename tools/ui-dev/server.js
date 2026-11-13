@@ -659,6 +659,8 @@ function asstState(state, s) {
 }
 const asstSleep = ms => new Promise(r => setTimeout(r, ms));
 function asstScript(s, text, attach) {
+  // 请求失败（同后端 fail()）：提示的正文只写结论，带状态码和英文原话的原文放 detail，界面给「复制原文」
+  if (/模拟报错/.test(text)) return [{ fail: { text: "请求 AI 失败：Key 不对或已失效", detail: "Key 不对或已失效（HTTP 401，authentication_error）：invalid x-api-key: sk-a***" } }];
   const inst = s.inst || "生存服 · 朋友";
   if (attach) return [
     { think: "附来的资料里有一行 invalid dist DEDICATED_SERVER，像是客户端模组进了服务端。先看模组清单里有没有小地图。", text: "我先看看模组清单。", tools: [{ name: "instance_mods_list", op: "instance.mods.list", title: "查看模组清单", args: { inst, q: "xaero" }, result: { count: 87, mods: [{ id: "xaerominimap", file: "xaerominimap.jar", env: "client" }] } }] },
@@ -705,6 +707,14 @@ async function asstTurn(state, s, steps) {
   for (const step of steps) {
     const it = { id: "i" + (++s.next), kind: "assistant", t: new Date().toISOString(), text: "", tools: [] };
     s.items.push(it); asstEmit(s, { type: "item", item: asstSlim(it) });
+    if (step.fail) {
+      s.items = s.items.filter(x => x.id !== it.id); asstEmit(s, { type: "remove", id: it.id });
+      const u = [...s.items].reverse().find(x => x.kind === "user" && !x.withdrawn);
+      if (u) { u.withdrawn = true; asstEmit(s, { type: "item", item: u }); }
+      const n = { id: "i" + (++s.next), kind: "notice", level: "error", t: new Date().toISOString(), text: step.fail.text, detail: step.fail.detail };
+      s.items.push(n); asstEmit(s, { type: "item", item: n });
+      break;
+    }
     for (const c of (step.think || "").match(/[\s\S]{1,12}/g) || []) {
       if (s.stop) break;
       it.think = (it.think || "") + c; asstEmit(s, { type: "thinking", id: it.id, text: c }); await wait(12);
@@ -716,7 +726,16 @@ async function asstTurn(state, s, steps) {
     }
     // 模型开始写工具调用：这时这一轮还没结束，工具还没进 item（同后端的 tool_start）
     for (const tl of s.stop ? [] : step.tools || []) { asstEmit(s, { type: "tool_start", id: it.id, name: tl.name }); await wait(12); }
-    if (s.stop) { it.partial = true; asstEmit(s, { type: "item", item: asstSlim(it) }); break; }
+    if (s.stop) {
+      // 同后端 fail()：什么都没说出来（没有正文、没有工具调用，只有思考也算）就撤掉这一条；
+      // 要是这一轮的第一次请求，用户的话也从对话里撤回（界面上给「放回输入框」）。说了一半的标成没说完
+      if (!it.text && !it.tools.length) {
+        s.items = s.items.filter(x => x.id !== it.id); asstEmit(s, { type: "remove", id: it.id });
+        const u = steps.indexOf(step) === 0 && [...s.items].reverse().find(x => x.kind === "user" && !x.withdrawn);
+        if (u) { u.withdrawn = true; asstEmit(s, { type: "item", item: u }); s.withdrew = true; }
+      } else { it.partial = true; asstEmit(s, { type: "item", item: asstSlim(it) }); }
+      break;
+    }
     it.usage = { input: 1820, output: 96, cacheRead: 1024 }; it.cost = { amount: 0.0021, currency: "CNY", source: "litellm" }; it.model = state.ai.model;
     state.ai.today.assistant.tokens += 2940;
     asstEmit(s, { type: "item", item: asstSlim(it) });
@@ -740,9 +759,9 @@ async function asstTurn(state, s, steps) {
   if (s.stop) {
     s.items.push({ id: "i" + (++s.next), kind: "notice", level: "info", t: new Date().toISOString(), text: "已停止" });
     asstEmit(s, { type: "item", item: s.items[s.items.length - 1] });
-    s.needReply = true;
+    s.needReply = !s.withdrew; // 撤回了用户的话就没有「等着回复」的消息了
   }
-  s.stop = false; s.busy = false; s.updated = new Date().toISOString();
+  s.stop = false; s.withdrew = false; s.busy = false; s.updated = new Date().toISOString();
   asstState(state, s);
 }
 // 确认卡片处理完：记下结果，接着回复（同后端：结果交还给 AI）

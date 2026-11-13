@@ -861,8 +861,9 @@ type ModelsRequest struct {
 	Protocol Protocol `json:"protocol"`
 	BaseURL  string   `json:"baseUrl"`
 	Key      string   `json:"key"`
-	Auth     string   `json:"auth,omitempty"`
-	Echo     string   `json:"echo,omitempty"`
+	// Auth 没传（nil）才沿用已存的；传了空串就是「按协议的默认」（界面上选了「默认」还没保存，不能退回旧值）
+	Auth *string `json:"auth,omitempty"`
+	Echo string  `json:"echo,omitempty"`
 }
 
 // ModelList 模型列表。Source=live 是服务商返回的；preset 是预设里的建议（对方没有 /models，或列表接口 404）。
@@ -909,9 +910,9 @@ func (s *Service) Models(ctx context.Context, req ModelsRequest) (ModelList, err
 		return ModelList{}, errors.New("先填写 Key")
 	}
 	saved := s.snapshot()
-	auth, echo := req.Auth, req.Echo
-	if auth == "" {
-		auth = saved.Auth
+	auth, echo := saved.Auth, req.Echo
+	if req.Auth != nil {
+		auth = *req.Auth
 	}
 	if echo == "" {
 		echo = saved.Echo
@@ -999,11 +1000,13 @@ func (s *Service) Test(ctx context.Context) (*TestResult, error) {
 		if errors.As(err, &r2) {
 			tr.Tools, tr.Rounds = "yes", 2
 			if p.ID == CustomID && cfg.Echo != EchoOn && r2.rejected() {
-				tr.Hint += "。可以把「思考回传」改成「总是回传」再试"
+				tr.Hint += "。可以把「思考回传」改成「总是回传」"
 			}
 		}
 		if errors.As(err, &ae) && ae.Status == 401 && warn != "" {
-			tr.Hint = warn // Key 前缀和地址对不上：这比「Key 不对」更说到点子上
+			// Key 前缀和地址对不上：这比「Key 不对」更说到点子上。界面正文只接 60 字以内的一句，
+			// 长的那段说明（warn）另外显示在这一行下面
+			tr.Hint = "Key 和地址对不上：按量付费和套餐的 Key 不能混用"
 		}
 		return tr, nil
 	}
@@ -1056,9 +1059,9 @@ func (e *secondRoundError) Hint() string {
 	var ae *APIError
 	if errors.As(e.err, &ae) && ae.Status == 400 {
 		if reasoningField.MatchString(ae.lowerText()) {
-			return "工具结果交回之后被拒：要把思考内容原样传回，或者这个服务商不接受思考字段"
+			return "工具结果交回之后被拒：要把思考内容原样传回，或者服务商不认思考字段"
 		}
-		return "工具结果交回之后被拒：多半是思考内容没有原样传回，或者服务商不接受这样的工具结果"
+		return "工具结果交回之后被拒：多半是思考内容没有原样传回"
 	}
 	if h := hintOf(e.err); h != "" {
 		return "工具结果交回之后失败：" + h

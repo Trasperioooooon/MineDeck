@@ -2,9 +2,12 @@ package assistant
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
+
+	"minedeck/internal/ai"
 )
 
 // 思考片段：推出去的拼起来就是最后存下的全文；正文开始之前，攒着的思考已经全部推完（不留尾巴等整轮结束）。
@@ -148,5 +151,70 @@ func TestCapThink(t *testing.T) {
 	}
 	if !strings.Contains(got[len("……（前面的思考太长，没有保存）\n"):], "思") || strings.ContainsRune(got, '�') {
 		t.Fatal("截断切坏了汉字")
+	}
+}
+
+// 请求失败：提示的正文只写结论（Hint），带状态码和英文原话的原文放进 Detail（界面上「复制原文」）。
+func TestFailNoticeReadable(t *testing.T) {
+	f := newFixture(t)
+	id := f.open(local)
+	f.ai.queue([]string{`!401 {"error":{"message":"Incorrect API key provided: sk-abc***","type":"invalid_request_error"}}`})
+	_ = f.as.Send(local, id, "在吗", false)
+	v := f.wait(id, func(v *View) bool { return strings.Contains(notices(v), "请求 AI 失败") })
+	var n *Item
+	for _, it := range v.Items {
+		if it.Kind == "notice" {
+			n = it
+		}
+	}
+	if n == nil || n.Text != "请求 AI 失败：Key 不对或已失效" || !strings.Contains(n.Detail, "HTTP 401") || strings.Contains(n.Text, "HTTP") {
+		t.Fatalf("报错提示：%+v", n)
+	}
+}
+
+func TestFailText(t *testing.T) {
+	for _, c := range []struct {
+		err          error
+		text, detail string
+	}{
+		{errors.New("还没选模型"), "请求 AI 失败：还没选模型", ""},
+		{errors.New("unexpected EOF"), "请求 AI 失败", "unexpected EOF"},
+		{&ai.APIError{Status: 429, Message: "Rate limit reached"}, "请求 AI 失败：请求太频繁，等一会儿再试", "x"},
+	} {
+		text, detail := failText(c.err, c.err.Error())
+		if text != c.text || (c.detail == "" && detail != "") || (c.detail != "" && detail == "") {
+			t.Errorf("%v：%q %q", c.err, text, detail)
+		}
+	}
+}
+
+// 只有思考时点停止：这一条撤掉（不留下停在「思考中…」的空消息），提问撤回（界面放回输入框）。前端假后端照这个契约做。
+func TestStopDuringThinkingRemovesItem(t *testing.T) {
+	f := newFixture(t)
+	id := f.open(local)
+	f.ai.hold = make(chan struct{})
+	defer close(f.ai.hold)
+	f.ai.queue([]string{`{"choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"先想想……"},"finish_reason":null}]}`, `{"choices":[{"index":0,"delta":{"content":"好"},"finish_reason":"stop"}]}`})
+	_ = f.as.Send(local, id, "服务器有点卡", false)
+	for end := time.Now().Add(3 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		v, _ := f.as.Get(local, id)
+		if n := len(v.Items); n > 0 && v.Items[n-1].Think != "" {
+			break
+		}
+		if time.Now().After(end) {
+			t.Fatal("等不到思考")
+		}
+	}
+	if err := f.as.Stop(local, id); err != nil {
+		t.Fatal(err)
+	}
+	v := f.wait(id, func(v *View) bool { return strings.Contains(notices(v), "已停止") })
+	for _, it := range v.Items {
+		if it.Kind == "assistant" {
+			t.Fatalf("只有思考的那一条应撤掉：%s", dump(v))
+		}
+	}
+	if !v.Items[0].Withdrawn {
+		t.Errorf("提问应撤回：%s", dump(v))
 	}
 }

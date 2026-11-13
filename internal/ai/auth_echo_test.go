@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -163,7 +164,7 @@ func TestTestConnection401KeyMismatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	r, err := s.Test(context.Background())
-	if err != nil || r.OK || r.Warn == "" || r.Hint != r.Warn || strings.Contains(r.Error, "tp-test-0123456789") {
+	if err != nil || r.OK || r.Warn == "" || r.Hint != "Key 和地址对不上：按量付费和套餐的 Key 不能混用" || strings.Contains(r.Error, "tp-test-0123456789") {
 		t.Fatalf("%v %+v", err, r)
 	}
 }
@@ -355,5 +356,136 @@ func TestReasoningStoredOnlyWhenEchoed(t *testing.T) {
 		if strings.Contains(last, "reasoning_content") != want {
 			t.Errorf("回传策略 %q：历史里 %s", echo, last)
 		}
+	}
+}
+
+// 服务商把请求重定向到别的网站：不跟过去（Go 换网站时只去掉 Authorization 和 Cookie，api-key、x-api-key 会被带过去）。
+func TestRedirectToOtherSiteNotFollowed(t *testing.T) {
+	var leaked []http.Header
+	other := newFake(t, func(_ int, r recorded, w http.ResponseWriter) {
+		leaked = append(leaked, r.Header)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	})
+	// 同一台机器的另一个端口也算别的网站
+	jump := newFake(t, func(_ int, r recorded, w http.ResponseWriter) {
+		w.Header().Set("Location", other.srv.URL+r.Path)
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	})
+	for _, c := range []struct {
+		proto Protocol
+		auth  AuthMode
+	}{{OpenAI, AuthBoth}, {OpenAI, AuthAPIKey}, {Anthropic, ""}} {
+		cl, _ := NewClient(Config{Protocol: c.proto, BaseURL: jump.srv.URL + "/v1", Key: "sk-test-0123456789", Model: "m", Auth: c.auth, HTTP: jump.srv.Client()})
+		_, err := cl.ListModels(context.Background())
+		var ae *APIError
+		if !errors.As(err, &ae) || ae.Status != http.StatusTemporaryRedirect || !strings.Contains(ae.Hint(), "别的网站") {
+			t.Errorf("%s %q：应报转到别的网站：%v", c.proto, c.auth, err)
+		}
+	}
+	if len(leaked) != 0 {
+		t.Fatalf("Key 被带到了别的网站：%v", leaked)
+	}
+	// 同一个网站里的重定向照常跟
+	same := newFake(t, func(n int, r recorded, w http.ResponseWriter) {
+		if n == 0 {
+			w.Header().Set("Location", "/v1/models-moved")
+			w.WriteHeader(http.StatusMovedPermanently)
+			return
+		}
+		if r.Header.Get("api-key") != "sk-test-0123456789" {
+			t.Errorf("同网站重定向后应照常带 Key：%v", r.Header)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"m1"}]}`))
+	})
+	cl, _ := NewClient(Config{Protocol: OpenAI, BaseURL: same.srv.URL + "/v1", Key: "sk-test-0123456789", Model: "m", Auth: AuthAPIKey, HTTP: same.srv.Client()})
+	if ms, err := cl.ListModels(context.Background()); err != nil || len(ms) != 1 {
+		t.Fatalf("同网站重定向：%v %v", err, ms)
+	}
+}
+
+// 模型列表：界面上把自定义的鉴权改成「默认」还没保存，就按默认发，不退回已存的 api-key。
+func TestModelsExplicitDefaultAuth(t *testing.T) {
+	f := newFake(t, func(_ int, _ recorded, w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"m1"}]}`))
+	})
+	s := NewService(Options{Dir: t.TempDir(), Keys: &memKeys{m: map[string]string{}}, HTTP: f.srv.Client()})
+	if err := s.SetProvider(ProviderPatch{Preset: strp(CustomID), BaseURL: strp(f.srv.URL + "/v1"), Auth: strp("api-key"), Key: strp("sk-saved-0123456789")}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := s.Models(ctx, ModelsRequest{Preset: CustomID, Protocol: OpenAI, BaseURL: f.srv.URL + "/v1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Models(ctx, ModelsRequest{Preset: CustomID, Protocol: OpenAI, BaseURL: f.srv.URL + "/v1", Auth: strp("")}); err != nil {
+		t.Fatal(err)
+	}
+	rs := f.requests()
+	if rs[0].Header.Get("api-key") == "" || rs[0].Header.Get("Authorization") != "" {
+		t.Errorf("没传 auth：沿用已存的 api-key：%v", rs[0].Header)
+	}
+	if rs[1].Header.Get("Authorization") == "" || rs[1].Header.Get("api-key") != "" {
+		t.Errorf("传了空串：按默认发 Bearer：%v", rs[1].Header)
+	}
+}
+
+// 报错里的 Key：错误类型字段里的也抹掉；先抹再截断，截断点切在 Key 中间也不留半截。
+func TestScrubTypeAndTruncation(t *testing.T) {
+	const key = "sk-mine-0123456789abcdef"
+	f := newFake(t, func(n int, _ recorded, w http.ResponseWriter) {
+		w.WriteHeader(400)
+		if n == 0 {
+			_, _ = w.Write([]byte(`{"error":{"type":"bad_key_` + key + `","message":"x"}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"error":{"message":"` + strings.Repeat("a", 490) + key + `"}}`))
+	})
+	cl, _ := NewClient(Config{Protocol: OpenAI, BaseURL: f.srv.URL + "/v1", Key: key, Model: "m"})
+	for i := 0; i < 2; i++ {
+		_, err := cl.ListModels(context.Background())
+		if err == nil || strings.Contains(err.Error(), "0123456789") || strings.Contains(err.Error(), "sk-mine") {
+			t.Errorf("第 %d 次：报错里还有 Key：%v", i, err)
+		}
+	}
+}
+
+// 默认端口写不写都是同一个地址（浏览器的 URL 会规范化掉，后端要和它一致，不然前后端认出的协议不一样）。
+func TestSameEndpointDefaultPort(t *testing.T) {
+	p, _ := PresetByID("mimo")
+	ep, ok := p.matchURL("https://api.xiaomimimo.com:443/anthropic")
+	if !ok || ep.Protocol != Anthropic {
+		t.Fatalf("带 :443 的 Claude 协议地址：%+v %v", ep, ok)
+	}
+	if sameEndpoint("https://a.com:8443/v1", "https://a.com/v1") {
+		t.Error("非默认端口不是同一个地址")
+	}
+}
+
+// 重试事件带上给人看的那一句，界面不必显示英文原文。
+func TestRetryEventHasHint(t *testing.T) {
+	f := newFake(t, func(n int, _ recorded, w http.ResponseWriter) {
+		if n == 0 {
+			w.WriteHeader(429)
+			_, _ = w.Write([]byte(`{"error":{"message":"Rate limit reached for requests","type":"rate_limit_reached_error"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"m","choices":[{"message":{"role":"assistant","content":"好"},"finish_reason":"stop"}]}`))
+	})
+	cl, _ := NewClient(Config{Protocol: OpenAI, BaseURL: f.srv.URL + "/v1", Key: "k", Model: "m", RetryDelay: 1})
+	conv, _ := cl.NewConversation("", nil)
+	_ = conv.AddUser("在吗")
+	var hint string
+	if _, err := cl.Chat(context.Background(), conv, func(e Event) {
+		if e.Type == EvRetry {
+			hint = e.Hint
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if hint != "请求太频繁，等一会儿再试" || HintOf(&APIError{Status: 401}) != "Key 不对或已失效" {
+		t.Fatalf("重试的提示：%q", hint)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"minedeck/internal/ai"
@@ -339,10 +340,36 @@ func title(text, inst string, analyze bool) string {
 }
 
 func (s *Service) noticeLocked(sess *Session, level, text string) *Item {
+	return s.noticeDetailLocked(sess, level, text, "")
+}
+
+// noticeDetailLocked 带原文的提示：text 是给人看的结论，detail 是脱敏后的报错原文（界面上「复制原文」）。
+func (s *Service) noticeDetailLocked(sess *Session, level, text, detail string) *Item {
 	it := sess.newItem("notice", s.now())
-	it.Level, it.Text = level, text
+	it.Level, it.Text, it.Detail = level, text, detail
 	sess.hub.publish(event{"type": "item", "item": slim(it)})
 	return it
+}
+
+// failText 请求失败时提示的正文和原文。正文只写结论（docs/文案重写/01-补完口径.md）：有 Hint 的接 Hint；
+// 本来就是一句短的中文（比如「还没选模型」）的照用；剩下带状态码、英文原话的只写「请求 AI 失败」，原文放进 detail。
+func failText(err error, raw string) (text, detail string) {
+	if h := ai.HintOf(err); h != "" {
+		return "请求 AI 失败：" + h, raw
+	}
+	if utf8.RuneCountInString(raw) <= 60 && !strings.Contains(raw, "HTTP") && hasHan(raw) {
+		return "请求 AI 失败：" + raw, ""
+	}
+	return "请求 AI 失败", raw
+}
+
+func hasHan(s string) bool {
+	for _, r := range s {
+		if unicode.Is(unicode.Han, r) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) notice(sess *Session, level, text string) {
@@ -403,7 +430,7 @@ func (s *Service) loop(ctx context.Context, sess *Session) {
 					sess.hub.publish(event{"type": "tool_start", "id": it.ID, "name": e.Tool.Name})
 				}
 			case ai.EvRetry:
-				sess.hub.publish(event{"type": "retry", "attempt": e.Attempt, "err": s.redact.Text(e.Err)})
+				sess.hub.publish(event{"type": "retry", "attempt": e.Attempt, "err": s.redact.Text(e.Err), "hint": e.Hint})
 			case ai.EvReasoning:
 				think.add(e.Text)
 				flushThink(false)
@@ -483,7 +510,7 @@ func (s *Service) fail(sess *Session, it *Item, err error) {
 			}
 		}
 	}
-	var msg string
+	var msg, detail string
 	var qe *ai.QuotaError
 	switch {
 	case errors.Is(err, context.Canceled):
@@ -495,13 +522,13 @@ func (s *Service) fail(sess *Session, it *Item, err error) {
 	case errors.Is(err, errEmpty):
 		msg = "模型没有给出回复。可以换个说法再问一次。"
 	default:
-		msg = "请求 AI 失败：" + s.redact.Text(err.Error())
+		msg, detail = failText(err, s.redact.Text(err.Error()))
 	}
 	level := "error"
 	if msg == "已停止" {
 		level = "info"
 	}
-	s.noticeLocked(sess, level, msg)
+	s.noticeDetailLocked(sess, level, msg, detail)
 	_ = s.saveLocked(sess)
 }
 

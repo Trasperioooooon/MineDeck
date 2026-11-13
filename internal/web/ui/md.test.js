@@ -246,3 +246,30 @@ test("乱拼的输入：输出里只有白名单里的标签，标签成对，�
   }
   assert.ok(links > 0, "这批输入里应该拼得出链接");
 });
+
+test("故意构造的输入不卡住界面、不抛异常（回复里会引用日志和玩家的话）", () => {
+  const cases = {
+    "标题后面几万个空格": "# a" + " ".repeat(40000) + "x",
+    "十万个星号": "x" + "*".repeat(100000) + "x",
+    "五千层引用": "> ".repeat(5000) + "a",
+    "十万个方括号": "[".repeat(100000) + "](",
+    "一行几万个没收尾的星号": "*a ".repeat(20000),
+    "一行几万个没收尾的下划线": "_a ".repeat(20000),
+    "分隔线后面几万个空格": "-" + " ".repeat(40000) + "x",
+  };
+  for (const [name, src] of Object.entries(cases)) {
+    const t = Date.now();
+    const html = render(src);
+    const ms = Date.now() - t;
+    assert.ok(ms < 500, `${name}：用了 ${ms} ms`);
+    assert.ok(typeof html === "string" && html.length > 0 && !html.includes("\u0001"), `${name}：输出不对`);
+    lacks(html, "<script");
+  }
+  // 标题照常：末尾成串的 # 去掉，「# #」仍是标题
+  has(render("## 标题 ##"), '<h2 class="md-h md-h2">标题</h2>');
+  has(render("# #"), "<h1");
+  lacks(render("#没有空格"), "<h1");
+  has(render("- - -"), "<hr>");
+  has(render("***"), "<hr>");
+  lacks(render("-- x"), "<hr>");
+});

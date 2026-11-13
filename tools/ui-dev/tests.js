@@ -935,6 +935,39 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await aiState({ reset: true }); }
   });
 
+  await run("AI：模型列表的请求乱序回来时只认最后一次（晚到的旧结果不盖缓存）；拉的时候改了地址，旧结果不显示、弹层收起、箭头能点", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" });
+    let n = 0;
+    const fake = async r => {
+      const k = ++n; // 第一次慢、第二次快：第二次先回来
+      await new Promise(x => setTimeout(x, k === 1 ? 600 : 50));
+      await r.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, data: { models: [{ id: k === 1 ? "old-model" : "new-model" }], source: "live" } }) });
+    };
+    try {
+      await page.goto(url("#/settings/ai")); await settle();
+      await page.route("**/api/ai/models", fake);
+      await page.click("#ai-list"); await settle(20);
+      await page.click("#ai-list"); await settle(300);
+      let opts = await page.$$eval("#ai-model-list .ai-opt", os => os.map(o => o.dataset.id));
+      assert(opts.join() === "new-model", "第二次先回来，应显示第二次的：" + opts);
+      await settle(600); // 第一次（旧的）这时才回来
+      opts = await page.$$eval("#ai-model-list .ai-opt", os => os.map(o => o.dataset.id));
+      assert(opts.join() === "new-model", "晚到的旧结果不该显示：" + opts);
+      await page.keyboard.press("Escape"); await settle(100);
+      await page.click("#ai-model-btn"); await settle(200);
+      opts = await page.$$eval("#ai-model-list .ai-opt", os => os.map(o => o.dataset.id));
+      assert(opts.join() === "new-model" && n === 2, "再展开用缓存，缓存不该被旧结果盖掉：" + opts + "（请求 " + n + " 次）");
+      await page.keyboard.press("Escape"); await settle(100);
+      // 拉的时候改了地址：在途的那次作废
+      n = 0;
+      await page.click("#ai-list"); await settle(50);
+      await page.fill("#ai-url", "https://api.deepseek.com/v1"); await settle(50);
+      assert(await page.$eval("#ai-model-pop", e => e.hidden) && !(await page.$eval("#ai-model-btn", b => b.disabled)), "改了地址弹层收起、箭头能点");
+      await settle(700);
+      assert(await page.$eval("#ai-model-pop", e => e.hidden), "旧地址的结果回来后不该再弹出来");
+    } finally { await page.unroute("**/api/ai/models", fake); await aiState({ reset: true }); }
+  });
+
   await run("AI：每日额度按万 token 保存，填错就近提示；自填单价可添加、删除，优先于公开价格；只配本机模型时不取价格", async () => {
     await aiState({ reset: true, ...AI_CLAUDE, key: "sk-ant" });
     try {
@@ -1457,7 +1490,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await page.keyboard.press("Escape"); await asstState({ reset: true }); await aiState({ reset: true }); }
   });
 
-  await run("AI 助手：思考到一半点停止，这一条标成没说完，摘要不停在「思考中…」", async () => {
+  await run("AI 助手：思考到一半点停止，只有思考的这一条撤掉、提问撤回可放回输入框（同后端 fail()），不留下停在「思考中…」的消息", async () => {
     await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" }); await asstState({ reset: true });
     try {
       await newChat();
@@ -1468,7 +1501,40 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await idle();
       s = await asstSnap();
       const body = await page.textContent("#ap-body");
-      assert(s.msgs.length === 1 && s.msgs[0].sum === "思考" && !s.msgs[0].typing && !s.msgs[0].md && !s.msgs[0].tools.length, "停下之后摘要不该还是「思考中…」：" + J(s));
+      assert(s.msgs.length === 0 && !body.includes("思考中…"), "只有思考的那一条应撤掉：" + J(s));
+      assert(body.includes("已停止") && body.includes("这句已从对话里撤回") && await page.$("#ap-body [data-reuse]"), "应提示已停止、提问已撤回：" + body.slice(0, 200));
+    } finally { await page.keyboard.press("Escape"); await asstState({ reset: true }); await aiState({ reset: true }); }
+  });
+
+  await run("AI 助手：请求失败的提示正文只写结论，带状态码和英文原话的原文用「复制原文」拿（名字里带着这条提示）", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" }); await asstState({ reset: true });
+    try {
+      await newChat();
+      await page.fill("#ap-in", "模拟报错"); await page.press("#ap-in", "Enter");
+      await page.waitForSelector("#ap-body .ap-note.error", { timeout: 5000 }); await idle();
+      const note = await page.textContent("#ap-body .ap-note.error");
+      assert(note.includes("请求 AI 失败：Key 不对或已失效") && !note.includes("HTTP") && !note.includes("invalid"), "正文不该有原文：" + note);
+      const btn = await page.$("#ap-body .ap-note.error [data-copy-raw]");
+      assert(btn && (await btn.getAttribute("aria-label")) === "复制报错原文：请求 AI 失败：Key 不对或已失效", "应有「复制原文」");
+      await btn.click(); await settle(200);
+      assert(await toastHas("已复制报错原文"), "点了应复制原文");
+      assert((await page.textContent("#ap-body")).includes("这句已从对话里撤回"), "失败时提问撤回");
+    } finally { await page.keyboard.press("Escape"); await asstState({ reset: true }); await aiState({ reset: true }); }
+  });
+
+  await run("AI 助手：正文说到一半点停止，这一条标成没说完，摘要是「思考」不是「思考中…」", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" }); await asstState({ reset: true });
+    try {
+      await newChat();
+      await asstState({ slow: 120 });
+      await page.fill("#ap-in", "服务器有点卡"); await page.press("#ap-in", "Enter");
+      await snapWhen(m => m.some(x => x.md), "正文开始");
+      await page.click("#ap-stop");
+      await idle();
+      const s = await asstSnap();
+      const body = await page.textContent("#ap-body");
+      const last = s.msgs[s.msgs.length - 1];
+      assert(last && last.md && last.sum === "思考" && !last.typing && s.msgs.every(m => m.sum !== "思考中…"), "停下之后：" + J(s));
       assert(body.includes("没说完就停了") && body.includes("已停止"), "应标出没说完、已停止：" + body.slice(0, 200));
     } finally { await page.keyboard.press("Escape"); await asstState({ reset: true }); await aiState({ reset: true }); }
   });

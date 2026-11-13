@@ -11,13 +11,22 @@
 
   const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-  /* 外层：整段只在这里转义一遍，再切成行。\u0001 留给行内占位用，源文里有的先去掉。 */
+  /* 外层：整段只在这里转义一遍，再切成行。\u0001 留给行内占位用，源文里有的先去掉。
+     回复的内容不全由模型决定（它会引用日志、玩家的聊天），所以解析要扛得住故意构造的输入：
+     正则都是线性的、嵌套有上限；万一还是出了异常，整段按转义过的纯文本显示，不让界面卡死或空白。 */
   function parts(src) {
-    return partsOfLines(esc(String(src ?? "").replace(/\u0001/g, "")).replace(/\r\n?/g, "\n").split("\n"));
+    const lines = esc(String(src ?? "").replace(/\u0001/g, "")).replace(/\r\n?/g, "\n").split("\n");
+    try {
+      return partsOfLines(lines, 0);
+    } catch {
+      return [{ sig: lines.join("\n"), html: `<p>${lines.join("<br>")}</p>` }];
+    }
   }
 
+  const MAX_NEST = 12; // 引用、强调最多嵌套几层；再往里按普通文字处理
+
   /* 内层：只处理已经转义过的行。引用块去掉行首的 > 之后递归调这里，不再转义第二遍。 */
-  function partsOfLines(lines) {
+  function partsOfLines(lines, depth) {
     const out = [];
     let i = 0;
     while (i < lines.length) {
@@ -35,7 +44,8 @@
         else if (isQuote(lines[i])) {
           const buf = [];
           for (; i < lines.length && isQuote(lines[i]); i++) buf.push(lines[i].replace(/^\s{0,3}&gt;\s?/, ""));
-          end = i; html = `<blockquote>${partsOfLines(buf).map(p => p.html).join("")}</blockquote>`;
+          const inner = depth < MAX_NEST ? partsOfLines(buf, depth + 1).map(p => p.html).join("") : `<p>${buf.map(inline).join("<br>")}</p>`;
+          end = i; html = `<blockquote>${inner}</blockquote>`;
         } else if (isTable(lines, i)) {
           const t = readTable(lines, i);
           end = t.end; html = t.html;
@@ -97,11 +107,27 @@
     return { end: k, html };
   }
 
+  /* 标题：「# 文字」，末尾成串的 # 去掉。分步来、不用一个大正则：
+     原来的 /\s+(.+?)\s*#*\s*$/ 遇到「# a」加几千个空格再加一个字，回溯会把界面卡上好几秒。 */
   function heading(s) {
-    const m = /^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/.exec(s);
-    return m ? { n: m[1].length, text: m[2] } : null;
+    const m = /^\s{0,3}(#{1,6})\s+/.exec(s);
+    if (!m) return null;
+    const text = s.slice(m[0].length).trimEnd();
+    if (!text) return null;
+    const closed = text.replace(/(^|\s)#+$/, "").trimEnd();
+    return { n: m[1].length, text: closed || text };
   }
-  const isHr = s => /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/.test(s);
+  /* 分隔线：三个以上同样的 - * _，中间可以有空格。逐字检查，避免正则在长串空格上回溯。 */
+  function isHr(s) {
+    const t = s.replace(/^\s{0,3}/, "");
+    if (!t || !"-*_".includes(t[0])) return false;
+    let n = 0;
+    for (const c of t) {
+      if (c === t[0]) n++;
+      else if (!/\s/.test(c)) return false;
+    }
+    return n >= 3;
+  }
   const isQuote = s => /^\s{0,3}&gt;(?:\s|$)/.test(s) || /^\s{0,3}&gt;$/.test(s);
 
   /* ---------- 表格：行内代码和 \| 不切；对齐行决定左右中 ---------- */
@@ -258,10 +284,13 @@
     const slots = [];
     const fill = t => t.replace(SLOT, (_, n) => slots[+n]);
     const put = html => { slots.push(fill(html)); return "\u0001" + (slots.length - 1) + "\u0001"; };
+    // 下一个 ] 的位置记着用：一长串 [ 时不用每个都从头往后找一遍（否则是平方级）
+    let close = 0;
+    const closeAfter = k => { if (close !== -1 && close <= k) close = s.indexOf("]", k + 1); return close; };
     let out = "", i = 0;
     while (i < s.length) {
       if (s[i] === "[" && (i === 0 || s[i - 1] !== "!")) {
-        const link = readLink(s, i);
+        const link = readLink(s, i, closeAfter(i));
         if (link) {
           // 链接文字里的强调照常；文字是空的就显示网址本身（已经转义过，不再认写法）
           const text = link.text.trim() ? inlineRest(link.text) : link.href;
@@ -274,13 +303,17 @@
       out += s.slice(i, j < 0 ? s.length : j);
       i = j < 0 ? s.length : j;
     }
-    return fill(style(out, put));
+    // 一行几千字（多半是贴进来的日志）就不认加粗、斜体了：成串没有收尾的 * 或 _ 会让正则的查找变成平方级
+    return fill(out.length > MAX_STYLE_LINE ? out : style(out, put));
   }
 
+  const MAX_STYLE_LINE = 4000;
+
   /* URL 可以含成对括号。协议只认 http / https（转义之后仍是这两个开头）。 */
-  function readLink(s, i) {
-    const close = s.indexOf("]", i + 1);
-    if (close < 0 || s[close + 1] !== "(" || s.slice(i + 1, close).includes("[")) return null;
+  function readLink(s, i, close) {
+    if (close < 0 || s[close + 1] !== "(") return null;
+    const inner = s.indexOf("[", i + 1);
+    if (inner >= 0 && inner < close) return null;
     let url = "", depth = 1, j = close + 2;
     for (; j < s.length; j++) {
       const c = s[j];
@@ -296,11 +329,13 @@
   /* 加粗、斜体、删除线。认出来的片段经 put 换成占位，包在里面的再过一遍（外层斜体里的加粗、删除线都还在）。
      * 斜体：结束的 * 前面不能是空白；开头的 * 后面紧跟「.后缀」的是通配写法（*.jar、*.zip、*.log），不当斜体。
      _ 斜体：前后挨着字母或数字（含中文）的 _ 是名字的一部分（server_properties_file、配置_文件_名），不当斜体。 */
-  function style(s, put) {
-    s = s.replace(/\*\*(?=\S)([\s\S]+?)\*\*(?!\*)/g, (_, t) => put("<b>" + style(t, put) + "</b>"));
-    s = s.replace(/(?<!\*)\*(?!\*)(?!\.[A-Za-z0-9])(?=\S)([\s\S]+?)(?<=\S)\*(?!\*)/g, (_, t) => put("<em>" + style(t, put) + "</em>"));
-    s = s.replace(/(?<![\p{L}\p{N}_])_(?!_)(?=\S)([\s\S]+?)(?<=\S)_(?![\p{L}\p{N}_])/gu, (_, t) => put("<em>" + style(t, put) + "</em>"));
-    s = s.replace(/~~(?=\S)([\s\S]+?)~~/g, (_, t) => put("<s>" + style(t, put) + "</s>"));
+  function style(s, put, depth = 0) {
+    if (depth >= MAX_NEST) return s; // 一长串 * 会一层套一层，不设上限会把调用栈撑爆
+    const d = depth + 1;
+    s = s.replace(/\*\*(?=\S)([\s\S]+?)\*\*(?!\*)/g, (_, t) => put("<b>" + style(t, put, d) + "</b>"));
+    s = s.replace(/(?<!\*)\*(?!\*)(?!\.[A-Za-z0-9])(?=\S)([\s\S]+?)(?<=\S)\*(?!\*)/g, (_, t) => put("<em>" + style(t, put, d) + "</em>"));
+    s = s.replace(/(?<![\p{L}\p{N}_])_(?!_)(?=\S)([\s\S]+?)(?<=\S)_(?![\p{L}\p{N}_])/gu, (_, t) => put("<em>" + style(t, put, d) + "</em>"));
+    s = s.replace(/~~(?=\S)([\s\S]+?)~~/g, (_, t) => put("<s>" + style(t, put, d) + "</s>"));
     return s;
   }
 

@@ -99,6 +99,12 @@ window.MDAssist = (() => {
     A.panel = p;
     wireResize(p);
     p.addEventListener("click", e => {
+      const r = e.target.closest && e.target.closest("[data-copy-raw]");
+      if (r && p.contains(r)) {
+        const it = A.sess && A.sess.items.find(x => x.id === r.dataset.copyRaw);
+        if (it && it.detail) copy(it.detail, "已复制报错原文");
+        return;
+      }
       const b = e.target.closest && e.target.closest(".md-copy");
       if (!b || !p.contains(b)) return;
       const code = b.closest(".md-code") && b.closest(".md-code").querySelector("code");
@@ -416,7 +422,8 @@ window.MDAssist = (() => {
         if (el) el.remove();
         break;
       }
-      case "retry": A.retry = `服务商出错，正在重试（第 ${ev.attempt} 次）：${ev.err || ""}`; paintFoot(); break;
+      // 正文只接后端给的那句人话（hint），不接带状态码的英文原文
+      case "retry": A.retry = `服务商出错，正在重试（第 ${ev.attempt} 次）${ev.hint ? "：" + ev.hint : ""}`; paintFoot(); break;
       case "state":
         for (const k of ["busy", "waiting", "needReply", "stale", "long", "attach", "title", "quota"]) if (k in ev) s[k] = ev[k];
         if (!s.busy) A.retry = "";
@@ -671,7 +678,9 @@ window.MDAssist = (() => {
     }
     if (it.kind === "notice") {
       const lv = ["warn", "error"].includes(it.level) ? it.level : "info";
-      return `<div class="ap-note ${lv}" data-item="${id}">${icon(lv === "info" ? "info" : "warn")}<span>${esc(it.text)}</span></div>`;
+      // 报错的原文（状态码、服务商的英文原话）不进正文，给一个「复制原文」；名字里带上这条提示，几条报错的按钮读屏分得开
+      const raw = it.detail ? ` <button type="button" class="ap-link" data-copy-raw="${id}" aria-label="复制报错原文：${esc(it.text)}">复制原文</button>` : "";
+      return `<div class="ap-note ${lv}" data-item="${id}">${icon(lv === "info" ? "info" : "warn")}<span>${esc(it.text)}${raw}</span></div>`;
     }
     const tools = (it.tools || []).map(toolHTML).join("");
     const typing = typingLabel(it);

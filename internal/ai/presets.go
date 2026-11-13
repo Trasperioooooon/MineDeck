@@ -120,7 +120,7 @@ var presets = []Preset{
 		},
 		KeyHints: []KeyHint{
 			{Prefixes: []string{"sk-"}, URLs: []string{"https://api.xiaomimimo.com/v1", "https://api.xiaomimimo.com/anthropic"},
-				Note: "sk- 开头的是按量付费 Key，只能用在 api.xiaomimimo.com。填到 Token Plan 的地址上会 401。"},
+				Note: "sk- 开头的是按量付费 Key，只能用在 api.xiaomimimo.com，填到 Token Plan 的地址上会被拒。"},
 			{Prefixes: []string{"ttp-", "tp-"}, URLs: []string{
 				"https://token-plan-cn.xiaomimimo.com/v1", "https://token-plan-cn.xiaomimimo.com/anthropic",
 				"https://token-plan-sgp.xiaomimimo.com/v1", "https://token-plan-sgp.xiaomimimo.com/anthropic",
@@ -188,15 +188,15 @@ func (p Preset) matchURL(base string) (AltURL, bool) {
 	return AltURL{}, false
 }
 
-// sameEndpoint http/https、主机（含端口）和路径都一样。末尾斜杠不算差别。
+// sameEndpoint http/https、主机、端口和路径都一样。末尾斜杠不算差别，默认端口写不写都一样
+// （https://a.com:443/x 和 https://a.com/x 是同一个；浏览器的 URL 也是这样规范化的，前端 app.js 的 sameEndpoint 和这里一致）。
 func sameEndpoint(a, b string) bool {
 	ua, err1 := ParseBaseURL(a)
 	ub, err2 := ParseBaseURL(b)
 	if err1 != nil || err2 != nil {
 		return false
 	}
-	return strings.EqualFold(ua.Scheme, ub.Scheme) && strings.EqualFold(ua.Host, ub.Host) &&
-		strings.TrimRight(ua.Path, "/") == strings.TrimRight(ub.Path, "/")
+	return SameSite(a, b) && strings.TrimRight(ua.Path, "/") == strings.TrimRight(ub.Path, "/")
 }
 
 // KeyWarning Key 前缀和当前地址对不上时的提醒。对得上、认不出前缀、或这个预设没有提示时返回空串。不拦截。

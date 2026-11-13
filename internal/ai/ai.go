@@ -131,7 +131,8 @@ type Event struct {
 	Usage   *Usage    `json:"usage,omitempty"`
 	Model   string    `json:"model,omitempty"`
 	Attempt int       `json:"attempt,omitempty"` // 重试：第几次重试（从 1 起）
-	Err     string    `json:"err,omitempty"`     // 重试：原因
+	Err     string    `json:"err,omitempty"`     // 重试：原因（原文）
+	Hint    string    `json:"hint,omitempty"`    // 重试：给人看的那一句（见 APIError.Hint），界面正文接它，不接原文
 }
 
 // Result 一次回复。成功时用 Conversation.AddResult 追加进历史，再执行 ToolCalls、用 AddToolResults 交回结果。
@@ -263,6 +264,8 @@ func (e *APIError) Hint() string {
 
 func statusHint(code int) string {
 	switch {
+	case code >= 300 && code < 400: // 见 keepKeyOnSite：转到别的网站的重定向不跟
+		return "服务商把请求转到了别的网站，为了不把 Key 发过去没有跟过去。检查接口地址"
 	case code == 400:
 		return "请求被服务商拒绝"
 	case code == 401:
@@ -293,6 +296,10 @@ func (e *NetError) Unwrap() error { return e.Err }
 
 // Hint 见 APIError.Hint。
 func (e *NetError) Hint() string { return "连不上服务商，检查网络、代理和接口地址" }
+
+// HintOf 给人看的那一句（见 APIError.Hint）：报错链上第一个带 Hint() 的错误给的；没有就是空串。
+// 界面正文只接这一句，原文（带状态码和服务商的英文原话）放进详情或复制。
+func HintOf(err error) string { return hintOf(err) }
 
 // hintOf 报错链上第一个带 Hint() 的错误给的那一句；没有就是空串。
 func hintOf(err error) string {

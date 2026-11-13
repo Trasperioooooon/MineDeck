@@ -76,6 +76,11 @@ func NewClient(cfg Config) (*Client, error) {
 	if cfg.HTTP == nil {
 		cfg.HTTP = DefaultHTTPClient()
 	}
+	if cfg.HTTP.CheckRedirect == nil {
+		hc := *cfg.HTTP // 浅拷贝：连接池（Transport）照旧共用，只换掉跟随重定向的规则
+		hc.CheckRedirect = keepKeyOnSite
+		cfg.HTTP = &hc
+	}
 	if cfg.MaxTokens <= 0 {
 		cfg.MaxTokens = 16000
 	}
@@ -89,6 +94,32 @@ func NewClient(cfg Config) (*Client, error) {
 		cfg.Timeout = 10 * time.Minute
 	}
 	return &Client{cfg: cfg, eager: cfg.Eager && cfg.Stream, fallback: cfg.Fallback, dropReasoning: cfg.DropReasoning && cfg.Echo == EchoAuto}, nil
+}
+
+// keepKeyOnSite 只跟随同一个网站里的重定向（http 升到 https 也算）。Go 换网站时只会去掉 Authorization 和 Cookie，
+// 不认识 api-key、x-api-key，跟过去 Key 就到了别人手里。转到别的网站时不跟，把这个 3xx 原样交给调用方报错。
+func keepKeyOnSite(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("重定向太多次")
+	}
+	from, to := via[0].URL, req.URL
+	same := strings.EqualFold(from.Hostname(), to.Hostname()) && portOf(from) == portOf(to) && strings.EqualFold(from.Scheme, to.Scheme)
+	upgrade := strings.EqualFold(from.Hostname(), to.Hostname()) && strings.EqualFold(from.Scheme, "http") && strings.EqualFold(to.Scheme, "https")
+	if same || upgrade {
+		return nil
+	}
+	return http.ErrUseLastResponse
+}
+
+// portOf 端口；没写时按协议的默认端口算（https://a.com 和 https://a.com:443 是同一个）。
+func portOf(u *url.URL) string {
+	if p := u.Port(); p != "" {
+		return p
+	}
+	if strings.EqualFold(u.Scheme, "https") {
+		return "443"
+	}
+	return "80"
 }
 
 // DefaultHTTPClient 默认的 HTTP 客户端：连接（含 TLS 握手）15 秒超时，走环境变量里的代理。
@@ -217,7 +248,7 @@ func (c *Client) Chat(ctx context.Context, conv *Conversation, onEvent func(Even
 		if !ok || out || ctx.Err() != nil {
 			return res, err
 		}
-		onEvent(Event{Type: EvRetry, Attempt: attempt + 1, Err: err.Error()})
+		onEvent(Event{Type: EvRetry, Attempt: attempt + 1, Err: err.Error(), Hint: hintOf(err)})
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -364,7 +395,9 @@ func (c *Client) apiError(status int, h http.Header, body []byte) *APIError {
 	if e.Message == "" && e.Type == "" {
 		e.Message = strings.TrimSpace(string(body))
 	}
-	e.Message = scrub(truncate(e.Message, 500), c.cfg.Key)
+	// 先抹 Key 再截断：截断点要是正好切在 Key 中间，剩下的半截就认不出来了。错误类型（error.type / code）也可能回显 Key
+	e.Message = truncate(scrub(e.Message, c.cfg.Key), 500)
+	e.Type = truncate(scrub(e.Type, c.cfg.Key), 100)
 	if ra := h.Get("Retry-After"); ra != "" {
 		if s, err := strconv.ParseFloat(ra, 64); err == nil && s >= 0 {
 			e.RetryAfter = time.Duration(s * float64(time.Second))

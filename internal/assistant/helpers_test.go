@@ -49,6 +49,19 @@ func newFakeAI(t *testing.T) *fakeAI {
 		}
 		hold, holdAt := f.hold, f.holdAt
 		f.mu.Unlock()
+		// 「!401 {…}」：这一次回一个错误状态码和这段正文（测报错提示）
+		if len(chunks) == 1 && strings.HasPrefix(chunks[0], "!") {
+			var code int
+			var body string
+			fmt.Sscanf(chunks[0], "!%d", &code)
+			if i := strings.IndexByte(chunks[0], ' '); i > 0 {
+				body = chunks[0][i+1:]
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(code)
+			fmt.Fprint(w, body)
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		fl := w.(http.Flusher)
 		for k, c := range chunks {

@@ -4071,7 +4071,8 @@ function drawAI(body, v, gen) {
   // 模型框：手填 + 自己的箭头。列表按「服务商 + 协议 + 地址」缓存。点箭头时没有缓存就去拉。
   const pop = $("#ai-model-pop"), listEl = $("#ai-model-list"), qEl = $("#ai-model-q"), msgEl = $("#ai-model-msg"), errEl = $("#ai-model-err");
   let modelPack = null, active = -1, modelSeq = 0;
-  const modelKey = () => [f.preset.value, protoNow(), f.url.value.trim()].join("\n");
+  // 缓存和「这次结果还算不算数」都按这个上下文：服务商、协议、地址，自定义再加鉴权方式
+  const modelKey = () => [f.preset.value, protoNow(), f.url.value.trim(), cur() && cur().id === "custom" ? f.auth.value : ""].join("\n");
   const setExpanded = on => { f.model.setAttribute("aria-expanded", on ? "true" : "false"); pop.hidden = !on; };
   function closeModelPop() { setExpanded(false); active = -1; f.model.removeAttribute("aria-activedescendant"); }
   function suggestedPack(warning) {
@@ -4115,18 +4116,16 @@ function drawAI(body, v, gen) {
     active = active < 0 ? (d > 0 ? 0 : n - 1) : (active + d + n) % n;
     paintActive();
   }
-  async function loadModels(force) {
+  // 只取不存：结果是不是最新的一次、上下文变没变，由 openModelPop 判断以后再写缓存
+  async function loadModels(force, key) {
     const p = cur();
     if (!p) throw new Error("先选择服务商");
-    const key = modelKey();
     if (!force && aiModelCache.has(key)) return aiModelCache.get(key);
     const b = { preset: p.id, baseUrl: f.url.value.trim() };
     if (p.id === "custom") { b.protocol = f.proto.value; b.auth = f.auth.value; b.echo = f.echo.value; }
     if (f.key.value.trim()) b.key = f.key.value.trim();
     const r = await api("/api/ai/models", { method: "POST", body: b });
-    const pack = Array.isArray(r) ? { models: r, warning: "", source: "live" } : { models: r.models || [], warning: r.warning || "", source: r.source || "live" };
-    aiModelCache.set(key, pack);
-    return pack;
+    return Array.isArray(r) ? { models: r, warning: "", source: "live" } : { models: r.models || [], warning: r.warning || "", source: r.source || "live" };
   }
   async function openModelPop(force) {
     const p = cur();
@@ -4138,10 +4137,13 @@ function drawAI(body, v, gen) {
     showModelErr(null);
     const btn = $("#ai-model-btn");
     btn.disabled = true;
-    const seq = ++modelSeq; // 箭头和「刷新」连着点、或者拉的时候改了地址：只认最后一次
+    const seq = ++modelSeq; // 箭头和「刷新」连着点、或者拉的时候改了地址、协议、鉴权、Key：只认最后一次
+    const ctx = modelKey();
     try {
-      const pack = await loadModels(force);
-      if (stale(gen) || seq !== modelSeq || pop.hidden) return;
+      const pack = await loadModels(force, ctx);
+      if (stale(gen) || seq !== modelSeq) return; // 后面又发了一次：这次作废，也不写缓存（不然先回来的新结果会被晚到的旧结果盖掉）
+      aiModelCache.set(ctx, pack);
+      if (pop.hidden || modelKey() !== ctx) return;
       modelPack = pack;
       showModelErr(null);
       const curId = f.model.value.trim();
@@ -4161,6 +4163,17 @@ function drawAI(body, v, gen) {
       if (!stale(gen) && seq === modelSeq) btn.disabled = ro;
     }
   }
+  // 改了地址、协议、鉴权或 Key：在途的那次作废，弹层收起，箭头恢复可点；Key 变了缓存也不再可信
+  const invalidateModels = keyChanged => {
+    modelSeq++;
+    if (keyChanged) aiModelCache.clear();
+    if (!pop.hidden) closeModelPop();
+    $("#ai-model-btn").disabled = ro;
+  };
+  f.url.addEventListener("input", () => invalidateModels(false));
+  f.proto.addEventListener("change", () => invalidateModels(false));
+  f.auth.addEventListener("change", () => invalidateModels(false));
+  f.key.addEventListener("input", () => invalidateModels(true));
   $("#ai-model-btn").onclick = () => { if (!pop.hidden) closeModelPop(); else openModelPop(false); };
   $("#ai-list").onclick = () => openModelPop(true);
   qEl.addEventListener("input", () => { active = 0; renderModelList(qEl.value); });
@@ -4196,7 +4209,8 @@ function drawAI(body, v, gen) {
       const r = await api("/api/ai/test", { method: "POST" });
       if (stale(gen)) return;
       sub.dataset.result = "1";
-      if (!r.ok) sub.innerHTML = errInline("连接失败", { message: r.error, hint: r.hint }, { label: "AI 测试连接" }); // 这一页可能同时有 MCP 设置的报错框
+      if (!r.ok) sub.innerHTML = errInline("连接失败", { message: r.error, hint: r.hint }, { label: "AI 测试连接" }) + // 这一页可能同时有 MCP 设置的报错框
+        (r.warn ? `<br><span class="warn-text">${icon("warn")} ${esc(r.warn)}</span>` : ""); // Key 前缀和地址对不上：完整的说明放在下面
       else {
         const tools = { yes: "能调用工具", no: `<span class="warn-text">${icon("warn")} 这个模型不支持工具调用，助手用不了</span>`, unknown: `<span class="warn-text">${icon("warn")} 模型这次没有调用工具，可能不支持</span>` }[r.tools] || "";
         const cost = r.cost && r.cost.source === "local" ? "（本机模型不计费）" : r.cost ? `（约 ${fmtMoney(r.cost.amount, r.cost.currency)}）` : "";
