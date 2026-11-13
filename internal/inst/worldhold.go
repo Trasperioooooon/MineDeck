@@ -29,9 +29,10 @@ const WorldTxDir = ".minedeck/world-import"
 // worldTxDone 不用封锁启动的状态（和 worldimport 的 Tx* 常量一致）：已提交、已退回、已换回，以及还没碰目标世界的暂存。
 var worldTxDone = map[string]bool{"committed": true, "rolled-back": true, "restored": true, "staging": true, "staged": true}
 
-// pendingWorldTx 实例目录里有没有没走完的换地图记录；有的话返回给人看的原因。
+// PendingWorldTx 实例目录里有没有没走完（或读不出来）的换地图记录；有的话返回给人看的原因。
 // staging / staged 不算：那时候还没碰目标世界，丢下不管也不影响服务器（暂存区由 worldimport 清理）。
-func pendingWorldTx(dir string) string {
+// 加载实例时据此封锁启动；worldimport 处理完记录以后也用它再看一遍盘上，没问题了才解除封锁。
+func PendingWorldTx(dir string) string {
 	ents, err := os.ReadDir(filepath.Join(dir, filepath.FromSlash(WorldTxDir)))
 	if err != nil {
 		return ""
@@ -131,11 +132,22 @@ func (m *Manager) WorldBlocked() map[string]string {
 // WorldPlacer 新建服务器时把地图放进目录的回调（worldimport 挂上来）：owner 是发起的人，planID 是导入计划。
 type WorldPlacer func(ctx context.Context, t *tasks.Task, owner, planID, dir string) error
 
-// SetWorldPlacer 挂上新建时放地图的回调。
-func (m *Manager) SetWorldPlacer(fn WorldPlacer) {
+// SetWorldPlacer 挂上新建时放地图的回调。release 在新建任务结束时调（不管成没成），
+// 放掉建服请求占着的导入计划和上传的文件。
+func (m *Manager) SetWorldPlacer(fn WorldPlacer, release func(owner, planID string)) {
 	m.mu.Lock()
 	m.worldPlacer = fn
+	m.worldRelease = release
 	m.mu.Unlock()
+}
+
+func (m *Manager) releaseWorldPlan(owner, planID string) {
+	m.mu.Lock()
+	fn := m.worldRelease
+	m.mu.Unlock()
+	if fn != nil && planID != "" {
+		fn(owner, planID)
+	}
 }
 
 // ErrStopTimeout 停服超时：没有强杀，服务器还在自己关。
@@ -154,11 +166,18 @@ func (m *Manager) StopAndWait(name string, timeout time.Duration) error {
 		i.procMu.Unlock()
 		return nil
 	}
+	prevState, prevUser := i.state, i.userStop
 	i.state = "stopping"
 	i.userStop = true
 	i.procMu.Unlock()
 	i.Console.Append("[MineDeck] 换地图：正在保存世界并停止服务器（不会强制结束）...")
 	if err := writeLine(p, "stop"); err != nil {
+		// 命令没发出去，服务器还在跑：改回原来的状态，不然它之后崩了会被当成有人要停，崩溃自动重启也不会触发
+		i.procMu.Lock()
+		if i.proc == p && i.state == "stopping" {
+			i.state, i.userStop = prevState, prevUser
+		}
+		i.procMu.Unlock()
 		return fmt.Errorf("没能给服务器发停止命令：%w", err)
 	}
 	deadline := time.Now().Add(timeout)

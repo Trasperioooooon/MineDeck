@@ -175,6 +175,9 @@ func (m *Manager) CreateAsync(req CreateReq) (string, error) {
 	go func() {
 		defer m.releaseCreating(req.Name)
 		defer m.releaseCreating(dirKey(dir))
+		if req.WorldPlan != "" {
+			defer m.releaseWorldPlan(req.WorldOwner, req.WorldPlan)
+		}
 		if err := m.runCreate(ctx, t, req, dir); err != nil {
 			os.RemoveAll(dir) // 先清理半成品目录再报失败（缓存保留，重试无需重新下载）
 			t.Fail(err)

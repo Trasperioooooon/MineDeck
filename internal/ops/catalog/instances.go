@@ -146,6 +146,9 @@ func (c *cat) instanceOps() {
 			}
 			id, err := c.Mgr.CreateAsync(req)
 			if err != nil {
+				if req.WorldPlan != "" { // 建服没能开始（重名之类）：放掉刚收下的导入计划（没过期会放回去，改一改还能接着用）
+					c.World.ReleaseCreate(req.WorldOwner, req.WorldPlan)
+				}
 				return nil, err
 			}
 			return map[string]string{"taskId": id}, nil

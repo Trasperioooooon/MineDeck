@@ -308,14 +308,14 @@ AI 助手用的读写能力，网页也能直接调。人调用时，写操作�
 | POST | `/api/world/readme` | `{scanId, candidate, file}`：读来源里和地图放在一起的说明书，返回 `{text}`（去掉控制字符和格式码、限长；界面按纯文本显示） |
 | POST | `/api/world/plan` | 替换已有服务器：`{scanId, candidate, inst}`；新建服务器：`{scanId, candidate, newInst: true, core, mc}`。不改任何东西，返回 `Plan`：`{id, inst, newInst, core, mc, levelName, relation, layout, moves[], replace[], missing[], settings[], issues[], needBytes, freeBytes, mustStop, blocked, needConfirm, expiresAt}`。`relation` 是地图最后保存的版本和服务器版本的关系：`same`、`older`（第一次启动时游戏升级这份副本）、`newer`（拦下）、`unknown`。`replace` 是会被整体移进恢复点的旧世界目录；`missing` 是地图没提供的维度；`settings` 是建议改的服务器设置 `{key, before, after, why}`（只列目标 `server.properties` 里已有的键，用户勾了才改）。代理端（Velocity、Waterfall）直接报错 |
 | POST | `/api/world/import` | `{planId, confirm: "replace", acknowledge?, settings?: [键], stopFirst?}`：执行替换，返回 `{taskId}`（任务 `kind` 为 `world`）。后端自己核对：`confirm` 必须是 `replace`；计划有 `confirm` 级的项时 `acknowledge` 必须为 true；有 `block` 的计划拒绝；服务器在运行时必须 `stopFirst`（发 `stop`、等进程自己退出，2 分钟没停下就放弃导入、不强杀）。执行前重算来源和目标的指纹，预览以后变过就不换。步骤：复制到暂存区（服务器照常运行，可以取消）→ 停服并占用这台服务器（之后不能启动、删除、备份、还原、打包、改 `server.properties`）→ 把旧世界目录整体移进恢复点、新世界移到位、写勾选的设置 → 完成。中途失败自动退回旧世界；退不回去时什么都不删，这台服务器封锁启动，`world.status` 里给出路径。成功后服务器保持停止 |
-| POST | `/api/world/cancel` | `{taskId}`：取消还在复制的导入（开始换以后做完或退回再结束） |
+| POST | `/api/world/cancel` | `{taskId}`：取消还在复制的导入（开始换以后做完或退回再结束）。只有发起这次导入的人能取消 |
 | POST | `/api/world/discard` | `{scanId}`：放弃检测结果，删掉上传的文件 |
-| GET | `/api/instances/{name}/world` | `{levelName, status, busy?, proxy, points[]}`。`busy` 是正在换地图、或有没处理完的记录时的原因。`points` 是以前导入留下的记录（新的在前）：`{id, state, created, source, candidate, levelName, hasOld, oldBytes, keptBytes, canReturn, error?, stuck?}`，`state` 是 `committed`、`rolled-back`、`restored`、`stuck` 等；`stuck` 是要人看的文件夹（只给本机的人看完整路径） |
-| POST | `/api/instances/{name}/world/restore` | `{id, confirm: "restore"}`：换回这次导入之前的地图（服务器要停着），返回 `{taskId}`。当前的世界（导入的那份，可能已被游戏改写）整体移到这次记录的 `after-restore` 里留着；旧世界搬回原位，导入时改过的设置改回去（之后又被用户改过的不动），再核对旧世界的 level.dat。导入以后 `level-name` 改过的拒绝 |
+| GET | `/api/instances/{name}/world` | `{levelName, status, busy?, proxy, points[]}`。`busy` 是正在换地图、或有没处理完的记录时的原因。`points` 是以前导入留下的记录（新的在前）：`{id, state, created, source, candidate, levelName, hasOld, oldBytes, keptBytes, canReturn, error?, stuck?}`，`state` 是 `committed`、`rolled-back`、`restored`、`stuck` 等，记录文件读不出来或内容对不上时是 `unreadable`（这时服务器保持暂停启动，要人去 `stuck` 里写的文件夹处理）；`stuck` 是要人看的文件夹（只给本机的人看完整路径）。`hasOld` 表示恢复点里有导入前的世界。`canReturn` 只在 `hasOld` 为真、世界名和现在一样、并且是这个世界最近一次导入时为真：导入过几次就只能从最近的一次往前一次次换回 |
+| POST | `/api/instances/{name}/world/restore` | `{id, confirm: "restore"}`：换回这次导入之前的地图（服务器要停着），返回 `{taskId}`。当前的世界（导入的那份，可能已被游戏改写）整体移到这次记录的 `after-restore` 里留着；旧世界搬回原位，导入时改过的设置改回去（之后又被用户改过的不动），旧世界导入时有 level.dat 的再核对它。导入以后 `level-name` 改过的、导入前没有世界的（新建服务器时放的地图）、不是这个世界最近一次导入的，都拒绝 |
 | POST | `/api/instances/{name}/world/delete` | `{id, confirm: "delete"}`：删掉一次导入留下的东西（恢复点、换回时留在旁边的世界），删了就不能再换回 |
 | POST | `/api/instances/{name}/world/retry` | 卡住的记录再试一次自动恢复（服务器要停着） |
 
-用已有地图新建服务器：先 `/api/world/plan`（`newInst: true`），再把 `worldPlan`（计划编号）和 `worldAck`（确认过要确认的项）放进 `instance.create` 的请求。地图在实例登记之前放进新服务器的 `world`，放不进去整台不建。AI 发起的新建不能带 `worldPlan`。
+用已有地图新建服务器：先 `/api/world/plan`（`newInst: true`），再把 `worldPlan`（计划编号）和 `worldAck`（确认过要确认的项）放进 `instance.create` 的请求。地图在实例登记之前放进新服务器的 `world`，放不进去整台不建。AI 发起的新建不能带 `worldPlan`。新建请求收下计划以后，这份计划不再过期，也不能给第二个新建请求用；这期间放弃检测（`/api/world/discard`）不会删上传的文件，等新建任务结束再删。新建没能开始（比如重名）或在放地图之前就失败了，计划没过期会放回去，可以直接再用。
 
 换地图的记录、暂存区和恢复点都在实例目录的 `.minedeck/world-import/<编号>/`（`journal.json`、`new/`、`old/`、`after-restore/`）。`.minedeck/` 是控制目录，交接包和整合包带了不收、导出也不带。MineDeck 启动时，加载实例就先按记录封锁没走完的那台的启动，处理完（提交到一半的退回旧世界）才放开。
 

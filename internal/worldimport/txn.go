@@ -431,6 +431,10 @@ func restoreTx(dir string, j *Journal) (stuck bool, err error) {
 	if j.State != TxCommitted {
 		return false, fmt.Errorf("这次导入现在的状态是 %s，不能换回", j.State)
 	}
+	if len(j.OldOut) == 0 {
+		// 导入前没有世界：「换回」只会把现在的世界移走，下次启动生成一张随机的新图
+		return false, fmt.Errorf("这次导入之前服务器还没有世界，没有可以换回的旧地图")
+	}
 	j.CurOut, j.OldIn = nil, nil
 	for _, n := range worldDirNames(j.LevelName) {
 		if exists(filepath.Join(dir, filepath.FromSlash(n))) {

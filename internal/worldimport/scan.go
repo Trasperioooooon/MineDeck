@@ -28,6 +28,10 @@ type scanResult struct {
 	Scan
 	src   *source
 	cands map[string]*candInfo
+	// pins 有几个导入、建服任务正在用它（Service.mu 保护）。用着的时候过期、放弃都不删上传的文件，
+	// 只记下 dropped，等最后一个任务用完再删。
+	pins    int
+	dropped bool
 }
 
 // candInfo 一个候选在来源里占了哪些文件。

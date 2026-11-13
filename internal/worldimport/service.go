@@ -29,7 +29,8 @@ type Service struct {
 	mu      sync.Mutex
 	scans   map[string]*scanResult
 	plans   map[string]*Plan
-	cancels map[string]context.CancelFunc // 导入任务编号 → 取消（只在暂存阶段生效）
+	cancels map[string]cancelEntry  // 导入任务编号 → 取消（只在暂存阶段生效）
+	claims  map[string]*createClaim // 建服请求占着的计划编号 → 计划和扫描结果
 
 	order versionOrder
 	now   func() time.Time
@@ -37,18 +38,55 @@ type Service struct {
 	StopTimeout time.Duration
 }
 
-// 扫描结果和计划的有效期。
+// 扫描结果和计划的有效期。claimTTL 是建服请求占着计划的最长时间：新建流水线自己最多跑 90 分钟，
+// 结束时会放掉；这里只是兜底，万一没放掉也不会一直占着上传的文件。
 const (
-	scanTTL = 2 * time.Hour
-	planTTL = 30 * time.Minute
+	scanTTL  = 2 * time.Hour
+	planTTL  = 30 * time.Minute
+	claimTTL = 3 * time.Hour
 )
+
+type cancelEntry struct {
+	owner string
+	fn    context.CancelFunc
+}
+
+// createClaim 新建服务器的请求收下了一份计划：计划从可用的计划里拿走（同一份不能再用），
+// 扫描结果钉住（过期、放弃都不删上传的文件），直到新建任务结束。
+type createClaim struct {
+	owner string
+	p     *Plan
+	r     *scanResult
+	until time.Time
+	used  bool // 已经开始往新服务器里放地图了（放过就不能再用）
+}
 
 // NewService 建服务，并把「新建服务器时放地图」的钩子挂到实例管理器上。
 func NewService(m *inst.Manager) *Service {
-	s := &Service{M: m, scans: map[string]*scanResult{}, plans: map[string]*Plan{}, cancels: map[string]context.CancelFunc{},
-		order: manifestOrder, now: time.Now, StopTimeout: 2 * time.Minute}
-	m.SetWorldPlacer(s.placeForCreate)
+	s := &Service{M: m, scans: map[string]*scanResult{}, plans: map[string]*Plan{}, cancels: map[string]cancelEntry{},
+		claims: map[string]*createClaim{}, order: manifestOrder, now: time.Now, StopTimeout: 2 * time.Minute}
+	m.SetWorldPlacer(s.placeForCreate, s.ReleaseCreate)
 	return s
+}
+
+// unpin 一个任务用完了扫描结果；它已经过期或被放弃、又没有别的任务在用时，删掉上传的文件。
+func (s *Service) unpin(r *scanResult) {
+	s.mu.Lock()
+	r.pins--
+	drop := r.pins <= 0 && r.dropped && r.Source.Uploaded
+	s.mu.Unlock()
+	if drop {
+		_ = os.Remove(r.Source.Path)
+	}
+}
+
+// dropScanLocked 把扫描结果标成不要了；有任务在用时不删上传的文件（用完再删），返回现在就该删的文件。
+func dropScanLocked(r *scanResult) string {
+	r.dropped = true
+	if r.pins > 0 || !r.Source.Uploaded {
+		return ""
+	}
+	return r.Source.Path
 }
 
 func newID(prefix string) string {
@@ -171,8 +209,8 @@ func (s *Service) sweep() {
 	var drop []string
 	for id, r := range s.scans {
 		if now.After(r.ExpiresAt) {
-			if r.Source.Uploaded {
-				drop = append(drop, r.Source.Path)
+			if p := dropScanLocked(r); p != "" {
+				drop = append(drop, p)
 			}
 			delete(s.scans, id)
 		}
@@ -182,12 +220,34 @@ func (s *Service) sweep() {
 			delete(s.plans, id)
 		}
 	}
+	var stale []*createClaim
+	for id, c := range s.claims {
+		if now.After(c.until) {
+			stale = append(stale, c)
+			delete(s.claims, id)
+		}
+	}
+	inUse := map[string]bool{} // 正在用的上传文件：放久了也不删
+	for _, r := range s.scans {
+		if r.pins > 0 {
+			inUse[strings.ToLower(filepath.Base(r.Source.Path))] = true
+		}
+	}
+	for _, c := range s.claims {
+		inUse[strings.ToLower(filepath.Base(c.r.Source.Path))] = true
+	}
 	s.mu.Unlock()
+	for _, c := range stale {
+		s.unpin(c.r)
+	}
 	for _, p := range drop {
 		_ = os.Remove(p)
 	}
 	if ents, err := os.ReadDir(UploadDir()); err == nil {
 		for _, e := range ents {
+			if inUse[strings.ToLower(e.Name())] {
+				continue
+			}
 			if info, err := e.Info(); err == nil && now.Sub(info.ModTime()) > scanTTL+time.Hour {
 				_ = os.Remove(filepath.Join(UploadDir(), e.Name()))
 			}
@@ -209,9 +269,10 @@ func (s *Service) Discard(owner, scanID string) {
 			delete(s.plans, id)
 		}
 	}
+	drop := dropScanLocked(r) // 已经开始的导入、建服任务不受影响：上传的文件等它们用完再删
 	s.mu.Unlock()
-	if r.Source.Uploaded {
-		_ = os.Remove(r.Source.Path)
+	if drop != "" {
+		_ = os.Remove(drop)
 	}
 }
 
@@ -608,15 +669,20 @@ func (s *Service) Execute(owner string, req ExecReq) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// 计划一次只用一回：再点一次要重新检测
+	// 计划一次只用一回：再点一次要重新检测。扫描结果钉住：任务进行中放弃检测、过期都不删上传的文件
 	s.mu.Lock()
+	if s.plans[p.ID] != p {
+		s.mu.Unlock()
+		return "", fmt.Errorf("这份导入计划已经用过了，请重新检测")
+	}
 	delete(s.plans, p.ID)
+	r.pins++
 	s.mu.Unlock()
 	t, tctx := s.M.Tasks.New(fmt.Sprintf("导入地图到 %s", p.Inst), importSteps)
 	t.SetKind("world")
 	ctx, cancel := context.WithCancel(tctx)
 	s.mu.Lock()
-	s.cancels[t.ID()] = cancel
+	s.cancels[t.ID()] = cancelEntry{owner: owner, fn: cancel}
 	s.mu.Unlock()
 	go func() {
 		defer func() {
@@ -624,6 +690,7 @@ func (s *Service) Execute(owner string, req ExecReq) (string, error) {
 			delete(s.cancels, t.ID())
 			s.mu.Unlock()
 			cancel()
+			s.unpin(r)
 		}()
 		res, err := s.runImport(ctx, t, r, p, props, req.StopFirst)
 		if err != nil {
@@ -636,14 +703,16 @@ func (s *Service) Execute(owner string, req ExecReq) (string, error) {
 }
 
 // Cancel 取消一个导入任务：只在复制到暂存区的阶段生效，开始换地图以后会做完（或退回）再结束。
-func (s *Service) Cancel(taskID string) bool {
+// 只有发起导入的人能取消。
+func (s *Service) Cancel(owner, taskID string) bool {
 	s.mu.Lock()
-	c := s.cancels[taskID]
+	c, ok := s.cancels[taskID]
 	s.mu.Unlock()
-	if c != nil {
-		c()
+	if !ok || c.owner != owner {
+		return false
 	}
-	return c != nil
+	c.fn()
+	return true
 }
 
 func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p *Plan, props map[string]string, stopFirst bool) (string, error) {
@@ -698,7 +767,7 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 		}
 		return abandon(err)
 	}
-	if fp := fingerprint(rescan(src, info)); fp != info.fp {
+	if after, err := rescan(src, info); err != nil || fingerprint(after) != info.fp {
 		return abandon(fmt.Errorf("来源在复制期间变了，没有替换任何文件。请先关掉正在使用这张地图的程序，再重新检测"))
 	}
 	j.NewLevelSHA = fileSHA(filepath.Join(stageRoot, filepath.FromSlash(tg.LevelName), "level.dat"))
@@ -790,7 +859,11 @@ func rebind(r *scanResult, src *source, candID string) (*candInfo, error) {
 		return nil, fmt.Errorf("请选择要导入的地图")
 	}
 	info := &candInfo{c: old.c, roots: old.roots}
-	info.files = rescan(src, info)
+	files, err := rescan(src, info)
+	if err != nil {
+		return nil, fmt.Errorf("地图来源读不全了，没有替换任何文件。请重新检测：%w", err)
+	}
+	info.files = files
 	info.fp = fingerprint(info.files)
 	if info.fp != old.fp {
 		return nil, fmt.Errorf("地图在预览以后变过了（文件被改动），没有替换任何文件。请重新检测")
@@ -798,31 +871,72 @@ func rebind(r *scanResult, src *source, candID string) (*candInfo, error) {
 	return info, nil
 }
 
-// rescan 按候选的目录重新列一遍文件（文件夹来源会重新读盘上的大小和时间）。
-func rescan(src *source, info *candInfo) []entry {
+// rescan 按候选的目录重新列一遍文件（文件夹来源会重新读盘上的大小和时间）。重新读不了（文件夹被删、
+// 多了联接点、文件太多）就报错：不能拿打开时的旧清单去比，那样永远对得上。
+func rescan(src *source, info *candInfo) ([]entry, error) {
 	if src.kind == "folder" {
-		if fresh, err := openFolder(src.root); err == nil {
-			src = fresh
+		fresh, err := openFolder(src.root)
+		if err != nil {
+			return nil, err
 		}
+		src = fresh
 	}
 	if len(info.roots) == 1 && info.roots[0] == "" {
-		return src.files
+		return src.files, nil
 	}
 	var out []entry
 	for _, root := range info.roots {
 		out = append(out, src.under(root)...)
 	}
-	return out
+	return out, nil
 }
 
 // ---------- 新建服务器时放地图 ----------
 
-// CheckCreatePlan 新建服务器的请求带着计划编号时，核对计划是这个人的、是给新建用的、核心和版本对得上、没有被拦下。
+// CheckCreatePlan 新建服务器的请求带着计划编号时，核对计划是这个人的、是给新建用的、核心和版本对得上、没有被拦下，
+// 核对通过就收下这份计划（见 createClaim）：之后它不会过期、不能再用第二次，上传的文件也不会被删，
+// 直到新建任务结束时 ReleaseCreate。建服请求没能开始时（比如重名），调用方也要 ReleaseCreate。
 func (s *Service) CheckCreatePlan(owner, planID string, core mcsrc.Core, mc string, ack bool) error {
 	p, err := s.getPlan(owner, planID)
 	if err != nil {
 		return err
 	}
+	if err := checkCreate(p, core, mc, ack); err != nil {
+		return err
+	}
+	r, err := s.getScan(owner, p.ScanID)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.plans[planID] != p || s.claims[planID] != nil {
+		return fmt.Errorf("这份导入计划已经用过了，请重新检测")
+	}
+	delete(s.plans, planID)
+	r.pins++
+	s.claims[planID] = &createClaim{owner: owner, p: p, r: r, until: s.now().Add(claimTTL)}
+	return nil
+}
+
+// ReleaseCreate 新建任务结束（或没能开始）：放掉收下的计划和钉住的扫描结果。还没开始放地图就结束的
+// （重名、下载失败这类），计划没过期就放回去，改一改再建不用重新检测。
+func (s *Service) ReleaseCreate(owner, planID string) {
+	s.mu.Lock()
+	c := s.claims[planID]
+	if c == nil || c.owner != owner {
+		s.mu.Unlock()
+		return
+	}
+	delete(s.claims, planID)
+	if !c.used && !s.now().After(c.p.ExpiresAt) && !c.r.dropped {
+		s.plans[planID] = c.p
+	}
+	s.mu.Unlock()
+	s.unpin(c.r)
+}
+
+func checkCreate(p *Plan, core mcsrc.Core, mc string, ack bool) error {
 	if !p.NewInst {
 		return fmt.Errorf("这份计划不是给新建服务器用的")
 	}
@@ -841,14 +955,16 @@ func (s *Service) CheckCreatePlan(owner, planID string, core mcsrc.Core, mc stri
 // placeForCreate 新建流水线在登记实例之前调：把计划里的地图放进新服务器的目录（level-name 是 world）。
 // 失败时整台服务器都不建（流水线会删掉目录），不会留下一台启动后随机生成新世界的实例。
 func (s *Service) placeForCreate(ctx context.Context, t *tasks.Task, owner, planID, dir string) error {
-	p, err := s.getPlan(owner, planID)
-	if err != nil {
-		return err
+	s.mu.Lock()
+	c := s.claims[planID]
+	if c != nil && c.owner == owner {
+		c.used = true
 	}
-	r, err := s.getScan(owner, p.ScanID)
-	if err != nil {
-		return err
+	s.mu.Unlock()
+	if c == nil || c.owner != owner {
+		return fmt.Errorf("找不到这份导入计划，请重新检测")
 	}
+	p, r := c.p, c.r
 	src, err := reopen(r)
 	if err != nil {
 		return fmt.Errorf("地图来源打不开了：%w", err)
@@ -874,7 +990,7 @@ func (s *Service) placeForCreate(ctx context.Context, t *tasks.Task, owner, plan
 	if err := stageFiles(ctx, src, files, stageRoot, t.ProgressFn("复制地图")); err != nil {
 		return err
 	}
-	if fingerprint(rescan(src, info)) != info.fp {
+	if after, err := rescan(src, info); err != nil || fingerprint(after) != info.fp {
 		return fmt.Errorf("地图来源在复制期间变了。请先关掉正在使用这张地图的程序，再重新检测")
 	}
 	j.NewLevelSHA = fileSHA(filepath.Join(stageRoot, filepath.FromSlash(level), "level.dat"))
@@ -889,9 +1005,6 @@ func (s *Service) placeForCreate(ctx context.Context, t *tasks.Task, owner, plan
 	if _, err := commitTx(dir, j, nil); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	delete(s.plans, planID)
-	s.mu.Unlock()
 	t.Logf("地图已放进新服务器")
 	return nil
 }
@@ -911,7 +1024,9 @@ type RestorePoint struct {
 	KeptBytes int64     `json:"keptBytes"`
 	Err       string    `json:"error,omitempty"`
 	Stuck     []string  `json:"stuck,omitempty"`
-	CanReturn bool      `json:"canReturn"` // 现在能点「恢复导入前的地图」
+	// CanReturn 现在能点「恢复导入前的地图」：恢复点里有旧世界，世界名和现在一样，
+	// 并且是这个世界最近的一次导入（先换回最近的，才能再往前换；乱序换回会把中间那张图困在恢复点里）
+	CanReturn bool `json:"canReturn"`
 }
 
 // WorldStatus 「地图 / 世界」页要的东西。
@@ -931,36 +1046,67 @@ func (s *Service) Status(name string) (*WorldStatus, error) {
 	}
 	ws := &WorldStatus{LevelName: inst.LevelName(i.Dir), Status: i.Status(), Busy: s.M.WorldBusy(name), Points: []RestorePoint{},
 		Proxy: mcsrc.KindOf(i.Core) == mcsrc.KindProxy}
-	for _, j := range listJournals(i.Dir) {
+	good, bad := listJournals(i.Dir)
+	latest := latestCommitted(good, ws.LevelName)
+	for _, j := range good {
 		rp := RestorePoint{ID: j.ID, State: j.State, Created: j.Created, Source: j.Source, Candidate: j.Candidate, LevelName: j.LevelName,
 			Err: j.Err, Stuck: j.Stuck}
 		root := txAbs(i.Dir, j.ID)
 		rp.OldBytes = dirBytes(filepath.Join(root, oldSub))
 		rp.KeptBytes = dirBytes(filepath.Join(root, restoreSub))
 		rp.HasOld = j.State == TxCommitted && len(j.OldOut) > 0 && rp.OldBytes > 0
-		rp.CanReturn = j.State == TxCommitted && strings.EqualFold(j.LevelName, ws.LevelName)
+		rp.CanReturn = rp.HasOld && j == latest
 		ws.Points = append(ws.Points, rp)
+	}
+	// 读不出来的记录也列出来：它可能管着一份移到一半的世界，不能当它不存在
+	for _, b := range bad {
+		ws.Points = append(ws.Points, RestorePoint{ID: b.id, State: TxUnreadable, Err: b.err.Error(),
+			Stuck:    []string{txAbs(i.Dir, b.id)},
+			OldBytes: dirBytes(filepath.Join(txAbs(i.Dir, b.id), oldSub))})
 	}
 	return ws, nil
 }
 
-// listJournals 一个实例的全部换地图记录（新的在前）；读不出来的跳过。
-func listJournals(dir string) []*Journal {
+// latestCommitted 这个世界名最近一次已提交的导入（只有它能换回）。js 新的在前。
+func latestCommitted(js []*Journal, level string) *Journal {
+	for _, j := range js {
+		if j.State == TxCommitted && strings.EqualFold(j.LevelName, level) {
+			return j
+		}
+	}
+	return nil
+}
+
+type badJournal struct {
+	id  string
+	err error
+}
+
+// listJournals 一个实例的全部换地图记录（新的在前），以及读不出来的记录（文件坏了、内容对不上）。
+// 没有 journal.json 的目录不算：记录是建暂存区之前头一个写下的，没有它就还没开始。
+func listJournals(dir string) ([]*Journal, []badJournal) {
 	ents, err := os.ReadDir(filepath.Join(dir, filepath.FromSlash(inst.WorldTxDir)))
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	var out []*Journal
+	var bad []badJournal
 	for _, e := range ents {
 		if !e.IsDir() {
 			continue
 		}
-		if j, err := loadJournal(dir, e.Name()); err == nil {
+		j, err := loadJournal(dir, e.Name())
+		switch {
+		case err == nil:
 			out = append(out, j)
+		case errors.Is(err, os.ErrNotExist):
+		default:
+			bad = append(bad, badJournal{id: e.Name(), err: err})
 		}
 	}
 	sort.Slice(out, func(a, b int) bool { return out[a].Created.After(out[b].Created) })
-	return out
+	sort.Slice(bad, func(a, b int) bool { return bad[a].id < bad[b].id })
+	return out, bad
 }
 
 // Restore 换回导入前的地图，返回任务编号。导入以后服务器可能已经启动过、改写过导入的世界：那一份会留在旁边，不删。
@@ -976,11 +1122,8 @@ func (s *Service) Restore(name, txID, confirm string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("找不到这次导入的记录")
 	}
-	if j.State != TxCommitted {
-		return "", fmt.Errorf("这次导入现在不能换回（状态：%s）", j.State)
-	}
-	if !strings.EqualFold(inst.LevelName(i.Dir), j.LevelName) {
-		return "", fmt.Errorf("导入以后 level-name 改过了（现在是 %s，导入时是 %s），没法自动换回。先把 level-name 改回去", inst.LevelName(i.Dir), j.LevelName)
+	if err := restorable(i.Dir, j); err != nil {
+		return "", err
 	}
 	t, _ := s.M.Tasks.New(fmt.Sprintf("把 %s 换回导入前的地图", name), []string{"占用这台服务器", "换回旧地图", "核对"})
 	t.SetKind("world")
@@ -992,6 +1135,14 @@ func (s *Service) Restore(name, txID, confirm string) (string, error) {
 			return
 		}
 		defer release()
+		// 占上位以后再看一遍：等位的这段时间里，别的换回可能刚做完或者退回了
+		if j, err = loadJournal(i.Dir, txID); err == nil {
+			err = restorable(i.Dir, j)
+		}
+		if err != nil {
+			t.Fail(err)
+			return
+		}
 		t.StartStep(1)
 		stuck, err := restoreTx(i.Dir, j)
 		if err != nil {
@@ -1004,13 +1155,31 @@ func (s *Service) Restore(name, txID, confirm string) (string, error) {
 			return
 		}
 		t.StartStep(2)
-		if len(j.OldOut) == 0 {
-			t.Finish("导入的地图已经移走（这台服务器导入前没有世界）。下次启动会生成新世界；移走的地图留在恢复点旁边")
-			return
+		checked := "" // 只有导入时旧世界有 level.dat 才核对过
+		if j.OldLevelSHA != "" {
+			checked = "，旧地图的 level.dat 核对一致"
 		}
-		t.Finish("已经换回导入前的地图，旧地图的 level.dat 核对一致。导入的那份（包括启动后的改动）留在旁边，确认不要了可以删掉")
+		t.Finish("已经换回导入前的地图" + checked + "。导入的那份（包括启动后的改动）留在旁边，确认不要了可以删掉")
 	}()
 	return t.ID(), nil
+}
+
+// restorable 这次导入现在能不能换回：已提交、导入前有旧世界、世界名没改过，并且是这个世界最近的一次导入。
+func restorable(dir string, j *Journal) error {
+	if j.State != TxCommitted {
+		return fmt.Errorf("这次导入现在不能换回（状态：%s）", j.State)
+	}
+	if len(j.OldOut) == 0 {
+		return fmt.Errorf("这次导入之前服务器还没有世界，没有可以换回的旧地图")
+	}
+	if cur := inst.LevelName(dir); !strings.EqualFold(cur, j.LevelName) {
+		return fmt.Errorf("导入以后 level-name 改过了（现在是 %s，导入时是 %s），没法自动换回。先把 level-name 改回去", cur, j.LevelName)
+	}
+	js, _ := listJournals(dir)
+	if l := latestCommitted(js, j.LevelName); l == nil || l.ID != j.ID {
+		return fmt.Errorf("这之后又导入过别的地图。请先换回最近那一次导入前的地图，再往前换")
+	}
+	return nil
 }
 
 // DeletePoint 删掉一次导入留下的东西（恢复点、换回时留在旁边的世界）。删了就不能再换回。
@@ -1055,7 +1224,13 @@ func (s *Service) RecoverAll() {
 // recoverInstance 处理一台服务器的记录。withCommit 为假时只清暂存到一半的（这台没有封锁，说明没有切换到一半的）。
 func (s *Service) recoverInstance(i *inst.Instance, withCommit bool) {
 	ok := true
-	for _, j := range listJournals(i.Dir) {
+	js, bad := listJournals(i.Dir)
+	for _, b := range bad {
+		if withCommit {
+			i.Console.Append("[MineDeck] 有一份换地图的记录读不出来（" + b.err.Error() + "），为了不在半成品的世界上启动，服务器已暂停启动。所有文件都还在：" + txAbs(i.Dir, b.id))
+		}
+	}
+	for _, j := range js {
 		switch j.State {
 		case TxCommitted, TxRolledBack, TxRestored:
 			continue
@@ -1077,11 +1252,12 @@ func (s *Service) recoverInstance(i *inst.Instance, withCommit bool) {
 	if !withCommit {
 		return
 	}
-	if ok {
-		s.M.SetWorldBlock(i.Name, "")
-	} else {
+	if !ok {
 		s.M.SetWorldBlock(i.Name, "上次换地图没能自动恢复，服务器已暂停启动。请到「地图 / 世界」里查看恢复步骤")
+		return
 	}
+	// 处理完再按盘上的记录看一遍（和加载实例时设封锁的是同一个判断）：读不出来的、还没走完的都还在，就不解除
+	s.M.SetWorldBlock(i.Name, inst.PendingWorldTx(i.Dir))
 }
 
 // Retry 对卡住的记录再试一次自动恢复（界面「重试恢复」）。只处理这一台：别的服务器上可能正有导入在暂存。

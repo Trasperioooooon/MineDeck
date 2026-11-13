@@ -86,10 +86,11 @@ type Manager struct {
 	creating map[string]bool // 正在创建中的实例名（注册进 insts 前的占位，防并发/重复创建同名实例）
 	packing  map[string]bool // 正在打包交接包的实例名：这期间不能启动、删除，免得打出来的包里世界是写了一半的
 	// worldHold 正在换地图 / 还原备份的实例名 → 在做什么；worldBlock 有没走完的换地图记录的实例名 → 原因（见 worldhold.go）
-	worldHold   map[string]string
-	worldBlock  map[string]string
-	worldPlacer WorldPlacer
-	Tasks       *tasks.Manager
+	worldHold    map[string]string
+	worldBlock   map[string]string
+	worldPlacer  WorldPlacer
+	worldRelease func(owner, planID string)
+	Tasks        *tasks.Manager
 
 	autoMu    sync.Mutex
 	autoHook  func(AutoAction)     // 定时任务、崩溃自动重启执行后的回调（操作层用它写操作记录）
@@ -124,7 +125,7 @@ func NewManager() (*Manager, error) {
 		}
 		m.insts[s.Name] = &Instance{Settings: s, Dir: dir, Console: newConsole()}
 		// 上次换地图没走完：先封住启动，等 worldimport 按记录处理完再放开（比调度器和任何启动入口都早）
-		if why := pendingWorldTx(dir); why != "" {
+		if why := PendingWorldTx(dir); why != "" {
 			if m.worldBlock == nil {
 				m.worldBlock = map[string]string{}
 			}

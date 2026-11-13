@@ -137,14 +137,14 @@ func (c *cat) worldOps() {
 		Name: "world.import.cancel", Title: "取消地图导入", Level: ops.HumanOnly,
 		Desc:   "取消正在复制的地图导入（已经开始换地图的会做完或退回再结束）。",
 		Params: ops.Object(map[string]*ops.Schema{"taskId": ops.String("任务编号")}, "taskId"),
-		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+		Run: func(_ context.Context, cl ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[struct {
 				TaskID string `json:"taskId"`
 			}](a)
 			if err != nil {
 				return nil, err
 			}
-			if !w.Cancel(p.TaskID) {
+			if !w.Cancel(owner(cl), p.TaskID) { // 只有发起导入的人能取消
 				return nil, fmt.Errorf("这个任务已经不能取消了")
 			}
 			return "ok", nil

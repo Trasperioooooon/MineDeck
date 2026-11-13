@@ -210,6 +210,8 @@ const (
 	TxRestoring   = "restoring"    // 用户要求换回导入前的地图，正在换
 	TxRestored    = "restored"     // 已换回导入前的地图
 	TxStuck       = "stuck"        // 自动退不回去：保留全部数据，服务器暂停启动，等人处理
+	// TxUnreadable 不是记录里会写的状态：记录文件读不出来或内容对不上时，「地图 / 世界」页这样标它
+	TxUnreadable = "unreadable"
 )
 
 // Step 一步改名。From、To 都相对实例目录（斜杠分隔）。是否已经做完不看记录，看磁盘：From 不在、To 在就是做完了。

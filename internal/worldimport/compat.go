@@ -400,6 +400,11 @@ func worldRootChecks(t *Target) []Issue {
 		is = append(is, Issue{Sev: SevBlock, Code: "level-name-unsafe",
 			Msg:    "这台服务器的 level-name 指到了服务器文件夹外面，或者写法有歧义，MineDeck 不能确定世界在哪。请先在「全部配置」里把 level-name 改成一个普通的名字",
 			Detail: name})
+	} else if first, _, _ := strings.Cut(t.LevelName, "/"); sameOrInside(filepath.Join(t.Dir, filepath.FromSlash(first)), filepath.Join(t.Dir, ".minedeck")) {
+		// 名字上已经拦了 .minedeck；这里按真实路径再看一遍，短文件名（MINEDE~1 这类）也指不进控制目录
+		is = append(is, Issue{Sev: SevBlock, Code: "level-name-unsafe",
+			Msg:    "这台服务器的 level-name 指到了 MineDeck 自己的控制文件夹，请先在「全部配置」里把 level-name 改成一个普通的名字",
+			Detail: t.LevelName})
 	}
 	if bukkitLike(coreFamily(t.Core)) {
 		if b, err := os.ReadFile(filepath.Join(t.Dir, "bukkit.yml")); err == nil {
