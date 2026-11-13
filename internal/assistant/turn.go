@@ -25,6 +25,20 @@ const (
 	thinkBatch = 240
 )
 
+// maxThink 一条回复存下来的思考最多多少字节（会话文件和每次订阅的快照里都有它）。超出时留最后一段。
+const maxThink = 32 << 10
+
+func capThink(s string) string {
+	if len(s) <= maxThink {
+		return s
+	}
+	cut := len(s) - maxThink
+	for cut < len(s) && !utf8.RuneStart(s[cut]) {
+		cut++
+	}
+	return "……（前面的思考太长，没有保存）\n" + s[cut:]
+}
+
 type thinkBuf struct {
 	b    strings.Builder
 	last time.Time
@@ -78,8 +92,10 @@ func (s *Service) Subscribe(who ops.Caller, id string) (*View, <-chan []byte, fu
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	ch, cancel := sess.hub.subscribe()
+	// 订阅和取快照在同一次加锁里做：追加类的事件（delta、thinking）也是在 sess.mu 里改完就推的，
+	// 这样一个片段要么已经在快照里、要么之后作为事件到达，不会两边都有（中途打开面板时重复一段）。
 	sess.mu.Lock()
+	ch, cancel := sess.hub.subscribe()
 	v := s.viewLocked(sess)
 	sess.mu.Unlock()
 	return v, ch, cancel, nil
@@ -362,29 +378,33 @@ func (s *Service) loop(ctx context.Context, sess *Session) {
 		sess.mu.Unlock()
 		s.publishItem(sess, it)
 
+		// 思考片段先攒着，推出去的那一刻才记进 it.Think（和推送在同一次加锁里），快照和事件才对得上。
+		// 正文或工具调用一开始就把攒着的推完，不然思考的最后一小段要等这一轮全部结束才出现。
 		var think thinkBuf
 		flushThink := func(force bool) {
 			think.flush(force, func(text string) {
+				sess.mu.Lock()
+				it.Think += text
 				sess.hub.publish(event{"type": "thinking", "id": it.ID, "text": text})
+				sess.mu.Unlock()
 			})
 		}
 		res, err := cl.Chat(ctx, conv, func(e ai.Event) {
 			switch e.Type {
 			case ai.EvText:
+				flushThink(true)
 				sess.mu.Lock()
 				it.Text += e.Text
-				sess.mu.Unlock()
 				sess.hub.publish(event{"type": "delta", "id": it.ID, "text": e.Text})
+				sess.mu.Unlock()
 			case ai.EvToolStart:
+				flushThink(true)
 				if e.Tool != nil {
 					sess.hub.publish(event{"type": "tool_start", "id": it.ID, "name": e.Tool.Name})
 				}
 			case ai.EvRetry:
 				sess.hub.publish(event{"type": "retry", "attempt": e.Attempt, "err": s.redact.Text(e.Err)})
 			case ai.EvReasoning:
-				sess.mu.Lock()
-				it.Think += e.Text
-				sess.mu.Unlock()
 				think.add(e.Text)
 				flushThink(false)
 			}
@@ -398,6 +418,7 @@ func (s *Service) loop(ctx context.Context, sess *Session) {
 			if res.Reasoning != "" {
 				it.Think = res.Reasoning
 			}
+			it.Think = capThink(it.Think)
 			if res.Usage.Prompt() > 100000 {
 				sess.Long = true
 			}
@@ -443,11 +464,13 @@ func (s *Service) fail(sess *Session, it *Item, err error) {
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
 	if it != nil {
-		if it.Text == "" && it.Think == "" && len(it.Tools) == 0 {
+		// 只有思考、没有正文和工具调用的也撤掉：下面会把用户的话撤回、放回输入框，
+		// 留着这段思考就成了挂在撤回消息后面的孤儿，重发以后还一直留在历史里。
+		if it.Text == "" && len(it.Tools) == 0 {
 			sess.Items = removeItem(sess.Items, it.ID)
 			sess.hub.publish(event{"type": "remove", "id": it.ID})
 		} else {
-			it.Partial = true
+			it.Partial, it.Think = true, capThink(it.Think)
 			sess.hub.publish(event{"type": "item", "item": slim(it)})
 		}
 	}

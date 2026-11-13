@@ -57,7 +57,7 @@ type Settings struct {
 	// LANAssistant 局域网登录的设备能不能用应用内助手（§10.3）；没有 = 默认开
 	LANAssistant *bool `json:"lanAssistant,omitempty"`
 
-	// 只对自定义服务商有意义：鉴权头、思考内容回传。空 = 用预设上的默认（自定义是 Bearer + 自动）
+	// 只对自定义服务商有意义：鉴权头、思考内容回传。空 = 默认（鉴权按协议的默认，回传是自动）
 	Auth string `json:"auth,omitempty"`
 	Echo string `json:"echo,omitempty"`
 }
@@ -83,6 +83,11 @@ type Service struct {
 
 	mu sync.Mutex
 	st Settings
+
+	// noEcho 已经知道不认 reasoning_content 的「预设 + 地址 + 模型」（auto 被拒过一次）。助手每一轮都新建客户端，
+	// 记在客户端上的结论只活一轮；记在这里，之后的请求直接不带，不用每一轮都先吃一个 400。只在内存里，重启后重新试一次。
+	echoMu sync.Mutex
+	noEcho map[string]bool
 
 	retryDelay time.Duration // 测试里调小
 }
@@ -306,23 +311,36 @@ func boolOr(p *bool, d bool) bool {
 // config 按设置和预设生成客户端配置。
 func (s *Service) config(st Settings, key string, stream bool) Config {
 	p, _ := PresetByID(st.Preset)
+	// 鉴权留空就是「这个协议的默认」，不要在这里补成 bearer：Claude 协议的默认是 x-api-key（中转另带 Bearer），
+	// 补成 bearer 会让官方预设和 Claude 中转都只发 Bearer。
 	auth, echo := p.Auth, p.Echo
-	if auth == "" {
-		auth = AuthBearer
-	}
-	if echo == "" {
-		echo = EchoOff
-	}
 	if p.ID == CustomID {
-		if AuthMode(st.Auth).valid() && st.Auth != "" {
+		if AuthMode(st.Auth).valid() {
 			auth = AuthMode(st.Auth)
 		}
 		if EchoMode(st.Echo).valid() && st.Echo != "" {
 			echo = EchoMode(st.Echo)
 		}
 	}
+	if echo == "" {
+		echo = EchoOff
+	}
 	cfg := Config{Protocol: st.Protocol, BaseURL: st.BaseURL, Key: key, Model: st.Model, Stream: stream,
-		HTTP: s.http, RetryDelay: s.retryDelay, Auth: auth, Echo: echo, ToolResultName: p.toolResultName}
+		HTTP: s.http, RetryDelay: s.retryDelay, Auth: auth, Echo: echo, EchoPadAll: p.echoPadAll, ToolResultName: p.toolResultName}
+	if echo == EchoAuto {
+		k := strings.Join([]string{st.Preset, string(st.Protocol), strings.TrimRight(strings.TrimSpace(st.BaseURL), "/"), st.Model}, "\n")
+		s.echoMu.Lock()
+		cfg.DropReasoning = s.noEcho[k]
+		s.echoMu.Unlock()
+		cfg.OnDropReasoning = func() {
+			s.echoMu.Lock()
+			if s.noEcho == nil {
+				s.noEcho = map[string]bool{}
+			}
+			s.noEcho[k] = true
+			s.echoMu.Unlock()
+		}
+	}
 	if st.Protocol == Anthropic {
 		off := officialClaude(st.BaseURL)
 		cfg.Official = off
@@ -557,14 +575,12 @@ func (s *Service) setProvider(pt ProviderPatch) error {
 		} else if changedPreset {
 			st.Echo = string(p.Echo)
 		}
-		if st.Auth == "" {
-			st.Auth = string(AuthBearer)
-		}
+		// 鉴权留空 = 按协议的默认（OpenAI 兼容发 Bearer，Claude 协议发 x-api-key、中转另带 Bearer）
 		if st.Echo == "" {
 			st.Echo = string(EchoAuto)
 		}
-		if !AuthMode(st.Auth).valid() || st.Auth == "" {
-			return errors.New("鉴权只能是 bearer、api-key 或 both")
+		if !AuthMode(st.Auth).valid() {
+			return errors.New("鉴权只能是默认（留空）、bearer、api-key 或 both")
 		}
 		if !EchoMode(st.Echo).valid() || st.Echo == "" {
 			return errors.New("思考回传只能是 auto、on 或 off")
@@ -955,25 +971,41 @@ func (s *Service) Test(ctx context.Context) (*TestResult, error) {
 	if missingWithKey(st, key) != "" {
 		return nil, ErrDisabled
 	}
-	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	p, _ := PresetByID(st.Preset)
+	limit := 90 * time.Second
+	if p.Local {
+		limit = 2 * time.Minute // 本机模型可能要先加载进内存，再跑两轮
+	}
+	ctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 	cfg := s.config(st, key, true)
 	if cfg.Protocol == Anthropic {
 		cfg.Eager, cfg.Fallback = true, true
 		cfg.MaxTokens = min(cfg.MaxTokens, 4096)
 	}
-	p, _ := PresetByID(st.Preset)
 	warn := KeyWarning(p, st.BaseURL, key)
 	res, err := s.probe(ctx, cfg, []Tool{pingTool})
 	tools := "yes"
 	var ae *APIError
-	if err != nil && errors.As(err, &ae) && ae.Status == 400 && strings.Contains(strings.ToLower(ae.Message), "tool") {
-		// 服务商（或本机模型）不支持工具调用：去掉工具再试一次，看基本的对话通不通
+	var r2 *secondRoundError
+	if err != nil && !errors.As(err, &r2) && errors.As(err, &ae) && ae.Status == 400 && strings.Contains(strings.ToLower(ae.Message), "tool") {
+		// 第一轮就说不支持工具（服务商或本机模型）：去掉工具再试一次，看基本的对话通不通。
+		// 第二轮（工具结果交回之后）失败不走这里：那时已经证明能调用工具，要把第二轮的问题照实报出来。
 		res, err = s.probe(ctx, cfg, nil)
 		tools = "no"
 	}
 	if err != nil {
-		return &TestResult{Error: err.Error(), Hint: hintOf(err), Tools: "unknown", Warn: warn}, nil
+		tr := &TestResult{Error: err.Error(), Hint: hintOf(err), Tools: "unknown", Warn: warn}
+		if errors.As(err, &r2) {
+			tr.Tools, tr.Rounds = "yes", 2
+			if p.ID == CustomID && cfg.Echo != EchoOn && r2.rejected() {
+				tr.Hint += "。可以把「思考回传」改成「总是回传」再试"
+			}
+		}
+		if errors.As(err, &ae) && ae.Status == 401 && warn != "" {
+			tr.Hint = warn // Key 前缀和地址对不上：这比「Key 不对」更说到点子上
+		}
+		return tr, nil
 	}
 	out := res.out
 	out.OK, out.Tools, out.Warn = true, tools, warn
@@ -1002,6 +1034,36 @@ type probeResult struct {
 	result *Result
 	called bool
 	client *Client
+}
+
+// secondRoundError 测试连接的第二轮（工具结果交回之后）失败了。第一轮已经证明能调用工具，
+// Test 不能再把它当成「不支持工具」去掉工具重试，那样会把真正的问题（多半是思考内容没带回）说成连接正常。
+type secondRoundError struct{ err error }
+
+func (e *secondRoundError) Error() string {
+	return "工具结果交回后的第二轮失败：" + e.err.Error()
+}
+func (e *secondRoundError) Unwrap() error { return e.err }
+
+// rejected 第二轮是被服务商拒绝的（400），不是网络或额度之类的问题。
+func (e *secondRoundError) rejected() bool {
+	var ae *APIError
+	return errors.As(e.err, &ae) && ae.Status == 400
+}
+
+// Hint 见 APIError.Hint。
+func (e *secondRoundError) Hint() string {
+	var ae *APIError
+	if errors.As(e.err, &ae) && ae.Status == 400 {
+		if reasoningField.MatchString(ae.lowerText()) {
+			return "工具结果交回之后被拒：要把思考内容原样传回，或者这个服务商不接受思考字段"
+		}
+		return "工具结果交回之后被拒：多半是思考内容没有原样传回，或者服务商不接受这样的工具结果"
+	}
+	if h := hintOf(e.err); h != "" {
+		return "工具结果交回之后失败：" + h
+	}
+	return "工具结果交回之后失败"
 }
 
 func (s *Service) probe(ctx context.Context, cfg Config, tools []Tool) (*probeResult, error) {
@@ -1055,7 +1117,7 @@ func (s *Service) probe(ctx context.Context, cfg Config, tools []Tool) (*probeRe
 		}
 		res2, err := cl.Chat(ctx, conv, func(Event) {})
 		if err != nil {
-			return nil, fmt.Errorf("工具结果交回后的第二轮失败：%w", err)
+			return nil, &secondRoundError{err: err}
 		}
 		pr.out.Rounds = 2
 		u := res.Usage

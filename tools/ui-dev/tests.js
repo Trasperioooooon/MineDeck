@@ -836,13 +836,36 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.selectOption("#ai-preset", "claude"); await settle(100);
       f = await aiForm();
       assert(!f.proto && f.effort && f.url === "https://api.anthropic.com" && f.model === "claude-opus-5-5", "选 Claude 后：" + JSON.stringify(f));
-      await page.click("#ai-list");
-      assert(await toastHas("无法获取模型列表：先填写 Key"), "没填 Key 时获取模型列表应提示（结论接上后端的原因）");
+      // 模型框：手填 + 自己的箭头。没填 Key 时拉不到：错误写在这一行下面（结论接上后端的原因），弹层里给预设的建议
+      await page.click("#ai-model-btn"); await settle(300);
+      const modelErr = await page.textContent("#ai-model-err");
+      assert(modelErr.includes("无法获取模型列表") && modelErr.includes("先填写 Key"), "没填 Key 时获取模型列表应就近提示：" + modelErr);
+      let opts = await page.$$eval("#ai-model-list .ai-opt", os => os.map(o => o.dataset.id));
+      assert(opts.length === 1 && opts[0] === "claude-opus-5-5", "拉不到时给预设里的建议：" + opts);
+      await page.keyboard.press("Escape"); await settle(100);
+      assert(await page.$eval("#ai-model-pop", e => e.hidden) && !(await page.$eval("#ai-model-btn", b => b.disabled)), "Esc 关掉弹层，箭头还能点");
       await page.fill("#ai-key", "sk-ant-test");
-      await page.click("#ai-list"); await settle(300);
-      const opts = await page.$$eval("#ai-models option", os => os.map(o => o.value));
+      await page.click("#ai-model-btn"); await settle(300);
+      opts = await page.$$eval("#ai-model-list .ai-opt", os => os.map(o => o.dataset.id));
       assert(opts.length === 3 && opts.includes("claude-sonnet-5-5"), "模型列表：" + opts);
-      assert((await page.textContent("#ai-model-sub")).includes("取到 3 个模型"), "应提示取到几个模型");
+      assert((await page.textContent("#ai-model-sub")).includes("已有 3 个模型") && (await page.textContent("#ai-model-err")) === "", "应提示有几个模型、清掉上次的错误");
+      assert(await page.$eval("#ai-model-list .ai-opt[aria-selected=true]", o => o.dataset.id) === "claude-opus-5-5", "当前模型应打勾");
+      // 搜索 + 方向键 + 回车选中；焦点在搜索框时当前项挂在搜索框上（读屏读得到）
+      await page.fill("#ai-model-q", "haiku"); await settle(100);
+      opts = await page.$$eval("#ai-model-list .ai-opt", os => os.map(o => o.dataset.id));
+      assert(opts.length === 1 && opts[0] === "claude-haiku-5-5", "搜索：" + opts);
+      await page.fill("#ai-model-q", ""); await settle(100);
+      await page.keyboard.press("ArrowDown"); await settle(50);
+      assert((await page.getAttribute("#ai-model-q", "aria-activedescendant")) && !(await page.getAttribute("#ai-model", "aria-activedescendant")), "当前项应挂在有焦点的搜索框上");
+      await page.keyboard.press("Enter"); await settle(100);
+      assert((await aiForm()).model === "claude-sonnet-5-5" && await page.$eval("#ai-model-pop", e => e.hidden), "回车选中第二个并关掉弹层：" + (await aiForm()).model);
+      // 拉列表的时候点了别处（弹层关了）：箭头不能一直灰着（复审第 9 条）
+      await page.route("**/api/ai/models", async r => { await new Promise(x => setTimeout(x, 400)); await r.continue(); });
+      await page.click("#ai-list"); await settle(50);
+      await page.mouse.click(5, 5); await settle(700);
+      await page.unroute("**/api/ai/models");
+      assert(await page.$eval("#ai-model-pop", e => e.hidden) && !(await page.$eval("#ai-model-btn", b => b.disabled)), "加载中关掉弹层后箭头应恢复");
+      await page.fill("#ai-model", "claude-opus-5-5");
       await page.selectOption("#ai-effort", "high");
       let t0 = reqs.length;
       await page.click('[data-sb="save"]'); await settle(300);
@@ -857,7 +880,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click('[data-sb="save"]'); await settle(300);
       await page.click("#ai-test"); await settle(300);
       let sub = await page.textContent("#ai-test-sub");
-      assert(sub.includes("连接正常") && sub.includes("820 ms") && sub.includes("能调用工具") && sub.includes("168 token"), "测试结果：" + sub);
+      assert(sub.includes("连接正常") && sub.includes("820 ms") && sub.includes("能调用工具") && sub.includes("含一轮工具调用") && sub.includes("168 token"), "测试结果：" + sub);
       await aiState({ testFail: true });
       await page.click("#ai-test"); await settle(300);
       sub = await page.textContent("#ai-test-sub");
@@ -865,6 +888,50 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       const raw = await page.getAttribute("#ai-test-sub [data-err-raw]", "data-err-raw");
       assert(sub.trim() === "连接失败：Key 不对或已失效" && (raw || "").includes("HTTP 401") && (await page.getAttribute("#ai-test-sub [data-err-raw]", "aria-label")) === "复制报错信息 AI 测试连接",
         "测试失败时：" + sub + " / 原文：" + raw);
+    } finally { await aiState({ reset: true }); }
+  });
+
+  await run("AI：小米 MiMo 换到 Claude 协议的地址时按 Claude 处理（思考深度）、Token Plan 地址不拉模型列表给建议；Key 前缀和地址对不上只提醒（只比域名）；自定义的鉴权默认按协议、可改", async () => {
+    await aiState({ reset: true });
+    try {
+      await page.goto(url("#/settings/ai")); await settle();
+      await page.selectOption("#ai-preset", "mimo"); await settle(150);
+      let f = await aiForm();
+      assert(f.url === "https://api.xiaomimimo.com/v1" && f.model === "mimo-v2.6-pro" && !f.effort && !f.proto, "选 MiMo：" + JSON.stringify(f));
+      assert(await page.$eval(".ai-auth-row", r => r.hidden) && await page.$eval(".ai-echo-row", r => r.hidden), "预设不显示鉴权和思考回传");
+      await page.locator("#ai-alts button", { hasText: "Token Plan · 中国 · Claude 协议" }).click(); await settle(150);
+      f = await aiForm();
+      assert(f.url === "https://token-plan-cn.xiaomimimo.com/anthropic" && f.effort, "换到 Claude 协议的地址应显示思考深度：" + JSON.stringify(f));
+      await page.fill("#ai-key", "sk-payg-0123456789"); await settle(100);
+      assert((await aiForm()).keySub.includes("按量付费 Key"), "按量 Key 配 Token Plan 地址应提醒：" + (await aiForm()).keySub);
+      await page.fill("#ai-key", "tp-plan-0123456789"); await page.fill("#ai-url", "https://token-plan-cn.xiaomimimo.com/anthropic/v1/messages"); await settle(100);
+      assert(!(await aiForm()).keySub.includes("Token Plan Key"), "同一个域名多带一截路径不该提醒：" + (await aiForm()).keySub);
+      await page.fill("#ai-url", "https://token-plan-cn.xiaomimimo.com/anthropic"); await settle(100);
+      const t0 = reqs.length;
+      await page.click("#ai-model-btn"); await settle(300);
+      const opts = await page.$$eval("#ai-model-list .ai-opt", os => os.map(o => o.dataset.id));
+      assert(opts[0] === "mimo-v2.6-pro" && opts.length >= 3 && (await page.textContent("#ai-model-msg")).includes("官方文档没有模型列表"), "Token Plan 给建议：" + opts);
+      assert(reqs.slice(t0).filter(r => r.u === "/api/ai/models").length === 1, "只问一次后端（后端不出网）");
+      await page.keyboard.press("Escape"); await settle(100);
+      await page.click('[data-sb="save"]'); await settle(300);
+      let b = putBody(t0, "/api/ai/provider");
+      assert(b && b.preset === "mimo" && !("protocol" in b) && !("auth" in b), "预设不传协议和鉴权（后端按地址定）：" + JSON.stringify(b));
+      const view = await page.evaluate(() => fetch("/api/ai/settings", { headers: { "X-Token": "mock" } }).then(r => r.json()));
+      assert(view.data.provider.protocol === "anthropic", "保存后应按 Claude 协议：" + JSON.stringify(view.data.provider));
+      // 自定义：鉴权默认留空（按协议的默认），说明跟着协议变
+      await page.selectOption("#ai-preset", "custom"); await settle(150);
+      assert(await page.$eval("#ai-auth", s => s.value) === "" && (await page.textContent("#ai-auth-sub")).includes("Authorization: Bearer"), "自定义 OpenAI 兼容：默认 Bearer");
+      await page.selectOption("#ai-proto", "anthropic"); await settle(100);
+      assert((await page.textContent("#ai-auth-sub")).includes("x-api-key"), "自定义 Claude 协议：默认 x-api-key：" + await page.textContent("#ai-auth-sub"));
+      await page.fill("#ai-url", "https://relay.example/v1"); await page.fill("#ai-model", "claude-x");
+      await page.selectOption("#ai-auth", "api-key");
+      const t1 = reqs.length;
+      await page.click('[data-sb="save"]'); await settle(200);
+      if (await page.$(".modal")) { await page.click('.modal [data-x="ok"]'); await settle(300); }
+      b = putBody(t1, "/api/ai/provider");
+      assert(b && b.preset === "custom" && b.protocol === "anthropic" && b.auth === "api-key" && b.echo === "auto", "保存自定义：" + JSON.stringify(b));
+      await page.reload(); await settle();
+      assert(await page.$eval("#ai-auth", s => s.value) === "api-key", "重新打开后鉴权还在");
     } finally { await aiState({ reset: true }); }
   });
 

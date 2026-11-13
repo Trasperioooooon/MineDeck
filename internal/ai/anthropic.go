@@ -71,7 +71,7 @@ func (c *Client) claudeHeader(withBeta bool) http.Header {
 			h.Set("x-api-key", c.cfg.Key)
 			h.Set("api-key", c.cfg.Key)
 			h.Set("Authorization", "Bearer "+c.cfg.Key)
-		default:
+		default: // 空 = Claude 协议的默认：官方地址只发 x-api-key，中转另带 Bearer（PR 之前一直是这样，别改成别的）
 			h.Set("x-api-key", c.cfg.Key)
 			if !c.cfg.Official {
 				h.Set("Authorization", "Bearer "+c.cfg.Key) // 中转有的只认这个（推断）

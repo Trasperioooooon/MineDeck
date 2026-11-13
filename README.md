@@ -60,7 +60,7 @@ MineDeck 是 Windows 上的我的世界（Minecraft Java 版）一键开服工�
 
 ### AI（可选，用你自己的 Key）
 
-- **接入**：支持 OpenAI 兼容和 Claude 两种协议，内置 DeepSeek、通义千问、Kimi、智谱、OpenAI、Claude、Ollama（本机）七个预设，也可以填自定义地址。Key 加密保存在这台电脑上。MineDeck 按公开价格估算费用，每个功能都可以设每天的 token 额度。
+- **接入**：支持 OpenAI 兼容和 Claude 两种协议，内置 DeepSeek、通义千问、Kimi、智谱、小米 MiMo、OpenAI、Claude、Ollama（本机）八个预设，也可以填自定义地址。Key 加密保存在这台电脑上。MineDeck 按公开价格估算费用，每个功能都可以设每天的 token 额度。
 - **应用内助手**：标题栏里的「AI 助手」会先读日志、配置和崩溃报告再回答。要改配置、换 Java 或重启服务器，它会先给出一张确认卡片，你点了才执行。发给模型的内容会先替换掉 Windows 用户名、局域网地址和密钥，你随时可以看实际发出去的原文。
 - **游戏内 AI**：玩家在聊天里说 `@AI` 再加上问题就能问。你在面板里勾选的玩家，可以让它执行白名单里的命令，比如改时间、改天气、传送自己。`op`、`execute` 这类命令不会执行。
 - **AI 伙伴**：可以在 NeoForge 1.21.1 或 Forge 1.20.1 的服务器里放 AI 伙伴。在聊天里说「@伙伴名 跟着我」，或者让它去采集、打怪、把东西交给你，它就会去做。可以划出不让它挖的区域，也可以指定不许打的生物。好友的客户端要装一个伙伴模组。
@@ -83,7 +83,7 @@ MineDeck 是 Windows 上的我的世界（Minecraft Java 版）一键开服工�
 | <img src="docs/images/03-assistant.png" alt="AI 助手读了模组清单，指出客户端模组，并给出禁用该文件的确认卡片"> | <img src="docs/images/02-console-banner.png" alt="控制台顶部的报错横幅：缺少前置模组 geckolib，以及客户端模组放进了服务端"> |
 | **游戏内 AI**：聊天里 @AI 提问，授权的玩家能让它执行白名单里的命令 | **AI 伙伴**：刷出伙伴、看它在干什么，禁挖区域保护你的建筑 |
 | <img src="docs/images/04-gameai-log.png" alt="游戏内 AI 记录：执行了 weather clear，拒绝了 op"> | <img src="docs/images/05-companion.png" alt="伙伴页：已连接模组，一个伙伴在采集，一个空闲，以及两块禁挖区域"> |
-| **音乐共享**：选一个音乐软件，经 Simple Voice Chat 放给全服听 | **接入 AI**：七个预设，填 Key、测试连接、设每日额度 |
+| **音乐共享**：选一个音乐软件，经 Simple Voice Chat 放给全服听 | **接入 AI**：八个预设，填 Key、测试连接、设每日额度 |
 | <img src="docs/images/06-music.png" alt="音乐共享：选择网易云音乐作为音源，检查清单已通过"> | <img src="docs/images/07-settings-ai.png" alt="设置中的 AI 页：已启用 DeepSeek，测试连接成功"> |
 
 ## 下载和安装

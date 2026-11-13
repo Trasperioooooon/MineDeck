@@ -43,7 +43,7 @@ func (c *Client) openaiBody(conv *Conversation) []byte {
 		if n > 0 {
 			b.WriteByte(',')
 		}
-		b.Write(adjustReasoning(m, c.cfg.Echo, drop))
+		b.Write(adjustReasoning(m, c.cfg.Echo, drop, c.cfg.EchoPadAll))
 		n++
 	}
 	b.WriteByte(']')
@@ -84,8 +84,10 @@ func (c *Client) applyKey(h http.Header) {
 }
 
 // adjustReasoning 决定这条助手消息要不要带 reasoning_content。
-// 历史里只要收到过就存着；发出去之前再按当前策略删掉或补上空串，这样降级重试不用改历史。
-func adjustReasoning(raw json.RawMessage, echo EchoMode, drop bool) json.RawMessage {
+// 回传策略不是 off 时，收到的思考都存进历史；发出去之前再按当前策略删掉或补上空串，这样降级重试不用改历史。
+// on 时补空串的范围：padAll 为 true 补所有没有思考的助手消息（DeepSeek 文档：请求带工具时每条助手消息都要传回，
+// 包括那一轮没调用工具的），为 false 只补带工具调用的（MiMo 文档只强制这一种）。
+func adjustReasoning(raw json.RawMessage, echo EchoMode, drop, padAll bool) json.RawMessage {
 	if len(raw) == 0 || raw[0] != '{' {
 		return raw
 	}
@@ -104,7 +106,7 @@ func adjustReasoning(raw json.RawMessage, echo EchoMode, drop bool) json.RawMess
 		return mustJSON(m)
 	}
 	if echo == EchoOn && !has && !hasAlt {
-		if _, tools := m["tool_calls"]; tools {
+		if _, tools := m["tool_calls"]; tools || padAll {
 			m["reasoning_content"] = mustJSON("")
 			return mustJSON(m)
 		}
@@ -371,7 +373,8 @@ func (a *oaiAcc) result(partial bool, bodyLen int) *Result {
 		m["content"] = r.Text
 	}
 	// 思考内容先存进历史。发不发由 adjustReasoning 在组请求时决定（对方不认可以去掉重发，不用改历史）。
-	if r.Reasoning != "" {
+	// 回传策略是 off 的服务商永远不会发，就不存：会话文件和每次请求前的整理都少一大段。
+	if r.Reasoning != "" && a.c.cfg.Echo != "" && a.c.cfg.Echo != EchoOff {
 		m["reasoning_content"] = r.Reasoning
 	}
 	if r.Text == "" && len(calls) == 0 {

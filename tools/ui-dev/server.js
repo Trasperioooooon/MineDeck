@@ -121,7 +121,8 @@ const AI_PRESETS = [
     "baseUrl": "https://api.deepseek.com",
     "model": "deepseek-v4-flash",
     "domestic": true,
-    "note": "官方文档写明 deepseek-chat、deepseek-reasoner 已于 2026-07-24 下线，换成 deepseek-v4-flash、deepseek-v4-pro（摘要）。思考模式下工具循环可能要把 reasoning_content 原样传回，这里默认传回（摘要，需实测）。",
+    "echo": "on",
+    "note": "官方文档写明 deepseek-chat、deepseek-reasoner 已于 2026-07-24 下线，换成 deepseek-v4-flash、deepseek-v4-pro（摘要）。思考模式下请求带工具时，每条助手消息都要把 reasoning_content 原样传回，没调用工具的那几轮也要，否则会 400（核实：官方思考模式文档）；这里总是传回，没有的补空串（空串是否被接受未核实，需实测）。",
     "verified": "摘要"
   },
   {
@@ -137,7 +138,8 @@ const AI_PRESETS = [
     ],
     "model": "qwen-plus",
     "domestic": true,
-    "note": "默认是北京地域；Key 只能配对应地域的地址（摘要）。官方建议改用工作空间专属域名，可以在地址里改。",
+    "echo": "auto",
+    "note": "默认是北京地域；Key 只能配对应地域的地址（摘要）。官方建议改用工作空间专属域名，可以在地址里改。思考模型由 preserve_thinking 决定读不读历史里的思考内容，缺了不报错（核实），这里收到过就传回。",
     "verified": "摘要"
   },
   {
@@ -152,7 +154,8 @@ const AI_PRESETS = [
       }
     ],
     "domestic": true,
-    "note": "国内站和国际站的 Key 不通用（摘要：第三方文档，官方页面未能抓取）。流式用量可能在 choices[0].usage，两处都读。",
+    "echo": "auto",
+    "note": "国内站和国际站的 Key 不通用（摘要：第三方文档，官方页面未能抓取）。流式用量可能在 choices[0].usage，两处都读。多轮和工具调用要把完整的助手消息原样传回，包括 reasoning_content（核实：官方 K3 文档），这里收到过就传回。",
     "verified": "摘要"
   },
   {
@@ -161,8 +164,93 @@ const AI_PRESETS = [
     "protocol": "openai",
     "baseUrl": "https://open.bigmodel.cn/api/paas/v4/",
     "domestic": true,
-    "note": "地址末尾的斜杠原样保留。官方说兼容 OpenAI，但「部分场景仍有差异」（摘要）。",
+    "echo": "auto",
+    "note": "地址末尾的斜杠原样保留。官方说兼容 OpenAI，但「部分场景仍有差异」（摘要）。开了「保留思考」（Coding Plan 的地址默认开）时要把思考内容原样传回（核实），这里收到过就传回。",
     "verified": "摘要"
+  },
+  {
+    "id": "mimo",
+    "name": "小米 MiMo",
+    "protocol": "openai",
+    "baseUrl": "https://api.xiaomimimo.com/v1",
+    "altUrls": [
+      {
+        "label": "按量 · Claude 协议",
+        "url": "https://api.xiaomimimo.com/anthropic",
+        "protocol": "anthropic"
+      },
+      {
+        "label": "Token Plan · 中国",
+        "url": "https://token-plan-cn.xiaomimimo.com/v1",
+        "noModels": true
+      },
+      {
+        "label": "Token Plan · 中国 · Claude 协议",
+        "url": "https://token-plan-cn.xiaomimimo.com/anthropic",
+        "protocol": "anthropic",
+        "noModels": true
+      },
+      {
+        "label": "Token Plan · 新加坡",
+        "url": "https://token-plan-sgp.xiaomimimo.com/v1",
+        "noModels": true
+      },
+      {
+        "label": "Token Plan · 新加坡 · Claude 协议",
+        "url": "https://token-plan-sgp.xiaomimimo.com/anthropic",
+        "protocol": "anthropic",
+        "noModels": true
+      },
+      {
+        "label": "Token Plan · 欧洲",
+        "url": "https://token-plan-ams.xiaomimimo.com/v1",
+        "noModels": true
+      },
+      {
+        "label": "Token Plan · 欧洲 · Claude 协议",
+        "url": "https://token-plan-ams.xiaomimimo.com/anthropic",
+        "protocol": "anthropic",
+        "noModels": true
+      }
+    ],
+    "model": "mimo-v2.6-pro",
+    "models": [
+      "mimo-v2.6-pro",
+      "mimo-v2.6-flash",
+      "mimo-v2.6-pro-ultraspeed"
+    ],
+    "domestic": true,
+    "auth": "both",
+    "echo": "on",
+    "keyHints": [
+      {
+        "prefixes": [
+          "sk-"
+        ],
+        "urls": [
+          "https://api.xiaomimimo.com/v1",
+          "https://api.xiaomimimo.com/anthropic"
+        ],
+        "note": "sk- 开头的是按量付费 Key，只能用在 api.xiaomimimo.com。填到 Token Plan 的地址上会 401。"
+      },
+      {
+        "prefixes": [
+          "ttp-",
+          "tp-"
+        ],
+        "urls": [
+          "https://token-plan-cn.xiaomimimo.com/v1",
+          "https://token-plan-cn.xiaomimimo.com/anthropic",
+          "https://token-plan-sgp.xiaomimimo.com/v1",
+          "https://token-plan-sgp.xiaomimimo.com/anthropic",
+          "https://token-plan-ams.xiaomimimo.com/v1",
+          "https://token-plan-ams.xiaomimimo.com/anthropic"
+        ],
+        "note": "tp- / ttp- 开头的是 Token Plan Key，只能用在 token-plan 的地址上，不能用在按量地址。"
+      }
+    ],
+    "note": "按量 Key（sk-）用 api.xiaomimimo.com；Token Plan Key（tp- / ttp-）用 token-plan-cn / -sgp / -ams，两种不能混用。鉴权认 api-key 或 Bearer。思考默认开着，多轮（尤其是调用工具之后）要把 reasoning_content 原样传回，否则会 400。Token Plan 的域名文档里没有 /models，模型可以手填，或从建议里选。",
+    "verified": "核实"
   },
   {
     "id": "openai",
@@ -196,7 +284,8 @@ const AI_PRESETS = [
     "name": "自定义",
     "protocol": "openai",
     "baseUrl": "",
-    "note": "任意 OpenAI 兼容的地址，或者走 Claude 协议的中转。注意：中转方能看到全部对话和 Key。",
+    "echo": "auto",
+    "note": "任意 OpenAI 兼容的地址，或者走 Claude 协议的中转。鉴权和思考回传可以改。注意：中转方能看到全部对话和 Key。",
     "verified": "—"
   }
 ];
@@ -209,14 +298,14 @@ const AI_MODEL_PRICES = {
 };
 const AI_MODELS = {
   deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"], qwen: ["qwen-flash", "qwen-plus", "qwen3-max"], kimi: ["kimi-k2.6", "kimi-k3"],
-  zhipu: ["glm-4.5", "glm-5.3"], openai: ["gpt-5", "gpt-5.5"], ollama: ["qwen3:8b", "llama3.1"], custom: ["my-model"],
+  zhipu: ["glm-4.5", "glm-5.3"], openai: ["gpt-5", "gpt-5.5"], ollama: ["qwen3:8b", "llama3.1"], custom: ["my-model"], mimo: ["mimo-v2.6-pro", "mimo-v2.6-flash"],
   claude: [{ id: "claude-opus-5-5", name: "Claude Opus 5.5", maxOutput: 128000 }, { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", maxOutput: 128000 }, { id: "claude-haiku-5-5", name: "Claude Haiku 5.5", maxOutput: 128000 }],
 };
 const AI_LOCAL_MSG = "AI 设置仅支持在本机修改（含 Key 和接口地址）";
 const AI_DISABLED = "AI 未启用：先在「设置 → AI」里选择服务商，填好 Key 和模型";
 function newAIState() {
   return {
-    preset: "", protocol: "", baseUrl: "", model: "", maxOutput: 0, effort: "", key: "", keyBroken: false,
+    preset: "", protocol: "", baseUrl: "", model: "", maxOutput: 0, effort: "", key: "", keyBroken: false, auth: "", echo: "",
     quota: {}, prices: [], priceUpdated: "", local: true, testFail: false,
     today: { assistant: { requests: 12, tokens: 123456, estimated: 1, cost: { USD: 0.0312 } }, gamechat: { requests: 3, tokens: 5600, cost: { USD: 0.002 } },
       companion: { requests: 2, tokens: 2400, cost: { USD: 0.0008 } } },
@@ -232,6 +321,19 @@ function aiMissing(a) {
   if (!a.model) return "选择模型";
   return "";
 }
+// 同后端 Preset.matchURL：协议、主机、路径都一样（末尾斜杠不算）
+function aiMatchURL(p, base) {
+  const same = (x, y) => {
+    try {
+      const u = new URL(x), v = new URL(y), path = w => w.pathname.replace(/\/+$/, "");
+      return u.protocol === v.protocol && u.host.toLowerCase() === v.host.toLowerCase() && path(u) === path(v);
+    } catch { return false; }
+  };
+  if (same(base, p.baseUrl)) return { protocol: p.protocol };
+  const alt = (p.altUrls || []).find(x => same(base, x.url));
+  return alt ? { protocol: alt.protocol || p.protocol, noModels: !!alt.noModels } : { protocol: p.protocol };
+}
+function aiSuggested(p) { return [...new Set([p.model, ...(p.models || [])].filter(Boolean))].map(id => ({ id })); }
 function aiView(a) {
   const p = AI_PRESETS.find(x => x.id === a.preset);
   const missing = aiMissing(a);
@@ -247,7 +349,8 @@ function aiView(a) {
   }
   const priceNeeded = !missing && !(p && p.local);
   return {
-    presets: AI_PRESETS, provider: { preset: a.preset, protocol: a.protocol, baseUrl: a.baseUrl, model: a.model, maxOutput: a.maxOutput, effort: a.effort, eager: official, fallback: official },
+    presets: AI_PRESETS, provider: { preset: a.preset, protocol: a.protocol, baseUrl: a.baseUrl, model: a.model, maxOutput: a.maxOutput, effort: a.effort, eager: official, fallback: official,
+      ...(a.preset === "custom" ? { ...(a.auth ? { auth: a.auth } : {}), echo: a.echo || "auto" } : {}) },
     keySet: !!a.key && !a.keyBroken, keyBroken: !!a.key && a.keyBroken, enabled: !missing, missing, quota: a.quota, today: a.today, month: a.month,
     priceNeeded, prices: { source: "LiteLLM 公开价格", updated: priceNeeded ? a.priceUpdated : a.priceUpdated, count: a.priceUpdated ? 3203 : 0 },
     modelPrice, customPrices: a.prices, local: a.local,
@@ -255,16 +358,25 @@ function aiView(a) {
 }
 // 同 ai.Service.SetProvider：只改传了的字段；改了服务商、协议或地址，旧 Key 清掉（同一次请求给了新 Key 就用新的）
 function aiSetProvider(a, b) {
-  if ("preset" in b && b.preset === "") { Object.assign(a, { preset: "", protocol: "", baseUrl: "", model: "", maxOutput: 0, effort: "", key: "", keyBroken: false }); return null; }
+  if ("preset" in b && b.preset === "") { Object.assign(a, { preset: "", protocol: "", baseUrl: "", model: "", maxOutput: 0, effort: "", key: "", keyBroken: false, auth: "", echo: "" }); return null; }
   const id = "preset" in b ? b.preset : a.preset;
   const p = AI_PRESETS.find(x => x.id === id);
   if (!p) return id ? `未知的服务商："${id}"` : "先选择服务商";
   const changed = id !== a.preset;
   const n = { ...a, preset: id };
-  n.protocol = p.id !== "custom" ? p.protocol : (b.protocol || (changed ? "openai" : a.protocol) || "openai");
   if ("baseUrl" in b) n.baseUrl = String(b.baseUrl).trim(); else if (changed) n.baseUrl = p.baseUrl;
   if (!n.baseUrl && p.id !== "custom") n.baseUrl = p.baseUrl;
   if (!/^https?:\/\/[^/?#\s]+/.test(n.baseUrl) || /[?#]/.test(n.baseUrl)) return "接口地址要以 http:// 或 https:// 开头";
+  // 同后端：预设的协议看地址是不是声明了另一种协议的可选地址（MiMo 的 /anthropic）；自定义看传来的
+  n.protocol = p.id !== "custom" ? aiMatchURL(p, n.baseUrl).protocol : (b.protocol || (changed ? "openai" : a.protocol) || "openai");
+  if (p.id !== "custom") { n.auth = ""; n.echo = ""; }
+  else {
+    if ("auth" in b) n.auth = b.auth; else if (changed) n.auth = "";
+    if ("echo" in b) n.echo = b.echo; else if (changed) n.echo = "auto";
+    if (!n.echo) n.echo = "auto";
+    if (!["", "bearer", "api-key", "both"].includes(n.auth || "")) return "鉴权只能是默认（留空）、bearer、api-key 或 both";
+    if (!["auto", "on", "off"].includes(n.echo)) return "思考回传只能是 auto、on 或 off";
+  }
   if ("model" in b) n.model = String(b.model).trim(); else if (changed) n.model = p.model || "";
   if ("effort" in b) n.effort = b.effort;
   if (n.protocol !== "anthropic") n.effort = "";
@@ -288,15 +400,17 @@ async function aiHandler(state, req, res, p, m) {
     const pr = AI_PRESETS.find(x => x.id === b.preset);
     if (!pr) return err(res, 400, "先选择服务商");
     const base = (b.baseUrl || pr.baseUrl).trim();
+    // 同后端：文档写明没有模型列表的地址不发请求，直接给预设里的建议（返回 {models, source, warning}）
+    if (aiMatchURL(pr, base).noModels) return ok(res, { models: aiSuggested(pr), source: "preset", warning: "这个地址的官方文档没有模型列表，下面是预设里的建议，也可以直接填写模型名。" });
     const key = (b.key || "").trim() || (a.preset === pr.id && a.baseUrl === base ? a.key : "");
     if (!key && !pr.noKey && pr.id !== "custom") return err(res, 400, "先填写 Key");
-    return ok(res, (AI_MODELS[pr.id] || []).map(x => (typeof x === "string" ? { id: x } : x)));
+    return ok(res, { models: (AI_MODELS[pr.id] || []).map(x => (typeof x === "string" ? { id: x } : x)), source: "live" });
   }
   if (p === "/api/ai/test" && m === "POST") {
     if (aiMissing(a)) return err(res, 400, AI_DISABLED);
     if (a.testFail) return ok(res, { ok: false, tools: "unknown", error: "Key 不对或已失效（HTTP 401，authentication_error）：invalid x-api-key", hint: "Key 不对或已失效", latencyMs: 0, totalMs: 0, usage: { input: 0, output: 0 } });
     const pr = AI_PRESETS.find(x => x.id === a.preset);
-    return ok(res, { ok: true, latencyMs: 820, totalMs: 1310, model: a.model, tools: "yes", stop: "tool_use", usage: { input: 156, output: 12 },
+    return ok(res, { ok: true, latencyMs: 820, totalMs: 1310, model: a.model, tools: "yes", rounds: 2, stop: "end_turn", usage: { input: 156, output: 12 },
       cost: pr.local ? { amount: 0, currency: "USD", source: "local" } : { amount: 0.0001, currency: "USD", source: "litellm" } });
   }
   if (p === "/api/ai/quota" && m === "PUT") {

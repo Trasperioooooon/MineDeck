@@ -1,0 +1,152 @@
+package assistant
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+	"time"
+)
+
+// 思考片段：推出去的拼起来就是最后存下的全文；正文开始之前，攒着的思考已经全部推完（不留尾巴等整轮结束）。
+func TestThinkingStreamOrderAndTotal(t *testing.T) {
+	f := newFixture(t)
+	id := f.open(local)
+	var chunks []string
+	var want strings.Builder
+	for i := 0; i < 30; i++ {
+		s := "第" + string(rune('a'+i%26)) + "步。"
+		want.WriteString(s)
+		b, _ := json.Marshal(s)
+		chunks = append(chunks, `{"choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":`+string(b)+`},"finish_reason":null}]}`)
+	}
+	chunks = append(chunks, textReply("答案是 42。")...)
+	f.ai.queue(chunks)
+
+	_, ch, cancel, err := f.as.Subscribe(local, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cancel()
+	if err := f.as.Send(local, id, "想一想", false); err != nil {
+		t.Fatal(err)
+	}
+	var streamed strings.Builder
+	sawDelta := false
+	finalThink := ""
+	deadline := time.After(5 * time.Second)
+	for finalThink == "" {
+		select {
+		case b, ok := <-ch:
+			if !ok {
+				t.Fatal("事件流被关了")
+			}
+			var ev struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+				Item *Item  `json:"item"`
+			}
+			if err := json.Unmarshal(b, &ev); err != nil {
+				t.Fatal(err)
+			}
+			switch ev.Type {
+			case "thinking":
+				if sawDelta {
+					t.Errorf("正文开始以后还在推思考：%q", ev.Text)
+				}
+				streamed.WriteString(ev.Text)
+			case "delta":
+				sawDelta = true
+				if streamed.String() != want.String() {
+					t.Errorf("正文开始时思考还没推完：已推 %q", streamed.String())
+				}
+			case "item":
+				if ev.Item != nil && ev.Item.Kind == "assistant" && ev.Item.Text != "" {
+					finalThink = ev.Item.Think
+				}
+			}
+		case <-deadline:
+			t.Fatalf("等不到回复结束；已推的思考 %q", streamed.String())
+		}
+	}
+	if streamed.String() != want.String() || finalThink != want.String() {
+		t.Fatalf("推出去的思考和存下的不一致：\n推 %q\n存 %q\n应 %q", streamed.String(), finalThink, want.String())
+	}
+}
+
+// 中途订阅：快照里已有的思考，之后不会再作为事件推一遍。
+func TestThinkingSnapshotNoDuplicate(t *testing.T) {
+	f := newFixture(t)
+	id := f.open(local)
+	f.ai.hold, f.ai.holdAt = make(chan struct{}), 1 // 停在第二块之后：第二块的思考还攒在缓冲里没推
+	first := `{"choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"先看日志。"},"finish_reason":null}]}`
+	rest := `{"choices":[{"index":0,"delta":{"reasoning_content":"再看配置。"},"finish_reason":null}]}`
+	f.ai.queue(append([]string{first, rest}, textReply("好了。")...))
+	if err := f.as.Send(local, id, "看看", false); err != nil {
+		t.Fatal(err)
+	}
+	// 第一块的思考已经推出、第二块还攒着（相隔不到 100ms），这时订阅
+	for end := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		v, err := f.as.Get(local, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n := len(v.Items); n > 0 && v.Items[n-1].Kind == "assistant" && v.Items[n-1].Think != "" {
+			break
+		}
+		if time.Now().After(end) {
+			t.Fatalf("等不到第一段思考：%s", dump(v))
+		}
+	}
+	time.Sleep(30 * time.Millisecond) // 让第二块也到（它会攒在缓冲里，因为离上一次推送不到 100ms）
+	v, ch, cancel, err := f.as.Subscribe(local, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cancel()
+	have := ""
+	for _, it := range v.Items {
+		if it.Kind == "assistant" {
+			have = it.Think
+		}
+	}
+	close(f.ai.hold)
+	f.ai.hold = nil
+	var later strings.Builder
+	deadline := time.After(5 * time.Second)
+	for done := false; !done; {
+		select {
+		case b := <-ch:
+			var ev struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+				Item *Item  `json:"item"`
+			}
+			_ = json.Unmarshal(b, &ev)
+			if ev.Type == "thinking" {
+				later.WriteString(ev.Text)
+			}
+			if ev.Type == "item" && ev.Item != nil && ev.Item.Kind == "assistant" && ev.Item.Text != "" {
+				done = true
+			}
+		case <-deadline:
+			t.Fatal("等不到回复结束")
+		}
+	}
+	if have+later.String() != "先看日志。再看配置。" {
+		t.Fatalf("快照 %q + 之后的事件 %q 应正好拼成全文（不重复、不缺）", have, later.String())
+	}
+}
+
+func TestCapThink(t *testing.T) {
+	if capThink("短") != "短" {
+		t.Fatal("短的不该动")
+	}
+	long := strings.Repeat("思", maxThink) // 每个字 3 字节，远超上限
+	got := capThink(long)
+	if len(got) > maxThink+64 || !strings.HasPrefix(got, "……（前面的思考太长") || !strings.HasSuffix(got, "思") {
+		t.Fatalf("截断不对：长度 %d，开头 %q", len(got), got[:40])
+	}
+	if !strings.Contains(got[len("……（前面的思考太长，没有保存）\n"):], "思") || strings.ContainsRune(got, '�') {
+		t.Fatal("截断切坏了汉字")
+	}
+}

@@ -27,7 +27,8 @@ type fakeAI struct {
 	mu      sync.Mutex
 	replies [][]string // 每次回复的 SSE 数据块
 	bodies  [][]byte
-	hold    chan struct{} // 不为 nil 时，回复写出第一块后等它关闭（测「停止」）
+	hold    chan struct{} // 不为 nil 时，回复写出第 holdAt 块（默认第一块）后等它关闭（测「停止」）
+	holdAt  int
 }
 
 func newFakeAI(t *testing.T) *fakeAI {
@@ -46,14 +47,14 @@ func newFakeAI(t *testing.T) *fakeAI {
 		} else {
 			chunks = textReply("（测试里没有准备更多回复）")
 		}
-		hold := f.hold
+		hold, holdAt := f.hold, f.holdAt
 		f.mu.Unlock()
 		w.Header().Set("Content-Type", "text/event-stream")
 		fl := w.(http.Flusher)
 		for k, c := range chunks {
 			fmt.Fprintf(w, "data: %s\n\n", c)
 			fl.Flush()
-			if k == 0 && hold != nil {
+			if k == holdAt && hold != nil {
 				select {
 				case <-hold:
 				case <-r.Context().Done():

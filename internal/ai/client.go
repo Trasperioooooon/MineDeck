@@ -30,9 +30,15 @@ type Config struct {
 	Eager     bool   // Claude 流式时给工具打开 eager_input_streaming
 	Official  bool   // Claude 官方地址：只发 x-api-key；中转另外再带一个 Authorization: Bearer
 
-	Auth           AuthMode // OpenAI 兼容的鉴权头；空 = Bearer。Claude 协议另有自己的头（见 claudeHeader）
+	Auth           AuthMode // 鉴权头；空 = 这个协议的默认（OpenAI 兼容是 Bearer，Claude 见 claudeHeader）
 	Echo           EchoMode // 见 EchoMode。空 = 不回传
+	EchoPadAll     bool     // Echo 为 on 时，没有思考内容的助手消息全都补空串（DeepSeek）；false 只补带工具调用的（MiMo）
 	ToolResultName bool     // OpenAI 兼容：tool 消息带上工具名（Kimi）
+
+	// DropReasoning 已经知道对方不认 reasoning_content（之前的请求被拒过）：一开始就不带。
+	// OnDropReasoning 这个客户端被拒后改成不带时调一次，让上层记住，下一轮新建的客户端直接不带。
+	DropReasoning   bool
+	OnDropReasoning func()
 
 	HTTP        *http.Client
 	RetryDelay  time.Duration // 重试的基础等待，默认 1 秒（第二次翻倍）
@@ -82,7 +88,7 @@ func NewClient(cfg Config) (*Client, error) {
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 10 * time.Minute
 	}
-	return &Client{cfg: cfg, eager: cfg.Eager && cfg.Stream, fallback: cfg.Fallback}, nil
+	return &Client{cfg: cfg, eager: cfg.Eager && cfg.Stream, fallback: cfg.Fallback, dropReasoning: cfg.DropReasoning && cfg.Echo == EchoAuto}, nil
 }
 
 // DefaultHTTPClient 默认的 HTTP 客户端：连接（含 TLS 握手）15 秒超时，走环境变量里的代理。
@@ -263,8 +269,12 @@ func (c *Client) downgrade(conv *Conversation, err error) bool {
 			return true
 		}
 		// 带了思考字段对方不认：去掉再发一次。已经去掉过就不再试，避免来回。
-		if !c.dropReasoning && c.cfg.Echo != EchoOff && c.cfg.Echo != "" && reasoningRejected(msg) {
+		// 只对 auto：on 是文档写明必须传回的服务商（DeepSeek、MiMo），去掉只会换来另一个 400，还把原来那句更有用的报错盖掉。
+		if !c.dropReasoning && c.cfg.Echo == EchoAuto && reasoningRejected(msg) {
 			c.dropReasoning = true
+			if cb := c.cfg.OnDropReasoning; cb != nil {
+				cb() // 只记一个结论，不回调客户端，持锁调用不会死锁
+			}
 			return true
 		}
 		return false
@@ -283,8 +293,10 @@ func (c *Client) downgrade(conv *Conversation, err error) bool {
 }
 
 // reasoningRejected 400 的原文是在拒绝 reasoning_content 这个字段，而不是在要求把它传回。
+// 字段名要完整出现（reasoning_content 或 reasoning），reasoning_effort 之类的参数被拒不算。
+// Groq 的原文是「property 'reasoning_content' is unsupported」；DeepSeek 要求传回时是「… must be passed back to the API」，不会命中。
 func reasoningRejected(msg string) bool {
-	if !strings.Contains(msg, "reasoning") {
+	if !reasoningField.MatchString(msg) {
 		return false
 	}
 	for _, s := range []string{"unknown", "unexpected", "unrecognized", "extra", "not support", "unsupported", "not permitted", "does not support", "invalid field"} {

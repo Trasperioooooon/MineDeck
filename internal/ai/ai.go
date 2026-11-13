@@ -194,29 +194,55 @@ func (e *APIError) Error() string {
 	return b.String()
 }
 
-// Retryable 429 和 5xx（含 Claude 的 529 过载）可以重试。
-func (e *APIError) Retryable() bool { return e.Status == 429 || e.Status >= 500 }
+// Retryable 429 和 5xx（含 Claude 的 529 过载）可以重试；额度、余额用完的 429 重试也没用，不重试。
+func (e *APIError) Retryable() bool { return (e.Status == 429 && !e.quotaGone()) || e.Status >= 500 }
+
+// lowerText 原文和错误类型合在一起、转小写，给下面按关键词分类用（错误类型里常有 insufficient_quota、context_length_exceeded）。
+func (e *APIError) lowerText() string { return strings.ToLower(e.Message + " " + e.Type) }
+
+// 关键词表按各家的真实报错原文定（出处见 docs/评审-PR19-助手渲染与兼容服务商.md 第四节第 7 条）。改这几张表时同步改 compat_test.go。
+var (
+	// 额度或余额用完：OpenAI 的 insufficient_quota、「Credit balance exhausted」，Kimi 的 exceeded_current_quota_error，
+	// 智谱 1113「您的账户已欠费」，DeepSeek 402「Insufficient Balance」（402 另有 statusHint）
+	quotaWords = []string{"quota", "insufficient", "balance", "credit", "exhaust", "billing", "额度", "余额", "欠费"}
+	// 上下文超长：OpenAI「maximum context length」/ context_length_exceeded，Claude「prompt is too long」，
+	// Kimi「Input token length too long」，智谱 1261「Prompt 超长」
+	contextWords = []string{"context length", "context_length", "maximum context", "context window", "too long", "too many tokens", "超长", "上下文长度"}
+	// reasoningField 原文说的是 reasoning_content 或 reasoning 这个字段，不是 reasoning_effort、reasoning_tokens 之类的参数
+	reasoningField = regexp.MustCompile(`\breasoning(?:_content)?\b`)
+)
+
+func containsAny(s string, words []string) bool {
+	for _, w := range words {
+		if strings.Contains(s, w) {
+			return true
+		}
+	}
+	return false
+}
+
+// quotaGone 429 说的是额度或余额用完了（不是请求太频繁）。
+func (e *APIError) quotaGone() bool { return e.Status == 429 && containsAny(e.lowerText(), quotaWords) }
 
 // Hint 给人看的那一句。按状态码区分，再按服务商原文里的关键词说得更具体一点；
 // 仍是中文短句，不把英文原文、状态码或 Key 拼进来（界面正文只接这一句，完整原文在 Error()，复制时看得到）。
+// Key 和地址对不上（MiMo 的按量 Key 配了 Token Plan 地址）不靠猜原文：测试连接时由服务层用 KeyWarning 换掉 401 的这一句。
 func (e *APIError) Hint() string {
-	msg := strings.ToLower(e.Message)
+	msg := e.lowerText()
 	switch e.Status {
 	case 400:
-		if strings.Contains(msg, "reasoning") {
+		if containsAny(msg, contextWords) {
+			return "对话太长，超过了模型能读的长度。开一个新会话再问"
+		}
+		if reasoningField.MatchString(msg) {
 			return "请求被拒绝：多轮对话要把思考内容原样传回，或者这个服务商不接受思考字段"
 		}
 		if strings.Contains(msg, "model") {
 			return "请求被拒绝，多半是模型名不对，或者这个模型不支持这次请求里的参数"
 		}
 		return "请求被服务商拒绝"
-	case 401:
-		if strings.Contains(msg, "token plan") || strings.Contains(msg, "mismatch") || strings.Contains(msg, "mix") {
-			return "Key 和这个地址不匹配：按量付费和订阅套餐的 Key 不能混用"
-		}
-		return "Key 不对或已失效"
 	case 403:
-		if strings.Contains(msg, "country") || strings.Contains(msg, "region") || strings.Contains(msg, "location") || strings.Contains(msg, "地区") {
+		if containsAny(msg, []string{"country", "region", "location", "地区"}) {
 			return "没有权限：多半是地区限制"
 		}
 		return "没有权限（可能是地区限制，或者账号没开通这个模型）"
@@ -226,8 +252,7 @@ func (e *APIError) Hint() string {
 		}
 		return "接口地址或模型名不对"
 	case 429:
-		if strings.Contains(msg, "quota") || strings.Contains(msg, "insufficient") || strings.Contains(msg, "balance") ||
-			strings.Contains(msg, "credit") || strings.Contains(msg, "exhaust") || strings.Contains(msg, "额度") || strings.Contains(msg, "余额") {
+		if e.quotaGone() {
 			return "服务商那边的额度用完了"
 		}
 		return "请求太频繁，等一会儿再试"
@@ -278,8 +303,9 @@ func hintOf(err error) string {
 	return ""
 }
 
-// keyLike 报错里出现的另一把 Key（不一定是我们发出去的那把）。
-var keyLike = regexp.MustCompile(`(?:sk|tp|ttp|ak)-[A-Za-z0-9_\-]{8,}`)
+// keyLike 报错里出现的另一把 Key（不一定是我们发出去的那把）。前面要是单词边界：
+// 不然 http-proxy、task-manager 这类正常单词会被抹掉一截。
+var keyLike = regexp.MustCompile(`\b(?:sk|tp|ttp|ak)-[A-Za-z0-9_\-]{8,}`)
 
 // scrub 把错误信息里的 Key 换成 ***（有的服务商会在报错里回显 Key）。
 func scrub(s, key string) string {

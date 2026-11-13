@@ -3794,7 +3794,8 @@ function setNotify(body, info) {
    保存后旧 Key 自动清掉，要重新填写。每日额度是单字段保存（bindSaveInput）。局域网打开时只能看（修改仅本机）。 */
 const AI_EFFORTS = [["", "默认（模型自己定）"], ["low", "低：最快、最省"], ["medium", "中"], ["high", "高"], ["xhigh", "很高"], ["max", "最高：最慢、最贵"]];
 const aiModelCache = new Map(); // 服务商 + 协议 + 地址 → { models, warning, source }
-/* 和后端 ai.KeyWarning 同一条规则：前缀对不上当前地址就提醒，不拦截。认不出的前缀不提醒。 */
+/* 和后端 ai.KeyWarning 同一条规则：前缀对不上当前地址就提醒，不拦截。认不出的前缀不提醒。
+   只比主机名：Key 绑定的是域名，地址后面多一截路径不算对不上（和后端 sameHost 一致）。 */
 function keyWarn(p, url, key) {
   if (!p || !p.keyHints || !key) return "";
   let best = null, bestLen = 0;
@@ -3802,12 +3803,16 @@ function keyWarn(p, url, key) {
     if (px && key.startsWith(px) && px.length > bestLen) { best = h; bestLen = px.length; }
   }
   if (!best) return "";
-  const hit = (best.urls || []).some(u => sameEndpoint(u, url));
+  const hit = (best.urls || []).some(u => sameHost(u, url));
   return hit ? "" : (best.note || "");
 }
+function sameHost(a, b) {
+  try { return new URL(a).hostname.toLowerCase() === new URL(b).hostname.toLowerCase(); } catch { return false; }
+}
+/* 和后端 Preset.matchURL 一致：协议、主机、路径都一样（末尾斜杠不算）。用来认出预设里另一种协议的地址（MiMo 的 /anthropic）。 */
 function sameEndpoint(a, b) {
   try {
-    const x = new URL(a), y = new URL(b);
+    const x = new URL(a.trim()), y = new URL(b.trim());
     const path = u => u.pathname.replace(/\/+$/, "");
     return x.protocol === y.protocol && x.host.toLowerCase() === y.host.toLowerCase() && path(x) === path(y);
   } catch { return false; }
@@ -3851,8 +3856,8 @@ function drawAI(body, v, gen) {
         right: `<select id="ai-preset" aria-label="服务商"${dis}>${saved.preset ? "" : opt("", "未选择", "")}${v.presets.map(p => opt(p.id, p.name, saved.preset)).join("")}</select>` }) +
       riRow({ ico: "plug", title: "协议", sub: "自定义地址用哪种接口协议", cls: "ai-proto-row",
         right: `<select id="ai-proto" aria-label="协议"${dis}>${opt("openai", "OpenAI 兼容", saved.protocol)}${opt("anthropic", "Claude（Anthropic）", saved.protocol)}</select>` }) +
-      riRow({ ico: "key", title: "鉴权", sub: "自定义地址把 Key 放在哪个请求头。Bearer 最常见；有的服务商（如小米 MiMo）两种都认。", cls: "ai-auth-row",
-        right: `<select id="ai-auth" aria-label="鉴权"${dis}>${opt("bearer", "Bearer", saved.auth || "bearer")}${opt("api-key", "api-key 请求头", saved.auth || "bearer")}${opt("both", "两个都发", saved.auth || "bearer")}</select>` }) +
+      riRow({ ico: "key", title: "鉴权", sub: `<span id="ai-auth-sub"></span>`, cls: "ai-auth-row",
+        right: `<select id="ai-auth" aria-label="鉴权"${dis}>${opt("", "默认", saved.auth || "")}${opt("bearer", "只发 Bearer", saved.auth || "")}${opt("api-key", "只发 api-key", saved.auth || "")}${opt("both", "都发", saved.auth || "")}</select>` }) +
       riRow({ ico: "sparkle", title: "思考回传", sub: `<span id="ai-echo-sub">收到过思考内容就原样传回。对方不认这个字段时，自动会去掉再试一次。</span>`, cls: "ai-echo-row",
         right: `<select id="ai-echo" aria-label="思考回传"${dis}>${opt("auto", "自动", saved.echo || "auto")}${opt("on", "总是回传", saved.echo || "auto")}${opt("off", "不回传", saved.echo || "auto")}</select>` }) +
       riRow({ ico: "globe", title: "接口地址", sub: `<span id="ai-url-sub"></span>`,
@@ -3860,7 +3865,7 @@ function drawAI(body, v, gen) {
       riRow({ ico: "key", title: "API Key", sub: `<span id="ai-key-sub"></span>`,
         field: `<input type="password" id="ai-key" autocomplete="off" aria-label="API Key"${dis}><button class="btn ghost" id="ai-key-clear"${dis} hidden>清除</button>` }) +
       riRow({ ico: "package", title: "模型", sub: `<span id="ai-model-sub">可以手填。点右边的箭头：没拉过就去拉，拉过就列出全部，上面可以搜索。</span>`,
-        field: `<div class="ai-combo" id="ai-combo"><input type="text" id="ai-model" role="combobox" aria-expanded="false" aria-controls="ai-model-list" aria-autocomplete="list" aria-haspopup="listbox" spellcheck="false" autocomplete="off" value="${esc(saved.model)}" aria-label="模型"${dis}><button type="button" class="ai-combo-btn" id="ai-model-btn" aria-label="展开模型列表" aria-haspopup="listbox"${dis}>${icon("chevronDown")}</button><div class="ai-combo-pop" id="ai-model-pop" hidden><input type="text" id="ai-model-q" placeholder="搜索模型" aria-label="搜索模型" autocomplete="off"><div id="ai-model-list" role="listbox" aria-label="模型"></div><div class="ai-combo-msg" id="ai-model-msg"></div></div></div><button class="btn" id="ai-list"${dis}>${icon("refresh")} 刷新</button>`,
+        field: `<div class="ai-combo" id="ai-combo"><input type="text" id="ai-model" role="combobox" aria-expanded="false" aria-controls="ai-model-list" aria-autocomplete="list" aria-haspopup="listbox" spellcheck="false" autocomplete="off" value="${esc(saved.model)}" aria-label="模型"${dis}><button type="button" class="ai-combo-btn" id="ai-model-btn" aria-label="展开模型列表" aria-haspopup="listbox"${dis}>${icon("chevronDown")}</button><div class="ai-combo-pop" id="ai-model-pop" hidden><input type="text" id="ai-model-q" placeholder="搜索模型" aria-label="搜索模型" aria-controls="ai-model-list" autocomplete="off"${dis}><div id="ai-model-list" role="listbox" aria-label="模型"></div><div class="ai-combo-msg" id="ai-model-msg"></div></div></div><button class="btn" id="ai-list" aria-label="重新获取模型列表" title="重新获取模型列表"${dis}>${icon("refresh")} 刷新</button>`,
         after: `<div class="field-err ri-err" id="ai-model-err"></div>` }) +
       riRow({ ico: "bolt", title: "思考深度", sub: "只对 Claude 有效：越深越慢、越贵（claude-opus-5-5 默认是「中」）", cls: "ai-effort-row",
         right: `<select id="ai-effort" aria-label="思考深度"${dis}>${AI_EFFORTS.map(([val, label]) => opt(val, label, saved.effort)).join("")}</select>` }),
@@ -3891,7 +3896,14 @@ function drawAI(body, v, gen) {
   const siteOf = u => { try { const x = new URL(u.trim()); return /^https?:$/.test(x.protocol) ? x.origin : ""; } catch { return ""; } };
   // 换了服务商，或者地址换到了别的网站：保存后已存的 Key 会清掉（不发给别的网站）；同一网站只改路径或协议，Key 照旧
   const keyGone = () => f.preset.value !== saved.preset || !siteOf(f.url.value) || siteOf(f.url.value) !== siteOf(saved.baseUrl);
-  const protoNow = () => (cur() ? (cur().id === "custom" ? f.proto.value : cur().protocol) : "");
+  // 当前地址用的协议：自定义看下拉框；预设先看地址是不是某一条声明了另一种协议的可选地址（MiMo 的 /anthropic），和后端 matchURL 一致
+  const protoNow = () => {
+    const p = cur();
+    if (!p) return "";
+    if (p.id === "custom") return f.proto.value;
+    const alt = (p.altUrls || []).find(a => a.protocol && sameEndpoint(a.url, f.url.value));
+    return alt ? alt.protocol : p.protocol;
+  };
   const paintStatus = () => {
     const p = P[saved.preset];
     $("#ai-status").innerHTML = v.enabled
@@ -3907,8 +3919,11 @@ function drawAI(body, v, gen) {
     body.querySelector(".ai-auth-row").hidden = !custom;
     body.querySelector(".ai-echo-row").hidden = !custom;
     body.querySelector(".ai-effort-row").hidden = protoNow() !== "anthropic";
-    const echoSub = { auto: "收到过思考内容就原样传回。对方不认这个字段时，去掉再试一次。", on: "每次都带回思考内容。工具调用那一轮即使没收到，也补一个空的，避免思考模式 400。", off: "不传思考内容。有的思考模型在多轮工具调用时会因此 400。" };
+    const echoSub = { auto: "收到过思考内容就原样传回。对方不认这个字段时，去掉再试一次，之后就不再带。", on: "每次都带回思考内容。工具调用那一轮即使没收到，也补一个空的，避免思考模式 400。", off: "不传思考内容。有的思考模型在多轮工具调用时会因此 400。" };
     $("#ai-echo-sub").textContent = echoSub[f.echo.value] || echoSub.auto;
+    $("#ai-auth-sub").textContent = protoNow() === "anthropic"
+      ? "Key 放在哪个请求头。默认发 x-api-key，中转另带一个 Authorization: Bearer。"
+      : "Key 放在哪个请求头。默认发 Authorization: Bearer；有的服务商（如小米 MiMo）还认 api-key。";
     $("#ai-note").innerHTML = p ? esc(p.note) : "先选一家；只是填写模板，不代表推荐";
     $("#ai-alts").innerHTML = p && p.altUrls ? p.altUrls.map(a => `<button class="btn sm ghost" type="button" data-alt="${esc(a.url)}"${dis}>换成${esc(a.label)}</button>`).join("") : "";
     $("#ai-alts").querySelectorAll("[data-alt]").forEach(b => b.onclick = () => { f.url.value = b.dataset.alt; f.url.dispatchEvent(new Event("input", { bubbles: true })); });
@@ -4003,7 +4018,7 @@ function drawAI(body, v, gen) {
     if (!p) return;
     f.url.value = p.id === "custom" ? (saved.preset === "custom" ? saved.baseUrl : "") : p.baseUrl;
     f.model.value = p.id === saved.preset ? saved.model : (p.model || "");
-    if (p.id === "custom" && saved.preset !== "custom") { f.proto.value = "openai"; f.auth.value = "bearer"; f.echo.value = "auto"; }
+    if (p.id === "custom" && saved.preset !== "custom") { f.proto.value = "openai"; f.auth.value = ""; f.echo.value = "auto"; }
     closeModelPop();
     paintForm();
   };
@@ -4055,7 +4070,7 @@ function drawAI(body, v, gen) {
 
   // 模型框：手填 + 自己的箭头。列表按「服务商 + 协议 + 地址」缓存。点箭头时没有缓存就去拉。
   const pop = $("#ai-model-pop"), listEl = $("#ai-model-list"), qEl = $("#ai-model-q"), msgEl = $("#ai-model-msg"), errEl = $("#ai-model-err");
-  let modelPack = null, active = -1;
+  let modelPack = null, active = -1, modelSeq = 0;
   const modelKey = () => [f.preset.value, protoNow(), f.url.value.trim()].join("\n");
   const setExpanded = on => { f.model.setAttribute("aria-expanded", on ? "true" : "false"); pop.hidden = !on; };
   function closeModelPop() { setExpanded(false); active = -1; f.model.removeAttribute("aria-activedescendant"); }
@@ -4087,8 +4102,11 @@ function drawAI(body, v, gen) {
   function paintActive() {
     const opts = [...listEl.querySelectorAll(".ai-opt")];
     opts.forEach((b, i) => b.classList.toggle("active", i === active));
-    if (active >= 0 && opts[active]) { f.model.setAttribute("aria-activedescendant", opts[active].id); opts[active].scrollIntoView({ block: "nearest" }); }
-    else f.model.removeAttribute("aria-activedescendant");
+    // 当前项挂在有焦点的那个输入框上（弹出后焦点在搜索框），读屏软件才读得到
+    const host = document.activeElement === qEl ? qEl : f.model;
+    for (const el of [f.model, qEl]) if (el !== host) el.removeAttribute("aria-activedescendant");
+    if (active >= 0 && opts[active]) { host.setAttribute("aria-activedescendant", opts[active].id); opts[active].scrollIntoView({ block: "nearest" }); }
+    else host.removeAttribute("aria-activedescendant");
   }
   function pickModel(id) { f.model.value = id; f.model.dispatchEvent(new Event("input", { bubbles: true })); closeModelPop(); f.model.focus(); }
   function moveActive(d) {
@@ -4120,23 +4138,28 @@ function drawAI(body, v, gen) {
     showModelErr(null);
     const btn = $("#ai-model-btn");
     btn.disabled = true;
+    const seq = ++modelSeq; // 箭头和「刷新」连着点、或者拉的时候改了地址：只认最后一次
     try {
-      modelPack = await loadModels(force);
-      if (stale(gen) || pop.hidden) return;
+      const pack = await loadModels(force);
+      if (stale(gen) || seq !== modelSeq || pop.hidden) return;
+      modelPack = pack;
       showModelErr(null);
       const curId = f.model.value.trim();
       active = Math.max(0, (modelPack.models || []).findIndex(m => m.id === curId));
+      qEl.focus();
       renderModelList("");
       $("#ai-model-sub").textContent = modelPack.warning || (modelPack.models.length ? `已有 ${modelPack.models.length} 个模型，也可以直接填写` : "没有拉到模型，请直接填写模型名");
-      qEl.focus();
     } catch (e) {
-      if (stale(gen)) return;
+      if (stale(gen) || seq !== modelSeq) return;
       showModelErr(e);
+      if (pop.hidden) return;
       modelPack = suggestedPack("列表没拉到，下面是预设里的建议，也可以直接填写。");
-      if (modelPack.models.length) { active = 0; renderModelList(""); }
+      if (modelPack.models.length) { active = 0; qEl.focus(); renderModelList(""); }
       else { msgEl.textContent = "列表没拉到，请直接填写模型名"; listEl.innerHTML = ""; }
+    } finally {
+      // 拉的时候弹层被关掉（点了别处、按了 Esc）也要恢复箭头，不然它一直灰着
+      if (!stale(gen) && seq === modelSeq) btn.disabled = ro;
     }
-    btn.disabled = ro;
   }
   $("#ai-model-btn").onclick = () => { if (!pop.hidden) closeModelPop(); else openModelPop(false); };
   $("#ai-list").onclick = () => openModelPop(true);
@@ -4155,6 +4178,7 @@ function drawAI(body, v, gen) {
     }
   };
   f.model.addEventListener("keydown", onComboKey);
+  $("#ai-model-btn").addEventListener("keydown", e => { if (e.key === "Escape" && !pop.hidden) { e.preventDefault(); e.stopPropagation(); closeModelPop(); f.model.focus(); } });
   qEl.addEventListener("keydown", onComboKey);
   if (window.__aiModelAway) document.removeEventListener("pointerdown", window.__aiModelAway);
   window.__aiModelAway = e => {
