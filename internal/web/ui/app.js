@@ -4079,9 +4079,9 @@ function showOnboarding(info) {
     <div class="m-body">
       <div class="ob-sec" style="margin-top:0"><div class="ob-label">用户协议与免责声明</div>
         <div class="ob-terms">
-          MineDeck 是开源、非营利的 Minecraft Java 版开服辅助工具。它只从 Mojang、PaperMC 等官方公开渠道下载服务端，并在你的电脑上配好运行环境。<b>不包含、也不分发游戏客户端，不修改游戏本身，也不破解正版验证</b>。
+          MineDeck 是开源、免费的 Minecraft Java 版开服辅助工具。它只从 Mojang、PaperMC 等官方公开渠道下载服务端，并在你的电脑上配好运行环境。<b>不包含、也不分发游戏客户端，不修改游戏本身，也不破解正版验证</b>。
           <ol>
-            <li><b>非官方产品</b>：本工具由社区独立开发，与 Mojang Studios、Microsoft 及网易（中国版《我的世界》运营方）均无任何隶属、合作或授权关系。NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT. "Minecraft" 及相关商标归 Mojang / Microsoft 所有。</li>
+            <li><b>非官方产品</b>：本工具为独立开源项目（由随迹提供维护支持），与 Mojang Studios、Microsoft 及网易（中国版《我的世界》运营方）均无任何隶属、合作或授权关系。NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT. "Minecraft" 及相关商标归 Mojang / Microsoft 所有。</li>
             <li><b>遵守官方条款</b>：使用本工具搭建与运行服务器，须遵守 <b>Minecraft EULA</b> 与 Microsoft 服务协议；如你使用网易代理的中国版《我的世界》账号或内容，请另行遵守网易的用户协议（两套账号体系互不相通，本工具仅面向国际 Java 版服务端）。</li>
             <li><b>正版建议</b>：建议使用正版 Mojang / Microsoft 账号并开启正版验证联机。是否使用离线模式由你自行决定并自行承担相应后果，本工具不提供任何绕过正版验证的功能。</li>
             <li><b>对外服务责任自负</b>：通过内网穿透等方式向他人开放服务器时，你是该服务器的运营者，须自行遵守所在地法律法规（含网络安全与未成年人保护相关规定），并对服务器内容与运营行为负责。</li>
