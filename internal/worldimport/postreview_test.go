@@ -2,9 +2,11 @@ package worldimport
 
 import (
 	"archive/zip"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -791,5 +793,228 @@ func TestCancelOnlyByOwnerBeforeBoundary(t *testing.T) {
 	idCh <- id
 	if _, msg := e.wait(id); msg != "" || other {
 		t.Errorf("别人的取消不该生效：返回 %v，任务 %q", other, msg)
+	}
+}
+
+// ---------- 合并复审第 6 条、访问控制第 2 条：空间的算术不溢出，暂存和上传看磁盘余量 ----------
+
+// lyingZip 一张正常的地图，外加一个申报得巨大的文件（实际内容只有几个字节）。
+func lyingZip(t *testing.T, e *env, declared int64) string {
+	t.Helper()
+	src := filepath.Join(e.tmp, "lying-src")
+	if err := wt.Legacy(src, wt.WorldOpts{Level: lv("1.20.4", 3700), Tag: "L", Overworld: true}); err != nil {
+		t.Fatal(err)
+	}
+	var entries []wt.ZipEntry
+	err := filepath.WalkDir(src, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, _ := filepath.Rel(src, p)
+		body, err := os.ReadFile(p)
+		entries = append(entries, wt.ZipEntry{Name: "map/" + filepath.ToSlash(rel), Body: body})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries = append(entries, wt.ZipEntry{Name: "map/region/r.9.9.mca", Body: []byte("tiny"), DeclaredSize: declared})
+	z := filepath.Join(e.tmp, fmt.Sprintf("lying-%d.zip", declared))
+	if err := wt.WriteZip(z, entries, wt.ZipOpts{}); err != nil {
+		t.Fatal(err)
+	}
+	return z
+}
+
+func TestNeedWithReserveDoesNotOverflow(t *testing.T) {
+	for _, c := range []struct{ n, reserve, want int64 }{
+		{0, 256 << 20, 256 << 20},
+		{10 << 30, 256 << 20, 10<<30 + 256<<20},
+		{math.MaxInt64, 256 << 20, math.MaxInt64},
+		{math.MaxInt64 - 100, 256 << 20, math.MaxInt64},
+		{math.MaxInt64 - 256<<20, 256 << 20, math.MaxInt64},
+		{-1, 256 << 20, math.MaxInt64}, // 负数本身就不对，按放不下算
+	} {
+		if got := needWithReserve(c.n, c.reserve); got != c.want || got < 0 {
+			t.Errorf("needWithReserve(%d, %d) = %d，应为 %d", c.n, c.reserve, got, c.want)
+		}
+	}
+}
+
+// 压缩包申报的大小加起来接近 MaxInt64 时，「要多少空间」不能溢出成负数把空间检查绕过去。
+func TestHugeDeclaredSizeCannotBypassSpaceCheck(t *testing.T) {
+	e := newEnv(t, "")
+	// 默认：申报的合计超过上限，检测时就整份拦下
+	r := scanOf(t, lyingZip(t, e, math.MaxInt64-(1<<20)))
+	if r.Kind != KindUnknown || issueCodes(r.Issues) != "bad-size" || len(r.Candidates) != 0 {
+		t.Errorf("申报大得离谱的包应当在检测时拦下：kind=%s issues=%s", r.Kind, issueCodes(r.Issues))
+	}
+	// 就算没有那道上限（这里把它放开来测），做计划时算出来的需要空间也不能是负数，空间不够照样拦
+	old := maxZipDeclaredBytes
+	t.Cleanup(func() { maxZipDeclaredBytes = old })
+	maxZipDeclaredBytes = math.MaxInt64
+	p := e.plan(lyingZip(t, e, math.MaxInt64-(8<<20)))
+	if p.NeedBytes <= 0 {
+		t.Errorf("需要的空间溢出了：%d", p.NeedBytes)
+	}
+	if !p.Blocked || !strings.Contains(strings.Join(codes(p.Issues), ","), "disk-full") {
+		t.Errorf("空间不够应当拦下：blocked=%v issues=%v need=%d free=%d", p.Blocked, codes(p.Issues), p.NeedBytes, p.FreeBytes)
+	}
+	if _, err := e.s.Execute(me, ExecReq{PlanID: p.ID, Confirm: "replace", Acknowledge: true}); err == nil {
+		t.Error("被拦下的计划不该执行得了")
+	}
+}
+
+// 做计划时空间够、点确认时不够了（隔了很久，或者别的导入占掉了）：开始复制之前再查一遍，不够就不动。
+func TestStagingRechecksFreeSpace(t *testing.T) {
+	e := newEnv(t, "")
+	src := filepath.Join(e.tmp, "B")
+	if err := wt.Legacy(src, wt.WorldOpts{Level: lv("1.20.4", 3700), Tag: "B", Overworld: true}); err != nil {
+		t.Fatal(err)
+	}
+	low := false
+	old := diskFree
+	diskFree = func(string) (int64, error) {
+		if low {
+			return stageReserve / 2, nil
+		}
+		return 1 << 40, nil
+	}
+	t.Cleanup(func() { diskFree = old })
+	p := e.plan(src)
+	if p.Blocked {
+		t.Fatalf("准备阶段：空间够的时候计划不该被拦：%v", codes(p.Issues))
+	}
+	low = true
+	id, err := e.s.Execute(me, ExecReq{PlanID: p.ID, Confirm: "replace", Acknowledge: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, msg := e.wait(id); !strings.Contains(msg, "磁盘空间不够") || !strings.Contains(msg, "没有替换任何文件") {
+		t.Errorf("开始复制前空间不够应当放弃：%q", msg)
+	}
+	if got := e.marker("world/region/r.0.0.mca"); got != "MARK:minecraft:overworld:OLD" {
+		t.Errorf("放弃以后原来的世界不该动：%s", got)
+	}
+	if at := findWorldTag(t, e.dir, "B"); len(at) != 0 {
+		t.Errorf("放弃以后不该留下暂存的文件：%v", at)
+	}
+	// 查不到剩余空间的盘不拦，但做计划时要说一声
+	low = false
+	diskFree = func(string) (int64, error) { return 0, errors.New("这个盘查不了") }
+	p = e.plan(src)
+	if p.Blocked || !strings.Contains(strings.Join(codes(p.Issues), ","), "disk-unknown") {
+		t.Errorf("查不到剩余空间时不拦、但要提醒：blocked=%v issues=%v", p.Blocked, codes(p.Issues))
+	}
+}
+
+// 上传：同时传的有名额，写之前和写的过程中都看放缓存的盘还剩多少。
+func TestUploadGuards(t *testing.T) {
+	newEnv(t, "")
+	old := diskFree
+	t.Cleanup(func() { diskFree = old })
+	uploads := func() int {
+		ents, _ := os.ReadDir(UploadDir())
+		return len(ents)
+	}
+
+	// 盘的余量放不下对方说的大小再多出留底的：一个字节都不收
+	diskFree = func(string) (int64, error) { return uploadReserve + 100, nil }
+	if _, err := SaveUpload(strings.NewReader("data"), 1<<20, 4096); !errors.Is(err, ErrUploadNoSpace) {
+		t.Errorf("余量不够应当拒收：%v", err)
+	}
+	if uploads() != 0 {
+		t.Error("拒收以后不该留下文件")
+	}
+	// 够的时候照常收下
+	diskFree = func(string) (int64, error) { return 1 << 40, nil }
+	dest, err := SaveUpload(strings.NewReader("data"), 1<<20, 4)
+	if err != nil || read(t, dest) != "data" {
+		t.Fatalf("余量够的时候应当收下：%v", err)
+	}
+	// 超过单个文件的上限照旧
+	if _, err := SaveUpload(strings.NewReader("123456"), 5, 6); !errors.Is(err, ErrUploadTooLarge) {
+		t.Errorf("超过上限：%v", err)
+	}
+	// 名额占满时直接拒绝，放掉以后又能传
+	for i := 0; i < cap(uploadSlots); i++ {
+		uploadSlots <- struct{}{}
+	}
+	_, err = SaveUpload(strings.NewReader("data"), 1<<20, 4)
+	for i := 0; i < cap(uploadSlots); i++ {
+		<-uploadSlots
+	}
+	if !errors.Is(err, ErrUploadBusy) {
+		t.Errorf("名额占满应当拒绝：%v", err)
+	}
+	if _, err := SaveUpload(strings.NewReader("data"), 1<<20, 4); err != nil {
+		t.Errorf("名额放掉以后应当能传：%v", err)
+	}
+	if len(uploadSlots) != 0 {
+		t.Errorf("传完名额应当都还回去：还占着 %d 个", len(uploadSlots))
+	}
+
+	// 写的过程中余量掉到留底以下就停：对方说的大小可以是假的
+	free := int64(1 << 40)
+	diskFree = func(string) (int64, error) { return free, nil }
+	sw := &spaceWriter{w: io.Discard, dir: UploadDir()}
+	chunk := make([]byte, 16<<20)
+	var werr error
+	for i := 0; i < 12 && werr == nil; i++ {
+		if i == 5 {
+			free = uploadReserve - 1
+		}
+		_, werr = sw.Write(chunk)
+	}
+	if !errors.Is(werr, ErrUploadNoSpace) {
+		t.Errorf("写的过程中余量不够应当停下：%v", werr)
+	}
+}
+
+// 上传文件的清理：还有效的检测结果用着的文件，放得再久也不删；放弃了就删；程序启动时清空上传目录。
+func TestUploadCleanupFollowsScanLifetime(t *testing.T) {
+	e := newEnv(t, "")
+	zipPath := mkZip(t, map[string]string{"w/level.dat": rawNBT(8), "w/region/r.0.0.mca": "x"})
+	body, err := os.ReadFile(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest, err := SaveUpload(bytes.NewReader(body), 1<<20, int64(len(body)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc, err := e.s.ScanUpload(me, dest, "map.zip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 文件是五个小时以前传的，检测结果还有效（做计划会把它的有效期往后顺延）
+	longAgo := time.Now().Add(-5 * time.Hour)
+	if err := os.Chtimes(dest, longAgo, longAgo); err != nil {
+		t.Fatal(err)
+	}
+	orphan := filepath.Join(UploadDir(), "u-orphan.upload")
+	if err := os.WriteFile(orphan, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chtimes(orphan, longAgo, longAgo)
+	e.s.sweep()
+	if !exists(dest) {
+		t.Error("检测结果还有效，它用着的上传文件不该被清掉")
+	}
+	if exists(orphan) {
+		t.Error("没人认领、又放了很久的上传文件应当清掉")
+	}
+	e.s.Discard(me, sc.ID)
+	if exists(dest) {
+		t.Error("放弃检测结果以后，上传的文件应当删掉")
+	}
+	// 程序启动时：上传目录里剩下的都没人认领了，清空
+	left := filepath.Join(UploadDir(), "u-left.upload")
+	if err := os.WriteFile(left, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.s.clearUploads()
+	if exists(left) {
+		t.Error("启动时应当清空上传目录")
 	}
 }

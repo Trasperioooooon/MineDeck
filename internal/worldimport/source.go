@@ -347,6 +347,11 @@ var maxZipDirBytes int64 = 64 << 20
 
 var errZipDirTooBig = errors.New("压缩包的文件清单太大")
 
+// maxZipDeclaredBytes 压缩包里各文件申报的大小加起来最多多少。申报的大小是包里自己写的，不可信：
+// 以前只防加起来溢出，合计可以到 MaxInt64，后面算「要多少空间」时再加上余量就溢出成负数，空间不够的检查放行
+// （2026-11-14 Codex 合并复审第 6 条）。1 TiB 远大于任何真的地图。做成变量是为了测试能调小。
+var maxZipDeclaredBytes int64 = 1 << 40
+
 // budgetReaderAt 打开 ZIP 的这段时间里数着读了多少字节，超过预算就报错；打开完成以后放开，读文件内容不受它限制。
 type budgetReaderAt struct {
 	r       io.ReaderAt
@@ -432,8 +437,10 @@ func openZip(p string) (*source, error) {
 				Detail: fmt.Sprintf("%s：方式 %d", f.Name, f.Method)})
 		}
 		size := int64(f.UncompressedSize64)
-		if size < 0 || total+size < total {
-			return fail(&sourceErr{Kind: KindUnknown, Code: "bad-size", Msg: "压缩包里记的文件大小不对，这个包被改过或者坏了", Detail: f.Name})
+		if size < 0 || size > maxZipDeclaredBytes-total {
+			return fail(&sourceErr{Kind: KindUnknown, Code: "bad-size",
+				Msg:    fmt.Sprintf("压缩包里记的文件大小不对（加起来超过 %s），这个包被改过或者坏了", fmtBytes(maxZipDeclaredBytes)),
+				Detail: f.Name})
 		}
 		total += size
 		k := winname.Fold(rel)

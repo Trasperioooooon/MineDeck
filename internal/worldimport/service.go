@@ -271,9 +271,13 @@ func (s *Service) sweep() {
 			delete(s.claims, id)
 		}
 	}
-	inUse := map[string]bool{} // 正在用的上传文件（钉住的检测结果都还在缓存里，见 dropScanLocked）：放久了也不删
+	// 还有人用的上传文件，放久了也不删：钉住的检测结果（导入、建服任务正用着，见 dropScanLocked），
+	// 以及所有还没过期、没被放弃的检测结果。后一种以前不算：反复重做计划会把检测结果的有效期往后顺延，
+	// 文件却只按上传的时间算，三个多小时以后别人的一次检测就会把它删掉，仍然有效的计划指向一个没了的文件
+	// （2026-11-14 Codex 合并复审第 7 条）
+	inUse := map[string]bool{}
 	for _, r := range s.scans {
-		if r.pins > 0 {
+		if r.Source.Uploaded && (r.pins > 0 || !r.dropped) {
 			inUse[strings.ToLower(filepath.Base(r.Source.Path))] = true
 		}
 	}
@@ -476,18 +480,23 @@ func (s *Service) evaluate(ctx context.Context, r *scanResult, info *candInfo, t
 			}
 		}
 	}
-	// 空间：暂存一份新地图，加 256 MB 余量；旧世界是改名移走的，不再占一份
-	p.NeedBytes = c.Bytes + 256<<20
+	// 空间：暂存一份新地图，加上余量；旧世界是改名移走的，不再占一份。
+	// 加法按不溢出的算：压缩包申报的大小不可信，合计大到加上余量会溢出成负数的话，以前这里的检查就放行了
+	p.NeedBytes = needWithReserve(c.Bytes, stageReserve)
 	root := t.Dir
 	if root == "" {
 		root = app.ServersRoot()
 	}
-	if free, err := app.DiskFree(root); err == nil {
-		p.FreeBytes = int64(free)
+	if free, err := diskFree(root); err == nil {
+		p.FreeBytes = free
 		if p.NeedBytes > p.FreeBytes {
 			p.Issues = append(p.Issues, Issue{Sev: SevBlock, Code: "disk-full",
 				Msg: fmt.Sprintf("磁盘空间不够：这张地图要 %s，服务器所在的盘只剩 %s", fmtBytes(p.NeedBytes), fmtBytes(p.FreeBytes))})
 		}
+	} else {
+		// 查不到剩余空间不拦（有的盘就是查不了），但要说一声；开始复制时还会按文件再查
+		p.Issues = append(p.Issues, Issue{Sev: SevWarn, Code: "disk-unknown",
+			Msg: fmt.Sprintf("没能查到服务器所在的盘还剩多少空间。这张地图要 %s，请自己确认放得下", fmtBytes(p.NeedBytes))})
 	}
 	for _, is := range p.Issues {
 		switch is.Sev {
@@ -1356,6 +1365,12 @@ func (s *Service) DeletePoint(name, txID, confirm string) error {
 // RecoverAll 程序启动时调（在任何导入开始之前）：处理每台服务器没走完的换地图记录，处理好了解除启动封锁；
 // 暂存到一半就退出的（没碰目标世界，也没封锁启动），顺手把暂存区清掉。
 func (s *Service) RecoverAll() {
+	s.clearUploads()
+	go func() { // 之后定时清一遍：以前只在有人检测时才清，关掉页面以后过期的上传文件一直留着
+		for range time.Tick(sweepEvery) {
+			s.sweep()
+		}
+	}()
 	blocked := s.M.WorldBlocked()
 	for _, i := range s.M.List() {
 		_, isBlocked := blocked[i.Name]
@@ -1434,18 +1449,64 @@ func errString(err error) string {
 	return err.Error()
 }
 
+// sweepEvery 多久清一遍过期的检测结果和上传文件。
+const sweepEvery = 30 * time.Minute
+
+// clearUploads 程序启动时清空上传目录。检测结果只存在内存里，重启以后上传目录里的文件没有一个还有人认领；
+// 以前要等下次有人检测、并且放满三个多小时才清，一个文件最大 8 GB。
+func (s *Service) clearUploads() {
+	ents, err := os.ReadDir(UploadDir())
+	if err != nil {
+		return
+	}
+	for _, e := range ents {
+		if !e.IsDir() {
+			_ = os.Remove(filepath.Join(UploadDir(), e.Name()))
+		}
+	}
+}
+
+// 上传的保护（2026-11-14 Codex 访问控制复审第 2 条）。以前只限单个文件的大小：同时传几个、盘本来就快满，
+// 都能把放缓存的盘写满，盘满的时候同一个盘上别的东西也写不进去。做成变量是为了测试能调。
+var (
+	// uploadSlots 同时最多有几个地图在上传。
+	uploadSlots = make(chan struct{}, 2)
+	// uploadReserve 上传时给放缓存的盘留的余量。
+	uploadReserve int64 = 1 << 30
+)
+
+// ErrUploadTooLarge 上传超过上限。
+var ErrUploadTooLarge = errors.New("上传的文件太大")
+
+// ErrUploadBusy 同时上传的太多。
+var ErrUploadBusy = errors.New("同时上传的地图太多了，等前一个传完再试")
+
+// ErrUploadNoSpace 放上传文件的盘余量不够。
+var ErrUploadNoSpace = errors.New("放上传文件的盘空间不够")
+
 // SaveUpload 把上传流写进上传目录（流式，不过系统临时目录），超过 limit 就停。返回落盘的路径。
-func SaveUpload(r io.Reader, limit int64) (string, error) {
+// expect 是对方说的大小（请求头里的长度，不知道填 0）：开始写之前，盘的余量要放得下它再多出 uploadReserve；
+// 写的过程中每写一段再看一眼余量，掉到 uploadReserve 以下就停。
+func SaveUpload(r io.Reader, limit, expect int64) (string, error) {
+	select {
+	case uploadSlots <- struct{}{}:
+		defer func() { <-uploadSlots }()
+	default:
+		return "", ErrUploadBusy
+	}
 	dir := UploadDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
+	}
+	if free, err := diskFree(dir); err == nil && free < needWithReserve(max(expect, 0), uploadReserve) {
+		return "", fmt.Errorf("%w（只剩 %s）", ErrUploadNoSpace, fmtBytes(free))
 	}
 	dest := filepath.Join(dir, newID("u")+".upload")
 	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return "", err
 	}
-	n, cerr := io.Copy(f, io.LimitReader(r, limit+1))
+	n, cerr := io.Copy(&spaceWriter{w: f, dir: dir}, io.LimitReader(r, limit+1))
 	if werr := f.Close(); cerr == nil {
 		cerr = werr
 	}
@@ -1459,8 +1520,22 @@ func SaveUpload(r io.Reader, limit int64) (string, error) {
 	return dest, nil
 }
 
-// ErrUploadTooLarge 上传超过上限。
-var ErrUploadTooLarge = errors.New("上传的文件太大")
+// spaceWriter 每写满一段（64 MiB）看一眼盘的余量，掉到 uploadReserve 以下就报 ErrUploadNoSpace。
+type spaceWriter struct {
+	w     io.Writer
+	dir   string
+	since int64
+}
+
+func (s *spaceWriter) Write(p []byte) (int, error) {
+	if s.since += int64(len(p)); s.since >= 64<<20 {
+		s.since = 0
+		if free, err := diskFree(s.dir); err == nil && free < uploadReserve {
+			return 0, fmt.Errorf("%w（只剩 %s）", ErrUploadNoSpace, fmtBytes(free))
+		}
+	}
+	return s.w.Write(p)
+}
 
 // sameOrInside a 是不是 b 本身或者在 b 里面（按真实路径、不分大小写比）。
 func sameOrInside(a, b string) bool {

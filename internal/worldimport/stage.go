@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"minedeck/internal/app"
 	"minedeck/internal/winname"
 )
 
@@ -74,16 +76,75 @@ func pathBase(rel string) string {
 	return rel
 }
 
+// stageReserve 暂存时给这个盘留的余量：复制每个文件之前，剩余空间要够放下它再多出这么多，不然就停。
+// 盘写满不只是这次导入失败：同一个盘上别的服务器正在存的世界、日志也会跟着写不进去。做成变量是为了测试能调。
+var stageReserve int64 = 256 << 20
+
+// diskFree 查一个路径所在的盘还剩多少。测试里换掉它。
+var diskFree = func(path string) (int64, error) {
+	n, err := app.DiskFree(path)
+	if err != nil {
+		return 0, err
+	}
+	if n > math.MaxInt64 {
+		return math.MaxInt64, nil
+	}
+	return int64(n), nil
+}
+
+// needWithReserve 要 n 字节、再留出余量，一共要多少；加法溢出时按最大算（不会变成负数）。
+func needWithReserve(n, reserve int64) int64 {
+	if n < 0 || n > math.MaxInt64-reserve {
+		return math.MaxInt64
+	}
+	return n + reserve
+}
+
+// errNoSpace 盘的余量不够。
+type errNoSpace struct{ need, free int64 }
+
+func (e *errNoSpace) Error() string {
+	return fmt.Sprintf("磁盘空间不够（还要 %s，只剩 %s），没有替换任何文件", fmtBytes(e.need), fmtBytes(e.free))
+}
+
+// checkSpace dir 所在的盘够不够放下 n 字节再留出余量。查不到剩余空间时不拦（返回 nil）：有的盘就是查不了，
+// 真写满了复制那一步会报错、清掉暂存。
+func checkSpace(dir string, n int64) error {
+	free, err := diskFree(dir)
+	if err != nil {
+		return nil
+	}
+	if need := needWithReserve(n, stageReserve); need > free {
+		return &errNoSpace{need: need, free: free}
+	}
+	return nil
+}
+
 // stageFiles 复制到 stageRoot（= <事务目录>/new）。progress(已复制字节, 总字节)。
 func stageFiles(ctx context.Context, src *source, files []stagedFile, stageRoot string, progress func(done, total int64)) error {
 	var total int64
 	for _, f := range files {
+		if f.e.size < 0 || f.e.size > math.MaxInt64-total {
+			return fmt.Errorf("地图里记的文件大小不对，没有替换任何文件")
+		}
 		total += f.e.size
+	}
+	// 开始之前按整张地图再查一遍余量：做计划时查过，但从预览到点确认可能隔了很久，别的导入也可能占掉了空间
+	if err := os.MkdirAll(stageRoot, 0o755); err != nil {
+		return diskErr(err)
+	}
+	if err := checkSpace(stageRoot, total); err != nil {
+		return err
 	}
 	buf := make([]byte, 1<<20)
 	var done int64
 	for _, f := range files {
 		if err := ctx.Err(); err != nil {
+			return err
+		}
+		// 每个文件之前再看一眼：压缩包里申报的大小不可信，单个文件最多写到它申报的那么大，
+		// 所以「剩余空间放得下它再多出余量」成立，这个文件就写不满盘
+		if err := checkSpace(stageRoot, f.e.size); err != nil {
 			return err
 		}
 		dst := filepath.Join(stageRoot, filepath.FromSlash(f.to))

@@ -80,12 +80,17 @@ func (s *Server) handleWorldUpload(w http.ResponseWriter, r *http.Request) {
 			}
 			// 落盘的名字自己起：上传名是对方给的，只拿来显示和认扩展名
 			name := filepath.Base(part.FileName())
-			dest, err := worldimport.SaveUpload(part, worldUploadLimit)
+			dest, err := worldimport.SaveUpload(part, worldUploadLimit, r.ContentLength)
 			part.Close()
 			if err != nil {
 				var big *http.MaxBytesError
-				if errors.Is(err, worldimport.ErrUploadTooLarge) || errors.As(err, &big) {
+				switch {
+				case errors.Is(err, worldimport.ErrUploadTooLarge) || errors.As(err, &big):
 					return nil, ops.Errorf(http.StatusRequestEntityTooLarge, "%s", worldTooLarge)
+				case errors.Is(err, worldimport.ErrUploadBusy):
+					return nil, ops.Errorf(http.StatusTooManyRequests, "%v", err)
+				case errors.Is(err, worldimport.ErrUploadNoSpace):
+					return nil, ops.Errorf(http.StatusInsufficientStorage, "运行 MineDeck 的电脑上%v，没有收下这个文件。请先腾出空间，或者在那台电脑上直接选地图文件夹导入", err)
 				}
 				return nil, ops.Errorf(500, "保存上传的文件失败：%w", err)
 			}
