@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 
 	"golang.org/x/sys/windows"
@@ -120,8 +121,45 @@ func checkSpace(dir string, n int64) error {
 	return nil
 }
 
+// stageSlot 暂存（把地图复制进服务器文件夹）的名额：整个程序同一时间只复制一张。
+//
+// 两台服务器同时导入时，以前各查各的磁盘余量、谁也不给谁留：还剩 10 GiB，两张各 6 GiB 的地图都通过检查，
+// 合起来却放不下，盘被写满，同一个盘上别的服务器正在存的世界也跟着写不进去（2026-11-14 Codex 第二轮复审阻挡项 6）。
+// 排成一个一个来以后，后一张查余量的时候，前一张占掉的空间已经算在里面了。按盘分别排队没有必要：
+// 同时导入两张地图本来就少见，而判断两个文件夹是不是在同一个盘上（联接、挂载点）本身容易错。
+// 上传走的是另一套名额（uploadSlots），和暂存在同一个盘上时互相没有协调，靠各自留的底。
+var stageSlot = make(chan struct{}, 1)
+
+// stageCheckEvery 复制一个文件的过程中，每写这么多字节看一次磁盘余量。做成变量是为了测试能调小。
+var stageCheckEvery int64 = 64 << 20
+
+// acquireStage 占上暂存的名额，返回放掉它的函数。要等的时候先调一次 onWait（给任务日志写一句）；
+// 等的过程中 ctx 取消了就不等了。
+func acquireStage(ctx context.Context, onWait func()) (release func(), err error) {
+	select {
+	case stageSlot <- struct{}{}:
+	default:
+		if onWait != nil {
+			onWait()
+		}
+		select {
+		case stageSlot <- struct{}{}:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	var once sync.Once
+	return func() { once.Do(func() { <-stageSlot }) }, nil
+}
+
 // stageFiles 复制到 stageRoot（= <事务目录>/new）。progress(已复制字节, 总字节)。
-func stageFiles(ctx context.Context, src *source, files []stagedFile, stageRoot string, progress func(done, total int64)) error {
+// 开始之前先占暂存的名额（见 stageSlot），要等的时候调一次 onWait；返回时放掉。
+func stageFiles(ctx context.Context, src *source, files []stagedFile, stageRoot string, progress func(done, total int64), onWait func()) error {
+	release, err := acquireStage(ctx, onWait)
+	if err != nil {
+		return err
+	}
+	defer release()
 	var total int64
 	for _, f := range files {
 		if f.e.size < 0 || f.e.size > math.MaxInt64-total {
@@ -154,7 +192,7 @@ func stageFiles(ctx context.Context, src *source, files []stagedFile, stageRoot 
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return diskErr(err)
 		}
-		if err := copyEntry(ctx, src, f.e, dst, buf); err != nil {
+		if err := copyEntry(ctx, src, f.e, dst, buf, stageRoot); err != nil {
 			return err
 		}
 		done += f.e.size
@@ -165,7 +203,9 @@ func stageFiles(ctx context.Context, src *source, files []stagedFile, stageRoot 
 	return nil
 }
 
-func copyEntry(ctx context.Context, src *source, e *entry, dst string, buf []byte) error {
+// spaceDir 是用来查磁盘余量的目录（暂存区）：一个文件写的过程中每隔 stageCheckEvery 看一次，
+// 余量掉到留底以下就停。复制之前查过「放得下这个文件」，但别的东西（上传、服务器自己存档）也在写同一个盘。
+func copyEntry(ctx context.Context, src *source, e *entry, dst string, buf []byte, spaceDir string) error {
 	rc, err := src.open(e)
 	if err != nil {
 		return fmt.Errorf("读不了来源里的 %s：%w", e.rel, err)
@@ -176,13 +216,17 @@ func copyEntry(ctx context.Context, src *source, e *entry, dst string, buf []byt
 		return diskErr(err)
 	}
 	// 按申报的大小最多读一个字节多：ZIP 里申报的大小不可信（炸弹），文件夹里的文件在复制时还可能在变
-	n, cerr := io.CopyBuffer(w, io.LimitReader(ctxReader{ctx, rc}, e.size+1), buf)
+	n, cerr := io.CopyBuffer(&stageWriter{w: w, dir: spaceDir}, io.LimitReader(ctxReader{ctx, rc}, e.size+1), buf)
 	if werr := w.Close(); cerr == nil {
 		cerr = werr
 	}
 	if cerr != nil {
 		if errors.Is(cerr, context.Canceled) {
 			return cerr
+		}
+		var ns *errNoSpace
+		if errors.As(cerr, &ns) {
+			return cerr // 余量不够：照原样报，不说成「压缩包解不开」
 		}
 		if src.kind == "zip" {
 			return fmt.Errorf("压缩包里的 %s 解不开（可能下载不完整、校验不对），没有替换任何文件：%w", e.rel, diskErr(cerr))
@@ -245,6 +289,23 @@ func stagedDirs(stageRoot, level string, files []stagedFile) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// stageWriter 每写满 stageCheckEvery 看一次磁盘余量，掉到留底以下就停。
+type stageWriter struct {
+	w     io.Writer
+	dir   string
+	since int64
+}
+
+func (s *stageWriter) Write(p []byte) (int, error) {
+	if s.since += int64(len(p)); s.since >= stageCheckEvery {
+		s.since = 0
+		if err := checkSpace(s.dir, 0); err != nil {
+			return 0, err
+		}
+	}
+	return s.w.Write(p)
 }
 
 type ctxReader struct {

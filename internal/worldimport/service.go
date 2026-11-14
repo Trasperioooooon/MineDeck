@@ -880,7 +880,10 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 		return "", cause
 	}
 	stageRoot := filepath.Join(txAbs(tg.Dir, id), stageSub)
-	if err := stageFiles(ctx, src, files, stageRoot, t.ProgressFn("复制地图")); err != nil {
+	waiting := func() {
+		t.Logf("另一张地图正在复制。等它复制完再开始复制这一张，现在取消还来得及")
+	}
+	if err := stageFiles(ctx, src, files, stageRoot, t.ProgressFn("复制地图"), waiting); err != nil {
 		if errors.Is(err, context.Canceled) {
 			return abandon(fmt.Errorf("已取消，没有替换任何文件"))
 		}
@@ -1143,7 +1146,8 @@ func (s *Service) placeForCreate(ctx context.Context, t *tasks.Task, owner, plan
 	}
 	stageRoot := filepath.Join(txAbs(dir, id), stageSub)
 	t.Logf("复制地图「%s」…", j.Candidate)
-	if err := stageFiles(ctx, src, files, stageRoot, t.ProgressFn("复制地图")); err != nil {
+	waiting := func() { t.Logf("另一张地图正在复制，等它复制完再开始复制这一张") }
+	if err := stageFiles(ctx, src, files, stageRoot, t.ProgressFn("复制地图"), waiting); err != nil {
 		return err
 	}
 	if after, err := rescan(src, info); err != nil || fingerprint(after) != info.fp {

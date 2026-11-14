@@ -315,7 +315,7 @@ func TestHostileArchives(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				err = stageFiles(context.Background(), r.src, files, filepath.Join(tmp, hc.Name+"-stage"), nil)
+				err = stageFiles(context.Background(), r.src, files, filepath.Join(tmp, hc.Name+"-stage"), nil, nil)
 				if err == nil {
 					t.Fatal("暂存应该失败")
 				}
@@ -335,7 +335,7 @@ func TestHostileArchives(t *testing.T) {
 	if r.Kind == KindJavaWorld {
 		info := r.cands[r.Candidates[0].ID]
 		files, _, _ := resolveMoves(info, mapping{moves: []Move{{From: info.c.Root, To: "world"}}})
-		if err := stageFiles(context.Background(), r.src, files, filepath.Join(tmp, "bomb-stage"), nil); err == nil {
+		if err := stageFiles(context.Background(), r.src, files, filepath.Join(tmp, "bomb-stage"), nil, nil); err == nil {
 			t.Fatal("炸弹应该在暂存时失败")
 		}
 		var total int64

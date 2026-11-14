@@ -1494,3 +1494,134 @@ func TestScanStopsWhenRequestIsCancelled(t *testing.T) {
 		t.Errorf("正常的检测：%v，文件还在=%v", err, exists(dest))
 	}
 }
+
+// ---------- 第二轮阻挡项 6：暂存一次只跑一个；单个大文件写的过程中继续看余量 ----------
+
+// folderSource 一个临时文件夹来源，里面有一个 size 字节的文件，返回来源和要复制的清单。
+func folderSource(t *testing.T, size int) (*source, []stagedFile) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "big.bin"), make([]byte, size), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src, err := openFolder(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { src.Close() })
+	if len(src.files) != 1 {
+		t.Fatalf("来源里应当正好一个文件：%d", len(src.files))
+	}
+	return src, []stagedFile{{e: &src.files[0], to: "world/big.bin"}}
+}
+
+// 两张地图同时要复制：后一张等前一张复制完才开始，它查磁盘余量的时候，前一张占掉的空间已经算在里面了。
+// 以前两边各查各的，都通过，合起来把盘写满。
+func TestStagingRunsOneAtATime(t *testing.T) {
+	srcA, filesA := folderSource(t, 1<<20)
+	srcB, filesB := folderSource(t, 1<<20)
+	free := int64(1 << 40)
+	var mu sync.Mutex
+	var asked []string // 谁在什么时候查过余量
+	holdA, releaseA := make(chan struct{}), make(chan struct{})
+	var onceA sync.Once
+	old := diskFree
+	diskFree = func(dir string) (int64, error) {
+		who := "B"
+		if strings.Contains(dir, "stage-A") {
+			who = "A"
+			onceA.Do(func() { close(holdA); <-releaseA }) // A 第一次查余量的时候停住：它已经占着名额了
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		asked = append(asked, who)
+		return free, nil
+	}
+	t.Cleanup(func() { diskFree = old })
+	tmp := t.TempDir()
+
+	doneA := make(chan error, 1)
+	go func() {
+		doneA <- stageFiles(context.Background(), srcA, filesA, filepath.Join(tmp, "stage-A"), nil, nil)
+	}()
+	<-holdA
+	waited := make(chan struct{})
+	doneB := make(chan error, 1)
+	go func() {
+		doneB <- stageFiles(context.Background(), srcB, filesB, filepath.Join(tmp, "stage-B"), nil, func() { close(waited) })
+	}()
+	select {
+	case <-waited:
+	case err := <-doneB:
+		t.Fatalf("A 还在复制的时候，B 不该已经做完：%v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("B 没有去等名额")
+	}
+	mu.Lock()
+	early := strings.Join(asked, "")
+	mu.Unlock()
+	if strings.Contains(early, "B") {
+		t.Errorf("A 复制完之前 B 不该查余量（查了也是不算数的旧数）：%s", early)
+	}
+	// A 复制完，盘上的余量因此少了：B 这时候才查，看到的是新的数
+	mu.Lock()
+	free = stageReserve / 2
+	mu.Unlock()
+	close(releaseA)
+	<-doneA // A 在余量改小以后还会再查（每个文件之前），它自己可能写完、也可能因为余量不够停下，两种都说得通，不看它
+	errB := <-doneB
+	var ns *errNoSpace
+	if !errors.As(errB, &ns) {
+		t.Errorf("B 等到 A 复制完才查余量，这时已经放不下，应当报空间不够：%v", errB)
+	}
+	if len(stageSlot) != 0 {
+		t.Errorf("都结束以后名额应当放掉：还占着 %d 个", len(stageSlot))
+	}
+
+	// 等名额的时候请求取消：不再等
+	stageSlot <- struct{}{}
+	ctx, cancel := context.WithCancel(context.Background())
+	asked2 := false
+	go func() { time.Sleep(50 * time.Millisecond); cancel() }()
+	err := stageFiles(ctx, srcB, filesB, filepath.Join(tmp, "stage-C"), nil, func() { asked2 = true })
+	<-stageSlot
+	if !errors.Is(err, context.Canceled) || !asked2 {
+		t.Errorf("等名额的时候取消应当不再等：err=%v 说过在等=%v", err, asked2)
+	}
+}
+
+// 一个大文件复制到一半，磁盘余量掉到留底以下（别的东西也在写这个盘）：停下，不接着往满里写。
+// 以前只在每个文件开始之前看一眼。
+func TestStagingStopsMidFileWhenSpaceRunsLow(t *testing.T) {
+	oldEvery := stageCheckEvery
+	stageCheckEvery = 1 << 20
+	old := diskFree
+	t.Cleanup(func() { stageCheckEvery, diskFree = oldEvery, old })
+	src, files := folderSource(t, 8<<20)
+	calls := 0
+	diskFree = func(string) (int64, error) {
+		calls++
+		if calls > 4 { // 开头按整张地图查一次、这个文件之前查一次，写的过程中头两次也够，之后不够了
+			return stageReserve - 1, nil
+		}
+		return 1 << 40, nil
+	}
+	stage := filepath.Join(t.TempDir(), "stage")
+	err := stageFiles(context.Background(), src, files, stage, nil, nil)
+	var ns *errNoSpace
+	if !errors.As(err, &ns) || !strings.Contains(err.Error(), "磁盘空间不够") {
+		t.Fatalf("写到一半余量不够应当停下，并且照实说是空间不够：%v", err)
+	}
+	if st, serr := os.Stat(filepath.Join(stage, "world", "big.bin")); serr == nil && st.Size() >= 8<<20 {
+		t.Errorf("不该把整个文件写完：写了 %d 字节", st.Size())
+	}
+	// 余量一直够的时候照常写完
+	diskFree = func(string) (int64, error) { return 1 << 40, nil }
+	stage2 := filepath.Join(t.TempDir(), "stage")
+	if err := stageFiles(context.Background(), src, files, stage2, nil, nil); err != nil {
+		t.Fatalf("余量够的时候应当写完：%v", err)
+	}
+	if st, err := os.Stat(filepath.Join(stage2, "world", "big.bin")); err != nil || st.Size() != 8<<20 {
+		t.Errorf("写完的文件大小不对：%v", err)
+	}
+}
