@@ -1,8 +1,10 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -77,6 +79,28 @@ func TestLocalNeedsTokenNotJustLoopback(t *testing.T) {
 	}
 	if body := e.call(t, "POST", "/api/openpath?token=bogus", nope, 403, noToken, withCookie).Body.String(); !strings.Contains(body, "仅支持在本机操作") {
 		t.Errorf("?token= 不对、只靠 Cookie 进来的不算本机：%s", body)
+	}
+
+	// 不走操作层、自己看 callerOf 的 SSE：外部 AI 的提案事件流只给本机。只带 Cookie 的本机请求被拒；
+	// 界面的 EventSource 只能用 ?token= 带令牌，这样照样能连上
+	sse := func(path string, opts ...reqOpt) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest("GET", path, nil)
+		req.Host, req.RemoteAddr = "127.0.0.1", "127.0.0.1:52000"
+		for _, o := range opts {
+			o(req)
+		}
+		ctx, cancel := context.WithCancel(req.Context())
+		cancel() // 推完第一份就返回
+		rec := httptest.NewRecorder()
+		e.h.ServeHTTP(rec, req.WithContext(ctx))
+		return rec
+	}
+	if rec := sse("/api/mcp/events", withCookie, fromUI); rec.Code != 403 || !strings.Contains(rec.Body.String(), "只能在运行 MineDeck 的那台电脑上处理") {
+		t.Errorf("只带 Cookie 的本机请求不该连上 MCP 提案事件流：HTTP %d %s", rec.Code, rec.Body)
+	}
+	if rec := sse("/api/mcp/events?token="+Token, withCookie); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"type":"pending"`) {
+		t.Errorf("带 ?token= 的本机 EventSource 应能连上 MCP 提案事件流：HTTP %d %s", rec.Code, rec.Body)
 	}
 
 	// 只带 Cookie 的本机请求照样能用局域网能用的接口，操作记录里记作局域网，不记成「本机」

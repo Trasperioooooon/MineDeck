@@ -180,7 +180,18 @@ func splitArgs(a Args) (inst string, rest json.RawMessage) {
 	if len(obj) == 0 {
 		return inst, nil
 	}
-	return inst, json.RawMessage(encode(redact(obj)))
+	return inst, json.RawMessage(encode(redactArgs(obj)))
+}
+
+// redactArgs 操作参数的最外层：和 redact 一样，只是最外层的 key 一律遮住，不当键值对的键名留着。
+// 没有哪个操作的参数本身就是一组 {"key","value"}（server.properties 的键值对都放在 pairs 数组里），最外层的 key
+// 是 AI 设置的 API Key 这类真密钥；以前多传一个 value，它就被当成键名原样记下了（2026-11-14 Codex 复审时指出，main 原有）。
+func redactArgs(obj map[string]any) map[string]any {
+	out := redact(obj).(map[string]any)
+	if v, ok := obj["key"]; ok {
+		out["key"] = mask(v)
+	}
+	return out
 }
 
 // secretName 键名像不像密钥：Key、密码、令牌、凭据、Authorization 请求头，以及可能带令牌的 Webhook 地址。
