@@ -26,6 +26,7 @@ import (
 	"unicode/utf8"
 
 	"minedeck/internal/app"
+	"minedeck/internal/atomicfile"
 	"minedeck/internal/events"
 	"minedeck/internal/procutil"
 	"minedeck/internal/secret"
@@ -174,8 +175,11 @@ func (m *Manager) load() {
 			}
 		}
 	}
+	// 写不回去不要紧：内存里已经是密文，照常能用；文件里暂时还是明文，下次哪里保存成功时一起写进去
 	if migrated {
-		m.save()
+		if err := m.save(); err != nil {
+			log.Printf("隧道凭据加密后写回失败，文件里暂时还是明文，下次保存时再写: %v", saveCause(err))
+		}
 	}
 }
 
@@ -201,14 +205,47 @@ func scrubCustomConfigs() {
 	}
 }
 
-func (m *Manager) save() {
+// SaveError 隧道配置没能写进 tunnels.json。新增、修改、删除隧道遇到它时，内存里的改动已经退回，
+// 和磁盘上的那份一致：报了失败就是真的没改，不会出现「报成功、重启以后这条隧道没了」（以前写盘的错误被吞掉，
+// 2026-11-14 PR #13 复审顺带发现）。
+type SaveError struct{ Err error }
+
+func (e *SaveError) Error() string {
+	return "隧道配置没能写进磁盘（tunnels.json），这次的改动没有保存：" + e.Err.Error()
+}
+
+func (e *SaveError) Unwrap() error { return e.Err }
+
+// Hint 界面报错正文接的那句话（原文带着路径和系统的英文报错，接不上）。规矩见 app.js 的 errSummary：60 字以内，不带路径和英文句子。
+func (e *SaveError) Hint() string {
+	return "隧道配置写不进磁盘，这次没有保存。请检查磁盘是否已满、MineDeck 所在的文件夹是否只读"
+}
+
+// saveCause 系统给的原因。SaveError 自己的说法是「改动没有保存」，内存里照样留着改动的地方（迁移凭据、记公网地址）
+// 用它就说错了，只报原因。
+func saveCause(err error) error {
+	if se := (*SaveError)(nil); errors.As(err, &se) {
+		return se.Err
+	}
+	return err
+}
+
+// save 把隧道配置整份写进 tunnels.json，调用方持有 m.mu。先写同一文件夹里的临时文件再改名换上去，
+// 写到一半断电或磁盘满了，原来的 tunnels.json 还是完整的旧版本。用 WriteProtected：用户把 tunnels.json 设成只读时
+// 照旧拒绝覆盖（以前的 os.WriteFile 也是写不进去），只是现在会报出来。
+func (m *Manager) save() error {
 	data := struct {
 		Seq     int       `json:"seq"`
 		Tunnels []*Tunnel `json:"tunnels"`
 	}{m.seq, m.tunnels}
-	if b, err := json.MarshalIndent(data, "", "  "); err == nil {
-		_ = os.WriteFile(m.file(), b, 0o600) // 凭据文件收紧权限
+	b, err := json.MarshalIndent(data, "", "  ")
+	if err == nil {
+		err = atomicfile.WriteProtected(m.file(), b, 0o600) // 凭据文件收紧权限
 	}
+	if err != nil {
+		return &SaveError{Err: err}
+	}
+	return nil
 }
 
 // Status 隧道运行状态。
@@ -299,11 +336,16 @@ func (m *Manager) Add(t Tunnel) (*Tunnel, error) {
 	if err := checkGuardPort(&t, m.guardPort); err != nil {
 		return nil, err
 	}
+	prev := m.tunnels
 	m.seq++
 	t.ID = "tun" + strconv.Itoa(m.seq)
 	nt := &t
 	m.tunnels = append(m.tunnels, nt)
-	m.save()
+	if err := m.save(); err != nil {
+		// 写不进磁盘就当没加过：编号也退回去。这个编号还没交给过任何人（报的是失败），下次新增再用不会撞上
+		m.tunnels, m.seq = prev, m.seq-1
+		return nil, err
+	}
 	resp := *nt
 	resp.Credential = "" // 响应不回显凭据
 	return &resp, nil
@@ -350,11 +392,12 @@ func (m *Manager) UpdateOpt(id string, t Tunnel, opt UpdateOpts) error {
 		return fmt.Errorf("隧道不存在")
 	}
 	t.ID = id
+	fixed := false // 换掉了存着的凭据：解不开的标记要清掉。等写进磁盘以后再清，写不进去时这条隧道仍是解不开的那份凭据
 	if opt.ClearCredential {
 		// 明说了不要凭据：换了地址、端口也放行（没有凭据可带走）。存着的密文只在 tunnels.json 和内存里这一份，
 		// 下面 save 写回去就没了；frpc 的配置文件里从来只有模板，下次启动时重写，不带 auth.token
 		t.Credential = ""
-		delete(m.broken, id) // 解不开的凭据也一起清掉，这条隧道又能启动了
+		fixed = true // 解不开的凭据也一起清掉，这条隧道又能启动了
 	} else if sealed == "" {
 		// 凭据留空表示不修改（列表接口不回显凭据）。但换了服务商，或者自定义 frps 换了地址、端口，要重新填：
 		// 不然留着的凭据会被带到新的服务器上去。局域网登录的人读不到凭据，却能改隧道，
@@ -367,10 +410,18 @@ func (m *Manager) UpdateOpt(id string, t Tunnel, opt UpdateOpts) error {
 		t.Credential = old.Credential
 	} else {
 		t.Credential = sealed
+		fixed = true
+	}
+	// 原地改（运行中的 frpc 那边拿的是这个指针），写不进磁盘就把旧内容放回去
+	prev := *old
+	*old = t
+	if err := m.save(); err != nil {
+		*old = prev
+		return err
+	}
+	if fixed {
 		delete(m.broken, id)
 	}
-	*old = t
-	m.save()
 	return nil
 }
 
@@ -382,9 +433,15 @@ func (m *Manager) Delete(id string) error {
 	}
 	for i, t := range m.tunnels {
 		if t.ID == id {
-			m.tunnels = append(m.tunnels[:i], m.tunnels[i+1:]...)
+			// 删掉以后的列表放进新的数组：原地挪（append(s[:i], s[i+1:]...)）会改动旧数组，写不进磁盘时就退不回去了。
+			// 先复制再删，删光了也是空列表、存成 []（slices.Concat 拼出空的会是 nil，存成 null）
+			prev := m.tunnels
+			m.tunnels = slices.Delete(slices.Clone(prev), i, i+1)
+			if err := m.save(); err != nil {
+				m.tunnels = prev
+				return err
+			}
 			delete(m.broken, id)
-			m.save()
 			return nil
 		}
 	}
@@ -671,14 +728,24 @@ func (m *Manager) handleLineMasked(t *Tunnel, rs *runState, line string, mask fu
 	}
 }
 
+// setPublicAddr 记下这次运行的公网地址并存盘（下次打开 MineDeck 卡片上还看得到）。
+// 存不进去时内存里照样换成新地址：隧道确实连上了，地址是对的；只在日志和这条隧道的控制台里说一声，
+// 不记成卡片上的红字（隧道是好的）。之后哪次保存成功，这个地址会一起写进去。
 func (m *Manager) setPublicAddr(t *Tunnel, addr string) {
 	m.mu.Lock()
 	changed := t.PublicAddr != addr
 	t.PublicAddr = addr
+	var saveErr error
 	if changed {
-		m.save()
+		saveErr = m.save()
 	}
 	m.mu.Unlock()
+	// Console 自己要拿 m.mu，放到锁外
+	if saveErr != nil {
+		cause := saveCause(saveErr)
+		log.Printf("隧道「%s」的公网地址没能存盘: %v", t.Name, cause)
+		m.Console(t.ID).Append("[MineDeck] ⚠ 公网地址没能存进 tunnels.json（不影响这次运行；重启 MineDeck 前没存上的话，卡片上会显示上次的地址）。系统报错：" + cause.Error())
+	}
 	if changed {
 		if t.IsVoice() {
 			m.Console(t.ID).Append("[MineDeck] ✔ 语音公网地址: " + addr + "（MineDeck 会把它写进绑定服务器的 voice_host）")

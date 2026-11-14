@@ -3687,7 +3687,10 @@ async function renderTunnels() {
       await drawList();
       if (stale(gen)) return;
       await refreshAccounts(provider);
-    } catch (e) { if (!stale(gen)) toast(e.message, true); }
+    } catch (e) {
+      // 后端另给了一句人话（tunnels.json 写不进去时那句）就显示它，原文进「详情」；没有就和以前一样显示原文
+      if (!stale(gen)) toast(e.hint || e.message, true, e.message);
+    }
     if (btn) btn.disabled = false;
   };
 
@@ -3784,7 +3787,8 @@ async function renderTunnels() {
         await refreshAccounts(provider);
       } catch (e) {
         if (stale(gen)) { close(); return; }
-        toast(e.message, true);
+        // 平台上建好了、本机写不进磁盘时后端另给一句人话（说清去导入、别再创建），原文进「详情」
+        toast(e.hint || e.message, true, e.message);
         okBtn.disabled = false;
       }
     };
