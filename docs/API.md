@@ -79,6 +79,26 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 | POST | `/api/tunnels/{id}/start` \| `/stop` | 启停 frpc |
 | GET | `/api/tunnels/{id}/console` | SSE frpc 日志 |
 
+#### 穿透平台账户（OpenFrp / SakuraFrp）
+
+经操作层登记，全部 **HumanOnly**（AI 调不到）。会用到或改动平台凭据的操作（连接、轮询授权、断开、概览、创建、导入）都是 **LocalOnly**，局域网会话调用回 403；状态、签到入口、购买入口三个不碰凭据，局域网也能调。凭据用 DPAPI 存进 `secrets.json`（`tunnel.openfrp.authorization` / `tunnel.sakura.token`），任何响应都不下发。签到和购买都只返回官方页面地址，MineDeck 不发签到请求、不代下单。平台报错原文里如果出现了本次请求带的凭据，会先换成 `***` 再返回和写记录。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/tunnel-accounts` | `{ openfrp, natfrp, local, openfrpUnreadable?, natfrpUnreadable? }`：是否已连接；`local` 为 false 表示调用方在局域网，界面只读；`*Unreadable` 表示存过凭据但解不开（换了电脑或 Windows 用户），要重新连接 |
+| POST | `/api/tunnel-accounts/openfrp/login` | 开始 OpenFrp 浏览器远程授权，返回 `{ id, url }`；`url` 只会是 `https://console.openfrp.net` 下的地址 |
+| POST | `/api/tunnel-accounts/openfrp/login/{id}/poll` | `{ pending }`；前端 5 秒一次，服务端也按 5 秒节流，5 分钟过期；成功后保存 Authorization。授权途中断开过、点过取消，或者别的授权先成功了，这次授权作废 |
+| POST | `/api/tunnel-accounts/openfrp/login/{id}/cancel` | 取消等待：这次授权作废，之后即使在途的轮询拿到授权也不保存。返回 `{ cancelled }`：false 表示这次授权已经不在等了（多半刚好授权成功，也可能过期），要重新查连接状态 |
+| POST | `/api/tunnel-accounts/natfrp/connect` | `{ token }`：校验并保存樱花访问密钥 |
+| DELETE | `/api/tunnel-accounts/{provider}` | 断开：只清 `secrets.json` 里的这一项。已导入的隧道各自存着 frpc 用的密钥，不动；平台那边的授权也不会作废 |
+| GET | `/api/tunnel-accounts/{provider}/overview` | 账户信息、节点、平台隧道列表，按平台缓存 30 秒；连接、断开、创建、导入后作废 |
+| POST | `/api/tunnel-accounts/{provider}/sign` | 签到入口，不签到：返回 `{ ok:false, openURL, message }`。OpenFrp 是控制台的签到深链（控制台自己拉起人机验证），樱花是用户中心 |
+| GET | `/api/tunnel-accounts/{provider}/purchase` | `{ options:[{ title, url, kind }] }`，全是官方页面 |
+| POST | `/api/tunnel-accounts/{provider}/tunnels` | 在平台创建隧道并导入本机：`{ name, nodeId, type, localPort, remotePort?, boundInstance?, autoStart?, purpose?, publicServer? }`。OpenFrp 的 `name` 只能是英文字母、数字、下划线和连字符（最长 30），`remotePort` 必填；樱花 `publicServer:true` 时只能用公开服专用节点，不填公网端口时由平台分配。`localPort` 不能是 MineDeck 自己的网页端口。途中账户被断开或换了，不写进本机，报错里会说平台上可能已经建好 |
+| POST | `/api/tunnel-accounts/{provider}/import` | 导入已有平台隧道：`{ proxyId, boundInstance?, autoStart?, purpose? }`，`proxyId` 只收纯数字，按平台的编号存；平台隧道的本地端口是 MineDeck 自己的网页端口时拒绝导入 |
+
+接口来源、对方的使用要求和还没用真实账号核实的事项见 [`docs/frp-account-api-notes.md`](frp-account-api-notes.md)。
+
 凭据 `credential` 只写不读：用 Windows DPAPI 加密后存进 `tunnels.json`（`"dpapi:…"`），任何响应都不下发；`PUT` 时留空表示不修改。旧版的明文凭据在启动时自动加密写回。自定义 frps 的 token 不再写进 frpc 的配置文件，而是经环境变量交给 frpc 进程（配置里只有 `{{ .Envs.… }}` 模板）。OpenFrp 和樱花的 frpc 仍然只能从命令行参数接收凭据。
 
 `serverAddr`、`serverPort`、`remotePort`、`localPort` 只有自定义 frps 用。樱花、OpenFrp 的隧道启动时只传「凭据 + 隧道 ID」，端口在服务商后台填，这几项传了也不存、列表里也不给（`localPort` 不再总是出现）；老版本存下的 25565 / 25566 这类数在加载时清掉并写回。

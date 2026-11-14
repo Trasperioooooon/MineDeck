@@ -64,6 +64,7 @@ func main() {
 		}
 		return i.Status()
 	})
+	accounts := tunnel.NewAccounts(tun, app.Secrets())
 	webhook.Init()
 	go java.Scan() // 后台扫描本机已装 Java，创建实例时可直接复用
 	// AI 接入层：没配置 AI 时什么也不做、不联网；配置了要花钱的服务商，才在后台检查价格数据（缓存超过 7 天才下载）
@@ -86,7 +87,7 @@ func main() {
 	app.LANListening = bindHost == "0.0.0.0" // 「允许局域网访问」改了要重启才生效，界面拿它和配置比（须在开始服务之前设好）
 	url := fmt.Sprintf("http://127.0.0.1:%d/?token=%s", addr.Port, web.Token)
 	// 操作层的注册表在这里建好：网页接口和应用内助手共用同一个（AI 的提案存在里面）
-	reg := catalog.New(catalog.Env{Mgr: mgr, Tun: tun, AI: aiSvc, Port: addr.Port, Token: web.Token, Shutdown: func() {
+	reg := catalog.New(catalog.Env{Mgr: mgr, Tun: tun, Accounts: accounts, AI: aiSvc, Port: addr.Port, Token: web.Token, Shutdown: func() {
 		if web.OnShutdown != nil { // OnShutdown 在下面才注入，用到时再取
 			web.OnShutdown()
 		}

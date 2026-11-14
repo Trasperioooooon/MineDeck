@@ -51,6 +51,7 @@ MineDeck 是 Windows 上的我的世界（Minecraft Java 版）一键开服工�
 ### 联机
 
 - **内网穿透**：可以接 OpenFrp、樱花穿透，也可以填你自己的 frps。隧道可以绑定到某台服务器，跟着它一起启动，公网地址在页面上复制。OpenFrp 和自建 frps 用的客户端会自动下载；樱花穿透的客户端要按提示自己下载一次。
+- **平台账户**：可以在 MineDeck 里连接 OpenFrp 账户（在浏览器里授权，MineDeck 不收账号密码）或樱花穿透账户（粘贴访问密钥），看流量和平台上的隧道，在平台上新建隧道或把已有的隧道导入进来。签到和购买都只打开官网，MineDeck 不代签、不代下单。OpenFrp 部分使用了 [OpenFrp OPENAPI](https://github.com/ZGIT-Network/OPENFRP-APIDOC)。此项目由社区开发，OpenFrp 官方不负责除节点问题以外的技术支持；MineDeck 本身的问题请到本仓库的 [Issues](https://github.com/Trasperioooooon/MineDeck/issues) 反馈。
 - **局域网访问**：打开「允许局域网访问」并设一个访问密码，重启 MineDeck 以后，同一局域网里的手机和别的电脑也能打开管理页面。
 - **API 和 Webhook**：有本地 HTTP API。服务器启动、停止、崩溃、玩家进出这类事件可以推送到你填的地址。见 [docs/API.md](docs/API.md)。
 

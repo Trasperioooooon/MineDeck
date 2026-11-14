@@ -74,6 +74,7 @@ func TestLevelsFollowDesign(t *testing.T) {
 			// 整合包导入的待决文件：要收这台电脑上的文件，只许人在本机操作
 			"instance.import.pending"},
 	}
+	// 穿透平台账户操作由 Accounts 注入后才登记；本测试 Env 不传 Accounts，故不列入 want。
 
 	// 音乐共享（第五阶段）：开始、停止广播这类操作只能由人来（§8.6）
 	for level, names := range map[ops.Level][]string{
@@ -98,6 +99,7 @@ func TestLevelsFollowDesign(t *testing.T) {
 	want[ops.Write] = append(want[ops.Write], "modcart.install")
 	// 人从自己电脑上添加、移除 jar：文件是人给的，仅人工（不限本机，同整合包上传 instance.import）
 	want[ops.HumanOnly] = append(want[ops.HumanOnly], "modcart.local.add", "modcart.local.remove")
+	// 穿透平台账户：Env.Accounts 非空时才登记；本测试不传，故不列入 want（见 accounts.go）。
 
 	n := 0
 	for level, names := range want {
