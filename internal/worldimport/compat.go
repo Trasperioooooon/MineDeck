@@ -1,7 +1,6 @@
 package worldimport
 
 import (
-	"archive/zip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -13,6 +12,7 @@ import (
 
 	"minedeck/internal/inst"
 	"minedeck/internal/mcsrc"
+	"minedeck/internal/zipguard"
 )
 
 // 兼容检查和布局映射：地图（候选）× 目标服务器（核心、版本、level-name）→ 关系、摆放方式、检查结果。
@@ -363,7 +363,7 @@ func jarWorldVersion(dir, launchTarget string) int32 {
 	if !ok || jar == "" || strings.ContainsAny(jar, `/\:`) {
 		return 0
 	}
-	zr, err := zip.OpenReader(filepath.Join(dir, jar))
+	zr, err := zipguard.Open(filepath.Join(dir, jar), zipguard.Default) // 服务端 jar 可能是整合包、交接包带来的
 	if err != nil {
 		return 0
 	}

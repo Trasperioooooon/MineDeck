@@ -1,7 +1,6 @@
 package inst
 
 import (
-	"archive/zip"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -15,6 +14,7 @@ import (
 	"strings"
 
 	"minedeck/internal/mcsrc"
+	"minedeck/internal/zipguard"
 )
 
 // 接管已有服务器的第一步：只读地看一遍用户选的文件夹，认出核心、版本、启动文件、原来分的内存。
@@ -331,7 +331,7 @@ func scanRootJars(dir string) []adoptCand {
 // inspectJar 打开一个 jar，从清单和几个固定的文件里认出它是什么。
 func inspectJar(p string) (adoptCand, bool) {
 	var c adoptCand
-	zr, err := zip.OpenReader(p)
+	zr, err := zipguard.Open(p, zipguard.Default)
 	if err != nil {
 		return c, false
 	}

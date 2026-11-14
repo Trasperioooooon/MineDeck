@@ -22,6 +22,7 @@ import (
 
 	"minedeck/internal/inst"
 	"minedeck/internal/mcsrc"
+	"minedeck/internal/zipguard"
 )
 
 // FormatVersion manifest 的格式版本。只认自己会读的这一版；更大的版本交给升级以后的程序。
@@ -112,7 +113,7 @@ func (m *Manifest) addMod(pf packFile, sha1 string) {
 
 // ReadManifest 只读包根下的 manifest.json（不解包别的东西——几十 MB 的包也要能秒出摘要）。
 func ReadManifest(path string) (*Manifest, error) {
-	zr, err := zip.OpenReader(path)
+	zr, err := zipguard.Open(path, zipguard.Default)
 	if err != nil {
 		return nil, fmt.Errorf("打不开这个交接包（%w）", err)
 	}
@@ -191,7 +192,7 @@ func versionLike(v string) bool {
 
 // packPort 读包内 server.properties 里的端口（摘要和导入预填用），读不到返回 0。
 func packPort(path string) int {
-	zr, err := zip.OpenReader(path)
+	zr, err := zipguard.Open(path, zipguard.Default)
 	if err != nil {
 		return 0
 	}

@@ -1,7 +1,6 @@
 package modcart
 
 import (
-	"archive/zip"
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
@@ -19,6 +18,7 @@ import (
 
 	"minedeck/internal/modinfo"
 	"minedeck/internal/winname"
+	"minedeck/internal/zipguard"
 )
 
 // ---- 人从自己电脑上添加的 jar（本地文件）----
@@ -232,7 +232,7 @@ func (s *Service) AddLocal(inst, src, name string) (lf LocalFile, dup bool, err 
 	case st.Size() > maxLocalSize:
 		return lf, false, errorf(413, "「%s」超过了 %d MB 的上限，放不进清单。可以等服务器建好以后，自己把它拷进服务器的文件夹", name, MaxLocalSize>>20)
 	}
-	zr, err := zip.OpenReader(src)
+	zr, err := zipguard.Open(src, zipguard.Default)
 	if err != nil {
 		return lf, false, errorf(400, "「%s」打不开：它不是一个完整的 jar 文件（可能没下载完整，或者其实是别的格式）。重新下载一份再添加", name)
 	}

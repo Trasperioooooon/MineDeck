@@ -16,6 +16,7 @@ import (
 	"minedeck/internal/inst"
 	"minedeck/internal/modinfo"
 	"minedeck/internal/winname"
+	"minedeck/internal/zipguard"
 )
 
 // 交接包的 zip 原语。备份的 zipDirs / unzipTo（internal/inst/backup.go）打的是「几个世界子目录」，
@@ -233,7 +234,7 @@ func onlyBadNames(rel string) bool {
 func extractPrefix(ctx context.Context, src, destDir string, opts extractOpts,
 	progress func(done, total int64), fileCount func(n int, done, total int64)) (extractResult, error) {
 	var res extractResult
-	zr, err := zip.OpenReader(src)
+	zr, err := zipguard.Open(src, zipguard.Default)
 	if err != nil {
 		return res, fmt.Errorf("打不开交接包（%w）", err)
 	}

@@ -1,7 +1,6 @@
 package transfer
 
 import (
-	"archive/zip"
 	"context"
 	"fmt"
 	"io"
@@ -17,6 +16,7 @@ import (
 	"minedeck/internal/java"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/tasks"
+	"minedeck/internal/zipguard"
 )
 
 // 交接包导入：把 A 的 .mdpack 解开，走创建流水线的变体（下核心 + 确保 Java），再解包覆盖，
@@ -454,7 +454,7 @@ func shortList(items []string, max int) string {
 
 // packEULAAccepted 只读包内 instance/eula.txt（一条小文件），看 A 那边同意过没有。
 func packEULAAccepted(path string) bool {
-	zr, err := zip.OpenReader(path)
+	zr, err := zipguard.Open(path, zipguard.Default)
 	if err != nil {
 		return false
 	}

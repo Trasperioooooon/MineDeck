@@ -1,7 +1,6 @@
 package musicshare
 
 import (
-	"archive/zip"
 	"bufio"
 	"bytes"
 	"crypto/sha256"
@@ -21,6 +20,7 @@ import (
 	"minedeck/internal/bridge"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/music"
+	"minedeck/internal/zipguard"
 )
 
 // ---- 核心和版本 ----
@@ -156,7 +156,7 @@ func (s *Service) detectSVC(dir string) SVCInfo {
 
 // scanJarForSVC 看一个 jar 是不是 Simple Voice Chat（模组 ID voicechat），顺便取版本号。
 func scanJarForSVC(path string) (bool, string, string) {
-	zr, err := zip.OpenReader(path)
+	zr, err := zipguard.Open(path, zipguard.Default)
 	if err != nil {
 		return false, "", ""
 	}

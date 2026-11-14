@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"minedeck/internal/mcsrc"
+	"minedeck/internal/zipguard"
 )
 
 // 清单不在压缩包最外层时，常见的是作者把整个文件夹又压了一遍：整合包名/manifest.json。
@@ -777,7 +778,7 @@ func ExtractServer(p *Pack, writeFile func(rel string, r io.Reader) error) (int,
 	if p == nil || p.Format != FormatServer {
 		return 0, fmt.Errorf("这不是服务端压缩包")
 	}
-	zr, err := zip.OpenReader(p.ZipPath)
+	zr, err := zipguard.Open(p.ZipPath, zipguard.Default)
 	if err != nil {
 		return 0, fmt.Errorf("无法打开整合包（需为 .mrpack 或 zip）: %w", err)
 	}
