@@ -756,15 +756,30 @@ func (s *Service) Execute(owner string, req ExecReq) (string, error) {
 }
 
 // Cancel 取消一个导入任务：只在复制到暂存区的阶段生效，开始换地图以后会做完（或退回）再结束。
-// 只有发起导入的人能取消。
+// 只有发起导入的人能取消。返回 true 就一定取消得掉：地图不会被换。
+//
+// 「取消」和「进入不能取消的阶段」（closeCancel）在同一把锁里分先后。以前取消的登记要到整个任务结束才删，
+// 复制完以后也不再看有没有被取消，所以会出现取消返回了成功、地图还是被换了（2026-11-14 Codex 合并复审第 5 条）。
 func (s *Service) Cancel(owner, taskID string) bool {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	c, ok := s.cancels[taskID]
-	s.mu.Unlock()
 	if !ok || c.owner != owner {
 		return false
 	}
-	c.fn()
+	c.fn() // 在锁里取消：closeCancel 拿到锁的时候，要么已经看得到这次取消，要么这次取消还没进来（之后进来的会找不到登记）
+	return true
+}
+
+// closeCancel 导入要进入不能取消的阶段了：已经被取消就返回 false（调用方放弃，什么都不换）；
+// 没被取消就把取消的登记拿掉，之后的取消请求一律得到「已经不能取消了」。
+func (s *Service) closeCancel(ctx context.Context, taskID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if ctx.Err() != nil {
+		return false
+	}
+	delete(s.cancels, taskID)
 	return true
 }
 
@@ -821,6 +836,9 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 		}
 		return abandon(err)
 	}
+	if stagedHook != nil {
+		stagedHook()
+	}
 	if after, err := rescan(src, info); err != nil || fingerprint(after) != info.fp {
 		return abandon(fmt.Errorf("来源在复制期间变了，没有替换任何文件。请先关掉正在使用这张地图的程序，再重新检测"))
 	}
@@ -837,7 +855,11 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 	}
 	t.Logf("地图已复制到暂存区（%s）", fmtBytes(j.NewBytes))
 
-	// 3. 停服、占位。从这里开始不再响应取消：要么换完，要么退回
+	// 3. 停服、占位。从这里开始不再响应取消：要么换完，要么退回。
+	// 复制完到这里还有一段（重新核对来源、算哈希、数大小、存记录），文件多、盘慢的时候不短，这期间点的取消在这里兑现
+	if !s.closeCancel(ctx, t.ID()) {
+		return abandon(fmt.Errorf("已取消，没有替换任何文件"))
+	}
 	t.StartStep(2)
 	if i.Status() != "stopped" {
 		if !stopFirst {
@@ -900,6 +922,9 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 	}
 	return "地图文件已导入，尚未启动检查。服务器保持停止，启动后进服看看是不是这张地图", nil
 }
+
+// stagedHook 测试用：最后一个文件复制完、还没重新核对来源的那一刻调用。
+var stagedHook func()
 
 func candName(c *Candidate) string {
 	if c.Meta.LevelName != "" {

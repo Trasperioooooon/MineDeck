@@ -695,3 +695,101 @@ func TestUndoRestoreDoesNotSwallowPropsFailure(t *testing.T) {
 		t.Errorf("换回以后原位 = %q，难度 = %s", got, diff())
 	}
 }
+
+// ---------- 合并复审第 5 条：取消返回成功，地图就一定没动 ----------
+
+// 最后一个文件刚复制完、还在核对的时候点取消：取消返回成功，导入必须放弃，原来的世界一点没动。
+// 以前这一段不再看有没有被取消，接着就停服、换图。
+func TestCancelAfterCopyStillCancels(t *testing.T) {
+	e := newEnv(t, "")
+	src := filepath.Join(e.tmp, "B")
+	if err := wt.Legacy(src, wt.WorldOpts{Level: lv("1.20.4", 3700), Tag: "B", Overworld: true}); err != nil {
+		t.Fatal(err)
+	}
+	p := e.plan(src)
+	idCh := make(chan string, 1)
+	var cancelled bool
+	stagedHook = func() { cancelled = e.s.Cancel(me, <-idCh) }
+	t.Cleanup(func() { stagedHook = nil })
+	id, err := e.s.Execute(me, ExecReq{PlanID: p.ID, Confirm: "replace", Acknowledge: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	idCh <- id
+	_, msg := e.wait(id)
+	if !cancelled {
+		t.Fatal("复制刚完成时取消应当返回成功")
+	}
+	if !strings.Contains(msg, "已取消") {
+		t.Errorf("取消返回了成功，导入就该放弃：任务的结果是 %q", msg)
+	}
+	if got := e.marker("world/region/r.0.0.mca"); got != "MARK:minecraft:overworld:OLD" {
+		t.Errorf("取消以后原来的世界不该动：%s", got)
+	}
+	if at := findWorldTag(t, e.dir, "B"); len(at) != 0 {
+		t.Errorf("取消以后暂存的那份应当清掉：%v", at)
+	}
+	if e.s.Cancel(me, id) {
+		t.Error("任务结束以后再取消应当返回不能取消")
+	}
+}
+
+// 已经开始换地图以后再点取消：返回「不能取消」，导入照常做完。不会出现「说取消了、其实换了」。
+func TestCancelAfterPointOfNoReturnIsRefused(t *testing.T) {
+	e := newEnv(t, "")
+	src := filepath.Join(e.tmp, "B")
+	if err := wt.Legacy(src, wt.WorldOpts{Level: lv("1.20.4", 3700), Tag: "B", Overworld: true}); err != nil {
+		t.Fatal(err)
+	}
+	p := e.plan(src)
+	idCh := make(chan string, 1)
+	accepted, asked := false, false
+	faultHook = func(point string) error {
+		if point == "old-out-0" && !asked { // 换地图的第一步之前
+			asked = true
+			accepted = e.s.Cancel(me, <-idCh)
+		}
+		return nil
+	}
+	t.Cleanup(func() { faultHook = nil })
+	id, err := e.s.Execute(me, ExecReq{PlanID: p.ID, Confirm: "replace", Acknowledge: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	idCh <- id
+	res, msg := e.wait(id)
+	if !asked {
+		t.Fatal("测试自己没摆对：没走到换地图那一步")
+	}
+	if accepted {
+		t.Error("已经开始换地图以后，取消应当返回不能取消")
+	}
+	if msg != "" || !strings.Contains(res, "尚未启动检查") {
+		t.Errorf("导入应当照常做完：result=%q err=%q", res, msg)
+	}
+	if got := e.marker("world/region/r.0.0.mca"); got != "MARK:minecraft:overworld:B" {
+		t.Errorf("导入做完以后原位应当是新地图：%s", got)
+	}
+}
+
+// 别人取消不了：登记还在的时候也一样。
+func TestCancelOnlyByOwnerBeforeBoundary(t *testing.T) {
+	e := newEnv(t, "")
+	src := filepath.Join(e.tmp, "B")
+	if err := wt.Legacy(src, wt.WorldOpts{Level: lv("1.20.4", 3700), Tag: "B", Overworld: true}); err != nil {
+		t.Fatal(err)
+	}
+	p := e.plan(src)
+	idCh := make(chan string, 1)
+	var other bool
+	stagedHook = func() { other = e.s.Cancel("lan|192.168.1.5", <-idCh) }
+	t.Cleanup(func() { stagedHook = nil })
+	id, err := e.s.Execute(me, ExecReq{PlanID: p.ID, Confirm: "replace", Acknowledge: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	idCh <- id
+	if _, msg := e.wait(id); msg != "" || other {
+		t.Errorf("别人的取消不该生效：返回 %v，任务 %q", other, msg)
+	}
+}
