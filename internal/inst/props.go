@@ -1,13 +1,13 @@
 package inst
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
-	"fmt"
 	"minedeck/internal/atomicfile"
-	"os"
-	"strings"
 )
 
 // Props 保序解析/写回 server.properties，保留注释行。
