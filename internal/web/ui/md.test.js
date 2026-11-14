@@ -264,11 +264,15 @@ test("故意构造的输入不卡住界面、不抛异常（回复里会引用�
     "列表里几万个空行": "- a\n" + "\n".repeat(32000) + "- b",
     "几千列的稀疏表格": "|" + "h|".repeat(2000) + "\n|" + "--|".repeat(2000) + "\n" + "|x|\n".repeat(2000),
   };
+  // 计时用本进程占用的 CPU 时间，不用墙上的时间。CI 上别的测试包同时在跑，轮不到这个进程时墙上的时间照样在走：
+  // 2026-11-14 在 main 上挂过一次，本机 60 毫秒的那种输入（很多行没收尾的链接）在 CI 上量出 1175 毫秒。
+  // 渲染器卡住都是自己在算，CPU 时间一样会涨，所以原来那几种卡法照样抓得住。
+  const cpuMs = () => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; };
   for (const [name, src] of Object.entries(cases)) {
-    const t = Date.now();
+    const t = cpuMs();
     const html = render(src);
-    const ms = Date.now() - t;
-    assert.ok(ms < 500, `${name}：用了 ${ms} ms`);
+    const ms = Math.round(cpuMs() - t);
+    assert.ok(ms < 500, `${name}：用了 ${ms} ms（CPU 时间）`);
     assert.ok(typeof html === "string" && html.length > 0 && !html.includes("\u0001"), `${name}：输出不对`);
     lacks(html, "<script");
   }
