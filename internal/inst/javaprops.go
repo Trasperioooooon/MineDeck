@@ -155,5 +155,5 @@ func ForceProp(path, key, value string) error {
 	}
 	// 上一行要是以反斜杠结尾，会把补的这一行接成它的续行：先垫一个空行隔开
 	s += "\n" + key + "=" + escapeUnicode(value) + "\n"
-	return os.WriteFile(path, []byte(s), 0o644)
+	return writeFileAtomic(path, []byte(s))
 }

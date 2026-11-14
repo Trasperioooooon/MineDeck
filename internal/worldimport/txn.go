@@ -563,6 +563,9 @@ func restoreTx(dir string, j *Journal) (stuck bool, err error) {
 	if err := revertProps(dir, j); err != nil {
 		return fail(fmt.Errorf("没能把服务器设置改回去：%w", err))
 	}
+	if err := fault("restore-verify"); err != nil {
+		return fail(err)
+	}
 	if j.OldLevelSHA != "" {
 		if got := fileSHA(filepath.Join(dir, filepath.FromSlash(j.LevelName), "level.dat")); got != j.OldLevelSHA {
 			return fail(fmt.Errorf("换回以后核对旧世界的 level.dat 不对"))
@@ -577,20 +580,8 @@ func restoreTx(dir string, j *Journal) (stuck bool, err error) {
 	return false, nil
 }
 
-// undoRestore 换回旧图没做完：退回到「导入的地图在位」的状态。
+// undoRestore 换回旧图没做完：退回到「导入的地图在位」的状态。可以重复执行：每一步看磁盘。
 func undoRestore(dir string, j *Journal) error {
-	// 设置：换回时改回去的那几项，再改成导入时的值（只改现在还是原值的）
-	if len(j.PropsAfter) > 0 {
-		pp := filepath.Join(dir, "server.properties")
-		if b, err := os.ReadFile(pp); err == nil {
-			cur := inst.JavaProps(b)
-			for k, after := range j.PropsAfter {
-				if cur[k] == j.PropsBefore[k] && after != j.PropsBefore[k] {
-					_ = inst.ForceProp(pp, k, after)
-				}
-			}
-		}
-	}
 	for k := len(j.OldIn) - 1; k >= 0; k-- {
 		there, err := arrived(dir, j.OldIn[k], j.CurOut)
 		if err != nil {
@@ -612,9 +603,38 @@ func undoRestore(dir string, j *Journal) error {
 			return markStuck(dir, j, fmt.Errorf("导入的世界「%s」在原位和暂放处都找不到", j.CurOut[k].From))
 		}
 	}
+	// 设置：换回时改回去的那几项，再改成导入时的值（只改现在还是原值的）。放在目录都搬回去以后做，失败了就卡住、
+	// 不解除封锁：以前这里读不了就整段跳过、写失败也不管，照样记成「已提交」（2026-11-14 Codex 合并复审第 4 条）。
+	// 卡住时 CurOut、OldIn 留在记录里，「重试恢复」会再走一遍这个函数：目录那几步已经做完、什么都不动，设置重新试。
+	// 所以设置文件只是一时被别的程序占着的话，放开以后重试就过去了。
+	if err := reapplyProps(dir, j); err != nil {
+		return markStuck(dir, j, fmt.Errorf("没能把服务器设置改回导入时的样子：%w", err))
+	}
 	j.State = TxCommitted
 	j.CurOut, j.OldIn = nil, nil
+	j.Stuck = nil
 	return saveJournal(dir, j)
+}
+
+// reapplyProps 换回时改回去的那几项设置，再改成导入时的值：只改现在还是导入前那个值的（之后用户自己改过的不动）。
+func reapplyProps(dir string, j *Journal) error {
+	if len(j.PropsAfter) == 0 {
+		return nil
+	}
+	pp := filepath.Join(dir, "server.properties")
+	b, err := os.ReadFile(pp)
+	if err != nil {
+		return err
+	}
+	cur := inst.JavaProps(b)
+	for k, after := range j.PropsAfter {
+		if cur[k] == j.PropsBefore[k] && after != j.PropsBefore[k] {
+			if err := inst.ForceProp(pp, k, after); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // recoverTx 程序启动时处理一份没走完的记录：提交到一半的退回旧图，换回到一半的退回到导入的地图，

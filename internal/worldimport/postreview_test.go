@@ -596,3 +596,102 @@ func TestStepsStopWhenTheyCannotSee(t *testing.T) {
 		t.Error("看不了的时候不该动任何东西")
 	}
 }
+
+// ---------- 合并复审第 4 条：撤销换回时，设置改不回去不能当成恢复完成 ----------
+
+// lockFileExclusive 像别的程序独占着一个文件那样把它打开（不共享），返回放开它的函数。
+func lockFileExclusive(t *testing.T, path string) (unlock func()) {
+	t.Helper()
+	p, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := windows.CreateFile(p, windows.GENERIC_READ, 0, nil, windows.OPEN_EXISTING, 0, 0)
+	if err != nil {
+		t.Fatalf("没能独占打开 %s：%v", path, err)
+	}
+	var once sync.Once
+	unlock = func() { once.Do(func() { windows.CloseHandle(h) }) }
+	t.Cleanup(unlock)
+	return unlock
+}
+
+// 导入时改过难度；换回旧地图走到最后核对时出错，要撤销换回：世界搬回去了，设置也得改回导入时的值。
+// 这时候 server.properties 正好被别的程序占着：以前是读不了就跳过、照样记成「已提交」；现在卡住，放开以后重试才算完。
+func TestUndoRestoreDoesNotSwallowPropsFailure(t *testing.T) {
+	dir, j := setup(t)
+	if stuck, err := commitTx(dir, j, map[string]string{"difficulty": "hard"}); err != nil || stuck {
+		t.Fatalf("commit: %v stuck=%v", err, stuck)
+	}
+	props := filepath.Join(dir, "server.properties")
+	diff := func() string {
+		b, err := os.ReadFile(props)
+		if err != nil {
+			return "<读不了>"
+		}
+		return inst.JavaProps(b)["difficulty"]
+	}
+	if diff() != "hard" {
+		t.Fatalf("准备阶段：导入以后难度应当是 hard：%s", diff())
+	}
+	j2, err := loadJournal(dir, j.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var unlock func()
+	faultHook = func(point string) error {
+		if point == "restore-verify" { // 这时候世界已经换回去了，难度也已经改回 easy
+			unlock = lockFileExclusive(t, props)
+			return errors.New("模拟：核对出错")
+		}
+		return nil
+	}
+	t.Cleanup(func() { faultHook = nil })
+	stuck, err := restoreTx(dir, j2)
+	faultHook = nil
+	if err == nil || !stuck || j2.State != TxStuck {
+		t.Fatalf("设置改不回去时应当卡住：err=%v stuck=%v state=%s", err, stuck, j2.State)
+	}
+	if !strings.Contains(j2.Err, "服务器设置") {
+		t.Errorf("卡住的原因应当说是设置：%s", j2.Err)
+	}
+	if len(j2.CurOut) == 0 || len(j2.OldIn) == 0 {
+		t.Error("卡住时要留着换回的步骤，重试才知道该走哪条路")
+	}
+	// 世界已经搬回「导入的地图在位」的样子
+	if got := read(t, filepath.Join(dir, "world", "level.dat")); got != "NEW" {
+		t.Errorf("撤销换回以后原位应当是导入的地图：%q", got)
+	}
+	if why := inst.PendingWorldTx(dir); why == "" {
+		t.Error("卡住的记录应当封锁启动")
+	}
+
+	// 放开设置文件，重试：这回走得完
+	unlock()
+	if diff() != "easy" {
+		t.Fatalf("重试之前难度应当还停在 easy：%s", diff())
+	}
+	j3, err := loadJournal(dir, j.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := recoverTx(dir, j3); err != nil || j3.State != TxCommitted {
+		t.Fatalf("放开以后重试应当恢复完成：err=%v state=%s", err, j3.State)
+	}
+	if diff() != "hard" {
+		t.Errorf("恢复完成以后难度应当改回导入时的 hard：%s", diff())
+	}
+	if len(j3.CurOut) != 0 || len(j3.OldIn) != 0 || len(j3.Stuck) != 0 {
+		t.Error("恢复完成以后换回的步骤和卡住的路径都该清掉")
+	}
+	if inst.PendingWorldTx(dir) != "" {
+		t.Error("恢复完成以后不该再封锁")
+	}
+	// 之后照常能换回
+	if stuck, err := restoreTx(dir, j3); err != nil || stuck {
+		t.Fatalf("之后照常能换回：%v stuck=%v", err, stuck)
+	}
+	if got := read(t, filepath.Join(dir, "world", "level.dat")); got != "OLD" || diff() != "easy" {
+		t.Errorf("换回以后原位 = %q，难度 = %s", got, diff())
+	}
+}

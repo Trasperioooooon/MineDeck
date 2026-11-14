@@ -101,13 +101,49 @@ func (p *Props) Save(path string) error {
 		}
 		sb.WriteString("\n")
 	}
+	return writeFileAtomic(path, []byte(sb.String()))
+}
+
+// writeFileAtomic 把 data 写成 path：先写到旁边的临时文件、刷到盘上，再一步改名盖掉原文件。
+// 任何时刻 path 上要么是旧的一份、要么是新的一份。
+//
+// 以前是「写临时文件、删掉原文件、再改名」：删和改名之间程序退出或者断电，server.properties 就没了，
+// 服务器下次按默认设置启动，level-name 是自定义的服务器会另生成一张叫 world 的新地图（2026-11-14 Codex 合并复审第 4 条）。
+// Windows 上的改名本来就能直接盖掉目标，那一步删除是多余的。它顺带做的一件事是让只读的原文件也换得掉
+// （删的时候系统会去掉只读），这里保留：盖不掉、原文件又是只读的，去掉只读再试一次。
+func writeFileAtomic(path string, data []byte) error {
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(sb.String()), 0o644); err != nil {
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
 		return err
 	}
-	os.Remove(path)
-	return os.Rename(tmp, path)
+	_, err = f.Write(data)
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		if atomicHook != nil {
+			atomicHook(path)
+		}
+		err = os.Rename(tmp, path)
+		if err != nil {
+			if fi, serr := os.Stat(path); serr == nil && fi.Mode().Perm()&0o200 == 0 && os.Chmod(path, 0o644) == nil {
+				err = os.Rename(tmp, path)
+			}
+		}
+	}
+	if err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
 }
+
+// atomicHook 测试用：临时文件写好、还没换上去的那一刻调用。
+var atomicHook func(path string)
 
 func escapeUnicode(s string) string {
 	var sb strings.Builder
