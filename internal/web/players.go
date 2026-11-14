@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"minedeck/internal/ops"
 	"minedeck/internal/ops/catalog"
 )
 
@@ -18,7 +19,8 @@ func (s *Server) handlePlayerAction(w http.ResponseWriter, r *http.Request) {
 		Player string `json:"player"`
 	}
 	if err := readJSON(r, &body); err != nil {
-		writeErr(w, 400, err)
+		err = bodyErr(err)
+		writeErr(w, ops.CodeOf(err), err)
 		return
 	}
 	name, ok := catalog.PlayerOps[body.Action]

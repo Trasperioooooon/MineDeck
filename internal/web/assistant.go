@@ -52,7 +52,11 @@ func reply(w http.ResponseWriter, v any, err error) {
 // body 解析请求体；空的请求体按 {} 算。
 func body(r *http.Request, v any) error {
 	defer r.Body.Close()
-	if err := json.NewDecoder(r.Body).Decode(v); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(limitedBody(r, maxSmallBody)).Decode(v); err != nil && !errors.Is(err, io.EOF) {
+		var big *http.MaxBytesError
+		if errors.As(err, &big) {
+			return bodyErr(err)
+		}
 		return ops.Errorf(400, "请求体不是合法的 JSON：%v", err)
 	}
 	return nil
