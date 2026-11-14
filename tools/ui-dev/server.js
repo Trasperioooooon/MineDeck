@@ -546,7 +546,11 @@ function musicStatus(state, i) {
 async function musicHandler(state, req, res, p, m, seg) {
   const ms = state.music;
   musicSync(state);
-  if (p === "/api/tunnels" && m === "POST") { ms.tunnelBody = await readBody(req); return ok(res, { id: "t9" }); } // 隧道表单带上了用途、协议没有
+  if (p === "/api/tunnels" && m === "POST") { // 隧道表单带上了用途、协议没有
+    ms.tunnelBody = await readBody(req);
+    if (state.tunnelAccounts.saveFail) return err(res, 400, SAVE_FAIL_RAW, SAVE_FAIL_HINT); // tunnels.json 写不进去（同平台账户的 saveFail）
+    return ok(res, { id: "t9" });
+  }
   if (p === "/api/music/sources" && m === "GET") {
     if (!ms.local) return err(res, 403, MUSIC_LOCAL_START);
     return ok(res, { capability: { ...MUSIC_CAPS[ms.cap], warning: MUSIC_WARNING }, systemConfirmed: ms.systemConfirmed, sources: MUSIC_SOURCES, devices: MUSIC_DEVICES, device: ms.device });
@@ -1972,7 +1976,7 @@ function newTunnelAccountsState() {
     lastImport: null,
     lastCreate: null,
     lastCancel: null, // 最近一次「取消等待」的登录 ID
-    saveFail: false, // true 模拟 tunnels.json 写不进去：导入、创建在写本机那一步报错（创建时平台上照样建好），说法同后端 SaveError
+    saveFail: false, // true 模拟 tunnels.json 写不进去：手动新增隧道、导入、创建在写本机那一步报错（创建时平台上照样建好），说法同后端 SaveError
     overviews: {
       openfrp: {
         provider: "openfrp",
@@ -2163,7 +2167,11 @@ async function tunnelAccountsHandler(state, req, res, p, m, seg) {
       const pn = ((ta.overviews.natfrp || {}).nodes || []).find(n => n.id === nodeId);
       if (!pn || pn.publicGameAllowed !== true) { err(res, 400, "公开游戏服务器只能用樱花的公开服专用节点（名称含「多线」或标有公开游戏标记的节点）"); return true; }
     }
-    const proxyId = String(9000 + state.tunnels.length);
+    // 平台上已经有的编号跳过：saveFail 时平台上建好了、本机列表没变，光按本机条数算会和下一次创建撞号（Codex 复审发现）
+    const taken = new Set(((ta.overviews[provider] || {}).tunnels || []).map(t => String(t.id)));
+    let n = 9000 + state.tunnels.length;
+    while (taken.has(String(n))) n++;
+    const proxyId = String(n);
     const id = "t-new-" + Date.now();
     const tun = {
       id, name, provider, proxyId, running: false,

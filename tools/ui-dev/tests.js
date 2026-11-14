@@ -2984,8 +2984,52 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       const cr = await toastDetail(CHINT);
       assert(cr.includes("平台上的隧道已经建好") && cr.includes("Access is denied"), "「详情」里应是完整原文：" + cr);
       assert(await localTunnels() === before, "创建失败后本机列表不该多出隧道");
+      // 磁盘恢复以后：再建一条照常成功，刚才平台上建好、本机没存上的那条也能导入（两条编号不能撞上，Codex 复审发现仿真后端撞过）
+      const failedId = String(((await taState({})).overviews.openfrp.tunnels.find(t => t.name === "mc_savefail") || {}).id || "");
+      assert(failedId, "平台概览里应有刚才建好的那条");
+      const cancel = await page.$('.modal [data-x="cancel"]'); // 看「详情」时按的 Esc 可能已经把创建对话框一起关了
+      if (cancel) await cancel.click();
+      await modalGone();
+      await taState({ tunnelAccounts: { saveFail: false } });
+      await page.click('#tn-acc-panel [data-acc-create="openfrp"]');
+      await page.waitForSelector("#tn-cr-name");
+      await page.fill("#tn-cr-name", "mc_after");
+      await page.click('.modal [data-x="ok"]');
+      await taWait("lastCreate", v => v.name === "mc_after");
+      assert(await toastHas("已创建并导入"), "磁盘恢复以后创建应成功");
+      await modalGone();
+      await openOverview("openfrp");
+      const sel = `#tn-acc-panel [data-acc-import="openfrp"][data-proxy="${failedId}"]`;
+      await page.waitForSelector(sel);
+      await page.click(sel);
+      await page.waitForSelector('.modal [data-x="ok"]');
+      await page.click('.modal [data-x="ok"]');
+      await taWait("lastImport", v => v.proxyId === failedId);
+      assert(await toastHas("已导入到 MineDeck"), "刚才没存上的那条应能导入（编号 " + failedId + "）");
+      assert(await localTunnels() === before + 2, "恢复以后本机应多出两条");
       assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
     } finally { await resetTA(); }
+  });
+
+  // 手动新增走 toastErr → errSummary：后端给的 hint 要被接进正文（这一条也就验了 hint 守 errSummary 的规矩）
+  await run("隧道：tunnels.json 写不进去时手动新增报「无法添加隧道」接后端那句人话，详情是原文", async () => {
+    await taState({ tunnelAccounts: { reset: true, saveFail: true }, tunnelsReset: true });
+    try {
+      errors.length = 0;
+      await musicState({ music: { reset: true } });
+      await page.goto(url("#/tunnels")); await settle();
+      await page.click("#tn-toggle");
+      await page.selectOption("#tn-provider", "natfrp");
+      await page.fill("#tn-name", "樱花游戏"); await page.fill("#tn-cred", "k"); await page.fill("#tn-proxy", "123456");
+      await page.click("#tn-add");
+      const HINT = "隧道配置写不进磁盘，这次没有保存。请检查磁盘是否已满、MineDeck 所在的文件夹是否只读";
+      assert(await toastHas("无法添加隧道：" + HINT), "提示正文应是「无法添加隧道：」加后端那句人话");
+      assert(!(await toastHas("隧道已添加", 300)), "写不进去时不该提示已添加");
+      const raw = await toastDetail("无法添加隧道");
+      assert(raw.includes("没能写进磁盘") && raw.includes("Access is denied"), "「详情」里应是完整原文：" + raw);
+      assert(await page.$("#tn-name") && await page.$eval("#tn-name", e => e.value) === "樱花游戏", "失败时表单应留着，填的东西不丢");
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await resetTA(); await resetMusic(); }
   });
 
   await run("平台账户：OpenFrp 创建隧道默认给英文名，名称不合规时在对话框里提示且不发请求", async () => {

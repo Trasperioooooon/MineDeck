@@ -347,3 +347,34 @@ func TestAccountImportAndCreateReportSaveFailure(t *testing.T) {
 		t.Fatalf("重启后应有 2 条隧道，实际 %d", n)
 	}
 }
+
+// 樱花同理（创建、导入的前几步和 OpenFrp 不一样，写本机那一步是同一条路）。
+func TestSakuraImportAndCreateReportSaveFailure(t *testing.T) {
+	srv, lastCreate := sakuraServer(t, nil)
+	a, _ := testAccounts(t, srv.URL, srv.URL, srv.URL)
+	ctx := context.Background()
+	if _, err := a.ConnectSakura(ctx, "sakura-access-key"); err != nil {
+		t.Fatal(err)
+	}
+
+	restore := blockSave(t)
+	_, err := a.ImportTunnel(ctx, AccountTunnelImport{Provider: "natfrp", ProxyID: "9"})
+	wantSaveError(t, err)
+	_, err = a.CreateTunnel(ctx, AccountTunnelOptions{Provider: "natfrp", Name: "mc", NodeID: 1, Type: "tcp", LocalPort: 25565})
+	wantSaveError(t, err)
+	if *lastCreate == nil {
+		t.Fatal("樱花上应已建好（测的就是建好以后本机存不上）")
+	}
+	var h interface{ Hint() string }
+	if !strings.Contains(err.Error(), "平台上的隧道已经建好") || !errors.As(err, &h) || !strings.Contains(h.Hint(), "导入") {
+		t.Fatalf("创建失败的说法要讲清平台上已建好、去导入：%v", err)
+	}
+	if n := len(a.tunnels.List()); n != 0 {
+		t.Fatalf("写盘失败后本机多了 %d 条隧道", n)
+	}
+	restore()
+
+	if st, err := a.ImportTunnel(ctx, AccountTunnelImport{Provider: "natfrp", ProxyID: "9"}); err != nil || st.ProxyID != "9" {
+		t.Fatalf("磁盘恢复以后导入应成功：%+v %v", st, err)
+	}
+}
