@@ -1,0 +1,12 @@
+<!-- A6 SmartScreen 示意：自绘窗口框，不是截图。3 帧：提示 → 点「{{more}}」→「{{run}}」高亮。默认显示最终帧。 -->
+<svg class="anim anim-smart" viewBox="0 0 320 180" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+ <rect x="4" y="4" width="312" height="172" class="ss-win"/>
+ <rect x="4" y="4" width="312" height="22" class="ss-bar"/>
+ <text x="16" y="52" class="ss-h">{{title}}</text>
+ <text x="16" y="74" class="ss-p">{{body}}</text>
+ <text x="16" y="100" class="ss-link">{{more}}</text>
+ <g class="ss-f2"><text x="16" y="122" class="ss-p">MineDeck.exe</text></g>
+ <g class="ss-f3"><rect x="150" y="138" width="78" height="26" class="ss-run"/><text x="189" y="156" class="ss-btn" text-anchor="middle">{{run}}</text></g>
+ <rect x="236" y="138" width="72" height="26" class="ss-ghost"/><text x="272" y="156" class="ss-btn2" text-anchor="middle">{{dont}}</text>
+ <g class="ss-cursor"><path d="M0 0v14l4-4 3 6 2-1-3-6h5z" class="ss-ptr"/></g>
+</svg>

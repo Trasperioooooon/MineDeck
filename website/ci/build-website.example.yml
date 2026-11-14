@@ -1,0 +1,53 @@
+# 示例：只构建 MineDeck 官网并上传为 artifact，不部署。
+# 这个文件放在 website/ci/ 下，不会被 GitHub Actions 执行。需要启用时复制到 .github/workflows/ 再按需修改。
+name: Website (build only)
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published, edited, deleted]
+  push:
+    branches: [main]
+    paths:
+      - "website/**"
+      - "docs/images/**"
+      - "internal/web/ui/fonts/**"
+      - "internal/web/ui/img/logo-144.png"
+      - "assets/icon.ico"
+      - "assets/social-preview.png"
+      - "LICENSE"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0 # 提交活动热力图用 git log，需要完整历史
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: 安装字体子集与头像压缩工具
+        run: pip install fonttools brotli pillow
+      - name: 拉取数据
+        working-directory: website
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node build.mjs fetch
+      - name: 构建
+        working-directory: website
+        run: node build.mjs build
+      - name: 上传产物
+        uses: actions/upload-artifact@v7
+        with:
+          name: minedeck-website-dist
+          path: website/dist
+          retention-days: 14

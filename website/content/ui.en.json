@@ -1,0 +1,574 @@
+{
+  "lang": "en",
+  "skip": "Skip to content",
+  "langSwitchAria": "Switch language",
+  "crumbsAria": "Breadcrumb",
+  "fallback": "fallback",
+  "extSr": " (external link, may be slow in mainland China)",
+  "menu": "Menu",
+  "copy": "Copy",
+  "copied": "Copied",
+  "phone": {
+    "h": "This is a Windows program",
+    "p": "It will not run on a phone. Open this address on your PC to download it:",
+    "copy": "Copy this address"
+  },
+  "home": {
+    "eyebrow": "Windows · Minecraft: Java Edition · MIT",
+    "h1": "Run a Minecraft server on Windows",
+    "lead": "A Minecraft: Java Edition server manager for Windows. It downloads Java and the server software, then lets you create, import and manage servers in one window.",
+    "download": "Download {version}",
+    "downloadSub": "{file} · {size} · {date}",
+    "otherWays": "Other downloads and betas",
+    "tagline": "Windows · no installer · MIT",
+    "shotAlt": "MineDeck server list with four servers: Paper, Forge, Vanilla and Velocity",
+    "heroAnimAria": "Animation: three blocks stack into a server and its light turns green",
+    "statsAria": "Project at a glance",
+    "stars": "GitHub stars",
+    "starsAsOf": "as of {date}",
+    "coreH": "Core features",
+    "coreSub": "See the Features page for the full list.",
+    "allFeatures": "All features",
+    "show": {
+      "h": "More than getting a server running",
+      "sub": "Pick a name on the left to see it in action.",
+      "tabsAria": "Highlights",
+      "beta": "Beta",
+      "betaNote": "For now this is only in the 3.1.0 betas.",
+      "betaLink": "See the beta on the download page",
+      "moreLink": "Details on the Features page",
+      "replay": "Replay",
+      "shotNote": "Screenshot of the real interface",
+      "items": [
+        {
+          "id": "banner",
+          "t": "It tells you why the server will not start",
+          "d": "A missing dependency, the wrong mod, a port in use, the wrong Java: the cause is written at the top of the console, so you do not have to dig through the log. No AI needed.",
+          "more": "diag",
+          "demo": "demo-banner",
+          "aria": "Illustration: the console prints an error, the status changes to stopped, a banner drops in at the top saying a dependency mod, geckolib, is missing, and the pointer clicks the button that lets AI analyse it",
+          "text": {
+            "tab": "Console",
+            "tab2": "Players",
+            "tab3": "Backups",
+            "run": "Running",
+            "stop": "Stopped",
+            "l1": "[main/INFO] Loading 42 mods",
+            "l2": "[main/INFO] Preparing level \"world\"",
+            "l3": "[main/ERROR] Missing or unsupported",
+            "l4": "  mandatory dependencies: geckolib",
+            "l5": "[main/ERROR] Failed to start the server",
+            "title": "Missing dependency mod",
+            "sum": "A dependency is missing or has the wrong version: geckolib",
+            "btn": "Let AI analyse",
+            "more": "Details and how to fix"
+          }
+        },
+        {
+          "id": "gameai",
+          "t": "Ask @AI from inside the game",
+          "d": "Players ask in chat; people you authorise can also have it change the time or the weather. You can put AI companions on the server that follow, gather and fight. It uses your own API key and stays offline until you set one.",
+          "more": "ai",
+          "demo": "demo-gameai",
+          "aria": "Illustration: at night, a player tells the AI in chat that it is too dark and asks for daytime; the AI replies and the sun comes up",
+          "text": {
+            "q": "<Sam> @AI it is too dark, make it day",
+            "a": "[AI] Done. It is day now."
+          }
+        },
+        {
+          "id": "music",
+          "t": "Play your music to the whole server",
+          "d": "The sound of a music player on the host's PC goes to everyone on the server through Simple Voice Chat. Each player can turn it down or mute it.",
+          "more": "music",
+          "demo": "demo-music",
+          "aria": "Illustration: the host's music player is playing, notes drift to three players on the server; the first two have moving volume bars and the third has muted it",
+          "text": {
+            "src": "Host's music player",
+            "dst": "Players on the server",
+            "mute": "own volume, own mute"
+          }
+        },
+        {
+          "id": "handover",
+          "beta": true,
+          "t": "Hand a whole server to a friend",
+          "d": "Done hosting? Pack the worlds, mods and configs into one file and send it. Your friend imports it and carries on.",
+          "more": "handover",
+          "demo": "demo-handover",
+          "aria": "Illustration: the server on your PC stops, is packed into a .mdpack file, is sent to a friend's PC, and starts again there",
+          "text": {
+            "a": "Your PC",
+            "b": "Friend's PC",
+            "file": ".mdpack",
+            "s1": "1 Pack",
+            "s2": "2 Send",
+            "s3": "3 Import and carry on",
+            "done": "Done!"
+          }
+        },
+        {
+          "id": "cart",
+          "beta": true,
+          "t": "A mod cart that adds dependencies for you",
+          "d": "Pick your own mods and plugins without hunting for each dependency.",
+          "more": "mods",
+          "demo": "demo-cart",
+          "aria": "Illustration: REI is added to the cart, three dependencies are added automatically, then everything is installed and the four items are ticked off one by one",
+          "text": {
+            "add": "Add to cart",
+            "cart": "Cart",
+            "dep": "dep",
+            "install": "Install all"
+          }
+        },
+        {
+          "id": "pending",
+          "beta": true,
+          "t": "Modpack files that will not download, one by one",
+          "d": "Before, one file whose download address was not on an allowed site, or that had no checksum, made the whole modpack import fail.",
+          "more": "modpack",
+          "demo": "demo-pending",
+          "aria": "Illustration: three files that could not be downloaded; one is skipped, one is replaced by a local file, and one is downloaded after trusting the site",
+          "text": {
+            "title": "Pending files (3)",
+            "skip": "Skip",
+            "local": "Use a local file",
+            "trust": "Trust site and download"
+          }
+        },
+        {
+          "id": "adopt",
+          "beta": true,
+          "t": "Bring in a server you already run",
+          "d": "No need to create it again or move any files.",
+          "more": "takeover",
+          "demo": "demo-adopt",
+          "aria": "Illustration: an old server's folder is scanned and recognised as Paper 1.20.1 with 4 GB of memory, and it appears in the server list on the right",
+          "text": {
+            "keep": "Files stay where they are",
+            "list": "Servers",
+            "added": "Just adopted"
+          }
+        }
+      ]
+    },
+    "core": [
+      {
+        "t": "One-click servers",
+        "d": "12 server types from 1.12.2 to 26.x. Pick type, version and build, accept the EULA, done.",
+        "icon": "server"
+      },
+      {
+        "t": "Java and China mirrors",
+        "d": "Finds or downloads the right Java; servers and Java prefer mirrors such as BMCLAPI and TUNA.",
+        "icon": "java"
+      },
+      {
+        "t": "Modpack import",
+        "d": "Import a Modrinth .mrpack directly; for CurseForge zips, enter your own API key and the files inside are downloaded for you.",
+        "icon": "pack"
+      },
+      {
+        "t": "Tunnels",
+        "d": "OpenFrp, SakuraFrp or your own frps, started with the server, so friends can join from anywhere.",
+        "icon": "tunnel"
+      }
+    ],
+    "activityH": "Recent activity",
+    "activitySub": "Commits and releases over the last 26 weeks",
+    "latestCards": "Latest releases",
+    "details": "Details",
+    "allReleases": "Full changelog",
+    "ossH": "Open source and contributors",
+    "ossP": "MineDeck is MIT-licensed; the source is on GitHub.",
+    "star": "Star on GitHub",
+    "contribute": "Contribute",
+    "moreContributors": "+{n}",
+    "helpH": "Having trouble?",
+    "reportT": "Report a problem",
+    "reportD": "Fill in one form and get a redacted report. Open an issue if you have a GitHub account; there is a way without one too.",
+    "faqT": "FAQ",
+    "faqD": "Java, tunnels, versions, errors, AI costs, SmartScreen and more.",
+    "sensitive": "Never include API keys, MCP tokens, tunnel credentials or CurseForge keys in a report."
+  },
+  "tzLabel": "UTC+8",
+  "site": {
+    "title": "MineDeck · Minecraft server manager for Windows",
+    "description": "A Minecraft: Java Edition server manager for Windows. It downloads Java and the server software, and lets you create, import and manage servers in one window. Open source, MIT."
+  },
+  "nav": {
+    "download": "Download",
+    "features": "Features",
+    "releases": "Changelog",
+    "help": "Help",
+    "feedback": "Feedback",
+    "about": "About",
+    "github": "GitHub",
+    "githubAria": "GitHub source (external link)",
+    "downloadBtn": "Download {version}"
+  },
+  "footer": {
+    "product": "Product",
+    "support": "Support",
+    "project": "Project",
+    "language": "Language",
+    "feed": "Atom feed",
+    "knownIssues": "Known limits",
+    "contributors": "Contributors",
+    "license": "License (MIT)",
+    "source": "Source",
+    "copyright": "© 2026 MineDeck contributors · MIT",
+    "icp": "ICP filing: {v}",
+    "psb": "Public security filing: {v}",
+    "pending": "pending",
+    "disclaimer": "Minecraft is a trademark of Mojang Synergies AB. MineDeck is not affiliated with Mojang Studios or Microsoft.",
+    "fonts": "Fonts: Fusion Pixel, Geist, Geist Mono and Noto Sans SC, all under the SIL OFL 1.1, subset and self-hosted.",
+    "fontLicenses": "Font licenses",
+    "dataAsOf": "Data updated {date} (UTC+8)"
+  },
+  "heat": {
+    "aria": "Activity heatmap: commits per day over {weeks} weeks; release days are outlined",
+    "less": "Less",
+    "more": "More",
+    "release": "Release",
+    "cell": "{date}: {n} commits",
+    "cellRel": "{date}: {n} commits, released {tags}",
+    "source": "Commit counts from {source}, up to {date}.",
+    "sumCommits": "Commits",
+    "sumReleases": "Releases",
+    "sumDays": "Active days"
+  },
+  "log": {
+    "h": "Changelog",
+    "homeSub": "Recent releases",
+    "sub": "{n} releases, last on {date}. Times are UTC+8.",
+    "all": "All",
+    "stable": "Stable",
+    "betaF": "Beta",
+    "latestStable": "Latest stable",
+    "latestBeta": "Latest beta",
+    "total": "Releases",
+    "lastRelease": "Last release",
+    "daysAgo": "{n} days ago",
+    "today": "today",
+    "calendar": "Release history",
+    "calendarRange": "{from} to {to}",
+    "showAll": "Show all {n} releases",
+    "viewAll": "Full changelog",
+    "expand": "Show more",
+    "collapse": "Show less",
+    "onGithub": "View on GitHub",
+    "mirror": "China mirror",
+    "github": "GitHub",
+    "otherFiles": "Other files",
+    "noNotes": "This release only has an auto-generated change list.",
+    "groupCurrent": "MineDeck",
+    "groupLegacy": "2.x · AutoMCHUB era",
+    "legacyNote": "MineDeck was called AutoMCHUB; 2.x releases ship AutoMCHUB.exe. When upgrading from v2.6.1, auto-update cannot find the renamed file, so place MineDeck.exe in the old folder manually.",
+    "notesLang": "Release notes are written in Chinese.",
+    "filterAria": "Filter by type",
+    "title": "Changelog · MineDeck",
+    "desc": "Release notes for every MineDeck version, stable and beta.",
+    "feed": "Subscribe (Atom)",
+    "details": "Details",
+    "allOnGithub": "All releases on GitHub",
+    "groupMajor": "{v} series",
+    "filterNoJs": "",
+    "sizeLabel": "Size"
+  },
+  "release": {
+    "title": "{tag} · Changelog · MineDeck",
+    "desc": "Release notes, files and SHA-256 for MineDeck {tag}.",
+    "sincePrev": "{n} days after the previous release",
+    "sameDay": "Same day as the previous release",
+    "first": "First release",
+    "newer": "A newer {channel} release, {tag}, is available",
+    "betaNote": "This is a beta. Run it from its own folder and back up before trying an existing server.",
+    "legacyNote": "This is an AutoMCHUB-era release; the file is AutoMCHUB.exe.",
+    "files": "Files",
+    "file": "File",
+    "size": "Size",
+    "sha": "SHA-256",
+    "actions": "Download",
+    "mirror": "Mirror",
+    "copySha": "Copy full SHA-256",
+    "notes": "Release notes",
+    "notesLang": "Release notes are written in Chinese.",
+    "toc": "On this page",
+    "prev": "Previous (older)",
+    "next": "Next (newer)",
+    "prevSame": "Previous in channel",
+    "feedback": "Report a problem with this release",
+    "viewGithub": "View on GitHub",
+    "compare": "Code changes since the previous release",
+    "versions": "All releases",
+    "jump": "Go to release",
+    "jumpGo": "Go",
+    "noFiles": "This release has no attachments.",
+    "fileDesc": {
+      "exe": "Windows app",
+      "companion-neoforge": "AI companion client mod (NeoForge 1.21.1)",
+      "companion-forge": "AI companion client mod (Forge 1.20.1)",
+      "sums": "SHA-256 list of all files"
+    }
+  },
+  "download": {
+    "title": "Download · MineDeck",
+    "desc": "Download MineDeck stable and beta builds from a China mirror, with SHA-256 checksums.",
+    "h": "Download",
+    "lead": "A single exe, no installer. Windows 64-bit only. The app interface is in Chinese.",
+    "recommended": "Recommended: stable",
+    "beta": "Beta",
+    "betaDiff": "Adds handover packs, the mod cart, one-by-one handling of modpack files that cannot be downloaded, adopting an existing server, and switching Java in the interface.",
+    "betaWarn": "Run a beta from its own folder and back up before trying it on an existing server. One beta does not update to the next; once the release is out, you can update to it in Settings.",
+    "mirrorBtn": "Download from mirror",
+    "githubBtn": "Download from GitHub",
+    "notesLink": "What's new in this release",
+    "published": "Released {date}",
+    "companionH": "Companion mods (for player clients)",
+    "companionP": "AI companions need the companion mod on each friend's client as well. Pick the one that matches the server's loader and game version and put it in the client's mods folder. What the host installs from the Companions tab is the server side; it does not replace the one on your friends' clients.",
+    "companionNeo": "NeoForge 1.21.1",
+    "companionForge": "Forge 1.20.1",
+    "installH": "Install in three steps",
+    "install": [
+      "Put MineDeck.exe in its own folder. Servers, Java, cache and backups live there by default.",
+      "Double-click to run.",
+      "If Windows says “Windows protected your PC”, click More info, then Run anyway. The exe is not code-signed."
+    ],
+    "demo": "Play demo",
+    "smartAria": "SmartScreen illustration: More info reveals Run anyway",
+    "verifyH": "Verify the file",
+    "verifyP": "Open PowerShell in the exe's folder, run the command below, and compare the output with the SHA-256 above:",
+    "verifyNote": "Every file and its SHA-256 is on the release page; you can also download SHA256SUMS.",
+    "reqH": "Requirements and upgrading",
+    "req": [
+      "Windows 64-bit.",
+      "The UI runs in a WebView2 window, or your default browser if WebView2 is missing.",
+      "Upgrading from v2.6.1 or earlier (file name AutoMCHUB.exe): auto-update cannot find the renamed file, so place MineDeck.exe in the old folder manually. The old autostart entry is removed; turn it back on in Settings → Startup & tray if needed.",
+      "To uninstall: if start-with-Windows is on, turn it off first under Settings → Startup and tray. Then delete the exe's folder and %LocalAppData%\\MineDeck. If you moved servers or backups somewhere else, delete those folders separately."
+    ],
+    "historyH": "Recent releases",
+    "channel": "Channel",
+    "date": "Date",
+    "allVersions": "All releases",
+    "mirrorH": "About the mirror",
+    "mirrorP": "Files on the China mirror are identical to GitHub, with the same SHA-256. If the mirror lacks a file, the button points to GitHub instead.",
+    "mirrorPlaceholder": "The mirror address is a placeholder until launch.",
+    "version": "Version",
+    "smart": {
+      "title": "Windows protected your PC",
+      "body": "SmartScreen stopped an unrecognized app.",
+      "more": "More info",
+      "run": "Run anyway",
+      "dont": "Don't run"
+    }
+  },
+  "features": {
+    "title": "Features · MineDeck"
+  },
+  "help": {
+    "title": "Help · MineDeck"
+  },
+  "feedback": {
+    "title": "Feedback · MineDeck",
+    "desc": "Report a MineDeck bug, suggestion or beta feedback.",
+    "h": "Report a problem or suggestion",
+    "lead": "The form produces a redacted report. If you have a GitHub account you can open an issue with it.",
+    "leadDirect": "The form produces a redacted report. If you have a GitHub account you can open an issue with it; without one, you can send it to us directly.",
+    "before": "Before you report",
+    "beforeFaq": "FAQ",
+    "beforeLimits": "Known limits",
+    "beforeLatest": "Is it fixed in the latest release, {tag}?",
+    "noJs": "This form needs JavaScript. You can also open an issue on GitHub directly.",
+    "kind": "Type",
+    "kinds": {
+      "bug": "Bug",
+      "suggestion": "Suggestion",
+      "beta": "Beta feedback"
+    },
+    "caseId": "Test case ID",
+    "caseIdHint": "ID from the test plan, e.g. F-08, or what you were doing",
+    "result": "Result",
+    "results": {
+      "fail": "Fail",
+      "partial": "Partial",
+      "blocked": "Could not test"
+    },
+    "titleF": "Title",
+    "titleHint": "One line, up to 80 characters",
+    "version": "MineDeck version",
+    "versionHint": "See Settings → Update & About",
+    "unsure": "Not sure",
+    "os": "Windows version",
+    "osOther": "Other",
+    "osBuild": "Build (optional)",
+    "osBuildHint": "Press Win+R and run winver",
+    "mem": "Memory (GB)",
+    "core": "Server type",
+    "coreNone": "Not related",
+    "mc": "Minecraft version",
+    "coreVer": "Server build",
+    "modpack": "Modpack",
+    "areas": "Areas",
+    "areaNames": {
+      "ai": "AI",
+      "tunnel": "Tunnels",
+      "modpack": "Modpack import",
+      "handover": "Handover packs",
+      "takeover": "Adopting servers",
+      "backup": "Backups",
+      "music": "Music sharing",
+      "companion": "AI companion",
+      "other": "Other"
+    },
+    "aiModel": "AI provider and model",
+    "aiHint": "Never include the key",
+    "steps": "Steps to reproduce",
+    "expected": "Expected",
+    "actual": "Actual",
+    "logs": "Logs",
+    "logsHint": "Drop a .log or .txt file here. It is read in your browser and never uploaded. Long logs keep the first 200 and last 400 lines.",
+    "logsHintDirect": "Drop a .log or .txt file here. It is read in your browser. The log in the report is only sent if you press Send directly. Long logs keep the first 200 and last 400 lines.",
+    "shots": "Screenshots: the copy and GitHub channels cannot attach images; paste them into the issue.",
+    "contact": "Contact (optional)",
+    "contactHint": "Email or QQ. Only sent through the direct channel, never in copied or GitHub reports.",
+    "confirm": "I checked that the report contains no API keys, passwords or tunnel credentials",
+    "warn": "Never include API keys, LAN passwords, SakuraFrp access keys or CurseForge keys. When the report is built, Windows user names, IP addresses and common key formats in logs are replaced; check the preview.",
+    "draft": "Drafts are stored only in your browser.",
+    "clear": "Clear",
+    "preview": "Report preview",
+    "redacted": "Replaced {n} item(s); check the preview.",
+    "required": "Please fill in: {fields}",
+    "submitH": "Send",
+    "copyBtn": "Copy report",
+    "downloadBtn": "Download .md",
+    "githubBtn": "Open a GitHub issue",
+    "githubNote": "GitHub may not load in mainland China.",
+    "wayGh": "I have a GitHub account",
+    "wayGhP": "Opens an issue with the report filled in. You are notified of progress, and others can see it.",
+    "wayNo": "I do not have an account",
+    "wayNoP": "Sends the report straight to MineDeck, no sign-up. The author reads these regularly and may use AI to sort them. Leave a contact above if you want a reply.",
+    "wayNoOff": "Direct submission is not open yet. Copy or download the report and send it to the author however you can.",
+    "keep": "You can also keep a copy:",
+    "githubLong": "Logs were too long and have been copied to the clipboard; paste them into the issue.",
+    "endpointBtn": "Send directly",
+    "sending": "Sending…",
+    "sent": "Received, ID {id}.",
+    "sendFail": "Sending failed: {msg}. Your draft is kept; use Copy report instead.",
+    "copiedMsg": "Report copied. Paste it into an issue or a group chat.",
+    "copyManual": "Could not copy automatically. The preview text is selected; press Ctrl+C.",
+    "logsH": "Where are the logs?",
+    "logsItems": [
+      "MineDeck operation log: logs\\ops in the program folder",
+      "Server log: logs\\latest.log in the server folder",
+      "Crash reports: crash-reports\\ in the server folder",
+      "Client log: logs\\latest.log in the game folder"
+    ],
+    "verH": "Finding the version",
+    "verP": "In MineDeck, open Settings → Update & About."
+  },
+  "about": {
+    "title": "About · MineDeck",
+    "desc": "About MineDeck: the project, contributors, activity, how to contribute and the license.",
+    "h": "About MineDeck",
+    "introH": "The project",
+    "intro": [
+      "MineDeck is a Minecraft: Java Edition server manager for Windows: it downloads Java and server software and lets you create, import and manage servers in one window.",
+      "It manages server processes and files on your own PC. It does not provide cloud servers, host worlds, or buy or run servers for you. AI features are optional; with no key set it connects to no AI service.",
+      "MineDeck was called AutoMCHUB. It was renamed with {renamed}; 2.x releases still ship AutoMCHUB.exe."
+    ],
+    "contribH": "Author and contributors",
+    "contribAsOf": "as of {date}",
+    "commits": "{n} commits",
+    "hiddenNote": "AI coding tools and bot accounts are not listed.",
+    "activityH": "Activity",
+    "activitySub": "Commits per day over the last 52 weeks; release days are outlined.",
+    "monthly": "Releases per month",
+    "monthlyAria": "Bar chart of releases per month",
+    "joinH": "Contribute",
+    "join": [
+      {
+        "t": "Report a problem",
+        "d": "Fill in the on-site feedback form to get a redacted report.",
+        "to": "feedback"
+      },
+      {
+        "t": "Beta feedback",
+        "d": "Choose “Beta feedback” on the feedback page.",
+        "to": "feedback",
+        "q": "?kind=beta"
+      },
+      {
+        "t": "Send code",
+        "d": "Open a pull request on GitHub.",
+        "ext": "repo"
+      }
+    ],
+    "starH": "Stars",
+    "starP": "{n} stars on GitHub as of {date}.",
+    "licenseH": "License",
+    "licenseP": "MineDeck is licensed under the MIT License. The repository LICENSE file:",
+    "thanksH": "Credits and third parties",
+    "thanks": [
+      "Fonts: Fusion Pixel (pixel headings), Geist, Geist Mono and Noto Sans SC, all under the SIL Open Font License 1.1.",
+      "Mirror services in China: BMCLAPI and the Tsinghua TUNA mirror.",
+      "Third-party notices for the companion mod are in companion/LICENSE-NOTICE.md in the repository."
+    ],
+    "disclaimerH": "Disclaimer"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "p": "There is nothing at this address.",
+    "back": "Back to home",
+    "download": "Download",
+    "releases": "Changelog",
+    "aria": "A block with a missing piece"
+  },
+  "shots": {
+    "h": "Screenshots",
+    "sub": "Taken on v2.9.0-beta.1; beta-only screens are not shown. The app interface is in Chinese.",
+    "items": [
+      {
+        "f": "01-servers.png",
+        "c": "Server list",
+        "alt": "Server list with four servers: Paper, Forge, Vanilla and Velocity, with start, stop and manage buttons"
+      },
+      {
+        "f": "02-console-banner.png",
+        "c": "Console error banner",
+        "alt": "Error banner at the top of the console: missing dependency geckolib and a client-only mod on the server"
+      },
+      {
+        "f": "03-assistant.png",
+        "c": "Assistant with a confirmation card",
+        "alt": "The assistant reads the mod list, points out a client-only mod and offers a confirmation card to disable it"
+      },
+      {
+        "f": "04-gameai-log.png",
+        "c": "In-game AI log",
+        "alt": "In-game AI log: weather clear was run, op was refused"
+      },
+      {
+        "f": "05-companion.png",
+        "c": "AI companions",
+        "alt": "Companion page: mod connected, one companion gathering, one idle, and two no-dig zones"
+      },
+      {
+        "f": "06-music.png",
+        "c": "Music sharing",
+        "alt": "Music sharing with NetEase Cloud Music selected as the source and all checks passed"
+      },
+      {
+        "f": "07-settings-ai.png",
+        "c": "AI settings",
+        "alt": "AI settings with DeepSeek enabled and a successful connection test"
+      }
+    ]
+  },
+  "crumbHome": "Home",
+  "people": {
+    "author": "Author",
+    "contributors": "Contributors"
+  }
+}

@@ -1,0 +1,361 @@
+[
+ {
+  "tag_name": "v3.1.0-beta.3",
+  "name": "v3.1.0-beta.3",
+  "draft": false,
+  "prerelease": true,
+  "published_at": "2026-11-10T09:07:13Z",
+  "html_url": "https://github.com/Trasperioooooon/MineDeck/releases/tag/v3.1.0-beta.3",
+  "body": "> **这是测试版**，给自己和好友试用、找问题的，可能还有毛病。\n> - 请放进一个新的空文件夹里运行。要拿已有的服务器试，先把整个文件夹备份一份。\n> - 测试版之间不会自动更新：从 beta.1、beta.2 升级要手动下载新的 `MineDeck.exe`，替换掉原来的。用着 v3.0.0 的不会收到这个版本的更新提示。\n> - 正式版会是 v3.1.0，装了测试版的人到时能在「设置 → 更新与关于」里直接更新。\n\n这一版只修了一件事，和「接管已有服务器」有关。别的功能和 beta.2 一样，见 [v3.1.0-beta.2](https://github.com/Trasperioooooon/MineDeck/releases/tag/v3.1.0-beta.2) 和 [v3.1.0-beta.1](https://github.com/Trasperioooooon/MineDeck/releases/tag/v3.1.0-beta.1) 的发布说明。\n\n## 修了什么\n\n**接管一台服务器以后，旁边的服务器不再自己出现在列表里。**\n\n以前接管一个文件夹时，MineDeck 记下的是它的上一层目录，下次启动会把那一层里的文件夹都看一遍。结果是：上一层里别的被 MineDeck 管过的服务器（文件夹里有 `instance.json` 的），没点过接管，重启以后也出现在了列表里。最容易碰到的情形是老版本 MineDeck 的 `servers` 目录：接管其中一台，重启后其余几台都回来了，它们记的 Java 路径还可能指向已经不在的地方。\n\n现在接管只记被接管的那一个文件夹，旁边的不会跟着出现。服务器文件夹暂时不在（比如放在没插上的移动硬盘里）时，这台服务器这次不显示，下次文件夹回来了照样在。把服务器移出列表或者删除以后，这条记录也一起去掉。\n\n新建服务器、导入整合包、导入交接包不受影响，和以前一样。\n\n## 用 beta.1、beta.2 接管过服务器的，请看这里\n\n这次的修复只管以后的接管，管不到已经接管过的：那两版记下的上一层目录还在配置里，升级以后你接管的服务器照样在，但那一层里别的服务器也照样会出现。程序没法替你清，因为它分不出哪一条是接管时记的、哪一条是你自己设过的存放目录。\n\n不想看到那些多出来的服务器，有两个办法。\n\n简单的办法：在列表里把多出来的那几台逐个「移出列表」（删除时不要勾「同时删除服务器文件夹」）。文件都留着，以后不会再出现。要注意，这会把那个文件夹里的 `instance.json` 改名成 `instance.json.bak`；如果那几台正被另一份 MineDeck 管着，那一份里它们也会消失，这种情况用下面的办法。\n\n彻底的办法：先把你接管的那台「移出列表」，然后完全退出 MineDeck，用记事本打开 `MineDeck.exe` 旁边的 `config.json`，在 `roots` 里删掉那一层目录所在的那一行，保存。再打开 MineDeck，重新接管那台服务器，原来的内存、定时任务这些设置会带回来。\n\n## 这一版实际试过的\n\n在一台 Windows 11 上，用一份全新的 MineDeck 接管了一台真实的 NeoForge 1.21.1 服务器，它旁边放着另一台带 `instance.json` 的 Forge 1.20.1 服务器。重启以后列表里只有接管的那一台；把它移出列表再重启，列表是空的；再接管回来，重启后还在。\n\n修之前的那一轮真机实测（识别、接管、启动真实的服务器、换 Java、移出列表再接管，一共 31 步）记在[实测报告](https://github.com/Trasperioooooon/MineDeck/blob/v3.1.0-beta.3/docs/测试报告-接管已有服务器-真机实测.md)里，这个问题就是那一轮发现的。\n\n还没有人试过的：在真实窗口里点「浏览」选文件夹来接管（上面是直接调接口做的）；Paper、Fabric 和老版本 Forge 的真实服务器。\n\n## 下载哪个文件\n\n| 文件 | 给谁 |\n|---|---|\n| `MineDeck.exe` | 开服的人。放进一个单独的文件夹，双击运行。 |\n| `minedeck-companion-neoforge-1.21.1-0.2.1.jar` | 用了 AI 伙伴的 NeoForge 1.21.1 服上的好友：放进客户端的 `mods` 目录 |\n| `minedeck-companion-forge-1.20.1-0.2.1.jar` | 同上，Forge 1.20.1 的服 |\n| `SHA256SUMS` | 校验和，自动更新会用到，一般不用管 |\n\n伙伴模组和 v3.0.0、beta.1、beta.2 的是同一份，已经装过的不用换。\n\n## 已知情况\n\n和 beta.2 相同，见 [v3.1.0-beta.2 的发布说明](https://github.com/Trasperioooooon/MineDeck/releases/tag/v3.1.0-beta.2)里的「已知情况」。另外补一条和接管有关的：\n\n- **接管进来的服务器和存放目录里的服务器重名时**，列表里只显示存放目录里的那一台。接管的时候会查重名，所以一般碰不到；碰到了，给其中一台换个名字（移出列表后重新接管时可以改名）。\n\n发现问题请在 GitHub 上提 Issue，或者直接告诉作者。**不要贴出 API Key 和各种令牌。**\n\n\n**Full Changelog**: https://github.com/Trasperioooooon/MineDeck/compare/v3.1.0-beta.2...v3.1.0-beta.3",
+  "assets": [
+   {
+    "name": "minedeck-companion-forge-1.20.1-0.2.1.jar",
+    "size": 121733,
+    "digest": "sha256:06449d8836017a8c2d4ee22a2bcb19b034c08db9877d029bf4f48c0d25014474",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v3.1.0-beta.3/minedeck-companion-forge-1.20.1-0.2.1.jar"
+   },
+   {
+    "name": "minedeck-companion-neoforge-1.21.1-0.2.1.jar",
+    "size": 122991,
+    "digest": "sha256:6ea730abf3616d0853ca07eedd6d3681c741e06f185d4bc5c9595cd5fe8c690e",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v3.1.0-beta.3/minedeck-companion-neoforge-1.21.1-0.2.1.jar"
+   },
+   {
+    "name": "MineDeck.exe",
+    "size": 14905344,
+    "digest": "sha256:90baf5cf4d3dfce928a9961daafe78b2404146b51ad15250868d8b9e9f2cc525",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v3.1.0-beta.3/MineDeck.exe"
+   },
+   {
+    "name": "SHA256SUMS",
+    "size": 301,
+    "digest": "sha256:0706cef5d1658ccc0606127f8456d4d1fae0755e55314873c8eacee37bfd0e95",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v3.1.0-beta.3/SHA256SUMS"
+   }
+  ]
+ },
+ {
+  "tag_name": "v3.1.0-beta.2",
+  "name": "v3.1.0-beta.2",
+  "draft": false,
+  "prerelease": true,
+  "published_at": "2026-11-10T08:31:48Z",
+  "html_url": "https://github.com/Trasperioooooon/MineDeck/releases/tag/v3.1.0-beta.2",
+  "body": "> **这是测试版**，给自己和好友试用、找问题的，可能还有毛病。\n> - 请放进一个新的空文件夹里运行。要拿已有的服务器试，先把整个文件夹备份一份。\n> - 测试版之间不会自动更新：从 beta.1 升级要手动下载新的 `MineDeck.exe`，替换掉原来的。用着 v3.0.0 的不会收到这个版本的更新提示。\n> - 正式版会是 v3.1.0，装了测试版的人到时能在「设置 → 更新与关于」里直接更新。\n\n这一版没有新功能，是把 beta.1 实际测出来的问题修掉。beta.1 新加的三个功能（把服务器打包交给别人、模组购物车、整合包里下载不了的文件逐个处理）见 [v3.1.0-beta.1 的发布说明](https://github.com/Trasperioooooon/MineDeck/releases/tag/v3.1.0-beta.1)。\n\nbeta.1 发出去的时候，有三块没有实际试过：Forge 和 NeoForge 的服务器交接、几个 GB 的大交接包、CurseForge 的整合包。这次在一台 Windows 11 上把它们都跑了一遍，一共 22 条，下面的修复都是这一轮测出来的。\n\n## 修了什么\n\n**导入交接包**\n\n- **导入完看不到开头的说明**：不带核心的交接包导入时要跑官方安装器，安装器一口气打几百上万行，把日志开头「包里有什么、哪些没带过来」那几行挤没了，而最后一行偏偏写着「没带过来的东西见上面几行」。现在日志太长时，开头的几十行会留着，中间省略了多少行会标出来。新建 Forge 服务器、导入整合包的日志同样如此。\n- **超过 8 GB 的包**：以前要等整个文件传完，才冒出一句 `上传解析失败: http: request body too large`。现在选了文件就告诉你超过了上限，不用白等。上限本身没有变，见下面的「已知情况」。\n- **旧版 Forge 装了一半被当成装好**：Forge 1.16.5 这类老版本的官方安装器，在它自己的联网检查失败时（网络一抖就会），什么都不装就报告「成功」。如果正好发生在 MineDeck 重试的那一次，上一次留下的半截安装会被当成装好的，导入显示成功，服务器一开就崩。现在这种情况算作这一次失败，会接着重试。新建旧版 Forge 服务器时同样受益。\n- **两句说错的话**：导入旧版本的服务器时，日志里把 MineDeck 自己加的两个安全参数列成「原来的 JVM 参数没有带过来，需要的话自己加」，其实已经加上了，照做就加重了。导出时，空文件夹（比如 Forge 一装好就有的空 `defaultconfigs`）被提醒成「没有进包」。这两句都去掉了。\n\n**导入 CurseForge 整合包**\n\n- **资源包、光影、数据包不再全塞进 `mods`**：整合包的清单不区分这些，以前一律放进 `mods`，在那里什么用都没有。现在按它们在 CurseForge 上的类别分开放：资源包进 `resourcepacks`，光影进 `shaderpacks`，数据包进 `datapacks`。实测的一个整合包里，有 203 个文件原来放错了地方。\n- **下载不了的文件看得出是哪个了**：作者不允许第三方工具下载的那些，以前「待处理」里只有一串项目编号。现在有文件名、项目的名字、具体是什么原因，还有这个文件在 CurseForge 网站上的下载页，点过去就能手动下载。\n- **用本地来源目录能自动补上**：因为现在知道文件名了，导入时在「本地来源目录」填上自己电脑里那个整合包的文件夹（比如 CurseForge 客户端里的那一份），下载不了的文件凡是那里有同名的，会自动拿过来。\n- **超过 4 GB 的整合包**同样在上传前就提示。\n\n**其他**\n\n- 导入交接包的页面上，先选好一个包、再换成另一个文件时，上一个包的摘要会立刻清掉。以前换成一个有问题的文件，页面上还留着上一个包的信息，点「导入」导的是上一个。\n- CurseForge 接口返回的文件名现在只认单独一个文件名，带路径的一律不用，免得文件落到不该去的地方。\n\n## 这一轮实际试过的\n\n- **Forge 1.20.1、NeoForge 1.21.1、旧版 Forge 1.16.5 的交接**：带核心和不带核心的各一遍，外加一个带中文和空格的名字。模组、配置和存档逐个文件比对，一个不缺、内容相同，导入出来的服务器都能开起来。不带核心的包导入要重新跑安装器，花一到三分钟；带核心的三秒。\n- **大交接包**：5 GB 的包和里面有单个 4.5 GB 文件的包都走通了，导入后和原来逐字节相同。导出 6 到 9 秒，传给另一份 MineDeck 半分钟出头，导入 9 到 15 秒。MineDeck 占的内存一直在 300 MB 以内，和包的大小无关。\n- **CurseForge 整合包**：四个真实的整合包（All the Mods 10、BMC4、Fabulously Optimized、Prominence II），填了 API Key 和没填各导了一遍，清单里的每一项要么下载到了，要么列在「待处理」里，数目都对得上。\n\n上面这些是在 beta.1 上跑的。修好以后，用改过的程序重跑了其中三条（旧版 Forge 的交接、一个 CurseForge 整合包、一个超过上限的包），结果和上面「修了什么」里写的一致。完整的记录在[补测报告](https://github.com/Trasperioooooon/MineDeck/blob/v3.1.0-beta.2/docs/测试报告-v3.1.0-beta.1-补测.md)里。\n\n## 请重点帮忙试这些\n\n下面这些还没有人试过，最想知道结果：\n\n- **真的换一台电脑**：上面的交接都是在同一台电脑的两份 MineDeck 之间做的。把包拿到另一台电脑、另一个 Windows 用户下导入，是不是一样顺。\n- **进游戏看一眼**：导入出来的服务器只确认了文件一致、能开起来。用游戏客户端进去，地形、箱子、玩家数据是不是都在。\n- **带很多模组或插件的真实服务器**交接过去以后，是不是和原来一样能进、能玩。\n- **CurseForge 整合包里下载不了的文件**：照着下载页手动下载以后，用「用本地的文件」补上；或者用「本地来源目录」让它自动认。\n- **购物车**：Forge、NeoForge 的模组和 Paper 的插件；让 AI 助手帮着挑、帮着装；新建向导里「选模组」那一步。\n- **带自建站点下载地址的真实整合包**。\n\n发现问题请在 GitHub 上提 Issue，或者直接告诉作者。**不要贴出 API Key 和各种令牌。**\n\n## 下载哪个文件\n\n| 文件 | 给谁 |\n|---|---|\n| `MineDeck.exe` | 开服的人。放进一个单独的文件夹，双击运行。 |\n| `minedeck-companion-neoforge-1.21.1-0.2.1.jar` | 用了 AI 伙伴的 NeoForge 1.21.1 服上的好友：放进客户端的 `mods` 目录 |\n| `minedeck-companion-forge-1.20.1-0.2.1.jar` | 同上，Forge 1.20.1 的服 |\n| `SHA256SUMS` | 校验和，自动更新会用到，一般不用管 |\n\n伙伴模组和 v3.0.0、beta.1 的是同一份，已经装过的不用换。\n\n## 已知情况\n\n- **交接包不能超过 8 GB**：开了很久的服务器，存档有可能超过这个数。超过的话，把整个服务器文件夹拷到另一台电脑上，在「新建服务器」页用「接管已有服务器」把它收进来。\n- **CurseForge 上的整合包多数是给客户端用的**：里面常有只能装在客户端的模组（比如渲染优化类的），照着清单装出来的服务器会开不起来。这次试的四个整合包里有三个是这样。MineDeck 目前不会提醒这一点，看到的是导入成功、启动后崩溃。大型整合包的作者一般另外提供 Server Pack：下载那个，解压以后用「接管已有服务器」。\n- **整合包清单里的数据包放在 `datapacks` 文件夹里，不会自己生效**：带数据包的整合包通常自己带着加载它们的模组和一份放好位置的拷贝，MineDeck 不去动存档里的数据包设置。\n- **待处理的文件要在这次运行里处理完**：关掉 MineDeck 再打开，任务页上的待处理清单就没有了，只剩服务器文件夹里的「导入待决清单.txt」和「未解析模组清单.txt」，要自己照着把文件放进去。\n- **信任过的站点没有地方取消**：目前要手动改 `config.json` 里的 `trustedHosts`。\n- **导入交接包被打断**（关程序、断电）时，建到一半的文件夹会留在存放位置里，不会出现在服务器列表中，可以直接删掉。\n- **向导里挑的模组放在一辆「草稿」购物车里**，它不记是给哪种核心挑的。挑了模组以后回头换了核心，或者上次挑完没建成服，下次建服时这些模组可能装不上，任务页会写「找不到能装的版本」。遇到了就到新服务器的「购物车」标签里重新挑。\n- **购物车一次能带出多少前置没有上限**：前置很多的模组，检查依赖和安装会慢一些。\n- **没有数字签名**：第一次运行时，Windows 可能提示「Windows 已保护你的电脑」，点「更多信息 → 仍要运行」。\n\n\n**Full Changelog**: https://github.com/Trasperioooooon/MineDeck/compare/v3.1.0-beta.1...v3.1.0-beta.2",
+  "assets": [
+   {
+    "name": "minedeck-companion-forge-1.20.1-0.2.1.jar",
+    "size": 121733,
+    "digest": "sha256:06449d8836017a8c2d4ee22a2bcb19b034c08db9877d029bf4f48c0d25014474",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v3.1.0-beta.2/minedeck-companion-forge-1.20.1-0.2.1.jar"
+   },
+   {
+    "name": "minedeck-companion-neoforge-1.21.1-0.2.1.jar",
+    "size": 122991,
+    "digest": "sha256:6ea730abf3616d0853ca07eedd6d3681c741e06f185d4bc5c9595cd5fe8c690e",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v3.1.0-beta.2/minedeck-companion-neoforge-1.21.1-0.2.1.jar"
+   },
+   {
+    "name": "MineDeck.exe",
+    "size": 14900224,
+    "digest": "sha256:0912afd3025d7d0d08c7a2341b27af7e71f23d202a244fe04dd74b020d452b56",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v3.1.0-beta.2/MineDeck.exe"
+   },
+   {
+    "name": "SHA256SUMS",
+    "size": 301,
+    "digest": "sha256:1b0b67dbc60a108847d7c8e1f5f8d04aec4d36adec542a3c2ae9a6a10943cbd5",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v3.1.0-beta.2/SHA256SUMS"
+   }
+  ]
+ },
+ {
+  "tag_name": "v3.1.0-beta.1",
+  "name": "v3.1.0-beta.1",
+  "draft": false,
+  "prerelease": true,
+  "published_at": "2026-11-10T04:05:19Z",
+  "html_url": "https://github.com/Trasperioooooon/MineDeck/releases/tag/v3.1.0-beta.1",
+  "body": "> **这是测试版**，给自己和好友试用、找问题的，可能还有毛病。\n> - 请放进一个新的空文件夹里运行。要拿已有的服务器试，先把整个文件夹备份一份。\n> - 用着 v3.0.0 的不会收到这个版本的更新提示，想试要手动下载 `MineDeck.exe`。\n> - 正式版会是 v3.1.0，装了测试版的人到时能在「设置 → 更新与关于」里直接更新。\n\n这一版加了三个功能：把一台服务器整个打包交给别人接着开；自己挑模组放进购物车、前置自动补齐、一次装好；导入整合包时遇到下载不了的文件可以逐个处理。另外带上了 v3.0.0 之后已经合进来、还没发过的几项改动。\n\n## 新功能：把服务器打包交给别人\n\n自己开的服不想开了，可以整台交给朋友接着开；也可以打一份发给朋友，让他照着在自己电脑上开一台。\n\n- **打包的人**：停掉服务器，在服务器卡片的「···」菜单里点「交接给其他电脑…」，选这个包给谁（交给下一任服主，还是发给朋友照着开一台），再选一个文件夹，会生成一个 `.mdpack` 文件。把它发给对方，微信、网盘都行。打包的时候这台服务器不能启动，也不能删除。\n- **收包的人**：在「新建服务器」页选「导入交接包」，选这个文件，填名称和端口，等它装完就能启动。Java 和服务端核心按收包那台电脑的情况重新准备，Java 版本可以自己选。给收包的人准备了一份[上手指南](https://github.com/Trasperioooooon/MineDeck/blob/v3.1.0-beta.1/docs/接收者上手指南.md)，可以连同包一起发过去。\n- **包里有什么**：存档（多世界插件建的其他世界也带）、`server.properties`、核心自己的配置（`spigot.yml`、`bukkit.yml`、`paper.yml` 这些）、`mods`、`plugins`、`config`、整合包的 `kubejs` 和 `scripts`、白名单和管理员名单。\n- **包里没有什么**：日志、崩溃报告和服务端核心。核心在导入时重新下载；勾上「完整模式」就连核心一起带，包会大不少。服务器文件夹里别的东西（比如地图插件在根目录生成的瓦片、自己放的文件）不带，打包时会在日志里一条条列出来，对方需要的话另外拷给他。\n\n收包的人要知道三件事：\n\n- 包里的模组和插件是对方电脑上带过来的程序，启动服务器时会在你的电脑上运行。只导入信得过的人给的包。\n- 原来的 JVM 参数、定时任务和崩溃自动重启不会带过来，原来开着的 RCON 会先关掉，导入完成后的日志里会列出原来有哪些，需要的话自己再加。游戏内 AI、AI 伙伴和音乐共享也要在收包的电脑上重新打开。\n- 包里原服主同意过 Minecraft EULA 的，导入时可以不用再勾。\n\n打包的人要知道两件事：\n\n- 包里有玩家的存档、白名单和管理员名单，交之前先和服里的人说一声。\n- 配置文件是原样进包的，里面写着的密码也会一起交出去，比如 `server.properties` 里的 RCON 密码、插件配置里的数据库密码和机器人令牌。在别处也用着的，先改掉再交。\n\n## 新功能：自己挑模组，放进购物车一次装好\n\n不用整合包、自己选核心开服的时候，以前只能在「资源」页一个一个搜、一个一个装，前置要自己找，装错了服务器起不来。\n\n- **在哪里**：新建服务器的向导里多了可选的一步「选模组」（原版没有这一步）；每台模组服、插件服的详情页多了「购物车」标签。\n- **怎么用**：搜到想要的模组或插件，点「加入购物车」，凑齐以后点「安装全部」。安装前可以点「检查依赖」，缺的必装前置会列出来；不检查也会在安装时自动一起装上。向导里挑的会在服务器建好以后自动装。\n- **装的是什么**：都从 Modrinth 下载，按当前的核心和 Minecraft 版本挑兼容的版本，下载下来要对得上 Modrinth 给的校验值。服务器里已经有的不重复装；只在客户端用的模组不会放进购物车。\n- **AI 助手也能用**：可以让 AI 助手帮你搜、帮你往购物车里放。真正往服务器里装的时候，AI 只能提出来，卡片上会逐个列出要下载的文件，你点了确认才装。购物车在你看过以后被改过的话（比如 AI 又加了东西），点安装会被拦下，让你先看一眼现在的清单。\n\n## 新功能：整合包里下载不了的文件，逐个处理\n\n以前导入整合包时，只要有一个文件的下载地址不在允许的站点里（Modrinth、GitHub、GitLab），或者没有校验值，整个整合包都导不进来。魔改过的模组常常挂在作者自己的网站上，这样的整合包就没法用。\n\n现在整合包照常导入，下载不了的文件列在任务页的「待处理」里，每个文件自己选怎么办：\n\n- **跳过**：不要这个文件。\n- **用本地的文件**：给出一个文件或文件夹，原样复制进去，不校验内容。手里有魔改模组的 jar 就用这个。\n- **信任这个站点后下载**：只对 https 的公网地址有效，要先看一遍风险说明并确认。下载下来的内容必须对得上整合包给的校验值，对不上不会留下。确认过的站点会记住，以后同一个站点的文件直接下载。\n\n导入表单上多了一个可选的「本地来源目录」：填上以前那台服务器的文件夹，下载不了的文件里凡是那里有的，会自动原样拿过来。\n\n模组声明要用的 Java 比这台服务器现在用的新时（比如 1.20.1 的服配了要 Java 25 的模组），导入完成页和服务器详情页会提醒，并给出去「内存 / 启动」换 Java 的入口。只是提醒，不拦着你启动。\n\n## v3.0.0 之后的其他改动\n\n- **接管已有服务器**：「新建服务器」页可以选一个以前自己开的服务器文件夹，MineDeck 认出核心、版本和启动文件后就地登记进来。文件不搬，存档和配置不动。\n- **在界面上换 Java**：每台服务器的「内存 / 启动」页多了 Java 选择框，能选 MineDeck 下载的、电脑上装的，或者现下一个。\n- **移出列表**：删除服务器时不勾「同时删除服务器文件夹」，就只是从列表里拿掉，以后还能接管回来。\n- **后台任务不再丢**：部署到一半切到别的页面或者刷新，回来还能找到进度。这一项是 awaxiaoyu 贡献的。\n- 鼠标移到链接上时，窗口左下角不再冒出网址。\n- **修复**：`server.properties` 里的世界目录名（level-name）写成指到服务器文件夹外面时，备份和还原会跟着找到外面去，还原时可能删掉别的文件夹。现在这种写法一律按默认的 `world` 处理。\n\n## 下载哪个文件\n\n| 文件 | 给谁 |\n|---|---|\n| `MineDeck.exe` | 开服的人。放进一个单独的文件夹，双击运行。 |\n| `minedeck-companion-neoforge-1.21.1-0.2.1.jar` | 用了 AI 伙伴的 NeoForge 1.21.1 服上的好友：放进客户端的 `mods` 目录 |\n| `minedeck-companion-forge-1.20.1-0.2.1.jar` | 同上，Forge 1.20.1 的服 |\n| `SHA256SUMS` | 校验和，自动更新会用到，一般不用管 |\n\n伙伴模组和 v3.0.0 的是同一份，已经装过的不用换。\n\n## 请重点帮忙试这些\n\n发版前在一台 Windows 11 上实际走过这些：\n\n- 一台 Paper 1.20.1 的服导出交接包（带核心和不带核心的、交接的和发给朋友的），在另一份 MineDeck 里导入并开起来。\n- 几个故意动过手脚的交接包（夹带启动配置、冒充核心的文件、启动参数和定时任务，或者把世界目录指到服务器文件夹外面）被挡下。\n- 一台 Fabric 1.20.1 的服，往购物车里放 REI，自动带出 Fabric API、Architectury 和 Cloth Config，装好以后服务器正常启动。\n- 一个整合包里同时有 Modrinth 的文件、GitHub 发布页的文件、自建站点的文件、没有校验值的文件，各走了一遍处理办法。\n\n下面这些还没试过，最想知道结果：\n\n- 几个 GB 的真实存档导出和导入要多久，中途会不会出问题。\n- Forge、NeoForge、Fabric 的服交接：不带核心的包在导入时要联网重新装一遍核心，Forge 和 NeoForge 还要跑官方安装器。\n- 带很多模组或插件的服交接过去以后，是不是和原来一样能进、能玩。\n- 购物车：Forge、NeoForge 的模组和 Paper 的插件；让 AI 助手帮着挑、帮着装；新建向导里「选模组」那一步。\n- CurseForge 的整合包（要先在设置里填 CurseForge API Key）。\n- 带自建站点下载地址的真实整合包。\n\n发现问题请在 GitHub 上提 Issue，或者直接告诉作者。**不要贴出 API Key 和各种令牌。**\n\n## 已知情况\n\n- **待处理的文件要在这次运行里处理完**：关掉 MineDeck 再打开，任务页上的待处理清单就没有了，只剩服务器文件夹里的「导入待决清单.txt」，要自己照着把文件放进去。\n- **信任过的站点没有地方取消**：目前要手动改 `config.json` 里的 `trustedHosts`。\n- **导入交接包被打断**（关程序、断电）时，建到一半的文件夹会留在存放位置里，不会出现在服务器列表中，可以直接删掉。\n- **向导里挑的模组放在一辆「草稿」购物车里**，它不记是给哪种核心挑的。挑了模组以后回头换了核心，或者上次挑完没建成服，下次建服时这些模组可能装不上，任务页会写「找不到能装的版本」。遇到了就到新服务器的「购物车」标签里重新挑。\n- **购物车一次能带出多少前置没有上限**：前置很多的模组，检查依赖和安装会慢一些。\n- **没有数字签名**：第一次运行时，Windows 可能提示「Windows 已保护你的电脑」，点「更多信息 → 仍要运行」。\n\n\n## What's Changed\n* 修复任务进度恢复和切页竞态，隐藏链接状态栏 by @awaxiaoyu in https://github.com/Trasperioooooon/MineDeck/pull/3\n* 导入魔改模组：逐文件处置（待决面板）、本地继承、Java 事前提示 by @Trasperioooooon in https://github.com/Trasperioooooon/MineDeck/pull/4\n* 实例交接包（.mdpack）：把开不下去的服务器完整交给别人续服 by @Trasperioooooon in https://github.com/Trasperioooooon/MineDeck/pull/5\n* 调研：官方运营 frp 内网穿透服务的可行性（docs-only，四路并行研究） by @Trasperioooooon in https://github.com/Trasperioooooon/MineDeck/pull/6\n* 自选模组：选模组、购物车、前置自动补齐，并作为 AI 助手的一等能力 by @Trasperioooooon in https://github.com/Trasperioooooon/MineDeck/pull/7\n* 服务器打包 / 收包：.mdpack 引擎、收包向导与打包入口（打包下发场景） by @Trasperioooooon in https://github.com/Trasperioooooon/MineDeck/pull/8\n\n## New Contributors\n* @awaxiaoyu made their first contribution in https://github.com/Trasperioooooon/MineDeck/pull/3\n\n**Full Changelog**: https://github.com/Trasperioooooon/MineDeck/compare/v3.0.0...v3.1.0-beta.1",
+  "assets": [
+   {
+    "name": "minedeck-companion-forge-1.20.1-0.2.1.jar",
+    "size": 121733,
+    "digest": "sha256:06449d8836017a8c2d4ee22a2bcb19b034c08db9877d029bf4f48c0d25014474",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v3.1.0-beta.1/minedeck-companion-forge-1.20.1-0.2.1.jar"
+   },
+   {
+    "name": "minedeck-companion-neoforge-1.21.1-0.2.1.jar",
+    "size": 122991,
+    "digest": "sha256:6ea730abf3616d0853ca07eedd6d3681c741e06f185d4bc5c9595cd5fe8c690e",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v3.1.0-beta.1/minedeck-companion-neoforge-1.21.1-0.2.1.jar"
+   },
+   {
+    "name": "MineDeck.exe",
+    "size": 14873088,
+    "digest": "sha256:7e8597ced851046ff671c8ed0d387abe7716f983f51098d2c640475b575498bf",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v3.1.0-beta.1/MineDeck.exe"
+   },
+   {
+    "name": "SHA256SUMS",
+    "size": 301,
+    "digest": "sha256:6b7fac0d63c614ec75b4335640faee0d98b060b83dbfc94c955fc3b33fdd750a",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v3.1.0-beta.1/SHA256SUMS"
+   }
+  ]
+ },
+ {
+  "tag_name": "v3.0.0",
+  "name": "v3.0.0",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-05T17:05:17Z",
+  "html_url": "https://github.com/Trasperioooooon/MineDeck/releases/tag/v3.0.0",
+  "body": "这是 MineDeck 的第一个正式版。\n\n测试版的时候说过正式版会叫 v2.9.0。可是和上一个正式版 v2.6.1 比，这一版换了名字（原来叫 AutoMCHUB）、换了一整套界面，又加了 AI 接入、游戏内 AI、音乐共享、AI 伙伴和 MCP 接口，改动大到该算一个新的大版本，所以直接叫 3.0.0。这些功能各自怎么用，见 [v2.9.0-beta.1](https://github.com/Trasperioooooon/MineDeck/releases/tag/v2.9.0-beta.1) 和 [v2.9.0-beta.2](https://github.com/Trasperioooooon/MineDeck/releases/tag/v2.9.0-beta.2) 的发布说明。\n\nbeta.2 发出去以后，好友在真机上按测试计划过了 85 项，下面的改动大多来自这份报告。\n\n## 怎么升级\n\n用着 beta.1 或 beta.2 的，打开「设置 → 更新与关于」，点「检查更新」就能直接升到 3.0.0。测试版之间不能自动更新，正式版可以。服务器、Java、设置和 AI Key 都会接着用。\n\n还在用 v2.6.1（AutoMCHUB）的，要手动下载一次：改了名字以后，老版本的自动更新找不到新文件。把 `MineDeck.exe` 放进原来 `AutoMCHUB.exe` 所在的文件夹运行，服务器和设置都会接着用，确认没问题后可以删掉 `AutoMCHUB.exe`。旧的开机自启项用的是老名字，新版会把它删掉，需要的话到「设置 → 启动与托盘」重新打开。\n\n## 窗口和启动\n\n打开程序时不再先闪一下白窗口和系统标题栏，不到一秒就直接出现深色的启动画面。开机自启、静默进托盘时全程不露面，之后从托盘打开立刻就是画好的界面。\n\n双击标题栏现在能最大化和还原。有服务器在跑、又没开「最小化到托盘」的时候，不管是点 ×、按 Alt+F4 还是在任务栏上关，都会先问一句：最小化到托盘（可以记住这个选择）、停止服务器并退出，或者取消。\n\n## 服务器\n\n- 在控制台或者游戏里输入 `stop` 关服，不再被当成崩溃，也不会被自动重启。\n- `instance.json` 被别的编辑器存成带 BOM 的格式时，服务器不再从列表里消失。\n- 端口检查以前会把只被 0.0.0.0 占着的端口报成「空闲」，现在查得出来。\n- 部署时下载慢或者在重试，进度下面会说明是哪个地址、第几次，不再一声不响地卡着。\n- 定时任务的时间改成「时:分」文本框，4:5、0400、21：30 这类写法都会补成标准格式，旁边有「5 / 10 / 30 分钟后」的快捷项。以前经接口存进来的「9:05」这种没补零的时间永远不会触发，现在也能触发了。\n- 报错横幅认得出更多「缺少前置模组」的写法，「好友进不来」时显示的玩家名也干净了。\n- 控制台的快捷键说明一直显示在命令框下面；「全部配置」可以按键名或中文名搜索。\n\n## 内网穿透\n\n跟随服务器启动的隧道更稳了：服务器崩溃后自动重启，隧道也会跟着起来；服务器停下 5 秒还没再开，才把隧道停掉，重启时不会来回开关。隧道卡片的状态刷新得更及时，启动失败的原因直接写在卡片上，公网地址有域名时优先显示域名。跟随启动和停止都会记进操作记录。\n\n## AI\n\n在设置里只改同一个网站下的接口路径，不再清掉已经填好的 Key；真的要清（换了服务商或者换到别的网站）时会先问你。\n\n游戏内 AI 按实测放宽了限制：每人提问的冷却从 15 秒改成 8 秒，每人每天从 30 次改成 60 次，刷屏后的静默从 10 分钟改成 3 分钟，被挡回的提问不再算进刷屏。房主在设置页能看到今天全服用了多少 token、大约合多少钱，以及谁问了几次。AI 执行命令后会等服务器真正返回结果再回答，「/tp 怎么用」这类问法会当成提问，回复在游戏聊天框里按宽度断行。\n\n## 音乐共享\n\n检查清单里 Simple Voice Chat 没装时，直接给一个「安装」按钮，按服务器的加载器和版本从 Modrinth 装上合适的版本。没有开着的语音隧道时，页面会说清楚，不再说「远程好友连服后就能听到」。\n\n## 手机和平板上的远程访问\n\n用手机浏览器打开局域网界面时，底部标签栏不再被浏览器的工具栏压住，内容能滚到最底，横着拿也是手机布局，刘海和底部横条的位置会让开。\n\n「允许局域网访问」的开关拨了就生效；没设访问密码时会就地提示并拨回去。关掉局域网访问或者换了访问密码以后，之前在别的设备上登录的会话都会失效，要重新输入密码。\n\n## 界面\n\n界面上的文字改成了平实的中文。读屏软件能读出每个按钮是对哪台服务器、哪个玩家的；玩家页的 OP、踢出、移除能用 Tab 键选到；新建服务器时可以用方向键挑服务端核心、回车进入下一步。\n\n## 下载哪个文件\n\n- `MineDeck.exe`：开服的人（房主）下载这个就够了。放进一个单独的文件夹，双击运行。\n- `minedeck-companion-neoforge-1.21.1-0.2.1.jar` 和 `minedeck-companion-forge-1.20.1-0.2.1.jar`：用了 AI 伙伴的服上，好友的客户端要装的伙伴模组，按服务器的版本二选一放进 `mods` 目录。和 beta.2 一样是 0.2.1，已经装过的不用换。\n- `SHA256SUMS`：校验和，自动更新会用到，一般不用管。\n\n## 已知情况\n\n- **没有数字签名**：第一次运行时，Windows 可能提示「Windows 已保护你的电脑」，点「更多信息 → 仍要运行」。\n- **国内网络**：NeoForge、Forge 的官方下载站和 Modrinth 在国内可能很慢，甚至下不来。部署页会提示正在重试；一直下不来的话，可以开代理再试。\n- **Windows 10 上的音乐共享**只能录整机的声音，会把游戏声音也录进去，开始前会提醒。\n- **还没测到的**：游戏内 AI 的私下提问和 AI 伙伴的「没权限时不动」需要两个账号同时在线，Minecraft 1.21.5 以后的版本上的游戏内 AI 也还没在真服上试过。MCP 接口实测用的客户端是 Codex，Claude Desktop、Cherry Studio、Cursor、VS Code 按各自的文档写了配置，但没有逐个试过。手机布局在安卓模拟器里检查过，iPhone 还没在真机上看过。\n\n遇到问题，欢迎在 GitHub 上提 Issue，写清楚做了什么、看到了什么。**不要贴出 API Key 和 MCP 的访问令牌。**\n\n\n## What's Changed\n* UI 常规化改版 v4 + 合并各会话修复（安全 / 备份 / log4shell / 远程访问二维码） by @Trasperioooooon in https://github.com/Trasperioooooon/MineDeck/pull/2\n\n\n**Full Changelog**: https://github.com/Trasperioooooon/MineDeck/compare/v2.6.1...v3.0.0",
+  "assets": [
+   {
+    "name": "minedeck-companion-forge-1.20.1-0.2.1.jar",
+    "size": 121733,
+    "digest": "sha256:06449d8836017a8c2d4ee22a2bcb19b034c08db9877d029bf4f48c0d25014474",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v3.0.0/minedeck-companion-forge-1.20.1-0.2.1.jar"
+   },
+   {
+    "name": "minedeck-companion-neoforge-1.21.1-0.2.1.jar",
+    "size": 122991,
+    "digest": "sha256:6ea730abf3616d0853ca07eedd6d3681c741e06f185d4bc5c9595cd5fe8c690e",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v3.0.0/minedeck-companion-neoforge-1.21.1-0.2.1.jar"
+   },
+   {
+    "name": "MineDeck.exe",
+    "size": 14163456,
+    "digest": "sha256:b6e0865a1e7e8e82663d9b474443c9f96d9eb137aaff47a275fbf88469f0b9f5",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v3.0.0/MineDeck.exe"
+   },
+   {
+    "name": "SHA256SUMS",
+    "size": 301,
+    "digest": "sha256:ea41655e89a2e18caada1c286d23c305ec0a3ceb2327104a29b8ee66676e73fb",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v3.0.0/SHA256SUMS"
+   }
+  ]
+ },
+ {
+  "tag_name": "v2.9.0-beta.2",
+  "name": "v2.9.0-beta.2",
+  "draft": false,
+  "prerelease": true,
+  "published_at": "2026-10-31T14:55:12Z",
+  "html_url": "https://github.com/Trasperioooooon/MineDeck/releases/tag/v2.9.0-beta.2",
+  "body": "> **这是测试版**，给自己和好友试用、找问题的，可能还有不少毛病。\n> - 请放进一个新的空文件夹里运行。要拿已有的服务器试，先把整个文件夹备份一份。\n> - 测试版之间不会自动更新：从 beta.1 升级要手动下载新的 `MineDeck.exe`，替换掉原来的。\n> - 正式版会是 v2.9.0，装了测试版的人到时能在「设置 → 更新与关于」里直接更新。\n\n下面是和 beta.1 相比的变化。beta.1 新加的功能（AI 接入、应用内 AI 助手、报错横幅、游戏内 AI、音乐共享、AI 伙伴、界面 v5）见 [v2.9.0-beta.1 的发布说明](https://github.com/Trasperioooooon/MineDeck/releases/tag/v2.9.0-beta.1)。\n\n## 新功能：MCP 接口\n\nMCP 是 AI 工具调用外部程序的通用协议。打开以后，这台电脑上的 Claude Desktop、Cherry Studio、Cursor、VS Code 这些 AI 工具就能直接使用 MineDeck。\n\n- **怎么用**：在「设置 → AI（可选）→ MCP 接口」打开开关，点「复制配置…」，选你用的工具，按说明粘贴进去。默认是关着的。\n- **AI 工具能做什么**：查服务器状态、看日志和配置这类操作直接执行。改配置、重启服务器这类操作只会提出请求，MineDeck 会弹出提示，在「AI 助手」面板顶上出现确认卡片，你点了确认才执行。只能由人操作的功能，外部 AI 工具看不到。\n- **安全**：只接受这台电脑上的连接，要带访问令牌。令牌加密保存，可以随时重置。发给 AI 工具的内容和应用内助手一样先脱敏，看不到 Windows 用户名和局域网 IP。\n- **不需要 MineDeck 自己的 AI Key**：用的是那个 AI 工具自己的模型。\n\n## AI 伙伴：伙伴模组 0.2.1\n\n- **不再淹死**：停下来的伙伴站在水里，会像普通生物一样浮上来，以前过半分钟左右会淹死。\n- **给东西时说实话**：按实际交出的个数报结果。一个都没给出去时说「失败了」，并写明原因，比如对方不在同一个维度、背包里没有；只给了一部分时说「没做够」。以前一律报「做完了」。\n- **重启后马上列出伙伴**：重启服务器以后，「伙伴」标签一连上就列出存档里的伙伴，以前要等两秒左右。\n\n**升级**：\n- 服务器上的伙伴模组：在「伙伴」标签里点「安装」，会换成 0.2.1，要先停服。\n- 好友的客户端：把伙伴模组换成 0.2.1（见下面的附件），版本要和服务器的一样。版本不一样时，Forge 1.20.1 的多人游戏列表里会显示红色的「不兼容」标记，但实际能进服。\n\n## 其他\n\n- **修复**：AI 提出的修改在生成预览时就失败了（比如重启一台没在运行的服务器），应用内助手会显示一张空的「等你确认」卡片。\n\n## 下载哪个文件\n\n| 文件 | 给谁 |\n|---|---|\n| `MineDeck.exe` | 开服的人（房主）。放进一个单独的文件夹，双击运行。 |\n| `minedeck-companion-neoforge-1.21.1-0.2.1.jar` | 用了 AI 伙伴的 NeoForge 1.21.1 服上的好友：放进客户端的 `mods` 目录 |\n| `minedeck-companion-forge-1.20.1-0.2.1.jar` | 同上，Forge 1.20.1 的服 |\n| `SHA256SUMS` | 校验和，自动更新会用到，一般不用管 |\n\n## 怎么测、怎么反馈\n\n- **测试清单**：[测试计划](https://github.com/Trasperioooooon/MineDeck/blob/v2.9.0-beta.2/docs/测试计划.md)。测过 beta.1 的，这次重点测 J 组「MCP 接口」，以及 H 组里写着「0.2.1 起」的几条。\n- **给好友看的**：[好友测试指南](https://github.com/Trasperioooooon/MineDeck/blob/v2.9.0-beta.2/docs/好友测试指南.md)。\n- **反馈**：发现问题，按测试计划里的「反馈格式」写好，发给房主，或者在 GitHub 上提 Issue。**不要贴出 API Key 和 MCP 的访问令牌。**\n\n## 已知情况\n\n- **没有数字签名**：第一次运行时，Windows 可能提示「Windows 已保护你的电脑」，点「更多信息 → 仍要运行」。\n- **国内下载**：AI 伙伴依赖的 PlayerEngine 和 Architectury API 从 Modrinth 下载，AI 的价格数据从 GitHub 下载，国内网络可能慢或下载不了。下载速度的问题放到正式版之前统一处理。\n- **Windows 10 上的音乐共享**：只能录整机的声音，会把游戏声音也录进去，开始前会提醒。\n- **MCP 接口还没在真 Windows 上和真的 AI 工具一起测过**：\n  - 在云端是用官方的客户端库，对 wine 里跑的 MineDeck 测的。\n  - Cursor 的配置写法还没核实。\n  - Claude Desktop 启动 `MineDeck.exe -mcp` 时会不会有短暂的转圈光标，要在真机上看。\n- **AI 伙伴**：MineDeck 和伙伴模组在云端的无头服务器上联调全部通过，但还没和玩家的正式客户端、真实的 AI Key 一起测过。\n- **游戏内 AI 和音乐共享**：云端只用假的服务器测过。\n\n\n**Full Changelog**: https://github.com/Trasperioooooon/MineDeck/compare/v2.9.0-beta.1...v2.9.0-beta.2",
+  "assets": [
+   {
+    "name": "minedeck-companion-forge-1.20.1-0.2.1.jar",
+    "size": 121733,
+    "digest": "sha256:06449d8836017a8c2d4ee22a2bcb19b034c08db9877d029bf4f48c0d25014474",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v2.9.0-beta.2/minedeck-companion-forge-1.20.1-0.2.1.jar"
+   },
+   {
+    "name": "minedeck-companion-neoforge-1.21.1-0.2.1.jar",
+    "size": 122991,
+    "digest": "sha256:6ea730abf3616d0853ca07eedd6d3681c741e06f185d4bc5c9595cd5fe8c690e",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v2.9.0-beta.2/minedeck-companion-neoforge-1.21.1-0.2.1.jar"
+   },
+   {
+    "name": "MineDeck.exe",
+    "size": 14014464,
+    "digest": "sha256:7b807cfcc8ce7b8c0099a586bc96d05321672e8a901ac8604bedb0756f6e9752",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v2.9.0-beta.2/MineDeck.exe"
+   },
+   {
+    "name": "SHA256SUMS",
+    "size": 301,
+    "digest": "sha256:9050d0bf39017ac8997e5c391c7e50fda86a0ed25327efccb7ad352dbeafd8a0",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v2.9.0-beta.2/SHA256SUMS"
+   }
+  ]
+ },
+ {
+  "tag_name": "v2.9.0-beta.1",
+  "name": "v2.9.0-beta.1",
+  "draft": false,
+  "prerelease": true,
+  "published_at": "2026-10-31T09:18:31Z",
+  "html_url": "https://github.com/Trasperioooooon/MineDeck/releases/tag/v2.9.0-beta.1",
+  "body": "> **这是测试版**，给自己和好友试用、找问题的，可能还有不少毛病。\n> - 请放进一个新的空文件夹里运行。要拿已有的服务器试，先把整个文件夹备份一份。\n> - 正式版会是 v2.9.0，装了测试版的人到时能在「设置 → 更新与关于」里直接更新。\n> - 测试版之间不会自动更新：出了 beta.2 要手动下载。\n\n## 这一版有什么\n\n和 v2.6.1 相比，新加了下面这些功能。都是可选的：不配置就不会联网，也不影响原来的用法。\n\n- **AI 接入**：在「设置 → AI（可选）」里填自己的 API Key 就能用。\n  - 支持 OpenAI 兼容和 Claude 两种协议。\n  - 内置七个预设：DeepSeek、通义千问、Kimi、智谱、OpenAI、Claude、Ollama（本机），也可以填自定义地址。\n  - 按 LiteLLM 的公开价格估算费用，每个功能可以设每日额度。\n  - Key 用 Windows 的 DPAPI 加密保存。\n- **应用内 AI 助手**：在标题栏右上角的「AI 助手」打开。\n  - 问它「服务器为什么起不来」，它会先看日志、配置和崩溃报告再回答。\n  - 要改配置、换 Java、重启服务器时，先弹确认卡片，你点了才执行。\n- **报错横幅**：不需要 AI。控制台顶部直接说明出了什么问题，比如少装前置模组、客户端模组放进了服务端、端口被占、Java 版本不对等 13 类。配置了 AI 时，可以点「让 AI 分析」。\n- **游戏内 AI**：在服务器详情的「游戏内 AI」标签里打开。\n  - 玩家在聊天里说「@AI 问题」，回复全服都看得到。\n  - `/私` 只回给自己，`/问` 只回答、不执行命令，`/额度` 看还剩几次，`/帮助` 看用法。\n  - 你在面板里勾选的玩家，可以让 AI 执行白名单里的命令，比如改天气、改时间。\n- **音乐共享**：在「音乐共享」标签里打开。\n  - 把你电脑上音乐软件的声音，经 Simple Voice Chat 广播给服里的人。\n  - 每个人都能在语音设置里单独调小或静音。\n  - Windows 11 上可以只录某一个程序，不会把游戏声音和语音录进去。\n- **AI 伙伴**：在「伙伴」标签里打开，支持 NeoForge 1.21.1 和 Forge 1.20.1。\n  - 在服务器里放 AI 伙伴，基于 PlayerEngine。\n  - 在聊天里说「@伙伴名 跟着我」「@伙伴名 砍 10 个橡木原木」，它就去做。\n  - 好友的客户端只要装一个伙伴模组。\n\n其他变化：\n\n- **界面 v5**：新图标、新的默认配色「方块」、内嵌字体（Geist、Noto Sans SC）、连续曲率圆角，冷启动时有启动画面。\n- **加密保存**：CurseForge Key 和内网穿透的凭据改成加密保存，旧配置第一次启动时自动迁移。\n- **修复**：\n  - 聊天里打一句「X joined the game」就能伪造进服；\n  - 中文 Windows 上，Java 18 以上的服务器（比如 NeoForge 1.21.1）控制台里的中文可能是问号或乱码。现在 MineDeck 让服务器的控制台输出一律用 UTF-8；控制台编码手动选了 GBK 的服务器不受影响。\n- **操作记录**：界面上的改动、AI 的提案和执行，都记进程序目录的 `logs\\ops\\`。\n\n## 下载哪个文件\n\n| 文件 | 给谁 |\n|---|---|\n| `MineDeck.exe` | 开服的人（房主）。放进一个单独的文件夹，双击运行。 |\n| `minedeck-companion-neoforge-1.21.1-0.2.0.jar` | 用了 AI 伙伴的 NeoForge 1.21.1 服上的好友：放进客户端的 `mods` 目录 |\n| `minedeck-companion-forge-1.20.1-0.2.0.jar` | 同上，Forge 1.20.1 的服 |\n| `SHA256SUMS` | 校验和，自动更新会用到，一般不用管 |\n\n房主不用单独下载伙伴模组，在「伙伴」标签里点「安装」就会装进服务器。\n\n## 从 v2.6.1（AutoMCHUB）升级\n\n- **要手动下载一次**：改名以后，老版本的自动更新找不到新文件，会提示「无法获取该版本的官方校验和」。\n  - 请手动下载 `MineDeck.exe`，放进原来 `AutoMCHUB.exe` 所在的文件夹运行。服务器、Java 和设置都会接着用。\n  - 确认没问题后，可以删掉 `AutoMCHUB.exe`。\n- **开机自启会关掉**：旧的自启项用的是 AutoMCHUB 的名字，新版会删掉它。需要的话，到「设置 → 启动与托盘」重新打开。\n\n## 怎么测、怎么反馈\n\n- **测试清单**：[测试计划](https://github.com/Trasperioooooon/MineDeck/blob/v2.9.0-beta.1/docs/测试计划.md)。用 AI 智能体帮忙测的，把这份文件交给它就行。\n- **给好友看的**：[好友测试指南](https://github.com/Trasperioooooon/MineDeck/blob/v2.9.0-beta.1/docs/好友测试指南.md)。\n- **反馈**：发现问题，按测试计划里的「反馈格式」写好，发给房主，或者在 GitHub 上提 Issue。**不要贴出 API Key。**\n\n## 已知情况\n\n- **没有数字签名**：第一次运行时，Windows 可能提示「Windows 已保护你的电脑」，点「更多信息 → 仍要运行」。\n- **国内下载**：AI 伙伴依赖的 PlayerEngine 和 Architectury API 从 Modrinth 下载，AI 的价格数据从 GitHub 下载，国内网络可能慢或下载不了。下载速度的问题放到正式版之前统一处理。\n- **AI 伙伴的两个问题**：停下来的伙伴站在水里可能会淹死；让它给东西、实际给的不够数时也会报「做完了」。这两处要改伙伴模组，下一个测试版修。\n- **Windows 10 上的音乐共享**：只能录整机的声音，会把游戏声音也录进去，开始前会提醒。\n- **云端测不了的部分**：游戏内 AI 和音乐共享在云端只用假的服务器测过。AI 伙伴模组在云端的无头服务器上测过，但还没和玩家的正式客户端、真实的 AI Key 一起测过。这些正是这次要确认的。\n\n\n## What's Changed\n* UI 常规化改版 v4 + 合并各会话修复（安全 / 备份 / log4shell / 远程访问二维码） by @Trasperioooooon in https://github.com/Trasperioooooon/MineDeck/pull/2\n\n\n**Full Changelog**: https://github.com/Trasperioooooon/MineDeck/compare/v2.6.1...v2.9.0-beta.1",
+  "assets": [
+   {
+    "name": "minedeck-companion-forge-1.20.1-0.2.0.jar",
+    "size": 117209,
+    "digest": "sha256:47bd5166325f413f7ddf1857e51b95fa1268b3dc583775ecd7a3ed2ad92146ce",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v2.9.0-beta.1/minedeck-companion-forge-1.20.1-0.2.0.jar"
+   },
+   {
+    "name": "minedeck-companion-neoforge-1.21.1-0.2.0.jar",
+    "size": 118405,
+    "digest": "sha256:567b9c7ee8e51d0539e59721426087b99e9566bd9b4bd8b06f6b48a5a1a3d434",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v2.9.0-beta.1/minedeck-companion-neoforge-1.21.1-0.2.0.jar"
+   },
+   {
+    "name": "MineDeck.exe",
+    "size": 13808640,
+    "digest": "sha256:fdfe361d3612174bf9de3412bae00690f0af8bcf89933dfdbf483c6398c0170c",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v2.9.0-beta.1/MineDeck.exe"
+   },
+   {
+    "name": "SHA256SUMS",
+    "size": 301,
+    "digest": "sha256:1fe13d57f1cdd3bc2dc1d0a4a98a29507e23b5d465f718359d2dbc168f5a8cb6",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v2.9.0-beta.1/SHA256SUMS"
+   }
+  ]
+ },
+ {
+  "tag_name": "v2.6.1",
+  "name": "v2.6.1",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-07-16T14:37:31Z",
+  "html_url": "https://github.com/Trasperioooooon/MineDeck/releases/tag/v2.6.1",
+  "body": "**Full Changelog**: https://github.com/Trasperioooooon/AutoMCHUB/compare/v2.6.0...v2.6.1",
+  "assets": [
+   {
+    "name": "AutoMCHUB.exe",
+    "size": 8946688,
+    "digest": "sha256:0a40386221b941f0db9d003c12a3fc183c26986f33117021b5efb12bd68339fb",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v2.6.1/AutoMCHUB.exe"
+   },
+   {
+    "name": "SHA256SUMS",
+    "size": 81,
+    "digest": "sha256:8c9d69bdeb7338cfa48d6b6fe0a253929411326c5fcd8ef72d44df6c23dfd334",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v2.6.1/SHA256SUMS"
+   }
+  ]
+ },
+ {
+  "tag_name": "v2.6.0",
+  "name": "v2.6.0",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-07-16T11:36:51Z",
+  "html_url": "https://github.com/Trasperioooooon/MineDeck/releases/tag/v2.6.0",
+  "body": "**Full Changelog**: https://github.com/Trasperioooooon/AutoMCHUB/compare/v2.5.0...v2.6.0",
+  "assets": [
+   {
+    "name": "AutoMCHUB.exe",
+    "size": 8944640,
+    "digest": "sha256:d1883ed20772b3a3ae6e7136962bc5e21a21a55cec0ed710aa6e7bd56a9eed91",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v2.6.0/AutoMCHUB.exe"
+   },
+   {
+    "name": "SHA256SUMS",
+    "size": 81,
+    "digest": "sha256:faddd9e7e9f95e006fc3b12b93d6153126a43644964b2d01ab9d4500733420af",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v2.6.0/SHA256SUMS"
+   }
+  ]
+ },
+ {
+  "tag_name": "v2.5.0",
+  "name": "v2.5.0",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-07-14T05:17:04Z",
+  "html_url": "https://github.com/Trasperioooooon/MineDeck/releases/tag/v2.5.0",
+  "body": "## What's Changed\n* UI：设计系统 v3.1 屏幕构图重构（内联 SVG 图标 + 宽度令牌 + 异步三态） by @Trasperioooooon in https://github.com/Trasperioooooon/AutoMCHUB/pull/1\n\n## New Contributors\n* @Trasperioooooon made their first contribution in https://github.com/Trasperioooooon/AutoMCHUB/pull/1\n\n**Full Changelog**: https://github.com/Trasperioooooon/AutoMCHUB/compare/v2.4.0...v2.5.0",
+  "assets": [
+   {
+    "name": "AutoMCHUB.exe",
+    "size": 8939520,
+    "digest": "sha256:359de9f425e2f02e946ddad70f05a8372ed65c56f0bb7c54d3718047c8ea46be",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v2.5.0/AutoMCHUB.exe"
+   },
+   {
+    "name": "SHA256SUMS",
+    "size": 81,
+    "digest": "sha256:159e0a42006aaab8153f71b6d6ce732508e33a9eee09b2cb0ef4077360433510",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v2.5.0/SHA256SUMS"
+   }
+  ]
+ },
+ {
+  "tag_name": "v2.4.0",
+  "name": "v2.4.0",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-07-14T03:09:41Z",
+  "html_url": "https://github.com/Trasperioooooon/MineDeck/releases/tag/v2.4.0",
+  "body": "**Full Changelog**: https://github.com/Trasperioooooon/AutoMCHUB/compare/v2.3.0...v2.4.0",
+  "assets": [
+   {
+    "name": "AutoMCHUB.exe",
+    "size": 8927232,
+    "digest": "sha256:9dd2a751bd2e100955a37ad2dcfe0ff986e774c28cdfb3aaceaf924c59ef611d",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v2.4.0/AutoMCHUB.exe"
+   },
+   {
+    "name": "SHA256SUMS",
+    "size": 81,
+    "digest": "sha256:bd6b1c8f0c9a6ff1ec14f8369448724df85d04a3f1e2fcdcb0a951157ad6ddf5",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v2.4.0/SHA256SUMS"
+   }
+  ]
+ },
+ {
+  "tag_name": "v2.3.0",
+  "name": "v2.3.0",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-07-13T22:35:34Z",
+  "html_url": "https://github.com/Trasperioooooon/MineDeck/releases/tag/v2.3.0",
+  "body": "**Full Changelog**: https://github.com/Trasperioooooon/AutoMCHUB/compare/v2.2.0...v2.3.0",
+  "assets": [
+   {
+    "name": "AutoMCHUB.exe",
+    "size": 8901120,
+    "digest": "sha256:778cfdf64dda03844928513e53ee399f64849839bc0971273dd1199bea203d72",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v2.3.0/AutoMCHUB.exe"
+   },
+   {
+    "name": "SHA256SUMS",
+    "size": 81,
+    "digest": "sha256:773a29f121eb0f80de37079f28e0ca2ca91c9bc54b5efb2fd4d097634d2e1f4f",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v2.3.0/SHA256SUMS"
+   }
+  ]
+ },
+ {
+  "tag_name": "v2.2.0",
+  "name": "v2.2.0",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-07-13T12:13:46Z",
+  "html_url": "https://github.com/Trasperioooooon/MineDeck/releases/tag/v2.2.0",
+  "body": "**Full Changelog**: https://github.com/Trasperioooooon/AutoMCHUB/compare/v2.1.0...v2.2.0",
+  "assets": [
+   {
+    "name": "AutoMCHUB.exe",
+    "size": 8884224,
+    "digest": "sha256:b96b33667a7abf10042d6aa5a50d5470f6dba9ea3f9efa587099648e648a4512",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v2.2.0/AutoMCHUB.exe"
+   }
+  ]
+ },
+ {
+  "tag_name": "v2.1.0",
+  "name": "v2.1.0",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-07-13T05:05:03Z",
+  "html_url": "https://github.com/Trasperioooooon/MineDeck/releases/tag/v2.1.0",
+  "body": "**Full Changelog**: https://github.com/Trasperioooooon/AutoMCHUB/commits/v2.1.0",
+  "assets": [
+   {
+    "name": "AutoMCHUB.exe",
+    "size": 8845824,
+    "digest": "sha256:f69da566298c6505a728b5e3f36f333b0b16e12ef6f6ea07970aa89a73de389f",
+    "browser_download_url": "https://github.com/Trasperioooooon/MineDeck/releases/download/v2.1.0/AutoMCHUB.exe"
+   }
+  ]
+ }
+]
