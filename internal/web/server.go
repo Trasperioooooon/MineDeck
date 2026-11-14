@@ -107,6 +107,7 @@ func New(mgr *inst.Manager, tun *tunnel.Manager, reg *ops.Registry, asst *assist
 	s.companionRoutes(mux) // AI 伙伴（第七阶段），见 companion.go
 	s.transferRoutes(mux)  // 实例交接包（.mdpack），见 transfer.go
 	s.modcartRoutes(mux)   // 自选模组 + 购物车，见 modcart.go
+	s.worldRoutes(mux)     // 地图导入，见 worldimport.go
 
 	mux.HandleFunc("POST /api/instances/{name}/start", s.handleInstStart)
 	mux.HandleFunc("POST /api/instances/{name}/stop", s.instOp("instance.stop"))

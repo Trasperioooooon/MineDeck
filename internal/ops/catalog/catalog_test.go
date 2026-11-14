@@ -100,6 +100,10 @@ func TestLevelsFollowDesign(t *testing.T) {
 	// 人从自己电脑上添加、移除 jar：文件是人给的，仅人工（不限本机，同整合包上传 instance.import）
 	want[ops.HumanOnly] = append(want[ops.HumanOnly], "modcart.local.add", "modcart.local.remove")
 	// 穿透平台账户：Env.Accounts 非空时才登记；本测试不传，故不列入 want（见 accounts.go）。
+	// 地图导入：世界状态（恢复点列表）是读；读本机文件夹的检测只许人在本机；检测上传、预览、导入、换回、删恢复点都仅人工
+	want[ops.Read] = append(want[ops.Read], "world.status")
+	want[ops.HumanOnly] = append(want[ops.HumanOnly], "world.import.scanpath", "world.import.scan", "world.import.readme", "world.import.plan",
+		"world.import.run", "world.import.cancel", "world.import.discard", "world.restore", "world.point.delete", "world.recover.retry")
 
 	n := 0
 	for level, names := range want {
@@ -136,7 +140,8 @@ func TestLevelsFollowDesign(t *testing.T) {
 	if strings.Join(local, ",") != "ai.assistant.set,ai.models.list,ai.prices.refresh,ai.prices.set,ai.provider.set,ai.quota.set,ai.test,"+
 		"gameai.set,gameai.whitelist,"+ // 第四阶段：授权名单和命令模板只能在本机改（§3.3）
 		"host.openpath,host.pickdir,instance.adopt,instance.adopt.scan,instance.import.pending,instance.opendir,java.add"+
-		",music.sources,music.start,music.system.confirm" { // 第五阶段
+		",music.sources,music.start,music.system.confirm"+ // 第五阶段
+		",world.import.scanpath" { // 地图导入：读本机文件夹
 		t.Errorf("仅本机的操作：%v", local)
 	}
 }
@@ -150,9 +155,9 @@ func TestAIToolLists(t *testing.T) {
 		}
 	}
 	// +4：音乐共享（第五阶段）的读 1 + 写 3；+1：game.info（第四阶段，助手的工具清单里另外去掉了）；+6：AI 伙伴（第七阶段）的读 1 + 写 5；
-	// +2：交接包的读摘要 + 写导出（导入是仅人工）；+8：自选模组 + 购物车的读 7 + 写 1
-	if n := len(reg.Available(ops.Caller{Source: ops.SrcAssistant, Local: true})); n != 24+13+11+4+1+6+2+8 {
-		t.Errorf("助手能用 %d 个操作，应为读 24 + 写 13 + 危险 11 + 音乐共享 4 + game.info 1 + AI 伙伴 6 + 交接包 2 + 购物车 8", n)
+	// +2：交接包的读摘要 + 写导出（导入是仅人工）；+8：自选模组 + 购物车的读 7 + 写 1；+1：地图导入只有世界状态（读）
+	if n := len(reg.Available(ops.Caller{Source: ops.SrcAssistant, Local: true})); n != 24+13+11+4+1+6+2+8+1 {
+		t.Errorf("助手能用 %d 个操作，应为读 24 + 写 13 + 危险 11 + 音乐共享 4 + game.info 1 + AI 伙伴 6 + 交接包 2 + 购物车 8 + 地图 1", n)
 	}
 	if l := reg.Available(ops.Caller{Source: ops.SrcGameChat, Actor: "Steve"}); len(l) != 1 || l[0].Name != "game.info" {
 		t.Errorf("游戏内 AI 只能调 game.info：%v", l)

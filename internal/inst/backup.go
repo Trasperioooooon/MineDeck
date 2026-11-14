@@ -2,6 +2,7 @@ package inst
 
 import (
 	"archive/zip"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -109,6 +110,10 @@ func (m *Manager) ListBackups(name string) ([]BackupInfo, error) {
 
 // CreateBackup 备份世界存档；运行中执行热备（save-off → save-all → 压缩 → save-on）。
 func (m *Manager) CreateBackup(name, label string) (string, error) {
+	// 换地图到一半时世界目录正在被移来移去，打出来的备份是半截的（定时备份也走这里）
+	if why := m.WorldBusy(name); why != "" {
+		return "", errors.New(why)
+	}
 	return m.createBackup(name, label, "")
 }
 
@@ -160,6 +165,15 @@ func (m *Manager) RestoreBackup(name, file string) error {
 	if i.Status() != "stopped" {
 		return fmt.Errorf("请先停止服务器再还原备份")
 	}
+	if why := m.WorldBusy(name); why != "" {
+		return errors.New(why)
+	}
+	// 还原要先删旧世界再解压：这期间占上位，不让别人启动服务器、也不让换地图同时进行
+	release, err := m.BeginWorldChange(name, "还原备份")
+	if err != nil {
+		return err
+	}
+	defer release()
 	copies, err := backupCopies(name, file)
 	if err != nil {
 		return err

@@ -71,8 +71,12 @@ func SafeLevelName(v string) bool {
 	}
 	// 某一段去掉结尾的点和空格以后什么都不剩的（"..."、". ."）：Windows 会把这种名字解成它所在的目录，
 	// 也就是实例目录自己或者上一层
-	for _, seg := range strings.Split(filepath.ToSlash(clean), "/") {
+	for k, seg := range strings.Split(filepath.ToSlash(clean), "/") {
 		if strings.TrimRight(seg, ". ") == "" {
+			return false
+		}
+		// MineDeck 的控制目录（换地图的记录和恢复点在里面）不能当世界：Windows 也会把结尾的点和空格去掉
+		if k == 0 && strings.EqualFold(strings.TrimRight(seg, ". "), ".minedeck") {
 			return false
 		}
 	}
@@ -83,7 +87,8 @@ func SafeLevelName(v string) bool {
 // 没写、或者不能照着用（见 SafeLevelName）时是 world。
 func LevelName(dir string) string {
 	if v, ok := javaPropsOf(filepath.Join(dir, "server.properties"))["level-name"]; ok && SafeLevelName(v) {
-		return strings.TrimSpace(v)
+		// 统一成斜杠分隔、去掉 ./ 和重复的分隔符：./world、worlds\main 和 world、worlds/main 是同一个文件夹
+		return filepath.ToSlash(filepath.Clean(filepath.FromSlash(strings.TrimSpace(v))))
 	}
 	return "world"
 }

@@ -68,6 +68,13 @@ func (m *Manager) Start(name string) error {
 	if i.state != "" && i.state != "stopped" {
 		return errors.New(startBusyMsg(i.state))
 	}
+	// 换地图的占位和封锁在 procMu 里再看一遍：占位也是拿着 procMu 占的，两边不会错开（见 worldhold.go）
+	if why := m.WorldBusy(name); why != "" {
+		return errors.New(why)
+	}
+	if m.isPacking(name) {
+		return fmt.Errorf("这台服务器正在打包交接包，等打包完成后再启动")
+	}
 	if _, err := os.Stat(i.JavaPath); err != nil {
 		// 路径不放进报错：界面上的提示遇到路径只写结论，这句「去哪里改」就看不到了。路径记在控制台里，「内存 / 启动」页也看得到
 		i.Console.Append(fmt.Sprintf("[MineDeck] 找不到 Java：%s", i.JavaPath))
@@ -106,6 +113,7 @@ func (m *Manager) Start(name string) error {
 	i.proc = pr
 	i.state = "starting"
 	i.userStop = false
+	i.killing = false
 	i.startedAt = time.Now()
 	i.runGen++
 	gen := i.runGen // 本次运行的代号：崩溃重启只在无更新的运行发生时才生效
@@ -135,6 +143,16 @@ func (m *Manager) Start(name string) error {
 		i.procMu.Lock()
 		wasUser := i.userStop
 		crashPolicy := i.Policies.CrashRestart
+		switch {
+		case i.killing:
+			i.lastExit = "killed"
+		case wasUser && err == nil:
+			i.lastExit = "clean"
+		case wasUser:
+			i.lastExit = "killed" // 有人要停、退出码却不是 0：多半是被结束的
+		default:
+			i.lastExit = "crash"
+		}
 		i.state = "stopped"
 		i.proc = nil
 		i.procMu.Unlock()
@@ -189,6 +207,7 @@ func (m *Manager) Stop(name string) error {
 				i.procMu.Lock()
 				if i.proc == p {
 					i.Console.Append("[MineDeck] 停止超时，强制结束进程")
+					i.killing = true
 					_ = p.cmd.Process.Kill()
 				}
 				i.procMu.Unlock()
@@ -218,6 +237,7 @@ func (m *Manager) Kill(name string) error {
 		return fmt.Errorf("服务器未在运行")
 	}
 	i.userStop = true
+	i.killing = true
 	i.Console.Append("[MineDeck] 强制结束进程")
 	return i.proc.cmd.Process.Kill()
 }

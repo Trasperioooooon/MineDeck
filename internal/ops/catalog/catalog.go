@@ -22,6 +22,7 @@ import (
 	"minedeck/internal/musicshare"
 	"minedeck/internal/ops"
 	"minedeck/internal/tunnel"
+	"minedeck/internal/worldimport"
 )
 
 // Env 操作要用到的东西，由 web.New 注入。
@@ -48,6 +49,9 @@ type Env struct {
 
 	// ModCart 自选模组的购物车；nil 时按程序目录建一个（存在 <程序目录>/data/modcart/，用真的 Modrinth）。测试换成假的 Modrinth。
 	ModCart *modcart.Service
+
+	// World 地图导入；nil 时建一个（有 Mgr 时），建好就先处理上次没走完的换地图记录（见 worldimport.RecoverAll）。
+	World *worldimport.Service
 }
 
 // NewAI 按程序目录建 AI 接入层：设置、价格缓存和用量放在 <程序目录>/data/ai/，Key 用 DPAPI 加密存进
@@ -109,6 +113,10 @@ func New(env Env) *ops.Registry {
 	if env.ModCart == nil {
 		env.ModCart = modcart.New(filepath.Join(app.Base, "data", "modcart"), "")
 	}
+	if env.World == nil && env.Mgr != nil {
+		env.World = worldimport.NewService(env.Mgr)
+		env.World.RecoverAll() // 有没走完的记录的实例，加载时已经封住了启动；这里处理完再放开
+	}
 	c := &cat{Env: env, reg: reg}
 	c.appOps()
 	c.instanceOps()
@@ -128,6 +136,7 @@ func New(env Env) *ops.Registry {
 	c.gameChatOps()  // 第四阶段
 	c.companionOps() // 第七阶段
 	c.modcartOps()   // 自选模组 + 购物车
+	c.worldOps()     // 地图导入
 	if env.Mgr != nil {
 		env.Mgr.SetAutoHook(func(a inst.AutoAction) {
 			reg.Record(ops.Caller{Source: ops.SrcSchedule, Actor: a.Actor, Local: true}, a.Op, ops.ArgsOf(a.Args), a.Err, a.Dur)

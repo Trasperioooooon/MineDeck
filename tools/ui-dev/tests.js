@@ -3430,8 +3430,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await musicState({ music: { reset: true, inst: { [PACK]: { bridge: "main" } } } });
       const pages = [["服务器列表", "#/instances"], ["新建服务器", "#/create"], ["隧道", "#/tunnels"],
         ...["appearance", "download", "storage", "java", "remote", "notify", "ai", "startup", "about"].map(s => ["设置 → " + s, "#/settings/" + s]),
-        ...["console", "players", "backups", "tasks", "res", "gameai", "common", "raw", "jvm"].map(t => ["生存服 → " + t, "#/inst/" + inst + "/" + t]),
-        ...["console", "players", "backups", "tasks", "music", "companion", "common", "jvm"].map(t => ["整合包 → " + t, PACK_I + t])];
+        ...["console", "players", "backups", "world", "tasks", "res", "gameai", "common", "raw", "jvm"].map(t => ["生存服 → " + t, "#/inst/" + inst + "/" + t]),
+        ...["console", "players", "backups", "world", "tasks", "music", "companion", "common", "jvm"].map(t => ["整合包 → " + t, PACK_I + t])];
       for (const [label, h] of pages) { await page.goto(url(h)); await settle(700); await check(label); }
       await page.goto(url("#/inst/" + inst + "/res")); await settle(400);
       await page.click("#res-go"); await settle(500); await check("资源页搜索结果");
@@ -4583,6 +4583,682 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(got.every(x => !x.startsWith("dragover:true")), "局域网浏览器里不该拦拖放：" + JSON.stringify(got));
     } finally { await lan.c.close(); }
   });
+
+  // ==================== 地图导入（worldimport.js）====================
+  // 仿真后端的来源是按名字装样子的（bedrock / multi / newer / 1193 / plain / xss…），见 server.js「地图导入」那一节的说明
+  const wState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
+  const wReset = () => wState({ instReset: true, local: true, world: { reset: true } });
+  const worldTab = name => `#/inst/${encodeURIComponent(name)}/world`;
+  const wZip = name => ({ name, mimeType: "application/zip", buffer: Buffer.from("PK\u0003\u0004mock-world") });
+  const wPosts = (since, path) => reqs.slice(since).filter(r => r.m === "POST" && r.u === path).length;
+  // 在「选来源」那一步填一个本机路径并检测
+  const wScan = async pth => { await page.fill("#wi-path", pth); await page.click("#wi-scan"); };
+  // 打开某台服务器的「地图」标签并点「导入并替换当前地图」，停在选来源
+  const wOpenFlow = async name => {
+    await page.goto(url(worldTab(name))); await page.waitForSelector("#wi-start");
+    await page.click("#wi-start"); await page.waitForSelector("#wi-upload");
+  };
+  const WI_STUCK = { busy: "上次换地图没能自动恢复，服务器已暂停启动。请到「地图」里查看恢复步骤",
+    points: [{ id: "w9aa10001", state: "stuck", created: "2026-11-12T20:10:00+08:00", source: "SkyCity.zip", candidate: "天空之城", levelName: "world", hasOld: true, oldBytes: 5e8, keptBytes: 0, canReturn: false,
+      error: "rename world: Access is denied.", stuck: ["D:\\MineDeck\\servers\\create-pack\\world", "D:\\MineDeck\\servers\\create-pack\\.minedeck\\world-import\\w9aa10001\\old\\world"] }] };
+
+  await run("地图：游戏服务器的详情页有「地图」标签，代理端没有；直接打开代理端的地图地址只说明原因", async () => {
+    await wReset();
+    for (const [name, want] of [["生存服 · 朋友", true], [PACK, true], ["原版快照测试", true], ["群组代理", false]]) {
+      await page.goto(url(`#/inst/${encodeURIComponent(name)}/console`)); await page.waitForSelector(".tabs .tab");
+      const has = await page.$$eval('.tabs .tab[data-t="world"]', els => els.map(e => e.textContent.trim()));
+      assert(want ? has.length === 1 && has[0] === "地图" : has.length === 0, `${name} 的标签：${JSON.stringify(has)}`);
+    }
+    await page.goto(url(worldTab("群组代理"))); await settle(600);
+    const t = await page.$eval("#tab-body", el => el.textContent);
+    assert(t.includes("代理端") && !(await page.$("#wi-start")), "代理端的地图地址：" + t);
+    await page.goto(url("#/inst/" + inst + "/console")); await page.waitForSelector('.tabs .tab[data-t="world"]');
+    await page.click('.tabs .tab[data-t="world"]');
+    await page.waitForSelector("#wi-start");
+    assert(page.url().endsWith("/world") && (await page.$eval('.tabs .tab[data-t="world"]', a => a.classList.contains("cur"))), "点标签没有进地图页：" + page.url());
+  });
+
+  await run("地图：当前世界和恢复点列表（哪次导入、现在什么状态、占多大），只有最近一次导入有「恢复导入前的地图」", async () => {
+    await wReset();
+    await page.goto(url(worldTab(PACK))); await page.waitForSelector("#wi-points [data-wi-point]");
+    const v = await page.evaluate(() => ({ level: document.querySelector("#wi-level").textContent, status: document.querySelector("#wi-status").textContent,
+      start: !document.querySelector("#wi-start").disabled, busy: !!document.querySelector("#wi-busy"),
+      rows: [...document.querySelectorAll("#wi-points [data-wi-point]")].map(r => ({ state: r.dataset.state, text: r.textContent.replace(/\s+/g, " "),
+        restore: !!r.querySelector("[data-wi-restore]"), del: !!r.querySelector("[data-wi-del]") })) }));
+    assert(v.level === "world" && v.status === "已停止" && v.start && !v.busy, "当前世界：" + JSON.stringify(v));
+    assert(v.rows.length === 4, "恢复点条数：" + v.rows.length);
+    const [a, old, b, c] = v.rows;
+    assert(old.state === "committed" && !old.restore && old.del && old.text.includes("单方块空岛") && old.text.includes("更早的导入") && old.text.includes("要先换回最近那一次"), "更早的那次导入：" + JSON.stringify(old));
+    assert(a.state === "committed" && a.restore && a.del && a.text.includes("天空之城") && a.text.includes("已导入") && a.text.includes("SkyCity.zip") && a.text.includes("1.3 GB"), "能换回的那条：" + JSON.stringify(a));
+    assert(b.state === "restored" && !b.restore && b.del && b.text.includes("三年老存档") && b.text.includes("已换回") && b.text.includes("640.0 MB"), "已换回的那条：" + JSON.stringify(b));
+    assert(c.state === "rolled-back" && !c.restore && c.del && c.text.includes("没有生效") && c.text.includes("已取消，没有替换任何文件"), "没生效的那条：" + JSON.stringify(c));
+    await page.goto(url(worldTab("生存服 · 朋友"))); await page.waitForSelector("#wi-points");
+    const none = await page.$eval("#wi-points", el => el.textContent);
+    assert(none.includes("还没有恢复点") && (await page.$eval("#wi-status", el => el.textContent)) === "运行中", "没有恢复点的服务器：" + none);
+  });
+
+  await run("地图导入：本机选文件夹 → 核对页（版本关系、地图没提供的维度、会换掉什么、设置建议默认不勾）→ 确认了才点得动 → 危险确认框 → 任务进度（复制阶段才有取消）→ 结果；任务结束前不清检测结果", async () => {
+    const NAME = "生存服 · 朋友";
+    await wReset();
+    try {
+      await wOpenFlow(NAME);
+      assert((await page.$("#wi-browse")) && (await page.$("#wi-path")), "本机上应有「选择地图文件夹」和路径输入框");
+      await page.click("#wi-browse"); await page.waitForSelector("#wi-go");
+      let st = await wState({});
+      const scanId = st.world.lastScan.id, planId = st.world.lastPlan.id;
+      assert(st.world.lastScan.name === "MCServers" && st.world.lastPlan.inst === NAME && !st.world.lastPlan.newInst, "检测和计划的请求：" + JSON.stringify([st.world.lastScan, st.world.lastPlan]));
+      const v = await page.evaluate(() => { const q = s => document.querySelector(s), tx = s => (q(s) ? q(s).textContent.replace(/\s+/g, " ") : ""); return {
+        name: tx("#wi-map-name"), rel: q("#wi-rel").dataset.rel, relText: tx("#wi-rel"), missing: tx("#wi-missing"), replace: tx("#wi-replace"), kept: tx("#wi-kept"),
+        acks: document.querySelectorAll("#wi-stage input[type=checkbox]#wi-ack").length, confirmBoxes: document.querySelectorAll("#wi-confirm input[type=checkbox]").length,
+        sets: [...document.querySelectorAll("[data-wi-set]")].map(x => [x.dataset.wiSet, x.checked]), setText: tx("#wi-settings"),
+        stop: !!q("#wi-stop") && !q("#wi-stop").checked, warn: tx("#wi-warn"), block: !!q("#wi-block"), space: tx("#wi-space"),
+        go: q("#wi-go").disabled, why: tx("#wi-go-why"), details: document.querySelectorAll("#wi-stage details.wi-detail").length,
+        open: document.querySelectorAll("#wi-stage details.wi-detail[open]").length }; });
+      assert(v.name === "天空之城" && v.rel === "older" && v.relText.includes("1.19.4") && v.relText.includes("Paper 1.21.4") && v.relText.includes("升级"), "版本关系：" + JSON.stringify(v));
+      assert(v.missing.includes("末地") && v.missing.includes("不是导丢了"), "没提供的维度：" + v.missing);
+      assert(v.replace.includes("world_nether") && v.replace.includes("恢复点") && v.kept.includes("白名单") && v.kept.includes("端口"), "换掉什么、保留什么：" + v.replace + " | " + v.kept);
+      assert(v.acks === 1 && v.confirmBoxes === 1, `「我已了解」的勾选框应只有一个：${v.acks} / ${v.confirmBoxes}`);
+      assert(JSON.stringify(v.sets) === JSON.stringify([["difficulty", false], ["gamemode", false]]) && v.setText.includes("简单") && v.setText.includes("普通") && v.setText.includes("冒险"), "设置建议应默认不勾：" + JSON.stringify(v.sets) + v.setText);
+      assert(v.stop && v.warn.includes("单人存档") && v.warn.includes("资源包") && !v.block && v.space.includes("118"), "停服勾选、提醒、空间：" + JSON.stringify(v));
+      assert(v.go && v.why.includes("我已了解") && v.details >= 2 && v.open === 0, "没确认时导入键应点不了，技术细节收在「详情」里：" + JSON.stringify(v));
+      const ax = await axProblems();
+      assert(!ax.length, "核对页的无障碍：" + ax.join("、"));
+      await page.check("#wi-ack");
+      assert((await page.$eval("#wi-go", b => b.disabled)) && (await page.$eval("#wi-go-why", el => el.textContent)).includes("停服并导入"), "服务器开着、没勾停服时还应点不了");
+      await page.check("#wi-stop");
+      assert(!(await page.$eval("#wi-go", b => b.disabled)), "都勾了以后应能点");
+      await page.check('[data-wi-set="gamemode"]');
+      // 危险确认框：标题点名、默认停在「取消」，取消不发请求
+      const t0 = reqs.length;
+      await page.click("#wi-go"); await page.waitForSelector(".modal");
+      const m = await page.evaluate(() => ({ title: document.querySelector("#modal-title").textContent.trim(), body: document.querySelector(".modal .m-body").textContent,
+        focus: document.activeElement.textContent.trim(), danger: !!document.querySelector('.modal [data-x="ok"].danger.solid') }));
+      assert(m.title === "导入并替换当前地图" && m.focus === "取消" && m.danger && m.body.includes("world_the_end") && m.body.includes("天空之城") && m.body.includes("默认游戏模式") && m.body.includes("先停止"), "确认框：" + JSON.stringify(m));
+      await page.click('.modal [data-x="cancel"]'); await settle(300);
+      assert(wPosts(t0, "/api/world/import") === 0, "取消确认框不应发导入请求");
+      await page.click("#wi-go"); await page.waitForSelector(".modal");
+      await page.click('.modal [data-x="ok"]');
+      await page.waitForSelector("#wi-cancel");
+      st = await wState({});
+      const li = st.world.lastImport, taskId = Object.keys(st.world.tasks)[0];
+      assert(li.planId === planId && li.confirm === "replace" && li.acknowledge === true && li.stopFirst === true && JSON.stringify(li.settings) === JSON.stringify(["gamemode"]), "导入请求：" + JSON.stringify(li));
+      assert((await page.$eval("#wi-task-title", el => el.textContent)).includes(NAME) && st.world.discards.length === 0, "任务标题或提前清了检测结果：" + JSON.stringify(st.world.discards));
+      // 切到别的标签再回来：接着看同一个任务，检测结果还在
+      await page.click('.tabs .tab[data-t="console"]'); await page.waitForSelector("#console");
+      await page.click('.tabs .tab[data-t="world"]'); await page.waitForSelector("#wi-task");
+      // 开始停服、换地图以后不能取消
+      await page.waitForSelector("#wi-task-acts .warn-text", { timeout: 15000 });
+      assert(!(await page.$("#wi-cancel")) && (await page.$eval("#wi-task-acts", el => el.textContent)).includes("不能取消"), "换地图阶段不该还有取消键");
+      assert((await wState({})).world.discards.length === 0, "任务还在跑就清了检测结果");
+      await page.waitForSelector("#wi-task-done-text", { timeout: 15000 });
+      const done = await page.$eval("#wi-task-done-text", el => el.textContent);
+      assert(done.includes("地图文件已导入，尚未启动检查"), "结果应是任务给的那句话：" + done);
+      await settle(300);
+      st = await wState({});
+      assert(st.world.discards.includes(scanId) && st.world.cancels.length === 0, "任务结束后应清掉检测结果：" + JSON.stringify(st.world.discards));
+      await page.click("#wi-task-ok"); await page.waitForSelector("#wi-points [data-wi-point]");
+      const row = await page.$eval("#wi-points [data-wi-point]", r => ({ state: r.dataset.state, text: r.textContent, restore: !!r.querySelector("[data-wi-restore]") }));
+      assert(row.state === "committed" && row.text.includes("天空之城") && row.restore && (await page.$eval("#wi-status", el => el.textContent)) === "已停止", "导入后的恢复点：" + JSON.stringify(row));
+      // 同一个任务在任务页：结果是一句话，不是服务器名
+      await page.goto(url("#/task/" + taskId)); await page.waitForSelector("#t-foot a.btn.primary");
+      const tp = await page.evaluate(() => ({ h1: document.querySelector(".page-head h1").textContent, sub: document.querySelector("#t-sub").textContent,
+        href: document.querySelector("#t-foot a.btn.primary").getAttribute("href"), go: document.querySelector("#t-foot a.btn.primary").textContent.trim() }));
+      assert(tp.h1 === "正在更换地图" && tp.sub.includes("尚未启动检查") && tp.href === "#/instances" && tp.go.includes("回到服务器列表"), "任务页：" + JSON.stringify(tp));
+    } finally { await wReset(); }
+  });
+
+  await run("地图导入：复制阶段点「取消导入」会停下、没有替换任何文件；没完成时可以回去重新核对同一张地图，放弃时才清掉检测结果", async () => {
+    await wReset();
+    try {
+      await wOpenFlow(PACK);
+      await wScan("D:\\Maps\\plain-world"); await page.waitForSelector("#wi-go");
+      const v = await page.evaluate(() => ({ rel: document.querySelector("#wi-rel").dataset.rel, ack: !!document.querySelector("#wi-ack"), stop: !!document.querySelector("#wi-stop"),
+        go: document.querySelector("#wi-go").disabled, sets: document.querySelectorAll("[data-wi-set]").length, readme: !!document.querySelector("#wi-readmes") }));
+      assert(v.rel === "same" && !v.ack && !v.stop && !v.go && !v.readme, "同版本、没有要确认的项时不该有勾选框，导入键直接能点：" + JSON.stringify(v));
+      let st = await wState({});
+      const scanId = st.world.lastScan.id, plan1 = st.world.lastPlan.id;
+      await page.click("#wi-go"); await page.waitForSelector(".modal");
+      await page.click('.modal [data-x="ok"]');
+      await page.waitForSelector("#wi-cancel");
+      await page.click("#wi-cancel");
+      await page.waitForSelector("#wi-task-err-text", { timeout: 15000 });
+      const errText = await page.$eval("#wi-task-err-text", el => el.textContent);
+      st = await wState({});
+      assert(errText.includes("已取消，没有替换任何文件") && st.world.cancels.length === 1 && st.world.discards.length === 0, "取消以后：" + errText + JSON.stringify([st.world.cancels, st.world.discards]));
+      await page.click("#wi-task-again"); await page.waitForSelector("#wi-go");
+      st = await wState({});
+      assert(st.world.lastPlan.scanId === scanId && st.world.lastPlan.id !== plan1 && (await page.$eval("#wi-map-name", el => el.textContent)) === "新的世界", "重新核对应还是那张地图、一份新计划：" + JSON.stringify(st.world.lastPlan));
+      await page.click("#wi-quit"); await page.waitForSelector("#wi-start");
+      await settle(300);
+      st = await wState({});
+      assert(st.world.discards.includes(scanId), "放弃导入应清掉检测结果：" + JSON.stringify(st.world.discards));
+      // 没走到导入就离开这一页，也清掉
+      await wOpenFlow(PACK);
+      await wScan("D:\\Maps\\plain-world"); await page.waitForSelector("#wi-go");
+      const scan2 = (await wState({})).world.lastScan.id;
+      await page.click('.tabs .tab[data-t="console"]'); await page.waitForSelector("#console"); await settle(400);
+      assert((await wState({})).world.discards.includes(scan2), "切走以后应清掉没用上的检测结果");
+    } finally { await wReset(); }
+  });
+
+  await run("地图导入：地图比服务器新时标红、导入键点不了，也发不出导入请求；磁盘空间不够同样拦下", async () => {
+    await wReset();
+    try {
+      await wOpenFlow(PACK);
+      await wScan("D:\\Maps\\newer-map"); await page.waitForSelector("#wi-go");
+      const v = await page.evaluate(() => ({ rel: document.querySelector("#wi-rel").dataset.rel, relText: document.querySelector("#wi-rel").textContent, block: (document.querySelector("#wi-block") || {}).textContent || "",
+        go: document.querySelector("#wi-go").disabled, why: document.querySelector("#wi-go-why").textContent, bad: document.querySelector("#wi-rel").classList.contains("bad") }));
+      assert(v.rel === "newer" && v.bad && v.relText.includes("不能导入") && v.block.includes("26.2") && v.block.includes("现在不能导入") && v.go && v.why.includes("标红"), "被拦下的核对页：" + JSON.stringify(v));
+      const t0 = reqs.length;
+      await page.$eval("#wi-go", b => b.click()); await settle(400);
+      assert(!(await page.$(".modal")) && wPosts(t0, "/api/world/import") === 0, "被拦下时不该弹确认框，也不该发导入请求");
+      await wState({ world: { free: 100 * 1024 * 1024 } });
+      await page.click("#wi-back"); await page.waitForSelector("#wi-scan");
+      await wScan("D:\\Maps\\plain-world"); await page.waitForSelector("#wi-go");
+      const d = await page.evaluate(() => ({ block: (document.querySelector("#wi-block") || {}).textContent || "", go: document.querySelector("#wi-go").disabled }));
+      assert(d.block.includes("磁盘空间不够") && d.go, "空间不够：" + JSON.stringify(d));
+    } finally { await wReset(); }
+  });
+
+  await run("地图导入：一个压缩包里有几张地图时列出来让人选，读不出来的那张选不了；选哪张就按哪张核对，可以回去换一张", async () => {
+    await wReset();
+    try {
+      await wOpenFlow(PACK);
+      const t0 = reqs.length;
+      await wScan("D:\\Maps\\multi-pack.zip"); await page.waitForSelector("[data-wi-pick]");
+      const rows = await page.$$eval("[data-wi-cand]", els => els.map(r => ({ id: r.dataset.wiCand, text: r.textContent.replace(/\s+/g, " "), off: r.querySelector("[data-wi-pick]").disabled,
+        label: r.querySelector("[data-wi-pick]").getAttribute("aria-label") })));
+      assert(rows.length === 3 && wPosts(t0, "/api/world/plan") === 0, "应列出三张地图、还没开始核对：" + JSON.stringify(rows));
+      assert(rows[0].text.includes("冒险之旅") && rows[0].text.includes("maps/adventure") && rows[0].text.includes("1.20.4") && rows[0].text.includes("380.0 MB") && !rows[0].off, "第一张：" + JSON.stringify(rows[0]));
+      assert(rows[1].text.includes("survival") && rows[1].text.includes("三个文件夹") && rows[1].text.includes("survival_nether") && !rows[1].off, "第二张：" + JSON.stringify(rows[1]));
+      assert(rows[2].off && rows[2].text.includes("不能导入") && rows[2].text.includes("level.dat 读不出来"), "读不出来的那张：" + JSON.stringify(rows[2]));
+      assert(new Set(rows.map(r => r.label)).size === 3 && rows[0].label.includes("冒险之旅"), "「用这张」的名字应带上是哪张：" + JSON.stringify(rows.map(r => r.label)));
+      const ax = await axProblems();
+      assert(!ax.length, "候选列表的无障碍：" + ax.join("、"));
+      await page.click('[data-wi-pick="c2"]'); await page.waitForSelector("#wi-go");
+      let st = await wState({});
+      assert(st.world.lastPlan.candidate === "c2" && (await page.$eval("#wi-map-name", el => el.textContent)) === "survival", "应按选的那张核对：" + JSON.stringify(st.world.lastPlan));
+      assert((await page.$eval("#wi-back", b => b.textContent)).includes("换一张地图"), "多张地图时返回键应是「换一张地图」");
+      await page.click("#wi-back"); await page.waitForSelector("[data-wi-pick]");
+      await page.click('[data-wi-pick="c1"]'); await page.waitForSelector("#wi-go");
+      st = await wState({});
+      assert(st.world.lastPlan.candidate === "c1" && st.world.discards.length === 0 && (await page.$eval("#wi-map-name", el => el.textContent)) === "冒险之旅", "换一张以后：" + JSON.stringify([st.world.lastPlan, st.world.discards]));
+    } finally { await wReset(); }
+  });
+
+  await run("地图导入：基岩版、RAR 这些不是能导入的地图，原因摆在最前面、到此为止；别的设备上只能上传 ZIP，上传有进度", async () => {
+    await wReset();
+    try {
+      await wOpenFlow(PACK);
+      const t0 = reqs.length;
+      await wScan("D:\\Maps\\bedrock-world"); await page.waitForSelector("#wi-reject");
+      const rej = await page.$eval("#wi-reject", el => el.textContent.replace(/\s+/g, " "));
+      const scanId = (await wState({})).world.lastScan.id;
+      assert(rej.includes("这是基岩版的世界，不能当地图导入") && rej.includes("改扩展名转不过来") && !(await page.$("#wi-go")) && wPosts(t0, "/api/world/plan") === 0, "基岩版：" + rej);
+      await page.click("#wi-again"); await page.waitForSelector("#wi-scan"); await settle(300);
+      assert((await wState({})).world.discards.includes(scanId), "换一个来源应清掉上一次的检测结果");
+      // 没填路径、填了相对路径：就近说明
+      await page.click("#wi-scan");
+      assert((await page.$eval("#wi-path-err", el => el.textContent)).includes("完整路径"), "没填路径应在输入框下面提示");
+      await wScan("Maps\\SkyCity"); await page.waitForSelector("#wi-src-state .err-box");
+      assert((await page.$eval("#wi-src-state .err-box", el => el.textContent)).includes("请选一个完整的路径"), "相对路径应说明原因");
+      // RAR 在上传之前就说，不白传
+      const t1 = reqs.length;
+      await page.setInputFiles("#wi-file", { name: "map.rar", mimeType: "application/octet-stream", buffer: Buffer.from("Rar!") }); await settle(300);
+      assert((await page.$eval("#wi-up", el => el.textContent)).includes("RAR") && wPosts(t1, "/api/world/upload") === 0, "RAR 应在上传前拦下");
+      // 上传的 .mcworld：后端认出来以后同样摆出原因
+      await page.setInputFiles("#wi-file", { name: "MyWorld.mcworld", mimeType: "application/octet-stream", buffer: Buffer.from("PK\u0003\u0004") });
+      await page.waitForSelector("#wi-reject");
+      assert((await page.$eval("#wi-reject", el => el.textContent)).includes("基岩版") && wPosts(t1, "/api/world/upload") === 1, "上传的基岩版世界应说明原因");
+      // 别的设备：没有选文件夹和路径，只有上传
+      await wState({ local: false });
+      await wOpenFlow(PACK);
+      const lan = await page.evaluate(() => ({ browse: !!document.querySelector("#wi-browse"), path: !!document.querySelector("#wi-path"), note: (document.querySelector(".wi-remote") || {}).textContent || "",
+        primary: document.querySelector("#wi-upload").classList.contains("primary") }));
+      assert(!lan.browse && !lan.path && lan.note.includes("运行 MineDeck 的那台电脑") && lan.primary, "别的设备上的选来源：" + JSON.stringify(lan));
+      await page.evaluate(() => { window.__wiUp = []; new MutationObserver(() => { const el = document.querySelector("#wi-up-pct"); if (el) window.__wiUp.push(el.textContent); })
+        .observe(document.querySelector("#tab-body"), { subtree: true, childList: true, characterData: true }); });
+      await page.setInputFiles("#wi-file", wZip("SkyCity.zip")); await page.waitForSelector("#wi-go");
+      const up = await page.evaluate(() => window.__wiUp);
+      const st = await wState({});
+      assert(st.world.lastScan.uploaded === true && st.world.lastScan.name === "SkyCity.zip" && up.length > 0 && up.includes("100%"), "上传：" + JSON.stringify([st.world.lastScan, up]));
+    } finally { await wReset(); }
+  });
+
+  await run("地图导入：地图名和说明书是别人写的，只当文字显示——夹着的 HTML 不变成标签，网址不变成链接，确认框里也一样", async () => {
+    await wReset();
+    try {
+      await wOpenFlow(PACK);
+      await wScan("D:\\Maps\\xss-skycity"); await page.waitForSelector("#wi-go");
+      const nm = await page.evaluate(() => ({ text: document.querySelector("#wi-map-name").textContent, kids: document.querySelector("#wi-map-name").children.length }));
+      assert(nm.text.includes('<img src=x onerror=') && nm.kids === 0, "地图名应原样当文字：" + JSON.stringify(nm));
+      const t0 = reqs.length;
+      await page.click('[data-wi-readme="0"]'); await page.waitForSelector(".wi-readme-text:not([hidden])");
+      const rd = await page.evaluate(() => { const pre = document.querySelector(".wi-readme-text"); return { text: pre.textContent, kids: pre.children.length,
+        links: document.querySelectorAll("#wi-readmes a").length, btn: document.querySelector('[data-wi-readme="0"]').textContent }; });
+      assert(rd.text.includes('<img src=x onerror="window.__wixss=1">') && rd.text.includes("<b>不该变粗</b>") && rd.text.includes("https://example.com/skycity") && rd.kids === 0 && rd.links === 0 && rd.btn === "收起",
+        "说明书应只当文字：" + JSON.stringify(rd));
+      await page.click('[data-wi-readme="0"]');
+      assert(await page.$eval(".wi-readme-text", el => el.hidden), "再点一次应收起");
+      await page.click('[data-wi-readme="0"]'); await page.waitForSelector(".wi-readme-text:not([hidden])");
+      assert(wPosts(t0, "/api/world/readme") === 1, "说明书只取一次：" + wPosts(t0, "/api/world/readme"));
+      await page.check("#wi-ack");
+      await page.click("#wi-go"); await page.waitForSelector(".modal");
+      const md = await page.evaluate(() => ({ text: document.querySelector(".modal .m-body").textContent, imgs: document.querySelectorAll(".modal img, #wi-stage img").length, x: window.__wixss }));
+      assert(md.text.includes("<img src=x") && md.imgs === 0 && md.x === undefined, "确认框里的地图名：" + JSON.stringify(md));
+      await page.click('.modal [data-x="cancel"]'); await settle(200);
+      // 恢复点列表里的来源名、地图名同样只当文字
+      await wState({ world: { inst: { [PACK]: { points: [{ id: "wxss00001", state: "committed", created: "2026-11-12T20:10:00+08:00", source: '<img src=x onerror="window.__wixss=2">.zip',
+        candidate: '<b>加粗</b><img src=x onerror="window.__wixss=3">', levelName: "world", hasOld: true, oldBytes: 1e8, keptBytes: 0, canReturn: true, error: '<i>x</i>' }] } } } });
+      await page.goto(url(worldTab(PACK))); await page.waitForSelector("[data-wi-point]");
+      const pt = await page.evaluate(() => ({ text: document.querySelector("[data-wi-point]").textContent, bad: document.querySelectorAll("#wi-points img, #wi-points b, #wi-points i").length, x: window.__wixss }));
+      assert(pt.text.includes("<b>加粗</b>") && pt.bad === 0 && pt.x === undefined, "恢复点里的名字：" + JSON.stringify(pt));
+      await page.click("[data-wi-restore]"); await page.waitForSelector(".modal");
+      const md2 = await page.evaluate(() => ({ imgs: document.querySelectorAll(".modal img, .modal .m-body b").length, x: window.__wixss }));
+      assert(md2.imgs === 0 && md2.x === undefined, "换回确认框里的地图名：" + JSON.stringify(md2));
+      await page.click('.modal [data-x="cancel"]'); await settle(200);
+    } finally { await wReset(); }
+  });
+
+  await run("地图：恢复导入前的地图、删除恢复点都要过危险确认框（默认停在「取消」），确认词由界面带上；服务器没停时换回键是灰的并说明", async () => {
+    await wReset();
+    try {
+      await page.goto(url(worldTab(PACK))); await page.waitForSelector('[data-wi-restore="w7f3a9c21"]');
+      const t0 = reqs.length, rest = `/api/instances/${PACK}/world/restore`, del = `/api/instances/${PACK}/world/delete`;
+      const posted = path => reqs.slice(t0).filter(r => r.m === "POST" && decodeURIComponent(r.u) === path).length;
+      await page.click('[data-wi-restore="w7f3a9c21"]'); await page.waitForSelector(".modal");
+      const m = await page.evaluate(() => ({ title: document.querySelector("#modal-title").textContent.trim(), body: document.querySelector(".modal .m-body").textContent,
+        focus: document.activeElement.textContent.trim(), ok: document.querySelector('.modal [data-x="ok"]').textContent.trim(), danger: !!document.querySelector('.modal [data-x="ok"].danger.solid') }));
+      assert(m.title === "恢复导入前的地图？" && m.focus === "取消" && m.danger && m.ok === "换回导入前的地图" && m.body.includes("天空之城") && m.body.includes("不会删") && m.body.includes("停止状态"), "换回的确认框：" + JSON.stringify(m));
+      await page.keyboard.press("Enter"); await settle(300);
+      assert(!(await page.$(".modal:not(.leave)")) && posted(rest) === 0, "回车（焦点在取消上）不该换回");
+      await page.click('[data-wi-restore="w7f3a9c21"]'); await page.waitForSelector(".modal");
+      await page.click('.modal [data-x="ok"]');
+      await page.waitForSelector("#wi-task");
+      let st = await wState({});
+      assert(JSON.stringify(st.world.lastRestore) === JSON.stringify({ inst: PACK, id: "w7f3a9c21", confirm: "restore" }) && posted(rest) === 1, "换回的请求：" + JSON.stringify(st.world.lastRestore));
+      await page.waitForSelector("#wi-task-done-text", { timeout: 15000 });
+      assert(!(await page.$("#wi-cancel")) && (await page.$eval("#wi-task-done-text", el => el.textContent)).includes("已经换回导入前的地图"), "换回的结果");
+      await page.click("#wi-task-ok"); await page.waitForSelector('[data-wi-point="w7f3a9c21"]');
+      const row = await page.$eval('[data-wi-point="w7f3a9c21"]', r => ({ state: r.dataset.state, text: r.textContent, restore: !!r.querySelector("[data-wi-restore]") }));
+      assert(row.state === "restored" && row.text.includes("已换回") && !row.restore, "换回以后那一条：" + JSON.stringify(row));
+      assert((await page.$$("[data-wi-restore]")).length === 1 && (await page.$('[data-wi-restore="w6e2b8d10"]')), "换回最近一次以后，应轮到更早的那一次能换回");
+      // 删除恢复点
+      await page.click('[data-wi-del="w3c9d1e02"]'); await page.waitForSelector(".modal");
+      const d = await page.evaluate(() => ({ title: document.querySelector("#modal-title").textContent.trim(), body: document.querySelector(".modal .m-body").textContent,
+        focus: document.activeElement.textContent.trim(), ok: document.querySelector('.modal [data-x="ok"]').textContent.trim() }));
+      assert(d.title === "删除恢复点？" && d.focus === "取消" && d.ok === "删除恢复点" && d.body.includes("删除后无法恢复"), "删除的确认框：" + JSON.stringify(d));
+      await page.click('.modal [data-x="cancel"]'); await settle(300);
+      assert(posted(del) === 0 && (await page.$('[data-wi-point="w3c9d1e02"]')), "取消不该删除");
+      await page.click('[data-wi-del="w3c9d1e02"]'); await page.waitForSelector(".modal");
+      await page.click('.modal [data-x="ok"]');
+      await page.waitForSelector('[data-wi-point="w3c9d1e02"]', { state: "detached" });
+      st = await wState({});
+      assert(JSON.stringify(st.world.lastDelete) === JSON.stringify({ inst: PACK, id: "w3c9d1e02", confirm: "delete" }), "删除的请求：" + JSON.stringify(st.world.lastDelete));
+      // 能换回的那条说明删了就换不回
+      await wState({ world: { reset: true } });
+      await page.goto(url(worldTab(PACK))); await page.waitForSelector('[data-wi-del="w7f3a9c21"]');
+      await page.click('[data-wi-del="w7f3a9c21"]'); await page.waitForSelector(".modal");
+      assert((await page.$eval(".modal .m-body", el => el.textContent)).includes("不能再换回导入前的地图"), "删能换回的恢复点应说明后果");
+      await page.click('.modal [data-x="cancel"]'); await settle(200);
+      // 服务器没停：换回键是灰的，旁边说明
+      await wState({ status: { [PACK]: "running" } });
+      await page.goto(url(worldTab(PACK))); await page.waitForSelector('[data-wi-restore="w7f3a9c21"]');
+      const run = await page.evaluate(() => ({ off: document.querySelector('[data-wi-restore="w7f3a9c21"]').disabled, del: document.querySelector('[data-wi-del="w7f3a9c21"]').disabled,
+        note: (document.querySelector(".wi-need-stop") || {}).textContent || "" }));
+      assert(run.off && run.del && run.note.includes("先停止服务器"), "服务器开着时换回和删除都是灰的：" + JSON.stringify(run)); // 后端删恢复点也要先占位，开着就拒
+    } finally { await wReset(); }
+  });
+
+  await run("地图：换地图卡住时页面顶上说明原因、列出要看的文件夹，「重试恢复」成功后提示消失；别的设备上不显示本机路径", async () => {
+    await wReset();
+    try {
+      await wState({ world: { inst: { [PACK]: WI_STUCK } } });
+      await page.goto(url(worldTab(PACK))); await page.waitForSelector("#wi-busy");
+      const b = await page.evaluate(() => ({ text: document.querySelector("#wi-busy").textContent, items: [...document.querySelectorAll("#wi-busy .wi-stuck li")].map(li => li.textContent),
+        start: document.querySelector("#wi-start").disabled, tag: document.querySelector("[data-wi-point]").textContent, del: !!document.querySelector("[data-wi-del]") }));
+      assert(b.text.includes("上次换地图没能自动恢复") && b.items.length === 2 && b.items[0] === "D:\\MineDeck\\servers\\create-pack\\world" && b.start && b.tag.includes("要人处理") && !b.del, "卡住时的页面：" + JSON.stringify(b));
+      // 重试没成功：提示还在
+      await wState({ world: { inst: { [PACK]: { retryFail: true } } } });
+      await page.click("#wi-retry"); await page.waitForSelector(".toast.error");
+      assert(await page.$("#wi-busy"), "重试没成功时提示应还在");
+      await page.click(".toast.error .t-msg").catch(() => {});
+      await page.keyboard.press("Escape"); await settle(300);
+      await wState({ world: { inst: { [PACK]: { retryFail: false } } } });
+      await page.click("#wi-retry");
+      await page.waitForSelector("#wi-busy", { state: "detached" });
+      const st = await wState({});
+      const after = await page.evaluate(() => ({ start: document.querySelector("#wi-start").disabled, state: document.querySelector("[data-wi-point]").dataset.state }));
+      assert(st.world.retries.length === 2 && st.world.retries[1] === PACK && !after.start && after.state === "rolled-back", "重试成功以后：" + JSON.stringify([st.world.retries, after]));
+      // 别的设备：后端只给一句「在这台电脑上查看」，页面照着当文字显示
+      await wState({ local: false, world: { inst: { [PACK]: WI_STUCK } } });
+      await page.goto(url(worldTab(PACK))); await page.waitForSelector("#wi-busy");
+      const lan = await page.$eval("#wi-busy", el => el.textContent);
+      assert(lan.includes("在这台电脑上查看") && !lan.includes("D:\\MineDeck"), "别的设备上不该出现本机路径：" + lan);
+    } finally { await wReset(); }
+  });
+
+  await run("地图：导入过几次时只有最近那一次能换回，更早的写明要先换回最近的；导入前没有世界的没有换回键；读不出来的记录写明原因和文件夹、没有换回和删除键", async () => {
+    await wReset();
+    try {
+      const pts = [
+        { id: "wc3000003", state: "committed", created: "2026-11-12T20:00:00+08:00", source: "C.zip", candidate: "第三张", levelName: "world", hasOld: true, oldBytes: 3e8, keptBytes: 0 },
+        { id: "wc2000002", state: "committed", created: "2026-11-11T20:00:00+08:00", source: "B.zip", candidate: "第二张", levelName: "world", hasOld: true, oldBytes: 2e8, keptBytes: 0 },
+        { id: "wc1000001", state: "committed", created: "2026-11-10T20:00:00+08:00", source: "A.zip", candidate: "开服时的地图", levelName: "world", hasOld: false, oldBytes: 0, keptBytes: 0 },
+      ];
+      const rowsOf = () => page.$$eval("#wi-points [data-wi-point]", els => Object.fromEntries(els.map(r => [r.dataset.wiPoint, { state: r.dataset.state, text: r.textContent.replace(/\s+/g, " "),
+        restore: !!r.querySelector("[data-wi-restore]"), del: !!r.querySelector("[data-wi-del]"), warn: !!r.querySelector(".tag.warn") }])));
+      await wState({ world: { quick: true, inst: { [PACK]: { points: pts } } } });
+      await page.goto(url(worldTab(PACK))); await page.waitForSelector("#wi-points [data-wi-point]");
+      let r = await rowsOf();
+      assert(Object.values(r).filter(x => x.restore).length === 1 && r.wc3000003.restore && r.wc3000003.text.includes("可以换回"), "只有最近那一次能换回：" + JSON.stringify(r));
+      assert(!r.wc2000002.restore && r.wc2000002.del && r.wc2000002.text.includes("更早的导入") && r.wc2000002.text.includes("这之后又导入过别的地图") && r.wc2000002.text.includes("要先换回最近那一次"), "更早的那一次：" + JSON.stringify(r.wc2000002));
+      assert(!r.wc1000001.restore && r.wc1000001.del && r.wc1000001.text.includes("这次导入之前服务器还没有世界") && !r.wc1000001.text.includes("要先换回"), "导入前没有世界的那一次：" + JSON.stringify(r.wc1000001));
+      // 换回最近的那一次以后，才轮到第二张
+      await page.click('[data-wi-restore="wc3000003"]'); await page.waitForSelector(".modal");
+      await page.click('.modal [data-x="ok"]');
+      await page.waitForSelector("#wi-task-done-text", { timeout: 15000 });
+      await page.click("#wi-task-ok"); await page.waitForSelector('[data-wi-point="wc3000003"][data-state="restored"]');
+      r = await rowsOf();
+      assert(Object.values(r).filter(x => x.restore).length === 1 && r.wc2000002.restore && r.wc2000002.text.includes("正在用这张地图") && !r.wc3000003.restore, "换回以后应轮到第二张：" + JSON.stringify(r));
+      // 只有「用地图新建」留下的那一条：没有可以换回的旧地图，不出换回键
+      await wState({ world: { inst: { [PACK]: { points: [pts[2]] } } } });
+      await page.goto(url(worldTab(PACK))); await page.waitForSelector("#wi-points [data-wi-point]");
+      r = await rowsOf();
+      assert(!r.wc1000001.restore && r.wc1000001.del && r.wc1000001.text.includes("正在用这张地图") && r.wc1000001.text.includes("没有可以换回的旧地图"), "用地图新建的服务器：" + JSON.stringify(r));
+      // 读不出来的记录：按要人处理显示，写明原因和文件夹，没有换回和删除键；它在的时候「重试恢复」一直失败
+      const BAD = "D:\\MineDeck\\servers\\create-pack\\.minedeck\\world-import\\w0bad0001";
+      await wState({ world: { inst: { [PACK]: { busy: "换地图的记录读不出来，为了不在半成品的世界上启动，已暂停启动。请到「地图」里查看",
+        points: [pts[0], { id: "w0bad0001", state: "unreadable", created: "0001-01-01T00:00:00Z", source: "", candidate: "", levelName: "", hasOld: false, oldBytes: 5e8, keptBytes: 0, error: "unexpected end of JSON input", stuck: [BAD] }] } } } });
+      await page.goto(url(worldTab(PACK))); await page.waitForSelector('[data-wi-point="w0bad0001"]');
+      r = await rowsOf();
+      const bad = r.w0bad0001, banner = await page.evaluate(() => ({ text: document.querySelector("#wi-busy").textContent, items: [...document.querySelectorAll("#wi-busy .wi-stuck li")].map(li => li.textContent),
+        start: document.querySelector("#wi-start").disabled, restoreOff: document.querySelector('[data-wi-restore="wc3000003"]').disabled }));
+      assert(bad.state === "unreadable" && bad.warn && !bad.restore && !bad.del && bad.text.includes("读不出来") && bad.text.includes("unexpected end of JSON input") && bad.text.includes(BAD) && bad.text.includes("476.8 MB"), "读不出来的记录：" + JSON.stringify(bad));
+      assert(!/\d{4}-\d\d-\d\d/.test(bad.text) && !bad.text.includes("NaN") && !bad.text.includes(" 导入 ·") && !bad.text.includes("来源"), "读不出来的记录没有时间和来源，不该硬凑：" + bad.text);
+      assert(banner.text.includes("换地图的记录读不出来") && banner.items.length === 1 && banner.items[0] === BAD && banner.start && banner.restoreOff, "读不出来时页面顶上的提示：" + JSON.stringify(banner));
+      await page.click("#wi-retry"); await page.waitForSelector(".toast.error");
+      await settle(500);
+      assert((await page.$("#wi-busy")) && (await page.$('[data-wi-point="w0bad0001"]')) && (await wState({})).world.retries.length === 1, "记录还读不出来时重试应失败、提示还在");
+      // 别的设备上：文件夹只给一句话
+      await wState({ local: false });
+      await page.goto(url(worldTab(PACK))); await page.waitForSelector('[data-wi-point="w0bad0001"]');
+      const lan = (await rowsOf()).w0bad0001.text;
+      assert(lan.includes("在这台电脑上查看") && !lan.includes("D:\\MineDeck"), "别的设备上不该出现本机路径：" + lan);
+    } finally { await wReset(); }
+  });
+
+  // 新建向导里选一张地图：点「用已有地图开服」→ 填路径检测 → 停在第一步（核心已经按地图预选）
+  const wWizPick = async pth => {
+    await page.goto(url("#/create/new")); await page.waitForSelector("#wi-wiz-pick");
+    await page.click("#wi-wiz-pick"); await page.waitForSelector("#wi-scan");
+    await wScan(pth); await page.waitForSelector("#wi-wiz-chosen");
+  };
+  const wCreates = since => reqs.slice(since).filter(r => r.m === "POST" && r.u === "/api/instances").length;
+
+  await run("新建向导：用已有地图开服——按地图预选核心和版本（不换成最新版），最后一步核对，创建请求带上计划编号；请求被收下以后才清检测结果", async () => {
+    await wReset();
+    try {
+      // 两个入口：向导第一步上方的那一条，和「新建服务器」页卡片下面的那一行（从那儿进来，选地图的面板一上来就开着）
+      await page.goto(url("#/create/new")); await page.waitForSelector("#wi-wiz-pick");
+      assert((await page.$eval("#wi-wiz-offer", el => el.textContent)).includes("手里有现成的地图"), "第一步应有「用已有地图开服」的入口");
+      await page.goto(url("#/create")); await page.waitForSelector("#mode-world");
+      assert((await page.$$(".recipe-grid .core-card")).length === 4 && (await page.$eval("#mode-world", a => a.textContent)) === "用已有地图开服", "新建页应还是四张卡片，下面多一行入口");
+      await page.click("#mode-world"); await page.waitForSelector("#wi-browse");
+      assert(page.url().endsWith("#/create/world") && (await page.$("#wi-wiz-panel")) && (await page.$(".steps .step-pill.cur")), "从新建页的入口进来应是向导第一步、选地图的面板开着：" + page.url());
+      await page.click("#wi-browse"); await page.waitForSelector("#wi-wiz-chosen");
+      await page.waitForSelector(".core-card.sel");
+      const s0 = await page.evaluate(() => ({ name: document.querySelector("#wi-wiz-name").textContent, strip: document.querySelector("#wi-wiz-chosen").textContent,
+        core: document.querySelector(".core-card.sel").dataset.id, next: document.querySelector("#wnext").disabled }));
+      assert(s0.name === "天空之城" && s0.strip.includes("1.19.4") && s0.strip.includes("预选了原版") && s0.core === "vanilla" && !s0.next, "选好地图以后的第一步：" + JSON.stringify(s0));
+      const scanId = (await wState({})).world.lastScan.id;
+      await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
+      const ver = await page.evaluate(() => ({ sel: document.querySelector(".ver-item.sel").dataset.id, latest: document.querySelector(".ver-item .ver-tag").closest(".ver-item").dataset.id,
+        strip: !!document.querySelector("#wi-wiz-chosen"), note: document.querySelector("#wi-wiz-note").hidden }));
+      assert(ver.sel === "1.19.4" && ver.latest === "26.2" && ver.strip && ver.note, "版本应预选地图保存的那个，不是最新版：" + JSON.stringify(ver));
+      await page.click("#wnext"); await page.waitForSelector("#f-name"); // 原版没有「选构建」「选模组」
+      await page.waitForSelector("#wi-wiz-plan #wi-rel");
+      let st = await wState({});
+      const plan = st.world.lastPlan;
+      const fin = await page.evaluate(() => ({ rel: document.querySelector("#wi-rel").dataset.rel, relText: document.querySelector("#wi-rel").textContent, ack: !!document.querySelector("#wi-ack"),
+        stop: !!document.querySelector("#wi-stop"), sets: !!document.querySelector("#wi-settings"), fill: !document.querySelector("#wi-wiz-fill-go").disabled, diff: document.querySelector("#f-diff").value, mode: document.querySelector("#f-mode").value }));
+      assert(plan.newInst === true && plan.core === "vanilla" && plan.mc === "1.19.4" && plan.scanId === scanId && fin.rel === "same" && fin.relText.includes("要建的服务器") && !fin.ack && !fin.stop && !fin.sets,
+        "最后一步的核对：" + JSON.stringify([plan, fin]));
+      // 难度和默认模式不替人改：提一句，点了「按地图的填」才改
+      assert(fin.fill && fin.diff === "easy" && fin.mode === "survival", "难度和模式不该被悄悄改掉：" + JSON.stringify(fin));
+      await page.click("#wi-wiz-fill-go");
+      assert((await page.$eval("#f-diff", el => el.value)) === "normal" && (await page.$eval("#f-mode", el => el.value)) === "adventure", "点「按地图的填」以后");
+      const ax = await axProblems();
+      assert(!ax.length, "向导最后一步的无障碍：" + ax.join("、"));
+      await page.click("#f-eula");
+      // 计划过期了（这里把后端存着的计划作废）：创建被拒，界面自己重新核对一遍，再点就带上新的计划
+      await wState({ world: { dropPlans: true } });
+      const tx = reqs.length;
+      await page.click("#wcreate");
+      let plan2 = plan;
+      for (let k = 0; k < 30 && plan2.id === plan.id; k++) { await settle(150); plan2 = (await wState({})).world.lastPlan; }
+      await page.waitForSelector("#wi-wiz-plan #wi-rel");
+      assert(plan2.id !== plan.id && wCreates(tx) === 1 && page.url().includes("#/create/world") && !(await page.$eval("#wcreate", b => b.disabled)), "计划过期后应重新核对：" + JSON.stringify(plan2));
+      const t0 = reqs.length;
+      await page.click("#wcreate");
+      await page.waitForFunction(() => location.hash.startsWith("#/task/"));
+      await settle(500);
+      st = await wState({});
+      const lc = st.world.lastCreate;
+      assert(wCreates(t0) === 1 && lc.worldPlan === plan2.id && lc.worldAck === false && lc.core === "vanilla" && lc.mc === "1.19.4" && lc.difficulty === "normal" && lc.gamemode === "adventure", "创建请求：" + JSON.stringify(lc));
+      // 检测结果：创建请求被收下时也先留着（建服任务要是在放地图之前失败，还能接着用这张），建服任务成功了才清，只清一次
+      const order = reqs.slice(tx).filter(r => r.m === "POST" && (r.u === "/api/instances" || r.u === "/api/world/discard")).map(r => r.u);
+      assert(JSON.stringify(order) === JSON.stringify(["/api/instances", "/api/instances"]) && st.world.discards.length === 0,
+        "创建刚被收下时不该清检测结果：" + JSON.stringify([order, st.world.discards]));
+      await wState({ taskStage: 4 });
+      for (let k = 0; k < 40 && !st.world.discards.length; k++) { await settle(150); st = await wState({}); }
+      assert(JSON.stringify(st.world.discards) === JSON.stringify([scanId]), "建服任务成功以后应清检测结果，只清一次：" + JSON.stringify(st.world.discards));
+      await wState({ taskStage: 2 });
+      await page.goto(url("#/create")); await settle(500);
+      await page.goto(url("#/create/new")); await page.waitForSelector("#wi-wiz-pick");
+      assert((await wState({})).world.discards.length === 1, "回到新建页不该再清一遍：" + JSON.stringify((await wState({})).world.discards));
+    } finally { await wReset(); }
+  });
+
+  await run("新建向导带地图：改了核心或版本会重新核对；要确认的没勾、被拦下的都发不出创建请求；地图的版本不在列表里时不预选；「不用地图」清掉检测结果", async () => {
+    await wReset();
+    try {
+      // 换成 Paper 1.21.4：地图更旧，要确认
+      await wWizPick("D:\\Maps\\SkyCity");
+      await page.waitForSelector('.core-card[data-id="paper"]');
+      await page.click('.core-card[data-id="paper"]');
+      await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
+      assert((await page.$eval(".ver-item.sel", el => el.dataset.id)) === "1.19.4", "换了核心，版本仍应预选地图的版本");
+      await page.click('.ver-item[data-id="1.21.4"]');
+      await page.click("#wnext"); await page.waitForSelector("#build-list .ver-item");
+      await page.click("#wnext"); await page.waitForSelector("#wiz-mod-body");
+      await page.click("#wnext"); await page.waitForSelector("#f-name");
+      await page.waitForSelector("#wi-wiz-plan #wi-rel");
+      let st = await wState({});
+      const plan1 = st.world.lastPlan;
+      const f1 = await page.evaluate(() => ({ rel: document.querySelector("#wi-rel").dataset.rel, acks: document.querySelectorAll("#wi-wiz-plan input#wi-ack").length, checked: document.querySelector("#wi-ack").checked }));
+      assert(plan1.core === "paper" && plan1.mc === "1.21.4" && f1.rel === "older" && f1.acks === 1 && !f1.checked, "换成 Paper 1.21.4 的核对：" + JSON.stringify([plan1, f1]));
+      await page.click("#f-eula");
+      let t0 = reqs.length;
+      await page.click("#wcreate"); await settle(400);
+      assert(wCreates(t0) === 0 && (await page.$eval("#wi-wiz-err", el => el.textContent)).includes("我已了解") && page.url().includes("#/create/new"), "没确认不该发创建请求");
+      // 回「选版本」换一个：最后一步重新核对，勾选清空
+      await page.check("#wi-ack");
+      await page.click('.step-pill.done[data-step="1"]'); await page.waitForSelector(".ver-item.sel");
+      await page.click('.ver-item[data-id="1.20.6"]');
+      await page.click("#wnext"); await page.waitForSelector("#build-list .ver-item");
+      await page.click("#wnext"); await page.waitForSelector("#wiz-mod-body");
+      await page.click("#wnext"); await page.waitForSelector("#f-name");
+      await page.waitForSelector("#wi-wiz-plan #wi-rel");
+      st = await wState({});
+      const plan2 = st.world.lastPlan;
+      assert(plan2.id !== plan1.id && plan2.mc === "1.20.6" && !(await page.$eval("#wi-ack", el => el.checked)), "改了版本应重新核对、重新确认：" + JSON.stringify(plan2));
+      await page.check("#wi-ack");
+      await page.click("#f-eula");
+      // 创建被别的原因拒了（比如重名）：计划还在后端那儿，不重新核对、勾过的确认留着，检测结果不清；改好再点用的还是同一份
+      await wState({ world: { createFail: "已有同名的服务器「地图服」" } }); // 真后端的原话（install.go）
+      t0 = reqs.length;
+      await page.click("#wcreate"); await page.waitForSelector(".toast.error"); await settle(400);
+      st = await wState({});
+      assert(wCreates(t0) === 1 && st.world.lastPlan.id === plan2.id && st.world.discards.length === 0 && (await page.$eval("#wi-ack", el => el.checked)) && !(await page.$eval("#wcreate", b => b.disabled)),
+        "重名这类失败不该重新核对、不该清检测结果：" + JSON.stringify([st.world.lastPlan, st.world.discards]));
+      await wState({ world: { createFail: "" } });
+      t0 = reqs.length;
+      await page.click("#wcreate");
+      await page.waitForFunction(() => location.hash.startsWith("#/task/"));
+      st = await wState({});
+      assert(wCreates(t0) === 1 && st.world.lastCreate.worldPlan === plan2.id && st.world.lastCreate.worldAck === true && st.world.lastCreate.mc === "1.20.6", "创建请求应带最新的计划和确认：" + JSON.stringify(st.world.lastCreate));
+
+      // 地图的版本（1.19.3）不在列表里：不预选，「下一步」点不了，说明原因
+      await wWizPick("D:\\Maps\\map-1193");
+      const scan3 = (await wState({})).world.lastScan.id;
+      await page.click("#wnext"); await page.waitForSelector(".ver-item[data-id]");
+      const nv = await page.evaluate(() => ({ sel: document.querySelectorAll(".ver-item.sel").length, next: document.querySelector("#wnext").disabled,
+        note: document.querySelector("#wi-wiz-note").hidden ? "" : document.querySelector("#wi-wiz-note").textContent }));
+      assert(nv.sel === 0 && nv.next && nv.note.includes("1.19.3") && nv.note.includes("请自己选一个"), "版本不在列表里时：" + JSON.stringify(nv));
+      // 「不用地图」：清掉检测结果，向导照常（这时才预选最新版）
+      await page.click("#wi-wiz-drop"); await page.waitForSelector(".ver-item.sel");
+      await settle(300);
+      st = await wState({});
+      assert(st.world.discards.includes(scan3) && !(await page.$("#wi-wiz-chosen")) && (await page.$eval(".ver-item.sel", el => el.dataset.id)) === "26.2", "不用地图以后：" + JSON.stringify(st.world.discards));
+
+      // 被拦下：26.2 的地图配 1.21.4 的服务器
+      await wWizPick("D:\\Maps\\newer-map");
+      await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
+      assert((await page.$eval(".ver-item.sel", el => el.dataset.id)) === "26.2", "应预选地图的 26.2");
+      await page.click('.ver-item[data-id="1.21.4"]');
+      await page.click("#wnext"); await page.waitForSelector("#f-name");
+      await page.waitForSelector("#wi-wiz-plan #wi-block");
+      await page.click("#f-eula");
+      t0 = reqs.length;
+      await page.click("#wcreate"); await settle(400);
+      const bl = await page.evaluate(() => ({ block: document.querySelector("#wi-block").textContent, err: document.querySelector("#wi-wiz-err").textContent, rel: document.querySelector("#wi-rel").textContent }));
+      assert(wCreates(t0) === 0 && bl.block.includes("不能用这张地图开服") && bl.err.includes("标红") && bl.rel.includes("回到「选版本」"), "被拦下时不该发创建请求：" + JSON.stringify(bl));
+      // 离开向导：没用上的检测结果清掉
+      const scan4 = (await wState({})).world.lastScan.id;
+      await page.click('#sidebar [data-nav="instances"]'); await page.waitForSelector(".card"); await settle(300);
+      assert((await wState({})).world.discards.includes(scan4), "离开向导应清掉没用上的检测结果");
+      // 代理端不能用地图开服：最后一步说明原因
+      await wWizPick("D:\\Maps\\SkyCity");
+      await page.waitForSelector('.core-card[data-id="velocity"]');
+      await page.click('.core-card[data-id="velocity"]');
+      await page.click("#wnext"); await page.waitForSelector(".ver-item.sel, .ver-item[data-id]");
+      await page.click(".ver-item[data-id]");
+      await page.click("#wnext"); await page.waitForSelector("#build-list .ver-item");
+      await page.click("#wnext"); await page.waitForSelector("#wiz-mod-body");
+      await page.click("#wnext"); await page.waitForSelector("#f-name");
+      await page.waitForSelector("#wi-wiz-plan .err-box");
+      t0 = reqs.length;
+      await page.click("#wcreate"); await settle(400);
+      assert(wCreates(t0) === 0 && (await page.$eval("#wi-wiz-plan", el => el.textContent)).includes("代理端"), "代理端配地图不该发创建请求");
+    } finally { await wReset(); }
+  });
+
+  await run("新建向导带地图、待装清单里有东西：服务器开始建了以后，地图条上的「换一张」「不用地图」和「上一步」一样点不了，建完照常接着装", async () => {
+    await wReset();
+    try {
+      await cartState({ modCart: { reset: true }, taskStage: 2 }); // 建服任务还在跑：向导留在这一页等它
+      await wWizPick("D:\\Maps\\plain-world");
+      const scanId = (await wState({})).world.lastScan.id;
+      await page.waitForSelector('.core-card[data-id="paper"]');
+      await page.click('.core-card[data-id="paper"]');
+      await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
+      assert((await page.$eval(".ver-item.sel", el => el.dataset.id)) === "1.20.1", "版本应预选地图的 1.20.1");
+      await page.click("#wnext"); await page.waitForSelector("#build-list .ver-item");
+      await page.click("#wnext"); await page.waitForSelector("#mc-q");
+      await page.fill("#mc-q", "LuckPerms"); await page.click("#mc-go");
+      await page.click('button[aria-label="加入清单 LuckPerms"]'); await settle(700);
+      await page.click("#wnext"); await page.waitForSelector("#f-name");
+      await page.waitForSelector("#wi-wiz-plan #wi-rel");
+      assert(!(await page.$eval("#wi-wiz-change", b => b.disabled)) && !(await page.$eval("#wi-wiz-drop", b => b.disabled)), "创建之前地图条上的键应能点");
+      await page.fill("#f-name", "带地图的插件服");
+      await page.click("#f-eula");
+      // 创建请求还没回来的这段：地图条、「上一步」、步骤条都要锁住（复审 Grok 4.7 指出原来要等回来才锁）
+      let release; const gate = new Promise(r => { release = r; });
+      await page.route("**/api/instances", async route => { if (route.request().method() === "POST") await gate; await route.continue().catch(() => {}); });
+      await page.click("#wcreate"); await settle(250);
+      const mid = await page.evaluate(() => ({ change: document.querySelector("#wi-wiz-change").disabled, drop: document.querySelector("#wi-wiz-drop").disabled,
+        back: document.querySelector("#wback").disabled, pills: [...document.querySelectorAll(".step-pill")].every(p => p.onclick === null) }));
+      await page.$eval("#wi-wiz-drop", b => b.click()); await page.$eval("#wi-wiz-change", b => b.click()); await settle(200);
+      const still = !!(await page.$("#wi-wiz-chosen")) && !!(await page.$("#f-name"));
+      const answered = page.waitForResponse(r => r.url().endsWith("/api/instances") && r.request().method() === "POST");
+      release(); await answered; await page.unroute("**/api/instances");
+      assert(mid.change && mid.drop && mid.back && mid.pills && still, "请求还没回来时应锁住，硬点也不换地图：" + JSON.stringify([mid, still]));
+      await page.waitForFunction(() => document.querySelector("#wback").disabled && /等待|创建|部署|下载/.test(document.querySelector("#wcreate").textContent)); // 向导进了「等建服」
+      const w = await page.evaluate(() => ({ change: document.querySelector("#wi-wiz-change").disabled, drop: document.querySelector("#wi-wiz-drop").disabled, back: document.querySelector("#wback").disabled }));
+      let st = await wState({});
+      assert(w.change && w.drop && w.back && st.world.lastCreate.worldPlan && st.world.discards.length === 0, "等建服时地图条应锁住、检测结果还留着：" + JSON.stringify([w, st.world.discards]));
+      await page.$eval("#wi-wiz-drop", b => b.click()); await page.$eval("#wi-wiz-change", b => b.click()); await settle(300);
+      assert((await page.$("#f-name")) && (await page.$("#wi-wiz-chosen")) && (await page.$eval("#wcreate", b => b.disabled)) && (await page.$eval("#wback", b => b.disabled)), "硬点地图条不该把向导重画");
+      // 建好了：照常接着装待装清单
+      await cartState({ taskStage: 4 });
+      await page.waitForFunction(() => location.hash === "#/task/task-cart", null, { timeout: 8000 });
+      st = await wState({});
+      for (let k = 0; k < 40 && st.world.discards.length !== 1; k++) { await settle(150); st = await wState({}); }
+      assert(st.modcart.lastInstall && st.modcart.lastInstall.inst === "带地图的插件服" && st.modcart.lastInstall.includeDraft === true && JSON.stringify(st.world.discards) === JSON.stringify([scanId]),
+        "建完应接着装清单、清掉检测结果：" + JSON.stringify([st.modcart.lastInstall, st.world.discards]));
+    } finally { await page.unroute("**/api/instances").catch(() => {}); await cartState({ modCart: { reset: true }, taskStage: 2, instReset: true }); await wReset(); }
+  });
+
+  await run("新建向导带地图：建服任务没成功时检测结果留着，回到向导可以「接着用这张」，不用再检测一遍", async () => {
+    await wReset();
+    try {
+      await wState({ taskStage: 2 });
+      await wWizPick("D:\\Maps\\plain-world");
+      const scanId = (await wState({})).world.lastScan.id;
+      await page.waitForSelector(".core-card.sel");
+      await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
+      await page.click("#wnext"); await page.waitForSelector("#f-name");
+      await page.waitForSelector("#wi-wiz-plan #wi-rel");
+      if (await page.$("#wi-ack")) await page.check("#wi-ack");
+      await page.fill("#f-name", "建不成的服");
+      await page.click("#f-eula");
+      await page.click("#wcreate");
+      await page.waitForFunction(() => location.hash.startsWith("#/task/"));
+      await wState({ taskStage: "error" }); // 建服任务在放地图之前失败（下载核心失败）
+      await settle(3600); // 等界面跟着任务看到结果（每 3 秒查一次）
+      let st = await wState({});
+      assert(st.world.discards.length === 0, "建服任务失败时不该清检测结果：" + JSON.stringify(st.world.discards));
+      await page.evaluate(() => { location.hash = "#/create/new"; }); await page.waitForSelector("#wi-wiz-last"); // 在程序里点过去（不重载页面）
+      const line = await page.$eval("#wi-wiz-last-line", el => el.textContent);
+      assert(line.includes("建服没有成功") && line.includes("接着用这张"), "向导第一步应提出接着用上次那张：" + line);
+      const t0 = reqs.length;
+      await page.click("#wi-wiz-last"); await page.waitForSelector("#wi-wiz-chosen");
+      await page.waitForSelector(".core-card.sel");
+      assert(!reqs.slice(t0).some(r => r.u === "/api/world/scan" || r.u === "/api/world/upload") && (await wState({})).world.discards.length === 0,
+        "接着用不该重新检测，也不该清掉：" + JSON.stringify(reqs.slice(t0).map(r => r.u)));
+      // 换成别的地图：上次留着的那次检测清掉
+      await page.click("#wi-wiz-change"); await page.waitForSelector("#wi-browse");
+      await wWizPick("D:\\Maps\\map-1193");
+      st = await wState({});
+      assert(st.world.discards.includes(scanId), "换了别的地图应清掉上次那次检测：" + JSON.stringify(st.world.discards));
+    } finally { await wState({ taskStage: 2 }); await wReset(); }
+  });
+
+  await run("地图：手机宽度（390）下地图标签、选来源、核对页和向导的地图条都不横向溢出", async () => {
+    await wReset();
+    const c = await hostCtx({ host: false }, { viewport: { width: 390, height: 844 } });
+    try {
+      const p = await c.newPage();
+      p.on("pageerror", e => errors.push(pageErr(e)));
+      const over = async label => {
+        await p.waitForTimeout(350);
+        const w = await p.evaluate(() => ({ sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth,
+          wide: [...document.querySelectorAll("#tab-body *, #wi-wiz *")].filter(e => e.getClientRects().length && e.getBoundingClientRect().right > innerWidth + 1).map(e => e.id || e.className || e.tagName).slice(0, 5) }));
+        assert(w.sw <= w.cw && w.wide.length === 0, label + " 横向溢出：" + JSON.stringify(w));
+      };
+      await p.goto(ORIGIN + worldTab(PACK)); await p.waitForSelector("#wi-points [data-wi-point]"); await over("地图标签");
+      await p.click("#wi-start"); await p.waitForSelector("#wi-upload"); await over("选来源");
+      await p.fill("#wi-path", "D:\\Maps\\multi-pack.zip"); await p.click("#wi-scan"); await p.waitForSelector("[data-wi-pick]"); await over("候选列表");
+      await p.click("#wi-again"); await p.waitForSelector("#wi-upload");
+      await p.setInputFiles("#wi-file", wZip("SkyCity.zip")); await p.waitForSelector("#wi-go"); await over("核对页");
+      await p.click('[data-wi-readme="0"]'); await p.waitForSelector(".wi-readme-text:not([hidden])"); await over("核对页（展开说明书）");
+      await p.goto(ORIGIN + "#/create/new"); await p.waitForSelector("#wi-wiz-pick"); await over("向导的入口");
+      await p.click("#wi-wiz-pick"); await p.waitForSelector("#wi-scan");
+      await p.fill("#wi-path", "D:\\Maps\\SkyCity"); await p.click("#wi-scan"); await p.waitForSelector("#wi-wiz-chosen"); await over("向导里选好的地图");
+    } finally { await c.close(); await wReset(); }
+  });
+  // ==================== 地图导入结束 ====================
 
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
 

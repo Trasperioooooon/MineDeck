@@ -41,6 +41,10 @@ type CreateReq struct {
 	// 读的是主机上的任意路径，和 root 一样：仅本机请求有效，远程 / 局域网 / AI 一律忽略。
 	LocalSource string `json:"localSource,omitempty"`
 	Root        string `json:"root"` // 自定义存放根目录（空=全局默认），仅创建时使用
+	// WorldPlan 用已有地图开服：地图导入的计划编号（internal/worldimport）。地图在登记实例之前放好，放不进去整台不建。
+	WorldPlan  string `json:"worldPlan,omitempty"`
+	WorldAck   bool   `json:"worldAck,omitempty"` // 预览里要确认的项（版本、模组）用户已确认
+	WorldOwner string `json:"-"`                  // 发起的人（操作层填），计划只认发起检测的那个人
 }
 
 // createSteps 创建流水线的步骤名（整合包导入在其后追加额外步骤）。
@@ -171,6 +175,9 @@ func (m *Manager) CreateAsync(req CreateReq) (string, error) {
 	go func() {
 		defer m.releaseCreating(req.Name)
 		defer m.releaseCreating(dirKey(dir))
+		if req.WorldPlan != "" {
+			defer m.releaseWorldPlan(req.WorldOwner, req.WorldPlan)
+		}
 		if err := m.runCreate(ctx, t, req, dir); err != nil {
 			os.RemoveAll(dir) // 先清理半成品目录再报失败（缓存保留，重试无需重新下载）
 			t.Fail(err)
@@ -374,6 +381,16 @@ func (m *Manager) runCreate(ctx context.Context, t *tasks.Task, req CreateReq, d
 		// log4shell 防护（老版本）
 		if err := applyLog4jMitigation(ctx, t, inst); err != nil {
 			return err
+		}
+	}
+
+	// ---- 放地图（用已有地图开服）：在登记实例之前，失败就整台不建 ----
+	if req.WorldPlan != "" {
+		if m.worldPlacer == nil {
+			return fmt.Errorf("地图导入功能没有准备好")
+		}
+		if err := m.worldPlacer(ctx, t, req.WorldOwner, req.WorldPlan, dir); err != nil {
+			return fmt.Errorf("没能把地图放进新服务器：%w", err)
 		}
 	}
 
