@@ -96,7 +96,7 @@ func TestNoNetworkUntilConfigured(t *testing.T) {
 	s := NewService(Options{Dir: t.TempDir(), Keys: keys, HTTP: nd.client(), Mirrors: mirrors})
 	s.Start()
 	v := s.View()
-	if v.Enabled || v.Missing != "选择服务商" || v.PriceNeeded || len(v.Presets) != 8 {
+	if v.Enabled || v.Missing != "选择服务商" || v.PriceNeeded || len(v.Presets) != 9 {
 		t.Fatalf("没配置时的状态：%+v", v)
 	}
 	if err := s.SetQuota(map[Feature]int64{FeatAssistant: 200000}); err != nil {
@@ -262,9 +262,9 @@ func TestModelsKeyRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	ms, err := s.Models(ctx, ModelsRequest{Preset: "deepseek", BaseURL: f.srv.URL})
-	if err != nil || len(ms) != 3 || f.requests()[0].Header.Get("Authorization") != "Bearer sk-saved" {
-		t.Fatalf("同一个地址用已存的 Key：%v %+v", err, ms)
+	ml, err := s.Models(ctx, ModelsRequest{Preset: "deepseek", BaseURL: f.srv.URL})
+	if err != nil || ml.Source != "live" || len(ml.Models) != 3 || f.requests()[0].Header.Get("Authorization") != "Bearer sk-saved" {
+		t.Fatalf("同一个地址用已存的 Key：%v %+v", err, ml)
 	}
 	if _, err := s.Models(ctx, ModelsRequest{Preset: "deepseek", BaseURL: f.srv.URL + "/other"}); err != nil || f.requests()[1].Header.Get("Authorization") != "Bearer sk-saved" {
 		t.Fatalf("同一个网站换了路径，照样用已存的 Key：%v", err)
@@ -288,15 +288,26 @@ func TestServiceTestConnection(t *testing.T) {
 		`data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}` + "\n\n" +
 		`data: {"choices":[],"usage":{"prompt_tokens":120,"completion_tokens":9}}` + "\n\ndata: [DONE]\n\n"
 	t.Run("能调用工具", func(t *testing.T) {
-		f := newFake(t, func(_ int, _ recorded, w http.ResponseWriter) {
+		f := newFake(t, func(n int, r recorded, w http.ResponseWriter) {
 			w.Header().Set("Content-Type", "text/event-stream")
-			_, _ = w.Write([]byte(ping))
+			if n == 0 {
+				_, _ = w.Write([]byte(ping))
+				return
+			}
+			if !strings.Contains(string(r.Body), `"role":"tool"`) || !strings.Contains(string(r.Body), `call_p`) || !strings.Contains(string(r.Body), `ok`) {
+				t.Errorf("第二轮应带上工具结果：%s", r.Body)
+			}
+			_, _ = w.Write([]byte("data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"连接正常\"},\"finish_reason\":\"stop\"}]}\n\n" +
+				"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":4}}\n\ndata: [DONE]\n\n"))
 		})
 		s := NewService(Options{Dir: t.TempDir(), Keys: &memKeys{m: map[string]string{}}, HTTP: f.srv.Client()})
 		_ = s.SetProvider(ProviderPatch{Preset: strp("openai"), BaseURL: strp(f.srv.URL), Model: strp("gpt-5"), Key: strp("sk-1")})
 		r, err := s.Test(context.Background())
-		if err != nil || !r.OK || r.Tools != "yes" || r.Usage.Input != 120 || r.LatencyMs < 0 || r.Model != "gpt-5" {
+		if err != nil || !r.OK || r.Tools != "yes" || r.Rounds != 2 || r.Usage.Input != 140 || r.Usage.Output != 13 || r.Reply != "连接正常" || r.Model != "gpt-5" {
 			t.Fatalf("%v %+v", err, r)
+		}
+		if len(f.requests()) != 2 {
+			t.Fatalf("应是两轮，实际 %d", len(f.requests()))
 		}
 		if body := string(f.requests()[0].Body); !strings.Contains(body, "minedeck_ping") || !strings.Contains(body, `"stream":true`) {
 			t.Errorf("测试请求：%s", body)

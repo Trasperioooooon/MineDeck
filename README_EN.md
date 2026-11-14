@@ -63,7 +63,7 @@ This is an overview. Defaults, limits and edge cases for every item are in [docs
 
 ### AI (optional, with your own key)
 
-- **Providers**: two protocols are supported, OpenAI-compatible and Claude. There are seven presets, DeepSeek, Qwen, Kimi, Zhipu, OpenAI, Claude and Ollama (local), plus a custom address. The key is stored encrypted on this PC. MineDeck estimates cost from public prices, and each feature can have a daily token quota.
+- **Providers**: two protocols are supported, OpenAI-compatible and Claude. There are eight presets, DeepSeek, Qwen, Kimi, Zhipu, Xiaomi MiMo, OpenAI, Claude and Ollama (local), plus a custom address. The key is stored encrypted on this PC. MineDeck estimates cost from public prices, and each feature can have a daily token quota.
 - **In-app assistant**: the AI assistant (AI 助手) in the title bar reads logs, configs and crash reports before it answers. To change a config, switch Java or restart a server, it first shows a confirmation card, and nothing runs until you confirm. The Windows user name, LAN addresses and keys are replaced before text is sent to the model, and you can always see exactly what was sent.
 - **In-game AI**: players type `@AI` and a question in chat. Players you tick in the panel can have it run allowlisted commands, such as changing the time or the weather or teleporting themselves. Commands like `op` and `execute` are never run.
 - **AI companions**: on NeoForge 1.21.1 or Forge 1.20.1 servers you can spawn AI companions. Players address one in chat (for example 「@伙伴名 跟着我」, "@name follow me") and it follows, gathers, fights or hands over items. You can mark areas it must not dig in and mobs it must not attack. Friends install one companion mod on their client.
@@ -86,7 +86,7 @@ Sends the sound of a music player on the host's PC to everyone on the server thr
 | <img src="docs/images/03-assistant.png" alt="The AI assistant has read the mod list, found a client-only mod, and shows a confirmation card to disable that file"> | <img src="docs/images/02-console-banner.png" alt="Error banner at the top of the console: missing dependency mod geckolib, and a client-only mod on the server"> |
 | **In-game AI**: ask with @AI in chat; authorised players can have it run allowlisted commands | **AI companions**: spawn them, see what they are doing, and protect your builds with no-dig areas |
 | <img src="docs/images/04-gameai-log.png" alt="In-game AI log: it ran weather clear and refused op"> | <img src="docs/images/05-companion.png" alt="Companions tab: the mod is connected, one companion is gathering, one is idle, and there are two no-dig areas"> |
-| **Music sharing**: pick a music player and play it to the whole server through Simple Voice Chat | **Connecting AI**: seven presets; enter a key, test the connection, set a daily quota |
+| **Music sharing**: pick a music player and play it to the whole server through Simple Voice Chat | **Connecting AI**: eight presets; enter a key, test the connection, set a daily quota |
 | <img src="docs/images/06-music.png" alt="Music sharing: NetEase Cloud Music is chosen as the source and the checklist has passed"> | <img src="docs/images/07-settings-ai.png" alt="The AI page in Settings: DeepSeek is enabled and the connection test succeeded"> |
 
 ## Download and install

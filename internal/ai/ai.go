@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -130,7 +131,8 @@ type Event struct {
 	Usage   *Usage    `json:"usage,omitempty"`
 	Model   string    `json:"model,omitempty"`
 	Attempt int       `json:"attempt,omitempty"` // 重试：第几次重试（从 1 起）
-	Err     string    `json:"err,omitempty"`     // 重试：原因
+	Err     string    `json:"err,omitempty"`     // 重试：原因（原文）
+	Hint    string    `json:"hint,omitempty"`    // 重试：给人看的那一句（见 APIError.Hint），界面正文接它，不接原文
 }
 
 // Result 一次回复。成功时用 Conversation.AddResult 追加进历史，再执行 ToolCalls、用 AddToolResults 交回结果。
@@ -193,16 +195,77 @@ func (e *APIError) Error() string {
 	return b.String()
 }
 
-// Retryable 429 和 5xx（含 Claude 的 529 过载）可以重试。
-func (e *APIError) Retryable() bool { return e.Status == 429 || e.Status >= 500 }
+// Retryable 429 和 5xx（含 Claude 的 529 过载）可以重试；额度、余额用完的 429 重试也没用，不重试。
+func (e *APIError) Retryable() bool { return (e.Status == 429 && !e.quotaGone()) || e.Status >= 500 }
 
-// Hint 给人看的那一句：状态码对应的原因（「Key 不对或已失效」），不带状态码和服务商的原话。
-// 界面上的报错正文遇到状态码、英文原话只写结论（docs/文案重写/01-补完口径.md），
-// 接口把这一句另放在 hint 里给它接（web 的 writeErr、TestResult.Hint）；完整原文照旧是 Error()。认不出的状态码返回空串。
-func (e *APIError) Hint() string { return statusHint(e.Status) }
+// lowerText 原文和错误类型合在一起、转小写，给下面按关键词分类用（错误类型里常有 insufficient_quota、context_length_exceeded）。
+func (e *APIError) lowerText() string { return strings.ToLower(e.Message + " " + e.Type) }
+
+// 关键词表按各家的真实报错原文定（出处见 docs/评审-PR19-助手渲染与兼容服务商.md 第四节第 7 条）。改这几张表时同步改 compat_test.go。
+var (
+	// 额度或余额用完：OpenAI 的 insufficient_quota、「Credit balance exhausted」，Kimi 的 exceeded_current_quota_error，
+	// 智谱 1113「您的账户已欠费」，DeepSeek 402「Insufficient Balance」（402 另有 statusHint）
+	quotaWords = []string{"quota", "insufficient", "balance", "credit", "exhaust", "billing", "额度", "余额", "欠费"}
+	// 上下文超长：OpenAI「maximum context length」/ context_length_exceeded，Claude「prompt is too long」，
+	// Kimi「Input token length too long」，智谱 1261「Prompt 超长」
+	contextWords = []string{"context length", "context_length", "maximum context", "context window", "too long", "too many tokens", "超长", "上下文长度"}
+	// reasoningField 原文说的是 reasoning_content 或 reasoning 这个字段，不是 reasoning_effort、reasoning_tokens 之类的参数
+	reasoningField = regexp.MustCompile(`\breasoning(?:_content)?\b`)
+)
+
+func containsAny(s string, words []string) bool {
+	for _, w := range words {
+		if strings.Contains(s, w) {
+			return true
+		}
+	}
+	return false
+}
+
+// quotaGone 429 说的是额度或余额用完了（不是请求太频繁）。
+func (e *APIError) quotaGone() bool { return e.Status == 429 && containsAny(e.lowerText(), quotaWords) }
+
+// Hint 给人看的那一句。按状态码区分，再按服务商原文里的关键词说得更具体一点；
+// 仍是中文短句，不把英文原文、状态码或 Key 拼进来（界面正文只接这一句，完整原文在 Error()，复制时看得到）。
+// Key 和地址对不上（MiMo 的按量 Key 配了 Token Plan 地址）不靠猜原文：测试连接时由服务层用 KeyWarning 换掉 401 的这一句。
+func (e *APIError) Hint() string {
+	msg := e.lowerText()
+	switch e.Status {
+	case 400:
+		if containsAny(msg, contextWords) {
+			return "对话太长，超过了模型能读的长度。开一个新会话再问"
+		}
+		if reasoningField.MatchString(msg) {
+			return "请求被拒绝：多轮对话要把思考内容原样传回，或者这个服务商不接受思考字段"
+		}
+		if strings.Contains(msg, "model") {
+			return "请求被拒绝，多半是模型名不对，或者这个模型不支持这次请求里的参数"
+		}
+		return "请求被服务商拒绝"
+	case 403:
+		if containsAny(msg, []string{"country", "region", "location", "地区"}) {
+			return "没有权限：多半是地区限制"
+		}
+		return "没有权限（可能是地区限制，或者账号没开通这个模型）"
+	case 404:
+		if strings.Contains(msg, "model") {
+			return "模型名不对，或者这个地址上没有这个模型"
+		}
+		return "接口地址或模型名不对"
+	case 429:
+		if e.quotaGone() {
+			return "服务商那边的额度用完了"
+		}
+		return "请求太频繁，等一会儿再试"
+	default:
+		return statusHint(e.Status)
+	}
+}
 
 func statusHint(code int) string {
 	switch {
+	case code >= 300 && code < 400: // 见 keepKeyOnSite：转到别的网站的重定向不跟
+		return "服务商把请求转到了别的网站，为了不把 Key 发过去没有跟过去。检查接口地址"
 	case code == 400:
 		return "请求被服务商拒绝"
 	case code == 401:
@@ -216,7 +279,7 @@ func statusHint(code int) string {
 	case code == 413:
 		return "请求太大"
 	case code == 429:
-		return "请求太频繁，或者服务商那边的额度用完了"
+		return "请求太频繁，或者服务商那边的额度用完了" // Hint() 会再分成「太频繁」和「额度用完」
 	case code == 529:
 		return "服务商繁忙"
 	case code >= 500:
@@ -234,6 +297,10 @@ func (e *NetError) Unwrap() error { return e.Err }
 // Hint 见 APIError.Hint。
 func (e *NetError) Hint() string { return "连不上服务商，检查网络、代理和接口地址" }
 
+// HintOf 给人看的那一句（见 APIError.Hint）：报错链上第一个带 Hint() 的错误给的；没有就是空串。
+// 界面正文只接这一句，原文（带状态码和服务商的英文原话）放进详情或复制。
+func HintOf(err error) string { return hintOf(err) }
+
 // hintOf 报错链上第一个带 Hint() 的错误给的那一句；没有就是空串。
 func hintOf(err error) string {
 	var h interface{ Hint() string }
@@ -243,10 +310,14 @@ func hintOf(err error) string {
 	return ""
 }
 
+// keyLike 报错里出现的另一把 Key（不一定是我们发出去的那把）。前面要是单词边界：
+// 不然 http-proxy、task-manager 这类正常单词会被抹掉一截。
+var keyLike = regexp.MustCompile(`\b(?:sk|tp|ttp|ak)-[A-Za-z0-9_\-]{8,}`)
+
 // scrub 把错误信息里的 Key 换成 ***（有的服务商会在报错里回显 Key）。
 func scrub(s, key string) string {
 	if len(key) >= 6 {
 		s = strings.ReplaceAll(s, key, "***")
 	}
-	return s
+	return keyLike.ReplaceAllString(s, "***")
 }

@@ -42,7 +42,7 @@ func TestAISettingsAPI(t *testing.T) {
 	}
 	// 没配置：只能看、能存额度和自填单价，测试连接和刷新价格报「未启用」，全程不联网
 	e.call(t, "GET", "/api/app", "", 200)
-	if v := get(); v.Data.Enabled || !v.Data.Local || v.Data.Missing != "选择服务商" || len(v.Data.Presets) != 8 || v.Data.Provider.Preset != "" {
+	if v := get(); v.Data.Enabled || !v.Data.Local || v.Data.Missing != "选择服务商" || len(v.Data.Presets) != 9 || v.Data.Provider.Preset != "" {
 		t.Fatalf("没配置时：%+v", v.Data)
 	}
 	e.call(t, "PUT", "/api/ai/quota", `{"assistant":500000,"gamechat":20000}`, 200)

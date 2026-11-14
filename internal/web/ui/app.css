@@ -885,6 +885,31 @@ input.mem-num { width: 96px; height: 30px; font-size: var(--fs-sm); text-align: 
 .ai-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; font-size: var(--fs-sm); color: var(--muted); }
 .ai-status code { font: var(--fs-xs) var(--mono); color: var(--text); }
 .ai-alts { display: contents; }
+.ai-combo { position: relative; flex: 1; min-width: 0; display: flex; }
+.ai-combo > input[role="combobox"] { flex: 1; min-width: 0; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.ai-combo-btn {
+  flex: none; width: 34px; display: grid; place-items: center; cursor: pointer;
+  border: 1px solid var(--border); border-left: 0; border-radius: 0 var(--r-md) var(--r-md) 0;
+  background: var(--surface); color: var(--muted);
+}
+.ai-combo-btn:hover { color: var(--text); background: var(--hover); }
+.ai-combo-btn .ico { width: 14px; height: 14px; }
+.ai-combo-pop {
+  position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 4px);
+  display: flex; flex-direction: column; gap: 6px; padding: 8px;
+  background: var(--overlay); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--elev-3);
+}
+.ai-combo-pop[hidden] { display: none !important; }
+#ai-model-list { overflow: auto; max-height: 240px; }
+.ai-opt {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: var(--r-sm);
+  background: none; color: var(--text); font: var(--fs-sm) var(--font); text-align: left; cursor: pointer;
+}
+.ai-opt:hover, .ai-opt.active { background: var(--hover); }
+.ai-opt .ico { width: 14px; height: 14px; flex: none; color: var(--accent-text); visibility: hidden; }
+.ai-opt[aria-selected="true"] .ico { visibility: visible; }
+.ai-combo-msg { font-size: var(--fs-xs); color: var(--muted); line-height: 1.5; }
+.ai-combo-msg:empty { display: none; }
 .save-bar + .group { margin-top: 12px; }
 .ai-price-add { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; min-width: 0; }
 .ai-price-add input { flex: 1 1 96px; min-width: 96px; }

@@ -109,6 +109,8 @@ type Item struct {
 	Kind      string      `json:"kind"` // user / assistant / notice
 	T         time.Time   `json:"t"`
 	Text      string      `json:"text,omitempty"`
+	Detail    string      `json:"detail,omitempty"`    // 提示：报错的原文（脱敏后）。正文只写结论，原文给「复制原文」用
+	Think     string      `json:"think,omitempty"`     // 思考内容（可折叠）。流式时先一段段推，结束时以服务商给的全文为准
 	Sent      string      `json:"sent,omitempty"`      // 用户的话：实际发给 AI 的内容（脱敏后、带上附加的排错资料），和 Text 一样时为空
 	Attach    int         `json:"attach,omitempty"`    // 用户的话：附加了多少字的排错资料
 	Masked    bool        `json:"masked,omitempty"`    // 用户的话：里面的隐私信息（路径里的用户名、局域网 IP、Key 等）发送前替换掉了

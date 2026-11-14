@@ -40,6 +40,8 @@ func (c *cat) aiOps() {
 			"maxOutput": ops.Integer("模型的输出上限（模型列表给的）").Range(0, 10000000),
 			"effort":    ops.String("Claude 的思考深度；空串用模型默认").OneOf("", "low", "medium", "high", "xhigh", "max"),
 			"key":       ops.String("API Key（只写不读；空串清除）").Len(0, 4096),
+			"auth":      ops.String("自定义服务商的鉴权头；空串 = 按协议的默认").OneOf("", "bearer", "api-key", "both"),
+			"echo":      ops.String("自定义服务商是否回传思考内容").OneOf("auto", "on", "off"),
 		}),
 		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
 			pt, err := bind[ai.ProviderPatch](a)
@@ -55,12 +57,14 @@ func (c *cat) aiOps() {
 
 	c.reg.Register(&ops.Op{
 		Name: "ai.models.list", Title: "获取 AI 模型列表", Level: ops.HumanOnly, LocalOnly: true, LocalMsg: localMsg, NoLog: true,
-		Desc: "向服务商要模型列表（要联网）。可以用还没保存的服务商和地址；不传 Key 时，只有服务商没换、地址还是同一个网站才用已存的 Key。",
+		Desc: "向服务商要模型列表（要联网）。可以用还没保存的服务商和地址；不传 Key 时，只有服务商没换、地址还是同一个网站才用已存的 Key。返回 {models, source, warning}：source 为 live 或 preset；对方没有模型列表时用预设里的建议，并在 warning 里说明，仍可手填。",
 		Params: ops.Object(map[string]*ops.Schema{
 			"preset":   ops.String("服务商预设的编号").OneOf(presetIDs...),
 			"protocol": ops.String("协议（只有自定义时可选）").OneOf("openai", "anthropic"),
 			"baseUrl":  ops.String("接口地址").Len(0, 500),
 			"key":      ops.String("还没保存的 API Key").Len(0, 4096),
+			"auth":     ops.String("自定义服务商的鉴权头；空串 = 按协议的默认").OneOf("", "bearer", "api-key", "both"),
+			"echo":     ops.String("自定义服务商是否回传思考内容").OneOf("auto", "on", "off"),
 		}),
 		Run: func(ctx context.Context, _ ops.Caller, a ops.Args) (any, error) {
 			req, err := bind[ai.ModelsRequest](a)
@@ -71,8 +75,8 @@ func (c *cat) aiOps() {
 			if err != nil {
 				return nil, upstream(err)
 			}
-			if ms == nil {
-				ms = []ai.Model{}
+			if ms.Models == nil {
+				ms.Models = []ai.Model{}
 			}
 			return ms, nil
 		},

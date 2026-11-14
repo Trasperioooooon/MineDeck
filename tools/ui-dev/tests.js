@@ -836,13 +836,36 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.selectOption("#ai-preset", "claude"); await settle(100);
       f = await aiForm();
       assert(!f.proto && f.effort && f.url === "https://api.anthropic.com" && f.model === "claude-opus-5-5", "选 Claude 后：" + JSON.stringify(f));
-      await page.click("#ai-list");
-      assert(await toastHas("无法获取模型列表：先填写 Key"), "没填 Key 时获取模型列表应提示（结论接上后端的原因）");
+      // 模型框：手填 + 自己的箭头。没填 Key 时拉不到：错误写在这一行下面（结论接上后端的原因），弹层里给预设的建议
+      await page.click("#ai-model-btn"); await settle(300);
+      const modelErr = await page.textContent("#ai-model-err");
+      assert(modelErr.includes("无法获取模型列表") && modelErr.includes("先填写 Key"), "没填 Key 时获取模型列表应就近提示：" + modelErr);
+      let opts = await page.$$eval("#ai-model-list .ai-opt", os => os.map(o => o.dataset.id));
+      assert(opts.length === 1 && opts[0] === "claude-opus-5-5", "拉不到时给预设里的建议：" + opts);
+      await page.keyboard.press("Escape"); await settle(100);
+      assert(await page.$eval("#ai-model-pop", e => e.hidden) && !(await page.$eval("#ai-model-btn", b => b.disabled)), "Esc 关掉弹层，箭头还能点");
       await page.fill("#ai-key", "sk-ant-test");
-      await page.click("#ai-list"); await settle(300);
-      const opts = await page.$$eval("#ai-models option", os => os.map(o => o.value));
+      await page.click("#ai-model-btn"); await settle(300);
+      opts = await page.$$eval("#ai-model-list .ai-opt", os => os.map(o => o.dataset.id));
       assert(opts.length === 3 && opts.includes("claude-sonnet-5-5"), "模型列表：" + opts);
-      assert((await page.textContent("#ai-model-sub")).includes("取到 3 个模型"), "应提示取到几个模型");
+      assert((await page.textContent("#ai-model-sub")).includes("已有 3 个模型") && (await page.textContent("#ai-model-err")) === "", "应提示有几个模型、清掉上次的错误");
+      assert(await page.$eval("#ai-model-list .ai-opt[aria-selected=true]", o => o.dataset.id) === "claude-opus-5-5", "当前模型应打勾");
+      // 搜索 + 方向键 + 回车选中；焦点在搜索框时当前项挂在搜索框上（读屏读得到）
+      await page.fill("#ai-model-q", "haiku"); await settle(100);
+      opts = await page.$$eval("#ai-model-list .ai-opt", os => os.map(o => o.dataset.id));
+      assert(opts.length === 1 && opts[0] === "claude-haiku-5-5", "搜索：" + opts);
+      await page.fill("#ai-model-q", ""); await settle(100);
+      await page.keyboard.press("ArrowDown"); await settle(50);
+      assert((await page.getAttribute("#ai-model-q", "aria-activedescendant")) && !(await page.getAttribute("#ai-model", "aria-activedescendant")), "当前项应挂在有焦点的搜索框上");
+      await page.keyboard.press("Enter"); await settle(100);
+      assert((await aiForm()).model === "claude-sonnet-5-5" && await page.$eval("#ai-model-pop", e => e.hidden), "回车选中第二个并关掉弹层：" + (await aiForm()).model);
+      // 拉列表的时候点了别处（弹层关了）：箭头不能一直灰着（复审第 9 条）
+      await page.route("**/api/ai/models", async r => { await new Promise(x => setTimeout(x, 400)); await r.continue(); });
+      await page.click("#ai-list"); await settle(50);
+      await page.mouse.click(5, 5); await settle(700);
+      await page.unroute("**/api/ai/models");
+      assert(await page.$eval("#ai-model-pop", e => e.hidden) && !(await page.$eval("#ai-model-btn", b => b.disabled)), "加载中关掉弹层后箭头应恢复");
+      await page.fill("#ai-model", "claude-opus-5-5");
       await page.selectOption("#ai-effort", "high");
       let t0 = reqs.length;
       await page.click('[data-sb="save"]'); await settle(300);
@@ -857,7 +880,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click('[data-sb="save"]'); await settle(300);
       await page.click("#ai-test"); await settle(300);
       let sub = await page.textContent("#ai-test-sub");
-      assert(sub.includes("连接正常") && sub.includes("820 ms") && sub.includes("能调用工具") && sub.includes("168 token"), "测试结果：" + sub);
+      assert(sub.includes("连接正常") && sub.includes("820 ms") && sub.includes("能调用工具") && sub.includes("含一轮工具调用") && sub.includes("168 token"), "测试结果：" + sub);
       await aiState({ testFail: true });
       await page.click("#ai-test"); await settle(300);
       sub = await page.textContent("#ai-test-sub");
@@ -866,6 +889,154 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(sub.trim() === "连接失败：Key 不对或已失效" && (raw || "").includes("HTTP 401") && (await page.getAttribute("#ai-test-sub [data-err-raw]", "aria-label")) === "复制报错信息 AI 测试连接",
         "测试失败时：" + sub + " / 原文：" + raw);
     } finally { await aiState({ reset: true }); }
+  });
+
+  await run("AI：小米 MiMo 换到 Claude 协议的地址时按 Claude 处理（思考深度）、Token Plan 地址不拉模型列表给建议；Key 前缀和地址对不上只提醒（只比域名）；自定义的鉴权默认按协议、可改", async () => {
+    await aiState({ reset: true });
+    try {
+      await page.goto(url("#/settings/ai")); await settle();
+      await page.selectOption("#ai-preset", "mimo"); await settle(150);
+      let f = await aiForm();
+      assert(f.url === "https://api.xiaomimimo.com/v1" && f.model === "mimo-v2.6-pro" && !f.effort && !f.proto, "选 MiMo：" + JSON.stringify(f));
+      assert(await page.$eval(".ai-auth-row", r => r.hidden) && await page.$eval(".ai-echo-row", r => r.hidden), "预设不显示鉴权和思考回传");
+      await page.locator("#ai-alts button", { hasText: "Token Plan · 中国 · Claude 协议" }).click(); await settle(150);
+      f = await aiForm();
+      assert(f.url === "https://token-plan-cn.xiaomimimo.com/anthropic" && f.effort, "换到 Claude 协议的地址应显示思考深度：" + JSON.stringify(f));
+      await page.fill("#ai-key", "sk-payg-0123456789"); await settle(100);
+      assert((await aiForm()).keySub.includes("按量付费 Key"), "按量 Key 配 Token Plan 地址应提醒：" + (await aiForm()).keySub);
+      await page.fill("#ai-key", "tp-plan-0123456789"); await page.fill("#ai-url", "https://token-plan-cn.xiaomimimo.com/anthropic/v1/messages"); await settle(100);
+      assert(!(await aiForm()).keySub.includes("Token Plan Key"), "同一个域名多带一截路径不该提醒：" + (await aiForm()).keySub);
+      await page.fill("#ai-url", "https://token-plan-cn.xiaomimimo.com/anthropic"); await settle(100);
+      const t0 = reqs.length;
+      await page.click("#ai-model-btn"); await settle(300);
+      const opts = await page.$$eval("#ai-model-list .ai-opt", os => os.map(o => o.dataset.id));
+      assert(opts[0] === "mimo-v2.6-pro" && opts.length >= 3 && (await page.textContent("#ai-model-msg")).includes("官方文档没有模型列表"), "Token Plan 给建议：" + opts);
+      assert(reqs.slice(t0).filter(r => r.u === "/api/ai/models").length === 1, "只问一次后端（后端不出网）");
+      await page.keyboard.press("Escape"); await settle(100);
+      await page.click('[data-sb="save"]'); await settle(300);
+      let b = putBody(t0, "/api/ai/provider");
+      assert(b && b.preset === "mimo" && !("protocol" in b) && !("auth" in b), "预设不传协议和鉴权（后端按地址定）：" + JSON.stringify(b));
+      const view = await page.evaluate(() => fetch("/api/ai/settings", { headers: { "X-Token": "mock" } }).then(r => r.json()));
+      assert(view.data.provider.protocol === "anthropic", "保存后应按 Claude 协议：" + JSON.stringify(view.data.provider));
+      // 自定义：鉴权默认留空（按协议的默认），说明跟着协议变
+      await page.selectOption("#ai-preset", "custom"); await settle(150);
+      assert(await page.$eval("#ai-auth", s => s.value) === "" && (await page.textContent("#ai-auth-sub")).includes("Authorization: Bearer"), "自定义 OpenAI 兼容：默认 Bearer");
+      await page.selectOption("#ai-proto", "anthropic"); await settle(100);
+      assert((await page.textContent("#ai-auth-sub")).includes("x-api-key"), "自定义 Claude 协议：默认 x-api-key：" + await page.textContent("#ai-auth-sub"));
+      await page.fill("#ai-url", "https://relay.example/v1"); await page.fill("#ai-model", "claude-x");
+      await page.selectOption("#ai-auth", "api-key");
+      const t1 = reqs.length;
+      await page.click('[data-sb="save"]'); await settle(200);
+      if (await page.$(".modal")) { await page.click('.modal [data-x="ok"]'); await settle(300); }
+      b = putBody(t1, "/api/ai/provider");
+      assert(b && b.preset === "custom" && b.protocol === "anthropic" && b.auth === "api-key" && b.echo === "auto", "保存自定义：" + JSON.stringify(b));
+      await page.reload(); await settle();
+      assert(await page.$eval("#ai-auth", s => s.value) === "api-key", "重新打开后鉴权还在");
+    } finally { await aiState({ reset: true }); }
+  });
+
+  await run("AI：模型列表的请求乱序回来时只认最后一次（晚到的旧结果不盖缓存）；拉的时候改了地址，旧结果不显示、弹层收起、箭头能点", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" });
+    let n = 0;
+    const fake = async r => {
+      const k = ++n; // 第一次慢、第二次快：第二次先回来
+      await new Promise(x => setTimeout(x, k === 1 ? 600 : 50));
+      await r.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, data: { models: [{ id: k === 1 ? "old-model" : "new-model" }], source: "live" } }) });
+    };
+    try {
+      await page.goto(url("#/settings/ai")); await settle();
+      await page.route("**/api/ai/models", fake);
+      await page.click("#ai-list"); await settle(20);
+      await page.click("#ai-list"); await settle(300);
+      let opts = await page.$$eval("#ai-model-list .ai-opt", os => os.map(o => o.dataset.id));
+      assert(opts.join() === "new-model", "第二次先回来，应显示第二次的：" + opts);
+      await settle(600); // 第一次（旧的）这时才回来
+      opts = await page.$$eval("#ai-model-list .ai-opt", os => os.map(o => o.dataset.id));
+      assert(opts.join() === "new-model", "晚到的旧结果不该显示：" + opts);
+      await page.keyboard.press("Escape"); await settle(100);
+      await page.click("#ai-model-btn"); await settle(200);
+      opts = await page.$$eval("#ai-model-list .ai-opt", os => os.map(o => o.dataset.id));
+      assert(opts.join() === "new-model" && n === 2, "再展开用缓存，缓存不该被旧结果盖掉：" + opts + "（请求 " + n + " 次）");
+      await page.keyboard.press("Escape"); await settle(100);
+      // 拉的时候改了地址：在途的那次作废
+      n = 0;
+      await page.click("#ai-list"); await settle(50);
+      await page.fill("#ai-url", "https://api.deepseek.com/v1"); await settle(50);
+      assert(await page.$eval("#ai-model-pop", e => e.hidden) && !(await page.$eval("#ai-model-btn", b => b.disabled)), "改了地址弹层收起、箭头能点");
+      await settle(700);
+      assert(await page.$eval("#ai-model-pop", e => e.hidden), "旧地址的结果回来后不该再弹出来");
+    } finally { await page.unroute("**/api/ai/models", fake); await aiState({ reset: true }); }
+  });
+
+  await run("AI：模型列表拉的时候搜索不翻旧列表、回来后按打的字筛；拉的时候换了服务商，箭头能点、报错不留；清除 Key 后不再用缓存（Codex 第二轮）", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" });
+    let n = 0, mode = "fast";
+    const fake = async r => {
+      n++;
+      if (mode === "fast") return r.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, data: { models: [{ id: "old-a" }, { id: "old-b" }], source: "live" } }) });
+      await new Promise(x => setTimeout(x, 600));
+      if (mode === "slow-err") return r.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ ok: false, error: "服务商出错（旧地址）" }) }).catch(() => {});
+      await r.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, data: { models: [{ id: "new-a" }, { id: "new-old" }, { id: "new-b" }], source: "live" } }) }).catch(() => {});
+    };
+    const ids = () => page.$$eval("#ai-model-list .ai-opt", os => os.map(o => o.dataset.id).join());
+    try {
+      await page.goto(url("#/settings/ai")); await settle();
+      await page.route("**/api/ai/models", fake);
+      await page.click("#ai-model-btn"); await settle(200);
+      assert((await ids()) === "old-a,old-b", "先拉到一次：" + await ids());
+      await page.keyboard.press("Escape"); await settle(100);
+      // 1. 刷新：拉的时候在搜索框里打字，不拿旧列表搜；回来以后按打的字筛
+      mode = "slow";
+      await page.click("#ai-list"); await settle(100);
+      await page.fill("#ai-model-q", "old"); await settle(100);
+      assert((await ids()) === "", "拉的时候不该翻出旧列表：" + await ids());
+      await settle(700);
+      assert((await ids()) === "new-old", "回来以后按打的字筛：" + await ids());
+      await page.keyboard.press("Escape"); await settle(100);
+      // 2. 拉的时候换了服务商：弹层收起、箭头能点；旧服务商的报错回来也不显示
+      mode = "slow-err";
+      await page.click("#ai-list"); await settle(100);
+      await page.selectOption("#ai-preset", "kimi"); await settle(100);
+      assert(await page.$eval("#ai-model-pop", e => e.hidden) && !(await page.$eval("#ai-model-btn", b => b.disabled)), "换了服务商：弹层收起、箭头能点");
+      await settle(700);
+      assert((await page.textContent("#ai-model-err")) === "" && await page.$eval("#ai-model-pop", e => e.hidden), "旧服务商的报错不该显示：" + await page.textContent("#ai-model-err"));
+      // 3. 换回来（不保存）再展开：缓存还在，不发请求；清除 Key 以后缓存作废，再展开要重新拉
+      await page.selectOption("#ai-preset", "deepseek"); await settle(100);
+      mode = "fast"; n = 0;
+      await page.click("#ai-model-btn"); await settle(200);
+      assert(n === 0 && (await ids()).startsWith("new-"), `换回来走缓存（请求 ${n} 次）：` + await ids());
+      await page.keyboard.press("Escape"); await settle(100);
+      await page.click("#ai-key-clear"); await settle(200);
+      await page.click('.modal [data-x="ok"]'); await settle(300);
+      await page.click("#ai-model-btn"); await settle(200);
+      assert(n === 1 && (await ids()) === "old-a,old-b", `清除 Key 后应重新拉（请求 ${n} 次）：` + await ids());
+    } finally { await page.unroute("**/api/ai/models", fake); await aiState({ reset: true }); }
+  });
+
+  await run("AI：框里临时填的 Key 拉到的模型列表不进缓存，「放弃修改」以后再展开按已存的 Key 重新拉；用已存的 Key 拉到的照常缓存（Codex 第三轮）", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" });
+    let n = 0;
+    const fake = async r => {
+      n++;
+      const temp = !!(r.request().postDataJSON() || {}).key;
+      await r.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, data: { models: [{ id: temp ? "temp-key-model" : "saved-key-model" }], source: "live" } }) });
+    };
+    const ids = () => page.$$eval("#ai-model-list .ai-opt", os => os.map(o => o.dataset.id).join());
+    try {
+      await page.goto(url("#/settings/ai")); await settle();
+      await page.route("**/api/ai/models", fake);
+      await page.fill("#ai-key", "sk-temp-0123456789"); await settle(100);
+      await page.click("#ai-model-btn"); await settle(200);
+      assert((await ids()) === "temp-key-model" && n === 1, "临时 Key 拉到的：" + await ids());
+      await page.keyboard.press("Escape"); await settle(100);
+      await page.click('[data-sb="discard"]'); await settle(300);
+      assert((await page.$eval("#ai-key", e => e.value)) === "", "放弃修改后 Key 框清空");
+      await page.click("#ai-model-btn"); await settle(200);
+      assert((await ids()) === "saved-key-model" && n === 2, `放弃修改后应按已存的 Key 重新拉（请求 ${n} 次）：` + await ids());
+      await page.keyboard.press("Escape"); await settle(100);
+      await page.click("#ai-model-btn"); await settle(200);
+      assert((await ids()) === "saved-key-model" && n === 2, `已存 Key 的列表照常缓存（请求 ${n} 次）：` + await ids());
+    } finally { await page.unroute("**/api/ai/models", fake); await aiState({ reset: true }); }
   });
 
   await run("AI：每日额度按万 token 保存，填错就近提示；自填单价可添加、删除，优先于公开价格；只配本机模型时不取价格", async () => {
@@ -1258,7 +1429,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await reply("应该原样显示"); await idle();
       const m = await page.evaluate(() => {
         const md = [...document.querySelectorAll(".ap-msg.assistant .md")].pop();
-        return { h: !!md.querySelector("h4"), nest: !!md.querySelector("ol li ul li"), table: !!md.querySelector("table td"), pre: !!md.querySelector("pre code"),
+        return { h: !!md.querySelector("h3.md-h.md-h3"), nest: !!md.querySelector("ol li ul li"), table: !!md.querySelector("table td"), pre: !!md.querySelector("pre code"),
           img: md.querySelectorAll("img").length, link: (md.querySelector("a") || {}).href, xss: window.__xss, text: md.textContent };
       });
       assert(m.h && m.nest && m.table && m.pre && m.img === 0 && !m.xss && m.text.includes("<img src=x") && m.link === "https://docs.papermc.io/", "Markdown：" + JSON.stringify(m).slice(0, 300));
@@ -1319,9 +1490,310 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
             .map(e => e.className || e.tagName).slice(0, 5) };
       });
       assert(w.left === 0 && w.width === 390 && w.sw <= w.cw && w.wide.length === 0, "手机宽度：" + JSON.stringify(w));
+      assert(await p.$eval(".ap-resize", e => getComputedStyle(e).display === "none"), "手机宽度下面板占满，拖宽手柄应隐藏（也就不会被 Tab 到）");
       await p.focus("#ap-in"); await p.keyboard.press("2"); await p.waitForTimeout(200);
       assert(p.url().endsWith("#/instances"), "输入框里按 2 不应切页：" + p.url());
     } finally { await c.close(); await asstState({ reset: true }); await aiState({ reset: true }); }
+  });
+
+  // 思考、流式重画、拖宽手柄。假 AI 听到「卡」：第一轮只有思考和工具调用，第二轮先思考再出正文，最后给一张确认卡片（见 server.js 的 asstScript）
+  // 开一个不关联服务器的新会话，面板停在对话里
+  const newChat = async () => {
+    await page.goto(url("#/instances")); await settle(500);
+    await page.evaluate(() => localStorage.removeItem("amh_ai_sid"));
+    await page.click("#ai-btn"); await settle(300);
+    await page.click('#ap-body [data-x="new"]'); await settle(200);
+    await page.click(".dropmenu button >> text=不关联服务器"); await settle(300);
+  };
+  // 一次取下所有助手消息的样子（同一时刻的）：思考的摘要、是否展开、思考有多少字，有没有正文，「正在…」那一行，工具的状态；mark 是测试自己打在元素上的记号，整条重画后就没了
+  const asstSnap = () => page.evaluate(() => ({
+    busy: !(document.querySelector("#ap-stop") || { hidden: true }).hidden,
+    msgs: [...document.querySelectorAll("#ap-body .ap-msg.assistant")].map(m => {
+      const d = m.querySelector(":scope > .ap-think"), ty = m.querySelector(":scope > .ap-typing");
+      return { sum: d ? d.querySelector("summary").textContent : "", open: !!(d && d.open), think: d ? d.querySelector(".ap-think-body").textContent.length : 0,
+        md: !!m.querySelector(":scope > .md"), typing: ty ? ty.textContent.trim() : "",
+        tools: [...m.querySelectorAll(".ap-tool")].map(t => t.className.replace("ap-tool ", "")), mark: m.dataset.mark || "" };
+    }),
+  }));
+  // 等到某个中间状态出现，返回那一刻的样子（条件和断言看的是同一份，不会等到了再去取时已经变了）
+  const snapWhen = async (cond, what, timeout = 6000) => {
+    const t0 = Date.now();
+    for (;;) {
+      const s = await asstSnap();
+      if (cond(s.msgs, s)) return s;
+      if (Date.now() - t0 > timeout) throw new Error("没等到「" + what + "」，最后看到的是 " + JSON.stringify(s).slice(0, 500));
+      await page.waitForTimeout(15);
+    }
+  };
+  const J = x => JSON.stringify(x).slice(0, 500);
+
+  await run("AI 助手：思考默认折叠，进行中摘要写「思考中…」，开始调工具或有了正文就写「思考」；下一轮开始后上一条不停在「思考中…」；展开的思考在流式更新和整条重画后保持展开", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" }); await asstState({ reset: true });
+    try {
+      await newChat();
+      await asstState({ slow: 250 }); // 每一小段隔 250 毫秒，中间状态才看得见
+      await page.fill("#ap-in", "服务器有点卡"); await page.press("#ap-in", "Enter");
+      // 第一轮：只有思考和工具调用，一个字的正文都没有
+      let s = await snapWhen(m => m.length === 1 && !!m[0].sum, "第一条开始思考");
+      assert(s.msgs[0].sum === "思考中…" && !s.msgs[0].open && !s.msgs[0].md && s.busy, "思考进行中、还没正文：默认折叠，摘要写「思考中…」：" + J(s));
+      const len0 = s.msgs[0].think;
+      await page.click("#ap-body .ap-msg.assistant .ap-think > summary");
+      await page.evaluate(() => { document.querySelector("#ap-body .ap-msg.assistant").dataset.mark = "1"; });
+      s = await snapWhen(m => m[0].think > len0, "思考的文字接着增加");
+      assert(s.msgs[0].open && s.msgs[0].mark === "1" && s.msgs[0].sum === "思考中…", "流式更新时展开的思考应保持展开（元素没换）：" + J(s));
+      // 模型开始写工具调用（工具还没进这一条）：思考已经结束了
+      s = await snapWhen(m => m[0].typing.startsWith("正在调用"), "开始调用工具");
+      assert(s.msgs[0].sum === "思考" && s.msgs[0].open, "开始调工具后摘要不该还是「思考中…」：" + J(s));
+      // 工具执行中：这一条整条重画过（记号没了），思考仍然展开
+      s = await snapWhen(m => m[0].tools.some(t => t.includes("running")), "工具执行中");
+      assert(s.msgs[0].sum === "思考" && s.msgs[0].open && !s.msgs[0].mark && !s.msgs[0].md && s.busy, "工具执行期间：" + J(s));
+      // 第二轮开始：上一条不再是最后一条
+      s = await snapWhen(m => m.length === 2 && !!m[1].sum, "第二条开始思考");
+      assert(s.msgs[0].sum === "思考" && s.msgs[0].open && !s.msgs[0].typing && s.msgs[0].tools.join() === "done", "下一轮开始后，上一条的摘要不该停在「思考中…」：" + J(s));
+      assert(s.msgs[1].sum === "思考中…" && !s.msgs[1].open && !s.msgs[1].md && s.busy, "第二条思考进行中：" + J(s));
+      // 正文来了，回复还没结束
+      s = await snapWhen(m => m[1].md, "第二条开始出正文");
+      assert(s.msgs[1].sum === "思考" && !s.msgs[1].open && s.busy, "有了正文之后摘要应是「思考」：" + J(s));
+      await asstState({ slow: 0 });
+      await page.waitForSelector("#ap-body .ap-card.pending", { timeout: 8000 }); await idle();
+      s = await asstSnap();
+      assert(s.msgs.length === 2 && s.msgs.every(x => x.sum === "思考" && !x.typing && x.think > 20) && s.msgs[0].open && !s.msgs[1].open && !s.busy, "整个回复结束后：" + J(s));
+    } finally { await page.keyboard.press("Escape"); await asstState({ reset: true }); await aiState({ reset: true }); }
+  });
+
+  await run("AI 助手：思考到一半点停止，只有思考的这一条撤掉、提问撤回可放回输入框（同后端 fail()），不留下停在「思考中…」的消息", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" }); await asstState({ reset: true });
+    try {
+      await newChat();
+      await asstState({ slow: 250 });
+      await page.fill("#ap-in", "服务器有点卡"); await page.press("#ap-in", "Enter");
+      let s = await snapWhen(m => m.length === 1 && m[0].sum === "思考中…", "开始思考");
+      await page.click("#ap-stop");
+      await idle();
+      s = await asstSnap();
+      const body = await page.textContent("#ap-body");
+      assert(s.msgs.length === 0 && !body.includes("思考中…"), "只有思考的那一条应撤掉：" + J(s));
+      assert(body.includes("已停止") && body.includes("这句已从对话里撤回") && await page.$("#ap-body [data-reuse]"), "应提示已停止、提问已撤回：" + body.slice(0, 200));
+    } finally { await page.keyboard.press("Escape"); await asstState({ reset: true }); await aiState({ reset: true }); }
+  });
+
+  await run("AI 助手：请求失败的提示正文只写结论，带状态码和英文原话的原文用「复制原文」拿（名字里带着这条提示）", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" }); await asstState({ reset: true });
+    try {
+      await newChat();
+      await page.fill("#ap-in", "模拟报错"); await page.press("#ap-in", "Enter");
+      await page.waitForSelector("#ap-body .ap-note.error", { timeout: 5000 }); await idle();
+      const note = await page.textContent("#ap-body .ap-note.error");
+      assert(note.includes("请求 AI 失败：Key 不对或已失效") && !note.includes("HTTP") && !note.includes("invalid"), "正文不该有原文：" + note);
+      const btn = await page.$("#ap-body .ap-note.error [data-copy-raw]");
+      assert(btn && (await btn.getAttribute("aria-label")) === "复制报错原文：请求 AI 失败：Key 不对或已失效", "应有「复制原文」");
+      await page.evaluate(() => { window.__copied = []; Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async t => { window.__copied.push(t); } } }); });
+      await btn.click(); await settle(200);
+      const copied = await page.evaluate(() => window.__copied);
+      assert(await toastHas("已复制报错原文"), "点了应复制原文");
+      assert(copied.length === 1 && copied[0].includes("HTTP 401") && copied[0].includes("invalid x-api-key") && !copied[0].includes("请求 AI 失败"), "复制的应是原文本身：" + JSON.stringify(copied));
+      assert((await page.textContent("#ap-body")).includes("这句已从对话里撤回"), "失败时提问撤回");
+    } finally { await page.keyboard.press("Escape"); await asstState({ reset: true }); await aiState({ reset: true }); }
+  });
+
+  await run("AI 助手：正文说到一半点停止，这一条标成没说完，摘要是「思考」不是「思考中…」", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" }); await asstState({ reset: true });
+    try {
+      await newChat();
+      await asstState({ slow: 120 });
+      await page.fill("#ap-in", "服务器有点卡"); await page.press("#ap-in", "Enter");
+      await snapWhen(m => m.some(x => x.md), "正文开始");
+      await page.click("#ap-stop");
+      await idle();
+      const s = await asstSnap();
+      const body = await page.textContent("#ap-body");
+      const last = s.msgs[s.msgs.length - 1];
+      assert(last && last.md && last.sum === "思考" && !last.typing && s.msgs.every(m => m.sum !== "思考中…"), "停下之后：" + J(s));
+      assert(body.includes("没说完就停了") && body.includes("已停止"), "应标出没说完、已停止：" + body.slice(0, 200));
+      // 这是第二次请求（第一次查了控制台）：提问不撤回，可以「继续回复」
+      assert(!body.includes("这句已从对话里撤回") && await page.$('#ap-state [data-x="cont"]'), "第二次请求停下不撤回提问、给「继续回复」：" + body.slice(-300) + " | " + await page.textContent("#ap-state"));
+    } finally { await page.keyboard.press("Escape"); await asstState({ reset: true }); await aiState({ reset: true }); }
+  });
+
+  await run("AI 助手：第一次请求说了一半就停，这一条留着标成没说完，提问照样撤回（同后端 conv.UndoUser），没有「继续回复」（Codex 第二轮）", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" }); await asstState({ reset: true });
+    try {
+      await newChat();
+      await asstState({ slow: 250 });
+      await page.fill("#ap-in", "最大人数改成 10"); await page.press("#ap-in", "Enter");
+      await snapWhen(m => m.some(x => x.md), "正文开始");
+      await page.click("#ap-stop");
+      await idle();
+      const s = await asstSnap();
+      const body = await page.textContent("#ap-body");
+      const last = s.msgs[s.msgs.length - 1];
+      assert(last && last.md && body.includes("没说完就停了") && body.includes("已停止"), "说了一半的留着、标成没说完：" + J(s));
+      assert(body.includes("这句已从对话里撤回") && await page.$("#ap-body [data-reuse]") && !(await page.$('#ap-state [data-x="cont"]')), "第一次请求停下应撤回提问、不给继续回复：" + body.slice(-300) + " | " + await page.textContent("#ap-state"));
+    } finally { await page.keyboard.press("Escape"); await asstState({ reset: true }); await aiState({ reset: true }); }
+  });
+
+  await run("AI 助手：流式重画时，原文没变、渲染结果变了的块也重画（宽表格后面的字多了，同一张表从纯文字变回表格）（Codex 第四轮）", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" }); await asstState({ reset: true });
+    const look = () => page.evaluate(() => {
+      const ms = document.querySelectorAll("#ap-body .ap-msg.assistant .md"), el = ms[ms.length - 1];
+      const first = el && el.querySelector(":scope > .md-b");
+      return { says: el ? (el.textContent.match(/说/g) || []).length : 0, table: !!(first && first.querySelector("table")), busy: !document.querySelector("#ap-stop").hidden };
+    });
+    try {
+      await newChat();
+      await asstState({ slow: 250 });
+      await page.fill("#ap-in", "宽表格"); await page.press("#ap-in", "Enter");
+      // 第一段正好是整张表：整段输出放大太多，按纯文字显示（不是这样的话这条测不到要测的东西）
+      await page.waitForFunction(() => { const ms = document.querySelectorAll("#ap-body .ap-msg.assistant .md"), el = ms[ms.length - 1]; return el && el.textContent.includes("|h|"); }, null, { timeout: 8000 });
+      const early = await look();
+      assert(!early.table && !early.says && early.busy, "表格刚写完时应按纯文字显示：" + JSON.stringify(early));
+      // 后面的字够多了、还在流式输出：同一张表（原文没变）应该已经画成表格（回复结束时整条会重画，所以要在输出途中看）
+      await page.waitForFunction(() => { const ms = document.querySelectorAll("#ap-body .ap-msg.assistant .md"), el = ms[ms.length - 1]; return el && (el.textContent.match(/说/g) || []).length >= 2200; }, null, { timeout: 15000 });
+      const mid = await look();
+      assert(mid.table && mid.busy, "后面的字多了以后、回复还没结束，表格应该已经画出来：" + JSON.stringify(mid));
+      await page.waitForFunction(() => document.querySelector("#ap-stop").hidden, null, { timeout: 15000 });
+    } finally { await page.keyboard.press("Escape"); await asstState({ reset: true }); await aiState({ reset: true }); }
+  });
+
+  await run("AI 助手：确认卡片没处理就发了新消息、这句第一次请求就失败，撤回以后仍给「继续回复」（作废的结果已经交回，对话停在工具结果上；Codex 第四轮）", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" }); await asstState({ reset: true });
+    try {
+      await newChat();
+      await page.fill("#ap-in", "重启"); await page.press("#ap-in", "Enter");
+      await page.waitForSelector("#ap-body .ap-card.pending", { timeout: 5000 }); await idle();
+      await page.fill("#ap-in", "模拟报错"); await page.press("#ap-in", "Enter");
+      await page.waitForSelector("#ap-body .ap-note.error", { timeout: 5000 }); await idle();
+      const body = await page.textContent("#ap-body");
+      assert(body.includes("这句已从对话里撤回") && await page.$('#ap-state [data-x="cont"]'), "撤回新消息以后应回到作废的工具结果上、给继续回复：" + body.slice(-300) + " | " + await page.textContent("#ap-state"));
+    } finally { await page.keyboard.press("Escape"); await asstState({ reset: true }); await aiState({ reset: true }); }
+  });
+
+  await run("AI 助手：工具结果交回去以后那次请求失败，提问不撤回、给「继续回复」；停在工具结果上再发一句、第一次请求就停下，撤回这句以后仍给「继续回复」（同后端 NeedsReply，Codex 第三轮）", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" }); await asstState({ reset: true });
+    const cont = () => page.$('#ap-state [data-x="cont"]');
+    try {
+      // 1. 查完控制台再报错
+      await newChat();
+      await page.fill("#ap-in", "查完再报错"); await page.press("#ap-in", "Enter");
+      await page.waitForSelector("#ap-body .ap-note.error", { timeout: 5000 }); await idle();
+      let body = await page.textContent("#ap-body");
+      assert(!body.includes("这句已从对话里撤回") && await cont(), "工具结果之后失败：提问不撤回、给继续回复：" + body.slice(-300) + " | " + await page.textContent("#ap-state"));
+      // 2. 停在工具结果上（第二次请求说到一半停），再发一句、第一次请求就停
+      await page.keyboard.press("Escape"); await asstState({ reset: true });
+      await newChat();
+      await asstState({ slow: 120 });
+      await page.fill("#ap-in", "服务器有点卡"); await page.press("#ap-in", "Enter");
+      await snapWhen(m => m.some(x => x.md), "第二次请求的正文开始");
+      await page.click("#ap-stop"); await idle();
+      assert(await cont(), "第二次请求停下：给继续回复");
+      await asstState({ slow: 250 });
+      await page.fill("#ap-in", "最大人数改成 10"); await page.press("#ap-in", "Enter");
+      await page.waitForFunction(() => [...document.querySelectorAll("#ap-body .ap-msg.assistant")].pop()?.textContent.includes("我先看"), null, { timeout: 5000 });
+      await page.click("#ap-stop"); await idle();
+      body = await page.textContent("#ap-body");
+      assert(body.includes("这句已从对话里撤回") && await cont(), "撤回新的这句以后，对话回到工具结果上，仍给继续回复：" + body.slice(-300) + " | " + await page.textContent("#ap-state"));
+    } finally { await page.keyboard.press("Escape"); await asstState({ reset: true }); await aiState({ reset: true }); }
+  });
+
+  await run("AI 助手：确认卡片处理后这一条整条重画，正文里代码块的横向滚动位置和展开的思考都留着", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" }); await asstState({ reset: true });
+    try {
+      await newChat();
+      await page.fill("#ap-in", "服务器有点卡"); await page.press("#ap-in", "Enter");
+      await page.waitForSelector("#ap-body .ap-card.pending", { timeout: 5000 }); await idle();
+      await page.click("#ap-body .ap-msg.assistant:has(.ap-card) .ap-think > summary");
+      const before = await page.evaluate(() => {
+        const m = document.querySelector("#ap-body .ap-card").closest(".ap-msg");
+        m.dataset.mark = "1";
+        const pre = m.querySelector(".md-pre");
+        pre.scrollLeft = 90;
+        return { left: pre.scrollLeft, room: pre.scrollWidth - pre.clientWidth, open: m.querySelector(".ap-think").open };
+      });
+      assert(before.left === 90 && before.room > 120 && before.open, "那行长代码应该能横向滚动：" + J(before));
+      await page.click('.ap-card.pending [data-x="ok"]');
+      await reply("改好了"); await idle();
+      const after = await page.evaluate(() => {
+        const m = document.querySelector("#ap-body .ap-card").closest(".ap-msg");
+        return { mark: m.dataset.mark || "", left: m.querySelector(".md-pre").scrollLeft, open: m.querySelector(".ap-think").open, out: m.querySelector(".pc-out").textContent };
+      });
+      assert(!after.mark && after.out.includes("已确认"), "确认后这一条应整条重画：" + J(after));
+      assert(after.left === 90 && after.open, "重画后滚动位置和展开的思考应留着：" + J(after));
+    } finally { await page.keyboard.press("Escape"); await asstState({ reset: true }); await aiState({ reset: true }); }
+  });
+
+  await run("AI 助手：拖宽手柄能用键盘（← 变宽、→ 变窄，按住 Shift 步子大），松键后才记下，到头不乱跳，刷新后还在；拖到一半被打断也会收尾", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" }); await asstState({ reset: true });
+    const W = () => page.evaluate(() => {
+      const h = document.querySelector(".ap-resize");
+      return { v: document.documentElement.style.getPropertyValue("--ai-w"), panel: Math.round(document.querySelector("#ai-panel").getBoundingClientRect().width),
+        saved: localStorage.getItem("amh_ai_w"), now: h.getAttribute("aria-valuenow"), min: h.getAttribute("aria-valuemin"), max: h.getAttribute("aria-valuemax"),
+        drag: h.classList.contains("drag"), focus: document.activeElement === h };
+    });
+    const openPanel = async () => { await page.goto(url("#/instances")); await settle(500); await page.click("#ai-btn"); await page.waitForSelector("#ai-panel"); await settle(300); };
+    const grip = () => page.$eval(".ap-resize", e => { const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + 240 }; });
+    try {
+      await page.goto(url("#/instances")); await settle(300);
+      await page.evaluate(() => localStorage.removeItem("amh_ai_w"));
+      await openPanel();
+      const h = await page.$eval(".ap-resize", e => ({ tab: e.tabIndex, role: e.getAttribute("role"), ori: e.getAttribute("aria-orientation"), label: e.getAttribute("aria-label") }));
+      assert(h.tab === 0 && h.role === "separator" && h.ori === "vertical" && !!h.label, "手柄应能被 Tab 到、有名字：" + J(h));
+      // 用键盘走到手柄上（它排在面板里第一个按钮的前面）：脚本直接设的焦点不算键盘焦点，不出焦点高亮
+      await page.focus("#ap-back"); await page.keyboard.press("Shift+Tab");
+      let w = await W();
+      assert(w.focus && w.panel === 440 && w.now === "440" && w.min === "320" && w.max === "720" && w.saved === null, "一开始：" + J(w));
+      const ring = await page.$eval(".ap-resize", e => { const c = getComputedStyle(e); return { bg: c.backgroundColor, outline: c.outlineStyle }; });
+      assert(!/rgba\(0, 0, 0, 0\)|transparent/.test(ring.bg), "键盘焦点落在手柄上时应有高亮：" + J(ring));
+      await page.keyboard.down("ArrowLeft");
+      w = await W();
+      assert(w.v === "456px" && w.panel === 456 && w.now === "456" && w.saved === null, "按下 ←：宽 16，松键之前不写：" + J(w));
+      await page.keyboard.up("ArrowLeft");
+      assert((await W()).saved === "456", "松键后记下：" + J(await W()));
+      await page.keyboard.press("Shift+ArrowLeft");
+      w = await W();
+      assert(w.panel === 520 && w.saved === "520" && w.now === "520", "Shift + ←：宽 64：" + J(w));
+      await page.keyboard.press("ArrowRight");
+      w = await W();
+      assert(w.panel === 504 && w.saved === "504", "→：窄 16：" + J(w));
+      for (let i = 0; i < 4; i++) await page.keyboard.press("Shift+ArrowRight"); // 504 → 440 → 376 → 320（到头）→ 320
+      w = await W();
+      assert(w.v === "320px" && w.panel === 320 && w.now === "320" && w.saved === "320", "最窄 320，到头再按不该跳回默认宽度：" + J(w));
+      for (let i = 0; i < 8; i++) await page.keyboard.press("Shift+ArrowLeft"); // 到 720 为止
+      w = await W();
+      assert(w.v === "720px" && w.panel === 720 && w.now === "720" && w.saved === "720", "最宽 720：" + J(w));
+      await page.keyboard.press("ArrowRight");
+      await openPanel(); // 刷新
+      w = await W();
+      assert(w.v === "704px" && w.panel === 704 && w.now === "704" && w.saved === "704", "刷新后宽度还在：" + J(w));
+      // 鼠标拖：往右拖变窄，松手后记下、高亮去掉
+      let g = await grip();
+      await page.mouse.move(g.x, g.y); await page.mouse.down();
+      await page.mouse.move(g.x + 104, g.y, { steps: 4 });
+      w = await W();
+      assert(w.drag && w.panel === 600 && w.now === "600" && w.saved === "704", "拖动中：" + J(w));
+      await page.mouse.up();
+      w = await W();
+      assert(!w.drag && w.panel === 600 && w.saved === "600", "松手后：" + J(w));
+      // 拖到一半被打断（没有松手这一步，只是失去了指针捕获）：照样收尾，之后鼠标再动也不跟着变
+      await page.evaluate(() => document.querySelector(".ap-resize").addEventListener("pointerdown", e => { window.__pid = e.pointerId; }, { once: true }));
+      g = await grip();
+      await page.mouse.move(g.x, g.y); await page.mouse.down();
+      await page.mouse.move(g.x - 40, g.y, { steps: 2 });
+      assert((await W()).panel === 640, "第二次拖动中：" + J(await W()));
+      await page.evaluate(() => document.querySelector(".ap-resize").releasePointerCapture(window.__pid));
+      await page.mouse.move(g.x - 41, g.y); await page.mouse.move(g.x - 42, g.y);
+      w = await W();
+      assert(!w.drag && w.panel === 640 && w.saved === "640", "被打断后应去掉高亮、记下当时的宽度：" + J(w));
+      await page.mouse.move(g.x - 42, g.y + 30, { steps: 2 });
+      await page.mouse.up();
+      assert((await W()).panel === 640, "打断之后不该还跟着鼠标变：" + J(await W()));
+      // 再拖一次：只有这一次的监听在起作用
+      g = await grip();
+      await page.mouse.move(g.x, g.y); await page.mouse.down();
+      await page.mouse.move(g.x + 20, g.y, { steps: 2 });
+      await page.mouse.up();
+      w = await W();
+      assert(!w.drag && w.panel === 620 && w.saved === "620" && w.now === "620", "打断之后再拖一次：" + J(w));
+    } finally { await page.mouse.up(); await page.keyboard.press("Escape"); await page.evaluate(() => localStorage.removeItem("amh_ai_w")); await asstState({ reset: true }); await aiState({ reset: true }); }
   });
   // ============================== 第三阶段结束 ==============================
 

@@ -123,7 +123,8 @@ const AI_PRESETS = [
     "baseUrl": "https://api.deepseek.com",
     "model": "deepseek-v4-flash",
     "domestic": true,
-    "note": "官方文档写明 deepseek-chat、deepseek-reasoner 已于 2026-07-24 下线，换成 deepseek-v4-flash、deepseek-v4-pro（摘要）。思考模式下工具循环可能要把 reasoning_content 原样传回，这里默认传回（摘要，需实测）。",
+    "echo": "on",
+    "note": "官方文档写明 deepseek-chat、deepseek-reasoner 已于 2026-07-24 下线，换成 deepseek-v4-flash、deepseek-v4-pro（摘要）。思考模式下请求带工具时，每条助手消息都要把 reasoning_content 原样传回，没调用工具的那几轮也要，否则会 400（核实：官方思考模式文档）；这里总是传回，没有的补空串（空串是否被接受未核实，需实测）。",
     "verified": "摘要"
   },
   {
@@ -139,7 +140,8 @@ const AI_PRESETS = [
     ],
     "model": "qwen-plus",
     "domestic": true,
-    "note": "默认是北京地域；Key 只能配对应地域的地址（摘要）。官方建议改用工作空间专属域名，可以在地址里改。",
+    "echo": "auto",
+    "note": "默认是北京地域；Key 只能配对应地域的地址（摘要）。官方建议改用工作空间专属域名，可以在地址里改。思考模型由 preserve_thinking 决定读不读历史里的思考内容，缺了不报错（核实），这里收到过就传回。",
     "verified": "摘要"
   },
   {
@@ -154,7 +156,8 @@ const AI_PRESETS = [
       }
     ],
     "domestic": true,
-    "note": "国内站和国际站的 Key 不通用（摘要：第三方文档，官方页面未能抓取）。流式用量可能在 choices[0].usage，两处都读。",
+    "echo": "auto",
+    "note": "国内站和国际站的 Key 不通用（摘要：第三方文档，官方页面未能抓取）。流式用量可能在 choices[0].usage，两处都读。多轮和工具调用要把完整的助手消息原样传回，包括 reasoning_content（核实：官方 K3 文档），这里收到过就传回。",
     "verified": "摘要"
   },
   {
@@ -163,8 +166,93 @@ const AI_PRESETS = [
     "protocol": "openai",
     "baseUrl": "https://open.bigmodel.cn/api/paas/v4/",
     "domestic": true,
-    "note": "地址末尾的斜杠原样保留。官方说兼容 OpenAI，但「部分场景仍有差异」（摘要）。",
+    "echo": "auto",
+    "note": "地址末尾的斜杠原样保留。官方说兼容 OpenAI，但「部分场景仍有差异」（摘要）。开了「保留思考」（Coding Plan 的地址默认开）时要把思考内容原样传回（核实），这里收到过就传回。",
     "verified": "摘要"
+  },
+  {
+    "id": "mimo",
+    "name": "小米 MiMo",
+    "protocol": "openai",
+    "baseUrl": "https://api.xiaomimimo.com/v1",
+    "altUrls": [
+      {
+        "label": "按量 · Claude 协议",
+        "url": "https://api.xiaomimimo.com/anthropic",
+        "protocol": "anthropic"
+      },
+      {
+        "label": "Token Plan · 中国",
+        "url": "https://token-plan-cn.xiaomimimo.com/v1",
+        "noModels": true
+      },
+      {
+        "label": "Token Plan · 中国 · Claude 协议",
+        "url": "https://token-plan-cn.xiaomimimo.com/anthropic",
+        "protocol": "anthropic",
+        "noModels": true
+      },
+      {
+        "label": "Token Plan · 新加坡",
+        "url": "https://token-plan-sgp.xiaomimimo.com/v1",
+        "noModels": true
+      },
+      {
+        "label": "Token Plan · 新加坡 · Claude 协议",
+        "url": "https://token-plan-sgp.xiaomimimo.com/anthropic",
+        "protocol": "anthropic",
+        "noModels": true
+      },
+      {
+        "label": "Token Plan · 欧洲",
+        "url": "https://token-plan-ams.xiaomimimo.com/v1",
+        "noModels": true
+      },
+      {
+        "label": "Token Plan · 欧洲 · Claude 协议",
+        "url": "https://token-plan-ams.xiaomimimo.com/anthropic",
+        "protocol": "anthropic",
+        "noModels": true
+      }
+    ],
+    "model": "mimo-v2.6-pro",
+    "models": [
+      "mimo-v2.6-pro",
+      "mimo-v2.6-flash",
+      "mimo-v2.6-pro-ultraspeed"
+    ],
+    "domestic": true,
+    "auth": "both",
+    "echo": "on",
+    "keyHints": [
+      {
+        "prefixes": [
+          "sk-"
+        ],
+        "urls": [
+          "https://api.xiaomimimo.com/v1",
+          "https://api.xiaomimimo.com/anthropic"
+        ],
+        "note": "sk- 开头的是按量付费 Key，只能用在 api.xiaomimimo.com。填到 Token Plan 的地址上会 401。"
+      },
+      {
+        "prefixes": [
+          "ttp-",
+          "tp-"
+        ],
+        "urls": [
+          "https://token-plan-cn.xiaomimimo.com/v1",
+          "https://token-plan-cn.xiaomimimo.com/anthropic",
+          "https://token-plan-sgp.xiaomimimo.com/v1",
+          "https://token-plan-sgp.xiaomimimo.com/anthropic",
+          "https://token-plan-ams.xiaomimimo.com/v1",
+          "https://token-plan-ams.xiaomimimo.com/anthropic"
+        ],
+        "note": "tp- / ttp- 开头的是 Token Plan Key，只能用在 token-plan 的地址上，不能用在按量地址。"
+      }
+    ],
+    "note": "按量 Key（sk-）用 api.xiaomimimo.com；Token Plan Key（tp- / ttp-）用 token-plan-cn / -sgp / -ams，两种不能混用。鉴权认 api-key 或 Bearer。思考默认开着，多轮（尤其是调用工具之后）要把 reasoning_content 原样传回，否则会 400。Token Plan 的域名文档里没有 /models，模型可以手填，或从建议里选。",
+    "verified": "核实"
   },
   {
     "id": "openai",
@@ -198,7 +286,8 @@ const AI_PRESETS = [
     "name": "自定义",
     "protocol": "openai",
     "baseUrl": "",
-    "note": "任意 OpenAI 兼容的地址，或者走 Claude 协议的中转。注意：中转方能看到全部对话和 Key。",
+    "echo": "auto",
+    "note": "任意 OpenAI 兼容的地址，或者走 Claude 协议的中转。鉴权和思考回传可以改。注意：中转方能看到全部对话和 Key。",
     "verified": "—"
   }
 ];
@@ -211,14 +300,14 @@ const AI_MODEL_PRICES = {
 };
 const AI_MODELS = {
   deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"], qwen: ["qwen-flash", "qwen-plus", "qwen3-max"], kimi: ["kimi-k2.6", "kimi-k3"],
-  zhipu: ["glm-4.5", "glm-5.3"], openai: ["gpt-5", "gpt-5.5"], ollama: ["qwen3:8b", "llama3.1"], custom: ["my-model"],
+  zhipu: ["glm-4.5", "glm-5.3"], openai: ["gpt-5", "gpt-5.5"], ollama: ["qwen3:8b", "llama3.1"], custom: ["my-model"], mimo: ["mimo-v2.6-pro", "mimo-v2.6-flash"],
   claude: [{ id: "claude-opus-5-5", name: "Claude Opus 5.5", maxOutput: 128000 }, { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", maxOutput: 128000 }, { id: "claude-haiku-5-5", name: "Claude Haiku 5.5", maxOutput: 128000 }],
 };
 const AI_LOCAL_MSG = "AI 设置仅支持在本机修改（含 Key 和接口地址）";
 const AI_DISABLED = "AI 未启用：先在「设置 → AI」里选择服务商，填好 Key 和模型";
 function newAIState() {
   return {
-    preset: "", protocol: "", baseUrl: "", model: "", maxOutput: 0, effort: "", key: "", keyBroken: false,
+    preset: "", protocol: "", baseUrl: "", model: "", maxOutput: 0, effort: "", key: "", keyBroken: false, auth: "", echo: "",
     quota: {}, prices: [], priceUpdated: "", local: true, testFail: false,
     today: { assistant: { requests: 12, tokens: 123456, estimated: 1, cost: { USD: 0.0312 } }, gamechat: { requests: 3, tokens: 5600, cost: { USD: 0.002 } },
       companion: { requests: 2, tokens: 2400, cost: { USD: 0.0008 } } },
@@ -234,6 +323,19 @@ function aiMissing(a) {
   if (!a.model) return "选择模型";
   return "";
 }
+// 同后端 Preset.matchURL：协议、主机、路径都一样（末尾斜杠不算）
+function aiMatchURL(p, base) {
+  const same = (x, y) => {
+    try {
+      const u = new URL(x), v = new URL(y), path = w => w.pathname.replace(/\/+$/, "");
+      return u.protocol === v.protocol && u.host.toLowerCase() === v.host.toLowerCase() && path(u) === path(v);
+    } catch { return false; }
+  };
+  if (same(base, p.baseUrl)) return { protocol: p.protocol };
+  const alt = (p.altUrls || []).find(x => same(base, x.url));
+  return alt ? { protocol: alt.protocol || p.protocol, noModels: !!alt.noModels } : { protocol: p.protocol };
+}
+function aiSuggested(p) { return [...new Set([p.model, ...(p.models || [])].filter(Boolean))].map(id => ({ id })); }
 function aiView(a) {
   const p = AI_PRESETS.find(x => x.id === a.preset);
   const missing = aiMissing(a);
@@ -249,7 +351,8 @@ function aiView(a) {
   }
   const priceNeeded = !missing && !(p && p.local);
   return {
-    presets: AI_PRESETS, provider: { preset: a.preset, protocol: a.protocol, baseUrl: a.baseUrl, model: a.model, maxOutput: a.maxOutput, effort: a.effort, eager: official, fallback: official },
+    presets: AI_PRESETS, provider: { preset: a.preset, protocol: a.protocol, baseUrl: a.baseUrl, model: a.model, maxOutput: a.maxOutput, effort: a.effort, eager: official, fallback: official,
+      ...(a.preset === "custom" ? { ...(a.auth ? { auth: a.auth } : {}), echo: a.echo || "auto" } : {}) },
     keySet: !!a.key && !a.keyBroken, keyBroken: !!a.key && a.keyBroken, enabled: !missing, missing, quota: a.quota, today: a.today, month: a.month,
     priceNeeded, prices: { source: "LiteLLM 公开价格", updated: priceNeeded ? a.priceUpdated : a.priceUpdated, count: a.priceUpdated ? 3203 : 0 },
     modelPrice, customPrices: a.prices, local: a.local,
@@ -257,16 +360,25 @@ function aiView(a) {
 }
 // 同 ai.Service.SetProvider：只改传了的字段；改了服务商、协议或地址，旧 Key 清掉（同一次请求给了新 Key 就用新的）
 function aiSetProvider(a, b) {
-  if ("preset" in b && b.preset === "") { Object.assign(a, { preset: "", protocol: "", baseUrl: "", model: "", maxOutput: 0, effort: "", key: "", keyBroken: false }); return null; }
+  if ("preset" in b && b.preset === "") { Object.assign(a, { preset: "", protocol: "", baseUrl: "", model: "", maxOutput: 0, effort: "", key: "", keyBroken: false, auth: "", echo: "" }); return null; }
   const id = "preset" in b ? b.preset : a.preset;
   const p = AI_PRESETS.find(x => x.id === id);
   if (!p) return id ? `未知的服务商："${id}"` : "先选择服务商";
   const changed = id !== a.preset;
   const n = { ...a, preset: id };
-  n.protocol = p.id !== "custom" ? p.protocol : (b.protocol || (changed ? "openai" : a.protocol) || "openai");
   if ("baseUrl" in b) n.baseUrl = String(b.baseUrl).trim(); else if (changed) n.baseUrl = p.baseUrl;
   if (!n.baseUrl && p.id !== "custom") n.baseUrl = p.baseUrl;
   if (!/^https?:\/\/[^/?#\s]+/.test(n.baseUrl) || /[?#]/.test(n.baseUrl)) return "接口地址要以 http:// 或 https:// 开头";
+  // 同后端：预设的协议看地址是不是声明了另一种协议的可选地址（MiMo 的 /anthropic）；自定义看传来的
+  n.protocol = p.id !== "custom" ? aiMatchURL(p, n.baseUrl).protocol : (b.protocol || (changed ? "openai" : a.protocol) || "openai");
+  if (p.id !== "custom") { n.auth = ""; n.echo = ""; }
+  else {
+    if ("auth" in b) n.auth = b.auth; else if (changed) n.auth = "";
+    if ("echo" in b) n.echo = b.echo; else if (changed) n.echo = "auto";
+    if (!n.echo) n.echo = "auto";
+    if (!["", "bearer", "api-key", "both"].includes(n.auth || "")) return "鉴权只能是默认（留空）、bearer、api-key 或 both";
+    if (!["auto", "on", "off"].includes(n.echo)) return "思考回传只能是 auto、on 或 off";
+  }
   if ("model" in b) n.model = String(b.model).trim(); else if (changed) n.model = p.model || "";
   if ("effort" in b) n.effort = b.effort;
   if (n.protocol !== "anthropic") n.effort = "";
@@ -279,6 +391,20 @@ function aiSetProvider(a, b) {
   Object.assign(a, n);
   return null;
 }
+// 同后端 ai.ParseBaseURL：只认 http / https，不能带账号密码、问号或井号后面的部分，端口在 0 到 65535 之间（浏览器的 URL 自己会拦）
+function aiBadBase(u) {
+  // 先看原文：浏览器的 URL 会把「https:a.com」「https:///a.com」自动补正，「https://@a.com」的账号密码是空串，后端都不认
+  const m = /^https?:\/\/([^/?#]*)/i.exec(u);
+  if (!m || !m[1]) return "接口地址要以 http:// 或 https:// 开头";
+  if (m[1].includes("@")) return "接口地址里不能带账号密码、问号或井号后面的部分";
+  const port = /:(\d+)$/.exec(m[1]);
+  if (port && +port[1] > 65535) return "接口地址的端口不对（要在 0 到 65535 之间）";
+  let x;
+  try { x = new URL(u); } catch { return "接口地址要以 http:// 或 https:// 开头"; }
+  if (!/^https?:$/.test(x.protocol) || !x.host) return "接口地址要以 http:// 或 https:// 开头";
+  if (x.username || x.password || x.search || x.hash) return "接口地址里不能带账号密码、问号或井号后面的部分";
+  return "";
+}
 async function aiHandler(state, req, res, p, m) {
   const a = state.ai;
   const local = a.local;
@@ -290,15 +416,21 @@ async function aiHandler(state, req, res, p, m) {
     const pr = AI_PRESETS.find(x => x.id === b.preset);
     if (!pr) return err(res, 400, "先选择服务商");
     const base = (b.baseUrl || pr.baseUrl).trim();
-    const key = (b.key || "").trim() || (a.preset === pr.id && a.baseUrl === base ? a.key : "");
+    const bad = aiBadBase(base); // 同后端：先按 ai.ParseBaseURL 校验地址，再决定发不发、用不用已存的 Key
+    if (bad) return err(res, 400, bad);
+    // 同后端：文档写明没有模型列表的地址不发请求，直接给预设里的建议（返回 {models, source, warning}）
+    if (aiMatchURL(pr, base).noModels) return ok(res, { models: aiSuggested(pr), source: "preset", warning: "这个地址的官方文档没有模型列表，下面是预设里的建议，也可以直接填写模型名。" });
+    // 同后端 ai.SameSite：服务商没换、地址还是同一个网站（只改了路径也算）才用已存的 Key
+    const site = u => { try { return new URL(u).origin; } catch { return ""; } };
+    const key = (b.key || "").trim() || (a.preset === pr.id && site(base) && site(base) === site(a.baseUrl) ? a.key : "");
     if (!key && !pr.noKey && pr.id !== "custom") return err(res, 400, "先填写 Key");
-    return ok(res, (AI_MODELS[pr.id] || []).map(x => (typeof x === "string" ? { id: x } : x)));
+    return ok(res, { models: (AI_MODELS[pr.id] || []).map(x => (typeof x === "string" ? { id: x } : x)), source: "live" });
   }
   if (p === "/api/ai/test" && m === "POST") {
     if (aiMissing(a)) return err(res, 400, AI_DISABLED);
     if (a.testFail) return ok(res, { ok: false, tools: "unknown", error: "Key 不对或已失效（HTTP 401，authentication_error）：invalid x-api-key", hint: "Key 不对或已失效", latencyMs: 0, totalMs: 0, usage: { input: 0, output: 0 } });
     const pr = AI_PRESETS.find(x => x.id === a.preset);
-    return ok(res, { ok: true, latencyMs: 820, totalMs: 1310, model: a.model, tools: "yes", stop: "tool_use", usage: { input: 156, output: 12 },
+    return ok(res, { ok: true, latencyMs: 820, totalMs: 1310, model: a.model, tools: "yes", rounds: 2, stop: "end_turn", usage: { input: 156, output: 12 },
       cost: pr.local ? { amount: 0, currency: "USD", source: "local" } : { amount: 0.0001, currency: "USD", source: "litellm" } });
   }
   if (p === "/api/ai/quota" && m === "PUT") {
@@ -499,11 +631,13 @@ async function musicHandler(state, req, res, p, m, seg) {
 // ==================== 第五阶段结束 ====================
 // ================================ 第三阶段：应用内 AI 助手 ================================
 // 同 /api/assistant/*、/api/ops/proposals*、PUT /api/ai/assistant、GET /api/instances/{name}/diag（本地规则排错）。
-// 假的 AI：按用户的话挑一段写好的回复，流式推给界面（同后端的事件：session / item / delta / thinking / state）——
-//   附上排错资料：按「机械动力整合包」的报错分析，先查模组清单（读操作，不弹确认），再提议禁用 xaerominimap.jar（写操作）；
+// 假的 AI：按用户的话挑一段写好的回复，流式推给界面（同后端的事件：session / item / delta / thinking / tool_start / state）——
+//   附上排错资料：按「机械动力整合包」的报错分析，先想一下、查模组清单（读操作，不弹确认），再提议禁用 xaerominimap.jar（写操作）；
 //   含「人数」：先读 server.properties，再提议把 max-players 改成 10（写操作）；
 //   含「重启」：提议重启服务器（危险操作，确认时要多勾一次）；含「新建」：提议新建实例（要用户自己勾 EULA）；
+//   含「卡」：第一轮只有思考和工具调用、一个字的正文都没有（查控制台），第二轮先思考、再说话（正文里有一行很长的代码），最后提议把视距调小（写操作）；
 //   其余：一段带 Markdown（含一段想注入 HTML 的文字）的普通回复。
+// 步骤里的 think 是这一轮的思考：同后端一样一小段一小段推 {type:"thinking", id, text}（只带这一段，界面自己接起来），全文在这一轮结束时随 item 的 think 给出。
 // state.ai.local 为 false 时模拟局域网打开：只看得见局域网开的会话，处理不了本机会话的提案。
 function newAsstState() {
   return { sessions: [], seq: 0, lan: true, executed: [], slow: 0 };
@@ -524,6 +658,7 @@ const ASST_DIAG = {
   },
 };
 const ASST_MD = "按你说的情况，常见原因有这几个：\n\n### 先检查\n\n1. **端口**有没有被占用（默认 `25565`）\n2. 防火墙有没有放行 Java\n   - 内网穿透的隧道是不是在运行\n\n| 项目 | 现在 | 建议 |\n| --- | --- | --- |\n| 内存 | 4 GB | 6 GB |\n\n```\n/whitelist add Steve\n```\n\n> 改设置之前我都会先问你。\n\n顺便：<img src=x onerror=\"window.__xss=1\"> 这段 HTML 应该原样显示。详见 [Paper 文档](https://docs.papermc.io/)。";
+const ASST_LAG = "[21:42:10] [Server thread/WARN]: Can't keep up! Is the server overloaded? Running 5210ms or 104 ticks behind";
 function asstQuota(state) { return { used: (state.ai.today.assistant || {}).tokens || 0, limit: state.ai.quota.assistant || 0 }; }
 function asstStatus(state) {
   const a = state.ai, missing = aiMissing(a), enabled = !missing;
@@ -544,9 +679,22 @@ function asstState(state, s) {
 }
 const asstSleep = ms => new Promise(r => setTimeout(r, ms));
 function asstScript(s, text, attach) {
+  // 请求失败（同后端 fail()）：提示的正文只写结论，带状态码和英文原话的原文放 detail，界面给「复制原文」
+  // 一张很宽的稀疏表格，后面跟一大段说明。第一段正好是整张表（末尾不带换行）：整段输出放大太多、按纯文字显示，
+  // 这时整段只有一块，原文就是这张表；第二段的字够多了，又够画表格，第一块的原文没变、渲染结果变了（流式重画不能只看原文）
+  if (/宽表格/.test(text)) {
+    const table = ("|" + "h|".repeat(64) + "\n|" + "--|".repeat(64) + "\n" + "|x|\n".repeat(311)).trimEnd();
+    return [{ pieces: [table, "\n" + "说".repeat(2200), ...Array(10).fill("说".repeat(200))] }];
+  }
+  // 查完控制台、把结果交回去以后的那次请求失败：提问不撤回，对话停在工具结果上，可以「继续回复」
+  if (/查完再报错/.test(text)) return [
+    { text: "我先看看控制台。", tools: [{ name: "instance_console_tail", op: "instance.console.tail", title: "查看控制台输出", args: { inst: s.inst || "生存服 · 朋友", lines: 200 }, result: { lines: ["[21:30:09 INFO]: Done (6.812s)!"] } }] },
+    { fail: { text: "请求 AI 失败：服务商那边出错了，稍后再试", detail: "服务商那边出错了（HTTP 500，server_error）：internal error" } },
+  ];
+  if (/模拟报错/.test(text)) return [{ fail: { text: "请求 AI 失败：Key 不对或已失效", detail: "Key 不对或已失效（HTTP 401，authentication_error）：invalid x-api-key: sk-a***" } }];
   const inst = s.inst || "生存服 · 朋友";
   if (attach) return [
-    { thinking: true, text: "我先看看模组清单。", tools: [{ name: "instance_mods_list", op: "instance.mods.list", title: "查看模组清单", args: { inst, q: "xaero" }, result: { count: 87, mods: [{ id: "xaerominimap", file: "xaerominimap.jar", env: "client" }] } }] },
+    { think: "附来的资料里有一行 invalid dist DEDICATED_SERVER，像是客户端模组进了服务端。先看模组清单里有没有小地图。", text: "我先看看模组清单。", tools: [{ name: "instance_mods_list", op: "instance.mods.list", title: "查看模组清单", args: { inst, q: "xaero" }, result: { count: 87, mods: [{ id: "xaerominimap", file: "xaerominimap.jar", env: "client" }] } }] },
     { text: "原因找到了：\n\n- `xaerominimap.jar` 是**客户端模组**，服务端加载时报 `invalid dist DEDICATED_SERVER`\n- 另外还少了前置 geckolib\n\n先把小地图禁用掉：",
       propose: { op: "instance.mods.toggle", title: "启用 / 禁用模组", level: "W", args: { inst, file: "xaerominimap.jar", enable: false },
         plan: { summary: `禁用「${inst}」的 xaerominimap.jar`, changes: [{ what: "mods/xaerominimap.jar", before: "启用", after: "禁用（改名为 .jar.disabled）" }] } },
@@ -571,23 +719,62 @@ function asstScript(s, text, attach) {
         plan: { summary: "新建 Paper 1.21.4 服务器「新服」" }, consent: { param: "eula", text: "我已阅读并同意 Minecraft EULA", url: "https://aka.ms/MinecraftEULA" } },
       done: "开始创建了，可以在「新建服务器」里看进度。", rejected: () => "好的，不建了。" },
   ];
+  if (/卡/.test(text)) return [
+    { think: "用户说服务器卡。先别猜原因，看看控制台里有没有「跟不上」的警告，再决定往哪边查。这一轮不用先说话，直接查。",
+      tools: [{ name: "instance_console_tail", op: "instance.console.tail", title: "查看控制台输出", args: { inst, lines: 200 }, result: { lines: [ASST_LAG] } }] },
+    { think: "控制台里确实有 Can't keep up，落后了一百多刻。视距 10 对这台机器偏大，先建议调到 8，改动小，也好改回去。",
+      text: "控制台里有这样一行，说明服务器算不过来了：\n\n```\n" + ASST_LAG + "\n```\n\n先把视距调小试试：",
+      propose: { op: "instance.props.set", title: "修改 server.properties", level: "W", args: { inst, pairs: [{ key: "view-distance", value: "8" }] },
+        plan: { summary: `把「${inst}」的 view-distance 从 10 改成 8`, changes: [{ what: "view-distance", before: "10", after: "8" }] } },
+      done: "改好了，**重启服务器**后生效。", rejected: r => `好的，先不改${r ? `。你说「${r}」，我记下了` : ""}。` },
+  ];
   return [{ text: ASST_MD, tools: [{ name: "instance_console_tail", op: "instance.console.tail", title: "查看控制台输出", args: { inst, lines: 200 }, result: { lines: ["[21:30:09 INFO]: Done (6.812s)!"] } }] }];
 }
-// 跑一轮：逐段流式推文字、执行读操作、遇到写操作就停下等确认
-async function asstTurn(state, s, steps) {
+// 跑一轮：逐段流式推文字、执行读操作、遇到写操作就停下等确认。
+// fromUser：这一轮是用户刚说了话开的（不是确认卡片处理完、也不是「继续回复」接着说）。
+// 同后端 conv.UndoUser()：只有这种轮次的第一次请求失败或被停下，对话最后一条才是用户的话，才把它撤回。
+// 收尾时「有没有等着回复的消息」同后端 Conversation.NeedsReply()：看对话最后一条是不是用户的话或工具结果
+async function asstTurn(state, s, steps, fromUser = false) {
   const S = state.asst;
+  const before = s.needReply; // 这一轮开始前对话的末尾：撤回了这次的提问，就回到它
+  let ended = ""; // 中途结束："stop" 停下、"fail" 请求失败
   s.busy = true; s.needReply = false; asstState(state, s);
   const wait = ms => asstSleep(S.slow || ms);
-  for (const step of steps) {
+  const undoUser = () => {
+    const u = [...s.items].reverse().find(x => x.kind === "user" && !x.withdrawn);
+    if (u) { u.withdrawn = true; asstEmit(s, { type: "item", item: u }); s.withdrew = true; }
+  };
+  for (const [k, step] of steps.entries()) {
     const it = { id: "i" + (++s.next), kind: "assistant", t: new Date().toISOString(), text: "", tools: [] };
     s.items.push(it); asstEmit(s, { type: "item", item: asstSlim(it) });
-    if (step.thinking) { asstEmit(s, { type: "thinking", id: it.id }); await wait(60); }
-    const chunks = (step.text || "").match(/[\s\S]{1,6}/g) || [];
+    if (step.fail) {
+      s.items = s.items.filter(x => x.id !== it.id); asstEmit(s, { type: "remove", id: it.id });
+      if (fromUser && k === 0) undoUser();
+      const n = { id: "i" + (++s.next), kind: "notice", level: "error", t: new Date().toISOString(), text: step.fail.text, detail: step.fail.detail };
+      s.items.push(n); asstEmit(s, { type: "item", item: n });
+      ended = "fail";
+      break;
+    }
+    for (const c of (step.think || "").match(/[\s\S]{1,12}/g) || []) {
+      if (s.stop) break;
+      it.think = (it.think || "") + c; asstEmit(s, { type: "thinking", id: it.id, text: c }); await wait(12);
+    }
+    const chunks = step.pieces || (step.text || "").match(/[\s\S]{1,6}/g) || []; // pieces：指定每次推哪一段（默认每次 6 个字）
     for (const c of chunks) {
       if (s.stop) break;
       it.text += c; asstEmit(s, { type: "delta", id: it.id, text: c }); await wait(8);
     }
-    if (s.stop) { it.partial = true; asstEmit(s, { type: "item", item: asstSlim(it) }); break; }
+    // 模型开始写工具调用：这时这一轮还没结束，工具还没进 item（同后端的 tool_start）
+    for (const tl of s.stop ? [] : step.tools || []) { asstEmit(s, { type: "tool_start", id: it.id, name: tl.name }); await wait(12); }
+    if (s.stop) {
+      // 同后端 fail()：什么都没说出来（没有正文、没有工具调用，只有思考也算）就撤掉这一条，说了一半的标成没说完；
+      // 这两种情况下，只要是用户开的这一轮的第一次请求，用户的话都从对话里撤回（界面上给「放回输入框」）
+      if (!it.text && !it.tools.length) { s.items = s.items.filter(x => x.id !== it.id); asstEmit(s, { type: "remove", id: it.id }); }
+      else { it.partial = true; asstEmit(s, { type: "item", item: asstSlim(it) }); }
+      if (fromUser && k === 0) undoUser();
+      ended = "stop";
+      break;
+    }
     it.usage = { input: 1820, output: 96, cacheRead: 1024 }; it.cost = { amount: 0.0021, currency: "CNY", source: "litellm" }; it.model = state.ai.model;
     state.ai.today.assistant.tokens += 2940;
     asstEmit(s, { type: "item", item: asstSlim(it) });
@@ -611,9 +798,12 @@ async function asstTurn(state, s, steps) {
   if (s.stop) {
     s.items.push({ id: "i" + (++s.next), kind: "notice", level: "info", t: new Date().toISOString(), text: "已停止" });
     asstEmit(s, { type: "item", item: s.items[s.items.length - 1] });
-    s.needReply = true;
   }
-  s.stop = false; s.busy = false; s.updated = new Date().toISOString();
+  // 中途结束：撤回了提问，对话回到这一轮开始前的样子；没撤回（不是第一次请求），末尾是上一步交回的工具结果，等着回复。
+  // 工具跑着的时候点了停止、这一步又是脚本的最后一步（真实后端会接着发下一次请求、再停下），也按等着回复算
+  if (ended) s.needReply = s.withdrew ? before : true;
+  else if (s.stop) s.needReply = true;
+  s.stop = false; s.withdrew = false; s.busy = false; s.updated = new Date().toISOString();
   asstState(state, s);
 }
 // 确认卡片处理完：记下结果，接着回复（同后端：结果交还给 AI）
@@ -624,7 +814,10 @@ function asstResolve(state, s, t, outcome, by, reason) {
   const it = s.items.find(x => (x.tools || []).includes(t));
   asstEmit(s, { type: "item", item: asstSlim(it) });
   const step = s.after; s.after = null;
-  if (outcome === "canceled" || !step) return;
+  // 作废（没处理就发了新消息）：同后端 settleWait，「已作废」的结果照样交回给工具，对话末尾是工具结果；
+  // 接着那句新消息要是第一次请求就失败或停下、被撤回，对话回到这里，仍然等着回复
+  if (outcome === "canceled") { s.needReply = true; return; }
+  if (!step) return;
   asstTurn(state, s, [{ text: outcome === "done" ? step.done : step.rejected(reason) }]);
 }
 async function asstHandler(state, req, res, p, m, u) {
@@ -735,7 +928,7 @@ async function asstHandler(state, req, res, p, m, u) {
     if (pack) s.attachText = "";
     if (/^新会话/.test(s.title)) s.title = pack && s.inst ? `分析「${s.inst}」的问题` : text.slice(0, 30);
     s.items.push(it); asstEmit(s, { type: "item", item: asstSlim(it) });
-    asstTurn(state, s, asstScript(s, text, !!pack));
+    asstTurn(state, s, asstScript(s, text, !!pack), true);
     return ok(res, "ok"), true;
   }
   return err(res, 404, "not found"), true;

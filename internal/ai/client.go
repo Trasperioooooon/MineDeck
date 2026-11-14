@@ -30,8 +30,15 @@ type Config struct {
 	Eager     bool   // Claude 流式时给工具打开 eager_input_streaming
 	Official  bool   // Claude 官方地址：只发 x-api-key；中转另外再带一个 Authorization: Bearer
 
-	EchoReasoning  bool // OpenAI 兼容：回复里的 reasoning_content 存进历史、下一轮原样带回（DeepSeek 思考模式的工具循环要）
-	ToolResultName bool // OpenAI 兼容：tool 消息带上工具名（Kimi）
+	Auth           AuthMode // 鉴权头；空 = 这个协议的默认（OpenAI 兼容是 Bearer，Claude 见 claudeHeader）
+	Echo           EchoMode // 见 EchoMode。空 = 不回传
+	EchoPadAll     bool     // Echo 为 on 时，没有思考内容的助手消息全都补空串（DeepSeek）；false 只补带工具调用的（MiMo）
+	ToolResultName bool     // OpenAI 兼容：tool 消息带上工具名（Kimi）
+
+	// DropReasoning 已经知道对方不认 reasoning_content（之前的请求被拒过）：一开始就不带。
+	// OnDropReasoning 这个客户端被拒后改成不带时调一次，让上层记住，下一轮新建的客户端直接不带。
+	DropReasoning   bool
+	OnDropReasoning func()
 
 	HTTP        *http.Client
 	RetryDelay  time.Duration // 重试的基础等待，默认 1 秒（第二次翻倍）
@@ -51,10 +58,11 @@ const (
 type Client struct {
 	cfg Config
 
-	mu       sync.Mutex
-	eager    bool // 中转不认 eager_input_streaming 时关掉
-	fallback bool // 中转不认服务端回退时关掉
-	noUsage  bool // OpenAI 兼容：服务不认 stream_options 时不再要求流末尾带用量
+	mu            sync.Mutex
+	eager         bool // 中转不认 eager_input_streaming 时关掉
+	fallback      bool // 中转不认服务端回退时关掉
+	noUsage       bool // OpenAI 兼容：服务不认 stream_options 时不再要求流末尾带用量
+	dropReasoning bool // 对方不认 reasoning_content：这次客户端不再带回
 }
 
 // NewClient 检查配置，返回客户端。
@@ -68,6 +76,19 @@ func NewClient(cfg Config) (*Client, error) {
 	if cfg.HTTP == nil {
 		cfg.HTTP = DefaultHTTPClient()
 	}
+	{
+		// 浅拷贝：连接池（Transport）照旧共用，只换掉跟随重定向的规则。调用方自己设了规则的，先过我们的再过它的，
+		// 不让传进来的客户端绕开这道检查
+		hc := *cfg.HTTP
+		own := hc.CheckRedirect
+		hc.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			if err := keepKeyOnSite(req, via); err != nil || own == nil {
+				return err
+			}
+			return own(req, via)
+		}
+		cfg.HTTP = &hc
+	}
 	if cfg.MaxTokens <= 0 {
 		cfg.MaxTokens = 16000
 	}
@@ -80,7 +101,43 @@ func NewClient(cfg Config) (*Client, error) {
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 10 * time.Minute
 	}
-	return &Client{cfg: cfg, eager: cfg.Eager && cfg.Stream, fallback: cfg.Fallback}, nil
+	return &Client{cfg: cfg, eager: cfg.Eager && cfg.Stream, fallback: cfg.Fallback, dropReasoning: cfg.DropReasoning && cfg.Echo == EchoAuto}, nil
+}
+
+// keepKeyOnSite 只跟随同一个网站里的重定向。Go 换网站时只会去掉 Authorization 和 Cookie，不认识 api-key、x-api-key，
+// 而且同一台主机换个端口它也当成同一个网站，跟过去 Key 就到了别人手里。规则：
+//   - 每一跳都要和最初的地址是同一个网站（协议、主机、端口都一样；端口没写按默认算）；
+//   - 唯一的例外是标准的升级：最初是 http 的默认端口，转到同一主机 https 的默认端口；
+//   - 上一跳已经是 https 的，不许再降回 http。
+//
+// 不符合的不跟，把这个 3xx 原样交给调用方报错（见 statusHint）。
+func keepKeyOnSite(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("重定向太多次")
+	}
+	first, prev, to := via[0].URL, via[len(via)-1].URL, req.URL
+	if strings.EqualFold(prev.Scheme, "https") && !strings.EqualFold(to.Scheme, "https") {
+		return http.ErrUseLastResponse
+	}
+	sameHost := strings.EqualFold(first.Hostname(), to.Hostname())
+	same := sameHost && strings.EqualFold(first.Scheme, to.Scheme) && portOf(first) == portOf(to)
+	upgrade := sameHost && strings.EqualFold(first.Scheme, "http") && portOf(first) == "80" &&
+		strings.EqualFold(to.Scheme, "https") && portOf(to) == "443"
+	if same || upgrade {
+		return nil
+	}
+	return http.ErrUseLastResponse
+}
+
+// portOf 端口；没写时按协议的默认端口算（https://a.com 和 https://a.com:443 是同一个）。
+func portOf(u *url.URL) string {
+	if p := u.Port(); p != "" {
+		return normPort(p)
+	}
+	if strings.EqualFold(u.Scheme, "https") {
+		return "443"
+	}
+	return "80"
 }
 
 // DefaultHTTPClient 默认的 HTTP 客户端：连接（含 TLS 握手）15 秒超时，走环境变量里的代理。
@@ -109,6 +166,12 @@ func ParseBaseURL(s string) (*url.URL, error) {
 	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return nil, errors.New("接口地址里不能带账号密码、问号或井号后面的部分")
 	}
+	// 端口要在 0 到 65535 之间（浏览器的 URL 同样会拒绝），不然前后端认出的网站对不上
+	if p := u.Port(); p != "" {
+		if n, err := strconv.Atoi(p); err != nil || n > 65535 {
+			return nil, errors.New("接口地址的端口不对（要在 0 到 65535 之间）")
+		}
+	}
 	return u, nil
 }
 
@@ -129,10 +192,18 @@ func siteOf(s string) string {
 	if strings.Contains(host, ":") {
 		host = "[" + host + "]"
 	}
-	if p := u.Port(); p != "" && !(scheme == "https" && p == "443") && !(scheme == "http" && p == "80") {
+	if p := normPort(u.Port()); p != "" && !(scheme == "https" && p == "443") && !(scheme == "http" && p == "80") {
 		host += ":" + p
 	}
 	return scheme + "://" + host
+}
+
+// normPort 端口按数值写（「0443」就是 443），和浏览器的 URL 规范化一致；不是数字的原样返回。
+func normPort(p string) string {
+	if n, err := strconv.Atoi(p); err == nil && n >= 0 {
+		return strconv.Itoa(n)
+	}
+	return p
 }
 
 // endpoint 拼出接口路径：去掉地址末尾的斜杠再接上（智谱的地址末尾带斜杠，原样存、拼的时候不重复）。
@@ -209,7 +280,7 @@ func (c *Client) Chat(ctx context.Context, conv *Conversation, onEvent func(Even
 		if !ok || out || ctx.Err() != nil {
 			return res, err
 		}
-		onEvent(Event{Type: EvRetry, Attempt: attempt + 1, Err: err.Error()})
+		onEvent(Event{Type: EvRetry, Attempt: attempt + 1, Err: err.Error(), Hint: hintOf(err)})
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -260,6 +331,15 @@ func (c *Client) downgrade(conv *Conversation, err error) bool {
 			c.noUsage = true
 			return true
 		}
+		// 带了思考字段对方不认：去掉再发一次。已经去掉过就不再试，避免来回。
+		// 只对 auto：on 是文档写明必须传回的服务商（DeepSeek、MiMo），去掉只会换来另一个 400，还把原来那句更有用的报错盖掉。
+		if !c.dropReasoning && c.cfg.Echo == EchoAuto && reasoningRejected(msg) {
+			c.dropReasoning = true
+			if cb := c.cfg.OnDropReasoning; cb != nil {
+				cb() // 只记一个结论，不回调客户端，持锁调用不会死锁
+			}
+			return true
+		}
 		return false
 	}
 	switch {
@@ -271,6 +351,21 @@ func (c *Client) downgrade(conv *Conversation, err error) bool {
 		conv.eager = false
 		conv.encodeFixed()
 		return true
+	}
+	return false
+}
+
+// reasoningRejected 400 的原文是在拒绝 reasoning_content 这个字段，而不是在要求把它传回。
+// 字段名要完整出现（reasoning_content 或 reasoning），reasoning_effort 之类的参数被拒不算。
+// Groq 的原文是「property 'reasoning_content' is unsupported」；DeepSeek 要求传回时是「… must be passed back to the API」，不会命中。
+func reasoningRejected(msg string) bool {
+	if !reasoningField.MatchString(msg) {
+		return false
+	}
+	for _, s := range []string{"unknown", "unexpected", "unrecognized", "extra", "not support", "unsupported", "not permitted", "does not support", "invalid field"} {
+		if strings.Contains(msg, s) {
+			return true
+		}
 	}
 	return false
 }
@@ -332,7 +427,9 @@ func (c *Client) apiError(status int, h http.Header, body []byte) *APIError {
 	if e.Message == "" && e.Type == "" {
 		e.Message = strings.TrimSpace(string(body))
 	}
-	e.Message = scrub(truncate(e.Message, 500), c.cfg.Key)
+	// 先抹 Key 再截断：截断点要是正好切在 Key 中间，剩下的半截就认不出来了。错误类型（error.type / code）也可能回显 Key
+	e.Message = truncate(scrub(e.Message, c.cfg.Key), 500)
+	e.Type = truncate(scrub(e.Type, c.cfg.Key), 100)
 	if ra := h.Get("Retry-After"); ra != "" {
 		if s, err := strconv.ParseFloat(ra, 64); err == nil && s >= 0 {
 			e.RetryAfter = time.Duration(s * float64(time.Second))

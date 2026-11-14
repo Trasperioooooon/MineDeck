@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"minedeck/internal/ai"
@@ -19,6 +21,46 @@ const maxRounds = maxTools + 3
 // attachTTL 打包好的排错资料多久内发送有效（过期了要重新预览，免得发出去的和看到的不一样）。
 const attachTTL = 30 * time.Minute
 
+// 思考片段合并后再推：第一段马上发，之后最多约 100ms 一次，避免每个 token 都刷一次界面。
+const (
+	thinkGap   = 100 * time.Millisecond
+	thinkBatch = 240
+)
+
+// maxThink 一条回复存下来的思考最多多少字节（会话文件和每次订阅的快照里都有它）。超出时留最后一段。
+const maxThink = 32 << 10
+
+func capThink(s string) string {
+	if len(s) <= maxThink {
+		return s
+	}
+	cut := len(s) - maxThink
+	for cut < len(s) && !utf8.RuneStart(s[cut]) {
+		cut++
+	}
+	return "……（前面的思考太长，没有保存）\n" + s[cut:]
+}
+
+type thinkBuf struct {
+	b    strings.Builder
+	last time.Time
+}
+
+func (tb *thinkBuf) add(s string) { tb.b.WriteString(s) }
+
+func (tb *thinkBuf) flush(force bool, emit func(string)) {
+	if tb.b.Len() == 0 {
+		return
+	}
+	if !force && !tb.last.IsZero() && time.Since(tb.last) < thinkGap && tb.b.Len() < thinkBatch {
+		return
+	}
+	s := tb.b.String()
+	tb.b.Reset()
+	tb.last = time.Now()
+	emit(s)
+}
+
 // ---------- 事件 ----------
 
 // 发给界面的事件：
@@ -26,6 +68,7 @@ const attachTTL = 30 * time.Minute
 //	{"type":"session","session":View}        订阅时先发一份完整的会话
 //	{"type":"item","item":Item}              新增或更新一条（按 id 替换）
 //	{"type":"delta","id":"i3","text":"…"}    AI 回复的文字片段（追加到这一条）
+//	{"type":"thinking","id":"i3","text":"…"} 思考片段（节流后的一小段，追加；默认折叠）
 //	{"type":"state","busy":…,"waiting":…,"needReply":…,"quota":…}
 //	{"type":"retry","attempt":1,"err":"…"}  服务商出错，正在重试
 type event map[string]any
@@ -51,8 +94,10 @@ func (s *Service) Subscribe(who ops.Caller, id string) (*View, <-chan []byte, fu
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	ch, cancel := sess.hub.subscribe()
+	// 订阅和取快照在同一次加锁里做：追加类的事件（delta、thinking）也是在 sess.mu 里改完就推的，
+	// 这样一个片段要么已经在快照里、要么之后作为事件到达，不会两边都有（中途打开面板时重复一段）。
 	sess.mu.Lock()
+	ch, cancel := sess.hub.subscribe()
 	v := s.viewLocked(sess)
 	sess.mu.Unlock()
 	return v, ch, cancel, nil
@@ -296,10 +341,63 @@ func title(text, inst string, analyze bool) string {
 }
 
 func (s *Service) noticeLocked(sess *Session, level, text string) *Item {
+	return s.noticeDetailLocked(sess, level, text, "")
+}
+
+// noticeDetailLocked 带原文的提示：text 是给人看的结论，detail 是脱敏后的报错原文（界面上「复制原文」）。
+func (s *Service) noticeDetailLocked(sess *Session, level, text, detail string) *Item {
 	it := sess.newItem("notice", s.now())
-	it.Level, it.Text = level, text
+	it.Level, it.Text, it.Detail = level, text, detail
 	sess.hub.publish(event{"type": "item", "item": slim(it)})
 	return it
+}
+
+// failText 请求失败时提示的正文和原文。正文只写结论（docs/文案重写/01-补完口径.md）：
+//   - 有 Hint 的接 Hint；回复中途断开的单独说（流里来的错误、网络断开的 Hint 接在后面）；
+//   - 本来就是一句短的中文、除了网址和几个固定叫法（Key、AI、服务商名）不夹英文的（比如「还没选模型」「先填写 Key」）照用；
+//   - 剩下带状态码、英文原话、路径的只写「请求 AI 失败」，原文放进 detail（界面上「复制原文」）。
+//     拿不准的宁可放进 detail：正文里少一句，比正文里冒出一串英文好。
+func failText(err error, raw string) (text, detail string) {
+	h := ai.HintOf(err)
+	if errors.Is(err, ai.ErrDisconnected) {
+		if h != "" {
+			return "回复中途断开了：" + h, raw
+		}
+		return "回复中途断开了", raw
+	}
+	if h != "" {
+		return "请求 AI 失败：" + h, raw
+	}
+	if plainChinese(raw) {
+		return "请求 AI 失败：" + raw, ""
+	}
+	return "请求 AI 失败", raw
+}
+
+// plainChinese 能不能原样放进正文：六十字以内、有汉字，去掉网址和固定叫法以后没有两个字母以上的英文。
+func plainChinese(raw string) bool {
+	if utf8.RuneCountInString(raw) > 60 || !hasHan(raw) {
+		return false
+	}
+	rest := knownWord.ReplaceAllString(urlLike.ReplaceAllString(raw, ""), "")
+	return !englishWord.MatchString(rest)
+}
+
+var (
+	// 网址只算到第一个非 ASCII 字符（后面紧跟的中文标点、中文说明不算网址）；不分大小写
+	urlLike = regexp.MustCompile(`(?i)https?://[!-~]*`)
+	// 程序自己的中文提示里会出现的固定叫法
+	knownWord   = regexp.MustCompile(`\b(?:AI|API|Key|Token|token|MB|Claude|OpenAI|DeepSeek|MiMo|Kimi|Qwen|Ollama)\b`)
+	englishWord = regexp.MustCompile(`[A-Za-z]{2,}`)
+)
+
+func hasHan(s string) bool {
+	for _, r := range s {
+		if unicode.Is(unicode.Han, r) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) notice(sess *Session, level, text string) {
@@ -335,28 +433,47 @@ func (s *Service) loop(ctx context.Context, sess *Session) {
 		sess.mu.Unlock()
 		s.publishItem(sess, it)
 
+		// 思考片段先攒着，推出去的那一刻才记进 it.Think（和推送在同一次加锁里），快照和事件才对得上。
+		// 正文或工具调用一开始就把攒着的推完，不然思考的最后一小段要等这一轮全部结束才出现。
+		var think thinkBuf
+		flushThink := func(force bool) {
+			think.flush(force, func(text string) {
+				sess.mu.Lock()
+				it.Think += text
+				sess.hub.publish(event{"type": "thinking", "id": it.ID, "text": text})
+				sess.mu.Unlock()
+			})
+		}
 		res, err := cl.Chat(ctx, conv, func(e ai.Event) {
 			switch e.Type {
 			case ai.EvText:
+				flushThink(true)
 				sess.mu.Lock()
 				it.Text += e.Text
-				sess.mu.Unlock()
 				sess.hub.publish(event{"type": "delta", "id": it.ID, "text": e.Text})
+				sess.mu.Unlock()
 			case ai.EvToolStart:
+				flushThink(true)
 				if e.Tool != nil {
 					sess.hub.publish(event{"type": "tool_start", "id": it.ID, "name": e.Tool.Name})
 				}
 			case ai.EvRetry:
-				sess.hub.publish(event{"type": "retry", "attempt": e.Attempt, "err": s.redact.Text(e.Err)})
+				sess.hub.publish(event{"type": "retry", "attempt": e.Attempt, "err": s.redact.Text(e.Err), "hint": e.Hint})
 			case ai.EvReasoning:
-				sess.hub.publish(event{"type": "thinking", "id": it.ID})
+				think.add(e.Text)
+				flushThink(false)
 			}
 		})
+		flushThink(true)
 		cost := s.ai.Record(ai.FeatAssistant, res) // 不管成没成功，花了的都要记
 		sess.mu.Lock()
 		if res != nil {
 			u := res.Usage
 			it.Usage, it.Cost, it.Model = &u, cost, res.Model
+			if res.Reasoning != "" {
+				it.Think = res.Reasoning
+			}
+			it.Think = capThink(it.Think)
 			if res.Usage.Prompt() > 100000 {
 				sess.Long = true
 			}
@@ -402,11 +519,13 @@ func (s *Service) fail(sess *Session, it *Item, err error) {
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
 	if it != nil {
+		// 只有思考、没有正文和工具调用的也撤掉：下面会把用户的话撤回、放回输入框，
+		// 留着这段思考就成了挂在撤回消息后面的孤儿，重发以后还一直留在历史里。
 		if it.Text == "" && len(it.Tools) == 0 {
 			sess.Items = removeItem(sess.Items, it.ID)
 			sess.hub.publish(event{"type": "remove", "id": it.ID})
 		} else {
-			it.Partial = true
+			it.Partial, it.Think = true, capThink(it.Think)
 			sess.hub.publish(event{"type": "item", "item": slim(it)})
 		}
 	}
@@ -419,7 +538,7 @@ func (s *Service) fail(sess *Session, it *Item, err error) {
 			}
 		}
 	}
-	var msg string
+	var msg, detail string
 	var qe *ai.QuotaError
 	switch {
 	case errors.Is(err, context.Canceled):
@@ -431,13 +550,13 @@ func (s *Service) fail(sess *Session, it *Item, err error) {
 	case errors.Is(err, errEmpty):
 		msg = "模型没有给出回复。可以换个说法再问一次。"
 	default:
-		msg = "请求 AI 失败：" + s.redact.Text(err.Error())
+		msg, detail = failText(err, s.redact.Text(err.Error()))
 	}
 	level := "error"
 	if msg == "已停止" {
 		level = "info"
 	}
-	s.noticeLocked(sess, level, msg)
+	s.noticeDetailLocked(sess, level, msg, detail)
 	_ = s.saveLocked(sess)
 }
 

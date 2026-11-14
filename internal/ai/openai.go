@@ -36,11 +36,14 @@ func (c *Client) openaiBody(conv *Conversation) []byte {
 		b.Write(conv.sysRaw)
 		n++
 	}
+	c.mu.Lock()
+	drop := c.dropReasoning
+	c.mu.Unlock()
 	for _, m := range conv.msgs {
 		if n > 0 {
 			b.WriteByte(',')
 		}
-		b.Write(m)
+		b.Write(adjustReasoning(m, c.cfg.Echo, drop, c.cfg.EchoPadAll))
 		n++
 	}
 	b.WriteByte(']')
@@ -57,13 +60,63 @@ func (c *Client) openaiBody(conv *Conversation) []byte {
 
 func (c *Client) openaiHeader() http.Header {
 	h := http.Header{}
-	if c.cfg.Key != "" {
-		h.Set("Authorization", "Bearer "+c.cfg.Key)
-	}
+	c.applyKey(h)
 	if c.cfg.Stream {
 		h.Set("Accept", "text/event-stream")
 	}
 	return h
+}
+
+// applyKey 按配置写鉴权头。Key 为空时什么都不写（Ollama）。
+func (c *Client) applyKey(h http.Header) {
+	if c.cfg.Key == "" {
+		return
+	}
+	switch c.cfg.Auth {
+	case AuthAPIKey:
+		h.Set("api-key", c.cfg.Key)
+	case AuthBoth:
+		h.Set("Authorization", "Bearer "+c.cfg.Key)
+		h.Set("api-key", c.cfg.Key)
+	default:
+		h.Set("Authorization", "Bearer "+c.cfg.Key)
+	}
+}
+
+// adjustReasoning 决定这条助手消息要不要带 reasoning_content。
+// 回传策略不是 off 时，收到的思考都存进历史；发出去之前再按当前策略删掉或补上空串，这样降级重试不用改历史。
+// on 时补空串的范围：padAll 为 true 补所有没有思考的助手消息（DeepSeek 文档：请求带工具时每条助手消息都要传回，
+// 包括那一轮没调用工具的），为 false 只补带工具调用的（MiMo 文档只强制这一种）。
+func adjustReasoning(raw json.RawMessage, echo EchoMode, drop, padAll bool) json.RawMessage {
+	if len(raw) == 0 || raw[0] != '{' {
+		return raw
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(raw, &m) != nil || rawText(m["role"]) != "assistant" {
+		return raw
+	}
+	_, has := m["reasoning_content"]
+	_, hasAlt := m["reasoning"]
+	if drop || echo == "" || echo == EchoOff {
+		if !has && !hasAlt {
+			return raw
+		}
+		delete(m, "reasoning_content")
+		delete(m, "reasoning")
+		return mustJSON(m)
+	}
+	if echo == EchoOn && !has && !hasAlt {
+		if _, tools := m["tool_calls"]; tools || padAll {
+			m["reasoning_content"] = mustJSON("")
+			return mustJSON(m)
+		}
+	}
+	if hasAlt && !has {
+		m["reasoning_content"] = m["reasoning"]
+		delete(m, "reasoning")
+		return mustJSON(m)
+	}
+	return raw
 }
 
 // oaiUsage 各家用量的写法合在一起。
@@ -319,7 +372,9 @@ func (a *oaiAcc) result(partial bool, bodyLen int) *Result {
 	} else {
 		m["content"] = r.Text
 	}
-	if a.c.cfg.EchoReasoning && r.Reasoning != "" {
+	// 思考内容先存进历史。发不发由 adjustReasoning 在组请求时决定（对方不认可以去掉重发，不用改历史）。
+	// 回传策略是 off 的服务商永远不会发，就不存：会话文件和每次请求前的整理都少一大段。
+	if r.Reasoning != "" && a.c.cfg.Echo != "" && a.c.cfg.Echo != EchoOff {
 		m["reasoning_content"] = r.Reasoning
 	}
 	if r.Text == "" && len(calls) == 0 {
@@ -399,7 +454,7 @@ func (c *Client) openaiOnce(ctx context.Context, conv *Conversation, emit func(E
 		}
 		if err != nil {
 			if got {
-				return acc.result(true, len(body)), fmt.Errorf("%w：%v", ErrDisconnected, c.cutErr(ctx, dog, err))
+				return acc.result(true, len(body)), fmt.Errorf("%w：%w", ErrDisconnected, c.cutErr(ctx, dog, err))
 			}
 			return nil, c.cutErr(ctx, dog, err)
 		}
@@ -418,7 +473,7 @@ func (c *Client) openaiOnce(ctx context.Context, conv *Conversation, emit func(E
 		if len(chunk.Error) > 0 && string(chunk.Error) != "null" {
 			e := c.oaiStreamError(chunk.Error)
 			if got {
-				return acc.result(true, len(body)), fmt.Errorf("%w：%v", ErrDisconnected, e)
+				return acc.result(true, len(body)), fmt.Errorf("%w：%w", ErrDisconnected, e)
 			}
 			return nil, e
 		}
@@ -464,9 +519,7 @@ func (c *Client) openaiModels(ctx context.Context) ([]Model, error) {
 	if err != nil {
 		return nil, err
 	}
-	if c.cfg.Key != "" {
-		req.Header.Set("Authorization", "Bearer "+c.cfg.Key)
-	}
+	c.applyKey(req.Header)
 	resp, err := c.do(req)
 	if err != nil {
 		return nil, err

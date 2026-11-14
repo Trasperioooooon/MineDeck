@@ -89,7 +89,7 @@ func presetConfig(t *testing.T, id, base string, stream bool) Config {
 	}
 	u, _ := url.Parse(p.BaseURL)
 	cfg := Config{Protocol: p.Protocol, BaseURL: base + u.Path, Key: "sk-test-0123456789", Model: "m-" + id, Stream: stream,
-		EchoReasoning: p.echoReasoning, ToolResultName: p.toolResultName, Eager: p.Protocol == Anthropic, RetryDelay: time.Millisecond}
+		Auth: p.Auth, Echo: p.Echo, ToolResultName: p.toolResultName, Eager: p.Protocol == Anthropic, RetryDelay: time.Millisecond}
 	if p.NoKey {
 		cfg.Key = ""
 	}
