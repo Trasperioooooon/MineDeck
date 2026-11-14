@@ -136,7 +136,7 @@ func New(mgr *inst.Manager, tun *tunnel.Manager, reg *ops.Registry, asst *assist
 	return secure(mux)
 }
 
-// secure 校验 Host、API Token 或局域网会话 Cookie。
+// secure 校验 Host、API Token 或局域网会话 Cookie。两样都只管「能不能进来」；进来以后算不算本机，见 callerOf。
 func secure(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cfg := app.GetConfig()
@@ -155,11 +155,7 @@ func secure(next http.Handler) http.Handler {
 			}
 		}
 		if strings.HasPrefix(r.URL.Path, "/api/") && r.URL.Path != "/api/login" {
-			tok := r.Header.Get("X-Token")
-			if tok == "" {
-				tok = r.URL.Query().Get("token")
-			}
-			if tok != Token && !validSession(r, session) {
+			if !hasToken(r) && !validSession(r, session) {
 				writeErr(w, http.StatusUnauthorized, fmt.Errorf("需要登录"))
 				return
 			}
@@ -240,10 +236,14 @@ func readJSON(r *http.Request, v any) error {
 
 // ---------- 接到操作层 ----------
 
-// callerOf 网页请求的调用方：本机来的算本机（浏览器和 WebView2 里的界面发请求时带 Sec-Fetch-Site: same-origin，
-// 记作 ui；其余本机程序记作 api）；别的设备一律算局域网，记下它的地址。
+// callerOf 网页请求的调用方：连接来自本机、并且带着这次启动的令牌，才算本机（浏览器和 WebView2 里的界面发请求时带
+// Sec-Fetch-Site: same-origin，记作 ui；其余本机程序记作 api）；别的一律算局域网，记下它的地址。
+//
+// 只看连接来自本机不够：frpc 这类转发程序也在本机，经它进来的请求地址都是 127.0.0.1。局域网登录的人建一条把公网端口
+// 转到 MineDeck 网页端口的隧道，再带着局域网 Cookie 从隧道进来，「仅本机」的操作就全放行了（2026-11-14 复审 PR #13 时发现）。
+// 令牌只交给本机的窗口（启动地址里的 ?token=），局域网登录拿不到它，所以只带 Cookie 的本机请求按局域网算。
 func callerOf(r *http.Request) ops.Caller {
-	if isLoopbackReq(r) {
+	if isLoopbackReq(r) && hasToken(r) {
 		src := ops.SrcAPI
 		if r.Header.Get("Sec-Fetch-Site") == "same-origin" {
 			src = ops.SrcUI

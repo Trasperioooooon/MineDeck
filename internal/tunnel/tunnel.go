@@ -79,6 +79,8 @@ type Manager struct {
 	consoles map[string]*procutil.Console
 	lastErr  map[string]string // 隧道ID → 最近一次失败原因（启动前的失败、frpc 报的错、意外退出；运行态，不持久化）
 	broken   map[string]bool   // 隧道ID → 凭据解不开（换了电脑或 Windows 用户），不能启动
+	// guardPort MineDeck 自己的网页端口（0 表示不查）：自定义 frps 的隧道不许指向它，见 SetGuardPort
+	guardPort int
 
 	autoMu   sync.Mutex
 	autoHook func(AutoAction) // 跟随实例自动启停之后的回调（操作层用它写操作记录）
@@ -108,6 +110,23 @@ func (m *Manager) noteAuto(a AutoAction) {
 	if fn != nil {
 		fn(a)
 	}
+}
+
+// SetGuardPort 告诉隧道层 MineDeck 自己的网页端口：新增、修改、启动（包括跟随实例启动）时，拒绝本地端口是它的自定义
+// frps 隧道。经 frpc 转发进来的请求在 MineDeck 看来都来自 127.0.0.1，网页端口映射到公网，就等于把管理界面摆到了公网上。
+// 樱花、OpenFrp 的本地端口在服务商后台填，MineDeck 看不到，这里查不了；「仅本机」靠的是本机令牌（web.callerOf），不靠这一条。
+func (m *Manager) SetGuardPort(port int) {
+	m.mu.Lock()
+	m.guardPort = port
+	m.mu.Unlock()
+}
+
+// checkGuardPort 隧道是不是指向 MineDeck 自己的网页端口 guard。只有自定义 frps 的本地端口由 MineDeck 写进 frpc 配置。
+func checkGuardPort(t *Tunnel, guard int) error {
+	if guard > 0 && t.Provider == "custom" && t.LocalPort == guard {
+		return fmt.Errorf("本地端口 %d 是 MineDeck 自己的网页端口，不能映射到公网：要填的是 Minecraft 服务器的端口", guard)
+	}
+	return nil
 }
 
 func NewManager() *Manager {
@@ -274,6 +293,9 @@ func (m *Manager) Add(t Tunnel) (*Tunnel, error) {
 	t.Credential = sealed
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := checkGuardPort(&t, m.guardPort); err != nil {
+		return nil, err
+	}
 	m.seq++
 	t.ID = "tun" + strconv.Itoa(m.seq)
 	nt := &t
@@ -314,6 +336,9 @@ func (m *Manager) UpdateOpt(id string, t Tunnel, opt UpdateOpts) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := checkGuardPort(&t, m.guardPort); err != nil {
+		return err
+	}
 	if m.running[id] != nil {
 		return fmt.Errorf("请先停止隧道再修改")
 	}
@@ -461,6 +486,7 @@ func (m *Manager) start(id, why string) error {
 	}
 	m.starting[id] = true // 占位：慢速启动（EnsureFrpc 首次可能联网下载 frpc）期间挡住并发/重复 Start，避免双启 frpc 争同一公网端口
 	snap := *t            // 启动参数用锁内拍下的副本，凭据在副本上解开，不写回
+	guard := m.guardPort
 	m.mu.Unlock()
 	defer func() { m.mu.Lock(); delete(m.starting, id); m.mu.Unlock() }()
 
@@ -480,6 +506,10 @@ func (m *Manager) start(id, why string) error {
 		e := fail(errors.New(hint))
 		con.Append("[MineDeck] 系统报错原文：" + err.Error())
 		return e
+	}
+	// 以前存下的、或者网页端口这次换了（默认端口被占用时随机挑一个）：启动时再查一遍，跟随实例启动也走这里
+	if err := checkGuardPort(&snap, guard); err != nil {
+		return fail(err)
 	}
 	// 先解凭据再准备 frpc：解不开就不必下载 frpc
 	cred, err := secret.Unseal(snap.Credential)

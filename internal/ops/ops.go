@@ -79,7 +79,7 @@ type Op struct {
 	Desc      string  // 给 AI 看的说明
 	Params    *Schema // 参数说明；nil 表示没有参数
 	Level     Level
-	LocalOnly bool   // 仅本机（沿用网页接口 isLoopbackReq 的规则）
+	LocalOnly bool   // 仅本机：只认 Caller.Local（网页接口要连接来自本机、并且带着这次启动的令牌，见 web.callerOf）
 	LocalMsg  string // 从别的设备调用「仅本机」操作时的提示；空则用通用说法
 	InGame    bool   // 游戏内 AI、AI 伙伴也能调用（只对读操作有效）；默认不开放
 	NoLog     bool   // 不写操作记录：不改任何状态的仅人工操作（打开目录、选择文件夹）

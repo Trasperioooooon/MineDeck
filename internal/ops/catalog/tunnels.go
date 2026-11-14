@@ -39,6 +39,10 @@ func (c *cat) tunnelState(id string) (tunnel.Status, error) {
 }
 
 func (c *cat) tunnelOps() {
+	// 自定义 frps 的隧道不许指向 MineDeck 自己的网页端口：新增、修改、启动（包括跟随实例启动）时由隧道层拒绝
+	if c.Tun != nil && c.Port > 0 {
+		c.Tun.SetGuardPort(c.Port)
+	}
 	c.reg.Register(&ops.Op{
 		Name: "tunnel.list", Title: "查看隧道", Level: ops.Read,
 		Desc: "穿透隧道的配置和状态（不含凭据）：服务商、绑定的实例、公网地址、是否运行、最近一次失败原因（启动失败、跟随启动失败、frpc 报错或意外退出；跑起来后清空）。",
