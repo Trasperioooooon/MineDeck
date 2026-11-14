@@ -9,13 +9,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -560,14 +563,9 @@ func (m *Manager) start(id, why string) error {
 	m.mu.Unlock()
 	m.setLastErr(id, "") // 运行起来了：上一次的失败原因不再显示（frpc 再报错时 handleLine 会重新记）
 
+	mask := credMasker(cred)
 	go func() {
-		sc := bufio.NewScanner(stdout)
-		sc.Buffer(make([]byte, 0, 64*1024), 512*1024)
-		for sc.Scan() {
-			line := strings.TrimRight(sc.Text(), "\r")
-			con.Append(line)
-			m.handleLine(t, rs, line)
-		}
+		m.pumpOutput(t, rs, con, stdout, mask)
 		_ = cmd.Wait()
 		exitMsg := "frpc 意外退出"
 		if ps := cmd.ProcessState; ps != nil {
@@ -701,6 +699,48 @@ const followActor = "跟随服务器"
 
 // startDelay 实例启动后等多久再拉起跟随的隧道：等服务器进入启动流程。
 var startDelay = 2 * time.Second
+
+// pumpOutput 把 frpc 的输出一行一行读出来：先遮掉这次启动用的凭据，再进控制台缓冲、再交给 handleLine 认。
+// 读到头（frpc 退出）才返回。
+func (m *Manager) pumpOutput(t *Tunnel, rs *runState, con *procutil.Console, out io.Reader, mask func(string) string) {
+	sc := bufio.NewScanner(out)
+	sc.Buffer(make([]byte, 0, 64*1024), 512*1024)
+	for sc.Scan() {
+		line := mask(strings.TrimRight(sc.Text(), "\r"))
+		con.Append(line)
+		m.handleLine(t, rs, line)
+	}
+}
+
+// minMaskLen 凭据短于这个长度就不遮：太短的串在日志里到处都可能碰巧出现，遮了反而看不懂日志。
+const minMaskLen = 6
+
+// credMasker 返回一个函数，把这次启动用的凭据从一行输出里遮掉。
+//
+// frpc 的输出原样进控制台缓冲，带「error」「失败」字样的行还会记成隧道卡片上的报错，局域网登录的设备两处都看得到；
+// 而 OpenFrp、樱花的凭据是放在命令行参数里交给 frpc 的。frpc 会不会在报错里把它回显出来没有验证过，
+// 所以不赌它不会：每一行进缓冲之前先遮掉，后面的控制台、卡片上的报错、事件都跟着干净（2026-11-14 Codex 复审第 6 条）。
+// 除了原样的凭据，也遮它写进 frpc 配置时转义过的样子和放进网址时编码过的样子。
+func credMasker(cred string) func(string) string {
+	cred = strings.TrimSpace(cred)
+	if len(cred) < minMaskLen {
+		return func(s string) string { return s }
+	}
+	forms := []string{cred}
+	for _, f := range []string{tomlEscape(cred), url.QueryEscape(cred), url.PathEscape(cred)} {
+		if !slices.Contains(forms, f) {
+			forms = append(forms, f)
+		}
+	}
+	// 长的先换：免得短的先换掉一截，长的就认不出来了
+	slices.SortFunc(forms, func(a, b string) int { return len(b) - len(a) })
+	return func(s string) string {
+		for _, f := range forms {
+			s = strings.ReplaceAll(s, f, "***")
+		}
+		return s
+	}
+}
 
 // startFrpc 启动 frpc 进程。测试里换掉它，模拟被杀毒软件拦下。
 var startFrpc = func(cmd *exec.Cmd) error { return cmd.Start() }
