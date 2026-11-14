@@ -871,12 +871,15 @@ func TestStagingRechecksFreeSpace(t *testing.T) {
 	if at := findWorldTag(t, e.dir, "B"); len(at) != 0 {
 		t.Errorf("放弃以后不该留下暂存的文件：%v", at)
 	}
-	// 查不到剩余空间的盘不拦，但做计划时要说一声
+	// 查不到剩余空间的盘不拦死，但要用户确认：不带确认不执行
 	low = false
 	diskFree = func(string) (int64, error) { return 0, errors.New("这个盘查不了") }
 	p = e.plan(src)
-	if p.Blocked || !strings.Contains(strings.Join(codes(p.Issues), ","), "disk-unknown") {
-		t.Errorf("查不到剩余空间时不拦、但要提醒：blocked=%v issues=%v", p.Blocked, codes(p.Issues))
+	if p.Blocked || !p.NeedConfirm || !strings.Contains(strings.Join(codes(p.Issues), ","), "disk-unknown") {
+		t.Errorf("查不到剩余空间时不拦死、但要确认：blocked=%v needConfirm=%v issues=%v", p.Blocked, p.NeedConfirm, codes(p.Issues))
+	}
+	if _, err := e.s.Execute(me, ExecReq{PlanID: p.ID, Confirm: "replace"}); err == nil {
+		t.Error("查不到剩余空间时，没带确认不该执行")
 	}
 }
 

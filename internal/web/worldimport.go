@@ -81,7 +81,11 @@ func (s *Server) handleWorldUpload(w http.ResponseWriter, r *http.Request) {
 			// 落盘的名字自己起：上传名是对方给的，只拿来显示和认扩展名
 			name := filepath.Base(part.FileName())
 			dest, err := worldimport.SaveUpload(part, worldUploadLimit, r.ContentLength)
-			part.Close()
+			if err == nil {
+				part.Close()
+			}
+			// 被拒的时候不关这一段：关它会把这一段剩下的内容读完，几个 GB 的上传要读很久才回得了 429、507。
+			// 不读完，连接由服务端在回完以后关掉
 			if err != nil {
 				var big *http.MaxBytesError
 				switch {

@@ -712,7 +712,9 @@ func (m *Manager) pumpOutput(t *Tunnel, rs *runState, con *procutil.Console, out
 	}
 }
 
-// minMaskLen 凭据短于这个长度就不遮：太短的串在日志里到处都可能碰巧出现，遮了反而看不懂日志。
+// minMaskLen 凭据短于这个长度就不遮。两个原因：太短的串在日志里到处都会碰巧出现（凭据是 "1" 的话，
+// 地址、端口、时间里的 1 全被换掉，日志没法看）；而且遮了也藏不住，哪几个字符被换掉了一眼就看得出来。
+// Codex 第二轮复审建议所有非空的凭据都遮，这一条没有照做，理由写在评审记录里，由作者定。
 const minMaskLen = 6
 
 // credMasker 返回一个函数，把这次启动用的凭据从一行输出里遮掉。

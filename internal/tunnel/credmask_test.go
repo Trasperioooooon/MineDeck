@@ -56,7 +56,8 @@ func TestFrpcOutputMasksCredential(t *testing.T) {
 }
 
 func TestCredMasker(t *testing.T) {
-	// 太短的凭据不遮：日志里到处都可能碰巧出现，遮了反而看不懂
+	// 太短的凭据不遮：日志里到处都会碰巧出现，遮了日志没法看，而且哪几个字符被换掉了一眼看得出来，藏不住。
+	// 这是有意的取舍，不是这道边界已经关上了：Codex 第二轮复审建议全遮，没有照做，交作者定
 	short := credMasker("abc")
 	if got := short("abc abcdef"); got != "abc abcdef" {
 		t.Errorf("短凭据不该遮：%q", got)

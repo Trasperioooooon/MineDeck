@@ -257,6 +257,12 @@ func bodyErr(err error) error {
 	return err
 }
 
+// bodyTooLarge 这个错是不是请求体超了上限。
+func bodyTooLarge(err error) bool {
+	var big *http.MaxBytesError
+	return errors.As(err, &big)
+}
+
 func fmtBodyLimit(n int64) string {
 	if n >= 1<<20 {
 		return fmt.Sprintf("%d MB", n>>20)

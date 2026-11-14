@@ -535,9 +535,10 @@ func (s *Service) evaluate(ctx context.Context, r *scanResult, info *candInfo, t
 				Msg: fmt.Sprintf("磁盘空间不够：这张地图要 %s，服务器所在的盘只剩 %s", fmtBytes(p.NeedBytes), fmtBytes(p.FreeBytes))})
 		}
 	} else {
-		// 查不到剩余空间不拦（有的盘就是查不了），但要说一声；开始复制时还会按文件再查
-		p.Issues = append(p.Issues, Issue{Sev: SevWarn, Code: "disk-unknown",
-			Msg: fmt.Sprintf("没能查到服务器所在的盘还剩多少空间。这张地图要 %s，请自己确认放得下", fmtBytes(p.NeedBytes))})
+		// 查不到剩余空间不拦死（有的盘就是查不了），但要用户自己确认放得下才往下做：
+		// 这时候「空间不够就不导入」这道保护实际上没有了，不能只是提一句
+		p.Issues = append(p.Issues, Issue{Sev: SevConfirm, Code: "disk-unknown",
+			Msg: fmt.Sprintf("没能查到服务器所在的盘还剩多少空间。这张地图要 %s，请先自己确认放得下", fmtBytes(p.NeedBytes))})
 	}
 	for _, is := range p.Issues {
 		switch is.Sev {
@@ -1511,8 +1512,9 @@ func (s *Service) Retry(name string) error {
 	if err != nil {
 		return err
 	}
+	defer release() // 恢复的过程中出了意外（panic）也放得掉；放两次只算一次
 	s.recoverInstance(i, true)
-	release()
+	release() // 下面的 WorldBusy 要看的是封锁还在不在，先把自己占的位放掉
 	if why := s.M.WorldBusy(name); why != "" {
 		return errors.New(why)
 	}
