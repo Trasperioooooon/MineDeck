@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -20,6 +21,18 @@ import (
 
 const maxWorldDepth = 6 // level.dat 所在目录最深在来源根下第几层（套壳目录、「地图名/存档/世界」这类）
 
+// 一次检测的工作量上限（2026-11-14 Codex 复审第 1 条）。单个文件早就有上限，合起来以前没有：一个做过手脚的包里放上
+// 成千上万个世界，每个都带一份塞满的 level.dat，检测能把程序拖住很久。做成变量是为了测试能调小。
+var (
+	// maxWorlds 一份来源里最多认多少个世界。选 .minecraft/saves 这样放着很多存档的文件夹是正常用法，所以留得宽；
+	// 超了整份拦下、说清楚，不悄悄截掉一部分。
+	maxWorlds = 256
+	// maxScanNBTBytes、maxScanNBTNodes 一次检测里所有 NBT（各个世界的 level.dat 和共用数据）展开以后合起来最多多少字节、
+	// 多少个值。正常的 level.dat 展开后几十 KB，带大量模组的几 MB；二百多个存档合起来也远到不了这里。
+	maxScanNBTBytes int64 = 1 << 30
+	maxScanNBTNodes int64 = 16_000_000
+)
+
 // the five cross-dimension data files that 26.1 Vanilla keeps in data/minecraft/ and Paper keeps in the overworld folder
 var sharedDataFiles = []string{"game_rules.dat", "scheduled_events.dat", "wandering_trader.dat", "weather.dat", "world_gen_settings.dat"}
 
@@ -32,6 +45,28 @@ type scanResult struct {
 	// 只记下 dropped，等最后一个任务用完再删。
 	pins    int
 	dropped bool
+
+	// 下面几项只在检测的过程中用
+	tooManyWorlds int                    // 世界的个数超过了 maxWorlds 时记下有多少个
+	budget        *nbt.Budget            // 这次检测还能展开多少 NBT
+	kids          map[string]*dirListing // children 的结果按目录记着：每个世界都要看上级目录和来源根，不重复数
+}
+
+type dirListing struct{ files, subdirs []string }
+
+// children 同 source.children，按目录记着结果。
+func (r *scanResult) children(dir string) (files, subdirs []string) {
+	k := winname.Fold(dir)
+	if l := r.kids[k]; l != nil {
+		return l.files, l.subdirs
+	}
+	l := &dirListing{}
+	l.files, l.subdirs = r.src.children(dir)
+	if r.kids == nil {
+		r.kids = map[string]*dirListing{}
+	}
+	r.kids[k] = l
+	return l.files, l.subdirs
 }
 
 // candInfo 一个候选在来源里占了哪些文件。
@@ -170,7 +205,23 @@ func (r *scanResult) classify(ext string) {
 			Msg: "这是 MineDeck 的交接包（整台服务器）。请到「新建服务器」里选「导入交接包」，它会连地图带配置一起导入"})
 		return
 	}
+	r.budget = &nbt.Budget{Bytes: maxScanNBTBytes, Nodes: maxScanNBTNodes}
 	r.findWorlds()
+	if r.tooManyWorlds > 0 {
+		r.Kind = KindUnknown
+		r.Candidates, r.cands = nil, map[string]*candInfo{}
+		r.Issues = append(r.Issues, Issue{Sev: SevBlock, Code: "too-many-worlds",
+			Msg: fmt.Sprintf("这里面的世界太多了（%d 个，最多 %d 个），一次认不过来。请直接选其中一个世界的文件夹（里面有 level.dat 的那一层），或者只把要用的那张地图打成压缩包",
+				r.tooManyWorlds, maxWorlds)})
+		return
+	}
+	if r.budget.Spent() {
+		r.Kind = KindUnknown
+		r.Candidates, r.cands = nil, map[string]*candInfo{}
+		r.Issues = append(r.Issues, Issue{Sev: SevBlock, Code: "too-much-data",
+			Msg: "这里面各个世界的 level.dat 合起来大得不正常，没有认完。请直接选其中一个世界的文件夹（里面有 level.dat 的那一层）"})
+		return
+	}
 	if len(r.Candidates) > 0 {
 		r.Kind = KindJavaWorld
 		good := 0
@@ -227,7 +278,7 @@ func (r *scanResult) findWorlds() {
 	s := r.src
 	var dirs []string
 	have := map[string]bool{}
-	oldOnly := map[string]bool{}
+	oldOnly := map[string]string{} // 只有 level.dat_old 的目录：fold 后的名字 → 原来的写法
 	for _, e := range s.files {
 		base := path.Base(e.fold)
 		if base != "LEVEL.DAT" && base != "LEVEL.DAT_OLD" {
@@ -247,7 +298,7 @@ func (r *scanResult) findWorlds() {
 		k := winname.Fold(d)
 		if base == "LEVEL.DAT_OLD" {
 			if !have[k] {
-				oldOnly[k] = true
+				oldOnly[k] = d
 			}
 			continue
 		}
@@ -262,18 +313,26 @@ func (r *scanResult) findWorlds() {
 			delete(oldOnly, winname.Fold(dirOf(e.rel)))
 		}
 	}
-	// 嵌在别的世界里面的 level.dat 算那个世界的一部分（比如老的维度目录里带的）
+	// 世界太多就到此为止，不往下认：每个世界都要读 level.dat、数文件、找说明书，一个做过手脚的包里放上十万个
+	// 「目录/level.dat」，检测能跑上很久（2026-11-14 Codex 复审第 1 条）。不悄悄截掉一部分：整份拦下，让人选小一点的范围
+	if n := len(dirs) + len(oldOnly); n > maxWorlds {
+		r.tooManyWorlds = n
+		return
+	}
+	// 嵌在别的世界里面的 level.dat 算那个世界的一部分（比如老的维度目录里带的）。
+	// 短的在前，逐个看它的上级目录里有没有已经算作世界的：层数有上限（maxWorldDepth），不用两两比
 	sort.Slice(dirs, func(a, b int) bool { return len(dirs[a]) < len(dirs[b]) })
 	var tops []string
+	isTop := map[string]bool{}
 	for _, d := range dirs {
-		inside := false
-		for _, t := range tops {
-			if t == "" || strings.HasPrefix(winname.Fold(d)+"/", winname.Fold(t)+"/") {
-				inside = true
-				break
-			}
+		k := winname.Fold(d)
+		inside := isTop[""] // 来源的根本身就是世界：别的都在它里面
+		for up := k; !inside && up != ""; {
+			up = dirOf(up)
+			inside = up != "" && isTop[up]
 		}
 		if !inside {
+			isTop[k] = true
 			tops = append(tops, d)
 		}
 	}
@@ -299,11 +358,13 @@ func (r *scanResult) findWorlds() {
 		n++
 		r.addCandidate(fmt.Sprintf("c%d", n), d)
 	}
+	oldKeys := make([]string, 0, len(oldOnly))
 	for k := range oldOnly {
-		d := r.origDir(k)
-		if d == "" && k != "" {
-			continue
-		}
+		oldKeys = append(oldKeys, k)
+	}
+	sort.Strings(oldKeys) // 编号每次检测都一样
+	for _, k := range oldKeys {
+		d := oldOnly[k]
 		n++
 		c := &Candidate{ID: fmt.Sprintf("c%d", n), Root: d, FolderName: folderName(d, r.Source.Name), Layout: LayoutLegacy}
 		c.Issues = append(c.Issues, Issue{Sev: SevBlock, Code: "only-level-dat-old",
@@ -323,17 +384,6 @@ func dirOf(rel string) string {
 		return ""
 	}
 	return d
-}
-
-// origDir 按 fold 后的目录名找回原来的写法。
-func (r *scanResult) origDir(fold string) string {
-	for _, e := range r.src.files {
-		d := dirOf(e.rel)
-		if winname.Fold(d) == fold {
-			return d
-		}
-	}
-	return ""
 }
 
 func folderName(rel, fallback string) string {
@@ -398,6 +448,13 @@ func (r *scanResult) addCandidate(id, d string) {
 	r.cands[id] = info
 }
 
+// nbtLimits 读一个世界的 NBT 用的上限：单个文件的上限照旧，另外从这次检测共用的额度里扣。
+func (r *scanResult) nbtLimits() nbt.Limits {
+	lim := nbt.LevelLimits
+	lim.Budget = r.budget
+	return lim
+}
+
 func (r *scanResult) readLevel(e *entry) (LevelMeta, error) {
 	if e == nil {
 		return LevelMeta{}, fmt.Errorf("没有 level.dat")
@@ -410,7 +467,7 @@ func (r *scanResult) readLevel(e *entry) (LevelMeta, error) {
 		return LevelMeta{}, err
 	}
 	defer rc.Close()
-	_, root, _, err := nbt.Read(rc, nbt.LevelLimits)
+	_, root, _, err := nbt.Read(rc, r.nbtLimits())
 	if err != nil {
 		if errors.Is(err, nbt.ErrNotNBT) && r.bedrockHeader(e) {
 			return LevelMeta{}, fmt.Errorf("这是基岩版的 level.dat")
@@ -431,7 +488,7 @@ func (r *scanResult) readNBT(rel string) nbt.Compound {
 		return nil
 	}
 	defer rc.Close()
-	_, root, _, err := nbt.Read(rc, nbt.LevelLimits)
+	_, root, _, err := nbt.Read(rc, r.nbtLimits())
 	if err != nil {
 		return nil
 	}
@@ -586,7 +643,7 @@ func (r *scanResult) extrasOf(c *Candidate) {
 	}
 	seen := map[string]bool{}
 	for _, dir := range look {
-		files, subdirs := s.children(dir)
+		files, subdirs := r.children(dir) // 上级目录和来源根：每个世界都要看，结果记着
 		for _, f := range files {
 			low := strings.ToLower(f)
 			isText := strings.HasSuffix(low, ".txt") || strings.HasSuffix(low, ".md")
@@ -689,12 +746,21 @@ func (r *scanResult) looksBedrock() bool {
 
 // bedrockHeader level.dat 开头是不是基岩版的 8 字节小端头（存储版本 + 长度），后面紧跟复合标签。
 func (r *scanResult) bedrockHeader(e *entry) bool {
-	b, err := r.src.readSmall(e, 16<<20)
-	if err != nil || len(b) < 9 {
+	// 只读开头 9 个字节，文件一共多大看清单里记的：不必为了数长度把整个文件读进来
+	if e.size < 9 || e.size > 16<<20 {
 		return false
 	}
-	n := int(b[4]) | int(b[5])<<8 | int(b[6])<<16 | int(b[7])<<24
-	return n == len(b)-8 && b[8] == 0x0a
+	rc, err := r.src.open(e)
+	if err != nil {
+		return false
+	}
+	defer rc.Close()
+	var b [9]byte
+	if _, err := io.ReadFull(rc, b[:]); err != nil {
+		return false
+	}
+	n := int64(b[4]) | int64(b[5])<<8 | int64(b[6])<<16 | int64(b[7])<<24
+	return n == e.size-8 && b[8] == 0x0a
 }
 
 func (r *scanResult) looksMdpack() bool {

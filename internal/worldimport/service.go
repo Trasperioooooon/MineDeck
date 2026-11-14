@@ -39,6 +39,9 @@ type Service struct {
 	// 不拦的话别的设备能再发起一次，两边各复制一份，后到的在占位时失败、白复制
 	importing map[string]bool
 
+	// scanSlots 同时在跑的检测的名额（见 maxConcurrentScans）
+	scanSlots chan struct{}
+
 	order versionOrder
 	now   func() time.Time
 	// StopTimeout「停服并导入」等服务器自己退出的最长时间
@@ -71,7 +74,8 @@ type createClaim struct {
 // NewService 建服务，并把「新建服务器时放地图」的钩子挂到实例管理器上。
 func NewService(m *inst.Manager) *Service {
 	s := &Service{M: m, scans: map[string]*scanResult{}, plans: map[string]*Plan{}, cancels: map[string]cancelEntry{},
-		claims: map[string]*createClaim{}, active: map[string]bool{}, importing: map[string]bool{}, order: manifestOrder, now: time.Now, StopTimeout: 2 * time.Minute}
+		claims: map[string]*createClaim{}, active: map[string]bool{}, importing: map[string]bool{},
+		scanSlots: make(chan struct{}, maxConcurrentScans), order: manifestOrder, now: time.Now, StopTimeout: 2 * time.Minute}
 	m.SetWorldPlacer(s.placeForCreate, s.ReleaseCreate)
 	return s
 }
@@ -151,7 +155,13 @@ func (s *Service) ScanUpload(owner, file, display string) (*Scan, error) {
 // UploadDir 局域网上传的地图放在哪。
 func UploadDir() string { return filepath.Join(app.CacheDir, "worldimport", "uploads") }
 
+// maxConcurrentScans 同时最多跑几个检测，多出来的排队等。一次检测要把来源的文件清单读进内存（大的包有几百兆），
+// 不限的话几个大包一起检测会把内存叠上去（2026-11-14 Codex 复审第 1 条）。检测本身有工作量上限，排队等得到头。
+const maxConcurrentScans = 2
+
 func (s *Service) scan(owner, p, display string, uploaded bool) (*Scan, error) {
+	s.scanSlots <- struct{}{}
+	defer func() { <-s.scanSlots }()
 	s.sweep()
 	r, err := scanPath(p, cleanText(display, 120), uploaded)
 	if err != nil {
@@ -160,6 +170,7 @@ func (s *Service) scan(owner, p, display string, uploaded bool) (*Scan, error) {
 	if r.src != nil {
 		r.src.Close() // 只留结果；暂存时重新打开，顺便核对来源有没有变
 	}
+	r.budget, r.kids = nil, nil // 只在检测的过程中用
 	r.ID = newID("s")
 	r.Owner = owner
 	r.CreatedAt = s.now()

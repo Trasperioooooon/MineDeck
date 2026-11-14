@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -61,14 +62,14 @@ type source struct {
 	root  string // 文件夹来源的根（真实路径）；ZIP 来源是文件路径
 	files []entry
 	dirs  map[string]bool // 出现过的目录（fold 后），含所有上级
-	zr    *zip.ReadCloser
-	links []string // 文件夹里遇到的链接、目录联接这类特殊项（相对路径）：不跟进去，导入时拦下
-	bad   []string // 名字在 Windows 上不能原样落盘的项
+	zc    io.Closer       // ZIP 来源底下打开着的文件
+	links []string        // 文件夹里遇到的链接、目录联接这类特殊项（相对路径）：不跟进去，导入时拦下
+	bad   []string        // 名字在 Windows 上不能原样落盘的项
 }
 
 func (s *source) Close() error {
-	if s.zr != nil {
-		return s.zr.Close()
+	if s.zc != nil {
+		return s.zc.Close()
 	}
 	return nil
 }
@@ -336,15 +337,73 @@ func cleanZipName(name string) (rel string, isDir bool, err error) {
 	return n, isDir, nil
 }
 
+// maxZipDirBytes 打开 ZIP 时读文件清单（中央目录）最多读多少字节。
+//
+// Go 的 zip 包打开时会把清单里的每一条都读进内存，一直读到不像清单的地方才停，不看包里自己申报有多少条；
+// 条目数要等它全读完才比得了。一个做过手脚的包可以在清单里塞几千万条，还没轮到比条目数，内存先被吃光
+// （2026-11-14 Codex 复审第 1 条）。所以给打开这一步读的字节数设预算：清单里一条最少 46 字节，64 MiB 最多一百四十万条，
+// 读完以后再照旧比 maxEntries。正常的地图哪怕有几十万个文件，清单也只有十几兆。做成变量是为了测试能调小。
+var maxZipDirBytes int64 = 64 << 20
+
+var errZipDirTooBig = errors.New("压缩包的文件清单太大")
+
+// budgetReaderAt 打开 ZIP 的这段时间里数着读了多少字节，超过预算就报错；打开完成以后放开，读文件内容不受它限制。
+type budgetReaderAt struct {
+	r       io.ReaderAt
+	limited atomic.Bool
+	left    atomic.Int64
+	over    atomic.Bool
+}
+
+func (b *budgetReaderAt) ReadAt(p []byte, off int64) (int, error) {
+	if b.limited.Load() {
+		if b.left.Add(-int64(len(p))) < 0 {
+			b.over.Store(true)
+			return 0, errZipDirTooBig
+		}
+	}
+	return b.r.ReadAt(p, off)
+}
+
+// openZipReader 打开 ZIP、读出文件清单，读清单的字节数不超过 maxZipDirBytes。返回的 Closer 是底下的文件。
+func openZipReader(p string) (*zip.Reader, io.Closer, error) {
+	f, err := os.Open(p)
+	if err != nil {
+		return nil, nil, err
+	}
+	st, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, nil, err
+	}
+	b := &budgetReaderAt{r: f}
+	b.left.Store(maxZipDirBytes)
+	b.limited.Store(true)
+	zr, err := zip.NewReader(b, st.Size())
+	b.limited.Store(false)
+	if b.over.Load() {
+		err = errZipDirTooBig
+	}
+	if err != nil {
+		f.Close()
+		return nil, nil, err
+	}
+	return zr, f, nil
+}
+
 // openZip 读一个 ZIP 的文件清单（只读中央目录，不解压）。条目有一条可疑，整个包都不要。
 func openZip(p string) (*source, error) {
-	zr, err := zip.OpenReader(p)
+	zr, zc, err := openZipReader(p)
+	if errors.Is(err, errZipDirTooBig) {
+		return nil, &sourceErr{Kind: KindUnknown, Code: "too-many",
+			Msg: fmt.Sprintf("压缩包里的文件太多了（文件清单超过 %s），不像一张地图", fmtBytes(maxZipDirBytes))}
+	}
 	if err != nil {
 		return nil, &sourceErr{Kind: KindArchive, Code: "zip-broken", Msg: "这个压缩包打不开，可能下载不完整或者已经损坏", Detail: err.Error()}
 	}
-	s := &source{kind: "zip", root: p, zr: zr}
+	s := &source{kind: "zip", root: p, zc: zc}
 	fail := func(e *sourceErr) (*source, error) {
-		zr.Close()
+		zc.Close()
 		return nil, e
 	}
 	if len(zr.File) > maxEntries {
@@ -391,7 +450,7 @@ func openZip(p string) (*source, error) {
 		s.files = append(s.files, entry{rel: rel, fold: k, size: size, mod: f.Modified, crc: f.CRC32, zf: f})
 	}
 	if err := s.finish(); err != nil {
-		zr.Close()
+		zc.Close()
 		return nil, err
 	}
 	return s, nil
