@@ -7,9 +7,10 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 - 本机：请求头 `X-Token: <token>`（token 在启动 URL 的 `?token=` 参数中，每次启动随机）
 - 局域网模式：`POST /api/login {"password": "..."}` 换取会话 Cookie。请求体上限 4 KB，超了回 413；同一个来源同时只校验一个，全部来源合计最多 8 个，占不到的回 429（「请求太频繁，稍等几秒再试」）；密码错误等 0.7 秒再回 401，这段时间名额一直占着
 - SSE 端点可用查询参数 `?token=` 传递
+- **请求体的大小**：JSON 请求体有字节上限，超了回 413「请求的内容太大了」。大多数接口是 8 MiB（里面最大的是改配置文件）；助手的接口、玩家操作、备份和还原这几个只有短字段的是 1 MiB；登录是 4 KB。上传文件的接口（地图、交接包、整合包、模组）各有各的上限，写在各自的说明里
 - **怎样算本机**：连接来自本机（127.0.0.1 / ::1），**并且**带着这次启动的 token（`X-Token` 或 `?token=`），两样都要。只带会话 Cookie 的请求，即使连接来自本机，也按局域网会话算：经本机 frpc 这类转发程序进来的请求，连接地址同样是本机。所以在本机浏览器里用访问密码登录、没带 token 打开的页面，也只有局域网会话的权限；本机窗口和启动地址里带着 token 的页面不受影响。下文和各接口说明里的「本机」「仅本机」「`local`」都按这条
 - **访问密码等于把这台电脑交给对方**：局域网会话能上传模组 jar、改 JVM 参数、开服，这些都会在主机上以当前 Windows 用户运行代码。「仅本机」挡住的是不用运行代码就能做到的事（弹对话框、指定主机路径、改 AI Key 这类），对一个存心作恶、又知道访问密码的人不是硬边界。访问密码只给信得过、愿意让他用这台电脑的人
-- **隧道不能指向网页端口**：自定义 frps 隧道的本地端口如果是 MineDeck 这次的网页端口（`GET /api/app` 的 `port`），新增、修改返回 400，启动（包括跟随实例启动）也拒绝。樱花、OpenFrp 的本地端口在服务商后台填，MineDeck 看不到，这一条查不了
+- **隧道不能指向网页端口**：自定义 frps 隧道的本地端口如果是 MineDeck 这次的网页端口（`GET /api/app` 的 `port`），新增、修改返回 400，启动（包括跟随实例启动）也拒绝。樱花、OpenFrp 的隧道在 MineDeck 里创建或者导入时，会向平台查它的本地端口，是网页端口就拒绝；之后启动时不会再向平台查一遍，在服务商后台把端口改了 MineDeck 不知道
 - **仅本机（loopback）端点**：`/api/pickdir`、`/api/openpath`、`/api/instances/{name}/opendir` 会调起系统对话框 / 资源管理器，`/api/javas/add` 会执行请求中给出的主机路径（`java -version` 探测），`/api/adopt/scan` 和 `/api/adopt` 要读主机上任意一个文件夹，`/api/import/pending/{taskId}` 要按请求给出的主机路径收文件（或信任后联网下载），均只接受来自本机的请求；局域网会话调用返回 403
 - **主机路径仅本机可指定**：局域网会话不能决定文件写到主机哪里——`POST /api/instances` 与 `POST /api/import/modpack` 的 `root` 会被忽略（实例一律建在默认存放根下）；`PUT /api/config` 只要带了 `serversDir` / `backupsDir`（含置空恢复默认）即整次返回 403、不做任何修改，不带这两个键的其余配置仍可远程修改
 - **AI 设置的修改类接口仅本机**：`/api/ai/*` 里除 `GET /api/ai/settings` 外都只接受本机请求（含 Key 和接口地址）；局域网会话只能看，调用返回 403
@@ -327,11 +328,11 @@ AI 助手用的读写能力，网页也能直接调。人调用时，写操作�
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/api/world/scan` | `{path}`：检测本机的世界文件夹或 ZIP 文件（**仅本机**）。返回 `Scan`：`{id, source{kind,name,uploaded}, kind, candidates[], issues[], files, bytes, createdAt, expiresAt}`。`kind` 是 `java-world`（能导入）、`damaged-world`、`bedrock`、`structure`、`resource-pack`、`datapack`、`modpack`、`server`、`mdpack`、`archive`（RAR、7z、加密、分卷、不支持的压缩方式）、`unknown`；不能导入的在 `issues` 里说清是什么、该去哪。每个候选 `{id, root, group?, folderName, layout, meta, dimensions[], playerFiles, datapacks?, resourcePack, hasIcon, readme?, files, bytes, issues?, sourceHints?}`；`layout` 是 `legacy`、`legacy-bukkit`、`modern`（26.1 起）、`modern-paper`；`meta` 是从 level.dat 只读出来的（版本名、数据版本号、快照、`ServerBrands`、`WasModded`、单人主人的 `Data.Player` / `singleplayer_uuid`、`version_history`、数据包、游戏规则、维度…，缺的字段就是缺）。`issues` 的每一项 `{sev, code, msg, detail?}`，`sev` 是 `block`（不能导入）、`confirm`（要用户明确确认）、`warn`、`info` |
-| POST | `/api/world/upload` | multipart 上传（`file` 字段，上限 8 GiB，超过返回 413）：流式写进 `<缓存目录>\worldimport\uploads\`（文件名由程序起，上传名只用来显示和认扩展名），然后同上返回 `Scan` |
+| POST | `/api/world/upload` | multipart 上传（`file` 字段，上限 8 GiB，超过返回 413；同时最多两个在传，多的返回 429；放缓存的盘剩余空间放不下它再多出 1 GiB 时返回 507，传的过程中掉到 1 GiB 以下也会停）：流式写进 `<缓存目录>\worldimport\uploads\`（文件名由程序起，上传名只用来显示和认扩展名），然后同上返回 `Scan` |
 | POST | `/api/world/readme` | `{scanId, candidate, file}`：读来源里和地图放在一起的说明书，返回 `{text}`（去掉控制字符和格式码、限长；界面按纯文本显示） |
 | POST | `/api/world/plan` | 替换已有服务器：`{scanId, candidate, inst}`；新建服务器：`{scanId, candidate, newInst: true, core, mc}`。不改任何东西，返回 `Plan`：`{id, inst, newInst, core, mc, levelName, relation, layout, moves[], replace[], missing[], settings[], issues[], needBytes, freeBytes, mustStop, blocked, needConfirm, expiresAt}`。`relation` 是地图最后保存的版本和服务器版本的关系：`same`、`older`（第一次启动时游戏升级这份副本）、`newer`（拦下）、`unknown`。`replace` 是会被整体移进恢复点的旧世界目录；`missing` 是地图没提供的维度；`settings` 是建议改的服务器设置 `{key, before, after, why}`（只列目标 `server.properties` 里已有的键，用户勾了才改）。代理端（Velocity、Waterfall）直接报错 |
 | POST | `/api/world/import` | `{planId, confirm: "replace", acknowledge?, settings?: [键], stopFirst?}`：执行替换，返回 `{taskId}`（任务 `kind` 为 `world`）。后端自己核对：`confirm` 必须是 `replace`；计划有 `confirm` 级的项时 `acknowledge` 必须为 true；有 `block` 的计划拒绝；服务器在运行时必须 `stopFirst`（发 `stop`、等进程自己退出，2 分钟没停下就放弃导入、不强杀）。执行前重算来源和目标的指纹，预览以后变过就不换。步骤：复制到暂存区（服务器照常运行，可以取消）→ 停服并占用这台服务器（之后不能启动、删除、备份、还原、打包、改 `server.properties`）→ 把旧世界目录整体移进恢复点、新世界移到位、写勾选的设置 → 完成。中途失败自动退回旧世界；退不回去时什么都不删，这台服务器封锁启动，`world.status` 里给出路径。成功后服务器保持停止。同一台服务器一次只导入一张：前一个导入还没结束（包括还在复制）时拒绝 |
-| POST | `/api/world/cancel` | `{taskId}`：取消还在复制的导入（开始换以后做完或退回再结束）。只有发起这次导入的人能取消 |
+| POST | `/api/world/cancel` | `{taskId}`：取消还在复制的导入。只有发起这次导入的人能取消。返回成功就一定取消得掉，地图不会被换（复制完以后还有一段核对，这期间点的取消同样算数）；已经开始停服、换图以后返回 400「这个任务已经不能取消了」，导入会做完或退回再结束 |
 | POST | `/api/world/discard` | `{scanId}`：放弃检测结果，删掉上传的文件 |
 | GET | `/api/instances/{name}/world` | `{levelName, status, busy?, blocked?, proxy, points[]}`。`busy` 是现在不能动世界的原因：正在复制地图、正在换地图，或者有没处理完的记录。`blocked` 只在启动被封锁（有没走完、卡住或读不出来的记录）时出现，这时「重试恢复」（`/retry`）才有用。`points` 是以前导入留下的记录（新的在前）：`{id, state, created, source, candidate, levelName, hasOld, oldBytes, keptBytes, canReturn, error?, stuck?}`，`state` 是 `committed`、`rolled-back`、`restored`、`stuck` 等，记录文件读不出来或内容对不上时是 `unreadable`（这时服务器保持暂停启动，要人去 `stuck` 里写的文件夹处理）；`stuck` 是要人看的文件夹（只给本机的人看完整路径）。`hasOld` 表示恢复点里有导入前的世界。`canReturn` 只在 `hasOld` 为真、世界名和现在一样、并且是这个世界最近一次导入时为真：导入过几次就只能从最近的一次往前一次次换回 |
 | POST | `/api/instances/{name}/world/restore` | `{id, confirm: "restore"}`：换回这次导入之前的地图（服务器要停着），返回 `{taskId}`。当前的世界（导入的那份，可能已被游戏改写）整体移到这次记录的 `after-restore` 里留着；旧世界搬回原位，导入时改过的设置改回去（之后又被用户改过的不动），旧世界导入时有 level.dat 的再核对它。导入以后 `level-name` 改过的、导入前没有世界的（新建服务器时放的地图）、不是这个世界最近一次导入的，都拒绝 |
@@ -339,6 +340,10 @@ AI 助手用的读写能力，网页也能直接调。人调用时，写操作�
 | POST | `/api/instances/{name}/world/retry` | 卡住的记录再试一次自动恢复（服务器要停着） |
 
 用已有地图新建服务器：先 `/api/world/plan`（`newInst: true`），再把 `worldPlan`（计划编号）和 `worldAck`（确认过要确认的项）放进 `instance.create` 的请求。地图在实例登记之前放进新服务器的 `world`，放不进去整台不建。AI 发起的新建不能带 `worldPlan`。新建请求收下计划以后，这份计划不再过期，也不能给第二个新建请求用；这期间放弃检测（`/api/world/discard`）不会删上传的文件，等新建任务结束再删。新建没能开始（比如重名）或在放地图之前就失败了，计划没过期会放回去，可以直接再用。
+
+检测的上限（超了整份拦下，`issues` 里说明原因，不会只认一部分）：压缩包的文件清单最多 64 MiB（`too-many`），压缩包里各文件申报的大小合计最多 1 TiB（`bad-size`），一份来源里最多 256 个世界（`too-many-worlds`），所有世界的 `level.dat` 合起来展开后最多 1 GiB、一千六百万个值（`too-much-data`）。同时最多跑两个检测，多的排队。程序启动时清空上传目录，之后每半小时清一遍过期的；还有效的检测结果用着的上传文件不会被清。
+
+换地图和别的操作互相排斥：正在换地图（或有没走完的换地图记录）时，备份、打包交接包、删除、保存 `server.properties`、改配置文件都开始不了；反过来，备份、保存设置、改配置文件正在做的时候，换地图、换回、删恢复点占不上位，导入会在停服之前就放弃。有没走完的记录（启动被封锁）时，只有「重试恢复」能动这台服务器的世界，换回更早的恢复点、删恢复点都会被拒绝。导入开始复制之前和复制每个文件之前都会看磁盘剩余空间，放不下（再多留 256 MB）就停，不替换任何文件。
 
 换地图的记录、暂存区和恢复点都在实例目录的 `.minedeck/world-import/<编号>/`（`journal.json`、`new/`、`old/`、`after-restore/`）。`.minedeck/` 是控制目录，交接包和整合包带了不收、导出也不带。MineDeck 启动时，加载实例就先按记录封锁没走完的那台的启动，处理完（提交到一半的退回旧世界）才放开。
 
