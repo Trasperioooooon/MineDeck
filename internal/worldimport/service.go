@@ -1512,9 +1512,12 @@ func (s *Service) Retry(name string) error {
 	if err != nil {
 		return err
 	}
-	defer release() // 恢复的过程中出了意外（panic）也放得掉；放两次只算一次
-	s.recoverInstance(i, true)
-	release() // 下面的 WorldBusy 要看的是封锁还在不在，先把自己占的位放掉
+	// 占的位只包住恢复这一步，中途出了意外（panic）也放得掉。下面的 WorldBusy 要看的是封锁还在不在，
+	// 所以必须在查之前放掉，不能拖到函数返回
+	func() {
+		defer release()
+		s.recoverInstance(i, true)
+	}()
 	if why := s.M.WorldBusy(name); why != "" {
 		return errors.New(why)
 	}

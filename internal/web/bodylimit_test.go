@@ -2,8 +2,12 @@ package web
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"minedeck/internal/app"
 )
 
 // JSON 请求体有字节上限（2026-11-14 Codex 复审第 3 条）：以前不限，字段长度要等整个请求体解析完才查。
@@ -50,6 +54,28 @@ func TestJSONBodyIsCapped(t *testing.T) {
 	tooLarge("POST", "/api/instances/生存服/backups", pad(int(maxSmallBody)))
 	tooLarge("POST", "/api/instances/生存服/backups/restore", pad(int(maxSmallBody)))
 	tooLarge("POST", "/api/instances/生存服/resources/install", pad(int(maxSmallBody)))
+	// 创建备份：只有空的请求体算「没带备注」；写坏了的 JSON 是 400，同样不去备份
+	backups := func() int {
+		t.Helper()
+		var n int
+		_ = filepath.WalkDir(app.BackupsDir, func(_ string, d os.DirEntry, err error) error {
+			if err == nil && !d.IsDir() {
+				n++
+			}
+			return nil
+		})
+		return n
+	}
+	before := backups()
+	e.call(t, "POST", "/api/instances/生存服/backups", `{"label":`, http.StatusBadRequest)
+	e.call(t, "POST", "/api/instances/生存服/backups", `不是 JSON`, http.StatusBadRequest)
+	if after := backups(); after != before {
+		t.Errorf("超限的、写坏的创建备份请求都不该真的去备份：之前 %d 个文件，之后 %d 个", before, after)
+	}
+	e.call(t, "POST", "/api/instances/生存服/backups", ``, http.StatusOK)
+	if after := backups(); after != before+1 {
+		t.Errorf("空请求体照常创建备份：之前 %d 个文件，之后 %d 个", before, after)
+	}
 	// 没超限、只是没带文件名的，照旧是原来那句话
 	if rec := e.call(t, "POST", "/api/instances/生存服/backups/restore", `{}`, http.StatusBadRequest); !strings.Contains(rec.Body.String(), "缺少备份文件名") {
 		t.Errorf("没带文件名应当照旧说缺少备份文件名：%s", rec.Body)
