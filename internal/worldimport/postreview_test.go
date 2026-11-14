@@ -3,6 +3,7 @@ package worldimport
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -1346,4 +1347,150 @@ func TestUndoRestoreOtherFailures(t *testing.T) {
 		unlock()
 		recoverAndCheck(t, dir, j.ID, map[string]string{"difficulty": "hard"})
 	})
+}
+
+// ---------- 第二轮阻挡项 5：检测里剩下的没有上限的工作量；排队和两个世界之间能响应取消 ----------
+
+// 世界旁边有成千上万个服务端文件：并列的东西只列十二项，说明书只列五份，而且一个目录只认一遍，
+// 不是每个世界把它从头过一遍、逐个线性查重、全收完才截。
+func TestSiblingHintsAreCollectedOncePerFolder(t *testing.T) {
+	files := map[string]string{}
+	for i := 0; i < 40; i++ {
+		files[fmt.Sprintf("saves/w%02d/level.dat", i)] = rawNBT(8)
+	}
+	for i := 0; i < 5000; i++ {
+		files[fmt.Sprintf("saves/lib-%05d.jar", i)] = ""
+		files[fmt.Sprintf("plugin-%05d.jar", i)] = ""
+	}
+	for i := 0; i < 20; i++ {
+		files[fmt.Sprintf("saves/readme-%02d.txt", i)] = "hi"
+	}
+	files["mods/a.jar"] = ""
+	r := scanOf(t, mkZip(t, files))
+	if len(r.Candidates) != 40 {
+		t.Fatalf("应当认出 40 个世界：%d（%s）", len(r.Candidates), issueCodes(r.Issues))
+	}
+	for _, c := range r.Candidates {
+		if len(c.SourceHints) != maxSourceHints || len(c.Readme) != maxReadmes {
+			t.Fatalf("%s：并列的东西应当正好 %d 项、说明书 %d 份，得到 %d、%d", c.Root, maxSourceHints, maxReadmes, len(c.SourceHints), len(c.Readme))
+		}
+		// 先是世界所在目录里的（按名字排），和以前「全收完再截前十二项」的结果一样
+		if c.SourceHints[0] != "saves/lib-00000.jar" || c.SourceHints[11] != "saves/lib-00011.jar" || c.Readme[0] != "saves/readme-00.txt" {
+			t.Fatalf("%s：列出来的应当是世界所在目录里排在最前面的那些：%v %v", c.Root, c.SourceHints, c.Readme)
+		}
+	}
+	if len(r.hints) != 2 { // 世界所在的目录 saves，和来源的根
+		t.Errorf("四十个世界共用两个目录，应当只认两遍，实际认了 %d 个目录", len(r.hints))
+	}
+	// 世界就在来源根下面时，根里的模组文件夹这类照常列出来
+	r = scanOf(t, mkZip(t, map[string]string{"w/level.dat": rawNBT(8), "mods/a.jar": "", "server.jar": "", "说明.txt": "x"}))
+	if c := r.Candidates[0]; strings.Join(c.SourceHints, ",") != "server.jar,mods/" || strings.Join(c.Readme, ",") != "说明.txt" {
+		t.Errorf("根目录里并列的东西和说明书：%v %v", c.SourceHints, c.Readme)
+	}
+}
+
+// 没找到世界、要探测它是不是整合包时，读文件有次数和字节的额度：一个包里放上几百个像清单的文件，不会每个都读一遍。
+func TestProbeBudgetWhenNoWorldFound(t *testing.T) {
+	junk := strings.Repeat("x", 64<<10)
+	files := map[string]string{"zz/manifest.json": `{"minecraft":{},"manifestType":"minecraftModpack"}`}
+	for i := 0; i < 200; i++ {
+		files[fmt.Sprintf("d%03d/manifest.json", i)] = junk
+	}
+	p := mkZip(t, files)
+	r := scanOf(t, p)
+	if r.probeReads != maxProbeReads {
+		t.Errorf("探测应当正好读 %d 个文件就停，实际读了 %d 个（%d 字节）", maxProbeReads, r.probeReads, r.probeBytes)
+	}
+	if r.Kind != KindUnknown || len(r.Candidates) != 0 {
+		t.Errorf("额度用完没认出来的，按没认出是什么算：kind=%s", r.Kind)
+	}
+	// 额度够的时候认得出最后那一份
+	oldN, oldB := maxProbeReads, maxProbeBytes
+	t.Cleanup(func() { maxProbeReads, maxProbeBytes = oldN, oldB })
+	maxProbeReads, maxProbeBytes = 1000, 1<<30
+	if r := scanOf(t, p); r.Kind != KindModpack {
+		t.Errorf("额度放开以后应当认出是整合包：kind=%s", r.Kind)
+	}
+	// 字节的额度同理：放不下的那份不读，合起来读的不超过额度（后面有放得下的小文件还是会读，所以这里只看总量）
+	maxProbeReads, maxProbeBytes = 1000, 200<<10
+	if r := scanOf(t, p); r.probeBytes > 200<<10 || r.probeReads > 4 {
+		t.Errorf("合起来读的不该超过字节额度：读了 %d 个、%d 字节", r.probeReads, r.probeBytes)
+	}
+}
+
+// flipCtx 第 n 次被问「取消了吗」的时候开始回答取消了。
+type flipCtx struct {
+	context.Context
+	at, asked int
+}
+
+func (c *flipCtx) Err() error {
+	c.asked++
+	if c.asked >= c.at {
+		return context.Canceled
+	}
+	return nil
+}
+
+// 检测到一半请求取消了：在两个世界之间停下，不把剩下的认完；没出结果的检测，上传的文件当场删掉。
+// 正在排队等名额的，请求取消了就不再等。
+func TestScanStopsWhenRequestIsCancelled(t *testing.T) {
+	e := newEnv(t, "")
+	files := map[string]string{}
+	for i := 0; i < 50; i++ {
+		files[fmt.Sprintf("saves/w%02d/level.dat", i)] = rawNBT(8)
+	}
+	body, err := os.ReadFile(mkZip(t, files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	upload := func() string {
+		t.Helper()
+		dest, err := SaveUpload(bytes.NewReader(body), 8<<20, int64(len(body)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return dest
+	}
+
+	// 认到第三个世界的时候取消
+	ctx := &flipCtx{Context: context.Background(), at: 4}
+	dest := upload()
+	if _, err := e.s.ScanUploadCtx(ctx, me, dest, "maps.zip"); err == nil || !strings.Contains(err.Error(), "检测已取消") {
+		t.Fatalf("请求取消以后检测应当停下：%v", err)
+	}
+	if ctx.asked > 8 {
+		t.Errorf("取消以后不该把剩下的四十多个世界认完：一共问了 %d 次", ctx.asked)
+	}
+	if exists(dest) {
+		t.Error("没出结果的检测，上传的文件应当当场删掉")
+	}
+	if len(e.s.scanSlots) != 0 {
+		t.Error("检测停下以后名额应当还回去")
+	}
+
+	// 两个名额都被占着，请求在排队的时候取消：不再等
+	for i := 0; i < cap(e.s.scanSlots); i++ {
+		e.s.scanSlots <- struct{}{}
+	}
+	cctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	dest = upload()
+	_, err = e.s.ScanUploadCtx(cctx, me, dest, "maps.zip")
+	for i := 0; i < cap(e.s.scanSlots); i++ {
+		<-e.s.scanSlots
+	}
+	if err == nil || !strings.Contains(err.Error(), "检测已取消") {
+		t.Errorf("排队的时候请求取消了应当不再等：%v", err)
+	}
+	if exists(dest) {
+		t.Error("排队时取消的，上传的文件也该删掉")
+	}
+
+	// 没取消的照常；被拦下的结果（不是报错）文件留着，等放弃的时候删
+	dest = upload()
+	sc, err := e.s.ScanUploadCtx(context.Background(), me, dest, "maps.zip")
+	if err != nil || len(sc.Candidates) != 50 || !exists(dest) {
+		t.Errorf("正常的检测：%v，文件还在=%v", err, exists(dest))
+	}
 }

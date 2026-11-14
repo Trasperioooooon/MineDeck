@@ -2,6 +2,7 @@ package worldimport
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,6 +32,17 @@ var (
 	// 多少个值。正常的 level.dat 展开后几十 KB，带大量模组的几 MB；二百多个存档合起来也远到不了这里。
 	maxScanNBTBytes int64 = 1 << 30
 	maxScanNBTNodes int64 = 16_000_000
+	// maxProbeReads、maxProbeBytes 没找到世界、要看看它是不是别的东西（整合包这类）时，一次检测里为了探测
+	// 最多读几个文件、合起来最多读多少字节。以前每个像清单的文件都读一遍、每份最多 8 MiB，个数没有上限
+	// （2026-11-14 Codex 第二轮复审阻挡项 5）。正常的包里这样的文件只有一两个。
+	maxProbeReads       = 8
+	maxProbeBytes int64 = 16 << 20
+)
+
+// 说明书和「和地图并列、不会导入的东西」最多各列几项。
+const (
+	maxReadmes     = 5
+	maxSourceHints = 12
 )
 
 // the five cross-dimension data files that 26.1 Vanilla keeps in data/minecraft/ and Paper keeps in the overworld folder
@@ -50,6 +62,83 @@ type scanResult struct {
 	tooManyWorlds int                    // 世界的个数超过了 maxWorlds 时记下有多少个
 	budget        *nbt.Budget            // 这次检测还能展开多少 NBT
 	kids          map[string]*dirListing // children 的结果按目录记着：每个世界都要看上级目录和来源根，不重复数
+	hints         map[string]*dirHints   // 一个目录里的说明书和并列的东西，同上，按目录只认一遍
+	probeReads    int                    // 为了探测已经读了几个文件、多少字节（见 maxProbeReads）
+	probeBytes    int64
+	ctx           context.Context // 发起检测的请求；它取消了（页面关了、连接断了）就不再往下认
+	cancelled     bool
+}
+
+// stop 检测是不是该停了（请求已经取消）。只在两个世界之间、几种探测之间看：正卡在读盘上的那一下打断不了。
+func (r *scanResult) stop() bool {
+	if r.ctx != nil && r.ctx.Err() != nil {
+		r.cancelled = true
+	}
+	return r.cancelled
+}
+
+// probe 探测时读来源里的一个小文件，从这次检测的探测额度里扣。额度用完、文件太大、读不了都返回 nil。
+func (r *scanResult) probe(e *entry, max int64) []byte {
+	if r.probeReads >= maxProbeReads || e.size > max || e.size > maxProbeBytes-r.probeBytes {
+		return nil
+	}
+	r.probeReads++
+	r.probeBytes += e.size
+	b, err := r.src.readSmall(e, max)
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
+// dirHints 一个目录里（不含子目录里面）像说明书的文本文件，和并列着的服务端文件、模组文件夹这类。
+type dirHints struct{ readme, hints []string }
+
+// hintsOf 认一个目录的说明书和并列的东西，按目录记着：一个来源里的每个世界都要看它的上级目录和来源根，
+// 以前是每个世界把那个目录的文件从头过一遍，提示还是逐个线性查重、全收完才截成十二项。
+func (r *scanResult) hintsOf(dir string) *dirHints {
+	k := winname.Fold(dir)
+	if h := r.hints[k]; h != nil {
+		return h
+	}
+	h := &dirHints{}
+	seen := map[string]bool{}
+	add := func(v string) {
+		if k := strings.ToLower(v); len(h.hints) < maxSourceHints && !seen[k] {
+			seen[k] = true
+			h.hints = append(h.hints, v)
+		}
+	}
+	files, subdirs := r.children(dir)
+	for _, f := range files {
+		if len(h.readme) >= maxReadmes && len(h.hints) >= maxSourceHints {
+			break // 两样都收满了：后面有再多文件也不用看
+		}
+		low := strings.ToLower(f)
+		isText := strings.HasSuffix(low, ".txt") || strings.HasSuffix(low, ".md")
+		if isText && len(h.readme) < maxReadmes && (strings.Contains(low, "readme") || strings.Contains(low, "read me") || strings.Contains(f, "说明") ||
+			strings.Contains(f, "必读") || strings.Contains(low, "info") || strings.Contains(low, "instruction") || len(files) <= 6) {
+			rel := join(dir, f)
+			if e := r.src.find(rel); e != nil && e.size <= 256<<10 {
+				h.readme = append(h.readme, rel)
+			}
+		}
+		if strings.HasSuffix(low, ".jar") || low == "start.bat" || low == "run.bat" || low == "start.sh" || low == "run.sh" ||
+			low == "server.properties" || low == "eula.txt" || strings.HasSuffix(low, ".zip") && low != "resources.zip" {
+			add(join(dir, f))
+		}
+	}
+	for _, sd := range subdirs {
+		switch strings.ToLower(sd) {
+		case "mods", "plugins", "config", "resourcepacks", "shaderpacks", "libraries", "defaultconfigs", "kubejs", "scripts":
+			add(join(dir, sd) + "/")
+		}
+	}
+	if r.hints == nil {
+		r.hints = map[string]*dirHints{}
+	}
+	r.hints[k] = h
+	return h
 }
 
 type dirListing struct{ files, subdirs []string }
@@ -79,11 +168,17 @@ type candInfo struct {
 
 // scanPath 识别 p（文件夹或文件）。返回的 scanResult 里 src 还开着，调用方负责 Close。
 func scanPath(p, display string, uploaded bool) (*scanResult, error) {
+	return scanPathCtx(context.Background(), p, display, uploaded)
+}
+
+// scanPathCtx 同 scanPath。ctx 取消以后在两个世界之间、几种探测之间停下，返回 ctx 的错误
+// （正卡在读盘上的那一下打断不了，所以不是「随时能取消」）。
+func scanPathCtx(ctx context.Context, p, display string, uploaded bool) (*scanResult, error) {
 	st, err := os.Stat(p)
 	if err != nil {
 		return nil, err
 	}
-	r := &scanResult{cands: map[string]*candInfo{}}
+	r := &scanResult{cands: map[string]*candInfo{}, ctx: ctx}
 	r.Source = SourceRef{Path: p, Name: display, Uploaded: uploaded}
 	if st.IsDir() {
 		r.Source.Kind = "folder"
@@ -125,7 +220,15 @@ func scanPath(p, display string, uploaded bool) (*scanResult, error) {
 		r.Bytes += e.size
 	}
 	r.Fingerprint = fingerprint(r.src.files)
+	if r.stop() {
+		r.src.Close()
+		return nil, ctx.Err()
+	}
 	r.classify(strings.ToLower(filepath.Ext(display)))
+	if r.stop() {
+		r.src.Close()
+		return nil, ctx.Err()
+	}
 	return r, nil
 }
 
@@ -354,6 +457,9 @@ func (r *scanResult) findWorlds() {
 	for _, d := range tops {
 		if _, isMember := member[winname.Fold(d)]; isMember {
 			continue
+		}
+		if r.stop() { // 请求已经取消：不再往下认
+			return
 		}
 		n++
 		r.addCandidate(fmt.Sprintf("c%d", n), d)
@@ -636,49 +742,27 @@ func (r *scanResult) extrasOf(c *Candidate) {
 	sort.Strings(c.Datapacks)
 	c.ResourcePak = s.find(join(d, "resources.zip")) != nil
 	c.HasIcon = s.find(join(d, "icon.png")) != nil
-	// 说明书：世界所在目录和来源根上的文本文件
+	// 说明书、和地图并列的东西：世界所在的目录和来源根各认一遍（按目录记着，见 hintsOf），这里只是合起来
 	look := []string{dirOf(d)}
 	if dirOf(d) != "" {
 		look = append(look, "")
 	}
-	seen := map[string]bool{}
+	seenR, seenH := map[string]bool{}, map[string]bool{}
 	for _, dir := range look {
-		files, subdirs := r.children(dir) // 上级目录和来源根：每个世界都要看，结果记着
-		for _, f := range files {
-			low := strings.ToLower(f)
-			isText := strings.HasSuffix(low, ".txt") || strings.HasSuffix(low, ".md")
-			if isText && (strings.Contains(low, "readme") || strings.Contains(low, "read me") || strings.Contains(f, "说明") ||
-				strings.Contains(f, "必读") || strings.Contains(low, "info") || strings.Contains(low, "instruction") || len(files) <= 6) {
-				rel := join(dir, f)
-				if e := s.find(rel); e != nil && e.size <= 256<<10 && !seen[e.fold] && len(c.Readme) < 5 {
-					seen[e.fold] = true
-					c.Readme = append(c.Readme, rel)
-				}
-			}
-			if strings.HasSuffix(low, ".jar") || low == "start.bat" || low == "run.bat" || low == "start.sh" || low == "run.sh" ||
-				low == "server.properties" || low == "eula.txt" || strings.HasSuffix(low, ".zip") && low != "resources.zip" {
-				c.SourceHints = appendUniq(c.SourceHints, join(dir, f))
+		h := r.hintsOf(dir)
+		for _, rel := range h.readme {
+			if k := winname.Fold(rel); len(c.Readme) < maxReadmes && !seenR[k] {
+				seenR[k] = true
+				c.Readme = append(c.Readme, rel)
 			}
 		}
-		for _, sd := range subdirs {
-			switch strings.ToLower(sd) {
-			case "mods", "plugins", "config", "resourcepacks", "shaderpacks", "libraries", "defaultconfigs", "kubejs", "scripts":
-				c.SourceHints = appendUniq(c.SourceHints, join(dir, sd)+"/")
+		for _, v := range h.hints {
+			if k := strings.ToLower(v); len(c.SourceHints) < maxSourceHints && !seenH[k] {
+				seenH[k] = true
+				c.SourceHints = append(c.SourceHints, v)
 			}
 		}
 	}
-	if len(c.SourceHints) > 12 {
-		c.SourceHints = c.SourceHints[:12]
-	}
-}
-
-func appendUniq(s []string, v string) []string {
-	for _, x := range s {
-		if strings.EqualFold(x, v) {
-			return s
-		}
-	}
-	return append(s, v)
 }
 
 // checkCandidate 只看地图自己就能下的结论（和目标服务器无关的）。
@@ -768,8 +852,8 @@ func (r *scanResult) looksMdpack() bool {
 	if e == nil || !r.src.isDir("instance") {
 		return false
 	}
-	b, err := r.src.readSmall(e, 4<<20)
-	if err != nil {
+	b := r.probe(e, 4<<20)
+	if b == nil {
 		return false
 	}
 	var m struct {
@@ -788,7 +872,7 @@ func (r *scanResult) looksModpack() bool {
 		case "MODRINTH.INDEX.JSON", "MMC-PACK.JSON", "INSTANCE.CFG":
 			return true
 		case "MANIFEST.JSON":
-			if b, err := r.src.readSmall(&e, 8<<20); err == nil && bytes.Contains(b, []byte(`"minecraft"`)) && bytes.Contains(b, []byte(`"manifestType"`)) {
+			if b := r.probe(&e, 8<<20); b != nil && bytes.Contains(b, []byte(`"minecraft"`)) && bytes.Contains(b, []byte(`"manifestType"`)) {
 				return true
 			}
 		}

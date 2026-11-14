@@ -31,14 +31,14 @@ func (c *cat) worldOps() {
 		LocalMsg: "选本机的地图文件夹只能在这台电脑上操作；在别的设备上请上传地图的 ZIP 压缩包",
 		Desc:     "读本机的一个世界文件夹（或 ZIP 文件），认出里面的地图，返回候选和检查结果。",
 		Params:   ops.Object(map[string]*ops.Schema{"path": ops.String("本机的文件夹或 ZIP 文件路径")}, "path"),
-		Run: func(_ context.Context, cl ops.Caller, a ops.Args) (any, error) {
+		Run: func(ctx context.Context, cl ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[struct {
 				Path string `json:"path"`
 			}](a)
 			if err != nil {
 				return nil, err
 			}
-			return w.ScanPath(owner(cl), p.Path)
+			return w.ScanPathCtx(ctx, owner(cl), p.Path)
 		},
 	})
 
@@ -49,7 +49,7 @@ func (c *cat) worldOps() {
 			"file": ops.String("上传后在缓存目录里的文件"),
 			"name": ops.String("上传时的文件名（只用来显示和认扩展名）"),
 		}, "file"),
-		Run: func(_ context.Context, cl ops.Caller, a ops.Args) (any, error) {
+		Run: func(ctx context.Context, cl ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[struct {
 				File string `json:"file"`
 				Name string `json:"name"`
@@ -60,7 +60,7 @@ func (c *cat) worldOps() {
 			if _, err := os.Stat(p.File); err != nil {
 				return nil, ops.Errorf(404, "上传的文件不在了，请重新上传")
 			}
-			return w.ScanUpload(owner(cl), p.File, p.Name)
+			return w.ScanUploadCtx(ctx, owner(cl), p.File, p.Name)
 		},
 	})
 

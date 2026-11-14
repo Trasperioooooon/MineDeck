@@ -137,19 +137,30 @@ func newID(prefix string) string {
 
 // ScanPath 扫描本机路径（文件夹或文件）。只给本机的人用：调用方负责确认。
 func (s *Service) ScanPath(owner, p string) (*Scan, error) {
+	return s.ScanPathCtx(context.Background(), owner, p)
+}
+
+// ScanPathCtx 同 ScanPath。ctx 是发起检测的请求：它取消了（页面关了、连接断了），排队等名额的不再等，
+// 正在检测的在两个世界之间停下。
+func (s *Service) ScanPathCtx(ctx context.Context, owner, p string) (*Scan, error) {
 	p = filepath.Clean(strings.TrimSpace(p))
 	if !filepath.IsAbs(p) {
 		return nil, fmt.Errorf("请选一个完整的路径")
 	}
-	return s.scan(owner, p, filepath.Base(p), false)
+	return s.scan(ctx, owner, p, filepath.Base(p), false)
 }
 
 // ScanUpload 扫描已经上传到缓存目录的文件（display 是上传时的文件名，只用来显示和认扩展名）。
 func (s *Service) ScanUpload(owner, file, display string) (*Scan, error) {
+	return s.ScanUploadCtx(context.Background(), owner, file, display)
+}
+
+// ScanUploadCtx 同 ScanUpload，ctx 的意思同 ScanPathCtx。检测没出结果（报错、被取消）时，上传的那个文件当场删掉。
+func (s *Service) ScanUploadCtx(ctx context.Context, owner, file, display string) (*Scan, error) {
 	if filepath.Dir(filepath.Clean(file)) != UploadDir() {
 		return nil, fmt.Errorf("文件不在上传文件夹里")
 	}
-	return s.scan(owner, file, display, true)
+	return s.scan(ctx, owner, file, display, true)
 }
 
 // UploadDir 局域网上传的地图放在哪。
@@ -159,18 +170,31 @@ func UploadDir() string { return filepath.Join(app.CacheDir, "worldimport", "upl
 // 不限的话几个大包一起检测会把内存叠上去（2026-11-14 Codex 复审第 1 条）。检测本身有工作量上限，排队等得到头。
 const maxConcurrentScans = 2
 
-func (s *Service) scan(owner, p, display string, uploaded bool) (*Scan, error) {
-	s.scanSlots <- struct{}{}
-	defer func() { <-s.scanSlots }()
+func (s *Service) scan(ctx context.Context, owner, p, display string, uploaded bool) (sc *Scan, err error) {
+	// 没出结果的检测不会进缓存，它上传的文件就没人认领了：当场删掉，不等定时清理
+	defer func() {
+		if err != nil && uploaded {
+			_ = os.Remove(p)
+		}
+	}()
+	select {
+	case s.scanSlots <- struct{}{}:
+		defer func() { <-s.scanSlots }()
+	case <-ctx.Done(): // 还在排队，请求就取消了
+		return nil, fmt.Errorf("检测已取消")
+	}
 	s.sweep()
-	r, err := scanPath(p, cleanText(display, 120), uploaded)
+	r, err := scanPathCtx(ctx, p, cleanText(display, 120), uploaded)
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, fmt.Errorf("检测已取消")
+		}
 		return nil, err
 	}
 	if r.src != nil {
 		r.src.Close() // 只留结果；暂存时重新打开，顺便核对来源有没有变
 	}
-	r.budget, r.kids = nil, nil // 只在检测的过程中用
+	r.budget, r.kids, r.hints, r.ctx = nil, nil, nil, nil // 只在检测的过程中用
 	r.ID = newID("s")
 	r.Owner = owner
 	r.CreatedAt = s.now()
