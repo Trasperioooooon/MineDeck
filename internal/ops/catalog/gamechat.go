@@ -321,6 +321,13 @@ func (c *cat) gameChatOps() {
 					return nil, ops.Errorf(400, "「%s」加不进白名单：玩家名只能是 1–16 位字母、数字、下划线", n)
 				}
 			}
+			// 换地图也会改 server.properties，不能穿插进来。一开头就登记，登记不上（正在换地图）就什么都不做：
+			// 放在加完玩家以后再登记的话，登记不上时会留下「人加了、白名单没开」的半截结果
+			release, err := c.Mgr.UseWorld(p.Inst, "保存设置")
+			if err != nil {
+				return nil, err
+			}
+			defer release()
 			pl, err := c.Mgr.GetPlayers(p.Inst)
 			if err != nil {
 				return nil, err
@@ -339,16 +346,11 @@ func (c *cat) gameChatOps() {
 				listed[strings.ToLower(n)] = true
 			}
 			// 先改 server.properties 再发 whitelist on：服务器执行 whitelist on 时自己也会写这个文件，先后错开，不会两边同时写
-			release, err := c.Mgr.UseWorld(p.Inst, "保存设置") // 换地图也会改这个文件，不能穿插进来
-			if err != nil {
-				return nil, err
-			}
 			props, err := inst.LoadProps(i.PropsPath())
 			if err == nil {
 				props.Set("white-list", "true")
 				err = props.Save(i.PropsPath())
 			}
-			release()
 			if err != nil {
 				return nil, ops.Wrap(500, errors.New("改 server.properties 失败："+err.Error()))
 			}
