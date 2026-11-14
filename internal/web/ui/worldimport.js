@@ -262,10 +262,14 @@ window.MDWorldImport = (() => {
       const g = bySev(s.issues);
       const main = g.block.length ? g.block : [...g.confirm, ...g.warn, ...g.info];
       const rest = g.block.length ? [...g.confirm, ...g.warn, ...g.info] : [];
+      // 像世界、但一张都不能用的时候（只有 level.dat_old、level.dat 坏了），具体原因和怎么办写在候选自己的 issues 里，
+      // 顶层是空的：一起摆出来，不然只剩一句「缺了关键文件」
+      const why = (s.candidates || []).map(c => ({ name: candName(c), block: bySev(c.issues).block })).filter(x => x.block.length);
       root.innerHTML = `
         <div class="wi-reject">
           <div class="err-box" id="wi-reject"><b>${esc(KIND_TITLE[s.kind] || KIND_TITLE.unknown)}，不能当地图导入。</b>
-            ${main.length ? issueList(main) : ""}</div>
+            ${main.length ? issueList(main) : ""}
+            ${why.map(x => (why.length > 1 ? `<div class="hint">「${esc(x.name)}」</div>` : "") + issueList(x.block)).join("")}</div>
           <div class="hint">来源：<span>${esc((s.source && s.source.name) || "")}</span></div>
           ${rest.length ? `<div class="wi-sec"><h3>另外注意到</h3>${issueList(rest, "muted")}</div>` : ""}
           <div class="row wi-row"><button type="button" class="btn" id="wi-again">${icon("arrowLeft")} 换一个来源</button></div>

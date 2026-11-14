@@ -4825,6 +4825,20 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await wReset(); }
   });
 
+  await run("地图导入：像世界但一张都不能用的（只有 level.dat_old），拒绝页把候选里写的具体原因和怎么办摆出来", async () => {
+    await wReset();
+    try {
+      await wOpenFlow(PACK);
+      const t0 = reqs.length;
+      await wScan("D:\\Maps\\damaged-world"); await page.waitForSelector("#wi-reject");
+      const rej = await page.$eval("#wi-reject", el => el.textContent.replace(/\s+/g, " "));
+      // 后端把这类原因写在候选自己的 issues 里，顶层是空的：以前拒绝页只画顶层，只剩一句「缺了关键文件」
+      assert(rej.includes("这份世界缺了关键文件，不能当地图导入") && rej.includes("只有备份用的 level.dat_old") && rej.includes("改名成 level.dat"),
+        "拒绝页应带上候选里写的原因和怎么办：" + rej);
+      assert(!(await page.$("#wi-go")) && wPosts(t0, "/api/world/plan") === 0, "不能导入的不该有导入键，也不该去做计划");
+    } finally { await wReset(); }
+  });
+
   await run("地图导入：地图名和说明书是别人写的，只当文字显示——夹着的 HTML 不变成标签，网址不变成链接，确认框里也一样", async () => {
     await wReset();
     try {

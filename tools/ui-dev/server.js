@@ -1600,6 +1600,7 @@ const SNAPS = ["26.3-snapshot-2", "26.3-snapshot-1", "26.2-rc1"];
 // 来源是按名字装样子的（本机路径的最后一段，或者上传的文件名），不分大小写：
 //   带 bedrock 或以 .mcworld 结尾 → 基岩版；.rar / .7z → 读不了的压缩包；带 schem → 建筑蓝图；带 resource → 资源包；
 //   带 modpack 或以 .mrpack 结尾 → 整合包；带 missing → 找不到这个文件夹（这几种都不能导入，只给原因）；
+//   带 damaged → 只有 level.dat_old 的世界（不能导入，原因写在候选的 issues 里、顶层没有）；
 //   带 multi → 一个来源里三张地图（其中一张 level.dat 读不出来）；带 newer → 26.2 保存的地图（比多数服务器新，计划里被拦下）；
 //   带 1193 → 1.19.3 保存的（版本列表里没有这个版本）；带 forge → 用过 Forge 模组的世界；带 plain → 1.20.1 的纯原版世界，没有说明书和资源包；
 //   带 xss → 地图名和说明书里夹着一段 HTML（看界面是不是只当文字）；其余 → 「天空之城」，1.19.4 保存的冒险地图
@@ -1675,6 +1676,12 @@ function worldScan(state, name, uploaded) {
   else if (/resource/.test(n)) reject("resource-pack", "resource-pack", "这是资源包（材质包），不是地图。资源包由每个玩家自己安装，或者在服务器设置里填资源包地址", "pack.mcmeta + assets/");
   else if (/modpack|\.mrpack$/.test(n)) reject("modpack", "modpack", "这是整合包，不是单独的地图。请用「新建服务器 → 导入整合包」", "modrinth.index.json");
   else if (/missing/.test(n)) reject("unknown", "not-found", "找不到这个文件夹", "CreateFile " + name + ": The system cannot find the file specified.");
+  else if (/damaged/.test(n)) {
+    // 像世界、但一张都不能用：顶层没有 issues，原因写在候选自己的 issues 里（同后端）
+    scan.kind = "damaged-world";
+    scan.candidates = [worldCand("c1", { folderName: "OldSave", layout: "legacy", meta: { hasVersion: false, versionName: "" },
+      issues: [{ sev: "block", code: "only-level-dat-old", msg: "这个世界只有备份用的 level.dat_old，没有 level.dat。可以先把 level.dat_old 复制一份改名成 level.dat，确认能在单人游戏里打开，再来导入" }] })];
+  }
   else if (/multi/.test(n)) {
     scan.issues.push({ sev: "info", code: "multi", msg: "这个来源里有 3 张地图，选一张导入" });
     scan.candidates = [
