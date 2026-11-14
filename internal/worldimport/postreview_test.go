@@ -17,6 +17,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"minedeck/internal/atomicfile"
 	"minedeck/internal/inst"
 	wt "minedeck/internal/worldimport/worldtest"
 )
@@ -1060,4 +1061,319 @@ func TestImportGivesUpWhileBackupIsRunning(t *testing.T) {
 		t.Errorf("换地图的时候不该登记得上：%v", err)
 	}
 	release()
+}
+
+// ---------- 第二轮阻挡项 2：「看不了就停下」按类补全 ----------
+
+// accessDenied 让 present（经 statFn）看不了名字以 suffix 结尾的路径，别的照常。返回恢复的函数。
+func blindTo(t *testing.T, suffix string) (restore func()) {
+	t.Helper()
+	suffix = strings.ToLower(filepath.FromSlash(suffix))
+	statFn = func(p string) (os.FileInfo, error) {
+		if strings.HasSuffix(strings.ToLower(filepath.Clean(p)), suffix) {
+			return nil, &os.PathError{Op: "lstat", Path: p, Err: errors.New("Access is denied.")}
+		}
+		return os.Lstat(p)
+	}
+	restore = func() { statFn = os.Lstat }
+	t.Cleanup(restore)
+	return restore
+}
+
+// 复制完以后搬哪些目录，从「要复制的文件清单」推出来，再逐个确认真的在：看不了、少了、多了都报错。
+func TestStagedDirsComeFromTheCopyList(t *testing.T) {
+	stage := t.TempDir()
+	write(t, stage, map[string]string{"world/level.dat": "L", "world_nether/DIM-1/region/r.mca": "n"})
+	files := []stagedFile{{to: "world/level.dat"}, {to: "world_nether/DIM-1/region/r.mca"}}
+	got, err := stagedDirs(stage, "world", files)
+	if err != nil || strings.Join(got, ",") != "world,world_nether" {
+		t.Fatalf("应当是 world、world_nether：%v %v", got, err)
+	}
+	// 维度目录一时看不了：报错，不是悄悄不搬它
+	restore := blindTo(t, "/world_nether")
+	if _, err := stagedDirs(stage, "world", files); err == nil || !strings.Contains(err.Error(), "看不了") {
+		t.Errorf("看不了维度目录时应当报错：%v", err)
+	}
+	restore()
+	// 该有的不在
+	if err := os.RemoveAll(filepath.Join(stage, "world_nether")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stagedDirs(stage, "world", files); err == nil || !strings.Contains(err.Error(), "少了「world_nether」") {
+		t.Errorf("该有的目录不在应当报错：%v", err)
+	}
+	// 不该有的在
+	write(t, stage, map[string]string{"world_nether/x": "n", "world_the_end/DIM1/r.mca": "e"})
+	if _, err := stagedDirs(stage, "world", files); err == nil || !strings.Contains(err.Error(), "多出了「world_the_end」") {
+		t.Errorf("多出来的目录应当报错：%v", err)
+	}
+	// 要复制的文件不在任何一个世界目录下面：它复制了也不会被搬进去
+	if _, err := stagedDirs(stage, "world", append(files, stagedFile{to: "worldx/a"})); err == nil || !strings.Contains(err.Error(), "不在任何一个世界文件夹下面") {
+		t.Errorf("落在世界目录外面的文件应当报错：%v", err)
+	}
+	// 世界名带子目录、大小写不同也认
+	stage2 := t.TempDir()
+	write(t, stage2, map[string]string{"worlds/Main/level.dat": "L"})
+	if got, err := stagedDirs(stage2, "worlds/main", []stagedFile{{to: "worlds/main/level.dat"}}); err != nil || len(got) != 1 {
+		t.Errorf("带子目录的世界名：%v %v", got, err)
+	}
+}
+
+// 目标是 Paper 这类把下界、末地放在旁边两个文件夹里的服务器：复制完以后下界那个文件夹正好看不了。
+// 以前它被当成「没有」，不进搬入的清单，主世界照样换上去、核对也通过，下界悄悄没装。现在整次导入放弃。
+func TestImportStopsWhenStagedDimensionCannotBeSeen(t *testing.T) {
+	e := newEnv(t, "")
+	i, err := e.m.Get("生存服")
+	if err != nil {
+		t.Fatal(err)
+	}
+	i.Core = "paper"
+	// 来源是旧 Bukkit 布局的三个文件夹（原版布局的地图导进 Paper 时不拆，由 Paper 第一次启动自己搬）
+	src := filepath.Join(e.tmp, "bukkit-src")
+	if err := wt.LegacyBukkit(src, "MapWorld", wt.WorldOpts{Level: lv("1.20.4", 3700), Tag: "B", Overworld: true, Nether: true, End: true}); err != nil {
+		t.Fatal(err)
+	}
+	p := e.plan(src)
+	if p.Blocked {
+		t.Fatalf("准备阶段：计划不该被拦：%v", codes(p.Issues))
+	}
+	sawNether := false
+	stagedHook = func() {
+		// 复制完的那一刻，暂存区里确实有下界的文件夹；从这时起它看不了
+		sawNether = len(findDirs(e.dir, "world_nether")) > 0
+		blindTo(t, "/"+stageSub+"/world_nether")
+	}
+	t.Cleanup(func() { stagedHook = nil })
+	id, err := e.s.Execute(me, ExecReq{PlanID: p.ID, Confirm: "replace", Acknowledge: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, msg := e.wait(id)
+	statFn = os.Lstat
+	if !sawNether {
+		t.Fatal("测试自己没摆对：这个目标应当把下界暂存成单独的 world_nether 文件夹")
+	}
+	if !strings.Contains(msg, "看不了") || !strings.Contains(msg, "没有替换任何文件") {
+		t.Errorf("下界的暂存目录看不了时，导入应当放弃：result=%q err=%q", res, msg)
+	}
+	if got := e.marker("world/region/r.0.0.mca"); got != "MARK:minecraft:overworld:OLD" {
+		t.Errorf("放弃以后原来的世界不该动：%s", got)
+	}
+	if at := findWorldTag(t, e.dir, "B"); len(at) != 0 {
+		t.Errorf("放弃以后暂存的那份应当清掉：%v", at)
+	}
+}
+
+// findDirs root 下面名字是 name 的文件夹。
+func findDirs(root, name string) []string {
+	var out []string
+	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err == nil && d.IsDir() && d.Name() == name {
+			out = append(out, p)
+		}
+		return nil
+	})
+	return out
+}
+
+// 读不了 server.properties 时，不能把世界名默认成 world 接着往下做：做计划、换回都停下。
+func TestUnreadablePropsStopsInsteadOfDefaultingToWorld(t *testing.T) {
+	e := newEnv(t, "")
+	first := e.importFolder("B")
+	props := filepath.Join(e.dir, "server.properties")
+	if name, err := inst.LevelNameStrict(e.dir); err != nil || name != "world" {
+		t.Fatalf("准备阶段：%q %v", name, err)
+	}
+	// 没有这个文件：就是默认的 world，不算错
+	if name, err := inst.LevelNameStrict(t.TempDir()); err != nil || name != "world" {
+		t.Errorf("没有 server.properties 时应当是 world：%q %v", name, err)
+	}
+	unlock := lockFileExclusive(t, props)
+	if _, err := inst.LevelNameStrict(e.dir); err == nil {
+		t.Error("读不了时应当报错")
+	}
+	if inst.LevelName(e.dir) != "world" {
+		t.Error("只拿来显示的读法照旧给默认值")
+	}
+	if name, ok := inst.CheckLevelName(e.dir); ok {
+		t.Errorf("读不了的 server.properties 不该算通过：%q", name)
+	}
+	if _, _, err := e.s.targetOf("生存服"); err == nil || !strings.Contains(err.Error(), "server.properties") {
+		t.Errorf("读不了时不该定得出目标：%v", err)
+	}
+	if _, err := e.s.Restore("生存服", first, "restore"); err == nil || !strings.Contains(err.Error(), "server.properties") {
+		t.Errorf("读不了时不该换得回：%v", err)
+	}
+	if _, err := e.m.CreateBackup("生存服", "x"); err == nil || !strings.Contains(err.Error(), "server.properties") {
+		t.Errorf("读不了时不该备份（备份哪些文件夹是按世界名定的）：%v", err)
+	}
+	unlock()
+	if err := e.restore(first); err != nil {
+		t.Fatalf("放开以后照常能换回：%v", err)
+	}
+}
+
+// 清理暂存区之前的判断：看不了暂存的世界在不在，就留着不删（以前当成不在、照删）。
+func TestStageIsKeptWhenItCannotBeSeen(t *testing.T) {
+	dir, j := setup(t)
+	stage := filepath.Join(txAbs(dir, j.ID), stageSub)
+	if !stageIsOurs(stage, j) {
+		t.Fatal("准备阶段：暂存区里就是这次导入的那一份")
+	}
+	restore := blindTo(t, "/"+stageSub+"/world")
+	if stageIsOurs(stage, j) {
+		t.Error("看不了的时候不能算是自己的那一份（那样会删）")
+	}
+	restore()
+	// level.dat 读不了：同样不算
+	unlock := lockFileExclusive(t, filepath.Join(stage, "world", "level.dat"))
+	if stageIsOurs(stage, j) {
+		t.Error("level.dat 读不了的时候不能算是自己的那一份")
+	}
+	unlock()
+	// 暂存区里没有世界：只剩空壳，可以清
+	if err := os.RemoveAll(filepath.Join(stage, "world")); err != nil {
+		t.Fatal(err)
+	}
+	if !stageIsOurs(stage, j) {
+		t.Error("暂存的世界确实不在时可以清")
+	}
+}
+
+// ---------- 撤销换回的另外三种失败（Codex 第二轮点名要补的） ----------
+
+// lockFileNoWrite 像别的程序开着一个文件那样：别人还能读它，但改不了、换不掉。返回放开的函数。
+func lockFileNoWrite(t *testing.T, path string) (unlock func()) {
+	t.Helper()
+	p, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := windows.CreateFile(p, windows.GENERIC_READ, windows.FILE_SHARE_READ, nil, windows.OPEN_EXISTING, 0, 0)
+	if err != nil {
+		t.Fatalf("没能打开 %s：%v", path, err)
+	}
+	var once sync.Once
+	unlock = func() { once.Do(func() { windows.CloseHandle(h) }) }
+	t.Cleanup(unlock)
+	return unlock
+}
+
+func TestUndoRestoreOtherFailures(t *testing.T) {
+	propOf := func(dir, key string) string {
+		b, err := os.ReadFile(filepath.Join(dir, "server.properties"))
+		if err != nil {
+			return "<读不了>"
+		}
+		return inst.JavaProps(b)[key]
+	}
+	// 走到「世界已经换回去、设置也已经改回去、最后核对出错」，由 atVerify 决定这时候造出哪种失败
+	failRestore := func(t *testing.T, props map[string]string, atVerify func(dir string, j *Journal)) (string, *Journal, bool, error) {
+		t.Helper()
+		dir, j := setup(t)
+		if stuck, err := commitTx(dir, j, props); err != nil || stuck {
+			t.Fatalf("commit: %v stuck=%v", err, stuck)
+		}
+		j2, err := loadJournal(dir, j.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		faultHook = func(point string) error {
+			if point == "restore-verify" {
+				atVerify(dir, j2)
+				return errors.New("模拟：核对出错")
+			}
+			return nil
+		}
+		t.Cleanup(func() { faultHook = nil; atomicfile.Hook = nil })
+		stuck, err := restoreTx(dir, j2)
+		faultHook, atomicfile.Hook = nil, nil
+		return dir, j2, stuck, err
+	}
+	// 放开以后重新从盘上读记录、再恢复：必须回到「导入的地图在位、设置是导入时的值」
+	recoverAndCheck := func(t *testing.T, dir, id string, want map[string]string) {
+		t.Helper()
+		j, err := loadJournal(dir, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if j.State == TxCommitted {
+			t.Fatal("盘上的记录不该已经是「已提交」")
+		}
+		if err := recoverTx(dir, j); err != nil || j.State != TxCommitted {
+			t.Fatalf("放开以后重试应当恢复完成：err=%v state=%s", err, j.State)
+		}
+		if got := read(t, filepath.Join(dir, "world", "level.dat")); got != "NEW" {
+			t.Errorf("恢复完成以后原位应当是导入的地图：%q", got)
+		}
+		for k, v := range want {
+			if got := propOf(dir, k); got != v {
+				t.Errorf("恢复完成以后 %s 应当是 %s：%s", k, v, got)
+			}
+		}
+		if inst.PendingWorldTx(dir) != "" {
+			t.Error("恢复完成以后不该再封锁")
+		}
+	}
+
+	t.Run("读得了、写不进", func(t *testing.T) {
+		var unlock func()
+		dir, j, stuck, err := failRestore(t, map[string]string{"difficulty": "hard"}, func(dir string, _ *Journal) {
+			unlock = lockFileNoWrite(t, filepath.Join(dir, "server.properties"))
+		})
+		if err == nil || !stuck || j.State != TxStuck || !strings.Contains(j.Err, "服务器设置") {
+			t.Fatalf("设置写不进去时应当卡住：err=%v stuck=%v state=%s（%s）", err, stuck, j.State, j.Err)
+		}
+		if propOf(dir, "difficulty") != "easy" {
+			t.Fatalf("这时候难度应当还停在 easy：%s", propOf(dir, "difficulty"))
+		}
+		unlock()
+		recoverAndCheck(t, dir, j.ID, map[string]string{"difficulty": "hard"})
+	})
+
+	t.Run("两项设置只改回一项", func(t *testing.T) {
+		var unlock func()
+		dir, j, stuck, err := failRestore(t, map[string]string{"difficulty": "hard", "gamemode": "creative"}, func(dir string, _ *Journal) {
+			n := 0
+			atomicfile.Hook = func(path string) {
+				if n++; n == 2 && unlock == nil { // 第一项存进去了，存第二项的时候文件被别的程序开着
+					unlock = lockFileNoWrite(t, path)
+				}
+			}
+		})
+		if err == nil || !stuck || j.State != TxStuck {
+			t.Fatalf("第二项写不进去时应当卡住：err=%v stuck=%v state=%s", err, stuck, j.State)
+		}
+		done := 0
+		if propOf(dir, "difficulty") == "hard" {
+			done++
+		}
+		if propOf(dir, "gamemode") == "creative" {
+			done++
+		}
+		if done != 1 {
+			t.Fatalf("这时候应当正好只有一项改回了导入时的值：difficulty=%s gamemode=%s", propOf(dir, "difficulty"), propOf(dir, "gamemode"))
+		}
+		unlock()
+		recoverAndCheck(t, dir, j.ID, map[string]string{"difficulty": "hard", "gamemode": "creative"})
+	})
+
+	t.Run("最后一次存记录失败", func(t *testing.T) {
+		var unlock func()
+		dir, j, stuck, err := failRestore(t, map[string]string{"difficulty": "hard"}, func(dir string, j *Journal) {
+			atomicfile.Hook = func(string) { // 设置正在改回去的时候，记录文件被别的程序开着：设置改得成，记录存不下
+				if unlock == nil {
+					unlock = lockFileNoWrite(t, journalPath(dir, j.ID))
+				}
+			}
+		})
+		if err == nil || !stuck {
+			t.Fatalf("记录存不下时不能算恢复完成：err=%v stuck=%v", err, stuck)
+		}
+		if why := inst.PendingWorldTx(dir); why == "" {
+			t.Error("盘上的记录还写着没走完，应当封锁启动")
+		}
+		unlock()
+		recoverAndCheck(t, dir, j.ID, map[string]string{"difficulty": "hard"})
+	})
 }

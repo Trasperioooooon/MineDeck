@@ -207,6 +207,46 @@ func copyEntry(ctx context.Context, src *source, e *entry, dst string, buf []byt
 	return nil
 }
 
+// stagedDirs 复制完以后，暂存区里要搬进服务器的世界目录（主目录，以及旧 Bukkit 布局的 _nether、_the_end）。
+//
+// 搬哪些不能看暂存区里「现在有什么」：以前是逐个 exists，某个维度目录一时看不了就被当成没有，不进搬入的清单，
+// 而旧的那个维度照样被移走，主世界的核对又通过，结果是悄悄少装一个维度（2026-11-14 Codex 第二轮复审阻挡项 2）。
+// 现在从「要复制的文件清单」推出该有哪些目录，再逐个确认它们真的在：
+//   - 每个要复制的文件都必须落在某个世界目录下面，不然它复制了也不会被搬进去；
+//   - 该有的目录看不了、或者不在，都报错；不该有的目录在，也报错。
+func stagedDirs(stageRoot, level string, files []stagedFile) ([]string, error) {
+	names := worldDirNames(level)
+	want := map[string]bool{}
+	for _, f := range files {
+		to := strings.ToLower(filepath.ToSlash(f.to))
+		hit := false
+		for _, n := range names {
+			if ln := strings.ToLower(n); to == ln || strings.HasPrefix(to, ln+"/") {
+				want[n], hit = true, true
+				break
+			}
+		}
+		if !hit {
+			return nil, fmt.Errorf("要复制的「%s」不在任何一个世界文件夹下面，没有替换任何文件", f.to)
+		}
+	}
+	var out []string
+	for _, n := range names {
+		there, err := present(filepath.Join(stageRoot, filepath.FromSlash(n)))
+		switch {
+		case err != nil:
+			return nil, fmt.Errorf("%w，没有替换任何文件", err)
+		case want[n] && !there:
+			return nil, fmt.Errorf("暂存区里少了「%s」，没有替换任何文件", n)
+		case !want[n] && there:
+			return nil, fmt.Errorf("暂存区里多出了「%s」，没有替换任何文件", n)
+		case there:
+			out = append(out, n)
+		}
+	}
+	return out, nil
+}
+
 type ctxReader struct {
 	ctx context.Context
 	r   io.Reader

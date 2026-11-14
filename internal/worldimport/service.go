@@ -341,9 +341,20 @@ func (s *Service) targetOf(name string) (*Target, *inst.Instance, error) {
 	if mcsrc.KindOf(i.Core) == mcsrc.KindProxy {
 		return nil, nil, fmt.Errorf("「%s」是代理端（Velocity / Waterfall），它本身没有世界，不能导入地图。请把地图导入到它后面的游戏服务器", name)
 	}
-	t := &Target{Inst: name, Dir: i.Dir, Core: i.Core, MC: i.MC, LevelName: inst.LevelName(i.Dir), Props: map[string]string{}, launch: i.LaunchTarget}
-	if b, err := os.ReadFile(i.PropsPath()); err == nil {
+	// 世界名和设置都按「看不了就停下」读：读不了 server.properties 时不能默认成 world，
+	// 自定义了世界名的服务器会被导进错的文件夹
+	level, err := inst.LevelNameStrict(i.Dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	t := &Target{Inst: name, Dir: i.Dir, Core: i.Core, MC: i.MC, LevelName: level, Props: map[string]string{}, launch: i.LaunchTarget}
+	b, err := os.ReadFile(i.PropsPath())
+	switch {
+	case err == nil:
 		t.Props = inst.JavaProps(b)
+	case errors.Is(err, fs.ErrNotExist):
+	default:
+		return nil, nil, fmt.Errorf("读不了这台服务器的 server.properties：%w", err)
 	}
 	t.jarWV = jarWorldVersion(i.Dir, i.LaunchTarget)
 	return t, i, nil
@@ -449,7 +460,13 @@ func (s *Service) evaluate(ctx context.Context, r *scanResult, info *candInfo, t
 	// 目标的旧世界：level-name 的主目录和 _nether、_the_end，有哪个移哪个
 	if t.Dir != "" {
 		for _, n := range worldDirNames(t.LevelName) {
-			if exists(filepath.Join(t.Dir, filepath.FromSlash(n))) {
+			there, err := present(filepath.Join(t.Dir, filepath.FromSlash(n)))
+			if err != nil { // 预览里写的「会替换哪些」不能是猜的
+				p.Issues = append(p.Issues, Issue{Sev: SevBlock, Code: "world-unreadable",
+					Msg: "看不了这台服务器的世界文件夹「" + n + "」在不在，现在不能导入。可能有别的程序占着它", Detail: noPath(err)})
+				continue
+			}
+			if there {
 				p.Replace = append(p.Replace, n)
 			}
 		}
@@ -851,12 +868,19 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 	if after, err := rescan(src, info); err != nil || fingerprint(after) != info.fp {
 		return abandon(fmt.Errorf("来源在复制期间变了，没有替换任何文件。请先关掉正在使用这张地图的程序，再重新检测"))
 	}
-	j.NewLevelSHA = fileSHA(filepath.Join(stageRoot, filepath.FromSlash(tg.LevelName), "level.dat"))
-	j.NewBytes = dirBytes(stageRoot)
-	for _, n := range worldDirNames(tg.LevelName) {
-		if exists(filepath.Join(stageRoot, filepath.FromSlash(n))) {
-			j.NewIn = append(j.NewIn, Step{From: txRel(id) + "/" + stageSub + "/" + n, To: n})
-		}
+	// 暂存好的这一份：哈希、大小、要搬进去的目录，哪一样读不出来都放弃，不带着猜的数往下走
+	if j.NewLevelSHA, err = fileSHAStrict(filepath.Join(stageRoot, filepath.FromSlash(tg.LevelName), "level.dat")); err != nil {
+		return abandon(fmt.Errorf("%w，没有替换任何文件", err))
+	}
+	if j.NewBytes, err = dirBytesStrict(stageRoot); err != nil {
+		return abandon(fmt.Errorf("数不清暂存区的大小，没有替换任何文件：%w", err))
+	}
+	dirs, err := stagedDirs(stageRoot, tg.LevelName, files)
+	if err != nil {
+		return abandon(err)
+	}
+	for _, n := range dirs {
+		j.NewIn = append(j.NewIn, Step{From: txRel(id) + "/" + stageSub + "/" + n, To: n})
 	}
 	j.State = TxStaged
 	if err := saveJournal(tg.Dir, j); err != nil {
@@ -914,7 +938,10 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 		}
 		j.OldOut = append(j.OldOut, Step{From: n, To: txRel(id) + "/" + oldSub + "/" + n})
 	}
-	j.OldLevelSHA = fileSHA(filepath.Join(tg.Dir, filepath.FromSlash(tg.LevelName), "level.dat"))
+	// 旧世界没有 level.dat 是正常的（记成空串、之后不核对）；有却读不了，就不能当成没有
+	if j.OldLevelSHA, err = fileSHAStrict(filepath.Join(tg.Dir, filepath.FromSlash(tg.LevelName), "level.dat")); err != nil {
+		return abandon(fmt.Errorf("%w，没有替换任何文件", err))
+	}
 	for _, s := range j.OldOut {
 		j.OldBytes += dirBytes(filepath.Join(tg.Dir, filepath.FromSlash(s.From)))
 	}
@@ -1076,7 +1103,10 @@ func (s *Service) placeForCreate(ctx context.Context, t *tasks.Task, owner, plan
 	if err != nil {
 		return err
 	}
-	level := inst.LevelName(dir)
+	level, err := inst.LevelNameStrict(dir)
+	if err != nil {
+		return err
+	}
 	mp, _ := planMapping(info.c, coreFamily(mcsrc.Core(p.Core)), mustModern(ctx, s.order, p.MC), level)
 	files, _, err := resolveMoves(info, mp)
 	if err != nil {
@@ -1095,14 +1125,25 @@ func (s *Service) placeForCreate(ctx context.Context, t *tasks.Task, owner, plan
 	if after, err := rescan(src, info); err != nil || fingerprint(after) != info.fp {
 		return fmt.Errorf("地图来源在复制期间变了。请先关掉正在使用这张地图的程序，再重新检测")
 	}
-	j.NewLevelSHA = fileSHA(filepath.Join(stageRoot, filepath.FromSlash(level), "level.dat"))
-	for _, n := range worldDirNames(level) {
-		if exists(filepath.Join(stageRoot, filepath.FromSlash(n))) {
-			if exists(filepath.Join(dir, filepath.FromSlash(n))) {
-				return fmt.Errorf("新服务器的文件夹里已经有「%s」了", n)
-			}
-			j.NewIn = append(j.NewIn, Step{From: txRel(id) + "/" + stageSub + "/" + n, To: n})
+	if j.NewLevelSHA, err = fileSHAStrict(filepath.Join(stageRoot, filepath.FromSlash(level), "level.dat")); err != nil {
+		return err
+	}
+	if j.NewBytes, err = dirBytesStrict(stageRoot); err != nil {
+		return fmt.Errorf("数不清暂存区的大小：%w", err)
+	}
+	dirs, err := stagedDirs(stageRoot, level, files)
+	if err != nil {
+		return err
+	}
+	for _, n := range dirs {
+		there, err := present(filepath.Join(dir, filepath.FromSlash(n)))
+		if err != nil {
+			return err
 		}
+		if there {
+			return fmt.Errorf("新服务器的文件夹里已经有「%s」了", n)
+		}
+		j.NewIn = append(j.NewIn, Step{From: txRel(id) + "/" + stageSub + "/" + n, To: n})
 	}
 	if _, err := commitTx(dir, j, nil); err != nil {
 		return err
@@ -1303,7 +1344,11 @@ func restorable(dir string, j *Journal) error {
 	if len(j.OldOut) == 0 {
 		return fmt.Errorf("这次导入之前服务器还没有世界，没有可以换回的旧地图")
 	}
-	if cur := inst.LevelName(dir); !strings.EqualFold(cur, j.LevelName) {
+	cur, err := inst.LevelNameStrict(dir)
+	if err != nil {
+		return fmt.Errorf("现在不能换回：%w", err)
+	}
+	if !strings.EqualFold(cur, j.LevelName) {
 		return fmt.Errorf("导入以后 level-name 改过了（现在是 %s，导入时是 %s），没法自动换回。先把 level-name 改回去", cur, j.LevelName)
 	}
 	js, bad := listJournals(dir)

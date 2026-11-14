@@ -473,11 +473,7 @@ func rollbackTx(dir string, j *Journal) error {
 	// 删之前核对它确实是这次导入的那份：level.dat 和暂存时记下的一样，总大小也一样。对不上就说明退回时从原位
 	// 搬回暂存区的不是这次的新地图，而是别的世界（比如中途被别的操作换上去的），那可能是唯一的一份：留着不删
 	stage := filepath.Join(txAbs(dir, j.ID), stageSub)
-	staged := filepath.Join(stage, filepath.FromSlash(j.LevelName))
-	ours := !exists(staged) ||
-		(j.NewLevelSHA == "" || fileSHA(filepath.Join(staged, "level.dat")) == j.NewLevelSHA) &&
-			(j.NewBytes == 0 || dirBytes(stage) == j.NewBytes)
-	if ours {
+	if stageIsOurs(stage, j) {
 		_ = os.RemoveAll(stage)
 	} else {
 		j.Err = strings.TrimSpace(j.Err + "；暂存区里的世界不是这次导入的那一份，没有删，留在 " + txRel(j.ID) + "/" + stageSub)
@@ -485,6 +481,30 @@ func rollbackTx(dir string, j *Journal) error {
 	}
 	cleanupEmpty(filepath.Join(txAbs(dir, j.ID), oldSub))
 	return nil
+}
+
+// stageIsOurs 暂存区里放的是不是这次导入暂存的那一份（是才可以删）。任何一样看不清、对不上都算不是：
+// 这个判断直接决定删不删，拿不准就留着。
+func stageIsOurs(stage string, j *Journal) bool {
+	staged := filepath.Join(stage, filepath.FromSlash(j.LevelName))
+	there, err := present(staged)
+	if err != nil {
+		return false // 看不了暂存的世界在不在：以前这里当成不在、照删
+	}
+	if !there {
+		return true // 暂存区里没有世界（意外丢了，或者本来就没搬回来）：剩下的只是空壳
+	}
+	if j.NewLevelSHA != "" {
+		if got, err := fileSHAStrict(filepath.Join(staged, "level.dat")); err != nil || got != j.NewLevelSHA {
+			return false
+		}
+	}
+	if j.NewBytes != 0 {
+		if n, err := dirBytesStrict(stage); err != nil || n != j.NewBytes {
+			return false
+		}
+	}
+	return true
 }
 
 // markStuck 退不回去：什么都不删，记下要人看的路径，返回原来的错误。
@@ -693,6 +713,44 @@ func fileSHA(p string) string {
 		return ""
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// fileSHAStrict 同 fileSHA，但分得清「没有这个文件」（返回空串、不算错）和「读失败」（返回错误）。
+// fileSHA 把两种都记成空串，而空串在别处的意思是「这一项不用核对」：新地图的 level.dat 读失败时，
+// 换上去以后的核对就被悄悄跳过了。要拿哈希去做决定的地方用这个。
+func fileSHAStrict(p string) (string, error) {
+	f, err := os.Open(p)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("读不了「%s」：%w", filepath.Base(p), err)
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", fmt.Errorf("读不了「%s」：%w", filepath.Base(p), err)
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// dirBytesStrict 同 dirBytes，但走到一半出错就返回错误，不把数到一半的数当成总大小。
+func dirBytesStrict(root string) (int64, error) {
+	var n int64
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.Type().IsRegular() {
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			n += info.Size()
+		}
+		return nil
+	})
+	return n, err
 }
 
 // cleanupEmpty 删掉 root 下面只剩空文件夹的部分（有文件就不动）。

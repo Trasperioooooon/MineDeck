@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -73,6 +74,29 @@ func (i *Instance) worldDirs() []string {
 	return out
 }
 
+// worldDirsStrict 同 worldDirs，但读不了 server.properties、看不了某个世界目录在不在时返回错误，不当成「没有」。
+// 备份和还原用它：还原会按这份清单删旧世界再解压，清单错了删掉的就不是该删的，没删掉的又会和备份里的混在一起。
+func (i *Instance) worldDirsStrict() ([]string, error) {
+	level, err := LevelNameStrict(i.Dir)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, d := range []string{level, level + "_nether", level + "_the_end"} {
+		st, err := os.Stat(filepath.Join(i.Dir, d))
+		switch {
+		case err == nil:
+			if st.IsDir() {
+				out = append(out, d)
+			}
+		case errors.Is(err, fs.ErrNotExist):
+		default:
+			return nil, fmt.Errorf("看不了世界文件夹「%s」在不在：%w", d, err)
+		}
+	}
+	return out, nil
+}
+
 // ListBackups 列出实例在全部已知备份根下的备份（新在前）；同名文件只列一份（当前根优先）。
 func (m *Manager) ListBackups(name string) ([]BackupInfo, error) {
 	if _, err := m.Get(name); err != nil {
@@ -131,7 +155,10 @@ func (m *Manager) createBackup(name, label, spare string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	worlds := i.worldDirs()
+	worlds, err := i.worldDirsStrict()
+	if err != nil {
+		return "", err
+	}
 	if len(worlds) == 0 {
 		return "", fmt.Errorf("还没有世界存档。服务器可能还没启动过。")
 	}
@@ -189,12 +216,17 @@ func (m *Manager) RestoreBackup(name, file string) error {
 		return err
 	}
 	src := copies[0]
-	if len(i.worldDirs()) > 0 {
+	// 先按「看不了就停下」的读法定下现在的世界目录：这份清单决定下面删哪些文件夹
+	worlds, err := i.worldDirsStrict()
+	if err != nil {
+		return fmt.Errorf("没有还原，什么都没动：%w", err)
+	}
+	if len(worlds) > 0 {
 		if _, err := m.createBackup(name, "还原前自动", filepath.Base(src)); err != nil {
 			return fmt.Errorf("还原前自动备份失败，已中止: %w", err)
 		}
 	}
-	for _, d := range i.worldDirs() {
+	for _, d := range worlds {
 		if err := os.RemoveAll(filepath.Join(i.Dir, d)); err != nil {
 			return fmt.Errorf("清理旧世界失败: %w", err)
 		}
