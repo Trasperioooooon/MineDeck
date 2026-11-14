@@ -1018,3 +1018,46 @@ func TestUploadCleanupFollowsScanLifetime(t *testing.T) {
 		t.Error("启动时应当清空上传目录")
 	}
 }
+
+// ---------- 合并复审第 2 条：有备份在跑的时候，导入不停服、直接放弃 ----------
+
+// 导入复制完、要停服换图了，这时候有备份正在压这台服务器的世界：导入放弃（服务器不停，什么都不换），
+// 等备份做完再导入就照常。占位那一步本来也占不上，这里要的是在停服之前就看出来。
+func TestImportGivesUpWhileBackupIsRunning(t *testing.T) {
+	e := newEnv(t, "")
+	src := filepath.Join(e.tmp, "B")
+	if err := wt.Legacy(src, wt.WorldOpts{Level: lv("1.20.4", 3700), Tag: "B", Overworld: true}); err != nil {
+		t.Fatal(err)
+	}
+	done, err := e.m.UseWorld("生存服", "备份")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := e.plan(src)
+	id, err := e.s.Execute(me, ExecReq{PlanID: p.ID, Confirm: "replace", Acknowledge: true, StopFirst: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, msg := e.wait(id); !strings.Contains(msg, "正在备份") || !strings.Contains(msg, "没有被停") {
+		t.Errorf("有备份在跑时导入应当放弃，并说清服务器没被停：%q", msg)
+	}
+	if got := e.marker("world/region/r.0.0.mca"); got != "MARK:minecraft:overworld:OLD" {
+		t.Errorf("放弃以后原来的世界不该动：%s", got)
+	}
+	if at := findWorldTag(t, e.dir, "B"); len(at) != 0 {
+		t.Errorf("放弃以后暂存的那份应当清掉：%v", at)
+	}
+	done()
+	if got := e.importFolder("B2"); got == "" {
+		t.Error("备份做完以后导入应当照常")
+	}
+	// 换地图占着位的时候，保存设置、改配置文件这类登记不上
+	release, err := e.m.BeginWorldChange("生存服", "换地图")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.m.UseWorld("生存服", "保存设置"); err == nil || !strings.Contains(err.Error(), "换地图") {
+		t.Errorf("换地图的时候不该登记得上：%v", err)
+	}
+	release()
+}

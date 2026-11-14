@@ -28,9 +28,8 @@ func (m *Manager) ReleaseCreate(name, dir string) {
 // BeginPacking 给实例占上「正在打包」的位，返回放掉它的函数；已经在打包时 ok=false。
 // 占着的时候这台服务器不能启动、不能删除（见 Start 和 Delete）。调用方在打包结束时（无论成败）调一次 release。
 func (m *Manager) BeginPacking(name string) (release func(), ok bool) {
-	if m.WorldBusy(name) != "" { // 换地图到一半，世界目录正在移动，打出来的包是坏的
-		return nil, false
-	}
+	// 换地图到一半，世界目录正在移动，打出来的包是坏的。这一条和登记打包在同一次加锁里做（tryMarkPacking）：
+	// 以前是先看一眼、放开锁、再登记，中间换地图能占上位
 	if !m.tryMarkPacking(name) {
 		return nil, false
 	}

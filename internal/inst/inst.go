@@ -86,8 +86,10 @@ type Manager struct {
 	creating map[string]bool // 正在创建中的实例名（注册进 insts 前的占位，防并发/重复创建同名实例）
 	packing  map[string]bool // 正在打包交接包的实例名：这期间不能启动、删除，免得打出来的包里世界是写了一半的
 	// worldHold 正在换地图 / 还原备份的实例名 → 在做什么；worldBlock 有没走完的换地图记录的实例名 → 原因（见 worldhold.go）
-	worldHold    map[string]string
-	worldBlock   map[string]string
+	worldHold  map[string]string
+	worldBlock map[string]string
+	// worldUse 正在用这台服务器的世界和设置的操作（备份、保存设置）：实例名 → 在做什么 → 有几个。见 UseWorld
+	worldUse     map[string]map[string]int
 	worldPlacer  WorldPlacer
 	worldRelease func(owner, planID string)
 	Tasks        *tasks.Manager
@@ -227,6 +229,14 @@ func (m *Manager) Delete(name string, files bool) error {
 	if i.Status() != "stopped" {
 		return fmt.Errorf("请先停止服务器再删除")
 	}
+	// 上面三样是为了把原因说清楚，看完到真的动手之间还有空档。这里占上位再删：占位和启动、换地图、备份、打包、
+	// 保存设置用的是同一套登记，删的过程中它们都进不来（2026-11-14 Codex 合并复审第 2 条）。
+	// 占上以后不能再调 WorldBusy：会看到自己占的位
+	release, err := m.BeginWorldChange(name, "删除")
+	if err != nil {
+		return err
+	}
+	defer release()
 	// 这台服务器的单独登记（接管进来的才有）。登记的写法可能和 i.Dir 不一样——比如登记的是一个目录联接，
 	// 而启动时是从某个存放根下面先扫到它的——所以按真实路径找；要赶在删文件夹之前找，删了就解不出真实路径了
 	var registered []string
@@ -299,11 +309,11 @@ func (m *Manager) isPacking(name string) bool {
 	return m.packing[name]
 }
 
-// tryMarkPacking 占上打包的位；已经有人占着时返回 false。
+// tryMarkPacking 占上打包的位；已经有人占着，或者这台服务器正在换地图、有没走完的换地图记录时返回 false。
 func (m *Manager) tryMarkPacking(name string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.packing[name] {
+	if m.packing[name] || m.worldHold[name] != "" || m.worldBlock[name] != "" {
 		return false
 	}
 	if m.packing == nil {

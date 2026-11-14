@@ -3,7 +3,6 @@ package catalog
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -557,9 +556,12 @@ func (c *cat) instanceOps() {
 			if err != nil {
 				return nil, err
 			}
-			if why := c.Mgr.WorldBusy(p.Inst); why != "" { // 换地图到一半，世界和设置都可能在动
-				return nil, errors.New(why)
+			// 换地图到一半，世界和设置都可能在动。读、改、存的这段时间登记着：换地图也会改这个文件，不能穿插进来
+			release, err := c.Mgr.UseWorld(p.Inst, "保存设置")
+			if err != nil {
+				return nil, err
 			}
+			defer release()
 			props, err := inst.LoadProps(i.PropsPath())
 			if err != nil {
 				return nil, ops.Wrap(500, err)

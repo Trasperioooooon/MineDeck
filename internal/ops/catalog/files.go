@@ -423,6 +423,12 @@ func (c *cat) fileOps() {
 				return nil, err
 			}
 			i, rel, abs := cp.i, cp.rel, cp.abs
+			// 能改的位置里有 <世界>/serverconfig/：换地图到一半时世界目录正在搬，不能往里写；写的这段时间也不让换地图开始
+			release, err := c.Mgr.UseWorld(i.Name, "修改配置文件")
+			if err != nil {
+				return nil, err
+			}
+			defer release()
 			res := map[string]any{"path": rel, "mode": map[bool]string{true: p.Mode, false: "edit"}[p.Mode != ""]}
 			if cp.exists && p.Mode != "undo" {
 				bk, err := backupConfig(i, rel, cp.raw)

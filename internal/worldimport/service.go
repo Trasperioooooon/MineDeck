@@ -870,6 +870,10 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 		return abandon(fmt.Errorf("已取消，没有替换任何文件"))
 	}
 	t.StartStep(2)
+	// 有备份在跑、有设置正在保存：等它们做完才占得上位。先看一眼再停服，不然服务器被停了，导入却因为备份在跑而放弃
+	if who := s.M.WorldUsers(p.Inst); who != "" {
+		return abandon(fmt.Errorf("这台服务器正在%s，等它完成以后再导入。服务器没有被停，没有替换任何文件", who))
+	}
 	if i.Status() != "stopped" {
 		if !stopFirst {
 			return abandon(fmt.Errorf("服务器正在运行，没有替换任何文件"))

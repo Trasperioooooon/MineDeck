@@ -110,12 +110,19 @@ func (m *Manager) ListBackups(name string) ([]BackupInfo, error) {
 
 // CreateBackup 备份世界存档；运行中执行热备（save-off → save-all → 压缩 → save-on）。
 func (m *Manager) CreateBackup(name, label string) (string, error) {
-	// 换地图到一半时世界目录正在被移来移去，打出来的备份是半截的（定时备份也走这里）
-	if why := m.WorldBusy(name); why != "" {
-		return "", errors.New(why)
+	// 换地图到一半时世界目录正在被移来移去，打出来的备份是半截的（定时备份也走这里）。
+	// 不只是开头看一眼：备份的这段时间一直登记着，换地图要等它做完才占得上位。
+	// 还原备份是自己占着位再调下面的 createBackup，所以登记放在这里，不放在 createBackup 里
+	release, err := m.UseWorld(name, "备份")
+	if err != nil {
+		return "", err
 	}
+	defer release()
 	return m.createBackup(name, label, "")
 }
+
+// backupHook 测试用：世界目录开始压缩之前调用。
+var backupHook func()
 
 // createBackup 同 CreateBackup；spare 非空时滚动清理放过这份备份。还原前的自动备份靠它保住待还原的源备份——
 // 份数已满且要还原的正是最旧那份时，源备份本会在解压前被清理掉。
@@ -146,6 +153,9 @@ func (m *Manager) createBackup(name, label, spare string) (string, error) {
 	dest := filepath.Join(backupDirOf(name), fname)
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return "", err
+	}
+	if backupHook != nil {
+		backupHook()
 	}
 	if err := zipDirs(i.Dir, worlds, dest); err != nil {
 		os.Remove(dest)

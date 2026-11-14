@@ -339,12 +339,17 @@ func (c *cat) gameChatOps() {
 				listed[strings.ToLower(n)] = true
 			}
 			// 先改 server.properties 再发 whitelist on：服务器执行 whitelist on 时自己也会写这个文件，先后错开，不会两边同时写
-			props, err := inst.LoadProps(i.PropsPath())
+			release, err := c.Mgr.UseWorld(p.Inst, "保存设置") // 换地图也会改这个文件，不能穿插进来
 			if err != nil {
-				return nil, ops.Wrap(500, err)
+				return nil, err
 			}
-			props.Set("white-list", "true")
-			if err := props.Save(i.PropsPath()); err != nil {
+			props, err := inst.LoadProps(i.PropsPath())
+			if err == nil {
+				props.Set("white-list", "true")
+				err = props.Save(i.PropsPath())
+			}
+			release()
+			if err != nil {
 				return nil, ops.Wrap(500, errors.New("改 server.properties 失败："+err.Error()))
 			}
 			if i.Status() == "running" {

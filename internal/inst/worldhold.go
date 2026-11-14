@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -116,6 +118,9 @@ func (m *Manager) beginWorldChange(name, why string, recovery bool) (release fun
 	if r := m.worldBlock[name]; r != "" && !recovery {
 		return nil, errors.New(r)
 	}
+	if who := m.worldUsersLocked(name); who != "" {
+		return nil, errors.New("这台服务器正在" + who + "，等它完成后再试")
+	}
 	if m.worldHold == nil {
 		m.worldHold = map[string]string{}
 	}
@@ -128,6 +133,72 @@ func (m *Manager) beginWorldChange(name, why string, recovery bool) (release fun
 			m.mu.Unlock()
 		})
 	}, nil
+}
+
+// UseWorld 登记「正在用这台服务器的世界和设置」，返回撤销登记的函数。备份、保存设置这类要读写世界目录或
+// server.properties、但不搬动整个世界的操作，开始之前登记、做完撤销。
+//
+// 它和换地图的占位互相排斥，检查和登记在同一次加锁里：有人占着位（或者有没走完的换地图记录）时登记不上；
+// 登记着的时候占位占不上（见 beginWorldChange）。以前这些操作只在开头看一眼 WorldBusy、自己不登记：
+// 备份压到一半时换地图照样能占上位、把世界目录移走，打出来的备份前一半是旧图、后一半是新图
+// （2026-11-14 Codex 合并复审第 2 条）。
+//
+// 登记不进 WorldBusy：启动查的是 WorldBusy，热备份的时候服务器本来就开着，崩了要能自动重启。
+// 几个操作可以同时登记（备份的时候改设置），互相之间不排斥，和以前一样。
+func (m *Manager) UseWorld(name, what string) (release func(), err error) {
+	if _, err := m.Get(name); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if r := m.worldHold[name]; r != "" {
+		return nil, errors.New("这台服务器正在" + r + "，请等它完成")
+	}
+	if r := m.worldBlock[name]; r != "" {
+		return nil, errors.New(r)
+	}
+	if m.worldUse == nil {
+		m.worldUse = map[string]map[string]int{}
+	}
+	if m.worldUse[name] == nil {
+		m.worldUse[name] = map[string]int{}
+	}
+	m.worldUse[name][what]++
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			m.mu.Lock()
+			defer m.mu.Unlock()
+			if u := m.worldUse[name]; u != nil {
+				if u[what]--; u[what] <= 0 {
+					delete(u, what)
+				}
+				if len(u) == 0 {
+					delete(m.worldUse, name)
+				}
+			}
+		})
+	}, nil
+}
+
+// WorldUsers 现在有哪些操作登记着在用这台服务器的世界和设置（「备份」「保存设置」，顿号隔开），没有返回空串。
+func (m *Manager) WorldUsers(name string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.worldUsersLocked(name)
+}
+
+func (m *Manager) worldUsersLocked(name string) string {
+	u := m.worldUse[name]
+	if len(u) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(u))
+	for what := range u {
+		names = append(names, what)
+	}
+	sort.Strings(names)
+	return strings.Join(names, "、")
 }
 
 // WorldBusy 这台服务器现在能不能动世界：正在换地图（占位）或有没走完的记录（封锁）时返回原因，否则返回空串。
