@@ -2,6 +2,7 @@ package inst
 
 import (
 	"archive/zip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -13,7 +14,10 @@ import (
 	"time"
 
 	"minedeck/internal/app"
+	"minedeck/internal/atomicfile"
+	"minedeck/internal/diskguard"
 	"minedeck/internal/events"
+	"minedeck/internal/zipguard"
 )
 
 type BackupInfo struct {
@@ -155,6 +159,8 @@ func (m *Manager) createBackup(name, label, spare string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	i.backupMu.Lock()
+	defer i.backupMu.Unlock()
 	worlds, err := i.worldDirsStrict()
 	if err != nil {
 		return "", err
@@ -162,30 +168,77 @@ func (m *Manager) createBackup(name, label, spare string) (string, error) {
 	if len(worlds) == 0 {
 		return "", fmt.Errorf("还没有世界存档。服务器可能还没启动过。")
 	}
-	if i.Status() == "running" {
-		i.Console.Append("[MineDeck] 开始热备份：暂停自动保存...")
-		_ = m.Command(name, "save-off")
-		_ = m.Command(name, "save-all flush")
-		i.waitConsole("Saved the game", 15*time.Second)
-		defer func() {
-			_ = m.Command(name, "save-on")
-			i.Console.Append("[MineDeck] 热备份完成，已恢复自动保存")
-		}()
-	}
-	fname := time.Now().Format("20060102-150405")
-	if label != "" {
-		fname += "-" + sanitizeLabel(label)
-	}
-	fname += ".zip"
-	dest := filepath.Join(backupDirOf(name), fname)
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+	dir := backupDirOf(name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
+	lease, err := diskguard.Acquire(context.Background(), dir, diskguard.Options{})
+	if err != nil {
+		return "", err
+	}
+	defer lease.Close()
+	// 排队结束以后才暂停存档，避免另一项写盘让服务器长时间停留在 save-off。
+	i.procMu.Lock()
+	p, gen, state := i.proc, i.runGen, i.state
+	i.procMu.Unlock()
+	if state != "" && state != "stopped" && state != "running" {
+		return "", fmt.Errorf("服务器正在启动或停止，请稍后再备份")
+	}
+	if state == "running" {
+		if p == nil {
+			return "", fmt.Errorf("服务器进程状态已变化，请重试备份")
+		}
+		i.Console.Append("[MineDeck] 开始热备份：暂停自动保存...")
+		_, lines, unsubscribe := i.Console.Subscribe()
+		defer unsubscribe()
+		if err := writeLine(p, "save-off"); err != nil {
+			return "", err
+		}
+		defer func() {
+			i.procMu.Lock()
+			same := i.proc == p && i.runGen == gen
+			i.procMu.Unlock()
+			if same && writeLine(p, "save-on") == nil {
+				i.Console.Append("[MineDeck] 热备份操作结束，已恢复自动保存")
+			}
+		}()
+		if err := writeLine(p, "save-all flush"); err != nil {
+			return "", err
+		}
+		timer := time.NewTimer(15 * time.Second)
+		defer timer.Stop()
+		flushed := false
+		for !flushed {
+			select {
+			case line, ok := <-lines:
+				if !ok {
+					return "", fmt.Errorf("没有收到服务器保存完成的确认，这次备份已作废")
+				}
+				flushed = strings.Contains(line, "Saved the game")
+			case <-timer.C:
+				return "", fmt.Errorf("等待服务器保存超时，这次备份已作废")
+			}
+		}
+	}
+	base := time.Now().Format("20060102-150405.000000000")
+	if label != "" {
+		base += "-" + sanitizeLabel(label)
+	}
+	fname := base + ".zip"
+	dest := filepath.Join(dir, fname)
 	if backupHook != nil {
 		backupHook()
 	}
-	if err := zipDirs(i.Dir, worlds, dest); err != nil {
-		os.Remove(dest)
+	// 在发布压缩包之前再核对进程代际；热备中重启不能把跨两次运行的内容当成完整备份。
+	verify := func() error {
+		i.procMu.Lock()
+		defer i.procMu.Unlock()
+		if i.proc != p || i.runGen != gen {
+			return fmt.Errorf("备份期间服务器停止或重新启动，这次备份已作废，请重新备份")
+		}
+		return nil
+	}
+	if err := zipDirsWith(i.Dir, worlds, dest, lease, verify); err != nil {
 		return "", fmt.Errorf("压缩备份失败: %w", err)
 	}
 	m.pruneBackups(name, spare)
@@ -206,7 +259,7 @@ func (m *Manager) RestoreBackup(name, file string) error {
 		return errors.New(why)
 	}
 	// 还原要先删旧世界再解压：这期间占上位，不让别人启动服务器、也不让换地图同时进行
-	release, err := m.BeginWorldChange(name, "还原备份")
+	release, err := m.BeginWorldChangeInstance(i, "还原备份")
 	if err != nil {
 		return err
 	}
@@ -226,12 +279,26 @@ func (m *Manager) RestoreBackup(name, file string) error {
 			return fmt.Errorf("还原前自动备份失败，已中止: %w", err)
 		}
 	}
+	// 预检和空间租约都必须先于删旧世界，拒绝损坏或过大的包时旧世界仍在。
+	zr, err := zipguard.Open(src, zipguard.Default)
+	if err != nil {
+		return fmt.Errorf("备份打不开，没有还原：%w", err)
+	}
+	defer zr.Close()
+	if err := checkBackupPaths(zr.File, i.Dir); err != nil {
+		return err
+	}
+	lease, err := diskguard.Acquire(context.Background(), i.Dir, diskguard.Options{})
+	if err != nil {
+		return err
+	}
+	defer lease.Close()
 	for _, d := range worlds {
 		if err := os.RemoveAll(filepath.Join(i.Dir, d)); err != nil {
 			return fmt.Errorf("清理旧世界失败: %w", err)
 		}
 	}
-	if err := unzipTo(src, i.Dir); err != nil {
+	if err := unzipReaderTo(zr.Reader, i.Dir, lease); err != nil {
 		return fmt.Errorf("解压备份失败: %w", err)
 	}
 	i.Console.Append("[MineDeck] 世界已还原至备份 " + filepath.Base(file))
@@ -305,11 +372,22 @@ func (i *Instance) waitConsole(substr string, timeout time.Duration) bool {
 
 // zipDirs 将 baseDir 下的若干子目录打包为 zip（跳过 session.lock）。
 func zipDirs(baseDir string, dirs []string, dest string) error {
-	f, err := os.Create(dest)
+	lease, err := diskguard.Acquire(context.Background(), filepath.Dir(dest), diskguard.Options{})
 	if err != nil {
 		return err
 	}
-	zw := zip.NewWriter(f)
+	defer lease.Close()
+	return zipDirsWith(baseDir, dirs, dest, lease, nil)
+}
+
+func zipDirsWith(baseDir string, dirs []string, dest string, lease *diskguard.Lease, verify func() error) error {
+	f, err := os.CreateTemp(filepath.Dir(dest), ".backup-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	zw := zip.NewWriter(lease.Writer(f))
 	var werr error
 	for _, d := range dirs {
 		root := filepath.Join(baseDir, d)
@@ -346,18 +424,52 @@ func zipDirs(baseDir string, dirs []string, dest string) error {
 	if cerr := f.Close(); werr == nil {
 		werr = cerr
 	}
-	return werr
+	if werr != nil {
+		return werr
+	}
+	if verify != nil {
+		if err := verify(); err != nil {
+			return err
+		}
+	}
+	return atomicfile.Replace(tmp, dest)
 }
 
 // unzipTo 解压 zip 至目录（zip-slip 防护）。
 func unzipTo(src, destDir string) error {
-	zr, err := zip.OpenReader(src)
+	zr, err := zipguard.Open(src, zipguard.Default)
 	if err != nil {
 		return err
 	}
 	defer zr.Close()
+	lease, err := diskguard.Acquire(context.Background(), destDir, diskguard.Options{})
+	if err != nil {
+		return err
+	}
+	defer lease.Close()
+	if err := checkBackupPaths(zr.File, destDir); err != nil {
+		return err
+	}
+	return unzipReaderTo(zr.Reader, destDir, lease)
+}
+
+func checkBackupPaths(files []*zip.File, destDir string) error {
+	cleanDest := filepath.Clean(destDir)
+	for _, f := range files {
+		target := filepath.Join(cleanDest, filepath.FromSlash(strings.ReplaceAll(f.Name, "\\", "/")))
+		if !strings.HasPrefix(target, cleanDest+string(os.PathSeparator)) {
+			return fmt.Errorf("备份内含非法路径: %s", f.Name)
+		}
+	}
+	return nil
+}
+
+func unzipReaderTo(zr *zip.Reader, destDir string, lease *diskguard.Lease) error {
 	cleanDest := filepath.Clean(destDir)
 	for _, f := range zr.File {
+		if err := lease.Check(0); err != nil {
+			return err
+		}
 		name := strings.ReplaceAll(f.Name, "\\", "/")
 		target := filepath.Join(cleanDest, filepath.FromSlash(name))
 		if !strings.HasPrefix(target, cleanDest+string(os.PathSeparator)) {
@@ -378,7 +490,7 @@ func unzipTo(src, destDir string) error {
 			rc.Close()
 			return err
 		}
-		_, cerr := io.Copy(w, rc)
+		_, cerr := io.Copy(lease.Writer(w), rc)
 		rc.Close()
 		if werr := w.Close(); cerr == nil {
 			cerr = werr

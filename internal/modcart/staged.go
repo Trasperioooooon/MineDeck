@@ -1,6 +1,7 @@
 package modcart
 
 import (
+	"context"
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
@@ -16,6 +17,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"minedeck/internal/atomicfile"
+	"minedeck/internal/diskguard"
 	"minedeck/internal/modinfo"
 	"minedeck/internal/winname"
 	"minedeck/internal/zipguard"
@@ -303,12 +306,21 @@ func copyFile(src, dest string) (string, error) {
 		return "", err
 	}
 	defer in.Close()
+	st, err := in.Stat()
+	if err != nil {
+		return "", err
+	}
+	lease, err := diskguard.Acquire(context.Background(), dest, diskguard.Options{Need: st.Size()})
+	if err != nil {
+		return "", err
+	}
+	defer lease.Close()
 	out, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return "", err
 	}
 	h := sha1.New()
-	_, err = io.Copy(io.MultiWriter(out, h), in)
+	_, err = io.Copy(io.MultiWriter(lease.Writer(out), h), in)
 	if cerr := out.Close(); err == nil {
 		err = cerr
 	}
@@ -407,6 +419,7 @@ func (s *Service) InstallLocal(lf LocalFile, destDir string) (status string, err
 		return "", errorf(404, "暂存的「%s」找不到了，重新添加一次", lf.FileName)
 	}
 	dest := filepath.Join(destDir, lf.FileName)
+	defer atomicfile.LockPath(dest)()
 	// 已经有同名文件：内容一样算装好了，不一样不覆盖
 	existing := func() string {
 		if have, herr := fileSHA1(dest); herr == nil && have == lf.SHA1 {
@@ -423,13 +436,36 @@ func (s *Service) InstallLocal(lf LocalFile, destDir string) (status string, err
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return "", errorf(500, "创建 %s 文件夹失败：%v", filepath.Base(destDir), noPath(err))
 	}
-	tmp := filepath.Join(destDir, "."+lf.FileName+".copy")
-	_ = os.Remove(tmp)
-	defer os.Remove(tmp)
-	got, err := copyFile(src, tmp)
+	lease, err := diskguard.Acquire(context.Background(), destDir, diskguard.Options{})
 	if err != nil {
-		return "", errorf(500, "把「%s」拷进 %s 失败：%v", lf.FileName, filepath.Base(destDir), noPath(err))
+		return "", err
 	}
+	defer lease.Close()
+	tf, err := os.CreateTemp(destDir, ".minedeck-copy-*.copy")
+	if err != nil {
+		return "", err
+	}
+	tmp := tf.Name()
+	defer os.Remove(tmp)
+	in, err := os.Open(src)
+	if err != nil {
+		tf.Close()
+		return "", err
+	}
+	h := sha1.New()
+	_, err = io.Copy(io.MultiWriter(lease.Writer(tf), h), in)
+	in.Close()
+	if err == nil {
+		err = tf.Sync()
+	}
+	if e := tf.Close(); err == nil {
+		err = e
+	}
+	if err != nil {
+		return "", errorf(500, "复制本地文件失败：%v", noPath(err))
+	}
+	got := hex.EncodeToString(h.Sum(nil))
+
 	if got != lf.SHA1 {
 		return "", errorf(500, "暂存的「%s」内容变了（和添加时不一样），没有装。从清单里移除后重新添加", lf.FileName)
 	}

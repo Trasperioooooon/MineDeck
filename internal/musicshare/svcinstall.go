@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"minedeck/internal/atomicfile"
 	"minedeck/internal/dl"
 	"minedeck/internal/mcsrc"
 )
@@ -167,8 +168,23 @@ func (s *Service) InstallSVC(ctx context.Context, name string) (*SVCResult, erro
 	if err := os.MkdirAll(mods, 0o755); err != nil {
 		return nil, errorf(500, "创建 mods 文件夹失败：%v", err)
 	}
-	tmp := filepath.Join(mods, "."+fname+".download") // 不以 .jar 结尾：下载、检查途中服务器（重）启动也不会加载它
+	dest := filepath.Join(mods, fname)
+	release, err := atomicfile.LockPathContext(ctx, dest)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	tf, err := os.CreateTemp(mods, ".minedeck-download-*.download")
+	if err != nil {
+		return nil, err
+	}
+	tmp := tf.Name()
+	if err := tf.Close(); err != nil {
+		os.Remove(tmp)
+		return nil, err
+	}
 	defer os.Remove(tmp)
+
 	if err := dl.Fetch(ctx, dl.Request{URLs: []string{f.URL}, Dest: tmp, SHA1: f.Hashes.SHA1, MinSize: 1024}, nil); err != nil {
 		return nil, errorf(502, "下载 Simple Voice Chat %s 失败：%v（检查网络或代理后再试）", v.VersionNumber, err)
 	}
@@ -183,7 +199,7 @@ func (s *Service) InstallSVC(ctx context.Context, name string) (*SVCResult, erro
 	if svc := s.detectSVC(info.Dir); svc.Installed {
 		return nil, errorf(409, "下载期间 mods 里已经装上了 Simple Voice Chat %s（%s），这次的就不装了", svc.Version, svc.File)
 	}
-	if err := os.Rename(tmp, filepath.Join(mods, fname)); err != nil {
+	if err := atomicfile.Replace(tmp, dest); err != nil {
 		return nil, errorf(500, "安装 %s 失败（可能正被占用，停服后再试）：%v", fname, err)
 	}
 	// 服务器在不在跑要按装好这一刻算：下载那几分钟里它可能被开起来了（这次启动没加载新 jar，要记「重启后生效」）（独立评审发现）

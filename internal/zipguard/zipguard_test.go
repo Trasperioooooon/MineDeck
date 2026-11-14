@@ -3,6 +3,7 @@ package zipguard
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -10,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"sync"
 	"testing"
 )
 
@@ -89,23 +92,25 @@ func TestLimits(t *testing.T) {
 	if _, err := NewReader(bytes.NewReader(b), int64(len(b)), Limits{MaxEntries: 1 << 20, MaxDirBytes: 32 << 10}); !errors.Is(err, ErrTooLarge) {
 		t.Errorf("申报的清单大小超了应当拒绝：%v", err)
 	}
-	// 把包尾申报的条目数和清单大小改小（假的）：第一层过了，第二层在读的时候拦住
+	// 只把申报的目录大小改小，保持真实目录偏移和条目数。标准库能完整解析它，
+	// 所以关掉第二层读取预算后一定不能再得到 ErrTooLarge。
 	lie := append([]byte(nil), b...)
 	end := bytes.LastIndex(lie, []byte{'P', 'K', 0x05, 0x06})
-	binary.LittleEndian.PutUint16(lie[end+8:], 10)  // 本盘条目数
-	binary.LittleEndian.PutUint16(lie[end+10:], 10) // 总条目数
-	dirSize := binary.LittleEndian.Uint32(lie[end+12:])
-	dirOffset := binary.LittleEndian.Uint32(lie[end+16:])
-	binary.LittleEndian.PutUint32(lie[end+12:], 1024)                   // 清单大小：说只有 1 KB
-	binary.LittleEndian.PutUint32(lie[end+16:], dirOffset+dirSize-1024) // 偏移跟着改，标准库算出来的起点才还是 0
+	binary.LittleEndian.PutUint32(lie[end+12:], 1024)
+	control := &countingReaderAt{r: bytes.NewReader(lie)}
+	plain, err := zip.NewReader(control, int64(len(lie)))
+	if err != nil || len(plain.File) != 3000 || control.n <= 32<<10 {
+		t.Fatalf("对照必须完整读到超预算的目录：err=%v bytes=%d", err, control.n)
+	}
 	counted := &countingReaderAt{r: bytes.NewReader(lie)}
-	_, err := NewReader(counted, int64(len(lie)), Limits{MaxEntries: 1 << 20, MaxDirBytes: 32 << 10})
-	if err == nil {
-		t.Fatal("申报的数是假的、实际很长的清单不该打得开（要么预算拦住，要么格式不对）")
+	_, err = NewReader(counted, int64(len(lie)), Limits{MaxEntries: 1 << 20, MaxDirBytes: 32 << 10})
+	if !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("必须由读取预算拒绝，不能拿格式错误充数：%v", err)
 	}
-	if counted.n > 32<<10+70<<10 { // 清单预算，加上找结束记录时读的那 66 KB
-		t.Errorf("预算是 32 KB，却读了 %d 字节", counted.n)
+	if counted.n > 32<<10+70<<10 {
+		t.Errorf("超出读取额度：%d", counted.n)
 	}
+
 }
 
 type countingReaderAt struct {
@@ -189,5 +194,81 @@ func TestHugeDeclaredCountAllocatesNothing(t *testing.T) {
 	}
 	if got > 1<<20 {
 		t.Errorf("拒绝它的过程中分配了 %d 字节，应当只有读包尾用的几十 KB", got)
+	}
+}
+
+func TestContextAndConcurrentContents(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create("payload.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := strings.Repeat("content ", 1<<17)
+	if _, err := io.WriteString(w, payload); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	zr, err := NewReaderContext(ctx, bytes.NewReader(buf.Bytes()), int64(buf.Len()), Limits{MaxEntries: 1, MaxDirBytes: 8 << 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r, err := zr.File[0].Open()
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			defer r.Close()
+			got, err := io.ReadAll(r)
+			if err != nil || string(got) != payload {
+				t.Errorf("内容读取仍被目录预算限制：%v (%d)", err, len(got))
+			}
+		}()
+	}
+	wg.Wait()
+	cancel()
+	if _, err := zr.File[0].Open(); !errors.Is(err, context.Canceled) {
+		t.Fatalf("取消后仍读取：%v", err)
+	}
+	if _, err := NewReaderContext(ctx, bytes.NewReader(buf.Bytes()), int64(buf.Len()), Default); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	for _, size := range []int64{-1, 0, 21} {
+		if _, _, err := Declared(bytes.NewReader(nil), size); err == nil {
+			t.Errorf("无效大小%d未拒绝", size)
+		}
+	}
+}
+
+func TestOpenClosesFileOnSuccessAndFailure(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "input.zip")
+	if err := os.WriteFile(p, zipBytes(t, 3), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(p, Limits{MaxEntries: 2, MaxDirBytes: 64 << 20}); !errors.Is(err, ErrTooLarge) {
+		t.Fatal(err)
+	}
+	moved := filepath.Join(dir, "moved.zip")
+	if err := os.Rename(p, moved); err != nil {
+		t.Fatalf("失败后文件句柄没关：%v", err)
+	}
+	r, err := Open(moved, Default)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(moved); err != nil {
+		t.Fatalf("Close未关闭底层文件：%v", err)
 	}
 }

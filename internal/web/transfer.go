@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"minedeck/internal/app"
+	"minedeck/internal/diskguard"
 	"minedeck/internal/ops"
 	"minedeck/internal/transfer"
 )
@@ -30,6 +31,8 @@ func (s *Server) transferRoutes(mux *http.ServeMux) {
 
 // handleTransferUpload 接收 .mdpack 上传（multipart），存进缓存目录后正好读个摘要给向导展示。
 func (s *Server) handleTransferUpload(w http.ResponseWriter, r *http.Request) {
+	r, cleanup := beginUpload(w, r)
+	defer cleanup()
 	// 存文件的这半步留在网页层（和整合包上传一样不占单次操作记录）；摘要走 instance.transfer.scan
 	s.do(w, r, "instance.transfer.scan", func() (ops.Args, error) {
 		if err := parseUpload(w, r, transferUploadLimit, transferTooLarge); err != nil {
@@ -60,13 +63,13 @@ func (s *Server) handleTransferUpload(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, ops.Wrap(500, err)
 		}
-		_, cerr := io.Copy(out, file)
+		cerr := copyUpload(r, out, file, hdr.Size, transferTooLarge)
 		if werr := out.Close(); cerr == nil {
-			cerr = werr
+			cerr = ops.Wrap(500, werr)
 		}
 		if cerr != nil {
 			os.Remove(dest) // 传了一半的不留：GB 级的半截文件最占地方
-			return nil, ops.Errorf(500, "保存上传文件失败: %w", cerr)
+			return nil, fmt.Errorf("保存上传文件失败: %w", cerr)
 		}
 		// 落盘了就顺手校验：不是交接包、版本太新、类型不对的当场告诉用户并删掉，别等导入时才发现，也别留在缓存里占地方
 		if _, err := transfer.Summarize(dest); err != nil {
@@ -92,7 +95,8 @@ const (
 
 // parseUpload 解析 multipart 上传。超过 limit 时返回 tooLarge 这句话：请求头里写明了大小的，不等传完就拒掉；
 // 没写或者写小了的，读到上限时拒掉。
-func parseUpload(w http.ResponseWriter, r *http.Request, limit int64, tooLarge string) error {
+func parseUpload(w http.ResponseWriter, r *http.Request, limit int64, tooLarge string) (err error) {
+	defer func() { err = uploadError(r, err, tooLarge) }()
 	// 请求体比文件本身多出 multipart 的分隔线和别的表单项。界面是按文件大小拦的，这里留 1 MiB 余量，
 	// 免得一个刚好卡在上限以内的文件，界面放行、传完了又被这里拒掉。
 	limit += 1 << 20
@@ -100,14 +104,54 @@ func parseUpload(w http.ResponseWriter, r *http.Request, limit int64, tooLarge s
 		return ops.Errorf(http.StatusRequestEntityTooLarge, "%s", tooLarge)
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, limit)
-	if err := r.ParseMultipartForm(64 << 20); err != nil {
+	// ParseMultipartForm 超出内存额度会写系统临时目录，必须同样占用实际卷的名额。
+	// 解析结束即释放，后面的缓存复制另取目标卷名额，不能嵌套持有同一个卷。
+	lease, err := diskguard.Acquire(r.Context(), os.TempDir(), diskguard.Options{Need: max(r.ContentLength, 0), Query: uploadDiskFree})
+	if err != nil {
+		return err
+	}
+	defer lease.Close()
+	r.Body = &readerCloser{Reader: lease.Reader(r.Body), Closer: r.Body}
+	if err := r.ParseMultipartForm(multipartMemory); err != nil {
 		var big *http.MaxBytesError
 		if errors.As(err, &big) || strings.Contains(err.Error(), "request body too large") {
 			return ops.Errorf(http.StatusRequestEntityTooLarge, "%s", tooLarge)
 		}
 		return fmt.Errorf("上传解析失败: %w", err)
 	}
+	// multipart 的结束边界后还可能有请求尾部；在同一限长 reader 上读完，
+	// 让 HTTP 能感知客户端断开，再撤销网络空闲期限，进入本机复制阶段。
+	if _, err := io.Copy(io.Discard, r.Body); err != nil {
+		return err
+	}
+	if b := uploadOf(r); b != nil {
+		if b.stop() || r.Context().Err() != nil {
+			return r.Context().Err()
+		}
+	}
 	return nil
+}
+
+var multipartMemory int64 = 64 << 20 // 测试调小，以实际触发标准库的临时文件落盘。
+var uploadDiskFree = diskguard.Free  // 测试注入查询失败和余量不足，生产使用真实卷查询。
+
+type readerCloser struct {
+	io.Reader
+	io.Closer
+}
+
+// copyUpload 仅覆盖系统临时文件／内存到缓存的复制，不持锁解析包或启动后续导入。
+func copyUpload(r *http.Request, out *os.File, src io.Reader, size int64, tooLarge string) error {
+	lease, err := diskguard.Acquire(r.Context(), filepath.Dir(out.Name()), diskguard.Options{Need: max(size, 0), Query: uploadDiskFree})
+	if err != nil {
+		return uploadError(r, ops.Wrap(500, err), tooLarge)
+	}
+	defer lease.Close()
+	_, err = io.Copy(lease.Writer(out), src)
+	if err == nil {
+		err = r.Context().Err()
+	}
+	return uploadError(r, ops.Wrap(500, err), tooLarge)
 }
 
 // sweepUploads 清掉上传目录里 24 小时还没导入的包（导入任务自己会删用完的；这是给传完没用的兜底）。

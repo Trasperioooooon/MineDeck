@@ -74,6 +74,11 @@ func (m *Manager) UpdatePolicies(name string, p Policies) error {
 			return fmt.Errorf("定时命令不能为空")
 		}
 	}
+	release, err := m.UseWorldInstance(i, "保存实例设置")
+	if err != nil {
+		return err
+	}
+	defer release()
 	i.procMu.Lock()
 	defer i.procMu.Unlock()
 	i.Policies = p

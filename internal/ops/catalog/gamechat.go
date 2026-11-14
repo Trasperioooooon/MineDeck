@@ -307,7 +307,7 @@ func (c *cat) gameChatOps() {
 		Params: withInst(map[string]*ops.Schema{
 			"players": ops.Array("先加进白名单的人", ops.String("玩家名，1–16 位字母、数字、下划线").Len(1, 16)).MaxLen(100),
 		}),
-		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
+		Run: func(ctx context.Context, caller ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[gameaiWhitelistArgs](a)
 			if err != nil {
 				return nil, err
@@ -323,7 +323,7 @@ func (c *cat) gameChatOps() {
 			}
 			// 换地图也会改 server.properties，不能穿插进来。一开头就登记，登记不上（正在换地图）就什么都不做：
 			// 放在加完玩家以后再登记的话，登记不上时会留下「人加了、白名单没开」的半截结果
-			release, err := c.Mgr.UseWorld(p.Inst, "保存设置")
+			release, err := c.Mgr.UseWorldInstance(i, "保存设置")
 			if err != nil {
 				return nil, err
 			}
@@ -346,7 +346,7 @@ func (c *cat) gameChatOps() {
 				listed[strings.ToLower(n)] = true
 			}
 			// 先改 server.properties 再发 whitelist on：服务器执行 whitelist on 时自己也会写这个文件，先后错开，不会两边同时写
-			err = inst.UpdateProps(i.PropsPath(), func(props *inst.Props) error {
+			err = inst.UpdatePropsContext(ctx, i.PropsPath(), func(props *inst.Props) error {
 				props.Set("white-list", "true")
 				return nil
 			})

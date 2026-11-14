@@ -1,6 +1,7 @@
 package transfer
 
 import (
+	"archive/zip"
 	"encoding/binary"
 	"errors"
 	"os"
@@ -54,5 +55,38 @@ func TestHandoverPackUsesGuardedZipOpen(t *testing.T) {
 	}
 	if packEULAAccepted(path) {
 		t.Error("读不了的包不该读出 EULA")
+	}
+}
+
+func TestPortAndEULAAreGuardedBeforeParsing(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "valid.zip")
+	f, err := os.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	z := zip.NewWriter(f)
+	for name, body := range map[string]string{"instance/server.properties": "server-port=25571\n", "instance/eula.txt": "eula=true\n"} {
+		w, err := z.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = w.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := z.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if packPort(p) != 25571 || !packEULAAccepted(p) {
+		t.Fatal("正常对照没有读出端口和 EULA")
+	}
+	old := zipguard.Default
+	t.Cleanup(func() { zipguard.Default = old })
+	zipguard.Default.MaxEntries = 1
+	if packPort(p) != 0 || packEULAAccepted(p) {
+		t.Fatal("超过入口预检限制后仍解析了内容")
 	}
 }

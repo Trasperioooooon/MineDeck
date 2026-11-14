@@ -220,6 +220,7 @@ type oaiAcc struct {
 	byIndex   map[int]*oaiCall
 	finish    string
 	usage     *oaiUsage
+	err       error
 }
 
 func (a *oaiAcc) addCalls(tcs []oaiToolCall) {
@@ -230,6 +231,10 @@ func (a *oaiAcc) addCalls(tcs []oaiToolCall) {
 		}
 		cur := a.byIndex[idx]
 		if cur == nil || (tc.ID != "" && cur.id != "" && tc.ID != cur.id) {
+			if len(a.calls) >= maxReplyTools {
+				a.err = ErrResponseTooLarge
+				return
+			}
 			cur = &oaiCall{id: tc.ID, name: tc.Function.Name}
 			a.byIndex[idx] = cur
 			a.calls = append(a.calls, cur)
@@ -419,10 +424,11 @@ func (c *Client) openaiOnce(ctx context.Context, conv *Conversation, emit func(E
 		return nil, err
 	}
 	defer resp.Body.Close()
+	reader := c.responseReader(ctx, kickReader{resp.Body, dog})
 	acc := &oaiAcc{c: c, emit: emit, byIndex: map[int]*oaiCall{}}
 
 	if !c.cfg.Stream {
-		b, err := readAll(kickReader{resp.Body, dog})
+		b, err := readAll(reader)
 		if err != nil {
 			return nil, c.cutErr(ctx, dog, err)
 		}
@@ -438,13 +444,16 @@ func (c *Client) openaiOnce(ctx context.Context, conv *Conversation, emit func(E
 		}
 		acc.model = r.Model
 		acc.addChoice(r.Choices[0])
+		if acc.err != nil {
+			return acc.result(true, len(body)), acc.err
+		}
 		if r.Usage != nil {
 			acc.setUsage(r.Usage)
 		}
 		return acc.result(false, len(body)), nil
 	}
 
-	sr := newSSEReader(kickReader{resp.Body, dog})
+	sr := newSSEReader(reader)
 	got := false // 收到过内容（文字、思考、工具调用）
 	done := false
 	for !done {
@@ -482,6 +491,9 @@ func (c *Client) openaiOnce(ctx context.Context, conv *Conversation, emit func(E
 		}
 		for _, ch := range chunk.Choices {
 			acc.addChoice(ch)
+			if acc.err != nil {
+				return acc.result(true, len(body)), acc.err
+			}
 			got = got || acc.text.Len() > 0 || acc.reasoning.Len() > 0 || len(acc.calls) > 0
 		}
 		if chunk.Usage != nil {
@@ -505,6 +517,9 @@ func (c *Client) openaiOnce(ctx context.Context, conv *Conversation, emit func(E
 
 // cutErr 读的过程中出错：用户取消、看门狗超时、网络断开分开说。
 func (c *Client) cutErr(ctx context.Context, dog *watchdog, err error) error {
+	if errors.Is(err, ErrResponseTooLarge) || errors.Is(err, errLineTooLong) {
+		return err
+	}
 	switch {
 	case dog.Fired():
 		return &NetError{Err: errors.New("长时间没有收到新数据")}

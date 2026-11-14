@@ -1,10 +1,12 @@
 package modpack
 
 import (
+	"archive/zip"
 	"encoding/binary"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"minedeck/internal/zipguard"
@@ -46,5 +48,25 @@ func hugeDeclaredZip(t *testing.T) string {
 func TestModpackUsesGuardedZipOpen(t *testing.T) {
 	if _, err := Parse(hugeDeclaredZip(t)); !errors.Is(err, zipguard.ErrTooLarge) {
 		t.Errorf("解析整合包应当按文件太多拒绝：%v", err)
+	}
+}
+
+func TestNestedServerJarUsesGuard(t *testing.T) {
+	nested := paperJar(t)
+	outer := jarOf(t, map[string]string{"server.jar": nested})
+	zr, err := zip.NewReader(strings.NewReader(outer), int64(len(outer)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, read := candFromJar(zr.File[0], "server.jar")
+	if !read || plain.core == "" {
+		t.Fatalf("正常内嵌jar未识别：%+v", plain)
+	}
+	old := zipguard.Default
+	t.Cleanup(func() { zipguard.Default = old })
+	zipguard.Default.MaxEntries = 1
+	got, read := candFromJar(zr.File[0], "server.jar")
+	if !read || got.core != "" {
+		t.Fatalf("超过内嵌ZIP预检上限仍被识别：%+v", got)
 	}
 }

@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"minedeck/internal/atomicfile"
 )
 
 // 费用估算（§4.4）：MineDeck 自己不写任何价格，运行时下载 LiteLLM 的公开价格文件（MIT 许可，只在运行时下载、
@@ -317,7 +319,12 @@ type PriceBook struct {
 	lastTry time.Time
 	lastErr string
 	running bool
-	wg      sync.WaitGroup
+	run     *priceRefreshRun
+}
+
+type priceRefreshRun struct {
+	done chan struct{}
+	err  error
 }
 
 func newPriceBook(path string, hc *http.Client, urls []string, now func() time.Time) *PriceBook {
@@ -384,10 +391,9 @@ func (b *PriceBook) MaybeRefresh() {
 		return
 	}
 	b.running = true
-	b.wg.Add(1)
+	b.run = &priceRefreshRun{done: make(chan struct{})}
 	b.mu.Unlock()
 	go func() {
-		defer b.wg.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		_ = b.fetch(ctx)
@@ -398,27 +404,45 @@ func (b *PriceBook) MaybeRefresh() {
 func (b *PriceBook) Refresh(ctx context.Context) error {
 	b.mu.Lock()
 	if b.running {
+		run := b.run
 		b.mu.Unlock()
-		b.wg.Wait()
-		b.mu.Lock()
-		defer b.mu.Unlock()
-		if b.lastErr != "" {
-			return errors.New(b.lastErr)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-run.done:
+			return run.err
 		}
-		return nil
 	}
 	b.running = true
-	b.wg.Add(1)
+	b.run = &priceRefreshRun{done: make(chan struct{})}
 	b.mu.Unlock()
-	defer b.wg.Done()
 	return b.fetch(ctx)
 }
 
-// wait 等后台的刷新结束（测试用）。
-func (b *PriceBook) wait() { b.wg.Wait() }
+// wait 等当前这一轮刷新结束（测试用）。
+func (b *PriceBook) wait() {
+	b.mu.Lock()
+	run := b.run
+	b.mu.Unlock()
+	if run != nil {
+		<-run.done
+	}
+}
 
 // fetch 依次试各个地址，取到第一份合格的就存下。调用前 running 已置上。
-func (b *PriceBook) fetch(ctx context.Context) error {
+func (b *PriceBook) fetch(ctx context.Context) (result error) {
+	defer func() {
+		b.mu.Lock()
+		b.lastTry = b.now()
+		b.lastErr = ""
+		if result != nil {
+			b.lastErr = result.Error()
+		}
+		b.run.err = result
+		b.running = false
+		close(b.run.done)
+		b.mu.Unlock()
+	}()
 	var lastErr error
 	for _, u := range b.urls {
 		raw, err := b.download(ctx, u)
@@ -426,10 +450,12 @@ func (b *PriceBook) fetch(ctx context.Context) error {
 			var entries map[string]Price
 			if entries, err = ParsePrices(raw); err == nil {
 				now := b.now()
+				if err := b.save(entries, now); err != nil {
+					return fmt.Errorf("保存价格缓存失败：%w", err)
+				}
 				b.mu.Lock()
-				b.entries, b.fetched, b.lastTry, b.lastErr, b.running = entries, now, now, "", false
+				b.entries, b.fetched = entries, now
 				b.mu.Unlock()
-				b.save(entries, now)
 				return nil
 			}
 		}
@@ -441,10 +467,7 @@ func (b *PriceBook) fetch(ctx context.Context) error {
 	if lastErr == nil {
 		lastErr = errors.New("没有可用的下载地址")
 	}
-	b.mu.Lock()
-	b.lastTry, b.lastErr, b.running = b.now(), "价格数据取不到："+lastErr.Error(), false
-	b.mu.Unlock()
-	return lastErr
+	return fmt.Errorf("价格数据取不到：%w", lastErr)
 }
 
 func shortHost(u string) string {
@@ -481,14 +504,14 @@ func (b *PriceBook) download(ctx context.Context, u string) ([]byte, error) {
 	return raw, nil
 }
 
-func (b *PriceBook) save(entries map[string]Price, at time.Time) {
+func (b *PriceBook) save(entries map[string]Price, at time.Time) error {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
-	if enc.Encode(priceCache{V: 1, Fetched: at, Entries: entries}) != nil {
-		return
+	if err := enc.Encode(priceCache{V: 1, Fetched: at, Entries: entries}); err != nil {
+		return err
 	}
-	_ = writeFileAtomic(b.path, buf.Bytes())
+	return writeFileAtomic(b.path, buf.Bytes())
 }
 
 // Lookup 按服务商名对照到 LiteLLM 的条目（§4.4）：先查「服务商名/模型名」，再查模型名，条目的服务商名也要对得上；
@@ -527,9 +550,5 @@ func writeFileAtomic(path string, b []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return atomicfile.WriteProtected(path, b, 0o644)
 }

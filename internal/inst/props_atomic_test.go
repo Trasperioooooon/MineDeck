@@ -1,12 +1,15 @@
 package inst
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/windows"
 
@@ -205,4 +208,94 @@ func TestUpdatePropsKeepsEveryonesChange(t *testing.T) {
 	if left := tmpFiles(t, dir); len(left) != 0 {
 		t.Errorf("不该留下临时文件：%v", left)
 	}
+}
+
+// 在第一次读完时暂停，另一次通过同文件的相对路径调用，必须排到完整读改写之后。
+func TestUpdatePropsSerializesAliasesBeforeReading(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.properties")
+	if err := os.WriteFile(path, []byte("level-name=world\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	alias, err := filepath.Rel(cwd, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, proceed := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	resume := func() { once.Do(func() { close(proceed) }) }
+	t.Cleanup(resume)
+	a := make(chan error, 1)
+	go func() {
+		a <- UpdateProps(path, func(p *Props) error { p.Set("first", "a"); close(loaded); <-proceed; return nil })
+	}()
+	select {
+	case <-loaded:
+	case <-time.After(5 * time.Second):
+		t.Fatal("没有读到原文件")
+	}
+	b, started := make(chan error, 1), make(chan struct{})
+	go func() { close(started); b <- ForceProp(alias, "second", "b") }()
+	<-started
+	select {
+	case err := <-b:
+		t.Fatalf("另一路不应在第一次写回前结束: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	resume()
+	if err := <-a; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-b; err != nil {
+		t.Fatal(err)
+	}
+	p, err := LoadProps(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, v := range map[string]string{"first": "a", "second": "b", "level-name": "world"} {
+		if got, _ := p.Get(k); got != v {
+			t.Errorf("%s=%q，应为%q", k, got, v)
+		}
+	}
+}
+
+func TestConfigKeyWaitCanCancelAndReclaimsLock(t *testing.T) {
+	const key = "config|cancel-test"
+	release := LockKey(key)
+	ctx, cancel := context.WithCancel(context.Background())
+	entered := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		close(entered)
+		unlock, err := LockKeyContext(ctx, key)
+		if unlock != nil {
+			unlock()
+		}
+		done <- err
+	}()
+	<-entered
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("取消未停止锁等待")
+	}
+	release()
+	release()
+	fileLocks.Lock()
+	_, exists := fileLocks.byKey[key]
+	fileLocks.Unlock()
+	if exists {
+		t.Fatal("无人使用的锁未回收")
+	}
+	next := LockKey(key)
+	next()
 }

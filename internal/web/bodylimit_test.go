@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,6 +70,13 @@ func TestJSONBodyIsCapped(t *testing.T) {
 	before := backups()
 	e.call(t, "POST", "/api/instances/生存服/backups", `{"label":`, http.StatusBadRequest)
 	e.call(t, "POST", "/api/instances/生存服/backups", `不是 JSON`, http.StatusBadRequest)
+	for _, suffix := range []string{" trailing", ` {"label":"second"}`, "\nnull"} {
+		e.call(t, "POST", "/api/instances/生存服/backups", `{"label":"valid-prefix"}`+suffix, http.StatusBadRequest)
+	}
+	tooLarge("POST", "/api/instances/生存服/backups", `{"label":"valid-prefix"}`+strings.Repeat(" ", int(maxSmallBody)))
+	tooLarge("PUT", "/api/instances/生存服/settings", `{}`+strings.Repeat(" ", int(maxJSONBody)))
+	e.call(t, "POST", "/api/assistant/sessions", `{} {}`, http.StatusBadRequest)
+	e.call(t, "POST", "/api/world/plan", `{} trailing`, http.StatusBadRequest)
 	if after := backups(); after != before {
 		t.Errorf("超限的、写坏的创建备份请求都不该真的去备份：之前 %d 个文件，之后 %d 个", before, after)
 	}
@@ -84,6 +92,14 @@ func TestJSONBodyIsCapped(t *testing.T) {
 	// 登录接口自己那层更小的上限照旧认得出来
 	if rec := e.call(t, "POST", "/api/login", `{"password":"`+strings.Repeat("x", 8<<10)+`"}`, http.StatusRequestEntityTooLarge, noToken); !strings.Contains(rec.Body.String(), "请求太大") {
 		t.Errorf("登录请求体超限应当是 413：%s", rec.Body)
+	}
+}
+
+func TestJSONBodyKeepsNumberPrecisionAndWhitespace(t *testing.T) {
+	r := httptest.NewRequest("POST", "/", strings.NewReader(" {\"n\":9007199254740993} \r\n"))
+	a, err := bodyArgs(r)()
+	if err != nil || !strings.Contains(string(a), "9007199254740993") {
+		t.Fatalf("合法的单值及整数精度应当保留：%s %v", a, err)
 	}
 }
 

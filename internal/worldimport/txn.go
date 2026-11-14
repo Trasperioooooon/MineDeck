@@ -486,14 +486,58 @@ func rollbackTx(dir string, j *Journal) error {
 // stageIsOurs 暂存区里放的是不是这次导入暂存的那一份（是才可以删）。任何一样看不清、对不上都算不是：
 // 这个判断直接决定删不删，拿不准就留着。
 func stageIsOurs(stage string, j *Journal) bool {
-	staged := filepath.Join(stage, filepath.FromSlash(j.LevelName))
-	there, err := present(staged)
+	if there, err := present(stage); err != nil {
+		return false
+	} else if !there {
+		return true
+	}
+	var roots []string
+	for _, n := range worldDirNames(j.LevelName) {
+		p := filepath.Join(stage, filepath.FromSlash(n))
+		there, err := present(p)
+		if err != nil {
+			return false
+		}
+		if !there {
+			continue
+		}
+		id, err := directoryIdentity(p)
+		if err != nil || id == "" || id != j.NewDirIDs[strings.ToLower(n)] {
+			return false
+		}
+		roots = append(roots, strings.ToLower(filepath.ToSlash(n)))
+	}
+	// A missing overworld does not make sibling dimensions or unrelated files an
+	// empty shell. Only descendants of verified directory objects may be deleted.
+	err := filepath.WalkDir(stage, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if p == stage {
+			return nil
+		}
+		if d.Type()&(os.ModeSymlink|os.ModeIrregular) != 0 {
+			return fmt.Errorf("暂存区含特殊路径")
+		}
+		rel, err := filepath.Rel(stage, p)
+		if err != nil {
+			return err
+		}
+		rel = strings.ToLower(filepath.ToSlash(rel))
+		for _, root := range roots {
+			if rel == root || strings.HasPrefix(rel, root+"/") || d.IsDir() && strings.HasPrefix(root, rel+"/") {
+				return nil
+			}
+		}
+		return fmt.Errorf("暂存区含未经确认的内容")
+	})
 	if err != nil {
-		return false // 看不了暂存的世界在不在：以前这里当成不在、照删
+		return false
 	}
-	if !there {
-		return true // 暂存区里没有世界（意外丢了，或者本来就没搬回来）：剩下的只是空壳
+	if len(roots) == 0 {
+		return true
 	}
+	staged := filepath.Join(stage, filepath.FromSlash(j.LevelName))
 	if j.NewLevelSHA != "" {
 		if got, err := fileSHAStrict(filepath.Join(staged, "level.dat")); err != nil || got != j.NewLevelSHA {
 			return false
@@ -719,6 +763,9 @@ func fileSHA(p string) string {
 // fileSHA 把两种都记成空串，而空串在别处的意思是「这一项不用核对」：新地图的 level.dat 读失败时，
 // 换上去以后的核对就被悄悄跳过了。要拿哈希去做决定的地方用这个。
 func fileSHAStrict(p string) (string, error) {
+	if err := fault("hash:" + filepath.Clean(p)); err != nil {
+		return "", err
+	}
 	f, err := os.Open(p)
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", nil
@@ -736,6 +783,9 @@ func fileSHAStrict(p string) (string, error) {
 
 // dirBytesStrict 同 dirBytes，但走到一半出错就返回错误，不把数到一半的数当成总大小。
 func dirBytesStrict(root string) (int64, error) {
+	if err := fault("size:" + filepath.Clean(root)); err != nil {
+		return 0, err
+	}
 	var n int64
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {

@@ -1,9 +1,9 @@
 package inst
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
@@ -120,22 +120,69 @@ func writeFileAtomic(path string, data []byte) error {
 // 同一个文件的「读、改、写」要串起来：两个请求同时改 server.properties，各自读到的都是改之前的内容，
 // 后存的那一份会把先存的改动盖掉。临时文件名不同只保证存下去的每一份是完整的，保证不了这个。
 // 登记（UseWorld）不管这件事：它故意让几个保存可以同时进行。
-var fileLocks sync.Map // 键 → *sync.Mutex。键的数量就是服务器和配置文件的数量，不回收
-
-// LockKey 按键加锁，返回解锁的函数。锁不可重入：拿着同一个键的锁时不能再去拿它（UpdateProps 的回调里不能调 ForceProp）。
-func LockKey(key string) (unlock func()) {
-	v, _ := fileLocks.LoadOrStore(key, &sync.Mutex{})
-	m := v.(*sync.Mutex)
-	m.Lock()
-	return m.Unlock
+type keyedLock struct {
+	slot chan struct{}
+	refs int
 }
 
-func propsKey(path string) string { return "props|" + strings.ToLower(filepath.Clean(path)) }
+var fileLocks = struct {
+	sync.Mutex
+	byKey map[string]*keyedLock
+}{byKey: map[string]*keyedLock{}}
+
+// LockKey 按逻辑键排队；不能在持有同一键时重入。请求路径用可取消的 LockKeyContext。
+func LockKey(key string) func() {
+	release, _ := LockKeyContext(context.Background(), key)
+	return release
+}
+
+func LockKeyContext(ctx context.Context, key string) (func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	fileLocks.Lock()
+	l := fileLocks.byKey[key]
+	if l == nil {
+		l = &keyedLock{slot: make(chan struct{}, 1)}
+		fileLocks.byKey[key] = l
+	}
+	l.refs++
+	fileLocks.Unlock()
+	drop := func() {
+		fileLocks.Lock()
+		l.refs--
+		if l.refs == 0 {
+			delete(fileLocks.byKey, key)
+		}
+		fileLocks.Unlock()
+	}
+	select {
+	case l.slot <- struct{}{}:
+	case <-ctx.Done():
+		drop()
+		return nil, ctx.Err()
+	}
+	var once sync.Once
+	release := func() { once.Do(func() { <-l.slot; drop() }) }
+	if err := ctx.Err(); err != nil {
+		release()
+		return nil, err
+	}
+	return release, nil
+}
 
 // UpdateProps 读出 path 这份 server.properties，交给 fn 改，再存回去；整个过程和别的 UpdateProps、ForceProp 排队。
 // fn 返回错误就不存。
 func UpdateProps(path string, fn func(p *Props) error) error {
-	defer LockKey(propsKey(path))()
+	return UpdatePropsContext(context.Background(), path, fn)
+}
+
+func UpdatePropsContext(ctx context.Context, path string, fn func(p *Props) error) error {
+	release, err := atomicfile.LockPathContext(ctx, path)
+	if err != nil {
+		return err
+	}
+	defer release()
 	p, err := LoadProps(path)
 	if err != nil {
 		return err

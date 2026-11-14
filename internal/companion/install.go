@@ -19,7 +19,9 @@ import (
 	"strings"
 	"time"
 
+	"minedeck/internal/atomicfile"
 	companionjar "minedeck/internal/companion/jar"
+	"minedeck/internal/diskguard"
 	"minedeck/internal/dl"
 	"minedeck/internal/modinfo"
 )
@@ -364,6 +366,15 @@ type InstallResult struct {
 
 // Install 装伙伴模组和它的两个依赖（见文件开头）。每装好一个，马上删掉它的旧版本，免得中途失败时留下两份同一个模组。
 func (s *Service) Install(ctx context.Context, name string) (*InstallResult, error) {
+	info0, err := s.d.Instances.Info(name)
+	if err != nil {
+		return nil, &Error{Code: 404, Err: err}
+	}
+	release, err := atomicfile.LockPathContext(ctx, filepath.Join(info0.Dir, "mods", ".minedeck-companion-install"))
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	p, err := s.PreviewInstall(name)
 	if err != nil {
 		return nil, err
@@ -403,7 +414,7 @@ func (s *Service) Install(ctx context.Context, name string) (*InstallResult, err
 				if err != nil {
 					return nil, &Error{Code: 500, Err: err}
 				}
-				if err := placeJar(mods, j.InstallName, data, nil); err != nil {
+				if err := placeJarCtx(ctx, mods, j.InstallName, data, nil); err != nil {
 					return nil, &Error{Code: 500, Err: err}
 				}
 				res.Installed = append(res.Installed, j.InstallName)
@@ -468,7 +479,7 @@ func (s *Service) installDep(ctx context.Context, mods string, d companionjar.De
 		return "", "", &Error{Code: 502, Err: fmt.Errorf("下载 %s %s 失败：%w", d.Name, v.VersionNumber, err)}
 	}
 	name := filepath.Base(f.Filename)
-	if err := placeJar(mods, name, data, checkModsToml(d, func(ver string) bool { return InRange(ver, d.VersionRange) }, "范围 "+d.VersionRange)); err != nil {
+	if err := placeJarCtx(ctx, mods, name, data, checkModsToml(d, func(ver string) bool { return InRange(ver, d.VersionRange) }, "范围 "+d.VersionRange)); err != nil {
 		return "", "", &Error{Code: 502, Err: err}
 	}
 	return name, fmt.Sprintf("%s 实测过的版本 %s 下载不到，换成了 Modrinth 上的 %s（版本在 %s 之内，但没有实测过）", d.Name, t.VersionNumber, v.VersionNumber, d.VersionRange), nil
@@ -493,29 +504,34 @@ var jarNameRe = regexp.MustCompile(`^[A-Za-z0-9._+-]+\.jar$`)
 // placeJar 把 jar 装进 mods：先写一个不以 .jar 结尾的临时文件（加载器不会把它当模组），读回来交给 check 检查，再改名。
 // check 收到的是临时文件的路径（检查 mods.toml 要读 zip）。
 func placeJar(mods, name string, data []byte, check func(path string) error) error {
+	return placeJarCtx(context.Background(), mods, name, data, check)
+}
+
+func placeJarCtx(ctx context.Context, mods, name string, data []byte, check func(path string) error) error {
 	if !jarNameRe.MatchString(name) {
 		return fmt.Errorf("文件名不对：%q", name)
 	}
-	tmp := filepath.Join(mods, "."+name+".part")
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	dest := filepath.Join(mods, name)
+	defer atomicfile.LockPath(dest)()
+	lease, err := diskguard.Acquire(ctx, mods, diskguard.Options{Need: int64(len(data))})
+	if err != nil {
 		return err
 	}
-	if b, err := os.ReadFile(tmp); err != nil || !bytes.Equal(b, data) {
-		os.Remove(tmp)
-		return fmt.Errorf("写进 mods 的 %s 读回来不一样（磁盘可能有问题），没有安装", name)
-	}
-	if check != nil {
-		if err := check(tmp); err != nil {
-			os.Remove(tmp)
+	defer lease.Close()
+	return atomicfile.WriteCheckedWith(dest, data, 0o644, func(tmp string) error {
+		b, err := os.ReadFile(tmp)
+		if err != nil {
 			return err
 		}
-	}
-	dest := filepath.Join(mods, name)
-	if err := os.Rename(tmp, dest); err != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("安装 %s 失败（可能正被服务器占用，停服后再试）：%w", name, err)
-	}
-	return nil
+		if !bytes.Equal(b, data) {
+			return fmt.Errorf("写进 mods 的 %s 读回来不一样，没有安装", name)
+		}
+		if check != nil {
+			return check(tmp)
+		}
+		return nil
+	}, lease.Writer)
+
 }
 
 // ---------- Modrinth ----------

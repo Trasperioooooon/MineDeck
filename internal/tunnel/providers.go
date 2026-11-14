@@ -1,7 +1,6 @@
 package tunnel
 
 import (
-	"archive/zip"
 	"context"
 	"crypto/tls"
 	"fmt"
@@ -13,8 +12,10 @@ import (
 	"time"
 
 	"minedeck/internal/app"
+	"minedeck/internal/diskguard"
 	"minedeck/internal/dl"
 	"minedeck/internal/procutil"
+	"minedeck/internal/zipguard"
 )
 
 // Provider 一个穿透服务商的适配器。
@@ -68,16 +69,24 @@ func isFrpcExeName(name string) bool {
 
 // extractZipFlat 解压 zip 并抹平目录层级（frp 发行包带一层目录），返回解压出来的文件名。
 func extractZipFlat(zipPath, destDir string) ([]string, error) {
-	zr, err := zip.OpenReader(zipPath)
+	zr, err := zipguard.Open(zipPath, zipguard.Default)
 	if err != nil {
 		return nil, err
 	}
 	defer zr.Close()
+	lease, err := diskguard.Acquire(context.Background(), destDir, diskguard.Options{})
+	if err != nil {
+		return nil, err
+	}
+	defer lease.Close()
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return nil, err
 	}
 	var names []string
 	for _, f := range zr.File {
+		if err := lease.Check(0); err != nil {
+			return names, err
+		}
 		if f.FileInfo().IsDir() {
 			continue
 		}
@@ -94,7 +103,7 @@ func extractZipFlat(zipPath, destDir string) ([]string, error) {
 			rc.Close()
 			return names, err
 		}
-		_, cerr := io.Copy(w, rc)
+		_, cerr := io.Copy(lease.Writer(w), rc)
 		rc.Close()
 		if werr := w.Close(); cerr == nil {
 			cerr = werr

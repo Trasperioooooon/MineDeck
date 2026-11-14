@@ -3,13 +3,16 @@ package mcp
 import (
 	"encoding/base64"
 	"encoding/json"
+	"minedeck/internal/atomicfile"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 // 默认关闭：端点和 initialize 都回「没有打开」的中文说明，没有令牌、没有运行时文件；打开时才生成令牌、写运行时文件。
@@ -347,5 +350,45 @@ func TestModernHeaders(t *testing.T) {
 	}
 	if r := f.modern(5, "tools/list", nil, "Mcp-Session-Id", "whatever"); r.status != 200 || r.header.Get("Mcp-Session-Id") != "" {
 		t.Errorf("2026-07-28 不发会话，带了也不管：%d", r.status)
+	}
+}
+
+func TestRuntimeStopWaitsForInFlightWrite(t *testing.T) {
+	f := newFixture(t)
+	if err := f.svc.SetEnabled(true); err != nil {
+		t.Fatal(err)
+	}
+	entered, resume := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	atomicfile.Hook = func(p string) {
+		if p == f.svc.runtimePath() {
+			once.Do(func() { close(entered); <-resume })
+		}
+	}
+	t.Cleanup(func() { atomicfile.Hook = nil })
+	writeDone := make(chan struct{})
+	go func() { f.svc.writeRuntime(); close(writeDone) }()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("没有进入运行时文件保存")
+	}
+	stopDone := make(chan struct{})
+	go func() { f.svc.Stop(); close(stopDone) }()
+	select {
+	case <-stopDone:
+		t.Error("写入尚未完成，Stop 已提前删除并返回")
+	case <-time.After(40 * time.Millisecond):
+	}
+	close(resume)
+	<-writeDone
+	<-stopDone
+	atomicfile.Hook = nil
+	if _, err := os.Stat(f.svc.runtimePath()); !os.IsNotExist(err) {
+		t.Fatalf("停止后运行时文件又出现：%v", err)
+	}
+	f.svc.writeRuntime()
+	if _, err := os.Stat(f.svc.runtimePath()); !os.IsNotExist(err) {
+		t.Fatal("迟到的写入在 Stop 后重建了运行时文件")
 	}
 }

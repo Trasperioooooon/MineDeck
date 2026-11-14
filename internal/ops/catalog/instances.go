@@ -93,6 +93,7 @@ var createParams = map[string]*ops.Schema{
 }
 
 func (c *cat) instanceOps() {
+	c.taskCancelOps()
 	c.reg.Register(&ops.Op{
 		Name: "instance.list", Title: "查看服务器列表", Level: ops.Read,
 		Desc: "所有实例：核心、版本、Java、内存、端口、状态、在线人数、运行时长、MOTD。",
@@ -547,7 +548,7 @@ func (c *cat) instanceOps() {
 			}
 			return plan, nil
 		},
-		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+		Run: func(ctx context.Context, _ ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[propsArgs](a)
 			if err != nil {
 				return nil, err
@@ -557,13 +558,13 @@ func (c *cat) instanceOps() {
 				return nil, err
 			}
 			// 换地图到一半，世界和设置都可能在动。读、改、存的这段时间登记着：换地图也会改这个文件，不能穿插进来
-			release, err := c.Mgr.UseWorld(p.Inst, "保存设置")
+			release, err := c.Mgr.UseWorldInstance(i, "保存设置")
 			if err != nil {
 				return nil, err
 			}
 			defer release()
 			// 读、改、存和别的保存排队：两个窗口同时改，后存的不会把先存的那几项盖回去
-			err = inst.UpdateProps(i.PropsPath(), func(props *inst.Props) error {
+			err = inst.UpdatePropsContext(ctx, i.PropsPath(), func(props *inst.Props) error {
 				for _, kv := range p.Pairs {
 					if key, val := cleanProp(kv); key != "" {
 						props.Set(key, val)

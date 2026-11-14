@@ -614,6 +614,12 @@ func isIPAddr(addr string) bool {
 
 // handleLine 解析 frpc 输出：提取公网地址、自动应答服务条款确认。
 func (m *Manager) handleLine(t *Tunnel, rs *runState, line string) {
+	m.handleLineMasked(t, rs, line, func(s string) string { return s })
+}
+
+// 状态和交互信号从原文识别，但所有会保存或展示的文字先脱敏。
+// 短凭据命中的整行可能被隐藏，不能让这改变隧道启动/条款应答行为。
+func (m *Manager) handleLineMasked(t *Tunnel, rs *runState, line string, mask func(string) string) {
 	low := strings.ToLower(line)
 	// 樱花 frpc 首次运行的服务条款确认
 	if strings.Contains(line, "同意") && (strings.Contains(low, "y/n") || strings.Contains(line, "请输入")) {
@@ -625,6 +631,9 @@ func (m *Manager) handleLine(t *Tunnel, rs *runState, line string) {
 		strings.Contains(line, "启动成功") || strings.Contains(line, "映射启动成功") ||
 		strings.Contains(line, "创建成功") || strings.Contains(low, "proxy added")
 	hasAddr := addrRe.FindString(line)
+	if mask(hasAddr) != hasAddr {
+		hasAddr = ""
+	}
 	if success {
 		m.mu.Lock()
 		rs.online = true
@@ -658,7 +667,7 @@ func (m *Manager) handleLine(t *Tunnel, rs *runState, line string) {
 	} else if strings.Contains(low, "error") || strings.Contains(low, "fail") || strings.Contains(line, "失败") ||
 		strings.Contains(low, "shutdown") || strings.Contains(low, "rejected") || strings.Contains(low, "invalid") ||
 		strings.Contains(line, "错误") {
-		m.setLastErr(t.ID, strings.TrimSpace(line))
+		m.setLastErr(t.ID, strings.TrimSpace(mask(line)))
 	}
 }
 
@@ -700,21 +709,19 @@ const followActor = "跟随服务器"
 // startDelay 实例启动后等多久再拉起跟随的隧道：等服务器进入启动流程。
 var startDelay = 2 * time.Second
 
-// pumpOutput 把 frpc 的输出一行一行读出来：先遮掉这次启动用的凭据，再进控制台缓冲、再交给 handleLine 认。
+// pumpOutput 输出先脱敏再进控制台；原文仅用于状态识别，handleLineMasked 保证保存的文字也脱敏。
 // 读到头（frpc 退出）才返回。
 func (m *Manager) pumpOutput(t *Tunnel, rs *runState, con *procutil.Console, out io.Reader, mask func(string) string) {
 	sc := bufio.NewScanner(out)
 	sc.Buffer(make([]byte, 0, 64*1024), 512*1024)
 	for sc.Scan() {
-		line := mask(strings.TrimRight(sc.Text(), "\r"))
-		con.Append(line)
-		m.handleLine(t, rs, line)
+		line := strings.TrimRight(sc.Text(), "\r")
+		con.Append(mask(line))
+		m.handleLineMasked(t, rs, line, mask)
 	}
 }
 
-// minMaskLen 凭据短于这个长度就不遮。两个原因：太短的串在日志里到处都会碰巧出现（凭据是 "1" 的话，
-// 地址、端口、时间里的 1 全被换掉，日志没法看）；而且遮了也藏不住，哪几个字符被换掉了一眼就看得出来。
-// Codex 第二轮复审建议所有非空的凭据都遮，这一条没有照做，理由写在评审记录里，由作者定。
+// 短凭据可能碰巧出现在地址、时间里；命中的整行省略，避免替换位置反过来提示凭据。
 const minMaskLen = 6
 
 // credMasker 返回一个函数，把这次启动用的凭据从一行输出里遮掉。
@@ -725,7 +732,7 @@ const minMaskLen = 6
 // 除了原样的凭据，也遮它写进 frpc 配置时转义过的样子和放进网址时编码过的样子。
 func credMasker(cred string) func(string) string {
 	cred = strings.TrimSpace(cred)
-	if len(cred) < minMaskLen {
+	if cred == "" {
 		return func(s string) string { return s }
 	}
 	forms := []string{cred}
@@ -737,6 +744,34 @@ func credMasker(cred string) func(string) string {
 	// 长的先换：免得短的先换掉一截，长的就认不出来了
 	slices.SortFunc(forms, func(a, b string) int { return len(b) - len(a) })
 	return func(s string) string {
+		if len(cred) < minMaskLen {
+			hit := false
+			for _, f := range forms {
+				hit = hit || strings.Contains(s, f)
+			}
+			if !hit {
+				return s
+			}
+			// 两种文字互作退路，提示本身也不能包含凭据；保留错误标志供卡片判断。
+			low := strings.ToLower(s)
+			failed := strings.Contains(low, "error") || strings.Contains(low, "fail") || strings.Contains(low, "shutdown") || strings.Contains(low, "rejected") || strings.Contains(low, "invalid") || strings.Contains(s, "错误") || strings.Contains(s, "失败")
+			choices := []string{"日志含凭据，已隐藏", "credential output hidden", "***", ""}
+			if failed {
+				choices = []string{"失败：日志含凭据，已隐藏", "error: credential output hidden", "***", ""}
+			}
+			for _, msg := range choices {
+				clean := true
+				for _, f := range forms {
+					if strings.Contains(msg, f) {
+						clean = false
+						break
+					}
+				}
+				if clean {
+					return msg
+				}
+			}
+		}
 		for _, f := range forms {
 			s = strings.ReplaceAll(s, f, "***")
 		}
@@ -760,10 +795,11 @@ func (m *Manager) followArgs(id, instance string) map[string]any {
 
 // StartBound 启动绑定到某实例且开启了跟随启动的隧道（实例启动后调用）。每拉起（或拉不起）一条记一条操作记录。
 func (m *Manager) StartBound(instance string) {
+	delay := startDelay // 在派发前固定本次等待时间，后台不再读可调整的默认值。
 	for _, id := range m.bound(instance) {
 		id := id
 		go func() {
-			time.Sleep(startDelay)
+			time.Sleep(delay)
 			m.mu.Lock()
 			busy := m.running[id] != nil || m.starting[id] // 已经开着（比如重启时没停）就不用再开；等之后再看，免得撞上刚停掉还没收尾的那次
 			m.mu.Unlock()
@@ -834,8 +870,9 @@ func (m *Manager) follow(e events.Event, status func(string) string) {
 	case "instance.start":
 		m.StartBound(name)
 	case "instance.stop", "instance.crash":
+		grace := stopGrace
 		go func() {
-			time.Sleep(stopGrace)
+			time.Sleep(grace)
 			if status(name) == "stopped" {
 				m.StopBound(name)
 			}

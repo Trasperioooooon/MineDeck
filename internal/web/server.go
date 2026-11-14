@@ -5,6 +5,7 @@
 package web
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
@@ -84,6 +85,7 @@ func New(mgr *inst.Manager, tun *tunnel.Manager, reg *ops.Registry, asst *assist
 	mux.HandleFunc("POST /api/adopt", s.handleAdopt)
 	mux.HandleFunc("GET /api/tasks", s.handleListTasks)
 	mux.HandleFunc("GET /api/tasks/{id}", s.handleTask)
+	mux.HandleFunc("POST /api/tasks/{id}/cancel", s.handleCancelTask)
 
 	mux.HandleFunc("GET /api/instances/{name}/backups", s.handleListBackups)
 	mux.HandleFunc("POST /api/instances/{name}/backups", s.handleCreateBackup)
@@ -136,7 +138,7 @@ func New(mgr *inst.Manager, tun *tunnel.Manager, reg *ops.Registry, asst *assist
 	s.troubleshootRoutes(mux)
 	s.mcpRoutes(mux) // MCP 接口，见 mcp.go
 
-	return secure(mux)
+	return guardUploads(secure(mux))
 }
 
 // secure 校验 Host、API Token 或局域网会话 Cookie。两样都只管「能不能进来」；进来以后算不算本机，见 callerOf。
@@ -273,7 +275,26 @@ func fmtBodyLimit(n int64) string {
 // readJSON 超过上限时原样返回 *http.MaxBytesError：登录接口自己还套着一层更小的上限，要靠它认出 413。
 func readJSON(r *http.Request, v any) error {
 	defer r.Body.Close()
-	return json.NewDecoder(limitedBody(r, maxSmallBody)).Decode(v)
+	return decodeJSON(limitedBody(r, maxSmallBody), v)
+}
+
+// decodeJSON 先把限额内的整个请求读完、确认只有一个合法值，再交给调用方。
+// 只 Decode 一次会接受「对象 + 垃圾／第二个值」，也不会检查尾部是否超过字节上限。
+// 先验证再解码还避免旧调用方在报错后意外使用已经填入一半的字段。
+func decodeJSON(r io.Reader, v any) error {
+	b, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	if len(bytes.TrimSpace(b)) == 0 {
+		return io.EOF
+	}
+	if !json.Valid(b) {
+		return errors.New("请求体不是合法的单个 JSON 值")
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	return dec.Decode(v)
 }
 
 // ---------- 接到操作层 ----------
@@ -338,9 +359,7 @@ func bodyArgs(r *http.Request, kv ...string) func() (ops.Args, error) {
 	return func() (ops.Args, error) {
 		defer r.Body.Close()
 		var m map[string]any
-		dec := json.NewDecoder(limitedBody(r, maxJSONBody))
-		dec.UseNumber() // 数字原样转交，不经 float64
-		if err := dec.Decode(&m); err != nil {
+		if err := decodeJSON(limitedBody(r, maxJSONBody), &m); err != nil {
 			return nil, bodyErr(err)
 		}
 		if m == nil {

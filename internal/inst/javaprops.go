@@ -1,6 +1,7 @@
 package inst
 
 import (
+	"minedeck/internal/atomicfile"
 	"os"
 	"strconv"
 	"strings"
@@ -134,7 +135,7 @@ func javaPropsOf(path string) map[string]string {
 // 再按 Java 的读法读回来看一眼——同一个键还有别的行、或者用了别的写法，服务端认的不是这一行时，
 // 在文件末尾再补一行（Java 认最后一行）。文件不存在时新建。
 func ForceProp(path, key, value string) error {
-	defer LockKey(propsKey(path))() // 和 UpdateProps、别的 ForceProp 排队：这里也是读、改、写
+	defer atomicfile.LockPath(path)() // 和 UpdateProps、别的 ForceProp 排队：这里也是读、改、写
 	p, err := LoadProps(path)
 	if err != nil {
 		return err

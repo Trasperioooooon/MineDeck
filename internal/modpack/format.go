@@ -484,7 +484,7 @@ func candFromJar(f *zip.File, rel string) (srvCand, bool) {
 		}
 		return srvCand{launch: "jar:" + name, rank: rankUnknown}, false
 	}
-	zr, err := zip.NewReader(bytes.NewReader(b), int64(len(b)))
+	zr, err := zipguard.NewReader(bytes.NewReader(b), int64(len(b)), zipguard.Default)
 	if err != nil {
 		return srvCand{}, true // 读出来了却不是 jar：不是能启动的服务端，也不按文件名猜
 	}

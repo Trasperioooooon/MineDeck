@@ -2,10 +2,13 @@ package catalog
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"minedeck/internal/ops"
 )
@@ -103,5 +106,57 @@ func TestWhitelistDoesNothingWhileWorldIsChanging(t *testing.T) {
 	}
 	if who := e.mgr.WorldUsers("生存服"); who != "" {
 		t.Errorf("做完以后登记应当撤掉：%q", who)
+	}
+}
+
+func TestConfigEditsSerializeAndQueuedRequestCanCancel(t *testing.T) {
+	reg, _, dir := newModCatalog(t)
+	path := filepath.Join(dir, "world", "serverconfig", "create-server.toml")
+	if err := os.WriteFile(path, []byte("first = 1\nsecond = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a := ops.Args(`{"inst":"整合包","path":"world/serverconfig/create-server.toml","edits":[{"find":"first = 1","replace":"first = 2"}]}`)
+	b := ops.Args(`{"inst":"整合包","path":"world/serverconfig/create-server.toml","edits":[{"find":"second = 1","replace":"second = 2"}]}`)
+	read, proceed := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(proceed) }) }
+	defer release()
+	cfgPlannedHook = func() {
+		first := false
+		once.Do(func() { first = true })
+		if first {
+			close(read)
+			<-proceed
+		}
+	}
+	t.Cleanup(func() { cfgPlannedHook = nil })
+	done := make(chan error, 1)
+	go func() { _, err := reg.Do(context.Background(), human, "instance.config.write", a); done <- err }()
+	select {
+	case <-read:
+	case err := <-done:
+		t.Fatalf("第一项尚未读完即退出：%v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("未到读后写前")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	_, err := reg.Do(ctx, human, "instance.config.write", b)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		release()
+		<-done
+		t.Fatalf("第二项必须排队并响应取消：%v", err)
+	}
+	release()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.Do(context.Background(), human, "instance.config.write", b); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != "first = 2\nsecond = 2\n" {
+		t.Fatalf("两次成功的修改均应保留：%q %v", got, err)
 	}
 }

@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"minedeck/internal/atomicfile"
 )
 
 // 打进 exe 的桥接模组：bridge/voicechat 用 build.sh --fallback 构建的两个 jar，原样入库在 jar/ 下。
@@ -140,6 +142,8 @@ func InstallJar(modsDir string, v Variant) (JarStatus, []string, error) {
 }
 
 func installJar(modsDir, name string, data []byte, sum string) (JarStatus, []string, error) {
+	defer atomicfile.LockPath(filepath.Join(modsDir, ".minedeck-voicebridge-install"))()
+	defer atomicfile.LockPath(filepath.Join(modsDir, name))()
 	if sha256Hex(data) != sum {
 		return JarStatus{}, nil, errors.New("桥接模组的文件校验没通过，没有安装。")
 	}
@@ -148,18 +152,19 @@ func installJar(modsDir, name string, data []byte, sum string) (JarStatus, []str
 	}
 	dest := filepath.Join(modsDir, name)
 	if b, err := os.ReadFile(dest); err != nil || !bytes.Equal(b, data) {
-		tmp := filepath.Join(modsDir, "."+name+".tmp") // 不以 .jar 结尾：加载器不会把它当模组
-		if err := os.WriteFile(tmp, data, 0o644); err != nil {
-			return JarStatus{}, nil, err
+		if err := atomicfile.WriteChecked(dest, data, 0o644, func(tmp string) error {
+			b, err := os.ReadFile(tmp)
+			if err != nil {
+				return err
+			}
+			if sha256Hex(b) != sum {
+				return errors.New("写进 mods 的桥接模组校验失败，没有安装")
+			}
+			return nil
+		}); err != nil {
+			return JarStatus{}, nil, fmt.Errorf("安装桥接模组失败（%s 可能正被占用，停服后再试）：%w", name, err)
 		}
-		if b, err := os.ReadFile(tmp); err != nil || sha256Hex(b) != sum {
-			os.Remove(tmp)
-			return JarStatus{}, nil, errors.New("写进 mods 的桥接模组校验失败，没有安装（磁盘可能有问题）")
-		}
-		if err := os.Rename(tmp, dest); err != nil {
-			os.Remove(tmp)
-			return JarStatus{}, nil, fmt.Errorf("安装桥接模组失败（%s 可能正被服务器占用，停服后再试）：%w", name, err)
-		}
+
 	}
 	ents, err := os.ReadDir(modsDir)
 	if err != nil {

@@ -14,6 +14,7 @@ package zipguard
 
 import (
 	"archive/zip"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -45,6 +46,14 @@ func (r *ReadCloser) Close() error { return r.f.Close() }
 
 // Open 像 zip.OpenReader 那样打开 path，但申报的条目数、清单大小超过 lim 时返回 ErrTooLarge（errors.Is 认得出）。
 func Open(path string, lim Limits) (*ReadCloser, error) {
+	return OpenContext(context.Background(), path, lim)
+}
+
+// OpenContext 在每次读取前检查取消；不能打断已经阻塞在操作系统里的读取。
+func OpenContext(ctx context.Context, path string, lim Limits) (*ReadCloser, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -54,7 +63,7 @@ func Open(path string, lim Limits) (*ReadCloser, error) {
 		f.Close()
 		return nil, err
 	}
-	zr, err := NewReader(f, st.Size(), lim)
+	zr, err := NewReaderContext(ctx, f, st.Size(), lim)
 	if err != nil {
 		f.Close()
 		return nil, err
@@ -64,6 +73,14 @@ func Open(path string, lim Limits) (*ReadCloser, error) {
 
 // NewReader 同 zip.NewReader，带上面说的两层检查。
 func NewReader(r io.ReaderAt, size int64, lim Limits) (*zip.Reader, error) {
+	return NewReaderContext(context.Background(), r, size, lim)
+}
+
+func NewReaderContext(ctx context.Context, r io.ReaderAt, size int64, lim Limits) (*zip.Reader, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	r = contextReaderAt{ctx: ctx, r: r}
 	records, dirSize, err := Declared(r, size)
 	if err != nil {
 		return nil, err
@@ -123,6 +140,9 @@ const (
 
 // Declared 读出包尾申报的条目数和文件清单的大小。读不出来返回 zip.ErrFormat（或者读盘的错误）。
 func Declared(r io.ReaderAt, size int64) (records, dirSize uint64, err error) {
+	if size < directoryEndLen {
+		return 0, 0, zip.ErrFormat
+	}
 	// 先在最后 1 KB 里找结束记录的标记，找不到再在最后 65 KB 里找
 	var buf []byte
 	var endOffset int64
@@ -205,4 +225,16 @@ func readDirectory64End(r io.ReaderAt, offset int64) (records, dirSize uint64, e
 	}
 	// 标记 4 字节，记录长度 8，两个版本号各 2，两个盘号各 4，本盘条目数 8，然后才是总条目数、清单大小
 	return binary.LittleEndian.Uint64(buf[32:]), binary.LittleEndian.Uint64(buf[40:]), nil
+}
+
+type contextReaderAt struct {
+	ctx context.Context
+	r   io.ReaderAt
+}
+
+func (r contextReaderAt) ReadAt(p []byte, off int64) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.r.ReadAt(p, off)
 }

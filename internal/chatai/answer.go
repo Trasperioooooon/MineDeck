@@ -82,6 +82,7 @@ var (
 // converse 和 AI 来回：返回回答；出错时返回给玩家看的提示和错误详情（给服主看）。
 func (r *room) converse(ctx context.Context, j *job, set Settings, caller ops.Caller, usage *ai.Usage, cost map[string]float64, cmds *[]CmdRecord,
 	acts *[]ActionRecord) (string, string, error) {
+	ctx = ai.WithResponseBudget(ctx)
 	s := r.s
 	feat := j.feat
 	if feat == "" {

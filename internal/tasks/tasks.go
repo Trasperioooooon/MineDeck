@@ -54,19 +54,20 @@ type PendingItem struct {
 }
 
 type Snapshot struct {
-	ID       string        `json:"id"`
-	Title    string        `json:"title"`
-	Kind     string        `json:"kind,omitempty"` // 空 = 新建 / 导入（部署）；adopt = 接管已有服务器；java = 换 Java。界面按它换说法
-	Steps    []Step        `json:"steps"`
-	Log      []string      `json:"log"`
-	Label    string        `json:"label"`
-	Done     int64         `json:"done"`
-	Total    int64         `json:"total"`
-	Ended    bool          `json:"ended"`
-	Err      string        `json:"error,omitempty"`
-	Result   string        `json:"result,omitempty"`
-	Warnings []Warning     `json:"warnings,omitempty"`
-	Pending  []PendingItem `json:"pending,omitempty"` // 整合包导入的待决文件（已结束的任务也可能有）：逐项列出、待用户处置
+	ID        string        `json:"id"`
+	Title     string        `json:"title"`
+	Kind      string        `json:"kind,omitempty"` // 空 = 新建 / 导入（部署）；adopt = 接管已有服务器；java = 换 Java。界面按它换说法
+	Steps     []Step        `json:"steps"`
+	Log       []string      `json:"log"`
+	Label     string        `json:"label"`
+	Done      int64         `json:"done"`
+	Total     int64         `json:"total"`
+	Ended     bool          `json:"ended"`
+	CanCancel bool          `json:"canCancel"`
+	Err       string        `json:"error,omitempty"`
+	Result    string        `json:"result,omitempty"`
+	Warnings  []Warning     `json:"warnings,omitempty"`
+	Pending   []PendingItem `json:"pending,omitempty"` // 整合包导入的待决文件（已结束的任务也可能有）：逐项列出、待用户处置
 	// Net 最近一次出问题以后还没有新的下载进度时才有（下载又动起来、换了步骤就清掉）
 	Net *NetRetry `json:"net,omitempty"`
 }
@@ -82,6 +83,7 @@ type Summary struct {
 	Done         int64  `json:"done"`
 	Total        int64  `json:"total"`
 	Ended        bool   `json:"ended"`
+	CanCancel    bool   `json:"canCancel"`
 	Err          string `json:"error,omitempty"`
 	Result       string `json:"result,omitempty"`
 	WarningCount int    `json:"warningCount"` // 告警条数，明细在 Snapshot.Warnings
@@ -89,22 +91,24 @@ type Summary struct {
 }
 
 type Task struct {
-	id       string
-	title    string
-	kind     string
-	mu       sync.Mutex
-	steps    []Step
-	log      []string
-	logCut   int // 日志太长时从中间丢掉了多少行（见 appendLog）
-	label    string
-	done     int64
-	total    int64
-	ended    bool
-	err      string
-	result   string
-	warnings []Warning
-	pending  []PendingItem
-	cancel   context.CancelFunc
+	id        string
+	title     string
+	kind      string
+	mu        sync.Mutex
+	steps     []Step
+	log       []string
+	logCut    int // 日志太长时从中间丢掉了多少行（见 appendLog）
+	label     string
+	done      int64
+	total     int64
+	ended     bool
+	err       string
+	result    string
+	warnings  []Warning
+	pending   []PendingItem
+	cancel    context.CancelFunc
+	canCancel bool
+	cancelled bool
 
 	netCount int       // 这一步里出过几次网络问题
 	netHost  string    // 最近一次的地址
@@ -141,6 +145,39 @@ func (mg *Manager) Get(id string) *Task {
 	return mg.m[id]
 }
 
+// EnableCancel 只给能清理半成品的任务开放取消；换图等有自己提交边界的任务不自动开放。
+func (t *Task) EnableCancel() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.ended && !t.cancelled {
+		t.canCancel = true
+	}
+}
+
+// BeginCommit 与 Cancel 在同一把锁里分先后。返回真以后，任务必须完成发布或报错清理。
+func (t *Task) BeginCommit() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.canCancel = false
+	return !t.cancelled && !t.ended
+}
+
+// Cancel 返回真表示取消请求已被收下；任务会在清理完成后才结束。
+func (mg *Manager) Cancel(id string) bool {
+	t := mg.Get(id)
+	if t == nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.ended || !t.canCancel || t.cancel == nil {
+		return false
+	}
+	t.cancelled, t.canCancel = true, false
+	t.cancel()
+	return true
+}
+
 // List 按创建时间从新到旧返回本次运行的任务摘要，切页或刷新后仍能找回进度入口；步骤、日志和告警明细用 Get 查单个任务。
 func (mg *Manager) List() []Summary {
 	mg.mu.Lock()
@@ -165,7 +202,7 @@ func (t *Task) summary() Summary {
 	return Summary{
 		ID: t.id, Title: t.title, Kind: t.kind, Label: t.label,
 		Done: t.done, Total: t.total,
-		Ended: t.ended, Err: t.err, Result: t.result,
+		Ended: t.ended, CanCancel: t.canCancel && !t.ended, Err: t.err, Result: t.result,
 		WarningCount: len(t.warnings),
 		PendingCount: len(t.pending),
 	}
@@ -328,7 +365,7 @@ func (t *Task) Snapshot() Snapshot {
 	s := Snapshot{
 		ID: t.id, Title: t.title, Kind: t.kind, Label: t.label,
 		Done: t.done, Total: t.total,
-		Ended: t.ended, Err: t.err, Result: t.result,
+		Ended: t.ended, CanCancel: t.canCancel && !t.ended, Err: t.err, Result: t.result,
 	}
 	s.Steps = append(s.Steps, t.steps...)
 	s.Log = t.logLines()

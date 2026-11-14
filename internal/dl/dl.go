@@ -19,6 +19,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"minedeck/internal/atomicfile"
+	"minedeck/internal/diskguard"
 )
 
 const UA = "MineDeck/1.0 (Minecraft server setup tool; Windows)"
@@ -112,6 +115,8 @@ func verifyFile(r Request) bool {
 		return false
 	}
 	defer f.Close()
+	part := f.Name()
+	defer os.Remove(part)
 	hs := newHashes()
 	if _, err := io.Copy(hs, f); err != nil {
 		return false
@@ -124,6 +129,11 @@ var retryWait = func(round int) time.Duration { return time.Duration(round*2) * 
 
 // Fetch 执行多源下载：URLs 依序尝试，整体最多 3 轮，轮间指数退避。
 func Fetch(ctx context.Context, r Request, prog Progress) error {
+	release, err := atomicfile.LockPathContext(ctx, r.Dest)
+	if err != nil {
+		return err
+	}
+	defer release()
 	if len(r.URLs) == 0 {
 		return errors.New("没有可用下载源")
 	}
@@ -153,6 +163,10 @@ func Fetch(ctx context.Context, r Request, prog Progress) error {
 		}
 		for i, u := range r.URLs {
 			err := fetchOne(ctx, u, r, prog)
+			var noSpace *diskguard.NoSpace
+			if errors.Is(err, diskguard.ErrUnknown) || errors.As(err, &noSpace) {
+				return err
+			}
 			if err == nil {
 				return nil
 			}
@@ -304,6 +318,11 @@ func shortURL(u string) string {
 }
 
 func fetchOne(ctx context.Context, url string, r Request, prog Progress) error {
+	lease, err := diskguard.Acquire(ctx, filepath.Dir(r.Dest), diskguard.Options{})
+	if err != nil {
+		return err
+	}
+	defer lease.Close()
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	// 90 秒无新字节则中断本次尝试，换下一个源
@@ -328,11 +347,16 @@ func fetchOne(ctx context.Context, url string, r Request, prog Progress) error {
 		return &httpStatusError{status: resp.StatusCode}
 	}
 	total := resp.ContentLength
-	part := r.Dest + ".part"
-	f, err := os.Create(part)
+	if err := lease.Check(max(total, 0)); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(filepath.Dir(r.Dest), ".minedeck-download-*.part")
 	if err != nil {
 		return err
 	}
+	part := f.Name()
+	defer os.Remove(part)
+	w := lease.Writer(f)
 	hs := newHashes()
 	var done int64
 	buf := make([]byte, 256*1024)
@@ -341,7 +365,7 @@ func fetchOne(ctx context.Context, url string, r Request, prog Progress) error {
 		n, rerr := resp.Body.Read(buf)
 		if n > 0 {
 			watchdog.Reset(90 * time.Second)
-			if _, werr = f.Write(buf[:n]); werr != nil {
+			if _, werr = w.Write(buf[:n]); werr != nil {
 				break
 			}
 			hs.Write(buf[:n])
@@ -375,8 +399,7 @@ func fetchOne(ctx context.Context, url string, r Request, prog Progress) error {
 		os.Remove(part)
 		return werr
 	}
-	os.Remove(r.Dest)
-	return os.Rename(part, r.Dest)
+	return atomicfile.Replace(part, r.Dest)
 }
 
 // FetchJSON 依次尝试多个 URL 获取并解析 JSON。

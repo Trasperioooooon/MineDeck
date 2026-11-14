@@ -102,6 +102,19 @@ func (m *Manager) beginWorldChange(name, why string, recovery bool) (release fun
 	if err != nil {
 		return nil, err
 	}
+	return m.beginWorldChangeInstance(i, why, recovery)
+}
+
+// BeginWorldChangeInstance 取得调用方已经读过的同一个实例的占位，不接受删除后新建的同名实例。
+func (m *Manager) BeginWorldChangeInstance(i *Instance, why string) (func(), error) {
+	return m.beginWorldChangeInstance(i, why, false)
+}
+
+func (m *Manager) beginWorldChangeInstance(i *Instance, why string, recovery bool) (func(), error) {
+	if i == nil {
+		return nil, errors.New("服务器不存在")
+	}
+	name := i.Name
 	i.procMu.Lock()
 	defer i.procMu.Unlock()
 	if i.state != "" && i.state != "stopped" {
@@ -109,6 +122,12 @@ func (m *Manager) beginWorldChange(name, why string, recovery bool) (release fun
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.insts[name] != i {
+		return nil, errors.New("服务器已经删除或重新创建，请刷新后重试")
+	}
+	if m.worldIntent[name] != nil {
+		return nil, errors.New("这台服务器正在准备换地图，请等它完成")
+	}
 	if m.packing[name] {
 		return nil, errors.New("这台服务器正在打包交接包，等打包完成后再换地图")
 	}
@@ -146,11 +165,27 @@ func (m *Manager) beginWorldChange(name, why string, recovery bool) (release fun
 // 登记不进 WorldBusy：启动查的是 WorldBusy，热备份的时候服务器本来就开着，崩了要能自动重启。
 // 几个操作可以同时登记（备份的时候改设置），互相之间不排斥，和以前一样。
 func (m *Manager) UseWorld(name, what string) (release func(), err error) {
-	if _, err := m.Get(name); err != nil {
+	i, err := m.Get(name)
+	if err != nil {
 		return nil, err
 	}
+	return m.UseWorldInstance(i, what)
+}
+
+// UseWorldInstance 同 UseWorld，同时验证先前取得的实例对象尚未失效。
+func (m *Manager) UseWorldInstance(i *Instance, what string) (release func(), err error) {
+	if i == nil {
+		return nil, errors.New("服务器不存在")
+	}
+	name := i.Name
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.insts[name] != i {
+		return nil, errors.New("服务器已经删除或重新创建，请刷新后重试")
+	}
+	if m.worldIntent[name] != nil {
+		return nil, errors.New("这台服务器正在准备换地图，请等它完成")
+	}
 	if r := m.worldHold[name]; r != "" {
 		return nil, errors.New("这台服务器正在" + r + "，请等它完成")
 	}
@@ -207,6 +242,9 @@ func (m *Manager) WorldBusy(name string) string {
 	defer m.mu.Unlock()
 	if r := m.worldHold[name]; r != "" {
 		return "这台服务器正在" + r + "，请等它完成"
+	}
+	if w := m.worldIntent[name]; w != nil {
+		return "这台服务器正在" + w.why + "，请等它完成"
 	}
 	return m.worldBlock[name]
 }

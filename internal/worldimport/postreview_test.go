@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -19,6 +18,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"minedeck/internal/atomicfile"
+	"minedeck/internal/diskguard"
 	"minedeck/internal/inst"
 	wt "minedeck/internal/worldimport/worldtest"
 )
@@ -929,21 +929,26 @@ func TestUploadGuards(t *testing.T) {
 		t.Errorf("传完名额应当都还回去：还占着 %d 个", len(uploadSlots))
 	}
 
-	// 写的过程中余量掉到留底以下就停：对方说的大小可以是假的
-	free := int64(1 << 40)
-	diskFree = func(string) (int64, error) { return free, nil }
-	sw := &spaceWriter{w: io.Discard, dir: UploadDir()}
-	chunk := make([]byte, 16<<20)
-	var werr error
-	for i := 0; i < 12 && werr == nil; i++ {
-		if i == 5 {
-			free = uploadReserve - 1
+	// Through the real upload path, a mid-stream capacity failure cleans the file and returns the slot.
+	oldEvery := uploadCheckEvery
+	uploadCheckEvery = 1 << 20
+	t.Cleanup(func() { uploadCheckEvery = oldEvery })
+	calls := 0
+	diskFree = func(string) (int64, error) {
+		calls++
+		if calls > 3 {
+			return uploadReserve - 1, nil
 		}
-		_, werr = sw.Write(chunk)
+		return 1 << 40, nil
 	}
-	if !errors.Is(werr, ErrUploadNoSpace) {
-		t.Errorf("写的过程中余量不够应当停下：%v", werr)
+	before := uploads()
+	if _, err := SaveUpload(bytes.NewReader(make([]byte, 4<<20)), 8<<20, 0); !errors.Is(err, ErrUploadNoSpace) {
+		t.Fatalf("上传中途应当因余量不足停止：%v", err)
 	}
+	if uploads() != before || len(uploadSlots) != 0 {
+		t.Fatal("中途拒绝必须清理文件并归还名额")
+	}
+
 }
 
 // 上传文件的清理：还有效的检测结果用着的文件，放得再久也不删；放弃了就删；程序启动时清空上传目录。
@@ -1382,8 +1387,8 @@ func TestSiblingHintsAreCollectedOncePerFolder(t *testing.T) {
 			t.Fatalf("%s：列出来的应当是世界所在目录里排在最前面的那些：%v %v", c.Root, c.SourceHints, c.Readme)
 		}
 	}
-	if len(r.hints) != 2 { // 世界所在的目录 saves，和来源的根
-		t.Errorf("四十个世界共用两个目录，应当只认两遍，实际认了 %d 个目录", len(r.hints))
+	if len(r.hints) != 2 || r.hintPasses != 2 { // 世界所在的目录 saves，和来源的根
+		t.Errorf("四十个世界共用两个目录，应当只认两遍，实际计算 %d 次", r.hintPasses)
 	}
 	// 世界就在来源根下面时，根里的模组文件夹这类照常列出来
 	r = scanOf(t, mkZip(t, map[string]string{"w/level.dat": rawNBT(8), "mods/a.jar": "", "server.jar": "", "说明.txt": "x"}))
@@ -1523,73 +1528,84 @@ func folderSource(t *testing.T, size int) (*source, []stagedFile) {
 func TestStagingRunsOneAtATime(t *testing.T) {
 	srcA, filesA := folderSource(t, 1<<20)
 	srcB, filesB := folderSource(t, 1<<20)
+	tmp := t.TempDir()
 	free := int64(1 << 40)
 	var mu sync.Mutex
-	var asked []string // 谁在什么时候查过余量
-	holdA, releaseA := make(chan struct{}), make(chan struct{})
-	var onceA sync.Once
+	var asked []string
 	old := diskFree
 	diskFree = func(dir string) (int64, error) {
-		who := "B"
-		if strings.Contains(dir, "stage-A") {
-			who = "A"
-			onceA.Do(func() { close(holdA); <-releaseA }) // A 第一次查余量的时候停住：它已经占着名额了
-		}
 		mu.Lock()
 		defer mu.Unlock()
-		asked = append(asked, who)
+		if strings.Contains(dir, "stage-B") {
+			asked = append(asked, "B")
+		}
 		return free, nil
 	}
 	t.Cleanup(func() { diskFree = old })
-	tmp := t.TempDir()
-
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	copied, proceed := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(proceed) }) }
+	defer release()
 	doneA := make(chan error, 1)
 	go func() {
-		doneA <- stageFiles(context.Background(), srcA, filesA, filepath.Join(tmp, "stage-A"), nil, nil)
+		doneA <- stageFiles(ctx, srcA, filesA, filepath.Join(tmp, "stage-A"), func(done, total int64) {
+			close(copied)
+			select {
+			case <-proceed:
+			case <-ctx.Done():
+			}
+		}, nil)
 	}()
-	<-holdA
+	select {
+	case <-copied:
+	case err := <-doneA:
+		t.Fatalf("A 尚未写完第一份文件就失败：%v", err)
+	case <-ctx.Done():
+		t.Fatal("A 未到复制中途")
+	}
+	if st, err := os.Stat(filepath.Join(tmp, "stage-A", "world", "big.bin")); err != nil || st.Size() != 1<<20 {
+		t.Fatalf("暂停点必须已经真正写完文件：%v", err)
+	}
 	waited := make(chan struct{})
 	doneB := make(chan error, 1)
 	go func() {
-		doneB <- stageFiles(context.Background(), srcB, filesB, filepath.Join(tmp, "stage-B"), nil, func() { close(waited) })
+		doneB <- stageFiles(ctx, srcB, filesB, filepath.Join(tmp, "stage-B"), nil, func() { close(waited) })
 	}()
 	select {
 	case <-waited:
 	case err := <-doneB:
-		t.Fatalf("A 还在复制的时候，B 不该已经做完：%v", err)
-	case <-time.After(10 * time.Second):
-		t.Fatal("B 没有去等名额")
+		t.Fatalf("A 仍持名额时 B 已结束：%v", err)
+	case <-ctx.Done():
+		t.Fatal("B 没有排队")
 	}
 	mu.Lock()
-	early := strings.Join(asked, "")
-	mu.Unlock()
-	if strings.Contains(early, "B") {
-		t.Errorf("A 复制完之前 B 不该查余量（查了也是不算数的旧数）：%s", early)
-	}
-	// A 复制完，盘上的余量因此少了：B 这时候才查，看到的是新的数
-	mu.Lock()
+	early := len(asked)
 	free = stageReserve / 2
 	mu.Unlock()
-	close(releaseA)
-	<-doneA // A 在余量改小以后还会再查（每个文件之前），它自己可能写完、也可能因为余量不够停下，两种都说得通，不看它
-	errB := <-doneB
+	if early != 0 {
+		t.Fatal("B 在 A 释放卷名额前查询了旧余量")
+	}
+	release()
+	if err := <-doneA; err != nil {
+		t.Fatalf("A 必须成功完成复制：%v", err)
+	}
 	var ns *errNoSpace
-	if !errors.As(errB, &ns) {
-		t.Errorf("B 等到 A 复制完才查余量，这时已经放不下，应当报空间不够：%v", errB)
+	if err := <-doneB; !errors.As(err, &ns) {
+		t.Fatalf("B 必须看见 A 完成后的低余量：%v", err)
 	}
-	if len(stageSlot) != 0 {
-		t.Errorf("都结束以后名额应当放掉：还占着 %d 个", len(stageSlot))
+	// Both paths release their shared volume lease, and queued cancellation cannot leak it.
+	hold, err := diskguard.Acquire(ctx, tmp, diskguard.Options{Query: func(string) (int64, error) { return 1 << 40, nil }})
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	// 等名额的时候请求取消：不再等
-	stageSlot <- struct{}{}
-	ctx, cancel := context.WithCancel(context.Background())
-	asked2 := false
-	go func() { time.Sleep(50 * time.Millisecond); cancel() }()
-	err := stageFiles(ctx, srcB, filesB, filepath.Join(tmp, "stage-C"), nil, func() { asked2 = true })
-	<-stageSlot
-	if !errors.Is(err, context.Canceled) || !asked2 {
-		t.Errorf("等名额的时候取消应当不再等：err=%v 说过在等=%v", err, asked2)
+	cctx, ccancel := context.WithCancel(ctx)
+	didWait := false
+	err = stageFiles(cctx, srcB, filesB, filepath.Join(tmp, "stage-C"), nil, func() { didWait = true; ccancel() })
+	hold.Close()
+	if !errors.Is(err, context.Canceled) || !didWait {
+		t.Fatalf("排队取消：%v wait=%v", err, didWait)
 	}
 }
 

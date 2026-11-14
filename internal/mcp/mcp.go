@@ -33,6 +33,7 @@ import (
 	"unicode"
 
 	"minedeck/internal/assistant"
+	"minedeck/internal/atomicfile"
 	"minedeck/internal/ops"
 )
 
@@ -94,18 +95,20 @@ type Service struct {
 	exe     string
 	now     func() time.Time
 
-	mu       sync.Mutex
-	enabled  bool
-	port     int    // 实际监听的端口（Start 之后才有）
-	wanted   int    // 想用的端口（被占用时 MineDeck 会换一个）
-	sum      []byte // 令牌的 SHA-256：内存里不留明文；nil 表示没有可用的令牌
-	broken   bool   // 存着的令牌解不开（换了电脑或 Windows 用户）
-	clients  []*Client
-	seq      uint64 // 递增的序号：客户端来访（Client.seq）和提出提案（record.seq）共用
-	sessions map[string]*session
-	props    map[string]*record // MCP 提出的提案（处理结果留一个小时，给 proposal_status 查）
-	changed  chan struct{}      // 提案有变化时关闭、再换一个新的（proposal_status 的 wait 等它）
-	subs     map[chan struct{}]struct{}
+	runtimeMu sync.Mutex
+	stopped   bool
+	mu        sync.Mutex
+	enabled   bool
+	port      int    // 实际监听的端口（Start 之后才有）
+	wanted    int    // 想用的端口（被占用时 MineDeck 会换一个）
+	sum       []byte // 令牌的 SHA-256：内存里不留明文；nil 表示没有可用的令牌
+	broken    bool   // 存着的令牌解不开（换了电脑或 Windows 用户）
+	clients   []*Client
+	seq       uint64 // 递增的序号：客户端来访（Client.seq）和提出提案（record.seq）共用
+	sessions  map[string]*session
+	props     map[string]*record // MCP 提出的提案（处理结果留一个小时，给 proposal_status 查）
+	changed   chan struct{}      // 提案有变化时关闭、再换一个新的（proposal_status 的 wait 等它）
+	subs      map[chan struct{}]struct{}
 }
 
 type settings struct {
@@ -150,17 +153,7 @@ func (s *Service) saveLocked() error {
 	return writeAtomic(s.settingsPath(), b)
 }
 
-func writeAtomic(path string, b []byte) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	return nil
-}
+func writeAtomic(path string, b []byte) error { return atomicfile.WriteProtected(path, b, 0o600) }
 
 // ---------- 令牌 ----------
 
@@ -279,10 +272,8 @@ func (s *Service) SetEnabled(on bool) error {
 		return fmt.Errorf("保存 MCP 设置失败：%w", err)
 	}
 	s.mu.Unlock()
-	if on {
-		s.writeRuntime()
-	} else {
-		s.removeRuntime()
+	s.writeRuntime()
+	if !on {
 		s.voidPending("用户关闭了 MineDeck 的 MCP 接口")
 	}
 	s.publish()
@@ -307,7 +298,7 @@ func (s *Service) runtimePath() string { return filepath.Join(s.dir, RuntimeFile
 // Start HTTP 服务开始监听之后调：记下端口（wanted 是想用的端口，被占用时 MineDeck 会换一个），打开着就写运行时文件。
 func (s *Service) Start(port, wanted int) {
 	s.mu.Lock()
-	s.port, s.wanted = port, wanted
+	s.port, s.wanted, s.stopped = port, wanted, false
 	on := s.enabled
 	s.mu.Unlock()
 	if on {
@@ -316,13 +307,16 @@ func (s *Service) Start(port, wanted int) {
 }
 
 // Stop 退出时调：删掉自己写的运行时文件。
-func (s *Service) Stop() { s.removeRuntime() }
+func (s *Service) Stop() { s.mu.Lock(); s.stopped = true; s.mu.Unlock(); s.writeRuntime() }
 
 func (s *Service) writeRuntime() {
+	s.runtimeMu.Lock()
+	defer s.runtimeMu.Unlock()
 	s.mu.Lock()
-	port := s.port
+	port, on := s.port, s.enabled && !s.stopped
 	s.mu.Unlock()
-	if port == 0 {
+	if !on || port == 0 {
+		s.removeRuntimeLocked()
 		return
 	}
 	b, _ := json.MarshalIndent(Runtime{V: 1, PID: os.Getpid(), Port: port, Exe: s.exe, Version: s.version, Started: s.now().Format(time.RFC3339)}, "", "  ")
@@ -336,7 +330,7 @@ func (s *Service) writeRuntime() {
 }
 
 // removeRuntime 只删自己写的（同一目录下开了两份 MineDeck 时，不删别人的）。
-func (s *Service) removeRuntime() {
+func (s *Service) removeRuntimeLocked() {
 	b, err := os.ReadFile(s.runtimePath())
 	if err != nil {
 		return

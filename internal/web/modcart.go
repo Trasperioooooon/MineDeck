@@ -2,7 +2,6 @@ package web
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -66,6 +65,8 @@ const modcartLocalTooLarge = "这个文件超过了 256 MB 的上限，放不进
 // 放不放得进清单都由操作层查（它不信这里给的任何东西，只认上传目录里的文件）。
 // 落盘的名字自己起：上传名是对方给的，可以超长、可以带冒号，不拿它拼路径，原样交给操作层去查。
 func (s *Server) handleModcartLocal(w http.ResponseWriter, r *http.Request) {
+	r, cleanup := beginUpload(w, r)
+	defer cleanup()
 	dest := ""
 	// 操作成功时临时文件已经被挪进清单的暂存目录；没成功的（参数不合规、校验没过）在这里删掉，不留在缓存里
 	defer func() {
@@ -76,9 +77,6 @@ func (s *Server) handleModcartLocal(w http.ResponseWriter, r *http.Request) {
 	s.do(w, r, "modcart.local.add", func() (ops.Args, error) {
 		if err := parseUpload(w, r, modcartLocalLimit, modcartLocalTooLarge); err != nil {
 			return nil, err
-		}
-		if r.MultipartForm != nil {
-			defer r.MultipartForm.RemoveAll() // 超过内存上限的部分落在系统临时目录里
 		}
 		file, hdr, err := r.FormFile("file")
 		if err != nil {
@@ -97,12 +95,12 @@ func (s *Server) handleModcartLocal(w http.ResponseWriter, r *http.Request) {
 		}
 		path := out.Name()
 		dest = path
-		_, cerr := io.Copy(out, file)
+		cerr := copyUpload(r, out, file, hdr.Size, modcartLocalTooLarge)
 		if werr := out.Close(); cerr == nil {
-			cerr = werr
+			cerr = ops.Wrap(500, werr)
 		}
 		if cerr != nil {
-			return nil, ops.Errorf(500, "保存上传文件失败")
+			return nil, fmt.Errorf("保存上传文件失败：%w", cerr)
 		}
 		m := map[string]any{"file": path, "fileName": hdr.Filename}
 		for _, k := range []string{"inst", "core", "mc"} {

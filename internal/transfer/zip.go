@@ -8,11 +8,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"minedeck/internal/diskguard"
 	"minedeck/internal/inst"
 	"minedeck/internal/modinfo"
 	"minedeck/internal/winname"
@@ -47,11 +49,19 @@ type packFile struct {
 // progress(done, total) 按字节报；fileCount(n, done, total) 每隔一批文件报一次数量（任务的 label 换字用）。
 func writePack(ctx context.Context, dest string, files []packFile, mf *Manifest,
 	progress func(done, total int64), fileCount func(n int, done, total int64)) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	lease, err := diskguard.Acquire(ctx, dest, diskguard.Options{})
+	if err != nil {
+		return err
+	}
+	defer lease.Close()
 	f, err := os.Create(dest)
 	if err != nil {
 		return err
 	}
-	zw := zip.NewWriter(f)
+	zw := zip.NewWriter(lease.Writer(f))
 	var done, n int64
 	buf := make([]byte, 512<<10)
 	fail := func(err error) error {
@@ -299,13 +309,32 @@ func extractPrefix(ctx context.Context, src, destDir string, opts extractOpts,
 	if len(ents) > maxEntries {
 		return res, fmt.Errorf("交接包里有 %d 个文件，超过了一次能导入的上限（%d 个）", len(ents), maxEntries)
 	}
+	cleanDest := filepath.Clean(destDir)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	need := total
+	overhead := int64(len(ents)) * 4096
+	if need > math.MaxInt64-overhead {
+		need = math.MaxInt64
+	} else {
+		need += overhead
+	}
+	var query func(string) (int64, error)
 	if opts.free != nil {
-		// 每个文件在盘上至少占一条文件记录、内容按簇取整：按每个文件多算 4 KB 估
-		if free, err := opts.free(); err == nil && uint64(total)+uint64(len(ents))*4096+(256<<20) > free {
-			return res, fmt.Errorf("磁盘空间不够：交接包解开要 %s，存放位置所在的盘只剩 %s", fmtBytes(total), fmtBytes(int64(free)))
+		query = func(string) (int64, error) {
+			n, err := opts.free()
+			if n > math.MaxInt64 {
+				return math.MaxInt64, err
+			}
+			return int64(n), err
 		}
 	}
-	cleanDest := filepath.Clean(destDir)
+	lease, err := diskguard.Acquire(ctx, cleanDest, diskguard.Options{Need: need, Query: query})
+	if err != nil {
+		return res, err
+	}
+	defer lease.Close()
 	var done int64
 	var n int
 	buf := make([]byte, 512<<10)
@@ -316,6 +345,9 @@ func extractPrefix(ctx context.Context, src, destDir string, opts extractOpts,
 		return ctx.Err()
 	}
 	for _, e := range ents {
+		if err := lease.Check(0); err != nil {
+			return res, err
+		}
 		if err := cancelled(); err != nil {
 			return res, err
 		}
@@ -345,7 +377,7 @@ func extractPrefix(ctx context.Context, src, destDir string, opts extractOpts,
 			return res, err
 		}
 		// 解压炸弹防线：申报多大就最多解多大——超过申报体积立刻失败，不写到整盘才回头对账
-		k, cerr := io.CopyBuffer(w, io.LimitReader(rc, e.size+1), buf)
+		k, cerr := io.CopyBuffer(lease.Writer(w), io.LimitReader(rc, e.size+1), buf)
 		if werr := w.Close(); cerr == nil {
 			cerr = werr
 		}

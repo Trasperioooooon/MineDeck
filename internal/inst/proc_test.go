@@ -34,6 +34,10 @@ func fakeServer() int {
 			return 0
 		case "crash":
 			return 0
+		case "save-all flush":
+			fmt.Println("[12:00:01] [Server thread/INFO]: Saved the game")
+		case "save-on":
+			fmt.Println("[12:00:01] [Server thread/INFO]: Automatic saving enabled")
 		}
 	}
 	return 0

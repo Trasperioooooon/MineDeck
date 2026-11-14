@@ -28,9 +28,21 @@ func (m *Manager) ReleaseCreate(name, dir string) {
 // BeginPacking 给实例占上「正在打包」的位，返回放掉它的函数；已经在打包时 ok=false。
 // 占着的时候这台服务器不能启动、不能删除（见 Start 和 Delete）。调用方在打包结束时（无论成败）调一次 release。
 func (m *Manager) BeginPacking(name string) (release func(), ok bool) {
+	i, err := m.Get(name)
+	if err != nil {
+		return nil, false
+	}
+	return m.BeginPackingInstance(i)
+}
+
+func (m *Manager) BeginPackingInstance(i *Instance) (release func(), ok bool) {
+	if i == nil {
+		return nil, false
+	}
+	name := i.Name
 	// 换地图到一半，世界目录正在移动，打出来的包是坏的。这一条和登记打包在同一次加锁里做（tryMarkPacking）：
 	// 以前是先看一眼、放开锁、再登记，中间换地图能占上位
-	if !m.tryMarkPacking(name) {
+	if !m.tryMarkPackingInstance(i) {
 		return nil, false
 	}
 	var once sync.Once // release 可以调多次（提前放一次、defer 再兜一次），只有第一次算数：不能把之后别人占上的位放掉
@@ -87,6 +99,9 @@ func LocateLaunchTarget(dir string, core mcsrc.Core, ctx context.Context, mc str
 
 // WorldDirs 返回实例的世界存档目录（vanilla 单目录 / bukkit 三目录，读 server.properties 的 level-name）。
 func (i *Instance) WorldDirs() []string { return i.worldDirs() }
+
+// WorldDirsStrict 供交接包等需要完整世界清单的读取者使用；无法确定时明确失败。
+func (i *Instance) WorldDirsStrict() ([]string, error) { return i.worldDirsStrict() }
 
 // LaunchArgsOf 给出 JVM 启动参数（进程托管与 run.bat 共用的那份），供导入做完后做“到启动参数这一层”的校验。
 func LaunchArgsOf(i *Instance) []string { return launchArgs(i) }

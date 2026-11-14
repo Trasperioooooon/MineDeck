@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"bufio"
+	"bytes"
 	"io"
 	"net/url"
 	"strings"
@@ -56,11 +57,15 @@ func TestFrpcOutputMasksCredential(t *testing.T) {
 }
 
 func TestCredMasker(t *testing.T) {
-	// 太短的凭据不遮：日志里到处都会碰巧出现，遮了日志没法看，而且哪几个字符被换掉了一眼看得出来，藏不住。
-	// 这是有意的取舍，不是这道边界已经关上了：Codex 第二轮复审建议全遮，没有照做，交作者定
-	short := credMasker("abc")
-	if got := short("abc abcdef"); got != "abc abcdef" {
-		t.Errorf("短凭据不该遮：%q", got)
+	for _, cred := range []string{"1", "abc", "error", "失", "*", "…"} {
+		mask := credMasker(cred)
+		if got := mask("failed: token=" + cred); strings.Contains(got, cred) {
+			t.Errorf("短凭据没有隐藏：%q => %q", cred, got)
+		}
+		plain := "正常连接已经建立"
+		if !strings.Contains(plain, cred) && mask(plain) != plain {
+			t.Error("无凭据的行应当保留")
+		}
 	}
 	if got := credMasker("")("anything"); got != "anything" {
 		t.Errorf("没有凭据时原样返回：%q", got)
@@ -72,5 +77,29 @@ func TestCredMasker(t *testing.T) {
 	// 一行里出现几次都遮
 	if got := credMasker("tokentoken")("tokentoken/tokentoken"); got != "***/***" {
 		t.Errorf("得到 %q", got)
+	}
+}
+
+func TestShortCredentialMaskPreservesControlSignals(t *testing.T) {
+	tempBase(t)
+	m := NewManager()
+	tt, err := m.Add(Tunnel{Provider: "natfrp", Name: "short", Credential: "1", ProxyID: "9"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tun := m.get(tt.ID)
+	con := m.Console(tt.ID)
+	var replies bytes.Buffer
+	rs := &runState{stdin: bufio.NewWriter(&replies)}
+	lines := "2026/11/14 同意服务条款，请输入 y/n\n2026/11/14 start proxy success token=1\n2026/11/14 invalid token=1\n"
+	m.pumpOutput(tun, rs, con, strings.NewReader(lines), credMasker("1"))
+	if replies.String() != "y\n" || !rs.online {
+		t.Fatalf("脱敏改变了控制信号：reply=%q online=%v", replies.String(), rs.online)
+	}
+	if got := strings.Join(con.Lines(), "\n"); strings.Contains(got, "1") {
+		t.Fatalf("控制台含短凭据：%q", got)
+	}
+	if err := m.lastError(tt.ID); err == "" || strings.Contains(err, "1") {
+		t.Fatalf("错误文字未脱敏：%q", err)
 	}
 }

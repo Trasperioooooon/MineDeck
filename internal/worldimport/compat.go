@@ -2,7 +2,9 @@ package worldimport
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -23,15 +25,16 @@ var firstModern = []string{"26.1-snapshot-6", "26.1"}
 
 // Target 目标服务器的现状。
 type Target struct {
-	Inst      string
-	New       bool   // 新建服务器（目录还没有世界）
-	Dir       string // 实例目录；新建时为空
-	Core      mcsrc.Core
-	MC        string
-	LevelName string
-	Props     map[string]string // server.properties（按 Java 的读法）；新建时是将要写的值
-	jarWV     int32             // 目标核心 jar 里 version.json 的 world_version（读不到为 0）
-	launch    string            // 实例的启动方式（jar:… / args:…）
+	Inst       string
+	New        bool   // 新建服务器（目录还没有世界）
+	Dir        string // 实例目录；新建时为空
+	Core       mcsrc.Core
+	MC         string
+	LevelName  string
+	Props      map[string]string // server.properties（按 Java 的读法）；新建时是将要写的值
+	jarWV      int32             // 目标核心 jar 里 version.json 的 world_version（读不到为 0）
+	launch     string            // 实例的启动方式（jar:… / args:…）
+	rootConfig string            // 本次世界根检查读到的配置指纹，执行前及占位后重读
 }
 
 // coreFamily 核心属于哪一类：决定世界怎么摆、模组线索怎么比。
@@ -393,8 +396,26 @@ var worldContainerRe = regexp.MustCompile(`(?m)^[ \t]+world-container:[ \t]*['"]
 // worldRootChecks 目标的世界根是不是就在服务器文件夹里、level-name 能不能照着用。
 func worldRootChecks(t *Target) []Issue {
 	var is []Issue
+	h := sha256.New()
+	defer func() { t.rootConfig = fmt.Sprintf("%x", h.Sum(nil)) }()
 	if t.Dir == "" {
 		return is
+	}
+	readConfig := func(rel string, optional bool) []byte {
+		b, err := os.ReadFile(filepath.Join(t.Dir, filepath.FromSlash(rel)))
+		fmt.Fprintf(h, "%s\x00", rel)
+		if optional && errors.Is(err, os.ErrNotExist) {
+			io.WriteString(h, "missing\x00")
+			return nil
+		}
+		if err != nil {
+			is = append(is, Issue{Sev: SevBlock, Code: "world-config-unreadable",
+				Msg: "读不了服务器的「" + rel + "」，没法确认世界的实际位置，没有替换任何文件", Detail: noPath(err)})
+			return nil
+		}
+		h.Write(b)
+		h.Write([]byte{0})
+		return b
 	}
 	if name, ok := inst.CheckLevelName(t.Dir); !ok {
 		is = append(is, Issue{Sev: SevBlock, Code: "level-name-unsafe",
@@ -407,7 +428,7 @@ func worldRootChecks(t *Target) []Issue {
 			Detail: t.LevelName})
 	}
 	if bukkitLike(coreFamily(t.Core)) {
-		if b, err := os.ReadFile(filepath.Join(t.Dir, "bukkit.yml")); err == nil {
+		if b := readConfig("bukkit.yml", true); b != nil {
 			if m := worldContainerRe.FindSubmatch(b); m != nil {
 				if v := strings.TrimSpace(string(m[1])); v != "" && v != "." && v != "./" {
 					is = append(is, Issue{Sev: SevBlock, Code: "world-container",
@@ -420,7 +441,7 @@ func worldRootChecks(t *Target) []Issue {
 	// 启动参数文件（Forge / NeoForge 的 win_args.txt 这类）里改了世界根：原版认 --universe、--world，
 	// Bukkit 一类还认 -W、--world-dir、--world-container。MineDeck 自己启动时不加这些，有人手改过就拦下
 	if rest, ok := strings.CutPrefix(t.launch, "args:"); ok && rest != "" {
-		if b, err := os.ReadFile(filepath.Join(t.Dir, filepath.FromSlash(rest))); err == nil {
+		if b := readConfig(rest, false); b != nil {
 			for _, f := range strings.Fields(string(b)) {
 				switch strings.ToLower(strings.SplitN(f, "=", 2)[0]) {
 				case "--universe", "--world", "-w", "--world-dir", "--world-container":
@@ -436,7 +457,10 @@ func worldRootChecks(t *Target) []Issue {
 	for _, seg := range strings.Split(filepath.ToSlash(t.LevelName), "/") {
 		cur = filepath.Join(cur, seg)
 		for _, p := range []string{cur, cur + "_nether", cur + "_the_end"} {
-			if st, err := os.Lstat(p); err == nil && st.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
+			st, err := statFn(p)
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				is = append(is, Issue{Sev: SevBlock, Code: "world-unreadable", Msg: "看不了世界路径，没法确认它是否为链接，没有替换任何文件", Detail: noPath(err)})
+			} else if err == nil && st.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
 				is = append(is, Issue{Sev: SevBlock, Code: "world-is-link",
 					Msg:    "这台服务器的世界文件夹是一个链接（符号链接或目录联接），首版导入不支持",
 					Detail: p})

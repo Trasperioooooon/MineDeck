@@ -3,7 +3,9 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
+	"minedeck/internal/atomicfile"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -258,5 +260,53 @@ func TestPriceBookCacheAndRefresh(t *testing.T) {
 	b2.wait()
 	if len(f.requests()) != n {
 		t.Error("失败后 6 小时内不该自动重试")
+	}
+}
+
+func TestPriceRefreshIncludesCacheWriteAndCancellation(t *testing.T) {
+	ps := &priceServer{body: samplePrices(t)}
+	f := ps.serve(t)
+	b := newPriceBook(filepath.Join(t.TempDir(), "prices.json"), f.srv.Client(), []string{f.srv.URL + "/m2/litellm.json"}, time.Now)
+	entered, resume := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	atomicfile.Hook = func(p string) {
+		if p == b.path {
+			once.Do(func() { close(entered); <-resume })
+		}
+	}
+	t.Cleanup(func() { atomicfile.Hook = nil })
+	done := make(chan error, 1)
+	go func() { done <- b.Refresh(context.Background()) }()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("没有进入缓存保存")
+	}
+	if !b.Status().Fetching {
+		t.Error("保存未结束就清掉了刷新标志")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
+	if err := b.Refresh(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("等待另一次刷新应可取消：%v", err)
+	}
+	cancel()
+	if ps.count("/m2/litellm.json") != 1 {
+		t.Error("缓存还在写时又发起了下载")
+	}
+	close(resume)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	atomicfile.Hook = nil
+	if b.Status().Fetching || b.Status().Count == 0 {
+		t.Fatal("刷新没有完成")
+	}
+	// 保存失败照实返回，不能把没有落盘的新数据当成功。
+	bad := newPriceBook(t.TempDir(), f.srv.Client(), b.urls, time.Now)
+	if err := bad.Refresh(context.Background()); err == nil || !strings.Contains(err.Error(), "保存价格缓存失败") {
+		t.Fatalf("缓存保存错误被吞掉：%v", err)
+	}
+	if bad.Status().Fetching || bad.Status().Error == "" {
+		t.Fatal("失败后刷新标志或错误不正确")
 	}
 }
