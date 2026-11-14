@@ -40,8 +40,13 @@ const WorldTxUnreadable = "换地图的记录读不出来，为了不在半成�
 // 加载实例时据此封锁启动；worldimport 处理完记录以后也用它再看一遍盘上，没问题了才解除封锁。
 func PendingWorldTx(dir string) string {
 	ents, err := os.ReadDir(filepath.Join(dir, filepath.FromSlash(WorldTxDir)))
+	if errors.Is(err, os.ErrNotExist) {
+		return "" // 没有这个文件夹：从来没换过地图
+	}
 	if err != nil {
-		return ""
+		// 文件夹在、却读不了（被占用、没权限、盘出错）：里面有没有没走完的记录不知道，按有算。
+		// 以前这里当成没有，换图中断以后要是正好读不了，服务器就能在半成品的世界上启动（2026-11-14 Codex 合并复审第 3 条）
+		return WorldTxUnreadable
 	}
 	for _, e := range ents {
 		if !e.IsDir() {
@@ -74,8 +79,23 @@ func PendingWorldTx(dir string) string {
 	return ""
 }
 
-// BeginWorldChange 占上「正在换地图」的位，返回放掉它的函数。服务器必须已经停下，并且没在打包、没有别的换图在进行。
+// BeginWorldChange 占上「正在换地图」的位，返回放掉它的函数。服务器必须已经停下，没在打包，没有别的换图在进行，
+// 也没有被封锁（有没走完的换地图记录）。
+//
+// 封锁要在这里、和占位同一次加锁里查：以前只看占位，封锁由各个入口自己先查一遍，有的入口（换回旧地图）没查。
+// 结果是第二次导入卡在半路时还能把第一次导入换回去，之后重试恢复会把换回来的那张最早的地图当成第二次的新地图清掉
+// （2026-11-14 Codex 合并复审第 1 条，用测试在真目录上复现过）。处理没走完的记录本身用 BeginWorldRecovery。
 func (m *Manager) BeginWorldChange(name, why string) (release func(), err error) {
+	return m.beginWorldChange(name, why, false)
+}
+
+// BeginWorldRecovery 同 BeginWorldChange，但被封锁时也占得上：只给「处理没走完的换地图记录」用（重试恢复）。
+// 停没停、打包、已经有人占着，这几样照查。
+func (m *Manager) BeginWorldRecovery(name, why string) (release func(), err error) {
+	return m.beginWorldChange(name, why, true)
+}
+
+func (m *Manager) beginWorldChange(name, why string, recovery bool) (release func(), err error) {
 	i, err := m.Get(name)
 	if err != nil {
 		return nil, err
@@ -92,6 +112,9 @@ func (m *Manager) BeginWorldChange(name, why string) (release func(), err error)
 	}
 	if r := m.worldHold[name]; r != "" {
 		return nil, errors.New("这台服务器正在换地图或还原备份，请等它完成")
+	}
+	if r := m.worldBlock[name]; r != "" && !recovery {
+		return nil, errors.New(r)
 	}
 	if m.worldHold == nil {
 		m.worldHold = map[string]string{}

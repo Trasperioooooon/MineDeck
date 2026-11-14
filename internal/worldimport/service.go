@@ -867,7 +867,11 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 	j.LastExit = i2.LastExit()
 	for _, n := range worldDirNames(tg.LevelName) {
 		wp := filepath.Join(tg.Dir, filepath.FromSlash(n))
-		if !exists(wp) {
+		there, err := present(wp)
+		if err != nil { // 看不清原位有没有世界：不猜，什么都不换
+			return abandon(fmt.Errorf("%w，没有替换任何文件", err))
+		}
+		if !there {
 			continue
 		}
 		if held, err := sessionLockHeld(wp); err == nil && held {
@@ -1129,9 +1133,11 @@ func (s *Service) Status(name string) (*WorldStatus, error) {
 	}
 	// 读不出来的记录也列出来：它可能管着一份移到一半的世界，不能当它不存在
 	for _, b := range bad {
-		ws.Points = append(ws.Points, RestorePoint{ID: b.id, State: TxUnreadable, Err: noPath(b.err),
-			Stuck:    []string{txAbs(i.Dir, b.id)},
-			OldBytes: dirBytes(filepath.Join(txAbs(i.Dir, b.id), oldSub))})
+		rp := RestorePoint{ID: b.id, State: TxUnreadable, Err: noPath(b.err), Stuck: []string{b.path(i.Dir)}}
+		if !b.root {
+			rp.OldBytes = dirBytes(filepath.Join(b.path(i.Dir), oldSub))
+		}
+		ws.Points = append(ws.Points, rp)
 	}
 	return ws, nil
 }
@@ -1149,14 +1155,29 @@ func latestCommitted(js []*Journal, level string) *Journal {
 type badJournal struct {
 	id  string
 	err error
+	// root 为真时读不了的是放记录的文件夹本身，不是其中某一份记录（id 这时是那个文件夹的名字）
+	root bool
+}
+
+// path 这份读不出来的记录在盘上的位置（给人看、让人去处理）。
+func (b badJournal) path(dir string) string {
+	if b.root {
+		return filepath.Join(dir, filepath.FromSlash(inst.WorldTxDir))
+	}
+	return txAbs(dir, b.id)
 }
 
 // listJournals 一个实例的全部换地图记录（新的在前），以及读不出来的记录（文件坏了、内容对不上）。
 // 没有 journal.json 的目录不算：记录是建暂存区之前头一个写下的，没有它就还没开始。
 func listJournals(dir string) ([]*Journal, []badJournal) {
 	ents, err := os.ReadDir(filepath.Join(dir, filepath.FromSlash(inst.WorldTxDir)))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil // 没有这个文件夹：从来没换过地图
+	}
 	if err != nil {
-		return nil, nil
+		// 文件夹在、却读不了：里面有什么不知道。按「有一份读不出来的记录」算，不能当成没有
+		// （和 inst.PendingWorldTx 一个道理，2026-11-14 Codex 合并复审第 3 条）
+		return nil, []badJournal{{id: filepath.Base(filepath.FromSlash(inst.WorldTxDir)), err: err, root: true}}
 	}
 	var out []*Journal
 	var bad []badJournal
@@ -1186,6 +1207,9 @@ func (s *Service) Restore(name, txID, confirm string) (string, error) {
 	i, err := s.M.Get(name)
 	if err != nil {
 		return "", err
+	}
+	if why := s.M.WorldBusy(name); why != "" { // 正在换地图，或者有没走完的记录（封锁）：占位时还会再查一遍
+		return "", errors.New(why)
 	}
 	j, err := loadJournal(i.Dir, txID)
 	if err != nil {
@@ -1244,7 +1268,20 @@ func restorable(dir string, j *Journal) error {
 	if cur := inst.LevelName(dir); !strings.EqualFold(cur, j.LevelName) {
 		return fmt.Errorf("导入以后 level-name 改过了（现在是 %s，导入时是 %s），没法自动换回。先把 level-name 改回去", cur, j.LevelName)
 	}
-	js, _ := listJournals(dir)
+	js, bad := listJournals(dir)
+	// 这台服务器上只要还有没走完、卡住或者读不出来的换地图记录，就什么都不换回：那份记录管着的世界现在在哪、
+	// 之后会被搬到哪还没定，这时候再动原位上的世界，等它恢复时会把搬错的东西当成自己的清掉。
+	// 内存里的封锁标志也拦这件事（BeginWorldChange），这里按盘上的记录再看一遍，不只靠那个标志
+	if len(bad) > 0 {
+		return fmt.Errorf("这台服务器有换地图的记录读不出来，现在不能换回。请先到「地图」里按提示处理")
+	}
+	for _, o := range js {
+		switch o.State {
+		case TxCommitted, TxRolledBack, TxRestored, TxStaging, TxStaged:
+		default:
+			return fmt.Errorf("这台服务器有一次换地图还没走完（状态：%s），现在不能换回。请先到「地图」里点「重试恢复」", o.State)
+		}
+	}
 	if l := latestCommitted(js, j.LevelName); l == nil || l.ID != j.ID {
 		return fmt.Errorf("这之后又导入过别的地图。请先换回最近那一次导入前的地图，再往前换")
 	}
@@ -1277,6 +1314,17 @@ func (s *Service) DeletePoint(name, txID, confirm string) error {
 		return err
 	}
 	defer release()
+	// 占上位以后重新读一遍再删：等位的这段时间里，换回可能刚好在这份记录上失败了（状态已经不是「已提交」），
+	// 这时候它的文件夹里放着要靠它救回来的世界，不能照着占位之前的判断删掉
+	j, err = loadJournal(i.Dir, txID)
+	if err != nil {
+		return fmt.Errorf("找不到这次导入的记录")
+	}
+	switch j.State {
+	case TxCommitted, TxRolledBack, TxRestored:
+	default:
+		return fmt.Errorf("这次导入还没处理完（状态：%s），现在不能删", j.State)
+	}
 	return os.RemoveAll(txAbs(i.Dir, txID))
 }
 
@@ -1342,7 +1390,7 @@ func (s *Service) Retry(name string) error {
 	if i.Status() != "stopped" {
 		return fmt.Errorf("请先停止服务器")
 	}
-	release, err := s.M.BeginWorldChange(name, "恢复地图")
+	release, err := s.M.BeginWorldRecovery(name, "恢复地图") // 被封锁的服务器正是要恢复的：只有这条路能在封锁时占位
 	if err != nil {
 		return err
 	}

@@ -213,11 +213,37 @@ func exists(p string) bool {
 	return err == nil
 }
 
+// present 路径上有没有东西。只有确实不存在才算没有；别的错（没权限、盘出错、上级目录读不了）说明看不清，原样返回。
+//
+// 换图、退回、换回的每一步都靠「哪边有东西」判断做没做完。看不清的时候要是当成没有，「原位看不了、目标有东西」
+// 会被认成这一步已经做完，接着往下走（2026-11-14 Codex 合并复审第 3 条的同类，那一条说的是放记录的文件夹）。
+// 所以决定搬不搬东西的地方都用它，看不清就停下；exists 只留给不影响搬动的地方（列路径给人看、数大小）。
+func present(p string) (bool, error) {
+	_, err := statFn(p)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, fs.ErrNotExist):
+		return false, nil
+	}
+	return false, fmt.Errorf("看不了「%s」在不在：%w", filepath.Base(p), err)
+}
+
+// statFn 测试里换掉它，模拟看不了。
+var statFn = os.Lstat
+
 // doStep 做一步改名 From → To（相对实例目录）。已经做完的（From 不在、To 在）直接算成功。
 func doStep(dir string, s Step) error {
 	from := filepath.Join(dir, filepath.FromSlash(s.From))
 	to := filepath.Join(dir, filepath.FromSlash(s.To))
-	fe, te := exists(from), exists(to)
+	fe, err := present(from)
+	if err != nil {
+		return err
+	}
+	te, err := present(to)
+	if err != nil {
+		return err
+	}
 	switch {
 	case !fe && te:
 		return nil
@@ -259,7 +285,14 @@ func explainMove(err error, s Step) error {
 func undoStep(dir string, s Step, strict bool) (missing bool, err error) {
 	from := filepath.Join(dir, filepath.FromSlash(s.From))
 	to := filepath.Join(dir, filepath.FromSlash(s.To))
-	fe, te := exists(from), exists(to)
+	fe, err := present(from)
+	if err != nil {
+		return false, err
+	}
+	te, err := present(to)
+	if err != nil {
+		return false, err
+	}
 	switch {
 	case fe && te && strict:
 		return false, fmt.Errorf("「%s」和「%s」两边都有东西，不知道哪个是对的", s.From, s.To)
@@ -385,7 +418,10 @@ func revertProps(dir string, j *Journal) error {
 // rollbackTx 退回旧图（提交没完成时）。可以重复执行：每一步看磁盘。
 func rollbackTx(dir string, j *Journal) error {
 	j.State = TxRollingBack
-	_ = saveJournal(dir, j) // 写不下也照样退：退回只看磁盘
+	_ = saveJournal(dir, j)                   // 写不下也照样退：退回只看磁盘
+	if err := fault("rollback"); err != nil { // 测试用：模拟退回的时候也出了岔子（文件被占用这类）
+		return markStuck(dir, j, err)
+	}
 	if err := revertProps(dir, j); err != nil {
 		return markStuck(dir, j, fmt.Errorf("没能把服务器设置改回去：%w", err))
 	}
@@ -393,7 +429,11 @@ func rollbackTx(dir string, j *Journal) error {
 	// 旧世界还没移走时两边都在是正常的，所以这里不按「两边都在」报错
 	var warn []string
 	for k := len(j.NewIn) - 1; k >= 0; k-- {
-		if !arrived(dir, j.NewIn[k], j.OldOut) {
+		there, err := arrived(dir, j.NewIn[k], j.OldOut)
+		if err != nil {
+			return markStuck(dir, j, err)
+		}
+		if !there {
 			if !exists(filepath.Join(dir, filepath.FromSlash(j.NewIn[k].From))) {
 				warn = append(warn, "暂存的新世界不见了："+j.NewIn[k].From)
 			}
@@ -429,8 +469,20 @@ func rollbackTx(dir string, j *Journal) error {
 	if err := saveJournal(dir, j); err != nil {
 		return err
 	}
-	// 暂存的那份是来源的副本，不是谁的唯一一份：退回以后删掉省空间
-	_ = os.RemoveAll(filepath.Join(txAbs(dir, j.ID), stageSub))
+	// 暂存的那份是来源的副本，不是谁的唯一一份：退回以后删掉省空间。
+	// 删之前核对它确实是这次导入的那份：level.dat 和暂存时记下的一样，总大小也一样。对不上就说明退回时从原位
+	// 搬回暂存区的不是这次的新地图，而是别的世界（比如中途被别的操作换上去的），那可能是唯一的一份：留着不删
+	stage := filepath.Join(txAbs(dir, j.ID), stageSub)
+	staged := filepath.Join(stage, filepath.FromSlash(j.LevelName))
+	ours := !exists(staged) ||
+		(j.NewLevelSHA == "" || fileSHA(filepath.Join(staged, "level.dat")) == j.NewLevelSHA) &&
+			(j.NewBytes == 0 || dirBytes(stage) == j.NewBytes)
+	if ours {
+		_ = os.RemoveAll(stage)
+	} else {
+		j.Err = strings.TrimSpace(j.Err + "；暂存区里的世界不是这次导入的那一份，没有删，留在 " + txRel(j.ID) + "/" + stageSub)
+		_ = saveJournal(dir, j)
+	}
 	cleanupEmpty(filepath.Join(txAbs(dir, j.ID), oldSub))
 	return nil
 }
@@ -463,12 +515,20 @@ func restoreTx(dir string, j *Journal) (stuck bool, err error) {
 	}
 	j.CurOut, j.OldIn = nil, nil
 	for _, n := range worldDirNames(j.LevelName) {
-		if exists(filepath.Join(dir, filepath.FromSlash(n))) {
+		there, err := present(filepath.Join(dir, filepath.FromSlash(n)))
+		if err != nil {
+			return false, fmt.Errorf("%w（没有替换任何文件）", err)
+		}
+		if there {
 			j.CurOut = append(j.CurOut, Step{From: n, To: txRel(j.ID) + "/" + restoreSub + "/" + n})
 		}
 	}
 	for _, s := range j.OldOut {
-		if !exists(filepath.Join(dir, filepath.FromSlash(s.To))) {
+		there, err := present(filepath.Join(dir, filepath.FromSlash(s.To)))
+		if err != nil {
+			return false, fmt.Errorf("%w（没有替换任何文件）", err)
+		}
+		if !there {
 			return false, fmt.Errorf("恢复点里少了「%s」，没法换回（没有替换任何文件）", s.From)
 		}
 		j.OldIn = append(j.OldIn, Step{From: s.To, To: s.From})
@@ -532,7 +592,11 @@ func undoRestore(dir string, j *Journal) error {
 		}
 	}
 	for k := len(j.OldIn) - 1; k >= 0; k-- {
-		if !arrived(dir, j.OldIn[k], j.CurOut) {
+		there, err := arrived(dir, j.OldIn[k], j.CurOut)
+		if err != nil {
+			return markStuck(dir, j, err)
+		}
+		if !there {
 			continue
 		}
 		if _, err := undoStep(dir, j.OldIn[k], false); err != nil {
@@ -581,16 +645,19 @@ func recoverTx(dir string, j *Journal) error {
 // arrived 移进来的这一步（s：别处 → 世界原位）有没有真的发生。原位上有东西不一定是它：
 // 原位的旧东西要先移走（out 里 From 等于 s.To 的那一步），旧东西还在原位、没进它该去的地方，原位上的就是旧东西。
 // 只有这样才不会在暂存区意外丢失时，把旧世界当成新世界挪进暂存区。
-func arrived(dir string, s Step, out []Step) bool {
-	if exists(filepath.Join(dir, filepath.FromSlash(s.From))) {
-		return false // 还在原处：没移动过
+func arrived(dir string, s Step, out []Step) (bool, error) {
+	if there, err := present(filepath.Join(dir, filepath.FromSlash(s.From))); err != nil || there {
+		return false, err // 还在原处：没移动过
 	}
 	for _, o := range out {
-		if strings.EqualFold(o.From, s.To) && !exists(filepath.Join(dir, filepath.FromSlash(o.To))) {
-			return false // 原位的旧东西还没移走：原位上的就是它
+		if !strings.EqualFold(o.From, s.To) {
+			continue
+		}
+		if there, err := present(filepath.Join(dir, filepath.FromSlash(o.To))); err != nil || !there {
+			return false, err // 原位的旧东西还没移走：原位上的就是它
 		}
 	}
-	return exists(filepath.Join(dir, filepath.FromSlash(s.To)))
+	return present(filepath.Join(dir, filepath.FromSlash(s.To)))
 }
 
 // ---------- 小工具 ----------

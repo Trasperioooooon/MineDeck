@@ -9,7 +9,14 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
+	"time"
+
+	"golang.org/x/sys/windows"
+
+	"minedeck/internal/inst"
+	wt "minedeck/internal/worldimport/worldtest"
 )
 
 // 2026-11-14 四个 PR 合进 main 以后，Codex 做访问控制复审查出来的几处，各自的回归测试。
@@ -315,5 +322,277 @@ func TestScanSlotsAreReleased(t *testing.T) {
 	}
 	if n := len(e.s.scanSlots); n != 0 {
 		t.Errorf("检测都结束了，名额应当全还回去，还占着 %d 个", n)
+	}
+}
+
+// ---------- 合并复审第 1 条：封锁以后不能再换回更早的恢复点 ----------
+
+// findWorldTag 在服务器文件夹里（原位、各个恢复点、暂存区）找带着某个标记的世界还在不在。
+func findWorldTag(t *testing.T, dir, tag string) []string {
+	t.Helper()
+	var at []string
+	_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || d.Name() != "r.0.0.mca" {
+			return nil
+		}
+		if got, err := wt.ReadMarker(p); err == nil && strings.HasSuffix(got, ":overworld:"+tag) {
+			rel, _ := filepath.Rel(dir, p)
+			at = append(at, filepath.ToSlash(rel))
+		}
+		return nil
+	})
+	return at
+}
+
+// stuckSecondImport 第一次导入成功（OLD → B），第二次导入（B → C）在新地图已经就位以后出错，退回也出错：
+// 服务器被封锁，C 在原位，B 在第二次的恢复点里，OLD 在第一次的恢复点里。返回第一次导入的记录编号。
+func stuckSecondImport(t *testing.T, e *env) (first string) {
+	t.Helper()
+	first = e.importFolder("B")
+	time.Sleep(5 * time.Millisecond)
+	src := filepath.Join(e.tmp, "C")
+	if err := wt.Legacy(src, wt.WorldOpts{Level: lv("1.20.4", 3700), Tag: "C", Overworld: true}); err != nil {
+		t.Fatal(err)
+	}
+	p := e.plan(src)
+	faultHook = func(point string) error {
+		if point == "verify" || point == "rollback" {
+			return errors.New("模拟：" + point + " 出错")
+		}
+		return nil
+	}
+	t.Cleanup(func() { faultHook = nil })
+	id, err := e.s.Execute(me, ExecReq{PlanID: p.ID, Confirm: "replace", Acknowledge: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, msg := e.wait(id); !strings.Contains(msg, "恢复未完成") {
+		t.Fatalf("第二次导入应当卡住：%q", msg)
+	}
+	faultHook = nil
+	if e.s.M.WorldBusy("生存服") == "" {
+		t.Fatal("卡住以后服务器应当被封锁")
+	}
+	for _, tag := range []string{"OLD", "B", "C"} {
+		if len(findWorldTag(t, e.dir, tag)) != 1 {
+			t.Fatalf("准备阶段：%s 应当正好有一份，实际在 %v", tag, findWorldTag(t, e.dir, tag))
+		}
+	}
+	return first
+}
+
+// 第二次导入卡在半路、服务器被封锁时，别的页面上早先打开的确认框不能再把第一次导入换回去。
+// 换得回去的话，之后重试恢复第二次导入，会把换回来的那张最早的地图当成第二次的新地图移走、清掉，它就一份都不剩了。
+func TestBlockedServerCannotRestoreEarlierPoint(t *testing.T) {
+	e := newEnv(t, "")
+	first := stuckSecondImport(t, e)
+
+	if _, err := e.s.Restore("生存服", first, "restore"); err == nil {
+		// 没拦住：等换回的任务跑完，再重试恢复，看最早的那张地图还在不在
+		time.Sleep(300 * time.Millisecond)
+		_ = e.s.Retry("生存服")
+		t.Errorf("封锁期间不该换得回更早的恢复点。换回再重试恢复以后：OLD 在 %v，B 在 %v，C 在 %v",
+			findWorldTag(t, e.dir, "OLD"), findWorldTag(t, e.dir, "B"), findWorldTag(t, e.dir, "C"))
+	} else if !strings.Contains(err.Error(), "换地图") && !strings.Contains(err.Error(), "暂停启动") {
+		t.Errorf("拒绝的原因应当说清是换地图没走完：%v", err)
+	}
+	// 删恢复点同样不行
+	if err := e.s.DeletePoint("生存服", first, "delete"); err == nil {
+		t.Error("封锁期间不该删得掉恢复点")
+	}
+	// 三张地图都还在，各一份
+	for _, tag := range []string{"OLD", "B", "C"} {
+		if at := findWorldTag(t, e.dir, tag); len(at) != 1 {
+			t.Errorf("%s 应当还在、正好一份，实际在 %v", tag, at)
+		}
+	}
+	// 重试恢复这条路照常能走：退回第二次导入，B 回到原位，解除封锁
+	if err := e.s.Retry("生存服"); err != nil {
+		t.Fatalf("重试恢复：%v", err)
+	}
+	if got := e.marker("world/region/r.0.0.mca"); got != "MARK:minecraft:overworld:B" {
+		t.Errorf("重试恢复以后原位应当是 B：%s", got)
+	}
+	if len(findWorldTag(t, e.dir, "OLD")) != 1 {
+		t.Errorf("重试恢复以后 OLD 应当还在第一次的恢复点里：%v", findWorldTag(t, e.dir, "OLD"))
+	}
+	// 解除以后，最近一次已提交的导入照常能换回
+	if err := e.restore(first); err != nil {
+		t.Fatalf("解除封锁以后换回第一次导入：%v", err)
+	}
+	if got := e.marker("world/region/r.0.0.mca"); got != "MARK:minecraft:overworld:OLD" {
+		t.Errorf("换回以后原位应当是 OLD：%s", got)
+	}
+}
+
+// 占位时查封锁：被封锁的服务器只有「处理没走完的记录」这条路占得上位，别的都占不上。
+func TestWorldHoldChecksBlock(t *testing.T) {
+	e := newEnv(t, "")
+	m := e.s.M
+	m.SetWorldBlock("生存服", "上次换地图没有完成（测试）")
+	if _, err := m.BeginWorldChange("生存服", "换地图"); err == nil || !strings.Contains(err.Error(), "上次换地图没有完成") {
+		t.Errorf("被封锁时不该占得上位，原因要原样说出来：%v", err)
+	}
+	release, err := m.BeginWorldRecovery("生存服", "恢复地图")
+	if err != nil {
+		t.Fatalf("处理没走完的记录应当占得上位：%v", err)
+	}
+	// 恢复占着的时候，第二个恢复也占不上：占位照查
+	if _, err := m.BeginWorldRecovery("生存服", "恢复地图"); err == nil {
+		t.Error("已经有人占着位，再占应当失败")
+	}
+	release()
+	m.SetWorldBlock("生存服", "")
+	release, err = m.BeginWorldChange("生存服", "换地图")
+	if err != nil {
+		t.Fatalf("解除封锁以后应当占得上：%v", err)
+	}
+	release()
+}
+
+// 假设真有别的路把更早的地图换到了原位（封锁检查本该拦住）：重试恢复退回第二次导入时，
+// 从原位搬回暂存区的不是它自己的新地图，核对 level.dat 对不上，就留着不删。这是丢地图那条链的第二道保险。
+func TestRollbackKeepsWorldThatIsNotItsStagedCopy(t *testing.T) {
+	e := newEnv(t, "")
+	first := stuckSecondImport(t, e)
+	// 绕过所有检查，直接把第一次导入换回去（改之前的代码走得到这一步）
+	j, err := loadJournal(e.dir, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stuck, err := restoreTx(e.dir, j); err != nil || stuck {
+		t.Fatalf("restoreTx: %v stuck=%v", err, stuck)
+	}
+	if got := e.marker("world/region/r.0.0.mca"); got != "MARK:minecraft:overworld:OLD" {
+		t.Fatalf("准备阶段：原位应当是 OLD：%s", got)
+	}
+	if err := e.s.Retry("生存服"); err != nil {
+		t.Fatalf("重试恢复：%v", err)
+	}
+	if got := e.marker("world/region/r.0.0.mca"); got != "MARK:minecraft:overworld:B" {
+		t.Errorf("重试恢复以后原位应当是 B：%s", got)
+	}
+	for _, tag := range []string{"OLD", "B", "C"} {
+		if at := findWorldTag(t, e.dir, tag); len(at) != 1 {
+			t.Errorf("%s 应当还在、正好一份，实际在 %v", tag, at)
+		}
+	}
+	if at := findWorldTag(t, e.dir, "OLD"); len(at) == 1 && !strings.Contains(at[0], "/"+stageSub+"/") {
+		t.Errorf("OLD 应当留在第二次导入的暂存区里没被删：%v", at)
+	}
+}
+
+// ---------- 合并复审第 3 条：看不了的时候不能当成没有 ----------
+
+// lockDirExclusive 像别的程序独占着一个文件夹那样把它打开（不共享），返回放开它的函数。占着的时候别人读不了它。
+func lockDirExclusive(t *testing.T, dir string) (unlock func()) {
+	t.Helper()
+	p, err := windows.UTF16PtrFromString(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := windows.CreateFile(p, windows.GENERIC_READ, 0, nil, windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
+	if err != nil {
+		t.Fatalf("没能独占打开 %s：%v", dir, err)
+	}
+	var once sync.Once
+	unlock = func() { once.Do(func() { windows.CloseHandle(h) }) }
+	t.Cleanup(unlock)
+	return unlock
+}
+
+// 放换地图记录的文件夹在、却读不了：不能当成「没有记录」。这里像别的程序那样把它独占打开来造出读不了。
+// （顺带确认过：那个位置上要是一个同名的文件，系统报的是「找不到路径」，算不存在，里面也确实不可能有记录。）
+func TestUnreadableTxFolderIsNotTreatedAsEmpty(t *testing.T) {
+	e := newEnv(t, "")
+	first := e.importFolder("B")
+	txRoot := filepath.Join(e.dir, filepath.FromSlash(inst.WorldTxDir))
+	if inst.PendingWorldTx(e.dir) != "" {
+		t.Fatal("准备阶段：正常的记录不该封锁")
+	}
+	// 没有这个文件夹：确实没有记录
+	empty := t.TempDir()
+	if inst.PendingWorldTx(empty) != "" {
+		t.Error("没有放记录的文件夹时不该封锁")
+	}
+	if js, bad := listJournals(empty); len(js) != 0 || len(bad) != 0 {
+		t.Errorf("没有放记录的文件夹时应当什么都没有：%d、%d", len(js), len(bad))
+	}
+
+	unlock := lockDirExclusive(t, txRoot)
+	if _, err := os.ReadDir(txRoot); err == nil || errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("测试自己没摆对：这里应当读不了、又不是「不存在」：%v", err)
+	}
+	if why := inst.PendingWorldTx(e.dir); why != inst.WorldTxUnreadable {
+		t.Errorf("读不了应当封锁启动：%q", why)
+	}
+	js, bad := listJournals(e.dir)
+	if len(js) != 0 || len(bad) != 1 || !bad[0].root {
+		t.Fatalf("读不了应当算一份读不出来的记录：%d 份记录、%d 份读不出来", len(js), len(bad))
+	}
+	if bad[0].path(e.dir) != txRoot {
+		t.Errorf("给人看的位置应当是放记录的文件夹：%s", bad[0].path(e.dir))
+	}
+	// 重试恢复不能把封锁解掉
+	e.s.M.SetWorldBlock("生存服", inst.WorldTxUnreadable)
+	if err := e.s.Retry("生存服"); err == nil {
+		t.Error("读不了的时候重试恢复不该报成功")
+	}
+	if e.s.M.WorldBusy("生存服") == "" {
+		t.Error("读不了的时候重试恢复不该解除封锁")
+	}
+	// 「地图」页把它列成读不出来的一项
+	st, err := e.s.Status("生存服")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Points) != 1 || st.Points[0].State != TxUnreadable || len(st.Points[0].Stuck) != 1 {
+		t.Errorf("世界状态里应当有一项读不出来的记录：%+v", st.Points)
+	}
+	// 放开以后一切照常
+	unlock()
+	if err := e.s.Retry("生存服"); err != nil {
+		t.Fatalf("文件夹恢复正常以后重试恢复应当解除封锁：%v", err)
+	}
+	if err := e.restore(first); err != nil {
+		t.Fatalf("之后照常能换回：%v", err)
+	}
+}
+
+// 决定搬不搬东西的那几步，看不了原位或目标在不在的时候停下，不当成「不在」。
+// 以前「原位看不了、目标有东西」会被认成这一步已经做完。
+func TestStepsStopWhenTheyCannotSee(t *testing.T) {
+	dir, j := setup(t)
+	from := filepath.Join(dir, "world")
+	blind := func(p string) (os.FileInfo, error) {
+		if strings.EqualFold(filepath.Clean(p), from) {
+			return nil, &os.PathError{Op: "lstat", Path: p, Err: errors.New("Access is denied.")}
+		}
+		return os.Lstat(p)
+	}
+	// 目标位置先放上东西：原位看不了的时候，旧写法会认成「已经搬过去了」
+	step := j.OldOut[0]
+	write(t, dir, map[string]string{step.To + "/level.dat": "SOMETHING"})
+
+	statFn = blind
+	t.Cleanup(func() { statFn = os.Lstat })
+	if err := doStep(dir, step); err == nil || !strings.Contains(err.Error(), "看不了") {
+		t.Errorf("doStep 看不了原位时应当停下：%v", err)
+	}
+	if _, err := undoStep(dir, step, true); err == nil || !strings.Contains(err.Error(), "看不了") {
+		t.Errorf("undoStep 看不了原位时应当停下：%v", err)
+	}
+	if _, err := arrived(dir, Step{From: "world", To: "x"}, nil); err == nil {
+		t.Error("arrived 看不了的时候应当报错，不是说没到")
+	}
+	// 整份记录的恢复：看不了就标成卡住，什么都不搬、不删
+	j.State = TxCommitting
+	_ = saveJournal(dir, j)
+	if err := recoverTx(dir, j); err == nil || j.State != TxStuck {
+		t.Errorf("恢复时看不了应当卡住：err=%v state=%s", err, j.State)
+	}
+	statFn = os.Lstat
+	if read(t, filepath.Join(dir, "world", "level.dat")) != "OLD" || read(t, filepath.Join(dir, filepath.FromSlash(step.To), "level.dat")) != "SOMETHING" {
+		t.Error("看不了的时候不该动任何东西")
 	}
 }
