@@ -17,6 +17,7 @@ import (
 
 	"golang.org/x/text/encoding/simplifiedchinese"
 
+	"minedeck/internal/atomicfile"
 	"minedeck/internal/inst"
 	"minedeck/internal/modinfo"
 	"minedeck/internal/ops"
@@ -413,14 +414,37 @@ func (c *cat) fileOps() {
 			}
 			return pl, nil
 		},
-		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+		Run: func(ctx context.Context, _ ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[cfgWriteArgs](a)
 			if err != nil {
 				return nil, err
 			}
+			// 能改的位置里有 <世界>/serverconfig/：换地图到一半时世界目录正在搬，不能往里写；改的这段时间也不让换地图开始。
+			// 登记要在读文件之前：解析路径、读原文件、算新内容、备份、写回，整个过程都得登记着。
+			// 上一版是算完才登记，读和写之间换地图能整个做完，结果按旧地图的配置算出来的内容写进了新地图
+			// （2026-11-14 Codex 第二轮复审阻挡项 1）
+			current, err := c.get(p.Inst)
+			if err != nil {
+				return nil, err
+			}
+			release, err := c.Mgr.UseWorldInstance(current, "修改配置文件")
+			if err != nil {
+				return nil, err
+			}
+			defer release()
+			// 同一台服务器的配置文件修改排队做：读原文件、算新内容、备份、写回是一整段，两个同时改同一个文件时，
+			// 后写的不能拿着改之前读到的内容把先写的盖掉。按服务器排队而不是按文件：同一个文件可以有几种写法（大小写、联接）
+			unlock, err := inst.LockKeyContext(ctx, "config|"+p.Inst)
+			if err != nil {
+				return nil, err
+			}
+			defer unlock()
 			cp, err := plan(p)
 			if err != nil {
 				return nil, err
+			}
+			if cfgPlannedHook != nil {
+				cfgPlannedHook()
 			}
 			i, rel, abs := cp.i, cp.rel, cp.abs
 			res := map[string]any{"path": rel, "mode": map[bool]string{true: p.Mode, false: "edit"}[p.Mode != ""]}
@@ -663,15 +687,10 @@ func (f textFormat) encode(s string) ([]byte, error) {
 	return []byte(s), nil
 }
 
-// writeAtomic 先写临时文件再改名，写到一半断电不会留下半个配置文件。
+// cfgPlannedHook 测试用：改配置文件的操作读完原文件、算好新内容、还没写回的那一刻调用。
+var cfgPlannedHook func()
+
+// writeAtomic 先写临时文件再改名，写到一半断电不会留下半个配置文件；临时文件名每次不同，两个同时写不会混在一起。
 func writeAtomic(path string, b []byte) error {
-	tmp := path + ".minedeck-tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	return nil
+	return atomicfile.Write(path, b, 0o644)
 }

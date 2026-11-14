@@ -56,7 +56,8 @@ const (
 
 // Client 一个服务商的客户端。可以并发使用。
 type Client struct {
-	cfg Config
+	cfg           Config
+	responseLimit int64 // 每次响应的字节上限；测试可在客户端开始使用前调小
 
 	mu            sync.Mutex
 	eager         bool // 中转不认 eager_input_streaming 时关掉
@@ -101,7 +102,7 @@ func NewClient(cfg Config) (*Client, error) {
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 10 * time.Minute
 	}
-	return &Client{cfg: cfg, eager: cfg.Eager && cfg.Stream, fallback: cfg.Fallback, dropReasoning: cfg.DropReasoning && cfg.Echo == EchoAuto}, nil
+	return &Client{cfg: cfg, responseLimit: maxResponseBytes, eager: cfg.Eager && cfg.Stream, fallback: cfg.Fallback, dropReasoning: cfg.DropReasoning && cfg.Echo == EchoAuto}, nil
 }
 
 // keepKeyOnSite 只跟随同一个网站里的重定向。Go 换网站时只会去掉 Authorization 和 Cookie，不认识 api-key、x-api-key，
@@ -239,6 +240,10 @@ func (c *Client) NewConversation(system string, tools []Tool) (*Conversation, er
 // 429、5xx、网络错误在还没有任何输出时最多重试 2 次；已经开始输出以后出错不重试，
 // 返回不完整的 Result（Partial，用量可能是估算的）和错误。
 func (c *Client) Chat(ctx context.Context, conv *Conversation, onEvent func(Event)) (*Result, error) {
+	ctx = WithResponseBudget(ctx)
+	if responseBudgetSpent(ctx) {
+		return nil, ErrResponseTooLarge
+	}
 	if conv.proto != c.cfg.Protocol {
 		return nil, errors.New("会话和客户端的协议对不上（换了服务商要开新会话）")
 	}

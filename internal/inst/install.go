@@ -16,6 +16,7 @@ import (
 	"unicode"
 
 	"minedeck/internal/app"
+	"minedeck/internal/diskguard"
 	"minedeck/internal/dl"
 	"minedeck/internal/java"
 	"minedeck/internal/mcsrc"
@@ -126,7 +127,8 @@ func (m *Manager) reserveInstanceDir(req *CreateReq) (string, error) {
 	m.mu.Lock()
 	_, taken := m.insts[req.Name]
 	inflight := m.creating[req.Name]
-	if !taken && !inflight {
+	dirInflight := m.creating[dirKey(dir)]
+	if !taken && !inflight && !dirInflight {
 		m.creating[req.Name] = true
 		m.creating[dirKey(dir)] = true // 目录也占上：建到一半的目录不能同时被「接管已有服务器」拿走（见 adopt.go）
 	}
@@ -136,6 +138,9 @@ func (m *Manager) reserveInstanceDir(req *CreateReq) (string, error) {
 	}
 	if inflight {
 		return "", fmt.Errorf("「%s」正在创建中，请稍候", req.Name)
+	}
+	if dirInflight {
+		return "", fmt.Errorf("另一个服务器正在创建同名文件夹，请稍后再试")
 	}
 	return dir, nil
 }
@@ -172,6 +177,7 @@ func (m *Manager) CreateAsync(req CreateReq) (string, error) {
 		return "", err
 	}
 	t, ctx := m.Tasks.New(fmt.Sprintf("创建服务器 %s（%s %s）", req.Name, req.Core, req.MC), createSteps)
+	t.EnableCancel()
 	go func() {
 		defer m.releaseCreating(req.Name)
 		defer m.releaseCreating(dirKey(dir))
@@ -179,7 +185,10 @@ func (m *Manager) CreateAsync(req CreateReq) (string, error) {
 			defer m.releaseWorldPlan(req.WorldOwner, req.WorldPlan)
 		}
 		if err := m.runCreate(ctx, t, req, dir); err != nil {
-			os.RemoveAll(dir) // 先清理半成品目录再报失败（缓存保留，重试无需重新下载）
+			err = cancelledOr(t, err)
+			if cleanupErr := m.discardCreating(req.Name, dir); cleanupErr != nil {
+				err = fmt.Errorf("%w；清理半成品失败：%v", err, cleanupErr)
+			}
 			t.Fail(err)
 			return
 		}
@@ -189,7 +198,16 @@ func (m *Manager) CreateAsync(req CreateReq) (string, error) {
 }
 
 func (m *Manager) runCreate(ctx context.Context, t *tasks.Task, req CreateReq, dir string) error {
-	ctx, cancel := context.WithTimeout(ctx, 90*time.Minute)
+	return m.runCreateWith(ctx, t, req, dir, nil)
+}
+
+// runCreateWith 在 beforePublish 完成前不写 instance.json、不把实例开放给其他请求。
+func (m *Manager) runCreateWith(ctx context.Context, t *tasks.Task, req CreateReq, dir string, beforePublish func(*Instance) error) error {
+	// 90 分钟的时限只管建服务器本体这几步。发布边界（completeCreate）用调用方给的 ctx：
+	// 它前面要跑完 beforePublish（整合包的文件下载、覆盖），那一段一直没有总时限，
+	// 不能在几百个文件都下完以后被这里的时限判成超时、整台清掉
+	parent := ctx
+	ctx, cancel := context.WithTimeout(parent, 90*time.Minute)
 	defer cancel()
 
 	// ---- 步骤 0：解析版本信息 ----
@@ -354,7 +372,10 @@ func (m *Manager) runCreate(ctx context.Context, t *tasks.Task, req CreateReq, d
 			[]byte("# 用户已在 MineDeck 中确认同意 Minecraft EULA (https://aka.ms/MinecraftEULA)\neula=true\n"), 0o644); err != nil {
 			return err
 		}
-		props, _ := LoadProps(filepath.Join(dir, "server.properties"))
+		props, err := LoadProps(filepath.Join(dir, "server.properties"))
+		if err != nil {
+			return err
+		}
 		props.Set("server-port", fmt.Sprintf("%d", req.Port))
 		props.Set("online-mode", strconv.FormatBool(req.OnlineMode))
 		props.Set("allow-flight", strconv.FormatBool(req.AllowFlight))
@@ -394,20 +415,66 @@ func (m *Manager) runCreate(ctx context.Context, t *tasks.Task, req CreateReq, d
 		}
 	}
 
-	// ---- 步骤 5：启动脚本 + 注册实例 ----
+	// ---- 步骤 5：完成初始化后才发布实例 ----
 	t.StartStep(5)
-	if err := writeRunBat(inst); err != nil {
+	return m.completeCreate(parent, t, inst, beforePublish)
+}
+
+// completeCreate 是新建与整合包导入共用的发布边界；失败前始终没有可操作的实例。
+func (m *Manager) completeCreate(ctx context.Context, t *tasks.Task, i *Instance, beforePublish func(*Instance) error) error {
+	if beforePublish != nil {
+		if err := beforePublish(i); err != nil {
+			return err
+		}
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := m.saveInstance(inst); err != nil {
+	if !t.BeginCommit() {
+		return context.Canceled
+	}
+	// 覆盖目录可能使用文件别名：最终控制文件必须来自这份初始化好的内存设置。
+	if err := writeRunBat(i); err != nil {
 		return err
 	}
-	app.RememberRoot(filepath.Dir(dir)) // 记录自定义根，重启后仍能扫描到
+	if err := m.saveInstance(i); err != nil {
+		return err
+	}
+	app.RememberRoot(filepath.Dir(i.Dir))
 	m.mu.Lock()
-	m.insts[req.Name] = inst
+	m.insts[i.Name] = i
 	m.mu.Unlock()
 	t.Logf("服务器创建完成 ✔")
 	return nil
+}
+
+// cancelledOr 任务是用户点了取消才停下的：报「已取消」，不把流水线里冒出来的那句 context canceled 当成失败原因给人看。
+func cancelledOr(t *tasks.Task, err error) error {
+	if t.Cancelled() {
+		return fmt.Errorf("已取消，没有创建服务器")
+	}
+	return err
+}
+
+// discardCreating 只清理由当前创建任务独占、尚未发布的目录。
+func (m *Manager) discardCreating(name, dir string) error {
+	m.mu.Lock()
+	owned := m.creating[name] && m.creating[dirKey(dir)] && m.insts[name] == nil
+	m.mu.Unlock()
+	if !owned {
+		return fmt.Errorf("服务器目录不再由这次创建任务独占，已保留文件")
+	}
+	// 创建占位由调用方在清理以后释放；不拿着管理器全局锁等待磁盘删除。
+	abs, err := filepath.Abs(dir)
+	if err != nil || abs == filepath.Dir(abs) || strings.EqualFold(abs, filepath.Clean(app.Base)) {
+		return fmt.Errorf("创建目录异常，已保留文件")
+	}
+	if st, err := os.Lstat(abs); err == nil && st.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
+		return fmt.Errorf("创建目录已变成链接，已保留文件")
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return os.RemoveAll(abs)
 }
 
 func isASCII(s string) bool {
@@ -432,23 +499,38 @@ func fetchToInstance(ctx context.Context, t *tasks.Task, art mcsrc.Artifact, cac
 	}, t.ProgressFn("下载 "+art.FileName)); err != nil {
 		return err
 	}
-	return copyFile(cachePath, filepath.Join(dir, destName))
+	return copyFileContext(ctx, cachePath, filepath.Join(dir, destName))
 }
 
 func copyFile(src, dst string) error {
+	return copyFileContext(context.Background(), src, dst)
+}
+
+func copyFileContext(ctx context.Context, src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
+	stopClose := context.AfterFunc(ctx, func() { _ = in.Close() })
+	defer stopClose()
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
+	st, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	lease, err := diskguard.Acquire(ctx, dst, diskguard.Options{Need: st.Size(), AllowUnknown: true})
+	if err != nil {
+		return err
+	}
+	defer lease.Close()
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
-	_, cerr := io.Copy(out, in)
+	_, cerr := io.Copy(lease.Writer(out), in)
 	if werr := out.Close(); cerr == nil {
 		cerr = werr
 	}

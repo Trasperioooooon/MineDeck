@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"minedeck/internal/app"
+	"minedeck/internal/diskguard"
 	"minedeck/internal/inst"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/modinfo"
@@ -73,7 +74,7 @@ func ExportAsync(m *inst.Manager, req ExportReq) (string, error) {
 		return "", fmt.Errorf("打包方式不认识：%s（可用 handover、distributable）", req.Mode)
 	}
 	// 打包期间这台服务器不能启动、不能删除：打的是停机时的一份，世界边写边压出来的包是坏的
-	release, ok := m.BeginPacking(req.Inst)
+	release, ok := m.BeginPackingInstance(i)
 	if !ok {
 		return "", fmt.Errorf("这台服务器正在打包中，请稍候")
 	}
@@ -200,15 +201,10 @@ func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, 
 		Mode:            mode,
 		MineDeckVersion: app.Version,
 		ExportedAt:      time.Now(),
-		Instance:        i.Settings,
+		Instance:        i.SettingsSnapshot(),
 		Core:            CoreRef{Core: i.Core, MC: i.MC, Build: i.Build, Kind: string(mcsrc.KindOf(i.Core))},
 		Full:            full,
 	}
-	// Settings 是会动的外部结构：会变的字段拿加锁的快照逐项盖回来（UpdateSettings / SetJava 在锁内写）
-	mf.Instance.ExtraJVM = i.ExtraJVMSnapshot()
-	mf.Instance.Policies = i.PoliciesSnapshot()
-	mf.Instance.XmxMB, mf.Instance.XmsMB, mf.Instance.ConsoleEncoding = i.MemSnapshot()
-	mf.Instance.JavaMajor, _ = i.JavaSnapshot()
 	// java.exe 的完整路径不进清单：那是这台电脑上的位置（常带着 Windows 用户名），对接手的人没用，
 	// 导入时按 javaMajor 在对方电脑上重新找或下载。
 	mf.Instance.JavaPath = ""
@@ -284,7 +280,11 @@ func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, 
 			return nil
 		})
 	}
-	for _, w := range i.WorldDirs() {
+	worlds, err := i.WorldDirsStrict()
+	if err != nil {
+		return "", err
+	}
+	for _, w := range worlds {
 		if err := walk(w, &worldBytes, nil); err != nil {
 			return "", fmt.Errorf("清点世界文件夹失败: %w", err)
 		}
@@ -292,7 +292,7 @@ func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, 
 	// level-name 之外的世界（Multiverse 这类多世界插件建的大厅、资源世界）：根目录下带 level.dat 的文件夹都是世界
 	if ents, err := os.ReadDir(i.Dir); err == nil {
 		known := map[string]bool{}
-		for _, w := range i.WorldDirs() {
+		for _, w := range worlds {
 			known[strings.ToLower(filepath.Clean(w))] = true
 		}
 		for _, e := range ents {
@@ -420,12 +420,12 @@ func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, 
 	// ---- 步骤 2：收尾，落到目标目录（目标已有同名就不覆盖，换一个名字） ----
 	t.StartStep(2)
 	final := filepath.Join(destDir, name)
-	if err := placeFile(part, final); err != nil {
+	if err := placeFile(ctx, part, final); err != nil {
 		if !os.IsExist(err) {
 			return "", err
 		}
 		final = filepath.Join(destDir, fmt.Sprintf("%s-%d.mdpack", strings.TrimSuffix(name, ".mdpack"), time.Now().UnixNano()))
-		if err := placeFile(part, final); err != nil {
+		if err := placeFile(ctx, part, final); err != nil {
 			return "", err
 		}
 	}
@@ -440,7 +440,7 @@ func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, 
 
 // placeFile 把打包好的 .part 挪到 final（不覆盖已有文件）：同目录改名；跨盘退回
 // 独占创建的流式拷贝（目标已存在报 os.IsExist，由调用方换名重试）。
-func placeFile(part, final string) error {
+func placeFile(ctx context.Context, part, final string) error {
 	if err := os.Rename(part, final); err == nil {
 		return nil
 	}
@@ -449,11 +449,20 @@ func placeFile(part, final string) error {
 		return err
 	}
 	defer in.Close()
+	st, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	lease, err := diskguard.Acquire(ctx, final, diskguard.Options{Need: st.Size(), AllowUnknown: true})
+	if err != nil {
+		return err
+	}
+	defer lease.Close()
 	out, err := os.OpenFile(final, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return err
 	}
-	_, cerr := io.Copy(out, in)
+	_, cerr := io.Copy(lease.Writer(out), in)
 	if werr := out.Close(); cerr == nil {
 		cerr = werr
 	}

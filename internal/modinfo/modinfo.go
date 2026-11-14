@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"minedeck/internal/zipguard"
 )
 
 // Dep 一个依赖。
@@ -103,7 +105,7 @@ func Read(path string) Mod {
 	if st, err := os.Stat(path); err == nil {
 		m.Size = st.Size()
 	}
-	zr, err := zip.OpenReader(path)
+	zr, err := zipguard.Open(path, zipguard.Default)
 	if err != nil {
 		m.Err = "不是有效的 jar（zip）文件：" + err.Error()
 		return m
@@ -531,7 +533,7 @@ func FindClass(dir, class string) string {
 		if e.IsDir() || !IsJar(e.Name()) || strings.HasSuffix(strings.ToLower(e.Name()), ".disabled") {
 			continue
 		}
-		zr, err := zip.OpenReader(filepath.Join(dir, e.Name()))
+		zr, err := zipguard.Open(filepath.Join(dir, e.Name()), zipguard.Default)
 		if err != nil {
 			continue
 		}

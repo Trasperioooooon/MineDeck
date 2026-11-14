@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 
+	"minedeck/internal/atomicfile"
 	"minedeck/internal/dl"
 	"minedeck/internal/modinfo"
 	"minedeck/internal/winname"
@@ -36,20 +37,33 @@ func (s *Service) Download(ctx context.Context, f File, destDir string, prog fun
 		return "", false, errorf(502, "Modrinth 给的 %s 的下载地址不对", fn)
 	}
 	dest := filepath.Join(destDir, fn)
+	release, lockErr := atomicfile.LockPathContext(ctx, dest)
+	if lockErr != nil {
+		return "", false, lockErr
+	}
+	defer release()
 	if _, err := os.Stat(dest); err == nil {
 		return dest, true, nil
 	}
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return "", false, errorf(500, "创建 %s 文件夹失败：%v", filepath.Base(destDir), err)
 	}
-	tmp := filepath.Join(destDir, "."+fn+".download")
+	tf, err := os.CreateTemp(destDir, ".minedeck-download-*.download")
+	if err != nil {
+		return "", false, err
+	}
+	tmp := tf.Name()
+	if err := tf.Close(); err != nil {
+		os.Remove(tmp)
+		return "", false, err
+	}
 	defer os.Remove(tmp)
 	// MinSize 防的是代理塞回来的错误页；有的小库 jar 不到 1KB，所以不超过 Modrinth 报的大小（反正还要核对 SHA-1）
 	minSize := min(int64(1024), max(f.Size, 1))
 	if err := dl.Fetch(ctx, dl.Request{URLs: []string{f.URL}, Dest: tmp, SHA1: f.SHA1, MinSize: minSize}, prog); err != nil {
 		return "", false, errorf(502, "下载 %s 失败：%v", fn, err)
 	}
-	if err := os.Rename(tmp, dest); err != nil {
+	if err := atomicfile.Replace(tmp, dest); err != nil {
 		return "", false, errorf(500, "放进 %s 失败（可能正被占用，停服后再试）：%v", filepath.Base(destDir), err)
 	}
 	return dest, false, nil

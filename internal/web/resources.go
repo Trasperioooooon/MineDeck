@@ -15,7 +15,13 @@ func (s *Server) handleResourceInstall(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			ProjectID string `json:"projectId"`
 		}
-		_ = readJSON(r, &body) // 解析失败按「缺少项目 ID」报，且排在「实例不存在」之后（同原来的顺序）
+		// 保留「缺少项目 ID」的错误顺序，但不能使用解析失败时填入一半的字段。
+		if err := readJSON(r, &body); err != nil {
+			if bodyTooLarge(err) {
+				return nil, bodyErr(err)
+			}
+			body.ProjectID = ""
+		}
 		return ops.ArgsOf(map[string]any{"inst": r.PathValue("name"), "projectId": body.ProjectID}), nil
 	})
 }

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"minedeck/internal/app"
+	"minedeck/internal/diskguard"
 	"minedeck/internal/java"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/modpack"
@@ -52,15 +52,18 @@ func (m *Manager) importServerAsync(pack *modpack.Pack, req CreateReq) (string, 
 		title = req.Name
 	}
 	t, ctx := m.Tasks.New(fmt.Sprintf("导入服务端 %s", title), serverImportSteps)
+	t.EnableCancel()
 	t.SetKind("server-in") // 任务页按它换说法：这条路不下载服务端
 	go func() {
 		defer m.releaseCreating(req.Name)
 		defer m.releaseCreating(dirKey(dir))
 		defer os.Remove(pack.ZipPath)
 		if err := m.runServerImport(ctx, t, pack, req, dir); err != nil {
+			err = cancelledOr(t, err)
 			// 先清后报失败：任务一显示失败，半成品就得已经删干净了（失败框上写着可以重试；交接包导入同样的顺序）
-			_ = m.Delete(req.Name, false)
-			os.RemoveAll(dir)
+			if cleanupErr := m.discardCreating(req.Name, dir); cleanupErr != nil {
+				err = fmt.Errorf("%w；清理半成品失败：%v", err, cleanupErr)
+			}
 			t.Fail(err)
 			return
 		}
@@ -116,11 +119,16 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
+		lease, err := diskguard.Acquire(ctx, filepath.Dir(target), diskguard.Options{AllowUnknown: true})
+		if err != nil {
+			return err
+		}
+		defer lease.Close()
 		w, err := os.Create(target)
 		if err != nil {
 			return err
 		}
-		_, cerr := io.Copy(w, r)
+		_, cerr := io.Copy(lease.Writer(w), r)
 		if werr := w.Close(); cerr == nil {
 			cerr = werr
 		}
@@ -200,16 +208,10 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 		}
 		applyImportLog4j(ctx, t, inst)
 	}
-	if err := writeRunBat(inst); err != nil {
+	if err := m.completeCreate(ctx, t, inst, nil); err != nil {
 		return err
 	}
-	if err := m.saveInstance(inst); err != nil {
-		return err
-	}
-	app.RememberRoot(filepath.Dir(dir))
-	m.mu.Lock()
-	m.insts[req.Name] = inst
-	m.mu.Unlock()
+
 	t.Logf("服务端导入完成 ✔ 存档、模组和配置用的是压缩包里的那份，没有重新下载核心")
 	return nil
 }

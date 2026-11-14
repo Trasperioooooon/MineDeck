@@ -2348,7 +2348,17 @@ async function renderTaskPage(taskId) {
     $("#t-foot").innerHTML = `
       ${success ? `<a class="btn primary" href="${K.href(t.result)}">${icon("check")} ${K.go}</a>` : ""}
       ${t.ended && t.error ? `<a class="btn" href="${K.back}">${icon("arrowLeft")} ${K.backText}</a>` : ""}
-      ${!t.ended ? `<span class="warn-text">${icon("warn")} ${K.busy}</span>` : ""}`;
+      ${!t.ended ? `<span class="warn-text">${icon("warn")} ${K.busy}</span>` : ""}
+      ${!t.ended && t.canCancel ? `<button class="btn ghost" id="t-cancel">取消创建</button>` : ""}`;
+    const cancelButton = $("#t-cancel");
+    if (cancelButton) cancelButton.onclick = async () => {
+      cancelButton.disabled = true;
+      try {
+        await api(`/api/tasks/${encodeURIComponent(taskId)}/cancel`, { method: "POST" });
+        toast("正在取消，等待清理半成品");
+        await draw();
+      } catch (e) { toastErr("暂时无法取消", e); cancelButton.disabled = false; }
+    };
     if (t.ended) { ended = true; stopPoll(); if (!t.error) toast(K.ok); }
   };
   // ---- 待决文件面板（整合包导入完成后逐项处理；任务已结束，不再轮询，应用后自己重画） ----

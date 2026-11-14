@@ -241,11 +241,12 @@ type Journal struct {
 	PropsBefore map[string]string `json:"propsBefore,omitempty"` // 改了的设置原来的值（键不存在记为 nil 语义见实现）
 	PropsAfter  map[string]string `json:"propsAfter,omitempty"`
 
-	OldLevelSHA string   `json:"oldLevelSha,omitempty"` // 旧主世界 level.dat 的 SHA-256：换回后核对
-	NewLevelSHA string   `json:"newLevelSha,omitempty"`
-	OldBytes    int64    `json:"oldBytes,omitempty"` // 恢复点占的空间（移出时数的）
-	NewBytes    int64    `json:"newBytes,omitempty"`
-	LastExit    string   `json:"lastExit,omitempty"` // 换图前服务器上一次是怎么停的（killed 时旧图最后几分钟可能没存上）
-	Err         string   `json:"error,omitempty"`
-	Stuck       []string `json:"stuck,omitempty"` // 自动退不回去时，要人看的具体路径
+	OldLevelSHA string            `json:"oldLevelSha,omitempty"` // 旧主世界 level.dat 的 SHA-256：换回后核对
+	NewLevelSHA string            `json:"newLevelSha,omitempty"`
+	NewDirIDs   map[string]string `json:"newDirIds,omitempty"` // directory identities; old journals conservatively keep staged data
+	OldBytes    int64             `json:"oldBytes,omitempty"`  // 恢复点占的空间（移出时数的）
+	NewBytes    int64             `json:"newBytes,omitempty"`
+	LastExit    string            `json:"lastExit,omitempty"` // 换图前服务器上一次是怎么停的（killed 时旧图最后几分钟可能没存上）
+	Err         string            `json:"error,omitempty"`
+	Stuck       []string          `json:"stuck,omitempty"` // 自动退不回去时，要人看的具体路径
 }

@@ -155,12 +155,13 @@ type ProposalView struct {
 
 // Wait 等确认卡片时存下的这一轮：工具调用、已有的结果、提案对照。
 type Wait struct {
-	Item    string                   `json:"item"`
-	Calls   []ai.ToolCall            `json:"calls"`
-	Results map[string]ai.ToolResult `json:"results"`
-	Props   map[string]string        `json:"props"` // 提案编号 → 工具调用编号
-	Tools   int                      `json:"tools"` // 这一轮已经用了几次工具
-	Rounds  int                      `json:"rounds"`
+	Item          string                   `json:"item"`
+	Calls         []ai.ToolCall            `json:"calls"`
+	Results       map[string]ai.ToolResult `json:"results"`
+	Props         map[string]string        `json:"props"` // 提案编号 → 工具调用编号
+	Tools         int                      `json:"tools"` // 这一轮已经用了几次工具
+	Rounds        int                      `json:"rounds"`
+	ResponseBytes int64                    `json:"responseBytes,omitempty"` // 同一轮跨确认卡片的回复额度
 }
 
 // attachment 「让 AI 分析」打包好、用户看过预览的排错资料：发送时原样附在用户的话后面。

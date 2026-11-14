@@ -262,10 +262,14 @@ window.MDWorldImport = (() => {
       const g = bySev(s.issues);
       const main = g.block.length ? g.block : [...g.confirm, ...g.warn, ...g.info];
       const rest = g.block.length ? [...g.confirm, ...g.warn, ...g.info] : [];
+      // 像世界、但一张都不能用的时候（只有 level.dat_old、level.dat 坏了），具体原因和怎么办写在候选自己的 issues 里，
+      // 顶层是空的：一起摆出来，不然只剩一句「缺了关键文件」
+      const why = (s.candidates || []).map(c => ({ name: candName(c), block: bySev(c.issues).block })).filter(x => x.block.length);
       root.innerHTML = `
         <div class="wi-reject">
           <div class="err-box" id="wi-reject"><b>${esc(KIND_TITLE[s.kind] || KIND_TITLE.unknown)}，不能当地图导入。</b>
-            ${main.length ? issueList(main) : ""}</div>
+            ${main.length ? issueList(main) : ""}
+            ${why.map(x => (why.length > 1 ? `<div class="hint">「${esc(x.name)}」</div>` : "") + issueList(x.block)).join("")}</div>
           <div class="hint">来源：<span>${esc((s.source && s.source.name) || "")}</span></div>
           ${rest.length ? `<div class="wi-sec"><h3>另外注意到</h3>${issueList(rest, "muted")}</div>` : ""}
           <div class="row wi-row"><button type="button" class="btn" id="wi-again">${icon("arrowLeft")} 换一个来源</button></div>
@@ -490,7 +494,7 @@ window.MDWorldImport = (() => {
       const where = bad || pt.state === "stuck" ? pt.stuck || [] : []; // 要人看的地方：本机给路径，别的设备上后端只给一句话，都只当文字
       const who = `${nm} ${when(pt.created, true)}`; // 按钮的名字带上是哪一次导入
       const stopped = st.status === "stopped";
-      const sizes = [pt.oldBytes > 0 ? `导入前的世界占 ${size(pt.oldBytes)}` : "", pt.keptBytes > 0 ? `留在旁边的导入地图占 ${size(pt.keptBytes)}` : ""].filter(Boolean).join(" · ");
+      const sizes = [pt.oldBytes > 0 ? `导入前的世界占 ${size(pt.oldBytes)}` : "", pt.keptBytes > 0 ? `留在旁边的导入地图占 ${size(pt.keptBytes)}` : "", pt.stagedBytes > 0 ? `暂存区保留 ${size(pt.stagedBytes)}` : ""].filter(Boolean).join(" · ");
       return `<div class="row-item" data-wi-point="${esc(pt.id)}" data-state="${esc(pt.state)}"><div class="ri-head wi-pt"><span class="ri-ico">${icon("restore")}</span>
         <div class="ri-main">
           <div class="ri-title"><span>${esc(nm)}</span><span class="tag${cls ? " " + cls : ""}">${esc(tag)}</span></div>
@@ -563,7 +567,7 @@ window.MDWorldImport = (() => {
         : "这次导入没有生效，删掉的是它留下的记录和临时文件。";
       const r = await confirmModal({
         title: "删除恢复点？", danger: true, icon: "trash", okText: "删除恢复点",
-        body: `${what}<br><b>删除后无法恢复。</b>正在用的世界不受影响。`,
+        body: `${what}${pt.stagedBytes > 0 ? `<br><b>暂存区还保留 ${size(pt.stagedBytes)} 数据，MineDeck 没能确认它就是来源副本，可能是唯一的一份。请先查看并另存需要的文件，再决定是否删除。</b>` : ""}<br><b>删除后无法恢复。</b>正在用的世界不受影响。`,
       });
       if (!r || gone()) return;
       lockPoint(pt.id);

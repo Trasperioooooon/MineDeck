@@ -53,7 +53,22 @@ type Limits struct {
 	MaxBytes int64 // 展开以后最多多少字节
 	MaxDepth int   // 复合、列表最多嵌套几层
 	MaxNodes int   // 最多多少个值
+	// Budget 不是 nil 时，这个文件展开的字节数和值的个数还要从这份共用的额度里扣（见 Budget）。
+	Budget *Budget
 }
+
+// Budget 一批 NBT 文件合起来的上限：一次检测里读的所有文件共用一份。单个文件各有各的上限，合起来以前没有，
+// 一个包里放上几百个塞满的 level.dat，逐个都不超，加起来能把检测拖住很久。
+// 每读一个文件，从里面扣掉它展开的字节数和值的个数；不够扣了就返回 ErrBudget，之后的文件一律不再读。
+// 不能几个 goroutine 同时用：一次检测是顺着读的。
+type Budget struct {
+	Bytes int64 // 还能展开多少字节
+	Nodes int64 // 还能有多少个值
+	spent bool
+}
+
+// Spent 额度是不是已经用完过（有文件因为它没读成）。
+func (b *Budget) Spent() bool { return b != nil && b.spent }
 
 // LevelLimits 读 level.dat 用的上限。正常的 level.dat 展开后几十 KB，背包里塞满写满字的书也到不了几 MB。
 var LevelLimits = Limits{MaxFile: 16 << 20, MaxBytes: 32 << 20, MaxDepth: 128, MaxNodes: 1_000_000}
@@ -63,6 +78,7 @@ var (
 	ErrTooLarge = errors.New("文件展开后太大")
 	ErrTooDeep  = errors.New("嵌套层数太多")
 	ErrTooMany  = errors.New("内容条目太多")
+	ErrBudget   = errors.New("这一批文件合起来太大，没有读完")
 	ErrCorrupt  = errors.New("文件内容不完整或已损坏")
 	ErrNotNBT   = errors.New("不是 Java 版的 NBT 文件")
 )
@@ -136,8 +152,23 @@ func Read(r io.Reader, lim Limits) (string, Compound, Compression, error) {
 	if max <= 0 {
 		max = LevelLimits.MaxBytes
 	}
+	// 共用的额度：剩下的比这个文件自己的上限还少，就按剩下的读；因此读不完的算额度用完，不算这个文件太大
+	bud := lim.Budget
+	byBudget := false
+	if bud != nil {
+		if bud.spent || bud.Bytes <= 0 || bud.Nodes <= 0 {
+			bud.spent = true
+			return "", nil, comp, ErrBudget
+		}
+		if bud.Bytes < max {
+			max, byBudget = bud.Bytes, true
+		}
+	}
 	var buf bytes.Buffer
 	n, err := io.Copy(&buf, io.LimitReader(body, max+1))
+	if bud != nil {
+		bud.Bytes -= min(n, max)
+	}
 	if errors.Is(err, ErrTooLarge) {
 		return "", nil, comp, err
 	}
@@ -145,9 +176,29 @@ func Read(r io.Reader, lim Limits) (string, Compound, Compression, error) {
 		return "", nil, comp, fmt.Errorf("%w：%v", ErrCorrupt, err)
 	}
 	if n > max {
+		if byBudget {
+			bud.spent = true
+			return "", nil, comp, ErrBudget
+		}
 		return "", nil, comp, ErrTooLarge
 	}
-	name, root, err := Decode(buf.Bytes(), lim)
+	if bud == nil {
+		name, root, err := Decode(buf.Bytes(), lim)
+		return name, root, comp, err
+	}
+	if lim.MaxNodes <= 0 {
+		lim.MaxNodes = LevelLimits.MaxNodes
+	}
+	byBudget = false
+	if bud.Nodes < int64(lim.MaxNodes) {
+		lim.MaxNodes, byBudget = int(bud.Nodes), true
+	}
+	name, root, nodes, err := decode(buf.Bytes(), lim)
+	bud.Nodes -= int64(nodes)
+	if byBudget && errors.Is(err, ErrTooMany) {
+		bud.spent = true
+		err = ErrBudget
+	}
 	return name, root, comp, err
 }
 
@@ -175,6 +226,12 @@ func (c *capReader) Read(p []byte) (int, error) {
 
 // Decode 解析不压缩的 NBT：根必须是复合标签。
 func Decode(b []byte, lim Limits) (string, Compound, error) {
+	name, root, _, err := decode(b, lim)
+	return name, root, err
+}
+
+// decode 同 Decode，另外返回一共读了多少个值（出错时是读到出错为止的个数）。
+func decode(b []byte, lim Limits) (string, Compound, int, error) {
 	d := &decoder{b: b, lim: lim}
 	if d.lim.MaxDepth <= 0 {
 		d.lim.MaxDepth = LevelLimits.MaxDepth
@@ -184,20 +241,20 @@ func Decode(b []byte, lim Limits) (string, Compound, error) {
 	}
 	t, err := d.u8()
 	if err != nil {
-		return "", nil, err
+		return "", nil, 0, err
 	}
 	if t != TagCompound {
-		return "", nil, ErrNotNBT
+		return "", nil, 0, ErrNotNBT
 	}
 	name, err := d.str()
 	if err != nil {
-		return "", nil, err
+		return "", nil, d.nodes, err
 	}
 	v, err := d.payload(TagCompound, 1)
 	if err != nil {
-		return "", nil, err
+		return "", nil, d.nodes, err
 	}
-	return name, v.(Compound), nil
+	return name, v.(Compound), d.nodes, nil
 }
 
 type decoder struct {

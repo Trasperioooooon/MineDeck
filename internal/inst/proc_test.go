@@ -19,6 +19,9 @@ import (
 // fakeServerEnv 设了它，测试程序就扮演服务器进程（TestMain 里先看）：打出 Done，然后按标准输入里的命令行事。
 const fakeServerEnv = "MINEDECK_FAKE_SERVER"
 
+// fakeSaveEnv 仿真服务端收到 save-all flush 怎么回：world = 回「Saved the world」，silent = 不回，别的 = 回「Saved the game」。
+const fakeSaveEnv = "MINEDECK_FAKE_SAVE"
+
 // fakeServer stop：像原版那样打「Stopping the server」再退出；opstop：游戏里的管理员发的 stop；
 // crash：什么都不说直接退出码 0（模组加载失败时 Forge 就是这样）。
 func fakeServer() int {
@@ -34,6 +37,16 @@ func fakeServer() int {
 			return 0
 		case "crash":
 			return 0
+		case "save-all flush":
+			switch os.Getenv(fakeSaveEnv) {
+			case "world": // 1.12.2 及更早的说法
+				fmt.Println("[12:00:01] [Server thread/INFO]: Saved the world")
+			case "silent": // 保存得慢，迟迟不回确认
+			default:
+				fmt.Println("[12:00:01] [Server thread/INFO]: Saved the game")
+			}
+		case "save-on":
+			fmt.Println("[12:00:01] [Server thread/INFO]: Automatic saving enabled")
 		}
 	}
 	return 0

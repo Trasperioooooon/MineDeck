@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"minedeck/internal/app"
+	"minedeck/internal/diskguard"
 	"minedeck/internal/inst"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/tasks"
@@ -29,6 +30,7 @@ type Service struct {
 
 	mu      sync.Mutex
 	scans   map[string]*scanResult
+	uploads map[string]*uploadRef // references include scans still queued or in progress
 	plans   map[string]*Plan
 	cancels map[string]cancelEntry  // 导入任务编号 → 取消（只在暂存阶段生效）
 	claims  map[string]*createClaim // 建服请求占着的计划编号 → 计划和扫描结果
@@ -38,6 +40,9 @@ type Service struct {
 	// importing 正在导入的服务器：同一台一次只导入一张。复制到暂存区时还没占位（WorldBusy 是空的），
 	// 不拦的话别的设备能再发起一次，两边各复制一份，后到的在占位时失败、白复制
 	importing map[string]bool
+
+	// scanSlots 同时在跑的检测的名额（见 maxConcurrentScans）
+	scanSlots chan struct{}
 
 	order versionOrder
 	now   func() time.Time
@@ -71,7 +76,8 @@ type createClaim struct {
 // NewService 建服务，并把「新建服务器时放地图」的钩子挂到实例管理器上。
 func NewService(m *inst.Manager) *Service {
 	s := &Service{M: m, scans: map[string]*scanResult{}, plans: map[string]*Plan{}, cancels: map[string]cancelEntry{},
-		claims: map[string]*createClaim{}, active: map[string]bool{}, importing: map[string]bool{}, order: manifestOrder, now: time.Now, StopTimeout: 2 * time.Minute}
+		claims: map[string]*createClaim{}, active: map[string]bool{}, importing: map[string]bool{},
+		scanSlots: make(chan struct{}, maxConcurrentScans), order: manifestOrder, now: time.Now, StopTimeout: 2 * time.Minute}
 	m.SetWorldPlacer(s.placeForCreate, s.ReleaseCreate)
 	return s
 }
@@ -105,7 +111,7 @@ func (s *Service) unpin(r *scanResult) {
 	}
 	s.mu.Unlock()
 	if gone && r.Source.Uploaded {
-		_ = os.Remove(r.Source.Path)
+		_ = s.releaseUpload(r.uploadKey)
 	}
 }
 
@@ -120,7 +126,7 @@ func (s *Service) dropScanLocked(r *scanResult) string {
 	if !r.Source.Uploaded {
 		return ""
 	}
-	return r.Source.Path
+	return r.uploadKey
 }
 
 func newID(prefix string) string {
@@ -133,33 +139,78 @@ func newID(prefix string) string {
 
 // ScanPath 扫描本机路径（文件夹或文件）。只给本机的人用：调用方负责确认。
 func (s *Service) ScanPath(owner, p string) (*Scan, error) {
+	return s.ScanPathCtx(context.Background(), owner, p)
+}
+
+// ScanPathCtx 同 ScanPath。ctx 是发起检测的请求：它取消了（页面关了、连接断了），排队等名额的不再等，
+// 正在检测的在两个世界之间停下。
+func (s *Service) ScanPathCtx(ctx context.Context, owner, p string) (*Scan, error) {
 	p = filepath.Clean(strings.TrimSpace(p))
 	if !filepath.IsAbs(p) {
 		return nil, fmt.Errorf("请选一个完整的路径")
 	}
-	return s.scan(owner, p, filepath.Base(p), false)
+	return s.scan(ctx, owner, p, filepath.Base(p), false)
 }
 
 // ScanUpload 扫描已经上传到缓存目录的文件（display 是上传时的文件名，只用来显示和认扩展名）。
 func (s *Service) ScanUpload(owner, file, display string) (*Scan, error) {
+	return s.ScanUploadCtx(context.Background(), owner, file, display)
+}
+
+// ScanUploadCtx 同 ScanUpload，ctx 的意思同 ScanPathCtx。检测没出结果（报错、被取消）时，上传的那个文件当场删掉。
+func (s *Service) ScanUploadCtx(ctx context.Context, owner, file, display string) (*Scan, error) {
 	if filepath.Dir(filepath.Clean(file)) != UploadDir() {
 		return nil, fmt.Errorf("文件不在上传文件夹里")
 	}
-	return s.scan(owner, file, display, true)
+	return s.scan(ctx, owner, file, display, true)
 }
 
 // UploadDir 局域网上传的地图放在哪。
 func UploadDir() string { return filepath.Join(app.CacheDir, "worldimport", "uploads") }
 
-func (s *Service) scan(owner, p, display string, uploaded bool) (*Scan, error) {
+// maxConcurrentScans 同时最多跑几个检测，多出来的排队等。一次检测要把来源的文件清单读进内存（大的包有几百兆），
+// 不限的话几个大包一起检测会把内存叠上去（2026-11-14 Codex 复审第 1 条）。检测本身有工作量上限，排队等得到头。
+const maxConcurrentScans = 2
+
+func (s *Service) scan(ctx context.Context, owner, p, display string, uploaded bool) (sc *Scan, err error) {
+	var uploadKey string
+	if uploaded {
+		uploadKey, err = s.holdUpload(p)
+		if err != nil {
+			return nil, err
+		}
+	}
+	// Failure releases this scan's reference, never another scan's file.
+	defer func() {
+		if err != nil && uploaded {
+			err = errors.Join(err, s.releaseUpload(uploadKey))
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("检测已取消：%w", err)
+	}
+	select {
+	case s.scanSlots <- struct{}{}:
+		defer func() { <-s.scanSlots }()
+	case <-ctx.Done(): // 还在排队，请求就取消了
+		return nil, fmt.Errorf("检测已取消")
+	}
 	s.sweep()
-	r, err := scanPath(p, cleanText(display, 120), uploaded)
+	r, err := scanPathCtx(ctx, p, cleanText(display, 120), uploaded)
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, fmt.Errorf("检测已取消")
+		}
 		return nil, err
 	}
 	if r.src != nil {
 		r.src.Close() // 只留结果；暂存时重新打开，顺便核对来源有没有变
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("检测已取消：%w", err)
+	}
+	r.uploadKey = uploadKey
+	r.budget, r.kids, r.hints, r.ctx = nil, nil, nil, nil // 只在检测的过程中用
 	r.ID = newID("s")
 	r.Owner = owner
 	r.CreatedAt = s.now()
@@ -168,6 +219,10 @@ func (s *Service) scan(owner, p, display string, uploaded bool) (*Scan, error) {
 		r.Candidates = []Candidate{}
 	}
 	s.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("检测已取消：%w", err)
+	}
 	s.scans[r.ID] = r
 	s.mu.Unlock()
 	out := r.Scan
@@ -229,11 +284,13 @@ func containsFold(list []string, v string) bool {
 }
 
 // reopen 重新打开一份来源（暂存、读说明书、核对指纹时用）。
-func reopen(r *scanResult) (*source, error) {
+func reopen(r *scanResult) (*source, error) { return reopenCtx(context.Background(), r) }
+
+func reopenCtx(ctx context.Context, r *scanResult) (*source, error) {
 	if r.Source.Kind == "folder" {
-		return openFolder(r.Source.Path)
+		return openFolderCtx(ctx, r.Source.Path)
 	}
-	return openZip(r.Source.Path)
+	return openZipCtx(ctx, r.Source.Path)
 }
 
 // sweep 清掉过期的扫描结果和计划，以及过期的上传文件。
@@ -260,9 +317,13 @@ func (s *Service) sweep() {
 			delete(s.claims, id)
 		}
 	}
-	inUse := map[string]bool{} // 正在用的上传文件（钉住的检测结果都还在缓存里，见 dropScanLocked）：放久了也不删
+	// 还有人用的上传文件，放久了也不删：钉住的检测结果（导入、建服任务正用着，见 dropScanLocked），
+	// 以及所有还没过期、没被放弃的检测结果。后一种以前不算：反复重做计划会把检测结果的有效期往后顺延，
+	// 文件却只按上传的时间算，三个多小时以后别人的一次检测就会把它删掉，仍然有效的计划指向一个没了的文件
+	// （2026-11-14 Codex 合并复审第 7 条）
+	inUse := map[string]bool{}
 	for _, r := range s.scans {
-		if r.pins > 0 {
+		if r.Source.Uploaded && (r.pins > 0 || !r.dropped) {
 			inUse[strings.ToLower(filepath.Base(r.Source.Path))] = true
 		}
 	}
@@ -271,16 +332,14 @@ func (s *Service) sweep() {
 		s.unpin(c.r)
 	}
 	for _, p := range drop {
-		_ = os.Remove(p)
+		_ = s.releaseUpload(p)
 	}
 	if ents, err := os.ReadDir(UploadDir()); err == nil {
 		for _, e := range ents {
 			if inUse[strings.ToLower(e.Name())] {
 				continue
 			}
-			if info, err := e.Info(); err == nil && now.Sub(info.ModTime()) > scanTTL+time.Hour {
-				_ = os.Remove(filepath.Join(UploadDir(), e.Name()))
-			}
+			s.removeUnusedUpload(filepath.Join(UploadDir(), e.Name()), now.Add(-scanTTL-time.Hour))
 		}
 	}
 }
@@ -301,7 +360,7 @@ func (s *Service) Discard(owner, scanID string) {
 	drop := s.dropScanLocked(r) // 已经开始的导入、建服任务不受影响：上传的文件等它们用完再删
 	s.mu.Unlock()
 	if drop != "" {
-		_ = os.Remove(drop)
+		_ = s.releaseUpload(drop)
 	}
 }
 
@@ -326,9 +385,20 @@ func (s *Service) targetOf(name string) (*Target, *inst.Instance, error) {
 	if mcsrc.KindOf(i.Core) == mcsrc.KindProxy {
 		return nil, nil, fmt.Errorf("「%s」是代理端（Velocity / Waterfall），它本身没有世界，不能导入地图。请把地图导入到它后面的游戏服务器", name)
 	}
-	t := &Target{Inst: name, Dir: i.Dir, Core: i.Core, MC: i.MC, LevelName: inst.LevelName(i.Dir), Props: map[string]string{}, launch: i.LaunchTarget}
-	if b, err := os.ReadFile(i.PropsPath()); err == nil {
+	// 世界名和设置都按「看不了就停下」读：读不了 server.properties 时不能默认成 world，
+	// 自定义了世界名的服务器会被导进错的文件夹
+	level, err := inst.LevelNameStrict(i.Dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	t := &Target{Inst: name, Dir: i.Dir, Core: i.Core, MC: i.MC, LevelName: level, Props: map[string]string{}, launch: i.LaunchTarget}
+	b, err := os.ReadFile(i.PropsPath())
+	switch {
+	case err == nil:
 		t.Props = inst.JavaProps(b)
+	case errors.Is(err, fs.ErrNotExist):
+	default:
+		return nil, nil, fmt.Errorf("读不了这台服务器的 server.properties：%w", err)
 	}
 	t.jarWV = jarWorldVersion(i.Dir, i.LaunchTarget)
 	return t, i, nil
@@ -337,7 +407,7 @@ func (s *Service) targetOf(name string) (*Target, *inst.Instance, error) {
 // targetFP 目标现状的指纹：核心、版本、level-name，以及各世界目录在不在、level.dat 的大小和修改时间。
 func targetFP(t *Target) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s|%s|%s|", t.Core, t.MC, t.LevelName)
+	fmt.Fprintf(h, "%s|%s|%s|%s|%s|", t.Core, t.MC, t.LevelName, t.launch, t.rootConfig)
 	if t.Dir != "" {
 		for _, n := range worldDirNames(t.LevelName) {
 			p := filepath.Join(t.Dir, filepath.FromSlash(n))
@@ -434,7 +504,13 @@ func (s *Service) evaluate(ctx context.Context, r *scanResult, info *candInfo, t
 	// 目标的旧世界：level-name 的主目录和 _nether、_the_end，有哪个移哪个
 	if t.Dir != "" {
 		for _, n := range worldDirNames(t.LevelName) {
-			if exists(filepath.Join(t.Dir, filepath.FromSlash(n))) {
+			there, err := present(filepath.Join(t.Dir, filepath.FromSlash(n)))
+			if err != nil { // 预览里写的「会替换哪些」不能是猜的
+				p.Issues = append(p.Issues, Issue{Sev: SevBlock, Code: "world-unreadable",
+					Msg: "看不了这台服务器的世界文件夹「" + n + "」在不在，现在不能导入。可能有别的程序占着它", Detail: noPath(err)})
+				continue
+			}
+			if there {
 				p.Replace = append(p.Replace, n)
 			}
 		}
@@ -465,18 +541,24 @@ func (s *Service) evaluate(ctx context.Context, r *scanResult, info *candInfo, t
 			}
 		}
 	}
-	// 空间：暂存一份新地图，加 256 MB 余量；旧世界是改名移走的，不再占一份
-	p.NeedBytes = c.Bytes + 256<<20
+	// 空间：暂存一份新地图，加上余量；旧世界是改名移走的，不再占一份。
+	// 加法按不溢出的算：压缩包申报的大小不可信，合计大到加上余量会溢出成负数的话，以前这里的检查就放行了
+	p.NeedBytes = needWithReserve(c.Bytes, stageReserve)
 	root := t.Dir
 	if root == "" {
 		root = app.ServersRoot()
 	}
-	if free, err := app.DiskFree(root); err == nil {
-		p.FreeBytes = int64(free)
+	if free, err := diskFree(root); err == nil {
+		p.FreeBytes = free
 		if p.NeedBytes > p.FreeBytes {
 			p.Issues = append(p.Issues, Issue{Sev: SevBlock, Code: "disk-full",
 				Msg: fmt.Sprintf("磁盘空间不够：这张地图要 %s，服务器所在的盘只剩 %s", fmtBytes(p.NeedBytes), fmtBytes(p.FreeBytes))})
 		}
+	} else {
+		// 查不到剩余空间不拦死（有的盘就是查不了），但要用户自己确认放得下才往下做：
+		// 这时候「空间不够就不导入」这道保护实际上没有了，不能只是提一句
+		p.Issues = append(p.Issues, Issue{Sev: SevConfirm, Code: "disk-unknown",
+			Msg: fmt.Sprintf("没能查到服务器所在的盘还剩多少空间。这张地图要 %s，请先自己确认放得下", fmtBytes(p.NeedBytes))})
 	}
 	for _, is := range p.Issues {
 		switch is.Sev {
@@ -721,7 +803,7 @@ func (s *Service) Execute(owner string, req ExecReq) (string, error) {
 	s.mu.Unlock()
 	t, tctx := s.M.Tasks.New(fmt.Sprintf("导入地图到 %s", p.Inst), importSteps)
 	t.SetKind("world")
-	ctx, cancel := context.WithCancel(tctx)
+	ctx, cancel := context.WithCancel(withSpaceConfirmation(tctx, p))
 	s.mu.Lock()
 	s.cancels[t.ID()] = cancelEntry{owner: owner, fn: cancel}
 	s.mu.Unlock()
@@ -745,15 +827,30 @@ func (s *Service) Execute(owner string, req ExecReq) (string, error) {
 }
 
 // Cancel 取消一个导入任务：只在复制到暂存区的阶段生效，开始换地图以后会做完（或退回）再结束。
-// 只有发起导入的人能取消。
+// 只有发起导入的人能取消。返回 true 就一定取消得掉：地图不会被换。
+//
+// 「取消」和「进入不能取消的阶段」（closeCancel）在同一把锁里分先后。以前取消的登记要到整个任务结束才删，
+// 复制完以后也不再看有没有被取消，所以会出现取消返回了成功、地图还是被换了（2026-11-14 Codex 合并复审第 5 条）。
 func (s *Service) Cancel(owner, taskID string) bool {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	c, ok := s.cancels[taskID]
-	s.mu.Unlock()
 	if !ok || c.owner != owner {
 		return false
 	}
-	c.fn()
+	c.fn() // 在锁里取消：closeCancel 拿到锁的时候，要么已经看得到这次取消，要么这次取消还没进来（之后进来的会找不到登记）
+	return true
+}
+
+// closeCancel 导入要进入不能取消的阶段了：已经被取消就返回 false（调用方放弃，什么都不换）；
+// 没被取消就把取消的登记拿掉，之后的取消请求一律得到「已经不能取消了」。
+func (s *Service) closeCancel(ctx context.Context, taskID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if ctx.Err() != nil {
+		return false
+	}
+	delete(s.cancels, taskID)
 	return true
 }
 
@@ -764,7 +861,12 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 	if err != nil {
 		return "", err
 	}
-	src, err := reopen(r)
+	for _, issue := range worldRootChecks(tg) {
+		if issue.Sev == SevBlock {
+			return "", errors.New(issue.Msg)
+		}
+	}
+	src, err := reopenCtx(ctx, r)
 	if err != nil {
 		return "", fmt.Errorf("来源打不开了：%w", err)
 	}
@@ -804,21 +906,38 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 		return "", cause
 	}
 	stageRoot := filepath.Join(txAbs(tg.Dir, id), stageSub)
-	if err := stageFiles(ctx, src, files, stageRoot, t.ProgressFn("复制地图")); err != nil {
+	waiting := func() {
+		t.Logf("同一个磁盘上有其他文件正在写入，等它完成再复制地图；现在仍可取消")
+	}
+	if err := stageFiles(ctx, src, files, stageRoot, t.ProgressFn("复制地图"), waiting); err != nil {
 		if errors.Is(err, context.Canceled) {
 			return abandon(fmt.Errorf("已取消，没有替换任何文件"))
 		}
 		return abandon(err)
 	}
+	if stagedHook != nil {
+		stagedHook()
+	}
 	if after, err := rescan(src, info); err != nil || fingerprint(after) != info.fp {
 		return abandon(fmt.Errorf("来源在复制期间变了，没有替换任何文件。请先关掉正在使用这张地图的程序，再重新检测"))
 	}
-	j.NewLevelSHA = fileSHA(filepath.Join(stageRoot, filepath.FromSlash(tg.LevelName), "level.dat"))
-	j.NewBytes = dirBytes(stageRoot)
-	for _, n := range worldDirNames(tg.LevelName) {
-		if exists(filepath.Join(stageRoot, filepath.FromSlash(n))) {
-			j.NewIn = append(j.NewIn, Step{From: txRel(id) + "/" + stageSub + "/" + n, To: n})
-		}
+	// 暂存好的这一份：哈希、大小、要搬进去的目录，哪一样读不出来都放弃，不带着猜的数往下走
+	if j.NewLevelSHA, err = fileSHAStrict(filepath.Join(stageRoot, filepath.FromSlash(tg.LevelName), "level.dat")); err != nil {
+		return abandon(fmt.Errorf("%w，没有替换任何文件", err))
+	}
+	if j.NewLevelSHA == "" {
+		return abandon(fmt.Errorf("暂存的新地图少了 level.dat，没有替换任何文件"))
+	}
+	if j.NewBytes, err = dirBytesStrict(stageRoot); err != nil {
+		return abandon(fmt.Errorf("数不清暂存区的大小，没有替换任何文件：%w", err))
+	}
+	dirs, err := stagedDirs(stageRoot, tg.LevelName, files)
+	if err != nil {
+		return abandon(err)
+	}
+	rememberStagedDirs(stageRoot, dirs, j)
+	for _, n := range dirs {
+		j.NewIn = append(j.NewIn, Step{From: txRel(id) + "/" + stageSub + "/" + n, To: n})
 	}
 	j.State = TxStaged
 	if err := saveJournal(tg.Dir, j); err != nil {
@@ -826,8 +945,21 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 	}
 	t.Logf("地图已复制到暂存区（%s）", fmtBytes(j.NewBytes))
 
-	// 3. 停服、占位。从这里开始不再响应取消：要么换完，要么退回
+	// 3. 停服、占位。从这里开始不再响应取消：要么换完，要么退回。
+	// 复制完到这里还有一段（重新核对来源、算哈希、数大小、存记录），文件多、盘慢的时候不短，这期间点的取消在这里兑现
+	if !s.closeCancel(ctx, t.ID()) {
+		return abandon(fmt.Errorf("已取消，没有替换任何文件"))
+	}
 	t.StartStep(2)
+	// 有备份在跑、有设置正在保存：等它们做完才占得上位。先看一眼再停服，不然服务器被停了，导入却因为备份在跑而放弃
+	if who := s.M.WorldUsers(p.Inst); who != "" {
+		return abandon(fmt.Errorf("这台服务器正在%s，等它完成以后再导入。服务器没有被停，没有替换任何文件", who))
+	}
+	intent, err := s.M.BeginWorldIntentInstance(i, "准备换地图")
+	if err != nil {
+		return abandon(err)
+	}
+	defer intent.Release()
 	if i.Status() != "stopped" {
 		if !stopFirst {
 			return abandon(fmt.Errorf("服务器正在运行，没有替换任何文件"))
@@ -840,23 +972,30 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 			return abandon(fmt.Errorf("没能停下服务器，导入已取消，没有替换任何文件：%w", err))
 		}
 	}
-	release, err := s.M.BeginWorldChange(p.Inst, "换地图")
-	if err != nil {
+	if err := intent.Change(); err != nil {
 		return abandon(err)
 	}
-	defer release()
 	// 占上位以后再核对一遍：停服、占位这段时间里没人改过
 	tg2, i2, err := s.targetOf(p.Inst)
 	if err != nil {
 		return abandon(err)
 	}
-	if tg2.LevelName != tg.LevelName || tg2.Core != tg.Core || tg2.MC != tg.MC {
+	for _, issue := range worldRootChecks(tg2) {
+		if issue.Sev == SevBlock {
+			return abandon(errors.New(issue.Msg))
+		}
+	}
+	if i2 != i || tg2.LevelName != tg.LevelName || tg2.Core != tg.Core || tg2.MC != tg.MC || tg2.launch != tg.launch || tg2.rootConfig != tg.rootConfig {
 		return abandon(fmt.Errorf("服务器的设置在导入过程中变了，没有替换任何文件。请重新检测"))
 	}
 	j.LastExit = i2.LastExit()
 	for _, n := range worldDirNames(tg.LevelName) {
 		wp := filepath.Join(tg.Dir, filepath.FromSlash(n))
-		if !exists(wp) {
+		there, err := present(wp)
+		if err != nil { // 看不清原位有没有世界：不猜，什么都不换
+			return abandon(fmt.Errorf("%w，没有替换任何文件", err))
+		}
+		if !there {
 			continue
 		}
 		if held, err := sessionLockHeld(wp); err == nil && held {
@@ -864,7 +1003,10 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 		}
 		j.OldOut = append(j.OldOut, Step{From: n, To: txRel(id) + "/" + oldSub + "/" + n})
 	}
-	j.OldLevelSHA = fileSHA(filepath.Join(tg.Dir, filepath.FromSlash(tg.LevelName), "level.dat"))
+	// 旧世界没有 level.dat 是正常的（记成空串、之后不核对）；有却读不了，就不能当成没有
+	if j.OldLevelSHA, err = fileSHAStrict(filepath.Join(tg.Dir, filepath.FromSlash(tg.LevelName), "level.dat")); err != nil {
+		return abandon(fmt.Errorf("%w，没有替换任何文件", err))
+	}
 	for _, s := range j.OldOut {
 		j.OldBytes += dirBytes(filepath.Join(tg.Dir, filepath.FromSlash(s.From)))
 	}
@@ -885,6 +1027,9 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 	}
 	return "地图文件已导入，尚未启动检查。服务器保持停止，启动后进服看看是不是这张地图", nil
 }
+
+// stagedHook 测试用：最后一个文件复制完、还没重新核对来源的那一刻调用。
+var stagedHook func()
 
 func candName(c *Candidate) string {
 	if c.Meta.LevelName != "" {
@@ -1014,7 +1159,8 @@ func (s *Service) placeForCreate(ctx context.Context, t *tasks.Task, owner, plan
 		return fmt.Errorf("找不到这份导入计划，请重新检测")
 	}
 	p, r := c.p, c.r
-	src, err := reopen(r)
+	ctx = withSpaceConfirmation(ctx, p)
+	src, err := reopenCtx(ctx, r)
 	if err != nil {
 		return fmt.Errorf("地图来源打不开了：%w", err)
 	}
@@ -1023,7 +1169,10 @@ func (s *Service) placeForCreate(ctx context.Context, t *tasks.Task, owner, plan
 	if err != nil {
 		return err
 	}
-	level := inst.LevelName(dir)
+	level, err := inst.LevelNameStrict(dir)
+	if err != nil {
+		return err
+	}
 	mp, _ := planMapping(info.c, coreFamily(mcsrc.Core(p.Core)), mustModern(ctx, s.order, p.MC), level)
 	files, _, err := resolveMoves(info, mp)
 	if err != nil {
@@ -1036,20 +1185,36 @@ func (s *Service) placeForCreate(ctx context.Context, t *tasks.Task, owner, plan
 	}
 	stageRoot := filepath.Join(txAbs(dir, id), stageSub)
 	t.Logf("复制地图「%s」…", j.Candidate)
-	if err := stageFiles(ctx, src, files, stageRoot, t.ProgressFn("复制地图")); err != nil {
+	waiting := func() { t.Logf("同一个磁盘上有其他文件正在写入，等它完成再复制地图") }
+	if err := stageFiles(ctx, src, files, stageRoot, t.ProgressFn("复制地图"), waiting); err != nil {
 		return err
 	}
 	if after, err := rescan(src, info); err != nil || fingerprint(after) != info.fp {
 		return fmt.Errorf("地图来源在复制期间变了。请先关掉正在使用这张地图的程序，再重新检测")
 	}
-	j.NewLevelSHA = fileSHA(filepath.Join(stageRoot, filepath.FromSlash(level), "level.dat"))
-	for _, n := range worldDirNames(level) {
-		if exists(filepath.Join(stageRoot, filepath.FromSlash(n))) {
-			if exists(filepath.Join(dir, filepath.FromSlash(n))) {
-				return fmt.Errorf("新服务器的文件夹里已经有「%s」了", n)
-			}
-			j.NewIn = append(j.NewIn, Step{From: txRel(id) + "/" + stageSub + "/" + n, To: n})
+	if j.NewLevelSHA, err = fileSHAStrict(filepath.Join(stageRoot, filepath.FromSlash(level), "level.dat")); err != nil {
+		return err
+	}
+	if j.NewLevelSHA == "" {
+		return fmt.Errorf("暂存的新地图少了 level.dat")
+	}
+	if j.NewBytes, err = dirBytesStrict(stageRoot); err != nil {
+		return fmt.Errorf("数不清暂存区的大小：%w", err)
+	}
+	dirs, err := stagedDirs(stageRoot, level, files)
+	if err != nil {
+		return err
+	}
+	rememberStagedDirs(stageRoot, dirs, j)
+	for _, n := range dirs {
+		there, err := present(filepath.Join(dir, filepath.FromSlash(n)))
+		if err != nil {
+			return err
 		}
+		if there {
+			return fmt.Errorf("新服务器的文件夹里已经有「%s」了", n)
+		}
+		j.NewIn = append(j.NewIn, Step{From: txRel(id) + "/" + stageSub + "/" + n, To: n})
 	}
 	if _, err := commitTx(dir, j, nil); err != nil {
 		return err
@@ -1062,17 +1227,18 @@ func (s *Service) placeForCreate(ctx context.Context, t *tasks.Task, owner, plan
 
 // RestorePoint 一次导入留下的记录（界面「地图」页列出）。
 type RestorePoint struct {
-	ID        string    `json:"id"`
-	State     string    `json:"state"`
-	Created   time.Time `json:"created"`
-	Source    string    `json:"source"`
-	Candidate string    `json:"candidate"`
-	LevelName string    `json:"levelName"`
-	HasOld    bool      `json:"hasOld"`   // 恢复点里有导入前的世界（能换回）
-	OldBytes  int64     `json:"oldBytes"` // 恢复点占的空间
-	KeptBytes int64     `json:"keptBytes"`
-	Err       string    `json:"error,omitempty"`
-	Stuck     []string  `json:"stuck,omitempty"`
+	ID          string    `json:"id"`
+	State       string    `json:"state"`
+	Created     time.Time `json:"created"`
+	Source      string    `json:"source"`
+	Candidate   string    `json:"candidate"`
+	LevelName   string    `json:"levelName"`
+	HasOld      bool      `json:"hasOld"`   // 恢复点里有导入前的世界（能换回）
+	OldBytes    int64     `json:"oldBytes"` // 恢复点占的空间
+	KeptBytes   int64     `json:"keptBytes"`
+	StagedBytes int64     `json:"stagedBytes"` // data deliberately retained when cleanup cannot prove ownership
+	Err         string    `json:"error,omitempty"`
+	Stuck       []string  `json:"stuck,omitempty"`
 	// CanReturn 现在能点「恢复导入前的地图」：恢复点里有旧世界，世界名和现在一样，
 	// 并且是这个世界最近的一次导入（先换回最近的，才能再往前换；乱序换回会把中间那张图困在恢复点里）
 	CanReturn bool `json:"canReturn"`
@@ -1112,15 +1278,18 @@ func (s *Service) Status(name string) (*WorldStatus, error) {
 		root := txAbs(i.Dir, j.ID)
 		rp.OldBytes = dirBytes(filepath.Join(root, oldSub))
 		rp.KeptBytes = dirBytes(filepath.Join(root, restoreSub))
+		rp.StagedBytes = dirBytes(filepath.Join(root, stageSub))
 		rp.HasOld = j.State == TxCommitted && len(j.OldOut) > 0 && rp.OldBytes > 0
 		rp.CanReturn = rp.HasOld && j == latest
 		ws.Points = append(ws.Points, rp)
 	}
 	// 读不出来的记录也列出来：它可能管着一份移到一半的世界，不能当它不存在
 	for _, b := range bad {
-		ws.Points = append(ws.Points, RestorePoint{ID: b.id, State: TxUnreadable, Err: noPath(b.err),
-			Stuck:    []string{txAbs(i.Dir, b.id)},
-			OldBytes: dirBytes(filepath.Join(txAbs(i.Dir, b.id), oldSub))})
+		rp := RestorePoint{ID: b.id, State: TxUnreadable, Err: noPath(b.err), Stuck: []string{b.path(i.Dir)}}
+		if !b.root {
+			rp.OldBytes = dirBytes(filepath.Join(b.path(i.Dir), oldSub))
+		}
+		ws.Points = append(ws.Points, rp)
 	}
 	return ws, nil
 }
@@ -1138,14 +1307,29 @@ func latestCommitted(js []*Journal, level string) *Journal {
 type badJournal struct {
 	id  string
 	err error
+	// root 为真时读不了的是放记录的文件夹本身，不是其中某一份记录（id 这时是那个文件夹的名字）
+	root bool
+}
+
+// path 这份读不出来的记录在盘上的位置（给人看、让人去处理）。
+func (b badJournal) path(dir string) string {
+	if b.root {
+		return filepath.Join(dir, filepath.FromSlash(inst.WorldTxDir))
+	}
+	return txAbs(dir, b.id)
 }
 
 // listJournals 一个实例的全部换地图记录（新的在前），以及读不出来的记录（文件坏了、内容对不上）。
 // 没有 journal.json 的目录不算：记录是建暂存区之前头一个写下的，没有它就还没开始。
 func listJournals(dir string) ([]*Journal, []badJournal) {
 	ents, err := os.ReadDir(filepath.Join(dir, filepath.FromSlash(inst.WorldTxDir)))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil // 没有这个文件夹：从来没换过地图
+	}
 	if err != nil {
-		return nil, nil
+		// 文件夹在、却读不了：里面有什么不知道。按「有一份读不出来的记录」算，不能当成没有
+		// （和 inst.PendingWorldTx 一个道理，2026-11-14 Codex 合并复审第 3 条）
+		return nil, []badJournal{{id: filepath.Base(filepath.FromSlash(inst.WorldTxDir)), err: err, root: true}}
 	}
 	var out []*Journal
 	var bad []badJournal
@@ -1176,6 +1360,9 @@ func (s *Service) Restore(name, txID, confirm string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if why := s.M.WorldBusy(name); why != "" { // 正在换地图，或者有没走完的记录（封锁）：占位时还会再查一遍
+		return "", errors.New(why)
+	}
 	j, err := loadJournal(i.Dir, txID)
 	if err != nil {
 		return "", fmt.Errorf("找不到这次导入的记录")
@@ -1187,7 +1374,7 @@ func (s *Service) Restore(name, txID, confirm string) (string, error) {
 	t.SetKind("world")
 	go func() {
 		t.StartStep(0)
-		release, err := s.M.BeginWorldChange(name, "换回旧地图")
+		release, err := s.M.BeginWorldChangeInstance(i, "换回旧地图")
 		if err != nil {
 			t.Fail(err)
 			return
@@ -1230,10 +1417,27 @@ func restorable(dir string, j *Journal) error {
 	if len(j.OldOut) == 0 {
 		return fmt.Errorf("这次导入之前服务器还没有世界，没有可以换回的旧地图")
 	}
-	if cur := inst.LevelName(dir); !strings.EqualFold(cur, j.LevelName) {
+	cur, err := inst.LevelNameStrict(dir)
+	if err != nil {
+		return fmt.Errorf("现在不能换回：%w", err)
+	}
+	if !strings.EqualFold(cur, j.LevelName) {
 		return fmt.Errorf("导入以后 level-name 改过了（现在是 %s，导入时是 %s），没法自动换回。先把 level-name 改回去", cur, j.LevelName)
 	}
-	js, _ := listJournals(dir)
+	js, bad := listJournals(dir)
+	// 这台服务器上只要还有没走完、卡住或者读不出来的换地图记录，就什么都不换回：那份记录管着的世界现在在哪、
+	// 之后会被搬到哪还没定，这时候再动原位上的世界，等它恢复时会把搬错的东西当成自己的清掉。
+	// 内存里的封锁标志也拦这件事（BeginWorldChange），这里按盘上的记录再看一遍，不只靠那个标志
+	if len(bad) > 0 {
+		return fmt.Errorf("这台服务器有换地图的记录读不出来，现在不能换回。请先到「地图」里按提示处理")
+	}
+	for _, o := range js {
+		switch o.State {
+		case TxCommitted, TxRolledBack, TxRestored, TxStaging, TxStaged:
+		default:
+			return fmt.Errorf("这台服务器有一次换地图还没走完（状态：%s），现在不能换回。请先到「地图」里点「重试恢复」", o.State)
+		}
+	}
 	if l := latestCommitted(js, j.LevelName); l == nil || l.ID != j.ID {
 		return fmt.Errorf("这之后又导入过别的地图。请先换回最近那一次导入前的地图，再往前换")
 	}
@@ -1261,17 +1465,34 @@ func (s *Service) DeletePoint(name, txID, confirm string) error {
 	default:
 		return fmt.Errorf("这次导入还没处理完（状态：%s），现在不能删", j.State)
 	}
-	release, err := s.M.BeginWorldChange(name, "删除恢复点")
+	release, err := s.M.BeginWorldChangeInstance(i, "删除恢复点")
 	if err != nil {
 		return err
 	}
 	defer release()
+	// 占上位以后重新读一遍再删：等位的这段时间里，换回可能刚好在这份记录上失败了（状态已经不是「已提交」），
+	// 这时候它的文件夹里放着要靠它救回来的世界，不能照着占位之前的判断删掉
+	j, err = loadJournal(i.Dir, txID)
+	if err != nil {
+		return fmt.Errorf("找不到这次导入的记录")
+	}
+	switch j.State {
+	case TxCommitted, TxRolledBack, TxRestored:
+	default:
+		return fmt.Errorf("这次导入还没处理完（状态：%s），现在不能删", j.State)
+	}
 	return os.RemoveAll(txAbs(i.Dir, txID))
 }
 
 // RecoverAll 程序启动时调（在任何导入开始之前）：处理每台服务器没走完的换地图记录，处理好了解除启动封锁；
 // 暂存到一半就退出的（没碰目标世界，也没封锁启动），顺手把暂存区清掉。
 func (s *Service) RecoverAll() {
+	s.clearUploads()
+	go func() { // 之后定时清一遍：以前只在有人检测时才清，关掉页面以后过期的上传文件一直留着
+		for range time.Tick(sweepEvery) {
+			s.sweep()
+		}
+	}()
 	blocked := s.M.WorldBlocked()
 	for _, i := range s.M.List() {
 		_, isBlocked := blocked[i.Name]
@@ -1331,12 +1552,16 @@ func (s *Service) Retry(name string) error {
 	if i.Status() != "stopped" {
 		return fmt.Errorf("请先停止服务器")
 	}
-	release, err := s.M.BeginWorldChange(name, "恢复地图")
+	release, err := s.M.BeginWorldRecovery(name, "恢复地图") // 被封锁的服务器正是要恢复的：只有这条路能在封锁时占位
 	if err != nil {
 		return err
 	}
-	s.recoverInstance(i, true)
-	release()
+	// 占的位只包住恢复这一步，中途出了意外（panic）也放得掉。下面的 WorldBusy 要看的是封锁还在不在，
+	// 所以必须在查之前放掉，不能拖到函数返回
+	func() {
+		defer release()
+		s.recoverInstance(i, true)
+	}()
 	if why := s.M.WorldBusy(name); why != "" {
 		return errors.New(why)
 	}
@@ -1350,20 +1575,94 @@ func errString(err error) string {
 	return err.Error()
 }
 
+// sweepEvery 多久清一遍过期的检测结果和上传文件。
+const sweepEvery = 30 * time.Minute
+
+// clearUploads 程序启动时清空上传目录。检测结果只存在内存里，重启以后上传目录里的文件没有一个还有人认领；
+// 以前要等下次有人检测、并且放满三个多小时才清，一个文件最大 8 GB。
+func (s *Service) clearUploads() {
+	ents, err := os.ReadDir(UploadDir())
+	if err != nil {
+		return
+	}
+	for _, e := range ents {
+		if !e.IsDir() {
+			s.removeUnusedUpload(filepath.Join(UploadDir(), e.Name()), time.Time{})
+		}
+	}
+}
+
+// 上传的保护（2026-11-14 Codex 访问控制复审第 2 条）。以前只限单个文件的大小：同时传几个、盘本来就快满，
+// 都能把放缓存的盘写满，盘满的时候同一个盘上别的东西也写不进去。做成变量是为了测试能调。
+var (
+	// uploadSlots 同时最多有几个地图在上传。
+	uploadSlots = make(chan struct{}, 2)
+	// uploadReserve 上传时给放缓存的盘留的余量。
+	uploadReserve    int64 = 1 << 30
+	uploadCheckEvery int64 = 64 << 20
+)
+
+// ErrUploadTooLarge 上传超过上限。
+var ErrUploadTooLarge = errors.New("上传的文件太大")
+
+// ErrUploadBusy 同时上传的太多。
+var ErrUploadBusy = errors.New("同时上传的地图太多了，等前一个传完再试")
+
+// ErrUploadNoSpace 放上传文件的盘余量不够。
+var ErrUploadNoSpace = errors.New("放上传文件的盘空间不够")
+
 // SaveUpload 把上传流写进上传目录（流式，不过系统临时目录），超过 limit 就停。返回落盘的路径。
-func SaveUpload(r io.Reader, limit int64) (string, error) {
+// expect 是对方说的大小（请求头里的长度，不知道填 0）：开始写之前，盘的余量要放得下它再多出 uploadReserve；
+// 写的过程中每写一段再看一眼余量，掉到 uploadReserve 以下就停。
+func SaveUpload(r io.Reader, limit, expect int64) (string, error) {
+	return SaveUploadCtx(context.Background(), r, limit, expect)
+}
+
+// SaveUploadCtx also cancels while queued for the destination volume.
+func SaveUploadCtx(ctx context.Context, r io.Reader, limit, expect int64) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if limit < 0 || limit == int64(^uint64(0)>>1) {
+		return "", ErrUploadTooLarge
+	}
+	select {
+	case uploadSlots <- struct{}{}:
+		defer func() { <-uploadSlots }()
+	default:
+		return "", ErrUploadBusy
+	}
 	dir := UploadDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
+	// 接收上传只查余量，不占这个盘的独占名额：文件是按对方的网速一点点进来的，占着名额的话
+	// 同一个盘上的备份、地图暂存要等它传完，第二个上传也只能干等（等久了还会被当成没有进展掐掉）。
+	// 同时在传的个数由上面的 uploadSlots 管；和暂存争空间靠开头这一次检查、写的过程中隔一段再查、各自留的底
+	lease, err := diskguard.Acquire(ctx, dir, diskguard.Options{Shared: true, Need: max(expect, 0), Reserve: uploadReserve, Query: diskFree, CheckEvery: uploadCheckEvery})
+	if err != nil {
+		var ns *diskguard.NoSpace
+		if errors.As(err, &ns) {
+			return "", fmt.Errorf("%w（只剩 %s）", ErrUploadNoSpace, fmtBytes(ns.Free))
+		}
+		return "", err
+	}
+	defer lease.Close()
 	dest := filepath.Join(dir, newID("u")+".upload")
 	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return "", err
 	}
-	n, cerr := io.Copy(f, io.LimitReader(r, limit+1))
+	n, cerr := io.Copy(lease.Writer(f), io.LimitReader(ctxReader{ctx, r}, limit+1))
 	if werr := f.Close(); cerr == nil {
 		cerr = werr
+	}
+	if ctx.Err() != nil {
+		cerr = ctx.Err()
+	}
+	var ns *diskguard.NoSpace
+	if errors.As(cerr, &ns) {
+		cerr = fmt.Errorf("%w（只剩 %s）", ErrUploadNoSpace, fmtBytes(ns.Free))
 	}
 	if cerr == nil && n > limit {
 		cerr = ErrUploadTooLarge
@@ -1374,9 +1673,6 @@ func SaveUpload(r io.Reader, limit int64) (string, error) {
 	}
 	return dest, nil
 }
-
-// ErrUploadTooLarge 上传超过上限。
-var ErrUploadTooLarge = errors.New("上传的文件太大")
 
 // sameOrInside a 是不是 b 本身或者在 b 里面（按真实路径、不分大小写比）。
 func sameOrInside(a, b string) bool {

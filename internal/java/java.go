@@ -4,7 +4,6 @@
 package java
 
 import (
-	"archive/zip"
 	"context"
 	"errors"
 	"fmt"
@@ -19,8 +18,10 @@ import (
 	"sync/atomic"
 
 	"minedeck/internal/app"
+	"minedeck/internal/diskguard"
 	"minedeck/internal/dl"
 	"minedeck/internal/mcsrc"
+	"minedeck/internal/zipguard"
 )
 
 type Info struct {
@@ -299,11 +300,16 @@ func runtimeMajor(name string) int {
 
 // extractZip 解压 JRE zip 至 destDir，自动剥离顶层目录，含 zip-slip 防护。
 func extractZip(zipPath, destDir string) error {
-	zr, err := zip.OpenReader(zipPath)
+	zr, err := zipguard.Open(zipPath, zipguard.Default)
 	if err != nil {
 		return fmt.Errorf("打开 zip 失败: %w", err)
 	}
 	defer zr.Close()
+	lease, err := diskguard.Acquire(context.Background(), destDir, diskguard.Options{AllowUnknown: true})
+	if err != nil {
+		return err
+	}
+	defer lease.Close()
 
 	// 检测统一顶层目录
 	top := ""
@@ -333,6 +339,9 @@ func extractZip(zipPath, destDir string) error {
 	}
 	cleanDest := filepath.Clean(destDir)
 	for _, f := range zr.File {
+		if err := lease.Check(0); err != nil {
+			return err
+		}
 		name := strings.ReplaceAll(f.Name, "\\", "/")
 		if top != "" {
 			name = strings.TrimPrefix(strings.TrimPrefix(name, top), "/")
@@ -362,7 +371,7 @@ func extractZip(zipPath, destDir string) error {
 			rc.Close()
 			return err
 		}
-		_, cerr := io.Copy(w, rc)
+		_, cerr := io.Copy(lease.Writer(w), rc)
 		rc.Close()
 		if werr := w.Close(); cerr == nil {
 			cerr = werr

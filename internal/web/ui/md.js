@@ -15,7 +15,12 @@
      回复的内容不全由模型决定（它会引用日志、玩家的聊天），所以解析要扛得住故意构造的输入：
      正则都是线性的、嵌套有上限；万一还是出了异常，整段按转义过的纯文本显示，不让界面卡死或空白。 */
   function parts(src) {
-    const text = String(src ?? "");
+  const original = String(src ?? "");
+  let text = original.slice(0, MAX_INPUT);
+  // 不把 UTF-16 代理对从中间切开。
+  if (text.length < original.length && /[\uD800-\uDBFF]$/.test(text)) text = text.slice(0, -1);
+  const cut = text.length < original.length;
+  const finish = out => cut ? out.concat({ sig: "md-length-limit", html: "<p>内容较长，已省略后面的显示。请缩小问题范围后重试。</p>" }) : out;
     const lines = esc(text.replace(/\u0001/g, "")).replace(/\r\n?/g, "\n").split("\n");
     const plain = () => [{ sig: lines.join("\n"), html: `<p>${lines.join("<br>")}</p>` }];
     cellsLeft = MAX_CELLS; // 表格格子的额度按整段算：几十张都卡在上限以内的表加起来照样能撑爆
@@ -25,12 +30,14 @@
       // 正常的回复放大不到这个程度（最多的是一串空代码块，二十来倍）
       let size = 0;
       for (const p of out) size += p.html.length;
-      return size > MAX_OUT_BASE + MAX_OUT_RATIO * text.length ? plain() : out;
+      return finish(size > Math.min(MAX_OUTPUT, MAX_OUT_BASE + MAX_OUT_RATIO * text.length) ? plain() : out);
     } catch {
-      return plain();
+      return finish(plain());
     }
   }
   const MAX_OUT_BASE = 65536, MAX_OUT_RATIO = 32;
+  // 在转义、切行和解析之前限长；异常回复及旧会话都不能让渲染工作量无限增长。
+  const MAX_INPUT = 128 * 1024, MAX_OUTPUT = 1024 * 1024;
 
   const MAX_NEST = 12; // 引用、强调最多嵌套几层；再往里按普通文字处理
 
@@ -367,5 +374,5 @@
     return s;
   }
 
-  return { parts, render };
+  return { parts, render, maxInput: MAX_INPUT };
 });

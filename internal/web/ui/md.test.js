@@ -2,7 +2,7 @@
 "use strict";
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { render, parts } = require("./md.js");
+const { render, parts, maxInput } = require("./md.js");
 
 const has = (html, s) => assert.ok(html.includes(s), `缺少 ${s}\n${html}`);
 const lacks = (html, s) => assert.ok(!html.includes(s), `不该有 ${s}\n${html}`);
@@ -247,7 +247,7 @@ test("乱拼的输入：输出里只有白名单里的标签，标签成对，�
   assert.ok(links > 0, "这批输入里应该拼得出链接");
 });
 
-test("故意构造的输入不卡住界面、不抛异常（回复里会引用日志和玩家的话）", () => {
+test("故意构造的输入不卡住界面、不抛异常（回复里会引用日志和玩家的话）", t => {
   const cases = {
     "标题后面几万个空格": "# a" + " ".repeat(40000) + "x",
     "十万个星号": "x" + "*".repeat(100000) + "x",
@@ -273,20 +273,31 @@ test("故意构造的输入不卡住界面、不抛异常（回复里会引用�
   // 渲染器真卡住的时候是它自己在算，和这段参照的活一样跟着机器的快慢走，所以原来那几种卡法在哪台机器上都超出上限好几倍。
   const cpuMs = () => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; };
   const refText = "[x](https://".repeat(4000);
-  const limitHere = () => {
+  const refOnce = () => {
     const t = cpuMs();
     let depth = 0;
     for (let r = 0; r < 400; r++) {
       for (let j = 0; j < refText.length; j++) { const c = refText[j]; if (c === "(") depth++; else if (c === ")") depth--; }
     }
     assert.equal(depth, 400 * 4000); // 用上结果，免得这段活被优化掉
-    return Math.round(500 * Math.max(1, (cpuMs() - t) / 50));
+    return cpuMs() - t;
+  };
+  // 参照的活连跑三遍取中间那个：CPU 时间在 Windows 上是十五六毫秒一跳，只量一遍 50 毫秒的活偏粗（Codex 合并复审第 9 条）。
+  // 参照的活和正则、分配不一定同比变慢；量的是 CPU 时间，等待型的卡顿量不出来。
+  // 首次耗时必须保留并单独检查，不能被重试值覆盖。输入/输出和表格工作量另有下面的确定性断言。
+  // 渲染器真的不返回时，下面的断言走不到，由外面 md_render_test.go 套的超时兜住。
+  const limitHere = () => {
+    const ms = [refOnce(), refOnce(), refOnce()].sort((a, b) => a - b)[1];
+    return Math.round(500 * Math.max(1, ms / 50));
   };
   const timed = src => { const t = cpuMs(); const html = render(src); return { ms: Math.round(cpuMs() - t), html }; };
   let limit = limitHere();
   for (const [name, src] of Object.entries(cases)) {
-    let r = timed(src);
-    if (r.ms >= limit) { limit = limitHere(); r = timed(src); }
+    const first = timed(src);
+    let r = first;
+    if (first.ms >= limit) { limit = limitHere(); r = timed(src); }
+    t.diagnostic(`${name}：首次 ${first.ms} ms；${r === first ? "未重试" : `重试 ${r.ms} ms`}；上限 ${limit} ms`);
+    assert.ok(first.ms < limit * 2, `${name}：首次用了 ${first.ms} ms，不能被较快的重试覆盖（上限 ${limit * 2} ms）`);
     const { ms, html } = r;
     assert.ok(ms < limit, `${name}：用了 ${ms} ms（CPU 时间；这台机器的上限是 ${limit} ms）`);
     assert.ok(typeof html === "string" && html.length > 0 && !html.includes("\u0001"), `${name}：输出不对`);
@@ -335,4 +346,19 @@ test("故意构造的输入不卡住界面、不抛异常（回复里会引用�
   // 列表：连着的空行只算一次分段；同一项里空行隔开的两段不拼成一个词
   assert.equal(render("- a\n\n\n\n- b"), "<ul><li>a</li><li>b</li></ul>");
   assert.equal(render("- a\n\n  续行\n- b"), "<ul><li>a<br><br>续行</li><li>b</li></ul>");
+});
+
+test("整段输入先限长，继续增长的尾部不会增加解析内容或输出，转义和代理对仍正确", () => {
+  const prefix = "[x](https://ex.com)\n".repeat(Math.ceil(maxInput / 19)).slice(0, maxInput);
+  const short = parts(prefix + "后面的内容");
+  const huge = parts(prefix + "<script>".repeat(maxInput));
+  assert.deepEqual(huge, short, "超限之后的尾部不应改变解析结果或块签名");
+  assert.ok(huge.reduce((n, p) => n + p.sig.length, 0) < maxInput + 64);
+  const html = render("&".repeat(maxInput * 8));
+  assert.ok(html.length < 1024 * 1024, "转义后的回退输出也必须有绝对上限");
+  has(html, "已省略后面的显示");
+  lacks(html, "<script>");
+  const emoji = render("a".repeat(maxInput - 1) + "😀" + "tail");
+  assert.ok(!/[\uD800-\uDFFF]/.test(emoji), "不能留下半个代理对");
+  lacks(render("a".repeat(maxInput)), "已省略后面的显示");
 });

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,8 +42,13 @@ const WorldTxUnreadable = "换地图的记录读不出来，为了不在半成�
 // 加载实例时据此封锁启动；worldimport 处理完记录以后也用它再看一遍盘上，没问题了才解除封锁。
 func PendingWorldTx(dir string) string {
 	ents, err := os.ReadDir(filepath.Join(dir, filepath.FromSlash(WorldTxDir)))
+	if errors.Is(err, os.ErrNotExist) {
+		return "" // 没有这个文件夹：从来没换过地图
+	}
 	if err != nil {
-		return ""
+		// 文件夹在、却读不了（被占用、没权限、盘出错）：里面有没有没走完的记录不知道，按有算。
+		// 以前这里当成没有，换图中断以后要是正好读不了，服务器就能在半成品的世界上启动（2026-11-14 Codex 合并复审第 3 条）
+		return WorldTxUnreadable
 	}
 	for _, e := range ents {
 		if !e.IsDir() {
@@ -74,12 +81,40 @@ func PendingWorldTx(dir string) string {
 	return ""
 }
 
-// BeginWorldChange 占上「正在换地图」的位，返回放掉它的函数。服务器必须已经停下，并且没在打包、没有别的换图在进行。
+// BeginWorldChange 占上「正在换地图」的位，返回放掉它的函数。服务器必须已经停下，没在打包，没有别的换图在进行，
+// 也没有被封锁（有没走完的换地图记录）。
+//
+// 封锁要在这里、和占位同一次加锁里查：以前只看占位，封锁由各个入口自己先查一遍，有的入口（换回旧地图）没查。
+// 结果是第二次导入卡在半路时还能把第一次导入换回去，之后重试恢复会把换回来的那张最早的地图当成第二次的新地图清掉
+// （2026-11-14 Codex 合并复审第 1 条，用测试在真目录上复现过）。处理没走完的记录本身用 BeginWorldRecovery。
 func (m *Manager) BeginWorldChange(name, why string) (release func(), err error) {
+	return m.beginWorldChange(name, why, false)
+}
+
+// BeginWorldRecovery 同 BeginWorldChange，但被封锁时也占得上：只给「处理没走完的换地图记录」用（重试恢复）。
+// 停没停、打包、已经有人占着，这几样照查。
+func (m *Manager) BeginWorldRecovery(name, why string) (release func(), err error) {
+	return m.beginWorldChange(name, why, true)
+}
+
+func (m *Manager) beginWorldChange(name, why string, recovery bool) (release func(), err error) {
 	i, err := m.Get(name)
 	if err != nil {
 		return nil, err
 	}
+	return m.beginWorldChangeInstance(i, why, recovery)
+}
+
+// BeginWorldChangeInstance 取得调用方已经读过的同一个实例的占位，不接受删除后新建的同名实例。
+func (m *Manager) BeginWorldChangeInstance(i *Instance, why string) (func(), error) {
+	return m.beginWorldChangeInstance(i, why, false)
+}
+
+func (m *Manager) beginWorldChangeInstance(i *Instance, why string, recovery bool) (func(), error) {
+	if i == nil {
+		return nil, errors.New("服务器不存在")
+	}
+	name := i.Name
 	i.procMu.Lock()
 	defer i.procMu.Unlock()
 	if i.state != "" && i.state != "stopped" {
@@ -87,11 +122,23 @@ func (m *Manager) BeginWorldChange(name, why string) (release func(), err error)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.insts[name] != i {
+		return nil, errors.New("服务器已经删除或重新创建，请刷新后重试")
+	}
+	if m.worldIntent[name] != nil {
+		return nil, errors.New("这台服务器正在准备换地图，请等它完成")
+	}
 	if m.packing[name] {
 		return nil, errors.New("这台服务器正在打包交接包，等打包完成后再换地图")
 	}
 	if r := m.worldHold[name]; r != "" {
 		return nil, errors.New("这台服务器正在换地图或还原备份，请等它完成")
+	}
+	if r := m.worldBlock[name]; r != "" && !recovery {
+		return nil, errors.New(r)
+	}
+	if who := m.worldUsersLocked(name); who != "" {
+		return nil, errors.New("这台服务器正在" + who + "，等它完成后再试")
 	}
 	if m.worldHold == nil {
 		m.worldHold = map[string]string{}
@@ -107,12 +154,97 @@ func (m *Manager) BeginWorldChange(name, why string) (release func(), err error)
 	}, nil
 }
 
+// UseWorld 登记「正在用这台服务器的世界和设置」，返回撤销登记的函数。备份、保存设置这类要读写世界目录或
+// server.properties、但不搬动整个世界的操作，开始之前登记、做完撤销。
+//
+// 它和换地图的占位互相排斥，检查和登记在同一次加锁里：有人占着位（或者有没走完的换地图记录）时登记不上；
+// 登记着的时候占位占不上（见 beginWorldChange）。以前这些操作只在开头看一眼 WorldBusy、自己不登记：
+// 备份压到一半时换地图照样能占上位、把世界目录移走，打出来的备份前一半是旧图、后一半是新图
+// （2026-11-14 Codex 合并复审第 2 条）。
+//
+// 登记不进 WorldBusy：启动查的是 WorldBusy，热备份的时候服务器本来就开着，崩了要能自动重启。
+// 几个操作可以同时登记（备份的时候改设置），互相之间不排斥，和以前一样。
+func (m *Manager) UseWorld(name, what string) (release func(), err error) {
+	i, err := m.Get(name)
+	if err != nil {
+		return nil, err
+	}
+	return m.UseWorldInstance(i, what)
+}
+
+// UseWorldInstance 同 UseWorld，同时验证先前取得的实例对象尚未失效。
+func (m *Manager) UseWorldInstance(i *Instance, what string) (release func(), err error) {
+	if i == nil {
+		return nil, errors.New("服务器不存在")
+	}
+	name := i.Name
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.insts[name] != i {
+		return nil, errors.New("服务器已经删除或重新创建，请刷新后重试")
+	}
+	if m.worldIntent[name] != nil {
+		return nil, errors.New("这台服务器正在准备换地图，请等它完成")
+	}
+	if r := m.worldHold[name]; r != "" {
+		return nil, errors.New("这台服务器正在" + r + "，请等它完成")
+	}
+	if r := m.worldBlock[name]; r != "" {
+		return nil, errors.New(r)
+	}
+	if m.worldUse == nil {
+		m.worldUse = map[string]map[string]int{}
+	}
+	if m.worldUse[name] == nil {
+		m.worldUse[name] = map[string]int{}
+	}
+	m.worldUse[name][what]++
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			m.mu.Lock()
+			defer m.mu.Unlock()
+			if u := m.worldUse[name]; u != nil {
+				if u[what]--; u[what] <= 0 {
+					delete(u, what)
+				}
+				if len(u) == 0 {
+					delete(m.worldUse, name)
+				}
+			}
+		})
+	}, nil
+}
+
+// WorldUsers 现在有哪些操作登记着在用这台服务器的世界和设置（「备份」「保存设置」，顿号隔开），没有返回空串。
+func (m *Manager) WorldUsers(name string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.worldUsersLocked(name)
+}
+
+func (m *Manager) worldUsersLocked(name string) string {
+	u := m.worldUse[name]
+	if len(u) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(u))
+	for what := range u {
+		names = append(names, what)
+	}
+	sort.Strings(names)
+	return strings.Join(names, "、")
+}
+
 // WorldBusy 这台服务器现在能不能动世界：正在换地图（占位）或有没走完的记录（封锁）时返回原因，否则返回空串。
 func (m *Manager) WorldBusy(name string) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if r := m.worldHold[name]; r != "" {
 		return "这台服务器正在" + r + "，请等它完成"
+	}
+	if w := m.worldIntent[name]; w != nil {
+		return "这台服务器正在" + w.why + "，请等它完成"
 	}
 	return m.worldBlock[name]
 }

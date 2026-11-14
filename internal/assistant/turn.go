@@ -219,6 +219,7 @@ func (s *Service) turn(ctx context.Context, who ops.Caller, sess *Session, prepa
 	sess.mu.Lock()
 	if w := sess.Wait; w != nil && prepare == nil { // 确认卡片处理完了，接着这一轮
 		sess.rounds, sess.used = w.Rounds, w.Tools
+		ctx = ai.ResumeResponseBudget(ctx, w.ResponseBytes)
 	} else { // 用户的新消息：新的一轮
 		sess.rounds, sess.used = 0, 0
 	}
@@ -408,6 +409,7 @@ func (s *Service) notice(sess *Session, level, text string) {
 
 // loop 循环请求 AI、执行工具，直到 AI 不再调用工具、要等确认卡片，或者出错。
 func (s *Service) loop(ctx context.Context, sess *Session) {
+	ctx = ai.WithResponseBudget(ctx)
 	for {
 		sess.mu.Lock()
 		if sess.rounds >= maxRounds {
@@ -645,6 +647,7 @@ func (s *Service) runTools(ctx context.Context, sess *Session, it *Item, res *ai
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
 	w.Tools, w.Rounds = sess.used, sess.rounds
+	w.ResponseBytes = ai.ResponseBytes(ctx)
 	if len(w.Results) < len(w.Calls) {
 		_ = s.saveLocked(sess)
 		return false // 等确认卡片：处理完了由操作层的通知接着跑（resume）

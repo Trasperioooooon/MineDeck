@@ -1,9 +1,13 @@
 package inst
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
+	"sync"
+
+	"minedeck/internal/atomicfile"
 )
 
 // Props 保序解析/写回 server.properties，保留注释行。
@@ -101,12 +105,92 @@ func (p *Props) Save(path string) error {
 		}
 		sb.WriteString("\n")
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(sb.String()), 0o644); err != nil {
+	return writeFileAtomic(path, []byte(sb.String()))
+}
+
+// writeFileAtomic 把 data 写成 path：写好、刷盘、一步改名盖掉原文件，任何时刻 path 上都是完整的一份。
+// 做法和它管不了的事见 atomicfile.Write。
+//
+// 这个函数以前是「写临时文件、删掉原文件、再改名」：删和改名之间程序退出或者断电，server.properties 就没了，
+// 服务器下次按默认设置启动，level-name 是自定义的服务器会另生成一张叫 world 的新地图（2026-11-14 Codex 合并复审第 4 条）。
+func writeFileAtomic(path string, data []byte) error {
+	return atomicfile.Write(path, data, 0o644)
+}
+
+// 同一个文件的「读、改、写」要串起来：两个请求同时改 server.properties，各自读到的都是改之前的内容，
+// 后存的那一份会把先存的改动盖掉。临时文件名不同只保证存下去的每一份是完整的，保证不了这个。
+// 登记（UseWorld）不管这件事：它故意让几个保存可以同时进行。
+type keyedLock struct {
+	slot chan struct{}
+	refs int
+}
+
+var fileLocks = struct {
+	sync.Mutex
+	byKey map[string]*keyedLock
+}{byKey: map[string]*keyedLock{}}
+
+// LockKey 按逻辑键排队；不能在持有同一键时重入。请求路径用可取消的 LockKeyContext。
+func LockKey(key string) func() {
+	release, _ := LockKeyContext(context.Background(), key)
+	return release
+}
+
+func LockKeyContext(ctx context.Context, key string) (func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	fileLocks.Lock()
+	l := fileLocks.byKey[key]
+	if l == nil {
+		l = &keyedLock{slot: make(chan struct{}, 1)}
+		fileLocks.byKey[key] = l
+	}
+	l.refs++
+	fileLocks.Unlock()
+	drop := func() {
+		fileLocks.Lock()
+		l.refs--
+		if l.refs == 0 {
+			delete(fileLocks.byKey, key)
+		}
+		fileLocks.Unlock()
+	}
+	select {
+	case l.slot <- struct{}{}:
+	case <-ctx.Done():
+		drop()
+		return nil, ctx.Err()
+	}
+	var once sync.Once
+	release := func() { once.Do(func() { <-l.slot; drop() }) }
+	if err := ctx.Err(); err != nil {
+		release()
+		return nil, err
+	}
+	return release, nil
+}
+
+// UpdateProps 读出 path 这份 server.properties，交给 fn 改，再存回去；整个过程和别的 UpdateProps、ForceProp 排队。
+// fn 返回错误就不存。
+func UpdateProps(path string, fn func(p *Props) error) error {
+	return UpdatePropsContext(context.Background(), path, fn)
+}
+
+func UpdatePropsContext(ctx context.Context, path string, fn func(p *Props) error) error {
+	release, err := atomicfile.LockPathContext(ctx, path)
+	if err != nil {
 		return err
 	}
-	os.Remove(path)
-	return os.Rename(tmp, path)
+	defer release()
+	p, err := LoadProps(path)
+	if err != nil {
+		return err
+	}
+	if err := fn(p); err != nil {
+		return err
+	}
+	return p.Save(path)
 }
 
 func escapeUnicode(s string) string {

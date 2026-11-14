@@ -39,6 +39,11 @@ func (m *Manager) SetJava(name string, major int, path string) error {
 	if st, err := os.Stat(path); err != nil || st.IsDir() {
 		return fmt.Errorf("找不到 Java：%s", path)
 	}
+	release, err := m.UseWorldInstance(i, "保存实例设置")
+	if err != nil {
+		return err
+	}
+	defer release()
 	i.procMu.Lock()
 	defer i.procMu.Unlock()
 	i.JavaMajor, i.JavaPath = major, path

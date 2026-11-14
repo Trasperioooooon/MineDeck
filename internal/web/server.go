@@ -5,12 +5,14 @@
 package web
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"mime"
 	"net"
@@ -83,6 +85,7 @@ func New(mgr *inst.Manager, tun *tunnel.Manager, reg *ops.Registry, asst *assist
 	mux.HandleFunc("POST /api/adopt", s.handleAdopt)
 	mux.HandleFunc("GET /api/tasks", s.handleListTasks)
 	mux.HandleFunc("GET /api/tasks/{id}", s.handleTask)
+	mux.HandleFunc("POST /api/tasks/{id}/cancel", s.handleCancelTask)
 
 	mux.HandleFunc("GET /api/instances/{name}/backups", s.handleListBackups)
 	mux.HandleFunc("POST /api/instances/{name}/backups", s.handleCreateBackup)
@@ -135,7 +138,7 @@ func New(mgr *inst.Manager, tun *tunnel.Manager, reg *ops.Registry, asst *assist
 	s.troubleshootRoutes(mux)
 	s.mcpRoutes(mux) // MCP 接口，见 mcp.go
 
-	return secure(mux)
+	return guardUploads(secure(mux))
 }
 
 // secure 校验 Host、API Token 或局域网会话 Cookie。两样都只管「能不能进来」；进来以后算不算本机，见 callerOf。
@@ -231,9 +234,67 @@ func writeErr(w http.ResponseWriter, code int, err error) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
+// JSON 请求体最多多大（字节）。以前不限，字段的长度要等整个请求体解析完才查，登录过的人发一个巨大的 JSON
+// 就能让程序在拒绝之前先吃掉一大块内存（2026-11-14 Codex 复审第 3 条）。上传文件的几个接口另有各自的上限，不走这里。
+// 做成变量是为了测试能调小。
+var (
+	// maxJSONBody 走 bodyArgs 的接口。里面最大的是改配置文件（instance.config.write）：全文最多 50 万字，
+	// 再加 20 处查找替换各 2 万字，中文按三个字节、再留出转义的余量。
+	maxJSONBody int64 = 8 << 20
+	// maxSmallBody 走 readJSON 和助手接口的 body：都是几个短字段，最长的是助手的一条消息（最多两万字）。
+	maxSmallBody int64 = 1 << 20
+)
+
+// limitedBody 给请求体套上字节上限。读超了返回 *http.MaxBytesError，用 bodyErr 换成 413。
+func limitedBody(r *http.Request, max int64) io.Reader {
+	return http.MaxBytesReader(nil, r.Body, max)
+}
+
+// bodyErr 请求体超过上限时换成 413 和一句人话；别的错误原样返回。
+func bodyErr(err error) error {
+	var big *http.MaxBytesError
+	if errors.As(err, &big) {
+		return ops.Errorf(http.StatusRequestEntityTooLarge, "请求的内容太大了（超过 %s），没有处理", fmtBodyLimit(big.Limit))
+	}
+	return err
+}
+
+// bodyTooLarge 这个错是不是请求体超了上限。
+func bodyTooLarge(err error) bool {
+	var big *http.MaxBytesError
+	return errors.As(err, &big)
+}
+
+func fmtBodyLimit(n int64) string {
+	if n >= 1<<20 {
+		return fmt.Sprintf("%d MB", n>>20)
+	}
+	return fmt.Sprintf("%d KB", n>>10)
+}
+
+// readJSON 超过上限时原样返回 *http.MaxBytesError：登录接口自己还套着一层更小的上限，要靠它认出 413。
 func readJSON(r *http.Request, v any) error {
 	defer r.Body.Close()
-	return json.NewDecoder(r.Body).Decode(v)
+	return decodeJSON(limitedBody(r, maxSmallBody), v)
+}
+
+// decodeJSON 先把限额内的整个请求读完、确认只有一个合法值，再交给调用方。
+// 只 Decode 一次会接受「对象 + 垃圾／第二个值」，也不会检查尾部是否超过字节上限。
+// 先验证再解码还避免旧调用方在报错后意外使用已经填入一半的字段。
+func decodeJSON(r io.Reader, v any) error {
+	b, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	if len(bytes.TrimSpace(b)) == 0 {
+		return io.EOF
+	}
+	if !json.Valid(b) {
+		return errors.New("请求体不是合法的单个 JSON 值")
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	return dec.Decode(v)
 }
 
 // ---------- 接到操作层 ----------
@@ -298,10 +359,8 @@ func bodyArgs(r *http.Request, kv ...string) func() (ops.Args, error) {
 	return func() (ops.Args, error) {
 		defer r.Body.Close()
 		var m map[string]any
-		dec := json.NewDecoder(r.Body)
-		dec.UseNumber() // 数字原样转交，不经 float64
-		if err := dec.Decode(&m); err != nil {
-			return nil, err
+		if err := decodeJSON(limitedBody(r, maxJSONBody), &m); err != nil {
+			return nil, bodyErr(err)
 		}
 		if m == nil {
 			m = map[string]any{}

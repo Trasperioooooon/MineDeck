@@ -1,7 +1,6 @@
 package musicshare
 
 import (
-	"archive/zip"
 	"bufio"
 	"bytes"
 	"crypto/sha256"
@@ -18,9 +17,11 @@ import (
 	"strings"
 	"time"
 
+	"minedeck/internal/atomicfile"
 	"minedeck/internal/bridge"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/music"
+	"minedeck/internal/zipguard"
 )
 
 // ---- 核心和版本 ----
@@ -156,7 +157,7 @@ func (s *Service) detectSVC(dir string) SVCInfo {
 
 // scanJarForSVC 看一个 jar 是不是 Simple Voice Chat（模组 ID voicechat），顺便取版本号。
 func scanJarForSVC(path string) (bool, string, string) {
-	zr, err := zip.OpenReader(path)
+	zr, err := zipguard.Open(path, zipguard.Default)
 	if err != nil {
 		return false, "", ""
 	}
@@ -590,6 +591,11 @@ func (s *Service) PreviewInstall(name string, v bridge.Variant) (*InstallPreview
 // InstallBridge 把内置的桥接模组装进实例的 mods，删掉别的版本，写好它的配置。
 // 没有 SVC 时不装；服务器运行中不能替换旧版本，只能装新的，重启后生效（见 PreviewInstall）。
 func (s *Service) InstallBridge(name string, v bridge.Variant) (*InstallResult, error) {
+	first, err := s.d.Instances.Info(name)
+	if err != nil {
+		return nil, &Error{Code: 404, Err: err}
+	}
+	defer atomicfile.LockPath(filepath.Join(modsDir(first.Dir), ".minedeck-bridge-operation"))()
 	if v == "" {
 		v = bridge.VariantMain
 	}

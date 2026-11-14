@@ -232,6 +232,34 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     assert(toasts.filter(t => t.includes("创建成功")).length === 1, "成功提示次数：" + JSON.stringify(toasts));
   });
 
+  await run("创建任务取消：可取消时显示按钮，发出取消后等清理；提交阶段不显示", async () => {
+    let cancelled = false, committing = false, posts = 0;
+    const pattern = u => u.pathname === "/api/tasks/task-cancellable" || u.pathname === "/api/tasks/task-cancellable/cancel";
+    await page.route(pattern, async route => {
+      const req = route.request();
+      if (new URL(req.url()).pathname.endsWith("/cancel")) {
+        posts++; cancelled = true;
+        await route.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, data: "正在取消" }) });
+      } else {
+        await route.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, data: {
+          id: "task-cancellable", title: "创建测试服", ended: false, canCancel: !cancelled && !committing,
+          steps: [{ name: "复制地图", status: "running" }], log: [], done: 1, total: 10
+        } }) });
+      }
+    });
+    try {
+      await page.goto(url("#/task/task-cancellable"));
+      await page.locator("#t-cancel").waitFor({ state: "visible" });
+      await page.click("#t-cancel");
+      await page.waitForFunction(() => !document.querySelector("#t-cancel"));
+      assert(posts === 1, "应当只发一次取消请求");
+      assert((await page.textContent("#t-foot")).includes("请勿关闭"), "清理期间任务应仍在进行");
+      committing = true; cancelled = false;
+      await page.goto(url("#/task/task-cancellable")); await settle();
+      assert(await page.locator("#t-cancel").count() === 0, "开始提交以后不应提供取消按钮");
+    } finally { await page.unroute(pattern); }
+  });
+
   await run("任务恢复：切页返回、刷新后能找回并行部署、导入结果和失败日志", async () => {
     const taskList = [
       { id: "task-pack", title: "导入整合包 测试包", ended: false, label: "下载模组", done: 50, total: 100 },
@@ -4822,6 +4850,20 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       const up = await page.evaluate(() => window.__wiUp);
       const st = await wState({});
       assert(st.world.lastScan.uploaded === true && st.world.lastScan.name === "SkyCity.zip" && up.length > 0 && up.includes("100%"), "上传：" + JSON.stringify([st.world.lastScan, up]));
+    } finally { await wReset(); }
+  });
+
+  await run("地图导入：像世界但一张都不能用的（只有 level.dat_old），拒绝页把候选里写的具体原因和怎么办摆出来", async () => {
+    await wReset();
+    try {
+      await wOpenFlow(PACK);
+      const t0 = reqs.length;
+      await wScan("D:\\Maps\\damaged-world"); await page.waitForSelector("#wi-reject");
+      const rej = await page.$eval("#wi-reject", el => el.textContent.replace(/\s+/g, " "));
+      // 后端把这类原因写在候选自己的 issues 里，顶层是空的：以前拒绝页只画顶层，只剩一句「缺了关键文件」
+      assert(rej.includes("这份世界缺了关键文件，不能当地图导入") && rej.includes("只有备份用的 level.dat_old") && rej.includes("改名成 level.dat"),
+        "拒绝页应带上候选里写的原因和怎么办：" + rej);
+      assert(!(await page.$("#wi-go")) && wPosts(t0, "/api/world/plan") === 0, "不能导入的不该有导入键，也不该去做计划");
     } finally { await wReset(); }
   });
 

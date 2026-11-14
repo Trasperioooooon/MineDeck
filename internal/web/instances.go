@@ -1,14 +1,11 @@
 package web
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
-	"time"
 
 	"minedeck/internal/app"
 	"minedeck/internal/inst"
@@ -17,6 +14,8 @@ import (
 
 // handleImportModpack 接收整合包上传（multipart），存进缓存目录后交给操作 instance.import 解析并启动导入任务。
 func (s *Server) handleImportModpack(w http.ResponseWriter, r *http.Request) {
+	r, cleanup := beginUpload(w, r)
+	defer cleanup()
 	s.do(w, r, "instance.import", func() (ops.Args, error) {
 		if err := parseUpload(w, r, modpackUploadLimit, modpackTooLarge); err != nil {
 			return nil, err
@@ -26,24 +25,22 @@ func (s *Server) handleImportModpack(w http.ResponseWriter, r *http.Request) {
 			return nil, fmt.Errorf("缺少整合包文件")
 		}
 		defer file.Close()
-		base := filepath.Base(hdr.Filename)
-		if base == "" || base == "." {
-			base = "modpack.zip"
-		}
-		dest := filepath.Join(app.CacheDir, "import", fmt.Sprintf("%d-%s", time.Now().UnixMilli(), base))
-		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		dir := filepath.Join(app.CacheDir, "import")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, ops.Wrap(500, err)
 		}
-		out, err := os.Create(dest)
+		out, err := os.CreateTemp(dir, "*.zip") // 上传名不参与路径，避免并发同名覆盖和 Windows 备用数据流。
 		if err != nil {
 			return nil, ops.Wrap(500, err)
 		}
-		_, cerr := io.Copy(out, file)
+		dest := out.Name()
+		cerr := copyUpload(r, out, file, hdr.Size, modpackTooLarge)
 		if werr := out.Close(); cerr == nil {
-			cerr = werr
+			cerr = ops.Wrap(500, werr)
 		}
 		if cerr != nil {
-			return nil, ops.Errorf(500, "保存上传文件失败: %w", cerr)
+			_ = os.Remove(dest)
+			return nil, fmt.Errorf("保存上传文件失败: %w", cerr)
 		}
 		atoi := func(s string, def int) int {
 			if n, err := strconv.Atoi(s); err == nil {
@@ -72,8 +69,8 @@ func (s *Server) handleImportPending(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Items []inst.PendingAction `json:"items"`
 		}
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
-			return nil, fmt.Errorf("请求读不懂: %w", err)
+		if err := readJSON(r, &body); err != nil {
+			return nil, bodyErr(err)
 		}
 		taskID := r.PathValue("taskId")
 		if taskID == "" {

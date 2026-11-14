@@ -189,6 +189,7 @@ type claudeAcc struct {
 	usage   claudeUsage
 	tools   int
 	outLen  int // 收到的输出有多少字节（断开时估算用量）
+	err     error
 }
 
 func newClaudeAcc(c *Client, emit func(Event)) *claudeAcc {
@@ -196,6 +197,10 @@ func newClaudeAcc(c *Client, emit func(Event)) *claudeAcc {
 }
 
 func (a *claudeAcc) start(index int, raw json.RawMessage) {
+	if _, exists := a.blocks[index]; !exists && len(a.blocks) >= maxReplyBlocks {
+		a.err = ErrResponseTooLarge
+		return
+	}
 	var obj map[string]json.RawMessage
 	if json.Unmarshal(raw, &obj) != nil || obj == nil {
 		obj = map[string]json.RawMessage{}
@@ -207,6 +212,10 @@ func (a *claudeAcc) start(index int, raw json.RawMessage) {
 	a.blocks[index] = b
 	switch b.typ {
 	case "tool_use":
+		if a.tools >= maxReplyTools {
+			a.err = ErrResponseTooLarge
+			return
+		}
 		b.tool = a.tools
 		a.tools++
 		b.call = &ToolCall{ID: rawText(obj["id"]), Name: rawText(obj["name"])}
@@ -459,9 +468,10 @@ func (c *Client) claudeOnce(ctx context.Context, conv *Conversation, emit func(E
 		return nil, err
 	}
 	defer resp.Body.Close()
+	reader := c.responseReader(ctx, kickReader{resp.Body, dog})
 
 	if !c.cfg.Stream {
-		b, err := readAll(kickReader{resp.Body, dog})
+		b, err := readAll(reader)
 		if err != nil {
 			return nil, c.cutErr(ctx, dog, err)
 		}
@@ -480,6 +490,9 @@ func (c *Client) claudeOnce(ctx context.Context, conv *Conversation, emit func(E
 		if m.Type == "error" {
 			return nil, c.apiError(500, http.Header{}, b)
 		}
+		if len(m.Content) > maxReplyBlocks {
+			return nil, ErrResponseTooLarge
+		}
 		calls := make([]*ToolCall, len(m.Content))
 		ti := 0
 		for i, raw := range m.Content {
@@ -494,6 +507,9 @@ func (c *Client) claudeOnce(ctx context.Context, conv *Conversation, emit func(E
 			_ = json.Unmarshal(raw, &blk)
 			switch blk.Type {
 			case "tool_use":
+				if ti >= maxReplyTools {
+					return nil, ErrResponseTooLarge
+				}
 				tc := &ToolCall{ID: blk.ID, Name: blk.Name, Args: jsonObjectOr(blk.Input)}
 				calls[i] = tc
 				emit(Event{Type: EvToolDone, Index: ti, Tool: tc})
@@ -524,7 +540,7 @@ func (c *Client) claudeOnce(ctx context.Context, conv *Conversation, emit func(E
 	}
 
 	acc := newClaudeAcc(c, emit)
-	sr := newSSEReader(kickReader{resp.Body, dog})
+	sr := newSSEReader(reader)
 	for {
 		ev, err := sr.next()
 		if err == io.EOF {
@@ -569,6 +585,9 @@ func (c *Client) claudeOnce(ctx context.Context, conv *Conversation, emit func(E
 			emit(Event{Type: EvUsage, Usage: &n})
 		case "content_block_start":
 			acc.start(head.Index, head.ContentBlock)
+			if acc.err != nil {
+				return acc.assemble(true, len(body)), acc.err
+			}
 		case "content_block_delta":
 			acc.delta(head.Index, head.Delta)
 		case "content_block_stop":

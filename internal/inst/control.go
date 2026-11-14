@@ -1,6 +1,9 @@
 package inst
 
 import (
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,11 +89,31 @@ func SafeLevelName(v string) bool {
 // LevelName dir 这台服务器的世界目录名：服务端实际会用的那个（按 Java 的读法取 level-name，见 javaprops.go），
 // 没写、或者不能照着用（见 SafeLevelName）时是 world。
 func LevelName(dir string) string {
-	if v, ok := javaPropsOf(filepath.Join(dir, "server.properties"))["level-name"]; ok && SafeLevelName(v) {
-		// 统一成斜杠分隔、去掉 ./ 和重复的分隔符：./world、worlds\main 和 world、worlds/main 是同一个文件夹
-		return filepath.ToSlash(filepath.Clean(filepath.FromSlash(strings.TrimSpace(v))))
+	if name, err := LevelNameStrict(dir); err == nil {
+		return name
 	}
 	return "world"
+}
+
+// LevelNameStrict 同 LevelName，但分得清「没有 server.properties、没写这一项」（那就是默认的 world）和
+// 「文件在、却读不了」（返回错误）。
+//
+// 要按世界名去搬、去删世界目录的地方（换地图、换回、还原备份）用它：读不了的时候要是默认成 world，
+// 自定义了世界名的服务器就会被导进错的文件夹、或者删错文件夹（2026-11-14 Codex 第二轮复审阻挡项 2）。
+// 只是拿来显示的地方照旧用 LevelName。
+func LevelNameStrict(dir string) (string, error) {
+	b, err := os.ReadFile(filepath.Join(dir, "server.properties"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return "world", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("读不了 server.properties，没法确定这台服务器用的是哪个世界：%w", err)
+	}
+	if v, ok := JavaProps(b)["level-name"]; ok && SafeLevelName(v) {
+		// 统一成斜杠分隔、去掉 ./ 和重复的分隔符：./world、worlds\main 和 world、worlds/main 是同一个文件夹
+		return filepath.ToSlash(filepath.Clean(filepath.FromSlash(strings.TrimSpace(v)))), nil
+	}
+	return "world", nil
 }
 
 // CheckLevelName 看 dir 里 server.properties 的 level-name 有没有指到实例目录外面。没有这个文件、没写这一项都算没问题。
@@ -99,8 +122,11 @@ func LevelName(dir string) string {
 // 用冒号或空白当分隔、带反斜杠转义这些写法）也算有问题——正常的文件不会这么写，而这正是骗过检查的办法。
 func CheckLevelName(dir string) (name string, ok bool) {
 	b, err := os.ReadFile(filepath.Join(dir, "server.properties"))
-	if err != nil {
+	if errors.Is(err, fs.ErrNotExist) {
 		return "", true
+	}
+	if err != nil { // 文件在、却读不了：里面写的是什么不知道，不能当成没问题
+		return "（server.properties 读不了：" + err.Error() + "）", false
 	}
 	jv := strings.TrimSpace(JavaProps(b)["level-name"])
 	mv, _ := ParseProps(b).Get("level-name")

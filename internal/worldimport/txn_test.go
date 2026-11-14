@@ -66,6 +66,11 @@ func setup(t *testing.T) (string, *Journal) {
 			j.NewIn = append(j.NewIn, Step{From: txRel(id) + "/" + stageSub + "/" + n, To: n})
 		}
 	}
+	var stagedNames []string
+	for _, step := range j.NewIn {
+		stagedNames = append(stagedNames, step.To)
+	}
+	rememberStagedDirs(stage, stagedNames, j)
 	if err := saveJournal(dir, j); err != nil {
 		t.Fatal(err)
 	}

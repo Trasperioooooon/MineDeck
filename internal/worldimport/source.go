@@ -3,6 +3,7 @@ package worldimport
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -19,6 +20,7 @@ import (
 	"unicode"
 
 	"minedeck/internal/winname"
+	"minedeck/internal/zipguard"
 )
 
 // 来源（本机文件夹或 ZIP）的读取。两种来源最后都变成同一张「文件清单」，后面的识别、暂存不再管它是哪一种。
@@ -57,28 +59,83 @@ func (e *sourceErr) Error() string {
 
 // source 打开着的一份来源。
 type source struct {
-	kind  string // folder | zip
-	root  string // 文件夹来源的根（真实路径）；ZIP 来源是文件路径
-	files []entry
-	dirs  map[string]bool // 出现过的目录（fold 后），含所有上级
-	zr    *zip.ReadCloser
-	links []string // 文件夹里遇到的链接、目录联接这类特殊项（相对路径）：不跟进去，导入时拦下
-	bad   []string // 名字在 Windows 上不能原样落盘的项
+	ctx       context.Context
+	stopClose func() bool
+	kind      string // folder | zip
+	root      string // 文件夹来源的根（真实路径）；ZIP 来源是文件路径
+	files     []entry
+	dirs      map[string]bool // 出现过的目录（fold 后），含所有上级
+	zc        io.Closer       // ZIP 来源底下打开着的文件
+	links     []string        // 文件夹里遇到的链接、目录联接这类特殊项（相对路径）：不跟进去，导入时拦下
+	bad       []string        // 名字在 Windows 上不能原样落盘的项
 }
 
 func (s *source) Close() error {
-	if s.zr != nil {
-		return s.zr.Close()
+	if s.stopClose != nil {
+		s.stopClose()
+	}
+	if s.zc != nil {
+		return s.zc.Close()
 	}
 	return nil
 }
 
 // open 打开 e 读内容。
+// sourceOpenHook observes actual content reads in deterministic cancellation tests.
+var sourceOpenHook func(string)
+
 func (s *source) open(e *entry) (io.ReadCloser, error) {
-	if e.zf != nil {
-		return e.zf.Open()
+	ctx := s.ctx
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	return os.Open(filepath.Join(s.root, filepath.FromSlash(e.rel)))
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if sourceOpenHook != nil {
+		sourceOpenHook(e.rel)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	var rc io.ReadCloser
+	var err error
+	if e.zf != nil {
+		rc, err = e.zf.Open()
+	} else {
+		rc, err = os.Open(filepath.Join(s.root, filepath.FromSlash(e.rel)))
+	}
+	if err != nil {
+		return nil, err
+	}
+	cr := &sourceReader{ctx: ctx, rc: rc}
+	if f, ok := rc.(*os.File); ok && ctx.Done() != nil {
+		cr.stop = context.AfterFunc(ctx, func() { _ = f.Close() })
+	}
+	return cr, nil
+}
+
+type sourceReader struct {
+	ctx  context.Context
+	rc   io.ReadCloser
+	stop func() bool
+}
+
+func (r *sourceReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	n, err := r.rc.Read(p)
+	if e := r.ctx.Err(); e != nil {
+		return n, e
+	}
+	return n, err
+}
+func (r *sourceReader) Close() error {
+	if r.stop != nil {
+		r.stop()
+	}
+	return r.rc.Close()
 }
 
 // find 按不分大小写的相对路径找文件。
@@ -167,6 +224,9 @@ func (s *source) finish() error {
 	sort.Slice(s.files, func(a, b int) bool { return s.files[a].fold < s.files[b].fold })
 	s.dirs = map[string]bool{}
 	for _, e := range s.files {
+		if s.ctx != nil && s.ctx.Err() != nil {
+			return s.ctx.Err()
+		}
 		for d := path.Dir(e.fold); d != "."; d = path.Dir(d) {
 			if s.dirs[d] {
 				break
@@ -193,7 +253,12 @@ func (s *source) finish() error {
 // ---------- 文件夹 ----------
 
 // openFolder 读一个本机文件夹的文件清单。不跟符号链接和目录联接（记下来，导入时拦下）。
-func openFolder(dir string) (*source, error) {
+func openFolder(dir string) (*source, error) { return openFolderCtx(context.Background(), dir) }
+
+func openFolderCtx(ctx context.Context, dir string) (*source, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	st, err := os.Stat(dir)
 	if err != nil {
 		return nil, &sourceErr{Kind: KindUnknown, Code: "not-found", Msg: "找不到这个文件夹", Detail: err.Error()}
@@ -206,8 +271,11 @@ func openFolder(dir string) (*source, error) {
 		root = dir
 	}
 	root, _ = filepath.Abs(root)
-	s := &source{kind: "folder", root: root}
+	s := &source{kind: "folder", root: root, ctx: ctx}
 	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err != nil {
 			if p == root {
 				return err
@@ -252,6 +320,9 @@ func openFolder(dir string) (*source, error) {
 		return nil
 	})
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		var se *sourceErr
 		if errors.As(err, &se) {
 			return nil, se
@@ -336,23 +407,48 @@ func cleanZipName(name string) (rel string, isDir bool, err error) {
 	return n, isDir, nil
 }
 
+// maxZipDirBytes 一个 ZIP 的文件清单（中央目录）最多多少字节：申报的超了不打开，打开时实际读的超了就停。
+// 怎么查、为什么要在标准库动手之前查，见 internal/zipguard。清单里一条最少 46 字节，64 MiB 最多一百四十万条；
+// 正常的地图哪怕有几十万个文件，清单也只有十几兆。做成变量是为了测试能调小。
+var maxZipDirBytes int64 = 64 << 20
+
+// maxZipDeclaredBytes 压缩包里各文件申报的大小加起来最多多少。申报的大小是包里自己写的，不可信：
+// 以前只防加起来溢出，合计可以到 MaxInt64，后面算「要多少空间」时再加上余量就溢出成负数，空间不够的检查放行
+// （2026-11-14 Codex 合并复审第 6 条）。1 TiB 远大于任何真的地图。做成变量是为了测试能调小。
+var maxZipDeclaredBytes int64 = 1 << 40
+
 // openZip 读一个 ZIP 的文件清单（只读中央目录，不解压）。条目有一条可疑，整个包都不要。
-func openZip(p string) (*source, error) {
-	zr, err := zip.OpenReader(p)
+func openZip(p string) (*source, error) { return openZipCtx(context.Background(), p) }
+
+func openZipCtx(ctx context.Context, p string) (*source, error) {
+	zr, err := zipguard.OpenContext(ctx, p, zipguard.Limits{MaxEntries: maxEntries, MaxDirBytes: maxZipDirBytes})
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if errors.Is(err, zipguard.ErrTooLarge) {
+		return nil, &sourceErr{Kind: KindUnknown, Code: "too-many",
+			Msg:    fmt.Sprintf("压缩包里的文件太多了（最多 %d 个，文件清单最多 %s），不像一张地图", maxEntries, fmtBytes(maxZipDirBytes)),
+			Detail: err.Error()}
+	}
 	if err != nil {
 		return nil, &sourceErr{Kind: KindArchive, Code: "zip-broken", Msg: "这个压缩包打不开，可能下载不完整或者已经损坏", Detail: err.Error()}
 	}
-	s := &source{kind: "zip", root: p, zr: zr}
-	fail := func(e *sourceErr) (*source, error) {
-		zr.Close()
-		return nil, e
+	var zc io.Closer = zr
+	s := &source{kind: "zip", root: p, zc: zc, ctx: ctx}
+	if ctx.Done() != nil {
+		s.stopClose = context.AfterFunc(ctx, func() { _ = zc.Close() })
 	}
-	if len(zr.File) > maxEntries {
-		return fail(&sourceErr{Kind: KindUnknown, Code: "too-many", Msg: fmt.Sprintf("压缩包里的文件超过了 %d 个，不像一张地图", maxEntries)})
+	fail := func(e *sourceErr) (*source, error) {
+		s.Close()
+		return nil, e
 	}
 	seen := map[string]int{}
 	var total int64
 	for _, f := range zr.File {
+		if err := ctx.Err(); err != nil {
+			s.Close()
+			return nil, err
+		}
 		rel, isDir, err := cleanZipName(f.Name)
 		if err != nil {
 			return fail(&sourceErr{Kind: KindUnknown, Code: "bad-path", Msg: "压缩包里有可疑的路径，为了安全整个包都不导入",
@@ -373,8 +469,10 @@ func openZip(p string) (*source, error) {
 				Detail: fmt.Sprintf("%s：方式 %d", f.Name, f.Method)})
 		}
 		size := int64(f.UncompressedSize64)
-		if size < 0 || total+size < total {
-			return fail(&sourceErr{Kind: KindUnknown, Code: "bad-size", Msg: "压缩包里记的文件大小不对，这个包被改过或者坏了", Detail: f.Name})
+		if size < 0 || size > maxZipDeclaredBytes-total {
+			return fail(&sourceErr{Kind: KindUnknown, Code: "bad-size",
+				Msg:    fmt.Sprintf("压缩包里记的文件大小不对（加起来超过 %s），这个包被改过或者坏了", fmtBytes(maxZipDeclaredBytes)),
+				Detail: f.Name})
 		}
 		total += size
 		k := winname.Fold(rel)
@@ -391,7 +489,7 @@ func openZip(p string) (*source, error) {
 		s.files = append(s.files, entry{rel: rel, fold: k, size: size, mod: f.Modified, crc: f.CRC32, zf: f})
 	}
 	if err := s.finish(); err != nil {
-		zr.Close()
+		s.Close()
 		return nil, err
 	}
 	return s, nil

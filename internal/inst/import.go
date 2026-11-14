@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"minedeck/internal/app"
+	"minedeck/internal/atomicfile"
+	"minedeck/internal/diskguard"
 	"minedeck/internal/dl"
 	"minedeck/internal/modinfo"
 	"minedeck/internal/modpack"
@@ -68,6 +70,7 @@ func (m *Manager) ImportModpackAsync(pack *modpack.Pack, req CreateReq, cfKey st
 		title = req.Name
 	}
 	t, ctx := m.Tasks.New(fmt.Sprintf("导入整合包 %s（%s %s）", title, req.Core, req.MC), steps)
+	t.EnableCancel()
 	go func() {
 		defer m.releaseCreating(req.Name)
 		defer m.releaseCreating(dirKey(dir))
@@ -75,9 +78,12 @@ func (m *Manager) ImportModpackAsync(pack *modpack.Pack, req CreateReq, cfKey st
 			defer os.Remove(pack.ZipPath) // 导入结束（成功/失败）后删除缓存 zip 副本，避免每次导入累积 100-500MB
 		}
 		if err := m.runImport(ctx, t, pack, req, dir, cfKey); err != nil {
+			err = cancelledOr(t, err)
+			m.forgetPending(t.ID())
 			// 先清后报失败：任务一显示失败，半成品就得已经删干净了
-			_ = m.Delete(req.Name, false) // 从列表移除（可能已注册）
-			os.RemoveAll(dir)
+			if cleanupErr := m.discardCreating(req.Name, dir); cleanupErr != nil {
+				err = fmt.Errorf("%w；清理半成品失败：%v", err, cleanupErr)
+			}
 			t.Fail(err)
 			return
 		}
@@ -125,10 +131,16 @@ type keptFile struct {
 // 本地来源目录里已有的按原样保留（魔改模组因此不再要求线上匹配）；剩下的交
 // 处置面板（任务面板 / POST /api/import/pending/{任务}）由用户逐个决定。
 func (m *Manager) runImport(ctx context.Context, t *tasks.Task, pack *modpack.Pack, req CreateReq, dir, cfKey string) error {
-	// 先走完整的核心创建流水线（步骤 0~5）
-	if err := m.runCreate(ctx, t, req, dir); err != nil {
-		return err
-	}
+	// 这里不加总时限：建服务器本体那几步在 runCreateWith 里有 90 分钟，整合包的文件下载一直没有
+	// （单个文件 90 秒没有新数据会换源重试；几百个文件、慢的线路，总共要多久说不准）
+	return m.runCreateWith(ctx, t, req, dir, func(i *Instance) error {
+		return m.applyModpack(ctx, t, pack, req, i, cfKey)
+	})
+}
+
+// applyModpack 只操作尚未发布的实例；下载、覆盖和记账都完成后，由 completeCreate 发布。
+func (m *Manager) applyModpack(ctx context.Context, t *tasks.Task, pack *modpack.Pack, req CreateReq, i *Instance, cfKey string) error {
+	dir := i.Dir
 	job := &importJob{}
 
 	// ---- 步骤 6：下载整合包文件 ----
@@ -239,7 +251,7 @@ func (m *Manager) runImport(ctx context.Context, t *tasks.Task, pack *modpack.Pa
 
 	// ---- 步骤 7：应用覆盖目录 ----
 	t.StartStep(7)
-	sink := newOverrideSink(dir)
+	sink := newOverrideSinkContext(ctx, dir)
 	if err := modpack.ExtractOverrides(pack, dir, sink.write); err != nil {
 		return fmt.Errorf("应用整合包覆盖文件失败: %w", err)
 	}
@@ -270,7 +282,7 @@ func (m *Manager) runImport(ctx context.Context, t *tasks.Task, pack *modpack.Pa
 			continue
 		}
 		if src := findLocalFile(req.LocalSource, p.file.Path); src != "" {
-			if err := copyLocalFile(src, filepath.Join(dir, filepath.FromSlash(p.file.Path))); err != nil {
+			if err := copyLocalFileContext(ctx, src, filepath.Join(dir, filepath.FromSlash(p.file.Path))); err != nil {
 				t.Logf("⚠ 本地继承 %s 失败: %v", p.file.Path, err)
 				remain = append(remain, p.file)
 				continue
@@ -280,18 +292,9 @@ func (m *Manager) runImport(ctx context.Context, t *tasks.Task, pack *modpack.Pa
 		}
 		remain = append(remain, p.file)
 	}
-	// 收尾前把 MineDeck 自己的那几个文件按内存里的设置重写一遍。上面按名字挡过了，这里是兜底：
-	// 开着 8.3 短名的盘上，INSTAN~1.JSO 这样的名字落下来就是 instance.json，按名字是认不出来的。
-	if i, err := m.Get(req.Name); err == nil {
-		if err := m.saveInstance(i); err != nil {
-			return err
-		}
-		if err := writeRunBat(i); err != nil {
-			return err
-		}
-		restoreLog4jXML(ctx, t, i)
-	}
-	m.finishImport(t, req, dir, remain, kept)
+	// 最终控制文件由 completeCreate 重写；这时实例仍不可见。
+	restoreLog4jXML(ctx, t, i)
+	m.finishImportFor(t, i, remain, kept)
 	return nil
 }
 
@@ -313,13 +316,18 @@ func dedupeDownloads(files []modpack.File) (kept []modpack.File, dups []string) 
 
 // overrideSink 应用覆盖目录时一个一个写文件（ExtractOverrides 的回调，见 runImport），记下没采用的和只差大小写的。
 type overrideSink struct {
+	ctx            context.Context
 	dir            string
 	seen           map[string]string // 已经写进来的：不分大小写的路径 → 包里的写法
 	notTaken, dups []string
 }
 
 func newOverrideSink(dir string) *overrideSink {
-	return &overrideSink{dir: dir, seen: map[string]string{}}
+	return newOverrideSinkContext(context.Background(), dir)
+}
+
+func newOverrideSinkContext(ctx context.Context, dir string) *overrideSink {
+	return &overrideSink{ctx: ctx, dir: dir, seen: map[string]string{}}
 }
 
 func (s *overrideSink) write(rel string, r io.Reader) error {
@@ -342,11 +350,16 @@ func (s *overrideSink) write(rel string, r io.Reader) error {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return err
 	}
+	lease, err := diskguard.Acquire(s.ctx, filepath.Dir(dest), diskguard.Options{AllowUnknown: true})
+	if err != nil {
+		return err
+	}
+	defer lease.Close()
 	w, err := os.Create(dest)
 	if err != nil {
 		return err
 	}
-	_, cerr := io.Copy(w, r)
+	_, cerr := io.Copy(lease.Writer(w), r)
 	if werr := w.Close(); cerr == nil {
 		cerr = werr
 	}
@@ -374,6 +387,15 @@ func overrideAllowed(rel string) bool {
 
 // finishImport 收尾：按原样保留的、待决的、Java 要求的提示与记录文件。
 func (m *Manager) finishImport(t *tasks.Task, req CreateReq, dir string, pending []modpack.PendingFile, kept []keptFile) {
+	i, err := m.Get(req.Name)
+	if err != nil {
+		return
+	}
+	m.finishImportFor(t, i, pending, kept)
+}
+
+func (m *Manager) finishImportFor(t *tasks.Task, i *Instance, pending []modpack.PendingFile, kept []keptFile) {
+	dir := i.Dir
 	if len(kept) > 0 {
 		items := make([]tasks.WarnItem, 0, len(kept))
 		for _, k := range kept {
@@ -418,7 +440,7 @@ func (m *Manager) finishImport(t *tasks.Task, req CreateReq, dir string, pending
 			items[i].ID = fmt.Sprintf("p%d", i+1)
 		}
 		t.SetPending(items)
-		m.rememberPending(t.ID(), req.Name)
+		m.rememberPendingInstance(t.ID(), i)
 		t.AddWarning(tasks.Warning{
 			Kind:  "import-pending",
 			Title: fmt.Sprintf("%d 个文件待处理", len(items)),
@@ -428,10 +450,7 @@ func (m *Manager) finishImport(t *tasks.Task, req CreateReq, dir string, pending
 	}
 	// Java 要求：魔改模组常声明比实例新的 Java（1.20.1 实例是 17，模组可能要 25）。
 	// 只提示不阻断：1.20.1 + Java 25 的组合允许存在，到「内存 / 启动」换。
-	javaMajor := 0
-	if i, err := m.Get(req.Name); err == nil {
-		javaMajor = i.JavaMajor
-	}
+	javaMajor := i.JavaMajor
 	if need, mods := javaRequiredBy(dir, javaMajor); need > javaMajor && javaMajor > 0 {
 		warn := make([]tasks.WarnItem, 0, len(mods))
 		for _, x := range mods {
@@ -477,6 +496,13 @@ func findLocalFile(source, relPath string) string {
 
 // copyLocalFile 把本地文件复制进实例目录（按原样保留：内容不校验——用户自己的文件自己负责）。
 func copyLocalFile(src, dest string) error {
+	return copyLocalFileContext(context.Background(), src, dest)
+}
+
+func copyLocalFileContext(ctx context.Context, src, dest string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return err
 	}
@@ -485,21 +511,23 @@ func copyLocalFile(src, dest string) error {
 		return err
 	}
 	defer in.Close()
-	tmp := dest + ".part"
-	out, err := os.Create(tmp)
+	stop := context.AfterFunc(ctx, func() { _ = in.Close() })
+	defer stop()
+	unlock, err := atomicfile.LockPathContext(ctx, dest)
 	if err != nil {
 		return err
 	}
-	_, cerr := io.Copy(out, in)
-	if werr := out.Close(); cerr == nil {
-		cerr = werr
+	defer unlock()
+	lease, err := diskguard.Acquire(ctx, filepath.Dir(dest), diskguard.Options{AllowUnknown: true})
+	if err != nil {
+		return err
 	}
-	if cerr != nil {
-		_ = os.Remove(tmp)
-		return cerr
+	defer lease.Close()
+	err = atomicfile.CopyWith(dest, in, 0o644, lease.Writer)
+	if err != nil && ctx.Err() != nil {
+		return ctx.Err()
 	}
-	_ = os.Remove(dest)
-	return os.Rename(tmp, dest)
+	return err
 }
 
 // javaRequiredBy 扫实例目录里声明的 Java 要求，返回要求的最高大版本和不达标的模组说明。
@@ -587,6 +615,21 @@ func (m *Manager) ResolveImportPending(ctx context.Context, taskID string, acts 
 	if err != nil {
 		return nil, nil, err
 	}
+	release, err := m.UseWorldInstance(inst, "补装整合包文件")
+	if err != nil {
+		return nil, nil, err
+	}
+	defer release()
+	unlockConfig, err := LockKeyContext(ctx, "config|"+inst.Name)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer unlockConfig()
+	unlockProps, err := atomicfile.LockPathContext(ctx, inst.PropsPath())
+	if err != nil {
+		return nil, nil, err
+	}
+	defer unlockProps()
 	pending := t.PendingItems()
 	byID := map[string]tasks.PendingItem{}
 	for _, it := range pending {
@@ -603,6 +646,16 @@ func (m *Manager) ResolveImportPending(ctx context.Context, taskID string, acts 
 			continue
 		}
 		oc.Path = it.Path
+		if err := ctx.Err(); err != nil {
+			return out, t.PendingItems(), err
+		}
+		if act.Act == "local" || act.Act == "trust" {
+			if _, err := pendingDestination(inst, it.Path); err != nil {
+				oc.Note = err.Error()
+				out = append(out, oc)
+				continue
+			}
+		}
 		switch act.Act {
 		case "skip":
 			oc.OK = true
@@ -620,8 +673,12 @@ func (m *Manager) ResolveImportPending(ctx context.Context, taskID string, acts 
 			if it.Reason == "cf" {
 				destRel = path.Dir(it.Path) + "/" + filepath.Base(src)
 			}
-			dest := filepath.Join(inst.Dir, filepath.FromSlash(destRel))
-			if err := copyLocalFile(src, dest); err != nil {
+			dest, err := pendingDestination(inst, destRel)
+			if err != nil {
+				oc.Note = err.Error()
+				break
+			}
+			if err := copyLocalFileContext(ctx, src, dest); err != nil {
 				oc.Note = fmt.Sprintf("复制失败: %v", err)
 				break
 			}
@@ -651,6 +708,48 @@ func (m *Manager) ResolveImportPending(ctx context.Context, taskID string, acts 
 		}
 	}
 	return out, t.PendingItems(), nil
+}
+
+// pendingDestination 已发布实例的补装只写普通模组、配置和资源目录。
+// 世界、server.properties 和控制文件应走各自的专用入口，不能由旧待决任务覆盖。
+// 同时检查真实落点，避免短名、符号链接和目录联接把 config 等别名指向世界。
+func pendingDestination(i *Instance, rel string) (string, error) {
+	if !overrideAllowed(rel) {
+		return "", fmt.Errorf("这个待决文件不能写进服务器：%s", rel)
+	}
+	root, err := RealPathStrict(i.Dir)
+	if err != nil {
+		return "", err
+	}
+	dest := filepath.Join(i.Dir, filepath.FromSlash(rel))
+	real, err := RealPathStrict(dest)
+	if err != nil {
+		return "", err
+	}
+	actual, err := filepath.Rel(root, real)
+	if err != nil || !filepath.IsLocal(actual) || actual == "." {
+		return "", fmt.Errorf("待决文件的实际位置不在服务器文件夹内")
+	}
+	actual = filepath.ToSlash(actual)
+	first, _, nested := strings.Cut(strings.ToLower(actual), "/")
+	allowed := nested && (first == "mods" || first == "plugins" || first == "config" || first == "defaultconfigs" || first == "resourcepacks" || first == "datapacks" || first == "shaderpacks" || first == "kubejs" || first == "scripts")
+	if !allowed || IsControlFile(actual) {
+		return "", fmt.Errorf("待决补装只支持模组、插件、配置和资源目录；世界和 server.properties 请使用地图导入或设置入口")
+	}
+	level, err := LevelNameStrict(i.Dir)
+	if err != nil {
+		return "", err
+	}
+	for _, world := range []string{level, level + "_nether", level + "_the_end"} {
+		worldPath, err := RealPathStrict(filepath.Join(i.Dir, filepath.FromSlash(world)))
+		if err != nil {
+			return "", err
+		}
+		if within(real, worldPath) {
+			return "", fmt.Errorf("待决文件位于当前世界中，请使用地图导入：%s", rel)
+		}
+	}
+	return dest, nil
 }
 
 // resolveLocalSource 解析 act=local 的源：直接给文件就用；给目录就在里面按待决路径找；都不行说明原因。
@@ -704,7 +803,10 @@ func (m *Manager) pendingTrustDownload(ctx context.Context, inst *Instance, it t
 	if !known && !ack {
 		return false, fmt.Sprintf("站点 %s 没有确认过：读一遍风险说明并确认后才下载", host)
 	}
-	dest := filepath.Join(inst.Dir, filepath.FromSlash(it.Path))
+	dest, err := pendingDestination(inst, it.Path)
+	if err != nil {
+		return false, err.Error()
+	}
 	// 受控客户端：即使 grant 时查过公网，连接级（DNS 变动、重定向到内网）也再拦一道
 	if err := dl.Fetch(ctx, dl.Request{URLs: []string{match}, Dest: dest, SHA1: it.SHA1, Client: modpackHTTP()}, nil); err != nil {
 		_ = os.Remove(dest + ".part")
@@ -727,15 +829,17 @@ type pendingRef struct {
 
 // rememberPending 记下待决清单对应的实例（处置时要按任务找到实例目录）。
 func (m *Manager) rememberPending(taskID, instName string) {
-	ref := pendingRef{name: instName}
 	if i, err := m.Get(instName); err == nil {
-		ref.created = i.CreatedAt
+		m.rememberPendingInstance(taskID, i)
 	}
+}
+
+func (m *Manager) rememberPendingInstance(taskID string, i *Instance) {
 	m.pendMu.Lock()
 	if m.pendingInst == nil {
 		m.pendingInst = map[string]pendingRef{}
 	}
-	m.pendingInst[taskID] = ref
+	m.pendingInst[taskID] = pendingRef{name: i.Name, created: i.CreatedAt}
 	m.pendMu.Unlock()
 }
 

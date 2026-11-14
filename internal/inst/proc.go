@@ -59,6 +59,16 @@ func (m *Manager) Start(name string) error {
 	if err != nil {
 		return err
 	}
+	return m.startInstance(i)
+}
+
+func (m *Manager) startInstance(i *Instance) error {
+	name := i.Name
+	release, err := m.UseWorldInstance(i, "准备启动")
+	if err != nil {
+		return err
+	}
+	defer release()
 	if m.isPacking(name) { // 打的是停机时的完整一份，启动了世界就边写边压了：打完再启
 		return fmt.Errorf("这台服务器正在打包交接包，等打包完成后再启动")
 	}

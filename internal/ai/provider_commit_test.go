@@ -38,12 +38,32 @@ func TestProviderSwitchAllOrNothing(t *testing.T) {
 		return s
 	}
 	s := open()
-	block := filepath.Join(dir, "settings.json.tmp")
-	blockSettings := func() { // settings.json 写不进去：先写的临时文件的位置被一个文件夹占着
-		if err := os.MkdirAll(block, 0o755); err != nil {
+	block := filepath.Join(dir, "settings.json")
+	saved := block + ".fault-backup"
+	blocked := false
+	unblock := func() {
+		if !blocked {
+			return
+		}
+		if err := os.Remove(block); err != nil {
 			t.Fatal(err)
 		}
+		if err := os.Rename(saved, block); err != nil {
+			t.Fatal(err)
+		}
+		blocked = false
 	}
+	t.Cleanup(unblock)
+	blockSettings := func() { // 阻止替换真正的目标，不依赖临时文件怎样命名；保留原件供解除故障后验证。
+		if err := os.Rename(block, saved); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(block, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		blocked = true
+	}
+
 	// failOn 存这个值的时候失败（存之前先做 then）
 	failOn := func(want string, then func()) func(string, string) error {
 		return func(_, v string) error {
@@ -90,7 +110,7 @@ func TestProviderSwitchAllOrNothing(t *testing.T) {
 		{"存新 Key 失败，写回旧设置也失败", func() { keys.failSet = failOn(commitNewKey, blockSettings) }, ProviderPatch{BaseURL: strp(newURL), Key: strp(commitNewKey)}, newURL, ""},
 	} {
 		keys.failSet = nil
-		_ = os.Remove(block)
+		unblock()
 		if err := s.SetProvider(ProviderPatch{Preset: strp("deepseek"), BaseURL: strp(oldURL), Model: strp("m"), Key: strp(commitOldKey)}); err != nil {
 			t.Fatalf("%s：准备旧设置：%v", c.name, err)
 		}
@@ -106,7 +126,7 @@ func TestProviderSwitchAllOrNothing(t *testing.T) {
 			t.Errorf("%s：没存上的改动不该生效：%+v", c.name, v.Provider)
 		}
 		probe(c.name, s)
-		_ = os.Remove(block)
+		unblock()
 		re := open() // 重启以后：同一个目录、同一处 Key
 		if v := re.View(); v.Provider.BaseURL != c.wantURL {
 			t.Errorf("%s：重启以后盘上的地址是 %s，应为 %s", c.name, v.Provider.BaseURL, c.wantURL)

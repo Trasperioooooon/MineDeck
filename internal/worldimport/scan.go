@@ -2,9 +2,11 @@ package worldimport
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -20,6 +22,29 @@ import (
 
 const maxWorldDepth = 6 // level.dat 所在目录最深在来源根下第几层（套壳目录、「地图名/存档/世界」这类）
 
+// 一次检测的工作量上限（2026-11-14 Codex 复审第 1 条）。单个文件早就有上限，合起来以前没有：一个做过手脚的包里放上
+// 成千上万个世界，每个都带一份塞满的 level.dat，检测能把程序拖住很久。做成变量是为了测试能调小。
+var (
+	// maxWorlds 一份来源里最多认多少个世界。选 .minecraft/saves 这样放着很多存档的文件夹是正常用法，所以留得宽；
+	// 超了整份拦下、说清楚，不悄悄截掉一部分。
+	maxWorlds = 256
+	// maxScanNBTBytes、maxScanNBTNodes 一次检测里所有 NBT（各个世界的 level.dat 和共用数据）展开以后合起来最多多少字节、
+	// 多少个值。正常的 level.dat 展开后几十 KB，带大量模组的几 MB；二百多个存档合起来也远到不了这里。
+	maxScanNBTBytes int64 = 1 << 30
+	maxScanNBTNodes int64 = 16_000_000
+	// maxProbeReads、maxProbeBytes 没找到世界、要看看它是不是别的东西（整合包这类）时，一次检测里为了探测
+	// 最多读几个文件、合起来最多读多少字节。以前每个像清单的文件都读一遍、每份最多 8 MiB，个数没有上限
+	// （2026-11-14 Codex 第二轮复审阻挡项 5）。正常的包里这样的文件只有一两个。
+	maxProbeReads       = 8
+	maxProbeBytes int64 = 16 << 20
+)
+
+// 说明书和「和地图并列、不会导入的东西」最多各列几项。
+const (
+	maxReadmes     = 5
+	maxSourceHints = 12
+)
+
 // the five cross-dimension data files that 26.1 Vanilla keeps in data/minecraft/ and Paper keeps in the overworld folder
 var sharedDataFiles = []string{"game_rules.dat", "scheduled_events.dat", "wandering_trader.dat", "weather.dat", "world_gen_settings.dat"}
 
@@ -30,8 +55,118 @@ type scanResult struct {
 	cands map[string]*candInfo
 	// pins 有几个导入、建服任务正在用它（Service.mu 保护）。用着的时候过期、放弃都不删上传的文件，
 	// 只记下 dropped，等最后一个任务用完再删。
-	pins    int
-	dropped bool
+	pins      int
+	dropped   bool
+	uploadKey string
+
+	// 下面几项只在检测的过程中用
+	tooManyWorlds int                    // 世界的个数超过了 maxWorlds 时记下有多少个
+	budget        *nbt.Budget            // 这次检测还能展开多少 NBT
+	kids          map[string]*dirListing // children 的结果按目录记着：每个世界都要看上级目录和来源根，不重复数
+	hintPasses    int                    // actual directory computations, observed by regression tests
+	hints         map[string]*dirHints   // 一个目录里的说明书和并列的东西，同上，按目录只认一遍
+	probeReads    int                    // 为了探测已经读了几个文件、多少字节（见 maxProbeReads）
+	probeBytes    int64
+	ctx           context.Context // 发起检测的请求；它取消了（页面关了、连接断了）就不再往下认
+	cancelled     bool
+}
+
+// stop 检测是不是该停了（请求已经取消）。只在两个世界之间、几种探测之间看：正卡在读盘上的那一下打断不了。
+func (r *scanResult) stop() bool {
+	if r.ctx != nil && r.ctx.Err() != nil {
+		r.cancelled = true
+	}
+	return r.cancelled
+}
+
+// probe 探测时读来源里的一个小文件，从这次检测的探测额度里扣。额度用完、文件太大、读不了都返回 nil。
+func (r *scanResult) probe(e *entry, maxBytes int64) []byte {
+	if r.stop() || r.probeReads >= maxProbeReads || e.size > maxBytes || e.size > maxProbeBytes-r.probeBytes || r.probeBytes >= maxProbeBytes {
+		return nil
+	}
+	r.probeReads++
+	rc, err := r.src.open(e)
+	if err != nil {
+		return nil
+	}
+	defer rc.Close()
+	remaining := maxProbeBytes - r.probeBytes
+	// Account actual bytes, including malformed or concurrently enlarged inputs.
+	limit := min(maxBytes+1, remaining)
+	b, err := io.ReadAll(io.LimitReader(rc, limit))
+	r.probeBytes += int64(len(b))
+	if err != nil || int64(len(b)) > maxBytes || r.stop() {
+		return nil
+	}
+	return b
+}
+
+// dirHints 一个目录里（不含子目录里面）像说明书的文本文件，和并列着的服务端文件、模组文件夹这类。
+type dirHints struct{ readme, hints []string }
+
+// hintsOf 认一个目录的说明书和并列的东西，按目录记着：一个来源里的每个世界都要看它的上级目录和来源根，
+// 以前是每个世界把那个目录的文件从头过一遍，提示还是逐个线性查重、全收完才截成十二项。
+func (r *scanResult) hintsOf(dir string) *dirHints {
+	k := winname.Fold(dir)
+	if h := r.hints[k]; h != nil {
+		return h
+	}
+	r.hintPasses++
+	h := &dirHints{}
+	seen := map[string]bool{}
+	add := func(v string) {
+		if k := strings.ToLower(v); len(h.hints) < maxSourceHints && !seen[k] {
+			seen[k] = true
+			h.hints = append(h.hints, v)
+		}
+	}
+	files, subdirs := r.children(dir)
+	for _, f := range files {
+		if len(h.readme) >= maxReadmes && len(h.hints) >= maxSourceHints {
+			break // 两样都收满了：后面有再多文件也不用看
+		}
+		low := strings.ToLower(f)
+		isText := strings.HasSuffix(low, ".txt") || strings.HasSuffix(low, ".md")
+		if isText && len(h.readme) < maxReadmes && (strings.Contains(low, "readme") || strings.Contains(low, "read me") || strings.Contains(f, "说明") ||
+			strings.Contains(f, "必读") || strings.Contains(low, "info") || strings.Contains(low, "instruction") || len(files) <= 6) {
+			rel := join(dir, f)
+			if e := r.src.find(rel); e != nil && e.size <= 256<<10 {
+				h.readme = append(h.readme, rel)
+			}
+		}
+		if strings.HasSuffix(low, ".jar") || low == "start.bat" || low == "run.bat" || low == "start.sh" || low == "run.sh" ||
+			low == "server.properties" || low == "eula.txt" || strings.HasSuffix(low, ".zip") && low != "resources.zip" {
+			add(join(dir, f))
+		}
+	}
+	for _, sd := range subdirs {
+		switch strings.ToLower(sd) {
+		case "mods", "plugins", "config", "resourcepacks", "shaderpacks", "libraries", "defaultconfigs", "kubejs", "scripts":
+			add(join(dir, sd) + "/")
+		}
+	}
+	if r.hints == nil {
+		r.hints = map[string]*dirHints{}
+	}
+	r.hints[k] = h
+	return h
+}
+
+type dirListing struct{ files, subdirs []string }
+
+// children 同 source.children，按目录记着结果。
+func (r *scanResult) children(dir string) (files, subdirs []string) {
+	k := winname.Fold(dir)
+	if l := r.kids[k]; l != nil {
+		return l.files, l.subdirs
+	}
+	l := &dirListing{}
+	l.files, l.subdirs = r.src.children(dir)
+	if r.kids == nil {
+		r.kids = map[string]*dirListing{}
+	}
+	r.kids[k] = l
+	return l.files, l.subdirs
 }
 
 // candInfo 一个候选在来源里占了哪些文件。
@@ -44,15 +179,32 @@ type candInfo struct {
 
 // scanPath 识别 p（文件夹或文件）。返回的 scanResult 里 src 还开着，调用方负责 Close。
 func scanPath(p, display string, uploaded bool) (*scanResult, error) {
+	return scanPathCtx(context.Background(), p, display, uploaded)
+}
+
+// scanPathCtx 同 scanPath。ctx 取消以后在两个世界之间、几种探测之间停下，返回 ctx 的错误
+// （正卡在读盘上的那一下打断不了，所以不是「随时能取消」）。
+func scanPathCtx(ctx context.Context, p, display string, uploaded bool) (out *scanResult, err error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	defer func() {
+		if ctx.Err() != nil {
+			if out != nil && out.src != nil {
+				out.src.Close()
+			}
+			out, err = nil, ctx.Err()
+		}
+	}()
 	st, err := os.Stat(p)
 	if err != nil {
 		return nil, err
 	}
-	r := &scanResult{cands: map[string]*candInfo{}}
+	r := &scanResult{cands: map[string]*candInfo{}, ctx: ctx}
 	r.Source = SourceRef{Path: p, Name: display, Uploaded: uploaded}
 	if st.IsDir() {
 		r.Source.Kind = "folder"
-		src, err := openFolder(p)
+		src, err := openFolderCtx(ctx, p)
 		if err != nil {
 			return r.failed(err)
 		}
@@ -67,7 +219,7 @@ func scanPath(p, display string, uploaded bool) (*scanResult, error) {
 		switch kind {
 		case "zip":
 			r.Source.Kind = "zip"
-			src, err := openZip(p)
+			src, err := openZipCtx(ctx, p)
 			if err != nil {
 				return r.failed(err)
 			}
@@ -90,7 +242,15 @@ func scanPath(p, display string, uploaded bool) (*scanResult, error) {
 		r.Bytes += e.size
 	}
 	r.Fingerprint = fingerprint(r.src.files)
+	if r.stop() {
+		r.src.Close()
+		return nil, ctx.Err()
+	}
 	r.classify(strings.ToLower(filepath.Ext(display)))
+	if r.stop() {
+		r.src.Close()
+		return nil, ctx.Err()
+	}
 	return r, nil
 }
 
@@ -117,7 +277,13 @@ func (r *scanResult) singleNBT(p, display, ext string) (*scanResult, error) {
 	if strings.EqualFold(filepath.Base(display), "level.dat") || strings.EqualFold(filepath.Base(display), "level.dat_old") {
 		return r.only(KindDamagedWorld, SevBlock, "pick-folder", "这是世界里的 level.dat 一个文件。请选它所在的整个世界文件夹（里面还有 region 等文件夹）", "")
 	}
-	_, root, _, err := nbt.ReadFile(p, nbt.Limits{MaxFile: 64 << 20, MaxBytes: 64 << 20, MaxDepth: 64, MaxNodes: 2_000_000})
+	src := &source{root: filepath.Dir(p), ctx: r.ctx}
+	rc, err := src.open(&entry{rel: filepath.Base(p)})
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	_, root, _, err := nbt.Read(rc, nbt.Limits{MaxFile: 64 << 20, MaxBytes: 64 << 20, MaxDepth: 64, MaxNodes: 2_000_000})
 	if err == nil && isStructure(root, ext) || err != nil && structureExt(ext) {
 		return r.only(KindStructure, SevBlock, "structure", structureMsg, "")
 	}
@@ -148,6 +314,9 @@ func isStructure(root nbt.Compound, ext string) bool {
 
 // classify 在文件清单上找世界；找不到就认别的东西。
 func (r *scanResult) classify(ext string) {
+	if r.stop() {
+		return
+	}
 	s := r.src
 	if len(s.links) > 0 {
 		r.Issues = append(r.Issues, Issue{Sev: SevBlock, Code: "links",
@@ -170,7 +339,23 @@ func (r *scanResult) classify(ext string) {
 			Msg: "这是 MineDeck 的交接包（整台服务器）。请到「新建服务器」里选「导入交接包」，它会连地图带配置一起导入"})
 		return
 	}
+	r.budget = &nbt.Budget{Bytes: maxScanNBTBytes, Nodes: maxScanNBTNodes}
 	r.findWorlds()
+	if r.tooManyWorlds > 0 {
+		r.Kind = KindUnknown
+		r.Candidates, r.cands = nil, map[string]*candInfo{}
+		r.Issues = append(r.Issues, Issue{Sev: SevBlock, Code: "too-many-worlds",
+			Msg: fmt.Sprintf("这里面的世界太多了（%d 个，最多 %d 个），一次认不过来。请直接选其中一个世界的文件夹（里面有 level.dat 的那一层），或者只把要用的那张地图打成压缩包",
+				r.tooManyWorlds, maxWorlds)})
+		return
+	}
+	if r.budget.Spent() {
+		r.Kind = KindUnknown
+		r.Candidates, r.cands = nil, map[string]*candInfo{}
+		r.Issues = append(r.Issues, Issue{Sev: SevBlock, Code: "too-much-data",
+			Msg: "这里面各个世界的 level.dat 合起来大得不正常，没有认完。请直接选其中一个世界的文件夹（里面有 level.dat 的那一层）"})
+		return
+	}
 	if len(r.Candidates) > 0 {
 		r.Kind = KindJavaWorld
 		good := 0
@@ -227,7 +412,7 @@ func (r *scanResult) findWorlds() {
 	s := r.src
 	var dirs []string
 	have := map[string]bool{}
-	oldOnly := map[string]bool{}
+	oldOnly := map[string]string{} // 只有 level.dat_old 的目录：fold 后的名字 → 原来的写法
 	for _, e := range s.files {
 		base := path.Base(e.fold)
 		if base != "LEVEL.DAT" && base != "LEVEL.DAT_OLD" {
@@ -247,7 +432,7 @@ func (r *scanResult) findWorlds() {
 		k := winname.Fold(d)
 		if base == "LEVEL.DAT_OLD" {
 			if !have[k] {
-				oldOnly[k] = true
+				oldOnly[k] = d
 			}
 			continue
 		}
@@ -262,18 +447,26 @@ func (r *scanResult) findWorlds() {
 			delete(oldOnly, winname.Fold(dirOf(e.rel)))
 		}
 	}
-	// 嵌在别的世界里面的 level.dat 算那个世界的一部分（比如老的维度目录里带的）
+	// 世界太多就到此为止，不往下认：每个世界都要读 level.dat、数文件、找说明书，一个做过手脚的包里放上十万个
+	// 「目录/level.dat」，检测能跑上很久（2026-11-14 Codex 复审第 1 条）。不悄悄截掉一部分：整份拦下，让人选小一点的范围
+	if n := len(dirs) + len(oldOnly); n > maxWorlds {
+		r.tooManyWorlds = n
+		return
+	}
+	// 嵌在别的世界里面的 level.dat 算那个世界的一部分（比如老的维度目录里带的）。
+	// 短的在前，逐个看它的上级目录里有没有已经算作世界的：层数有上限（maxWorldDepth），不用两两比
 	sort.Slice(dirs, func(a, b int) bool { return len(dirs[a]) < len(dirs[b]) })
 	var tops []string
+	isTop := map[string]bool{}
 	for _, d := range dirs {
-		inside := false
-		for _, t := range tops {
-			if t == "" || strings.HasPrefix(winname.Fold(d)+"/", winname.Fold(t)+"/") {
-				inside = true
-				break
-			}
+		k := winname.Fold(d)
+		inside := isTop[""] // 来源的根本身就是世界：别的都在它里面
+		for up := k; !inside && up != ""; {
+			up = dirOf(up)
+			inside = up != "" && isTop[up]
 		}
 		if !inside {
+			isTop[k] = true
 			tops = append(tops, d)
 		}
 	}
@@ -296,14 +489,19 @@ func (r *scanResult) findWorlds() {
 		if _, isMember := member[winname.Fold(d)]; isMember {
 			continue
 		}
+		if r.stop() { // 请求已经取消：不再往下认
+			return
+		}
 		n++
 		r.addCandidate(fmt.Sprintf("c%d", n), d)
 	}
+	oldKeys := make([]string, 0, len(oldOnly))
 	for k := range oldOnly {
-		d := r.origDir(k)
-		if d == "" && k != "" {
-			continue
-		}
+		oldKeys = append(oldKeys, k)
+	}
+	sort.Strings(oldKeys) // 编号每次检测都一样
+	for _, k := range oldKeys {
+		d := oldOnly[k]
 		n++
 		c := &Candidate{ID: fmt.Sprintf("c%d", n), Root: d, FolderName: folderName(d, r.Source.Name), Layout: LayoutLegacy}
 		c.Issues = append(c.Issues, Issue{Sev: SevBlock, Code: "only-level-dat-old",
@@ -323,17 +521,6 @@ func dirOf(rel string) string {
 		return ""
 	}
 	return d
-}
-
-// origDir 按 fold 后的目录名找回原来的写法。
-func (r *scanResult) origDir(fold string) string {
-	for _, e := range r.src.files {
-		d := dirOf(e.rel)
-		if winname.Fold(d) == fold {
-			return d
-		}
-	}
-	return ""
 }
 
 func folderName(rel, fallback string) string {
@@ -398,6 +585,13 @@ func (r *scanResult) addCandidate(id, d string) {
 	r.cands[id] = info
 }
 
+// nbtLimits 读一个世界的 NBT 用的上限：单个文件的上限照旧，另外从这次检测共用的额度里扣。
+func (r *scanResult) nbtLimits() nbt.Limits {
+	lim := nbt.LevelLimits
+	lim.Budget = r.budget
+	return lim
+}
+
 func (r *scanResult) readLevel(e *entry) (LevelMeta, error) {
 	if e == nil {
 		return LevelMeta{}, fmt.Errorf("没有 level.dat")
@@ -410,7 +604,7 @@ func (r *scanResult) readLevel(e *entry) (LevelMeta, error) {
 		return LevelMeta{}, err
 	}
 	defer rc.Close()
-	_, root, _, err := nbt.Read(rc, nbt.LevelLimits)
+	_, root, _, err := nbt.Read(rc, r.nbtLimits())
 	if err != nil {
 		if errors.Is(err, nbt.ErrNotNBT) && r.bedrockHeader(e) {
 			return LevelMeta{}, fmt.Errorf("这是基岩版的 level.dat")
@@ -431,7 +625,7 @@ func (r *scanResult) readNBT(rel string) nbt.Compound {
 		return nil
 	}
 	defer rc.Close()
-	_, root, _, err := nbt.Read(rc, nbt.LevelLimits)
+	_, root, _, err := nbt.Read(rc, r.nbtLimits())
 	if err != nil {
 		return nil
 	}
@@ -579,49 +773,27 @@ func (r *scanResult) extrasOf(c *Candidate) {
 	sort.Strings(c.Datapacks)
 	c.ResourcePak = s.find(join(d, "resources.zip")) != nil
 	c.HasIcon = s.find(join(d, "icon.png")) != nil
-	// 说明书：世界所在目录和来源根上的文本文件
+	// 说明书、和地图并列的东西：世界所在的目录和来源根各认一遍（按目录记着，见 hintsOf），这里只是合起来
 	look := []string{dirOf(d)}
 	if dirOf(d) != "" {
 		look = append(look, "")
 	}
-	seen := map[string]bool{}
+	seenR, seenH := map[string]bool{}, map[string]bool{}
 	for _, dir := range look {
-		files, subdirs := s.children(dir)
-		for _, f := range files {
-			low := strings.ToLower(f)
-			isText := strings.HasSuffix(low, ".txt") || strings.HasSuffix(low, ".md")
-			if isText && (strings.Contains(low, "readme") || strings.Contains(low, "read me") || strings.Contains(f, "说明") ||
-				strings.Contains(f, "必读") || strings.Contains(low, "info") || strings.Contains(low, "instruction") || len(files) <= 6) {
-				rel := join(dir, f)
-				if e := s.find(rel); e != nil && e.size <= 256<<10 && !seen[e.fold] && len(c.Readme) < 5 {
-					seen[e.fold] = true
-					c.Readme = append(c.Readme, rel)
-				}
-			}
-			if strings.HasSuffix(low, ".jar") || low == "start.bat" || low == "run.bat" || low == "start.sh" || low == "run.sh" ||
-				low == "server.properties" || low == "eula.txt" || strings.HasSuffix(low, ".zip") && low != "resources.zip" {
-				c.SourceHints = appendUniq(c.SourceHints, join(dir, f))
+		h := r.hintsOf(dir)
+		for _, rel := range h.readme {
+			if k := winname.Fold(rel); len(c.Readme) < maxReadmes && !seenR[k] {
+				seenR[k] = true
+				c.Readme = append(c.Readme, rel)
 			}
 		}
-		for _, sd := range subdirs {
-			switch strings.ToLower(sd) {
-			case "mods", "plugins", "config", "resourcepacks", "shaderpacks", "libraries", "defaultconfigs", "kubejs", "scripts":
-				c.SourceHints = appendUniq(c.SourceHints, join(dir, sd)+"/")
+		for _, v := range h.hints {
+			if k := strings.ToLower(v); len(c.SourceHints) < maxSourceHints && !seenH[k] {
+				seenH[k] = true
+				c.SourceHints = append(c.SourceHints, v)
 			}
 		}
 	}
-	if len(c.SourceHints) > 12 {
-		c.SourceHints = c.SourceHints[:12]
-	}
-}
-
-func appendUniq(s []string, v string) []string {
-	for _, x := range s {
-		if strings.EqualFold(x, v) {
-			return s
-		}
-	}
-	return append(s, v)
 }
 
 // checkCandidate 只看地图自己就能下的结论（和目标服务器无关的）。
@@ -678,6 +850,9 @@ func (r *scanResult) cands0(c *Candidate) []string { return append([]string{c.Ro
 
 func (r *scanResult) looksBedrock() bool {
 	for _, e := range r.src.files {
+		if r.stop() {
+			return false
+		}
 		if path.Base(e.fold) == "LEVELNAME.TXT" && strings.Count(e.fold, "/") <= 3 {
 			if r.src.isDir(join(dirOf(e.rel), "db")) {
 				return true
@@ -689,12 +864,21 @@ func (r *scanResult) looksBedrock() bool {
 
 // bedrockHeader level.dat 开头是不是基岩版的 8 字节小端头（存储版本 + 长度），后面紧跟复合标签。
 func (r *scanResult) bedrockHeader(e *entry) bool {
-	b, err := r.src.readSmall(e, 16<<20)
-	if err != nil || len(b) < 9 {
+	// 只读开头 9 个字节，文件一共多大看清单里记的：不必为了数长度把整个文件读进来
+	if e.size < 9 || e.size > 16<<20 {
 		return false
 	}
-	n := int(b[4]) | int(b[5])<<8 | int(b[6])<<16 | int(b[7])<<24
-	return n == len(b)-8 && b[8] == 0x0a
+	rc, err := r.src.open(e)
+	if err != nil {
+		return false
+	}
+	defer rc.Close()
+	var b [9]byte
+	if _, err := io.ReadFull(rc, b[:]); err != nil {
+		return false
+	}
+	n := int64(b[4]) | int64(b[5])<<8 | int64(b[6])<<16 | int64(b[7])<<24
+	return n == e.size-8 && b[8] == 0x0a
 }
 
 func (r *scanResult) looksMdpack() bool {
@@ -702,8 +886,8 @@ func (r *scanResult) looksMdpack() bool {
 	if e == nil || !r.src.isDir("instance") {
 		return false
 	}
-	b, err := r.src.readSmall(e, 4<<20)
-	if err != nil {
+	b := r.probe(e, 4<<20)
+	if b == nil {
 		return false
 	}
 	var m struct {
@@ -715,6 +899,9 @@ func (r *scanResult) looksMdpack() bool {
 
 func (r *scanResult) looksModpack() bool {
 	for _, e := range r.src.files {
+		if r.stop() {
+			return false
+		}
 		if strings.Count(e.fold, "/") > 1 {
 			continue
 		}
@@ -722,7 +909,7 @@ func (r *scanResult) looksModpack() bool {
 		case "MODRINTH.INDEX.JSON", "MMC-PACK.JSON", "INSTANCE.CFG":
 			return true
 		case "MANIFEST.JSON":
-			if b, err := r.src.readSmall(&e, 8<<20); err == nil && bytes.Contains(b, []byte(`"minecraft"`)) && bytes.Contains(b, []byte(`"manifestType"`)) {
+			if b := r.probe(&e, 8<<20); b != nil && bytes.Contains(b, []byte(`"minecraft"`)) && bytes.Contains(b, []byte(`"manifestType"`)) {
 				return true
 			}
 		}
@@ -733,6 +920,9 @@ func (r *scanResult) looksModpack() bool {
 // looksPack pack.mcmeta 旁边有 assets（资源包）或 data（数据包）。可以套一层目录。
 func (r *scanResult) looksPack(sub string) bool {
 	for _, e := range r.src.files {
+		if r.stop() {
+			return false
+		}
 		if path.Base(e.fold) == "PACK.MCMETA" && strings.Count(e.fold, "/") <= 1 && r.src.isDir(join(dirOf(e.rel), sub)) {
 			return true
 		}
@@ -743,6 +933,9 @@ func (r *scanResult) looksPack(sub string) bool {
 func (r *scanResult) looksStructures() bool {
 	n := 0
 	for _, e := range r.src.files {
+		if r.stop() {
+			return false
+		}
 		if structureExt(strings.ToLower(path.Ext(e.rel))) {
 			n++
 		}
@@ -752,6 +945,9 @@ func (r *scanResult) looksStructures() bool {
 
 func (r *scanResult) hasServerFiles() bool {
 	for _, e := range r.src.files {
+		if r.stop() {
+			return false
+		}
 		if strings.Count(e.fold, "/") > 1 {
 			continue
 		}
@@ -766,6 +962,9 @@ func (r *scanResult) hasServerFiles() bool {
 // damagedOnly 没有 level.dat，但有区块文件：像世界、缺了最关键的元数据。
 func (r *scanResult) damagedOnly() bool {
 	for _, e := range r.src.files {
+		if r.stop() {
+			return false
+		}
 		if strings.HasSuffix(e.fold, ".MCA") && strings.Contains(e.fold, "REGION/") {
 			r.Issues = append(r.Issues, Issue{Sev: SevBlock, Code: "only-regions",
 				Msg: "这里只有区块文件（.mca），没有 level.dat。只有区块是开不了服的：请找到完整的世界文件夹（里面有 level.dat）再导入"})

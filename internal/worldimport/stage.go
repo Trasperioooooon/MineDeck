@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"minedeck/internal/diskguard"
 	"minedeck/internal/winname"
 )
 
@@ -74,17 +76,82 @@ func pathBase(rel string) string {
 	return rel
 }
 
+// stageReserve 暂存时给这个盘留的余量：复制每个文件之前，剩余空间要够放下它再多出这么多，不然就停。
+// 盘写满不只是这次导入失败：同一个盘上别的服务器正在存的世界、日志也会跟着写不进去。做成变量是为了测试能调。
+var stageReserve int64 = 256 << 20
+
+// diskFree 查一个路径所在的盘还剩多少。测试里换掉它。
+var diskFree = diskguard.Free
+
+// needWithReserve 要 n 字节、再留出余量，一共要多少；加法溢出时按最大算（不会变成负数）。
+func needWithReserve(n, reserve int64) int64 {
+	if n < 0 || n > math.MaxInt64-reserve {
+		return math.MaxInt64
+	}
+	return n + reserve
+}
+
+// errNoSpace 盘的余量不够。
+type errNoSpace struct{ need, free int64 }
+
+func (e *errNoSpace) Error() string {
+	return fmt.Sprintf("磁盘空间不够（还要 %s，只剩 %s），没有替换任何文件", fmtBytes(e.need), fmtBytes(e.free))
+}
+
+// stageCheckEvery controls in-copy free-space checks (tests can lower it).
+var stageCheckEvery int64 = 64 << 20
+
+type unknownSpaceKey struct{}
+
+// withSpaceConfirmation only accepts the specific capacity warning in the plan.
+func withSpaceConfirmation(ctx context.Context, p *Plan) context.Context {
+	for _, issue := range p.Issues {
+		if issue.Code == "disk-unknown" {
+			return context.WithValue(ctx, unknownSpaceKey{}, true)
+		}
+	}
+	return ctx
+}
+
+func stageSpaceErr(err error) error {
+	var ns *diskguard.NoSpace
+	if errors.As(err, &ns) {
+		return &errNoSpace{need: ns.Need, free: ns.Free}
+	}
+	return err
+}
+
 // stageFiles 复制到 stageRoot（= <事务目录>/new）。progress(已复制字节, 总字节)。
-func stageFiles(ctx context.Context, src *source, files []stagedFile, stageRoot string, progress func(done, total int64)) error {
+// 开始之前按真实卷取得共享写盘名额，与上传、备份、解包及下载一起排队；返回时放掉。
+func stageFiles(ctx context.Context, src *source, files []stagedFile, stageRoot string, progress func(done, total int64), onWait func()) error {
 	var total int64
 	for _, f := range files {
+		if f.e.size < 0 || f.e.size > math.MaxInt64-total {
+			return fmt.Errorf("地图里记的文件大小不对，没有替换任何文件")
+		}
 		total += f.e.size
 	}
+	// 开始之前按整张地图再查一遍余量：做计划时查过，但从预览到点确认可能隔了很久，别的导入也可能占掉了空间
+	if err := os.MkdirAll(stageRoot, 0o755); err != nil {
+		return diskErr(err)
+	}
+	allowUnknown, _ := ctx.Value(unknownSpaceKey{}).(bool)
+	lease, err := diskguard.Acquire(ctx, stageRoot, diskguard.Options{Need: total, Reserve: stageReserve,
+		AllowUnknown: allowUnknown, CheckEvery: stageCheckEvery, Query: diskFree, OnWait: onWait})
+	if err != nil {
+		return stageSpaceErr(err)
+	}
+	defer lease.Close()
 	buf := make([]byte, 1<<20)
 	var done int64
 	for _, f := range files {
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		// 每个文件之前再看一眼：压缩包里申报的大小不可信，单个文件最多写到它申报的那么大，
+		// 所以「剩余空间放得下它再多出余量」成立，这个文件就写不满盘
+		if err := lease.Check(f.e.size); err != nil {
+			return stageSpaceErr(err)
 		}
 		dst := filepath.Join(stageRoot, filepath.FromSlash(f.to))
 		if !strings.HasPrefix(dst, filepath.Clean(stageRoot)+string(os.PathSeparator)) {
@@ -93,7 +160,7 @@ func stageFiles(ctx context.Context, src *source, files []stagedFile, stageRoot 
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return diskErr(err)
 		}
-		if err := copyEntry(ctx, src, f.e, dst, buf); err != nil {
+		if err := copyEntry(ctx, src, f.e, dst, buf, lease); err != nil {
 			return err
 		}
 		done += f.e.size
@@ -104,23 +171,39 @@ func stageFiles(ctx context.Context, src *source, files []stagedFile, stageRoot 
 	return nil
 }
 
-func copyEntry(ctx context.Context, src *source, e *entry, dst string, buf []byte) error {
+// lease 跨所有文件持有同卷写盘名额；每写一段检查余量，保留服务器存档空间。
+func copyEntry(ctx context.Context, src *source, e *entry, dst string, buf []byte, lease *diskguard.Lease) error {
 	rc, err := src.open(e)
 	if err != nil {
 		return fmt.Errorf("读不了来源里的 %s：%w", e.rel, err)
 	}
 	defer rc.Close()
+	if f, ok := rc.(*os.File); ok {
+		stopClose := context.AfterFunc(ctx, func() { _ = f.Close() })
+		defer stopClose()
+	}
 	w, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return diskErr(err)
 	}
 	// 按申报的大小最多读一个字节多：ZIP 里申报的大小不可信（炸弹），文件夹里的文件在复制时还可能在变
-	n, cerr := io.CopyBuffer(w, io.LimitReader(ctxReader{ctx, rc}, e.size+1), buf)
+	n, cerr := io.CopyBuffer(lease.Writer(w), io.LimitReader(ctxReader{ctx, rc}, e.size+1), buf)
 	if werr := w.Close(); cerr == nil {
 		cerr = werr
 	}
 	if cerr != nil {
+		cerr = stageSpaceErr(cerr)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if errors.Is(cerr, context.Canceled) {
+			return cerr
+		}
+		var ns *errNoSpace
+		if errors.As(cerr, &ns) {
+			return cerr // 余量不够：照原样报，不说成「压缩包解不开」
+		}
+		if errors.Is(cerr, diskguard.ErrUnknown) {
 			return cerr
 		}
 		if src.kind == "zip" {
@@ -144,6 +227,46 @@ func copyEntry(ctx context.Context, src *source, e *entry, dst string, buf []byt
 		_ = os.Chtimes(dst, e.mod, e.mod)
 	}
 	return nil
+}
+
+// stagedDirs 复制完以后，暂存区里要搬进服务器的世界目录（主目录，以及旧 Bukkit 布局的 _nether、_the_end）。
+//
+// 搬哪些不能看暂存区里「现在有什么」：以前是逐个 exists，某个维度目录一时看不了就被当成没有，不进搬入的清单，
+// 而旧的那个维度照样被移走，主世界的核对又通过，结果是悄悄少装一个维度（2026-11-14 Codex 第二轮复审阻挡项 2）。
+// 现在从「要复制的文件清单」推出该有哪些目录，再逐个确认它们真的在：
+//   - 每个要复制的文件都必须落在某个世界目录下面，不然它复制了也不会被搬进去；
+//   - 该有的目录看不了、或者不在，都报错；不该有的目录在，也报错。
+func stagedDirs(stageRoot, level string, files []stagedFile) ([]string, error) {
+	names := worldDirNames(level)
+	want := map[string]bool{}
+	for _, f := range files {
+		to := strings.ToLower(filepath.ToSlash(f.to))
+		hit := false
+		for _, n := range names {
+			if ln := strings.ToLower(n); to == ln || strings.HasPrefix(to, ln+"/") {
+				want[n], hit = true, true
+				break
+			}
+		}
+		if !hit {
+			return nil, fmt.Errorf("要复制的「%s」不在任何一个世界文件夹下面，没有替换任何文件", f.to)
+		}
+	}
+	var out []string
+	for _, n := range names {
+		there, err := present(filepath.Join(stageRoot, filepath.FromSlash(n)))
+		switch {
+		case err != nil:
+			return nil, fmt.Errorf("%w，没有替换任何文件", err)
+		case want[n] && !there:
+			return nil, fmt.Errorf("暂存区里少了「%s」，没有替换任何文件", n)
+		case !want[n] && there:
+			return nil, fmt.Errorf("暂存区里多出了「%s」，没有替换任何文件", n)
+		case there:
+			out = append(out, n)
+		}
+	}
+	return out, nil
 }
 
 type ctxReader struct {

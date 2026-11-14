@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -133,5 +134,43 @@ func TestInstallJar(t *testing.T) {
 	}
 	if ents, _ := os.ReadDir(empty); len(ents) != 0 {
 		t.Fatalf("校验不过还写了文件：%v", ents)
+	}
+}
+
+func TestConcurrentJarInstallKeepsOneCompleteVariant(t *testing.T) {
+	dir := t.TempDir()
+	gate := make(chan struct{})
+	errs := make(chan error, 24)
+	var wg sync.WaitGroup
+	for n := range 24 {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			<-gate
+			v := VariantMain
+			if n%2 != 0 {
+				v = VariantFallback
+			}
+			_, _, err := InstallJar(dir, v)
+			errs <- err
+		}(n)
+	}
+	close(gate)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	st, err := InspectJar(dir)
+	if err != nil || !st.Current || len(st.Others) != 0 {
+		t.Fatalf("并发安装留下了不完整或重复版本：%+v %v", st, err)
+	}
+	ents, _ := os.ReadDir(dir)
+	for _, e := range ents {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Fatalf("残留临时文件：%s", e.Name())
+		}
 	}
 }

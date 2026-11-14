@@ -18,14 +18,17 @@ type sseEvent struct {
 // sseReader 按 SSE 规范逐个读出事件：空行分隔事件；冒号开头的是注释（有的服务商用它保活），跳过；
 // id、retry 字段我们用不着，也跳过。兼容 \r\n。
 type sseReader struct {
-	r   *bufio.Reader
-	max int // 单行最长多少字节，超出当作出错（防止对方发一个没完没了的行把内存撑爆）
+	r        *bufio.Reader
+	max      int // 单行最长多少字节，超出当作出错（防止对方发一个没完没了的行把内存撑爆）
+	eventMax int
+	events   int
 }
 
 const maxSSELine = 16 << 20
+const maxSSEEvent = 4 << 20
 
 func newSSEReader(r io.Reader) *sseReader {
-	return &sseReader{r: bufio.NewReaderSize(r, 64<<10), max: maxSSELine}
+	return &sseReader{r: bufio.NewReaderSize(r, 64<<10), max: maxSSELine, eventMax: maxSSEEvent}
 }
 
 var errLineTooLong = errors.New("SSE 单行过长")
@@ -35,10 +38,10 @@ func (s *sseReader) line() ([]byte, error) {
 	var buf []byte
 	for {
 		frag, err := s.r.ReadSlice('\n')
-		buf = append(buf, frag...)
-		if len(buf) > s.max {
+		if len(frag) > s.max-len(buf) {
 			return nil, errLineTooLong
 		}
+		buf = append(buf, frag...)
 		if err == bufio.ErrBufferFull {
 			continue
 		}
@@ -54,25 +57,35 @@ func (s *sseReader) line() ([]byte, error) {
 
 // next 下一个事件；流结束返回 io.EOF（结束前没有空行收尾的最后一个事件也会交出来）。
 func (s *sseReader) next() (sseEvent, error) {
+	if s.events >= maxSSEEvents {
+		return sseEvent{}, ErrResponseTooLarge
+	}
+	s.events++
 	var ev sseEvent
-	var data [][]byte
+	var data bytes.Buffer
+	lines, size := 0, 0
 	have := false
 	for {
 		l, err := s.line()
 		if err != nil {
 			if err == io.EOF && have {
-				ev.Data = bytes.Join(data, []byte("\n"))
+				ev.Data = data.Bytes()
 				return ev, nil
 			}
 			return sseEvent{}, err
 		}
 		if len(l) == 0 {
 			if have {
-				ev.Data = bytes.Join(data, []byte("\n"))
+				ev.Data = data.Bytes()
 				return ev, nil
 			}
+			size = 0
 			continue
 		}
+		if len(l)+1 > s.eventMax-size {
+			return sseEvent{}, ErrResponseTooLarge
+		}
+		size += len(l) + 1
 		if l[0] == ':' {
 			continue
 		}
@@ -83,7 +96,11 @@ func (s *sseReader) next() (sseEvent, error) {
 			ev.Name = string(value)
 			have = true
 		case "data":
-			data = append(data, append([]byte(nil), value...))
+			if lines > 0 {
+				data.WriteByte('\n')
+			}
+			data.Write(value)
+			lines++
 			have = true
 		}
 	}

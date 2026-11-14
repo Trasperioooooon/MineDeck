@@ -16,6 +16,7 @@ import (
 	"minedeck/internal/dl"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/winname"
+	"minedeck/internal/zipguard"
 )
 
 // File 一个待下载的整合包文件。
@@ -73,7 +74,7 @@ type Pack struct {
 
 // Parse 识别并解析整合包 zip，或一份现成的服务端压缩包。
 func Parse(zipPath string) (*Pack, error) {
-	zr, err := zip.OpenReader(zipPath)
+	zr, err := zipguard.Open(zipPath, zipguard.Default)
 	if err != nil {
 		return nil, fmt.Errorf("无法打开整合包（需为 .mrpack 或 zip）: %w", err)
 	}
@@ -472,7 +473,7 @@ var (
 // 导入一个恶意整合包就能把磁盘写满（v3.1.0 正式版前检查 B-4）。后面的覆盖目录照旧后写，同名文件以它为准。
 // 跳过哪些条目和解现成服务端时一样：目录（Windows 工具打的包里，目录可能写成反斜杠结尾）、符号链接这类不是普通文件的。
 func ExtractOverrides(p *Pack, destDir string, writeFile func(rel string, r io.Reader) error) error {
-	zr, err := zip.OpenReader(p.ZipPath)
+	zr, err := zipguard.Open(p.ZipPath, zipguard.Default)
 	if err != nil {
 		return err
 	}
