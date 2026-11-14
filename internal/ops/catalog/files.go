@@ -418,17 +418,23 @@ func (c *cat) fileOps() {
 			if err != nil {
 				return nil, err
 			}
-			cp, err := plan(p)
-			if err != nil {
-				return nil, err
-			}
-			i, rel, abs := cp.i, cp.rel, cp.abs
-			// 能改的位置里有 <世界>/serverconfig/：换地图到一半时世界目录正在搬，不能往里写；写的这段时间也不让换地图开始
-			release, err := c.Mgr.UseWorld(i.Name, "修改配置文件")
+			// 能改的位置里有 <世界>/serverconfig/：换地图到一半时世界目录正在搬，不能往里写；改的这段时间也不让换地图开始。
+			// 登记要在读文件之前：解析路径、读原文件、算新内容、备份、写回，整个过程都得登记着。
+			// 上一版是算完才登记，读和写之间换地图能整个做完，结果按旧地图的配置算出来的内容写进了新地图
+			// （2026-11-14 Codex 第二轮复审阻挡项 1）
+			release, err := c.Mgr.UseWorld(p.Inst, "修改配置文件")
 			if err != nil {
 				return nil, err
 			}
 			defer release()
+			cp, err := plan(p)
+			if err != nil {
+				return nil, err
+			}
+			if cfgPlannedHook != nil {
+				cfgPlannedHook()
+			}
+			i, rel, abs := cp.i, cp.rel, cp.abs
 			res := map[string]any{"path": rel, "mode": map[bool]string{true: p.Mode, false: "edit"}[p.Mode != ""]}
 			if cp.exists && p.Mode != "undo" {
 				bk, err := backupConfig(i, rel, cp.raw)
@@ -668,6 +674,9 @@ func (f textFormat) encode(s string) ([]byte, error) {
 	}
 	return []byte(s), nil
 }
+
+// cfgPlannedHook 测试用：改配置文件的操作读完原文件、算好新内容、还没写回的那一刻调用。
+var cfgPlannedHook func()
 
 // writeAtomic 先写临时文件再改名，写到一半断电不会留下半个配置文件。
 func writeAtomic(path string, b []byte) error {
