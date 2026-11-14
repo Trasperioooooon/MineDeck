@@ -52,7 +52,7 @@ func writePack(ctx context.Context, dest string, files []packFile, mf *Manifest,
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	lease, err := diskguard.Acquire(ctx, dest, diskguard.Options{})
+	lease, err := diskguard.Acquire(ctx, dest, diskguard.Options{AllowUnknown: true})
 	if err != nil {
 		return err
 	}
@@ -330,7 +330,7 @@ func extractPrefix(ctx context.Context, src, destDir string, opts extractOpts,
 			return int64(n), err
 		}
 	}
-	lease, err := diskguard.Acquire(ctx, cleanDest, diskguard.Options{Need: need, Query: query})
+	lease, err := diskguard.Acquire(ctx, cleanDest, diskguard.Options{Need: need, Query: query, AllowUnknown: true})
 	if err != nil {
 		return res, err
 	}

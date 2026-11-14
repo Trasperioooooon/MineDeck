@@ -115,8 +115,6 @@ func verifyFile(r Request) bool {
 		return false
 	}
 	defer f.Close()
-	part := f.Name()
-	defer os.Remove(part)
 	hs := newHashes()
 	if _, err := io.Copy(hs, f); err != nil {
 		return false
@@ -318,7 +316,10 @@ func shortURL(u string) string {
 }
 
 func fetchOne(ctx context.Context, url string, r Request, prog Progress) error {
-	lease, err := diskguard.Acquire(ctx, filepath.Dir(r.Dest), diskguard.Options{})
+	// 只查余量，不占这个盘的独占名额：下载的速度由网络决定，占着名额的话同一个盘上的下载只能一个一个来
+	// （整合包是 6 路一起下的），备份、地图暂存也得等它传完。查不到余量照旧下载，和加这道检查之前一样：
+	// 有的盘就是查不了，不能因此连服务端都下不下来
+	lease, err := diskguard.Acquire(ctx, filepath.Dir(r.Dest), diskguard.Options{Shared: true, AllowUnknown: true})
 	if err != nil {
 		return err
 	}

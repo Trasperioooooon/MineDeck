@@ -453,7 +453,7 @@ func placeFile(ctx context.Context, part, final string) error {
 	if err != nil {
 		return err
 	}
-	lease, err := diskguard.Acquire(ctx, final, diskguard.Options{Need: st.Size()})
+	lease, err := diskguard.Acquire(ctx, final, diskguard.Options{Need: st.Size(), AllowUnknown: true})
 	if err != nil {
 		return err
 	}

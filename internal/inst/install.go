@@ -185,6 +185,7 @@ func (m *Manager) CreateAsync(req CreateReq) (string, error) {
 			defer m.releaseWorldPlan(req.WorldOwner, req.WorldPlan)
 		}
 		if err := m.runCreate(ctx, t, req, dir); err != nil {
+			err = cancelledOr(t, err)
 			if cleanupErr := m.discardCreating(req.Name, dir); cleanupErr != nil {
 				err = fmt.Errorf("%w；清理半成品失败：%v", err, cleanupErr)
 			}
@@ -202,7 +203,11 @@ func (m *Manager) runCreate(ctx context.Context, t *tasks.Task, req CreateReq, d
 
 // runCreateWith 在 beforePublish 完成前不写 instance.json、不把实例开放给其他请求。
 func (m *Manager) runCreateWith(ctx context.Context, t *tasks.Task, req CreateReq, dir string, beforePublish func(*Instance) error) error {
-	ctx, cancel := context.WithTimeout(ctx, 90*time.Minute)
+	// 90 分钟的时限只管建服务器本体这几步。发布边界（completeCreate）用调用方给的 ctx：
+	// 它前面要跑完 beforePublish（整合包的文件下载、覆盖），那一段一直没有总时限，
+	// 不能在几百个文件都下完以后被这里的时限判成超时、整台清掉
+	parent := ctx
+	ctx, cancel := context.WithTimeout(parent, 90*time.Minute)
 	defer cancel()
 
 	// ---- 步骤 0：解析版本信息 ----
@@ -412,7 +417,7 @@ func (m *Manager) runCreateWith(ctx context.Context, t *tasks.Task, req CreateRe
 
 	// ---- 步骤 5：完成初始化后才发布实例 ----
 	t.StartStep(5)
-	return m.completeCreate(ctx, t, inst, beforePublish)
+	return m.completeCreate(parent, t, inst, beforePublish)
 }
 
 // completeCreate 是新建与整合包导入共用的发布边界；失败前始终没有可操作的实例。
@@ -441,6 +446,14 @@ func (m *Manager) completeCreate(ctx context.Context, t *tasks.Task, i *Instance
 	m.mu.Unlock()
 	t.Logf("服务器创建完成 ✔")
 	return nil
+}
+
+// cancelledOr 任务是用户点了取消才停下的：报「已取消」，不把流水线里冒出来的那句 context canceled 当成失败原因给人看。
+func cancelledOr(t *tasks.Task, err error) error {
+	if t.Cancelled() {
+		return fmt.Errorf("已取消，没有创建服务器")
+	}
+	return err
 }
 
 // discardCreating 只清理由当前创建任务独占、尚未发布的目录。
@@ -508,7 +521,7 @@ func copyFileContext(ctx context.Context, src, dst string) error {
 	if err != nil {
 		return err
 	}
-	lease, err := diskguard.Acquire(ctx, dst, diskguard.Options{Need: st.Size()})
+	lease, err := diskguard.Acquire(ctx, dst, diskguard.Options{Need: st.Size(), AllowUnknown: true})
 	if err != nil {
 		return err
 	}

@@ -310,7 +310,7 @@ func copyFile(src, dest string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	lease, err := diskguard.Acquire(context.Background(), dest, diskguard.Options{Need: st.Size()})
+	lease, err := diskguard.Acquire(context.Background(), dest, diskguard.Options{Need: st.Size(), AllowUnknown: true})
 	if err != nil {
 		return "", err
 	}
@@ -436,7 +436,7 @@ func (s *Service) InstallLocal(lf LocalFile, destDir string) (status string, err
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return "", errorf(500, "创建 %s 文件夹失败：%v", filepath.Base(destDir), noPath(err))
 	}
-	lease, err := diskguard.Acquire(context.Background(), destDir, diskguard.Options{})
+	lease, err := diskguard.Acquire(context.Background(), destDir, diskguard.Options{AllowUnknown: true})
 	if err != nil {
 		return "", err
 	}

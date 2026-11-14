@@ -43,7 +43,10 @@ func multipartRequest(t *testing.T, url, filename string, content []byte) *http.
 	return r
 }
 
-func TestMultipartUploadsCancelWhileWaitingForTempVolume(t *testing.T) {
+// 别的操作（地图暂存、备份）占着同一个盘的独占写入名额时，上传不排在它后面：照常收、照常回话，
+// 不会因为「等名额」被当成没有进展掐掉。上一版里接收上传也占独占名额，排队超过空闲期限就回 408
+// 「上传长时间没有新数据」，而对方其实一直在传（2026-11-14 第三轮修复的复审，发现 2）。
+func TestMultipartUploadsDoNotQueueBehindVolumeLease(t *testing.T) {
 	e := newFullEnv(t)
 	oldIdle, oldMemory := worldUploadIdle, multipartMemory
 	worldUploadIdle, multipartMemory = 150*time.Millisecond, 16
@@ -59,24 +62,32 @@ func TestMultipartUploadsCancelWhileWaitingForTempVolume(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer lease.Close()
+	// 名额一直被别人占着。等的时间比空闲期限长得多：要是上传在排队，这里就会超时
+	started := time.Now()
 	for _, endpoint := range []string{"/api/transfer/upload", "/api/import/modpack", "/api/modcart/local"} {
 		resp, err := client.Do(multipartRequest(t, srv.URL+endpoint, "pack.zip", mdpackBytes(true)))
 		if err != nil {
-			t.Fatalf("排队超时必须回话：%s %v", endpoint, err)
+			t.Fatalf("名额被占着时上传也必须回话：%s %v", endpoint, err)
 		}
 		b, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		if err != nil || resp.StatusCode != 408 || !strings.Contains(string(b), "长时间没有新数据") {
-			t.Fatalf("%s：HTTP %d %s %v", endpoint, resp.StatusCode, b, err)
+		// 后两个入口收到的不是它们要的那种文件，回什么由各自的校验决定；要守的只是不能回「没有进展」
+		if err != nil || resp.StatusCode == 408 || strings.Contains(string(b), "长时间没有新数据") {
+			t.Fatalf("%s：不该被当成没有进展：HTTP %d %s %v", endpoint, resp.StatusCode, b, err)
+		}
+		if endpoint == "/api/transfer/upload" && resp.StatusCode != 200 {
+			t.Fatalf("%s：名额被占着时应当照常收下：HTTP %d %s", endpoint, resp.StatusCode, b)
 		}
 	}
-	_ = lease.Close()
+	if took := time.Since(started); took > 2*time.Second {
+		t.Errorf("三次上传一共用了 %v，像是在等名额", took)
+	}
 	worldUploadIdle = 2 * time.Second
 	if files, _ := os.ReadDir(spool); len(files) != 0 {
-		t.Fatalf("排队取消不应写入临时文件：%v", files)
+		t.Fatalf("回完话以后临时文件应当已经清掉：%v", files)
 	}
-	// 放开以后走真正上传摘要入口，16字节的内存额度迫使 multipart 落盘。
-	// 同一卷先解析再复制必须完成，证明没有嵌套占位自锁；返回后的临时文件已清理。
+	// 再走一遍真正的上传摘要入口，核对内容：16 字节的内存额度迫使 multipart 落盘，
+	// 先解析再复制都在同一个盘上，名额仍被别人占着。
 	want := mdpackBytes(true)
 	resp, err := client.Do(multipartRequest(t, srv.URL+"/api/transfer/upload", "normal.mdpack", want))
 	if err != nil {
@@ -102,7 +113,8 @@ func TestMultipartUploadsCancelWhileWaitingForTempVolume(t *testing.T) {
 	if files, _ := os.ReadDir(spool); len(files) != 0 {
 		t.Fatalf("正常上传后临时文件未清：%v", files)
 	}
-	// 此后仍能拿到卷名额。
+	// 上传没有碰那个名额：占着的人放掉以后，别人马上拿得到。
+	_ = lease.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	l, err := diskguard.Acquire(ctx, filepath.Dir(result.Data.File), diskguard.Options{})

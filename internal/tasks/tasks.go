@@ -162,6 +162,13 @@ func (t *Task) BeginCommit() bool {
 	return !t.cancelled && !t.ended
 }
 
+// Cancelled 用户取消过这个任务（Cancel 收下了请求）。
+func (t *Task) Cancelled() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.cancelled
+}
+
 // Cancel 返回真表示取消请求已被收下；任务会在清理完成后才结束。
 func (mg *Manager) Cancel(id string) bool {
 	t := mg.Get(id)

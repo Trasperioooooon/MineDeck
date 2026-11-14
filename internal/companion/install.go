@@ -513,7 +513,7 @@ func placeJarCtx(ctx context.Context, mods, name string, data []byte, check func
 	}
 	dest := filepath.Join(mods, name)
 	defer atomicfile.LockPath(dest)()
-	lease, err := diskguard.Acquire(ctx, mods, diskguard.Options{Need: int64(len(data))})
+	lease, err := diskguard.Acquire(ctx, mods, diskguard.Options{Need: int64(len(data)), AllowUnknown: true})
 	if err != nil {
 		return err
 	}

@@ -18,12 +18,18 @@ func TestCancelAndCommitAreExclusive(t *testing.T) {
 	if ctx.Err() != context.Canceled || task.BeginCommit() {
 		t.Fatal("取消后不能发布")
 	}
+	if !task.Cancelled() {
+		t.Fatal("收下取消以后要认得出这个任务是被取消的（收尾时按「已取消」报，不报成失败原因）")
+	}
 	if m.Cancel(task.ID()) || task.Snapshot().CanCancel {
 		t.Fatal("不应重复接受取消")
 	}
 	task.Fail(ctx.Err())
 	next, _ := m.New("另一次", nil)
 	next.EnableCancel()
+	if next.Cancelled() {
+		t.Fatal("没取消过的任务不算被取消")
+	}
 	if !next.BeginCommit() || m.Cancel(next.ID()) || next.Snapshot().CanCancel {
 		t.Fatal("开始发布后不能接受取消")
 	}

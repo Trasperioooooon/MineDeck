@@ -78,6 +78,7 @@ func (m *Manager) ImportModpackAsync(pack *modpack.Pack, req CreateReq, cfKey st
 			defer os.Remove(pack.ZipPath) // 导入结束（成功/失败）后删除缓存 zip 副本，避免每次导入累积 100-500MB
 		}
 		if err := m.runImport(ctx, t, pack, req, dir, cfKey); err != nil {
+			err = cancelledOr(t, err)
 			m.forgetPending(t.ID())
 			// 先清后报失败：任务一显示失败，半成品就得已经删干净了
 			if cleanupErr := m.discardCreating(req.Name, dir); cleanupErr != nil {
@@ -130,8 +131,8 @@ type keptFile struct {
 // 本地来源目录里已有的按原样保留（魔改模组因此不再要求线上匹配）；剩下的交
 // 处置面板（任务面板 / POST /api/import/pending/{任务}）由用户逐个决定。
 func (m *Manager) runImport(ctx context.Context, t *tasks.Task, pack *modpack.Pack, req CreateReq, dir, cfKey string) error {
-	ctx, cancel := context.WithTimeout(ctx, 90*time.Minute)
-	defer cancel()
+	// 这里不加总时限：建服务器本体那几步在 runCreateWith 里有 90 分钟，整合包的文件下载一直没有
+	// （单个文件 90 秒没有新数据会换源重试；几百个文件、慢的线路，总共要多久说不准）
 	return m.runCreateWith(ctx, t, req, dir, func(i *Instance) error {
 		return m.applyModpack(ctx, t, pack, req, i, cfKey)
 	})
@@ -349,7 +350,7 @@ func (s *overrideSink) write(rel string, r io.Reader) error {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return err
 	}
-	lease, err := diskguard.Acquire(s.ctx, filepath.Dir(dest), diskguard.Options{})
+	lease, err := diskguard.Acquire(s.ctx, filepath.Dir(dest), diskguard.Options{AllowUnknown: true})
 	if err != nil {
 		return err
 	}
@@ -517,7 +518,7 @@ func copyLocalFileContext(ctx context.Context, src, dest string) error {
 		return err
 	}
 	defer unlock()
-	lease, err := diskguard.Acquire(ctx, filepath.Dir(dest), diskguard.Options{})
+	lease, err := diskguard.Acquire(ctx, filepath.Dir(dest), diskguard.Options{AllowUnknown: true})
 	if err != nil {
 		return err
 	}

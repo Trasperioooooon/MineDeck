@@ -217,14 +217,11 @@ func TestUpdatePropsSerializesAliasesBeforeReading(t *testing.T) {
 	if err := os.WriteFile(path, []byte("level-name=world\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	alias, err := filepath.Rel(cwd, path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// 别名是同一个文件的相对写法。先把当前目录换到临时目录里再用相对名：
+	// 上一版是从测试的当前目录算一条相对路径过去，临时目录和代码不在同一个盘时根本算不出来
+	// （作者的电脑和 CI 都是这样），测试直接失败
+	t.Chdir(dir)
+	alias := "server.properties"
 	loaded, proceed := make(chan struct{}), make(chan struct{})
 	var once sync.Once
 	resume := func() { once.Do(func() { close(proceed) }) }

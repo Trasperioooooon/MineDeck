@@ -141,12 +141,43 @@ func (m *Manager) CreateBackup(name, label string) (string, error) {
 	// 换地图到一半时世界目录正在被移来移去，打出来的备份是半截的（定时备份也走这里）。
 	// 不只是开头看一眼：备份的这段时间一直登记着，换地图要等它做完才占得上位。
 	// 还原备份是自己占着位再调下面的 createBackup，所以登记放在这里，不放在 createBackup 里
-	release, err := m.UseWorld(name, "备份")
+	i, err := m.Get(name)
+	if err != nil {
+		return "", err
+	}
+	// 先排队拿这个盘的写入名额，拿到了再登记「正在备份」。反过来的话，备份排在一次地图暂存后面等名额时
+	// 已经登记着：暂存一结束备份开始，导入走到提交那一步看到有人在备份就放弃，那几个 GB 白复制了
+	// （2026-11-14 第三轮修复的复审，发现 2）。等名额的时候没有登记，这期间换地图占上了位，
+	// 下面的登记会失败、备份报「正在换地图」，和一直以来的先到先得一样
+	lease, err := backupLease(name)
+	if err != nil {
+		return "", err
+	}
+	defer lease.Close()
+	release, err := m.UseWorldInstance(i, "备份")
 	if err != nil {
 		return "", err
 	}
 	defer release()
-	return m.createBackup(name, label, "")
+	return m.createBackupWith(i, label, "", lease)
+}
+
+// backupLease 排队拿备份文件夹所在的盘的写入名额（压缩是本机上的大批量写盘，和地图暂存、解包一个一个来）。
+// 查不到余量照旧备份，和加这道检查之前一样：有的盘就是查不了，不能因此连备份都做不了；查得到又不够时照拦。
+func backupLease(name string) (*diskguard.Lease, error) {
+	dir := backupDirOf(name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	return diskguard.Acquire(context.Background(), dir, diskguard.Options{AllowUnknown: true})
+}
+
+// saveConfirmWait 热备时发出 save-all flush 以后，等服务端说保存完了等多久（测试里改短）。
+var saveConfirmWait = 15 * time.Second
+
+// savedLine 这一行是不是服务端保存完成的确认。1.13 起是「Saved the game」，更早的版本（最低支持的 1.12.2）是「Saved the world」。
+func savedLine(line string) bool {
+	return strings.Contains(line, "Saved the game") || strings.Contains(line, "Saved the world")
 }
 
 // backupHook 测试用：世界目录开始压缩之前调用。
@@ -159,6 +190,17 @@ func (m *Manager) createBackup(name, label, spare string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	lease, err := backupLease(name)
+	if err != nil {
+		return "", err
+	}
+	defer lease.Close()
+	return m.createBackupWith(i, label, spare, lease)
+}
+
+// createBackupWith 调用方已经拿到备份文件夹所在的盘的写入名额（lease），并且已经登记或者占着位。
+func (m *Manager) createBackupWith(i *Instance, label, spare string, lease *diskguard.Lease) (string, error) {
+	name := i.Name
 	i.backupMu.Lock()
 	defer i.backupMu.Unlock()
 	worlds, err := i.worldDirsStrict()
@@ -169,15 +211,7 @@ func (m *Manager) createBackup(name, label, spare string) (string, error) {
 		return "", fmt.Errorf("还没有世界存档。服务器可能还没启动过。")
 	}
 	dir := backupDirOf(name)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
-	}
-	lease, err := diskguard.Acquire(context.Background(), dir, diskguard.Options{})
-	if err != nil {
-		return "", err
-	}
-	defer lease.Close()
-	// 排队结束以后才暂停存档，避免另一项写盘让服务器长时间停留在 save-off。
+	// 名额是排队结束以后才到手的，到这里才暂停存档，避免另一项写盘让服务器长时间停留在 save-off。
 	i.procMu.Lock()
 	p, gen, state := i.proc, i.runGen, i.state
 	i.procMu.Unlock()
@@ -205,7 +239,7 @@ func (m *Manager) createBackup(name, label, spare string) (string, error) {
 		if err := writeLine(p, "save-all flush"); err != nil {
 			return "", err
 		}
-		timer := time.NewTimer(15 * time.Second)
+		timer := time.NewTimer(saveConfirmWait)
 		defer timer.Stop()
 		flushed := false
 		for !flushed {
@@ -214,9 +248,13 @@ func (m *Manager) createBackup(name, label, spare string) (string, error) {
 				if !ok {
 					return "", fmt.Errorf("没有收到服务器保存完成的确认，这次备份已作废")
 				}
-				flushed = strings.Contains(line, "Saved the game")
+				flushed = savedLine(line)
 			case <-timer.C:
-				return "", fmt.Errorf("等待服务器保存超时，这次备份已作废")
+				// 等不到确认不作废，照常备份，和一直以来一样：区块多的大服、慢的盘保存一次就可能超过这个时间，
+				// 上一版在这里直接返回错误，这样的服务器只要开着，手动备份和定时备份就一份都拿不到
+				// （2026-11-14 第三轮修复的复审，发现 3）。服务器中途重启的那种作废在下面的 verify 里，不受影响
+				i.Console.Append("[MineDeck] 没有等到服务器保存完成的确认，照常备份（最后这一小段时间的改动可能没有进这份备份）")
+				flushed = true
 			}
 		}
 	}
@@ -288,7 +326,7 @@ func (m *Manager) RestoreBackup(name, file string) error {
 	if err := checkBackupPaths(zr.File, i.Dir); err != nil {
 		return err
 	}
-	lease, err := diskguard.Acquire(context.Background(), i.Dir, diskguard.Options{})
+	lease, err := diskguard.Acquire(context.Background(), i.Dir, diskguard.Options{AllowUnknown: true})
 	if err != nil {
 		return err
 	}
@@ -372,7 +410,7 @@ func (i *Instance) waitConsole(substr string, timeout time.Duration) bool {
 
 // zipDirs 将 baseDir 下的若干子目录打包为 zip（跳过 session.lock）。
 func zipDirs(baseDir string, dirs []string, dest string) error {
-	lease, err := diskguard.Acquire(context.Background(), filepath.Dir(dest), diskguard.Options{})
+	lease, err := diskguard.Acquire(context.Background(), filepath.Dir(dest), diskguard.Options{AllowUnknown: true})
 	if err != nil {
 		return err
 	}
@@ -442,7 +480,7 @@ func unzipTo(src, destDir string) error {
 		return err
 	}
 	defer zr.Close()
-	lease, err := diskguard.Acquire(context.Background(), destDir, diskguard.Options{})
+	lease, err := diskguard.Acquire(context.Background(), destDir, diskguard.Options{AllowUnknown: true})
 	if err != nil {
 		return err
 	}

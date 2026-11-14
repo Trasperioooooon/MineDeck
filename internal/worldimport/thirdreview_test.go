@@ -225,23 +225,44 @@ func TestProbeAccountsActualBytesAfterSourceChanges(t *testing.T) {
 	}
 }
 
-func TestUploadSharesStagingVolumeAndCancelsInQueue(t *testing.T) {
+// 地图暂存（或备份）占着同一个盘的独占写入名额时，接收上传不排在它后面：上传是按对方的网速进来的，
+// 让它排队，等久了会被当成没有进展掐掉；让它占名额，暂存和备份又得等它传完。取消仍然管用，名额和文件都不留。
+func TestUploadDoesNotQueueBehindStaging(t *testing.T) {
 	e := newEnv(t, "")
 	lease, err := diskguard.Acquire(context.Background(), e.tmp, diskguard.Options{Query: func(string) (int64, error) { return 1 << 40, nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer lease.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	old := diskFree
+	diskFree = func(string) (int64, error) { return 1 << 40, nil }
+	t.Cleanup(func() { diskFree = old })
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, err := SaveUploadCtx(ctx, strings.NewReader("data"), 1024, 4); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("同卷应排队并响应取消：%v", err)
+	dest, err := SaveUploadCtx(ctx, strings.NewReader("data"), 1024, 4)
+	if err != nil {
+		t.Fatalf("名额被暂存占着时上传应当照常收下：%v", err)
+	}
+	if b, _ := os.ReadFile(dest); string(b) != "data" {
+		t.Fatalf("收下的内容不对：%q", b)
+	}
+	_ = os.Remove(dest)
+	// 余量不够照旧拦，不因为不排队就不查了
+	diskFree = func(string) (int64, error) { return uploadReserve / 2, nil }
+	if _, err := SaveUploadCtx(ctx, strings.NewReader("data"), 1024, 4); !errors.Is(err, ErrUploadNoSpace) {
+		t.Fatalf("余量不够应当拒绝：%v", err)
+	}
+	diskFree = func(string) (int64, error) { return 1 << 40, nil }
+	done, stop := context.WithCancel(context.Background())
+	stop()
+	if _, err := SaveUploadCtx(done, strings.NewReader("data"), 1024, 4); !errors.Is(err, context.Canceled) {
+		t.Fatalf("已经取消的上传不该收：%v", err)
 	}
 	if len(uploadSlots) != 0 {
-		t.Fatal("取消的排队上传必须归还名额")
+		t.Fatal("上传结束以后必须归还上传名额")
 	}
 	if ents, _ := os.ReadDir(UploadDir()); len(ents) != 0 {
-		t.Fatal("排队取消不得创建上传文件")
+		t.Fatalf("没收下的上传不得留下文件：%v", ents)
 	}
 }
 

@@ -1636,7 +1636,10 @@ func SaveUploadCtx(ctx context.Context, r io.Reader, limit, expect int64) (strin
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	lease, err := diskguard.Acquire(ctx, dir, diskguard.Options{Need: max(expect, 0), Reserve: uploadReserve, Query: diskFree, CheckEvery: uploadCheckEvery})
+	// 接收上传只查余量，不占这个盘的独占名额：文件是按对方的网速一点点进来的，占着名额的话
+	// 同一个盘上的备份、地图暂存要等它传完，第二个上传也只能干等（等久了还会被当成没有进展掐掉）。
+	// 同时在传的个数由上面的 uploadSlots 管；和暂存争空间靠开头这一次检查、写的过程中隔一段再查、各自留的底
+	lease, err := diskguard.Acquire(ctx, dir, diskguard.Options{Shared: true, Need: max(expect, 0), Reserve: uploadReserve, Query: diskFree, CheckEvery: uploadCheckEvery})
 	if err != nil {
 		var ns *diskguard.NoSpace
 		if errors.As(err, &ns) {

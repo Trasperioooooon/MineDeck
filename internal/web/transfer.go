@@ -104,9 +104,10 @@ func parseUpload(w http.ResponseWriter, r *http.Request, limit int64, tooLarge s
 		return ops.Errorf(http.StatusRequestEntityTooLarge, "%s", tooLarge)
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, limit)
-	// ParseMultipartForm 超出内存额度会写系统临时目录，必须同样占用实际卷的名额。
-	// 解析结束即释放，后面的缓存复制另取目标卷名额，不能嵌套持有同一个卷。
-	lease, err := diskguard.Acquire(r.Context(), os.TempDir(), diskguard.Options{Need: max(r.ContentLength, 0), Query: uploadDiskFree})
+	// ParseMultipartForm 超出内存额度会写系统临时目录，所以对临时目录所在的盘同样查余量（开头一次、每收一段一次）。
+	// 只查余量，不占那个盘的独占名额：请求体是按对方的网速进来的，占着名额会让同盘的其他写盘操作等它传完，
+	// 自己排队等名额的时间又会被算成「上传没有进展」
+	lease, err := diskguard.Acquire(r.Context(), os.TempDir(), diskguard.Options{Shared: true, Need: max(r.ContentLength, 0), Query: uploadDiskFree})
 	if err != nil {
 		return err
 	}
@@ -141,8 +142,9 @@ type readerCloser struct {
 }
 
 // copyUpload 仅覆盖系统临时文件／内存到缓存的复制，不持锁解析包或启动后续导入。
+// 同样只查余量、不排队：文件已经收完了，这时候再让请求挂着等别的操作，对方只会看到传到头却不结束。
 func copyUpload(r *http.Request, out *os.File, src io.Reader, size int64, tooLarge string) error {
-	lease, err := diskguard.Acquire(r.Context(), filepath.Dir(out.Name()), diskguard.Options{Need: max(size, 0), Query: uploadDiskFree})
+	lease, err := diskguard.Acquire(r.Context(), filepath.Dir(out.Name()), diskguard.Options{Shared: true, Need: max(size, 0), Query: uploadDiskFree})
 	if err != nil {
 		return uploadError(r, ops.Wrap(500, err), tooLarge)
 	}

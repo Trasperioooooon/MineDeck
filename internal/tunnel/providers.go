@@ -74,7 +74,7 @@ func extractZipFlat(zipPath, destDir string) ([]string, error) {
 		return nil, err
 	}
 	defer zr.Close()
-	lease, err := diskguard.Acquire(context.Background(), destDir, diskguard.Options{})
+	lease, err := diskguard.Acquire(context.Background(), destDir, diskguard.Options{AllowUnknown: true})
 	if err != nil {
 		return nil, err
 	}

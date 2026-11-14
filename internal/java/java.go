@@ -305,7 +305,7 @@ func extractZip(zipPath, destDir string) error {
 		return fmt.Errorf("打开 zip 失败: %w", err)
 	}
 	defer zr.Close()
-	lease, err := diskguard.Acquire(context.Background(), destDir, diskguard.Options{})
+	lease, err := diskguard.Acquire(context.Background(), destDir, diskguard.Options{AllowUnknown: true})
 	if err != nil {
 		return err
 	}

@@ -26,12 +26,21 @@ func (e *NoSpace) Error() string {
 }
 
 type Options struct {
-	Need         int64
-	Reserve      int64
-	AllowUnknown bool // Only after this operation's user explicitly acknowledges an unknown volume capacity.
-	CheckEvery   int64
-	OnWait       func()
-	Query        func(string) (int64, error) // nil uses the Windows volume query; injectable for deterministic tests.
+	Need    int64
+	Reserve int64
+	// AllowUnknown 查不到这个盘还剩多少时照做（查得到又不够时照拦）。两种情况会设它：
+	// 地图导入的计划里用户明确确认过「查不到余量」；以及加这道检查之前就不查余量的那些操作
+	// （下载、备份、还原、解包、交接包）：有的盘就是查不了，不能因为多了一道检查，这些原来能做的事在那种盘上全都做不了
+	// （2026-11-14 第三轮修复的复审，发现 5）。接收上传和没确认过的地图暂存不设，查不到就停。
+	AllowUnknown bool
+	// Shared 不占这个盘的独占名额，只做余量检查（开始时一次，写的过程中每隔 CheckEvery 一次）。
+	// 给速度由网络决定的写入用（下载、接收上传）：它们占着独占名额的话，一个慢连接会让同一个盘上所有
+	// 要写盘的操作等它传完，几路并发的下载也变成一个一个来（2026-11-14 第三轮修复的复审，发现 2）。
+	// 本机上的大批量复制、压缩、解包仍然用独占名额。
+	Shared     bool
+	CheckEvery int64
+	OnWait     func()
+	Query      func(string) (int64, error) // nil uses the Windows volume query; injectable for deterministic tests.
 }
 
 type gate struct {
@@ -57,6 +66,7 @@ type Lease struct {
 // Acquire resolves the actual Windows volume via a handle, so junctions, drive
 // aliases and case variants participate in the same queue. Different volumes
 // can make progress independently. Callers must not acquire a nested lease.
+// With Options.Shared the call never queues: it only performs the free-space checks.
 func Acquire(ctx context.Context, path string, opt Options) (*Lease, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -73,6 +83,13 @@ func Acquire(ctx context.Context, path string, opt Options) (*Lease, error) {
 	}
 	if opt.Query == nil {
 		opt.Query = Free
+	}
+	if opt.Shared {
+		l := &Lease{ctx: ctx, dir: dir, opt: opt, key: key}
+		if err := l.Check(opt.Need); err != nil {
+			return nil, err
+		}
+		return l, nil
 	}
 	volumes.Lock()
 	g := volumes.gates[key]
@@ -112,6 +129,9 @@ func Acquire(ctx context.Context, path string, opt Options) (*Lease, error) {
 }
 
 func (l *Lease) Close() error {
+	if l.g == nil { // Shared：没有占名额
+		return nil
+	}
 	l.once.Do(func() {
 		<-l.g.slot
 		volumes.Lock()
