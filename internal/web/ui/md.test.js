@@ -264,15 +264,31 @@ test("故意构造的输入不卡住界面、不抛异常（回复里会引用�
     "列表里几万个空行": "- a\n" + "\n".repeat(32000) + "- b",
     "几千列的稀疏表格": "|" + "h|".repeat(2000) + "\n|" + "--|".repeat(2000) + "\n" + "|x|\n".repeat(2000),
   };
-  // 计时用本进程占用的 CPU 时间，不用墙上的时间。CI 上别的测试包同时在跑，轮不到这个进程时墙上的时间照样在走：
-  // 2026-11-14 在 main 上挂过一次，本机 60 毫秒的那种输入（很多行没收尾的链接）在 CI 上量出 1175 毫秒。
-  // 渲染器卡住都是自己在算，CPU 时间一样会涨，所以原来那几种卡法照样抓得住。
+  // 上限跟着这台机器的快慢走，计时用本进程占用的 CPU 时间。
+  // 这条原来量墙上的时间，上限写死 500 毫秒。2026-11-14 四个 PR 合进 main 以后在 CI 上接连挂了几次：本机 60 毫秒的
+  // 那种输入（很多行没收尾的链接），CI 上从 170 到 1175 毫秒都量到过。那边的机器只有 4 个核，同时跑着别的测试包，
+  // 各次之间还会差两三倍；头一遍跑的又是没优化好的代码，最慢。
+  // 所以先跑一段固定的活（两千万次取字符再比较，开发用的电脑上 50 毫秒上下），量出这台机器慢多少倍，上限跟着乘；
+  // 超了就重新量一遍快慢，再试一次。用 CPU 时间是因为轮不到这个进程的时候，墙上的时间照样在走。
+  // 渲染器真卡住的时候是它自己在算，和这段参照的活一样跟着机器的快慢走，所以原来那几种卡法在哪台机器上都超出上限好几倍。
   const cpuMs = () => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; };
-  for (const [name, src] of Object.entries(cases)) {
+  const refText = "[x](https://".repeat(4000);
+  const limitHere = () => {
     const t = cpuMs();
-    const html = render(src);
-    const ms = Math.round(cpuMs() - t);
-    assert.ok(ms < 500, `${name}：用了 ${ms} ms（CPU 时间）`);
+    let depth = 0;
+    for (let r = 0; r < 400; r++) {
+      for (let j = 0; j < refText.length; j++) { const c = refText[j]; if (c === "(") depth++; else if (c === ")") depth--; }
+    }
+    assert.equal(depth, 400 * 4000); // 用上结果，免得这段活被优化掉
+    return Math.round(500 * Math.max(1, (cpuMs() - t) / 50));
+  };
+  const timed = src => { const t = cpuMs(); const html = render(src); return { ms: Math.round(cpuMs() - t), html }; };
+  let limit = limitHere();
+  for (const [name, src] of Object.entries(cases)) {
+    let r = timed(src);
+    if (r.ms >= limit) { limit = limitHere(); r = timed(src); }
+    const { ms, html } = r;
+    assert.ok(ms < limit, `${name}：用了 ${ms} ms（CPU 时间；这台机器的上限是 ${limit} ms）`);
     assert.ok(typeof html === "string" && html.length > 0 && !html.includes("\u0001"), `${name}：输出不对`);
     lacks(html, "<script");
   }
