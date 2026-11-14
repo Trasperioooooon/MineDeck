@@ -154,8 +154,8 @@ func issueCodes(is []Issue) string {
 	return strings.Join(c, ",")
 }
 
-// 打开 ZIP 时读文件清单的字节数有预算：Go 的 zip 包会把清单里的每一条都读进内存、不看包里申报的条数，
-// 条目数要等它读完才比得了。超了预算就停，按「文件太多」拦下，不等读完。
+// 压缩包的文件清单超过上限：不打开，按「文件太多」拦下，不是「压缩包坏了」。
+// 怎么在标准库动手之前拦住、分配量有没有守住，测试在 internal/zipguard。
 func TestZipDirectoryBudget(t *testing.T) {
 	files := map[string]string{"world/level.dat": rawNBT(8)}
 	for i := 0; i < 3000; i++ {
@@ -177,25 +177,6 @@ func TestZipDirectoryBudget(t *testing.T) {
 	t.Cleanup(func() { maxZipDirBytes = old })
 	maxZipDirBytes = 32 << 10 // 这个包的清单有十几万字节
 
-	// 预算内读到的字节数不超过预算（外加末尾找清单位置的那一小段），没有把整份清单读完
-	f, err := os.Open(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	st, _ := f.Stat()
-	counted := &countingReaderAt{r: f}
-	b := &budgetReaderAt{r: counted}
-	b.left.Store(maxZipDirBytes)
-	b.limited.Store(true)
-	_, zerr := zip.NewReader(b, st.Size())
-	f.Close()
-	if zerr == nil || !b.over.Load() {
-		t.Fatalf("超过预算应当打不开：%v", zerr)
-	}
-	if counted.n > maxZipDirBytes {
-		t.Errorf("预算是 %d 字节，实际读了 %d 字节", maxZipDirBytes, counted.n)
-	}
-
 	// 从检测的入口走：整份拦下，说文件太多，不是「压缩包坏了」
 	if _, err := openZip(p); err == nil {
 		t.Fatal("超过预算的包不该打得开")
@@ -207,17 +188,6 @@ func TestZipDirectoryBudget(t *testing.T) {
 	if !strings.Contains(r.Issues[0].Msg, "文件太多") {
 		t.Errorf("提示语：%s", r.Issues[0].Msg)
 	}
-}
-
-type countingReaderAt struct {
-	r io.ReaderAt
-	n int64
-}
-
-func (c *countingReaderAt) ReadAt(p []byte, off int64) (int, error) {
-	n, err := c.r.ReadAt(p, off)
-	c.n += int64(n)
-	return n, err
 }
 
 // 一份来源里的世界太多时整份拦下、说清楚，不往下逐个认，也不悄悄截掉一部分。
