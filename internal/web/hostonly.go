@@ -5,7 +5,8 @@ import (
 	"net/http"
 )
 
-// isLoopbackReq 判断请求是否来自本机：「仅本机」的操作（弹系统对话框、开资源管理器、指定主机路径）只认它。
+// isLoopbackReq 判断连接是否来自本机。「仅本机」的操作（弹系统对话框、开资源管理器、指定主机路径）不单看它，
+// 还要带着这次启动的令牌（callerOf）：经本机的 frpc 转发进来的请求也是 127.0.0.1。
 func isLoopbackReq(r *http.Request) bool {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {

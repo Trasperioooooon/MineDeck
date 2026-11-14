@@ -25,6 +25,16 @@ var Token = func() string {
 	return hex.EncodeToString(b)
 }()
 
+// hasToken 请求带没带这次启动的令牌（请求头 X-Token，或者查询串 ?token=：EventSource 设不了请求头）。
+// 接口的登录检查（secure）和「算不算本机」（callerOf）都用它。
+func hasToken(r *http.Request) bool {
+	tok := r.Header.Get("X-Token")
+	if tok == "" {
+		tok = r.URL.Query().Get("token")
+	}
+	return tok != "" && subtle.ConstantTimeCompare([]byte(tok), []byte(Token)) == 1
+}
+
 // 局域网登录的会话值：每次启动随机，重启后要重新登录。
 // 关掉过局域网访问、或者换了访问密码，也换一个新的：之前登录过的设备都要重新登录。
 // 以前要到重启才换，关掉局域网访问再打开（中间不重启），拿着旧 Cookie 的设备照样能进（独立评审发现）。

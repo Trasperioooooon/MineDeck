@@ -183,10 +183,10 @@ func splitArgs(a Args) (inst string, rest json.RawMessage) {
 	return inst, json.RawMessage(encode(redact(obj)))
 }
 
-// secretName 键名像不像密钥：Key、密码、令牌、凭据，以及可能带令牌的 Webhook 地址。
+// secretName 键名像不像密钥：Key、密码、令牌、凭据、Authorization 请求头，以及可能带令牌的 Webhook 地址。
 func secretName(k string) bool {
 	k = strings.ToLower(k)
-	for _, w := range []string{"password", "passwd", "secret", "token", "credential", "webhook"} {
+	for _, w := range []string{"password", "passwd", "secret", "token", "credential", "authorization", "webhook"} {
 		if strings.Contains(k, w) {
 			return true
 		}
@@ -198,11 +198,15 @@ func secretName(k string) bool {
 // 操作记录用它；交给 AI 的工具结果也用它（再加上 assistant 包的文本脱敏）。
 func Redact(v any) any { return redact(v) }
 
-// SecretName 键名像不像密钥（Key、密码、令牌、凭据、Webhook 地址）。
+// SecretName 键名像不像密钥（Key、密码、令牌、凭据、Authorization、Webhook 地址）。
 func SecretName(k string) bool { return secretName(k) }
 
-// redact 把密钥类的值写成 ***（空值保留，看得出是「清除」）。两种情况：键名像密钥的字段；
-// 以及 {"key": 名称, "value": 值} 这样的键值对里名称像密钥的，比如 server.properties 的 rcon.password。
+// redact 把密钥类的值写成 ***（空值保留，看得出是「清除」）。两条规则各管各的：
+//   - {"key": 名称, "value": 值} 这样的键值对，value 按名称判断，比如 server.properties 的 rcon.password；key 本身是名称，原样留着；
+//   - 其余字段（键值对里 key、value 以外的也算）按自己的字段名判断。
+//
+// 以前一认出是键值对，就不再按字段名查同一层的别的字段：{"key":"motd","value":"x","token":"…"} 里的 token 原样进了记录
+// （2026-11-14 复审 PR #13 时发现）。
 func redact(v any) any {
 	switch x := v.(type) {
 	case map[string]any:
@@ -214,9 +218,13 @@ func redact(v any) any {
 			switch {
 			case isPair && k == "key":
 				out[k] = val
-			case isPair && k == "value" && secretName(name):
-				out[k] = mask(val)
-			case !isPair && secretName(k):
+			case isPair && k == "value":
+				if secretName(name) {
+					out[k] = mask(val)
+				} else {
+					out[k] = redact(val)
+				}
+			case secretName(k):
 				out[k] = mask(val)
 			default:
 				out[k] = redact(val)
