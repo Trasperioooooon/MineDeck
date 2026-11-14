@@ -7,6 +7,8 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 - 本机：请求头 `X-Token: <token>`（token 在启动 URL 的 `?token=` 参数中，每次启动随机）
 - 局域网模式：`POST /api/login {"password": "..."}` 换取会话 Cookie。请求体上限 4 KB，超了回 413；同一个来源同时只校验一个，全部来源合计最多 8 个，占不到的回 429（「请求太频繁，稍等几秒再试」）；密码错误等 0.7 秒再回 401，这段时间名额一直占着
 - SSE 端点可用查询参数 `?token=` 传递
+- **怎样算本机**：连接来自本机（127.0.0.1 / ::1），**并且**带着这次启动的 token（`X-Token` 或 `?token=`），两样都要。只带会话 Cookie 的请求，即使连接来自本机，也按局域网会话算：经本机 frpc 这类转发程序进来的请求，连接地址同样是本机。所以在本机浏览器里用访问密码登录、没带 token 打开的页面，也只有局域网会话的权限；本机窗口和启动地址里带着 token 的页面不受影响。下文和各接口说明里的「本机」「仅本机」「`local`」都按这条
+- **隧道不能指向网页端口**：自定义 frps 隧道的本地端口如果是 MineDeck 这次的网页端口（`GET /api/app` 的 `port`），新增、修改返回 400，启动（包括跟随实例启动）也拒绝。樱花、OpenFrp 的本地端口在服务商后台填，MineDeck 看不到，这一条查不了
 - **仅本机（loopback）端点**：`/api/pickdir`、`/api/openpath`、`/api/instances/{name}/opendir` 会调起系统对话框 / 资源管理器，`/api/javas/add` 会执行请求中给出的主机路径（`java -version` 探测），`/api/adopt/scan` 和 `/api/adopt` 要读主机上任意一个文件夹，`/api/import/pending/{taskId}` 要按请求给出的主机路径收文件（或信任后联网下载），均只接受来自本机的请求；局域网会话调用返回 403
 - **主机路径仅本机可指定**：局域网会话不能决定文件写到主机哪里——`POST /api/instances` 与 `POST /api/import/modpack` 的 `root` 会被忽略（实例一律建在默认存放根下）；`PUT /api/config` 只要带了 `serversDir` / `backupsDir`（含置空恢复默认）即整次返回 403、不做任何修改，不带这两个键的其余配置仍可远程修改
 - **AI 设置的修改类接口仅本机**：`/api/ai/*` 里除 `GET /api/ai/settings` 外都只接受本机请求（含 Key 和接口地址）；局域网会话只能看，调用返回 403
