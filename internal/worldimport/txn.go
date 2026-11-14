@@ -17,6 +17,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"minedeck/internal/inst"
+	"minedeck/internal/winname"
 )
 
 // 换地图的事务：一份持久记录（journal.json）+ 一串整目录改名。
@@ -81,10 +82,30 @@ func saveJournal(dir string, j *Journal) error {
 	return moveFile(tmp, p, true)
 }
 
+// maxJournalBytes 一份记录最多多大。正常的只有几 KB；大得离谱的不读进内存，按读不出来算。
+const maxJournalBytes = 1 << 20
+
+// okTxID 记录编号是不是单独一段能当文件夹名的名字（不带分隔符、盘符，不是 . 和 ..）。
+// 编号会拼进路径。换回、删除恢复点时编号是请求里给的，不先过这一关，请求就能决定主机去读哪个位置的 journal.json
+// （2026-11-14 Codex 复审）。这里不写死编号的格式：以前留下的记录照样认。
+func okTxID(id string) bool { return winname.OK(id) }
+
 func loadJournal(dir, id string) (*Journal, error) {
-	b, err := os.ReadFile(journalPath(dir, id))
+	if !okTxID(id) {
+		// 按「没有这份记录」算：列记录时碰到这种名字的文件夹直接跳过，不当成读不出来的记录去封锁启动
+		return nil, fmt.Errorf("换地图的记录编号不对：%w", fs.ErrNotExist)
+	}
+	f, err := os.Open(journalPath(dir, id))
 	if err != nil {
 		return nil, err
+	}
+	b, err := io.ReadAll(io.LimitReader(f, maxJournalBytes+1))
+	f.Close()
+	if err != nil {
+		return nil, err
+	}
+	if len(b) > maxJournalBytes {
+		return nil, fmt.Errorf("换地图的记录大得不正常（超过 %d 字节）", maxJournalBytes)
 	}
 	var j Journal
 	if err := json.Unmarshal(b, &j); err != nil {
