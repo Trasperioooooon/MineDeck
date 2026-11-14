@@ -273,14 +273,22 @@ test("故意构造的输入不卡住界面、不抛异常（回复里会引用�
   // 渲染器真卡住的时候是它自己在算，和这段参照的活一样跟着机器的快慢走，所以原来那几种卡法在哪台机器上都超出上限好几倍。
   const cpuMs = () => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; };
   const refText = "[x](https://".repeat(4000);
-  const limitHere = () => {
+  const refOnce = () => {
     const t = cpuMs();
     let depth = 0;
     for (let r = 0; r < 400; r++) {
       for (let j = 0; j < refText.length; j++) { const c = refText[j]; if (c === "(") depth++; else if (c === ")") depth--; }
     }
     assert.equal(depth, 400 * 4000); // 用上结果，免得这段活被优化掉
-    return Math.round(500 * Math.max(1, (cpuMs() - t) / 50));
+    return cpuMs() - t;
+  };
+  // 参照的活连跑三遍取中间那个：CPU 时间在 Windows 上是十五六毫秒一跳，只量一遍 50 毫秒的活偏粗（Codex 合并复审第 9 条）。
+  // 这条测试的局限也记在这里：参照的活是简单的字符循环，和渲染器里的正则、分配不一定同比变慢；超了重试一次，
+  // 只在头一遍出现的慢会被盖住；量的是 CPU 时间，等待型的卡顿量不出来。它管的是「算得停不下来」这一类。
+  // 渲染器真的不返回时，下面的断言走不到，由外面 md_render_test.go 套的超时兜住。
+  const limitHere = () => {
+    const ms = [refOnce(), refOnce(), refOnce()].sort((a, b) => a - b)[1];
+    return Math.round(500 * Math.max(1, ms / 50));
   };
   const timed = src => { const t = cpuMs(); const html = render(src); return { ms: Math.round(cpuMs() - t), html }; };
   let limit = limitHere();
