@@ -200,6 +200,15 @@ func TestDeleteFailsAndRollsBackWhenSaveFails(t *testing.T) {
 	if ids := tunnelIDs(NewManager()); !slices.Equal(ids, []string{"tun1", "tun3"}) {
 		t.Fatalf("恢复以后删除应生效：%v", ids)
 	}
+	// 删光了存成空列表 []，和以前一样，不是 null
+	for _, id := range []string{"tun1", "tun3"} {
+		if err := m.Delete(id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if disk := readFile(t, filepath.Join(app.Base, "tunnels.json")); !strings.Contains(disk, `"tunnels": []`) {
+		t.Fatalf("删光以后应存成空列表：%s", disk)
+	}
 }
 
 // 公网地址存不进去：内存里照样是新地址（隧道确实连上了），控制台里说一声，不记成卡片上的红字，也不卡住；

@@ -433,9 +433,10 @@ func (m *Manager) Delete(id string) error {
 	}
 	for i, t := range m.tunnels {
 		if t.ID == id {
-			// 删掉以后的列表放进新的数组：原地挪（append(s[:i], s[i+1:]...)）会改动旧数组，写不进磁盘时就退不回去了
+			// 删掉以后的列表放进新的数组：原地挪（append(s[:i], s[i+1:]...)）会改动旧数组，写不进磁盘时就退不回去了。
+			// 先复制再删，删光了也是空列表、存成 []（slices.Concat 拼出空的会是 nil，存成 null）
 			prev := m.tunnels
-			m.tunnels = slices.Concat(prev[:i], prev[i+1:])
+			m.tunnels = slices.Delete(slices.Clone(prev), i, i+1)
 			if err := m.save(); err != nil {
 				m.tunnels = prev
 				return err
