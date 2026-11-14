@@ -17,6 +17,7 @@ import (
 
 	"golang.org/x/text/encoding/simplifiedchinese"
 
+	"minedeck/internal/atomicfile"
 	"minedeck/internal/inst"
 	"minedeck/internal/modinfo"
 	"minedeck/internal/ops"
@@ -427,6 +428,9 @@ func (c *cat) fileOps() {
 				return nil, err
 			}
 			defer release()
+			// 同一台服务器的配置文件修改排队做：读原文件、算新内容、备份、写回是一整段，两个同时改同一个文件时，
+			// 后写的不能拿着改之前读到的内容把先写的盖掉。按服务器排队而不是按文件：同一个文件可以有几种写法（大小写、联接）
+			defer inst.LockKey("config|" + p.Inst)()
 			cp, err := plan(p)
 			if err != nil {
 				return nil, err
@@ -678,15 +682,7 @@ func (f textFormat) encode(s string) ([]byte, error) {
 // cfgPlannedHook 测试用：改配置文件的操作读完原文件、算好新内容、还没写回的那一刻调用。
 var cfgPlannedHook func()
 
-// writeAtomic 先写临时文件再改名，写到一半断电不会留下半个配置文件。
+// writeAtomic 先写临时文件再改名，写到一半断电不会留下半个配置文件；临时文件名每次不同，两个同时写不会混在一起。
 func writeAtomic(path string, b []byte) error {
-	tmp := path + ".minedeck-tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	return nil
+	return atomicfile.Write(path, b, 0o644)
 }

@@ -562,16 +562,16 @@ func (c *cat) instanceOps() {
 				return nil, err
 			}
 			defer release()
-			props, err := inst.LoadProps(i.PropsPath())
-			if err != nil {
-				return nil, ops.Wrap(500, err)
-			}
-			for _, kv := range p.Pairs {
-				if key, val := cleanProp(kv); key != "" {
-					props.Set(key, val)
+			// 读、改、存和别的保存排队：两个窗口同时改，后存的不会把先存的那几项盖回去
+			err = inst.UpdateProps(i.PropsPath(), func(props *inst.Props) error {
+				for _, kv := range p.Pairs {
+					if key, val := cleanProp(kv); key != "" {
+						props.Set(key, val)
+					}
 				}
-			}
-			if err := props.Save(i.PropsPath()); err != nil {
+				return nil
+			})
+			if err != nil {
 				return nil, ops.Wrap(500, err)
 			}
 			return "ok", nil

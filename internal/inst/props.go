@@ -1,7 +1,11 @@
 package inst
 
 import (
+	"path/filepath"
+	"sync"
+
 	"fmt"
+	"minedeck/internal/atomicfile"
 	"os"
 	"strings"
 )
@@ -104,46 +108,43 @@ func (p *Props) Save(path string) error {
 	return writeFileAtomic(path, []byte(sb.String()))
 }
 
-// writeFileAtomic 把 data 写成 path：先写到旁边的临时文件、刷到盘上，再一步改名盖掉原文件。
-// 任何时刻 path 上要么是旧的一份、要么是新的一份。
+// writeFileAtomic 把 data 写成 path：写好、刷盘、一步改名盖掉原文件，任何时刻 path 上都是完整的一份。
+// 做法和它管不了的事见 atomicfile.Write。
 //
-// 以前是「写临时文件、删掉原文件、再改名」：删和改名之间程序退出或者断电，server.properties 就没了，
+// 这个函数以前是「写临时文件、删掉原文件、再改名」：删和改名之间程序退出或者断电，server.properties 就没了，
 // 服务器下次按默认设置启动，level-name 是自定义的服务器会另生成一张叫 world 的新地图（2026-11-14 Codex 合并复审第 4 条）。
-// Windows 上的改名本来就能直接盖掉目标，那一步删除是多余的。它顺带做的一件事是让只读的原文件也换得掉
-// （删的时候系统会去掉只读），这里保留：盖不掉、原文件又是只读的，去掉只读再试一次。
 func writeFileAtomic(path string, data []byte) error {
-	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
-	if err != nil {
-		return err
-	}
-	_, err = f.Write(data)
-	if err == nil {
-		err = f.Sync()
-	}
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err == nil {
-		if atomicHook != nil {
-			atomicHook(path)
-		}
-		err = os.Rename(tmp, path)
-		if err != nil {
-			if fi, serr := os.Stat(path); serr == nil && fi.Mode().Perm()&0o200 == 0 && os.Chmod(path, 0o644) == nil {
-				err = os.Rename(tmp, path)
-			}
-		}
-	}
-	if err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	return nil
+	return atomicfile.Write(path, data, 0o644)
 }
 
-// atomicHook 测试用：临时文件写好、还没换上去的那一刻调用。
-var atomicHook func(path string)
+// 同一个文件的「读、改、写」要串起来：两个请求同时改 server.properties，各自读到的都是改之前的内容，
+// 后存的那一份会把先存的改动盖掉。临时文件名不同只保证存下去的每一份是完整的，保证不了这个。
+// 登记（UseWorld）不管这件事：它故意让几个保存可以同时进行。
+var fileLocks sync.Map // 键 → *sync.Mutex。键的数量就是服务器和配置文件的数量，不回收
+
+// LockKey 按键加锁，返回解锁的函数。锁不可重入：拿着同一个键的锁时不能再去拿它（UpdateProps 的回调里不能调 ForceProp）。
+func LockKey(key string) (unlock func()) {
+	v, _ := fileLocks.LoadOrStore(key, &sync.Mutex{})
+	m := v.(*sync.Mutex)
+	m.Lock()
+	return m.Unlock
+}
+
+func propsKey(path string) string { return "props|" + strings.ToLower(filepath.Clean(path)) }
+
+// UpdateProps 读出 path 这份 server.properties，交给 fn 改，再存回去；整个过程和别的 UpdateProps、ForceProp 排队。
+// fn 返回错误就不存。
+func UpdateProps(path string, fn func(p *Props) error) error {
+	defer LockKey(propsKey(path))()
+	p, err := LoadProps(path)
+	if err != nil {
+		return err
+	}
+	if err := fn(p); err != nil {
+		return err
+	}
+	return p.Save(path)
+}
 
 func escapeUnicode(s string) string {
 	var sb strings.Builder
