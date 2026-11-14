@@ -2951,6 +2951,43 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await resetTA(); }
   });
 
+  // 以前 tunnels.json 写不进去时后端照样报成功，重启以后隧道没了；现在报失败，提示接后端另给的那句人话，原文进「详情」
+  await run("平台账户：tunnels.json 写不进去时导入、创建报失败，提示说人话、详情是原文、本机列表不多出隧道", async () => {
+    await taState({ tunnelAccounts: { reset: true, openfrp: true, saveFail: true }, tunnelsReset: true });
+    const localTunnels = () => page.evaluate(() => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data.tunnels.length));
+    try {
+      errors.length = 0;
+      const before = await localTunnels();
+      await openOverview("openfrp");
+      // 导入
+      await page.click('#tn-acc-panel [data-acc-import="openfrp"][data-proxy="1001"]');
+      await page.waitForSelector('.modal [data-x="ok"]');
+      await page.click('.modal [data-x="ok"]');
+      await taWait("lastImport", v => v.proxyId === "1001");
+      const HINT = "隧道配置写不进磁盘，这次没有保存。请检查磁盘是否已满、MineDeck 所在的文件夹是否只读";
+      assert(await toastHas(HINT), "导入失败应提示后端给的那句人话");
+      assert(!(await toastHas("已导入到 MineDeck", 300)), "写不进去时不该提示已导入");
+      const imp = await toastDetail(HINT);
+      assert(imp.includes("保存到 MineDeck 失败") && imp.includes("Access is denied"), "「详情」里应是完整原文：" + imp);
+      assert(await page.$eval(".toast.error", t => !t.textContent.includes("Access is denied")), "提示正文不该是系统的英文原文");
+      assert(await localTunnels() === before, "导入失败后本机列表不该多出隧道");
+      await modalGone(); await settle(400);
+      // 创建：平台上建好了、本机存不上，提示要说去导入、别再创建
+      await page.click('#tn-acc-panel [data-acc-create="openfrp"]');
+      await page.waitForSelector("#tn-cr-name");
+      await page.fill("#tn-cr-name", "mc_savefail");
+      await page.click('.modal [data-x="ok"]');
+      await taWait("lastCreate", v => v.name === "mc_savefail");
+      const CHINT = "平台上的隧道已建好，但没能存进 MineDeck。检查磁盘后在平台隧道列表里导入它，不要再创建";
+      assert(await toastHas(CHINT), "创建失败应提示平台上已建好、去导入");
+      assert(!(await toastHas("已创建并导入", 300)), "写不进去时不该提示已创建并导入");
+      const cr = await toastDetail(CHINT);
+      assert(cr.includes("平台上的隧道已经建好") && cr.includes("Access is denied"), "「详情」里应是完整原文：" + cr);
+      assert(await localTunnels() === before, "创建失败后本机列表不该多出隧道");
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await resetTA(); }
+  });
+
   await run("平台账户：OpenFrp 创建隧道默认给英文名，名称不合规时在对话框里提示且不发请求", async () => {
     await taState({ tunnelAccounts: { reset: true, openfrp: true }, tunnelsReset: true });
     try {

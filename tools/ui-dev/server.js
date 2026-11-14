@@ -13,7 +13,8 @@ const UI_DEFAULT = path.resolve(__dirname, "..", "..", "internal", "web", "ui");
 const PORT_DEFAULT = 27390; // 避开 MineDeck 自己的默认端口 27333，本机同时开着程序也不冲突
 
 const ok = (res, data) => { res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" }); res.end(JSON.stringify({ ok: true, data })); };
-const err = (res, code, msg) => { res.writeHead(code, { "Content-Type": "application/json; charset=utf-8" }); res.end(JSON.stringify({ ok: false, error: msg })); };
+// hint：同后端 writeErr，报错链上另给的一句人话（没有就不带）
+const err = (res, code, msg, hint) => { res.writeHead(code, { "Content-Type": "application/json; charset=utf-8" }); res.end(JSON.stringify(hint ? { ok: false, error: msg, hint } : { ok: false, error: msg })); };
 const readBody = req => new Promise(r => { let b = ""; req.on("data", c => b += c); req.on("end", () => { try { r(JSON.parse(b || "{}")); } catch { r({}); } }); });
 // 同 ops/catalog 的 maskWebhook：只留协议和主机（含端口），后面常带着令牌，换成 ***；解析不了的整个遮掉，空串还是空串
 const maskWebhook = u => { if (!u) return ""; try { const x = new URL(u); return x.host ? `${x.protocol}//${x.host}/***` : "***"; } catch { return "***"; } };
@@ -1971,6 +1972,7 @@ function newTunnelAccountsState() {
     lastImport: null,
     lastCreate: null,
     lastCancel: null, // 最近一次「取消等待」的登录 ID
+    saveFail: false, // true 模拟 tunnels.json 写不进去：导入、创建在写本机那一步报错（创建时平台上照样建好），说法同后端 SaveError
     overviews: {
       openfrp: {
         provider: "openfrp",
@@ -2006,6 +2008,10 @@ function newTunnelAccountsState() {
     },
   };
 }
+
+// tunnels.json 写不进去时后端的说法（同 tunnel.SaveError 的 Error 和 Hint）
+const SAVE_FAIL_RAW = "隧道配置没能写进磁盘（tunnels.json），这次的改动没有保存：替换文件失败：Access is denied.";
+const SAVE_FAIL_HINT = "隧道配置写不进磁盘，这次没有保存。请检查磁盘是否已满、MineDeck 所在的文件夹是否只读";
 
 async function tunnelAccountsHandler(state, req, res, p, m, seg) {
   if (!p.startsWith("/api/tunnel-accounts")) return false;
@@ -2130,6 +2136,7 @@ async function tunnelAccountsHandler(state, req, res, p, m, seg) {
     const ov = ta.overviews[provider];
     const remote = (ov && ov.tunnels || []).find(t => String(t.id) === proxyId);
     if (!remote) { err(res, 400, provider === "openfrp" ? "OpenFrp 账户中找不到这条隧道" : "SakuraFrp 账户中找不到这条隧道"); return true; }
+    if (ta.saveFail) { err(res, 400, "保存到 MineDeck 失败: " + SAVE_FAIL_RAW, SAVE_FAIL_HINT); return true; }
     const id = "t-imp-" + Date.now();
     const tun = {
       id, name: (remote && remote.name) || ("导入 " + proxyId), provider, proxyId,
@@ -2163,7 +2170,7 @@ async function tunnelAccountsHandler(state, req, res, p, m, seg) {
       boundInstance: b.boundInstance || "", autoStart: !!b.autoStart,
       publicAddr: "", lastError: "", purpose: b.purpose || (type === "udp" ? "voice" : "game"),
     };
-    state.tunnels.push(tun);
+    if (!ta.saveFail) state.tunnels.push(tun); // 写不进本机时平台上照样建好（下面加进概览），本机列表里没有
     const ov = ta.overviews[provider];
     if (ov) {
       const node = (ov.nodes || []).find(n => n.id === nodeId);
@@ -2172,6 +2179,11 @@ async function tunnelAccountsHandler(state, req, res, p, m, seg) {
         localIP: "127.0.0.1", localPort, remote: "", online: false, enabled: true, canImport: true,
       });
       ov.account.tunnelCount = (ov.account.tunnelCount || 0) + 1;
+    }
+    if (ta.saveFail) {
+      err(res, 400, "平台上的隧道已经建好，但保存到 MineDeck 失败: " + SAVE_FAIL_RAW + "。磁盘恢复以后在平台隧道列表里导入这条隧道，不要再创建一次",
+        "平台上的隧道已建好，但没能存进 MineDeck。检查磁盘后在平台隧道列表里导入它，不要再创建");
+      return true;
     }
     ok(res, tun);
     return true;

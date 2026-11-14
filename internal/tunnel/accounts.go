@@ -775,7 +775,25 @@ func (a *Accounts) CreateTunnel(ctx context.Context, o AccountTunnelOptions) (St
 	}
 	// 平台上可能已经建成（哪怕后面导入失败），概览一律重新拉
 	a.forgetOverview(o.Provider)
+	if se := (*SaveError)(nil); errors.As(err, &se) {
+		err = &createdNotSavedError{err: err}
+	}
 	return st, err
+}
+
+// createdNotSavedError 平台上的隧道已经建好，写进本机的 tunnels.json 时失败（磁盘满了、文件只读）。
+// 这时再点一次「创建」会在平台上再建一条，所以要说清楚：平台上那条已经有了，磁盘恢复以后去导入它。
+type createdNotSavedError struct{ err error }
+
+func (e *createdNotSavedError) Error() string {
+	return "平台上的隧道已经建好，但" + e.err.Error() + "。磁盘恢复以后在平台隧道列表里导入这条隧道，不要再创建一次"
+}
+
+func (e *createdNotSavedError) Unwrap() error { return e.err }
+
+// Hint 规矩同 SaveError.Hint。
+func (e *createdNotSavedError) Hint() string {
+	return "平台上的隧道已建好，但没能存进 MineDeck。检查磁盘后在平台隧道列表里导入它，不要再创建"
 }
 
 func (a *Accounts) createOpenFrpTunnel(ctx context.Context, o AccountTunnelOptions, gen uint64) (Status, error) {
