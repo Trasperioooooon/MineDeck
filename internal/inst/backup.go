@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -24,6 +25,25 @@ type BackupInfo struct {
 	File   string  `json:"file"`
 	SizeMB float64 `json:"sizeMb"`
 	Time   string  `json:"time"`
+	// Label 做备份时填的标签（文件名里时间后面的那段，如「更新模组前」「还原前自动」）；没填的没有这一项。
+	// 界面上列表优先显示它（可用性走查 R11）
+	Label string `json:"label,omitempty"`
+}
+
+// backupNameRe 备份文件名：时间（20060102-150405，后面可能带 .纳秒）加可选的「-标签」。
+var backupNameRe = regexp.MustCompile(`^(\d{8}-\d{6})(?:\.\d+)?(?:-(.+))?\.zip$`)
+
+// parseBackupName 从备份文件名里拆出做备份的时间和标签；不是 MineDeck 起的名字（自己放进来的 zip）时 ok 为 false。
+func parseBackupName(file string) (t time.Time, label string, ok bool) {
+	m := backupNameRe.FindStringSubmatch(file)
+	if m == nil {
+		return time.Time{}, "", false
+	}
+	t, err := time.ParseInLocation("20060102-150405", m[1], time.Local)
+	if err != nil {
+		return time.Time{}, "", false
+	}
+	return t, m[2], true
 }
 
 // backupDirOf 返回实例在当前备份根下的备份目录（新备份只写这里）。filepath.Base 兜底：即便某个 instance.json
@@ -125,10 +145,12 @@ func (m *Manager) ListBackups(name string) ([]BackupInfo, error) {
 				continue
 			}
 			seen[e.Name()] = true
+			_, label, _ := parseBackupName(e.Name())
 			out = append(out, BackupInfo{
 				File:   e.Name(),
 				SizeMB: float64(info.Size()) / (1 << 20),
 				Time:   info.ModTime().Format("2006-01-02 15:04:05"),
+				Label:  label,
 			})
 		}
 	}
@@ -340,6 +362,14 @@ func (m *Manager) RestoreBackup(name, file string) error {
 		return fmt.Errorf("解压备份失败: %w", err)
 	}
 	i.Console.Append("[MineDeck] 世界已还原至备份 " + filepath.Base(file))
+	// 记下现在的世界是从哪份备份来的（R11）：详情页「世界与备份」页顶照着写，重开程序后仍在
+	wf := &WorldFrom{Backup: filepath.Base(src), At: time.Now().Format("2006-01-02 15:04:05")}
+	if t, label, ok := parseBackupName(wf.Backup); ok {
+		wf.BackupTime, wf.Label = t.Format("2006-01-02 15:04:05"), label
+	} else if st, err := os.Stat(src); err == nil {
+		wf.BackupTime = st.ModTime().Format("2006-01-02 15:04:05")
+	}
+	m.setWorldFrom(i, wf)
 	return nil
 }
 

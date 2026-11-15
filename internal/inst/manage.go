@@ -59,16 +59,40 @@ func (m *Manager) Restart(name string) error {
 	if err != nil {
 		return err
 	}
-	if err := m.Stop(name); err != nil {
+	if err := m.stopWait(i, "没有重新启动"); err != nil {
 		return err
-	}
-	deadline := time.Now().Add(40 * time.Second)
-	for i.Status() != "stopped" {
-		if time.Now().After(deadline) {
-			return fmt.Errorf("等了 40 秒服务器还没停下来，没有重新启动")
-		}
-		time.Sleep(300 * time.Millisecond)
 	}
 	m.waitPortFree(i) // 进程刚退出，端口万一还没放开就等几秒
 	return m.Start(name)
 }
+
+// StopWait 先保存世界并停止，等它真的停下来（最多 40 秒）再返回；已经停着就直接返回。
+// 「停止并还原」用它：停下来以后接着还原（可用性走查 R11），一次确认做完，不用人等着停好再点一次。
+// then 说的是停不下来时接下来那件事没做，写进报错（「没有还原」）。
+func (m *Manager) StopWait(name, then string) error {
+	i, err := m.Get(name)
+	if err != nil {
+		return err
+	}
+	if i.Status() == "stopped" {
+		return nil
+	}
+	return m.stopWait(i, then)
+}
+
+func (m *Manager) stopWait(i *Instance, then string) error {
+	if err := m.Stop(i.Name); err != nil {
+		return err
+	}
+	deadline := time.Now().Add(stopWaitMax)
+	for i.Status() != "stopped" {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("等了 %d 秒服务器还没停下来，%s", int(stopWaitMax/time.Second), then)
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	return nil
+}
+
+// stopWaitMax 重启、停止并还原时最多等服务器停下来多久。
+var stopWaitMax = 40 * time.Second
