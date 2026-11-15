@@ -200,14 +200,19 @@ func TestPendingWriteHoldsSettingsLocks(t *testing.T) {
 				t.Fatal("没有进入实际写入")
 			}
 			i, _ := m.Get("测试服")
-			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-			defer cancel()
-			if err := UpdatePropsContext(ctx, i.PropsPath(), func(*Props) error { return nil }); !errors.Is(err, context.DeadlineExceeded) {
+			// 两把锁各用各的期限：共用一个的话，前一个等到期限过了，后一个拿锁时一上来就因为期限已过而失败，测不到锁
+			ctxP, cancelP := context.WithTimeout(context.Background(), 200*time.Millisecond)
+			defer cancelP()
+			if err := UpdatePropsContext(ctxP, i.PropsPath(), func(*Props) error { return nil }); !errors.Is(err, context.DeadlineExceeded) {
 				t.Fatalf("写入的那一下应拿着 server.properties 的锁：%v", err)
 			}
-			if unlock, err := LockKeyContext(ctx, "config|测试服"); err == nil {
-				unlock()
-				t.Fatal("写入的那一下应拿着配置锁")
+			ctxC, cancelC := context.WithTimeout(context.Background(), 200*time.Millisecond)
+			defer cancelC()
+			if unlock, err := LockKeyContext(ctxC, "config|测试服"); !errors.Is(err, context.DeadlineExceeded) {
+				if err == nil {
+					unlock()
+				}
+				t.Fatalf("写入的那一下应拿着配置锁：%v", err)
 			}
 			resume()
 			if err := <-done; err != nil {

@@ -209,6 +209,18 @@ func TestRawLimitStopsKeepaliveAfterText(t *testing.T) {
 	}
 }
 
+// 不流式的整段响应超过 maxBody（32 MiB）：原始字节的兜底在这里取两者中小的那个，报「回复内容过多」、不重试。
+// 不取的话，readAll 报的「响应太大」会被当成网络错误，同一个 33 MiB 的响应要被拉三遍。
+func TestNonStreamBodyOverMaxBodyIsTooLarge(t *testing.T) {
+	body := `{"choices":[{"message":{"content":"` + strings.Repeat("x", maxBody+(1<<20)) + `"},"finish_reason":"stop"}]}`
+	f := newFake(t, func(_ int, _ recorded, w http.ResponseWriter) { _, _ = io.WriteString(w, body) })
+	c, v := limitClient(t, OpenAI, false, f)
+	res, err := c.Chat(context.Background(), v, nil)
+	if !errors.Is(err, ErrResponseTooLarge) || res != nil || len(f.requests()) != 1 {
+		t.Fatalf("超过 maxBody 的整段响应应直接停下、不重试：%v res=%v 请求=%d", err, res != nil, len(f.requests()))
+	}
+}
+
 // 一轮的额度只算内容：外壳很大、正文很小的两次回复都能收；内容合计超了，第三次不再发请求。
 func TestTurnBudgetCountsContentNotEnvelope(t *testing.T) {
 	pad := strings.Repeat("p", 2000)
