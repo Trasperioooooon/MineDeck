@@ -1580,7 +1580,7 @@ async function renderCreate(mode) {
       <div class="core-group">
         <div class="cg-title">搬过来</div>
         <div class="recipe-grid">
-          ${card("transfer", "share", "导入交接包", "MineDeck 导出的 .mdpack 交接包；世界、配置和模组在包里。")}
+          ${card("transfer", "share", "导入交接包", "MineDeck 导出的 .mdpack 交接包；世界、配置、模组和插件在包里。")}
           ${card("adopt", "folder", "接管已有服务器", "接管本机外部服务器：选择文件夹直接关联，原文件保留在本地路径。")}
         </div>
       </div>
@@ -2029,7 +2029,7 @@ async function drawTransfer() {
   if (stale(gen)) return;
   const maxMem = Math.max(2048, app.ramMb - 2048);
   let trapRoot = "", pack = null, packFile = ""; // pack：上传后拿到的摘要；packFile：后端缓存里的包路径
-  Main().innerHTML = pageHead("导入交接包", "MineDeck 导出的 .mdpack 交接包；世界、配置和模组都在包里，导入后可以启动。", "",
+  Main().innerHTML = pageHead("导入交接包", "MineDeck 导出的 .mdpack 交接包；世界、配置、模组和插件都在包里，导入后可以启动。", "",
     `<a href="#/create">新建服务器</a>${icon("chevronRight")}<span>导入交接包</span>`) + `
     <div class="form-grid">
       <label class="field full"><span>交接包文件（.mdpack）</span><input type="file" id="tp-file" accept=".mdpack,.zip">
@@ -2168,7 +2168,7 @@ async function drawTransfer() {
         javaMajor: $("#tp-java") ? +$("#tp-java").value || 0 : 0,
       } });
       if (stale(gen)) return;
-      toast(`开始导入：${r.pack.core} ${r.pack.mc}（${r.pack.mods} 个模组）`);
+      toast(`开始导入：${r.pack.core} ${r.pack.mc}（${r.pack.mods} 个模组${r.pack.plugins ? ` / ${r.pack.plugins} 个插件` : ""}）`);
       location.hash = `#/task/${r.taskId}`;
     } catch (e) {
       toastErr("无法导入交接包", e);
@@ -2652,15 +2652,15 @@ const TASK_KINDS = {
     doneTitle: "Java 已换好", failTitle: "Java 没有换成",
     ok: "Java 已换好，下次启动生效", fail: "更换失败", failHint: "这台服务器还在用原来的 Java，可以返回重试。", busy: "下载中，请勿关闭程序…",
     go: "完成，回到服务器", href: name => `#/inst/${encodeURIComponent(name)}/settings/jvm`, back: "#/instances", backText: "返回服务器列表", nav: "instances" },
-  "transfer-out": { title: "正在导出交接包", sub: "正在把世界、配置和模组打包成一个文件。服务器不会被改动。", done: "导出完成", doneSub: "交接包已生成，文件位置在这一页的日志里",
+  "transfer-out": { title: "正在导出交接包", sub: "正在把世界、配置、模组和插件打包成一个文件。服务器不会被改动。", done: "导出完成", doneSub: "交接包已生成，文件位置在这一页的日志里",
     doneTitle: "交接包已导出", failTitle: "交接包没有导出成", openDir: true,
     ok: "交接包导出成功", fail: "导出失败", failHint: "没有留下不完整的包，可以重试（包的特征见任务日志）。", busy: "打包中，请勿关闭程序…",
     go: "完成", href: () => "#/instances", back: "#/instances", backText: "返回服务器列表", nav: "instances" },
-  "transfer-in": { title: "正在导入交接包", sub: "正在准备 Java、下载核心并解包。世界、配置和模组都会保留。", done: "交接完成", doneSub: "世界、配置和模组都带过来了，可以启动了。没带过来的东西列在下面的日志里",
+  "transfer-in": { title: "正在导入交接包", sub: "正在准备 Java、下载核心并解包。世界、配置、模组和插件都会保留。", done: "交接完成", doneSub: "世界、配置、模组和插件都带过来了，可以启动了。没带过来的东西列在下面的日志里",
     doneTitle: "交接包已导入", failTitle: "交接包没有导入成",
     ok: "交接包导入成功", fail: "导入失败", failHint: "半成品的文件夹已经清理干净，可以重试。", busy: "导入中，请勿关闭程序…",
     go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/create", backText: "返回新建服务器", nav: "create" },
-  "server-in": { title: "正在导入服务端", sub: "正在解压服务端文件、准备 Java。世界、模组和配置用压缩包里的。", done: "导入完成", doneSub: "世界、模组和配置都是压缩包里的那份，可以启动了",
+  "server-in": { title: "正在导入服务端", sub: "正在解压服务端文件、准备 Java。世界、模组、插件和配置用压缩包里的。", done: "导入完成", doneSub: "世界、模组、插件和配置都是压缩包里的那份，可以启动了",
     doneTitle: "服务端已导入", failTitle: "服务端没有导入成", cancelTitle: "已取消导入", cancelBtn: "取消导入",
     ok: "服务端导入成功", fail: "导入失败", failHint: "半成品的文件夹已经清理干净，可以重试。", busy: "导入中，请勿关闭程序…",
     go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/create", backText: "返回新建服务器", nav: "create" },
