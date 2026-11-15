@@ -1025,12 +1025,12 @@ window.MDAssist = (() => {
     if (b) b.onclick = () => analyze(name, b);
   }
 
-  /* ---------- 设置 → AI 里的「应用内助手」 ---------- */
+  /* ---------- 设置 → AI 里的「AI 助手」（原来叫「应用内助手」，beta.3 和标题栏按钮统一叫法，可用性走查 R19） ---------- */
 
   function settings(slot, v, gen) {
     if (!slot) return;
     const ro = !v.local;
-    slot.innerHTML = settingsHead("应用内助手", "在标题栏右上角打开。AI 会先查日志和配置再回答。要改东西时，先给你一张确认卡片，你点了才执行。") +
+    slot.innerHTML = settingsHead("AI 助手", "在标题栏右上角打开。AI 会先查日志和配置再回答。要改东西时，先给你一张确认卡片，你点了才执行。") +
       group(
         riRow({ ico: "phone", title: "局域网可用 AI 助手",
           sub: esc("局域网登录的设备（比如手机）也能用助手，和这台电脑共用每天的额度。确认卡片由那台设备上的人自己点。关掉之后，从局域网打开的界面里没有助手入口。"),

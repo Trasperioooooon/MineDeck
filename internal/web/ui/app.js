@@ -4640,40 +4640,86 @@ function storageRow(ico, title, path, desc, pick) { // 三行都有「打开」�
       ${pick ? `<button class="btn sm" data-pick="${pick}" aria-label="更改${esc(title)}…">更改…</button>
       <button class="btn sm ghost icon-only" data-reset="${pick}" title="恢复默认文件夹" aria-label="恢复默认的${esc(title)}">${icon("refresh")}</button>` : ""}` });
 }
+/* 存储位置（R15、R16、R20、U29）：
+   - 两个存放文件夹改了即时生效，提示里带「撤销」，点了换回改之前配置里的值（原来是默认位置就换回默认），R16；
+   - 备份保留份数（全局 backupKeep）放在这里（以前在单台服务器的备份页上，可用性走查 U18、R15）。
+     详情页的备份页只读显示份数、链接到这里：地址是 #/settings/storage，这一行的 id 是 set-backup-keep；
+   - 服务器和备份设成同一个文件夹时提示，R20；备份那一行写「所有备份都放在这里」，U29 */
+const sameDir = (a, b) => !!a && !!b && a.replace(/[\\/]+$/, "").toLowerCase() === b.replace(/[\\/]+$/, "").toLowerCase();
 function setStorage(body, info) {
   const gen = viewGen;
+  const cfg = info.config || (info.config = {});
+  const KEY = { servers: "serversDir", backups: "backupsDir" };
+  const ROOT = { servers: "serversRoot", backups: "backupsRoot" };
+  const NAME = { servers: "服务器存放文件夹", backups: "备份存放文件夹" };
+  let keep = cfg.backupKeep || 10;
+  // 改了以后按后端的说法重画（恢复默认时要后端给出默认的位置）；取不到时用自己知道的
+  const refresh = async (which, value) => {
+    try {
+      const fresh = await api("/api/app");
+      info.serversRoot = fresh.serversRoot; info.backupsRoot = fresh.backupsRoot;
+      if (fresh.config) Object.assign(cfg, fresh.config);
+    } catch { cfg[KEY[which]] = value; if (value) info[ROOT[which]] = value; }
+  };
+  /* 改一个存放文件夹：即时生效（新建的服务器、新做的备份马上用它），提示里带「撤销」（提示至少留 20 秒）。
+     撤销换回的是改之前配置里的值：原来用的默认位置就换回默认（空串），不是把默认位置的路径写进配置 */
+  const change = async (which, value, okMsg) => {
+    const key = KEY[which], prev = cfg[key] || "";
+    await api("/api/config", { method: "PUT", body: { [key]: value } });
+    await refresh(which, value);
+    draw();
+    let undoing = false;
+    const t = toast(okMsg, false, undefined, { actions: [{ label: "撤销", aria: `撤销：换回原来的${NAME[which]}`, onClick: async () => {
+      if (undoing) return;
+      undoing = true;
+      try {
+        await api("/api/config", { method: "PUT", body: { [key]: prev } });
+        await refresh(which, prev);
+        draw();
+        const x = t.querySelector(".t-x");
+        if (x) x.click();
+        toast(`已换回原来的${NAME[which]}`);
+      } catch (e) { undoing = false; toastErr(`没能换回原来的${NAME[which]}`, e); }
+    } }] });
+  };
   const draw = () => {
     if (stale(gen)) return;
-    body.innerHTML = settingsHead("存储位置", "服务器和备份放在哪个文件夹。改了之后，只对新建的服务器和备份生效。已经有的不会自动搬过去。") +
+    const same = sameDir(info.serversRoot, info.backupsRoot);
+    body.innerHTML = settingsHead("存储位置", "服务器和备份放在哪个文件夹。改了马上生效，只对之后新建的服务器和新做的备份起作用，已经有的不会搬过去，照常能用。") +
       group(
         storageRow("server", "服务器存放文件夹", info.serversRoot, "新的服务器会建在这个文件夹里，一台一个子文件夹。中文名字不会直接用作文件夹名。", "servers") +
-        storageRow("package", "备份存放文件夹", info.backupsRoot, "服务器开着时做的备份，放在这里。", "backups") +
+        storageRow("package", "备份存放文件夹", info.backupsRoot, "所有备份都放在这里，每台服务器一个子文件夹：开着、停着时做的，手动的、定时的都是。", "backups") +
         storageRow("folder", "程序数据文件夹", info.base, "程序、下载的 Java 和缓存都在这里。整个文件夹可以一起复制走。", ""),
         { ico: true }) +
-      `<div class="hint">更改存放文件夹只能在这台电脑上操作；用手机远程管理时，需要到主机上更改。</div>`;
+      (same ? `<div class="warn-card" id="st-same" role="status"><div class="wc-title">${icon("warn")} 服务器和备份放在了同一个文件夹</div>
+        <div class="wc-note">这样也能用，但备份会和服务器文件夹混在一起，不好找；硬盘坏了，服务器和备份会一起没了。建议给备份另选一个文件夹，最好在另一块硬盘上。</div></div>` : "") +
+      `<div class="hint">更改存放文件夹只能在这台电脑上操作；用手机远程管理时，需要到主机上更改。</div>` +
+      settingsHead("备份保留份数", "") +
+      group(riRow({ ico: "clock", title: "每台服务器保留几份备份", attrs: `id="set-backup-keep"`,
+        sub: "再做一份新的备份时，超出这个数的最旧那几份会删掉（「还原前自动」留的那份也算在里面）。所有服务器共用这一个数，改了下次备份时生效。",
+        field: `<input type="number" id="set-bk-keep" min="1" max="1000" value="${keep}" aria-label="每台服务器保留几份备份"><span class="ri-unit">份</span><button class="btn" id="set-bk-keep-save" aria-label="保存备份保留份数">保存</button>` }), { ico: true });
     body.querySelectorAll("[data-open]").forEach(b => b.onclick = () =>
       api("/api/openpath", { method: "POST", body: { path: b.dataset.open } }).catch(e => toastErr("无法打开文件夹", e)));
     body.querySelectorAll("[data-pick]").forEach(b => b.onclick = async () => {
+      const which = b.dataset.pick;
       try {
         const r = await api("/api/pickdir", { method: "POST" });
         if (!r.path) return;
-        const key = b.dataset.pick === "servers" ? "serversDir" : "backupsDir";
-        await api("/api/config", { method: "PUT", body: { [key]: r.path } });
-        if (b.dataset.pick === "servers") info.serversRoot = r.path; else info.backupsRoot = r.path;
-        toast("已更改存放文件夹，只对新建的生效");
-        draw();
-      } catch (e) { toastErr(b.dataset.pick === "servers" ? "无法更改服务器存放文件夹" : "无法更改备份存放文件夹", e); }
+        await change(which, r.path, `已更改${NAME[which]}，马上生效`);
+      } catch (e) { toastErr(which === "servers" ? "无法更改服务器存放文件夹" : "无法更改备份存放文件夹", e); }
     });
     body.querySelectorAll("[data-reset]").forEach(b => b.onclick = async () => {
-      try {
-        const key = b.dataset.reset === "servers" ? "serversDir" : "backupsDir";
-        await api("/api/config", { method: "PUT", body: { [key]: "" } });
-        const fresh = await api("/api/app");
-        info.serversRoot = fresh.serversRoot; info.backupsRoot = fresh.backupsRoot;
-        toast("已恢复默认的存放文件夹");
-        draw();
-      } catch (e) { toastErr(b.dataset.reset === "servers" ? "无法恢复默认的服务器存放文件夹" : "无法恢复默认的备份存放文件夹", e); }
+      const which = b.dataset.reset;
+      try { await change(which, "", `已恢复默认的${NAME[which]}`); }
+      catch (e) { toastErr(which === "servers" ? "无法恢复默认的服务器存放文件夹" : "无法恢复默认的备份存放文件夹", e); }
     });
+    bindSaveInput($("#set-bk-keep"), $("#set-bk-keep-save"), async v => {
+      const n = Math.max(1, Math.min(1000, Math.round(+v) || 10));
+      await api("/api/config", { method: "PUT", body: { backupKeep: n } });
+      keep = cfg.backupKeep = n;
+      if (!stale(gen)) $("#set-bk-keep").value = n;
+      toast(`已设置每台服务器保留最近 ${n} 份备份（下次备份时生效）`);
+    }, gen);
   };
   draw();
 }
@@ -4843,7 +4889,17 @@ function sameEndpoint(a, b) {
     return x.protocol === y.protocol && x.host.toLowerCase() === y.host.toLowerCase() && path(x) === path(y);
   } catch { return false; }
 }
-const AI_FEATS = [{ id: "assistant", name: "应用内助手" }, { id: "gamechat", name: "游戏内 AI" }, { id: "companion", name: "AI 伙伴" }]; // 应用内助手：本机和局域网登录的设备共用一份额度；AI 伙伴（第七阶段）：玩家叫着伙伴的名字说话时
+const AI_FEATS = [{ id: "assistant", name: "AI 助手" }, { id: "gamechat", name: "游戏内 AI" }, { id: "companion", name: "AI 伙伴" }]; // AI 助手（标题栏那个，原来叫「应用内助手」）：本机和局域网登录的设备共用一份额度；AI 伙伴（第七阶段）：玩家叫着伙伴的名字说话时
+/* 「设置 → AI」页顶的总览（可用性走查 R19、U22）：AI 是三样东西，各自在哪儿用，先说清楚，再往下配服务商。
+   叫法照 docs/文案重写/04-标签与术语-beta3.md：标题栏的「AI 助手」、服务器「扩展」里的「游戏内 AI」「AI 伙伴」。
+   这里没有具体的服务器，只写到哪个标签下找，给一个去服务器列表的链接（详情页的地址是 #/inst/<名字>/ext/gameai 这种） */
+const aiOverview = () => settingsHead("AI 能做的三件事", "三样用的都是下面这一个服务商和 Key，每天的额度分开算。") +
+  group(
+    riRow({ ico: "sparkle", title: "AI 助手", sub: "标题栏右上角的「AI 助手」：问 MineDeck 的事，它先查日志和配置再回答；要改东西时先给你一张确认卡片，你点了才执行。" }) +
+    riRow({ ico: "player", title: "游戏内 AI", sub: "每台服务器的「扩展 → 游戏内 AI」：玩家在游戏聊天里叫它，它就在聊天里回话。代理端没有。" }) +
+    riRow({ ico: "world", title: "AI 伙伴", sub: "NeoForge、Forge 服务器的「扩展 → AI 伙伴」：游戏里一个像玩家一样陪玩的角色，玩家叫着它的名字跟它说话、让它帮忙。" }),
+    { ico: true, attrs: `id="ai-overview"` }) +
+  `<div class="hint ai-overview-go">游戏内 AI 和 AI 伙伴在服务器页上打开和设置：<a href="#/instances">去服务器列表</a>，点进一台服务器，打开「扩展」。</div>`;
 const fmtTokens = n => { n = +n || 0; return n >= 10000 ? (Math.round(n / 1000) / 10).toString() + " 万" : n.toLocaleString("en-US"); };
 const fmtMoney = (amount, cur) => (cur === "CNY" ? "¥" : "$") + (amount > 0 && amount < 0.01 ? amount.toFixed(4) : amount.toFixed(2));
 /* 一段时间的费用合计：按币种分开（不做汇率换算），如「约 $0.12 + ¥0.30」；没有金额时为空 */
@@ -4859,10 +4915,10 @@ function aiUsageLine(t, m) {
 
 async function setAI(body) {
   const gen = viewGen;
-  body.innerHTML = settingsHead("AI 服务商（可选）", "") + `<div class="sub">加载中…</div>`;
+  body.innerHTML = aiOverview() + settingsHead("AI 服务商（可选）", "") + `<div class="sub">加载中…</div>`;
   let v;
   try { v = await api("/api/ai/settings"); }
-  catch (e) { if (!stale(gen)) body.innerHTML = settingsHead("AI 服务商（可选）", "") + errBox("无法读取 AI 设置", e); return; }
+  catch (e) { if (!stale(gen)) body.innerHTML = aiOverview() + settingsHead("AI 服务商（可选）", "") + errBox("无法读取 AI 设置", e); return; }
   if (stale(gen)) return;
   drawAI(body, v, gen);
 }
@@ -4873,7 +4929,7 @@ function drawAI(body, v, gen) {
   const ro = !v.local; // 局域网打开：只能看
   const dis = ro ? " disabled" : "";
   const opt = (val, label, cur) => `<option value="${esc(val)}"${val === cur ? " selected" : ""}>${esc(label)}</option>`;
-  body.innerHTML =
+  body.innerHTML = aiOverview() +
     settingsHead("AI 服务商（可选）", "填好服务商、Key 和模型后才启用。未配置时 MineDeck 不连接任何 AI 服务，也不下载价格数据。") +
     (ro ? `<div class="warn-card"><div class="wc-title">${icon("lock")} AI 设置仅支持在本机修改</div><div class="wc-note">这里只能查看。Key 和接口地址只能在运行 MineDeck 的那台电脑上改。</div></div>` : "") +
     `<div class="ai-status" id="ai-status"></div>` +
