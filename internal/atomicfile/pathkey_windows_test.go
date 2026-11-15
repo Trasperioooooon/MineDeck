@@ -16,8 +16,9 @@ import (
 // 以前算锁键会用句柄打开这个文件本身，碰上改名替换，改名就被拒（Access is denied）；
 // 改之前同样一边循环算锁键一边保存，500 次里本机失败 101 次、CI 上失败 288 次；
 // inst 的 TestUpdatePropsKeepsEveryonesChange 在 CI 上偶发失败也是它（2026-11-15 在 CI 上加计数核实过）。
-// 注意：替换文件要是加了重试，这个用例不改也会过；那时要在用例里关掉重试，它才还能抓住回归。
+// 替换文件现在带重试，不关掉的话旧查法下这个用例也会过，所以先把重试关掉，它才抓得住回归。
 func TestPathKeyDoesNotBlockReplace(t *testing.T) {
+	setRetry(t, nil, nil)
 	p := filepath.Join(t.TempDir(), "server.properties")
 	if err := os.WriteFile(p, []byte("a=b\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -95,9 +96,17 @@ func TestPathKeySameAsHandleLookup(t *testing.T) {
 		{"联接里不存在的文件", filepath.Join(junction, "missing.txt"), false},
 		{"很长的路径", long, true},
 		{"卷根", filepath.VolumeName(dir) + `\`, true},
+		{"末尾多一个点", file + ".", true},
+		{"末尾多一个空格", file + " ", true},
+		{"名字带星号", filepath.Join(dir, "Server*.Properties"), false},
+		{"名字带问号", filepath.Join(dir, "Server-Long-Name.Propertie?"), false},
 	}
+	// 这几样平常的路径应该由目录列表查出来。要是悄悄都走了退路（退回打开句柄），
+	// 锁键还是对的，TestPathKeyDoesNotBlockReplace 测的那个毛病却回来了。
+	listed := []string{file, strings.ToLower(file), sub, junction, filepath.Join(junction, "inside.txt"), long}
 	if short, ok := shortName(file); ok && !strings.EqualFold(short, file) {
 		cases = append(cases, tc{"8.3 短名", short, true})
+		listed = append(listed, short)
 	} else {
 		t.Log("这个卷没有给出不同的 8.3 短名，跳过短名一项")
 	}
@@ -109,6 +118,7 @@ func TestPathKeySameAsHandleLookup(t *testing.T) {
 			t.Fatal(err)
 		}
 		cases = append(cases, tc{"文件符号链接本身", link, true}, tc{"指向不存在文件的符号链接", dangling, true})
+		listed = append(listed, link, dangling)
 	case errors.Is(err, windows.ERROR_PRIVILEGE_NOT_HELD):
 		t.Logf("账户没有创建符号链接的权限，跳过符号链接两项：%v", err)
 	default:
@@ -126,6 +136,18 @@ func TestPathKeySameAsHandleLookup(t *testing.T) {
 	}
 	if _, err := os.Lstat(link); err == nil && PathKey(link) == PathKey(file) {
 		t.Error("文件符号链接被跟随了：替换的是链接这个目录项，锁键不能是它指向的文件")
+	}
+	for _, p := range listed {
+		got, ok := listedPath(p)
+		want, _ := handlePath(p, false)
+		if !ok || got != want {
+			t.Errorf("%q 应该由目录列表查出来：得到 %q（%v），打开句柄问到的是 %q", p, got, ok, want)
+		}
+	}
+	for _, p := range []string{filepath.Join(dir, "missing.txt"), filepath.Join(dir, "Server*.Properties"), filepath.VolumeName(dir) + `\`} {
+		if got, ok := listedPath(p); ok {
+			t.Errorf("%q 在目录列表里查不准，应该交给老查法，却得到了 %q", p, got)
+		}
 	}
 }
 

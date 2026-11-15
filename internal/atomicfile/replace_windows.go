@@ -54,12 +54,13 @@ type renameInfo struct {
 
 // 替换时目标文件只要被谁打开着（哪怕只是查一下文件名、什么权限都不要、允许别人删），
 // MoveFileEx 就报拒绝访问；临时文件被打开着、又不许别人删，报共享冲突。
-// 这种占用通常一眨眼就放开：本程序自己排队前算锁键（PathKey 会打开目标查真实名字）、
-// 不排队的读取、服务端读配置、杀毒和索引都会这样。所以目标不是只读、错误是这两种时，隔一会儿再试，
+// 这种占用通常一眨眼就放开：本程序里不排队的读取、服务端读配置、杀毒和索引都会这样。
+// 所以目标不是只读、错误是这两种时，隔一会儿再试，
 // 间隔从 1 毫秒翻倍到 125 毫秒封顶，一共最多再试 10 次、加起来约半秒；还不行就照旧报错。
 // 重试只再调 MoveFileEx：它本身拒绝覆盖只读文件，所以重试期间目标变成只读也不会被盖掉。
-// 2026-11-14 CI 上 TestUpdatePropsKeepsEveryonesChange 偶发过一次 Access is denied；本机在重负载下复现出的触发原因，
-// 是排队的保存在进队前算锁键、撞上了正在替换的那一个（单看 CI 那一次，不能排除同时还有别的程序占着）。
+// 2026-11-14 CI 上 TestUpdatePropsKeepsEveryonesChange 偶发 Access is denied，起因是本程序自己：
+// 排队的保存在进队前算锁键，那时会打开目标文件，撞上了正在替换的那一个。
+// 算锁键现在一般不再打开目标（见 finalPath），这里的重试兜的是上面那几种占用，和算锁键退回老查法的少数情况。
 var retryDelays = []time.Duration{
 	1 * time.Millisecond, 2 * time.Millisecond, 4 * time.Millisecond, 8 * time.Millisecond, 16 * time.Millisecond,
 	32 * time.Millisecond, 64 * time.Millisecond, 125 * time.Millisecond, 125 * time.Millisecond, 125 * time.Millisecond,
@@ -148,17 +149,30 @@ func canonicalPath(path string) string {
 // finalPath 的最后一项由 follow 决定是否跟随。锁住的是原子改名要替换的目录项，
 // 所以最终文件不能跟随符号链接；其父目录里的联接仍需解析。
 //
-// 不跟随时（算锁键的最后一项）不打开那个目录项本身：上一级照旧用句柄问系统，最后一项的长名到上一级的目录列表里查。
-// 以前连最后一项也用句柄打开一次。排队等锁的人都要先算锁键，正好碰上持锁的人在改名替换这个文件时，
+// 不跟随时（算锁键的最后一项）先不打开那个目录项本身，到上一级的目录列表里查（listedPath）。
+// 以前一律用句柄把最后一项打开一次。排队等锁的人都要先算锁键，正好碰上持锁的人在改名替换这个文件时，
 // 改名就被拒（Access is denied）：旧式改名替换不了还有句柄开着的文件，哪怕那个句柄只为查路径、允许删除。
 // 40 个保存同时排队的测试在 CI 上就是这样偶发失败的（2026-11-15）。
+//
+// 目录列表里查不准的（文件不在、上一级打不开或不许列、名字对不上、名字带通配符、卷根）退回原来的查法，
+// 所以凡是老查法查得出的，锁键和以前一字不差：同一个文件不会因为换了查法多出一把锁。
+// 退回去的那一下又会短暂打开最后一项，这些情况少见，真撞上了由 replace 的重试兜住。
 func finalPath(path string, follow bool) (string, bool) {
 	if follow {
 		return handlePath(path, true)
 	}
+	if real, ok := listedPath(path); ok {
+		return real, true
+	}
+	return handlePath(path, false)
+}
+
+// listedPath 不打开 path 本身，查它的真实路径：上一级用句柄问系统，最后一项的长名到上一级的目录列表里查。
+// 目录列表只打开上一级文件夹，不会挡住别人改名替换 path。拿不准就返回 false，由调用方换别的查法。
+func listedPath(path string) (string, bool) {
 	parent := filepath.Dir(path)
 	if parent == path {
-		return handlePath(path, false) // 卷根不会被改名替换，照旧打开
+		return "", false // 卷根没有上一级
 	}
 	name := filepath.Base(path)
 	// 目录查询把这几个字符当通配符，会匹配到别的文件；正常文件名里不会有它们
@@ -187,7 +201,7 @@ func finalPath(path string, follow bool) (string, bool) {
 }
 
 // handlePath 打开 path 问系统它的最终路径（设备路径形式）。follow 为 false 时不跟随最后一项的链接。
-// 打开的句柄会挡住别人改名替换这个文件，所以不拿它查要被原子替换的那个文件（见 finalPath）。
+// 打开的句柄会挡住别人改名替换这个文件，所以要被原子替换的那个文件先用 listedPath 查，查不准才用它（见 finalPath）。
 func handlePath(path string, follow bool) (string, bool) {
 	u, err := windows.UTF16PtrFromString(longPath(path))
 	if err != nil {
