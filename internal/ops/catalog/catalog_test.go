@@ -76,7 +76,9 @@ func TestLevelsFollowDesign(t *testing.T) {
 			// 整合包导入的待决文件：要收这台电脑上的文件，只许人在本机操作
 			"instance.import.pending",
 			// 按服务器查、处置没装上的文件（beta.3 R09）：清单是服务器文件夹里读来的不可信文字，不给 AI；处置同上只许本机
-			"instance.import.pending.get", "instance.import.pending.resolve"},
+			"instance.import.pending.get", "instance.import.pending.resolve",
+			// beta.3 R08：新建、导入、接管的表单拿默认端口（MineDeck 里别的服务器都没用的最小端口）。只读，但只给界面用，不进 AI 的工具清单
+			"port.suggest"},
 	}
 	// 穿透平台账户操作由 Accounts 注入后才登记；本测试 Env 不传 Accounts，故不列入 want。
 

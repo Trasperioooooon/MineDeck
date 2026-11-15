@@ -818,6 +818,15 @@ func (s *Service) Execute(owner string, req ExecReq) (string, error) {
 		}()
 		res, err := s.runImport(ctx, t, r, p, props, req.StopFirst)
 		if err != nil {
+			// 人在复制阶段点了取消（Service.Cancel 收下了）：按中性的「已取消」结束，不画成失败（同新建、导入整合包的取消，
+			// 复审发现 9）。收下了取消，导入就一定没换地图（见 closeCancel）；这时要是别的原因先把导入停下了，也算取消，原因记进日志
+			if t.Cancelled() {
+				if !errors.Is(err, errImportCancelled) {
+					t.Logf("取消的同时还遇到：%v", err)
+				}
+				t.EndCancelled(errImportCancelled)
+				return
+			}
 			t.Fail(err)
 			return
 		}
@@ -838,9 +847,19 @@ func (s *Service) Cancel(owner, taskID string) bool {
 	if !ok || c.owner != owner {
 		return false
 	}
+	// 先在任务上记下「人取消了」再取消：导入那边一看到取消就会结束任务，结束的时候要已经知道是人取消的，才按「已取消」结束。
+	// 只记这一笔，不开放任务页通用的取消（那条路绕过发起人检查和 closeCancel 的边界）
+	if s.M != nil && s.M.Tasks != nil {
+		if t := s.M.Tasks.Get(taskID); t != nil {
+			t.NoteCancel()
+		}
+	}
 	c.fn() // 在锁里取消：closeCancel 拿到锁的时候，要么已经看得到这次取消，要么这次取消还没进来（之后进来的会找不到登记）
 	return true
 }
+
+// errImportCancelled 导入在复制阶段被人取消了，什么都没换。任务按「已取消」结束（tasks.EndCancelled），不是失败。
+var errImportCancelled = errors.New("已取消，没有替换任何文件")
 
 // closeCancel 导入要进入不能取消的阶段了：已经被取消就返回 false（调用方放弃，什么都不换）；
 // 没被取消就把取消的登记拿掉，之后的取消请求一律得到「已经不能取消了」。
@@ -868,6 +887,9 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 	}
 	src, err := reopenCtx(ctx, r)
 	if err != nil {
+		if ctx.Err() != nil { // 打开来源的时候人点了取消：不带出 context canceled 这类英文原因
+			return "", errImportCancelled
+		}
 		return "", fmt.Errorf("来源打不开了：%w", err)
 	}
 	defer src.Close()
@@ -911,7 +933,7 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 	}
 	if err := stageFiles(ctx, src, files, stageRoot, t.ProgressFn("复制地图"), waiting); err != nil {
 		if errors.Is(err, context.Canceled) {
-			return abandon(fmt.Errorf("已取消，没有替换任何文件"))
+			return abandon(errImportCancelled)
 		}
 		return abandon(err)
 	}
@@ -948,7 +970,7 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 	// 3. 停服、占位。从这里开始不再响应取消：要么换完，要么退回。
 	// 复制完到这里还有一段（重新核对来源、算哈希、数大小、存记录），文件多、盘慢的时候不短，这期间点的取消在这里兑现
 	if !s.closeCancel(ctx, t.ID()) {
-		return abandon(fmt.Errorf("已取消，没有替换任何文件"))
+		return abandon(errImportCancelled)
 	}
 	t.StartStep(2)
 	// 有备份在跑、有设置正在保存：等它们做完才占得上位。先看一眼再停服，不然服务器被停了，导入却因为备份在跑而放弃

@@ -178,6 +178,17 @@ func (t *Task) Cancelled() bool {
 	return t.cancelled
 }
 
+// NoteCancel 任务自己的取消入口收下了取消（换地图有自己的取消和提交边界，见 worldimport.Service.Cancel，不走 Manager.Cancel）：
+// 只记下「用户取消了」，好让之后的 EndCancelled 按「已取消」结束、快照里先显示「正在取消」；不开放通用的取消（canCancel 不变）。
+// 任务已经结束的不记。
+func (t *Task) NoteCancel() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.ended {
+		t.cancelled = true
+	}
+}
+
 // Cancel 返回真表示取消请求已被收下；任务会在清理完成后才结束。
 func (mg *Manager) Cancel(id string) bool {
 	t := mg.Get(id)

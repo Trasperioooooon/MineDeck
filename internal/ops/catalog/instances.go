@@ -44,6 +44,9 @@ type instSummary struct {
 	ConnectPort int `json:"connectPort"`
 	// LastStartError 上一次启动没起来的原因（端口被占、找不到 Java……）；下次成功起了进程就清掉，只在内存里
 	LastStartError string `json:"lastStartError,omitempty"`
+	// StartPortBusy 上一次没启动起来是因为端口被占着（R08）：哪个端口、占着的是不是本软件的另一台服务器、能改成哪个。
+	// 界面按它给「改成 N 并启动」或「改端口」，不去解析 lastStartError 那句话。跟着 lastStartError 一起清
+	StartPortBusy *inst.PortBusy `json:"startPortBusy,omitempty"`
 	// MineDeckFiles 接管来的服务器：文件夹里 MineDeck 写的、移出列表以后会留下的文件（相对路径）。别的服务器没有这一项
 	MineDeckFiles []string `json:"mdFiles,omitempty"`
 	// JavaMissing 配的 java.exe 现在找不到了（卸载了、挪走了）：卡片和详情页头常驻警告，带路去「设置 → 启动与内存」（可用性走查 R21）
@@ -83,7 +86,7 @@ func summarize(i *inst.Instance) instSummary {
 		ConsoleEncoding: enc,
 		OnlineCount:     i.OnlineCount(), UptimeSec: i.UptimeSec(), MaxPlayers: maxP,
 		ExtraJVM:    i.ExtraJVMSnapshot(),
-		ConnectPort: i.ConnectPort(), LastStartError: i.LastStartError(), MineDeckFiles: i.MineDeckFiles(),
+		ConnectPort: i.ConnectPort(), LastStartError: i.LastStartError(), StartPortBusy: i.LastStartPortBusy(), MineDeckFiles: i.MineDeckFiles(),
 		JavaMissing: i.JavaMissing(), BackupDir: i.BackupDir(), WorldFrom: i.WorldFromSnapshot(),
 	}
 }
@@ -113,7 +116,8 @@ func (c *cat) instanceOps() {
 	c.reg.Register(&ops.Op{
 		Name: "instance.list", Title: "查看服务器列表", Level: ops.Read,
 		Desc: "所有实例：核心、版本、Java、内存、端口、状态、在线人数、运行时长、MOTD；connectPort 是玩家连进来用的端口（代理端以它为准），" +
-			"lastStartError 是上一次没启动起来的原因（端口被占、找不到 Java 等，下次启动成功后清空）；javaMissing 为 true 表示配的 java.exe 现在找不到了；" +
+			"lastStartError 是上一次没启动起来的原因（端口被占、找不到 Java 等，下次启动成功后清空），端口被占时 startPortBusy 写着端口、" +
+			"占着它的是哪台服务器（owner，空是别的程序）、可以改成的端口（suggest）；javaMissing 为 true 表示配的 java.exe 现在找不到了；" +
 			"worldFrom 是现在的世界从哪份备份还原来的（没有就是没还原过，或者还原以后换过地图）。",
 		Run: func(context.Context, ops.Caller, ops.Args) (any, error) {
 			out := []instSummary{}
@@ -747,7 +751,7 @@ func (c *cat) adoptOps() {
 	c.reg.Register(&ops.Op{
 		Name: "instance.adopt", Title: "接管已有服务器", Level: ops.HumanOnly, LocalOnly: true,
 		LocalMsg: localMsg,
-		Desc: "把一个已有的服务器文件夹就地登记成实例（不搬文件，不改存档和配置；原来的 run.bat 先备份），返回任务编号。" +
+		Desc: "把一个已有的服务器文件夹就地登记成实例（不搬文件，不改存档和配置，只有给了不一样的 port 时改 server.properties 里的端口；原来的 run.bat 先备份），返回任务编号。" +
 			"没有合适的 Java 时在后台下载便携版。",
 		Params: ops.Object(map[string]*ops.Schema{
 			"dir":          ops.String("服务器所在的文件夹"),
@@ -760,6 +764,7 @@ func (c *cat) adoptOps() {
 			"javaMajor":    ops.Integer("Java 大版本；0 表示按 Minecraft 版本自动选"),
 			"javaPath":     ops.String("用 java.list 里的哪一个 java.exe；空串自动选"),
 			"eula":         createParams["eula"],
+			"port":         ops.Integer("端口；0 或者和文件夹里 server.properties 写的一样就不改，不一样就把 server-port 改成它（代理端不看）").Range(0, 65535),
 		}, "dir", "name", "core", "mc", "launchTarget"),
 		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
 			req, err := bind[inst.AdoptReq](a)

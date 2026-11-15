@@ -92,10 +92,11 @@ type Instance struct {
 	userStop   bool   // 本次退出是否用户主动触发（区分崩溃）
 	startedAt  time.Time
 	crashCount int
-	runGen     int64  // 每次 Start 自增，用于让崩溃重启只作用于其对应的那次运行
-	killing    bool   // 这次运行是被强制结束的（Kill、停止超时）
-	lastExit   string // 上一次进程怎么结束的，见 LastExit
-	startErr   string // 上一次启动没起来的原因，见 LastStartError；下一次进程起来了就清掉
+	runGen     int64     // 每次 Start 自增，用于让崩溃重启只作用于其对应的那次运行
+	killing    bool      // 这次运行是被强制结束的（Kill、停止超时）
+	lastExit   string    // 上一次进程怎么结束的，见 LastExit
+	startErr   string    // 上一次启动没起来的原因，见 LastStartError；下一次进程起来了就清掉
+	startBusy  *PortBusy // 上一次没起来是因为端口被占着：哪个端口、谁占着、能改成哪个（见 LastStartPortBusy），跟着 startErr 一起清
 
 	onlineMu sync.Mutex
 	online   map[string]bool

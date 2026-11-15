@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -29,13 +30,126 @@ type portBusyError struct {
 	// reserved 系统说「不许访问」（WSAEACCES）：别的程序独占着这个端口，或者它在 Windows 保留的端口范围里
 	// （Hyper-V、WSL、Docker 会成段保留端口）。两种都只能换端口。
 	reserved bool
+	// owner 占着它的是本软件管着的另一台服务器（没停着、朋友连的端口和这个一样，可用性走查 R08）；空 = 别的程序。
+	// Java 绑端口带 SO_EXCLUSIVEADDRUSE，另一台 MineDeck 的服务器占着时系统报的也可能是「不许访问」，所以两种都要看
+	owner string
+	// suggest 「改成 N 并启动」的 N（只在 owner 非空时找）：见 freePortFrom；0 = 没找到
+	suggest int
 }
 
 func (e *portBusyError) Error() string {
+	if e.owner != "" {
+		return fmt.Sprintf("端口 %d 被你的服务器「%s」占着，先停掉它，或者给这台换个端口", e.port, e.owner)
+	}
 	if e.reserved {
 		return fmt.Sprintf("端口 %d 用不了：被别的程序独占着，或者在 Windows 保留的端口范围里，换个端口试试", e.port)
 	}
 	return fmt.Sprintf("端口 %d 被别的程序占着，换个端口或关掉占用它的程序", e.port)
+}
+
+// PortBusy 上一次启动时端口被占着（可用性走查 R08），实例列表里的 startPortBusy：界面按它在详情页头给
+// 「改成 N 并启动」（本软件的另一台服务器占着）或「改端口」（别的程序占着）。同 LastStartError，只在内存里，进程起来了就清掉。
+type PortBusy struct {
+	Port    int    `json:"port"`
+	Owner   string `json:"owner,omitempty"`   // 占着它的是本软件的哪台服务器；空 = 别的程序
+	Suggest int    `json:"suggest,omitempty"` // 可以改成的端口（只在 Owner 非空时给）；0 = 没找到
+}
+
+// portPeer 本软件管着的另一台服务器用的端口：朋友连的那个（ConnectPort，代理端读它自己的配置），live 是它没停着。
+type portPeer struct {
+	name string
+	port int
+	live bool
+}
+
+// portPeers 除 self 以外的服务器各用哪个端口（读不出端口的代理端不算）。要查别的服务器的状态、拿它们的锁，
+// 所以调用时不能拿着任何一台服务器的 procMu：两台同端口的服务器同时启动时，各拿着自己的锁去查对方会互相等。
+func (m *Manager) portPeers(self *Instance) []portPeer {
+	var out []portPeer
+	for _, o := range m.List() {
+		if o == self {
+			continue
+		}
+		if p := o.ConnectPort(); p > 0 {
+			out = append(out, portPeer{name: o.Name, port: p, live: o.Status() != "stopped"})
+		}
+	}
+	return out
+}
+
+// portSuggestTries 找「改成 N」的 N 时最多试绑几个端口。
+const portSuggestTries = 200
+
+// freePortFrom 「改成 N 并启动」的 N：从被占的端口往上，本软件别的服务器都没配、现在照服务端的绑法也绑得上的第一个端口。
+// 从被占的端口往上找，不从 25565 找：改完离原来的近，也不会把人往 25565 这种最常被占的端口上带。都不行返回 0。
+func freePortFrom(t bindTarget, peers []portPeer) int {
+	taken := map[int]bool{}
+	for _, p := range peers {
+		taken[p.port] = true
+	}
+	tried := 0
+	for p := t.port + 1; p <= 65535 && tried < portSuggestTries; p++ {
+		if taken[p] {
+			continue
+		}
+		tried++
+		c := t
+		c.port = p
+		if checkBindPort(c) == nil {
+			return p
+		}
+	}
+	return 0
+}
+
+// PortUse 一台服务器用的端口（port.suggest 列给界面，手填的端口撞上了当场提示）。
+type PortUse struct {
+	Port     int    `json:"port"`
+	Instance string `json:"instance"`
+	Status   string `json:"status"`
+}
+
+// PortsInUse 本软件管着的服务器各用哪个端口（朋友连的那个；代理端读它自己的配置，还没生成配置的不算），except 那台不算。
+// 按端口从小到大排，同一个端口几台时按名字排。
+func (m *Manager) PortsInUse(except string) []PortUse {
+	out := []PortUse{}
+	for _, i := range m.List() {
+		if i.Name == except {
+			continue
+		}
+		if p := i.ConnectPort(); p > 0 {
+			out = append(out, PortUse{Port: p, Instance: i.Name, Status: i.Status()})
+		}
+	}
+	sort.Slice(out, func(a, b int) bool {
+		if out[a].Port != out[b].Port {
+			return out[a].Port < out[b].Port
+		}
+		return out[a].Instance < out[b].Instance
+	})
+	return out
+}
+
+// DefaultPort 新建、导入整合包、接管、用已有地图开服时端口的默认值（可用性走查 R08）：从 from（不在 1–65535 内按 25565）起，
+// used 里都没有的最小端口。usedBy 是 from 被哪台服务器用着（from 本来就空着时为空串），界面拿它说「25565 已被『X』使用，已改为 25566」。
+// 只看本软件管着的服务器，不看别的程序：别的程序占着的，启动时会查出来（见 checkBindPort）。
+func DefaultPort(used []PortUse, from int) (port int, usedBy string) {
+	if from < 1 || from > 65535 {
+		from = 25565
+	}
+	taken := map[int]string{}
+	for _, u := range used {
+		if _, ok := taken[u.Port]; !ok {
+			taken[u.Port] = u.Instance
+		}
+	}
+	usedBy = taken[from]
+	for p := from; p <= 65535; p++ {
+		if _, ok := taken[p]; !ok {
+			return p, usedBy
+		}
+	}
+	return from, usedBy // 从 from 往上全被占了（不会真碰上）：照原样给
 }
 
 // bindTarget 服务器启动时要绑的地址。network 是 "tcp"（Java 默认：server-ip 留空时绑 IPv6 双栈的通配地址），

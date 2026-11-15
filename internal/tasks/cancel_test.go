@@ -38,3 +38,32 @@ func TestCancelAndCommitAreExclusive(t *testing.T) {
 		t.Fatal("结束或不存在的任务不能取消")
 	}
 }
+
+// 任务自己的取消入口（换地图的 worldimport.Service.Cancel）收下取消：NoteCancel 只记下「人取消了」，不开放通用的取消；
+// 之后 EndCancelled 按「已取消」结束。结束了的任务不再记。
+func TestNoteCancel(t *testing.T) {
+	m := NewManager()
+	task, _ := m.New("导入地图", []string{"核对", "复制"})
+	task.StartStep(1)
+	task.NoteCancel()
+	if s := task.Snapshot(); !s.Cancelling || s.CanCancel || s.Ended || !task.Cancelled() {
+		t.Fatalf("记下取消以后是「正在取消」，不开放通用的取消：%+v", s)
+	}
+	if m.Cancel(task.ID()) {
+		t.Fatal("NoteCancel 不该让任务页的通用取消生效")
+	}
+	task.EndCancelled(errorString("已取消，没有替换任何文件"))
+	if s := task.Snapshot(); !s.Cancelled || s.Cancelling || s.Err != "已取消，没有替换任何文件" || s.Steps[1].Status != "cancelled" {
+		t.Fatalf("应按「已取消」结束：%+v", s)
+	}
+	done, _ := m.New("做完的", nil)
+	done.Finish("ok")
+	done.NoteCancel()
+	if s := done.Snapshot(); s.Cancelled || s.Cancelling {
+		t.Fatalf("结束了的任务不再记取消：%+v", s)
+	}
+}
+
+type errorString string
+
+func (e errorString) Error() string { return string(e) }
