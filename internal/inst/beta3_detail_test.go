@@ -1,0 +1,224 @@
+package inst
+
+// beta.3 第二层，服务器详情页（docs/可用性走查-2026-11-14.md 第八节 R10、R11、R21）。
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"minedeck/internal/mcsrc"
+)
+
+// R11：备份文件名里的标签拆得出来，列表里带上（界面优先显示它）；没填标签、不是 MineDeck 起名的没有。
+func TestBackupLabelParsed(t *testing.T) {
+	for file, want := range map[string]string{
+		"20261115-203000.123456789-更新模组前.zip": "更新模组前",
+		"20261115-203000.123456789.zip":       "",
+		"20261115-203000-还原前自动.zip":           "还原前自动",
+		"自己放进来的.zip":                          "",
+	} {
+		_, label, _ := parseBackupName(file)
+		if label != want {
+			t.Errorf("%s 的标签：%q，应为 %q", file, label, want)
+		}
+	}
+	m, _ := tempInstance(t)
+	f, err := m.CreateBackup("s", "打龙前")
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, err := m.ListBackups("s")
+	if err != nil || len(list) != 1 || list[0].File != f || list[0].Label != "打龙前" {
+		t.Fatalf("列表：%+v %v", list, err)
+	}
+}
+
+// R11：还原以后记下现在的世界是从哪份备份来的，写进 instance.json（重开程序后仍在）；再还原一份就换成那一份。
+func TestRestoreRecordsWorldFrom(t *testing.T) {
+	m, dir := tempInstance(t)
+	first, err := m.CreateBackup("s", "第一份")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeLevel(t, dir, "changed")
+	if err := m.RestoreBackup("s", first); err != nil {
+		t.Fatal(err)
+	}
+	i, _ := m.Get("s")
+	wf := i.WorldFromSnapshot()
+	if wf == nil || wf.Backup != first || wf.Label != "第一份" || wf.BackupTime == "" || wf.At == "" {
+		t.Fatalf("还原以后的记录：%+v", wf)
+	}
+	s, err := readSettings(dir)
+	if err != nil || s.WorldFrom == nil || s.WorldFrom.Backup != first {
+		t.Fatalf("instance.json 里应记着：%+v %v", s.WorldFrom, err)
+	}
+	// 再还原另一份（还原前自动备份的那一份）：记录换成它
+	list, _ := m.ListBackups("s")
+	var auto string
+	for _, b := range list {
+		if b.Label == "还原前自动" {
+			auto = b.File
+		}
+	}
+	if auto == "" {
+		t.Fatalf("应有还原前自动备份：%+v", list)
+	}
+	if err := m.RestoreBackup("s", auto); err != nil {
+		t.Fatal(err)
+	}
+	if wf := i.WorldFromSnapshot(); wf == nil || wf.Backup != auto || wf.Label != "还原前自动" {
+		t.Fatalf("第二次还原以后的记录：%+v", wf)
+	}
+}
+
+// R11：换地图（导入占位、换回旧地图、恢复地图）以后不再说世界是从备份来的；删除恢复点、删除插件这类不动世界的占位不清。
+func TestWorldChangeClearsWorldFrom(t *testing.T) {
+	m, dir := tempInstance(t)
+	i, _ := m.Get("s")
+	set := func() { m.setWorldFrom(i, &WorldFrom{Backup: "a.zip", At: "2026-11-15 20:00:00"}) }
+	saved := func() *WorldFrom {
+		s, err := readSettings(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s.WorldFrom
+	}
+	for _, c := range []struct {
+		why   string
+		clear bool
+	}{{"换回旧地图", true}, {"恢复地图", true}, {"删除恢复点", false}, {modTrashWhy, false}} {
+		set()
+		release, err := m.BeginWorldChangeInstance(i, c.why)
+		if err != nil {
+			t.Fatal(err)
+		}
+		release()
+		if got := i.WorldFromSnapshot(); (got == nil) != c.clear || (saved() == nil) != c.clear {
+			t.Fatalf("%s 以后：内存 %+v，instance.json %+v，应%s", c.why, got, saved(), map[bool]string{true: "清掉", false: "留着"}[c.clear])
+		}
+	}
+	// 导入地图：占上位（Change）以后才算换过；只登记了意图、没占上位就放弃的不清
+	set()
+	w, err := m.BeginWorldIntentInstance(i, "准备换地图")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Release()
+	if i.WorldFromSnapshot() == nil {
+		t.Fatal("没占上位就放弃的导入不该清掉记录")
+	}
+	w, err = m.BeginWorldIntentInstance(i, "准备换地图")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Change(); err != nil {
+		t.Fatal(err)
+	}
+	w.Release()
+	if i.WorldFromSnapshot() != nil || saved() != nil {
+		t.Fatal("导入地图以后应清掉记录")
+	}
+}
+
+// R21：配的 java.exe 不在了就是 JavaMissing；路径是空的也算。
+func TestJavaMissing(t *testing.T) {
+	exe, _ := os.Executable()
+	i := &Instance{Settings: Settings{JavaPath: exe}}
+	if i.JavaMissing() {
+		t.Fatal("存在的 java 不该算找不到")
+	}
+	for _, p := range []string{filepath.Join(t.TempDir(), "没有", "java.exe"), "", t.TempDir()} {
+		i.JavaPath = p
+		if !i.JavaMissing() {
+			t.Fatalf("%q 应算找不到", p)
+		}
+	}
+}
+
+// R10：删除插件或模组只是移进 .minedeck/已删除/<文件夹>/，能找回；同名的不覆盖，加编号；
+// 服务器开着、文件名带路径、不是 jar、不是普通文件的一律不动。
+func TestTrashMod(t *testing.T) {
+	m, i := portInst(t, "删插件", "", mcsrc.CorePaper)
+	plugins := filepath.Join(i.Dir, "plugins")
+	if err := os.MkdirAll(filepath.Join(plugins, "Chunky"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(plugins, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("Chunky.jar", "v1")
+	to, err := m.TrashMod(i.Name, "plugins", "Chunky.jar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(".minedeck", "已删除", "plugins", "Chunky.jar"); to != want {
+		t.Fatalf("移到了 %q，应为 %q", to, want)
+	}
+	if _, err := os.Stat(filepath.Join(plugins, "Chunky.jar")); !os.IsNotExist(err) {
+		t.Fatal("原来的文件应不在了")
+	}
+	if b, _ := os.ReadFile(filepath.Join(i.Dir, to)); string(b) != "v1" {
+		t.Fatalf("移走的内容：%q", b)
+	}
+	// 再删一次同名的（停用的也能删）：不覆盖第一次的，加编号
+	write("Chunky.jar", "v2")
+	if to, err = m.TrashMod(i.Name, "plugins", "Chunky.jar"); err != nil || !strings.HasSuffix(to, "Chunky (2).jar") {
+		t.Fatalf("第二次：%q %v", to, err)
+	}
+	write("Old.jar.disabled", "off")
+	if to, err = m.TrashMod(i.Name, "plugins", "Old.jar.disabled"); err != nil || !strings.HasSuffix(to, "Old.jar.disabled") {
+		t.Fatalf("停用的：%q %v", to, err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(i.Dir, ".minedeck", "已删除", "plugins", "Chunky.jar")); string(b) != "v1" {
+		t.Fatalf("第一次删掉的被覆盖了：%q", b)
+	}
+	// 不认的：带路径、往外跳、不是 jar、文件夹、不是 mods / plugins、没有这个文件
+	write("readme.txt", "x")
+	for _, c := range [][2]string{{"plugins", "../server.properties"}, {"plugins", `sub\a.jar`}, {"plugins", "a.jar:x"}, {"plugins", "a.jar."},
+		{"plugins", "readme.txt"}, {"plugins", "Chunky"}, {"world", "a.jar"}, {"plugins", "没有.jar"}, {"plugins", " Chunky.jar"}} {
+		if _, err := m.TrashMod(i.Name, c[0], c[1]); err == nil {
+			t.Errorf("%s/%s 应拒绝", c[0], c[1])
+		}
+	}
+	if _, err := os.Stat(filepath.Join(plugins, "readme.txt")); err != nil {
+		t.Fatal("拒绝的不该动文件")
+	}
+	// 服务器开着：不动
+	write("Run.jar", "x")
+	i.procMu.Lock()
+	i.state = "running"
+	i.procMu.Unlock()
+	if _, err := m.TrashMod(i.Name, "plugins", "Run.jar"); err == nil || !strings.Contains(err.Error(), "先停止服务器") {
+		t.Fatalf("运行中应拒绝：%v", err)
+	}
+	i.procMu.Lock()
+	i.state = ""
+	i.procMu.Unlock()
+	if _, err := os.Stat(filepath.Join(plugins, "Run.jar")); err != nil {
+		t.Fatal("运行中拒绝时文件应还在")
+	}
+	// 删的时候占着位：结束以后能照常启动（占位放掉了）
+	if why := m.WorldBusy(i.Name); why != "" {
+		t.Fatalf("删完应放掉占位：%s", why)
+	}
+}
+
+// R11：instance.json 里的 worldFrom 读得回来（重开程序后仍在）。
+func TestWorldFromJSON(t *testing.T) {
+	s := Settings{Name: "x", WorldFrom: &WorldFrom{Backup: "b.zip", At: "t"}}
+	b, _ := json.Marshal(s)
+	var back Settings
+	if err := json.Unmarshal(b, &back); err != nil || back.WorldFrom == nil || back.WorldFrom.Backup != "b.zip" {
+		t.Fatalf("%s → %+v %v", b, back.WorldFrom, err)
+	}
+	b, _ = json.Marshal(Settings{Name: "x"})
+	if strings.Contains(string(b), "worldFrom") {
+		t.Fatalf("没有记录时不写这一项：%s", b)
+	}
+}
