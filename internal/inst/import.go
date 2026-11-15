@@ -750,6 +750,10 @@ func pendingDestination(i *Instance, rel string) (string, error) {
 	if err != nil || !filepath.IsLocal(actual) || actual == "." || !InsideReal(root, real) {
 		return "", fmt.Errorf("这个文件的实际位置不在服务器文件夹内")
 	}
+	// 上一级文件夹也要在里面：写的时候临时文件建在上一级（Codex 复审 beta.3 第四轮）
+	if parent, err := RealPathStrict(filepath.Dir(dest)); err != nil || !InsideReal(root, parent) {
+		return "", fmt.Errorf("这个文件所在的文件夹实际不在服务器文件夹内")
+	}
 	actual = filepath.ToSlash(actual)
 	first, _, nested := strings.Cut(strings.ToLower(actual), "/")
 	allowed := nested && (first == "mods" || first == "plugins" || first == "config" || first == "defaultconfigs" || first == "resourcepacks" || first == "datapacks" || first == "shaderpacks" || first == "kubejs" || first == "scripts")

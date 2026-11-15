@@ -196,3 +196,67 @@ func TestConfigPathJunctionsInsideStillWork(t *testing.T) {
 		t.Errorf("没写进去：%q", b)
 	}
 }
+
+// 撤销配置只认普通文件的备份：备份文件夹本身在服务器里，里面一个指到外面的符号链接不能当备份读进来（Codex 复审 beta.3 第四轮）
+func TestConfigUndoIgnoresLinkedBackup(t *testing.T) {
+	reg, _, dir := newModCatalog(t)
+	ctx := context.Background()
+	cfg := filepath.Join(dir, "config", "a.toml")
+	if err := os.MkdirAll(filepath.Dir(cfg), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg, []byte("a = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("password = outside\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bdir := filepath.Join(dir, ".minedeck", "config-backups")
+	if err := os.MkdirAll(bdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(bdir, "config__a.toml~99991231-235959")); err != nil {
+		t.Skipf("建不了符号链接（要开发者模式或管理员）：%v", err)
+	}
+	if _, err := reg.Do(ctx, human, "instance.config.write", ops.Args(`{"inst":"整合包","path":"config/a.toml","mode":"undo"}`)); err == nil || ops.CodeOf(err) != 404 {
+		t.Errorf("备份是指到外面的符号链接时不该撤销：%v", err)
+	}
+	if b, _ := os.ReadFile(cfg); string(b) != "a = 1\n" {
+		t.Errorf("配置被换成了外面的内容：%q", b)
+	}
+}
+
+// 上一级是指到外面的目录联接、末级又是指回服务器里的符号链接：末级解开以后在里面，但写的临时文件、替换的那一项都在外面。
+// 上一级也要核对（Codex 复审 beta.3 第四轮）
+func TestConfigPathRejectsParentJunctionWithLinkBack(t *testing.T) {
+	reg, _, dir := newModCatalog(t)
+	ctx := context.Background()
+	base := filepath.Join(dir, "config", "base.toml")
+	if err := os.MkdirAll(filepath.Dir(base), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(base, []byte("a = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(base, filepath.Join(outside, "a.toml")); err != nil {
+		t.Skipf("建不了符号链接（要开发者模式或管理员）：%v", err)
+	}
+	junction(t, filepath.Join(dir, "config", "link"), outside)
+	before := names(t, outside)
+	for _, args := range []string{
+		`{"inst":"整合包","path":"config/link/a.toml","mode":"replace","content":"a = 2\n"}`,
+		`{"inst":"整合包","path":"config/link/a.toml","mode":"reset"}`,
+	} {
+		if _, err := reg.Do(ctx, human, "instance.config.write", ops.Args(args)); !refused(err, "外面") {
+			t.Errorf("%s 应拒绝：%v", args, err)
+		}
+	}
+	if after := names(t, outside); !slices.Equal(before, after) {
+		t.Errorf("外面的文件夹被动过：%v → %v", before, after)
+	}
+	if b, _ := os.ReadFile(base); string(b) != "a = 1\n" {
+		t.Errorf("服务器里的文件被改了：%q", b)
+	}
+}

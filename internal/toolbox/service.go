@@ -313,8 +313,16 @@ type DraftConfig struct {
 	IncludeConfig bool   `json:"includeConfig"`
 }
 
-// GetMrpackDraft 读取持久化的整合包草稿设置；尚未保存过则返回合理的默认值。
+// GetMrpackDraft 读取持久化的整合包草稿设置；尚未保存过、读不出来都返回合理的默认值（生成整合包时用）。
 func (s *Service) GetMrpackDraft() DraftConfig {
+	cfg, _ := s.ReadMrpackDraft()
+	return cfg
+}
+
+// ReadMrpackDraft 同 GetMrpackDraft，但文件在却读不出来（被别的程序占着、没有权限）时还返回错误：界面据此这一次
+// 不自动保存，免得用默认值盖掉存好的草稿（Codex 复审 beta.3 第四轮）。内容坏了（不是 JSON）按没有草稿算，
+// 坏的内容留着也用不上。
+func (s *Service) ReadMrpackDraft() (DraftConfig, error) {
 	def := DraftConfig{
 		Name:      "我的整合包",
 		VersionID: "1.0.0",
@@ -322,17 +330,20 @@ func (s *Service) GetMrpackDraft() DraftConfig {
 		MC:        "1.20.1",
 	}
 	if s.dataDir == "" {
-		return def
+		return def, nil
 	}
 	s.draftMu.Lock()
 	defer s.draftMu.Unlock()
 	b, err := os.ReadFile(filepath.Join(s.dataDir, draftFile))
 	if err != nil {
-		return def
+		if errors.Is(err, fs.ErrNotExist) {
+			return def, nil
+		}
+		return def, fmt.Errorf("读不出存好的整合包草稿（%w）", err)
 	}
 	var cfg DraftConfig
 	if json.Unmarshal(b, &cfg) != nil {
-		return def
+		return def, nil
 	}
 	if cfg.Name == "" {
 		cfg.Name = def.Name
@@ -346,7 +357,7 @@ func (s *Service) GetMrpackDraft() DraftConfig {
 	if cfg.MC == "" {
 		cfg.MC = def.MC
 	}
-	return cfg
+	return cfg, nil
 }
 
 // SaveMrpackDraft 保存用户的整合包草稿设置（原子写盘）。

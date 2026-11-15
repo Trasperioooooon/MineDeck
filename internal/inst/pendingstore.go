@@ -246,6 +246,10 @@ func pendingListPath(dir string) (string, error) {
 	if rel, err := filepath.Rel(root, real); err != nil || !filepath.IsLocal(rel) || !InsideReal(root, real) {
 		return "", fmt.Errorf("放「没装上的文件」清单的文件夹（.minedeck）指到了服务器文件夹外面，没有读写")
 	}
+	// 上一级（.minedeck）也要在里面：清单是在上一级里写临时文件再换上的（Codex 复审 beta.3 第四轮）
+	if parent, err := RealPathStrict(filepath.Dir(p)); err != nil || !InsideReal(root, parent) {
+		return "", fmt.Errorf("放「没装上的文件」清单的文件夹（.minedeck）指到了服务器文件夹外面，没有读写")
+	}
 	return p, nil
 }
 

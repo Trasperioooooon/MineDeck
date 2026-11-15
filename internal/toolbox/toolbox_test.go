@@ -802,3 +802,31 @@ func TestReadOverrideRefusesFileOutsideServer(t *testing.T) {
 		t.Fatalf("实际在服务器外面的文件不该读出来：%q", b)
 	}
 }
+
+// 草稿文件在却读不出来时报错，不当成没有草稿：界面据此不自动保存，免得用默认值盖掉存好的（Codex 复审 beta.3 第四轮）。
+// 没有文件、内容坏了照旧给默认值。
+func TestReadMrpackDraftReportsReadFailure(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(Options{DataDir: dir, CacheDir: filepath.Join(dir, "cache")})
+	if cfg, err := svc.ReadMrpackDraft(); err != nil || cfg.Name != "我的整合包" {
+		t.Fatalf("没有草稿时应给默认值：%+v %v", cfg, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, draftFile), []byte("{坏的"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, err := svc.ReadMrpackDraft(); err != nil || cfg.Name != "我的整合包" {
+		t.Fatalf("内容坏了按没有草稿算：%+v %v", cfg, err)
+	}
+	if err := os.Remove(filepath.Join(dir, draftFile)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, draftFile), 0o755); err != nil { // 读不出来：同名的是个文件夹
+		t.Fatal(err)
+	}
+	if _, err := svc.ReadMrpackDraft(); err == nil {
+		t.Fatal("文件在却读不出来时应报错")
+	}
+	if cfg := svc.GetMrpackDraft(); cfg.Name != "我的整合包" {
+		t.Fatalf("生成整合包时用的 GetMrpackDraft 照旧给默认值：%+v", cfg)
+	}
+}

@@ -4144,7 +4144,11 @@ async function renderDetail(name, path = "console") {
           if (pick !== "") {
             const o = jopts[+pick];
             const r = await api(`/api/instances/${enc}/java`, { method: "PUT", body: { major: o.major, path: o.download ? "" : o.path } });
-            if (r && r.taskId) { dirtyCheck = null; location.hash = `#/task/${r.taskId}`; return; } // 要先下载：去任务页看进度，下好了自动换上
+            if (r && r.taskId) { // 要先下载：去任务页看进度，下好了自动换上
+              // 等回话的时候人已经去了别的页：不清那一页的未保存守卫、不把人拽走，只说一声（Codex 复审 beta.3 第四轮）
+              if (stale(gen)) { toast(`已开始下载 Java ${o.major}，下好了自动换上。进度在任务页`); return; }
+              dirtyCheck = null; location.hash = `#/task/${r.taskId}`; return;
+            }
             info.javaMajor = o.major; info.javaPath = (r && r.java) || o.path; info.javaSource = o.portable ? "portable" : "local"; info.javaMissing = false;
             jcur = +pick;
             sel.querySelectorAll("option").forEach((el, k) => { el.textContent = javaLabel(jopts[k], k); });

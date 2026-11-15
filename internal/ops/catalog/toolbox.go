@@ -119,7 +119,11 @@ func (c *cat) toolboxOps() {
 		Desc:   "返回工具箱里暂存的整合包名称、版本号、加载器和 MC 版本（重启不丢失）。",
 		Params: ops.Object(map[string]*ops.Schema{}),
 		Run: func(_ context.Context, _ ops.Caller, _ ops.Args) (any, error) {
-			return c.Toolbox.GetMrpackDraft(), nil
+			cfg, err := c.Toolbox.ReadMrpackDraft()
+			if err != nil {
+				return nil, ops.Wrap(500, err)
+			}
+			return cfg, nil
 		},
 	})
 

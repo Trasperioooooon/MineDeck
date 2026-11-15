@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -395,7 +396,7 @@ func (c *cat) fileOps() {
 				err = ops.Errorf(404, "%s 没有 MineDeck 留下的备份，撤销不了", rel)
 				return
 			}
-			b, berr := os.ReadFile(bk)
+			b, berr := readBackupInside(i, bk)
 			if berr != nil {
 				err = ops.Wrap(500, berr)
 				return
@@ -573,8 +574,14 @@ func configPath(i *inst.Instance, p string, file bool) (rel, abs string, err err
 	}
 	abs = filepath.Join(i.Dir, filepath.FromSlash(clean))
 	// 目录联接、符号链接：解开以后的真实落点必须还在实例目录里。查不清的不放行（v3.1.0 正式版前检查 B-9：
-	// 以前这一步出错就跳过检查，服务器文件夹里有一个指到外面的目录联接，就能顺着它读写到外面去）
-	switch err := realInside(i.Dir, abs); {
+	// 以前这一步出错就跳过检查，服务器文件夹里有一个指到外面的目录联接，就能顺着它读写到外面去）。
+	// 上一级文件夹也要在里面：写的时候临时文件建在上一级、替换和删除的是上一级里的这一项，上一级是指到外面的联接、
+	// 末级又是指回来的符号链接时，只看末级会放过去（Codex 复审 beta.3 第四轮）
+	err = realInside(i.Dir, abs)
+	if err == nil {
+		err = realInside(i.Dir, filepath.Dir(abs))
+	}
+	switch {
 	case errors.Is(err, errOutside):
 		return "", "", ops.Errorf(400, "路径不对：指到了服务器文件夹外面")
 	case err != nil:
@@ -688,12 +695,26 @@ func backupsOf(i *inst.Instance, rel string) []string {
 	ents, _ := os.ReadDir(backupDir(i))
 	var out []string
 	for _, e := range ents {
-		if !e.IsDir() && strings.HasPrefix(e.Name(), key) {
+		// 只认普通文件：MineDeck 留的备份不会是链接，指到外面的符号链接不当备份（Codex 复审 beta.3 第四轮）
+		if e.Type().IsRegular() && strings.HasPrefix(e.Name(), key) {
 			out = append(out, filepath.Join(backupDir(i), e.Name()))
 		}
 	}
 	sort.Strings(out) // 名字里的时间可以按字典序排
 	return out
+}
+
+// readBackupInside 读一份配置备份：按打开以后的句柄核对它实际在服务器文件夹里、是普通文件，读的就是核对过的那一个。
+func readBackupInside(i *inst.Instance, bk string) ([]byte, error) {
+	f, err := inst.OpenFileInside(bk, i.Dir)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	if st, err := f.Stat(); err != nil || !st.Mode().IsRegular() {
+		return nil, fmt.Errorf("这份备份不是普通文件")
+	}
+	return io.ReadAll(f)
 }
 
 func latestBackup(i *inst.Instance, rel string) string {
