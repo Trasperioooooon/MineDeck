@@ -40,6 +40,12 @@ func TestStartFailureIsRecordedAndClearedOnNextStart(t *testing.T) {
 	if err := m.Start(i.Name); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { // 中途失败也把扮演服务器的进程收掉，不然临时目录删不掉
+		if i.Status() != "stopped" {
+			_ = m.Kill(i.Name)
+			waitStatus(t, i, "stopped")
+		}
+	})
 	if got := i.LastStartError(); got != "" {
 		t.Fatalf("进程起来以后应清掉上次的原因：%q", got)
 	}
