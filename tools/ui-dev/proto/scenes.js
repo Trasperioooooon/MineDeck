@@ -205,6 +205,20 @@ add("create", "n-home-folded", "入口：已结束的任务折成一行", {
   ]; },
 });
 
+// beta.3 第二层下半：端口默认值（R08）
+add("create", "n-port-default", "从零创建 ⑤ 基本设置：端口默认避开别的服务器在用的", {
+  hash: "#/create/new", tag: "new", note: "端口不再一律填 25565：从 25565 起找 MineDeck 里别的服务器都没用的最小端口，下面写一句「25565 已被『生存服 · 朋友』使用，已改为 25568」。导入整合包、接管、用已有地图开服一样。",
+  steps: wizTo("paper"),
+});
+add("create", "n-port-clash", "从零创建 ⑤ 基本设置：手填的端口和别的服务器撞了", {
+  hash: "#/create/new", tag: "new", note: "当场提示撞了哪一台（开着的还写「它现在开着」），给一个没人用的端口。只提示不拦着：两台从来不同时开的服务器可以共用一个端口。",
+  steps: [...wizTo("paper"), { fill: "#f-port", value: "25566" }],
+});
+add("create", "n-adopt-port", "接管已有服务器：原来的端口和别的服务器撞了", {
+  hash: "#/create/adopt", tag: "new", note: "识别出来的端口 25570 已被「空岛生存」用着，默认换成 25568，并写明接管时会把 server.properties 里的端口改掉（别的设置不动）。没撞就沿用原来的，什么都不改。",
+  steps: [{ fill: "#ad-dir", value: "E:\\MCServers\\create-pack" }, { click: "#ad-scan" }, { wait: "#ad-port-note:not(:empty)" }],
+});
+
 // ==================== 部署与后台任务 ====================
 add("task", "t-running", "部署中", { hash: "#/task/task-1", setup: s => { s.taskStage = 2; } });
 add("task", "t-slow", "部署中：下载慢、在重试", { hash: "#/task/task-1", setup: s => { s.taskStage = 1; s.taskNet = { count: 3, host: "fill-data.papermc.io", what: "Paper 核心", ago: 42 }; } });
@@ -215,6 +229,12 @@ add("task", "t-cancelled", "取消以后：中性的「已取消」", {
   hash: "#/task/task-cx", tag: "new", note: "取消以后页头写「已取消创建」，那一步是一道横线不是红叉，下面一句中性的说明，不是红色的失败框。这一页没经过表单，所以给的是「返回新建服务器」；从表单提交过来的给「返回修改」。",
   setup: s => { s.taskList = [{ id: "task-cx", title: "创建服务器 试试", ended: true, cancelled: true, error: "已取消，没有创建服务器",
     steps: [{ name: "下载 Java 21 运行时", status: "done" }, { name: "下载 Paper 1.21.4 核心", status: "cancelled" }, { name: "同意 EULA 并生成配置", status: "pending" }], log: ["已取消，没有创建服务器"] }]; },
+});
+add("task", "t-world-cancelled", "换地图取消以后：中性的「已取消」", {
+  hash: "#/task/task-wcx", tag: "new", note: "换地图在复制阶段取消，以前按失败显示（红框「没有完成」）；现在同新建的取消：页头「已取消换地图」，那一步是一道横线，下面一句「已取消，没有替换任何文件」。",
+  setup: s => { s.taskList = [{ id: "task-wcx", kind: "world", title: "导入地图到 生存服 · 朋友", ended: true, cancelled: true, error: "已取消，没有替换任何文件",
+    steps: [{ name: "核对来源和服务器", status: "done" }, { name: "复制地图到暂存区", status: "cancelled" }, { name: "停止服务器", status: "pending" }, { name: "换上新地图", status: "pending" }],
+    log: ["来源和服务器都和预览时一样", "已取消，没有替换任何文件"] }]; },
 });
 add("task", "t-export-done", "交接包导出完成：打开所在文件夹", {
   hash: "#/task/task-transfer-out", tag: "new", note: "页头写「交接包已导出」，侧栏亮的是「服务器」（导出是从服务器那边发起的）；底下多了「打开所在文件夹」（只在本机给）。",
@@ -296,6 +316,32 @@ add("detail", "d-start-fail", "页头：连接地址，和常驻的「上次没�
   tag: "new", hash: `#/inst/${enc("机械动力整合包")}/players`,
   note: "页头多一行连接地址（停着时灰字写「开服后朋友连这个地址」），能复制、能换 IP。上次没启动起来的原因常驻在页头下面的提示区，下次启动成功才消失；卡片上也有。",
   setup: s => { s.instances.find(x => x.name === "机械动力整合包").lastStartError = "端口 25566 被别的程序占着，换个端口或关掉占用它的程序"; },
+});
+// beta.3 第二层下半：端口冲突（R08）、没装上的文件（R09）
+add("detail", "d-port-mine", "页头：端口被自己的另一台服务器占着，「改成 N 并启动」", {
+  tag: "new", hash: `#/inst/${enc("机械动力整合包")}/console`,
+  note: "以前一律说「被别的程序占着」。现在点出是哪一台，按钮一步把端口改成一个没人用、现在也绑得上的端口，保存，再启动。",
+  setup: s => { const i = s.instances.find(x => x.name === "机械动力整合包");
+    i.lastStartError = "端口 25566 被你的服务器「空岛生存」占着，先停掉它，或者给这台换个端口"; i.startPortBusy = { port: 25566, owner: "空岛生存", suggest: 25568 }; },
+});
+add("detail", "d-port-other", "页头：端口被别的程序占着，「改端口」", {
+  tag: "new", hash: `#/inst/${enc("机械动力整合包")}/players`,
+  note: "占着的不是 MineDeck 的服务器：按钮写「改端口」，点了去「设置 → 常用」，端口那一项亮一下。",
+  setup: s => { const i = s.instances.find(x => x.name === "机械动力整合包");
+    i.lastStartError = "端口 25566 被别的程序占着，换个端口或关掉占用它的程序"; i.startPortBusy = { port: 25566 }; },
+});
+const PND = [{ id: "p1", path: "mods/modded-custom-host.jar", reason: "host", host: "files.example.net", note: "下载地址不在 MineDeck 允许的站点列表里", urls: ["https://files.example.net/a.jar"], options: ["local", "skip", "trust"] },
+  { id: "p2", path: "mods/no-hash.jar", reason: "nohash", note: "整合包没有提供这个文件的校验值", options: ["skip", "local"] }];
+const PND_SKIPPED = [{ id: "p3", path: "config/skipped.toml", reason: "badurl", note: "下载地址不是 https", options: ["local"] }];
+add("detail", "d-pending-notice", "页头：整合包里没装上的文件，点「处理」", {
+  tag: "new", hash: `#/inst/${enc("机械动力整合包")}/console`, steps: [{ click: "#d-import-pending [data-pnd-open]" }, { wait: "#d-pending-box .pnd-item" }],
+  note: "清单存在服务器文件夹里，程序重开以后也在。还没处理的有几个就常驻一条，点「处理」打开和任务页同一个处理面板；都处理完、都跳过了这一条就消失。",
+  setup: s => { s.instPending = { "机械动力整合包": { pending: clone(PND), skipped: clone(PND_SKIPPED) } }; },
+});
+add("detail", "d-pending-addons", "模组：「整合包里没装上的」（跳过的也在）", {
+  tag: "new", hash: `#/inst/${enc("机械动力整合包")}/addons`, steps: [{ wait: "#ad-pending-box .pnd-skipped" }],
+  note: "跳过的没有装上，以后在这里还能换成用本地文件代替；还没处理的也列在这里。页头那一条的「处理」在这一页上就滚到这一块。",
+  setup: s => { s.instPending = { "机械动力整合包": { pending: [], skipped: clone(PND_SKIPPED) } }; },
 });
 add("detail", "d-players-wl", "玩家：白名单的总开关就在名单上面", {
   tag: "new", hash: `#/inst/${enc("生存服 · 朋友")}/players`,
