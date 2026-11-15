@@ -4682,7 +4682,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     const copied = () => page.evaluate(() => window.__copied);
     const layers = () => page.$$eval("#modal-root > .modal-mask:not(.leave)", ms => ms.map(m => m.id || "layer"));
     // 下面先垫一层有输入框的弹窗，看上面叠上来的弹窗关掉以后它还在不在、填的字还在不在
-    const lowerLayer = () => page.evaluate(() => { modalLayer(`<div class="modal" role="dialog" aria-label="垫在下面的弹窗"><input id="lower-in" aria-label="下层的输入框" value=""></div>`, "lower-mask"); document.querySelector("#lower-in").value = "下层填的字"; });
+    const lowerLayer = () => page.evaluate(() => { modalLayer(`<div class="modal" role="dialog" aria-label="垫在下面的弹窗"><input id="lower-in" aria-label="下层的输入框" value=""><button class="btn" data-x="ok">下层的确定</button></div>`, "lower-mask"); document.querySelector("#lower-in").value = "下层填的字"; });
     const lowerKept = () => page.evaluate(() => { const m = document.getElementById("lower-mask"); return !!m && !m.dataset.leaving && m.querySelector("#lower-in").value === "下层填的字"; });
     const dropLower = () => page.evaluate(() => { const m = document.getElementById("lower-mask"); if (m) m.remove(); });
     const lastPut = async () => (await L2({})).lastTunnelPut;
@@ -4892,6 +4892,118 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         assert(!(await L2({})).madeDirs.includes("E:\\局域网\\新文件夹"), "局域网不该建出文件夹");
         await page.click("#tr-cancel"); await settle(300);
       } finally { await L2({ instReset: true, madeDirs: [], local: true }); }
+    });
+
+    // ---- 设置和侧栏（R15、R16、R17、R19、R20 的存储位置、U29） ----
+    const putCfg = b => page.evaluate(x => fetch("/api/config", { method: "PUT", headers: { "X-Token": "mock" }, body: JSON.stringify(x) }), b);
+    const cfgNow = async () => (await L2({})).config;
+
+    await run("beta.3 穿透与设置 R17：侧栏底部有「退出 MineDeck」，确认后才退出；「设置 → 启动与托盘」的开关叫「点关闭按钮时缩到托盘（不退出）」，写明第一次缩到托盘会提醒；「更新与关于」里的退出按钮写后果，和侧栏的不重名", async () => {
+      let shut = 0;
+      const stub = route => { shut++; return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, data: "ok" }) }); };
+      await page.route("**/api/shutdown", stub);
+      try {
+        await page.goto(url("#/instances")); await settle(500);
+        const q = byName("button", "退出 MineDeck");
+        assert(await q.count() === 1 && await q.isVisible() && (await q.textContent()).trim() === "退出", "侧栏底部的退出");
+        assert(await page.$eval("#sb-quit", b => !!b.closest(".sb-foot")), "退出应在侧栏底部");
+        await q.click(); await page.waitForSelector(".modal");
+        assert((await page.textContent(".modal h3")).includes("退出 MineDeck？"), "要先确认");
+        await page.click('.modal [data-x="cancel"]'); await settle(300);
+        assert(shut === 0, "取消了不该退出");
+        await page.goto(url("#/settings/startup")); await settle(500);
+        const sw = await page.evaluate(() => { const i = document.querySelector('[data-cfg="minimizeToTray"]'), row = i.closest(".row-item");
+          return { title: row.querySelector(".ri-title").textContent, aria: i.getAttribute("aria-label"), sub: row.querySelector(".ri-sub").textContent }; });
+        assert(sw.title === "点关闭按钮时缩到托盘（不退出）" && sw.aria === sw.title && sw.sub.includes("第一次缩到托盘时会弹一条系统通知") && sw.sub.includes("左下角的「退出」"), "开关：" + JSON.stringify(sw));
+        await page.goto(url("#/settings/about")); await settle(500);
+        assert((await page.textContent("#quit-app")).trim() === "停止服务器并退出" && await byName("button", "退出 MineDeck").count() === 1, "更新与关于里的退出按钮：" + await page.textContent("#quit-app"));
+        // 从侧栏真的退出：确认以后请后端退出
+        await byName("button", "退出 MineDeck").click(); await page.waitForSelector(".modal");
+        await page.click('.modal [data-x="ok"]'); await settle(400);
+        assert(shut === 1 && (await page.textContent("body")).includes("正在停止服务器并退出"), "确认以后退出：" + shut);
+      } finally { await page.unroute("**/api/shutdown", stub); await page.goto(url("#/instances")); await settle(300); }
+    });
+
+    await run("beta.3 穿透与设置 R15/R16/R20/U29：「设置 → 存储位置」（#/settings/storage）里改备份保留份数；改存放文件夹马上生效、提示里能撤销（原来是默认就换回默认）；服务器和备份设成同一个文件夹时提示；备份那一行写所有备份都放在这里", async () => {
+      await putCfg({ serversDir: "", backupsDir: "", backupKeep: 10 });
+      try {
+        await page.goto(url("#/settings/storage")); await settle(500);
+        assert(await page.isVisible("#set-backup-keep") && await page.inputValue("#set-bk-keep") === "10", "保留份数在存储位置里");
+        const bkRow = await page.$eval('.row-item:has([data-pick="backups"]) .ri-sub', e => e.textContent);
+        assert(bkRow.includes("所有备份都放在这里") && !bkRow.includes("服务器开着时做的备份"), "备份那一行：" + bkRow);
+        await page.fill("#set-bk-keep", "7");
+        await byName("button", "保存备份保留份数").click(); await settle(300);
+        assert((await cfgNow()).backupKeep === 7 && await toastHas("保留最近 7 份"), "保留份数存下了：" + (await cfgNow()).backupKeep);
+        // 改备份文件夹：马上生效，提示里能撤销；原来是默认，撤销后换回默认（配置里是空串，不是把默认路径写进去）
+        await L2({ pickDir: "E:\\MC备份" });
+        await byName("button", "更改备份存放文件夹…").click(); await settle(400);
+        assert((await cfgNow()).backupsDir === "E:\\MC备份" && (await page.$eval('.row-item:has([data-pick="backups"]) .ri-key', e => e.textContent)) === "E:\\MC备份", "改了马上生效");
+        assert(!(await page.$("#st-same")), "不同的文件夹不该提示");
+        await byName("button", "撤销：换回原来的备份存放文件夹").last().click(); await settle(400);
+        assert((await cfgNow()).backupsDir === "" && (await page.$eval('.row-item:has([data-pick="backups"]) .ri-key', e => e.textContent)) === "D:\\MineDeck\\backups" && await toastHas("已换回原来的备份存放文件夹"),
+          "撤销换回默认：" + JSON.stringify((await cfgNow()).backupsDir));
+        // 原来是自己选的文件夹：撤销换回那一个
+        await L2({ pickDir: "E:\\服务器A" });
+        await byName("button", "更改服务器存放文件夹…").click(); await settle(400);
+        await L2({ pickDir: "E:\\服务器B" });
+        await byName("button", "更改服务器存放文件夹…").click(); await settle(400);
+        assert((await cfgNow()).serversDir === "E:\\服务器B", "改成了 B");
+        await byName("button", "撤销：换回原来的服务器存放文件夹").last().click(); await settle(400);
+        assert((await cfgNow()).serversDir === "E:\\服务器A", "撤销换回 A：" + (await cfgNow()).serversDir);
+        // 恢复默认也能撤销
+        await byName("button", "恢复默认的服务器存放文件夹").click(); await settle(400);
+        assert((await cfgNow()).serversDir === "", "恢复默认");
+        await byName("button", "撤销：换回原来的服务器存放文件夹").last().click(); await settle(400);
+        assert((await cfgNow()).serversDir === "E:\\服务器A", "撤销恢复默认：" + (await cfgNow()).serversDir);
+        // 服务器和备份设成同一个文件夹：提示（大小写、结尾的斜杠不同也算）
+        await L2({ pickDir: "e:\\服务器a\\" });
+        await byName("button", "更改备份存放文件夹…").click(); await settle(400);
+        assert(await page.isVisible("#st-same") && (await page.textContent("#st-same")).includes("同一个文件夹"), "同一个文件夹时要提示");
+        await byName("button", "撤销：换回原来的备份存放文件夹").last().click(); await settle(400);
+        assert(!(await page.$("#st-same")), "撤销以后提示消失");
+      } finally { await L2({ pickDir: null }); await putCfg({ serversDir: "", backupsDir: "", backupKeep: 10 }); }
+    });
+
+    await run("beta.3 穿透与设置 R19：「设置 → AI」页顶用三行写清 AI 助手、游戏内 AI、AI 伙伴各在哪儿用，带去服务器列表的链接；额度和设置里都叫「AI 助手」", async () => {
+      await page.goto(url("#/settings/ai")); await settle(700);
+      const ov = await page.evaluate(() => ({ titles: [...document.querySelectorAll("#ai-overview .ri-title")].map(e => e.textContent),
+        text: document.querySelector("#ai-overview").textContent, go: document.querySelector(".ai-overview-go a").getAttribute("href"),
+        first: document.querySelector("#set-body").firstElementChild.textContent }));
+      assert(JSON.stringify(ov.titles) === JSON.stringify(["AI 助手", "游戏内 AI", "AI 伙伴"]) && ov.text.includes("标题栏右上角") &&
+        ov.text.includes("「扩展 → 游戏内 AI」") && ov.text.includes("「扩展 → AI 伙伴」") && ov.go === "#/instances" && ov.first.includes("AI 能做的三件事"), "总览：" + JSON.stringify(ov));
+      const body = await page.textContent("#set-body");
+      assert(!body.includes("应用内助手") && await byName("spinbutton", "AI 助手每日额度（万 token）").count() === 1 &&
+        (await page.textContent("#ai-assist-slot .set-sec-head h2")).trim() === "AI 助手", "统一叫「AI 助手」");
+      await page.click(".ai-overview-go a"); await settle(400);
+      assert(page.url().endsWith("#/instances"), "链接去服务器列表：" + page.url());
+    });
+
+    await run("beta.3 穿透与设置：AI 助手的发送预览和 MCP 的「复制配置」叠在已开的弹窗上面；Esc 只关上面那层，下面的弹窗和填的字还在；MCP 弹窗的读屏名字加在它自己的按钮上", async () => {
+      await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" }); await L2({ asst: { reset: true }, mcp: { reset: true, enabled: true } });
+      try {
+        // 发送预览（assistant.js 的 sheet）
+        await page.goto(url("#/inst/" + encodeURIComponent(PACK0) + "/console")); await settle(800);
+        await lowerLayer();
+        await page.$eval('.diag-banner [data-x="ai"]', b => b.click()); await page.waitForSelector(".modal.ap-pv");
+        let ls = await layers();
+        assert(ls.length === 2 && ls[0] === "lower-mask", "发送预览应叠在上面：" + JSON.stringify(ls));
+        await page.mouse.click(20, 820); await settle(300);
+        assert((await layers()).length === 2, "预览里有要填的提问，点遮罩不关");
+        await page.keyboard.press("Escape"); await settle(400);
+        assert(JSON.stringify(await layers()) === JSON.stringify(["lower-mask"]) && await lowerKept(), "Esc 只关发送预览，下面的还在");
+        await dropLower();
+        // MCP 的复制配置（mcp.js：confirmModal 上的读屏名字）
+        await page.goto(url("#/settings/ai")); await settle(800);
+        await page.click("#mcp-copy"); await page.waitForSelector(".dropmenu");
+        await lowerLayer();
+        await page.locator(".dropmenu button", { hasText: "Cherry Studio" }).dispatchEvent("click"); await page.waitForSelector(".modal .mcp-pre");
+        ls = await layers();
+        const names = await page.evaluate(() => ({ lower: document.querySelector('#lower-mask [data-x="ok"]').getAttribute("aria-label"),
+          top: [...document.querySelectorAll('#modal-root > .modal-mask')].pop().querySelector('[data-x="ok"]').getAttribute("aria-label") }));
+        assert(ls.length === 2 && ls[0] === "lower-mask" && names.top === "复制这段配置（Cherry Studio）" && names.lower === null, "MCP 弹窗：" + JSON.stringify({ ls, names }));
+        await page.keyboard.press("Escape"); await settle(400);
+        assert(JSON.stringify(await layers()) === JSON.stringify(["lower-mask"]) && await lowerKept(), "Esc 只关 MCP 弹窗，下面的还在");
+      } finally { await dropLower(); await L2({ asst: { reset: true }, mcp: { reset: true } }); await aiState({ reset: true }); }
     });
   }
   // ==================== beta.3 内网穿透与设置结束 ====================
