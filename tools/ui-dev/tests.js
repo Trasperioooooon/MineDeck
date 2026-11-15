@@ -4232,6 +4232,35 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { if (release) release(); await page.unroute(pattern); }
   });
 
+  // ==================== beta.3 小修 ====================
+  // 隧道凭据短于 6 个字符时日志里含它的行会整行隐藏（tunnel.credMasker）：不拒绝（自定义 frps 的令牌本来可以很短），
+  // 添加时给一句提示。长度按 UTF-8 字节算，同后端；前后的空白不算；空着不提示
+  await run("beta.3 小修：添加隧道时凭据短于 6 个字符给一句提示，只提示、照样能添加", async () => {
+    await taState({ tunnelAccounts: { reset: true }, tunnelsReset: true });
+    try {
+      errors.length = 0;
+      await page.goto(url("#/tunnels")); await settle();
+      await page.click("#tn-toggle");
+      await page.selectOption("#tn-provider", "custom");
+      const shown = () => page.$eval("#tn-cred-short", e => !e.hidden && e.offsetParent !== null);
+      assert(!(await shown()), "凭据空着时不该提示");
+      for (const [val, want] of [["abc", true], ["abcdef", false], ["密", true], ["密钥", false], ["  ab  ", true], ["", false], ["abc", true]]) {
+        await page.fill("#tn-cred", val);
+        assert(await shown() === want, `凭据「${val}」时提示应${want ? "出现" : "不出现"}`);
+      }
+      assert((await page.textContent("#tn-cred-short")).includes("日志里含这串凭据的行会整行隐藏，排查问题会不方便，建议换一串更长的"), "提示的说法");
+      // 只是提示：照样发出添加请求，凭据原样带上
+      await page.fill("#tn-name", "短令牌"); await page.fill("#tn-saddr", "frp.example.com");
+      const t0 = posts.length;
+      await page.click("#tn-add");
+      assert(await toastHas("隧道已添加"), "短凭据照样能添加");
+      const add = postsTo(t0, "/api/tunnels");
+      assert(add.length === 1 && JSON.parse(add[0].b).credential === "abc", "添加请求：" + JSON.stringify(add));
+      assert(!(await shown()), "添加以后表单清空，提示也该收起");
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await resetTA(); await resetMusic(); }
+  });
+
   // ---- 热门清单、从电脑添加本地文件、两栏版面（2026-11） ----
   const cartMock = async () => (await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data))).modcart;
   const packCart = `#/inst/${encodeURIComponent(PACK)}/cart`; // Forge 1.20.1 的模组服

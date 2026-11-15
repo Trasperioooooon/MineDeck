@@ -3260,7 +3260,8 @@ async function renderTunnels() {
         <option value="natfrp">樱花frp SakuraFrp</option>
         <option value="custom">自定义 frps</option></select></label>
       <label class="field"><span>隧道名称</span><input type="text" id="tn-name" value="我的隧道" maxlength="30"></label>
-      <label class="field" data-f="cred"><span id="tn-cred-label">用户密钥</span><input type="password" id="tn-cred" placeholder="仅保存在本机"></label>
+      <label class="field" data-f="cred"><span id="tn-cred-label">用户密钥</span><input type="password" id="tn-cred" placeholder="仅保存在本机">
+        <small class="hint" id="tn-cred-short" style="display:block;color:var(--warning-text)" aria-live="polite" hidden>凭据短于 6 个字符：日志里含这串凭据的行会整行隐藏，排查问题会不方便，建议换一串更长的。</small></label>
       <label class="field" data-f="proxy"><span>隧道 ID</span><input type="text" id="tn-proxy" placeholder="如 123456"></label>
       <label class="field" data-f="saddr" hidden><span>frps 服务器地址</span><input type="text" id="tn-saddr" placeholder="1.2.3.4 或 frp.example.com"></label>
       <label class="field" data-f="sport" hidden><span>frps 端口</span><input type="number" id="tn-sport" value="7000"></label>
@@ -3299,6 +3300,13 @@ async function renderTunnels() {
   };
   provSel.onchange = applyFields;
   applyFields();
+  /* 凭据短于 6 个字符（按 UTF-8 字节算，同后端 tunnel.minMaskLen；前后空白不算）：frpc 的日志里凡是含它的行会整行隐藏，
+     不然遮掉的位置反过来会提示凭据（复审发现 10）。自定义 frps 的令牌本来可以很短，所以只提示、不挡保存；空着不提示 */
+  const credShort = () => {
+    const n = new TextEncoder().encode($("#tn-cred").value.trim()).length;
+    $("#tn-cred-short").hidden = !(n > 0 && n < 6);
+  };
+  $("#tn-cred").addEventListener("input", credShort);
   if (window.MDMusic) MDMusic.tunnelForm(insts, provSel); // 第五阶段：用途（游戏 / 语音）、自定义 frps 的协议
   /* 表单在列表上方。没有隧道时一直开着，页头的「添加隧道」收起来（一屏只留一个主按钮）；
      有隧道时由页头的按钮展开 / 收起，展开后那个按钮改成「收起」。轮询重画列表不动表单里填到一半的内容。 */
@@ -3994,6 +4002,7 @@ async function renderTunnels() {
       // 收起表单并清空密钥类字段，回到列表看新隧道
       formOpen = false;
       ["#tn-cred", "#tn-proxy", "#tn-saddr"].forEach(s => { $(s).value = ""; });
+      credShort();
       await drawList();
       if (!stale(gen)) paintForm();
     } catch (e) { toastErr("无法添加隧道", e); }

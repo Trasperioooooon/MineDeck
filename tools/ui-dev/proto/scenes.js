@@ -279,6 +279,11 @@ add("tunnel", "u-load-corrupt", "tunnels.json 内容坏了", {
   note: "下一步换成「用记事本修好它，或者改名挪走后从空列表开始」。复制报错信息里有坏在第几行附近。",
   setup: s => { s.tunnelsLoadFail = "corrupt"; },
 });
+add("tunnel", "u-short-cred", "添加表单：凭据短于 6 个字符的提示", {
+  hash: "#/tunnels", tag: "new", setup: s => { s.tunnels = []; },
+  steps: [{ select: "#tn-provider", value: "custom" }, { fill: "#tn-cred", value: "abc" }, { wait: "#tn-cred-short:not([hidden])" }],
+  note: "只是提示，照样能添加。日志里含这串凭据的行会整行隐藏，排查问题不方便。",
+});
 add("tunnel", "u-min", "最小窗口下", { view: "min", hash: "#/tunnels", setup: s => { s.tunnels = []; } });
 add("tunnel", "u-phone", "手机上", { view: "phone", hash: "#/tunnels" });
 
