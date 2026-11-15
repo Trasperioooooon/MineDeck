@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"minedeck/internal/app"
+	"minedeck/internal/inst"
 	"minedeck/internal/ops"
 )
 
@@ -81,5 +82,23 @@ func TestDiagStartFailedForAIAndListFields(t *testing.T) {
 	}
 	if len(list) != 1 || !list[0].JavaMissing || list[0].BackupDir != filepath.Join(app.BackupsRoot(), "生存服") {
 		t.Fatalf("列表：%+v", list)
+	}
+}
+
+// 第一层留下的：游戏内 AI 读白名单开关按服务端的读法，同一项写了几行认最后一行（原来 Props.Get 读的是第一行）；没写这一项按关。
+func TestGameChatWhitelistOnLastLineWins(t *testing.T) {
+	for props, want := range map[string]bool{
+		"white-list=false\nwhite-list=true\n": true,
+		"white-list=true\nwhite-list=false\n": false,
+		"white-list=TRUE\n":                   true,
+		"motd=x\n":                            false,
+	} {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "server.properties"), []byte(props), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := whitelistOn(&inst.Instance{Dir: dir}); got != want {
+			t.Errorf("%q：读成 %v，应为 %v", props, got, want)
+		}
 	}
 }
