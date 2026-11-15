@@ -6211,6 +6211,76 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       } finally { await page.unroute("**/api/tasks/task-adopt", failAdopt); await fState({ instReset: true }); }
     });
 
+    // 「返回修改」的草稿要在发请求之前拍下（2026-11-16 Codex 复审 beta.3）：以前请求回来以后才去读表单，大整合包上传、建服请求还没回来时
+    // 切到别的页面，表单已经没了，一读就出错——任务明明在跑，界面却报「无法导入整合包」「无法创建服务器」，草稿也没留下。
+    // holdPost：拦住 pattern 的 POST，等测试放行（同一地址的 GET 轮询照常过）
+    const holdPost = async (pattern, fn) => {
+      let release, seen;
+      const gate = new Promise(r => release = r), requested = new Promise(r => seen = r);
+      const hold = async route => {
+        if (route.request().method() !== "POST") return route.continue().catch(() => {});
+        seen(); await gate; await route.continue().catch(() => {});
+      };
+      await page.route(pattern, hold);
+      try { await fn(requested, release); } finally { release(); await page.unroute(pattern, hold); }
+    };
+    const toastsNow = () => page.$$eval(".toast", ts => ts.map(t => t.textContent));
+
+    await run("beta.3 流程 R13：导入整合包上传途中切到别的页面，任务照常开始、不误报「无法导入」，失败以后「返回修改」填的都在（Codex 复审 beta.3）", async () => {
+      const before = errors.length;
+      try {
+        await fState({ taskList: [{ id: "task-1", title: "导入整合包 测试整合包（forge 1.20.1）", ended: true, error: "下载 mods/a.jar 失败: 连接超时" }] });
+        await page.goto(url("#/create/import")); await page.waitForSelector("#im-file");
+        await page.setInputFiles("#im-file", { name: "切页测试.mrpack", mimeType: "application/zip", buffer: Buffer.from("PK\u0003\u0004mrpack") });
+        await page.fill("#im-name", "切页导入服"); await page.fill("#im-port", "25603"); await page.check("#im-wl"); await page.check("#im-eula");
+        await holdPost("**/api/import/modpack", async (requested, release) => {
+          await page.click("#im-go"); await requested;
+          await page.click('#sidebar a[data-nav="instances"]'); await page.waitForSelector("#inst-cards");
+          release();
+          await page.waitForFunction(() => [...document.querySelectorAll(".toast")].some(t => /已识别|无法导入/.test(t.textContent)));
+        });
+        await settle(300);
+        const t = await toastsNow();
+        assert(!t.some(x => x.includes("无法导入整合包")) && t.some(x => x.includes("已识别")), "任务已经开始，不该报无法导入：" + JSON.stringify(t));
+        assert(errors.length === before, "页面报错：" + errors.slice(before).join(" | "));
+        assert(await page.evaluate(() => location.hash) === "#/instances", "切走以后不该被拉去任务页：" + await page.evaluate(() => location.hash));
+        // 不刷新页面（草稿只在这一次打开的页面里），从任务页「返回修改」
+        await page.evaluate(() => { location.hash = "#/task/task-1"; }); await page.waitForSelector("#t-back-edit");
+        await page.click("#t-back-edit"); await page.waitForSelector("#im-name");
+        const f = await page.evaluate(() => ({ file: ($("#im-file").files[0] || {}).name || "", name: $("#im-name").value, port: $("#im-port").value, wl: $("#im-wl").checked, eula: $("#im-eula").checked }));
+        assert(f.file === "切页测试.mrpack" && f.name === "切页导入服" && f.port === "25603" && f.wl && f.eula, "返回修改以后的导入表单：" + JSON.stringify(f));
+      } finally { await fState({ taskList: [] }); }
+    });
+
+    await run("beta.3 流程 R13：向导点了「开始部署」、请求还没回来就切走，服务器照常开始建、不误报「无法创建」，「返回修改」填的都在（Codex 复审 beta.3）", async () => {
+      const before = errors.length;
+      try {
+        await fState({ modCart: { reset: true }, instReset: true, taskList: [{ id: "task-1", title: "创建服务器 切页建服（paper 1.21.4）", ended: true, cancelled: true, error: "已取消，没有创建服务器" }] });
+        await page.goto(url("#/create/new")); await page.waitForSelector('.core-card[data-id="paper"]');
+        await page.click('.core-card[data-id="paper"]'); await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
+        await page.click('.ver-item[data-id="1.21.4"]'); await page.click("#wnext"); await page.waitForSelector("#build-rec b");
+        await page.click("#wnext"); await page.waitForSelector("#wiz-mod-body");
+        await page.click("#wnext"); await page.waitForSelector("#f-name");
+        await page.fill("#f-name", "切页建服"); await page.fill("#f-port", "25604"); await page.fill("#f-motd", "切走也留着");
+        await page.check("#f-eula");
+        await holdPost("**/api/instances", async (requested, release) => {
+          await page.click("#wcreate"); await requested;
+          await page.click('#sidebar a[data-nav="instances"]'); await page.waitForSelector("#inst-cards");
+          release();
+          await page.waitForFunction(() => [...document.querySelectorAll(".toast")].some(t => /已开始创建|无法创建服务器/.test(t.textContent)));
+        });
+        await settle(300);
+        const t = await toastsNow();
+        assert(!t.some(x => x.includes("无法创建服务器")) && t.some(x => x.includes("已开始创建")), "服务器已经开始建，不该报无法创建：" + JSON.stringify(t));
+        assert(errors.length === before, "页面报错：" + errors.slice(before).join(" | "));
+        await page.evaluate(() => { location.hash = "#/task/task-1"; }); await page.waitForSelector("#t-back-edit");
+        await page.click("#t-back-edit"); await page.waitForSelector("#f-name");
+        const f = await page.evaluate(() => ({ name: $("#f-name").value, port: $("#f-port").value, motd: $("#f-motd").value, eula: $("#f-eula").checked, sum: $("#wf-sum").textContent }));
+        assert(f.name === "切页建服" && f.port === "25604" && f.motd === "切走也留着" && f.eula && f.sum.includes("Paper") && f.sum.includes("1.21.4"),
+          "返回修改以后的向导：" + JSON.stringify(f));
+      } finally { await fState({ taskList: [], instReset: true, modCart: { reset: true } }); }
+    });
+
     await run("beta.3 流程 R13：带地图从向导创建、取消以后「返回修改」：那张地图原样选上、重新核对，检测结果没被清掉", async () => {
       await wReset();
       try {

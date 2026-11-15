@@ -1805,17 +1805,20 @@ async function drawAdopt() {
     const target = $("#ad-target").value, picked = scan.targets.find(x => x.target === target);
     $("#ad-go").disabled = true;
     try {
+      // 请求和「返回修改」的草稿在发请求之前一起读好（Codex 复审 beta.3）：等回话的时候切走了，表单就没了，回来再读会出错，
+      // 接管明明开始了，界面却报失败，草稿也没留下
+      const draft = { dir: scan.dir, name: $("#ad-name").value.trim(), core, mc: $("#ad-mc").value.trim(), target,
+        mem: +$("#ad-mem").value, java: +$("#ad-java").value, eula: $("#ad-eula").checked, port: proxy ? "" : $("#ad-port").value };
       const r = await api("/api/adopt", {
         method: "POST",
         body: {
-          dir: scan.dir, name: $("#ad-name").value.trim(), core, mc: $("#ad-mc").value.trim(),
+          dir: draft.dir, name: draft.name, core, mc: draft.mc,
           build: picked && picked.core === core ? picked.build : "",
-          launchTarget: target, xmxMb: +$("#ad-mem").value, javaMajor: +$("#ad-java").value, eula: needEula,
+          launchTarget: target, xmxMb: draft.mem, javaMajor: draft.java, eula: needEula,
           port: proxy ? 0 : pv, // 和文件夹里写的一样时后端什么都不改
         },
       });
-      formDrafts.set(r.taskId, { mode: "adopt", data: { dir: scan.dir, name: $("#ad-name").value.trim(), core, mc: $("#ad-mc").value.trim(), target,
-        mem: +$("#ad-mem").value, java: +$("#ad-java").value, eula: $("#ad-eula").checked, port: proxy ? "" : $("#ad-port").value } });
+      formDrafts.set(r.taskId, { mode: "adopt", data: draft }); // 先按任务号记下，再看页面还在不在
       if (!stale(gen)) location.hash = `#/task/${r.taskId}`;
       else toast("已开始接管，可在新建服务器页查看进度");
     } catch (e) { toastErr("无法接管服务器", e); if (!stale(gen)) $("#ad-go").disabled = false; }
@@ -1897,21 +1900,27 @@ async function drawImport() {
     if (!$("#im-eula").checked) { eulaErr("导入前需要同意 Minecraft EULA"); $("#im-eula").focus(); return; }
     $("#im-go").disabled = true;
     $("#im-go").textContent = "上传中…";
+    // 请求和「返回修改」的草稿在第一次等待之前一起读好（Codex 复审 beta.3）：大整合包上传要一阵子，这期间切到别的页面，
+    // 表单就没了，回话以后再读会出错——任务明明在跑，界面却报「无法导入整合包」，草稿也没留下
+    const mem = $("#im-mem").value;
+    const draft = { file: f, name: $("#im-name").value, port: $("#im-port").value, mem: +mem,
+      root: imRoot, src: $("#im-src").value, online: $("#im-online").checked, flight: $("#im-flight").checked, wl: $("#im-wl").checked, eula: $("#im-eula").checked };
     const fd = new FormData();
     fd.append("file", f);
-    fd.append("name", $("#im-name").value.trim());
-    fd.append("xmxMb", $("#im-mem").value);
-    fd.append("port", $("#im-port").value);
+    fd.append("name", draft.name.trim());
+    fd.append("xmxMb", mem);
+    fd.append("port", draft.port);
     fd.append("eula", "true");
-    fd.append("onlineMode", $("#im-online").checked ? "true" : "false");
-    fd.append("allowFlight", $("#im-flight").checked ? "true" : "false");
-    fd.append("whitelist", $("#im-wl").checked ? "true" : "false");
+    fd.append("onlineMode", draft.online ? "true" : "false");
+    fd.append("allowFlight", draft.flight ? "true" : "false");
+    fd.append("whitelist", draft.wl ? "true" : "false");
     fd.append("root", imRoot);
-    fd.append("localSource", $("#im-src").value.trim());
+    fd.append("localSource", draft.src.trim());
     try {
       const res = await fetch("/api/import/modpack", { method: "POST", headers: { "X-Token": TOKEN() }, body: fd });
       const j = await res.json();
       if (!j.ok) throw Object.assign(new Error(j.error || "导入失败"), { hint: j.hint }); // hint：解析报错另给的一句人话，见 errSummary
+      formDrafts.set(j.data.taskId, { mode: "import", data: draft }); // 先按任务号记下，再看页面还在不在
       const pack = j.data.pack || {};
       const pending = (pack.pending || 0) > 0 ? `，${pack.pending} 个文件待处理` : "";
       if (pack.format === "server") {
@@ -1919,8 +1928,6 @@ async function drawImport() {
       } else {
         toast(`已识别 ${pack.core} ${pack.mc}（${pack.files} 个组件）` + (pending ? "；其中" + pack.pending + " 项待处理，导入后到任务页逐个处理" : ""));
       }
-      formDrafts.set(j.data.taskId, { mode: "import", data: { file: f, name: $("#im-name").value, port: $("#im-port").value, mem: +$("#im-mem").value,
-        root: imRoot, src: $("#im-src").value, online: $("#im-online").checked, flight: $("#im-flight").checked, wl: $("#im-wl").checked, eula: $("#im-eula").checked } });
       if (!stale(gen)) location.hash = `#/task/${j.data.taskId}`;
     } catch (e) {
       toastErr("无法导入整合包", e);
@@ -2571,31 +2578,34 @@ async function drawWizard() {
         unlockNav = () => { if (back) back.disabled = false; pills.forEach(([p, fn, d]) => { p.onclick = fn; p.disabled = d; }); };
       }
       try {
-        const r = await api("/api/instances", {
-          method: "POST",
-          body: {
-            name,
-            core: wiz.core, mc: wiz.mc, build: wiz.build || "",
-            root: wiz.root || "",
-            xmxMb: +$("#f-mem").value,
-            port: isProxy ? 25565 : +$("#f-port").value,
-            eula: !isProxy,
-            onlineMode: isProxy ? false : $("#f-online").checked,
-            allowFlight: isProxy ? false : $("#f-flight").checked,
-            motd: isProxy ? "" : $("#f-motd").value.trim(),
-            difficulty: isProxy ? "" : $("#f-diff").value,
-            gamemode: isProxy ? "" : $("#f-mode").value,
-            whitelist: isProxy ? false : $("#f-wl").checked, // 只允许白名单里的玩家进入：默认关，后端按它明确写 white-list
-            ...(world || {}),
-          },
-        });
-        // 「返回修改」用：这一步之前选的和这一步填的，带地图的连同那张地图（见 formDrafts）
-        formDrafts.set(r.taskId, { mode: "new", data: {
+        // 「返回修改」用：这一步之前选的和这一步填的，带地图的连同那张地图（见 formDrafts）。和请求一起在发请求之前读好（Codex 复审 beta.3）：
+        // 等回话的时候切走了，表单没了、向导（wiz）和选的地图也可能被重新进来的新建页清掉，回来再读会出错——服务器明明在建，界面却报失败
+        const redo = {
           wiz: { core: wiz.core, mc: wiz.mc, build: wiz.build, snapshots: wiz.snapshots, root: wiz.root, skipMods: wiz.skipMods, step: wiz.step },
           fields: { name, mem: +$("#f-mem").value, port: isProxy ? "" : $("#f-port").value, motd: isProxy ? "" : $("#f-motd").value,
             online: !isProxy && $("#f-online").checked, flight: !isProxy && $("#f-flight").checked, wl: !isProxy && $("#f-wl").checked,
             eula: !isProxy && $("#f-eula").checked, diff: isProxy ? "" : $("#f-diff").value, mode: isProxy ? "" : $("#f-mode").value },
-          map: world && window.MDWorldImport ? MDWorldImport.draftMap() : null } });
+          map: world && window.MDWorldImport ? MDWorldImport.draftMap() : null };
+        const fv = redo.fields;
+        const r = await api("/api/instances", {
+          method: "POST",
+          body: {
+            name,
+            core: redo.wiz.core, mc: redo.wiz.mc, build: redo.wiz.build || "",
+            root: redo.wiz.root || "",
+            xmxMb: fv.mem,
+            port: isProxy ? 25565 : +fv.port,
+            eula: !isProxy,
+            onlineMode: fv.online,
+            allowFlight: fv.flight,
+            motd: fv.motd.trim(),
+            difficulty: fv.diff,
+            gamemode: fv.mode,
+            whitelist: fv.wl, // 只允许白名单里的玩家进入：默认关，后端按它明确写 white-list
+            ...(world || {}),
+          },
+        });
+        formDrafts.set(r.taskId, { mode: "new", data: redo }); // 先按任务号记下，再看页面还在不在
         if (world) MDWorldImport.wizardCreated(world.worldPlan, r.taskId); // 请求被收下了：跟着建服任务，成了才清检测结果（见 worldimport.js）
         if (stale(gen)) { toast("已开始创建，可在新建服务器页查看进度"); return; }
         /* 「选模组」步挑好的内容放在草稿购物车里（不带 inst）。空车照旧直接跳部署任务页；
