@@ -40,6 +40,10 @@
 - L1-pr26-codex：Codex（请求 gpt-6-astra、max 档）只读复审 PR #26，工作树 `.claude/worktrees/b3-pr26-codex`，结果写到主检出的 `.claude/beta3-tasks/codex-pr26/`。
 - README 构建命令和 `tools/dev/编译并启动.bat`：主会话自己做，提交 `92918ac`。脚本试过两种情况：输出文件夹在仓库里时拒绝；编到仓库外面以后用 `-nogui` 起得来，`LOCALAPPDATA`、`APPDATA` 落在输出文件夹的 `_profile` 里。
 
+## 实测记录
+
+**1.12.2 运行中备份（11-15 18:55，主会话）。** 用整合分支编的程序（代码和 beta.2 相同，版本号仍报 3.2.0-beta.2）在 `D:\MineDeck-b3\main\run` 里新建原版 1.12.2（MineDeck 自己下了 Java 8），开起来以后调备份接口：服务器 `latest.log` 里依次是 `Turned off world auto-saving`、`Saving...`、`Saved the world`、`Turned on world auto-saving`；备份接口 1.15 秒就返回了文件，没有等满 15 秒，说明 MineDeck 认出了「Saved the world」这一句；备份列表里有这一份（1.27 MB）。停服、退出都正常，没有留下进程。脚本留在 `D:\MineDeck-b3\main\backup1122.ps1`（`-Exe <程序>`），跑完的测试文件夹删了。这一项在 beta.1 的「发正式版前还要补的」里，现在核实了。
+
 ## 各层结果
 
 （每层合完写：合了什么、跑了哪些验证、走查复跑的结果、还剩什么。）
