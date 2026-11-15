@@ -1019,7 +1019,11 @@ func (c *cat) installCart(ctx context.Context, task *tasks.Task, t cartTarget, p
 	if err != nil {
 		task.Logf("核对本地依赖失败：%v", err)
 	} else {
-		task.Logf("读了 %d 个模组的依赖声明", n)
+		noun := "模组"
+		if t.rtype == "plugin" {
+			noun = "插件"
+		}
+		task.Logf("读了 %d 个%s的依赖声明", n, noun)
 		// 前面「要自己去找」里已经说过的那几个不再报一遍（同一个模组 ID、同一个需要它的文件）
 		missing = slices.DeleteFunc(missing, func(m modcart.MissingMod) bool {
 			return slices.ContainsFunc(plan.Manual, func(x modcart.ManualDep) bool { return strings.EqualFold(x.ID, m.ID) && x.File == m.File })

@@ -134,7 +134,7 @@ window.MDModCart = (() => {
         <div class="java-row mc-item">
           ${tile(it.icon)}
           <div style="flex:1;min-width:0"><b>${esc(it.title)}</b>
-            <div class="jp" style="white-space:normal">${[kindOf(it.kind), it.license].filter(Boolean).map(esc).join(" · ")}</div></div>
+            <div class="jp" style="white-space:normal">${[PLUGIN_CORES.has(ctx.core) ? "插件" : kindOf(it.kind), it.license].filter(Boolean).map(esc).join(" · ")}</div></div>
           <button class="btn sm ghost mc-del" data-pid="${esc(it.projectId)}" data-t="${esc(it.title)}" aria-label="移除 ${esc(it.title)}">${icon("x")} 移除</button>
         </div>`).concat(local.map(lf => `
         <div class="java-row mc-item mc-local">

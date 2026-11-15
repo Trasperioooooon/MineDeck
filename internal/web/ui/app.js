@@ -2759,7 +2759,7 @@ function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-appl
       ${pending.length ? `<div class="wc-title">${icon("warn")} 没装上的文件（${pending.length} 个）</div>
       <div class="wc-note">这些文件因为校验失败、链接失效或平台限制没能自动下载。给要处理的选好方式，再点「应用所选的处理」；没选的先不动。</div>
       ${pending.map(it => row(it, false)).join("")}`
-      : `<div class="wc-title">${icon("check")} 没装上的文件都处理完了</div><div class="wc-note">跳过的那些也没有装上，要的话在下面换成用本地文件代替${skipped.some(x => (x.options || []).includes("trust")) ? "或信任站点下载" : ""}。</div>`}
+      : `<div class="wc-title">${icon("info")} 跳过了 ${skipped.length} 个文件，它们没有装上</div><div class="wc-note">要的话在下面换成用本地文件代替${skipped.some(x => (x.options || []).includes("trust")) ? "或信任站点下载" : ""}；不要就不用管。</div>`}
       ${skippedBlock}
       <div class="row" style="margin-top:12px">
         <button type="button" class="btn primary pnd-apply" id="${applyId}">应用所选的处理</button>

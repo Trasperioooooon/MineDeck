@@ -164,10 +164,18 @@ func (m *Manager) startInstance(i *Instance) error {
 			m.noteLine(i, line) // 游戏内 AI：在线名单更新过了再认聊天
 			if serverReady(line) {
 				i.procMu.Lock()
-				if i.state == "starting" {
+				became := i.state == "starting"
+				if became {
 					i.state = "running"
 				}
+				mc := i.MC
 				i.procMu.Unlock()
+				if became {
+					if cmd := difficultyCommand(mc, javaPropsOf(i.PropsPath())); cmd != "" {
+						i.Console.Append("[MineDeck] 26.1 起游戏只在新建世界时读 server.properties 的难度，按设置执行 " + cmd)
+						go func() { _ = writeLine(pr, cmd) }() // 不在读输出的这条线上等写入
+					}
+				}
 			}
 		}
 		err := cmd.Wait()
@@ -381,6 +389,33 @@ func writeLine(p *proc, line string) error {
 		return err
 	}
 	return p.stdin.Flush()
+}
+
+// difficultyCommand 开服完成时要不要按 server.properties 补一条 difficulty 命令。26.1 起难度存进了世界数据，
+// 服务端只在新建世界时读 server.properties 的 difficulty，已有的世界开服时不再跟着它（2026-11-16 实测：Paper 26.3
+// 改成 peaceful 重启后仍是 Hard；Fabric 1.21.11 改了重启就生效）。MineDeck 的设置页写的是 server.properties，
+// 标着「重启生效」，所以 26.1 起开好以后补一条命令，和以前的版本一样以设置里的为准。更早的版本、没有这一项、
+// 值认不出来（代理端没有 server.properties）时返回空串。
+func difficultyCommand(mc string, props map[string]string) string {
+	if mc == "" || versionLess(mc, "26.1") {
+		return ""
+	}
+	v := strings.ToLower(strings.TrimSpace(props["difficulty"]))
+	switch v {
+	case "0":
+		v = "peaceful"
+	case "1":
+		v = "easy"
+	case "2":
+		v = "normal"
+	case "3":
+		v = "hard"
+	}
+	switch v {
+	case "peaceful", "easy", "normal", "hard":
+		return "difficulty " + v
+	}
+	return ""
 }
 
 // serverReady 识别各核心的"启动完成"输出。

@@ -754,7 +754,7 @@ window.MDToolbox = (() => {
     Main().innerHTML =
       pageHead(
         "导出 Modrinth 整合包",
-        "生成标准 .mrpack 发给朋友用启动器（PCL2 / HMCL / Modrinth App / Prism）一键安装客户端模组。",
+        "生成标准 .mrpack 发给朋友，他们用启动器（PCL2 / HMCL / Modrinth App / Prism）一键装好同样的模组。和服务器菜单里的「导出交接包」不一样：交接包是把整台服务器交给另一台电脑接着开，这里做的是给朋友的游戏客户端用的。",
         `<a class="btn" href="#/toolbox">${icon("arrowLeft")} 回到工具箱</a>`,
         `<a href="#/toolbox">工具箱</a><span class="sep">/</span><span>导出 Modrinth 整合包</span>`,
         ".mrpack 分享包"
@@ -935,11 +935,13 @@ window.MDToolbox = (() => {
           <div class="wc-title">${icon("warn")} 打包提醒（${warnGroups.length}）</div>
           <ul class="wc-list">${warnGroups.map(w => `<li>${esc(w)}</li>`).join("")}</ul>
         </div>` : "";
+      const ENV_CN = { required: "要装", optional: "可选", unsupported: "不装" };
       const envTag = it => {
         if (it.serverEnv === "unsupported") return `<span class="badge core">仅客户端（已标 server: unsupported）</span>`;
         if (it.clientEnv === "unsupported") return `<span class="badge">仅服务端（客户端不装）</span>`;
         if (it.serverEnv === "required" && it.clientEnv === "required") return `<span class="badge">客户端+服务端</span>`;
-        return `<span class="badge">${esc((it.clientEnv || "required") + " / " + (it.serverEnv || "required"))}</span>`;
+        const c = ENV_CN[it.clientEnv] || "要装", sv = ENV_CN[it.serverEnv] || "要装";
+        return `<span class="badge" title="Modrinth 上标的：客户端${c}，服务端${sv}。启动器装整合包时，可选的会问朋友要不要装">客户端${esc(c)} · 服务端${esc(sv)}</span>`;
       };
       const filesHtml = (p.files || []).length ? `
         <h3 class="tb-subh">写入 modrinth.index.json（启动器自动从官方 CDN 下载 · ${p.files.length} 项）</h3>
@@ -1028,6 +1030,7 @@ window.MDToolbox = (() => {
             </div>
             ${data.savedPath ? `<div class="hint">已同步保存到本机：<code class="mono">${esc(data.savedPath)}</code></div>` : ""}
             ${(data.warnings || []).length ? `<div class="hint">提示：${esc(data.warnings.join("；"))}</div>` : ""}
+            <div class="hint">朋友拿到以后：在启动器里选「导入整合包」（Modrinth App、Prism、HMCL、PCL2 都有），选这个 .mrpack，启动器会建好对应版本和加载器、下载里面的模组。</div>
             <div class="row" style="margin-top:12px">
               <a class="btn primary" id="mp-dl" href="${esc(dlUrlWithToken("/api/toolbox/mrpack/download", data.downloadId))}" download="${esc(data.fileName)}">${icon("download")} 下载 .mrpack 整合包</a>
             </div>

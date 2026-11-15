@@ -371,3 +371,29 @@ func TestWorldFromJSON(t *testing.T) {
 		t.Fatalf("没有记录时不写这一项：%s", b)
 	}
 }
+
+// 26.1 起难度存在世界里，开服完成时按 server.properties 补一条命令；更早的版本服务端自己会读，不补。
+func TestDifficultyCommand(t *testing.T) {
+	cases := []struct {
+		mc, val, want string
+	}{
+		{"1.21.11", "hard", ""},
+		{"1.20.1", "hard", ""},
+		{"26.1", "hard", "difficulty hard"},
+		{"26.3", "Peaceful", "difficulty peaceful"},
+		{"26.3-snapshot-2", "normal", "difficulty normal"},
+		{"26.3", "3", "difficulty hard"},
+		{"26.3", "", ""},
+		{"26.3", "extreme", ""},
+		{"", "hard", ""},
+	}
+	for _, c := range cases {
+		props := map[string]string{}
+		if c.val != "" {
+			props["difficulty"] = c.val
+		}
+		if got := difficultyCommand(c.mc, props); got != c.want {
+			t.Errorf("mc=%q difficulty=%q: got %q want %q", c.mc, c.val, got, c.want)
+		}
+	}
+}

@@ -3997,7 +3997,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click("#t-pending-apply"); await settle();
       assert((await page.textContent("#t-pending-out")).includes("已跳过"), "跳过应记录");
       assert(!(await page.locator("#t-pending .pnd-item").count()), "全部处理完后面板应收起");
-      assert((await page.textContent("#t-pending")).includes("没装上的文件都处理完了"), "收尾应写已处理完"); // beta.3：界面上不再说「待决清单」
+      // 只剩跳过的：不再画绿勾说「都处理完了」（盲测 11-16：读着像没事了），写明跳过了几个、没有装上
+      assert(/跳过了 \d+ 个文件，它们没有装上/.test(await page.textContent("#t-pending")), "收尾应写跳过了几个、没有装上"); // beta.3：界面上不再说「待决清单」
       // 从没有过待决文件的普通任务页不显示任何待决面板（曾误显示「已全部处理完」卡片）
       await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList: [{ id: "task-plain", title: "创建 Paper 服务器", ended: true }] }) }));
       await page.goto(url("#/task/task-plain")); await settle();
@@ -6323,7 +6324,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         await page.check('input[name="pnd-p2"][value="local"]'); await page.fill('.pnd-item[data-id="p2"] input.pnd-local', "D:\\老服务器\\mods\\host.jar");
         await page.click("#t-pending-apply"); await settle();
         const after = await page.evaluate(() => ({ msgs: $("#t-msgs").textContent, pend: $("#t-pending").textContent, items: document.querySelectorAll("#t-pending .pnd-item").length }));
-        assert(!after.msgs.includes("个文件待处理") && after.pend.includes("没装上的文件都处理完了") && after.items === 0, "都处理完以后黄框应消失：" + JSON.stringify(after));
+        assert(!after.msgs.includes("个文件待处理") && /跳过了 \d+ 个文件，它们没有装上/.test(after.pend) && after.items === 0, "都处理完以后黄框应消失（只剩跳过的）：" + JSON.stringify(after));
         // 跳过的还能改成用本地文件代替
         // 只剩跳过的时「已跳过的 N 个」默认展开
         await page.check('.pnd-skipped[data-id="p1"] input[value="local"]'); await page.fill('.pnd-skipped[data-id="p1"] input.pnd-local', "D:\\老服务器\\mods\\no-hash.jar");
@@ -6583,7 +6584,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         await page.check('.pnd-modal input[name="pnd-p2"][value="local"]'); await page.fill('.pnd-modal .pnd-item[data-id="p2"] input.pnd-local', "D:\\老服务器\\mods\\host.jar");
         await page.click("#d-pending-apply"); await settle(400);
         assert(!(await page.$("#d-import-pending")), "都处理完（跳过的不算）页头那一条应消失");
-        assert((await page.textContent(".pnd-modal")).includes("没装上的文件都处理完了"), "面板里应写都处理完了");
+        assert(/跳过了 \d+ 个文件，它们没有装上/.test(await page.textContent(".pnd-modal")), "面板里应写跳过了几个、没有装上");
         const posts = reqs.slice(t0).filter(r => r.m === "POST").map(r => decodeURIComponent(r.u));
         assert(posts.length === 2 && posts.every(u => u === `/api/instances/${PACKX}/import-pending`), "处置走按服务器的接口：" + JSON.stringify(posts));
         await page.keyboard.press("Escape"); await settle(300);
