@@ -396,4 +396,11 @@ func TestDifficultyCommand(t *testing.T) {
 			t.Errorf("mc=%q difficulty=%q: got %q want %q", c.mc, c.val, got, c.want)
 		}
 	}
+	// 极限模式不发；hardcore=false 照常发
+	if got := difficultyCommand("26.3", map[string]string{"difficulty": "easy", "hardcore": "true"}); got != "" {
+		t.Errorf("hardcore=true: got %q, want no command", got)
+	}
+	if got := difficultyCommand("26.3", map[string]string{"difficulty": "easy", "hardcore": "false"}); got != "difficulty easy" {
+		t.Errorf("hardcore=false: got %q", got)
+	}
 }

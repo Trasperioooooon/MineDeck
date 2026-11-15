@@ -395,9 +395,13 @@ func writeLine(p *proc, line string) error {
 // 服务端只在新建世界时读 server.properties 的 difficulty，已有的世界开服时不再跟着它（2026-11-16 实测：Paper 26.3
 // 改成 peaceful 重启后仍是 Hard；Fabric 1.21.11 改了重启就生效）。MineDeck 的设置页写的是 server.properties，
 // 标着「重启生效」，所以 26.1 起开好以后补一条命令，和以前的版本一样以设置里的为准。更早的版本、没有这一项、
-// 值认不出来（代理端没有 server.properties）时返回空串。
+// 值认不出来（代理端没有 server.properties）时返回空串。极限模式（hardcore=true）也不发：游戏把它锁在困难，
+// 命令改不动，却会回一句「已设为某某难度」，反而误导。
 func difficultyCommand(mc string, props map[string]string) string {
 	if mc == "" || versionLess(mc, "26.1") {
+		return ""
+	}
+	if strings.EqualFold(strings.TrimSpace(props["hardcore"]), "true") {
 		return ""
 	}
 	v := strings.ToLower(strings.TrimSpace(props["difficulty"]))
