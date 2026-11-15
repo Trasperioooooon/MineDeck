@@ -398,6 +398,20 @@ AI 助手用的读写能力，网页也能直接调。人调用时，写操作�
 - 桥转发时带 `X-MineDeck-Bridge`（版本号）和 `X-MineDeck-Client`（客户端在 initialize 里报的名字，URL 编码）：前者让「连过的 AI 工具」显示 stdio，后者在 MineDeck 重启、认不出旧会话时用来记名字。都是自报的，只用来显示和记录。
 - MineDeck 没运行时回 -31000，令牌读不出来时回 -31002，MCP 没打开时转回 -31001。都带原来请求的 id，同时写到标准错误。
 
+### 工具箱（`#/toolbox`）
+
+提供与单台服务器运行状态解耦的联机辅助工具（逻辑在 `internal/toolbox`，接口在 `internal/web/toolbox.go`）。所有操作均为 `ops.HumanOnly`（UI / HTTP 人工调用，不开放给 AI 工具与 MCP）；除持久化草稿设置外，打包结果暂存于 `<cache>/toolbox/` 内存索引（最多保留最近 24 条），不改写任何已有服务器的数据目录。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/toolbox/skin-pack/preview` | `{mc, mode, entries[]}`（`toolbox.skinpack.preview`）：校验版本号并返回默认皮肤槽位表（`<= 1.19.2` 仅 `steve` / `alex` 2 槽；`>= 1.19.3` 为 `slim` / `wide` × `{alex,ari,efe,kai,makena,noor,steve,sunny,zuri}` 共 18 槽）、`packFormat`（`1.21.9+` / `pack_format >= 65` 额外给出 `minFormat` / `maxFormat`）、逐条离线 UUID（`OfflinePlayer:<player>` MD5 v3）与 Java `UUID.hashCode()` 算出的命中槽位及冲突分组（`conflicts`） |
+| POST | `/api/toolbox/skin-pack/build` | multipart 表单（`meta` 为 JSON `{mc, packName?, description?, mode, entries[], destDir?}`，`file_0`…`file_17` 为 PNG；总大小上限 40 MiB，单张不超过 2 MiB，最多 18 张；`toolbox.skinpack.build`）：后端通过 `image/png` 严格解码并核对尺寸为 `64×64` 或旧版 `64×32`（`64×32` 自动扩充为 `64×64` 并镜像左腿/左臂）；存在未解决撞槽时拒绝（400）。打包成标准客户端资源包 `.zip`（含 `pack.mcmeta`、`说明.txt` 与固定路径 `assets/minecraft/textures/entity/...`），计算并返回 `sha1`（40 位 hex，用于 `resource-pack-sha1`）与 `downloadId`。`destDir` 仅限本机请求（非本机返回 403） |
+| GET | `/api/toolbox/skin-pack/download/{id}` | 按 `build` 返回的 `downloadId` 下载生成的 `.zip` 资源包（`toolbox.download`，`Content-Type: application/zip`） |
+| GET / PUT | `/api/toolbox/mrpack/draft` | 读取或保存工具箱 `.mrpack` 草稿元数据 `{name, versionId, summary?, core, mc, loaderVersion?, includeConfig?}`（`toolbox.mrpack.draft.get` / `toolbox.mrpack.draft.save`），持久化在 `<data>/toolbox/mrpack-draft.json`，重启不丢失；模组选择复用 `/api/modcart*` 的草稿购物车与本地添加通道 |
+| POST | `/api/toolbox/mrpack/preview` | `{source: "draft" \| "instance", inst?, name?, versionId?, summary?, core?, mc?, loaderVersion?, includeConfig?, withDeps?}`（`toolbox.mrpack.preview`）：不写文件，预演 `.mrpack` 的 `dependencies`、放进 `modrinth.index.json` 的在线下载项（须命中 `modpack.AllowedURL` 白名单，仅客户端模组自动标 `env.server: "unsupported"`）与直接打入 `overrides/` 的本地项（非白名单下载或未识别 jar、以及实例模式下勾选 `includeConfig` 收集的常规 `config/` 文件），并标明潜在缺前置/冲突提醒 |
+| POST | `/api/toolbox/mrpack/build` | 同 `preview` 参数，另可带 `destDir`（**仅本机**，非本机返回 403；`toolbox.mrpack.build`）：写出符合 Modrinth 规范（`formatVersion: 1`）的 `.mrpack` 压缩包并返回 `{downloadId, fileName, size, sha1, savedPath?, downloadCount, overrideCount, clientOnlyCount, configCount, dependencies, warnings}` |
+| GET | `/api/toolbox/mrpack/download/{id}` | 按 `build` 返回的 `downloadId` 下载生成的 `.mrpack` 整合包（`toolbox.download`，`Content-Type: application/zip`） |
+
 ## Webhook 事件
 
 在全局设置配置 URL 后，以下事件将以 JSON POST 推送（失败重试 3 次）：
