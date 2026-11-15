@@ -154,7 +154,7 @@ func canonicalPath(path string) string {
 // 改名就被拒（Access is denied）：旧式改名替换不了还有句柄开着的文件，哪怕那个句柄只为查路径、允许删除。
 // 40 个保存同时排队的测试在 CI 上就是这样偶发失败的（2026-11-15）。
 //
-// 目录列表里查不准的（文件不在、上一级打不开或不许列、名字对不上、名字带通配符、卷根）退回原来的查法，
+// 目录列表里查不准的（文件不在、上一级打不开或不许列、上一级的名字末尾带空格或点、名字对不上、名字带通配符、卷根）退回原来的查法，
 // 所以凡是老查法查得出的，锁键和以前一字不差：同一个文件不会因为换了查法多出一把锁。
 // 退回去的那一下又会短暂打开最后一项，这些情况少见，真撞上了由 replace 的重试兜住。
 func finalPath(path string, follow bool) (string, bool) {
@@ -177,6 +177,14 @@ func listedPath(path string) (string, bool) {
 	name := filepath.Base(path)
 	// 目录查询把这几个字符当通配符，会匹配到别的文件；正常文件名里不会有它们
 	if strings.ContainsAny(name, `*?<>"`) {
+		return "", false
+	}
+	// 上一级单独拿出来问系统时，系统会把它当成路径的最后一项重新规范一遍：名字末尾的空格和点被去掉
+	// （「world 」变成「world」），设备名被换成设备。那样问到的是旁边另一个文件夹，拼出来的就成了另一个文件的锁键，
+	// 而同一个文件换一种写法（比如带 \\?\ 的）算出来的又是对的那一把：一个文件两把锁。
+	// 这种文件夹普通办法建不出来，解压工具、WSL 建得出。交给老查法，它按完整路径打开，不把上一级拆出来
+	// （2026-11-15 Codex 复审指出，本机实测属实）。
+	if abs, err := filepath.Abs(parent); err != nil || abs != parent {
 		return "", false
 	}
 	dir, ok := handlePath(parent, true)

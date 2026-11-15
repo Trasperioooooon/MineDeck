@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"golang.org/x/sys/windows"
@@ -23,7 +24,8 @@ func TestPathKeyDoesNotBlockReplace(t *testing.T) {
 	if err := os.WriteFile(p, []byte("a=b\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	stop, done := make(chan struct{}), make(chan struct{})
+	stop, done, started := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var calls atomic.Int64
 	go func() {
 		defer close(done)
 		for {
@@ -32,9 +34,13 @@ func TestPathKeyDoesNotBlockReplace(t *testing.T) {
 				return
 			default:
 				PathKey(p)
+				if calls.Add(1) == 1 {
+					close(started)
+				}
 			}
 		}
 	}()
+	<-started // 算锁键的那一路真的跑起来了再开始存
 	const n = 200
 	var errs []error
 	for i := 0; i < n; i++ {
@@ -44,6 +50,10 @@ func TestPathKeyDoesNotBlockReplace(t *testing.T) {
 	}
 	close(stop)
 	<-done
+	// 算锁键的次数比保存还少，说明那一路没怎么抢到时间片，这一遍没测到东西，不能算过
+	if c := calls.Load(); c < n {
+		t.Fatalf("保存 %d 次期间只算了 %d 次锁键，两边没有真的并发起来", n, c)
+	}
 	if len(errs) > 0 {
 		t.Fatalf("一边算锁键一边保存，%d 次里失败 %d 次，第一次：%v", n, len(errs), errs[0])
 	}
@@ -79,6 +89,23 @@ func TestPathKeySameAsHandleLookup(t *testing.T) {
 	if err := Write(long, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// 名字末尾带空格、带两个点的文件夹，旁边有一个名字正常的。这种文件夹普通办法建不出来（解压工具、WSL 建得出），
+	// 单独拿它的路径去问系统，末尾的空格和点会被去掉，问到的是旁边那个。
+	twin := filepath.Join(dir, "Odd")
+	if err := os.Mkdir(twin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mkfile(filepath.Join(twin, "inside.txt"))
+	var odd []string
+	for _, name := range []string{"Odd ", "Odd.."} {
+		verbatim := `\\?\` + dir + `\` + name
+		if err := os.Mkdir(verbatim, 0o755); err != nil {
+			t.Logf("这个卷建不出名字是 %q 的文件夹，跳过这一项：%v", name, err)
+			continue
+		}
+		mkfile(verbatim + `\inside.txt`)
+		odd = append(odd, dir+`\`+name+`\inside.txt`)
+	}
 
 	type tc struct {
 		name, path string
@@ -100,13 +127,22 @@ func TestPathKeySameAsHandleLookup(t *testing.T) {
 		{"末尾多一个空格", file + " ", true},
 		{"名字带星号", filepath.Join(dir, "Server*.Properties"), false},
 		{"名字带问号", filepath.Join(dir, "Server-Long-Name.Propertie?"), false},
+		{"默认数据流的写法", file + "::$DATA", true},
+		{`带 \\?\ 前缀的写法`, `\\?\` + file, true},
+		{"设备名", filepath.Join(dir, "nul"), false},
 	}
+	for _, p := range odd {
+		cases = append(cases, tc{"上一级文件夹名末尾带空格或点", p, true}, tc{`上一级文件夹名末尾带空格或点，带 \\?\ 前缀`, `\\?\` + p, true})
+	}
+	// 指向同一个文件的各种写法，锁键都得是同一把
+	same := []string{filepath.Join(dir, "server-long-name.PROPERTIES"), strings.ToLower(file), file + ".", file + " ", file + "::$DATA", `\\?\` + file}
 	// 这几样平常的路径应该由目录列表查出来。要是悄悄都走了退路（退回打开句柄），
 	// 锁键还是对的，TestPathKeyDoesNotBlockReplace 测的那个毛病却回来了。
 	listed := []string{file, strings.ToLower(file), sub, junction, filepath.Join(junction, "inside.txt"), long}
 	if short, ok := shortName(file); ok && !strings.EqualFold(short, file) {
 		cases = append(cases, tc{"8.3 短名", short, true})
 		listed = append(listed, short)
+		same = append(same, short)
 	} else {
 		t.Log("这个卷没有给出不同的 8.3 短名，跳过短名一项")
 	}
@@ -136,6 +172,20 @@ func TestPathKeySameAsHandleLookup(t *testing.T) {
 	}
 	if _, err := os.Lstat(link); err == nil && PathKey(link) == PathKey(file) {
 		t.Error("文件符号链接被跟随了：替换的是链接这个目录项，锁键不能是它指向的文件")
+	}
+	for _, p := range same {
+		if got, want := PathKey(p), PathKey(file); got != want {
+			t.Errorf("%q 和 %q 是同一个文件，锁键却不一样：%q、%q", p, file, got, want)
+		}
+	}
+	for _, p := range odd {
+		if PathKey(p) == PathKey(filepath.Join(twin, "inside.txt")) {
+			t.Errorf("%q 的锁键和旁边名字正常的文件夹里那个文件一样：上一级被认成了另一个文件夹", p)
+		}
+		// 带 \\?\ 的写法不经过系统的规范化，指的是同一个文件
+		if v := `\\?\` + p; PathKey(v) != PathKey(p) {
+			t.Errorf("%q 和 %q 是同一个文件，锁键却不一样：%q、%q", p, v, PathKey(p), PathKey(v))
+		}
 	}
 	for _, p := range listed {
 		got, ok := listedPath(p)
