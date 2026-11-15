@@ -123,11 +123,19 @@ func OpenFileInside(p, dir string) (*os.File, error) {
 		f.Close()
 		return nil, ErrRealPath
 	}
-	if rel, err := filepath.Rel(root, real); err != nil || !filepath.IsLocal(rel) {
+	if !InsideReal(root, real) {
 		f.Close()
 		return nil, ErrOutside
 	}
 	return f, nil
+}
+
+// InsideReal real 是不是 root 本身或者在它里面。两个都必须是 RealPathStrict 或者按句柄问出来的规范路径（每一级的
+// 大小写都按磁盘上的），所以逐字比较。不用 filepath.Rel：它在 Windows 上不分大小写，打开了「区分大小写」的文件夹里
+// Foo 和 foo 是两个不同的文件夹，外面的 foo 会被当成在 Foo 里面（Codex 复审 beta.3 第三轮）。
+func InsideReal(root, real string) bool {
+	root = strings.TrimRight(root, `\`)
+	return root != "" && (real == root || strings.HasPrefix(real, root+`\`))
 }
 
 // ErrOutside 文件实际落在要求的文件夹外面（见 OpenFileInside）。

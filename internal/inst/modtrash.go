@@ -112,7 +112,7 @@ func trashPathsInside(dir, src, destDir, sub, file string) error {
 		if err != nil {
 			return fmt.Errorf("查不清%s实际在哪（可能是断掉的目录联接），没有删除", c.what)
 		}
-		if rel, err := filepath.Rel(root, real); err != nil || !filepath.IsLocal(rel) {
+		if rel, err := filepath.Rel(root, real); err != nil || !filepath.IsLocal(rel) || !InsideReal(root, real) {
 			return fmt.Errorf("%s指到了服务器文件夹外面，没有删除", c.what)
 		}
 	}

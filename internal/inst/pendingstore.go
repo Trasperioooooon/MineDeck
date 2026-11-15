@@ -243,7 +243,7 @@ func pendingListPath(dir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("查不清放「没装上的文件」清单的文件夹实际在哪（可能是断掉的目录联接）")
 	}
-	if rel, err := filepath.Rel(root, real); err != nil || !filepath.IsLocal(rel) {
+	if rel, err := filepath.Rel(root, real); err != nil || !filepath.IsLocal(rel) || !InsideReal(root, real) {
 		return "", fmt.Errorf("放「没装上的文件」清单的文件夹（.minedeck）指到了服务器文件夹外面，没有读写")
 	}
 	return p, nil

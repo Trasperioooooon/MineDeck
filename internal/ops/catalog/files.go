@@ -597,7 +597,7 @@ func realInside(root, p string) error {
 	if err != nil {
 		return err
 	}
-	if rel, err := filepath.Rel(r, real); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	if rel, err := filepath.Rel(r, real); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || !inst.InsideReal(r, real) {
 		return errOutside
 	}
 	return nil

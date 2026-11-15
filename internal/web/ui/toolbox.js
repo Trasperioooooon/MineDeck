@@ -886,26 +886,30 @@ window.MDToolbox = (() => {
     }
 
     // 草稿读回来以前不存：那时表单里没动过的格子还是默认值，存上去会把以前存的草稿盖掉。
-    // 先记下「有要存的」，读回来、把没动过的格子补上以后再存合起来的那一份（Codex 复审 beta.3 第二轮）
+    // 先记下「有要存的」，读回来、把没动过的格子补上以后再存合起来的那一份；读失败就这一次不自动存（Codex 复审 beta.3 第二、三轮）。
+    // 读的时候来源切换是锁着的；从「自己挑模组」切走时，排着的那次保存当场存掉：名称、版本这几格两种来源共用，
+    // 切到「从已有服务器导出」以后会被改成服务器的名字，等计时到了再读就把它存进草稿了
     let draftReady = false, savePending = false;
     function scheduleSaveDraft() {
       if (st.source !== "draft") return;
       if (!draftReady) { savePending = true; return; }
       if (saveTimer) clearTimeout(saveTimer);
-      saveTimer = setTimeout(() => {
-        api("/api/toolbox/mrpack/draft", {
-          method: "PUT",
-          body: {
-            name: nameIn.value.trim(),
-            versionId: verIn.value.trim(),
-            summary: sumIn.value.trim(),
-            core: coreSel.value,
-            mc: mcIn.value.trim(),
-            loaderVersion: loaderIn.value.trim(),
-            includeConfig: !!incCfgEl.checked,
-          },
-        }).catch(() => {});
-      }, 260);
+      saveTimer = setTimeout(saveDraftNow, 260);
+    }
+    function saveDraftNow() {
+      if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+      api("/api/toolbox/mrpack/draft", {
+        method: "PUT",
+        body: {
+          name: nameIn.value.trim(),
+          versionId: verIn.value.trim(),
+          summary: sumIn.value.trim(),
+          core: coreSel.value,
+          mc: mcIn.value.trim(),
+          loaderVersion: loaderIn.value.trim(),
+          includeConfig: !!incCfgEl.checked,
+        },
+      }).catch(() => {});
     }
 
     function mountDraftCart() {
@@ -1065,6 +1069,7 @@ window.MDToolbox = (() => {
       b.onclick = () => {
         const s = b.dataset.src;
         if (s === st.source) return;
+        if (st.source === "draft" && saveTimer) saveDraftNow(); // 切走之前存掉排着的（见 scheduleSaveDraft）
         const kr = typeof keyRects === "function" ? keyRects() : null;
         st.source = s;
         srcBox.querySelectorAll("button").forEach(x => {
@@ -1118,9 +1123,11 @@ window.MDToolbox = (() => {
     prevBtn.onclick = doPreview;
     buildBtn.onclick = doBuild;
 
-    // 读草稿设置 + 实例列表 + 本机权限
+    // 读草稿设置 + 实例列表 + 本机权限。读完以前来源切换锁着（见 scheduleSaveDraft）
+    const DRAFT_FAILED = {};
+    srcBox.querySelectorAll("button[data-src]").forEach(b => { b.disabled = true; });
     Promise.all([
-      api("/api/toolbox/mrpack/draft").catch(() => null),
+      api("/api/toolbox/mrpack/draft").catch(() => DRAFT_FAILED),
       api("/api/instances").catch(() => []),
       api("/api/app").catch(() => ({})),
     ]).then(([draft, insts, appInfo]) => {
@@ -1128,7 +1135,9 @@ window.MDToolbox = (() => {
       st.loading = false;
       st.local = !appInfo || appInfo.local !== false;
       hostRow.hidden = !st.local;
-      if (draft) {
+      srcBox.querySelectorAll("button[data-src]").forEach(b => { b.disabled = false; });
+      const draftOK = draft !== DRAFT_FAILED;
+      if (draftOK && draft) {
         const fill = (el, v) => { if (!touched.has(el)) el.value = v; };
         if (draft.name) fill(nameIn, st.name = draft.name);
         if (draft.versionId) fill(verIn, st.versionId = draft.versionId);
@@ -1137,8 +1146,10 @@ window.MDToolbox = (() => {
         if (draft.mc) fill(mcIn, st.mc = draft.mc);
         if (draft.loaderVersion != null) fill(loaderIn, st.loaderVersion = draft.loaderVersion);
       }
-      draftReady = true;
-      if (savePending) { savePending = false; scheduleSaveDraft(); }
+      if (draftOK) {
+        draftReady = true;
+        if (savePending) { savePending = false; scheduleSaveDraft(); }
+      }
       if (Array.isArray(insts)) {
         st.modInsts = insts.filter(i => MOD_CORES.has(i.core));
         instSel.innerHTML = st.modInsts.map(i => `<option value="${esc(i.name)}">${esc(i.name)}（${esc(coreName(i.core))} ${esc(i.mc)}）</option>`).join("");

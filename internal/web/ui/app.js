@@ -4120,47 +4120,46 @@ async function renderDetail(name, path = "console") {
     const keptFix = () => { const cur = jvmFlags(); return LOG4J_FIX.filter(f => cur.includes(f)); };
     const lb = wireLiveBar(body, "服务器运行中：保存后要重启才生效");
     let saved = { xmx: $("#jm-mem").value, jvm: jvmFlags().join(" ") }; // 内存和参数上一次存下来的样子：只换 Java 时不重写启动设置
-    let javaQueued = ""; // 已经开始下载的那一项（留在本页时）：再保存别的不重复发起下载
     paintBar = wireSaveBar(body, gen,
       () => ({ xmx: $("#jm-mem").value, jvm: jvmFlags().join(" "), java: javaPick() }), // 只比较参数本身，换行 / 空格差异不算修改
       async () => {
         // 内存、参数、Java 都按点「保存」这一刻的读：请求途中又改的不算已保存（Codex 复审 beta.3）
         const xmx = $("#jm-mem").value, flags = jvmFlags(), pick = javaPick(), memChanged = xmx !== saved.xmx || flags.join(" ") !== saved.jvm;
-        const notes = [];
-        if (memChanged) {
-          await api(`/api/instances/${enc}/settings`, { method: "PUT", body: { xmxMb: +xmx, xmsMb: 0, extraJvm: flags } });
-          // 回显实际保存的参数（老版本被删掉的 log4shell 缓解参数会被后端补回）；回读失败不影响已成功的保存。
-          // 只在输入框里还是发出去的那份时回显：请求途中又改了参数的，不拿回读的盖掉新填的
-          const back = await api("/api/instances").then(l => l.find(i => i.name === name)?.extraJvm).catch(() => null);
-          if (back && !stale(gen) && jvmFlags().join(" ") === flags.join(" ")) $("#jm-jvm").value = back.join("\n");
-          saved = { xmx, jvm: (back || flags).join(" ") };
-          notes.push("已保存内存与 JVM 参数" + (back?.some(a => !flags.includes(a)) ? "（已自动补回 log4shell 漏洞缓解参数）" : ""));
-        }
-        if (pick !== "" && pick !== javaQueued) {
-          const o = jopts[+pick];
-          const r = await api(`/api/instances/${enc}/java`, { method: "PUT", body: { major: o.major, path: o.download ? "" : o.path } });
-          if (r && r.taskId) { // 要先下载：去任务页看进度，下好了自动换上
-            // 保存途中又改了内存或参数：不跳走，改的留在表单里（还算未保存），提示里给去任务页的按钮（Codex 复审 beta.3 第二轮）
-            if ($("#jm-mem").value === xmx && jvmFlags().join(" ") === flags.join(" ")) { dirtyCheck = null; location.hash = `#/task/${r.taskId}`; return; }
-            javaQueued = pick;
-            toast([...notes, `开始下载 Java ${o.major}，下好了自动换上`].join("；"), false, undefined,
-              { actions: [{ label: "看进度", aria: `去任务页看 Java ${o.major} 的下载进度`, onClick: () => { location.hash = `#/task/${r.taskId}`; } }] });
-            lb.saved(true);
-            return { xmx: saved.xmx, jvm: saved.jvm, java: pick };
+        // 选的 Java 要先下载时，这次保存完会跳去任务页：保存途中把这一页的输入锁住，不让人在途中改了又随跳页丢掉
+        // （Codex 复审 beta.3 第二、三轮。第二轮试过留在本页再记一个「正在下载」的状态，带出了下载完、下载失败以后页面不同步的问题，改成锁）
+        const locked = pick !== "" && jopts[+pick].download
+          ? [...body.querySelectorAll("input, textarea, select, button")].filter(el => !el.closest(".save-bar") && !el.disabled) : [];
+        locked.forEach(el => { el.disabled = true; });
+        try {
+          const notes = [];
+          if (memChanged) {
+            await api(`/api/instances/${enc}/settings`, { method: "PUT", body: { xmxMb: +xmx, xmsMb: 0, extraJvm: flags } });
+            // 回显实际保存的参数（老版本被删掉的 log4shell 缓解参数会被后端补回）；回读失败不影响已成功的保存。
+            // 只在输入框里还是发出去的那份时回显：请求途中又改了参数的，不拿回读的盖掉新填的
+            const back = await api("/api/instances").then(l => l.find(i => i.name === name)?.extraJvm).catch(() => null);
+            if (back && !stale(gen) && jvmFlags().join(" ") === flags.join(" ")) $("#jm-jvm").value = back.join("\n");
+            saved = { xmx, jvm: (back || flags).join(" ") };
+            notes.push("已保存内存与 JVM 参数" + (back?.some(a => !flags.includes(a)) ? "（已自动补回 log4shell 漏洞缓解参数）" : ""));
           }
-          info.javaMajor = o.major; info.javaPath = (r && r.java) || o.path; info.javaSource = o.portable ? "portable" : "local"; info.javaMissing = false;
-          jcur = +pick;
-          sel.querySelectorAll("option").forEach((el, k) => { el.textContent = javaLabel(jopts[k], k); });
-          if ($("#d-java")) $("#d-java").textContent = "Java " + o.major; // 页头的徽标跟着换
-          $("#jm-java-now").textContent = "Java " + o.major;
-          notes.push(`已换成 Java ${o.major}`);
-          refreshHead(); // 「找不到 Java」的提示马上消失
+          if (pick !== "") {
+            const o = jopts[+pick];
+            const r = await api(`/api/instances/${enc}/java`, { method: "PUT", body: { major: o.major, path: o.download ? "" : o.path } });
+            if (r && r.taskId) { dirtyCheck = null; location.hash = `#/task/${r.taskId}`; return; } // 要先下载：去任务页看进度，下好了自动换上
+            info.javaMajor = o.major; info.javaPath = (r && r.java) || o.path; info.javaSource = o.portable ? "portable" : "local"; info.javaMissing = false;
+            jcur = +pick;
+            sel.querySelectorAll("option").forEach((el, k) => { el.textContent = javaLabel(jopts[k], k); });
+            if ($("#d-java")) $("#d-java").textContent = "Java " + o.major; // 页头的徽标跟着换
+            $("#jm-java-now").textContent = "Java " + o.major;
+            notes.push(`已换成 Java ${o.major}`);
+            refreshHead(); // 「找不到 Java」的提示马上消失
+          }
+          toast(notes.join("；") + (info.status === "stopped" ? "，下次启动生效" : "，重启服务器后生效"));
+          lb.saved(true);
+          // 新的基线是存下的那份：内存和参数按提交的（参数带上后端补回的）；Java 是相对「现在用的」算的，换上以后就是没改（空串）
+          return { xmx: saved.xmx, jvm: saved.jvm, java: "" };
+        } finally {
+          if (!stale(gen)) locked.forEach(el => { el.disabled = false; }); // 跳去任务页以后页面已经换了，不用管
         }
-        toast(notes.join("；") + (info.status === "stopped" ? "，下次启动生效" : "，重启服务器后生效"));
-        lb.saved(true);
-        // 新的基线是存下的那份：内存和参数按提交的（参数带上后端补回的）；Java 是相对「现在用的」算的，换上以后就是没改（空串），
-        // 选着的是已经在下载的那一项时，它也不算没保存
-        return { xmx: saved.xmx, jvm: saved.jvm, java: pick !== "" && pick === javaQueued ? pick : "" };
       });
     $("#jm-aikar").onclick = () => {
       const fix = keptFix();

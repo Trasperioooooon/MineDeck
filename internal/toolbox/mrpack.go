@@ -885,21 +885,39 @@ var (
 		".p12": true, ".pfx": true, ".jks": true, ".keystore": true, ".crt": true, ".cer": true, ".der": true, ".env": true, ".log": true}
 	// 备份、临时、停用的副本：内容和正本一样，正本要是被挑出来了，副本也不该漏出去
 	backupSuffixes = []string{".bak", ".old", ".orig", ".backup", ".tmp", ".disabled", "~"}
-	// 键 = 值、"键": "值"、键: 值。键名里带这些词的都看。值带引号时取引号里的全部（可能以空格、分号开头），
-	// 不带引号时取到空白或分隔符为止。password 一类、明确的令牌和密钥不管值多短、是不是纯数字都算；
-	// 只有像计数、开关、上限这类键（max_tokens、token_count）才放过短值和数字（secretCountWords）
-	secretKV         = regexp.MustCompile(`(?i)([a-z0-9_.-]*?(?:password|passwd|pwd|passphrase|secret|token|api[_-]?key|webhook|private[_-]?key|access[_-]?key|license[_-]?key|auth[_-]?(?:key|token|code)|credential)[a-z0-9_.-]*)["']?[ \t]*[:=][ \t]*(?:"([^"\r\n]*)"|'([^'\r\n]*)'|([^\s"',;}\]<>]+))`)
-	secretCountWords = []string{"count", "max", "min", "limit", "per", "cost", "rate", "amount", "size", "length", "expire", "ttl",
-		"timeout", "interval", "duration", "cooldown", "chance", "bucket", "refill", "regen", "enable", "type", "mode", "format",
-		"prefix", "suffix", "color", "colour", "display", "show", "required", "item", "drop", "reward", "level", "slot", "spawn", "worth", "price"}
+	// 下面几条规则是并集：上一版的规则（secretKV、secretPass、secretYAMLLoose）原样留着，只往上加，不放过它们认得的
+	// （Codex 复审 beta.3 第三轮：第二轮改正则时漏掉了换行写的值、带引号的 "false"）。
+	//
+	// 键 = 值、"键": "值"、键: 值。键名里带这些词的都看；password 一类不管值多短、是不是纯数字都算，别的键放过短值和数字。
+	// 冒号或等号后面可以跨行（YAML 把值写在下一行）
+	secretKV = regexp.MustCompile(`(?i)([a-z0-9_.-]*?(?:password|passwd|pwd|passphrase|secret|token|api[_-]?key|webhook|private[_-]?key|access[_-]?key|license[_-]?key|auth[_-]?(?:key|token|code)|credential)[a-z0-9_.-]*)["']?\s*[:=]\s*["']?([^\s"',;}\]<>]+)`)
+	// 同样的键，值带引号：取引号里的全部（以空格、分号开头的口令也认得），引号里的 "false"、"none" 也是值
+	secretKVQuoted = regexp.MustCompile(`(?i)([a-z0-9_.-]*?(?:password|passwd|pwd|passphrase|secret|token|api[_-]?key|webhook|private[_-]?key|access[_-]?key|license[_-]?key|auth[_-]?(?:key|token|code)|credential)[a-z0-9_.-]*)["']?[ \t]*[:=][ \t]*(?:"([^"\r\n]*)"|'([^'\r\n]*)')`)
+	// 同样的键，值不带引号、在同一行：明确的令牌和密钥是纯数字也算（api_key=12345678）。值不能以 [ { # 开头
+	// （tokens = []、secret = {}、api_key: # 可选 不是值）
+	secretKVBare = regexp.MustCompile(`(?i)([a-z0-9_.-]*?(?:password|passwd|pwd|passphrase|secret|token|api[_-]?key|webhook|private[_-]?key|access[_-]?key|license[_-]?key|auth[_-]?(?:key|token|code)|credential)[a-z0-9_.-]*)["']?[ \t]*[:=][ \t]*([^\s"',;}\]<>#\[{][^\s"',;}\]<>]*)`)
+	// 键名里有这些「整段」的是计数、开关、上限一类（max_tokens、tokenCount、tokensPerSecond），不是令牌本身：
+	// 按 _ . - 和大小写分段以后整段比，admin、personal 这种词里带着 min、per 的不算
+	secretCountWords = map[string]bool{"count": true, "max": true, "min": true, "limit": true, "per": true, "cost": true, "rate": true,
+		"amount": true, "size": true, "length": true, "len": true, "expire": true, "expires": true, "expiry": true, "ttl": true,
+		"timeout": true, "interval": true, "duration": true, "cooldown": true, "chance": true, "bucket": true, "refill": true,
+		"regen": true, "enable": true, "enabled": true, "disable": true, "disabled": true, "type": true, "mode": true, "format": true,
+		"prefix": true, "suffix": true, "color": true, "colour": true, "display": true, "show": true, "required": true, "item": true,
+		"items": true, "drop": true, "drops": true, "reward": true, "rewards": true, "level": true, "slot": true, "slots": true,
+		"spawn": true, "worth": true, "price": true, "cap": true, "delay": true, "time": true, "seconds": true, "ticks": true,
+		"number": true, "num": true, "total": true, "weight": true, "multiplier": true, "range": true}
 	// 单独一个 pass 当键名（不连着别的字母，免得认成 passive 之类）
 	secretPass = regexp.MustCompile(`(?im)(?:^|[\s{,"'])pass["']?\s*[:=]\s*["']?([^\s"',;}\]<>]+)`)
+	// 同上，值带引号（pass=" abc123"）
+	secretPassQuoted = regexp.MustCompile(`(?im)(?:^|[\s{,"'])pass["']?[ \t]*[:=][ \t]*(?:"[^"\r\n]*[^"\s\r\n][^"\r\n]*"|'[^'\r\n]*[^'\s\r\n][^'\r\n]*')`)
 	// XML：<password>…</password>、<botToken>…</botToken>
 	secretXML = regexp.MustCompile(`(?i)<[a-z0-9_.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|webhook)[a-z0-9_.-]*(?:\s[^>]*)?>\s*[^<\s]`)
 	// 连接串里带着口令：mongodb://用户:口令@主机、jdbc:mysql://用户:口令@主机
 	secretURL = regexp.MustCompile(`(?i)[a-z][a-z0-9+.-]*://[^\s/:@"']+:[^\s/@"']+@`)
-	// YAML 把值写在下一行：token:⏎  - xxxx，或者块文本 token: |⏎  xxxx
-	secretYAMLNext = regexp.MustCompile(`(?im)^[ \t]*[a-z0-9_.-]*(?:password|passwd|secret|token|api[_-]?key|webhook)[a-z0-9_.-]*[ \t]*:[ \t]*(?:[|>][-+0-9]*[ \t]*)?\r?\n[ \t]*-?[ \t]*["']?[^\s"']{4,}`)
+	// YAML 把值写在下一行：token:⏎  - xxxx（上一版的写法）
+	secretYAMLLoose = regexp.MustCompile(`(?im)^\s*[a-z0-9_.-]*(?:password|passwd|secret|token|api[_-]?key|webhook)[a-z0-9_.-]*\s*:\s*\r?\n\s*-?\s*["']?[^\s"']{4,}`)
+	// YAML 块文本：token: |⏎  xxxx、token: >-⏎  xxxx；键可以带引号
+	secretYAMLBlock = regexp.MustCompile(`(?im)^[ \t]*["']?[a-z0-9_.-]*(?:password|passwd|secret|token|api[_-]?key|webhook)[a-z0-9_.-]*["']?[ \t]*:[ \t]*[|>][-+0-9]*[ \t]*\r?\n[ \t]*[^\s#]`)
 )
 
 // maxSecretScan 内容最多读这么多来认；更大的配置文件认不全，干脆不打进包（列在提醒里）。
@@ -933,30 +951,76 @@ func looksSecret(rel, diskPath string, size int64) bool {
 }
 
 // secretContent 一份配置的内容里有没有像密码、令牌、密钥的东西（不看扩展名，什么文件都认一遍）。
+// 这只是尽量挑出来（导出时 config 默认不带，界面上请人发之前看一眼），规则见上面那几条正则。
 func secretContent(b []byte) bool {
+	// 上一版的规则，原样
 	for _, m := range secretKV.FindAllSubmatch(b, -1) {
-		key := strings.ToLower(string(m[1]))
-		v := strings.ToLower(strings.TrimSpace(string(m[2]) + string(m[3]) + string(m[4]))) // 三种写法只有一个有值
-		switch v {
-		case "", "true", "false", "null", "none", "~", "[]", "{}":
-			continue // 没填、开关
-		}
-		if strings.Contains(key, "passw") || strings.Contains(key, "pwd") || strings.Contains(key, "passphrase") {
+		key, v := strings.ToLower(string(m[1])), strings.ToLower(string(m[2]))
+		if passwordKey(key) {
 			return true // 口令再短、全是数字也是口令
 		}
-		countLike := false
-		for _, w := range secretCountWords {
-			if strings.Contains(key, w) {
-				countLike = true
-				break
-			}
-		}
-		if countLike && (len(v) < 6 || strings.Trim(v, "0123456789.-") == "") {
-			continue // max_tokens = 100、token_count: 5 这类
+		if len(v) < 6 || v == "true" || v == "false" || strings.Trim(v, "0123456789.-") == "" {
+			continue
 		}
 		return true
 	}
-	return secretPass.Match(b) || secretXML.Match(b) || secretURL.Match(b) || secretYAMLNext.Match(b)
+	if secretPass.Match(b) || secretXML.Match(b) || secretURL.Match(b) || secretYAMLLoose.Match(b) {
+		return true
+	}
+	// 加上的规则
+	for _, m := range secretKVQuoted.FindAllSubmatch(b, -1) {
+		v := strings.TrimSpace(string(m[2]) + string(m[3])) // 两种引号只有一个有值
+		if v == "" {
+			continue // 没填
+		}
+		if passwordKey(strings.ToLower(string(m[1]))) || !countKey(string(m[1])) || (len(v) >= 6 && strings.Trim(v, "0123456789.-") != "") {
+			return true
+		}
+	}
+	for _, m := range secretKVBare.FindAllSubmatch(b, -1) {
+		v := strings.ToLower(string(m[2]))
+		switch v {
+		case "true", "false", "null", "none", "~", "yes", "no", "on", "off":
+			continue // 开关、没填
+		}
+		if passwordKey(strings.ToLower(string(m[1]))) || !countKey(string(m[1])) || (len(v) >= 6 && strings.Trim(v, "0123456789.-") != "") {
+			return true
+		}
+	}
+	return secretPassQuoted.Match(b) || secretYAMLBlock.Match(b)
+}
+
+// passwordKey 键名（小写）是不是口令一类。
+func passwordKey(key string) bool {
+	return strings.Contains(key, "passw") || strings.Contains(key, "pwd") || strings.Contains(key, "passphrase")
+}
+
+// countKey 键名按 _ . - 和小写转大写的地方分段以后，有没有一段是计数、开关、上限一类的词（secretCountWords）。
+func countKey(key string) bool {
+	var seg []rune
+	flush := func() bool {
+		hit := len(seg) > 0 && secretCountWords[strings.ToLower(string(seg))]
+		seg = seg[:0]
+		return hit
+	}
+	prevLower := false
+	for _, r := range key {
+		switch {
+		case r == '_' || r == '.' || r == '-':
+			if flush() {
+				return true
+			}
+			prevLower = false
+			continue
+		case r >= 'A' && r <= 'Z' && prevLower:
+			if flush() {
+				return true
+			}
+		}
+		seg = append(seg, r)
+		prevLower = (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+	}
+	return flush()
 }
 
 func hashFileBoth(path string) (sha1Hex string, sha512Hex string, size int64, err error) {

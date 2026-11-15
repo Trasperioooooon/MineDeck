@@ -747,7 +747,7 @@ func pendingDestination(i *Instance, rel string) (string, error) {
 		return "", err
 	}
 	actual, err := filepath.Rel(root, real)
-	if err != nil || !filepath.IsLocal(actual) || actual == "." {
+	if err != nil || !filepath.IsLocal(actual) || actual == "." || !InsideReal(root, real) {
 		return "", fmt.Errorf("这个文件的实际位置不在服务器文件夹内")
 	}
 	actual = filepath.ToSlash(actual)

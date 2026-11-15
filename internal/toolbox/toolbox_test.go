@@ -663,6 +663,16 @@ func TestSecretContent(t *testing.T) {
 		"token: >-\n  abcdefgh1234",
 		"api_key=12345678",
 		"discordBotToken: '123456'",
+		// 第三轮指出的：引号里的 false / none 也是值；换行写的值（上一版认得）；admin、personal 里带着 min、per；pass 带引号；JSON 里纯数字
+		"password=\"false\"",
+		"password=\"none\"",
+		"\"token\":\n  abcdefgh1234",
+		"password:\n  ab",
+		"admin_api_key=12345678",
+		"personalAccessToken=12345678",
+		"pass=\" abc123\"",
+		"pass=\";abc123\"",
+		"{\"apiKey\": 12345678}",
 	}
 	for _, c := range secret {
 		if !secretContent([]byte(c)) {
@@ -678,6 +688,11 @@ func TestSecretContent(t *testing.T) {
 		"max_tokens = 100\ntoken_count: 5\n",
 		"password = \"\"\nrcon.password=\n",
 		"secret: null\n",
+		// 第三轮指出的误判：空集合、只有注释
+		"tokens = []\n",
+		"secret = {}\n",
+		"api_key: # optional\n",
+		"tokensPerSecond = 20\ntokenCount: 3\n",
 	}
 	for _, c := range clean {
 		if secretContent([]byte(c)) {

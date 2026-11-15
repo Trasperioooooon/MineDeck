@@ -270,29 +270,50 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await mock({ instReset: true }); }
   });
 
-  await run("保存条：要下载 Java 时保存途中又改了参数，不跳去任务页，改的留着仍算未保存；再保存不重复下载，提示里的「看进度」去任务页（Codex 复审 beta.3 第二轮）", async () => {
+  await run("保存条：选的 Java 要先下载时，保存途中这一页的输入都锁着，保存完去任务页（Codex 复审 beta.3 第二、三轮）", async () => {
     const mock = b => page.evaluate(b => fetch("/__mock/state", { method: "POST", body: JSON.stringify(b) }), b);
     await mock({ instReset: true });
     try {
       await page.goto(url(`#/inst/${encodeURIComponent("机械动力整合包")}/jvm`)); await settle(900);
       await page.selectOption("#jm-java", { index: await page.$eval("#jm-java", s => [...s.options].findIndex(x => x.textContent.startsWith("Java 25（"))) });
       await page.fill("#jm-jvm", "-XX:+UseZGC");
+      const since = reqs.length;
+      let mid = null;
       await gatePut("**/java", async (requested, release) => {
         await page.click('[data-sb="save"]'); await requested;
-        await page.fill("#jm-jvm", "-XX:+UseShenandoahGC");
+        mid = await page.evaluate(() => ({ jvm: $("#jm-jvm").disabled, java: $("#jm-java").disabled, mem: $("#jm-mem").disabled, aikar: $("#jm-aikar").disabled }));
         release();
-        await page.waitForFunction(() => [...document.querySelectorAll(".toast")].some(t => t.textContent.includes("开始下载 Java 25")));
+        await page.waitForFunction(() => location.hash === "#/task/task-java");
       });
-      await settle(300);
-      const v = await page.evaluate(() => ({ url: location.hash, jvm: $("#jm-jvm").value, bar: $(".sb-text").textContent }));
-      assert(v.url.endsWith("/settings/jvm") && v.jvm === "-XX:+UseShenandoahGC" && v.bar === "1 项修改未保存", "途中改了不该跳走、改的仍算未保存：" + JSON.stringify(v));
-      const since = reqs.length;
-      await page.click('[data-sb="save"]'); await settle(700);
-      assert(!reqs.slice(since).some(r => r.m === "PUT" && r.u.endsWith("/java")), "再保存不该重复发起下载");
-      assert((lastPut(since, "/settings") || {}).extraJvm?.includes("-XX:+UseShenandoahGC"), "再保存应存上途中改的参数");
-      assert(await page.$eval('[data-sb="save"]', b => b.disabled), "存完以后不该还有没保存的：" + await page.textContent(".sb-text"));
-      await page.locator(".toast", { hasText: "开始下载 Java 25" }).locator("button", { hasText: "看进度" }).click(); await settle(600);
-      assert(page.url().endsWith("#/task/task-java"), "「看进度」应去任务页：" + page.url());
+      assert(mid && mid.jvm && mid.java && mid.mem && mid.aikar, "保存途中输入应锁着：" + JSON.stringify(mid));
+      assert((lastPut(since, "/settings") || {}).extraJvm?.includes("-XX:+UseZGC"), "参数应先存上");
+    } finally { await mock({ instReset: true }); }
+  });
+
+  await run("保存条：不用下载的 Java 和普通保存不锁输入；保存失败以后锁着的输入放开（Codex 复审 beta.3 第三轮）", async () => {
+    const mock = b => page.evaluate(b => fetch("/__mock/state", { method: "POST", body: JSON.stringify(b) }), b);
+    await mock({ instReset: true });
+    const fail = route => route.request().method() === "PUT" ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ ok: false, error: "换不了" }) }) : route.continue();
+    try {
+      await page.goto(url(`#/inst/${encodeURIComponent("机械动力整合包")}/jvm`)); await settle(900);
+      await page.fill("#jm-jvm", "-XX:+UseZGC");
+      let mid = null;
+      await gatePut("**/settings", async (requested, release) => {
+        await page.click('[data-sb="save"]'); await requested;
+        mid = await page.$eval("#jm-jvm", e => e.disabled);
+        release();
+        await page.waitForFunction(() => [...document.querySelectorAll(".toast")].some(t => t.textContent.includes("已保存内存与 JVM 参数")));
+      });
+      assert(mid === false, "普通保存途中不该锁输入");
+      await page.route("**/java", fail);
+      try {
+        await page.selectOption("#jm-java", { index: await page.$eval("#jm-java", s => [...s.options].findIndex(x => x.textContent.startsWith("Java 25（"))) });
+        await page.click('[data-sb="save"]');
+        await page.waitForFunction(() => [...document.querySelectorAll(".toast")].some(t => t.textContent.includes("保存失败")));
+        await settle(200);
+        const v = await page.evaluate(() => ({ jvm: $("#jm-jvm").disabled, java: $("#jm-java").disabled, url: location.hash }));
+        assert(!v.jvm && !v.java && v.url.endsWith("/settings/jvm"), "保存失败以后应放开输入、留在本页：" + JSON.stringify(v));
+      } finally { await page.unroute("**/java", fail); }
     } finally { await mock({ instReset: true }); }
   });
 
@@ -7489,11 +7510,32 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
             await page.fill("#mp-name", "改过的名字"); await settle(500);
             const draftPuts = () => reqs.slice(since).filter(r => r.m === "PUT" && r.u === "/api/toolbox/mrpack/draft").map(r => JSON.parse(r.b || "{}"));
             assert(!draftPuts().length, "草稿读回来以前不该存：" + JSON.stringify(draftPuts()));
+            assert(await page.isDisabled('#mp-src [data-src="instance"]'), "草稿读回来以前来源切换应锁着");
             releaseDraft(); await settle(700);
             const put = draftPuts().pop();
             assert(put && put.name === "改过的名字" && put.versionId === "2.1.0", "读回来以后存的应是合起来的那份：" + JSON.stringify(put));
             assert((await page.$eval("#mp-ver", e => e.value)) === "2.1.0" && (await page.$eval("#mp-name", e => e.value)) === "改过的名字", "没动过的版本号补上，改过的名称留着");
           } finally { releaseDraft(); await page.unroute("**/api/toolbox/mrpack/draft", holdDraft); }
+          await page.fill("#mp-name", "好友周目整合包"); await settle(400);
+          // 读草稿失败：这一次不自动存，存好的草稿不被默认值盖掉（第三轮）
+          const failDraft = route => route.request().method() === "GET" ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ ok: false, error: "读不出来" }) }) : route.continue();
+          await page.route("**/api/toolbox/mrpack/draft", failDraft);
+          try {
+            const since = reqs.length;
+            await page.goto(url("#/toolbox/mrpack-export"));
+            await page.waitForSelector("#mp-name"); await settle(500);
+            await page.fill("#mp-name", "读失败时改的"); await settle(600);
+            assert(!reqs.slice(since).some(r => r.m === "PUT" && r.u === "/api/toolbox/mrpack/draft"), "读草稿失败时不该自动存");
+          } finally { await page.unroute("**/api/toolbox/mrpack/draft", failDraft); }
+          // 改完马上切到「从已有服务器导出」：排着的保存当场存掉，存的是草稿里的名字，不是切过去以后填上的服务器名（第三轮）
+          await page.goto(url("#/toolbox/mrpack-export"));
+          await page.waitForSelector("#mp-modcart-host #mc-hits"); await settle(400);
+          const since2 = reqs.length;
+          await page.fill("#mp-name", "切走前的名字");
+          await page.click('#mp-src [data-src="instance"]'); await settle(600);
+          const put2 = reqs.slice(since2).filter(r => r.m === "PUT" && r.u === "/api/toolbox/mrpack/draft").map(r => JSON.parse(r.b || "{}"));
+          assert(put2.length === 1 && put2[0].name === "切走前的名字", "切走时应当场存草稿里的名字：" + JSON.stringify(put2));
+          await page.click('#mp-src [data-src="draft"]'); await settle(300);
           await page.fill("#mp-name", "好友周目整合包"); await settle(400);
         }
 

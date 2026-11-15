@@ -409,3 +409,26 @@ func TestDifficultyCommand(t *testing.T) {
 		t.Errorf("hardcore=false: got %q", got)
 	}
 }
+
+// 规范路径逐字比较：打开了「区分大小写」的文件夹里 Foo 和 foo 是两个文件夹，外面的 foo 不能算在 Foo 里面（Codex 复审 beta.3 第三轮）
+func TestInsideRealIsExact(t *testing.T) {
+	root := `\Device\HarddiskVolume3\srv\Foo`
+	cases := []struct {
+		real string
+		want bool
+	}{
+		{root, true},
+		{root + `\config\a.toml`, true},
+		{`\Device\HarddiskVolume3\srv\foo\config\a.toml`, false},
+		{`\Device\HarddiskVolume3\srv\FooBar\a.toml`, false},
+		{`\Device\HarddiskVolume3\srv`, false},
+	}
+	for _, c := range cases {
+		if got := InsideReal(root, c.real); got != c.want {
+			t.Errorf("InsideReal(%q, %q) = %v, want %v", root, c.real, got, c.want)
+		}
+	}
+	if !InsideReal(root+`\`, root+`\x`) || InsideReal("", `\x`) {
+		t.Error("根末尾带反斜杠、根为空")
+	}
+}
