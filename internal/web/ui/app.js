@@ -589,7 +589,7 @@ async function quitApp() {
 (function initQuit() {
   const b = $("#sb-quit");
   if (!b) return;
-  b.innerHTML = icon("power") + "<span>退出</span>";
+  b.innerHTML = icon("power") + "<span>退出 MineDeck</span>";
   b.onclick = quitApp;
 })();
 (function initTheme() {
@@ -4697,7 +4697,7 @@ function setStorage(body, info) {
       settingsHead("备份保留份数", "") +
       group(riRow({ ico: "clock", title: "每台服务器保留几份备份", attrs: `id="set-backup-keep"`,
         sub: "再做一份新的备份时，超出这个数的最旧那几份会删掉（「还原前自动」留的那份也算在里面）。所有服务器共用这一个数，改了下次备份时生效。",
-        field: `<input type="number" id="set-bk-keep" min="1" max="1000" value="${keep}" aria-label="每台服务器保留几份备份"><span class="ri-unit">份</span><button class="btn" id="set-bk-keep-save" aria-label="保存备份保留份数">保存</button>` }), { ico: true });
+        field: `<input type="number" id="set-bk-keep" min="1" max="1000" value="${keep}" style="max-width:120px" aria-label="每台服务器保留几份备份"><span class="ri-unit">份</span><button class="btn" id="set-bk-keep-save" aria-label="保存备份保留份数">保存</button>` }), { ico: true });
     body.querySelectorAll("[data-open]").forEach(b => b.onclick = () =>
       api("/api/openpath", { method: "POST", body: { path: b.dataset.open } }).catch(e => toastErr("无法打开文件夹", e)));
     body.querySelectorAll("[data-pick]").forEach(b => b.onclick = async () => {
@@ -4896,8 +4896,8 @@ const AI_FEATS = [{ id: "assistant", name: "AI 助手" }, { id: "gamechat", name
 const aiOverview = () => settingsHead("AI 能做的三件事", "三样用的都是下面这一个服务商和 Key，每天的额度分开算。") +
   group(
     riRow({ ico: "sparkle", title: "AI 助手", sub: "标题栏右上角的「AI 助手」：问 MineDeck 的事，它先查日志和配置再回答；要改东西时先给你一张确认卡片，你点了才执行。" }) +
-    riRow({ ico: "player", title: "游戏内 AI", sub: "每台服务器的「扩展 → 游戏内 AI」：玩家在游戏聊天里叫它，它就在聊天里回话。代理端没有。" }) +
-    riRow({ ico: "world", title: "AI 伙伴", sub: "NeoForge、Forge 服务器的「扩展 → AI 伙伴」：游戏里一个像玩家一样陪玩的角色，玩家叫着它的名字跟它说话、让它帮忙。" }),
+    riRow({ ico: "server", title: "游戏内 AI", sub: "每台服务器的「扩展 → 游戏内 AI」：玩家在游戏聊天里叫它，它就在聊天里回话。代理端没有。" }) +
+    riRow({ ico: "player", title: "AI 伙伴", sub: "NeoForge、Forge 服务器的「扩展 → AI 伙伴」：游戏里一个像玩家一样陪玩的角色，玩家叫着它的名字跟它说话、让它帮忙。" }),
     { ico: true, attrs: `id="ai-overview"` }) +
   `<div class="hint ai-overview-go">游戏内 AI 和 AI 伙伴在服务器页上打开和设置：<a href="#/instances">去服务器列表</a>，点进一台服务器，打开「扩展」。</div>`;
 const fmtTokens = n => { n = +n || 0; return n >= 10000 ? (Math.round(n / 1000) / 10).toString() + " 万" : n.toLocaleString("en-US"); };

@@ -206,7 +206,10 @@ h3 { font-size: var(--fs-h3); line-height: 22px; font-weight: var(--fw-semibold)
 }
 .sb-theme:hover { background: var(--hover); color: var(--text); }
 .sb-theme .ico { width: 16px; height: 16px; }
-/* 侧栏底部的「退出」（可用性走查 R17）：开了「缩到托盘」以后点 × 不退出，窗口里一直找得到退出的地方 */
+/* 侧栏底部的「退出 MineDeck」（可用性走查 R17）：开了「缩到托盘」以后点 × 不退出，窗口里一直找得到退出的地方。
+   和主题键、版本号挤一行放不下（会折成两行字），单独占底部第二行；窄窗口下侧栏只剩图标，它也只剩图标 */
+.sb-foot { flex-wrap: wrap; }
+.sb-quit { order: 3; flex-basis: 100%; }
 .sb-quit:hover { color: var(--danger-text); }
 .sb-ver { margin-left: auto; padding-right: 6px; font: var(--fs-2xs) var(--mono); color: var(--muted); }
 
@@ -1231,6 +1234,7 @@ html[data-splash="play"] .splash-word { animation: label-in var(--dur-3) var(--e
   .nav-item span, .nav-item .key, .sb-theme span, .sb-ver { display: none; }
   .sb-foot { flex-direction: column; padding-inline: 0; }
   .sb-theme { justify-content: center; width: 100%; padding: 0; }
+  .sb-quit { flex-basis: auto; } /* 竖排时不撑满高度 */
   #main { padding: 24px 24px; }
   .settings-layout { gap: 20px; }
   .settings-nav { width: 168px; }

@@ -4905,7 +4905,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       try {
         await page.goto(url("#/instances")); await settle(500);
         const q = byName("button", "退出 MineDeck");
-        assert(await q.count() === 1 && await q.isVisible() && (await q.textContent()).trim() === "退出", "侧栏底部的退出");
+        assert(await q.count() === 1 && await q.isVisible() && (await q.textContent()).trim() === "退出 MineDeck", "侧栏底部的退出");
         assert(await page.$eval("#sb-quit", b => !!b.closest(".sb-foot")), "退出应在侧栏底部");
         await q.click(); await page.waitForSelector(".modal");
         assert((await page.textContent(".modal h3")).includes("退出 MineDeck？"), "要先确认");
