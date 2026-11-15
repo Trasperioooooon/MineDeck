@@ -73,6 +73,9 @@ func (m *Manager) startInstance(i *Instance) error {
 		return fmt.Errorf("这台服务器正在打包交接包，等打包完成后再启动")
 	}
 	m.beforeStart(i) // 不能持有 procMu：回调里会查实例状态
+	// 本软件别的服务器各用哪个端口、开着没有：端口被占时拿它说是谁占着、改成哪个（可用性走查 R08）。
+	// 要拿别的服务器的锁，所以在拿自己的锁之前查
+	peers := m.portPeers(i)
 	i.procMu.Lock()
 	defer i.procMu.Unlock()
 	if i.state != "" && i.state != "stopped" {
@@ -97,6 +100,20 @@ func (m *Manager) startInstance(i *Instance) error {
 	//（server-ip、server-port）；代理端的端口在它自己的配置文件里，不查（见 startPort）
 	if t, ok := startPort(i, i.ExtraJVM); ok { // 拿着 procMu，直接读 ExtraJVM
 		if err := checkBindPort(t); err != nil {
+			// 占着的是本软件管着的另一台（它没停着、端口一样）：报错点它的名字，再找一个能改成的端口，
+			// 详情页头给「改成 N 并启动」（R08）。以前一律说「被别的程序占着」，人去找别的程序找不到
+			var busy *portBusyError
+			if errors.As(err, &busy) {
+				for _, p := range peers {
+					if p.live && p.port == t.port {
+						busy.owner = p.name
+						break
+					}
+				}
+				if busy.owner != "" {
+					busy.suggest = freePortFrom(t, peers)
+				}
+			}
 			return i.startFailed(err, true)
 		}
 	}
@@ -121,7 +138,7 @@ func (m *Manager) startInstance(i *Instance) error {
 	if err := cmd.Start(); err != nil {
 		return i.startFailed(fmt.Errorf("启动失败: %w", err), true)
 	}
-	i.startErr = "" // 进程起来了：上次没启动成功的原因不再算数
+	i.startErr, i.startBusy = "", nil // 进程起来了：上次没启动成功的原因不再算数
 	assignToJob(cmd.Process)
 	pr := &proc{cmd: cmd, stdin: bufio.NewWriter(stdin)}
 	i.proc = pr
@@ -196,6 +213,11 @@ func (m *Manager) startInstance(i *Instance) error {
 // toConsole：控制台里还没有写过原因的（端口被占、进程起不来）补一行；找不到 Java 的那一行带着路径，调用方已经写过了。
 func (i *Instance) startFailed(err error, toConsole bool) error {
 	i.startErr = err.Error()
+	i.startBusy = nil
+	var busy *portBusyError
+	if errors.As(err, &busy) {
+		i.startBusy = &PortBusy{Port: busy.port, Owner: busy.owner, Suggest: busy.suggest}
+	}
 	if toConsole {
 		i.Console.Append("[MineDeck] 没能启动：" + i.startErr)
 	}
@@ -208,6 +230,17 @@ func (i *Instance) LastStartError() string {
 	i.procMu.Lock()
 	defer i.procMu.Unlock()
 	return i.startErr
+}
+
+// LastStartPortBusy 上一次没启动起来是因为端口被占着时，是哪个端口、谁占着、能改成哪个（R08）；别的原因或者没失败过时为 nil。
+func (i *Instance) LastStartPortBusy() *PortBusy {
+	i.procMu.Lock()
+	defer i.procMu.Unlock()
+	if i.startBusy == nil {
+		return nil
+	}
+	b := *i.startBusy
+	return &b
 }
 
 // Stop 优雅停止：发送 stop 命令，超时 30 秒后强杀。

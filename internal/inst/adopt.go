@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +24,8 @@ import (
 //     里面别的 JVM 参数带到自定义 JVM 参数里
 //   - eula.txt：原来没同意过、这次用户勾了同意时才写
 //   - log4j2_112-116.xml：1.12 ~ 1.16.5 的 log4shell 缓解配置，和新建时一样
+//   - server.properties 的 server-port：只在请求里的端口和文件里的不一样时改这一项（原来的端口和 MineDeck 里别的服务器撞了，
+//     界面默认换了一个，可用性走查 R08），别的项的值不变（存回去时非 ASCII 的字照 MineDeck 保存设置的一贯做法写成 \uXXXX）
 //
 // 接管失败不删任何东西（这个文件夹是用户的，不是半成品），并且把这次动过的那几个文件恢复原样：
 // 失败之后文件夹和接管之前一模一样。
@@ -39,6 +42,9 @@ type AdoptReq struct {
 	JavaMajor    int        `json:"javaMajor"` // 0 = 按 Minecraft 版本自动选
 	JavaPath     string     `json:"javaPath"`  // 指定用哪一个 java.exe（调用方保证是已知的 Java）；空 = 本机找，没有就下载
 	EULA         bool       `json:"eula"`
+	// Port 端口（可用性走查 R08）：0 或者和 server.properties 里现在的一样就不动；不一样就把 server-port 改成它
+	//（原来的端口和 MineDeck 里别的服务器撞了，界面默认换了一个）。代理端不看：它的端口在自己的配置文件里
+	Port int `json:"port"`
 }
 
 var adoptSteps = []string{"检查服务器文件夹", "准备 Java 运行时", "登记到 MineDeck"}
@@ -197,6 +203,12 @@ func (m *Manager) validateAdopt(req *AdoptReq) (*AdoptScan, error) {
 	}
 	if req.JavaMajor != 0 && (req.JavaMajor < 8 || req.JavaMajor > 30) {
 		return nil, fmt.Errorf("Java 版本应在 8 到 30 之间")
+	}
+	if req.Port < 0 || req.Port > 65535 {
+		return nil, fmt.Errorf("端口需为 1 ~ 65535 的整数")
+	}
+	if mcsrc.KindOf(req.Core) == mcsrc.KindProxy {
+		req.Port = 0 // 代理端的端口在它自己的配置文件里，server.properties 里的数它不读
 	}
 	if req.JavaPath != "" {
 		if req.JavaMajor == 0 {
@@ -367,9 +379,23 @@ func (m *Manager) runAdopt(ctx context.Context, t *tasks.Task, req AdoptReq, sc 
 	if kind != mcsrc.KindProxy {
 		touched = append(touched, "eula.txt", log4jXML)
 	}
+	// 端口要改（R08：原来的端口和 MineDeck 里别的服务器撞了）：server.properties 也算动过的，失败时一起恢复。不改端口就不碰它
+	newPort := 0
+	if req.Port > 0 && req.Port != propsPort(dir) {
+		newPort = req.Port
+		touched = append(touched, "server.properties")
+	}
 	restore, err := snapshotFiles(dir, touched)
 	if err != nil {
 		return err
+	}
+	if newPort > 0 {
+		old := propsPort(dir)
+		if err := ForceProp(filepath.Join(dir, "server.properties"), "server-port", strconv.Itoa(newPort)); err != nil {
+			restore()
+			return fmt.Errorf("没能改 server.properties 里的端口：%w", err)
+		}
+		t.Logf("server.properties 里的端口从 %d 改成了 %d（和 MineDeck 里别的服务器错开），朋友连的地址跟着变", old, newPort)
 	}
 	if err := m.writeAdoptFiles(ctx, t, inst, req, kind, known); err != nil {
 		restore()
@@ -382,8 +408,22 @@ func (m *Manager) runAdopt(ctx context.Context, t *tasks.Task, req AdoptReq, sc 
 	m.mu.Lock()
 	m.insts[req.Name] = inst
 	m.mu.Unlock()
-	t.Logf("接管完成 ✔ 存档、模组、插件和配置文件都没有动")
+	if newPort > 0 {
+		t.Logf("接管完成 ✔ 存档、模组、插件都没有动，配置文件只改了端口")
+	} else {
+		t.Logf("接管完成 ✔ 存档、模组、插件和配置文件都没有动")
+	}
 	return nil
+}
+
+// propsPort 文件夹里 server.properties 写的端口，按服务端的读法（同 Instance.Port）；没写、读不出来按服务端默认的 25565。
+func propsPort(dir string) int {
+	if v, ok := javaPropsOf(filepath.Join(dir, "server.properties"))["server-port"]; ok {
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 25565
 }
 
 // writeAdoptFiles 接管时往文件夹里写的全部东西：eula.txt、log4shell 缓解、两份备份、run.bat、instance.json。

@@ -6231,6 +6231,241 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       } finally { await page.setViewportSize({ width: 1280, height: 850 }); await fState({ modCart: { reset: true }, taskStage: 2, instReset: true }); }
     });
   }
+  // ==================== beta.3 端口与没装上的文件（R08 R09） ====================
+  // docs/可用性走查-2026-11-14.md 第八节 R08、R09（界面），外加换地图的取消显示「已取消」。用例名都以「beta.3 端口」开头，node tests.js "beta.3 端口" 只跑这一块。
+  // 仿真后端用到的：GET /api/ports/suggest、启动时端口和另一台没停着的服务器撞了、改 server-port 时 port 跟着变、restart（模拟程序重开），
+  // 见 server.js「/__mock/state」说明里 beta.3 R08 那几行。仿真里四台服务器占着 25565、25566、25567 和代理端的 25577，默认端口应是 25568
+  {
+    const xState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
+    const PACKX = "机械动力整合包", SURVX = "生存服 · 朋友";
+    const toWizardFinal = async hash => {
+      await page.goto(url(hash)); await page.waitForSelector('.core-card[data-id="paper"]');
+      await page.click('.core-card[data-id="paper"]'); await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
+      await page.click("#wnext"); await page.waitForSelector("#build-rec b");
+      await page.click("#wnext"); await page.waitForSelector("#wiz-mod-body");
+      await page.click("#wnext"); await page.waitForSelector("#f-port");
+      await page.waitForFunction(() => document.querySelector("#f-port-note") !== null);
+    };
+    const portView = (input, note) => page.evaluate(([i, n]) => ({ v: $(i).value, note: $(n).textContent.trim(), warn: $(n).classList.contains("warn"),
+      invalid: $(i).classList.contains("invalid"), err: ($(i).closest(".field").querySelector(".field-err") || {}).textContent || "" }), [input, note]);
+
+    await run("beta.3 端口 R08：新建、用已有地图开服、导入整合包、接管四处的默认端口避开别的服务器在用的，并写明换过；「返回修改」填回来的不换", async () => {
+      try {
+        await xState({ instReset: true, taskStage: 4, modCart: { reset: true } });
+        // 从零创建：25565 被生存服用着，默认 25568，写明换过；提交的就是它
+        await toWizardFinal("#/create/new");
+        let f = await portView("#f-port", "#f-port-note");
+        assert(f.v === "25568" && f.note.includes("25565 已被「生存服 · 朋友」使用，已改为 25568") && !f.warn && !f.invalid, "向导的默认端口：" + JSON.stringify(f));
+        assert(!(await page.textContent("#main")).includes("端口（默认 25565）"), "端口的标签不该再写「默认 25565」");
+        await page.fill("#f-name", "端口默认值测试"); await page.check("#f-eula");
+        await page.click("#wcreate"); await page.waitForFunction(() => location.hash === "#/task/task-1", null, { timeout: 8000 });
+        let st = await xState({});
+        assert(st.lastCreate && st.lastCreate.port === 25568, "新建的请求应带默认端口 25568：" + JSON.stringify(st.lastCreate && st.lastCreate.port));
+        await xState({ instReset: true });
+        // 用已有地图开服：同一个向导，同样避开
+        await toWizardFinal("#/create/world");
+        f = await portView("#f-port", "#f-port-note");
+        assert(f.v === "25568" && f.note.includes("已改为 25568"), "用已有地图开服的默认端口：" + JSON.stringify(f));
+        // 导入整合包
+        await page.goto(url("#/create/import")); await page.waitForSelector("#im-port-note");
+        await page.waitForFunction(() => $("#im-port").value === "25568", null, { timeout: 3000 }).catch(() => {});
+        f = await portView("#im-port", "#im-port-note");
+        assert(f.v === "25568" && f.note.includes("25565 已被「生存服 · 朋友」使用，已改为 25568"), "导入整合包的默认端口：" + JSON.stringify(f));
+        await page.setInputFiles("#im-file", { name: "端口测试.mrpack", mimeType: "application/zip", buffer: Buffer.from("PK\u0003\u0004mrpack") });
+        await page.check("#im-eula"); await page.click("#im-go"); await settle(800);
+        st = await xState({});
+        assert(st.lastImport && st.lastImport.port === "25568", "导入整合包的请求：" + JSON.stringify(st.lastImport && st.lastImport.port));
+        // 「返回修改」：填回来的端口不被默认值盖掉（撞了照样提示）
+        await xState({ taskList: [{ id: "task-1", title: "导入整合包 端口测试（forge 1.20.1）", ended: true, error: "下载 mods/a.jar 失败: 连接超时" }] });
+        await page.goto(url("#/create/import")); await page.waitForSelector("#im-port-note");
+        await page.setInputFiles("#im-file", { name: "端口测试.mrpack", mimeType: "application/zip", buffer: Buffer.from("PK\u0003\u0004mrpack") });
+        await page.fill("#im-port", "25566"); await page.check("#im-eula");
+        await page.click("#im-go"); await page.waitForSelector("#t-back-edit");
+        await page.click("#t-back-edit"); await page.waitForSelector("#im-port-note"); await settle(300);
+        f = await portView("#im-port", "#im-port-note");
+        assert(f.v === "25566" && f.warn && f.note.includes("机械动力整合包"), "返回修改填回来的端口不该被换掉，撞了照样提示：" + JSON.stringify(f));
+        await xState({ taskList: [] });
+        // 接管：识别出来的 25565 撞了生存服，默认换成 25568，并写明会改 server.properties；提交带上它
+        const scan = { dir: "D:\\old\\S1", name: "S1", core: "paper", mc: "1.21.4", build: "", launchTarget: "jar:paper.jar",
+          targets: [{ target: "jar:paper.jar", label: "paper.jar（Paper 1.21.4）", core: "paper", mc: "1.21.4", build: "", javaMajor: 0 }],
+          javaMajor: 0, xmxMb: 0, extraJvm: [], port: 25565, eula: true, hasWorld: true, managed: false, notes: [], whitelistOn: false };
+        await xState({ adoptScan: scan });
+        await page.goto(url("#/create/adopt")); await page.waitForSelector("#ad-dir");
+        await page.fill("#ad-dir", "D:\\old\\S1"); await page.keyboard.press("Enter"); await page.waitForSelector("#ad-port");
+        f = await portView("#ad-port", "#ad-port-note");
+        assert(f.v === "25568" && f.note.includes("25565 已被「生存服 · 朋友」使用，已改为 25568") && f.note.includes("server.properties 里的端口从 25565 改成 25568"), "接管的默认端口：" + JSON.stringify(f));
+        await page.click("#ad-go"); await settle(800);
+        st = await xState({});
+        assert(st.lastAdopt && st.lastAdopt.port === 25568, "接管的请求应带新端口：" + JSON.stringify(st.lastAdopt));
+        // 识别出来的端口没撞：沿用，不提示要改配置；代理端没有端口这一项、请求里是 0
+        await xState({ adoptScan: { ...scan, port: 25601 } });
+        await page.goto(url("#/create/adopt")); await page.waitForSelector("#ad-dir");
+        await page.fill("#ad-dir", "D:\\old\\S1"); await page.keyboard.press("Enter"); await page.waitForSelector("#ad-port");
+        f = await portView("#ad-port", "#ad-port-note");
+        assert(f.v === "25601" && f.note === "", "没撞就沿用原来的端口、不提示：" + JSON.stringify(f));
+        await page.selectOption("#ad-core", "velocity");
+        assert(await page.$eval("#ad-port-f", e => e.hidden), "代理端不该有端口这一项");
+        await page.click("#ad-go"); await settle(800);
+        st = await xState({});
+        assert(st.lastAdopt && st.lastAdopt.port === 0, "代理端的请求端口应是 0：" + JSON.stringify(st.lastAdopt));
+      } finally { await xState({ instReset: true, adoptScan: null, taskList: [], taskStage: 2, modCart: { reset: true } }); }
+    });
+
+    await run("beta.3 端口 R08：手填的端口和别的服务器撞了当场提示（写明是哪台、开着没有，给一个没人用的），不标红、不拦着创建；改成没人用的提示就没了", async () => {
+      try {
+        await xState({ instReset: true, taskStage: 4, modCart: { reset: true } });
+        await toWizardFinal("#/create/new");
+        await page.fill("#f-port", "25566");
+        let f = await portView("#f-port", "#f-port-note");
+        assert(f.warn && f.note.includes("端口 25566 已被你的服务器「机械动力整合包」使用") && f.note.includes("比如 25568") && !f.note.includes("开着") && !f.invalid && !f.err,
+          "撞了停着的服务器：" + JSON.stringify(f));
+        await page.fill("#f-port", "25565");
+        f = await portView("#f-port", "#f-port-note");
+        assert(f.warn && f.note.includes("生存服 · 朋友") && f.note.includes("它现在开着"), "撞了开着的服务器：" + JSON.stringify(f));
+        await page.fill("#f-port", "25570");
+        f = await portView("#f-port", "#f-port-note");
+        assert(f.note === "" && !f.warn, "改成没人用的以后提示应消失：" + JSON.stringify(f));
+        // 撞了也能创建（两台从不同时开的服务器可以共用一个端口）
+        await page.fill("#f-port", "25566"); await page.fill("#f-name", "撞端口也能建"); await page.check("#f-eula");
+        await page.click("#wcreate"); await page.waitForFunction(() => location.hash === "#/task/task-1", null, { timeout: 8000 });
+        const st = await xState({});
+        assert(st.lastCreate && st.lastCreate.port === 25566, "撞了只提示、不拦着：" + JSON.stringify(st.lastCreate && st.lastCreate.port));
+        // 导入整合包也一样
+        await xState({ instReset: true });
+        await page.goto(url("#/create/import")); await page.waitForSelector("#im-port-note");
+        await page.fill("#im-port", "25567");
+        f = await portView("#im-port", "#im-port-note");
+        assert(f.warn && f.note.includes("原版快照测试") && f.note.includes("它现在开着"), "导入整合包手填撞了：" + JSON.stringify(f));
+      } finally { await xState({ instReset: true, taskStage: 2, modCart: { reset: true } }); }
+    });
+
+    await run("beta.3 端口 R08：启动时端口被自己的另一台服务器占着，报错点它的名字（卡片和页头都是），「改成 N 并启动」一步改端口、保存、启动", async () => {
+      try {
+        await xState({ instReset: true });
+        await xState({ inst: { name: PACKX, port: 25565 }, starts: [] }); // 和开着的生存服撞了
+        await page.goto(url(`#/inst/${encodeURIComponent(PACKX)}/players`)); await page.waitForSelector("#d-start");
+        await page.click("#d-start"); await page.waitForSelector("#d-start-fail");
+        assert(await toastHas("端口 25565 被你的服务器「生存服 · 朋友」占着"), "右上角的提示应点名占着端口的服务器");
+        const n = await page.evaluate(() => ({ text: $("#d-start-fail").textContent, fix: ($("#d-start-fail [data-port-fix]") || {}).textContent || "", edit: !!$("#d-start-fail [data-port-edit]") }));
+        assert(n.text.includes("端口 25565 被你的服务器「生存服 · 朋友」占着") && !n.text.includes("别的程序") && n.fix.trim() === "改成 25566 并启动" && !n.edit,
+          "页头的提示：" + JSON.stringify(n));
+        await page.goto(url("#/instances")); await page.waitForSelector(`.card[data-name="${PACKX}"] .inst-fail`);
+        const card = await page.$eval(`.card[data-name="${PACKX}"] .inst-fail`, e => e.textContent);
+        assert(card.includes("端口 25565 被你的服务器「生存服 · 朋友」占着"), "卡片上也点名：" + card);
+        // 一步：改 server-port、保存、启动；起来了提示就没了
+        await page.goto(url(`#/inst/${encodeURIComponent(PACKX)}/players`)); await page.waitForSelector("#d-start-fail [data-port-fix]");
+        const t0 = reqs.length;
+        await page.click("#d-start-fail [data-port-fix]");
+        await page.waitForSelector("#d-start-fail", { state: "detached", timeout: 5000 });
+        const st = await xState({});
+        const seq = reqs.slice(t0).filter(r => r.m === "PUT" || r.m === "POST").map(r => r.m + " " + decodeURIComponent(r.u));
+        assert(JSON.stringify(st.lastPropsPut) === JSON.stringify({ inst: PACKX, pairs: [{ key: "server-port", value: "25566" }] }), "应把 server-port 改成 25566：" + JSON.stringify(st.lastPropsPut));
+        assert(seq.indexOf(`PUT /api/instances/${PACKX}/properties`) >= 0 && seq.indexOf(`PUT /api/instances/${PACKX}/properties`) < seq.lastIndexOf(`POST /api/instances/${PACKX}/start`),
+          "先改端口再启动：" + JSON.stringify(seq));
+        assert(JSON.stringify(st.starts.slice(-1)) === JSON.stringify([{ inst: PACKX, port: 25566 }]), "改好以后用新端口启动：" + JSON.stringify(st.starts));
+        assert(await toastHas("端口改成了 25566，正在启动"), "应说端口改成了几、正在启动");
+      } finally { await xState({ instReset: true, starts: [] }); }
+    });
+
+    await run("beta.3 端口 R08：端口被别的程序占着时按钮写「改端口」，点了去「设置 → 常用」里的端口那一项；没占着端口的启动失败没有这个按钮", async () => {
+      try {
+        await xState({ instReset: true });
+        await xState({ inst: { name: PACKX, startFail: "端口 25566 被别的程序占着，换个端口或关掉占用它的程序", startPortBusyFail: { port: 25566 } } });
+        await page.goto(url(`#/inst/${encodeURIComponent(PACKX)}/players`)); await page.waitForSelector("#d-start");
+        await page.click("#d-start"); await page.waitForSelector("#d-start-fail [data-port-edit]");
+        const n = await page.evaluate(() => ({ text: $("#d-start-fail").textContent, edit: $("#d-start-fail [data-port-edit]").textContent.trim(), fix: !!$("#d-start-fail [data-port-fix]") }));
+        assert(n.text.includes("被别的程序占着") && n.edit === "改端口" && !n.fix, "别的程序占着：" + JSON.stringify(n));
+        await page.click("#d-start-fail [data-port-edit]"); await page.waitForSelector('[data-k="server-port"]'); await settle(300);
+        const p = await page.evaluate(() => ({ h: decodeURIComponent(location.hash), focus: document.activeElement && document.activeElement.dataset.k }));
+        assert(p.h === `#/inst/${PACKX}/settings/common` && p.focus === "server-port", "去设置里的端口：" + JSON.stringify(p));
+        // 在「设置 → 常用」上点「改端口」：不换页，端口那一项照样亮起来
+        await page.evaluate(() => document.activeElement.blur());
+        await page.click("#d-start-fail [data-port-edit]"); await page.waitForSelector('[data-k="server-port"]'); await settle(400);
+        assert(await page.evaluate(() => document.activeElement && document.activeElement.dataset.k) === "server-port", "已经在常用设置里也该聚焦到端口");
+        // 别的原因没起来（找不到 Java 这类）：没有改端口的按钮
+        await xState({ inst: { name: PACKX, startFail: "找不到这台服务器用的 Java，请到「设置 → 启动与内存」里重新选一个 Java。", startPortBusyFail: null } });
+        await page.goto(url(`#/inst/${encodeURIComponent(PACKX)}/players`)); await page.waitForSelector("#d-start");
+        await page.click("#d-start"); await page.waitForSelector("#d-start-fail");
+        assert(!(await page.$("#d-start-fail [data-port-edit]")) && !(await page.$("#d-start-fail [data-port-fix]")), "不是端口的问题不该给改端口");
+      } finally { await xState({ instReset: true }); }
+    });
+
+    await run("beta.3 端口 R09：详情页头常驻「N 个整合包文件没装上」，「处理」打开处理面板，处理完提示消失；跳过的在插件 / 模组页「整合包里没装上的」能再处理；程序重开以后照样找得到", async () => {
+      const task = { id: "task-imr", title: "导入整合包 R09 界面（forge 1.20.1）", ended: true, result: PACKX,
+        warnings: [{ kind: "import-pending", title: "2 个文件待处理", note: "这些文件没法自动下载。" }],
+        pending: [{ id: "p1", path: "mods/no-hash.jar", reason: "nohash", note: "没有校验值", options: ["skip", "local"] },
+          { id: "p2", path: "mods/host.jar", reason: "host", host: "files.example.net", note: "站点不在允许列表里", urls: ["https://files.example.net/host.jar"], options: ["local", "skip", "trust"] }] };
+      const enc = encodeURIComponent(PACKX);
+      try {
+        await xState({ instReset: true, taskList: [task], trustedHosts: [] });
+        await xState({ restart: true }); // 程序重开：导入任务没了，清单在服务器文件夹里
+        let st = await xState({});
+        assert(st.taskList.length === 0, "重开以后任务记录应没了");
+        await page.goto(url(`#/inst/${enc}/console`)); await page.waitForSelector("#d-import-pending");
+        let n = await page.textContent("#d-import-pending");
+        assert(n.includes("这台服务器有 2 个整合包文件没装上") && (await page.textContent("#d-import-pending [data-pnd-open]")).trim() === "处理", "页头的提示：" + n);
+        // 别的服务器没有这一条
+        await page.goto(url(`#/inst/${encodeURIComponent(SURVX)}/console`)); await page.waitForSelector("#d-status"); await settle(400);
+        assert(!(await page.$("#d-import-pending")), "没有没装上的文件的服务器不该有这一条");
+        // 点「处理」：叠层里就是处理面板，跳过 p1 以后页头写 1 个
+        await page.goto(url(`#/inst/${enc}/console`)); await page.waitForSelector("#d-import-pending [data-pnd-open]");
+        await page.click("#d-import-pending [data-pnd-open]"); await page.waitForSelector(".pnd-modal #d-pending-box .pnd-item");
+        const t0 = reqs.length;
+        await page.check('.pnd-modal input[name="pnd-p1"][value="skip"]'); await page.click("#d-pending-apply"); await settle(400);
+        assert((await page.textContent("#d-import-pending")).includes("有 1 个整合包文件没装上"), "跳过一个以后页头应写 1 个");
+        assert(await page.locator(".pnd-modal .pnd-skipped").count() === 1, "跳过的收在面板下面");
+        await page.check('.pnd-modal input[name="pnd-p2"][value="local"]'); await page.fill('.pnd-modal .pnd-item[data-id="p2"] input.pnd-local', "D:\\老服务器\\mods\\host.jar");
+        await page.click("#d-pending-apply"); await settle(400);
+        assert(!(await page.$("#d-import-pending")), "都处理完（跳过的不算）页头那一条应消失");
+        assert((await page.textContent(".pnd-modal")).includes("没装上的文件都处理完了"), "面板里应写都处理完了");
+        const posts = reqs.slice(t0).filter(r => r.m === "POST").map(r => decodeURIComponent(r.u));
+        assert(posts.length === 2 && posts.every(u => u === `/api/instances/${PACKX}/import-pending`), "处置走按服务器的接口：" + JSON.stringify(posts));
+        await page.keyboard.press("Escape"); await settle(300);
+        assert(!(await page.$(".pnd-modal")), "Esc 应关掉叠层");
+        // 再重开一次：跳过的那个还在服务器上，页头不提示，插件 / 模组页里「整合包里没装上的」能再处理
+        await xState({ restart: true });
+        await page.goto(url(`#/inst/${enc}/addons`)); await page.waitForSelector("#ad-pending-box .pnd-skipped");
+        const blk = await page.evaluate(() => ({ hidden: $("#ad-pending").hidden, head: $("#ad-pnd-h").textContent, skipped: document.querySelectorAll("#ad-pending .pnd-skipped").length,
+          notice: !!$("#d-import-pending") }));
+        assert(!blk.hidden && blk.head === "整合包里没装上的" && blk.skipped === 1 && !blk.notice, "插件 / 模组页的那一块：" + JSON.stringify(blk));
+        await page.check('#ad-pending .pnd-skipped[data-id="p1"] input[value="local"]'); await page.fill('#ad-pending .pnd-skipped[data-id="p1"] input.pnd-local', "D:\\老服务器\\mods\\no-hash.jar");
+        await page.click("#ad-pending-apply"); await settle(400);
+        assert(await page.locator("#ad-pending .pnd-skipped").count() === 0 && (await page.textContent("#ad-pending")).includes("没装上的文件都处理完了"), "跳过的处理完以后应清空");
+        st = await xState({});
+        assert(!st.instPending[PACKX].pending.length && !st.instPending[PACKX].skipped.length, "服务器上的清单应清空：" + JSON.stringify(st.instPending[PACKX]));
+        // 在插件 / 模组页上点页头的「处理」：滚到页里那一块，不另开叠层（一页只挂一份面板）
+        await xState({ instPending: { [PACKX]: { pending: [task.pending[0]], skipped: [] } } });
+        await page.goto(url(`#/inst/${enc}/addons`)); await page.waitForSelector("#ad-pending-box .pnd-item"); await page.waitForSelector("#d-import-pending [data-pnd-open]");
+        await page.click("#d-import-pending [data-pnd-open]"); await settle(500);
+        assert(!(await page.$(".pnd-modal")) && await page.evaluate(() => document.activeElement && document.activeElement.id) === "ad-pnd-h", "插件 / 模组页上应滚到页里那一块");
+        // 一个都没有的服务器：插件 / 模组页没有这一块
+        await page.goto(url(`#/inst/${encodeURIComponent(SURVX)}/addons`)); await page.waitForSelector("#ad-list"); await settle(500);
+        assert(await page.$eval("#ad-pending", e => e.hidden), "没有没装上的文件时不该出现这一块");
+      } finally { await xState({ instReset: true, taskList: [], trustedHosts: [] }); }
+    });
+
+    await run("beta.3 端口 换地图：复制阶段取消以后，任务页显示中性的「已取消」（页头、步骤是横线、不是红框），不再按失败显示", async () => {
+      await wReset();
+      try {
+        await page.goto(url(worldTab(PACKX))); await page.waitForSelector("#wi-start");
+        await page.click("#wi-start"); await page.waitForSelector("#wi-upload");
+        await page.fill("#wi-path", "D:\\Maps\\plain-world"); await page.click("#wi-scan"); await page.waitForSelector("#wi-go");
+        await page.click("#wi-go"); await page.waitForSelector(".modal");
+        await page.click('.modal [data-x="ok"]');
+        await page.waitForSelector("#wi-cancel"); await page.click("#wi-cancel");
+        await page.waitForSelector("#wi-task-err-text", { timeout: 15000 });
+        const taskId = Object.keys((await wState({})).world.tasks)[0];
+        await page.goto(url("#/task/" + taskId)); await page.waitForSelector("#t-foot a.btn");
+        const t = await page.evaluate(() => ({ h1: $(".page-head h1").textContent, sub: $(".page-head .sub").textContent, eyebrow: $("#task-eyebrow").textContent,
+          note: ($("#t-msgs .task-note") || {}).textContent || "", err: !!$("#t-msgs .err-box"), steps: [...document.querySelectorAll("#t-steps .task-step")].map(s => s.className),
+          back: $("#t-foot a.btn").getAttribute("href") }));
+        assert(t.h1 === "已取消换地图" && t.sub.includes("没有替换任何文件") && t.eyebrow === "已取消", "任务页的页头：" + JSON.stringify(t));
+        assert(t.note.includes("已取消，没有替换任何文件") && !t.err, "应是中性的说明，不是红色的失败框：" + JSON.stringify(t));
+        assert(t.steps.some(c => c.includes("cancelled")) && !t.steps.some(c => c.includes("error")), "取消的那一步是横线、不是红叉：" + JSON.stringify(t.steps));
+        assert(t.back === "#/instances", "底下回服务器列表：" + t.back);
+      } finally { await wReset(); }
+    });
+  }
   // ==================== 地图导入结束 ====================
   // ==================== beta.3 P0（R01–R05） ====================
   // docs/可用性走查-2026-11-14.md 第八节 R01–R05，外加 U28、U30。用例名都以「beta.3 P0」开头，node tests.js "beta.3 P0" 只跑这一块。

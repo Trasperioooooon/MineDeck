@@ -132,6 +132,7 @@ func New(env Env) *ops.Registry {
 	c.troubleshootOps()
 	c.fileOps()
 	c.portOps()
+	c.portSuggestOps()
 	c.musicOps()
 	c.gameChatOps()  // 第四阶段
 	c.companionOps() // 第七阶段

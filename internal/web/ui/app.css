@@ -363,6 +363,11 @@ input.invalid, select.invalid {
 }
 .field-err { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: var(--fs-xs); font-weight: var(--fw-medium); color: var(--danger-text); }
 .field-err:empty { display: none; }
+/* 字段下面的说明（不是报错）：端口默认值换过、手填的端口和别的服务器撞了（可用性走查 R08）。撞了的用警告色，不标红、不拦提交 */
+.field-note { display: flex; align-items: flex-start; gap: 6px; margin-top: 6px; font-size: var(--fs-xs); line-height: 1.6; color: var(--muted); }
+.field-note:empty { display: none; }
+.field-note > .ico { flex: none; width: 13px; height: 13px; margin-top: 3px; }
+.field-note.warn { color: var(--warning-text); }
 
 /* 开关：凹陷的胶囊轨道 + 凸起的圆滑块（正圆端）；滑块带回弹，按住时拉长 */
 .switch { position: relative; isolation: isolate; display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
@@ -754,6 +759,14 @@ a.inst-name:hover { text-decoration: underline; text-decoration-color: color-mix
 .pnd-ack { display: inline-flex; gap: 6px; align-items: flex-start; margin-top: 6px; }
 .pnd-skip-list { margin-top: 12px; }
 .pnd-skip-list > summary { cursor: pointer; font-size: var(--fs-sm); color: var(--text); font-weight: var(--fw-medium); }
+/* 详情页头「处理」打开的叠层（R09）：处理面板放得下，内容多了在框里滚 */
+.modal.pnd-modal { width: 680px; max-height: 88vh; max-height: 88dvh; display: flex; flex-direction: column; }
+.modal.pnd-modal .m-body { overflow-y: auto; min-height: 0; color: var(--text); }
+.pnd-modal-intro { margin: 0 0 10px; }
+/* 「插件 / 模组」页里「整合包里没装上的」那一块（R09） */
+.ad-pending { margin-bottom: 26px; max-width: var(--w-wide); }
+.ad-pending[hidden] { display: none; }
+.ad-pending > .hint { margin: 0 0 8px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .progress-wrap { margin: 8px 0 18px; max-width: 720px; }
 .progress-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; font-size: var(--fs-sm); }

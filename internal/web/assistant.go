@@ -285,6 +285,19 @@ func (s *Server) troubleshootRoutes(mux *http.ServeMux) {
 		s.do(w, r, "instance.java.set", bodyArgs(r, "inst", r.PathValue("name")))
 	})
 	mux.HandleFunc("POST /api/instances/{name}/restart", s.instOp("instance.restart"))
+	// 端口默认值（R08）：新建、导入、接管的表单用。路径比下面的 /api/ports/{port} 具体，先匹配这一条
+	mux.HandleFunc("GET /api/ports/suggest", func(w http.ResponseWriter, r *http.Request) {
+		from := 0
+		if v := r.URL.Query().Get("from"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				writeErr(w, 400, fmt.Errorf("端口不对"))
+				return
+			}
+			from = n
+		}
+		s.do(w, r, "port.suggest", args(map[string]any{"from": from, "except": r.URL.Query().Get("except")}))
+	})
 	mux.HandleFunc("GET /api/ports/{port}", func(w http.ResponseWriter, r *http.Request) {
 		port, err := strconv.Atoi(r.PathValue("port"))
 		if err != nil {

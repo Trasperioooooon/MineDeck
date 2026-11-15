@@ -88,6 +88,19 @@ function instPendingOf(state, name) {
   return state.instPending[name];
 }
 
+/* 各台服务器用的端口（同 inst.PortsInUse：朋友连的那个，代理端是它自己配置里的；connectPort 设成 0 的代理端不算），except 那台不算 */
+function portsInUse(state, except) {
+  return state.instances.filter(i => i.name !== except).map(i => ({ port: i.connectPort ?? i.port, instance: i.name, status: i.status }))
+    .filter(u => u.port > 0).sort((a, b) => a.port - b.port || (a.instance < b.instance ? -1 : 1));
+}
+/* 从 from 起没人用的最小端口（同 inst.DefaultPort） */
+function freePort(used, from) {
+  const taken = new Set(used.map(u => u.port));
+  let p = from;
+  while (taken.has(p) && p < 65535) p++;
+  return p;
+}
+
 function newState(ui) {
   const state = {
     config: { source: "auto", onboarded: true, tosAccepted: true, backupKeep: 10, listenLan: false, webhookUrl: "", updateRepo: "Trasperioooooon/MineDeck", checkUpdateOnStart: true, minimizeToTray: true, chromeColor: "" },
@@ -1844,7 +1857,7 @@ function worldTask(state, id) {
     // 导入：第 1、2 次查询在「复制地图到暂存区」（下标 1），第 3 次停服，第 4 次换地图，第 5 次结束；quick 时第 2 次就结束
     const last = w.quick ? 2 : isImport ? 5 : 3;
     t.step = isImport ? (t.q <= 2 ? 1 : Math.min(t.q - 1, 3)) : Math.min(t.q - 1, 2);
-    if (isImport && t.cancelled && t.step <= 1) { t.ended = true; t.error = "已取消，没有替换任何文件"; }
+    if (isImport && t.cancelled && t.step <= 1) { t.ended = true; t.error = "已取消，没有替换任何文件"; t.cancelDone = true; } // 同 tasks.EndCancelled：按「已取消」结束
     else if (t.q >= last) {
       t.ended = true;
       if (w.taskFail) t.error = w.taskFail;
@@ -1864,11 +1877,13 @@ function worldTask(state, id) {
   }
   const copying = isImport && !t.ended && t.step === 1, total = t.bytes || 0;
   return { id, title: isImport ? `导入地图到 ${t.inst}` : `把 ${t.inst} 换回导入前的地图`, kind: "world",
-    steps: names.map((name, k) => ({ name, status: t.ended ? (t.error ? (k < t.step ? "done" : k === t.step ? "error" : "pending") : "done") : k < t.step ? "done" : k === t.step ? "running" : "pending" })),
+    steps: names.map((name, k) => ({ name, status: t.ended ? (t.error ? (k < t.step ? "done" : k === t.step ? (t.cancelDone ? "cancelled" : "error") : "pending") : "done") : k < t.step ? "done" : k === t.step ? "running" : "pending" })),
     label: copying ? "复制地图" : "", done: copying ? Math.round(total * Math.min(1, t.q * 0.4)) : 0, total: copying ? total : 0, warnings: [],
-    log: isImport ? ["来源和服务器都和预览时一样", ...(t.step >= 2 || t.ended && !t.error ? [`地图已复制到暂存区（${(total / W_MB).toFixed(1)} MB）`] : []), ...(t.error ? ["❌ " + t.error] : [])]
+    log: isImport ? ["来源和服务器都和预览时一样", ...(t.step >= 2 || t.ended && !t.error ? [`地图已复制到暂存区（${(total / W_MB).toFixed(1)} MB）`] : []), ...(t.error ? [(t.cancelDone ? "" : "❌ ") + t.error] : [])]
       : ["正在把导入前的世界搬回原位", ...(t.error ? ["❌ " + t.error] : [])],
-    ended: !!t.ended, error: t.error || undefined, result: t.result || undefined };
+    ended: !!t.ended, error: t.error || undefined, result: t.result || undefined,
+    // 收下取消、还没结束是「正在取消」，结束了是「已取消」（同 Service.Cancel 先 NoteCancel，导入停下以后 EndCancelled）
+    cancelling: (t.cancelled && !t.ended) || undefined, cancelled: (t.ended && t.cancelDone) || undefined };
 }
 // /api/world/* 的接口。答了返回 true
 async function worldHandler(state, req, res, p, m) {
@@ -2288,6 +2303,10 @@ function handler(state, ui, portOf) {
     //     带 canCancel 的可以点「取消」（POST /api/tasks/{id}/cancel）：先是 cancelling，再查两次就按「已取消」结束（cancelled、error 是那句中文、正在做的那一步 cancelled）
     //     设 taskList 时没装上的文件（instPending）一起清掉，下次按新的任务重新生成
     //   instPending: { 服务器名: { pending, skipped } } 直接摆好某台服务器没装上的文件（不经导入任务，程序重开以后的样子）
+    //   restart: true 模拟程序重开：任务记录、上次启动失败（lastStartError、startPortBusy）清掉，没装上的文件清单留着
+    //   beta.3 R08：GET /api/ports/suggest 按各台服务器的端口算（响应里的 portSuggests 是问过几次）；启动时端口和另一台没停着的服务器一样就报
+    //     「被你的服务器「X」占着」并记 startPortBusy；inst 的 startPortBusyFail 是 startFail 失败时一起记的 startPortBusy（别的程序占着时只有 port）；
+    //     改 server.properties 的 server-port 时 port 跟着变；响应里的 starts 是点过的启动 { inst, port }
     //   modsNeed: { 实例名: needJava } GET /api/instances/{名称}/mods 返回的 needJava（实例详情页的 Java 提示用），空对象还原
     //   trustedHosts: [站点] 处置待决文件时已确认过的自定义站点（trust 不再要求 ack），空数组还原
     //   taskNet: 部署任务的 net（同 tasks.NetRetry：{ count, host, what, ago }），null 清掉
@@ -2339,6 +2358,13 @@ function handler(state, ui, portOf) {
       if ("onboarded" in b) { state.config.onboarded = !!b.onboarded; state.config.tosAccepted = !!b.onboarded; }
       if ("taskStage" in b) state.taskStage = b.taskStage;
       if ("taskList" in b) { state.taskList = b.taskList; state.instPending = {}; }
+      // restart: true 模拟程序重开（beta.3 R09）：任务记录没了，只在内存里的上次启动失败也没了；服务器文件夹里的「没装上的文件」清单还在
+      //（还没按服务器取过的，先按导入任务生成一份再清任务）
+      if (b.restart) {
+        for (const t of state.taskList) if (t.result && (t.pending || []).length) instPendingOf(state, t.result);
+        state.taskList = [];
+        for (const i of state.instances) { delete i.lastStartError; delete i.startPortBusy; }
+      }
       if (b.instPending) Object.assign(state.instPending, b.instPending);
       if ("modsNeed" in b) state.modsNeed = b.modsNeed || {};
       if ("trustedHosts" in b) state.trustedHosts = b.trustedHosts || [];
@@ -2346,6 +2372,7 @@ function handler(state, ui, portOf) {
       if (b.inst) { const i = state.instances.find(x => x.name === b.inst.name); if (i) Object.assign(i, b.inst); } // 改某台服务器的字段（adopted、javaMajor…）
       if ("adoptScan" in b) state.adoptScan = b.adoptScan; // 接管：下一次识别返回的结果（null 还原成默认的 NeoForge 整合包）
       if ("commands" in b) state.commands = b.commands || []; // 发过的控制台命令（见 POST …/command），传空数组清掉
+      if ("starts" in b) state.starts = b.starts || []; // 点过的启动 { inst, port }（beta.3 R08），传空数组清掉
       if ("portBusy" in b) state.portBusy = b.portBusy; // 交接包向导：端口号等于这个值的端口查询按「被占用」回
       if (Array.isArray(b.madeDirs)) { state.madeDirs = b.madeDirs; state.lastTransferMkdir = null; }
       if ("pickDir" in b) state.pickDir = b.pickDir === null ? undefined : b.pickDir; // 系统文件夹选择框选到哪个（空串 = 点了取消；null 还原成 E:\MCServers）
@@ -2566,6 +2593,15 @@ function handler(state, ui, portOf) {
           log: isOut ? ["待打包 128 个文件、2.1 GB", "交接包已生成: " + resultOut, "把整个文件发给接手的人，对方在「新建服务器」页选「交接包」导入即可"]
             : ["交接包：A 的服（paper 1.20.1）", "Java 就绪", "解出 2.0 GB", "交接完成 ✔ 存档、配置和模组都带过来了（没带过来的东西见上面几行）"],
           ended: true, result: isOut ? resultOut : resultIn });
+      }
+      // 端口默认值（同 web：GET /api/ports/suggest，操作 port.suggest，beta.3 R08）：从 from（默认 25565）起没人用的最小端口，
+      // usedBy 是 from 被哪台用着，used 是各台用的端口
+      if (p === "/api/ports/suggest") {
+        const q = +u.searchParams.get("from"), from = q >= 1 && q <= 65535 ? q : 25565;
+        const used = portsInUse(state, u.searchParams.get("except") || "");
+        const by = used.find(x => x.port === from);
+        state.portSuggests = (state.portSuggests || 0) + 1;
+        return ok(res, { port: freePort(used, from), from, used, ...(by ? { usedBy: by.instance } : {}) });
       }
       // 端口占用查询（同 web：GET /api/ports/{port}）：/__mock/state 里 portBusy 设成哪个端口哪个就占着
       if (seg[2] === "ports" && seg[3]) {
@@ -2820,9 +2856,21 @@ function handler(state, ui, portOf) {
         }
         // 启动（同 inst.Manager.Start）：inst 设了 startFail 的，报这句并记成上次启动失败（lastStartError），控制台多一行；
         // 起得来的清掉上次的原因。状态不变（别的用例按「停着」「运行中」的初始状态写的）
+        // beta.3 R08：端口和另一台没停着的服务器一样（同 inst 的 portBusyError 带 owner）：报「被你的服务器「X」占着」，
+        // 记下 startPortBusy { port, owner, suggest }（suggest 从这个端口往上、别的服务器都没用的第一个）；
+        // startFail 那台另可以带 startPortBusyFail（如 { port }，别的程序占着），失败时一起记成 startPortBusy
         if (sub === "start" && m === "POST") {
-          if (i.startFail) { i.lastStartError = i.startFail; return err(res, 400, i.startFail); }
-          delete i.lastStartError;
+          (state.starts || (state.starts = [])).push({ inst: name, port: i.port });
+          const myPort = i.connectPort ?? i.port;
+          const owner = state.instances.find(o => o !== i && o.status !== "stopped" && (o.connectPort ?? o.port) === myPort);
+          if (owner) {
+            const why = `端口 ${myPort} 被你的服务器「${owner.name}」占着，先停掉它，或者给这台换个端口`;
+            i.lastStartError = why;
+            i.startPortBusy = { port: myPort, owner: owner.name, suggest: freePort(portsInUse(state, name), myPort + 1) };
+            return err(res, 400, why);
+          }
+          if (i.startFail) { i.lastStartError = i.startFail; if (i.startPortBusyFail) i.startPortBusy = i.startPortBusyFail; else delete i.startPortBusy; return err(res, 400, i.startFail); }
+          delete i.lastStartError; delete i.startPortBusy;
           return ok(res, "ok");
         }
         if (sub === "console") return sse(res, i.status === "stopped" ? ["[MineDeck] 服务器未运行，点击「启动」开服", ...(i.lastStartError ? ["[MineDeck] 没能启动：" + i.lastStartError] : [])] : CONSOLE);
@@ -2834,6 +2882,8 @@ function handler(state, ui, portOf) {
           state.lastPropsPut = { inst: name, pairs: b.pairs || [] };
           const wl = (b.pairs || []).filter(x => x.key === "white-list").pop();
           if (wl) i.whitelistOn = wl.value === "true";
+          const sp = (b.pairs || []).filter(x => x.key === "server-port").pop(); // 改了端口：列表里的 port 跟着变（「改成 N 并启动」）
+          if (sp && +sp.value > 0 && i.kind !== "proxy") i.port = +sp.value;
           return ok(res, "ok");
         }
         // 控制台命令（同 instance.command）：记下发过的命令（state.commands）

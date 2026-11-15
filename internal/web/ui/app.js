@@ -1391,7 +1391,9 @@ async function renderInstances() {
     const fail = i.javaMissing
       ? `<a class="inst-fail inst-java-missing" href="${href}/settings/jvm" title="${esc(i.javaPath || "")}" aria-label="找不到 Java，去换一个 ${nm}">${icon("warn")}<span>找不到这台服务器配的 Java，去「设置 → 启动与内存」换一个</span></a>`
       : i.lastStartError && i.status === "stopped"
-      ? `<div class="inst-fail" title="${esc(i.lastStartError)}">${icon("warn")}<span>${esc(errSummary("上次没能启动", { message: i.lastStartError }).text)}</span></div>` : "";
+      ? `<div class="inst-fail" title="${esc(i.lastStartError)}">${icon("warn")}<span>${esc(i.startPortBusy && i.startPortBusy.owner
+        ? `上次没能启动：端口 ${i.startPortBusy.port} 被你的服务器「${i.startPortBusy.owner}」占着` // R08：名字可能很长，不按 60 字的规矩截成结论
+        : errSummary("上次没能启动", { message: i.lastStartError }).text)}</span></div>` : "";
     return `
     <div class="card st-${i.status}${enter ? " item-enter" : ""}" style="--i:${n}" data-name="${esc(i.name)}">
       <div class="inst-head">${avatarOf(i.core)}<div class="inst-title"><a class="inst-name" href="${href}">${esc(i.name)}</a><div class="inst-sub">${proxy ? "群组代理" : "游戏服务器"}</div></div>${stPill(i.status)}</div>
@@ -1593,6 +1595,39 @@ async function renderCreate(mode) {
   startPoll(() => refreshTaskList(taskList, gen), 3000, gen);
 }
 
+/* ---------- 端口默认值（可用性走查 R08）----------
+   新建向导（用已有地图开服是同一个向导）、导入整合包、接管已有服务器的端口：默认取 MineDeck 里别的服务器都没用的最小端口
+   （从 25565 起，GET /api/ports/suggest），换过的在端口下面说一句「25565 已被『X』使用，已改为 25566」；
+   手填的端口和别的服务器撞了当场提示。只提示、不拦着提交：两台从来不同时开的服务器可以共用一个端口。
+   拿不到建议（老后端、连不上）就照旧，不提示。 */
+const suggestPort = () => api("/api/ports/suggest").catch(() => null);
+/* input：端口框；note：它下面放提示的元素；sug：/api/ports/suggest 的结果（可以是 null）。
+   base：原来的端口（新建、导入是 25565，接管是文件夹里写的）；keep：「返回修改」填回来的，不换。
+   extra(v)：另外接在提示后面的一句（接管：端口和原来不一样时会改 server.properties）。返回 { def }：默认填的端口 */
+function wirePortField(input, note, sug, { base = 25565, keep = false, extra = null } = {}) {
+  const used = sug && Array.isArray(sug.used) ? sug.used : [];
+  const owner = p => used.find(u => u.port === p);
+  let auto = null; // 默认值换过：{ from, to, by }
+  const o = owner(base);
+  if (!keep && o && sug.port && sug.port !== base) {
+    auto = { from: base, to: sug.port, by: o.instance };
+    input.value = sug.port;
+  }
+  const paint = () => {
+    const v = Number(input.value), hit = Number.isInteger(v) ? owner(v) : null;
+    let text = "";
+    if (hit) text = `端口 ${v} 已被你的服务器「${hit.instance}」使用${hit.status && hit.status !== "stopped" ? "（它现在开着）" : ""}，两台不能同时开。` +
+      (sug && sug.port && sug.port !== v ? `换一个吧，比如 ${sug.port}。` : "");
+    else if (auto && v === auto.to) text = `${auto.from} 已被「${auto.by}」使用，已改为 ${auto.to}。`;
+    const more = extra ? extra(v) : "";
+    note.classList.toggle("warn", !!hit);
+    note.innerHTML = text || more ? `${icon(hit ? "warn" : "info")}<span>${esc(text + more)}</span>` : "";
+  };
+  input.addEventListener("input", paint);
+  paint();
+  return { def: auto ? auto.to : base };
+}
+
 /* ---------- 视图：接管已有服务器 ----------
    选文件夹 → 后端只读地识别一遍（核心、版本、启动文件、原来分的内存）→ 用户确认或修改 → 后台任务登记。
    只能在本机用：要读这台电脑上的文件夹（后端 instance.adopt* 是仅本机、仅人工）。 */
@@ -1600,17 +1635,18 @@ async function renderCreate(mode) {
 const JAVA_DOWNLOADABLE = [8, 11, 16, 17, 21, 25];
 async function drawAdopt() {
   const gen = beginCreateView();
-  const [app, cores, javas] = await Promise.all([
+  const [app, cores, javas, sug] = await Promise.all([
     api("/api/app").catch(() => ({ ramMb: 8192, availRamMb: 4096, config: {} })),
     api("/api/cores").catch(() => []),
     api("/api/javas").catch(() => ({ portable: [], scanned: [] })),
+    suggestPort(), // 端口：识别出来的和别的服务器撞了时换一个（R08）
   ]);
   if (stale(gen)) return;
   cores.forEach(c => CORES[c.id] = c);
   const maxMem = Math.max(2048, app.ramMb - 2048);
   let scan = null; // 最近一次识别的结果；改了文件夹没重新识别就不能接管
   let fill = takeFill("adopt"); // 「返回修改」：填回文件夹、重新识别一遍（文件夹里的东西可能变了），识别完再把改过的几项盖上去
-  Main().innerHTML = pageHead("接管已有服务器", "接管本机外部服务器：选择服务器所在文件夹即可直接关联。文件留在原地，存档、模组、插件与配置均不改动。", "",
+  Main().innerHTML = pageHead("接管已有服务器", "接管本机外部服务器：选择服务器所在文件夹即可直接关联。文件留在原地，存档、模组、插件与配置均不改动（端口和别的服务器撞了时，只改 server.properties 里的端口）。", "",
     `<a href="#/create">新建服务器</a>${icon("chevronRight")}<span>接管已有服务器</span>`) + `
     <div class="form-grid">
       <label class="field full"><span>服务器所在的文件夹</span>
@@ -1642,6 +1678,8 @@ async function drawAdopt() {
       ${s.notes.length ? `<div class="warn-card w-read" id="ad-notes"><div class="wc-title">${icon("info")} 识别时注意到</div><ul class="wc-list">${s.notes.map(n => `<li>${esc(n)}</li>`).join("")}</ul></div>` : ""}
       <div class="form-grid">
         <label class="field"><span>名称</span><input type="text" id="ad-name" maxlength="40" value="${esc(s.name)}"><div class="field-err" id="ad-name-err"></div></label>
+        <label class="field" id="ad-port-f"><span>端口</span><input type="number" id="ad-port" min="1" max="65535" value="${s.port || 25565}">
+          <div class="field-err" id="ad-port-err"></div><div class="field-note" id="ad-port-note" aria-live="polite"></div></label>
         <label class="field"><span>服务端类型</span><select id="ad-core">
           <option value=""${s.core ? "" : " selected"} disabled>请选择…</option>
           ${cores.map(c => `<option value="${esc(c.id)}"${c.id === s.core ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
@@ -1669,7 +1707,7 @@ async function drawAdopt() {
       })()}</div></div>
       <div class="hint w-read" id="ad-what" style="margin-bottom:16px;line-height:1.8">
         ${s.managed ? "该文件夹曾由 MineDeck 管理，原有的名称、内存和定时任务配置会自动恢复。<br>" : ""}
-        接管时 MineDeck 只在这个文件夹里写自己的 <code>instance.json</code> 和启动脚本 <code>run.bat</code>。原来就有 <code>run.bat</code> 的，先另存为 <code>run.before-minedeck.bat</code>。别的文件都不动。<br>
+        接管时 MineDeck 只在这个文件夹里写自己的 <code>instance.json</code> 和启动脚本 <code>run.bat</code>。原来就有 <code>run.bat</code> 的，先另存为 <code>run.before-minedeck.bat</code>。别的文件都不动；只有端口和原来的不一样时，才改 <code>server.properties</code> 里端口这一项。<br>
         接管前需先停止原来的服务器，否则启动时端口会冲突。
         <span id="ad-noworld" hidden><br>${icon("info")} 这个文件夹里没看到存档（world），启动后会生成一个新世界。存档放在别处的话，先确认选对了文件夹。</span>
       </div>`;
@@ -1681,6 +1719,7 @@ async function drawAdopt() {
       $("#ad-eula-box").hidden = proxy || s.eula;
       $("#ad-noworld").hidden = proxy || s.hasWorld; // 代理端本来就没有存档
       $("#ad-wl").hidden = proxy; // 代理端没有白名单这一项
+      $("#ad-port-f").hidden = proxy; // 代理端的端口在它自己的配置文件里，不改 server.properties
       $("#ad-mc-label").textContent = proxy ? "代理端版本" : "Minecraft 版本";
     };
     $("#ad-core").onchange = () => { $("#ad-core").classList.remove("invalid"); $("#ad-core-err").innerHTML = ""; paintKind(); };
@@ -1701,9 +1740,14 @@ async function drawAdopt() {
       $("#ad-mc").value = f.mc;
       if ([...$("#ad-java").options].some(o => o.value === String(f.java))) $("#ad-java").value = String(f.java);
       $("#ad-eula").checked = !!f.eula;
+      if (f.port) $("#ad-port").value = f.port;
       renderMemoryControl($("#ad-mem-mount"), { sliderId: "ad-mem", min: 1024, max: Math.max(maxMem, 1024), value: f.mem, totalMb: app.ramMb, availMb: app.availRamMb,
         hint: s.xmxMb ? `原启动脚本里分配的是 ${(s.xmxMb / 1024).toFixed(1)} GB` : "推荐分配：模组服 4 GB 以上；无模组的小型服务器 2~4 GB。" });
     }
+    // 端口（R08）：识别出来的和 MineDeck 里别的服务器撞了就换一个没人用的，说清会改 server.properties；没撞就沿用，什么都不改
+    const was = s.port || 25565;
+    wirePortField($("#ad-port"), $("#ad-port-note"), sug, { base: was, keep: !!(fill && fill.dir === s.dir && fill.port),
+      extra: v => Number.isInteger(v) && v >= 1 && v <= 65535 && v !== was ? `接管时会把 server.properties 里的端口从 ${was} 改成 ${v}（别的设置不动），朋友要用新端口连。` : "" });
     fill = null;
     paintKind();
     $("#ad-go").disabled = false;
@@ -1734,11 +1778,13 @@ async function drawAdopt() {
     const okName = fieldErr($("#ad-name"), "#ad-name-err", $("#ad-name").value.trim() ? "" : "请给服务器起个名字");
     const okCore = fieldErr($("#ad-core"), "#ad-core-err", core ? "" : "请选一个最接近的类型：插件服选 Paper，模组服按加载器选");
     const okMC = fieldErr($("#ad-mc"), "#ad-mc-err", $("#ad-mc").value.trim() ? "" : proxy ? "请填代理端的版本号" : "请填 Minecraft 版本，如 1.20.1");
+    const pv = Number($("#ad-port").value);
+    const okPort = proxy || fieldErr($("#ad-port"), "#ad-port-err", Number.isInteger(pv) && pv >= 1 && pv <= 65535 ? "" : "端口需为 1 ~ 65535 的整数");
     const needEula = !proxy && !scan.eula;
     const okEula = !needEula || $("#ad-eula").checked;
     if (needEula) { $("#ad-eula-box").classList.toggle("invalid", !okEula); $("#ad-eula-err").innerHTML = okEula ? "" : icon("warn") + " 开服前需要同意 Minecraft EULA"; }
-    if (!(okName && okCore && okMC && okEula)) {
-      const first = !okName ? $("#ad-name") : !okCore ? $("#ad-core") : !okMC ? $("#ad-mc") : $("#ad-eula");
+    if (!(okName && okCore && okMC && okPort && okEula)) {
+      const first = !okName ? $("#ad-name") : !okCore ? $("#ad-core") : !okMC ? $("#ad-mc") : !okPort ? $("#ad-port") : $("#ad-eula");
       first.closest(".field, .eula-box").scrollIntoView({ behavior: "smooth", block: "center" });
       first.focus({ preventScroll: true });
       return;
@@ -1752,10 +1798,11 @@ async function drawAdopt() {
           dir: scan.dir, name: $("#ad-name").value.trim(), core, mc: $("#ad-mc").value.trim(),
           build: picked && picked.core === core ? picked.build : "",
           launchTarget: target, xmxMb: +$("#ad-mem").value, javaMajor: +$("#ad-java").value, eula: needEula,
+          port: proxy ? 0 : pv, // 和文件夹里写的一样时后端什么都不改
         },
       });
       formDrafts.set(r.taskId, { mode: "adopt", data: { dir: scan.dir, name: $("#ad-name").value.trim(), core, mc: $("#ad-mc").value.trim(), target,
-        mem: +$("#ad-mem").value, java: +$("#ad-java").value, eula: $("#ad-eula").checked } });
+        mem: +$("#ad-mem").value, java: +$("#ad-java").value, eula: $("#ad-eula").checked, port: proxy ? "" : $("#ad-port").value } });
       if (!stale(gen)) location.hash = `#/task/${r.taskId}`;
       else toast("已开始接管，可在新建服务器页查看进度");
     } catch (e) { toastErr("无法接管服务器", e); if (!stale(gen)) $("#ad-go").disabled = false; }
@@ -1767,7 +1814,7 @@ async function drawAdopt() {
 /* ---------- 视图：整合包导入 ---------- */
 async function drawImport() {
   const gen = beginCreateView();
-  const app = await api("/api/app").catch(() => ({ ramMb: 8192, availRamMb: 4096, config: {} }));
+  const [app, sug] = await Promise.all([api("/api/app").catch(() => ({ ramMb: 8192, availRamMb: 4096, config: {} })), suggestPort()]);
   if (stale(gen)) return;
   const maxMem = Math.max(2048, app.ramMb - 2048);
   const defMem = Math.min(6144, maxMem);
@@ -1779,7 +1826,8 @@ async function drawImport() {
     <div class="form-grid">
       <label class="field full"><span>整合包文件</span><input type="file" id="im-file" accept=".mrpack,.zip"><div class="field-err" id="im-file-err"></div></label>
       <label class="field"><span>名称</span><input type="text" id="im-name" value="${esc(fill ? fill.name : "我的整合包服务器")}" maxlength="40"></label>
-      <label class="field"><span>端口</span><input type="number" id="im-port" value="${esc(fill ? fill.port : "25565")}" min="1" max="65535"></label>
+      <label class="field"><span>端口</span><input type="number" id="im-port" value="${esc(fill ? fill.port : "25565")}" min="1" max="65535">
+        <div class="field-note" id="im-port-note" aria-live="polite"></div></label>
       <div class="field full" id="im-mem-mount"></div>
       <label class="field full"><span>存放位置</span>
         <div class="row" style="gap:8px">
@@ -1808,6 +1856,7 @@ async function drawImport() {
       ${wizFoot("im-back", "返回", `<button class="btn primary" id="im-go">${icon("bolt")} 导入并创建</button>`)}
     </div>`;
   $("#im-back").onclick = goCreateHome;
+  wirePortField($("#im-port"), $("#im-port-note"), sug, { keep: !!fill }); // 默认端口避开别的服务器在用的（R08）；「返回修改」填回来的不换
   if (fill) {
     $("#im-wl").checked = !!fill.wl;
     if (!putFile($("#im-file"), fill.file) && fill.file) $("#im-file-err").innerHTML = icon("info") + " " + esc(`上次选的是「${fill.file.name}」，请再选一次`);
@@ -2386,14 +2435,16 @@ async function drawWizard() {
 
   } else {
     const isProxy = coreKind(wiz.core) === "proxy";
-    const app = await api("/api/app").catch(() => ({ ramMb: 8192, availRamMb: 4096 }));
+    // 端口默认值避开 MineDeck 里别的服务器在用的（R08）；代理端的端口在它自己的配置文件里，不问
+    const [app, sug] = await Promise.all([api("/api/app").catch(() => ({ ramMb: 8192, availRamMb: 4096 })), isProxy ? null : suggestPort()]);
     if (stale(gen)) return;
     const maxMem = Math.max(2048, app.ramMb - 2048);
     const defMem = isProxy ? 1024 : Math.min(4096, maxMem);
     wizardShell(`
       <div class="form-grid">
         <label class="field"><span>名称</span><input type="text" id="f-name" value="我的${coreName(wiz.core)}服务器" maxlength="40"><div class="field-err" id="f-name-err"></div></label>
-        ${isProxy ? "" : `<label class="field"><span>端口（默认 25565）</span><input type="number" id="f-port" value="25565" min="1" max="65535"><div class="field-err" id="f-port-err"></div></label>`}
+        ${isProxy ? "" : `<label class="field"><span>端口</span><input type="number" id="f-port" value="25565" min="1" max="65535"><div class="field-err" id="f-port-err"></div>
+          <div class="field-note" id="f-port-note" aria-live="polite"></div></label>`}
         <div class="field full" id="mem-mount"></div>
         <label class="field full"><span>存放位置</span>
           <div class="row" style="gap:8px">
@@ -2432,10 +2483,11 @@ async function drawWizard() {
     // 行内校验：离开字段时检查，出错后随输入即时复核；提交时全部检查并聚焦第一个出错项（不再用远离字段的 toast）
     const showErr = (input, errId, msg) => { input.classList.toggle("invalid", !!msg); $(errId).innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; return !msg; };
     const checkName = () => showErr($("#f-name"), "#f-name-err", $("#f-name").value.trim() ? "" : "请给服务器起个名字");
+    let portDef = 25565; // 默认填的端口（下面按 MineDeck 里别的服务器在用的换过）
     const checkPort = () => {
       if (isProxy) return true;
       const v = Number($("#f-port").value);
-      return showErr($("#f-port"), "#f-port-err", Number.isInteger(v) && v >= 1 && v <= 65535 ? "" : "端口需为 1 ~ 65535 的整数，不确定就用 25565");
+      return showErr($("#f-port"), "#f-port-err", Number.isInteger(v) && v >= 1 && v <= 65535 ? "" : `端口需为 1 ~ 65535 的整数，不确定就用 ${portDef}`);
     };
     const checkEula = () => {
       if (isProxy) return true;
@@ -2479,6 +2531,8 @@ async function drawWizard() {
         $("#f-diff").value = fill.diff; $("#f-mode").value = fill.mode;
       }
     }
+    // 「返回修改」填回来的端口不换；手填的和别的服务器撞了当场提示（不拦着创建）
+    if (!isProxy) portDef = wirePortField($("#f-port"), $("#f-port-note"), sug, { keep: !!fill }).def;
     updateRoot();
     $("#wcreate").onclick = async () => {
       const okName = checkName(), okPort = checkPort(), okEula = checkEula();
@@ -2590,7 +2644,7 @@ const TASK_KINDS = {
     doneTitle: "服务器已建好", failTitle: "服务器没有建好", cancelTitle: "已取消创建", cancelBtn: "取消创建",
     ok: "服务器创建成功", fail: "创建失败", failHint: "已下载的文件有缓存，再试一次很快。", busy: "创建中，请勿关闭程序…",
     go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/create", backText: "返回新建服务器", nav: "create" },
-  adopt: { title: "正在接管服务器", sub: "正在检查文件夹、准备 Java。世界和配置不会动。", done: "接管完成", doneSub: "已经收进 MineDeck，可以在这里启动和管理了",
+  adopt: { title: "正在接管服务器", sub: "正在检查文件夹、准备 Java。世界和配置不会动（换了端口的只改端口这一项）。", done: "接管完成", doneSub: "已经收进 MineDeck，可以在这里启动和管理了",
     doneTitle: "服务器已接管", failTitle: "服务器没有接管成",
     ok: "服务器接管成功", fail: "接管失败", failHint: "服务器文件夹里的东西没有被删掉或改坏，可以再试一次。", busy: "接管中，请勿关闭程序…",
     go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/create", backText: "返回新建服务器", nav: "create" },
@@ -2616,7 +2670,7 @@ const TASK_KINDS = {
     go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/instances", backText: "返回服务器列表", nav: "instances" },
   // 导入地图、换回导入前的地图（worldimport.js）。这类任务的 result 是一句给人看的话，不是服务器名：resultText 让完成后显示它，去处固定是服务器列表
   world: { title: "正在更换地图", sub: "导入地图，或者换回导入前的地图。出错时会自动退回原来的世界。", done: "已完成", doneSub: "可以到这台服务器的「地图」标签里查看", resultText: true,
-    doneTitle: "地图已处理完", failTitle: "地图没有处理完",
+    doneTitle: "地图已处理完", failTitle: "地图没有处理完", cancelTitle: "已取消换地图", cancelSub: "没有替换任何文件，原来的世界没动。", // 取消只在复制阶段收（换地图那一页的「取消导入」）
     ok: "地图已处理完", fail: "没有完成", failHint: "所有文件都还在。到这台服务器的「地图」标签里看现在用的是哪一份。", busy: "正在处理地图，请勿关闭程序…",
     go: "完成，回到服务器列表", href: () => "#/instances", back: "#/instances", backText: "返回服务器列表", nav: "instances" },
 };
@@ -2637,10 +2691,13 @@ const parentDir = p => { const s = String(p || "").replace(/[\\/]+$/, ""), k = M
 
 /* ---------- 没装上的文件（导入整合包时没能自动装上的，可用性走查 R09）----------
    按服务器查、按服务器处置（GET / POST /api/instances/{名}/import-pending）：清单存在服务器文件夹里，程序重开以后也能处理，
-   跳过的也还能改成别的处理。现在挂在导入任务页上（box 放清单，out 放每一项的处置结果）；详情页以后也挂这一个。
-   清单是从服务器文件夹里读来的，别人可能改过：文字一律转义，链接只画 https 的。onChange(清单) 在处置以后调：任务页拿它刷新上面的告警。 */
+   跳过的也还能改成别的处理。挂在三个地方（box 放清单，out 放每一项的处置结果）：导入任务页、详情页头「处理」打开的叠层、
+   「插件 / 模组」页里「整合包里没装上的」那一块。同一页只挂一份：单选组按 pnd-<编号> 起名，两份会互相抢选中。
+   applyId 是「应用所选的处理」的 id（各处不同，测试和读屏按它找）。
+   清单是从服务器文件夹里读来的，别人可能改过：文字一律转义，链接只画 https 的。onChange(清单) 在处置以后调：任务页拿它刷新上面的告警，
+   详情页拿它刷新页头那一条。 */
 const PND_ACT = { skip: "跳过", local: "用本地文件代替", trust: "信任站点并下载" };
-function pendingPanel(box, out, inst, gen, { onChange } = {}) {
+function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-apply" } = {}) {
   let view = { pending: [], skipped: [] }, sig = "", had = false;
   const gone = () => stale(gen) || !box.isConnected;
   const httpsOnly = u => /^https:\/\//i.test(String(u || ""));
@@ -2682,7 +2739,7 @@ function pendingPanel(box, out, inst, gen, { onChange } = {}) {
       : `<div class="wc-title">${icon("check")} 没装上的文件都处理完了</div><div class="wc-note">跳过的那些也没有装上，要的话在下面换成用本地文件代替${skipped.some(x => (x.options || []).includes("trust")) ? "或信任站点下载" : ""}。</div>`}
       ${skippedBlock}
       <div class="row" style="margin-top:12px">
-        <button type="button" class="btn primary" id="t-pending-apply">应用所选的处理</button>
+        <button type="button" class="btn primary pnd-apply" id="${applyId}">应用所选的处理</button>
         <span class="hint">无法自动识别的自定义/魔改模组，可选「用本地文件代替」并指定本地文件路径。</span>
       </div>
     </div>`;
@@ -2696,7 +2753,7 @@ function pendingPanel(box, out, inst, gen, { onChange } = {}) {
       if (st.path) local.value = st.path;
       if (st.ack) r.querySelector(".pnd-ackbox").checked = true;
     }
-    box.querySelector("#t-pending-apply").onclick = apply;
+    box.querySelector(".pnd-apply").onclick = apply;
   };
   const apply = async () => {
     const acts = [];
@@ -2718,7 +2775,7 @@ function pendingPanel(box, out, inst, gen, { onChange } = {}) {
     }
     if (missing) { toast(missing, true); return; }
     if (!acts.length) { toast("先给至少一个文件选处理方式", true); return; }
-    const btn = box.querySelector("#t-pending-apply");
+    const btn = box.querySelector(".pnd-apply");
     btn.disabled = true;
     try {
       const r = await api(`/api/instances/${encodeURIComponent(inst)}/import-pending`, { method: "POST", body: { items: acts } });
@@ -2733,7 +2790,7 @@ function pendingPanel(box, out, inst, gen, { onChange } = {}) {
     } catch (e) {
       if (!gone()) toastErr("无法处理没装上的文件", e);
     } finally {
-      const b = box.querySelector("#t-pending-apply");
+      const b = box.querySelector(".pnd-apply");
       if (!gone() && b) b.disabled = false;
     }
   };
@@ -2751,6 +2808,33 @@ function pendingPanel(box, out, inst, gen, { onChange } = {}) {
     }
   };
   return { load };
+}
+/* 详情页头「这台服务器有 N 个整合包文件没装上 [处理]」打开的叠层（R09）：里面就是上面这个处理面板，处理完、跳过以后
+   onChange(清单) 让页头那一条跟着变（还没处理的没了就消失）。关掉以后面板不再动（box 不在页面上了） */
+function pendingModal(inst, gen, onChange, addonsLabel = "") {
+  const prev = document.activeElement;
+  const tid = layerId("pnd-title");
+  const mask = modalLayer(`<div class="modal pnd-modal" role="dialog" aria-modal="true" aria-labelledby="${tid}">
+    <h3 id="${tid}">「${esc(inst)}」里没装上的文件</h3>
+    <div class="m-body"><div class="hint pnd-modal-intro">导入整合包时没能自动装上、要你来处理的文件。处理方式选好了点「应用所选的处理」；跳过的也还能再改。
+      ${addonsLabel ? `跳过的以后在这台服务器的「${esc(addonsLabel)}」页里也找得到。` : ""}</div>
+      <div id="d-pending-out"></div><div id="d-pending-box"><div class="sub">加载中…</div></div></div>
+    <div class="m-actions"><button class="btn primary" data-x="close">关闭</button></div></div>`);
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    document.removeEventListener("keydown", onKey);
+    dismiss(mask);
+    if (prev && prev.focus && prev.isConnected) prev.focus();
+  };
+  const onKey = e => { if (e.key === "Escape" && topLayer(mask)) close(); };
+  document.addEventListener("keydown", onKey);
+  mask.querySelector('[data-x="close"]').onclick = close;
+  mask.addEventListener("mousedown", e => { if (e.target === e.currentTarget && !hasFields(mask)) close(); }); // 选了、填了的不因为点空了丢掉
+  pendingPanel(mask.querySelector("#d-pending-box"), mask.querySelector("#d-pending-out"), inst, gen, { onChange, applyId: "d-pending-apply" }).load();
+  mask.querySelector('[data-x="close"]').focus();
+  return mask;
 }
 
 async function renderTaskPage(taskId) {
@@ -2866,7 +2950,7 @@ async function renderTaskPage(taskId) {
     const success = t.ended && !t.error, cancelled = t.ended && !!t.cancelled;
     if (t.ended) {
       if (h1) h1.textContent = success ? K.doneTitle : cancelled ? (K.cancelTitle || "已取消") : K.failTitle;
-      if (sub) sub.textContent = success ? (K.resultText && t.result ? t.result : K.doneSub) : cancelled ? "没有留下半成品。" : "原因写在下面。";
+      if (sub) sub.textContent = success ? (K.resultText && t.result ? t.result : K.doneSub) : cancelled ? (K.cancelSub || "没有留下半成品。") : "原因写在下面。";
     }
     // 步骤：图标随状态换，新完成的对勾弹出（首轮直接画）
     const steps = t.steps || [];
@@ -3110,14 +3194,38 @@ async function renderDetail(name, path = "console") {
         addrKey = ""; paintAddr(lastCur);
       } }))]);
   };
-  // 上次没启动起来（R03）：常驻在页头下面，下次启动成功才消失。原文带路径时只写结论，原文用复制键拿
+  // 上次没启动起来（R03）：常驻在页头下面，下次启动成功才消失。原文带路径时只写结论，原文用复制键拿。
+  // 端口被占着（R08，startPortBusy）：被 MineDeck 里另一台服务器占着时点它的名字（名字可能很长，不按 60 字的规矩截成结论），
+  // 给「改成 N 并启动」：一步改端口、保存、启动；被别的程序占着（或者找不到能改成的端口）给「改端口」，去「设置 → 常用」里的端口那一项
+  const goPortSetting = () => {
+    focusPropKey = "server-port";
+    const h = base + "settings/common";
+    if (location.hash === h) navigate(); else location.hash = h;
+  };
+  const fixPort = async (btn, n) => {
+    btn.disabled = true;
+    try { await api(`/api/instances/${enc}/properties`, { method: "PUT", body: { pairs: [{ key: "server-port", value: String(n) }] } }); }
+    catch (e) { toastErr(`无法把端口改成 ${n}`, e); btn.disabled = false; return; }
+    try { await api(`/api/instances/${enc}/start`, { method: "POST" }); toast(`端口改成了 ${n}，正在启动。朋友要用新的连接地址`); }
+    catch (e) { toastErr(`端口改成了 ${n}，但还是没能启动`, e); }
+    refreshHead();
+  };
   const paintFail = cur => {
     if (!cur.lastStartError || cur.status !== "stopped") { detailNotice("start-fail", ""); return; }
-    const { text, raw } = errSummary("上次没能启动", { message: cur.lastStartError });
-    detailNotice("start-fail", `${icon("warn")}<span class="dn-text">${esc(text)}</span>` +
+    const pb = cur.startPortBusy && cur.startPortBusy.port ? cur.startPortBusy : null;
+    const { text, raw } = pb && pb.owner ? { text: `上次没能启动：端口 ${pb.port} 被你的服务器「${pb.owner}」占着，两台不能同时开`, raw: cur.lastStartError }
+      : errSummary("上次没能启动", { message: cur.lastStartError });
+    const fix = !pb ? "" : pb.owner && pb.suggest
+      ? `<button type="button" class="btn sm" data-port-fix="${+pb.suggest}">改成 ${+pb.suggest} 并启动</button>`
+      : `<button type="button" class="btn sm" data-port-edit aria-label="改端口：去「设置 → 常用」里的端口">改端口</button>`;
+    const el = detailNotice("start-fail", `${icon("warn")}<span class="dn-text">${esc(text)}</span>` + fix +
       (tab !== "console" ? `<a class="btn sm ghost" href="#/inst/${encodeURIComponent(name)}/console">看控制台</a>` : "") +
       (text.endsWith(raw) ? "" : `<button type="button" class="btn sm ghost" data-err-raw="${errRawAttr(raw)}" aria-label="复制报错信息 上次没能启动">${icon("copy")} 复制报错信息</button>`),
     { id: "d-start-fail" });
+    if (!el) return;
+    const fb = el.querySelector("[data-port-fix]"), eb = el.querySelector("[data-port-edit]");
+    if (fb) fb.onclick = () => fixPort(fb, +fb.dataset.portFix);
+    if (eb) eb.onclick = goPortSetting;
   };
   // 配的 Java 找不到了（R21）：常驻在提示区，带路去「设置 → 启动与内存」换一个；换好了（javaMissing 没了）就消失
   const paintJava = cur => {
@@ -3125,10 +3233,25 @@ async function renderDetail(name, path = "console") {
     detailNotice("java-missing", `${icon("warn")}<span class="dn-text">找不到这台服务器配的 Java${cur.javaPath ? `（<span class="mono">${esc(cur.javaPath)}</span>）` : ""}，现在启动会失败。可能是那个 Java 被卸载或挪走了。</span>` +
       (view !== "jvm" ? `<a class="btn sm" href="${base}settings/jvm">去「设置 → 启动与内存」换一个</a>` : ""), { id: "d-java-missing" });
   };
+  // 整合包里没装上的文件（R09）：清单存在服务器文件夹里，程序重开以后也在。还没处理的有几个就常驻一条，「处理」打开处理面板
+  //（在「插件 / 模组」页上就滚到页里「整合包里没装上的」那一块，一页只挂一份面板）；跳过的不算，都处理完、都跳过了就消失
+  const paintPending = v => {
+    const n = v ? (v.pending || []).length : 0;
+    if (!n) { detailNotice("import-pending", ""); return; }
+    const el = detailNotice("import-pending", `${icon("warn")}<span class="dn-text">这台服务器有 ${n} 个整合包文件没装上，缺了它们服务器可能启动不了，或者玩家进不去。</span>` +
+      `<button type="button" class="btn sm" data-pnd-open aria-label="处理没装上的 ${n} 个整合包文件">处理</button>`, { id: "d-import-pending" });
+    if (el) el.querySelector("[data-pnd-open]").onclick = () => {
+      const blk = $("#ad-pending");
+      if (blk && !blk.hidden) { blk.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "start" }); $("#ad-pnd-h").focus({ preventScroll: true }); return; }
+      pendingModal(name, gen, paintPending, window.MDModCart && MDModCart.applies(info) ? MDModCart.tabLabel(info.core) : "");
+    };
+  };
+  const pendingReq = info.kind === "proxy" ? Promise.resolve(null) : api(`/api/instances/${enc}/import-pending`).catch(() => null);
   paintAddr(info);
   appInfo.then(a => { const r = learnIPs(a); if (!stale(gen)) { ips = r; paintAddr(lastCur); } });
   paintFail(info);
   paintJava(info);
+  pendingReq.then(v => { if (!stale(gen)) paintPending(v); });
   placeToasts();
   // 各页跟着实时状态变的东西（保存条上「运行中要重启」的说明、「立即重启」、插件 / 模组页的停用删除能不能点……）登记在这里，轮询到状态就调
   const onStatus = [];
@@ -3613,8 +3736,19 @@ async function renderDetail(name, path = "console") {
         <div id="ad-list">${skeletonRows(3)}</div>
         <div class="hint ad-note" id="ad-note"></div>
       </section>
+      <section class="ad-pending" id="ad-pending" hidden aria-labelledby="ad-pnd-h">
+        <div class="ad-head"><h2 id="ad-pnd-h" tabindex="-1">整合包里没装上的</h2></div>
+        <div class="hint">导入整合包时没能自动装上的文件。跳过的也列在这里：它们没有装上，要的话还能换成别的处理方式。</div>
+        <div id="ad-pending-out"></div><div id="ad-pending-box"></div>
+      </section>
       <h2 class="ad-add-h">添加${label}</h2>
       <div id="ad-cart"></div>`;
+    // 整合包里没装上的（R09）：还没处理的和跳过的都在这一块，跳过的也能重新处理；一个都没有时不出现。处理以后页头那一条跟着变
+    pendingReq.then(v => {
+      if (stale(gen) || !v || !((v.pending || []).length + (v.skipped || []).length) || !$("#ad-pending")) return;
+      $("#ad-pending").hidden = false;
+      pendingPanel($("#ad-pending-box"), $("#ad-pending-out"), name, gen, { onChange: paintPending, applyId: "ad-pending-apply" }).load();
+    });
     let mods = [], dir = "", pids = new Set(), ids = new Set(), pidOf = {}, repaintHits = () => {};
     // 热门和搜索里认「已安装」用的两份：启用着的文件在 Modrinth 上认出来的项目、启用着的模组 ID。停用、删除以后跟着变
     const learn = () => {

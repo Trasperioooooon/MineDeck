@@ -98,5 +98,42 @@ func (c *cat) portOps() {
 	})
 }
 
+// portSuggestOps 端口默认值（可用性走查 R08）：新建、导入整合包、接管、用已有地图开服的表单从这里拿默认端口，
+// 并拿 used 当场提示手填的端口和哪台服务器撞了。
+func (c *cat) portSuggestOps() {
+	c.reg.Register(&ops.Op{
+		// NoLog：只读，表单每打开一次就问一次，记进操作记录只会把真正的修改淹掉
+		Name: "port.suggest", Title: "推荐服务器端口", Level: ops.HumanOnly, NoLog: true,
+		Desc: "新建、导入、接管服务器时端口填哪个：从 from（默认 25565）起，MineDeck 里别的服务器都没用的最小端口（port）；" +
+			"usedBy 是 from 被哪台服务器用着（空 = from 本来就空着）；used 列出各台服务器用的端口（代理端是它自己配置里的端口）。" +
+			"只看 MineDeck 管着的服务器，别的程序占着的用 port.check 查。except 填一台服务器的名字时不算它（给它自己换端口时用）。" +
+			"只读，但只给界面的表单用，不进 AI 的工具清单（AI 要知道端口用 port.check、instance.list）。",
+		Params: ops.Object(map[string]*ops.Schema{
+			"from":   ops.Integer("从哪个端口起找，默认 25565").Range(0, 65535),
+			"except": ops.String("不算在内的服务器名字，可以不填"),
+		}),
+		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+			p, err := bind[struct {
+				From   int    `json:"from"`
+				Except string `json:"except"`
+			}](a)
+			if err != nil {
+				return nil, err
+			}
+			used := c.Mgr.PortsInUse(p.Except)
+			port, by := inst.DefaultPort(used, p.From)
+			from := p.From
+			if from < 1 {
+				from = 25565
+			}
+			out := map[string]any{"port": port, "from": from, "used": used}
+			if by != "" {
+				out["usedBy"] = by
+			}
+			return out, nil
+		},
+	})
+}
+
 // baseExe 取路径里的程序名。
 func baseExe(p string) string { return filepath.Base(strings.ReplaceAll(p, `\`, "/")) }
