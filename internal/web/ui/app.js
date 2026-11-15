@@ -280,6 +280,10 @@ async function copyFlash(b, text, okMsg) {
    IP 取 /api/app 的 ips，按 lanIPRank 排（家用网段在前，同「手机远程管理」的默认地址）；详情页头换过 IP 的记在本机，
    卡片和页头都用换过的那个。端口用服务器列表的 connectPort（代理端是它自己配置文件里的端口，还没生成时为 0）。 */
 const rankIPs = ips => (ips || []).slice().sort((a, b) => lanIPRank(a) - lanIPRank(b));
+/* 上一次从 /api/app 拿到的本机 IP（排好序；null 是还没拿到过）。列表和详情页不等 /api/app，先用它画，
+   不然每换一次标签，地址那一行都会先缩成只有端口再变回来 */
+let knownIPs = null;
+const learnIPs = a => (knownIPs = rankIPs(a && a.ips));
 function pickLanIP(ips) {
   let saved = "";
   try { saved = localStorage.getItem("amh_lan_ip") || ""; } catch {}
@@ -1301,7 +1305,7 @@ async function renderInstances() {
   const taskList = $("#task-list");
   let lastSig = "", curList = [], prevByName = null; // prevByName：上次渲染时各实例的数据（判定状态切换、播切换动效）
   // 连接地址用的本机局域网 IP（见 pickLanIP）。列表不等 /api/app：拿到之前、或者拿不到时，卡片上只写端口、不给复制，拿到了再重画
-  let lanIP = "";
+  let lanIP = pickLanIP(knownIPs || []);
   const appInfo = api("/api/app").catch(() => ({}));
   const cardHTML = (i, n, enter, prev) => {
     const proxy = i.kind === "proxy";
@@ -1437,9 +1441,10 @@ async function renderInstances() {
   };
   $("#inst-q").oninput = () => { lastSig = ""; draw(); };
   $("#inst-sort").onchange = () => { lastSig = ""; draw(); };
-  appInfo.then(app => { // 签名里带着 lanIP：IP 到了，下一次画就会把地址和复制键补上；列表已经画出来的话马上补
+  appInfo.then(app => { // 签名里带着 lanIP：IP 到了（或者变了），下一次画就会把地址和复制键补上；列表已经画出来的话马上补
+    const ips = learnIPs(app);
     if (stale(gen)) return;
-    lanIP = pickLanIP(rankIPs(app && app.ips));
+    lanIP = pickLanIP(ips);
     if (curList.length) draw();
   });
   await draw();
@@ -2726,7 +2731,7 @@ async function renderDetail(name, tab = "console") {
   if (stale(gen)) return; // 等待期间已切走：不再建 SSE / 定时器
   const info = list.find(i => i.name === name);
   if (!info) { Main().innerHTML = `<div class="err-box">服务器不存在</div>`; return; }
-  let ips = null; // null：还在问 /api/app
+  let ips = knownIPs; // null：还在问 /api/app、以前也没拿到过
   // 页头：大号像素头像 + 标题，标题下一行是状态胶囊与徽标，再下一行是连接地址；操作按钮靠右。页头下面是常驻提示区
   Main().innerHTML = `<nav class="crumbs" aria-label="位置"><a href="#/instances">服务器</a>${icon("chevronRight")}<span>${esc(name)}</span></nav>
     <div class="detail-head">
@@ -2794,7 +2799,7 @@ async function renderDetail(name, tab = "console") {
     { id: "d-start-fail" });
   };
   paintAddr(info);
-  appInfo.then(a => { if (!stale(gen)) { ips = rankIPs(a && a.ips); paintAddr(lastCur); } });
+  appInfo.then(a => { const r = learnIPs(a); if (!stale(gen)) { ips = r; paintAddr(lastCur); } });
   paintFail(info);
   placeToasts();
   $("#d-dir").onclick = () => dropMenu($("#d-dir"), folderItems(info));
