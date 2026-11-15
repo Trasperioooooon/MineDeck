@@ -39,6 +39,13 @@ type instSummary struct {
 	UptimeSec       int      `json:"uptimeSec"`
 	MaxPlayers      int      `json:"maxPlayers"`
 	ExtraJVM        []string `json:"extraJvm"`
+	// ConnectPort 朋友在游戏里连这台服务器用的端口（界面上的「连接地址」）：游戏服务器同 port；
+	// 代理端是它自己配置文件里的监听端口（port 对代理端恒为 25565，不是它监听的），配置文件还没生成时为 0
+	ConnectPort int `json:"connectPort"`
+	// LastStartError 上一次启动没起来的原因（端口被占、找不到 Java……）；下次成功起了进程就清掉，只在内存里
+	LastStartError string `json:"lastStartError,omitempty"`
+	// MineDeckFiles 接管来的服务器：文件夹里 MineDeck 写的、移出列表以后会留下的文件（相对路径）。别的服务器没有这一项
+	MineDeckFiles []string `json:"mdFiles,omitempty"`
 }
 
 func summarize(i *inst.Instance) instSummary {
@@ -69,7 +76,8 @@ func summarize(i *inst.Instance) instSummary {
 		CreatedAt:       i.CreatedAt.Format("2006-01-02 15:04"),
 		ConsoleEncoding: enc,
 		OnlineCount:     i.OnlineCount(), UptimeSec: i.UptimeSec(), MaxPlayers: maxP,
-		ExtraJVM: i.ExtraJVMSnapshot(),
+		ExtraJVM:    i.ExtraJVMSnapshot(),
+		ConnectPort: i.ConnectPort(), LastStartError: i.LastStartError(), MineDeckFiles: i.MineDeckFiles(),
 	}
 }
 
@@ -87,6 +95,7 @@ var createParams = map[string]*ops.Schema{
 	"motd":        ops.String("服务器列表里显示的简介"),
 	"difficulty":  ops.String("难度：peaceful、easy、normal、hard；空则用服务端默认"),
 	"gamemode":    ops.String("默认游戏模式：survival、creative、adventure、spectator；空则用服务端默认"),
+	"whitelist":   ops.Boolean("只允许白名单里的玩家进入（写进 server.properties 的 white-list，不论版本）；不传为关，任何知道地址的人都能进"),
 	"root":        ops.String("存放目录（仅本机生效；空则用全局默认）"),
 	"worldPlan":   ops.String("用已有地图开服：地图导入的计划编号（world.import.plan 生成，只能由人选择）"),
 	"worldAck":    ops.Boolean("地图预览里要确认的项已确认"),
@@ -96,7 +105,8 @@ func (c *cat) instanceOps() {
 	c.taskCancelOps()
 	c.reg.Register(&ops.Op{
 		Name: "instance.list", Title: "查看服务器列表", Level: ops.Read,
-		Desc: "所有实例：核心、版本、Java、内存、端口、状态、在线人数、运行时长、MOTD。",
+		Desc: "所有实例：核心、版本、Java、内存、端口、状态、在线人数、运行时长、MOTD；connectPort 是玩家连进来用的端口（代理端以它为准），" +
+			"lastStartError 是上一次没启动起来的原因（端口被占、找不到 Java 等，下次启动成功后清空）。",
 		Run: func(context.Context, ops.Caller, ops.Args) (any, error) {
 			out := []instSummary{}
 			for _, i := range c.Mgr.List() {
@@ -157,7 +167,7 @@ func (c *cat) instanceOps() {
 
 	importParams := map[string]*ops.Schema{"file": ops.String("已上传到缓存目录的整合包文件")}
 	for k, v := range createParams {
-		if k == "name" || k == "xmxMb" || k == "port" || k == "eula" || k == "onlineMode" || k == "allowFlight" || k == "motd" || k == "root" {
+		if k == "name" || k == "xmxMb" || k == "port" || k == "eula" || k == "onlineMode" || k == "allowFlight" || k == "motd" || k == "root" || k == "whitelist" {
 			importParams[k] = v
 		}
 	}

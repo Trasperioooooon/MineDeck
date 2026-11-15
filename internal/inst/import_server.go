@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -269,15 +270,26 @@ func applyServerProps(ctx context.Context, t *tasks.Task, dir string, req Create
 		t.Logf("没改 server.properties（%v）", err)
 		return
 	}
+	// 白名单和正版验证不一样：开关它不会让谁的存档对不上，导入页上又写明了，所以压缩包里写着什么都以导入页的开关为准（可用性走查 R02）。
+	// 按服务端的读法写：同一项写了几行时服务端认最后一行
+	wl := strconv.FormatBool(req.Whitelist)
+	wlBefore, wlHad := javaPropsOf(path)["white-list"]
+	wlNote := "白名单" + onOff(wl, false)
+	if err := ForceProp(path, "white-list", wl); err != nil {
+		t.Logf("没能把白名单开关写进 server.properties（%v）", err)
+		wlNote = "白名单没能写进去，到「玩家」里看一眼"
+	} else if wlHad && !strings.EqualFold(strings.TrimSpace(wlBefore), wl) {
+		wlNote = fmt.Sprintf("白名单按导入页的开关从「%s」改成了「%s」", onOff(wlBefore, false), onOff(wl, false))
+	}
 	if had {
 		online, _ := props.Get("online-mode")
 		flight, _ := props.Get("allow-flight")
-		t.Logf("端口已设为 %d。正版验证（%s）和允许飞行（%s）沿用压缩包里 server.properties 的设置，导入页上的这两项没有用上，要改到「常用设置」里改",
-			req.Port, onOff(online, true), onOff(flight, false))
+		t.Logf("端口已设为 %d，%s。正版验证（%s）和允许飞行（%s）沿用压缩包里 server.properties 的设置，导入页上的这两项没有用上，要改到「常用设置」里改",
+			req.Port, wlNote, onOff(online, true), onOff(flight, false))
 		return
 	}
-	t.Logf("压缩包里没有 server.properties，按导入页新建：端口 %d，正版验证%s，允许飞行%s",
-		req.Port, onOff(fmt.Sprint(req.OnlineMode), false), onOff(fmt.Sprint(req.AllowFlight), false))
+	t.Logf("压缩包里没有 server.properties，按导入页新建：端口 %d，正版验证%s，允许飞行%s，%s",
+		req.Port, onOff(fmt.Sprint(req.OnlineMode), false), onOff(fmt.Sprint(req.AllowFlight), false), wlNote)
 }
 
 // applyImportLog4j 老版本的 log4shell 防护，和新建、接管的 applyLog4jMitigation 一样：1.18.1 以前加参数，

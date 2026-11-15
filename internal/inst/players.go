@@ -30,6 +30,8 @@ type PlayerLists struct {
 	Whitelist []PlayerEntry `json:"whitelist"`
 	Ops       []PlayerEntry `json:"ops"`
 	Banned    []PlayerEntry `json:"banned"`
+	// WhitelistOn server.properties 的 white-list（按服务端的读法）；没写这一项时为 null，服务端用它自己的默认值（见 WhitelistOn）
+	WhitelistOn *bool `json:"whitelistOn"`
 }
 
 // trackPlayers 从控制台输出维护在线玩家集合。识别规则在 mclog：只对拆出前缀后的正文做锚定匹配，
@@ -82,6 +84,7 @@ func (m *Manager) GetPlayers(name string) (*PlayerLists, error) {
 	out.Whitelist = readPlayerFile(filepath.Join(i.Dir, "whitelist.json"))
 	out.Ops = readPlayerFile(filepath.Join(i.Dir, "ops.json"))
 	out.Banned = readPlayerFile(filepath.Join(i.Dir, "banned-players.json"))
+	out.WhitelistOn = WhitelistOn(i.Dir)
 	return out, nil
 }
 

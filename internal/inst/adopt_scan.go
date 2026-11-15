@@ -57,6 +57,9 @@ type AdoptScan struct {
 	HasWorld     bool          `json:"hasWorld"` // 有存档
 	Managed      bool          `json:"managed"`  // 目录里有 MineDeck 的 instance.json（或移出列表时留的 .bak）
 	Notes        []string      `json:"notes"`    // 要让用户知道的事
+	// WhitelistOn server.properties 里的白名单开关（按服务端的读法）；没写这一项、或者是代理端时为 null。
+	// 接管沿用原来的值、不改，只在表单上写出来（可用性走查 R02）
+	WhitelistOn *bool `json:"whitelistOn"`
 
 	prev *Settings // Managed 时原来的设置
 	key  string    // validateAdopt 登记的目录占位键（见 dirKey），任务结束时释放
@@ -223,6 +226,7 @@ func scanServerDir(dir string) (*AdoptScan, error) {
 		if b, err := readCapped(filepath.Join(dir, "eula.txt"), 64<<10); err == nil {
 			sc.EULA = reEULA.Match(b)
 		}
+		sc.WhitelistOn = WhitelistOn(dir)
 	}
 
 	sc.Name = suggestName(sc, dir)

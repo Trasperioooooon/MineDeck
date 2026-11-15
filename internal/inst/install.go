@@ -36,6 +36,9 @@ type CreateReq struct {
 	MOTD        string     `json:"motd"`
 	Difficulty  string     `json:"difficulty"` // 创建时写入 server.properties（空=不设，用服务端默认）
 	Gamemode    string     `json:"gamemode"`
+	// Whitelist 只允许白名单里的玩家进入：新建、导入整合包、用已有地图开服都按它把 white-list 明确写进 server.properties，
+	// 不论游戏版本（26.3 起服务端自己的默认值是开）。不传就是关，MineDeck 的默认，表单上写明（可用性走查 R02）
+	Whitelist bool `json:"whitelist"`
 	// LocalSource 整合包导入的「本地来源目录」：用户手里还留着的老服务器目录（如 D:\old-server）。
 	// 待决（无法自动下载）的文件凡在这个目录里有对应的，按原样复制进实例（不校验、要求线上匹配），
 	// 用户的魔改模组因此直接保留；目录里没有的留在待决清单交给用户处置。
@@ -417,7 +420,44 @@ func (m *Manager) runCreateWith(ctx context.Context, t *tasks.Task, req CreateRe
 
 	// ---- 步骤 5：完成初始化后才发布实例 ----
 	t.StartStep(5)
-	return m.completeCreate(parent, t, inst, beforePublish)
+	return m.completeCreate(parent, t, inst, withCreateWhitelist(t, req, beforePublish))
+}
+
+// withCreateWhitelist 发布之前最后一步：把白名单开关写进 server.properties。放在 beforePublish（整合包的下载和覆盖目录）之后：
+// 覆盖目录可以带着整合包自己的 server.properties 整个盖上来，白名单以表单上的开关为准。代理端没有这个文件，不写。
+func withCreateWhitelist(t *tasks.Task, req CreateReq, beforePublish func(*Instance) error) func(*Instance) error {
+	if mcsrc.KindOf(req.Core) == mcsrc.KindProxy {
+		return beforePublish
+	}
+	return func(i *Instance) error {
+		if beforePublish != nil {
+			if err := beforePublish(i); err != nil {
+				return err
+			}
+		}
+		return writeCreateWhitelist(t, i.Dir, req.Whitelist)
+	}
+}
+
+// writeCreateWhitelist 把白名单开关明确写进 server.properties，不论游戏版本。26.3 起服务端自己生成配置时默认开白名单，
+// 名单又是空的：按默认值开出来的服务器，朋友连进来会被挡住，界面上却一切正常（可用性走查 U02）。
+// MineDeck 的默认是关，新建表单上写明「关着时任何知道地址的人都能进」。
+// 按服务端的读法写（ForceProp）：同一项写了几行时服务端认最后一行，整合包自带的文件里可能就有。
+func writeCreateWhitelist(t *tasks.Task, dir string, on bool) error {
+	path := filepath.Join(dir, "server.properties")
+	want := strconv.FormatBool(on)
+	before, had := javaPropsOf(path)["white-list"]
+	if err := ForceProp(path, "white-list", want); err != nil {
+		return fmt.Errorf("没能把白名单开关写进 server.properties：%w", err)
+	}
+	if had && !strings.EqualFold(strings.TrimSpace(before), want) {
+		t.Logf("整合包自带的 server.properties 里白名单是「%s」，按导入页上的开关改成了「%s」", onOff(before, false), onOff(want, false))
+	} else if on {
+		t.Logf("白名单：开（只有名单里的玩家能进，开服后到「玩家」里加名字）")
+	} else {
+		t.Logf("白名单：关（任何知道地址的人都能进）")
+	}
+	return nil
 }
 
 // completeCreate 是新建与整合包导入共用的发布边界；失败前始终没有可操作的实例。
