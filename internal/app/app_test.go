@@ -1,6 +1,7 @@
 package app
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -124,5 +125,44 @@ func TestParseHexColor(t *testing.T) {
 		if got, ok := ParseHexColor(bad); ok {
 			t.Errorf("ParseHexColor(%q) 应拒绝，却得到 %q", bad, got)
 		}
+	}
+}
+
+// 更新渠道：选过的为准；没选过（空，或者手改成了认不得的值）按正在用的版本定，测试版按最新版、正式版按稳定版。
+func TestUpdateChannelFor(t *testing.T) {
+	for _, tc := range []struct{ choice, version, want string }{
+		{"", "3.2.0-beta.3", UpdateLatest},
+		{"", "3.2.0", UpdateStable},
+		{"", " 3.1.2 ", UpdateStable},
+		{UpdateStable, "3.2.0-beta.3", UpdateStable},
+		{UpdateLatest, "3.2.0", UpdateLatest},
+		{"nightly", "3.2.0", UpdateStable},
+		{"nightly", "3.2.0-rc.1", UpdateLatest},
+	} {
+		if got := UpdateChannelFor(tc.choice, tc.version); got != tc.want {
+			t.Errorf("UpdateChannelFor(%q, %q) = %q，应为 %q", tc.choice, tc.version, got, tc.want)
+		}
+	}
+}
+
+// 没选过渠道时不回填进 config.json：生效的渠道每次按正在用的版本算，测试版用户以后装回正式版，默认跟着变成稳定版。
+func TestUpdateChannelNotBackfilled(t *testing.T) {
+	tempBase(t)
+	if _, err := UpdateConfig(func(c *Config) error { c.BackupKeep = 5; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	restart()
+	if c := GetConfig(); c.UpdateChannel != "" {
+		t.Fatalf("没选过渠道，配置里却有 %q", c.UpdateChannel)
+	}
+	if b, err := os.ReadFile(configPath()); err != nil || strings.Contains(string(b), "updateChannel") {
+		t.Fatalf("config.json 里不该有 updateChannel：%s %v", b, err)
+	}
+	if _, err := UpdateConfig(func(c *Config) error { c.UpdateChannel = UpdateStable; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	restart()
+	if c := GetConfig(); c.UpdateChannel != UpdateStable {
+		t.Fatalf("选过的渠道重启后应还在：%q", c.UpdateChannel)
 	}
 }

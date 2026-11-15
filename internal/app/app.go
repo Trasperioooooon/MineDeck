@@ -37,6 +37,9 @@ type Config struct {
 	WebhookURL         string `json:"webhookUrl,omitempty"`         // 事件推送地址（选填）
 	UpdateRepo         string `json:"updateRepo,omitempty"`         // GitHub 更新仓库，如 user/MineDeck
 	CheckUpdateOnStart bool   `json:"checkUpdateOnStart,omitempty"` // 启动时后台静默检查更新
+	// UpdateChannel 用户选的更新渠道：stable（只收正式版）或 latest（正式版和测试版都收）。空 = 没选过，
+	// 生效的渠道每次读的时候按正在用的版本算（见 UpdateChannelFor），不回填进配置：测试版用户以后装回正式版，默认跟着变
+	UpdateChannel      string `json:"updateChannel,omitempty"`
 	ListenLAN          bool   `json:"listenLan,omitempty"`          // 允许局域网访问（需设置密码，重启生效）
 	AccessPasswordHash string `json:"accessPasswordHash,omitempty"` // 远程访问密码哈希（bcrypt；兼容旧版 SHA-256 hex，登录成功自动升级）
 	MinimizeToTray     bool   `json:"minimizeToTray,omitempty"`     // 关闭窗口时最小化到托盘（服务器不停），默认关
@@ -96,6 +99,28 @@ const DefaultBackupKeep = 10
 // DefaultUpdateRepo 内置自动更新源：用户未在「设置 → 更新」另填时使用，
 // 让 GitHub 自动更新开箱即用（仍需用户手动点检查或开启启动时检查，不主动联网）。
 const DefaultUpdateRepo = "Trasperioooooon/MineDeck"
+
+// 更新渠道（Config.UpdateChannel）。
+const (
+	UpdateStable = "stable" // 稳定版：只查 GitHub 的 releases/latest，只收正式版
+	UpdateLatest = "latest" // 最新版：正式版和测试版（预发布）里取版本号最大的
+)
+
+// UpdateChannelFor 生效的更新渠道：用户选过（choice 是 stable 或 latest）就以他选的为准；
+// 没选过时看 version：带「-」后缀的测试版按最新版（装测试版的人多半想继续收测试版），正式版按稳定版。
+func UpdateChannelFor(choice, version string) string {
+	switch choice {
+	case UpdateStable, UpdateLatest:
+		return choice
+	}
+	if strings.Contains(strings.TrimSpace(version), "-") {
+		return UpdateLatest
+	}
+	return UpdateStable
+}
+
+// UpdateChannel 这次运行生效的更新渠道（按配置和正在用的版本 Version）。
+func UpdateChannel() string { return UpdateChannelFor(GetConfig().UpdateChannel, Version) }
 
 var (
 	cfgMu sync.RWMutex

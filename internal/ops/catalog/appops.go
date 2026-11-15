@@ -81,6 +81,7 @@ type configPatch struct {
 	WebhookURL         *string `json:"webhookUrl"`
 	UpdateRepo         *string `json:"updateRepo"`
 	CheckUpdateOnStart *bool   `json:"checkUpdateOnStart"`
+	UpdateChannel      *string `json:"updateChannel"` // stable | latest
 	ServersDir         *string `json:"serversDir"`
 	BackupsDir         *string `json:"backupsDir"`
 	BackupKeep         *int    `json:"backupKeep"`
@@ -91,6 +92,20 @@ type configPatch struct {
 	ListenLAN          *bool   `json:"listenLan"`
 	LanPassword        *string `json:"lanPassword"` // 明文仅在本次请求中出现，存储为 bcrypt 哈希
 	ChromeColor        *string `json:"chromeColor"` // 界面标题栏底色 #rrggbb（下次启动时 WebView2 的默认底色）；空串清除
+}
+
+// checkResult 检查更新的回包：查到的版本、有没有更新，加上按哪个渠道查的、查到的是不是测试版。
+// ahead：正在用的版本比查到的还新（稳定渠道上用着测试版时常见），不提示更新，任何渠道都不会「更新」回更旧的版本。
+func checkResult(current string, rel *update.Release, has bool) map[string]any {
+	return map[string]any{
+		"current":           current,
+		"latest":            rel,
+		"hasUpdate":         has,
+		"channel":           rel.Channel,
+		"prerelease":        rel.Prerelease,
+		"currentPrerelease": update.IsPre(current),
+		"ahead":             update.Newer(current, rel.Tag),
+	}
 }
 
 func (c *cat) appOps() {
@@ -111,11 +126,13 @@ func (c *cat) appOps() {
 				"config":      publicConfig(caller),
 				"local":       caller.Local, // 请求来自本机；不是本机时 config 里的 Webhook 地址是遮掉的
 				"lanSet":      app.GetConfig().AccessPasswordHash != "",
-				"lanActive":   app.LANListening,    // 局域网访问这次启动是否已生效（listenLan 改了要重启才变）
-				"cfKeySet":    cfSet,               // CurseForge API Key 是否已设置（Key 本身从不下发）
-				"cfKeyBroken": cfBroken,            // 已存的 Key 解不开（换了电脑或 Windows 用户），要重填
-				"autoStart":   autostart.Enabled(), // 开机自启真值以注册表为准
-				"ips":         localIPs(),
+				"lanActive":   app.LANListening, // 局域网访问这次启动是否已生效（listenLan 改了要重启才变）
+				"cfKeySet":    cfSet,            // CurseForge API Key 是否已设置（Key 本身从不下发）
+				"cfKeyBroken": cfBroken,         // 已存的 Key 解不开（换了电脑或 Windows 用户），要重填
+				// 生效的更新渠道：config.updateChannel 为空（没选过）时按正在用的版本定，测试版按 latest、正式版按 stable
+				"updateChannel": app.UpdateChannel(),
+				"autoStart":     autostart.Enabled(), // 开机自启真值以注册表为准
+				"ips":           localIPs(),
 			}, nil
 		},
 	})
@@ -129,6 +146,7 @@ func (c *cat) appOps() {
 			"webhookUrl":         ops.String("事件推送地址，以 http(s):// 开头；空串关闭"),
 			"updateRepo":         ops.String("检查更新用的 GitHub 仓库，如 user/MineDeck"),
 			"checkUpdateOnStart": ops.Boolean("启动时在后台检查一次更新"),
+			"updateChannel":      ops.String("更新渠道：stable（稳定版，只收正式版）、latest（最新版，包括测试版）").OneOf(app.UpdateStable, app.UpdateLatest),
 			"serversDir":         ops.String("新实例的默认存放目录（仅本机；空串恢复默认）"),
 			"backupsDir":         ops.String("备份目录（仅本机；空串恢复默认）"),
 			"backupKeep":         ops.Integer("每个实例保留的备份份数，1–1000（超出按边界算）"),
@@ -209,6 +227,9 @@ func (c *cat) appOps() {
 				if body.CheckUpdateOnStart != nil {
 					c.CheckUpdateOnStart = *body.CheckUpdateOnStart
 				}
+				if body.UpdateChannel != nil { // 取值在参数说明里限定了只能是 stable / latest；同 updateRepo，局域网也能改
+					c.UpdateChannel = *body.UpdateChannel
+				}
 				if body.ServersDir != nil {
 					c.ServersDir = strings.TrimSpace(*body.ServersDir) // 旧值由 UpdateConfig 并入 Roots，旧实例照常扫描
 				}
@@ -282,7 +303,7 @@ func (c *cat) appOps() {
 
 	c.reg.Register(&ops.Op{
 		Name: "app.update.check", Title: "检查更新", Level: ops.Read,
-		Desc: "到设置里的 GitHub 仓库查最新版本（要联网）。",
+		Desc: "按设置里的更新渠道到 GitHub 仓库查新版本（要联网）：稳定版只看正式版，最新版连测试版一起看。",
 		Run: func(ctx context.Context, _ ops.Caller, _ ops.Args) (any, error) {
 			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
@@ -290,7 +311,7 @@ func (c *cat) appOps() {
 			if err != nil {
 				return nil, ops.Wrap(502, err)
 			}
-			return map[string]any{"current": app.Version, "latest": rel, "hasUpdate": has}, nil
+			return checkResult(app.Version, rel, has), nil
 		},
 	})
 

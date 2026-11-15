@@ -406,6 +406,16 @@ add("settings", "s-storage-undo", "存储位置：改了马上生效，提示里
 add("settings", "s-storage-same", "存储位置：服务器和备份放在同一个文件夹（R20）", {
   hash: "#/settings/storage", tag: "new", setup: s => { s.config.backupsDir = "D:\\MineDeck\\servers"; },
 });
+// 更新渠道（beta.3）：正在用的版本取程序现在真正的版本号（同 ../proto.js 的 VERSION，侧栏和「当前版本」显示的是它）
+const APP_VERSION = (() => {
+  try { return (require("fs").readFileSync(require("path").join(__dirname, "..", "..", "..", "internal", "app", "app.go"), "utf8").match(/const Version = "([^"]+)"/) || [])[1] || "3.2.0-beta.3"; } catch { return "3.2.0-beta.3"; }
+})();
+add("settings", "s-about-ahead", "更新渠道：选了稳定版、用着比最新正式版还新的测试版", {
+  hash: "#/settings/about", tag: "new",
+  setup: s => { s.version = APP_VERSION; s.config.updateChannel = "stable"; s.releases = [{ tag: "v3.1.1" }, { tag: "v3.1.2" }, { tag: "v" + APP_VERSION.split("-")[0] + "-beta.99", prerelease: true }]; },
+  steps: [{ click: "#up-check" }, { sleep: 400 }],
+  note: "不提示更新，说清楚用的是测试版、等同号的正式版出来再提示。下面「更新渠道」两项：稳定版只收正式版，最新版连测试版一起收（写了测试版可能有还没发现的问题），点了马上保存，上一次的检查结果跟着清掉。",
+});
 add("settings", "s-remote-on", "手机远程管理：已开启（二维码）", { hash: "#/settings/remote", setup: s => { s.config.listenLan = s.lanActive = true; s.lanSet = true; } });
 add("settings", "s-ai-on", "AI：已经配好一家", {
   hash: "#/settings/ai",
