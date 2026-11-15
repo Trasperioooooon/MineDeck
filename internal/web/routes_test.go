@@ -218,7 +218,7 @@ func TestRoutesKeepPathsAndSemantics(t *testing.T) {
 		{"POST", "/api/instances", `{"name":"","core":"paper","mc":"1.21.4","eula":true}`, 400, "服务器名称需为 1~40 个字符", nil},
 		{"POST", "/api/import/modpack", "", 400, "上传解析失败", nil},
 		// 处置导入的待决文件：别的设备不行；空动作清单 400；任务不在 404
-		{"POST", "/api/import/pending/t999", `{"items":[{"id":"p1","act":"skip"}]}`, 403, "处理导入的待决文件仅支持在本机操作", []reqOpt{fromLAN}},
+		{"POST", "/api/import/pending/t999", `{"items":[{"id":"p1","act":"skip"}]}`, 403, "处理没装上的文件仅支持在本机操作", []reqOpt{fromLAN}},
 		{"POST", "/api/import/pending/t999", `{"items":[]}`, 400, "没有要处理的项", nil},
 		{"POST", "/api/import/pending/t999", `{"items":[{"id":"p1","act":"skip"}]}`, 404, "任务不存在", nil},
 		{"POST", "/api/import/pending/t999", `{"items":[{"id":"p1","act":"毁掉"}]}`, 400, "", nil},

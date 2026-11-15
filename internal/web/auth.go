@@ -122,7 +122,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	hash := app.GetConfig().AccessPasswordHash
 	if hash == "" {
-		writeErr(w, 400, fmt.Errorf("未启用远程访问"))
+		writeErr(w, 400, fmt.Errorf("还没有开启手机远程管理"))
 		return
 	}
 	// 读完请求体再占名额：慢慢发请求体的连接不会一直占着名额

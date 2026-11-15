@@ -5272,7 +5272,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     await page.goto(url(worldTab(name))); await page.waitForSelector("#wi-start");
     await page.click("#wi-start"); await page.waitForSelector("#wi-upload");
   };
-  const WI_STUCK = { busy: "上次换地图没能自动恢复，服务器已暂停启动。请到「地图」里查看恢复步骤",
+  const WI_STUCK = { busy: "上次换地图没能自动恢复，服务器已暂停启动。请到「世界与备份 → 换地图」里查看恢复步骤",
     points: [{ id: "w9aa10001", state: "stuck", created: "2026-11-12T20:10:00+08:00", source: "SkyCity.zip", candidate: "天空之城", levelName: "world", hasOld: true, oldBytes: 5e8, keptBytes: 0, canReturn: false,
       error: "rename world: Access is denied.", stuck: ["D:\\MineDeck\\servers\\create-pack\\world", "D:\\MineDeck\\servers\\create-pack\\.minedeck\\world-import\\w9aa10001\\old\\world"] }] };
 
@@ -5335,7 +5335,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(v.replace.includes("world_nether") && v.replace.includes("恢复点") && v.kept.includes("白名单") && v.kept.includes("端口"), "换掉什么、保留什么：" + v.replace + " | " + v.kept);
       assert(v.acks === 1 && v.confirmBoxes === 1, `「我已了解」的勾选框应只有一个：${v.acks} / ${v.confirmBoxes}`);
       assert(JSON.stringify(v.sets) === JSON.stringify([["difficulty", false], ["gamemode", false]]) && v.setText.includes("简单") && v.setText.includes("普通") && v.setText.includes("冒险"), "设置建议应默认不勾：" + JSON.stringify(v.sets) + v.setText);
-      assert(v.stop && v.warn.includes("单人存档") && v.warn.includes("资源包") && !v.block && v.space.includes("118"), "停服勾选、提醒、空间：" + JSON.stringify(v));
+      assert(v.stop && v.warn.includes("单人世界") && v.warn.includes("资源包") && !v.block && v.space.includes("118"), "停服勾选、提醒、空间：" + JSON.stringify(v));
       assert(v.go && v.why.includes("我已了解") && v.details >= 2 && v.open === 0, "没确认时导入键应点不了，技术细节收在「详情」里：" + JSON.stringify(v));
       const ax = await axProblems();
       assert(!ax.length, "核对页的无障碍：" + ax.join("、"));
@@ -5369,7 +5369,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert((await wState({})).world.discards.length === 0, "任务还在跑就清了检测结果");
       await page.waitForSelector("#wi-task-done-text", { timeout: 15000 });
       const done = await page.$eval("#wi-task-done-text", el => el.textContent);
-      assert(done.includes("地图文件已导入，尚未启动检查"), "结果应是任务给的那句话：" + done);
+      assert(done.includes("地图文件已导入，还没开服试过"), "结果应是任务给的那句话：" + done);
       await settle(300);
       st = await wState({});
       assert(st.world.discards.includes(scanId) && st.world.cancels.length === 0, "任务结束后应清掉检测结果：" + JSON.stringify(st.world.discards));
@@ -5380,7 +5380,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.goto(url("#/task/" + taskId)); await page.waitForSelector("#t-foot a.btn.primary");
       const tp = await page.evaluate(() => ({ h1: document.querySelector(".page-head h1").textContent, sub: document.querySelector("#t-sub").textContent,
         href: document.querySelector("#t-foot a.btn.primary").getAttribute("href"), go: document.querySelector("#t-foot a.btn.primary").textContent.trim() }));
-      assert(tp.h1 === "地图已处理完" && tp.sub.includes("尚未启动检查") && tp.href === "#/instances" && tp.go.includes("回到服务器列表"), "任务页：" + JSON.stringify(tp));
+      assert(tp.h1 === "地图已处理完" && tp.sub.includes("还没开服试过") && tp.href === "#/instances" && tp.go.includes("回到服务器列表"), "任务页：" + JSON.stringify(tp));
     } finally { await wReset(); }
   });
 
@@ -5662,7 +5662,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(!r.wc1000001.restore && r.wc1000001.del && r.wc1000001.text.includes("正在用这张地图") && r.wc1000001.text.includes("没有可以换回的旧地图"), "用地图新建的服务器：" + JSON.stringify(r));
       // 读不出来的记录：按要人处理显示，写明原因和文件夹，没有换回和删除键；它在的时候「重试恢复」一直失败
       const BAD = "D:\\MineDeck\\servers\\create-pack\\.minedeck\\world-import\\w0bad0001";
-      await wState({ world: { inst: { [PACK]: { busy: "换地图的记录读不出来，为了不在半成品的世界上启动，已暂停启动。请到「地图」里查看",
+      await wState({ world: { inst: { [PACK]: { busy: "换地图的记录读不出来，为了不在半成品的世界上启动，已暂停启动。请到「世界与备份 → 换地图」里查看",
         points: [pts[0], { id: "w0bad0001", state: "unreadable", created: "0001-01-01T00:00:00Z", source: "", candidate: "", levelName: "", hasOld: false, oldBytes: 5e8, keptBytes: 0, error: "unexpected end of JSON input", stuck: [BAD] }] } } } });
       await page.goto(url(worldTab(PACK))); await page.waitForSelector('[data-wi-point="w0bad0001"]');
       r = await rowsOf();

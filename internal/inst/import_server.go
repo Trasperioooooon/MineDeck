@@ -209,7 +209,7 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 		return err
 	}
 
-	t.Logf("服务端导入完成 ✔ 存档、模组和配置用的是压缩包里的那份，没有重新下载核心")
+	t.Logf("服务端导入完成 ✔ 世界、模组和配置用的是压缩包里的那份，没有重新下载核心")
 	return nil
 }
 

@@ -101,12 +101,12 @@ func relation(ctx context.Context, order versionOrder, m LevelMeta, t *Target) (
 		if m.DataVersion == 0 {
 			if c, ok := order(ctx, t.MC, "1.9"); ok && c >= 0 {
 				is = append(is, Issue{Sev: SevConfirm, Code: "very-old",
-					Msg: "这张地图来自 1.9 以前的很老的版本，存档里没有记版本号。第一次启动时游戏会把它升级成 " + t.MC + " 的格式，老地图的机关、命令可能不再好用"})
+					Msg: "这张地图来自 1.9 以前的很老的版本，地图里没有记版本号。第一次启动时游戏会把它升级成 " + t.MC + " 的格式，老地图的机关、命令可能不再好用"})
 				return RelOlder, is
 			}
 		}
 		is = append(is, Issue{Sev: SevConfirm, Code: "version-unknown",
-			Msg: "存档里没有记最后保存的版本，没法确认能不能在 " + t.MC + " 上安全打开"})
+			Msg: "地图里没有记最后保存的版本，没法确认能不能在 " + t.MC + " 上安全打开"})
 		return RelUnknown, is
 	}
 	name := m.VersionName
@@ -132,13 +132,13 @@ func relation(ctx context.Context, order versionOrder, m LevelMeta, t *Target) (
 	}
 	if c == 0 && t.jarWV > 0 && m.DataVersion > 0 && m.DataVersion != t.jarWV {
 		is = append(is, Issue{Sev: SevConfirm, Code: "dataversion-mismatch",
-			Msg:    "存档写的版本和服务器一样，但数据版本号对不上，可能是改过的存档或特殊版本",
-			Detail: fmt.Sprintf("存档 %d，服务器 %d", m.DataVersion, t.jarWV)})
+			Msg:    "地图写的版本和服务器一样，但数据版本号对不上，可能是改过的地图或特殊版本",
+			Detail: fmt.Sprintf("地图 %d，服务器 %d", m.DataVersion, t.jarWV)})
 	}
 	switch {
 	case c > 0:
 		is = append(is, Issue{Sev: SevBlock, Code: "newer",
-			Msg: "这份存档来自更新的版本（" + name + "），当前服务器（" + t.MC + "）不能安全读取。请新建一台 " + name + " 的服务器来用这张地图；不要把存档改成旧版本号去硬开"})
+			Msg: "这张地图来自更新的版本（" + name + "），当前服务器（" + t.MC + "）不能安全读取。请新建一台 " + name + " 的服务器来用这张地图；不要把地图改成旧版本号去硬开"})
 		return RelNewer, is
 	case c < 0:
 		is = append(is, Issue{Sev: SevConfirm, Code: "older",
@@ -223,7 +223,7 @@ func planMapping(c *Candidate, fam string, modernTarget bool, level string) (map
 	// 布局和目标版本对不上：新布局放进 26.1 以前的服务器（版本比较一般已经拦下，这里兜一道）
 	if (c.Layout == LayoutModern || c.Layout == LayoutModernPaper) && !modernTarget {
 		is = append(is, Issue{Sev: SevBlock, Code: "modern-to-old",
-			Msg: "这张地图是 26.1 以后的新存档格式，当前服务器的版本读不了它。请新建一台 26.1 或更新版本的服务器"})
+			Msg: "这张地图是 26.1 以后的新世界格式，当前服务器的版本读不了它。请新建一台 26.1 或更新版本的服务器"})
 	}
 	return mp, is
 }
@@ -315,7 +315,7 @@ func modChecks(c *Candidate, fam string) []Issue {
 		switch {
 		case c.Meta.WasModded && !pluginCore:
 			is = append(is, Issue{Sev: SevWarn, Code: "was-modded",
-				Msg:    "存档记着它被改版的游戏或服务端打开过，但没有留下是哪一种。如果原来用过模组，请在服务器上装好同样的模组；没用过可以不管",
+				Msg:    "地图记着它被改版的游戏或服务端打开过，但没有留下是哪一种。如果原来用过模组，请在服务器上装好同样的模组；没用过可以不管",
 				Detail: strings.Join(detail, "；")})
 		case len(custom) > 0:
 			is = append(is, Issue{Sev: SevWarn, Code: "custom-dims",
@@ -355,7 +355,7 @@ func modChecks(c *Candidate, fam string) []Issue {
 		return is
 	}
 	is = append(is, Issue{Sev: SevConfirm, Code: "mods-mismatch",
-		Msg:    "这张地图用过 " + names + " 的模组，而目标服务器的核心不能加载这些模组。直接打开时，模组添加的方块、物品、维度会丢失或报错，而且会被写回存档。建议新建一台对应核心的服务器并装好同样的模组",
+		Msg:    "这张地图用过 " + names + " 的模组，而目标服务器的核心不能加载这些模组。直接打开时，模组添加的方块、物品、维度会丢失或报错，而且会被写回世界。建议新建一台对应核心的服务器并装好同样的模组",
 		Detail: strings.Join(detail, "；")})
 	return is
 }
@@ -419,12 +419,12 @@ func worldRootChecks(t *Target) []Issue {
 	}
 	if name, ok := inst.CheckLevelName(t.Dir); !ok {
 		is = append(is, Issue{Sev: SevBlock, Code: "level-name-unsafe",
-			Msg:    "这台服务器的 level-name 指到了服务器文件夹外面，或者写法有歧义，MineDeck 不能确定世界在哪。请先在「全部配置」里把 level-name 改成一个普通的名字",
+			Msg:    "这台服务器的 level-name 指到了服务器文件夹外面，或者写法有歧义，MineDeck 不能确定世界在哪。请先在「设置 → 全部配置」里把 level-name 改成一个普通的名字",
 			Detail: name})
 	} else if first, _, _ := strings.Cut(t.LevelName, "/"); sameOrInside(filepath.Join(t.Dir, filepath.FromSlash(first)), filepath.Join(t.Dir, ".minedeck")) {
 		// 名字上已经拦了 .minedeck；这里按真实路径再看一遍，短文件名（MINEDE~1 这类）也指不进控制目录
 		is = append(is, Issue{Sev: SevBlock, Code: "level-name-unsafe",
-			Msg:    "这台服务器的 level-name 指到了 MineDeck 自己的控制文件夹，请先在「全部配置」里把 level-name 改成一个普通的名字",
+			Msg:    "这台服务器的 level-name 指到了 MineDeck 自己的控制文件夹，请先在「设置 → 全部配置」里把 level-name 改成一个普通的名字",
 			Detail: t.LevelName})
 	}
 	if bukkitLike(coreFamily(t.Core)) {
@@ -488,13 +488,13 @@ func settingSuggestions(m LevelMeta, props map[string]string) []SettingChange {
 	if cur, ok := props["difficulty"]; ok && m.HasDifficulty && m.Difficulty >= 0 && m.Difficulty < 4 {
 		if want := diffNames[m.Difficulty]; norm(cur, diffNames) != want {
 			out = append(out, SettingChange{Key: "difficulty", Before: cur, After: want,
-				Why: "地图存档的难度是 " + want + "。服务器每次启动都以 server.properties 的难度为准"})
+				Why: "地图的难度是 " + want + "。服务器每次启动都以 server.properties 的难度为准"})
 		}
 	}
 	if cur, ok := props["gamemode"]; ok && m.HasGameType && m.GameType >= 0 && m.GameType < 4 {
 		if want := modeNames[m.GameType]; norm(cur, modeNames) != want {
 			out = append(out, SettingChange{Key: "gamemode", Before: cur, After: want,
-				Why: "地图存档的默认模式是 " + want + "（冒险地图常用 adventure）。服务器给新进服的玩家用 server.properties 里的模式"})
+				Why: "地图的默认模式是 " + want + "（冒险地图常用 adventure）。服务器给新进服的玩家用 server.properties 里的模式"})
 		}
 	}
 	if cur, ok := props["hardcore"]; ok && m.Hardcore && strings.ToLower(strings.TrimSpace(cur)) != "true" {

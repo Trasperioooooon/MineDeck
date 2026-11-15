@@ -472,7 +472,7 @@ func (s *Service) onDown(name string, l *link, err error) {
 		c = l.c
 	}
 	if closing {
-		r.addEvent(EventView{Event: "disconnected", Level: "info", Text: why + "，和伙伴模组的连接断开了（伙伴留在存档里，下次开服自动接管）"})
+		r.addEvent(EventView{Event: "disconnected", Level: "info", Text: why + "，和伙伴模组的连接断开了（伙伴留在世界里，下次开服自动接管）"})
 	} else {
 		r.addEvent(EventView{Event: "disconnected", Level: "warn", Text: "和伙伴模组的连接断开了：" + err.Error() + "（伙伴和任务还在游戏里，会自动重连）"})
 	}
@@ -523,7 +523,7 @@ func (s *Service) onEvent(name string, e Event) {
 		ev.Companion, ev.Name = e.Info.ID, e.Info.Name
 		ev.Text = "刷出了伙伴「" + e.Info.Name + "」"
 		if e.Event == EvAdopted {
-			ev.Text = "接管了存档里的伙伴「" + e.Info.Name + "」"
+			ev.Text = "接管了世界里的伙伴「" + e.Info.Name + "」"
 		}
 		if e.Info.Owner != "" {
 			ev.Text += "（主人 " + e.Info.Owner + "）"
@@ -591,7 +591,7 @@ func (s *Service) onEvent(name string, e Event) {
 	case EvRemoved:
 		ev.Name = cname(e.Companion)
 		delete(r.comps, e.Companion)
-		why := map[string]string{"despawn": "MineDeck 移除的", "died": "死了", "discarded": "被命令或别的模组清掉了", "lost": "重启后存档里找不到了"}[e.Reason]
+		why := map[string]string{"despawn": "MineDeck 移除的", "died": "死了", "discarded": "被命令或别的模组清掉了", "lost": "重启后世界里找不到了"}[e.Reason]
 		if why == "" {
 			why = e.Reason
 		}
@@ -798,7 +798,7 @@ func giveItem(item string) string {
 // resolve 找出动作落在哪个伙伴身上。
 func resolve(comps []Companion, v any, addressed string) (*Companion, error) {
 	if len(comps) == 0 {
-		return nil, errors.New("现在一个伙伴都没有：先在 MineDeck 的「伙伴」标签里刷出一个")
+		return nil, errors.New("现在一个伙伴都没有：先在 MineDeck 的「扩展 → AI 伙伴」里刷出一个")
 	}
 	find := func(name string) *Companion {
 		for i := range comps {

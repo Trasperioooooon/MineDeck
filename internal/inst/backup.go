@@ -230,7 +230,7 @@ func (m *Manager) createBackupWith(i *Instance, label, spare string, lease *disk
 		return "", err
 	}
 	if len(worlds) == 0 {
-		return "", fmt.Errorf("还没有世界存档。服务器可能还没启动过。")
+		return "", fmt.Errorf("还没有世界。服务器可能还没启动过。")
 	}
 	dir := backupDirOf(name)
 	// 名额是排队结束以后才到手的，到这里才暂停存档，避免另一项写盘让服务器长时间停留在 save-off。
