@@ -33,16 +33,16 @@ This is an overview. Defaults, limits and edge cases for every item are in [docs
 
 - **Twelve server types**: Vanilla; plugin servers Paper, Purpur, Leaves and Folia; mod loaders Fabric, Forge and NeoForge; Mohist and Banner, which take both mods and plugins; and the proxies Velocity and Waterfall.
 - **Versions**: Minecraft 1.12.2 up to the latest release, including the year-numbered 26.x. The version list is read from the official manifests, so new versions show up on their own.
-- **No need to install Java**: MineDeck picks the Java that the game version needs, usually 8, 16, 17, 21 or 25. If a suitable one is already on the PC, it uses that. Otherwise it downloads a copy for its own use, without changing system settings or touching the Java you already have. Once a server is created, you can switch its Java under Memory / startup (内存 / 启动).
+- **No need to install Java**: MineDeck picks the Java that the game version needs, usually 8, 16, 17, 21 or 25. If a suitable one is already on the PC, it uses that. Otherwise it downloads a copy for its own use, without changing system settings or touching the Java you already have. Once a server is created, you can switch its Java under Settings → Startup and memory (设置 → 启动与内存).
 - **Downloads switch sources and retry**: when one source fails it moves to the next, trying up to 3 rounds in all, and it verifies each file afterwards. Forge and NeoForge installers are pointed at a mirror and, if one fails, run again, up to 3 runs in all.
 - **Modpack import**: a Modrinth `.mrpack` imports directly. The server type, version and loader are detected, and client-only files are skipped. CurseForge zips import too; the files inside are downloaded automatically only after you enter your own CurseForge API key.
-- **Modpack files that cannot be downloaded are handled one by one**: a file whose download address is not on an allowed site, or that has no checksum, does not stop the whole modpack. The modpack imports as usual and such files are listed on the task page under pending files (待决文件). You can skip one, use a local file instead, or trust the site and download it after reading a risk notice.
+- **Modpack files that cannot be downloaded are handled one by one**: a file whose download address is not on an allowed site, or that has no checksum, does not stop the whole modpack. The modpack imports as usual and such files are listed as files that were not installed (没装上的文件), which you can handle on the task page or on the server's detail page, even after MineDeck restarts. You can skip one, use a local file instead, or trust the site and download it after reading a risk notice.
 - **Ready-made server archives**: a server archive from a modpack author can be imported directly under Import modpack (导入整合包) and unpacked into a new server, as long as the server software is already installed in it. A Server Pack that only has a start script or a loader installer cannot be imported directly: unpack it and run its script to install the loader first, then bring the folder in with Adopt an existing server (接管已有服务器).
 
 ### Managing servers
 
 - **Console**: live log with warnings and errors coloured, and a filter. Commands have history, and common commands and online player names complete with Tab. If an old modpack prints garbled text, you can switch between GBK and UTF-8.
-- **Settings without editing files**: Common settings (常用设置) sorts 78 `server.properties` keys into 7 groups, each with a Chinese name and a description, and marks the ones that need a restart. All config (全部配置) lists every key in the file and can be searched. The server description (MOTD) has a colour picker with a preview.
+- **Settings without editing files**: Settings → Common (设置 → 常用) sorts 78 `server.properties` keys into 7 groups, each with a Chinese name and a description, and marks the ones that need a restart. Settings → All config (设置 → 全部配置) lists every key in the file and can be searched. The server description (MOTD) has a colour picker with a preview.
 - **Players**: see who is online; kick, ban, op, and edit the whitelist. While the server is stopped, the list files themselves are edited.
 - **Backups and schedules**: back up and restore the world. A backup can be taken while the server is running, and 10 backups per server are kept by default. Daily schedules can restart the server, run a command or take a backup. Restart-after-crash is off by default. When it is on, it waits 10 seconds, then 30, then 60, and stops after 3 failed attempts in a row.
 - **Window and tray**: closing the window can minimize MineDeck to the system tray while servers keep running. It can also start with Windows, straight into the tray. There are 7 colour schemes, each in light, dark or follow-the-system.
@@ -54,7 +54,7 @@ This is an overview. Defaults, limits and edge cases for every item are in [docs
 
 - **Tunnels (内网穿透)**: a tunnel gives players outside your network a public address to connect to. MineDeck works with OpenFrp, SakuraFrp (樱花穿透) and your own frps. A tunnel can be bound to a server and start together with it, and the public address can be copied from the page. The client for OpenFrp and for your own frps is downloaded automatically; for SakuraFrp you download it once yourself, following the prompt.
 - **Provider accounts (平台账户)**: you can connect an OpenFrp account (you authorize in your browser; MineDeck never asks for your password) or a SakuraFrp account (paste your access key), see your traffic and the tunnels on the provider, and create a tunnel there or import an existing one. Check-in and purchases only open the provider's own website; MineDeck does not check in or place orders for you. The OpenFrp part uses the [OpenFrp OPENAPI](https://github.com/ZGIT-Network/OPENFRP-APIDOC). This is a community project: OpenFrp only provides support for node issues (此项目由社区开发，OpenFrp 官方不负责除节点问题以外的技术支持). For problems with MineDeck itself, please open an [issue](https://github.com/Trasperioooooon/MineDeck/issues) here.
-- **LAN access**: turn on Allow LAN access (允许局域网访问), set an access password and restart MineDeck. After that, phones and other PCs on the same LAN can open the management page.
+- **Phone remote management**: in Settings, turn on phone remote management (手机远程管理), set an access password and restart MineDeck. After that, phones and other PCs on the same LAN can open the management page.
 - **API and webhook**: there is a local HTTP API. Events such as server start, stop and crash, and players joining and leaving, can be pushed to a URL you provide. See [docs/API.md](docs/API.md) (in Chinese).
 
 ### When something goes wrong
@@ -64,7 +64,7 @@ This is an overview. Defaults, limits and edge cases for every item are in [docs
 ### AI (optional, with your own key)
 
 - **Providers**: two protocols are supported, OpenAI-compatible and Claude. There are eight presets, DeepSeek, Qwen, Kimi, Zhipu, Xiaomi MiMo, OpenAI, Claude and Ollama (local), plus a custom address. The key is stored encrypted on this PC. MineDeck estimates cost from public prices, and each feature can have a daily token quota.
-- **In-app assistant**: the AI assistant (AI 助手) in the title bar reads logs, configs and crash reports before it answers. To change a config, switch Java or restart a server, it first shows a confirmation card, and nothing runs until you confirm. The Windows user name, LAN addresses and keys are replaced before text is sent to the model, and you can always see exactly what was sent.
+- **AI assistant**: the AI assistant (AI 助手) in the title bar reads logs, configs and crash reports before it answers. To change a config, switch Java or restart a server, it first shows a confirmation card, and nothing runs until you confirm. The Windows user name, LAN addresses and keys are replaced before text is sent to the model, and you can always see exactly what was sent.
 - **In-game AI**: players type `@AI` and a question in chat. Players you tick in the panel can have it run allowlisted commands, such as changing the time or the weather or teleporting themselves. Commands like `op` and `execute` are never run.
 - **AI companions**: on NeoForge 1.21.1 or Forge 1.20.1 servers you can spawn AI companions. Players address one in chat (for example 「@伙伴名 跟着我」, "@name follow me") and it follows, gathers, fights or hands over items. You can mark areas it must not dig in and mobs it must not attack. Friends install one companion mod on their client.
 - **MCP interface**: off by default. When it is on, AI tools that support MCP can connect to MineDeck. They can read status and logs directly; a config change or a restart is only proposed, and runs after you confirm it in MineDeck. It accepts connections from this PC only and requires a token.
@@ -113,8 +113,8 @@ Uninstalling: if start-with-Windows is on, turn it off first under Settings → 
 Places you will use often:
 
 - Sending a command: open the server → Console (控制台) → the input box at the bottom.
-- Changing settings: open the server → Common settings (常用设置) or All config (全部配置). Items that need a restart are marked.
-- Changing memory: open the server → Memory / startup (内存 / 启动).
+- Changing settings: open the server → Settings → Common (设置 → 常用) or All config (全部配置). Items that need a restart are marked.
+- Changing memory: open the server → Settings → Startup and memory (设置 → 启动与内存).
 - Starting a server by hand: each server's folder contains a `run.bat` that does the same as the interface.
 - Running without a window: `MineDeck.exe -nogui`. The default port is 27333, and a random port is used if that one is taken. The address of the management page and its token are printed to the program's log output. The release build is a windowed program, so you will not see that line if you run it straight from a terminal; redirect standard error to a file.
 
@@ -138,7 +138,7 @@ Look at the error banner at the top of the console first. A missing dependency m
 
 ### Do the AI features cost money? Do they go online behind my back?
 
-AI is optional. Without an AI configuration, MineDeck does not contact any AI service. To use it, you enter your own API key, and the provider you chose bills you directly. MineDeck estimates what was spent, and each feature can have a daily limit. The key is stored encrypted on this PC and is sent only to the endpoint you entered. One thing to be aware of: once LAN access is on, devices signed in from the LAN can use the AI assistant by default, on your quota. You can turn that off in Settings.
+AI is optional. Without an AI configuration, MineDeck does not contact any AI service. To use it, you enter your own API key, and the provider you chose bills you directly. MineDeck estimates what was spent, and each feature can have a daily limit. The key is stored encrypted on this PC and is sent only to the endpoint you entered. One thing to be aware of: once phone remote management (手机远程管理) is on, devices signed in from the LAN can use the AI assistant by default, on your quota. You can turn that off in Settings.
 
 ### Will the AI change my server on its own?
 
@@ -164,7 +164,7 @@ It is all in the folder that holds the exe: `servers`, `backups`, `runtimes` (do
 - The interface is in Chinese only, and the program is Windows only.
 - Paper, Purpur and some other server types have no mirror in mainland China; the official addresses usually work. When installing Forge or NeoForge, some files still have to come from the official sources, and that step can fail if those cannot be reached.
 - The first time a server starts, Windows Firewall may ask. Choose "Allow access", otherwise friends on the LAN cannot connect.
-- Do not delete the `runtimes` folder. It holds the Java and the tunnel clients MineDeck downloaded, and servers that use that Java will not start without it. If that happens, pick another Java under that server's Memory / startup (内存 / 启动).
+- Do not delete the `runtimes` folder. It holds the Java and the tunnel clients MineDeck downloaded, and servers that use that Java will not start without it. If that happens, pick another Java under that server's Settings → Startup and memory (设置 → 启动与内存).
 - Backups contain the world only, not mods, plugins or configs.
 - Stop all servers before updating MineDeck.
 - On Windows 10, music sharing can only record the whole PC.
