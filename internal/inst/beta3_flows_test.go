@@ -342,6 +342,65 @@ func TestPendingTamperedListIsRejected(t *testing.T) {
 	}
 }
 
+// 清单文件被人改过、落点本身合规：trust 也只认重算过的那份记录。原因不是 host 的（哪怕文件里写了 https 地址和校验值、
+// 自称能信任下载）、校验值不合规或干脆没有的，都不发下载请求、不写文件，用户点过确认也一样。
+func TestPendingTamperedTrustNeedsHostAndHash(t *testing.T) {
+	dir, newMgr := restartEnv(t)
+	sha := sha1Of(t, []byte("payload"))
+	url := "https://93.184.216.34/x.jar"
+	list := `{"version":1,"items":[` +
+		`{"id":"p1","path":"mods/nohash.jar","reason":"nohash","host":"cdn.modrinth.com","urls":["` + url + `"],"sha1":"` + sha + `","options":["trust"]},` +
+		`{"id":"p2","path":"mods/badsha.jar","reason":"host","urls":["` + url + `"],"sha1":"zz` + sha[2:] + `","options":["trust"]},` +
+		`{"id":"p3","path":"mods/nosha.jar","reason":"host","urls":["` + url + `"],"options":["trust"]}]}`
+	writeTree(t, dir, map[string]string{PendingListFile: list})
+	before := treeOf(t, filepath.Dir(dir))
+
+	calls := 0
+	old := modpackHTTP
+	modpackHTTP = func() *http.Client {
+		calls++
+		return dl.GuardedClientWithTransport(fakeTransport{content: []byte("payload")})
+	}
+	t.Cleanup(func() { modpackHTTP = old })
+
+	m := newMgr()
+	v, err := m.ImportPending("整合包服")
+	if err != nil || len(v.Pending) != 3 {
+		t.Fatalf("读回来：%+v %v", v, err)
+	}
+	for _, it := range v.Pending {
+		if it.ID == "p1" && slices.Contains(it.Options, "trust") {
+			t.Fatalf("不是 host 的项读回来不该有 trust：%+v", it)
+		}
+		if it.ID != "p1" && it.SHA1 != "" {
+			t.Fatalf("不合规的校验值应丢掉：%+v", it)
+		}
+	}
+	var acts []PendingAction
+	for _, id := range []string{"p1", "p2", "p3"} {
+		acts = append(acts, PendingAction{ID: id, Act: "trust", URL: url, Ack: true})
+	}
+	out, after, err := m.ResolveInstancePending(context.Background(), "整合包服", acts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"p1": "没有可确认下载的自定义站点", "p2": "没有校验值", "p3": "没有校验值"}
+	for _, o := range out {
+		if o.OK || !strings.Contains(o.Note, want[o.ID]) {
+			t.Fatalf("%s 应拒绝并写明「%s」：%+v", o.ID, want[o.ID], o)
+		}
+	}
+	if len(out) != 3 || len(after.Pending) != 3 {
+		t.Fatalf("三项都该留在清单里：%+v / %+v", out, after.Pending)
+	}
+	if calls != 0 {
+		t.Fatalf("不该发下载请求：%d 次", calls)
+	}
+	if got := treeOf(t, filepath.Dir(dir)); !maps2Equal(before, got) {
+		t.Fatalf("什么都不该写：\n之前 %v\n之后 %v", before, got)
+	}
+}
+
 // 接管来的文件夹里 .minedeck 是指到外面的目录联接：清单不读也不写，不顺着联接跑出去。
 func TestPendingListRefusesJunctionedControlDir(t *testing.T) {
 	dir, newMgr := restartEnv(t)
