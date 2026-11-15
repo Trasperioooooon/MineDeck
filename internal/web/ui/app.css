@@ -206,6 +206,8 @@ h3 { font-size: var(--fs-h3); line-height: 22px; font-weight: var(--fw-semibold)
 }
 .sb-theme:hover { background: var(--hover); color: var(--text); }
 .sb-theme .ico { width: 16px; height: 16px; }
+/* 侧栏底部的「退出」（可用性走查 R17）：开了「缩到托盘」以后点 × 不退出，窗口里一直找得到退出的地方 */
+.sb-quit:hover { color: var(--danger-text); }
 .sb-ver { margin-left: auto; padding-right: 6px; font: var(--fs-2xs) var(--mono); color: var(--muted); }
 
 /* 内容层：比 chrome 亮一阶的整张「纸」，左上大圆角 + 发丝边 + 向左上投一点影 */

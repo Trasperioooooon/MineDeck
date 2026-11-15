@@ -578,6 +578,20 @@ function paintThemeBtn() {
   btn.innerHTML = icon(MODE_ICON[m]) + `<span>${MODE_LABEL[m]}</span>`;
   btn.title = `外观：${MODE_LABEL[m]}（点击切换；配色方案见「设置 → 外观」）`;
 }
+/* 退出 MineDeck：先确认，再请后端保存世界、停掉服务器、退出。侧栏底部和「设置 → 更新与关于」两处共用（可用性走查 R17：
+   开了「点关闭按钮时缩到托盘」以后点 × 不退出，以前窗口里唯一的退出藏在「更新与关于」最底下） */
+async function quitApp() {
+  const r = await confirmModal({ title: "退出 MineDeck？", body: "会先保存世界，停掉正在运行的服务器，然后退出程序。", okText: "退出", danger: true, icon: "power" });
+  if (!r) return;
+  try { await api("/api/shutdown", { method: "POST" }); document.body.innerHTML = `<div style="padding:80px;text-align:center;color:var(--muted)">MineDeck 正在停止服务器并退出，可以关闭此页面了。</div>`; }
+  catch (e) { toastErr("无法退出 MineDeck", e); }
+}
+(function initQuit() {
+  const b = $("#sb-quit");
+  if (!b) return;
+  b.innerHTML = icon("power") + "<span>退出</span>";
+  b.onclick = quitApp;
+})();
 (function initTheme() {
   const NEXT = { auto: "light", light: "dark", dark: "auto" };
   $("#theme-btn").onclick = () => Appearance.set({ mode: NEXT[Appearance.get().mode] || "auto" });
@@ -4539,7 +4553,7 @@ function setStartup(body, info) {
   const c = info.config || {};
   body.innerHTML = settingsHead("启动与托盘", "关闭按钮的行为，以及开机是否自动启动。") +
     group(
-      switchRow("monitor", "最小化到系统托盘", "开启后，点关闭按钮不退出程序，窗口收到托盘，服务器继续运行；点托盘图标恢复窗口。关闭后，点关闭按钮会退出程序并停掉服务器（有服务器在运行时先确认）。", "minimizeToTray", c.minimizeToTray) +
+      switchRow("monitor", "点关闭按钮时缩到托盘（不退出）", "开启后，点关闭按钮不退出程序，窗口缩到托盘，服务器继续运行；点托盘图标恢复窗口。第一次缩到托盘时会弹一条系统通知提醒一次。要退出，点左下角的「退出」，或者右键托盘图标。关闭后，点关闭按钮会退出程序并停掉服务器（有服务器在运行时先确认）。", "minimizeToTray", c.minimizeToTray) +
       switchRow("power", "开机自动启动", "登录 Windows 后自动在托盘里启动，不需要管理员权限（若移动过本程序所在文件夹，需重新开关一次以更新路径）。", "autoStart", info.autoStart),
       { ico: true }) +
     ``;
@@ -4549,7 +4563,7 @@ function setStartup(body, info) {
       await api("/api/config", { method: "PUT", body: { [key]: inp.checked } });
       if (key === "minimizeToTray") c.minimizeToTray = inp.checked; else info.autoStart = inp.checked;
       toast(inp.checked ? "已开启" : "已关闭");
-    } catch (e) { toastErr(`${inp.checked ? "无法开启" : "无法关闭"}「${key === "minimizeToTray" ? "最小化到系统托盘" : "开机自动启动"}」`, e); inp.checked = !inp.checked; }
+    } catch (e) { toastErr(`${inp.checked ? "无法开启" : "无法关闭"}「${key === "minimizeToTray" ? "点关闭按钮时缩到托盘" : "开机自动启动"}」`, e); inp.checked = !inp.checked; }
   });
 }
 
@@ -5298,7 +5312,7 @@ function setAbout(body, info) {
       NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.
     </div>` +
     group(riRow({ ico: "power", title: "退出程序", sub: "先保存世界，停掉正在运行的服务器，然后退出",
-      right: `<button class="btn danger" id="quit-app">${icon("power")} 退出 MineDeck</button>` }), { ico: true, cls: "danger-zone", attrs: `style="margin-top:28px"` });
+      right: `<button class="btn danger" id="quit-app">${icon("power")} 停止服务器并退出</button>` }), { ico: true, cls: "danger-zone", attrs: `style="margin-top:28px"` });
   bindSaveInput($("#up-repo"), $("#up-save"), async v => {
     await api("/api/config", { method: "PUT", body: { updateRepo: v.trim() } });
     toast("更新仓库已保存");
@@ -5327,12 +5341,7 @@ function setAbout(body, info) {
       }
     } catch (e) { $("#up-result").innerHTML = errInline("无法检查更新", e); }
   };
-  $("#quit-app").onclick = async () => {
-    const r = await confirmModal({ title: "退出 MineDeck？", body: "会先保存世界，停掉正在运行的服务器，然后退出程序。", okText: "退出", danger: true, icon: "power" });
-    if (!r) return;
-    try { await api("/api/shutdown", { method: "POST" }); document.body.innerHTML = `<div style="padding:80px;text-align:center;color:var(--muted)">MineDeck 正在停止服务器并退出，可以关闭此页面了。</div>`; }
-    catch (e) { toastErr("无法退出 MineDeck", e); }
-  };
+  $("#quit-app").onclick = quitApp; // 侧栏底部也有一个（见 quitApp）
 }
 
 /* 首次运行引导卡（用户协议与免责声明 + 选下载源 + 存放位置说明；

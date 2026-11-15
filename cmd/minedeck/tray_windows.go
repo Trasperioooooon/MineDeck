@@ -38,6 +38,8 @@ const (
 	_NIF_MESSAGE = 0x1
 	_NIF_ICON    = 0x2
 	_NIF_TIP     = 0x4
+	_NIF_INFO    = 0x10 // 气泡提示（Windows 10 起显示成系统通知）
+	_NIIF_INFO   = 0x1  // 气泡里的图标：信息
 
 	_MF_STRING       = 0x0
 	_TPM_RIGHTBUTTON = 0x2
@@ -141,6 +143,8 @@ func trayWndProc(hwnd, msg, wparam, lparam uintptr) (ret uintptr) {
 		switch onClose(time.Now(), isWindowVisible(hwnd)) {
 		case closeToTray:
 			pShowWindow.Call(hwnd, _SW_HIDE)
+			// 第一次这样缩到托盘：弹一条系统通知说程序还开着
+			trayHintOnce(hwnd)
 			return 0 // 吞掉关闭：仅隐藏到托盘，服务器继续运行
 		case closeConfirm:
 			if isIconic(hwnd) { // 在任务栏上关一个最小化着的窗口：先还原并置前，确认框才看得见
@@ -252,9 +256,40 @@ func hostCloseAck() { closeAsk.acked = true }
 func hideToTray(hwnd uintptr) {
 	if trayActive {
 		pShowWindow.Call(hwnd, _SW_HIDE)
+		trayHintOnce(hwnd)
 	} else {
 		pShowWindow.Call(hwnd, _SW_MINIMIZE)
 	}
+}
+
+// 第一次点关闭按钮把窗口缩到托盘时的系统通知（可用性走查 R17）：以前窗口一下就没了，窗口里、系统里都不说程序还开着。
+// 只提醒一次，记在配置里（app.TrayHintOnce）；静默启动（-minimized）直接进托盘不算，不走这里。
+const (
+	trayHintTitle = "MineDeck 还在运行"
+	trayHintText  = "窗口收到了托盘里，服务器照常运行。点托盘图标打开窗口；要退出，右键托盘图标选「全部停止并退出」，或者点窗口左下角的「退出」。"
+)
+
+// trayHintOnce 第一次缩到托盘时弹一条系统通知（托盘图标的气泡，Windows 10 起显示成通知）。
+func trayHintOnce(hwnd uintptr) {
+	app.TrayHintOnce(func() bool { return showTrayBalloon(hwnd, trayHintTitle, trayHintText) })
+}
+
+// showTrayBalloon 在托盘图标上弹气泡提示，返回弹没弹出来（托盘图标不在时为假）。
+func showTrayBalloon(hwnd uintptr, title, text string) bool {
+	if !trayActive {
+		return false
+	}
+	nid := &notifyIconData{HWnd: hwnd, UID: _trayUID, UFlags: _NIF_INFO, DwInfoFlags: _NIIF_INFO}
+	nid.CbSize = uint32(unsafe.Sizeof(*nid))
+	t, err1 := syscall.UTF16FromString(title)
+	m, err2 := syscall.UTF16FromString(text)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	copy(nid.SzInfoTitle[:len(nid.SzInfoTitle)-1], t)
+	copy(nid.SzInfo[:len(nid.SzInfo)-1], m)
+	r, _, _ := pShellNotifyIcon.Call(_NIM_MODIFY, uintptr(unsafe.Pointer(nid)))
+	return r != 0
 }
 
 // restoreWindow 从托盘/最小化恢复窗口并置前。
