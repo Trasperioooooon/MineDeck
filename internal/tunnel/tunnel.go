@@ -908,8 +908,17 @@ func publicAddrCandidates(line string) []string {
 		c := line[s-1]
 		return c == '_' || (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
 	}
+	// 后一个字符还是数字或字母：端口被正则截短了，[2001:db8::1]:123456 取出来是 :12345，host.example:12345abc 取出来是
+	// host.example:12345，都不是真的端口，整段不要。只看 ASCII：中文日志里地址后面直接接汉字（「…:12345连接」）是常见写法
+	gluedRight := func(e int) bool {
+		if e >= len(line) {
+			return false
+		}
+		c := line[e]
+		return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+	}
 	for _, loc := range addrRe.FindAllStringIndex(line, -1) {
-		if overlapsCaller(loc[0], loc[1]) || glued(loc[0]) {
+		if overlapsCaller(loc[0], loc[1]) || glued(loc[0]) || gluedRight(loc[1]) {
 			continue
 		}
 		addr := line[loc[0]:loc[1]]
@@ -920,7 +929,7 @@ func publicAddrCandidates(line string) []string {
 	}
 	for _, loc := range ipv6AddrRe.FindAllStringIndex(line, -1) {
 		addr := line[loc[0]:loc[1]]
-		if !isIPAddr(addr) || !portInRange(addr) {
+		if gluedRight(loc[1]) || !isIPAddr(addr) || !portInRange(addr) {
 			continue
 		}
 		hits = append(hits, hit{loc[0], loc[1], addr})
