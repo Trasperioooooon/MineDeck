@@ -21,6 +21,7 @@ import (
 	"minedeck/internal/modcart"
 	"minedeck/internal/musicshare"
 	"minedeck/internal/ops"
+	"minedeck/internal/toolbox"
 	"minedeck/internal/tunnel"
 	"minedeck/internal/worldimport"
 )
@@ -52,6 +53,9 @@ type Env struct {
 
 	// World 地图导入；nil 时建一个（有 Mgr 时），建好就先处理上次没走完的换地图记录（见 worldimport.RecoverAll）。
 	World *worldimport.Service
+
+	// Toolbox 工具箱（离线皮肤包、导出 Modrinth 整合包）；nil 时按程序目录自动建一个。
+	Toolbox *toolbox.Service
 }
 
 // NewAI 按程序目录建 AI 接入层：设置、价格缓存和用量放在 <程序目录>/data/ai/，Key 用 DPAPI 加密存进
@@ -117,6 +121,9 @@ func New(env Env) *ops.Registry {
 		env.World = worldimport.NewService(env.Mgr)
 		env.World.RecoverAll() // 有没走完的记录的实例，加载时已经封住了启动；这里处理完再放开
 	}
+	if env.Toolbox == nil {
+		env.Toolbox = toolbox.New(toolbox.Options{Mgr: env.Mgr, Cart: env.ModCart})
+	}
 	c := &cat{Env: env, reg: reg}
 	c.appOps()
 	c.instanceOps()
@@ -137,6 +144,7 @@ func New(env Env) *ops.Registry {
 	c.companionOps() // 第七阶段
 	c.modcartOps()   // 自选模组 + 购物车
 	c.worldOps()     // 地图导入
+	c.toolboxOps()   // 工具箱（皮肤包、导出 .mrpack）
 	if env.Mgr != nil {
 		env.Mgr.SetAutoHook(func(a inst.AutoAction) {
 			reg.Record(ops.Caller{Source: ops.SrcSchedule, Actor: a.Actor, Local: true}, a.Op, ops.ArgsOf(a.Args), a.Err, a.Dur)

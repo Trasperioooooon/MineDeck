@@ -68,7 +68,8 @@ type mrFile struct {
 	Primary  bool   `json:"primary"`
 	Size     int64  `json:"size"`
 	Hashes   struct {
-		SHA1 string `json:"sha1"`
+		SHA1   string `json:"sha1"`
+		SHA512 string `json:"sha512"`
 	} `json:"hashes"`
 }
 
@@ -338,6 +339,95 @@ func (s *Service) versionFiles(ctx context.Context, sha1s []string) (map[string]
 	}
 	err := s.postJSON(ctx, "/version_files", map[string]any{"hashes": sha1s, "algorithm": "sha1"}, &out)
 	return out, err
+}
+
+// SHA1Match 按文件 SHA-1 在 Modrinth 查到的版本、下载文件与项目客户端/服务端兼容性信息。
+type SHA1Match struct {
+	ProjectID     string
+	Slug          string
+	Title         string
+	ServerSide    string
+	VersionID     string
+	VersionNumber string
+	FileName      string
+	URL           string
+	SHA1          string
+	SHA512        string
+	Size          int64
+}
+
+// LookupSHA1 批量按 SHA-1 查询 Modrinth 版本与项目详情（供整合包导出等只读功能复用现有客户端与重试逻辑）。
+func (s *Service) LookupSHA1(ctx context.Context, sha1s []string) (map[string]SHA1Match, error) {
+	out := map[string]SHA1Match{}
+	uniq := make([]string, 0, len(sha1s))
+	seen := make(map[string]bool, len(sha1s))
+	for _, h := range sha1s {
+		h = strings.ToLower(strings.TrimSpace(h))
+		if len(h) != 40 || seen[h] {
+			continue
+		}
+		seen[h] = true
+		uniq = append(uniq, h)
+	}
+	if len(uniq) == 0 {
+		return out, nil
+	}
+	vers := map[string]mrVersion{}
+	for len(uniq) > 0 {
+		n := min(len(uniq), 100)
+		part, err := s.versionFiles(ctx, uniq[:n])
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range part {
+			vers[strings.ToLower(k)] = v
+		}
+		uniq = uniq[n:]
+	}
+	if len(vers) == 0 {
+		return out, nil
+	}
+	var pids []string
+	pidSeen := map[string]bool{}
+	for _, v := range vers {
+		if v.ProjectID != "" && !pidSeen[v.ProjectID] {
+			pidSeen[v.ProjectID] = true
+			pids = append(pids, v.ProjectID)
+		}
+	}
+	ps, err := s.projects(ctx, pids)
+	if err != nil {
+		return nil, err
+	}
+	for h, v := range vers {
+		if len(v.Files) == 0 {
+			continue
+		}
+		mf := primaryFile(v)
+		for _, f := range v.Files {
+			if strings.EqualFold(f.Hashes.SHA1, h) {
+				mf = f
+				break
+			}
+		}
+		m := SHA1Match{
+			ProjectID:     v.ProjectID,
+			VersionID:     v.ID,
+			VersionNumber: v.VersionNumber,
+			FileName:      mf.Filename,
+			URL:           mf.URL,
+			SHA1:          strings.ToLower(mf.Hashes.SHA1),
+			SHA512:        strings.ToLower(mf.Hashes.SHA512),
+			Size:          mf.Size,
+		}
+		if p, ok := ps.find(v.ProjectID); ok {
+			m.Slug = p.Slug
+			m.Title = p.Title
+			m.ServerSide = p.ServerSide
+		}
+		out[h] = m
+	}
+	return out, nil
 }
 
 // compatible 版本能不能用在这些加载器、这个 MC 版本上（mc 空串不看版本），且有文件。
