@@ -6,6 +6,7 @@ package tunnel
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -85,6 +86,9 @@ type Manager struct {
 	broken   map[string]bool   // 隧道ID → 凭据解不开（换了电脑或 Windows 用户），不能启动
 	// guardPort MineDeck 自己的网页端口（0 表示不查）：自定义 frps 的隧道不许指向它，见 SetGuardPort
 	guardPort int
+	// loadErr tunnels.json 在、却没读成（见 LoadError）。不为空时列表是空的，一律不许保存；
+	// 有人要列表、要保存、要启动时再读一次（retryLoad），读成了就清掉
+	loadErr *LoadError
 
 	autoMu   sync.Mutex
 	autoHook func(AutoAction) // 跟随实例自动启停之后的回调（操作层用它写操作记录）
@@ -133,28 +137,101 @@ func checkGuardPort(t *Tunnel, guard int) error {
 	return nil
 }
 
+// 启动时 tunnels.json 读不出来（多半是杀毒、同步盘这类程序刚好占着）隔多久再读、再读几次。做成变量是为了测试能调小。
+// 坏文件再读也是坏的，不等。这几次都没读成也不要紧：之后有人要列表、要保存时还会再读（retryLoad）。
+var (
+	loadRetryWait = 200 * time.Millisecond
+	loadRetries   = 3
+)
+
 func NewManager() *Manager {
 	m := &Manager{running: map[string]*runState{}, starting: map[string]bool{}, consoles: map[string]*procutil.Console{}, lastErr: map[string]string{}, broken: map[string]bool{}}
 	m.load()
+	for i := 0; i < loadRetries && m.loadErr != nil && !m.loadErr.Corrupt; i++ {
+		time.Sleep(loadRetryWait)
+		m.load()
+	}
+	if m.loadErr != nil {
+		log.Printf("隧道配置没读出来，读成之前不许保存（免得盖掉原文件）: %v", m.loadErr)
+	}
 	scrubCustomConfigs() // 不管 tunnels.json 在不在、读不读得出来都清
 	return m
 }
 
 func (m *Manager) file() string { return filepath.Join(app.Base, "tunnels.json") }
 
+// LoadError tunnels.json 在，却没读成：读不出来（被别的程序占着、没有读取权限），或者读出来了解析不了（文件坏了）。
+//
+// 以前这两种都当成空列表悄悄往下走，之后任何一次保存（新增一条隧道、记公网地址）都把原文件整份换掉，
+// 里面的隧道和凭据就全没了。现在这期间列表是空的，新增、修改、删除、导入、创建、启动一律拒绝，原文件一个字不动；
+// 读成了（占着的程序放开了，或者用户修好、挪走了文件）就恢复正常，不用重启。文件不在（新装）不算，那是真的没有隧道。
+type LoadError struct {
+	Corrupt bool  // true：读出来了但解析不了；false：读不出来
+	Err     error // 系统或 JSON 解析给的原文
+}
+
+func (e *LoadError) Error() string {
+	if e.Corrupt {
+		return "隧道配置文件 tunnels.json 的内容坏了，读不出里面的隧道。为了不盖掉原来的隧道和凭据，修好之前不能添加、修改、删除或启动隧道：" + e.Err.Error()
+	}
+	return "隧道配置文件 tunnels.json 读不出来（可能被别的程序占着，或者没有读取权限）。为了不盖掉原来的隧道和凭据，读出来之前不能添加、修改、删除或启动隧道：" + e.Err.Error()
+}
+
+func (e *LoadError) Unwrap() error { return e.Err }
+
+// Hint 界面报错正文接的那句话，规矩同 SaveError.Hint（60 字以内，不带路径和英文句子）。两种情况下一步不一样，分开说。
+func (e *LoadError) Hint() string {
+	if e.Corrupt {
+		return "MineDeck 文件夹里的 tunnels.json 内容坏了。用记事本修好它，或者改名挪走后从空列表开始"
+	}
+	return "MineDeck 文件夹里的 tunnels.json 读不出来，可能被别的程序占着。关掉占用它的程序后会自动重读"
+}
+
+// load 读 tunnels.json，分三种情况：
+//   - 文件不在：新装，空列表是对的，照常保存。要程序文件夹本身看得到才算（见 reallyMissing）；
+//   - 文件在但读不出来（被占着、没权限）：记进 m.loadErr；
+//   - 读出来了但解析不了，或者没有 tunnels 这一项：记进 m.loadErr（Corrupt）。
+//     只有空白的文件、{} 和 null 不算：里面没有能丢的东西，按空列表处理。
+//
+// m.loadErr 不为空时 m.tunnels、m.seq 不动（还是空的）。调用方持有 m.mu；NewManager 里别人还拿不到 m，不用锁。
 func (m *Manager) load() {
 	b, err := os.ReadFile(m.file())
+	if errors.Is(err, fs.ErrNotExist) {
+		if gone := m.reallyMissing(err); gone != nil {
+			m.loadErr = &LoadError{Err: gone}
+			return
+		}
+		m.loadErr = nil
+		return
+	}
 	if err != nil {
+		m.loadErr = &LoadError{Err: err}
+		return
+	}
+	// 记事本存的 UTF-8 可能带 BOM：提示里让人用记事本修，修完不能因为这个又读不出来
+	b = bytes.TrimPrefix(b, []byte("\xef\xbb\xbf"))
+	if len(bytes.TrimSpace(b)) == 0 {
+		// 老版本直接覆盖写，写到一半断电会留下空文件。里面本来就没有东西可丢，挡着不让保存只会让人多跑一趟
+		log.Printf("tunnels.json 是空的，按没有隧道处理")
+		m.loadErr = nil
 		return
 	}
 	var data struct {
 		Seq     int       `json:"seq"`
 		Tunnels []*Tunnel `json:"tunnels"`
 	}
-	if json.Unmarshal(b, &data) != nil {
+	if err := json.Unmarshal(b, &data); err != nil {
+		m.loadErr = &LoadError{Corrupt: true, Err: jsonErrAt(b, err)}
 		return
 	}
-	m.tunnels, m.seq = data.Tunnels, data.Seq
+	if lacksTunnelsKey(b) {
+		m.loadErr = &LoadError{Corrupt: true, Err: errors.New(`文件里找不到 "tunnels" 这一项（键名是不是改错了）`)}
+		return
+	}
+	m.loadErr = nil
+	// 列表里写着 null 的项（手改出来的）跳过：里面没有内容，留着的话下面一读字段就崩
+	m.tunnels, m.seq = slices.DeleteFunc(data.Tunnels, func(t *Tunnel) bool { return t == nil }), data.Seq
+	m.broken = map[string]bool{}
 	// 旧版存的明文凭据：加密后写回（失败保持原样、只记日志，启动时照旧能用）；解不开的标记出来，不让启动
 	migrated := false
 	for _, t := range m.tunnels {
@@ -181,6 +258,105 @@ func (m *Manager) load() {
 			log.Printf("隧道凭据加密后写回失败，文件里暂时还是明文，下次保存时再写: %v", saveCause(err))
 		}
 	}
+}
+
+// reallyMissing 读 tunnels.json 报「不存在」（readErr）以后再确认一次，是真的新装才返回 nil，否则返回读不出来的原因。
+// Windows 上路径里某一级不在（网络盘断了、U 盘拔了、程序文件夹暂时访问不了）也报 ErrNotExist，
+// 当成新装的话，路径一恢复，下一次保存就把原文件盖掉了（2026-11-15 Codex 复审 P1）。
+// 所以三样都要对上才算新装：读的时候报的是「文件夹在、文件不在」（fileNotFound），程序文件夹看得到，
+// 再看一眼文件还是「文件夹在、文件不在」。最后一步也要分清：Stat 文件夹成功以后路径又失联，报的是路径找不到，
+// 不能放行（Codex 第二轮复审）。中间文件冒出来了，按「这次没读成」处理，下次再读。
+func (m *Manager) reallyMissing(readErr error) error {
+	if !fileNotFound(readErr) {
+		return readErr
+	}
+	dir := filepath.Dir(m.file())
+	fi, err := os.Stat(dir)
+	if err != nil {
+		return fmt.Errorf("程序文件夹访问不了：%w", err)
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("程序文件夹的位置上不是文件夹：%s", dir)
+	}
+	if beforeFileRecheck != nil {
+		beforeFileRecheck()
+	}
+	_, err = os.Lstat(m.file())
+	switch {
+	case err == nil:
+		return errors.New("刚才读的时候说不存在，再看又在了，这次先不读")
+	case !fileNotFound(err):
+		return err
+	}
+	return nil
+}
+
+// beforeFileRecheck 测试用：reallyMissing 查完程序文件夹、再看文件之前调用，用来在这个空当里让路径失联。
+var beforeFileRecheck func()
+
+// lacksTunnelsKey 解析得了、却没有 tunnels 这一项，除了 seq 还有别的东西：多半是手改时把键名改错了（比如 "tunels"），
+// 隧道和凭据还在别的键底下，当空列表存一次就没了（2026-11-15 Codex 复审）。MineDeck 从 v2.0.0 起写的文件总有这一项
+// （一直是 json:"tunnels"，没有 omitempty）；{}、null、只有 seq 的里面没有能丢的东西，照空列表算。
+// 键名按 encoding/json 的规矩不分大小写比。
+func lacksTunnelsKey(b []byte) bool {
+	var keys map[string]json.RawMessage
+	if json.Unmarshal(b, &keys) != nil {
+		return false
+	}
+	other := false
+	for k := range keys {
+		switch {
+		case strings.EqualFold(k, "tunnels"):
+			return false
+		case !strings.EqualFold(k, "seq"):
+			other = true
+		}
+	}
+	return other
+}
+
+// jsonErrAt 解析报错带上大概在第几行：提示里让人用记事本修，得知道去哪儿找。
+func jsonErrAt(b []byte, err error) error {
+	var off int64 = -1
+	var se *json.SyntaxError
+	var te *json.UnmarshalTypeError
+	switch {
+	case errors.As(err, &se):
+		off = se.Offset
+	case errors.As(err, &te):
+		off = te.Offset
+	}
+	if off < 0 || off > int64(len(b)) {
+		return err
+	}
+	return fmt.Errorf("第 %d 行附近：%w", bytes.Count(b[:off], []byte("\n"))+1, err)
+}
+
+// retryLoad 上次没读成时再读一次，返回现在的状态（读成了、或者本来就读成了，是 nil）。调用方持有 m.mu。
+// 没读成期间列表一直是空的、什么也存不进去，所以读成了直接换上，不会冲掉谁的改动。
+// 只读一次、不等：它在锁里，启动时的那几次等待在 NewManager 里。
+func (m *Manager) retryLoad() error {
+	if m.loadErr == nil {
+		return nil
+	}
+	prev := m.loadErr.Error()
+	m.load()
+	if m.loadErr == nil {
+		log.Printf("隧道配置读出来了（%d 条隧道），恢复正常", len(m.tunnels))
+		return nil
+	}
+	if s := m.loadErr.Error(); s != prev { // 界面每 4 秒问一次：原因没变就不重复记
+		log.Printf("隧道配置还是没读出来: %s", s)
+	}
+	return m.loadErr
+}
+
+// LoadErr tunnels.json 在却没读成时返回 *LoadError（先再读一次）；读成了、或者文件本来就不在，返回 nil。
+// 操作层查隧道列表前先问它：没读成时报出来，不拿一个空列表冒充「没有隧道」。
+func (m *Manager) LoadErr() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.retryLoad()
 }
 
 // scrubCustomConfigs 删掉旧版留在 runtimes/frpc/custom 里、写着明文 token 的配置文件。
@@ -233,7 +409,14 @@ func saveCause(err error) error {
 // save 把隧道配置整份写进 tunnels.json，调用方持有 m.mu。先写同一文件夹里的临时文件再改名换上去，
 // 写到一半断电或磁盘满了，原来的 tunnels.json 还是完整的旧版本。用 WriteProtected：用户把 tunnels.json 设成只读时
 // 照旧拒绝覆盖（以前的 os.WriteFile 也是写不进去），只是现在会报出来。
+//
+// tunnels.json 没读成（m.loadErr）时一律不写：内存里是空列表，写下去就把原文件里的隧道和凭据盖掉了。
+// 新增、修改、删除在改内存之前就已经用 retryLoad 挡下；这里再挡一道，兜住以后新加的保存点。
+// 报的是 LoadError 本身，不包成 SaveError：「这次的改动没有保存、检查磁盘」说的不是这回事。
 func (m *Manager) save() error {
+	if m.loadErr != nil {
+		return m.loadErr
+	}
 	data := struct {
 		Seq     int       `json:"seq"`
 		Tunnels []*Tunnel `json:"tunnels"`
@@ -333,6 +516,10 @@ func (m *Manager) Add(t Tunnel) (*Tunnel, error) {
 	t.Credential = sealed
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// tunnels.json 没读成：先于改内存挡下（编号、列表都不动），不然这一条存下去就把原文件盖掉了
+	if err := m.retryLoad(); err != nil {
+		return nil, err
+	}
 	if err := checkGuardPort(&t, m.guardPort); err != nil {
 		return nil, err
 	}
@@ -381,6 +568,9 @@ func (m *Manager) UpdateOpt(id string, t Tunnel, opt UpdateOpts) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := m.retryLoad(); err != nil { // 没读成时列表是空的，不能报成「隧道不存在」
+		return err
+	}
 	if err := checkGuardPort(&t, m.guardPort); err != nil {
 		return err
 	}
@@ -428,6 +618,9 @@ func (m *Manager) UpdateOpt(id string, t Tunnel, opt UpdateOpts) error {
 func (m *Manager) Delete(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := m.retryLoad(); err != nil {
+		return err
+	}
 	if m.running[id] != nil {
 		return fmt.Errorf("请先停止隧道再删除")
 	}
@@ -535,6 +728,10 @@ func (m *Manager) Start(id string) error { return m.start(id, "启动失败：")
 // 卡片上直接显示（手动启动和跟随启动的说法不同）。frpc 起来了就清掉上一次的失败原因。
 func (m *Manager) start(id, why string) error {
 	m.mu.Lock()
+	if err := m.retryLoad(); err != nil { // 没读成时说清原因，不报「隧道不存在」；读成了就照常启动
+		m.mu.Unlock()
+		return err
+	}
 	t := m.get(id)
 	if t == nil {
 		m.mu.Unlock()
@@ -1015,6 +1212,12 @@ func (m *Manager) followArgs(id, instance string) map[string]any {
 // StartBound 启动绑定到某实例且开启了跟随启动的隧道（实例启动后调用）。每拉起（或拉不起）一条记一条操作记录。
 func (m *Manager) StartBound(instance string) {
 	delay := startDelay // 在派发前固定本次等待时间，后台不再读可调整的默认值。
+	// tunnels.json 开机时被占着、之后又没人打开隧道页：这里再读一次，读成了照常拉起跟随的隧道；
+	// 还是没读成，就不知道有哪些隧道跟着这台服务器，只能记一笔（没有隧道编号，记不了操作记录）
+	if err := m.LoadErr(); err != nil {
+		log.Printf("服务器「%s」启动了，但隧道配置没读出来，跟随它启动的隧道这次拉不起来: %v", instance, err)
+		return
+	}
 	for _, id := range m.bound(instance) {
 		id := id
 		go func() {

@@ -3032,6 +3032,63 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await resetTA(); await resetMusic(); }
   });
 
+  // tunnels.json 在却没读出来（被别的程序占着、内容坏了）：以前当成空列表，再加一条就把原文件连同隧道和凭据整份盖掉。
+  // 现在列表那里报出来（正文接后端那句，分两种情况），下一行说清现在不能保存，表单收起；读出来以后自己恢复
+  await run("隧道：tunnels.json 没读出来时报原因、说清现在不能保存、收起表单，读出来以后自动恢复", async () => {
+    const setLoad = v => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ tunnelsLoadFail: x }) }), v);
+    await taState({ tunnelAccounts: { reset: true, openfrp: true }, tunnelsReset: true });
+    try {
+      errors.length = 0;
+      await setLoad("locked");
+      await page.goto(url("#/tunnels")); await settle();
+      await page.waitForSelector("#tun-load-err");
+      const box = await page.evaluate(() => {
+        const b = document.querySelector("#tun-load-err");
+        return { text: b.textContent.replace(/\s+/g, " "), raw: b.querySelector("[data-err-raw]").getAttribute("data-err-raw"),
+          form: document.querySelector("#tn-form").hidden, toggle: document.querySelector("#tn-toggle").hidden,
+          rows: document.querySelectorAll("#tun-list [data-tun]").length, empty: !!document.querySelector(".tun-empty"),
+          summary: document.querySelector("#tun-summary").textContent };
+      });
+      const LOCKED = "MineDeck 文件夹里的 tunnels.json 读不出来，可能被别的程序占着。关掉占用它的程序后会自动重读";
+      assert(box.text.includes("无法显示隧道：" + LOCKED), "正文应是结论接后端那句：" + box.text);
+      assert(box.text.includes("读出来之前不能添加、修改或删除隧道"), "要说清现在不能保存：" + box.text);
+      assert(!box.text.includes("another process") && box.raw.includes("being used by another process"), "正文不该是英文原文，复制的应是完整原文：" + box.raw);
+      assert(box.form && box.toggle, "没读出来时表单和「添加隧道」都该收起来：" + JSON.stringify(box));
+      assert(!box.rows && !box.empty && !box.summary, "不该显示成「还没有隧道」或「0 条隧道」：" + JSON.stringify(box));
+      // 平台那边的导入也被拒，提示接后端那句（后端在找平台之前就拦下）
+      await page.click('[data-acc-overview="openfrp"]');
+      await page.waitForSelector('#tn-acc-panel [data-acc-import="openfrp"][data-proxy="1001"]');
+      await page.click('#tn-acc-panel [data-acc-import="openfrp"][data-proxy="1001"]');
+      await page.waitForSelector('.modal [data-x="ok"]');
+      await page.click('.modal [data-x="ok"]');
+      assert(await toastHas(LOCKED), "没读出来时导入应提示后端那句");
+      assert(!(await toastHas("已导入到 MineDeck", 300)), "没读出来时不该提示已导入");
+      const cancel = await page.$('.modal [data-x="cancel"]');
+      if (cancel) await cancel.click();
+      await modalGone();
+      // 每 4 秒的刷新：原因没变就不重画（重试键还是原来那个，点到一半不会被换掉）
+      await page.evaluate(() => { document.querySelector("#tun-load-retry").dataset.mark = "1"; });
+      await page.waitForTimeout(4600);
+      assert(await page.$eval("#tun-load-retry", b => b.dataset.mark === "1"), "原因没变时每次刷新都重画了报错框");
+      // 点「重试」还是没读出来：提示一句，按钮恢复可点
+      await page.click("#tun-load-retry");
+      assert(await toastHas("隧道配置还是没读出来"), "重试仍没读出来应提示一句");
+      assert(await page.$eval("#tun-load-retry", b => !b.disabled), "重试键应恢复可点");
+      // 原因变了（被占着 → 内容坏了）：换成那种情况的说法
+      await setLoad("corrupt");
+      await page.click("#tun-load-retry");
+      const CORRUPT = "MineDeck 文件夹里的 tunnels.json 内容坏了。用记事本修好它，或者改名挪走后从空列表开始";
+      await page.waitForFunction(t => ((document.querySelector("#tun-load-err") || {}).textContent || "").includes("无法显示隧道：" + t), CORRUPT, { timeout: 3000 });
+      // 读出来了：不点任何东西，4 秒一次的刷新就画出列表，「添加隧道」回来
+      await setLoad("");
+      await page.waitForSelector("#tun-list [data-tun]", { timeout: 6000 });
+      const after = await page.evaluate(() => ({ err: !!document.querySelector("#tun-load-err"), toggle: document.querySelector("#tn-toggle").hidden,
+        summary: document.querySelector("#tun-summary").textContent }));
+      assert(!after.err && !after.toggle && after.summary.includes("条隧道"), "读出来以后应照常显示列表和「添加隧道」：" + JSON.stringify(after));
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await setLoad(""); await resetTA(); }
+  });
+
   await run("平台账户：OpenFrp 创建隧道默认给英文名，名称不合规时在对话框里提示且不发请求", async () => {
     await taState({ tunnelAccounts: { reset: true, openfrp: true }, tunnelsReset: true });
     try {

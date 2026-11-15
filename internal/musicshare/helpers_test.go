@@ -83,8 +83,21 @@ func (f *fakeInst) Console(name string) (*procutil.Console, error) {
 }
 
 type fakeTunnels struct {
-	mu   sync.Mutex
-	list []tunnel.Status
+	mu      sync.Mutex
+	list    []tunnel.Status
+	loadErr error // 不为空：模拟 tunnels.json 没读出来（同 tunnel.Manager.LoadErr）
+}
+
+func (f *fakeTunnels) LoadErr() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.loadErr
+}
+
+func (f *fakeTunnels) setLoadErr(err error) {
+	f.mu.Lock()
+	f.loadErr = err
+	f.mu.Unlock()
 }
 
 func (f *fakeTunnels) set(list ...tunnel.Status) {

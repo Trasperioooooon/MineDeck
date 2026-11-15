@@ -269,6 +269,16 @@ add("tunnel", "u-list-error", "拿不到隧道列表", {
   hash: "#/tunnels", tag: "new", note: "页面报错框：一句结论，下面「复制报错信息」。原文带着路径和英文，所以正文不接它。",
   setup: (s, p) => p.api("GET /api/tunnels", { code: 500, error: "读取隧道配置失败: open D:\\MineDeck\\tunnels.json: Access is denied." }),
 });
+add("tunnel", "u-load-locked", "tunnels.json 被别的程序占着，没读出来", {
+  hash: "#/tunnels", tag: "new", steps: [{ wait: "#tun-load-err" }],
+  note: "以前当成空列表，再加一条就把原文件盖掉。现在正文接后端那句（原因和下一步），下面一行说清读出来之前不能添加、修改、删除；表单和「添加隧道」收起来，读出来以后自己恢复。",
+  setup: s => { s.tunnelsLoadFail = "locked"; },
+});
+add("tunnel", "u-load-corrupt", "tunnels.json 内容坏了", {
+  hash: "#/tunnels", tag: "new", steps: [{ wait: "#tun-load-err" }],
+  note: "下一步换成「用记事本修好它，或者改名挪走后从空列表开始」。复制报错信息里有坏在第几行附近。",
+  setup: s => { s.tunnelsLoadFail = "corrupt"; },
+});
 add("tunnel", "u-min", "最小窗口下", { view: "min", hash: "#/tunnels", setup: s => { s.tunnels = []; } });
 add("tunnel", "u-phone", "手机上", { view: "phone", hash: "#/tunnels" });
 

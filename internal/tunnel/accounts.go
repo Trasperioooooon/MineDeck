@@ -725,6 +725,10 @@ func (a *Accounts) CreateTunnel(ctx context.Context, o AccountTunnelOptions) (St
 	if a.tunnels == nil {
 		return Status{}, fmt.Errorf("隧道管理器不可用")
 	}
+	// tunnels.json 没读成时本机存不进去：在平台上建之前就拦下，不然平台上多出一条、本机没有
+	if err := a.tunnels.LoadErr(); err != nil {
+		return Status{}, err
+	}
 	o.Provider = strings.ToLower(strings.TrimSpace(o.Provider))
 	o.Name = strings.TrimSpace(o.Name)
 	o.Type = strings.ToLower(strings.TrimSpace(o.Type))
@@ -902,6 +906,10 @@ func (a *Accounts) createSakuraTunnel(ctx context.Context, o AccountTunnelOption
 func (a *Accounts) ImportTunnel(ctx context.Context, o AccountTunnelImport) (Status, error) {
 	if a.tunnels == nil {
 		return Status{}, fmt.Errorf("隧道管理器不可用")
+	}
+	// tunnels.json 没读成：本机列表是空的，下面的查重查不出来；反正也存不进去，先报原因，不去平台上取凭据
+	if err := a.tunnels.LoadErr(); err != nil {
+		return Status{}, err
 	}
 	o.Provider = strings.ToLower(strings.TrimSpace(o.Provider))
 	// 编号统一写成平台的十进制形式：「007」「+7」都能被 Atoi 认成 7，原样存下会绕过下面的重复检查，还会原样进 frpc 的参数
