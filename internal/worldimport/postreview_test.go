@@ -738,7 +738,7 @@ func TestCancelAfterPointOfNoReturnIsRefused(t *testing.T) {
 	if accepted {
 		t.Error("已经开始换地图以后，取消应当返回不能取消")
 	}
-	if msg != "" || !strings.Contains(res, "尚未启动检查") {
+	if msg != "" || !strings.Contains(res, "地图文件已导入") {
 		t.Errorf("导入应当照常做完：result=%q err=%q", res, msg)
 	}
 	if got := e.marker("world/region/r.0.0.mca"); got != "MARK:minecraft:overworld:B" {

@@ -149,7 +149,7 @@ window.MDWorldImport = (() => {
           <div class="field"><span>这台电脑上的地图</span>
             <div class="row wi-row">
               <button type="button" class="btn${o.quiet ? "" : " primary"}" id="wi-browse">${icon("folder")} 选择地图文件夹</button>
-              <span class="hint">选存档文件夹（里面有 level.dat），或者它的上一层。</span>
+              <span class="hint">选世界文件夹（里面有 level.dat），或者它的上一层。</span>
             </div>
             <div class="row wi-row">
               <input type="text" id="wi-path" spellcheck="false" autocomplete="off" value="${esc(prevPath)}" aria-label="地图文件夹或 ZIP 文件的路径" placeholder="也可以填完整路径：文件夹，或者没解压的 ZIP，如 D:\\Maps\\SkyCity">
@@ -360,8 +360,8 @@ window.MDWorldImport = (() => {
           ${kv("数据包", (c.datapacks || []).length ? list(c.datapacks) : "没有")}
           ${kv("资源包", c.resourcePack ? "带了 <code>resources.zip</code>" : "没有")}
           ${kv("核心和模组的线索", clues.length || m.wasModded
-            ? `${clues.length ? list(clues) : ""}${m.wasModded ? (clues.length ? "；" : "") + "存档标记为用过模组" : ""}`
-            : "存档里没有读到线索，无法确认它是不是纯原版")}
+            ? `${clues.length ? list(clues) : ""}${m.wasModded ? (clues.length ? "；" : "") + "地图标记为用过模组" : ""}`
+            : "地图里没有读到线索，无法确认它是不是纯原版")}
           ${kv("玩家进度", c.playerFiles > 0 ? `${c.playerFiles} 个玩家的文件` : "没有玩家文件")}
           ${(c.sourceHints || []).length ? kv("不会导入", `来源里和地图放在一起的 ${list(c.sourceHints)}`) : ""}
         </div>
@@ -374,7 +374,7 @@ window.MDWorldImport = (() => {
           <div class="wi-p" id="wi-kept">保持原样：核心和版本、Java、内存、端口、模组和插件、白名单和 OP、其他各项设置。</div>
         </div>
         ${(p.settings || []).length ? `<div class="wi-sec" id="wi-settings"><h3>可以一起改的设置</h3>
-          <div class="hint">地图存档里的设置和这台服务器的不一样。默认都不改；勾上的才改，换回旧地图时会一并改回去。</div>
+          <div class="hint">地图里的设置和这台服务器的不一样。默认都不改；勾上的才改，换回旧地图时会一并改回去。</div>
           ${p.settings.map(s => `<label class="ob-agree wi-check"><input type="checkbox" data-wi-set="${esc(s.key)}" aria-label="改设置 ${esc(SET_NAME[s.key] || s.key)}">
             <span><b>${esc(SET_NAME[s.key] || s.key)}</b>：${esc(setVal(s.before))} ${icon("arrowRight")} ${esc(setVal(s.after))} <code>${esc(s.key)}</code>
               <span class="hint">${esc(s.why || "")}</span></span></label>`).join("")}
@@ -484,7 +484,7 @@ window.MDWorldImport = (() => {
       return `<div class="warn-card wi-busybox" id="wi-busy" role="status"><div class="wc-title">${icon("warn")} <span>${esc(st.busy)}</span></div>
         ${stuck.length ? `<div class="wc-note">文件都还在，没有删任何东西。这些地方要先看一下：</div><ul class="wc-list wi-stuck">${stuck.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
         ${st.blocked
-          ? `<div class="wc-note">先关掉占着世界文件夹的程序（在 MineDeck 之外手动启动的服务器、开着存档的地图工具），停止这台服务器，再点「重试恢复」。</div>
+          ? `<div class="wc-note">先关掉占着世界文件夹的程序（在 MineDeck 之外手动启动的服务器、开着这个世界的地图工具），停止这台服务器，再点「重试恢复」。</div>
         <button type="button" class="btn" id="wi-retry">${icon("refresh")} 重试恢复</button>`
           : `<div class="wc-note">等它做完就好，这一页会自己刷新。</div>`}</div>`;
     };
@@ -519,7 +519,7 @@ window.MDWorldImport = (() => {
             <div class="ri-sub">世界文件夹 <code id="wi-level">${esc(st.levelName || "world")}</code>（server.properties 的 level-name）· 服务器<span id="wi-status">${esc(ST_TEXT[st.status] || st.status || "")}</span></div></div>
           <div class="ri-right"><button type="button" class="btn primary" id="wi-start"${st.busy ? " disabled" : ""}>${icon("download")} 导入并替换当前地图</button></div>
         </div></div></div>
-        <div class="hint wi-lead">把一份现成的 Java 版世界（下载的地图、单人存档、别的服务器的世界）换到这台服务器上。原来的世界不会删，整体留在恢复点里，可以换回；导入过几次的话，从最近的一次往前一次次换。核心、版本、模组插件和各项设置都不动。</div>
+        <div class="hint wi-lead">把一份现成的 Java 版世界（下载的地图、单人世界、别的服务器的世界）换到这台服务器上。原来的世界不会删，整体留在恢复点里，可以换回；导入过几次的话，从最近的一次往前一次次换。核心、版本、模组插件和各项设置都不动。</div>
         <h2 class="wi-h">恢复点</h2>
         <div class="group has-ico wi-group" id="wi-points">${pts.map(pointRow).join("") ||
           `<div class="row-item"><div class="ri-head"><div class="ri-main"><div class="ri-sub">还没有恢复点。导入地图时，原来的世界会留在这里。</div></div></div></div>`}</div>
@@ -864,7 +864,7 @@ window.MDWorldImport = (() => {
     if (!wzOpen) {
       el.innerHTML = `<div class="wi-strip" id="wi-wiz-offer"><span class="ri-ico">${icon("globe")}</span>
         <div class="wi-strip-main"><div class="wi-strip-title">手里有现成的地图？</div>
-          <div class="hint">下载的冒险、空岛、跑酷地图，自己的单人存档，朋友发来的旧服世界，都可以直接拿来开服。</div>
+          <div class="hint">下载的冒险、空岛、跑酷地图，自己的单人世界，朋友发来的旧服世界，都可以直接拿来开服。</div>
           ${lastCreate ? `<div class="hint wi-last" id="wi-wiz-last-line">上次用地图「${esc(candName(lastCreate.cand))}」建服没有成功。<button type="button" class="btn sm" id="wi-wiz-last">接着用这张</button></div>` : ""}</div>
         <button type="button" class="btn" id="wi-wiz-pick">${icon("globe")} 用已有地图开服</button></div>`;
       $("#wi-wiz-pick", el).onclick = () => { wzOpen = true; redraw(); };
@@ -893,7 +893,7 @@ window.MDWorldImport = (() => {
     lastCreate = null;
     const core = suggestCore(cand), brands = ((cand.meta && cand.meta.serverBrands) || []).join("、");
     wz = { scan, cand, seq: 0, plan: null,
-      hint: core === "vanilla" ? "存档里没有别的核心的线索，先预选了原版。" : `按存档里的线索（${brands}）预选了 ${coreName(core)}。` };
+      hint: core === "vanilla" ? "地图里没有别的核心的线索，先预选了原版。" : `按地图里的线索（${brands}）预选了 ${coreName(core)}。` };
     wzOpen = false;
     hold(scan.id, inWizard);
     wiz.core = core;
@@ -922,13 +922,13 @@ window.MDWorldImport = (() => {
       const wantD = m.hasDifficulty ? DIFFS[m.difficulty] : "", wantM = m.hasGameType ? MODES[m.gameType] : "";
       const differs = () => (!!fd && !!wantD && fd.value !== wantD) || (!!fm && !!wantM && fm.value !== wantM);
       inner.innerHTML = planHTML(p, cand, scan, "create") + (fd && fm && (wantD || wantM) ? `
-        <div class="wi-sec" id="wi-wiz-fill"><div class="row wi-row"><span class="hint">地图存档里${[wantD ? "难度是" + setVal(wantD) : "", wantM ? "默认模式是" + setVal(wantM) : ""].filter(Boolean).join("，")}。上面的设置以你选的为准。</span>
+        <div class="wi-sec" id="wi-wiz-fill"><div class="row wi-row"><span class="hint">地图里${[wantD ? "难度是" + setVal(wantD) : "", wantM ? "默认模式是" + setVal(wantM) : ""].filter(Boolean).join("，")}。上面的设置以你选的为准。</span>
           <span class="grow"></span><button type="button" class="btn sm" id="wi-wiz-fill-go">按地图的填</button></div></div>` : "");
       wireReadme(inner, scan, cand, gone);
       const fill = $("#wi-wiz-fill-go", inner);
       if (fill) {
         fill.disabled = !differs();
-        fill.onclick = () => { if (wantD) fd.value = wantD; if (wantM) fm.value = wantM; fill.disabled = true; toast("已按地图存档填好难度和默认游戏模式"); };
+        fill.onclick = () => { if (wantD) fd.value = wantD; if (wantM) fm.value = wantM; fill.disabled = true; toast("已按地图填好难度和默认游戏模式"); };
         [fd, fm].forEach(x => x.addEventListener("change", () => { if (fill.isConnected) fill.disabled = !differs(); }));
       }
       const ack = $("#wi-ack", inner);

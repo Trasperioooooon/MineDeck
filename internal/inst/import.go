@@ -58,7 +58,7 @@ func (m *Manager) ImportModpackAsync(pack *modpack.Pack, req CreateReq, cfKey st
 	pack.Reclassify(app.TrustedHostFunc(app.TrustScopeModpack))
 	if src := strings.TrimSpace(req.LocalSource); src != "" {
 		if st, err := os.Stat(src); err != nil || !st.IsDir() {
-			return "", fmt.Errorf("本地来源文件夹不可用（待决文件会从这里按原样保留）: %s", src)
+			return "", fmt.Errorf("本地来源文件夹不可用（没法自动下载的文件会从这里按原样拷过去）: %s", src)
 		}
 	}
 	dir, err := m.validateCreate(&req)
@@ -735,7 +735,7 @@ func (m *Manager) resolvePending(ctx context.Context, inst *Instance, acts []Pen
 // 同时检查真实落点，避免短名、符号链接和目录联接把 config 等别名指向世界。
 func pendingDestination(i *Instance, rel string) (string, error) {
 	if !overrideAllowed(rel) {
-		return "", fmt.Errorf("这个待决文件不能写进服务器：%s", rel)
+		return "", fmt.Errorf("这个没装上的文件不能写进服务器：%s", rel)
 	}
 	root, err := RealPathStrict(i.Dir)
 	if err != nil {
@@ -748,13 +748,13 @@ func pendingDestination(i *Instance, rel string) (string, error) {
 	}
 	actual, err := filepath.Rel(root, real)
 	if err != nil || !filepath.IsLocal(actual) || actual == "." {
-		return "", fmt.Errorf("待决文件的实际位置不在服务器文件夹内")
+		return "", fmt.Errorf("这个文件的实际位置不在服务器文件夹内")
 	}
 	actual = filepath.ToSlash(actual)
 	first, _, nested := strings.Cut(strings.ToLower(actual), "/")
 	allowed := nested && (first == "mods" || first == "plugins" || first == "config" || first == "defaultconfigs" || first == "resourcepacks" || first == "datapacks" || first == "shaderpacks" || first == "kubejs" || first == "scripts")
 	if !allowed || IsControlFile(actual) {
-		return "", fmt.Errorf("待决补装只支持模组、插件、配置和资源目录；世界和 server.properties 请使用地图导入或设置入口")
+		return "", fmt.Errorf("没装上的文件只能补进模组、插件、配置和资源文件夹；换世界请用「世界与备份 → 换地图」，server.properties 请到「设置」里改")
 	}
 	level, err := LevelNameStrict(i.Dir)
 	if err != nil {
@@ -766,7 +766,7 @@ func pendingDestination(i *Instance, rel string) (string, error) {
 			return "", err
 		}
 		if within(real, worldPath) {
-			return "", fmt.Errorf("待决文件位于当前世界中，请使用地图导入：%s", rel)
+			return "", fmt.Errorf("这个文件在当前世界里，换世界请用「世界与备份 → 换地图」：%s", rel)
 		}
 	}
 	return dest, nil
@@ -960,14 +960,14 @@ func (m *Manager) pendingInstance(taskID string) (*Instance, error) {
 	ref, ok := m.pendingInst[taskID]
 	m.pendMu.Unlock()
 	if !ok {
-		return nil, fmt.Errorf("这个任务没有待决的文件")
+		return nil, fmt.Errorf("这个任务没有要处理的文件")
 	}
 	i, err := m.Get(ref.name)
 	if err != nil {
 		return nil, fmt.Errorf("任务对应的服务器「%s」不在了（可能已被删除）", ref.name)
 	}
 	if !i.CreatedAt.Equal(ref.created) {
-		return nil, fmt.Errorf("任务对应的服务器「%s」已经删掉了，现在这台同名的是后来新建的，待决文件不会放进去", ref.name)
+		return nil, fmt.Errorf("任务对应的服务器「%s」已经删掉了，现在这台同名的是后来新建的，这些文件不会放进去", ref.name)
 	}
 	return i, nil
 }

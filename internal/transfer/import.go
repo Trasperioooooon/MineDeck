@@ -322,7 +322,7 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 	if _, err := m.FinalizeCreate(s, dir); err != nil {
 		return err
 	}
-	t.Logf("交接完成 ✔ 存档、配置和模组都带过来了（没带过来的东西见上面几行）")
+	t.Logf("交接完成 ✔ 世界、配置、模组和插件都带过来了（没带过来的东西见上面几行）")
 	return nil
 }
 

@@ -480,9 +480,9 @@ window.MDModCart = (() => {
         if (stale(gen) || !body.isConnected || !d || !d.count) return;
         $("#mc-local-tip", body).innerHTML = `
           <div class="warn-card">
-            <div class="wc-title">${icon("warn")} 已装的模组里缺 ${d.count} 项前置</div>
+            <div class="wc-title">${icon("warn")} 已装的${nounOf(info.core)}里缺 ${d.count} 项前置</div>
             <ul class="wc-list">${(d.missing || []).map(m => `<li>${esc(m.id)}（${esc(m.requiredBy)} 需要）</li>`).join("")}</ul>
-            <div class="wc-note">缺前置的模组可能让服务器起不来。可以在下面搜到它们，加进清单装上。</div>
+            <div class="wc-note">缺前置的${nounOf(info.core)}可能让服务器起不来。可以在下面搜到它们，加进清单装上。</div>
           </div>`;
       } catch {}
     })();

@@ -228,9 +228,9 @@ func (c *cat) instanceOps() {
 
 	// 逐项处置导入的待决文件：跳过、保留本地已有 / 手动指定的文件、确认信任自定义站点后下载。
 	// 触到主机上的任意路径（local 的路径、来源目录），和接管一样只许本机的人操作。
-	const importPendingLocalMsg = "处理导入的待决文件仅支持在本机操作（要读、要收这台电脑上的文件）"
+	const importPendingLocalMsg = "处理没装上的文件仅支持在本机操作（要读、要收这台电脑上的文件）"
 	c.reg.Register(&ops.Op{
-		Name: "instance.import.pending", Title: "处理导入的待决文件", Level: ops.HumanOnly, LocalOnly: true,
+		Name: "instance.import.pending", Title: "处理导入任务里没装上的文件", Level: ops.HumanOnly, LocalOnly: true,
 		LocalMsg: importPendingLocalMsg,
 		Desc: "整合包导入完成后的待决文件（白名单外的下载地址、缺校验值、下载后校验不符、CurseForge 未解析）逐个处置：" +
 			"skip 跳过并记录、local 用本地已有的文件或手动指定的文件原样代替（不校验）、trust 确认信任自定义站点后下载（必须 https、公网，下载后过 SHA-1 校验）。" +

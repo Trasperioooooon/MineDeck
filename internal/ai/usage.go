@@ -103,7 +103,7 @@ func (e *QuotaError) Error() string {
 func featureName(f Feature) string {
 	switch f {
 	case FeatAssistant:
-		return "应用内助手"
+		return "AI 助手"
 	case FeatGameChat:
 		return "游戏内 AI"
 	case FeatCompanion:

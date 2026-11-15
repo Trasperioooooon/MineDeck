@@ -128,7 +128,7 @@ func TestImportReplaceAndRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 	res, msg := e.wait(id)
-	if msg != "" || !strings.Contains(res, "尚未启动检查") {
+	if msg != "" || !strings.Contains(res, "地图文件已导入") {
 		t.Fatalf("result=%q err=%q", res, msg)
 	}
 	// Bukkit 的 _nether/DIM-1、_the_end/DIM1 并进了原版的 world/DIM-1、world/DIM1

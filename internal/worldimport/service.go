@@ -652,20 +652,20 @@ func playerNotes(c *Candidate, t *Target) []Issue {
 		owner, file = "", "" // 迁移时找不到主人 UUID 会写成占位的 UUID，对应不上任何账号
 	}
 	if m.HasPlayerTag || m.SingleplayerUUID != "" {
-		base := "这是单人存档。世界和建筑会保留；单人角色身上的背包、经验、末影箱、位置能不能接上，要看主人用哪个账号进服。"
+		base := "这是单人世界。世界和建筑会保留；单人角色身上的背包、经验、末影箱、位置能不能接上，要看主人用哪个账号进服。"
 		var how string
 		switch {
 		case owner == "":
-			how = "存档里没认出主人的 UUID，服务器上没法自动对应。"
+			how = "地图里没认出主人的 UUID，服务器上没法自动对应。"
 		case proxy:
-			how = "这台服务器在代理（Velocity / BungeeCord）后面，进服的 UUID 由代理决定：代理开着正版验证时，主人用同一个正版账号进服，一般会读到存档里自己的那份（" + file + "）。"
+			how = "这台服务器在代理（Velocity / BungeeCord）后面，进服的 UUID 由代理决定：代理开着正版验证时，主人用同一个正版账号进服，一般会读到地图里自己的那份（" + file + "）。"
 		case online:
-			how = "主人用玩单人时的同一个正版账号进服，服务器会读存档里的 " + file + "（单人最后一次存档时写的），一般就接上了。"
+			how = "主人用玩单人时的同一个正版账号进服，服务器会读地图里的 " + file + "（单人最后一次保存时写的），一般就接上了。"
 		default:
 			how = "这台服务器关着正版验证（离线模式），进服的 UUID 是按名字算出来的，和正版账号的不一样，接不上。想接上：让主人先进一次服再退出，停服后把世界里 " + file + " 复制一份，改名成新生成的那个玩家文件的名字（先把新生成的那个备份），再启动。"
 		}
 		if m.HasPlayerTag && m.SingleplayerUUID == "" && owner != "" && !c.hasPlayerFile(owner) {
-			how = "主人的进度只存在 level.dat 里（存档里没有对应的玩家文件），服务器不会读 level.dat 里的这一份，首版也不会自动转换，所以接不上。"
+			how = "主人的进度只存在 level.dat 里（地图里没有对应的玩家文件），服务器不会读 level.dat 里的这一份，首版也不会自动转换，所以接不上。"
 		}
 		is = append(is, Issue{Sev: SevWarn, Code: "singleplayer-owner", Msg: base + how,
 			Detail: "主人 UUID：" + owner})
@@ -692,7 +692,7 @@ func playNotes(c *Candidate) []Issue {
 	var is []Issue
 	if len(c.Datapacks) > 0 {
 		is = append(is, Issue{Sev: SevInfo, Code: "datapacks",
-			Msg:    fmt.Sprintf("地图自带 %d 个数据包，导入后由游戏按存档里的设置加载，会参与玩法。导入本身不运行包里的任何程序", len(c.Datapacks)),
+			Msg:    fmt.Sprintf("地图自带 %d 个数据包，导入后由游戏按地图里的设置加载，会参与玩法。导入本身不运行包里的任何程序", len(c.Datapacks)),
 			Detail: strings.Join(firstN(c.Datapacks, 10), "、")})
 	}
 	if c.ResourcePak {
@@ -1038,16 +1038,16 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 	stuck, err := commitTx(tg.Dir, j, props)
 	if err != nil {
 		if stuck {
-			s.M.SetWorldBlock(p.Inst, "换地图没有完成，自动恢复也失败了，服务器已暂停启动。请到「地图」里查看恢复步骤")
+			s.M.SetWorldBlock(p.Inst, "换地图没有完成，自动恢复也失败了，服务器已暂停启动。请到「世界与备份 → 换地图」里查看恢复步骤")
 			return "", fmt.Errorf("恢复未完成，服务器已暂停启动：%v。所有文件都还在，查看恢复步骤：%s", err, txAbs(tg.Dir, id))
 		}
 		return "", fmt.Errorf("导入中断，已恢复到导入前的世界：%v", err)
 	}
 	t.StartStep(4)
 	if len(j.OldOut) > 0 {
-		t.Logf("导入前的世界留在恢复点里（%s），随时可以在「地图」里换回来", fmtBytes(j.OldBytes))
+		t.Logf("导入前的世界留在恢复点里（%s），随时可以在「世界与备份 → 换地图」里换回来", fmtBytes(j.OldBytes))
 	}
-	return "地图文件已导入，尚未启动检查。服务器保持停止，启动后进服看看是不是这张地图", nil
+	return "地图文件已导入，还没开服试过。服务器保持停止，启动后进服看看是不是这张地图", nil
 }
 
 // stagedHook 测试用：最后一个文件复制完、还没重新核对来源的那一刻调用。
@@ -1414,7 +1414,7 @@ func (s *Service) Restore(name, txID, confirm string) (string, error) {
 		stuck, err := restoreTx(i.Dir, j)
 		if err != nil {
 			if stuck {
-				s.M.SetWorldBlock(name, "换回旧地图没有完成，自动恢复也失败了，服务器已暂停启动。请到「地图」里查看恢复步骤")
+				s.M.SetWorldBlock(name, "换回旧地图没有完成，自动恢复也失败了，服务器已暂停启动。请到「世界与备份 → 换地图」里查看恢复步骤")
 				t.Fail(fmt.Errorf("恢复未完成，服务器已暂停启动：%v", err))
 				return
 			}
@@ -1451,13 +1451,13 @@ func restorable(dir string, j *Journal) error {
 	// 之后会被搬到哪还没定，这时候再动原位上的世界，等它恢复时会把搬错的东西当成自己的清掉。
 	// 内存里的封锁标志也拦这件事（BeginWorldChange），这里按盘上的记录再看一遍，不只靠那个标志
 	if len(bad) > 0 {
-		return fmt.Errorf("这台服务器有换地图的记录读不出来，现在不能换回。请先到「地图」里按提示处理")
+		return fmt.Errorf("这台服务器有换地图的记录读不出来，现在不能换回。请先到「世界与备份 → 换地图」里按提示处理")
 	}
 	for _, o := range js {
 		switch o.State {
 		case TxCommitted, TxRolledBack, TxRestored, TxStaging, TxStaged:
 		default:
-			return fmt.Errorf("这台服务器有一次换地图还没走完（状态：%s），现在不能换回。请先到「地图」里点「重试恢复」", o.State)
+			return fmt.Errorf("这台服务器有一次换地图还没走完（状态：%s），现在不能换回。请先到「世界与备份 → 换地图」里点「重试恢复」", o.State)
 		}
 	}
 	if l := latestCommitted(js, j.LevelName); l == nil || l.ID != j.ID {
@@ -1558,7 +1558,7 @@ func (s *Service) recoverInstance(i *inst.Instance, withCommit bool) {
 		s.M.SetWorldBlock(i.Name, inst.WorldTxUnreadable)
 	case !withCommit:
 	case !ok:
-		s.M.SetWorldBlock(i.Name, "上次换地图没能自动恢复，服务器已暂停启动。请到「地图」里查看恢复步骤")
+		s.M.SetWorldBlock(i.Name, "上次换地图没能自动恢复，服务器已暂停启动。请到「世界与备份 → 换地图」里查看恢复步骤")
 	default:
 		// 处理完再按盘上的记录看一遍（和加载实例时设封锁的是同一个判断）：还没走完的还在，就不解除
 		s.M.SetWorldBlock(i.Name, inst.PendingWorldTx(i.Dir))

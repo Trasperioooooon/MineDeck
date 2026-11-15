@@ -409,9 +409,9 @@ func (m *Manager) runAdopt(ctx context.Context, t *tasks.Task, req AdoptReq, sc 
 	m.insts[req.Name] = inst
 	m.mu.Unlock()
 	if newPort > 0 {
-		t.Logf("接管完成 ✔ 存档、模组、插件都没有动，配置文件只改了端口")
+		t.Logf("接管完成 ✔ 世界、模组、插件都没有动，配置文件只改了端口")
 	} else {
-		t.Logf("接管完成 ✔ 存档、模组、插件和配置文件都没有动")
+		t.Logf("接管完成 ✔ 世界、模组、插件和配置文件都没有动")
 	}
 	return nil
 }

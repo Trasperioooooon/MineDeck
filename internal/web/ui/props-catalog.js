@@ -31,7 +31,7 @@ window.PROPS_CATALOG = [
   { key: 'spawn-protection', group: '基础与玩法', type: 'int', def: '16', label: '出生点保护', desc: '出生点周围该半径内只有 OP 能挖放方块；无 OP 时不生效。', since: '', removed: '', gamerule: null, restart: true },
 
   // ===== 世界生成 =====
-  { key: 'level-name', group: '世界生成', type: 'str', def: 'world', label: '世界名称', desc: '存档文件夹名；改名等于换一个新世界存档。', since: '', removed: '', gamerule: null, restart: true },
+  { key: 'level-name', group: '世界生成', type: 'str', def: 'world', label: '世界名称', desc: '世界文件夹名；改名等于换一个新世界。', since: '', removed: '', gamerule: null, restart: true },
   { key: 'level-seed', group: '世界生成', type: 'str', def: '', label: '世界种子', desc: '生成新世界用的种子，相同种子地形相同。', since: '', removed: '', gamerule: null, restart: true },
   { key: 'level-type', group: '世界生成', type: 'sel', opts: ['minecraft:normal', 'minecraft:flat', 'minecraft:large_biomes', 'minecraft:amplified', 'minecraft:single_biome_surface'], optNames: ['普通', '超平坦', '巨型群系', '放大化', '单一群系'], optsByVer: { '1.12.2': 'DEFAULT / FLAT / LARGEBIOMES / AMPLIFIED（全大写）', '1.16-1.18': 'default / flat / largeBiomes / amplified（驼峰）', '1.19+': 'minecraft:normal / minecraft:flat / minecraft:large_biomes / minecraft:amplified / minecraft:single_biome_surface（命名空间 ID）' }, def: 'minecraft:normal', label: '世界类型', desc: '普通/超平坦/巨型群系/放大化等；只影响新生成区块。', since: '', removed: '', gamerule: null, restart: true },
   { key: 'generator-settings', group: '世界生成', type: 'str', def: '{}', label: '生成器参数', desc: '配合世界类型自定义地形，如超平坦的层数配置。', since: '', removed: '', gamerule: null, restart: true },
@@ -59,9 +59,9 @@ window.PROPS_CATALOG = [
   { key: 'max-chained-neighbor-updates', group: '性能', type: 'int', def: '1000000', label: '连锁更新上限', desc: '限制红石等连锁方块更新数量，防恶意机器卡服。', since: '1.19', removed: '', gamerule: null, restart: true },
   { key: 'network-compression-threshold', group: '性能', type: 'int', def: '256', label: '网络压缩阈值', desc: '数据包超过该字节数才压缩；内网服可设 -1 省 CPU。', since: '', removed: '', gamerule: null, restart: true },
   { key: 'rate-limit', group: '性能', type: 'int', def: '0', label: '发包限速', desc: '玩家发包超过该速率会被踢出，0 为不限制。', since: '1.16.2', removed: '', gamerule: null, restart: true },
-  { key: 'sync-chunk-writes', group: '性能', type: 'bool', def: 'true', label: '同步写区块', desc: '同步写入磁盘，崩溃时更不容易丢档。关掉之后存档更快，但有丢档的风险。', since: '1.16', removed: '', gamerule: null, restart: true },
+  { key: 'sync-chunk-writes', group: '性能', type: 'bool', def: 'true', label: '同步写区块', desc: '同步写入磁盘，崩溃时更不容易丢档。关掉之后保存更快，但有丢档的风险。', since: '1.16', removed: '', gamerule: null, restart: true },
   { key: 'use-native-transport', group: '性能', type: 'bool', def: 'true', label: 'Linux 网络优化', desc: '仅 Linux 服务器生效的收发包优化，一般不用动。', since: '', removed: '', gamerule: null, restart: true },
-  { key: 'region-file-compression', group: '性能', type: 'sel', opts: ['deflate', 'lz4', 'none'], optNames: ['Deflate 压缩', 'LZ4 快速', '不压缩'], def: 'deflate', label: '区块压缩算法', desc: '存档压缩方式：lz4 读写更快但占盘更大，none 不压缩。', since: '1.20.5', removed: '', gamerule: null, restart: true },
+  { key: 'region-file-compression', group: '性能', type: 'sel', opts: ['deflate', 'lz4', 'none'], optNames: ['Deflate 压缩', 'LZ4 快速', '不压缩'], def: 'deflate', label: '区块压缩算法', desc: '世界文件的压缩方式：lz4 读写更快但占盘更大，none 不压缩。', since: '1.20.5', removed: '', gamerule: null, restart: true },
   { key: 'pause-when-empty-seconds', group: '性能', type: 'int', def: '60', label: '空服暂停', desc: '无人在线超过该秒数后暂停世界运算，节省资源。', since: '1.21.2', removed: '', gamerule: null, restart: true },
 
   // ===== 网络与远程管理 =====

@@ -97,7 +97,7 @@ func Ensure(ctx context.Context, major int, logf func(string, ...any), prog dl.P
 
 func finalize(major int) (string, error) {
 	if !IsInstalled(major) {
-		return "", fmt.Errorf("Java %d 部署后未找到 bin\\java.exe", major)
+		return "", fmt.Errorf("Java %d 装好后没找到 bin\\java.exe", major)
 	}
 	return Exe(major), nil
 }

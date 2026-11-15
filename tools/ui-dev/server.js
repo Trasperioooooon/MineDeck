@@ -724,7 +724,7 @@ const ASST_DIAG = {
     findings: [
       { rule: "missing-deps", title: "缺少前置模组", summary: "少装了前置模组：geckolib（create 需要）", severity: "error", mods: ["geckolib", "create"],
         details: ["create 需要 geckolib（版本 [4.4,)），但没有装"],
-        fixes: ["在「资源」里搜索 geckolib，装 Forge 1.20.1 的 4.4 以上版本", "或者先禁用 create"],
+        fixes: ["在「模组」页里搜索 geckolib，装 Forge 1.20.1 的 4.4 以上版本", "或者先禁用 create"],
         evidence: ["Missing or unsupported mandatory dependencies:", "\tMod ID: 'geckolib', Requested by: 'create', Expected range: '[4.4,)', Actual version: '[MISSING]'"] },
       { rule: "client-only", title: "客户端模组放进了服务端", summary: "xaerominimap.jar 只能装在客户端", severity: "error", files: ["xaerominimap.jar"],
         details: ["Attempted to load class net/minecraft/client/gui/screens/Screen for invalid dist DEDICATED_SERVER"],
@@ -1811,13 +1811,13 @@ function worldPlan(state, scan, cand, inst, core, mc) {
   const brands = (m.serverBrands || []).join(" ").toLowerCase();
   if (/forge|fabric/.test(brands) && !brands.includes(core)) issues.push({ sev: "confirm", code: "mods-mismatch",
     msg: `这张地图用过模组（${m.serverBrands.join("、")}），而目标是 ${core}。缺了对应的模组，地图里模组加的方块和物品会消失`, detail: `ServerBrands: ${m.serverBrands.join(", ")}；WasModded: ${!!m.wasModded}` });
-  if (m.hasPlayerTag) issues.push({ sev: "warn", code: "singleplayer-owner", msg: "这是单人存档。世界和建筑会保留；单人角色身上的背包、经验、末影箱、位置能不能接上，要看主人用哪个账号进服。主人用玩单人时的同一个正版账号进服，一般就接上了",
+  if (m.hasPlayerTag) issues.push({ sev: "warn", code: "singleplayer-owner", msg: "这是单人世界。世界和建筑会保留；单人角色身上的背包、经验、末影箱、位置能不能接上，要看主人用哪个账号进服。主人用玩单人时的同一个正版账号进服，一般就接上了",
     detail: "主人 UUID：" + (m.playerUuid || "") });
   if (cand.resourcePack) issues.push({ sev: "warn", code: "resources-zip", msg: "地图带了资源包（resources.zip）。专用服务器不会把它自动发给玩家：要大家看到正确的材质，请把它放到一个大家都能下载的地址，在设置里填资源包地址，或者让每个人自己安装" });
   const missing = [["minecraft:the_nether", "下界"], ["minecraft:the_end", "末地"]].filter(([id]) => !cand.dimensions.some(d => d.id === id)).map(x => x[1]);
   if (missing.length) issues.push({ sev: "info", code: "dims-not-provided", msg: `地图没有提供${missing.join("、")}。这不是导入丢了：服务器第一次用到时会生成全新的${missing.join("、")}，不会沿用旧地图的` });
   if (cand.playerFiles > 0) issues.push({ sev: "info", code: "players-kept", msg: `地图带了 ${cand.playerFiles} 个玩家的进度文件，会原样保留，不会和这台服务器原来的玩家文件混在一起` });
-  if (cand.datapacks.length) issues.push({ sev: "info", code: "datapacks", msg: `地图自带 ${cand.datapacks.length} 个数据包，导入后由游戏按存档里的设置加载。导入本身不运行包里的任何程序`, detail: cand.datapacks.join("、") });
+  if (cand.datapacks.length) issues.push({ sev: "info", code: "datapacks", msg: `地图自带 ${cand.datapacks.length} 个数据包，导入后由游戏按地图里的设置加载。导入本身不运行包里的任何程序`, detail: cand.datapacks.join("、") });
   if (m.allowCommands) issues.push({ sev: "info", code: "commands", msg: "地图允许使用命令。如果地图用到命令方块，要在服务器设置里打开命令方块（enable-command-block）；MineDeck 不会自动打开" });
   if (cand.readme.length) issues.push({ sev: "info", code: "readme", msg: "地图带了说明书，里面可能写着推荐的版本、人数和需要的设置，导入前看一眼" });
   const replace = !inst || iw.noWorld ? [] : WORLD_BUKKIT.has(inst.core) ? [level, level + "_nether", level + "_the_end"] : [level];
@@ -1825,8 +1825,8 @@ function worldPlan(state, scan, cand, inst, core, mc) {
   if (inst) {
     const prop = k => (state.props.find(p => p.key === k) || {}).value;
     const want = { difficulty: ["peaceful", "easy", "normal", "hard"][m.difficulty], gamemode: ["survival", "creative", "adventure", "spectator"][m.gameType] };
-    if (m.hasDifficulty && prop("difficulty") !== undefined && prop("difficulty") !== want.difficulty) settings.push({ key: "difficulty", before: prop("difficulty"), after: want.difficulty, why: `地图存档的难度是 ${want.difficulty}。服务器每次启动都以 server.properties 的难度为准` });
-    if (m.hasGameType && prop("gamemode") !== undefined && prop("gamemode") !== want.gamemode) settings.push({ key: "gamemode", before: prop("gamemode"), after: want.gamemode, why: `地图存档的默认模式是 ${want.gamemode}（冒险地图常用 adventure）。服务器给新进服的玩家用 server.properties 里的模式` });
+    if (m.hasDifficulty && prop("difficulty") !== undefined && prop("difficulty") !== want.difficulty) settings.push({ key: "difficulty", before: prop("difficulty"), after: want.difficulty, why: `地图的难度是 ${want.difficulty}。服务器每次启动都以 server.properties 的难度为准` });
+    if (m.hasGameType && prop("gamemode") !== undefined && prop("gamemode") !== want.gamemode) settings.push({ key: "gamemode", before: prop("gamemode"), after: want.gamemode, why: `地图的默认模式是 ${want.gamemode}（冒险地图常用 adventure）。服务器给新进服的玩家用 server.properties 里的模式` });
   }
   const need = cand.bytes + 256 * W_MB;
   if (need > w.free) issues.push({ sev: "block", code: "disk-full", msg: `磁盘空间不够：这张地图要 ${(need / W_GB).toFixed(1)} GB，服务器所在的盘只剩 ${(w.free / W_GB).toFixed(1)} GB` });
@@ -1870,7 +1870,7 @@ function worldTask(state, id) {
         if (inst && t.stopFirst) { inst.status = "stopped"; inst.uptimeSec = 0; inst.onlineCount = 0; }
         iw.points.unshift({ id: worldId("w"), state: "committed", created: new Date().toISOString(), source: t.source, candidate: t.candidate, levelName: iw.levelName,
           hasOld: t.plan.replace.length > 0, oldBytes: t.plan.replace.length ? 412 * W_MB : 0, keptBytes: 0 });
-        t.result = "地图文件已导入，尚未启动检查。服务器保持停止，启动后进服看看是不是这张地图";
+        t.result = "地图文件已导入，还没开服试过。服务器保持停止，启动后进服看看是不是这张地图";
       } else {
         const pt = iw.points.find(x => x.id === t.point);
         if (pt) Object.assign(pt, { state: "restored", hasOld: false, keptBytes: pt.keptBytes || 431 * W_MB, oldBytes: 0 });
@@ -2903,7 +2903,7 @@ function handler(state, ui, portOf) {
         return ok(res, { id: isOut ? "task-transfer-out" : "task-transfer-in", kind: isOut ? "transfer-out" : "transfer-in",
           steps: names.map(name => ({ name, status: "done" })), label: "", done: 0, total: 0, warnings: [],
           log: isOut ? ["待打包 128 个文件、2.1 GB", "交接包已生成: " + resultOut, "把整个文件发给接手的人，对方在「新建服务器」页选「交接包」导入即可"]
-            : ["交接包：A 的服（paper 1.20.1）", "Java 就绪", "解出 2.0 GB", "交接完成 ✔ 存档、配置和模组都带过来了（没带过来的东西见上面几行）"],
+            : ["交接包：A 的服（paper 1.20.1）", "Java 就绪", "解出 2.0 GB", "交接完成 ✔ 世界、配置、模组和插件都带过来了（没带过来的东西见上面几行）"],
           ended: true, result: isOut ? resultOut : resultIn });
       }
       // 端口默认值（同 web：GET /api/ports/suggest，操作 port.suggest，beta.3 R08）：从 from（默认 25565）起没人用的最小端口，
@@ -2927,7 +2927,7 @@ function handler(state, ui, portOf) {
         const adopt = p.endsWith("adopt");
         const names = adopt ? ["检查服务器文件夹", "准备 Java 运行时", "登记到 MineDeck"] : ["准备 Java 运行时", "换上新的 Java"];
         return ok(res, { id: p.split("/").pop(), kind: adopt ? "adopt" : "java", steps: names.map(name => ({ name, status: "done" })), label: "", done: 0, total: 0, warnings: [],
-          log: adopt ? ["服务器文件夹：" + ((state.lastAdopt || {}).dir || ""), "原来的 run.bat 另存为 run.before-minedeck.bat", "接管完成 ✔ 存档、模组、插件和配置文件都没有动"] : ["已换成 Java 25（下次启动生效）"],
+          log: adopt ? ["服务器文件夹：" + ((state.lastAdopt || {}).dir || ""), "原来的 run.bat 另存为 run.before-minedeck.bat", "接管完成 ✔ 世界、模组、插件和配置文件都没有动"] : ["已换成 Java 25（下次启动生效）"],
           ended: true, result: adopt ? (state.lastAdopt || {}).name || "create-pack" : (state.lastJava || {}).inst || "机械动力整合包" });
       }
       // 购物车安装模组的任务（kind "mods"，任务页的说法跟着换）：第 3 次查询后完成，result = 实例名
@@ -3057,7 +3057,7 @@ function handler(state, ui, portOf) {
           const L = instPendingOf(state, name);
           if (m === "GET") return ok(res, { inst: name, pending: L.pending, skipped: L.skipped });
           if (m !== "POST") return err(res, 405, "不支持");
-          if (!state.local) return err(res, 403, "处理导入的待决文件仅支持在本机操作（要读、要收这台电脑上的文件）");
+          if (!state.local) return err(res, 403, "处理没装上的文件仅支持在本机操作（要读、要收这台电脑上的文件）");
           const items = (await readBody(req)).items || [];
           if (!items.length) return err(res, 400, "没有要处理的项");
           if (!L.pending.length && !L.skipped.length) return err(res, 400, "这台服务器没有整合包里没装上的文件");

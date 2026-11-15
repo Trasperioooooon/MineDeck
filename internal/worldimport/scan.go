@@ -831,7 +831,7 @@ func (r *scanResult) checkCandidate(c *Candidate) {
 	}
 	if m.Snapshot {
 		c.Issues = append(c.Issues, Issue{Sev: SevConfirm, Code: "snapshot",
-			Msg: "这张地图最后是用快照（测试版）" + m.VersionName + " 存的，快照的存档格式随时会变，兼容性无法确认"})
+			Msg: "这张地图最后是用快照（测试版）" + m.VersionName + " 存的，快照的世界格式随时会变，兼容性无法确认"})
 	}
 	if s.kind == "folder" {
 		for _, root := range r.cands0(c) {

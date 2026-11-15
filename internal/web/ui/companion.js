@@ -383,7 +383,7 @@ window.MDCompanion = (() => {
       switch (l.state) {
         case "off": sub = "在上面「设置」里打开 AI 伙伴。"; break;
         case "waiting": sub = v.serverStatus === "stopped" ? "开服以后（Done 之后伙伴模组才打开端口），MineDeck 会自动连上。"
-          : v.serverStatus === "stopping" ? "服务器正在关闭，伙伴留在存档里，下次开服后自动连上。" : "服务器还在启动，开好以后自动连上。"; break;
+          : v.serverStatus === "stopping" ? "服务器正在关闭，伙伴留在世界里，下次开服后自动连上。" : "服务器还在启动，开好以后自动连上。"; break;
         case "live": sub = `伙伴模组 ${esc(l.mod)} · PlayerEngine ${esc(l.playerEngine)}${l.rttMs ? ` · 心跳 ${num(l.rttMs)} 毫秒` : ""}`; break;
         default: sub = esc(l.error || "") + (l.busy ? "（别的程序占着伙伴模组的控制连接，比如测试工具、另一台电脑上的 MineDeck）" : "");
       }

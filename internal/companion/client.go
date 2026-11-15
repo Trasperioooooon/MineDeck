@@ -411,7 +411,7 @@ func (c *Client) handshake(conn net.Conn, br *bufio.Reader, token string) (Welco
 			if v < 1 || v > ProtoVersion {
 				reason := fmt.Sprintf("MineDeck 只支持协议 1–%d，模组选的是 %d", ProtoVersion, v)
 				_ = c.write(conn, TypeEnd, []byte(reason), endTimeout)
-				return Welcome{}, errFatal{fmt.Errorf("伙伴模组用的是协议 %d，这个 MineDeck 只支持协议 1–%d：请把 MineDeck 和伙伴模组都更新到最新版（在「伙伴」标签里重新安装伙伴模组）", v, ProtoVersion)}
+				return Welcome{}, errFatal{fmt.Errorf("伙伴模组用的是协议 %d，这个 MineDeck 只支持协议 1–%d：请把 MineDeck 和伙伴模组都更新到最新版（在「扩展 → AI 伙伴」里重新安装伙伴模组）", v, ProtoVersion)}
 			}
 			var w Welcome
 			if err := json.Unmarshal(js, &w); err != nil {
