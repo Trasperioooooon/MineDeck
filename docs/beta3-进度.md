@@ -43,6 +43,7 @@
 - L2-flows（新建流程和任务页：R13、R14、R22，R09 的后端和接口，评审发现 9 的「已取消」状态）：Claude 子代理 opus-xhigh，工作树 `.claude/worktrees/b3-flows`，分支 `wt/b3-flows`，基准 `28d2d08`。三个同时开始。
 - L2-update-channel（作者 11-15 夜追加：检查更新时选「稳定版」或「最新版（包括测试版）」）：Claude 子代理 opus-xhigh，工作树 `.claude/worktrees/b3-update`，分支 `wt/b3-update`，基准 `a26dcb4`。主会话定的默认：没选过时，正在用正式版就按稳定版，正在用测试版就按最新版；稳定渠道不会把更新的测试版「更新」回旧的正式版。现在的 `newer` 分不出 beta.2 和 beta.3，一并改成按语义化版本比。这个功能只对 beta.3 往后的版本有用：beta.2 及更早的程序仍只查 `releases/latest`，beta.2 换到 beta.3 还是要手动换 exe，发布说明照旧写。
 - 第二层下半（R08 端口冲突、R09 的界面）等上面三个合完再派，任务单 `.claude/beta3-tasks/L2b-ports-pending.md` 已写好。
+- L2-toolbox（作者 11-15 夜追加：左侧栏「内网穿透」下面加「工具箱」，先做「多张皮肤 png 打包成材质包」和「自己挑模组、MineDeck 找全前置、导出给朋友用的整合包（.mrpack）」，并让执行者发散地列出还该放什么）：作者点名交给 Gemini，用 agy 里的 Orchestrator (Argon)（`gemini-pro-orchestrator-g1-pro`），代码由它写，主会话最后复审、修复。agy 1.5.8，带 `--dangerously-skip-permissions`、`--output-format stream-json`（第一次用 Orchestrator，要看它会不会自己扇出子代理）、`--print-timeout 7200s`。工作树 `.claude/worktrees/b3-toolbox`，分支 `wt/b3-toolbox`，基准 `2ec844e`；任务单在工作树的 `.agy/task.md`（`.agy/` 写进了仓库的 `.git/info/exclude`，不入库），事件流和报错在主检出的 `.claude/beta3-tasks/agy-toolbox/`。派之前的 `/usage`（11-15 夜）：Gemini 池周额度剩 61%、五小时剩 100%，Argon 单独的周额度剩 61%，Claude and GPT 池剩 100%；Orchestrator 扣哪个池，跑完再查一次对比。按全局规则，Gemini 写的东西要由 Claude 审，这里就是主会话自己审和修。
 - README 构建命令和 `tools/dev/编译并启动.bat`：主会话自己做，提交 `92918ac`。脚本试过两种情况：输出文件夹在仓库里时拒绝；编到仓库外面以后用 `-nogui` 起得来，`LOCALAPPDATA`、`APPDATA` 落在输出文件夹的 `_profile` 里。
 
 ## 实测记录
