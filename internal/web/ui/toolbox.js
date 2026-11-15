@@ -236,6 +236,7 @@ window.MDToolbox = (() => {
     const verBadge = $("#sp-ver-badge"), fmtBadge = $("#sp-packfmt-badge"), rowCountEl = $("#sp-row-count"), modeTipEl = $("#sp-mode-tip");
     const hostRow = $("#sp-host-row"), destIn = $("#sp-destdir"), pickDirBtn = $("#sp-pickdir");
     const instBar = $("#sp-inst-bar"), instPick = $("#sp-inst-pick"), importBtn = $("#sp-import-players");
+    const instMc = new Map(); // 服务器名 → MC 版本：从哪台读名单，版本就跟着改成哪台的（回访走查 11-16：默认 1.21.4 没跟着变，差点做错版本）
 
     let previewTimer = null;
     let previewSeq = 0;
@@ -602,6 +603,7 @@ window.MDToolbox = (() => {
           toast("这台服务器里还没有记录到任何玩家");
           return;
         }
+        // 名单读到了才改版本：读失败、没人时不动用户填的
         const existing = new Set(st.rows.map(r => r.player.trim()).filter(Boolean));
         let added = 0;
         for (const p of names) {
@@ -617,7 +619,10 @@ window.MDToolbox = (() => {
           existing.add(p);
           added++;
         }
-        toast(added ? `已从「${name}」填入 ${added} 位玩家` : "名单里的玩家都已经填在列表里了");
+        const mc = instMc.get(name) || "", mcChanged = !!mc && mcIn.value.trim() !== mc;
+        if (mcChanged) { mcIn.value = st.mc = mc; }
+        const verNote = mcChanged ? `，版本改成了这台的 ${mc}` : "";
+        toast(added ? `已从「${name}」填入 ${added} 位玩家${verNote}` : `名单里的玩家都已经填在列表里了${verNote}`);
         renderRows();
         schedulePreview(0);
       } catch (e) {
@@ -720,6 +725,7 @@ window.MDToolbox = (() => {
       if (stale(gen) || !Array.isArray(list)) return;
       const gameInsts = list.filter(i => i.kind !== "proxy");
       if (!gameInsts.length) return;
+      for (const i of gameInsts) if (i.mc) instMc.set(i.name, i.mc);
       instPick.innerHTML = gameInsts.map(i => `<option value="${esc(i.name)}">${esc(i.name)}（${esc(coreName(i.core))} ${esc(i.mc)}）</option>`).join("");
       instBar.hidden = false;
     });

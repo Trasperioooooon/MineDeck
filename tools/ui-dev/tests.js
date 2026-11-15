@@ -4345,6 +4345,22 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         const labels = await page.$$eval('#up-channel [role="radio"]', rs => rs.map(r => r.textContent.replace(/\s+/g, " ").trim()));
         assert(labels.length === 2 && labels[0].includes("稳定版（只收正式版）") && labels[1].includes("最新版（包括测试版）") && labels[1].includes("测试版可能有还没发现的问题"),
           "两个选项：" + labels.join(" | "));
+        // 没选过时再点默认的那项：也存下来、给提示（回访走查 11-16），静默检查关着时提示里说还要打开它
+        await page.click('label.switch:has(#up-silent)'); await settle(250);
+        assert(!(await page.isChecked("#up-silent")), "静默检查应先关上");
+        const t00 = reqs.length;
+        await page.click('#up-channel [data-ch="latest"]'); await settle(300);
+        const put0 = reqs.slice(t00).filter(r => r.m === "PUT" && r.u === "/api/config").map(r => JSON.parse(r.b || "{}"));
+        assert(put0.length === 1 && put0[0].updateChannel === "latest", "点默认项也要保存：" + JSON.stringify(put0));
+        assert(await page.locator(".toast", { hasText: "已选定最新版" }).count() >= 1, "没有「已选定最新版」的提示");
+        assert(await page.locator(".toast", { hasText: "启动时静默检查更新" }).count() >= 1, "静默检查关着时应提醒还要打开它");
+        assert(!(await page.textContent("#up-ch-sub")).includes("还没选过"), "点过默认项以后不该再说还没选过");
+        // 选过以后再点同一项：不再发请求，只提示现在就是它
+        const t01 = reqs.length;
+        await page.click('#up-channel [data-ch="latest"]'); await settle(300);
+        assert(!reqs.slice(t01).some(r => r.m === "PUT" && r.u === "/api/config") && await page.locator(".toast", { hasText: "现在就是「最新版」" }).count() >= 1, "再点同一项");
+        await page.click('label.switch:has(#up-silent)'); await settle(250); // 打开回去，后面的检查照旧
+        assert(await page.isChecked("#up-silent"), "静默检查应打开回去");
         // 选稳定版：马上发一个只带 updateChannel 的 PUT，存进配置，给提示
         const t0 = reqs.length;
         await page.click('#up-channel [data-ch="stable"]'); await settle(300);
@@ -5048,12 +5064,15 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         await page.click("#tr-go"); await settle(400);
         const why = await page.textContent("#tr-dest-err");
         assert(why.includes("找不到这个文件夹") && why.includes("只建最后一级") && await page.isVisible("#tr-mkdir"), "找不到时：" + why);
+        assert(await toastHas("无法导出交接包"), "第一次应有「无法导出交接包」的提示");
         let st = await L2({});
         assert(!st.lastTransferMkdir, "还没点「新建并导出」时不该建");
         await page.click("#tr-mkdir"); await settle(700);
         st = await L2({});
         assert(st.lastTransferMkdir === NEW && st.lastTransferExport && st.lastTransferExport.mkdir === true && st.lastTransferExport.dest === NEW, "新建并导出的请求：" + JSON.stringify(st.lastTransferExport));
         assert(page.url().endsWith("#/task/task-transfer-out") && await toastHas("已新建导出文件夹"), "新建以后去任务页：" + page.url());
+        // 上一次的「无法导出交接包」收掉了，不和成功的提示叠在一起（回访走查 11-16）
+        assert(await page.locator(".toast.error:not(.leave)", { hasText: "无法导出交接包" }).count() === 0, "重试成功以后上一次的报错提示应收掉");
         // 上一级不在：写明原因，弹窗和填的路径留着
         await openExport();
         await page.fill("#tr-dest", "Z:\\没有的盘\\新文件夹");
@@ -6550,7 +6569,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         await page.click("#d-start-fail [data-port-edit]"); await page.waitForSelector('[data-k="server-port"]'); await settle(400);
         assert(await page.evaluate(() => document.activeElement && document.activeElement.dataset.k) === "server-port", "已经在常用设置里也该聚焦到端口");
         // 别的原因没起来（找不到 Java 这类）：没有改端口的按钮
-        await xState({ inst: { name: PACKX, startFail: "找不到这台服务器用的 Java，请到「设置 → 启动与内存」里重新选一个 Java。", startPortBusyFail: null } });
+        await xState({ inst: { name: PACKX, startFail: "找不到这台服务器用的 Java，请到这台服务器详情页的「设置 → 启动与内存」里重新选一个 Java。", startPortBusyFail: null } });
         await page.goto(url(`#/inst/${encodeURIComponent(PACKX)}/players`)); await page.waitForSelector("#d-start");
         await page.click("#d-start"); await page.waitForSelector("#d-start-fail");
         assert(!(await page.$("#d-start-fail [data-port-edit]")) && !(await page.$("#d-start-fail [data-port-fix]")), "不是端口的问题不该给改端口");
@@ -7196,7 +7215,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         const v = await page.evaluate(() => ({ now: $("#bk-now").textContent, titles: [...document.querySelectorAll(".bk-list .ri-title")].map(e => e.textContent), need: document.querySelectorAll(".bk-need-stop").length,
           hint: $("#tab-body").textContent }));
         assert(v.now.includes("没有从备份还原过") && v.titles[1] === "打龙前" && v.titles[0] === "20261026-040000.000000000.zip" && v.need === 3, "备份页：" + JSON.stringify(v));
-        assert(v.hint.includes("还原要先停服") && v.hint.includes("还原前自动"), "说明里应有还原的规则");
+        assert(v.hint.includes("会先帮你保存世界、停服") && v.hint.includes("还原前自动") && (await page.textContent(".bk-need-stop")) === "会先停服", "说明里应有还原的规则，还原旁写会先停服");
         await byName("button", "还原 20261025-221000.000000000-打龙前.zip").click(); await page.waitForSelector("#modal-root .modal");
         const m = await page.evaluate(() => ({ ok: $('#modal-root [data-x="ok"]').textContent, b: $("#modal-root .m-body").textContent }));
         assert(m.ok === "停止并还原" && m.b.includes("打龙前") && m.b.includes("3") && m.b.includes("先保存世界并停止"), "确认框：" + JSON.stringify(m));
@@ -7204,7 +7223,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         const st = await dState({});
         assert(JSON.stringify(st.lastRestore) === JSON.stringify({ inst: SURV, file: "20261025-221000.000000000-打龙前.zip", stopFirst: true }) &&
           JSON.stringify(st.lifecycle) === JSON.stringify([{ inst: SURV, act: "stop" }]), "一次请求做完停服和还原：" + JSON.stringify([st.lastRestore, st.lifecycle]));
-        assert(await toastHas("还原完成") && !(await toastHas("还原失败", 300)), "应还原成功");
+        assert(await toastHas("还原完成") && await toastHas("服务器还停着") && !(await toastHas("还原失败", 300)), "应还原成功，并说服务器还停着");
         await page.waitForFunction(() => document.querySelector("#bk-now").textContent.includes("2026-10-25 22:10"), null, { timeout: 4000 });
         const now = await page.textContent("#bk-now");
         assert(now.includes("当前世界：从 2026-10-25 22:10 的备份还原（打龙前）") && now.includes("还原于 2026-11-15 21:05"), "页顶：" + now);

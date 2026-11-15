@@ -185,6 +185,7 @@ function toast(msg, isErr = false, detail, opts = {}) {
     d.addEventListener("mouseleave", release);
   }
   run();
+  d.dismiss = kill; // 调用方可以提前收掉它（交接包导出：重试成功以后，上一次的报错不再挂着）
   return d; // 调用方可以换掉点击的行为（如 mcp.js：点一下打开 AI 助手）
 }
 /* 提示的位置：服务器详情页的页头（启动、停止、打开文件夹）在可视区里时，提示落到页头下面，不盖住这几个按钮；
@@ -2003,7 +2004,9 @@ function transferExportModal(info) {
   /* mkdir：「新建并导出」（可用性走查 R20）。导出文件夹不在时，后端先把它建出来再导出：只建最后一级、上一级要已经在，
      只许本机（transfer.MakeExportDir、web 的 handleTransferExport）。建不了的原因（上一级不在、是个文件、名字不能用、
      从局域网打开）是给人看的整句，写在那一栏下面 */
+  let errToast = null; // 上一次的「无法导出交接包」：再点一次（比如「新建并导出」）就收掉，不和成功的提示叠在一起（回访走查 11-16）
   const go = async mkdir => {
+    if (errToast) { errToast.dismiss(); errToast = null; }
     const dest = $("#tr-dest").value.trim();
     if (dest && !/^[a-zA-Z]:[\\/]/.test(dest)) {
       destErr("请填完整的文件夹路径，或清空用默认位置");
@@ -2021,7 +2024,7 @@ function transferExportModal(info) {
       toast(mkdir ? "已新建导出文件夹，开始导出交接包" : "开始导出交接包");
       location.hash = `#/task/${r.taskId}`;
     } catch (e) {
-      toastErr(mkdir ? "无法新建导出文件夹" : "无法导出交接包", e);
+      errToast = toastErr(mkdir ? "无法新建导出文件夹" : "无法导出交接包", e);
       if (closed) return;
       $("#tr-go").disabled = false;
       // 导出文件夹的问题写在那一栏下面，并说清为什么不可用（internal/transfer/export.go）：
@@ -3578,7 +3581,7 @@ async function renderDetail(name, path = "console") {
 
   } else if (view === "backups") {
     // 世界与备份 → 备份（可用性走查 R11、R15）：页顶写当前世界从哪来；备份放在哪、留几份写在这里（份数是全局设置，到「设置 → 存储位置」改）；
-    // 运行中的「还原」旁边写明要先停服，确认框里直接给「停止并还原」，一次确认做完
+    // 运行中的「还原」旁边写明会先停服（以前写「要先停服」，回访走查 11-16 读成要自己先停），确认框里直接给「停止并还原」，一次确认做完
     const appInfo = await api("/api/app").catch(() => ({ config: {} }));
     if (stale(gen)) return;
     const keep = (appInfo.config && appInfo.config.backupKeep) || 10, local = appInfo.local !== false;
@@ -3606,17 +3609,17 @@ async function renderDetail(name, path = "console") {
           <span>备份放在 <span class="mono" id="bk-dir">${esc(info.backupDir || "")}</span></span>
           ${local && info.backupDir ? `<button type="button" class="btn sm ghost" id="bk-open">${icon("folder")} 打开</button>` : ""}
           <span class="sep">·</span><span id="bk-keep">保留最近 <b>${keep}</b> 份（所有服务器共用）</span>
-          <a class="quiet-link" href="#/settings/storage" id="bk-keep-link">到「设置 → 存储位置」里改</a>
+          <a class="quiet-link" href="#/settings/storage" id="bk-keep-link">到左下角软件「设置 → 存储位置」里改</a>
         </div>
         <div class="hint" style="margin-bottom:14px">服务器运行时也能备份：先暂停自动保存，压成压缩包，再恢复自动保存。超过保留份数时删掉最旧的。移出列表或删除服务器都不会删掉备份。
-          还原要先停服：还原前会先把当前世界自动备份一份（标签「还原前自动」），再把世界换成选的那一份；核心、${window.MDModCart && MDModCart.applies(info) ? MDModCart.tabLabel(info.core) + "和" : ""}设置都不动。定时备份在「定时任务」里加。</div>
+          还原时服务器得停着，开着时点「还原」会先帮你保存世界、停服，还原完不会自动开服。还原前会先把当前世界自动备份一份（标签「还原前自动」），再把世界换成选的那一份；核心、${window.MDModCart && MDModCart.applies(info) ? MDModCart.tabLabel(info.core) + "和" : ""}设置都不动。定时备份在「定时任务」里加。</div>
         <div class="group has-ico bk-list">${(list || []).map(b => {
           const title = b.label || b.file, who = b.label ? `${b.label}（${nice(b.time)}）` : b.file;
           return `
           <div class="row-item"><div class="ri-head"><span class="ri-ico">${icon("package")}</span>
             <div class="ri-main"><div class="ri-title">${esc(title)}${wf && wf.backup === b.file ? `<span class="tag">现在的世界</span>` : ""}</div>
               <div class="ri-key">${esc(nice(b.time))} · ${b.sizeMb.toFixed(1)} MB${b.label ? ` · <span class="mono">${esc(b.file)}</span>` : ""}</div></div>
-            <div class="ri-right">${running ? `<span class="hint bk-need-stop">要先停服</span>` : ""}<button class="btn sm" data-restore="${esc(b.file)}" data-who="${esc(who)}" aria-label="还原 ${esc(b.file)}">${icon("restore")} 还原</button>
+            <div class="ri-right">${running ? `<span class="hint bk-need-stop">会先停服</span>` : ""}<button class="btn sm" data-restore="${esc(b.file)}" data-who="${esc(who)}" aria-label="还原 ${esc(b.file)}">${icon("restore")} 还原</button>
               <button class="btn sm danger" data-del="${esc(b.file)}" aria-label="删除 ${esc(b.file)}">删除</button></div></div></div>`;
         }).join("") ||
           `<div class="row-item"><div class="ri-head"><div class="ri-main"><div class="ri-sub">暂无备份</div></div></div></div>`}</div>`;
@@ -3645,7 +3648,7 @@ async function renderDetail(name, path = "console") {
         if (live) { toast("正在停止服务器，停下来以后还原"); setTimeout(refreshHead, 300); }
         try {
           await api(`/api/instances/${enc}/backups/restore`, { method: "POST", body: { file, stopFirst: live } });
-          toast(`还原完成：现在的世界是 ${b.dataset.who}`);
+          toast(`还原完成：现在的世界是 ${b.dataset.who}${live ? "。服务器还停着，要玩的话点「启动」" : ""}`);
         } catch (e) { toastErr("还原失败", e); }
         refreshHead();
         draw();
@@ -3658,7 +3661,7 @@ async function renderDetail(name, path = "console") {
         draw();
       });
     };
-    // 开服、停服以后「要先停服」跟着出现、消失（只在状态变了时重画）
+    // 开服、停服以后「会先停服」跟着出现、消失（只在状态变了时重画）
     onStatus.push((cur, was) => { if ((cur.status === "stopped") !== (was === "stopped")) draw(); });
     await draw();
 
@@ -6043,12 +6046,16 @@ function setAbout(body, info) {
   };
   // 选了马上保存；上一个渠道查出来的结果（连同「立即更新并重启」）不再作数，清掉。
   // chSeq 记改过几次渠道：改之前发出去、改之后才回来的检查结果也不要了
-  let chSeq = 0;
+  // 没选过时默认的那项也能点：点了就存下来、算选过（回访走查 11-16：再点一下没反应，又写着「还没选过」，不知道记没记住）。
+  // 只改渠道不会让程序自己去查，静默检查关着时提示里顺带说一句
+  let chSeq = 0, chosen = !!info.config.updateChannel;
   const pickCh = async c => {
-    if (c.classList.contains("sel")) return;
     const v = c.dataset.ch, out = $("#up-result"), grp = $("#up-channel"), sub = $("#up-ch-sub");
+    const wasSel = c.classList.contains("sel");
+    if (wasSel && chosen) { toast(`现在就是「${updateChName(v)}」`); return; }
     try {
       await api("/api/config", { method: "PUT", body: { updateChannel: v } });
+      chosen = true;
       chSeq++;
       grp.querySelectorAll(".row-item").forEach(x => {
         const on = x === c;
@@ -6058,7 +6065,9 @@ function setAbout(body, info) {
       });
       sub.textContent = updateChSub(v, true);
       out.textContent = "";
-      toast(v === "latest" ? "已改成最新版：正式版和测试版都会提示" : "已改成稳定版：只提示正式版");
+      const silentOff = !$("#up-silent").checked;
+      toast((wasSel ? "已选定" : "已改成") + (v === "latest" ? "最新版：正式版和测试版都会提示" : "稳定版：只提示正式版") +
+        (silentOff ? "。要程序启动时自己检查，还得打开上面的「启动时静默检查更新」" : ""));
     } catch (e) { toastErr("无法切换更新渠道", e); }
   };
   $("#up-channel").querySelectorAll(".row-item").forEach(c => {
@@ -6118,7 +6127,7 @@ function showOnboarding(info) {
       </div>
       <div class="ob-sec"><div class="ob-label">你的服务器将存放在</div>
         <div class="ob-path">${esc(info.serversRoot || "程序文件夹\\servers")}</div>
-        <div class="hint" style="margin-top:6px">每台服务器一个子文件夹。想放到 D 盘等大容量分区，可到「设置 → 存储位置」更改。</div>
+        <div class="hint" style="margin-top:6px">每台服务器一个子文件夹。想放到 D 盘等大容量分区，可到左下角软件「设置 → 存储位置」更改。</div>
       </div>
     </div>
     <div class="m-actions"><button class="btn primary" id="ob-go" disabled>同意并开始使用</button></div>
