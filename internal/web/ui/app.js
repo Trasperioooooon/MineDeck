@@ -942,7 +942,7 @@ function renderMemoryControl(mount, o) {
 /* ---------- 未保存修改：快照比对 + 吸底保存条 ----------
    read() 返回当前表单的 {键: 值字符串} 快照，与基线逐键比对得出未保存项数。
    saveBar() 产出吸底保存条；wireSaveBar() 绑定状态刷新 / 保存 / 放弃修改，并登记切页守卫 dirtyCheck。
-   save() 失败时抛错（由这里统一 toast），成功后以新快照为基线。 */
+   save() 失败时抛错（由这里统一 toast），成功后以这次提交出去的快照为基线（见 wireSaveBar）。 */
 /* 把一个「未保存项数」来源并入当前视图的切页守卫（切页时 navigate 会清空） */
 function addDirtySource(gen, fn) {
   if (stale(gen)) return;
@@ -975,10 +975,15 @@ function saveBar(saveText, note = "") {
     <button class="btn primary" data-sb="save" disabled>${icon("save")} ${esc(saveText)}</button>
   </div>`;
 }
+/* 基线只认这次实际提交出去的东西（2026-11-16 Codex 复审 beta.3）：点「保存」时先拍下 sent = read()，交给 save(sent)；
+   成功以后基线换成 sent，不再是请求回来时表单的样子——请求途中又改的、又加减的定时任务，后台没收到，得继续算「未保存」，
+   离开时照样拦。save 自己按服务器的回话改写了表单（清空填过的 Key、回显后端补回的参数、换上 Java 以后的相对值）的，
+   返回改写以后应有的基线（一个对象，键同 read()）；返回 false 表示用户取消了，表单仍算没保存。
+   保存途中「保存」键一直置灰：两次保存叠在一起，回来的先后不定，基线就说不准了 */
 function wireSaveBar(root, gen, read, save) {
   const bar = $(".save-bar.sticky", root);
   const saveBtn = $('[data-sb="save"]', bar);
-  let base = read();
+  let base = read(), saving = false;
   const diff = () => {
     const cur = read();
     return [...new Set([...Object.keys(base), ...Object.keys(cur)])].filter(k => (base[k] ?? "") !== (cur[k] ?? "")).length;
@@ -988,7 +993,7 @@ function wireSaveBar(root, gen, read, save) {
     const wasDirty = bar.classList.contains("dirty");
     bar.classList.toggle("dirty", n > 0);
     $(".sb-text", bar).textContent = n ? `${n} 项修改未保存` : "所有修改已保存";
-    saveBtn.disabled = n === 0;
+    saveBtn.disabled = n === 0 || saving;
     const discard = $('[data-sb="discard"]', bar);
     discard.hidden = n === 0;
     if (n > 0 && !wasDirty) playClass(discard, "swap-in"); // 「放弃修改」出现时轻轻换场
@@ -997,8 +1002,15 @@ function wireSaveBar(root, gen, read, save) {
   root.addEventListener("change", paint);
   $('[data-sb="discard"]', bar).onclick = () => { dirtyCheck = null; navigate(); }; // 按服务器上的当前值重绘
   saveBtn.onclick = async () => {
+    if (saving) return;
+    saving = true;
     saveBtn.disabled = true;
-    try { if ((await save()) !== false && bar.isConnected) base = read(); } catch (e) { toastErr("保存失败", e); } // save 返回 false：用户取消了，表单仍算没保存
+    const sent = read();
+    try {
+      const r = await save(sent);
+      if (r !== false && bar.isConnected) base = r && typeof r === "object" ? r : sent; // false：用户取消了，表单仍算没保存
+    } catch (e) { toastErr("保存失败", e); }
+    saving = false;
     if (bar.isConnected) paint(); // 保存途中已切走：视图已换，不再读写旧表单
   };
   addDirtySource(gen, () => (bar.isConnected ? diff() : 0));
@@ -3719,8 +3731,10 @@ async function renderDetail(name, path = "console") {
     paintBar = wireSaveBar(body, gen,
       () => Object.fromEntries([["crash", String($("#pol-crash").checked)], ...schedKeys(scheds).map(k => [k, "1"])]),
       async () => {
-        await api(`/api/instances/${encodeURIComponent(name)}/policies`, { method: "PUT", body: { crashRestart: $("#pol-crash").checked, schedules: scheds } });
-        savedKeys = new Set(schedKeys(scheds));
+        // 发出去的是点「保存」这一刻的那份：请求途中又加、又删的不算已保存，照旧标「未保存」（Codex 复审 beta.3）
+        const sent = scheds.map(s => ({ ...s }));
+        await api(`/api/instances/${encodeURIComponent(name)}/policies`, { method: "PUT", body: { crashRestart: $("#pol-crash").checked, schedules: sent } });
+        savedKeys = new Set(schedKeys(sent));
         if (!stale(gen)) drawScheds();
         toast("定时任务已保存，马上生效");
       });
@@ -3941,7 +3955,7 @@ async function renderDetail(name, path = "console") {
     const lb = wireLiveBar(body, "服务器运行中：保存后要重启才生效；游戏规则开关马上生效");
     const RESTART = Object.fromEntries((window.PROPS_CATALOG || []).map(p => [p.key, p.restart !== false]));
     let savedProps = readProps();
-    wireSaveBar(body, gen, readProps, async () => {
+    wireSaveBar(body, gen, readProps, async sent => { // sent：点「保存」这一刻的 readProps()，下面发的 pairs 也是这一刻读的
       const pairs = [];
       body.querySelectorAll("[data-k]").forEach(el => {
         let val;
@@ -3953,9 +3967,10 @@ async function renderDetail(name, path = "console") {
         pairs.push({ key: el.dataset.k, value: String(val) });
       });
       await api(`/api/instances/${encodeURIComponent(name)}/properties`, { method: "PUT", body: { pairs } });
-      // 改的项里有要重启才生效的（MineDeck 保存只写文件，服务端运行中不会重读：目录里的项都标着重启生效）
-      const now = readProps(), changed = Object.keys(now).filter(k => now[k] !== savedProps[k]);
-      savedProps = now;
+      // 改的项里有要重启才生效的（MineDeck 保存只写文件，服务端运行中不会重读：目录里的项都标着重启生效）。
+      // 按发出去的那份算，不按现在的表单：请求途中又改的还没存（Codex 复审 beta.3）
+      const changed = Object.keys(sent).filter(k => sent[k] !== savedProps[k]);
+      savedProps = sent;
       const needRestart = changed.some(k => RESTART[k] !== false);
       toast("已保存 server.properties" + (info.status !== "stopped" && needRestart ? "（重启服务器以后生效）" : ""));
       lb.saved(needRestart);
@@ -4095,15 +4110,16 @@ async function renderDetail(name, path = "console") {
     paintBar = wireSaveBar(body, gen,
       () => ({ xmx: $("#jm-mem").value, jvm: jvmFlags().join(" "), java: javaPick() }), // 只比较参数本身，换行 / 空格差异不算修改
       async () => {
-        const flags = jvmFlags(), pick = javaPick(), memChanged = $("#jm-mem").value !== saved.xmx || flags.join(" ") !== saved.jvm;
+        // 内存、参数、Java 都按点「保存」这一刻的读：请求途中又改的不算已保存（Codex 复审 beta.3）
+        const xmx = $("#jm-mem").value, flags = jvmFlags(), pick = javaPick(), memChanged = xmx !== saved.xmx || flags.join(" ") !== saved.jvm;
         const notes = [];
         if (memChanged) {
-          await api(`/api/instances/${enc}/settings`, { method: "PUT", body: { xmxMb: +$("#jm-mem").value, xmsMb: 0, extraJvm: flags } });
+          await api(`/api/instances/${enc}/settings`, { method: "PUT", body: { xmxMb: +xmx, xmsMb: 0, extraJvm: flags } });
           // 回显实际保存的参数（老版本被删掉的 log4shell 缓解参数会被后端补回）；回读失败不影响已成功的保存。
-          // 回显在 wireSaveBar 重取基线之前完成，补回的参数不会被算成「未保存的修改」
+          // 只在输入框里还是发出去的那份时回显：请求途中又改了参数的，不拿回读的盖掉新填的
           const back = await api("/api/instances").then(l => l.find(i => i.name === name)?.extraJvm).catch(() => null);
-          if (back && !stale(gen)) $("#jm-jvm").value = back.join("\n");
-          saved = { xmx: $("#jm-mem").value, jvm: jvmFlags().join(" ") };
+          if (back && !stale(gen) && jvmFlags().join(" ") === flags.join(" ")) $("#jm-jvm").value = back.join("\n");
+          saved = { xmx, jvm: (back || flags).join(" ") };
           notes.push("已保存内存与 JVM 参数" + (back?.some(a => !flags.includes(a)) ? "（已自动补回 log4shell 漏洞缓解参数）" : ""));
         }
         if (pick !== "") {
@@ -4120,6 +4136,8 @@ async function renderDetail(name, path = "console") {
         }
         toast(notes.join("；") + (info.status === "stopped" ? "，下次启动生效" : "，重启服务器后生效"));
         lb.saved(true);
+        // 新的基线是存下的那份：内存和参数按提交的（参数带上后端补回的）；Java 是相对「现在用的」算的，换上以后就是没改（空串）
+        return { xmx: saved.xmx, jvm: saved.jvm, java: "" };
       });
     $("#jm-aikar").onclick = () => {
       const fix = keptFix();
@@ -5724,7 +5742,7 @@ function drawAI(body, v, gen) {
   };
   let formBase = JSON.stringify(readForm()); // 测试连接只认已保存的设置
   if (!ro) wireSaveBar(body, gen, readForm,
-    async () => {
+    async sent => { // sent：点「保存」这一刻的 readForm()，下面的 b 也是这一刻读的（确认框开着的时候表单点不到）
       const p = cur();
       if (!p) throw new Error("先选择服务商");
       const b = { preset: p.id, baseUrl: f.url.value.trim(), model: f.model.value.trim(), effort: protoNow() === "anthropic" ? f.effort.value : "" };
@@ -5739,16 +5757,22 @@ function drawAI(body, v, gen) {
         b.key = "";
       }
       v = await api("/api/ai/provider", { method: "PUT", body: b });
-      f.key.value = ""; // 存好后清空（只填了空白也一样，什么都不存）
+      // 请求途中又改的不动、也不算已保存（Codex 复审 beta.3）：Key 框和地址框只在还是发出去的那份时才按存好的改写
+      const mid = readForm();
+      if (f.key.value.trim() === (b.key || "")) f.key.value = ""; // 存好后清空（只填了空白也一样，什么都不存）
       Object.assign(saved, v.provider);
-      f.url.value = saved.baseUrl;
+      if (f.url.value.trim() === b.baseUrl) f.url.value = saved.baseUrl;
       f.preset.querySelector('option[value=""]')?.remove(); // 配过之后不再有「未选择」，停用走下面的「停用 AI」
-      formBase = JSON.stringify(readForm());
+      // 新的基线：没动过的项按改写以后的表单（和存下的一致）；途中改过的项按发出去的那份；Key 框存好后应是空的
+      const done = { ...readForm(), key: "" };
+      Object.keys(sent).forEach(k => { if (k !== "key" && mid[k] !== sent[k]) done[k] = sent[k]; });
+      formBase = JSON.stringify(done);
       invalidateModels(true);
       delete $("#ai-test-sub").dataset.result;
       repaint();
       window.MDAssist?.refresh(); // 标题栏的助手入口随之更新
       toast(v.enabled ? "AI 设置已保存" : `已保存。还差：${v.missing}`);
+      return done;
     });
 
   $("#ai-key-clear").onclick = async () => {
