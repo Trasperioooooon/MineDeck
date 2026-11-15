@@ -365,8 +365,17 @@ func (s *Service) previewFromInstance(ctx context.Context, req MrpackReq) (Mrpac
 	}
 
 	modsDir := filepath.Join(i.Dir, "mods")
-	ents, err := os.ReadDir(modsDir)
-	if err != nil && !os.IsNotExist(err) {
+	// mods 本身是联接或符号链接时不跟进去：里面的 jar 可能在服务器文件夹外面，打进包就等于把主机上
+	// 别处的文件交出去（Codex 复审）。和 config 根目录的检查一样，联接在 Lstat 下不是普通文件夹
+	var ents []os.DirEntry
+	if lst, err := os.Lstat(modsDir); err == nil {
+		if !lst.IsDir() || lst.Mode()&os.ModeSymlink != 0 {
+			return MrpackPreviewResp{}, ErrBadRequest("这台服务器的 mods 不是普通文件夹（可能是联接或符号链接），为了不把服务器文件夹外面的文件打进包，导出不了")
+		}
+		if ents, err = os.ReadDir(modsDir); err != nil {
+			return MrpackPreviewResp{}, fmt.Errorf("读取 mods 文件夹失败：%w", err)
+		}
+	} else if !os.IsNotExist(err) {
 		return MrpackPreviewResp{}, fmt.Errorf("读取 mods 文件夹失败：%w", err)
 	}
 

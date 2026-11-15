@@ -738,7 +738,7 @@ window.MDToolbox = (() => {
       core: "fabric",
       mc: "1.20.1",
       loaderVersion: "",
-      includeConfig: true,
+      includeConfig: false,
       withDeps: true,
       destDir: "",
       local: true,
@@ -776,7 +776,7 @@ window.MDToolbox = (() => {
             </label>
             <div class="field tb-chk-field">
               <label class="switch">
-                <input type="checkbox" id="mp-inc-cfg" checked aria-label="一并打包 config 文件夹">
+                <input type="checkbox" id="mp-inc-cfg" aria-label="一并打包 config 文件夹">
                 <span class="sw"></span>
                 <span><span class="sw-label">一并打包 config/ 配置</span><div class="sw-desc">放进 overrides/config/。看起来带密码、令牌、密钥的配置文件会尽量挑出来不打进去，但难免有认不出的，发之前请看一眼预览里列出的配置文件。</div></span>
               </label>
@@ -1082,15 +1082,18 @@ window.MDToolbox = (() => {
       prevBox.innerHTML = "";
     };
 
+    // 初始化（读草稿、服务器列表）还没回来时人就可能开始填：回来以后只补人没动过的字段（Codex 复审）
+    const touched = new Set();
     [nameIn, verIn, sumIn, loaderIn].forEach(el => {
       el.oninput = () => {
+        touched.add(el);
         if (el === nameIn) nameIn.dataset.dirty = "1";
         scheduleSaveDraft();
       };
     });
-    coreSel.onchange = () => { st.core = coreSel.value; scheduleSaveDraft(); mountDraftCart(); };
-    mcIn.oninput = () => { st.mc = mcIn.value; scheduleSaveDraft(); };
-    mcIn.onchange = () => { st.mc = mcIn.value; scheduleSaveDraft(); mountDraftCart(); };
+    coreSel.onchange = () => { touched.add(coreSel); st.core = coreSel.value; scheduleSaveDraft(); mountDraftCart(); };
+    mcIn.oninput = () => { touched.add(mcIn); st.mc = mcIn.value; scheduleSaveDraft(); };
+    mcIn.onchange = () => { touched.add(mcIn); st.mc = mcIn.value; scheduleSaveDraft(); mountDraftCart(); };
     incCfgEl.onchange = () => scheduleSaveDraft();
     destIn.oninput = () => { st.destDir = destIn.value; };
     pickDirBtn.onclick = async () => {
@@ -1113,12 +1116,13 @@ window.MDToolbox = (() => {
       st.local = !appInfo || appInfo.local !== false;
       hostRow.hidden = !st.local;
       if (draft) {
-        if (draft.name) nameIn.value = st.name = draft.name;
-        if (draft.versionId) verIn.value = st.versionId = draft.versionId;
-        if (draft.summary != null) sumIn.value = st.summary = draft.summary;
-        if (draft.core && ["fabric", "forge", "neoforge"].includes(draft.core)) coreSel.value = st.core = draft.core;
-        if (draft.mc) mcIn.value = st.mc = draft.mc;
-        if (draft.loaderVersion != null) loaderIn.value = st.loaderVersion = draft.loaderVersion;
+        const fill = (el, v) => { if (!touched.has(el)) el.value = v; };
+        if (draft.name) fill(nameIn, st.name = draft.name);
+        if (draft.versionId) fill(verIn, st.versionId = draft.versionId);
+        if (draft.summary != null) fill(sumIn, st.summary = draft.summary);
+        if (draft.core && ["fabric", "forge", "neoforge"].includes(draft.core)) fill(coreSel, st.core = draft.core);
+        if (draft.mc) fill(mcIn, st.mc = draft.mc);
+        if (draft.loaderVersion != null) fill(loaderIn, st.loaderVersion = draft.loaderVersion);
       }
       if (Array.isArray(insts)) {
         st.modInsts = insts.filter(i => MOD_CORES.has(i.core));

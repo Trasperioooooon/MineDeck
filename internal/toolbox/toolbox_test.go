@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -708,5 +709,34 @@ func TestLegacySkinHatAndOpaqueBase(t *testing.T) {
 	}
 	if _, err := PreviewSkinPack(SkinPreviewReq{MC: "1.7.10", Mode: "sequential", Entries: []SkinEntrySpec{{Slot: -1}}}); err == nil {
 		t.Fatal("1.8 以前的版本应该拒绝")
+	}
+}
+
+// mods 是联接（或符号链接）时不跟进去读：里面的 jar 可能在服务器文件夹外面（Codex 复审）。
+func TestMrpackRefusesLinkedModsDir(t *testing.T) {
+	oldDirs := []string{app.Base, app.ServersDir, app.BackupsDir, app.CacheDir, app.RuntimesDir}
+	t.Cleanup(func() {
+		app.Base, app.ServersDir, app.BackupsDir, app.CacheDir, app.RuntimesDir = oldDirs[0], oldDirs[1], oldDirs[2], oldDirs[3], oldDirs[4]
+	})
+	base := t.TempDir()
+	app.Base, app.ServersDir, app.BackupsDir = base, filepath.Join(base, "servers"), filepath.Join(base, "backups")
+	app.CacheDir, app.RuntimesDir = filepath.Join(base, "cache"), filepath.Join(base, "runtimes")
+	outside := filepath.Join(base, "outside")
+	_ = os.MkdirAll(outside, 0o755)
+	_ = os.WriteFile(filepath.Join(outside, "secret-stuff.jar"), validMinimalJar("secret", "fabric"), 0o644)
+	instDir := filepath.Join(app.ServersDir, "linked")
+	_ = os.MkdirAll(instDir, 0o755)
+	sBytes, _ := json.Marshal(inst.Settings{Name: "联接服", Core: "fabric", MC: "1.20.1", Build: "0.16.9", XmxMB: 1024})
+	_ = os.WriteFile(filepath.Join(instDir, "instance.json"), sBytes, 0o644)
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", filepath.Join(instDir, "mods"), outside).CombinedOutput(); err != nil {
+		t.Skipf("建不了目录联接：%v %s", err, out)
+	}
+	mgr, err := inst.NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := New(Options{Mgr: mgr, DataDir: filepath.Join(base, "data", "toolbox"), CacheDir: filepath.Join(base, "cache", "toolbox")})
+	if _, err := svc.PreviewMrpack(context.Background(), MrpackReq{Source: "instance", Inst: "联接服"}); err == nil || !strings.Contains(err.Error(), "联接") {
+		t.Fatalf("mods 是联接时应该拒绝导出，err=%v", err)
 	}
 }
