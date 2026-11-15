@@ -32,4 +32,17 @@ func TestPortSuggest(t *testing.T) {
 	if err := do(t, reg, bot, "port.suggest", `{}`, nil); err == nil {
 		t.Error("AI 不该调得到 port.suggest")
 	}
+	// 表单每打开一次就问一次端口，详情页每换一次标签就查一次没装上的文件：都是只读，不该记进操作记录
+	if err := do(t, reg, human, "instance.import.pending.get", `{"inst":"生存服"}`, nil); err != nil {
+		t.Fatal(err)
+	}
+	var log []map[string]any
+	if err := do(t, reg, human, "ops.log", `{}`, &log); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range log {
+		if e["op"] == "port.suggest" || e["op"] == "instance.import.pending.get" {
+			t.Errorf("只读的查询不该记进操作记录：%v", e)
+		}
+	}
 }

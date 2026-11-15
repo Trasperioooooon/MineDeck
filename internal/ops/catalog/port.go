@@ -102,7 +102,8 @@ func (c *cat) portOps() {
 // 并拿 used 当场提示手填的端口和哪台服务器撞了。
 func (c *cat) portSuggestOps() {
 	c.reg.Register(&ops.Op{
-		Name: "port.suggest", Title: "推荐服务器端口", Level: ops.HumanOnly,
+		// NoLog：只读，表单每打开一次就问一次，记进操作记录只会把真正的修改淹掉
+		Name: "port.suggest", Title: "推荐服务器端口", Level: ops.HumanOnly, NoLog: true,
 		Desc: "新建、导入、接管服务器时端口填哪个：从 from（默认 25565）起，MineDeck 里别的服务器都没用的最小端口（port）；" +
 			"usedBy 是 from 被哪台服务器用着（空 = from 本来就空着）；used 列出各台服务器用的端口（代理端是它自己配置里的端口）。" +
 			"只看 MineDeck 管着的服务器，别的程序占着的用 port.check 查。except 填一台服务器的名字时不算它（给它自己换端口时用）。" +

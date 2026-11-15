@@ -1646,7 +1646,7 @@ async function drawAdopt() {
   const maxMem = Math.max(2048, app.ramMb - 2048);
   let scan = null; // 最近一次识别的结果；改了文件夹没重新识别就不能接管
   let fill = takeFill("adopt"); // 「返回修改」：填回文件夹、重新识别一遍（文件夹里的东西可能变了），识别完再把改过的几项盖上去
-  Main().innerHTML = pageHead("接管已有服务器", "接管本机外部服务器：选择服务器所在文件夹即可直接关联。文件留在原地，存档、模组、插件与配置均不改动。", "",
+  Main().innerHTML = pageHead("接管已有服务器", "接管本机外部服务器：选择服务器所在文件夹即可直接关联。文件留在原地，存档、模组、插件与配置均不改动（端口和别的服务器撞了时，只改 server.properties 里的端口）。", "",
     `<a href="#/create">新建服务器</a>${icon("chevronRight")}<span>接管已有服务器</span>`) + `
     <div class="form-grid">
       <label class="field full"><span>服务器所在的文件夹</span>
@@ -2644,7 +2644,7 @@ const TASK_KINDS = {
     doneTitle: "服务器已建好", failTitle: "服务器没有建好", cancelTitle: "已取消创建", cancelBtn: "取消创建",
     ok: "服务器创建成功", fail: "创建失败", failHint: "已下载的文件有缓存，再试一次很快。", busy: "创建中，请勿关闭程序…",
     go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/create", backText: "返回新建服务器", nav: "create" },
-  adopt: { title: "正在接管服务器", sub: "正在检查文件夹、准备 Java。世界和配置不会动。", done: "接管完成", doneSub: "已经收进 MineDeck，可以在这里启动和管理了",
+  adopt: { title: "正在接管服务器", sub: "正在检查文件夹、准备 Java。世界和配置不会动（换了端口的只改端口这一项）。", done: "接管完成", doneSub: "已经收进 MineDeck，可以在这里启动和管理了",
     doneTitle: "服务器已接管", failTitle: "服务器没有接管成",
     ok: "服务器接管成功", fail: "接管失败", failHint: "服务器文件夹里的东西没有被删掉或改坏，可以再试一次。", busy: "接管中，请勿关闭程序…",
     go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/create", backText: "返回新建服务器", nav: "create" },

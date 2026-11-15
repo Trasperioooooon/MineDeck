@@ -268,7 +268,8 @@ func (c *cat) instanceOps() {
 	// 不再只挂在这次运行的导入任务上。清单是从服务器文件夹里读的不可信文字，不给 AI 看（仅人工）；
 	// 查看不限本机（局域网打开的管理页也能看到缺了什么），处置和上面按任务的那个一样只许本机。
 	c.reg.Register(&ops.Op{
-		Name: "instance.import.pending.get", Title: "查看整合包里没装上的文件", Level: ops.HumanOnly,
+		// NoLog：只读。详情页每换一次标签都查一次（页头那一条「N 个整合包文件没装上」，R09），记进操作记录只会把真正的修改淹掉
+		Name: "instance.import.pending.get", Title: "查看整合包里没装上的文件", Level: ops.HumanOnly, NoLog: true,
 		Desc: "一台服务器导入整合包时没能自动装上的文件：pending 是还没处理的，skipped 是跳过了的（也没装上，还能改成别的处理）。" +
 			"每一项的 options 是现在能用的处理方式。没有的话两个列表都是空的。",
 		Params: withInst(nil),
