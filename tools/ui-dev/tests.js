@@ -270,6 +270,32 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await mock({ instReset: true }); }
   });
 
+  await run("保存条：要下载 Java 时保存途中又改了参数，不跳去任务页，改的留着仍算未保存；再保存不重复下载，提示里的「看进度」去任务页（Codex 复审 beta.3 第二轮）", async () => {
+    const mock = b => page.evaluate(b => fetch("/__mock/state", { method: "POST", body: JSON.stringify(b) }), b);
+    await mock({ instReset: true });
+    try {
+      await page.goto(url(`#/inst/${encodeURIComponent("机械动力整合包")}/jvm`)); await settle(900);
+      await page.selectOption("#jm-java", { index: await page.$eval("#jm-java", s => [...s.options].findIndex(x => x.textContent.startsWith("Java 25（"))) });
+      await page.fill("#jm-jvm", "-XX:+UseZGC");
+      await gatePut("**/java", async (requested, release) => {
+        await page.click('[data-sb="save"]'); await requested;
+        await page.fill("#jm-jvm", "-XX:+UseShenandoahGC");
+        release();
+        await page.waitForFunction(() => [...document.querySelectorAll(".toast")].some(t => t.textContent.includes("开始下载 Java 25")));
+      });
+      await settle(300);
+      const v = await page.evaluate(() => ({ url: location.hash, jvm: $("#jm-jvm").value, bar: $(".sb-text").textContent }));
+      assert(v.url.endsWith("/settings/jvm") && v.jvm === "-XX:+UseShenandoahGC" && v.bar === "1 项修改未保存", "途中改了不该跳走、改的仍算未保存：" + JSON.stringify(v));
+      const since = reqs.length;
+      await page.click('[data-sb="save"]'); await settle(700);
+      assert(!reqs.slice(since).some(r => r.m === "PUT" && r.u.endsWith("/java")), "再保存不该重复发起下载");
+      assert((lastPut(since, "/settings") || {}).extraJvm?.includes("-XX:+UseShenandoahGC"), "再保存应存上途中改的参数");
+      assert(await page.$eval('[data-sb="save"]', b => b.disabled), "存完以后不该还有没保存的：" + await page.textContent(".sb-text"));
+      await page.locator(".toast", { hasText: "开始下载 Java 25" }).locator("button", { hasText: "看进度" }).click(); await settle(600);
+      assert(page.url().endsWith("#/task/task-java"), "「看进度」应去任务页：" + page.url());
+    } finally { await mock({ instReset: true }); }
+  });
+
   await run("向导中途再点「新建服务器」/按 2 回到入口", async () => {
     await page.goto(url("#/create")); await settle();
     await page.click("#mode-new"); await settle();
@@ -7450,6 +7476,26 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         await page.goto(url("#/toolbox/mrpack-export"));
         await page.waitForSelector("#mp-modcart-host #mc-hits"); await settle(400);
         assert((await page.$eval("#mp-name", e => e.value)) === "好友周目整合包", "重启/重进页面后草稿名称应保留");
+
+        // 草稿还没读回来就改了名称：先不存（不然没动过的版本号会按默认值盖掉存好的 2.1.0），读回来以后存合起来的那份（Codex 复审 beta.3 第二轮）
+        {
+          let releaseDraft; const gateDraft = new Promise(r => releaseDraft = r);
+          const holdDraft = async route => { if (route.request().method() !== "GET") return route.continue().catch(() => {}); await gateDraft; await route.continue().catch(() => {}); };
+          await page.route("**/api/toolbox/mrpack/draft", holdDraft);
+          try {
+            const since = reqs.length;
+            await page.goto(url("#/toolbox/mrpack-export"));
+            await page.waitForSelector("#mp-name");
+            await page.fill("#mp-name", "改过的名字"); await settle(500);
+            const draftPuts = () => reqs.slice(since).filter(r => r.m === "PUT" && r.u === "/api/toolbox/mrpack/draft").map(r => JSON.parse(r.b || "{}"));
+            assert(!draftPuts().length, "草稿读回来以前不该存：" + JSON.stringify(draftPuts()));
+            releaseDraft(); await settle(700);
+            const put = draftPuts().pop();
+            assert(put && put.name === "改过的名字" && put.versionId === "2.1.0", "读回来以后存的应是合起来的那份：" + JSON.stringify(put));
+            assert((await page.$eval("#mp-ver", e => e.value)) === "2.1.0" && (await page.$eval("#mp-name", e => e.value)) === "改过的名字", "没动过的版本号补上，改过的名称留着");
+          } finally { releaseDraft(); await page.unroute("**/api/toolbox/mrpack/draft", holdDraft); }
+          await page.fill("#mp-name", "好友周目整合包"); await settle(400);
+        }
 
         // 在嵌入式待装清单中加入 Create（双端）和 JEI（仅客户端），并添加本地 jar
         await page.click('.mc-add[data-pid="create"]'); await settle(200);

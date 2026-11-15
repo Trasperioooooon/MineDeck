@@ -656,6 +656,13 @@ func TestSecretContent(t *testing.T) {
 		"apiKey: sk-abcdef123456",
 		"token:\n  - abcdefgh1234",
 		"{\"secret\": \"s3cr3tvalue\"}",
+		// Codex 复审 beta.3 第二轮指出漏掉的写法：引号里以空格、分号开头；YAML 块文本；明确的 API Key 是纯数字
+		"password=\" abc123\"",
+		"password=\";abc123\"",
+		"token: |\n  abcdefgh1234",
+		"token: >-\n  abcdefgh1234",
+		"api_key=12345678",
+		"discordBotToken: '123456'",
 	}
 	for _, c := range secret {
 		if !secretContent([]byte(c)) {
@@ -668,6 +675,9 @@ func TestSecretContent(t *testing.T) {
 		"passiveMobs = 10\nbypassChecks = true\n",
 		"[client]\nshowHud = true\nrenderDistance = 12\n",
 		"{\"apiKey\": \"\"}",
+		"max_tokens = 100\ntoken_count: 5\n",
+		"password = \"\"\nrcon.password=\n",
+		"secret: null\n",
 	}
 	for _, c := range clean {
 		if secretContent([]byte(c)) {
@@ -695,6 +705,10 @@ func TestLegacySkinHatAndOpaqueBase(t *testing.T) {
 	}
 	if _, _, _, a := img.At(8, 8).RGBA(); a>>8 != 255 {
 		t.Fatalf("脸（底层）应强制不透明，alpha=%d", a>>8)
+	}
+	// 帽子那块范围的下半截是右臂：清帽子只清透明度，右臂改回不透明以后颜色还是原来的，不是黑的
+	if c := color.NRGBAModel.Convert(img.At(44, 20)).(color.NRGBA); c != (color.NRGBA{R: 44 * 3, G: 20 * 3, B: 180, A: 255}) {
+		t.Fatalf("右臂的颜色变了：%+v", c)
 	}
 	withHole := makeSkinPNGFile(t, dir, "hat.png", 64, 32, func(img *image.NRGBA) {
 		img.SetNRGBA(33, 1, color.NRGBA{}) // 帽子层有一个透明像素：说明是认真画过的帽子，不动
@@ -738,5 +752,38 @@ func TestMrpackRefusesLinkedModsDir(t *testing.T) {
 	svc := New(Options{Mgr: mgr, DataDir: filepath.Join(base, "data", "toolbox"), CacheDir: filepath.Join(base, "cache", "toolbox")})
 	if _, err := svc.PreviewMrpack(context.Background(), MrpackReq{Source: "instance", Inst: "联接服"}); err == nil || !strings.Contains(err.Error(), "联接") {
 		t.Fatalf("mods 是联接时应该拒绝导出，err=%v", err)
+	}
+}
+
+// 生成时读服务器里的文件按打开以后的句柄核对落点：预览以后 config 被换成指到外面的联接，同名文件也读不出来
+// （Codex 复审 beta.3 第二轮）；读的是服务器里的普通文件时照常读到。
+func TestReadOverrideRefusesFileOutsideServer(t *testing.T) {
+	base := t.TempDir()
+	instDir := filepath.Join(base, "srv")
+	outside := filepath.Join(base, "outside")
+	for _, d := range []string{filepath.Join(instDir, "config"), outside} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	inside := filepath.Join(instDir, "config", "a.toml")
+	if err := os.WriteFile(inside, []byte("x = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := readOverride(MrpackItemView{srcDiskPath: inside, srcRoot: instDir}); err != nil || string(b) != "x = 1\n" {
+		t.Fatalf("服务器里的文件应照常读到：%q %v", b, err)
+	}
+	// 预览以后有人把 config 换成了指到外面的联接，外面放着同名文件
+	if err := os.WriteFile(filepath.Join(outside, "a.toml"), []byte("password = hunter2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(instDir, "config")); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", filepath.Join(instDir, "config"), outside).CombinedOutput(); err != nil {
+		t.Skipf("建不了目录联接：%v %s", err, out)
+	}
+	if b, err := readOverride(MrpackItemView{srcDiskPath: inside, srcRoot: instDir}); err == nil {
+		t.Fatalf("实际在服务器外面的文件不该读出来：%q", b)
 	}
 }

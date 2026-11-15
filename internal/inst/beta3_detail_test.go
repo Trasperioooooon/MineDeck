@@ -386,6 +386,11 @@ func TestDifficultyCommand(t *testing.T) {
 		{"26.3", "", ""},
 		{"26.3", "extreme", ""},
 		{"", "hard", ""},
+		{"26.1-snapshot-6", "hard", "difficulty hard"},
+		{"26.1-pre-1", "easy", "difficulty easy"},
+		{"26.1-rc-1", "normal", "difficulty normal"},
+		{"1.21.11-pre-1", "hard", ""},
+		{"1.21.11-rc-2", "hard", ""},
 	}
 	for _, c := range cases {
 		props := map[string]string{}

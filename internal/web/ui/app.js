@@ -4120,6 +4120,7 @@ async function renderDetail(name, path = "console") {
     const keptFix = () => { const cur = jvmFlags(); return LOG4J_FIX.filter(f => cur.includes(f)); };
     const lb = wireLiveBar(body, "服务器运行中：保存后要重启才生效");
     let saved = { xmx: $("#jm-mem").value, jvm: jvmFlags().join(" ") }; // 内存和参数上一次存下来的样子：只换 Java 时不重写启动设置
+    let javaQueued = ""; // 已经开始下载的那一项（留在本页时）：再保存别的不重复发起下载
     paintBar = wireSaveBar(body, gen,
       () => ({ xmx: $("#jm-mem").value, jvm: jvmFlags().join(" "), java: javaPick() }), // 只比较参数本身，换行 / 空格差异不算修改
       async () => {
@@ -4135,10 +4136,18 @@ async function renderDetail(name, path = "console") {
           saved = { xmx, jvm: (back || flags).join(" ") };
           notes.push("已保存内存与 JVM 参数" + (back?.some(a => !flags.includes(a)) ? "（已自动补回 log4shell 漏洞缓解参数）" : ""));
         }
-        if (pick !== "") {
+        if (pick !== "" && pick !== javaQueued) {
           const o = jopts[+pick];
           const r = await api(`/api/instances/${enc}/java`, { method: "PUT", body: { major: o.major, path: o.download ? "" : o.path } });
-          if (r && r.taskId) { dirtyCheck = null; location.hash = `#/task/${r.taskId}`; return; } // 要先下载：去任务页看进度，下好了自动换上
+          if (r && r.taskId) { // 要先下载：去任务页看进度，下好了自动换上
+            // 保存途中又改了内存或参数：不跳走，改的留在表单里（还算未保存），提示里给去任务页的按钮（Codex 复审 beta.3 第二轮）
+            if ($("#jm-mem").value === xmx && jvmFlags().join(" ") === flags.join(" ")) { dirtyCheck = null; location.hash = `#/task/${r.taskId}`; return; }
+            javaQueued = pick;
+            toast([...notes, `开始下载 Java ${o.major}，下好了自动换上`].join("；"), false, undefined,
+              { actions: [{ label: "看进度", aria: `去任务页看 Java ${o.major} 的下载进度`, onClick: () => { location.hash = `#/task/${r.taskId}`; } }] });
+            lb.saved(true);
+            return { xmx: saved.xmx, jvm: saved.jvm, java: pick };
+          }
           info.javaMajor = o.major; info.javaPath = (r && r.java) || o.path; info.javaSource = o.portable ? "portable" : "local"; info.javaMissing = false;
           jcur = +pick;
           sel.querySelectorAll("option").forEach((el, k) => { el.textContent = javaLabel(jopts[k], k); });
@@ -4149,8 +4158,9 @@ async function renderDetail(name, path = "console") {
         }
         toast(notes.join("；") + (info.status === "stopped" ? "，下次启动生效" : "，重启服务器后生效"));
         lb.saved(true);
-        // 新的基线是存下的那份：内存和参数按提交的（参数带上后端补回的）；Java 是相对「现在用的」算的，换上以后就是没改（空串）
-        return { xmx: saved.xmx, jvm: saved.jvm, java: "" };
+        // 新的基线是存下的那份：内存和参数按提交的（参数带上后端补回的）；Java 是相对「现在用的」算的，换上以后就是没改（空串），
+        // 选着的是已经在下载的那一项时，它也不算没保存
+        return { xmx: saved.xmx, jvm: saved.jvm, java: pick !== "" && pick === javaQueued ? pick : "" };
       });
     $("#jm-aikar").onclick = () => {
       const fix = keptFix();

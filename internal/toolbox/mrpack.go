@@ -8,6 +8,7 @@ import (
 	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -67,6 +68,7 @@ type MrpackItemView struct {
 	Size        int64  `json:"size"`
 	Note        string `json:"note,omitempty"`
 	srcDiskPath string // 仅内部生成时用，不输出到 JSON
+	srcRoot     string // 生成时 srcDiskPath 必须实际落在这个文件夹里（服务器里的文件）；空 = 不查（MineDeck 自己暂存的文件）
 }
 
 // MrpackPreviewResp 整合包导出的预览结果（列出下载项、本地 overrides、环境标记、前置提示与告警）。
@@ -266,6 +268,8 @@ func (s *Service) BuildMrpack(ctx context.Context, req MrpackReq) (MrpackBuildRe
 
 	var totalOverrideBytes int64
 	writtenOverrides := 0
+	warnings := prev.Warnings
+	var lateSecrets []string
 	for _, ov := range prev.Overrides {
 		zipEntryPath := ov.PackPath
 		if !strings.HasPrefix(zipEntryPath, "overrides/") || !winname.PathOK(strings.TrimPrefix(zipEntryPath, "overrides/")) {
@@ -276,9 +280,15 @@ func (s *Service) BuildMrpack(ctx context.Context, req MrpackReq) (MrpackBuildRe
 			continue
 		}
 		seenZipPath[lower] = true
-		data, err := readRegularLimited(ov.srcDiskPath, maxSingleOverrideFile)
+		// 服务器里的文件按打开以后的句柄核对落点，过滤密钥和打进包的是读出来的同一份字节（Codex 复审 beta.3 第二轮：
+		// 以前预览时查一遍、打包时按路径再读一遍，中间被改了或者上一级换成了联接就查不到）
+		data, err := readOverride(ov)
 		if err != nil {
 			return MrpackBuildResp{}, ErrBadRequest(fmt.Sprintf("读取「%s」失败（%v）。预览以后它可能被移走、改大了或者正被别的程序占着，重新预览一次再生成", ov.PackPath, err))
+		}
+		if strings.HasPrefix(ov.PackPath, "overrides/config/") && secretContent(data) {
+			lateSecrets = append(lateSecrets, strings.TrimPrefix(ov.PackPath, "overrides/"))
+			continue
 		}
 		totalOverrideBytes += int64(len(data))
 		if totalOverrideBytes > maxMrpackOverrideBytes {
@@ -291,6 +301,9 @@ func (s *Service) BuildMrpack(ctx context.Context, req MrpackReq) (MrpackBuildRe
 	}
 	if err := zw.Close(); err != nil {
 		return MrpackBuildResp{}, fmt.Errorf("压缩整合包失败：%w", err)
+	}
+	if len(lateSecrets) > 0 {
+		warnings = append(slices.Clone(warnings), fmt.Sprintf("这些配置文件在生成时看起来带着密码、令牌或密钥（可能是预览以后被改过），没有打进包：%s", strings.Join(lateSecrets, "、")))
 	}
 
 	zipBytes := buf.Bytes()
@@ -321,10 +334,34 @@ func (s *Service) BuildMrpack(ctx context.Context, req MrpackReq) (MrpackBuildRe
 		DownloadCount: len(idx.Files),
 		OverrideCount: writtenOverrides,
 		ClientOnlyCnt: prev.ClientOnlyCnt,
-		ConfigCount:   prev.ConfigCount,
+		ConfigCount:   prev.ConfigCount - len(lateSecrets),
 		Dependencies:  prev.Dependencies,
-		Warnings:      prev.Warnings,
+		Warnings:      warnings,
 	}, nil
+}
+
+// readOverride 读一个要整包打进 overrides 的文件。服务器里的文件（srcRoot 不空）先打开、再按句柄核对它实际落在
+// 服务器文件夹里，读的就是核对过的那一个；MineDeck 自己暂存的文件照旧只要是普通文件。
+func readOverride(ov MrpackItemView) ([]byte, error) {
+	if ov.srcRoot == "" {
+		return readRegularLimited(ov.srcDiskPath, maxSingleOverrideFile)
+	}
+	lst, err := os.Lstat(ov.srcDiskPath)
+	if err != nil || !lst.Mode().IsRegular() {
+		return nil, fmt.Errorf("不是普通文件")
+	}
+	f, err := inst.OpenFileInside(ov.srcDiskPath, ov.srcRoot)
+	if err != nil {
+		if errors.Is(err, inst.ErrOutside) {
+			return nil, fmt.Errorf("它实际在服务器文件夹外面")
+		}
+		return nil, err
+	}
+	defer f.Close()
+	if st, err := f.Stat(); err != nil || !st.Mode().IsRegular() {
+		return nil, fmt.Errorf("不是普通文件")
+	}
+	return readLimited(f, maxSingleOverrideFile, "单个文件超过大小限制")
 }
 
 func (s *Service) previewFromInstance(ctx context.Context, req MrpackReq) (MrpackPreviewResp, error) {
@@ -513,6 +550,7 @@ func (s *Service) previewFromInstance(ctx context.Context, req MrpackReq) (Mrpac
 			SHA512:      j.sha512,
 			Note:        note,
 			srcDiskPath: j.path,
+			srcRoot:     i.Dir,
 		})
 	}
 
@@ -817,6 +855,7 @@ func collectSafeConfigOverrides(instDir string) ([]MrpackItemView, []string, err
 			Size:        info.Size(),
 			Note:        "服务端 config 配置文件",
 			srcDiskPath: p,
+			srcRoot:     instDir,
 		})
 		return nil
 	})
@@ -846,16 +885,21 @@ var (
 		".p12": true, ".pfx": true, ".jks": true, ".keystore": true, ".crt": true, ".cer": true, ".der": true, ".env": true, ".log": true}
 	// 备份、临时、停用的副本：内容和正本一样，正本要是被挑出来了，副本也不该漏出去
 	backupSuffixes = []string{".bak", ".old", ".orig", ".backup", ".tmp", ".disabled", "~"}
-	// 键 = 值、"键": "值"、键: 值。键名里带这些词的都看；password 一类不管值多短、是不是纯数字都算
-	secretKV = regexp.MustCompile(`(?i)([a-z0-9_.-]*?(?:password|passwd|pwd|passphrase|secret|token|api[_-]?key|webhook|private[_-]?key|access[_-]?key|license[_-]?key|auth[_-]?(?:key|token|code)|credential)[a-z0-9_.-]*)["']?\s*[:=]\s*["']?([^\s"',;}\]<>]+)`)
+	// 键 = 值、"键": "值"、键: 值。键名里带这些词的都看。值带引号时取引号里的全部（可能以空格、分号开头），
+	// 不带引号时取到空白或分隔符为止。password 一类、明确的令牌和密钥不管值多短、是不是纯数字都算；
+	// 只有像计数、开关、上限这类键（max_tokens、token_count）才放过短值和数字（secretCountWords）
+	secretKV         = regexp.MustCompile(`(?i)([a-z0-9_.-]*?(?:password|passwd|pwd|passphrase|secret|token|api[_-]?key|webhook|private[_-]?key|access[_-]?key|license[_-]?key|auth[_-]?(?:key|token|code)|credential)[a-z0-9_.-]*)["']?[ \t]*[:=][ \t]*(?:"([^"\r\n]*)"|'([^'\r\n]*)'|([^\s"',;}\]<>]+))`)
+	secretCountWords = []string{"count", "max", "min", "limit", "per", "cost", "rate", "amount", "size", "length", "expire", "ttl",
+		"timeout", "interval", "duration", "cooldown", "chance", "bucket", "refill", "regen", "enable", "type", "mode", "format",
+		"prefix", "suffix", "color", "colour", "display", "show", "required", "item", "drop", "reward", "level", "slot", "spawn", "worth", "price"}
 	// 单独一个 pass 当键名（不连着别的字母，免得认成 passive 之类）
 	secretPass = regexp.MustCompile(`(?im)(?:^|[\s{,"'])pass["']?\s*[:=]\s*["']?([^\s"',;}\]<>]+)`)
 	// XML：<password>…</password>、<botToken>…</botToken>
 	secretXML = regexp.MustCompile(`(?i)<[a-z0-9_.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|webhook)[a-z0-9_.-]*(?:\s[^>]*)?>\s*[^<\s]`)
 	// 连接串里带着口令：mongodb://用户:口令@主机、jdbc:mysql://用户:口令@主机
 	secretURL = regexp.MustCompile(`(?i)[a-z][a-z0-9+.-]*://[^\s/:@"']+:[^\s/@"']+@`)
-	// YAML 把值写在下一行：token:⏎  - xxxx
-	secretYAMLNext = regexp.MustCompile(`(?im)^\s*[a-z0-9_.-]*(?:password|passwd|secret|token|api[_-]?key|webhook)[a-z0-9_.-]*\s*:\s*\r?\n\s*-?\s*["']?[^\s"']{4,}`)
+	// YAML 把值写在下一行：token:⏎  - xxxx，或者块文本 token: |⏎  xxxx
+	secretYAMLNext = regexp.MustCompile(`(?im)^[ \t]*[a-z0-9_.-]*(?:password|passwd|secret|token|api[_-]?key|webhook)[a-z0-9_.-]*[ \t]*:[ \t]*(?:[|>][-+0-9]*[ \t]*)?\r?\n[ \t]*-?[ \t]*["']?[^\s"']{4,}`)
 )
 
 // maxSecretScan 内容最多读这么多来认；更大的配置文件认不全，干脆不打进包（列在提醒里）。
@@ -891,12 +935,24 @@ func looksSecret(rel, diskPath string, size int64) bool {
 // secretContent 一份配置的内容里有没有像密码、令牌、密钥的东西（不看扩展名，什么文件都认一遍）。
 func secretContent(b []byte) bool {
 	for _, m := range secretKV.FindAllSubmatch(b, -1) {
-		key, v := strings.ToLower(string(m[1])), strings.ToLower(string(m[2]))
+		key := strings.ToLower(string(m[1]))
+		v := strings.ToLower(strings.TrimSpace(string(m[2]) + string(m[3]) + string(m[4]))) // 三种写法只有一个有值
+		switch v {
+		case "", "true", "false", "null", "none", "~", "[]", "{}":
+			continue // 没填、开关
+		}
 		if strings.Contains(key, "passw") || strings.Contains(key, "pwd") || strings.Contains(key, "passphrase") {
 			return true // 口令再短、全是数字也是口令
 		}
-		if len(v) < 6 || v == "true" || v == "false" || strings.Trim(v, "0123456789.-") == "" {
-			continue
+		countLike := false
+		for _, w := range secretCountWords {
+			if strings.Contains(key, w) {
+				countLike = true
+				break
+			}
+		}
+		if countLike && (len(v) < 6 || strings.Trim(v, "0123456789.-") == "") {
+			continue // max_tokens = 100、token_count: 5 这类
 		}
 		return true
 	}

@@ -885,8 +885,12 @@ window.MDToolbox = (() => {
       };
     }
 
+    // 草稿读回来以前不存：那时表单里没动过的格子还是默认值，存上去会把以前存的草稿盖掉。
+    // 先记下「有要存的」，读回来、把没动过的格子补上以后再存合起来的那一份（Codex 复审 beta.3 第二轮）
+    let draftReady = false, savePending = false;
     function scheduleSaveDraft() {
       if (st.source !== "draft") return;
+      if (!draftReady) { savePending = true; return; }
       if (saveTimer) clearTimeout(saveTimer);
       saveTimer = setTimeout(() => {
         api("/api/toolbox/mrpack/draft", {
@@ -1133,6 +1137,8 @@ window.MDToolbox = (() => {
         if (draft.mc) fill(mcIn, st.mc = draft.mc);
         if (draft.loaderVersion != null) fill(loaderIn, st.loaderVersion = draft.loaderVersion);
       }
+      draftReady = true;
+      if (savePending) { savePending = false; scheduleSaveDraft(); }
       if (Array.isArray(insts)) {
         st.modInsts = insts.filter(i => MOD_CORES.has(i.core));
         instSel.innerHTML = st.modInsts.map(i => `<option value="${esc(i.name)}">${esc(i.name)}（${esc(coreName(i.core))} ${esc(i.mc)}）</option>`).join("");

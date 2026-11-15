@@ -103,6 +103,38 @@ func finalPathAs(p string, volume uint32) (string, bool) {
 		return "", false
 	}
 	defer windows.CloseHandle(h)
+	return handleFinalPath(h, volume)
+}
+
+// OpenFileInside 打开 p 来读，并核对打开的这个文件实际落在 dir 里面。按打开以后的句柄问系统它在哪，
+// 不是先查路径再打开：中间有人把上一级换成指到外面的目录联接也骗不过去（工具箱导出整合包时读服务器里的文件用，
+// Codex 复审 beta.3 第二轮）。查不清、在外面时不返回文件。
+func OpenFileInside(p, dir string) (*os.File, error) {
+	root, err := RealPathStrict(dir)
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		return nil, err
+	}
+	real, ok := handleFinalPath(windows.Handle(f.Fd()), volumeNameNT)
+	if !ok {
+		f.Close()
+		return nil, ErrRealPath
+	}
+	if rel, err := filepath.Rel(root, real); err != nil || !filepath.IsLocal(rel) {
+		f.Close()
+		return nil, ErrOutside
+	}
+	return f, nil
+}
+
+// ErrOutside 文件实际落在要求的文件夹外面（见 OpenFileInside）。
+var ErrOutside = errors.New("这个文件实际在服务器文件夹外面")
+
+// handleFinalPath 问系统一个已经打开的句柄的最终路径。
+func handleFinalPath(h windows.Handle, volume uint32) (string, bool) {
 	buf := make([]uint16, 512)
 	for {
 		n, err := windows.GetFinalPathNameByHandle(h, &buf[0], uint32(len(buf)), volume) // FILE_NAME_NORMALIZED 是 0，不用另加

@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
-	"image/color"
 	"image/draw"
 	"image/png"
 	"maps"
@@ -756,7 +755,9 @@ func setNoAlpha(img *image.NRGBA, x1, y1, x2, y2 int) {
 	}
 }
 
-// clearOpaqueHat 区域里只要有一个半透明以下（alpha < 128）的像素就不动；整块都不透明时清成全透明。
+// clearOpaqueHat 区域里只要有一个半透明以下（alpha < 128）的像素就不动；整块都不透明时只把透明度清零、颜色留着
+// （客户端是 color & 0xFFFFFF）。这块范围 [32,64)×[0,32) 下半截是身体和右臂，后面 setNoAlpha 把它们改回不透明，
+// 颜色要还在，不然会变成黑的（Codex 复审 beta.3 第二轮）。
 func clearOpaqueHat(img *image.NRGBA, x1, y1, x2, y2 int) {
 	for y := y1; y < y2; y++ {
 		for x := x1; x < x2; x++ {
@@ -767,7 +768,9 @@ func clearOpaqueHat(img *image.NRGBA, x1, y1, x2, y2 int) {
 	}
 	for y := y1; y < y2; y++ {
 		for x := x1; x < x2; x++ {
-			img.SetNRGBA(x, y, color.NRGBA{})
+			c := img.NRGBAAt(x, y)
+			c.A = 0
+			img.SetNRGBA(x, y, c)
 		}
 	}
 }

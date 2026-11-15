@@ -173,7 +173,12 @@ func (m *Manager) startInstance(i *Instance) error {
 				if became {
 					if cmd := difficultyCommand(mc, javaPropsOf(i.PropsPath())); cmd != "" {
 						i.Console.Append("[MineDeck] 26.1 起游戏只在新建世界时读 server.properties 的难度，按设置执行 " + cmd)
-						go func() { _ = writeLine(pr, cmd) }() // 不在读输出的这条线上等写入
+						con := i.Console
+						go func() { // 不在读输出的这条线上等写入
+							if err := writeLine(pr, cmd); err != nil {
+								con.Append("[MineDeck] 没能发出 " + cmd + "（" + err.Error() + "），难度可能还是游戏里原来的")
+							}
+						}()
 					}
 				}
 			}
@@ -398,7 +403,10 @@ func writeLine(p *proc, line string) error {
 // 值认不出来（代理端没有 server.properties）时返回空串。极限模式（hardcore=true）也不发：游戏把它锁在困难，
 // 命令改不动，却会回一句「已设为某某难度」，反而误导。
 func difficultyCommand(mc string, props map[string]string) string {
-	if mc == "" || versionLess(mc, "26.1") {
+	// 26.1 的快照、预发布、候选版（26.1-snapshot-6、26.1-pre-1、26.1-rc-1）按 26.1 算：难度存进世界是从快照里开始的，
+	// 更早几个快照里多发一条也只是设成同一个难度（Codex 复审 beta.3 第二轮）
+	base, _, _ := strings.Cut(mc, "-")
+	if base == "" || versionLess(base, "26.1") {
 		return ""
 	}
 	if strings.EqualFold(strings.TrimSpace(props["hardcore"]), "true") {
