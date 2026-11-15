@@ -5398,10 +5398,13 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click('.modal [data-x="ok"]');
       await page.waitForSelector("#wi-cancel");
       await page.click("#wi-cancel");
-      await page.waitForSelector("#wi-task-err-text", { timeout: 15000 });
-      const errText = await page.$eval("#wi-task-err-text", el => el.textContent);
+      // beta.3：取消干净结束时是中性的「已取消」说明，不是红色的报错框；步骤画横线（cancelled），不画红叉
+      await page.waitForSelector("#wi-task-cancelled", { timeout: 15000 });
+      const errText = await page.$eval("#wi-task-cancelled", el => el.textContent);
+      const noErr = !(await page.$("#wi-task-err")), dash = await page.$$eval("#wi-steps .task-step.cancelled .ts-dash", els => els.length);
       st = await wState({});
-      assert(errText.includes("已取消，没有替换任何文件") && st.world.cancels.length === 1 && st.world.discards.length === 0, "取消以后：" + errText + JSON.stringify([st.world.cancels, st.world.discards]));
+      assert(errText.includes("已取消换地图") && errText.includes("没有替换任何文件") && noErr && dash === 1 && st.world.cancels.length === 1 && st.world.discards.length === 0,
+        "取消以后：" + errText + JSON.stringify([noErr, dash, st.world.cancels, st.world.discards]));
       await page.click("#wi-task-again"); await page.waitForSelector("#wi-go");
       st = await wState({});
       assert(st.world.lastPlan.scanId === scanId && st.world.lastPlan.id !== plan1 && (await page.$eval("#wi-map-name", el => el.textContent)) === "新的世界", "重新核对应还是那张地图、一份新计划：" + JSON.stringify(st.world.lastPlan));
@@ -6453,7 +6456,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         await page.click("#wi-go"); await page.waitForSelector(".modal");
         await page.click('.modal [data-x="ok"]');
         await page.waitForSelector("#wi-cancel"); await page.click("#wi-cancel");
-        await page.waitForSelector("#wi-task-err-text", { timeout: 15000 });
+        await page.waitForSelector("#wi-task-cancelled", { timeout: 15000 }); // 换地图页自己的面板也是中性的「已取消」（beta.3 主会话补）
         const taskId = Object.keys((await wState({})).world.tasks)[0];
         await page.goto(url("#/task/" + taskId)); await page.waitForSelector("#t-foot a.btn");
         const t = await page.evaluate(() => ({ h1: $(".page-head h1").textContent, sub: $(".page-head .sub").textContent, eyebrow: $("#task-eyebrow").textContent,

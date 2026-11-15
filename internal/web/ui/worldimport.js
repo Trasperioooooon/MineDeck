@@ -701,7 +701,8 @@ window.MDWorldImport = (() => {
         if (gone() || ended) return;
         const steps = t.steps || [], stepsEl = $("#wi-steps", body);
         const stepsHTML = steps.map(s => `<div class="task-step ${esc(s.status)}"><span class="ts-ico">${
-          s.status === "done" ? icon("check") : s.status === "running" ? icon("spinner") : s.status === "error" ? icon("x") : `<i class="ts-px"></i>`}</span><span>${esc(s.name)}</span></div>`).join("");
+          s.status === "done" ? icon("check") : s.status === "running" ? icon("spinner") : s.status === "error" ? icon("x")
+            : s.status === "cancelled" ? `<i class="ts-dash"></i>` : `<i class="ts-px"></i>`}</span><span>${esc(s.name)}</span></div>`).join("");
         if (stepsEl.dataset.html !== stepsHTML) { stepsEl.innerHTML = stepsHTML; stepsEl.dataset.html = stepsHTML; }
         const prog = $("#wi-prog", body), showProg = !t.ended && !!t.label && t.total > 0;
         prog.hidden = !showProg;
@@ -737,7 +738,11 @@ window.MDWorldImport = (() => {
         ended = true;
         finish();
         const msg = $("#wi-task-msg", body);
-        if (t.error) {
+        if (t.cancelled) {
+          // 人点了「取消导入」、而且收尾干净（任务按「已取消」结束）：不是出错，不画红框，和任务页的说法一样
+          msg.innerHTML = `<div class="task-note" role="status" id="wi-task-cancelled">${icon("info")}<span>已取消换地图：没有替换任何文件，原来的世界没动。</span></div>`;
+          if (job.scanId) hold(job.scanId, () => !gone()); // 这次检测还在：想换就回去重新核对
+        } else if (t.error) {
           msg.innerHTML = `<div class="err-box" id="wi-task-err"><b>${isImport ? "导入没有完成" : "没有换回"}：</b><span id="wi-task-err-text"></span>
             <div class="err-acts"><button type="button" class="btn sm ghost" id="wi-task-copy">${icon("copy")} 复制报错信息</button></div></div>`;
           $("#wi-task-err-text", body).textContent = t.error;
@@ -748,10 +753,10 @@ window.MDWorldImport = (() => {
           $("#wi-task-done-text", body).textContent = t.result || (isImport ? "地图已经换上。" : "已经换回导入前的地图。");
           if (job.scanId) discard(job.scanId); // 用完了：上传的压缩包可以清掉
         }
-        const pick = t.error && job.scanId && picks[name] && picks[name].scan.id === job.scanId ? picks[name] : null;
+        const pick = (t.error || t.cancelled) && job.scanId && picks[name] && picks[name].scan.id === job.scanId ? picks[name] : null;
         if (!pick) delete picks[name];
         acts.innerHTML = `${pick ? `<button type="button" class="btn" id="wi-task-again">${icon("refresh")} 重新核对这张地图</button>` : ""}<span class="grow"></span>
-          <button type="button" class="btn primary" id="wi-task-ok">${icon("check")} ${t.error ? "回到地图页" : "完成"}</button>`;
+          <button type="button" class="btn primary" id="wi-task-ok">${icon("check")} ${t.error || t.cancelled ? "回到换地图页" : "完成"}</button>`;
         $("#wi-task-ok", body).onclick = () => { if (t.error) { drop(); delete picks[name]; } loadHome(true); };
         if (pick) $("#wi-task-again", body).onclick = () => startFlow(pick);
         if (refreshHead) refreshHead();
