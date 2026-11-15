@@ -87,14 +87,15 @@ window.MDCompanion = (() => {
   const PACK_GUIDE = "如果服务器是整合包：先装同一个整合包（版本要和服务器一致），再把上面的模组放进那个整合包的 mods 文件夹。";
 
   /* 弹窗表单（外观同 confirmModal）：点确定时交给 check(mask)，返回 null 表示有错（错误已就近显示），弹窗留着；
-     返回值就交出去。Esc、点外面、取消返回 null。setup(mask) 在弹窗画好后调用（接上弹窗里的联动）。 */
+     返回值就交出去。Esc、取消返回 null；有要填的东西，点外面不关（点空了填的就丢了，同 confirmModal）。setup(mask) 在弹窗画好后调用（接上弹窗里的联动）。
+     用 app.js 的弹层叠放（modalLayer）：叠在 #modal-root 里的一层，不再把整个 #modal-root 换掉——
+     弹窗里出错点「详情」，报错信息叠在上面，关掉回到这个弹窗，填的都还在（可用性走查 R04）。Esc 和回车只给最上面那一层 */
   function formModal({ title, body, okText = "确定", check, setup }) {
     return new Promise(resolve => {
-      const root = $("#modal-root"), prev = document.activeElement;
-      root.innerHTML = `<div class="modal-mask enter"><div class="modal cp-form" role="dialog" aria-modal="true" aria-labelledby="cp-m-title">
-        <h3 id="cp-m-title">${esc(title)}</h3>${body}
-        <div class="m-actions"><button class="btn" data-x="cancel">取消</button><button class="btn primary" data-x="ok">${esc(okText)}</button></div></div></div>`;
-      const mask = root.firstElementChild;
+      const prev = document.activeElement, tid = layerId("cp-m-title");
+      const mask = modalLayer(`<div class="modal cp-form" role="dialog" aria-modal="true" aria-labelledby="${tid}">
+        <h3 id="${tid}">${esc(title)}</h3>${body}
+        <div class="m-actions"><button class="btn" data-x="cancel">取消</button><button class="btn primary" data-x="ok">${esc(okText)}</button></div></div>`);
       let done = false;
       const end = v => {
         if (done) return;
@@ -106,11 +107,12 @@ window.MDCompanion = (() => {
       };
       const ok = () => { const v = check(mask); if (v != null) end(v); };
       const onKey = e => {
+        if (!topLayer(mask)) return;
         if (e.key === "Escape") end(null);
         else if (e.key === "Enter" && e.target.tagName === "INPUT") { e.preventDefault(); ok(); }
       };
       document.addEventListener("keydown", onKey);
-      mask.addEventListener("mousedown", e => { if (e.target === e.currentTarget) end(null); });
+      mask.addEventListener("mousedown", e => { if (e.target === e.currentTarget && !hasFields(mask)) end(null); });
       mask.querySelector('[data-x="cancel"]').onclick = () => end(null);
       mask.querySelector('[data-x="ok"]').onclick = ok;
       if (setup) setup(mask);
@@ -165,8 +167,8 @@ window.MDCompanion = (() => {
       if (!v.ai.enabled) html += `<div class="warn-card"><div class="wc-title">${icon("warn")} AI 还没配置</div>
         <div class="wc-note">伙伴靠 AI 听懂玩家的话：先在「设置 → AI」里选好服务商、填好 Key 和模型。没配置时伙伴照样能刷出、移除，只是没人能在游戏里指挥它。</div>
         <a class="btn sm" href="#/settings/ai">${icon("gear")} 去设置</a></div>`;
-      else if (v.settings.enabled && !v.gameai.enabled) html += `<div class="cp-note">${icon("info")} 玩家要在聊天里叫伙伴，需要先在「游戏内 AI」标签里开启该功能。
-        <a href="#/inst/${enc}/gameai">去打开</a></div>`;
+      else if (v.settings.enabled && !v.gameai.enabled) html += `<div class="cp-note">${icon("info")} 玩家要在聊天里叫伙伴，需要先在「扩展 → 游戏内 AI」里开启该功能。
+        <a href="#/inst/${enc}/ext/gameai">去打开</a></div>`;
       box.innerHTML = html;
     };
 

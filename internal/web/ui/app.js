@@ -1092,8 +1092,20 @@ let curHash = null;
 let guardOpen = false;
 window.addEventListener("beforeunload", e => { if (dirtyCheck && dirtyCheck() > 0) { e.preventDefault(); e.returnValue = ""; } });
 
+/* 详情页的旧地址（beta.3 以前的标签编号）→ 新地址（docs/文案重写/04-标签与术语-beta3.md 第一节，可用性走查 R06）。
+   AI 助手的回复、提示、书签里还写着旧的。旧的「地图」标签原来就叫 world，现在就是「世界与备份」本身，不用换：
+   落到它的「备份」子页上，旁边就是「换地图」 */
+const DETAIL_OLD_TABS = { backups: "world/backups", res: "addons", cart: "addons", common: "settings/common", raw: "settings/raw", jvm: "settings/jvm",
+  gameai: "ext/gameai", companion: "ext/companion", music: "ext/music" };
+const upgradeDetailHash = hash => {
+  const m = hash.match(/^#\/inst\/([^/]+)\/([a-z]+)$/);
+  return m && DETAIL_OLD_TABS[m[2]] ? `#/inst/${m[1]}/${DETAIL_OLD_TABS[m[2]]}` : hash;
+};
+
 async function navigate() {
-  const hash = location.hash || "#/instances";
+  // 旧地址原地换成新地址：用 replaceState，不多一条历史记录，「后退」不会又回到旧地址、再被换一次
+  const old = location.hash || "#/instances", hash = upgradeDetailHash(old);
+  if (hash !== old) history.replaceState(null, "", hash);
   if (guardOpen) { if (curHash) history.replaceState(null, "", curHash); return; }
   const unsaved = dirtyCheck ? dirtyCheck() : 0;
   if (unsaved > 0) {
@@ -1159,7 +1171,8 @@ function fmtDur(sec) {
   return `${sec}s`;
 }
 
-/* 「打开文件夹」菜单项：按核心类型列出可用子目录（实例卡「···」与详情页「打开目录」共用） */
+/* 「打开文件夹」菜单项：按核心类型列出可用子目录（实例卡「···」与详情页「打开目录」共用）。
+   「备份」不在服务器文件夹里（在备份文件夹下面，R15），走打开任意文件夹的接口；还没备份过时那个文件夹还不存在，说清楚 */
 function folderItems(info) {
   const isProxy = info.kind === "proxy";
   const hasMods = ["fabric", "forge", "neoforge", "mohist", "banner"].includes(info.core);
@@ -1167,13 +1180,22 @@ function folderItems(info) {
   const dirs = [["", "folder", "服务器文件夹"]];
   if (hasMods) dirs.push(["mods", "package", "模组"]);
   if (hasPlugins) dirs.push(["plugins", "plug", "插件"]);
-  if (!isProxy) dirs.push(["world", "globe", "世界存档"], ["logs", "doc", "日志"], ["crash-reports", "warn", "崩溃报告"]);
+  if (!isProxy) dirs.push(["world", "globe", "世界"], ["logs", "doc", "日志"], ["crash-reports", "warn", "崩溃报告"]);
   else dirs.push(["logs", "doc", "日志"]);
-  return dirs.map(([sub, ic, label]) => ({
+  const items = dirs.map(([sub, ic, label]) => ({
     icon: ic, label,
     onClick: () => api(`/api/instances/${encodeURIComponent(info.name)}/opendir${sub ? "?sub=" + encodeURIComponent(sub) : ""}`, { method: "POST" })
       .catch(e => toastErr("无法打开文件夹", e)),
   }));
+  if (!isProxy && info.backupDir) items.push({ icon: "camera", label: "备份", onClick: () => openBackupDir(info) });
+  return items;
+}
+/* 打开这台服务器的备份文件夹（R15）：还没备份过时文件夹还不存在，不报错，说一句什么时候会有 */
+function openBackupDir(info) {
+  return api("/api/openpath", { method: "POST", body: { path: info.backupDir } }).catch(e => {
+    if (/不存在/.test(String(e && e.message))) toast(`「${info.name}」还没有备份过。第一次备份以后，备份会放在 ${info.backupDir}`);
+    else toastErr("无法打开备份文件夹", e);
+  });
 }
 
 /* 移出列表 / 删除服务器（可用性走查 R05、U28、U30）。
@@ -1324,7 +1346,10 @@ async function renderInstances() {
     const port = connectPortOf(i), addr = lanIP && port ? `${lanIP}:${port}` : "";
     const portKV = port ? `<span>端口<b>${port}</b>${addr ? `<button type="button" class="btn sm ghost icon-only copy-addr" data-act="copy" data-addr="${esc(addr)}" title="复制连接地址 ${esc(addr)}" aria-label="复制连接地址 ${nm}">${icon("copy")}</button>` : ""}</span>` : "";
     // 上次没启动起来：常驻在卡片上，下次启动成功才消失（R03）。原因按报错的规矩写：看得懂的整句接上，带路径的只写结论、原文在悬停提示里
-    const fail = i.lastStartError && i.status === "stopped"
+    // 配的 Java 找不到了（R21）：常驻一行，点了去「设置 → 启动与内存」换。这是根本原因，「上次没能启动：找不到 Java」那一行就不再写一遍
+    const fail = i.javaMissing
+      ? `<a class="inst-fail inst-java-missing" href="${href}/settings/jvm" title="${esc(i.javaPath || "")}" aria-label="找不到 Java，去换一个 ${nm}">${icon("warn")}<span>找不到这台服务器配的 Java，去「设置 → 启动与内存」换一个</span></a>`
+      : i.lastStartError && i.status === "stopped"
       ? `<div class="inst-fail" title="${esc(i.lastStartError)}">${icon("warn")}<span>${esc(errSummary("上次没能启动", { message: i.lastStartError }).text)}</span></div>` : "";
     return `
     <div class="card st-${i.status}${enter ? " item-enter" : ""}" style="--i:${n}" data-name="${esc(i.name)}">
@@ -1375,20 +1400,18 @@ async function renderInstances() {
       const info = curList.find(x => x.name === name);
       if (act === "copy") { copyFlash(b, b.dataset.addr, "已复制连接地址：" + b.dataset.addr); return; }
       if (act === "more") {
-        const busy = info.status !== "stopped";
         dropMenu(b, [
           { header: "打开文件夹" }, ...folderItems(info), { sep: true },
-          { icon: "share", label: "导出交接包…", disabled: busy, note: busy ? "需先停止服务器" : "",
-            onClick: () => transferExportModal(info) },
-          { sep: true },
-          { icon: "trash", label: "删除服务器…", danger: true, disabled: busy, note: busy ? "需先停止服务器" : "",
-            onClick: async () => { if (await deleteInstance(info)) { lastSig = ""; draw(); } } },
+          ...instMoreItems(info, () => { lastSig = ""; draw(); }), // 详情页头的「···」也是这两项（R06）
         ]);
         return;
       }
       try {
         if (act === "start") { b.disabled = true; await api(`/api/instances/${encodeURIComponent(name)}/start`, { method: "POST" }); toast(`「${name}」正在启动`); }
-        else if (act === "stop") { b.disabled = true; await api(`/api/instances/${encodeURIComponent(name)}/stop`, { method: "POST" }); toast(`「${name}」正在停止并保存世界`); }
+        else if (act === "stop") {
+          if (!(await confirmKick(info, "停止"))) return; // 有玩家在线先问一声（R07，同详情页头）
+          b.disabled = true; await api(`/api/instances/${encodeURIComponent(name)}/stop`, { method: "POST" }); toast(`「${name}」正在停止并保存世界`);
+        }
       } catch (e) { toastErr(act === "start" ? "无法启动服务器" : "无法停止服务器", e); }
       lastSig = ""; draw();
     });
@@ -1427,7 +1450,7 @@ async function renderInstances() {
     $("#inst-cards").classList.remove("page-fill");
     // 签名：数据无实质变化则跳过重绘（消除周期性闪烁与焦点丢失，也不重播动效）；启动中按秒推进分段条，所以带上时长
     // 端口、上次启动失败的原因、连接地址的 IP 也算：崩溃自动重启、定时重启没起来时，卡片上要跟着冒出原因
-    const sig = list.map(i => `${i.name}:${i.status}:${i.status === "running" ? Math.floor(i.uptimeSec / 60) + "/" + i.onlineCount : i.status === "starting" ? Math.floor(i.uptimeSec / 3) : ""}:${connectPortOf(i)}:${i.lastStartError || ""}`).join("|") + "#" + $("#inst-q").value + "#" + $("#inst-sort").value + "#" + lanIP;
+    const sig = list.map(i => `${i.name}:${i.status}:${i.status === "running" ? Math.floor(i.uptimeSec / 60) + "/" + i.onlineCount : i.status === "starting" ? Math.floor(i.uptimeSec / 3) : ""}:${connectPortOf(i)}:${i.lastStartError || ""}:${i.javaMissing ? 1 : 0}`).join("|") + "#" + $("#inst-q").value + "#" + $("#inst-sort").value + "#" + lanIP;
     if (sig === lastSig) return;
     lastSig = sig;
     // 首屏：骨架淡出（160ms）后卡片逐项入场（错峰 28ms）；之后的重绘不再播入场
@@ -2398,7 +2421,7 @@ const TASK_KINDS = {
     go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/create", backText: "返回重试" },
   java: { title: "正在更换 Java", sub: "本机没有这个版本的 Java，正在下载一份（不改系统里的 Java）。", done: "Java 已换好", doneSub: "下次启动这台服务器时生效",
     ok: "Java 已换好，下次启动生效", fail: "更换失败", failHint: "这台服务器还在用原来的 Java，可以返回重试。", busy: "下载中，请勿关闭程序…",
-    go: "完成，回到服务器", href: name => `#/inst/${encodeURIComponent(name)}/jvm`, back: "#/instances", backText: "返回服务器列表" },
+    go: "完成，回到服务器", href: name => `#/inst/${encodeURIComponent(name)}/settings/jvm`, back: "#/instances", backText: "返回服务器列表" },
   "transfer-out": { title: "正在导出交接包", sub: "正在把世界、配置和模组打包成一个文件。服务器不会被改动。", done: "导出完成", doneSub: "交接包已生成，文件位置在这一页的日志里",
     ok: "交接包导出成功", fail: "导出失败", failHint: "没有留下不完整的包，可以重试（包的特征见任务日志）。", busy: "打包中，请勿关闭程序…",
     go: "完成", href: () => "#/instances", back: "#/instances", backText: "返回服务器列表" },
@@ -2515,7 +2538,7 @@ async function renderTaskPage(taskId) {
         ${w.note ? `<div class="wc-note">${esc(w.note)}</div>` : ""}
         ${(w.items || []).length ? `<ul class="wc-list">${w.items.map(it =>
           `<li>${/^https?:\/\//i.test(it.url || "") ? `<a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.name)}</a>` : esc(it.name)}</li>`).join("")}</ul>` : ""}
-        ${w.kind === "java-req" && t.result ? `<div class="wc-note"><a class="btn sm" href="#/inst/${encodeURIComponent(t.result)}/jvm">去「内存 / 启动」换 Java</a></div>` : ""}
+        ${w.kind === "java-req" && t.result ? `<div class="wc-note"><a class="btn sm" href="#/inst/${encodeURIComponent(t.result)}/settings/jvm">去「设置 → 启动与内存」换 Java</a></div>` : ""}
       </div>`).join("");
     const cpf = $("#t-msgs").querySelector("[data-copy-task-fail]");
     if (cpf) cpf.onclick = () => copy(String(t.error || ""), "已复制报错信息");
@@ -2722,7 +2745,64 @@ function detailNotice(key, html, { id = "", kind = "warn" } = {}) {
   return el;
 }
 
-async function renderDetail(name, tab = "console") {
+/* 详情页的七个标签和子页（docs/文案重写/04-标签与术语-beta3.md 第一节，可用性走查 R06）。编号是地址里 #/inst/<名字>/<编号>/<子页> 的那两段，
+   各处代码、AI 助手、提示和书签互相引用，定下来就不改。这台服务器用不上的不列：代理端没有玩家、世界与备份，原版没有插件 / 模组，
+   扩展一个都没有时不出现。有子页的标签不带子页时进第一个子页（设置进「常用」，代理端进「启动与内存」） */
+function detailTabs(info) {
+  const proxy = info.kind === "proxy";
+  const tabs = [{ id: "console", label: "控制台" }];
+  if (!proxy) {
+    tabs.push({ id: "players", label: "玩家" });
+    tabs.push({ id: "world", label: "世界与备份",
+      subs: [["backups", "备份"], ...(window.MDWorldImport && MDWorldImport.applies(info) ? [["map", "换地图"]] : [])] }); // 换地图与恢复点，见 worldimport.js
+  }
+  if (window.MDModCart && MDModCart.applies(info)) tabs.push({ id: "addons", label: MDModCart.tabLabel(info.core) }); // 已安装 + 热门、搜索、从电脑添加、待装清单，见 modcart.js
+  tabs.push({ id: "tasks", label: "定时任务" });
+  tabs.push({ id: "settings", label: "设置", subs: proxy ? [["jvm", "启动与内存"]] : [["common", "常用"], ["jvm", "启动与内存"], ["raw", "全部配置"]] });
+  const ext = [];
+  if (window.MDGameChat && MDGameChat.applies(info)) ext.push(["gameai", "游戏内 AI"]);    // 第四阶段，见 gamechat.js
+  if (window.MDCompanion && MDCompanion.applies(info)) ext.push(["companion", "AI 伙伴"]);  // 第七阶段，见 companion.js
+  if (window.MDMusic && MDMusic.applies(info.core)) ext.push(["music", "音乐共享"]);        // 第五阶段，见 music.js
+  if (ext.length) tabs.push({ id: "ext", label: "扩展", subs: ext });
+  return tabs;
+}
+
+/* 设置 → 常用里要一进来就滚到、点亮的那一项（「启动与内存」页顶的端口点过来时用），用过就清 */
+let focusPropKey = "";
+
+/* 停止、重启之前：有玩家在线就先问一声，写出几个人会掉线（可用性走查 R07）。没人在线直接返回 true */
+async function confirmKick(info, what) {
+  const n = info.onlineCount || 0;
+  if (!n || info.kind === "proxy") return true;
+  return !!(await confirmModal({
+    title: `${what}「${info.name}」？`, danger: true, icon: what === "重启" ? "refresh" : "stop",
+    okText: `${what}服务器`,
+    body: `现在有 <b>${n}</b> 位玩家在线，${what === "重启" ? "重启时他们会掉线，等服务器重新开好以后再进" : "停服以后他们会掉线"}。服务器会先保存世界。`,
+  }));
+}
+/* 重启（R07）：调现成的 POST /api/instances/{name}/restart，先保存世界并停止，停下来以后再启动。after()：请求发出以后刷新页面上的状态 */
+async function restartInstance(info, after) {
+  if (!(await confirmKick(info, "重启"))) return false;
+  toast(`「${info.name}」正在重启：先保存世界并停止，停下来以后再启动`);
+  const t = after ? setTimeout(after, 400) : 0; // 请求要等服务器停下、再起来才回：先刷一次，状态胶囊马上变成「正在停止」
+  try { await api(`/api/instances/${encodeURIComponent(info.name)}/restart`, { method: "POST" }); return true; }
+  catch (e) { toastErr("无法重启服务器", e); return false; }
+  finally { clearTimeout(t); if (after) after(); }
+}
+/* 卡片「···」和详情页头「···」共用的两项：导出交接包、删除服务器（R06：详情页也能找到；卡片上的保留）。
+   onDeleted：移出列表或删除以后做什么（卡片重画列表，详情页回到列表） */
+function instMoreItems(info, onDeleted) {
+  const busy = info.status !== "stopped";
+  return [
+    { icon: "share", label: "导出交接包…", disabled: busy, note: busy ? "需先停止服务器" : "",
+      onClick: () => transferExportModal(info) },
+    { sep: true },
+    { icon: "trash", label: "删除服务器…", danger: true, disabled: busy, note: busy ? "需先停止服务器" : "",
+      onClick: async () => { if (await deleteInstance(info)) onDeleted(); } },
+  ];
+}
+
+async function renderDetail(name, path = "console") {
   const gen = viewGen;
   let list;
   // /api/app 只为连接地址里的本机 IP：详情页不等它（慢了也先画出来），拿到以后补上地址那一行；拿不到就说没查到 IP
@@ -2731,8 +2811,20 @@ async function renderDetail(name, tab = "console") {
   if (stale(gen)) return; // 等待期间已切走：不再建 SSE / 定时器
   const info = list.find(i => i.name === name);
   if (!info) { Main().innerHTML = `<div class="err-box">服务器不存在</div>`; return; }
+  // 标签和子页：地址里的这台服务器用不上（代理端的「常用」、原版的插件 / 模组、没有的扩展）就落到能用的地方，地址原地换掉、不多一条历史记录
+  const TABS = detailTabs(info);
+  let [tab, sub = ""] = String(path || "console").split("/");
+  const curTab = TABS.find(t => t.id === tab) || TABS[0];
+  tab = curTab.id;
+  sub = curTab.subs ? (curTab.subs.find(s => s[0] === sub) || curTab.subs[0])[0] : "";
+  const enc = encodeURIComponent(name), base = `#/inst/${enc}/`;
+  const canon = tab + (sub ? "/" + sub : "");
+  if (canon !== path) { history.replaceState(null, "", base + canon); curHash = base + canon; }
+  // 分派用的页面名：两级合成一级（世界与备份的「换地图」叫 worldmap，其余子页就叫子页的编号）
+  const view = tab === "world" ? (sub === "map" ? "worldmap" : "backups") : (tab === "settings" || tab === "ext") ? sub : tab;
   let ips = knownIPs; // null：还在问 /api/app、以前也没拿到过
-  // 页头：大号像素头像 + 标题，标题下一行是状态胶囊与徽标，再下一行是连接地址；操作按钮靠右。页头下面是常驻提示区
+  // 页头：大号像素头像 + 标题，标题下一行是状态胶囊与徽标，再下一行是连接地址；操作按钮靠右。页头下面是常驻提示区，再下面是标签（有子页的再一行）
+  const tabLink = (id, label, on, href) => `<a class="tab ${on ? "cur" : ""}" data-t="${id}" href="${href}"${on ? ` aria-current="page"` : ""}>${label}</a>`;
   Main().innerHTML = `<nav class="crumbs" aria-label="位置"><a href="#/instances">服务器</a>${icon("chevronRight")}<span>${esc(name)}</span></nav>
     <div class="detail-head">
       ${avatarOf(info.core, "lg")}
@@ -2742,25 +2834,13 @@ async function renderDetail(name, tab = "console") {
       <span class="grow"></span>
       <button class="btn primary" id="d-start" aria-label="启动 ${esc(name)}" ${info.status !== "stopped" ? "disabled" : ""}>${icon("play")} 启动</button>
       <button class="btn" id="d-stop" aria-label="停止 ${esc(name)}" ${info.status === "stopped" || info.status === "stopping" ? "disabled" : ""}>${icon("stop")} 停止</button>
+      <button class="btn" id="d-restart" aria-label="重启 ${esc(name)}" ${info.status !== "running" ? "disabled" : ""}>${icon("refresh")} 重启</button>
       <button class="btn" id="d-dir" aria-haspopup="menu">${icon("folder")} 打开文件夹 ${icon("chevronDown")}</button>
+      <button class="btn ghost icon-only" id="d-more" title="更多操作" aria-label="更多操作 ${esc(name)}" aria-haspopup="menu">${icon("more")}</button>
     </div>
     <div class="d-notices" id="d-notices" hidden></div>
-    <div class="tabs">${(() => {
-      const isProxy = info.kind === "proxy";
-      const tabs = [["console", "控制台"]];
-      if (!isProxy) tabs.push(["players", "玩家"], ["backups", "备份"]);
-      if (window.MDWorldImport && MDWorldImport.applies(info)) tabs.push([MDWorldImport.TAB, MDWorldImport.TAB_LABEL]); // 地图导入与恢复点，见 worldimport.js
-      tabs.push(["tasks", "定时任务"]);
-      if (info.core !== "vanilla") tabs.push(["res", "资源"]);
-      if (window.MDModCart && MDModCart.applies(info)) tabs.push(["cart", "待装清单"]); // 自选模组 + 待装清单（原来叫购物车），见 modcart.js
-      if (window.MDMusic && MDMusic.applies(info.core)) tabs.push(["music", "音乐共享"]); // 第五阶段，见 music.js
-      if (window.MDGameChat && MDGameChat.applies(info)) tabs.push(["gameai", "游戏内 AI"]); // 第四阶段，见 gamechat.js
-      if (window.MDCompanion && MDCompanion.applies(info)) tabs.push(["companion", "伙伴"]); // 第七阶段，见 companion.js
-      if (!isProxy) tabs.push(["common", "常用设置"], ["raw", "全部配置"]);
-      tabs.push(["jvm", "内存 / 启动"]);
-      const base = "#/inst/" + encodeURIComponent(name) + "/";
-      return tabs.map(([id, label]) => `<a class="tab ${tab === id ? "cur" : ""}" data-t="${id}" href="${base}${id}"${tab === id ? ` aria-current="page"` : ""}>${label}</a>`).join("");
-    })()}</div>
+    <div class="tabs" aria-label="${esc(name)} 的标签">${TABS.map(t => tabLink(t.id, t.label, t.id === tab, base + t.id)).join("")}</div>
+    ${curTab.subs ? `<div class="tabs sub-tabs" aria-label="${esc(curTab.label)} 的子页">${curTab.subs.map(([id, label]) => tabLink(id, label, id === sub, base + tab + "/" + id)).join("")}</div>` : ""}
     <div id="tab-body" class="sec-enter"></div>`;
   if (samePage) slideKeys(keysBefore, ["tab"]); // 同一实例换标签：键帽从旧标签滑到新标签
   // 连接地址（R01）：本机局域网 IP + 朋友连的端口，带复制；本机有几个 IP 时可以换（记在本机，卡片也跟着用）。
@@ -2798,18 +2878,33 @@ async function renderDetail(name, tab = "console") {
       (text.endsWith(raw) ? "" : `<button type="button" class="btn sm ghost" data-err-raw="${errRawAttr(raw)}" aria-label="复制报错信息 上次没能启动">${icon("copy")} 复制报错信息</button>`),
     { id: "d-start-fail" });
   };
+  // 配的 Java 找不到了（R21）：常驻在提示区，带路去「设置 → 启动与内存」换一个；换好了（javaMissing 没了）就消失
+  const paintJava = cur => {
+    if (!cur.javaMissing) { detailNotice("java-missing", ""); return; }
+    detailNotice("java-missing", `${icon("warn")}<span class="dn-text">找不到这台服务器配的 Java${cur.javaPath ? `（<span class="mono">${esc(cur.javaPath)}</span>）` : ""}，现在启动会失败。可能是那个 Java 被卸载或挪走了。</span>` +
+      (view !== "jvm" ? `<a class="btn sm" href="${base}settings/jvm">去「设置 → 启动与内存」换一个</a>` : ""), { id: "d-java-missing" });
+  };
   paintAddr(info);
   appInfo.then(a => { const r = learnIPs(a); if (!stale(gen)) { ips = r; paintAddr(lastCur); } });
   paintFail(info);
+  paintJava(info);
   placeToasts();
-  $("#d-dir").onclick = () => dropMenu($("#d-dir"), folderItems(info));
+  // 各页跟着实时状态变的东西（保存条上「运行中要重启」的说明、「立即重启」、插件 / 模组页的停用删除能不能点……）登记在这里，轮询到状态就调
+  const onStatus = [];
+  $("#d-dir").onclick = () => dropMenu($("#d-dir"), folderItems(lastCur));
+  $("#d-more").onclick = () => dropMenu($("#d-more"), instMoreItems(lastCur, () => { location.hash = "#/instances"; }));
   $("#d-start").onclick = async () => {
-    try { $("#d-start").disabled = true; await api(`/api/instances/${encodeURIComponent(name)}/start`, { method: "POST" }); toast("正在启动，首次生成世界可能需要一两分钟"); refreshHead(); }
+    try { $("#d-start").disabled = true; await api(`/api/instances/${enc}/start`, { method: "POST" }); toast("正在启动，首次生成世界可能需要一两分钟"); refreshHead(); }
     catch (e) { toastErr("无法启动服务器", e); $("#d-start").disabled = false; refreshHead(); } // 没起来的原因马上常驻到页头下面
   };
   $("#d-stop").onclick = async () => {
-    try { $("#d-stop").disabled = true; await api(`/api/instances/${encodeURIComponent(name)}/stop`, { method: "POST" }); toast("正在保存世界并停止"); refreshHead(); }
+    if (!(await confirmKick(lastCur, "停止"))) return;
+    try { $("#d-stop").disabled = true; await api(`/api/instances/${enc}/stop`, { method: "POST" }); toast("正在保存世界并停止"); refreshHead(); }
     catch (e) { toastErr("无法停止服务器", e); $("#d-stop").disabled = false; }
+  };
+  $("#d-restart").onclick = async () => {
+    $("#d-restart").disabled = true;
+    if (!(await restartInstance(lastCur, refreshHead)) && !stale(gen)) refreshHead();
   };
   const refreshHead = async () => {
     try {
@@ -2819,12 +2914,16 @@ async function renderDetail(name, tab = "console") {
       if (!cur) return;
       const was = info.status;
       info.status = cur.status; // 各 tab 读到的状态随之更新
+      info.onlineCount = cur.onlineCount;
       $("#d-status").innerHTML = headStatus(cur);
       animatePill($("#d-status .st-pill"), was, cur.status); // 状态变了：胶囊变色、文字换场，进入运行中放一圈波纹
       $("#d-start").disabled = cur.status !== "stopped";
       $("#d-stop").disabled = cur.status === "stopped" || cur.status === "stopping";
-      paintAddr(cur); // 在「常用设置」里改了端口：地址跟着变
+      $("#d-restart").disabled = cur.status !== "running";
+      paintAddr(cur); // 在「设置 → 常用」里改了端口：地址跟着变
       paintFail(cur);
+      paintJava(cur);
+      onStatus.forEach(fn => { try { fn(cur, was); } catch {} });
     } catch {}
   };
   startPoll(refreshHead, 2500, gen);
@@ -2832,14 +2931,39 @@ async function renderDetail(name, tab = "console") {
   // 模组声明了比实例更高的 Java 要求时给提示（不阻断：1.20.1 配 Java 25 的魔改模组是允许的组合），放在页头下面的提示区。
   // 只在有模组目录的核心上查一次；vanilla / 代理端会 400，静默忽略。
   if (info.kind !== "proxy" && info.core !== "vanilla") {
-    api(`/api/instances/${encodeURIComponent(name)}/mods`).then(r => {
+    api(`/api/instances/${enc}/mods`).then(r => {
       if (stale(gen) || !r || !r.needJava || r.needJava <= (info.javaMajor || 0)) return;
-      detailNotice("java-need", `<a class="warn-text" href="#/inst/${encodeURIComponent(name)}/jvm">${icon("warn")} 有模组要求 Java ${r.needJava}，这台服务器现在是 Java ${info.javaMajor}，启动可能失败。可在「内存 / 启动」里换 Java。</a>`, { id: "d-java-hint" });
+      detailNotice("java-need", `<a class="warn-text" href="${base}settings/jvm">${icon("warn")} 有模组要求 Java ${r.needJava}，这台服务器现在是 Java ${info.javaMajor}，启动可能失败。可在「设置 → 启动与内存」里换 Java。</a>`, { id: "d-java-hint" });
     }).catch(() => {});
   }
 
+  // 设置类页面的保存条（R07、R16）：「运行中：保存后要重启才生效」按实时状态写，停着时不写；保存成功、服务器在运行、
+  // 改的项要重启才生效时，保存条上给「立即重启」（重启以后、或者停过一次服务器，就不用了）
+  const liveBarNote = () => `<span class="warn-text sb-live" hidden>${icon("warn")} <span class="sb-live-t"></span></span>` +
+    `<button type="button" class="btn sm" data-sb="restart" hidden aria-label="立即重启 ${esc(name)}">${icon("refresh")} 立即重启</button>`;
+  const wireLiveBar = (root, liveText) => {
+    const bar = $(".save-bar.sticky", root), live = $(".sb-live", bar), rb = $('[data-sb="restart"]', bar);
+    let pending = false; // 存过要重启才生效的改动，服务器还没重启过
+    const paint = () => {
+      if (!bar.isConnected) return;
+      const run = info.status !== "stopped";
+      live.hidden = !run && !pending;
+      $(".sb-live-t", live).textContent = pending ? "已保存，重启服务器以后生效" : liveText;
+      rb.hidden = !(pending && info.status === "running");
+    };
+    rb.onclick = async () => {
+      rb.disabled = true;
+      if (await restartInstance(info, refreshHead)) pending = false;
+      rb.disabled = false;
+      paint();
+    };
+    onStatus.push(cur => { if (cur.status === "stopped") pending = false; paint(); }); // 停下来过：下次启动就是新的设置
+    paint();
+    return { saved: needRestart => { if (needRestart && info.status !== "stopped") pending = true; paint(); } };
+  };
+
   const body = $("#tab-body");
-  if (tab === "console") {
+  if (view === "console") {
     body.innerHTML = `
       <div class="console-bar">
         <div class="search-field">${icon("search", "sf-ico")}<input type="text" id="con-filter" placeholder="过滤日志（如 ERROR / 玩家名）" style="width:280px"></div>
@@ -3002,7 +3126,7 @@ async function renderDetail(name, tab = "console") {
       }
     };
 
-  } else if (tab === "players") {
+  } else if (view === "players") {
     const act = async (action, player) => {
       try {
         await api(`/api/instances/${encodeURIComponent(name)}/players`, { method: "POST", body: { action, player } });
@@ -3064,66 +3188,93 @@ async function renderDetail(name, tab = "console") {
     };
     await draw();
 
-  } else if (tab === "backups") {
+  } else if (view === "backups") {
+    // 世界与备份 → 备份（可用性走查 R11、R15）：页顶写当前世界从哪来；备份放在哪、留几份写在这里（份数是全局设置，到「设置 → 存储位置」改）；
+    // 运行中的「还原」旁边写明要先停服，确认框里直接给「停止并还原」，一次确认做完
     const appInfo = await api("/api/app").catch(() => ({ config: {} }));
     if (stale(gen)) return;
-    let keep = (appInfo.config && appInfo.config.backupKeep) || 10;
+    const keep = (appInfo.config && appInfo.config.backupKeep) || 10, local = appInfo.local !== false;
+    const nice = t => String(t || "").replace(/(\d{1,2}:\d\d):\d\d$/, "$1"); // 2026-11-15 20:30:05 → 2026-11-15 20:30（本来就没有秒的不动）
     const draw = async () => {
       if (stale(gen)) return;
-      let list;
-      try { list = await api(`/api/instances/${encodeURIComponent(name)}/backups`); }
-      catch (e) { if (!stale(gen)) body.innerHTML = errBox("无法读取备份列表", e); return; }
+      let list, cur = info;
+      try {
+        [list, cur] = await Promise.all([api(`/api/instances/${enc}/backups`),
+          api("/api/instances").then(l => l.find(i => i.name === name) || info).catch(() => info)]);
+      } catch (e) { if (!stale(gen)) body.innerHTML = errBox("无法读取备份列表", e); return; }
       if (stale(gen)) return;
+      info.worldFrom = cur.worldFrom; info.backupDir = cur.backupDir || info.backupDir;
+      const wf = cur.worldFrom, running = info.status !== "stopped";
+      const label = $("#bk-label") ? $("#bk-label").value : ""; // 重画时留住正在填的标签
       body.innerHTML = `
+        <div class="bk-now" id="bk-now">${icon("globe")}<span>${wf
+          ? `当前世界：从 <b>${esc(nice(wf.backupTime) || wf.backup)}</b> 的备份还原${wf.label ? `（${esc(wf.label)}）` : ""}，还原于 ${esc(nice(wf.at))}`
+          : "当前世界：服务器自己的世界，没有从备份还原过"}</span></div>
         <div class="row" style="margin-bottom:10px;flex-wrap:wrap">
-          <input type="text" id="bk-label" placeholder="备份标签（可选，如：更新模组前）" style="max-width:240px">
+          <input type="text" id="bk-label" maxlength="20" placeholder="备份标签（可选，如：更新模组前）" aria-label="备份标签（可选）" style="max-width:240px" value="${esc(label)}">
           <button class="btn primary" id="bk-create">${icon("camera")} 立即备份世界</button>
-          <span class="grow"></span>
-          <label class="hint" style="display:flex;align-items:center;gap:6px;margin:0">保留最近 <input type="number" id="bk-keep" min="1" max="1000" value="${keep}" style="width:72px"> 份</label>
-          <button class="btn sm" id="bk-keep-save">保存</button>
         </div>
-        <div class="hint" style="margin-bottom:14px">服务器运行时也能备份：先暂停自动存档，压成压缩包，再恢复自动存档。超过保留份数时删掉最旧的。删除服务器不会删掉备份。保留份数是全局设置，所有服务器共用。</div>
-        <div class="group has-ico bk-list">${(list || []).map(b => `
+        <div class="bk-where" id="bk-where">
+          <span>备份放在 <span class="mono" id="bk-dir">${esc(info.backupDir || "")}</span></span>
+          ${local && info.backupDir ? `<button type="button" class="btn sm ghost" id="bk-open">${icon("folder")} 打开</button>` : ""}
+          <span class="sep">·</span><span id="bk-keep">保留最近 <b>${keep}</b> 份（所有服务器共用）</span>
+          <a class="quiet-link" href="#/settings/storage" id="bk-keep-link">到「设置 → 存储位置」里改</a>
+        </div>
+        <div class="hint" style="margin-bottom:14px">服务器运行时也能备份：先暂停自动存档，压成压缩包，再恢复自动存档。超过保留份数时删掉最旧的。移出列表或删除服务器都不会删掉备份。
+          还原要先停服：还原前会先把当前世界自动备份一份（标签「还原前自动」），再把世界换成选的那一份；核心、${window.MDModCart && MDModCart.applies(info) ? MDModCart.tabLabel(info.core) + "和" : ""}设置都不动。定时备份在「定时任务」里加。</div>
+        <div class="group has-ico bk-list">${(list || []).map(b => {
+          const title = b.label || b.file, who = b.label ? `${b.label}（${nice(b.time)}）` : b.file;
+          return `
           <div class="row-item"><div class="ri-head"><span class="ri-ico">${icon("package")}</span>
-            <div class="ri-main"><div class="ri-title">${esc(b.file)}</div><div class="ri-key">${b.sizeMb.toFixed(1)} MB · ${esc(b.time)}</div></div>
-            <div class="ri-right"><button class="btn sm" data-restore="${esc(b.file)}" aria-label="还原 ${esc(b.file)}">${icon("restore")} 还原</button>
-              <button class="btn sm danger" data-del="${esc(b.file)}" aria-label="删除 ${esc(b.file)}">删除</button></div></div></div>`).join("") ||
+            <div class="ri-main"><div class="ri-title">${esc(title)}${wf && wf.backup === b.file ? `<span class="tag">现在的世界</span>` : ""}</div>
+              <div class="ri-key">${esc(nice(b.time))} · ${b.sizeMb.toFixed(1)} MB${b.label ? ` · <span class="mono">${esc(b.file)}</span>` : ""}</div></div>
+            <div class="ri-right">${running ? `<span class="hint bk-need-stop">要先停服</span>` : ""}<button class="btn sm" data-restore="${esc(b.file)}" data-who="${esc(who)}" aria-label="还原 ${esc(b.file)}">${icon("restore")} 还原</button>
+              <button class="btn sm danger" data-del="${esc(b.file)}" aria-label="删除 ${esc(b.file)}">删除</button></div></div></div>`;
+        }).join("") ||
           `<div class="row-item"><div class="ri-head"><div class="ri-main"><div class="ri-sub">暂无备份</div></div></div></div>`}</div>`;
       $("#bk-create").onclick = async () => {
         $("#bk-create").disabled = true;
         try {
-          const r = await api(`/api/instances/${encodeURIComponent(name)}/backups`, { method: "POST", body: { label: $("#bk-label").value.trim() } });
+          const r = await api(`/api/instances/${enc}/backups`, { method: "POST", body: { label: $("#bk-label").value.trim() } });
           toast(`备份完成：${r.file}`);
+          if (!stale(gen)) $("#bk-label").value = "";
         } catch (e) { toastErr("备份失败", e); }
         draw();
       };
-      bindSaveInput($("#bk-keep"), $("#bk-keep-save"), async v => {
-        const n = Math.max(1, Math.min(1000, Math.round(+v) || 10));
-        await api("/api/config", { method: "PUT", body: { backupKeep: n } });
-        keep = n; if (!stale(gen)) $("#bk-keep").value = n;
-        toast(`已设置保留最近 ${n} 份（下次备份时生效）`);
-      }, gen);
+      $("#bk-label").onkeydown = e => { if (e.key === "Enter") $("#bk-create").click(); };
+      const open = $("#bk-open");
+      if (open) open.onclick = () => openBackupDir(info);
       body.querySelectorAll("[data-restore]").forEach(b => b.onclick = async () => {
+        const file = b.dataset.restore, live = info.status !== "stopped", n = live ? (info.onlineCount || 0) : 0;
         const r = await confirmModal({
-          title: "还原备份？", danger: true, okText: "还原", icon: "restore",
-          body: `将把世界回滚到 <b>${esc(b.dataset.restore)}</b>。<br>服务器必须是停止状态。当前世界会先自动备份一份。`,
+          title: live ? "停止服务器并还原备份？" : "还原备份？", danger: true, okText: live ? "停止并还原" : "还原", icon: "restore",
+          body: `将把世界还原到 <b>${esc(b.dataset.who)}</b>。<br>` +
+            (live ? `服务器正在运行${n ? `，有 <b>${n}</b> 位玩家在线，停服以后他们会掉线` : ""}：会先保存世界并停止，停下来以后再还原。<br>` : "") +
+            "还原前会先把当前世界自动备份一份，想反悔可以再还原回来。",
         });
-        if (!r) return;
-        try { await api(`/api/instances/${encodeURIComponent(name)}/backups/restore`, { method: "POST", body: { file: b.dataset.restore } }); toast("还原完成"); }
-        catch (e) { toastErr("还原失败", e); }
+        if (!r || stale(gen)) return;
+        body.querySelectorAll("[data-restore]").forEach(x => { x.disabled = true; });
+        if (live) { toast("正在停止服务器，停下来以后还原"); setTimeout(refreshHead, 300); }
+        try {
+          await api(`/api/instances/${enc}/backups/restore`, { method: "POST", body: { file, stopFirst: live } });
+          toast(`还原完成：现在的世界是 ${b.dataset.who}`);
+        } catch (e) { toastErr("还原失败", e); }
+        refreshHead();
         draw();
       });
       body.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
         const r = await confirmModal({ title: "删除备份？", danger: true, okText: "删除", icon: "trash", body: "删除后无法恢复：" + esc(b.dataset.del) });
         if (!r) return;
-        try { await api(`/api/instances/${encodeURIComponent(name)}/backups?file=${encodeURIComponent(b.dataset.del)}`, { method: "DELETE" }); }
+        try { await api(`/api/instances/${enc}/backups?file=${encodeURIComponent(b.dataset.del)}`, { method: "DELETE" }); }
         catch (e) { toastErr("无法删除备份", e); }
         draw();
       });
     };
+    // 开服、停服以后「要先停服」跟着出现、消失（只在状态变了时重画）
+    onStatus.push((cur, was) => { if ((cur.status === "stopped") !== (was === "stopped")) draw(); });
     await draw();
 
-  } else if (tab === "tasks") {
+  } else if (view === "tasks") {
     let pol;
     try { pol = await api(`/api/instances/${encodeURIComponent(name)}/policies`); }
     catch (e) { if (!stale(gen)) body.innerHTML = errBox("无法读取定时任务", e); return; }
@@ -3151,11 +3302,16 @@ async function renderDetail(name, tab = "console") {
       <div class="field-err" id="sc-err"></div>
       ${saveBar("保存策略")}</div>`;
     let paintBar = () => {};
+    // 每一条定时任务在保存条里算一项（可用性走查 R16）：键是「类型、时间、命令」再加上第几条一样的，加两条就是两项修改
+    const schedKeys = list => { const n = {}; return list.map(s => { const k = JSON.stringify([s.type, s.at, s.args || ""]); n[k] = (n[k] || 0) + 1; return "s:" + k + "#" + n[k]; }); };
+    let savedKeys = new Set(schedKeys(scheds)); // 已经保存的那些：点「添加」加进来的是草稿，标「未保存」，保存以后才算数
     const drawScheds = () => {
+      const keys = schedKeys(scheds);
       $("#sched-list").innerHTML = scheds.map((s, i) => `
-        <div class="java-row"><span class="badge core">${esc(TYPE_NAMES[s.type] || s.type)}</span>
+        <div class="java-row${savedKeys.has(keys[i]) ? "" : " draft"}"><span class="badge core">${esc(TYPE_NAMES[s.type] || s.type)}</span>
           <span class="jv">每天 ${esc(s.at)}</span>
           <span class="jp">${esc(s.args || "")}</span>
+          ${savedKeys.has(keys[i]) ? "" : `<span class="tag warn">未保存</span>`}
           <span class="grow"></span>
           <button class="btn sm danger" data-i="${i}" aria-label="移除 ${esc(TYPE_NAMES[s.type] || s.type)} 每天 ${esc(s.at)}${s.args ? " " + esc(s.args) : ""}">移除</button></div>`).join("") ||
         `<div class="sub">暂无定时任务</div>`;
@@ -3195,53 +3351,103 @@ async function renderDetail(name, tab = "console") {
       paintBar();
     };
     paintBar = wireSaveBar(body, gen,
-      () => ({ crash: String($("#pol-crash").checked), schedules: JSON.stringify(scheds) }),
+      () => Object.fromEntries([["crash", String($("#pol-crash").checked)], ...schedKeys(scheds).map(k => [k, "1"])]),
       async () => {
         await api(`/api/instances/${encodeURIComponent(name)}/policies`, { method: "PUT", body: { crashRestart: $("#pol-crash").checked, schedules: scheds } });
-        toast("策略已保存并即时生效");
+        savedKeys = new Set(schedKeys(scheds));
+        if (!stale(gen)) drawScheds();
+        toast("定时任务已保存，马上生效");
       });
 
-  } else if (tab === "res") {
-    body.innerHTML = `
-      <div class="row" style="margin-bottom:12px;flex-wrap:wrap">
-        <div class="search-field">${icon("search", "sf-ico")}<input type="text" id="res-q" placeholder="搜索 Modrinth ${["paper","purpur","leaves","folia","velocity","waterfall"].includes(info.core) ? "插件" : "模组"}（英文名效果更好）" style="width:340px"></div>
-        <button class="btn" id="res-go">${icon("search")} 搜索</button>
-        <span class="hint">按当前核心与版本过滤；数据来自 Modrinth</span>
-      </div>
-      <div id="res-list"><div class="sub">输入关键词搜索，或直接点搜索看热门资源</div></div>`;
-    let searchReq = 0;
-    const search = async () => {
-      const req = ++searchReq;
-      const outdated = () => stale(gen) || req !== searchReq;
-      $("#res-list").textContent = "搜索中…";
-      try {
-        const r = await api(`/api/instances/${encodeURIComponent(name)}/resources/search?q=${encodeURIComponent($("#res-q").value.trim())}`);
-        if (outdated()) return;
-        $("#res-list").innerHTML = (r.hits || []).map(h => `
-          <div class="java-row" style="max-width:880px">
-            ${h.icon_url ? `<img class="res-icon" src="${esc(h.icon_url)}" width="34" height="34" alt="" onerror="this.remove()">` : `<span class="res-noicon">${icon("package")}</span>`}
-            <div style="flex:1;min-width:0"><b>${esc(h.title)}</b>
-              <div class="jp" style="white-space:normal;max-height:32px;overflow:hidden">${esc(h.description)}</div></div>
-            <span class="jv" style="color:var(--muted);display:inline-flex;align-items:center;gap:4px">${h.downloads >= 1e6 ? (h.downloads / 1e6).toFixed(1) + "M" : Math.round(h.downloads / 1e3) + "k"}${icon("download")}</span>
-            <button class="btn sm primary" data-rid="${esc(h.project_id)}" data-rt="${esc(h.title)}" aria-label="安装 ${esc(h.title)}">${icon("download")} 安装</button>
-          </div>`).join("") || `<div class="sub">没有兼容 ${esc(info.mc)} 的结果。换个关键词，或者清空搜索看热门资源</div>`;
-        // 20 个结果的按钮都叫「安装」、模组名又相近，名字带上模组名（测试报告观察 9）；按钮上的字变了，名字跟着变
-        $("#res-list").querySelectorAll("[data-rid]").forEach(b => b.onclick = async () => {
-          const label = s => b.setAttribute("aria-label", s + " " + b.dataset.rt);
-          b.disabled = true;
-          b.textContent = "安装中…"; label("安装中…");
-          try {
-            const res = await api(`/api/instances/${encodeURIComponent(name)}/resources/install`, { method: "POST", body: { projectId: b.dataset.rid } });
-            toast(`已安装 ${b.dataset.rt}（${res.file}）。重启服务器后生效`);
-            b.innerHTML = icon("check") + " 已安装"; label("已安装");
-          } catch (e) { toastErr(`无法安装 ${b.dataset.rt}`, e); b.disabled = false; b.innerHTML = icon("download") + " 安装"; label("安装"); }
-        });
-      } catch (e) { if (!outdated()) $("#res-list").innerHTML = errBox("无法获取资源列表", e); }
+  } else if (view === "addons") {
+    // 插件 / 模组（可用性走查 R10）：原来的「资源」和「待装清单」合成这一页。上面是服务器里已经装了的（停用、启用、删除，要先停服），
+    // 下面是热门、搜索、从电脑添加、待装清单（modcart.js），装过的在热门和搜索结果里标「已安装」。
+    // 名字按核心叫：插件服叫插件，模组服叫模组，Mohist、Banner 两样都说（docs/文案重写/04-标签与术语-beta3.md）
+    const label = MDModCart.tabLabel(info.core), modsApi = `/api/instances/${enc}/mods`;
+    body.innerHTML = `<section class="ad-installed" aria-labelledby="ad-h">
+        <div class="ad-head"><h2 id="ad-h">已安装的${label}</h2><span class="hint" id="ad-count" aria-live="polite"></span><span class="grow"></span>
+          <button type="button" class="btn sm ghost" id="ad-reload" aria-label="刷新已安装的${label}">${icon("refresh")} 刷新</button></div>
+        <div class="warn-text ad-need-stop" id="ad-need-stop" hidden>${icon("warn")} 要停用、启用或删除，先停止服务器：运行中这些文件被服务器占着，改了也要重启才算数。</div>
+        <div id="ad-list">${skeletonRows(3)}</div>
+        <div class="hint ad-note" id="ad-note"></div>
+      </section>
+      <h2 class="ad-add-h">添加${label}</h2>
+      <div id="ad-cart"></div>`;
+    let mods = [], dir = "", pids = new Set(), ids = new Set(), repaintHits = () => {};
+    const stopped = () => info.status === "stopped";
+    const titleOf = m => m.name || m.id || m.file.replace(/\.jar(\.disabled)?$/i, "");
+    const paintStop = () => {
+      const on = stopped();
+      $("#ad-need-stop").hidden = on || !mods.length;
+      body.querySelectorAll("[data-ad-toggle], [data-ad-del]").forEach(b => { if (!b.dataset.busy) b.disabled = !on; });
     };
-    $("#res-go").onclick = search;
-    $("#res-q").onkeydown = e => { if (e.key === "Enter") search(); };
+    const paint = () => {
+      const off = mods.filter(m => m.disabled).length;
+      $("#ad-count").textContent = mods.length ? `共 ${mods.length} 个${off ? `，${off} 个已停用` : ""}` : "";
+      $("#ad-note").textContent = mods.length ? `停用是把文件改名成 .jar.disabled，服务器不再加载它，随时能启用；删除是把文件移进服务器文件夹里的 .minedeck\\已删除\\${dir}，想要回来就从那里挪回 ${dir} 文件夹。改动在下次启动时生效。` : "";
+      $("#ad-list").innerHTML = mods.length ? `<div class="group has-ico">${mods.map(m => {
+        const t = titleOf(m);
+        return `<div class="row-item ad-item${m.disabled ? " off" : ""}" data-file="${esc(m.file)}"><div class="ri-head"><span class="ri-ico">${icon(info.kind === "proxy" || MDModCart.nounOf(info.core) === "插件" ? "plug" : "package")}</span>
+          <div class="ri-main"><div class="ri-title"><span>${esc(t)}</span>${m.disabled ? `<span class="tag neutral">已停用</span>` : ""}</div>
+            <div class="ri-sub"><span class="mono">${esc(m.file)}</span>${m.version ? ` · ${esc(m.version)}` : ""}</div>${m.err ? `<div class="ri-sub">读不出这个文件里的信息：${esc(m.err)}</div>` : ""}</div>
+          <div class="ri-right">
+            <button type="button" class="btn sm" data-ad-toggle="${esc(m.file)}" data-enable="${m.disabled ? 1 : 0}" aria-label="${m.disabled ? "启用" : "停用"} ${esc(m.file)}">${m.disabled ? "启用" : "停用"}</button>
+            <button type="button" class="btn sm danger" data-ad-del="${esc(m.file)}" aria-label="删除 ${esc(m.file)}">删除</button>
+          </div></div></div>`;
+      }).join("")}</div>` : `<div class="sub" id="ad-empty">${esc(dir || "插件")} 文件夹里还没有${label}。在下面挑好放进待装清单，一起装上。</div>`;
+      body.querySelectorAll("[data-ad-toggle]").forEach(b => b.onclick = () => toggleOne(b));
+      body.querySelectorAll("[data-ad-del]").forEach(b => b.onclick = () => deleteOne(b));
+      paintStop();
+    };
+    const load = async () => {
+      try {
+        const r = await api(modsApi);
+        if (stale(gen)) return;
+        mods = r.mods || []; dir = r.dir || "";
+        ids = new Set(mods.filter(m => !m.disabled && m.id).map(m => m.id.toLowerCase()));
+        paint();
+        repaintHits();
+      } catch (e) { if (!stale(gen)) $("#ad-list").innerHTML = errBox(`无法读取已安装的${label}`, e, { label: `已安装的${label}` }); }
+    };
+    // 热门和搜索结果里认「已安装」：先按模组 ID 对 Modrinth 的 slug（马上就有），再按文件内容在 Modrinth 上认项目（要联网，只在进页面时查一次）
+    const learnProjects = () => api(modsApi + "?projects=1").then(r => {
+      if (stale(gen)) return;
+      pids = new Set((r.mods || []).map(m => m.projectId).filter(Boolean));
+      repaintHits();
+    }).catch(() => {});
+    const toggleOne = async b => {
+      const file = b.dataset.adToggle, enable = b.dataset.enable === "1";
+      b.disabled = true; b.dataset.busy = "1";
+      try {
+        await api(`${modsApi}/toggle`, { method: "POST", body: { file, enable } });
+        toast(`已${enable ? "启用" : "停用"} ${file.replace(/\.disabled$/i, "")}，下次启动生效`);
+      } catch (e) { toastErr(`无法${enable ? "启用" : "停用"} ${file}`, e); }
+      if (!stale(gen)) await load();
+    };
+    const deleteOne = async b => {
+      const file = b.dataset.adDel, m = mods.find(x => x.file === file);
+      const ok = await confirmModal({ title: `删除「${m ? titleOf(m) : file}」？`, danger: true, icon: "trash", okText: "删除",
+        body: `会把 <span class="mono">${esc(file)}</span> 从 ${esc(dir)} 文件夹移进服务器文件夹里的 <span class="mono">.minedeck\\已删除\\${esc(dir)}</span>，不会直接删掉。想要回来，从那里挪回 ${esc(dir)} 文件夹就行。` });
+      if (!ok || stale(gen)) return;
+      b.disabled = true; b.dataset.busy = "1";
+      try {
+        const r = await api(`${modsApi}/delete`, { method: "POST", body: { file } });
+        const local = await api("/api/app").then(a => a.local !== false).catch(() => true); // 从局域网打开时打不开主机上的文件夹
+        toast(`已删除 ${file}：移进了服务器文件夹里的 ${r.movedTo}`, false, undefined, {
+          actions: local && r.dir ? [{ label: "打开文件夹", aria: `打开放删除文件的文件夹 ${name}`,
+            onClick: () => api(`/api/instances/${enc}/opendir?sub=${encodeURIComponent(r.dir)}`, { method: "POST" }).catch(e => toastErr("无法打开文件夹", e)) }] : [],
+        });
+      } catch (e) { toastErr(`无法删除 ${file}`, e); }
+      if (!stale(gen)) await load();
+    };
+    $("#ad-reload").onclick = load;
+    onStatus.push(paintStop); // 停服以后停用、删除马上能点；开服以后马上点不了
+    await load();
+    if (stale(gen)) return;
+    repaintHits = await MDModCart.render($("#ad-cart"), info, gen, { installedOf: h => pids.has(h.project_id) || (!!h.slug && ids.has(String(h.slug).toLowerCase())) });
+    learnProjects();
 
-  } else if (tab === "common") {
+  } else if (view === "common") {
     if (info.kind === "proxy") {
       body.innerHTML = `<div class="sub">代理端的监听端口和后端服务器列表在配置文件里：Velocity 是 velocity.toml，Waterfall 是 config.yml，第一次启动后生成。用「打开文件夹」修改。</div>`;
       return;
@@ -3265,7 +3471,7 @@ async function renderDetail(name, tab = "console") {
     const inGroup = g => items.filter(p => p.group === g);
     // 每个控件都用设置项的中文名当可访问名称（行里的名字和控件没有 label 关联，读屏和自动化原来读不到名字）
     const fieldHTML = p => {
-      const v = cur[p.key] ?? p.def, al = `aria-label="${esc(p.label)}"`;
+      const v = cur[p.key] ?? (p.defSince && verGte(mc, p.defSince.v) ? p.defSince.def : p.def), al = `aria-label="${esc(p.label)}"`;
       if (p.key === "motd") return `<div class="motd-palette" id="motd-pal"></div>
         <input type="text" data-k="motd" id="motd-in" value="${esc(v ?? "")}" ${al} style="width:100%;margin-top:6px"><div class="motd-preview" id="motd-prev"></div>`;
       if (p.mode === "gamerule") return `<label class="switch" title="游戏规则：服务器运行时通过 /gamerule 即时生效"><input type="checkbox" data-gr="${p.gamerule}" ${v === "true" ? "checked" : ""} ${running ? "" : "disabled"} ${al}><span class="sw"></span></label>`;
@@ -3275,7 +3481,7 @@ async function renderDetail(name, tab = "console") {
       return `<input type="text" data-k="${p.key}" value="${esc(v ?? "")}" ${al} style="width:200px">`;
     };
     const rowHTML = p => {
-      const tags = (p.restart ? `<span class="ri-restart">重启生效</span>` : "") + (p.mode === "gamerule" ? `<span class="gr-tag">游戏规则</span>` : "");
+      const tags = (p.restart && p.mode !== "gamerule" ? `<span class="ri-restart">重启生效</span>` : "") + (p.mode === "gamerule" ? `<span class="gr-tag">游戏规则</span>` : "");
       // 白名单：说清 MineDeck 新建时怎么写的（R02）。26.3 起服务端自己生成配置时默认开，MineDeck 新建时按向导里的开关明确写进去
       const notice = p.key === "white-list" ? `<div class="pd">MineDeck 新建服务器时按向导里的开关写这一项，默认关${verGte(mc, "26.3") ? "（这个版本的服务端自己生成配置时默认是开）" : ""}。名单和这个开关在「玩家」里也能直接改。</div>` : "";
       const grHint = (p.mode === "gamerule" && !running) ? "（服务器启动后可切换）" : "";
@@ -3295,13 +3501,14 @@ async function renderDetail(name, tab = "console") {
         return gi.length ? `<div class="cp-group" id="cpg-${i}"><h3 class="cp-gh">${g}<span class="cp-gn">${gi.length}</span></h3>
           <div class="props-grid">${gi.map(rowHTML).join("")}</div></div>` : "";
       }).join("")}</div>
-      ${saveBar("保存设置", running ? `<span class="warn-text">${icon("warn")} 服务器运行中：保存后需重启生效；游戏规则立即生效。</span>` : "")}`;
+      ${saveBar("保存设置", liveBarNote())}`;
     body.querySelectorAll(".cp-chip").forEach(c => c.onclick = () => $("#cpg-" + c.dataset.g, body)?.scrollIntoView({ behavior: "smooth", block: "start" }));
     wireSearch($("#cp-search"), () => {
       const q = $("#cp-search").value;
       body.querySelectorAll(".cp-group").forEach(g => { g.style.display = filterBySearch(q, g.querySelectorAll(".prop-item")) ? "" : "none"; });
     });
     // 游戏规则开关：运行时即时发送 /gamerule（不写入 server.properties）
+    onStatus.push(c => body.querySelectorAll("[data-gr]").forEach(sw => { sw.disabled = c.status !== "running"; })); // 游戏规则只能在运行中切：开服、停服以后跟着变
     body.querySelectorAll("[data-gr]").forEach(sw => sw.onchange = async () => {
       const rule = sw.dataset.gr, val = sw.checked;
       try { await api(`/api/instances/${encodeURIComponent(name)}/command`, { method: "POST", body: { cmd: `gamerule ${rule} ${val}` } }); toast(`已应用游戏规则 ${rule} = ${val}`); }
@@ -3343,6 +3550,9 @@ async function renderDetail(name, tab = "console") {
     }
     const readProps = () => Object.fromEntries([...body.querySelectorAll("[data-k]")].map(el =>
       [el.dataset.k, el.type === "checkbox" ? (el.checked ? "true" : "false") : el.value]));
+    const lb = wireLiveBar(body, "服务器运行中：保存后要重启才生效；游戏规则开关马上生效");
+    const RESTART = Object.fromEntries((window.PROPS_CATALOG || []).map(p => [p.key, p.restart !== false]));
+    let savedProps = readProps();
     wireSaveBar(body, gen, readProps, async () => {
       const pairs = [];
       body.querySelectorAll("[data-k]").forEach(el => {
@@ -3355,10 +3565,21 @@ async function renderDetail(name, tab = "console") {
         pairs.push({ key: el.dataset.k, value: String(val) });
       });
       await api(`/api/instances/${encodeURIComponent(name)}/properties`, { method: "PUT", body: { pairs } });
-      toast("已保存 server.properties" + (data.running ? "（重启后生效）" : ""));
+      // 改的项里有要重启才生效的（MineDeck 保存只写文件，服务端运行中不会重读：目录里的项都标着重启生效）
+      const now = readProps(), changed = Object.keys(now).filter(k => now[k] !== savedProps[k]);
+      savedProps = now;
+      const needRestart = changed.some(k => RESTART[k] !== false);
+      toast("已保存 server.properties" + (info.status !== "stopped" && needRestart ? "（重启服务器以后生效）" : ""));
+      lb.saved(needRestart);
     });
+    // 从「设置 → 启动与内存」页顶的端口点过来：滚到这一项、点亮、光标放进去
+    if (focusPropKey) {
+      const el = body.querySelector(`[data-k="${CSS.escape(focusPropKey)}"]`), item = el && el.closest(".prop-item");
+      focusPropKey = "";
+      if (item) { item.scrollIntoView({ block: "center" }); item.classList.add("flash"); el.focus(); setTimeout(() => item.classList.remove("flash"), 1600); }
+    }
 
-  } else if (tab === "raw") {
+  } else if (view === "raw") {
     let data;
     try { data = await api(`/api/instances/${encodeURIComponent(name)}/properties`); } catch (e) { if (!stale(gen)) body.innerHTML = errBox("无法读取服务器配置", e); return; }
     if (stale(gen)) return;
@@ -3373,40 +3594,39 @@ async function renderDetail(name, tab = "console") {
       <table class="raw">${data.pairs.map(p =>
         `<tr data-search="${esc(p.key)} ${esc(LABELS[p.key] || "")}"><td>${esc(p.key)}</td><td class="raw-cn">${LABELS[p.key] ? esc(LABELS[p.key]) : ""}</td><td><input type="text" data-k="${esc(p.key)}" value="${esc(p.value)}" aria-label="${esc(p.key)}"></td></tr>`).join("")}</table>
       <div class="sub" id="raw-none" hidden>没有匹配的配置项：换个关键词，或者按 Esc 清空搜索。</div>
-      ${saveBar("保存全部", data.running ? `<span class="warn-text">${icon("warn")} 服务器运行中：保存后需重启生效</span>` : "")}</div>`;
+      ${saveBar("保存全部", liveBarNote())}</div>`;
     // 搜索（同常用设置）：只是把不匹配的行藏起来，保存时照样提交全部键值
     wireSearch($("#raw-search"), () => {
       const q = $("#raw-search").value, n = filterBySearch(q, body.querySelectorAll("table.raw tr"));
       $("#raw-count").textContent = searchKey(q) ? `找到 ${n} 项（共 ${total} 项）` : `共 ${total} 项`;
       $("#raw-none").hidden = n > 0;
     });
+    const lb = wireLiveBar(body, "服务器运行中：保存后要重启才生效");
     wireSaveBar(body, gen,
       () => Object.fromEntries([...body.querySelectorAll("input[data-k]")].map(el => [el.dataset.k, el.value])),
       async () => {
         const pairs = [...body.querySelectorAll("input[data-k]")].map(el => ({ key: el.dataset.k, value: el.value }));
         await api(`/api/instances/${encodeURIComponent(name)}/properties`, { method: "PUT", body: { pairs } });
-        toast("已保存 server.properties" + (data.running ? "（重启后生效）" : ""));
+        toast("已保存 server.properties" + (info.status !== "stopped" ? "（重启服务器以后生效）" : ""));
+        lb.saved(true); // server.properties 运行中不会重读，改了哪一项都要重启
       });
 
-  } else if (tab === "cart" && window.MDModCart) { // 自选模组 + 购物车：整块在 modcart.js
-    await MDModCart.render(body, info, gen);
-
-  } else if (tab === "world" && window.MDWorldImport) { // 地图：导入并替换当前地图、恢复点，整块在 worldimport.js
+  } else if (view === "worldmap" && window.MDWorldImport) { // 世界与备份 → 换地图：导入并替换当前地图、恢复点，整块在 worldimport.js
     await MDWorldImport.render(body, info, gen, refreshHead);
 
-  } else if (tab === "music" && window.MDMusic) { // 音乐共享（第五阶段）：整块在 music.js
+  } else if (view === "music" && window.MDMusic) { // 扩展 → 音乐共享（第五阶段）：整块在 music.js
     await MDMusic.render(body, info, gen, refreshHead);
 
-  } else if (tab === "gameai" && window.MDGameChat) { // 游戏内 AI（第四阶段）：整块在 gamechat.js
+  } else if (view === "gameai" && window.MDGameChat) { // 扩展 → 游戏内 AI（第四阶段）：整块在 gamechat.js
     await MDGameChat.render(body, info, gen);
 
-  } else if (tab === "companion" && window.MDCompanion) { // AI 伙伴（第七阶段）：整块在 companion.js
+  } else if (view === "companion" && window.MDCompanion) { // 扩展 → AI 伙伴（第七阶段）：整块在 companion.js
     await MDCompanion.render(body, info, gen);
 
-  } else if (tab === "jvm") {
+  } else if (view === "jvm") {
     const appInfo = await api("/api/app").catch(() => ({ ramMb: 8192, availRamMb: 4096 }));
     if (stale(gen)) return;
-    const maxMem = Math.max(2048, appInfo.ramMb - 2048);
+    const maxMem = Math.max(2048, appInfo.ramMb - 2048), local = appInfo.local !== false;
     const aikarsFlags = xmxMb => {
       const big = xmxMb >= 12288;
       return ["-XX:+UseG1GC", "-XX:+ParallelRefProcEnabled", "-XX:MaxGCPauseMillis=200",
@@ -3421,8 +3641,21 @@ async function renderDetail(name, tab = "console") {
         "-XX:SurvivorRatio=32", "-XX:+PerfDisableSharedMem", "-XX:MaxTenuringThreshold=1",
         "-Dusing.aikars.flags=https://mcflags.emc.gs", "-Daikars.new.flags=true"];
     };
+    // 页顶：这台服务器的基本信息集中在一处（可用性走查 R15）。端口点了去「设置 → 常用」里的端口那一项（代理端的端口在它自己的配置文件里）
+    const port = connectPortOf(info), proxy = info.kind === "proxy";
     body.innerHTML = `
       <div style="max-width:640px">
+        <div class="group jm-facts" id="jm-facts">
+          <div class="jm-fact"><span class="jm-k">核心</span><span class="jm-v">${esc(coreName(info.core))}${info.build ? ` <span class="hint">${esc(info.build)}</span>` : ""}</span></div>
+          <div class="jm-fact"><span class="jm-k">版本</span><span class="jm-v">${proxy ? "" : "Minecraft "}${esc(info.mc)}</span></div>
+          <div class="jm-fact"><span class="jm-k">端口</span><span class="jm-v">${proxy
+            ? (port ? `${port} <span class="hint">（在代理端自己的配置文件里改）</span>` : `<span class="hint">第一次启动、生成配置文件以后才知道</span>`)
+            : `<button type="button" class="link-btn mono" id="jm-port" aria-label="端口 ${port}，去「设置 → 常用」里改">${port}</button> <span class="hint">点了去「设置 → 常用」里改</span>`}</span></div>
+          <div class="jm-fact"><span class="jm-k">Java</span><span class="jm-v" id="jm-java-now">Java ${info.javaMajor}${info.javaMissing ? ` <span class="tag warn">找不到</span>` : ""}</span></div>
+          <div class="jm-fact jm-dir"><span class="jm-k">服务器文件夹</span><span class="jm-v"><span class="mono" id="jm-dir">${esc(info.dir)}</span>
+            <button type="button" class="btn sm ghost" id="jm-dir-copy" aria-label="复制服务器文件夹的路径">${icon("copy")} 复制</button>
+            ${local ? `<button type="button" class="btn sm ghost" id="jm-dir-open" aria-label="打开服务器文件夹">${icon("folder")} 打开</button>` : ""}</span></div>
+        </div>
         <div class="field" id="jm-mem-mount"></div>
         <label class="field"><span>自定义 JVM 参数</span><div class="hint">每行一个，或用空格分隔；-Xmx、-Xms 由上面的内存自动生成，不在这里填。</div>
           <textarea id="jm-jvm" rows="5" spellcheck="false" placeholder="如：-XX:+UseG1GC">${esc((info.extraJvm || []).join("\n"))}</textarea></label>
@@ -3432,63 +3665,73 @@ async function renderDetail(name, tab = "console") {
         </div>
         <div class="hint" style="margin:-4px 0 12px">套用后将替换下方输入框中的全部现有参数。</div>
         <label class="field" id="jm-java-box"><span>Java</span>
-          <div class="row" style="gap:8px">
-            <select id="jm-java" style="flex:1;min-width:0" aria-label="这台服务器用的 Java" aria-describedby="jm-java-hint"><option>加载中…</option></select>
-            <button type="button" class="btn" id="jm-java-set" disabled>更换 Java</button>
-          </div>
-          <div class="hint" id="jm-java-hint">新建时已按 Minecraft 版本选好（1.20.1 用 Java 17，1.21 用 21，26.1 起用 25）。整合包要求其他版本时在这里换，下次启动生效。</div>
+          <select id="jm-java" aria-label="这台服务器用的 Java" aria-describedby="jm-java-hint"><option value="">加载中…</option></select>
+          <div class="hint" id="jm-java-hint">新建时已按 Minecraft 版本选好（1.20.1 用 Java 17，1.21 用 21，26.1 起用 25）。整合包要求其他版本时在这里换，和上面的设置一起保存，下次启动生效。本机没有的版本，保存时会先下载一份。</div>
         </label>
-        <div class="hint" style="margin-bottom:14px">服务器文件夹：${esc(info.dir)}<br>自己启动时双击这个文件：run.bat（与这里的设置是同一份）</div>
-        ${saveBar("保存", info.status === "stopped" ? "" : `<span class="warn-text">${icon("warn")} 服务器运行中：保存后需重启生效</span>`)}
+        <div class="hint" style="margin-bottom:14px">自己启动时双击服务器文件夹里的 run.bat（与这里的设置是同一份）。</div>
+        ${saveBar("保存", liveBarNote())}
       </div>`;
-    // 换 Java：列出 MineDeck 下载的、本机装的，再加上本机还没有、可以现下一份的版本。和上面的保存条无关，点「更换」立即生效
+    $("#jm-dir-copy").onclick = e => copyFlash(e.currentTarget, info.dir, "已复制服务器文件夹的路径");
+    if ($("#jm-dir-open")) $("#jm-dir-open").onclick = () => api(`/api/instances/${enc}/opendir`, { method: "POST" }).catch(e => toastErr("无法打开文件夹", e));
+    if ($("#jm-port")) $("#jm-port").onclick = () => { focusPropKey = "server-port"; location.hash = base + "settings/common"; };
+    // Java 的选择也进保存条（R16，原来旁边单独一个「更换 Java」）：列出 MineDeck 下载的、本机装的，再加上本机还没有、可以现下一份的版本。
+    // 现在用的那一项在 /api/javas 里找不到（那个 Java 后来被卸载了）就单列出来，标「找不到」（R21）
+    let jopts = [], jcur = -1;
+    const sel = $("#jm-java");
+    const javaPick = () => (jcur < 0 || sel.value === "" || +sel.value === jcur ? "" : sel.value); // 没改是空串：加载前后都不算一项修改
+    const javaLabel = (o, k) => o.text + (k === jcur ? " · 现在用的" : "") + (k === jcur && o.missing ? " · 找不到" : "");
+    let paintBar = () => {};
     (async () => {
       const javas = await api("/api/javas").catch(() => ({ portable: [], scanned: [] }));
-      if (stale(gen) || !$("#jm-java")) return;
+      if (stale(gen) || !sel.isConnected) return;
       const norm = p => (p || "").toLowerCase().replace(/\//g, "\\");
-      const opts = [
+      jopts = [
         ...javas.portable.map(j => ({ major: j.major, path: j.path || "", text: `Java ${j.major}（MineDeck 下载的）`, portable: true })),
         ...javas.scanned.map(j => ({ major: j.major, path: j.path, text: `Java ${j.major}（本机装的 ${j.version}：${j.path}）` })),
       ];
-      // 现在用的这一个：按路径认；/api/javas 里没有它（比如那个 Java 后来被卸载了）就单列一项
-      let cur = opts.findIndex(o => info.javaPath && norm(o.path) === norm(info.javaPath));
-      if (cur < 0) cur = opts.findIndex(o => !o.path && o.portable && o.major === info.javaMajor && info.javaSource === "portable");
-      if (cur < 0) { opts.unshift({ major: info.javaMajor, path: info.javaPath || "", text: `Java ${info.javaMajor}${info.javaPath ? "（" + info.javaPath + "）" : ""}` }); cur = 0; }
-      const have = new Set(opts.map(o => o.major));
-      JAVA_DOWNLOADABLE.filter(m => !have.has(m)).forEach(m => opts.push({ major: m, path: "", text: `Java ${m}（本机没有，下载一份，约 50 MB）`, download: true }));
-      const sel = $("#jm-java"), btn = $("#jm-java-set");
-      sel.innerHTML = opts.map((o, k) => `<option value="${k}"${k === cur ? " selected" : ""}>${esc(o.text)}${k === cur ? " · 现在用的" : ""}</option>`).join("");
-      sel.onchange = () => { btn.disabled = +sel.value === cur; };
-      btn.onclick = async () => {
-        const o = opts[+sel.value];
-        if (!o || +sel.value === cur) return;
-        btn.disabled = true;
-        try {
-          const r = await api(`/api/instances/${encodeURIComponent(name)}/java`, { method: "PUT", body: { major: o.major, path: o.download ? "" : o.path } });
-          if (r && r.taskId) { location.hash = `#/task/${r.taskId}`; return; } // 要先下载：去任务页看进度
-          toast(`已换成 Java ${o.major}` + (info.status === "stopped" ? "，下次启动生效" : "，重启服务器后生效"));
-          info.javaMajor = o.major; info.javaPath = (r && r.java) || o.path; info.javaSource = o.portable ? "portable" : "local";
-          cur = +sel.value;
-          sel.querySelectorAll("option").forEach((el, k) => { el.textContent = opts[k].text + (k === cur ? " · 现在用的" : ""); });
-          if ($("#d-java")) $("#d-java").textContent = "Java " + o.major; // 页头的徽标跟着换
-        } catch (e) { toastErr("无法更换 Java", e); btn.disabled = false; }
-      };
+      jcur = info.javaMissing ? -1 : jopts.findIndex(o => info.javaPath && norm(o.path) === norm(info.javaPath));
+      if (jcur < 0 && !info.javaMissing) jcur = jopts.findIndex(o => !o.path && o.portable && o.major === info.javaMajor && info.javaSource === "portable");
+      if (jcur < 0) { jopts.unshift({ major: info.javaMajor, path: info.javaPath || "", text: `Java ${info.javaMajor}${info.javaPath ? "（" + info.javaPath + "）" : ""}`, missing: !!info.javaMissing }); jcur = 0; }
+      const have = new Set(jopts.filter(o => !o.missing).map(o => o.major));
+      JAVA_DOWNLOADABLE.filter(m => !have.has(m)).forEach(m => jopts.push({ major: m, path: "", text: `Java ${m}（本机没有，下载一份，约 50 MB）`, download: true }));
+      sel.innerHTML = jopts.map((o, k) => `<option value="${k}"${k === jcur ? " selected" : ""}>${esc(javaLabel(o, k))}</option>`).join("");
+      paintBar();
     })();
     renderMemoryControl($("#jm-mem-mount"), { sliderId: "jm-mem", min: 1024, max: maxMem, value: Math.min(info.xmxMb, maxMem), totalMb: appInfo.ramMb, availMb: appInfo.availRamMb });
     // 老版本创建时加入的 log4shell 缓解参数（后端保存时也会强制补回）：套用预设 / 清空时原样保留
     const LOG4J_FIX = ["-Dlog4j2.formatMsgNoLookups=true", "-Dlog4j.configurationFile=log4j2_112-116.xml"];
     const jvmFlags = () => $("#jm-jvm").value.split(/\s+/).map(s => s.trim()).filter(Boolean);
     const keptFix = () => { const cur = jvmFlags(); return LOG4J_FIX.filter(f => cur.includes(f)); };
-    const paintBar = wireSaveBar(body, gen,
-      () => ({ xmx: $("#jm-mem").value, jvm: jvmFlags().join(" ") }), // 只比较参数本身，换行 / 空格差异不算修改
+    const lb = wireLiveBar(body, "服务器运行中：保存后要重启才生效");
+    let saved = { xmx: $("#jm-mem").value, jvm: jvmFlags().join(" ") }; // 内存和参数上一次存下来的样子：只换 Java 时不重写启动设置
+    paintBar = wireSaveBar(body, gen,
+      () => ({ xmx: $("#jm-mem").value, jvm: jvmFlags().join(" "), java: javaPick() }), // 只比较参数本身，换行 / 空格差异不算修改
       async () => {
-        const flags = jvmFlags();
-        await api(`/api/instances/${encodeURIComponent(name)}/settings`, { method: "PUT", body: { xmxMb: +$("#jm-mem").value, xmsMb: 0, extraJvm: flags } });
-        // 回显实际保存的参数（老版本被删掉的 log4shell 缓解参数会被后端补回）；回读失败不影响已成功的保存。
-        // 回显在 wireSaveBar 重取基线之前完成，补回的参数不会被算成「未保存的修改」
-        const saved = await api("/api/instances").then(l => l.find(i => i.name === name)?.extraJvm).catch(() => null);
-        if (saved && !stale(gen)) $("#jm-jvm").value = saved.join("\n");
-        toast("已保存内存与 JVM 参数" + (saved?.some(a => !flags.includes(a)) ? "（已自动补回 log4shell 漏洞缓解参数）" : ""));
+        const flags = jvmFlags(), pick = javaPick(), memChanged = $("#jm-mem").value !== saved.xmx || flags.join(" ") !== saved.jvm;
+        const notes = [];
+        if (memChanged) {
+          await api(`/api/instances/${enc}/settings`, { method: "PUT", body: { xmxMb: +$("#jm-mem").value, xmsMb: 0, extraJvm: flags } });
+          // 回显实际保存的参数（老版本被删掉的 log4shell 缓解参数会被后端补回）；回读失败不影响已成功的保存。
+          // 回显在 wireSaveBar 重取基线之前完成，补回的参数不会被算成「未保存的修改」
+          const back = await api("/api/instances").then(l => l.find(i => i.name === name)?.extraJvm).catch(() => null);
+          if (back && !stale(gen)) $("#jm-jvm").value = back.join("\n");
+          saved = { xmx: $("#jm-mem").value, jvm: jvmFlags().join(" ") };
+          notes.push("已保存内存与 JVM 参数" + (back?.some(a => !flags.includes(a)) ? "（已自动补回 log4shell 漏洞缓解参数）" : ""));
+        }
+        if (pick !== "") {
+          const o = jopts[+pick];
+          const r = await api(`/api/instances/${enc}/java`, { method: "PUT", body: { major: o.major, path: o.download ? "" : o.path } });
+          if (r && r.taskId) { dirtyCheck = null; location.hash = `#/task/${r.taskId}`; return; } // 要先下载：去任务页看进度，下好了自动换上
+          info.javaMajor = o.major; info.javaPath = (r && r.java) || o.path; info.javaSource = o.portable ? "portable" : "local"; info.javaMissing = false;
+          jcur = +pick;
+          sel.querySelectorAll("option").forEach((el, k) => { el.textContent = javaLabel(jopts[k], k); });
+          if ($("#d-java")) $("#d-java").textContent = "Java " + o.major; // 页头的徽标跟着换
+          $("#jm-java-now").textContent = "Java " + o.major;
+          notes.push(`已换成 Java ${o.major}`);
+          refreshHead(); // 「找不到 Java」的提示马上消失
+        }
+        toast(notes.join("；") + (info.status === "stopped" ? "，下次启动生效" : "，重启服务器后生效"));
+        lb.saved(true);
       });
     $("#jm-aikar").onclick = () => {
       const fix = keptFix();
