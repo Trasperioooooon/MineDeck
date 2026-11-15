@@ -2824,7 +2824,8 @@ async function renderDetail(name, path = "console") {
   const view = tab === "world" ? (sub === "map" ? "worldmap" : "backups") : (tab === "settings" || tab === "ext") ? sub : tab;
   let ips = knownIPs; // null：还在问 /api/app、以前也没拿到过
   // 页头：大号像素头像 + 标题，标题下一行是状态胶囊与徽标，再下一行是连接地址；操作按钮靠右。页头下面是常驻提示区，再下面是标签（有子页的再一行）
-  const tabLink = (id, label, on, href) => `<a class="tab ${on ? "cur" : ""}" data-t="${id}" href="${href}"${on ? ` aria-current="page"` : ""}>${label}</a>`;
+  // 「设置」和侧栏的「设置」同名、去的地方不同：读屏和自动化按名字分不清，可访问名称带上服务器名（「设置 生存服」）
+  const tabLink = (id, label, on, href) => `<a class="tab ${on ? "cur" : ""}" data-t="${id}" href="${href}"${id === "settings" ? ` aria-label="设置 ${esc(name)}"` : ""}${on ? ` aria-current="page"` : ""}>${label}</a>`;
   Main().innerHTML = `<nav class="crumbs" aria-label="位置"><a href="#/instances">服务器</a>${icon("chevronRight")}<span>${esc(name)}</span></nav>
     <div class="detail-head">
       ${avatarOf(info.core, "lg")}
@@ -2957,9 +2958,10 @@ async function renderDetail(name, path = "console") {
       rb.disabled = false;
       paint();
     };
-    onStatus.push(cur => { if (cur.status === "stopped") pending = false; paint(); }); // 停下来过：下次启动就是新的设置
+    // 不在运行了（停下、正在停、正在启动，比如页头点了重启）：下次起来就是新的设置，「立即重启」不用了
+    onStatus.push(cur => { if (cur.status !== "running") pending = false; paint(); });
     paint();
-    return { saved: needRestart => { if (needRestart && info.status !== "stopped") pending = true; paint(); } };
+    return { saved: needRestart => { if (needRestart && info.status === "running") pending = true; paint(); } };
   };
 
   const body = $("#tab-body");
@@ -3373,7 +3375,13 @@ async function renderDetail(name, path = "console") {
       </section>
       <h2 class="ad-add-h">添加${label}</h2>
       <div id="ad-cart"></div>`;
-    let mods = [], dir = "", pids = new Set(), ids = new Set(), repaintHits = () => {};
+    let mods = [], dir = "", pids = new Set(), ids = new Set(), pidOf = {}, repaintHits = () => {};
+    // 热门和搜索里认「已安装」用的两份：启用着的文件在 Modrinth 上认出来的项目、启用着的模组 ID。停用、删除以后跟着变
+    const learn = () => {
+      const on = mods.filter(m => !m.disabled);
+      pids = new Set(on.map(m => pidOf[m.file]).filter(Boolean));
+      ids = new Set(on.filter(m => m.id).map(m => m.id.toLowerCase()));
+    };
     const stopped = () => info.status === "stopped";
     const titleOf = m => m.name || m.id || m.file.replace(/\.jar(\.disabled)?$/i, "");
     const paintStop = () => {
@@ -3383,8 +3391,12 @@ async function renderDetail(name, path = "console") {
     };
     const paint = () => {
       const off = mods.filter(m => m.disabled).length;
-      $("#ad-count").textContent = mods.length ? `共 ${mods.length} 个${off ? `，${off} 个已停用` : ""}` : "";
-      $("#ad-note").textContent = mods.length ? `停用是把文件改名成 .jar.disabled，服务器不再加载它，随时能启用；删除是把文件移进服务器文件夹里的 .minedeck\\已删除\\${dir}，想要回来就从那里挪回 ${dir} 文件夹。改动在下次启动时生效。` : "";
+      // 标题按实际列的文件夹说：Mohist、Banner 两样都能装，但这里列的只是 mods 文件夹（plugins 里的插件用「打开文件夹」看）
+      const what = dir === "plugins" ? "插件" : dir === "mods" ? "模组" : label;
+      $("#ad-h").textContent = `已安装的${what}`;
+      $("#ad-count").textContent = mods.length ? `${dir} 文件夹里共 ${mods.length} 个${off ? `，${off} 个已停用` : ""}` : "";
+      $("#ad-note").textContent = (mods.length ? `停用是把文件改名成 .jar.disabled，服务器不再加载它，随时能启用；删除是把文件移进服务器文件夹里的 .minedeck\\已删除\\${dir}，想要回来就从那里挪回 ${dir} 文件夹。改动在下次启动时生效。` : "") +
+        (label === "插件和模组" ? `${mods.length ? " " : ""}plugins 文件夹里的插件没有列在这里，可以用页头的「打开文件夹 → 插件」查看。` : "");
       $("#ad-list").innerHTML = mods.length ? `<div class="group has-ico">${mods.map(m => {
         const t = titleOf(m);
         return `<div class="row-item ad-item${m.disabled ? " off" : ""}" data-file="${esc(m.file)}"><div class="ri-head"><span class="ri-ico">${icon(info.kind === "proxy" || MDModCart.nounOf(info.core) === "插件" ? "plug" : "package")}</span>
@@ -3404,7 +3416,7 @@ async function renderDetail(name, path = "console") {
         const r = await api(modsApi);
         if (stale(gen)) return;
         mods = r.mods || []; dir = r.dir || "";
-        ids = new Set(mods.filter(m => !m.disabled && m.id).map(m => m.id.toLowerCase()));
+        learn();
         paint();
         repaintHits();
       } catch (e) { if (!stale(gen)) $("#ad-list").innerHTML = errBox(`无法读取已安装的${label}`, e, { label: `已安装的${label}` }); }
@@ -3412,7 +3424,8 @@ async function renderDetail(name, path = "console") {
     // 热门和搜索结果里认「已安装」：先按模组 ID 对 Modrinth 的 slug（马上就有），再按文件内容在 Modrinth 上认项目（要联网，只在进页面时查一次）
     const learnProjects = () => api(modsApi + "?projects=1").then(r => {
       if (stale(gen)) return;
-      pids = new Set((r.mods || []).map(m => m.projectId).filter(Boolean));
+      pidOf = Object.fromEntries((r.mods || []).filter(m => m.projectId).map(m => [m.file, m.projectId]));
+      learn();
       repaintHits();
     }).catch(() => {});
     const toggleOne = async b => {
