@@ -4691,6 +4691,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       { id: "t2", name: "自建备用线", provider: "custom", running: false, boundInstance: "", autoStart: false, publicAddr: "", lastError: "",
         serverAddr: "frp.example.com", serverPort: 7000, remotePort: 25566, localPort: 25565, proto: "tcp", purpose: "game", hasCredential: true },
       { id: "t3", name: "樱花新线", provider: "natfrp", proxyId: "13579", running: false, boundInstance: PACK0, autoStart: false, publicAddr: "", lastError: "", noLog: true },
+      { id: "t4", name: "旧服的线", provider: "custom", running: false, boundInstance: "已经移出的服", autoStart: true, publicAddr: "", lastError: "",
+        serverAddr: "frp.example.com", serverPort: 7000, remotePort: 30002, localPort: 25570, proto: "tcp", purpose: "game" },
     ];
 
     await run("beta.3 穿透与设置 R12/R18：我的隧道排在平台账户上面；停着的自定义 frps 不启动也显示「frps 地址:公网端口」能复制；停着的平台隧道显示上次的地址、标「上次」；没拿到过的写「还没拿到地址」；行上写跟随谁、开还是关；页顶说清添加隧道和平台账户的关系，樱花的 frpc 写成几步", async () => {
@@ -4752,6 +4754,14 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         await page.press("#tn-ed-name", "Enter"); await settle(500);
         b = await lastPut();
         assert(b.provider === "openfrp" && b.proxyId === "246810" && b.publicAddr === "cn-sz-bgp-1.openfrp.top:23456" && b.autoStart === false && b.credential === "" && b.name === "朋友联机", "平台隧道的请求体：" + JSON.stringify(b));
+        // 绑着的服务器已经不在列表里（移出列表了）：下拉照样选着它、写明列表里没有，只改名字时绑定不被悄悄清掉
+        await byName("button", "编辑 旧服的线").click(); await page.waitForSelector("#tn-ed-name");
+        const sel = await page.$eval("#tn-ed-bound", s => ({ v: s.value, t: s.selectedOptions[0].textContent }));
+        assert(sel.v === "已经移出的服" && sel.t.includes("列表里没有这台"), "不在列表里的绑定：" + JSON.stringify(sel));
+        await page.fill("#tn-ed-name", "旧服的线 2");
+        await page.click('#modal-root [data-x="ok"]'); await settle(500);
+        b = await lastPut();
+        assert(b.name === "旧服的线 2" && b.boundInstance === "已经移出的服" && b.autoStart === true, "只改名字时绑定照旧：" + JSON.stringify(b));
         // 指向 MineDeck 网页端口的自定义 frps（以前存下的）：只改名称也被拒，原因写在弹窗里，填的不丢
         await L2({ tunnel: { id: "t2", localPort: PORT } });
         await page.goto(url("#/tunnels")); await settle(700);

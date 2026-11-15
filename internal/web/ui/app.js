@@ -3688,9 +3688,12 @@ async function renderTunnels() {
     openFrpPoll.stop = true;
     openFrpPoll = null;
   };
+  /* 绑定服务器的下拉。当前绑着的服务器不在列表里（已经移出列表，或者这次没取到服务器列表）时也列出来、选中它，
+     写明列表里没有这台：不然下拉落到「不绑定」，编辑时只改个名字也会把绑定悄悄清掉 */
   const boundSelect = (id, val = "", k = "") =>
     `<select id="${id}"${k ? ` data-k="${k}"` : ""} aria-label="绑定服务器"><option value="">不绑定</option>${insts.map(i =>
-      `<option value="${esc(i.name)}"${i.name === val ? " selected" : ""}>${esc(i.name)}（端口 ${i.port}）</option>`).join("")}</select>`;
+      `<option value="${esc(i.name)}"${i.name === val ? " selected" : ""}>${esc(i.name)}（端口 ${i.port}）</option>`).join("")}${val && !insts.some(i => i.name === val)
+      ? `<option value="${esc(val)}" selected>${esc(val)}（列表里没有这台）</option>` : ""}</select>`;
 
   const paintAccCards = () => {
     const box = $("#tn-acc-cards");
