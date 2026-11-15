@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
+	"regexp"
 	"strings"
 	"time"
 
@@ -22,33 +22,77 @@ type Release struct {
 	Notes       string `json:"notes"`
 	AssetURL    string `json:"-"`
 	Size        int64  `json:"sizeBytes"`
-	SHA256      string `json:"-"` // 官方发布的 exe SHA-256（自 checksums 资产直连 GitHub 解析）
+	Prerelease  bool   `json:"prerelease"` // 查到的是测试版（预发布）：标签带「-」后缀，或 GitHub 上标成了预发布
+	Channel     string `json:"-"`          // 按哪个渠道查到的（app.UpdateStable / app.UpdateLatest）
+	SHA256      string `json:"-"`          // 官方发布的 exe SHA-256（自 checksums 资产直连 GitHub 解析）
 	checksumURL string
 }
 
-// Check 查询最新 Release；repo 形如 "user/MineDeck"。
+// apiBase GitHub API 的地址。只有测试把它换成 httptest 起的假接口，程序里不改。
+var apiBase = "https://api.github.com"
+
+// currentVersion 正在用的版本。只有测试换它（app.Version 是常量，测不了「用着测试版」和「用着正式版」两种情形）。
+var currentVersion = app.Version
+
+// ghRelease GitHub Releases 接口里用得到的字段。
+type ghRelease struct {
+	TagName    string `json:"tag_name"`
+	Body       string `json:"body"`
+	Draft      bool   `json:"draft"`
+	Prerelease bool   `json:"prerelease"`
+	Assets     []struct {
+		Name string `json:"name"`
+		URL  string `json:"browser_download_url"`
+		Size int64  `json:"size"`
+	} `json:"assets"`
+}
+
+// Check 按设置里的更新渠道查询；repo 形如 "user/MineDeck"。
+// 渠道没选过时按正在用的版本定（见 app.UpdateChannelFor）。启动时的后台检查、「检查更新」「立即更新」都走这里。
 func Check(ctx context.Context, repo string) (*Release, bool, error) {
+	return check(ctx, repo, app.UpdateChannelFor(app.GetConfig().UpdateChannel, currentVersion), currentVersion)
+}
+
+// check 按 channel 查 repo 的新版本，返回查到的那个版本和它是不是比 current 新（严格更新；任何渠道都不会「更新」到更旧的版本）。
+//   - 稳定版：照旧查 releases/latest（GitHub 的「Latest」永远不含预发布版和草稿）。
+//   - 最新版：取一页发布列表，跳过草稿和标签不是版本号的，在正式版和预发布版里按版本号取最大的，不靠接口返回的顺序。
+//
+// 取到以后附件和校验和的处理两条渠道一样：exe 要有官方 SHA256SUMS（直连 GitHub 取）才装，预发布版不放宽（见 Apply）。
+func check(ctx context.Context, repo, channel, current string) (*Release, bool, error) {
 	repo = strings.Trim(strings.TrimSpace(repo), "/")
 	if repo == "" || !strings.Contains(repo, "/") {
 		return nil, false, fmt.Errorf("未配置更新仓库（在全局设置填写，如 yourname/MineDeck）")
 	}
-	var rel struct {
-		TagName string `json:"tag_name"`
-		Body    string `json:"body"`
-		Assets  []struct {
-			Name string `json:"name"`
-			URL  string `json:"browser_download_url"`
-			Size int64  `json:"size"`
-		} `json:"assets"`
+	var rel ghRelease
+	if channel == app.UpdateLatest {
+		var list []ghRelease
+		api := apiBase + "/repos/" + repo + "/releases?per_page=30"
+		if err := dl.FetchJSON(ctx, []string{api}, &list); err != nil {
+			return nil, false, fmt.Errorf("检查更新失败（连不上 GitHub）：%w", err)
+		}
+		found := false
+		for _, r := range list {
+			if r.Draft || !versionTag.MatchString(strings.TrimSpace(r.TagName)) {
+				continue // 草稿没发出来；标签不是版本号的（别的东西的发布）不比
+			}
+			if !found || compare(r.TagName, rel.TagName) > 0 {
+				rel, found = r, true
+			}
+		}
+		if !found {
+			return nil, false, fmt.Errorf("这个仓库还没有任何发布版本")
+		}
+	} else {
+		channel = app.UpdateStable
+		api := apiBase + "/repos/" + repo + "/releases/latest"
+		if err := dl.FetchJSON(ctx, []string{api}, &rel); err != nil {
+			return nil, false, fmt.Errorf("检查更新失败（连不上 GitHub）：%w", err)
+		}
+		if rel.TagName == "" {
+			return nil, false, fmt.Errorf("这个仓库还没有任何发布版本")
+		}
 	}
-	api := "https://api.github.com/repos/" + repo + "/releases/latest"
-	if err := dl.FetchJSON(ctx, []string{api}, &rel); err != nil {
-		return nil, false, fmt.Errorf("检查更新失败（连不上 GitHub）：%w", err)
-	}
-	if rel.TagName == "" {
-		return nil, false, fmt.Errorf("这个仓库还没有任何发布版本")
-	}
-	r := &Release{Tag: rel.TagName, Notes: rel.Body}
+	r := &Release{Tag: rel.TagName, Notes: rel.Body, Prerelease: rel.Prerelease || isPre(rel.TagName), Channel: channel}
 	for _, a := range rel.Assets {
 		low := strings.ToLower(a.Name)
 		if strings.HasSuffix(low, ".exe") {
@@ -61,7 +105,7 @@ func Check(ctx context.Context, repo string) (*Release, bool, error) {
 	if r.AssetURL != "" && r.checksumURL != "" {
 		r.SHA256 = fetchChecksum(ctx, r.checksumURL, "MineDeck.exe")
 	}
-	return r, newer(rel.TagName, app.Version), nil
+	return r, newer(rel.TagName, current), nil
 }
 
 // fetchChecksum 直连（绝不经镜像）拉取官方 checksums 资产并取出 filename 的 SHA-256。
@@ -89,34 +133,123 @@ func fetchChecksum(ctx context.Context, url, filename string) string {
 	return ""
 }
 
-// newer 比较 "v1.2.3" 风格版本号。数字相同时，正式版比带后缀的预发布版新
-// （2.9.0 比 2.9.0-beta.1 新），装了测试版的人才能收到同号正式版的更新。
-func newer(tag, current string) bool {
-	pa := verParts(tag)
-	pb := verParts(current)
-	for i := 0; i < 3; i++ {
-		if pa[i] != pb[i] {
-			return pa[i] > pb[i]
-		}
-	}
-	return !isPre(tag) && isPre(current)
-}
+// versionTag 「最新版」渠道认作版本的标签：v 可有可无，三段数字，可带「-预发布后缀」和「+构建信息」。
+// 同一个仓库里别的东西的发布（标签不是这个样子的）不参加比较。
+var versionTag = regexp.MustCompile(`^[vV]?\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$`)
+
+// Newer 报告版本 a 是否比 b 新（规则见 compare）。
+func Newer(a, b string) bool { return compare(a, b) > 0 }
+
+// IsPre 报告版本号是否带预发布后缀（如 "3.2.0-beta.1"），即测试版。
+func IsPre(v string) bool { return isPre(v) }
+
+// newer 比较 "v1.2.3" 风格版本号：tag 比 current 新才为 true。
+func newer(tag, current string) bool { return compare(tag, current) > 0 }
 
 // isPre 报告版本号是否带预发布后缀（如 "2.9.0-beta.1"）。
-func isPre(v string) bool { return strings.Contains(strings.TrimSpace(v), "-") }
+func isPre(v string) bool { return parseVer(v).pre != nil }
 
-func verParts(v string) [3]int {
-	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
-	var out [3]int
-	for i, p := range strings.SplitN(v, ".", 3) {
-		if i >= 3 {
-			break
-		}
-		p, _, _ = strings.Cut(p, "-")
-		n, _ := strconv.Atoi(p)
-		out[i] = n
+// ver 拆开的版本号：三段数字，加上预发布后缀按「.」拆成的段（nil = 正式版）。
+type ver struct {
+	nums [3]string // 去掉前导零的数字串（空串当 0）；按字符串长度再按字典序比，数字再大也不会溢出
+	pre  []string
+}
+
+// parseVer 拆版本号：去掉首尾空白和开头的 v，丢掉「+构建信息」（按语义化版本不参与比较），按第一个「-」分出预发布后缀。
+// 数字段里不是数字的部分当 0（老行为：不认识的写法不报错，只是不会比谁新）。预发布后缀统一小写（Beta 和 beta 算一样）。
+func parseVer(v string) ver {
+	v = strings.TrimSpace(v)
+	v = strings.TrimPrefix(strings.TrimPrefix(v, "v"), "V")
+	v, _, _ = strings.Cut(v, "+")
+	core, pre, hasPre := strings.Cut(v, "-")
+	var out ver
+	for i, p := range strings.SplitN(core, ".", 3) {
+		out.nums[i] = digits(p)
+	}
+	if hasPre {
+		out.pre = strings.Split(strings.ToLower(pre), ".")
 	}
 	return out
+}
+
+// digits 取一段开头的数字并去掉前导零；没有数字时为空串（当 0）。
+func digits(s string) string {
+	end := 0
+	for end < len(s) && s[end] >= '0' && s[end] <= '9' {
+		end++
+	}
+	return strings.TrimLeft(s[:end], "0")
+}
+
+// isNum 一段预发布后缀是不是纯数字。
+func isNum(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// cmpNum 比两个去掉前导零的数字串：位数多的大，位数一样按字典序。
+func cmpNum(a, b string) int {
+	if len(a) != len(b) {
+		if len(a) < len(b) {
+			return -1
+		}
+		return 1
+	}
+	return strings.Compare(a, b)
+}
+
+// compare 按语义化版本的规矩比 a 和 b：a 新返回 1，一样返回 0，a 旧返回 -1。
+//   - 先比三段数字（2.10.0 比 2.9.0 新）。
+//   - 数字相同时正式版比预发布版新（3.2.0 比 3.2.0-beta.3 新）：装着测试版的人收得到同号的正式版。
+//   - 都是预发布时逐段比后缀：纯数字的段按数字比（beta.2 < beta.3 < beta.10），别的按字符串比（alpha < beta < rc），
+//     纯数字的段比非数字的段旧；前面都一样时段数少的更旧（beta < beta.1）。
+func compare(a, b string) int {
+	va, vb := parseVer(a), parseVer(b)
+	for i := 0; i < 3; i++ {
+		if c := cmpNum(va.nums[i], vb.nums[i]); c != 0 {
+			return c
+		}
+	}
+	switch {
+	case va.pre == nil && vb.pre == nil:
+		return 0
+	case va.pre == nil:
+		return 1
+	case vb.pre == nil:
+		return -1
+	}
+	for i := 0; i < len(va.pre) && i < len(vb.pre); i++ {
+		x, y := va.pre[i], vb.pre[i]
+		nx, ny := isNum(x), isNum(y)
+		var c int
+		switch {
+		case nx && ny:
+			c = cmpNum(strings.TrimLeft(x, "0"), strings.TrimLeft(y, "0"))
+		case nx:
+			c = -1
+		case ny:
+			c = 1
+		default:
+			c = strings.Compare(x, y)
+		}
+		if c != 0 {
+			return c
+		}
+	}
+	switch {
+	case len(va.pre) < len(vb.pre):
+		return -1
+	case len(va.pre) > len(vb.pre):
+		return 1
+	}
+	return 0
 }
 
 // Apply 下载新版并写入换血脚本；调用方随后应触发程序退出。

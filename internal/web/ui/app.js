@@ -5562,7 +5562,27 @@ function drawAI(body, v, gen) {
 }
 
 /* — 更新与关于 — */
+/* 更新渠道（config.updateChannel）：稳定版只收正式版，最新版正式版和测试版都收。没选过时后端按正在用的版本定（info.updateChannel） */
+const UPDATE_CH = {
+  stable: { name: "稳定版", t: "稳定版（只收正式版）", d: "只提示正式发布的版本。" },
+  latest: { name: "最新版", t: "最新版（包括测试版）", d: "正式版和测试版都提示，哪个新提示哪个。测试版可能有还没发现的问题。" },
+};
+const updateChName = ch => (UPDATE_CH[ch] || UPDATE_CH.stable).name;
+const updateChSub = (ch, chosen) => "检查更新和启动时的检查都按这里选的来。" +
+  (chosen ? "" : `还没选过，按正在用的版本先定成「${updateChName(ch)}」。`);
+/* 检查更新的结果写明按哪个渠道查的、查到的是正式版还是测试版。
+   ahead：正在用的比查到的还新，不提示更新（稳定渠道上用着测试版时，说清楚等同号的正式版出来再提示） */
+function updateResultText(r) {
+  const head = `按「${updateChName(r.channel)}」查：`;
+  const kind = r.prerelease ? "测试版" : "正式版";
+  if (r.ahead && r.channel === "stable" && r.currentPrerelease)
+    return `${head}最新的正式版是 ${r.latest.tag}。你用的是测试版 v${r.current}，比它新，不会退回去；正式版 ${String(r.current).split(/[-+]/)[0]} 出来以后会提示更新。`;
+  if (r.ahead) return `${head}已是最新。正在用的 v${r.current} 比查到的 ${r.latest.tag}（${kind}）还新。`;
+  return `${head}已是最新（v${r.current}，${kind}）`;
+}
 function setAbout(body, info) {
+  const ch = UPDATE_CH[info.updateChannel] ? info.updateChannel : (/-/.test(info.version) ? "latest" : "stable");
+  const chCheck = on => `<span class="ri-check${on ? " on" : ""}" aria-hidden="true">${icon("check")}</span>`;
   body.innerHTML = `<div class="brand-head about-head">${logoImg()}<div><h2>MineDeck</h2><div class="sub">Windows 本地 Minecraft 开服工具 · v${esc(info.version)}</div></div></div>` +
     settingsHead("版本与更新", "") +
     group(
@@ -5570,10 +5590,13 @@ function setAbout(body, info) {
       riRow({ ico: "arrowUp", title: "更新仓库", sub: "从该 GitHub 仓库的 Releases 检查新版本（国内加速镜像兜底）",
         field: `<input type="text" id="up-repo" value="${esc(info.config.updateRepo || "")}" placeholder="GitHub 仓库，如 yourname/MineDeck" aria-label="更新仓库">
           <button class="btn" id="up-save">保存</button><button class="btn" id="up-check">${icon("search")} 检查更新</button>` }) +
-      riRow({ ico: "refresh", title: "启动时静默检查更新", sub: "程序启动后在后台检查一次新版本（需已填写更新仓库）",
+      riRow({ ico: "refresh", title: "启动时静默检查更新", sub: "程序启动后在后台按下面选的更新渠道检查一次新版本（需已填写更新仓库）",
         right: `<label class="switch"><input type="checkbox" id="up-silent" ${info.config.checkUpdateOnStart ? "checked" : ""} aria-label="启动时静默检查更新"><span class="sw"></span></label>` }),
       { ico: true }) +
     `<div class="hint" id="up-result" aria-live="polite"></div>` +
+    settingsHead("更新渠道", `<span id="up-ch-sub">${esc(updateChSub(ch, !!info.config.updateChannel))}</span>`) +
+    group(["stable", "latest"].map(v => riRow({ title: UPDATE_CH[v].t, sub: esc(UPDATE_CH[v].d), right: chCheck(ch === v), cls: "choice" + (ch === v ? " sel" : ""),
+      attrs: `role="radio" tabindex="0" aria-checked="${ch === v}" data-ch="${v}"` })).join(""), { attrs: `id="up-channel" role="radiogroup" aria-label="更新渠道"` }) +
     settingsHead("关于", "") +
     `<div class="hint" style="line-height:1.9">
       内网穿透基于 <b>OpenFrp OPENAPI</b> 接入（<a href="https://www.openfrp.net" target="_blank">openfrp.net</a>）。<br>
@@ -5593,12 +5616,38 @@ function setAbout(body, info) {
     try { await api("/api/config", { method: "PUT", body: { checkUpdateOnStart: $("#up-silent").checked } }); toast($("#up-silent").checked ? "已开启启动时检查更新" : "已关闭启动时检查更新"); }
     catch (e) { toastErr($("#up-silent").checked ? "无法开启启动时检查更新" : "无法关闭启动时检查更新", e); $("#up-silent").checked = !$("#up-silent").checked; }
   };
+  // 选了马上保存；上一个渠道查出来的结果（连同「立即更新并重启」）不再作数，清掉。
+  // chSeq 记改过几次渠道：改之前发出去、改之后才回来的检查结果也不要了
+  let chSeq = 0;
+  const pickCh = async c => {
+    if (c.classList.contains("sel")) return;
+    const v = c.dataset.ch, out = $("#up-result"), grp = $("#up-channel"), sub = $("#up-ch-sub");
+    try {
+      await api("/api/config", { method: "PUT", body: { updateChannel: v } });
+      chSeq++;
+      grp.querySelectorAll(".row-item").forEach(x => {
+        const on = x === c;
+        x.classList.toggle("sel", on);
+        x.setAttribute("aria-checked", String(on));
+        x.querySelector(".ri-check").classList.toggle("on", on);
+      });
+      sub.textContent = updateChSub(v, true);
+      out.textContent = "";
+      toast(v === "latest" ? "已改成最新版：正式版和测试版都会提示" : "已改成稳定版：只提示正式版");
+    } catch (e) { toastErr("无法切换更新渠道", e); }
+  };
+  $("#up-channel").querySelectorAll(".row-item").forEach(c => {
+    c.onclick = () => pickCh(c);
+    c.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pickCh(c); } };
+  });
   $("#up-check").onclick = async () => {
-    $("#up-result").textContent = "检查中…";
+    const out = $("#up-result"), seq = chSeq; // 先拿住：查的时候切走了，结果写进已经不在页面上的元素，不报错
+    out.textContent = "检查中…";
     try {
       const r = await api("/api/update/check", { method: "POST" });
+      if (seq !== chSeq) return; // 查的时候改了渠道：这是按旧渠道查的，不显示
       if (r.hasUpdate) {
-        $("#up-result").innerHTML = `发现新版本 <b style="color:var(--accent-text)">${esc(r.latest.tag)}</b>（当前 v${esc(r.current)}） `;
+        out.innerHTML = `按「${esc(updateChName(r.channel))}」查：发现新版本 <b style="color:var(--accent-text)">${esc(r.latest.tag)}</b>（${r.prerelease ? "测试版" : "正式版"}），当前 v${esc(r.current)} `;
         const btn = document.createElement("button");
         btn.className = "btn sm primary";
         btn.innerHTML = icon("arrowUp") + " 立即更新并重启";
@@ -5607,11 +5656,11 @@ function setAbout(body, info) {
           try { await api("/api/update/apply", { method: "POST" }); document.body.innerHTML = `<div style="padding:80px;text-align:center;color:var(--muted)">正在更新，程序将自动重启…</div>`; }
           catch (e) { toastErr("无法更新 MineDeck", e); btn.disabled = false; }
         };
-        $("#up-result").appendChild(btn);
+        out.appendChild(btn);
       } else {
-        $("#up-result").textContent = `已是最新（v${r.current}）`;
+        out.textContent = updateResultText(r);
       }
-    } catch (e) { $("#up-result").innerHTML = errInline("无法检查更新", e); }
+    } catch (e) { if (seq === chSeq) out.innerHTML = errInline("无法检查更新", e); }
   };
   $("#quit-app").onclick = quitApp; // 侧栏底部也有一个（见 quitApp）
 }

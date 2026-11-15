@@ -21,6 +21,41 @@ const maskWebhook = u => { if (!u) return ""; try { const x = new URL(u); return
 // 同 publicConfig：从局域网打开时（state.local 为 false）Webhook 地址只给遮掉的
 const publicCfg = state => (state.local ? state.config : { ...state.config, webhookUrl: maskWebhook(state.config.webhookUrl) });
 
+// ---- 更新渠道（同 internal/update 和 app.UpdateChannelFor）----
+// 版本比较照语义化版本：先比三段数字；数字相同时正式版比预发布版新；都是预发布时逐段比后缀（纯数字按数字比，别的按字符串比、
+// 不分大小写，纯数字的段比非数字的段旧，段数少的更旧）；v 前缀、空白、+构建信息不算
+const parseVer = v => {
+  const s = String(v || "").trim().replace(/^[vV]/, "").split("+")[0];
+  const i = s.indexOf("-"), core = i < 0 ? s : s.slice(0, i);
+  const nums = core.split(".").slice(0, 3).map(x => BigInt((/^\d*/.exec(x)[0]) || "0"));
+  while (nums.length < 3) nums.push(0n);
+  return { nums, pre: i < 0 ? null : s.slice(i + 1).toLowerCase().split(".") };
+};
+const cmpVer = (a, b) => {
+  const x = parseVer(a), y = parseVer(b);
+  for (let i = 0; i < 3; i++) if (x.nums[i] !== y.nums[i]) return x.nums[i] > y.nums[i] ? 1 : -1;
+  if (!x.pre || !y.pre) return !x.pre && !y.pre ? 0 : !x.pre ? 1 : -1;
+  for (let i = 0; i < Math.min(x.pre.length, y.pre.length); i++) {
+    const p = x.pre[i], q = y.pre[i], np = /^\d+$/.test(p), nq = /^\d+$/.test(q);
+    const c = np && nq ? (BigInt(p) === BigInt(q) ? 0 : BigInt(p) > BigInt(q) ? 1 : -1) : np ? -1 : nq ? 1 : p < q ? -1 : p > q ? 1 : 0;
+    if (c) return c;
+  }
+  return Math.sign(x.pre.length - y.pre.length);
+};
+const isPreVer = v => parseVer(v).pre !== null;
+// 生效的更新渠道：选过的为准；没选过按正在用的版本，测试版按 latest、正式版按 stable
+const updateChannelOf = state => ["stable", "latest"].includes(state.config.updateChannel) ? state.config.updateChannel : (String(state.version).includes("-") ? "latest" : "stable");
+// 同 app.update.check：stable 只看正式版（GitHub 的 releases/latest），latest 跳过草稿、在全部里按版本号取最大的；回包同 checkResult
+function updateCheck(state) {
+  const ch = updateChannelOf(state);
+  const pool = state.releases.filter(r => !r.draft && /^[vV]?\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/.test(r.tag) && (ch === "latest" || !(r.prerelease || isPreVer(r.tag))));
+  if (!pool.length) return null;
+  const rel = pool.reduce((a, b) => (cmpVer(b.tag, a.tag) > 0 ? b : a));
+  const pre = !!rel.prerelease || isPreVer(rel.tag);
+  return { current: state.version, latest: { tag: rel.tag, notes: rel.notes || "", sizeBytes: 12582912, prerelease: pre }, hasUpdate: cmpVer(rel.tag, state.version) > 0,
+    channel: ch, prerelease: pre, currentPrerelease: isPreVer(state.version), ahead: cmpVer(state.version, rel.tag) > 0 };
+}
+
 // props-catalog.js 在 Node 中求值，取默认值生成一份「已首启」的 server.properties
 function catalog(ui) {
   const ctx = { window: {} };
@@ -57,6 +92,10 @@ function newState(ui) {
   const state = {
     config: { source: "auto", onboarded: true, tosAccepted: true, backupKeep: 10, listenLan: false, webhookUrl: "", updateRepo: "Trasperioooooon/MineDeck", checkUpdateOnStart: true, minimizeToTray: true, chromeColor: "" },
     autoStart: false,
+    version: "2.9.0-beta.2", // 正在用的版本（/api/app 的 version、检查更新的 current）；/__mock/state 的 version 改
+    // GitHub 上的发布（检查更新从这里挑，同 app.update.check）；/__mock/state 的 releases 整份换，updateFail 让检查更新报这句错
+    releases: [{ tag: "v2.8.3" }, { tag: "v2.9.0-beta.1", prerelease: true }, { tag: "v2.9.0-beta.2", prerelease: true }],
+    updateFail: "",
     lanSet: false, // 是否已设局域网访问密码（同 web：密码只写不读，/api/app 只给 lanSet）
     lanActive: false, // 这次「启动」是否已监听在局域网上：改 listenLan 不变（真机要重启），/__mock/state 的 listenLan 模拟重启后
     cfKey: "", // 同 web：CurseForge API Key 只写不读，不放进 config，/api/app 只给 cfKeySet
@@ -2263,6 +2302,8 @@ function handler(state, ui, portOf) {
     //   status: { 名称: running | starting | stopping | stopped } 直接改某台服务器的运行状态（看状态切换的动效用）
     //   cfKey: 已存的 CurseForge API Key（空串 = 未设置）；cfKeyBroken: true 模拟「Key 解不开」（换了电脑或 Windows 用户）
     //   local: false 模拟从局域网打开（/api/app 的 Webhook 地址只给开头，原样传回算没改）；webhookUrl: 直接改存着的 Webhook 地址
+    //   更新渠道：version 正在用的版本；releases: [{tag, prerelease?, draft?}] GitHub 上的发布；updateChannel 存着的渠道（空串 = 没选过）；
+    //     updateFail: 检查更新报这句错。检查更新照 app.update.check 按渠道挑、比版本（见 updateCheck）
     //   credBroken: 隧道编号（如 "t2"），模拟这条隧道的凭据解不开；空串还原
     //   pickDir: 下一次系统文件夹选择框选到的文件夹（空串 = 点了取消，null 还原成 E:\MCServers）
     //   导出交接包：dest 是 Z 盘开头的、以「\新文件夹」结尾又没建过的算不在；带 mkdir 的「新建并导出」记进响应里的 lastTransferMkdir，
@@ -2315,6 +2356,10 @@ function handler(state, ui, portOf) {
       if ("cfKeyBroken" in b) state.cfKeyBroken = !!b.cfKeyBroken;
       if ("local" in b) state.local = !!b.local; // false 模拟从局域网打开（Webhook 地址只给开头）
       if ("webhookUrl" in b) state.config.webhookUrl = String(b.webhookUrl || ""); // 直接改存着的 Webhook 地址
+      if ("version" in b) state.version = String(b.version); // 正在用的版本（检查更新的 current，没选过渠道时据此定默认渠道）
+      if (Array.isArray(b.releases)) state.releases = b.releases; // GitHub 上的发布 [{tag, prerelease?, draft?}]
+      if ("updateChannel" in b) { if (b.updateChannel) state.config.updateChannel = b.updateChannel; else delete state.config.updateChannel; } // 空 = 没选过
+      if ("updateFail" in b) state.updateFail = String(b.updateFail || ""); // 检查更新报这句错（502），空串还原
       if ("credBroken" in b) for (const t of state.tunnels) t.credBroken = t.id === b.credBroken;
       if (b.tunnelsReset) { state.tunnels = newState(ui).tunnels; state.lastTunnelPut = null; } // 隧道回到初始的两条
       if ("tunnelsLoadFail" in b) state.tunnelsLoadFail = b.tunnelsLoadFail || ""; // "locked" | "corrupt" | ""（读出来了）
@@ -2355,7 +2400,7 @@ function handler(state, ui, portOf) {
     const insts = () => state.empty ? [] : state.instances;
     const seg = p.split("/").map(decodeURIComponent); // ["", "api", "instances", name, sub...]
     try {
-      if (p === "/api/app") return ok(res, { version: "2.9.0-beta.2", base: "D:\\MineDeck", ramMb: 16384, availRamMb: 9216, port: portOf(), serversRoot: state.config.serversDir || "D:\\MineDeck\\servers", backupsRoot: state.config.backupsDir || "D:\\MineDeck\\backups", config: publicCfg(state), local: state.local, lanSet: state.lanSet, lanActive: state.lanActive, cfKeySet: !!state.cfKey && !state.cfKeyBroken, cfKeyBroken: state.cfKeyBroken, autoStart: state.autoStart, ips: ["172.22.48.1", "192.168.1.23", "10.0.0.5"] });
+      if (p === "/api/app") return ok(res, { version: state.version, updateChannel: updateChannelOf(state), base: "D:\\MineDeck", ramMb: 16384, availRamMb: 9216, port: portOf(), serversRoot: state.config.serversDir || "D:\\MineDeck\\servers", backupsRoot: state.config.backupsDir || "D:\\MineDeck\\backups", config: publicCfg(state), local: state.local, lanSet: state.lanSet, lanActive: state.lanActive, cfKeySet: !!state.cfKey && !state.cfKeyBroken, cfKeyBroken: state.cfKeyBroken, autoStart: state.autoStart, ips: ["172.22.48.1", "192.168.1.23", "10.0.0.5"] });
       if (p === "/api/bg") return ok(res, { images: [] });
       if (p === "/api/ops/log") {
         const q = u.searchParams, lim = Math.min(+q.get("limit") || 100, 1000);
@@ -2373,6 +2418,8 @@ function handler(state, ui, portOf) {
       if (p === "/api/cores") return ok(res, CORES);
       if (p === "/api/config" && m === "PUT") {
         const b = await readBody(req);
+        // 同 app.config.set 的参数说明：更新渠道只收 stable / latest，别的整次拒绝（局域网也能改，同 updateRepo）
+        if ("updateChannel" in b && !["stable", "latest"].includes(b.updateChannel)) return err(res, 400, "参数 updateChannel 只能是 stable、latest 之一");
         // 同 web.go：chromeColor 只收 #rrggbb（存为小写），格式不对整次拒绝；空串清除
         if ("chromeColor" in b) {
           if (b.chromeColor !== "" && !/^#[0-9a-f]{6}$/i.test(b.chromeColor)) return err(res, 400, "chromeColor 须为 #rrggbb 形式的颜色");
@@ -2413,7 +2460,11 @@ function handler(state, ui, portOf) {
         state.lastOpenPath = (await readBody(req)).path || "";
         return ok(res, "ok");
       }
-      if (p === "/api/update/check") return ok(res, { hasUpdate: false, current: "2.9.0-beta.2" });
+      if (p === "/api/update/check") { // 同 app.update.check：按生效的渠道查，回包带渠道、查到的是不是测试版、正在用的是不是比它还新
+        if (state.updateFail) return err(res, 502, state.updateFail);
+        const r = updateCheck(state);
+        return r ? ok(res, r) : err(res, 502, "这个仓库还没有任何发布版本");
+      }
       // 接管已有服务器（同 web/instances.go 的 /api/adopt/scan、/api/adopt，inst/adopt.go）：识别只读，接管返回任务编号
       if (p === "/api/adopt/scan" && m === "POST") {
         const b = await readBody(req), dir = String(b.dir || "").trim();

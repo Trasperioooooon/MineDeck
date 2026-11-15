@@ -4237,6 +4237,99 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { if (release) release(); await page.unroute(pattern); }
   });
 
+  // ==================== beta.3 更新渠道 ====================
+  // 「设置 → 更新与关于」里选「稳定版（只收正式版）」或「最新版（包括测试版）」，改了马上保存（PUT /api/config 的 updateChannel）；
+  // 检查更新的结果写明按哪个渠道查的、查到的是正式版还是测试版；稳定渠道上用着比最新正式版还新的测试版时不提示更新。
+  // 仿真后端用到的：/__mock/state 的 version、releases、updateChannel、updateFail（见 server.js 的说明和 updateCheck）。
+  // 用例名都以「beta.3 更新渠道」开头，node tests.js "beta.3 更新渠道" 只跑这一块。
+  {
+    const UC = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
+    // 故意乱序，版本号最大的是草稿
+    const RELS = [{ tag: "v3.1.1" }, { tag: "v3.2.0-beta.2", prerelease: true }, { tag: "v3.1.2" }, { tag: "v3.2.0-beta.10", prerelease: true },
+      { tag: "v3.2.0-beta.3", prerelease: true }, { tag: "v3.3.0", draft: true }];
+    const reset = () => UC({ version: "2.9.0-beta.2", releases: [{ tag: "v2.8.3" }, { tag: "v2.9.0-beta.1", prerelease: true }, { tag: "v2.9.0-beta.2", prerelease: true }], updateChannel: "", updateFail: "" });
+    const picked = () => page.$$eval('#up-channel [role="radio"]', rs => rs.filter(r => r.getAttribute("aria-checked") === "true").map(r => r.dataset.ch).join(","));
+    const result = () => page.$eval("#up-result", e => e.textContent.replace(/\s+/g, " ").trim());
+    const check = async () => {
+      await page.click("#up-check");
+      await page.waitForFunction(() => { const t = (document.querySelector("#up-result") || {}).textContent || ""; return t && t !== "检查中…"; });
+      return result();
+    };
+
+    await run("beta.3 更新渠道：两种渠道的选择会保存，改了马上存；没选过时按正在用的版本定（测试版按最新版、正式版按稳定版）", async () => {
+      try {
+        errors.length = 0;
+        await UC({ version: "3.2.0-beta.3", releases: RELS, updateChannel: "" });
+        await page.goto(url("#/settings/about")); await settle(500);
+        assert(await picked() === "latest", "用着测试版、没选过时应按最新版：" + await picked());
+        const head = await page.textContent("#up-ch-sub");
+        assert(head.includes("还没选过") && head.includes("「最新版」"), "没选过时的说明：" + head);
+        const labels = await page.$$eval('#up-channel [role="radio"]', rs => rs.map(r => r.textContent.replace(/\s+/g, " ").trim()));
+        assert(labels.length === 2 && labels[0].includes("稳定版（只收正式版）") && labels[1].includes("最新版（包括测试版）") && labels[1].includes("测试版可能有还没发现的问题"),
+          "两个选项：" + labels.join(" | "));
+        // 选稳定版：马上发一个只带 updateChannel 的 PUT，存进配置，给提示
+        const t0 = reqs.length;
+        await page.click('#up-channel [data-ch="stable"]'); await settle(300);
+        const puts = reqs.slice(t0).filter(r => r.m === "PUT" && r.u === "/api/config").map(r => JSON.parse(r.b || "{}"));
+        assert(puts.length === 1 && puts[0].updateChannel === "stable" && Object.keys(puts[0]).length === 1, "保存请求：" + JSON.stringify(puts));
+        assert((await UC({})).config.updateChannel === "stable", "仿真后端里没存上");
+        assert(await picked() === "stable", "点了以后的选中项：" + await picked());
+        assert(await page.locator(".toast", { hasText: "已改成稳定版" }).count() >= 1, "没有「已改成稳定版」的提示");
+        assert(!(await page.textContent("#up-ch-sub")).includes("还没选过"), "选过以后不该再说还没选过");
+        // 重新进来还是稳定版：用着测试版也以选的为准
+        await page.goto(url("#/settings/about")); await settle(500);
+        assert(await picked() === "stable", "重新进来：" + await picked());
+        // 键盘也能选：聚焦「最新版」按空格
+        await page.focus('#up-channel [data-ch="latest"]'); await page.keyboard.press(" "); await settle(300);
+        assert((await UC({})).config.updateChannel === "latest" && await picked() === "latest", "键盘选最新版：" + await picked());
+        // 用着正式版、没选过：按稳定版
+        await UC({ version: "3.1.2", updateChannel: "" });
+        await page.goto(url("#/settings/about")); await settle(500);
+        assert(await picked() === "stable", "用着正式版、没选过时应按稳定版：" + await picked());
+        assert((await page.textContent("#up-ch-sub")).includes("「稳定版」"), "没选过时的说明：" + await page.textContent("#up-ch-sub"));
+        assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+      } finally { await reset(); }
+    });
+
+    await run("beta.3 更新渠道：检查结果写明按哪个渠道查的、查到的是正式版还是测试版；换了渠道，上一次的结果连同「立即更新」一起清掉", async () => {
+      try {
+        errors.length = 0;
+        await UC({ version: "3.1.1", releases: RELS, updateChannel: "stable" });
+        await page.goto(url("#/settings/about")); await settle(500);
+        let t = await check();
+        assert(t.includes("按「稳定版」查") && t.includes("发现新版本 v3.1.2（正式版）") && t.includes("当前 v3.1.1"), "稳定版有更新：" + t);
+        assert(await page.locator("#up-result button", { hasText: "立即更新并重启" }).count() === 1, "有更新时要给「立即更新并重启」");
+        await page.click('#up-channel [data-ch="latest"]'); await settle(300);
+        assert(await result() === "" && await page.locator("#up-result button").count() === 0, "换了渠道，上一次的结果应清掉：" + await result());
+        t = await check();
+        assert(t.includes("按「最新版」查") && t.includes("发现新版本 v3.2.0-beta.10（测试版）"), "最新版取版本号最大的测试版（草稿不算）：" + t);
+        // 已是最新也写明渠道和查到的是哪种版本
+        await UC({ version: "3.2.0-beta.10" });
+        t = await check();
+        assert(t.includes("按「最新版」查") && t.includes("已是最新") && t.includes("测试版") && await page.locator("#up-result button").count() === 0, "最新版已是最新：" + t);
+        await page.click('#up-channel [data-ch="stable"]'); await settle(300);
+        await UC({ version: "3.1.2" });
+        t = await check();
+        assert(t.includes("按「稳定版」查") && t.includes("已是最新") && t.includes("正式版"), "稳定版已是最新：" + t);
+        // 查不了：一句结论，原文进复制键（同 00-报错信息.md）
+        await UC({ updateFail: "检查更新失败（连不上 GitHub）：dial tcp: i/o timeout" });
+        await page.click("#up-check"); await page.waitForSelector("#up-result .err-inline");
+        assert((await result()).includes("无法检查更新"), "报错：" + await result());
+        assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+      } finally { await reset(); }
+    });
+
+    await run("beta.3 更新渠道：稳定渠道上用着比最新正式版还新的测试版时不提示更新，写明正式版出来以后会提示", async () => {
+      try {
+        await UC({ version: "3.2.0-beta.3", releases: RELS, updateChannel: "stable" });
+        await page.goto(url("#/settings/about")); await settle(500);
+        const t = await check();
+        assert(await page.locator("#up-result button").count() === 0 && !t.includes("发现新版本"), "不该提示更新：" + t);
+        assert(t.includes("按「稳定版」查") && t.includes("最新的正式版是 v3.1.2") && t.includes("你用的是测试版 v3.2.0-beta.3") && t.includes("正式版 3.2.0 出来以后会提示"), "说法：" + t);
+      } finally { await reset(); }
+    });
+  }
+
   // ==================== beta.3 小修 ====================
   // 隧道凭据短于 6 个字符时日志里含它的行会整行隐藏（tunnel.credMasker）：不拒绝（自定义 frps 的令牌本来可以很短），
   // 添加时给一句提示。长度按 UTF-8 字节算，同后端；前后的空白不算；空着不提示

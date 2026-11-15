@@ -22,21 +22,21 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 ### 应用
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/app` | 版本、内存（`ramMb`/`availRamMb`）、实际监听端口 `port`、`serversRoot`/`backupsRoot`、`autoStart`（开机自启真值，查注册表）、`config`、本机 IP；`lanSet`（是否已设访问密码）、`cfKeySet`（是否已设 CurseForge API Key）、`cfKeyBroken`（已存的 Key 解不开，多半是换了电脑或 Windows 用户，需要重填）；`lanActive`：这次启动是否已经监听在局域网上（打开「允许局域网访问」后要重启程序才为真；关掉即时生效）；`local`：请求是不是来自本机（不是本机时 `config.webhookUrl` 是遮掉的，见下方配置键） |
+| GET | `/api/app` | 版本、内存（`ramMb`/`availRamMb`）、实际监听端口 `port`、`serversRoot`/`backupsRoot`、`autoStart`（开机自启真值，查注册表）、`config`、本机 IP；`lanSet`（是否已设访问密码）、`cfKeySet`（是否已设 CurseForge API Key）、`cfKeyBroken`（已存的 Key 解不开，多半是换了电脑或 Windows 用户，需要重填）；`lanActive`：这次启动是否已经监听在局域网上（打开「允许局域网访问」后要重启程序才为真；关掉即时生效）；`local`：请求是不是来自本机（不是本机时 `config.webhookUrl` 是遮掉的，见下方配置键）；`updateChannel`：生效的更新渠道 `stable` 或 `latest`（`config.updateChannel` 为空、没选过时按正在用的版本定，见下方配置键） |
 | PUT | `/api/config` | 局部更新配置（见下方「配置键」；仅传要改的键） |
 | POST | `/api/pickdir` | 弹系统文件夹选择框，返回 `{path}`（取消为空）。对话框关掉之前请求不返回；已经开着一个时再调返回 409；对话框打不开时返回 500（原因在日志里）。**仅本机** |
 | POST | `/api/openpath` | 在资源管理器打开 `{path}` 目录。**仅本机** |
 | GET | `/api/bg` | 列出 `bg/` 目录内壁纸文件名 `{images:[...]}` |
 | GET | `/bg/{name}` | 提供单张壁纸图片（免 token，`filepath.Base` 防穿越） |
 | POST | `/api/shutdown` | 优雅退出（自动停服） |
-| POST | `/api/update/check` · `/api/update/apply` | 检查/应用更新 |
+| POST | `/api/update/check` · `/api/update/apply` | 检查 / 应用更新，都按生效的更新渠道（配置键 `updateChannel`）查：`stable` 查 GitHub 的 `releases/latest`（只有正式版）；`latest` 取 `GET /repos/{repo}/releases?per_page=30`，跳过草稿和标签不是 `v主.次.修订[-后缀]` 的，在正式版和预发布版里按版本号取最大的，不看接口返回的顺序。版本按语义化版本比：先比三段数字；数字相同时正式版比预发布版新；都是预发布时逐段比后缀（纯数字的段按数字比，别的按字符串比、不分大小写，纯数字的段比非数字的段旧，段数少的更旧，如 `beta.2` < `beta.3` < `beta.10`、`alpha` < `beta` < `rc`）；`+构建信息` 不参与比较。只有查到的比正在用的新才算有更新，任何渠道都不会「更新」到更旧的版本。两条渠道对附件的要求一样：exe 必须在官方 `SHA256SUMS`（直连 GitHub 取，不经镜像）里对得上才装，预发布版不放宽。check 返回 `{current, latest: {tag, notes, sizeBytes, prerelease}, hasUpdate, channel, prerelease, currentPrerelease, ahead}`：`channel` 是这次按哪个渠道查的；`prerelease` 是查到的版本是不是测试版（标签带 `-` 后缀，或 GitHub 上标成预发布）；`currentPrerelease` 是正在用的是不是测试版；`ahead` 是正在用的版本比查到的还新（典型是稳定渠道上用着测试版，例如用着 3.2.0-beta.3、最新正式版是 3.1.2），这时 `hasUpdate` 为 false。启动时的后台检查（`checkUpdateOnStart`）同样按渠道查 |
 | GET | `/api/cores` | 12 种核心元数据（id/name/tag/desc/kind） |
 | GET | `/api/mcversions?core=&snapshots=` | 版本列表；每项 `{id, type, latest, releaseTime?}`，`releaseTime` 为 Mojang 清单的发布时间（ISO 8601），仅 Vanilla / NeoForge 等版本表取自官方清单的核心提供，其余核心省略 |
 | GET | `/api/builds?core=&mc=` | 构建列表 |
 | GET | `/api/javas` · POST `/api/javas/scan` · POST `/api/javas/add` | Java 管理（`add` **仅本机**） |
 
 **配置键**（`PUT /api/config`，均为可选、只更新所传字段）：
-`source`（auto/mirror/official）、`cfApiKey`（**只写**：用 Windows DPAPI 加密存进程序目录的 `secrets.json`，任何响应都不下发——`config` 里的 `cfApiKey` 永远为空；是否已设置看 `GET /api/app` 的 `cfKeySet`；传空串清除）、`webhookUrl`（局域网登录的设备读到的只有协议和主机，后面换成 `***`，如 `https://hook.example/***`，地址里的令牌不下发；原样传回这个遮掉的地址表示不改，带着 `***` 的其他写法返回 400；本机读写的都是完整地址）、`updateRepo`、`checkUpdateOnStart`、`serversDir`（实例存放根，空=默认；**仅本机**；改动时旧值并入 `roots`，旧根里的实例照常扫描；返回的配置里还有只读的 `instanceDirs`，是接管进来的服务器各自的文件夹，启动时逐个读，不扫它们的上一层）、`backupsDir`（备份根；**仅本机**）、`backupKeep`（每实例保留份数 1–1000）、`onboarded`（首启引导完成标记）、`tosAccepted`（用户协议与免责声明已同意标记）、`minimizeToTray`（关窗最小化到托盘；配置里另有只读的 `trayHinted`：第一次点关闭按钮缩到托盘时，托盘图标弹过一次系统通知就记成 true，以后不再弹，PUT 不收这个键）、`autoStart`（开机自启，直写 `HKCU\...\Run`）、`listenLan`、`lanPassword`（明文，服务端存为 bcrypt 哈希；任何响应都不下发该哈希，是否已设密码看 `GET /api/app` 的 `lanSet`）、`chromeColor`（界面标题栏底色，只收 `#rrggbb`，存为小写，其它写法整次返回 400；空串清除。原生窗口里的前端在外观变化时上报，下次启动时宿主把它设为 WebView2 的默认底色，避免冷启动白闪；没有值时按系统浅 / 深色取默认方案的标题栏色）。
+`source`（auto/mirror/official）、`cfApiKey`（**只写**：用 Windows DPAPI 加密存进程序目录的 `secrets.json`，任何响应都不下发——`config` 里的 `cfApiKey` 永远为空；是否已设置看 `GET /api/app` 的 `cfKeySet`；传空串清除）、`webhookUrl`（局域网登录的设备读到的只有协议和主机，后面换成 `***`，如 `https://hook.example/***`，地址里的令牌不下发；原样传回这个遮掉的地址表示不改，带着 `***` 的其他写法返回 400；本机读写的都是完整地址）、`updateRepo`、`checkUpdateOnStart`、`updateChannel`（更新渠道：`stable` 稳定版，只收正式版；`latest` 最新版，正式版和测试版都收。只收这两个值，别的整次返回 400。没选过时 config 里没有这一项、也不回填，生效的渠道按正在用的版本定：版本号带 `-` 后缀的测试版按 `latest`，正式版按 `stable`，看 `GET /api/app` 的 `updateChannel`；选过以后以选的为准。同 `updateRepo`，局域网会话也能改）、`serversDir`（实例存放根，空=默认；**仅本机**；改动时旧值并入 `roots`，旧根里的实例照常扫描；返回的配置里还有只读的 `instanceDirs`，是接管进来的服务器各自的文件夹，启动时逐个读，不扫它们的上一层）、`backupsDir`（备份根；**仅本机**）、`backupKeep`（每实例保留份数 1–1000）、`onboarded`（首启引导完成标记）、`tosAccepted`（用户协议与免责声明已同意标记）、`minimizeToTray`（关窗最小化到托盘；配置里另有只读的 `trayHinted`：第一次点关闭按钮缩到托盘时，托盘图标弹过一次系统通知就记成 true，以后不再弹，PUT 不收这个键）、`autoStart`（开机自启，直写 `HKCU\...\Run`）、`listenLan`、`lanPassword`（明文，服务端存为 bcrypt 哈希；任何响应都不下发该哈希，是否已设密码看 `GET /api/app` 的 `lanSet`）、`chromeColor`（界面标题栏底色，只收 `#rrggbb`，存为小写，其它写法整次返回 400；空串清除。原生窗口里的前端在外观变化时上报，下次启动时宿主把它设为 WebView2 的默认底色，避免冷启动白闪；没有值时按系统浅 / 深色取默认方案的标题栏色）。
 另有 `trustedHosts`（config.json 里 `[{host, scope, at}]`，整合包导入里用户逐个确认过的自定义下载站点）：**不经 `PUT /api/config` 修改**，只能由 `POST /api/import/pending/{taskId}` 的 `trust` 处置在用户明确确认（`ack: true`）且站点校验通过（https、公网）后写入，`scope` 为作用域（现为 `modpack`），之后同站点的整合包导入不再列为待决。
 
 ### 实例
