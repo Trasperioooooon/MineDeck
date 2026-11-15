@@ -107,9 +107,12 @@ func TestBroadcastStopsWithServer(t *testing.T) {
 	c := e.caps.last()
 	e.inst.setStatus(instName, "stopping")
 	waitFor(t, "广播自己停下", 2*time.Second, func() bool { return e.s.Current() == "" })
-	if !c.stopped() || !slices.Equal(fm.Ends(), []string{"服务器正在停止"}) {
-		t.Fatalf("收尾：采集停了 %v，END %v", c.stopped(), fm.Ends())
+	if !c.stopped() {
+		t.Fatal("收尾：采集应已停")
 	}
+	// END 是经连接发给模组的，假模组在自己的 goroutine 里收：广播已经收尾时它可能还没记下，等一下（同上面「用户停止」那条）。
+	// 2026-11-15 整合分支的 CI 上撞到过一次：广播已停、END 还是空的
+	waitFor(t, "模组收到 END", 2*time.Second, func() bool { return slices.Equal(fm.Ends(), []string{"服务器正在停止"}) })
 	if a := <-e.auto; a != instName+"：服务器正在停止" {
 		t.Errorf("自动停止的记录：%s", a)
 	}
