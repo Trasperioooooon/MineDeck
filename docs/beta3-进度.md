@@ -38,6 +38,10 @@
 - L1-small（评审发现 7、8、10，公网地址端口截断，音乐共享页的说法和内网穿透页的指路）：Claude 子代理 opus-xhigh，工作树 `.claude/worktrees/b3-small`，分支 `wt/b3-small`，基准 `9fa8666`，同时开始。
 - L1-pr26-review：Claude 的 reviewer（Fable）只读复审 PR #26，工作树 `.claude/worktrees/b3-pr26`（分离头 `8428082`）。
 - L1-pr26-codex：Codex（请求 gpt-6-astra、max 档）只读复审 PR #26，工作树 `.claude/worktrees/b3-pr26-codex`，结果写到主检出的 `.claude/beta3-tasks/codex-pr26/`。
+- L2-detail（详情页：R06、R07、R10、R11、R15 和 R16 的详情页部分、R21，外加第一层留下的 companion.js 弹窗、gamechat 读白名单、props-catalog 白名单默认值、排障资料包带上次启动失败原因）：Claude 子代理 opus-xhigh，工作树 `.claude/worktrees/b3-detail`，分支 `wt/b3-detail`，基准 `28d2d08`。
+- L2-settings（内网穿透页和全局设置：R12、R17、R18、R19、R20，R15 和 R16 的设置部分，U29，外加隧道页、assistant.js、mcp.js 里没改成叠层的弹窗）：Claude 子代理 opus-xhigh，工作树 `.claude/worktrees/b3-settings`，分支 `wt/b3-settings`，基准 `28d2d08`。
+- L2-flows（新建流程和任务页：R13、R14、R22，R09 的后端和接口，评审发现 9 的「已取消」状态）：Claude 子代理 opus-xhigh，工作树 `.claude/worktrees/b3-flows`，分支 `wt/b3-flows`，基准 `28d2d08`。三个同时开始。
+- 第二层下半（R08 端口冲突、R09 的界面）等上面三个合完再派，任务单 `.claude/beta3-tasks/L2b-ports-pending.md` 已写好。
 - README 构建命令和 `tools/dev/编译并启动.bat`：主会话自己做，提交 `92918ac`。脚本试过两种情况：输出文件夹在仓库里时拒绝；编到仓库外面以后用 `-nogui` 起得来，`LOCALAPPDATA`、`APPDATA` 落在输出文件夹的 `_profile` 里。
 
 ## 实测记录
@@ -49,5 +53,9 @@
 ## 各层结果
 
 （每层合完写：合了什么、跑了哪些验证、走查复跑的结果、还剩什么。）
+
+**第一层 P0 收回（11-15 晚）。** 子代理报的实际模型是 claude-opus-5-5，没有再派活。四个提交，合进整合分支没有冲突。几处要记的：连接地址只用本机局域网 IP，不看 server-ip；代理端（Velocity、Waterfall）的端口从它自己的配置里读，还没生成配置时界面写「第一次启动以后才知道」，没在真的代理端上核对过；白名单在发布前最后一步按开关写（整合包覆盖目录之后，所以以表单为准），导入交接包和接管不经过这一步；上次启动失败的原因只记在内存里，程序重开就没了；报错提示至少停 20 秒，鼠标停着或「详情」开着时不走。界面全量用例现在要 10 分钟以上。第一层留下、分进第二层任务单的：`companion.js`、`assistant.js`、`mcp.js` 和内网穿透页里还有会整块换掉 `#modal-root` 的弹窗；`gamechat.go` 读白名单用的不是服务端的读法；`props-catalog.js` 里 `white-list` 的默认值；AI 排障资料包里没带上次启动失败的原因。
+
+**第一层整体复跑（11-15 晚，主会话，整合分支 `28d2d08`，机器上没有别的测试在跑）。** `GOOS=windows go build ./...`、`go vet ./...` 通过；`gofmt -l` 查出一个测试文件没排版，已修；`go test ./... -count=1` 全过；界面测试 194/194；原型 127 个场景走通。P0 的盲测复跑没有单独做，和第二层一起走：第二层要重组详情页头，连接地址和启动失败的提示都在页头上，现在测会测到一个马上要变的版本。
 
 **第一层小修收回（11-15 晚）。** 子代理报的实际模型是 claude-opus-5-5，没有再派活，问过三次会话自带的 advisor。六个提交，合进整合分支是 `a263eb4`。主会话读了改动，重点看了处置没装上的文件的加锁：现在是配置锁 → server.properties 的路径锁 → 在锁里重查落点 → 目标文件的路径锁 → 只查余量的磁盘租约，是原来顺序的子集，没有新的锁顺序环；trust 先下到缓存文件夹 `cache/pending-download/` 里，写进服务器那一下才拿锁。几个要记的取舍：AI 回复原始字节的兜底定的是单次 128 MiB（按带内容过滤标注的服务商每个事件六百字节外壳算，也能收二十多万个词元），事件数上限放到 1 Mi 个；短凭据只在添加隧道时提示（界面上没有编辑隧道的表单，R12 做编辑时要把这句提示带上）；公网地址只看右边紧挨着的 ASCII 数字和字母，地址后面直接接汉字照常认；音乐共享的状态多了 `remote: unknown`、`loadErr`、`loadHint`，只开着音乐共享页时每两秒取状态也会触发隧道重读。子代理自己在最终代码上跑过 Go 全量、处置的并发用例连跑 50 遍、隧道包 20 遍、界面 185/185、原型 121 个场景；主会话的复跑放在第一层整体合完以后。程序中途被杀时 `cache/pending-download/` 里会留下临时下载，不影响服务器，没做自动清理。发布说明要换掉 beta.1 里「8 MiB，按收到的原始数据算」那条已知问题；`tools/ui-dev/README.md` 里的用例条数要在最后一层更新。
