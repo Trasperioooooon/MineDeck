@@ -252,12 +252,69 @@ func (c *cat) instanceOps() {
 		},
 	})
 
+	// 按服务器查、处置整合包导入时没装上的文件（可用性走查 R09）：清单存在服务器文件夹里，程序重开以后也在，
+	// 不再只挂在这次运行的导入任务上。清单是从服务器文件夹里读的不可信文字，不给 AI 看（仅人工）；
+	// 查看不限本机（局域网打开的管理页也能看到缺了什么），处置和上面按任务的那个一样只许本机。
+	c.reg.Register(&ops.Op{
+		Name: "instance.import.pending.get", Title: "查看整合包里没装上的文件", Level: ops.HumanOnly,
+		Desc: "一台服务器导入整合包时没能自动装上的文件：pending 是还没处理的，skipped 是跳过了的（也没装上，还能改成别的处理）。" +
+			"每一项的 options 是现在能用的处理方式。没有的话两个列表都是空的。",
+		Params: withInst(nil),
+		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+			p, err := bind[struct {
+				Inst string `json:"inst"`
+			}](a)
+			if err != nil {
+				return nil, err
+			}
+			if _, err := c.get(p.Inst); err != nil {
+				return nil, err
+			}
+			return c.Mgr.ImportPending(p.Inst)
+		},
+	})
+	c.reg.Register(&ops.Op{
+		Name: "instance.import.pending.resolve", Title: "处理整合包里没装上的文件", Level: ops.HumanOnly, LocalOnly: true,
+		LocalMsg: importPendingLocalMsg,
+		Desc: "按服务器处置导入整合包时没装上的文件，程序重开以后也能用（不需要导入任务还在）。处理方式同 instance.import.pending：" +
+			"skip 跳过（留在清单里标成已跳过，以后还能改成别的处理）、local 用本地文件原样代替、trust 确认信任站点后下载。" +
+			"落点每一次都重新检查（只许 mods、plugins、config 这类九个文件夹，不许世界、server.properties 和 MineDeck 自己的文件），清单里写的不作数。" +
+			"返回处置结果和处置以后的清单。",
+		Params: withInst(map[string]*ops.Schema{
+			"items": ops.Array("一批处置动作", ops.Object(map[string]*ops.Schema{
+				"id":   ops.String("文件编号（p1、p2…，见 instance.import.pending.get）"),
+				"act":  ops.String("处理方式：skip 跳过、local 用本地文件代替、trust 信任站点后下载").OneOf("skip", "local", "trust"),
+				"path": ops.String("act=local：本地文件路径，或目录路径（按文件的相对路径和 mods 下的同名文件找）").Len(0, 300),
+				"url":  ops.String("act=trust：从候选地址的哪一条下载（要和清单里列出的一致）").Len(0, 2000),
+				"ack":  ops.Boolean("act=trust：用户已读过风险说明、确认信任这个站点（每个站点第一次必须确认）"),
+			}, "id", "act")).MaxLen(50),
+		}, "items"),
+		Run: func(ctx context.Context, _ ops.Caller, a ops.Args) (any, error) {
+			p, err := bind[struct {
+				Inst  string               `json:"inst"`
+				Items []inst.PendingAction `json:"items"`
+			}](a)
+			if err != nil {
+				return nil, err
+			}
+			if _, err := c.get(p.Inst); err != nil {
+				return nil, err
+			}
+			resolved, view, err := c.Mgr.ResolveInstancePending(ctx, p.Inst, p.Items)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"resolved": resolved, "pending": view.Pending, "skipped": view.Skipped}, nil
+		},
+	})
+
 	c.adoptOps()
 
 	c.reg.Register(&ops.Op{
 		Name: "task.list", Title: "查看后台任务", Level: ops.Read,
-		Desc: "本次运行的新建实例、整合包导入、接管已有服务器、Java 下载、交接包导入导出任务，按创建时间从新到旧排列，包含已完成与失败的任务。" +
-			"每个任务只给摘要（标题、是否结束、当前进度、出错原因、告警条数），步骤、日志和告警明细用 task.get 查。",
+		Desc: "本次运行的新建实例、整合包导入、接管已有服务器、Java 下载、交接包导入导出任务，按创建时间从新到旧排列，包含已完成、失败和用户取消的任务。" +
+			"每个任务只给摘要（标题、是否结束、当前进度、出错原因、告警条数），步骤、日志和告警明细用 task.get 查。" +
+			"cancelled 为 true 的是用户取消的（error 里是一句说明，不是出错），cancelling 为 true 的正在取消、清理半成品。",
 		Run: func(context.Context, ops.Caller, ops.Args) (any, error) {
 			return c.Mgr.Tasks.List(), nil
 		},

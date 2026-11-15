@@ -775,9 +775,22 @@ window.MDWorldImport = (() => {
   const inWizard = () => /^#\/create\/(new|world)/.test(location.hash || "");
   const wizardMap = () => (wz ? wz.cand : null);
 
-  /* 「新建服务器」页卡片下面的那一行入口。地址 #/create/world 进的是同一个向导，只是选地图的面板一上来就开着 */
-  const homeLink = () => `<div class="hint wi-home-link">手里有现成的地图（下载的地图、单人存档、别的服务器的世界）？<a href="#/create/world" id="mode-world">用已有地图开服</a></div>`;
+  /* 「新建服务器」页的第五张卡片「用已有地图开服」（app.js 的 renderCreate，可用性走查 R14）进的是地址 #/create/world：
+     同一个向导，只是选地图的面板一上来就开着 */
   function wizardOpen() { wzOpen = true; }
+  /* 「返回修改」（app.js 的 formDrafts）：提交时记下选的是哪张地图，回来时原样选上，不用再传一遍、也不用再选。
+     这时建服任务已经结束（失败或取消），后端还留着这次检测（提交时 keep 过）；重新握住它，离开向导就清掉。
+     跟着那个建服任务看结果的 watchCreate 不用再看了：这张地图又回到向导手里 */
+  const draftMap = () => (wz ? { scan: wz.scan, cand: wz.cand } : null);
+  function wizardRestore(d) {
+    if (!d || !d.scan || !d.cand) return;
+    watching++;
+    if (lastCreate && lastCreate.scan.id !== d.scan.id) discard(lastCreate.scan.id);
+    lastCreate = null;
+    wz = { scan: d.scan, cand: d.cand, seq: 0, plan: null, hint: "" };
+    wzOpen = false;
+    hold(d.scan.id, inWizard);
+  }
   /* 进新建页（renderCreate）时调：向导从头开始，上一次没用掉的检测清掉 */
   function wizardReset() {
     drop(); // 握着的那次检测（选定了的，或者候选列表还开着的）；创建请求被收下时已经清过，这里不会再清一遍
@@ -993,5 +1006,5 @@ window.MDWorldImport = (() => {
     if (/导入计划|请重新检测|检测的结果|请重新选择地图|不能用这个核心和版本/.test(msg)) wizardFinal($("#wiz-world"), wiz);
   }
 
-  return { TAB, TAB_LABEL, applies, render, homeLink, wizardOpen, wizardReset, wizardMap, wizardVersion, wizardStrip, wizardFinal, wizardCreateFields, wizardSubmitting, wizardCreated, wizardCreateFailed };
+  return { TAB, TAB_LABEL, applies, render, wizardOpen, wizardReset, wizardMap, draftMap, wizardRestore, wizardVersion, wizardStrip, wizardFinal, wizardCreateFields, wizardSubmitting, wizardCreated, wizardCreateFailed };
 })();

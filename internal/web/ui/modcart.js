@@ -483,7 +483,7 @@ window.MDModCart = (() => {
     const noun = nounOf(opts && opts.core);
     draftSeen = null; // 新的一轮向导：等清单画出来再记
     container.innerHTML = `
-      <div class="sub mc-wiz-sub">想一开服就带上${noun}，现在就把它们加进待装清单，服务器建好后会自动装上。也可以先跳过，以后在这台服务器的「待装清单」标签里再加。</div>
+      <div class="sub mc-wiz-sub">想一开服就带上${noun}，现在就把它们加进待装清单，服务器建好后会自动装上。现在不想装，就点下面的「跳过这一步」，以后在这台服务器里再加。</div>
       <div id="mc-panel"></div>`;
     buildPanel($("#mc-panel", container), { core: opts && opts.core, mc: opts && opts.mc, onBusy: opts && opts.onBusy }, gen);
   }

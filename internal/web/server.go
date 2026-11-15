@@ -81,6 +81,8 @@ func New(mgr *inst.Manager, tun *tunnel.Manager, reg *ops.Registry, asst *assist
 	mux.HandleFunc("POST /api/instances", s.handleCreateInstance)
 	mux.HandleFunc("POST /api/import/modpack", s.handleImportModpack)
 	mux.HandleFunc("POST /api/import/pending/{taskId}", s.handleImportPending)
+	mux.HandleFunc("GET /api/instances/{name}/import-pending", s.handleGetInstPending)
+	mux.HandleFunc("POST /api/instances/{name}/import-pending", s.handleResolveInstPending)
 	mux.HandleFunc("POST /api/adopt/scan", s.handleAdoptScan)
 	mux.HandleFunc("POST /api/adopt", s.handleAdopt)
 	mux.HandleFunc("GET /api/tasks", s.handleListTasks)

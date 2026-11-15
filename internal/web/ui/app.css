@@ -702,6 +702,18 @@ a.inst-name:hover { text-decoration: underline; text-decoration-color: color-mix
 .wizard-foot .wf-sum { flex: 1; min-width: 0; text-align: center; font-size: var(--fs-sm); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wizard-foot .wf-sum b { color: var(--text); font-weight: var(--fw-semibold); }
 .w-read { max-width: var(--w-read); }
+/* EULA 开关和吸底栏贴在一起吸底（可用性走查 U25 / R22）：以前开关在吸底栏正上方，窗口不够高时被吸底栏盖住一半。
+   上面留一点和页面一样的底色，滚过去的内容不会从两块中间露出来 */
+.wiz-bottom { position: sticky; bottom: 0; z-index: 5; margin-top: 20px; padding-top: 6px; max-width: var(--w-read); background: linear-gradient(transparent, var(--bg) 6px); }
+.wiz-bottom .eula-box { margin: 0 0 8px; }
+.wiz-bottom .wizard-foot { position: static; margin-top: 0; }
+/* 向导「选构建」：推荐的那个一行写明，列表收进「高级」（R22） */
+.build-rec { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0 12px; font-size: var(--fs-sm); }
+.build-rec > .ico { color: var(--success-text); }
+.build-rec .hint { margin: 0; }
+.wiz-adv > summary { cursor: pointer; font-size: var(--fs-sm); color: var(--accent-text); padding: 4px 0; width: fit-content; border-radius: var(--r-xs); }
+.wiz-adv > summary:hover { text-decoration: underline; }
+.wiz-adv[open] > summary { margin-bottom: 8px; }
 
 /* ---------- 部署进度：步骤 + 经验条 ---------- */
 .task-steps { margin: 6px 0 18px; }
@@ -717,6 +729,31 @@ a.inst-name:hover { text-decoration: underline; text-decoration-color: color-mix
 .task-step.done .ts-ico { background: var(--success-subtle); color: var(--success-text); }
 .task-step.error { color: var(--danger-text); }
 .task-step.error .ts-ico { background: var(--danger-subtle); color: var(--danger-text); }
+/* 用户取消时正在做的那一步：中性的一道横线，不画红叉（可用性走查 R13、复审发现 9） */
+.task-step.cancelled { color: var(--muted); }
+.ts-ico .ts-dash { width: 9px; height: 2px; border-radius: 1px; background: currentColor; opacity: .7; }
+/* 任务取消以后的一句说明：中性色，不是红色的失败框 */
+.task-note {
+  display: flex; align-items: flex-start; gap: 8px; margin: 12px 0; padding: 12px 14px; max-width: 720px;
+  border-radius: var(--r-lg); background: color-mix(in srgb, var(--text) 5%, var(--surface)); border: 1px solid var(--border);
+  font-size: var(--fs-sm); line-height: 1.7; color: var(--text);
+}
+.task-note > .ico { flex: none; margin-top: 4px; color: var(--muted); }
+/* 后台任务记录：要看一眼的一行一条，已结束的折成一行「另外 N 个已结束的任务」（R13） */
+.task-row .btn.icon-only { --btn-h: 28px; }
+.task-row.cancelled .sub { color: var(--muted); }
+.task-fold { max-width: 800px; margin: 2px 0 8px; }
+.task-fold > summary { cursor: pointer; padding: 6px 2px; font-size: var(--fs-sm); color: var(--muted); border-radius: var(--r-sm); }
+.task-fold > summary:hover { color: var(--text); }
+.task-fold-body { margin-top: 6px; }
+/* 没装上的文件（R09）：任务页的处理面板，一项一块；跳过的收在下面「已跳过的 N 个」里 */
+.pnd-item, .pnd-skipped { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 10px; overflow-wrap: anywhere; }
+.pnd-acts { flex-wrap: wrap; margin-top: 4px; }
+.pnd-opt { display: inline-flex; gap: 5px; align-items: center; margin-right: 14px; }
+.pnd-local { width: 100%; margin-top: 6px; }
+.pnd-ack { display: inline-flex; gap: 6px; align-items: flex-start; margin-top: 6px; }
+.pnd-skip-list { margin-top: 12px; }
+.pnd-skip-list > summary { cursor: pointer; font-size: var(--fs-sm); color: var(--text); font-weight: var(--fw-medium); }
 @keyframes spin { to { transform: rotate(360deg); } }
 .progress-wrap { margin: 8px 0 18px; max-width: 720px; }
 .progress-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; font-size: var(--fs-sm); }

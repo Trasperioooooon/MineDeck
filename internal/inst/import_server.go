@@ -60,12 +60,8 @@ func (m *Manager) importServerAsync(pack *modpack.Pack, req CreateReq) (string, 
 		defer m.releaseCreating(dirKey(dir))
 		defer os.Remove(pack.ZipPath)
 		if err := m.runServerImport(ctx, t, pack, req, dir); err != nil {
-			err = cancelledOr(t, err)
 			// 先清后报失败：任务一显示失败，半成品就得已经删干净了（失败框上写着可以重试；交接包导入同样的顺序）
-			if cleanupErr := m.discardCreating(req.Name, dir); cleanupErr != nil {
-				err = fmt.Errorf("%w；清理半成品失败：%v", err, cleanupErr)
-			}
-			t.Fail(err)
+			failCreate(t, err, m.discardCreating(req.Name, dir))
 			return
 		}
 		t.Finish(req.Name)

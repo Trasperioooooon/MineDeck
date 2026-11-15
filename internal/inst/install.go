@@ -188,11 +188,7 @@ func (m *Manager) CreateAsync(req CreateReq) (string, error) {
 			defer m.releaseWorldPlan(req.WorldOwner, req.WorldPlan)
 		}
 		if err := m.runCreate(ctx, t, req, dir); err != nil {
-			err = cancelledOr(t, err)
-			if cleanupErr := m.discardCreating(req.Name, dir); cleanupErr != nil {
-				err = fmt.Errorf("%w；清理半成品失败：%v", err, cleanupErr)
-			}
-			t.Fail(err)
+			failCreate(t, err, m.discardCreating(req.Name, dir))
 			return
 		}
 		t.Finish(req.Name)
@@ -494,6 +490,22 @@ func cancelledOr(t *tasks.Task, err error) error {
 		return fmt.Errorf("已取消，没有创建服务器")
 	}
 	return err
+}
+
+// failCreate 新建、导入整合包、导入服务端这几种后台任务出错收尾（半成品已经按 cleanupErr 的结果清过）。
+// 用户点了取消、半成品也清干净了：任务按「已取消」结束（tasks.EndCancelled），界面显示中性的「已取消」，不是失败；
+// 取消以后没清干净的仍是失败，原因里带上清理失败的那句——文件夹里留了东西，要人去看（2026-11-14 复审发现 9）。
+func failCreate(t *tasks.Task, err, cleanupErr error) {
+	err = cancelledOr(t, err)
+	if cleanupErr != nil {
+		t.Fail(fmt.Errorf("%w；清理半成品失败：%v", err, cleanupErr))
+		return
+	}
+	if t.Cancelled() {
+		t.EndCancelled(err)
+		return
+	}
+	t.Fail(err)
 }
 
 // discardCreating 只清理由当前创建任务独占、尚未发布的目录。

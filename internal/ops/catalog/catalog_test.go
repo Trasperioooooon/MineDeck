@@ -72,7 +72,9 @@ func TestLevelsFollowDesign(t *testing.T) {
 			// 接管已有服务器：要读主机上任意一个文件夹，只许人在本机操作
 			"instance.adopt.scan", "instance.adopt",
 			// 整合包导入的待决文件：要收这台电脑上的文件，只许人在本机操作
-			"instance.import.pending"},
+			"instance.import.pending",
+			// 按服务器查、处置没装上的文件（beta.3 R09）：清单是服务器文件夹里读来的不可信文字，不给 AI；处置同上只许本机
+			"instance.import.pending.get", "instance.import.pending.resolve"},
 	}
 	// 穿透平台账户操作由 Accounts 注入后才登记；本测试 Env 不传 Accounts，故不列入 want。
 
@@ -139,7 +141,7 @@ func TestLevelsFollowDesign(t *testing.T) {
 	slices.Sort(local)
 	if strings.Join(local, ",") != "ai.assistant.set,ai.models.list,ai.prices.refresh,ai.prices.set,ai.provider.set,ai.quota.set,ai.test,"+
 		"gameai.set,gameai.whitelist,"+ // 第四阶段：授权名单和命令模板只能在本机改（§3.3）
-		"host.openpath,host.pickdir,instance.adopt,instance.adopt.scan,instance.import.pending,instance.opendir,java.add"+
+		"host.openpath,host.pickdir,instance.adopt,instance.adopt.scan,instance.import.pending,instance.import.pending.resolve,instance.opendir,java.add"+
 		",music.sources,music.start,music.system.confirm"+ // 第五阶段
 		",world.import.scanpath" { // 地图导入：读本机文件夹
 		t.Errorf("仅本机的操作：%v", local)

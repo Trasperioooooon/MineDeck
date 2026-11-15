@@ -87,6 +87,24 @@ func (s *Server) handleImportPending(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleGetInstPending 一台服务器上整合包导入时没装上的文件（按服务器，程序重开以后也在）。
+func (s *Server) handleGetInstPending(w http.ResponseWriter, r *http.Request) {
+	s.do(w, r, "instance.import.pending.get", instArg(r))
+}
+
+// handleResolveInstPending 按服务器处置没装上的文件（详情页、任务页用）。仅本机可用。
+func (s *Server) handleResolveInstPending(w http.ResponseWriter, r *http.Request) {
+	s.do(w, r, "instance.import.pending.resolve", func() (ops.Args, error) {
+		var body struct {
+			Items []inst.PendingAction `json:"items"`
+		}
+		if err := readJSON(r, &body); err != nil {
+			return nil, bodyErr(err)
+		}
+		return ops.ArgsOf(map[string]any{"inst": r.PathValue("name"), "items": body.Items}), nil
+	})
+}
+
 // handleAdoptScan 识别一个已有的服务器文件夹（只读）。仅本机可用。
 func (s *Server) handleAdoptScan(w http.ResponseWriter, r *http.Request) {
 	s.do(w, r, "instance.adopt.scan", bodyArgs(r))

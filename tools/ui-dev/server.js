@@ -44,6 +44,15 @@ const CORES = [
 ].map(([id, name, tag, desc, kind]) => ({ id, name, tag, desc, kind }));
 
 // 每次 start() 都从这份初始数据开始：4 台服务器（运行中 / 已停止 / 启动中 / 代理端）、2 条隧道、已完成首启
+/* 一台服务器没装上的文件（见 state.instPending）：没摆过就按 taskList 里结果是这台服务器的导入任务生成（真后端里任务上的清单是服务器那份的镜像） */
+function instPendingOf(state, name) {
+  if (!state.instPending[name]) {
+    const t = state.taskList.find(x => x.result === name && (x.pending || []).length);
+    state.instPending[name] = { pending: t ? JSON.parse(JSON.stringify(t.pending)) : [], skipped: [] };
+  }
+  return state.instPending[name];
+}
+
 function newState(ui) {
   const state = {
     config: { source: "auto", onboarded: true, tosAccepted: true, backupKeep: 10, listenLan: false, webhookUrl: "", updateRepo: "Trasperioooooon/MineDeck", checkUpdateOnStart: true, minimizeToTray: true, chromeColor: "" },
@@ -70,6 +79,7 @@ function newState(ui) {
     empty: false,
     taskStage: 2,
     taskList: [],
+    instPending: {}, // 服务器名 → { pending, skipped }：整合包导入时没装上的文件（同 GET /api/instances/{名}/import-pending）；没有时按 taskList 里那台的导入任务生成
     taskNet: null, // 部署任务的 net（下载超时、重试的情况）：{ count, host, what, ago }
     ai: newAIState(),
     music: newMusicState(), // 第五阶段
@@ -2235,7 +2245,10 @@ function handler(state, ui, portOf) {
     //   empty: true 时服务器列表为空；onboarded: false 时弹首启引导；listenLan: 远程访问开关，且当作已重启生效（开启后设置页显示二维码，并视为已设密码）
     //   lanSet: 是否已设局域网访问密码；lanActive: 单独改「这次启动是否已监听在局域网上」（模拟改了开关还没重启）
     //   taskStage: 部署任务进行到第几步（0–4，4 = 完成），"error" = 第 2 步失败
-    //   taskList: 后台任务快照数组；同时覆盖对应任务详情里的字段，模拟并行任务及离开期间完成的任务
+    //   taskList: 后台任务快照数组；同时覆盖对应任务详情里的字段，模拟并行任务及离开期间完成的任务。
+    //     带 canCancel 的可以点「取消」（POST /api/tasks/{id}/cancel）：先是 cancelling，再查两次就按「已取消」结束（cancelled、error 是那句中文、正在做的那一步 cancelled）
+    //     设 taskList 时没装上的文件（instPending）一起清掉，下次按新的任务重新生成
+    //   instPending: { 服务器名: { pending, skipped } } 直接摆好某台服务器没装上的文件（不经导入任务，程序重开以后的样子）
     //   modsNeed: { 实例名: needJava } GET /api/instances/{名称}/mods 返回的 needJava（实例详情页的 Java 提示用），空对象还原
     //   trustedHosts: [站点] 处置待决文件时已确认过的自定义站点（trust 不再要求 ack），空数组还原
     //   taskNet: 部署任务的 net（同 tasks.NetRetry：{ count, host, what, ago }），null 清掉
@@ -2281,7 +2294,8 @@ function handler(state, ui, portOf) {
       if ("empty" in b) state.empty = !!b.empty;
       if ("onboarded" in b) { state.config.onboarded = !!b.onboarded; state.config.tosAccepted = !!b.onboarded; }
       if ("taskStage" in b) state.taskStage = b.taskStage;
-      if ("taskList" in b) state.taskList = b.taskList;
+      if ("taskList" in b) { state.taskList = b.taskList; state.instPending = {}; }
+      if (b.instPending) Object.assign(state.instPending, b.instPending);
       if ("modsNeed" in b) state.modsNeed = b.modsNeed || {};
       if ("trustedHosts" in b) state.trustedHosts = b.trustedHosts || [];
       if ("taskNet" in b) state.taskNet = b.taskNet;
@@ -2519,8 +2533,23 @@ function handler(state, ui, portOf) {
       // 地图导入、换回旧地图的任务（kind "world"）：按查询次数往前走，见 worldTask
       if (p.startsWith("/api/tasks/task-world-")) { const t = worldTask(state, seg[3]); return t ? ok(res, t) : err(res, 404, "任务不存在"); }
       // 和真后端一样只给摘要：步骤、日志、告警明细不在列表里
-      if (p === "/api/tasks") return ok(res, state.taskList.map(t => ({ id: t.id, title: t.title, label: t.label || "", done: t.done || 0, total: t.total || 0, ended: !!t.ended, error: t.error || undefined, result: t.result || undefined, kind: t.kind || undefined, warningCount: (t.warnings || []).length, pendingCount: (t.pending || []).length })));
+      if (p === "/api/tasks") return ok(res, state.taskList.map(t => ({ id: t.id, title: t.title, label: t.label || "", done: t.done || 0, total: t.total || 0, ended: !!t.ended, error: t.error || undefined, result: t.result || undefined, kind: t.kind || undefined, warningCount: (t.warnings || []).length, pendingCount: (t.pending || []).length,
+        canCancel: !!t.canCancel && !t.ended, cancelled: t.cancelled || undefined, cancelling: t.cancelling || undefined })));
+      // 取消（同 POST /api/tasks/{id}/cancel）：收下以后先是 cancelling，再查两次清理完，按「已取消」结束（同 tasks.EndCancelled）
+      if (m === "POST" && seg[2] === "tasks" && seg[4] === "cancel") {
+        const t = state.taskList.find(x => x.id === seg[3]);
+        if (!t) return err(res, 404, "任务不存在");
+        if (t.ended || !t.canCancel) return err(res, 409, "这个任务已经不能取消了");
+        Object.assign(t, { cancelling: true, canCancel: false, cancelPolls: 0 });
+        return ok(res, "正在取消");
+      }
       if (p.startsWith("/api/tasks/")) {
+        const ce = state.taskList.find(t => t.id === seg[3]);
+        if (ce && ce.cancelling && ++ce.cancelPolls >= 2) {
+          const steps = (ce.steps || [{ name: "下载 Java 21 运行时", status: "done" }, { name: "下载 Paper 1.21.4 核心", status: "running" }, { name: "同意 EULA 并生成配置", status: "pending" }])
+            .map(x => x.status === "running" ? { ...x, status: "cancelled" } : x);
+          Object.assign(ce, { cancelling: false, ended: true, cancelled: true, error: "已取消，没有创建服务器", steps, label: "", log: [...(ce.log || []), "已取消，没有创建服务器"] });
+        }
         const st = state.taskStage;
         const names = ["下载 Java 21 运行时", "下载 Paper 1.21.4 核心", "同意 EULA 并生成配置", "生成启动脚本"];
         const steps = names.map((name, i) => ({ name, status: st === "error" ? (i < 1 ? "done" : i === 1 ? "error" : "pending") : i < st ? "done" : i === st ? "running" : "pending" }));
@@ -2609,6 +2638,45 @@ function handler(state, ui, portOf) {
           return ok(res, "ok");
         }
         if (sub === "world") return worldInstHandler(state, req, res, m, seg, i); // 地图：世界状态、换回旧地图、删除恢复点、重试恢复
+        // 没装上的文件（同 instance.import.pending.get / resolve，beta.3 R09）：按服务器查、处置；skip 把那一项挪进 skipped（还能再处理），
+        // local / trust 成功的去掉；处置以后这台服务器的导入任务跟着变（任务上的 pending、「N 个文件待处理」那条告警）
+        if (sub === "import-pending") {
+          const L = instPendingOf(state, name);
+          if (m === "GET") return ok(res, { inst: name, pending: L.pending, skipped: L.skipped });
+          if (m !== "POST") return err(res, 405, "不支持");
+          if (!state.local) return err(res, 403, "处理导入的待决文件仅支持在本机操作（要读、要收这台电脑上的文件）");
+          const items = (await readBody(req)).items || [];
+          if (!items.length) return err(res, 400, "没有要处理的项");
+          if (!L.pending.length && !L.skipped.length) return err(res, 400, "这台服务器没有整合包里没装上的文件");
+          const resolved = [];
+          for (const act of items) {
+            const inP = L.pending.find(x => x.id === act.id), inS = L.skipped.find(x => x.id === act.id), it = inP || inS;
+            if (!it) { resolved.push({ id: act.id, act: act.act, ok: false, note: "没有这一项（可能刚处理过）" }); continue; }
+            let done = true, note = "";
+            if (act.act === "skip") note = inS ? "之前已经跳过了" : "已跳过（没有装上，以后还能在这台服务器的详情页里再处理）";
+            else if (act.act === "local") {
+              if (!String(act.path || "").trim()) { done = false; note = "给出本地文件或文件夹的路径"; }
+              else note = "已用本地文件原样代替（" + act.path + "）";
+            } else if (act.act === "trust") {
+              const host = it.host || "", hosts = state.trustedHosts || (state.trustedHosts = []);
+              if ((it.urls || []).indexOf(act.url) < 0) { done = false; note = "地址要选这一项列出的候选地址"; }
+              else if (!act.ack && !hosts.includes(host)) { done = false; note = `站点 ${host} 没有确认过：读一遍风险说明并确认后才下载`; }
+              else if (!hosts.includes(host)) { hosts.push(host); note = `确认站点 ${host} 后下载完成，校验通过`; }
+              else note = `站点 ${host} 之前确认过，直接下载完成，校验通过`;
+            } else { done = false; note = "不认识的处理方式（可用：skip、local、trust）"; }
+            resolved.push({ id: it.id, path: it.path, act: act.act, ok: done, note });
+            if (!done) continue;
+            L.pending = L.pending.filter(x => x !== it);
+            L.skipped = L.skipped.filter(x => x !== it);
+            if (act.act === "skip") L.skipped.push({ ...it, options: (it.options || []).filter(o => o !== "skip") });
+          }
+          for (const t of state.taskList.filter(x => x.result === name && x.pending)) {
+            t.pending = L.pending.slice();
+            t.warnings = (t.warnings || []).filter(w => w.kind !== "import-pending" || L.pending.length);
+            for (const w of t.warnings) if (w.kind === "import-pending") w.title = `${L.pending.length} 个文件待处理`;
+          }
+          return ok(res, { resolved, pending: L.pending, skipped: L.skipped });
+        }
         // 换 Java（同操作 instance.java.set）：已有这个版本直接换，没有就返回下载任务的编号
         if (sub === "java" && m === "PUT") {
           const b = await readBody(req);

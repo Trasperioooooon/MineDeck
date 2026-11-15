@@ -1075,20 +1075,47 @@ function beginCreateView() {
   return ++viewGen;
 }
 
+/* 后台任务记录（服务器列表页和新建页共用，可用性走查 R13）：只把要人看一眼的摆出来——进行中的、还有没装上的文件的、
+   失败或带提示还没收起的；顺利完成的、取消的、点过「收起」的折成一行「另外 N 个已结束的任务」，点开才列出来，
+   不再占服务器列表的首屏（A10：5 条已完成的记录把列表挤到了第二屏）。「收起」只记在这一次打开的窗口里（sessionStorage） */
+const TASK_HIDE_KEY = "md_task_hidden";
+const taskHidden = (() => { try { return new Set(JSON.parse(sessionStorage.getItem(TASK_HIDE_KEY) || "[]")); } catch { return new Set(); } })();
+const taskHideKey = t => t.id + "|" + t.title; // 程序重开以后任务编号从 t1 重新数：带上标题，免得把新任务当成收起过的
+const taskState = t => !t.ended ? (t.cancelling ? "正在取消，清理半成品…" : t.label || "进行中")
+  : t.cancelled ? "已取消" : t.error ? "失败"
+  : t.pendingCount ? `已完成，${t.pendingCount} 个文件待处理`
+  : t.warningCount ? `已完成，${t.warningCount} 条提示` : "已完成";
+const taskNeedsLook = t => !t.ended || t.pendingCount > 0 || (!t.cancelled && (!!t.error || t.warningCount > 0) && !taskHidden.has(taskHideKey(t)));
 async function refreshTaskList(slot, gen) {
   if (stale(gen) || !slot.isConnected || slot._loading) return;
   slot._loading = true;
   try {
     const list = await api("/api/tasks");
     if (stale(gen) || !slot.isConnected) return;
-    const html = list.length ? `<h2>部署与下载任务</h2>` + list.map(t => {
-      const state = !t.ended ? (t.label || "进行中") : t.error ? "失败"
-        : t.pendingCount ? `已完成，${t.pendingCount} 个文件待处理`
-        : t.warningCount ? `已完成，${t.warningCount} 条提示` : "已完成";
-      return `<div class="java-row"><div style="flex:1;min-width:0"><b>${esc(t.title)}</b><div class="sub">${esc(state)}</div></div>
-        <a class="btn sm" href="#/task/${encodeURIComponent(t.id)}" aria-label="${t.ended ? (t.pendingCount ? "去处理待决文件" : "查看结果") : "查看进度"} ${esc(t.title)} ${esc(t.id)}">${t.ended ? (t.pendingCount ? "去处理" : "查看结果") : "查看进度"}</a></div>`;
-    }).join("") : "";
-    if (slot._html !== html) { slot.innerHTML = html; slot._html = html; }
+    const row = t => {
+      const go = !t.ended ? "查看进度" : t.pendingCount ? "去处理" : "查看结果";
+      const goLabel = !t.ended ? "查看进度" : t.pendingCount ? "去处理没装上的文件" : "查看结果";
+      const canHide = t.ended && !t.pendingCount && taskNeedsLook(t);
+      return `<div class="java-row task-row${t.cancelled ? " cancelled" : ""}" data-task="${esc(t.id)}"><div style="flex:1;min-width:0"><b>${esc(t.title)}</b><div class="sub">${esc(taskState(t))}</div></div>
+        <a class="btn sm" href="#/task/${encodeURIComponent(t.id)}" aria-label="${goLabel} ${esc(t.title)} ${esc(t.id)}">${go}</a>${canHide
+          ? `<button type="button" class="btn sm ghost icon-only" data-hide-task="${esc(taskHideKey(t))}" title="收起这条记录" aria-label="收起 ${esc(t.title)} ${esc(t.id)}">${icon("x")}</button>` : ""}</div>`;
+    };
+    const shown = list.filter(taskNeedsLook), folded = list.filter(t => !taskNeedsLook(t));
+    const cnt = (f, w) => { const n = folded.filter(f).length; return n ? `${n} 个${w}` : ""; };
+    const parts = [cnt(t => !t.error, "已完成"), cnt(t => t.cancelled, "已取消"), cnt(t => t.error && !t.cancelled, "失败")].filter(Boolean);
+    const html = list.length ? `<h2>后台任务</h2>` + shown.map(row).join("") + (folded.length
+      ? `<details class="task-fold"${slot._foldOpen ? " open" : ""}><summary>${shown.length ? "另外 " : ""}${parts.length === 1 ? parts[0] + "的任务" : `${folded.length} 个已结束的任务（${parts.join("，")}）`}</summary>
+        <div class="task-fold-body">${folded.map(row).join("")}</div></details>` : "") : "";
+    if (slot._html !== html) {
+      slot.innerHTML = html; slot._html = html;
+      const fold = slot.querySelector(".task-fold");
+      if (fold) fold.ontoggle = () => { slot._foldOpen = fold.open; };
+      slot.querySelectorAll("[data-hide-task]").forEach(b => b.onclick = () => {
+        taskHidden.add(b.dataset.hideTask);
+        try { sessionStorage.setItem(TASK_HIDE_KEY, JSON.stringify([...taskHidden])); } catch { /* 存不了就只在这一页记着 */ }
+        refreshTaskList(slot, gen);
+      });
+    }
     slot.hidden = !list.length;
   } catch (e) {
     if (!stale(gen) && slot.isConnected && slot._html === undefined) {
@@ -1429,12 +1456,12 @@ async function renderInstances() {
       $("#inst-chrome").hidden = true; // 没有实例时不显示「服务器」标题与搜索/排序
       $("#inst-cards").classList.add("page-fill");
       // 一个主行动 + 一个安静的次要入口（两个同权重按钮等于没有主按钮）。
-      // 主按钮直接进「从零创建」的向导（不替人选核心）；整合包、交接包、接管这三种走次要入口去「新建服务器」页挑
+      // 主按钮直接进「从零创建」的向导（不替人选核心）；整合包、已有地图、交接包、接管这四种走次要入口去「新建服务器」页挑
       $("#inst-cards").innerHTML = `<div class="empty${first ? " sec-enter" : ""}">${MDPixel.emptySVG(240)}
         <div class="empty-title">还没有服务器</div>
         选择核心与版本后，MineDeck 将自动补全服务端文件及匹配的 Java 运行环境。<br>
         <a class="btn primary" id="empty-new" href="#/create/new">${icon("plus")} 从零创建</a><br>
-        <a class="quiet-link" href="#/create">导入整合包、导入交接包或接管已有服务器 →</a></div>`;
+        <a class="quiet-link" href="#/create">导入整合包、用已有地图开服、导入交接包或接管已有服务器 →</a></div>`;
       lastSig = "empty"; first = false; return;
     }
     $("#inst-chrome").hidden = false;
@@ -1466,9 +1493,31 @@ async function renderInstances() {
 }
 
 /* ---------- 视图：新建向导 ---------- */
-const wiz = { step: 0, core: null, mc: null, build: null, snapshots: false, root: "" };
+const wiz = { step: 0, core: null, mc: null, build: null, snapshots: false, root: "", skipMods: false, fill: null };
 
-/* 四种方式各有自己的地址（#/create/new、import、transfer、adopt）：首页空状态能直接进「从零创建」，
+/* 「返回修改」（可用性走查 R13 / F9）：表单提交、拿到任务号时记下「任务号 → 从哪个表单来、填了什么」；任务失败或取消以后，
+   任务页上点「返回修改」回到原来的表单，填过的都在（导入整合包选的文件也在：File 对象留在内存里，回来时塞回文件框）。
+   只记在这一次打开的页面里，刷新以后就没了，任务页上那时只给「返回新建服务器」。点了按钮才恢复，而且只恢复一次：
+   之后再进新建页还是空白的表单。 */
+const formDrafts = new Map(); // 任务号 → { mode: new | import | adopt, data }
+let restoreDraft = null;      // 点了「返回修改」、新建页还没画出来的那一份
+let formFill = null;          // 已经交给某个表单、等它画好再填进去的那一份：{ mode, data }
+const takeFill = mode => { const f = formFill; formFill = null; return f && f.mode === mode ? f.data : null; };
+function backToForm(taskId) {
+  const d = formDrafts.get(taskId);
+  if (!d) return false;
+  restoreDraft = d;
+  const want = "#/create/" + d.mode;
+  if ((location.hash || "") === want) navigate(); else location.hash = want;
+  return true;
+}
+/* 文件框里塞回一个之前选过的文件（DataTransfer 在 Chromium / WebView2 里能这样用）。塞不回去就算了，人再选一次 */
+function putFile(input, file) {
+  if (!input || !file) return false;
+  try { const dt = new DataTransfer(); dt.items.add(file); input.files = dt.files; return input.files.length === 1; } catch { return false; }
+}
+
+/* 五种方式各有自己的地址（#/create/new、import、world、transfer、adopt）：首页空状态能直接进「从零创建」，
    后退键能回到这一页。「返回」一律走 goCreateHome，不直接重画（地址不变的话，再点同一张卡片不会触发路由）。 */
 const CREATE_MODES = { new: () => drawWizard(), import: () => drawImport(), transfer: () => drawTransfer(), adopt: () => drawAdopt(),
   world: () => { if (window.MDWorldImport) MDWorldImport.wizardOpen(); drawWizard(); } }; // 用已有地图开服：同一个向导，选地图的面板一上来就开着
@@ -1476,11 +1525,23 @@ const goCreateHome = () => { if ((location.hash || "") === "#/create") navigate(
 
 async function renderCreate(mode) {
   const gen = beginCreateView();
-  wiz.step = 0; wiz.core = null; wiz.mc = null; wiz.build = null; wiz.root = "";
+  wiz.step = 0; wiz.core = null; wiz.mc = null; wiz.build = null; wiz.root = ""; wiz.skipMods = false; wiz.fill = null;
   if (window.MDWorldImport) MDWorldImport.wizardReset(); // 用已有地图开服：上一次选的地图不带进这一次
+  // 「返回修改」：向导直接回到最后一步（基本设置），核心、版本、构建、选的地图和填过的设置都照原样；导入整合包、接管交给各自的表单去填
+  const dr = restoreDraft;
+  restoreDraft = null;
+  formFill = null;
+  if (dr && dr.mode === mode) {
+    if (mode === "new") {
+      Object.assign(wiz, dr.data.wiz, { fill: dr.data.fields });
+      if (dr.data.map && window.MDWorldImport) MDWorldImport.wizardRestore(dr.data.map);
+    } else formFill = dr;
+  }
   if (mode && CREATE_MODES[mode]) { CREATE_MODES[mode](); return; }
   const card = (id, ico, name, desc) => `<div class="core-card" id="mode-${id}" data-mode="${id}" role="button" tabindex="0" aria-label="${name}" aria-describedby="mode-${id}-d"><span class="recipe-ico">${icon(ico)}</span><div><div class="cn">${name}</div><div class="cd" id="mode-${id}-d">${desc}</div></div></div>`;
-  Main().innerHTML = pageHead("新建服务器", "选一种方式开始。", "", "", `四种方式`) + `
+  // 五张卡片两组（可用性走查 R14）：「新建」是开一台新的，「搬过来」是把别处现成的一整台服务器收进来。
+  // 「用已有地图开服」原来是卡片下面的一行小字，走查员翻到页底才看到（B7）
+  Main().innerHTML = pageHead("新建服务器", "选一种方式开始。", "", "", `五种方式`) + `
     <section id="task-list" hidden style="margin-bottom:24px"></section>
     <div class="recipe-groups">
       <div class="core-group">
@@ -1488,17 +1549,17 @@ async function renderCreate(mode) {
         <div class="recipe-grid">
           ${card("new", "plusBox", "从零创建", "自选核心与版本；Java 和服务端自动下载。")}
           ${card("import", "package", "导入整合包", "Modrinth / CurseForge，或作者给的现成服务端压缩包。")}
+          ${card("world", "globe", "用已有地图开服", "下载的地图、自己的单人世界、别的服务器的世界，拿来开一台新的。")}
         </div>
       </div>
       <div class="core-group">
-        <div class="cg-title">导入与接管</div>
+        <div class="cg-title">搬过来</div>
         <div class="recipe-grid">
-          ${card("transfer", "share", "导入交接包", "MineDeck 导出的 .mdpack 交接包；存档、配置和模组在包里。")}
+          ${card("transfer", "share", "导入交接包", "MineDeck 导出的 .mdpack 交接包；世界、配置和模组在包里。")}
           ${card("adopt", "folder", "接管已有服务器", "接管本机外部服务器：选择文件夹直接关联，原文件保留在本地路径。")}
         </div>
       </div>
-    </div>
-    ${window.MDWorldImport ? MDWorldImport.homeLink() : ""}`;
+    </div>`;
   // 卡片可用键盘激活（回车 / 空格）
   document.querySelectorAll(".recipe-grid .core-card").forEach(c => {
     c.onclick = () => { location.hash = "#/create/" + c.dataset.mode; };
@@ -1525,6 +1586,7 @@ async function drawAdopt() {
   cores.forEach(c => CORES[c.id] = c);
   const maxMem = Math.max(2048, app.ramMb - 2048);
   let scan = null; // 最近一次识别的结果；改了文件夹没重新识别就不能接管
+  let fill = takeFill("adopt"); // 「返回修改」：填回文件夹、重新识别一遍（文件夹里的东西可能变了），识别完再把改过的几项盖上去
   Main().innerHTML = pageHead("接管已有服务器", "接管本机外部服务器：选择服务器所在文件夹即可直接关联。文件留在原地，存档、模组、插件与配置均不改动。", "",
     `<a href="#/create">新建服务器</a>${icon("chevronRight")}<span>接管已有服务器</span>`) + `
     <div class="form-grid">
@@ -1608,6 +1670,18 @@ async function drawAdopt() {
       paintKind();
     };
     $("#ad-eula").addEventListener("change", () => { if ($("#ad-eula").checked) { $("#ad-eula-box").classList.remove("invalid"); $("#ad-eula-err").innerHTML = ""; } });
+    if (fill && fill.dir === s.dir) {
+      const f = fill;
+      $("#ad-name").value = f.name;
+      if ([...$("#ad-target").options].some(o => o.value === f.target)) $("#ad-target").value = f.target;
+      if ([...$("#ad-core").options].some(o => o.value === f.core)) $("#ad-core").value = f.core;
+      $("#ad-mc").value = f.mc;
+      if ([...$("#ad-java").options].some(o => o.value === String(f.java))) $("#ad-java").value = String(f.java);
+      $("#ad-eula").checked = !!f.eula;
+      renderMemoryControl($("#ad-mem-mount"), { sliderId: "ad-mem", min: 1024, max: Math.max(maxMem, 1024), value: f.mem, totalMb: app.ramMb, availMb: app.availRamMb,
+        hint: s.xmxMb ? `原启动脚本里分配的是 ${(s.xmxMb / 1024).toFixed(1)} GB` : "推荐分配：模组服 4 GB 以上；无模组的小型服务器 2~4 GB。" });
+    }
+    fill = null;
     paintKind();
     $("#ad-go").disabled = false;
   };
@@ -1657,11 +1731,14 @@ async function drawAdopt() {
           launchTarget: target, xmxMb: +$("#ad-mem").value, javaMajor: +$("#ad-java").value, eula: needEula,
         },
       });
+      formDrafts.set(r.taskId, { mode: "adopt", data: { dir: scan.dir, name: $("#ad-name").value.trim(), core, mc: $("#ad-mc").value.trim(), target,
+        mem: +$("#ad-mem").value, java: +$("#ad-java").value, eula: $("#ad-eula").checked } });
       if (!stale(gen)) location.hash = `#/task/${r.taskId}`;
       else toast("已开始接管，可在新建服务器页查看进度");
     } catch (e) { toastErr("无法接管服务器", e); if (!stale(gen)) $("#ad-go").disabled = false; }
   };
   $("#ad-dir").focus();
+  if (fill) { $("#ad-dir").value = fill.dir; $("#ad-scan").click(); }
 }
 
 /* ---------- 视图：整合包导入 ---------- */
@@ -1671,13 +1748,15 @@ async function drawImport() {
   if (stale(gen)) return;
   const maxMem = Math.max(2048, app.ramMb - 2048);
   const defMem = Math.min(6144, maxMem);
-  let imRoot = "";
+  const fill = takeFill("import"); // 「返回修改」：上次填的（连选的文件）
+  let imRoot = fill ? fill.root : "";
+  const on = (k, def) => (fill ? fill[k] : def) ? " checked" : "";
   Main().innerHTML = pageHead("导入整合包", "Modrinth（.mrpack）、CurseForge（zip），或作者打包好的现成服务端。清单和服务端文件可以在最外层，也可以只套一层文件夹。核心和版本会自动识别。", "",
     `<a href="#/create">新建服务器</a>${icon("chevronRight")}<span>导入整合包</span>`) + `
     <div class="form-grid">
       <label class="field full"><span>整合包文件</span><input type="file" id="im-file" accept=".mrpack,.zip"><div class="field-err" id="im-file-err"></div></label>
-      <label class="field"><span>名称</span><input type="text" id="im-name" value="我的整合包服务器" maxlength="40"></label>
-      <label class="field"><span>端口</span><input type="number" id="im-port" value="25565" min="1" max="65535"></label>
+      <label class="field"><span>名称</span><input type="text" id="im-name" value="${esc(fill ? fill.name : "我的整合包服务器")}" maxlength="40"></label>
+      <label class="field"><span>端口</span><input type="number" id="im-port" value="${esc(fill ? fill.port : "25565")}" min="1" max="65535"></label>
       <div class="field full" id="im-mem-mount"></div>
       <label class="field full"><span>存放位置</span>
         <div class="row" style="gap:8px">
@@ -1686,25 +1765,31 @@ async function drawImport() {
         </div></label>
       <label class="field full"><span>本地来源文件夹（可选）</span>
         <div class="row" style="gap:8px">
-          <input type="text" id="im-src" style="flex:1" placeholder="整合包配套的服务器文件夹（可选）" aria-label="本地来源文件夹">
+          <input type="text" id="im-src" style="flex:1" placeholder="整合包配套的服务器文件夹（可选）" aria-label="本地来源文件夹" value="${esc(fill ? fill.src : "")}">
           <button type="button" class="btn" id="im-src-browse" aria-label="浏览本地来源文件夹">${icon("folder")} 浏览…</button>
         </div>
-        <div class="hint" style="margin-top:6px">优先使用此文件夹里的同名文件补全缺失项（跳过线上校验）；未命中的文件可在导入后前往任务面板手动处理。</div></label>
-      <div class="field"><label class="switch"><input type="checkbox" id="im-online"><span class="sw"></span>
+        <div class="hint" style="margin-top:6px">优先使用此文件夹里的同名文件补全缺失项（跳过线上校验）；还是没装上的文件，导入完成后在任务页、或者这台服务器的详情页里逐个处理。</div></label>
+      <div class="field"><label class="switch"><input type="checkbox" id="im-online"${on("online", false)}><span class="sw"></span>
         <span><span class="sw-label">正版验证</span><div class="sw-desc">默认关闭</div></span></label></div>
-      <div class="field"><label class="switch"><input type="checkbox" id="im-flight" checked><span class="sw"></span>
+      <div class="field"><label class="switch"><input type="checkbox" id="im-flight"${on("flight", true)}><span class="sw"></span>
         <span><span class="sw-label">允许飞行</span><div class="sw-desc">整合包建议开启</div></span></label></div>
       ${whitelistField("im-wl", "整合包自带 server.properties 的，白名单也以这里为准。")}
     </div>
     ${app.cfKeySet ? "" : `<div class="hint" style="margin-bottom:10px">解析 CurseForge 整合包需配置 API Key。可先前往 <a href="https://console.curseforge.com/" target="_blank">免费申请</a>，并在「设置 → 下载与网络」中完成绑定。（Modrinth 整合包不受此限制）</div>`}
-    <div class="eula-box">
-      <label class="switch"><input type="checkbox" id="im-eula"><span class="sw"></span>
-        <span class="sw-label">我已阅读并同意 <a href="https://aka.ms/MinecraftEULA" target="_blank">Minecraft EULA</a></span></label>
-      <div class="field-err" id="im-eula-err"></div>
-    </div>
-    ${wizFoot("im-back", "返回", `<button class="btn primary" id="im-go">${icon("bolt")} 导入并部署</button>`)}`;
+    <div class="wiz-bottom">
+      <div class="eula-box">
+        <label class="switch"><input type="checkbox" id="im-eula"${on("eula", false)}><span class="sw"></span>
+          <span class="sw-label">我已阅读并同意 <a href="https://aka.ms/MinecraftEULA" target="_blank">Minecraft EULA</a></span></label>
+        <div class="field-err" id="im-eula-err"></div>
+      </div>
+      ${wizFoot("im-back", "返回", `<button class="btn primary" id="im-go">${icon("bolt")} 导入并创建</button>`)}
+    </div>`;
   $("#im-back").onclick = goCreateHome;
-  renderMemoryControl($("#im-mem-mount"), { sliderId: "im-mem", min: 2048, max: maxMem, value: defMem, totalMb: app.ramMb, availMb: app.availRamMb, hint: "推荐分配 6 GB 以上" });
+  if (fill) {
+    $("#im-wl").checked = !!fill.wl;
+    if (!putFile($("#im-file"), fill.file) && fill.file) $("#im-file-err").innerHTML = icon("info") + " " + esc(`上次选的是「${fill.file.name}」，请再选一次`);
+  }
+  renderMemoryControl($("#im-mem-mount"), { sliderId: "im-mem", min: 2048, max: maxMem, value: fill ? fill.mem : defMem, totalMb: app.ramMb, availMb: app.availRamMb, hint: "推荐分配 6 GB 以上" });
   const imUpdateRoot = () => { $("#im-root").value = imRoot || app.serversRoot || "程序文件夹\\servers"; };
   imUpdateRoot();
   $("#im-browse").onclick = async () => {
@@ -1749,10 +1834,12 @@ async function drawImport() {
       } else {
         toast(`已识别 ${pack.core} ${pack.mc}（${pack.files} 个组件）` + (pending ? "；其中" + pack.pending + " 项待处理，导入后到任务页逐个处理" : ""));
       }
+      formDrafts.set(j.data.taskId, { mode: "import", data: { file: f, name: $("#im-name").value, port: $("#im-port").value, mem: +$("#im-mem").value,
+        root: imRoot, src: $("#im-src").value, online: $("#im-online").checked, flight: $("#im-flight").checked, wl: $("#im-wl").checked, eula: $("#im-eula").checked } });
       if (!stale(gen)) location.hash = `#/task/${j.data.taskId}`;
     } catch (e) {
       toastErr("无法导入整合包", e);
-      if (!stale(gen)) { $("#im-go").disabled = false; $("#im-go").innerHTML = icon("bolt") + " 导入并部署"; }
+      if (!stale(gen)) { $("#im-go").disabled = false; $("#im-go").innerHTML = icon("bolt") + " 导入并创建"; }
     }
   };
 }
@@ -2196,8 +2283,12 @@ async function drawWizard() {
 
   } else if (wiz.step === 2) {
     if (wiz.core === "vanilla") { wiz.step = 3; wiz.build = ""; drawWizard(); return; }
-    wizardShell(`<div class="sub">为 ${coreKind(wiz.core) === "proxy" ? "" : "MC "}${esc(wiz.mc)} 选择 ${coreName(wiz.core)} 构建（默认推荐最新稳定）</div>
-      <div class="ver-list" id="build-list">${skeletonRows(6)}</div>
+    /* 构建默认收起成「高级」（可用性走查 U25 / R22）：新手不用懂构建，用推荐的那个直接「下一步」；要换的点开「高级」挑。
+       列表照样一进来就取：要靠它定下推荐的构建，「下一步」才能点。没取到时自动展开，原因露在外面 */
+    wizardShell(`<div class="sub">${coreKind(wiz.core) === "proxy" ? "" : "MC "}${esc(wiz.mc)} 的 ${esc(coreName(wiz.core))} 服务端：默认用推荐的最新稳定构建，一般不用改，直接点「下一步」。</div>
+      <div class="build-rec w-read" id="build-rec">${icon("spinner")} 正在查推荐的构建…</div>
+      <details class="wiz-adv w-read" id="build-adv"><summary>高级：换一个构建</summary>
+        <div class="ver-list" id="build-list">${skeletonRows(6)}</div></details>
       ${wizFoot("wback", "上一步", `<button class="btn primary" id="wnext" disabled>下一步 ${icon("arrowRight")}</button>`)}`);
     $("#wback").onclick = () => { wiz.step = 1; drawWizard(); };
     $("#wnext").onclick = () => { wiz.step = 3; drawWizard(); };
@@ -2206,8 +2297,15 @@ async function drawWizard() {
       const builds = await api(`/api/builds?core=${wiz.core}&mc=${encodeURIComponent(wiz.mc)}`);
       if (stale(gen)) return;
       if (!builds.length) throw new Error(`${wiz.mc} 暂无 ${coreName(wiz.core)} 构建，请换个版本或核心`);
-      if (!wiz.build) wiz.build = (builds.find(b => b.recommended) || builds[0]).id;
+      const rec = builds.find(b => b.recommended) || builds[0];
+      if (!wiz.build) wiz.build = rec.id;
       paintWizSum();
+      const paintRec = () => {
+        const cur = builds.find(b => b.id === wiz.build) || rec;
+        $("#build-rec").innerHTML = `${icon("check")} 用${cur.id === rec.id ? "推荐的" : "你选的"}构建 <b>${esc(cur.id)}</b>${cur.label ? `<span class="hint">（${esc(cur.label)}）</span>` : ""}`;
+      };
+      paintRec();
+      if (wiz.build !== rec.id) $("#build-adv").open = true; // 之前换过：展开，看得见选的是哪个
       $("#build-list").innerHTML = builds.slice(0, 200).map(b => `
         <div class="ver-item ${wiz.build === b.id ? "sel" : ""}" data-id="${esc(b.id)}">
           <span>${esc(b.id)}${b.recommended ? `<span class="ver-tag">推荐</span>` : ""}</span><span class="vt">${esc(b.label || "")}</span>
@@ -2216,29 +2314,48 @@ async function drawWizard() {
         el.onclick = () => {
           wiz.build = el.dataset.id;
           $("#build-list").querySelectorAll(".ver-item").forEach(x => x.classList.toggle("sel", x.dataset.id === wiz.build));
-          paintWizSum();
+          paintWizSum(); paintRec();
         };
         el.ondblclick = () => { wiz.build = el.dataset.id; wiz.step = 3; drawWizard(); };
       });
       $("#wnext").disabled = false;
-    } catch (e) { if (!stale(gen)) $("#build-list").innerHTML = errBox("无法获取构建列表", e, { hint: "可在「设置 → 下载与网络」换一个下载源后重试。" }); }
+    } catch (e) {
+      if (stale(gen)) return;
+      $("#build-rec").innerHTML = `${icon("warn")} 没查到构建，「下一步」先点不了`;
+      $("#build-adv").open = true;
+      $("#build-list").innerHTML = errBox("无法获取构建列表", e, { hint: "可在「设置 → 下载与网络」换一个下载源后重试。" });
+    }
 
   } else if (wiz.step === 3 && wiz.core !== "vanilla") {
     /* 选模组（可选步，列表第 4 项）：热门清单 + 搜索 + 草稿购物车整块在外围模块 modcart.js。
        这一步永远可以「下一步」留空跳过，创建完成后想再加可以去详情页的「待装清单」标签；热门清单加载得慢、加载失败都不挡「下一步」。
        这一步是两栏（左边逛、右边清单），用数据面的宽度，吸底栏跟着放宽（wizFoot 的 wide）。 */
+    /* 「跳过这一步」（可用性走查 U25 / R22）：原来只有「下一步」，走查员要猜它就是跳过。跳过就是这次建服不装待装清单里的东西
+       （wiz.skipMods）：清单留在那儿，不删；清单里已经有东西时先问一句。点「下一步」照旧建好以后装清单 */
     wizardShell(`
       <div id="wiz-mod-body"></div>
-      ${wizFoot("wback", "上一步", `<button class="btn primary" id="wnext">下一步 ${icon("arrowRight")}</button>`, true)}`);
+      ${wizFoot("wback", "上一步", `<button class="btn ghost" id="wskip">跳过这一步</button><button class="btn primary" id="wnext">下一步 ${icon("arrowRight")}</button>`, true)}`);
     $("#wback").onclick = () => { wiz.step = 2; drawWizard(); };
-    $("#wnext").onclick = () => { wiz.step = 4; drawWizard(); };
+    $("#wnext").onclick = () => { wiz.skipMods = false; wiz.step = 4; drawWizard(); };
+    $("#wskip").onclick = async () => {
+      let draft = null;
+      try { draft = await api("/api/modcart"); } catch { draft = null; }
+      if (stale(gen)) return;
+      const n = draft ? (draft.count || 0) + (draft.local || []).length : 0;
+      if (n > 0 && !(await confirmModal({ title: "跳过这一步？", icon: "info",
+        body: `待装清单里已经有 ${n} 项。跳过这一步，这台服务器建好以后不会装它们；清单留着，以后还能用。`,
+        okText: "跳过，这次不装", cancelText: "取消" }))) return;
+      if (stale(gen)) return;
+      wiz.skipMods = true; wiz.step = 4; drawWizard();
+    };
     paintWizSum();
     /* 正在往清单里添加本地文件的那几秒先按住「下一步」：文件还没加完就走，后加进去的那个不在「这一步上看到的那些」里，
        建好服务器以后后端会认为清单被人动过，整张清单都不装。加完（或者失败）立刻放开。 */
     const onBusy = busy => {
-      const next = $("#wnext");
+      const next = $("#wnext"), skip = $("#wskip");
       if (stale(gen) || !next) return;
       next.disabled = busy;
+      if (skip) skip.disabled = busy;
       next.innerHTML = busy ? `${icon("spinner")} 正在添加文件…` : `下一步 ${icon("arrowRight")}`;
     };
     if (window.MDModCart) MDModCart.wizardPanel($("#wiz-mod-body"), { core: wiz.core, mc: wiz.mc, onBusy }, gen);
@@ -2275,13 +2392,17 @@ async function drawWizard() {
       </div>
       <div id="wiz-world"></div>
       ${isProxy
-        ? `<div class="eula-box">代理端无需签署 Mojang EULA。监听端口及转发规则将在首次启动生成配置文件后开放配置。</div>`
-        : `<div class="eula-box">
-        <label class="switch"><input type="checkbox" id="f-eula"><span class="sw"></span>
-          <span class="sw-label">我已阅读并同意 <a href="https://aka.ms/MinecraftEULA" target="_blank">Minecraft 最终用户许可协议 (EULA)</a></span></label>
-        <div class="field-err" id="f-eula-err"></div>
-      </div>`}
-      ${wizFoot("wback", "上一步", `<button class="btn primary" id="wcreate">${icon("bolt")} 开始部署</button>`)}`);
+        ? `<div class="eula-box">代理端无需签署 Mojang EULA。监听端口及转发规则将在首次启动生成配置文件后开放配置。</div>
+      ${wizFoot("wback", "上一步", `<button class="btn primary" id="wcreate">${icon("bolt")} 开始创建</button>`)}`
+        /* EULA 开关和吸底栏贴在一起吸底（可用性走查 U25 / R22）：以前开关在吸底栏正上方，窗口不够高时被吸底栏盖住一半 */
+        : `<div class="wiz-bottom">
+        <div class="eula-box">
+          <label class="switch"><input type="checkbox" id="f-eula"><span class="sw"></span>
+            <span class="sw-label">我已阅读并同意 <a href="https://aka.ms/MinecraftEULA" target="_blank">Minecraft 最终用户许可协议 (EULA)</a></span></label>
+          <div class="field-err" id="f-eula-err"></div>
+        </div>
+        ${wizFoot("wback", "上一步", `<button class="btn primary" id="wcreate">${icon("bolt")} 开始创建</button>`)}
+      </div>`}`);
     $("#wback").onclick = () => { wiz.step = wiz.core === "vanilla" ? 1 : 3; drawWizard(); }; // 原版回版本页，非 vanilla 回「选模组」
     paintWizSum();
     if (window.MDWorldImport) MDWorldImport.wizardFinal($("#wiz-world"), wiz); // 用已有地图开服：按现在的核心和版本核对这张地图
@@ -2307,19 +2428,34 @@ async function drawWizard() {
       $("#f-port").addEventListener("input", () => { if ($("#f-port").classList.contains("invalid")) checkPort(); });
       $("#f-eula").addEventListener("change", () => { if ($(".eula-box").classList.contains("invalid")) checkEula(); });
     }
-    renderMemoryControl($("#mem-mount"), { sliderId: "f-mem", min: 512, max: maxMem, value: defMem, totalMb: app.ramMb, availMb: app.availRamMb, hint: isProxy ? "推荐 1 GB；代理端只做转发，占用很低" : "推荐分配：模组服 4 GB 以上；无模组的小型服务器 2~4 GB。" });
-    // 存放位置：目标路径跟随实例名，可浏览改到其它盘（中文名会自动生成英文目录）
-    const clientSlug = s => { let o = ""; for (const c of (s || "")) { if (/[0-9A-Za-z_-]/.test(c)) o += c; else if (c === " " || c === ".") o += "-"; } o = o.replace(/^[-_]+|[-_]+$/g, ""); return o || "server-（自动）"; };
+    const fill = wiz.fill; // 「返回修改」：上次在这一步填的
+    wiz.fill = null;
+    renderMemoryControl($("#mem-mount"), { sliderId: "f-mem", min: 512, max: maxMem, value: fill ? fill.mem : defMem, totalMb: app.ramMb, availMb: app.availRamMb, hint: isProxy ? "推荐 1 GB；代理端只做转发，占用很低" : "推荐分配：模组服 4 GB 以上；无模组的小型服务器 2~4 GB。" });
+    // 存放位置：目标路径跟随实例名，可浏览改到其它盘。文件夹名取名称里的英文字母和数字（同后端 slugify）；
+    // 一个都没有（全是中文）时后端用创建那一刻的日期和时间起名，这里照实说，不再写看不懂的「server-（自动）」（可用性走查 U25）
+    const clientSlug = s => { let o = ""; for (const c of (s || "")) { if (/[0-9A-Za-z_-]/.test(c)) o += c; else if (c === " " || c === ".") o += "-"; } return o.replace(/^[-_]+|[-_]+$/g, ""); };
+    const stamp = () => { const d = new Date(), p = n => String(n).padStart(2, "0"); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; };
     const curRoot = () => wiz.root || app.serversRoot || "程序文件夹\\servers";
     const updateRoot = () => {
       $("#f-root").value = curRoot();
-      $("#f-path").innerHTML = `将创建于：<b>${esc(curRoot())}\\${esc(clientSlug($("#f-name").value.trim()))}</b>${wiz.root ? "" : "（可点「浏览」改到其他盘）"}`;
+      const slug = clientSlug($("#f-name").value.trim());
+      $("#f-path").innerHTML = slug
+        ? `将创建于：<b>${esc(curRoot())}\\${esc(slug)}</b>${wiz.root ? "" : "（可点「浏览」改到其他盘）"}`
+        : `将创建于：<b>${esc(curRoot())}\\server-创建时的日期和时间</b>（比如 server-${stamp()}）。名称里没有英文字母或数字，文件夹就按创建时间起名；服务器在 MineDeck 里照样叫你起的名字。`;
     };
     $("#f-name").oninput = updateRoot;
     $("#f-browse").onclick = async () => {
       try { const r = await api("/api/pickdir", { method: "POST" }); if (!stale(gen) && r.path) { wiz.root = r.path; updateRoot(); toast("已选择：" + r.path); } }
       catch (e) { toastErr("无法选择存放位置", e); }
     };
+    if (fill) {
+      $("#f-name").value = fill.name;
+      if (!isProxy) {
+        $("#f-port").value = fill.port; $("#f-motd").value = fill.motd;
+        $("#f-online").checked = fill.online; $("#f-flight").checked = fill.flight; $("#f-wl").checked = fill.wl; $("#f-eula").checked = fill.eula;
+        $("#f-diff").value = fill.diff; $("#f-mode").value = fill.mode;
+      }
+    }
     updateRoot();
     $("#wcreate").onclick = async () => {
       const okName = checkName(), okPort = checkPort(), okEula = checkEula();
@@ -2363,14 +2499,22 @@ async function drawWizard() {
             ...(world || {}),
           },
         });
+        // 「返回修改」用：这一步之前选的和这一步填的，带地图的连同那张地图（见 formDrafts）
+        formDrafts.set(r.taskId, { mode: "new", data: {
+          wiz: { core: wiz.core, mc: wiz.mc, build: wiz.build, snapshots: wiz.snapshots, root: wiz.root, skipMods: wiz.skipMods, step: wiz.step },
+          fields: { name, mem: +$("#f-mem").value, port: isProxy ? "" : $("#f-port").value, motd: isProxy ? "" : $("#f-motd").value,
+            online: !isProxy && $("#f-online").checked, flight: !isProxy && $("#f-flight").checked, wl: !isProxy && $("#f-wl").checked,
+            eula: !isProxy && $("#f-eula").checked, diff: isProxy ? "" : $("#f-diff").value, mode: isProxy ? "" : $("#f-mode").value },
+          map: world && window.MDWorldImport ? MDWorldImport.draftMap() : null } });
         if (world) MDWorldImport.wizardCreated(world.worldPlan, r.taskId); // 请求被收下了：跟着建服任务，成了才清检测结果（见 worldimport.js）
-        if (stale(gen)) { toast("已开始部署，可在新建服务器页查看进度"); return; }
+        if (stale(gen)) { toast("已开始创建，可在新建服务器页查看进度"); return; }
         /* 「选模组」步挑好的内容放在草稿购物车里（不带 inst）。空车照旧直接跳部署任务页；
            有货时留在向导这一页等建服任务跑完，再把草稿车一起装上（装模组是一条 kind "mods" 的任务，跳到那页看进度）。
            「有货」两样都算：Modrinth 上挑的项目（count），和从电脑添加的本地文件（local）——只加了本地文件也要装。
            建服失败仍然跳建服任务页，失败的日志要看得见；跳转本身就是切页，startPoll 停在旧代际上自然失效。 */
         let draft = null;
-        if (wiz.core !== "vanilla") { // 原版没有「选模组」这一步，草稿车里剩下的（上次没装的）不能装进原版服
+        // 原版没有「选模组」这一步，草稿车里剩下的（上次没装的）不能装进原版服；点了「跳过这一步」的这次也不装
+        if (wiz.core !== "vanilla" && !wiz.skipMods) {
           try { draft = await api("/api/modcart"); } catch { draft = null; } // 老后端没这个接口：当作空车
           if (stale(gen)) return;
         }
@@ -2414,38 +2558,181 @@ async function drawWizard() {
   }
 }
 
-/* ---------- 视图：创建任务进度 ---------- */
-/* 后台任务不止「部署」一种（后端 tasks.Snapshot.kind）：接管已有服务器、换 Java 也走这一页，说法跟着换 */
+/* ---------- 视图：后台任务进度 ---------- */
+/* 后台任务不止「创建」一种（后端 tasks.Snapshot.kind）：接管已有服务器、换 Java、交接包、装待装清单、换地图也走这一页，说法跟着换。
+   完成、失败、取消以后页头换成结果（可用性走查 R13：完成后标题还写着「正在部署服务器」）；nav 是侧栏该亮哪一项（导出交接包、换 Java 这些
+   是从服务器那边发起的，亮「服务器」，不亮「新建服务器」）。cancelTitle / cancelBtn 只有能取消的几种用得到 */
 const TASK_KINDS = {
-  "": { title: "正在部署服务器", sub: "正在下载 Java 和服务端。", done: "部署完成", doneSub: "Java、服务端与配置均已就绪",
-    ok: "服务器创建成功", fail: "创建失败", failHint: "可返回重试（已下载的文件有缓存，重试很快）。", busy: "部署中，请勿关闭程序…",
-    go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/create", backText: "返回重试" },
-  adopt: { title: "正在接管服务器", sub: "正在检查文件夹、准备 Java。存档和配置不会动。", done: "接管完成", doneSub: "已经收进 MineDeck，可以在这里启动和管理了",
-    ok: "服务器接管成功", fail: "接管失败", failHint: "服务器文件夹里的东西没有被删掉或改坏，可以返回重试。", busy: "接管中，请勿关闭程序…",
-    go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/create", backText: "返回重试" },
+  "": { title: "正在创建服务器", sub: "正在下载 Java 和服务端。", done: "创建完成", doneSub: "Java、服务端与配置均已就绪",
+    doneTitle: "服务器已建好", failTitle: "服务器没有建好", cancelTitle: "已取消创建", cancelBtn: "取消创建",
+    ok: "服务器创建成功", fail: "创建失败", failHint: "已下载的文件有缓存，再试一次很快。", busy: "创建中，请勿关闭程序…",
+    go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/create", backText: "返回新建服务器", nav: "create" },
+  adopt: { title: "正在接管服务器", sub: "正在检查文件夹、准备 Java。世界和配置不会动。", done: "接管完成", doneSub: "已经收进 MineDeck，可以在这里启动和管理了",
+    doneTitle: "服务器已接管", failTitle: "服务器没有接管成",
+    ok: "服务器接管成功", fail: "接管失败", failHint: "服务器文件夹里的东西没有被删掉或改坏，可以再试一次。", busy: "接管中，请勿关闭程序…",
+    go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/create", backText: "返回新建服务器", nav: "create" },
   java: { title: "正在更换 Java", sub: "本机没有这个版本的 Java，正在下载一份（不改系统里的 Java）。", done: "Java 已换好", doneSub: "下次启动这台服务器时生效",
+    doneTitle: "Java 已换好", failTitle: "Java 没有换成",
     ok: "Java 已换好，下次启动生效", fail: "更换失败", failHint: "这台服务器还在用原来的 Java，可以返回重试。", busy: "下载中，请勿关闭程序…",
-    go: "完成，回到服务器", href: name => `#/inst/${encodeURIComponent(name)}/jvm`, back: "#/instances", backText: "返回服务器列表" },
+    go: "完成，回到服务器", href: name => `#/inst/${encodeURIComponent(name)}/jvm`, back: "#/instances", backText: "返回服务器列表", nav: "instances" },
   "transfer-out": { title: "正在导出交接包", sub: "正在把世界、配置和模组打包成一个文件。服务器不会被改动。", done: "导出完成", doneSub: "交接包已生成，文件位置在这一页的日志里",
+    doneTitle: "交接包已导出", failTitle: "交接包没有导出成", openDir: true,
     ok: "交接包导出成功", fail: "导出失败", failHint: "没有留下不完整的包，可以重试（包的特征见任务日志）。", busy: "打包中，请勿关闭程序…",
-    go: "完成", href: () => "#/instances", back: "#/instances", backText: "返回服务器列表" },
-  "transfer-in": { title: "正在导入交接包", sub: "正在准备 Java、下载核心并解包。存档、配置和模组都会保留。", done: "交接完成", doneSub: "存档、配置和模组都带过来了，可以启动了。没带过来的东西列在下面的日志里",
+    go: "完成", href: () => "#/instances", back: "#/instances", backText: "返回服务器列表", nav: "instances" },
+  "transfer-in": { title: "正在导入交接包", sub: "正在准备 Java、下载核心并解包。世界、配置和模组都会保留。", done: "交接完成", doneSub: "世界、配置和模组都带过来了，可以启动了。没带过来的东西列在下面的日志里",
+    doneTitle: "交接包已导入", failTitle: "交接包没有导入成",
     ok: "交接包导入成功", fail: "导入失败", failHint: "半成品的文件夹已经清理干净，可以重试。", busy: "导入中，请勿关闭程序…",
-    go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/create", backText: "返回重试" },
-  "server-in": { title: "正在导入服务端", sub: "正在解压服务端文件、准备 Java。存档、模组和配置用压缩包里的。", done: "导入完成", doneSub: "存档、模组和配置都是压缩包里的那份，可以启动了",
+    go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/create", backText: "返回新建服务器", nav: "create" },
+  "server-in": { title: "正在导入服务端", sub: "正在解压服务端文件、准备 Java。世界、模组和配置用压缩包里的。", done: "导入完成", doneSub: "世界、模组和配置都是压缩包里的那份，可以启动了",
+    doneTitle: "服务端已导入", failTitle: "服务端没有导入成", cancelTitle: "已取消导入", cancelBtn: "取消导入",
     ok: "服务端导入成功", fail: "导入失败", failHint: "半成品的文件夹已经清理干净，可以重试。", busy: "导入中，请勿关闭程序…",
-    go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/create", backText: "返回重试" },
+    go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/create", backText: "返回新建服务器", nav: "create" },
   mods: { title: "正在安装待装清单", sub: "正在下载清单里的内容和它们的前置，放进服务器的 mods 或 plugins 文件夹。", done: "安装完成", doneSub: "新装的内容要重启服务器后才会生效",
+    doneTitle: "待装清单已装好", failTitle: "待装清单没有装成",
     ok: "安装完成", fail: "安装失败", failHint: "可以回到这台服务器的「待装清单」标签里再装一次。已经下载的文件有缓存，重试很快。", busy: "安装中，请勿关闭程序…",
-    go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/instances", backText: "返回服务器列表" },
+    go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/instances", backText: "返回服务器列表", nav: "instances" },
   // 导入地图、换回导入前的地图（worldimport.js）。这类任务的 result 是一句给人看的话，不是服务器名：resultText 让完成后显示它，去处固定是服务器列表
   world: { title: "正在更换地图", sub: "导入地图，或者换回导入前的地图。出错时会自动退回原来的世界。", done: "已完成", doneSub: "可以到这台服务器的「地图」标签里查看", resultText: true,
+    doneTitle: "地图已处理完", failTitle: "地图没有处理完",
     ok: "地图已处理完", fail: "没有完成", failHint: "所有文件都还在。到这台服务器的「地图」标签里看现在用的是哪一份。", busy: "正在处理地图，请勿关闭程序…",
-    go: "完成，回到服务器列表", href: () => "#/instances", back: "#/instances", backText: "返回服务器列表" },
+    go: "完成，回到服务器列表", href: () => "#/instances", back: "#/instances", backText: "返回服务器列表", nav: "instances" },
 };
+/* 侧栏亮哪一项：navigate() 进任务页时先按「新建服务器」亮着（那时还不知道是哪一类任务），拿到任务以后在这里改过来 */
+function markNav(key) {
+  const before = keyRects();
+  let moved = false;
+  document.querySelectorAll("#sidebar .nav-item").forEach(a => {
+    const on = a.dataset.nav === key;
+    if (on !== a.classList.contains("active")) moved = true;
+    a.classList.toggle("active", on);
+    if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+  });
+  if (moved) slideKeys(before, ["nav"]);
+}
+/* Windows 路径的上一级文件夹（交接包的完整路径 → 它所在的文件夹） */
+const parentDir = p => { const s = String(p || "").replace(/[\\/]+$/, ""), k = Math.max(s.lastIndexOf("\\"), s.lastIndexOf("/")); return k > 0 ? s.slice(0, k + (s[k - 1] === ":" ? 1 : 0)) : ""; };
+
+/* ---------- 没装上的文件（导入整合包时没能自动装上的，可用性走查 R09）----------
+   按服务器查、按服务器处置（GET / POST /api/instances/{名}/import-pending）：清单存在服务器文件夹里，程序重开以后也能处理，
+   跳过的也还能改成别的处理。现在挂在导入任务页上（box 放清单，out 放每一项的处置结果）；详情页以后也挂这一个。
+   清单是从服务器文件夹里读来的，别人可能改过：文字一律转义，链接只画 https 的。onChange(清单) 在处置以后调：任务页拿它刷新上面的告警。 */
+const PND_ACT = { skip: "跳过", local: "用本地文件代替", trust: "信任站点并下载" };
+function pendingPanel(box, out, inst, gen, { onChange } = {}) {
+  let view = { pending: [], skipped: [] }, sig = "", had = false;
+  const gone = () => stale(gen) || !box.isConnected;
+  const httpsOnly = u => /^https:\/\//i.test(String(u || ""));
+  const row = (it, skipped) => `
+    <div class="${skipped ? "pnd-skipped" : "pnd-item"}" data-id="${esc(it.id)}">
+      <div><b>${esc(it.path)}</b>${skipped ? ` <span class="badge">已跳过</span>` : ""}${it.host ? ` <span class="badge">${esc(it.host)}</span>` : ""}</div>
+      <div class="wc-note">${esc(it.note || "")}${it.size ? `（整合包标 ${fmtBytes(it.size)}）` : ""}
+        ${(it.urls || []).filter(httpsOnly).map(u => ` <a href="${esc(u)}" target="_blank" rel="noopener noreferrer">下载地址</a>`).join("")}</div>
+      <div class="row pnd-acts" role="radiogroup" aria-label="没装上的文件 ${esc(it.path)} 的处理方式">
+        ${(it.options || ["skip", "local"]).filter(o => PND_ACT[o]).map(o =>
+          `<label class="pnd-opt"><input type="radio" name="pnd-${esc(it.id)}" value="${o}"><span>${PND_ACT[o]}</span></label>`).join("")}
+      </div>
+      <input type="text" class="pnd-local" placeholder="本地文件或文件夹的完整路径；填文件夹时按文件名匹配" aria-label="没装上的文件 ${esc(it.path)} 的本地文件或文件夹路径" hidden>
+      <label class="pnd-ack" hidden><input type="checkbox" class="pnd-ackbox">
+        <span class="wc-note">我已知晓风险并信任来自 ${it.host ? `「${esc(it.host)}」` : "这个站点"}的文件：该文件缺少校验值，存在传输被篡改风险。勾选后按域名记住（包含该域名的其他端口），以后同域名不再确认。</span></label>
+    </div>`;
+  const rows = () => [...box.querySelectorAll(".pnd-item, .pnd-skipped")];
+  const draw = () => {
+    const { pending, skipped } = view;
+    const s = JSON.stringify([pending, skipped]);
+    if (s === sig) return;
+    // 重画之前记下已经选了的（没处理成的那几项接着显示时原样带回去）
+    const keep = {};
+    for (const r of rows()) {
+      const radio = r.querySelector("input[type=radio]:checked");
+      keep[r.dataset.id] = { act: radio ? radio.value : "", path: (r.querySelector(".pnd-local") || {}).value || "", ack: !!(r.querySelector(".pnd-ackbox") || {}).checked };
+    }
+    sig = s;
+    if (!pending.length && !skipped.length) {
+      box.innerHTML = had ? `<div class="warn-card pnd-done"><div class="wc-title">${icon("check")} 没装上的文件都处理完了</div></div>` : "";
+      return;
+    }
+    had = true;
+    const skippedBlock = skipped.length ? `<details class="pnd-skip-list"${pending.length ? "" : " open"}><summary>已跳过的 ${skipped.length} 个（没有装上，还能改成别的处理）</summary>${skipped.map(it => row(it, true)).join("")}</details>` : "";
+    box.innerHTML = `<div class="warn-card pnd-card">
+      ${pending.length ? `<div class="wc-title">${icon("warn")} 没装上的文件（${pending.length} 个）</div>
+      <div class="wc-note">这些文件因为校验失败、链接失效或平台限制没能自动下载。给要处理的选好方式，再点「应用所选的处理」；没选的先不动。</div>
+      ${pending.map(it => row(it, false)).join("")}`
+      : `<div class="wc-title">${icon("check")} 没装上的文件都处理完了</div><div class="wc-note">跳过的那些也没有装上，要的话在下面换成用本地文件代替${skipped.some(x => (x.options || []).includes("trust")) ? "或信任站点下载" : ""}。</div>`}
+      ${skippedBlock}
+      <div class="row" style="margin-top:12px">
+        <button type="button" class="btn primary" id="t-pending-apply">应用所选的处理</button>
+        <span class="hint">无法自动识别的自定义/魔改模组，可选「用本地文件代替」并指定本地文件路径。</span>
+      </div>
+    </div>`;
+    for (const r of rows()) {
+      const local = r.querySelector(".pnd-local"), ack = r.querySelector("label.pnd-ack");
+      for (const radio of r.querySelectorAll("input[type=radio]")) radio.onchange = () => { local.hidden = radio.value !== "local"; ack.hidden = radio.value !== "trust"; };
+      const st = keep[r.dataset.id];
+      if (!st || !st.act) continue;
+      const radio = r.querySelector(`input[value="${st.act}"]`);
+      if (radio) { radio.checked = true; radio.dispatchEvent(new Event("change")); }
+      if (st.path) local.value = st.path;
+      if (st.ack) r.querySelector(".pnd-ackbox").checked = true;
+    }
+    box.querySelector("#t-pending-apply").onclick = apply;
+  };
+  const apply = async () => {
+    const acts = [];
+    let missing = "";
+    for (const it of [...view.pending, ...view.skipped]) {
+      const r = rows().find(x => x.dataset.id === it.id);
+      const radio = r && r.querySelector("input[type=radio]:checked");
+      if (!radio) continue; // 没选的留着下一批
+      const act = { id: it.id, act: radio.value };
+      if (radio.value === "local") {
+        act.path = (r.querySelector(".pnd-local").value || "").trim();
+        if (!act.path && !missing) missing = `${it.path} 选了「用本地文件代替」但没给路径`;
+      }
+      if (radio.value === "trust") {
+        act.url = (it.urls || []).filter(httpsOnly)[0] || "";
+        act.ack = r.querySelector(".pnd-ackbox").checked;
+      }
+      acts.push(act);
+    }
+    if (missing) { toast(missing, true); return; }
+    if (!acts.length) { toast("先给至少一个文件选处理方式", true); return; }
+    const btn = box.querySelector("#t-pending-apply");
+    btn.disabled = true;
+    try {
+      const r = await api(`/api/instances/${encodeURIComponent(inst)}/import-pending`, { method: "POST", body: { items: acts } });
+      if (gone()) return;
+      out.innerHTML = `<div class="wc-wrap">${(r.resolved || []).map(o =>
+        `<div class="${o.ok ? "hint" : "err-box"}" style="margin-bottom:6px">${o.ok ? "已处理" : "处理失败"}：${esc(o.path)}${o.note ? "，" + esc(o.note) : ""}</div>`).join("")}</div>`;
+      const wasOpen = view.pending.length;
+      view = { pending: r.pending || [], skipped: r.skipped || [] };
+      draw();
+      if (wasOpen && !view.pending.length) toast("没装上的文件都处理完了");
+      if (onChange) onChange(view);
+    } catch (e) {
+      if (!gone()) toastErr("无法处理没装上的文件", e);
+    } finally {
+      const b = box.querySelector("#t-pending-apply");
+      if (!gone() && b) b.disabled = false;
+    }
+  };
+  const load = async () => {
+    try {
+      const v = await api(`/api/instances/${encodeURIComponent(inst)}/import-pending`);
+      if (gone()) return;
+      view = { pending: v.pending || [], skipped: v.skipped || [] };
+      had = had || view.pending.length > 0 || view.skipped.length > 0;
+      draw();
+    } catch (e) {
+      if (!gone()) box.innerHTML = errBox("拿不到这台服务器没装上的文件", e, { actions: `<button type="button" class="btn sm" id="t-pending-retry">${icon("refresh")} 重试</button>` });
+      const b = box.querySelector("#t-pending-retry");
+      if (b) b.onclick = load;
+    }
+  };
+  return { load };
+}
+
 async function renderTaskPage(taskId) {
   const gen = viewGen;
-  Main().innerHTML = pageHead("正在部署服务器", "正在下载 Java 和服务端。", "", "", "", "task-eyebrow") + `
+  Main().innerHTML = pageHead("正在创建服务器", "正在下载 Java 和服务端。", "", "", "", "task-eyebrow") + `
     <div id="t-fetch-error" role="status" hidden></div>
     <div id="task-box"><div class="sub">加载中…</div></div>`;
   // 骨架只建一次，之后每轮轮询只改变化的部分：新完成的步骤对勾弹出，经验条只点亮新增的格子（逐格错峰），不整块重绘重播
@@ -2454,7 +2741,62 @@ async function renderTaskPage(taskId) {
   const STALL_MS = window.__MD_STALL_MS || 30000;
   let ended = false; // 已结束就不再轮询 / 重复提示（首轮即结束时旧逻辑仍会挂上轮询，成功提示弹两次）
   let built = false, loading = false, label = null, lit = 0, stepState = [], lastSig = "", lastChange = Date.now();
+  let panel = null; // 没装上的文件的处理面板（整合包导入完成后才有）
+  let lastT = null, isLocal = false; // 「打开所在文件夹」只在本机给（后端也只认本机）：/api/app 回来以后按最后一次的任务重画底栏
+  api("/api/app").then(a => { isLocal = a.local === true; if (isLocal && lastT && !stale(gen) && $("#t-foot")) paintFoot(lastT); }).catch(() => {});
   const stopPoll = () => { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } };
+  const kindOf = t => Object.prototype.hasOwnProperty.call(TASK_KINDS, t.kind || "") ? TASK_KINDS[t.kind || ""] : TASK_KINDS[""]; // 不认识的 kind 按创建任务显示
+  // 上面那一排：失败框、取消的说明、告警（「N 个文件待处理」处理完以后要跟着变，所以单独画，处置以后重新取一次任务再画）
+  const drawMsgs = t => {
+    const K = kindOf(t), draft = formDrafts.has(taskId);
+    // 取消：中性的一句（不是红色的失败框），后端给的是中文那句；万一是英文的取消原因也不原样露出来（复审发现 9）
+    const cancelText = /context canceled/i.test(t.error || "") ? "已取消" : (t.error || "已取消");
+    $("#t-msgs").innerHTML = (t.ended && t.cancelled
+      ? `<div class="task-note" role="status">${icon("info")}<span>${esc(cancelText)}。${draft ? "之前填的都还在，点「返回修改」接着改。" : ""}</span></div>`
+      : t.error ? `<div class="err-box"><b>${K.fail}：</b>${esc(t.error)}<br><br>${K.failHint}${draft ? "点「返回修改」回到刚才的表单，填过的都在。" : ""}
+        <div style="margin-top:8px"><button class="btn sm ghost" data-copy-task-fail>${icon("copy")} 复制报错信息</button></div></div>` : "") +
+      (t.warnings || []).map(w => `<div class="warn-card" data-warn="${esc(w.kind || "")}">
+        <div class="wc-title">${icon("warn")} ${esc(w.title)}</div>
+        ${w.note ? `<div class="wc-note">${esc(w.note)}</div>` : ""}
+        ${(w.items || []).length ? `<ul class="wc-list">${w.items.map(it =>
+          `<li>${/^https?:\/\//i.test(it.url || "") ? `<a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.name)}</a>` : esc(it.name)}</li>`).join("")}</ul>` : ""}
+        ${w.kind === "java-req" && t.result ? `<div class="wc-note"><a class="btn sm" href="#/inst/${encodeURIComponent(t.result)}/jvm">去「内存 / 启动」换 Java</a></div>` : ""}
+      </div>`).join("");
+    const cpf = $("#t-msgs").querySelector("[data-copy-task-fail]");
+    if (cpf) cpf.onclick = () => copy(String(t.error || ""), "已复制报错信息");
+  };
+  const refreshMsgs = async () => {
+    try { const t = await api(`/api/tasks/${encodeURIComponent(taskId)}`); if (!stale(gen) && $("#t-msgs")) drawMsgs(t); } catch { /* 下次进这一页再看 */ }
+  };
+  // 底下的按钮：完成去服务器；没成或取消了「返回修改」（回到原来的表单，填过的都在；这一页刷新过、记不得填了什么时回新建页）
+  const paintFoot = t => {
+    const K = kindOf(t), success = t.ended && !t.error, cancelled = t.ended && !!t.cancelled;
+    const canEdit = t.ended && !success && formDrafts.has(taskId);
+    const openDir = success && K.openDir && t.result && isLocal;
+    $("#t-foot").innerHTML = `
+      ${success ? `<a class="btn primary" href="${K.href(t.result)}">${icon("check")} ${K.go}</a>` : ""}
+      ${openDir ? `<button type="button" class="btn" id="t-open-dir">${icon("folder")} 打开所在文件夹</button>` : ""}
+      ${canEdit ? `<button type="button" class="btn${cancelled ? " primary" : ""}" id="t-back-edit">${icon("arrowLeft")} 返回修改</button>` : ""}
+      ${t.ended && !success && !canEdit ? `<a class="btn" href="${K.back}">${icon("arrowLeft")} ${K.backText}</a>` : ""}
+      ${!t.ended ? `<span class="warn-text">${icon("warn")} ${t.cancelling ? "正在取消，清理半成品，请勿关闭程序…" : K.busy}</span>` : ""}
+      ${!t.ended && t.canCancel ? `<button class="btn ghost" id="t-cancel">${K.cancelBtn || "取消"}</button>` : ""}`;
+    const backEdit = $("#t-back-edit");
+    if (backEdit) backEdit.onclick = () => { if (!backToForm(taskId)) location.hash = K.back; };
+    const od = $("#t-open-dir");
+    if (od) od.onclick = async () => {
+      try { await api("/api/openpath", { method: "POST", body: { path: parentDir(t.result) } }); }
+      catch (e) { toastErr("无法打开交接包所在的文件夹", e); }
+    };
+    const cancelButton = $("#t-cancel");
+    if (cancelButton) cancelButton.onclick = async () => {
+      cancelButton.disabled = true;
+      try {
+        await api(`/api/tasks/${encodeURIComponent(taskId)}/cancel`, { method: "POST" });
+        toast("正在取消，等待清理半成品");
+        await draw();
+      } catch (e) { toastErr("暂时无法取消", e); cancelButton.disabled = false; }
+    };
+  };
   const draw = async () => {
     if (stale(gen) || ended || loading) return;
     loading = true;
@@ -2473,10 +2815,11 @@ async function renderTaskPage(taskId) {
     } finally { loading = false; }
     if (stale(gen) || ended) return;
     $("#t-fetch-error").hidden = true;
-    const K = Object.prototype.hasOwnProperty.call(TASK_KINDS, t.kind || "") ? TASK_KINDS[t.kind || ""] : TASK_KINDS[""]; // 不认识的 kind 按部署任务显示
+    const K = kindOf(t);
+    const h1 = Main().querySelector(".page-head h1"), sub = Main().querySelector(".page-head .sub");
     if (!built) {
-      if (K !== TASK_KINDS[""]) { // 页头先按「部署」画的，知道是哪一类任务后换成它的说法
-        const h1 = Main().querySelector(".page-head h1"), sub = Main().querySelector(".page-head .sub");
+      markNav(K.nav || "create");
+      if (K !== TASK_KINDS[""]) { // 页头先按「创建」画的，知道是哪一类任务后换成它的说法
         if (h1) h1.textContent = K.title;
         if (sub) sub.textContent = K.sub;
       }
@@ -2488,13 +2831,19 @@ async function renderTaskPage(taskId) {
           <div class="progress-text" id="t-sub"></div>
         </div>
         <div class="warn-card task-slow" id="t-slow" role="status" hidden><div class="wc-title">${icon("clock")} <span id="t-slow-title"></span></div>
-          <div class="wc-note">下载慢或在重试。可以检查网络或代理；网络恢复后会自动接着下载，不需要重新部署。</div></div>
+          <div class="wc-note">下载慢或在重试。可以检查网络或代理；网络恢复后会自动接着下载，不需要重新开始。</div></div>
         <div id="t-msgs"></div>
         <div id="t-pending-out"></div>
         <div id="t-pending"></div>
         <div class="task-log" id="task-log"></div>
         <div class="save-bar" id="t-foot"></div>`;
       built = true;
+    }
+    // 结束了：页头换成结果（完成 / 没成 / 已取消），不再挂着「正在……」
+    const success = t.ended && !t.error, cancelled = t.ended && !!t.cancelled;
+    if (t.ended) {
+      if (h1) h1.textContent = success ? K.doneTitle : cancelled ? (K.cancelTitle || "已取消") : K.failTitle;
+      if (sub) sub.textContent = success ? (K.resultText && t.result ? t.result : K.doneSub) : cancelled ? "没有留下半成品。" : "原因写在下面。";
     }
     // 步骤：图标随状态换，新完成的对勾弹出（首轮直接画）
     const steps = t.steps || [];
@@ -2511,15 +2860,14 @@ async function renderTaskPage(taskId) {
       stepState[k] = st.status;
       row.className = "task-step " + st.status;
       row.firstElementChild.innerHTML = st.status === "done" ? `<span class="${changed ? "pop" : ""}">${icon("check")}</span>`
-        : st.status === "running" ? icon("spinner") : st.status === "error" ? icon("x") : `<i class="ts-px"></i>`;
+        : st.status === "running" ? icon("spinner") : st.status === "error" ? icon("x") : st.status === "cancelled" ? `<i class="ts-dash"></i>` : `<i class="ts-px"></i>`;
     });
     const doneN = steps.filter(s => s.status === "done").length;
-    $("#task-eyebrow").innerHTML = steps.length
-      ? (t.ended && !t.error ? `已完成${SEP}共 ${steps.length} 步` : `第 ${Math.min(steps.length, doneN + 1)} 步<span class="sep">/</span>共 ${steps.length} 步`) : "";
-    // 经验条式进度：30 格，一格 = 当前下载项的 1/30；换了下载项就清空重来；部署完成时填满并整条闪一下
-    const success = t.ended && !t.error;
+    $("#task-eyebrow").innerHTML = !steps.length ? "" : cancelled ? "已取消"
+      : success ? `已完成${SEP}共 ${steps.length} 步` : `第 ${Math.min(steps.length, doneN + 1)} 步<span class="sep">/</span>共 ${steps.length} 步`;
+    // 经验条式进度：30 格，一格 = 当前下载项的 1/30；换了下载项就清空重来；完成时填满并整条闪一下
     const prog = $("#t-prog"), cells = prog.querySelectorAll(".xp i");
-    const cur = success ? K.done : t.label;
+    const cur = success ? K.done : cancelled ? "" : t.label;
     prog.hidden = !cur;
     if (cur) {
       if (cur !== label) { label = cur; lit = 0; cells.forEach(c => { c.className = ""; c.style.animationDelay = ""; }); }
@@ -2535,18 +2883,12 @@ async function renderTaskPage(taskId) {
       $("#t-sub").textContent = success ? (K.resultText && t.result ? t.result : K.doneSub) : `${fmtBytes(t.done) || "0 B"}${t.total > 0 ? " / " + fmtBytes(t.total) : ""}`;
       if (success) playClass(prog.querySelector(".xp"), "flash");
     }
-    $("#t-msgs").innerHTML = (t.error ? `<div class="err-box"><b>${K.fail}：</b>${esc(t.error)}<br><br>${K.failHint}
-        <div style="margin-top:8px"><button class="btn sm ghost" data-copy-task-fail>${icon("copy")} 复制报错信息</button></div></div>` : "") +
-      (t.warnings || []).map(w => `<div class="warn-card">
-        <div class="wc-title">${icon("warn")} ${esc(w.title)}</div>
-        ${w.note ? `<div class="wc-note">${esc(w.note)}</div>` : ""}
-        ${(w.items || []).length ? `<ul class="wc-list">${w.items.map(it =>
-          `<li>${/^https?:\/\//i.test(it.url || "") ? `<a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.name)}</a>` : esc(it.name)}</li>`).join("")}</ul>` : ""}
-        ${w.kind === "java-req" && t.result ? `<div class="wc-note"><a class="btn sm" href="#/inst/${encodeURIComponent(t.result)}/jvm">去「内存 / 启动」换 Java</a></div>` : ""}
-      </div>`).join("");
-    const cpf = $("#t-msgs").querySelector("[data-copy-task-fail]");
-    if (cpf) cpf.onclick = () => copy(String(t.error || ""), "已复制报错信息");
-    drawPending(t.pending || []);
+    drawMsgs(t);
+    // 没装上的文件：整合包导入完成、任务上记着还有没处理的，就按这台服务器去取清单（跳过的也列出来，还能改成别的处理）
+    if (!panel && success && t.result && (t.pending || []).length) {
+      panel = pendingPanel($("#t-pending"), $("#t-pending-out"), t.result, gen, { onChange: refreshMsgs });
+      panel.load();
+    }
     const lg = $("#task-log"), text = (t.log || []).join("\n");
     if (lg.textContent !== text) { lg.textContent = text; lg.scrollTop = lg.scrollHeight; }
     // 下载慢 / 在重试：后端报了刚发生的超时、重试（t.net，一分钟内的），或者进度、步骤、日志 STALL_MS 没有任何变化。
@@ -2555,145 +2897,16 @@ async function renderTaskPage(taskId) {
     if (sig !== lastSig) { lastSig = sig; lastChange = Date.now(); }
     const idle = Date.now() - lastChange, net = t.net && t.net.ago <= 60 ? t.net : null;
     const slowEl = $("#t-slow");
-    slowEl.hidden = t.ended || !(net || idle >= STALL_MS);
+    slowEl.hidden = t.ended || t.cancelling || !(net || idle >= STALL_MS);
     if (!slowEl.hidden) {
       const sec = Math.floor(idle / 1000);
       const title = net ? `${net.host ? net.host + " " : ""}${net.what}，已重试 ${net.count} 次`
         : `已经 ${sec < 10 ? sec + " 秒" : sec < 60 ? Math.floor(sec / 10) * 10 + " 多秒" : Math.floor(sec / 60) + " 分多钟"}没有新进度`;
       if ($("#t-slow-title").textContent !== title) $("#t-slow-title").textContent = title;
     }
-    $("#t-foot").innerHTML = `
-      ${success ? `<a class="btn primary" href="${K.href(t.result)}">${icon("check")} ${K.go}</a>` : ""}
-      ${t.ended && t.error ? `<a class="btn" href="${K.back}">${icon("arrowLeft")} ${K.backText}</a>` : ""}
-      ${!t.ended ? `<span class="warn-text">${icon("warn")} ${K.busy}</span>` : ""}
-      ${!t.ended && t.canCancel ? `<button class="btn ghost" id="t-cancel">取消创建</button>` : ""}`;
-    const cancelButton = $("#t-cancel");
-    if (cancelButton) cancelButton.onclick = async () => {
-      cancelButton.disabled = true;
-      try {
-        await api(`/api/tasks/${encodeURIComponent(taskId)}/cancel`, { method: "POST" });
-        toast("正在取消，等待清理半成品");
-        await draw();
-      } catch (e) { toastErr("暂时无法取消", e); cancelButton.disabled = false; }
-    };
-    if (t.ended) { ended = true; stopPoll(); if (!t.error) toast(K.ok); }
-  };
-  // ---- 待决文件面板（整合包导入完成后逐项处理；任务已结束，不再轮询，应用后自己重画） ----
-  let pendingItems = [];
-  let pendingSig = "";
-  let hadPending = false; // 之前画到过待决项（只有从「有待决」清到零才显示收尾卡片，从来没有待决的任务不显示）
-  const PND_ACT = { skip: "跳过", local: "用本地文件代替", trust: "信任站点并下载" };
-  const drawPending = (items, refresh) => {
-    const box = $("#t-pending");
-    if (!box) return;
-    // 任务页停轮询之前不会再重画（避免盖掉用户正在选的选项）；应用处理后强制重画
-    const sig = JSON.stringify(items || []);
-    if (sig === pendingSig && !refresh) return;
-    pendingSig = sig;
-    pendingItems = items || [];
-    if (!pendingItems.length) {
-      box.innerHTML = hadPending ? `<div class="warn-card"><div class="wc-title">${icon("check")} 待决清单已全部处理完</div></div>` : "";
-      hadPending = false;
-      return;
-    }
-    hadPending = true;
-    box.innerHTML = `<div class="warn-card">
-      <div class="wc-title">${icon("warn")} 待决文件（${pendingItems.length} 个）</div>
-      <div class="wc-note">以下文件因校验失败、链接失效或平台限制无法自动获取。请为待处理项选择操作方式后点「应用所选的处理」；未选项将暂不处理。</div>
-      ${pendingItems.map(it => `
-      <div class="pnd-item" data-id="${esc(it.id)}" style="border-top:1px solid var(--line);margin-top:10px;padding-top:10px">
-        <div><b>${esc(it.path)}</b>${it.host ? ` <span class="badge">${esc(it.host)}</span>` : ""}</div>
-        <div class="wc-note">${esc(it.note || "")}${it.size ? `（整合包标 ${fmtBytes(it.size)}）` : ""}
-          ${(it.urls || []).map(u => ` <a href="${esc(u)}" target="_blank" rel="noopener">下载地址</a>`).join("")}</div>
-        <div class="row" style="flex-wrap:wrap;margin-top:4px" role="radiogroup" aria-label="待决文件 ${esc(it.path)} 的处理方式">
-          ${(it.options || ["skip", "local"]).filter(o => PND_ACT[o]).map(o =>
-            `<label style="display:inline-flex;gap:5px;align-items:center;margin-right:14px"><input type="radio" name="pnd-${esc(it.id)}" value="${o}"><span>${PND_ACT[o]}</span></label>`).join("")}
-        </div>
-        <input type="text" class="pnd-local" style="width:100%;margin-top:6px" placeholder="本地文件或文件夹的完整路径；填文件夹时按文件名匹配" aria-label="待决文件 ${esc(it.path)} 的本地文件或文件夹路径" hidden>
-        <label class="pnd-ack" style="display:inline-flex;gap:6px;align-items:flex-start;margin-top:6px" hidden><input type="checkbox" class="pnd-ackbox">
-          <span class="wc-note">我已知晓风险并信任来自 ${it.host ? `「${esc(it.host)}」` : "这个站点"}的文件：该文件缺少校验值，存在传输被篡改风险。勾选后按域名记住（包含该域名的其他端口），以后同域名不再确认。</span></label>
-      </div>`).join("")}
-      <div class="row" style="margin-top:12px">
-        <button type="button" class="btn primary" id="t-pending-apply">应用所选的处理</button>
-        <span class="hint">无法自动识别的自定义/魔改模组，可选「用本地文件代替」并指定本地文件路径。</span>
-      </div>
-    </div>`;
-    wirePending();
-  };
-  const wirePending = () => {
-    for (const row of document.querySelectorAll("#t-pending .pnd-item")) {
-      for (const radio of row.querySelectorAll("input[type=radio]")) {
-        radio.onchange = () => {
-          row.querySelector(".pnd-local").hidden = true;
-          row.querySelector("label.pnd-ack").hidden = true;
-          if (radio.value === "local") row.querySelector(".pnd-local").hidden = false;
-          if (radio.value === "trust") row.querySelector("label.pnd-ack").hidden = false;
-        };
-      }
-    }
-    const apply = $("#t-pending-apply");
-    if (!apply) return;
-    apply.onclick = async () => {
-      const acts = [];
-      let missing = "";
-      for (const it of pendingItems) {
-        const radio = document.querySelector(`#t-pending input[name="pnd-${CSS.escape(it.id)}"]:checked`);
-        if (!radio) continue; // 没选的留着下一批
-        const row = document.querySelector(`#t-pending .pnd-item[data-id="${CSS.escape(it.id)}"]`);
-        const act = { id: it.id, act: radio.value };
-        if (radio.value === "local") {
-          act.path = (row.querySelector(".pnd-local").value || "").trim();
-          if (!act.path && !missing) missing = `${it.path} 选了「用本地文件代替」但没给路径`;
-        }
-        if (radio.value === "trust") {
-          act.url = (it.urls || [])[0] || "";
-          act.ack = row.querySelector(".pnd-ackbox").checked;
-        }
-        acts.push(act);
-      }
-      if (missing) { toast(missing, true); return; }
-      if (!acts.length) { toast("先给至少一个文件选处理方式", true); return; }
-      apply.disabled = true;
-      try {
-        const r = await api(`/api/import/pending/${encodeURIComponent(taskId)}`, { method: "POST", body: { items: acts } });
-        if (stale(gen)) return;
-        const out = $("#t-pending-out");
-        if (out) out.innerHTML = `<div class="wc-wrap">${(r.resolved || []).map(o =>
-          `<div class="${o.ok ? "hint" : "err-box"}" style="margin-bottom:6px">${o.ok ? "已处理" : "处理失败"}：${esc(o.path)}${o.note ? "，" + esc(o.note) : ""}</div>`).join("")}</div>`;
-        if (!(r.pending || []).length) {
-          toast("待决清单已全部处理完");
-          drawPending(r.pending || [], true);
-        } else if (JSON.stringify(r.pending || []) !== pendingSig) {
-          // 清单变了才重画；没选的、没处理成的那些项，把用户已经选的选项、路径和确认勾原样带回去
-          const keep = {};
-          for (const it of r.pending || []) {
-            const row = document.querySelector(`#t-pending .pnd-item[data-id="${CSS.escape(it.id)}"]`);
-            if (!row) continue;
-            const radio = row.querySelector("input[type=radio]:checked");
-            keep[it.id] = {
-              act: radio ? radio.value : "",
-              path: (row.querySelector(".pnd-local") || {}).value || "",
-              ack: !!(row.querySelector(".pnd-ackbox") || { checked: false }).checked,
-            };
-          }
-          drawPending(r.pending || [], true);
-          for (const it of r.pending || []) {
-            const st = keep[it.id];
-            if (!st || !st.act) continue;
-            const row = document.querySelector(`#t-pending .pnd-item[data-id="${CSS.escape(it.id)}"]`);
-            if (!row) continue;
-            const radio = row.querySelector(`input[value="${st.act}"]`);
-            if (radio) { radio.checked = true; radio.dispatchEvent(new Event("change")); }
-            if (st.path && row.querySelector(".pnd-local")) row.querySelector(".pnd-local").value = st.path;
-            if (st.ack && row.querySelector(".pnd-ackbox")) row.querySelector(".pnd-ackbox").checked = true;
-          }
-        }
-      } catch (e) {
-        if (!stale(gen)) toastErr("无法处理待决文件", e);
-      } finally {
-        if (!stale(gen) && $("#t-pending-apply")) $("#t-pending-apply").disabled = false;
-      }
-    };
+    lastT = t;
+    paintFoot(t);
+    if (t.ended) { ended = true; stopPoll(); if (success) toast(K.ok); }
   };
   try { await draw(); } catch (e) { console.warn("首次任务渲染失败，转由轮询接管：", e); }
   if (!ended) startPoll(draw, 800, gen);

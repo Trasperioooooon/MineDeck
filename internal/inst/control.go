@@ -21,16 +21,19 @@ import (
 //   - log4j2_112-116.xml 是老版本的日志配置：MineDeck 看到这个文件在，就给启动参数加上对它的引用；
 //     老版本 log4j 的配置文件能跑脚本、能发 JNDI 请求，和 JVM 参数是同一类东西。只用官方下载的那份。
 //   - gameai.json、gameai-state.json 是游戏内 AI 的设置和记账（谁能用、用了多少）：花的是这台电脑主人的钱，不能由包来定。
+//   - 导入待决清单.txt 是整合包导入时没装上的文件的说明（给人看的那份，MineDeck 读的那份在 .minedeck/ 下面，见 pendingstore.go）：
+//     别人给的包带一份进来，就能冒充「这台服务器还缺哪些文件、去哪下」。
 var controlRoot = map[string]bool{
 	"instance.json": true, "instance.json.tmp": true, "instance.json.bak": true,
 	"run.bat": true, "run.before-minedeck.bat": true, "user_jvm_args.txt": true,
 	"log4j2_112-116.xml": true,
 	"gameai.json":        true, "gameai-state.json": true,
+	PendingReportFile: true,
 }
 
 // controlDirs 整个目录都不采用的（小写、斜杠结尾）：
 //   - config/minedeck：MineDeck 和自家模组之间的端口、令牌。令牌是原来那台电脑上的，要用这些功能时 MineDeck 会重新生成。
-//   - .minedeck：MineDeck 给配置文件留的备份。
+//   - .minedeck：MineDeck 给配置文件留的备份、换地图的记录和恢复点、整合包导入时没装上的文件的清单（PendingListFile）。
 //   - logs、crash-reports：排障功能和 AI 助手会读这里的内容，别人给的日志不收（MineDeck 自己导出的交接包里本来也没有）。
 var controlDirs = []string{"config/minedeck/", ".minedeck/", "logs/", "crash-reports/"}
 
