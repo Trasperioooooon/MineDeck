@@ -100,7 +100,7 @@ add("changed", "c-wiz-plugins", "⑤ 选插件：Paper 这一步叫「选插件�
   steps: wizTo("paper", "mods"),
 });
 add("changed", "c-cart", "⑤ 待装清单：原来的「购物车」标签", {
-  tag: "new", hash: `#/inst/${enc("机械动力整合包")}/cart`, note: "标签、按钮、提示里的「购物车」都改叫「待装清单」，「依赖」改叫「前置」。",
+  tag: "new", hash: `#/inst/${enc("机械动力整合包")}/addons`, note: "标签、按钮、提示里的「购物车」都改叫「待装清单」，「依赖」改叫「前置」。beta.3 起待装清单在「模组」（插件服是「插件」）标签的下半截。",
 });
 add("changed", "c-pickdir-fail", "① 选文件夹的窗口打不开时", {
   tag: "new", hash: "#/settings/storage", note: "原来右上角报「exit status 0xc000013a」。黑窗本身在原型里看不到（那是真程序的事，已经在真程序上测过），这里看的是打不开时的提示。",
@@ -199,63 +199,63 @@ for (const i of INSTANCES) {
   add("detail", "d-" + i.core, `${CORE_CN[i.core]} · ${i.name}（${ST_CN[i.status]}）`, { hash: `#/inst/${enc(i.name)}/console` });
 }
 add("detail", "d-players", "玩家：在线、白名单、管理员、封禁", { hash: `#/inst/${enc("周末活动服")}/players` });
-add("detail", "d-backups", "备份", { hash: `#/inst/${enc("生存服 · 朋友")}/backups` });
-add("detail", "d-backups-empty", "备份：一份都没有", { hash: `#/inst/${enc("Banner 试验场")}/backups` });
-add("detail", "d-world", "地图：当前世界和恢复点", {
-  hash: `#/inst/${enc("机械动力整合包")}/world`, tag: "new",
+add("detail", "d-backups", "世界与备份 → 备份（运行中：还原旁写明要先停服）", { hash: `#/inst/${enc("生存服 · 朋友")}/world/backups` });
+add("detail", "d-backups-empty", "世界与备份 → 备份：一份都没有", { hash: `#/inst/${enc("Banner 试验场")}/world/backups` });
+add("detail", "d-world", "世界与备份 → 换地图：当前世界和恢复点", {
+  hash: `#/inst/${enc("机械动力整合包")}/world/map`, tag: "new",
   note: "四条恢复点各是一种情况：最近一次导入（能换回）、更早的一次（要先换回最近那次才轮得到它）、已经换回（导入的那份留在旁边）的、中途取消没生效的。同一时间只有一条有「恢复导入前的地图」。换回和删除都要过确认框。",
 });
 add("detail", "d-world-plan", "地图：导入前的核对页", {
-  hash: `#/inst/${enc("生存服 · 朋友")}/world`, tag: "new",
+  hash: `#/inst/${enc("生存服 · 朋友")}/world/map`, tag: "new",
   note: "最要紧的一屏：版本关系、要确认的事（只有一个勾选框）、地图里有什么、会换掉什么、可以一起改的设置（默认都不勾）、说明书。服务器开着，所以底下还有「停服并导入」。",
   steps: [{ click: "#wi-start" }, { click: "#wi-browse" }, { wait: "#wi-go" }],
 });
 add("detail", "d-world-cands", "地图：一个压缩包里有三张地图", {
-  hash: `#/inst/${enc("机械动力整合包")}/world`, tag: "new", note: "列出来让人选，不替人挑第一张；level.dat 读不出来的那张选不了。",
+  hash: `#/inst/${enc("机械动力整合包")}/world/map`, tag: "new", note: "列出来让人选，不替人挑第一张；level.dat 读不出来的那张选不了。",
   steps: [{ click: "#wi-start" }, { fill: "#wi-path", value: "D:\\Maps\\multi-pack.zip" }, { click: "#wi-scan" }, { wait: "[data-wi-pick]" }],
 });
 add("detail", "d-world-reject", "地图：选到的是基岩版世界", {
-  hash: `#/inst/${enc("机械动力整合包")}/world`, tag: "new", note: "不是能导入的 Java 版世界时，原因摆在最前面，到此为止。蓝图、资源包、整合包、RAR 也是这个样子。",
+  hash: `#/inst/${enc("机械动力整合包")}/world/map`, tag: "new", note: "不是能导入的 Java 版世界时，原因摆在最前面，到此为止。蓝图、资源包、整合包、RAR 也是这个样子。",
   steps: [{ click: "#wi-start" }, { fill: "#wi-path", value: "D:\\Maps\\bedrock-world" }, { click: "#wi-scan" }, { wait: "#wi-reject" }],
 });
 add("detail", "d-world-stuck", "地图：上次换地图卡住了", {
-  hash: `#/inst/${enc("机械动力整合包")}/world`, tag: "new", note: "自动恢复没成功时服务器暂停启动。页面顶上写原因和要看的文件夹，处理完点「重试恢复」。",
+  hash: `#/inst/${enc("机械动力整合包")}/world/map`, tag: "new", note: "自动恢复没成功时服务器暂停启动。页面顶上写原因和要看的文件夹，处理完点「重试恢复」。",
   setup: s => {
-    s.world.insts["机械动力整合包"] = { levelName: "world", busy: "上次换地图没能自动恢复，服务器已暂停启动。请到「地图」里查看恢复步骤",
+    s.world.insts["机械动力整合包"] = { levelName: "world", busy: "上次换地图没能自动恢复，服务器已暂停启动。请到「世界与备份 → 换地图」里查看恢复步骤",
       points: [{ id: "w9aa10001", state: "stuck", created: "2026-11-12T20:10:00+08:00", source: "SkyCity.zip", candidate: "天空之城", levelName: "world", hasOld: true, oldBytes: 5e8, keptBytes: 0, canReturn: false,
         error: "rename world: Access is denied.", stuck: ["D:\\MineDeck\\servers\\create-pack\\world", "D:\\MineDeck\\servers\\create-pack\\.minedeck\\world-import\\w9aa10001\\old\\world"] }] };
   },
 });
 add("detail", "d-world-unreadable", "地图：有一份换地图的记录读不出来", {
-  hash: `#/inst/${enc("机械动力整合包")}/world`, tag: "new", note: "记录文件坏了的时候服务器暂停启动。这一条按「要人处理」显示：写明原因和它所在的文件夹，没有换回和删除键；它还在的时候「重试恢复」会一直报错。",
+  hash: `#/inst/${enc("机械动力整合包")}/world/map`, tag: "new", note: "记录文件坏了的时候服务器暂停启动。这一条按「要人处理」显示：写明原因和它所在的文件夹，没有换回和删除键；它还在的时候「重试恢复」会一直报错。",
   setup: s => {
-    s.world.insts["机械动力整合包"] = { levelName: "world", busy: "换地图的记录读不出来，为了不在半成品的世界上启动，已暂停启动。请到「地图」里查看",
+    s.world.insts["机械动力整合包"] = { levelName: "world", busy: "换地图的记录读不出来，为了不在半成品的世界上启动，已暂停启动。请到「世界与备份 → 换地图」里查看",
       points: [{ id: "w7f3a9c21", state: "committed", created: "2026-11-10T21:14:05+08:00", source: "SkyCity.zip", candidate: "天空之城", levelName: "world", hasOld: true, oldBytes: 1286 * 1024 * 1024, keptBytes: 0 },
         { id: "w0bad0001", state: "unreadable", created: "0001-01-01T00:00:00Z", source: "", candidate: "", levelName: "", hasOld: false, oldBytes: 5e8, keptBytes: 0,
           error: "unexpected end of JSON input", stuck: ["D:\\MineDeck\\servers\\create-pack\\.minedeck\\world-import\\w0bad0001"] }] };
   },
 });
 add("detail", "d-world-phone", "地图：手机上（只能上传 ZIP）", {
-  view: "phone", hash: `#/inst/${enc("机械动力整合包")}/world`, tag: "new",
+  view: "phone", hash: `#/inst/${enc("机械动力整合包")}/world/map`, tag: "new",
   setup: s => { s.local = false; },
   steps: [{ click: "#wi-start" }, { wait: "#wi-upload" }],
 });
 add("detail", "d-sched", "定时任务", { hash: `#/inst/${enc("生存服 · 朋友")}/tasks` });
-add("detail", "d-res", "资源（搜到就装）", { hash: `#/inst/${enc("生存服 · 朋友")}/res`, steps: [{ click: "#res-go" }] });
+add("detail", "d-res", "插件：上面已安装，下面热门（运行中，停用删除要先停服）", { hash: `#/inst/${enc("生存服 · 朋友")}/addons`, tag: "new" });
 add("detail", "d-cart", "待装清单：加了一项并检查前置", {
-  hash: `#/inst/${enc("机械动力整合包")}/cart`, tag: "new",
+  hash: `#/inst/${enc("机械动力整合包")}/addons`, tag: "new",
   steps: [{ fill: "#mc-q", value: "JEI" }, { click: "#mc-go" }, { click: '.mc-add[data-pid="jei"]' }, { sleep: 500 }, { click: "#mc-dep-go" }],
 });
 add("detail", "d-cart-local", "待装清单：有本地文件，检查出要自己找的前置", {
-  hash: `#/inst/${enc("机械动力整合包")}/cart`, tag: "new",
+  hash: `#/inst/${enc("机械动力整合包")}/addons`, tag: "new",
   steps: [{ click: '.mc-add[data-pid="create"]' }, { upload: "#mc-file", files: [{ name: "sodium-extra-forge-0.6.0.jar", kb: 412 }, { name: "needs-geckolib-cataclysm-forge-2.43.jar", kb: 2380 }, { name: "lithium-fabric-0.13.1.jar", kb: 690 }] }, { sleep: 1200 }],
 });
-add("detail", "d-cart-plugin", "待装清单：插件端（Purpur）", { hash: `#/inst/${enc("空岛生存")}/cart`, tag: "new" });
-add("detail", "d-common", "常用设置", { hash: `#/inst/${enc("生存服 · 朋友")}/common` });
-add("detail", "d-common-dirty", "常用设置：改了没保存", { hash: `#/inst/${enc("生存服 · 朋友")}/common`, steps: [{ click: '.prop-item:has([data-k="hardcore"]) .switch input' }] });
-add("detail", "d-raw", "全部配置", { hash: `#/inst/${enc("生存服 · 朋友")}/raw` });
-add("detail", "d-jvm", "内存 / 启动", { hash: `#/inst/${enc("机械动力整合包")}/jvm` });
-add("detail", "d-proxy-common", "代理端没有游戏设置", { hash: `#/inst/${enc("群组代理")}/jvm` });
+add("detail", "d-cart-plugin", "待装清单：插件端（Purpur）", { hash: `#/inst/${enc("空岛生存")}/addons`, tag: "new" });
+add("detail", "d-common", "设置 → 常用", { hash: `#/inst/${enc("生存服 · 朋友")}/settings/common` });
+add("detail", "d-common-dirty", "设置 → 常用：改了没保存", { hash: `#/inst/${enc("生存服 · 朋友")}/settings/common`, steps: [{ click: '.prop-item:has([data-k="hardcore"]) .switch input' }] });
+add("detail", "d-raw", "设置 → 全部配置", { hash: `#/inst/${enc("生存服 · 朋友")}/settings/raw` });
+add("detail", "d-jvm", "设置 → 启动与内存（页顶是基本信息）", { hash: `#/inst/${enc("机械动力整合包")}/settings/jvm` });
+add("detail", "d-proxy-common", "代理端的设置只有「启动与内存」", { hash: `#/inst/${enc("群组代理")}/settings` });
 add("detail", "d-start-fail", "页头：连接地址，和常驻的「上次没能启动」", {
   tag: "new", hash: `#/inst/${enc("机械动力整合包")}/players`,
   note: "页头多一行连接地址（停着时灰字写「开服后朋友连这个地址」），能复制、能换 IP。上次没启动起来的原因常驻在页头下面的提示区，下次启动成功才消失；卡片上也有。",
@@ -265,7 +265,52 @@ add("detail", "d-players-wl", "玩家：白名单的总开关就在名单上面"
   tag: "new", hash: `#/inst/${enc("生存服 · 朋友")}/players`,
   note: "开关拨了就生效：停着时只改 server.properties，开着时再发 whitelist on / off。不用再去「常用设置」里找。",
 });
-add("detail", "d-dirmenu", "「打开文件夹」菜单", { hash: `#/inst/${enc("生存服 · 朋友")}/console`, steps: [{ click: "#d-dir" }] });
+add("detail", "d-dirmenu", "「打开文件夹」菜单（最后一项是备份）", { hash: `#/inst/${enc("生存服 · 朋友")}/console`, steps: [{ click: "#d-dir" }] });
+// ---- beta.3 详情页：七个标签、页头的重启和「···」、插件 / 模组、还原、Java 失效（docs/可用性走查-2026-11-14.md R06 R07 R10 R11 R15 R16 R21）----
+add("detail", "d-b3-more", "页头「···」：导出交接包、删除服务器（停着的）", {
+  tag: "new", hash: `#/inst/${enc("机械动力整合包")}/console`, steps: [{ click: "#d-more" }],
+  note: "原来只在列表卡片的「···」里，详情页找不到。卡片上的保留，两边点的是同一个。运行中两项都灰着，写「需先停止服务器」。",
+});
+add("detail", "d-b3-restart", "页头「重启」：有人在线先问一声", {
+  tag: "new", hash: `#/inst/${enc("生存服 · 朋友")}/console`, steps: [{ click: "#d-restart" }, { wait: "#modal-root .modal" }],
+  note: "写出几个人会掉线；没人在线不问，直接重启。停止也一样。停着的服务器上「重启」是灰的。",
+});
+add("detail", "d-b3-ext", "扩展：游戏内 AI、AI 伙伴、音乐共享（Forge）", {
+  tag: "new", hash: `#/inst/${enc("机械动力整合包")}/ext`,
+  note: "这台服务器有哪个列哪个，一个都没有时不出现「扩展」。不带子页时进第一个。",
+});
+add("detail", "d-b3-addons-stopped", "模组：停着的服务器能停用、启用、删除", {
+  tag: "new", hash: `#/inst/${enc("机械动力整合包")}/addons`,
+  note: "上面是已安装（停用的标出来），下面是热门、搜索、从电脑添加和待装清单；热门里装过的写「已安装」。删除是移进服务器文件夹里的 .minedeck\\已删除，能找回。",
+});
+add("detail", "d-b3-addons-delete", "模组：删除前的确认", {
+  tag: "new", hash: `#/inst/${enc("机械动力整合包")}/addons`, steps: [{ click: '[data-ad-del="jei-1.20.1-forge-15.2.0.27.jar"]' }, { wait: "#modal-root .modal" }],
+});
+add("detail", "d-b3-addons-mohist", "插件和模组：Mohist", { tag: "new", hash: `#/inst/${enc("模组加插件")}/addons` });
+add("detail", "d-b3-restore", "备份：运行中点「还原」，确认框直接给「停止并还原」", {
+  tag: "new", hash: `#/inst/${enc("生存服 · 朋友")}/world/backups`, steps: [{ click: "[data-restore]" }, { wait: "#modal-root .modal" }],
+});
+add("detail", "d-b3-world-from", "备份：还原过以后，页顶写当前世界从哪份备份来", {
+  tag: "new", hash: `#/inst/${enc("机械动力整合包")}/world/backups`,
+  setup: s => { s.instances.find(x => x.name === "机械动力整合包").worldFrom = { backup: "20261108-234100.000000000-拆主基地前.zip", label: "拆主基地前", backupTime: "2026-11-08 23:41:00", at: "2026-11-12 20:05:31" }; },
+});
+add("detail", "d-b3-sched-draft", "定时任务：加了两条还没保存", {
+  tag: "new", hash: `#/inst/${enc("生存服 · 朋友")}/tasks`,
+  steps: [{ fill: "#sc-at", value: "05:00" }, { click: "#sc-add" }, { fill: "#sc-at", value: "06:30" }, { click: "#sc-add" }],
+  note: "点「添加」就进草稿，标「未保存」；保存条按条数算（两条就是 2 项修改）。",
+});
+add("detail", "d-b3-save-restart", "设置 → 常用：运行中保存以后给「立即重启」", {
+  tag: "new", hash: `#/inst/${enc("生存服 · 朋友")}/settings/common`,
+  steps: [{ click: '.prop-item:has([data-k="hardcore"]) .switch input' }, { click: '[data-sb="save"]' }, { wait: '[data-sb="restart"]:not([hidden])' }],
+});
+add("detail", "d-b3-java-missing", "Java 找不到：页头提示区和 Java 下拉", {
+  tag: "new", hash: `#/inst/${enc("红石科技服")}/settings/jvm`,
+  setup: s => { const i = s.instances.find(x => x.name === "红石科技服"); i.javaMissing = true; i.javaPath = "C:\\Program Files\\Zulu\\zulu-21\\bin\\java.exe"; },
+  note: "页头下面常驻一条，带路到这里；下拉里现在用的那项标「找不到」。卡片上也有一行（看「服务器列表」）。",
+});
+add("list", "l-b3-java-missing", "卡片：配的 Java 找不到", {
+  tag: "new", setup: s => { const i = s.instances.find(x => x.name === "红石科技服"); i.javaMissing = true; i.javaPath = "C:\\Program Files\\Zulu\\zulu-21\\bin\\java.exe"; },
+});
 add("detail", "d-min", "详情页：最小窗口下", { view: "min", hash: `#/inst/${enc("周末活动服")}/console` });
 add("detail", "d-phone", "详情页：手机上", { view: "phone", hash: `#/inst/${enc("生存服 · 朋友")}/console` });
 
@@ -293,7 +338,7 @@ add("tunnel", "u-load-corrupt", "tunnels.json 内容坏了", {
   setup: s => { s.tunnelsLoadFail = "corrupt"; },
 });
 add("tunnel", "u-load-music", "tunnels.json 没读出来时的音乐共享页", {
-  hash: `#/inst/${enc("机械动力整合包")}/music`, tag: "new", steps: [{ wait: "#mu-tun-retry" }],
+  hash: `#/inst/${enc("机械动力整合包")}/ext/music`, tag: "new", steps: [{ wait: "#mu-tun-retry" }],
   note: "远程语音那一行不再说「没有语音隧道」、引导去添加：说清隧道配置没读出来、读出来之前不改 voice_host，给「重试」和「去内网穿透页」。",
   setup: s => { s.tunnelsLoadFail = "locked"; },
 });
@@ -344,7 +389,7 @@ add("overlay", "o-modal-stack", "交接弹窗里报错：原因写在弹窗里�
     { click: "#tr-go" }, { wait: "#tr-dest.invalid" }, { click: '.toast.error button[aria-label="查看报错详情"]' }],
 });
 add("overlay", "o-guard", "还有修改没保存就想走", {
-  hash: `#/inst/${enc("生存服 · 朋友")}/common`,
+  hash: `#/inst/${enc("生存服 · 朋友")}/settings/common`,
   steps: [{ click: '.prop-item:has([data-k="hardcore"]) .switch input' }, { click: '.tabs .tab[data-t="console"]' }],
 });
 add("overlay", "o-toast-err", "右上角的报错提示：至少停 20 秒（鼠标停在上面不走），带「详情」和关闭", {
