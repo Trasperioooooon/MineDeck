@@ -105,6 +105,7 @@ const ADOPT_SCAN = {
   ],
   javaMajor: 0, xmxMb: 6144, extraJvm: ["-XX:+UseG1GC"], port: 25570, eula: false, hasWorld: true, managed: false,
   notes: ["这个文件夹里有 2 个能启动的文件，已经选了最可能的那个，不对可以改。", "user_jvm_args.txt 里的 1 个 JVM 参数会带过来。"],
+  whitelistOn: false, // 同 inst.AdoptScan.WhitelistOn：server.properties 里的白名单开关，没写这一项时是 null
 };
 
 // 操作记录（同 GET /api/ops/log：新的在前，Key、密码、凭据写成 ***）
@@ -2235,7 +2236,11 @@ function handler(state, ui, portOf) {
     //   modsNeed: { 实例名: needJava } GET /api/instances/{名称}/mods 返回的 needJava（实例详情页的 Java 提示用），空对象还原
     //   trustedHosts: [站点] 处置待决文件时已确认过的自定义站点（trust 不再要求 ack），空数组还原
     //   taskNet: 部署任务的 net（同 tasks.NetRetry：{ count, host, what, ago }），null 清掉
-    //   inst: { name, …字段 } 直接改某台服务器的字段；instReset: true 服务器列表回到初始的四台
+    //   inst: { name, …字段 } 直接改某台服务器的字段；instReset: true 服务器列表回到初始的四台。
+    //     beta.3 P0 用到的字段：startFail（点启动时报这句、记成 lastStartError）、lastStartError、connectPort（代理端没生成配置时 0）、
+    //     whitelistOn（玩家名单里的白名单开关，null = server.properties 没写）、adopted + mdFiles（移出列表后会留下的文件）。
+    //     响应里的 lastCreate / lastImport / lastPropsPut / commands / lastOpenPath 是上一次新建、导入整合包（表单项）、改 server.properties、
+    //     发过的控制台命令、打开的文件夹
     //   adoptScan: 接管已有服务器时「识别」返回的结果（同 inst.AdoptScan），null 还原成默认的；
     //     响应里的 lastAdopt / lastJava / lastDelete 是上一次接管、换 Java、删除的请求
     //   legacy: { name, extraJvm, forceFlags } 把某台服务器设成「老版本」，保存 JVM 参数时补回 forceFlags
@@ -2275,6 +2280,7 @@ function handler(state, ui, portOf) {
       if ("taskNet" in b) state.taskNet = b.taskNet;
       if (b.inst) { const i = state.instances.find(x => x.name === b.inst.name); if (i) Object.assign(i, b.inst); } // 改某台服务器的字段（adopted、javaMajor…）
       if ("adoptScan" in b) state.adoptScan = b.adoptScan; // 接管：下一次识别返回的结果（null 还原成默认的 NeoForge 整合包）
+      if ("commands" in b) state.commands = b.commands || []; // 发过的控制台命令（见 POST …/command），传空数组清掉
       if ("portBusy" in b) state.portBusy = b.portBusy; // 交接包向导：端口号等于这个值的端口查询按「被占用」回
       if (b.instReset) { const fresh = newState(ui); state.instances = fresh.instances; state.lastAdopt = state.lastJava = state.lastDelete = null; }
       if ("listenLan" in b) { state.config.listenLan = state.lanActive = !!b.listenLan; if (b.listenLan) state.lanSet = true; }
@@ -2378,6 +2384,12 @@ function handler(state, ui, portOf) {
       if (p === "/api/javas") return ok(res, { portable: [{ major: 21, path: "D:\\MineDeck\\runtimes\\java-21\\bin\\java.exe" }, { major: 17, path: "D:\\MineDeck\\runtimes\\java-17\\bin\\java.exe" }], scanned: [{ major: 21, version: "21.0.4", path: "C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.4.7-hotspot\\bin\\java.exe" }, { major: 8, version: "1.8.0_421", path: "C:\\Program Files\\Java\\jre1.8.0_421\\bin\\java.exe" }] });
       if (p === "/api/javas/scan") return ok(res, [1, 2]);
       if (p === "/api/pickdir") return ok(res, { path: "E:\\MCServers" });
+      // 在资源管理器里打开文件夹（同 host.openpath，只许本机）：记下打开的是哪个
+      if (p === "/api/openpath" && m === "POST") {
+        if (!state.local) return err(res, 403, "打开文件夹仅支持在本机操作");
+        state.lastOpenPath = (await readBody(req)).path || "";
+        return ok(res, "ok");
+      }
       if (p === "/api/update/check") return ok(res, { hasUpdate: false, current: "2.9.0-beta.2" });
       // 接管已有服务器（同 web/instances.go 的 /api/adopt/scan、/api/adopt，inst/adopt.go）：识别只读，接管返回任务编号
       if (p === "/api/adopt/scan" && m === "POST") {
@@ -2432,6 +2444,14 @@ function handler(state, ui, portOf) {
         const need = (state.modsNeed || {})[seg[3]];
         const mods = need ? [{ file: "modded-fabric.jar", id: "modded", version: "1.0" }] : [];
         return ok(res, { dir: "mods", count: mods.length, disabled: 0, mods, ...(need ? { needJava: need } : {}) });
+      }
+      // 导入整合包（同 web/instances.go 的 handleImportModpack）：记下表单里的各项（state.lastImport，不含文件内容），回一个 Modrinth 包的摘要
+      if (p === "/api/import/modpack" && m === "POST") {
+        const raw = await new Promise(r => { const cs = []; req.on("data", c => cs.push(c)); req.on("end", () => r(Buffer.concat(cs).toString("utf8"))); });
+        const fields = {};
+        for (const mm of raw.matchAll(/name="([^"]+)"\r\n\r\n([^\r]*)\r\n/g)) fields[mm[1]] = mm[2];
+        state.lastImport = fields;
+        return ok(res, { taskId: "task-1", pack: { name: "测试整合包", mc: "1.20.1", core: "forge", loader: "47.3.0", format: "mrpack", files: 12, pending: 0 } });
       }
       // 实例交接包（.mdpack，同 web/transfer.go）：上传回摘要、导入返回任务号；交接的任务一查就是已完成
       if (p === "/api/transfer/upload" && m === "POST") {
@@ -2498,13 +2518,16 @@ function handler(state, ui, portOf) {
         const ended = st === "error" || st >= names.length;
         return ok(res, { id: seg[3], title: "创建 Paper 服务器", steps, label: ended ? "" : "下载 paper-1.21.4-232.jar", done: 31457280, total: 52428800, error: st === "error" ? "下载 paper-1.21.4-232.jar 失败：所有下载源均不可用（BMCLAPI 超时、官方源 403）" : "", warnings: [], log: ["[1/4] 检测到本机 Java 21，复用", "[2/4] 正在从 api.papermc.io 下载核心…", "  已下载 30.0 MB / 50.0 MB"], ended, result: "生存服 · 朋友", net: !ended && state.taskNet ? state.taskNet : undefined, ...state.taskList.find(t => t.id === seg[3]) });
       }
-      if (p === "/api/instances" && m === "GET") return ok(res, insts());
+      // connectPort（同 instance.list）：朋友连进来的端口。仿真里的代理端 port 写的就是它自己的端口；没生成配置的代理端用 inst 设成 0
+      // lastStartError：上一次启动没起来的原因（startFail 那台点启动时记下，成功启动清掉）
+      if (p === "/api/instances" && m === "GET") return ok(res, insts().map(i => ({ ...i, connectPort: i.connectPort ?? i.port })));
       // 创建实例（向导提交）：真的登记进列表（Java 21 / 已停止等按表单补全），
       // 这样紧接着带上草稿车的 POST .../modcart/install 才能按名字找到这台实例（真后端此时也已经建好了）
       if (p === "/api/instances" && m === "POST") {
         const b = await readBody(req);
         // 用已有地图开服：记下请求；带了计划编号就按真后端那样核对（计划在不在、核心版本对不对得上、有没有被拦下、要确认的确认了没有）
         state.world.lastCreate = { name: b.name, core: b.core, mc: b.mc, worldPlan: b.worldPlan || "", worldAck: !!b.worldAck, difficulty: b.difficulty, gamemode: b.gamemode };
+        state.lastCreate = b; // 新建的整个请求体（白名单开关 whitelist 等）
         // 核对通过就收下计划（不能再用第二次）；请求没能开始（createFail，比如重名）时计划放回去，改好还能用同一份
         if (b.worldPlan) { const why = worldCreateCheck(state, b); if (why) return err(res, 400, why); }
         if (state.world.createFail) return err(res, 400, state.world.createFail);
@@ -2590,8 +2613,30 @@ function handler(state, ui, portOf) {
           if (b.xmxMb > 0) i.xmxMb = b.xmxMb;
           return ok(res, {});
         }
-        if (sub === "console") return sse(res, i.status === "stopped" ? ["[MineDeck] 服务器未运行，点击「启动」开服"] : CONSOLE);
-        if (sub === "players" && m === "GET") return ok(res, { online: i.status === "running" ? ["Steve", "Alex", "Notch_CN"] : [], whitelist: [{ name: "Steve" }, { name: "Alex" }], ops: [{ name: "Steve" }], banned: [{ name: "Griefer233" }] });
+        // 启动（同 inst.Manager.Start）：inst 设了 startFail 的，报这句并记成上次启动失败（lastStartError），控制台多一行；
+        // 起得来的清掉上次的原因。状态不变（别的用例按「停着」「运行中」的初始状态写的）
+        if (sub === "start" && m === "POST") {
+          if (i.startFail) { i.lastStartError = i.startFail; return err(res, 400, i.startFail); }
+          delete i.lastStartError;
+          return ok(res, "ok");
+        }
+        if (sub === "console") return sse(res, i.status === "stopped" ? ["[MineDeck] 服务器未运行，点击「启动」开服", ...(i.lastStartError ? ["[MineDeck] 没能启动：" + i.lastStartError] : [])] : CONSOLE);
+        // 玩家名单：whitelistOn 同 inst.PlayerLists（server.properties 里的白名单开关，没写这一项时为 null）；没设过按关
+        if (sub === "players" && m === "GET") return ok(res, { online: i.status === "running" ? ["Steve", "Alex", "Notch_CN"] : [], whitelist: [{ name: "Steve" }, { name: "Alex" }], ops: [{ name: "Steve" }], banned: [{ name: "Griefer233" }], whitelistOn: i.whitelistOn === undefined ? false : i.whitelistOn });
+        // 改 server.properties（同 instance.props.set）：记下请求；改了 white-list 的，玩家名单里的开关跟着变
+        if (sub === "properties" && m === "PUT") {
+          const b = await readBody(req);
+          state.lastPropsPut = { inst: name, pairs: b.pairs || [] };
+          const wl = (b.pairs || []).filter(x => x.key === "white-list").pop();
+          if (wl) i.whitelistOn = wl.value === "true";
+          return ok(res, "ok");
+        }
+        // 控制台命令（同 instance.command）：记下发过的命令（state.commands）
+        if (sub === "command" && m === "POST") {
+          const b = await readBody(req);
+          (state.commands || (state.commands = [])).push({ inst: name, cmd: b.cmd });
+          return ok(res, "ok");
+        }
         if (sub === "backups" && m === "GET") return ok(res, [
           { file: "2026-10-26_04-00_auto.zip", sizeMb: 412.3, time: "2026-10-26 04:00" },
           { file: "2026-10-25_22-10_打龙前.zip", sizeMb: 405.8, time: "2026-10-25 22:10" },

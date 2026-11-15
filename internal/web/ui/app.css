@@ -443,6 +443,14 @@ a.inst-name:hover { text-decoration: underline; text-decoration-color: color-mix
 /* 端口 / 内存 / Java：标签 + 等宽数值 */
 .kv { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: var(--fs-xs); color: var(--muted); margin-bottom: 10px; }
 .kv b { font: var(--fw-medium) var(--fs-xs) var(--mono); color: var(--text); margin-left: 4px; }
+/* 端口旁边复制连接地址的小键（可用性走查 R01）：比正文行高小一点，不把这一行撑高 */
+.kv .copy-addr { --btn-h: 20px; margin: -3px 0 -3px 2px; vertical-align: middle; color: var(--muted); }
+.kv .copy-addr .ico { width: 13px; height: 13px; }
+.kv .copy-addr:hover { color: var(--text); }
+/* 上次没能启动：常驻在卡片上，下次启动成功才消失（R03） */
+.inst-fail { display: flex; align-items: flex-start; gap: 6px; margin: -2px 0 10px; font-size: var(--fs-xs); line-height: 1.55; color: var(--danger-text); }
+.inst-fail .ico { flex: none; width: 13px; height: 13px; margin-top: 2px; }
+.inst-fail span { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .inst-meta { font-size: var(--fs-xs); color: var(--muted); margin-bottom: 12px; min-height: 19px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inst-actions { display: flex; gap: 6px; align-items: center; margin-top: auto; padding-top: 12px; border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent); }
 
@@ -726,8 +734,25 @@ a.inst-name:hover { text-decoration: underline; text-decoration-color: color-mix
 .detail-head .dh-text { min-width: 0; }
 .detail-head h1 { max-width: 46vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .detail-head .dh-line { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+/* 连接地址（可用性走查 R01）：「本机局域网 IP:端口」+ 复制 + 换 IP；停着时整行灰一些，旁边写明开服后朋友连这个 */
+.detail-head .dh-addr { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; font-size: var(--fs-xs); color: var(--muted); min-height: 28px; }
+.dh-addr:empty { display: none; }
+.dh-addr .dh-addr-k { font-weight: var(--fw-medium); }
+.dh-addr .dh-addr-v { font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--text); user-select: all; }
+.dh-addr.off .dh-addr-v { color: var(--muted); }
+.dh-addr .dh-addr-note { color: var(--muted); }
+/* 页头下面的常驻提示区（#d-notices）：上次启动失败、模组要求更高的 Java……一条一行，有就显示，解决了就消失 */
+.d-notices { display: flex; flex-direction: column; gap: 6px; margin: -8px 0 14px; max-width: var(--w-wide); }
+.d-notices[hidden] { display: none; }
+.d-notice { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 7px 12px; border-radius: var(--r-md); font-size: var(--fs-sm); line-height: 1.6; }
+.d-notice.warn { background: var(--warning-subtle); color: var(--warning-text); }
+.d-notice > .ico { flex: none; width: 15px; height: 15px; }
+.d-notice .dn-text { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; }
+.d-notice .btn.sm { --btn-h: 26px; }
+.d-notice .warn-text { font-size: var(--fs-sm); }
 #tab-body { max-width: var(--w-wide); }
-.console { height: calc(100vh - 456px); height: calc(100dvh - 456px); min-height: 240px; overflow-y: auto; font: 12.5px var(--mono); padding: 12px 14px; font-variant-ligatures: none; }
+/* 高度按页头（含连接地址那一行）、标签栏、工具条和输入框算，页头多了一行以后少 34px，窗口小的时候快捷键提示才不掉到可视区外 */
+.console { height: calc(100vh - 490px); height: calc(100dvh - 490px); min-height: 240px; overflow-y: auto; font: 12.5px var(--mono); padding: 12px 14px; font-variant-ligatures: none; }
 .console div { white-space: pre-wrap; word-break: break-all; line-height: 1.6; }
 .console .cmd-echo { color: var(--term-cmd); }
 .console .lv-warn { color: var(--term-warn); }
@@ -757,6 +782,18 @@ a.inst-name:hover { text-decoration: underline; text-decoration-color: color-mix
 .p-sec-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .p-sec-head b { white-space: nowrap; font-weight: var(--fw-semibold); }
 .p-sec-head input { flex: 1 1 150px; height: 30px; font-size: var(--fs-sm); }
+/* 白名单的总开关就在名单上面（可用性走查 R02、U11） */
+.p-wl { margin: -2px 0 12px; }
+.p-wl .sw-desc { line-height: 1.6; }
+/* 接管表单里写出原来的白名单设置（只显示，接管不改它） */
+.ad-wl { margin-bottom: 14px; }
+.ad-wl[hidden] { display: none; }
+.ad-wl .ad-wl-v { font-size: var(--fs-sm); color: var(--muted); line-height: 1.7; }
+.ad-wl .ad-wl-v b { color: var(--text); }
+/* 设置页顶的一句指路（手机远程管理：朋友进游戏的地址不在这里） */
+.set-note { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 14px; padding: 9px 12px; border-radius: var(--r-md); background: var(--hover); font-size: var(--fs-sm); line-height: 1.6; color: var(--text); }
+.set-note > .ico { flex: none; width: 15px; height: 15px; margin-top: 3px; color: var(--muted); }
+.set-note a { margin-left: 6px; }
 /* 玩家名后面的小按钮（OP、踢、移除）：用 <button>，键盘 Tab 得到；去掉按钮自带的边框和字体，样子和原来的链接一样 */
 .p-x {
   border: 0; font-family: inherit; line-height: inherit;
@@ -1042,6 +1079,20 @@ input.mem-num { width: 96px; height: 30px; font-size: var(--fs-sm); text-align: 
 .modal .m-ico { width: 32px; height: 32px; display: grid; place-items: center; border-radius: var(--r-md); background: var(--danger-subtle); color: var(--danger-text); flex: none; }
 .modal .m-body { color: var(--muted); font-size: var(--fs-sm); margin-bottom: 18px; line-height: 1.7; }
 .modal .m-actions { display: flex; justify-content: flex-end; gap: 8px; }
+/* 弹窗里提交出错：原因写在按钮上面，不只靠右上角那条提示（可用性走查 R04）；原文点「详情」，叠在这个弹窗上面看 */
+.modal .m-err { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: -6px 0 14px; padding: 8px 12px; border-radius: var(--r-md);
+  background: var(--danger-subtle); color: var(--danger-text); font-size: var(--fs-sm); line-height: 1.6; }
+.modal .m-err[hidden] { display: none; }
+.modal .m-err > .ico { flex: none; width: 15px; height: 15px; }
+.modal .m-err > span { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+/* 移出列表 / 删除服务器（R05、U28、U30）：文件夹路径单独一行等宽可选；接管来的服务器会留下哪些文件 */
+.modal .del-dir { margin: 6px 0; padding: 6px 10px; border-radius: var(--r-sm); background: var(--sunken); color: var(--text); font-size: var(--fs-xs); overflow-wrap: anywhere; user-select: all; }
+.modal .del-left { margin-top: 8px; }
+.modal .del-left code { font-size: var(--fs-xs); }
+.modal .del-confirm { margin: 0 0 16px 48px; }
+.modal .del-confirm .field > span { font-size: var(--fs-xs); color: var(--danger-text); }
+.modal .del-confirm input { width: 100%; }
+.modal [data-x="ok"]:disabled { opacity: .5; cursor: not-allowed; }
 .brand-head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
 .brand-head h3, .brand-head h2 { margin: 0; }
 .brand-head .sub { margin: 2px 0 0; }
