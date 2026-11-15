@@ -652,7 +652,7 @@ func playerNotes(c *Candidate, t *Target) []Issue {
 		owner, file = "", "" // 迁移时找不到主人 UUID 会写成占位的 UUID，对应不上任何账号
 	}
 	if m.HasPlayerTag || m.SingleplayerUUID != "" {
-		base := "这是单人世界。世界和建筑会保留；单人角色身上的背包、经验、末影箱、位置能不能接上，要看主人用哪个账号进服。"
+		base := "这是单人世界。地形和建筑会保留；单人角色身上的背包、经验、末影箱、位置能不能接上，要看主人用哪个账号进服。"
 		var how string
 		switch {
 		case owner == "":

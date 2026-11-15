@@ -153,7 +153,7 @@ Not without asking. Read-only things, such as looking at logs and configs, it do
 
 Use the stable release for everyday hosting. Handover packs, the to-install list, adopting an existing server and the like are in the stable release from v3.1.0 on.
 
-Betas are marked Pre-release on the [releases page](https://github.com/Trasperioooooon/MineDeck/releases) and have to be downloaded by hand. A stable install is not offered betas as updates, and one beta does not update to the next automatically; replace `MineDeck.exe` yourself. Once the stable release with the same version number is out, people running a beta can update to it under Settings → Updates and about (设置 → 更新与关于). Run a beta from its own folder. Before trying it on an existing server, back up that server's whole folder. Known issues for each release are in the release notes under [docs/releases/](docs/releases/) (in Chinese).
+Betas are marked Pre-release on the [releases page](https://github.com/Trasperioooooon/MineDeck/releases). From v3.2.0-beta.3 on, Settings → Updates and about (设置 → 更新与关于) lets you pick an update channel: Stable (稳定版) offers only full releases, Latest (最新版) offers betas too. If you never picked one, a beta install checks the Latest channel. v3.2.0-beta.2 and older only look at full releases, so moving from them to a newer beta means downloading it and replacing `MineDeck.exe` by hand. Run a beta from its own folder. Before trying it on an existing server, back up that server's whole folder. Known issues for each release are in the release notes under [docs/releases/](docs/releases/) (in Chinese).
 
 ### Where is my data, and how do I move it?
 

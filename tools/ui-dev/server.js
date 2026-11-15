@@ -1811,7 +1811,7 @@ function worldPlan(state, scan, cand, inst, core, mc) {
   const brands = (m.serverBrands || []).join(" ").toLowerCase();
   if (/forge|fabric/.test(brands) && !brands.includes(core)) issues.push({ sev: "confirm", code: "mods-mismatch",
     msg: `这张地图用过模组（${m.serverBrands.join("、")}），而目标是 ${core}。缺了对应的模组，地图里模组加的方块和物品会消失`, detail: `ServerBrands: ${m.serverBrands.join(", ")}；WasModded: ${!!m.wasModded}` });
-  if (m.hasPlayerTag) issues.push({ sev: "warn", code: "singleplayer-owner", msg: "这是单人世界。世界和建筑会保留；单人角色身上的背包、经验、末影箱、位置能不能接上，要看主人用哪个账号进服。主人用玩单人时的同一个正版账号进服，一般就接上了",
+  if (m.hasPlayerTag) issues.push({ sev: "warn", code: "singleplayer-owner", msg: "这是单人世界。地形和建筑会保留；单人角色身上的背包、经验、末影箱、位置能不能接上，要看主人用哪个账号进服。主人用玩单人时的同一个正版账号进服，一般就接上了",
     detail: "主人 UUID：" + (m.playerUuid || "") });
   if (cand.resourcePack) issues.push({ sev: "warn", code: "resources-zip", msg: "地图带了资源包（resources.zip）。专用服务器不会把它自动发给玩家：要大家看到正确的材质，请把它放到一个大家都能下载的地址，在设置里填资源包地址，或者让每个人自己安装" });
   const missing = [["minecraft:the_nether", "下界"], ["minecraft:the_end", "末地"]].filter(([id]) => !cand.dimensions.some(d => d.id === id)).map(x => x[1]);
