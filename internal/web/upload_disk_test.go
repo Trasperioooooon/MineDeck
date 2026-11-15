@@ -49,7 +49,10 @@ func multipartRequest(t *testing.T, url, filename string, content []byte) *http.
 func TestMultipartUploadsDoNotQueueBehindVolumeLease(t *testing.T) {
 	e := newFullEnv(t)
 	oldIdle, oldMemory := worldUploadIdle, multipartMemory
-	worldUploadIdle, multipartMemory = 150*time.Millisecond, 16
+	// 名额在整条测试里一直被占着，上传要是排在它后面，多长的空闲期限都等不到，照样回 408；
+	// 所以期限不用卡得很紧。原来是 150 毫秒，忙的机器上 multipart 落盘、查余量的停顿就能耗完它，
+	// CI 和本机带负载时都偶发过一次 408（2026-11-15，PR #26 的复审里查清和锁键无关）。
+	worldUploadIdle, multipartMemory = time.Second, 16
 	t.Cleanup(func() { worldUploadIdle, multipartMemory = oldIdle, oldMemory })
 	spool := t.TempDir()
 	t.Setenv("TMP", spool)
