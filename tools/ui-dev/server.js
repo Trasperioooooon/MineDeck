@@ -141,6 +141,7 @@ function newState(ui) {
     mcp: newMcpState(), // MCP 接口
     modcart: newModCartState(), // 自选模组 + 购物车（草稿车 + 各实例的车）
     world: newWorldState(), // 地图导入：检测结果、导入计划、任务、各服务器的恢复点
+    toolbox: newToolboxState(), // 工具箱：皮肤包生成 + Modrinth 整合包导出
   };
   state.props = catalog(ui).map(p => ({ key: p.key, value: p.key === "motd" ? "§a生存服 §7· §e一起来玩！" : String(p.def ?? "") }));
   // 同 instance.list 的 javaSource / javaPath / adopted：都用 MineDeck 下载的便携版 Java，都不是接管进来的
@@ -1585,13 +1586,17 @@ function modcartMultipart(buf, contentType) {
   }
   return out;
 }
+// 工具箱「导出整合包」那份清单的键（同后端 modcart.Toolbox）：请求带 cart=toolbox 时用它，和向导的草稿车分开
+const TOOLBOX_CART = "<toolbox>";
+const cartOf = o => (o && o.cart === "toolbox") ? TOOLBOX_CART : ((o && o.inst) || "");
 async function modcartHandler(state, req, res, p, m, u) {
   const q = u.searchParams, mc = state.modcart;
   const bucket = inst => modcartBucket(state, inst);
+  const qCart = cartOf({ cart: q.get("cart"), inst: q.get("inst") });
   // 热门清单和搜索（同 modcart.search）：关键词留空就是最热门的；始终按下载量排，一页 20 条，最多翻到第 5 页
   if (p === "/api/modcart/search") {
     const word = (q.get("q") || "").toLowerCase(), cat = q.get("category") || "", offRaw = q.get("offset") || "0";
-    const type = modcartType(state, modcartCore(state, q.get("inst"), q.get("core")));
+    const type = modcartType(state, modcartCore(state, qCart, q.get("core")));
     mc.searches.push({ q: q.get("q") || "", category: cat, offset: offRaw });
     if (mc.searchDelay) await new Promise(r => setTimeout(r, mc.searchDelay));
     if (mc.searchFail) return err(res, 502, mc.searchFail);
@@ -1604,24 +1609,24 @@ async function modcartHandler(state, req, res, p, m, u) {
       .map(x => ({ project_id: x.projectId, slug: x.slug, title: x.title, description: x.description, downloads: x.downloads, icon_url: "", license: x.license }));
     return ok(res, { type, hits, offset, total: all.length, more: hits.length > 0 && offset + MODCART_PAGE < all.length && offset < MODCART_MAX_OFFSET });
   }
-  if (p === "/api/modcart" && m === "GET") return ok(res, modcartView(state, q.get("inst") || "", q.get("core")));
+  if (p === "/api/modcart" && m === "GET") return ok(res, modcartView(state, qCart, q.get("core")));
   if (p === "/api/modcart" && m === "POST") {
     const b = await readBody(req);
     if (mc.addFail) return err(res, 500, mc.addFail);
-    const cart = bucket(b.inst || "");
+    const cart = bucket(cartOf(b));
     for (const id of (b.projectIds || [])) if (!cart.some(x => x.projectId === id)) cart.push(modCartItem(id));
-    return ok(res, modcartView(state, b.inst || "", b.core));
+    return ok(res, modcartView(state, cartOf(b), b.core));
   }
   if (p === "/api/modcart/remove" && m === "POST") {
-    const b = await readBody(req), cart = bucket(b.inst || ""), af = cart.filter(x => x.projectId !== b.projectId);
+    const b = await readBody(req), cart = bucket(cartOf(b)), af = cart.filter(x => x.projectId !== b.projectId);
     cart.length = 0; cart.push(...af);
-    return ok(res, modcartView(state, b.inst || "", b.core));
+    return ok(res, modcartView(state, cartOf(b), b.core));
   }
   // 清空（界面上是人点的）：Modrinth 项目和本地文件都清
   if (p === "/api/modcart/clear" && m === "POST") {
     const b = await readBody(req);
-    bucket(b.inst || "").length = 0; modcartLocals(state, b.inst || "").length = 0;
-    return ok(res, modcartView(state, b.inst || "", b.core));
+    bucket(cartOf(b)).length = 0; modcartLocals(state, cartOf(b)).length = 0;
+    return ok(res, modcartView(state, cartOf(b), b.core));
   }
   // 从电脑添加一个 jar（同 modcart.local.add）：multipart 的 file，另带 inst / core / mc。返回整张清单，外加 added 和 duplicate
   if (p === "/api/modcart/local" && m === "POST") {
@@ -1629,7 +1634,7 @@ async function modcartHandler(state, req, res, p, m, u) {
     const { fields, file } = modcartMultipart(raw, req.headers["content-type"]);
     if (mc.localFail) return err(res, 500, mc.localFail);
     if (!file) return err(res, 400, "没有收到文件");
-    const inst = fields.inst || "", name = file.name, locals = modcartLocals(state, inst), low = name.toLowerCase();
+    const inst = cartOf(fields), name = file.name, locals = modcartLocals(state, inst), low = name.toLowerCase();
     if (!low.endsWith(".jar")) return err(res, 400, "只能添加 .jar 文件：" + name);
     if (file.data.subarray(0, 2).toString("latin1") !== "PK") return err(res, 400, `「${name}」打不开：它不是一个完整的 jar 文件（可能没下载完整，或者其实是别的格式）。重新下载一份再添加`);
     const sha1 = mcCrypto.createHash("sha1").update(file.data).digest("hex");
@@ -1652,15 +1657,15 @@ async function modcartHandler(state, req, res, p, m, u) {
     return ok(res, { ...modcartView(state, inst, fields.core), added: { sha1: lf.sha1, fileName: lf.fileName, title: lf.title, size: lf.size }, duplicate });
   }
   if (p === "/api/modcart/local/remove" && m === "POST") {
-    const b = await readBody(req), locals = modcartLocals(state, b.inst || "");
+    const b = await readBody(req), locals = modcartLocals(state, cartOf(b));
     if (!/^[0-9a-fA-F]{40}$/.test(b.sha1 || "")) return err(res, 400, "参数 sha1 格式不对");
     const af = locals.filter(x => x.sha1 !== b.sha1.toLowerCase());
     locals.length = 0; locals.push(...af);
-    return ok(res, modcartView(state, b.inst || "", b.core));
+    return ok(res, modcartView(state, cartOf(b), b.core));
   }
   if (p === "/api/modcart/deps") {
     if (mc.depsFail) return err(res, 502, mc.depsFail);
-    return ok(res, modcartDeps(state, q.get("inst") || "", q.get("core")));
+    return ok(res, modcartDeps(state, qCart, q.get("core")));
   }
   return ok(res, {});
 }
@@ -2004,6 +2009,311 @@ async function worldInstHandler(state, req, res, m, seg, i) {
     return ok(res, "ok");
   }
   return err(res, 404, "没有这个接口");
+}
+
+// ============================== 工具箱（#/toolbox） ==============================
+const TB_MODERN_CHARS = ["alex", "ari", "efe", "kai", "makena", "noor", "steve", "sunny", "zuri"];
+const TB_CHAR_TITLE = { alex: "Alex", ari: "Ari", efe: "Efe", kai: "Kai", makena: "Makena", noor: "Noor", steve: "Steve", sunny: "Sunny", zuri: "Zuri" };
+const TB_MOD_CORES = new Set(["fabric", "forge", "neoforge", "mohist", "banner"]);
+const tbFloorMod = (a, n) => ((a % n) + n) % n;
+
+function tbParseMC(mc) {
+  const s = String(mc || "").trim().replace(/^[vV]/, "").split("-")[0];
+  const m = /^(\d+)\.(\d+)(?:\.(\d+))?$/.exec(s);
+  if (!m) return null;
+  return [+m[1], +m[2], +(m[3] || 0)];
+}
+const tbCmpTuple = (a, b) => (a[0] - b[0]) || (a[1] - b[1]) || (a[2] - b[2]);
+
+function tbPackFormat(mc) {
+  const t = tbParseMC(mc);
+  if (!t) return null;
+  if (tbCmpTuple(t, [26, 3, 0]) >= 0) return 97; // 同后端 PackFormatForMC：26.3（97.1）及更新
+  if (tbCmpTuple(t, [26, 2, 0]) >= 0) return 88;
+  if (t[0] >= 26) return 84;
+  if (tbCmpTuple(t, [1, 21, 11]) >= 0) return 75;
+  if (tbCmpTuple(t, [1, 21, 9]) >= 0) return 69;
+  if (tbCmpTuple(t, [1, 21, 7]) >= 0) return 64;
+  if (tbCmpTuple(t, [1, 21, 6]) >= 0) return 63;
+  if (tbCmpTuple(t, [1, 21, 5]) >= 0) return 55;
+  if (tbCmpTuple(t, [1, 21, 4]) >= 0) return 46;
+  if (tbCmpTuple(t, [1, 21, 2]) >= 0) return 42;
+  if (tbCmpTuple(t, [1, 21, 0]) >= 0) return 34;
+  if (tbCmpTuple(t, [1, 20, 5]) >= 0) return 32;
+  if (tbCmpTuple(t, [1, 20, 3]) >= 0) return 22;
+  if (tbCmpTuple(t, [1, 20, 2]) >= 0) return 18;
+  if (tbCmpTuple(t, [1, 20, 0]) >= 0) return 15;
+  if (tbCmpTuple(t, [1, 19, 4]) >= 0) return 13;
+  if (tbCmpTuple(t, [1, 19, 3]) >= 0) return 12;
+  if (tbCmpTuple(t, [1, 19, 0]) >= 0) return 9;
+  if (tbCmpTuple(t, [1, 18, 0]) >= 0) return 8;
+  if (tbCmpTuple(t, [1, 17, 0]) >= 0) return 7;
+  if (tbCmpTuple(t, [1, 16, 2]) >= 0) return 6;
+  if (tbCmpTuple(t, [1, 15, 0]) >= 0) return 5;
+  if (tbCmpTuple(t, [1, 13, 0]) >= 0) return 4;
+  if (tbCmpTuple(t, [1, 11, 0]) >= 0) return 3;
+  if (tbCmpTuple(t, [1, 9, 0]) >= 0) return 2;
+  return 1;
+}
+
+function tbSlots(mc) {
+  const t = tbParseMC(mc);
+  if (!t) return null;
+  const modern = tbCmpTuple(t, [1, 19, 3]) >= 0;
+  if (!modern) {
+    return {
+      modern: false,
+      slots: [
+        { index: 0, id: "steve", character: "Steve", model: "wide", modelLabel: "经典（4px）", path: "assets/minecraft/textures/entity/steve.png" },
+        { index: 1, id: "alex", character: "Alex", model: "slim", modelLabel: "纤细（3px）", path: "assets/minecraft/textures/entity/alex.png" },
+      ],
+    };
+  }
+  return {
+    modern: true,
+    slots: [
+      ...TB_MODERN_CHARS.map((ch, idx) => ({ index: idx, id: "slim/" + ch, character: TB_CHAR_TITLE[ch], model: "slim", modelLabel: "纤细（3px）", path: `assets/minecraft/textures/entity/player/slim/${ch}.png` })),
+      ...TB_MODERN_CHARS.map((ch, idx) => ({ index: 9 + idx, id: "wide/" + ch, character: TB_CHAR_TITLE[ch], model: "wide", modelLabel: "经典（4px）", path: `assets/minecraft/textures/entity/player/wide/${ch}.png` })),
+    ],
+  };
+}
+
+function tbOfflinePlayer(player, slots) {
+  const h = mcCrypto.createHash("md5").update("OfflinePlayer:" + player, "utf8").digest();
+  h[6] = (h[6] & 0x0f) | 0x30;
+  h[8] = (h[8] & 0x3f) | 0x80;
+  const uuid = [h.subarray(0, 4), h.subarray(4, 6), h.subarray(6, 8), h.subarray(8, 10), h.subarray(10, 16)].map(b => b.toString("hex")).join("-");
+  const hashCode = (h.readInt32BE(0) ^ h.readInt32BE(4) ^ h.readInt32BE(8) ^ h.readInt32BE(12)) | 0;
+  return { uuid, hashCode, slot: slots[tbFloorMod(hashCode, slots.length)] };
+}
+
+function tbPreviewSkins(req) {
+  const mc = String(req.mc || "1.21.4").trim() || "1.21.4";
+  const slotInfo = tbSlots(mc);
+  const pf = tbPackFormat(mc);
+  if (!slotInfo || !pf) return { error: "Minecraft 版本格式认不出来，请填类似 1.20.1 或 1.21.4 的版本号" };
+  const mode = req.mode === "sequential" ? "sequential" : "player";
+  const slots = slotInfo.slots, entries = Array.isArray(req.entries) ? req.entries : [];
+  if (entries.length > 18) return { error: "一次最多放 18 张皮肤" };
+
+  const resp = {
+    mc, mode, modernSlots: slotInfo.modern, slotCount: slots.length, packFormat: pf,
+    ...(pf >= 65 ? { minFormat: pf, maxFormat: pf } : {}),
+    slots, items: [], conflicts: [],
+    notes: [slotInfo.modern
+      ? "在 1.19.3 及以上版本中，离线模式玩家的细手臂（slim）和经典手臂（wide）模型也由玩家名对应的 UUID 唯一决定。"
+      : "Minecraft 1.19.2 及更早版本只有 Steve 和 Alex 两个默认皮肤槽位；若人数超过 2 个必然撞槽。"],
+  };
+  const used = new Map();
+  if (mode === "player") {
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i] || {}, name = String(e.player || "").trim();
+      if (!name) return { error: `第 ${i + 1} 行还没填玩家名` };
+      const r = tbOfflinePlayer(name, slots);
+      resp.items.push({ index: i, player: name, uuid: r.uuid, hashCode: r.hashCode, slot: r.slot, skipped: !!e.skip, kept: !!e.keep });
+      if (!e.skip) used.set(r.slot.index, [...(used.get(r.slot.index) || []), i]);
+    }
+  } else {
+    // 同后端：先占手动指定的槽位，再给「自动」的挑空着的；跳过的不占槽位，自动的被跳过时不分槽位（index -1）
+    const targets = entries.map(e => (e && Number.isInteger(e.slot) && e.slot >= 0 && e.slot < slots.length) ? e.slot : -1);
+    entries.forEach((e, i) => { if (targets[i] >= 0 && !(e && e.skip)) used.set(targets[i], [...(used.get(targets[i]) || []), i]); });
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i] || {};
+      if (targets[i] >= 0 || e.skip) continue;
+      let t = slots.findIndex(s => !used.has(s.index) && (!e.model || s.model === e.model));
+      if (t < 0) t = slots.findIndex(s => !used.has(s.index));
+      if (t < 0) return { error: `Minecraft ${mc} 最多只有 ${slots.length} 个默认皮肤槽位，放不下第 ${i + 1} 张皮肤` };
+      targets[i] = t;
+      used.set(t, [...(used.get(t) || []), i]);
+    }
+    entries.forEach((e, i) => {
+      e = e || {};
+      resp.items.push({ index: i, player: e.player || "", slot: targets[i] >= 0 ? slots[targets[i]] : { index: -1 }, skipped: !!e.skip, kept: !!e.keep });
+    });
+  }
+  for (const [sIdx, idxs] of [...used].sort((x, y) => x[0] - y[0])) {
+    if (idxs.length < 2) continue;
+    const sl = slots[sIdx];
+    for (const i of idxs) resp.items[i].conflict = true;
+    resp.conflicts.push({ slotIndex: sl.index, slotId: sl.id, model: sl.model, path: sl.path, players: idxs.map(i => resp.items[i].player || `第 ${i + 1} 条`), entries: idxs });
+  }
+  return resp;
+}
+
+function toolboxMultipart(buf, contentType) {
+  const m = /boundary=(?:"([^"]+)"|([^;]+))/.exec(contentType || ""), out = { fields: {}, files: {} };
+  if (!m) return out;
+  const boundary = Buffer.from("--" + (m[1] || m[2]).trim());
+  for (let pos = buf.indexOf(boundary); pos >= 0;) {
+    const next = buf.indexOf(boundary, pos + boundary.length);
+    if (next < 0) break;
+    const part = buf.subarray(pos + boundary.length + 2, next - 2), sep = part.indexOf("\r\n\r\n");
+    if (sep >= 0) {
+      const head = part.subarray(0, sep).toString("utf8"), body = part.subarray(sep + 4);
+      const name = (/[; ]name="([^"]*)"/.exec(head) || [])[1], fn = /filename="([^"]*)"/.exec(head);
+      if (fn && name) out.files[name] = { name: fn[1], data: body };
+      else if (name) out.fields[name] = body.toString("utf8");
+    }
+    pos = next;
+  }
+  return out;
+}
+
+function tbInspectPNG(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 24) return { err: "皮肤文件不是有效的 PNG 图片" };
+  if (buf[0] !== 0x89 || buf[1] !== 0x50 || buf[2] !== 0x4e || buf[3] !== 0x47 || buf.subarray(12, 16).toString("ascii") !== "IHDR") {
+    return { err: "皮肤文件不是有效的 PNG 图片" };
+  }
+  const w = buf.readUInt32BE(16), h = buf.readUInt32BE(20);
+  if ((w === 64 && h === 64) || (w === 64 && h === 32)) return { w, h, err: "" };
+  return { err: `皮肤尺寸必须是 64×64 或 64×32（当前是 ${w}×${h}）` };
+}
+
+function tbPreviewMrpack(state, b) {
+  const source = b.source === "instance" ? "instance" : "draft";
+  let core = b.core || "fabric", mc = b.mc || "1.20.1", loaderVer = b.loaderVersion || "", name = (b.name || "").trim() || "我的整合包";
+  const files = [], overrides = [], warnings = [];
+  let clientOnlyCount = 0, configCount = 0;
+
+  if (source === "instance") {
+    const i = state.instances.find(x => x.name === b.inst);
+    if (!i) return { error: b.inst ? "找不到这台服务器" : "请选择要导出的服务器" };
+    if (!TB_MOD_CORES.has(i.core)) return { error: `「${i.name}」不是模组服，无法导出 Modrinth 客户端模组整合包` };
+    core = (i.core === "mohist" ? "forge" : i.core === "banner" ? "fabric" : i.core);
+    mc = i.mc;
+    loaderVer = i.build || "0.16.9";
+    name = (b.name || "").trim() || i.name;
+    for (const m of modsOf(i)) {
+      if (m.disabled) continue;
+      if (m.projectId === "create") {
+        files.push({ title: m.name, fileName: m.file, packPath: "mods/" + m.file, mode: "download", clientEnv: "required", serverEnv: "required",
+          url: "https://cdn.modrinth.com/data/LNytGkhc/versions/1/create.jar", sha1: "a".repeat(40), sha512: "b".repeat(128), size: 14500000 });
+      } else {
+        overrides.push({ title: m.name || m.file, fileName: m.file, packPath: "overrides/mods/" + m.file, mode: "override", size: 840000, note: "未匹配到 Modrinth 官方文件" });
+      }
+    }
+    if (b.includeConfig) {
+      configCount = 1;
+      overrides.push({ title: "config/create-common.toml", fileName: "create-common.toml", packPath: "overrides/config/create-common.toml", mode: "override", size: 4210, note: "服务器配置文件夹" });
+    }
+  } else {
+    if (!["fabric", "forge", "neoforge"].includes(core)) return { error: "整合包加载器请选 fabric、forge 或 neoforge" };
+    loaderVer = loaderVer || (core === "fabric" ? "0.16.10" : core === "neoforge" ? "21.1.80" : "47.3.0");
+    for (const item of modcartBucket(state, TOOLBOX_CART)) {
+      const clientOnly = item.projectId === "jei";
+      if (clientOnly) clientOnlyCount++;
+      files.push({
+        title: item.title, fileName: `${item.slug}-1.0.0.jar`, packPath: `mods/${item.slug}-1.0.0.jar`, mode: "download",
+        clientEnv: "required", serverEnv: clientOnly ? "unsupported" : "required",
+        url: `https://cdn.modrinth.com/data/${item.projectId}/versions/1/${item.slug}.jar`,
+        sha1: "c".repeat(40), sha512: "d".repeat(128), size: 512000,
+      });
+    }
+    for (const lf of modcartLocals(state, TOOLBOX_CART)) {
+      overrides.push({ title: lf.title || lf.fileName, fileName: lf.fileName, packPath: "overrides/mods/" + lf.fileName, mode: "override", size: lf.size || 200000, note: "本地添加的 jar（放入 overrides）" });
+    }
+  }
+
+  const loaderKey = core === "fabric" ? "fabric-loader" : core;
+  return {
+    source, name, versionId: (b.versionId || "").trim() || "1.0.0", summary: (b.summary || "").trim(),
+    core, mc, loaderKey, loaderVersion: loaderVer,
+    dependencies: { minecraft: mc, [loaderKey]: loaderVer },
+    files, overrides,
+    downloadCount: files.length, overrideCount: overrides.length, clientOnlyCount, configCount, warnings,
+  };
+}
+
+function newToolboxState() {
+  return {
+    draft: { name: "我的整合包", versionId: "1.0.0", summary: "", core: "fabric", mc: "1.20.1", loaderVersion: "", includeConfig: false },
+    downloads: {},
+    lastSkinBuild: null,
+    lastMrpackBuild: null,
+  };
+}
+
+function toolboxMockState(state, b) {
+  if (b.reset) state.toolbox = newToolboxState();
+  const { reset, draft, ...rest } = b;
+  if (draft) Object.assign(state.toolbox.draft, draft);
+  Object.assign(state.toolbox, rest);
+}
+
+async function toolboxHandler(state, req, res, p, m) {
+  const tb = state.toolbox;
+  if (p === "/api/toolbox/skin-pack/preview" && m === "POST") {
+    const r = tbPreviewSkins(await readBody(req));
+    return r.error ? err(res, 400, r.error) : ok(res, r);
+  }
+  if (p === "/api/toolbox/skin-pack/build" && m === "POST") {
+    const raw = await new Promise(r => { const cs = []; req.on("data", c => cs.push(c)); req.on("end", () => r(Buffer.concat(cs))); });
+    const { fields, files } = toolboxMultipart(raw, req.headers["content-type"]);
+    let meta = {};
+    try { meta = JSON.parse(fields.meta || "{}"); } catch { return err(res, 400, "皮肤包配置格式不对"); }
+    if (String(meta.destDir || "").trim() && !state.local) return err(res, 403, "保存到本机指定文件夹仅支持在本机操作（远程管理时请直接点击下载）");
+    const prev = tbPreviewSkins(meta);
+    if (prev.error) return err(res, 400, prev.error);
+    if (prev.conflicts.length) return err(res, 400, `默认皮肤槽位 ${prev.conflicts[0].slotId} 存在冲突，请先决定保留哪一位`);
+    for (const it of prev.items) {
+      if (it.skipped) continue;
+      const f = files["file_" + it.index];
+      if (!f) return err(res, 400, `第 ${it.index + 1} 条皮肤还没有上传 PNG 图片`);
+      const png = tbInspectPNG(f.data);
+      if (png.err) return err(res, 400, `第 ${it.index + 1} 条：${png.err}`);
+    }
+    const id = mcCrypto.randomBytes(12).toString("hex");
+    const fileName = `${(meta.packName || "朋友皮肤包").trim() || "朋友皮肤包"}.zip`;
+    const fakeZip = Buffer.from("PK\x05\x06" + "\x00".repeat(18));
+    tb.downloads[id] = { fileName, data: fakeZip };
+    tb.lastSkinBuild = { meta, fileCount: Object.keys(files).length };
+    const sha1 = mcCrypto.createHash("sha1").update(fakeZip).digest("hex");
+    return ok(res, {
+      downloadId: id, fileName, size: 1024 + Object.keys(files).length * 420, sha1,
+      packFormat: prev.packFormat, slotCount: prev.slotCount, textureCount: prev.items.filter(x => !x.skipped).length,
+      items: prev.items,
+      savedPath: meta.destDir ? `${String(meta.destDir).replace(/[\\/]+$/, "")}\\${fileName}` : "",
+      notice: "客户端把 .zip 放进 .minecraft/resourcepacks/ 并启用即可在离线服中显示自定义皮肤。",
+    });
+  }
+  if (p === "/api/toolbox/mrpack/draft" && m === "GET") return ok(res, tb.draft);
+  if (p === "/api/toolbox/mrpack/draft" && m === "PUT") {
+    const b = await readBody(req);
+    Object.assign(tb.draft, { name: b.name || "我的整合包", versionId: b.versionId || "1.0.0", summary: b.summary || "",
+      core: b.core || "fabric", mc: b.mc || "1.20.1", loaderVersion: b.loaderVersion || "", includeConfig: !!b.includeConfig });
+    return ok(res, tb.draft);
+  }
+  if (p === "/api/toolbox/mrpack/preview" && m === "POST") {
+    const r = tbPreviewMrpack(state, await readBody(req));
+    return r.error ? err(res, 400, r.error) : ok(res, r);
+  }
+  if (p === "/api/toolbox/mrpack/build" && m === "POST") {
+    const b = await readBody(req);
+    if (String(b.destDir || "").trim() && !state.local) return err(res, 403, "保存到本机指定文件夹仅支持在本机操作（远程管理时请直接点击下载）");
+    const r = tbPreviewMrpack(state, b);
+    if (r.error) return err(res, 400, r.error);
+    if (!r.downloadCount && !r.overrideCount) return err(res, 400, "清单里还没有任何模组，请先加入几个模组再生成");
+    const id = mcCrypto.randomBytes(12).toString("hex");
+    const fileName = `${r.name}-${r.versionId}.mrpack`;
+    const fakeZip = Buffer.from("PK\x05\x06" + "\x00".repeat(18));
+    tb.downloads[id] = { fileName, data: fakeZip };
+    tb.lastMrpackBuild = { req: b, fileName };
+    return ok(res, {
+      downloadId: id, fileName, size: 2048 + (r.downloadCount + r.overrideCount) * 320,
+      sha1: mcCrypto.createHash("sha1").update(fakeZip).digest("hex"),
+      savedPath: b.destDir ? `${String(b.destDir).replace(/[\\/]+$/, "")}\\${fileName}` : "",
+      downloadCount: r.downloadCount, overrideCount: r.overrideCount, clientOnlyCount: r.clientOnlyCount, configCount: r.configCount,
+      dependencies: r.dependencies, warnings: r.warnings,
+    });
+  }
+  if ((p.startsWith("/api/toolbox/skin-pack/download/") || p.startsWith("/api/toolbox/mrpack/download/")) && m === "GET") {
+    const id = decodeURIComponent(p.split("/").pop());
+    const entry = tb.downloads[id];
+    if (!entry) return err(res, 404, "下载文件已经不在了，请重新生成");
+    res.writeHead(200, { "Content-Type": "application/zip", "Content-Disposition": `attachment; filename="${encodeURIComponent(entry.fileName)}"` });
+    return res.end(entry.data);
+  }
+  return err(res, 404, "没有这个工具箱接口");
 }
 
 function sse(res, lines, keep = true) {
@@ -2418,6 +2728,7 @@ function handler(state, ui, portOf) {
       if (b.mcp) mcpMockState(state, b.mcp); // MCP 接口
       if (b.modCart) modCartMockState(state, b.modCart); // 自选模组 + 购物车
       if (b.world) worldMockState(state, b.world); // 地图导入
+      if (b.toolbox) toolboxMockState(state, b.toolbox); // 工具箱
       if (b.status) for (const [n, st] of Object.entries(b.status)) { const i = state.instances.find(x => x.name === n); if (i) { i.status = st; i.uptimeSec = st === "stopped" ? 0 : st === "starting" ? 9 : Math.max(i.uptimeSec, 7980); i.onlineCount = st === "running" ? (i.onlineCount || 3) : 0; } }
       return ok(res, state);
     }
@@ -2448,6 +2759,7 @@ function handler(state, ui, portOf) {
       if (p.startsWith("/api/music/") || (seg[2] === "instances" && seg[4] === "music") || (p === "/api/tunnels" && m === "POST")) return musicHandler(state, req, res, p, m, seg); // 第五阶段
       if (p.startsWith("/api/modcart")) return modcartHandler(state, req, res, p, m, u); // 自选模组 + 购物车（草稿车与各实例的车分开存）
       if (p.startsWith("/api/world/") && await worldHandler(state, req, res, p, m)) return; // 地图导入：检测、说明书、计划、导入、取消、放弃
+      if (p.startsWith("/api/toolbox/")) return toolboxHandler(state, req, res, p, m); // 工具箱：皮肤包 + .mrpack 整合包导出
       if (p === "/api/cores") return ok(res, CORES);
       if (p === "/api/config" && m === "PUT") {
         const b = await readBody(req);

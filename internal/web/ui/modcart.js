@@ -43,11 +43,12 @@ window.MDModCart = (() => {
 
   /* ---------- 一块购物车面板 ----------
      ctx.inst 有值 = 某台实例的购物车（详情页，给安装按钮）；没有 = 向导的草稿车。
+     ctx.cart === "toolbox"：工具箱「导出整合包」用的那份清单（和草稿车分开，建服时不会被装进去；只在客户端用的模组也能放）。
      ctx.status 为真（服务器在跑）时安装前提示要重启才生效。
      ctx.onBusy(忙不忙)：正在往清单里添加本地文件时通知外面（向导拿它暂时按住「下一步」：文件还没加完就走，
      后加进去的那个不在「人看到的那些」里，建好服务器以后整张清单都装不上）。 */
   function buildPanel(root, ctx, gen) {
-    const inst = ctx.inst || "", noun = nounOf(ctx.core), cats = CATS[noun];
+    const inst = ctx.inst || "", cartKey = ctx.cart || "", noun = nounOf(ctx.core), cats = CATS[noun];
     root.innerHTML = `
       <div class="mc-wrap${inst ? "" : " in-wiz"}">
         <section class="mc-browse" aria-label="挑${noun}">
@@ -106,8 +107,8 @@ window.MDModCart = (() => {
     const gone = () => stale(gen) || !root.isConnected;
     const total = () => cart.length + local.length;
     /* 请求里指明是哪辆车、按哪种核心看（后端拿核心给本地文件写「加载器不对」的提醒） */
-    const target = () => ({ inst: inst || undefined, core: ctx.core || undefined, mc: ctx.mc || undefined });
-    const targetQuery = () => Object.entries({ inst, core: ctx.core || "", mc: ctx.mc || "" })
+    const target = () => ({ inst: inst || undefined, cart: cartKey || undefined, core: ctx.core || undefined, mc: ctx.mc || undefined });
+    const targetQuery = () => Object.entries({ inst, cart: cartKey, core: ctx.core || "", mc: ctx.mc || "" })
       .filter(([, v]) => v !== "").map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
     const setBusy = b => { uploading = b; pickBtn.disabled = b; if (ctx.onBusy) ctx.onBusy(b); paintActions(); };
 
@@ -144,9 +145,9 @@ window.MDModCart = (() => {
           <button class="btn sm ghost mc-del-local" data-sha="${esc(lf.sha1)}" aria-label="移除本地文件 ${esc(lf.fileName)}">${icon("x")} 移除</button>
         </div>`));
       listEl.innerHTML = rows.length ? rows.join("")
-        : `<div class="sub" id="mc-empty">清单是空的。在列表里点「加入清单」，或用下面的「从电脑添加…」放入自己下载的文件，挑齐后一起安装。</div>`;
+        : `<div class="sub" id="mc-empty">清单是空的。在列表里点「加入清单」，或用下面的「从电脑添加…」放入自己下载的文件，${cartKey ? "挑齐后在下面导出整合包" : "挑齐后一起安装"}。</div>`;
       countEl.textContent = total() ? `共 ${total()} 项` : "";
-      if (!inst) draftSeen = { expect: cart.map(it => it.projectId), expectLocal: local.map(lf => lf.sha1) }; // 草稿车：记下画在页面上的是哪些
+      if (!inst && !cartKey) draftSeen = { expect: cart.map(it => it.projectId), expectLocal: local.map(lf => lf.sha1) }; // 草稿车：记下画在页面上的是哪些
       paintActions();
       listEl.querySelectorAll(".mc-del").forEach(b => b.onclick = () => removeOne(b, "/api/modcart/remove", { projectId: b.dataset.pid }, false));
       listEl.querySelectorAll(".mc-del-local").forEach(b => b.onclick = () => removeOne(b, "/api/modcart/local/remove", { sha1: b.dataset.sha }, true));
@@ -179,7 +180,7 @@ window.MDModCart = (() => {
         /* 出错只在列表区说，不弹提示打扰；这一块坏了不影响别的（清单、从电脑添加、向导的下一步都照常能用） */
         hitsEl.innerHTML = errBox(`${noun}列表没有加载出来`, hitErr, {
           id: "mc-hits-err", label: `${noun}列表`,
-          hint: `检查一下网络或代理，再点「重试」。${inst ? "" : "这一步可以先跳过，不影响建服务器；"}自己下载好的文件仍然可以用「从电脑添加…」放进清单。`,
+          hint: `检查一下网络或代理，再点「重试」。${inst || cartKey ? "" : "这一步可以先跳过，不影响建服务器；"}自己下载好的文件仍然可以用「从电脑添加…」放进清单。`,
           actions: `<button class="btn sm" id="mc-retry" aria-label="重试加载${noun}列表">${icon("refresh")} 重试</button>` });
         $("#mc-retry", root).onclick = () => load(false);
         moreRow.hidden = true;
@@ -220,7 +221,7 @@ window.MDModCart = (() => {
       else { hitState = "loading"; hits = []; nextOffset = 0; more = false; loadingMore = false; paintTitle(); }
       paintHits();
       try {
-        const qs = Object.entries({ q: query, category: cat, offset: append ? String(nextOffset) : "", inst, core: ctx.core || "", mc: ctx.mc || "" })
+        const qs = Object.entries({ q: query, category: cat, offset: append ? String(nextOffset) : "", inst, cart: cartKey, core: ctx.core || "", mc: ctx.mc || "" })
           .filter(([, v]) => v !== "").map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
         const r = await api("/api/modcart/search?" + qs);
         if (outdated()) return;
@@ -498,5 +499,13 @@ window.MDModCart = (() => {
     buildPanel($("#mc-panel", container), { core: opts && opts.core, mc: opts && opts.mc, onBusy: opts && opts.onBusy }, gen);
   }
 
-  return { applies, render, wizardPanel, nounOf, tabLabel, draftSeen: () => draftSeen };
+  /* 工具箱「导出整合包」挑模组用：自己那份清单（cart=toolbox），不碰向导的草稿车，也不动 draftSeen */
+  function toolboxPanel(container, opts, gen) {
+    container.innerHTML = `
+      <div class="sub mc-wiz-sub">在左边挑 Modrinth 上的模组加进清单，只在客户端用的（小地图、光影加载器之类）也能加；自己下载的 jar 用右边的「从电脑添加…」放进来。这份清单只用来导出整合包，不会装进任何服务器，下次打开还在。</div>
+      <div id="mc-panel"></div>`;
+    buildPanel($("#mc-panel", container), { cart: "toolbox", core: opts && opts.core, mc: opts && opts.mc }, gen);
+  }
+
+  return { applies, render, wizardPanel, toolboxPanel, nounOf, tabLabel, draftSeen: () => draftSeen };
 })();

@@ -748,15 +748,15 @@ function closeAskModal({ tray = true, running = 0 }) {
   (toTray || d.querySelector('[data-x="cancel"]')).focus();
 }
 
-/* 快捷键：1-4 切换侧栏导航；T 或 / 聚焦控制台输入（MC 聊天习惯） */
+/* 快捷键：1-5 切换侧栏导航；T 或 / 聚焦控制台输入（MC 聊天习惯） */
 document.addEventListener("keydown", e => {
   if (e.ctrlKey || e.altKey || e.metaKey) return;
   const t = e.target;
   const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT");
   if (typing) return;
   if ($("#modal-root").childElementCount || $("#login-mask")) return; // 弹层打开时不在底下切页
-  if (["1", "2", "3", "4"].includes(e.key)) {
-    const target = ["#/instances", "#/create", "#/tunnels", "#/settings"][+e.key - 1];
+  if (["1", "2", "3", "4", "5"].includes(e.key)) {
+    const target = ["#/instances", "#/create", "#/tunnels", "#/toolbox", "#/settings"][+e.key - 1];
     if ((location.hash || "#/instances") === target) navigate(); else location.hash = target;
   } else if (e.key === "/" || e.key === "t" || e.key === "T") {
     const cmd = $("#cmd-in");
@@ -1191,6 +1191,7 @@ async function navigate() {
   else if (view === "inst" && arg) { const sl = arg.indexOf("/"); sl >= 0 ? renderDetail(arg.slice(0, sl), arg.slice(sl + 1)) : renderDetail(arg); }
   else if (view === "settings") renderSettings(arg);
   else if (view === "tunnels") renderTunnels();
+  else if (view === "toolbox") MDToolbox.render(arg);
   else if (view === "task" && arg) renderTaskPage(arg);
   else renderInstances();
 }

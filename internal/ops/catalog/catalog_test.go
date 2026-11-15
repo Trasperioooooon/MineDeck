@@ -110,6 +110,9 @@ func TestLevelsFollowDesign(t *testing.T) {
 	want[ops.Read] = append(want[ops.Read], "world.status")
 	want[ops.HumanOnly] = append(want[ops.HumanOnly], "world.import.scanpath", "world.import.scan", "world.import.readme", "world.import.plan",
 		"world.import.run", "world.import.cancel", "world.import.discard", "world.restore", "world.point.delete", "world.recover.retry")
+	// 工具箱：皮肤包与整合包导出只通过界面使用，仅人工
+	want[ops.HumanOnly] = append(want[ops.HumanOnly], "toolbox.skinpack.preview", "toolbox.skinpack.build",
+		"toolbox.mrpack.draft.get", "toolbox.mrpack.draft.save", "toolbox.mrpack.preview", "toolbox.mrpack.build", "toolbox.download")
 
 	n := 0
 	for level, names := range want {

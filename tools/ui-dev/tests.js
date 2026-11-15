@@ -2350,7 +2350,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
           const where = `${tag} ${hash}：${JSON.stringify(r)}`;
           assert(r.dir === "column", "没走手机布局（底栏应在内容层下面）" + where);
           assert(r.sb[0] >= 0 && Math.abs(r.sb[1] - r.vh) < 1 && r.sb[2] === 0 && Math.abs(r.sb[3] - vp.width) < 1, "底栏不在视口最下方" + where);
-          assert(r.navs.length === 4 && r.navs.every(Boolean), "底栏有标签被盖住、点不到" + where);
+          assert(r.navs.length === 5 && r.navs.every(Boolean), "底栏有标签被盖住、点不到" + where);
           assert(r.mainBottom <= r.sb[0] + .5, "内容层伸到了底栏下面" + where);
           assert(r.rest <= 1 && r.last <= r.mainBottom + .5, "内容层滚不到最底，最后一行被挡" + where);
           assert(r.docH <= r.vh && r.docW <= r.cw, "整页能滚动或横向溢出" + where);
@@ -3576,6 +3576,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await cpState({ cp: { reset: true, inst: { [PACK]: { mods: CP_INSTALLED, settings: { enabled: true, exists: true } } } }, status: { [PACK]: "running" } });
       await musicState({ music: { reset: true, inst: { [PACK]: { bridge: "main" } } } });
       const pages = [["服务器列表", "#/instances"], ["新建服务器", "#/create"], ["隧道", "#/tunnels"],
+        ["工具箱", "#/toolbox"], ["工具箱 → 离线皮肤包", "#/toolbox/skin-pack"], ["工具箱 → 导出整合包", "#/toolbox/mrpack-export"],
         ...["appearance", "download", "storage", "java", "remote", "notify", "ai", "startup", "about"].map(s => ["设置 → " + s, "#/settings/" + s]),
         // beta.3 R06：按新的标签和子页逐页查（旧地址会跳到这些地方）
         ...["console", "players", "world/backups", "world/map", "addons", "tasks", "ext/gameai", "settings/common", "settings/raw", "settings/jvm"].map(t => ["生存服 → " + t, "#/inst/" + inst + "/" + t]),
@@ -7133,6 +7134,176 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     });
   }
   // ==================== beta.3 详情页结束 ====================
+
+  // ==================== beta.3 工具箱（#/toolbox） ====================
+  {
+    const tbZlib = require("zlib");
+    const tbCrcTbl = (() => {
+      const t = new Uint32Array(256);
+      for (let i = 0; i < 256; i++) {
+        let c = i;
+        for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+        t[i] = c;
+      }
+      return t;
+    })();
+    const tbCrc32 = b => { let c = 0xffffffff; for (let i = 0; i < b.length; i++) c = tbCrcTbl[(c ^ b[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+    const tbChunk = (type, data) => {
+      const out = Buffer.alloc(12 + data.length);
+      out.writeUInt32BE(data.length, 0);
+      out.write(type, 4, 4, "ascii");
+      data.copy(out, 8);
+      out.writeUInt32BE(tbCrc32(out.subarray(4, 8 + data.length)), 8 + data.length);
+      return out;
+    };
+    const makePngBuf = (w, h) => {
+      const ihdr = Buffer.alloc(13);
+      ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4);
+      ihdr[8] = 8; ihdr[9] = 6;
+      const raw = Buffer.alloc(h * (1 + w * 4), 160);
+      for (let y = 0; y < h; y++) raw[y * (1 + w * 4)] = 0;
+      return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), tbChunk("IHDR", ihdr), tbChunk("IDAT", tbZlib.deflateSync(raw)), tbChunk("IEND", Buffer.alloc(0))]);
+    };
+    const tbState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
+    const clip = () => page.evaluate(() => { window.__copied = null; Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async t => { window.__copied = t; } } }); });
+
+    await run("工具箱：侧栏导航、快捷键 4 / 5 与首页工具卡片跳转正常，页面无无障碍重名或漏名控件", async () => {
+      try {
+        await page.goto(url("#/instances")); await settle(300);
+        await page.keyboard.press("4"); await settle(300);
+        assert((await page.evaluate(() => location.hash)) === "#/toolbox", "快捷键 4 应打开工具箱：" + await page.evaluate(() => location.hash));
+        await page.keyboard.press("5"); await settle(300);
+        assert((await page.evaluate(() => location.hash)) === "#/settings", "快捷键 5 应打开设置：" + await page.evaluate(() => location.hash));
+        await page.click('#sidebar a[data-nav="toolbox"]'); await page.waitForSelector('.tb-card[data-tool="skin-pack"]');
+        const axHome = await axProblems();
+        assert(!axHome.length, "工具箱首页无障碍检查：" + axHome.join("、"));
+        assert(await page.$('.tb-card[data-tool="mrpack-export"]'), "工具箱首页应列出两个核心工具");
+        await page.click('.tb-card[data-tool="skin-pack"]'); await page.waitForSelector("#sp-mc");
+        assert((await page.evaluate(() => location.hash)) === "#/toolbox/skin-pack", "点皮肤包卡片应跳转");
+      } finally { await tbState({ toolbox: { reset: true }, modCart: { reset: true }, local: true }); }
+    });
+
+    await run("工具箱 → 离线皮肤包：读取服务器玩家、1.19.2 撞槽检测与解决、PNG 尺寸校验、64x32 自动扩充提醒、生成与复制 SHA-1、顺位模式与局域网隐藏本机保存", async () => {
+      try {
+        await tbState({ toolbox: { reset: true }, local: true });
+        await page.goto(url("#/toolbox/skin-pack"));
+        await page.waitForSelector("#sp-mc"); await settle(400);
+        assert((await page.textContent("#sp-ver-badge")).includes("18"), "1.21.4 默认应显示 18 个默认槽位");
+        // 版本 26.1 展示 min_format
+        await page.fill("#sp-mc", "26.1"); await settle(350);
+        assert((await page.textContent("#sp-packfmt-badge")).includes("min_format 84"), "26.1 应展示 min_format：" + await page.textContent("#sp-packfmt-badge"));
+        await page.fill("#sp-mc", "1.21.4"); await settle(350);
+
+        // 从已有服务器导入玩家名单（Steve, Alex, Notch_CN）
+        await page.waitForSelector("#sp-import-players");
+        await page.click("#sp-import-players"); await settle(400);
+        assert((await page.$$eval("#sp-rows .tb-skin-row", r => r.length)) === 3, "应导入 3 名玩家");
+
+        // 切到 1.19.2（只有 2 个默认槽位），3 个玩家必撞槽
+        await page.fill("#sp-mc", "1.19.2"); await page.waitForSelector("#sp-conflicts");
+        assert((await page.textContent("#sp-ver-badge")).includes("2 个默认槽位"), "1.19.2 应显示 2 个默认槽位");
+        assert(await page.isDisabled("#sp-build"), "存在未解决撞槽时禁止生成");
+        const axConf = await axProblems();
+        assert(!axConf.length, "撞槽状态无障碍检查：" + axConf.join("、"));
+
+        // 解决撞槽：保留第一条（其他同槽被跳过）
+        await page.click(".sp-resolve-keep"); await settle(350);
+        assert(!(await page.$("#sp-conflicts")), "点保留后冲突卡应消失");
+
+        // 传非 64x64 / 64x32 的图片：前端直接拦截并给出原因
+        await page.setInputFiles('.sp-file[data-idx="0"]', { name: "bad.png", mimeType: "image/png", buffer: makePngBuf(32, 32) });
+        await settle(300);
+        assert((await page.textContent('.tb-skin-row[data-idx="0"] .tb-err-line')).includes("64×64 或旧版 64×32"), "非法尺寸应报错");
+        assert(await page.isDisabled("#sp-build"), "有图片校验报错时不能生成");
+
+        // 给仍在使用的两行（未被跳过的两条）分别上传 64x64 与旧版 64x32 PNG
+        const activeIdxs = await page.$$eval("#sp-rows .tb-skin-row", rows =>
+          rows.filter(r => !r.textContent.includes("已跳过")).map(r => r.dataset.idx)
+        );
+        assert(activeIdxs.length === 2, "1.19.2 解决冲突后应剩 2 条激活皮肤：" + JSON.stringify(activeIdxs));
+        await page.setInputFiles(`.sp-file[data-idx="${activeIdxs[0]}"]`, { name: "s0.png", mimeType: "image/png", buffer: makePngBuf(64, 64) });
+        await settle(250);
+        await page.setInputFiles(`.sp-file[data-idx="${activeIdxs[1]}"]`, { name: "legacy.png", mimeType: "image/png", buffer: makePngBuf(64, 32) });
+        await settle(300);
+        assert((await page.textContent(`.tb-skin-row[data-idx="${activeIdxs[1]}"]`)).includes("64×32"), "64x32 旧版皮肤应给出镜像扩充说明");
+
+        // 生成并验证 SHA-1 与下载链接
+        await clip();
+        await page.click("#sp-build");
+        await page.waitForSelector("#sp-done-card");
+        const sha1 = await page.textContent("#sp-sha1");
+        assert(/^[0-9a-f]{40}$/.test(sha1.trim()), "应展示 40 位 SHA-1：" + sha1);
+        await page.click("#sp-copy-sha1"); await settle(200);
+        assert((await page.evaluate(() => window.__copied)) === sha1.trim(), "复制按钮应复制 SHA-1");
+        assert(await page.$("#sp-dl[href*='/api/toolbox/skin-pack/download/']"), "应生成皮肤包下载链接");
+        const axDone = await axProblems();
+        assert(!axDone.length, "皮肤包生成后无障碍检查：" + axDone.join("、"));
+
+        // 切回 1.21.4（18 槽位）后测试顺位分配模式并验证构建
+        await page.fill("#sp-mc", "1.21.4"); await settle(300);
+        await page.click('#sp-mode button[data-mode="sequential"]'); await settle(300);
+        await page.setInputFiles('.sp-file[data-idx="0"]', { name: "seq0.png", mimeType: "image/png", buffer: makePngBuf(64, 64) });
+        await page.setInputFiles('.sp-file[data-idx="1"]', { name: "seq1.png", mimeType: "image/png", buffer: makePngBuf(64, 64) });
+        await page.setInputFiles('.sp-file[data-idx="2"]', { name: "seq2.png", mimeType: "image/png", buffer: makePngBuf(64, 64) });
+        await settle(300);
+        await page.click("#sp-build"); await page.waitForSelector("#sp-done-card");
+
+        // 局域网访问时隐藏「同步保存到本机文件夹」
+        await tbState({ local: false });
+        await page.goto(url("#/toolbox/skin-pack")); await page.waitForSelector("#sp-mc"); await settle(350);
+        assert(await page.$eval("#sp-host-row", e => e.hidden), "非本机请求时应隐藏保存到本机文件夹输入行");
+      } finally { await tbState({ toolbox: { reset: true }, local: true }); }
+    });
+
+    await run("工具箱 → 导出 Modrinth 整合包：草稿配置持久化、嵌入选模组、preview 显示下载项/仅客户端标 unsupported/overrides，以及已有服务器+config 导出", async () => {
+      try {
+        await tbState({ toolbox: { reset: true }, modCart: { reset: true }, local: true });
+        await page.goto(url("#/toolbox/mrpack-export"));
+        await page.waitForSelector("#mp-modcart-host #mc-hits"); await settle(400);
+
+        // 填写名称与版本号（触发草稿持久化）
+        await page.fill("#mp-name", "好友周目整合包");
+        await page.fill("#mp-ver", "2.1.0");
+        await settle(400);
+        await page.goto(url("#/toolbox/mrpack-export"));
+        await page.waitForSelector("#mp-modcart-host #mc-hits"); await settle(400);
+        assert((await page.$eval("#mp-name", e => e.value)) === "好友周目整合包", "重启/重进页面后草稿名称应保留");
+
+        // 在嵌入式待装清单中加入 Create（双端）和 JEI（仅客户端），并添加本地 jar
+        await page.click('.mc-add[data-pid="create"]'); await settle(200);
+        await page.click('.mc-add[data-pid="jei"]'); await settle(200);
+        await page.setInputFiles("#mc-file", { name: "custom-local.jar", mimeType: "application/java-archive", buffer: Buffer.from("PK\x03\x04fakejar") });
+        await settle(400);
+        // 挑的东西进的是工具箱自己的清单（cart=toolbox），新建向导的草稿清单还是空的：建服时不会把这些装进新服务器
+        const mcState = (await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data))).modcart;
+        assert(!mcState.draft.length && !mcState.localDraft.length && (mcState.insts["<toolbox>"] || []).length === 2 && (mcState.localInsts["<toolbox>"] || []).length === 1,
+          "工具箱挑的模组应在自己的清单里、不进向导草稿：" + JSON.stringify({ draft: mcState.draft, toolbox: mcState.insts["<toolbox>"] }));
+
+        // 预览清单
+        await page.click("#mp-preview-btn"); await page.waitForSelector("#mp-preview-box .tb-table-wrap");
+        const prevTxt = await page.textContent("#mp-preview-box");
+        assert(prevTxt.includes("在线下载 2 项") && prevTxt.includes("overrides 1 项") && prevTxt.includes("仅客户端（已标 server: unsupported）"), "预览信息完整：" + prevTxt);
+        const axDraft = await axProblems();
+        assert(!axDraft.length, "整合包草稿页无障碍检查：" + axDraft.join("、"));
+
+        // 生成 .mrpack
+        await clip();
+        await page.click("#mp-build-btn"); await page.waitForSelector("#mp-done-card");
+        const mpFileTxt = await page.textContent("#mp-done-card");
+        assert(mpFileTxt.includes("好友周目整合包-2.1.0.mrpack"), "生成文件名应包含名称与版本号：" + mpFileTxt);
+        await page.click("#mp-copy-sha1"); await settle(150);
+        assert((await page.evaluate(() => window.__copied)) === (await page.textContent("#mp-sha1")).trim(), "应复制 .mrpack SHA-1");
+
+        // 切到「从已有服务器导出」（机械动力整合包 + config）
+        await page.click('#mp-src button[data-src="instance"]'); await settle(300);
+        assert((await page.$eval("#mp-inst", e => e.value)) === "机械动力整合包", "应默认选中模组服：" + await page.$eval("#mp-inst", e => e.value));
+        await page.click("#mp-preview-btn"); await page.waitForSelector("#mp-preview-box .tb-table-wrap");
+        assert((await page.textContent("#mp-preview-box")).includes("overrides/config/create-common.toml"), "勾选 config 后应列出 overrides/config/");
+        await page.click("#mp-build-btn"); await page.waitForSelector("#mp-done-card");
+      } finally { await tbState({ toolbox: { reset: true }, modCart: { reset: true }, local: true }); }
+    });
+  }
+  // ==================== beta.3 工具箱结束 ====================
 
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
 

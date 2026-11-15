@@ -38,15 +38,24 @@ const MaxItems = 50
 // Draft 草稿车的键：新建服务器向导、AI 帮人开服时实例还不存在，先放这里。
 const Draft = ""
 
+// Toolbox 工具箱「导出整合包」用的那份清单的键。和草稿车分开：草稿车里的东西建服时会一起装进新服务器，
+// 工具箱挑的是发给朋友客户端的模组，不该被装进去。带尖括号，不会和实例名（Windows 文件夹名）撞上。
+// 这份清单是给客户端的，所以只在客户端用的模组也能放（见 Add、SearchQuery.ClientOK）。
+const Toolbox = "<toolbox>"
+
 // Item 购物车里的一项。展示用的字段（名称、图标、许可证）是加入时向 Modrinth 查来的，不信调用方给的。
 type Item struct {
-	ProjectID string    `json:"projectId"` // Modrinth 的项目 ID（标准写法，不是 slug）
-	Slug      string    `json:"slug"`
-	Title     string    `json:"title"`
-	Icon      string    `json:"icon,omitempty"`
-	Kind      string    `json:"kind"`              // Modrinth 的 project_type：mod / plugin
-	License   string    `json:"license,omitempty"` // 许可证的 SPDX 写法，如 MIT、LGPL-3.0-only；Modrinth 自定义的是 LicenseRef-…
-	AddedAt   time.Time `json:"addedAt"`
+	ProjectID string `json:"projectId"` // Modrinth 的项目 ID（标准写法，不是 slug）
+	Slug      string `json:"slug"`
+	Title     string `json:"title"`
+	Icon      string `json:"icon,omitempty"`
+	Kind      string `json:"kind"`              // Modrinth 的 project_type：mod / plugin
+	License   string `json:"license,omitempty"` // 许可证的 SPDX 写法，如 MIT、LGPL-3.0-only；Modrinth 自定义的是 LicenseRef-…
+	// ServerSide、ClientSide Modrinth 标的服务端、客户端要不要装（required / optional / unsupported / unknown）。
+	// 导出整合包时写进 env；老清单里没有，按要装算
+	ServerSide string    `json:"serverSide,omitempty"`
+	ClientSide string    `json:"clientSide,omitempty"`
+	AddedAt    time.Time `json:"addedAt"`
 }
 
 // Skipped 加入时没放进去的项目和原因（查不到、只在客户端用的模组）。
@@ -196,13 +205,13 @@ func (s *Service) Add(ctx context.Context, inst string, ids []string) ([]Item, [
 			skipped = append(skipped, Skipped{ProjectID: id, Reason: notFound})
 		case p.ProjectType != "mod" && p.ProjectType != "plugin":
 			skipped = append(skipped, Skipped{ProjectID: p.ID, Title: p.Title, Reason: "这是" + kindName(p.ProjectType) + "，不是模组或插件"})
-		case p.ProjectType == "mod" && p.ServerSide == "unsupported":
+		case p.ProjectType == "mod" && p.ServerSide == "unsupported" && inst != Toolbox:
 			skipped = append(skipped, Skipped{ProjectID: p.ID, Title: p.Title, Reason: "只在客户端用的模组，装到服务器上没有用"})
 		case slices.ContainsFunc(add, func(it Item) bool { return it.ProjectID == p.ID }):
 			// 同一个项目给了 ID 又给了 slug
 		default:
 			add = append(add, Item{ProjectID: p.ID, Slug: p.Slug, Title: p.Title, Icon: p.IconURL, Kind: p.ProjectType,
-				License: p.License.ID, AddedAt: time.Now().UTC()})
+				License: p.License.ID, ServerSide: p.ServerSide, ClientSide: p.ClientSide, AddedAt: time.Now().UTC()})
 		}
 	}
 	if len(add) == 0 {

@@ -116,6 +116,9 @@ func bucket(inst string) string {
 	if inst == Draft {
 		return "draft"
 	}
+	if inst == Toolbox {
+		return "toolbox"
+	}
 	sum := sha256.Sum256([]byte(inst))
 	return "i-" + hex.EncodeToString(sum[:12])
 }
@@ -504,6 +507,20 @@ func (s *Service) DropLocal(lf LocalFile) error {
 // readStaged 用 modinfo 读暂存的文件（依赖、模组 ID 都以文件里现在写的为准）。
 func (s *Service) readStaged(lf LocalFile) modinfo.Mod {
 	return modinfo.Read(s.stagedPath(lf.inst, lf.SHA1))
+}
+
+// StagedPath 返回某个待装清单暂存本地文件在磁盘上的只读路径（用于打包导出等，不修改暂存区）。
+func (s *Service) StagedPath(inst, sum string) (string, bool) {
+	sum = strings.ToLower(strings.TrimSpace(sum))
+	if len(sum) != 40 || strings.ContainsFunc(sum, func(r rune) bool { return !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) }) {
+		return "", false
+	}
+	p := s.stagedPath(inst, sum)
+	st, err := os.Stat(p)
+	if err != nil || !st.Mode().IsRegular() {
+		return "", false
+	}
+	return p, true
 }
 
 // 加载器的叫法（给人看）。

@@ -113,6 +113,7 @@ func New(mgr *inst.Manager, tun *tunnel.Manager, reg *ops.Registry, asst *assist
 	s.transferRoutes(mux)  // 实例交接包（.mdpack），见 transfer.go
 	s.modcartRoutes(mux)   // 自选模组 + 购物车，见 modcart.go
 	s.worldRoutes(mux)     // 地图导入，见 worldimport.go
+	s.toolboxRoutes(mux)   // 工具箱，见 toolbox.go
 
 	mux.HandleFunc("POST /api/instances/{name}/start", s.handleInstStart)
 	mux.HandleFunc("POST /api/instances/{name}/stop", s.instOp("instance.stop"))

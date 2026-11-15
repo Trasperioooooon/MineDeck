@@ -16,7 +16,7 @@ import (
 func (s *Server) modcartRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/modcart/search", func(w http.ResponseWriter, r *http.Request) {
 		s.do(w, r, "modcart.search", func() (ops.Args, error) {
-			m := queryMap(r, "q", "inst", "core", "mc", "category")
+			m := queryMap(r, "q", "inst", "cart", "core", "mc", "category")
 			// offset 在查询串里是字符串，操作的参数说明要的是整数：这里转一下，转不了的按 400 报
 			if v := r.URL.Query().Get("offset"); v != "" {
 				n, err := strconv.Atoi(v)
@@ -29,7 +29,7 @@ func (s *Server) modcartRoutes(mux *http.ServeMux) {
 		})
 	})
 	mux.HandleFunc("GET /api/modcart", func(w http.ResponseWriter, r *http.Request) {
-		s.do(w, r, "modcart.list", queryArgs(r, "inst", "core", "mc"))
+		s.do(w, r, "modcart.list", queryArgs(r, "inst", "cart", "core", "mc"))
 	})
 	mux.HandleFunc("POST /api/modcart", func(w http.ResponseWriter, r *http.Request) {
 		s.do(w, r, "modcart.add", bodyArgs(r))
@@ -45,7 +45,7 @@ func (s *Server) modcartRoutes(mux *http.ServeMux) {
 		s.do(w, r, "modcart.local.remove", bodyArgs(r))
 	})
 	mux.HandleFunc("GET /api/modcart/deps", func(w http.ResponseWriter, r *http.Request) {
-		s.do(w, r, "modcart.deps", queryArgs(r, "inst", "core", "mc"))
+		s.do(w, r, "modcart.deps", queryArgs(r, "inst", "cart", "core", "mc"))
 	})
 	mux.HandleFunc("POST /api/instances/{name}/modcart/install", func(w http.ResponseWriter, r *http.Request) {
 		s.do(w, r, "modcart.install", bodyArgs(r, "inst", r.PathValue("name")))
@@ -103,7 +103,7 @@ func (s *Server) handleModcartLocal(w http.ResponseWriter, r *http.Request) {
 			return nil, fmt.Errorf("保存上传文件失败：%w", cerr)
 		}
 		m := map[string]any{"file": path, "fileName": hdr.Filename}
-		for _, k := range []string{"inst", "core", "mc"} {
+		for _, k := range []string{"inst", "cart", "core", "mc"} {
 			if v := r.FormValue(k); v != "" {
 				m[k] = v
 			}
