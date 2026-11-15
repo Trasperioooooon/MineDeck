@@ -254,7 +254,7 @@ func (s *Server) troubleshootRoutes(mux *http.ServeMux) {
 				} else {
 					m[n] = v // 交给操作层的参数校验去报错
 				}
-			case "full", "detail":
+			case "full", "detail", "projects":
 				m[n] = v == "1" || v == "true"
 			default:
 				m[n] = v
@@ -269,13 +269,17 @@ func (s *Server) troubleshootRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/instances/{name}/console/tail", get("instance.console.tail", "lines", "level", "q", "since"))
 	mux.HandleFunc("GET /api/instances/{name}/logs", get("instance.logs.read", "file", "lines", "q"))
 	mux.HandleFunc("GET /api/instances/{name}/crash-reports", get("instance.crashes", "file", "full"))
-	mux.HandleFunc("GET /api/instances/{name}/mods", get("instance.mods.list", "q", "detail"))
+	mux.HandleFunc("GET /api/instances/{name}/mods", get("instance.mods.list", "q", "detail", "projects"))
 	mux.HandleFunc("GET /api/instances/{name}/config", get("instance.config.read", "path", "start", "lines"))
 	mux.HandleFunc("PUT /api/instances/{name}/config", func(w http.ResponseWriter, r *http.Request) {
 		s.do(w, r, "instance.config.write", bodyArgs(r, "inst", r.PathValue("name")))
 	})
 	mux.HandleFunc("POST /api/instances/{name}/mods/toggle", func(w http.ResponseWriter, r *http.Request) {
 		s.do(w, r, "instance.mods.toggle", bodyArgs(r, "inst", r.PathValue("name")))
+	})
+	// 插件 / 模组页「已安装」列表里的删除（R10）：仅人工，移进服务器文件夹的 .minedeck/已删除/，能找回
+	mux.HandleFunc("POST /api/instances/{name}/mods/delete", func(w http.ResponseWriter, r *http.Request) {
+		s.do(w, r, "instance.mods.delete", bodyArgs(r, "inst", r.PathValue("name")))
 	})
 	mux.HandleFunc("PUT /api/instances/{name}/java", func(w http.ResponseWriter, r *http.Request) {
 		s.do(w, r, "instance.java.set", bodyArgs(r, "inst", r.PathValue("name")))

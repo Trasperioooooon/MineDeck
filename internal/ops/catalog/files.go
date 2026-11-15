@@ -26,19 +26,21 @@ import (
 // fileOps 模组清单、禁用 / 启用模组、读写配置文件（设计文档 §5.2）。
 func (c *cat) fileOps() {
 	type modsArgs struct {
-		Inst   string `json:"inst"`
-		Q      string `json:"q"`
-		Detail bool   `json:"detail"`
+		Inst     string `json:"inst"`
+		Q        string `json:"q"`
+		Detail   bool   `json:"detail"`
+		Projects bool   `json:"projects"`
 	}
 	c.reg.Register(&ops.Op{
 		Name: "instance.mods.list", Title: "查看模组清单", Level: ops.Read,
 		Desc: "解析 mods 目录（插件服是 plugins 目录）里的 jar：文件名、模组 ID、版本、是否已禁用。给了 q 或 detail 为 true 时，" +
 			"匹配的那几个再带上依赖（必需 / 不兼容、版本范围、装在哪一端）和 mixin 配置。",
 		Params: withInst(map[string]*ops.Schema{
-			"q":      ops.String("按文件名、模组 ID 或名称过滤（不分大小写）").Len(0, 100),
-			"detail": ops.Boolean("带上依赖和 mixin 配置"),
+			"q":        ops.String("按文件名、模组 ID 或名称过滤（不分大小写）").Len(0, 100),
+			"detail":   ops.Boolean("带上依赖和 mixin 配置"),
+			"projects": ops.Boolean("按文件内容在 Modrinth 上认出是哪个项目（要联网，认出来的带 projectId）"),
 		}),
-		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+		Run: func(ctx context.Context, _ ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[modsArgs](a)
 			if err != nil {
 				return nil, err
@@ -54,6 +56,14 @@ func (c *cat) fileOps() {
 			mods, err := modinfo.ReadDir(filepath.Join(i.Dir, dir))
 			if err != nil {
 				return nil, ops.Wrap(500, err)
+			}
+			// 插件 / 模组页在热门和搜索结果里给装过的标「已安装」（可用性走查 R10）：按 SHA-1 在 Modrinth 上认项目，
+			// 和待装清单查「服务器上已经有了」是同一套（modcart.ScanLocal）。联网失败只是认不出来，不报错
+			projectOf := map[string]string{} // 文件名 → Modrinth 项目 ID
+			if p.Projects && c.ModCart != nil {
+				for pid, file := range c.ModCart.ScanLocal(ctx, filepath.Join(i.Dir, dir)).Projects {
+					projectOf[file] = pid
+				}
 			}
 			q := strings.ToLower(strings.TrimSpace(p.Q))
 			detail := p.Detail || q != ""
@@ -75,13 +85,15 @@ func (c *cat) fileOps() {
 					continue
 				}
 				type brief struct {
-					File     string `json:"file"`
-					ID       string `json:"id,omitempty"`
-					Version  string `json:"version,omitempty"`
-					Disabled bool   `json:"disabled,omitempty"`
-					Err      string `json:"err,omitempty"`
+					File      string `json:"file"`
+					ID        string `json:"id,omitempty"`
+					Name      string `json:"name,omitempty"`
+					Version   string `json:"version,omitempty"`
+					Disabled  bool   `json:"disabled,omitempty"`
+					Err       string `json:"err,omitempty"`
+					ProjectID string `json:"projectId,omitempty"`
 				}
-				list = append(list, brief{File: m.File, ID: m.ID, Version: m.Version, Disabled: m.Disabled, Err: m.Err})
+				list = append(list, brief{File: m.File, ID: m.ID, Name: m.Name, Version: m.Version, Disabled: m.Disabled, Err: m.Err, ProjectID: projectOf[m.File]})
 			}
 			if list == nil {
 				list = []any{}
@@ -188,6 +200,40 @@ func (c *cat) fileOps() {
 				return nil, ops.Errorf(500, "改名失败（服务器运行中 jar 可能被占用，先停服再试）：%v", err)
 			}
 			return map[string]string{"file": filepath.Base(to)}, nil
+		},
+	})
+
+	// 插件 / 模组页「已安装」列表里的「删除」（可用性走查 R10）。只许人在界面上点（AI 不能调用，同删除备份、删除服务器）；
+	// 服务器必须停着；只认 mods / plugins 文件夹里的一个 jar 文件名，并过 inst.IsControlFile；不真的删，
+	// 移进服务器文件夹里的 .minedeck/已删除/ 下面（为什么不进回收站见 inst/modtrash.go），想要回来就挪回去
+	type trashArgs struct {
+		Inst string `json:"inst"`
+		File string `json:"file"`
+	}
+	c.reg.Register(&ops.Op{
+		Name: "instance.mods.delete", Title: "删除插件或模组", Level: ops.HumanOnly,
+		Desc: "把 mods（或 plugins）文件夹里的一个 jar 移进服务器文件夹的 .minedeck/已删除/ 下面，能找回；服务器必须停着。",
+		Params: withInst(map[string]*ops.Schema{
+			"file": ops.String("jar 文件名（见 instance.mods.list 的 file，停用的是 .jar.disabled）").Len(1, 200),
+		}, "file"),
+		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+			p, err := bind[trashArgs](a)
+			if err != nil {
+				return nil, err
+			}
+			i, err := c.get(p.Inst)
+			if err != nil {
+				return nil, err
+			}
+			dir := modsDir(i)
+			if dir == "" {
+				return nil, ops.Errorf(400, "「%s」没有模组或插件文件夹", i.Name)
+			}
+			to, err := c.Mgr.TrashMod(i.Name, dir, p.File)
+			if err != nil {
+				return nil, ops.Wrap(400, err)
+			}
+			return map[string]string{"file": p.File, "movedTo": to, "dir": filepath.Join(filepath.FromSlash(inst.ModTrashDir), dir)}, nil
 		},
 	})
 
