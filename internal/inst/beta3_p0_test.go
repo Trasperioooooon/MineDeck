@@ -180,7 +180,7 @@ func TestWhitelistOnReadsLikeServer(t *testing.T) {
 		t.Fatal("没有 server.properties 时应为 nil")
 	}
 	for body, want := range map[string]string{
-		"motd=x\n":                          "nil",
+		"motd=x\n":                            "nil",
 		"white-list=false\nwhite-list=true\n": "true", // 服务端认最后一行；MineDeck 自己的 Props 认第一行，不能用它判断
 		"white-list : TRUE\n":                 "true",
 		"white-list=false\n":                  "false",
