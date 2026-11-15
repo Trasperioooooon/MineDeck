@@ -581,6 +581,9 @@ func (m *Manager) UpdateOpt(id string, t Tunnel, opt UpdateOpts) error {
 	if m.running[id] != nil {
 		return fmt.Errorf("请先停止隧道再修改")
 	}
+	if m.starting[id] { // 启动拿的是改之前的那份：这时候改，存下的和实际跑起来的就对不上了（见 errStarting）
+		return errStarting("改")
+	}
 	old := m.get(id)
 	if old == nil {
 		return fmt.Errorf("隧道不存在")
@@ -632,6 +635,9 @@ func (m *Manager) Delete(id string) error {
 	if m.running[id] != nil {
 		return fmt.Errorf("请先停止隧道再删除")
 	}
+	if m.starting[id] { // 删了的话，准备好的 frpc 还会照着旧配置起来，列表里却已经没有它，停不掉
+		return errStarting("删")
+	}
 	for i, t := range m.tunnels {
 		if t.ID == id {
 			// 删掉以后的列表放进新的数组：原地挪（append(s[:i], s[i+1:]...)）会改动旧数组，写不进磁盘时就退不回去了。
@@ -647,6 +653,19 @@ func (m *Manager) Delete(id string) error {
 		}
 	}
 	return fmt.Errorf("隧道不存在")
+}
+
+// errStarting 隧道正在准备启动（m.starting：第一次用要先下载 frpc，可能要一阵子）时拒绝修改、删除的说法，what 是「改」或「删」。
+// 启动在准备之前就拍下了配置，准备期间改了的话，存下的（跟随关系、卡片上的内容）和之后实际起来的那份就对不上了（2026-11-16 Codex 复审 beta.3）。
+// 界面直接把这句接在「没能保存修改」后面，所以要短、不带英文和冒号（见 app.js 的 errSummary）。
+func errStarting(what string) error {
+	return fmt.Errorf("这条隧道正在启动，等它起来或停掉以后再%s", what)
+}
+
+// sameConfig 两份隧道配置是不是一样（不比公网地址：那是运行中记下的，不是配置）。启动登记进 running 之前拿它核对配置没被改过。
+func sameConfig(a, b Tunnel) bool {
+	a.PublicAddr, b.PublicAddr = "", ""
+	return a == b
 }
 
 // reHostname 域名：几段用点隔开，每段是字母（中文这类也算）、数字、连字符、下划线。比 DNS 的规矩宽：
@@ -759,6 +778,7 @@ func (m *Manager) start(id, why string) error {
 	}
 	m.starting[id] = true // 占位：慢速启动（EnsureFrpc 首次可能联网下载 frpc）期间挡住并发/重复 Start，避免双启 frpc 争同一公网端口
 	snap := *t            // 启动参数用锁内拍下的副本，凭据在副本上解开，不写回
+	orig := snap          // 凭据解开之前的那份：登记进 running 之前拿它核对配置没变（见下面登记那一步）
 	guard := m.guardPort
 	m.mu.Unlock()
 	defer func() { m.mu.Lock(); delete(m.starting, id); m.mu.Unlock() }()
@@ -829,6 +849,14 @@ func (m *Manager) start(id, why string) error {
 	procutil.AssignToJob(cmd.Process)
 	rs := &runState{cmd: cmd, stdin: bufio.NewWriter(stdin)}
 	m.mu.Lock()
+	// 准备期间改、删都被拦着（见 errStarting），这里再核对一遍：隧道还在、还是启动时拍下的那份配置，才登记成运行中。
+	// 对不上就把刚起来的 frpc 结束掉——它照着旧配置在跑，登记上的话卡片、跟随关系说的都是新的那份
+	if cur := m.get(id); cur != t || !sameConfig(*cur, orig) {
+		m.mu.Unlock()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return fail(fmt.Errorf("启动的这段时间里这条隧道被改过或删掉了，这次没有启动，请再启动一次"))
+	}
 	m.running[id] = rs
 	m.mu.Unlock()
 	m.setLastErr(id, "") // 运行起来了：上一次的失败原因不再显示（frpc 再报错时 handleLine 会重新记）
