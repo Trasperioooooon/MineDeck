@@ -302,6 +302,12 @@ window.MDMusic = (() => {
       const mismatch = (rm.tunnels || []).filter(t => t.localPort && vc.found && vc.port > 0 && t.localPort !== vc.port)
         .map(t => `隧道「${esc(t.name)}」的本地端口 ${t.localPort} 和 SVC 的端口 ${vc.port} 对不上，核对一下。`).join("");
       switch (rm.state) {
+        case "unknown": // tunnels.json 在却没读出来（被别的程序占着、内容坏了）：不知道有没有语音隧道，不能说「没有」、引导去添加
+          rmRow = { tile: okIco(false), title: "远程好友的语音：还不知道有没有语音隧道",
+            sub: errInline("隧道配置没读出来", { message: rm.loadErr || "", hint: rm.loadHint || "" }, { label: "隧道配置" }) +
+              "<br>读出来之前 MineDeck 不会改 voice_host。处理好以后点「重试」，这一页也会自己隔几秒再读一次。",
+            right: `<button class="btn sm" id="mu-tun-retry" aria-label="重试读取隧道配置">${icon("refresh")} 重试</button><a class="btn sm" href="#/tunnels">去内网穿透页</a>${manual}` };
+          break;
         case "none":
           rmRow = { tile: tile("globe"), title: "远程好友的语音：没有语音隧道",
             sub: (vh ? `voice_host 已经填了 ${esc(vh)}。` : "") + "远程好友要听到声音：在「内网穿透」添加一条 UDP 隧道，用途选「语音」、绑定这台服务器。只有局域网好友就不用管。",
@@ -363,6 +369,16 @@ window.MDMusic = (() => {
         } catch (e) { toastErr("无法安装桥接模组", e); }
         await loadStatus();
       });
+      // 「重试」：再取一次状态。后端取状态时会在锁里重读 tunnels.json（同隧道页：有人要列表时再读），读成了这一行就换掉
+      const rt = $("#mu-tun-retry");
+      if (rt) rt.onclick = async () => {
+        rt.disabled = true;
+        box.dataset.sig = "";
+        await loadStatus();
+        if (stale(gen)) return;
+        if (rt.isConnected) rt.disabled = false; // 没重画（比如这次取状态失败）：按钮恢复可点
+        if ((v.st.remote || {}).state === "unknown") toast("隧道配置还是没读出来");
+      };
       const tb = $("#mu-vh-tunnel");
       if (tb) tb.onclick = async () => {
         tb.disabled = true;

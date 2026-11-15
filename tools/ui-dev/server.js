@@ -532,7 +532,10 @@ function musicStatus(state, i) {
       loaded: i.status === "running" && mi.bridge && !mi.restart.includes("桥接模组") ? true : undefined },
     voice: { found: mi.voiceFound, port: mi.voicePort, voiceHost: mi.voiceHost, path: "config/voicechat/voicechat-server.properties" },
     voicePort: i.status === "running" && mi.voiceFound ? mi.voicePort : undefined,
-    remote: { tunnels: vt, addr: addr || undefined, state: rstate, managed: !!addr && mi.voiceHost === addr },
+    // tunnels.json 没读出来（tunnelsLoadFail）：同 musicshare.remoteView，不知道有没有语音隧道，带上后端的原文和那句提示
+    remote: LOAD_FAIL[state.tunnelsLoadFail]
+      ? { tunnels: null, state: "unknown", managed: false, loadErr: LOAD_FAIL[state.tunnelsLoadFail].raw, loadHint: LOAD_FAIL[state.tunnelsLoadFail].hint }
+      : { tunnels: vt, addr: addr || undefined, state: rstate, managed: !!addr && mi.voiceHost === addr },
     players: { known: true, voice: voice.filter(n => !ex.includes(n.toLowerCase())), excluded: voice.filter(n => ex.includes(n.toLowerCase())), noVoice: online.includes("Notch_CN") ? ["Notch_CN"] : [], incompatible: [] },
     capability: { ...MUSIC_CAPS[ms.cap], warning: MUSIC_WARNING }, systemConfirmed: ms.systemConfirmed,
     settings: { exclude: mi.exclude, volume: mi.volume, mode: mi.mode || undefined, exe: mi.exe || undefined },

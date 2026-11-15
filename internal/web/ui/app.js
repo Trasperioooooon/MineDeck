@@ -3251,6 +3251,7 @@ async function renderTunnels() {
   Main().innerHTML = pageHead("内网穿透",
     "把这台电脑上的服务器映射到公网，不在同一网络的朋友也能连。服务商可选 OpenFrp、樱花穿透（SakuraFrp），或自己的 frps。",
     `<button class="btn primary" id="tn-toggle" aria-expanded="false" aria-controls="tn-form">${icon("plus")} 添加隧道</button>`, "", "", "tun-summary") + `
+    <div class="hint tun-lan-tip" id="tn-lan-tip" style="margin:-6px 0 14px">${icon("info")} 同一局域网的朋友不用隧道：把服务器页上的「连接地址」发给他们就能进。隧道是给不在同一网络的朋友用的。</div>
     <div id="tn-form" class="card tun-form" hidden>
     <h3>添加隧道</h3>
     <div class="hint tun-help" id="tn-help" aria-live="polite"></div>

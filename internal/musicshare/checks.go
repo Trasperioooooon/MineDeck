@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -286,18 +287,27 @@ type RemoteView struct {
 	// State none：没有语音隧道（只有局域网好友就不用管）；waiting：隧道还没拿到公网地址；
 	// same：voice_host 已经是隧道地址；pending：SVC 的配置还没生成，开一次服后自动写；
 	// differ：voice_host 是别的值（可能是用户自己填的），不自动覆盖，让用户选；
-	// idle：有地址，但隧道停着、开服时也不会跟着拉起（地址是上次的），voice_host 空着或者还是 MineDeck 写的那个。
+	// idle：有地址，但隧道停着、开服时也不会跟着拉起（地址是上次的），voice_host 空着或者还是 MineDeck 写的那个；
+	// unknown：隧道配置（tunnels.json）在却没读出来，有没有语音隧道不知道，这时 MineDeck 也不动 voice_host。
 	State   string `json:"state"`
 	Managed bool   `json:"managed"` // voice_host 是 MineDeck 写的
+	// LoadErr、LoadHint 只在 unknown 时有：tunnel.LoadError 的原文和给人看的那句（同隧道列表接口回 503 时的 error、hint）
+	LoadErr  string `json:"loadErr,omitempty"`
+	LoadHint string `json:"loadHint,omitempty"`
 }
 
-// voiceTunnels 绑定到实例、用途为语音的隧道。
-// tunnelsUnknown 隧道配置没读出来：tunnel.Manager 的 LoadErr 不为空（见 tunnel.LoadError）。
-// 接口里只要求 List，测试用的假隧道没有 LoadErr，按读出来了算。
-func (s *Service) tunnelsUnknown() bool {
-	l, ok := s.d.Tunnels.(interface{ LoadErr() error })
-	return ok && l.LoadErr() != nil
+// tunnelsLoadErr 隧道配置没读出来时返回 tunnel.Manager.LoadErr 给的 *tunnel.LoadError，读出来了返回 nil。
+// LoadErr 每次被问都会在锁里再读一次（同隧道页：有人要列表、保存、启动时再读），所以音乐共享页每次刷新状态也会触发重读，
+// 读成了下一次就照常显示。接口里只要求 List，测试用的假隧道没有 LoadErr 时按读出来了算。
+func (s *Service) tunnelsLoadErr() error {
+	if l, ok := s.d.Tunnels.(interface{ LoadErr() error }); ok {
+		return l.LoadErr()
+	}
+	return nil
 }
+
+// tunnelsUnknown 隧道配置没读出来（见 tunnel.LoadError）。
+func (s *Service) tunnelsUnknown() bool { return s.tunnelsLoadErr() != nil }
 
 func (s *Service) voiceTunnels(name string) []RemoteTunnel {
 	var out []RemoteTunnel
@@ -339,7 +349,12 @@ func tunnelAddr(ts []RemoteTunnel) string {
 }
 
 func (s *Service) remoteView(name string, vc VoiceConfig) RemoteView {
-	rv := RemoteView{Tunnels: s.voiceTunnels(name)}
+	// 先问隧道配置读没读出来（这一问会触发重读），再取列表：没读出来时列表是空的，不能说成「没有语音隧道」、引导去添加
+	loadErr := s.tunnelsLoadErr()
+	var rv RemoteView
+	if loadErr == nil {
+		rv.Tunnels = s.voiceTunnels(name)
+	}
 	rv.Addr = tunnelAddr(rv.Tunnels)
 	s.mu.Lock()
 	written := ""
@@ -348,6 +363,14 @@ func (s *Service) remoteView(name string, vc VoiceConfig) RemoteView {
 	}
 	s.mu.Unlock()
 	rv.Managed = vc.VoiceHost != "" && vc.VoiceHost == written
+	if loadErr != nil {
+		rv.State, rv.LoadErr = "unknown", loadErr.Error()
+		var h interface{ Hint() string }
+		if errors.As(loadErr, &h) {
+			rv.LoadHint = h.Hint()
+		}
+		return rv
+	}
 	followable := true // 跟随启动的隧道还会跟着拉起来：服务器停着，或者刚开、隧道还没轮到（开服 2 秒后才拉）
 	if info, err := s.d.Instances.Info(name); err == nil {
 		followable = info.Status == "stopped" || info.Status == "starting"

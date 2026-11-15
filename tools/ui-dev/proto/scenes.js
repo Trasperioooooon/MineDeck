@@ -279,6 +279,11 @@ add("tunnel", "u-load-corrupt", "tunnels.json 内容坏了", {
   note: "下一步换成「用记事本修好它，或者改名挪走后从空列表开始」。复制报错信息里有坏在第几行附近。",
   setup: s => { s.tunnelsLoadFail = "corrupt"; },
 });
+add("tunnel", "u-load-music", "tunnels.json 没读出来时的音乐共享页", {
+  hash: `#/inst/${enc("机械动力整合包")}/music`, tag: "new", steps: [{ wait: "#mu-tun-retry" }],
+  note: "远程语音那一行不再说「没有语音隧道」、引导去添加：说清隧道配置没读出来、读出来之前不改 voice_host，给「重试」和「去内网穿透页」。",
+  setup: s => { s.tunnelsLoadFail = "locked"; },
+});
 add("tunnel", "u-short-cred", "添加表单：凭据短于 6 个字符的提示", {
   hash: "#/tunnels", tag: "new", setup: s => { s.tunnels = []; },
   steps: [{ select: "#tn-provider", value: "custom" }, { fill: "#tn-cred", value: "abc" }, { wait: "#tn-cred-short:not([hidden])" }],

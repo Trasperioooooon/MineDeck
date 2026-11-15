@@ -4261,6 +4261,53 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await resetTA(); await resetMusic(); }
   });
 
+  // tunnels.json 在却没读出来时，音乐共享页以前显示「没有语音隧道」并引导去添加，只开着音乐共享页也不会触发隧道重读。
+  // 现在说清隧道配置没读出来（正文接后端那句，原文进复制键），给「重试」和「去内网穿透页」；后端取状态时会重读，读出来以后自己恢复
+  await run("beta.3 小修：tunnels.json 没读出来时音乐共享页说清楚、给重试和去内网穿透页，不再引导添加，读出来以后恢复；内网穿透页顶上说同一局域网不用隧道", async () => {
+    const setLoad = v => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ tunnelsLoadFail: x }) }), v);
+    try {
+      errors.length = 0;
+      // 内网穿透页顶上的指路：同一局域网的朋友用服务器页上的连接地址，不用隧道（tunnels.json 没读出来时也照样在）
+      await setLoad("locked");
+      await page.goto(url("#/tunnels")); await settle();
+      await page.waitForSelector("#tun-load-err");
+      const tip = await page.textContent("#tn-lan-tip");
+      assert(tip.includes("同一局域网的朋友不用隧道") && tip.includes("「连接地址」"), "页顶应指路：同一局域网用连接地址：" + tip);
+      await openMusic({ voiceTunnel: true, inst: { [PACK]: { bridge: "main" } } }, "stopped");
+      await page.waitForSelector("#mu-tun-retry");
+      const row = await page.evaluate(() => {
+        const r = document.querySelector("#mu-tun-retry").closest(".row-item"), copyBtn = r.querySelector("[data-err-raw]");
+        return { text: r.textContent.replace(/\s+/g, " "), raw: copyBtn ? copyBtn.getAttribute("data-err-raw") : "",
+          link: [...r.querySelectorAll('a[href="#/tunnels"]')].map(a => a.textContent.trim()) };
+      });
+      const LOCKED = "MineDeck 文件夹里的 tunnels.json 读不出来，可能被别的程序占着。关掉占用它的程序后会自动重读";
+      assert(row.text.includes("还不知道有没有语音隧道") && row.text.includes("隧道配置没读出来：" + LOCKED), "应说清隧道配置没读出来，正文接后端那句：" + row.text);
+      assert(row.text.includes("不会改 voice_host"), "应说清这期间不改 voice_host：" + row.text);
+      assert(!row.text.includes("去添加") && !row.text.includes("添加一条 UDP 隧道"), "没读出来时不该引导去添加：" + row.text);
+      assert(row.link.length === 1 && row.link[0] === "去内网穿透页", "应给「去内网穿透页」：" + JSON.stringify(row.link));
+      assert(row.raw.includes("being used by another process") && !row.text.includes("another process"), "原文进复制键，不在正文里：" + row.raw);
+      // 还没读出来时点「重试」：再取一次状态，提示还是没读出来，按钮还能点
+      const r0 = reqs.length;
+      await page.click("#mu-tun-retry");
+      assert(await toastHas("隧道配置还是没读出来"), "重试仍没读出来应提示一句");
+      assert(reqs.slice(r0).some(r => r.m === "GET" && decodeURIComponent(r.u).endsWith(`/instances/${PACK}/music`)), "重试应重新取音乐共享的状态（后端借此重读隧道配置）");
+      assert(await page.$eval("#mu-tun-retry", b => !b.disabled), "重试键应恢复可点");
+      // 读出来了：点「重试」就换成语音隧道的状态
+      await setLoad("");
+      await page.click("#mu-tun-retry");
+      await page.waitForFunction(() => !document.querySelector("#mu-tun-retry"), null, { timeout: 3000 });
+      const check = await page.textContent("#mu-check");
+      assert(check.includes("远程好友的语音") && !check.includes("还不知道有没有语音隧道"), "读出来以后应照常显示语音隧道：" + check);
+      // 只开着音乐共享页、不点任何东西：隔几秒的刷新也会读出来
+      await setLoad("corrupt");
+      await page.waitForSelector("#mu-tun-retry", { timeout: 5000 });
+      assert((await page.textContent("#mu-check")).includes("内容坏了"), "原因换了，说法跟着换");
+      await setLoad("");
+      await page.waitForFunction(() => !document.querySelector("#mu-tun-retry"), null, { timeout: 5000 });
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await setLoad(""); await resetMusic(); }
+  });
+
   // ---- 热门清单、从电脑添加本地文件、两栏版面（2026-11） ----
   const cartMock = async () => (await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data))).modcart;
   const packCart = `#/inst/${encodeURIComponent(PACK)}/cart`; // Forge 1.20.1 的模组服
