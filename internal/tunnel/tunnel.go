@@ -559,7 +559,11 @@ func (m *Manager) UpdateOpt(id string, t Tunnel, opt UpdateOpts) error {
 			return fmt.Errorf("要清除凭据，就不要同时填新的凭据")
 		}
 	}
-	if err := validate(&t); err != nil {
+	// 凭据留空表示不改（列表接口不回显凭据，界面上的「编辑」只改名称、绑定和跟随，手里没有凭据）。
+	// OpenFrp、樱花穿透启动时必须带凭据，validate 本来要求填：这里先按「沿用存着的那份」查其余各项，
+	// 存着的那份有没有、能不能带过去，拿锁找到旧配置以后再查（以前这两家的隧道只要不重填凭据，什么都改不了）
+	keep := !opt.ClearCredential && strings.TrimSpace(t.Credential) == ""
+	if err := validateKeep(&t, keep); err != nil {
 		return err
 	}
 	sealed, err := secret.Seal(t.Credential)
@@ -596,6 +600,10 @@ func (m *Manager) UpdateOpt(id string, t Tunnel, opt UpdateOpts) error {
 		if old.Credential != "" && (t.Provider != old.Provider ||
 			(t.Provider == "custom" && (t.ServerAddr != normServerAddr(old.ServerAddr) || t.ServerPort != old.ServerPort))) {
 			return fmt.Errorf("换了服务商或 frps 地址、端口，要重新填一次凭据")
+		}
+		// 没有存着的凭据可沿用（原来是不带 token 的自定义 frps，现在改成了要凭据的服务商）：和新增时一样要填
+		if old.Credential == "" && needsCredential(t.Provider) {
+			return errNeedCredential
 		}
 		t.Credential = old.Credential
 	} else {
@@ -663,7 +671,15 @@ func normServerAddr(addr string) string {
 	return strings.Trim(strings.TrimSpace(addr), "[]")
 }
 
-func validate(t *Tunnel) error {
+// needsCredential 这家服务商启动时必须带凭据（OpenFrp 的用户密钥、樱花的访问密钥）。自定义 frps 可以不设 token。
+func needsCredential(provider string) bool { return provider == "openfrp" || provider == "natfrp" }
+
+var errNeedCredential = errors.New("请填写凭据与隧道 ID（在服务商官网创建隧道后获取）")
+
+func validate(t *Tunnel) error { return validateKeep(t, false) }
+
+// validateKeep 同 validate；keepCred 为 true 时凭据留空不算缺（修改时沿用存着的那份，由 UpdateOpt 拿锁后核对）。
+func validateKeep(t *Tunnel, keepCred bool) error {
 	t.Name = strings.TrimSpace(t.Name)
 	t.Credential = strings.TrimSpace(t.Credential)
 	if t.Name == "" {
@@ -690,8 +706,8 @@ func validate(t *Tunnel) error {
 	}
 	switch t.Provider {
 	case "openfrp", "natfrp":
-		if t.Credential == "" || strings.TrimSpace(t.ProxyID) == "" {
-			return fmt.Errorf("请填写凭据与隧道 ID（在服务商官网创建隧道后获取）")
+		if (t.Credential == "" && !keepCred) || strings.TrimSpace(t.ProxyID) == "" {
+			return errNeedCredential
 		}
 		clearUnusedPorts(t)
 	case "custom":
