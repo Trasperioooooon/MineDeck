@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
+	"image/color"
 	"image/draw"
 	"image/png"
 	"maps"
@@ -55,6 +56,10 @@ func SlotsForMC(mc string) ([]SkinSlot, bool, error) {
 	maj, minV, patch, ok := parseMCVersion(mc)
 	if !ok {
 		return nil, false, ErrBadRequest("Minecraft 版本格式认不出来，请填类似 1.20.1 或 1.21.4 的版本号")
+	}
+	if compareTuple(maj, minV, patch, 1, 8, 0) < 0 {
+		// 1.8 以前只有 Steve 一个默认皮肤，而且只认 64×32 的老格式，按这里的槽位和 64×64 打出来的包不对
+		return nil, false, ErrBadRequest("1.8 以前的版本不支持：那时只有 Steve 一个默认皮肤，皮肤格式也不一样")
 	}
 	modern := compareTuple(maj, minV, patch, 1, 19, 3) >= 0
 	if !modern {
@@ -521,6 +526,8 @@ type SkinBuildResp struct {
 
 // BuildSkinPack 校验所有皮肤 PNG、检测槽位冲突并打包成可直接放进 .minecraft/resourcepacks/ 的资源包 zip。
 func (s *Service) BuildSkinPack(req SkinBuildReq) (SkinBuildResp, error) {
+	s.buildMu.Lock()
+	defer s.buildMu.Unlock()
 	if len(req.Entries) == 0 {
 		return SkinBuildResp{}, ErrBadRequest("至少添加一张皮肤 PNG 图片再生成")
 	}
@@ -711,6 +718,16 @@ func validateAndNormalizeSkinPNG(path string) (outPNG []byte, upgraded bool, err
 		copyLimbMirrored(dst, 0, 16, 16, 48)
 		copyLimbMirrored(dst, 40, 16, 32, 48)
 	}
+	// 客户端处理下载来的皮肤时还有两步（SkinTextureDownloader.processLegacySkin）：身体底层强制不透明；
+	// 老格式的帽子层要是没有一个透明像素（早年的皮肤常把这块涂成实色），整块清成透明。资源包里的默认贴图
+	// 不经过这一步，所以在打包时照做一遍，放进包里的样子才和朋友平时看到的一样（不然头上会套一个实心方块，
+	// 底层有透明像素的地方会镂空）。
+	setNoAlpha(dst, 0, 0, 32, 16)
+	if upgraded {
+		clearOpaqueHat(dst, 32, 0, 64, 32)
+	}
+	setNoAlpha(dst, 0, 16, 64, 32)
+	setNoAlpha(dst, 16, 48, 48, 64)
 	var out bytes.Buffer
 	if err := png.Encode(&out, dst); err != nil {
 		return nil, false, fmt.Errorf("重新编码 PNG 失败")
@@ -726,6 +743,33 @@ func copyLimbMirrored(img *image.NRGBA, sx, sy, dx, dy int) {
 	copyFlipX(img, sx+4, sy+4, dx+4, dy+4, 4, 12)   // 正面
 	copyFlipX(img, sx+8, sy+4, dx+0, dy+4, 4, 12)   // 内侧面 -> 外侧面
 	copyFlipX(img, sx+12, sy+4, dx+12, dy+4, 4, 12) // 背面
+}
+
+// setNoAlpha 把 [x1,x2)×[y1,y2) 的像素都改成不透明（颜色不变）。
+func setNoAlpha(img *image.NRGBA, x1, y1, x2, y2 int) {
+	for y := y1; y < y2; y++ {
+		for x := x1; x < x2; x++ {
+			c := img.NRGBAAt(x, y)
+			c.A = 255
+			img.SetNRGBA(x, y, c)
+		}
+	}
+}
+
+// clearOpaqueHat 区域里只要有一个半透明以下（alpha < 128）的像素就不动；整块都不透明时清成全透明。
+func clearOpaqueHat(img *image.NRGBA, x1, y1, x2, y2 int) {
+	for y := y1; y < y2; y++ {
+		for x := x1; x < x2; x++ {
+			if img.NRGBAAt(x, y).A < 128 {
+				return
+			}
+		}
+	}
+	for y := y1; y < y2; y++ {
+		for x := x1; x < x2; x++ {
+			img.SetNRGBA(x, y, color.NRGBA{})
+		}
+	}
 }
 
 func copyFlipX(img *image.NRGBA, sx, sy, dx, dy, w, h int) {

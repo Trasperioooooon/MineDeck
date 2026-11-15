@@ -778,7 +778,7 @@ window.MDToolbox = (() => {
               <label class="switch">
                 <input type="checkbox" id="mp-inc-cfg" checked aria-label="一并打包 config 文件夹">
                 <span class="sw"></span>
-                <span><span class="sw-label">一并打包 config/ 配置</span><div class="sw-desc">放进 overrides/config/。看起来带密码、令牌、密钥的配置文件不打进去，预览里会列出来。</div></span>
+                <span><span class="sw-label">一并打包 config/ 配置</span><div class="sw-desc">放进 overrides/config/。看起来带密码、令牌、密钥的配置文件会尽量挑出来不打进去，但难免有认不出的，发之前请看一眼预览里列出的配置文件。</div></span>
               </label>
             </div>
           </div>

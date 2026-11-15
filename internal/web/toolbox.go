@@ -62,7 +62,7 @@ func (s *Server) handleSkinPackBuild(w http.ResponseWriter, r *http.Request) {
 			return nil, ops.Errorf(400, "缺少皮肤包配置内容（meta）")
 		}
 		var argsMap map[string]any
-		if err := json.Unmarshal([]byte(metaRaw), &argsMap); err != nil {
+		if err := json.Unmarshal([]byte(metaRaw), &argsMap); err != nil || argsMap == nil {
 			return nil, ops.Errorf(400, "皮肤包配置格式不对")
 		}
 		if r.MultipartForm == nil {

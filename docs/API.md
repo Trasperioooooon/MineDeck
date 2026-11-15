@@ -400,7 +400,7 @@ AI 助手用的读写能力，网页也能直接调。人调用时，写操作�
 
 ### 工具箱（`#/toolbox`）
 
-提供与单台服务器运行状态解耦的联机辅助工具（逻辑在 `internal/toolbox`，接口在 `internal/web/toolbox.go`）。所有操作均为 `ops.HumanOnly`（UI / HTTP 人工调用，不开放给 AI 工具与 MCP）；除持久化草稿设置外，打包结果暂存于 `<cache>/toolbox/` 内存索引（最多保留最近 24 条），不改写任何已有服务器的数据目录。
+提供与单台服务器运行状态解耦的联机辅助工具（逻辑在 `internal/toolbox`，接口在 `internal/web/toolbox.go`）。下面这些 `toolbox.*` 操作均为 `ops.HumanOnly`（UI / HTTP 人工调用，不开放给 AI 工具与 MCP）；挑模组用的那份清单走 `modcart.*`（`cart=toolbox`），和别的待装清单一样，AI 助手和 MCP 也能查看、加减其中的 Modrinth 项目，但导出整合包只有人能做，导出前有预览；除持久化草稿设置外，打包结果暂存于 `<cache>/toolbox/` 内存索引（最多保留最近 24 条），不改写任何已有服务器的数据目录。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -408,7 +408,7 @@ AI 助手用的读写能力，网页也能直接调。人调用时，写操作�
 | POST | `/api/toolbox/skin-pack/build` | multipart 表单（`meta` 为 JSON `{mc, packName?, description?, mode, entries[], destDir?}`，`file_0`…`file_17` 为 PNG；总大小上限 40 MiB，单张不超过 2 MiB，最多 18 张；`toolbox.skinpack.build`）：后端通过 `image/png` 严格解码并核对尺寸为 `64×64` 或旧版 `64×32`（`64×32` 自动扩充为 `64×64` 并镜像左腿/左臂）；存在未解决撞槽时拒绝（400）。打包成标准客户端资源包 `.zip`（含 `pack.mcmeta`、`说明.txt` 与固定路径 `assets/minecraft/textures/entity/...`），计算并返回 `sha1`（40 位 hex，用于 `resource-pack-sha1`）与 `downloadId`。`destDir` 仅限本机请求（非本机返回 403） |
 | GET | `/api/toolbox/skin-pack/download/{id}` | 按 `build` 返回的 `downloadId` 下载生成的 `.zip` 资源包（`toolbox.download`，`Content-Type: application/zip`） |
 | GET / PUT | `/api/toolbox/mrpack/draft` | 读取或保存工具箱 `.mrpack` 草稿元数据 `{name, versionId, summary?, core, mc, loaderVersion?, includeConfig?}`（`toolbox.mrpack.draft.get` / `toolbox.mrpack.draft.save`），持久化在 `<data>/toolbox/mrpack-draft.json`，重启不丢失。挑模组走 `/api/modcart*` 那一套接口，都带 `cart=toolbox`：这是工具箱自己的一份清单，和新建向导的草稿清单分开（草稿清单建服时会一起装进新服务器，这份不会），只在客户端用的模组也能放；不能和 `inst` 同时给 |
-| POST | `/api/toolbox/mrpack/preview` | `{source: "draft" \| "instance", inst?, name?, versionId?, summary?, core?, mc?, loaderVersion?, includeConfig?, withDeps?}`（`toolbox.mrpack.preview`）：不写文件，预演 `.mrpack` 的 `dependencies`、放进 `modrinth.index.json` 的在线下载项（须命中 `modpack.AllowedURL` 白名单，仅客户端模组自动标 `env.server: "unsupported"`）与直接打入 `overrides/` 的本地项（非白名单下载或未识别 jar、以及实例模式下勾选 `includeConfig` 收集的 `config/` 文件），并标明潜在缺前置/冲突提醒。`env.client` 按 Modrinth 的 `client_side` 标（只在服务端用的标 `unsupported`）。`config/` 里按文件名、扩展名和内容看起来放着密码、令牌、密钥、数据库的文件不打进去，列在 `warnings` 里 |
+| POST | `/api/toolbox/mrpack/preview` | `{source: "draft" \| "instance", inst?, name?, versionId?, summary?, core?, mc?, loaderVersion?, includeConfig?, withDeps?}`（`toolbox.mrpack.preview`）：不写文件，预演 `.mrpack` 的 `dependencies`、放进 `modrinth.index.json` 的在线下载项（须命中 `modpack.AllowedURL` 白名单，仅客户端模组自动标 `env.server: "unsupported"`）与直接打入 `overrides/` 的本地项（非白名单下载或未识别 jar、以及实例模式下勾选 `includeConfig` 收集的 `config/` 文件），并标明潜在缺前置/冲突提醒。`env.client` 按 Modrinth 的 `client_side` 标（只在服务端用的标 `unsupported`）。`config/` 里按文件名、扩展名和内容看起来放着密码、令牌、密钥、数据库的文件，以及 `.bak`、`.old` 这类备份副本，尽量挑出来不打进去，列在 `warnings` 里（认不出的写法难免有，打进去的配置文件都列在 `overrides` 里）。包里的模组用服务器 `mods/` 里的原文件名；MineDeck 自己的语音桥模组（只在服务端用）不打进去 |
 | POST | `/api/toolbox/mrpack/build` | 同 `preview` 参数，另可带 `destDir`（**仅本机**，非本机返回 403；`toolbox.mrpack.build`）：写出符合 Modrinth 规范（`formatVersion: 1`）的 `.mrpack` 压缩包并返回 `{downloadId, fileName, size, sha1, savedPath?, downloadCount, overrideCount, clientOnlyCount, configCount, dependencies, warnings}` |
 | GET | `/api/toolbox/mrpack/download/{id}` | 按 `build` 返回的 `downloadId` 下载生成的 `.mrpack` 整合包（`toolbox.download`，`Content-Type: application/zip`） |
 

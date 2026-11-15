@@ -72,6 +72,9 @@ func bindCart(a ops.Args) (modcartArgs, error) {
 	if err != nil {
 		return p, err
 	}
+	if p.Inst == modcart.Toolbox { // 不许拿 inst 绕到工具箱那份清单上（它只能用 cart=toolbox 指）
+		return p, ops.Errorf(404, "找不到实例：%s", p.Inst)
+	}
 	switch p.Cart {
 	case "":
 		p.key = p.Inst
