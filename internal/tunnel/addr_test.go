@@ -160,6 +160,47 @@ func TestPublicAddrCandidatesSynthetic(t *testing.T) {
 			line: "启动成功 cn-sz-1.openfrp.top:23456",
 			want: []string{"cn-sz-1.openfrp.top:23456"},
 		},
+		// 端口被正则截短（Codex 复审 beta.2 时提的）：右边紧挨着的还是数字或字母，这个候选就不要
+		{
+			name: "IPv6 的端口超过五位，不截成前五位",
+			line: "使用 [2001:db8::1]:123456 连接",
+			want: nil,
+		},
+		{
+			name: "域名的端口后面粘着字母",
+			line: "使用 host.example:12345abc 连接",
+			want: nil,
+		},
+		{
+			name: "IPv4 的端口超过五位",
+			line: "连接 203.0.113.7:123456",
+			want: nil,
+		},
+		{
+			name: "截短的不要，同一行里正常的照留",
+			line: "使用 host.example:12345abc 或 synth.example.com:23456 连接",
+			want: []string{"synth.example.com:23456"},
+		},
+		{
+			name: "端口后面直接接汉字照常",
+			line: "地址 synth.example.com:53981连接成功",
+			want: []string{"synth.example.com:53981"},
+		},
+		{
+			name: "IPv6 后面直接接汉字照常",
+			line: "使用 [2001:db8::1]:53981连接",
+			want: []string{"[2001:db8::1]:53981"},
+		},
+		{
+			name: "端口后面是英文句号",
+			line: "remote synth.example.com:53981.",
+			want: []string{"synth.example.com:53981"},
+		},
+		{
+			name: "两个地址用逗号隔开",
+			line: "连接 synth-a.example.com:11111,203.0.113.8:22222",
+			want: []string{"synth-a.example.com:11111", "203.0.113.8:22222"},
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -342,6 +383,29 @@ func TestPublicAddrSameLineWritesOnce(t *testing.T) {
 	m.handleLine(tun, rs, "或使用节点 IP 连接（不推荐）>>203.0.113.9:12345<< 或 >>203.0.113.10:12345<<")
 	if tun.PublicAddr != "frp-abc.natfrp.cloud:12345" || countAddrLines(m, tun.ID) != before {
 		t.Fatalf("见过域名后只有 IP 的行不该写：%q", tun.PublicAddr)
+	}
+}
+
+// 端口被截短的候选不进公网地址：不写、不在控制台记那句「公网地址」；后面来了正常的地址照常写。
+func TestPublicAddrRejectsTruncatedPort(t *testing.T) {
+	m, tun := newBareTunnel(t, "natfrp")
+	rs := &runState{}
+	for _, line := range []string{
+		"启动成功 使用 [2001:db8::1]:123456 连接",
+		"启动成功 使用 host.example:12345abc 连接",
+		"remote 203.0.113.7:123456",
+	} {
+		m.handleLine(tun, rs, line)
+		if tun.PublicAddr != "" {
+			t.Fatalf("截短的端口被当成了地址：%q（行：%s）", tun.PublicAddr, line)
+		}
+	}
+	if text := strings.Join(m.Console(tun.ID).Lines(), "\n"); strings.Contains(text, "公网地址") {
+		t.Fatalf("不该记公网地址：\n%s", text)
+	}
+	m.handleLine(tun, rs, "使用 frp-abc.natfrp.cloud:12345 连接")
+	if tun.PublicAddr != "frp-abc.natfrp.cloud:12345" {
+		t.Fatalf("正常的地址：%q", tun.PublicAddr)
 	}
 }
 

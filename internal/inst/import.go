@@ -620,16 +620,10 @@ func (m *Manager) ResolveImportPending(ctx context.Context, taskID string, acts 
 		return nil, nil, err
 	}
 	defer release()
-	unlockConfig, err := LockKeyContext(ctx, "config|"+inst.Name)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer unlockConfig()
-	unlockProps, err := atomicfile.LockPathContext(ctx, inst.PropsPath())
-	if err != nil {
-		return nil, nil, err
-	}
-	defer unlockProps()
+	// 配置锁和 server.properties 的路径锁不整批拿：trust 要联网下载，一批下来可能好几分钟，以前这期间保存设置、
+	// 改配置文件的请求都在干等（2026-11-14 合并后复审发现 8）。现在每一项只在真正写进服务器文件夹的那一下拿，
+	// 拿到以后把落点的检查在锁里重做一遍，见 placePending。上面的登记（UseWorldInstance）照旧整批占着：
+	// 它不让人排队，只让换地图、还原这类搬动整个世界的操作在这期间直接报「正在补装整合包文件」。
 	pending := t.PendingItems()
 	byID := map[string]tasks.PendingItem{}
 	for _, it := range pending {
@@ -649,6 +643,7 @@ func (m *Manager) ResolveImportPending(ctx context.Context, taskID string, acts 
 		if err := ctx.Err(); err != nil {
 			return out, t.PendingItems(), err
 		}
+		// 先查一遍落点：不合规的在读本地文件、发下载请求之前就拒绝。写进去之前在锁里还要再查一遍（placePending）
 		if act.Act == "local" || act.Act == "trust" {
 			if _, err := pendingDestination(inst, it.Path); err != nil {
 				oc.Note = err.Error()
@@ -673,12 +668,12 @@ func (m *Manager) ResolveImportPending(ctx context.Context, taskID string, acts 
 			if it.Reason == "cf" {
 				destRel = path.Dir(it.Path) + "/" + filepath.Base(src)
 			}
-			dest, err := pendingDestination(inst, destRel)
-			if err != nil {
-				oc.Note = err.Error()
+			destErr, err := m.placePending(ctx, inst, destRel, func(dest string) error { return copyPendingFile(ctx, src, dest) })
+			if destErr != nil {
+				oc.Note = destErr.Error()
 				break
 			}
-			if err := copyLocalFileContext(ctx, src, dest); err != nil {
+			if err != nil {
 				oc.Note = fmt.Sprintf("复制失败: %v", err)
 				break
 			}
@@ -803,21 +798,105 @@ func (m *Manager) pendingTrustDownload(ctx context.Context, inst *Instance, it t
 	if !known && !ack {
 		return false, fmt.Sprintf("站点 %s 没有确认过：读一遍风险说明并确认后才下载", host)
 	}
-	dest, err := pendingDestination(inst, it.Path)
-	if err != nil {
+	if _, err := pendingDestination(inst, it.Path); err != nil { // 落点不合规的不发请求
 		return false, err.Error()
 	}
-	// 受控客户端：即使 grant 时查过公网，连接级（DNS 变动、重定向到内网）也再拦一道
-	if err := dl.Fetch(ctx, dl.Request{URLs: []string{match}, Dest: dest, SHA1: it.SHA1, Client: modpackHTTP()}, nil); err != nil {
-		_ = os.Remove(dest + ".part")
+	// 下载不拿配置锁和设置锁，也不写服务器文件夹：下到缓存文件夹里的临时文件夹，SHA-1 对上了才算下好。
+	// 一个文件可能要下好几分钟，这期间保存设置、改配置文件照常（复审发现 8）。写进服务器的那一下才拿锁，
+	// 并在锁里把落点重新查一遍（下载期间世界名可能被改了），见 placePending。
+	stage, err := pendingStageDir()
+	if err != nil {
 		return false, fmt.Sprintf("下载失败: %v", err)
 	}
-	// 下载下来、校验也过了，才把站点记成信任：记下以后同站点的文件不再问，以后导入别的整合包也直接下，
-	// 所以不能因为点过一次确认就记——文件没下成（连不上、校验不符）的站点下次照样要确认。
+	defer os.RemoveAll(stage)
+	staged := filepath.Join(stage, "download.bin")
+	// 受控客户端：即使 grant 时查过公网，连接级（DNS 变动、重定向到内网）也再拦一道
+	if err := dl.Fetch(ctx, dl.Request{URLs: []string{match}, Dest: staged, SHA1: it.SHA1, Client: modpackHTTP()}, nil); err != nil {
+		return false, fmt.Sprintf("下载失败: %v", err)
+	}
+	destErr, err := m.placePending(ctx, inst, it.Path, func(dest string) error { return copyPendingFile(ctx, staged, dest) })
+	if destErr != nil {
+		return false, destErr.Error()
+	}
+	if err != nil {
+		return false, fmt.Sprintf("下载好了，写进服务器时出错: %v", err)
+	}
+	// 下载下来、校验也过了、写进去了，才把站点记成信任：记下以后同站点的文件不再问，以后导入别的整合包也直接下，
+	// 所以不能因为点过一次确认就记——文件没下成（连不上、校验不符、落点不让写）的站点下次照样要确认。
 	if !known {
 		app.TrustHost(host, app.TrustScopeModpack)
 	}
 	return true, ""
+}
+
+// placePending 把一个待决文件写进服务器文件夹，锁只在这一下拿。顺序是：配置锁（config|实例名）→ server.properties
+// 的路径锁 → 在锁里重做落点检查（九个目录的白名单、真实路径、控制文件、当前世界）→ 目标文件的路径锁（copyPendingFile 里）。
+// 检查和写入之间没有空档：世界名在 server.properties 里，设置锁拿着它就改不了；配置文件也不会同时有人在写。
+// 返回的两个错误分开说：destErr 是落点不合规（照原样给用户看），err 是拿锁或写的时候出错。
+func (m *Manager) placePending(ctx context.Context, inst *Instance, rel string, write func(dest string) error) (destErr, err error) {
+	unlockConfig, err := LockKeyContext(ctx, "config|"+inst.Name)
+	if err != nil {
+		return nil, err
+	}
+	defer unlockConfig()
+	unlockProps, err := atomicfile.LockPathContext(ctx, inst.PropsPath())
+	if err != nil {
+		return nil, err
+	}
+	defer unlockProps()
+	dest, err := pendingDestination(inst, rel)
+	if err != nil {
+		return err, nil
+	}
+	return nil, write(dest)
+}
+
+// copyPendingFile 把 src 原样写成 dest：写同一文件夹里的临时文件、刷盘、一步换上去，失败时原件还在。
+// 磁盘余量只查不排队（diskguard 的 Shared）：这一下拿着配置锁和设置锁，不能排在备份、地图暂存这些大批量写盘后面干等，
+// 那样保存设置又会被挡住。补装的是单个模组、配置、资源包，不是整个世界。
+// 和 copyLocalFileContext 的差别只在这一点；那个函数导入时还在用，不动它。
+func copyPendingFile(ctx context.Context, src, dest string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	stop := context.AfterFunc(ctx, func() { _ = in.Close() })
+	defer stop()
+	unlock, err := atomicfile.LockPathContext(ctx, dest)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	lease, err := diskguard.Acquire(ctx, filepath.Dir(dest), diskguard.Options{Shared: true, AllowUnknown: true})
+	if err != nil {
+		return err
+	}
+	defer lease.Close()
+	err = atomicfile.CopyWith(dest, in, 0o644, lease.Writer)
+	if err != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return err
+}
+
+// pendingStageDir 信任下载用的临时文件夹：在 MineDeck 的缓存文件夹里（没有时用系统临时文件夹），不在任何服务器文件夹里。
+// 用完由调用方整个删掉；程序中途退出留下的是缓存，不影响服务器。
+func pendingStageDir() (string, error) {
+	base := os.TempDir()
+	if app.CacheDir != "" {
+		base = filepath.Join(app.CacheDir, "pending-download")
+	}
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return "", err
+	}
+	return os.MkdirTemp(base, "dl-*")
 }
 
 // pendingRef 待决清单对应的实例。光记名字不够：那台实例删掉以后再建一台同名的，

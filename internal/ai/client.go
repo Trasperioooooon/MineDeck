@@ -57,7 +57,8 @@ const (
 // Client 一个服务商的客户端。可以并发使用。
 type Client struct {
 	cfg           Config
-	responseLimit int64 // 每次响应的字节上限；测试可在客户端开始使用前调小
+	responseLimit int64 // 每次回复的内容（解码后的正文、思考、工具参数）字节上限；测试可在客户端开始使用前调小
+	rawLimit      int64 // 每次响应的原始字节上限（流式；不流式时另受 maxBody 限制）；测试可调小，见 limits.go
 
 	mu            sync.Mutex
 	eager         bool // 中转不认 eager_input_streaming 时关掉
@@ -102,7 +103,7 @@ func NewClient(cfg Config) (*Client, error) {
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 10 * time.Minute
 	}
-	return &Client{cfg: cfg, responseLimit: maxResponseBytes, eager: cfg.Eager && cfg.Stream, fallback: cfg.Fallback, dropReasoning: cfg.DropReasoning && cfg.Echo == EchoAuto}, nil
+	return &Client{cfg: cfg, responseLimit: maxResponseBytes, rawLimit: maxResponseRawBytes, eager: cfg.Eager && cfg.Stream, fallback: cfg.Fallback, dropReasoning: cfg.DropReasoning && cfg.Echo == EchoAuto}, nil
 }
 
 // keepKeyOnSite 只跟随同一个网站里的重定向。Go 换网站时只会去掉 Authorization 和 Cookie，不认识 api-key、x-api-key，

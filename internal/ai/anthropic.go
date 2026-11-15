@@ -190,15 +190,54 @@ type claudeAcc struct {
 	tools   int
 	outLen  int // 收到的输出有多少字节（断开时估算用量）
 	err     error
+	meter   *contentMeter // 内容记账：块的骨架、正文、思考和签名、工具参数、引用
 }
 
-func newClaudeAcc(c *Client, emit func(Event)) *claudeAcc {
-	return &claudeAcc{c: c, emit: emit, blocks: map[int]*claudeBlock{}}
+// take 记入内容；超限时记下错误，调用方不再把这一块交出去。
+func (a *claudeAcc) take(n int) bool {
+	if a.meter.take(n) {
+		return true
+	}
+	a.err = ErrResponseTooLarge
+	return false
+}
+
+// claudeBlockSize 不流式时一个内容块要记入内容的字节数：正文、思考（连同签名）、工具的编号、名字和参数按解码后的算；
+// 别的块（服务端工具的结果、回退标记等）整块原样留进历史，按原文算。
+func claudeBlockSize(raw json.RawMessage) int {
+	var b struct {
+		Type      string          `json:"type"`
+		ID        string          `json:"id"`
+		Name      string          `json:"name"`
+		Text      string          `json:"text"`
+		Thinking  string          `json:"thinking"`
+		Signature string          `json:"signature"`
+		Input     json.RawMessage `json:"input"`
+	}
+	if json.Unmarshal(raw, &b) != nil {
+		return len(raw)
+	}
+	switch b.Type {
+	case "text":
+		return len(b.Text)
+	case "thinking":
+		return len(b.Thinking) + len(b.Signature)
+	case "tool_use":
+		return len(b.ID) + len(b.Name) + len(b.Input)
+	}
+	return len(raw)
+}
+
+func newClaudeAcc(c *Client, emit func(Event), meter *contentMeter) *claudeAcc {
+	return &claudeAcc{c: c, emit: emit, blocks: map[int]*claudeBlock{}, meter: meter}
 }
 
 func (a *claudeAcc) start(index int, raw json.RawMessage) {
 	if _, exists := a.blocks[index]; !exists && len(a.blocks) >= maxReplyBlocks {
 		a.err = ErrResponseTooLarge
+		return
+	}
+	if !a.take(len(raw)) { // 块的骨架原样留进历史（服务端工具的结果整块在这里）
 		return
 	}
 	var obj map[string]json.RawMessage
@@ -249,18 +288,30 @@ func (a *claudeAcc) delta(index int, raw json.RawMessage) {
 	}
 	switch d.Type {
 	case "text_delta":
+		if !a.take(len(d.Text)) {
+			return
+		}
 		b.text.WriteString(d.Text)
 		a.outLen += len(d.Text)
 		a.emit(Event{Type: EvText, Text: d.Text})
 	case "thinking_delta":
+		if !a.take(len(d.Thinking)) {
+			return
+		}
 		b.text.WriteString(d.Thinking)
 		a.outLen += len(d.Thinking)
 		if d.Thinking != "" {
 			a.emit(Event{Type: EvReasoning, Text: d.Thinking})
 		}
 	case "signature_delta":
+		if !a.take(len(d.Signature)) {
+			return
+		}
 		b.sig.WriteString(d.Signature)
 	case "input_json_delta":
+		if !a.take(len(d.PartialJSON)) {
+			return
+		}
 		b.input.WriteString(d.PartialJSON)
 		a.outLen += len(d.PartialJSON)
 		if b.tool >= 0 && d.PartialJSON != "" {
@@ -268,6 +319,9 @@ func (a *claudeAcc) delta(index int, raw json.RawMessage) {
 		}
 	case "citations_delta":
 		if len(d.Citation) > 0 {
+			if !a.take(len(d.Citation)) {
+				return
+			}
 			b.cites = append(b.cites, d.Citation)
 		}
 	}
@@ -468,7 +522,8 @@ func (c *Client) claudeOnce(ctx context.Context, conv *Conversation, emit func(E
 		return nil, err
 	}
 	defer resp.Body.Close()
-	reader := c.responseReader(ctx, kickReader{resp.Body, dog})
+	reader := c.rawReader(kickReader{resp.Body, dog})
+	meter := c.contentMeter(ctx)
 
 	if !c.cfg.Stream {
 		b, err := readAll(reader)
@@ -491,6 +546,14 @@ func (c *Client) claudeOnce(ctx context.Context, conv *Conversation, emit func(E
 			return nil, c.apiError(500, http.Header{}, b)
 		}
 		if len(m.Content) > maxReplyBlocks {
+			return nil, ErrResponseTooLarge
+		}
+		// 整条回复一次记账，超了什么都不交出去（同原始字节超限时：还没有任何输出）
+		size := 0
+		for _, raw := range m.Content {
+			size += claudeBlockSize(raw)
+		}
+		if !meter.take(size) {
 			return nil, ErrResponseTooLarge
 		}
 		calls := make([]*ToolCall, len(m.Content))
@@ -539,7 +602,14 @@ func (c *Client) claudeOnce(ctx context.Context, conv *Conversation, emit func(E
 		return r, nil
 	}
 
-	acc := newClaudeAcc(c, emit)
+	acc := newClaudeAcc(c, emit, meter)
+	// overflow 内容超限：和原始字节超限一样收尾，开始输出以后算中途断开（交回已收的部分），之前就是一个错误
+	overflow := func() (*Result, error) {
+		if acc.started {
+			return acc.assemble(true, len(body)), fmt.Errorf("%w：%w", ErrDisconnected, acc.err)
+		}
+		return nil, acc.err
+	}
 	sr := newSSEReader(reader)
 	for {
 		ev, err := sr.next()
@@ -586,10 +656,16 @@ func (c *Client) claudeOnce(ctx context.Context, conv *Conversation, emit func(E
 		case "content_block_start":
 			acc.start(head.Index, head.ContentBlock)
 			if acc.err != nil {
+				if meter.over() {
+					return overflow()
+				}
 				return acc.assemble(true, len(body)), acc.err
 			}
 		case "content_block_delta":
 			acc.delta(head.Index, head.Delta)
+			if acc.err != nil {
+				return overflow()
+			}
 		case "content_block_stop":
 			acc.finish(head.Index)
 		case "message_delta":
