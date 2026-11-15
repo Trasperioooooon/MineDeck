@@ -160,6 +160,7 @@ var fakeList = []fakeRel{
 	{tag: "v3.1.2"},
 	{tag: "v3.3.0", draft: true}, // 草稿：没发出来，不算
 	{tag: "companion-v9.9.9"},    // 不是这个程序的版本号，不比
+	{tag: "v99"},                 // 只有一段数字，不是「主.次.修订」，不比（不跳过的话按 99.0.0 算，它最大）
 	{tag: "v3.2.0-beta.3", pre: true},
 	{tag: "v3.1.1"},
 	{tag: "v3.2.0-beta.11", draft: true, pre: true}, // 草稿的预发布也不算
