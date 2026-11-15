@@ -2251,6 +2251,10 @@ function handler(state, ui, portOf) {
     //   cfKey: 已存的 CurseForge API Key（空串 = 未设置）；cfKeyBroken: true 模拟「Key 解不开」（换了电脑或 Windows 用户）
     //   local: false 模拟从局域网打开（/api/app 的 Webhook 地址只给开头，原样传回算没改）；webhookUrl: 直接改存着的 Webhook 地址
     //   credBroken: 隧道编号（如 "t2"），模拟这条隧道的凭据解不开；空串还原
+    //   pickDir: 下一次系统文件夹选择框选到的文件夹（空串 = 点了取消，null 还原成 E:\MCServers）
+    //   导出交接包：dest 是 Z 盘开头的、以「\新文件夹」结尾又没建过的算不在；带 mkdir 的「新建并导出」记进响应里的 lastTransferMkdir，
+    //     建过的记在 madeDirs（madeDirs: [] 清掉）
+    //   tunnel 的 noLog: true 这条隧道还没有任何日志输出（日志接口什么也不推）；修改隧道（PUT）同后端拦网页端口、凭据留空时沿用存着的那份
     //   tunnels: [...] 把隧道整份换掉（空数组 = 一条都没有）
     //   tunnel: { id, …字段 } 改某条隧道（running、lastError、publicAddr，以及仿真用的 startError：点「启动」时报这个错、
     //     nextAddr：启动后过 addrDelay 毫秒拿到的公网地址）；tunnelsReset: true 隧道回到初始的两条（t2 是存着凭据的自定义 frps）；
@@ -2285,6 +2289,8 @@ function handler(state, ui, portOf) {
       if ("adoptScan" in b) state.adoptScan = b.adoptScan; // 接管：下一次识别返回的结果（null 还原成默认的 NeoForge 整合包）
       if ("commands" in b) state.commands = b.commands || []; // 发过的控制台命令（见 POST …/command），传空数组清掉
       if ("portBusy" in b) state.portBusy = b.portBusy; // 交接包向导：端口号等于这个值的端口查询按「被占用」回
+      if (Array.isArray(b.madeDirs)) { state.madeDirs = b.madeDirs; state.lastTransferMkdir = null; }
+      if ("pickDir" in b) state.pickDir = b.pickDir === null ? undefined : b.pickDir; // 系统文件夹选择框选到哪个（空串 = 点了取消；null 还原成 E:\MCServers）
       if (b.instReset) { const fresh = newState(ui); state.instances = fresh.instances; state.lastAdopt = state.lastJava = state.lastDelete = null; }
       if ("listenLan" in b) { state.config.listenLan = state.lanActive = !!b.listenLan; if (b.listenLan) state.lanSet = true; }
       if ("lanSet" in b) state.lanSet = !!b.lanSet;
@@ -2335,7 +2341,7 @@ function handler(state, ui, portOf) {
     const insts = () => state.empty ? [] : state.instances;
     const seg = p.split("/").map(decodeURIComponent); // ["", "api", "instances", name, sub...]
     try {
-      if (p === "/api/app") return ok(res, { version: "2.9.0-beta.2", base: "D:\\MineDeck", ramMb: 16384, availRamMb: 9216, port: portOf(), serversRoot: "D:\\MineDeck\\servers", backupsRoot: "D:\\MineDeck\\backups", config: publicCfg(state), local: state.local, lanSet: state.lanSet, lanActive: state.lanActive, cfKeySet: !!state.cfKey && !state.cfKeyBroken, cfKeyBroken: state.cfKeyBroken, autoStart: state.autoStart, ips: ["172.22.48.1", "192.168.1.23", "10.0.0.5"] });
+      if (p === "/api/app") return ok(res, { version: "2.9.0-beta.2", base: "D:\\MineDeck", ramMb: 16384, availRamMb: 9216, port: portOf(), serversRoot: state.config.serversDir || "D:\\MineDeck\\servers", backupsRoot: state.config.backupsDir || "D:\\MineDeck\\backups", config: publicCfg(state), local: state.local, lanSet: state.lanSet, lanActive: state.lanActive, cfKeySet: !!state.cfKey && !state.cfKeyBroken, cfKeyBroken: state.cfKeyBroken, autoStart: state.autoStart, ips: ["172.22.48.1", "192.168.1.23", "10.0.0.5"] });
       if (p === "/api/bg") return ok(res, { images: [] });
       if (p === "/api/ops/log") {
         const q = u.searchParams, lim = Math.min(+q.get("limit") || 100, 1000);
@@ -2386,7 +2392,7 @@ function handler(state, ui, portOf) {
       if (p === "/api/builds") return ok(res, [232, 231, 230, 229, 228, 225, 220].map((n, i) => ({ id: String(n), label: `2026-10-${String(20 - i * 2).padStart(2, "0")}`, recommended: i === 0 })));
       if (p === "/api/javas") return ok(res, { portable: [{ major: 21, path: "D:\\MineDeck\\runtimes\\java-21\\bin\\java.exe" }, { major: 17, path: "D:\\MineDeck\\runtimes\\java-17\\bin\\java.exe" }], scanned: [{ major: 21, version: "21.0.4", path: "C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.4.7-hotspot\\bin\\java.exe" }, { major: 8, version: "1.8.0_421", path: "C:\\Program Files\\Java\\jre1.8.0_421\\bin\\java.exe" }] });
       if (p === "/api/javas/scan") return ok(res, [1, 2]);
-      if (p === "/api/pickdir") return ok(res, { path: "E:\\MCServers" });
+      if (p === "/api/pickdir") return ok(res, { path: state.pickDir ?? "E:\\MCServers" }); // pickDir 见 /__mock/state 的说明（空串 = 点了取消）
       // 在资源管理器里打开文件夹（同 host.openpath，只许本机）：记下打开的是哪个
       if (p === "/api/openpath" && m === "POST") {
         if (!state.local) return err(res, 403, "打开文件夹仅支持在本机操作");
@@ -2547,7 +2553,10 @@ function handler(state, ui, portOf) {
       // tunnels.json 没读出来（tunnelsLoadFail）：列表回 503（同 tunnel.list 遇到 LoadError），其余改动的接口回 400
       if (p.startsWith("/api/tunnels") && !p.endsWith("/console") && loadFail(state, res, p === "/api/tunnels" && m === "GET" ? 503 : 400)) return;
       if (p === "/api/tunnels" && m === "GET") return ok(res, state.tunnels.map(t => ({ ...t, online: !!t.running && (t.online ?? !!t.publicAddr) })));
-      if (p.startsWith("/api/tunnels/") && p.endsWith("/console")) return sse(res, ["[frpc] login to server success", "[frpc] proxy added: [mc]", "[frpc] start proxy success"]);
+      if (p.startsWith("/api/tunnels/") && p.endsWith("/console")) { // noLog：这条隧道还没有任何输出（没启动过）
+        const t = state.tunnels.find(x => x.id === seg[3]);
+        return sse(res, t && t.noLog ? [] : ["[frpc] login to server success", "[frpc] proxy added: [mc]", "[frpc] start proxy success"]);
+      }
       // 启停（同 tunnel.Manager.Start / Stop）：frpc 起来之前就失败的（startError，比如樱花还没放 frpc）报 400，
       // 原因加上「启动失败：」记进 lastError；起来了就清掉 lastError，过 addrDelay 毫秒（默认 1500）拿到 nextAddr 这个公网地址
       if (seg[2] === "tunnels" && (seg[4] === "start" || seg[4] === "stop") && m === "POST") {
@@ -2574,6 +2583,15 @@ function handler(state, ui, portOf) {
         if (b.clearCredential && b.provider !== "custom") return err(res, 400, "只有自定义 frps 的隧道能清除凭据，OpenFrp 和樱花穿透启动时必须带凭据");
         if (b.clearCredential && String(b.credential || "").trim()) return err(res, 400, "要清除凭据，就不要同时填新的凭据");
         if (t.running) return err(res, 400, "请先停止隧道再修改");
+        // 自定义 frps 不许指向 MineDeck 自己的网页端口（同 tunnel.checkGuardPort，PR #20）
+        if (b.provider === "custom" && +b.localPort === portOf()) return err(res, 400, `本地端口 ${portOf()} 是 MineDeck 自己的网页端口，不能映射到公网：要填的是 Minecraft 服务器的端口`);
+        // 凭据留空表示沿用存着的那份（可用性走查 R12 的「编辑」）：换服务商、换 frps 地址端口要重填；没有存着的、又是要凭据的服务商时要填
+        if (!b.clearCredential && !String(b.credential || "").trim()) {
+          const had = t.provider === "custom" ? !!t.hasCredential : t.hasCredential !== false;
+          if (had && (b.provider !== t.provider || (b.provider === "custom" && (b.serverAddr !== t.serverAddr || +b.serverPort !== +t.serverPort))))
+            return err(res, 400, "换了服务商或 frps 地址、端口，要重新填一次凭据");
+          if (!had && b.provider !== "custom") return err(res, 400, "请填写凭据与隧道 ID（在服务商官网创建隧道后获取）");
+        }
         const { credential, clearCredential, id, ...cfg } = b;
         Object.assign(t, cfg);
         if (clearCredential) { t.hasCredential = false; t.credBroken = false; } else if (String(credential || "").trim()) { t.hasCredential = true; t.credBroken = false; }
@@ -2605,8 +2623,15 @@ function handler(state, ui, portOf) {
         if (sub === "transfer" && seg[5] === "export" && m === "POST") {
           if (i.status !== "stopped") return err(res, 400, "交接前请先停止服务器（运行中打包会不完整）");
           const b = await readBody(req);
-          // 同 transfer/export.go：填的导出位置不存在或不是文件夹。仿真里 Z 盘开头的都算不存在
-          if (/^Z:/i.test(String(b.dest || "").trim())) return err(res, 400, "导出文件夹不可用: " + String(b.dest).trim());
+          // 同 transfer/export.go：填的导出位置不在。仿真里 Z 盘开头的、以「\新文件夹」结尾又还没建过的都算不在
+          const dest = String(b.dest || "").trim();
+          const missing = /^Z:/i.test(dest) || (/\\新文件夹$/.test(dest) && !(state.madeDirs || []).includes(dest));
+          // mkdir（「新建并导出」，同 web.handleTransferExport + transfer.MakeExportDir）：只许本机；只建最后一级，上一级要在（Z 盘不在）
+          if (b.mkdir) {
+            if (!state.local) return err(res, 403, "新建导出文件夹仅支持在本机操作（远程管理时请在主机上操作）");
+            if (/^Z:/i.test(dest)) return err(res, 400, `上一级文件夹「${dest.slice(0, dest.lastIndexOf("\\")) || dest}」不在。MineDeck 只新建最后一级，请检查路径有没有打错，或者点「浏览…」选一个已有的文件夹`);
+            if (missing) { (state.madeDirs || (state.madeDirs = [])).push(dest); state.lastTransferMkdir = dest; }
+          } else if (missing) return err(res, 400, "导出文件夹不可用（找不到这个文件夹）: " + dest);
           state.lastTransferExport = { inst: name, ...b };
           return ok(res, { taskId: "task-transfer-out" });
         }

@@ -40,6 +40,9 @@ type Config struct {
 	ListenLAN          bool   `json:"listenLan,omitempty"`          // 允许局域网访问（需设置密码，重启生效）
 	AccessPasswordHash string `json:"accessPasswordHash,omitempty"` // 远程访问密码哈希（bcrypt；兼容旧版 SHA-256 hex，登录成功自动升级）
 	MinimizeToTray     bool   `json:"minimizeToTray,omitempty"`     // 关闭窗口时最小化到托盘（服务器不停），默认关
+	// TrayHinted 第一次点关闭按钮把窗口缩到托盘时，已经用系统通知提醒过一次（可用性走查 R17）。只由 TrayHintOnce 写，
+	// PUT /api/config 不收这个键
+	TrayHinted bool `json:"trayHinted,omitempty"`
 
 	ServersDir  string   `json:"serversDir,omitempty"`  // 自定义实例存放根目录（空=内置 servers/），仅对新建生效
 	BackupsDir  string   `json:"backupsDir,omitempty"`  // 自定义备份根目录（空=内置 backups/）
@@ -173,6 +176,18 @@ func UpdateConfig(mutate func(*Config) error) (Config, error) {
 	cfg = c
 	saveLocked()
 	return c, nil
+}
+
+// TrayHintOnce 第一次把窗口缩到托盘时提醒一次「MineDeck 还在运行」（可用性走查 R17：以前点了 × 窗口就没了，
+// 窗口里、系统里都没有任何说法，不知道程序还开着）。提醒过就记进配置，以后不再提醒，重启也不再提醒。
+// show 真正弹出提醒（托盘的系统通知），返回弹没弹出来：没弹出来（托盘图标不在、系统不让）不记，下次缩到托盘时再试。
+// 返回这次有没有提醒。只在窗口线程上调用。
+func TrayHintOnce(show func() bool) bool {
+	if GetConfig().TrayHinted || !show() {
+		return false
+	}
+	_, _ = UpdateConfig(func(c *Config) error { c.TrayHinted = true; return nil })
+	return true
 }
 
 // saveLocked 持久化当前配置，调用方须已持有 cfgMu。

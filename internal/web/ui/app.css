@@ -206,6 +206,11 @@ h3 { font-size: var(--fs-h3); line-height: 22px; font-weight: var(--fw-semibold)
 }
 .sb-theme:hover { background: var(--hover); color: var(--text); }
 .sb-theme .ico { width: 16px; height: 16px; }
+/* 侧栏底部的「退出 MineDeck」（可用性走查 R17）：开了「缩到托盘」以后点 × 不退出，窗口里一直找得到退出的地方。
+   和主题键、版本号挤一行放不下（会折成两行字），单独占底部第二行；窄窗口下侧栏只剩图标，它也只剩图标 */
+.sb-foot { flex-wrap: wrap; }
+.sb-quit { order: 3; flex-basis: 100%; }
+.sb-quit:hover { color: var(--danger-text); }
 .sb-ver { margin-left: auto; padding-right: 6px; font: var(--fs-2xs) var(--mono); color: var(--muted); }
 
 /* 内容层：比 chrome 亮一阶的整张「纸」，左上大圆角 + 发丝边 + 向左上投一点影 */
@@ -667,6 +672,23 @@ a.inst-name:hover { text-decoration: underline; text-decoration-color: color-mix
 .tun-accounts-grid .java-row > div { min-width: 0; }
 .java-row.tun-row { max-width: none; }
 .empty.tun-empty { padding-top: 20px; }
+/* beta.3（可用性走查 R12、R18）：「我的隧道」排在平台账户上面；隧道行第二行写公网地址（停着也写）和跟随状态 */
+.tun-how { margin: -6px 0 14px; line-height: 1.7; }
+.tun-mine { margin: 4px 0 8px; }
+.tun-mine > h3 { margin: 0 0 10px; }
+.tun-meta { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: var(--fs-xs); color: var(--muted); }
+.tun-addr-k { color: var(--muted); }
+.tun-addr-v { color: var(--accent-text); font-family: var(--mono); overflow-wrap: anywhere; }
+.tun-addr-none { color: var(--faint); }
+.tun-sep { color: var(--faint); }
+.tun-follow { display: inline-flex; align-items: center; gap: 5px; }
+.tun-follow .ico { width: 13px; height: 13px; }
+.tun-follow b { color: var(--text); font-weight: var(--fw-semibold); }
+.task-log .tlog-empty { color: var(--muted); font-family: var(--font); }
+.tun-frpc { margin-top: 8px; font-size: var(--fs-xs); line-height: 1.7; }
+.tun-frpc summary { cursor: pointer; color: var(--accent-text); width: fit-content; }
+.tun-frpc ol { margin: 6px 0 4px; padding-left: 20px; }
+.tun-frpc code { font-family: var(--mono); overflow-wrap: anywhere; }
 .eula-box { padding: 14px 16px; margin: 4px 0 16px; max-width: var(--w-read); transition: border-color var(--dur-2), box-shadow var(--dur-2); }
 .eula-box.invalid { border-color: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 18%, transparent); }
 .eula-box .field-err { margin: 8px 0 0 50px; }
@@ -1212,6 +1234,7 @@ html[data-splash="play"] .splash-word { animation: label-in var(--dur-3) var(--e
   .nav-item span, .nav-item .key, .sb-theme span, .sb-ver { display: none; }
   .sb-foot { flex-direction: column; padding-inline: 0; }
   .sb-theme { justify-content: center; width: 100%; padding: 0; }
+  .sb-quit { flex-basis: auto; } /* 竖排时不撑满高度 */
   #main { padding: 24px 24px; }
   .settings-layout { gap: 20px; }
   .settings-nav { width: 168px; }
@@ -1299,3 +1322,9 @@ html[data-splash="play"] .splash-word { animation: label-in var(--dur-3) var(--e
 @supports (-webkit-touch-callout: none) {
   input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]), select, textarea { font-size: 16px !important; }
 }
+
+/* beta.3 交接导出（可用性走查 R20）：「这个包给谁」两项各写一句对方导入时看到什么；找不到导出文件夹时给「新建并导出」 */
+.tr-modes .ob-radio { align-items: flex-start; }
+.tr-modes .ob-radio input { margin-top: 3px; }
+.tr-mode-note { display: block; margin-top: 2px; color: var(--muted); font-size: var(--fs-xs); line-height: 1.5; }
+.tr-mkdir-row { margin-top: 6px; }

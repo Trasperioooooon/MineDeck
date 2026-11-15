@@ -302,6 +302,14 @@ add("tunnel", "u-short-cred", "添加表单：凭据短于 6 个字符的提示"
   steps: [{ select: "#tn-provider", value: "custom" }, { fill: "#tn-cred", value: "abc" }, { wait: "#tn-cred-short:not([hidden])" }],
   note: "只是提示，照样能添加。日志里含这串凭据的行会整行隐藏，排查问题不方便。",
 });
+add("tunnel", "u-stopped", "停着的隧道也写公网地址和跟随状态（R12）", {
+  hash: "#/tunnels", tag: "new", setup: s => { s.tunnels[0].running = false; },
+  note: "樱花、OpenFrp 停着时写上次拿到的地址、标「上次」；自定义 frps 用配置里的「frps 地址:公网端口」，不用启动。都能复制。每条下面写跟随哪台服务器启动、开还是关。「我的隧道」在平台账户上面。",
+});
+add("tunnel", "u-edit", "编辑隧道：只改名称、绑定的服务器、跟随启动（R12）", {
+  hash: "#/tunnels", tag: "new", steps: [{ click: '[data-tedit="t2"]' }, { wait: "#tn-ed-name" }],
+  note: "服务商、地址、端口和凭据不在这里改，要换就删了重新添加。被拒的原因（指向网页端口、tunnels.json 没读出来、运行中）写在弹窗里。",
+});
 add("tunnel", "u-min", "最小窗口下", { view: "min", hash: "#/tunnels", setup: s => { s.tunnels = []; } });
 add("tunnel", "u-phone", "手机上", { view: "phone", hash: "#/tunnels" });
 
@@ -309,6 +317,14 @@ add("tunnel", "u-phone", "手机上", { view: "phone", hash: "#/tunnels" });
 for (const [id, label] of [["appearance", "外观"], ["download", "下载与网络"], ["storage", "存储位置"], ["java", "Java 运行时"], ["remote", "手机远程管理"], ["notify", "通知与集成"], ["ai", "AI（可选）"], ["startup", "启动与托盘"], ["about", "更新与关于"]]) {
   add("settings", "s-" + id, label, { hash: "#/settings/" + id });
 }
+add("settings", "s-storage-undo", "存储位置：改了马上生效，提示里能撤销（R16）", {
+  hash: "#/settings/storage", tag: "new", setup: s => { s.pickDir = "E:\\MC备份"; },
+  steps: [{ click: '[data-pick="backups"]' }, { wait: '.toast button[aria-label^="撤销"]' }],
+  note: "撤销换回改之前配置里的值，原来是默认位置就换回默认。下面多了「备份保留份数」（R15，原来在每台服务器的备份页上）。",
+});
+add("settings", "s-storage-same", "存储位置：服务器和备份放在同一个文件夹（R20）", {
+  hash: "#/settings/storage", tag: "new", setup: s => { s.config.backupsDir = "D:\\MineDeck\\servers"; },
+});
 add("settings", "s-remote-on", "手机远程管理：已开启（二维码）", { hash: "#/settings/remote", setup: s => { s.config.listenLan = s.lanActive = true; s.lanSet = true; } });
 add("settings", "s-ai-on", "AI：已经配好一家", {
   hash: "#/settings/ai",
@@ -342,6 +358,12 @@ add("overlay", "o-modal-stack", "交接弹窗里报错：原因写在弹窗里�
   // 「导出交接包…」是菜单里紧挨着「删除服务器…」（中间隔一条分隔线）的那一项；场景的步骤只认 CSS 选择器
   steps: [{ click: `.card[data-name="机械动力整合包"] [data-act="more"]` }, { click: ".dropmenu button:has(+ .dm-sep + button.danger)" }, { fill: "#tr-dest", value: "Z:\\不存在的文件夹" },
     { click: "#tr-go" }, { wait: "#tr-dest.invalid" }, { click: '.toast.error button[aria-label="查看报错详情"]' }],
+});
+add("overlay", "o-tr-mkdir", "交接弹窗：导出文件夹不在，给「新建并导出」（R20）", {
+  tag: "new", note: "只建最后一级，上一级要已经在；只能在运行 MineDeck 的这台电脑上用。「这个包给谁」两项各写了对方导入时看到什么。",
+  setup: s => { s.instances = four(); },
+  steps: [{ click: `.card[data-name="机械动力整合包"] [data-act="more"]` }, { click: ".dropmenu button:has(+ .dm-sep + button.danger)" }, { fill: "#tr-dest", value: "E:\\交接包\\新文件夹" },
+    { click: "#tr-go" }, { wait: "#tr-mkdir" }],
 });
 add("overlay", "o-guard", "还有修改没保存就想走", {
   hash: `#/inst/${enc("生存服 · 朋友")}/common`,

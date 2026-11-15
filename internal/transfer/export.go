@@ -2,8 +2,10 @@ package transfer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,6 +56,10 @@ func ExportAsync(m *inst.Manager, req ExportReq) (string, error) {
 	if dest != "" {
 		dest = filepath.Clean(dest)
 		if st, err := os.Stat(dest); err != nil || !st.IsDir() {
+			// 不在的单独说：界面据此给「新建并导出」（MakeExportDir，只建最后一级）。前半句不变，认它的地方照旧认得
+			if err != nil && errors.Is(err, fs.ErrNotExist) {
+				return "", fmt.Errorf("%s: %s", ErrExportDirMissing, dest)
+			}
 			return "", fmt.Errorf("导出文件夹不可用: %s", dest)
 		}
 		// 目录在本实例的文件夹里的话，下一次导出会把上次的包也打进去

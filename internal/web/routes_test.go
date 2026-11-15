@@ -246,6 +246,9 @@ func TestRoutesKeepPathsAndSemantics(t *testing.T) {
 		{"POST", "/api/tunnels", `{"provider":"custom","name":"自建","credential":"` + frpsToken + `","serverAddr":"1.2.3.4","serverPort":7000,"remotePort":25566,"localPort":25565}`, 200, "", nil},
 		{"POST", "/api/tunnels", `{"provider":"bogus","name":"x"}`, 400, "未知服务商", nil},
 		{"PUT", "/api/tunnels/" + e.tunID, `{"provider":"natfrp","name":"樱花 2","proxyId":"9","credential":"` + sakuraKey + `","localPort":25565}`, 200, "", nil},
+		// 界面上的「编辑」（可用性走查 R12）：凭据留空，沿用存着的那份，只改名称、绑定和跟随；换服务商照旧要重填
+		{"PUT", "/api/tunnels/" + e.tunID, `{"provider":"natfrp","name":"樱花 2","proxyId":"9","boundInstance":"S1","autoStart":false}`, 200, "", nil},
+		{"PUT", "/api/tunnels/" + e.tunID, `{"provider":"openfrp","name":"樱花 2","proxyId":"9"}`, 400, "重新填一次凭据", nil},
 		// 清除凭据要明说（clearCredential），而且只有自定义 frps 能清；上面新增的自定义 frps 是 tun2
 		{"PUT", "/api/tunnels/" + e.tunID, `{"provider":"natfrp","name":"樱花 2","proxyId":"9","clearCredential":true}`, 400, "只有自定义 frps 的隧道能清除凭据", nil},
 		{"PUT", "/api/tunnels/tun2", `{"provider":"custom","name":"自建","serverAddr":"5.6.7.8","serverPort":7000,"remotePort":25566,"localPort":25565,"clearCredential":true}`, 200, "", nil},

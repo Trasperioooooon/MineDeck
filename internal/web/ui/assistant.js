@@ -832,27 +832,28 @@ window.MDAssist = (() => {
     if (res && res.x === "copy") copy(r.text);
   }
 
-  /* 弹窗（外观同 app.js 的 confirmModal）：点了哪个按钮就返回 {x, mask}；Esc、点外面返回 null */
+  /* 弹窗（外观同 app.js 的 confirmModal）：点了哪个按钮就返回 {x, mask}；Esc、点外面返回 null。
+     叠一层（app.js 的 modalLayer），不整个换掉 #modal-root：下面开着的弹窗和填的东西都还在（可用性走查 R04 留下的）；
+     Esc 只关最上面这一层；框里有要填的（发送预览里的提问）时点遮罩不关 */
   function sheet({ title, body, buttons, cls = "" }) {
     return new Promise(resolve => {
-      const root = $("#modal-root");
       const prev = document.activeElement;
-      root.innerHTML = `<div class="modal-mask enter"><div class="modal ${cls}" role="dialog" aria-modal="true" aria-labelledby="ap-m-title">
-        <h3 id="ap-m-title">${esc(title)}</h3>${body}
-        <div class="m-actions">${buttons.map(b => `<button class="btn ${b.cls || ""}" data-x="${b.x}">${b.html || esc(b.text)}</button>`).join("")}</div></div></div>`;
-      const mask = root.firstElementChild;
+      const tid = layerId("ap-m-title");
+      const mask = modalLayer(`<div class="modal ${cls}" role="dialog" aria-modal="true" aria-labelledby="${tid}">
+        <h3 id="${tid}">${esc(title)}</h3>${body}
+        <div class="m-actions">${buttons.map(b => `<button class="btn ${b.cls || ""}" data-x="${b.x}">${b.html || esc(b.text)}</button>`).join("")}</div></div>`);
       let done = false;
       const end = v => {
         if (done) return;
         done = true;
         document.removeEventListener("keydown", onKey);
         dismiss(mask);
-        if (prev && prev.focus) prev.focus();
+        if (prev && prev.focus && prev.isConnected) prev.focus();
         resolve(v);
       };
-      const onKey = e => { if (e.key === "Escape") end(null); };
+      const onKey = e => { if (e.key === "Escape" && topLayer(mask)) end(null); };
       document.addEventListener("keydown", onKey);
-      mask.addEventListener("mousedown", e => { if (e.target === e.currentTarget) end(null); });
+      mask.addEventListener("mousedown", e => { if (e.target === e.currentTarget && !hasFields(mask)) end(null); });
       mask.querySelectorAll(".m-actions [data-x]").forEach(b => b.onclick = () => end({ x: b.dataset.x, mask }));
       mask.querySelector(".m-actions .btn:last-child").focus();
     });
@@ -1025,12 +1026,12 @@ window.MDAssist = (() => {
     if (b) b.onclick = () => analyze(name, b);
   }
 
-  /* ---------- 设置 → AI 里的「应用内助手」 ---------- */
+  /* ---------- 设置 → AI 里的「AI 助手」（原来叫「应用内助手」，beta.3 和标题栏按钮统一叫法，可用性走查 R19） ---------- */
 
   function settings(slot, v, gen) {
     if (!slot) return;
     const ro = !v.local;
-    slot.innerHTML = settingsHead("应用内助手", "在标题栏右上角打开。AI 会先查日志和配置再回答。要改东西时，先给你一张确认卡片，你点了才执行。") +
+    slot.innerHTML = settingsHead("AI 助手", "在标题栏右上角打开。AI 会先查日志和配置再回答。要改东西时，先给你一张确认卡片，你点了才执行。") +
       group(
         riRow({ ico: "phone", title: "局域网可用 AI 助手",
           sub: esc("局域网登录的设备（比如手机）也能用助手，和这台电脑共用每天的额度。确认卡片由那台设备上的人自己点。关掉之后，从局域网打开的界面里没有助手入口。"),

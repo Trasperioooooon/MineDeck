@@ -2441,7 +2441,9 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     try {
       await page.goto(url("#/tunnels")); await settle(600);
       const r = await tunRowText("t1");
-      assert(r.includes("上次出错") && r.includes("跟随启动失败：首次使用需手动放置樱花 frpc") && r.includes("natfrp 目录后重试") && !r.includes("openfrp.top"), "跟随启动失败：" + r);
+      // beta.3（可用性走查 R12）起停着的平台隧道一直显示上次拿到的地址、标「上次」，失败原因照样写在卡片上（以前这里断言不显示地址）
+      assert(r.includes("上次出错") && r.includes("跟随启动失败：首次使用需手动放置樱花 frpc") && r.includes("natfrp 目录后重试") &&
+        r.includes("cn-sz-bgp-1.openfrp.top:23456") && (await page.textContent('[data-tun="t1"] .tun-last')) === "上次", "跟随启动失败：" + r);
       // 手动启动也失败：提示里有原因，卡片上换成「启动失败：…」，按钮还能再点
       await tunState({ tunnel: { id: "t1", startError: MSG } });
       await page.click('[data-tstart="t1"]');
@@ -4668,6 +4670,354 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     assert(b.inlineText === "无法刷新隧道列表" && b.inlineRaw === crlf && b.inlineName === "复制报错信息 隧道" && b.inlineTitle === "复制报错信息 隧道", "行内报错：" + JSON.stringify(b));
   });
 
+  // ==================== beta.3 内网穿透与设置（R12 R17 R18 R19 R20） ====================
+  // docs/可用性走查-2026-11-14.md 第八节 R12、R15（设置部分）、R16（设置部分）、R17–R20 和 U29；外加第一层留下的弹窗叠层（内网穿透页、assistant.js、mcp.js）。
+  // 用例名都以「beta.3 穿透与设置」开头，node tests.js "beta.3 穿透与设置" 只跑这一块。
+  // 仿真后端用到的：/__mock/state 的 tunnel（noLog、localPort……）、tunnelsLoadFail、pickDir、config（serversDir、backupsDir），见 server.js 的说明
+  {
+    const L2 = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
+    const PACK0 = "机械动力整合包", SURV = "生存服 · 朋友", SNAP = "原版快照测试";
+    const rowText = id => page.$eval(`#tun-list [data-tun="${id}"]`, e => e.textContent.replace(/\s+/g, " ").trim());
+    const clip = () => page.evaluate(() => { window.__copied = null; Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async t => { window.__copied = t; } } }); });
+    const copied = () => page.evaluate(() => window.__copied);
+    const layers = () => page.$$eval("#modal-root > .modal-mask:not(.leave)", ms => ms.map(m => m.id || "layer"));
+    // 下面先垫一层有输入框的弹窗，看上面叠上来的弹窗关掉以后它还在不在、填的字还在不在
+    const lowerLayer = () => page.evaluate(() => { modalLayer(`<div class="modal" role="dialog" aria-label="垫在下面的弹窗"><input id="lower-in" aria-label="下层的输入框" value=""><button class="btn" data-x="ok">下层的确定</button></div>`, "lower-mask"); document.querySelector("#lower-in").value = "下层填的字"; });
+    const lowerKept = () => page.evaluate(() => { const m = document.getElementById("lower-mask"); return !!m && !m.dataset.leaving && m.querySelector("#lower-in").value === "下层填的字"; });
+    const dropLower = () => page.evaluate(() => { const m = document.getElementById("lower-mask"); if (m) m.remove(); });
+    const lastPut = async () => (await L2({})).lastTunnelPut;
+    const TUNS = [
+      { id: "t1", name: "朋友联机", provider: "openfrp", proxyId: "246810", running: false, boundInstance: SURV, autoStart: true, publicAddr: "cn-sz-bgp-1.openfrp.top:23456", lastError: "" },
+      { id: "t2", name: "自建备用线", provider: "custom", running: false, boundInstance: "", autoStart: false, publicAddr: "", lastError: "",
+        serverAddr: "frp.example.com", serverPort: 7000, remotePort: 25566, localPort: 25565, proto: "tcp", purpose: "game", hasCredential: true },
+      { id: "t3", name: "樱花新线", provider: "natfrp", proxyId: "13579", running: false, boundInstance: PACK0, autoStart: false, publicAddr: "", lastError: "", noLog: true },
+      { id: "t4", name: "旧服的线", provider: "custom", running: false, boundInstance: "已经移出的服", autoStart: true, publicAddr: "", lastError: "",
+        serverAddr: "frp.example.com", serverPort: 7000, remotePort: 30002, localPort: 25570, proto: "tcp", purpose: "game" },
+    ];
+
+    await run("beta.3 穿透与设置 R12/R18：我的隧道排在平台账户上面；停着的自定义 frps 不启动也显示「frps 地址:公网端口」能复制；停着的平台隧道显示上次的地址、标「上次」；没拿到过的写「还没拿到地址」；行上写跟随谁、开还是关；页顶说清添加隧道和平台账户的关系，樱花的 frpc 写成几步", async () => {
+      await L2({ tunnels: JSON.parse(JSON.stringify(TUNS)) });
+      try {
+        await page.goto(url("#/tunnels")); await settle(700);
+        const order = await page.evaluate(() => !!(document.querySelector("#tn-mine").compareDocumentPosition(document.querySelector("#tn-accounts")) & Node.DOCUMENT_POSITION_FOLLOWING));
+        assert(order && (await page.textContent("#tn-mine h3")).trim() === "我的隧道", "「我的隧道」应排在平台账户上面");
+        const r2 = await rowText("t2"), r1 = await rowText("t1"), r3 = await rowText("t3");
+        assert(r2.includes("公网地址") && r2.includes("frp.example.com:25566") && !r2.includes("上次") && r2.includes("没绑定服务器"), "停着的自定义 frps：" + r2);
+        assert(r1.includes("cn-sz-bgp-1.openfrp.top:23456") && (await page.textContent('[data-tun="t1"] .tun-last')) === "上次" && r1.includes(`跟随「${SURV}」启动：开`), "停着的平台隧道：" + r1);
+        assert(r3.includes("还没拿到地址") && !(await page.$('[data-tun="t3"] [data-copy]')) && r3.includes(`跟随「${PACK0}」启动：关`) && !r3.includes("尚未启动"), "没拿到过地址的：" + r3);
+        await clip();
+        await byName("button", "复制 自建备用线 的公网地址").click(); await settle(150);
+        assert(await copied() === "frp.example.com:25566" && await toastHas("已复制公网地址：frp.example.com:25566"), "复制的是 frps 地址:公网端口：" + await copied());
+        await byName("button", "复制 朋友联机 的公网地址").click(); await settle(150);
+        assert(await copied() === "cn-sz-bgp-1.openfrp.top:23456", "上次的地址也能复制：" + await copied());
+        // 「清除凭据」悬停有说明
+        assert((await page.getAttribute('[data-tclear="t2"]', "title")).includes("auth token"), "清除凭据的悬停说明");
+        // 日志：没有输出时写一句，有输出时照常
+        await page.click('[data-tlog="t3"]'); await settle(400);
+        assert((await page.textContent("#tlog-t3")).includes("还没有日志"), "空日志：" + await page.textContent("#tlog-t3"));
+        await page.click('[data-tlog="t2"]'); await settle(400);
+        const log2 = await page.textContent("#tlog-t2");
+        assert(log2.includes("start proxy success") && !log2.includes("还没有日志"), "有日志时：" + log2);
+        // R18：页顶说清两种加隧道的办法；樱花的 frpc 写成照着做的几步（路径是这台电脑上的）
+        const how = await page.textContent("#tn-how");
+        assert(how.includes("添加隧道") && how.includes("平台账户") && how.includes("不用自己抄密钥"), "页顶说明：" + how);
+        await page.click("#tn-toggle");
+        await page.selectOption("#tn-provider", "natfrp"); await settle(150);
+        const steps = await page.textContent("#tn-help [data-frpc-steps]");
+        assert(steps.includes("软件下载") && steps.includes("D:\\MineDeck\\runtimes\\frpc\\natfrp") && steps.includes("点「启动」") && !(await page.textContent("#tn-help")).includes("按提示把 frpc 放好"), "樱花 frpc 的步骤：" + steps);
+      } finally { await L2({ tunnelsReset: true }); }
+    });
+
+    await run("beta.3 穿透与设置 R12：「编辑」只改名称、绑定的服务器和跟随启动，其余配置原样带回、凭据留空；指向网页端口、tunnels.json 没读出来、运行中时被拒，原因写在弹窗里、填的不丢", async () => {
+      await L2({ tunnels: JSON.parse(JSON.stringify(TUNS)) });
+      try {
+        await page.goto(url("#/tunnels")); await settle(700);
+        await byName("button", "编辑 自建备用线").click(); await page.waitForSelector("#tn-ed-name");
+        // 弹窗里只有这三样：没有服务商、地址、端口、凭据
+        const fields = await page.$$eval("#modal-root .modal input, #modal-root .modal select, #modal-root .modal textarea", es => es.map(e => e.id));
+        assert(JSON.stringify(fields) === JSON.stringify(["tn-ed-name", "tn-ed-bound", "tn-ed-auto"]), "编辑弹窗的字段：" + fields);
+        assert((await page.textContent("#modal-root .modal")).includes("删掉这条隧道，重新添加"), "要说清换服务商、地址端口、凭据怎么办");
+        await page.fill("#tn-ed-name", "自建改名");
+        await page.selectOption("#tn-ed-bound", PACK0);
+        await page.check("#tn-ed-auto");
+        await page.click('#modal-root [data-x="ok"]'); await settle(500);
+        assert(await toastHas("已保存「自建改名」的修改") && !(await page.$("#tn-ed-name")), "保存后关掉弹窗、提示");
+        let b = await lastPut();
+        assert(b && b.name === "自建改名" && b.boundInstance === PACK0 && b.autoStart === true && b.credential === "" && !("clearCredential" in b) &&
+          b.provider === "custom" && b.serverAddr === "frp.example.com" && b.serverPort === 7000 && b.remotePort === 25566 && b.localPort === 25565 && b.proto === "tcp" && b.purpose === "game",
+          "请求体：" + JSON.stringify(b));
+        await page.waitForFunction(() => (document.querySelector('[data-tun="t2"]') || {}).textContent?.includes("跟随「机械动力整合包」启动：开"), null, { timeout: 3000 }).catch(() => {});
+        assert((await rowText("t2")).includes(`跟随「${PACK0}」启动：开`), "行上跟着变：" + await rowText("t2"));
+        // 平台隧道：上次的公网地址、隧道 ID 原样带回（不然一改就丢了「上次」的地址）
+        await byName("button", "编辑 朋友联机").click(); await page.waitForSelector("#tn-ed-name");
+        await page.uncheck("#tn-ed-auto");
+        await page.press("#tn-ed-name", "Enter"); await settle(500);
+        b = await lastPut();
+        assert(b.provider === "openfrp" && b.proxyId === "246810" && b.publicAddr === "cn-sz-bgp-1.openfrp.top:23456" && b.autoStart === false && b.credential === "" && b.name === "朋友联机", "平台隧道的请求体：" + JSON.stringify(b));
+        // 绑着的服务器已经不在列表里（移出列表了）：下拉照样选着它、写明列表里没有，只改名字时绑定不被悄悄清掉
+        await byName("button", "编辑 旧服的线").click(); await page.waitForSelector("#tn-ed-name");
+        const sel = await page.$eval("#tn-ed-bound", s => ({ v: s.value, t: s.selectedOptions[0].textContent }));
+        assert(sel.v === "已经移出的服" && sel.t.includes("列表里没有这台"), "不在列表里的绑定：" + JSON.stringify(sel));
+        await page.fill("#tn-ed-name", "旧服的线 2");
+        await page.click('#modal-root [data-x="ok"]'); await settle(500);
+        b = await lastPut();
+        assert(b.name === "旧服的线 2" && b.boundInstance === "已经移出的服" && b.autoStart === true, "只改名字时绑定照旧：" + JSON.stringify(b));
+        // 指向 MineDeck 网页端口的自定义 frps（以前存下的）：只改名称也被拒，原因写在弹窗里，填的不丢
+        await L2({ tunnel: { id: "t2", localPort: PORT } });
+        await page.goto(url("#/tunnels")); await settle(700);
+        await byName("button", "编辑 自建改名").click(); await page.waitForSelector("#tn-ed-name");
+        await page.fill("#tn-ed-name", "再改一次");
+        await page.click('#modal-root [data-x="ok"]'); await settle(400);
+        let err = await page.textContent("#tn-ed-err");
+        assert(err.includes("没能保存修改") && err.includes("MineDeck 自己的网页端口") && await page.inputValue("#tn-ed-name") === "再改一次", "网页端口：" + err);
+        await page.keyboard.press("Escape"); await settle(300);
+        assert(!(await page.$("#tn-ed-name")), "Esc 关掉编辑弹窗");
+        // tunnels.json 没读出来：拒绝，说的是读不出来（不说隧道不存在）
+        await byName("button", "编辑 朋友联机").click(); await page.waitForSelector("#tn-ed-name");
+        await page.fill("#tn-ed-name", "读不出来时改");
+        await L2({ tunnelsLoadFail: "corrupt" });
+        await page.click('#modal-root [data-x="ok"]'); await settle(400);
+        err = await page.textContent("#tn-ed-err");
+        assert(err.includes("没能保存修改") && err.includes("tunnels.json 内容坏了") && await page.inputValue("#tn-ed-name") === "读不出来时改", "没读出来：" + err);
+        assert((await lastPut()).name !== "读不出来时改", "没读出来时不该改动");
+        await L2({ tunnelsLoadFail: "" });
+        await page.keyboard.press("Escape"); await settle(300);
+        // 运行中：弹窗里先写明，保存时被拒
+        await L2({ tunnel: { id: "t1", running: true, online: true } });
+        await page.goto(url("#/tunnels")); await settle(700);
+        await byName("button", "编辑 朋友联机").click(); await page.waitForSelector("#tn-ed-name");
+        assert(await page.isVisible("#tn-ed-running"), "运行中要先写明");
+        await page.click('#modal-root [data-x="ok"]'); await settle(400);
+        assert((await page.textContent("#tn-ed-err")).includes("请先停止隧道再修改"), "运行中：" + await page.textContent("#tn-ed-err"));
+        await page.keyboard.press("Escape"); await settle(300);
+      } finally { await L2({ tunnelsLoadFail: "", tunnelsReset: true }); }
+    });
+
+    await run("beta.3 穿透与设置 U21：添加隧道时本地端口随绑定的服务器填，自己改过就不再替人改；语音隧道照旧填 SVC 的端口，换回游戏再按服务器填", async () => {
+      await L2({ tunnelsReset: true });
+      try {
+        await page.goto(url("#/tunnels")); await settle(600);
+        await page.click("#tn-toggle");
+        await page.selectOption("#tn-provider", "custom");
+        assert(await page.inputValue("#tn-lport") === "25565", "没绑定时是默认的 25565");
+        await page.selectOption("#tn-bound", PACK0);
+        assert(await page.inputValue("#tn-lport") === "25566", "绑定机械动力整合包（25566）：" + await page.inputValue("#tn-lport"));
+        await page.selectOption("#tn-bound", SNAP);
+        assert(await page.inputValue("#tn-lport") === "25567", "换成原版快照测试（25567）：" + await page.inputValue("#tn-lport"));
+        await page.selectOption("#tn-bound", "");
+        assert(await page.inputValue("#tn-lport") === "25567", "改成不绑定时不动端口");
+        await page.fill("#tn-lport", "30001");
+        await page.selectOption("#tn-bound", PACK0);
+        assert(await page.inputValue("#tn-lport") === "30001", "自己填过就不再替人改");
+        // 先选服务器、再换成自定义 frps：也按服务器填
+        await page.goto(url("#/tunnels")); await settle(600);
+        await page.click("#tn-toggle");
+        await page.selectOption("#tn-bound", SNAP);
+        await page.selectOption("#tn-provider", "custom");
+        assert(await page.inputValue("#tn-lport") === "25567", "先选服务器再换服务商：" + await page.inputValue("#tn-lport"));
+        // 语音隧道：music.js 填 SVC 的端口；换回游戏，按绑定的服务器填
+        await page.selectOption("#tn-bound", PACK0);
+        await page.selectOption("#tn-purpose", "voice"); await settle(300);
+        assert(await page.inputValue("#tn-lport") === "24454", "语音隧道填 SVC 的端口：" + await page.inputValue("#tn-lport"));
+        await page.selectOption("#tn-purpose", "game"); await settle(100);
+        assert(await page.inputValue("#tn-lport") === "25566", "换回游戏按服务器填：" + await page.inputValue("#tn-lport"));
+      } finally { await L2({ tunnelsReset: true }); }
+    });
+
+    await run("beta.3 穿透与设置：内网穿透页的弹窗（编辑、平台购买、平台创建）叠在已开的弹窗上面；Esc 只关上面那层，下面的弹窗和填的字还在；创建框里看报错详情再回来，填的名称还在", async () => {
+      await L2({ tunnelsReset: true, tunnelAccounts: { reset: true, openfrp: true } });
+      try {
+        await page.goto(url("#/tunnels")); await settle(700);
+        const top2 = async what => {
+          const ls = await layers();
+          assert(ls.length === 2 && ls[0] === "lower-mask", what + " 应叠在上面：" + JSON.stringify(ls));
+          await page.keyboard.press("Escape"); await settle(300);
+          assert(JSON.stringify(await layers()) === JSON.stringify(["lower-mask"]) && await lowerKept(), what + "：Esc 只该关上面那层，下面的还在");
+        };
+        await lowerLayer();
+        await page.$eval('[data-tedit="t2"]', b => b.click()); await page.waitForSelector("#tn-ed-name");
+        await top2("编辑隧道");
+        await page.$eval('[data-acc-buy="openfrp"]', b => b.click()); await page.waitForSelector('#modal-root .modal [data-buy]');
+        await top2("购买 / 充值");
+        await dropLower();
+        await page.click('[data-acc-overview="openfrp"]'); await page.waitForSelector("[data-acc-create]");
+        await lowerLayer();
+        await page.$eval("[data-acc-create]", b => b.click()); await page.waitForSelector("#tn-cr-name");
+        await top2("创建并导入");
+        await dropLower();
+        // 创建框里看一眼报错详情：详情叠在上面，关掉以后创建框和填的名称都在；点遮罩不关（框里有要填的）
+        await page.click("[data-acc-create]"); await page.waitForSelector("#tn-cr-name");
+        await page.fill("#tn-cr-name", "mc_keep");
+        await page.evaluate(() => { showErrDetail("测试用的原文"); });
+        await page.waitForSelector(".err-detail");
+        await page.keyboard.press("Escape"); await settle(300);
+        assert((await layers()).length === 1 && await page.inputValue("#tn-cr-name") === "mc_keep", "详情关掉以后创建框和名称都在");
+        await page.mouse.click(20, 820); await settle(300);
+        assert(await page.$("#tn-cr-name"), "点遮罩不该关掉有输入的创建框");
+        await page.keyboard.press("Escape"); await settle(300);
+        assert(!(await page.$("#modal-root > .modal-mask:not(.leave)")), "Esc 关掉创建框");
+      } finally { await dropLower(); await L2({ tunnelsReset: true, tunnelAccounts: { reset: true } }); }
+    });
+
+    // ---- 交接导出（R20） ----
+    const openExport = async () => {
+      await page.goto(url("#/instances")); await settle();
+      await page.click(`.card[data-name="${PACK0}"] [data-act="more"]`);
+      await page.click('.dropmenu button:has-text("导出交接包")'); await page.waitForSelector("#tr-mask");
+    };
+    await run("beta.3 穿透与设置 R20：导出文件夹不在时给「新建并导出」，点了带 mkdir 再发一次、去任务页；上一级不在、从局域网打开时写明原因、弹窗和填的路径留着；「这个包给谁」两项各写清对方导入时看到什么", async () => {
+      await L2({ instReset: true, madeDirs: [], local: true });
+      try {
+        await openExport();
+        const notes = await page.$$eval("#tr-mask .tr-mode-note", ns => ns.map(n => n.textContent));
+        assert(notes.length === 2 && notes[0].includes("「服主交接（整台交给你）」") && notes[1].includes("「发给朋友，照着开一台」") &&
+          (await page.textContent("#tr-mask .tr-modes .hint")).includes("东西完全一样"), "这个包给谁：" + JSON.stringify(notes));
+        const NEW = "E:\\Exports\\新文件夹";
+        await page.fill("#tr-dest", NEW);
+        await page.click("#tr-go"); await settle(400);
+        const why = await page.textContent("#tr-dest-err");
+        assert(why.includes("找不到这个文件夹") && why.includes("只建最后一级") && await page.isVisible("#tr-mkdir"), "找不到时：" + why);
+        let st = await L2({});
+        assert(!st.lastTransferMkdir, "还没点「新建并导出」时不该建");
+        await page.click("#tr-mkdir"); await settle(700);
+        st = await L2({});
+        assert(st.lastTransferMkdir === NEW && st.lastTransferExport && st.lastTransferExport.mkdir === true && st.lastTransferExport.dest === NEW, "新建并导出的请求：" + JSON.stringify(st.lastTransferExport));
+        assert(page.url().endsWith("#/task/task-transfer-out") && await toastHas("已新建导出文件夹"), "新建以后去任务页：" + page.url());
+        // 上一级不在：写明原因，弹窗和填的路径留着
+        await openExport();
+        await page.fill("#tr-dest", "Z:\\没有的盘\\新文件夹");
+        await page.click("#tr-go"); await settle(400);
+        await page.click("#tr-mkdir"); await settle(400);
+        let err = await page.textContent("#tr-dest-err");
+        assert(err.includes("上一级文件夹「Z:\\没有的盘」不在") && await page.isVisible("#tr-mask") && await page.inputValue("#tr-dest") === "Z:\\没有的盘\\新文件夹", "上一级不在：" + err);
+        await page.click("#tr-cancel"); await settle(300);
+        // 从局域网打开：主机路径只许本机指定，建不了，说清楚
+        await L2({ local: false });
+        await openExport();
+        await page.fill("#tr-dest", "E:\\局域网\\新文件夹");
+        await page.click("#tr-go"); await settle(400);
+        await page.click("#tr-mkdir"); await settle(400);
+        err = await page.textContent("#tr-dest-err");
+        assert(err.includes("仅支持在本机操作") && await page.isVisible("#tr-mask"), "局域网：" + err);
+        assert(!(await L2({})).madeDirs.includes("E:\\局域网\\新文件夹"), "局域网不该建出文件夹");
+        await page.click("#tr-cancel"); await settle(300);
+      } finally { await L2({ instReset: true, madeDirs: [], local: true }); }
+    });
+
+    // ---- 设置和侧栏（R15、R16、R17、R19、R20 的存储位置、U29） ----
+    const putCfg = b => page.evaluate(x => fetch("/api/config", { method: "PUT", headers: { "X-Token": "mock" }, body: JSON.stringify(x) }), b);
+    const cfgNow = async () => (await L2({})).config;
+
+    await run("beta.3 穿透与设置 R17：侧栏底部有「退出 MineDeck」，确认后才退出；「设置 → 启动与托盘」的开关叫「点关闭按钮时缩到托盘（不退出）」，写明第一次缩到托盘会提醒；「更新与关于」里的退出按钮写后果，和侧栏的不重名", async () => {
+      let shut = 0;
+      const stub = route => { shut++; return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, data: "ok" }) }); };
+      await page.route("**/api/shutdown", stub);
+      try {
+        await page.goto(url("#/instances")); await settle(500);
+        const q = byName("button", "退出 MineDeck");
+        assert(await q.count() === 1 && await q.isVisible() && (await q.textContent()).trim() === "退出 MineDeck", "侧栏底部的退出");
+        assert(await page.$eval("#sb-quit", b => !!b.closest(".sb-foot")), "退出应在侧栏底部");
+        await q.click(); await page.waitForSelector(".modal");
+        assert((await page.textContent(".modal h3")).includes("退出 MineDeck？"), "要先确认");
+        await page.click('.modal [data-x="cancel"]'); await settle(300);
+        assert(shut === 0, "取消了不该退出");
+        await page.goto(url("#/settings/startup")); await settle(500);
+        const sw = await page.evaluate(() => { const i = document.querySelector('[data-cfg="minimizeToTray"]'), row = i.closest(".row-item");
+          return { title: row.querySelector(".ri-title").textContent, aria: i.getAttribute("aria-label"), sub: row.querySelector(".ri-sub").textContent }; });
+        assert(sw.title === "点关闭按钮时缩到托盘（不退出）" && sw.aria === sw.title && sw.sub.includes("第一次缩到托盘时会弹一条系统通知") && sw.sub.includes("左下角的「退出」"), "开关：" + JSON.stringify(sw));
+        await page.goto(url("#/settings/about")); await settle(500);
+        assert((await page.textContent("#quit-app")).trim() === "停止服务器并退出" && await byName("button", "退出 MineDeck").count() === 1, "更新与关于里的退出按钮：" + await page.textContent("#quit-app"));
+        // 从侧栏真的退出：确认以后请后端退出
+        await byName("button", "退出 MineDeck").click(); await page.waitForSelector(".modal");
+        await page.click('.modal [data-x="ok"]'); await settle(400);
+        assert(shut === 1 && (await page.textContent("body")).includes("正在停止服务器并退出"), "确认以后退出：" + shut);
+      } finally { await page.unroute("**/api/shutdown", stub); await page.goto(url("#/instances")); await settle(300); }
+    });
+
+    await run("beta.3 穿透与设置 R15/R16/R20/U29：「设置 → 存储位置」（#/settings/storage）里改备份保留份数；改存放文件夹马上生效、提示里能撤销（原来是默认就换回默认）；服务器和备份设成同一个文件夹时提示；备份那一行写所有备份都放在这里", async () => {
+      await putCfg({ serversDir: "", backupsDir: "", backupKeep: 10 });
+      try {
+        await page.goto(url("#/settings/storage")); await settle(500);
+        assert(await page.isVisible("#set-backup-keep") && await page.inputValue("#set-bk-keep") === "10", "保留份数在存储位置里");
+        const bkRow = await page.$eval('.row-item:has([data-pick="backups"]) .ri-sub', e => e.textContent);
+        assert(bkRow.includes("所有备份都放在这里") && !bkRow.includes("服务器开着时做的备份"), "备份那一行：" + bkRow);
+        await page.fill("#set-bk-keep", "7");
+        await byName("button", "保存备份保留份数").click(); await settle(300);
+        assert((await cfgNow()).backupKeep === 7 && await toastHas("保留最近 7 份"), "保留份数存下了：" + (await cfgNow()).backupKeep);
+        // 改备份文件夹：马上生效，提示里能撤销；原来是默认，撤销后换回默认（配置里是空串，不是把默认路径写进去）
+        await L2({ pickDir: "E:\\MC备份" });
+        await byName("button", "更改备份存放文件夹…").click(); await settle(400);
+        assert((await cfgNow()).backupsDir === "E:\\MC备份" && (await page.$eval('.row-item:has([data-pick="backups"]) .ri-key', e => e.textContent)) === "E:\\MC备份", "改了马上生效");
+        assert(!(await page.$("#st-same")), "不同的文件夹不该提示");
+        await byName("button", "撤销：换回原来的备份存放文件夹").last().click(); await settle(400);
+        assert((await cfgNow()).backupsDir === "" && (await page.$eval('.row-item:has([data-pick="backups"]) .ri-key', e => e.textContent)) === "D:\\MineDeck\\backups" && await toastHas("已换回原来的备份存放文件夹"),
+          "撤销换回默认：" + JSON.stringify((await cfgNow()).backupsDir));
+        // 原来是自己选的文件夹：撤销换回那一个
+        await L2({ pickDir: "E:\\服务器A" });
+        await byName("button", "更改服务器存放文件夹…").click(); await settle(400);
+        await L2({ pickDir: "E:\\服务器B" });
+        await byName("button", "更改服务器存放文件夹…").click(); await settle(400);
+        assert((await cfgNow()).serversDir === "E:\\服务器B", "改成了 B");
+        await byName("button", "撤销：换回原来的服务器存放文件夹").last().click(); await settle(400);
+        assert((await cfgNow()).serversDir === "E:\\服务器A", "撤销换回 A：" + (await cfgNow()).serversDir);
+        // 恢复默认也能撤销
+        await byName("button", "恢复默认的服务器存放文件夹").click(); await settle(400);
+        assert((await cfgNow()).serversDir === "", "恢复默认");
+        await byName("button", "撤销：换回原来的服务器存放文件夹").last().click(); await settle(400);
+        assert((await cfgNow()).serversDir === "E:\\服务器A", "撤销恢复默认：" + (await cfgNow()).serversDir);
+        // 服务器和备份设成同一个文件夹：提示（大小写、结尾的斜杠不同也算）
+        await L2({ pickDir: "e:\\服务器a\\" });
+        await byName("button", "更改备份存放文件夹…").click(); await settle(400);
+        assert(await page.isVisible("#st-same") && (await page.textContent("#st-same")).includes("同一个文件夹"), "同一个文件夹时要提示");
+        await byName("button", "撤销：换回原来的备份存放文件夹").last().click(); await settle(400);
+        assert(!(await page.$("#st-same")), "撤销以后提示消失");
+      } finally { await L2({ pickDir: null }); await putCfg({ serversDir: "", backupsDir: "", backupKeep: 10 }); }
+    });
+
+    await run("beta.3 穿透与设置 R19：「设置 → AI」页顶用三行写清 AI 助手、游戏内 AI、AI 伙伴各在哪儿用，带去服务器列表的链接；额度和设置里都叫「AI 助手」", async () => {
+      await page.goto(url("#/settings/ai")); await settle(700);
+      const ov = await page.evaluate(() => ({ titles: [...document.querySelectorAll("#ai-overview .ri-title")].map(e => e.textContent),
+        text: document.querySelector("#ai-overview").textContent, go: document.querySelector(".ai-overview-go a").getAttribute("href"),
+        first: document.querySelector("#set-body").firstElementChild.textContent }));
+      assert(JSON.stringify(ov.titles) === JSON.stringify(["AI 助手", "游戏内 AI", "AI 伙伴"]) && ov.text.includes("标题栏右上角") &&
+        ov.text.includes("「扩展 → 游戏内 AI」") && ov.text.includes("「扩展 → AI 伙伴」") && ov.go === "#/instances" && ov.first.includes("AI 能做的三件事"), "总览：" + JSON.stringify(ov));
+      const body = await page.textContent("#set-body");
+      assert(!body.includes("应用内助手") && await byName("spinbutton", "AI 助手每日额度（万 token）").count() === 1 &&
+        (await page.textContent("#ai-assist-slot .set-sec-head h2")).trim() === "AI 助手", "统一叫「AI 助手」");
+      await page.click(".ai-overview-go a"); await settle(400);
+      assert(page.url().endsWith("#/instances"), "链接去服务器列表：" + page.url());
+    });
+
+    await run("beta.3 穿透与设置：AI 助手的发送预览和 MCP 的「复制配置」叠在已开的弹窗上面；Esc 只关上面那层，下面的弹窗和填的字还在；MCP 弹窗的读屏名字加在它自己的按钮上", async () => {
+      await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-x" }); await L2({ asst: { reset: true }, mcp: { reset: true, enabled: true } });
+      try {
+        // 发送预览（assistant.js 的 sheet）
+        await page.goto(url("#/inst/" + encodeURIComponent(PACK0) + "/console")); await settle(800);
+        await lowerLayer();
+        await page.$eval('.diag-banner [data-x="ai"]', b => b.click()); await page.waitForSelector(".modal.ap-pv");
+        let ls = await layers();
+        assert(ls.length === 2 && ls[0] === "lower-mask", "发送预览应叠在上面：" + JSON.stringify(ls));
+        await page.mouse.click(20, 820); await settle(300);
+        assert((await layers()).length === 2, "预览里有要填的提问，点遮罩不关");
+        await page.keyboard.press("Escape"); await settle(400);
+        assert(JSON.stringify(await layers()) === JSON.stringify(["lower-mask"]) && await lowerKept(), "Esc 只关发送预览，下面的还在");
+        await dropLower();
+        // MCP 的复制配置（mcp.js：confirmModal 上的读屏名字）
+        await page.goto(url("#/settings/ai")); await settle(800);
+        await page.click("#mcp-copy"); await page.waitForSelector(".dropmenu");
+        await lowerLayer();
+        await page.locator(".dropmenu button", { hasText: "Cherry Studio" }).dispatchEvent("click"); await page.waitForSelector(".modal .mcp-pre");
+        ls = await layers();
+        const names = await page.evaluate(() => ({ lower: document.querySelector('#lower-mask [data-x="ok"]').getAttribute("aria-label"),
+          top: [...document.querySelectorAll('#modal-root > .modal-mask')].pop().querySelector('[data-x="ok"]').getAttribute("aria-label") }));
+        assert(ls.length === 2 && ls[0] === "lower-mask" && names.top === "复制这段配置（Cherry Studio）" && names.lower === null, "MCP 弹窗：" + JSON.stringify({ ls, names }));
+        await page.keyboard.press("Escape"); await settle(400);
+        assert(JSON.stringify(await layers()) === JSON.stringify(["lower-mask"]) && await lowerKept(), "Esc 只关 MCP 弹窗，下面的还在");
+      } finally { await dropLower(); await L2({ asst: { reset: true }, mcp: { reset: true } }); await aiState({ reset: true }); }
+    });
+  }
+  // ==================== beta.3 内网穿透与设置结束 ====================
+
   // ==================== 外部链接交给默认浏览器（3.1.1；测试报告「外部链接没有用默认浏览器打开」）====================
   // host=true 模拟原生窗口：宿主函数 hostOpenURL 只记下交过来的地址，__openFail 不为空时像宿主拒绝那样让 Promise 落空。
   // 别的网站的请求一律拦下、给一个空页面：测试不真的上网，万一没拦住弹了窗口，打开的也只是这个空页面
@@ -5781,7 +6131,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.fill("#tr-dest", "Z:\\nope");
       await page.click("#tr-go"); await settle(400);
       const why = await page.textContent("#tr-dest-err");
-      assert(why.includes("导出文件夹不可用") && why.includes("找不到") && why.includes("不会替你新建") && why.includes("浏览"), "为什么不可用：" + why);
+      // beta.3 R20 起找不到的文件夹可以「新建并导出」（以前这里断言「不会替你新建」）
+      assert(why.includes("导出文件夹不可用") && why.includes("找不到") && why.includes("新建并导出") && why.includes("浏览"), "为什么不可用：" + why);
       // 提示还在时点「详情」：报错信息叠在交接弹窗上面
       await page.click('.toast.error button[aria-label="查看报错详情"]'); await page.waitForSelector(".err-detail");
       assert(JSON.stringify(await layers()) === JSON.stringify(["tr-mask", "detail"]), "叠层：" + JSON.stringify(await layers()));

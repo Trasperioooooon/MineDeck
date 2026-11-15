@@ -207,7 +207,8 @@ window.MDMcp = (() => {
     const shown = token ? s.text.split(token).join(MASK) : s.text;
     const wait = confirmModal({ title: `${s.name} 的配置`, okText: "复制这段配置", cancelText: "关闭",
       body: `${esc(s.where)}<pre class="ap-pre mcp-pre">${esc(shown)}</pre>` });
-    const okBtn = document.querySelector('#modal-root [data-x="ok"]'); // 弹窗是同步画好的
+    // 在这一层里找（confirmModal 返回的 Promise 上带着它）：下面可能还叠着别的弹窗，按 #modal-root 找会找到下面那个的按钮
+    const okBtn = wait.el && wait.el.querySelector('[data-x="ok"]'); // 弹窗是同步画好的
     if (okBtn) okBtn.setAttribute("aria-label", `复制这段配置（${s.name}）`); // 读出来的名字以看得见的字开头
     if (await wait) copy(s.text, `已复制 ${s.name} 的配置`);
   }
