@@ -661,12 +661,160 @@ func (m *Manager) start(id, why string) error {
 	return nil
 }
 
+// addrRe 从一行日志里找「主机:端口」或 IPv4。第一种写法也会配上 IP，是不是 IP 要再拆开看。
+// 它不认下划线和斜杠，所以 frpc 日志前缀里的源码位置（client/control_ext.go:37）会被切成 ext.go:37。
+// 不能拿 FindString 的第一处就当公网地址：同一行后面往往还有真正的域名:端口。
 var addrRe = regexp.MustCompile(`([A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z0-9.-]+:\d{2,5}|\d{1,3}(?:\.\d{1,3}){3}:\d{2,5})`)
 
-// isIPAddr 「主机:端口」的主机是不是 IP（addrRe 的第一种写法也能匹配 IP，只能拆出来判断）。
+// ipv6AddrRe 方括号里的 IPv6 加端口，例如 [2001:db8::1]:53981。源码位置是 file.go:数字，对不上这个形状。
+var ipv6AddrRe = regexp.MustCompile(`\[(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f:.]*%?[0-9A-Za-z._~-]*\]:\d{2,5}`)
+
+// goCallerRe 日志里的 Go 源码位置，不是可连接的地址。覆盖这几种写法：
+//   - 带目录：client/control.go:168、client/control_ext.go:37、D:\src\client\control.go:37
+//   - 文件名里有下划线：control_ext.go:37、proxy_manager.go:173（地址正则会从下划线后面再切一截）
+//   - 单独放在方括号里的 file.go:行号：[control.go:37]
+//
+// 没有斜杠、也没有下划线的 name.go:端口（比如 example.go:25565）不在这里面，那是域名。
+var goCallerRe = regexp.MustCompile(
+	`(?:[A-Za-z]:[\\/])?(?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+\.go:\d+` +
+		`|[A-Za-z0-9_-]*_[A-Za-z0-9_-]*\.go:\d+` +
+		`|\[[A-Za-z0-9_-]+(?:[\\/][A-Za-z0-9_-]+)*\.go:\d+\]`)
+
+// isIPAddr 「主机:端口」的主机是不是 IP（含方括号里的 IPv6）。
 func isIPAddr(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
 	return err == nil && net.ParseIP(host) != nil
+}
+
+// publicAddrCandidates 一行里从左到右的公网地址候选。源码位置、粘在更长记号上的半截、
+// 端口不在 1–65535 的都去掉。同一处 IPv6 套着的 IPv4 只留外面的完整写法。
+func publicAddrCandidates(line string) []string {
+	callers := goCallerSpans(line)
+	type hit struct {
+		start, end int
+		addr       string
+	}
+	var hits []hit
+	overlapsCaller := func(s, e int) bool {
+		for _, c := range callers {
+			if s < c[1] && e > c[0] {
+				return true
+			}
+		}
+		return false
+	}
+	// 前一个字符还是名字的一部分：control_ext.go 里切出来的 ext.go，或 my_node.example.com 里切出来的 node.example.com。
+	glued := func(s int) bool {
+		if s == 0 {
+			return false
+		}
+		c := line[s-1]
+		return c == '_' || (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+	}
+	for _, loc := range addrRe.FindAllStringIndex(line, -1) {
+		if overlapsCaller(loc[0], loc[1]) || glued(loc[0]) {
+			continue
+		}
+		addr := line[loc[0]:loc[1]]
+		if !portInRange(addr) {
+			continue
+		}
+		hits = append(hits, hit{loc[0], loc[1], addr})
+	}
+	for _, loc := range ipv6AddrRe.FindAllStringIndex(line, -1) {
+		addr := line[loc[0]:loc[1]]
+		if !isIPAddr(addr) || !portInRange(addr) {
+			continue
+		}
+		hits = append(hits, hit{loc[0], loc[1], addr})
+	}
+	slices.SortFunc(hits, func(a, b hit) int {
+		if a.start != b.start {
+			return a.start - b.start
+		}
+		return (b.end - b.start) - (a.end - a.start)
+	})
+	var out []string
+	var kept []hit
+	for _, h := range hits {
+		inside := false
+		for _, k := range kept {
+			if h.start >= k.start && h.end <= k.end && (h.start != k.start || h.end != k.end) {
+				inside = true
+				break
+			}
+		}
+		if inside {
+			continue
+		}
+		kept = append(kept, h)
+		out = append(out, h.addr)
+	}
+	return out
+}
+
+func goCallerSpans(line string) [][2]int {
+	var spans [][2]int
+	for _, loc := range goCallerRe.FindAllStringIndex(line, -1) {
+		// 「使用 [example.go:25565]」这种方括号里的单段 .go 域名是连接地址，不是调用方前缀。
+		if goCallerIsConnectPayload(line, loc[0], loc[1]) {
+			continue
+		}
+		spans = append(spans, [2]int{loc[0], loc[1]})
+	}
+	return spans
+}
+
+func goCallerIsConnectPayload(line string, start, end int) bool {
+	if start >= end || line[start] != '[' || line[end-1] != ']' {
+		return false
+	}
+	inner := line[start+1 : end-1]
+	if strings.ContainsAny(inner, "/\\_") {
+		return false
+	}
+	pre := strings.TrimRight(line[:start], " \t")
+	return strings.HasSuffix(pre, "使用") || strings.HasSuffix(strings.ToLower(pre), "use")
+}
+
+func portInRange(addr string) bool {
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil || len(port) < 2 || len(port) > 5 {
+		return false
+	}
+	n, err := strconv.Atoi(port)
+	return err == nil && n >= 1 && n <= 65535
+}
+
+// ignoredTunnelAddr 本机回环和未指定地址不当成发给朋友的公网地址。
+// IPv4 仍只排除 127. 和 0.0.0.0，内网地址（樱花可能打出来）照旧保留。
+func ignoredTunnelAddr(addr string) bool {
+	if strings.HasPrefix(addr, "127.") || strings.HasPrefix(addr, "0.0.0.0") {
+		return true
+	}
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	if ip.To4() != nil && !strings.Contains(host, ":") {
+		return false
+	}
+	return ip.IsLoopback() || ip.IsUnspecified()
+}
+
+func usablePublicAddrs(line string, mask func(string) string) []string {
+	var out []string
+	for _, addr := range publicAddrCandidates(line) {
+		if mask(addr) != addr || ignoredTunnelAddr(addr) {
+			continue
+		}
+		out = append(out, addr)
+	}
+	return out
 }
 
 // handleLine 解析 frpc 输出：提取公网地址、自动应答服务条款确认。
@@ -687,10 +835,8 @@ func (m *Manager) handleLineMasked(t *Tunnel, rs *runState, line string, mask fu
 	success := strings.Contains(low, "start proxy success") ||
 		strings.Contains(line, "启动成功") || strings.Contains(line, "映射启动成功") ||
 		strings.Contains(line, "创建成功") || strings.Contains(low, "proxy added")
-	hasAddr := addrRe.FindString(line)
-	if mask(hasAddr) != hasAddr {
-		hasAddr = ""
-	}
+	// 同一行可能先出现源码位置、再出现真正的地址；只认过滤后的候选，不要第一处。
+	addrs := usablePublicAddrs(line, mask)
 	if success {
 		m.mu.Lock()
 		rs.online = true
@@ -700,22 +846,28 @@ func (m *Manager) handleLineMasked(t *Tunnel, rs *runState, line string, mask fu
 		m.setPublicAddr(t, fmt.Sprintf("%s:%d", t.ServerAddr, t.RemotePort))
 		return
 	}
-	if hasAddr != "" && (success || strings.Contains(line, "连接") || strings.Contains(low, "remote")) {
-		// 排除明显的本地/服务器内部地址
-		if !strings.HasPrefix(hasAddr, "127.") && !strings.HasPrefix(hasAddr, "0.0.0.0") {
-			// 域名优先：樱花同时打「使用 >>域名:端口<< 连接」和「或使用节点 IP 连接（不推荐）>>IP:端口<<」两行，
-			// IP 会随节点变，发给好友的要是域名。这次运行见过域名之后，后面的 IP 不再覆盖；先 IP 后域名照常换成域名。
-			// 只看这次运行（PublicAddr 跨次保存着，节点换了只给 IP 时不能卡在上次的域名上）。
-			m.mu.Lock()
-			rs.online = true
-			m.mu.Unlock()
+	if len(addrs) > 0 && (success || strings.Contains(line, "连接") || strings.Contains(low, "remote")) {
+		// 域名优先：樱花同时打「使用 >>域名:端口<< 连接」和「或使用节点 IP 连接（不推荐）>>IP:端口<<」两行，
+		// IP 会随节点变，发给好友的要是域名。这次运行见过域名之后，后面的 IP 不再覆盖；先 IP 后域名照常换成域名。
+		// 同一行里有好几处时按从左到右同样处理，后面的域名盖过前面的。
+		// 只看这次运行（PublicAddr 跨次保存着，节点换了只给 IP 时不能卡在上次的域名上）。
+		m.mu.Lock()
+		rs.online = true
+		m.mu.Unlock()
+		// 先在这一行里挑出最后该用的那个，只写一次：setPublicAddr 每次都存盘、在控制台记一句、发 tunnel.up
+		// （webhook 会往外推，语音隧道会去写 voice_host），不能让同一行里排在前面的 IP 先推出去、紧接着又被域名换掉。
+		pick := ""
+		for _, addr := range addrs {
 			switch {
-			case !isIPAddr(hasAddr):
+			case !isIPAddr(addr):
 				rs.sawDomain = true
-				m.setPublicAddr(t, hasAddr)
+				pick = addr
 			case !rs.sawDomain:
-				m.setPublicAddr(t, hasAddr)
+				pick = addr
 			}
+		}
+		if pick != "" {
+			m.setPublicAddr(t, pick)
 		}
 	}
 	// 失败信息捕获（供隧道行内红字提示）；成功则清除
