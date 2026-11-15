@@ -4444,7 +4444,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.dispatchEvent("#mc-hits", "dragover", { dataTransfer: dt });
       await page.dispatchEvent("#mc-hits", "drop", { dataTransfer: dt });
       await page.waitForFunction(() => document.querySelector("#mc-list").textContent.includes("dropped-1.0.jar"), null, { timeout: 5000 });
-      assert(!(await page.$eval("#mc-side", el => el.classList.contains("mc-drop"))) && decodeURIComponent(page.url()).includes(PACK + "/cart"), "放下以后高亮应收起、页面不该跳走");
+      assert(!(await page.$eval("#mc-side", el => el.classList.contains("mc-drop"))) && decodeURIComponent(page.url()).includes(PACK + "/addons"), "放下以后高亮应收起、页面不该跳走"); // beta.3 R06：旧地址 cart 原地换成 addons
       await settle(600); // 等这次添加之后自动跑的那遍前置检查回来
       // 清空：两样都清
       await page.click("#mc-clear"); await settle(700);

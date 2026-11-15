@@ -248,7 +248,7 @@ add("detail", "d-cart", "待装清单：加了一项并检查前置", {
 });
 add("detail", "d-cart-local", "待装清单：有本地文件，检查出要自己找的前置", {
   hash: `#/inst/${enc("机械动力整合包")}/addons`, tag: "new",
-  steps: [{ click: '.mc-add[data-pid="create"]' }, { upload: "#mc-file", files: [{ name: "sodium-extra-forge-0.6.0.jar", kb: 412 }, { name: "needs-geckolib-cataclysm-forge-2.43.jar", kb: 2380 }, { name: "lithium-fabric-0.13.1.jar", kb: 690 }] }, { sleep: 1200 }],
+  steps: [{ click: '.mc-add[data-pid="jei"]' }, { upload: "#mc-file", files: [{ name: "sodium-extra-forge-0.6.0.jar", kb: 412 }, { name: "needs-geckolib-cataclysm-forge-2.43.jar", kb: 2380 }, { name: "lithium-fabric-0.13.1.jar", kb: 690 }] }, { sleep: 1200 }],
 });
 add("detail", "d-cart-plugin", "待装清单：插件端（Purpur）", { hash: `#/inst/${enc("空岛生存")}/addons`, tag: "new" });
 add("detail", "d-common", "设置 → 常用", { hash: `#/inst/${enc("生存服 · 朋友")}/settings/common` });
@@ -284,7 +284,7 @@ add("detail", "d-b3-addons-stopped", "模组：停着的服务器能停用、启
   note: "上面是已安装（停用的标出来），下面是热门、搜索、从电脑添加和待装清单；热门里装过的写「已安装」。删除是移进服务器文件夹里的 .minedeck\\已删除，能找回。",
 });
 add("detail", "d-b3-addons-delete", "模组：删除前的确认", {
-  tag: "new", hash: `#/inst/${enc("机械动力整合包")}/addons`, steps: [{ click: '[data-ad-del="jei-1.20.1-forge-15.2.0.27.jar"]' }, { wait: "#modal-root .modal" }],
+  tag: "new", hash: `#/inst/${enc("机械动力整合包")}/addons`, steps: [{ click: '[data-ad-del="ftbultimine-forge-2001.1.4.jar"]' }, { wait: "#modal-root .modal" }],
 });
 add("detail", "d-b3-addons-mohist", "插件和模组：Mohist", { tag: "new", hash: `#/inst/${enc("模组加插件")}/addons` });
 add("detail", "d-b3-restore", "备份：运行中点「还原」，确认框直接给「停止并还原」", {

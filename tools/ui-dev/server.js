@@ -2748,7 +2748,7 @@ function modsOf(i) {
     { file: "Chunky-1.4.10.jar.disabled", id: "Chunky", name: "Chunky", version: "1.4.10", disabled: true },
   ] : [
     { file: "create-1.20.1-0.5.1.jar", id: "create", name: "Create", version: "0.5.1", projectId: "create" },
-    { file: "jei-1.20.1-forge-15.2.0.27.jar", id: "jei", name: "Just Enough Items", version: "15.2.0.27" },
+    { file: "ftbultimine-forge-2001.1.4.jar", id: "ftbultimine", name: "FTB Ultimine", version: "2001.1.4" }, // 不用 JEI：待装清单的老用例拿它当「还没装」的那个
     { file: "xaerominimap-24.2.0.jar.disabled", id: "xaerominimap", name: "Xaero Minimap", version: "24.2.0", disabled: true },
   ];
   return i.mods;
