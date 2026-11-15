@@ -85,6 +85,7 @@ function newState(ui) {
   for (const i of state.instances) Object.assign(i, { javaSource: "portable", javaPath: `D:\\MineDeck\\runtimes\\java-${i.javaMajor}\\bin\\java.exe`, adopted: false });
   state.adoptScan = state.lastAdopt = state.lastJava = state.lastDelete = null; // 接管、换 Java、删除：见 /__mock/state 的说明
   state.lastTunnelPut = null; // 上一次修改隧道（PUT /api/tunnels/{id}）的请求体，见 /__mock/state 的说明
+  state.tunnelsLoadFail = ""; // "locked" | "corrupt"：tunnels.json 没读出来，见 LOAD_FAIL
   return state;
 }
 
@@ -548,6 +549,7 @@ async function musicHandler(state, req, res, p, m, seg) {
   musicSync(state);
   if (p === "/api/tunnels" && m === "POST") { // 隧道表单带上了用途、协议没有
     ms.tunnelBody = await readBody(req);
+    if (loadFail(state, res, 400)) return; // tunnels.json 没读出来：读出来之前什么都不存
     if (state.tunnelAccounts.saveFail) return err(res, 400, SAVE_FAIL_RAW, SAVE_FAIL_HINT); // tunnels.json 写不进去（同平台账户的 saveFail）
     return ok(res, { id: "t9" });
   }
@@ -2016,6 +2018,24 @@ function newTunnelAccountsState() {
 // tunnels.json 写不进去时后端的说法（同 tunnel.SaveError 的 Error 和 Hint）
 const SAVE_FAIL_RAW = "隧道配置没能写进磁盘（tunnels.json），这次的改动没有保存：替换文件失败：Access is denied.";
 const SAVE_FAIL_HINT = "隧道配置写不进磁盘，这次没有保存。请检查磁盘是否已满、MineDeck 所在的文件夹是否只读";
+// tunnels.json 在、却没读出来时后端的说法（同 tunnel.LoadError 的 Error 和 Hint）：locked 被别的程序占着，corrupt 内容坏了。
+// 由 /__mock/state 的 tunnelsLoadFail 打开：隧道列表回 503，新增、修改、删除、启动、平台导入和创建都报这句（400）
+const LOAD_FAIL = {
+  locked: {
+    raw: "隧道配置文件 tunnels.json 读不出来（可能被别的程序占着，或者没有读取权限）。为了不盖掉原来的隧道和凭据，读出来之前不能添加、修改、删除或启动隧道：open D:\\MineDeck\\tunnels.json: The process cannot access the file because it is being used by another process.",
+    hint: "MineDeck 文件夹里的 tunnels.json 读不出来，可能被别的程序占着。关掉占用它的程序后会自动重读",
+  },
+  corrupt: {
+    raw: "隧道配置文件 tunnels.json 的内容坏了，读不出里面的隧道。为了不盖掉原来的隧道和凭据，修好之前不能添加、修改、删除或启动隧道：第 9 行附近：unexpected end of JSON input",
+    hint: "MineDeck 文件夹里的 tunnels.json 内容坏了。用记事本修好它，或者改名挪走后从空列表开始",
+  },
+};
+const loadFail = (state, res, code) => {
+  const f = LOAD_FAIL[state.tunnelsLoadFail];
+  if (!f) return false;
+  err(res, code, f.raw, f.hint);
+  return true;
+};
 
 async function tunnelAccountsHandler(state, req, res, p, m, seg) {
   if (!p.startsWith("/api/tunnel-accounts")) return false;
@@ -2129,6 +2149,7 @@ async function tunnelAccountsHandler(state, req, res, p, m, seg) {
     const provider = seg[3];
     const b = await readBody(req);
     ta.lastImport = { provider, ...b };
+    if (loadFail(state, res, 400)) return true; // 同后端 ImportTunnel：tunnels.json 没读出来，先报原因
     if (!connected(provider)) { err(res, 400, provider === "openfrp" ? "请先连接 OpenFrp" : "请先连接 SakuraFrp"); return true; }
     const rawId = typeof b.proxyId === "string" ? b.proxyId : "";
     if (!/^[0-9]+$/.test(rawId) || !(+rawId > 0)) { err(res, 400, "隧道编号无效"); return true; } // 只接受纯数字字符串
@@ -2155,6 +2176,7 @@ async function tunnelAccountsHandler(state, req, res, p, m, seg) {
     const provider = seg[3];
     const b = await readBody(req);
     ta.lastCreate = { provider, ...b };
+    if (loadFail(state, res, 400)) return true; // 同后端 CreateTunnel：在平台上建之前就拦下，平台上不多出一条
     if (!connected(provider)) { err(res, 400, provider === "openfrp" ? "请先连接 OpenFrp" : "请先连接 SakuraFrp"); return true; }
     const name = String(b.name || "").trim();
     const nodeId = +b.nodeId || 0;
@@ -2225,6 +2247,8 @@ function handler(state, ui, portOf) {
     //   tunnel: { id, …字段 } 改某条隧道（running、lastError、publicAddr，以及仿真用的 startError：点「启动」时报这个错、
     //     nextAddr：启动后过 addrDelay 毫秒拿到的公网地址）；tunnelsReset: true 隧道回到初始的两条（t2 是存着凭据的自定义 frps）；
     //     响应里的 lastTunnelPut 是上一次修改隧道的请求体（「清除凭据」带 clearCredential）
+    //   tunnelsLoadFail: "locked" | "corrupt" 模拟 tunnels.json 在却没读出来（被占着 / 内容坏了，说法见 LOAD_FAIL）：
+    //     列表回 503，新增、修改、删除、启停、平台导入和创建都报那句；空串还原
     //   tunnelAccounts: { reset: true 回到未连接, openfrp/natfrp: bool, openfrpLoginDoneAtPoll: 第几次 poll 成功（默认 2）,
     //     local: false 模拟从局域网打开（账户区只读）, openfrpUnreadable/natfrpUnreadable: true 模拟存过的凭据解不开,
     //     overviews: { openfrp|natfrp: 部分覆盖 } }；响应里还有 lastSign / lastImport（含 purpose）/ lastCreate
@@ -2264,6 +2288,7 @@ function handler(state, ui, portOf) {
       if ("webhookUrl" in b) state.config.webhookUrl = String(b.webhookUrl || ""); // 直接改存着的 Webhook 地址
       if ("credBroken" in b) for (const t of state.tunnels) t.credBroken = t.id === b.credBroken;
       if (b.tunnelsReset) { state.tunnels = newState(ui).tunnels; state.lastTunnelPut = null; } // 隧道回到初始的两条
+      if ("tunnelsLoadFail" in b) state.tunnelsLoadFail = b.tunnelsLoadFail || ""; // "locked" | "corrupt" | ""（读出来了）
       if (Array.isArray(b.tunnels)) state.tunnels = b.tunnels; // 整份换掉（空数组 = 一条隧道都没有，看空状态用）
       if (b.tunnel) { const t = state.tunnels.find(x => x.id === b.tunnel.id); if (t) Object.assign(t, b.tunnel); }
       // tunnelAccounts: { reset: true 回到未连接, openfrp/natfrp: bool, local, openfrpUnreadable/natfrpUnreadable, openfrpLoginDoneAtPoll, overviews… }
@@ -2493,6 +2518,8 @@ function handler(state, ui, portOf) {
         return ok(res, { taskId: "task-1" });
       }
       // online 同 tunnel.Status.Online：这次运行连上了。启停时由下面显式写；用 /__mock/state 直接改的没写就按「运行中又有地址」算
+      // tunnels.json 没读出来（tunnelsLoadFail）：列表回 503（同 tunnel.list 遇到 LoadError），其余改动的接口回 400
+      if (p.startsWith("/api/tunnels") && !p.endsWith("/console") && loadFail(state, res, p === "/api/tunnels" && m === "GET" ? 503 : 400)) return;
       if (p === "/api/tunnels" && m === "GET") return ok(res, state.tunnels.map(t => ({ ...t, online: !!t.running && (t.online ?? !!t.publicAddr) })));
       if (p.startsWith("/api/tunnels/") && p.endsWith("/console")) return sse(res, ["[frpc] login to server success", "[frpc] proxy added: [mc]", "[frpc] start proxy success"]);
       // 启停（同 tunnel.Manager.Start / Stop）：frpc 起来之前就失败的（startError，比如樱花还没放 frpc）报 400，

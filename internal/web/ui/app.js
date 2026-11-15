@@ -3303,10 +3303,13 @@ async function renderTunnels() {
   /* 表单在列表上方。没有隧道时一直开着，页头的「添加隧道」收起来（一屏只留一个主按钮）；
      有隧道时由页头的按钮展开 / 收起，展开后那个按钮改成「收起」。轮询重画列表不动表单里填到一半的内容。 */
   let formOpen = false, isEmpty = false;
+  /* blocked：tunnels.json 在、却没读出来（后端 tunnel.list 回 503，见 tunnel.LoadError）。读出来之前什么都存不进去，
+     表单和页头的「添加隧道」都收起来，不让人填了半天才被拒 */
+  let blocked = false;
   const paintForm = () => {
-    const f = $("#tn-form"), tg = $("#tn-toggle"), open = isEmpty || formOpen;
+    const f = $("#tn-form"), tg = $("#tn-toggle"), open = !blocked && (isEmpty || formOpen);
     f.hidden = !open;
-    tg.hidden = isEmpty;
+    tg.hidden = isEmpty || blocked;
     tg.setAttribute("aria-expanded", String(open));
     tg.classList.toggle("primary", !open);
     tg.innerHTML = open ? `${icon("chevronUp")} 收起` : `${icon("plus")} 添加隧道`;
@@ -3834,12 +3837,40 @@ async function renderTunnels() {
     let list;
     try { list = await api("/api/tunnels"); } catch (e) {
       if (stale(gen) || seq !== drawSeq) return null;
+      /* tunnels.json 在、却没读出来（被别的程序占着，或者内容坏了）：后端回 503，不拿空列表冒充「没有隧道」。
+         以前当成空列表，再加一条隧道就把原文件连同里面的隧道和凭据整份盖掉。正文接后端那句（原因和下一步，分两种情况），
+         下面一行说清现在不能保存。后端每次被问都会再读一次，平时 4 秒一次的刷新读成了就照常画列表，不用重启。
+         原因没变就不重画：不然重试键、复制键每 4 秒被换掉一次，正在点的按钮和键盘焦点都会丢 */
+      if (e.status === 503) {
+        const sig = "load-error\n" + e.message;
+        if (shown !== sig) {
+          closeLog(); shown = sig;
+          $("#tun-summary").innerHTML = "";
+          $("#tun-list").innerHTML = errBox("无法显示隧道", e, { id: "tun-load-err",
+            hint: "原来的隧道和凭据都还在文件里，没有动过。读出来之前不能添加、修改或删除隧道，免得把它们盖掉；处理好以后这里会自动刷新。",
+            actions: `<button type="button" class="btn sm" id="tun-load-retry">${icon("refresh")} 重试</button>` });
+          $("#tun-load-retry").onclick = async () => {
+            const b = $("#tun-load-retry");
+            if (b) b.disabled = true;
+            await drawList();
+            // 读成了（列表画出来了），或者这次是连不上 MineDeck（换成了别的报错框）：都不用再说「还是没读出来」
+            const b2 = $("#tun-load-retry"); // 原因变了会重画，按钮是新的
+            if (stale(gen) || !blocked || !b2) return;
+            b2.disabled = false;
+            toast("隧道配置还是没读出来");
+          };
+        }
+        blocked = true;
+        paintForm();
+        return null;
+      }
       // 已经画着列表时偶尔刷新失败（网络抖一下）：列表和展开着的日志留着，摘要那里提示一句，下次刷新成功照常重画（独立评审发现）
       if (shown !== null && $("#tun-list [data-tun]")) { shown = null; $("#tun-summary").innerHTML = errInline("无法刷新隧道列表", e); return null; }
       closeLog(); shown = null; $("#tun-list").innerHTML = errBox("无法获取隧道列表", e);
       return null;
     }
     if (stale(gen) || seq !== drawSeq) return list; // 晚到的旧响应不画
+    blocked = false; // 读出来了（或者本来就好好的）：下面照常画列表、放出表单
     const sig = JSON.stringify(list);
     if (sig === shown) return list;
     shown = sig;

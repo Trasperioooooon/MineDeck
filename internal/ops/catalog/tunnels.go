@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strconv"
 
 	"minedeck/internal/ops"
@@ -30,6 +31,9 @@ type tunnelArgs struct {
 }
 
 func (c *cat) tunnelState(id string) (tunnel.Status, error) {
+	if err := c.Tun.LoadErr(); err != nil { // 没读成时列表是空的，说清原因，不报「隧道不存在」
+		return tunnel.Status{}, ops.Wrap(http.StatusServiceUnavailable, err)
+	}
 	for _, st := range c.Tun.List() {
 		if st.ID == id {
 			return st, nil
@@ -45,8 +49,16 @@ func (c *cat) tunnelOps() {
 	}
 	c.reg.Register(&ops.Op{
 		Name: "tunnel.list", Title: "查看隧道", Level: ops.Read,
-		Desc: "穿透隧道的配置和状态（不含凭据）：服务商、绑定的实例、公网地址、是否运行、最近一次失败原因（启动失败、跟随启动失败、frpc 报错或意外退出；跑起来后清空）。",
-		Run:  func(context.Context, ops.Caller, ops.Args) (any, error) { return c.Tun.List(), nil },
+		Desc: "穿透隧道的配置和状态（不含凭据）：服务商、绑定的实例、公网地址、是否运行、最近一次失败原因（启动失败、跟随启动失败、frpc 报错或意外退出；跑起来后清空）。" +
+			"隧道配置文件在却没读出来（被别的程序占着、或者内容坏了）时报错，不返回空列表：这期间不能添加、修改、删除或启动隧道。",
+		Run: func(context.Context, ops.Caller, ops.Args) (any, error) {
+			// 没读成时报 503，不拿空列表冒充「没有隧道」（AI 助手、界面都会当真）。界面认这个状态码画「读不出来」的报错框，
+			// 见 app.js 的 drawList；每次问都会先再读一次，读成了就照常返回列表
+			if err := c.Tun.LoadErr(); err != nil {
+				return nil, ops.Wrap(http.StatusServiceUnavailable, err)
+			}
+			return c.Tun.List(), nil
+		},
 	})
 
 	c.reg.Register(&ops.Op{
