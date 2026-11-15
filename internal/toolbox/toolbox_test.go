@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -431,6 +432,8 @@ func TestMrpackExportAndRoundTripParse(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(modsDir, "badhost.jar"), jarBadHost, 0o644)
 	_ = os.WriteFile(filepath.Join(modsDir, "localonly.jar"), jarLocal, 0o644)
 	_ = os.WriteFile(filepath.Join(modsDir, "disabled.jar.disabled"), jarLocal, 0o644)
+	// MineDeck 自己的语音桥模组只在服务端用，不进给朋友的包
+	_ = os.WriteFile(filepath.Join(modsDir, "minedeck-voicebridge-1.2.0.jar"), validMinimalJar("voicebridge", "fabric"), 0o644)
 	_ = os.WriteFile(filepath.Join(cfgDir, "sodium-options.json"), []byte(`{"v":1}`), 0o644)
 	// 像放着令牌、密钥的配置不进包；留空的令牌、开关、纯数字不算
 	_ = os.WriteFile(filepath.Join(cfgDir, "plain.toml"), []byte("enableTokens = true\ntoken = \"\"\nmaxTokens = 123456\n"), 0o644)
@@ -471,6 +474,10 @@ func TestMrpackExportAndRoundTripParse(t *testing.T) {
 			t.Fatalf("像放着密钥的配置 %s 被打进了包", leaked)
 		}
 	}
+	if hasZipEntry(t, res.SavedPath, "overrides/mods/minedeck-voicebridge-1.2.0.jar") ||
+		!slices.ContainsFunc(res.Warnings, func(w string) bool { return strings.Contains(w, "minedeck-voicebridge-1.2.0.jar") }) {
+		t.Fatalf("语音桥模组不该进包，要写进提醒: %v", res.Warnings)
+	}
 	if !hasZipEntry(t, res.SavedPath, "overrides/config/plain.toml") {
 		t.Fatal("没带密钥的 plain.toml 应该打进包")
 	}
@@ -489,7 +496,8 @@ func TestMrpackExportAndRoundTripParse(t *testing.T) {
 		t.Fatalf("modpack.Parse 解析元数据不对: %+v", pack)
 	}
 	// 仅客户端的 minimap（env.server: unsupported）被导入服务端时必须自动跳过！
-	if len(pack.Files) != 1 || pack.Files[0].Path != "mods/sodium-0.5.8.jar" {
+	// 包里用服务器 mods 文件夹里的原名（不换成 Modrinth 上的名字，免得和别的本地文件撞名、互相盖掉）
+	if len(pack.Files) != 1 || pack.Files[0].Path != "mods/sodium.jar" {
 		t.Fatalf("modpack.Parse 过滤 env.server 后 Files 不对: %+v", pack.Files)
 	}
 	// 校验 modrinth.index.json 含 sha1 + sha512 且非白名单域名的 badhost 进 overrides 而不是 files[]
@@ -501,7 +509,7 @@ func TestMrpackExportAndRoundTripParse(t *testing.T) {
 		if len(f.Hashes.SHA1) != 40 || len(f.Hashes.SHA512) != 128 {
 			t.Fatalf("缺少 sha1 或 sha512: %+v", f.Hashes)
 		}
-		if f.Path == "mods/minimap-24.2.0.jar" && f.Env.Server != "unsupported" {
+		if f.Path == "mods/minimap.jar" && f.Env.Server != "unsupported" {
 			t.Fatalf("仅客户端模组 env.server 应为 unsupported，实际=%s", f.Env.Server)
 		}
 	}
@@ -630,4 +638,105 @@ func keysOf(m map[string][]byte) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// 复审（Fable）实测漏掉的几种写法都要认出来；模组默认配置里常见的留空令牌、开关、纯数字计数不算。
+func TestSecretContent(t *testing.T) {
+	secret := []string{
+		"<password>hunter2abc</password>",
+		"<botToken attr=\"x\">abcdef123456</botToken>",
+		"rcon.password=12345678",
+		"password = \"abc12\"",
+		"password = \"my pass word\"",
+		"url = \"mongodb://admin:hunter2abc@host/x\"",
+		"jdbc-url: jdbc:mysql://root:pw@localhost:3306/db",
+		"pass=abc",
+		"auth_token: \"ghp_abcdefgh\"",
+		"license_key=ABCD-EFGH-IJKL",
+		"apiKey: sk-abcdef123456",
+		"token:\n  - abcdefgh1234",
+		"{\"secret\": \"s3cr3tvalue\"}",
+	}
+	for _, c := range secret {
+		if !secretContent([]byte(c)) {
+			t.Errorf("应该认出来：%q", c)
+		}
+	}
+	clean := []string{
+		"enableTokens = true\nmaxTokens = 123456\n",
+		"token = \"\"\nsecretRoomsEnabled = false\n",
+		"passiveMobs = 10\nbypassChecks = true\n",
+		"[client]\nshowHud = true\nrenderDistance = 12\n",
+		"{\"apiKey\": \"\"}",
+	}
+	for _, c := range clean {
+		if secretContent([]byte(c)) {
+			t.Errorf("不该认成密钥：%q", c)
+		}
+	}
+	if !looksSecret("server.toml.bak", "", 10) || !looksSecret("x/old-config.json~", "", 10) {
+		t.Error("备份副本应该跳过")
+	}
+}
+
+// 照客户端处理下载皮肤的规则：老格式的帽子层整块不透明时清成透明，帽子层有透明像素时不动；身体底层一律不透明。
+func TestLegacySkinHatAndOpaqueBase(t *testing.T) {
+	dir := t.TempDir()
+	opaque := makeSkinPNGFile(t, dir, "opaque.png", 64, 32, func(img *image.NRGBA) {
+		img.SetNRGBA(8, 8, color.NRGBA{R: 10, G: 20, B: 30, A: 0}) // 脸上一个透明像素：底层要强制不透明
+	})
+	out, upgraded, err := validateAndNormalizeSkinPNG(opaque)
+	if err != nil || !upgraded {
+		t.Fatalf("err=%v upgraded=%v", err, upgraded)
+	}
+	img, _ := png.Decode(bytes.NewReader(out))
+	if _, _, _, a := img.At(40, 8).RGBA(); a != 0 {
+		t.Fatalf("整块不透明的帽子层应清成透明，alpha=%d", a>>8)
+	}
+	if _, _, _, a := img.At(8, 8).RGBA(); a>>8 != 255 {
+		t.Fatalf("脸（底层）应强制不透明，alpha=%d", a>>8)
+	}
+	withHole := makeSkinPNGFile(t, dir, "hat.png", 64, 32, func(img *image.NRGBA) {
+		img.SetNRGBA(33, 1, color.NRGBA{}) // 帽子层有一个透明像素：说明是认真画过的帽子，不动
+	})
+	out, _, err = validateAndNormalizeSkinPNG(withHole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, _ = png.Decode(bytes.NewReader(out))
+	if _, _, _, a := img.At(40, 8).RGBA(); a>>8 != 255 {
+		t.Fatalf("有透明像素的帽子层不该被清掉，alpha=%d", a>>8)
+	}
+	if _, err := PreviewSkinPack(SkinPreviewReq{MC: "1.7.10", Mode: "sequential", Entries: []SkinEntrySpec{{Slot: -1}}}); err == nil {
+		t.Fatal("1.8 以前的版本应该拒绝")
+	}
+}
+
+// mods 是联接（或符号链接）时不跟进去读：里面的 jar 可能在服务器文件夹外面（Codex 复审）。
+func TestMrpackRefusesLinkedModsDir(t *testing.T) {
+	oldDirs := []string{app.Base, app.ServersDir, app.BackupsDir, app.CacheDir, app.RuntimesDir}
+	t.Cleanup(func() {
+		app.Base, app.ServersDir, app.BackupsDir, app.CacheDir, app.RuntimesDir = oldDirs[0], oldDirs[1], oldDirs[2], oldDirs[3], oldDirs[4]
+	})
+	base := t.TempDir()
+	app.Base, app.ServersDir, app.BackupsDir = base, filepath.Join(base, "servers"), filepath.Join(base, "backups")
+	app.CacheDir, app.RuntimesDir = filepath.Join(base, "cache"), filepath.Join(base, "runtimes")
+	outside := filepath.Join(base, "outside")
+	_ = os.MkdirAll(outside, 0o755)
+	_ = os.WriteFile(filepath.Join(outside, "secret-stuff.jar"), validMinimalJar("secret", "fabric"), 0o644)
+	instDir := filepath.Join(app.ServersDir, "linked")
+	_ = os.MkdirAll(instDir, 0o755)
+	sBytes, _ := json.Marshal(inst.Settings{Name: "联接服", Core: "fabric", MC: "1.20.1", Build: "0.16.9", XmxMB: 1024})
+	_ = os.WriteFile(filepath.Join(instDir, "instance.json"), sBytes, 0o644)
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", filepath.Join(instDir, "mods"), outside).CombinedOutput(); err != nil {
+		t.Skipf("建不了目录联接：%v %s", err, out)
+	}
+	mgr, err := inst.NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := New(Options{Mgr: mgr, DataDir: filepath.Join(base, "data", "toolbox"), CacheDir: filepath.Join(base, "cache", "toolbox")})
+	if _, err := svc.PreviewMrpack(context.Background(), MrpackReq{Source: "instance", Inst: "联接服"}); err == nil || !strings.Contains(err.Error(), "联接") {
+		t.Fatalf("mods 是联接时应该拒绝导出，err=%v", err)
+	}
 }

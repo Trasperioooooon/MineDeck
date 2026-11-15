@@ -205,6 +205,11 @@ func TestToolboxWebMrpackRoutesAndAIRestriction(t *testing.T) {
 	}
 	e.call(t, http.MethodPost, "/api/modcart", `{"cart":"toolbox","inst":"x","projectIds":["modA"]}`, 400)
 	e.call(t, http.MethodPost, "/api/modcart", `{"cart":"bogus","projectIds":["modA"]}`, 400)
+	// 不能拿 inst 绕到工具箱那份清单上
+	e.call(t, http.MethodPost, "/api/modcart/remove", `{"inst":"<toolbox>","projectId":"modA"}`, 404)
+	if len(cart.List(modcart.Toolbox)) != 1 {
+		t.Fatal("用 inst=<toolbox> 动到了工具箱的清单")
+	}
 	rec = e.call(t, http.MethodPost, "/api/toolbox/mrpack/build",
 		`{"source":"draft","core":"fabric","mc":"1.20.1","loaderVersion":"0.16.9"}`, 200)
 	var out struct {

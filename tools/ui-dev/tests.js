@@ -7297,7 +7297,12 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         // 切到「从已有服务器导出」（机械动力整合包 + config）
         await page.click('#mp-src button[data-src="instance"]'); await settle(300);
         assert((await page.$eval("#mp-inst", e => e.value)) === "机械动力整合包", "应默认选中模组服：" + await page.$eval("#mp-inst", e => e.value));
+        // config 默认不带（服主的配置里可能有密码、令牌）；勾上才列进 overrides/config/
+        assert(!(await page.$eval("#mp-inc-cfg", e => e.checked)), "「一并打包 config」应默认不勾");
         await page.click("#mp-preview-btn"); await page.waitForSelector("#mp-preview-box .tb-table-wrap");
+        assert(!(await page.textContent("#mp-preview-box")).includes("overrides/config/"), "没勾 config 时不该带配置文件");
+        await page.click("#mp-inst-row .switch input"); await settle(150);
+        await page.click("#mp-preview-btn"); await page.waitForSelector("#mp-preview-box .tb-table-wrap"); await settle(300);
         assert((await page.textContent("#mp-preview-box")).includes("overrides/config/create-common.toml"), "勾选 config 后应列出 overrides/config/");
         await page.click("#mp-build-btn"); await page.waitForSelector("#mp-done-card");
       } finally { await tbState({ toolbox: { reset: true }, modCart: { reset: true }, local: true }); }

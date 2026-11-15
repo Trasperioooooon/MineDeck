@@ -27,6 +27,9 @@ import (
 	"minedeck/internal/winname"
 )
 
+// voiceBridgeJarPrefix MineDeck 音乐共享装进服务器的语音桥模组的文件名开头（同 internal/bridge 的 jarPrefix）。
+const voiceBridgeJarPrefix = "minedeck-voicebridge"
+
 const (
 	maxMrpackFiles         = 4000
 	maxMrpackOverrideBytes = 256 << 20
@@ -210,6 +213,8 @@ func (s *Service) PreviewMrpack(ctx context.Context, req MrpackReq) (MrpackPrevi
 
 // BuildMrpack 校验并生成 .mrpack 压缩包（仅从当前实例或草稿清单打包，文件名为程序安全拼接）。
 func (s *Service) BuildMrpack(ctx context.Context, req MrpackReq) (MrpackBuildResp, error) {
+	s.buildMu.Lock()
+	defer s.buildMu.Unlock()
 	prev, err := s.PreviewMrpack(ctx, req)
 	if err != nil {
 		return MrpackBuildResp{}, err
@@ -273,7 +278,7 @@ func (s *Service) BuildMrpack(ctx context.Context, req MrpackReq) (MrpackBuildRe
 		seenZipPath[lower] = true
 		data, err := readRegularLimited(ov.srcDiskPath, maxSingleOverrideFile)
 		if err != nil {
-			return MrpackBuildResp{}, ErrBadRequest(fmt.Sprintf("读取覆盖文件「%s」失败，可能已被移走或超过大小上限", ov.FileName))
+			return MrpackBuildResp{}, ErrBadRequest(fmt.Sprintf("读取「%s」失败（%v）。预览以后它可能被移走、改大了或者正被别的程序占着，重新预览一次再生成", ov.PackPath, err))
 		}
 		totalOverrideBytes += int64(len(data))
 		if totalOverrideBytes > maxMrpackOverrideBytes {
@@ -341,12 +346,13 @@ func (s *Service) previewFromInstance(ctx context.Context, req MrpackReq) (Mrpac
 	if loaderVer == "" && (i.Core == mcsrc.CoreFabric || i.Core == mcsrc.CoreForge || i.Core == mcsrc.CoreNeoForge) {
 		loaderVer = cleanLoaderBuild(i.Core, i.MC, i.Build)
 	}
+	guessedLoader := false
 	if loaderVer == "" {
 		resolved, err := resolveLoaderBuild(ctx, exportCore, i.MC)
 		if err != nil {
 			return MrpackPreviewResp{}, ErrBadRequest(fmt.Sprintf("识别不到加载器版本，请在表单里手填一个 %s 加载器版本", loaderName))
 		}
-		loaderVer = resolved
+		loaderVer, guessedLoader = resolved, true
 	}
 
 	name := strings.TrimSpace(req.Name)
@@ -359,8 +365,17 @@ func (s *Service) previewFromInstance(ctx context.Context, req MrpackReq) (Mrpac
 	}
 
 	modsDir := filepath.Join(i.Dir, "mods")
-	ents, err := os.ReadDir(modsDir)
-	if err != nil && !os.IsNotExist(err) {
+	// mods 本身是联接或符号链接时不跟进去：里面的 jar 可能在服务器文件夹外面，打进包就等于把主机上
+	// 别处的文件交出去（Codex 复审）。和 config 根目录的检查一样，联接在 Lstat 下不是普通文件夹
+	var ents []os.DirEntry
+	if lst, err := os.Lstat(modsDir); err == nil {
+		if !lst.IsDir() || lst.Mode()&os.ModeSymlink != 0 {
+			return MrpackPreviewResp{}, ErrBadRequest("这台服务器的 mods 不是普通文件夹（可能是联接或符号链接），为了不把服务器文件夹外面的文件打进包，导出不了")
+		}
+		if ents, err = os.ReadDir(modsDir); err != nil {
+			return MrpackPreviewResp{}, fmt.Errorf("读取 mods 文件夹失败：%w", err)
+		}
+	} else if !os.IsNotExist(err) {
 		return MrpackPreviewResp{}, fmt.Errorf("读取 mods 文件夹失败：%w", err)
 	}
 
@@ -377,6 +392,11 @@ func (s *Service) previewFromInstance(ctx context.Context, req MrpackReq) (Mrpac
 	if coreNote != "" {
 		warnings = append(warnings, coreNote)
 	}
+	if guessedLoader {
+		// 接管、导入来的服务器常常没记加载器版本，Mohist、Banner 记的是它们自己的构建号
+		warnings = append(warnings, fmt.Sprintf("这台服务器没记下 %s 加载器的版本，包里按官方推荐的 %s 填，和服务器实际用的可能不一样；"+
+			"朋友装好以后进不了服的话，先对一下加载器版本", loaderName, loaderVer))
+	}
 
 	for _, e := range ents {
 		n := e.Name()
@@ -385,6 +405,11 @@ func (s *Service) previewFromInstance(ctx context.Context, req MrpackReq) (Mrpac
 		}
 		if !winname.OK(n) || inst.IsControlFile("mods/"+n) {
 			warnings = append(warnings, fmt.Sprintf("跳过不符合文件名安全规则的文件：%s", n))
+			continue
+		}
+		if strings.HasPrefix(strings.ToLower(n), voiceBridgeJarPrefix) {
+			// MineDeck 自己的语音桥模组只在服务端用（音乐共享），客户端装了没用；AI 伙伴模组客户端要装，照常导出
+			warnings = append(warnings, fmt.Sprintf("「%s」是 MineDeck 音乐共享用的服务端模组，朋友的客户端用不上，没有打进包", n))
 			continue
 		}
 		p := filepath.Join(modsDir, n)
@@ -433,14 +458,9 @@ func (s *Service) previewFromInstance(ctx context.Context, req MrpackReq) (Mrpac
 	for _, j := range jars {
 		m, found := matches[j.sha1]
 		_, urlAllowed := modpack.AllowedURL(m.URL, nil)
+		// 包里用服务器 mods 文件夹里的原名：同一个文件夹里的名字本来就不重复，在线下载项和 overrides 里的
+		// 文件不会落到客户端的同一个位置互相盖掉（用 Modrinth 上的原名的话，可能和另一个本地文件撞名）
 		fileName := j.name
-		if found && m.FileName != "" && winname.OK(m.FileName) && !inst.IsControlFile("mods/"+m.FileName) &&
-			strings.HasSuffix(strings.ToLower(m.FileName), ".jar") {
-			fileName = m.FileName
-		}
-		if seenRel[strings.ToLower(fileName)] {
-			fileName = j.name
-		}
 
 		if found && urlAllowed && len(m.SHA1) == 40 && len(m.SHA512) == 128 {
 			seenRel[strings.ToLower(fileName)] = true
@@ -472,6 +492,11 @@ func (s *Service) previewFromInstance(ctx context.Context, req MrpackReq) (Mrpac
 			note = "该版本下载地址不在 .mrpack 允许的白名单域名内（仅允许 cdn.modrinth.com / github / gitlab），改放进 overrides/mods"
 		} else if found && len(m.SHA512) != 128 {
 			note = "Modrinth 返回缺少 SHA-512 校验值，改放进 overrides/mods"
+		}
+		if j.size > maxSingleOverrideFile {
+			resp.Warnings = append(resp.Warnings, fmt.Sprintf("「%s」有 %s，超过了单个文件 64 MB 的上限，又不能让朋友从 Modrinth 下载，没有打进包。"+
+				"请把这个文件单独发给朋友", j.name, mib(j.size)))
+			continue
 		}
 		meta := modinfo.Read(j.path)
 		title := meta.Name
@@ -509,8 +534,26 @@ func (s *Service) previewFromInstance(ctx context.Context, req MrpackReq) (Mrpac
 	if resp.DownloadCount+resp.OverrideCount > maxMrpackFiles {
 		return MrpackPreviewResp{}, ErrBadRequest(fmt.Sprintf("要打包的文件总数超过上限（%d 个）", maxMrpackFiles))
 	}
+	if err := checkOverrideTotal(resp.Overrides); err != nil {
+		return MrpackPreviewResp{}, err
+	}
 	return resp, nil
 }
+
+// checkOverrideTotal 要整个打进包的文件合计不能超过上限：预览时就说清楚，不等到生成才失败。
+func checkOverrideTotal(ovs []MrpackItemView) error {
+	var total int64
+	for _, o := range ovs {
+		total += o.Size
+	}
+	if total > maxMrpackOverrideBytes {
+		return ErrBadRequest(fmt.Sprintf("要整个打进包的文件合计 %s，超过了 256 MB 的上限。Modrinth 上找不到的大模组请单独发给朋友，"+
+			"或者不带 config 再试", mib(total)))
+	}
+	return nil
+}
+
+func mib(n int64) string { return fmt.Sprintf("%.1f MB", float64(n)/(1<<20)) }
 
 func (s *Service) previewFromDraft(ctx context.Context, req MrpackReq) (MrpackPreviewResp, error) {
 	if s.cart == nil {
@@ -669,6 +712,16 @@ func (s *Service) previewFromDraft(ctx context.Context, req MrpackReq) (MrpackPr
 			resp.Warnings = append(resp.Warnings, fmt.Sprintf("跳过文件名不安全的本地文件：%s", lf.FileName))
 			continue
 		}
+		if seenRel[strings.ToLower(lf.FileName)] {
+			// 和要从网上下载的某个文件同名：两份会落到客户端的同一个位置，后解的盖掉先下的
+			resp.Warnings = append(resp.Warnings, fmt.Sprintf("本地文件「%s」和要下载的一个文件同名，没有打进包；要用本地这份的话，先把清单里那一项拿掉", lf.FileName))
+			continue
+		}
+		if lf.Size > maxSingleOverrideFile {
+			resp.Warnings = append(resp.Warnings, fmt.Sprintf("「%s」有 %s，超过了单个文件 64 MB 的上限，没有打进包。请把这个文件单独发给朋友", lf.FileName, mib(lf.Size)))
+			continue
+		}
+		seenRel[strings.ToLower(lf.FileName)] = true
 		resp.Overrides = append(resp.Overrides, MrpackItemView{
 			Title:       lf.Title,
 			FileName:    lf.FileName,
@@ -697,6 +750,9 @@ func (s *Service) previewFromDraft(ctx context.Context, req MrpackReq) (MrpackPr
 	resp.OverrideCount = len(resp.Overrides)
 	if len(resp.Overrides) > 0 {
 		resp.Warnings = append(resp.Warnings, "提示：放进 overrides/mods 的本地模组会完整打进压缩包，分享给多人前请留意原模组作者的分发许可协议。")
+	}
+	if err := checkOverrideTotal(resp.Overrides); err != nil {
+		return MrpackPreviewResp{}, err
 	}
 	return resp, nil
 }
@@ -773,27 +829,39 @@ func collectSafeConfigOverrides(instDir string) ([]MrpackItemView, []string, err
 		if len(list) > 8 {
 			list, more = list[:8], fmt.Sprintf(" 等 %d 个", len(secrets))
 		}
-		warnings = append(warnings, fmt.Sprintf("这些配置文件看起来带着密码、令牌、密钥或数据库，没有打进包：%s%s。"+
-			"它们是服主自己的，发给朋友的包里不该有；确实要的话，请自己检查过内容再单独发", strings.Join(list, "、"), more))
+		warnings = append(warnings, fmt.Sprintf("这些配置文件看起来带着密码、令牌、密钥、数据库，或者是备份副本，没有打进包：%s%s。"+
+			"它们是服主自己的，发给朋友的包里不该有；确实要的话，请自己检查过内容再单独发。"+
+			"这只是尽量挑出来，打进包的配置文件都列在下面，发之前请看一眼", strings.Join(list, "、"), more))
 	}
 	return out, warnings, nil
 }
 
 // 配置文件里可能放着服主自己的密码、令牌、密钥、数据库：机器人令牌、Webhook、数据库连接、权限插件的存储设置之类。
 // 导出给朋友的整合包不带这些。按文件名、扩展名和内容各认一遍，宁可多跳过几个（跳过的都写在提醒里）。
+// 这只是尽量挑出来：认不出的写法总会有，界面上请人发之前看一眼预览里列出的配置文件。
 var (
 	secretNameWords = []string{"password", "passwd", "secret", "token", "credential", "apikey", "api_key", "api-key",
 		"webhook", "discord", "mysql", "mariadb", "postgres", "jdbc", "luckperms", "oauth"}
 	secretExts = map[string]bool{".db": true, ".sqlite": true, ".sqlite3": true, ".pem": true, ".key": true,
 		".p12": true, ".pfx": true, ".jks": true, ".keystore": true, ".crt": true, ".cer": true, ".der": true, ".env": true, ".log": true}
-	// 文本配置里认得出的几种写法：key = "value"、"key": "value"、key: value、key=value。值至少 6 个字符才算，
-	// 留空的（模组默认配置里常见）不算；值全是数字、true / false 的在 looksSecret 里排除。
-	secretLine     = regexp.MustCompile(`(?i)(?:password|passwd|secret|token|api[_-]?key|webhook|private[_-]?key|access[_-]?key)[^\s=:]*["']?\s*[:=]\s*["']?([^\s"',;}\]]{6,})`)
-	textConfigExts = map[string]bool{".toml": true, ".json": true, ".json5": true, ".yml": true, ".yaml": true, ".properties": true,
-		".cfg": true, ".conf": true, ".ini": true, ".txt": true, ".snbt": true, ".hocon": true, ".xml": true, "": true}
+	// 备份、临时、停用的副本：内容和正本一样，正本要是被挑出来了，副本也不该漏出去
+	backupSuffixes = []string{".bak", ".old", ".orig", ".backup", ".tmp", ".disabled", "~"}
+	// 键 = 值、"键": "值"、键: 值。键名里带这些词的都看；password 一类不管值多短、是不是纯数字都算
+	secretKV = regexp.MustCompile(`(?i)([a-z0-9_.-]*?(?:password|passwd|pwd|passphrase|secret|token|api[_-]?key|webhook|private[_-]?key|access[_-]?key|license[_-]?key|auth[_-]?(?:key|token|code)|credential)[a-z0-9_.-]*)["']?\s*[:=]\s*["']?([^\s"',;}\]<>]+)`)
+	// 单独一个 pass 当键名（不连着别的字母，免得认成 passive 之类）
+	secretPass = regexp.MustCompile(`(?im)(?:^|[\s{,"'])pass["']?\s*[:=]\s*["']?([^\s"',;}\]<>]+)`)
+	// XML：<password>…</password>、<botToken>…</botToken>
+	secretXML = regexp.MustCompile(`(?i)<[a-z0-9_.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|webhook)[a-z0-9_.-]*(?:\s[^>]*)?>\s*[^<\s]`)
+	// 连接串里带着口令：mongodb://用户:口令@主机、jdbc:mysql://用户:口令@主机
+	secretURL = regexp.MustCompile(`(?i)[a-z][a-z0-9+.-]*://[^\s/:@"']+:[^\s/@"']+@`)
+	// YAML 把值写在下一行：token:⏎  - xxxx
+	secretYAMLNext = regexp.MustCompile(`(?im)^\s*[a-z0-9_.-]*(?:password|passwd|secret|token|api[_-]?key|webhook)[a-z0-9_.-]*\s*:\s*\r?\n\s*-?\s*["']?[^\s"']{4,}`)
 )
 
-// looksSecret rel（相对 config/，正斜杠）这个配置文件是不是像放着密码、令牌、密钥的。
+// maxSecretScan 内容最多读这么多来认；更大的配置文件认不全，干脆不打进包（列在提醒里）。
+const maxSecretScan = 8 << 20
+
+// looksSecret rel（相对 config/，正斜杠）这个配置文件是不是像放着密码、令牌、密钥的，或者是它们的备份副本。
 func looksSecret(rel, diskPath string, size int64) bool {
 	low := strings.ToLower(rel)
 	base := path.Base(low)
@@ -805,21 +873,34 @@ func looksSecret(rel, diskPath string, size int64) bool {
 	if secretExts[path.Ext(base)] {
 		return true
 	}
-	if !textConfigExts[path.Ext(base)] || size > 1<<20 {
-		return false
+	for _, suf := range backupSuffixes {
+		if strings.HasSuffix(base, suf) {
+			return true
+		}
+	}
+	if size > maxSecretScan {
+		return true
 	}
 	b, err := os.ReadFile(diskPath)
 	if err != nil {
 		return true // 读不了就别打进去：打进去的那一步也会读不了
 	}
-	for _, m := range secretLine.FindAllSubmatch(b, -1) {
-		v := strings.ToLower(string(m[1]))
-		if v == "true" || v == "false" || strings.Trim(v, "0123456789.-") == "" {
+	return secretContent(b)
+}
+
+// secretContent 一份配置的内容里有没有像密码、令牌、密钥的东西（不看扩展名，什么文件都认一遍）。
+func secretContent(b []byte) bool {
+	for _, m := range secretKV.FindAllSubmatch(b, -1) {
+		key, v := strings.ToLower(string(m[1])), strings.ToLower(string(m[2]))
+		if strings.Contains(key, "passw") || strings.Contains(key, "pwd") || strings.Contains(key, "passphrase") {
+			return true // 口令再短、全是数字也是口令
+		}
+		if len(v) < 6 || v == "true" || v == "false" || strings.Trim(v, "0123456789.-") == "" {
 			continue
 		}
 		return true
 	}
-	return false
+	return secretPass.Match(b) || secretXML.Match(b) || secretURL.Match(b) || secretYAMLNext.Match(b)
 }
 
 func hashFileBoth(path string) (sha1Hex string, sha512Hex string, size int64, err error) {

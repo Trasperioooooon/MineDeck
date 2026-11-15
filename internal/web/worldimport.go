@@ -107,7 +107,7 @@ func guardUploads(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			switch r.URL.Path {
-			case "/api/world/upload", "/api/transfer/upload", "/api/import/modpack", "/api/modcart/local":
+			case "/api/world/upload", "/api/transfer/upload", "/api/import/modpack", "/api/modcart/local", "/api/toolbox/skin-pack/build":
 				var cleanup func()
 				r, cleanup = beginUpload(w, r)
 				defer cleanup()

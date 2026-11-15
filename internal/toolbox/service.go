@@ -26,8 +26,10 @@ import (
 )
 
 const (
-	// maxDownloads 缓存目录里最多保留最近多少份生成出来的压缩包（下载完或过久后自动顶掉最旧的）。
-	maxDownloads = 24
+	// maxDownloads、maxDownloadBytes 缓存目录里最多保留最近多少份、合计多大的生成结果；超了从最旧的删
+	// （最新的一份总是留着，哪怕它自己就超了合计上限）。
+	maxDownloads     = 24
+	maxDownloadBytes = 1 << 30
 	// draftFile 整合包草稿设置保存在数据目录的文件名，重开程序仍保留。
 	draftFile = "mrpack-draft.json"
 )
@@ -48,6 +50,8 @@ type Service struct {
 	cacheDir string
 
 	draftMu sync.Mutex
+	// buildMu 生成一次只做一份：整包在内存里拼，局域网的人连点几次不至于同时占好几份几百 MB 的内存
+	buildMu sync.Mutex
 
 	dlMu    sync.Mutex
 	dlOrder []string
@@ -131,9 +135,28 @@ func (s *Service) loadCachedDownloads() {
 	}
 	// 目录是按编号（随机）列出来的：按生成时间排好，超出上限的从最旧的删
 	slices.SortFunc(s.dlOrder, func(a, b string) int { return s.dlMap[a].At.Compare(s.dlMap[b].At) })
-	for len(s.dlOrder) > maxDownloads {
+	s.evictLocked()
+	// 没有 meta 的 .bin（写 meta 之前程序退了）认不回来，删掉
+	for _, e := range ents {
+		if id, ok := strings.CutSuffix(e.Name(), ".bin"); ok && !e.IsDir() {
+			if _, known := s.dlMap[id]; !known {
+				_ = os.Remove(filepath.Join(dir, e.Name()))
+			}
+		}
+	}
+}
+
+// evictLocked 超出份数或合计大小上限时从最旧的删，最新的一份总是留着。调用方持有 dlMu（或还没有并发）。
+func (s *Service) evictLocked() {
+	var total int64
+	for _, id := range s.dlOrder {
+		total += s.dlMap[id].Size
+	}
+	dir := s.downloadsDir()
+	for len(s.dlOrder) > 1 && (len(s.dlOrder) > maxDownloads || total > maxDownloadBytes) {
 		oldest := s.dlOrder[0]
 		s.dlOrder = s.dlOrder[1:]
+		total -= s.dlMap[oldest].Size
 		delete(s.dlMap, oldest)
 		_ = os.Remove(filepath.Join(dir, oldest+".bin"))
 		_ = os.Remove(filepath.Join(dir, oldest+".meta.json"))
@@ -183,19 +206,16 @@ func (s *Service) saveArtifact(fileName string, data []byte, sha1Hex string) (Do
 		At:       time.Now(),
 	}
 	metaBytes, _ := json.Marshal(entry)
-	_ = atomicfile.Write(filepath.Join(dir, id+".meta.json"), metaBytes, 0o644)
+	if err := atomicfile.Write(filepath.Join(dir, id+".meta.json"), metaBytes, 0o644); err != nil {
+		_ = os.Remove(binPath) // 没有 meta 的 .bin 重启以后认不回来，留着只占地方
+		return DownloadEntry{}, fmt.Errorf("写入缓存文件失败：%w", err)
+	}
 
 	s.dlMu.Lock()
 	defer s.dlMu.Unlock()
 	s.dlMap[id] = entry
 	s.dlOrder = append(s.dlOrder, id)
-	for len(s.dlOrder) > maxDownloads {
-		oldest := s.dlOrder[0]
-		s.dlOrder = s.dlOrder[1:]
-		delete(s.dlMap, oldest)
-		_ = os.Remove(filepath.Join(dir, oldest+".bin"))
-		_ = os.Remove(filepath.Join(dir, oldest+".meta.json"))
-	}
+	s.evictLocked()
 	return entry, nil
 }
 
@@ -223,6 +243,9 @@ func copyToHostDir(destDir, fileName string, data []byte) (string, error) {
 	destDir = strings.TrimSpace(destDir)
 	if destDir == "" {
 		return "", nil
+	}
+	if !filepath.IsAbs(destDir) {
+		return "", ErrBadRequest("保存文件夹要写完整路径（比如 D:\\整合包），或者点「浏览…」选")
 	}
 	clean := filepath.Clean(destDir)
 	st, err := os.Stat(clean)
@@ -259,7 +282,10 @@ func safeFileStem(raw, fallback string) string {
 		return fallback
 	}
 	if len([]rune(s)) > 64 {
-		s = strings.TrimRight(string([]rune(s)[:64]), ". ") // 截断以后末尾又可能是点或空格，Windows 会把它们吃掉
+		s = strings.TrimRight(string([]rune(s)[:64]), ". ")     // 截断以后末尾又可能是点或空格，Windows 会把它们吃掉
+		if s == "" || !winname.OK(s) || !winname.OK(s+".zip") { // 截出来的可能正好是 NUL 这类设备名
+			return fallback
+		}
 	}
 	return s
 }
