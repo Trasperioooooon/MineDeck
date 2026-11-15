@@ -14,6 +14,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -175,8 +176,9 @@ func cleanLoaderBuild(core mcsrc.Core, mc, build string) string {
 	return b
 }
 
-func serverEnvOf(serverSide string) string {
-	switch strings.ToLower(strings.TrimSpace(serverSide)) {
+// sideEnv 把 Modrinth 项目的 client_side / server_side 换成 .mrpack 里 env 的写法；不知道的（unknown、空）按要装算。
+func sideEnv(side string) string {
+	switch strings.ToLower(strings.TrimSpace(side)) {
 	case "unsupported":
 		return "unsupported"
 	case "optional":
@@ -442,7 +444,7 @@ func (s *Service) previewFromInstance(ctx context.Context, req MrpackReq) (Mrpac
 
 		if found && urlAllowed && len(m.SHA1) == 40 && len(m.SHA512) == 128 {
 			seenRel[strings.ToLower(fileName)] = true
-			srvEnv := serverEnvOf(m.ServerSide)
+			srvEnv := sideEnv(m.ServerSide)
 			if srvEnv == "unsupported" {
 				resp.ClientOnlyCnt++
 			}
@@ -455,7 +457,7 @@ func (s *Service) previewFromInstance(ctx context.Context, req MrpackReq) (Mrpac
 				FileName:  fileName,
 				PackPath:  "mods/" + fileName,
 				Mode:      "download",
-				ClientEnv: "required",
+				ClientEnv: sideEnv(m.ClientSide),
 				ServerEnv: srvEnv,
 				URL:       m.URL,
 				SHA1:      m.SHA1,
@@ -555,10 +557,10 @@ func (s *Service) previewFromDraft(ctx context.Context, req MrpackReq) (MrpackPr
 		loaderVer = resolved
 	}
 
-	items := s.cart.List(modcart.Draft)
-	locals := s.cart.Locals(modcart.Draft)
+	items := s.cart.List(modcart.Toolbox)
+	locals := s.cart.Locals(modcart.Toolbox)
 	if len(items) == 0 && len(locals) == 0 {
-		return MrpackPreviewResp{}, ErrBadRequest("工具箱的草稿清单还是空的，先在下面挑几个模组或添加本地 jar 再导出")
+		return MrpackPreviewResp{}, ErrBadRequest("工具箱的模组清单还是空的，先在下面挑几个模组或从电脑添加 jar 再导出")
 	}
 
 	plan, err := s.cart.ClosureWith(ctx, items, locals, modcart.Local{}, []string{modLoader}, mc)
@@ -603,7 +605,7 @@ func (s *Service) previewFromDraft(ctx context.Context, req MrpackReq) (MrpackPr
 			continue
 		}
 		seenRel[strings.ToLower(f.FileName)] = true
-		srvEnv := serverEnvOf(f.ServerSide)
+		srvEnv := sideEnv(f.ServerSide)
 		if srvEnv == "unsupported" {
 			resp.ClientOnlyCnt++
 		}
@@ -612,7 +614,7 @@ func (s *Service) previewFromDraft(ctx context.Context, req MrpackReq) (MrpackPr
 			FileName:  f.FileName,
 			PackPath:  "mods/" + f.FileName,
 			Mode:      "download",
-			ClientEnv: "required",
+			ClientEnv: sideEnv(f.ClientSide),
 			ServerEnv: srvEnv,
 			FromDep:   f.FromDep,
 			DepOf:     f.DependencyOf,
@@ -635,7 +637,7 @@ func (s *Service) previewFromDraft(ctx context.Context, req MrpackReq) (MrpackPr
 		}
 	}
 	for _, lf := range locals {
-		diskPath, ok := s.cart.StagedPath(modcart.Draft, lf.SHA1)
+		diskPath, ok := s.cart.StagedPath(modcart.Toolbox, lf.SHA1)
 		if !ok {
 			resp.Warnings = append(resp.Warnings, fmt.Sprintf("本地暂存的「%s」已经找不到了，导出里没有这一项", lf.FileName))
 			continue
@@ -644,7 +646,7 @@ func (s *Service) previewFromDraft(ctx context.Context, req MrpackReq) (MrpackPr
 			if _, ok := modpack.AllowedURL(m.URL, nil); ok && len(m.SHA1) == 40 && len(m.SHA512) == 128 &&
 				winname.OK(lf.FileName) && !inst.IsControlFile("mods/"+lf.FileName) && !seenRel[strings.ToLower(lf.FileName)] {
 				seenRel[strings.ToLower(lf.FileName)] = true
-				srvEnv := serverEnvOf(m.ServerSide)
+				srvEnv := sideEnv(m.ServerSide)
 				if srvEnv == "unsupported" {
 					resp.ClientOnlyCnt++
 				}
@@ -653,7 +655,7 @@ func (s *Service) previewFromDraft(ctx context.Context, req MrpackReq) (MrpackPr
 					FileName:  lf.FileName,
 					PackPath:  "mods/" + lf.FileName,
 					Mode:      "download",
-					ClientEnv: "required",
+					ClientEnv: sideEnv(m.ClientSide),
 					ServerEnv: srvEnv,
 					URL:       m.URL,
 					SHA1:      m.SHA1,
@@ -712,7 +714,7 @@ func collectSafeConfigOverrides(instDir string) ([]MrpackItemView, []string, err
 		return nil, []string{"config 不是普通文件夹（可能是联接/符号链接），已跳过配置文件打包"}, nil
 	}
 	var out []MrpackItemView
-	var warnings []string
+	var warnings, secrets []string
 	var totalBytes int64
 	err = filepath.WalkDir(cfgRoot, func(p string, d fs.DirEntry, werr error) error {
 		if werr != nil {
@@ -743,6 +745,10 @@ func collectSafeConfigOverrides(instDir string) ([]MrpackItemView, []string, err
 			warnings = append(warnings, fmt.Sprintf("配置文件太大已跳过（超过 64 MB）：config/%s", rel))
 			return nil
 		}
+		if looksSecret(rel, p, info.Size()) {
+			secrets = append(secrets, "config/"+rel)
+			return nil
+		}
 		totalBytes += info.Size()
 		if totalBytes > maxMrpackOverrideBytes || len(out) >= maxMrpackFiles {
 			return ErrBadRequest("config 目录下的文件过多或总大小超过 256 MB，无法全部打包")
@@ -761,7 +767,59 @@ func collectSafeConfigOverrides(instDir string) ([]MrpackItemView, []string, err
 	if err != nil {
 		return nil, nil, err
 	}
+	if len(secrets) > 0 {
+		list := secrets
+		more := ""
+		if len(list) > 8 {
+			list, more = list[:8], fmt.Sprintf(" 等 %d 个", len(secrets))
+		}
+		warnings = append(warnings, fmt.Sprintf("这些配置文件看起来带着密码、令牌、密钥或数据库，没有打进包：%s%s。"+
+			"它们是服主自己的，发给朋友的包里不该有；确实要的话，请自己检查过内容再单独发", strings.Join(list, "、"), more))
+	}
 	return out, warnings, nil
+}
+
+// 配置文件里可能放着服主自己的密码、令牌、密钥、数据库：机器人令牌、Webhook、数据库连接、权限插件的存储设置之类。
+// 导出给朋友的整合包不带这些。按文件名、扩展名和内容各认一遍，宁可多跳过几个（跳过的都写在提醒里）。
+var (
+	secretNameWords = []string{"password", "passwd", "secret", "token", "credential", "apikey", "api_key", "api-key",
+		"webhook", "discord", "mysql", "mariadb", "postgres", "jdbc", "luckperms", "oauth"}
+	secretExts = map[string]bool{".db": true, ".sqlite": true, ".sqlite3": true, ".pem": true, ".key": true,
+		".p12": true, ".pfx": true, ".jks": true, ".keystore": true, ".crt": true, ".cer": true, ".der": true, ".env": true, ".log": true}
+	// 文本配置里认得出的几种写法：key = "value"、"key": "value"、key: value、key=value。值至少 6 个字符才算，
+	// 留空的（模组默认配置里常见）不算；值全是数字、true / false 的在 looksSecret 里排除。
+	secretLine     = regexp.MustCompile(`(?i)(?:password|passwd|secret|token|api[_-]?key|webhook|private[_-]?key|access[_-]?key)[^\s=:]*["']?\s*[:=]\s*["']?([^\s"',;}\]]{6,})`)
+	textConfigExts = map[string]bool{".toml": true, ".json": true, ".json5": true, ".yml": true, ".yaml": true, ".properties": true,
+		".cfg": true, ".conf": true, ".ini": true, ".txt": true, ".snbt": true, ".hocon": true, ".xml": true, "": true}
+)
+
+// looksSecret rel（相对 config/，正斜杠）这个配置文件是不是像放着密码、令牌、密钥的。
+func looksSecret(rel, diskPath string, size int64) bool {
+	low := strings.ToLower(rel)
+	base := path.Base(low)
+	for _, w := range secretNameWords {
+		if strings.Contains(low, w) {
+			return true
+		}
+	}
+	if secretExts[path.Ext(base)] {
+		return true
+	}
+	if !textConfigExts[path.Ext(base)] || size > 1<<20 {
+		return false
+	}
+	b, err := os.ReadFile(diskPath)
+	if err != nil {
+		return true // 读不了就别打进去：打进去的那一步也会读不了
+	}
+	for _, m := range secretLine.FindAllSubmatch(b, -1) {
+		v := strings.ToLower(string(m[1]))
+		if v == "true" || v == "false" || strings.Trim(v, "0123456789.-") == "" {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func hashFileBoth(path string) (sha1Hex string, sha512Hex string, size int64, err error) {

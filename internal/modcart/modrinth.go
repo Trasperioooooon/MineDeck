@@ -31,6 +31,7 @@ type mrProject struct {
 	IconURL     string `json:"icon_url"`
 	ProjectType string `json:"project_type"` // mod / plugin / modpack …
 	ServerSide  string `json:"server_side"`  // required / optional / unsupported / unknown
+	ClientSide  string `json:"client_side"`  // 同上；只用在导出整合包时标客户端要不要装
 	License     struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
@@ -252,6 +253,7 @@ type SearchQuery struct {
 	MC       string   // 空串不按版本过滤（插件兼容面广，现有的资源页也不卡版本）
 	Category string   // 空串不按类别筛；否则必须在 Categories(Type) 里
 	Offset   int      // 从第几条开始，0 到 MaxOffset；按 PageSize 对齐（Modrinth 自己也是按页取的）
+	ClientOK bool     // 只在客户端用的模组也列出来（工具箱给客户端挑模组时用；装进服务器的清单不要）
 }
 
 // SearchResult 一页结果。Hits 最多 PageSize 条，不会是 nil。
@@ -277,7 +279,7 @@ func (s *Service) Search(ctx context.Context, q SearchQuery) (*SearchResult, err
 	if q.MC != "" {
 		facets = append(facets, []string{"versions:" + q.MC})
 	}
-	if q.Type == "mod" {
+	if q.Type == "mod" && !q.ClientOK {
 		facets = append(facets, []string{"server_side!=unsupported"})
 	}
 	if q.Category != "" {
@@ -293,7 +295,7 @@ func (s *Service) Search(ctx context.Context, q SearchQuery) (*SearchResult, err
 	if err != nil {
 		return nil, err
 	}
-	hits := slices.DeleteFunc(resp.Hits, func(h Hit) bool { return q.Type == "mod" && h.ServerSide == "unsupported" })
+	hits := slices.DeleteFunc(resp.Hits, func(h Hit) bool { return q.Type == "mod" && !q.ClientOK && h.ServerSide == "unsupported" })
 	if len(hits) > PageSize {
 		hits = hits[:PageSize]
 	}
@@ -347,6 +349,7 @@ type SHA1Match struct {
 	Slug          string
 	Title         string
 	ServerSide    string
+	ClientSide    string
 	VersionID     string
 	VersionNumber string
 	FileName      string
@@ -424,6 +427,7 @@ func (s *Service) LookupSHA1(ctx context.Context, sha1s []string) (map[string]SH
 			m.Slug = p.Slug
 			m.Title = p.Title
 			m.ServerSide = p.ServerSide
+			m.ClientSide = p.ClientSide
 		}
 		out[h] = m
 	}

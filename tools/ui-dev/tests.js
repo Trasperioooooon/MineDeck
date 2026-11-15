@@ -6860,7 +6860,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         assert((await page.textContent("#sp-ver-badge")).includes("18"), "1.21.4 默认应显示 18 个默认槽位");
         // 版本 26.1 展示 min_format
         await page.fill("#sp-mc", "26.1"); await settle(350);
-        assert((await page.textContent("#sp-packfmt-badge")).includes("min_format [84, 0]"), "26.1 应展示 min_format：" + await page.textContent("#sp-packfmt-badge"));
+        assert((await page.textContent("#sp-packfmt-badge")).includes("min_format 84"), "26.1 应展示 min_format：" + await page.textContent("#sp-packfmt-badge"));
         await page.fill("#sp-mc", "1.21.4"); await settle(350);
 
         // 从已有服务器导入玩家名单（Steve, Alex, Notch_CN）
@@ -6943,6 +6943,10 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         await page.click('.mc-add[data-pid="jei"]'); await settle(200);
         await page.setInputFiles("#mc-file", { name: "custom-local.jar", mimeType: "application/java-archive", buffer: Buffer.from("PK\x03\x04fakejar") });
         await settle(400);
+        // 挑的东西进的是工具箱自己的清单（cart=toolbox），新建向导的草稿清单还是空的：建服时不会把这些装进新服务器
+        const mcState = (await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data))).modcart;
+        assert(!mcState.draft.length && !mcState.localDraft.length && (mcState.insts["<toolbox>"] || []).length === 2 && (mcState.localInsts["<toolbox>"] || []).length === 1,
+          "工具箱挑的模组应在自己的清单里、不进向导草稿：" + JSON.stringify({ draft: mcState.draft, toolbox: mcState.insts["<toolbox>"] }));
 
         // 预览清单
         await page.click("#mp-preview-btn"); await page.waitForSelector("#mp-preview-box .tb-table-wrap");

@@ -8,7 +8,7 @@ window.MDToolbox = (() => {
   const MAX_SKIN_BYTES = 2 << 20;
   const MAX_SKINS = 18;
   const MOD_CORES = new Set(["fabric", "forge", "neoforge", "mohist", "banner"]);
-  const MC_PRESETS = ["1.21.4", "1.21.11", "26.1", "1.20.4", "1.20.1", "1.19.4", "1.19.2", "1.18.2", "1.12.2", "1.8.9"];
+  const MC_PRESETS = ["26.3", "26.2", "26.1", "1.21.11", "1.21.4", "1.20.4", "1.20.1", "1.19.4", "1.19.2", "1.18.2", "1.12.2", "1.8.9"];
 
   const TOOLS = [
     {
@@ -25,7 +25,7 @@ window.MDToolbox = (() => {
       title: "导出 Modrinth 整合包",
       tag: ".mrpack 分享包",
       ico: "package",
-      desc: "把模组和配置打包成标准 .mrpack 发给朋友，支持从已有模组服务器直接导出，或用草稿清单现挑模组与前置。",
+      desc: "把模组和配置打包成标准 .mrpack 发给朋友，可以从已有的模组服务器直接导出，也可以自己现挑模组，前置由 MineDeck 找齐。",
       summary: "支持 Modrinth CDN 与本地 overrides · 仅客户端模组自动标 server unsupported",
       render: renderMrpackExport,
     },
@@ -281,7 +281,7 @@ window.MDToolbox = (() => {
           return;
         }
         const cls = item.skipped ? "badge" : item.conflict ? "badge warn" : "badge core";
-        const slotTxt = `${item.slot.id}（${item.slot.modelLabel}）`;
+        const slotTxt = item.slot.index < 0 ? "不分槽位" : `${item.slot.id}（${item.slot.modelLabel}）`;
         const extra = item.skipped ? " · 已跳过" : item.conflict ? " · 撞槽" : "";
         const uuidTxt = item.uuid ? ` <span class="mono hint">${esc(item.uuid.slice(0, 8))}…</span>` : "";
         el.innerHTML = `<span class="${cls}">${esc(slotTxt)}${esc(extra)}</span>${uuidTxt}`;
@@ -421,8 +421,8 @@ window.MDToolbox = (() => {
         return;
       }
       verBadge.textContent = p.modernSlots ? `18 个默认槽位（1.19.3+）` : `2 个默认槽位（Steve / Alex）`;
-      fmtBadge.textContent = p.minFormat && p.minFormat.length
-        ? `min_format [${p.minFormat.join(", ")}] · pack_format ${p.packFormat}`
+      fmtBadge.textContent = p.minFormat
+        ? `min_format ${p.minFormat} · pack_format ${p.packFormat}`
         : `pack_format ${p.packFormat}`;
 
       const notesHtml = (p.notes || []).map(n => `<div class="hint tb-note">${icon("info")} <span>${esc(n)}</span></div>`).join("");
@@ -466,8 +466,8 @@ window.MDToolbox = (() => {
                 return `<tr>
                   <td>#${rowIdx + 1}</td>
                   <td>${esc(it.player || "顺位皮肤")} ${statusTag}</td>
-                  <td><code>${esc(it.slot.id)}</code>（${esc(it.slot.modelLabel)}）</td>
-                  <td class="mono">${esc(it.slot.path)}</td>
+                  <td>${it.slot.index < 0 ? "—" : `<code>${esc(it.slot.id)}</code>（${esc(it.slot.modelLabel)}）`}</td>
+                  <td class="mono">${it.slot.index < 0 ? "—" : esc(it.slot.path)}</td>
                   ${p.mode === "player" ? `<td class="mono">${esc(it.uuid || "")}</td>` : ""}
                 </tr>`;
               }).join("")}
@@ -764,7 +764,7 @@ window.MDToolbox = (() => {
           <div class="tb-sec-head">
             <h2>1. 选择导出方式与整合包信息</h2>
             <div class="seg" id="mp-src" role="group" aria-label="整合包模组来源">
-              <button type="button" class="on" data-src="draft" aria-pressed="true">草稿清单自选</button>
+              <button type="button" class="on" data-src="draft" aria-pressed="true">自己挑模组</button>
               <button type="button" data-src="instance" aria-pressed="false">从已有服务器导出</button>
             </div>
           </div>
@@ -778,11 +778,11 @@ window.MDToolbox = (() => {
               <label class="switch">
                 <input type="checkbox" id="mp-inc-cfg" checked aria-label="一并打包 config 文件夹">
                 <span class="sw"></span>
-                <span><span class="sw-label">一并打包 config/ 配置</span><div class="sw-desc">放进 overrides/config/；只收常规配置，不带密钥与世界存档。</div></span>
+                <span><span class="sw-label">一并打包 config/ 配置</span><div class="sw-desc">放进 overrides/config/。看起来带密码、令牌、密钥的配置文件不打进去，预览里会列出来。</div></span>
               </label>
             </div>
           </div>
-          <div id="mp-no-inst" class="hint" hidden>当前还没有模组服（Fabric / Forge / NeoForge / Mohist / Banner），可以先用「草稿清单自选」直接配整合包。</div>
+          <div id="mp-no-inst" class="hint" hidden>当前还没有模组服（Fabric / Forge / NeoForge / Mohist / Banner），可以先用「自己挑模组」配整合包。</div>
 
           <div class="form-grid tb-grid">
             <label class="field">
@@ -828,7 +828,7 @@ window.MDToolbox = (() => {
         </div>
 
         <div class="group tb-sec" id="mp-cart-sec">
-          <div class="tb-sec-head"><h2>2. 挑选要放进整合包的模组</h2><span class="hint">自动保存草稿</span></div>
+          <div class="tb-sec-head"><h2>2. 挑选要放进整合包的模组</h2><span class="hint">清单会自动保存</span></div>
           <div id="mp-modcart-host"></div>
         </div>
 
@@ -862,7 +862,6 @@ window.MDToolbox = (() => {
     const prevBox = $("#mp-preview-box"), buildErrEl = $("#mp-build-err"), resultEl = $("#mp-result");
 
     let saveTimer = null;
-    let cartGen = gen;
 
     function currentReq() {
       return {
@@ -901,14 +900,8 @@ window.MDToolbox = (() => {
 
     function mountDraftCart() {
       if (!window.MDModCart || st.source !== "draft") return;
-      cartGen = viewGen + 1000 + Math.floor(Math.random() * 10000);
-      // 仅调用现有的 MDModCart.wizardPanel 复用全部浏览 / 搜索 / 本地 jar / 前置检查交互，并替换其向导提示文案。
-      const panelCtxGen = gen;
-      MDModCart.wizardPanel(cartHost, { core: coreSel.value || "fabric", mc: mcIn.value.trim() || "1.20.1" }, panelCtxGen);
-      const sub = cartHost.querySelector(".mc-wiz-sub");
-      if (sub) {
-        sub.textContent = "在左边挑选 Modrinth 模组加入待装清单，或点击右侧「从电脑添加…」放入自己的 jar；配置与待装清单都会自动保留。";
-      }
+      // 工具箱自己的那份清单（cart=toolbox）：和新建向导的草稿清单分开，建服时不会被装进去
+      MDModCart.toolboxPanel(cartHost, { core: coreSel.value || "fabric", mc: mcIn.value.trim() || "1.20.1" }, gen);
     }
 
     function applySourceUI() {
@@ -944,6 +937,7 @@ window.MDToolbox = (() => {
         </div>` : "";
       const envTag = it => {
         if (it.serverEnv === "unsupported") return `<span class="badge core">仅客户端（已标 server: unsupported）</span>`;
+        if (it.clientEnv === "unsupported") return `<span class="badge">仅服务端（客户端不装）</span>`;
         if (it.serverEnv === "required" && it.clientEnv === "required") return `<span class="badge">客户端+服务端</span>`;
         return `<span class="badge">${esc((it.clientEnv || "required") + " / " + (it.serverEnv || "required"))}</span>`;
       };

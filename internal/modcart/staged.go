@@ -116,6 +116,9 @@ func bucket(inst string) string {
 	if inst == Draft {
 		return "draft"
 	}
+	if inst == Toolbox {
+		return "toolbox"
+	}
 	sum := sha256.Sum256([]byte(inst))
 	return "i-" + hex.EncodeToString(sum[:12])
 }

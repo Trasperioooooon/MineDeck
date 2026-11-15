@@ -12,7 +12,9 @@ import (
 	"image"
 	"image/draw"
 	"image/png"
+	"maps"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -135,8 +137,10 @@ func ResolvePlayerSlot(player, mc string) (uuidStr string, hash int32, slot Skin
 }
 
 // PackFormatForMC 返回对应 Minecraft Java 版的资源包 pack_format 主版本号。
-// 对照来源：Minecraft Wiki — Pack format（https://minecraft.wiki/w/Pack_format），涵盖 1.8 至 26.1。
-// 另注：自 1.21.9（69）起 Mojang 在 pack.mcmeta 中引入了 min_format / max_format 的 [major, minor] 格式并停用 supported_formats。
+// 对照来源：Minecraft Wiki — Pack format（https://minecraft.wiki/w/Pack_format，2026-11-16 查），涵盖 1.8 至 26.3；
+// 比表里更新的版本按最新一档算（客户端会提示「为旧版本制作」，确认后照样能用）。
+// 自 1.21.9（69）起 pack.mcmeta 用 min_format / max_format：可以写整数或 [major, minor]；max_format 写整数表示这个
+// 大版本下的任何小版本（26.3 是 97.1，写成 [97, 0] 反而把它排除了），所以这里一律写整数。supported_formats 停用。
 func PackFormatForMC(mc string) (int, error) {
 	maj, minV, patch, ok := parseMCVersion(mc)
 	if !ok {
@@ -148,7 +152,9 @@ func PackFormatForMC(mc string) (int, error) {
 	}
 	// 由新到旧匹配下限
 	rules := []rule{
-		{26, 1, 0, 84},  // 26.1+ (year-based release)
+		{26, 3, 0, 97},  // 26.3（97.1）及更新
+		{26, 2, 0, 88},  // 26.2
+		{26, 1, 0, 84},  // 26.1 – 26.1.2
 		{1, 21, 11, 75}, // 1.21.11
 		{1, 21, 9, 69},  // 1.21.9 – 1.21.10
 		{1, 21, 7, 64},  // 1.21.7 – 1.21.8
@@ -230,10 +236,11 @@ func compareTuple(a1, a2, a3, b1, b2, b3 int) int {
 	return 0
 }
 
-func buildPackMcmeta(mc, desc string) (pf int, raw []byte, minFmt []int, maxFmt []int, err error) {
+// buildPackMcmeta 生成 pack.mcmeta；minFmt、maxFmt 只在 1.21.9 起的格式里有（其余为 0）。
+func buildPackMcmeta(mc, desc string) (pf int, raw []byte, minFmt, maxFmt int, err error) {
 	pf, err = PackFormatForMC(mc)
 	if err != nil {
-		return 0, nil, nil, nil, err
+		return 0, nil, 0, 0, err
 	}
 	if strings.TrimSpace(desc) == "" {
 		desc = "MineDeck 离线默认皮肤包"
@@ -247,16 +254,16 @@ func buildPackMcmeta(mc, desc string) (pf int, raw []byte, minFmt []int, maxFmt 
 	type packModern struct {
 		Pack struct {
 			PackFormat  int    `json:"pack_format"`
-			MinFormat   []int  `json:"min_format"`
-			MaxFormat   []int  `json:"max_format"`
+			MinFormat   int    `json:"min_format"`
+			MaxFormat   int    `json:"max_format"`
 			Description string `json:"description"`
 		} `json:"pack"`
 	}
 	if pf >= 65 {
 		var pm packModern
 		pm.Pack.PackFormat = pf
-		pm.Pack.MinFormat = []int{pf, 0}
-		pm.Pack.MaxFormat = []int{pf, 0}
+		pm.Pack.MinFormat = pf
+		pm.Pack.MaxFormat = pf
 		pm.Pack.Description = desc
 		b, err := json.MarshalIndent(pm, "", "  ")
 		return pf, b, pm.Pack.MinFormat, pm.Pack.MaxFormat, err
@@ -265,7 +272,7 @@ func buildPackMcmeta(mc, desc string) (pf int, raw []byte, minFmt []int, maxFmt 
 	pl.Pack.PackFormat = pf
 	pl.Pack.Description = desc
 	b, err := json.MarshalIndent(pl, "", "  ")
-	return pf, b, nil, nil, err
+	return pf, b, 0, 0, err
 }
 
 // SkinEntrySpec 一条皮肤配置项（用户表单提交）。
@@ -315,8 +322,8 @@ type SkinPreviewResp struct {
 	ModernSlots bool            `json:"modernSlots"`
 	SlotCount   int             `json:"slotCount"`
 	PackFormat  int             `json:"packFormat"`
-	MinFormat   []int           `json:"minFormat,omitempty"`
-	MaxFormat   []int           `json:"maxFormat,omitempty"`
+	MinFormat   int             `json:"minFormat,omitempty"`
+	MaxFormat   int             `json:"maxFormat,omitempty"`
 	Slots       []SkinSlot      `json:"slots"`
 	Items       []SkinEntryView `json:"items"`
 	Conflicts   []SkinConflict  `json:"conflicts"`
@@ -387,7 +394,8 @@ func PreviewSkinPack(req SkinPreviewReq) (SkinPreviewResp, error) {
 			}
 			resp.Items = append(resp.Items, item)
 		}
-		for sIdx, idxs := range slotUsers {
+		for _, sIdx := range slices.Sorted(maps.Keys(slotUsers)) {
+			idxs := slotUsers[sIdx]
 			if len(idxs) < 2 {
 				continue
 			}
@@ -409,33 +417,46 @@ func PreviewSkinPack(req SkinPreviewReq) (SkinPreviewResp, error) {
 		return resp, nil
 	}
 
-	// sequential 模式：按顺序或指定槽位填充
+	// sequential 模式：先占手动指定的槽位，再给「自动」的挑空着的。跳过的那一条不占槽位，
+	// 自动的被跳过时就不给它分槽位（Slot.Index 记 -1）
 	used := map[int][]int{}
+	targets := make([]int, len(req.Entries))
 	for i, e := range req.Entries {
-		target := -1
+		targets[i] = -1
 		if e.Slot >= 0 && e.Slot < len(slots) {
-			target = e.Slot
-		} else if !e.Skip {
-			target = pickFreeSlot(slots, e.Model, used)
+			targets[i] = e.Slot
+			if !e.Skip {
+				used[e.Slot] = append(used[e.Slot], i)
+			}
 		}
-		if target < 0 {
+	}
+	for i, e := range req.Entries {
+		if targets[i] >= 0 || e.Skip {
+			continue
+		}
+		t := pickFreeSlot(slots, e.Model, used)
+		if t < 0 {
 			return SkinPreviewResp{}, ErrBadRequest(fmt.Sprintf("Minecraft %s 最多只有 %d 个默认皮肤槽位，放不下第 %d 张皮肤", mc, len(slots), i+1))
 		}
-		item := SkinEntryView{
-			Index:   i,
-			Slot:    slots[target],
-			Skipped: e.Skip,
-			Kept:    e.Keep,
+		targets[i] = t
+		used[t] = append(used[t], i)
+	}
+	for i, e := range req.Entries {
+		item := SkinEntryView{Index: i, Skipped: e.Skip, Kept: e.Keep, Slot: SkinSlot{Index: -1}}
+		if targets[i] >= 0 {
+			item.Slot = slots[targets[i]]
 		}
-		if !e.Skip {
-			used[target] = append(used[target], i)
+		if e.Skip {
+			item.Note = "已跳过，不写入材质包"
 		}
 		resp.Items = append(resp.Items, item)
 	}
-	for sIdx, idxs := range used {
+	for _, sIdx := range slices.Sorted(maps.Keys(used)) {
+		idxs := used[sIdx]
 		if len(idxs) < 2 {
 			continue
 		}
+		slices.Sort(idxs)
 		for _, idx := range idxs {
 			resp.Items[idx].Conflict = true
 		}

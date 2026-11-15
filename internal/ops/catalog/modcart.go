@@ -38,6 +38,8 @@ import (
 
 type modcartArgs struct {
 	Inst         string   `json:"inst"`
+	Cart         string   `json:"cart"` // "toolbox" = 工具箱导出整合包用的那份清单（见 modcart.Toolbox），不给 = 按 inst 定
+	key          string   // 实际操作的那份清单的键，bindCart 填
 	Q            string   `json:"q"`
 	Core         string   `json:"core"`
 	MC           string   `json:"mc"`
@@ -63,7 +65,29 @@ type modcartArgs struct {
 // 那个操作只认这个目录里的文件：不能拿它去读主机上别的文件。
 func LocalUploadDir() string { return filepath.Join(app.CacheDir, "modcart-upload") }
 
+// bindCart 解参数并定下这次操作哪份清单：给了 inst 是那台实例的；cart=toolbox 是工具箱导出整合包用的那份
+// （和草稿清单分开，建服时不会被装进去）；都不给是草稿清单。
+func bindCart(a ops.Args) (modcartArgs, error) {
+	p, err := bind[modcartArgs](a)
+	if err != nil {
+		return p, err
+	}
+	switch p.Cart {
+	case "":
+		p.key = p.Inst
+	case "toolbox":
+		if p.Inst != "" {
+			return p, ops.Errorf(400, "工具箱的清单不属于哪台实例，不能同时给 inst")
+		}
+		p.key = modcart.Toolbox
+	default:
+		return p, ops.Errorf(400, "cart 只能是 toolbox，或者不给")
+	}
+	return p, nil
+}
+
 var (
+	cartWhich = ops.String("toolbox = 工具箱「导出整合包」用的清单（发给朋友客户端的模组，只在客户端用的模组也能放）；不给 = 按 inst 定").OneOf("", "toolbox")
 	cartInst  = ops.String("实例名称（实例列表里的 name）；不填 = 草稿清单：服务器还没建好时先放这里，建好后 modcart_install 带上 includeDraft 一起装").Len(0, 100)
 	cartCore  = ops.String("服务器核心，如 fabric、forge、neoforge、paper（不给 inst 时必填；给了 inst 就用实例的）").Len(0, 20)
 	cartMC    = ops.String("Minecraft 版本，如 1.20.1（不给 inst 时装模组必填；给了 inst 就用实例的）").Len(0, 40)
@@ -170,13 +194,13 @@ func (c *cat) view(p modcartArgs, caller ops.Caller) map[string]any {
 			t = &ct
 		}
 	}
-	return cartView(c.ModCart.List(p.Inst), c.ModCart.Locals(p.Inst), t, caller.Source.AI())
+	return cartView(c.ModCart.List(p.key), c.ModCart.Locals(p.key), t, caller.Source.AI())
 }
 
 // installItems 这次要装的：实例的车，includeDraft 时再加上草稿车。
 func (c *cat) installItems(p modcartArgs) []modcart.Item {
-	items := c.ModCart.List(p.Inst)
-	if p.IncludeDraft {
+	items := c.ModCart.List(p.key)
+	if p.IncludeDraft && p.Inst != "" {
 		items = modcart.Merge(items, c.ModCart.List(modcart.Draft))
 	}
 	return items
@@ -184,8 +208,8 @@ func (c *cat) installItems(p modcartArgs) []modcart.Item {
 
 // installLocals 这次要装的本地文件：实例的车里的，includeDraft 时再加上草稿车里的。
 func (c *cat) installLocals(p modcartArgs) []modcart.LocalFile {
-	locals := c.ModCart.Locals(p.Inst)
-	if p.IncludeDraft {
+	locals := c.ModCart.Locals(p.key)
+	if p.IncludeDraft && p.Inst != "" {
 		locals = modcart.MergeLocal(locals, c.ModCart.Locals(modcart.Draft))
 	}
 	return locals
@@ -279,12 +303,12 @@ func (c *cat) modcartOps() {
 			"q 留空就是这个核心和版本下最热门的；category 按类别筛；offset 往后翻（结果里 more=true 才有下一页，最多到第 5 页）。" +
 			"给 inst 按实例的核心和版本搜；服务器还没建好时给 core 和 mc。结果的 project_id 用于 modcart_add。",
 		Params: ops.Object(map[string]*ops.Schema{"q": ops.String("搜索词（英文名效果更好）；留空 = 最热门的").Len(0, 100),
-			"inst": cartInst, "core": cartCore, "mc": cartMC,
+			"inst": cartInst, "cart": cartWhich, "core": cartCore, "mc": cartMC,
 			"category": ops.String("只看这个类别（可选）。模组能用：" + strings.Join(modcart.Categories("mod"), "、") +
 				"；插件能用：" + strings.Join(modcart.Categories("plugin"), "、")).OneOf(modcart.AllCategories()...),
 			"offset": ops.Integer("从第几条开始（可选，默认 0）：0、20、40、60、80，每次返回 20 条以内").Range(0, modcart.MaxOffset)}),
 		Run: func(ctx context.Context, _ ops.Caller, a ops.Args) (any, error) {
-			p, err := bind[modcartArgs](a)
+			p, err := bindCart(a)
 			if err != nil {
 				return nil, err
 			}
@@ -299,7 +323,7 @@ func (c *cat) modcartOps() {
 					p.Category, strings.Join(modcart.Categories(t.rtype), "、"))
 			}
 			res, err := c.ModCart.Search(ctx, modcart.SearchQuery{Q: p.Q, Type: t.rtype, Loaders: t.loaders, MC: t.mc,
-				Category: p.Category, Offset: p.Offset})
+				Category: p.Category, Offset: p.Offset, ClientOK: p.key == modcart.Toolbox})
 			if err != nil {
 				return nil, cartErr(err)
 			}
@@ -311,9 +335,9 @@ func (c *cat) modcartOps() {
 		Name: "modcart.list", Title: "查看待装清单", Level: ops.Read,
 		Desc: "待装清单里有什么（按加入的先后，两样合计最多 50 项）：items 是 Modrinth 项目，local 是用户自己从电脑上添加的 jar" +
 			"（只有文件名、大小和读出来的模组信息；这部分只有用户能加、能移除）。不给 inst 看草稿清单。",
-		Params: ops.Object(map[string]*ops.Schema{"inst": cartInst, "core": cartCore, "mc": cartMC}),
+		Params: ops.Object(map[string]*ops.Schema{"inst": cartInst, "cart": cartWhich, "core": cartCore, "mc": cartMC}),
 		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
-			p, err := bind[modcartArgs](a)
+			p, err := bindCart(a)
 			if err != nil {
 				return nil, err
 			}
@@ -325,10 +349,10 @@ func (c *cat) modcartOps() {
 		Name: "modcart.add", Title: "把模组或插件加进待装清单", Level: ops.Read,
 		Desc: "把 Modrinth 项目加进待装清单（一次可以加多个），只是暂存，不下载、不改服务器。加入时会向 Modrinth 核对：" +
 			"查不到的、只在客户端用的模组不放进去，在 skipped 里说明原因。返回整份清单。每份清单最多 50 项（连本地文件一起算）。",
-		Params: ops.Object(map[string]*ops.Schema{"inst": cartInst,
+		Params: ops.Object(map[string]*ops.Schema{"inst": cartInst, "cart": cartWhich,
 			"projectIds": ops.Array("要加入的 Modrinth 项目 ID 或 slug", projectID).MaxLen(modcart.MaxItems)}, "projectIds"),
 		Run: func(ctx context.Context, caller ops.Caller, a ops.Args) (any, error) {
-			p, err := bind[modcartArgs](a)
+			p, err := bindCart(a)
 			if err != nil {
 				return nil, err
 			}
@@ -342,7 +366,7 @@ func (c *cat) modcartOps() {
 			}
 			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
-			_, skipped, err := c.ModCart.Add(ctx, p.Inst, p.ProjectIDs)
+			_, skipped, err := c.ModCart.Add(ctx, p.key, p.ProjectIDs)
 			if err != nil {
 				return nil, cartErr(err)
 			}
@@ -357,13 +381,13 @@ func (c *cat) modcartOps() {
 	c.reg.Register(&ops.Op{
 		Name: "modcart.remove", Title: "从待装清单拿掉一项", Level: ops.Read,
 		Desc:   "把一个 Modrinth 项目从待装清单里拿掉（清单里没有它也不报错）。用户自己添加的本地文件拿不掉。返回整份清单。",
-		Params: ops.Object(map[string]*ops.Schema{"inst": cartInst, "projectId": projectID}, "projectId"),
+		Params: ops.Object(map[string]*ops.Schema{"inst": cartInst, "cart": cartWhich, "projectId": projectID}, "projectId"),
 		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
-			p, err := bind[modcartArgs](a)
+			p, err := bindCart(a)
 			if err != nil {
 				return nil, err
 			}
-			if _, err := c.ModCart.Remove(p.Inst, p.ProjectID); err != nil {
+			if _, err := c.ModCart.Remove(p.key, p.ProjectID); err != nil {
 				return nil, cartErr(err)
 			}
 			return c.view(p, caller), nil
@@ -374,24 +398,24 @@ func (c *cat) modcartOps() {
 		Name: "modcart.clear", Title: "清空待装清单", Level: ops.Read,
 		Desc: "清空待装清单里的 Modrinth 项目（只清这份清单，不动服务器里已经装上的文件）。" +
 			"用户自己从电脑上添加的本地文件不会被清掉，那部分只有用户在界面上能清。",
-		Params: ops.Object(map[string]*ops.Schema{"inst": cartInst}),
+		Params: ops.Object(map[string]*ops.Schema{"inst": cartInst, "cart": cartWhich}),
 		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
-			p, err := bind[modcartArgs](a)
+			p, err := bindCart(a)
 			if err != nil {
 				return nil, err
 			}
 			// 人在界面上点「清空」：Modrinth 项目和本地文件都清。别的来源（AI 助手、MCP、定时任务）只清 Modrinth 项目：
 			// 本地文件是人放的，放和拿都只许人
 			if caller.Source.Human() {
-				err = c.ModCart.ClearAll(p.Inst)
+				err = c.ModCart.ClearAll(p.key)
 			} else {
-				err = c.ModCart.Clear(p.Inst)
+				err = c.ModCart.Clear(p.key)
 			}
 			if err != nil {
 				return nil, cartErr(err)
 			}
 			v := c.view(p, caller)
-			if n := len(c.ModCart.Locals(p.Inst)); n > 0 {
+			if n := len(c.ModCart.Locals(p.key)); n > 0 {
 				v["note"] = fmt.Sprintf("清单里还留着 %d 个本地文件：那是用户自己从电脑上添加的，只有用户能在界面上移除", n)
 			}
 			return v, nil
@@ -405,10 +429,10 @@ func (c *cat) modcartOps() {
 		Desc: "把一个已经上传好的 jar 放进待装清单（只是暂存，不动服务器）。文件名必须是单独一段、以 .jar 结尾，文件必须是能打开的 zip，" +
 			"最大 256 MB；同一个文件再加一次不重复存，文件名相同内容不同的拒绝。返回整份清单，added 是这次加的那一个。",
 		// 参数说明故意不写长度上限：参数不合规时 Run 不会被调到，上传的临时文件就没人删了；名字、大小都在 Run 里查
-		Params: ops.Object(map[string]*ops.Schema{"inst": ops.String("实例名称；不填 = 草稿清单"), "core": cartCore, "mc": cartMC,
+		Params: ops.Object(map[string]*ops.Schema{"inst": ops.String("实例名称；不填 = 草稿清单"), "cart": cartWhich, "core": cartCore, "mc": cartMC,
 			"file": ops.String("上传后存下的临时文件"), "fileName": ops.String("文件名")}, "file", "fileName"),
 		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
-			p, err := bind[modcartArgs](a)
+			p, err := bindCart(a)
 			if err != nil {
 				return nil, err
 			}
@@ -433,7 +457,7 @@ func (c *cat) modcartOps() {
 			if err := checkLocalDest(p.FileName); err != nil {
 				return nil, err
 			}
-			lf, dup, err := c.ModCart.AddLocal(p.Inst, p.File, p.FileName)
+			lf, dup, err := c.ModCart.AddLocal(p.key, p.File, p.FileName)
 			if err != nil {
 				return nil, cartErr(err)
 			}
@@ -447,14 +471,14 @@ func (c *cat) modcartOps() {
 	c.reg.Register(&ops.Op{
 		Name: "modcart.local.remove", Title: "从待装清单移除本地文件", Level: ops.HumanOnly,
 		Desc: "把一个本地文件从待装清单里拿掉（暂存的那份一起删，不动服务器里的文件）。清单里没有它也不报错。返回整份清单。",
-		Params: ops.Object(map[string]*ops.Schema{"inst": cartInst, "core": cartCore, "mc": cartMC,
+		Params: ops.Object(map[string]*ops.Schema{"inst": cartInst, "cart": cartWhich, "core": cartCore, "mc": cartMC,
 			"sha1": ops.String("要移除的文件的 SHA-1（modcart.list 的 local[].sha1）").Match("^[0-9a-fA-F]{40}$")}, "sha1"),
 		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
-			p, err := bind[modcartArgs](a)
+			p, err := bindCart(a)
 			if err != nil {
 				return nil, err
 			}
-			if _, err := c.ModCart.RemoveLocal(p.Inst, strings.ToLower(p.SHA1)); err != nil {
+			if _, err := c.ModCart.RemoveLocal(p.key, strings.ToLower(p.SHA1)); err != nil {
 				return nil, cartErr(err)
 			}
 			return c.view(p, caller), nil
@@ -469,10 +493,10 @@ func (c *cat) modcartOps() {
 			"（recognized 表示在 Modrinth 上认出来了，它的前置已经一起算进去；warn 是加载器或版本对不上的提醒），" +
 			"manual 是本地文件自己声明、哪儿都没找到的前置（只知道模组 ID，没法代为下载，要用户自己去找）。给 inst 时会对照服务器里已有的文件；" +
 			"includeDraft=true 把草稿清单也算进来（和 modcart_install 带 includeDraft 时装的一样）。清单很满时 files 会少列，note 里说明。",
-		Params: ops.Object(map[string]*ops.Schema{"inst": cartInst, "core": cartCore, "mc": cartMC,
+		Params: ops.Object(map[string]*ops.Schema{"inst": cartInst, "cart": cartWhich, "core": cartCore, "mc": cartMC,
 			"includeDraft": ops.Boolean("给 inst 时把草稿清单也算进来（默认 false）")}),
 		Run: func(ctx context.Context, caller ops.Caller, a ops.Args) (any, error) {
-			p, err := bind[modcartArgs](a)
+			p, err := bindCart(a)
 			if err != nil {
 				return nil, err
 			}
@@ -511,7 +535,7 @@ func (c *cat) modcartOps() {
 		// expectLocal 是「人看过这些文件」的凭据，只能由人的界面给；AI 发起的安装走提案卡片，卡片上列着这些文件
 		HumanParams: []string{"expectLocal"},
 		Preview: func(ctx context.Context, _ ops.Caller, a ops.Args) (*ops.Plan, error) {
-			p, err := bind[modcartArgs](a)
+			p, err := bindCart(a)
 			if err != nil {
 				return nil, err
 			}
@@ -609,7 +633,7 @@ func (c *cat) modcartOps() {
 			return pl, nil
 		},
 		Run: func(ctx context.Context, _ ops.Caller, a ops.Args) (any, error) {
-			p, err := bind[modcartArgs](a)
+			p, err := bindCart(a)
 			if err != nil {
 				return nil, err
 			}

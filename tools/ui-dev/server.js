@@ -1534,13 +1534,17 @@ function modcartMultipart(buf, contentType) {
   }
   return out;
 }
+// 工具箱「导出整合包」那份清单的键（同后端 modcart.Toolbox）：请求带 cart=toolbox 时用它，和向导的草稿车分开
+const TOOLBOX_CART = "<toolbox>";
+const cartOf = o => (o && o.cart === "toolbox") ? TOOLBOX_CART : ((o && o.inst) || "");
 async function modcartHandler(state, req, res, p, m, u) {
   const q = u.searchParams, mc = state.modcart;
   const bucket = inst => modcartBucket(state, inst);
+  const qCart = cartOf({ cart: q.get("cart"), inst: q.get("inst") });
   // 热门清单和搜索（同 modcart.search）：关键词留空就是最热门的；始终按下载量排，一页 20 条，最多翻到第 5 页
   if (p === "/api/modcart/search") {
     const word = (q.get("q") || "").toLowerCase(), cat = q.get("category") || "", offRaw = q.get("offset") || "0";
-    const type = modcartType(state, modcartCore(state, q.get("inst"), q.get("core")));
+    const type = modcartType(state, modcartCore(state, qCart, q.get("core")));
     mc.searches.push({ q: q.get("q") || "", category: cat, offset: offRaw });
     if (mc.searchDelay) await new Promise(r => setTimeout(r, mc.searchDelay));
     if (mc.searchFail) return err(res, 502, mc.searchFail);
@@ -1553,24 +1557,24 @@ async function modcartHandler(state, req, res, p, m, u) {
       .map(x => ({ project_id: x.projectId, slug: x.slug, title: x.title, description: x.description, downloads: x.downloads, icon_url: "", license: x.license }));
     return ok(res, { type, hits, offset, total: all.length, more: hits.length > 0 && offset + MODCART_PAGE < all.length && offset < MODCART_MAX_OFFSET });
   }
-  if (p === "/api/modcart" && m === "GET") return ok(res, modcartView(state, q.get("inst") || "", q.get("core")));
+  if (p === "/api/modcart" && m === "GET") return ok(res, modcartView(state, qCart, q.get("core")));
   if (p === "/api/modcart" && m === "POST") {
     const b = await readBody(req);
     if (mc.addFail) return err(res, 500, mc.addFail);
-    const cart = bucket(b.inst || "");
+    const cart = bucket(cartOf(b));
     for (const id of (b.projectIds || [])) if (!cart.some(x => x.projectId === id)) cart.push(modCartItem(id));
-    return ok(res, modcartView(state, b.inst || "", b.core));
+    return ok(res, modcartView(state, cartOf(b), b.core));
   }
   if (p === "/api/modcart/remove" && m === "POST") {
-    const b = await readBody(req), cart = bucket(b.inst || ""), af = cart.filter(x => x.projectId !== b.projectId);
+    const b = await readBody(req), cart = bucket(cartOf(b)), af = cart.filter(x => x.projectId !== b.projectId);
     cart.length = 0; cart.push(...af);
-    return ok(res, modcartView(state, b.inst || "", b.core));
+    return ok(res, modcartView(state, cartOf(b), b.core));
   }
   // 清空（界面上是人点的）：Modrinth 项目和本地文件都清
   if (p === "/api/modcart/clear" && m === "POST") {
     const b = await readBody(req);
-    bucket(b.inst || "").length = 0; modcartLocals(state, b.inst || "").length = 0;
-    return ok(res, modcartView(state, b.inst || "", b.core));
+    bucket(cartOf(b)).length = 0; modcartLocals(state, cartOf(b)).length = 0;
+    return ok(res, modcartView(state, cartOf(b), b.core));
   }
   // 从电脑添加一个 jar（同 modcart.local.add）：multipart 的 file，另带 inst / core / mc。返回整张清单，外加 added 和 duplicate
   if (p === "/api/modcart/local" && m === "POST") {
@@ -1578,7 +1582,7 @@ async function modcartHandler(state, req, res, p, m, u) {
     const { fields, file } = modcartMultipart(raw, req.headers["content-type"]);
     if (mc.localFail) return err(res, 500, mc.localFail);
     if (!file) return err(res, 400, "没有收到文件");
-    const inst = fields.inst || "", name = file.name, locals = modcartLocals(state, inst), low = name.toLowerCase();
+    const inst = cartOf(fields), name = file.name, locals = modcartLocals(state, inst), low = name.toLowerCase();
     if (!low.endsWith(".jar")) return err(res, 400, "只能添加 .jar 文件：" + name);
     if (file.data.subarray(0, 2).toString("latin1") !== "PK") return err(res, 400, `「${name}」打不开：它不是一个完整的 jar 文件（可能没下载完整，或者其实是别的格式）。重新下载一份再添加`);
     const sha1 = mcCrypto.createHash("sha1").update(file.data).digest("hex");
@@ -1601,15 +1605,15 @@ async function modcartHandler(state, req, res, p, m, u) {
     return ok(res, { ...modcartView(state, inst, fields.core), added: { sha1: lf.sha1, fileName: lf.fileName, title: lf.title, size: lf.size }, duplicate });
   }
   if (p === "/api/modcart/local/remove" && m === "POST") {
-    const b = await readBody(req), locals = modcartLocals(state, b.inst || "");
+    const b = await readBody(req), locals = modcartLocals(state, cartOf(b));
     if (!/^[0-9a-fA-F]{40}$/.test(b.sha1 || "")) return err(res, 400, "参数 sha1 格式不对");
     const af = locals.filter(x => x.sha1 !== b.sha1.toLowerCase());
     locals.length = 0; locals.push(...af);
-    return ok(res, modcartView(state, b.inst || "", b.core));
+    return ok(res, modcartView(state, cartOf(b), b.core));
   }
   if (p === "/api/modcart/deps") {
     if (mc.depsFail) return err(res, 502, mc.depsFail);
-    return ok(res, modcartDeps(state, q.get("inst") || "", q.get("core")));
+    return ok(res, modcartDeps(state, qCart, q.get("core")));
   }
   return ok(res, {});
 }
@@ -1970,6 +1974,8 @@ const tbCmpTuple = (a, b) => (a[0] - b[0]) || (a[1] - b[1]) || (a[2] - b[2]);
 function tbPackFormat(mc) {
   const t = tbParseMC(mc);
   if (!t) return null;
+  if (tbCmpTuple(t, [26, 3, 0]) >= 0) return 97; // 同后端 PackFormatForMC：26.3（97.1）及更新
+  if (tbCmpTuple(t, [26, 2, 0]) >= 0) return 88;
   if (t[0] >= 26) return 84;
   if (tbCmpTuple(t, [1, 21, 11]) >= 0) return 75;
   if (tbCmpTuple(t, [1, 21, 9]) >= 0) return 69;
@@ -2038,7 +2044,7 @@ function tbPreviewSkins(req) {
 
   const resp = {
     mc, mode, modernSlots: slotInfo.modern, slotCount: slots.length, packFormat: pf,
-    ...(pf >= 65 ? { minFormat: [pf, 0], maxFormat: [pf, 0] } : {}),
+    ...(pf >= 65 ? { minFormat: pf, maxFormat: pf } : {}),
     slots, items: [], conflicts: [],
     notes: [slotInfo.modern
       ? "在 1.19.3 及以上版本中，离线模式玩家的细手臂（slim）和经典手臂（wide）模型也由玩家名对应的 UUID 唯一决定。"
@@ -2054,19 +2060,24 @@ function tbPreviewSkins(req) {
       if (!e.skip) used.set(r.slot.index, [...(used.get(r.slot.index) || []), i]);
     }
   } else {
+    // 同后端：先占手动指定的槽位，再给「自动」的挑空着的；跳过的不占槽位，自动的被跳过时不分槽位（index -1）
+    const targets = entries.map(e => (e && Number.isInteger(e.slot) && e.slot >= 0 && e.slot < slots.length) ? e.slot : -1);
+    entries.forEach((e, i) => { if (targets[i] >= 0 && !(e && e.skip)) used.set(targets[i], [...(used.get(targets[i]) || []), i]); });
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i] || {};
-      let target = Number.isInteger(e.slot) && e.slot >= 0 && e.slot < slots.length ? e.slot : -1;
-      if (target < 0 && !e.skip) {
-        target = slots.findIndex(s => !used.has(s.index) && (!e.model || s.model === e.model));
-        if (target < 0) target = slots.findIndex(s => !used.has(s.index));
-      }
-      if (target < 0) return { error: `Minecraft ${mc} 最多只有 ${slots.length} 个默认皮肤槽位，放不下第 ${i + 1} 张皮肤` };
-      resp.items.push({ index: i, player: e.player || "", slot: slots[target], skipped: !!e.skip, kept: !!e.keep });
-      if (!e.skip) used.set(target, [...(used.get(target) || []), i]);
+      if (targets[i] >= 0 || e.skip) continue;
+      let t = slots.findIndex(s => !used.has(s.index) && (!e.model || s.model === e.model));
+      if (t < 0) t = slots.findIndex(s => !used.has(s.index));
+      if (t < 0) return { error: `Minecraft ${mc} 最多只有 ${slots.length} 个默认皮肤槽位，放不下第 ${i + 1} 张皮肤` };
+      targets[i] = t;
+      used.set(t, [...(used.get(t) || []), i]);
     }
+    entries.forEach((e, i) => {
+      e = e || {};
+      resp.items.push({ index: i, player: e.player || "", slot: targets[i] >= 0 ? slots[targets[i]] : { index: -1 }, skipped: !!e.skip, kept: !!e.keep });
+    });
   }
-  for (const [sIdx, idxs] of used) {
+  for (const [sIdx, idxs] of [...used].sort((x, y) => x[0] - y[0])) {
     if (idxs.length < 2) continue;
     const sl = slots[sIdx];
     for (const i of idxs) resp.items[i].conflict = true;
@@ -2134,7 +2145,7 @@ function tbPreviewMrpack(state, b) {
   } else {
     if (!["fabric", "forge", "neoforge"].includes(core)) return { error: "整合包加载器请选 fabric、forge 或 neoforge" };
     loaderVer = loaderVer || (core === "fabric" ? "0.16.10" : core === "neoforge" ? "21.1.80" : "47.3.0");
-    for (const item of state.modcart.draft) {
+    for (const item of modcartBucket(state, TOOLBOX_CART)) {
       const clientOnly = item.projectId === "jei";
       if (clientOnly) clientOnlyCount++;
       files.push({
@@ -2144,7 +2155,7 @@ function tbPreviewMrpack(state, b) {
         sha1: "c".repeat(40), sha512: "d".repeat(128), size: 512000,
       });
     }
-    for (const lf of state.modcart.localDraft) {
+    for (const lf of modcartLocals(state, TOOLBOX_CART)) {
       overrides.push({ title: lf.title || lf.fileName, fileName: lf.fileName, packPath: "overrides/mods/" + lf.fileName, mode: "override", size: lf.size || 200000, note: "本地添加的 jar（放入 overrides）" });
     }
   }

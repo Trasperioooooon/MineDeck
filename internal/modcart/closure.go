@@ -51,6 +51,7 @@ type File struct {
 	Size          int64   `json:"size"`
 	License       string  `json:"license,omitempty"`
 	ServerSide    string  `json:"serverSide,omitempty"`
+	ClientSide    string  `json:"clientSide,omitempty"`
 	FromDep       bool    `json:"fromDep,omitempty"`      // 不是购物车里的，是自动补的必装前置
 	DependencyOf  string  `json:"dependencyOf,omitempty"` // 前置：谁需要它（名称）
 	Deps          []MRDep `json:"deps,omitempty"`
@@ -140,7 +141,7 @@ func (s *Service) ClosureWith(ctx context.Context, items []Item, staged []LocalF
 	ids := make([]string, 0, len(items))
 	for _, it := range items {
 		inCart[it.ProjectID] = true
-		p := mrProject{ID: it.ProjectID, Slug: it.Slug, Title: it.Title, ProjectType: it.Kind}
+		p := mrProject{ID: it.ProjectID, Slug: it.Slug, Title: it.Title, ProjectType: it.Kind, ServerSide: it.ServerSide, ClientSide: it.ClientSide}
 		p.License.ID = it.License
 		r.projects[it.ProjectID] = p
 		if _, ok := st.covers(p, ""); !ok { // 本地文件就是它的不用去挑版本
@@ -456,7 +457,7 @@ func (r *resolver) version(ctx context.Context, id string) (mrVersion, error) {
 
 // brief 列进 Missing / Optional 时去掉下载地址、哈希和依赖：给 AI 看的结果要短（16KB 上限）。
 func brief(f File) File {
-	f.URL, f.SHA1, f.SHA512, f.ServerSide, f.Deps = "", "", "", "", nil
+	f.URL, f.SHA1, f.SHA512, f.ServerSide, f.ClientSide, f.Deps = "", "", "", "", "", nil
 	return f
 }
 
@@ -534,7 +535,7 @@ func (r *resolver) resolve(ctx context.Context, pid string) resolved {
 
 // decorate 补上项目的名称、slug、许可证和服务端支持情况。
 func (r *resolver) decorate(f File, p mrProject) File {
-	f.Title, f.Slug, f.License, f.ServerSide = orID(p.Title, f.ProjectID), p.Slug, p.License.ID, p.ServerSide
+	f.Title, f.Slug, f.License, f.ServerSide, f.ClientSide = orID(p.Title, f.ProjectID), p.Slug, p.License.ID, p.ServerSide, p.ClientSide
 	return f
 }
 

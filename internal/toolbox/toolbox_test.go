@@ -18,6 +18,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -126,6 +127,10 @@ func TestPackFormatAndMcmetaVersions(t *testing.T) {
 		{"1.21.9", 69, true},
 		{"1.21.11", 75, true},
 		{"26.1", 84, true},
+		{"26.1.2", 84, true},
+		{"26.2", 88, true},
+		{"26.3", 97, true},
+		{"26.4", 97, true}, // 比表里新的按最新一档算
 	}
 	for _, tc := range cases {
 		pf, b, minFmt, maxFmt, err := buildPackMcmeta(tc.mc, "测试描述")
@@ -135,10 +140,13 @@ func TestPackFormatAndMcmetaVersions(t *testing.T) {
 		if pf != tc.wantPF {
 			t.Fatalf("%s pack_format=%d want %d", tc.mc, pf, tc.wantPF)
 		}
-		if tc.hasMinMax && (len(minFmt) != 2 || minFmt[0] != tc.wantPF || len(maxFmt) != 2 || maxFmt[0] != tc.wantPF) {
-			t.Fatalf("%s min_format/max_format 不对: min=%v max=%v", tc.mc, minFmt, maxFmt)
+		// max_format 写整数才覆盖这个大版本的所有小版本（26.3 是 97.1）；写成 [97, 0] 会把 97.1 排除
+		want := fmt.Sprintf(`"min_format": %d`, tc.wantPF)
+		if tc.hasMinMax && (minFmt != tc.wantPF || maxFmt != tc.wantPF || !bytes.Contains(b, []byte(want)) ||
+			!bytes.Contains(b, []byte(fmt.Sprintf(`"max_format": %d`, tc.wantPF)))) {
+			t.Fatalf("%s min_format/max_format 不对: min=%v max=%v\n%s", tc.mc, minFmt, maxFmt, b)
 		}
-		if !tc.hasMinMax && (len(minFmt) != 0 || len(maxFmt) != 0) {
+		if !tc.hasMinMax && (minFmt != 0 || maxFmt != 0 || bytes.Contains(b, []byte("min_format"))) {
 			t.Fatalf("%s 不应生成 min_format/max_format", tc.mc)
 		}
 		if bytes.Contains(b, []byte("supported_formats")) && pf >= 65 {
@@ -281,6 +289,21 @@ func TestSkinPackBuildValidationCollisionAndLegacyUpgrade(t *testing.T) {
 		t.Fatalf("顺序模式模型匹配不对: %+v", seqRes.Items)
 	}
 
+	// 4b. 顺序模式：手动指定的槽位先占，自动的挑空着的，不撞；自动的那条被跳过时不分槽位、也不报错
+	seqPrev, err := PreviewSkinPack(SkinPreviewReq{MC: "1.21.4", Mode: "sequential",
+		Entries: []SkinEntrySpec{{Slot: -1}, {Slot: 0}}})
+	if err != nil || len(seqPrev.Conflicts) != 0 || seqPrev.Items[0].Slot.Index == 0 || seqPrev.Items[1].Slot.Index != 0 {
+		t.Fatalf("手动槽位应先占、自动的避开: err=%v %+v", err, seqPrev.Items)
+	}
+	seqSkip, err := svc.BuildSkinPack(SkinBuildReq{
+		MC: "1.21.4", Mode: "sequential",
+		Entries:       []SkinEntrySpec{{Slot: -1, Skip: true}, {Slot: 0, Keep: true}},
+		UploadedPaths: map[int]string{1: skin64},
+	})
+	if err != nil || seqSkip.TextureCount != 1 || !seqSkip.Items[0].Skipped || seqSkip.Items[0].Slot.Index != -1 {
+		t.Fatalf("跳过自动分配的那条后应能生成: err=%v %+v", err, seqSkip)
+	}
+
 	// 5. 拒绝坏图片、错误尺寸、超大小、超数量
 	badText := filepath.Join(tmp, "fake.png")
 	_ = os.WriteFile(badText, []byte("not a png image"), 0o644)
@@ -340,7 +363,7 @@ func TestMrpackExportAndRoundTripParse(t *testing.T) {
 		case "/projects":
 			reply([]map[string]any{
 				{"id": "p-known", "slug": "sodium", "title": "Sodium", "project_type": "mod", "server_side": "optional", "license": map[string]any{"id": "LGPL-3.0"}},
-				{"id": "p-client", "slug": "xaeros-minimap", "title": "Xaero's Minimap", "project_type": "mod", "server_side": "unsupported", "license": map[string]any{"id": "All-Rights-Reserved"}},
+				{"id": "p-client", "slug": "xaeros-minimap", "title": "Xaero's Minimap", "project_type": "mod", "server_side": "unsupported", "client_side": "required", "license": map[string]any{"id": "All-Rights-Reserved"}},
 				{"id": "p-badhost", "slug": "badhost-mod", "title": "BadHost Mod", "project_type": "mod", "server_side": "required", "license": map[string]any{"id": "MIT"}},
 				{"id": "p-dep", "slug": "fabric-api", "title": "Fabric API", "project_type": "mod", "server_side": "required", "license": map[string]any{"id": "Apache-2.0"}},
 			})
@@ -353,6 +376,16 @@ func TestMrpackExportAndRoundTripParse(t *testing.T) {
 					"hashes": map[string]string{"sha1": hKnown1, "sha512": hKnown512},
 				}},
 				"dependencies": []map[string]any{{"project_id": "p-dep", "dependency_type": "required"}},
+			}})
+		case "/project/p-client/version":
+			reply([]map[string]any{{
+				"id": "v-client", "project_id": "p-client", "version_number": "24.2.0", "version_type": "release",
+				"date_published": "2026-01-01T00:00:00Z", "loaders": []string{"fabric"}, "game_versions": []string{"1.20.1"},
+				"files": []map[string]any{{
+					"url": "https://cdn.modrinth.com/data/p-client/versions/v-client/minimap-24.2.0.jar", "filename": "minimap-24.2.0.jar", "primary": true, "size": len(jarClient),
+					"hashes": map[string]string{"sha1": hClient1, "sha512": hClient512},
+				}},
+				"dependencies": []map[string]any{},
 			}})
 		case "/project/p-dep/version":
 			reply([]map[string]any{{
@@ -399,6 +432,13 @@ func TestMrpackExportAndRoundTripParse(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(modsDir, "localonly.jar"), jarLocal, 0o644)
 	_ = os.WriteFile(filepath.Join(modsDir, "disabled.jar.disabled"), jarLocal, 0o644)
 	_ = os.WriteFile(filepath.Join(cfgDir, "sodium-options.json"), []byte(`{"v":1}`), 0o644)
+	// 像放着令牌、密钥的配置不进包；留空的令牌、开关、纯数字不算
+	_ = os.WriteFile(filepath.Join(cfgDir, "plain.toml"), []byte("enableTokens = true\ntoken = \"\"\nmaxTokens = 123456\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(cfgDir, "chatbridge.toml"), []byte("[bot]\nbotToken = \"MTIzNDU2Nzg5.abcdefghijkl\"\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(cfgDir, "ai.json"), []byte(`{"apiKey": "sk-abcdef123456"}`), 0o644)
+	_ = os.MkdirAll(filepath.Join(cfgDir, "luckperms"), 0o755)
+	_ = os.WriteFile(filepath.Join(cfgDir, "luckperms", "luckperms.conf"), []byte("storage-method = h2\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(cfgDir, "data.db"), []byte("SQLite format 3"), 0o644)
 
 	mgr, err := inst.NewManager()
 	if err != nil {
@@ -423,8 +463,21 @@ func TestMrpackExportAndRoundTripParse(t *testing.T) {
 		t.Fatalf("实例导出失败: %v", err)
 	}
 	// known + minimap 走 downloads（其中 minimap 是 client-only）；badhost（非白名单域名）+ localonly + config/sodium-options.json 走 overrides
-	if res.DownloadCount != 2 || res.ClientOnlyCnt != 1 || res.OverrideCount < 3 || res.ConfigCount != 1 {
+	if res.DownloadCount != 2 || res.ClientOnlyCnt != 1 || res.OverrideCount < 4 || res.ConfigCount != 2 {
 		t.Fatalf("实例导出分类数量不对: %+v", res)
+	}
+	for _, leaked := range []string{"chatbridge.toml", "ai.json", "luckperms/luckperms.conf", "data.db"} {
+		if hasZipEntry(t, res.SavedPath, "overrides/config/"+leaked) {
+			t.Fatalf("像放着密钥的配置 %s 被打进了包", leaked)
+		}
+	}
+	if !hasZipEntry(t, res.SavedPath, "overrides/config/plain.toml") {
+		t.Fatal("没带密钥的 plain.toml 应该打进包")
+	}
+	if !slices.ContainsFunc(res.Warnings, func(w string) bool {
+		return strings.Contains(w, "config/chatbridge.toml") && strings.Contains(w, "config/ai.json") && strings.Contains(w, "config/data.db")
+	}) {
+		t.Fatalf("跳过的配置要写进提醒: %v", res.Warnings)
 	}
 
 	// 用 MineDeck 自己的 modpack.Parse 读回测试！
@@ -471,21 +524,28 @@ func TestMrpackExportAndRoundTripParse(t *testing.T) {
 	if gotDraft.Name != "向导草稿包" || gotDraft.LoaderVersion != "0.16.9" {
 		t.Fatalf("草稿设置重启恢复失败: %+v", gotDraft)
 	}
-	if _, _, err := cart.Add(context.Background(), modcart.Draft, []string{"p-known"}); err != nil {
+	// 工具箱用自己的那份清单：只在客户端用的模组也能放；草稿清单（新建向导用，建服时会被装进去）不受影响
+	if _, _, err := cart.Add(context.Background(), modcart.Toolbox, []string{"p-known", "p-client"}); err != nil {
 		t.Fatal(err)
+	}
+	if _, _, err := cart.Add(context.Background(), modcart.Draft, []string{"p-client"}); err == nil {
+		t.Fatal("草稿清单是要装进服务器的，不该收只在客户端用的模组")
 	}
 	stageSrc := filepath.Join(base, "staged.jar")
 	_ = os.WriteFile(stageSrc, jarLocal, 0o644)
-	if _, _, err := cart.AddLocal(modcart.Draft, stageSrc, "custom-staged.jar"); err != nil {
+	if _, _, err := cart.AddLocal(modcart.Toolbox, stageSrc, "custom-staged.jar"); err != nil {
 		t.Fatal(err)
+	}
+	if len(cart.List(modcart.Draft)) != 0 || len(cart.Locals(modcart.Draft)) != 0 {
+		t.Fatal("工具箱挑的模组跑进了新建向导的草稿清单")
 	}
 
 	draftRes, err := svc2.BuildMrpack(context.Background(), MrpackReq{Source: "draft"})
 	if err != nil {
 		t.Fatalf("草稿导出失败: %v", err)
 	}
-	if draftRes.DownloadCount != 2 || draftRes.OverrideCount != 1 {
-		t.Fatalf("草稿导出期望 2 个下载项（含自动补前置 Fabric API）和 1 个 override，实际=%+v", draftRes)
+	if draftRes.DownloadCount != 3 || draftRes.OverrideCount != 1 || draftRes.ClientOnlyCnt != 1 {
+		t.Fatalf("草稿导出期望 3 个下载项（含自动补前置 Fabric API 和只在客户端用的小地图）和 1 个 override，实际=%+v", draftRes)
 	}
 	dlEntry, err := svc2.GetDownload(draftRes.DownloadID)
 	if err != nil {
@@ -495,6 +555,7 @@ func TestMrpackExportAndRoundTripParse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("modpack.Parse 读回草稿包失败: %v", err)
 	}
+	// modpack.Parse 是按装服务器读的：只在客户端用的小地图被跳过，剩两个
 	if draftPack.Name != "向导草稿包" || len(draftPack.Files) != 2 {
 		t.Fatalf("草稿整合包读回不对: %+v", draftPack)
 	}

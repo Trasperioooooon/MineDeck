@@ -13,6 +13,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -127,6 +128,15 @@ func (s *Service) loadCachedDownloads() {
 		entry.Size = st.Size()
 		s.dlMap[entry.ID] = entry
 		s.dlOrder = append(s.dlOrder, entry.ID)
+	}
+	// 目录是按编号（随机）列出来的：按生成时间排好，超出上限的从最旧的删
+	slices.SortFunc(s.dlOrder, func(a, b string) int { return s.dlMap[a].At.Compare(s.dlMap[b].At) })
+	for len(s.dlOrder) > maxDownloads {
+		oldest := s.dlOrder[0]
+		s.dlOrder = s.dlOrder[1:]
+		delete(s.dlMap, oldest)
+		_ = os.Remove(filepath.Join(dir, oldest+".bin"))
+		_ = os.Remove(filepath.Join(dir, oldest+".meta.json"))
 	}
 }
 
@@ -249,7 +259,7 @@ func safeFileStem(raw, fallback string) string {
 		return fallback
 	}
 	if len([]rune(s)) > 64 {
-		s = string([]rune(s)[:64])
+		s = strings.TrimRight(string([]rune(s)[:64]), ". ") // 截断以后末尾又可能是点或空格，Windows 会把它们吃掉
 	}
 	return s
 }
@@ -342,7 +352,7 @@ func (s *Service) SaveMrpackDraft(cfg DraftConfig) (DraftConfig, error) {
 	return cfg, nil
 }
 
-// discardAndCheckLimit 从 r 读取最多 maxBytes；超出时报错。
+// readLimited 从 r 读取最多 maxBytes；超出时报错。
 func readLimited(r io.Reader, maxBytes int64, tooBigMsg string) ([]byte, error) {
 	b, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
 	if err != nil {

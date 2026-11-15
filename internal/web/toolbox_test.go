@@ -198,9 +198,13 @@ func TestToolboxWebMrpackRoutesAndAIRestriction(t *testing.T) {
 	}
 
 	// 加入草稿模组后预览并生成 .mrpack
-	if _, _, err := cart.Add(context.Background(), modcart.Draft, []string{"modA"}); err != nil {
-		t.Fatal(err)
+	// 走网页接口加进工具箱自己的那份清单（cart=toolbox）；新建向导的草稿清单不受影响
+	e.call(t, http.MethodPost, "/api/modcart", `{"cart":"toolbox","projectIds":["modA"]}`, 200)
+	if len(cart.List(modcart.Draft)) != 0 || len(cart.List(modcart.Toolbox)) != 1 {
+		t.Fatalf("工具箱的清单和草稿清单没分开: draft=%v toolbox=%v", cart.List(modcart.Draft), cart.List(modcart.Toolbox))
 	}
+	e.call(t, http.MethodPost, "/api/modcart", `{"cart":"toolbox","inst":"x","projectIds":["modA"]}`, 400)
+	e.call(t, http.MethodPost, "/api/modcart", `{"cart":"bogus","projectIds":["modA"]}`, 400)
 	rec = e.call(t, http.MethodPost, "/api/toolbox/mrpack/build",
 		`{"source":"draft","core":"fabric","mc":"1.20.1","loaderVersion":"0.16.9"}`, 200)
 	var out struct {
