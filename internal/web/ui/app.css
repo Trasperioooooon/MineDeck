@@ -667,6 +667,23 @@ a.inst-name:hover { text-decoration: underline; text-decoration-color: color-mix
 .tun-accounts-grid .java-row > div { min-width: 0; }
 .java-row.tun-row { max-width: none; }
 .empty.tun-empty { padding-top: 20px; }
+/* beta.3（可用性走查 R12、R18）：「我的隧道」排在平台账户上面；隧道行第二行写公网地址（停着也写）和跟随状态 */
+.tun-how { margin: -6px 0 14px; line-height: 1.7; }
+.tun-mine { margin: 4px 0 8px; }
+.tun-mine > h3 { margin: 0 0 10px; }
+.tun-meta { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: var(--fs-xs); color: var(--muted); }
+.tun-addr-k { color: var(--muted); }
+.tun-addr-v { color: var(--accent-text); font-family: var(--mono); overflow-wrap: anywhere; }
+.tun-addr-none { color: var(--faint); }
+.tun-sep { color: var(--faint); }
+.tun-follow { display: inline-flex; align-items: center; gap: 5px; }
+.tun-follow .ico { width: 13px; height: 13px; }
+.tun-follow b { color: var(--text); font-weight: var(--fw-semibold); }
+.task-log .tlog-empty { color: var(--muted); font-family: var(--font); }
+.tun-frpc { margin-top: 8px; font-size: var(--fs-xs); line-height: 1.7; }
+.tun-frpc summary { cursor: pointer; color: var(--accent-text); width: fit-content; }
+.tun-frpc ol { margin: 6px 0 4px; padding-left: 20px; }
+.tun-frpc code { font-family: var(--mono); overflow-wrap: anywhere; }
 .eula-box { padding: 14px 16px; margin: 4px 0 16px; max-width: var(--w-read); transition: border-color var(--dur-2), box-shadow var(--dur-2); }
 .eula-box.invalid { border-color: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 18%, transparent); }
 .eula-box .field-err { margin: 8px 0 0 50px; }

@@ -3506,11 +3506,25 @@ async function renderDetail(name, tab = "console") {
 }
 
 /* ---------- 视图：联机穿透 ---------- */
+/* 第一次跑樱花隧道前要自己放 frpc（樱花没有稳定的下载直链，见 tunnel/providers.go 的 natfrpProvider.EnsureFrpc）：
+   写成能照着做的几步（可用性走查 R18）。base 是程序数据文件夹（/api/app 的 base），拿不到时写成相对的说法 */
+function natfrpFrpcSteps(base) {
+  const dir = base ? `${base}\\runtimes\\frpc\\natfrp` : "程序数据文件夹里的 runtimes\\frpc\\natfrp";
+  return `<details class="tun-frpc" data-frpc-steps><summary>第一次用樱花：先把 frpc 放好（只要一次）</summary><ol>
+    <li>登录 <a href="https://www.natfrp.com" target="_blank" rel="noopener">樱花（SakuraFrp）</a>的管理面板，打开「软件下载」。</li>
+    <li>下载 frpc 的 Windows amd64 版，得到一个 .exe 文件（下到的是压缩包就先解压）。</li>
+    <li>把这个 exe 放进 <code>${esc(dir)}</code>，文件名用 frpc.exe 或 frpc_windows_amd64.exe 都行。</li>
+    <li>回到这里点「启动」。放过以后又不见了的，多半是被杀毒软件删了，到 Windows 安全中心的「保护历史记录」里恢复。</li>
+  </ol><div class="hint">OpenFrp 和自己的 frps 用的 frpc，MineDeck 会自己下载，不用管。</div></details>`;
+}
+
 async function renderTunnels() {
   const gen = viewGen;
-  let insts = [];
-  try { insts = await api("/api/instances"); } catch {}
+  let insts = [], appInfo = null;
+  [insts, appInfo] = await Promise.all([api("/api/instances").catch(() => []), api("/api/app").catch(() => null)]);
   if (stale(gen)) return;
+  if (!Array.isArray(insts)) insts = [];
+  const base = (appInfo && appInfo.base) || "";
   const ACC_NAMES = { openfrp: "OpenFrp", natfrp: "樱花frp" };
   const openExt = (u) => { if (u) try { window.open(u, "_blank", "noopener"); } catch {} };
   // OpenFrp 授权轮询间隔（≥5s）；测试可设 window.__MD_TUNNEL_POLL_MS 缩短
@@ -3522,6 +3536,8 @@ async function renderTunnels() {
     "把这台电脑上的服务器映射到公网，不在同一网络的朋友也能连。服务商可选 OpenFrp、樱花穿透（SakuraFrp），或自己的 frps。",
     `<button class="btn primary" id="tn-toggle" aria-expanded="false" aria-controls="tn-form">${icon("plus")} 添加隧道</button>`, "", "", "tun-summary") + `
     <div class="hint tun-lan-tip" id="tn-lan-tip" style="margin:-6px 0 14px">${icon("info")} 同一局域网的朋友不用隧道：把服务器页上的「连接地址」发给他们就能进。隧道是给不在同一网络的朋友用的。</div>
+    <div class="hint tun-how" id="tn-how">加隧道有两种办法：在「添加隧道」里把服务商网站上建好的隧道 ID 和密钥填进来（自己的 frps 也走这里）；
+      或者在页面下方「平台账户」里连上 OpenFrp、樱花的账户，直接在平台上新建隧道，或者把平台上已有的导入进来，不用自己抄密钥。</div>
     <div id="tn-form" class="card tun-form" hidden>
     <h3>添加隧道</h3>
     <div class="hint tun-help" id="tn-help" aria-live="polite"></div>
@@ -3545,6 +3561,10 @@ async function renderTunnels() {
     </div>
     <button class="btn primary" id="tn-add" aria-label="确认添加隧道">${icon("plus")} 添加隧道</button>
     </div>
+    <section id="tn-mine" class="tun-mine" aria-labelledby="tn-mine-title">
+      <h3 id="tn-mine-title">我的隧道</h3>
+      <div id="tun-list">${skeletonRows(4)}</div>
+    </section>
     <section id="tn-accounts" class="tun-accounts" aria-label="平台账户">
       <div class="tun-accounts-head">
         <h3>平台账户</h3>
@@ -3553,8 +3573,7 @@ async function renderTunnels() {
       <div id="tn-acc-ro" class="hint" style="margin:0 0 10px" hidden>在局域网里打开时只能看连接状态，连接、签到、创建和导入隧道请在运行 MineDeck 的这台电脑上操作。</div>
       <div id="tn-acc-cards" class="tun-accounts-grid">${skeletonRows(2)}</div>
       <div id="tn-acc-panel" hidden></div>
-    </section>
-    <div id="tun-list">${skeletonRows(4)}</div>`;
+    </section>`;
 
   const PROV_NAMES = { openfrp: "OpenFrp", natfrp: "樱花frp", custom: "自定义" };
   const provSel = $("#tn-provider");
@@ -3565,7 +3584,7 @@ async function renderTunnels() {
     $("#tn-cred-label").textContent = { openfrp: "用户密钥（个人中心复制）", natfrp: "访问密钥", custom: "auth token（frps 未设可留空）" }[p];
     $("#tn-help").innerHTML = {
       openfrp: `先到 <a href="https://console.openfrp.net" target="_blank">OpenFrp 控制台</a> 新建一条 TCP 隧道，本地端口填这台服务器的端口。然后把隧道 ID 填到下面，用户密钥在控制台的「个人中心」里复制。`,
-      natfrp: `先到 <a href="https://www.natfrp.com" target="_blank">SakuraFrp</a> 新建一条隧道，把访问密钥和隧道 ID 复制到下面。第一次启动时要按提示把 frpc 放好。`,
+      natfrp: `先到 <a href="https://www.natfrp.com" target="_blank">SakuraFrp</a> 新建一条隧道，把访问密钥和隧道 ID 复制到下面。${natfrpFrpcSteps(base)}`,
       custom: `填你自己的 frps 的地址、端口和 token。公网远程端口是朋友连进来用的端口，本地端口是这台服务器的端口。`,
     }[p];
   };
@@ -3579,6 +3598,21 @@ async function renderTunnels() {
   };
   $("#tn-cred").addEventListener("input", credShort);
   if (window.MDMusic) MDMusic.tunnelForm(insts, provSel); // 第五阶段：用途（游戏 / 语音）、自定义 frps 的协议
+  /* 本地端口随绑定的服务器填（可用性走查 U21、R12）：选了服务器就填它的连接端口，以前一直是 25565，第二台服务器准填错。
+     只管自定义 frps 的游戏隧道（樱花、OpenFrp 的本地端口在服务商后台填；语音隧道的端口由 music.js 填 SVC 的）；
+     自己动手改过端口就不再替人改。用途从语音换回游戏时 music.js 先把端口还原，这里接着按绑定的服务器填 */
+  let lportTyped = false;
+  $("#tn-lport").addEventListener("input", () => { lportTyped = true; });
+  const fillLport = () => {
+    const voice = $("#tn-purpose") && $("#tn-purpose").value === "voice";
+    const i = insts.find(x => x.name === $("#tn-bound").value);
+    const port = i ? connectPortOf(i) : 0;
+    if (lportTyped || voice || provSel.value !== "custom" || !port) return;
+    $("#tn-lport").value = port;
+  };
+  $("#tn-bound").addEventListener("change", fillLport);
+  provSel.addEventListener("change", fillLport);
+  if ($("#tn-purpose")) $("#tn-purpose").addEventListener("change", fillLport);
   /* 表单在列表上方。没有隧道时一直开着，页头的「添加隧道」收起来（一屏只留一个主按钮）；
      有隧道时由页头的按钮展开 / 收起，展开后那个按钮改成「收起」。轮询重画列表不动表单里填到一半的内容。 */
   let formOpen = false, isEmpty = false;
@@ -3628,7 +3662,7 @@ async function renderTunnels() {
     openFrpPoll = null;
   };
   const boundSelect = (id, val = "", k = "") =>
-    `<select id="${id}"${k ? ` data-k="${k}"` : ""} aria-label="绑定实例"><option value="">不绑定</option>${insts.map(i =>
+    `<select id="${id}"${k ? ` data-k="${k}"` : ""} aria-label="绑定服务器"><option value="">不绑定</option>${insts.map(i =>
       `<option value="${esc(i.name)}"${i.name === val ? " selected" : ""}>${esc(i.name)}（端口 ${i.port}）</option>`).join("")}</select>`;
 
   const paintAccCards = () => {
@@ -3657,7 +3691,7 @@ async function renderTunnels() {
           ? `<button class="btn sm" data-acc-cancel-login="openfrp">取消等待</button>`
           : `<button class="btn sm primary" data-acc-connect="openfrp" aria-label="浏览器授权连接 OpenFrp">${icon("link")} 浏览器授权</button>`;
       } else if (provider === "natfrp" && !on) {
-        body = lost + `<div class="hint" style="margin-bottom:8px">在樱花官网的用户信息页复制访问密钥，粘贴到这里连接。第一次跑樱花隧道仍可能要手动放置 frpc。</div>
+        body = lost + `<div class="hint" style="margin-bottom:8px">在樱花官网的用户信息页复制访问密钥，粘贴到这里连接。连上以后能直接在平台上建隧道、导入已有的。</div>${natfrpFrpcSteps(base)}
           <label class="field" style="margin:0">
             <input type="password" id="tn-sakura-token" placeholder="粘贴访问密钥" aria-label="SakuraFrp 访问密钥" autocomplete="off"></label>`;
         actions = `<button class="btn sm" data-acc-get-token="natfrp" title="在浏览器里打开樱花官网的用户信息页">获取访问密钥</button>
@@ -3915,10 +3949,11 @@ async function renderTunnels() {
     if (stale(gen)) return; // 已经切到别的页面：不在那里弹购买窗
     const opts = (data && data.options) || [];
     if (!opts.length) { toast("暂无购买入口", true); return; }
-    const root = $("#modal-root");
     const prev = document.activeElement;
-    root.innerHTML = `<div class="modal-mask enter"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="tn-buy-title" style="max-width:440px">
-      <h3 id="tn-buy-title">${esc(ACC_NAMES[provider])} 购买 / 充值</h3>
+    // 叠一层（modalLayer），不整个换掉 #modal-root：下面开着的弹窗和填的东西都还在（可用性走查 R04 留下的）
+    const tid = layerId("tn-buy-title");
+    const mask = modalLayer(`<div class="modal" role="dialog" aria-modal="true" aria-labelledby="${tid}" style="max-width:440px">
+      <h3 id="${tid}">${esc(ACC_NAMES[provider])} 购买 / 充值</h3>
       <div class="m-body">
         <div class="hint" style="margin-bottom:10px">只打开官方页面，MineDeck 不代下单、不代收。</div>
         <div style="display:flex;flex-direction:column;gap:8px">
@@ -3926,10 +3961,9 @@ async function renderTunnels() {
         </div>
       </div>
       <div class="m-actions"><button class="btn" data-x="cancel">关闭</button></div>
-    </div></div>`;
-    const mask = root.firstElementChild;
-    const close = () => { document.removeEventListener("keydown", onKey); dismiss(mask); if (prev && prev.focus) prev.focus(); };
-    const onKey = e => { if (e.key === "Escape") close(); };
+    </div>`);
+    const close = () => { document.removeEventListener("keydown", onKey); dismiss(mask); if (prev && prev.focus && prev.isConnected) prev.focus(); };
+    const onKey = e => { if (e.key === "Escape" && topLayer(mask)) close(); }; // 只关最上面这一层
     document.addEventListener("keydown", onKey);
     mask.addEventListener("mousedown", e => { if (e.target === e.currentTarget) close(); });
     mask.querySelector('[data-x="cancel"]').onclick = close;
@@ -3947,9 +3981,9 @@ async function renderTunnels() {
       body: `将平台隧道 <b>${esc(proxyId)}</b> 写入本机隧道列表（凭据由账户密钥填充）。`,
       okText: "导入",
       extra: `<div class="form-grid" style="margin-top:12px">
-        <label class="field full"><span>绑定实例</span>${boundSelect("tn-imp-bound", "", "bound")}</label>
+        <label class="field full"><span>绑定服务器</span>${boundSelect("tn-imp-bound", "", "bound")}</label>
         <div class="field full"><label class="switch"><input type="checkbox" id="tn-imp-auto" data-k="auto" checked><span class="sw"></span>
-          <span class="sw-label">跟随实例启动</span></label></div>
+          <span class="sw-label">跟随服务器启动</span></label></div>
       </div>`,
     });
     if (!r || stale(gen)) return;
@@ -3987,13 +4021,14 @@ async function renderTunnels() {
   const createPlatTunnel = async (provider, overview) => {
     const nodes = (overview.nodes || []).filter(n => n.canCreate);
     if (!nodes.length) { toast("没有可创建的节点", true); return; }
-    const root = $("#modal-root");
     const prev = document.activeElement;
     const isOpenFrp = provider === "openfrp", isSakura = provider === "natfrp";
     const nodeOpts = list => list.map(n =>
       `<option value="${esc(n.id)}">${esc(n.name)}${n.udp ? "" : "（无 UDP）"}</option>`).join("");
-    root.innerHTML = `<div class="modal-mask enter"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="tn-create-title" style="max-width:520px">
-      <h3 id="tn-create-title">在 ${esc(ACC_NAMES[provider])} 创建并导入</h3>
+    // 叠一层（modalLayer），不整个换掉 #modal-root；框里的东西都从这一层里找（可用性走查 R04 留下的）
+    const tid = layerId("tn-create-title");
+    const mask = modalLayer(`<div class="modal" role="dialog" aria-modal="true" aria-labelledby="${tid}" style="max-width:520px">
+      <h3 id="${tid}">在 ${esc(ACC_NAMES[provider])} 创建并导入</h3>
       <div class="m-body">
         <div class="form-grid">
           <label class="field"><span>隧道名称</span><input type="text" id="tn-cr-name" value="${esc(defaultPlatTunName())}" maxlength="30" autocomplete="off" spellcheck="false">
@@ -4005,9 +4040,9 @@ async function renderTunnels() {
           ${isSakura ? `<div class="field full"><label class="switch"><input type="checkbox" id="tn-cr-public"><span class="sw"></span>
             <span class="sw-label">这是公开服务器</span></label>
             <div class="hint" id="tn-cr-public-desc">公开服务器指把连接方式发到论坛、服务器列表、QQ 大群，或在 B 站、抖音、小红书等公开平台宣传招人的服务器。樱花规定公开服务器只能用公开服专用节点（名称含「多线」或带公开游戏标记），用错节点会被封号且不退款。只和熟人小范围联机可以不勾。</div></div>` : ""}
-          <label class="field full"><span>绑定实例</span>${boundSelect("tn-cr-bound")}</label>
+          <label class="field full"><span>绑定服务器</span>${boundSelect("tn-cr-bound")}</label>
           <div class="field full"><label class="switch"><input type="checkbox" id="tn-cr-auto" checked><span class="sw"></span>
-            <span class="sw-label">跟随实例启动</span></label></div>
+            <span class="sw-label">跟随服务器启动</span></label></div>
         </div>
         <div class="field-err" id="tn-cr-err" role="alert"></div>
       </div>
@@ -4015,15 +4050,29 @@ async function renderTunnels() {
         <button class="btn" data-x="cancel">取消</button>
         <button class="btn primary" data-x="ok">创建并导入</button>
       </div>
-    </div></div>`;
-    const mask = root.firstElementChild;
-    const close = () => { document.removeEventListener("keydown", onKey); dismiss(mask); if (prev && prev.focus) prev.focus(); };
-    const onKey = e => { if (e.key === "Escape") close(); };
+    </div>`);
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener("keydown", onKey);
+      dismiss(mask);
+      if (prev && prev.focus && prev.isConnected) prev.focus();
+    };
+    const onKey = e => { if (e.key === "Escape" && topLayer(mask)) close(); }; // 只关最上面这一层（上面叠着「报错信息」时先关那个）
     document.addEventListener("keydown", onKey);
-    mask.addEventListener("mousedown", e => { if (e.target === e.currentTarget) close(); });
+    // 框里有要填的东西：点遮罩不关（同交接弹窗，可用性走查 U04）
     mask.querySelector('[data-x="cancel"]').onclick = close;
     const okBtn = mask.querySelector('[data-x="ok"]');
-    const nameIn = $("#tn-cr-name"), nodeSel = $("#tn-cr-node"), pub = $("#tn-cr-public"), errEl = $("#tn-cr-err");
+    const q = sel => mask.querySelector(sel);
+    const nameIn = q("#tn-cr-name"), nodeSel = q("#tn-cr-node"), pub = q("#tn-cr-public"), errEl = q("#tn-cr-err");
+    // 本地端口随绑定的服务器填（同添加表单）：TCP 才填，UDP 是语音隧道，端口是 SVC 的；自己改过就不再替人改
+    let lportTyped = false;
+    q("#tn-cr-lport").addEventListener("input", () => { lportTyped = true; });
+    q("#tn-cr-bound").addEventListener("change", () => {
+      const i = insts.find(x => x.name === q("#tn-cr-bound").value), port = i ? connectPortOf(i) : 0;
+      if (!lportTyped && port && q("#tn-cr-type").value === "tcp") q("#tn-cr-lport").value = port;
+    });
     // 对话框里的提示：kind 记下是哪一类（name 名称不合规 / node 没有可用节点），改了对应的地方才清掉
     const showErr = (msg, kind = "") => { errEl.textContent = msg || ""; errEl.dataset.kind = msg ? kind : ""; };
     nameIn.oninput = () => { if (errEl.dataset.kind === "name") showErr(""); };
@@ -4050,12 +4099,12 @@ async function renderTunnels() {
       const body = {
         name,
         nodeId: +nodeSel.value,
-        type: $("#tn-cr-type").value,
-        localPort: +$("#tn-cr-lport").value || 0,
-        remotePort: isOpenFrp ? (+($("#tn-cr-rport") || {}).value || 0) : 0, // 樱花不填公网端口，由平台分配
-        boundInstance: $("#tn-cr-bound").value,
-        autoStart: $("#tn-cr-auto").checked,
-        purpose: $("#tn-cr-type").value === "udp" ? "voice" : "game",
+        type: q("#tn-cr-type").value,
+        localPort: +q("#tn-cr-lport").value || 0,
+        remotePort: isOpenFrp ? (+(q("#tn-cr-rport") || {}).value || 0) : 0, // 樱花不填公网端口，由平台分配
+        boundInstance: q("#tn-cr-bound").value,
+        autoStart: q("#tn-cr-auto").checked,
+        purpose: q("#tn-cr-type").value === "udp" ? "voice" : "game",
       };
       if (isSakura) body.publicServer = !!(pub && pub.checked);
       okBtn.disabled = true;
@@ -4084,29 +4133,51 @@ async function renderTunnels() {
   let drawSeq = 0;
   const closeLog = () => { logId = null; if (consoleES) { consoleES.close(); consoleES = null; } };
   const warnSpan = (text, title) => `<span class="jp" style="color:var(--danger-text);display:inline-flex;align-items:center;gap:5px"${title ? ` title="${esc(title)}"` : ""}>${icon("warn")} ${esc(text)}</span>`;
+  /* 这条隧道给朋友的公网地址（可用性走查 R12：不启动也能看到、能复制）。返回 { addr, last }，没有可给的返回 null。
+     - 自定义 frps：地址就是配置里的「frps 地址:公网端口」，不用等 frpc 跑起来（frpc 连上以后后端记的也是这一串）；
+     - 樱花、OpenFrp：地址要 frpc 连上以后才知道。停着时给上次拿到的那个，标「上次」；运行中还没连上时不拿上次的充数，
+       不然新一次运行连不上时，卡片上那个看着能用的地址会盖住这次的错（Codex 复审发现）；
+     - 凭据解不开：要删了重新添加，地址给了也用不上，不给 */
+  const tunAddr = t => {
+    if (t.credBroken) return null;
+    if (t.provider === "custom") {
+      if (t.running && t.online && t.publicAddr) return { addr: t.publicAddr, last: false };
+      if (!t.serverAddr || !(t.remotePort > 0)) return null;
+      const host = t.serverAddr.includes(":") ? `[${t.serverAddr}]` : t.serverAddr; // IPv6 加方括号，游戏里才填得进去
+      return { addr: `${host}:${t.remotePort}`, last: false };
+    }
+    if (!t.publicAddr) return null;
+    if (t.running) return t.online ? { addr: t.publicAddr, last: false } : null;
+    return { addr: t.publicAddr, last: true };
+  };
   const tunRow = t => {
     // 最近一次失败原因（启动失败、跟随启动失败、frpc 报错或意外退出）直接写在卡片上，不用点开日志；
-    // 停着时排在上次的公网地址前面，跑起来拿到地址后不再显示（后端在 frpc 起来时也会清掉）。
-    // 公网地址跨次保存着，「这次连上了没有」看 online：新一次运行还没连上就报错，不能让上次的地址盖住这次的错（Codex 复审发现）
+    // 跑起来拿到地址后不再显示（后端在 frpc 起来时也会清掉）。「这次连上了没有」看 online（Codex 复审发现）
     const err = !t.credBroken && t.lastError && !(t.running && t.online) ? t.lastError : "";
-    const addr = t.publicAddr && (!t.running || t.online) ? t.publicAddr : ""; // 运行中没连上时不拿上次的地址充数
+    const a = tunAddr(t);
     const state = t.credBroken ? warnSpan("凭据无法解开，请删除后重新添加", "凭据加密绑定当前电脑和 Windows 用户，换了就解不开")
       : err ? warnSpan(t.running ? "连接出错" : "上次出错")
-      : addr ? `<span class="jv" style="color:var(--accent-text);font-family:var(--mono)">${esc(addr)}</span>
-          <button class="btn sm" data-copy="${esc(addr)}" aria-label="复制 ${esc(t.name)} 的公网地址">${icon("copy")} 复制</button>`
-      : `<span class="jp">${t.running ? "连接中…" : "尚未启动"}</span>`;
+      : t.running && !t.online ? `<span class="jp">连接中…</span>` : "";
+    // 第二行：公网地址（带复制）和跟随状态，停着、没连上过也写清楚
+    const addrHTML = a ? `<span class="tun-addr-k">公网地址</span><span class="jv tun-addr-v">${esc(a.addr)}</span>${a.last ? `<span class="tag tun-last" title="隧道停着，这是上次连上时拿到的地址。樱花、OpenFrp 的地址一般不变，启动后会刷新">上次</span>` : ""}
+        <button class="btn sm" data-copy="${esc(a.addr)}" aria-label="复制 ${esc(t.name)} 的公网地址">${icon("copy")} 复制</button>`
+      : t.credBroken ? "" : `<span class="tun-addr-k">公网地址</span><span class="tun-addr-none">${t.running ? "连上以后显示" : "还没拿到地址，启动后显示"}</span>`;
+    const follow = t.boundInstance
+      ? `<span class="tun-follow">${icon("link")} 跟随「${esc(t.boundInstance)}」启动：<b>${t.autoStart ? "开" : "关"}</b></span>`
+      : `<span class="tun-follow">没绑定服务器，只能手动启动</span>`;
     return `
       <div class="java-row tun-row" data-tun="${esc(t.id)}">
         ${stPill(t.running ? "running" : "stopped")}
         <b style="min-width:110px">${esc(t.name)}</b>
         <span class="badge core">${esc(PROV_NAMES[t.provider] || t.provider)}</span>${window.MDMusic ? MDMusic.tunnelBadge(t) : ""}
-        ${t.boundInstance ? `<span class="badge">${icon("link")} ${esc(t.boundInstance)}${t.autoStart ? " · 跟随" : ""}</span>` : ""}
         ${state}
         <span class="grow"></span>
         ${t.running ? `<button class="btn sm" data-tstop="${esc(t.id)}" aria-label="停止 ${esc(t.name)}">${icon("stop")} 停止</button>` : `<button class="btn sm primary" data-tstart="${esc(t.id)}" aria-label="启动 ${esc(t.name)}">${icon("play")} 启动</button>`}
         <button class="btn sm" data-tlog="${esc(t.id)}" aria-expanded="${logId === t.id}" aria-controls="tlog-${esc(t.id)}" aria-label="日志 ${esc(t.name)}">日志</button>
-        ${t.provider === "custom" && t.hasCredential ? `<button class="btn sm" data-tclear="${esc(t.id)}" aria-label="清除 ${esc(t.name)} 保存的凭据">清除凭据</button>` : ""}
+        <button class="btn sm" data-tedit="${esc(t.id)}" aria-label="编辑 ${esc(t.name)}">编辑</button>
+        ${t.provider === "custom" && t.hasCredential ? `<button class="btn sm" data-tclear="${esc(t.id)}" aria-label="清除 ${esc(t.name)} 保存的凭据" title="删掉这台电脑上存着的 auth token，之后启动这条隧道不带 token。frps 没设 token 时用得上；设了的话会连不上，要删掉隧道重新添加">清除凭据</button>` : ""}
         <button class="btn sm danger" data-tdel="${esc(t.id)}" aria-label="删除 ${esc(t.name)}">删除</button>
+        <div class="tun-meta">${addrHTML}${addrHTML ? `<span class="tun-sep" aria-hidden="true">·</span>` : ""}${follow}</div>
         ${err ? `<div class="tun-err" style="flex-basis:100%;font-size:var(--fs-xs);color:var(--danger-text);line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere">${esc(err)}</div>` : ""}
       </div>
       <div class="task-log" id="tlog-${esc(t.id)}" style="display:none;height:150px;margin:-2px 0 8px"></div>`;
@@ -4199,13 +4270,15 @@ async function renderTunnels() {
       const r = await confirmModal({ title: `清除「${t.name}」保存的凭据？`, danger: true, okText: "清除", icon: "trash",
         body: "之后启动这条隧道不带 auth token。frps 设了 token 的话会连不上，到时删掉这条隧道重新添加、填上 token 就行。" });
       if (!r) return;
-      const body = { provider: t.provider, name: t.name, proxyId: t.proxyId || "", serverAddr: t.serverAddr || "", serverPort: t.serverPort || 0,
-        remotePort: t.remotePort || 0, localPort: t.localPort || 0, boundInstance: t.boundInstance || "", autoStart: !!t.autoStart,
-        publicAddr: t.publicAddr || "", purpose: t.purpose || "", proto: t.proto || "", credential: "", clearCredential: true };
-      try { await api(`/api/tunnels/${t.id}`, { method: "PUT", body }); toast(`已清除「${t.name}」保存的凭据`); }
+      try { await api(`/api/tunnels/${t.id}`, { method: "PUT", body: tunBody(t, { clearCredential: true }) }); toast(`已清除「${t.name}」保存的凭据`); }
       catch (e) { toastErr("无法清除凭据", e); }
       drawList();
     });
+    $("#tun-list").querySelectorAll("[data-tedit]").forEach(b => b.onclick = () => {
+      const t = list.find(x => x.id === b.dataset.tedit);
+      if (t) editTunnel(t);
+    });
+    /* 日志：后端先把攒下的输出一次推过来，再接着推新的。还没有输出时写一句，不留一个空黑框（可用性走查 U21） */
     $("#tun-list").querySelectorAll("[data-tlog]").forEach(b => b.onclick = () => {
       const id = b.dataset.tlog, box = $("#tlog-" + id), was = logId === id;
       document.querySelectorAll(".task-log[id^=tlog-]").forEach(x => x.style.display = "none");
@@ -4215,14 +4288,82 @@ async function renderTunnels() {
       logId = id;
       b.setAttribute("aria-expanded", "true");
       box.style.display = "";
-      box.textContent = "";
+      box.innerHTML = `<div class="tlog-empty">还没有日志。启动这条隧道以后，frpc 的输出会显示在这里。</div>`;
+      let first = true;
       consoleES = new EventSource(`/api/tunnels/${id}/console?token=${TOKEN()}`);
       consoleES.onmessage = e => {
+        if (first) { first = false; box.textContent = ""; }
         box.textContent += JSON.parse(e.data) + "\n";
         box.scrollTop = box.scrollHeight;
       };
     });
     return list;
+  };
+  /* 修改接口是整体替换（tunnel.update）：除了要改的几项，其余配置按列表里的原样带回去；凭据留空表示不改
+     （列表不下发凭据）。上次拿到的公网地址也要带回去，不然一改就把「上次」的地址清掉了 */
+  const tunBody = (t, patch) => ({ provider: t.provider, name: t.name, proxyId: t.proxyId || "", serverAddr: t.serverAddr || "", serverPort: t.serverPort || 0,
+    remotePort: t.remotePort || 0, localPort: t.localPort || 0, boundInstance: t.boundInstance || "", autoStart: !!t.autoStart,
+    publicAddr: t.publicAddr || "", purpose: t.purpose || "", proto: t.proto || "", credential: "", ...patch });
+  /* 编辑隧道（可用性走查 R12）：只改名称、绑定的服务器、跟随启动三样。服务商、地址、端口、凭据不在这里改：
+     换服务商或 frps 地址端口要重填凭据（后端 UpdateOpt 也这么拦），这些照旧删了重新添加。
+     几道检查都在后端：只许本人操作（tunnel.update 是仅人工）、不许指向 MineDeck 的网页端口、tunnels.json 没读出来时拒绝、
+     运行中不能改。被拒的原因写在弹窗里，填的东西不丢。叠一层（modalLayer），不整个换掉 #modal-root */
+  const editTunnel = t => {
+    const prev = document.activeElement;
+    const tid = layerId("tn-ed-title");
+    const mask = modalLayer(`<div class="modal" role="dialog" aria-modal="true" aria-labelledby="${tid}" style="max-width:480px">
+      <h3 id="${tid}">编辑隧道「${esc(t.name)}」</h3>
+      <div class="m-body">
+        <div class="form-grid">
+          <label class="field full"><span>隧道名称</span><input type="text" id="tn-ed-name" value="${esc(t.name)}" maxlength="30" autocomplete="off"></label>
+          <label class="field full"><span>绑定服务器</span>${boundSelect("tn-ed-bound", t.boundInstance || "")}</label>
+          <div class="field full"><label class="switch"><input type="checkbox" id="tn-ed-auto"${t.autoStart ? " checked" : ""}><span class="sw"></span>
+            <span><span class="sw-label">跟随服务器启动</span><div class="sw-desc">绑定的服务器启动时自动拉起隧道，停服后跟着停</div></span></label></div>
+        </div>
+        <div class="hint" style="margin-top:10px">服务商、地址、端口和凭据不在这里改：要换的话，删掉这条隧道，重新添加。</div>
+        ${t.running ? `<div class="hint" id="tn-ed-running" style="margin-top:6px;color:var(--warning-text)">${icon("warn")} 这条隧道正在运行，先停止才能保存修改。</div>` : ""}
+        <div class="field-err" id="tn-ed-err" role="alert"></div>
+      </div>
+      <div class="m-actions">
+        <button class="btn" data-x="cancel">取消</button>
+        <button class="btn primary" data-x="ok">保存</button>
+      </div></div>`);
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener("keydown", onKey);
+      dismiss(mask);
+      if (prev && prev.focus && prev.isConnected) prev.focus();
+    };
+    const onKey = e => { if (e.key === "Escape" && topLayer(mask)) close(); };
+    document.addEventListener("keydown", onKey);
+    // 有要填的东西：点遮罩不关（同交接弹窗）
+    mask.querySelector('[data-x="cancel"]').onclick = close;
+    const nameIn = mask.querySelector("#tn-ed-name"), errEl = mask.querySelector("#tn-ed-err"), okBtn = mask.querySelector('[data-x="ok"]');
+    const showErr = html => { errEl.innerHTML = html || ""; };
+    nameIn.addEventListener("input", () => showErr(""));
+    nameIn.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); okBtn.click(); } });
+    okBtn.onclick = async () => {
+      const name = nameIn.value.trim();
+      if (!name) { showErr("请填写隧道名称"); nameIn.focus(); return; }
+      showErr("");
+      okBtn.disabled = true;
+      try {
+        await api(`/api/tunnels/${encodeURIComponent(t.id)}`, { method: "PUT", body: tunBody(t, {
+          name, boundInstance: mask.querySelector("#tn-ed-bound").value, autoStart: mask.querySelector("#tn-ed-auto").checked }) });
+        close();
+        if (stale(gen)) return;
+        toast(`已保存「${name}」的修改`);
+        drawList();
+      } catch (e) {
+        if (closed) return;
+        okBtn.disabled = false;
+        showErr(errInline("没能保存修改", e, { label: "编辑隧道" }));
+      }
+    };
+    nameIn.focus();
+    nameIn.select();
   };
   // 启动、停止之后短间隔刷新：马上刷一次，之后每秒一次，直到这条隧道稳定下来（最多 30 秒）；平时 4 秒一次
   const pend = new Map(); // 隧道ID → { settled: 判断稳定了没有, until: 截止时间 }
