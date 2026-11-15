@@ -178,6 +178,98 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     await settle(300);
   });
 
+  // 保存条：保存请求还没回来时又改了表单（2026-11-16 Codex 复审 beta.3）。以前请求回来后按「那时的表单」重取基线，
+  // 后台只收到改之前的那份，界面却把途中改的也标成已保存，离开时也不拦。现在基线只认点「保存」那一刻发出去的那份。
+  // gatePut：拦住 pattern 的 PUT，等测试放行（GET 照常过），fn(requested, release)
+  const gatePut = async (pattern, fn) => {
+    let release, seen;
+    const gate = new Promise(r => release = r), requested = new Promise(r => seen = r);
+    // 用例断言失败时 finally 里会先放行再撤掉拦截：这时请求可能已经被放过去了，continue 报「已处理」不当回事，免得整个测试进程崩掉
+    const hold = async route => {
+      if (route.request().method() !== "PUT") return route.continue().catch(() => {});
+      seen(); await gate; await route.continue().catch(() => {});
+    };
+    await page.route(pattern, hold);
+    try { await fn(requested, release); } finally { release(); await page.unroute(pattern, hold); }
+  };
+  const lastPut = (since, suffix) => { const r = reqs.slice(since).filter(x => x.m === "PUT" && x.u.endsWith(suffix)).pop(); return r ? JSON.parse(r.b || "{}") : null; };
+
+  await run("保存条：保存途中又加的定时任务仍标「未保存」，保存条算一项、离开时照样拦（Codex 复审 beta.3）", async () => {
+    await page.goto(url(`#/inst/${inst}/tasks`)); await settle();
+    await page.fill("#sc-at", "05:00"); await page.click("#sc-add");
+    const since = reqs.length;
+    let offMid = false; // 保存途中「保存」键是不是一直置灰（放到最后断言：先看基线对不对）
+    await gatePut("**/policies", async (requested, release) => {
+      await page.click('[data-sb="save"]'); await requested;
+      await page.fill("#sc-at", "06:30"); await page.click("#sc-add");
+      offMid = await page.$eval('[data-sb="save"]', b => b.disabled);
+      release();
+      await page.waitForFunction(() => [...document.querySelectorAll(".toast")].some(t => t.textContent.includes("定时任务已保存")));
+    });
+    await settle(200);
+    const sent = (lastPut(since, "/policies") || {}).schedules || [];
+    assert(sent.some(s => s.at === "05:00") && !sent.some(s => s.at === "06:30"), "发出去的应只有点保存时的那几条：" + JSON.stringify(sent));
+    const v = await page.evaluate(() => ({ bar: $(".sb-text").textContent, off: $('[data-sb="save"]').disabled,
+      drafts: [...document.querySelectorAll("#sched-list .java-row.draft")].map(r => r.textContent.replace(/\s+/g, " ").trim()),
+      saved: [...document.querySelectorAll("#sched-list .java-row:not(.draft)")].map(r => r.textContent.replace(/\s+/g, " ").trim()) }));
+    assert(v.bar === "1 项修改未保存" && !v.off, "途中加的那条应算一项未保存：" + JSON.stringify(v));
+    assert(v.drafts.length === 1 && v.drafts[0].includes("06:30") && v.drafts[0].includes("未保存") && v.saved.some(x => x.includes("05:00")),
+      "05:00 已保存、06:30 仍是草稿：" + JSON.stringify(v));
+    await page.click('#sidebar a[data-nav="settings"]'); await settle(200);
+    assert((await page.$(".modal")) !== null, "还有没保存的定时任务，离开应拦下");
+    await page.click('[data-x="ok"]'); await settle(300);
+    assert(offMid, "保存途中「保存」键应一直置灰，不叠着再存一次");
+  });
+
+  await run("保存条：常用设置保存途中又改的一项仍算未保存，后台只收到点保存时的值（Codex 复审 beta.3）", async () => {
+    await page.goto(url(`#/inst/${inst}/common`)); await settle();
+    await page.click('.prop-item [data-k="hardcore"]');
+    const since = reqs.length;
+    let offMid = false;
+    await gatePut("**/properties", async (requested, release) => {
+      await page.click('[data-sb="save"]'); await requested;
+      await page.fill('[data-k="max-players"]', "37");
+      offMid = await page.$eval('[data-sb="save"]', b => b.disabled);
+      release();
+      await page.waitForFunction(() => [...document.querySelectorAll(".toast")].some(t => t.textContent.includes("已保存 server.properties")));
+    });
+    await settle(200);
+    const pairs = (lastPut(since, "/properties") || {}).pairs || [];
+    const val = k => (pairs.find(p => p.key === k) || {}).value;
+    assert(val("hardcore") === "true" && val("max-players") !== "37", "发出去的应是点保存时的值：" + JSON.stringify({ hardcore: val("hardcore"), max: val("max-players") }));
+    const v = await page.evaluate(() => ({ bar: $(".sb-text").textContent, off: $('[data-sb="save"]').disabled, max: $('[data-k="max-players"]').value }));
+    assert(v.bar === "1 项修改未保存" && !v.off && v.max === "37", "途中改的最大人数应仍算未保存：" + JSON.stringify(v));
+    await page.click('[data-sb="discard"]'); await settle(300);
+    assert(offMid, "保存途中「保存」键应一直置灰");
+  });
+
+  await run("保存条：JVM 参数保存途中又改了，回读的参数不盖掉新填的，新填的仍算未保存（Codex 复审 beta.3）", async () => {
+    const FIX = ["-Dlog4j2.formatMsgNoLookups=true", "-Dlog4j.configurationFile=log4j2_112-116.xml"];
+    const mock = b => page.evaluate(b => fetch("/__mock/state", { method: "POST", body: JSON.stringify(b) }), b);
+    await mock({ legacy: { name: "机械动力整合包", extraJvm: ["-XX:+UseG1GC", ...FIX], forceFlags: FIX } }); // 后端保存时会补回缓解参数
+    try {
+      await page.goto(url(`#/inst/${encodeURIComponent("机械动力整合包")}/jvm`)); await settle();
+      await page.fill("#jm-jvm", "-XX:+UseZGC");
+      const since = reqs.length;
+      let offMid = false;
+      await gatePut("**/settings", async (requested, release) => {
+        await page.click('[data-sb="save"]'); await requested;
+        await page.fill("#jm-jvm", "-XX:+UseShenandoahGC");
+        offMid = await page.$eval('[data-sb="save"]', b => b.disabled);
+        release();
+        await page.waitForFunction(() => [...document.querySelectorAll(".toast")].some(t => t.textContent.includes("已保存内存与 JVM 参数")));
+      });
+      await settle(200);
+      const put = lastPut(since, "/settings") || {};
+      assert(JSON.stringify(put.extraJvm) === JSON.stringify(["-XX:+UseZGC"]), "发出去的应是点保存时的参数：" + JSON.stringify(put));
+      const v = await page.evaluate(() => ({ jvm: $("#jm-jvm").value, bar: $(".sb-text").textContent, off: $('[data-sb="save"]').disabled }));
+      assert(v.jvm === "-XX:+UseShenandoahGC", "回读的参数盖掉了途中新填的：" + JSON.stringify(v.jvm));
+      assert(v.bar === "1 项修改未保存" && !v.off, "途中新填的参数应仍算未保存：" + JSON.stringify(v));
+      await page.click('[data-sb="discard"]'); await settle(300);
+      assert(offMid, "保存途中「保存」键应一直置灰");
+    } finally { await mock({ instReset: true }); }
+  });
+
   await run("向导中途再点「新建服务器」/按 2 回到入口", async () => {
     await page.goto(url("#/create")); await settle();
     await page.click("#mode-new"); await settle();
@@ -6117,6 +6209,76 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         assert(f.hash === "#/create/adopt" && f.dir === "E:\\MCServers\\create-pack" && f.name === "接管回填服" && f.java === "17" && f.mem === "3072", "返回修改以后的接管表单：" + JSON.stringify(f));
         assert(reqs.slice(scans).some(r => r.m === "POST" && r.u === "/api/adopt/scan"), "回来时应重新识别一遍文件夹");
       } finally { await page.unroute("**/api/tasks/task-adopt", failAdopt); await fState({ instReset: true }); }
+    });
+
+    // 「返回修改」的草稿要在发请求之前拍下（2026-11-16 Codex 复审 beta.3）：以前请求回来以后才去读表单，大整合包上传、建服请求还没回来时
+    // 切到别的页面，表单已经没了，一读就出错——任务明明在跑，界面却报「无法导入整合包」「无法创建服务器」，草稿也没留下。
+    // holdPost：拦住 pattern 的 POST，等测试放行（同一地址的 GET 轮询照常过）
+    const holdPost = async (pattern, fn) => {
+      let release, seen;
+      const gate = new Promise(r => release = r), requested = new Promise(r => seen = r);
+      const hold = async route => {
+        if (route.request().method() !== "POST") return route.continue().catch(() => {});
+        seen(); await gate; await route.continue().catch(() => {});
+      };
+      await page.route(pattern, hold);
+      try { await fn(requested, release); } finally { release(); await page.unroute(pattern, hold); }
+    };
+    const toastsNow = () => page.$$eval(".toast", ts => ts.map(t => t.textContent));
+
+    await run("beta.3 流程 R13：导入整合包上传途中切到别的页面，任务照常开始、不误报「无法导入」，失败以后「返回修改」填的都在（Codex 复审 beta.3）", async () => {
+      const before = errors.length;
+      try {
+        await fState({ taskList: [{ id: "task-1", title: "导入整合包 测试整合包（forge 1.20.1）", ended: true, error: "下载 mods/a.jar 失败: 连接超时" }] });
+        await page.goto(url("#/create/import")); await page.waitForSelector("#im-file");
+        await page.setInputFiles("#im-file", { name: "切页测试.mrpack", mimeType: "application/zip", buffer: Buffer.from("PK\u0003\u0004mrpack") });
+        await page.fill("#im-name", "切页导入服"); await page.fill("#im-port", "25603"); await page.check("#im-wl"); await page.check("#im-eula");
+        await holdPost("**/api/import/modpack", async (requested, release) => {
+          await page.click("#im-go"); await requested;
+          await page.click('#sidebar a[data-nav="instances"]'); await page.waitForSelector("#inst-cards");
+          release();
+          await page.waitForFunction(() => [...document.querySelectorAll(".toast")].some(t => /已识别|无法导入/.test(t.textContent)));
+        });
+        await settle(300);
+        const t = await toastsNow();
+        assert(!t.some(x => x.includes("无法导入整合包")) && t.some(x => x.includes("已识别")), "任务已经开始，不该报无法导入：" + JSON.stringify(t));
+        assert(errors.length === before, "页面报错：" + errors.slice(before).join(" | "));
+        assert(await page.evaluate(() => location.hash) === "#/instances", "切走以后不该被拉去任务页：" + await page.evaluate(() => location.hash));
+        // 不刷新页面（草稿只在这一次打开的页面里），从任务页「返回修改」
+        await page.evaluate(() => { location.hash = "#/task/task-1"; }); await page.waitForSelector("#t-back-edit");
+        await page.click("#t-back-edit"); await page.waitForSelector("#im-name");
+        const f = await page.evaluate(() => ({ file: ($("#im-file").files[0] || {}).name || "", name: $("#im-name").value, port: $("#im-port").value, wl: $("#im-wl").checked, eula: $("#im-eula").checked }));
+        assert(f.file === "切页测试.mrpack" && f.name === "切页导入服" && f.port === "25603" && f.wl && f.eula, "返回修改以后的导入表单：" + JSON.stringify(f));
+      } finally { await fState({ taskList: [] }); }
+    });
+
+    await run("beta.3 流程 R13：向导点了「开始部署」、请求还没回来就切走，服务器照常开始建、不误报「无法创建」，「返回修改」填的都在（Codex 复审 beta.3）", async () => {
+      const before = errors.length;
+      try {
+        await fState({ modCart: { reset: true }, instReset: true, taskList: [{ id: "task-1", title: "创建服务器 切页建服（paper 1.21.4）", ended: true, cancelled: true, error: "已取消，没有创建服务器" }] });
+        await page.goto(url("#/create/new")); await page.waitForSelector('.core-card[data-id="paper"]');
+        await page.click('.core-card[data-id="paper"]'); await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
+        await page.click('.ver-item[data-id="1.21.4"]'); await page.click("#wnext"); await page.waitForSelector("#build-rec b");
+        await page.click("#wnext"); await page.waitForSelector("#wiz-mod-body");
+        await page.click("#wnext"); await page.waitForSelector("#f-name");
+        await page.fill("#f-name", "切页建服"); await page.fill("#f-port", "25604"); await page.fill("#f-motd", "切走也留着");
+        await page.check("#f-eula");
+        await holdPost("**/api/instances", async (requested, release) => {
+          await page.click("#wcreate"); await requested;
+          await page.click('#sidebar a[data-nav="instances"]'); await page.waitForSelector("#inst-cards");
+          release();
+          await page.waitForFunction(() => [...document.querySelectorAll(".toast")].some(t => /已开始创建|无法创建服务器/.test(t.textContent)));
+        });
+        await settle(300);
+        const t = await toastsNow();
+        assert(!t.some(x => x.includes("无法创建服务器")) && t.some(x => x.includes("已开始创建")), "服务器已经开始建，不该报无法创建：" + JSON.stringify(t));
+        assert(errors.length === before, "页面报错：" + errors.slice(before).join(" | "));
+        await page.evaluate(() => { location.hash = "#/task/task-1"; }); await page.waitForSelector("#t-back-edit");
+        await page.click("#t-back-edit"); await page.waitForSelector("#f-name");
+        const f = await page.evaluate(() => ({ name: $("#f-name").value, port: $("#f-port").value, motd: $("#f-motd").value, eula: $("#f-eula").checked, sum: $("#wf-sum").textContent }));
+        assert(f.name === "切页建服" && f.port === "25604" && f.motd === "切走也留着" && f.eula && f.sum.includes("Paper") && f.sum.includes("1.21.4"),
+          "返回修改以后的向导：" + JSON.stringify(f));
+      } finally { await fState({ taskList: [], instReset: true, modCart: { reset: true } }); }
     });
 
     await run("beta.3 流程 R13：带地图从向导创建、取消以后「返回修改」：那张地图原样选上、重新核对，检测结果没被清掉", async () => {

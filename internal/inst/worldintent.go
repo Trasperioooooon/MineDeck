@@ -75,21 +75,35 @@ func (w *WorldIntent) Change() error {
 }
 
 func (w *WorldIntent) Release() {
-	w.m.mu.Lock()
-	name := w.i.Name
-	if w.m.worldIntent[name] != w {
-		w.m.mu.Unlock()
+	m, i := w.m, w.i
+	name := i.Name
+	if worldReleaseHook != nil {
+		worldReleaseHook(name)
+	}
+	// 先存盘、后放意图和占位，道理同 beginWorldChangeInstance 放占位那里（2026-11-16 Codex 复审 beta.3）。
+	// 锁的顺序是先 procMu 后 m.mu（同 Change）。整段拿着 procMu：Change 也要先拿 procMu，进不来，held 不会在中间变；
+	// m.mu 只在核对和放掉的时候拿，存 instance.json 的时候不拿着它
+	i.procMu.Lock()
+	defer i.procMu.Unlock()
+	m.mu.Lock()
+	if m.worldIntent[name] != w {
+		m.mu.Unlock()
 		return
 	}
-	delete(w.m.worldIntent, name)
-	held := w.held
-	if held {
-		delete(w.m.worldHold, name)
-	}
-	w.m.mu.Unlock()
-	// 占上过位，世界就可能已经换成导入的地图：不再说它是从哪份备份还原来的（见 WorldFrom）。
-	// 放在 m.mu 外面：存 instance.json 要拿 procMu，锁的顺序是先 procMu 后 m.mu
-	if held {
-		w.m.setWorldFrom(w.i, nil)
+	held, ours := w.held, m.insts[name] == i
+	m.mu.Unlock()
+	defer func() { // 存盘出了意外也照样放掉（先于 procMu 的解锁执行，锁的顺序不变）
+		m.mu.Lock()
+		if m.worldIntent[name] == w {
+			delete(m.worldIntent, name)
+			if held {
+				delete(m.worldHold, name)
+			}
+		}
+		m.mu.Unlock()
+	}()
+	// 占上过位，世界就可能已经换成导入的地图：不再说它是从哪份备份还原来的（见 WorldFrom）
+	if held && ours {
+		m.setWorldFromLocked(i, nil)
 	}
 }

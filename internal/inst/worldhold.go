@@ -147,14 +147,41 @@ func (m *Manager) beginWorldChangeInstance(i *Instance, why string, recovery boo
 	var once sync.Once
 	return func() {
 		once.Do(func() {
-			m.mu.Lock()
-			delete(m.worldHold, name)
-			m.mu.Unlock()
+			// 先存盘、后放占位（2026-11-16 Codex 复审 beta.3）。以前反过来：放掉占位以后、存 instance.json 之前，
+			// 「移出列表」（Delete 也要先占上位）就能进来，把 instance.json 改名成 .bak；晚到的这次保存又写回一份 instance.json，
+			// 下次启动扫描存放目录，已经移出去的服务器又冒出来。放占位写在 defer 里：存盘出了意外也照样放掉
+			defer func() {
+				m.mu.Lock()
+				delete(m.worldHold, name)
+				m.mu.Unlock()
+			}()
+			if worldReleaseHook != nil {
+				worldReleaseHook(name)
+			}
 			if !keepWorldFrom[why] { // 换回、恢复地图：现在的世界不再是从备份还原来的那个了（见 WorldFrom）
-				m.setWorldFrom(i, nil)
+				m.clearWorldFromHeld(i, name)
 			}
 		})
 	}, nil
+}
+
+// worldReleaseHook 测试用：换地图类的占位收尾时，清 WorldFrom、存 instance.json 之前调，这时不拿任何锁（同 deleteHook）。
+var worldReleaseHook func(name string)
+
+// clearWorldFromHeld 换过地图以后清掉 WorldFrom 并存进 instance.json。调用方还占着这台服务器的位（世界占位，或者占上了位的
+// 换地图意图），自己不拿任何锁。占位还在，删除、移出列表都占不上位，这时候存盘不会和它们撞上。
+//
+// 锁的顺序和占位、启动、WorldIntent.Change 一样，先 procMu 后 m.mu：拿着 procMu，在 m.mu 里核对列表里的还是这一台，
+// 不是删掉以后新建的同名服务器；放掉 m.mu 再存盘，存盘的时候只拿着 procMu（setWorldFrom 本来就这样），不挡别的服务器。
+func (m *Manager) clearWorldFromHeld(i *Instance, name string) {
+	i.procMu.Lock()
+	defer i.procMu.Unlock()
+	m.mu.Lock()
+	ours := m.insts[name] == i
+	m.mu.Unlock()
+	if ours {
+		m.setWorldFromLocked(i, nil)
+	}
 }
 
 // UseWorld 登记「正在用这台服务器的世界和设置」，返回撤销登记的函数。备份、保存设置这类要读写世界目录或

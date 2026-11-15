@@ -5,6 +5,7 @@ package inst
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -124,6 +125,83 @@ func TestWorldChangeClearsWorldFrom(t *testing.T) {
 	}
 }
 
+// R11 换地图收尾（2026-11-16 Codex 复审 beta.3）：清掉 WorldFrom、存 instance.json 要在占位还在的时候做完，最后才放掉占位。
+// 以前先放占位再存：中间「移出列表」能进来，把 instance.json 改名成 .bak，晚到的保存又写回一份 instance.json，
+// 下次启动扫描存放目录，已经移出去的服务器又被认回来。worldReleaseHook 停在存盘之前（不拿任何锁），这时候去移出列表：
+// 要么被占位挡下（服务器还在、记录清掉并存好了），要么真的移出去了、instance.json 不能再冒出来。换回旧地图的占位和导入地图的意图两条路都看。
+func TestWorldReleaseSavesBeforeDroppingHold(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		hold func(t *testing.T, m *Manager, i *Instance) (release func())
+	}{
+		{"换回旧地图", func(t *testing.T, m *Manager, i *Instance) func() {
+			release, err := m.BeginWorldChangeInstance(i, "换回旧地图")
+			if err != nil {
+				t.Fatal(err)
+			}
+			return release
+		}},
+		{"导入地图", func(t *testing.T, m *Manager, i *Instance) func() {
+			w, err := m.BeginWorldIntentInstance(i, "准备换地图")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := w.Change(); err != nil {
+				t.Fatal(err)
+			}
+			return w.Release
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m, dir := tempInstance(t)
+			i, _ := m.Get("s")
+			m.setWorldFrom(i, &WorldFrom{Backup: "a.zip", At: "2026-11-15 20:00:00"}) // 还原过备份：收尾时要清掉、存一次盘
+			release := c.hold(t, m, i)
+			old := worldReleaseHook
+			t.Cleanup(func() { worldReleaseHook = old })
+			fired, delErr := false, error(nil)
+			worldReleaseHook = func(name string) {
+				if fired || name != "s" { // 移出列表自己的占位收尾也会走到这里：只在第一次（换地图收尾）去移
+					return
+				}
+				fired = true
+				delErr = m.Delete(name, false)
+			}
+			release()
+			if !fired {
+				t.Fatal("收尾时没走到存盘之前那一步")
+			}
+			cfg := filepath.Join(dir, "instance.json")
+			if delErr == nil {
+				if _, err := os.Stat(cfg); !os.IsNotExist(err) {
+					t.Fatalf("移出列表以后 instance.json 又被写回来了，下次启动会被重新扫出来：%v", err)
+				}
+				return
+			}
+			if !strings.Contains(delErr.Error(), "请等它完成") {
+				t.Fatalf("收尾还没做完时移出列表应被占位挡下：%v", delErr)
+			}
+			if _, err := m.Get("s"); err != nil {
+				t.Fatalf("被挡下的话服务器应还在列表里：%v", err)
+			}
+			if s, err := readSettings(dir); err != nil || s.WorldFrom != nil {
+				t.Fatalf("记录应已清掉并存进 instance.json：%+v %v", s.WorldFrom, err)
+			}
+			if why := m.WorldBusy("s"); why != "" {
+				t.Fatalf("收尾以后占位应放掉：%s", why)
+			}
+			// 收尾做完以后照常能移出列表，instance.json 改名成 .bak、不再回来
+			worldReleaseHook = old
+			if err := m.Delete("s", false); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(cfg); !os.IsNotExist(err) {
+				t.Fatalf("移出列表以后不该还有 instance.json：%v", err)
+			}
+		})
+	}
+}
+
 // R21：配的 java.exe 不在了就是 JavaMissing；路径是空的也算。
 func TestJavaMissing(t *testing.T) {
 	exe, _ := os.Executable()
@@ -206,6 +284,77 @@ func TestTrashMod(t *testing.T) {
 	// 删的时候占着位：结束以后能照常启动（占位放掉了）
 	if why := m.WorldBusy(i.Name); why != "" {
 		t.Fatalf("删完应放掉占位：%s", why)
+	}
+}
+
+// R10 删除插件或模组（2026-11-16 Codex 复审 beta.3）：接管来的服务器里 plugins、.minedeck 或它下面的「已删除」是指到外面的目录联接时，
+// 只看末级是普通文件拦不住——顺着联接会把外面的文件挪进来，或者在外面建文件夹、放进移走的文件。这几种都要拒绝，外面一个字节都不动。
+// 联接指到服务器文件夹里面的照常能删。
+func TestTrashModRefusesJunctionsOutside(t *testing.T) {
+	junction := func(link, target string) {
+		t.Helper()
+		cmd := exec.Command("cmd", "/c", "mklink", "/J", link, target)
+		hideWindow(cmd)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Skipf("建不了目录联接: %v %s", err, out)
+		}
+		t.Cleanup(func() { _ = os.Remove(link) }) // 只删联接本身；在临时目录之后登记，先于临时目录删
+	}
+	trash := func(m *Manager, i *Instance, file string) error {
+		_, err := m.TrashMod(i.Name, "plugins", file)
+		return err
+	}
+
+	// plugins 整个是指到外面的联接：外面那个文件夹里的 jar 不能被挪进来
+	m, i := portInst(t, "联接插件", "", mcsrc.CorePaper)
+	outside := t.TempDir()
+	writeTree(t, filepath.Join(outside, "plugins"), map[string]string{"Victim.jar": "外面的"})
+	junction(filepath.Join(i.Dir, "plugins"), filepath.Join(outside, "plugins"))
+	before := treeOf(t, outside)
+	if err := trash(m, i, "Victim.jar"); err == nil || !strings.Contains(err.Error(), "plugins 文件夹指到了服务器文件夹外面") {
+		t.Fatalf("plugins 指到外面时应拒绝删除：%v", err)
+	}
+	if got := treeOf(t, outside); !maps2Equal(before, got) {
+		t.Fatalf("外面的文件被动了：\n之前 %v\n之后 %v", before, got)
+	}
+	if _, err := os.Lstat(filepath.Join(i.Dir, ".minedeck")); !os.IsNotExist(err) {
+		t.Fatalf("拒绝了就不该建放删除文件的文件夹：%v", err)
+	}
+
+	// .minedeck，或者它下面的「已删除」、「已删除/plugins」指到外面：不在外面建文件夹、放文件，服务器里的 jar 原地不动
+	for _, rel := range []string{".minedeck", ".minedeck/已删除", ".minedeck/已删除/plugins"} {
+		m, i := portInst(t, "联接回收", "", mcsrc.CorePaper)
+		outside := t.TempDir()
+		writeTree(t, filepath.Join(i.Dir, "plugins"), map[string]string{"Mine.jar": "自己的"})
+		link := filepath.Join(i.Dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		junction(link, outside)
+		if err := trash(m, i, "Mine.jar"); err == nil || !strings.Contains(err.Error(), ".minedeck 文件夹指到了服务器文件夹外面") {
+			t.Fatalf("%s 指到外面时应拒绝删除：%v", rel, err)
+		}
+		if got := treeOf(t, outside); len(got) != 0 {
+			t.Fatalf("%s 指到外面时，外面多出了文件：%v", rel, got)
+		}
+		if ents, _ := os.ReadDir(outside); len(ents) != 0 {
+			t.Fatalf("%s 指到外面时，外面多出了文件夹：%v", rel, ents)
+		}
+		if b, err := os.ReadFile(filepath.Join(i.Dir, "plugins", "Mine.jar")); err != nil || string(b) != "自己的" {
+			t.Fatalf("%s：拒绝了 jar 应原地不动：%q %v", rel, b, err)
+		}
+	}
+
+	// 联接指到服务器文件夹里面（比如 plugins → 服务器里另一个文件夹）：照常删，移进 .minedeck/已删除/plugins
+	m, i = portInst(t, "联接在里面", "", mcsrc.CorePaper)
+	writeTree(t, filepath.Join(i.Dir, "插件本体"), map[string]string{"Inner.jar": "里面的"})
+	junction(filepath.Join(i.Dir, "plugins"), filepath.Join(i.Dir, "插件本体"))
+	to, err := m.TrashMod(i.Name, "plugins", "Inner.jar")
+	if err != nil {
+		t.Fatalf("联接指到服务器文件夹里面的应照常删除：%v", err)
+	}
+	if b, err := os.ReadFile(filepath.Join(i.Dir, to)); err != nil || string(b) != "里面的" {
+		t.Fatalf("移到 %s 的内容：%q %v", to, b, err)
 	}
 }
 
