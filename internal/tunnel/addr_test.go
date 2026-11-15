@@ -304,6 +304,47 @@ func TestPublicAddrSkipsLocalAndMasked(t *testing.T) {
 	}
 }
 
+// 同一行里 IP 在前、域名在后：只写一次域名。控制台那句「公网地址」和 tunnel.up 事件是同一个条件下发的，
+// 这里数控制台的句子，就是在数往外推了几次（webhook、voice_host）。
+func TestPublicAddrSameLineWritesOnce(t *testing.T) {
+	countAddrLines := func(m *Manager, id string) int {
+		n := 0
+		for _, l := range m.Console(id).Lines() {
+			if strings.Contains(l, "公网地址: ") {
+				n++
+			}
+		}
+		return n
+	}
+
+	m, tun := newBareTunnel(t, "natfrp")
+	rs := &runState{}
+	m.handleLine(tun, rs, "[client/control_ext.go:37] 使用 203.0.113.7:12345 或 frp-abc.natfrp.cloud:12345 连接")
+	if tun.PublicAddr != "frp-abc.natfrp.cloud:12345" || !rs.sawDomain {
+		t.Fatalf("同一行域名应盖过 IP：%q saw=%v", tun.PublicAddr, rs.sawDomain)
+	}
+	if n := countAddrLines(m, tun.ID); n != 1 {
+		t.Fatalf("同一行只该写一次公网地址，写了 %d 次：\n%s", n, strings.Join(m.Console(tun.ID).Lines(), "\n"))
+	}
+
+	// 两个 IP、前面没见过域名：取后面的，也只写一次
+	m2, tun2 := newBareTunnel(t, "natfrp")
+	m2.handleLine(tun2, &runState{}, "连接 203.0.113.7:12345 或 203.0.113.8:12345")
+	if tun2.PublicAddr != "203.0.113.8:12345" {
+		t.Fatalf("两个 IP 应取后面的：%q", tun2.PublicAddr)
+	}
+	if n := countAddrLines(m2, tun2.ID); n != 1 {
+		t.Fatalf("两个 IP 只该写一次，写了 %d 次", n)
+	}
+
+	// 已经见过域名，这一行只有 IP：一次都不写
+	before := countAddrLines(m, tun.ID)
+	m.handleLine(tun, rs, "或使用节点 IP 连接（不推荐）>>203.0.113.9:12345<< 或 >>203.0.113.10:12345<<")
+	if tun.PublicAddr != "frp-abc.natfrp.cloud:12345" || countAddrLines(m, tun.ID) != before {
+		t.Fatalf("见过域名后只有 IP 的行不该写：%q", tun.PublicAddr)
+	}
+}
+
 func TestCustomPublicAddrIgnoresLogNoise(t *testing.T) {
 	m, tun := newBareTunnel(t, "custom")
 	tun.ServerAddr = "frp.example.com"

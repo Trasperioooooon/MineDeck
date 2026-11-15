@@ -854,14 +854,20 @@ func (m *Manager) handleLineMasked(t *Tunnel, rs *runState, line string, mask fu
 		m.mu.Lock()
 		rs.online = true
 		m.mu.Unlock()
-		for _, hasAddr := range addrs {
+		// 先在这一行里挑出最后该用的那个，只写一次：setPublicAddr 每次都存盘、在控制台记一句、发 tunnel.up
+		// （webhook 会往外推，语音隧道会去写 voice_host），不能让同一行里排在前面的 IP 先推出去、紧接着又被域名换掉。
+		pick := ""
+		for _, addr := range addrs {
 			switch {
-			case !isIPAddr(hasAddr):
+			case !isIPAddr(addr):
 				rs.sawDomain = true
-				m.setPublicAddr(t, hasAddr)
+				pick = addr
 			case !rs.sawDomain:
-				m.setPublicAddr(t, hasAddr)
+				pick = addr
 			}
+		}
+		if pick != "" {
+			m.setPublicAddr(t, pick)
 		}
 	}
 	// 失败信息捕获（供隧道行内红字提示）；成功则清除
