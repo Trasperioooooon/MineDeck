@@ -147,7 +147,48 @@ func canonicalPath(path string) string {
 
 // finalPath 的最后一项由 follow 决定是否跟随。锁住的是原子改名要替换的目录项，
 // 所以最终文件不能跟随符号链接；其父目录里的联接仍需解析。
+//
+// 不跟随时（算锁键的最后一项）不打开那个目录项本身：上一级照旧用句柄问系统，最后一项的长名到上一级的目录列表里查。
+// 以前连最后一项也用句柄打开一次。排队等锁的人都要先算锁键，正好碰上持锁的人在改名替换这个文件时，
+// 改名就被拒（Access is denied）：旧式改名替换不了还有句柄开着的文件，哪怕那个句柄只为查路径、允许删除。
+// 40 个保存同时排队的测试在 CI 上就是这样偶发失败的（2026-11-15）。
 func finalPath(path string, follow bool) (string, bool) {
+	if follow {
+		return handlePath(path, true)
+	}
+	parent := filepath.Dir(path)
+	if parent == path {
+		return handlePath(path, false) // 卷根不会被改名替换，照旧打开
+	}
+	name := filepath.Base(path)
+	// 目录查询把这几个字符当通配符，会匹配到别的文件；正常文件名里不会有它们
+	if strings.ContainsAny(name, `*?<>"`) {
+		return "", false
+	}
+	dir, ok := handlePath(parent, true)
+	if !ok {
+		return "", false
+	}
+	u, err := windows.UTF16PtrFromString(longPath(path))
+	if err != nil {
+		return "", false
+	}
+	var fd windows.Win32finddata
+	h, err := windows.FindFirstFile(u, &fd)
+	if err != nil {
+		return "", false
+	}
+	windows.FindClose(h)
+	long := windows.UTF16ToString(fd.FileName[:])
+	if !strings.EqualFold(long, name) && !strings.EqualFold(windows.UTF16ToString(fd.AlternateFileName[:]), name) {
+		return "", false
+	}
+	return filepath.Join(dir, long), true
+}
+
+// handlePath 打开 path 问系统它的最终路径（设备路径形式）。follow 为 false 时不跟随最后一项的链接。
+// 打开的句柄会挡住别人改名替换这个文件，所以不拿它查要被原子替换的那个文件（见 finalPath）。
+func handlePath(path string, follow bool) (string, bool) {
 	u, err := windows.UTF16PtrFromString(longPath(path))
 	if err != nil {
 		return "", false
