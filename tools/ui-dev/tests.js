@@ -96,13 +96,14 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     await page.keyboard.press("Escape");
   });
 
-  await run("删除确认框默认聚焦「保留」，回车不会删除", async () => {
+  // beta.3 R05：取消键叫「取消」，不再叫「保留」（会被读成「保留文件夹」）
+  await run("删除确认框默认聚焦「取消」，回车不会删除", async () => {
     await page.goto(url("#/instances")); await settle();
     await page.click('.card[data-name="机械动力整合包"] [data-act="more"]');
     await page.click(".dropmenu button.danger");
     await settle(200);
     const focused = await page.evaluate(() => document.activeElement && document.activeElement.textContent.trim());
-    assert(focused === "保留", "默认焦点在：" + focused);
+    assert(focused === "取消", "默认焦点在：" + focused);
     const before = reqs.length;
     await page.keyboard.press("Enter");
     await settle(200);
@@ -3378,7 +3379,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await flip();
       ps = lanPuts(t0);
       assert(ps.length === 1 && ps[0].listenLan === false && !("lanPassword" in ps[0]) && !(await sw()), "关闭应即时保存：" + JSON.stringify(ps));
-      assert((await page.$("#lan-restart")) === null && (await lastToast()) === "已关闭局域网访问", "关闭后：" + await lastToast());
+      assert((await page.$("#lan-restart")) === null && (await lastToast()) === "已关闭手机远程管理", "关闭后：" + await lastToast()); // beta.3：开关按新口径改叫「手机远程管理」
       // 已有密码：直接开
       t0 = reqs.length;
       await flip();
@@ -3410,7 +3411,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.goto(url("#/settings/remote")); await settle();
       await mockState({ lanSet: false });
       await flip();
-      assert(!(await sw()) && (await lastToast()).includes("无法开启局域网访问：请先设置访问密码"), "后端拒绝时应拨回：" + await lastToast());
+      assert(!(await sw()) && (await lastToast()).includes("无法开启手机远程管理：请先设置访问密码"), "后端拒绝时应拨回：" + await lastToast());
 
       // 这次启动已在局域网上：关闭即时生效（不再放行局域网），再开也不用重启
       await mockState({ listenLan: true });
@@ -3419,7 +3420,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await flip();
       assert((await lastToast()).includes("现在起打不开") && (await page.$("#qr-box")) === null, "关闭已生效的局域网访问：" + await lastToast());
       await flip();
-      assert((await lastToast()) === "已开启局域网访问" && (await page.$("#qr-box svg.qr")) !== null, "重新开启（这次启动本就在监听）：" + await lastToast());
+      assert((await lastToast()) === "已开启手机远程管理" && (await page.$("#qr-box svg.qr")) !== null, "重新开启（这次启动本就在监听）：" + await lastToast());
     } finally { await mockState({ listenLan: false, lanSet: false }); }
   });
   await run("远程访问：已有密码时在框里填了新密码再拨开关，新密码一起保存、提示里写明（以前只存了开关，重画清空了框，看着像改好了）（独立评审）", async () => {
@@ -3830,7 +3831,9 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await mockState({ instReset: true });
     });
 
-    await run("删除：不勾「同时删除文件夹」时按钮写「移出列表」；接管进来的服务器默认不勾、写出原来的文件夹，确认后只移出列表", async () => {
+    // beta.3 R05 起所有服务器默认都只移出列表（以前自己建的默认连文件夹一起删），取消键叫「取消」，打开开关后按钮写「删除服务器和文件夹」；
+    // U28：移出后的提示写出文件夹在哪。这条用例的期望按新的做法改了，新做法的细节见「beta.3 P0」那一块
+    await run("删除：不打开「同时删除文件夹」时按钮写「移出列表」；自己建的和接管进来的都默认不删文件夹，接管进来的写出原来的文件夹，确认后只移出列表", async () => {
       await mockState({ instReset: true });
       const open = async () => {
         await page.goto(url("#/instances")); await settle();
@@ -3841,19 +3844,19 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
           focused: document.activeElement.textContent.trim() }));
       };
       let d = await open();
-      assert(d.checked && d.ok === "删除服务器" && d.focused === "保留" && d.hint.includes("接管已有服务器") && !d.hint.includes("下次启动会重新出现"), "自己新建的：" + JSON.stringify(d));
-      await page.uncheck("#modal-root input[data-k=files]");
-      assert(await page.textContent("#modal-root [data-x=ok]") === "移出列表", "不删文件时按钮应写「移出列表」");
+      assert(!d.checked && d.ok === "移出列表" && d.focused === "取消" && d.hint.includes("接管已有服务器") && !d.hint.includes("下次启动会重新出现"), "自己新建的：" + JSON.stringify(d));
+      await page.check("#modal-root input[data-k=files]");
+      assert(await page.textContent("#modal-root [data-x=ok]") === "删除服务器和文件夹", "打开开关后按钮应写「删除服务器和文件夹」");
       await page.click('#modal-root [data-x="cancel"]'); await settle(250);
-      // 接管进来的：默认不删文件
+      // 接管进来的：同样默认不删文件
       await mockState({ inst: { name: "机械动力整合包", adopted: true, dir: "E:\\MCServers\\create-pack" } });
       d = await open();
-      assert(!d.checked && d.ok === "移出列表" && d.focused === "保留" && d.hint.includes("接管进来的") && d.hint.includes("E:\\MCServers\\create-pack"), "接管进来的：" + JSON.stringify(d));
+      assert(!d.checked && d.ok === "移出列表" && d.focused === "取消" && d.hint.includes("接管进来的") && d.hint.includes("E:\\MCServers\\create-pack"), "接管进来的：" + JSON.stringify(d));
       await page.click('#modal-root [data-x="ok"]'); await settle(500);
       const st = await mockState({});
       assert(st.lastDelete && st.lastDelete.inst === "机械动力整合包" && st.lastDelete.files === false, "删除的请求：" + JSON.stringify(st.lastDelete));
       const toasts = await page.$$eval(".toast", ts => ts.map(x => x.textContent));
-      assert(toasts.some(x => x.includes("移出列表") && x.includes("文件还在原处")), "提示：" + JSON.stringify(toasts));
+      assert(toasts.some(x => x.includes("移出列表") && x.includes("文件夹还在：E:\\MCServers\\create-pack")), "提示：" + JSON.stringify(toasts));
       await mockState({ instReset: true });
       await page.goto(url("#/instances")); await settle();
     });
@@ -5515,6 +5518,359 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await c.close(); await wReset(); }
   });
   // ==================== 地图导入结束 ====================
+  // ==================== beta.3 P0（R01–R05） ====================
+  // docs/可用性走查-2026-11-14.md 第八节 R01–R05，外加 U28、U30。用例名都以「beta.3 P0」开头，node tests.js "beta.3 P0" 只跑这一块。
+  // 仿真后端用到的字段见 server.js「/__mock/state」说明里 beta.3 P0 那几行（startFail、whitelistOn、mdFiles、connectPort……）
+  {
+    const pState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
+    const PACK0 = "机械动力整合包", SURV = "生存服 · 朋友", PROXY = "群组代理";
+    const detail = async (n, t = "console") => { await page.goto(url(`#/inst/${encodeURIComponent(n)}/${t}`)); await page.waitForSelector("#d-status"); await settle(300); };
+    const clip = () => page.evaluate(() => { window.__copied = null; Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async t => { window.__copied = t; } } }); });
+    const copied = () => page.evaluate(() => window.__copied);
+    // /__mock/state 先改 inst、后做 instReset：两样放在一次请求里，改的字段会被重置掉，所以分两次
+    const resetWith = async inst => { await pState({ instReset: true }); await pState({ inst }); };
+    const forgetIP = () => page.evaluate(() => { try { localStorage.removeItem("amh_lan_ip"); } catch {} });
+    const openDelete = async n => {
+      await page.goto(url("#/instances")); await settle();
+      await page.click(`.card[data-name="${n}"] [data-act="more"]`);
+      await page.click(".dropmenu button.danger"); await page.waitForSelector("#modal-root input[data-k=files]"); await settle(200);
+    };
+
+    await run("beta.3 P0 R01：详情页头写出连接地址（排第一的局域网 IP + 端口），能复制、能换 IP；停着时灰字写明开服后连这个；改了端口跟着变；代理端用它自己的端口，没生成配置时说清楚；拿不到 IP 时照常打开", async () => {
+      await pState({ instReset: true });
+      await forgetIP();
+      try {
+        await detail(SURV);
+        let a = await page.evaluate(() => ({ v: $("#d-addr-v").textContent, off: $("#d-addr").classList.contains("off"), all: $("#d-addr").textContent }));
+        assert(a.v === "192.168.1.23:25565" && !a.off && a.all.includes("连接地址") && a.all.includes("添加服务器"), "运行中的地址：" + JSON.stringify(a));
+        await clip();
+        await byName("button", "复制连接地址").click(); await settle(150);
+        assert(await copied() === "192.168.1.23:25565" && await toastHas("已复制连接地址"), "复制的内容：" + await copied());
+        // 本机有几个 IP：换一个，记在本机，卡片也跟着用
+        await page.click("#d-addr-ip"); await page.waitForSelector(".dropmenu");
+        const items = await page.$$eval(".dropmenu button", bs => bs.map(b => b.textContent.trim()));
+        assert(JSON.stringify(items) === JSON.stringify(["192.168.1.23", "10.0.0.5", "172.22.48.1"]), "IP 的排序：" + items);
+        await page.click('.dropmenu button:has-text("10.0.0.5")'); await settle(200);
+        assert(await page.textContent("#d-addr-v") === "10.0.0.5:25565", "换了 IP：" + await page.textContent("#d-addr-v"));
+        await page.goto(url("#/instances")); await settle(600); await clip();
+        await byName("button", "复制连接地址 " + SURV).click(); await settle(150);
+        assert(await copied() === "10.0.0.5:25565", "卡片应用换过的 IP：" + await copied());
+        await forgetIP();
+        // 在「常用设置」里改了端口：轮询到新端口，地址跟着变
+        await detail(SURV);
+        await pState({ inst: { name: SURV, port: 25599 } });
+        await page.waitForFunction(() => document.querySelector("#d-addr-v").textContent === "192.168.1.23:25599", null, { timeout: 5000 });
+        // 停着的：灰字，写明开服后朋友连这个
+        await detail(PACK0);
+        a = await page.evaluate(() => ({ v: $("#d-addr-v").textContent, off: $("#d-addr").classList.contains("off"), note: $("#d-addr .dh-addr-note").textContent }));
+        assert(a.v === "192.168.1.23:25566" && a.off && a.note === "开服后朋友连这个地址", "停着的：" + JSON.stringify(a));
+        // 代理端：端口是它自己的；配置文件还没生成（connectPort 为 0）时说清楚，不给一个猜的地址
+        await detail(PROXY);
+        assert(await page.textContent("#d-addr-v") === "192.168.1.23:25577", "代理端：" + await page.textContent("#d-addr-v"));
+        await pState({ inst: { name: PROXY, connectPort: 0 } });
+        await detail(PROXY);
+        assert(!(await page.$("#d-addr-v")) && (await page.textContent("#d-addr")).includes("第一次启动"), "代理端没生成配置时：" + await page.textContent("#d-addr"));
+        // /api/app 拿不到本机 IP：详情页照常打开，地址那一行说没查到、不给复制
+        const noIPs = route => route.fetch().then(async r => { const j = await r.json(); j.data.ips = []; return route.fulfill({ response: r, json: j }); });
+        await page.route("**/api/app", noIPs);
+        try {
+          await detail(PACK0);
+          assert(!(await page.$("#d-addr-copy")) && (await page.textContent("#d-addr")).includes("没查到这台电脑的局域网 IP"), "没有 IP 时：" + await page.textContent("#d-addr"));
+        } finally { await page.unroute("**/api/app", noIPs); }
+      } finally { await forgetIP(); await pState({ instReset: true }); }
+    });
+
+    await run("beta.3 P0 R01：列表卡片的端口旁能复制连接地址（名字带服务器名，点了不进详情页）；设置里叫「手机远程管理」，页顶指路到服务器页", async () => {
+      await pState({ instReset: true });
+      await forgetIP();
+      await page.goto(url("#/instances")); await settle(600); await clip();
+      for (const [n, addr] of [[SURV, "192.168.1.23:25565"], [PACK0, "192.168.1.23:25566"], [PROXY, "192.168.1.23:25577"]]) {
+        const b = byName("button", "复制连接地址 " + n);
+        assert(await b.count() === 1, "卡片「" + n + "」没有复制连接地址的按钮");
+        await b.click(); await settle(150);
+        assert(await copied() === addr, n + " 复制的内容：" + await copied());
+      }
+      assert(page.url().includes("#/instances"), "点复制不该进详情页：" + page.url());
+      await page.goto(url("#/settings/remote")); await settle(500);
+      const s = await page.evaluate(() => ({ nav: $('.set-nav[data-sec="remote"]').textContent.trim(), h: $(".set-sec-head h2").textContent, note: $("#lan-not-game").textContent,
+        sw: $("#lan-on").getAttribute("aria-label"), href: $("#lan-not-game a").getAttribute("href") }));
+      assert(s.nav === "手机远程管理" && s.h === "手机远程管理" && s.sw === "开启手机远程管理", "名字：" + JSON.stringify(s));
+      assert(s.note.includes("让朋友进游戏的地址在服务器页上") && s.note.includes("不在这里") && s.href === "#/instances", "页顶的指路：" + JSON.stringify(s));
+    });
+
+    await run("beta.3 P0 R02：新建向导的基本设置里有白名单开关，默认关并写明关着谁都能进；请求按开关带上 whitelist", async () => {
+      await pState({ instReset: true, modCart: { reset: true }, taskStage: 4 });
+      try {
+        for (const on of [false, true]) {
+          await page.goto(url("#/create")); await settle();
+          await page.click("#mode-new"); await settle();
+          await page.dblclick('.core-card[data-id="paper"]'); await settle();
+          await page.click("#wnext"); await settle();
+          await page.click("#wnext"); await settle();
+          await page.click("#wnext"); await settle();
+          const f = await page.evaluate(() => ({ checked: $("#f-wl").checked, text: $(".wl-field").textContent, hint: [...document.querySelectorAll("#wiz-body .hint")].map(h => h.textContent).join("|") }));
+          assert(!f.checked && f.text.includes("只允许白名单里的玩家进入") && f.text.includes("关着时任何知道地址的人都能进") && f.text.includes("再到「玩家」里加名字"), "白名单开关：" + JSON.stringify(f));
+          assert(!f.hint.includes("白名单等高级参数"), "不该再说白名单要创建后再调：" + f.hint);
+          if (on) await page.check("#f-wl");
+          await page.fill("#f-name", "白名单" + on);
+          await page.click(".eula-box .switch input");
+          await page.click("#wcreate"); await settle(700);
+          const st = await pState({});
+          assert(st.lastCreate && st.lastCreate.name === "白名单" + on && st.lastCreate.whitelist === on, "新建的请求：" + JSON.stringify(st.lastCreate));
+        }
+        // 用已有地图开服：走的是同一个向导，基本设置里也是这个开关，创建请求同样带上（后端放好地图以后再按它写 white-list）
+        await wReset();
+        await page.goto(url("#/create")); await page.waitForSelector("#mode-world");
+        await page.click("#mode-world"); await page.waitForSelector("#wi-browse");
+        await page.click("#wi-browse"); await page.waitForSelector("#wi-wiz-chosen");
+        await page.waitForSelector(".core-card.sel");
+        await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
+        await page.click("#wnext"); await page.waitForSelector("#f-name");
+        await page.waitForSelector("#wi-wiz-plan #wi-rel");
+        const w = await page.evaluate(() => ({ checked: $("#f-wl").checked, text: $(".wl-field").textContent }));
+        assert(!w.checked && w.text.includes("关着时任何知道地址的人都能进"), "用已有地图开服的基本设置里也该有白名单开关：" + JSON.stringify(w));
+        await page.check("#f-wl");
+        await page.click("#f-eula");
+        await page.click("#wcreate");
+        await page.waitForFunction(() => location.hash.startsWith("#/task/"));
+        await settle(500);
+        const st = await pState({});
+        assert(st.lastCreate && st.lastCreate.worldPlan && st.lastCreate.whitelist === true, "用已有地图开服的请求：" + JSON.stringify(st.lastCreate));
+      } finally { await pState({ instReset: true, taskStage: 2, world: { reset: true } }); }
+    });
+
+    await run("beta.3 P0 R02：导入整合包的表单有白名单开关（默认关，写明整合包自带配置时以它为准），提交时带上；接管表单写出原来的白名单设置（只显示，代理端不显示）", async () => {
+      await pState({ instReset: true });
+      try {
+        await page.goto(url("#/create/import")); await settle(600);
+        const f = await page.evaluate(() => ({ checked: $("#im-wl").checked, text: $(".wl-field").textContent }));
+        assert(!f.checked && f.text.includes("关着时任何知道地址的人都能进") && f.text.includes("整合包自带 server.properties 的，白名单也以这里为准"), "导入表单：" + JSON.stringify(f));
+        await page.setInputFiles("#im-file", { name: "pack.mrpack", mimeType: "application/zip", buffer: Buffer.from("PK\x05\x06" + "\0".repeat(18), "latin1") });
+        await page.check("#im-wl");
+        await page.click("#im-eula");
+        await page.click("#im-go"); await settle(800);
+        let st = await pState({});
+        assert(st.lastImport && st.lastImport.whitelist === "true" && st.lastImport.eula === "true", "导入的表单项：" + JSON.stringify(st.lastImport));
+        // 接管：识别出来的白名单开关原样写出来（开 / 关 / 没写）
+        const scan = { dir: "D:\\old\\S1", name: "S1", core: "paper", mc: "1.21.4", build: "", launchTarget: "jar:paper.jar",
+          targets: [{ target: "jar:paper.jar", label: "paper.jar（Paper 1.21.4）", core: "paper", mc: "1.21.4", build: "", javaMajor: 0 }],
+          javaMajor: 0, xmxMb: 0, extraJvm: [], port: 25565, eula: true, hasWorld: true, managed: false, notes: [] };
+        for (const [w, want] of [[true, "开（沿用原来的设置）"], [false, "关（沿用原来的设置）"], [null, "没写这一项"]]) {
+          await pState({ adoptScan: { ...scan, whitelistOn: w } });
+          await page.goto(url("#/create/adopt")); await settle(400);
+          await page.fill("#ad-dir", "D:\\old\\S1"); await page.keyboard.press("Enter"); await page.waitForSelector("#ad-wl");
+          const t = await page.textContent("#ad-wl");
+          assert(t.includes(want) && !(await page.$eval("#ad-wl", e => e.hidden)), `白名单 ${w}：` + t);
+        }
+        await page.selectOption("#ad-core", "velocity");
+        assert(await page.$eval("#ad-wl", e => e.hidden), "代理端没有白名单这一项，不该显示");
+      } finally { await pState({ adoptScan: null, instReset: true }); }
+    });
+
+    await run("beta.3 P0 R02：玩家标签的白名单块直接显示并能切换总开关（停着只改配置，开着再发 whitelist on/off），不再说要去常用设置打开；常用设置里那行黄字改成说明 MineDeck 新建时的做法", async () => {
+      await pState({ instReset: true });
+      try {
+        await detail(PACK0, "players");
+        let p = await page.evaluate(() => ({ on: $("#pl-wl-on").checked, desc: $("#pl-wl-desc").textContent, body: $("#tab-body").textContent }));
+        assert(!p.on && p.desc.includes("任何知道地址的人都能进") && !p.body.includes("要在「常用设置」里打开白名单"), "停着、白名单关：" + JSON.stringify(p));
+        let st = await pState({ commands: [] });
+        await page.click("#pl-wl-on"); await settle(500);
+        st = await pState({});
+        assert(JSON.stringify(st.lastPropsPut) === JSON.stringify({ inst: PACK0, pairs: [{ key: "white-list", value: "true" }] }) && !st.commands.length, "停着时只写配置：" + JSON.stringify([st.lastPropsPut, st.commands]));
+        assert(await page.$eval("#pl-wl-on", e => e.checked) && await toastHas("已打开白名单"), "打开以后开关应是开的");
+        // 开着的服务器：写配置以后再发 whitelist on，马上生效
+        await detail(SURV, "players");
+        await page.click("#pl-wl-on"); await settle(500);
+        st = await pState({});
+        assert(st.lastPropsPut.inst === SURV && st.lastPropsPut.pairs[0].value === "true" && JSON.stringify(st.commands) === JSON.stringify([{ inst: SURV, cmd: "whitelist on" }]), "运行中：" + JSON.stringify([st.lastPropsPut, st.commands]));
+        await page.click("#pl-wl-on"); await settle(500);
+        st = await pState({});
+        assert(st.commands[1].cmd === "whitelist off" && await toastHas("已关闭白名单"), "再关掉：" + JSON.stringify(st.commands));
+        // server.properties 里没写这一项：按服务端的默认值显示，并写明（26.3 起默认开）
+        await pState({ inst: { name: PACK0, whitelistOn: null, mc: "26.3" } });
+        await detail(PACK0, "players");
+        p = await page.evaluate(() => ({ on: $("#pl-wl-on").checked, desc: $("#pl-wl-desc").textContent }));
+        assert(p.on && p.desc.includes("还没写这一项"), "没写这一项时：" + JSON.stringify(p));
+        // 常用设置：不再是「注意：此版本起白名单默认开启」，而是说明 MineDeck 新建时怎么写
+        await detail(PACK0, "common");
+        const row = await page.$eval('.prop-item:has([data-k="white-list"])', e => e.textContent);
+        assert(row.includes("MineDeck 新建服务器时按向导里的开关写这一项，默认关") && row.includes("服务端自己生成配置时默认是开") && !row.includes("此版本起白名单默认开启"), "常用设置的说明：" + row);
+      } finally { await pState({ instReset: true }); }
+    });
+
+    await run("beta.3 P0 R03：启动没起来时原因常驻在卡片和详情页头的提示区（#d-notices），控制台有那一行；下次启动成功就消失；模组要 Java 的提示也在提示区", async () => {
+      const why = "端口 25566 被别的程序占着，换个端口或关掉占用它的程序";
+      await resetWith({ name: PACK0, startFail: why });
+      try {
+        await page.goto(url("#/instances")); await settle(500);
+        await page.click(`.card[data-name="${PACK0}"] [data-act="start"]`); await settle(600);
+        assert(await toastHas("无法启动服务器：" + why), "右上角应提示原因");
+        await settle(3500); // 过了一轮轮询，卡片上还在
+        const card = await page.$eval(`.card[data-name="${PACK0}"] .inst-fail`, e => e.textContent).catch(() => "");
+        assert(card.includes("上次没能启动：" + why), "卡片上应常驻原因：" + card);
+        await detail(PACK0, "players");
+        const n = await page.evaluate(() => ({ hidden: $("#d-notices").hidden, text: $("#d-start-fail").textContent, link: $("#d-start-fail a").getAttribute("href"),
+          below: $("#d-notices").getBoundingClientRect().top >= $(".detail-head").getBoundingClientRect().bottom }));
+        assert(!n.hidden && n.text.includes("上次没能启动：" + why) && n.link.endsWith("/console") && n.below, "页头下面的提示区：" + JSON.stringify(n));
+        await page.click("#d-start-fail a"); await page.waitForFunction(w => [...document.querySelectorAll("#console div")].some(d => d.textContent === "[MineDeck] 没能启动：" + w), why, { timeout: 4000 });
+        // 端口放开了：再启动成功，提示区和卡片上的原因都没了
+        await pState({ inst: { name: PACK0, startFail: "" } });
+        await page.click("#d-start"); await settle(700);
+        assert(!(await page.$("#d-start-fail")) && await page.$eval("#d-notices", e => e.hidden), "启动成功后提示应消失");
+        await page.goto(url("#/instances")); await settle(500);
+        assert(!(await page.$(`.card[data-name="${PACK0}"] .inst-fail`)), "卡片上的原因应消失");
+        // 模组要求更高的 Java：也放在提示区里，和启动失败各自独立
+        await pState({ modsNeed: { [PACK0]: 25 }, inst: { name: PACK0, startFail: why } });
+        await detail(PACK0, "console");
+        await page.click("#d-start"); await settle(700);
+        const both = await page.evaluate(() => [...document.querySelectorAll("#d-notices > .d-notice")].map(e => e.id));
+        assert(JSON.stringify(both.slice().sort()) === JSON.stringify(["d-java-hint", "d-start-fail"]), "提示区里应各有一条：" + both);
+        assert(!(await page.$("#d-start-fail a")), "已经在控制台上就不用「看控制台」");
+      } finally { await pState({ instReset: true, modsNeed: {} }); }
+    });
+
+    await run("beta.3 P0 R03：报错提示至少留 20 秒（不再 8 秒），鼠标停在上面、或者它的「详情」开着时不走；详情页上提示落在页头下面，不盖住启动、停止按钮", async () => {
+      await resetWith({ name: PACK0, startFail: "端口 25566 被别的程序占着，换个端口或关掉占用它的程序" });
+      const c = await hostCtx({ host: true });
+      try {
+        const p = await c.newPage();
+        p.on("pageerror", e => errors.push(pageErr(e)));
+        await p.clock.install();
+        await p.goto(ORIGIN + "#/inst/" + encodeURIComponent(PACK0) + "/console"); await p.waitForSelector("#d-start");
+        const live = () => p.$$eval(".toast.error:not(.leave)", ts => ts.length);
+        const fail = async () => { await p.click("#d-start"); await p.waitForSelector(".toast.error:not(.leave)"); };
+        await fail();
+        // 不盖住页头的启动、停止、打开文件夹
+        const geo = await p.evaluate(() => {
+          const t = document.querySelector(".toast.error").getBoundingClientRect();
+          const hit = ["#d-start", "#d-stop", "#d-dir"].filter(s => { const b = document.querySelector(s).getBoundingClientRect(); return !(t.right <= b.left || t.left >= b.right || t.bottom <= b.top || t.top >= b.bottom); });
+          return { hit, top: t.top, head: document.querySelector(".detail-head").getBoundingClientRect().bottom };
+        });
+        assert(!geo.hit.length && geo.top >= geo.head, "提示盖住了页头的按钮：" + JSON.stringify(geo));
+        await p.clock.runFor(9000);
+        assert(await live() === 1, "9 秒后报错提示还应在（以前 8 秒就没了）");
+        await p.clock.runFor(12000);
+        assert(await live() === 0, "20 秒以后应自己走");
+        // 鼠标停在上面：一直留着；移开以后接着倒数
+        await fail();
+        await p.hover(".toast.error");
+        await p.clock.runFor(30000);
+        assert(await live() === 1, "鼠标停在上面时不该走");
+        await p.mouse.move(20, 700);
+        await p.clock.runFor(21000);
+        assert(await live() === 0, "移开以后应接着倒数、到点就走");
+        // 「详情」开着：一直留着；关掉详情以后接着倒数
+        await fail();
+        await p.click('.toast.error button[aria-label="查看报错详情"]'); await p.waitForSelector(".err-detail");
+        await p.mouse.move(20, 700);
+        await p.clock.runFor(30000);
+        assert(await live() === 1, "详情开着时提示不该走");
+        await p.click('.modal [data-x="close"]');
+        await p.mouse.move(20, 700);
+        await p.clock.runFor(21000);
+        assert(await live() === 0, "关掉详情以后应接着倒数");
+      } finally { await c.close(); await pState({ instReset: true }); }
+    });
+
+    await run("beta.3 P0 R04：交接弹窗里报错后点「详情」，报错信息叠在上面；Esc 和「关闭」只关上面那层，交接弹窗和填的路径都在；点遮罩不关；为什么不可用写在弹窗里", async () => {
+      await pState({ instReset: true });
+      const layers = () => page.$$eval("#modal-root > .modal-mask:not(.leave)", ms => ms.map(m => m.id || (m.querySelector(".err-detail") ? "detail" : "other")));
+      await page.goto(url("#/instances")); await settle();
+      await page.click(`.card[data-name="${PACK0}"] [data-act="more"]`);
+      await page.click('.dropmenu button:has-text("导出交接包")'); await page.waitForSelector("#tr-mask");
+      await page.fill("#tr-dest", "Z:\\nope");
+      await page.click("#tr-go"); await settle(400);
+      const why = await page.textContent("#tr-dest-err");
+      assert(why.includes("导出文件夹不可用") && why.includes("找不到") && why.includes("不会替你新建") && why.includes("浏览"), "为什么不可用：" + why);
+      // 提示还在时点「详情」：报错信息叠在交接弹窗上面
+      await page.click('.toast.error button[aria-label="查看报错详情"]'); await page.waitForSelector(".err-detail");
+      assert(JSON.stringify(await layers()) === JSON.stringify(["tr-mask", "detail"]), "叠层：" + JSON.stringify(await layers()));
+      assert((await page.textContent(".err-detail")).includes("Z:\\nope"), "详情里是原文");
+      await page.keyboard.press("Escape"); await settle(300);
+      assert(JSON.stringify(await layers()) === JSON.stringify(["tr-mask"]) && await page.inputValue("#tr-dest") === "Z:\\nope", "Esc 只该关上面那层：" + JSON.stringify(await layers()));
+      await page.click('.toast.error button[aria-label="查看报错详情"]'); await page.waitForSelector(".err-detail");
+      await page.click('.modal [data-x="close"]:visible'); await settle(300);
+      assert(JSON.stringify(await layers()) === JSON.stringify(["tr-mask"]) && await page.inputValue("#tr-dest") === "Z:\\nope", "「关闭」只该关上面那层");
+      // 点遮罩（以前提示消失后点到的就是这里）：有输入的弹窗不关
+      await page.mouse.click(20, 820); await settle(300);
+      assert(await page.isVisible("#tr-mask") && await page.inputValue("#tr-dest") === "Z:\\nope", "点遮罩不该关掉有输入的弹窗");
+      // 别的原因：写在弹窗里（不只靠右上角的提示），「详情」叠在上面看原文
+      const busy = route => route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ ok: false, error: "交接前请先停止服务器（运行中打包会不完整）" }) });
+      await page.route("**/transfer/export", busy);
+      try {
+        await page.fill("#tr-dest", "");
+        await page.click("#tr-go"); await settle(400);
+        const err = await page.evaluate(() => ({ hidden: $("#tr-err").hidden, text: $("#tr-err").textContent }));
+        assert(!err.hidden && err.text.includes("无法导出交接包：交接前请先停止服务器"), "弹窗里的报错：" + JSON.stringify(err));
+        await page.click("#tr-err-more"); await page.waitForSelector(".err-detail");
+        assert(JSON.stringify(await layers()) === JSON.stringify(["tr-mask", "detail"]), "弹窗里的「详情」也叠在上面");
+        await page.keyboard.press("Escape"); await settle(300);
+      } finally { await page.unroute("**/transfer/export", busy); }
+      // 确认框同样叠在上面：删除框里打开开关、输了名字，看一眼报错详情再回来，开关和输的名字都在
+      await page.click("#tr-cancel"); await settle(300);
+      await openDelete(PACK0);
+      await page.check("#modal-root input[data-k=files]");
+      await page.fill("#modal-root input[data-k=confirm-name]", PACK0);
+      await page.evaluate(() => { showErrDetail("测试用的原文"); }); // 不能把它返回的 Promise 交回去：它要等详情关掉才落定
+      await page.waitForSelector(".err-detail");
+      await page.keyboard.press("Escape"); await settle(300);
+      const d = await page.evaluate(() => ({ n: document.querySelectorAll("#modal-root > .modal-mask:not(.leave)").length, files: $("#modal-root input[data-k=files]").checked, typed: $("#modal-root input[data-k=confirm-name]").value }));
+      assert(d.n === 1 && d.files && d.typed === "机械动力整合包", "删除框应还在、填的都在：" + JSON.stringify(d));
+      await page.keyboard.press("Escape"); await settle(300);
+      assert(!(await page.$("#modal-root > .modal-mask:not(.leave)")), "再按 Esc 关掉删除框");
+    });
+
+    await run("beta.3 P0 R05/U28/U30：删除默认只移出列表；打开开关后按钮写「删除服务器和文件夹」、输对名字才能点；移出后提示写出文件夹、带「打开文件夹」；接管来的写出会留下哪些 MineDeck 的文件", async () => {
+      await pState({ instReset: true, local: true });
+      try {
+        await openDelete(PACK0);
+        const m = () => page.evaluate(() => ({ checked: $("#modal-root input[data-k=files]").checked, ok: $("#modal-root [data-x=ok]").textContent, okOff: $("#modal-root [data-x=ok]").disabled,
+          cancel: $("#modal-root [data-x=cancel]").textContent, title: $("#modal-root h3").textContent.trim(), confirmHidden: $("#modal-root .del-confirm").hidden, body: $("#modal-root .m-body").textContent }));
+        let s = await m();
+        assert(!s.checked && s.ok === "移出列表" && !s.okOff && s.cancel === "取消" && s.title === "把「机械动力整合包」移出列表？" && s.confirmHidden, "默认：" + JSON.stringify(s));
+        assert(s.body.includes("D:\\MineDeck\\servers\\create-pack") && s.body.includes("接管已有服务器"), "正文写出文件夹：" + s.body);
+        await page.check("#modal-root input[data-k=files]");
+        s = await m();
+        assert(s.ok === "删除服务器和文件夹" && s.okOff && !s.confirmHidden && s.title === "删除「机械动力整合包」和它的文件夹？", "打开开关以后：" + JSON.stringify(s));
+        await page.fill("#modal-root input[data-k=confirm-name]", "机械动力");
+        assert((await m()).okOff, "名字没对上不能点");
+        await page.fill("#modal-root input[data-k=confirm-name]", PACK0);
+        assert(!(await m()).okOff, "名字对上了才能点");
+        await page.uncheck("#modal-root input[data-k=files]");
+        s = await m();
+        assert(s.ok === "移出列表" && !s.okOff && s.confirmHidden, "关掉开关又回到移出列表：" + JSON.stringify(s));
+        // 点遮罩不关（框里有开关和输入框）
+        await page.mouse.click(20, 820); await settle(250);
+        assert(await page.$("#modal-root input[data-k=files]"), "点遮罩不该关掉删除框");
+        // 真的删：打开开关、输对名字
+        await page.check("#modal-root input[data-k=files]");
+        await page.fill("#modal-root input[data-k=confirm-name]", PACK0);
+        await page.press("#modal-root input[data-k=confirm-name]", "Enter"); await settle(500);
+        let st = await pState({});
+        assert(st.lastDelete && st.lastDelete.inst === PACK0 && st.lastDelete.files === true && await toastHas("已删除「机械动力整合包」和它的文件夹"), "删除的请求：" + JSON.stringify(st.lastDelete));
+        // 接管来的：写出原来的文件夹和会留下的 MineDeck 文件；移出以后提示写出文件夹、能打开
+        await resetWith({ name: PACK0, adopted: true, dir: "E:\\MCServers\\create-pack", mdFiles: ["run.bat", "run.before-minedeck.bat", "user_jvm_args.txt", "user_jvm_args.before-minedeck.txt"] });
+        await openDelete(PACK0);
+        const left = await page.textContent("#modal-root .del-left");
+        for (const f of ["instance.json.bak", "run.bat", "run.before-minedeck.bat", "user_jvm_args.txt", "user_jvm_args.before-minedeck.txt"]) assert(left.includes(f), "会留下的文件里应有 " + f + "：" + left);
+        assert(left.includes("想换回去") && !(await page.$eval("#modal-root input[data-k=files]", e => e.checked)), "说明：" + left);
+        await page.click('#modal-root [data-x="ok"]'); await settle(600);
+        st = await pState({});
+        assert(st.lastDelete.files === false, "接管来的默认只移出列表：" + JSON.stringify(st.lastDelete));
+        const t = await page.$$eval(".toast", ts => ts.map(x => x.textContent));
+        assert(t.some(x => x.includes("已把「机械动力整合包」移出列表") && x.includes("文件夹还在：E:\\MCServers\\create-pack")), "提示：" + JSON.stringify(t));
+        await byName("button", "打开「机械动力整合包」的文件夹").click(); await settle(300);
+        st = await pState({});
+        assert(st.lastOpenPath === "E:\\MCServers\\create-pack", "打开的文件夹：" + st.lastOpenPath);
+        // 从局域网打开：打不开主机上的文件夹，提示里不给这个按钮
+        await pState({ instReset: true, local: false });
+        await openDelete(PACK0);
+        await page.click('#modal-root [data-x="ok"]'); await settle(600);
+        assert(await toastHas("文件夹还在") && await byName("button", "打开「机械动力整合包」的文件夹").count() === 0, "局域网打开时不该有打开文件夹");
+      } finally { await pState({ instReset: true, local: true }); }
+    });
+  }
+  // ==================== beta.3 P0 结束 ====================
 
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
 

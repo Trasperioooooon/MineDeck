@@ -42,25 +42,32 @@ func (s *Server) handleImportModpack(w http.ResponseWriter, r *http.Request) {
 			_ = os.Remove(dest)
 			return nil, fmt.Errorf("保存上传文件失败: %w", cerr)
 		}
-		atoi := func(s string, def int) int {
-			if n, err := strconv.Atoi(s); err == nil {
-				return n
-			}
-			return def
-		}
-		return ops.ArgsOf(map[string]any{
-			"file":        dest,
-			"name":        r.FormValue("name"),
-			"xmxMb":       atoi(r.FormValue("xmxMb"), 4096),
-			"port":        atoi(r.FormValue("port"), 25565),
-			"eula":        r.FormValue("eula") == "true",
-			"onlineMode":  r.FormValue("onlineMode") == "true",
-			"allowFlight": r.FormValue("allowFlight") == "true",
-			"motd":        r.FormValue("motd"),
-			"root":        r.FormValue("root"),        // 远程 / 局域网请求的 root 由操作层忽略
-			"localSource": r.FormValue("localSource"), // 本地来源目录（老服务器）：同样由操作层只认本机请求
-		}), nil
+		return ops.ArgsOf(importFormArgs(r, dest)), nil
 	})
+}
+
+// importFormArgs 导入整合包表单里的各项 → 操作 instance.import 的参数。表单是一项一项抄过去的：
+// 表单上加了开关，这里不抄就会被悄悄丢掉、按默认值导入（白名单开关就是这样：不抄的话打开了也写成关）。
+func importFormArgs(r *http.Request, dest string) map[string]any {
+	atoi := func(s string, def int) int {
+		if n, err := strconv.Atoi(s); err == nil {
+			return n
+		}
+		return def
+	}
+	return map[string]any{
+		"file":        dest,
+		"name":        r.FormValue("name"),
+		"xmxMb":       atoi(r.FormValue("xmxMb"), 4096),
+		"port":        atoi(r.FormValue("port"), 25565),
+		"eula":        r.FormValue("eula") == "true",
+		"onlineMode":  r.FormValue("onlineMode") == "true",
+		"allowFlight": r.FormValue("allowFlight") == "true",
+		"whitelist":   r.FormValue("whitelist") == "true", // 只允许白名单里的玩家进入：整合包自带 server.properties 时也以它为准
+		"motd":        r.FormValue("motd"),
+		"root":        r.FormValue("root"),        // 远程 / 局域网请求的 root 由操作层忽略
+		"localSource": r.FormValue("localSource"), // 本地来源目录（老服务器）：同样由操作层只认本机请求
+	}
 }
 
 // handleImportPending 逐项处置整合包导入任务的待决文件（任务面板用）。

@@ -85,16 +85,19 @@ func (m *Manager) startInstance(i *Instance) error {
 	if m.isPacking(name) {
 		return fmt.Errorf("这台服务器正在打包交接包，等打包完成后再启动")
 	}
+	// 从这里往下的失败是「这台服务器起不来」，不是「现在不能启动」（已经在运行、正在打包、正在换地图）：
+	// 原因写进控制台，并记成「上次启动没成功」，卡片和详情页头常驻显示，下次进程起来了才清掉（可用性走查 R03）。
+	// 右上角的提示一会儿就没了，回来的人只看到一个没反应的「启动」按钮
 	if _, err := os.Stat(i.JavaPath); err != nil {
 		// 路径不放进报错：界面上的提示遇到路径只写结论，这句「去哪里改」就看不到了。路径记在控制台里，「内存 / 启动」页也看得到
 		i.Console.Append(fmt.Sprintf("[MineDeck] 找不到 Java：%s", i.JavaPath))
-		return errors.New("找不到这台服务器用的 Java，请到「内存 / 启动」里重新选一个 Java。")
+		return i.startFailed(errors.New("找不到这台服务器用的 Java，请到「内存 / 启动」里重新选一个 Java。"), false)
 	}
 	// 端口被占着就直接报错，不先起 Java、等它自己报 BindException（检查报告 D-5）。按服务器真正要绑的地址查
 	//（server-ip、server-port）；代理端的端口在它自己的配置文件里，不查（见 startPort）
 	if t, ok := startPort(i, i.ExtraJVM); ok { // 拿着 procMu，直接读 ExtraJVM
 		if err := checkBindPort(t); err != nil {
-			return err
+			return i.startFailed(err, true)
 		}
 	}
 
@@ -106,18 +109,19 @@ func (m *Manager) startInstance(i *Instance) error {
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return err
+		return i.startFailed(err, true)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return err
+		return i.startFailed(err, true)
 	}
 	cmd.Stderr = cmd.Stdout
 
 	i.Console.Append(fmt.Sprintf("[MineDeck] 启动: java %s", strings.Join(args, " ")))
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("启动失败: %w", err)
+		return i.startFailed(fmt.Errorf("启动失败: %w", err), true)
 	}
+	i.startErr = "" // 进程起来了：上次没启动成功的原因不再算数
 	assignToJob(cmd.Process)
 	pr := &proc{cmd: cmd, stdin: bufio.NewWriter(stdin)}
 	i.proc = pr
@@ -186,6 +190,24 @@ func (m *Manager) startInstance(i *Instance) error {
 	}()
 	events.Publish("instance.start", map[string]any{"instance": i.Name})
 	return nil
+}
+
+// startFailed 记下这次没启动起来的原因并原样返回 err。调用方拿着 procMu。
+// toConsole：控制台里还没有写过原因的（端口被占、进程起不来）补一行；找不到 Java 的那一行带着路径，调用方已经写过了。
+func (i *Instance) startFailed(err error, toConsole bool) error {
+	i.startErr = err.Error()
+	if toConsole {
+		i.Console.Append("[MineDeck] 没能启动：" + i.startErr)
+	}
+	return err
+}
+
+// LastStartError 上一次启动没起来的原因（端口被占、找不到 Java、进程起不来）；之后成功起过进程、或者从没失败过，是空串。
+// 只在内存里：MineDeck 重开以后就没有了。
+func (i *Instance) LastStartError() string {
+	i.procMu.Lock()
+	defer i.procMu.Unlock()
+	return i.startErr
 }
 
 // Stop 优雅停止：发送 stop 命令，超时 30 秒后强杀。

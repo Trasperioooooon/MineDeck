@@ -129,7 +129,11 @@ add("list", "l-search", "搜索：只留名字里带「服」的", { steps: [{ f
 add("list", "l-search-none", "搜索：没有匹配的", { steps: [{ fill: "#inst-q", value: "不存在的名字" }] });
 add("list", "l-menu", "卡片上的「···」菜单", { setup: s => { s.instances = four(); }, steps: [{ click: `.card[data-name="机械动力整合包"] [data-act="more"]` }] });
 add("list", "l-menu-running", "运行中的服务器：删除是灰的并写明原因", { setup: s => { s.instances = four(); }, steps: [{ click: `.card[data-name="生存服 · 朋友"] [data-act="more"]` }] });
-add("list", "l-phone", "手机上（局域网远程访问）", { view: "phone", setup: s => { s.instances = four(); } });
+add("list", "l-start-fail", "卡片：端口旁复制连接地址，上次没能启动的原因常驻", {
+  tag: "new", note: "端口旁边的小键复制「本机局域网 IP:端口」（代理端是它自己的端口）。上次没启动起来的原因留在卡片上，下次启动成功才消失。",
+  setup: s => { s.instances = four(); s.instances[1].lastStartError = "端口 25566 被别的程序占着，换个端口或关掉占用它的程序"; },
+});
+add("list", "l-phone", "手机上（手机远程管理）", { view: "phone", setup: s => { s.instances = four(); } });
 
 // ==================== 新建服务器 ====================
 add("create", "n-home", "入口：四种方式", { hash: "#/create" });
@@ -252,6 +256,15 @@ add("detail", "d-common-dirty", "常用设置：改了没保存", { hash: `#/ins
 add("detail", "d-raw", "全部配置", { hash: `#/inst/${enc("生存服 · 朋友")}/raw` });
 add("detail", "d-jvm", "内存 / 启动", { hash: `#/inst/${enc("机械动力整合包")}/jvm` });
 add("detail", "d-proxy-common", "代理端没有游戏设置", { hash: `#/inst/${enc("群组代理")}/jvm` });
+add("detail", "d-start-fail", "页头：连接地址，和常驻的「上次没能启动」", {
+  tag: "new", hash: `#/inst/${enc("机械动力整合包")}/players`,
+  note: "页头多一行连接地址（停着时灰字写「开服后朋友连这个地址」），能复制、能换 IP。上次没启动起来的原因常驻在页头下面的提示区，下次启动成功才消失；卡片上也有。",
+  setup: s => { s.instances.find(x => x.name === "机械动力整合包").lastStartError = "端口 25566 被别的程序占着，换个端口或关掉占用它的程序"; },
+});
+add("detail", "d-players-wl", "玩家：白名单的总开关就在名单上面", {
+  tag: "new", hash: `#/inst/${enc("生存服 · 朋友")}/players`,
+  note: "开关拨了就生效：停着时只改 server.properties，开着时再发 whitelist on / off。不用再去「常用设置」里找。",
+});
 add("detail", "d-dirmenu", "「打开文件夹」菜单", { hash: `#/inst/${enc("生存服 · 朋友")}/console`, steps: [{ click: "#d-dir" }] });
 add("detail", "d-min", "详情页：最小窗口下", { view: "min", hash: `#/inst/${enc("周末活动服")}/console` });
 add("detail", "d-phone", "详情页：手机上", { view: "phone", hash: `#/inst/${enc("生存服 · 朋友")}/console` });
@@ -293,10 +306,10 @@ add("tunnel", "u-min", "最小窗口下", { view: "min", hash: "#/tunnels", setu
 add("tunnel", "u-phone", "手机上", { view: "phone", hash: "#/tunnels" });
 
 // ==================== 设置 ====================
-for (const [id, label] of [["appearance", "外观"], ["download", "下载与网络"], ["storage", "存储位置"], ["java", "Java 运行时"], ["remote", "远程访问"], ["notify", "通知与集成"], ["ai", "AI（可选）"], ["startup", "启动与托盘"], ["about", "更新与关于"]]) {
+for (const [id, label] of [["appearance", "外观"], ["download", "下载与网络"], ["storage", "存储位置"], ["java", "Java 运行时"], ["remote", "手机远程管理"], ["notify", "通知与集成"], ["ai", "AI（可选）"], ["startup", "启动与托盘"], ["about", "更新与关于"]]) {
   add("settings", "s-" + id, label, { hash: "#/settings/" + id });
 }
-add("settings", "s-remote-on", "远程访问：已开启（二维码）", { hash: "#/settings/remote", setup: s => { s.config.listenLan = s.lanActive = true; s.lanSet = true; } });
+add("settings", "s-remote-on", "手机远程管理：已开启（二维码）", { hash: "#/settings/remote", setup: s => { s.config.listenLan = s.lanActive = true; s.lanSet = true; } });
 add("settings", "s-ai-on", "AI：已经配好一家", {
   hash: "#/settings/ai",
   setup: s => { Object.assign(s.ai, { preset: "deepseek", protocol: "openai", baseUrl: "https://api.deepseek.com", model: "deepseek-v4-flash", key: "sk-demo-not-a-real-key" }); },
@@ -313,11 +326,28 @@ add("overlay", "o-delete", "删除服务器的确认框", {
   setup: s => { s.instances = four(); },
   steps: [{ click: `.card[data-name="机械动力整合包"] [data-act="more"]` }, { click: ".dropmenu button.danger" }],
 });
+add("overlay", "o-delete-files", "删除服务器：打开「同时删除文件夹」后要输服务器名", {
+  tag: "new", note: "默认只移出列表（按钮叫「移出列表」，取消键叫「取消」）。打开开关以后按钮写「删除服务器和文件夹」，输对服务器名才能点。",
+  setup: s => { s.instances = four(); },
+  steps: [{ click: `.card[data-name="机械动力整合包"] [data-act="more"]` }, { click: ".dropmenu button.danger" }, { click: "#modal-root input[data-k=files]" }],
+});
+add("overlay", "o-delete-adopted", "移出接管来的服务器：写出会留下哪些 MineDeck 的文件", {
+  tag: "new", note: "接管来的服务器，文件夹是用户自己原来的。移出列表后里面会留下 instance.json.bak、run.bat 这些，弹窗里照实际在的列出来。",
+  setup: s => { s.instances = four(); Object.assign(s.instances[1], { adopted: true, dir: "E:\\MCServers\\create-pack", mdFiles: ["run.bat", "run.before-minedeck.bat", "user_jvm_args.txt", "user_jvm_args.before-minedeck.txt"] }); },
+  steps: [{ click: `.card[data-name="机械动力整合包"] [data-act="more"]` }, { click: ".dropmenu button.danger" }],
+});
+add("overlay", "o-modal-stack", "交接弹窗里报错：原因写在弹窗里，「详情」叠在上面", {
+  tag: "new", note: "导出文件夹不存在：输入框下面写为什么不可用。点右上角提示的「详情」，报错信息叠在交接弹窗上面，关掉回到交接弹窗，填的路径还在。点遮罩不关。",
+  setup: s => { s.instances = four(); },
+  // 「导出交接包…」是菜单里紧挨着「删除服务器…」（中间隔一条分隔线）的那一项；场景的步骤只认 CSS 选择器
+  steps: [{ click: `.card[data-name="机械动力整合包"] [data-act="more"]` }, { click: ".dropmenu button:has(+ .dm-sep + button.danger)" }, { fill: "#tr-dest", value: "Z:\\不存在的文件夹" },
+    { click: "#tr-go" }, { wait: "#tr-dest.invalid" }, { click: '.toast.error button[aria-label="查看报错详情"]' }],
+});
 add("overlay", "o-guard", "还有修改没保存就想走", {
   hash: `#/inst/${enc("生存服 · 朋友")}/common`,
   steps: [{ click: '.prop-item:has([data-k="hardcore"]) .switch input' }, { click: '.tabs .tab[data-t="console"]' }],
 });
-add("overlay", "o-toast-err", "右上角的报错提示：停 8 秒，带「详情」和关闭", {
+add("overlay", "o-toast-err", "右上角的报错提示：至少停 20 秒（鼠标停在上面不走），带「详情」和关闭", {
   hash: "#/settings/storage",
   setup: (s, p) => p.api("POST /api/pickdir", { code: 500, error: "没能打开选择文件夹的窗口，请再试一次" }),
   steps: [{ click: '[data-pick="servers"]' }],

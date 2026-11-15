@@ -32,8 +32,8 @@ function showLogin() {
   const d = document.createElement("div");
   d.className = "modal-mask enter";
   d.id = "login-mask";
-  d.innerHTML = `<div class="modal"><div class="brand-head">${logoImg()}<h3>MineDeck 远程访问</h3></div>
-    <div class="m-body">请输入访问密码（在主机的「设置 → 远程访问」中配置）</div>
+  d.innerHTML = `<div class="modal"><div class="brand-head">${logoImg()}<h3>MineDeck 手机远程管理</h3></div>
+    <div class="m-body">请输入访问密码（在主机的「设置 → 手机远程管理」里设置）</div>
     <input type="password" id="login-pw" style="width:100%;margin-bottom:16px" aria-label="访问密码" autofocus>
     <div class="m-actions"><button class="btn primary" id="login-go">登录</button></div></div>`;
   document.body.appendChild(d);
@@ -111,10 +111,15 @@ function slideKeys(before, which) {
 }
 
 /* 提示：标题栏下方右侧，从上方落入；离场向右淡出，其余提示平移补位。
-   普通提示停 3.5 秒，点一下关闭。报错提示停 8 秒，带「详情」（点开是只读的对话框，原文可以选中、复制）和关闭键，
+   普通提示停 3.5 秒，点一下关闭。报错提示带「详情」（点开是只读的对话框，原文可以选中、复制）和关闭键，
    点提示本身也是看详情（见 docs/文案重写/00-报错信息.md）。
-   detail：「详情」里放的原文，不给就是 msg。拿接口的报错拼提示用 toastErr，不要直接传 e.message。 */
-function toast(msg, isErr = false, detail) {
+   报错提示和带按钮的提示至少停 20 秒，鼠标停在上面、或者它的「详情」开着时不走（可用性走查 R03：
+   以前 8 秒就没了，点「详情」的时候提示已经不在，点中的是底下的东西）。
+   在服务器详情页上，提示落在页头下面，不盖住启动、停止按钮（见 placeToasts）。
+   detail：「详情」里放的原文，不给就是 msg。拿接口的报错拼提示用 toastErr，不要直接传 e.message。
+   opts.actions：提示里的按钮，[{ label, aria, onClick }]，点了不关提示（onClick 自己决定）。 */
+const TOAST_MS = 3500, TOAST_LINGER_MS = 20000;
+function toast(msg, isErr = false, detail, opts = {}) {
   const box = $("#toasts");
   const d = document.createElement("div");
   d.className = "toast enter" + (isErr ? " error" : "");
@@ -125,10 +130,12 @@ function toast(msg, isErr = false, detail) {
   d.appendChild(t);
   d.title = isErr ? "点击查看详情" : "点击关闭";
   box.appendChild(d);
+  placeToasts();
   let gone = false;
   const kill = () => {
     if (gone) return;
     gone = true;
+    clearTimeout(timer);
     if (reducedMotion()) { flipList(box, () => d.remove()); return; }
     d.classList.remove("enter"); d.classList.add("leave");
     let removed = false;
@@ -136,15 +143,37 @@ function toast(msg, isErr = false, detail) {
     d.addEventListener("animationend", done, { once: true });
     setTimeout(done, 400);
   };
+  // 停留计时：holds 是「先别走」的理由数（鼠标在上面、详情开着），都没了才接着倒数；恢复时至少再留 4 秒，不让人刚移开就没了
+  const actions = opts.actions || [];
+  const linger = isErr || actions.length > 0;
+  let left = linger ? TOAST_LINGER_MS : TOAST_MS, timer = 0, since = 0, holds = 0;
+  const run = () => { if (gone || holds) return; since = Date.now(); timer = setTimeout(kill, left); };
+  const hold = () => { holds++; if (timer) { clearTimeout(timer); timer = 0; left = Math.max(0, left - (Date.now() - since)); } };
+  const release = () => { holds = Math.max(0, holds - 1); if (!holds && !gone) { left = Math.max(left, 4000); run(); } };
+  for (const a of actions) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn sm ghost";
+    b.textContent = a.label;
+    if (a.aria) b.setAttribute("aria-label", a.aria);
+    b.onclick = ev => { ev.stopPropagation(); a.onClick(); };
+    d.appendChild(b);
+  }
   if (isErr) {
     const full = detail === undefined ? msg : detail;
+    const showDetail = () => { hold(); showErrDetail(full).then(release); };
     const b = document.createElement("button");
     b.type = "button";
     b.className = "btn sm ghost";
     b.textContent = "详情";
     b.setAttribute("aria-label", "查看报错详情");
-    b.onclick = ev => { ev.stopPropagation(); showErrDetail(full); };
+    b.onclick = ev => { ev.stopPropagation(); showDetail(); };
     d.appendChild(b);
+    d.onclick = showDetail;
+  } else {
+    d.onclick = kill;
+  }
+  if (linger) {
     const x = document.createElement("button");
     x.type = "button";
     x.className = "t-x";
@@ -152,37 +181,78 @@ function toast(msg, isErr = false, detail) {
     x.setAttribute("aria-label", "关闭这条提示");
     x.onclick = ev => { ev.stopPropagation(); kill(); };
     d.appendChild(x);
-    d.onclick = () => showErrDetail(full);
-  } else {
-    d.onclick = kill;
+    d.addEventListener("mouseenter", hold);
+    d.addEventListener("mouseleave", release);
   }
-  setTimeout(kill, isErr ? 8000 : 3500);
+  run();
   return d; // 调用方可以换掉点击的行为（如 mcp.js：点一下打开 AI 助手）
 }
-/* 错误详情的只读对话框：原文可选中，一键复制（做法见 docs/文案重写/00-报错信息.md） */
+/* 提示的位置：服务器详情页的页头（启动、停止、打开文件夹）在可视区里时，提示落到页头下面，不盖住这几个按钮；
+   页头滚出去了、或者不在详情页，回到标题栏下方。出提示、滚动、改窗口大小时重算 */
+function placeToasts() {
+  const box = $("#toasts");
+  if (!box || !box.childElementCount) { if (box) box.style.top = ""; return; } // 没有提示就不量（控制台滚动时也会进来）
+  const head = document.querySelector(".detail-head");
+  let top = "";
+  if (head) {
+    box.style.top = "";
+    const r = head.getBoundingClientRect(), base = parseFloat(getComputedStyle(box).top) || 0;
+    if (r.bottom > base && r.top < innerHeight) top = Math.round(r.bottom + 8) + "px";
+  }
+  box.style.top = top;
+}
+addEventListener("resize", placeToasts);
+addEventListener("hashchange", () => setTimeout(placeToasts, 0));
+document.addEventListener("scroll", placeToasts, { capture: true, passive: true }); // #main 自己滚，scroll 不冒泡，用捕获接
+
+/* 弹层叠放：每个对话框是 #modal-root 里的一层遮罩，新开的叠在上面；关掉上层回到下层，下层的输入都还在（可用性走查 R04）。
+   以前「报错详情」和确认框把 #modal-root 整个换掉，开着的弹窗连同填好的内容一起没了。
+   每层自己在 document 上听 Esc，只有最上面那层（正在离场的不算）才响应，不然按一次全关。 */
+let modalSeq = 0;
+function modalLayer(html, id = "") {
+  const d = document.createElement("div");
+  d.className = "modal-mask enter";
+  if (id) d.id = id;
+  d.innerHTML = html;
+  $("#modal-root").appendChild(d);
+  return d;
+}
+const topLayer = mask => {
+  const live = [...$("#modal-root").children].filter(x => !x.dataset.leaving);
+  return live[live.length - 1] === mask;
+};
+/* 对话框里有没有要填的东西：有的点遮罩不关，点空了就把填的丢了 */
+const hasFields = mask => !!mask.querySelector(".modal input, .modal select, .modal textarea");
+/* 同一个 id 已经被下面那层用了就换一个（标题的 aria-labelledby 要指得准）；测试按 #modal-title 找确认框，只有一层时照旧 */
+const layerId = base => document.getElementById(base) ? `${base}-${++modalSeq}` : base;
+
+/* 错误详情的只读对话框：原文可选中，一键复制（做法见 docs/文案重写/00-报错信息.md）。叠在已有的弹窗上面，关掉回到那个弹窗。
+   返回关闭时兑现的 Promise（提示在详情开着时不走，靠它接着计时） */
 function showErrDetail(text) {
-  const root = $("#modal-root");
-  const prev = document.activeElement;
-  root.innerHTML = `<div class="modal-mask enter"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="errd-title">
-    <h3 id="errd-title">报错信息</h3>
+  return new Promise(resolve => {
+    const prev = document.activeElement;
+    const tid = layerId("errd-title");
+    const mask = modalLayer(`<div class="modal" role="dialog" aria-modal="true" aria-labelledby="${tid}">
+    <h3 id="${tid}">报错信息</h3>
     <div class="m-body"><div class="err-detail" tabindex="0">${esc(String(text || ""))}</div></div>
     <div class="m-actions"><button class="btn" data-x="copy">复制报错信息</button><button class="btn primary" data-x="close">关闭</button></div>
-  </div></div>`;
-  const mask = root.firstElementChild;
-  let closed = false;
-  const close = () => {
-    if (closed) return;
-    closed = true;
-    document.removeEventListener("keydown", onKey);
-    dismiss(mask);
-    if (prev && prev.focus) prev.focus();
-  };
-  const onKey = e => { if (e.key === "Escape") close(); }; // 同 confirmModal：Esc 关闭
-  document.addEventListener("keydown", onKey);
-  mask.querySelector('[data-x="close"]').onclick = close;
-  mask.querySelector('[data-x="copy"]').onclick = () => copy(String(text || ""), "已复制报错信息");
-  mask.addEventListener("mousedown", e => { if (e.target === e.currentTarget) close(); });
-  mask.querySelector('[data-x="close"]').focus();
+  </div>`);
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener("keydown", onKey);
+      dismiss(mask);
+      if (prev && prev.focus && prev.isConnected) prev.focus();
+      resolve();
+    };
+    const onKey = e => { if (e.key === "Escape" && topLayer(mask)) close(); }; // 同 confirmModal：Esc 只关最上面这一层
+    document.addEventListener("keydown", onKey);
+    mask.querySelector('[data-x="close"]').onclick = close;
+    mask.querySelector('[data-x="copy"]').onclick = () => copy(String(text || ""), "已复制报错信息");
+    mask.addEventListener("mousedown", e => { if (e.target === e.currentTarget) close(); });
+    mask.querySelector('[data-x="close"]').focus();
+  });
 }
 /* 复制到剪贴板：优先 navigator.clipboard；非安全上下文（http 局域网）下其为 undefined，回退 execCommand */
 async function copy(text, okMsg = "已复制") {
@@ -196,6 +266,30 @@ async function copy(text, okMsg = "已复制") {
     document.execCommand("copy"); ta.remove(); toast(okMsg);
   } catch (e) { toast("复制失败，请手动复制", true); }
 }
+/* 复制按钮的微交互：图标换成弹出的对勾（带字的按钮字也改「已复制」），1.3 秒后换回 */
+async function copyFlash(b, text, okMsg) {
+  await copy(text, okMsg);
+  if (!b || b.dataset.busy) return;
+  b.dataset.busy = "1";
+  const old = b.innerHTML;
+  b.innerHTML = `<span class="pop" style="display:inline-grid">${icon("check")}</span>${b.classList.contains("icon-only") ? "" : " 已复制"}`;
+  setTimeout(() => { b.innerHTML = old; playClass(b, "swap-in"); delete b.dataset.busy; }, 1300);
+}
+
+/* 连接地址（可用性走查 R01）：同一局域网的朋友在游戏里「添加服务器」时填的「本机局域网 IP:端口」。
+   IP 取 /api/app 的 ips，按 lanIPRank 排（家用网段在前，同「手机远程管理」的默认地址）；详情页头换过 IP 的记在本机，
+   卡片和页头都用换过的那个。端口用服务器列表的 connectPort（代理端是它自己配置文件里的端口，还没生成时为 0）。 */
+const rankIPs = ips => (ips || []).slice().sort((a, b) => lanIPRank(a) - lanIPRank(b));
+/* 上一次从 /api/app 拿到的本机 IP（排好序；null 是还没拿到过）。列表和详情页不等 /api/app，先用它画，
+   不然每换一次标签，地址那一行都会先缩成只有端口再变回来 */
+let knownIPs = null;
+const learnIPs = a => (knownIPs = rankIPs(a && a.ips));
+function pickLanIP(ips) {
+  let saved = "";
+  try { saved = localStorage.getItem("amh_lan_ip") || ""; } catch {}
+  return ips.includes(saved) ? saved : ips[0] || "";
+}
+const connectPortOf = i => i.kind === "proxy" ? (i.connectPort || 0) : (i.connectPort || i.port || 0);
 
 /* ---------- 报错的正文（规矩见 docs/文案重写/01-补完口径.md 第一、二节，补完记录见 03-报错提示补完记录.md）----------
    调用处只给一句结论 what，说这一步没做成什么，如「无法启动服务器」「保存失败」。正文按下面的顺序拼：
@@ -285,29 +379,31 @@ function fmtBytes(n) {
 }
 /* 按钮写出后果（如「保留 / 删除服务器」），不读正文也能作答；危险操作默认聚焦「取消」，误按回车不会直接执行。
    危险确认框：标题前带危险色图标瓦片（icon 指定图标），最终键为实底红。遮罩淡入、对话框上浮放大进场，离场更短 */
+/* 确认框叠在已有的弹窗上面（见 modalLayer），返回的 Promise 上带着这一层（.el）：调用方要在框里找东西时从这一层找，
+   下面可能还叠着别的框，直接查 #modal-root 会找到下面那个的。框里有要填的东西时点遮罩不关。 */
 function confirmModal({ title, body, okText = "确定", cancelText = "取消", danger = false, extra = "", icon: ic = "warn" }) {
-  return new Promise(resolve => {
-    const root = $("#modal-root");
+  let mask;
+  const p = new Promise(resolve => {
     const prev = document.activeElement; // 关闭后归还焦点
-    root.innerHTML = `<div class="modal-mask enter"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-      <h3 id="modal-title">${danger ? `<span class="m-ico">${icon(ic)}</span>` : ""}<span>${esc(title)}</span></h3><div class="m-body">${body}</div>${extra}
+    const tid = layerId("modal-title");
+    mask = modalLayer(`<div class="modal" role="dialog" aria-modal="true" aria-labelledby="${tid}">
+      <h3 id="${tid}">${danger ? `<span class="m-ico">${icon(ic)}</span>` : ""}<span>${esc(title)}</span></h3><div class="m-body">${body}</div>${extra}
       <div class="m-actions">
         <button class="btn" data-x="cancel">${esc(cancelText)}</button>
         <button class="btn ${danger ? "danger solid" : "primary"}" data-x="ok">${esc(okText)}</button>
-      </div></div></div>`;
-    const mask = root.firstElementChild;
+      </div></div>`);
     let closed = false;
     const close = val => {
       if (closed) return;
       closed = true;
       document.removeEventListener("keydown", onKey);
       dismiss(mask);
-      if (prev && prev.focus) prev.focus();
+      if (prev && prev.focus && prev.isConnected) prev.focus();
       resolve(val);
     };
-    const onKey = e => { if (e.key === "Escape") close(null); };
+    const onKey = e => { if (e.key === "Escape" && topLayer(mask)) close(null); };
     document.addEventListener("keydown", onKey);
-    mask.addEventListener("mousedown", e => { if (e.target === e.currentTarget) close(null); });
+    mask.addEventListener("mousedown", e => { if (e.target === e.currentTarget && !hasFields(mask)) close(null); });
     mask.querySelector('[data-x="cancel"]').onclick = () => close(null);
     mask.querySelector('[data-x="ok"]').onclick = () => {
       // 表单的值在关弹窗之前读出来交回去：开了「减少动态」时弹窗是立刻移除的，关掉以后再查 DOM 就什么也拿不到
@@ -318,6 +414,8 @@ function confirmModal({ title, body, okText = "确定", cancelText = "取消", d
     };
     mask.querySelector(danger ? '[data-x="cancel"]' : '[data-x="ok"]').focus();
   });
+  p.el = mask;
+  return p;
 }
 
 /* 核心元数据（启动时从 /api/cores 拉取） */
@@ -615,7 +713,7 @@ function closeAskModal({ tray = true, running = 0 }) {
     dismiss(d);
     if (prev && prev.focus) prev.focus();
   };
-  const onKey = e => { if (e.key === "Escape") close(); };
+  const onKey = e => { if (e.key === "Escape" && topLayer(d)) close(); }; // 叠着别的弹窗时只关最上面那层
   document.addEventListener("keydown", onKey);
   d.addEventListener("mousedown", e => { if (e.target === e.currentTarget) close(); });
   d.querySelector('[data-x="cancel"]').onclick = close;
@@ -1078,29 +1176,62 @@ function folderItems(info) {
   }));
 }
 
-/* 删除实例：标题点名、按钮写明后果、默认聚焦「保留」。
-   不删文件 = 只移出列表：文件全留着（后端把 instance.json 改名留底，下次启动不会再冒出来），以后能用「接管已有服务器」加回来。
-   接管进来的服务器，文件夹是用户自己原来的：默认不勾「同时删除文件夹」，并写出是哪个文件夹。 */
+/* 移出列表 / 删除服务器（可用性走查 R05、U28、U30）。
+   默认只移出列表：「同时删除服务器文件夹」对所有服务器默认关，关着时主按钮叫「移出列表」，文件全留着（后端把 instance.json
+   改名成 instance.json.bak，下次启动不会再冒出来），以后能用「接管已有服务器」加回来。
+   打开开关才是删除：主按钮写「删除服务器和文件夹」，还要再输一遍服务器名，对上了才能点。取消键叫「取消」，默认聚焦它。
+   接管来的服务器，文件夹是用户自己原来的：写出是哪个文件夹，以及移出后里面会留下哪些 MineDeck 写的文件（info.mdFiles，后端按实际在的列）。
+   移出以后的提示写出文件夹在哪，带「打开文件夹」（本机才有；走现成的打开文件夹接口，它只许本机调用）。 */
 async function deleteInstance(info) {
   const name = info.name;
-  const okText = files => files ? "删除服务器" : "移出列表";
+  const okText = files => files ? "删除服务器和文件夹" : "移出列表";
+  const titleOf = files => files ? `删除「${name}」和它的文件夹？` : `把「${name}」移出列表？`;
+  const left = info.adopted ? [...(info.mdFiles || [])] : [];
+  const leftNote = info.adopted ? `<div class="del-left">移出后，原文件夹里会留下 MineDeck 写的这些文件：<code>instance.json.bak</code>（MineDeck 的设置，以后接管时会读回来）${left.map(f => `、<code>${esc(f)}</code>`).join("")}。${
+    left.includes("run.before-minedeck.bat") ? "原来的启动脚本在 <code>run.before-minedeck.bat</code> 里，想换回去就删掉 <code>run.bat</code>、把它改回这个名字。" : ""}${
+    left.includes("user_jvm_args.before-minedeck.txt") ? "原来的 <code>user_jvm_args.txt</code> 在 <code>user_jvm_args.before-minedeck.txt</code> 里。" : ""}不想要的可以自己删掉。</div>` : "";
   const p = confirmModal({
-    title: `删除服务器「${name}」？`, danger: true, okText: okText(!info.adopted), cancelText: "保留", icon: "trash",
-    body: "已有的世界备份不受影响，仍保存在备份文件夹中。",
-    extra: `<label class="switch" style="margin-bottom:4px"><input type="checkbox" data-k="files"${info.adopted ? "" : " checked"}><span class="sw"></span>
-        <span class="sw-label">同时删除服务器文件夹（含世界存档，无法恢复）</span></label>
-      <div class="hint" style="margin:0 0 16px 48px">${info.adopted ? `这台服务器是接管进来的，文件夹是你原来的那个：${esc(info.dir)}<br>` : ""}不勾选时只从列表移出，文件留在磁盘上；以后可以用「新建服务器 → 接管已有服务器」把它加回来。</div>`,
+    title: titleOf(false), danger: true, okText: okText(false), cancelText: "取消", icon: "trash",
+    body: `只从 MineDeck 的列表里拿掉，服务器文件夹和世界都留在原处：<div class="del-dir mono">${esc(info.dir || "")}</div>以后可以用「新建服务器 → 接管已有服务器」把它加回来。已有的世界备份不受影响，仍在备份文件夹里。${leftNote}`,
+    extra: `<label class="switch" style="margin-bottom:4px"><input type="checkbox" data-k="files"><span class="sw"></span>
+        <span class="sw-label">同时删除服务器文件夹（含世界，无法恢复）</span></label>
+      <div class="hint" style="margin:0 0 16px 48px">${info.adopted ? `这台服务器是接管进来的，文件夹是你原来的那个：${esc(info.dir)}<br>` : ""}不打开时只从列表移出，文件留在磁盘上；以后可以用「新建服务器 → 接管已有服务器」把它加回来。</div>
+      <div class="del-confirm" hidden><label class="field"><span>要删除，请输入服务器名「${esc(name)}」</span>
+        <input type="text" data-k="confirm-name" autocomplete="off" spellcheck="false" aria-label="输入服务器名确认删除"></label></div>`,
   });
-  // 按钮上的字跟着勾选变：不删文件时写「移出列表」，不让人以为点了会删东西
-  const box = $("#modal-root input[data-k=files]"), ok = $("#modal-root [data-x=ok]");
-  if (box && ok) box.addEventListener("change", () => { ok.textContent = okText(box.checked); });
+  // 按钮上的字、标题跟着开关变；打开以后要输对名字才能点（在这一层里找，下面可能还叠着别的框）
+  const m = p.el, box = m.querySelector("input[data-k=files]"), ok = m.querySelector("[data-x=ok]"), confirmBox = m.querySelector(".del-confirm"),
+    typed = m.querySelector("input[data-k=confirm-name]"), title = m.querySelector("h3 > span:last-child");
+  const paint = () => {
+    const files = box.checked;
+    ok.textContent = okText(files);
+    ok.className = "btn " + (files ? "danger solid" : "primary"); // 只移出列表不删东西：不用红色的危险键
+    title.textContent = titleOf(files);
+    confirmBox.hidden = !files;
+    ok.disabled = files && typed.value.trim() !== name;
+  };
+  box.addEventListener("change", () => { paint(); if (box.checked) typed.focus(); });
+  typed.addEventListener("input", paint);
+  typed.addEventListener("keydown", e => { if (e.key === "Enter" && !ok.disabled) ok.click(); });
+  paint();
   const r = await p;
   if (!r) return false;
+  // 开关开着、名字却没对上（按钮本来点不了，回车也拦了）：什么都不做，不悄悄降成「移出列表」
+  const files = r.files && typed.value.trim() === name;
+  if (r.files && !files) return false;
   try {
-    await api(`/api/instances/${encodeURIComponent(name)}?files=${r.files ? 1 : 0}`, { method: "DELETE" });
-    toast(r.files ? `已删除「${name}」` : `已把「${name}」移出列表，文件还在原处`);
+    await api(`/api/instances/${encodeURIComponent(name)}?files=${files ? 1 : 0}`, { method: "DELETE" });
+    if (files) toast(`已删除「${name}」和它的文件夹`);
+    else {
+      const dir = info.dir || "";
+      const local = await api("/api/app").then(a => a.local !== false).catch(() => true); // 从局域网打开时打不开主机上的文件夹
+      toast(`已把「${name}」移出列表。文件夹还在：${dir}`, false, undefined, {
+        actions: dir && local ? [{ label: "打开文件夹", aria: `打开「${name}」的文件夹`,
+          onClick: () => api("/api/openpath", { method: "POST", body: { path: dir } }).catch(e => toastErr("无法打开文件夹", e)) }] : [],
+      });
+    }
     return true;
-  } catch (e) { toastErr(r.files ? "无法删除服务器" : "无法把服务器移出列表", e); return false; }
+  } catch (e) { toastErr(files ? "无法删除服务器" : "无法把服务器移出列表", e); return false; }
 }
 
 /* 运行状态：像素状态灯 + 文字（不能只靠颜色） */
@@ -1173,6 +1304,9 @@ async function renderInstances() {
     <div id="inst-cards">${skeletonCards(4)}</div>`;
   const taskList = $("#task-list");
   let lastSig = "", curList = [], prevByName = null; // prevByName：上次渲染时各实例的数据（判定状态切换、播切换动效）
+  // 连接地址用的本机局域网 IP（见 pickLanIP）。列表不等 /api/app：拿到之前、或者拿不到时，卡片上只写端口、不给复制，拿到了再重画
+  let lanIP = pickLanIP(knownIPs || []);
+  const appInfo = api("/api/app").catch(() => ({}));
   const cardHTML = (i, n, enter, prev) => {
     const proxy = i.kind === "proxy";
     const gb = (i.xmxMb / 1024).toFixed(1) + " GB";
@@ -1186,11 +1320,18 @@ async function renderInstances() {
     // 删除、打开文件夹收进「···」：危险操作不与「启动」同排同尺寸，多一步才够得着；「管理」「···」是第三级按钮。
     // 每张卡片都有同名的「启动」「管理」「···」：可访问名称带上服务器名（「启动 生存服」），读屏、自动化按名字找得到是哪一台
     const nm = esc(i.name);
+    // 端口旁边的复制键复制整个连接地址（R01）；代理端的端口第一次启动、生成配置文件以后才知道，之前不写
+    const port = connectPortOf(i), addr = lanIP && port ? `${lanIP}:${port}` : "";
+    const portKV = port ? `<span>端口<b>${port}</b>${addr ? `<button type="button" class="btn sm ghost icon-only copy-addr" data-act="copy" data-addr="${esc(addr)}" title="复制连接地址 ${esc(addr)}" aria-label="复制连接地址 ${nm}">${icon("copy")}</button>` : ""}</span>` : "";
+    // 上次没启动起来：常驻在卡片上，下次启动成功才消失（R03）。原因按报错的规矩写：看得懂的整句接上，带路径的只写结论、原文在悬停提示里
+    const fail = i.lastStartError && i.status === "stopped"
+      ? `<div class="inst-fail" title="${esc(i.lastStartError)}">${icon("warn")}<span>${esc(errSummary("上次没能启动", { message: i.lastStartError }).text)}</span></div>` : "";
     return `
     <div class="card st-${i.status}${enter ? " item-enter" : ""}" style="--i:${n}" data-name="${esc(i.name)}">
       <div class="inst-head">${avatarOf(i.core)}<div class="inst-title"><a class="inst-name" href="${href}">${esc(i.name)}</a><div class="inst-sub">${proxy ? "群组代理" : "游戏服务器"}</div></div>${stPill(i.status)}</div>
       <div class="badges">${coreBadge(i.core)}<span class="badge">${proxy ? "v" : "MC "}${esc(i.mc)}</span></div>
-      <div class="kv inst-config">${proxy ? "" : `<span>端口<b>${i.port}</b></span>`}<span>内存<b>${gb}</b></span><span>Java<b>${i.javaMajor}</b></span></div>
+      <div class="kv inst-config">${portKV}<span>内存<b>${gb}</b></span><span>Java<b>${i.javaMajor}</b></span></div>
+      ${fail}
       ${collapse}
       <div class="inst-meta" data-motd="${esc(i.motd || "")}"></div>
       <div class="inst-actions">
@@ -1232,6 +1373,7 @@ async function renderInstances() {
       ev.stopPropagation();
       const name = b.closest(".card").dataset.name, act = b.dataset.act;
       const info = curList.find(x => x.name === name);
+      if (act === "copy") { copyFlash(b, b.dataset.addr, "已复制连接地址：" + b.dataset.addr); return; }
       if (act === "more") {
         const busy = info.status !== "stopped";
         dropMenu(b, [
@@ -1284,7 +1426,8 @@ async function renderInstances() {
     $("#inst-chrome").hidden = false;
     $("#inst-cards").classList.remove("page-fill");
     // 签名：数据无实质变化则跳过重绘（消除周期性闪烁与焦点丢失，也不重播动效）；启动中按秒推进分段条，所以带上时长
-    const sig = list.map(i => `${i.name}:${i.status}:${i.status === "running" ? Math.floor(i.uptimeSec / 60) + "/" + i.onlineCount : i.status === "starting" ? Math.floor(i.uptimeSec / 3) : ""}`).join("|") + "#" + $("#inst-q").value + "#" + $("#inst-sort").value;
+    // 端口、上次启动失败的原因、连接地址的 IP 也算：崩溃自动重启、定时重启没起来时，卡片上要跟着冒出原因
+    const sig = list.map(i => `${i.name}:${i.status}:${i.status === "running" ? Math.floor(i.uptimeSec / 60) + "/" + i.onlineCount : i.status === "starting" ? Math.floor(i.uptimeSec / 3) : ""}:${connectPortOf(i)}:${i.lastStartError || ""}`).join("|") + "#" + $("#inst-q").value + "#" + $("#inst-sort").value + "#" + lanIP;
     if (sig === lastSig) return;
     lastSig = sig;
     // 首屏：骨架淡出（160ms）后卡片逐项入场（错峰 28ms）；之后的重绘不再播入场
@@ -1298,6 +1441,12 @@ async function renderInstances() {
   };
   $("#inst-q").oninput = () => { lastSig = ""; draw(); };
   $("#inst-sort").onchange = () => { lastSig = ""; draw(); };
+  appInfo.then(app => { // 签名里带着 lanIP：IP 到了（或者变了），下一次画就会把地址和复制键补上；列表已经画出来的话马上补
+    const ips = learnIPs(app);
+    if (stale(gen)) return;
+    lanIP = pickLanIP(ips);
+    if (curList.length) draw();
+  });
   await draw();
   startPoll(draw, 3000, gen);
 }
@@ -1412,6 +1561,13 @@ async function drawAdopt() {
           <span class="sw-label">我已阅读并同意 <a href="https://aka.ms/MinecraftEULA" target="_blank">Minecraft 最终用户许可协议 (EULA)</a></span></label>
         <div class="field-err" id="ad-eula-err"></div>
       </div>
+      <div class="field w-read ad-wl" id="ad-wl"><span>白名单</span><div class="ad-wl-v">${(() => {
+        // 接管沿用原来的 server.properties，白名单不改，这里只写出来（可用性走查 R02）：开着的要先在「玩家」里加名字，朋友才进得来
+        const w = s.whitelistOn;
+        if (w === true) return `<b>开</b>（沿用原来的设置）：只有名单里的玩家能进。接管后可以在这台服务器的「玩家」里加名字、或者关掉。`;
+        if (w === false) return `<b>关</b>（沿用原来的设置）：任何知道地址的人都能进。只想让熟人进，接管后到「玩家」里打开它。`;
+        return `原来的 server.properties 里没写这一项，服务端按自己的默认值：26.3 起是开（名单是空的话谁都进不来），更早的版本是关。接管后在「玩家」里能直接开关。`;
+      })()}</div></div>
       <div class="hint w-read" id="ad-what" style="margin-bottom:16px;line-height:1.8">
         ${s.managed ? "该文件夹曾由 MineDeck 管理，原有的名称、内存和定时任务配置会自动恢复。<br>" : ""}
         接管时 MineDeck 只在这个文件夹里写自己的 <code>instance.json</code> 和启动脚本 <code>run.bat</code>。原来就有 <code>run.bat</code> 的，先另存为 <code>run.before-minedeck.bat</code>。别的文件都不动。<br>
@@ -1425,6 +1581,7 @@ async function drawAdopt() {
       const proxy = isProxyCore($("#ad-core").value);
       $("#ad-eula-box").hidden = proxy || s.eula;
       $("#ad-noworld").hidden = proxy || s.hasWorld; // 代理端本来就没有存档
+      $("#ad-wl").hidden = proxy; // 代理端没有白名单这一项
       $("#ad-mc-label").textContent = proxy ? "代理端版本" : "Minecraft 版本";
     };
     $("#ad-core").onchange = () => { $("#ad-core").classList.remove("invalid"); $("#ad-core-err").innerHTML = ""; paintKind(); };
@@ -1523,6 +1680,7 @@ async function drawImport() {
         <span><span class="sw-label">正版验证</span><div class="sw-desc">默认关闭</div></span></label></div>
       <div class="field"><label class="switch"><input type="checkbox" id="im-flight" checked><span class="sw"></span>
         <span><span class="sw-label">允许飞行</span><div class="sw-desc">整合包建议开启</div></span></label></div>
+      ${whitelistField("im-wl", "整合包自带 server.properties 的，白名单也以这里为准。")}
     </div>
     ${app.cfKeySet ? "" : `<div class="hint" style="margin-bottom:10px">解析 CurseForge 整合包需配置 API Key。可先前往 <a href="https://console.curseforge.com/" target="_blank">免费申请</a>，并在「设置 → 下载与网络」中完成绑定。（Modrinth 整合包不受此限制）</div>`}
     <div class="eula-box">
@@ -1563,6 +1721,7 @@ async function drawImport() {
     fd.append("eula", "true");
     fd.append("onlineMode", $("#im-online").checked ? "true" : "false");
     fd.append("allowFlight", $("#im-flight").checked ? "true" : "false");
+    fd.append("whitelist", $("#im-wl").checked ? "true" : "false");
     fd.append("root", imRoot);
     fd.append("localSource", $("#im-src").value.trim());
     try {
@@ -1591,10 +1750,7 @@ async function drawImport() {
 /* 交接给其他电脑：确认弹窗（隐私提醒 + 完整模式 + 导出位置）→ 后台打包（任务页看进度） */
 function transferExportModal(info) {
   if ($("#tr-mask")) return; // 上一个还开着
-  const d = document.createElement("div");
-  d.className = "modal-mask enter";
-  d.id = "tr-mask";
-  d.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="tr-title">
+  const d = modalLayer(`<div class="modal" role="dialog" aria-modal="true" aria-labelledby="tr-title">
     <h3 id="tr-title">交接「${esc(info.name)}」</h3>
     <div class="m-body">
       将服务器打包为 .mdpack 文件发给接手的人，对方通过「新建服务器 → 导入交接包」即可导入：存档、配置、模组和白名单都在包里。
@@ -1618,38 +1774,64 @@ function transferExportModal(info) {
       </label>
       <div class="hint" style="margin-top:6px">世界存档较大时交接包可能达数 GB；可在任务页查看打包进度，中断后可重新导出。</div>
     </div>
+    <div class="m-err" id="tr-err" role="alert" hidden></div>
     <div class="m-actions">
       <button class="btn" id="tr-cancel">取消</button>
       <button class="btn primary" id="tr-go">${icon("share")} 开始打包</button>
-    </div></div>`;
-  $("#modal-root").appendChild(d);
-  const close = () => dismiss(d);
-  d.addEventListener("click", e => { if (e.target === d) close(); });
-  document.addEventListener("keydown", function escClose(e) { if (e.key === "Escape" && $("#tr-mask")) { close(); document.removeEventListener("keydown", escClose); } });
+    </div></div>`, "tr-mask");
+  // 有要填的东西：点遮罩不关（以前点中的常常是刚消失的提示底下那块遮罩，填好的路径一下就没了，可用性走查 U04）；
+  // Esc 只在它是最上面那层时关（上面叠着「报错信息」时先关那个）
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    document.removeEventListener("keydown", onKey);
+    dismiss(d);
+  };
+  const onKey = e => { if (e.key === "Escape" && topLayer(d)) close(); };
+  document.addEventListener("keydown", onKey);
+  const destErr = html => { $("#tr-dest").classList.toggle("invalid", !!html); $("#tr-dest-err").innerHTML = html ? icon("warn") + " " + html : ""; };
+  const formErr = e => { // 别的原因：写在按钮上面，不只靠右上角那条会消失的提示；原文点「详情」看（叠在这个弹窗上面）
+    const box = $("#tr-err");
+    if (!e) { box.hidden = true; box.innerHTML = ""; return; }
+    const { text, raw } = errSummary("无法导出交接包", e);
+    box.innerHTML = `${icon("warn")}<span>${esc(text)}</span><button type="button" class="btn sm ghost" id="tr-err-more" aria-label="查看导出报错的详情">详情</button>`;
+    box.hidden = false;
+    $("#tr-err-more").onclick = () => showErrDetail(raw);
+  };
   $("#tr-cancel").onclick = close;
   $("#tr-browse").onclick = async () => {
-    try { const r = await api("/api/pickdir", { method: "POST" }); if (r.path) { $("#tr-dest").value = r.path; $("#tr-dest").classList.remove("invalid"); $("#tr-dest-err").innerHTML = ""; } }
+    try { const r = await api("/api/pickdir", { method: "POST" }); if (r.path) { $("#tr-dest").value = r.path; destErr(""); formErr(null); } }
     catch (e) { toastErr("无法选择导出文件夹", e); }
   };
+  $("#tr-dest").addEventListener("input", () => { if ($("#tr-dest").classList.contains("invalid")) destErr(""); });
   $("#tr-go").onclick = async () => {
     const dest = $("#tr-dest").value.trim();
     if (dest && !/^[a-zA-Z]:[\\/]/.test(dest)) {
-      $("#tr-dest").classList.add("invalid");
-      $("#tr-dest-err").innerHTML = icon("warn") + " 请填完整的文件夹路径，或清空用默认位置";
+      destErr("请填完整的文件夹路径，或清空用默认位置");
       return;
     }
     $("#tr-go").disabled = true;
+    destErr(""); formErr(null);
     try {
       const r = await api(`/api/instances/${encodeURIComponent(info.name)}/transfer/export`, {
-        method: "POST", body: { full: $("#tr-full").checked, mode: (document.querySelector('input[name="tr-mode"]:checked') || {}).value || "handover", dest },
+        method: "POST", body: { full: $("#tr-full").checked, mode: (d.querySelector('input[name="tr-mode"]:checked') || {}).value || "handover", dest },
       });
       close();
       toast("开始打包交接包");
       location.hash = `#/task/${r.taskId}`;
     } catch (e) {
       toastErr("无法导出交接包", e);
+      if (closed) return;
       $("#tr-go").disabled = false;
-      if (/导出(?:目录|文件夹)不可用/.test(e.message)) { $("#tr-dest").classList.add("invalid"); $("#tr-dest-err").innerHTML = icon("warn") + " " + esc(e.message); }
+      // 导出文件夹的问题写在那一栏下面，并说清为什么不可用：后端只在「这个位置不存在、或者不是文件夹」时这么说
+      //（internal/transfer/export.go），不会替人新建；没填（用默认位置）时是默认位置建不起来
+      if (/导出(?:目录|文件夹)不可用/.test(e.message)) {
+        destErr(dest ? "导出文件夹不可用：这个位置找不到，或者它不是一个文件夹。MineDeck 不会替你新建，先在资源管理器里建好，或者点「浏览…」选一个已有的文件夹。"
+          : "导出文件夹不可用：默认位置（程序数据文件夹里的 cache\\transfer）建不起来。点「浏览…」另选一个文件夹，原因看「详情」。");
+        if (!dest) formErr(e);
+      } else if (/导出(?:目录|文件夹)不能放在/.test(e.message)) destErr(esc(e.message));
+      else formErr(e);
     }
   };
 }
@@ -1841,6 +2023,12 @@ function wizardShell(inner) {
 const wizFoot = (backId, backText, right, wide = false) =>
   `<div class="wizard-foot${wide ? "" : " w-read"}"><button class="btn" id="${backId}">${icon("arrowLeft")} ${backText}</button>
     <span class="wf-sum" id="wf-sum"></span>${right}</div>`;
+/* 新建、导入整合包（以及用已有地图开服，它走同一个向导）表单上的白名单开关（可用性走查 R02）：默认关，旁边写明关着意味着什么。
+   26.3 起服务端自己生成配置时默认开白名单、名单又是空的，按默认值开出来的服务器朋友进不来，界面上却一切正常；
+   所以 MineDeck 不论版本都按这个开关把 white-list 明确写进 server.properties。note：接在说明后面的一句（导入整合包用） */
+const whitelistField = (id, note = "") => `<div class="field full wl-field"><label class="switch"><input type="checkbox" id="${id}"><span class="sw"></span>
+    <span><span class="sw-label">只允许白名单里的玩家进入</span>
+    <div class="sw-desc">关着时任何知道地址的人都能进；只想让熟人进，就打开它，再到「玩家」里加名字。${note}</div></span></label></div>`;
 function paintWizSum() {
   const el = $("#wf-sum");
   if (!el) return;
@@ -2055,7 +2243,8 @@ async function drawWizard() {
           <span><span class="sw-label">允许飞行（allow-flight）</span><div class="sw-desc">默认开启：防止模组移动被误踢</div></span></label></div>
         <label class="field"><span>游戏难度</span><select id="f-diff"><option value="peaceful">和平</option><option value="easy" selected>简单</option><option value="normal">普通</option><option value="hard">困难</option></select></label>
         <label class="field"><span>默认游戏模式</span><select id="f-mode"><option value="survival" selected>生存</option><option value="creative">创造</option><option value="adventure">冒险</option><option value="spectator">旁观</option></select></label>
-        <div class="hint" style="grid-column:1/-1">PVP、视距、白名单等高级参数，可在服务器创建后随时调整。</div>`}
+        ${whitelistField("f-wl")}
+        <div class="hint" style="grid-column:1/-1">PVP、视距等高级参数，可在服务器创建后随时调整。</div>`}
       </div>
       <div id="wiz-world"></div>
       ${isProxy
@@ -2143,6 +2332,7 @@ async function drawWizard() {
             motd: isProxy ? "" : $("#f-motd").value.trim(),
             difficulty: isProxy ? "" : $("#f-diff").value,
             gamemode: isProxy ? "" : $("#f-mode").value,
+            whitelist: isProxy ? false : $("#f-wl").checked, // 只允许白名单里的玩家进入：默认关，后端按它明确写 white-list
             ...(world || {}),
           },
         });
@@ -2511,24 +2701,50 @@ function headStatus(i) {
   return stPill(i.status, meta);
 }
 
+/* 详情页头下面的常驻提示区（#d-notices，见 docs/文案重写/04-标签与术语-beta3.md 第二节）：上次启动失败、模组要求更高的 Java，
+   以后还有整合包里没装上的文件、Java 路径失效……有就显示，事情解决了就消失，不靠右上角会自己消失的提示。
+   每条有自己的键，各自出现、更新、消失；html 为空就拿掉这一条。内容没变不重画（轮询里反复调也不闪、不打断点击）。
+   id：这一条元素的 id（老的选择器还在用的，比如 #d-java-hint）。按钮的点击用 data-* 委托或 onclick 都行，重画以后要重新接 */
+function detailNotice(key, html, { id = "", kind = "warn" } = {}) {
+  const box = $("#d-notices");
+  if (!box) return null;
+  let el = box.querySelector(`[data-notice="${key}"]`);
+  if (!html) { if (el) el.remove(); box.hidden = !box.childElementCount; return null; }
+  if (!el) {
+    el = document.createElement("div");
+    el.dataset.notice = key;
+    if (id) el.id = id;
+    box.appendChild(el);
+  }
+  el.className = "d-notice " + kind;
+  if (el._html !== html) { el._html = html; el.innerHTML = html; }
+  box.hidden = false;
+  return el;
+}
+
 async function renderDetail(name, tab = "console") {
   const gen = viewGen;
   let list;
+  // /api/app 只为连接地址里的本机 IP：详情页不等它（慢了也先画出来），拿到以后补上地址那一行；拿不到就说没查到 IP
+  const appInfo = api("/api/app").catch(() => ({}));
   try { list = await api("/api/instances"); } catch (e) { if (!stale(gen)) Main().innerHTML = errBox("无法获取服务器信息", e); return; }
   if (stale(gen)) return; // 等待期间已切走：不再建 SSE / 定时器
   const info = list.find(i => i.name === name);
   if (!info) { Main().innerHTML = `<div class="err-box">服务器不存在</div>`; return; }
-  // 页头：大号像素头像 + 标题，标题下一行是状态胶囊与徽标；操作按钮靠右
+  let ips = knownIPs; // null：还在问 /api/app、以前也没拿到过
+  // 页头：大号像素头像 + 标题，标题下一行是状态胶囊与徽标，再下一行是连接地址；操作按钮靠右。页头下面是常驻提示区
   Main().innerHTML = `<nav class="crumbs" aria-label="位置"><a href="#/instances">服务器</a>${icon("chevronRight")}<span>${esc(name)}</span></nav>
     <div class="detail-head">
       ${avatarOf(info.core, "lg")}
       <div class="dh-text"><h1>${esc(name)}</h1>
-        <div class="dh-line"><span id="d-status">${headStatus(info)}</span>${coreBadge(info.core)}<span class="badge">${info.kind === "proxy" ? "v" : "MC "}${esc(info.mc)}</span><span class="badge" id="d-java">Java ${info.javaMajor}</span></div></div>
+        <div class="dh-line"><span id="d-status">${headStatus(info)}</span>${coreBadge(info.core)}<span class="badge">${info.kind === "proxy" ? "v" : "MC "}${esc(info.mc)}</span><span class="badge" id="d-java">Java ${info.javaMajor}</span></div>
+        <div class="dh-addr" id="d-addr"></div></div>
       <span class="grow"></span>
       <button class="btn primary" id="d-start" aria-label="启动 ${esc(name)}" ${info.status !== "stopped" ? "disabled" : ""}>${icon("play")} 启动</button>
       <button class="btn" id="d-stop" aria-label="停止 ${esc(name)}" ${info.status === "stopped" || info.status === "stopping" ? "disabled" : ""}>${icon("stop")} 停止</button>
       <button class="btn" id="d-dir" aria-haspopup="menu">${icon("folder")} 打开文件夹 ${icon("chevronDown")}</button>
     </div>
+    <div class="d-notices" id="d-notices" hidden></div>
     <div class="tabs">${(() => {
       const isProxy = info.kind === "proxy";
       const tabs = [["console", "控制台"]];
@@ -2547,10 +2763,49 @@ async function renderDetail(name, tab = "console") {
     })()}</div>
     <div id="tab-body" class="sec-enter"></div>`;
   if (samePage) slideKeys(keysBefore, ["tab"]); // 同一实例换标签：键帽从旧标签滑到新标签
+  // 连接地址（R01）：本机局域网 IP + 朋友连的端口，带复制；本机有几个 IP 时可以换（记在本机，卡片也跟着用）。
+  // 停着时也显示，灰字写明开服后朋友连这个。端口、IP、运行状态变了才重画，不打断用户正在选中的文字
+  let addrKey = "", lastCur = info;
+  const paintAddr = cur => {
+    lastCur = cur;
+    const el = $("#d-addr"), port = connectPortOf(cur), ip = pickLanIP(ips || []), live = cur.status === "running";
+    const key = [port, ip, live, ips === null].join("|");
+    if (!el || key === addrKey) return;
+    addrKey = key;
+    el.classList.toggle("off", !live);
+    const k = `<span class="dh-addr-k">连接地址</span>`;
+    if (!port) { el.innerHTML = k + `<span class="dh-addr-note">代理端的端口写在它自己的配置文件里，第一次启动、生成配置文件以后才知道</span>`; return; }
+    if (!ip) { el.innerHTML = k + `<span class="mono dh-addr-v">端口 ${port}</span>` + (ips === null ? "" : `<span class="dh-addr-note">没查到这台电脑的局域网 IP，确认电脑连着网络</span>`); return; }
+    const addr = `${ip}:${port}`;
+    el.innerHTML = k + `<span class="mono dh-addr-v" id="d-addr-v">${esc(addr)}</span>
+      <button type="button" class="btn sm" id="d-addr-copy" aria-label="复制连接地址">${icon("copy")} 复制</button>
+      ${ips.length > 1 ? `<button type="button" class="btn sm ghost" id="d-addr-ip" aria-haspopup="menu" aria-label="换一个 IP（本机有 ${ips.length} 个局域网 IP）">换一个 IP</button>` : ""}
+      <span class="dh-addr-note">${live ? "同一局域网的朋友在游戏里添加服务器时填这个" : "开服后朋友连这个地址"}</span>`;
+    $("#d-addr-copy").onclick = e => copyFlash(e.currentTarget, addr, "已复制连接地址：" + addr);
+    const sw = $("#d-addr-ip");
+    if (sw) sw.onclick = () => dropMenu(sw, [{ header: "本机的局域网 IP（家用路由器下通常是 192.168 开头的）" },
+      ...ips.map(x => ({ icon: x === ip ? "check" : "globe", label: x, onClick: () => {
+        try { localStorage.setItem("amh_lan_ip", x); } catch {}
+        addrKey = ""; paintAddr(lastCur);
+      } }))]);
+  };
+  // 上次没启动起来（R03）：常驻在页头下面，下次启动成功才消失。原文带路径时只写结论，原文用复制键拿
+  const paintFail = cur => {
+    if (!cur.lastStartError || cur.status !== "stopped") { detailNotice("start-fail", ""); return; }
+    const { text, raw } = errSummary("上次没能启动", { message: cur.lastStartError });
+    detailNotice("start-fail", `${icon("warn")}<span class="dn-text">${esc(text)}</span>` +
+      (tab !== "console" ? `<a class="btn sm ghost" href="#/inst/${encodeURIComponent(name)}/console">看控制台</a>` : "") +
+      (text.endsWith(raw) ? "" : `<button type="button" class="btn sm ghost" data-err-raw="${errRawAttr(raw)}" aria-label="复制报错信息 上次没能启动">${icon("copy")} 复制报错信息</button>`),
+    { id: "d-start-fail" });
+  };
+  paintAddr(info);
+  appInfo.then(a => { const r = learnIPs(a); if (!stale(gen)) { ips = r; paintAddr(lastCur); } });
+  paintFail(info);
+  placeToasts();
   $("#d-dir").onclick = () => dropMenu($("#d-dir"), folderItems(info));
   $("#d-start").onclick = async () => {
     try { $("#d-start").disabled = true; await api(`/api/instances/${encodeURIComponent(name)}/start`, { method: "POST" }); toast("正在启动，首次生成世界可能需要一两分钟"); refreshHead(); }
-    catch (e) { toastErr("无法启动服务器", e); $("#d-start").disabled = false; }
+    catch (e) { toastErr("无法启动服务器", e); $("#d-start").disabled = false; refreshHead(); } // 没起来的原因马上常驻到页头下面
   };
   $("#d-stop").onclick = async () => {
     try { $("#d-stop").disabled = true; await api(`/api/instances/${encodeURIComponent(name)}/stop`, { method: "POST" }); toast("正在保存世界并停止"); refreshHead(); }
@@ -2568,23 +2823,18 @@ async function renderDetail(name, tab = "console") {
       animatePill($("#d-status .st-pill"), was, cur.status); // 状态变了：胶囊变色、文字换场，进入运行中放一圈波纹
       $("#d-start").disabled = cur.status !== "stopped";
       $("#d-stop").disabled = cur.status === "stopped" || cur.status === "stopping";
+      paintAddr(cur); // 在「常用设置」里改了端口：地址跟着变
+      paintFail(cur);
     } catch {}
   };
   startPoll(refreshHead, 2500, gen);
 
-  // 模组声明了比实例更高的 Java 要求时给提示（不阻断：1.20.1 配 Java 25 的魔改模组是允许的组合）。
+  // 模组声明了比实例更高的 Java 要求时给提示（不阻断：1.20.1 配 Java 25 的魔改模组是允许的组合），放在页头下面的提示区。
   // 只在有模组目录的核心上查一次；vanilla / 代理端会 400，静默忽略。
   if (info.kind !== "proxy" && info.core !== "vanilla") {
     api(`/api/instances/${encodeURIComponent(name)}/mods`).then(r => {
       if (stale(gen) || !r || !r.needJava || r.needJava <= (info.javaMajor || 0)) return;
-      const host = document.querySelector(".dh-text");
-      if (!host || $("#d-java-hint")) return;
-      const hint = document.createElement("div");
-      hint.id = "d-java-hint";
-      hint.className = "dh-line";
-      hint.style.marginTop = "2px";
-      hint.innerHTML = `<a class="warn-text" href="#/inst/${encodeURIComponent(name)}/jvm">${icon("warn")} 有模组要求 Java ${r.needJava}，这台服务器现在是 Java ${info.javaMajor}，启动可能失败。可在「内存 / 启动」里换 Java。</a>`;
-      host.appendChild(hint);
+      detailNotice("java-need", `<a class="warn-text" href="#/inst/${encodeURIComponent(name)}/jvm">${icon("warn")} 有模组要求 Java ${r.needJava}，这台服务器现在是 Java ${info.javaMajor}，启动可能失败。可在「内存 / 启动」里换 Java。</a>`, { id: "d-java-hint" });
     }).catch(() => {});
   }
 
@@ -2767,15 +3017,22 @@ async function renderDetail(name, tab = "console") {
       catch (e) { if (!stale(gen)) body.innerHTML = errBox("无法读取玩家列表", e); return; }
       if (stale(gen)) return;
       // 三个名单的输入框、每个人名后面的「移除」「OP」「踢」都同名：可访问名称带上名单和玩家名
-      const section = (title, items, addAction, removeAction, hint) => `
+      const section = (title, items, addAction, removeAction, hint, extra = "") => `
         <div class="p-sec">
           <div class="p-sec-head"><b>${title}</b>（${items.length}）
             <input type="text" data-add="${addAction}" placeholder="输入玩家名，回车添加" aria-label="添加玩家到${title}">
             ${hint ? `<span class="hint">${hint}</span>` : ""}
-          </div>
+          </div>${extra}
           <div class="badges">${items.map(p =>
             `<span class="badge">${esc(p.name)}<button type="button" class="p-x" data-act="${removeAction}" data-p="${esc(p.name)}" title="移除" aria-label="移除 ${esc(p.name)}（${title}）">${icon("x")}</button></span>`).join("") || `<span class="sub">空</span>`}</div>
         </div>`;
+      // 白名单的总开关就在名单旁边（可用性走查 R02、U11），不用再去「常用设置」里找。whitelistOn 是 server.properties 里写的
+      //（按服务端的读法）；没写这一项时是 null，服务端用它自己的默认值：26.3 起开，更早关
+      const wlSet = pl.whitelistOn === true || pl.whitelistOn === false;
+      const wlOn = wlSet ? pl.whitelistOn : verGte(info.mc, "26.3");
+      const wlSwitch = `<div class="p-wl"><label class="switch"><input type="checkbox" id="pl-wl-on"${wlOn ? " checked" : ""} aria-label="只允许白名单里的玩家进入"><span class="sw"></span>
+          <span><span class="sw-label">只允许白名单里的玩家进入</span>
+          <div class="sw-desc" id="pl-wl-desc">${wlOn ? "开着：只有名单里的玩家能进（管理员不受限制）。" : "关着：任何知道地址的人都能进。只想让熟人进，就打开它，再在下面加名字。"}${wlSet ? "" : "（server.properties 里还没写这一项，这是服务端的默认值）"}</div></span></label></div>`;
       body.innerHTML = `<div class="players-grid">
         <div class="p-sec">
           <div class="p-sec-head"><b>在线玩家</b>（${pl.online.length}）<button class="btn sm" id="pl-refresh">${icon("refresh")} 刷新</button></div>
@@ -2783,10 +3040,22 @@ async function renderDetail(name, tab = "console") {
             <button type="button" class="p-x" data-act="op" data-p="${esc(n)}" title="设为管理员" aria-label="OP ${esc(n)}">OP</button>
             <button type="button" class="p-x" data-act="kick" data-p="${esc(n)}" title="踢出" aria-label="踢 ${esc(n)}">踢</button></span>`).join("") || `<span class="sub">暂无玩家在线</span>`}</div>
         </div>
-        ${section("白名单", pl.whitelist, "whitelist-add", "whitelist-remove", "要在「常用设置」里打开白名单（white-list）才生效。")}
+        ${section("白名单", pl.whitelist, "whitelist-add", "whitelist-remove", "", wlSwitch)}
         ${section("管理员 OP", pl.ops, "op", "deop", "")}
         ${section("封禁名单", pl.banned, "ban", "pardon", "")}
       </div>`;
+      // 拨开关：写进 server.properties；服务器开着时再发 whitelist on / off，马上生效（同游戏内 AI 一键开白名单的做法）
+      $("#pl-wl-on").onchange = async () => {
+        const sw = $("#pl-wl-on"), on = sw.checked;
+        sw.disabled = true;
+        try {
+          await api(`/api/instances/${encodeURIComponent(name)}/properties`, { method: "PUT", body: { pairs: [{ key: "white-list", value: String(on) }] } });
+          if (info.status === "running" || info.status === "starting")
+            await api(`/api/instances/${encodeURIComponent(name)}/command`, { method: "POST", body: { cmd: on ? "whitelist on" : "whitelist off" } });
+          toast(on ? "已打开白名单：只有名单里的玩家能进" : "已关闭白名单：任何知道地址的人都能进");
+        } catch (e) { toastErr(on ? "无法打开白名单" : "无法关闭白名单", e); }
+        if (!stale(gen)) draw();
+      };
       $("#pl-refresh").onclick = draw;
       body.querySelectorAll("input[data-add]").forEach(inp => inp.onkeydown = e => {
         if (e.key === "Enter" && inp.value.trim()) { act(inp.dataset.add, inp.value.trim()); inp.value = ""; }
@@ -3007,7 +3276,8 @@ async function renderDetail(name, tab = "console") {
     };
     const rowHTML = p => {
       const tags = (p.restart ? `<span class="ri-restart">重启生效</span>` : "") + (p.mode === "gamerule" ? `<span class="gr-tag">游戏规则</span>` : "");
-      const notice = (p.key === "white-list" && verGte(mc, "26.3")) ? `<div class="pd" style="color:var(--warning-text)">注意：此版本起白名单默认开启</div>` : "";
+      // 白名单：说清 MineDeck 新建时怎么写的（R02）。26.3 起服务端自己生成配置时默认开，MineDeck 新建时按向导里的开关明确写进去
+      const notice = p.key === "white-list" ? `<div class="pd">MineDeck 新建服务器时按向导里的开关写这一项，默认关${verGte(mc, "26.3") ? "（这个版本的服务端自己生成配置时默认是开）" : ""}。名单和这个开关在「玩家」里也能直接改。</div>` : "";
       const grHint = (p.mode === "gamerule" && !running) ? "（服务器启动后可切换）" : "";
       if (p.key === "motd") return `<div class="prop-item wide" data-search="${esc(p.label)} ${p.key}"><div style="flex:1">
         <div class="pl">${esc(p.label)} ${tags}</div><div class="pd">${esc(p.desc || "")} 支持中文与 § 色码。</div><div class="pk">${p.key}</div>${fieldHTML(p)}</div></div>`;
@@ -4018,7 +4288,7 @@ const SETTINGS_SECTIONS = [
   { id: "download", label: "下载与网络", icon: "globe" },
   { id: "storage", label: "存储位置", icon: "folder" },
   { id: "java", label: "Java 运行时", icon: "coffee" },
-  { id: "remote", label: "远程访问", icon: "phone" },
+  { id: "remote", label: "手机远程管理", icon: "phone" }, // 原来叫「远程访问」：像是让朋友连进来，其实是手机管理页（可用性走查 U20）
   { id: "notify", label: "通知与集成", icon: "bell" },
   { id: "ai", label: "AI（可选）", icon: "sparkle" },
   { id: "startup", label: "启动与托盘", icon: "monitor" },
@@ -4270,26 +4540,28 @@ async function setJava(body, info) {
   };
 }
 
-/* — 远程访问 — */
+/* — 手机远程管理（原来叫「远程访问」）— */
 /* 访问地址排序：家用局域网段优先，让默认那张二维码就是手机最可能连得上的地址
-   （172.16/12 多为 WSL / Hyper-V 虚拟网卡；169.254 是没拿到 DHCP 的自动地址，垫底） */
+   （172.16/12 多为 WSL / Hyper-V 虚拟网卡；169.254 是没拿到 DHCP 的自动地址，垫底）。服务器的连接地址也按它排（rankIPs） */
 const lanIPRank = ip => /^192\.168\./.test(ip) ? 0 : /^10\./.test(ip) ? 1 : /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ? 2 : /^169\.254\./.test(ip) ? 4 : 3;
 function setRemote(body, info) {
   const lanPort = info.port || location.port || "27333"; // 实际监听端口（被占用时会随机化）
-  const ips = (info.ips || []).slice().sort((a, b) => lanIPRank(a) - lanIPRank(b));
+  const ips = rankIPs(info.ips);
   // 开关点了即时保存（开启前必须先有访问密码，后端也会拒绝）。监听地址只在程序启动时绑定：
   // 开启要重启程序才生效，和这次启动不一致时常驻提示；关闭即时生效（后端不再放行局域网的请求）
   const on = !!info.config.listenLan;
   const live = info.lanActive ?? on; // 这次启动是否已监听在局域网上
-  body.innerHTML = settingsHead("远程访问（手机 / 平板管理）", "开启后，同一局域网内的设备可以用本机 IP 打开管理界面，需要访问密码；重启程序后生效。") +
+  // 页顶先指路：这里是用手机管 MineDeck 的，不是让朋友进游戏的（以前的名字「允许局域网访问」像是后者，可用性走查 U01、U20）
+  body.innerHTML = settingsHead("手机远程管理", "用手机、平板或别的电脑的浏览器打开 MineDeck 的管理页，需要访问密码；开启后重启程序生效。") +
+    `<div class="set-note" id="lan-not-game">${icon("info")}<span>让朋友进游戏的地址在服务器页上（每台服务器的页头和卡片上的「连接地址」），不在这里。<a href="#/instances">去服务器页</a></span></div>` +
     group(
-      riRow({ ico: "phone", title: "允许局域网访问", sub: "手机与本机连在同一 Wi-Fi / 路由器下即可打开管理界面",
-        right: `<label class="switch"><input type="checkbox" id="lan-on" ${on ? "checked" : ""} aria-label="允许局域网访问"><span class="sw"></span></label>` }) +
-      riRow({ ico: "lock", title: "访问密码", sub: info.lanSet ? "已设置；要修改就输入新密码后保存" : "开启局域网访问前必须先设置",
+      riRow({ ico: "phone", title: "开启手机远程管理", sub: "手机和这台电脑连在同一个 Wi-Fi 或路由器下，就能打开管理页",
+        right: `<label class="switch"><input type="checkbox" id="lan-on" ${on ? "checked" : ""} aria-label="开启手机远程管理"><span class="sw"></span></label>` }) +
+      riRow({ ico: "lock", title: "访问密码", sub: info.lanSet ? "已设置；要修改就输入新密码后保存" : "开启手机远程管理前必须先设置",
         field: `<input type="password" id="lan-pw" placeholder="${info.lanSet ? "已设置（输入新密码可修改）" : "设置访问密码（必填）"}" aria-label="访问密码"><button class="btn" id="lan-save">保存</button>`,
         after: `<div class="field-err ri-err" id="lan-pw-err"></div>` }),
       { ico: true }) +
-    (on && !live ? `<div class="hint" id="lan-restart">${icon("info")} 局域网访问已开启。重启 MineDeck 后生效。重启之后，这里会显示手机扫码用的地址。</div>` : "") +
+    (on && !live ? `<div class="hint" id="lan-restart">${icon("info")} 手机远程管理已开启。重启 MineDeck 后生效。重启之后，这里会显示手机扫码用的地址。</div>` : "") +
     (!(on && live) ? "" : ips.length ? `<div class="qr-card">
       <div class="qr-box" id="qr-box" role="img"></div>
       <div class="qr-info">
@@ -4303,7 +4575,7 @@ function setRemote(body, info) {
     `<div class="hint">还是打不开的话，用管理员身份运行一次下面这条命令，放行防火墙：<code>netsh advfirewall firewall add rule name="MineDeck" dir=in action=allow protocol=TCP localport=${esc(String(lanPort))}</code></div>`;
   const lanOn = $("#lan-on"), lanPw = $("#lan-pw");
   const pwErr = msg => { lanPw.classList.toggle("invalid", !!msg); $("#lan-pw-err").innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; };
-  const effect = turnOn => turnOn ? (live ? "" : "，重启 MineDeck 后生效") : (live ? "，局域网里的设备现在起打不开管理界面" : "");
+  const effect = turnOn => turnOn ? (live ? "" : "，重启 MineDeck 后生效") : (live ? "，手机和别的设备现在起打不开管理页" : "");
   // 保存要等一个来回：这期间切去了别的分区或页面，就不再把远程访问画回 body（它可能已经不是当前视图的了）；提示照常弹
   const gen = viewGen;
   const saved = b => { info.config.listenLan = b.listenLan; if (b.lanPassword) info.lanSet = true; if (!stale(gen)) setRemote(body, info); };
@@ -4314,7 +4586,7 @@ function setRemote(body, info) {
     if (turnOn && !info.lanSet) {
       if (!lanPw.value) { // 就地提示，开关拨回去
         lanOn.checked = false; wantOn = true;
-        pwErr("先设置访问密码：填好后点「保存」，局域网访问会一起开启");
+        pwErr("先设置访问密码：填好后点「保存」，手机远程管理会一起开启");
         lanPw.focus();
         return;
       }
@@ -4324,8 +4596,8 @@ function setRemote(body, info) {
     try {
       await api("/api/config", { method: "PUT", body: b });
       saved(b);
-      toast((turnOn ? "已开启局域网访问" : "已关闭局域网访问") + effect(turnOn) + (b.lanPassword && info.lanSet ? "。新的访问密码已保存" : ""));
-    } catch (e) { lanOn.checked = !turnOn; lanOn.disabled = false; toastErr(turnOn ? "无法开启局域网访问" : "无法关闭局域网访问", e); }
+      toast((turnOn ? "已开启手机远程管理" : "已关闭手机远程管理") + effect(turnOn) + (b.lanPassword && info.lanSet ? "。新的访问密码已保存" : ""));
+    } catch (e) { lanOn.checked = !turnOn; lanOn.disabled = false; toastErr(turnOn ? "无法开启手机远程管理" : "无法关闭手机远程管理", e); }
   };
   // 保存密码：开关开着（或刚才因为没密码被拨回去）时一起开启，即「密码和开关一起保存」
   $("#lan-save").onclick = async () => {
@@ -4335,7 +4607,7 @@ function setRemote(body, info) {
     try {
       await api("/api/config", { method: "PUT", body: b });
       saved(b);
-      toast(opening ? "访问密码已保存，已开启局域网访问" + effect(true) : "访问密码已保存");
+      toast(opening ? "访问密码已保存，已开启手机远程管理" + effect(true) : "访问密码已保存");
     } catch (e) { toastErr("无法保存访问密码", e); }
   };
   lanPw.oninput = () => pwErr("");
@@ -4912,10 +5184,10 @@ function setAbout(body, info) {
 /* 首次运行引导卡（用户协议与免责声明 + 选下载源 + 存放位置说明；
    同意后写 config.onboarded / tosAccepted，二者齐备才不再弹出） */
 function showOnboarding(info) {
-  const root = $("#modal-root");
   const SRC = { auto: "自动（推荐）：国内镜像优先，失败自动切换官方源", mirror: "仅国内镜像：仅使用 BMCLAPI 与清华镜像", official: "仅官方源：仅使用官方源（海外网络适用）" };
   const cur = (info.config && info.config.source) || "auto";
-  root.innerHTML = `<div class="modal-mask enter"><div class="modal onboard" role="dialog" aria-modal="true">
+  // 叠一层（见 modalLayer），不整个换掉 #modal-root
+  const root = modalLayer(`<div class="modal onboard" role="dialog" aria-modal="true">
     <div class="brand-head">${logoImg()}<div><h3>欢迎使用 MineDeck</h3><div class="sub">Minecraft 开服工具</div></div></div>
     <div class="m-body">
       <div class="ob-sec" style="margin-top:0"><div class="ob-label">用户协议与免责声明</div>
@@ -4941,14 +5213,14 @@ function showOnboarding(info) {
       </div>
     </div>
     <div class="m-actions"><button class="btn primary" id="ob-go" disabled>同意并开始使用</button></div>
-  </div></div>`;
+  </div>`);
   const agree = root.querySelector("#ob-agree"), go = root.querySelector("#ob-go");
   agree.onchange = () => { go.disabled = !agree.checked; };
   go.onclick = async () => {
     const sel = root.querySelector('input[name="ob-src"]:checked');
     try { await api("/api/config", { method: "PUT", body: { source: sel ? sel.value : cur, onboarded: true, tosAccepted: true } }); }
     catch (e) { toastErr("无法保存首次使用的设置", e); }
-    dismiss(root.firstElementChild);
+    dismiss(root);
   };
 }
 

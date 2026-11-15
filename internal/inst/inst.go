@@ -54,6 +54,7 @@ type Instance struct {
 	runGen     int64  // 每次 Start 自增，用于让崩溃重启只作用于其对应的那次运行
 	killing    bool   // 这次运行是被强制结束的（Kill、停止超时）
 	lastExit   string // 上一次进程怎么结束的，见 LastExit
+	startErr   string // 上一次启动没起来的原因，见 LastStartError；下一次进程起来了就清掉
 
 	onlineMu sync.Mutex
 	online   map[string]bool
