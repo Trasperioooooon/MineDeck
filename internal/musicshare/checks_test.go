@@ -1,6 +1,7 @@
 package musicshare
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -232,6 +233,42 @@ func TestVoiceHostSync(t *testing.T) {
 	e.tun.set(voice)
 	if _, err := e.s.SetVoiceHost(instName, "", true); codeOf(err) != 400 {
 		t.Errorf("隧道还没地址时改用隧道地址：%v", err)
+	}
+}
+
+// tunnels.json 没读出来（被占着、坏了）：隧道列表是空的，但不等于没有语音隧道。开服前不能把 MineDeck 上次写的
+// voice_host 清回空；读出来以后照常按隧道的状态处理（2026-11-15 Codex 复审）。
+func TestVoiceHostUntouchedWhileTunnelsUnread(t *testing.T) {
+	e := newEnv(t)
+	cfg := filepath.Join(e.dir, "config", "voicechat", "voicechat-server.properties")
+	if err := bridge.WriteFileAtomic(cfg, []byte("port=24454\r\nvoice_host=\r\n")); err != nil {
+		t.Fatal(err)
+	}
+	voice := tunnel.Status{Tunnel: tunnel.Tunnel{ID: "tun3", Provider: "natfrp", Name: "语音", Bound: instName, Purpose: tunnel.PurposeVoice,
+		PublicAddr: "203.0.113.7:34567"}, Running: true}
+	e.tun.set(voice)
+	e.inst.setStatus(instName, "running")
+	e.s.HandleEvent(events.Event{Type: "tunnel.up", Data: map[string]any{"id": "tun3", "addr": voice.PublicAddr}})
+	written, _ := os.ReadFile(cfg)
+	if !strings.Contains(string(written), "203.0.113.7") {
+		t.Fatalf("隧道开着时应写进 voice_host：%q", written)
+	}
+	e.inst.setStatus(instName, "stopped")
+
+	// 重启 MineDeck 时 tunnels.json 没读出来：列表空了
+	e.tun.set()
+	e.tun.setLoadErr(errors.New("tunnels.json 被占着"))
+	e.s.BeforeStart(instName)
+	if got, _ := os.ReadFile(cfg); string(got) != string(written) {
+		t.Fatalf("隧道配置没读出来时不该动 voice_host：%q", got)
+	}
+	// 读出来了，隧道确实停着、没勾跟随：照常清回空（说明上面没清是因为没读出来）
+	e.tun.setLoadErr(nil)
+	voice.Running = false
+	e.tun.set(voice)
+	e.s.BeforeStart(instName)
+	if got, _ := os.ReadFile(cfg); strings.Contains(string(got), "203.0.113.7") {
+		t.Fatalf("读出来以后隧道停着，应清回空：%q", got)
 	}
 }
 

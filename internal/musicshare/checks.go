@@ -292,6 +292,13 @@ type RemoteView struct {
 }
 
 // voiceTunnels 绑定到实例、用途为语音的隧道。
+// tunnelsUnknown 隧道配置没读出来：tunnel.Manager 的 LoadErr 不为空（见 tunnel.LoadError）。
+// 接口里只要求 List，测试用的假隧道没有 LoadErr，按读出来了算。
+func (s *Service) tunnelsUnknown() bool {
+	l, ok := s.d.Tunnels.(interface{ LoadErr() error })
+	return ok && l.LoadErr() != nil
+}
+
 func (s *Service) voiceTunnels(name string) []RemoteTunnel {
 	var out []RemoteTunnel
 	if s.d.Tunnels == nil {
@@ -368,6 +375,11 @@ func (s *Service) remoteView(name string, vc VoiceConfig) RemoteView {
 // 用户自己填了别的就不覆盖（界面上让用户选）。改之前把原文件备份成 .bak。starting 为真表示马上要开服：
 // 这时勾了跟随实例启动的隧道也算数；一条能用的都没有，就把 MineDeck 上次写的地址清回空。
 func (s *Service) syncVoiceHost(name string, starting bool) {
+	// 隧道配置没读出来（tunnels.json 被占着、坏了）：这时列表是空的，不等于「没有语音隧道」，
+	// 照常往下走会把 MineDeck 上次写的地址清回空（2026-11-15 Codex 复审）。不知道就不动
+	if s.tunnelsUnknown() {
+		return
+	}
 	info, err := s.d.Instances.Info(name)
 	if err != nil {
 		return

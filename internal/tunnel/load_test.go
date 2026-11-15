@@ -76,12 +76,10 @@ func assertBlocked(t *testing.T, m *Manager, before string, corrupt bool) {
 	}
 }
 
-// 读成以后：再加一条，编号接着原文件里的往下排，重启后旧的和新的都在，旧隧道的凭据还解得开。
+// 读成以后：直接再加一条（不先问 LoadErr，新增自己就要再读一次），编号接着原文件里的往下排，
+// 重启后旧的和新的都在，旧隧道的凭据还解得开。
 func assertRecovered(t *testing.T, m *Manager) {
 	t.Helper()
-	if err := m.LoadErr(); err != nil {
-		t.Fatalf("应已恢复：%v", err)
-	}
 	a, err := m.Add(openfrpTunnel("二号"))
 	if err != nil || a.ID != "tun2" {
 		t.Fatalf("恢复以后再加应成功、编号是 tun2：%+v %v", a, err)
@@ -195,6 +193,100 @@ func TestLoadUnreadableBlocksSavesUntilReadable(t *testing.T) {
 		t.Fatal("原文件被动了")
 	}
 	assertRecovered(t, m)
+}
+
+// 程序文件夹暂时访问不了（网络盘断了、U 盘拔了）：Windows 上读文件也报「不存在」，但这不是新装。
+// 要是当成新装，文件夹一回来，下一次新增就把原文件盖掉（Codex 复审 P1）。这里把文件夹挪开再挪回来模拟。
+func TestLoadUnreachableFolderIsNotNewInstall(t *testing.T) {
+	tempBase(t)
+	fastLoadRetry(t)
+	before := seedTunnels(t)
+	real := app.Base
+	away := real + "-away"
+	if err := os.Rename(real, away); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager()
+	wantLoadError(t, m.LoadErr(), false)
+	if _, err := m.Add(openfrpTunnel("二号")); err == nil {
+		t.Fatal("程序文件夹访问不了时不该加进去")
+	}
+	if err := os.Rename(away, real); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, tunnelsPath()); got != before {
+		t.Fatal("原文件被动了")
+	}
+	assertRecovered(t, m)
+}
+
+// 解析得了、却没有 tunnels 这一项（手改时把键名改错了）：隧道和凭据还在别的键底下，按坏文件处理；
+// {} 里没有东西，照空列表算；键名大小写不同照常读（encoding/json 本来就不分大小写）。
+func TestLoadMissingTunnelsKey(t *testing.T) {
+	tempBase(t)
+	typo := `{"seq":1,"tunels":[{"id":"tun1","provider":"openfrp","name":"一号","credential":"dpapi:AAAA","proxyId":"42"}]}`
+	if err := os.WriteFile(tunnelsPath(), []byte(typo), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	assertBlocked(t, NewManager(), typo, true)
+
+	if err := os.WriteFile(tunnelsPath(), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := NewManager().LoadErr(); err != nil {
+		t.Fatalf("{} 不该挡保存：%v", err)
+	}
+
+	upper := `{"Seq":1,"Tunnels":[{"id":"tun1","provider":"custom","name":"自建","serverAddr":"1.2.3.4","serverPort":7000,"remotePort":25566,"localPort":25565}]}`
+	if err := os.WriteFile(tunnelsPath(), []byte(upper), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager()
+	if err := m.LoadErr(); err != nil || !slices.Equal(tunnelIDs(m), []string{"tun1"}) {
+		t.Fatalf("键名大小写不同应照常读：%v %v", err, tunnelIDs(m))
+	}
+}
+
+// 修好以后，修改、删除、启动各自就会再读一次、照常做，不用先有人看列表（Codex 复审建议补的）。
+func TestEachOperationRecoversOnItsOwn(t *testing.T) {
+	good := `{"seq":1,"tunnels":[{"id":"tun1","provider":"natfrp","name":"游戏","credential":"k","proxyId":"10"}]}`
+	setup := func(t *testing.T) *Manager {
+		tempBase(t)
+		if err := os.WriteFile(tunnelsPath(), []byte(good[:30]), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		m := NewManager()
+		wantLoadError(t, m.LoadErr(), true)
+		if err := os.WriteFile(tunnelsPath(), []byte(good), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	t.Run("修改", func(t *testing.T) {
+		m := setup(t)
+		if err := m.Update("tun1", Tunnel{Provider: "natfrp", Name: "改了名", Credential: "k2", ProxyID: "10"}); err != nil {
+			t.Fatal(err)
+		}
+		if disk := readFile(t, tunnelsPath()); !strings.Contains(disk, "改了名") || strings.Contains(disk, `"k2"`) {
+			t.Fatalf("修改应写进去（凭据照旧是加密的）：%s", disk)
+		}
+	})
+	t.Run("删除", func(t *testing.T) {
+		m := setup(t)
+		if err := m.Delete("tun1"); err != nil {
+			t.Fatal(err)
+		}
+		if ids := tunnelIDs(NewManager()); len(ids) != 0 {
+			t.Fatalf("删除应写进去：%v", ids)
+		}
+	})
+	t.Run("启动", func(t *testing.T) {
+		m := setup(t)
+		err := m.Start("tun1") // 这里没有樱花的 frpc：走到「首次使用需手动放置」说明已经读回来、找到了这条隧道
+		if err == nil || errors.As(err, new(*LoadError)) || !strings.Contains(err.Error(), "首次使用需手动放置樱花 frpc") {
+			t.Fatalf("启动应先读回来再去找 frpc：%v", err)
+		}
+	})
 }
 
 // 只有空白的文件（老版本覆盖写时断电留下的）：里面没有能丢的东西，按空列表算，不挡保存。

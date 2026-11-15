@@ -188,14 +188,19 @@ func (e *LoadError) Hint() string {
 }
 
 // load 读 tunnels.json，分三种情况：
-//   - 文件不在：新装，空列表是对的，照常保存；
+//   - 文件不在：新装，空列表是对的，照常保存。要程序文件夹本身看得到才算（见 reallyMissing）；
 //   - 文件在但读不出来（被占着、没权限）：记进 m.loadErr；
-//   - 读出来了但解析不了：记进 m.loadErr（Corrupt）。只有空白的文件不算：里面没有能丢的东西，按空列表处理。
+//   - 读出来了但解析不了，或者没有 tunnels 这一项：记进 m.loadErr（Corrupt）。
+//     只有空白的文件、{} 和 null 不算：里面没有能丢的东西，按空列表处理。
 //
 // m.loadErr 不为空时 m.tunnels、m.seq 不动（还是空的）。调用方持有 m.mu；NewManager 里别人还拿不到 m，不用锁。
 func (m *Manager) load() {
 	b, err := os.ReadFile(m.file())
 	if errors.Is(err, fs.ErrNotExist) {
+		if gone := m.reallyMissing(); gone != nil {
+			m.loadErr = &LoadError{Err: gone}
+			return
+		}
 		m.loadErr = nil
 		return
 	}
@@ -217,6 +222,10 @@ func (m *Manager) load() {
 	}
 	if err := json.Unmarshal(b, &data); err != nil {
 		m.loadErr = &LoadError{Corrupt: true, Err: jsonErrAt(b, err)}
+		return
+	}
+	if lacksTunnelsKey(b) {
+		m.loadErr = &LoadError{Corrupt: true, Err: errors.New(`文件里找不到 "tunnels" 这一项（键名是不是改错了）`)}
 		return
 	}
 	m.loadErr = nil
@@ -249,6 +258,45 @@ func (m *Manager) load() {
 			log.Printf("隧道凭据加密后写回失败，文件里暂时还是明文，下次保存时再写: %v", saveCause(err))
 		}
 	}
+}
+
+// reallyMissing 读 tunnels.json 报「不存在」以后再确认一次，是真的新装才返回 nil，否则返回读不出来的原因。
+// Windows 上路径里某一级不在（网络盘断了、U 盘拔了、程序文件夹暂时访问不了）也报 ErrNotExist，
+// 当成新装的话，路径一恢复，下一次保存就把原文件盖掉了（2026-11-15 Codex 复审 P1）。
+// 所以要程序文件夹本身看得到、而且再看一眼文件还是不在，才算新装；中间文件冒出来了，按「这次没读成」处理，下次再读。
+func (m *Manager) reallyMissing() error {
+	dir := filepath.Dir(m.file())
+	fi, err := os.Stat(dir)
+	if err != nil {
+		return fmt.Errorf("程序文件夹访问不了：%w", err)
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("程序文件夹的位置上不是文件夹：%s", dir)
+	}
+	_, err = os.Lstat(m.file())
+	switch {
+	case err == nil:
+		return errors.New("刚才读的时候说不存在，再看又在了，这次先不读")
+	case !errors.Is(err, fs.ErrNotExist):
+		return err
+	}
+	return nil
+}
+
+// lacksTunnelsKey 解析得了、却没有 tunnels 这一项，而且也不是空的：多半是手改时把键名改错了（比如 "tunels"），
+// 隧道和凭据还在别的键底下，当空列表存一次就没了（2026-11-15 Codex 复审）。MineDeck 自己写的文件总有这一项；
+// {} 和 null 里没有能丢的东西，照空列表算。键名按 encoding/json 的规矩不分大小写比。
+func lacksTunnelsKey(b []byte) bool {
+	var keys map[string]json.RawMessage
+	if json.Unmarshal(b, &keys) != nil || len(keys) == 0 {
+		return false
+	}
+	for k := range keys {
+		if strings.EqualFold(k, "tunnels") {
+			return false
+		}
+	}
+	return true
 }
 
 // jsonErrAt 解析报错带上大概在第几行：提示里让人用记事本修，得知道去哪儿找。
