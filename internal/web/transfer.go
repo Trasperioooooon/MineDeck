@@ -20,13 +20,64 @@ import (
 // 上传路径和整合包导入（/api/import/modpack）对称：multipart 里的 file 存进缓存目录的独立子目录，
 // 再把缓存路径交给操作层——操作层只认这个子目录。
 func (s *Server) transferRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/instances/{name}/transfer/export", func(w http.ResponseWriter, r *http.Request) {
-		s.do(w, r, "instance.transfer.export", bodyArgs(r, "inst", r.PathValue("name")))
-	})
+	mux.HandleFunc("POST /api/instances/{name}/transfer/export", s.handleTransferExport)
 	mux.HandleFunc("POST /api/transfer/upload", s.handleTransferUpload)
 	mux.HandleFunc("POST /api/transfer/import", func(w http.ResponseWriter, r *http.Request) {
 		s.do(w, r, "instance.transfer.import", bodyArgs(r))
 	})
+}
+
+// handleTransferExport 导出交接包。请求体比操作层的参数多一个 mkdir（「新建并导出」，可用性走查 R20）：
+// 导出文件夹不在时先替用户建出来，只建最后一级、上一级必须已经在（transfer.MakeExportDir）。
+// 主机路径只许本机指定（docs/API.md「主机路径仅本机可指定」）：局域网会话带 mkdir 一律 403，什么都不建。
+// mkdir 不是 instance.transfer.export 的参数，取出来以后照常交给操作层（权限、操作记录都不变）；
+// 文件夹是这次新建的、导出却没成（比如这期间有人点了启动）时，把这个空文件夹删掉，不留下一个没用的文件夹。
+func (s *Server) handleTransferExport(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	created := ""
+	rec := &statusRecorder{ResponseWriter: w}
+	s.do(rec, r, "instance.transfer.export", func() (ops.Args, error) {
+		defer r.Body.Close()
+		var m map[string]any
+		if err := decodeJSON(limitedBody(r, maxJSONBody), &m); err != nil {
+			return nil, bodyErr(err)
+		}
+		if m == nil {
+			m = map[string]any{}
+		}
+		mk, _ := m["mkdir"].(bool)
+		delete(m, "mkdir")
+		if mk {
+			if !callerOf(r).Local {
+				return nil, ops.Errorf(http.StatusForbidden, "新建导出文件夹仅支持在本机操作（远程管理时请在主机上操作）")
+			}
+			dest, _ := m["dest"].(string)
+			dir, made, err := transfer.MakeExportDir(s.mgr, name, dest)
+			if err != nil {
+				return nil, err
+			}
+			if made {
+				created = dir
+			}
+			m["dest"] = dir
+		}
+		m["inst"] = name
+		return ops.ArgsOf(m), nil
+	})
+	if created != "" && rec.code >= http.StatusBadRequest {
+		_ = os.Remove(created) // 只删得掉空文件夹：导出没开始，里面什么都没有
+	}
+}
+
+// statusRecorder 记下写回去的状态码（没调 WriteHeader 就是 200，记成 0）。
+type statusRecorder struct {
+	http.ResponseWriter
+	code int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.code = code
+	r.ResponseWriter.WriteHeader(code)
 }
 
 // handleTransferUpload 接收 .mdpack 上传（multipart），存进缓存目录后正好读个摘要给向导展示。

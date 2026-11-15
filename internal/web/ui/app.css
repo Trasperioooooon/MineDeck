@@ -1316,3 +1316,9 @@ html[data-splash="play"] .splash-word { animation: label-in var(--dur-3) var(--e
 @supports (-webkit-touch-callout: none) {
   input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]), select, textarea { font-size: 16px !important; }
 }
+
+/* beta.3 交接导出（可用性走查 R20）：「这个包给谁」两项各写一句对方导入时看到什么；找不到导出文件夹时给「新建并导出」 */
+.tr-modes .ob-radio { align-items: flex-start; }
+.tr-modes .ob-radio input { margin-top: 3px; }
+.tr-mode-note { display: block; margin-top: 2px; color: var(--muted); font-size: var(--fs-xs); line-height: 1.5; }
+.tr-mkdir-row { margin-top: 6px; }

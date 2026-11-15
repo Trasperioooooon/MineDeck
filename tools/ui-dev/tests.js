@@ -4848,6 +4848,51 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         assert(!(await page.$("#modal-root > .modal-mask:not(.leave)")), "Esc 关掉创建框");
       } finally { await dropLower(); await L2({ tunnelsReset: true, tunnelAccounts: { reset: true } }); }
     });
+
+    // ---- 交接导出（R20） ----
+    const openExport = async () => {
+      await page.goto(url("#/instances")); await settle();
+      await page.click(`.card[data-name="${PACK0}"] [data-act="more"]`);
+      await page.click('.dropmenu button:has-text("导出交接包")'); await page.waitForSelector("#tr-mask");
+    };
+    await run("beta.3 穿透与设置 R20：导出文件夹不在时给「新建并导出」，点了带 mkdir 再发一次、去任务页；上一级不在、从局域网打开时写明原因、弹窗和填的路径留着；「这个包给谁」两项各写清对方导入时看到什么", async () => {
+      await L2({ instReset: true, madeDirs: [], local: true });
+      try {
+        await openExport();
+        const notes = await page.$$eval("#tr-mask .tr-mode-note", ns => ns.map(n => n.textContent));
+        assert(notes.length === 2 && notes[0].includes("「服主交接（整台交给你）」") && notes[1].includes("「发给朋友，照着开一台」") &&
+          (await page.textContent("#tr-mask .tr-modes .hint")).includes("东西完全一样"), "这个包给谁：" + JSON.stringify(notes));
+        const NEW = "E:\\Exports\\新文件夹";
+        await page.fill("#tr-dest", NEW);
+        await page.click("#tr-go"); await settle(400);
+        const why = await page.textContent("#tr-dest-err");
+        assert(why.includes("找不到这个文件夹") && why.includes("只建最后一级") && await page.isVisible("#tr-mkdir"), "找不到时：" + why);
+        let st = await L2({});
+        assert(!st.lastTransferMkdir, "还没点「新建并导出」时不该建");
+        await page.click("#tr-mkdir"); await settle(700);
+        st = await L2({});
+        assert(st.lastTransferMkdir === NEW && st.lastTransferExport && st.lastTransferExport.mkdir === true && st.lastTransferExport.dest === NEW, "新建并导出的请求：" + JSON.stringify(st.lastTransferExport));
+        assert(page.url().endsWith("#/task/task-transfer-out") && await toastHas("已新建导出文件夹"), "新建以后去任务页：" + page.url());
+        // 上一级不在：写明原因，弹窗和填的路径留着
+        await openExport();
+        await page.fill("#tr-dest", "Z:\\没有的盘\\新文件夹");
+        await page.click("#tr-go"); await settle(400);
+        await page.click("#tr-mkdir"); await settle(400);
+        let err = await page.textContent("#tr-dest-err");
+        assert(err.includes("上一级文件夹「Z:\\没有的盘」不在") && await page.isVisible("#tr-mask") && await page.inputValue("#tr-dest") === "Z:\\没有的盘\\新文件夹", "上一级不在：" + err);
+        await page.click("#tr-cancel"); await settle(300);
+        // 从局域网打开：主机路径只许本机指定，建不了，说清楚
+        await L2({ local: false });
+        await openExport();
+        await page.fill("#tr-dest", "E:\\局域网\\新文件夹");
+        await page.click("#tr-go"); await settle(400);
+        await page.click("#tr-mkdir"); await settle(400);
+        err = await page.textContent("#tr-dest-err");
+        assert(err.includes("仅支持在本机操作") && await page.isVisible("#tr-mask"), "局域网：" + err);
+        assert(!(await L2({})).madeDirs.includes("E:\\局域网\\新文件夹"), "局域网不该建出文件夹");
+        await page.click("#tr-cancel"); await settle(300);
+      } finally { await L2({ instReset: true, madeDirs: [], local: true }); }
+    });
   }
   // ==================== beta.3 内网穿透与设置结束 ====================
 
@@ -5964,7 +6009,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.fill("#tr-dest", "Z:\\nope");
       await page.click("#tr-go"); await settle(400);
       const why = await page.textContent("#tr-dest-err");
-      assert(why.includes("导出文件夹不可用") && why.includes("找不到") && why.includes("不会替你新建") && why.includes("浏览"), "为什么不可用：" + why);
+      // beta.3 R20 起找不到的文件夹可以「新建并导出」（以前这里断言「不会替你新建」）
+      assert(why.includes("导出文件夹不可用") && why.includes("找不到") && why.includes("新建并导出") && why.includes("浏览"), "为什么不可用：" + why);
       // 提示还在时点「详情」：报错信息叠在交接弹窗上面
       await page.click('.toast.error button[aria-label="查看报错详情"]'); await page.waitForSelector(".err-detail");
       assert(JSON.stringify(await layers()) === JSON.stringify(["tr-mask", "detail"]), "叠层：" + JSON.stringify(await layers()));

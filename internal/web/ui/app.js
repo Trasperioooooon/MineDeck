@@ -1758,10 +1758,12 @@ function transferExportModal(info) {
         <div class="wc-title">${icon("warn")} 含玩家数据</div>
         <div class="wc-note">包内含玩家存档、白名单和 OP 名单（不包含运行日志）。注意：配置文件中的密码会原样打包（如 server.properties 的 RCON 密码、插件配置中的数据库密码与机器人令牌），在别处复用的密码请先修改后再交接。</div>
       </div>
-      <div class="field" style="margin-top:12px" role="radiogroup" aria-label="这个包给谁"><span>这个包给谁</span>
-        <label class="ob-radio"><input type="radio" name="tr-mode" value="handover" checked><span>交给下一任服主</span></label>
-        <label class="ob-radio"><input type="radio" name="tr-mode" value="distributable"><span>发给朋友，照着开一台</span></label>
-        <div class="hint">包里的东西一样，只是对方导入时看到的说法不同。</div>
+      <div class="field tr-modes" style="margin-top:12px" role="radiogroup" aria-label="这个包给谁"><span>这个包给谁</span>
+        <label class="ob-radio"><input type="radio" name="tr-mode" value="handover" checked><span>交给下一任服主
+          <small class="tr-mode-note">你不再开这台服务器，交给对方接着开。对方导入时，包用途写的是「服主交接（整台交给你）」。</small></span></label>
+        <label class="ob-radio"><input type="radio" name="tr-mode" value="distributable"><span>发给朋友，照着开一台
+          <small class="tr-mode-note">你自己的照样开着，对方照着开一台一样的。对方导入时，包用途写的是「发给朋友，照着开一台」。</small></span></label>
+        <div class="hint">两种包里的东西完全一样，选哪个只改对方导入时看到的这一句。拿不准就用默认的。</div>
       </div>
       <label class="switch" style="margin-top:12px"><input type="checkbox" id="tr-full"><span class="sw"></span>
         <span><span class="sw-label">完整模式</span><div class="sw-desc">把服务端核心也一起打包；不勾则对方导入时自动重新下载（包更小）</div></span></label>
@@ -1805,35 +1807,46 @@ function transferExportModal(info) {
     catch (e) { toastErr("无法选择导出文件夹", e); }
   };
   $("#tr-dest").addEventListener("input", () => { if ($("#tr-dest").classList.contains("invalid")) destErr(""); });
-  $("#tr-go").onclick = async () => {
+  /* mkdir：「新建并导出」（可用性走查 R20）。导出文件夹不在时，后端先把它建出来再导出：只建最后一级、上一级要已经在，
+     只许本机（transfer.MakeExportDir、web 的 handleTransferExport）。建不了的原因（上一级不在、是个文件、名字不能用、
+     从局域网打开）是给人看的整句，写在那一栏下面 */
+  const go = async mkdir => {
     const dest = $("#tr-dest").value.trim();
     if (dest && !/^[a-zA-Z]:[\\/]/.test(dest)) {
       destErr("请填完整的文件夹路径，或清空用默认位置");
       return;
     }
     $("#tr-go").disabled = true;
+    const mk = $("#tr-mkdir");
+    if (mk) mk.disabled = true;
     destErr(""); formErr(null);
     try {
       const r = await api(`/api/instances/${encodeURIComponent(info.name)}/transfer/export`, {
-        method: "POST", body: { full: $("#tr-full").checked, mode: (d.querySelector('input[name="tr-mode"]:checked') || {}).value || "handover", dest },
+        method: "POST", body: { full: $("#tr-full").checked, mode: (d.querySelector('input[name="tr-mode"]:checked') || {}).value || "handover", dest, ...(mkdir ? { mkdir: true } : {}) },
       });
       close();
-      toast("开始打包交接包");
+      toast(mkdir ? "已新建导出文件夹，开始打包交接包" : "开始打包交接包");
       location.hash = `#/task/${r.taskId}`;
     } catch (e) {
-      toastErr("无法导出交接包", e);
+      toastErr(mkdir ? "无法新建导出文件夹" : "无法导出交接包", e);
       if (closed) return;
       $("#tr-go").disabled = false;
-      // 导出文件夹的问题写在那一栏下面，并说清为什么不可用：后端只在「这个位置不存在、或者不是文件夹」时这么说
-      //（internal/transfer/export.go），不会替人新建；没填（用默认位置）时是默认位置建不起来
-      if (/导出(?:目录|文件夹)不可用/.test(e.message)) {
-        destErr(dest ? "导出文件夹不可用：这个位置找不到，或者它不是一个文件夹。MineDeck 不会替你新建，先在资源管理器里建好，或者点「浏览…」选一个已有的文件夹。"
+      // 导出文件夹的问题写在那一栏下面，并说清为什么不可用（internal/transfer/export.go）：
+      // 找不到这个文件夹时给「新建并导出」；是个文件、打不开时让人另选；没填（用默认位置）时是默认位置建不起来
+      if (mkdir) destErr(esc(e.message));
+      else if (dest && e.message.includes("找不到这个文件夹")) {
+        destErr(`导出文件夹不可用：找不到这个文件夹。点「新建并导出」由 MineDeck 建好它再导出（只建最后一级，上一级文件夹要已经在），或者点「浏览…」选一个已有的文件夹。
+          <div class="tr-mkdir-row"><button type="button" class="btn sm" id="tr-mkdir">${icon("folder")} 新建并导出</button></div>`);
+        $("#tr-mkdir").onclick = () => go(true);
+      } else if (/导出(?:目录|文件夹)不可用/.test(e.message)) {
+        destErr(dest ? "导出文件夹不可用：这个位置不是一个文件夹，或者打不开。点「浏览…」另选一个文件夹，原因看「详情」。"
           : "导出文件夹不可用：默认位置（程序数据文件夹里的 cache\\transfer）建不起来。点「浏览…」另选一个文件夹，原因看「详情」。");
-        if (!dest) formErr(e);
+        formErr(e);
       } else if (/导出(?:目录|文件夹)不能放在/.test(e.message)) destErr(esc(e.message));
       else formErr(e);
     }
   };
+  $("#tr-go").onclick = () => go(false);
 }
 
 /* 导入交接包向导：选 .mdpack → 上传（顺便出摘要）→ 摘要展示 + 填名称 / 内存 / 端口 / EULA → 后台导入 */

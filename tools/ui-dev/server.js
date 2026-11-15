@@ -2252,6 +2252,8 @@ function handler(state, ui, portOf) {
     //   local: false 模拟从局域网打开（/api/app 的 Webhook 地址只给开头，原样传回算没改）；webhookUrl: 直接改存着的 Webhook 地址
     //   credBroken: 隧道编号（如 "t2"），模拟这条隧道的凭据解不开；空串还原
     //   pickDir: 下一次系统文件夹选择框选到的文件夹（空串 = 点了取消，null 还原成 E:\MCServers）
+    //   导出交接包：dest 是 Z 盘开头的、以「\新文件夹」结尾又没建过的算不在；带 mkdir 的「新建并导出」记进响应里的 lastTransferMkdir，
+    //     建过的记在 madeDirs（madeDirs: [] 清掉）
     //   tunnel 的 noLog: true 这条隧道还没有任何日志输出（日志接口什么也不推）；修改隧道（PUT）同后端拦网页端口、凭据留空时沿用存着的那份
     //   tunnels: [...] 把隧道整份换掉（空数组 = 一条都没有）
     //   tunnel: { id, …字段 } 改某条隧道（running、lastError、publicAddr，以及仿真用的 startError：点「启动」时报这个错、
@@ -2287,6 +2289,7 @@ function handler(state, ui, portOf) {
       if ("adoptScan" in b) state.adoptScan = b.adoptScan; // 接管：下一次识别返回的结果（null 还原成默认的 NeoForge 整合包）
       if ("commands" in b) state.commands = b.commands || []; // 发过的控制台命令（见 POST …/command），传空数组清掉
       if ("portBusy" in b) state.portBusy = b.portBusy; // 交接包向导：端口号等于这个值的端口查询按「被占用」回
+      if (Array.isArray(b.madeDirs)) { state.madeDirs = b.madeDirs; state.lastTransferMkdir = null; }
       if ("pickDir" in b) state.pickDir = b.pickDir === null ? undefined : b.pickDir; // 系统文件夹选择框选到哪个（空串 = 点了取消；null 还原成 E:\MCServers）
       if (b.instReset) { const fresh = newState(ui); state.instances = fresh.instances; state.lastAdopt = state.lastJava = state.lastDelete = null; }
       if ("listenLan" in b) { state.config.listenLan = state.lanActive = !!b.listenLan; if (b.listenLan) state.lanSet = true; }
@@ -2620,8 +2623,15 @@ function handler(state, ui, portOf) {
         if (sub === "transfer" && seg[5] === "export" && m === "POST") {
           if (i.status !== "stopped") return err(res, 400, "交接前请先停止服务器（运行中打包会不完整）");
           const b = await readBody(req);
-          // 同 transfer/export.go：填的导出位置不存在或不是文件夹。仿真里 Z 盘开头的都算不存在
-          if (/^Z:/i.test(String(b.dest || "").trim())) return err(res, 400, "导出文件夹不可用: " + String(b.dest).trim());
+          // 同 transfer/export.go：填的导出位置不在。仿真里 Z 盘开头的、以「\新文件夹」结尾又还没建过的都算不在
+          const dest = String(b.dest || "").trim();
+          const missing = /^Z:/i.test(dest) || (/\\新文件夹$/.test(dest) && !(state.madeDirs || []).includes(dest));
+          // mkdir（「新建并导出」，同 web.handleTransferExport + transfer.MakeExportDir）：只许本机；只建最后一级，上一级要在（Z 盘不在）
+          if (b.mkdir) {
+            if (!state.local) return err(res, 403, "新建导出文件夹仅支持在本机操作（远程管理时请在主机上操作）");
+            if (/^Z:/i.test(dest)) return err(res, 400, `上一级文件夹「${dest.slice(0, dest.lastIndexOf("\\")) || dest}」不在。MineDeck 只新建最后一级，请检查路径有没有打错，或者点「浏览…」选一个已有的文件夹`);
+            if (missing) { (state.madeDirs || (state.madeDirs = [])).push(dest); state.lastTransferMkdir = dest; }
+          } else if (missing) return err(res, 400, "导出文件夹不可用（找不到这个文件夹）: " + dest);
           state.lastTransferExport = { inst: name, ...b };
           return ok(res, { taskId: "task-transfer-out" });
         }
