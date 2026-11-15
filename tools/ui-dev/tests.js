@@ -3608,14 +3608,16 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       const saves = (await axTree()).filter(n => n.role === "button" && n.name.startsWith("保存")).map(n => n.name).sort();
       const want = ["保存触发前缀", "保存别名", "保存每人冷却", "保存每人每天", "保存全服每天", "保存全服每天的 token", "保存自定义正则"].sort();
       assert(JSON.stringify(saves) === JSON.stringify(want), "游戏内 AI 的保存按钮：" + saves.join("、"));
-      // 资源页
-      await page.goto(url("#/inst/" + inst + "/res")); await settle(400);
-      await page.click("#res-go"); await settle(500);
-      const titles = await page.$$eval("[data-rt]", bs => bs.map(b => b.dataset.rt));
-      const installs = (await axTree()).filter(n => n.role === "button" && n.name.startsWith("安装")).map(n => n.name);
-      assert(titles.length === 3 && JSON.stringify(installs) === JSON.stringify(titles.map(t => "安装 " + t)), "安装按钮的名字：" + installs.join("、"));
-      await byName("button", "安装 Chunky").click(); await settle(400);
-      assert(await byName("button", "已安装 Chunky").count() === 1, "装好后名字应跟着按钮上的字变成「已安装 Chunky」");
+      // 插件页（beta.3 R10：「资源」标签合进了插件 / 模组页，它的「安装」换成待装清单的「加入清单」）：
+      // 已安装那几行的停用 / 启用、删除带文件名；热门里每个按钮带插件名，装过的叫「已安装 X」，加进清单以后跟着变成「已在清单 X」
+      await page.goto(url("#/inst/" + inst + "/addons")); await page.waitForSelector("#mc-hits .mc-hit"); await settle(600);
+      const files = await page.$$eval(".ad-item", rs => rs.map(r => r.dataset.file));
+      for (const f of files) assert(await byName("button", "删除 " + f).count() === 1, "删除按钮的名字没带文件名：" + f);
+      const titles = await page.$$eval(".mc-add", bs => bs.map(b => b.dataset.t));
+      const adds = (await axTree()).filter(n => n.role === "button" && /^(加入清单|已安装|已在清单) /.test(n.name)).map(n => n.name);
+      assert(titles.length > 3 && adds.length === titles.length && new Set(adds).size === adds.length && adds.includes("已安装 LuckPerms"), "热门里按钮的名字：" + adds.slice(0, 6).join("、"));
+      await byName("button", "加入清单 Vault").click(); await settle(500);
+      assert(await byName("button", "已在清单 Vault").count() === 1, "加进清单以后名字应跟着按钮上的字变成「已在清单 Vault」");
     } finally { await resetGC(); }
   });
 
@@ -3940,9 +3942,10 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ modsNeed: { "机械动力整合包": 25 } }) }));
     await page.goto(url("#/inst/" + encodeURIComponent("机械动力整合包"))); await settle(600);
     const hint = await page.textContent("#d-java-hint").catch(() => "");
-    assert(hint.includes("Java 25") && hint.includes("Java 17") && hint.includes("内存 / 启动"), "应提示模组要求与现状：" + hint);
+    // beta.3 R06：「内存 / 启动」成了「设置 → 启动与内存」，地址是 settings/jvm
+    assert(hint.includes("Java 25") && hint.includes("Java 17") && hint.includes("「设置 → 启动与内存」"), "应提示模组要求与现状：" + hint);
     await page.click("#d-java-hint a"); await settle();
-    assert(page.url().includes("/jvm"), "入口应到「内存 / 启动」：" + page.url());
+    assert(page.url().includes("/settings/jvm"), "入口应到「设置 → 启动与内存」：" + page.url());
     // 没有声明要求的实例不显示
     await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ modsNeed: {} }) }));
     await page.goto(url("#/inst/" + encodeURIComponent("生存服 · 朋友"))); await settle(600);
@@ -4540,8 +4543,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       let g = await geo();
       assert(g.sideLeft >= g.browseRight && g.sideW === 360 && g.pos === "sticky", "1280 宽应是两栏、右栏 360px：" + JSON.stringify(g));
       assert(g.overflowX <= 0 && g.pageOverflowX <= 0, "1280 宽不该有横向滚动：" + JSON.stringify(g));
-      // 往下滚：左边的列表滚走了，右栏还贴在内容区顶上
-      await page.evaluate(() => { $("#main").scrollTop = 600; }); await settle(150);
+      // 往下滚：左边的列表滚走了，右栏还贴在内容区顶上。beta.3 R10 起清单上面多了「已安装」那一块，滚到清单开头再往下 400
+      await page.evaluate(() => { $("#main").scrollTop = $(".mc-wrap").getBoundingClientRect().top - $("#main").getBoundingClientRect().top + $("#main").scrollTop + 400; }); await settle(150);
       g = await geo();
       assert(g.sideTop >= g.mainTop && g.sideTop <= g.mainTop + 40, "往下滚的时候右栏应吸顶：" + JSON.stringify(g));
       const visible = await page.evaluate(() => { const r = $("#mc-local-pick").getBoundingClientRect(); return r.top >= 0 && r.bottom <= window.innerHeight; });
@@ -4799,8 +4802,10 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       // 待装清单接文件的地方照旧接得住：那边自己接下（copy），这里不改成不能放，drop 照常发给它
       await w.p.goto(url(packCart));
       await w.p.waitForSelector("#mc-local-pick");
+      await w.p.locator("#mc-side").scrollIntoViewIfNeeded(); // beta.3 R10 起清单上面多了「已安装」，一进来清单可能在可视区下面
       const cart = await w.drag("#mc-side", FILE);
-      assert(cart.includes("dragover:true:copy") && cart.some(x => x.startsWith("drop:true")) && decodeURIComponent(w.p.url()).includes(PACK + "/cart"),
+      // 旧地址 cart 原地换成了 addons（R06）
+      assert(cart.includes("dragover:true:copy") && cart.some(x => x.startsWith("drop:true")) && decodeURIComponent(w.p.url()).includes(PACK + "/addons"),
         "待装清单应照旧接住拖进来的文件：" + JSON.stringify({ cart, url: w.p.url() }));
     } finally { await w.c.close(); }
     const lan = await open(false);
@@ -4913,7 +4918,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert((await page.$eval("#wi-task-title", el => el.textContent)).includes(NAME) && st.world.discards.length === 0, "任务标题或提前清了检测结果：" + JSON.stringify(st.world.discards));
       // 切到别的标签再回来：接着看同一个任务，检测结果还在
       await page.click('.tabs .tab[data-t="console"]'); await page.waitForSelector("#console");
-      await page.click('.tabs .tab[data-t="world"]'); await page.waitForSelector("#wi-task");
+      // beta.3 R06：「地图」成了「世界与备份」下的「换地图」子页，点标签进的是「备份」，再点子页
+      await page.click('.tabs .tab[data-t="world"]'); await page.click('.sub-tabs .tab[data-t="map"]'); await page.waitForSelector("#wi-task");
       // 开始停服、换地图以后不能取消
       await page.waitForSelector("#wi-task-acts .warn-text", { timeout: 15000 });
       assert(!(await page.$("#wi-cancel")) && (await page.$eval("#wi-task-acts", el => el.textContent)).includes("不能取消"), "换地图阶段不该还有取消键");
@@ -5890,7 +5896,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         await dState({ inst: { name: PACK0, core: "mohist" } });
         await open(PACK0, "addons");
         t = await tabsNow();
-        assert(t.tabs[3] === "addons:插件和模组" && (await page.textContent("#ad-h")) === "已安装的插件和模组", "Mohist：" + JSON.stringify(t));
+        assert(t.tabs[3] === "addons:插件和模组" && (await page.textContent("#ad-h")) === "已安装的模组" && (await page.textContent("#ad-note")).includes("plugins 文件夹里的插件没有列在这里"),
+          "Mohist（标签叫插件和模组，已安装只列 mods 文件夹）：" + JSON.stringify(t) + await page.textContent("#ad-h"));
       } finally { await dState({ instReset: true }); }
     });
 
@@ -6017,7 +6024,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         await open(SURV, "addons");
         const v = await page.evaluate(() => ({ h: $("#ad-h").textContent, count: $("#ad-count").textContent, rows: [...document.querySelectorAll(".ad-item")].map(r => r.dataset.file + (r.classList.contains("off") ? "(停用)" : "")),
           stop: !$("#ad-need-stop").hidden, dis: [...document.querySelectorAll("[data-ad-toggle], [data-ad-del]")].every(b => b.disabled), add: $(".ad-add-h").textContent }));
-        assert(v.h === "已安装的插件" && v.count === "共 3 个，1 个已停用" && v.add === "添加插件" && JSON.stringify(v.rows) === JSON.stringify(["EssentialsX-2.20.1.jar", "LuckPerms-Bukkit-5.4.137.jar", "Chunky-1.4.10.jar.disabled(停用)"]),
+        assert(v.h === "已安装的插件" && v.count === "plugins 文件夹里共 3 个，1 个已停用" && v.add === "添加插件" && JSON.stringify(v.rows) === JSON.stringify(["EssentialsX-2.20.1.jar", "LuckPerms-Bukkit-5.4.137.jar", "Chunky-1.4.10.jar.disabled(停用)"]),
           "已安装列表：" + JSON.stringify(v));
         assert(v.stop && v.dis, "运行中应点不了并写明要先停服：" + JSON.stringify(v));
         // 热门清单里：LuckPerms 按模组 ID 认出来，EssentialsX 按文件内容在 Modrinth 上认出来（projects=1）；停用的 Chunky 不算已安装
@@ -6033,6 +6040,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         st = await dState({});
         assert(JSON.stringify(st.modOps) === JSON.stringify([{ inst: SURV, act: "toggle", file: "EssentialsX-2.20.1.jar", enable: false }]) && await toastHas("已停用 EssentialsX-2.20.1.jar"), "停用的请求：" + JSON.stringify(st.modOps));
         assert(await page.$eval('[data-file="EssentialsX-2.20.1.jar.disabled"]', r => r.classList.contains("off")), "停用以后列表里标成停用");
+        assert(await page.$eval('.mc-add[data-pid="essentialsx"]', b => !b.disabled && b.textContent.includes("加入清单")), "停用以后热门里不该再标已安装");
         await byName("button", "启用 Chunky-1.4.10.jar.disabled").click(); await settle(500);
         st = await dState({});
         assert(st.modOps[1].file === "Chunky-1.4.10.jar.disabled" && st.modOps[1].enable === true, "启用的请求：" + JSON.stringify(st.modOps[1]));
