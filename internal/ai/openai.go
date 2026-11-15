@@ -221,6 +221,34 @@ type oaiAcc struct {
 	finish    string
 	usage     *oaiUsage
 	err       error
+	meter     *contentMeter // 流式时逐块记内容；nil 不记（不流式时整条先记过了）
+}
+
+// argText 工具参数的这一段：通常是 JSON 字符串；有的服务商直接给对象。
+func argText(raw json.RawMessage) string {
+	frag := rawText(raw)
+	if frag == "" && len(raw) > 0 && raw[0] == '{' {
+		frag = string(raw)
+	}
+	return frag
+}
+
+// size 一条消息（不流式）或一块增量要记入内容的字节数：思考、正文，工具调用的编号、名字和参数。
+func (d *oaiMsg) size() int {
+	n := len(rawText(d.ReasoningContent)) + len(rawText(d.Reasoning)) + len(rawText(d.Content))
+	for _, tc := range d.ToolCalls {
+		n += len(tc.ID) + len(tc.Function.Name) + len(argText(tc.Function.Arguments))
+	}
+	return n
+}
+
+// take 记入内容；超限时记下错误，调用方不再把这一块交出去。
+func (a *oaiAcc) take(n int) bool {
+	if a.meter.take(n) {
+		return true
+	}
+	a.err = ErrResponseTooLarge
+	return false
 }
 
 func (a *oaiAcc) addCalls(tcs []oaiToolCall) {
@@ -235,23 +263,31 @@ func (a *oaiAcc) addCalls(tcs []oaiToolCall) {
 				a.err = ErrResponseTooLarge
 				return
 			}
+			if !a.take(len(tc.ID) + len(tc.Function.Name)) {
+				return
+			}
 			cur = &oaiCall{id: tc.ID, name: tc.Function.Name}
 			a.byIndex[idx] = cur
 			a.calls = append(a.calls, cur)
 			a.emit(Event{Type: EvToolStart, Index: len(a.calls) - 1, Tool: &ToolCall{ID: cur.id, Name: cur.name}})
 		} else {
-			if cur.id == "" {
+			if cur.id == "" && tc.ID != "" {
+				if !a.take(len(tc.ID)) {
+					return
+				}
 				cur.id = tc.ID
 			}
-			if cur.name == "" {
+			if cur.name == "" && tc.Function.Name != "" {
+				if !a.take(len(tc.Function.Name)) {
+					return
+				}
 				cur.name = tc.Function.Name
 			}
 		}
-		frag := rawText(tc.Function.Arguments)
-		if frag == "" && len(tc.Function.Arguments) > 0 && tc.Function.Arguments[0] == '{' {
-			frag = string(tc.Function.Arguments) // 有的服务商直接给对象
-		}
-		if frag != "" {
+		if frag := argText(tc.Function.Arguments); frag != "" {
+			if !a.take(len(frag)) {
+				return
+			}
 			cur.args.WriteString(frag)
 			a.emit(Event{Type: EvToolDelta, Index: a.indexOf(cur), Text: frag})
 		}
@@ -274,10 +310,16 @@ func (a *oaiAcc) addChoice(ch oaiChoice) {
 	}
 	if d != nil {
 		if s := rawText(d.ReasoningContent) + rawText(d.Reasoning); s != "" {
+			if !a.take(len(s)) {
+				return
+			}
 			a.reasoning.WriteString(s)
 			a.emit(Event{Type: EvReasoning, Text: s})
 		}
 		if s := rawText(d.Content); s != "" {
+			if !a.take(len(s)) {
+				return
+			}
 			a.text.WriteString(s)
 			a.emit(Event{Type: EvText, Text: s})
 		}
@@ -424,7 +466,8 @@ func (c *Client) openaiOnce(ctx context.Context, conv *Conversation, emit func(E
 		return nil, err
 	}
 	defer resp.Body.Close()
-	reader := c.responseReader(ctx, kickReader{resp.Body, dog})
+	reader := c.rawReader(kickReader{resp.Body, dog})
+	meter := c.contentMeter(ctx)
 	acc := &oaiAcc{c: c, emit: emit, byIndex: map[int]*oaiCall{}}
 
 	if !c.cfg.Stream {
@@ -442,6 +485,15 @@ func (c *Client) openaiOnce(ctx context.Context, conv *Conversation, emit func(E
 		if len(r.Choices) == 0 {
 			return nil, errors.New("服务商返回的内容看不懂：没有 choices")
 		}
+		// 整条消息一次记账，超了什么都不交出去（同原始字节超限时：还没有任何输出）
+		if d := r.Choices[0].Message; d != nil || r.Choices[0].Delta != nil {
+			if d == nil {
+				d = r.Choices[0].Delta
+			}
+			if !meter.take(d.size()) {
+				return nil, ErrResponseTooLarge
+			}
+		}
 		acc.model = r.Model
 		acc.addChoice(r.Choices[0])
 		if acc.err != nil {
@@ -453,6 +505,7 @@ func (c *Client) openaiOnce(ctx context.Context, conv *Conversation, emit func(E
 		return acc.result(false, len(body)), nil
 	}
 
+	acc.meter = meter
 	sr := newSSEReader(reader)
 	got := false // 收到过内容（文字、思考、工具调用）
 	done := false
@@ -491,10 +544,17 @@ func (c *Client) openaiOnce(ctx context.Context, conv *Conversation, emit func(E
 		}
 		for _, ch := range chunk.Choices {
 			acc.addChoice(ch)
+			got = got || acc.text.Len() > 0 || acc.reasoning.Len() > 0 || len(acc.calls) > 0
 			if acc.err != nil {
+				// 内容超限和原始字节超限一样收尾：开始输出以后算中途断开（交回已收的部分），之前就是一个错误
+				if meter.over() {
+					if got {
+						return acc.result(true, len(body)), fmt.Errorf("%w：%w", ErrDisconnected, acc.err)
+					}
+					return nil, acc.err
+				}
 				return acc.result(true, len(body)), acc.err
 			}
-			got = got || acc.text.Len() > 0 || acc.reasoning.Len() > 0 || len(acc.calls) > 0
 		}
 		if chunk.Usage != nil {
 			acc.setUsage(chunk.Usage)

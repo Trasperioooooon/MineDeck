@@ -29,6 +29,8 @@ func TestSSEEventBudgetCountsAllLines(t *testing.T) {
 	}
 }
 
+// 原始字节（单次）和内容（单次、整轮共用）各自「正好到上限不算超、多一个字节就停」。
+// 整轮额度从 2026-11-15 起按内容计（复审发现 7），共用额度的那一半从原始字节的读取器挪到了内容记账上，断言不变。
 func TestResponseBudgetExactLimitAndSharedReads(t *testing.T) {
 	for _, tc := range []struct {
 		data string
@@ -42,13 +44,17 @@ func TestResponseBudgetExactLimitAndSharedReads(t *testing.T) {
 		if !tc.over && string(b) != tc.data {
 			t.Fatal("正好到上限的响应被截断")
 		}
+		m := &contentMeter{left: 5}
+		if ok := m.take(len(tc.data)); ok == tc.over {
+			t.Fatalf("内容 %q：take=%v", tc.data, ok)
+		}
 	}
 	budget := &responseBudget{left: 5}
-	if _, err := io.ReadAll(&responseReader{r: strings.NewReader("123"), left: 10, turn: budget}); err != nil {
-		t.Fatal(err)
+	if !(&contentMeter{left: 10, turn: budget}).take(3) {
+		t.Fatal("第一个回复在额度以内")
 	}
-	if _, err := io.ReadAll(&responseReader{r: strings.NewReader("456"), left: 10, turn: budget}); !errors.Is(err, ErrResponseTooLarge) {
-		t.Fatalf("第二个响应应共用额度：%v", err)
+	if (&contentMeter{left: 10, turn: budget}).take(3) {
+		t.Fatal("第二个回复应共用一轮的额度")
 	}
 }
 
@@ -56,8 +62,8 @@ func TestResponseBudgetSurvivesConfirmationAndHasSafeBounds(t *testing.T) {
 	ctx := ResumeResponseBudget(context.Background(), maxTurnResponseBytes-3)
 	ctx = WithResponseBudget(ctx)
 	b, _ := ctx.Value(responseBudgetKey{}).(*responseBudget)
-	if _, err := io.ReadAll(&responseReader{r: strings.NewReader("12"), left: 10, turn: b}); err != nil {
-		t.Fatal(err)
+	if !(&contentMeter{left: 10, turn: b}).take(len("12")) {
+		t.Fatal("额度以内的内容被拒")
 	}
 	received := ResponseBytes(ctx)
 	if received != maxTurnResponseBytes-1 {
@@ -65,8 +71,8 @@ func TestResponseBudgetSurvivesConfirmationAndHasSafeBounds(t *testing.T) {
 	}
 	resumed := ResumeResponseBudget(context.Background(), received)
 	b, _ = resumed.Value(responseBudgetKey{}).(*responseBudget)
-	if _, err := io.ReadAll(&responseReader{r: strings.NewReader("34"), left: 10, turn: b}); !errors.Is(err, ErrResponseTooLarge) {
-		t.Fatalf("人工确认后不能重置一轮额度：%v", err)
+	if (&contentMeter{left: 10, turn: b}).take(len("34")) {
+		t.Fatal("人工确认后不能重置一轮额度")
 	}
 	if !responseBudgetSpent(ResumeResponseBudget(context.Background(), 1<<62)) {
 		t.Fatal("过大的已用数量不能溢出绕过额度")
@@ -178,10 +184,13 @@ func TestBothProvidersStopGrowingStreamWithoutRetry(t *testing.T) {
 	}
 }
 
+// 保活无限增长（流式）只涨原始字节，靠原始字节的上限停；不流式的整段响应两道上限都要挡得住。
+// 2026-11-15 起内容和原始字节分成两个上限（复审发现 7）：原来只调一个 responseLimit，现在按情况调对应的那个，断言不变。
 func TestBothProvidersBoundBodiesBeforeAnyOutput(t *testing.T) {
 	for _, protocol := range []Protocol{OpenAI, Anthropic} {
-		for _, stream := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/stream=%v", protocol, stream), func(t *testing.T) {
+		for _, knob := range []string{"stream/raw", "body/raw", "body/content"} {
+			stream := knob == "stream/raw"
+			t.Run(fmt.Sprintf("%s/%s", protocol, knob), func(t *testing.T) {
 				f := newFake(t, func(_ int, _ recorded, w http.ResponseWriter) {
 					if stream {
 						_, _ = io.WriteString(w, strings.Repeat(": keep-alive\n\n", 1000))
@@ -194,7 +203,11 @@ func TestBothProvidersBoundBodiesBeforeAnyOutput(t *testing.T) {
 					}
 				})
 				c, v := limitClient(t, protocol, stream, f)
-				c.responseLimit = 128
+				if strings.HasSuffix(knob, "/raw") {
+					c.rawLimit = 128
+				} else {
+					c.responseLimit = 128
+				}
 				emitted := false
 				_, err := c.Chat(context.Background(), v, func(e Event) {
 					if e.Type == EvText || e.Type == EvReasoning || e.Type == EvToolDone {
@@ -209,11 +222,12 @@ func TestBothProvidersBoundBodiesBeforeAnyOutput(t *testing.T) {
 	}
 }
 
+// 整轮额度从 2026-11-15 起按内容计（复审发现 7）：额度从「两份响应原文减一个字节」换成「两份正文减一个字节」，断言不变。
 func TestChatSharesBudgetAcrossToolRounds(t *testing.T) {
 	const reply = `{"model":"m","choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`
 	f := newFake(t, func(_ int, _ recorded, w http.ResponseWriter) { _, _ = io.WriteString(w, reply) })
 	c, v := limitClient(t, OpenAI, false, f)
-	ctx := context.WithValue(context.Background(), responseBudgetKey{}, &responseBudget{left: int64(len(reply)*2 - 1)})
+	ctx := context.WithValue(context.Background(), responseBudgetKey{}, &responseBudget{left: int64(len("ok")*2 - 1)})
 	res, err := c.Chat(ctx, v, nil)
 	if err != nil {
 		t.Fatal(err)

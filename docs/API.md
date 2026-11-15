@@ -179,7 +179,7 @@ AI 是可选功能。没配置时（`enabled` 为 false）MineDeck 不连接任�
 | POST | `/api/ai/prices/refresh` | 马上重新下载公开价格（**联网**）。没配置 AI 或只配了本机模型时返回 400，下载失败返回 502。**仅本机** |
 
 - **Key**：用 Windows DPAPI 加密，存进程序目录的 `secrets.json`，键名是 `ai.key`。任何响应都不返回 Key，操作记录里写成 `***`。`keyBroken` 为 true 表示已存的 Key 解不开，多半是换了电脑或 Windows 用户，需要重填。自定义预设可以不填 Key（有的中转和本机服务不要 Key）。
-- **回复总量**：OpenAI/Claude 两协议每次响应最多接收 8 MiB，同一轮（含工具往返、服务商回退和人工确认后继续）合计 32 MiB；SSE 单事件最多 4 MiB、单响应最多 65,536 个事件。工具调用最多 128 个、Claude 内容块最多 1,024 个。超限停止，不自动重试，也不执行未完成的工具调用。助手 Markdown 在解析前限制为 128 Ki 个 UTF-16 字符，超出部分明确提示省略。
+- **回复总量**：OpenAI/Claude 两协议按解码后的内容计（正文、思考、工具调用的参数，连同工具的编号和名字、Claude 思考块的签名和内容块的骨架），每次回复最多 8 MiB，同一轮（含工具往返、服务商回退和人工确认后继续）合计 32 MiB。事件流的原始字节（每个事件的外壳、保活、看不懂的块都算）另有兜底：流式每次响应最多 128 MiB，不流式的整段响应最多 32 MiB；SSE 单事件最多 4 MiB、单响应最多 1,048,576 个事件。逐词元推送时外壳比内容大得多，碰到的会是原始字节的兜底，按每个事件六百字节算也能收二十多万个词元。工具调用最多 128 个、Claude 内容块最多 1,024 个。超限停止，不自动重试，也不执行未完成的工具调用；已经开始输出的，交回已收到的部分并标成未完成。助手 Markdown 在解析前限制为 128 Ki 个 UTF-16 字符，超出部分明确提示省略。
 - **Claude 的两个开关**：`provider.eager` 和 `provider.fallback` 只读，表示流式时工具参数是否边生成边推（`eager_input_streaming`），以及是否开启服务端回退。官方地址默认都开。自定义地址走 Claude 协议时，两项默认都关，测试连接时试一下，能用才打开，结果存进设置。请求被服务商以「不认识的参数」拒绝时也会自动关掉重发。
 - **用量**：`today` / `month` 按功能分开给，功能有 `assistant`、`gamechat`、`companion`。每项的字段是 `{requests, input, output, cacheRead, cacheWrite, reasoning, tokens, estimated?, unpriced?, cost?}`：
   - `input` 不含缓存命中和缓存写入；`reasoning` 已经算在 `output` 里。
