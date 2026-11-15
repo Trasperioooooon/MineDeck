@@ -8,15 +8,16 @@ import (
 )
 
 type backupArgs struct {
-	Inst  string `json:"inst"`
-	File  string `json:"file"`
-	Label string `json:"label"`
+	Inst      string `json:"inst"`
+	File      string `json:"file"`
+	Label     string `json:"label"`
+	StopFirst bool   `json:"stopFirst"`
 }
 
 func (c *cat) backupOps() {
 	c.reg.Register(&ops.Op{
 		Name: "instance.backups.list", Title: "查看备份列表", Level: ops.Read,
-		Desc:   "实例的全部备份（文件名、大小、时间），新的在前。",
+		Desc:   "实例的全部备份（文件名、大小、时间，做备份时填了标签的带 label），新的在前。",
 		Params: withInst(nil),
 		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[instArgs](a)
@@ -56,24 +57,41 @@ func (c *cat) backupOps() {
 
 	c.reg.Register(&ops.Op{
 		Name: "instance.backup.restore", Title: "还原备份", Level: ops.Danger,
-		Desc:   "用备份覆盖当前世界。服务器必须已停止；还原前自动再备份一次当前世界。",
-		Params: withInst(map[string]*ops.Schema{"file": ops.String("备份文件名（见 instance.backups.list）")}, "file"),
+		Desc: "用备份覆盖当前世界。服务器必须已停止；stopFirst 为 true 时先保存世界并停止（最多等 40 秒），停下来以后再还原。" +
+			"还原前自动再备份一次当前世界。",
+		Params: withInst(map[string]*ops.Schema{
+			"file":      ops.String("备份文件名（见 instance.backups.list）"),
+			"stopFirst": ops.Boolean("服务器在运行时先停下来再还原（「停止并还原」）"),
+		}, "file"),
 		Preview: func(_ context.Context, _ ops.Caller, a ops.Args) (*ops.Plan, error) {
 			p, err := bind[backupArgs](a)
 			if err != nil {
 				return nil, err
 			}
-			_, pre, err := c.statusPre(p.Inst)
+			i, pre, err := c.statusPre(p.Inst)
 			if err != nil {
 				return nil, err
 			}
-			return &ops.Plan{Summary: fmt.Sprintf("把「%s」的世界还原到备份 %s", p.Inst, p.File),
-				Warning: "当前世界会被备份覆盖（还原前会自动再备份一次）", Pre: pre}, nil
+			plan := &ops.Plan{Summary: fmt.Sprintf("把「%s」的世界还原到备份 %s", p.Inst, p.File),
+				Warning: "当前世界会被备份覆盖（还原前会自动再备份一次）", Pre: pre}
+			if p.StopFirst && i.Status() != "stopped" {
+				plan.Summary = fmt.Sprintf("停止「%s」，再把世界还原到备份 %s", p.Inst, p.File)
+				if i.OnlineCount() > 0 {
+					plan.Warning = onlineWarning(i, "停止") + "；" + plan.Warning
+				}
+			}
+			return plan, nil
 		},
 		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[backupArgs](a)
 			if err != nil {
 				return nil, err
+			}
+			// 「停止并还原」（可用性走查 R11）：一次确认做完，先停、等停下、再还原。停不下来就不还原
+			if p.StopFirst {
+				if err := c.Mgr.StopWait(p.Inst, "没有还原"); err != nil {
+					return nil, err
+				}
 			}
 			if err := c.Mgr.RestoreBackup(p.Inst, p.File); err != nil {
 				return nil, err

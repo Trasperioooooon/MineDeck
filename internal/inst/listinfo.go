@@ -102,3 +102,18 @@ func (i *Instance) MineDeckFiles() []string {
 	}
 	return out
 }
+
+// JavaMissing 这台服务器配的 java.exe 现在找不到了（被卸载、挪走，或者便携版的文件夹被删了）：
+// 卡片和详情页头据此常驻一条警告，「设置 → 启动与内存」的 Java 下拉里把它标成「找不到」（可用性走查 R21）。
+// 只看文件在不在，不跑它；路径是空的也算找不到（启动时同样会报「找不到 Java」）。
+func (i *Instance) JavaMissing() bool {
+	_, path := i.JavaSnapshot()
+	if strings.TrimSpace(path) == "" {
+		return true
+	}
+	st, err := os.Stat(path)
+	return err != nil || st.IsDir()
+}
+
+// BackupDir 这台服务器的新备份放在哪个文件夹（当前备份根下面）。还没备份过的话文件夹可能还不存在。
+func (i *Instance) BackupDir() string { return backupDirOf(i.Name) }

@@ -66,6 +66,8 @@ func TestLevelsFollowDesign(t *testing.T) {
 			"instance.restart"},
 		ops.HumanOnly: {"app.config.set", "app.shutdown", "app.update.apply", "host.pickdir", "host.openpath", "instance.import", "task.cancel",
 			"instance.delete", "instance.opendir", "instance.backup.delete", "java.add", "tunnel.add", "tunnel.update", "tunnel.delete",
+			// beta.3 R10：插件 / 模组页「已安装」里的删除，同删除备份、删除服务器，只许人点
+			"instance.mods.delete",
 			// AI 设置（第二阶段）：AI 永远看不到、也改不了自己的设置和 Key（§3.3）
 			"ai.settings.get", "ai.provider.set", "ai.models.list", "ai.test", "ai.quota.set", "ai.prices.set", "ai.prices.refresh",
 			"ai.assistant.set",

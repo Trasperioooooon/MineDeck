@@ -76,13 +76,20 @@ func (w *WorldIntent) Change() error {
 
 func (w *WorldIntent) Release() {
 	w.m.mu.Lock()
-	defer w.m.mu.Unlock()
 	name := w.i.Name
 	if w.m.worldIntent[name] != w {
+		w.m.mu.Unlock()
 		return
 	}
 	delete(w.m.worldIntent, name)
-	if w.held {
+	held := w.held
+	if held {
 		delete(w.m.worldHold, name)
+	}
+	w.m.mu.Unlock()
+	// 占上过位，世界就可能已经换成导入的地图：不再说它是从哪份备份还原来的（见 WorldFrom）。
+	// 放在 m.mu 外面：存 instance.json 要拿 procMu，锁的顺序是先 procMu 后 m.mu
+	if held {
+		w.m.setWorldFrom(w.i, nil)
 	}
 }

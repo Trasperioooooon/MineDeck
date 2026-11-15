@@ -83,14 +83,12 @@ func (b gameBackend) Players(name string) (chatai.Players, error) {
 
 func (b gameBackend) Send(name, cmd, echo string) error { return b.m.CommandEcho(name, cmd, echo) }
 
-// whitelistOn server.properties 的 white-list 是不是 true。
+// whitelistOn server.properties 的 white-list 是不是 true，按服务端的读法（同一项写了几行认最后一行，见 inst.WhitelistOn）。
+// 原来用 Props.Get 读的是第一行：手改出两行时，这里说的和服务端实际用的可能相反。
+// 文件里没写这一项时按关算（和原来一样）：MineDeck 新建时总会写上，没写的多是接管来的老服务器。
 func whitelistOn(i *inst.Instance) bool {
-	p, err := inst.LoadProps(i.PropsPath())
-	if err != nil {
-		return false
-	}
-	v, _ := p.Get("white-list")
-	return strings.EqualFold(strings.TrimSpace(v), "true")
+	on := inst.WhitelistOn(i.Dir)
+	return on != nil && *on
 }
 
 // gameInfo game.info 的结果：§6.4 列出的只读信息，不含日志、配置文件和别的聊天。
@@ -223,7 +221,7 @@ func (c *cat) gameChatOps() {
 
 	c.reg.Register(&ops.Op{
 		Name: "gameai.get", Title: "查看游戏内 AI 的设置", Level: ops.HumanOnly, NoLog: true,
-		Desc:   "实例「游戏内 AI」标签的内容：开关、触发前缀、能执行命令的玩家（和可以授权的人）、命令模板、限流和额度、今天的用量、白名单开没开。",
+		Desc:   "实例「扩展 → 游戏内 AI」页的内容：开关、触发前缀、能执行命令的玩家（和可以授权的人）、命令模板、限流和额度、今天的用量、白名单开没开。",
 		Params: withInst(nil),
 		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[instArgs](a)

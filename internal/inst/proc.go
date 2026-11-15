@@ -89,9 +89,9 @@ func (m *Manager) startInstance(i *Instance) error {
 	// 原因写进控制台，并记成「上次启动没成功」，卡片和详情页头常驻显示，下次进程起来了才清掉（可用性走查 R03）。
 	// 右上角的提示一会儿就没了，回来的人只看到一个没反应的「启动」按钮
 	if _, err := os.Stat(i.JavaPath); err != nil {
-		// 路径不放进报错：界面上的提示遇到路径只写结论，这句「去哪里改」就看不到了。路径记在控制台里，「内存 / 启动」页也看得到
+		// 路径不放进报错：界面上的提示遇到路径只写结论，这句「去哪里改」就看不到了。路径记在控制台里，「设置 → 启动与内存」页也看得到
 		i.Console.Append(fmt.Sprintf("[MineDeck] 找不到 Java：%s", i.JavaPath))
-		return i.startFailed(errors.New("找不到这台服务器用的 Java，请到「内存 / 启动」里重新选一个 Java。"), false)
+		return i.startFailed(errors.New("找不到这台服务器用的 Java，请到「设置 → 启动与内存」里重新选一个 Java。"), false)
 	}
 	// 端口被占着就直接报错，不先起 Java、等它自己报 BindException（检查报告 D-5）。按服务器真正要绑的地址查
 	//（server-ip、server-port）；代理端的端口在它自己的配置文件里，不查（见 startPort）

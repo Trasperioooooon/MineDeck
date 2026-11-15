@@ -2257,6 +2257,9 @@ function handler(state, ui, portOf) {
     //     whitelistOn（玩家名单里的白名单开关，null = server.properties 没写）、adopted + mdFiles（移出列表后会留下的文件）。
     //     响应里的 lastCreate / lastImport / lastPropsPut / commands / lastOpenPath 是上一次新建、导入整合包（表单项）、改 server.properties、
     //     发过的控制台命令、打开的文件夹
+    //     beta.3 详情页用到的字段：javaMissing（配的 Java 找不到了）、worldFrom（现在的世界从哪份备份来）、mods（插件 / 模组文件夹里的，见 modsOf）、
+    //     backups（备份清单，见 backupsOf）、onlineCount。响应里的 lifecycle（停止、重启的请求）、modOps（停用、启用、删除插件或模组的请求）、
+    //     lastRestore（还原的请求，含 stopFirst）、lastBackup（立即备份的标签）、modsProjects（带 projects=1 读清单的次数）
     //   adoptScan: 接管已有服务器时「识别」返回的结果（同 inst.AdoptScan），null 还原成默认的；
     //     响应里的 lastAdopt / lastJava / lastDelete 是上一次接管、换 Java、删除的请求
     //   legacy: { name, extraJvm, forceFlags } 把某台服务器设成「老版本」，保存 JVM 参数时补回 forceFlags
@@ -2305,7 +2308,10 @@ function handler(state, ui, portOf) {
       if ("portBusy" in b) state.portBusy = b.portBusy; // 交接包向导：端口号等于这个值的端口查询按「被占用」回
       if (Array.isArray(b.madeDirs)) { state.madeDirs = b.madeDirs; state.lastTransferMkdir = null; }
       if ("pickDir" in b) state.pickDir = b.pickDir === null ? undefined : b.pickDir; // 系统文件夹选择框选到哪个（空串 = 点了取消；null 还原成 E:\MCServers）
-      if (b.instReset) { const fresh = newState(ui); state.instances = fresh.instances; state.lastAdopt = state.lastJava = state.lastDelete = null; }
+      if (b.instReset) { const fresh = newState(ui); state.instances = fresh.instances; state.lastAdopt = state.lastJava = state.lastDelete = null;
+        state.lifecycle = []; state.modOps = []; state.lastRestore = state.lastBackup = null; state.modsProjects = 0; } // beta.3 详情页记下的请求一起清掉
+      if ("lifecycle" in b) state.lifecycle = b.lifecycle || []; // 停止、重启的请求记录，传空数组清掉
+      if ("modOps" in b) state.modOps = b.modOps || [];          // 停用、启用、删除插件或模组的请求记录
       if ("listenLan" in b) { state.config.listenLan = state.lanActive = !!b.listenLan; if (b.listenLan) state.lanSet = true; }
       if ("lanSet" in b) state.lanSet = !!b.lanSet;
       if ("lanActive" in b) state.lanActive = !!b.lanActive;
@@ -2462,11 +2468,18 @@ function handler(state, ui, portOf) {
         task.pending = keep;
         return ok(res, { resolved, pending: keep });
       }
-      // 模组清单（实例详情页的 Java 提示用；真后端见 ops/catalog files.go 的 instance.mods.list）
+      // 模组清单（实例详情页的 Java 提示、插件 / 模组页的「已安装」用；真后端见 ops/catalog files.go 的 instance.mods.list）：
+      // 每台服务器的清单在 inst.mods 里（没有就按核心给一份，见 modsOf），projects=1 时带上 projectId（同真后端按 SHA-1 在 Modrinth 上认），
+      // 原版没有模组文件夹（400）。state.modsProjects 记下带 projects=1 的请求次数
       if (seg[2] === "instances" && seg[4] === "mods" && !seg[5] && m === "GET") {
+        const i = state.instances.find(x => x.name === seg[3]);
         const need = (state.modsNeed || {})[seg[3]];
-        const mods = need ? [{ file: "modded-fabric.jar", id: "modded", version: "1.0" }] : [];
-        return ok(res, { dir: "mods", count: mods.length, disabled: 0, mods, ...(need ? { needJava: need } : {}) });
+        if (i && i.core === "vanilla") return err(res, 400, `「${i.name}」是 vanilla 核心，没有模组或插件文件夹`);
+        const list = need ? [{ file: "modded-fabric.jar", id: "modded", version: "1.0" }] : i ? modsOf(i) : [];
+        const withP = u.searchParams.get("projects") === "1";
+        if (withP) state.modsProjects = (state.modsProjects || 0) + 1;
+        const mods = list.map(({ projectId, ...x }) => withP && projectId && !x.disabled ? { ...x, projectId } : x);
+        return ok(res, { dir: i ? modsDirOf(i) : "mods", count: mods.length, disabled: mods.filter(x => x.disabled).length, mods, ...(need ? { needJava: need } : {}) });
       }
       // 导入整合包（同 web/instances.go 的 handleImportModpack）：记下表单里的各项（state.lastImport，不含文件内容），回一个 Modrinth 包的摘要
       if (p === "/api/import/modpack" && m === "POST") {
@@ -2558,7 +2571,8 @@ function handler(state, ui, portOf) {
       }
       // connectPort（同 instance.list）：朋友连进来的端口。仿真里的代理端 port 写的就是它自己的端口；没生成配置的代理端用 inst 设成 0
       // lastStartError：上一次启动没起来的原因（startFail 那台点启动时记下，成功启动清掉）
-      if (p === "/api/instances" && m === "GET") return ok(res, insts().map(i => ({ ...i, connectPort: i.connectPort ?? i.port })));
+      // backupDir 同真后端（当前备份根下面按服务器名）；mods、backups 是仿真自己存的插件 / 模组和备份清单，不在列表里
+      if (p === "/api/instances" && m === "GET") return ok(res, insts().map(({ mods, backups, ...i }) => ({ ...i, connectPort: i.connectPort ?? i.port, backupDir: i.backupDir ?? "D:\\MineDeck\\backups\\" + i.name })));
       // 创建实例（向导提交）：真的登记进列表（Java 21 / 已停止等按表单补全），
       // 这样紧接着带上草稿车的 POST .../modcart/install 才能按名字找到这台实例（真后端此时也已经建好了）
       if (p === "/api/instances" && m === "POST") {
@@ -2677,6 +2691,50 @@ function handler(state, ui, portOf) {
           }
           return ok(res, { resolved, pending: L.pending, skipped: L.skipped });
         }
+        // 停止、重启（同 instance.stop / instance.restart）：记进 state.lifecycle；状态不变（别的用例按初始状态写的）。重启要在运行中
+        if ((sub === "stop" || sub === "restart") && !seg[5] && m === "POST") {
+          if (sub === "restart" && i.status !== "running" && i.status !== "starting") return err(res, 400, `「${name}」没在运行，不用重启；要启动请用 instance.start`);
+          (state.lifecycle || (state.lifecycle = [])).push({ inst: name, act: sub });
+          return ok(res, "ok");
+        }
+        // 插件 / 模组的停用、启用（同 instance.mods.toggle）和删除（同 instance.mods.delete：服务器要停着，移进 .minedeck/已删除/）：记进 state.modOps
+        if (sub === "mods" && (seg[5] === "toggle" || seg[5] === "delete") && m === "POST") {
+          const b = await readBody(req), list = modsOf(i), dir = modsDirOf(i);
+          (state.modOps || (state.modOps = [])).push({ inst: name, act: seg[5], ...b });
+          const bare = f => String(f || "").replace(/\.disabled$/, "");
+          const k = list.findIndex(x => x.file === b.file || bare(x.file) === bare(b.file));
+          if (k < 0) return err(res, 404, `${dir} 文件夹里没有 ${b.file}`);
+          if (seg[5] === "delete") {
+            if (i.status !== "stopped") return err(res, 400, "先停止服务器再删除：运行中这些文件被服务器占着，删了也要重启才算数");
+            list.splice(k, 1);
+            return ok(res, { file: b.file, movedTo: `.minedeck\\已删除\\${dir}\\${b.file}`, dir: `.minedeck\\已删除\\${dir}` });
+          }
+          const it = list[k], base = bare(it.file);
+          if (b.enable) { it.file = base; delete it.disabled; } else { it.file = base + ".disabled"; it.disabled = true; }
+          return ok(res, { file: it.file });
+        }
+        // 备份：立即备份（记下标签，state.lastBackup）、还原（同 instance.backup.restore：要停着，stopFirst 时先停下来；
+        // 还原以后实例的 worldFrom 记下这一份，state.lastRestore 是请求）
+        if (sub === "backups" && !seg[5] && m === "POST") {
+          const b = await readBody(req), label = String(b.label || "").trim();
+          state.lastBackup = { inst: name, label };
+          const it = { file: "20261115-210000.000000000" + (label ? "-" + label : "") + ".zip", sizeMb: 420.0, time: "2026-11-15 21:00:00", ...(label ? { label } : {}) };
+          backupsOf(i).unshift(it);
+          return ok(res, { file: it.file });
+        }
+        if (sub === "backups" && seg[5] === "restore" && m === "POST") {
+          const b = await readBody(req);
+          state.lastRestore = { inst: name, file: b.file, stopFirst: !!b.stopFirst };
+          if (i.status !== "stopped") {
+            if (!b.stopFirst) return err(res, 400, "请先停止服务器再还原备份");
+            (state.lifecycle || (state.lifecycle = [])).push({ inst: name, act: "stop" });
+            i.status = "stopped"; i.onlineCount = 0; i.uptimeSec = 0;
+          }
+          const bk = backupsOf(i).find(x => x.file === b.file);
+          if (!bk) return err(res, 400, "备份文件不存在: " + b.file);
+          i.worldFrom = { backup: bk.file, ...(bk.label ? { label: bk.label } : {}), backupTime: bk.time, at: "2026-11-15 21:05:00" };
+          return ok(res, "ok");
+        }
         // 换 Java（同操作 instance.java.set）：已有这个版本直接换，没有就返回下载任务的编号
         if (sub === "java" && m === "PUT") {
           const b = await readBody(req);
@@ -2733,11 +2791,7 @@ function handler(state, ui, portOf) {
           (state.commands || (state.commands = [])).push({ inst: name, cmd: b.cmd });
           return ok(res, "ok");
         }
-        if (sub === "backups" && m === "GET") return ok(res, [
-          { file: "2026-10-26_04-00_auto.zip", sizeMb: 412.3, time: "2026-10-26 04:00" },
-          { file: "2026-10-25_22-10_打龙前.zip", sizeMb: 405.8, time: "2026-10-25 22:10" },
-          { file: "2026-10-25_04-00_auto.zip", sizeMb: 398.1, time: "2026-10-25 04:00" },
-        ]);
+        if (sub === "backups" && m === "GET") return ok(res, backupsOf(i));
         if (sub === "policies" && m === "GET") return ok(res, { crashRestart: true, schedules: [{ type: "restart", at: "04:00", args: "" }, { type: "command", at: "20:00", args: "say 今晚 8 点打龙集合！" }] });
         if (sub === "properties" && m === "GET") return ok(res, { pairs: state.props, running: i.status === "running" });
         if (sub === "resources" && seg[5] === "search") return ok(res, { hits: [
@@ -2774,6 +2828,32 @@ function handler(state, ui, portOf) {
       return ok(res, {});
     } catch (e) { return err(res, 500, String(e)); }
   };
+}
+
+// ---- beta.3 详情页（R07 R10 R11）用到的几样仿真数据 ----
+// 插件 / 模组文件夹里有什么（同 instance.mods.list 的简要形状，projectId 只在带 projects=1 时给）：按核心给一份，改动记在 inst.mods 上（instReset 时一起回去）
+const PLUGIN_CORE_SET = new Set(["paper", "purpur", "leaves", "folia", "velocity", "waterfall"]);
+const modsDirOf = i => PLUGIN_CORE_SET.has(i.core) ? "plugins" : "mods";
+function modsOf(i) {
+  if (!i.mods) i.mods = i.kind === "proxy" ? [] : PLUGIN_CORE_SET.has(i.core) ? [
+    { file: "EssentialsX-2.20.1.jar", id: "Essentials", name: "EssentialsX", version: "2.20.1", projectId: "essentialsx" },
+    { file: "LuckPerms-Bukkit-5.4.137.jar", id: "LuckPerms", name: "LuckPerms", version: "5.4.137" },
+    { file: "Chunky-1.4.10.jar.disabled", id: "Chunky", name: "Chunky", version: "1.4.10", disabled: true },
+  ] : [
+    { file: "create-1.20.1-0.5.1.jar", id: "create", name: "Create", version: "0.5.1", projectId: "create" },
+    { file: "ftbultimine-forge-2001.1.4.jar", id: "ftbultimine", name: "FTB Ultimine", version: "2001.1.4" }, // 不用 JEI：待装清单的老用例拿它当「还没装」的那个
+    { file: "xaerominimap-24.2.0.jar.disabled", id: "xaerominimap", name: "Xaero Minimap", version: "24.2.0", disabled: true },
+  ];
+  return i.mods;
+}
+// 备份列表（同 inst.ListBackups：新的在前，做备份时填了标签的带 label，从文件名里拆出来）；改动记在 inst.backups 上
+function backupsOf(i) {
+  if (!i.backups) i.backups = [
+    { file: "20261026-040000.000000000.zip", sizeMb: 412.3, time: "2026-10-26 04:00:00" },
+    { file: "20261025-221000.000000000-打龙前.zip", sizeMb: 405.8, time: "2026-10-25 22:10:00", label: "打龙前" },
+    { file: "20261025-040000.000000000.zip", sizeMb: 398.1, time: "2026-10-25 04:00:00" },
+  ];
+  return i.backups;
 }
 
 // 启动一份全新的仿真后端。port=0 表示随机空闲端口。返回 { port, url, state, close() }。

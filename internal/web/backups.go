@@ -30,7 +30,8 @@ func (s *Server) handleCreateBackup(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 	s.do(w, r, "instance.backup.restore", func() (ops.Args, error) {
 		var body struct {
-			File string `json:"file"`
+			File      string `json:"file"`
+			StopFirst bool   `json:"stopFirst"` // 「停止并还原」：运行中先停下来再还原（R11）
 		}
 		err := readJSON(r, &body)
 		if bodyTooLarge(err) {
@@ -39,7 +40,7 @@ func (s *Server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 		if err != nil || body.File == "" {
 			return nil, fmt.Errorf("缺少备份文件名")
 		}
-		return ops.ArgsOf(map[string]any{"inst": r.PathValue("name"), "file": body.File}), nil
+		return ops.ArgsOf(map[string]any{"inst": r.PathValue("name"), "file": body.File, "stopFirst": body.StopFirst}), nil
 	})
 }
 

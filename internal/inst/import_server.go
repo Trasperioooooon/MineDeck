@@ -280,7 +280,7 @@ func applyServerProps(ctx context.Context, t *tasks.Task, dir string, req Create
 	if had {
 		online, _ := props.Get("online-mode")
 		flight, _ := props.Get("allow-flight")
-		t.Logf("端口已设为 %d，%s。正版验证（%s）和允许飞行（%s）沿用压缩包里 server.properties 的设置，导入页上的这两项没有用上，要改到「常用设置」里改",
+		t.Logf("端口已设为 %d，%s。正版验证（%s）和允许飞行（%s）沿用压缩包里 server.properties 的设置，导入页上的这两项没有用上，要改到「设置 → 常用」里改",
 			req.Port, wlNote, onOff(online, true), onOff(flight, false))
 		return
 	}

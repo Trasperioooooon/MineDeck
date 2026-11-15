@@ -13,12 +13,15 @@ window.MDModCart = (() => {
      建服完成后带着草稿车一起装时，把它当成「人看到的那些」发给后端核对（见 app.js 的提交链）：
      草稿车里多出人没看过的东西（上次向导半途放弃留下的文件、AI 助手加的项目），后端不装。 */
   let draftSeen = null;
-  /* 有「购物车」标签的实例：同「资源」标签的条件——原版没有模组加载器，不需要 */
+  /* 有「插件 / 模组」标签（详情页的 addons，已安装 + 待装清单，可用性走查 R10）的实例：原版没有模组加载器，不需要 */
   const applies = info => !!info && info.core !== "vanilla";
 
   /* 这种核心装的是什么：插件端（Paper 一系和两种代理端）是「插件」，其余是「模组」（同后端 resourceSpec：Mohist、Banner 在这里也按模组算） */
   const PLUGIN_CORES = new Set(["paper", "purpur", "leaves", "folia", "velocity", "waterfall"]);
   const nounOf = core => PLUGIN_CORES.has(core) ? "插件" : "模组";
+  /* 详情页 addons 标签上的名字（docs/文案重写/04-标签与术语-beta3.md 第一节）：插件服叫「插件」，模组服叫「模组」，
+     两样都能装的 Mohist、Banner 叫「插件和模组」 */
+  const tabLabel = core => core === "mohist" || core === "banner" ? "插件和模组" : nounOf(core);
 
   /* 类别筛选片：Modrinth 的 category slug → 给人看的叫法。后端按同一份白名单校验（internal/modcart/modrinth.go），改这里要一起改 */
   const CATS = {
@@ -184,7 +187,9 @@ window.MDModCart = (() => {
       }
       const have = ids();
       hitsEl.innerHTML = hits.length ? hits.map(h => {
-        const inCart = have.has(h.project_id);
+        // 服务器里已经装了的（详情页的插件 / 模组页给了 ctx.installedOf，R10）：标「已安装」，不再往清单里加
+        const installed = !!(ctx.installedOf && ctx.installedOf(h));
+        const inCart = have.has(h.project_id) || installed;
         return `
         <div class="java-row mc-hit">
           ${tile(h.icon_url)}
@@ -192,7 +197,7 @@ window.MDModCart = (() => {
             <div class="jp" title="${esc(h.description)}">${esc(h.description)}</div></div>
           <span class="jv mc-license" title="${esc(h.license || "")}">${esc(h.license || "")}</span>
           <span class="jv mc-down">${fmtDown(h.downloads)}${icon("download")}</span>
-          <button class="btn sm mc-add" data-pid="${esc(h.project_id)}" data-t="${esc(h.title)}" aria-label="${inCart ? "已在清单" : "加入清单"} ${esc(h.title)}"${inCart ? " disabled" : ""}>${icon(inCart ? "check" : "plus")} ${inCart ? "已在清单" : "加入清单"}</button>
+          <button class="btn sm mc-add${installed ? " mc-installed" : ""}" data-pid="${esc(h.project_id)}" data-t="${esc(h.title)}" aria-label="${installed ? "已安装" : inCart ? "已在清单" : "加入清单"} ${esc(h.title)}"${inCart ? " disabled" : ""}>${icon(inCart ? "check" : "plus")} ${installed ? "已安装" : inCart ? "已在清单" : "加入清单"}</button>
         </div>`;
       }).join("") : `<div class="sub" id="mc-hits-empty">${query || cat ? `没有找到合适的${noun}。换个关键词或类别试试。` : `这个核心和版本下，Modrinth 上暂时没有能装的${noun}。`}</div>`;
       hitsEl.querySelectorAll(".mc-add").forEach(b => b.onclick = () => add([b.dataset.pid], [b]));
@@ -455,14 +460,18 @@ window.MDModCart = (() => {
       }
     };
     depBtn.onclick = checkDeps;
+    ctx.repaint = () => { if (!gone()) paintHits(); }; // 外面拿到「已经装了哪些」以后重画一下浏览区（见 render 的 opts.installedOf）
     reload();
     load(false); // 一打开就列出最热门的。失败或很慢都只影响左边这一块
   }
 
-  /* 实例详情的「购物车」标签：info = 实例概要（.name / .core / .mc / .status） */
-  async function render(body, info, gen) {
+  /* 实例详情「插件 / 模组」标签下半截（热门、搜索、从电脑添加、待装清单）：info = 实例概要（.name / .core / .mc / .status）。
+     opts.installedOf(hit)：这一条是不是已经装在服务器里了（上半截「已安装」列表给的），是就标「已安装」；
+     返回的 repaint() 在外面的「已安装」更新以后调，浏览区跟着重画 */
+  async function render(body, info, gen, opts = {}) {
     body.innerHTML = `<div id="mc-local-tip"></div><div id="mc-panel"></div>`;
-    buildPanel($("#mc-panel", body), { inst: info.name, core: info.core, mc: info.mc, status: info.status }, gen);
+    const ctx = { inst: info.name, core: info.core, mc: info.mc, status: info.status, installedOf: opts.installedOf };
+    buildPanel($("#mc-panel", body), ctx, gen);
     /* 本地依赖核对（提示条，接口 8）：已装的模组缺依赖时先提醒一声，失败就静默跳过 */
     (async () => {
       try {
@@ -476,6 +485,7 @@ window.MDModCart = (() => {
           </div>`;
       } catch {}
     })();
+    return () => { if (ctx.repaint) ctx.repaint(); };
   }
 
   /* 向导「选模组」步（可选）：草稿车（不带 inst），创建完成后由 app.js 一并安装。opts.onBusy 见 buildPanel */
@@ -483,10 +493,10 @@ window.MDModCart = (() => {
     const noun = nounOf(opts && opts.core);
     draftSeen = null; // 新的一轮向导：等清单画出来再记
     container.innerHTML = `
-      <div class="sub mc-wiz-sub">想一开服就带上${noun}，现在就把它们加进待装清单，服务器建好后会自动装上。现在不想装，就点下面的「跳过这一步」，以后在这台服务器里再加。</div>
+      <div class="sub mc-wiz-sub">想一开服就带上${noun}，现在就把它们加进待装清单，服务器建好后会自动装上。现在不想装，就点下面的「跳过这一步」，以后在这台服务器的「${tabLabel(opts && opts.core)}」标签里再加。</div>
       <div id="mc-panel"></div>`;
     buildPanel($("#mc-panel", container), { core: opts && opts.core, mc: opts && opts.mc, onBusy: opts && opts.onBusy }, gen);
   }
 
-  return { applies, render, wizardPanel, nounOf, draftSeen: () => draftSeen };
+  return { applies, render, wizardPanel, nounOf, tabLabel, draftSeen: () => draftSeen };
 })();

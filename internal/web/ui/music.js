@@ -115,7 +115,7 @@ window.MDMusic = (() => {
       row({ tile: tile("headphones"), titleHTML: `<span id="mu-live-lis"></span>`, sub: `<span id="mu-live-net" class="num"></span>` }),
       { ico: true, cls: "mu-live" }) + `<div id="mu-live-warn"></div>`;
     const elsewhereHTML = other => castHead("") + group(row({ tile: tile("music"), title: `正在给「${other}」广播`,
-      sub: "同一时间只能有一个广播：先在那边停掉，再回来开始。", right: `<a class="btn sm" href="#/inst/${encodeURIComponent(other)}/music">去看看</a>` }), { ico: true }) +
+      sub: "同一时间只能有一个广播：先在那边停掉，再回来开始。", right: `<a class="btn sm" href="#/inst/${encodeURIComponent(other)}/ext/music">去看看</a>` }), { ico: true }) +
       `<div class="mu-last" id="mu-last" hidden></div>`;
     const remoteHTML = () => castHead("") + group(row({ tile: tile("music"), title: "开始广播只能在主机上操作",
       sub: "录的是主机这台电脑的声音，需到主机上的 MineDeck 里开始；这里可以看状态、停止广播。" }), { ico: true }) +

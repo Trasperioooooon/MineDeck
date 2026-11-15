@@ -454,7 +454,7 @@ func (m *Manager) finishImportPack(t *tasks.Task, i *Instance, packName string, 
 		}
 	}
 	// Java 要求：魔改模组常声明比实例新的 Java（1.20.1 实例是 17，模组可能要 25）。
-	// 只提示不阻断：1.20.1 + Java 25 的组合允许存在，到「内存 / 启动」换。
+	// 只提示不阻断：1.20.1 + Java 25 的组合允许存在，到「设置 → 启动与内存」换。
 	javaMajor := i.JavaMajor
 	if need, mods := javaRequiredBy(dir, javaMajor); need > javaMajor && javaMajor > 0 {
 		warn := make([]tasks.WarnItem, 0, len(mods))
@@ -464,7 +464,7 @@ func (m *Manager) finishImportPack(t *tasks.Task, i *Instance, packName string, 
 		t.AddWarning(tasks.Warning{
 			Kind:  "java-req",
 			Title: fmt.Sprintf("有模组要求 Java %d，这台服务器现在是 Java %d", need, javaMajor),
-			Note:  "这只是提醒，不影响导入结果。装着这样的模组启动可能失败或部分功能不工作；要换的话到「内存 / 启动」里选（MineDeck 可以自动下载便携版），也可以先保持现状。",
+			Note:  "这只是提醒，不影响导入结果。装着这样的模组启动可能失败或部分功能不工作；要换的话到「设置 → 启动与内存」里选（MineDeck 可以自动下载便携版），也可以先保持现状。",
 			Items: warn,
 		})
 	}
@@ -472,7 +472,7 @@ func (m *Manager) finishImportPack(t *tasks.Task, i *Instance, packName string, 
 	if len(kept) > 0 {
 		keptLine = fmt.Sprintf("，按原样保留 %d 个", len(kept))
 	}
-	t.Logf("整合包导入完成 ✔（%d 个文件待处理%s；如需正版验证等设置请到「常用设置」调整）", len(items), keptLine)
+	t.Logf("整合包导入完成 ✔（%d 个文件待处理%s；如需正版验证等设置请到「设置 → 常用」调整）", len(items), keptLine)
 }
 
 // findLocalFile 在本地来源目录里找整合包清单说的这个文件：先按相对路径找，

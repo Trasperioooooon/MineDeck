@@ -37,7 +37,48 @@ type Settings struct {
 	// Adopted 这台服务器是「接管」进来的：目录是用户自己原来的文件夹，不是 MineDeck 新建的（见 adopt.go）。
 	// 界面删除时拿它决定默认只移出列表、不删文件。
 	Adopted bool `json:"adopted,omitempty"`
+	// WorldFrom 现在的世界是从哪份备份还原来的，见 WorldFrom；没还原过、或者还原以后换过地图时没有
+	WorldFrom *WorldFrom `json:"worldFrom,omitempty"`
 }
+
+// WorldFrom 现在的世界是从哪份备份还原来的（可用性走查 R11）：详情页「世界与备份」页顶据此写「当前世界：从 某某时间 的备份还原」。
+// 记在 instance.json 里，重开程序后仍在；下一次还原换成那一份，换地图（导入、换回、恢复）时清掉，见 clearWorldFrom。
+type WorldFrom struct {
+	Backup     string `json:"backup"`               // 备份文件名
+	Label      string `json:"label,omitempty"`      // 备份的标签（文件名里时间后面那段）
+	BackupTime string `json:"backupTime,omitempty"` // 这份备份是什么时候做的（2006-01-02 15:04:05）；文件名里认不出时用文件的修改时间
+	At         string `json:"at"`                   // 什么时候还原的（2006-01-02 15:04:05）
+}
+
+// WorldFromSnapshot 加锁读取 WorldFrom 的一份拷贝；没有时为 nil。
+func (i *Instance) WorldFromSnapshot() *WorldFrom {
+	i.procMu.Lock()
+	defer i.procMu.Unlock()
+	if i.WorldFrom == nil {
+		return nil
+	}
+	wf := *i.WorldFrom
+	return &wf
+}
+
+// setWorldFrom 记下（wf 为 nil 时清掉）现在的世界从哪来，并存进 instance.json。存不进去不算还原失败：只是页顶少一句说明，
+// 原因写进控制台。没变化时不写盘。
+func (m *Manager) setWorldFrom(i *Instance, wf *WorldFrom) {
+	i.procMu.Lock()
+	defer i.procMu.Unlock()
+	if i.WorldFrom == nil && wf == nil {
+		return
+	}
+	i.WorldFrom = wf
+	if err := m.saveInstance(i); err != nil {
+		i.Console.Append("[MineDeck] 没能把「当前世界从哪份备份来」记进 instance.json：" + err.Error())
+	}
+}
+
+// keepWorldFrom 这几种占位做完以后，现在的世界仍是原来那个（或者服务器已经没了），不用清掉 WorldFrom：
+// 还原备份自己会记新的那一份；删除服务器、删除恢复点、删除插件或模组都不动世界。其余的占位（换回旧地图、恢复地图、导入地图）
+// 都可能换掉世界，做完就清掉：宁可少一句说明，也不能把换过的地图说成是从备份来的。
+var keepWorldFrom = map[string]bool{"还原备份": true, "删除": true, "删除恢复点": true, modTrashWhy: true}
 
 type Instance struct {
 	Settings

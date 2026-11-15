@@ -324,31 +324,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { release(); await page.unroute("**/api/mcversions?core=paper&*"); }
   });
 
-  await run("切页竞态：资源搜索只显示最后一次查询，离开后不再写页面", async () => {
-    let release, seen;
-    let gate = new Promise(r => release = r), requested = new Promise(r => seen = r);
-    const pattern = "**/resources/search?*";
-    await page.route(pattern, async route => {
-      const q = new URL(route.request().url()).searchParams.get("q");
-      if (q === "old" || q === "leave") { seen(); await gate; }
-      await route.fulfill({ json: { ok: true, data: { hits: [{ project_id: q, title: q, description: "测试资源", downloads: 1000 }] } } });
-    });
-    try {
-      await page.goto(url(`#/inst/${inst}/res`)); await settle();
-      await page.fill("#res-q", "old"); await page.click("#res-go"); await requested;
-      await page.fill("#res-q", "new"); await page.click("#res-go"); await settle();
-      release(); await settle(600);
-      assert((await page.textContent("#res-list")).includes("new") && !(await page.textContent("#res-list")).includes("old"), "旧查询覆盖了新结果");
-      gate = new Promise(r => release = r); requested = new Promise(r => seen = r);
-      const beforeErrors = errors.length;
-      await page.fill("#res-q", "leave");
-      await page.click("#res-go"); await requested;
-      await page.click('#sidebar a[data-nav="instances"]'); await settle();
-      release(); await settle(600);
-      assert(await page.locator("#inst-cards").count() === 1 && errors.length === beforeErrors, "离开后的资源响应引发报错或覆盖页面");
-    } finally { if (release) release(); await page.unroute(pattern); }
-  });
-
+  // beta.3 R10：原来的「资源」标签合进了「插件 / 模组」，它自己的那套搜索没有了；同一个搜索框的竞态由「切页竞态：待装清单的搜索」那条管，
+  // 这里原来那条拿掉，在下面的列表里加上插件 / 模组页（「已安装」的慢响应）
   for (const [label, hash, endpoint, target] of [
     ["玩家", `#/inst/${inst}/players`, "**/players", `#/inst/${inst}/console`],
     ["备份", `#/inst/${inst}/backups`, "**/backups", `#/inst/${inst}/console`],
@@ -356,6 +333,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     ["常用设置", `#/inst/${inst}/common`, "**/properties", `#/inst/${inst}/console`],
     ["全部配置", `#/inst/${inst}/raw`, "**/properties", `#/inst/${inst}/console`],
     ["内存启动", `#/inst/${inst}/jvm`, "**/api/app", `#/inst/${inst}/console`],
+    ["插件 / 模组", `#/inst/${inst}/addons`, "**/mods", `#/inst/${inst}/console`],
     ["Java 设置", "#/settings/java", "**/api/javas", "#/settings/download"],
   ]) {
     await run(`切页竞态：${label}慢响应不覆盖新标签、不报错`, async () => {
@@ -3599,11 +3577,12 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await musicState({ music: { reset: true, inst: { [PACK]: { bridge: "main" } } } });
       const pages = [["服务器列表", "#/instances"], ["新建服务器", "#/create"], ["隧道", "#/tunnels"],
         ...["appearance", "download", "storage", "java", "remote", "notify", "ai", "startup", "about"].map(s => ["设置 → " + s, "#/settings/" + s]),
-        ...["console", "players", "backups", "world", "tasks", "res", "gameai", "common", "raw", "jvm"].map(t => ["生存服 → " + t, "#/inst/" + inst + "/" + t]),
-        ...["console", "players", "backups", "world", "tasks", "music", "companion", "common", "jvm"].map(t => ["整合包 → " + t, PACK_I + t])];
+        // beta.3 R06：按新的标签和子页逐页查（旧地址会跳到这些地方）
+        ...["console", "players", "world/backups", "world/map", "addons", "tasks", "ext/gameai", "settings/common", "settings/raw", "settings/jvm"].map(t => ["生存服 → " + t, "#/inst/" + inst + "/" + t]),
+        ...["console", "players", "world/backups", "world/map", "addons", "tasks", "ext/music", "ext/companion", "settings/common", "settings/jvm"].map(t => ["整合包 → " + t, PACK_I + t])];
       for (const [label, h] of pages) { await page.goto(url(h)); await settle(700); await check(label); }
-      await page.goto(url("#/inst/" + inst + "/res")); await settle(400);
-      await page.click("#res-go"); await settle(500); await check("资源页搜索结果");
+      await page.goto(url("#/inst/" + inst + "/addons")); await settle(400);
+      await page.click("#mc-go"); await settle(500); await check("插件页搜索结果");
       await page.goto(url("#/tunnels")); await settle(500);
       await page.click("#tn-toggle"); await settle(200); await check("隧道的添加表单");
       await page.goto(url(PACK_I + "companion")); await settle(900);
@@ -3631,14 +3610,16 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       const saves = (await axTree()).filter(n => n.role === "button" && n.name.startsWith("保存")).map(n => n.name).sort();
       const want = ["保存触发前缀", "保存别名", "保存每人冷却", "保存每人每天", "保存全服每天", "保存全服每天的 token", "保存自定义正则"].sort();
       assert(JSON.stringify(saves) === JSON.stringify(want), "游戏内 AI 的保存按钮：" + saves.join("、"));
-      // 资源页
-      await page.goto(url("#/inst/" + inst + "/res")); await settle(400);
-      await page.click("#res-go"); await settle(500);
-      const titles = await page.$$eval("[data-rt]", bs => bs.map(b => b.dataset.rt));
-      const installs = (await axTree()).filter(n => n.role === "button" && n.name.startsWith("安装")).map(n => n.name);
-      assert(titles.length === 3 && JSON.stringify(installs) === JSON.stringify(titles.map(t => "安装 " + t)), "安装按钮的名字：" + installs.join("、"));
-      await byName("button", "安装 Chunky").click(); await settle(400);
-      assert(await byName("button", "已安装 Chunky").count() === 1, "装好后名字应跟着按钮上的字变成「已安装 Chunky」");
+      // 插件页（beta.3 R10：「资源」标签合进了插件 / 模组页，它的「安装」换成待装清单的「加入清单」）：
+      // 已安装那几行的停用 / 启用、删除带文件名；热门里每个按钮带插件名，装过的叫「已安装 X」，加进清单以后跟着变成「已在清单 X」
+      await page.goto(url("#/inst/" + inst + "/addons")); await page.waitForSelector("#mc-hits .mc-hit"); await settle(600);
+      const files = await page.$$eval(".ad-item", rs => rs.map(r => r.dataset.file));
+      for (const f of files) assert(await byName("button", "删除 " + f).count() === 1, "删除按钮的名字没带文件名：" + f);
+      const titles = await page.$$eval(".mc-add", bs => bs.map(b => b.dataset.t));
+      const adds = (await axTree()).filter(n => n.role === "button" && /^(加入清单|已安装|已在清单) /.test(n.name)).map(n => n.name);
+      assert(titles.length > 3 && adds.length === titles.length && new Set(adds).size === adds.length && adds.includes("已安装 LuckPerms"), "热门里按钮的名字：" + adds.slice(0, 6).join("、"));
+      await byName("button", "加入清单 Vault").click(); await settle(500);
+      assert(await byName("button", "已在清单 Vault").count() === 1, "加进清单以后名字应跟着按钮上的字变成「已在清单 Vault」");
     } finally { await resetGC(); }
   });
 
@@ -3805,31 +3786,32 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await mockState({ adoptScan: null });
     });
 
-    await run("内存 / 启动：能给服务器换 Java——列出 MineDeck 下载的、本机装的和可以现下的，标出现在用的；已有的直接换，本机没有的去任务页下载", async () => {
+    // beta.3 R16：Java 的选择进了保存条，不再单独有「更换 Java」按钮；这条的点法跟着改成点保存条的「保存」
+    await run("设置 → 启动与内存：能给服务器换 Java——列出 MineDeck 下载的、本机装的和可以现下的，标出现在用的；已有的直接换，本机没有的去任务页下载", async () => {
       await mockState({ instReset: true });
       const pack = encodeURIComponent("机械动力整合包");
       await page.goto(url(`#/inst/${pack}/jvm`)); await settle(900);
-      let o = await page.evaluate(() => ({ opts: [...$("#jm-java").options].map(x => x.textContent), sel: $("#jm-java").selectedOptions[0].textContent, off: $("#jm-java-set").disabled }));
-      assert(o.sel === "Java 17（MineDeck 下载的） · 现在用的" && o.off, "现在用的没标出来，或者没改就能点更换：" + JSON.stringify(o));
+      let o = await page.evaluate(() => ({ opts: [...$("#jm-java").options].map(x => x.textContent), sel: $("#jm-java").selectedOptions[0].textContent, off: $('[data-sb="save"]').disabled }));
+      assert(o.sel === "Java 17（MineDeck 下载的） · 现在用的" && o.off, "现在用的没标出来，或者没改就能点保存：" + JSON.stringify(o));
       assert(o.opts.some(x => x.startsWith("Java 8（本机装的 1.8.0_421：C:\\Program Files\\Java\\")) && o.opts.includes("Java 25（本机没有，下载一份，约 50 MB）") &&
         !o.opts.some(x => x.startsWith("Java 21（本机没有")), "选项：" + JSON.stringify(o.opts));
       const pick = async text => page.selectOption("#jm-java", { index: await page.$eval("#jm-java", (s, t) => [...s.options].findIndex(x => x.textContent.startsWith(t)), text) });
       await pick("Java 8（");
-      assert(!(await page.$eval("#jm-java-set", b => b.disabled)), "选了别的 Java，按钮没亮");
-      await page.click("#jm-java-set"); await settle(500);
+      assert(!(await page.$eval('[data-sb="save"]', b => b.disabled)) && (await page.textContent(".sb-text")).includes("1 项修改未保存"), "选了别的 Java，保存条没亮");
+      await page.click('[data-sb="save"]'); await settle(500);
       let st = await mockState({});
       assert(st.lastJava && st.lastJava.inst === "机械动力整合包" && st.lastJava.major === 8 && st.lastJava.path === "C:\\Program Files\\Java\\jre1.8.0_421\\bin\\java.exe", "换 Java 的请求：" + JSON.stringify(st.lastJava));
-      o = await page.evaluate(() => ({ sel: $("#jm-java").selectedOptions[0].textContent, off: $("#jm-java-set").disabled, badge: $("#d-java").textContent,
+      o = await page.evaluate(() => ({ sel: $("#jm-java").selectedOptions[0].textContent, off: $('[data-sb="save"]').disabled, badge: $("#d-java").textContent,
         marked: [...$("#jm-java").options].filter(x => x.textContent.includes("现在用的")).length, toasts: [...document.querySelectorAll(".toast")].map(x => x.textContent) }));
       assert(o.sel.startsWith("Java 8（") && o.sel.endsWith("现在用的") && o.marked === 1 && o.off && o.badge === "Java 8", "换完之后：" + JSON.stringify(o));
       assert(o.toasts.some(x => x.includes("已换成 Java 8") && x.includes("下次启动生效")), "提示：" + JSON.stringify(o.toasts));
       // 本机没有的版本：去任务页，说的是「更换 Java」，完成后回到这台服务器的「内存 / 启动」
       await pick("Java 25（");
-      await page.click("#jm-java-set"); await settle(1200);
+      await page.click('[data-sb="save"]'); await settle(1200);
       st = await mockState({});
       assert(st.lastJava.major === 25 && st.lastJava.path === "", "下载的请求不带路径：" + JSON.stringify(st.lastJava));
       const t = await page.evaluate(() => ({ url: location.hash, h1: $(".page-head h1").textContent, label: $("#t-label").textContent, link: $("#t-foot a").textContent.trim(), href: $("#t-foot a").getAttribute("href") }));
-      assert(t.url === "#/task/task-java" && t.h1 === "Java 已换好" && t.label === "Java 已换好" && t.link === "完成，回到服务器" && t.href === `#/inst/${pack}/jvm`, "任务页：" + JSON.stringify(t));
+      assert(t.url === "#/task/task-java" && t.h1 === "Java 已换好" && t.label === "Java 已换好" && t.link === "完成，回到服务器" && t.href === `#/inst/${pack}/settings/jvm`, "任务页：" + JSON.stringify(t));
       await mockState({ instReset: true });
     });
 
@@ -3962,9 +3944,10 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ modsNeed: { "机械动力整合包": 25 } }) }));
     await page.goto(url("#/inst/" + encodeURIComponent("机械动力整合包"))); await settle(600);
     const hint = await page.textContent("#d-java-hint").catch(() => "");
-    assert(hint.includes("Java 25") && hint.includes("Java 17") && hint.includes("内存 / 启动"), "应提示模组要求与现状：" + hint);
+    // beta.3 R06：「内存 / 启动」成了「设置 → 启动与内存」，地址是 settings/jvm
+    assert(hint.includes("Java 25") && hint.includes("Java 17") && hint.includes("「设置 → 启动与内存」"), "应提示模组要求与现状：" + hint);
     await page.click("#d-java-hint a"); await settle();
-    assert(page.url().includes("/jvm"), "入口应到「内存 / 启动」：" + page.url());
+    assert(page.url().includes("/settings/jvm"), "入口应到「设置 → 启动与内存」：" + page.url());
     // 没有声明要求的实例不显示
     await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ modsNeed: {} }) }));
     await page.goto(url("#/inst/" + encodeURIComponent("生存服 · 朋友"))); await settle(600);
@@ -4141,13 +4124,14 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await cartState({ modCart: { reset: true }, taskStage: 2, instReset: true }); }
   });
 
-  await run("实例详情「待装清单」标签：vanilla 没有；加入清单 → 查前置缺项 → 勾选补上 → 移除清空", async () => {
+  // beta.3 R10：「待装清单」标签合进了「插件 / 模组」（addons，模组服上叫「模组」），旧地址跳过去
+  await run("实例详情「模组」标签里的待装清单：vanilla 没有这个标签；加入清单 → 查前置缺项 → 勾选补上 → 移除清空", async () => {
     try {
       await cartState({ modCart: { reset: true } });
       await page.goto(url("#/inst/" + encodeURIComponent("原版快照测试"))); await settle(600);
-      assert((await page.$('.tabs .tab[data-t="cart"]')) === null, "原版实例不应有待装清单标签");
+      assert((await page.$('.tabs .tab[data-t="addons"]')) === null, "原版实例不应有插件 / 模组标签");
       await page.goto(url(`#/inst/${encodeURIComponent(PACK)}/cart`)); await settle(600);
-      assert((await page.$('.tabs .tab[data-t="cart"]')) !== null, "模组实例缺待装清单标签");
+      assert((await page.$('.tabs .tab[data-t="addons"].cur')) !== null, "模组实例的旧待装清单地址没落到插件 / 模组标签");
       // 提示条（本地依赖核对）：已装的模组缺依赖时先说一声
       assert((await page.textContent("#mc-local-tip")).includes("缺 1 项前置"), "本地前置提示条没出现");
       // 搜索 → 加购（这台是 Forge 的模组服：搜出来的是模组）
@@ -4462,7 +4446,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.dispatchEvent("#mc-hits", "dragover", { dataTransfer: dt });
       await page.dispatchEvent("#mc-hits", "drop", { dataTransfer: dt });
       await page.waitForFunction(() => document.querySelector("#mc-list").textContent.includes("dropped-1.0.jar"), null, { timeout: 5000 });
-      assert(!(await page.$eval("#mc-side", el => el.classList.contains("mc-drop"))) && decodeURIComponent(page.url()).includes(PACK + "/cart"), "放下以后高亮应收起、页面不该跳走");
+      assert(!(await page.$eval("#mc-side", el => el.classList.contains("mc-drop"))) && decodeURIComponent(page.url()).includes(PACK + "/addons"), "放下以后高亮应收起、页面不该跳走"); // beta.3 R06：旧地址 cart 原地换成 addons
       await settle(600); // 等这次添加之后自动跑的那遍前置检查回来
       // 清空：两样都清
       await page.click("#mc-clear"); await settle(700);
@@ -4561,8 +4545,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       let g = await geo();
       assert(g.sideLeft >= g.browseRight && g.sideW === 360 && g.pos === "sticky", "1280 宽应是两栏、右栏 360px：" + JSON.stringify(g));
       assert(g.overflowX <= 0 && g.pageOverflowX <= 0, "1280 宽不该有横向滚动：" + JSON.stringify(g));
-      // 往下滚：左边的列表滚走了，右栏还贴在内容区顶上
-      await page.evaluate(() => { $("#main").scrollTop = 600; }); await settle(150);
+      // 往下滚：左边的列表滚走了，右栏还贴在内容区顶上。beta.3 R10 起清单上面多了「已安装」那一块，滚到清单开头再往下 400
+      await page.evaluate(() => { $("#main").scrollTop = $(".mc-wrap").getBoundingClientRect().top - $("#main").getBoundingClientRect().top + $("#main").scrollTop + 400; }); await settle(150);
       g = await geo();
       assert(g.sideTop >= g.mainTop && g.sideTop <= g.mainTop + 40, "往下滚的时候右栏应吸顶：" + JSON.stringify(g));
       const visible = await page.evaluate(() => { const r = $("#mc-local-pick").getBoundingClientRect(); return r.top >= 0 && r.bottom <= window.innerHeight; });
@@ -5168,8 +5152,10 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       // 待装清单接文件的地方照旧接得住：那边自己接下（copy），这里不改成不能放，drop 照常发给它
       await w.p.goto(url(packCart));
       await w.p.waitForSelector("#mc-local-pick");
+      await w.p.locator("#mc-side").scrollIntoViewIfNeeded(); // beta.3 R10 起清单上面多了「已安装」，一进来清单可能在可视区下面
       const cart = await w.drag("#mc-side", FILE);
-      assert(cart.includes("dragover:true:copy") && cart.some(x => x.startsWith("drop:true")) && decodeURIComponent(w.p.url()).includes(PACK + "/cart"),
+      // 旧地址 cart 原地换成了 addons（R06）
+      assert(cart.includes("dragover:true:copy") && cart.some(x => x.startsWith("drop:true")) && decodeURIComponent(w.p.url()).includes(PACK + "/addons"),
         "待装清单应照旧接住拖进来的文件：" + JSON.stringify({ cart, url: w.p.url() }));
     } finally { await w.c.close(); }
     const lan = await open(false);
@@ -5183,7 +5169,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   // 仿真后端的来源是按名字装样子的（bedrock / multi / newer / 1193 / plain / xss…），见 server.js「地图导入」那一节的说明
   const wState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
   const wReset = () => wState({ instReset: true, local: true, world: { reset: true } });
-  const worldTab = name => `#/inst/${encodeURIComponent(name)}/world`;
+  const worldTab = name => `#/inst/${encodeURIComponent(name)}/world/map`; // beta.3 R06：「地图」标签成了「世界与备份」的「换地图」子页
   const wZip = name => ({ name, mimeType: "application/zip", buffer: Buffer.from("PK\u0003\u0004mock-world") });
   const wPosts = (since, path) => reqs.slice(since).filter(r => r.m === "POST" && r.u === path).length;
   // 在「选来源」那一步填一个本机路径并检测
@@ -5197,20 +5183,22 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     points: [{ id: "w9aa10001", state: "stuck", created: "2026-11-12T20:10:00+08:00", source: "SkyCity.zip", candidate: "天空之城", levelName: "world", hasOld: true, oldBytes: 5e8, keptBytes: 0, canReturn: false,
       error: "rename world: Access is denied.", stuck: ["D:\\MineDeck\\servers\\create-pack\\world", "D:\\MineDeck\\servers\\create-pack\\.minedeck\\world-import\\w9aa10001\\old\\world"] }] };
 
-  await run("地图：游戏服务器的详情页有「地图」标签，代理端没有；直接打开代理端的地图地址只说明原因", async () => {
+  // beta.3 R06：「地图」标签成了「世界与备份」标签下的「换地图」子页。代理端没有「世界与备份」，直接打开它的地址落到控制台（不再单独说明）
+  await run("地图：游戏服务器的「世界与备份」里有「换地图」，代理端没有这个标签，直接打开地址落到控制台", async () => {
     await wReset();
     for (const [name, want] of [["生存服 · 朋友", true], [PACK, true], ["原版快照测试", true], ["群组代理", false]]) {
       await page.goto(url(`#/inst/${encodeURIComponent(name)}/console`)); await page.waitForSelector(".tabs .tab");
       const has = await page.$$eval('.tabs .tab[data-t="world"]', els => els.map(e => e.textContent.trim()));
-      assert(want ? has.length === 1 && has[0] === "地图" : has.length === 0, `${name} 的标签：${JSON.stringify(has)}`);
+      assert(want ? has.length === 1 && has[0] === "世界与备份" : has.length === 0, `${name} 的标签：${JSON.stringify(has)}`);
     }
-    await page.goto(url(worldTab("群组代理"))); await settle(600);
-    const t = await page.$eval("#tab-body", el => el.textContent);
-    assert(t.includes("代理端") && !(await page.$("#wi-start")), "代理端的地图地址：" + t);
+    await page.goto(url(worldTab("群组代理"))); await page.waitForSelector("#console");
+    assert(page.url().endsWith("/console") && !(await page.$("#wi-start")), "代理端的地图地址：" + page.url());
     await page.goto(url("#/inst/" + inst + "/console")); await page.waitForSelector('.tabs .tab[data-t="world"]');
-    await page.click('.tabs .tab[data-t="world"]');
+    await page.click('.tabs .tab[data-t="world"]'); await page.waitForSelector('.sub-tabs .tab[data-t="map"]');
+    await page.click('.sub-tabs .tab[data-t="map"]');
     await page.waitForSelector("#wi-start");
-    assert(page.url().endsWith("/world") && (await page.$eval('.tabs .tab[data-t="world"]', a => a.classList.contains("cur"))), "点标签没有进地图页：" + page.url());
+    assert(page.url().endsWith("/world/map") && (await page.$eval('.tabs .tab[data-t="world"]', a => a.classList.contains("cur"))) &&
+      (await page.$eval('.sub-tabs .tab[data-t="map"]', a => a.classList.contains("cur"))), "点子页没有进换地图：" + page.url());
   });
 
   await run("地图：当前世界和恢复点列表（哪次导入、现在什么状态、占多大），只有最近一次导入有「恢复导入前的地图」", async () => {
@@ -5280,7 +5268,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert((await page.$eval("#wi-task-title", el => el.textContent)).includes(NAME) && st.world.discards.length === 0, "任务标题或提前清了检测结果：" + JSON.stringify(st.world.discards));
       // 切到别的标签再回来：接着看同一个任务，检测结果还在
       await page.click('.tabs .tab[data-t="console"]'); await page.waitForSelector("#console");
-      await page.click('.tabs .tab[data-t="world"]'); await page.waitForSelector("#wi-task");
+      // beta.3 R06：「地图」成了「世界与备份」下的「换地图」子页，点标签进的是「备份」，再点子页
+      await page.click('.tabs .tab[data-t="world"]'); await page.click('.sub-tabs .tab[data-t="map"]'); await page.waitForSelector("#wi-task");
       // 开始停服、换地图以后不能取消
       await page.waitForSelector("#wi-task-acts .warn-text", { timeout: 15000 });
       assert(!(await page.$("#wi-cancel")) && (await page.$eval("#wi-task-acts", el => el.textContent)).includes("不能取消"), "换地图阶段不该还有取消键");
@@ -6504,6 +6493,315 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     });
   }
   // ==================== beta.3 P0 结束 ====================
+
+  // ==================== beta.3 详情页（R06 R07 R10 R11 R15 R16 R21） ====================
+  // docs/可用性走查-2026-11-14.md 第八节 R06、R07、R10、R11、R21，R15、R16 里属于详情页的部分；标签和子页的编号见 docs/文案重写/04-标签与术语-beta3.md 第一节。
+  // 用例名都以「beta.3 详情」开头，node tests.js "beta.3 详情" 只跑这一块。仿真后端用到的字段见 server.js「/__mock/state」说明里「beta.3 详情页」那几行
+  {
+    const dState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
+    const SURV = "生存服 · 朋友", PACK0 = "机械动力整合包", VAN = "原版快照测试", PROXY = "群组代理";
+    const E = encodeURIComponent;
+    const open = async (n, t) => { await page.goto(url(`#/inst/${E(n)}/${t}`)); await page.waitForSelector("#d-status"); await settle(400); };
+    const hashNow = () => page.evaluate(() => decodeURIComponent(location.hash));
+    const tabsNow = () => page.evaluate(() => ({ tabs: [...document.querySelectorAll(".tabs:not(.sub-tabs) > .tab")].map(a => a.dataset.t + ":" + a.textContent.trim()),
+      cur: (document.querySelector(".tabs:not(.sub-tabs) > .tab.cur") || {}).dataset?.t || "", sub: (document.querySelector(".sub-tabs > .tab.cur") || {}).dataset?.t || "",
+      subs: [...document.querySelectorAll(".sub-tabs > .tab")].map(a => a.dataset.t + ":" + a.textContent.trim()) }));
+
+    await run("beta.3 详情 R06：七个标签和子页按术语文件排；插件服叫「插件」、模组服叫「模组」、Mohist 叫「插件和模组」，原版没有；代理端只有控制台、插件、定时任务、设置（只有启动与内存）", async () => {
+      await dState({ instReset: true });
+      try {
+        await open(SURV, "console");
+        let t = await tabsNow();
+        assert(JSON.stringify(t.tabs) === JSON.stringify(["console:控制台", "players:玩家", "world:世界与备份", "addons:插件", "tasks:定时任务", "settings:设置", "ext:扩展"]) && t.cur === "console" && !t.subs.length,
+          "Paper 的标签：" + JSON.stringify(t));
+        await open(PACK0, "ext");
+        t = await tabsNow();
+        assert(t.tabs[3] === "addons:模组" && t.cur === "ext" && JSON.stringify(t.subs) === JSON.stringify(["gameai:游戏内 AI", "companion:AI 伙伴", "music:音乐共享"]) && t.sub === "gameai" &&
+          await hashNow() === `#/inst/${PACK0}/ext/gameai`, "Forge 的扩展：" + JSON.stringify(t));
+        await open(VAN, "settings");
+        t = await tabsNow();
+        assert(!t.tabs.some(x => x.startsWith("addons")) && t.cur === "settings" && t.sub === "common" && JSON.stringify(t.subs) === JSON.stringify(["common:常用", "jvm:启动与内存", "raw:全部配置"]) &&
+          await hashNow() === `#/inst/${VAN}/settings/common`, "原版：" + JSON.stringify(t));
+        await open(PROXY, "settings");
+        t = await tabsNow();
+        assert(JSON.stringify(t.tabs) === JSON.stringify(["console:控制台", "addons:插件", "tasks:定时任务", "settings:设置"]) && t.sub === "jvm" && JSON.stringify(t.subs) === JSON.stringify(["jvm:启动与内存"]) &&
+          await hashNow() === `#/inst/${PROXY}/settings/jvm`, "代理端：" + JSON.stringify(t));
+        await dState({ inst: { name: PACK0, core: "mohist" } });
+        await open(PACK0, "addons");
+        t = await tabsNow();
+        assert(t.tabs[3] === "addons:插件和模组" && (await page.textContent("#ad-h")) === "已安装的模组" && (await page.textContent("#ad-note")).includes("plugins 文件夹里的插件没有列在这里"),
+          "Mohist（标签叫插件和模组，已安装只列 mods 文件夹）：" + JSON.stringify(t) + await page.textContent("#ad-h"));
+      } finally { await dState({ instReset: true }); }
+    });
+
+    await run("beta.3 详情 R06：每个旧地址都跳到对的新地方，地址原地换掉、不多一条历史记录（后退回到进来之前那一页）；用不上的落到能用的地方", async () => {
+      await dState({ instReset: true });
+      const cases = [[SURV, "backups", "world/backups"], [SURV, "res", "addons"], [SURV, "cart", "addons"], [SURV, "common", "settings/common"], [SURV, "raw", "settings/raw"],
+        [SURV, "jvm", "settings/jvm"], [SURV, "gameai", "ext/gameai"], [PACK0, "companion", "ext/companion"], [PACK0, "music", "ext/music"],
+        [SURV, "world", "world/backups"], // 旧的「地图」标签就叫 world：现在就是「世界与备份」，落到「备份」子页，旁边就是「换地图」
+        [PROXY, "common", "settings/jvm"], [PROXY, "players", "console"], [VAN, "cart", "console"], [SURV, "music", "ext/gameai"], [SURV, "nope", "console"]];
+      for (const [n, old, want] of cases) {
+        await page.goto(url("#/instances")); await settle(300);
+        await page.evaluate(h => { location.hash = h; }, `#/inst/${E(n)}/${old}`);
+        await page.waitForFunction(w => decodeURIComponent(location.hash).endsWith("/" + w) && document.querySelector("#tab-body"), want, { timeout: 4000 }).catch(() => {});
+        const h = await hashNow(), t = await tabsNow();
+        const [wt, ws = ""] = want.split("/");
+        assert(h === `#/inst/${n}/${want}` && t.cur === wt && t.sub === ws, `${n} 的旧地址 ${old}：落到 ${h}，标签 ${t.cur}/${t.sub}，应为 ${want}`);
+        if (old === "world") assert(t.subs.includes("map:换地图"), "旧的地图地址落在世界与备份上，应看得到「换地图」：" + JSON.stringify(t.subs));
+        await page.goBack(); await settle(300);
+        assert(await hashNow() === "#/instances", `${old}：后退应回到列表，实际是 ${await hashNow()}`);
+      }
+      // 页面上的链接是新地址：页头提示区的「换 Java」
+      await dState({ modsNeed: { [PACK0]: 25 } });
+      try {
+        await open(PACK0, "console");
+        const href = await page.$eval("#d-java-hint a", a => decodeURIComponent(a.getAttribute("href"))).catch(() => "");
+        assert(href === `#/inst/${PACK0}/settings/jvm` && (await page.textContent("#d-java-hint")).includes("「设置 → 启动与内存」"), "提示区的链接：" + href);
+      } finally { await dState({ modsNeed: {} }); }
+    });
+
+    await run("beta.3 详情 R06/R07：页头有「重启」和「···」；重启调 restart，有玩家在线先确认（写出人数），没人在线直接重启；停着时重启点不了；「···」里是导出交接包和删除服务器（停着才能点，删除后回到列表）", async () => {
+      await dState({ instReset: true, lifecycle: [] });
+      try {
+        await open(SURV, "console");
+        const head = await page.evaluate(() => ({ restart: $("#d-restart").textContent.trim(), dis: $("#d-restart").disabled, more: $("#d-more").getAttribute("aria-label") }));
+        assert(head.restart === "重启" && !head.dis && head.more === "更多操作 " + SURV, "页头：" + JSON.stringify(head));
+        // 有 3 个人在线：先问，取消就不重启
+        await page.click("#d-restart"); await page.waitForSelector("#modal-root .modal");
+        let m = await page.evaluate(() => ({ t: $("#modal-root h3").textContent, b: $("#modal-root .m-body").textContent, ok: $('#modal-root [data-x="ok"]').textContent }));
+        assert(m.t.includes("重启") && m.b.includes("3") && m.b.includes("掉线") && m.ok === "重启服务器", "确认框：" + JSON.stringify(m));
+        await page.click('#modal-root [data-x="cancel"]'); await settle(300);
+        let st = await dState({});
+        assert(!(st.lifecycle || []).length, "取消了不该发请求：" + JSON.stringify(st.lifecycle));
+        await page.click("#d-restart"); await page.waitForSelector("#modal-root .modal");
+        await page.click('#modal-root [data-x="ok"]'); await settle(600);
+        st = await dState({});
+        assert(JSON.stringify(st.lifecycle) === JSON.stringify([{ inst: SURV, act: "restart" }]) && await toastHas("正在重启"), "重启的请求：" + JSON.stringify(st.lifecycle));
+        // 停止也一样先问
+        await page.click("#d-stop"); await page.waitForSelector("#modal-root .modal");
+        m = await page.evaluate(() => ({ t: $("#modal-root h3").textContent, ok: $('#modal-root [data-x="ok"]').textContent }));
+        assert(m.t.includes("停止") && m.ok === "停止服务器", "停止的确认框：" + JSON.stringify(m));
+        await page.click('#modal-root [data-x="ok"]'); await settle(500);
+        st = await dState({});
+        assert(st.lifecycle.length === 2 && st.lifecycle[1].act === "stop", "停止的请求：" + JSON.stringify(st.lifecycle));
+        // 没人在线：不问，直接重启
+        await dState({ inst: { name: SURV, onlineCount: 0 }, lifecycle: [] });
+        await open(SURV, "console");
+        await page.click("#d-restart"); await settle(600);
+        st = await dState({});
+        assert(!(await page.$("#modal-root .modal")) && st.lifecycle.length === 1 && st.lifecycle[0].act === "restart", "没人在线时：" + JSON.stringify(st.lifecycle));
+        // 运行中：「···」里两项都点不了，写明原因
+        await page.click("#d-more"); await page.waitForSelector(".dropmenu");
+        let items = await page.$$eval(".dropmenu button", bs => bs.map(b => b.textContent.trim() + (b.disabled ? "(灰)" : "")));
+        assert(JSON.stringify(items) === JSON.stringify(["导出交接包…(灰)", "删除服务器…(灰)"]) && (await page.textContent(".dropmenu")).includes("需先停止服务器"), "运行中的菜单：" + items);
+        await page.keyboard.press("Escape");
+        // 停着的：重启点不了；「···」能导出、能删除，删了回到列表
+        await open(PACK0, "settings");
+        assert(await page.$eval("#d-restart", b => b.disabled), "停着时重启应点不了");
+        await page.click("#d-more"); await page.waitForSelector(".dropmenu");
+        items = await page.$$eval(".dropmenu button", bs => bs.map(b => b.textContent.trim() + (b.disabled ? "(灰)" : "")));
+        assert(JSON.stringify(items) === JSON.stringify(["导出交接包…", "删除服务器…"]), "停着的菜单：" + items);
+        await page.click('.dropmenu button:has-text("导出交接包")'); await page.waitForSelector("#modal-root .modal");
+        assert(await page.$("#modal-root #tr-title"), "应弹出导出交接包的弹窗（和卡片「···」里是同一个）");
+        await page.keyboard.press("Escape"); await settle(300);
+        await page.click("#d-more"); await page.click(".dropmenu button.danger"); await page.waitForSelector("#modal-root input[data-k=files]"); await settle(200);
+        await page.click('#modal-root [data-x="ok"]'); await settle(700);
+        st = await dState({});
+        assert(st.lastDelete && st.lastDelete.inst === PACK0 && !st.lastDelete.files && await hashNow() === "#/instances", "删除以后：" + JSON.stringify(st.lastDelete) + " " + await hashNow());
+      } finally { await dState({ instReset: true }); }
+    });
+
+    await run("beta.3 详情 R07：常用设置每一项都标「重启生效」（游戏规则开关除外）；保存条按实时状态说，停着不写运行中；运行中保存后给「立即重启」，一步重启；列表卡片的停止也先问", async () => {
+      await dState({ instReset: true, lifecycle: [] });
+      try {
+        const rows = await page.evaluate(() => (window.PROPS_CATALOG || []).filter(p => p.restart !== true).map(p => p.key));
+        assert(!rows.length, "目录里还有不标重启的：" + rows);
+        // 停着：保存条不写「运行中」
+        await open(PACK0, "settings/common");
+        assert(await page.$eval(".save-bar .sb-live", e => e.hidden) && await page.$eval('[data-sb="restart"]', b => b.hidden), "停着时不该写运行中");
+        const motd = await page.$eval('.prop-item:has([data-k="motd"])', e => e.textContent);
+        assert(motd.includes("重启生效"), "motd 应标重启生效：" + motd);
+        // 开起来以后（轮询到状态）：保存条马上改口
+        await dState({ status: { [PACK0]: "running" } });
+        await page.waitForFunction(() => !document.querySelector(".save-bar .sb-live").hidden, null, { timeout: 5000 });
+        assert((await page.textContent(".save-bar .sb-live")).includes("服务器运行中：保存后要重启才生效"), "运行中的说法：" + await page.textContent(".save-bar .sb-live"));
+        // 改三项、保存 → 「立即重启」→ 没人在线就直接重启（等一轮轮询，页面拿到「没人在线」）
+        await dState({ inst: { name: PACK0, onlineCount: 0 } }); await settle(2800);
+        await page.click('.prop-item [data-k="hardcore"]');
+        await page.fill('[data-k="motd"]', "改过的介绍");
+        await page.selectOption('[data-k="difficulty"]', "hard");
+        assert((await page.textContent(".sb-text")).includes("3 项修改未保存"), "保存条：" + await page.textContent(".sb-text"));
+        await page.click('[data-sb="save"]'); await settle(500);
+        assert(await toastHas("重启服务器以后生效") && !(await page.$eval('[data-sb="restart"]', b => b.hidden)) && (await page.textContent(".save-bar .sb-live")).includes("已保存，重启服务器以后生效"),
+          "保存以后应给「立即重启」");
+        await page.click('[data-sb="restart"]'); await settle(600);
+        let st = await dState({});
+        assert(JSON.stringify(st.lifecycle) === JSON.stringify([{ inst: PACK0, act: "restart" }]), "立即重启的请求：" + JSON.stringify(st.lifecycle));
+        // 停过一次：下次启动就是新设置，「立即重启」不用了
+        await dState({ status: { [PACK0]: "stopped" } });
+        await page.waitForFunction(() => document.querySelector('[data-sb="restart"]').hidden && document.querySelector(".save-bar .sb-live").hidden, null, { timeout: 5000 });
+        // 列表卡片的停止：有人在线先问
+        await dState({ lifecycle: [] });
+        await page.goto(url("#/instances")); await settle(500);
+        await page.click(`.card[data-name="${SURV}"] [data-act="stop"]`); await page.waitForSelector("#modal-root .modal");
+        assert((await page.textContent("#modal-root .m-body")).includes("3"), "卡片停止的确认框要写人数");
+        await page.click('#modal-root [data-x="cancel"]'); await settle(300);
+        st = await dState({});
+        assert(!(st.lifecycle || []).length, "取消了不该停");
+      } finally { await dState({ instReset: true }); }
+    });
+
+    await run("beta.3 详情 R10：插件页上面是已安装（停用的标出来），停着能停用、启用、删除（删除先确认、移进已删除文件夹）；开着时点不了并写明要先停服；热门和搜索里装过的标「已安装」", async () => {
+      await dState({ instReset: true, modOps: [], modCart: { reset: true } });
+      try {
+        await open(SURV, "addons");
+        const v = await page.evaluate(() => ({ h: $("#ad-h").textContent, count: $("#ad-count").textContent, rows: [...document.querySelectorAll(".ad-item")].map(r => r.dataset.file + (r.classList.contains("off") ? "(停用)" : "")),
+          stop: !$("#ad-need-stop").hidden, dis: [...document.querySelectorAll("[data-ad-toggle], [data-ad-del]")].every(b => b.disabled), add: $(".ad-add-h").textContent }));
+        assert(v.h === "已安装的插件" && v.count === "plugins 文件夹里共 3 个，1 个已停用" && v.add === "添加插件" && JSON.stringify(v.rows) === JSON.stringify(["EssentialsX-2.20.1.jar", "LuckPerms-Bukkit-5.4.137.jar", "Chunky-1.4.10.jar.disabled(停用)"]),
+          "已安装列表：" + JSON.stringify(v));
+        assert(v.stop && v.dis, "运行中应点不了并写明要先停服：" + JSON.stringify(v));
+        // 热门清单里：LuckPerms 按模组 ID 认出来，EssentialsX 按文件内容在 Modrinth 上认出来（projects=1）；停用的 Chunky 不算已安装
+        await page.waitForSelector("#mc-hits .mc-hit");
+        await page.waitForFunction(() => [...document.querySelectorAll(".mc-add")].filter(b => b.textContent.includes("已安装")).length === 2, null, { timeout: 4000 }).catch(() => {});
+        const marks = await page.$$eval(".mc-add", bs => bs.filter(b => b.textContent.includes("已安装")).map(b => b.dataset.pid + (b.disabled ? "" : "(可点)")));
+        let st = await dState({});
+        assert(JSON.stringify(marks.sort()) === JSON.stringify(["essentialsx", "luckperms"]) && st.modsProjects === 1, "热门里的已安装：" + JSON.stringify(marks) + " projects 请求 " + st.modsProjects);
+        // 停服以后（轮询到）：马上能点
+        await dState({ status: { [SURV]: "stopped" } });
+        await page.waitForFunction(() => document.querySelector("#ad-need-stop").hidden && !document.querySelector('[data-ad-toggle="EssentialsX-2.20.1.jar"]').disabled, null, { timeout: 5000 });
+        await byName("button", "停用 EssentialsX-2.20.1.jar").click(); await settle(500);
+        st = await dState({});
+        assert(JSON.stringify(st.modOps) === JSON.stringify([{ inst: SURV, act: "toggle", file: "EssentialsX-2.20.1.jar", enable: false }]) && await toastHas("已停用 EssentialsX-2.20.1.jar"), "停用的请求：" + JSON.stringify(st.modOps));
+        assert(await page.$eval('[data-file="EssentialsX-2.20.1.jar.disabled"]', r => r.classList.contains("off")), "停用以后列表里标成停用");
+        assert(await page.$eval('.mc-add[data-pid="essentialsx"]', b => !b.disabled && b.textContent.includes("加入清单")), "停用以后热门里不该再标已安装");
+        await byName("button", "启用 Chunky-1.4.10.jar.disabled").click(); await settle(500);
+        st = await dState({});
+        assert(st.modOps[1].file === "Chunky-1.4.10.jar.disabled" && st.modOps[1].enable === true, "启用的请求：" + JSON.stringify(st.modOps[1]));
+        // 删除：先确认（说清楚是移进已删除文件夹，能找回），取消不删
+        await byName("button", "删除 LuckPerms-Bukkit-5.4.137.jar").click(); await page.waitForSelector("#modal-root .modal");
+        const body = await page.textContent("#modal-root .m-body");
+        assert(body.includes(".minedeck\\已删除\\plugins") && body.includes("不会直接删掉"), "删除的确认框：" + body);
+        await page.click('#modal-root [data-x="cancel"]'); await settle(300);
+        assert((await dState({})).modOps.length === 2, "取消了不该删");
+        await byName("button", "删除 LuckPerms-Bukkit-5.4.137.jar").click(); await page.waitForSelector("#modal-root .modal");
+        await page.click('#modal-root [data-x="ok"]'); await settle(600);
+        st = await dState({});
+        assert(st.modOps[2].act === "delete" && st.modOps[2].file === "LuckPerms-Bukkit-5.4.137.jar" && !(await page.$('[data-file="LuckPerms-Bukkit-5.4.137.jar"]')) &&
+          await toastHas("移进了服务器文件夹里的 .minedeck\\已删除\\plugins\\LuckPerms-Bukkit-5.4.137.jar"), "删除以后：" + JSON.stringify(st.modOps[2]));
+        // 模组服叫「模组」；原版打不开这一页
+        await open(PACK0, "addons");
+        assert((await page.textContent("#ad-h")) === "已安装的模组" && (await page.textContent(".mc-gh")).includes("待装清单"), "模组服的叫法");
+      } finally { await dState({ instReset: true, modCart: { reset: true } }); }
+    });
+
+    await run("beta.3 详情 R11：运行中「还原」旁写明要先停服；确认框直接给「停止并还原」，一次确认就先停再还原；还原以后页顶写当前世界从哪份备份来；手动备份带标签，列表优先显示标签；说明里有还原的规则", async () => {
+      await dState({ instReset: true, lifecycle: [] });
+      try {
+        await open(SURV, "world/backups");
+        const v = await page.evaluate(() => ({ now: $("#bk-now").textContent, titles: [...document.querySelectorAll(".bk-list .ri-title")].map(e => e.textContent), need: document.querySelectorAll(".bk-need-stop").length,
+          hint: $("#tab-body").textContent }));
+        assert(v.now.includes("没有从备份还原过") && v.titles[1] === "打龙前" && v.titles[0] === "20261026-040000.000000000.zip" && v.need === 3, "备份页：" + JSON.stringify(v));
+        assert(v.hint.includes("还原要先停服") && v.hint.includes("还原前自动"), "说明里应有还原的规则");
+        await byName("button", "还原 20261025-221000.000000000-打龙前.zip").click(); await page.waitForSelector("#modal-root .modal");
+        const m = await page.evaluate(() => ({ ok: $('#modal-root [data-x="ok"]').textContent, b: $("#modal-root .m-body").textContent }));
+        assert(m.ok === "停止并还原" && m.b.includes("打龙前") && m.b.includes("3") && m.b.includes("先保存世界并停止"), "确认框：" + JSON.stringify(m));
+        await page.click('#modal-root [data-x="ok"]'); await settle(900);
+        const st = await dState({});
+        assert(JSON.stringify(st.lastRestore) === JSON.stringify({ inst: SURV, file: "20261025-221000.000000000-打龙前.zip", stopFirst: true }) &&
+          JSON.stringify(st.lifecycle) === JSON.stringify([{ inst: SURV, act: "stop" }]), "一次请求做完停服和还原：" + JSON.stringify([st.lastRestore, st.lifecycle]));
+        assert(await toastHas("还原完成") && !(await toastHas("还原失败", 300)), "应还原成功");
+        await page.waitForFunction(() => document.querySelector("#bk-now").textContent.includes("2026-10-25 22:10"), null, { timeout: 4000 });
+        const now = await page.textContent("#bk-now");
+        assert(now.includes("当前世界：从 2026-10-25 22:10 的备份还原（打龙前）") && now.includes("还原于 2026-11-15 21:05"), "页顶：" + now);
+        assert(!(await page.$(".bk-need-stop")) && (await page.textContent(".bk-list")).includes("现在的世界"), "停下来以后不再写要先停服，列表里标出现在的世界");
+        // 重开页面（换个标签再回来）仍在：记在服务器的数据里
+        await open(SURV, "console"); await open(SURV, "world/backups");
+        assert((await page.textContent("#bk-now")).includes("打龙前"), "重进以后页顶应还在");
+        // 停着的直接还原：确认键叫「还原」，不带 stopFirst
+        await byName("button", "还原 20261026-040000.000000000.zip").click(); await page.waitForSelector("#modal-root .modal");
+        assert(await page.textContent('#modal-root [data-x="ok"]') === "还原", "停着时的确认键");
+        await page.click('#modal-root [data-x="ok"]'); await settle(700);
+        assert(JSON.stringify((await dState({})).lastRestore) === JSON.stringify({ inst: SURV, file: "20261026-040000.000000000.zip", stopFirst: false }), "停着时的还原请求");
+        // 手动备份带标签
+        await page.fill("#bk-label", "换地图前"); await page.click("#bk-create"); await settle(600);
+        assert(JSON.stringify((await dState({})).lastBackup) === JSON.stringify({ inst: SURV, label: "换地图前" }) && (await page.$$eval(".bk-list .ri-title", e => e[0].textContent)) === "换地图前", "带标签的备份");
+      } finally { await dState({ instReset: true }); }
+    });
+
+    await run("beta.3 详情 R15：设置 → 启动与内存页顶列出核心、版本、端口、Java、服务器文件夹（能复制、能打开），点端口去常用设置的端口那一项；「打开文件夹」菜单有「备份」；备份页写出备份放在哪、保留份数只读并带路去设置", async () => {
+      await dState({ instReset: true });
+      try {
+        await open(PACK0, "settings/jvm");
+        const f = await page.evaluate(() => [...document.querySelectorAll(".jm-fact")].map(e => e.querySelector(".jm-k").textContent + "=" + e.querySelector(".jm-v").textContent.replace(/\s+/g, " ").trim()));
+        assert(f[0] === "核心=Forge 47.3.0" && f[1] === "版本=Minecraft 1.20.1" && f[2].startsWith("端口=25566") && f[3] === "Java=Java 17" && f[4].startsWith("服务器文件夹=D:\\MineDeck\\servers\\create-pack"), "页顶：" + JSON.stringify(f));
+        await page.evaluate(() => { window.__copied = null; Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async t => { window.__copied = t; } } }); });
+        await page.click("#jm-dir-copy"); await settle(150);
+        assert(await page.evaluate(() => window.__copied) === "D:\\MineDeck\\servers\\create-pack", "复制的路径");
+        await page.click("#jm-port"); await page.waitForSelector('[data-k="server-port"]'); await settle(300);
+        const p = await page.evaluate(() => ({ h: decodeURIComponent(location.hash), focus: document.activeElement && document.activeElement.dataset.k, flash: !!document.querySelector(".prop-item.flash [data-k='server-port']") }));
+        assert(p.h === `#/inst/${PACK0}/settings/common` && p.focus === "server-port" && p.flash, "点端口以后：" + JSON.stringify(p));
+        // 「打开文件夹」菜单里有「备份」（不在服务器文件夹里，走打开任意文件夹的接口）
+        await page.click("#d-dir"); await page.waitForSelector(".dropmenu");
+        await page.click('.dropmenu button:has-text("备份")'); await settle(300);
+        assert((await dState({})).lastOpenPath === "D:\\MineDeck\\backups\\" + PACK0, "打开的备份文件夹：" + (await dState({})).lastOpenPath);
+        // 备份页：写出放在哪、保留几份（只读），带路去「设置 → 存储位置」；没有能改份数的输入框了
+        await open(PACK0, "world/backups");
+        const w = await page.evaluate(() => ({ where: $("#bk-where").textContent.replace(/\s+/g, " "), href: $("#bk-keep-link").getAttribute("href"), input: !!document.querySelector("#bk-keep input, input#bk-keep") }));
+        assert(w.where.includes("D:\\MineDeck\\backups\\" + PACK0) && w.where.includes("保留最近 10 份") && w.href === "#/settings/storage" && !w.input, "备份放在哪：" + JSON.stringify(w));
+      } finally { await dState({ instReset: true }); }
+    });
+
+    await run("beta.3 详情 R16：常用、启动与内存、全部配置、定时任务都用吸底保存条；定时任务点「添加」进草稿（标「未保存」），保存条按条数算", async () => {
+      await dState({ instReset: true });
+      for (const t of ["settings/common", "settings/jvm", "settings/raw", "tasks"]) {
+        await open(SURV, t);
+        assert(await page.$(".save-bar.sticky [data-sb=save]"), t + " 没有吸底保存条");
+      }
+      assert(!(await page.$("#jm-java-set")), "不该再有单独的「更换 Java」");
+      await open(SURV, "tasks");
+      for (const at of ["05:00", "06:30"]) { await page.fill("#sc-at", at); await page.click("#sc-add"); await settle(100); }
+      const v = await page.evaluate(() => ({ bar: $(".sb-text").textContent, drafts: [...document.querySelectorAll("#sched-list .java-row.draft")].map(r => r.textContent.replace(/\s+/g, " ").trim()) }));
+      assert(v.bar === "2 项修改未保存" && v.drafts.length === 2 && v.drafts.every(x => x.includes("未保存")), "加两条：" + JSON.stringify(v));
+      await page.click('[data-sb="save"]'); await settle(500);
+      assert((await page.textContent(".sb-text")) === "所有修改已保存" && !(await page.$("#sched-list .java-row.draft")), "保存以后不再是草稿");
+    });
+
+    await run("beta.3 详情 R21：配的 Java 找不到时，卡片和详情页头的提示区都警告并带路去「设置 → 启动与内存」，Java 下拉里那一项标「找不到」；换好以后提示消失", async () => {
+      await dState({ instReset: true });
+      try {
+        await dState({ inst: { name: PACK0, javaMissing: true, javaPath: "C:\\Gone\\jdk-17\\bin\\java.exe" } });
+        await page.goto(url("#/instances")); await settle(600);
+        const card = await page.$eval(`.card[data-name="${PACK0}"] .inst-java-missing`, a => ({ t: a.textContent, href: a.getAttribute("href") })).catch(() => null);
+        assert(card && card.t.includes("找不到这台服务器配的 Java") && decodeURIComponent(card.href) === `#/inst/${PACK0}/settings/jvm`, "卡片：" + JSON.stringify(card));
+        await page.click(`.card[data-name="${PACK0}"] .inst-java-missing`); await page.waitForSelector("#jm-java option[value='0']", { state: "attached" });
+        assert(await hashNow() === `#/inst/${PACK0}/settings/jvm`, "点卡片上的警告应去启动与内存：" + await hashNow());
+        const sel = await page.$eval("#jm-java", s => s.selectedOptions[0].textContent);
+        assert(sel === "Java 17（C:\\Gone\\jdk-17\\bin\\java.exe） · 现在用的 · 找不到", "下拉里现在用的那项：" + sel);
+        assert(!(await page.$("#d-java-missing a")) && (await page.textContent("#d-java-missing")).includes("C:\\Gone\\jdk-17"), "在启动与内存页上就不用再带路");
+        await open(PACK0, "console");
+        const n = await page.evaluate(() => ({ t: $("#d-java-missing").textContent, href: $("#d-java-missing a").getAttribute("href") }));
+        assert(n.t.includes("找不到这台服务器配的 Java") && decodeURIComponent(n.href) === `#/inst/${PACK0}/settings/jvm`, "页头提示区：" + JSON.stringify(n));
+        // 换好了（后端不再报 javaMissing）：轮询到以后提示消失
+        await dState({ inst: { name: PACK0, javaMissing: false } });
+        await page.waitForFunction(() => !document.querySelector("#d-java-missing"), null, { timeout: 5000 });
+      } finally { await dState({ instReset: true }); }
+    });
+
+    await run("beta.3 详情：伙伴的弹窗叠在弹窗层里，不把下面开着的弹窗换掉；Esc 只关最上面那层", async () => {
+      await dState({ cp: { reset: true, inst: { [PACK0]: { mods: CP_INSTALLED, settings: { enabled: true, exists: true } } } } });
+      try {
+        await open(PACK0, "ext/companion"); await page.waitForSelector("#cp-zone-add");
+        await page.evaluate(() => modalLayer(`<div class="modal" role="dialog" aria-label="下面那层"><input id="keep-in" value="还在"></div>`, "keep-layer"));
+        await page.evaluate(() => document.querySelector("#cp-zone-add").click()); await page.waitForSelector(".cp-form");
+        let n = await page.evaluate(() => ({ layers: $("#modal-root").childElementCount, keep: $("#keep-in") && $("#keep-in").value }));
+        assert(n.layers === 2 && n.keep === "还在", "伙伴的弹窗把下面那层换掉了：" + JSON.stringify(n));
+        await page.keyboard.press("Escape"); await settle(300);
+        n = await page.evaluate(() => ({ form: !!document.querySelector(".cp-form"), keep: !!$("#keep-layer") }));
+        assert(!n.form && n.keep, "Esc 应只关伙伴的弹窗：" + JSON.stringify(n));
+      } finally { await page.evaluate(() => { const k = $("#keep-layer"); if (k) k.remove(); }); await dState({ cp: { reset: true } }); }
+    });
+  }
+  // ==================== beta.3 详情页结束 ====================
 
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
 

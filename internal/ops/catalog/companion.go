@@ -170,7 +170,7 @@ func (c *cat) companionOps() {
 
 	c.reg.Register(&ops.Op{
 		Name: "companion.status", Title: "查看 AI 伙伴", Level: ops.Read,
-		Desc: "实例「伙伴」标签的内容：伙伴模组、PlayerEngine、Architectury API 装没装、是什么版本，好友的客户端要装什么；" +
+		Desc: "实例「扩展 → AI 伙伴」页的内容：伙伴模组、PlayerEngine、Architectury API 装没装、是什么版本，好友的客户端要装什么；" +
 			"伙伴的设置（开关、伙伴上限、attack 不许打的生物、禁挖区域）和模组实际在用的；和伙伴模组的连接；现有的伙伴（位置、血量、状态、当前任务、" +
 			"上次的结果）；最近的事件。不改任何东西，不联网。",
 		Params: withInst(nil),
