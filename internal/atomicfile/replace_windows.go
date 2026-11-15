@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -50,10 +51,53 @@ type renameInfo struct {
 	Name      [1]uint16
 }
 
+// 替换时目标文件只要被谁打开着（哪怕只是查一下文件名、什么权限都不要、允许别人删），
+// MoveFileEx 就报拒绝访问；临时文件被打开着、又不许别人删，报共享冲突。
+// 这种占用通常一眨眼就放开：本程序自己排队前算锁键（PathKey 会打开目标查真实名字）、
+// 不排队的读取、服务端读配置、杀毒和索引都会这样。所以目标不是只读、错误是这两种时，隔一会儿再试，
+// 间隔从 1 毫秒翻倍到 125 毫秒封顶，一共最多再试 10 次、加起来约半秒；还不行就照旧报错。
+// 重试只再调 MoveFileEx：它本身拒绝覆盖只读文件，所以重试期间目标变成只读也不会被盖掉。
+// 2026-11-14 CI 上 TestUpdatePropsKeepsEveryonesChange 偶发的 Access is denied 就是排队的保存在算锁键时撞上了正在替换的那一个。
+var retryDelays = []time.Duration{
+	1 * time.Millisecond, 2 * time.Millisecond, 4 * time.Millisecond, 8 * time.Millisecond, 16 * time.Millisecond,
+	32 * time.Millisecond, 64 * time.Millisecond, 125 * time.Millisecond, 125 * time.Millisecond, 125 * time.Millisecond,
+}
+
+// beforeRetry 测试用：第 attempt 次重试（从 1 数）调用 MoveFileEx 之前调用。
+var beforeRetry func(attempt int)
+
+// retryable 失败是不是值得再试一次：错误是拒绝访问或共享冲突，而且目标不是只读文件、不是文件夹。
+// 原文件原来就是只读的（old 记着）不在这里重试，交给下面的扩展改名，规矩和以前一样。
+func retryable(err error, path string, old fs.FileInfo) bool {
+	if !errors.Is(err, windows.ERROR_ACCESS_DENIED) && !errors.Is(err, windows.ERROR_SHARING_VIOLATION) {
+		return false
+	}
+	if old != nil && old.Mode().Perm()&0o200 == 0 {
+		return false
+	}
+	cur, e := os.Lstat(path)
+	if errors.Is(e, fs.ErrNotExist) {
+		return true // 目标不在，占着的是临时文件
+	}
+	return e == nil && !cur.IsDir() && cur.Mode().Perm()&0o200 != 0
+}
+
 func replace(tmp, path string, old fs.FileInfo) error {
 	err := move(tmp, path)
+	retries := 0
+	for err != nil && retries < len(retryDelays) && retryable(err, path, old) {
+		time.Sleep(retryDelays[retries])
+		retries++
+		if beforeRetry != nil {
+			beforeRetry(retries)
+		}
+		err = move(tmp, path)
+	}
 	if err == nil {
 		return nil
+	}
+	if retries > 0 {
+		err = fmt.Errorf("重试 %d 次仍不行：%w", retries, err)
 	}
 	if !errors.Is(err, windows.ERROR_ACCESS_DENIED) || old == nil || !old.Mode().IsRegular() || old.Mode().Perm()&0o200 != 0 {
 		return err

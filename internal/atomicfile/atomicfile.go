@@ -25,6 +25,7 @@ var Hook func(path string)
 //
 // 原文件是只读的：Windows 用忽略只读属性的扩展改名，不改变原文件属性。
 // 文件系统不支持则报错并清理临时文件，绝不先删原文件。
+// 原文件不是只读、只是被谁短暂打开着（Windows 上这样改名会被拒绝）：隔一会儿再试几次，约半秒为限，见 replace_windows.go。
 func Write(path string, data []byte, perm fs.FileMode) error {
 	return copyChecked(path, bytes.NewReader(data), perm, nil, nil, true)
 }
