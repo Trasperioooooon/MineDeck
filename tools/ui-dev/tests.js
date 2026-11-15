@@ -3775,7 +3775,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       const v = await page.evaluate(() => ({ eulaHidden: $("#ad-eula-box").hidden, what: $("#ad-what").textContent, notes: !!$("#ad-notes"), mem: $("#ad-mem").value, go: $("#ad-go").disabled,
         noWorldHidden: $("#ad-noworld").hidden, noWorld: $("#ad-noworld").textContent }));
       assert(v.eulaHidden && !v.notes && !v.go, "已经同意过 EULA 不用再勾、没有提醒时不画提醒框：" + JSON.stringify(v));
-      assert(v.what.includes("曾由 MineDeck 管理") && !v.noWorldHidden && v.noWorld.includes("没看到存档"), "说明：" + JSON.stringify(v));
+      assert(v.what.includes("曾由 MineDeck 管理") && !v.noWorldHidden && v.noWorld.includes("没看到世界"), "说明：" + JSON.stringify(v));
       // 代理端本来就没有存档：不提
       await page.selectOption("#ad-core", "velocity");
       assert(await page.$eval("#ad-noworld", x => x.hidden), "代理端不该提示没看到存档");
@@ -3976,7 +3976,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       const m = await page.evaluate(() => ({ title: $("#tr-title").textContent, privacy: $("#tr-mask .wc-note").textContent, full: $("#tr-full").checked, go: $("#tr-go").textContent }));
       assert(m.title.includes("机械动力整合包"), "标题里没有实例名：" + m.title);
       assert(m.privacy.includes("白名单") && m.privacy.includes("密码会原样打包"), "隐私提醒：" + m.privacy);
-      assert(m.full === false && m.go.includes("开始打包"), "弹窗状态：" + JSON.stringify(m));
+      assert(m.title.startsWith("导出交接包") && m.full === false && m.go.includes("导出交接包") && !m.go.includes("开始打包"), "弹窗状态：" + JSON.stringify(m));
       // 导出位置不存在：后端报「导出文件夹不可用: 路径」，输入框标红、下面写原因，弹窗留着；提示只写结论（原文带路径）
       await page.fill("#tr-dest", "Z:\\nope");
       await page.click("#tr-go"); await settle(400);

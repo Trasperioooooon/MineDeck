@@ -1298,7 +1298,7 @@ async function deleteInstance(info) {
 }
 
 /* 运行状态：像素状态灯 + 文字（不能只靠颜色） */
-const ST_TEXT = { running: "运行中", starting: "启动中…", stopping: "正在停止…", stopped: "已停止" };
+const ST_TEXT = { running: "运行中", starting: "启动中…", stopping: "停止中…", stopped: "已停止" };
 const stPill = (st, meta = "") => `<span class="st-pill ${st}"><span class="dot ${st}"></span><span class="st-label">${ST_TEXT[st] || esc(st)}</span>${meta}</span>`;
 /* 状态切换的动效：胶囊从旧颜色过渡到新颜色（220ms）、文字上下换场、进入「运行中」时状态灯放一圈像素波纹。
    pill 须是刚按新状态渲染好的胶囊；from 为旧状态 */
@@ -1646,7 +1646,7 @@ async function drawAdopt() {
   const maxMem = Math.max(2048, app.ramMb - 2048);
   let scan = null; // 最近一次识别的结果；改了文件夹没重新识别就不能接管
   let fill = takeFill("adopt"); // 「返回修改」：填回文件夹、重新识别一遍（文件夹里的东西可能变了），识别完再把改过的几项盖上去
-  Main().innerHTML = pageHead("接管已有服务器", "接管本机外部服务器：选择服务器所在文件夹即可直接关联。文件留在原地，存档、模组、插件与配置均不改动（端口和别的服务器撞了时，只改 server.properties 里的端口）。", "",
+  Main().innerHTML = pageHead("接管已有服务器", "接管本机外部服务器：选择服务器所在文件夹即可直接关联。文件留在原地，世界、模组、插件与配置均不改动（端口和别的服务器撞了时，只改 server.properties 里的端口）。", "",
     `<a href="#/create">新建服务器</a>${icon("chevronRight")}<span>接管已有服务器</span>`) + `
     <div class="form-grid">
       <label class="field full"><span>服务器所在的文件夹</span>
@@ -1691,7 +1691,7 @@ async function drawAdopt() {
         <label class="field full"><span>Java</span><select id="ad-java" aria-label="Java">
           <option value="0">自动：按 Minecraft 版本选，本机没有就下载</option>
           ${majors.map(m => `<option value="${m}">Java ${m}（${known.has(m) ? "本机已有" : "要下载，约 50 MB"}）</option>`).join("")}</select>
-          <div class="hint">通常选「自动」。整合包说明里指定了 Java 版本的，按它选；接管后也能在「内存 / 启动」里换。</div></label>
+          <div class="hint">通常选「自动」。整合包说明里指定了 Java 版本的，按它选；接管后也能在「设置 → 启动与内存」里换。</div></label>
       </div>
       <div class="eula-box" id="ad-eula-box" hidden>
         <label class="switch"><input type="checkbox" id="ad-eula"><span class="sw"></span>
@@ -1709,7 +1709,7 @@ async function drawAdopt() {
         ${s.managed ? "该文件夹曾由 MineDeck 管理，原有的名称、内存和定时任务配置会自动恢复。<br>" : ""}
         接管时 MineDeck 只在这个文件夹里写自己的 <code>instance.json</code> 和启动脚本 <code>run.bat</code>。原来就有 <code>run.bat</code> 的，先另存为 <code>run.before-minedeck.bat</code>。别的文件都不动；只有端口和原来的不一样时，才改 <code>server.properties</code> 里端口这一项。<br>
         接管前需先停止原来的服务器，否则启动时端口会冲突。
-        <span id="ad-noworld" hidden><br>${icon("info")} 这个文件夹里没看到存档（world），启动后会生成一个新世界。存档放在别处的话，先确认选对了文件夹。</span>
+        <span id="ad-noworld" hidden><br>${icon("info")} 这个文件夹里没看到世界（world），启动后会生成一个新世界。世界放在别处的话，先确认选对了文件夹。</span>
       </div>`;
     renderMemoryControl($("#ad-mem-mount"), { sliderId: "ad-mem", min: 1024, max: Math.max(maxMem, 1024), value: Math.min(Math.max(s.xmxMb || 4096, 1024), maxMem), totalMb: app.ramMb, availMb: app.availRamMb,
       hint: s.xmxMb ? `原启动脚本里分配的是 ${(s.xmxMb / 1024).toFixed(1)} GB，已按它填好` : "推荐分配：模组服 4 GB 以上；无模组的小型服务器 2~4 GB。" });
@@ -1924,12 +1924,12 @@ async function drawImport() {
 function transferExportModal(info) {
   if ($("#tr-mask")) return; // 上一个还开着
   const d = modalLayer(`<div class="modal" role="dialog" aria-modal="true" aria-labelledby="tr-title">
-    <h3 id="tr-title">交接「${esc(info.name)}」</h3>
+    <h3 id="tr-title">导出交接包「${esc(info.name)}」</h3>
     <div class="m-body">
-      将服务器打包为 .mdpack 文件发给接手的人，对方通过「新建服务器 → 导入交接包」即可导入：存档、配置、模组和白名单都在包里。
+      将服务器打包为 .mdpack 文件发给接手的人，对方通过「新建服务器 → 导入交接包」即可导入：世界、配置、模组、插件和白名单都在包里。
       <div class="warn-card" style="margin-top:12px">
         <div class="wc-title">${icon("warn")} 含玩家数据</div>
-        <div class="wc-note">包内含玩家存档、白名单和 OP 名单（不包含运行日志）。注意：配置文件中的密码会原样打包（如 server.properties 的 RCON 密码、插件配置中的数据库密码与机器人令牌），在别处复用的密码请先修改后再交接。</div>
+        <div class="wc-note">包内含世界（每个玩家的进度都在里面）、白名单和 OP 名单（不包含运行日志）。注意：配置文件中的密码会原样打包（如 server.properties 的 RCON 密码、插件配置中的数据库密码与机器人令牌），在别处复用的密码请先修改后再交接。</div>
       </div>
       <div class="field tr-modes" style="margin-top:12px" role="radiogroup" aria-label="这个包给谁"><span>这个包给谁</span>
         <label class="ob-radio"><input type="radio" name="tr-mode" value="handover" checked><span>交给下一任服主
@@ -1947,12 +1947,12 @@ function transferExportModal(info) {
         </div>
         <div class="field-err" id="tr-dest-err"></div>
       </label>
-      <div class="hint" style="margin-top:6px">世界存档较大时交接包可能达数 GB；可在任务页查看打包进度，中断后可重新导出。</div>
+      <div class="hint" style="margin-top:6px">世界较大时交接包可能达数 GB；可在任务页查看打包进度，中断后可重新导出。</div>
     </div>
     <div class="m-err" id="tr-err" role="alert" hidden></div>
     <div class="m-actions">
       <button class="btn" id="tr-cancel">取消</button>
-      <button class="btn primary" id="tr-go">${icon("share")} 开始打包</button>
+      <button class="btn primary" id="tr-go">${icon("share")} 导出交接包</button>
     </div></div>`, "tr-mask");
   // 有要填的东西：点遮罩不关（以前点中的常常是刚消失的提示底下那块遮罩，填好的路径一下就没了，可用性走查 U04）；
   // Esc 只在它是最上面那层时关（上面叠着「报错信息」时先关那个）
@@ -1998,7 +1998,7 @@ function transferExportModal(info) {
         method: "POST", body: { full: $("#tr-full").checked, mode: (d.querySelector('input[name="tr-mode"]:checked') || {}).value || "handover", dest, ...(mkdir ? { mkdir: true } : {}) },
       });
       close();
-      toast(mkdir ? "已新建导出文件夹，开始打包交接包" : "开始打包交接包");
+      toast(mkdir ? "已新建导出文件夹，开始导出交接包" : "开始导出交接包");
       location.hash = `#/task/${r.taskId}`;
     } catch (e) {
       toastErr(mkdir ? "无法新建导出文件夹" : "无法导出交接包", e);
@@ -2029,7 +2029,7 @@ async function drawTransfer() {
   if (stale(gen)) return;
   const maxMem = Math.max(2048, app.ramMb - 2048);
   let trapRoot = "", pack = null, packFile = ""; // pack：上传后拿到的摘要；packFile：后端缓存里的包路径
-  Main().innerHTML = pageHead("导入交接包", "MineDeck 导出的 .mdpack 交接包；存档、配置和模组都在包里，导入后可以启动。", "",
+  Main().innerHTML = pageHead("导入交接包", "MineDeck 导出的 .mdpack 交接包；世界、配置和模组都在包里，导入后可以启动。", "",
     `<a href="#/create">新建服务器</a>${icon("chevronRight")}<span>导入交接包</span>`) + `
     <div class="form-grid">
       <label class="field full"><span>交接包文件（.mdpack）</span><input type="file" id="tp-file" accept=".mdpack,.zip">
@@ -2105,7 +2105,7 @@ async function drawTransfer() {
         <label class="field full"><span>Java</span><select id="tp-java" aria-label="Java">
           <option value="0">${s.javaMajor ? `跟原来一样：Java ${s.javaMajor}` : "自动：按 Minecraft 版本选"}（本机没有就下载）</option>
           ${JAVA_DOWNLOADABLE.filter(m => m !== s.javaMajor).map(m => `<option value="${m}">Java ${m}</option>`).join("")}</select>
-          <div class="hint">通常不用改；导入后也能在「内存 / 启动」里换。</div></label>
+          <div class="hint">通常不用改；导入后也能在「设置 → 启动与内存」里换。</div></label>
         <label class="field full"><span>存放位置</span>
           <div class="row" style="gap:8px">
             <input type="text" id="tp-root" readonly style="flex:1;cursor:default;background:var(--surface-2)" aria-label="存放位置">
@@ -2431,7 +2431,7 @@ async function drawWizard() {
       next.innerHTML = busy ? `${icon("spinner")} 正在添加文件…` : `下一步 ${icon("arrowRight")}`;
     };
     if (window.MDModCart) MDModCart.wizardPanel($("#wiz-mod-body"), { core: wiz.core, mc: wiz.mc, onBusy }, gen);
-    else $("#wiz-mod-body").innerHTML = `<div class="err-box">这一步的界面没有加载出来。可以先跳过，以后在这台服务器的「待装清单」标签里再加。</div>`;
+    else $("#wiz-mod-body").innerHTML = `<div class="err-box">这一步的界面没有加载出来。可以先跳过，以后在这台服务器的「插件」或「模组」页里再加。</div>`;
 
   } else {
     const isProxy = coreKind(wiz.core) === "proxy";
@@ -2666,12 +2666,12 @@ const TASK_KINDS = {
     go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/create", backText: "返回新建服务器", nav: "create" },
   mods: { title: "正在安装待装清单", sub: "正在下载清单里的内容和它们的前置，放进服务器的 mods 或 plugins 文件夹。", done: "安装完成", doneSub: "新装的内容要重启服务器后才会生效",
     doneTitle: "待装清单已装好", failTitle: "待装清单没有装成",
-    ok: "安装完成", fail: "安装失败", failHint: "可以回到这台服务器的「待装清单」标签里再装一次。已经下载的文件有缓存，重试很快。", busy: "安装中，请勿关闭程序…",
+    ok: "安装完成", fail: "安装失败", failHint: "可以回到这台服务器的「插件」或「模组」页，在待装清单里再装一次。已经下载的文件有缓存，重试很快。", busy: "安装中，请勿关闭程序…",
     go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/instances", backText: "返回服务器列表", nav: "instances" },
   // 导入地图、换回导入前的地图（worldimport.js）。这类任务的 result 是一句给人看的话，不是服务器名：resultText 让完成后显示它，去处固定是服务器列表
-  world: { title: "正在更换地图", sub: "导入地图，或者换回导入前的地图。出错时会自动退回原来的世界。", done: "已完成", doneSub: "可以到这台服务器的「地图」标签里查看", resultText: true,
+  world: { title: "正在更换地图", sub: "导入地图，或者换回导入前的地图。出错时会自动退回原来的世界。", done: "已完成", doneSub: "可以到这台服务器的「世界与备份 → 换地图」里查看", resultText: true,
     doneTitle: "地图已处理完", failTitle: "地图没有处理完", cancelTitle: "已取消换地图", cancelSub: "没有替换任何文件，原来的世界没动。", // 取消只在复制阶段收（换地图那一页的「取消导入」）
-    ok: "地图已处理完", fail: "没有完成", failHint: "所有文件都还在。到这台服务器的「地图」标签里看现在用的是哪一份。", busy: "正在处理地图，请勿关闭程序…",
+    ok: "地图已处理完", fail: "没有完成", failHint: "所有文件都还在。到这台服务器的「世界与备份 → 换地图」里看现在用的是哪一份。", busy: "正在处理地图，请勿关闭程序…",
     go: "完成，回到服务器列表", href: () => "#/instances", back: "#/instances", backText: "返回服务器列表", nav: "instances" },
 };
 /* 侧栏亮哪一项：navigate() 进任务页时先按「新建服务器」亮着（那时还不知道是哪一类任务），拿到任务以后在这里改过来 */
@@ -3585,7 +3585,7 @@ async function renderDetail(name, path = "console") {
           <span class="sep">·</span><span id="bk-keep">保留最近 <b>${keep}</b> 份（所有服务器共用）</span>
           <a class="quiet-link" href="#/settings/storage" id="bk-keep-link">到「设置 → 存储位置」里改</a>
         </div>
-        <div class="hint" style="margin-bottom:14px">服务器运行时也能备份：先暂停自动存档，压成压缩包，再恢复自动存档。超过保留份数时删掉最旧的。移出列表或删除服务器都不会删掉备份。
+        <div class="hint" style="margin-bottom:14px">服务器运行时也能备份：先暂停自动保存，压成压缩包，再恢复自动保存。超过保留份数时删掉最旧的。移出列表或删除服务器都不会删掉备份。
           还原要先停服：还原前会先把当前世界自动备份一份（标签「还原前自动」），再把世界换成选的那一份；核心、${window.MDModCart && MDModCart.applies(info) ? MDModCart.tabLabel(info.core) + "和" : ""}设置都不动。定时备份在「定时任务」里加。</div>
         <div class="group has-ico bk-list">${(list || []).map(b => {
           const title = b.label || b.file, who = b.label ? `${b.label}（${nice(b.time)}）` : b.file;
