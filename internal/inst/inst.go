@@ -66,6 +66,11 @@ func (i *Instance) WorldFromSnapshot() *WorldFrom {
 func (m *Manager) setWorldFrom(i *Instance, wf *WorldFrom) {
 	i.procMu.Lock()
 	defer i.procMu.Unlock()
+	m.setWorldFromLocked(i, wf)
+}
+
+// setWorldFromLocked 同 setWorldFrom，调用方已经拿着 i.procMu（换地图收尾时在占位还在的时候存，见 clearWorldFromHeld）。
+func (m *Manager) setWorldFromLocked(i *Instance, wf *WorldFrom) {
 	if i.WorldFrom == nil && wf == nil {
 		return
 	}

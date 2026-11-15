@@ -125,6 +125,83 @@ func TestWorldChangeClearsWorldFrom(t *testing.T) {
 	}
 }
 
+// R11 换地图收尾（2026-11-16 Codex 复审 beta.3）：清掉 WorldFrom、存 instance.json 要在占位还在的时候做完，最后才放掉占位。
+// 以前先放占位再存：中间「移出列表」能进来，把 instance.json 改名成 .bak，晚到的保存又写回一份 instance.json，
+// 下次启动扫描存放目录，已经移出去的服务器又被认回来。worldReleaseHook 停在存盘之前（不拿任何锁），这时候去移出列表：
+// 要么被占位挡下（服务器还在、记录清掉并存好了），要么真的移出去了、instance.json 不能再冒出来。换回旧地图的占位和导入地图的意图两条路都看。
+func TestWorldReleaseSavesBeforeDroppingHold(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		hold func(t *testing.T, m *Manager, i *Instance) (release func())
+	}{
+		{"换回旧地图", func(t *testing.T, m *Manager, i *Instance) func() {
+			release, err := m.BeginWorldChangeInstance(i, "换回旧地图")
+			if err != nil {
+				t.Fatal(err)
+			}
+			return release
+		}},
+		{"导入地图", func(t *testing.T, m *Manager, i *Instance) func() {
+			w, err := m.BeginWorldIntentInstance(i, "准备换地图")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := w.Change(); err != nil {
+				t.Fatal(err)
+			}
+			return w.Release
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m, dir := tempInstance(t)
+			i, _ := m.Get("s")
+			m.setWorldFrom(i, &WorldFrom{Backup: "a.zip", At: "2026-11-15 20:00:00"}) // 还原过备份：收尾时要清掉、存一次盘
+			release := c.hold(t, m, i)
+			old := worldReleaseHook
+			t.Cleanup(func() { worldReleaseHook = old })
+			fired, delErr := false, error(nil)
+			worldReleaseHook = func(name string) {
+				if fired || name != "s" { // 移出列表自己的占位收尾也会走到这里：只在第一次（换地图收尾）去移
+					return
+				}
+				fired = true
+				delErr = m.Delete(name, false)
+			}
+			release()
+			if !fired {
+				t.Fatal("收尾时没走到存盘之前那一步")
+			}
+			cfg := filepath.Join(dir, "instance.json")
+			if delErr == nil {
+				if _, err := os.Stat(cfg); !os.IsNotExist(err) {
+					t.Fatalf("移出列表以后 instance.json 又被写回来了，下次启动会被重新扫出来：%v", err)
+				}
+				return
+			}
+			if !strings.Contains(delErr.Error(), "请等它完成") {
+				t.Fatalf("收尾还没做完时移出列表应被占位挡下：%v", delErr)
+			}
+			if _, err := m.Get("s"); err != nil {
+				t.Fatalf("被挡下的话服务器应还在列表里：%v", err)
+			}
+			if s, err := readSettings(dir); err != nil || s.WorldFrom != nil {
+				t.Fatalf("记录应已清掉并存进 instance.json：%+v %v", s.WorldFrom, err)
+			}
+			if why := m.WorldBusy("s"); why != "" {
+				t.Fatalf("收尾以后占位应放掉：%s", why)
+			}
+			// 收尾做完以后照常能移出列表，instance.json 改名成 .bak、不再回来
+			worldReleaseHook = old
+			if err := m.Delete("s", false); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(cfg); !os.IsNotExist(err) {
+				t.Fatalf("移出列表以后不该还有 instance.json：%v", err)
+			}
+		})
+	}
+}
+
 // R21：配的 java.exe 不在了就是 JavaMissing；路径是空的也算。
 func TestJavaMissing(t *testing.T) {
 	exe, _ := os.Executable()
