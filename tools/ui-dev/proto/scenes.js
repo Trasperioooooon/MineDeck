@@ -54,7 +54,7 @@ const wizTo = (core, upto) => {
   if (upto === "version") return st;
   st.push({ click: "#wnext" });
   if (core === "vanilla") return [...st, { wait: "#f-name" }];
-  st.push({ wait: "#build-list .ver-item" });
+  st.push({ wait: "#build-rec b" }); // beta.3：构建列表收进「高级」，等推荐的那一行
   if (upto === "build") return st;
   st.push({ click: "#wnext" }, { wait: "#wiz-mod-body" });
   if (upto === "mods") return st;
@@ -66,8 +66,8 @@ add("changed", "c-home-empty", "④ 首页：还没有服务器", {
   tag: "new", note: "主按钮不再是「一键开服（Paper）」，现在叫「从零创建」，点了直接进向导；下面那行小字去新建页挑别的方式。",
   setup: s => { s.empty = true; },
 });
-add("changed", "c-create", "③ 新建页：四张卡片分两组", {
-  tag: "new", hash: "#/create", note: "四张卡片一样大，分「新建」和「导入与接管」两组。每种方式有自己的地址，后退键能回到这里。",
+add("changed", "c-create", "③ 新建页：五张卡片分两组", {
+  tag: "new", hash: "#/create", note: "五张卡片一样大，分「新建」（从零创建、导入整合包、用已有地图开服）和「搬过来」（导入交接包、接管已有服务器）两组。每种方式有自己的地址，后退键能回到这里。",
 });
 add("changed", "c-tunnel-empty", "⑥ 内网穿透：还没有隧道", {
   tag: "new", hash: "#/tunnels", note: "表单在上面、铺满到右边，插画在下面。说明只写当前选中的那家服务商，换一家试试。",
@@ -136,7 +136,7 @@ add("list", "l-start-fail", "卡片：端口旁复制连接地址，上次没能
 add("list", "l-phone", "手机上（手机远程管理）", { view: "phone", setup: s => { s.instances = four(); } });
 
 // ==================== 新建服务器 ====================
-add("create", "n-home", "入口：四种方式", { hash: "#/create" });
+add("create", "n-home", "入口：五种方式", { hash: "#/create" });
 add("create", "n-home-tasks", "入口：有后台任务在跑", {
   hash: "#/create",
   setup: s => { s.taskList = [{ id: "task-pack", title: "导入 机械动力整合包", ended: false }, { id: "task-create", title: "创建 Paper 测试服", ended: false }, { id: "task-failed", title: "创建失败的服务器", ended: true, error: "下载失败" }]; },
@@ -182,7 +182,27 @@ add("create", "n-world-chosen", "从零创建：选好了地图，核心和版�
 add("create", "n-world-final", "从零创建：最后一步核对这张地图", {
   hash: "#/create/new", tag: "new", note: "换成 Paper 1.21.4 以后地图比服务器旧，要勾「我已了解上面需要确认的事项」才能创建；被标红拦下时创建键点了也不发请求。难度和默认模式不替人改，点「按地图的填」才改。",
   steps: [...wizMap, { click: '.core-card[data-id="paper"]' }, { click: "#wnext" }, { wait: ".ver-item.sel" }, { click: '.ver-item[data-id="1.21.4"]' }, { click: "#wnext" },
-    { wait: "#build-list .ver-item" }, { click: "#wnext" }, { wait: "#wiz-mod-body" }, { click: "#wnext" }, { wait: "#wi-wiz-plan #wi-rel" }, { scroll: "#main", to: "bottom" }],
+    { wait: "#build-rec b" }, { click: "#wnext" }, { wait: "#wiz-mod-body" }, { click: "#wnext" }, { wait: "#wi-wiz-plan #wi-rel" }, { scroll: "#main", to: "bottom" }],
+});
+// beta.3 第二层（R13、R14、R22）
+add("create", "n-build-adv", "从零创建 ③ 选构建：点开「高级」换一个", {
+  hash: "#/create/new", tag: "new", note: "默认用推荐的构建，列表收在「高级」里；点开以后可以换，上面那一行跟着写「用你选的构建」。",
+  steps: [...wizTo("paper", "build"), { click: "#build-adv summary" }, { click: '#build-list .ver-item[data-id="230"]' }],
+});
+add("create", "n-mods-skip", "从零创建 ④ 选插件：「跳过这一步」", {
+  hash: "#/create/new", tag: "new", note: "吸底栏多了「跳过这一步」：这次建服不装待装清单里的东西。清单里已经有东西时会先问一句。",
+  steps: wizTo("paper", "mods"),
+});
+add("create", "n-home-folded", "入口：已结束的任务折成一行", {
+  hash: "#/create", tag: "new", note: "进行中的、还有没装上的文件的、失败的照旧一行一条；顺利完成的和取消的折成一行，点开才列出来。失败的那条右边的 × 能收起。",
+  setup: s => { s.taskList = [
+    { id: "task-run", title: "创建服务器 生存二服（paper 1.21.4）", ended: false, label: "下载 Paper 核心", done: 10, total: 50 },
+    { id: "task-im", title: "导入整合包 机械动力（forge 1.20.1）", ended: true, result: "机械动力整合包", pending: [{ id: "p1", path: "mods/custom.jar", reason: "nohash", options: ["skip", "local"] }] },
+    { id: "task-failed", title: "创建服务器 测试服（fabric 26.2）", ended: true, error: "下载失败" },
+    { id: "task-ok1", title: "创建服务器 小镇（paper 1.21.4）", ended: true, result: "小镇" },
+    { id: "task-ok2", title: "导出交接包 生存服（paper 1.21.4）", ended: true, kind: "transfer-out", result: "E:\\交接包\\生存服-交接包.mdpack" },
+    { id: "task-cx", title: "创建服务器 试试（vanilla 26.2）", ended: true, cancelled: true, error: "已取消，没有创建服务器" },
+  ]; },
 });
 
 // ==================== 部署与后台任务 ====================
@@ -191,6 +211,22 @@ add("task", "t-slow", "部署中：下载慢、在重试", { hash: "#/task/task-
 add("task", "t-error", "部署失败", { hash: "#/task/task-2", setup: s => { s.taskStage = "error"; } });
 add("task", "t-done", "部署完成", { hash: "#/task/task-1", setup: s => { s.taskStage = 4; } });
 add("task", "t-mods", "安装待装清单", { hash: "#/task/task-cart", tag: "new" });
+add("task", "t-cancelled", "取消以后：中性的「已取消」", {
+  hash: "#/task/task-cx", tag: "new", note: "取消以后页头写「已取消创建」，那一步是一道横线不是红叉，下面一句中性的说明，不是红色的失败框。这一页没经过表单，所以给的是「返回新建服务器」；从表单提交过来的给「返回修改」。",
+  setup: s => { s.taskList = [{ id: "task-cx", title: "创建服务器 试试", ended: true, cancelled: true, error: "已取消，没有创建服务器",
+    steps: [{ name: "下载 Java 21 运行时", status: "done" }, { name: "下载 Paper 1.21.4 核心", status: "cancelled" }, { name: "同意 EULA 并生成配置", status: "pending" }], log: ["已取消，没有创建服务器"] }]; },
+});
+add("task", "t-export-done", "交接包导出完成：打开所在文件夹", {
+  hash: "#/task/task-transfer-out", tag: "new", note: "页头写「交接包已导出」，侧栏亮的是「服务器」（导出是从服务器那边发起的）；底下多了「打开所在文件夹」（只在本机给）。",
+});
+add("task", "t-pending", "整合包导入完成：没装上的文件", {
+  hash: "#/task/task-im", tag: "new", note: "清单按服务器取（程序重开以后也在）。处理完以后上面那块「N 个文件待处理」跟着变、处理完就消失；跳过的收在「已跳过的 N 个」里，还能改成别的处理。",
+  setup: s => { s.taskList = [{ id: "task-im", title: "导入整合包 魔改模组包", ended: true, result: "机械动力整合包",
+    warnings: [{ kind: "import-pending", title: "2 个文件待处理", note: "这些文件没法自动下载。" }],
+    pending: [{ id: "p1", path: "mods/modded-custom-host.jar", reason: "host", host: "files.example.net", note: "下载地址不在 MineDeck 允许的站点列表里", urls: ["https://files.example.net/a.jar"], options: ["local", "skip", "trust"] },
+      { id: "p2", path: "mods/no-hash.jar", reason: "nohash", note: "整合包没有提供这个文件的校验值", options: ["skip", "local"] }] }];
+    s.instPending = { "机械动力整合包": { pending: s.taskList[0].pending, skipped: [{ id: "p3", path: "config/skipped.toml", reason: "badurl", note: "下载地址不是 https", options: ["local"] }] } }; },
+});
 
 // ==================== 服务器详情：每种核心一台 ====================
 const CORE_CN = { paper: "Paper", forge: "Forge", vanilla: "Vanilla 原版", velocity: "Velocity 代理", purpur: "Purpur", leaves: "Leaves", folia: "Folia", fabric: "Fabric", neoforge: "NeoForge", mohist: "Mohist", banner: "Banner", waterfall: "Waterfall 代理" };

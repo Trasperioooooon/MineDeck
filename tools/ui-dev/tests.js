@@ -3778,7 +3778,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(page.url().endsWith("#/task/task-adopt"), "没去任务页：" + page.url());
       const t = await page.evaluate(() => ({ h1: $(".page-head h1").textContent, label: $("#t-label").textContent, foot: $("#t-foot").textContent, href: $("#t-foot a").getAttribute("href"),
         toasts: [...document.querySelectorAll(".toast")].map(x => x.textContent) }));
-      assert(t.h1 === "正在接管服务器" && t.label === "接管完成" && t.foot.includes("进入控制台") && t.href === "#/inst/" + encodeURIComponent("朋友的整合包"), "任务页：" + JSON.stringify(t));
+      assert(t.h1 === "服务器已接管" && t.label === "接管完成" && t.foot.includes("进入控制台") && t.href === "#/inst/" + encodeURIComponent("朋友的整合包"), "任务页：" + JSON.stringify(t));
       assert(t.toasts.some(x => x.includes("接管成功")) && !t.toasts.some(x => x.includes("创建成功")), "提示应是接管成功：" + JSON.stringify(t.toasts));
     });
 
@@ -3827,7 +3827,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       st = await mockState({});
       assert(st.lastJava.major === 25 && st.lastJava.path === "", "下载的请求不带路径：" + JSON.stringify(st.lastJava));
       const t = await page.evaluate(() => ({ url: location.hash, h1: $(".page-head h1").textContent, label: $("#t-label").textContent, link: $("#t-foot a").textContent.trim(), href: $("#t-foot a").getAttribute("href") }));
-      assert(t.url === "#/task/task-java" && t.h1 === "正在更换 Java" && t.label === "Java 已换好" && t.link === "完成，回到服务器" && t.href === `#/inst/${pack}/jvm`, "任务页：" + JSON.stringify(t));
+      assert(t.url === "#/task/task-java" && t.h1 === "Java 已换好" && t.label === "Java 已换好" && t.link === "完成，回到服务器" && t.href === `#/inst/${pack}/jvm`, "任务页：" + JSON.stringify(t));
       await mockState({ instReset: true });
     });
 
@@ -3920,7 +3920,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click("#t-pending-apply"); await settle();
       assert((await page.textContent("#t-pending-out")).includes("已跳过"), "跳过应记录");
       assert(!(await page.locator("#t-pending .pnd-item").count()), "全部处理完后面板应收起");
-      assert((await page.textContent("#t-pending")).includes("待决清单已全部处理完"), "收尾应写已处理完");
+      assert((await page.textContent("#t-pending")).includes("没装上的文件都处理完了"), "收尾应写已处理完"); // beta.3：界面上不再说「待决清单」
       // 从没有过待决文件的普通任务页不显示任何待决面板（曾误显示「已全部处理完」卡片）
       await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList: [{ id: "task-plain", title: "创建 Paper 服务器", ended: true }] }) }));
       await page.goto(url("#/task/task-plain")); await settle();
@@ -4009,7 +4009,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         && st.lastTransferExport.mode === "distributable", "导出请求：" + JSON.stringify(st.lastTransferExport));
       assert(page.url().endsWith("#/task/task-transfer-out"), "没去任务页：" + page.url());
       const t = await page.evaluate(() => ({ h1: $(".page-head h1").textContent, log: $("#task-log").textContent, go: $("#t-foot a").getAttribute("href") }));
-      assert(t.h1 === "正在导出交接包" && t.go === "#/instances", "导出任务页：");
+      assert(t.h1 === "交接包已导出" && t.go === "#/instances", "导出任务页：" + JSON.stringify(t)); // beta.3 R13：完成后标题换成完成态
       await page.click("#t-foot a"); await settle(300);
       assert(page.url().endsWith("#/instances"), "完成按钮没回列表：" + page.url());
     });
@@ -4092,7 +4092,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         "导入请求：" + JSON.stringify(st.lastTransferImport));
       assert(page.url().endsWith("#/task/task-transfer-in"), "没去任务页：" + page.url());
       const t = await page.evaluate(() => ({ h1: $(".page-head h1").textContent, steps: $("#t-steps").textContent, go: $("#t-foot a"), href: $("#t-foot a").getAttribute("href") }));
-      assert(t.h1 === "正在导入交接包" && t.steps.includes("解包服务器文件") && t.href === "#/inst/" + encodeURIComponent("接手服"), "任务页：" + JSON.stringify(t));
+      assert(t.h1 === "交接包已导入" && t.steps.includes("解包服务器文件") && t.href === "#/inst/" + encodeURIComponent("接手服"), "任务页：" + JSON.stringify(t));
       const toasts = await page.$$eval(".toast", ts => ts.map(x => x.textContent));
       assert(toasts.some(x => x.includes("交接包导入成功")), "成功提示：" + JSON.stringify(toasts));
     });
@@ -4948,7 +4948,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.goto(url("#/task/" + taskId)); await page.waitForSelector("#t-foot a.btn.primary");
       const tp = await page.evaluate(() => ({ h1: document.querySelector(".page-head h1").textContent, sub: document.querySelector("#t-sub").textContent,
         href: document.querySelector("#t-foot a.btn.primary").getAttribute("href"), go: document.querySelector("#t-foot a.btn.primary").textContent.trim() }));
-      assert(tp.h1 === "正在更换地图" && tp.sub.includes("尚未启动检查") && tp.href === "#/instances" && tp.go.includes("回到服务器列表"), "任务页：" + JSON.stringify(tp));
+      assert(tp.h1 === "地图已处理完" && tp.sub.includes("尚未启动检查") && tp.href === "#/instances" && tp.go.includes("回到服务器列表"), "任务页：" + JSON.stringify(tp));
     } finally { await wReset(); }
   });
 
@@ -5262,7 +5262,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.goto(url("#/create/new")); await page.waitForSelector("#wi-wiz-pick");
       assert((await page.$eval("#wi-wiz-offer", el => el.textContent)).includes("手里有现成的地图"), "第一步应有「用已有地图开服」的入口");
       await page.goto(url("#/create")); await page.waitForSelector("#mode-world");
-      assert((await page.$$(".recipe-grid .core-card")).length === 4 && (await page.$eval("#mode-world", a => a.textContent)) === "用已有地图开服", "新建页应还是四张卡片，下面多一行入口");
+      // beta.3 R14：「用已有地图开服」从卡片下面那一行小字改成第五张卡片
+      assert((await page.$$(".recipe-grid .core-card")).length === 5 && (await page.$eval("#mode-world .cn", a => a.textContent)) === "用已有地图开服", "新建页应是五张卡片，第五张是用已有地图开服");
       await page.click("#mode-world"); await page.waitForSelector("#wi-browse");
       assert(page.url().endsWith("#/create/world") && (await page.$("#wi-wiz-panel")) && (await page.$(".steps .step-pill.cur")), "从新建页的入口进来应是向导第一步、选地图的面板开着：" + page.url());
       await page.click("#wi-browse"); await page.waitForSelector("#wi-wiz-chosen");
@@ -5329,7 +5330,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
       assert((await page.$eval(".ver-item.sel", el => el.dataset.id)) === "1.19.4", "换了核心，版本仍应预选地图的版本");
       await page.click('.ver-item[data-id="1.21.4"]');
-      await page.click("#wnext"); await page.waitForSelector("#build-list .ver-item");
+      await page.click("#wnext"); await page.waitForSelector("#build-rec b"); // beta.3 R22：构建列表收进「高级」，等推荐的那一行
       await page.click("#wnext"); await page.waitForSelector("#wiz-mod-body");
       await page.click("#wnext"); await page.waitForSelector("#f-name");
       await page.waitForSelector("#wi-wiz-plan #wi-rel");
@@ -5345,7 +5346,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.check("#wi-ack");
       await page.click('.step-pill.done[data-step="1"]'); await page.waitForSelector(".ver-item.sel");
       await page.click('.ver-item[data-id="1.20.6"]');
-      await page.click("#wnext"); await page.waitForSelector("#build-list .ver-item");
+      await page.click("#wnext"); await page.waitForSelector("#build-rec b");
       await page.click("#wnext"); await page.waitForSelector("#wiz-mod-body");
       await page.click("#wnext"); await page.waitForSelector("#f-name");
       await page.waitForSelector("#wi-wiz-plan #wi-rel");
@@ -5403,7 +5404,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click('.core-card[data-id="velocity"]');
       await page.click("#wnext"); await page.waitForSelector(".ver-item.sel, .ver-item[data-id]");
       await page.click(".ver-item[data-id]");
-      await page.click("#wnext"); await page.waitForSelector("#build-list .ver-item");
+      await page.click("#wnext"); await page.waitForSelector("#build-rec b");
       await page.click("#wnext"); await page.waitForSelector("#wiz-mod-body");
       await page.click("#wnext"); await page.waitForSelector("#f-name");
       await page.waitForSelector("#wi-wiz-plan .err-box");
@@ -5423,7 +5424,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click('.core-card[data-id="paper"]');
       await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
       assert((await page.$eval(".ver-item.sel", el => el.dataset.id)) === "1.20.1", "版本应预选地图的 1.20.1");
-      await page.click("#wnext"); await page.waitForSelector("#build-list .ver-item");
+      await page.click("#wnext"); await page.waitForSelector("#build-rec b");
       await page.click("#wnext"); await page.waitForSelector("#mc-q");
       await page.fill("#mc-q", "LuckPerms"); await page.click("#mc-go");
       await page.click('button[aria-label="加入清单 LuckPerms"]'); await settle(700);
@@ -5517,6 +5518,287 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await p.fill("#wi-path", "D:\\Maps\\SkyCity"); await p.click("#wi-scan"); await p.waitForSelector("#wi-wiz-chosen"); await over("向导里选好的地图");
     } finally { await c.close(); await wReset(); }
   });
+  // ==================== beta.3 新建流程与任务页（R09 R13 R14 R22） ====================
+  // docs/可用性走查-2026-11-14.md 第八节 R09（后端和接口那一半）、R13、R14、R22。用例名都以「beta.3 流程」开头，node tests.js "beta.3 流程" 只跑这一块。
+  // 仿真后端用到的：taskList 里带 canCancel 的任务能取消（先 cancelling，再查两次按「已取消」结束），instPending（按服务器的没装上的文件），见 server.js「/__mock/state」说明
+  {
+    const fState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
+    const navOn = () => page.evaluate(() => (document.querySelector("#sidebar .nav-item.active") || {}).dataset.nav || "");
+    const h1 = () => page.textContent(".page-head h1");
+    const PACK = "机械动力整合包";
+
+    await run("beta.3 流程 R14：新建页五种方式分两组，第五张是用已有地图开服；服务器列表空状态的次要链接带上它", async () => {
+      try {
+        await page.goto(url("#/create")); await page.waitForSelector("#mode-world");
+        const g = await page.evaluate(() => ({ head: document.querySelector(".page-head").textContent,
+          groups: [...document.querySelectorAll(".recipe-groups .core-group")].map(x => x.querySelector(".cg-title").textContent + ":" + [...x.querySelectorAll(".core-card")].map(c => c.dataset.mode).join(",")),
+          oldLink: !!document.querySelector(".wi-home-link"), name: document.querySelector("#mode-world .cn").textContent }));
+        assert(g.head.includes("五种方式") && !g.head.includes("四种") && g.groups.join("|") === "新建:new,import,world|搬过来:transfer,adopt" && !g.oldLink && g.name === "用已有地图开服",
+          "新建页的五张卡片：" + JSON.stringify(g));
+        // 键盘也能进：回车进的是同一个向导，选地图的面板开着
+        await page.focus("#mode-world"); await page.keyboard.press("Enter");
+        await page.waitForSelector("#wi-wiz-panel");
+        assert(page.url().endsWith("#/create/world") && (await page.$(".steps .step-pill.cur")), "第五张卡片应进带地图面板的向导：" + page.url());
+        await fState({ empty: true });
+        await page.goto(url("#/instances")); await page.waitForSelector("#empty-new");
+        const link = await page.textContent(".empty .quiet-link");
+        assert(link.includes("用已有地图开服") && link.includes("导入整合包") && link.includes("导入交接包") && link.includes("接管已有服务器"), "空状态的次要链接：" + link);
+      } finally { await fState({ empty: false }); }
+    });
+
+    await run("beta.3 流程 R13：列表页只摆进行中、有没装上的文件、失败的任务；完成和取消的折成一行不占首屏，失败的能收起", async () => {
+      const done = n => ({ id: "task-ok" + n, title: `创建服务器 已建好的第 ${n} 台（paper 1.21.4）`, ended: true, result: "x" + n });
+      const failTitle = "创建服务器 R13 折叠测试失败的（fabric 26.2）";
+      const taskList = [
+        { id: "task-run", title: "创建服务器 还在建的（paper 1.21.4）", ended: false, label: "下载 Paper 核心", done: 10, total: 50 },
+        { id: "task-imp", title: "导入整合包 有没装上的（forge 1.20.1）", ended: true, result: PACK, pending: [{ id: "p1", path: "mods/a.jar", reason: "nohash", options: ["skip", "local"] }] },
+        { id: "task-bad", title: failTitle, ended: true, error: "下载失败" },
+        done(1), done(2), done(3), done(4), done(5),
+        { id: "task-cx", title: "创建服务器 取消了的（vanilla 26.2）", ended: true, cancelled: true, error: "已取消，没有创建服务器" },
+      ];
+      try {
+        await fState({ taskList });
+        await page.goto(url("#/instances")); await page.waitForSelector("#task-list:not([hidden]) .task-fold");
+        const shown = await page.$$eval("#task-list > .task-row", els => els.map(e => e.dataset.task));
+        assert(JSON.stringify(shown) === JSON.stringify(["task-run", "task-imp", "task-bad"]), "外面只该摆进行中、有没装上的文件、失败的：" + JSON.stringify(shown));
+        const sum = await page.textContent("#task-list .task-fold > summary");
+        assert(sum.includes("另外 6 个已结束的任务") && sum.includes("5 个已完成") && sum.includes("1 个已取消"), "折起来的那一行：" + sum);
+        assert(!(await page.isVisible('#task-list a[href="#/task/task-ok1"]')), "已完成的不该占地方");
+        // 第一张服务器卡片在首屏里
+        await page.waitForSelector("#inst-cards .card");
+        const top = await page.$eval("#inst-cards .card", el => el.getBoundingClientRect().top);
+        assert(top < 850 - 120, "第一张服务器卡片应在首屏：" + top);
+        // 失败的那条能收起；收起以后进折叠里，刷新以后照样收着
+        await page.click(`#task-list [data-hide-task="${"task-bad|" + failTitle}"]`); await settle(300);
+        assert(!(await page.$$eval("#task-list > .task-row", els => els.map(e => e.dataset.task))).includes("task-bad"), "收起以后不该还在外面");
+        assert((await page.textContent("#task-list .task-fold > summary")).includes("1 个失败"), "收起的失败任务应算进折叠的那一行");
+        await page.reload(); await page.waitForSelector("#task-list .task-fold");
+        assert(!(await page.$$eval("#task-list > .task-row", els => els.map(e => e.dataset.task))).includes("task-bad"), "刷新以后照样收着");
+        // 点开能看到全部，取消的写「已取消」不是「失败」
+        await page.click("#task-list .task-fold > summary"); await settle(200);
+        assert(await page.isVisible('#task-list a[href="#/task/task-ok1"]'), "点开以后能看到已完成的");
+        const cx = await page.textContent('#task-list .task-row[data-task="task-cx"]');
+        assert(cx.includes("已取消") && !cx.includes("失败"), "取消的任务：" + cx);
+        // 轮询重画时折叠保持打开
+        await settle(3400);
+        assert(await page.isVisible('#task-list a[href="#/task/task-ok1"]'), "轮询以后折叠不该自己收回去");
+      } finally {
+        await page.evaluate(() => sessionStorage.removeItem("md_task_hidden"));
+        await fState({ taskList: [] });
+      }
+    });
+
+    await run("beta.3 流程 R13：向导创建、在任务页取消 → 中性的「已取消」（不是失败、没有英文）；「返回修改」回到基本设置，填过的都在，而且只恢复一次", async () => {
+      try {
+        await fState({ modCart: { reset: true }, instReset: true, taskList: [{ id: "task-1", title: "创建服务器 返回修改测试服（paper 1.21.4）", ended: false, canCancel: true, label: "下载 Paper 核心", done: 5, total: 50,
+          steps: [{ name: "下载 Java 21 运行时", status: "done" }, { name: "下载 Paper 1.21.4 核心", status: "running" }, { name: "同意 EULA 并生成配置", status: "pending" }] }] });
+        await page.goto(url("#/create/new")); await page.waitForSelector('.core-card[data-id="paper"]');
+        await page.click('.core-card[data-id="paper"]'); await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
+        await page.click('.ver-item[data-id="1.21.4"]'); await page.click("#wnext"); await page.waitForSelector("#build-rec b");
+        await page.click("#build-adv summary"); await page.click('#build-list .ver-item[data-id="230"]');
+        await page.click("#wnext"); await page.waitForSelector("#wiz-mod-body");
+        await page.click("#wnext"); await page.waitForSelector("#f-name");
+        await page.fill("#f-name", "返回修改测试服"); await page.fill("#f-port", "25601"); await page.fill("#f-motd", "回来以后还在");
+        await page.check("#f-wl"); await page.uncheck("#f-flight"); await page.selectOption("#f-diff", "hard"); await page.selectOption("#f-mode", "creative");
+        await page.fill("#mem-mount .mem-num", "6144"); await page.press("#mem-mount .mem-num", "Tab");
+        await page.check("#f-eula");
+        await page.click("#wcreate"); await page.waitForFunction(() => location.hash === "#/task/task-1");
+        assert(await navOn() === "create", "创建任务的侧栏应亮「新建服务器」");
+        await page.locator("#t-cancel").waitFor({ state: "visible" });
+        await page.click("#t-cancel");
+        await page.waitForFunction(() => (document.querySelector(".page-head h1") || {}).textContent === "已取消创建", null, { timeout: 8000 });
+        const s = await page.evaluate(() => ({ msgs: document.querySelector("#t-msgs").textContent, errBox: document.querySelectorAll("#t-msgs .err-box").length,
+          note: !!document.querySelector("#t-msgs .task-note"), cancelledSteps: document.querySelectorAll(".task-step.cancelled").length, errSteps: document.querySelectorAll(".task-step.error").length,
+          eyebrow: document.querySelector("#task-eyebrow").textContent, body: document.querySelector("#main").textContent, back: !!document.querySelector("#t-back-edit") }));
+        assert(s.errBox === 0 && s.note && s.msgs.includes("已取消，没有创建服务器") && !s.msgs.includes("失败") && s.eyebrow === "已取消", "取消以后应是中性的「已取消」：" + JSON.stringify(s));
+        assert(s.cancelledSteps === 1 && s.errSteps === 0, "取消时正在做的那一步不该画红叉：" + JSON.stringify(s));
+        assert(!/context canceled/i.test(s.body) && s.back, "不该出现英文的取消原因，应有「返回修改」：" + JSON.stringify(s));
+        assert(!(await page.$$eval(".toast", ts => ts.map(t => t.textContent))).some(t => t.includes("创建成功")), "取消了不该提示创建成功");
+        await page.click("#t-back-edit"); await page.waitForSelector("#f-name");
+        const f = await page.evaluate(() => ({ hash: location.hash, name: $("#f-name").value, port: $("#f-port").value, motd: $("#f-motd").value, wl: $("#f-wl").checked,
+          flight: $("#f-flight").checked, diff: $("#f-diff").value, mode: $("#f-mode").value, eula: $("#f-eula").checked, mem: $("#f-mem").value,
+          sum: $("#wf-sum").textContent, step: $(".page-head").textContent }));
+        assert(f.hash === "#/create/new" && f.name === "返回修改测试服" && f.port === "25601" && f.motd === "回来以后还在" && f.wl && !f.flight && f.diff === "hard" && f.mode === "creative" && f.eula && f.mem === "6144",
+          "返回修改以后表单里的东西：" + JSON.stringify(f));
+        assert(f.sum.includes("Paper") && f.sum.includes("1.21.4") && f.sum.includes("构建 230") && f.step.includes("第 5 步"), "核心、版本、构建也应照原样，停在基本设置：" + JSON.stringify(f));
+        // 再提交：请求和第一次填的一样
+        await page.click("#wcreate"); await page.waitForFunction(() => location.hash === "#/task/task-1");
+        const lc = (await fState({})).lastCreate;
+        assert(lc.name === "返回修改测试服" && lc.port === 25601 && lc.build === "230" && lc.whitelist === true && lc.difficulty === "hard" && lc.xmxMb === 6144, "再提交的请求：" + JSON.stringify(lc));
+        // 只恢复一次：从新建页再进向导是空白的
+        await page.goto(url("#/create/new")); await page.waitForSelector("#core-grid .core-card");
+        assert(!(await page.$("#core-grid .core-card.sel")) && !(await page.$("#f-name")), "之后再进向导不该带着上次的东西");
+        // 任务列表里写「已取消」
+        await fState({ taskList: [{ id: "task-1", title: "创建服务器 返回修改测试服（paper 1.21.4）", ended: true, cancelled: true, error: "已取消，没有创建服务器" }] });
+        await page.goto(url("#/create")); await page.waitForSelector("#task-list .task-fold");
+        await page.click("#task-list .task-fold > summary");
+        const row = await page.textContent('#task-list .task-row[data-task="task-1"]');
+        assert(row.includes("已取消") && !row.includes("失败"), "任务列表里取消的：" + row);
+      } finally { await fState({ taskList: [], instReset: true, modCart: { reset: true } }); }
+    });
+
+    await run("beta.3 流程 R13：导入整合包失败以后「返回修改」回到导入表单，选的文件和填的都在", async () => {
+      try {
+        await fState({ taskList: [{ id: "task-1", title: "导入整合包 测试整合包（forge 1.20.1）", ended: true, error: "下载 mods/a.jar 失败: 连接超时" }] });
+        await page.goto(url("#/create/import")); await page.waitForSelector("#im-file");
+        await page.setInputFiles("#im-file", { name: "回填测试.mrpack", mimeType: "application/zip", buffer: Buffer.from("PK\u0003\u0004mrpack") });
+        await page.fill("#im-name", "导入回填服"); await page.fill("#im-port", "25602"); await page.fill("#im-src", "D:\\老服务器");
+        await page.check("#im-online"); await page.uncheck("#im-flight"); await page.check("#im-wl"); await page.check("#im-eula");
+        await page.fill("#im-mem-mount .mem-num", "8192"); await page.press("#im-mem-mount .mem-num", "Tab");
+        await page.click("#im-go"); await page.waitForFunction(() => location.hash === "#/task/task-1");
+        await page.waitForSelector("#t-back-edit");
+        const t = await page.evaluate(() => ({ h1: $(".page-head h1").textContent, err: ($("#t-msgs .err-box") || {}).textContent || "" }));
+        assert(t.h1 === "服务器没有建好" && t.err.includes("连接超时") && t.err.includes("返回修改"), "失败页：" + JSON.stringify(t));
+        await page.click("#t-back-edit"); await page.waitForSelector("#im-name");
+        const f = await page.evaluate(() => ({ hash: location.hash, file: ($("#im-file").files[0] || {}).name || "", name: $("#im-name").value, port: $("#im-port").value, src: $("#im-src").value,
+          online: $("#im-online").checked, flight: $("#im-flight").checked, wl: $("#im-wl").checked, eula: $("#im-eula").checked, mem: $("#im-mem").value }));
+        assert(f.hash === "#/create/import" && f.file === "回填测试.mrpack" && f.name === "导入回填服" && f.port === "25602" && f.src === "D:\\老服务器" && f.online && !f.flight && f.wl && f.eula && f.mem === "8192",
+          "返回修改以后的导入表单：" + JSON.stringify(f));
+        await page.click("#im-go"); await page.waitForFunction(() => location.hash === "#/task/task-1");
+        const li = (await fState({})).lastImport;
+        assert(li.name === "导入回填服" && li.port === "25602" && li.whitelist === "true" && li.onlineMode === "true" && li.allowFlight === "false" && li.localSource === "D:\\老服务器",
+          "再提交的表单项：" + JSON.stringify(li));
+      } finally { await fState({ taskList: [] }); }
+    });
+
+    await run("beta.3 流程 R13：接管失败以后「返回修改」重新识别那个文件夹，改过的名称、内存和 Java 还在", async () => {
+      const failAdopt = r => r.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, data: { id: "task-adopt", kind: "adopt", title: "接管 回填", ended: true,
+        error: "文件夹被别的程序占着", steps: [{ name: "检查服务器文件夹", status: "error" }], log: [] } }) });
+      await page.route("**/api/tasks/task-adopt", failAdopt);
+      try {
+        await fState({ instReset: true, adoptScan: null });
+        await page.goto(url("#/create/adopt")); await page.waitForSelector("#ad-dir");
+        await page.fill("#ad-dir", "E:\\MCServers\\create-pack"); await page.click("#ad-scan"); await page.waitForSelector("#ad-name");
+        await page.fill("#ad-name", "接管回填服"); await page.selectOption("#ad-java", "17");
+        await page.fill("#ad-mem-mount .mem-num", "3072"); await page.press("#ad-mem-mount .mem-num", "Tab");
+        if (await page.isVisible("#ad-eula")) await page.check("#ad-eula");
+        await page.click("#ad-go"); await page.waitForFunction(() => location.hash === "#/task/task-adopt");
+        await page.waitForSelector("#t-back-edit");
+        assert((await h1()) === "服务器没有接管成", "接管失败的标题：" + await h1());
+        const scans = reqs.length;
+        await page.click("#t-back-edit"); await page.waitForSelector("#ad-name");
+        const f = await page.evaluate(() => ({ hash: location.hash, dir: $("#ad-dir").value, name: $("#ad-name").value, java: $("#ad-java").value, mem: $("#ad-mem").value }));
+        assert(f.hash === "#/create/adopt" && f.dir === "E:\\MCServers\\create-pack" && f.name === "接管回填服" && f.java === "17" && f.mem === "3072", "返回修改以后的接管表单：" + JSON.stringify(f));
+        assert(reqs.slice(scans).some(r => r.m === "POST" && r.u === "/api/adopt/scan"), "回来时应重新识别一遍文件夹");
+      } finally { await page.unroute("**/api/tasks/task-adopt", failAdopt); await fState({ instReset: true }); }
+    });
+
+    await run("beta.3 流程 R13：带地图从向导创建、取消以后「返回修改」：那张地图原样选上、重新核对，检测结果没被清掉", async () => {
+      await wReset();
+      try {
+        await wState({ taskList: [{ id: "task-1", title: "创建服务器 地图回填（vanilla 1.19.4）", ended: false, canCancel: true }] });
+        await wWizPick("D:\\Maps\\SkyCity");
+        const scanId = (await wState({})).world.lastScan.id;
+        await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
+        await page.click("#wnext"); await page.waitForSelector("#f-name");
+        await page.waitForSelector("#wi-wiz-plan #wi-rel");
+        await page.fill("#f-name", "地图回填服"); await page.check("#f-eula");
+        await page.click("#wcreate"); await page.waitForFunction(() => location.hash === "#/task/task-1");
+        await page.locator("#t-cancel").waitFor({ state: "visible" }); await page.click("#t-cancel");
+        await page.waitForSelector("#t-back-edit", { timeout: 8000 });
+        const plans = (await wState({})).world.lastPlan;
+        await page.click("#t-back-edit"); await page.waitForSelector("#wi-wiz-chosen"); await page.waitForSelector("#wi-wiz-plan #wi-rel");
+        const st = await wState({});
+        const f = await page.evaluate(() => ({ map: $("#wi-wiz-name").textContent, name: $("#f-name").value, eula: $("#f-eula").checked }));
+        assert(f.map === "天空之城" && f.name === "地图回填服" && f.eula, "返回修改以后的向导：" + JSON.stringify(f));
+        assert(!st.world.discards.includes(scanId) && st.world.lastPlan.scanId === scanId && st.world.lastPlan.id !== plans.id, "应拿同一份检测重新核对、不清掉：" + JSON.stringify([st.world.discards, st.world.lastPlan]));
+      } finally { await wReset(); await wState({ taskList: [] }); }
+    });
+
+    await run("beta.3 流程 R09：任务页的没装上的文件按服务器取、按服务器处理；处理完上面那块「N 个文件待处理」跟着消失；跳过的还能改成用本地文件代替；坏地址不画成链接", async () => {
+      const task = { id: "task-imx", title: "导入整合包 R09（forge 1.20.1）", ended: true, result: PACK,
+        warnings: [{ kind: "import-pending", title: "2 个文件待处理", note: "这些文件没法自动下载。" }],
+        pending: [{ id: "p1", path: "mods/no-hash.jar", reason: "nohash", note: "没有校验值", options: ["skip", "local"] },
+          { id: "p2", path: "mods/host.jar", reason: "host", host: "files.example.net", note: "站点不在允许列表里", urls: ["javascript:alert(1)", "https://files.example.net/host.jar"], options: ["local", "skip", "trust"] }] };
+      try {
+        await fState({ taskList: [task], trustedHosts: [] });
+        const t0 = reqs.length;
+        await page.goto(url("#/task/task-imx")); await page.waitForSelector("#t-pending .pnd-item");
+        const enc = encodeURIComponent(PACK);
+        assert(reqs.slice(t0).some(r => r.m === "GET" && r.u === `/api/instances/${enc}/import-pending`), "应按服务器取清单");
+        assert(await page.locator('#t-pending a[href^="javascript"]').count() === 0 && await page.locator('#t-pending a[href^="https://files.example.net"]').count() === 1, "只该把 https 的地址画成链接");
+        // 跳过 p1：黄框写 1 个，跳过的收进「已跳过的 1 个」
+        await page.check('input[name="pnd-p1"][value="skip"]'); await page.click("#t-pending-apply"); await settle();
+        assert((await page.textContent("#t-pending-out")).includes("已跳过"), "跳过应有结果");
+        assert((await page.textContent("#t-msgs")).includes("1 个文件待处理") && await page.locator("#t-pending .pnd-skipped").count() === 1, "跳过以后：黄框写 1 个，跳过的收在下面");
+        // 本地代替 p2：黄框消失，面板写都处理完了
+        await page.check('input[name="pnd-p2"][value="local"]'); await page.fill('.pnd-item[data-id="p2"] input.pnd-local', "D:\\老服务器\\mods\\host.jar");
+        await page.click("#t-pending-apply"); await settle();
+        const after = await page.evaluate(() => ({ msgs: $("#t-msgs").textContent, pend: $("#t-pending").textContent, items: document.querySelectorAll("#t-pending .pnd-item").length }));
+        assert(!after.msgs.includes("个文件待处理") && after.pend.includes("没装上的文件都处理完了") && after.items === 0, "都处理完以后黄框应消失：" + JSON.stringify(after));
+        // 跳过的还能改成用本地文件代替
+        // 只剩跳过的时「已跳过的 N 个」默认展开
+        await page.check('.pnd-skipped[data-id="p1"] input[value="local"]'); await page.fill('.pnd-skipped[data-id="p1"] input.pnd-local', "D:\\老服务器\\mods\\no-hash.jar");
+        await page.click("#t-pending-apply"); await settle();
+        assert(await page.locator("#t-pending .pnd-skipped").count() === 0 && (await page.textContent("#t-pending")).includes("没装上的文件都处理完了"), "跳过的处理完以后应清空");
+        const posts = reqs.slice(t0).filter(r => r.m === "POST");
+        assert(posts.every(r => r.u !== "/api/import/pending/task-imx") && posts.filter(r => r.u === `/api/instances/${enc}/import-pending`).length === 3, "处置应走按服务器的接口：" + JSON.stringify(posts.map(r => r.u)));
+        // 程序重开以后（没有任务、只有服务器上的清单）：接口照样给，跳过的也在
+        await fState({ taskList: [], instPending: { [PACK]: { pending: [], skipped: [{ id: "p9", path: "config/x.toml", reason: "badurl", options: ["local"] }] } } });
+        const v = await page.evaluate(n => fetch(`/api/instances/${encodeURIComponent(n)}/import-pending`, { headers: { "X-Token": "mock" } }).then(r => r.json()), PACK);
+        assert(v.ok && v.data.skipped.length === 1 && v.data.pending.length === 0, "按服务器的接口：" + JSON.stringify(v));
+      } finally { await fState({ taskList: [], trustedHosts: [] }); }
+    });
+
+    await run("beta.3 流程 R13：导出交接包的任务页侧栏亮「服务器」，完成后标题是「交接包已导出」，有「打开所在文件夹」（只在本机）", async () => {
+      try {
+        await page.goto(url("#/task/task-transfer-out")); await page.waitForSelector("#t-open-dir");
+        assert(await navOn() === "instances" && (await h1()) === "交接包已导出", "导出任务页：" + JSON.stringify([await navOn(), await h1()]));
+        await page.click("#t-open-dir"); await settle(300);
+        const st = await fState({});
+        assert(st.lastOpenPath === "E:\\服务器备份", "打开的应是交接包所在的文件夹：" + st.lastOpenPath);
+        await fState({ local: false });
+        await page.goto(url("#/task/task-transfer-out")); await page.waitForSelector("#t-foot a.btn.primary"); await settle(300);
+        assert(!(await page.$("#t-open-dir")), "别的设备上不给「打开所在文件夹」");
+        await fState({ local: true });
+        // 换 Java 也是从服务器那边发起的；新建、接管亮「新建服务器」
+        await page.goto(url("#/task/task-java")); await page.waitForSelector("#t-foot a.btn.primary");
+        assert(await navOn() === "instances", "换 Java 的任务页侧栏应亮「服务器」");
+        await page.goto(url("#/task/task-adopt")); await page.waitForSelector("#t-foot a.btn.primary");
+        assert(await navOn() === "create", "接管的任务页侧栏应亮「新建服务器」");
+      } finally { await fState({ local: true }); }
+    });
+
+    await run("beta.3 流程 R22：选构建默认收起成「高级」；选插件这一步能「跳过这一步」（清单有东西时先问，建完不装）；EULA 不被吸底栏挡住；中文名下面说清文件夹怎么起名", async () => {
+      try {
+        await fState({ modCart: { reset: true }, taskStage: 4, instReset: true });
+        await page.goto(url("#/create/new")); await page.waitForSelector('.core-card[data-id="paper"]');
+        await page.click('.core-card[data-id="paper"]'); await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
+        await page.click("#wnext"); await page.waitForSelector("#build-rec b");
+        const b = await page.evaluate(() => ({ open: $("#build-adv").open, rec: $("#build-rec").textContent, next: $("#wnext").disabled }));
+        assert(!b.open && !(await page.isVisible("#build-list")) && b.rec.includes("推荐的构建") && b.rec.includes("232") && !b.next, "构建默认收起、用推荐的：" + JSON.stringify(b));
+        await page.click("#build-adv summary"); await page.click('#build-list .ver-item[data-id="231"]');
+        assert((await page.textContent("#build-rec")).includes("你选的构建 231") && (await page.textContent("#wf-sum")).includes("构建 231"), "换了构建以后上面那一行跟着变");
+        await page.click("#wnext"); await page.waitForSelector("#mc-q");
+        assert((await page.textContent("#wskip")).includes("跳过这一步"), "选插件这一步应有「跳过这一步」");
+        await page.fill("#mc-q", "LuckPerms"); await page.click("#mc-go");
+        await page.click('button[aria-label="加入清单 LuckPerms"]'); await settle(700);
+        await page.click("#wskip"); await page.waitForSelector(".modal [data-x=ok]");
+        assert((await page.textContent(".modal")).includes("待装清单里已经有 1 项"), "清单里有东西时跳过要先问");
+        await page.click(".modal [data-x=cancel]"); await settle(300);
+        assert(await page.$("#mc-q") && !(await page.$("#f-name")), "点「取消」留在这一步");
+        await page.click("#wskip"); await page.waitForSelector(".modal [data-x=ok]"); await page.click(".modal [data-x=ok]");
+        await page.waitForSelector("#f-name");
+        // EULA 和吸底栏贴在一起，窗口矮的时候也不被挡住
+        await page.setViewportSize({ width: 1280, height: 640 }); await settle(300);
+        const g = await page.evaluate(() => { const e = $(".eula-box").getBoundingClientRect(), f = $(".wizard-foot").getBoundingClientRect(); return { eb: e.bottom, et: e.top, ft: f.top, vh: innerHeight }; });
+        assert(g.eb <= g.ft + 1 && g.eb <= g.vh && g.et >= 0, "EULA 开关应完整露在吸底栏上面：" + JSON.stringify(g));
+        await page.setViewportSize({ width: 1280, height: 850 });
+        // 中文名：不再写 server-（自动）
+        await page.fill("#f-name", "生存服");
+        let p = await page.textContent("#f-path");
+        assert(!p.includes("（自动）") && p.includes("server-创建时的日期和时间") && /server-\d{8}-\d{6}/.test(p), "中文名的文件夹说明：" + p);
+        await page.fill("#f-name", "Paper生存服");
+        p = await page.textContent("#f-path");
+        assert(p.includes("\\Paper") && !p.includes("创建时的日期"), "有英文字母时照常写：" + p);
+        // 跳过了：清单里有东西也不装，直接去建服任务页
+        await page.check("#f-eula");
+        const t0 = reqs.length;
+        await page.click("#wcreate"); await page.waitForFunction(() => location.hash === "#/task/task-1", null, { timeout: 8000 });
+        assert(!reqs.slice(t0).some(r => r.u.endsWith("/modcart/install")), "跳过这一步以后不该装清单");
+      } finally { await page.setViewportSize({ width: 1280, height: 850 }); await fState({ modCart: { reset: true }, taskStage: 2, instReset: true }); }
+    });
+  }
   // ==================== 地图导入结束 ====================
   // ==================== beta.3 P0（R01–R05） ====================
   // docs/可用性走查-2026-11-14.md 第八节 R01–R05，外加 U28、U30。用例名都以「beta.3 P0」开头，node tests.js "beta.3 P0" 只跑这一块。
