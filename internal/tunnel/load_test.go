@@ -221,7 +221,7 @@ func TestLoadUnreachableFolderIsNotNewInstall(t *testing.T) {
 }
 
 // 解析得了、却没有 tunnels 这一项（手改时把键名改错了）：隧道和凭据还在别的键底下，按坏文件处理；
-// {} 里没有东西，照空列表算；键名大小写不同照常读（encoding/json 本来就不分大小写）。
+// {}、null、只有 seq 的里面没有东西，照空列表算；键名大小写不同照常读（encoding/json 本来就不分大小写）。
 func TestLoadMissingTunnelsKey(t *testing.T) {
 	tempBase(t)
 	typo := `{"seq":1,"tunels":[{"id":"tun1","provider":"openfrp","name":"一号","credential":"dpapi:AAAA","proxyId":"42"}]}`
@@ -230,11 +230,13 @@ func TestLoadMissingTunnelsKey(t *testing.T) {
 	}
 	assertBlocked(t, NewManager(), typo, true)
 
-	if err := os.WriteFile(tunnelsPath(), []byte(`{}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := NewManager().LoadErr(); err != nil {
-		t.Fatalf("{} 不该挡保存：%v", err)
+	for _, empty := range []string{`{}`, `null`, `{"seq":3}`} { // 里面没有隧道可丢
+		if err := os.WriteFile(tunnelsPath(), []byte(empty), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := NewManager().LoadErr(); err != nil {
+			t.Fatalf("%s 不该挡保存：%v", empty, err)
+		}
 	}
 
 	upper := `{"Seq":1,"Tunnels":[{"id":"tun1","provider":"custom","name":"自建","serverAddr":"1.2.3.4","serverPort":7000,"remotePort":25566,"localPort":25565}]}`

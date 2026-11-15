@@ -197,7 +197,7 @@ func (e *LoadError) Hint() string {
 func (m *Manager) load() {
 	b, err := os.ReadFile(m.file())
 	if errors.Is(err, fs.ErrNotExist) {
-		if gone := m.reallyMissing(); gone != nil {
+		if gone := m.reallyMissing(err); gone != nil {
 			m.loadErr = &LoadError{Err: gone}
 			return
 		}
@@ -260,11 +260,16 @@ func (m *Manager) load() {
 	}
 }
 
-// reallyMissing 读 tunnels.json 报「不存在」以后再确认一次，是真的新装才返回 nil，否则返回读不出来的原因。
+// reallyMissing 读 tunnels.json 报「不存在」（readErr）以后再确认一次，是真的新装才返回 nil，否则返回读不出来的原因。
 // Windows 上路径里某一级不在（网络盘断了、U 盘拔了、程序文件夹暂时访问不了）也报 ErrNotExist，
 // 当成新装的话，路径一恢复，下一次保存就把原文件盖掉了（2026-11-15 Codex 复审 P1）。
-// 所以要程序文件夹本身看得到、而且再看一眼文件还是不在，才算新装；中间文件冒出来了，按「这次没读成」处理，下次再读。
-func (m *Manager) reallyMissing() error {
+// 所以三样都要对上才算新装：读的时候报的是「文件夹在、文件不在」（fileNotFound），程序文件夹看得到，
+// 再看一眼文件还是「文件夹在、文件不在」。最后一步也要分清：Stat 文件夹成功以后路径又失联，报的是路径找不到，
+// 不能放行（Codex 第二轮复审）。中间文件冒出来了，按「这次没读成」处理，下次再读。
+func (m *Manager) reallyMissing(readErr error) error {
+	if !fileNotFound(readErr) {
+		return readErr
+	}
 	dir := filepath.Dir(m.file())
 	fi, err := os.Stat(dir)
 	if err != nil {
@@ -273,30 +278,41 @@ func (m *Manager) reallyMissing() error {
 	if !fi.IsDir() {
 		return fmt.Errorf("程序文件夹的位置上不是文件夹：%s", dir)
 	}
+	if beforeFileRecheck != nil {
+		beforeFileRecheck()
+	}
 	_, err = os.Lstat(m.file())
 	switch {
 	case err == nil:
 		return errors.New("刚才读的时候说不存在，再看又在了，这次先不读")
-	case !errors.Is(err, fs.ErrNotExist):
+	case !fileNotFound(err):
 		return err
 	}
 	return nil
 }
 
-// lacksTunnelsKey 解析得了、却没有 tunnels 这一项，而且也不是空的：多半是手改时把键名改错了（比如 "tunels"），
-// 隧道和凭据还在别的键底下，当空列表存一次就没了（2026-11-15 Codex 复审）。MineDeck 自己写的文件总有这一项；
-// {} 和 null 里没有能丢的东西，照空列表算。键名按 encoding/json 的规矩不分大小写比。
+// beforeFileRecheck 测试用：reallyMissing 查完程序文件夹、再看文件之前调用，用来在这个空当里让路径失联。
+var beforeFileRecheck func()
+
+// lacksTunnelsKey 解析得了、却没有 tunnels 这一项，除了 seq 还有别的东西：多半是手改时把键名改错了（比如 "tunels"），
+// 隧道和凭据还在别的键底下，当空列表存一次就没了（2026-11-15 Codex 复审）。MineDeck 从 v2.0.0 起写的文件总有这一项
+// （一直是 json:"tunnels"，没有 omitempty）；{}、null、只有 seq 的里面没有能丢的东西，照空列表算。
+// 键名按 encoding/json 的规矩不分大小写比。
 func lacksTunnelsKey(b []byte) bool {
 	var keys map[string]json.RawMessage
-	if json.Unmarshal(b, &keys) != nil || len(keys) == 0 {
+	if json.Unmarshal(b, &keys) != nil {
 		return false
 	}
+	other := false
 	for k := range keys {
-		if strings.EqualFold(k, "tunnels") {
+		switch {
+		case strings.EqualFold(k, "tunnels"):
 			return false
+		case !strings.EqualFold(k, "seq"):
+			other = true
 		}
 	}
-	return true
+	return other
 }
 
 // jsonErrAt 解析报错带上大概在第几行：提示里让人用记事本修，得知道去哪儿找。

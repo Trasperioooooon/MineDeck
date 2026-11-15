@@ -1,11 +1,15 @@
 package tunnel
 
 import (
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	"golang.org/x/sys/windows"
+
+	"minedeck/internal/app"
 )
 
 // lockExclusive 像杀毒、同步盘那样把文件独占打开（共享模式 0）：别人读、写、改名都不行。
@@ -56,6 +60,50 @@ func TestLoadLockedFileBlocksSavesUntilReleased(t *testing.T) {
 		t.Fatalf("占着时原文件被改了：\n前：%s\n后：%s", before, after)
 	}
 	assertRecovered(t, m)
+}
+
+// 路径在两次检查之间又失联（Codex 第二轮复审 P1）：读的时候是「文件夹在、文件不在」，查程序文件夹也看得到，
+// 再看文件时整个文件夹又不见了，报的是「路径找不到」。这不能当新装放行，不然路径恢复以后新增一条就把原文件盖掉。
+// 用 beforeFileRecheck 在那个空当里把原文件放回去、再把整个程序文件夹挪走。
+func TestLoadPathLostBetweenChecks(t *testing.T) {
+	tempBase(t)
+	fastLoadRetry(t)
+	before := seedTunnels(t)
+	base := app.Base
+	away := base + "-away"
+	aside := filepath.Join(base, "tunnels.json.aside")
+	if err := os.Rename(tunnelsPath(), aside); err != nil { // 第一次读：文件夹在、文件不在
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { beforeFileRecheck = nil })
+	beforeFileRecheck = func() {
+		beforeFileRecheck = nil // 只在第一次检查时动手
+		if err := os.Rename(aside, filepath.Join(base, "tunnels.json")); err != nil {
+			t.Error(err)
+		}
+		if err := os.Rename(base, away); err != nil { // 再看文件时路径失联
+			t.Error(err)
+		}
+	}
+	m := NewManager()
+	wantLoadError(t, m.LoadErr(), false)
+	if err := os.Rename(away, base); err != nil { // 路径恢复
+		t.Fatal(err)
+	}
+	if got := readFile(t, tunnelsPath()); got != before {
+		t.Fatal("原文件被动了")
+	}
+	assertRecovered(t, m)
+}
+
+// 「文件不在」只认文件夹在、里面没有这个文件的那一种；路径里某一级不在不算。
+func TestFileNotFoundOnlyForMissingFile(t *testing.T) {
+	dir := t.TempDir()
+	_, missing := os.Lstat(filepath.Join(dir, "tunnels.json"))
+	_, noPath := os.Lstat(filepath.Join(dir, "gone", "tunnels.json"))
+	if !fileNotFound(missing) || fileNotFound(noPath) {
+		t.Fatalf("文件不在：%v；路径不在：%v", missing, noPath)
+	}
 }
 
 // 开机那一下刚好被占着、很快就放开了：启动时隔一小会儿的重读就读回来，不用等到有人操作。
