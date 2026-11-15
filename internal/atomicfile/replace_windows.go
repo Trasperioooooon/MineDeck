@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 	"unsafe"
 
@@ -57,7 +58,8 @@ type renameInfo struct {
 // 不排队的读取、服务端读配置、杀毒和索引都会这样。所以目标不是只读、错误是这两种时，隔一会儿再试，
 // 间隔从 1 毫秒翻倍到 125 毫秒封顶，一共最多再试 10 次、加起来约半秒；还不行就照旧报错。
 // 重试只再调 MoveFileEx：它本身拒绝覆盖只读文件，所以重试期间目标变成只读也不会被盖掉。
-// 2026-11-14 CI 上 TestUpdatePropsKeepsEveryonesChange 偶发的 Access is denied 就是排队的保存在算锁键时撞上了正在替换的那一个。
+// 2026-11-14 CI 上 TestUpdatePropsKeepsEveryonesChange 偶发过一次 Access is denied；本机在重负载下复现出的触发原因，
+// 是排队的保存在进队前算锁键、撞上了正在替换的那一个（单看 CI 那一次，不能排除同时还有别的程序占着）。
 var retryDelays = []time.Duration{
 	1 * time.Millisecond, 2 * time.Millisecond, 4 * time.Millisecond, 8 * time.Millisecond, 16 * time.Millisecond,
 	32 * time.Millisecond, 64 * time.Millisecond, 125 * time.Millisecond, 125 * time.Millisecond, 125 * time.Millisecond,
@@ -79,7 +81,14 @@ func retryable(err error, path string, old fs.FileInfo) bool {
 	if errors.Is(e, fs.ErrNotExist) {
 		return true // 目标不在，占着的是临时文件
 	}
-	return e == nil && !cur.IsDir() && cur.Mode().Perm()&0o200 != 0
+	if e != nil || cur.IsDir() || cur.Mode().Perm()&0o200 == 0 {
+		return false
+	}
+	// 末级是目录联接或目录符号链接时 Lstat 不报 ModeDir，要看属性：改名换不掉文件夹，不用白等
+	if a, ok := cur.Sys().(*syscall.Win32FileAttributeData); ok && a.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY != 0 {
+		return false
+	}
+	return true
 }
 
 func replace(tmp, path string, old fs.FileInfo) error {

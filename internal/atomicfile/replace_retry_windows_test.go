@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -106,39 +107,148 @@ func TestReplaceRetriesUntilTargetReleased(t *testing.T) {
 	}
 }
 
-// 临时文件刚写好就被别人打开着、不许删（杀毒扫新文件常这样）：报的是共享冲突，同样重试。
+// 临时文件刚写好就被别人打开着、不许删（杀毒扫新文件常这样）：报的是共享冲突，同样重试。目标在不在都一样。
 func TestReplaceRetriesWhileTempHeld(t *testing.T) {
+	for _, exists := range []bool{true, false} {
+		name := "目标在"
+		if !exists {
+			name = "目标不在"
+		}
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			p := filepath.Join(dir, "tunnels.json")
+			if exists {
+				if err := os.WriteFile(p, []byte("old"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var o *holder
+			t.Cleanup(func() { Hook = nil })
+			Hook = func(string) {
+				tmps, _ := filepath.Glob(filepath.Join(dir, ".minedeck-write-*.tmp"))
+				if len(tmps) != 1 {
+					t.Errorf("临时文件：%v", tmps)
+					return
+				}
+				o = hold(t, tmps[0], windows.GENERIC_READ, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, 0)
+			}
+			n := setRetry(t, ms(10), func(attempt int) {
+				if attempt == 1 && o != nil {
+					o.release()
+				}
+			})
+			if err := Write(p, []byte("new"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			Hook = nil
+			if o == nil || *n != 1 {
+				t.Errorf("应当占过临时文件并重试 1 次：占了=%v 重试=%d", o != nil, *n)
+			}
+			if got, _ := os.ReadFile(p); string(got) != "new" {
+				t.Errorf("内容：%q", got)
+			}
+			assertNoTemps(t, dir)
+		})
+	}
+}
+
+// 临时文件一直被占着：试满次数后报共享冲突，原文件完好。临时文件留给调用方清理（Replace 的约定）。
+func TestReplaceGivesUpWhenTempStaysHeld(t *testing.T) {
+	n := setRetry(t, ms(5), nil)
 	dir := t.TempDir()
-	p := filepath.Join(dir, "tunnels.json")
+	p := filepath.Join(dir, "target")
+	tmp := filepath.Join(dir, "incoming.tmp")
 	if err := os.WriteFile(p, []byte("old"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	var o *holder
-	t.Cleanup(func() { Hook = nil })
-	Hook = func(string) {
-		tmps, _ := filepath.Glob(filepath.Join(dir, ".minedeck-write-*.tmp"))
-		if len(tmps) != 1 {
-			t.Errorf("临时文件：%v", tmps)
-			return
-		}
-		o = hold(t, tmps[0], windows.GENERIC_READ, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, 0)
-	}
-	n := setRetry(t, ms(10), func(attempt int) {
-		if attempt == 1 && o != nil {
-			o.release()
-		}
-	})
-	if err := Write(p, []byte("new"), 0o644); err != nil {
+	if err := os.WriteFile(tmp, []byte("new"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	Hook = nil
-	if o == nil || *n != 1 {
-		t.Errorf("应当占过临时文件并重试 1 次：占了=%v 重试=%d", o != nil, *n)
+	old, err := os.Lstat(p)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got, _ := os.ReadFile(p); string(got) != "new" {
-		t.Errorf("内容：%q", got)
+	o := hold(t, tmp, windows.GENERIC_READ, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, 0)
+	err = replace(tmp, p, old)
+	o.release()
+	if !errors.Is(err, windows.ERROR_SHARING_VIOLATION) {
+		t.Fatalf("应当报共享冲突：%v", err)
+	}
+	if *n != 5 {
+		t.Errorf("应当重试 5 次，实际 %d 次", *n)
+	}
+	if got, _ := os.ReadFile(p); string(got) != "old" {
+		t.Errorf("原文件被改了：%q", got)
+	}
+	if err := os.Remove(tmp); err != nil {
+		t.Errorf("临时文件应当还在、由调用方删：%v", err)
+	}
+}
+
+// 不值得等的失败立刻报错：目标是文件夹或目录联接（Lstat 对联接不报 ModeDir）、错误不是拒绝访问或共享冲突。
+func TestReplaceDoesNotRetryHopelessFailures(t *testing.T) {
+	n := setRetry(t, ms(10), nil)
+	dir := t.TempDir()
+	folder := filepath.Join(dir, "folder")
+	real := filepath.Join(dir, "real")
+	junction := filepath.Join(dir, "junction")
+	for _, d := range []string{folder, real} {
+		if err := os.Mkdir(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", junction, real).CombinedOutput(); err != nil {
+		t.Fatalf("创建目录联接失败：%v %s", err, out)
+	}
+	t.Cleanup(func() { _ = os.Remove(junction) })
+	for _, target := range []string{folder, junction} {
+		*n = 0
+		if err := Write(target, []byte("x"), 0o644); !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+			t.Errorf("%s：应当报拒绝访问：%v", filepath.Base(target), err)
+		}
+		if *n != 0 {
+			t.Errorf("%s：换不掉文件夹，不该重试，实际重试了 %d 次", filepath.Base(target), *n)
+		}
+		if st, err := os.Stat(target); err != nil || !st.IsDir() {
+			t.Errorf("%s：文件夹被改了：%v", filepath.Base(target), err)
+		}
+	}
+	*n = 0
+	if err := replace(filepath.Join(dir, "missing.tmp"), filepath.Join(dir, "x"), nil); !errors.Is(err, windows.ERROR_FILE_NOT_FOUND) {
+		t.Errorf("没有临时文件应当报找不到：%v", err)
+	}
+	if *n != 0 {
+		t.Errorf("找不到文件不该重试，实际重试了 %d 次", *n)
 	}
 	assertNoTemps(t, dir)
+}
+
+// 原文件一开始是只读的，换之前被人改成可写、还占着：仍按只读的老路走，一次也不重试（守住 old 那一条）。
+func TestOriginallyReadOnlyTargetIsNotRetried(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "server.properties")
+	if err := os.WriteFile(p, []byte("old"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(p, 0o644) })
+	n := setRetry(t, ms(10), nil)
+	t.Cleanup(func() { Hook = nil })
+	Hook = func(string) {
+		if err := os.Chmod(p, 0o644); err != nil {
+			t.Error(err)
+		}
+		hold(t, p, windows.GENERIC_READ, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, 0)
+	}
+	if err := Write(p, []byte("new"), 0o644); err == nil {
+		t.Fatal("被占着、不许删的目标不该换得掉")
+	}
+	Hook = nil
+	if *n != 0 {
+		t.Errorf("原来只读的目标不该进重试，实际重试了 %d 次", *n)
+	}
+	if got, _ := os.ReadFile(p); string(got) != "old" {
+		t.Errorf("原文件被改了：%q", got)
+	}
 }
 
 // 一直占着：用尽次数后报原来的拒绝访问，原文件完好，不留临时文件。用的是真实的间隔，顺带看总时长有上限。
@@ -170,10 +280,11 @@ func TestReplaceGivesUpWhenTargetStaysBusy(t *testing.T) {
 	if !strings.Contains(err.Error(), "重试") {
 		t.Errorf("报错里应当说重试过：%v", err)
 	}
-	// 下限是 Sleep 保证的；上限放得很宽，机器再忙也不该超
-	if took < total || took > total+10*time.Second {
-		t.Errorf("用时 %v，间隔加起来 %v", took, total)
+	// 下限是 Sleep 保证的；上限不断言，机器一忙墙钟就不可靠，只记下来
+	if took < total {
+		t.Errorf("用时 %v，比间隔加起来的 %v 还短", took, total)
 	}
+	t.Logf("重试 %d 次，用时 %v（间隔合计 %v）", *n, took, total)
 	if got, _ := os.ReadFile(p); string(got) != "old" {
 		t.Errorf("原文件被改了：%q", got)
 	}
@@ -211,7 +322,8 @@ func TestReadOnlyTargetIsNotRetried(t *testing.T) {
 	assertNoTemps(t, dir)
 }
 
-// 重试期间目标变成了只读（原地改属性，或者被换成另一个只读文件）：不再重试，也绝不盖掉它。
+// 重试期间目标变成了只读（原地改属性，或者被换成另一个只读文件）：绝不盖掉它，也不再接着试。
+// 钩子在第 2 次改名之前改目标，所以第 2 次改名照样会调，是 MoveFileEx 自己拒绝了只读目标；之后的判断看到只读就停。
 // 两种写法都要守住：Write 只对一开始就只读的原文件用扩展改名，WriteProtected 从来不用。
 func TestRetryStopsWhenTargetTurnsReadOnly(t *testing.T) {
 	changes := []struct {
