@@ -66,6 +66,12 @@ func (m *Manager) TrashMod(name, sub, file string) (string, error) {
 		return "", fmt.Errorf("%s 不是普通文件，没有删除", f)
 	}
 	destDir := filepath.Join(i.Dir, filepath.FromSlash(ModTrashDir), sub)
+	// 末级是普通文件还不够：接管来的服务器里 mods、plugins，或者 .minedeck 和它下面的几级，可以是指到外面的目录联接、
+	// 符号链接。顺着它移，就把服务器文件夹外面的文件挪走了，或者在外面建文件夹、放进移走的文件（2026-11-16 Codex 复审 beta.3）。
+	// 所以要移的文件和放它的文件夹都按真实落点核对，在服务器文件夹里面才动，查不清的也不动。要赶在建文件夹之前查
+	if err := trashPathsInside(i.Dir, src, destDir, sub, f); err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return "", fmt.Errorf("没能建好放删除文件的文件夹：%w", err)
 	}
@@ -88,4 +94,27 @@ func (m *Manager) TrashMod(name, sub, file string) (string, error) {
 		rel = dest
 	}
 	return rel, nil
+}
+
+// trashPathsInside 要移的文件 src 和放删除文件的文件夹 destDir，真实落点（解开目录联接、符号链接以后）是不是都在服务器文件夹 dir 里面。
+// 和「没装上的文件」的清单（pendingListPath）一样用 RealPathStrict 比：destDir 还没建时按它还在的那一级上层算，
+// 所以建文件夹之前就查得出 .minedeck 指到了外面；哪一样查不清都按不在里面算。sub、file 只用来说清是哪个文件。
+func trashPathsInside(dir, src, destDir, sub, file string) error {
+	root, err := RealPathStrict(dir)
+	if err != nil {
+		return fmt.Errorf("查不清服务器文件夹实际在哪，没有删除 %s", file)
+	}
+	for _, c := range []struct{ path, what string }{
+		{src, fmt.Sprintf("%s 所在的 %s 文件夹", file, sub)},
+		{destDir, "放删除文件的 .minedeck 文件夹"},
+	} {
+		real, err := RealPathStrict(c.path)
+		if err != nil {
+			return fmt.Errorf("查不清%s实际在哪（可能是断掉的目录联接），没有删除", c.what)
+		}
+		if rel, err := filepath.Rel(root, real); err != nil || !filepath.IsLocal(rel) {
+			return fmt.Errorf("%s指到了服务器文件夹外面，没有删除", c.what)
+		}
+	}
+	return nil
 }

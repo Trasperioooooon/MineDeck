@@ -5,6 +5,7 @@ package inst
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -206,6 +207,77 @@ func TestTrashMod(t *testing.T) {
 	// 删的时候占着位：结束以后能照常启动（占位放掉了）
 	if why := m.WorldBusy(i.Name); why != "" {
 		t.Fatalf("删完应放掉占位：%s", why)
+	}
+}
+
+// R10 删除插件或模组（2026-11-16 Codex 复审 beta.3）：接管来的服务器里 plugins、.minedeck 或它下面的「已删除」是指到外面的目录联接时，
+// 只看末级是普通文件拦不住——顺着联接会把外面的文件挪进来，或者在外面建文件夹、放进移走的文件。这几种都要拒绝，外面一个字节都不动。
+// 联接指到服务器文件夹里面的照常能删。
+func TestTrashModRefusesJunctionsOutside(t *testing.T) {
+	junction := func(link, target string) {
+		t.Helper()
+		cmd := exec.Command("cmd", "/c", "mklink", "/J", link, target)
+		hideWindow(cmd)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Skipf("建不了目录联接: %v %s", err, out)
+		}
+		t.Cleanup(func() { _ = os.Remove(link) }) // 只删联接本身；在临时目录之后登记，先于临时目录删
+	}
+	trash := func(m *Manager, i *Instance, file string) error {
+		_, err := m.TrashMod(i.Name, "plugins", file)
+		return err
+	}
+
+	// plugins 整个是指到外面的联接：外面那个文件夹里的 jar 不能被挪进来
+	m, i := portInst(t, "联接插件", "", mcsrc.CorePaper)
+	outside := t.TempDir()
+	writeTree(t, filepath.Join(outside, "plugins"), map[string]string{"Victim.jar": "外面的"})
+	junction(filepath.Join(i.Dir, "plugins"), filepath.Join(outside, "plugins"))
+	before := treeOf(t, outside)
+	if err := trash(m, i, "Victim.jar"); err == nil || !strings.Contains(err.Error(), "plugins 文件夹指到了服务器文件夹外面") {
+		t.Fatalf("plugins 指到外面时应拒绝删除：%v", err)
+	}
+	if got := treeOf(t, outside); !maps2Equal(before, got) {
+		t.Fatalf("外面的文件被动了：\n之前 %v\n之后 %v", before, got)
+	}
+	if _, err := os.Lstat(filepath.Join(i.Dir, ".minedeck")); !os.IsNotExist(err) {
+		t.Fatalf("拒绝了就不该建放删除文件的文件夹：%v", err)
+	}
+
+	// .minedeck，或者它下面的「已删除」、「已删除/plugins」指到外面：不在外面建文件夹、放文件，服务器里的 jar 原地不动
+	for _, rel := range []string{".minedeck", ".minedeck/已删除", ".minedeck/已删除/plugins"} {
+		m, i := portInst(t, "联接回收", "", mcsrc.CorePaper)
+		outside := t.TempDir()
+		writeTree(t, filepath.Join(i.Dir, "plugins"), map[string]string{"Mine.jar": "自己的"})
+		link := filepath.Join(i.Dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		junction(link, outside)
+		if err := trash(m, i, "Mine.jar"); err == nil || !strings.Contains(err.Error(), ".minedeck 文件夹指到了服务器文件夹外面") {
+			t.Fatalf("%s 指到外面时应拒绝删除：%v", rel, err)
+		}
+		if got := treeOf(t, outside); len(got) != 0 {
+			t.Fatalf("%s 指到外面时，外面多出了文件：%v", rel, got)
+		}
+		if ents, _ := os.ReadDir(outside); len(ents) != 0 {
+			t.Fatalf("%s 指到外面时，外面多出了文件夹：%v", rel, ents)
+		}
+		if b, err := os.ReadFile(filepath.Join(i.Dir, "plugins", "Mine.jar")); err != nil || string(b) != "自己的" {
+			t.Fatalf("%s：拒绝了 jar 应原地不动：%q %v", rel, b, err)
+		}
+	}
+
+	// 联接指到服务器文件夹里面（比如 plugins → 服务器里另一个文件夹）：照常删，移进 .minedeck/已删除/plugins
+	m, i = portInst(t, "联接在里面", "", mcsrc.CorePaper)
+	writeTree(t, filepath.Join(i.Dir, "插件本体"), map[string]string{"Inner.jar": "里面的"})
+	junction(filepath.Join(i.Dir, "plugins"), filepath.Join(i.Dir, "插件本体"))
+	to, err := m.TrashMod(i.Name, "plugins", "Inner.jar")
+	if err != nil {
+		t.Fatalf("联接指到服务器文件夹里面的应照常删除：%v", err)
+	}
+	if b, err := os.ReadFile(filepath.Join(i.Dir, to)); err != nil || string(b) != "里面的" {
+		t.Fatalf("移到 %s 的内容：%q %v", to, b, err)
 	}
 }
 
