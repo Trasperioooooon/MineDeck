@@ -171,17 +171,18 @@ AI 是可选的。不配置 AI，MineDeck 就不会连接任何 AI 服务。要�
 
 问题和建议请开 [GitHub Issue](https://github.com/Trasperioooooon/MineDeck/issues)。不要在 Issue 里贴 API Key、MCP 令牌、穿透凭据或 CurseForge Key。
 
-在 Windows 上从源码构建需要 Go 1.25 或更高：
+在 Windows 上从源码构建需要 Go 1.25 或更高。MineDeck 把 exe 所在的文件夹当数据目录，服务器、备份、Java 和配置都放在那里，所以编出来的程序要放到源码文件夹外面再运行；不要在源码文件夹里运行它，也不要在里面 `go run`。下面的命令在仓库根目录执行，编到和仓库并排的文件夹里：
 
 ```powershell
 $env:GOPROXY = 'https://goproxy.cn,direct'
-go build -trimpath -ldflags="-s -w -H windowsgui" -o MineDeck.exe ./cmd/minedeck
+go build -trimpath -ldflags="-s -w -H windowsgui" -o ..\MineDeck-build\MineDeck.exe ./cmd/minedeck
 ```
 
-带控制台日志的调试构建：
+开发时可以双击 [tools/dev/编译并启动.bat](tools/dev/编译并启动.bat)。它把当前源码编成带控制台日志的版本，放到和仓库并排的 `MineDeck-dev` 文件夹里启动；把别的文件夹拖到它上面，就编到那个文件夹里。界面偏好也存在那个文件夹里，不和平时用的 MineDeck 混在一起。想自己敲命令也可以：
 
 ```powershell
-go build -o minedeck-cli.exe ./cmd/minedeck
+go build -o ..\MineDeck-dev\minedeck-cli.exe ./cmd/minedeck
+cd ..\MineDeck-dev
 .\minedeck-cli.exe -nogui
 ```
 

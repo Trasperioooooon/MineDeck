@@ -173,17 +173,18 @@ It is all in the folder that holds the exe: `servers`, `backups`, `runtimes` (do
 
 Please open a [GitHub Issue](https://github.com/Trasperioooooon/MineDeck/issues) for problems and suggestions. Do not paste API keys, MCP tokens, tunnel credentials or CurseForge keys into an issue.
 
-Building from source on Windows needs Go 1.25 or later:
+Building from source on Windows needs Go 1.25 or later. MineDeck uses the folder its exe sits in as its data folder, where servers, backups, Java runtimes and settings go, so run the program you build from a folder outside the source tree. Don't run it inside the source folder, and don't `go run` it there. These commands run from the repository root and build into a folder next to it:
 
 ```powershell
 $env:GOPROXY = 'https://goproxy.cn,direct'
-go build -trimpath -ldflags="-s -w -H windowsgui" -o MineDeck.exe ./cmd/minedeck
+go build -trimpath -ldflags="-s -w -H windowsgui" -o ..\MineDeck-build\MineDeck.exe ./cmd/minedeck
 ```
 
-A debug build with console logging:
+While developing you can double-click [tools/dev/编译并启动.bat](tools/dev/编译并启动.bat) ("build and start"). It builds the current source as a version with console logging, puts it in a `MineDeck-dev` folder next to the repository and starts it there; drop another folder onto the script to build into that folder instead. Interface preferences are stored in that folder too, so they stay separate from the MineDeck you normally use. To do it by hand:
 
 ```powershell
-go build -o minedeck-cli.exe ./cmd/minedeck
+go build -o ..\MineDeck-dev\minedeck-cli.exe ./cmd/minedeck
+cd ..\MineDeck-dev
 .\minedeck-cli.exe -nogui
 ```
 
