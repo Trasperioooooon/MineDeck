@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path"
@@ -78,13 +79,9 @@ func (m *Manager) ImportModpackAsync(pack *modpack.Pack, req CreateReq, cfKey st
 			defer os.Remove(pack.ZipPath) // 导入结束（成功/失败）后删除缓存 zip 副本，避免每次导入累积 100-500MB
 		}
 		if err := m.runImport(ctx, t, pack, req, dir, cfKey); err != nil {
-			err = cancelledOr(t, err)
 			m.forgetPending(t.ID())
 			// 先清后报失败：任务一显示失败，半成品就得已经删干净了
-			if cleanupErr := m.discardCreating(req.Name, dir); cleanupErr != nil {
-				err = fmt.Errorf("%w；清理半成品失败：%v", err, cleanupErr)
-			}
-			t.Fail(err)
+			failCreate(t, err, m.discardCreating(req.Name, dir))
 			return
 		}
 		t.Finish(req.Name)
@@ -162,7 +159,7 @@ func (m *Manager) applyModpack(ctx context.Context, t *tasks.Task, pack *modpack
 		}
 		if len(unresolved) > 0 {
 			writeUnresolvedReport(dir, unresolved)
-			t.Logf("⚠ %d 个文件无法自动下载（%s），已列入待决清单，可在任务面板逐个处理", len(unresolved), cfWhySummary(unresolved))
+			t.Logf("⚠ %d 个文件无法自动下载（%s），记进了没装上的文件，导入完成后可以逐个处理", len(unresolved), cfWhySummary(unresolved))
 			items := make([]tasks.WarnItem, 0, len(unresolved))
 			for _, r := range unresolved {
 				pf, wi := cfPendingOf(r)
@@ -172,7 +169,7 @@ func (m *Manager) applyModpack(ctx context.Context, t *tasks.Task, pack *modpack
 			t.AddWarning(tasks.Warning{
 				Kind:  "cf-unresolved",
 				Title: fmt.Sprintf("%d 个文件需手动补装", len(unresolved)),
-				Note:  "这些文件没法自动下载（作者不允许第三方工具下载，或者没有填 CurseForge API Key）：可以点链接到 CurseForge 网站下载，放进名字前面写的那个文件夹，或在下面的「待决文件」里逐个处理（清单也已保存到服务器文件夹里的「未解析模组清单.txt」）。",
+				Note:  "这些文件没法自动下载（作者不允许第三方工具下载，或者没有填 CurseForge API Key）：可以点链接到 CurseForge 网站下载，放进名字前面写的那个文件夹，或在下面「没装上的文件」里逐个处理（清单也已保存到服务器文件夹里的「未解析模组清单.txt」）。",
 				Items: items,
 			})
 		}
@@ -294,7 +291,7 @@ func (m *Manager) applyModpack(ctx context.Context, t *tasks.Task, pack *modpack
 	}
 	// 最终控制文件由 completeCreate 重写；这时实例仍不可见。
 	restoreLog4jXML(ctx, t, i)
-	m.finishImportFor(t, i, remain, kept)
+	m.finishImportPack(t, i, pack.Name, remain, kept)
 	return nil
 }
 
@@ -395,6 +392,11 @@ func (m *Manager) finishImport(t *tasks.Task, req CreateReq, dir string, pending
 }
 
 func (m *Manager) finishImportFor(t *tasks.Task, i *Instance, pending []modpack.PendingFile, kept []keptFile) {
+	m.finishImportPack(t, i, "", pending, kept)
+}
+
+// finishImportPack 同 finishImportFor，packName 是整合包的名字（记进没装上的文件的清单，给人看）。
+func (m *Manager) finishImportPack(t *tasks.Task, i *Instance, packName string, pending []modpack.PendingFile, kept []keptFile) {
 	dir := i.Dir
 	if len(kept) > 0 {
 		items := make([]tasks.WarnItem, 0, len(kept))
@@ -404,7 +406,7 @@ func (m *Manager) finishImportFor(t *tasks.Task, i *Instance, pending []modpack.
 		t.AddWarning(tasks.Warning{
 			Kind:  "import-kept",
 			Title: fmt.Sprintf("按原样保留 %d 个文件", len(kept)),
-			Note:  "这些文件没有从网上下载，用的是整合包覆盖文件夹或本地来源文件夹里已有的那份，内容没有校验（魔改的模组因此能原样保留）。还有没法自动下载的文件在待决清单里。",
+			Note:  "这些文件没有从网上下载，用的是整合包覆盖文件夹或本地来源文件夹里已有的那份，内容没有校验（魔改的模组因此能原样保留）。",
 			Items: items,
 		})
 		t.Logf("✔ 按原样保留 %d 个文件（整合包覆盖文件夹 / 本地来源文件夹）", len(kept))
@@ -441,12 +443,15 @@ func (m *Manager) finishImportFor(t *tasks.Task, i *Instance, pending []modpack.
 		}
 		t.SetPending(items)
 		m.rememberPendingInstance(t.ID(), i)
-		t.AddWarning(tasks.Warning{
-			Kind:  "import-pending",
-			Title: fmt.Sprintf("%d 个文件待处理", len(items)),
-			Note:  "这些文件没法自动下载。逐个处理导入才算补完整：保留本地已有的文件、跳过（记录进结果摘要），或（地址在自定义站点的）确认站点后下载。",
-		})
-		writePendingReport(dir, t.PendingItems())
+		t.AddWarning(pendingWarning(len(items)))
+		// 清单存进服务器文件夹（.minedeck/import-pending.json 和给人看的 txt）：程序重开以后还能在这台服务器上接着处理（R09）
+		l := &pendingList{Pack: packName, At: time.Now()}
+		for _, it := range items {
+			l.Items = append(l.Items, pendingRecord{PendingItem: it})
+		}
+		if err := writePendingList(dir, l); err != nil {
+			t.Logf("⚠ 没装上的文件的清单没能存进服务器文件夹（%v）：这次运行里还能在这一页处理，程序重开以后就找不到了", err)
+		}
 	}
 	// Java 要求：魔改模组常声明比实例新的 Java（1.20.1 实例是 17，模组可能要 25）。
 	// 只提示不阻断：1.20.1 + Java 25 的组合允许存在，到「内存 / 启动」换。
@@ -558,23 +563,6 @@ func javaRequiredBy(dir string, javaMajor int) (int, []string) {
 	return best, mods
 }
 
-// writePendingReport 把待决清单也写进实例目录（面板之外留一份记录，和「未解析模组清单.txt」同理）。
-func writePendingReport(dir string, items []tasks.PendingItem) {
-	if len(items) == 0 {
-		_ = os.Remove(filepath.Join(dir, "导入待决清单.txt"))
-		return
-	}
-	var sb strings.Builder
-	sb.WriteString("以下文件没法自动下载，已在任务面板逐项列出，可逐个处理：\r\n\r\n")
-	for _, it := range items {
-		sb.WriteString(fmt.Sprintf("%s（%s）\r\n", it.Path, it.Note))
-		for _, u := range it.URLs {
-			sb.WriteString("  " + u + "\r\n")
-		}
-	}
-	_ = os.WriteFile(filepath.Join(dir, "导入待决清单.txt"), []byte(sb.String()), 0o644)
-}
-
 // PendingAction 一次处置动作：act 取 skip（跳过）、local（保留本地已有文件或手动指定的本地文件）、
 // trust（确认信任自定义站点后下载）。
 type PendingAction struct {
@@ -594,8 +582,9 @@ type ResolveOutcome struct {
 	Note string `json:"note,omitempty"`
 }
 
-// ResolveImportPending 处置整合包导入任务的待决文件。逐项执行后成功的那几项移出待决清单；
+// ResolveImportPending 处置整合包导入任务的待决文件（旧接口，按任务编号）。逐项执行后成功的那几项移出待决清单；
 // 失败的（源文件不存在、下载校验不符、没确认信任）留在清单里等下次处理。整批不因单项失败而中断。
+// 清单以服务器文件夹里存的那份为准（见 pendingstore.go），任务上的待决清单是它的镜像，处置完跟着更新。
 // 权限约束在操作层（instance.import.pending：仅人工 + 仅本机）。
 func (m *Manager) ResolveImportPending(ctx context.Context, taskID string, acts []PendingAction) ([]ResolveOutcome, []tasks.PendingItem, error) {
 	if len(acts) == 0 {
@@ -615,6 +604,14 @@ func (m *Manager) ResolveImportPending(ctx context.Context, taskID string, acts 
 	if err != nil {
 		return nil, nil, err
 	}
+	out, _, err := m.resolvePending(ctx, inst, acts)
+	return out, t.PendingItems(), err
+}
+
+// resolvePending 处置一台服务器上没装上的文件，调用方拿着 resolveMu。清单从服务器文件夹里读（不可信，见 pendingstore.go），
+// 落点每一次都在写之前重新检查。skip 把项标成「已跳过」留在清单里（还没装上，以后还能改成别的处理）；
+// local、trust 成功的项移出清单。处置完把清单写回去，这次运行里对应的导入任务跟着更新。
+func (m *Manager) resolvePending(ctx context.Context, inst *Instance, acts []PendingAction) ([]ResolveOutcome, *pendingList, error) {
 	release, err := m.UseWorldInstance(inst, "补装整合包文件")
 	if err != nil {
 		return nil, nil, err
@@ -624,24 +621,35 @@ func (m *Manager) ResolveImportPending(ctx context.Context, taskID string, acts 
 	// 改配置文件的请求都在干等（2026-11-14 合并后复审发现 8）。现在每一项只在真正写进服务器文件夹的那一下拿，
 	// 拿到以后把落点的检查在锁里重做一遍，见 placePending。上面的登记（UseWorldInstance）照旧整批占着：
 	// 它不让人排队，只让换地图、还原这类搬动整个世界的操作在这期间直接报「正在补装整合包文件」。
-	pending := t.PendingItems()
-	byID := map[string]tasks.PendingItem{}
-	for _, it := range pending {
-		byID[it.ID] = it
+	l, err := m.loadPending(inst)
+	if err != nil {
+		return nil, nil, err
+	}
+	if l == nil || len(l.Items) == 0 {
+		return nil, l, fmt.Errorf("这台服务器没有整合包里没装上的文件")
+	}
+	byID := map[string]int{}
+	for k, r := range l.Items {
+		byID[r.ID] = k
 	}
 	var out []ResolveOutcome
-	var doneIDs []string
+	done := map[string]bool{} // 处置成功、移出清单的
+	skip := map[string]bool{} // 这一批里新跳过的
+	var ctxErr error
 	for _, act := range acts {
 		oc := ResolveOutcome{ID: act.ID, Act: act.Act}
-		it, ok := byID[act.ID]
-		if !ok {
+		k, ok := byID[act.ID]
+		if !ok || done[act.ID] {
 			oc.Note = "没有这一项（可能刚处理过）"
 			out = append(out, oc)
 			continue
 		}
+		rec := l.Items[k]
+		it := rec.PendingItem
 		oc.Path = it.Path
 		if err := ctx.Err(); err != nil {
-			return out, t.PendingItems(), err
+			ctxErr = err // 前面处置成的照样记下来，再报错
+			break
 		}
 		// 先查一遍落点：不合规的在读本地文件、发下载请求之前就拒绝。写进去之前在锁里还要再查一遍（placePending）
 		if act.Act == "local" || act.Act == "trust" {
@@ -654,8 +662,13 @@ func (m *Manager) ResolveImportPending(ctx context.Context, taskID string, acts 
 		switch act.Act {
 		case "skip":
 			oc.OK = true
-			oc.Note = "已跳过，已记录进任务日志"
-			t.Logf("待决文件 %s：用户选择跳过", it.Path)
+			if rec.Skipped || skip[it.ID] {
+				oc.Note = "之前已经跳过了"
+				break
+			}
+			skip[it.ID] = true
+			oc.Note = "已跳过（没有装上，以后还能在这台服务器的详情页里再处理）"
+			m.pendingLog(inst, "没装上的文件 %s：选择跳过", it.Path)
 		case "local":
 			src, note := resolveLocalSource(act.Path, it.Path)
 			if src == "" {
@@ -679,30 +692,42 @@ func (m *Manager) ResolveImportPending(ctx context.Context, taskID string, acts 
 			}
 			oc.OK = true
 			oc.Note = fmt.Sprintf("已用本地文件原样代替（%s）", src)
-			t.Logf("待决文件 %s：按本地文件原样保留（%s）", it.Path, src)
+			m.pendingLog(inst, "没装上的文件 %s：按本地文件原样保留（%s）", it.Path, src)
 		case "trust":
 			ok, note := m.pendingTrustDownload(ctx, inst, it, act.URL, act.Ack)
 			oc.OK, oc.Note = ok, note
 			if ok {
-				t.Logf("待决文件 %s：确认站点后下载完成（校验通过）", it.Path)
+				m.pendingLog(inst, "没装上的文件 %s：确认站点后下载完成（校验通过）", it.Path)
 			}
 		default:
 			oc.Note = "不认识的处理方式（可用：skip、local、trust）"
 		}
-		if oc.OK {
-			doneIDs = append(doneIDs, it.ID)
+		if oc.OK && act.Act != "skip" {
+			done[it.ID] = true
 		}
 		out = append(out, oc)
 	}
-	if len(doneIDs) > 0 {
-		t.ResolvePending(doneIDs)
-		writePendingReport(inst.Dir, t.PendingItems())
-		if len(t.PendingItems()) == 0 {
-			m.forgetPending(t.ID())
-			t.Logf("待决清单已全部处理完")
+	if len(done) > 0 || len(skip) > 0 {
+		keep := l.Items[:0:0]
+		for _, r := range l.Items {
+			if done[r.ID] {
+				continue
+			}
+			if skip[r.ID] {
+				r.Skipped = true
+				r.Options = pendingOptions(r.PendingItem, true)
+			}
+			keep = append(keep, r)
 		}
+		l.Items = keep
+		if err := writePendingList(inst.Dir, l); err != nil {
+			// 文件已经放进去了，只是清单没更新：下次读出来这几项还在，再处理一次也不会出错
+			log.Printf("没能更新「%s」没装上的文件的清单：%v", inst.Name, err)
+			m.pendingLog(inst, "⚠ 没能更新服务器文件夹里没装上的文件的清单：%v", err)
+		}
+		m.syncPendingTasks(inst, l)
 	}
-	return out, t.PendingItems(), nil
+	return out, l, ctxErr
 }
 
 // pendingDestination 已发布实例的补装只写普通模组、配置和资源目录。

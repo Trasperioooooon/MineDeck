@@ -398,6 +398,18 @@ func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, 
 		mf.Excluded = append(mf.Excluded, "服务器文件夹里的这些不在交接范围内，没有进包："+list)
 		t.Logf("⚠ 这些没有进包（交接包只带世界、配置、模组和名单），对方需要的话请另外拷给他：%s", list)
 	}
+	// 整合包导入时没装上的文件：清单（.minedeck/import-pending.json 和那份 txt）是这台电脑上的记录、是控制文件，不进包——
+	// 对方导入时控制文件本来就不收，读回来也只是一份不可信的文字。缺的文件本来就不在这台服务器上、包里也没有，
+	// 所以说一声：交的人可以先在详情页处理完再导出，接手的人在剔除清单里看得到少了哪几个
+	if v, err := i.ImportPendingFiles(); err == nil && len(v.Pending)+len(v.Skipped) > 0 {
+		var names []string
+		for _, it := range append(append([]tasks.PendingItem{}, v.Pending...), v.Skipped...) {
+			names = append(names, it.Path)
+		}
+		list := shortList(names, 12)
+		mf.Excluded = append(mf.Excluded, fmt.Sprintf("导入整合包时没装上的 %d 个文件（原来这台服务器上就没有）：%s", len(names), list))
+		t.Logf("⚠ 这台服务器导入整合包时有 %d 个文件没装上，交接包里也没有它们：%s。要的话先在这台服务器的详情页处理完再导出，或者告诉接手的人自己补", len(names), list)
+	}
 	t.Logf("待打包 %d 个文件、%s", mf.Counts.Files, fmtBytes(mf.Counts.Bytes))
 
 	// ---- 步骤 1：打包（先写缓存目录的 .part，成功再挪到目标目录；失败了清掉，随时可以重来） ----

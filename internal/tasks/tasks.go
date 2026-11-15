@@ -12,7 +12,7 @@ import (
 
 type Step struct {
 	Name   string `json:"name"`
-	Status string `json:"status"` // pending | running | done | error
+	Status string `json:"status"` // pending | running | done | error | cancelled（用户取消时正在做的那一步）
 }
 
 // WarnItem 一条可点击的告警条目（如需手动补装的模组）。
@@ -70,6 +70,12 @@ type Snapshot struct {
 	Pending   []PendingItem `json:"pending,omitempty"` // 整合包导入的待决文件（已结束的任务也可能有）：逐项列出、待用户处置
 	// Net 最近一次出问题以后还没有新的下载进度时才有（下载又动起来、换了步骤就清掉）
 	Net *NetRetry `json:"net,omitempty"`
+	// Cancelled 任务是用户取消的，半成品也清理干净了：界面显示中性的「已取消」，不是失败（2026-11-14 复审发现 9）。
+	// error 里照旧有那句中文说明（如「已取消，没有创建服务器」）：只看 error 判成败的老调用方不会把它当成功。
+	// 取消以后半成品没清干净的不算这一种，是失败（cancelled 为假，error 里写着清理失败的原因）。
+	Cancelled bool `json:"cancelled,omitempty"`
+	// Cancelling 取消请求已经收下、还在清理半成品（任务还没结束）
+	Cancelling bool `json:"cancelling,omitempty"`
 }
 
 // Summary 任务列表里的一项：只带认出任务、看出状态要用的字段，和 Snapshot 里的同名字段含义相同。
@@ -86,8 +92,10 @@ type Summary struct {
 	CanCancel    bool   `json:"canCancel"`
 	Err          string `json:"error,omitempty"`
 	Result       string `json:"result,omitempty"`
-	WarningCount int    `json:"warningCount"` // 告警条数，明细在 Snapshot.Warnings
-	PendingCount int    `json:"pendingCount"` // 待处置的文件数，明细在 Snapshot.Pending（只有整合包导入的任务会有）
+	WarningCount int    `json:"warningCount"`         // 告警条数，明细在 Snapshot.Warnings
+	PendingCount int    `json:"pendingCount"`         // 待处置的文件数，明细在 Snapshot.Pending（只有整合包导入的任务会有）
+	Cancelled    bool   `json:"cancelled,omitempty"`  // 同 Snapshot.Cancelled
+	Cancelling   bool   `json:"cancelling,omitempty"` // 同 Snapshot.Cancelling
 }
 
 type Task struct {
@@ -108,7 +116,8 @@ type Task struct {
 	pending   []PendingItem
 	cancel    context.CancelFunc
 	canCancel bool
-	cancelled bool
+	cancelled bool // 用户的取消请求收下了（Cancel）
+	endCancel bool // 按「已取消」结束的（EndCancelled），见 Snapshot.Cancelled
 
 	netCount int       // 这一步里出过几次网络问题
 	netHost  string    // 最近一次的地址
@@ -212,6 +221,8 @@ func (t *Task) summary() Summary {
 		Ended: t.ended, CanCancel: t.canCancel && !t.ended, Err: t.err, Result: t.result,
 		WarningCount: len(t.warnings),
 		PendingCount: len(t.pending),
+		Cancelled:    t.ended && t.endCancel,
+		Cancelling:   t.cancelled && !t.ended,
 	}
 }
 
@@ -293,6 +304,32 @@ func (t *Task) AddWarning(w Warning) {
 	t.warnings = append(t.warnings, w)
 }
 
+// SetWarning 换掉同一类（kind 相同）的告警，没有就追加；用来让告警跟着事情的进展变（如「N 个文件待处理」的 N）。
+func (t *Task) SetWarning(w Warning) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for k := range t.warnings {
+		if t.warnings[k].Kind == w.Kind {
+			t.warnings[k] = w
+			return
+		}
+	}
+	t.warnings = append(t.warnings, w)
+}
+
+// RemoveWarning 去掉某一类告警（事情已经处理完了，结果页上不再挂着）。
+func (t *Task) RemoveWarning(kind string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	keep := t.warnings[:0:0]
+	for _, w := range t.warnings {
+		if w.Kind != kind {
+			keep = append(keep, w)
+		}
+	}
+	t.warnings = keep
+}
+
 // SetPending 设定任务的待决文件清单（整合包导入收尾时一次设全，之后只经 ResolvePending 减少）。
 func (t *Task) SetPending(items []PendingItem) {
 	t.mu.Lock()
@@ -366,6 +403,28 @@ func (t *Task) Fail(err error) {
 	t.cancel()
 }
 
+// EndCancelled 用户取消、半成品也清理干净以后结束任务：状态是「已取消」（Snapshot.Cancelled），不是失败。
+// err 是给人看的那句（如「已取消，没有创建服务器」），照旧放进 error，见 Snapshot.Cancelled。
+// 正在做的那一步标成 cancelled（不是 error）：界面上不画红叉。没收下过取消请求的任务调它，按失败处理。
+func (t *Task) EndCancelled(err error) {
+	t.mu.Lock()
+	if !t.cancelled {
+		t.mu.Unlock()
+		t.Fail(err)
+		return
+	}
+	defer t.mu.Unlock()
+	for j := range t.steps {
+		if t.steps[j].Status == "running" {
+			t.steps[j].Status = "cancelled"
+		}
+	}
+	t.ended, t.endCancel = true, true
+	t.err = err.Error()
+	t.appendLog(err.Error())
+	t.cancel()
+}
+
 func (t *Task) Snapshot() Snapshot {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -373,6 +432,7 @@ func (t *Task) Snapshot() Snapshot {
 		ID: t.id, Title: t.title, Kind: t.kind, Label: t.label,
 		Done: t.done, Total: t.total,
 		Ended: t.ended, CanCancel: t.canCancel && !t.ended, Err: t.err, Result: t.result,
+		Cancelled: t.ended && t.endCancel, Cancelling: t.cancelled && !t.ended,
 	}
 	s.Steps = append(s.Steps, t.steps...)
 	s.Log = t.logLines()
