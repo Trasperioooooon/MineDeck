@@ -41,6 +41,7 @@
 - L2-detail（详情页：R06、R07、R10、R11、R15 和 R16 的详情页部分、R21，外加第一层留下的 companion.js 弹窗、gamechat 读白名单、props-catalog 白名单默认值、排障资料包带上次启动失败原因）：Claude 子代理 opus-xhigh，工作树 `.claude/worktrees/b3-detail`，分支 `wt/b3-detail`，基准 `28d2d08`。
 - L2-settings（内网穿透页和全局设置：R12、R17、R18、R19、R20，R15 和 R16 的设置部分，U29，外加隧道页、assistant.js、mcp.js 里没改成叠层的弹窗）：Claude 子代理 opus-xhigh，工作树 `.claude/worktrees/b3-settings`，分支 `wt/b3-settings`，基准 `28d2d08`。
 - L2-flows（新建流程和任务页：R13、R14、R22，R09 的后端和接口，评审发现 9 的「已取消」状态）：Claude 子代理 opus-xhigh，工作树 `.claude/worktrees/b3-flows`，分支 `wt/b3-flows`，基准 `28d2d08`。三个同时开始。
+- L2-update-channel（作者 11-15 夜追加：检查更新时选「稳定版」或「最新版（包括测试版）」）：Claude 子代理 opus-xhigh，工作树 `.claude/worktrees/b3-update`，分支 `wt/b3-update`，基准 `a26dcb4`。主会话定的默认：没选过时，正在用正式版就按稳定版，正在用测试版就按最新版；稳定渠道不会把更新的测试版「更新」回旧的正式版。现在的 `newer` 分不出 beta.2 和 beta.3，一并改成按语义化版本比。这个功能只对 beta.3 往后的版本有用：beta.2 及更早的程序仍只查 `releases/latest`，beta.2 换到 beta.3 还是要手动换 exe，发布说明照旧写。
 - 第二层下半（R08 端口冲突、R09 的界面）等上面三个合完再派，任务单 `.claude/beta3-tasks/L2b-ports-pending.md` 已写好。
 - README 构建命令和 `tools/dev/编译并启动.bat`：主会话自己做，提交 `92918ac`。脚本试过两种情况：输出文件夹在仓库里时拒绝；编到仓库外面以后用 `-nogui` 起得来，`LOCALAPPDATA`、`APPDATA` 落在输出文件夹的 `_profile` 里。
 
