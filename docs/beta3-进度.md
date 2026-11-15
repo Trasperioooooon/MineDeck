@@ -32,7 +32,13 @@
 
 ## 派出去的活
 
-（每派一个记一行：任务名、执行者、请求的模型和思考档、工作树、基准提交、开始时间；收回时补结果。）
+（每派一个记一行：任务名、执行者、请求的模型和思考档、工作树、基准提交、开始时间；收回时补结果。任务单原文在主检出的 `.claude/beta3-tasks/`，不入库。）
+
+- L1-p0（R01–R05、U28、U30）：Claude 子代理 opus-xhigh，工作树 `.claude/worktrees/b3-p0`，分支 `wt/b3-p0`，基准 `9fa8666`，11-15 18:30 左右开始。
+- L1-small（评审发现 7、8、10，公网地址端口截断，音乐共享页的说法和内网穿透页的指路）：Claude 子代理 opus-xhigh，工作树 `.claude/worktrees/b3-small`，分支 `wt/b3-small`，基准 `9fa8666`，同时开始。
+- L1-pr26-review：Claude 的 reviewer（Fable）只读复审 PR #26，工作树 `.claude/worktrees/b3-pr26`（分离头 `8428082`）。
+- L1-pr26-codex：Codex（请求 gpt-6-astra、max 档）只读复审 PR #26，工作树 `.claude/worktrees/b3-pr26-codex`，结果写到主检出的 `.claude/beta3-tasks/codex-pr26/`。
+- README 构建命令和 `tools/dev/编译并启动.bat`：主会话自己做，提交 `92918ac`。脚本试过两种情况：输出文件夹在仓库里时拒绝；编到仓库外面以后用 `-nogui` 起得来，`LOCALAPPDATA`、`APPDATA` 落在输出文件夹的 `_profile` 里。
 
 ## 各层结果
 
