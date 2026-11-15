@@ -239,7 +239,7 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 	// 列出来叫人「自己加」的话，照做就加重了。
 	dropped := slices.DeleteFunc(slices.Clone(old.ExtraJVM), inst.IsLog4jFlag)
 	if len(dropped) > 0 {
-		t.Logf("原来的 JVM 参数没有带过来，需要的话到「内存 / 启动」里自己加：%s", shortList(dropped, 12))
+		t.Logf("原来的 JVM 参数没有带过来，需要的话到「设置 → 启动与内存」里自己加：%s", shortList(dropped, 12))
 		for _, a := range dropped {
 			if strings.HasPrefix(a, "-javaagent:") {
 				t.Logf("⚠ 原来的服务器启动时挂了外部程序（-javaagent，外置登录就是这么接的）：对应的 jar 不在交接包里。还要用的话，向原服主要来这个 jar，确认可信以后放进服务器文件夹，再把这条参数加回去；不加的话依赖它的功能（比如外置登录）不起作用")
@@ -291,7 +291,7 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 			if err := inst.ForceProp(propsPath, "enable-rcon", "false"); err != nil {
 				return err
 			}
-			t.Logf("原来开着 RCON（远程控制台），密码是原服主设的，已经先关掉。要用的话到「全部配置」里换一个密码再打开")
+			t.Logf("原来开着 RCON（远程控制台），密码是原服主设的，已经先关掉。要用的话到「设置 → 全部配置」里换一个密码再打开")
 		}
 	}
 	// EULA：包里带了同意过的 eula.txt 就以它为准；没带时靠请求里的勾选写

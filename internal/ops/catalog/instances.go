@@ -25,7 +25,7 @@ type instSummary struct {
 	Build           string   `json:"build"`
 	JavaMajor       int      `json:"javaMajor"`
 	JavaSource      string   `json:"javaSource"` // portable：MineDeck 的便携版；local：本机装的 Java
-	JavaPath        string   `json:"javaPath"`   // 现在用的 java.exe（「内存 / 启动」里换 Java 时标出当前这一个）
+	JavaPath        string   `json:"javaPath"`   // 现在用的 java.exe（「设置 → 启动与内存」里换 Java 时标出当前这一个）
 	Adopted         bool     `json:"adopted"`    // 接管进来的：目录是用户原来的文件夹（删除时默认不删文件）
 	XmxMB           int      `json:"xmxMb"`
 	XmsMB           int      `json:"xmsMb"`
@@ -46,6 +46,12 @@ type instSummary struct {
 	LastStartError string `json:"lastStartError,omitempty"`
 	// MineDeckFiles 接管来的服务器：文件夹里 MineDeck 写的、移出列表以后会留下的文件（相对路径）。别的服务器没有这一项
 	MineDeckFiles []string `json:"mdFiles,omitempty"`
+	// JavaMissing 配的 java.exe 现在找不到了（卸载了、挪走了）：卡片和详情页头常驻警告，带路去「设置 → 启动与内存」（可用性走查 R21）
+	JavaMissing bool `json:"javaMissing,omitempty"`
+	// BackupDir 这台服务器的新备份放在哪个文件夹（当前备份根下面，还没备份过时可能还不存在）
+	BackupDir string `json:"backupDir"`
+	// WorldFrom 现在的世界是从哪份备份还原来的（R11）；没还原过、还原以后换过地图时没有这一项
+	WorldFrom *inst.WorldFrom `json:"worldFrom,omitempty"`
 }
 
 func summarize(i *inst.Instance) instSummary {
@@ -78,6 +84,7 @@ func summarize(i *inst.Instance) instSummary {
 		OnlineCount:     i.OnlineCount(), UptimeSec: i.UptimeSec(), MaxPlayers: maxP,
 		ExtraJVM:    i.ExtraJVMSnapshot(),
 		ConnectPort: i.ConnectPort(), LastStartError: i.LastStartError(), MineDeckFiles: i.MineDeckFiles(),
+		JavaMissing: i.JavaMissing(), BackupDir: i.BackupDir(), WorldFrom: i.WorldFromSnapshot(),
 	}
 }
 
@@ -106,7 +113,8 @@ func (c *cat) instanceOps() {
 	c.reg.Register(&ops.Op{
 		Name: "instance.list", Title: "查看服务器列表", Level: ops.Read,
 		Desc: "所有实例：核心、版本、Java、内存、端口、状态、在线人数、运行时长、MOTD；connectPort 是玩家连进来用的端口（代理端以它为准），" +
-			"lastStartError 是上一次没启动起来的原因（端口被占、找不到 Java 等，下次启动成功后清空）。",
+			"lastStartError 是上一次没启动起来的原因（端口被占、找不到 Java 等，下次启动成功后清空）；javaMissing 为 true 表示配的 java.exe 现在找不到了；" +
+			"worldFrom 是现在的世界从哪份备份还原来的（没有就是没还原过，或者还原以后换过地图）。",
 		Run: func(context.Context, ops.Caller, ops.Args) (any, error) {
 			out := []instSummary{}
 			for _, i := range c.Mgr.List() {

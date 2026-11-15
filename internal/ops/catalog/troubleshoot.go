@@ -196,7 +196,7 @@ func (c *cat) troubleshootOps() {
 		Desc: "用 MineDeck 内置的规则检查最近一次启动以来的控制台输出（不联网，也不花钱）：缺少前置、客户端模组、装错加载器、重复模组、" +
 			"Mixin 冲突、Java 版本、端口被占、内存不够、看门狗、EULA、好友进不来、配置文件坏了等。返回认出的问题和修复办法。",
 		Params: withInst(nil),
-		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[instArgs](a)
 			if err != nil {
 				return nil, err
@@ -205,18 +205,27 @@ func (c *cat) troubleshootOps() {
 			if err != nil {
 				return nil, err
 			}
-			rep := diagnose(i)
+			// 给 AI 的那份（「让 AI 分析」打包的排错资料、AI 自己调这个工具）带上「上次没能启动」的原因，排在结论最前面。
+			// 界面上不带：详情页头下面的提示区已经常驻写着这句（R03），控制台的报错横幅再写一遍就重复了
+			last := ""
+			if caller.Source.AI() {
+				last = i.LastStartError()
+			}
+			rep := diagnoseWith(i, last)
 			return map[string]any{"status": i.Status(), "findings": rep.Findings, "crashed": rep.Crashed, "exit": rep.Exit, "lines": rep.Lines}, nil
 		},
 	})
 }
 
 // diagnose 对实例最近一次启动以来的控制台跑一遍本地规则。
-func diagnose(i *inst.Instance) diag.Report {
+func diagnose(i *inst.Instance) diag.Report { return diagnoseWith(i, "") }
+
+// diagnoseWith 同 diagnose，lastStartError 非空时结论最前面加一条「上次没能启动」（见 diag.Input.LastStartError）。
+func diagnoseWith(i *inst.Instance, lastStartError string) diag.Report {
 	xmx, _, _ := i.MemSnapshot()
 	major, _ := i.JavaSnapshot()
 	in := diag.Input{Lines: diag.SinceStart(i.Console.Lines()), Core: string(i.Core), MC: i.MC, JavaMajor: major, XmxMB: xmx,
-		RAMMB: app.TotalRAMMB(), AvailMB: app.AvailRAMMB(), Port: i.Port()}
+		RAMMB: app.TotalRAMMB(), AvailMB: app.AvailRAMMB(), Port: i.Port(), LastStartError: lastStartError}
 	if dir := modsDir(i); dir == "mods" {
 		in.Mods, _ = modinfo.ReadDir(filepath.Join(i.Dir, dir))
 		in.FindClass = func(class string) string { return modinfo.FindClass(filepath.Join(i.Dir, dir), class) }

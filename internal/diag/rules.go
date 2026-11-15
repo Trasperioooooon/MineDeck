@@ -490,7 +490,7 @@ func ruleJava(c *ruleCtx) *Finding {
 		opts = uniq(opts)
 		return &Finding{Rule: "jvm-option", Title: "JVM 参数不被支持", Evidence: c.evidence(append(idx, c.find(noJVMRe)...)),
 			Summary: "现在的 Java 不认识这些启动参数，Java 虚拟机没能启动：" + strings.Join(opts, " "),
-			Fixes:   []string{"在「内存 / 启动」里删掉这些 JVM 参数（或者换一个支持它们的 Java 版本）"}}
+			Fixes:   []string{"在「设置 → 启动与内存」里删掉这些 JVM 参数（或者换一个支持它们的 Java 版本）"}}
 	}
 	return nil
 }
@@ -543,7 +543,7 @@ func ruleMemory(c *ruleCtx) *Finding {
 		if s := c.suggestMB(false); s > 0 {
 			f.Fixes = []string{fmt.Sprintf("把最大内存降到 %d MB 左右（现在是 %d MB，本机可用约 %d MB）", s, c.in.XmxMB, c.in.AvailMB)}
 		} else {
-			f.Fixes = []string{"在「内存 / 启动」里把最大内存调小，比本机可用内存少 1–2 GB"}
+			f.Fixes = []string{"在「设置 → 启动与内存」里把最大内存调小，比本机可用内存少 1–2 GB"}
 		}
 		f.Fixes = append(f.Fixes, "关掉占内存的程序（浏览器、游戏客户端）再启动")
 		return f
@@ -556,14 +556,14 @@ func ruleMemory(c *ruleCtx) *Finding {
 	f := &Finding{Rule: "out-of-memory", Title: "内存不够", Evidence: c.evidence(idx)}
 	if kind == "Metaspace" {
 		f.Summary = "类元数据空间（Metaspace）用完了：模组太多，或者 JVM 参数里给 Metaspace 设了上限"
-		f.Fixes = []string{"在「内存 / 启动」里去掉 -XX:MaxMetaspaceSize 这类限制", "同时适当调高最大内存"}
+		f.Fixes = []string{"在「设置 → 启动与内存」里去掉 -XX:MaxMetaspaceSize 这类限制", "同时适当调高最大内存"}
 		return f
 	}
 	f.Summary = fmt.Sprintf("服务器运行中内存用完了（%s），最大内存设得太小", kind)
 	if s := c.suggestMB(true); s > 0 {
 		f.Fixes = []string{fmt.Sprintf("把最大内存调到 %d MB（现在是 %d MB，本机共 %d MB）", s, c.in.XmxMB, c.in.RAMMB)}
 	} else {
-		f.Fixes = []string{"在「内存 / 启动」里调高最大内存（模组服一般 6–8 GB）"}
+		f.Fixes = []string{"在「设置 → 启动与内存」里调高最大内存（模组服一般 6–8 GB）"}
 	}
 	f.Fixes = append(f.Fixes, "装了很多模组或者在跑大范围地形生成的话，再预留一些")
 	return f

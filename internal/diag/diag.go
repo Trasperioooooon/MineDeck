@@ -27,6 +27,9 @@ type Input struct {
 	Mods      []modinfo.Mod
 	// FindClass 这个类在哪个 jar 里（客户端模组规则用：报错里只有类名时据此找到 jar）；可以为 nil
 	FindClass func(class string) string
+	// LastStartError 上一次点启动没起来的原因（端口被占、找不到 Java……，MineDeck 自己记的，见 inst.LastStartError）。
+	// 有的话排在结论最前面：这类失败发生在服务端起来之前，控制台里没有服务端的报错可认
+	LastStartError string
 }
 
 // Finding 一条结论。
@@ -100,6 +103,11 @@ func Analyze(in Input) Report {
 				Fixes:    []string{"看看控制台里退出前最后几行 ERROR 和异常", "配置了 AI 的话，可以让 AI 结合崩溃报告分析"},
 				Evidence: []string{rep.Exit}})
 		}
+	}
+	if in.LastStartError != "" { // 放在「异常退出」的判断之后：这条说的是这次没起来，不影响上一次运行是不是崩了
+		rep.Findings = append([]Finding{{Rule: "start-failed", Title: "上次没能启动", Severity: "error",
+			Summary: in.LastStartError,
+			Fixes:   []string{"按这句说的原因处理好，再点「启动」", "启动成功以后这条就不再出现"}}}, rep.Findings...)
 	}
 	return rep
 }

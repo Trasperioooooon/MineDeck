@@ -251,7 +251,7 @@ func scanServerDir(dir string) (*AdoptScan, error) {
 		sc.Notes = append(sc.Notes, fmt.Sprintf("user_jvm_args.txt 里有 %d 个带空格的 JVM 参数带不过来。需要的话，接管后对照 %s 手动补上。", skippedArgs, jvmArgsBackup))
 	}
 	if hints.otherFlags && sc.prev == nil {
-		sc.Notes = append(sc.Notes, "原来的启动脚本里还有别的 JVM 参数，不会自动带过来。需要的话，接管后在「内存 / 启动」里补上。")
+		sc.Notes = append(sc.Notes, "原来的启动脚本里还有别的 JVM 参数，不会自动带过来。需要的话，接管后在「设置 → 启动与内存」里补上。")
 	}
 	return sc, nil
 }
