@@ -39,6 +39,7 @@ const GROUPS = [
   { id: "task", title: "部署与后台任务" },
   { id: "detail", title: "服务器详情（12 种核心）", note: "进去以后标签可以随便点" },
   { id: "tunnel", title: "内网穿透" },
+  { id: "toolbox", title: "工具箱" },
   { id: "settings", title: "设置" },
   { id: "overlay", title: "弹窗、提示和助手" },
 ];
@@ -472,5 +473,18 @@ add("overlay", "o-toast-err-raw", "报错提示：原文带路径和英文时只
 });
 add("overlay", "o-toast", "右上角的提示", { setup: s => { s.instances = four(); }, steps: [{ click: `.card[data-name="机械动力整合包"] [data-act="start"]` }] });
 add("overlay", "o-asst", "AI 助手面板", { steps: [{ click: 'button[aria-label^="AI 助手"]' }] });
+
+// ==================== 工具箱 ====================
+add("toolbox", "tb-home", "工具箱首页", {
+  tag: "new", hash: "#/toolbox", note: "列出两个联机辅助工具卡片，后续扩展新工具只需向 TOOLS 注册表追加条目。",
+});
+add("toolbox", "tb-skin", "离线皮肤包生成", {
+  tag: "new", hash: "#/toolbox/skin-pack", note: "读取已有服务器的玩家名单，自动计算离线 UUID、默认皮肤槽位和 pack_format。",
+  steps: [{ wait: "#sp-import-players" }, { click: "#sp-import-players" }],
+});
+add("toolbox", "tb-mrpack", "导出 Modrinth 整合包（草稿自选）", {
+  tag: "new", hash: "#/toolbox/mrpack-export", note: "草稿模式下复用选模组清单挑完后预览，区分 Modrinth CDN 下载与 overrides、仅客户端模组标 unsupported。",
+  steps: [{ wait: '.mc-add[data-pid="create"]' }, { click: '.mc-add[data-pid="create"]' }, { click: '.mc-add[data-pid="jei"]' }, { click: "#mp-preview-btn" }, { wait: "#mp-preview-box .tb-table-wrap" }],
+});
 
 module.exports = { GROUPS, SCENES: S, base };
