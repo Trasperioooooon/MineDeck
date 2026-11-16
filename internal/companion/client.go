@@ -359,11 +359,14 @@ func (c *Client) session() (live bool, err error) {
 	c.st.Busy = false
 	c.st.LastError = ""
 	c.mu.Unlock()
-	c.setPhase(PhaseLive, "")
-	c.logf("已连上伙伴模组（%s，模组 %s，PlayerEngine %s，现有 %d 个伙伴）", addr, w.Mod, w.PlayerEngine, len(w.Companions))
+	// 先把 WELCOME 交出去，再把阶段标成 live：别人一看到 live，模组版本、支持的指令这些就已经在了。
+	// 反过来的话中间有一小段「连着、但 WELCOME 还没人接」：伙伴页显示连上了却没有模组版本，
+	// 游戏内 AI 这时让伙伴做事会被回「这个伙伴模组不支持…」（2026-11-09 CI 上 TestServiceAutoConnect 撞到过）。
 	if c.o.OnWelcome != nil {
 		c.o.OnWelcome(w)
 	}
+	c.setPhase(PhaseLive, "")
+	c.logf("已连上伙伴模组（%s，模组 %s，PlayerEngine %s，现有 %d 个伙伴）", addr, w.Mod, w.PlayerEngine, len(w.Companions))
 	err = c.stream(conn, br)
 	c.mu.Lock()
 	c.live = nil

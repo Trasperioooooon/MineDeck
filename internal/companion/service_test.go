@@ -28,7 +28,10 @@ type svcEnv struct {
 	finished []companion.Finished
 }
 
-func newSvcEnv(t *testing.T) *svcEnv {
+func newSvcEnv(t *testing.T) *svcEnv { return newSvcEnvWith(t, nil) }
+
+// newSvcEnvWith 同 newSvcEnv；tweak 不为 nil 时在快速重试的参数之上再改一遍客户端的参数。
+func newSvcEnvWith(t *testing.T, tweak func(*companion.Options)) *svcEnv {
 	t.Helper()
 	e := &svcEnv{in: newInsts(), mod: startMod(t, companiontest.Options{StatusEvery: 50 * time.Millisecond})}
 	e.dir = e.in.add(t, "模组服", "neoforge", "1.21.1", "21.1.265")
@@ -47,7 +50,13 @@ func newSvcEnv(t *testing.T) *svcEnv {
 			e.finished = append(e.finished, f)
 			e.mu.Unlock()
 		}}
-	companion.SetClientOptions(&d, companion.FastRetry())
+	fast := companion.FastRetry()
+	companion.SetClientOptions(&d, func(o *companion.Options) {
+		fast(o)
+		if tweak != nil {
+			tweak(o)
+		}
+	})
 	companion.SetTick(&d, 10*time.Millisecond)
 	e.s = companion.New(d)
 	t.Cleanup(func() { e.s.Shutdown("测完了") })
@@ -94,6 +103,29 @@ func (e *svcEnv) finishedList() []companion.Finished {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return append([]companion.Finished(nil), e.finished...)
+}
+
+// 「连上了」和模组的欢迎信息要一起出现：状态是 live 的时候，模组版本、支持的指令、「连上了」那条事件都已经在了。
+// 以前客户端先把阶段标成 live、再把 WELCOME 交给服务层，中间那一小段里伙伴页看到的是「连着，但不知道模组版本、
+// 一条指令都不支持」，游戏内 AI 这时让伙伴做事会被回「这个伙伴模组不支持…」。2026-11-09 main 上的 CI 撞到过一次
+// （TestServiceAutoConnect 一连上就查，正好查在空档里）。这里把交 WELCOME 的那一步故意拖慢：空档要是还在，一定看得到。
+func TestLiveMeansWelcomeIsApplied(t *testing.T) {
+	e := newSvcEnvWith(t, func(o *companion.Options) {
+		apply := o.OnWelcome
+		o.OnWelcome = func(w companion.Welcome) {
+			time.Sleep(150 * time.Millisecond)
+			apply(w)
+		}
+	})
+	e.enable(t)
+	e.start()
+	v := e.live(t)
+	if v.Link.Mod != "0.2.0" || v.Link.Session != "s1" || len(v.Link.Ops) != 10 || len(v.Events) == 0 || v.Events[0].Event != "connected" {
+		t.Fatalf("状态一到 live，模组的信息就该齐了：%+v 事件 %+v", v.Link, v.Events)
+	}
+	if _, ops, ok := e.s.Live("模组服"); !ok || len(ops) != 10 {
+		t.Fatalf("给游戏内 AI 看的也一样：ok=%v ops=%v", ok, ops)
+	}
 }
 
 // 服务器开着、启用了伙伴才去连；没启用时开服也不连。连上后从 WELCOME、事件和 STATUS 跟踪伙伴；关服时断开（发 END）、
@@ -279,9 +311,15 @@ func TestServiceActAndFinish(t *testing.T) {
 	if f := e.finishedList()[2]; f.Origin.Player != "Steve" || f.Text != "打 zombie ×2 做完了：打到 2 只（要 2 只），用时 10 秒。" {
 		t.Errorf("断开期间结束的任务：%+v", f)
 	}
+	// 这条通知是重连时从 WELCOME 里认出来的；客户端先交 WELCOME、后把状态标成连着，
+	// 所以收到通知的那一刻可能还没算连上，下面要让伙伴做事，先等连上
+	e.live(t)
 
 	// 服务器重启：session 变了，旧的任务编号作废；新开服的 1 号任务不是 Steve 发起的
-	r3, _ := e.s.Act(ctx, "模组服", "collect", map[string]any{"companion": "小方", "item": "stone"}, companion.Origin{Player: "Steve"})
+	r3, err := e.s.Act(ctx, "模组服", "collect", map[string]any{"companion": "小方", "item": "stone"}, companion.Origin{Player: "Steve"})
+	if err != nil || r3 == nil || r3.Task == nil {
+		t.Fatalf("重连以后让伙伴做事：%+v %v", r3, err)
+	}
 	e.mod.Restart("s2")
 	waitFor(t, "重连", func() bool { v, _ := e.s.Status("模组服"); return v.Link.State == "live" && v.Link.Session == "s2" })
 	_ = e.mod.SendEvent(map[string]any{"event": "task_finished", "companion": 1, "result": "done", "task": map[string]any{"id": r3.Task.ID, "op": "collect", "companion": 1}})

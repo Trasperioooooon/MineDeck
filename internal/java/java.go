@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -35,9 +36,25 @@ func Dir(major int) string {
 
 func Exe(major int) string { return filepath.Join(Dir(major), "bin", "java.exe") }
 
+// incompleteMark 「这套运行时还没装完」的记号：和 java-N 文件夹并排的一个空文件（runtimes\java-N.incomplete）。
+// Ensure 动手装之前放上，整套装完才拿掉。放在文件夹外面，是因为解压前会把文件夹整个删掉重来。
+func incompleteMark(major int) string { return Dir(major) + ".incomplete" }
+
+// IsInstalled 这个大版本的便携 Java 装好了没有。
+//
+// 只看 bin\java.exe 在不在是不够的：解压到一半磁盘不够、逐文件下载断在中间、程序中途被结束，都会留下
+// 「java.exe 在、别的文件不全」的半截。以前这种半截下次会被当成装好了直接拿去开服，报的是 JVM 自己的错，
+// 也不会再重新下载，只能手动删文件夹。所以记号还在的不算装好，Ensure 会重装。
+// 这道记号出现之前装好的运行时没有记号，照旧算装好。
 func IsInstalled(major int) bool {
 	st, err := os.Stat(Exe(major))
-	return err == nil && !st.IsDir()
+	if err != nil || st.IsDir() {
+		return false
+	}
+	if _, err := os.Lstat(incompleteMark(major)); err == nil {
+		return false
+	}
+	return true
 }
 
 // Installed 扫描已部署的运行时。
@@ -73,6 +90,13 @@ func Ensure(ctx context.Context, major int, logf func(string, ...any), prog dl.P
 		return Exe(major), nil
 	}
 	logf("需要 Java %d，开始下载便携式运行时（不影响系统环境）", major)
+	// 先放「还没装完」的记号，整套装完（finalize）才拿掉：中途失败或程序被结束，留下的半截不会被当成装好了
+	if err := os.MkdirAll(app.RuntimesDir, 0o755); err != nil {
+		return "", fmt.Errorf("准备安装 Java %d 失败：%w", major, err)
+	}
+	if err := os.WriteFile(incompleteMark(major), nil, 0o644); err != nil {
+		return "", fmt.Errorf("准备安装 Java %d 失败：%w", major, err)
+	}
 	var errs []error
 
 	if err := fromTUNA(ctx, major, logf, prog); err == nil {
@@ -96,8 +120,11 @@ func Ensure(ctx context.Context, major int, logf func(string, ...any), prog dl.P
 }
 
 func finalize(major int) (string, error) {
-	if !IsInstalled(major) {
+	if st, err := os.Stat(Exe(major)); err != nil || st.IsDir() {
 		return "", fmt.Errorf("Java %d 装好后没找到 bin\\java.exe", major)
+	}
+	if err := os.Remove(incompleteMark(major)); err != nil && !os.IsNotExist(err) {
+		return "", fmt.Errorf("Java %d 装好了，但去不掉「还没装完」的记号：%w", major, err)
 	}
 	return Exe(major), nil
 }
@@ -298,14 +325,42 @@ func runtimeMajor(name string) int {
 	return n
 }
 
+// dirSize 文件夹里普通文件的大小合计（不跟随链接，读不了的跳过）；不存在算 0。
+func dirSize(dir string) int64 {
+	var n int64
+	_ = filepath.WalkDir(dir, func(_ string, d os.DirEntry, err error) error {
+		if err == nil && d.Type().IsRegular() {
+			if info, err := d.Info(); err == nil {
+				n += info.Size()
+			}
+		}
+		return nil
+	})
+	return n
+}
+
+// extractDiskFree 查磁盘余量的函数；nil 用系统的。测试用它让余量在解压中途变得不够。
+var extractDiskFree func(string) (int64, error)
+
 // extractZip 解压 JRE zip 至 destDir，自动剥离顶层目录，含 zip-slip 防护。
-func extractZip(zipPath, destDir string) error {
+// 解到一半失败的，把已经解出来的删掉再返回：不留半截。
+func extractZip(zipPath, destDir string) (err error) {
 	zr, err := zipguard.Open(zipPath, zipguard.Default)
 	if err != nil {
 		return fmt.Errorf("打开 zip 失败: %w", err)
 	}
 	defer zr.Close()
-	lease, err := diskguard.Acquire(context.Background(), destDir, diskguard.Options{AllowUnknown: true})
+	// 一开头就按解开以后的总大小要余量。原来只要求还剩保留的那 256 MiB：剩三四百兆的盘开头放行，
+	// 旧文件夹删了、解到一半才报空间不够（解压过程中每个文件之前、每写 64 MiB 都会再查）
+	// 下面会先把旧的文件夹整个删掉（重装装了一半的运行时就是这样），它占着的那部分算回来
+	var total int64
+	for _, f := range zr.File {
+		if n := int64(f.UncompressedSize64); n > 0 && total <= math.MaxInt64-n {
+			total += n
+		}
+	}
+	need := max(total-dirSize(destDir), 0)
+	lease, err := diskguard.Acquire(context.Background(), destDir, diskguard.Options{AllowUnknown: true, Need: need, Query: extractDiskFree})
 	if err != nil {
 		return err
 	}
@@ -334,6 +389,13 @@ func extractZip(zipPath, destDir string) error {
 	if err := os.RemoveAll(destDir); err != nil {
 		return err
 	}
+	// 从这里起失败就把解出来的删掉。bin\java.exe 在压缩包里排得很靠前，最大的 lib\modules 排在后面：
+	// 留着半截既占着本来就不够的空间，看上去又像是装好了
+	defer func() {
+		if err != nil {
+			_ = os.RemoveAll(destDir)
+		}
+	}()
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return err
 	}

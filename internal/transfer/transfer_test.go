@@ -11,13 +11,19 @@ import (
 	"time"
 
 	"minedeck/internal/app"
+	"minedeck/internal/dl/dltest"
 	"minedeck/internal/inst"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/tasks"
 )
 
-// 测试环境：缓存目录里有版本清单和一个「本机已装」的假 Java 17（java.Resolve 的 Cached 路径命中它，
-// 全程不联网），都是 inst 包测试的同一套做法。
+// 测试环境：缓存目录里有版本清单和一个「本机已装」的假 Java 17（java.Resolve 的 Cached 路径命中它），
+// 都是 inst 包测试的同一套做法。
+//
+// 光这样并不是「全程不联网」：取版本清单是先试网络、取不到才用缓存，有网的机器上导入的每条用例都会真的去连
+// 镜像站，取到的是真清单，还会把缓存里这份测试用的盖掉（2026-11-16 用记拨号的办法查出来的：单跑时有五条用例
+// 各连一次 bmclapi2.bangbang93.com）。所以 TestMain 一开头就把外网挡掉（dltest.NoInternet），取清单马上失败、
+// 落回缓存里这一份，有没有网结果都一样。
 
 const testManifest = `{"latest":{"release":"1.20.1","snapshot":"1.20.1"},"versions":[
 {"id":"1.21.1","type":"release"},{"id":"1.20.1","type":"release"},{"id":"1.18.1","type":"release"},
@@ -26,6 +32,7 @@ const testManifest = `{"latest":{"release":"1.20.1","snapshot":"1.20.1"},"versio
 var testJava17 string
 
 func TestMain(m *testing.M) {
+	dltest.NoInternet()
 	dir, err := os.MkdirTemp("", "md-transfer-test")
 	if err != nil {
 		panic(err)
@@ -164,7 +171,7 @@ func manager(t *testing.T, name string) *inst.Manager {
 // 完成后只看快照拿不到当时的进度）。
 func waitTask(t *testing.T, mgr *inst.Manager, id string) (snap tasks.Snapshot, maxDone, maxTotal int64, sawFiles bool) {
 	t.Helper()
-	// 联网的机器上 mcsrc 的版本清单会先试网络再落磁盘缓存，慢时几秒到几十秒——等足一点
+	// 等足一点：原来联网的机器上取版本清单要先试网络，慢时几秒到几十秒；现在外网挡掉了（见 TestMain），留着余量给慢机器
 	deadline := time.Now().Add(60 * time.Second)
 	for {
 		task := mgr.Tasks.Get(id)

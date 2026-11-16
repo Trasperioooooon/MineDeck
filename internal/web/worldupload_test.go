@@ -36,11 +36,17 @@ func TestWorldUploadPausedClientIsClosed(t *testing.T) {
 		limit int64
 		want  int
 		hold  bool
+		idle  time.Duration
 	}{
-		{"超限即回话", true, 96 << 10, 64 << 10, 413, false},
-		{"文件传到一半停住", true, 32 << 10, 8 << 20, 408, false},
-		{"非文件字段停住", false, 32, 8 << 20, 408, false},
-		{"等待同盘写入时超时", true, 32 << 10, 8 << 20, 408, true},
+		// 超限的那一条不该等到空闲期限：期限给得很长。原来四条都是 150 毫秒，服务端收下这 96 KiB 的过程里
+		// （建目录、查余量、建文件、关文件、删文件）哪一步停顿超过 150 毫秒，413 就会被改写成 408。
+		// 同一种写法的另一条测试 2026-11-15 在 CI 上这样挂过（79d5bfb 放宽了那一条，这一条当时没动）。
+		// 真要是超限以后不回话，客户端这边 3 秒的期限会先到，照样挂
+		{"超限即回话", true, 96 << 10, 64 << 10, 413, false, time.Minute},
+		// 下面三条等的就是空闲期限到，机器慢只是晚一点回 408
+		{"文件传到一半停住", true, 32 << 10, 8 << 20, 408, false, 150 * time.Millisecond},
+		{"非文件字段停住", false, 32, 8 << 20, 408, false, 150 * time.Millisecond},
+		{"等待同盘写入时超时", true, 32 << 10, 8 << 20, 408, true, 150 * time.Millisecond},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newFullEnv(t)
@@ -54,7 +60,7 @@ func TestWorldUploadPausedClientIsClosed(t *testing.T) {
 				defer lease.Close()
 			}
 			oldLimit, oldIdle := worldUploadLimit, worldUploadIdle
-			worldUploadLimit, worldUploadIdle = tc.limit, 150*time.Millisecond
+			worldUploadLimit, worldUploadIdle = tc.limit, tc.idle
 			t.Cleanup(func() { worldUploadLimit, worldUploadIdle = oldLimit, oldIdle })
 			closed := make(chan struct{})
 			var once sync.Once

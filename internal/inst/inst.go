@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -162,6 +163,8 @@ type Manager struct {
 	pendMu      sync.Mutex // 整合包导入待决的任务 → 实例（处置时按任务找实例目录）
 	pendingInst map[string]pendingRef
 	resolveMu   sync.Mutex // 待决文件的处置一次只做一批，见 ResolveImportPending
+
+	closing atomic.Bool // ShutdownAll 开始以后为真：程序正在退出，等着重试的定时备份不再动手
 }
 
 func NewManager() (*Manager, error) {

@@ -65,8 +65,8 @@ func TestMultipartUploadsDoNotQueueBehindVolumeLease(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer lease.Close()
-	// 名额一直被别人占着。等的时间比空闲期限长得多：要是上传在排队，这里就会超时
-	started := time.Now()
+	// 名额一直被别人占着：要是上传在排队，永远等不到名额，空闲期限一到就回 408，下面逐个入口查的就是这个。
+	// 原来另外还掐了一次表（三次上传合计不超过 2 秒），和这道检查重复，慢机器上只会误报，去掉了
 	for _, endpoint := range []string{"/api/transfer/upload", "/api/import/modpack", "/api/modcart/local"} {
 		resp, err := client.Do(multipartRequest(t, srv.URL+endpoint, "pack.zip", mdpackBytes(true)))
 		if err != nil {
@@ -81,9 +81,6 @@ func TestMultipartUploadsDoNotQueueBehindVolumeLease(t *testing.T) {
 		if endpoint == "/api/transfer/upload" && resp.StatusCode != 200 {
 			t.Fatalf("%s：名额被占着时应当照常收下：HTTP %d %s", endpoint, resp.StatusCode, b)
 		}
-	}
-	if took := time.Since(started); took > 2*time.Second {
-		t.Errorf("三次上传一共用了 %v，像是在等名额", took)
 	}
 	worldUploadIdle = 2 * time.Second
 	if files, _ := os.ReadDir(spool); len(files) != 0 {

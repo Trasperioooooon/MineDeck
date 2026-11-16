@@ -212,6 +212,12 @@ func savedLine(line string) bool {
 // backupHook 测试用：世界目录开始压缩之前调用。
 var backupHook func()
 
+// errBackupUnsettled 这次备份没做成，是因为服务器正在启动、停止，或者备份期间停止、重启过。
+// 等它稳定下来再备份就行：定时备份据此等一等再试（见 execSchedule），手动备份照原样把这句话报给用户。
+type errBackupUnsettled struct{ msg string }
+
+func (e *errBackupUnsettled) Error() string { return e.msg }
+
 // createBackup 同 CreateBackup；spare 非空时滚动清理放过这份备份。还原前的自动备份靠它保住待还原的源备份——
 // 份数已满且要还原的正是最旧那份时，源备份本会在解压前被清理掉。
 func (m *Manager) createBackup(name, label, spare string) (string, error) {
@@ -245,11 +251,11 @@ func (m *Manager) createBackupWith(i *Instance, label, spare string, lease *disk
 	p, gen, state := i.proc, i.runGen, i.state
 	i.procMu.Unlock()
 	if state != "" && state != "stopped" && state != "running" {
-		return "", fmt.Errorf("服务器正在启动或停止，请稍后再备份")
+		return "", &errBackupUnsettled{"服务器正在启动或停止，请稍后再备份"}
 	}
 	if state == "running" {
 		if p == nil {
-			return "", fmt.Errorf("服务器进程状态已变化，请重试备份")
+			return "", &errBackupUnsettled{"服务器进程状态已变化，请重试备份"}
 		}
 		i.Console.Append("[MineDeck] 开始热备份：暂停自动保存...")
 		_, lines, unsubscribe := i.Console.Subscribe()
@@ -275,7 +281,7 @@ func (m *Manager) createBackupWith(i *Instance, label, spare string, lease *disk
 			select {
 			case line, ok := <-lines:
 				if !ok {
-					return "", fmt.Errorf("没有收到服务器保存完成的确认，这次备份已作废")
+					return "", &errBackupUnsettled{"没有收到服务器保存完成的确认，这次备份已作废"}
 				}
 				flushed = savedLine(line)
 			case <-timer.C:
@@ -297,15 +303,24 @@ func (m *Manager) createBackupWith(i *Instance, label, spare string, lease *disk
 		backupHook()
 	}
 	// 在发布压缩包之前再核对进程代际；热备中重启不能把跨两次运行的内容当成完整备份。
+	// 状态也要和开始时一样：热备压到一半有人点了停止，进程还没退出（代际没变）压缩就结束了的那种，
+	// 后半截是服务器一边停服存盘一边压的，同样不算完整。
 	verify := func() error {
 		i.procMu.Lock()
 		defer i.procMu.Unlock()
-		if i.proc != p || i.runGen != gen {
-			return fmt.Errorf("备份期间服务器停止或重新启动，这次备份已作废，请重新备份")
+		// 空串和 stopped 是一回事（Status 也这么算）
+		same := i.state == state || ((i.state == "" || i.state == "stopped") && (state == "" || state == "stopped"))
+		if i.proc != p || i.runGen != gen || !same {
+			return &errBackupUnsettled{"备份期间服务器停止或重新启动，这次备份已作废，请重新备份"}
 		}
 		return nil
 	}
 	if err := zipDirsWith(i.Dir, worlds, dest, lease, verify); err != nil {
+		// 压到一半读文件出错，多半是服务器这时正在停服或重启：存盘时会写临时文件再改名，列出来的文件转眼就不在了。
+		// 这种也按「服务器停止或重启过」报，定时备份会等它稳定下来再试；核对通过的才是真的读不了
+		if verr := verify(); verr != nil {
+			return "", verr
+		}
 		return "", fmt.Errorf("压缩备份失败: %w", err)
 	}
 	m.pruneBackups(name, spare)

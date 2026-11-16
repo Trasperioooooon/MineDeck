@@ -1,6 +1,7 @@
 package inst
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -160,6 +161,54 @@ func (m *Manager) startScheduler() {
 	}()
 }
 
+// 定时备份撞上启动、停止时：最多等 backupSettleWait；服务器要连续 backupSettleQuiet 这么久一直是运行中、
+// 或者一直是已停止，才算稳定下来；每隔 backupSettlePoll 看一次。测试里改短，settleNow、settleSleep 换成假的时钟。
+var (
+	backupSettleWait  = 15 * time.Minute
+	backupSettleQuiet = 30 * time.Second
+	backupSettlePoll  = 2 * time.Second
+	settleNow         = time.Now
+	settleSleep       = time.Sleep
+)
+
+// waitSettled 等服务器稳定下来，等到了返回 true。
+//
+// 一看到「已停止」就动手是不行的：定时重启在停和启之间、「停止并还原」在停下和还原之间、退出 MineDeck 时
+// 关服以后，都会经过一小段「已停止」。这时开始冷备，要么压到一半服务器又启动了（白压一遍还被作废），要么
+// 抢在还原、删除前面登记了「正在备份」把它们挡掉，要么程序随即退出、留下半截的临时文件。所以要连续一段时间
+// 不变；中途又启动、停止过（状态或运行代际变了）就重新算。程序正在退出、这台服务器被删掉或换成了同名的
+// 另一台，都不再等。
+func (m *Manager) waitSettled(i *Instance) bool {
+	start := settleNow()
+	var since time.Time
+	lastState, lastGen := "", -1
+	for {
+		if m.closing.Load() {
+			return false
+		}
+		if cur, err := m.Get(i.Name); err != nil || cur != i {
+			return false
+		}
+		i.procMu.Lock()
+		st, gen := i.state, int(i.runGen)
+		i.procMu.Unlock()
+		if st == "" {
+			st = "stopped"
+		}
+		now := settleNow()
+		if st != lastState || gen != lastGen {
+			lastState, lastGen, since = st, gen, now
+		}
+		if (st == "running" || st == "stopped") && now.Sub(since) >= backupSettleQuiet {
+			return true
+		}
+		if now.Sub(start) >= backupSettleWait {
+			return false
+		}
+		settleSleep(backupSettlePoll)
+	}
+}
+
 func (m *Manager) execSchedule(i *Instance, s Schedule) {
 	start := time.Now()
 	note := func(op string, args map[string]any, err error) {
@@ -174,6 +223,19 @@ func (m *Manager) execSchedule(i *Instance, s Schedule) {
 		}
 	case "backup":
 		_, err := m.CreateBackup(i.Name, "定时")
+		// 撞上服务器启动、停止或重启的，等它稳定下来再试，最多再试两次。
+		// 不试的话：备份和重启定在同一分钟（世界大到一分钟压不完，压到一半服务器被重启，这份作废），
+		// 或者备份排在重启后一两分钟（服务器还在启动，直接被拒），这一天就没有备份，而且天天如此，
+		// 只在控制台留一行字。这两道闸是 2026-11-14 加的，之前这两种情况都照常出一份备份。
+		// 再试两次：第一次重试可能正好落在重启中间「已停止」的那一下，随后服务器启动，又被作废一次。
+		var unsettled *errBackupUnsettled
+		for try := 0; try < 2 && errors.As(err, &unsettled); try++ {
+			i.Console.Append("[MineDeck] 定时备份这一次没有做成（" + unsettled.msg + "），等服务器启动或停止完再试")
+			if !m.waitSettled(i) {
+				break
+			}
+			_, err = m.CreateBackup(i.Name, "定时")
+		}
 		if err != nil {
 			i.Console.Append("[MineDeck] 定时备份失败: " + err.Error())
 		} else {
