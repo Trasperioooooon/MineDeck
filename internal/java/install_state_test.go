@@ -76,10 +76,11 @@ func TestExtractFailureLeavesNoHalfRuntime(t *testing.T) {
 	calls := 0
 	extractDiskFree = func(string) (int64, error) {
 		calls++
-		if calls <= 3 { // 开头一次、前两个文件之前各一次：够
+		// 查余量的次序：开头一次；第一个文件（bin/java.exe）开始之前一次、开始写的时候一次；第二个文件开始之前……
+		if calls <= 3 { // 前三次：够，java.exe 解出来了
 			return 10 << 30, nil
 		}
-		return 1 << 20, nil // 第三个文件之前：别的程序把盘写满了
+		return 1 << 20, nil // 第二个文件开始之前：别的程序把盘写满了
 	}
 	t.Cleanup(func() { extractDiskFree = nil })
 	err := extractZip(zipPath, dest)
@@ -88,7 +89,7 @@ func TestExtractFailureLeavesNoHalfRuntime(t *testing.T) {
 		t.Fatalf("余量中途不够应当报空间不够：%v", err)
 	}
 	if calls < 4 {
-		t.Fatalf("测试自己没摆对：应当是解了两个文件以后才不够的，只查了 %d 次", calls)
+		t.Fatalf("测试自己没摆对：应当是解出 java.exe 以后才不够的，只查了 %d 次", calls)
 	}
 	if _, err := os.Stat(dest); !os.IsNotExist(err) {
 		var left []string
@@ -109,6 +110,15 @@ func TestExtractFailureLeavesNoHalfRuntime(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dest, "bin", "old.dll")); err != nil {
 		t.Errorf("一开头就拒绝的，原来的文件夹不该动：%v", err)
+	}
+
+	// 余量算上马上要删掉的旧文件夹：重装一个装了一半、已经占着 12 KiB 的运行时，只要再多 4 KiB，
+	// 保留量以外剩 8 KiB 够了，不该拒绝
+	if err := os.WriteFile(filepath.Join(dest, "bin", "old.dll"), make([]byte, 12<<10), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := extractZip(zipPath, dest); err != nil {
+		t.Fatalf("旧文件夹删掉以后放得下，不该拒绝：%v", err)
 	}
 
 	// 余量够：照常解完

@@ -325,6 +325,20 @@ func runtimeMajor(name string) int {
 	return n
 }
 
+// dirSize 文件夹里普通文件的大小合计（不跟随链接，读不了的跳过）；不存在算 0。
+func dirSize(dir string) int64 {
+	var n int64
+	_ = filepath.WalkDir(dir, func(_ string, d os.DirEntry, err error) error {
+		if err == nil && d.Type().IsRegular() {
+			if info, err := d.Info(); err == nil {
+				n += info.Size()
+			}
+		}
+		return nil
+	})
+	return n
+}
+
 // extractDiskFree 查磁盘余量的函数；nil 用系统的。测试用它让余量在解压中途变得不够。
 var extractDiskFree func(string) (int64, error)
 
@@ -338,13 +352,15 @@ func extractZip(zipPath, destDir string) (err error) {
 	defer zr.Close()
 	// 一开头就按解开以后的总大小要余量。原来只要求还剩保留的那 256 MiB：剩三四百兆的盘开头放行，
 	// 旧文件夹删了、解到一半才报空间不够（解压过程中每个文件之前、每写 64 MiB 都会再查）
+	// 下面会先把旧的文件夹整个删掉（重装装了一半的运行时就是这样），它占着的那部分算回来
 	var total int64
 	for _, f := range zr.File {
 		if n := int64(f.UncompressedSize64); n > 0 && total <= math.MaxInt64-n {
 			total += n
 		}
 	}
-	lease, err := diskguard.Acquire(context.Background(), destDir, diskguard.Options{AllowUnknown: true, Need: total, Query: extractDiskFree})
+	need := max(total-dirSize(destDir), 0)
+	lease, err := diskguard.Acquire(context.Background(), destDir, diskguard.Options{AllowUnknown: true, Need: need, Query: extractDiskFree})
 	if err != nil {
 		return err
 	}
