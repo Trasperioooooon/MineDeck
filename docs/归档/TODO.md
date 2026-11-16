@@ -1,6 +1,6 @@
 # MineDeck 体验改进 TODO（全量实施清单）
 
-> 依据：`docs/UI与体验改进调研报告.md`（2026-07-12）。用户决策：**全部改动一起做、做到最好、不计时间**。
+> 依据：`docs/调研/UI与体验改进调研报告.md`（2026-07-12）。用户决策：**全部改动一起做、做到最好、不计时间**。
 > 目标版本：v2.1.0。本清单为唯一施工依据，每项完成即勾选；「验收」列不通过不算完成。
 > 横切纪律（每个阶段收尾必做）：`go vet` + 构建通过；UI 改动出**双主题截图并阅图确认**；行为改动做真机 E2E；按阶段提交 commit（延续中文提交信息风格）。
 > 勾选同步（2026-10-27，按当前代码逐项核对阶段 0–8）：[x] = 功能与验收在代码中成立，命名 / 机制与原文不同处写在条目末尾；仍为 [ ] 的条目注明「部分完成 / 未做」与缺口。
@@ -159,7 +159,7 @@
 
 ## 阶段 11 · 收尾与回归
 
-- [x] **11.1 版本号 v2.1.0** + README 功能清单与截图更新 + `docs/API.md` 增补。—— app.go Version=2.1.0；README 刷新功能表（三主题/托盘自启/存储自选/配置全量目录/v2.1 细节）+ 架构块；API.md 增补 pickdir/openpath/bg 端点、全部新 config 键、instances 新字段、opendir sub、tasks warnings、tunnels lastError、loopback/token 认证说明。
+- [x] **11.1 版本号 v2.1.0** + README 功能清单与截图更新 + `docs/设计与参考/API.md` 增补。—— app.go Version=2.1.0；README 刷新功能表（三主题/托盘自启/存储自选/配置全量目录/v2.1 细节）+ 架构块；API.md 增补 pickdir/openpath/bg 端点、全部新 config 键、instances 新字段、opendir sub、tasks warnings、tunnels lastError、loopback/token 认证说明。
 - [x] **11.2 全量真机 E2E 回归**（本轮 + 各阶段累积）：⑥备份滚动删除（keep=2→3 次备份剩 2，本轮实测）；⑦改端口局域网指引（阶段1）；⑧frps 回环（v1.3 实测）；⑩托盘关窗-唤回-退出（用户真机手验）；③自定义目录 + ④多根扫描 + ⑤gamerule 显隐（阶段4/5 实测）。①Paper 一键开服 / ②中文名 Mohist 需真实下载，由用户日常真机使用覆盖（跨阶段已多次实开）。
 - [x] **11.3 双主题全页截图终验**：各阶段已逐页双主题阅图；本轮终验 instances/create/常用设置全量目录/设置/首启引导/托盘设置/备份/控制台补全/warn-card/壁纸，浅深均过，v2.1.0 显示正确。
 - [x] **11.4 code-review 子代理审查**：4 个 general-purpose 子代理并行审 main…HEAD——①路径与权限安全 ②Windows 原生（托盘子类化/NOTIFYICONDATA/注册表）③并发与状态机 ④Web/API+前端 XSS。无 Critical；v2.1 新增（tunnel lastErr/tasks warnings/在线集合/zip-slip/bg 穿越/删除归属）确认正确。
@@ -174,7 +174,7 @@
 
 ## 地图导入的后续（2026-11-13 首版之外）
 
-首版（分支 `feat-world-import`）做的是「完整 Java 世界导入 / 替换 / 换回」，见 `docs/地图导入-设计.md`。下面这些首版有意不做，或者只做了识别和指引：
+首版（分支 `feat-world-import`）做的是「完整 Java 世界导入 / 替换 / 换回」，见 `docs/设计与参考/地图导入-设计.md`。下面这些首版有意不做，或者只做了识别和指引：
 
 - [ ] **同一台服务器同时加载多个世界、在世界之间传送**：属于多世界插件（Multiverse 这类）的事，首版只替换默认世界、不碰别的世界。
 - [ ] **建筑蓝图粘贴**（.schem / .schematic / .litematic）：首版只认出来并说明要用 WorldEdit、Litematica。

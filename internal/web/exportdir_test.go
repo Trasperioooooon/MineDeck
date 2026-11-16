@@ -10,7 +10,7 @@ import (
 )
 
 // 导出交接包的「新建并导出」（可用性走查 R20）：请求体带 mkdir 时先建导出文件夹，只建最后一级；
-// 只许本机（docs/API.md「主机路径仅本机可指定」），局域网会话 403、什么都不建；
+// 只许本机（docs/设计与参考/API.md「主机路径仅本机可指定」），局域网会话 403、什么都不建；
 // 新建了、导出却没成时把这个空文件夹删掉。mkdir 不是操作层的参数，不会让 instance.transfer.export 报「不认识的参数」。
 func TestTransferExportMkdir(t *testing.T) {
 	e := newFullEnv(t)

@@ -22,7 +22,7 @@ const ErrExportDirMissing = "导出文件夹不可用（找不到这个文件夹
 // 建之前先把导出那边会拒绝的情况查掉（服务器在运行、文件夹落在这台服务器的文件夹里），免得建好了又导不出、
 // 留下一个空文件夹。已经在的文件夹原样用（created 为 false），是文件不是文件夹的报错。
 //
-// 只该由本机的请求调用（docs/API.md「主机路径仅本机可指定」）：局域网会话不能决定在主机哪里建文件夹，由网页层把关。
+// 只该由本机的请求调用（docs/设计与参考/API.md「主机路径仅本机可指定」）：局域网会话不能决定在主机哪里建文件夹，由网页层把关。
 // 返回清理过的路径，和这次是不是真的新建了（导出没成时网页层据此把空文件夹删掉）。
 func MakeExportDir(m *inst.Manager, instName, dest string) (dir string, created bool, err error) {
 	dest = strings.TrimSpace(dest)

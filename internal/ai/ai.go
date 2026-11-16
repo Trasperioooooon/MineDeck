@@ -201,7 +201,7 @@ func (e *APIError) Retryable() bool { return (e.Status == 429 && !e.quotaGone())
 // lowerText 原文和错误类型合在一起、转小写，给下面按关键词分类用（错误类型里常有 insufficient_quota、context_length_exceeded）。
 func (e *APIError) lowerText() string { return strings.ToLower(e.Message + " " + e.Type) }
 
-// 关键词表按各家的真实报错原文定（出处见 docs/评审-PR19-助手渲染与兼容服务商.md 第四节第 7 条）。改这几张表时同步改 compat_test.go。
+// 关键词表按各家的真实报错原文定（出处见 docs/测试与评审/评审-PR19-助手渲染与兼容服务商.md 第四节第 7 条）。改这几张表时同步改 compat_test.go。
 var (
 	// 额度或余额用完：OpenAI 的 insufficient_quota、「Credit balance exhausted」，Kimi 的 exceeded_current_quota_error，
 	// 智谱 1113「您的账户已欠费」，DeepSeek 402「Insufficient Balance」（402 另有 statusHint）

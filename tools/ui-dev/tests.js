@@ -4905,7 +4905,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   });
 
   // ==================== beta.3 内网穿透与设置（R12 R17 R18 R19 R20） ====================
-  // docs/可用性走查-2026-11-14.md 第八节 R12、R15（设置部分）、R16（设置部分）、R17–R20 和 U29；外加第一层留下的弹窗叠层（内网穿透页、assistant.js、mcp.js）。
+  // docs/测试与评审/可用性走查-2026-11-14.md 第八节 R12、R15（设置部分）、R16（设置部分）、R17–R20 和 U29；外加第一层留下的弹窗叠层（内网穿透页、assistant.js、mcp.js）。
   // 用例名都以「beta.3 穿透与设置」开头，node tests.js "beta.3 穿透与设置" 只跑这一块。
   // 仿真后端用到的：/__mock/state 的 tunnel（noLog、localPort……）、tunnelsLoadFail、pickDir、config（serversDir、backupsDir），见 server.js 的说明
   {
@@ -6114,7 +6114,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await c.close(); await wReset(); }
   });
   // ==================== beta.3 新建流程与任务页（R09 R13 R14 R22） ====================
-  // docs/可用性走查-2026-11-14.md 第八节 R09（后端和接口那一半）、R13、R14、R22。用例名都以「beta.3 流程」开头，node tests.js "beta.3 流程" 只跑这一块。
+  // docs/测试与评审/可用性走查-2026-11-14.md 第八节 R09（后端和接口那一半）、R13、R14、R22。用例名都以「beta.3 流程」开头，node tests.js "beta.3 流程" 只跑这一块。
   // 仿真后端用到的：taskList 里带 canCancel 的任务能取消（先 cancelling，再查两次按「已取消」结束），instPending（按服务器的没装上的文件），见 server.js「/__mock/state」说明
   {
     const fState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
@@ -6465,7 +6465,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     });
   }
   // ==================== beta.3 端口与没装上的文件（R08 R09） ====================
-  // docs/可用性走查-2026-11-14.md 第八节 R08、R09（界面），外加换地图的取消显示「已取消」。用例名都以「beta.3 端口」开头，node tests.js "beta.3 端口" 只跑这一块。
+  // docs/测试与评审/可用性走查-2026-11-14.md 第八节 R08、R09（界面），外加换地图的取消显示「已取消」。用例名都以「beta.3 端口」开头，node tests.js "beta.3 端口" 只跑这一块。
   // 仿真后端用到的：GET /api/ports/suggest、启动时端口和另一台没停着的服务器撞了、改 server-port 时 port 跟着变、restart（模拟程序重开），
   // 见 server.js「/__mock/state」说明里 beta.3 R08 那几行。仿真里四台服务器占着 25565、25566、25567 和代理端的 25577，默认端口应是 25568
   {
@@ -6748,7 +6748,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   }
   // ==================== 地图导入结束 ====================
   // ==================== beta.3 P0（R01–R05） ====================
-  // docs/可用性走查-2026-11-14.md 第八节 R01–R05，外加 U28、U30。用例名都以「beta.3 P0」开头，node tests.js "beta.3 P0" 只跑这一块。
+  // docs/测试与评审/可用性走查-2026-11-14.md 第八节 R01–R05，外加 U28、U30。用例名都以「beta.3 P0」开头，node tests.js "beta.3 P0" 只跑这一块。
   // 仿真后端用到的字段见 server.js「/__mock/state」说明里 beta.3 P0 那几行（startFail、whitelistOn、mdFiles、connectPort……）
   {
     const pState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
@@ -7173,7 +7173,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   // ==================== beta.3 P0 结束 ====================
 
   // ==================== beta.3 详情页（R06 R07 R10 R11 R15 R16 R21） ====================
-  // docs/可用性走查-2026-11-14.md 第八节 R06、R07、R10、R11、R21，R15、R16 里属于详情页的部分；标签和子页的编号见 docs/文案重写/04-标签与术语-beta3.md 第一节。
+  // docs/测试与评审/可用性走查-2026-11-14.md 第八节 R06、R07、R10、R11、R21，R15、R16 里属于详情页的部分；标签和子页的编号见 docs/文案重写/04-标签与术语-beta3.md 第一节。
   // 用例名都以「beta.3 详情」开头，node tests.js "beta.3 详情" 只跑这一块。仿真后端用到的字段见 server.js「/__mock/state」说明里「beta.3 详情页」那几行
   {
     const dState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);

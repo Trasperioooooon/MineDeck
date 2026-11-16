@@ -274,7 +274,7 @@ AI 发起写操作时的确认流程：
 - 阶段 1 只改后端（已定）。旧界面不改也不会误清 Key：输入框会显示为空，但没输入新内容时"保存"按钮是灰的（核实：读 `app.js` 的 `bindSaveInput`）。导入整合包页面有一条"需要 API Key"的提示，现在看的是 `cfApiKey`（核实：读 `app.js`），不改的话设置了 Key 也会一直提示，所以阶段 1 只把这一行改成看 `cfKeySet`。
 - 输入框本身的改法（已设置时留空、提示"已设置（留空不修改）"、加一个"清除"按钮）和界面重做一起做（已定）。
 - 新功能都用新路径：`/api/ai/*`、`/api/ops/*`、`/api/music/*`、`/api/instances/{name}/gameai`、`/api/instances/{name}/logs`、`/api/instances/{name}/crash-reports`、`/api/instances/{name}/mods`。
-- `docs/API.md` 同步补充。
+- `docs/设计与参考/API.md` 同步补充。
 
 ---
 

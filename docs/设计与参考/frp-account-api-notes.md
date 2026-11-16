@@ -1,6 +1,6 @@
 # OpenFrp / SakuraFrp 账户接入笔记
 
-这份笔记记的是 MineDeck「平台账户」功能用到的两家接口、对方的使用要求，以及我们有意不做的事。实现见 [`internal/tunnel/accounts.go`](../internal/tunnel/accounts.go)，本地接口见 [API.md](API.md) 的「穿透平台账户」一节。
+这份笔记记的是 MineDeck「平台账户」功能用到的两家接口、对方的使用要求，以及我们有意不做的事。实现见 [`internal/tunnel/accounts.go`](../../internal/tunnel/accounts.go)，本地接口见 [API.md](API.md) 的「穿透平台账户」一节。
 
 只依据两家公开的官方文档：
 

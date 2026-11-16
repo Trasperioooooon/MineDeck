@@ -105,7 +105,7 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 | POST | `/api/tunnel-accounts/{provider}/tunnels` | 在平台创建隧道并导入本机：`{ name, nodeId, type, localPort, remotePort?, boundInstance?, autoStart?, purpose?, publicServer? }`。OpenFrp 的 `name` 只能是英文字母、数字、下划线和连字符（最长 30），`remotePort` 必填；樱花 `publicServer:true` 时只能用公开服专用节点，不填公网端口时由平台分配。`localPort` 不能是 MineDeck 自己的网页端口。途中账户被断开或换了，不写进本机，报错里会说平台上可能已经建好 |
 | POST | `/api/tunnel-accounts/{provider}/import` | 导入已有平台隧道：`{ proxyId, boundInstance?, autoStart?, purpose? }`，`proxyId` 只收纯数字，按平台的编号存；平台隧道的本地端口是 MineDeck 自己的网页端口时拒绝导入 |
 
-接口来源、对方的使用要求和还没用真实账号核实的事项见 [`docs/frp-account-api-notes.md`](frp-account-api-notes.md)。
+接口来源、对方的使用要求和还没用真实账号核实的事项见 [`docs/设计与参考/frp-account-api-notes.md`](frp-account-api-notes.md)。
 
 凭据 `credential` 只写不读：用 Windows DPAPI 加密后存进 `tunnels.json`（`"dpapi:…"`），任何响应都不下发；`PUT` 时留空表示不修改。旧版的明文凭据在启动时自动加密写回。自定义 frps 的 token 不再写进 frpc 的配置文件，而是经环境变量交给 frpc 进程（配置里只有 `{{ .Envs.… }}` 模板）。OpenFrp 和樱花的 frpc 仍然只能从命令行参数接收凭据。
 
@@ -333,7 +333,7 @@ AI 助手用的读写能力，网页也能直接调。人调用时，写操作�
 
 ### 地图导入（已有的 Java 版世界）
 
-把一份已有的 Java 版世界用于新建服务器，或者替换一台服务器正在用的默认世界（level-name 指的那个，旧 Bukkit 布局连同 `_nether`、`_the_end`）。设计见 `docs/地图导入-设计.md`。逻辑在 `internal/worldimport`，操作都在操作层 `world.*`：检测本机路径仅人工且仅本机；检测上传、读说明书、预览、导入、取消、换回、删除恢复点、重试恢复都仅人工（AI 和 MCP 调不了）；只有 `world.status` 是读操作。检测结果和计划由后端保管，只认发起检测的那个调用方（本机界面、局域网某台设备），检测结果 2 小时、计划 30 分钟过期，计划用一次就作废。
+把一份已有的 Java 版世界用于新建服务器，或者替换一台服务器正在用的默认世界（level-name 指的那个，旧 Bukkit 布局连同 `_nether`、`_the_end`）。设计见 `docs/设计与参考/地图导入-设计.md`。逻辑在 `internal/worldimport`，操作都在操作层 `world.*`：检测本机路径仅人工且仅本机；检测上传、读说明书、预览、导入、取消、换回、删除恢复点、重试恢复都仅人工（AI 和 MCP 调不了）；只有 `world.status` 是读操作。检测结果和计划由后端保管，只认发起检测的那个调用方（本机界面、局域网某台设备），检测结果 2 小时、计划 30 分钟过期，计划用一次就作废。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -363,7 +363,7 @@ AI 助手用的读写能力，网页也能直接调。人调用时，写操作�
 
 ### MCP 接口（外部 AI 工具）
 
-让同一台电脑上的其他 AI 工具（Claude Desktop、Cherry Studio、Cursor、VS Code 等）经 MCP 调用操作层，默认关闭。设计见 `docs/AI与音乐共享功能设计.md` §15。
+让同一台电脑上的其他 AI 工具（Claude Desktop、Cherry Studio、Cursor、VS Code 等）经 MCP 调用操作层，默认关闭。设计见 `docs/设计与参考/AI与音乐共享功能设计.md` §15。
 
 **设置接口**（都是仅人工的操作；修改类的**仅本机**，局域网会话只能看，拿不到令牌）：
 

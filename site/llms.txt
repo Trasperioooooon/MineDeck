@@ -26,7 +26,7 @@
 - [v2.9.0-beta.1 发布说明](https://raw.githubusercontent.com/Trasperioooooon/MineDeck/main/docs/releases/v2.9.0-beta.1.md): 新功能、下载哪个文件、从 v2.6.1（AutoMCHUB）升级、已知情况
 - [好友测试指南](https://raw.githubusercontent.com/Trasperioooooon/MineDeck/main/docs/%E5%A5%BD%E5%8F%8B%E6%B5%8B%E8%AF%95%E6%8C%87%E5%8D%97.md): 给帮忙测试的好友看的说明
 - [测试计划](https://raw.githubusercontent.com/Trasperioooooon/MineDeck/main/docs/%E6%B5%8B%E8%AF%95%E8%AE%A1%E5%88%92.md): 完整测试清单和反馈格式
-- [API](https://raw.githubusercontent.com/Trasperioooooon/MineDeck/main/docs/API.md): 本地 REST API 与 Webhook 事件
+- [API](https://raw.githubusercontent.com/Trasperioooooon/MineDeck/main/docs/%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%8F%82%E8%80%83/API.md): 本地 REST API 与 Webhook 事件
 
 ## Download
 

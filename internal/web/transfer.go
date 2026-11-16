@@ -29,7 +29,7 @@ func (s *Server) transferRoutes(mux *http.ServeMux) {
 
 // handleTransferExport 导出交接包。请求体比操作层的参数多一个 mkdir（「新建并导出」，可用性走查 R20）：
 // 导出文件夹不在时先替用户建出来，只建最后一级、上一级必须已经在（transfer.MakeExportDir）。
-// 主机路径只许本机指定（docs/API.md「主机路径仅本机可指定」）：局域网会话带 mkdir 一律 403，什么都不建。
+// 主机路径只许本机指定（docs/设计与参考/API.md「主机路径仅本机可指定」）：局域网会话带 mkdir 一律 403，什么都不建。
 // mkdir 不是 instance.transfer.export 的参数，取出来以后照常交给操作层（权限、操作记录都不变）；
 // 文件夹是这次新建的、导出却没成（比如这期间有人点了启动）时，把这个空文件夹删掉，不留下一个没用的文件夹。
 func (s *Server) handleTransferExport(w http.ResponseWriter, r *http.Request) {

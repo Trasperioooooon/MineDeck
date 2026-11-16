@@ -1,6 +1,6 @@
 package inst
 
-// beta.3 第二层，服务器详情页（docs/可用性走查-2026-11-14.md 第八节 R10、R11、R21）。
+// beta.3 第二层，服务器详情页（docs/测试与评审/可用性走查-2026-11-14.md 第八节 R10、R11、R21）。
 
 import (
 	"encoding/json"

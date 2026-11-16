@@ -227,7 +227,7 @@ Research conducted for MineDeck's world-import feature (`internal/worldimport`),
 ## Q11. DataVersion Table & `version.json` in Server JARs
 
 - **Answer**:
-  - Full release table for all **52** Java Edition release versions from `1.12.2` (DataVersion `1343`) to newest release `26.3` (DataVersion `5023`) is stored in [dataversions.json](file:///E:/Archive_files/MineDeck/.claude/worktrees/wi-research/docs/research/dataversions.json).
+  - Full release table for all **52** Java Edition release versions from `1.12.2` (DataVersion `1343`) to newest release `26.3` (DataVersion `5023`) is stored in [dataversions.json](dataversions.json).
   - **8 spot-checked official Mojang server JARs** (`version.json` at outer JAR root verified directly):
     - `1.14.4`: `world_version = 1976`, `protocol_version = 498`, `pack_version = 4` (int), `stable = true`, `release_target = "1.14.4"` *(non-bundler; no `series_id`/`java_version`)*
     - `1.18.2`: `world_version = 2975`, `series_id = "main"`, `protocol_version = 758`, `pack_version = {"resource":8,"data":9}`, `java_version = 17`, `stable = true`, `release_target = "1.18.2"` *(bundler JAR)*

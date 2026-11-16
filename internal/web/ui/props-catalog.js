@@ -1,5 +1,5 @@
 // props-catalog.js — server.properties 全量中文目录（数据驱动）
-// 来源：docs/UI与体验改进调研报告.md「附录 B · server.properties 全量中文目录」
+// 来源：docs/调研/UI与体验改进调研报告.md「附录 B · server.properties 全量中文目录」
 //       （整理自 zh.minecraft.wiki / minecraft.wiki 的 Server.properties 页及官方快照日志）
 // 适用范围：Java 版 1.12.2 ～ 26.2（含 26.3 快照已公布的变更）。
 // 约定：

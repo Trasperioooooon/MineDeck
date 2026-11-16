@@ -349,7 +349,7 @@ add("detail", "d-players-wl", "玩家：白名单的总开关就在名单上面"
   note: "开关拨了就生效：停着时只改 server.properties，开着时再发 whitelist on / off。不用再去「常用设置」里找。",
 });
 add("detail", "d-dirmenu", "「打开文件夹」菜单（最后一项是备份）", { hash: `#/inst/${enc("生存服 · 朋友")}/console`, steps: [{ click: "#d-dir" }] });
-// ---- beta.3 详情页：七个标签、页头的重启和「···」、插件 / 模组、还原、Java 失效（docs/可用性走查-2026-11-14.md R06 R07 R10 R11 R15 R16 R21）----
+// ---- beta.3 详情页：七个标签、页头的重启和「···」、插件 / 模组、还原、Java 失效（docs/测试与评审/可用性走查-2026-11-14.md R06 R07 R10 R11 R15 R16 R21）----
 add("detail", "d-b3-more", "页头「···」：导出交接包、删除服务器（停着的）", {
   tag: "new", hash: `#/inst/${enc("机械动力整合包")}/console`, steps: [{ click: "#d-more" }],
   note: "原来只在列表卡片的「···」里，详情页找不到。卡片上的保留，两边点的是同一个。运行中两项都灰着，写「需先停止服务器」。",

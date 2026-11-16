@@ -280,7 +280,7 @@ func TestReasoningRejected(t *testing.T) {
 	}
 }
 
-// 关键词表按各家真实报错原文（docs/评审-PR19-助手渲染与兼容服务商.md）。
+// 关键词表按各家真实报错原文（docs/测试与评审/评审-PR19-助手渲染与兼容服务商.md）。
 func TestHintClassification(t *testing.T) {
 	for _, c := range []struct {
 		status         int

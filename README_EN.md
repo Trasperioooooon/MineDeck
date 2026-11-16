@@ -55,7 +55,7 @@ This is an overview. Defaults, limits and edge cases for every item are in [docs
 - **Tunnels (内网穿透)**: a tunnel gives players outside your network a public address to connect to. MineDeck works with OpenFrp, SakuraFrp (樱花穿透) and your own frps. A tunnel can be bound to a server and start together with it, and the public address can be copied from the page. The client for OpenFrp and for your own frps is downloaded automatically; for SakuraFrp you download it once yourself, following the prompt.
 - **Provider accounts (平台账户)**: you can connect an OpenFrp account (you authorize in your browser; MineDeck never asks for your password) or a SakuraFrp account (paste your access key), see your traffic and the tunnels on the provider, and create a tunnel there or import an existing one. Check-in and purchases only open the provider's own website; MineDeck does not check in or place orders for you. The OpenFrp part uses the [OpenFrp OPENAPI](https://github.com/ZGIT-Network/OPENFRP-APIDOC). This is a community project: OpenFrp only provides support for node issues (此项目由社区开发，OpenFrp 官方不负责除节点问题以外的技术支持). For problems with MineDeck itself, please open an [issue](https://github.com/Trasperioooooon/MineDeck/issues) here.
 - **Phone remote management**: in Settings, turn on phone remote management (手机远程管理), set an access password and restart MineDeck. After that, phones and other PCs on the same LAN can open the management page.
-- **API and webhook**: there is a local HTTP API. Events such as server start, stop and crash, and players joining and leaving, can be pushed to a URL you provide. See [docs/API.md](docs/API.md) (in Chinese).
+- **API and webhook**: there is a local HTTP API. Events such as server start, stop and crash, and players joining and leaving, can be pushed to a URL you provide. See [docs/设计与参考/API.md](docs/设计与参考/API.md) (in Chinese).
 
 ### When something goes wrong
 
@@ -75,7 +75,7 @@ Sends the sound of a music player on the host's PC to everyone on the server thr
 
 ### Handover packs, the to-install list and adopting servers
 
-- **Handover packs**: pack a stopped server into one `.mdpack` file and hand it to MineDeck on another PC to keep running it. The pack holds the worlds, configs, mods, plugins and player lists. Config files go in as they are, so any passwords written in them are handed over too; change the ones you also use elsewhere first. If you receive a pack: the mods and plugins in it will run on your PC, so only import packs from people you trust. A guide for the receiver is in [docs/接收者上手指南.md](docs/接收者上手指南.md) (in Chinese).
+- **Handover packs**: pack a stopped server into one `.mdpack` file and hand it to MineDeck on another PC to keep running it. The pack holds the worlds, configs, mods, plugins and player lists. Config files go in as they are, so any passwords written in them are handed over too; change the ones you also use elsewhere first. If you receive a pack: the mods and plugins in it will run on your PC, so only import packs from people you trust. A guide for the receiver is in [docs/使用指南/接收者上手指南.md](docs/使用指南/接收者上手指南.md) (in Chinese).
 - **To-install list** (待装清单): the most popular mods or plugins for your server type and version are listed up front. Filter by category or search, add what you want to the list, have the dependencies filled in automatically, and install everything in one go. A jar you downloaded yourself can be added from your PC as well, and MineDeck checks which dependencies it still needs. The new-server wizard also has an optional step for picking mods (选模组; on plugin servers it is 选插件). Files that come from Modrinth are verified after download.
 - **Adopting an existing server**: point MineDeck at the folder of a server you already run and it is brought in to be managed with the rest. The server type, version, launch file and memory setting are detected. The files stay where they are, and the old launch script is backed up first. When you delete a server and leave "also delete the server folder" (同时删除服务器文件夹) unticked, it only leaves the list, and it can be adopted again later.
 
@@ -190,7 +190,7 @@ cd ..\MineDeck-dev
 
 The interface font subsets and the exe's icon resource are already in the repository, so the build needs no Python or other tools. If you change interface text, check the font subsets; see [tools/fonts/README.md](tools/fonts/README.md) (in Chinese). If you replace `assets/icon.ico`, regenerate the icon resource; the command is in [design-system/MASTER.md](design-system/MASTER.md) (in Chinese).
 
-The local HTTP API is described in [docs/API.md](docs/API.md), and the release notes are under [docs/releases/](docs/releases/). Notes on versions and download sources are in [docs/MC自动化开服技术实现方案与版本映射表.md](docs/MC自动化开服技术实现方案与版本映射表.md). All three are in Chinese.
+The local HTTP API is described in [docs/设计与参考/API.md](docs/设计与参考/API.md), and the release notes are under [docs/releases/](docs/releases/). Notes on versions and download sources are in [docs/设计与参考/MC自动化开服技术实现方案与版本映射表.md](docs/设计与参考/MC自动化开服技术实现方案与版本映射表.md). All three are in Chinese.
 
 ## License
 
