@@ -130,7 +130,6 @@ function toast(msg, isErr = false, detail, opts = {}) {
   d.appendChild(t);
   d.title = isErr ? "点击查看详情" : "点击关闭";
   box.appendChild(d);
-  placeToasts();
   let gone = false;
   const kill = () => {
     if (gone) return;
@@ -150,18 +149,21 @@ function toast(msg, isErr = false, detail, opts = {}) {
   const run = () => { if (gone || holds) return; since = Date.now(); timer = setTimeout(kill, left); };
   const hold = () => { holds++; if (timer) { clearTimeout(timer); timer = 0; left = Math.max(0, left - (Date.now() - since)); } };
   const release = () => { holds = Math.max(0, holds - 1); if (!holds && !gone) { left = Math.max(left, 4000); run(); } };
+  // a.close：点了以后收掉这条提示（「去换 Java」这类修复按钮：人已经被带去改了，提示留着只会挡路）
+  const act = a => { a.onClick(); if (a.close) kill(); };
   for (const a of actions) {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "btn sm ghost";
     b.textContent = a.label;
     if (a.aria) b.setAttribute("aria-label", a.aria);
-    b.onclick = ev => { ev.stopPropagation(); a.onClick(); };
+    b.onclick = ev => { ev.stopPropagation(); act(a); };
     d.appendChild(b);
   }
   if (isErr) {
     const full = detail === undefined ? msg : detail;
-    const showDetail = () => { hold(); showErrDetail(full).then(release); };
+    // 报错提示上的按钮（修复的去处）在「详情」里也给一份（回访走查 11-16：详情里只有「复制报错信息」，看完还得回来找按钮）
+    const showDetail = () => { hold(); showErrDetail(full, actions.map(a => ({ ...a, onClick: () => act(a) }))).then(release); };
     const b = document.createElement("button");
     b.type = "button";
     b.className = "btn sm ghost";
@@ -184,12 +186,16 @@ function toast(msg, isErr = false, detail, opts = {}) {
     d.addEventListener("mouseenter", hold);
     d.addEventListener("mouseleave", release);
   }
+  placeToasts(); // 按钮都加进去、高度定了再量（Codex 复审 beta.3 之后第二轮：以前先量，加了按钮换行变高，下半截可能出屏幕）
   run();
   d.dismiss = kill; // 调用方可以提前收掉它（交接包导出：重试成功以后，上一次的报错不再挂着）
   return d; // 调用方可以换掉点击的行为（如 mcp.js：点一下打开 AI 助手）
 }
-/* 提示的位置：服务器详情页的页头（启动、停止、打开文件夹）在可视区里时，提示落到页头下面，不盖住这几个按钮；
-   页头滚出去了、或者不在详情页，回到标题栏下方。出提示、滚动、改窗口大小时重算 */
+/* 提示的位置：服务器详情页的页头（启动、停止、打开文件夹）和它下面的常驻提示区（上次没能启动、Java 找不到了……带着「改端口」
+   「去换 Java」这些修复按钮）在可视区里时，提示落到它们下面，不盖住这些按钮（回访走查 11-16：以前只躲页头，提示区里的按钮正好被盖住）；
+   都滚出去了、或者不在详情页，回到标题栏下方。看得见比不挡按钮要紧：提示区很高（矮窗口、几条提示叠着）、放到下面会出屏幕时，
+   退回页头下面；还放不下就回到标题栏下方（Codex 复审 beta.3 之后第一轮：不然整条报错在屏幕外照样倒数、自己走掉）。
+   出提示、提示区变了、滚动、改窗口大小时重算 */
 function placeToasts() {
   const box = $("#toasts");
   if (!box || !box.childElementCount) { if (box) box.style.top = ""; return; } // 没有提示就不量（控制台滚动时也会进来）
@@ -198,7 +204,13 @@ function placeToasts() {
   if (head) {
     box.style.top = "";
     const r = head.getBoundingClientRect(), base = parseFloat(getComputedStyle(box).top) || 0;
-    if (r.bottom > base && r.top < innerHeight) top = Math.round(r.bottom + 8) + "px";
+    const h = box.offsetHeight, fits = y => y + h <= innerHeight - 8;
+    const notes = document.getElementById("d-notices");
+    const nb = notes && !notes.hidden ? Math.max(r.bottom, notes.getBoundingClientRect().bottom) : r.bottom;
+    if (r.top < innerHeight) {
+      if (nb > base && fits(nb + 8)) top = Math.round(nb + 8) + "px";
+      else if (r.bottom > base && fits(r.bottom + 8)) top = Math.round(r.bottom + 8) + "px";
+    }
   }
   box.style.top = top;
 }
@@ -228,15 +240,17 @@ const hasFields = mask => !!mask.querySelector(".modal input, .modal select, .mo
 const layerId = base => document.getElementById(base) ? `${base}-${++modalSeq}` : base;
 
 /* 错误详情的只读对话框：原文可选中，一键复制（做法见 docs/文案重写/00-报错信息.md）。叠在已有的弹窗上面，关掉回到那个弹窗。
+   actions：修复的去处（同 toast 的 opts.actions，[{ label, aria, onClick }]），排在「复制报错信息」前面；点了先关掉对话框再去。
+   去处由发起请求的地方给（它知道这次是什么没做成），这里不去猜报错原文。
    返回关闭时兑现的 Promise（提示在详情开着时不走，靠它接着计时） */
-function showErrDetail(text) {
+function showErrDetail(text, actions = []) {
   return new Promise(resolve => {
     const prev = document.activeElement;
     const tid = layerId("errd-title");
     const mask = modalLayer(`<div class="modal" role="dialog" aria-modal="true" aria-labelledby="${tid}">
     <h3 id="${tid}">报错信息</h3>
     <div class="m-body"><div class="err-detail" tabindex="0">${esc(String(text || ""))}</div></div>
-    <div class="m-actions"><button class="btn" data-x="copy">复制报错信息</button><button class="btn primary" data-x="close">关闭</button></div>
+    <div class="m-actions">${actions.map((a, k) => `<button class="btn" data-fix="${k}"${a.aria ? ` aria-label="${esc(a.aria)}"` : ""}>${esc(a.label)}</button>`).join("")}<button class="btn" data-x="copy">复制报错信息</button><button class="btn primary" data-x="close">关闭</button></div>
   </div>`);
     let closed = false;
     const close = () => {
@@ -251,6 +265,7 @@ function showErrDetail(text) {
     document.addEventListener("keydown", onKey);
     mask.querySelector('[data-x="close"]').onclick = close;
     mask.querySelector('[data-x="copy"]').onclick = () => copy(String(text || ""), "已复制报错信息");
+    mask.querySelectorAll("[data-fix]").forEach(b => b.onclick = () => { const a = actions[+b.dataset.fix]; close(); a.onClick(); });
     mask.addEventListener("mousedown", e => { if (e.target === e.currentTarget) close(); });
     mask.querySelector('[data-x="close"]').focus();
   });
@@ -345,10 +360,11 @@ function errSummary(what, e) {
 }
 /* 原文放进复制键的 data-err-raw：转义以后原样保留；回车符写成字符引用，不然 HTML 解析时 \r\n 会被并成 \n */
 const errRawAttr = raw => esc(raw).replace(/\r/g, "&#13;");
-/* 报错提示：正文按 errSummary 拼，「详情」里是完整原文。返回提示的元素（同 toast） */
-function toastErr(what, e) {
+/* 报错提示：正文按 errSummary 拼，「详情」里是完整原文。opts 同 toast（actions：修复的去处，提示上和「详情」里各一份）。
+   返回提示的元素（同 toast） */
+function toastErr(what, e, opts) {
   const { text, raw } = errSummary(what, e);
-  return toast(text, true, raw);
+  return toast(text, true, raw, opts);
 }
 /* 页面报错框（.err-box）：一句结论（拼法同 toastErr），下面「复制报错信息」，复制完整原文。返回 HTML，复制键的点击由下面的委托统一接。
    hint：下一步怎么办，纯文本，单独一行（「可在「设置 → 下载与网络」换一个下载源后重试。」）；
@@ -1248,7 +1264,8 @@ function folderItems(info) {
 /* 打开这台服务器的备份文件夹（R15）：还没备份过时文件夹还不存在，不报错，说一句什么时候会有 */
 function openBackupDir(info) {
   return api("/api/openpath", { method: "POST", body: { path: info.backupDir } }).catch(e => {
-    if (/不存在/.test(String(e && e.message))) toast(`「${info.name}」还没有备份过。第一次备份以后，备份会放在 ${info.backupDir}`);
+    // 「在这里」：改过备份存放文件夹的话，以前的备份在原来的文件夹里，不能说它从没备份过
+    if (/不存在/.test(String(e && e.message))) toast(`「${info.name}」在这个文件夹里还没有备份过。第一次备份以后，备份会放在 ${info.backupDir}`);
     else toastErr("无法打开备份文件夹", e);
   });
 }
@@ -1469,7 +1486,7 @@ async function renderInstances() {
           if (!(await confirmKick(info, "停止"))) return; // 有玩家在线先问一声（R07，同详情页头）
           b.disabled = true; await api(`/api/instances/${encodeURIComponent(name)}/stop`, { method: "POST" }); toast(`「${name}」正在停止并保存世界`);
         }
-      } catch (e) { toastErr(act === "start" ? "无法启动服务器" : "无法停止服务器", e); }
+      } catch (e) { if (act === "start") toastErr("无法启动服务器", e, { actions: await startFixes(name) }); else toastErr("无法停止服务器", e); }
       lastSig = ""; draw();
     });
     // 整卡可点：点卡片空白处进入详情（卡内按钮 / 链接各自处理）
@@ -1617,28 +1634,54 @@ async function renderCreate(mode) {
 const suggestPort = () => api("/api/ports/suggest").catch(() => null);
 /* input：端口框；note：它下面放提示的元素；sug：/api/ports/suggest 的结果（可以是 null）。
    base：原来的端口（新建、导入是 25565，接管是文件夹里写的）；keep：「返回修改」填回来的，不换。
+   avoidOther：默认端口被别的程序占着时也换（新建、导入整合包、用已有地图开服；beta.3 之后，回访走查 11-16：以前开服才报）。
+   接管传 false：原来那台没停的服务器自己就是「别的程序」，换了端口接管时会改它的 server.properties，所以只提示。
+   otherTip：端口被别的程序占着时另接的一句（接管：可能是原来的服务器还开着）。
    extra(v)：另外接在提示后面的一句（接管：端口和原来不一样时会改 server.properties）。返回 { def }：默认填的端口 */
-function wirePortField(input, note, sug, { base = 25565, keep = false, extra = null } = {}) {
+function wirePortField(input, note, sug, { base = 25565, keep = false, extra = null, avoidOther = true, otherTip = "" } = {}) {
   const used = sug && Array.isArray(sug.used) ? sug.used : [];
   const owner = p => used.find(u => u.port === p);
-  let auto = null; // 默认值换过：{ from, to, by }
+  let auto = null; // 默认值换过：{ from, to, by（本软件的哪台）或 proc（别的程序，可能是空串）}
   const o = owner(base);
-  if (!keep && o && sug.port && sug.port !== base) {
-    auto = { from: base, to: sug.port, by: o.instance };
-    input.value = sug.port;
-  }
+  if (!keep && o && sug.port && sug.port !== base) auto = { from: base, to: sug.port, by: o.instance };
+  else if (!keep && avoidOther && sug && sug.fromBusy && sug.from === base && sug.port && sug.port !== base) auto = { from: base, to: sug.port, proc: sug.fromProcess || "" };
+  if (auto) input.value = auto.to;
+  // 手填的端口有没有被别的程序占着：问后端（port.suggest 带 from，它读系统的监听表，回 fromBusy、fromProcess），
+  // 停手 300 毫秒再问，回来的不是现在框里的就不要。不用 port.check：端口空着时它会在所有网卡上试绑一次，
+  // 打开表单就可能让防火墙弹窗问要不要放行（Codex 复审 beta.3 之后第一轮）。
+  // 换好的默认值、后端刚查过是空着的默认值，不用再问。查不成不提示，也不拦着提交（同本软件服务器撞端口：只提示）
+  let other = { v: 0, text: "" }, seq = 0, timer = 0;
+  const check = (v, init = false) => {
+    clearTimeout(timer);
+    if (!(Number.isInteger(v) && v >= 1 && v <= 65535) || owner(v) || (auto && v === auto.to)) return;
+    // 只在打开表单那一次免查：之后手填回这个端口照样问，中间可能有别的程序占上了（Codex 复审 beta.3 之后第二轮）
+    if (init && sug && v === sug.from && !sug.fromBusy && !sug.usedBy) return;
+    const my = ++seq;
+    timer = setTimeout(async () => {
+      if (!input.isConnected) return;
+      let r;
+      try { r = await api(`/api/ports/suggest?from=${v}`); } catch { return; }
+      if (my !== seq || !input.isConnected) return;
+      other = { v, text: r && r.fromBusy
+        ? `端口 ${v} 现在被别的程序${r.fromProcess ? `（${r.fromProcess}）` : ""}占着，开服时会报错。换一个，或者先关掉那个程序。${otherTip}` : "" };
+      paint();
+    }, 300);
+  };
   const paint = () => {
     const v = Number(input.value), hit = Number.isInteger(v) ? owner(v) : null;
-    let text = "";
+    let text = "", warn = !!hit;
     if (hit) text = `端口 ${v} 已被你的服务器「${hit.instance}」使用${hit.status && hit.status !== "stopped" ? "（它现在开着）" : ""}，两台不能同时开。` +
       (sug && sug.port && sug.port !== v ? `换一个吧，比如 ${sug.port}。` : "");
-    else if (auto && v === auto.to) text = `${auto.from} 已被「${auto.by}」使用，已改为 ${auto.to}。`;
+    else if (auto && v === auto.to) text = auto.by ? `${auto.from} 已被「${auto.by}」使用，已改为 ${auto.to}。`
+      : `${auto.from} 被别的程序${auto.proc ? `（${auto.proc}）` : ""}占着，已改为 ${auto.to}。`;
+    else if (other.v === v && other.text) { text = other.text; warn = true; }
     const more = extra ? extra(v) : "";
-    note.classList.toggle("warn", !!hit);
-    note.innerHTML = text || more ? `${icon(hit ? "warn" : "info")}<span>${esc(text + more)}</span>` : "";
+    note.classList.toggle("warn", warn);
+    note.innerHTML = text || more ? `${icon(warn ? "warn" : "info")}<span>${esc(text + more)}</span>` : "";
   };
-  input.addEventListener("input", paint);
+  input.addEventListener("input", () => { paint(); check(Number(input.value)); });
   paint();
+  check(Number(input.value), true);
   return { def: auto ? auto.to : base };
 }
 
@@ -1760,7 +1803,9 @@ async function drawAdopt() {
     }
     // 端口（R08）：识别出来的和 MineDeck 里别的服务器撞了就换一个没人用的，说清会改 server.properties；没撞就沿用，什么都不改
     const was = s.port || 25565;
+    // 被别的程序占着时只提示、不换：多半是原来那台服务器还开着，换了端口接管时会改它的 server.properties
     wirePortField($("#ad-port"), $("#ad-port-note"), sug, { base: was, keep: !!(fill && fill.dir === s.dir && fill.port),
+      avoidOther: false, otherTip: "如果是原来的服务器还开着，接管前先把它停掉。",
       extra: v => Number.isInteger(v) && v >= 1 && v <= 65535 && v !== was ? `接管时会把 server.properties 里的端口从 ${was} 改成 ${v}（别的设置不动），朋友要用新端口连。` : "" });
     fill = null;
     paintKind();
@@ -3082,7 +3127,7 @@ function detailNotice(key, html, { id = "", kind = "warn" } = {}) {
   const box = $("#d-notices");
   if (!box) return null;
   let el = box.querySelector(`[data-notice="${key}"]`);
-  if (!html) { if (el) el.remove(); box.hidden = !box.childElementCount; return null; }
+  if (!html) { if (el) { el.remove(); box.hidden = !box.childElementCount; placeToasts(); } return null; }
   if (!el) {
     el = document.createElement("div");
     el.dataset.notice = key;
@@ -3090,9 +3135,26 @@ function detailNotice(key, html, { id = "", kind = "warn" } = {}) {
     box.appendChild(el);
   }
   el.className = "d-notice " + kind;
-  if (el._html !== html) { el._html = html; el.innerHTML = html; }
-  box.hidden = false;
+  const wasHidden = box.hidden;
+  box.hidden = false; // 先露出来再量：藏着的提示区 placeToasts 不算
+  if (el._html !== html) { el._html = html; el.innerHTML = html; placeToasts(); } // 提示区变高变矮：右上角的提示跟着让开（见 placeToasts）
+  else if (wasHidden) placeToasts();
   return el;
+}
+
+/* 开服、重启没成功时，提示和「详情」里给的修复去处（回访走查 11-16）：失败的原因后端已经记进了实例列表
+   （找不到配的 Java：javaMissing；端口被占：startPortBusy），按它给「去换 Java」或「改端口」，不去猜报错原文。
+   查不到或者不是这两种就不给。改端口去「设置 → 常用」里的端口那一项（同详情页提示区的「改端口」） */
+async function startFixes(name) {
+  let cur;
+  try { cur = (await api("/api/instances")).find(i => i.name === name); } catch { return []; }
+  if (!cur) return [];
+  const base = `#/inst/${encodeURIComponent(name)}/`;
+  const go = h => { if (location.hash === h) navigate(); else location.hash = h; };
+  if (cur.javaMissing) return [{ label: "去换 Java", aria: `去「${name}」的「设置 → 启动与内存」换一个 Java`, close: true, onClick: () => go(base + "settings/jvm") }];
+  if (cur.startPortBusy && cur.startPortBusy.port) return [{ label: "改端口", aria: `去「${name}」的「设置 → 常用」改端口`, close: true,
+    onClick: () => { focusPropKey = "server-port"; go(base + "settings/common"); } }];
+  return [];
 }
 
 /* 详情页的七个标签和子页（docs/文案重写/04-标签与术语-beta3.md 第一节，可用性走查 R06）。编号是地址里 #/inst/<名字>/<编号>/<子页> 的那两段，
@@ -3136,7 +3198,7 @@ async function restartInstance(info, after) {
   toast(`「${info.name}」正在重启：先保存世界并停止，停下来以后再启动`);
   const t = after ? setTimeout(after, 400) : 0; // 请求要等服务器停下、再起来才回：先刷一次，状态胶囊马上变成「正在停止」
   try { await api(`/api/instances/${encodeURIComponent(info.name)}/restart`, { method: "POST" }); return true; }
-  catch (e) { toastErr("无法重启服务器", e); return false; }
+  catch (e) { toastErr("无法重启服务器", e, { actions: await startFixes(info.name) }); return false; }
   finally { clearTimeout(t); if (after) after(); }
 }
 /* 卡片「···」和详情页头「···」共用的两项：导出交接包、删除服务器（R06：详情页也能找到；卡片上的保留）。
@@ -3285,7 +3347,11 @@ async function renderDetail(name, path = "console") {
   $("#d-more").onclick = () => dropMenu($("#d-more"), instMoreItems(lastCur, () => { location.hash = "#/instances"; }));
   $("#d-start").onclick = async () => {
     try { $("#d-start").disabled = true; await api(`/api/instances/${enc}/start`, { method: "POST" }); toast("正在启动，首次生成世界可能需要一两分钟"); refreshHead(); }
-    catch (e) { toastErr("无法启动服务器", e); $("#d-start").disabled = false; refreshHead(); } // 没起来的原因马上常驻到页头下面
+    catch (e) { // 没起来的原因马上常驻到页头下面；提示和「详情」里也给修复的去处
+      const fixes = await startFixes(name);
+      toastErr("无法启动服务器", e, { actions: fixes });
+      if (!stale(gen)) { $("#d-start").disabled = false; refreshHead(); }
+    }
   };
   $("#d-stop").onclick = async () => {
     if (!(await confirmKick(lastCur, "停止"))) return;
@@ -3586,38 +3652,57 @@ async function renderDetail(name, path = "console") {
     if (stale(gen)) return;
     const keep = (appInfo.config && appInfo.config.backupKeep) || 10, local = appInfo.local !== false;
     const nice = t => String(t || "").replace(/(\d{1,2}:\d\d):\d\d$/, "$1"); // 2026-11-15 20:30:05 → 2026-11-15 20:30（本来就没有秒的不动）
+    // 有「换地图」的服务器：页顶还要看换地图的记录（恢复点），才说得清现在的世界是不是导入的
+    const hasMap = !!(window.MDWorldImport && MDWorldImport.applies(info));
     const draw = async () => {
       if (stale(gen)) return;
-      let list, cur = info;
+      let list, cur = info, ws = null;
       try {
-        [list, cur] = await Promise.all([api(`/api/instances/${enc}/backups`),
-          api("/api/instances").then(l => l.find(i => i.name === name) || info).catch(() => info)]);
+        [list, cur, ws] = await Promise.all([api(`/api/instances/${enc}/backups`),
+          api("/api/instances").then(l => l.find(i => i.name === name) || info).catch(() => info),
+          hasMap ? api(`/api/instances/${enc}/world`).catch(() => null) : null]);
       } catch (e) { if (!stale(gen)) body.innerHTML = errBox("无法读取备份列表", e); return; }
       if (stale(gen)) return;
       info.worldFrom = cur.worldFrom; info.backupDir = cur.backupDir || info.backupDir;
       const wf = cur.worldFrom, running = info.status !== "stopped";
       const label = $("#bk-label") ? $("#bk-label").value : ""; // 重画时留住正在填的标签
+      // 页顶：现在的世界从哪来（回访走查 11-16）。从备份还原过的记在 worldFrom 里，换地图（导入、换回）时清掉，所以有它就是它；
+      // 没有的话看换地图的记录：用地图新建的、换过地图的，以前一律写成「服务器自己的世界」。地图在存档里多半叫 world，
+      // 人认得的是导入时的文件夹或压缩包名，所以写来源名。恢复点删掉以后就查不到导入过，所以不说「服务器自己的世界」，只说没有记录
+      const og = !wf && ws ? MDWorldImport.origin(ws) : null;
+      const nowText = wf
+        ? `当前世界：从 <b>${esc(nice(wf.backupTime) || wf.backup)}</b> 的备份还原${wf.label ? `（${esc(wf.label)}）` : ""}，还原于 ${esc(nice(wf.at))}`
+        : og && og.kind === "import" ? `当前世界：从「<b>${esc(og.source)}</b>」导入的地图${og.at ? `，导入于 ${esc(og.at)}` : ""}`
+        : og && og.kind === "returned" ? `当前世界：${og.at ? esc(og.at) + " " : ""}换过一次地图，后来换回了换之前的那张`
+        : og && og.kind === "busy" ? "当前世界：换地图还没走完，或者要人处理"
+        : ws ? "当前世界：没有从备份还原过，「换地图」里也没有导入记录"
+        : "当前世界：没有从备份还原过";
+      const mapLink = og ? `<a class="quiet-link" href="${base}world/map" id="bk-now-map">到「换地图」里看</a>` : "";
+      // 改过备份存放文件夹：以前的备份还在原来的文件夹里，照常列出、能还原能删。「备份放在」写的是新文件夹，
+      // 不说一声的话，人会以为列出来的就在那里，点「打开」看到空文件夹还以为备份丢了（回访走查 11-16）
+      const olds = [...new Set((list || []).filter(b => b.elsewhere && b.dir).map(b => b.dir))];
+      const oldNote = olds.map(d => `<div class="bk-old">${icon("folder")}<span>另有 <b>${(list || []).filter(b => b.elsewhere && b.dir === d).length}</b> 份是改存放位置以前做的，还在原来的文件夹 <span class="mono">${esc(d)}</span>，照常能还原、删除</span>` +
+        (local ? `<button type="button" class="btn sm ghost" data-bk-open-old="${esc(d)}" aria-label="打开原来的备份文件夹 ${esc(d)}">${icon("folder")} 打开</button>` : "") + `</div>`).join("");
       body.innerHTML = `
-        <div class="bk-now" id="bk-now">${icon("globe")}<span>${wf
-          ? `当前世界：从 <b>${esc(nice(wf.backupTime) || wf.backup)}</b> 的备份还原${wf.label ? `（${esc(wf.label)}）` : ""}，还原于 ${esc(nice(wf.at))}`
-          : "当前世界：服务器自己的世界，没有从备份还原过"}</span></div>
+        <div class="bk-now" id="bk-now">${icon("globe")}<span>${nowText}</span>${mapLink}</div>
         <div class="row" style="margin-bottom:10px;flex-wrap:wrap">
           <input type="text" id="bk-label" maxlength="20" placeholder="备份标签（可选，如：更新模组前）" aria-label="备份标签（可选）" style="max-width:240px" value="${esc(label)}">
           <button class="btn primary" id="bk-create">${icon("camera")} 立即备份世界</button>
         </div>
         <div class="bk-where" id="bk-where">
-          <span>备份放在 <span class="mono" id="bk-dir">${esc(info.backupDir || "")}</span></span>
+          <span>${olds.length ? "新的备份放在" : "备份放在"} <span class="mono" id="bk-dir">${esc(info.backupDir || "")}</span></span>
           ${local && info.backupDir ? `<button type="button" class="btn sm ghost" id="bk-open">${icon("folder")} 打开</button>` : ""}
           <span class="sep">·</span><span id="bk-keep">保留最近 <b>${keep}</b> 份（所有服务器共用）</span>
           <a class="quiet-link" href="#/settings/storage" id="bk-keep-link">到左下角软件「设置 → 存储位置」里改</a>
         </div>
+        ${oldNote ? `<div class="bk-olds" id="bk-olds">${oldNote}</div>` : ""}
         <div class="hint" style="margin-bottom:14px">服务器运行时也能备份：先暂停自动保存，压成压缩包，再恢复自动保存。超过保留份数时删掉最旧的。移出列表或删除服务器都不会删掉备份。
           还原时服务器得停着，开着时点「还原」会先帮你保存世界、停服，还原完不会自动开服。还原前会先把当前世界自动备份一份（标签「还原前自动」），再把世界换成选的那一份；核心、${window.MDModCart && MDModCart.applies(info) ? MDModCart.tabLabel(info.core) + "和" : ""}设置都不动。定时备份在「定时任务」里加。</div>
         <div class="group has-ico bk-list">${(list || []).map(b => {
           const title = b.label || b.file, who = b.label ? `${b.label}（${nice(b.time)}）` : b.file;
           return `
           <div class="row-item"><div class="ri-head"><span class="ri-ico">${icon("package")}</span>
-            <div class="ri-main"><div class="ri-title">${esc(title)}${wf && wf.backup === b.file ? `<span class="tag">现在的世界</span>` : ""}</div>
+            <div class="ri-main"><div class="ri-title">${esc(title)}${wf && wf.backup === b.file ? `<span class="tag">现在的世界</span>` : ""}${b.elsewhere ? `<span class="tag neutral" title="${esc(b.dir || "")}">在原来的文件夹</span>` : ""}</div>
               <div class="ri-key">${esc(nice(b.time))} · ${b.sizeMb.toFixed(1)} MB${b.label ? ` · <span class="mono">${esc(b.file)}</span>` : ""}</div></div>
             <div class="ri-right">${running ? `<span class="hint bk-need-stop">会先停服</span>` : ""}<button class="btn sm" data-restore="${esc(b.file)}" data-who="${esc(who)}" aria-label="还原 ${esc(b.file)}">${icon("restore")} 还原</button>
               <button class="btn sm danger" data-del="${esc(b.file)}" aria-label="删除 ${esc(b.file)}">删除</button></div></div></div>`;
@@ -3635,6 +3720,8 @@ async function renderDetail(name, path = "console") {
       $("#bk-label").onkeydown = e => { if (e.key === "Enter") $("#bk-create").click(); };
       const open = $("#bk-open");
       if (open) open.onclick = () => openBackupDir(info);
+      body.querySelectorAll("[data-bk-open-old]").forEach(b => b.onclick = () =>
+        api("/api/openpath", { method: "POST", body: { path: b.dataset.bkOpenOld } }).catch(e => toastErr("无法打开原来的备份文件夹", e)));
       body.querySelectorAll("[data-restore]").forEach(b => b.onclick = async () => {
         const file = b.dataset.restore, live = info.status !== "stopped", n = live ? (info.onlineCount || 0) : 0;
         const r = await confirmModal({

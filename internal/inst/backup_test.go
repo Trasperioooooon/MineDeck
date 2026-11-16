@@ -149,6 +149,44 @@ func TestBackupsAcrossBackupRoots(t *testing.T) {
 	}
 }
 
+// 列表里每份备份带着它在哪个文件夹；改存放位置以前做的标 elsewhere（回访走查 11-16：备份页「备份放在」写新文件夹，
+// 列出来的却是旧文件夹里的，点「打开」看到的是空的）。同名的两份只列当前根里那份，也就不算 elsewhere
+func TestBackupListSaysWhichFolder(t *testing.T) {
+	m, dir := tempInstance(t)
+	d := filepath.Join(app.Base, "D")
+	setConfig(t, func(c *app.Config) { c.BackupsDir = d })
+	zipWorld(t, dir, "old", filepath.Join(d, "s", "20200101-000000.zip"))
+	zipWorld(t, dir, "both", filepath.Join(d, "s", "20200102-000000.zip"))
+	e := filepath.Join(app.Base, "E")
+	setConfig(t, func(c *app.Config) { c.BackupsDir = e })
+	zipWorld(t, dir, "both", filepath.Join(e, "s", "20200102-000000.zip"))
+	f, err := m.CreateBackup("s", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, err := m.ListBackups("s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]BackupInfo{}
+	for _, b := range list {
+		got[b.File] = b
+	}
+	cur, old := filepath.Join(e, "s"), filepath.Join(d, "s")
+	for _, c := range []struct {
+		file, dir string
+		elsewhere bool
+	}{{f, cur, false}, {"20200102-000000.zip", cur, false}, {"20200101-000000.zip", old, true}} {
+		b, ok := got[c.file]
+		if !ok || b.Dir != c.dir || b.Elsewhere != c.elsewhere {
+			t.Errorf("%s：%+v（应在 %s，elsewhere=%v）", c.file, b, c.dir, c.elsewhere)
+		}
+	}
+	if s, err := m.Get("s"); err != nil || s.BackupDir() != cur {
+		t.Errorf("BackupDir 应和列表里当前根的文件夹一样（%s）：%v", cur, err)
+	}
+}
+
 // 同名备份（比如手动拷到新根的）只列一份；删除时各根里的一并删掉，不会删完又从旧根冒出来。
 func TestSameNameBackupInTwoRoots(t *testing.T) {
 	m, dir := tempInstance(t)

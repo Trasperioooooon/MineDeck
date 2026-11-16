@@ -94,10 +94,10 @@ function portsInUse(state, except) {
     .filter(u => u.port > 0).sort((a, b) => a.port - b.port || (a.instance < b.instance ? -1 : 1));
 }
 /* 从 from 起没人用的最小端口（同 inst.DefaultPort） */
-function freePort(used, from) {
+function freePort(used, from, other = {}) {
   const taken = new Set(used.map(u => u.port));
   let p = from;
-  while (taken.has(p) && p < 65535) p++;
+  while ((taken.has(p) || p in other) && p < 65535) p++;
   return p;
 }
 
@@ -2614,7 +2614,8 @@ function handler(state, ui, portOf) {
     //     设 taskList 时没装上的文件（instPending）一起清掉，下次按新的任务重新生成
     //   instPending: { 服务器名: { pending, skipped } } 直接摆好某台服务器没装上的文件（不经导入任务，程序重开以后的样子）
     //   restart: true 模拟程序重开：任务记录、上次启动失败（lastStartError、startPortBusy）清掉，没装上的文件清单留着
-    //   beta.3 R08：GET /api/ports/suggest 按各台服务器的端口算（响应里的 portSuggests 是问过几次）；启动时端口和另一台没停着的服务器一样就报
+    //   beta.3 R08：GET /api/ports/suggest 按各台服务器的端口算（响应里的 portSuggests 是问过几次）；otherPorts（{ 端口: 程序名 }）是被别的程序占着的，
+    //     推荐时跳过、from 被占着时回 fromBusy / fromProcess，GET /api/ports/{端口} 按别的程序占着回（响应里的 portChecks 是查过几次）；启动时端口和另一台没停着的服务器一样就报
     //     「被你的服务器「X」占着」并记 startPortBusy；inst 的 startPortBusyFail 是 startFail 失败时一起记的 startPortBusy（别的程序占着时只有 port）；
     //     改 server.properties 的 server-port 时 port 跟着变；响应里的 starts 是点过的启动 { inst, port }
     //   modsNeed: { 实例名: needJava } GET /api/instances/{名称}/mods 返回的 needJava（实例详情页的 Java 提示用），空对象还原
@@ -2626,7 +2627,7 @@ function handler(state, ui, portOf) {
     //     响应里的 lastCreate / lastImport / lastPropsPut / commands / lastOpenPath 是上一次新建、导入整合包（表单项）、改 server.properties、
     //     发过的控制台命令、打开的文件夹
     //     beta.3 详情页用到的字段：javaMissing（配的 Java 找不到了）、worldFrom（现在的世界从哪份备份来）、mods（插件 / 模组文件夹里的，见 modsOf）、
-    //     backups（备份清单，见 backupsOf）、onlineCount。响应里的 lifecycle（停止、重启的请求）、modOps（停用、启用、删除插件或模组的请求）、
+    //     backups（备份清单，见 backupsOf；每项可带 dir、elsewhere，模拟改存放位置以前留在原来文件夹的）、onlineCount。响应里的 lifecycle（停止、重启的请求）、modOps（停用、启用、删除插件或模组的请求）、
     //     lastRestore（还原的请求，含 stopFirst）、lastBackup（立即备份的标签）、modsProjects（带 projects=1 读清单的次数）
     //   adoptScan: 接管已有服务器时「识别」返回的结果（同 inst.AdoptScan），null 还原成默认的；
     //     响应里的 lastAdopt / lastJava / lastDelete 是上一次接管、换 Java、删除的请求
@@ -2684,6 +2685,7 @@ function handler(state, ui, portOf) {
       if ("commands" in b) state.commands = b.commands || []; // 发过的控制台命令（见 POST …/command），传空数组清掉
       if ("starts" in b) state.starts = b.starts || []; // 点过的启动 { inst, port }（beta.3 R08），传空数组清掉
       if ("portBusy" in b) state.portBusy = b.portBusy; // 交接包向导：端口号等于这个值的端口查询按「被占用」回
+      if ("otherPorts" in b) state.otherPorts = b.otherPorts || {}; // { 端口: 程序名 } 被别的程序占着的端口（程序名可以是空串）：推荐端口时跳过、端口查询按别的程序占着回
       if (Array.isArray(b.madeDirs)) { state.madeDirs = b.madeDirs; state.lastTransferMkdir = null; }
       if ("pickDir" in b) state.pickDir = b.pickDir === null ? undefined : b.pickDir; // 系统文件夹选择框选到哪个（空串 = 点了取消；null 还原成 E:\MCServers）
       if (b.instReset) { const fresh = newState(ui); state.instances = fresh.instances; state.lastAdopt = state.lastJava = state.lastDelete = null;
@@ -2911,13 +2913,20 @@ function handler(state, ui, portOf) {
       if (p === "/api/ports/suggest") {
         const q = +u.searchParams.get("from"), from = q >= 1 && q <= 65535 ? q : 25565;
         const used = portsInUse(state, u.searchParams.get("except") || "");
-        const by = used.find(x => x.port === from);
+        const by = used.find(x => x.port === from), other = state.otherPorts || {};
         state.portSuggests = (state.portSuggests || 0) + 1;
-        return ok(res, { port: freePort(used, from), from, used, ...(by ? { usedBy: by.instance } : {}) });
+        // fromBusy / fromProcess：from 被别的程序占着（同后端：被本软件的服务器用着的只说 usedBy）
+        const ob = !by && from in other ? { fromBusy: true, ...(other[from] ? { fromProcess: other[from] } : {}) } : {};
+        return ok(res, { port: freePort(used, from, other), from, used, ...(by ? { usedBy: by.instance } : {}), ...ob });
       }
       // 端口占用查询（同 web：GET /api/ports/{port}）：/__mock/state 里 portBusy 设成哪个端口哪个就占着
       if (seg[2] === "ports" && seg[3]) {
         const busy = state.portBusy != null && +seg[3] === +state.portBusy;
+        state.portChecks = (state.portChecks || 0) + 1;
+        if (state.otherPorts && seg[3] in state.otherPorts) { // 别的程序占着：监听表里查得到进程（程序名是空串时当成查不到是谁）
+          const proc = state.otherPorts[seg[3]];
+          return ok(res, { port: +seg[3], tcp: { free: false, ...(proc ? { owners: [{ pid: 4242, process: proc }] } : { note: "端口被占用了，但没查到是哪个程序（可能需要管理员权限）" }) }, udp: { free: true } });
+        }
         return ok(res, { port: +seg[3] || 0,
           tcp: busy ? { free: false, owners: [{ pid: 1414, process: "java.exe", instance: "生存服 · 朋友", minedeck: true }] } : { free: true },
           udp: { free: true }, instances: busy ? [{ instance: "生存服 · 朋友", status: "running" }] : [] });
@@ -3204,7 +3213,8 @@ function handler(state, ui, portOf) {
           (state.commands || (state.commands = [])).push({ inst: name, cmd: b.cmd });
           return ok(res, "ok");
         }
-        if (sub === "backups" && m === "GET") return ok(res, backupsOf(i));
+        // 每份带 dir（在哪个文件夹，同 inst.BackupInfo）：没写的就在这台服务器现在的备份文件夹里；elsewhere 只在测试摆的数据里有
+        if (sub === "backups" && m === "GET") return ok(res, backupsOf(i).map(b => ({ dir: i.backupDir ?? "D:\\MineDeck\\backups\\" + i.name, ...b })));
         if (sub === "policies" && m === "GET") return ok(res, { crashRestart: true, schedules: [{ type: "restart", at: "04:00", args: "" }, { type: "command", at: "20:00", args: "say 今晚 8 点打龙集合！" }] });
         if (sub === "properties" && m === "GET") return ok(res, { pairs: state.props, running: i.status === "running" });
         if (sub === "resources" && seg[5] === "search") return ok(res, { hits: [

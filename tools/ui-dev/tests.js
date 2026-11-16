@@ -6544,6 +6544,53 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       } finally { await xState({ instReset: true, adoptScan: null, taskList: [], taskStage: 2, modCart: { reset: true } }); }
     });
 
+    await run("新建、导入整合包的默认端口也避开被别的程序占着的，并写明；手填被别的程序占着的当场提示、不拦；接管只提示不换（回访走查 11-16）", async () => {
+      try {
+        // 生存服挪到 25590：25565 只被别的程序（java.exe）占着；25568 也被一个查不到名字的程序占着
+        await xState({ instReset: true, taskStage: 4, modCart: { reset: true }, otherPorts: { 25565: "java.exe", 25568: "" } });
+        await xState({ inst: { name: SURVX, port: 25590 } });
+        await toWizardFinal("#/create/new");
+        let f = await portView("#f-port", "#f-port-note");
+        assert(f.v === "25569" && f.note.includes("25565 被别的程序（java.exe）占着，已改为 25569") && !f.warn, "向导的默认端口：" + JSON.stringify(f));
+        // 手填被别的程序占着的：停手一下就提示（查不到程序名时不写名字），不拦着；换成空着的提示就没了
+        await page.fill("#f-port", "25568"); await settle(700);
+        f = await portView("#f-port", "#f-port-note");
+        assert(f.warn && f.note.includes("端口 25568 现在被别的程序占着，开服时会报错") && !f.note.includes("（"), "手填被占着的：" + JSON.stringify(f));
+        await page.fill("#f-port", "25570"); await settle(700);
+        f = await portView("#f-port", "#f-port-note");
+        assert(!f.warn && f.note === "", "换成空着的：" + JSON.stringify(f));
+        // 手填的还是本软件服务器用着的：照旧说是哪台，不再去问别的程序
+        await page.fill("#f-port", "25566"); await settle(700);
+        f = await portView("#f-port", "#f-port-note");
+        assert(f.warn && f.note.includes("机械动力整合包") && !f.note.includes("别的程序"), "本软件的服务器用着：" + JSON.stringify(f));
+        // 导入整合包：同样避开
+        await page.goto(url("#/create/import")); await page.waitForSelector("#im-port-note");
+        await page.waitForFunction(() => $("#im-port").value === "25569", null, { timeout: 3000 }).catch(() => {});
+        f = await portView("#im-port", "#im-port-note");
+        assert(f.v === "25569" && f.note.includes("25565 被别的程序（java.exe）占着，已改为 25569"), "导入整合包的默认端口：" + JSON.stringify(f));
+        // 接管：识别出来的 25565 只被别的程序占着（多半是原来那台还开着）——不换，只提示
+        await xState({ adoptScan: { dir: "D:\\old\\S2", name: "S2", core: "paper", mc: "1.21.4", build: "", launchTarget: "jar:paper.jar",
+          targets: [{ target: "jar:paper.jar", label: "paper.jar（Paper 1.21.4）", core: "paper", mc: "1.21.4", build: "", javaMajor: 0 }],
+          javaMajor: 0, xmxMb: 0, extraJvm: [], port: 25565, eula: true, hasWorld: true, managed: false, notes: [], whitelistOn: false } });
+        await page.goto(url("#/create/adopt")); await page.waitForSelector("#ad-dir");
+        await page.fill("#ad-dir", "D:\\old\\S2"); await page.keyboard.press("Enter"); await page.waitForSelector("#ad-port"); await settle(700);
+        f = await portView("#ad-port", "#ad-port-note");
+        assert(f.v === "25565" && f.warn && f.note.includes("端口 25565 现在被别的程序（java.exe）占着") && f.note.includes("如果是原来的服务器还开着，接管前先把它停掉") &&
+          !f.note.includes("server.properties"), "接管只提示不换：" + JSON.stringify(f));
+        // 打开表单时 25565 空着（不用再问）；之后别的程序占上了，手填回 25565 照样要问、要提示（Codex 复审 beta.3 之后第二轮：
+        // 以前免查对之后的手填也生效）
+        await xState({ otherPorts: {} });
+        await toWizardFinal("#/create/new");
+        f = await portView("#f-port", "#f-port-note");
+        assert(f.v === "25565" && f.note === "", "25565 空着时照用、不提示：" + JSON.stringify(f));
+        await page.fill("#f-port", "25599"); await settle(700);
+        await xState({ otherPorts: { 25565: "java.exe" } });
+        await page.fill("#f-port", "25565"); await settle(700);
+        f = await portView("#f-port", "#f-port-note");
+        assert(f.warn && f.note.includes("端口 25565 现在被别的程序（java.exe）占着"), "手填回默认端口也要查：" + JSON.stringify(f));
+      } finally { await xState({ instReset: true, adoptScan: null, otherPorts: {}, taskStage: 2, modCart: { reset: true } }); }
+    });
+
     await run("beta.3 端口 R08：手填的端口和别的服务器撞了当场提示（写明是哪台、开着没有，给一个没人用的），不标红、不拦着创建；改成没人用的提示就没了", async () => {
       try {
         await xState({ instReset: true, taskStage: 4, modCart: { reset: true } });
@@ -6954,6 +7001,76 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       } finally { await c.close(); await pState({ instReset: true }); }
     });
 
+    await run("开服失败的报错提示落在页头提示区下面，不盖住提示区里的修复按钮；提示和「详情」里都有去修的按钮（端口被占 → 改端口，找不到 Java → 去换 Java），别的原因不给", async () => {
+      const why = "端口 25566 被别的程序占着，换个端口或关掉占用它的程序";
+      await resetWith({ name: PACK0, startFail: why, startPortBusyFail: { port: 25566 } });
+      const live = ".toast.error:not(.leave)", vp0 = page.viewportSize();
+      try {
+        await page.evaluate(() => document.querySelectorAll("#toasts .toast").forEach(t => t.remove()));
+        await detail(PACK0, "console");
+        await page.click("#d-start"); await page.waitForSelector(live); await settle(400);
+        // 提示区（黄条）里的「改端口」「复制报错信息」不被右上角的提示盖住（回访走查 11-16：以前只躲页头）
+        const geo = await page.evaluate(sel => {
+          const t = document.querySelector(sel).getBoundingClientRect(), n = document.querySelector("#d-notices").getBoundingClientRect();
+          const hit = [...document.querySelectorAll("#d-notices button, #d-notices a")].filter(b => { const r = b.getBoundingClientRect(); return !(t.right <= r.left || t.left >= r.right || t.bottom <= r.top || t.top >= r.bottom); }).map(b => b.textContent);
+          return { hit, top: t.top, notes: n.bottom, edit: !!document.querySelector("#d-notices [data-port-edit]") };
+        }, live);
+        assert(geo.edit && !geo.hit.length && geo.top >= geo.notes, "提示盖住了提示区：" + JSON.stringify(geo));
+        // 提示上有「改端口」；「详情」里也有一份，点了关掉详情、去「设置 → 常用」的端口那一项，提示也收掉
+        assert(await page.$(`${live} button[aria-label="去「${PACK0}」的「设置 → 常用」改端口"]`), "提示上应有改端口");
+        await page.click(`${live} button[aria-label="查看报错详情"]`); await page.waitForSelector(".err-detail");
+        const btns = await page.$$eval("#modal-root .modal .m-actions button", bs => bs.map(b => b.textContent));
+        assert(JSON.stringify(btns) === JSON.stringify(["改端口", "复制报错信息", "关闭"]), "详情里的按钮：" + JSON.stringify(btns));
+        await page.click('#modal-root .modal [data-fix="0"]'); await page.waitForSelector('[data-k="server-port"]'); await settle(500);
+        const p = await page.evaluate(sel => ({ h: decodeURIComponent(location.hash), focus: document.activeElement && document.activeElement.dataset.k,
+          modal: !!document.querySelector("#modal-root .err-detail"), toasts: document.querySelectorAll(sel).length }), live);
+        assert(p.h === `#/inst/${PACK0}/settings/common` && p.focus === "server-port" && !p.modal && !p.toasts, "点了以后：" + JSON.stringify(p));
+        // 找不到配的 Java：在列表的卡片上点启动，提示上是「去换 Java」，点了去「设置 → 启动与内存」
+        await pState({ inst: { name: PACK0, startFail: "找不到这台服务器配的 Java", startPortBusyFail: null, javaMissing: true } });
+        await page.goto(url("#/instances")); await settle(500);
+        await page.click(`.card[data-name="${PACK0}"] [data-act="start"]`); await page.waitForSelector(live);
+        await page.click(`${live} button:text-is("去换 Java")`); await settle(500);
+        assert(decodeURIComponent(await page.evaluate(() => location.hash)) === `#/inst/${PACK0}/settings/jvm` && !(await page.$(live)), "应去启动与内存、提示收掉");
+        // 别的原因：不给修复按钮，详情里只有复制和关闭
+        await pState({ inst: { name: PACK0, startFail: "服务端自己退出了", javaMissing: false } });
+        await detail(PACK0, "console");
+        await page.click("#d-start"); await page.waitForSelector(live); await settle(300);
+        assert((await page.$$eval(`${live} button`, bs => bs.map(b => b.textContent))).join("|") === "详情|", "别的原因不给修复按钮");
+        await page.click(`${live} button[aria-label="查看报错详情"]`); await page.waitForSelector(".err-detail");
+        assert(!(await page.$("#modal-root .modal [data-fix]")), "详情里也不给");
+        await page.click('#modal-root .modal [data-x="close"]'); await settle(300);
+        // 矮窗口：提示区下面放不下时退回页头下面，还放不下就回到标题栏下方——整条提示总在屏幕里（Codex 复审 beta.3 之后第一轮：
+        // 以前会被推到屏幕外面照样倒数、自己走掉）
+        // 报错原文很长时提示加上按钮以后会换行变高：要按加完按钮的高度量（Codex 复审 beta.3 之后第二轮）
+        // 原文要在 60 个字以内、提示才会整句接上（见 errSummary），够长才会因为加了按钮多换几行
+        await pState({ inst: { name: PACK0, startFail: "模组加载失败缺少前置模组请先检查模组列表和版本是否匹配然后再重新启动一次这台服务器看看还会不会这样" } });
+        // 先在大窗口里量：带按钮的报错提示多高（h1）、同样的字不带按钮多高（h0，普通提示没有按钮）、提示区底在哪；
+        // 再挑一个「按 h0 放得下、按 h1 放不下」的窗口高度。按 h0 量的老代码会把它放到提示区下面、下半截出屏幕
+        await page.evaluate(() => document.querySelectorAll("#toasts .toast").forEach(t => t.remove()));
+        await detail(PACK0, "console");
+        await page.click("#d-start"); await page.waitForSelector(live); await settle(400);
+        const m = await page.evaluate(sel => {
+          const e = document.querySelector(sel), h1 = e.getBoundingClientRect().height, text = e.querySelector(".t-msg").textContent;
+          const plain = toast(text); const h0 = plain.getBoundingClientRect().height; plain.remove();
+          return { h0, h1, nb: document.querySelector("#d-notices").getBoundingClientRect().bottom };
+        }, live);
+        assert(m.h1 > m.h0, "加了按钮应更高（不然这段测不到要测的）：" + JSON.stringify(m));
+        const tight = Math.ceil(m.nb + 8 + m.h0 + 8 + (m.h1 - m.h0) / 2);
+        for (const hgt of [tight, 360, 280]) {
+          await page.setViewportSize({ width: vp0.width, height: hgt });
+          await page.evaluate(() => document.querySelectorAll("#toasts .toast").forEach(t => t.remove()));
+          await detail(PACK0, "console");
+          await page.click("#d-start"); await page.waitForSelector(live); await settle(400);
+          const g = await page.evaluate(sel => { const t = document.querySelector(sel).getBoundingClientRect(); return { top: t.top, bottom: t.bottom, vh: innerHeight,
+            notes: document.querySelector("#d-notices").getBoundingClientRect().bottom }; }, live);
+          assert(g.top >= 0 && g.bottom <= g.vh, `高 ${hgt} 的窗口里提示应整条看得见：` + JSON.stringify(g));
+        }
+      } finally {
+        await page.setViewportSize(vp0);
+        await page.evaluate(() => document.querySelectorAll("#toasts .toast").forEach(t => t.remove())); await pState({ instReset: true });
+      }
+    });
+
     await run("beta.3 P0 R04：交接弹窗里报错后点「详情」，报错信息叠在上面；Esc 和「关闭」只关上面那层，交接弹窗和填的路径都在；点遮罩不关；为什么不可用写在弹窗里", async () => {
       await pState({ instReset: true });
       const layers = () => page.$$eval("#modal-root > .modal-mask:not(.leave)", ms => ms.map(m => m.id || (m.querySelector(".err-detail") ? "detail" : "other")));
@@ -7312,6 +7429,73 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       } finally { await dState({ instReset: true }); }
     });
 
+    await run("备份页页顶写清现在的世界从哪来（导入的写来源名、换回过、没有记录、从备份还原的优先）；改存放位置以前的备份标出来、能打开原来的文件夹", async () => {
+      await dState({ instReset: true, local: true, world: { reset: true } });
+      try {
+        // 整合包服的恢复点里最新一条是从 SkyCity.zip 导入的（已导入）：页顶写来源名和导入时间，带路去「换地图」
+        await open(PACK0, "world/backups");
+        let now = await page.textContent("#bk-now");
+        assert(now.includes("当前世界：从「SkyCity.zip」导入的地图") && now.includes("导入于 2026-11-10") && !now.includes("服务器自己的世界"), "导入的地图：" + now);
+        assert((await page.getAttribute("#bk-now-map", "href")) === `#/inst/${E(PACK0)}/world/map`, "应带路去换地图");
+        // 最新一条是没生效的（rolled-back），再往前是换回过的：没生效的不算，按换回过的写
+        await dState({ world: { inst: { [PACK0]: { points: [
+          { id: "wa", state: "rolled-back", created: "2026-11-12T10:00:00+08:00", source: "没生效.zip", candidate: "world", levelName: "world", hasOld: false, oldBytes: 0, keptBytes: 0 },
+          { id: "wb", state: "restored", created: "2026-11-11T10:00:00+08:00", source: "换回的.zip", candidate: "world", levelName: "world", hasOld: false, oldBytes: 0, keptBytes: 0 },
+          { id: "wc", state: "committed", created: "2026-11-10T10:00:00+08:00", source: "更早的.zip", candidate: "world", levelName: "world", hasOld: true, oldBytes: 1, keptBytes: 0 },
+        ] } } } });
+        await open(PACK0, "console"); await open(PACK0, "world/backups");
+        now = await page.textContent("#bk-now");
+        assert(now.includes("换过一次地图，后来换回了换之前的那张") && !now.includes("没生效") && !now.includes("更早的"), "换回过：" + now);
+        // 正在换、要人处理的排在后面也要先说：最新一条已导入，后面跟着一条读不出来的记录（Codex 复审 beta.3 之后第一轮）
+        await dState({ world: { inst: { [PACK0]: { points: [
+          { id: "we", state: "committed", created: "2026-11-12T10:00:00+08:00", source: "最新的.zip", candidate: "world", levelName: "world", hasOld: true, oldBytes: 1, keptBytes: 0 },
+          { id: "wf", state: "unreadable", created: "0001-01-01T00:00:00Z", source: "", candidate: "", levelName: "", hasOld: false, oldBytes: 0, keptBytes: 0 },
+        ] } } } });
+        await open(PACK0, "console"); await open(PACK0, "world/backups");
+        now = await page.textContent("#bk-now");
+        assert(now.includes("换地图还没走完，或者要人处理") && !now.includes("最新的"), "排在后面的要人处理：" + now);
+        // 世界名对不上现在的 level-name 的那条不算（是另一个世界文件夹）
+        await dState({ world: { inst: { [PACK0]: { levelName: "world2", points: [
+          { id: "wd", state: "committed", created: "2026-11-12T10:00:00+08:00", source: "别的世界.zip", candidate: "world", levelName: "world", hasOld: true, oldBytes: 1, keptBytes: 0 },
+        ] } } } });
+        await open(PACK0, "console"); await open(PACK0, "world/backups");
+        now = await page.textContent("#bk-now");
+        assert(now.includes("没有从备份还原过，「换地图」里也没有导入记录") && !now.includes("别的世界") && !(await page.$("#bk-now-map")), "世界名对不上：" + now);
+        // 从备份还原过（worldFrom）优先：换地图时会清掉它，有它就说明还原在后
+        await dState({ world: { inst: { [PACK0]: { levelName: "world" } } }, inst: { name: PACK0, worldFrom: { backup: "20261026-040000.000000000.zip", backupTime: "2026-10-26 04:00:00", at: "2026-11-15 21:05:00" } } });
+        await open(PACK0, "console"); await open(PACK0, "world/backups");
+        now = await page.textContent("#bk-now");
+        assert(now.includes("当前世界：从 2026-10-26 04:00 的备份还原") && !now.includes("导入"), "从备份还原的优先：" + now);
+
+        // 生存服没换过地图：不说「服务器自己的世界」，只说没有记录
+        await open(SURV, "world/backups");
+        now = await page.textContent("#bk-now");
+        assert(now.includes("没有从备份还原过，「换地图」里也没有导入记录") && !now.includes("服务器自己的世界"), "没换过地图：" + now);
+        assert(!(await page.$("#bk-olds")) && (await page.textContent("#bk-where")).includes("备份放在") && !(await page.textContent("#bk-where")).includes("新的备份放在"), "没有旧文件夹的备份时不提");
+
+        // 改过备份存放文件夹：两份在原来的文件夹，一份在现在的
+        const OLD = "E:\\旧备份\\" + SURV;
+        await dState({ inst: { name: SURV, backupDir: "F:\\新备份\\" + SURV, backups: [
+          { file: "20261116-030000.000000000.zip", sizeMb: 1, time: "2026-11-16 03:00:00" },
+          { file: "20261026-040000.000000000.zip", sizeMb: 2, time: "2026-10-26 04:00:00", dir: OLD, elsewhere: true },
+          { file: "20261025-221000.000000000-打龙前.zip", sizeMb: 3, time: "2026-10-25 22:10:00", label: "打龙前", dir: OLD, elsewhere: true },
+        ] } });
+        await open(SURV, "console"); await open(SURV, "world/backups");
+        const v = await page.evaluate(() => ({ olds: $("#bk-olds").textContent.replace(/\s+/g, " "), where: $("#bk-where").textContent.replace(/\s+/g, " "),
+          tags: [...document.querySelectorAll(".bk-list .row-item")].map(r => !!r.querySelector(".tag.neutral") && r.querySelector(".tag.neutral").textContent) }));
+        assert(v.olds.includes("另有 2 份是改存放位置以前做的") && v.olds.includes(OLD) && v.where.includes("新的备份放在 F:\\新备份\\" + SURV), "旧文件夹的说明：" + JSON.stringify(v));
+        assert(JSON.stringify(v.tags) === JSON.stringify([false, "在原来的文件夹", "在原来的文件夹"]), "列表里标出在原来文件夹的那几份：" + JSON.stringify(v.tags));
+        await byName("button", "打开原来的备份文件夹 " + OLD).click(); await settle(300);
+        assert((await dState({})).lastOpenPath === OLD, "打开的是原来的文件夹：" + (await dState({})).lastOpenPath);
+        const ax = await axProblems();
+        assert(!ax.length, "备份页无障碍检查：" + ax.join("、"));
+        // 从局域网打开：没有「打开」，说明照旧
+        await dState({ local: false });
+        await open(SURV, "console"); await open(SURV, "world/backups");
+        assert((await page.textContent("#bk-olds")).includes("另有 2 份") && !(await page.$("[data-bk-open-old]")), "局域网上不给打开");
+      } finally { await dState({ instReset: true, local: true, world: { reset: true } }); }
+    });
+
     await run("beta.3 详情 R16：常用、启动与内存、全部配置、定时任务都用吸底保存条；定时任务点「添加」进草稿（标「未保存」），保存条按条数算", async () => {
       await dState({ instReset: true });
       for (const t of ["settings/common", "settings/jvm", "settings/raw", "tasks"]) {
@@ -7526,7 +7710,33 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
             await page.waitForSelector("#mp-name"); await settle(500);
             await page.fill("#mp-name", "读失败时改的"); await settle(600);
             assert(!reqs.slice(since).some(r => r.m === "PUT" && r.u === "/api/toolbox/mrpack/draft"), "读草稿失败时不该自动存");
+            // 页面上要说清这一次不自动保存，并给「重新读取」（Codex 复审 beta.3 第五轮：以前什么都不说）
+            const errTxt = await page.textContent("#mp-draft-err");
+            assert(errTxt.includes("读不出上次存好的整合包信息") && errTxt.includes("不会自动保存") && errTxt.includes("现在改的不保留"), "读失败要常驻说明：" + errTxt);
+            assert(await page.$("#mp-draft-msg[role=status] #mp-draft-retry"), "说明在 status 区里，带「重新读取」");
+            // 还读不出来：说明留着，接着不存
+            await page.click("#mp-draft-retry"); await settle(500);
+            assert(await page.$("#mp-draft-err #mp-draft-retry:not([disabled])"), "再读还失败时说明留着，按钮能再点");
+            await page.fill("#mp-name", "还是读不出时改的"); await settle(600);
+            assert(!reqs.slice(since).some(r => r.m === "PUT" && r.u === "/api/toolbox/mrpack/draft"), "还读不出来时仍不该自动存");
+            // 停在「从已有服务器导出」时说明和「重新读取」都不出现：在那边重新读取，切回来一改就会把服务器名存进草稿（Codex 复审 beta.3 之后第一轮）
+            await page.click('#mp-src [data-src="instance"]'); await settle(300);
+            assert(await page.$eval("#mp-draft-msg", e => e.hidden), "从已有服务器导出时不该有读草稿的说明");
+            await page.click('#mp-src [data-src="draft"]'); await settle(300);
+            assert(!(await page.$eval("#mp-draft-msg", e => e.hidden)) && await page.$("#mp-draft-retry"), "切回自己挑模组，说明和按钮还在");
           } finally { await page.unroute("**/api/toolbox/mrpack/draft", failDraft); }
+          // 读得出来了：点「重新读取」，表单换成存好的那份，说明消失，之后的修改照常自动存
+          {
+            const since = reqs.length;
+            await page.click("#mp-draft-retry"); await settle(500);
+            assert(!(await page.$("#mp-draft-err")), "读出来以后说明应消失");
+            assert((await page.$eval("#mp-name", e => e.value)) === "好友周目整合包" && (await page.$eval("#mp-ver", e => e.value)) === "2.1.0", "表单应换成存好的那份");
+            assert(!reqs.slice(since).some(r => r.m === "PUT" && r.u === "/api/toolbox/mrpack/draft"), "重新读取本身不存（读失败期间改的作废）");
+            await page.fill("#mp-summary", "读回来以后写的简介"); await settle(600);
+            const put = reqs.slice(since).filter(r => r.m === "PUT" && r.u === "/api/toolbox/mrpack/draft").map(r => JSON.parse(r.b || "{}")).pop();
+            assert(put && put.name === "好友周目整合包" && put.summary === "读回来以后写的简介", "读回来以后应恢复自动保存：" + JSON.stringify(put));
+            await page.fill("#mp-summary", ""); await settle(500);
+          }
           // 改完马上切到「从已有服务器导出」：排着的保存当场存掉，存的是草稿里的名字，不是切过去以后填上的服务器名（第三轮）
           await page.goto(url("#/toolbox/mrpack-export"));
           await page.waitForSelector("#mp-modcart-host #mc-hits"); await settle(400);

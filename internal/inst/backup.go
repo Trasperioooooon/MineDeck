@@ -28,6 +28,11 @@ type BackupInfo struct {
 	// Label 做备份时填的标签（文件名里时间后面的那段，如「更新模组前」「还原前自动」）；没填的没有这一项。
 	// 界面上列表优先显示它（可用性走查 R11）
 	Label string `json:"label,omitempty"`
+	// Dir 这份备份所在的文件夹（某个备份根下面这台服务器的子文件夹）。
+	Dir string `json:"dir"`
+	// Elsewhere 这份备份不在现在的备份存放文件夹里：是改存放位置以前做的，还留在原来的文件夹（照常列出、能还原能删）。
+	// 界面据此提醒「还在原来的文件夹」，不然「备份放在」写的是新文件夹、列出来的却是别处的，点「打开」看到的是空文件夹（回访走查 11-16）
+	Elsewhere bool `json:"elsewhere,omitempty"`
 }
 
 // backupNameRe 备份文件名：时间（20060102-150405，后面可能带 .纳秒）加可选的「-标签」。
@@ -147,10 +152,12 @@ func (m *Manager) ListBackups(name string) ([]BackupInfo, error) {
 			seen[e.Name()] = true
 			_, label, _ := parseBackupName(e.Name())
 			out = append(out, BackupInfo{
-				File:   e.Name(),
-				SizeMB: float64(info.Size()) / (1 << 20),
-				Time:   info.ModTime().Format("2006-01-02 15:04:05"),
-				Label:  label,
+				File:      e.Name(),
+				SizeMB:    float64(info.Size()) / (1 << 20),
+				Time:      info.ModTime().Format("2006-01-02 15:04:05"),
+				Label:     label,
+				Dir:       dir,
+				Elsewhere: k > 0,
 			})
 		}
 	}

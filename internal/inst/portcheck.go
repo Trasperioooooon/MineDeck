@@ -134,6 +134,13 @@ func (m *Manager) PortsInUse(except string) []PortUse {
 // used 里都没有的最小端口。usedBy 是 from 被哪台服务器用着（from 本来就空着时为空串），界面拿它说「25565 已被『X』使用，已改为 25566」。
 // 只看本软件管着的服务器，不看别的程序：别的程序占着的，启动时会查出来（见 checkBindPort）。
 func DefaultPort(used []PortUse, from int) (port int, usedBy string) {
+	return DefaultPortSkipping(used, from, nil)
+}
+
+// DefaultPortSkipping 同 DefaultPort，另外跳过 busy(端口) 为真的端口：新建、导入整合包、用已有地图开服时，被别的程序占着的也不给
+// （beta.3 回访走查 11-16：以前只避开 MineDeck 自己的服务器，默认 25565 被别的程序占着，开服才报）。busy 为 nil 时同 DefaultPort。
+// usedBy 照旧只说 from 被本软件哪台服务器用着。
+func DefaultPortSkipping(used []PortUse, from int, busy func(port int) bool) (port int, usedBy string) {
 	if from < 1 || from > 65535 {
 		from = 25565
 	}
@@ -145,7 +152,7 @@ func DefaultPort(used []PortUse, from int) (port int, usedBy string) {
 	}
 	usedBy = taken[from]
 	for p := from; p <= 65535; p++ {
-		if _, ok := taken[p]; !ok {
+		if _, ok := taken[p]; !ok && (busy == nil || !busy(p)) {
 			return p, usedBy
 		}
 	}

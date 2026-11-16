@@ -1401,8 +1401,14 @@ a.inst-fail:hover span { text-decoration: underline; }
 .link-btn { border: 0; background: none; padding: 0; color: var(--accent-text, var(--accent)); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .link-btn:hover { color: var(--text); }
 /* 世界与备份 → 备份：页顶的当前世界、备份放在哪 */
-.bk-now { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 14px; border-radius: var(--r-md); background: var(--track); font-size: var(--fs-sm); }
+.bk-now { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; padding: 10px 14px; margin-bottom: 14px; border-radius: var(--r-md); background: var(--track); font-size: var(--fs-sm); }
 .bk-now .ico { flex: none; width: 15px; height: 15px; color: var(--muted); }
+.bk-now .quiet-link { margin-top: 0; }
+/* 改存放位置以前做的备份还在原来的文件夹：一个文件夹一行 */
+.bk-olds { display: grid; gap: 6px; margin-bottom: 8px; }
+.bk-old { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; font-size: var(--fs-sm); color: var(--muted); }
+.bk-old > .ico { flex: none; width: 14px; height: 14px; }
+.bk-old .mono { color: var(--text); overflow-wrap: anywhere; }
 .bk-where { display: flex; align-items: center; gap: 6px 8px; flex-wrap: wrap; margin-bottom: 8px; font-size: var(--fs-sm); color: var(--muted); }
 .bk-where .mono { color: var(--text); overflow-wrap: anywhere; }
 .bk-where .quiet-link { margin-top: 0; }

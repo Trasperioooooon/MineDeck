@@ -162,6 +162,17 @@ func TestDefaultPortSkipsUsed(t *testing.T) {
 	if p, _ := DefaultPort(nil, 25565); p != 25565 {
 		t.Errorf("一台服务器都没有：%d", p)
 	}
+	// 另外跳过被别的程序占着的（beta.3 之后，回访走查 11-16）：25568 被占着就再往上；usedBy 照旧只说本软件的服务器
+	busy := func(p int) bool { return p == 25568 || p == 25570 }
+	if p, by := DefaultPortSkipping(used, 25565, busy); p != 25570+1 || by != "生存服" {
+		t.Errorf("跳过别的程序占着的：%d（%s），应为 25571（生存服）", p, by)
+	}
+	if p, by := DefaultPortSkipping(nil, 25568, busy); p != 25569 || by != "" {
+		t.Errorf("起点被别的程序占着：%d %q", p, by)
+	}
+	if p, by := DefaultPortSkipping(used, 25565, nil); p != 25568 || by != "生存服" {
+		t.Errorf("busy 为 nil 时同 DefaultPort：%d %q", p, by)
+	}
 }
 
 // 接管：请求里的端口和文件夹里写的一样（或者没给）就不碰 server.properties；不一样只改 server-port 这一行；

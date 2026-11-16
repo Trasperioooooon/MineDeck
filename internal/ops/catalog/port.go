@@ -106,7 +106,9 @@ func (c *cat) portSuggestOps() {
 		Name: "port.suggest", Title: "推荐服务器端口", Level: ops.HumanOnly, NoLog: true,
 		Desc: "新建、导入、接管服务器时端口填哪个：从 from（默认 25565）起，MineDeck 里别的服务器都没用的最小端口（port）；" +
 			"usedBy 是 from 被哪台服务器用着（空 = from 本来就空着）；used 列出各台服务器用的端口（代理端是它自己配置里的端口）。" +
-			"只看 MineDeck 管着的服务器，别的程序占着的用 port.check 查。except 填一台服务器的名字时不算它（给它自己换端口时用）。" +
+			"port 也跳过这台电脑上正被别的程序监听着的 TCP 端口（读系统的监听表，不试绑）；from 正被别的程序占着时 fromBusy 为 true，" +
+			"fromProcess 是占着它的程序名（查不到为空）。接管时界面不按这个挪端口（原来那台没停的服务器自己就是「别的程序」），只提示。" +
+			"手填的端口有没有被别的程序占着用 port.check 查。except 填一台服务器的名字时不算它（给它自己换端口时用）。" +
 			"只读，但只给界面的表单用，不进 AI 的工具清单（AI 要知道端口用 port.check、instance.list）。",
 		Params: ops.Object(map[string]*ops.Schema{
 			"from":   ops.Integer("从哪个端口起找，默认 25565").Range(0, 65535),
@@ -121,19 +123,31 @@ func (c *cat) portSuggestOps() {
 				return nil, err
 			}
 			used := c.Mgr.PortsInUse(p.Except)
-			port, by := inst.DefaultPort(used, p.From)
+			listen := listenPorts()
+			port, by := inst.DefaultPortSkipping(used, p.From, func(n int) bool { _, ok := listen[n]; return ok })
 			from := p.From
-			if from < 1 {
+			if from < 1 || from > 65535 {
 				from = 25565
 			}
 			out := map[string]any{"port": port, "from": from, "used": used}
 			if by != "" {
 				out["usedBy"] = by
 			}
+			// from 被别的程序占着（本软件那台开着的服务器自己也在监听表里，那种 usedBy 已经说了，不再算别的程序）
+			if pid, ok := listen[from]; ok && by == "" {
+				out["fromBusy"] = true
+				if name := processName(pid); name != "" {
+					out["fromProcess"] = name
+				}
+			}
 			return out, nil
 		},
 	})
 }
+
+// listenPorts 读这台电脑上正在监听的 TCP 端口（见 tcpListeners）。测试里换掉：机器上碰巧有程序占着 25565 这类端口时，
+// 推荐端口的用例不该跟着变。
+var listenPorts = tcpListeners
 
 // baseExe 取路径里的程序名。
 func baseExe(p string) string { return filepath.Base(strings.ReplaceAll(p, `\`, "/")) }

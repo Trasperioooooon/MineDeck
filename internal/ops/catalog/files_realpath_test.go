@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,8 @@ import (
 	"minedeck/internal/inst"
 	"minedeck/internal/ops"
 	"minedeck/internal/tunnel"
+
+	"golang.org/x/sys/windows"
 )
 
 // junction 在 link 建一个指向 target 的目录联接（mklink /J 不用管理员权限），测试结束时只删联接本身，不动它指的文件夹。
@@ -27,6 +30,21 @@ func junction(t *testing.T, link, target string) {
 		t.Fatalf("建不了目录联接：%v %s", err, out)
 	}
 	t.Cleanup(func() { _ = os.Remove(link) })
+}
+
+// symlinkUnprivileged 建符号链接失败是不是因为账户没有这个权限（没开开发者模式、也不是管理员）：只有这一种算「这台机器测不了」，
+// 用例跳过；别的失败（路径不对、文件夹没建、同名已经有了）是用例自己的问题，要报出来，不能也记成跳过（Codex 复审 beta.3 第五轮）。
+func symlinkUnprivileged(err error) bool { return errors.Is(err, windows.ERROR_PRIVILEGE_NOT_HELD) }
+
+// symlinkOrSkip 建一个 link 指向 target 的符号链接；没权限时跳过这条用例，别的失败直接判失败。
+func symlinkOrSkip(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		if symlinkUnprivileged(err) {
+			t.Skipf("建不了符号链接（要开发者模式或管理员）：%v", err)
+		}
+		t.Fatalf("建符号链接失败：%v", err)
+	}
 }
 
 // refused err 是不是按 400 拒绝、话里有 want（ops.CodeOf(nil) 也是 400，所以先看 err 是不是 nil）。
@@ -216,9 +234,7 @@ func TestConfigUndoIgnoresLinkedBackup(t *testing.T) {
 	if err := os.MkdirAll(bdir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(outside, filepath.Join(bdir, "config__a.toml~99991231-235959")); err != nil {
-		t.Skipf("建不了符号链接（要开发者模式或管理员）：%v", err)
-	}
+	symlinkOrSkip(t, outside, filepath.Join(bdir, "config__a.toml~99991231-235959"))
 	if _, err := reg.Do(ctx, human, "instance.config.write", ops.Args(`{"inst":"整合包","path":"config/a.toml","mode":"undo"}`)); err == nil || ops.CodeOf(err) != 404 {
 		t.Errorf("备份是指到外面的符号链接时不该撤销：%v", err)
 	}
@@ -240,9 +256,8 @@ func TestConfigPathRejectsParentJunctionWithLinkBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	outside := t.TempDir()
-	if err := os.Symlink(base, filepath.Join(outside, "a.toml")); err != nil {
-		t.Skipf("建不了符号链接（要开发者模式或管理员）：%v", err)
-	}
+	outLink := filepath.Join(outside, "a.toml")
+	symlinkOrSkip(t, base, outLink)
 	junction(t, filepath.Join(dir, "config", "link"), outside)
 	before := names(t, outside)
 	for _, args := range []string{
@@ -256,7 +271,26 @@ func TestConfigPathRejectsParentJunctionWithLinkBack(t *testing.T) {
 	if after := names(t, outside); !slices.Equal(before, after) {
 		t.Errorf("外面的文件夹被动过：%v → %v", before, after)
 	}
+	// 只比名字看不出外面那个链接有没有被换成同名的普通文件（替换写的就是同名）：还得是那个指回服务器里的符号链接
+	if fi, err := os.Lstat(outLink); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("外面的符号链接被换掉了：%v %v", fi, err)
+	} else if to, err := os.Readlink(outLink); err != nil || !strings.EqualFold(filepath.Clean(to), filepath.Clean(base)) {
+		t.Errorf("外面的符号链接指向变了：%q %v", to, err)
+	}
 	if b, _ := os.ReadFile(base); string(b) != "a = 1\n" {
 		t.Errorf("服务器里的文件被改了：%q", b)
+	}
+}
+
+// 跳过的条件只认「没权限」：路径不对这类失败要报出来，不能跟着跳过
+func TestSymlinkSkipOnlyWithoutPrivilege(t *testing.T) {
+	wrap := func(e error) error { return &os.LinkError{Op: "symlink", Old: "a", New: "b", Err: e} }
+	if !symlinkUnprivileged(wrap(windows.ERROR_PRIVILEGE_NOT_HELD)) {
+		t.Error("没权限时该跳过")
+	}
+	for _, e := range []error{windows.ERROR_PATH_NOT_FOUND, windows.ERROR_ALREADY_EXISTS, windows.ERROR_ACCESS_DENIED, errors.New("别的错")} {
+		if symlinkUnprivileged(wrap(e)) {
+			t.Errorf("%v 不该当成没权限跳过", e)
+		}
 	}
 }
