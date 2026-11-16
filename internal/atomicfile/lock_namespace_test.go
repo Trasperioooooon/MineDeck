@@ -65,7 +65,14 @@ func exerciseNamespaceWaiters(t *testing.T, key func() string, replaceEntry func
 	case <-time.After(3 * time.Second):
 		t.Fatal("B没有取得锁")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
+	// C 的键和 B 排队时用的键一样，就该等不到：短期限就够，机器慢只会更等不到。
+	// 不一样就该马上拿到，期限放长：原来两种情况都只给 60 毫秒，该拿到的那一种在很忙的机器上会被误判成超时
+	// （走到 select 的时候期限已经过了，「拿到锁」和「超时」同时就绪，随机挑一个）。
+	wait := 60 * time.Millisecond
+	if key() != aKey {
+		wait = 10 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), wait)
 	releaseC, err := lockKeyContext(ctx, key())
 	cancel()
 	overlap := err == nil
