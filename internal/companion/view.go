@@ -91,6 +91,14 @@ func (s *Service) Status(name string) (*View, error) {
 		}
 	}
 	w := r.welcome
+	// 连接状态和欢迎信息在同一把锁里一起读。客户端那边是先把欢迎信息交到这里（onWelcome 要拿 s.mu）、
+	// 再把状态标成 live，所以这里拿着 s.mu 读到 live 时，欢迎信息一定已经在了。放了锁再读状态的话，
+	// 可能读到「旧的空欢迎信息 + 新的 live」，伙伴页就显示连着却没有模组版本（2026-11-09 CI 上
+	// TestServiceAutoConnect 撞到的就是这个快照）。锁的先后 s.mu → c.mu 和 liveClient 一样
+	var st State
+	if c != nil {
+		st = c.State()
+	}
 	s.mu.Unlock()
 
 	switch {
@@ -99,7 +107,6 @@ func (s *Service) Status(name string) (*View, error) {
 	case c == nil:
 		v.Link.State = "waiting"
 	default:
-		st := c.State()
 		v.Link.Since, v.Link.Addr, v.Link.Error, v.Link.Busy, v.Link.RTTMs = st.Since, st.Addr, st.LastError, st.Busy, st.RTTMs
 		switch st.Phase {
 		case PhaseLive:

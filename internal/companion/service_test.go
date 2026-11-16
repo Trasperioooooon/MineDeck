@@ -311,9 +311,15 @@ func TestServiceActAndFinish(t *testing.T) {
 	if f := e.finishedList()[2]; f.Origin.Player != "Steve" || f.Text != "打 zombie ×2 做完了：打到 2 只（要 2 只），用时 10 秒。" {
 		t.Errorf("断开期间结束的任务：%+v", f)
 	}
+	// 这条通知是重连时从 WELCOME 里认出来的；客户端先交 WELCOME、后把状态标成连着，
+	// 所以收到通知的那一刻可能还没算连上，下面要让伙伴做事，先等连上
+	e.live(t)
 
 	// 服务器重启：session 变了，旧的任务编号作废；新开服的 1 号任务不是 Steve 发起的
-	r3, _ := e.s.Act(ctx, "模组服", "collect", map[string]any{"companion": "小方", "item": "stone"}, companion.Origin{Player: "Steve"})
+	r3, err := e.s.Act(ctx, "模组服", "collect", map[string]any{"companion": "小方", "item": "stone"}, companion.Origin{Player: "Steve"})
+	if err != nil || r3 == nil || r3.Task == nil {
+		t.Fatalf("重连以后让伙伴做事：%+v %v", r3, err)
+	}
 	e.mod.Restart("s2")
 	waitFor(t, "重连", func() bool { v, _ := e.s.Status("模组服"); return v.Link.State == "live" && v.Link.Session == "s2" })
 	_ = e.mod.SendEvent(map[string]any{"event": "task_finished", "companion": 1, "result": "done", "task": map[string]any{"id": r3.Task.ID, "op": "collect", "companion": 1}})
