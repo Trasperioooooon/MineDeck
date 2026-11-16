@@ -1,6 +1,6 @@
 // 后台记录测试窗口页面里的报错（console error / warning、未捕获的异常），写进证据文件夹的 console.log。
 // 只给第二轮查原因用，走查的人不用看它。
-const { chromium } = require('E:/Archive_files/MineDeck/tools/ui-dev/node_modules/playwright');
+const { chromium } = require('E:/MineDeck/tools/ui-dev/node_modules/playwright');
 const fs = require('fs'), path = require('path');
 const copy = process.argv[2];
 const st = JSON.parse(fs.readFileSync(path.join(__dirname, `state-${copy}.json`), 'utf8').replace(/^\uFEFF/, ''));

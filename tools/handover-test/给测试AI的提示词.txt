@@ -2,7 +2,7 @@
 
 任务说明里有完整的规矩，这里先强调最要紧的几条：
 
-1. 只在 D:\MineDeck-handover-test 里读写文件。绝对不要读、写、删 E:\Archive_files\MineDeck 里的任何东西。
+1. 只在 D:\MineDeck-handover-test 里读写文件。绝对不要读、写、删 E:\MineDeck 里的任何东西。
 2. 不要按名字结束进程，不要用 taskkill /IM、Stop-Process -Name 这类命令，尤其不要动 java.exe 和 MineDeck.exe。
 3. 不要用 git，不要修改任何脚本和 MineDeck 的文件，不要自己写代码去调接口。每条测试都用任务说明里给的命令原样运行。
 4. 每条测试启动以后用 python run.py --status 看进度，看到「总结果」那一行才算跑完，然后再开始下一条。

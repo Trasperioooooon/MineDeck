@@ -1,7 +1,7 @@
 // 像用户一样操作测试副本里的 MineDeck 窗口：看屏幕（截图）、点、悬停、打字、按键、滚动、拖动、选文件。
 // 每做一步都截一张图、在证据文件夹的 actions.jsonl 里记一行。这个脚本不给页面地址，也不调程序接口。
 // 用法：node D:\MineDeck-ux\rig\drive.js <first|return> <命令> [参数…]   （命令清单见文件末尾的 HELP，或运行 help）
-const { chromium } = require('E:/Archive_files/MineDeck/tools/ui-dev/node_modules/playwright');
+const { chromium } = require('E:/MineDeck/tools/ui-dev/node_modules/playwright');
 const fs = require('fs'), path = require('path'), cp = require('child_process');
 
 const HELP = `命令（坐标都是截图里的像素位置，截图和窗口内容一比一）：
