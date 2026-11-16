@@ -6544,6 +6544,42 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       } finally { await xState({ instReset: true, adoptScan: null, taskList: [], taskStage: 2, modCart: { reset: true } }); }
     });
 
+    await run("新建、导入整合包的默认端口也避开被别的程序占着的，并写明；手填被别的程序占着的当场提示、不拦；接管只提示不换（回访走查 11-16）", async () => {
+      try {
+        // 生存服挪到 25590：25565 只被别的程序（java.exe）占着；25568 也被一个查不到名字的程序占着
+        await xState({ instReset: true, taskStage: 4, modCart: { reset: true }, otherPorts: { 25565: "java.exe", 25568: "" } });
+        await xState({ inst: { name: SURVX, port: 25590 } });
+        await toWizardFinal("#/create/new");
+        let f = await portView("#f-port", "#f-port-note");
+        assert(f.v === "25569" && f.note.includes("25565 被别的程序（java.exe）占着，已改为 25569") && !f.warn, "向导的默认端口：" + JSON.stringify(f));
+        // 手填被别的程序占着的：停手一下就提示（查不到程序名时不写名字），不拦着；换成空着的提示就没了
+        await page.fill("#f-port", "25568"); await settle(700);
+        f = await portView("#f-port", "#f-port-note");
+        assert(f.warn && f.note.includes("端口 25568 现在被别的程序占着，开服时会报错") && !f.note.includes("（"), "手填被占着的：" + JSON.stringify(f));
+        await page.fill("#f-port", "25570"); await settle(700);
+        f = await portView("#f-port", "#f-port-note");
+        assert(!f.warn && f.note === "", "换成空着的：" + JSON.stringify(f));
+        // 手填的还是本软件服务器用着的：照旧说是哪台，不再去问别的程序
+        await page.fill("#f-port", "25566"); await settle(700);
+        f = await portView("#f-port", "#f-port-note");
+        assert(f.warn && f.note.includes("机械动力整合包") && !f.note.includes("别的程序"), "本软件的服务器用着：" + JSON.stringify(f));
+        // 导入整合包：同样避开
+        await page.goto(url("#/create/import")); await page.waitForSelector("#im-port-note");
+        await page.waitForFunction(() => $("#im-port").value === "25569", null, { timeout: 3000 }).catch(() => {});
+        f = await portView("#im-port", "#im-port-note");
+        assert(f.v === "25569" && f.note.includes("25565 被别的程序（java.exe）占着，已改为 25569"), "导入整合包的默认端口：" + JSON.stringify(f));
+        // 接管：识别出来的 25565 只被别的程序占着（多半是原来那台还开着）——不换，只提示
+        await xState({ adoptScan: { dir: "D:\\old\\S2", name: "S2", core: "paper", mc: "1.21.4", build: "", launchTarget: "jar:paper.jar",
+          targets: [{ target: "jar:paper.jar", label: "paper.jar（Paper 1.21.4）", core: "paper", mc: "1.21.4", build: "", javaMajor: 0 }],
+          javaMajor: 0, xmxMb: 0, extraJvm: [], port: 25565, eula: true, hasWorld: true, managed: false, notes: [], whitelistOn: false } });
+        await page.goto(url("#/create/adopt")); await page.waitForSelector("#ad-dir");
+        await page.fill("#ad-dir", "D:\\old\\S2"); await page.keyboard.press("Enter"); await page.waitForSelector("#ad-port"); await settle(700);
+        f = await portView("#ad-port", "#ad-port-note");
+        assert(f.v === "25565" && f.warn && f.note.includes("端口 25565 现在被别的程序（java.exe）占着") && f.note.includes("如果是原来的服务器还开着，接管前先把它停掉") &&
+          !f.note.includes("server.properties"), "接管只提示不换：" + JSON.stringify(f));
+      } finally { await xState({ instReset: true, adoptScan: null, otherPorts: {}, taskStage: 2, modCart: { reset: true } }); }
+    });
+
     await run("beta.3 端口 R08：手填的端口和别的服务器撞了当场提示（写明是哪台、开着没有，给一个没人用的），不标红、不拦着创建；改成没人用的提示就没了", async () => {
       try {
         await xState({ instReset: true, taskStage: 4, modCart: { reset: true } });

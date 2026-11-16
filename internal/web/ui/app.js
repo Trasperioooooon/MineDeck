@@ -1628,28 +1628,52 @@ async function renderCreate(mode) {
 const suggestPort = () => api("/api/ports/suggest").catch(() => null);
 /* input：端口框；note：它下面放提示的元素；sug：/api/ports/suggest 的结果（可以是 null）。
    base：原来的端口（新建、导入是 25565，接管是文件夹里写的）；keep：「返回修改」填回来的，不换。
+   avoidOther：默认端口被别的程序占着时也换（新建、导入整合包、用已有地图开服；beta.3 之后，回访走查 11-16：以前开服才报）。
+   接管传 false：原来那台没停的服务器自己就是「别的程序」，换了端口接管时会改它的 server.properties，所以只提示。
+   otherTip：端口被别的程序占着时另接的一句（接管：可能是原来的服务器还开着）。
    extra(v)：另外接在提示后面的一句（接管：端口和原来不一样时会改 server.properties）。返回 { def }：默认填的端口 */
-function wirePortField(input, note, sug, { base = 25565, keep = false, extra = null } = {}) {
+function wirePortField(input, note, sug, { base = 25565, keep = false, extra = null, avoidOther = true, otherTip = "" } = {}) {
   const used = sug && Array.isArray(sug.used) ? sug.used : [];
   const owner = p => used.find(u => u.port === p);
-  let auto = null; // 默认值换过：{ from, to, by }
+  let auto = null; // 默认值换过：{ from, to, by（本软件的哪台）或 proc（别的程序，可能是空串）}
   const o = owner(base);
-  if (!keep && o && sug.port && sug.port !== base) {
-    auto = { from: base, to: sug.port, by: o.instance };
-    input.value = sug.port;
-  }
+  if (!keep && o && sug.port && sug.port !== base) auto = { from: base, to: sug.port, by: o.instance };
+  else if (!keep && avoidOther && sug && sug.fromBusy && sug.from === base && sug.port && sug.port !== base) auto = { from: base, to: sug.port, proc: sug.fromProcess || "" };
+  if (auto) input.value = auto.to;
+  // 手填的端口有没有被别的程序占着：问后端（port.check，读系统的监听表），停手 300 毫秒再问，回来的不是现在框里的就不要。
+  // 换好的默认值后端刚查过，不用再问。查不成不提示，也不拦着提交（同本软件服务器撞端口：只提示）
+  let other = { v: 0, text: "" }, seq = 0, timer = 0;
+  const check = v => {
+    clearTimeout(timer);
+    if (!(Number.isInteger(v) && v >= 1 && v <= 65535) || owner(v) || (auto && v === auto.to)) return;
+    const my = ++seq;
+    timer = setTimeout(async () => {
+      let r;
+      try { r = await api(`/api/ports/${v}?proto=tcp`); } catch { return; }
+      if (my !== seq || !input.isConnected) return;
+      const t = r && r.tcp, outs = t && t.free === false ? (t.owners || []).filter(x => !x.instance) : [];
+      // 被本软件的服务器占着的，上面 used 已经说了；监听表里查得到进程、又都是本软件的，不算别的程序
+      const proc = outs.map(x => x.process).filter(Boolean)[0] || "";
+      other = { v, text: t && t.free === false && (outs.length || !(t.owners || []).length)
+        ? `端口 ${v} 现在被别的程序${proc ? `（${proc}）` : ""}占着，开服时会报错。换一个，或者先关掉那个程序。${otherTip}` : "" };
+      paint();
+    }, 300);
+  };
   const paint = () => {
     const v = Number(input.value), hit = Number.isInteger(v) ? owner(v) : null;
-    let text = "";
+    let text = "", warn = !!hit;
     if (hit) text = `端口 ${v} 已被你的服务器「${hit.instance}」使用${hit.status && hit.status !== "stopped" ? "（它现在开着）" : ""}，两台不能同时开。` +
       (sug && sug.port && sug.port !== v ? `换一个吧，比如 ${sug.port}。` : "");
-    else if (auto && v === auto.to) text = `${auto.from} 已被「${auto.by}」使用，已改为 ${auto.to}。`;
+    else if (auto && v === auto.to) text = auto.by ? `${auto.from} 已被「${auto.by}」使用，已改为 ${auto.to}。`
+      : `${auto.from} 被别的程序${auto.proc ? `（${auto.proc}）` : ""}占着，已改为 ${auto.to}。`;
+    else if (other.v === v && other.text) { text = other.text; warn = true; }
     const more = extra ? extra(v) : "";
-    note.classList.toggle("warn", !!hit);
-    note.innerHTML = text || more ? `${icon(hit ? "warn" : "info")}<span>${esc(text + more)}</span>` : "";
+    note.classList.toggle("warn", warn);
+    note.innerHTML = text || more ? `${icon(warn ? "warn" : "info")}<span>${esc(text + more)}</span>` : "";
   };
-  input.addEventListener("input", paint);
+  input.addEventListener("input", () => { paint(); check(Number(input.value)); });
   paint();
+  check(Number(input.value));
   return { def: auto ? auto.to : base };
 }
 
@@ -1771,7 +1795,9 @@ async function drawAdopt() {
     }
     // 端口（R08）：识别出来的和 MineDeck 里别的服务器撞了就换一个没人用的，说清会改 server.properties；没撞就沿用，什么都不改
     const was = s.port || 25565;
+    // 被别的程序占着时只提示、不换：多半是原来那台服务器还开着，换了端口接管时会改它的 server.properties
     wirePortField($("#ad-port"), $("#ad-port-note"), sug, { base: was, keep: !!(fill && fill.dir === s.dir && fill.port),
+      avoidOther: false, otherTip: "如果是原来的服务器还开着，接管前先把它停掉。",
       extra: v => Number.isInteger(v) && v >= 1 && v <= 65535 && v !== was ? `接管时会把 server.properties 里的端口从 ${was} 改成 ${v}（别的设置不动），朋友要用新端口连。` : "" });
     fill = null;
     paintKind();
