@@ -66,6 +66,14 @@ func TestPropsSaveNeverLeavesFileMissing(t *testing.T) {
 	if b, _ := os.ReadFile(path); !strings.Contains(string(b), "difficulty=normal") {
 		t.Errorf("只读的原文件换完以后：%q", b)
 	}
+	// 文件夹里只该有这一个文件：以前扩展改名的名字后面没留空字符，新文件会被改名成「server.properties」加乱码留在这里（2026-11-16）
+	if ents, _ := os.ReadDir(dir); len(ents) != 1 || ents[0].Name() != "server.properties" {
+		names := []string{}
+		for _, e := range ents {
+			names = append(names, e.Name())
+		}
+		t.Errorf("只读的原文件换完以后文件夹里应只有 server.properties：%q", names)
+	}
 
 	// 原文件正被别的程序独占着：保存失败，原文件原样留着，不留临时文件
 	ptr, _ := windows.UTF16PtrFromString(path)

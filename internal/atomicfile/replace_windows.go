@@ -93,13 +93,6 @@ func retryable(err error, path string, old fs.FileInfo) bool {
 }
 
 func replace(tmp, path string, old fs.FileInfo) error {
-	// 先记下临时文件是哪一个（现在就取文件编号，改名以后这个名字就没了）：换完核对目标位置上的确实是它
-	moved, merr := os.Lstat(tmp)
-	if merr == nil {
-		_ = os.SameFile(moved, moved)
-	} else {
-		moved = nil
-	}
 	err := move(tmp, path)
 	retries := 0
 	for err != nil && retries < len(retryDelays) && retryable(err, path, old) {
@@ -111,7 +104,7 @@ func replace(tmp, path string, old fs.FileInfo) error {
 		err = move(tmp, path)
 	}
 	if err == nil {
-		return verifyReplaced(moved, path, "")
+		return nil
 	}
 	if retries > 0 {
 		err = fmt.Errorf("重试 %d 次仍不行：%w", retries, err)
@@ -141,7 +134,7 @@ func replace(tmp, path string, old fs.FileInfo) error {
 	if e := windows.SetFileInformationByHandle(h, windows.FileRenameInfoEx, &buf[0], uint32(len(buf))); e != nil {
 		return e
 	}
-	return verifyReplaced(moved, path, handleWhere(h))
+	return verifyRenamed(h, path)
 }
 
 // renameInfoBuffer 扩展改名（FileRenameInfoEx）要的参数：替换已有的、按 POSIX 规矩、忽略只读属性，新名字是 path。
@@ -164,40 +157,37 @@ func renameInfoBuffer(path string) ([]byte, error) {
 	return buf, nil
 }
 
-// verifyReplaced 替换报了成功以后，核对 path 上现在的确实是刚写好的那个临时文件（按文件编号比）。
-// 2026-11-15 CI 上见过一次：目标是只读、走扩展改名的两次保存都报成功，内容却没变、临时文件也不见了。
-// 加上这道核对以后查清了：扩展改名的名字后面没留结尾的空字符，新文件被改名到了一个带乱码的名字上（见 replace）。
-// 那处已经改了；这道核对留着：报了成功却没换上就等于悄悄丢了一次保存，核对不上时报错，不报成功。
-// where 是退路那一支问到的新文件实际所在（写进报错，下次再碰上好查）；moved 取不到时不核对。
-// 已知代价：换上以后、核对之前正好有别人又换了一次这个文件，会误报没换上（这时刚存的内容也已经被盖掉了）。
-func verifyReplaced(moved fs.FileInfo, path, where string) error {
-	if moved == nil {
+// verifyRenamed 扩展改名报了成功以后，核对改过名的临时文件（句柄 h）现在确实就在 path 上：两边都问系统的规范路径来比。
+// 2026-11-15 CI 上见过一次只读目标走这条退路报成功、内容却没变，查清是名字后面没留结尾的空字符（见 renameInfoBuffer），
+// 新文件被改名到了一个带乱码的名字上。那处已经改了；这道核对是报警器：以后不管什么原因改名改错了地方，都报错而不是报成功。
+// 只放在这条退路上（普通的 MoveFileEx 拿的是以空字符结尾的名字，没有这个问题）；不比文件编号，FAT32、exFAT 和一些网络盘上
+// 编号会随改名变（Codex 复审）。任何一边问不到规范路径就不核对，照旧算成功。
+func verifyRenamed(h windows.Handle, path string) error {
+	got, ok := handleFinal(h, 2)
+	if !ok {
 		return nil
 	}
-	cur, err := os.Lstat(path)
-	if err == nil && os.SameFile(moved, cur) {
+	want, ok := handlePath(path, false)
+	if !ok || strings.EqualFold(got, want) {
 		return nil
 	}
-	msg := "替换报告成功，但目标位置上不是刚写好的文件，没有换上"
-	if where != "" {
-		msg += "（新文件实际在 " + where + "）"
+	where, ok := handleFinal(h, 0)
+	if !ok {
+		where = got
 	}
-	if err != nil {
-		return fmt.Errorf("%s：%w", msg, err)
-	}
-	return errors.New(msg)
+	return fmt.Errorf("改名报告成功，但新文件没有落在 %s 上，而是在 %s，没有换上", path, where)
 }
 
-// handleWhere 一个打开着的句柄现在实际在哪（盘符形式），问不到返回空串。只用来写进报错。
-func handleWhere(h windows.Handle) string {
+// handleFinal 一个打开着的句柄现在实际在哪：volume 为 0 是盘符形式，2 是设备路径形式（原样返回系统给的，不去前缀）。
+func handleFinal(h windows.Handle, volume uint32) (string, bool) {
 	buf := make([]uint16, 512)
 	for {
-		n, err := windows.GetFinalPathNameByHandle(h, &buf[0], uint32(len(buf)), 0)
+		n, err := windows.GetFinalPathNameByHandle(h, &buf[0], uint32(len(buf)), volume)
 		if err != nil || n == 0 {
-			return ""
+			return "", false
 		}
 		if int(n) < len(buf) {
-			return strings.TrimPrefix(windows.UTF16ToString(buf[:n]), `\\?\`)
+			return filepath.Clean(windows.UTF16ToString(buf[:n])), true
 		}
 		buf = make([]uint16, n+1)
 	}
