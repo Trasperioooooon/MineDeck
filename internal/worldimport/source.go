@@ -423,6 +423,11 @@ func openZip(p string) (*source, error) { return openZipCtx(context.Background()
 func openZipCtx(ctx context.Context, p string) (*source, error) {
 	zr, err := zipguard.OpenContext(ctx, p, zipguard.Limits{MaxEntries: maxEntries, MaxDirBytes: maxZipDirBytes})
 	if ctx.Err() != nil {
+		// 清单刚读完就被取消：打开成功了也要关上。不关的话句柄留到垃圾回收，
+		// 紧接着删这份上传的文件会因为它还被占着而删不掉
+		if err == nil {
+			_ = zr.Close()
+		}
 		return nil, ctx.Err()
 	}
 	if errors.Is(err, zipguard.ErrTooLarge) {
