@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -46,8 +48,24 @@ func newFake(t *testing.T, reply func(n int, r recorded, w http.ResponseWriter))
 		f.mu.Unlock()
 		f.reply(n, rec, w)
 	}))
+	loopbackOnly(f.srv.Client())
 	t.Cleanup(f.srv.Close)
 	return f
+}
+
+// loopbackOnly 让假服务配的那个客户端只连得上本机。
+// httptest 给的是普通的 HTTP 客户端，什么地址都连得上。测试把它交给 Service，配上要花钱的服务商以后，
+// Service 会在后台去取价格表；没给 PriceURL 的话取的就是 GitHub 上真的那份：测试连了外网，取到以后还会在
+// 测试已经返回、临时文件夹正在清理的时候往里写 prices.json（2026-11-16 的 CI 和发版因此各挂过一次，
+// 报临时文件被占着、文件夹不空）。挡在拨号这一层，包里每一处 f.srv.Client() 都管到，以后新写的也漏不掉。
+func loopbackOnly(c *http.Client) {
+	c.Transport.(*http.Transport).DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, _, _ := net.SplitHostPort(addr)
+		if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+			return nil, fmt.Errorf("测试里不许连外网：%s", addr)
+		}
+		return (&net.Dialer{}).DialContext(ctx, network, addr)
+	}
 }
 
 func (f *fakeServer) requests() []recorded {
