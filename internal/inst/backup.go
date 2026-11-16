@@ -316,6 +316,11 @@ func (m *Manager) createBackupWith(i *Instance, label, spare string, lease *disk
 		return nil
 	}
 	if err := zipDirsWith(i.Dir, worlds, dest, lease, verify); err != nil {
+		// 压到一半读文件出错，多半是服务器这时正在停服或重启：存盘时会写临时文件再改名，列出来的文件转眼就不在了。
+		// 这种也按「服务器停止或重启过」报，定时备份会等它稳定下来再试；核对通过的才是真的读不了
+		if verr := verify(); verr != nil {
+			return "", verr
+		}
 		return "", fmt.Errorf("压缩备份失败: %w", err)
 	}
 	m.pruneBackups(name, spare)

@@ -465,6 +465,7 @@ func decodeConsole(b []byte, enc string) string {
 
 // ShutdownAll 程序退出前优雅停止所有运行中的服务器。
 func (m *Manager) ShutdownAll(wait time.Duration) {
+	m.closing.Store(true)
 	var running []string
 	for _, i := range m.List() {
 		if i.Status() != "stopped" {
