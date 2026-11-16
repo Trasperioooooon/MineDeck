@@ -6665,7 +6665,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         // 别的原因没起来（找不到 Java 这类）：没有改端口的按钮
         await xState({ inst: { name: PACKX, startFail: "找不到这台服务器用的 Java，请到这台服务器详情页的「设置 → 启动与内存」里重新选一个 Java。", startPortBusyFail: null } });
         await page.goto(url(`#/inst/${encodeURIComponent(PACKX)}/players`)); await page.waitForSelector("#d-start");
-        await page.click("#d-start"); await page.waitForSelector("#d-start-fail");
+        await page.click("#d-start");
+        await page.waitForFunction(() => { const el = document.querySelector("#d-start-fail"); return el && el.textContent.includes("找不到这台服务器用的 Java"); });
         assert(!(await page.$("#d-start-fail [data-port-edit]")) && !(await page.$("#d-start-fail [data-port-fix]")), "不是端口的问题不该给改端口");
       } finally { await xState({ instReset: true }); }
     });
@@ -7789,6 +7790,96 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     });
   }
   // ==================== beta.3 工具箱结束 ====================
+
+  const clipOk = () => page.evaluate(() => {
+    window.__copied = null;
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async t => { window.__copied = t; } } });
+  });
+  const copiedNow = () => page.evaluate(() => window.__copied);
+
+  await run("复制：手机远程管理的防火墙命令能一键复制完整原文，不含说明文字；键盘回车也能复制", async () => {
+    await page.goto(url("#/settings/remote")); await page.waitForSelector("#lan-fw-copy");
+    const shown = (await page.textContent("#lan-fw .copy-block-pre")).trim();
+    const attr = await page.getAttribute("#lan-fw-copy", "data-copy-exact");
+    assert(shown.startsWith("netsh advfirewall firewall add rule") && shown.includes('name="MineDeck"') && shown.includes("localport=" + PORT), "命令应是完整的 netsh：" + shown);
+    assert(attr === shown && !shown.includes("防火墙") && !shown.includes("CMD"), "复制的应是命令本身，不带提示：" + attr);
+    const selectable = await page.$eval("#lan-fw .copy-block-pre", el => getComputedStyle(el).userSelect);
+    assert(selectable === "all" || selectable === "text", "命令应能选中：" + selectable);
+    await clipOk();
+    await page.focus("#lan-fw-copy");
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(200);
+    assert(await copiedNow() === shown, "回车复制的内容：" + await copiedNow());
+    assert(await page.evaluate(() => [...document.querySelectorAll(".toast")].some(t => t.textContent.includes("已复制防火墙命令"))), "应提示已复制");
+  });
+
+  await run("复制：管理页地址只复制当前 URL，不含访问密码；剪贴板失败时不报成功，并选出完整原文", async () => {
+    await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ listenLan: true }) }));
+    await page.evaluate(() => { window.__exec0 = document.execCommand.bind(document); });
+    try {
+      await page.goto(url("#/settings/remote")); await page.waitForSelector("#qr-copy");
+      await clipOk();
+      await page.click("#qr-copy");
+      await page.waitForTimeout(200);
+      const urlWant = "http://192.168.1.23:" + PORT;
+      assert(await copiedNow() === urlWant, "复制的管理页地址：" + await copiedNow());
+      assert(!(String(await copiedNow())).includes("密码"), "地址里不该有密码");
+      await page.evaluate(() => { document.querySelectorAll(".toast").forEach(t => t.remove()); });
+      await page.evaluate(() => {
+        Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+        document.execCommand = () => false;
+      });
+      await page.click("#lan-fw-copy");
+      await page.waitForSelector("#copy-fallback textarea");
+      const fb = await page.$eval("#copy-fallback textarea", el => ({ v: el.value, a: el.selectionStart, b: el.selectionEnd }));
+      const cmd = (await page.textContent("#lan-fw .copy-block-pre")).trim();
+      assert(fb.v === cmd && fb.a === 0 && fb.b === cmd.length, "失败时应选中完整命令：" + JSON.stringify(fb));
+      assert(!(await page.evaluate(() => [...document.querySelectorAll(".toast")].some(t => t.textContent.includes("已复制")))), "失败时不该提示已复制");
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(200);
+    } finally {
+      await page.evaluate(() => { if (window.__exec0) document.execCommand = window.__exec0; });
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ listenLan: false }) }));
+    }
+  });
+
+  await run("详情页头：运行中主按钮是停止，停着时主按钮是启动；1024×576 里命令框仍在窗口内", async () => {
+    const surv = encodeURIComponent("生存服 · 朋友");
+    const pack = encodeURIComponent("机械动力整合包");
+    await page.goto(url("#/inst/" + surv + "/console")); await page.waitForSelector("#d-stop");
+    const runCls = await page.evaluate(() => ({ stop: $("#d-stop").classList.contains("primary"), start: $("#d-start").classList.contains("primary"), startOff: $("#d-start").disabled }));
+    assert(runCls.stop && !runCls.start && runCls.startOff, "运行中：" + JSON.stringify(runCls));
+    await page.goto(url("#/inst/" + pack + "/console")); await page.waitForSelector("#d-start");
+    const stopCls = await page.evaluate(() => ({ start: $("#d-start").classList.contains("primary"), stop: $("#d-stop").classList.contains("primary") }));
+    assert(stopCls.start && !stopCls.stop, "已停止：" + JSON.stringify(stopCls));
+    await page.setViewportSize({ width: 1024, height: 576 });
+    try {
+      await page.goto(url("#/inst/" + surv + "/console")); await page.waitForSelector("#cmd-in");
+      await page.waitForTimeout(200);
+      const box = await page.evaluate(() => {
+        const i = document.querySelector("#cmd-in").getBoundingClientRect();
+        const c = document.querySelector("#console").getBoundingClientRect();
+        const bar = document.querySelector(".console-bar").getBoundingClientRect();
+        return { it: i.top, ib: i.bottom, vh: innerHeight, ch: c.height, ct: c.top, bb: bar.bottom, ct2: c.top };
+      });
+      assert(box.ib <= box.vh + 1 && box.it >= 0 && box.ch >= 64 && box.ct >= box.bb - 1, "最小窗口控制台：" + JSON.stringify(box));
+    } finally { await page.setViewportSize({ width: 1280, height: 850 }); }
+  });
+
+  await run("AI 助手打开时，宽窗口里详情页的启动按钮留在面板左侧", async () => {
+    await page.goto(url("#/inst/" + encodeURIComponent("生存服 · 朋友") + "/console"));
+    await page.waitForSelector("#d-start");
+    await page.click('button[aria-label^="AI 助手"]');
+    await page.waitForSelector("#ai-panel");
+    await page.waitForTimeout(300);
+    const g = await page.evaluate(() => {
+      const b = document.querySelector("#d-start").getBoundingClientRect();
+      const p = document.querySelector("#ai-panel").getBoundingClientRect();
+      return { bright: Math.round(b.right), pleft: Math.round(p.left), open: document.body.classList.contains("ai-open") };
+    });
+    assert(g.open && g.bright <= g.pleft + 2, "按钮不该被面板盖住：" + JSON.stringify(g));
+    await page.keyboard.press("Escape");
+  });
 
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
 
