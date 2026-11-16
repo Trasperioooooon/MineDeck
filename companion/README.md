@@ -455,7 +455,7 @@ nodig.farm=minecraft:overworld 200,60,200 260,90,260
 | `give` 一个都没交出去 | 报 `done` | 报 `failed`，`detail`：接东西的人在下界时「Alex 不在伙伴所在的维度」；背包里没有、也弄不到（`fetch` 要基岩）时「原来一个都没有，也没弄到」 |
 | 停下来的伙伴站在 3 格深的水里 | 半分钟左右淹死 | 浮在水面上（离水底 2.5–2.7 格），65 秒血量不变、不离开水箱、没开始任务 |
 
-做法：容器里的无头 NeoForge 21.1.265、Forge 47.4.28，入库的 0.2.1 jar（sha256 `6ea730ab…`、`06449d88…`，`update-embedded.sh --check` 通过）；联调程序 NeoForge 55 项全部通过，Forge 53 项没有失败（1 项跳过：Modrinth 上没有 Architectury 别的范围内版本）；多了上面这几项：H12、H13、W1、X1b、T0。同一个联调程序换上 0.2.0 的 jar（`-mod-jar`）在 NeoForge 上对比：55 项失败 6 项，就是这几项和模组版本号（C3），T0 是竞态、碰上时才失败（见交接说明「伙伴模组 0.2.1」）。`incomplete` 没有实测到：PlayerEngine 交东西是「全给」或者「一个都不给」（够数了才去扔），只给了一部分的情况造不出来，MineDeck 那边的通知文字由单元测试覆盖。
+做法：容器里的无头 NeoForge 21.1.265、Forge 47.4.28，入库的 0.2.1 jar（sha256 `6ea730ab…`、`06449d88…`，`update-embedded.sh --check` 通过）；联调程序 NeoForge 55 项全部通过，Forge 53 项没有失败（1 项跳过：Modrinth 上没有 Architectury 别的范围内版本）；多了上面这几项：H12、H13、W1、X1b、T0。同一个联调程序换上 0.2.0 的 jar（`-mod-jar`）在 NeoForge 上对比：55 项失败 6 项，就是这几项和模组版本号（C3），T0 是竞态、碰上时才失败（见 `docs/日志/2026-10-31-第七阶段-伙伴模组0.2.1.md`）。`incomplete` 没有实测到：PlayerEngine 交东西是「全给」或者「一个都不给」（够数了才去扔），只给了一部分的情况造不出来，MineDeck 那边的通知文字由单元测试覆盖。
 
 ## 真客户端自测
 
