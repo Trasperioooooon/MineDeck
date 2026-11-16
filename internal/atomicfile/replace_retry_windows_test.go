@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -377,6 +378,67 @@ func TestRetryStopsWhenTargetTurnsReadOnly(t *testing.T) {
 				}
 				assertNoTemps(t, dir)
 			})
+		}
+	}
+}
+
+// 扩展改名报了成功以后核对新文件确实落在目标上：落在别处就报错并写出在哪，不报成功
+// （2026-11-15 CI 上见过一次只读目标走这条退路报成功却没换上，查清是名字后面没留空字符）。
+func TestVerifyRenamedCatchesWrongPlace(t *testing.T) {
+	dir := t.TempDir()
+	elsewhere := filepath.Join(dir, "server.properties乱码")
+	path := filepath.Join(dir, "server.properties")
+	for _, p := range []string{elsewhere, path} {
+		if err := os.WriteFile(p, []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	u, _ := windows.UTF16PtrFromString(elsewhere)
+	h, err := windows.CreateFile(u, 0, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		nil, windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer windows.CloseHandle(h)
+	if err := verifyRenamed(h, path); err == nil || !strings.Contains(err.Error(), "没有换上") || !strings.Contains(err.Error(), "server.properties乱码") {
+		t.Fatalf("新文件不在目标上时应报没换上，并写出它在哪：%v", err)
+	}
+	if err := verifyRenamed(h, elsewhere); err != nil {
+		t.Fatalf("就在目标上时不该报错：%v", err)
+	}
+	if err := verifyRenamed(h, filepath.Join(dir, "missing")); err != nil {
+		t.Fatalf("目标问不到规范路径时不核对：%v", err)
+	}
+}
+
+// 扩展改名的参数里，名字后面必须紧跟一个结尾的空字符：系统按以空字符结尾的字符串读名字。
+// 以前没留，内存里有旧数据时新文件会被改名成「server.properties」加一串乱码、原文件没动却报成功（2026-11-16）。
+func TestRenameInfoBufferNameIsNulTerminated(t *testing.T) {
+	// 带中文和表情（UTF-16 里占两个单元）的路径也要对：NameBytes 按 UTF-16 算，不按 UTF-8 字节算（Codex 复审）
+	for _, path := range []string{filepath.Join(t.TempDir(), "server.properties"), filepath.Join(t.TempDir(), "服务器😀", "server.properties")} {
+		buf, err := renameInfoBuffer(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		u16, _ := windows.UTF16FromString(longPath(path))
+		var header renameInfo
+		offset := int(unsafe.Offsetof(header.Name))
+		if wantOff := map[uintptr]int{8: 20, 4: 12}[unsafe.Sizeof(uintptr(0))]; offset != wantOff {
+			t.Fatalf("名字的偏移是 %d，Windows 的 FILE_RENAME_INFORMATION_EX 是 %d", offset, wantOff)
+		}
+		info := (*renameInfo)(unsafe.Pointer(&buf[0]))
+		n := int(info.NameBytes)
+		if want := (len(u16) - 1) * 2; n != want {
+			t.Fatalf("%s：NameBytes = %d，应为 %d（不含结尾的空字符）", path, n, want)
+		}
+		if info.Root != 0 || info.Flags != windows.FILE_RENAME_REPLACE_IF_EXISTS|windows.FILE_RENAME_POSIX_SEMANTICS|windows.FILE_RENAME_IGNORE_READONLY_ATTRIBUTE {
+			t.Fatalf("Root = %v，Flags = %#x", info.Root, info.Flags)
+		}
+		if len(buf) < offset+n+2 || buf[offset+n] != 0 || buf[offset+n+1] != 0 {
+			t.Fatalf("名字后面没有结尾的空字符：缓冲区 %d 字节，名字到 %d", len(buf), offset+n)
+		}
+		if got := windows.UTF16ToString(unsafe.Slice((*uint16)(unsafe.Pointer(&buf[offset])), n/2+1)); got != longPath(path) {
+			t.Fatalf("名字是 %q，应为 %q", got, longPath(path))
 		}
 	}
 }

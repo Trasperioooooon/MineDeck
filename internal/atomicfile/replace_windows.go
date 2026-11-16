@@ -127,19 +127,71 @@ func replace(tmp, path string, old fs.FileInfo) error {
 		return e
 	}
 	defer windows.CloseHandle(h)
-	name, e := windows.UTF16FromString(longPath(path))
+	buf, e := renameInfoBuffer(path)
 	if e != nil {
 		return e
+	}
+	if e := windows.SetFileInformationByHandle(h, windows.FileRenameInfoEx, &buf[0], uint32(len(buf))); e != nil {
+		return e
+	}
+	return verifyRenamed(h, path)
+}
+
+// renameInfoBuffer 扩展改名（FileRenameInfoEx）要的参数：替换已有的、按 POSIX 规矩、忽略只读属性，新名字是 path。
+// 名字后面要留一个结尾的空字符（make 出来就是 0）：系统换算这个路径时按以空字符结尾的字符串读，不只看 NameBytes。
+// 以前没留，名字后面紧挨着的内存不是 0 时就读进一串乱码，新文件被改名成「server.properties」加乱码，
+// 原文件没动，却报成功（2026-11-16 查清；完整跑一个包、内存里有旧数据时才容易碰上，单跑一条用例几百遍都碰不上）。
+func renameInfoBuffer(path string) ([]byte, error) {
+	name, err := windows.UTF16FromString(longPath(path))
+	if err != nil {
+		return nil, err
 	}
 	name = name[:len(name)-1]
 	var header renameInfo
 	offset := int(unsafe.Offsetof(header.Name))
-	buf := make([]byte, offset+len(name)*2)
+	buf := make([]byte, offset+(len(name)+1)*2)
 	info := (*renameInfo)(unsafe.Pointer(&buf[0]))
 	info.Flags = windows.FILE_RENAME_REPLACE_IF_EXISTS | windows.FILE_RENAME_POSIX_SEMANTICS | windows.FILE_RENAME_IGNORE_READONLY_ATTRIBUTE
 	info.NameBytes = uint32(len(name) * 2)
 	copy(unsafe.Slice((*uint16)(unsafe.Pointer(&buf[offset])), len(name)), name)
-	return windows.SetFileInformationByHandle(h, windows.FileRenameInfoEx, &buf[0], uint32(len(buf)))
+	return buf, nil
+}
+
+// verifyRenamed 扩展改名报了成功以后，核对改过名的临时文件（句柄 h）现在确实就在 path 上：两边都问系统的规范路径来比。
+// 2026-11-15 CI 上见过一次只读目标走这条退路报成功、内容却没变，查清是名字后面没留结尾的空字符（见 renameInfoBuffer），
+// 新文件被改名到了一个带乱码的名字上。那处已经改了；这道核对是尽力而为的报警器：以后改名改错了地方，多数情况会报错而不是报成功。
+// 抓不到的：两次查询之间有人又改了名；打开了「区分大小写」的文件夹里只差大小写的两个名字（这里按不分大小写比）。
+// 只放在这条退路上（普通的 MoveFileEx 拿的是以空字符结尾的名字，没有这个问题）；不比文件编号，FAT32、exFAT 和一些网络盘上
+// 编号会随改名变（Codex 复审）。任何一边问不到规范路径就不核对，照旧算成功。
+func verifyRenamed(h windows.Handle, path string) error {
+	got, ok := handleFinal(h, 2)
+	if !ok {
+		return nil
+	}
+	want, ok := handlePath(path, false)
+	if !ok || strings.EqualFold(got, want) {
+		return nil
+	}
+	where, ok := handleFinal(h, 0)
+	if !ok {
+		where = got
+	}
+	return fmt.Errorf("改名报告成功，但新文件没有落在 %s 上，而是在 %s，没有换上", path, where)
+}
+
+// handleFinal 一个打开着的句柄现在实际在哪：volume 为 0 是盘符形式，2 是设备路径形式（原样返回系统给的，不去前缀）。
+func handleFinal(h windows.Handle, volume uint32) (string, bool) {
+	buf := make([]uint16, 512)
+	for {
+		n, err := windows.GetFinalPathNameByHandle(h, &buf[0], uint32(len(buf)), volume)
+		if err != nil || n == 0 {
+			return "", false
+		}
+		if int(n) < len(buf) {
+			return filepath.Clean(windows.UTF16ToString(buf[:n])), true
+		}
+		buf = make([]uint16, n+1)
+	}
 }
 
 func canonicalPath(path string) string {
