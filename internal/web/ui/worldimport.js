@@ -461,8 +461,11 @@ window.MDWorldImport = (() => {
      从备份还原过的不归这里管：那个记在实例的 worldFrom 里，换地图时清掉，调用方先看它 */
   function origin(st) {
     const busy = new Set(["committing", "rolling-back", "restoring", "stuck", "unreadable"]);
-    for (const pt of (st && st.points) || []) {
-      if (busy.has(pt.state)) return { kind: "busy" };
+    const pts = (st && st.points) || [];
+    // 正在换、要人处理的不管排在哪都先说（Codex 复审 beta.3 之后第一轮）：读不出来的记录排在列表后面；列表按导入时间排，
+    // 不是按换回的先后，更新的那条已经换回、更早的那条正在换回也排得出来。所以不能只看第一条
+    if (pts.some(pt => busy.has(pt.state))) return { kind: "busy" };
+    for (const pt of pts) {
       if (pt.levelName && st.levelName && !sameLevel(pt.levelName, st.levelName)) continue;
       if (pt.state === "committed") return { kind: "import", source: pt.source || pt.candidate || "不明的来源", at: when(pt.created) };
       if (pt.state === "restored") return { kind: "returned", at: when(pt.created) };

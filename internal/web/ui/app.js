@@ -193,7 +193,9 @@ function toast(msg, isErr = false, detail, opts = {}) {
 }
 /* 提示的位置：服务器详情页的页头（启动、停止、打开文件夹）和它下面的常驻提示区（上次没能启动、Java 找不到了……带着「改端口」
    「去换 Java」这些修复按钮）在可视区里时，提示落到它们下面，不盖住这些按钮（回访走查 11-16：以前只躲页头，提示区里的按钮正好被盖住）；
-   都滚出去了、或者不在详情页，回到标题栏下方。出提示、提示区变了、滚动、改窗口大小时重算 */
+   都滚出去了、或者不在详情页，回到标题栏下方。看得见比不挡按钮要紧：提示区很高（矮窗口、几条提示叠着）、放到下面会出屏幕时，
+   退回页头下面；还放不下就回到标题栏下方（Codex 复审 beta.3 之后第一轮：不然整条报错在屏幕外照样倒数、自己走掉）。
+   出提示、提示区变了、滚动、改窗口大小时重算 */
 function placeToasts() {
   const box = $("#toasts");
   if (!box || !box.childElementCount) { if (box) box.style.top = ""; return; } // 没有提示就不量（控制台滚动时也会进来）
@@ -202,9 +204,13 @@ function placeToasts() {
   if (head) {
     box.style.top = "";
     const r = head.getBoundingClientRect(), base = parseFloat(getComputedStyle(box).top) || 0;
+    const h = box.offsetHeight, fits = y => y + h <= innerHeight - 8;
     const notes = document.getElementById("d-notices");
-    const bottom = notes && !notes.hidden ? Math.max(r.bottom, notes.getBoundingClientRect().bottom) : r.bottom;
-    if (bottom > base && r.top < innerHeight) top = Math.round(bottom + 8) + "px";
+    const nb = notes && !notes.hidden ? Math.max(r.bottom, notes.getBoundingClientRect().bottom) : r.bottom;
+    if (r.top < innerHeight) {
+      if (nb > base && fits(nb + 8)) top = Math.round(nb + 8) + "px";
+      else if (r.bottom > base && fits(r.bottom + 8)) top = Math.round(r.bottom + 8) + "px";
+    }
   }
   box.style.top = top;
 }
@@ -1640,22 +1646,23 @@ function wirePortField(input, note, sug, { base = 25565, keep = false, extra = n
   if (!keep && o && sug.port && sug.port !== base) auto = { from: base, to: sug.port, by: o.instance };
   else if (!keep && avoidOther && sug && sug.fromBusy && sug.from === base && sug.port && sug.port !== base) auto = { from: base, to: sug.port, proc: sug.fromProcess || "" };
   if (auto) input.value = auto.to;
-  // 手填的端口有没有被别的程序占着：问后端（port.check，读系统的监听表），停手 300 毫秒再问，回来的不是现在框里的就不要。
-  // 换好的默认值后端刚查过，不用再问。查不成不提示，也不拦着提交（同本软件服务器撞端口：只提示）
+  // 手填的端口有没有被别的程序占着：问后端（port.suggest 带 from，它读系统的监听表，回 fromBusy、fromProcess），
+  // 停手 300 毫秒再问，回来的不是现在框里的就不要。不用 port.check：端口空着时它会在所有网卡上试绑一次，
+  // 打开表单就可能让防火墙弹窗问要不要放行（Codex 复审 beta.3 之后第一轮）。
+  // 换好的默认值、后端刚查过是空着的默认值，不用再问。查不成不提示，也不拦着提交（同本软件服务器撞端口：只提示）
   let other = { v: 0, text: "" }, seq = 0, timer = 0;
   const check = v => {
     clearTimeout(timer);
     if (!(Number.isInteger(v) && v >= 1 && v <= 65535) || owner(v) || (auto && v === auto.to)) return;
+    if (sug && v === sug.from && !sug.fromBusy && !sug.usedBy) return;
     const my = ++seq;
     timer = setTimeout(async () => {
+      if (!input.isConnected) return;
       let r;
-      try { r = await api(`/api/ports/${v}?proto=tcp`); } catch { return; }
+      try { r = await api(`/api/ports/suggest?from=${v}`); } catch { return; }
       if (my !== seq || !input.isConnected) return;
-      const t = r && r.tcp, outs = t && t.free === false ? (t.owners || []).filter(x => !x.instance) : [];
-      // 被本软件的服务器占着的，上面 used 已经说了；监听表里查得到进程、又都是本软件的，不算别的程序
-      const proc = outs.map(x => x.process).filter(Boolean)[0] || "";
-      other = { v, text: t && t.free === false && (outs.length || !(t.owners || []).length)
-        ? `端口 ${v} 现在被别的程序${proc ? `（${proc}）` : ""}占着，开服时会报错。换一个，或者先关掉那个程序。${otherTip}` : "" };
+      other = { v, text: r && r.fromBusy
+        ? `端口 ${v} 现在被别的程序${r.fromProcess ? `（${r.fromProcess}）` : ""}占着，开服时会报错。换一个，或者先关掉那个程序。${otherTip}` : "" };
       paint();
     }, 300);
   };

@@ -6993,7 +6993,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     await run("开服失败的报错提示落在页头提示区下面，不盖住提示区里的修复按钮；提示和「详情」里都有去修的按钮（端口被占 → 改端口，找不到 Java → 去换 Java），别的原因不给", async () => {
       const why = "端口 25566 被别的程序占着，换个端口或关掉占用它的程序";
       await resetWith({ name: PACK0, startFail: why, startPortBusyFail: { port: 25566 } });
-      const live = ".toast.error:not(.leave)";
+      const live = ".toast.error:not(.leave)", vp0 = page.viewportSize();
       try {
         await page.evaluate(() => document.querySelectorAll("#toasts .toast").forEach(t => t.remove()));
         await detail(PACK0, "console");
@@ -7028,7 +7028,21 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         await page.click(`${live} button[aria-label="查看报错详情"]`); await page.waitForSelector(".err-detail");
         assert(!(await page.$("#modal-root .modal [data-fix]")), "详情里也不给");
         await page.click('#modal-root .modal [data-x="close"]'); await settle(300);
-      } finally { await page.evaluate(() => document.querySelectorAll("#toasts .toast").forEach(t => t.remove())); await pState({ instReset: true }); }
+        // 矮窗口：提示区下面放不下时退回页头下面，还放不下就回到标题栏下方——整条提示总在屏幕里（Codex 复审 beta.3 之后第一轮：
+        // 以前会被推到屏幕外面照样倒数、自己走掉）
+        for (const hgt of [360, 280]) {
+          await page.setViewportSize({ width: vp0.width, height: hgt });
+          await page.evaluate(() => document.querySelectorAll("#toasts .toast").forEach(t => t.remove()));
+          await detail(PACK0, "console");
+          await page.click("#d-start"); await page.waitForSelector(live); await settle(400);
+          const g = await page.evaluate(sel => { const t = document.querySelector(sel).getBoundingClientRect(); return { top: t.top, bottom: t.bottom, vh: innerHeight,
+            notes: document.querySelector("#d-notices").getBoundingClientRect().bottom }; }, live);
+          assert(g.top >= 0 && g.bottom <= g.vh, `高 ${hgt} 的窗口里提示应整条看得见：` + JSON.stringify(g));
+        }
+      } finally {
+        await page.setViewportSize(vp0);
+        await page.evaluate(() => document.querySelectorAll("#toasts .toast").forEach(t => t.remove())); await pState({ instReset: true });
+      }
     });
 
     await run("beta.3 P0 R04：交接弹窗里报错后点「详情」，报错信息叠在上面；Esc 和「关闭」只关上面那层，交接弹窗和填的路径都在；点遮罩不关；为什么不可用写在弹窗里", async () => {
@@ -7406,6 +7420,14 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         await open(PACK0, "console"); await open(PACK0, "world/backups");
         now = await page.textContent("#bk-now");
         assert(now.includes("换过一次地图，后来换回了换之前的那张") && !now.includes("没生效") && !now.includes("更早的"), "换回过：" + now);
+        // 正在换、要人处理的排在后面也要先说：最新一条已导入，后面跟着一条读不出来的记录（Codex 复审 beta.3 之后第一轮）
+        await dState({ world: { inst: { [PACK0]: { points: [
+          { id: "we", state: "committed", created: "2026-11-12T10:00:00+08:00", source: "最新的.zip", candidate: "world", levelName: "world", hasOld: true, oldBytes: 1, keptBytes: 0 },
+          { id: "wf", state: "unreadable", created: "0001-01-01T00:00:00Z", source: "", candidate: "", levelName: "", hasOld: false, oldBytes: 0, keptBytes: 0 },
+        ] } } } });
+        await open(PACK0, "console"); await open(PACK0, "world/backups");
+        now = await page.textContent("#bk-now");
+        assert(now.includes("换地图还没走完，或者要人处理") && !now.includes("最新的"), "排在后面的要人处理：" + now);
         // 世界名对不上现在的 level-name 的那条不算（是另一个世界文件夹）
         await dState({ world: { inst: { [PACK0]: { levelName: "world2", points: [
           { id: "wd", state: "committed", created: "2026-11-12T10:00:00+08:00", source: "别的世界.zip", candidate: "world", levelName: "world", hasOld: true, oldBytes: 1, keptBytes: 0 },
@@ -7671,6 +7693,11 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
             assert(await page.$("#mp-draft-err #mp-draft-retry:not([disabled])"), "再读还失败时说明留着，按钮能再点");
             await page.fill("#mp-name", "还是读不出时改的"); await settle(600);
             assert(!reqs.slice(since).some(r => r.m === "PUT" && r.u === "/api/toolbox/mrpack/draft"), "还读不出来时仍不该自动存");
+            // 停在「从已有服务器导出」时说明和「重新读取」都不出现：在那边重新读取，切回来一改就会把服务器名存进草稿（Codex 复审 beta.3 之后第一轮）
+            await page.click('#mp-src [data-src="instance"]'); await settle(300);
+            assert(await page.$eval("#mp-draft-msg", e => e.hidden), "从已有服务器导出时不该有读草稿的说明");
+            await page.click('#mp-src [data-src="draft"]'); await settle(300);
+            assert(!(await page.$eval("#mp-draft-msg", e => e.hidden)) && await page.$("#mp-draft-retry"), "切回自己挑模组，说明和按钮还在");
           } finally { await page.unroute("**/api/toolbox/mrpack/draft", failDraft); }
           // 读得出来了：点「重新读取」，表单换成存好的那份，说明消失，之后的修改照常自动存
           {

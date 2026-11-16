@@ -110,7 +110,8 @@ func TestPortSuggestReadsRealListenTable(t *testing.T) {
 		Port     int  `json:"port"`
 		FromBusy bool `json:"fromBusy"`
 	}
-	if err := do(t, reg, human, "port.suggest", `{"from":`+strconv.Itoa(busy)+`}`, &r); err != nil || r.Port <= busy || !r.FromBusy {
+	// 系统分给我们的是 65535 时上面没有端口可跳，按原样给起点（同 DefaultPort 的兜底），只看认没认出被占着
+	if err := do(t, reg, human, "port.suggest", `{"from":`+strconv.Itoa(busy)+`}`, &r); err != nil || !r.FromBusy || (r.Port <= busy && busy < 65535) {
 		t.Errorf("应跳过 %d：%v %+v", busy, err, r)
 	}
 }

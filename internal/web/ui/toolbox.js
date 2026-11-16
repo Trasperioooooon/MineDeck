@@ -867,6 +867,7 @@ window.MDToolbox = (() => {
     const hostRow = $("#mp-host-row"), destIn = $("#mp-destdir"), pickDirBtn = $("#mp-pickdir");
     const prevBtn = $("#mp-preview-btn"), buildBtn = $("#mp-build-btn");
     const prevBox = $("#mp-preview-box"), buildErrEl = $("#mp-build-err"), resultEl = $("#mp-result");
+    const draftMsg = $("#mp-draft-msg");
 
     let saveTimer = null;
 
@@ -923,6 +924,9 @@ window.MDToolbox = (() => {
       const isInst = st.source === "instance";
       draftFields.hidden = isInst;
       cartSec.hidden = isInst;
+      // 读不出草稿的说明和「重新读取」只在「自己挑模组」时出现：名称、版本、简介两种来源共用，停在「从已有服务器导出」时
+      // 重新读取要么不填它们（切回来一改，服务器名就被存进草稿，Codex 复审 beta.3 之后第一轮），要么把服务器名换掉，都不对
+      draftMsg.hidden = isInst;
       if (isInst) {
         instRow.hidden = st.modInsts.length === 0;
         noInstEl.hidden = st.modInsts.length > 0;
@@ -1125,15 +1129,13 @@ window.MDToolbox = (() => {
     buildBtn.onclick = doBuild;
 
     // 把读回来的草稿填进表单。第一次读回来时只补人没动过的格子（force 为假）；「重新读取」时整份换成存好的（force 为真）：
-    // 读失败期间改的不保留，提示条上写明了。名称、版本、简介两种来源共用，这时停在「从已有服务器导出」的话不动它们（里面是服务器的名字）
+    // 读失败期间改的不保留，提示条上写明了。两种时候来源切换都锁着、停在「自己挑模组」（见 applySourceUI 和下面的重新读取）
     function fillDraft(draft, force) {
       if (!draft) return;
       const fill = (el, v) => { if (force || !touched.has(el)) el.value = v; };
-      if (!force || st.source === "draft") {
-        if (draft.name) fill(nameIn, st.name = draft.name);
-        if (draft.versionId) fill(verIn, st.versionId = draft.versionId);
-        if (draft.summary != null) fill(sumIn, st.summary = draft.summary);
-      }
+      if (draft.name) fill(nameIn, st.name = draft.name);
+      if (draft.versionId) fill(verIn, st.versionId = draft.versionId);
+      if (draft.summary != null) fill(sumIn, st.summary = draft.summary);
       if (draft.core && ["fabric", "forge", "neoforge"].includes(draft.core)) fill(coreSel, st.core = draft.core);
       if (draft.mc) fill(mcIn, st.mc = draft.mc);
       if (draft.loaderVersion != null) fill(loaderIn, st.loaderVersion = draft.loaderVersion);
@@ -1142,7 +1144,6 @@ window.MDToolbox = (() => {
     // 读草稿失败（比如文件正被别的程序占着）：这一次不自动存，免得盖掉存好的那份（Codex 复审 beta.3 第三轮）。
     // 以前页面上什么都不说，人接着填、离开再回来，填的都没了也不知道（第五轮）。现在常驻一条说明，带「重新读取」：
     // 读出来了就换成存好的那份、恢复自动保存；还读不出来就换上新的原因，接着不存
-    const draftMsg = $("#mp-draft-msg");
     function paintDraftErr(e) {
       if (!e) { draftMsg.innerHTML = ""; return; }
       draftMsg.innerHTML = errBox("读不出上次存好的整合包信息", e, {
@@ -1153,20 +1154,25 @@ window.MDToolbox = (() => {
       const retry = $("#mp-draft-retry");
       retry.onclick = async () => {
         retry.disabled = true;
+        // 读的时候来源切换锁着（同第一次读）：读回来时一定还停在「自己挑模组」，整份填回去不会碰到服务器的名字
+        const srcBtns = [...srcBox.querySelectorAll("button[data-src]")];
+        srcBtns.forEach(b => { b.disabled = true; });
         let d;
         try { d = await api("/api/toolbox/mrpack/draft"); }
         catch (e2) {
           if (stale(gen)) return;
+          srcBtns.forEach(b => { b.disabled = false; });
           paintDraftErr(e2);
           $("#mp-draft-retry").focus();
           return;
         }
         if (stale(gen)) return;
+        srcBtns.forEach(b => { b.disabled = false; });
         fillDraft(d, true);
         savePending = false; // 读失败期间排着的那次保存作废：表单已经换成存好的了
         draftReady = true;
         paintDraftErr(null);
-        if (st.source === "draft") mountDraftCart(); // 加载器、版本可能变了，清单按新的查
+        mountDraftCart(); // 加载器、版本可能变了，清单按新的查
         toast("已读回存好的整合包信息，之后的修改会自动保存");
       };
     }
