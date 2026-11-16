@@ -2626,7 +2626,7 @@ function handler(state, ui, portOf) {
     //     响应里的 lastCreate / lastImport / lastPropsPut / commands / lastOpenPath 是上一次新建、导入整合包（表单项）、改 server.properties、
     //     发过的控制台命令、打开的文件夹
     //     beta.3 详情页用到的字段：javaMissing（配的 Java 找不到了）、worldFrom（现在的世界从哪份备份来）、mods（插件 / 模组文件夹里的，见 modsOf）、
-    //     backups（备份清单，见 backupsOf）、onlineCount。响应里的 lifecycle（停止、重启的请求）、modOps（停用、启用、删除插件或模组的请求）、
+    //     backups（备份清单，见 backupsOf；每项可带 dir、elsewhere，模拟改存放位置以前留在原来文件夹的）、onlineCount。响应里的 lifecycle（停止、重启的请求）、modOps（停用、启用、删除插件或模组的请求）、
     //     lastRestore（还原的请求，含 stopFirst）、lastBackup（立即备份的标签）、modsProjects（带 projects=1 读清单的次数）
     //   adoptScan: 接管已有服务器时「识别」返回的结果（同 inst.AdoptScan），null 还原成默认的；
     //     响应里的 lastAdopt / lastJava / lastDelete 是上一次接管、换 Java、删除的请求
@@ -3204,7 +3204,8 @@ function handler(state, ui, portOf) {
           (state.commands || (state.commands = [])).push({ inst: name, cmd: b.cmd });
           return ok(res, "ok");
         }
-        if (sub === "backups" && m === "GET") return ok(res, backupsOf(i));
+        // 每份带 dir（在哪个文件夹，同 inst.BackupInfo）：没写的就在这台服务器现在的备份文件夹里；elsewhere 只在测试摆的数据里有
+        if (sub === "backups" && m === "GET") return ok(res, backupsOf(i).map(b => ({ dir: i.backupDir ?? "D:\\MineDeck\\backups\\" + i.name, ...b })));
         if (sub === "policies" && m === "GET") return ok(res, { crashRestart: true, schedules: [{ type: "restart", at: "04:00", args: "" }, { type: "command", at: "20:00", args: "say 今晚 8 点打龙集合！" }] });
         if (sub === "properties" && m === "GET") return ok(res, { pairs: state.props, running: i.status === "running" });
         if (sub === "resources" && seg[5] === "search") return ok(res, { hits: [

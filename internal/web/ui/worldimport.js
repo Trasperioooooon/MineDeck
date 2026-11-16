@@ -451,6 +451,25 @@ window.MDWorldImport = (() => {
     return s;
   }
 
+  /* 现在的世界是不是换地图换来的（「世界与备份 → 备份」页顶用，回访走查 11-16）。st 是 /api/instances/{名称}/world 的结果。
+     恢复点新的在前；从最新的一条往前找第一条真的换过世界、或者正在换的，世界名对不上现在 level-name 的不算（那是另一个世界文件夹）：
+       committed（已导入）→ { kind: "import", source, at }：source 是导入时的文件夹或压缩包名（存档里的名字多半是 world，人认不出）；
+       restored（已换回）→ { kind: "returned", at }；
+       正在换、正在退回、要人处理、记录读不出来 → { kind: "busy" }；
+       没生效、没走完的（staging、staged、rolled-back）没动过世界，跳过。
+     都没有返回 null。恢复点被删掉以后就查不到导入过：调用方不要据此说「服务器自己的世界」。
+     从备份还原过的不归这里管：那个记在实例的 worldFrom 里，换地图时清掉，调用方先看它 */
+  function origin(st) {
+    const busy = new Set(["committing", "rolling-back", "restoring", "stuck", "unreadable"]);
+    for (const pt of (st && st.points) || []) {
+      if (busy.has(pt.state)) return { kind: "busy" };
+      if (pt.levelName && st.levelName && !sameLevel(pt.levelName, st.levelName)) continue;
+      if (pt.state === "committed") return { kind: "import", source: pt.source || pt.candidate || "不明的来源", at: when(pt.created) };
+      if (pt.state === "restored") return { kind: "returned", at: when(pt.created) };
+    }
+    return null;
+  }
+
   async function render(body, info, gen, refreshHead) {
     const name = info.name, base = `/api/instances/${E(name)}/world`;
     const gone = () => stale(gen) || !body.isConnected;
@@ -1011,5 +1030,5 @@ window.MDWorldImport = (() => {
     if (/导入计划|请重新检测|检测的结果|请重新选择地图|不能用这个核心和版本/.test(msg)) wizardFinal($("#wiz-world"), wiz);
   }
 
-  return { TAB, TAB_LABEL, applies, render, wizardOpen, wizardReset, wizardMap, draftMap, wizardRestore, wizardVersion, wizardStrip, wizardFinal, wizardCreateFields, wizardSubmitting, wizardCreated, wizardCreateFailed };
+  return { TAB, TAB_LABEL, applies, origin, render, wizardOpen, wizardReset, wizardMap, draftMap, wizardRestore, wizardVersion, wizardStrip, wizardFinal, wizardCreateFields, wizardSubmitting, wizardCreated, wizardCreateFailed };
 })();

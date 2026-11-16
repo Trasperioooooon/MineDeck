@@ -1248,7 +1248,8 @@ function folderItems(info) {
 /* 打开这台服务器的备份文件夹（R15）：还没备份过时文件夹还不存在，不报错，说一句什么时候会有 */
 function openBackupDir(info) {
   return api("/api/openpath", { method: "POST", body: { path: info.backupDir } }).catch(e => {
-    if (/不存在/.test(String(e && e.message))) toast(`「${info.name}」还没有备份过。第一次备份以后，备份会放在 ${info.backupDir}`);
+    // 「在这里」：改过备份存放文件夹的话，以前的备份在原来的文件夹里，不能说它从没备份过
+    if (/不存在/.test(String(e && e.message))) toast(`「${info.name}」在这个文件夹里还没有备份过。第一次备份以后，备份会放在 ${info.backupDir}`);
     else toastErr("无法打开备份文件夹", e);
   });
 }
@@ -3586,38 +3587,57 @@ async function renderDetail(name, path = "console") {
     if (stale(gen)) return;
     const keep = (appInfo.config && appInfo.config.backupKeep) || 10, local = appInfo.local !== false;
     const nice = t => String(t || "").replace(/(\d{1,2}:\d\d):\d\d$/, "$1"); // 2026-11-15 20:30:05 → 2026-11-15 20:30（本来就没有秒的不动）
+    // 有「换地图」的服务器：页顶还要看换地图的记录（恢复点），才说得清现在的世界是不是导入的
+    const hasMap = !!(window.MDWorldImport && MDWorldImport.applies(info));
     const draw = async () => {
       if (stale(gen)) return;
-      let list, cur = info;
+      let list, cur = info, ws = null;
       try {
-        [list, cur] = await Promise.all([api(`/api/instances/${enc}/backups`),
-          api("/api/instances").then(l => l.find(i => i.name === name) || info).catch(() => info)]);
+        [list, cur, ws] = await Promise.all([api(`/api/instances/${enc}/backups`),
+          api("/api/instances").then(l => l.find(i => i.name === name) || info).catch(() => info),
+          hasMap ? api(`/api/instances/${enc}/world`).catch(() => null) : null]);
       } catch (e) { if (!stale(gen)) body.innerHTML = errBox("无法读取备份列表", e); return; }
       if (stale(gen)) return;
       info.worldFrom = cur.worldFrom; info.backupDir = cur.backupDir || info.backupDir;
       const wf = cur.worldFrom, running = info.status !== "stopped";
       const label = $("#bk-label") ? $("#bk-label").value : ""; // 重画时留住正在填的标签
+      // 页顶：现在的世界从哪来（回访走查 11-16）。从备份还原过的记在 worldFrom 里，换地图（导入、换回）时清掉，所以有它就是它；
+      // 没有的话看换地图的记录：用地图新建的、换过地图的，以前一律写成「服务器自己的世界」。地图在存档里多半叫 world，
+      // 人认得的是导入时的文件夹或压缩包名，所以写来源名。恢复点删掉以后就查不到导入过，所以不说「服务器自己的世界」，只说没有记录
+      const og = !wf && ws ? MDWorldImport.origin(ws) : null;
+      const nowText = wf
+        ? `当前世界：从 <b>${esc(nice(wf.backupTime) || wf.backup)}</b> 的备份还原${wf.label ? `（${esc(wf.label)}）` : ""}，还原于 ${esc(nice(wf.at))}`
+        : og && og.kind === "import" ? `当前世界：从「<b>${esc(og.source)}</b>」导入的地图${og.at ? `，导入于 ${esc(og.at)}` : ""}`
+        : og && og.kind === "returned" ? `当前世界：${og.at ? esc(og.at) + " " : ""}换过一次地图，后来换回了换之前的那张`
+        : og && og.kind === "busy" ? "当前世界：换地图还没走完，或者要人处理"
+        : ws ? "当前世界：没有从备份还原过，「换地图」里也没有导入记录"
+        : "当前世界：没有从备份还原过";
+      const mapLink = og ? `<a class="quiet-link" href="${base}world/map" id="bk-now-map">到「换地图」里看</a>` : "";
+      // 改过备份存放文件夹：以前的备份还在原来的文件夹里，照常列出、能还原能删。「备份放在」写的是新文件夹，
+      // 不说一声的话，人会以为列出来的就在那里，点「打开」看到空文件夹还以为备份丢了（回访走查 11-16）
+      const olds = [...new Set((list || []).filter(b => b.elsewhere && b.dir).map(b => b.dir))];
+      const oldNote = olds.map(d => `<div class="bk-old">${icon("folder")}<span>另有 <b>${(list || []).filter(b => b.elsewhere && b.dir === d).length}</b> 份是改存放位置以前做的，还在原来的文件夹 <span class="mono">${esc(d)}</span>，照常能还原、删除</span>` +
+        (local ? `<button type="button" class="btn sm ghost" data-bk-open-old="${esc(d)}" aria-label="打开原来的备份文件夹 ${esc(d)}">${icon("folder")} 打开</button>` : "") + `</div>`).join("");
       body.innerHTML = `
-        <div class="bk-now" id="bk-now">${icon("globe")}<span>${wf
-          ? `当前世界：从 <b>${esc(nice(wf.backupTime) || wf.backup)}</b> 的备份还原${wf.label ? `（${esc(wf.label)}）` : ""}，还原于 ${esc(nice(wf.at))}`
-          : "当前世界：服务器自己的世界，没有从备份还原过"}</span></div>
+        <div class="bk-now" id="bk-now">${icon("globe")}<span>${nowText}</span>${mapLink}</div>
         <div class="row" style="margin-bottom:10px;flex-wrap:wrap">
           <input type="text" id="bk-label" maxlength="20" placeholder="备份标签（可选，如：更新模组前）" aria-label="备份标签（可选）" style="max-width:240px" value="${esc(label)}">
           <button class="btn primary" id="bk-create">${icon("camera")} 立即备份世界</button>
         </div>
         <div class="bk-where" id="bk-where">
-          <span>备份放在 <span class="mono" id="bk-dir">${esc(info.backupDir || "")}</span></span>
+          <span>${olds.length ? "新的备份放在" : "备份放在"} <span class="mono" id="bk-dir">${esc(info.backupDir || "")}</span></span>
           ${local && info.backupDir ? `<button type="button" class="btn sm ghost" id="bk-open">${icon("folder")} 打开</button>` : ""}
           <span class="sep">·</span><span id="bk-keep">保留最近 <b>${keep}</b> 份（所有服务器共用）</span>
           <a class="quiet-link" href="#/settings/storage" id="bk-keep-link">到左下角软件「设置 → 存储位置」里改</a>
         </div>
+        ${oldNote ? `<div class="bk-olds" id="bk-olds">${oldNote}</div>` : ""}
         <div class="hint" style="margin-bottom:14px">服务器运行时也能备份：先暂停自动保存，压成压缩包，再恢复自动保存。超过保留份数时删掉最旧的。移出列表或删除服务器都不会删掉备份。
           还原时服务器得停着，开着时点「还原」会先帮你保存世界、停服，还原完不会自动开服。还原前会先把当前世界自动备份一份（标签「还原前自动」），再把世界换成选的那一份；核心、${window.MDModCart && MDModCart.applies(info) ? MDModCart.tabLabel(info.core) + "和" : ""}设置都不动。定时备份在「定时任务」里加。</div>
         <div class="group has-ico bk-list">${(list || []).map(b => {
           const title = b.label || b.file, who = b.label ? `${b.label}（${nice(b.time)}）` : b.file;
           return `
           <div class="row-item"><div class="ri-head"><span class="ri-ico">${icon("package")}</span>
-            <div class="ri-main"><div class="ri-title">${esc(title)}${wf && wf.backup === b.file ? `<span class="tag">现在的世界</span>` : ""}</div>
+            <div class="ri-main"><div class="ri-title">${esc(title)}${wf && wf.backup === b.file ? `<span class="tag">现在的世界</span>` : ""}${b.elsewhere ? `<span class="tag neutral" title="${esc(b.dir || "")}">在原来的文件夹</span>` : ""}</div>
               <div class="ri-key">${esc(nice(b.time))} · ${b.sizeMb.toFixed(1)} MB${b.label ? ` · <span class="mono">${esc(b.file)}</span>` : ""}</div></div>
             <div class="ri-right">${running ? `<span class="hint bk-need-stop">会先停服</span>` : ""}<button class="btn sm" data-restore="${esc(b.file)}" data-who="${esc(who)}" aria-label="还原 ${esc(b.file)}">${icon("restore")} 还原</button>
               <button class="btn sm danger" data-del="${esc(b.file)}" aria-label="删除 ${esc(b.file)}">删除</button></div></div></div>`;
@@ -3635,6 +3655,8 @@ async function renderDetail(name, path = "console") {
       $("#bk-label").onkeydown = e => { if (e.key === "Enter") $("#bk-create").click(); };
       const open = $("#bk-open");
       if (open) open.onclick = () => openBackupDir(info);
+      body.querySelectorAll("[data-bk-open-old]").forEach(b => b.onclick = () =>
+        api("/api/openpath", { method: "POST", body: { path: b.dataset.bkOpenOld } }).catch(e => toastErr("无法打开原来的备份文件夹", e)));
       body.querySelectorAll("[data-restore]").forEach(b => b.onclick = async () => {
         const file = b.dataset.restore, live = info.status !== "stopped", n = live ? (info.onlineCount || 0) : 0;
         const r = await confirmModal({

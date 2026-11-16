@@ -7312,6 +7312,65 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       } finally { await dState({ instReset: true }); }
     });
 
+    await run("备份页页顶写清现在的世界从哪来（导入的写来源名、换回过、没有记录、从备份还原的优先）；改存放位置以前的备份标出来、能打开原来的文件夹", async () => {
+      await dState({ instReset: true, local: true, world: { reset: true } });
+      try {
+        // 整合包服的恢复点里最新一条是从 SkyCity.zip 导入的（已导入）：页顶写来源名和导入时间，带路去「换地图」
+        await open(PACK0, "world/backups");
+        let now = await page.textContent("#bk-now");
+        assert(now.includes("当前世界：从「SkyCity.zip」导入的地图") && now.includes("导入于 2026-11-10") && !now.includes("服务器自己的世界"), "导入的地图：" + now);
+        assert((await page.getAttribute("#bk-now-map", "href")) === `#/inst/${E(PACK0)}/world/map`, "应带路去换地图");
+        // 最新一条是没生效的（rolled-back），再往前是换回过的：没生效的不算，按换回过的写
+        await dState({ world: { inst: { [PACK0]: { points: [
+          { id: "wa", state: "rolled-back", created: "2026-11-12T10:00:00+08:00", source: "没生效.zip", candidate: "world", levelName: "world", hasOld: false, oldBytes: 0, keptBytes: 0 },
+          { id: "wb", state: "restored", created: "2026-11-11T10:00:00+08:00", source: "换回的.zip", candidate: "world", levelName: "world", hasOld: false, oldBytes: 0, keptBytes: 0 },
+          { id: "wc", state: "committed", created: "2026-11-10T10:00:00+08:00", source: "更早的.zip", candidate: "world", levelName: "world", hasOld: true, oldBytes: 1, keptBytes: 0 },
+        ] } } } });
+        await open(PACK0, "console"); await open(PACK0, "world/backups");
+        now = await page.textContent("#bk-now");
+        assert(now.includes("换过一次地图，后来换回了换之前的那张") && !now.includes("没生效") && !now.includes("更早的"), "换回过：" + now);
+        // 世界名对不上现在的 level-name 的那条不算（是另一个世界文件夹）
+        await dState({ world: { inst: { [PACK0]: { levelName: "world2", points: [
+          { id: "wd", state: "committed", created: "2026-11-12T10:00:00+08:00", source: "别的世界.zip", candidate: "world", levelName: "world", hasOld: true, oldBytes: 1, keptBytes: 0 },
+        ] } } } });
+        await open(PACK0, "console"); await open(PACK0, "world/backups");
+        now = await page.textContent("#bk-now");
+        assert(now.includes("没有从备份还原过，「换地图」里也没有导入记录") && !now.includes("别的世界") && !(await page.$("#bk-now-map")), "世界名对不上：" + now);
+        // 从备份还原过（worldFrom）优先：换地图时会清掉它，有它就说明还原在后
+        await dState({ world: { inst: { [PACK0]: { levelName: "world" } } }, inst: { name: PACK0, worldFrom: { backup: "20261026-040000.000000000.zip", backupTime: "2026-10-26 04:00:00", at: "2026-11-15 21:05:00" } } });
+        await open(PACK0, "console"); await open(PACK0, "world/backups");
+        now = await page.textContent("#bk-now");
+        assert(now.includes("当前世界：从 2026-10-26 04:00 的备份还原") && !now.includes("导入"), "从备份还原的优先：" + now);
+
+        // 生存服没换过地图：不说「服务器自己的世界」，只说没有记录
+        await open(SURV, "world/backups");
+        now = await page.textContent("#bk-now");
+        assert(now.includes("没有从备份还原过，「换地图」里也没有导入记录") && !now.includes("服务器自己的世界"), "没换过地图：" + now);
+        assert(!(await page.$("#bk-olds")) && (await page.textContent("#bk-where")).includes("备份放在") && !(await page.textContent("#bk-where")).includes("新的备份放在"), "没有旧文件夹的备份时不提");
+
+        // 改过备份存放文件夹：两份在原来的文件夹，一份在现在的
+        const OLD = "E:\\旧备份\\" + SURV;
+        await dState({ inst: { name: SURV, backupDir: "F:\\新备份\\" + SURV, backups: [
+          { file: "20261116-030000.000000000.zip", sizeMb: 1, time: "2026-11-16 03:00:00" },
+          { file: "20261026-040000.000000000.zip", sizeMb: 2, time: "2026-10-26 04:00:00", dir: OLD, elsewhere: true },
+          { file: "20261025-221000.000000000-打龙前.zip", sizeMb: 3, time: "2026-10-25 22:10:00", label: "打龙前", dir: OLD, elsewhere: true },
+        ] } });
+        await open(SURV, "console"); await open(SURV, "world/backups");
+        const v = await page.evaluate(() => ({ olds: $("#bk-olds").textContent.replace(/\s+/g, " "), where: $("#bk-where").textContent.replace(/\s+/g, " "),
+          tags: [...document.querySelectorAll(".bk-list .row-item")].map(r => !!r.querySelector(".tag.neutral") && r.querySelector(".tag.neutral").textContent) }));
+        assert(v.olds.includes("另有 2 份是改存放位置以前做的") && v.olds.includes(OLD) && v.where.includes("新的备份放在 F:\\新备份\\" + SURV), "旧文件夹的说明：" + JSON.stringify(v));
+        assert(JSON.stringify(v.tags) === JSON.stringify([false, "在原来的文件夹", "在原来的文件夹"]), "列表里标出在原来文件夹的那几份：" + JSON.stringify(v.tags));
+        await byName("button", "打开原来的备份文件夹 " + OLD).click(); await settle(300);
+        assert((await dState({})).lastOpenPath === OLD, "打开的是原来的文件夹：" + (await dState({})).lastOpenPath);
+        const ax = await axProblems();
+        assert(!ax.length, "备份页无障碍检查：" + ax.join("、"));
+        // 从局域网打开：没有「打开」，说明照旧
+        await dState({ local: false });
+        await open(SURV, "console"); await open(SURV, "world/backups");
+        assert((await page.textContent("#bk-olds")).includes("另有 2 份") && !(await page.$("[data-bk-open-old]")), "局域网上不给打开");
+      } finally { await dState({ instReset: true, local: true, world: { reset: true } }); }
+    });
+
     await run("beta.3 详情 R16：常用、启动与内存、全部配置、定时任务都用吸底保存条；定时任务点「添加」进草稿（标「未保存」），保存条按条数算", async () => {
       await dState({ instReset: true });
       for (const t of ["settings/common", "settings/jvm", "settings/raw", "tasks"]) {
