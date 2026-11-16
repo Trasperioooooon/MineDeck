@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -378,5 +379,62 @@ func TestRetryStopsWhenTargetTurnsReadOnly(t *testing.T) {
 				assertNoTemps(t, dir)
 			})
 		}
+	}
+}
+
+// 替换报了成功以后核对目标位置上确实是刚写好的那个文件：核对不上就报错，不报成功
+// （2026-11-15 CI 上见过一次只读目标走扩展改名报成功却没换上，原因没查清）。
+func TestVerifyReplacedCatchesUnchangedTarget(t *testing.T) {
+	dir := t.TempDir()
+	tmp := filepath.Join(dir, "new.tmp")
+	path := filepath.Join(dir, "server.properties")
+	for _, f := range []struct{ p, s string }{{tmp, "new\n"}, {path, "old\n"}} {
+		if err := os.WriteFile(f.p, []byte(f.s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	moved, err := os.Lstat(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = os.SameFile(moved, moved) // 改名之前取好文件编号
+	if err := verifyReplaced(moved, path, `D:\elsewhere\new.tmp`); err == nil || !strings.Contains(err.Error(), "没有换上") || !strings.Contains(err.Error(), `D:\elsewhere\new.tmp`) {
+		t.Fatalf("目标还是原来的文件时应报没换上，并写出新文件在哪：%v", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyReplaced(moved, path, ""); err != nil {
+		t.Fatalf("真的换上了就不该报错：%v", err)
+	}
+	if err := verifyReplaced(nil, path, ""); err != nil {
+		t.Fatalf("取不到临时文件身份时不核对：%v", err)
+	}
+	if err := verifyReplaced(moved, filepath.Join(dir, "missing"), ""); err == nil {
+		t.Fatal("目标不在了也应报没换上")
+	}
+}
+
+// 扩展改名的参数里，名字后面必须紧跟一个结尾的空字符：系统按以空字符结尾的字符串读名字。
+// 以前没留，内存里有旧数据时新文件会被改名成「server.properties」加一串乱码、原文件没动却报成功（2026-11-16）。
+func TestRenameInfoBufferNameIsNulTerminated(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.properties")
+	buf, err := renameInfoBuffer(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var header renameInfo
+	offset := int(unsafe.Offsetof(header.Name))
+	info := (*renameInfo)(unsafe.Pointer(&buf[0]))
+	n := int(info.NameBytes)
+	if want := len(longPath(path)) * 2; n != want {
+		t.Fatalf("NameBytes = %d，应为 %d（不含结尾的空字符）", n, want)
+	}
+	if len(buf) < offset+n+2 || buf[offset+n] != 0 || buf[offset+n+1] != 0 {
+		t.Fatalf("名字后面没有结尾的空字符：缓冲区 %d 字节，名字到 %d", len(buf), offset+n)
+	}
+	got := windows.UTF16ToString(unsafe.Slice((*uint16)(unsafe.Pointer(&buf[offset])), n/2+1))
+	if got != longPath(path) {
+		t.Fatalf("名字是 %q，应为 %q", got, longPath(path))
 	}
 }
