@@ -336,7 +336,11 @@ func TestClientBadToken(t *testing.T) {
 func TestClientBusyAndVersion(t *testing.T) {
 	m := newFakeMod(t, tok)
 	m.reject.Store(ErrBusy)
-	c := Start(fastOpts(instDir(t, m.port(), tok)))
+	// 这一段测的是「不忙了就连上」，等忙的期限放得很长：默认的 0.6 秒在慢机器上，测试还没来得及把模组改成不忙，
+	// 客户端就已经按「一直忙」放弃了。「一直忙就放弃」由下面的 c2 用默认期限测
+	o := fastOpts(instDir(t, m.port(), tok))
+	o.BusyWait = time.Minute
+	c := Start(o)
 	waitFor(t, "被拒为忙", 2*time.Second, func() bool { return c.State().Busy })
 	m.reject.Store(0)
 	waitFor(t, "不忙了就连上", 3*time.Second, func() bool { return c.State().Phase == PhaseLive })
@@ -356,13 +360,25 @@ func TestClientBusyAndVersion(t *testing.T) {
 		t.Fatalf("一直忙：%v", err)
 	}
 
+	// 协议版本不对：立刻放弃，也就是只连这一次，不等宽限期、不重试。
+	// 原来是掐表（0.5 秒以内），表从建临时目录、写配置文件之前掐起。2026-11-16 main 上的 CI 连着两次超时（1.50 秒、
+	// 0.68 秒），那两次 go test 刚开头的几个包整体慢了两三倍；本机量过，慢的是写配置文件（要落盘），带负载时
+	// 单这一步就到过几秒，而「连上到放弃」每次都只连了一次。所以改成直接数连了几次。
 	m.reject.Store(ErrVersion)
-	start := time.Now()
-	c3 := Start(fastOpts(instDir(t, m.port(), tok)))
-	<-c3.Done()
+	dir := instDir(t, m.port(), tok)
+	before := m.accepted.Load()
+	c3 := Start(fastOpts(dir))
+	select {
+	case <-c3.Done():
+	case <-time.After(30 * time.Second):
+		t.Fatal("协议版本不对应放弃")
+	}
 	var me *ModError
-	if !errors.As(c3.Err(), &me) || me.Code != ErrVersion || time.Since(start) > 500*time.Millisecond {
-		t.Fatalf("协议版本不对应立刻放弃：%v（%v）", c3.Err(), time.Since(start))
+	if !errors.As(c3.Err(), &me) || me.Code != ErrVersion {
+		t.Fatalf("协议版本不对应放弃，原因是版本：%v", c3.Err())
+	}
+	if n := m.accepted.Load() - before; n != 1 {
+		t.Fatalf("协议版本不对应立刻放弃：连了 %d 次，应该只连一次", n)
 	}
 }
 
@@ -386,8 +402,10 @@ func TestClientConnectRules(t *testing.T) {
 	o := fastOpts(instDir(t, m.port(), tok))
 	o.NotBefore = time.Now().Add(300 * time.Millisecond)
 	c2 := Start(o)
-	time.Sleep(150 * time.Millisecond)
-	if m.accepted.Load() != 0 {
+	// 等到模组那边有连接进来，再看这时候过没过 NotBefore：提前连了的话，这里看到的时刻一定还在 NotBefore 之前。
+	// 原来是睡 150 毫秒以后看有没有连接，测试自己被拖慢 150 毫秒以上就会把正常的连接当成提前连
+	waitFor(t, "NotBefore 之后去连", 5*time.Second, func() bool { return m.accepted.Load() > 0 })
+	if time.Now().Before(o.NotBefore) {
 		t.Fatal("NotBefore 之前不该连接")
 	}
 	waitFor(t, "NotBefore 之后连上", 3*time.Second, func() bool { return c2.State().Phase == PhaseLive })
@@ -399,13 +417,18 @@ func TestClientConnectRules(t *testing.T) {
 	c2.Stop("测试结束")
 
 	dir := t.TempDir() // 没有配置文件
-	c3 := Start(fastOpts(dir))
-	time.Sleep(200 * time.Millisecond)
-	if s := c3.State(); s.Phase != PhaseConnecting || !strings.Contains(s.LastError, "没有桥接模组的配置文件") {
+	// 没有配置文件也算在宽限期里，过了宽限期照样放弃。这一段测的是「配置出现后连上」，宽限期放得很长：
+	// 默认的 1 秒在慢机器上不够，下面写配置文件（要落盘）一慢，客户端已经放弃了，再也连不上。
+	// 2026-11-10 的 CI 上就这样挂过一次（「等了 3s：配置出现后连上」）。过了宽限期放弃，由上面连不上的那一段测
+	o3 := fastOpts(dir)
+	o3.Grace = time.Minute
+	c3 := Start(o3)
+	waitFor(t, "报没有配置文件", 5*time.Second, func() bool { return strings.Contains(c3.State().LastError, "没有桥接模组的配置文件") })
+	if s := c3.State(); s.Phase != PhaseConnecting {
 		t.Fatalf("没有配置文件：%+v", s)
 	}
 	writeCfg(t, dir, m2.port(), tok)
-	waitFor(t, "配置出现后连上", 3*time.Second, func() bool { return c3.State().Phase == PhaseLive })
+	waitFor(t, "配置出现后连上", 5*time.Second, func() bool { return c3.State().Phase == PhaseLive })
 	c3.Stop("测试结束")
 	if err := os.Remove(ConfigPath(dir)); err != nil {
 		t.Fatal(err)
