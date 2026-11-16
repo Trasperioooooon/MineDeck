@@ -1,0 +1,140 @@
+// 第 7 条评估用的实验：os.Root 在 Windows 上碰到目录联接时怎么做。只在临时文件夹里建东西，跑完删掉。
+package main
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+)
+
+func junction(link, target string) {
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput(); err != nil {
+		panic(fmt.Sprintf("mklink: %v %s", err, out))
+	}
+}
+
+func list(dir string) string {
+	es, _ := os.ReadDir(dir)
+	var n []string
+	for _, e := range es {
+		n = append(n, e.Name())
+	}
+	return strings.Join(n, ",")
+}
+
+func say(name string, err error) {
+	if err == nil {
+		fmt.Printf("  %-58s 成功\n", name)
+	} else {
+		fmt.Printf("  %-58s 失败：%v\n", name, err)
+	}
+}
+
+func main() {
+	fmt.Println("Go", runtime.Version())
+	base, _ := os.MkdirTemp("", "rootexp-")
+	defer os.RemoveAll(base)
+	srv := filepath.Join(base, "server")
+	out := filepath.Join(base, "outside")
+	os.MkdirAll(filepath.Join(srv, "config"), 0o755)
+	os.MkdirAll(filepath.Join(srv, "real"), 0o755)
+	os.MkdirAll(out, 0o755)
+	os.WriteFile(filepath.Join(out, "secret.txt"), []byte("outside"), 0o644)
+	os.WriteFile(filepath.Join(srv, "real", "a.txt"), []byte("inside"), 0o644)
+	os.WriteFile(filepath.Join(srv, "config", "a.toml"), []byte("a=1"), 0o644)
+
+	junction(filepath.Join(srv, "jout"), out)                         // 指到外面的联接
+	junction(filepath.Join(srv, "jin"), filepath.Join(srv, "real"))   // 指回服务器里面的联接（绝对路径）
+	defer os.Remove(filepath.Join(srv, "jout"))
+	defer os.Remove(filepath.Join(srv, "jin"))
+
+	r, err := os.OpenRoot(srv)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("E1 指到外面的联接：")
+	_, err = r.ReadFile("jout/secret.txt")
+	say("ReadFile jout/secret.txt", err)
+	err = r.WriteFile("jout/new.txt", []byte("x"), 0o644)
+	say("WriteFile jout/new.txt", err)
+	err = r.Remove("jout/secret.txt")
+	say("Remove jout/secret.txt", err)
+	fmt.Println("  外面现在有：", list(out))
+
+	fmt.Println("E2 指回里面的联接（绝对路径）：")
+	_, err = r.ReadFile("jin/a.txt")
+	say("ReadFile jin/a.txt", err)
+	err = r.WriteFile("jin/b.txt", []byte("x"), 0o644)
+	say("WriteFile jin/b.txt", err)
+
+	fmt.Println("E5 Root.Rename 覆盖已有文件：")
+	r.WriteFile("config/.tmp1", []byte("a=2"), 0o644)
+	err = r.Rename("config/.tmp1", "config/a.toml")
+	b, _ := os.ReadFile(filepath.Join(srv, "config", "a.toml"))
+	say("Rename config/.tmp1 -> config/a.toml", err)
+	fmt.Printf("  a.toml 现在是 %q\n", b)
+	// 目标被别人开着（只读、允许删）时
+	f, _ := os.Open(filepath.Join(srv, "config", "a.toml"))
+	r.WriteFile("config/.tmp2", []byte("a=3"), 0o644)
+	err = r.Rename("config/.tmp2", "config/a.toml")
+	say("Rename 目标被 os.Open 开着", err)
+	f.Close()
+	// 只读目标
+	os.Chmod(filepath.Join(srv, "config", "a.toml"), 0o444)
+	r.WriteFile("config/.tmp3", []byte("a=4"), 0o644)
+	err = r.Rename("config/.tmp3", "config/a.toml")
+	say("Rename 目标是只读文件", err)
+	os.Chmod(filepath.Join(srv, "config", "a.toml"), 0o644)
+	r.Remove("config/.tmp2")
+	r.Remove("config/.tmp3")
+
+	fmt.Println("E3 打开子目录当 Root 以后，把它换成指到外面的联接：")
+	cr, err := r.OpenRoot("config")
+	say("Root.OpenRoot config", err)
+	if err == nil {
+		err = os.Rename(filepath.Join(srv, "config"), filepath.Join(srv, "config.old"))
+		say("E4 Root 开着时改名它的目录（换地图、移出列表会这样动文件夹）", err)
+		if err == nil {
+			junction(filepath.Join(srv, "config"), out)
+			err = cr.WriteFile("after.txt", []byte("x"), 0o644)
+			say("换成联接以后经旧 Root 写 after.txt", err)
+			fmt.Println("  外面现在有：", list(out), "；config.old 里有：", list(filepath.Join(srv, "config.old")))
+			// 经服务器根 Root 走 config/（现在是联接）
+			err = r.WriteFile("config/after2.txt", []byte("x"), 0o644)
+			say("经服务器根 Root 写 config/after2.txt（config 现在是指到外面的联接）", err)
+			os.Remove(filepath.Join(srv, "config"))
+			os.Rename(filepath.Join(srv, "config.old"), filepath.Join(srv, "config"))
+		}
+		cr.Close()
+	}
+	fmt.Println("E4b Root 开着时删掉它的目录：")
+	os.MkdirAll(filepath.Join(srv, "gone"), 0o755)
+	gr, _ := r.OpenRoot("gone")
+	err = os.Remove(filepath.Join(srv, "gone"))
+	say("Remove 空目录 gone（Root 开着）", err)
+	gr.Close()
+	fmt.Println("E4c 服务器根的 Root 开着时改名整个服务器文件夹：")
+	err = os.Rename(srv, srv+"-moved")
+	say("Rename server -> server-moved", err)
+	if err == nil {
+		os.Rename(srv+"-moved", srv)
+	}
+	r.Close()
+
+	fmt.Println("E6 服务器文件夹本身在联接后面（D:\\链接 -> 真文件夹），OpenRoot 那个联接路径：")
+	lnk := filepath.Join(base, "srvlink")
+	junction(lnk, srv)
+	defer os.Remove(lnk)
+	r2, err := os.OpenRoot(lnk)
+	say("OpenRoot srvlink", err)
+	if err == nil {
+		_, err = r2.ReadFile("config/a.toml")
+		say("ReadFile config/a.toml", err)
+		_, err = r2.ReadFile("jin/a.txt")
+		say("ReadFile jin/a.txt（联接指回真文件夹里面）", err)
+		r2.Close()
+	}
+}

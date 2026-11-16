@@ -1,0 +1,84 @@
+// 第 7 条评估的补充实验：经 os.Root 打开的目录句柄，能不能当 FileRenameInfoEx 的 RootDirectory，做「绑在已核对目录上的替换」。
+package main
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"unsafe"
+
+	"golang.org/x/sys/windows"
+)
+
+type renameInfo struct {
+	Flags     uint32
+	Root      windows.Handle
+	NameBytes uint32
+	Name      [1]uint16
+}
+
+func renameRel(src windows.Handle, dir windows.Handle, name string) error {
+	n, _ := windows.UTF16FromString(name)
+	n = n[:len(n)-1]
+	var h renameInfo
+	off := int(unsafe.Offsetof(h.Name))
+	buf := make([]byte, off+len(n)*2)
+	info := (*renameInfo)(unsafe.Pointer(&buf[0]))
+	info.Flags = windows.FILE_RENAME_REPLACE_IF_EXISTS | windows.FILE_RENAME_POSIX_SEMANTICS | windows.FILE_RENAME_IGNORE_READONLY_ATTRIBUTE
+	info.Root = dir
+	info.NameBytes = uint32(len(n) * 2)
+	copy(unsafe.Slice((*uint16)(unsafe.Pointer(&buf[off])), len(n)), n)
+	return windows.SetFileInformationByHandle(src, windows.FileRenameInfoEx, &buf[0], uint32(len(buf)))
+}
+
+func say(name string, err error) {
+	if err == nil {
+		fmt.Printf("  %-60s 成功\n", name)
+	} else {
+		fmt.Printf("  %-60s 失败：%v\n", name, err)
+	}
+}
+
+func main() {
+	base, _ := os.MkdirTemp("", "rootexp2-")
+	defer os.RemoveAll(base)
+	srv, out := filepath.Join(base, "server"), filepath.Join(base, "outside")
+	os.MkdirAll(filepath.Join(srv, "config"), 0o755)
+	os.MkdirAll(out, 0o755)
+	os.WriteFile(filepath.Join(srv, "config", "a.toml"), []byte("a=1"), 0o444) // 只读目标
+	r, _ := os.OpenRoot(srv)
+	defer r.Close()
+	dir, err := r.Open("config")
+	say("Root.Open config（拿目录句柄）", err)
+	tmp, err := r.OpenFile("config/.tmp", os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o644)
+	say("Root.OpenFile 建临时文件", err)
+	tmp.WriteString("a=2")
+	tmp.Sync()
+	// 1. 直接拿 Root 给的临时文件句柄改名（要 DELETE 权限）
+	err = renameRel(windows.Handle(tmp.Fd()), windows.Handle(dir.Fd()), "a.toml")
+	say("经 Root 的临时文件句柄 + 目录句柄改名（盖只读目标）", err)
+	tmp.Close()
+	if err != nil {
+		// 2. 另开一个带 DELETE 的句柄（按路径开，只为看 RootDirectory 这一半能不能用）
+		p, _ := windows.UTF16PtrFromString(filepath.Join(srv, "config", ".tmp"))
+		h, e := windows.CreateFile(p, windows.DELETE|windows.SYNCHRONIZE, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE, nil, windows.OPEN_EXISTING, 0, 0)
+		say("按路径另开带 DELETE 的临时文件句柄", e)
+		if e == nil {
+			// 改名之前把 config 换成指到外面的联接：句柄相对的改名还应落在原来的 config 里
+			e = os.Rename(filepath.Join(srv, "config"), filepath.Join(srv, "config.old"))
+			say("目录句柄开着时把 config 改名", e)
+			if e == nil {
+				exec.Command("cmd", "/c", "mklink", "/J", filepath.Join(srv, "config"), out).Run()
+				defer os.Remove(filepath.Join(srv, "config"))
+			}
+			e = renameRel(h, windows.Handle(dir.Fd()), "a.toml")
+			say("带 DELETE 的句柄 + 目录句柄改名（盖只读目标）", e)
+			windows.CloseHandle(h)
+			b, _ := os.ReadFile(filepath.Join(srv, "config.old", "a.toml"))
+			ents, _ := os.ReadDir(out)
+			fmt.Printf("  config.old/a.toml = %q；外面有 %d 个文件\n", b, len(ents))
+		}
+	}
+	dir.Close()
+}
