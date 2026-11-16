@@ -7526,7 +7526,28 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
             await page.waitForSelector("#mp-name"); await settle(500);
             await page.fill("#mp-name", "读失败时改的"); await settle(600);
             assert(!reqs.slice(since).some(r => r.m === "PUT" && r.u === "/api/toolbox/mrpack/draft"), "读草稿失败时不该自动存");
+            // 页面上要说清这一次不自动保存，并给「重新读取」（Codex 复审 beta.3 第五轮：以前什么都不说）
+            const errTxt = await page.textContent("#mp-draft-err");
+            assert(errTxt.includes("读不出上次存好的整合包信息") && errTxt.includes("不会自动保存") && errTxt.includes("现在改的不保留"), "读失败要常驻说明：" + errTxt);
+            assert(await page.$("#mp-draft-msg[role=status] #mp-draft-retry"), "说明在 status 区里，带「重新读取」");
+            // 还读不出来：说明留着，接着不存
+            await page.click("#mp-draft-retry"); await settle(500);
+            assert(await page.$("#mp-draft-err #mp-draft-retry:not([disabled])"), "再读还失败时说明留着，按钮能再点");
+            await page.fill("#mp-name", "还是读不出时改的"); await settle(600);
+            assert(!reqs.slice(since).some(r => r.m === "PUT" && r.u === "/api/toolbox/mrpack/draft"), "还读不出来时仍不该自动存");
           } finally { await page.unroute("**/api/toolbox/mrpack/draft", failDraft); }
+          // 读得出来了：点「重新读取」，表单换成存好的那份，说明消失，之后的修改照常自动存
+          {
+            const since = reqs.length;
+            await page.click("#mp-draft-retry"); await settle(500);
+            assert(!(await page.$("#mp-draft-err")), "读出来以后说明应消失");
+            assert((await page.$eval("#mp-name", e => e.value)) === "好友周目整合包" && (await page.$eval("#mp-ver", e => e.value)) === "2.1.0", "表单应换成存好的那份");
+            assert(!reqs.slice(since).some(r => r.m === "PUT" && r.u === "/api/toolbox/mrpack/draft"), "重新读取本身不存（读失败期间改的作废）");
+            await page.fill("#mp-summary", "读回来以后写的简介"); await settle(600);
+            const put = reqs.slice(since).filter(r => r.m === "PUT" && r.u === "/api/toolbox/mrpack/draft").map(r => JSON.parse(r.b || "{}")).pop();
+            assert(put && put.name === "好友周目整合包" && put.summary === "读回来以后写的简介", "读回来以后应恢复自动保存：" + JSON.stringify(put));
+            await page.fill("#mp-summary", ""); await settle(500);
+          }
           // 改完马上切到「从已有服务器导出」：排着的保存当场存掉，存的是草稿里的名字，不是切过去以后填上的服务器名（第三轮）
           await page.goto(url("#/toolbox/mrpack-export"));
           await page.waitForSelector("#mp-modcart-host #mc-hits"); await settle(400);
