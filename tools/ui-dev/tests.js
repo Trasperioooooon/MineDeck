@@ -6954,6 +6954,47 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       } finally { await c.close(); await pState({ instReset: true }); }
     });
 
+    await run("开服失败的报错提示落在页头提示区下面，不盖住提示区里的修复按钮；提示和「详情」里都有去修的按钮（端口被占 → 改端口，找不到 Java → 去换 Java），别的原因不给", async () => {
+      const why = "端口 25566 被别的程序占着，换个端口或关掉占用它的程序";
+      await resetWith({ name: PACK0, startFail: why, startPortBusyFail: { port: 25566 } });
+      const live = ".toast.error:not(.leave)";
+      try {
+        await page.evaluate(() => document.querySelectorAll("#toasts .toast").forEach(t => t.remove()));
+        await detail(PACK0, "console");
+        await page.click("#d-start"); await page.waitForSelector(live); await settle(400);
+        // 提示区（黄条）里的「改端口」「复制报错信息」不被右上角的提示盖住（回访走查 11-16：以前只躲页头）
+        const geo = await page.evaluate(sel => {
+          const t = document.querySelector(sel).getBoundingClientRect(), n = document.querySelector("#d-notices").getBoundingClientRect();
+          const hit = [...document.querySelectorAll("#d-notices button, #d-notices a")].filter(b => { const r = b.getBoundingClientRect(); return !(t.right <= r.left || t.left >= r.right || t.bottom <= r.top || t.top >= r.bottom); }).map(b => b.textContent);
+          return { hit, top: t.top, notes: n.bottom, edit: !!document.querySelector("#d-notices [data-port-edit]") };
+        }, live);
+        assert(geo.edit && !geo.hit.length && geo.top >= geo.notes, "提示盖住了提示区：" + JSON.stringify(geo));
+        // 提示上有「改端口」；「详情」里也有一份，点了关掉详情、去「设置 → 常用」的端口那一项，提示也收掉
+        assert(await page.$(`${live} button[aria-label="去「${PACK0}」的「设置 → 常用」改端口"]`), "提示上应有改端口");
+        await page.click(`${live} button[aria-label="查看报错详情"]`); await page.waitForSelector(".err-detail");
+        const btns = await page.$$eval("#modal-root .modal .m-actions button", bs => bs.map(b => b.textContent));
+        assert(JSON.stringify(btns) === JSON.stringify(["改端口", "复制报错信息", "关闭"]), "详情里的按钮：" + JSON.stringify(btns));
+        await page.click('#modal-root .modal [data-fix="0"]'); await page.waitForSelector('[data-k="server-port"]'); await settle(500);
+        const p = await page.evaluate(sel => ({ h: decodeURIComponent(location.hash), focus: document.activeElement && document.activeElement.dataset.k,
+          modal: !!document.querySelector("#modal-root .err-detail"), toasts: document.querySelectorAll(sel).length }), live);
+        assert(p.h === `#/inst/${PACK0}/settings/common` && p.focus === "server-port" && !p.modal && !p.toasts, "点了以后：" + JSON.stringify(p));
+        // 找不到配的 Java：在列表的卡片上点启动，提示上是「去换 Java」，点了去「设置 → 启动与内存」
+        await pState({ inst: { name: PACK0, startFail: "找不到这台服务器配的 Java", startPortBusyFail: null, javaMissing: true } });
+        await page.goto(url("#/instances")); await settle(500);
+        await page.click(`.card[data-name="${PACK0}"] [data-act="start"]`); await page.waitForSelector(live);
+        await page.click(`${live} button:text-is("去换 Java")`); await settle(500);
+        assert(decodeURIComponent(await page.evaluate(() => location.hash)) === `#/inst/${PACK0}/settings/jvm` && !(await page.$(live)), "应去启动与内存、提示收掉");
+        // 别的原因：不给修复按钮，详情里只有复制和关闭
+        await pState({ inst: { name: PACK0, startFail: "服务端自己退出了", javaMissing: false } });
+        await detail(PACK0, "console");
+        await page.click("#d-start"); await page.waitForSelector(live); await settle(300);
+        assert((await page.$$eval(`${live} button`, bs => bs.map(b => b.textContent))).join("|") === "详情|", "别的原因不给修复按钮");
+        await page.click(`${live} button[aria-label="查看报错详情"]`); await page.waitForSelector(".err-detail");
+        assert(!(await page.$("#modal-root .modal [data-fix]")), "详情里也不给");
+        await page.click('#modal-root .modal [data-x="close"]'); await settle(300);
+      } finally { await page.evaluate(() => document.querySelectorAll("#toasts .toast").forEach(t => t.remove())); await pState({ instReset: true }); }
+    });
+
     await run("beta.3 P0 R04：交接弹窗里报错后点「详情」，报错信息叠在上面；Esc 和「关闭」只关上面那层，交接弹窗和填的路径都在；点遮罩不关；为什么不可用写在弹窗里", async () => {
       await pState({ instReset: true });
       const layers = () => page.$$eval("#modal-root > .modal-mask:not(.leave)", ms => ms.map(m => m.id || (m.querySelector(".err-detail") ? "detail" : "other")));

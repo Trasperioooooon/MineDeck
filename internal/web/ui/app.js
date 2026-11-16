@@ -150,18 +150,21 @@ function toast(msg, isErr = false, detail, opts = {}) {
   const run = () => { if (gone || holds) return; since = Date.now(); timer = setTimeout(kill, left); };
   const hold = () => { holds++; if (timer) { clearTimeout(timer); timer = 0; left = Math.max(0, left - (Date.now() - since)); } };
   const release = () => { holds = Math.max(0, holds - 1); if (!holds && !gone) { left = Math.max(left, 4000); run(); } };
+  // a.close：点了以后收掉这条提示（「去换 Java」这类修复按钮：人已经被带去改了，提示留着只会挡路）
+  const act = a => { a.onClick(); if (a.close) kill(); };
   for (const a of actions) {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "btn sm ghost";
     b.textContent = a.label;
     if (a.aria) b.setAttribute("aria-label", a.aria);
-    b.onclick = ev => { ev.stopPropagation(); a.onClick(); };
+    b.onclick = ev => { ev.stopPropagation(); act(a); };
     d.appendChild(b);
   }
   if (isErr) {
     const full = detail === undefined ? msg : detail;
-    const showDetail = () => { hold(); showErrDetail(full).then(release); };
+    // 报错提示上的按钮（修复的去处）在「详情」里也给一份（回访走查 11-16：详情里只有「复制报错信息」，看完还得回来找按钮）
+    const showDetail = () => { hold(); showErrDetail(full, actions.map(a => ({ ...a, onClick: () => act(a) }))).then(release); };
     const b = document.createElement("button");
     b.type = "button";
     b.className = "btn sm ghost";
@@ -188,8 +191,9 @@ function toast(msg, isErr = false, detail, opts = {}) {
   d.dismiss = kill; // 调用方可以提前收掉它（交接包导出：重试成功以后，上一次的报错不再挂着）
   return d; // 调用方可以换掉点击的行为（如 mcp.js：点一下打开 AI 助手）
 }
-/* 提示的位置：服务器详情页的页头（启动、停止、打开文件夹）在可视区里时，提示落到页头下面，不盖住这几个按钮；
-   页头滚出去了、或者不在详情页，回到标题栏下方。出提示、滚动、改窗口大小时重算 */
+/* 提示的位置：服务器详情页的页头（启动、停止、打开文件夹）和它下面的常驻提示区（上次没能启动、Java 找不到了……带着「改端口」
+   「去换 Java」这些修复按钮）在可视区里时，提示落到它们下面，不盖住这些按钮（回访走查 11-16：以前只躲页头，提示区里的按钮正好被盖住）；
+   都滚出去了、或者不在详情页，回到标题栏下方。出提示、提示区变了、滚动、改窗口大小时重算 */
 function placeToasts() {
   const box = $("#toasts");
   if (!box || !box.childElementCount) { if (box) box.style.top = ""; return; } // 没有提示就不量（控制台滚动时也会进来）
@@ -198,7 +202,9 @@ function placeToasts() {
   if (head) {
     box.style.top = "";
     const r = head.getBoundingClientRect(), base = parseFloat(getComputedStyle(box).top) || 0;
-    if (r.bottom > base && r.top < innerHeight) top = Math.round(r.bottom + 8) + "px";
+    const notes = document.getElementById("d-notices");
+    const bottom = notes && !notes.hidden ? Math.max(r.bottom, notes.getBoundingClientRect().bottom) : r.bottom;
+    if (bottom > base && r.top < innerHeight) top = Math.round(bottom + 8) + "px";
   }
   box.style.top = top;
 }
@@ -228,15 +234,17 @@ const hasFields = mask => !!mask.querySelector(".modal input, .modal select, .mo
 const layerId = base => document.getElementById(base) ? `${base}-${++modalSeq}` : base;
 
 /* 错误详情的只读对话框：原文可选中，一键复制（做法见 docs/文案重写/00-报错信息.md）。叠在已有的弹窗上面，关掉回到那个弹窗。
+   actions：修复的去处（同 toast 的 opts.actions，[{ label, aria, onClick }]），排在「复制报错信息」前面；点了先关掉对话框再去。
+   去处由发起请求的地方给（它知道这次是什么没做成），这里不去猜报错原文。
    返回关闭时兑现的 Promise（提示在详情开着时不走，靠它接着计时） */
-function showErrDetail(text) {
+function showErrDetail(text, actions = []) {
   return new Promise(resolve => {
     const prev = document.activeElement;
     const tid = layerId("errd-title");
     const mask = modalLayer(`<div class="modal" role="dialog" aria-modal="true" aria-labelledby="${tid}">
     <h3 id="${tid}">报错信息</h3>
     <div class="m-body"><div class="err-detail" tabindex="0">${esc(String(text || ""))}</div></div>
-    <div class="m-actions"><button class="btn" data-x="copy">复制报错信息</button><button class="btn primary" data-x="close">关闭</button></div>
+    <div class="m-actions">${actions.map((a, k) => `<button class="btn" data-fix="${k}"${a.aria ? ` aria-label="${esc(a.aria)}"` : ""}>${esc(a.label)}</button>`).join("")}<button class="btn" data-x="copy">复制报错信息</button><button class="btn primary" data-x="close">关闭</button></div>
   </div>`);
     let closed = false;
     const close = () => {
@@ -251,6 +259,7 @@ function showErrDetail(text) {
     document.addEventListener("keydown", onKey);
     mask.querySelector('[data-x="close"]').onclick = close;
     mask.querySelector('[data-x="copy"]').onclick = () => copy(String(text || ""), "已复制报错信息");
+    mask.querySelectorAll("[data-fix]").forEach(b => b.onclick = () => { const a = actions[+b.dataset.fix]; close(); a.onClick(); });
     mask.addEventListener("mousedown", e => { if (e.target === e.currentTarget) close(); });
     mask.querySelector('[data-x="close"]').focus();
   });
@@ -345,10 +354,11 @@ function errSummary(what, e) {
 }
 /* 原文放进复制键的 data-err-raw：转义以后原样保留；回车符写成字符引用，不然 HTML 解析时 \r\n 会被并成 \n */
 const errRawAttr = raw => esc(raw).replace(/\r/g, "&#13;");
-/* 报错提示：正文按 errSummary 拼，「详情」里是完整原文。返回提示的元素（同 toast） */
-function toastErr(what, e) {
+/* 报错提示：正文按 errSummary 拼，「详情」里是完整原文。opts 同 toast（actions：修复的去处，提示上和「详情」里各一份）。
+   返回提示的元素（同 toast） */
+function toastErr(what, e, opts) {
   const { text, raw } = errSummary(what, e);
-  return toast(text, true, raw);
+  return toast(text, true, raw, opts);
 }
 /* 页面报错框（.err-box）：一句结论（拼法同 toastErr），下面「复制报错信息」，复制完整原文。返回 HTML，复制键的点击由下面的委托统一接。
    hint：下一步怎么办，纯文本，单独一行（「可在「设置 → 下载与网络」换一个下载源后重试。」）；
@@ -1470,7 +1480,7 @@ async function renderInstances() {
           if (!(await confirmKick(info, "停止"))) return; // 有玩家在线先问一声（R07，同详情页头）
           b.disabled = true; await api(`/api/instances/${encodeURIComponent(name)}/stop`, { method: "POST" }); toast(`「${name}」正在停止并保存世界`);
         }
-      } catch (e) { toastErr(act === "start" ? "无法启动服务器" : "无法停止服务器", e); }
+      } catch (e) { if (act === "start") toastErr("无法启动服务器", e, { actions: await startFixes(name) }); else toastErr("无法停止服务器", e); }
       lastSig = ""; draw();
     });
     // 整卡可点：点卡片空白处进入详情（卡内按钮 / 链接各自处理）
@@ -3083,7 +3093,7 @@ function detailNotice(key, html, { id = "", kind = "warn" } = {}) {
   const box = $("#d-notices");
   if (!box) return null;
   let el = box.querySelector(`[data-notice="${key}"]`);
-  if (!html) { if (el) el.remove(); box.hidden = !box.childElementCount; return null; }
+  if (!html) { if (el) { el.remove(); box.hidden = !box.childElementCount; placeToasts(); } return null; }
   if (!el) {
     el = document.createElement("div");
     el.dataset.notice = key;
@@ -3091,9 +3101,26 @@ function detailNotice(key, html, { id = "", kind = "warn" } = {}) {
     box.appendChild(el);
   }
   el.className = "d-notice " + kind;
-  if (el._html !== html) { el._html = html; el.innerHTML = html; }
-  box.hidden = false;
+  const wasHidden = box.hidden;
+  box.hidden = false; // 先露出来再量：藏着的提示区 placeToasts 不算
+  if (el._html !== html) { el._html = html; el.innerHTML = html; placeToasts(); } // 提示区变高变矮：右上角的提示跟着让开（见 placeToasts）
+  else if (wasHidden) placeToasts();
   return el;
+}
+
+/* 开服、重启没成功时，提示和「详情」里给的修复去处（回访走查 11-16）：失败的原因后端已经记进了实例列表
+   （找不到配的 Java：javaMissing；端口被占：startPortBusy），按它给「去换 Java」或「改端口」，不去猜报错原文。
+   查不到或者不是这两种就不给。改端口去「设置 → 常用」里的端口那一项（同详情页提示区的「改端口」） */
+async function startFixes(name) {
+  let cur;
+  try { cur = (await api("/api/instances")).find(i => i.name === name); } catch { return []; }
+  if (!cur) return [];
+  const base = `#/inst/${encodeURIComponent(name)}/`;
+  const go = h => { if (location.hash === h) navigate(); else location.hash = h; };
+  if (cur.javaMissing) return [{ label: "去换 Java", aria: `去「${name}」的「设置 → 启动与内存」换一个 Java`, close: true, onClick: () => go(base + "settings/jvm") }];
+  if (cur.startPortBusy && cur.startPortBusy.port) return [{ label: "改端口", aria: `去「${name}」的「设置 → 常用」改端口`, close: true,
+    onClick: () => { focusPropKey = "server-port"; go(base + "settings/common"); } }];
+  return [];
 }
 
 /* 详情页的七个标签和子页（docs/文案重写/04-标签与术语-beta3.md 第一节，可用性走查 R06）。编号是地址里 #/inst/<名字>/<编号>/<子页> 的那两段，
@@ -3137,7 +3164,7 @@ async function restartInstance(info, after) {
   toast(`「${info.name}」正在重启：先保存世界并停止，停下来以后再启动`);
   const t = after ? setTimeout(after, 400) : 0; // 请求要等服务器停下、再起来才回：先刷一次，状态胶囊马上变成「正在停止」
   try { await api(`/api/instances/${encodeURIComponent(info.name)}/restart`, { method: "POST" }); return true; }
-  catch (e) { toastErr("无法重启服务器", e); return false; }
+  catch (e) { toastErr("无法重启服务器", e, { actions: await startFixes(info.name) }); return false; }
   finally { clearTimeout(t); if (after) after(); }
 }
 /* 卡片「···」和详情页头「···」共用的两项：导出交接包、删除服务器（R06：详情页也能找到；卡片上的保留）。
@@ -3286,7 +3313,11 @@ async function renderDetail(name, path = "console") {
   $("#d-more").onclick = () => dropMenu($("#d-more"), instMoreItems(lastCur, () => { location.hash = "#/instances"; }));
   $("#d-start").onclick = async () => {
     try { $("#d-start").disabled = true; await api(`/api/instances/${enc}/start`, { method: "POST" }); toast("正在启动，首次生成世界可能需要一两分钟"); refreshHead(); }
-    catch (e) { toastErr("无法启动服务器", e); $("#d-start").disabled = false; refreshHead(); } // 没起来的原因马上常驻到页头下面
+    catch (e) { // 没起来的原因马上常驻到页头下面；提示和「详情」里也给修复的去处
+      const fixes = await startFixes(name);
+      toastErr("无法启动服务器", e, { actions: fixes });
+      if (!stale(gen)) { $("#d-start").disabled = false; refreshHead(); }
+    }
   };
   $("#d-stop").onclick = async () => {
     if (!(await confirmKick(lastCur, "停止"))) return;
