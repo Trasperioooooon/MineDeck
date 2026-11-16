@@ -13,6 +13,12 @@ import (
 // 别的线程打的日志收进输出，但不算「收到了」。一直没输出的普通命令只等 CmdWait，交给 AI 的结果写明几秒内没有输出。
 func TestCommandOutputWait(t *testing.T) {
 	f := newFixture(t)
+	// 下面两处量的是整段问答用了多久：除了等命令输出，还有两轮假 AI 的请求、记账和问答记录的落盘。
+	// 原来慢命令最多等 3 秒，上限分别卡在 2 秒和 1 秒，对的和错的只差两三倍。2026-11-15 的 CI 上 go test 刚开头
+	// 这个包慢了五倍，第二处用了 1.16 秒，挂了一次。现在把慢命令的等待放到 30 秒：等错了至少 30 秒，
+	// 等对了不到 1 秒，上限放在 10 秒，慢机器上也分得清
+	const slow = 30 * time.Second
+	f.gc.slowWait = slow
 	f.set(Patch{Allowed: &[]string{"Steve"}})
 	f.b.mu.Lock()
 	f.b.reply = func(cmd string) string {
@@ -38,8 +44,8 @@ func TestCommandOutputWait(t *testing.T) {
 	if len(h.Commands) != 1 || !h.Commands[0].OK || !strings.Contains(h.Commands[0].Output, "[128, ~, -64]") || !strings.Contains(h.Commands[0].Output, "正在生成区块") {
 		t.Errorf("locate 过了 0.3 秒才回来的坐标也要拿到：%+v", h.Commands)
 	}
-	if elapsed > 2*time.Second {
-		t.Errorf("收到输出就返回，不该等满 SlowCmdWait（3 秒）：%v", elapsed)
+	if elapsed > 10*time.Second {
+		t.Errorf("收到输出就返回，不该等满 SlowCmdWait（%v）：%v", slow, elapsed)
 	}
 
 	// 普通命令一直没输出：只等 CmdWait（测试里 30 毫秒）
@@ -47,15 +53,15 @@ func TestCommandOutputWait(t *testing.T) {
 	f.ai.queue(toolReply(cmdCall("c2", "time set day")), textReply("好了。"))
 	start = time.Now()
 	f.say("Steve", "@AI 改成白天")
-	if d := time.Since(start); d > time.Second {
-		t.Errorf("普通命令没输出时只等 CmdWait：%v", d)
+	if d := time.Since(start); d > 10*time.Second {
+		t.Errorf("普通命令没输出时只等 CmdWait，不是 SlowCmdWait（%v）：%v", slow, d)
 	}
 	reqs := f.ai.requests()
 	last := parseReq(t, reqs[len(reqs)-1])
 	if c := last.Messages[len(last.Messages)-1].Content; !strings.Contains(c, "已执行：time set day") || !strings.Contains(c, "1 秒内服务器没有输出") {
 		t.Errorf("没输出时交给 AI 的结果：%s", c)
 	}
-	if w := f.gc.waitFor("locatebiome desert"); w != 3*time.Second {
+	if w := f.gc.waitFor("locatebiome desert"); w != slow {
 		t.Errorf("locatebiome 也按慢命令等：%v", w)
 	}
 	if w := f.gc.waitFor("list"); w != 30*time.Millisecond {

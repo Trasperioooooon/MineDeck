@@ -222,6 +222,18 @@ func TestCompanionEndToEnd(t *testing.T) {
 	if !strings.Contains(con, "[MineDeck] 伙伴「小方」的任务通知（只发给 Steve）：采集 oak_log ×3 做完了：这次拿到 3 个（要 3 个），背包里共 3 个，用时 10 秒。") {
 		t.Errorf("控制台：\n%s", con)
 	}
+	// 回复先发进游戏，问答记录和操作记录 gameai.ask 随后才写（chatai/answer.go，中间还有一次落盘）。
+	// 慢的时候任务通知都到了，这一条还没写上：本机带负载跑全量时这样挂过两次（2026-11-13、11-14，
+	// 「操作记录里少了 gameai.ask」）。同一个空档 TestGameChatEndToEnd 在 CI 上撞过，那边早就改成先等了
+	waitFor(t, "问答的操作记录写完", 10*time.Second, func() bool {
+		recs, _ := e.reg.Log.Query(ops.Query{Src: ops.SrcGameChat})
+		for _, r := range recs {
+			if r.Op == "gameai.ask" {
+				return true
+			}
+		}
+		return false
+	})
 	// 操作记录：刷出（来源 ui）、动作（来源 companion）、问答（来源 gamechat，带伙伴的名字）
 	recs, _ := e.reg.Log.Query(ops.Query{})
 	var got []string
