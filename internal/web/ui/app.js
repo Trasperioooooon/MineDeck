@@ -130,7 +130,6 @@ function toast(msg, isErr = false, detail, opts = {}) {
   d.appendChild(t);
   d.title = isErr ? "点击查看详情" : "点击关闭";
   box.appendChild(d);
-  placeToasts();
   let gone = false;
   const kill = () => {
     if (gone) return;
@@ -187,6 +186,7 @@ function toast(msg, isErr = false, detail, opts = {}) {
     d.addEventListener("mouseenter", hold);
     d.addEventListener("mouseleave", release);
   }
+  placeToasts(); // 按钮都加进去、高度定了再量（Codex 复审 beta.3 之后第二轮：以前先量，加了按钮换行变高，下半截可能出屏幕）
   run();
   d.dismiss = kill; // 调用方可以提前收掉它（交接包导出：重试成功以后，上一次的报错不再挂着）
   return d; // 调用方可以换掉点击的行为（如 mcp.js：点一下打开 AI 助手）
@@ -1651,10 +1651,11 @@ function wirePortField(input, note, sug, { base = 25565, keep = false, extra = n
   // 打开表单就可能让防火墙弹窗问要不要放行（Codex 复审 beta.3 之后第一轮）。
   // 换好的默认值、后端刚查过是空着的默认值，不用再问。查不成不提示，也不拦着提交（同本软件服务器撞端口：只提示）
   let other = { v: 0, text: "" }, seq = 0, timer = 0;
-  const check = v => {
+  const check = (v, init = false) => {
     clearTimeout(timer);
     if (!(Number.isInteger(v) && v >= 1 && v <= 65535) || owner(v) || (auto && v === auto.to)) return;
-    if (sug && v === sug.from && !sug.fromBusy && !sug.usedBy) return;
+    // 只在打开表单那一次免查：之后手填回这个端口照样问，中间可能有别的程序占上了（Codex 复审 beta.3 之后第二轮）
+    if (init && sug && v === sug.from && !sug.fromBusy && !sug.usedBy) return;
     const my = ++seq;
     timer = setTimeout(async () => {
       if (!input.isConnected) return;
@@ -1680,7 +1681,7 @@ function wirePortField(input, note, sug, { base = 25565, keep = false, extra = n
   };
   input.addEventListener("input", () => { paint(); check(Number(input.value)); });
   paint();
-  check(Number(input.value));
+  check(Number(input.value), true);
   return { def: auto ? auto.to : base };
 }
 

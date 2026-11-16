@@ -6577,6 +6577,17 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         f = await portView("#ad-port", "#ad-port-note");
         assert(f.v === "25565" && f.warn && f.note.includes("端口 25565 现在被别的程序（java.exe）占着") && f.note.includes("如果是原来的服务器还开着，接管前先把它停掉") &&
           !f.note.includes("server.properties"), "接管只提示不换：" + JSON.stringify(f));
+        // 打开表单时 25565 空着（不用再问）；之后别的程序占上了，手填回 25565 照样要问、要提示（Codex 复审 beta.3 之后第二轮：
+        // 以前免查对之后的手填也生效）
+        await xState({ otherPorts: {} });
+        await toWizardFinal("#/create/new");
+        f = await portView("#f-port", "#f-port-note");
+        assert(f.v === "25565" && f.note === "", "25565 空着时照用、不提示：" + JSON.stringify(f));
+        await page.fill("#f-port", "25599"); await settle(700);
+        await xState({ otherPorts: { 25565: "java.exe" } });
+        await page.fill("#f-port", "25565"); await settle(700);
+        f = await portView("#f-port", "#f-port-note");
+        assert(f.warn && f.note.includes("端口 25565 现在被别的程序（java.exe）占着"), "手填回默认端口也要查：" + JSON.stringify(f));
       } finally { await xState({ instReset: true, adoptScan: null, otherPorts: {}, taskStage: 2, modCart: { reset: true } }); }
     });
 
@@ -7030,7 +7041,22 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         await page.click('#modal-root .modal [data-x="close"]'); await settle(300);
         // 矮窗口：提示区下面放不下时退回页头下面，还放不下就回到标题栏下方——整条提示总在屏幕里（Codex 复审 beta.3 之后第一轮：
         // 以前会被推到屏幕外面照样倒数、自己走掉）
-        for (const hgt of [360, 280]) {
+        // 报错原文很长时提示加上按钮以后会换行变高：要按加完按钮的高度量（Codex 复审 beta.3 之后第二轮）
+        // 原文要在 60 个字以内、提示才会整句接上（见 errSummary），够长才会因为加了按钮多换几行
+        await pState({ inst: { name: PACK0, startFail: "模组加载失败缺少前置模组请先检查模组列表和版本是否匹配然后再重新启动一次这台服务器看看还会不会这样" } });
+        // 先在大窗口里量：带按钮的报错提示多高（h1）、同样的字不带按钮多高（h0，普通提示没有按钮）、提示区底在哪；
+        // 再挑一个「按 h0 放得下、按 h1 放不下」的窗口高度。按 h0 量的老代码会把它放到提示区下面、下半截出屏幕
+        await page.evaluate(() => document.querySelectorAll("#toasts .toast").forEach(t => t.remove()));
+        await detail(PACK0, "console");
+        await page.click("#d-start"); await page.waitForSelector(live); await settle(400);
+        const m = await page.evaluate(sel => {
+          const e = document.querySelector(sel), h1 = e.getBoundingClientRect().height, text = e.querySelector(".t-msg").textContent;
+          const plain = toast(text); const h0 = plain.getBoundingClientRect().height; plain.remove();
+          return { h0, h1, nb: document.querySelector("#d-notices").getBoundingClientRect().bottom };
+        }, live);
+        assert(m.h1 > m.h0, "加了按钮应更高（不然这段测不到要测的）：" + JSON.stringify(m));
+        const tight = Math.ceil(m.nb + 8 + m.h0 + 8 + (m.h1 - m.h0) / 2);
+        for (const hgt of [tight, 360, 280]) {
           await page.setViewportSize({ width: vp0.width, height: hgt });
           await page.evaluate(() => document.querySelectorAll("#toasts .toast").forEach(t => t.remove()));
           await detail(PACK0, "console");

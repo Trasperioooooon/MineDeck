@@ -110,8 +110,14 @@ func TestPortSuggestReadsRealListenTable(t *testing.T) {
 		Port     int  `json:"port"`
 		FromBusy bool `json:"fromBusy"`
 	}
-	// 系统分给我们的是 65535 时上面没有端口可跳，按原样给起点（同 DefaultPort 的兜底），只看认没认出被占着
-	if err := do(t, reg, human, "port.suggest", `{"from":`+strconv.Itoa(busy)+`}`, &r); err != nil || !r.FromBusy || (r.Port <= busy && busy < 65535) {
-		t.Errorf("应跳过 %d：%v %+v", busy, err, r)
+	// 上面还有没人监听的端口时才要求跳过去；系统分到的端口靠近 65535、上面都被占着时按原样给起点（同 DefaultPort 的兜底）
+	above := false
+	ls := tcpListeners()
+	for p := busy + 1; p <= 65535 && !above; p++ {
+		_, used := ls[p]
+		above = !used
+	}
+	if err := do(t, reg, human, "port.suggest", `{"from":`+strconv.Itoa(busy)+`}`, &r); err != nil || !r.FromBusy || (above && r.Port <= busy) {
+		t.Errorf("应跳过 %d：%v %+v（上面有空着的：%v）", busy, err, r, above)
 	}
 }
