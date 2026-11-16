@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"minedeck/internal/app"
@@ -495,11 +496,11 @@ func TestExportModeAndPackingGuard(t *testing.T) {
 	}
 }
 
-// 导入失败的任务一显示结束，同一个名字马上就能再用：「创建中」的占位在报失败之前放掉。
-// 原来是任务显示失败以后才放，中间有一小段空档，紧接着重试会被回「正在创建中，请稍候」，
+// 导入的任务一显示结束，同一个名字马上就能再用，上传的包也已经删了：收尾时先删包、再放「创建中」的占位、
+// 最后才报任务结果。原来是报完结果才放占位，中间有一小段空档，紧接着重试会被回「正在创建中，请稍候」，
 // 而失败框上写的是「半成品已经清理干净，可以重试」。2026-11-10 main 上的 CI 这样挂过一次（运行 42752620734，
 // TestImportDropsRuntimeSettings 当时每一轮都用同一个名字），那次只把测试改成了每轮换名字。
-// 空档很短，这里连着试二十次；把 import.go 改回去再在放占位之前睡一下，第二次就会撞上。
+// 空档很短，连着试几十次也碰不上，所以这里在「就要报结果」的那一刻（importEndHook）当场检查，不靠碰运气。
 func TestImportFailureFreesNameAtOnce(t *testing.T) {
 	newEnv(t)
 	m, err := inst.NewManager()
@@ -514,7 +515,25 @@ func TestImportFailureFreesNameAtOnce(t *testing.T) {
 		{"instance/server.jar", "fake"}, {"instance/eula.txt", "eula=true\n"},
 		{"instance/server.properties", "server-port=25570\nlevel-name=../other-server\n"},
 	}
-	for k := 0; k < 20; k++ {
+	var mu sync.Mutex
+	var problems []string
+	importEndHook = func(name, pack string) {
+		mu.Lock()
+		defer mu.Unlock()
+		if _, err := os.Stat(pack); !os.IsNotExist(err) {
+			problems = append(problems, "就要报结果时上传的包还在")
+		}
+		// 拿同一个名字再占一次位：占得上，说明这一刻名字已经放了
+		req := inst.CreateReq{Name: name, Core: mcsrc.CorePaper, MC: "1.20.1", Build: "100", EULA: true}
+		dir, err := m.ReserveCreate(&req)
+		if err != nil {
+			problems = append(problems, "就要报结果时名字还占着："+err.Error())
+			return
+		}
+		m.ReleaseCreate(req.Name, dir)
+	}
+	t.Cleanup(func() { importEndHook = nil })
+	for k := 0; k < 3; k++ {
 		id, err := ImportAsync(m, rawPack(t, string(mf), evil), ImportReq{Name: "同一个名字", EULA: true})
 		if err != nil {
 			t.Fatalf("第 %d 次：上一次失败的任务已经显示结束，这个名字应当马上能再用：%v", k+1, err)
@@ -522,5 +541,10 @@ func TestImportFailureFreesNameAtOnce(t *testing.T) {
 		if snap, _, _, _ := waitTask(t, m, id); !strings.Contains(snap.Err, "level-name") {
 			t.Fatalf("第 %d 次：这个包应当因为 level-name 被拒：%q", k+1, snap.Err)
 		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(problems) != 0 {
+		t.Fatal(strings.Join(problems, "；"))
 	}
 }

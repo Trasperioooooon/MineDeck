@@ -39,6 +39,9 @@ type ImportReq struct {
 	Root      string // 自定义存放根（仅本机有效，远程 / 局域网请求被操作层清空）
 }
 
+// importEndHook 测试用：导入收尾、就要报任务结果的那一刻调用（这时上传的包应当已经删了、名字的占位应当已经放了）。
+var importEndHook func(name, pack string)
+
 // ImportAsync 校验请求并在后台导入，返回任务编号；任务成功后 result 是实例名。
 func ImportAsync(m *inst.Manager, path string, req ImportReq) (string, error) {
 	mf, err := ReadManifest(path)
@@ -80,18 +83,27 @@ func ImportAsync(m *inst.Manager, path string, req ImportReq) (string, error) {
 	release := func() { once.Do(func() { m.ReleaseCreate(req.Name, dir) }) }
 	go func() {
 		defer release()
-		defer os.Remove(path) // 上传的包在导入结束（成功/失败）后删除：交接包动辄几个 GB，不能留副本攒着
+		defer os.Remove(path) // 兜底：中途 panic 也删掉上传的包（交接包动辄几个 GB，不能留副本攒着）
+		// 收尾的先后：删上传的包 → 放占位 → 报任务结果。包要在放占位之前删：占位一放，别人就能拿同一个文件
+		// 再发起导入，这时包要是还在，新任务开得起来，随后又被这里删掉，做到解包那一步才失败
+		finish := func() {
+			_ = os.Remove(path)
+			// 占位在报结果之前放：原来是任务显示结束以后才放，紧接着用同一个名字重试会被回「正在创建中，请稍候」
+			// （2026-11-10 main 上的 CI 这样挂过一次；导出那一侧当时就改成先放再报了，见 ExportAsync）
+			release()
+			if importEndHook != nil {
+				importEndHook(req.Name, path)
+			}
+		}
 		if err := runImport(ctx, t, m, mf, path, req, dir); err != nil {
 			// 先清后报失败：失败框上写着「半成品已经清理干净，可以重试」，任务一显示失败就得是真的（测试也是一看到失败就去查文件夹）
 			_ = m.Delete(req.Name, false) // 万一已经注册（收尾失败）：从列表移出
 			os.RemoveAll(dir)             // 目录是本程序新建的半成品，整体清掉
-			// 占位也在报失败之前放：原来是任务显示失败以后才放，紧接着用同一个名字重试会被回「正在创建中，请稍候」
-			// （2026-11-10 main 上的 CI 这样挂过一次；导出那一侧当时就改成先放再报了，见 ExportAsync）
-			release()
+			finish()
 			t.Fail(err)
 			return
 		}
-		release() // 同上：任务一显示完成，这个名字就不再算「创建中」
+		finish()
 		t.Finish(req.Name)
 	}()
 	return t.ID(), nil
