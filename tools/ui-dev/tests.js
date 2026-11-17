@@ -7948,6 +7948,23 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     }
   });
 
+  await run("新建向导选核心：手机竖屏（360、320px）下核心卡片缩成一列，不横向溢出", async () => {
+    for (const width of [360, 320]) {
+      const c = await hostCtx({ host: false }, { viewport: { width, height: 740 } });
+      try {
+        const p = await c.newPage();
+        p.on("pageerror", e => errors.push(pageErr(e)));
+        await p.goto(ORIGIN + "#/create/new"); await p.waitForSelector(".core-grid .core-card"); await p.waitForTimeout(400);
+        const w = await p.evaluate(() => {
+          const m = document.querySelector("#main");
+          return { sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth, msw: m.scrollWidth, mcw: m.clientWidth,
+            wide: [...document.querySelectorAll(".core-grid .core-card")].filter(e => e.getBoundingClientRect().right > innerWidth + 1).length };
+        });
+        assert(w.sw <= w.cw && w.msw <= w.mcw + 1 && w.wide === 0, width + "px 横向溢出：" + JSON.stringify(w));
+      } finally { await c.close(); }
+    }
+  });
+
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
 
   await browser.close();

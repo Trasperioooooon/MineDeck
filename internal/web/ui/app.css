@@ -621,7 +621,8 @@ a.inst-name:hover { text-decoration: underline; text-decoration-color: color-mix
 .core-group { margin-bottom: 20px; }
 .cg-title { display: flex; align-items: center; gap: 8px; font-size: var(--fs-xs); font-weight: var(--fw-semibold); color: var(--muted); margin: 0 0 10px; letter-spacing: .02em; }
 .cg-title::after { content: ""; flex: 1; height: 1px; background: var(--border); }
-.core-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
+/* 每张至少 340（插件端那几张放得下两行说明）；手机竖屏放不下 340 时缩成一列铺满，不横向溢出（Codex 复审 v3.2.0 第一轮） */
+.core-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 12px; }
 .core-card {
   position: relative; display: flex; gap: 12px; align-items: flex-start; padding: 14px; cursor: pointer;
   transition: transform var(--dur-2) var(--ease-out), border-color var(--dur-2), background-color var(--dur-2);
