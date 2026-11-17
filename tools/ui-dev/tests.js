@@ -8201,9 +8201,9 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         await fillZone(pa, "farm", 100);
         assert(await toastIn(pa, "已添加禁挖区域「farm」"), "A 加上 farm");
         assert(jstr(last("a", "/companion/settings")) === jstr({ addZones: [zone("farm", 100)] }), "A 只发加的：" + jstr(last("a", "/companion/settings")));
-        // B 加 Farm（大写）：弹窗放行（这一页没看到 farm），后端不分大小写拦下，什么都不改
+        // B 加 Farm（大写）：弹窗放行（这一页没看到 farm），后端不分大小写拦下（说的是已经有的 farm），什么都不改
         await fillZone(pb, "Farm", 200);
-        assert(await toastIn(pb, "已经有一个叫「Farm」的禁挖区域了"), "重名由后端拦下");
+        assert(await toastIn(pb, "已经有一个叫「farm」的禁挖区域了"), "重名由后端拦下");
         assert(jstr(await zoneNames()) === jstr(["base", "farm"]), "被拦下时什么都没改：" + jstr(await zoneNames()));
         // B 删 base：只发删的，A 加的 farm 还在
         await pb.click('[data-zdel="base"]'); await pb.waitForSelector(".modal");

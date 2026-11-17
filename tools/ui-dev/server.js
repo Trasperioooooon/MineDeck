@@ -523,7 +523,10 @@ async function aiHandler(state, req, res, p, m) {
     if (!Array.isArray(b.prices) && !Array.isArray(b.addPrices) && !Array.isArray(b.removePrices)) return err(res, 400, "缺少参数 prices");
     let next = Array.isArray(b.prices) ? b.prices.map(c => ({ ...c })) : a.prices.map(c => ({ ...c }));
     next = next.filter(c => !(b.removePrices || []).includes(c.model));
-    for (const c of b.addPrices || []) next = [...next.filter(x => x.model !== c.model), { ...c }];
+    for (const c of b.addPrices || []) { // 同后端：已经有这个模型的原地换掉，位置不动
+      const k = next.findIndex(x => x.model === c.model);
+      if (k >= 0) next[k] = { ...c }; else next.push({ ...c });
+    }
     if (next.length > 100) return err(res, 400, "自填单价最多 100 条");
     a.prices = next;
     return ok(res, aiView(a));
@@ -1453,10 +1456,11 @@ async function cpHandler(state, req, res, m, seg) {
       const gone = (b.removeZones || []).map(n => String(n).toLowerCase());
       zones = zones.filter(z => !gone.includes(z.name.toLowerCase()));
       for (const z of b.addZones || []) {
-        if (zones.some(x => x.name.toLowerCase() === z.name.toLowerCase())) return err(res, 400, `已经有一个叫「${z.name}」的禁挖区域了（可能是刚在别的窗口加的），换个名字`);
+        const had = zones.find(x => x.name.toLowerCase() === z.name.toLowerCase()); // 同后端：说的是已经有的那个的名字
+        if (had) return err(res, 400, `已经有一个叫「${had.name}」的禁挖区域了（可能是刚在别的窗口加的），换个名字`);
         zones.push({ ...z });
       }
-      if (zones.length > 64) return err(res, 400, "禁挖区域最多 64 个");
+      if (zones.length > 64) return err(res, 400, `禁挖区域最多 64 个，改完会有 ${zones.length} 个`);
     }
     if ("enabled" in b) { c.settings.enabled = !!b.enabled; c.settings.exists = true; cpEvent(c, b.enabled ? "MineDeck 打开了伙伴" : "MineDeck 关掉了伙伴"); }
     if (b.maxCompanions != null) c.settings.maxCompanions = b.maxCompanions;
