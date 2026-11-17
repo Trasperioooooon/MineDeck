@@ -114,18 +114,22 @@ func checkPrefix(p string) error {
 
 // Patch 改设置：只改传了的字段（界面一次只改一块）。
 type Patch struct {
-	Enabled   *bool           `json:"enabled"`
-	Prefix    *string         `json:"prefix"`
-	Aliases   *[]string       `json:"aliases"`
-	Allowed   *[]string       `json:"allowed"`
-	Templates map[string]bool `json:"templates"` // 只改列出的模板
-	Cooldown  *int            `json:"cooldown"`
-	PerPlayer *int            `json:"perPlayer"`
-	PerServer *int            `json:"perServer"`
-	Budget    *int64          `json:"budget"`
-	Loose     *bool           `json:"looseNames"`
-	AnyThread *bool           `json:"anyThread"`
-	Pattern   *string         `json:"pattern"`
+	Enabled *bool     `json:"enabled"`
+	Prefix  *string   `json:"prefix"`
+	Aliases *[]string `json:"aliases"`
+	Allowed *[]string `json:"allowed"` // 给了就整个替换授权名单（老写法）
+	// 按名字收回、授权（不分大小写）。两个窗口同时开着「游戏内 AI」时，以前每次都把整份名单发过来，
+	// 没刷新的那一边一保存，就把另一边刚收回的人又授权回去（2026-11-17）；现在界面只发这一个名字。
+	RemoveAllowed []string        `json:"removeAllowed"`
+	AddAllowed    []string        `json:"addAllowed"`
+	Templates     map[string]bool `json:"templates"` // 只改列出的模板
+	Cooldown      *int            `json:"cooldown"`
+	PerPlayer     *int            `json:"perPlayer"`
+	PerServer     *int            `json:"perServer"`
+	Budget        *int64          `json:"budget"`
+	Loose         *bool           `json:"looseNames"`
+	AnyThread     *bool           `json:"anyThread"`
+	Pattern       *string         `json:"pattern"`
 }
 
 // Apply 把改动用到 s 上并检查；不合规时整次不改，返回原因。
@@ -159,13 +163,33 @@ func (p Patch) Apply(s Settings) (Settings, error) {
 		}
 		s.Aliases = out
 	}
-	if p.Allowed != nil {
-		var out []string
-		for _, n := range *p.Allowed {
+	// 授权名单：先整个替换，再按名字收回，再按名字授权；三样给了任何一样，最后都去重、数人数、排好序
+	if p.Allowed != nil || p.RemoveAllowed != nil || p.AddAllowed != nil {
+		list := s.Allowed
+		if p.Allowed != nil {
+			list = nil
+			for _, n := range *p.Allowed {
+				n = strings.TrimSpace(n)
+				if why := validSender(n, true); why != "" {
+					return s, fmt.Errorf("「%s」不能授权：%s", n, why)
+				}
+				list = append(list, n)
+			}
+		}
+		if len(p.RemoveAllowed) > 0 { // 找不到的不算错
+			list = slices.DeleteFunc(list, func(x string) bool {
+				return slices.ContainsFunc(p.RemoveAllowed, func(r string) bool { return strings.EqualFold(strings.TrimSpace(r), x) })
+			})
+		}
+		for _, n := range p.AddAllowed {
 			n = strings.TrimSpace(n)
 			if why := validSender(n, true); why != "" {
 				return s, fmt.Errorf("「%s」不能授权：%s", n, why)
 			}
+			list = append(list, n)
+		}
+		var out []string
+		for _, n := range list { // 已经有的（不分大小写）不重复加，留先来的那个写法
 			if !slices.ContainsFunc(out, func(x string) bool { return strings.EqualFold(x, n) }) {
 				out = append(out, n)
 			}
