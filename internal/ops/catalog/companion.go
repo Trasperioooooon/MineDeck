@@ -96,20 +96,40 @@ type companionSettingsArgs struct {
 	AttackDeny    *[]string           `json:"attackDeny"`
 	DenyDefault   bool                `json:"denyDefault"`
 	Zones         *[]companionZoneArg `json:"zones"`
+	// 按条删、按条加禁挖区域（两个窗口同时开着时，没刷新的那一边不把另一边刚加的区域删掉，2026-11-17）
+	RemoveZones []string           `json:"removeZones"`
+	AddZones    []companionZoneArg `json:"addZones"`
 }
 
-// patch 转成 companion.SettingsPatch；两个角都要正好 3 个坐标（JSON 解进 [3]int 时少写的会悄悄变成 0）。
+// zonesOf 转成 companion.Zone；两个角都要正好 3 个坐标（JSON 解进 [3]int 时少写的会悄悄变成 0）。
+func zonesOf(args []companionZoneArg) ([]companion.Zone, error) {
+	zs := []companion.Zone{}
+	for _, z := range args {
+		if len(z.Min) != 3 || len(z.Max) != 3 {
+			return nil, ops.Errorf(400, "禁挖区域「%s」的两个角都要写 x、y、z 三个坐标", z.Name)
+		}
+		zs = append(zs, companion.Zone{Name: z.Name, Dim: z.Dim, Min: [3]int{z.Min[0], z.Min[1], z.Min[2]}, Max: [3]int{z.Max[0], z.Max[1], z.Max[2]}})
+	}
+	return zs, nil
+}
+
+// patch 转成 companion.SettingsPatch。
 func (a companionSettingsArgs) patch() (companion.SettingsPatch, error) {
-	p := companion.SettingsPatch{Enabled: a.Enabled, Patch: companion.Patch{MaxCompanions: a.MaxCompanions, AttackDeny: a.AttackDeny, DenyDefault: a.DenyDefault}}
+	p := companion.SettingsPatch{Enabled: a.Enabled, Patch: companion.Patch{MaxCompanions: a.MaxCompanions, AttackDeny: a.AttackDeny, DenyDefault: a.DenyDefault,
+		RemoveZones: a.RemoveZones}}
 	if a.Zones != nil {
-		zs := []companion.Zone{}
-		for _, z := range *a.Zones {
-			if len(z.Min) != 3 || len(z.Max) != 3 {
-				return p, ops.Errorf(400, "禁挖区域「%s」的两个角都要写 x、y、z 三个坐标", z.Name)
-			}
-			zs = append(zs, companion.Zone{Name: z.Name, Dim: z.Dim, Min: [3]int{z.Min[0], z.Min[1], z.Min[2]}, Max: [3]int{z.Max[0], z.Max[1], z.Max[2]}})
+		zs, err := zonesOf(*a.Zones)
+		if err != nil {
+			return p, err
 		}
 		p.Zones = &zs
+	}
+	if a.AddZones != nil {
+		zs, err := zonesOf(a.AddZones)
+		if err != nil {
+			return p, err
+		}
+		p.AddZones = zs
 	}
 	return p, nil
 }
@@ -253,13 +273,18 @@ func (c *cat) companionOps() {
 		Name: "companion.settings.set", Title: "修改 AI 伙伴的设置", Level: ops.Write,
 		Desc: "只改传了的字段。enabled：打开伙伴（伙伴模组在 127.0.0.1 上打开控制端口，MineDeck 写好端口和令牌，服务器开着就去连）或者关掉" +
 			"（伙伴还在游戏里，只是指挥不了）；maxCompanions：同时最多几个伙伴（1–16）；attackDeny：attack 不许打的生物种类（整体替换，空数组表示没有额外限制）；" +
-			"denyDefault：恢复默认的不许打名单；zones：禁挖区域（整体替换，伙伴不拆也不放区域里的方块）。约 2 秒内生效，不用重启。",
+			"denyDefault：恢复默认的不许打名单；zones：禁挖区域（整体替换，伙伴不拆也不放区域里的方块）；" +
+			"removeZones：按名字删禁挖区域（不分大小写，没有这个名字的不算错）；addZones：按条加禁挖区域（名字和现有的不分大小写重了就报错，整次不改）。" +
+			"只加、删几个区域时用 removeZones、addZones，不用把整张表发回来（改一个区域 = 删掉旧名字、再加上新的）；" +
+			"几样一起给时先按 zones 整体替换、再删、再加，合完最多 64 个。约 2 秒内生效，不用重启。",
 		Params: withInst(map[string]*ops.Schema{
 			"enabled":       ops.Boolean("打开伙伴"),
 			"maxCompanions": ops.Integer("同时最多几个伙伴").Range(1, 16),
 			"attackDeny":    ops.Array("attack 不许打的生物种类 ID", ops.String("生物 ID，如 minecraft:villager").Len(1, 100)).MaxLen(64),
 			"denyDefault":   ops.Boolean("恢复默认的不许打名单（村民、流浪商人、铁傀儡、雪傀儡、悦灵）"),
-			"zones":         ops.Array("禁挖区域", zone).MaxLen(64),
+			"zones":         ops.Array("禁挖区域（整体替换）", zone).MaxLen(64),
+			"removeZones":   ops.Array("要删的禁挖区域的名字（不分大小写，没有的不算错）", ops.String("区域名").Len(1, 32)).MaxLen(64),
+			"addZones":      ops.Array("要加的禁挖区域（名字不能和删完以后现有的重，不分大小写）", zone).MaxLen(64),
 		}),
 		Preview: func(_ context.Context, _ ops.Caller, a ops.Args) (*ops.Plan, error) {
 			p, err := bind[companionSettingsArgs](a)
@@ -270,7 +295,8 @@ func (c *cat) companionOps() {
 			if err != nil {
 				return nil, err
 			}
-			if _, err := sp.Patch.Check(); err != nil {
+			chk, err := sp.Patch.Check()
+			if err != nil {
 				return nil, ops.Wrap(400, err)
 			}
 			v, err := c.Companion.Status(p.Inst)
@@ -297,7 +323,7 @@ func (c *cat) companionOps() {
 				}
 				plan.Changes = append(plan.Changes, ops.Change{What: "attack 不许打的生物", Before: orEmpty(strings.Join(cur.AttackDeny, "、")), After: after})
 			}
-			if sp.Zones != nil {
+			if chk.EditsZones() {
 				names := func(zs []companion.Zone) string {
 					var n []string
 					for _, z := range zs {
@@ -305,7 +331,12 @@ func (c *cat) companionOps() {
 					}
 					return orEmpty(strings.Join(n, "、"))
 				}
-				plan.Changes = append(plan.Changes, ops.Change{What: "禁挖区域", Before: names(cur.Zones), After: names(*sp.Zones)})
+				// 改完以后的样子和真正执行时用同一个合并函数算（执行时按那时候文件里的再合一次）
+				after, err := chk.MergeZones(cur.Zones)
+				if err != nil {
+					return nil, companionErr(err)
+				}
+				plan.Changes = append(plan.Changes, ops.Change{What: "禁挖区域", Before: names(cur.Zones), After: names(after)})
 			}
 			plan.Summary = fmt.Sprintf("改「%s」的 AI 伙伴设置", p.Inst)
 			if len(plan.Changes) == 0 {

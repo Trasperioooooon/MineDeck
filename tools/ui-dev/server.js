@@ -419,14 +419,21 @@ function aiView(a) {
   const priceNeeded = !missing && !(p && p.local);
   return {
     presets: AI_PRESETS, provider: { preset: a.preset, protocol: a.protocol, baseUrl: a.baseUrl, model: a.model, maxOutput: a.maxOutput, effort: a.effort, eager: official, fallback: official,
-      ...(a.preset === "custom" ? { ...(a.auth ? { auth: a.auth } : {}), echo: a.echo || "auto" } : {}) },
+      ...(a.preset === "custom" ? { ...(a.auth ? { auth: a.auth } : {}), echo: a.echo || "auto" } : {}), rev: aiRev(a) },
     keySet: !!a.key && !a.keyBroken, keyBroken: !!a.key && a.keyBroken, enabled: !missing, missing, quota: a.quota, today: a.today, month: a.month,
     priceNeeded, prices: { source: "LiteLLM 公开价格", updated: priceNeeded ? a.priceUpdated : a.priceUpdated, count: a.priceUpdated ? 3203 : 0 },
     modelPrice, customPrices: a.prices, local: a.local,
   };
 }
-// 同 ai.Service.SetProvider：只改传了的字段；改了服务商、协议或地址，旧 Key 清掉（同一次请求给了新 Key 就用新的）
+// 服务商设置的版本（同后端 ProviderView.rev）：界面提交的那七项的指纹。Key、额度、单价、测试连接记下的那些不算在里面
+function aiRev(a) {
+  return require("crypto").createHash("sha256")
+    .update(JSON.stringify([a.preset, a.protocol, a.baseUrl, a.model, a.effort, a.auth || "", a.echo || ""])).digest("hex").slice(0, 16);
+}
+// 同 ai.Service.SetProvider：只改传了的字段；改了服务商、协议或地址，旧 Key 清掉（同一次请求给了新 Key 就用新的）。
+// 带了 rev 而且和现在的不一样（别的窗口这期间存过）：整次不改，回 409（返回 { code, msg }）
 function aiSetProvider(a, b) {
+  if (typeof b.rev === "string" && b.rev !== aiRev(a)) return { code: 409, msg: "AI 设置刚在别的窗口改过，这一页显示的还是旧的。重新读取以后再改" };
   if ("preset" in b && b.preset === "") { Object.assign(a, { preset: "", protocol: "", baseUrl: "", model: "", maxOutput: 0, effort: "", key: "", keyBroken: false, auth: "", echo: "" }); return null; }
   const id = "preset" in b ? b.preset : a.preset;
   const p = AI_PRESETS.find(x => x.id === id);
@@ -478,7 +485,10 @@ async function aiHandler(state, req, res, p, m) {
   if (p === "/api/ai/settings" && m === "GET") return ok(res, aiView(a));
   if (!local) return err(res, 403, AI_LOCAL_MSG); // 修改类的都仅本机
   const b = await readBody(req);
-  if (p === "/api/ai/provider" && m === "PUT") { const e = aiSetProvider(a, b); return e ? err(res, 400, e) : ok(res, aiView(a)); }
+  if (p === "/api/ai/provider" && m === "PUT") {
+    const e = aiSetProvider(a, b);
+    return !e ? ok(res, aiView(a)) : typeof e === "object" ? err(res, e.code, e.msg) : err(res, 400, e);
+  }
   if (p === "/api/ai/models" && m === "POST") {
     const pr = AI_PRESETS.find(x => x.id === b.preset);
     if (!pr) return err(res, 400, "先选择服务商");
@@ -508,9 +518,17 @@ async function aiHandler(state, req, res, p, m) {
     }
     return ok(res, aiView(a));
   }
+  // 同 ai.PatchPrices：prices 给了整张替换；removePrices 按模型名删（找不到不算错）；addPrices 按模型名添加或替换；合完最多 100 条
   if (p === "/api/ai/prices" && m === "PUT") {
-    if (!Array.isArray(b.prices)) return err(res, 400, "缺少参数 prices");
-    a.prices = b.prices;
+    if (!Array.isArray(b.prices) && !Array.isArray(b.addPrices) && !Array.isArray(b.removePrices)) return err(res, 400, "缺少参数 prices");
+    let next = Array.isArray(b.prices) ? b.prices.map(c => ({ ...c })) : a.prices.map(c => ({ ...c }));
+    next = next.filter(c => !(b.removePrices || []).includes(c.model));
+    for (const c of b.addPrices || []) { // 同后端：已经有这个模型的原地换掉，位置不动
+      const k = next.findIndex(x => x.model === c.model);
+      if (k >= 0) next[k] = { ...c }; else next.push({ ...c });
+    }
+    if (next.length > 100) return err(res, 400, "自填单价最多 100 条");
+    a.prices = next;
     return ok(res, aiView(a));
   }
   if (p === "/api/ai/prices/refresh" && m === "POST") {
@@ -1188,13 +1206,23 @@ function gcPatch(g, b) {
     for (const x of b.aliases) { const a = String(x).trim(); if (!a) continue; const e = gcCheckPrefix(a); if (e) return "别名" + e.replace(/^前缀/, ""); if (!out.some(y => y.toLowerCase() === a.toLowerCase())) out.push(a); }
     s.aliases = out;
   }
-  if ("allowed" in b) {
-    const out = [];
-    for (const x of b.allowed) {
+  // 授权名单同 chatai.Patch.Apply：allowed 给了整体替换 → removeAllowed 按名字删（不分大小写，找不到不算错）→ addAllowed 按名字加
+  if ("allowed" in b || "addAllowed" in b || "removeAllowed" in b) {
+    const bad = n => !n || [...n].length > 16 || n.startsWith("@") || /["\\<>]|[^\x21-\x7e]/.test(n);
+    let out = [];
+    for (const x of ("allowed" in b ? b.allowed : s.allowed)) {
       const n = String(x).trim();
-      if (!n || [...n].length > 16 || n.startsWith("@") || /["\\<>]|[^\x21-\x7e]/.test(n)) return `「${n}」不能授权：名字不合规`;
+      if ("allowed" in b && bad(n)) return `「${n}」不能授权：名字不合规`;
       if (!out.some(y => y.toLowerCase() === n.toLowerCase())) out.push(n);
     }
+    const gone = (b.removeAllowed || []).map(x => String(x).trim().toLowerCase());
+    out = out.filter(n => !gone.includes(n.toLowerCase()));
+    for (const x of b.addAllowed || []) {
+      const n = String(x).trim();
+      if (bad(n)) return `「${n}」不能授权：名字不合规`;
+      if (!out.some(y => y.toLowerCase() === n.toLowerCase())) out.push(n);
+    }
+    if (out.length > 200) return "能执行命令的玩家最多 200 个";
     s.allowed = out.sort((x, y) => x.toLowerCase().localeCompare(y.toLowerCase()));
   }
   for (const [id, on] of Object.entries(b.templates || {})) { if (!GC_TEMPLATES.some(t => t.id === id)) return `没有这个命令模板：${id}`; s.templates[id] = !!on; }
@@ -1411,19 +1439,34 @@ async function cpHandler(state, req, res, m, seg) {
       const bad = b.attackDeny.find(x => !/^(?:[a-z0-9_.-]+:)?[a-z0-9_./-]+$/.test(x));
       if (bad) return err(res, 400, `「${bad}」不是生物种类的 ID（如 minecraft:villager）`);
     }
-    if (Array.isArray(b.zones)) {
+    for (const list of [b.zones, b.addZones]) {
+      if (!Array.isArray(list)) continue;
       const seen = new Set();
-      for (const z of b.zones) {
+      for (const z of list) {
         if (!/^[A-Za-z0-9_-]{1,32}$/.test(z.name)) return err(res, 400, `区域名「${z.name}」只能是 1–32 个字母、数字、_、-`);
         if (seen.has(z.name.toLowerCase())) return err(res, 400, `有两个禁挖区域都叫「${z.name}」`);
         seen.add(z.name.toLowerCase());
       }
     }
+    // 禁挖区域同 companion.Patch.MergeZones：zones 给了整张替换 → removeZones 按名字（不分大小写）删、找不到不算错 →
+    // addZones 按条加，名字和现有的重了整次不改；合完最多 64 个
+    let zones = null;
+    if (Array.isArray(b.zones) || Array.isArray(b.addZones) || Array.isArray(b.removeZones)) {
+      zones = Array.isArray(b.zones) ? b.zones.map(z => ({ ...z })) : c.settings.zones.map(z => ({ ...z }));
+      const gone = (b.removeZones || []).map(n => String(n).toLowerCase());
+      zones = zones.filter(z => !gone.includes(z.name.toLowerCase()));
+      for (const z of b.addZones || []) {
+        const had = zones.find(x => x.name.toLowerCase() === z.name.toLowerCase()); // 同后端：说的是已经有的那个的名字
+        if (had) return err(res, 400, `已经有一个叫「${had.name}」的禁挖区域了（可能是刚在别的窗口加的），换个名字`);
+        zones.push({ ...z });
+      }
+      if (zones.length > 64) return err(res, 400, `禁挖区域最多 64 个，改完会有 ${zones.length} 个`);
+    }
     if ("enabled" in b) { c.settings.enabled = !!b.enabled; c.settings.exists = true; cpEvent(c, b.enabled ? "MineDeck 打开了伙伴" : "MineDeck 关掉了伙伴"); }
     if (b.maxCompanions != null) c.settings.maxCompanions = b.maxCompanions;
     if (b.denyDefault) { c.settings.attackDeny = [...CP_DENY]; c.settings.attackDenyDefault = true; }
     else if (Array.isArray(b.attackDeny)) { c.settings.attackDeny = [...new Set(b.attackDeny.map(x => (x.includes(":") ? x : "minecraft:" + x)))]; c.settings.attackDenyDefault = false; }
-    if (Array.isArray(b.zones)) c.settings.zones = [...b.zones].sort((x, y) => (x.name < y.name ? -1 : 1));
+    if (zones) c.settings.zones = zones.sort((x, y) => (x.name < y.name ? -1 : 1));
     return ok(res, cpView(state, i));
   }
   if (!live) return err(res, 409, "现在没连着伙伴模组：要先开服、打开伙伴，等连上以后再试");
@@ -2277,10 +2320,15 @@ async function toolboxHandler(state, req, res, p, m) {
     });
   }
   if (p === "/api/toolbox/mrpack/draft" && m === "GET") return ok(res, tb.draft);
+  // 同 toolbox.PatchMrpackDraft：只改传了的字段（两个窗口同时开着工具箱时，不拿一页的旧值盖掉另一页刚改的）
   if (p === "/api/toolbox/mrpack/draft" && m === "PUT") {
     const b = await readBody(req);
-    Object.assign(tb.draft, { name: b.name || "我的整合包", versionId: b.versionId || "1.0.0", summary: b.summary || "",
-      core: b.core || "fabric", mc: b.mc || "1.20.1", loaderVersion: b.loaderVersion || "", includeConfig: !!b.includeConfig });
+    for (const k of ["name", "versionId", "summary", "core", "mc", "loaderVersion"]) if (k in b) tb.draft[k] = String(b[k] ?? "").trim();
+    if ("includeConfig" in b) tb.draft.includeConfig = !!b.includeConfig;
+    if (!tb.draft.name) tb.draft.name = "我的整合包";
+    if (!tb.draft.versionId) tb.draft.versionId = "1.0.0";
+    if (!tb.draft.core) tb.draft.core = "fabric";
+    if (!tb.draft.mc) tb.draft.mc = "1.20.1";
     return ok(res, tb.draft);
   }
   if (p === "/api/toolbox/mrpack/preview" && m === "POST") {
@@ -2641,7 +2689,7 @@ function handler(state, ui, portOf) {
     //   pickDir: 下一次系统文件夹选择框选到的文件夹（空串 = 点了取消，null 还原成 E:\MCServers）
     //   导出交接包：dest 是 Z 盘开头的、以「\新文件夹」结尾又没建过的算不在；带 mkdir 的「新建并导出」记进响应里的 lastTransferMkdir，
     //     建过的记在 madeDirs（madeDirs: [] 清掉）
-    //   tunnel 的 noLog: true 这条隧道还没有任何日志输出（日志接口什么也不推）；修改隧道（PUT）同后端拦网页端口、凭据留空时沿用存着的那份
+    //   tunnel 的 noLog: true 这条隧道还没有任何日志输出（日志接口什么也不推）；修改隧道（PUT）同后端只改传了的项，拦网页端口、凭据留空时沿用存着的那份
     //   tunnels: [...] 把隧道整份换掉（空数组 = 一条都没有）
     //   tunnel: { id, …字段 } 改某条隧道（running、lastError、publicAddr，以及仿真用的 startError：点「启动」时报这个错、
     //     nextAddr：启动后过 addrDelay 毫秒拿到的公网地址）；tunnelsReset: true 隧道回到初始的两条（t2 是存着凭据的自定义 frps）；
@@ -3024,28 +3072,31 @@ function handler(state, ui, portOf) {
         if (t.nextAddr) tunnelTimers.set(t, setTimeout(() => { if (t.running) { t.publicAddr = t.nextAddr; t.online = true; } }, t.addrDelay ?? 1500));
         return ok(res, "ok");
       }
-      // 修改（同 tunnel.Manager.UpdateOpt）：整体替换，运行中不能改；clearCredential 只有自定义 frps 能用、不能同时填新凭据，
-      // 清掉以后列表里不再有 hasCredential；凭据留空表示不改，填了就算存上
+      // 修改（同 tunnel.Manager.PatchOpt）：只改传了的项，合到存着的配置上再查；运行中不能改；clearCredential 只有自定义 frps 能用、
+      // 不能同时填新凭据，清掉以后列表里不再有 hasCredential；凭据不给或留空表示不改，填了就算存上；publicAddr 是运行中记下的，不从请求里取
       if (seg[2] === "tunnels" && seg[3] && !seg[4] && m === "PUT") {
         const t = state.tunnels.find(x => x.id === seg[3]);
         if (!t) return err(res, 400, "隧道不存在");
         const b = await readBody(req);
         state.lastTunnelPut = b;
-        if (b.clearCredential && b.provider !== "custom") return err(res, 400, "只有自定义 frps 的隧道能清除凭据，OpenFrp 和樱花穿透启动时必须带凭据");
+        const FIELDS = ["provider", "name", "proxyId", "serverAddr", "serverPort", "remotePort", "localPort", "boundInstance", "autoStart", "purpose", "proto"];
+        const n = { ...t };
+        for (const k of FIELDS) if (k in b) n[k] = b[k];
+        if (b.clearCredential && n.provider !== "custom") return err(res, 400, "只有自定义 frps 的隧道能清除凭据，OpenFrp 和樱花穿透启动时必须带凭据");
         if (b.clearCredential && String(b.credential || "").trim()) return err(res, 400, "要清除凭据，就不要同时填新的凭据");
+        if (!String(n.name || "").trim()) return err(res, 400, "请填写隧道名称");
         if (t.running) return err(res, 400, "请先停止隧道再修改");
-        // 自定义 frps 不许指向 MineDeck 自己的网页端口（同 tunnel.checkGuardPort，PR #20）
-        if (b.provider === "custom" && +b.localPort === portOf()) return err(res, 400, `本地端口 ${portOf()} 是 MineDeck 自己的网页端口，不能映射到公网：要填的是 Minecraft 服务器的端口`);
+        // 自定义 frps 不许指向 MineDeck 自己的网页端口（同 tunnel.checkGuardPort，PR #20）：按合起来的那份查，只改名字也拦
+        if (n.provider === "custom" && +n.localPort === portOf()) return err(res, 400, `本地端口 ${portOf()} 是 MineDeck 自己的网页端口，不能映射到公网：要填的是 Minecraft 服务器的端口`);
         // 凭据留空表示沿用存着的那份（可用性走查 R12 的「编辑」）：换服务商、换 frps 地址端口要重填；没有存着的、又是要凭据的服务商时要填
         if (!b.clearCredential && !String(b.credential || "").trim()) {
           const had = t.provider === "custom" ? !!t.hasCredential : t.hasCredential !== false;
-          if (had && (b.provider !== t.provider || (b.provider === "custom" && (b.serverAddr !== t.serverAddr || +b.serverPort !== +t.serverPort))))
+          if (had && (n.provider !== t.provider || (n.provider === "custom" && (n.serverAddr !== t.serverAddr || +n.serverPort !== +t.serverPort))))
             return err(res, 400, "换了服务商或 frps 地址、端口，要重新填一次凭据");
-          if (!had && b.provider !== "custom") return err(res, 400, "请填写凭据与隧道 ID（在服务商官网创建隧道后获取）");
+          if (!had && n.provider !== "custom") return err(res, 400, "请填写凭据与隧道 ID（在服务商官网创建隧道后获取）");
         }
-        const { credential, clearCredential, id, ...cfg } = b;
-        Object.assign(t, cfg);
-        if (clearCredential) { t.hasCredential = false; t.credBroken = false; } else if (String(credential || "").trim()) { t.hasCredential = true; t.credBroken = false; }
+        Object.assign(t, n, { name: String(n.name).trim() });
+        if (b.clearCredential) { t.hasCredential = false; t.credBroken = false; } else if (String(b.credential || "").trim()) { t.hasCredential = true; t.credBroken = false; }
         return ok(res, "ok");
       }
       if (p.startsWith("/api/tunnels")) return ok(res, {});
@@ -3215,7 +3266,37 @@ function handler(state, ui, portOf) {
         }
         // 每份带 dir（在哪个文件夹，同 inst.BackupInfo）：没写的就在这台服务器现在的备份文件夹里；elsewhere 只在测试摆的数据里有
         if (sub === "backups" && m === "GET") return ok(res, backupsOf(i).map(b => ({ dir: i.backupDir ?? "D:\\MineDeck\\backups\\" + i.name, ...b })));
-        if (sub === "policies" && m === "GET") return ok(res, { crashRestart: true, schedules: [{ type: "restart", at: "04:00", args: "" }, { type: "command", at: "20:00", args: "say 今晚 8 点打龙集合！" }] });
+        // 崩溃重启与定时任务（同 instance.policies.get / set）：存在这台服务器上（instReset 时回到这两条）。
+        // 改的时候同真后端 inst.PolicyPatch：crashRestart 给了才改；schedules 给了整张替换；removeSchedules 每项删一条完全一样的
+        // （时间规整成 HH:MM 再比，找不到不算错）；addSchedules 按条加
+        if (sub === "policies") {
+          const pol = i.policies || (i.policies = { crashRestart: true, schedules: [{ type: "restart", at: "04:00", args: "" }, { type: "command", at: "20:00", args: "say 今晚 8 点打龙集合！" }] });
+          if (m === "GET") return ok(res, { crashRestart: pol.crashRestart, schedules: pol.schedules.map(s => ({ ...s })) });
+          if (m === "PUT") {
+            const b = await readBody(req);
+            const hm = s => { const x = String(s || "").trim().match(/^(\d{1,2}):(\d{1,2})$/); return x && +x[1] < 24 && +x[2] < 60 ? String(+x[1]).padStart(2, "0") + ":" + String(+x[2]).padStart(2, "0") : ""; };
+            const check = list => {
+              for (const s of list) {
+                if (!["restart", "command", "backup"].includes(s.type)) return `未知任务类型: ${s.type}`;
+                if (!hm(s.at)) return `时间格式应为 HH:MM: ${s.at}`;
+                if (s.type === "command" && !s.args) return "定时命令不能为空";
+              }
+              return "";
+            };
+            const why = check([...(Array.isArray(b.schedules) ? b.schedules : []), ...(b.addSchedules || [])]);
+            if (why) return err(res, 400, why);
+            const norm = s => ({ type: s.type, at: hm(s.at), args: s.args || "" });
+            let next = Array.isArray(b.schedules) ? b.schedules.map(norm) : pol.schedules.map(s => ({ ...s }));
+            for (const r of b.removeSchedules || []) {
+              const k = next.findIndex(s => s.type === r.type && s.at === hm(r.at) && (s.args || "") === (r.args || ""));
+              if (k >= 0) next.splice(k, 1);
+            }
+            next = next.concat((b.addSchedules || []).map(norm));
+            pol.schedules = next;
+            if (typeof b.crashRestart === "boolean") pol.crashRestart = b.crashRestart;
+            return ok(res, "ok");
+          }
+        }
         if (sub === "properties" && m === "GET") return ok(res, { pairs: state.props, running: i.status === "running" });
         if (sub === "resources" && seg[5] === "search") return ok(res, { hits: [
           { project_id: "a1", title: "EssentialsX", description: "The essential plugin suite for Minecraft servers.", icon_url: "", downloads: 12500000 },

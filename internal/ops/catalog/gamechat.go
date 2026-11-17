@@ -138,18 +138,21 @@ func patchSchema() map[string]*ops.Schema {
 		templates[t.ID] = ops.Boolean(t.Title + "：" + t.Usage)
 	}
 	return map[string]*ops.Schema{
-		"enabled":    ops.Boolean("打开游戏内 AI"),
-		"prefix":     ops.String("触发前缀，默认 @AI").Len(1, 16),
-		"aliases":    ops.Array("前缀的别名，如 @小助手", ops.String("别名").Len(0, 16)).MaxLen(8),
-		"allowed":    ops.Array("能让 AI 执行命令的玩家", name).MaxLen(200),
-		"templates":  ops.Object(templates),
-		"cooldown":   ops.Integer("每人冷却（秒），0 = 不冷却").Range(0, 3600),
-		"perPlayer":  ops.Integer("每人每天几次，0 = 不限").Range(0, 100000),
-		"perServer":  ops.Integer("全服每天几次，0 = 不限").Range(0, 1000000),
-		"budget":     ops.Integer("全服每天多少 token，0 = 不限").Range(0, 1e11),
-		"looseNames": ops.Boolean("放宽名字规则（离线服的名字带 - . 等字符时打开）"),
-		"anyThread":  ops.Boolean("不看线程名"),
-		"pattern":    ops.String("自定义正则：命名分组 name 是名字、msg 是聊天内容；空串用内置规则").Len(0, 500),
+		"enabled": ops.Boolean("打开游戏内 AI"),
+		"prefix":  ops.String("触发前缀，默认 @AI").Len(1, 16),
+		"aliases": ops.Array("前缀的别名，如 @小助手", ops.String("别名").Len(0, 16)).MaxLen(8),
+		"allowed": ops.Array("能让 AI 执行命令的玩家（给了就整个替换）", name).MaxLen(200),
+		// 两个窗口同时开着时界面按名字收回、授权，不再整份发回来把另一边刚改的改回去（2026-11-17）
+		"removeAllowed": ops.Array("收回执行权限的玩家（不分大小写，不在名单里的不算错）", name).MaxLen(200),
+		"addAllowed":    ops.Array("授予执行权限的玩家（已经在名单里的不重复加）", name).MaxLen(200),
+		"templates":     ops.Object(templates),
+		"cooldown":      ops.Integer("每人冷却（秒），0 = 不冷却").Range(0, 3600),
+		"perPlayer":     ops.Integer("每人每天几次，0 = 不限").Range(0, 100000),
+		"perServer":     ops.Integer("全服每天几次，0 = 不限").Range(0, 1000000),
+		"budget":        ops.Integer("全服每天多少 token，0 = 不限").Range(0, 1e11),
+		"looseNames":    ops.Boolean("放宽名字规则（离线服的名字带 - . 等字符时打开）"),
+		"anyThread":     ops.Boolean("不看线程名"),
+		"pattern":       ops.String("自定义正则：命名分组 name 是名字、msg 是聊天内容；空串用内置规则").Len(0, 500),
 	}
 }
 
@@ -234,7 +237,8 @@ func (c *cat) gameChatOps() {
 
 	c.reg.Register(&ops.Op{
 		Name: "gameai.set", Title: "修改游戏内 AI 的设置", Level: ops.HumanOnly, LocalOnly: true, LocalMsg: localMsg,
-		Desc:   "只改传了的字段；授权名单、别名整体替换，命令模板只改列出的。",
+		Desc: "只改传了的字段；别名整体替换，命令模板只改列出的。授权名单：allowed 整个替换，removeAllowed、addAllowed 按名字收回、授权（不分大小写），" +
+			"先替换，再收回，再授权，合起来最多 200 人。",
 		Params: withInst(patchSchema()),
 		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[struct {

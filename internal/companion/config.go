@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"minedeck/internal/bridge"
 )
@@ -259,6 +260,46 @@ type Patch struct {
 	AttackDeny    *[]string `json:"attackDeny"`  // 整体替换；空数组表示没有额外限制（写成 attack_deny=）
 	DenyDefault   bool      `json:"denyDefault"` // 恢复默认（删掉 attack_deny 这一行）；和 AttackDeny 一起传时以它为准
 	Zones         *[]Zone   `json:"zones"`       // 整体替换
+	// RemoveZones、AddZones 按条删、按条加禁挖区域（2026-11-17）。两个窗口同时开着「伙伴」页时，以前加一个区域要把整张表
+	// 发回来，没刷新的那一边一保存，就把另一边刚加的区域删掉了。顺序：Zones → RemoveZones → AddZones，见 MergeZones。
+	RemoveZones []string `json:"removeZones"` // 按名字删（不分大小写），找不到的不算错
+	AddZones    []Zone   `json:"addZones"`    // 按条加，名字和删完以后现有的不分大小写重了就报错
+}
+
+// EditsZones 这次改不改禁挖区域（三种写法给了哪一种都算）。
+func (pt Patch) EditsZones() bool {
+	return pt.Zones != nil || len(pt.RemoveZones) > 0 || len(pt.AddZones) > 0
+}
+
+// removes 名字 name 的区域是不是要删（不分大小写）。
+func (pt Patch) removes(name string) bool {
+	return slices.ContainsFunc(pt.RemoveZones, func(n string) bool { return strings.EqualFold(n, name) })
+}
+
+// MergeZones 算出改完以后的禁挖区域，cur 是现在文件里的（configFrom 读出来的那些）。Preview 和 Update 共用，不碰文件；
+// pt 要是 Check 过的（名字、维度去过空格）。顺序：Zones 给了先整张替换 → 按名字（不分大小写）删 RemoveZones，找不到的
+// 不算错 → 加 AddZones，名字和现有的不分大小写重了就报错。合完最多 MaxZones 个，按名字排序。
+// 报的错是 *Error（400）：这次的改动和现有的区域对不上，不是文件写不进去。
+func (pt Patch) MergeZones(cur []Zone) ([]Zone, error) {
+	out := slices.Clone(cur)
+	if pt.Zones != nil {
+		out = slices.Clone(*pt.Zones)
+	}
+	out = slices.DeleteFunc(out, func(z Zone) bool { return pt.removes(z.Name) })
+	for _, z := range pt.AddZones {
+		if i := slices.IndexFunc(out, func(o Zone) bool { return strings.EqualFold(o.Name, z.Name) }); i >= 0 {
+			return nil, errorf(400, "已经有一个叫「%s」的禁挖区域了（可能是刚在别的窗口加的），换个名字", out[i].Name)
+		}
+		out = append(out, z)
+	}
+	if len(out) > MaxZones {
+		return nil, errorf(400, "禁挖区域最多 %d 个，改完会有 %d 个", MaxZones, len(out))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	if out == nil {
+		out = []Zone{}
+	}
+	return out, nil
 }
 
 // Check 检查改动，返回规范化以后的（attack_deny 补上命名空间、去重；区域按名字排序、名字不能重复）。
@@ -311,6 +352,33 @@ func (pt Patch) Check() (Patch, error) {
 		}
 		pt.Zones = &zs
 	}
+	if pt.RemoveZones != nil {
+		rs := make([]string, len(pt.RemoveZones))
+		for i, n := range pt.RemoveZones {
+			rs[i] = strings.TrimSpace(n)
+		}
+		pt.RemoveZones = rs
+	}
+	if pt.AddZones != nil {
+		// 复制一份再规范化，不改调用方手里的那份
+		zs := slices.Clone(pt.AddZones)
+		if len(zs) > MaxZones {
+			return pt, fmt.Errorf("禁挖区域最多 %d 个", MaxZones)
+		}
+		seen := map[string]bool{}
+		for i := range zs {
+			zs[i].Name, zs[i].Dim = strings.TrimSpace(zs[i].Name), strings.TrimSpace(zs[i].Dim)
+			if err := zs[i].Check(); err != nil {
+				return pt, err
+			}
+			k := strings.ToLower(zs[i].Name)
+			if seen[k] {
+				return pt, fmt.Errorf("要加的禁挖区域里有两个都叫「%s」", zs[i].Name)
+			}
+			seen[k] = true
+		}
+		pt.AddZones = zs
+	}
 	return pt, nil
 }
 
@@ -320,7 +388,16 @@ func Update(instDir string, pt Patch) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	c, _, err := edit(instDir, func(p *bridge.Props, _ Config, _ bool) error {
+	c, _, err := edit(instDir, func(p *bridge.Props, cur Config, _ bool) error {
+		// 禁挖区域先合好再动文件：和现有的重名、超过上限时整次不写（edit 在 f 报错时不写回）
+		var zones []Zone
+		if pt.EditsZones() {
+			zs, err := pt.MergeZones(cur.Zones)
+			if err != nil {
+				return err
+			}
+			zones = zs
+		}
 		if pt.MaxCompanions != nil {
 			p.Set("max_companions", strconv.Itoa(*pt.MaxCompanions))
 		}
@@ -330,13 +407,27 @@ func Update(instDir string, pt Patch) (Config, error) {
 		case pt.AttackDeny != nil:
 			p.Set("attack_deny", strings.Join(*pt.AttackDeny, ","))
 		}
-		if pt.Zones != nil {
+		switch {
+		case pt.Zones != nil:
+			// 整张替换（老写法）：删掉全部 nodig.* 再按合好的写
 			for _, k := range p.Keys() {
 				if strings.HasPrefix(k, zonePrefix) {
 					p.Delete(k)
 				}
 			}
-			for _, z := range *pt.Zones {
+			for _, z := range zones {
+				p.Set(zonePrefix+z.Name, z.value())
+			}
+		case pt.EditsZones():
+			// 只按条删、加：只动名字对得上的 nodig.<名字> 行，文件里别的行（包括写错、模组会跳过的区域行）原样留着，
+			// 不按合好的整张重写。先删后加：编辑（删 base、加 Base）时，不分大小写的删除不会把刚加的那行也删掉。
+			// 要加的名字和一行写错的区域一字不差（合并时看不到它）：Set 把那一行换成新写的
+			for _, k := range p.Keys() {
+				if name, ok := strings.CutPrefix(k, zonePrefix); ok && pt.removes(name) {
+					p.Delete(k)
+				}
+			}
+			for _, z := range pt.AddZones {
 				p.Set(zonePrefix+z.Name, z.value())
 			}
 		}
@@ -345,8 +436,15 @@ func Update(instDir string, pt Patch) (Config, error) {
 	return c, err
 }
 
-// edit 读配置文件（不存在就建一份带说明的），交给 f 改，变了才写回（先写临时文件再改名）。
+// editMu 配置文件的读-改-写一次只做一个（2026-11-17）。两个窗口同时改禁挖区域、开服前补端口和令牌这几处以前各读各的，
+// 交错的时候后写的那份就把先写的改动盖掉。整个包一把锁：改配置不频繁，不必按实例分。
+// 拿着它的时候不要再进 edit（EnsureConfig、Disable、Update 都经 edit），也不要等 Service.mu。
+var editMu sync.Mutex
+
+// edit 读配置文件（不存在就建一份带说明的），交给 f 改，变了才写回（先写临时文件再改名）。整个过程在 editMu 里。
 func edit(instDir string, f func(p *bridge.Props, c Config, fresh bool) error) (Config, bool, error) {
+	editMu.Lock()
+	defer editMu.Unlock()
 	path := ConfigPath(instDir)
 	before, err := os.ReadFile(path)
 	fresh := os.IsNotExist(err)

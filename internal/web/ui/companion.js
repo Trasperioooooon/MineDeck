@@ -307,7 +307,9 @@ window.MDCompanion = (() => {
       box.innerHTML = notes.join("");
     };
 
-    /* ---- 禁挖区域：列表 + 弹窗编辑；改完整体替换（PUT zones） ---- */
+    /* ---- 禁挖区域：列表 + 弹窗编辑；按条增删（addZones、removeZones），编辑 = 删掉原来那个名字、再加上改好的。
+       不再把这一页上的整张表发回去：两个窗口同时开着时，另一边刚加的区域这一页没有，整张发就把它删了（Codex 复审 v3.2.0 第二轮）。
+       名字重了由后端说了算（弹窗里那道检查只看这一页上的列表），回来的是整份设置，列表按它重画 ---- */
     const corner = c => `${c[0]}, ${c[1]}, ${c[2]}`;
     const drawZones = () => {
       const box = $("#cp-zones"), zs = v.settings.zones || [];
@@ -322,8 +324,8 @@ window.MDCompanion = (() => {
       box.querySelectorAll("[data-zedit]").forEach(b => b.onclick = () => editZone(zs.find(z => z.name === b.dataset.zedit)));
       box.querySelectorAll("[data-zdel]").forEach(b => b.onclick = () => delZone(b.dataset.zdel));
     };
-    const saveZones = async (zs, msg) => {
-      try { await put({ zones: zs }); toast(msg); return true; } catch (e) { toastErr("无法保存禁挖区域", e); return false; }
+    const saveZones = async (change, msg) => {
+      try { await put(change); toast(msg); return true; } catch (e) { toastErr("无法保存禁挖区域", e); return false; }
     };
     const editZone = async z => {
       const zs = v.settings.zones || [];
@@ -365,13 +367,12 @@ window.MDCompanion = (() => {
           return { name: n, dim, min: pts[0], max: pts[1] };
         } });
       if (!res || stale(gen)) return;
-      const next = zs.filter(x => !z || x.name !== z.name).concat(res);
-      await saveZones(next, z ? `已保存区域「${res.name}」` : `已添加禁挖区域「${res.name}」`);
+      await saveZones(z ? { removeZones: [z.name], addZones: [res] } : { addZones: [res] }, z ? `已保存区域「${res.name}」` : `已添加禁挖区域「${res.name}」`);
     };
     const delZone = async n => {
       const r = await confirmModal({ title: `删除禁挖区域「${n}」？`, body: "删掉以后伙伴就可以拆、放这片区域里的方块了。", okText: "删除", danger: true, icon: "trash" });
       if (!r || stale(gen)) return;
-      await saveZones((v.settings.zones || []).filter(z => z.name !== n), `已删除区域「${n}」`);
+      await saveZones({ removeZones: [n] }, `已删除区域「${n}」`);
     };
 
     /* ---- 伙伴：连接状态 + 列表（刷出、停下、移除、全部停下） ---- */

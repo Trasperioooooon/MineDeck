@@ -219,12 +219,12 @@ window.MDGameChat = (() => {
       $("#gc-add-name").addEventListener("input", () => addErr(""));
       if (focused) box.querySelector(`[data-allow="${CSS.escape(focused)}"]`)?.focus();
     };
+    // 授权、收回都按名字一个一个发（addAllowed、removeAllowed，后端不分大小写）。不再把这一页上的整张名单发回去：
+    // 两个本机页面同时开着时，一边刚收回了谁的权限，另一边（名单还是旧的）再给别人授权，就会把那个人又授权回来（Codex 复审 v3.2.0 第二轮）
     const setAllowed = async (name, on, box) => {
-      const cur = (v.settings.allowed || []).filter(x => x.toLowerCase() !== name.toLowerCase());
-      if (on) cur.push(name);
       try {
         if (on) st.authName = name;
-        await put({ allowed: cur });
+        await put(on ? { addAllowed: [name] } : { removeAllowed: [name] });
         toast(on ? `已允许 ${name} 让 AI 执行命令${v.whitelistOn ? "" : "（没有开启白名单，见上面的提醒）"}` : `已收回 ${name} 的执行权限`);
         return true;
       } catch (e) { if (box) box.checked = !on; toastErr(on ? `无法允许 ${name} 让 AI 执行命令` : `无法收回 ${name} 的执行权限`, e); return false; }

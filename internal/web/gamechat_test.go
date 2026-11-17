@@ -120,3 +120,30 @@ func TestGameChatRoutes(t *testing.T) {
 		t.Errorf("server.properties：%s", b)
 	}
 }
+
+// 授权名单按名字收回、授权：A 收回 Steve；B 还是旧样子、只发「授权 Bob」，Steve 不会被授权回去；
+// 名字不合格 400，局域网 403（2026-11-17）。
+func TestGameAIAllowedPatchAPI(t *testing.T) {
+	e := newFullEnv(t)
+	ip := "/api/instances/%E7%94%9F%E5%AD%98%E6%9C%8D" // 生存服
+	e.call(t, "PUT", ip+"/gameai", `{"allowed":["Steve","Alex"]}`, 200)
+	e.call(t, "PUT", ip+"/gameai", `{"removeAllowed":["steve"]}`, 200) // 窗口 A
+	e.call(t, "PUT", ip+"/gameai", `{"addAllowed":["Bob"]}`, 200)      // 窗口 B
+	if b := e.call(t, "PUT", ip+"/gameai", `{"addAllowed":["@a"]}`, 400).Body.String(); !strings.Contains(b, "不能授权") {
+		t.Errorf("不合格的名字：%s", b)
+	}
+	e.call(t, "PUT", ip+"/gameai", `{"addAllowed":["Eve"]}`, 403, fromLAN)
+	var v struct {
+		Data struct {
+			Settings struct {
+				Allowed []string `json:"allowed"`
+			} `json:"settings"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(e.call(t, "GET", ip+"/gameai", "", 200).Body.Bytes(), &v); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(v.Data.Settings.Allowed, ","); got != "Alex,Bob" {
+		t.Errorf("名单应是 Alex,Bob：%s", got)
+	}
+}

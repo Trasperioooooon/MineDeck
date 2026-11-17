@@ -3,12 +3,15 @@ package ai
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +31,9 @@ const KeyName = "ai.key"
 
 // ErrDisabled 没配置 AI：AI 部分不初始化，不联网，不取价格（§4.5）。
 var ErrDisabled = errors.New("AI 未启用：先在「设置 → AI」里选择服务商，填好 Key 和模型")
+
+// ErrStale 保存服务商设置时带的 rev 和现在的对不上：别的窗口刚改过，这一页还是旧的（操作层按 409 报）。
+var ErrStale = errors.New("AI 设置刚在别的窗口改过，这一页显示的还是旧的。重新读取以后再改")
 
 // Options Service 的依赖。
 type Options struct {
@@ -503,23 +509,60 @@ type ProviderPatch struct {
 	Key       *string   `json:"key"`
 	Auth      *string   `json:"auth"`
 	Echo      *string   `json:"echo"`
+	// Rev 页面读到的服务商设置的指纹（View 里的 provider.rev）。给了而且和现在的不一样就什么都不改，返回 ErrStale。
+	// 两个窗口同时开着「设置 → AI」时，没刷新的那一边保存会把服务商、地址、模型整组写回去，把另一边刚换的改回原样；
+	// 这一组彼此相关（换服务商连带地址、模型、Key），不适合逐项合并，所以干脆拒绝，让它重新读取（2026-11-17）。
+	Rev *string `json:"rev"`
+}
+
+// providerRev 服务商设置的指纹：存着的预设、协议、地址、模型、思考深度、鉴权、思考回传这七项。
+// 不含输出上限、Eager、Fallback、Key、额度、单价、局域网助手开关：界面不提交它们，测试连接、设额度这些地方改了它们，
+// 不能让还开着的设置页自己跟自己冲突。用存着的值（不是 View 里按协议默认值补过的），编码固定成 JSON 数组。
+func providerRev(st Settings) string {
+	b, _ := json.Marshal([]string{st.Preset, string(st.Protocol), st.BaseURL, st.Model, st.Effort, st.Auth, st.Echo})
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])[:16]
 }
 
 // SetProvider 保存服务商设置。preset 传空串表示停用 AI（同时清掉 Key）。
 // 新设置和与它配对的 Key 都存好了才生效，中途写盘失败就退回原样（见 commitLocked）。
 func (s *Service) SetProvider(pt ProviderPatch) error {
-	if err := s.setProvider(pt); err != nil {
-		return err
+	_, err := s.SaveProvider(pt)
+	return err
+}
+
+// ProviderSavedHook 测试用：服务商设置存好、放开锁以后，算返回的视图之前调用（在这里模拟别的窗口紧接着又存了一次）。
+var ProviderSavedHook func()
+
+// SaveProvider 同 SetProvider，另外返回这次存下的设置的视图（Key 的状态、用量、价格数据照当前的）。
+// 视图里的服务商设置和 rev 是在锁里跟这次保存一起取的，不是存完以后另读的：两次之间别的窗口可能又存过一次，
+// 另读拿到的 rev 就是那一次的，这一页带着它和表单上的旧值再存，版本检查就拦不住，把那边刚换的改回去了（Codex 复审 2026-11-17）。
+func (s *Service) SaveProvider(pt ProviderPatch) (View, error) {
+	var st Settings
+	if err := s.setProvider(pt, &st); err != nil {
+		return View{}, err
 	}
 	if s.paid(s.snapshot()) {
 		s.prices.MaybeRefresh()
 	}
-	return nil
+	if ProviderSavedHook != nil {
+		ProviderSavedHook()
+	}
+	return s.viewOf(st), nil
 }
 
-func (s *Service) setProvider(pt ProviderPatch) error {
+// setProvider 存成功时把存下的设置写进 saved（放锁之前取的）。
+func (s *Service) setProvider(pt ProviderPatch, saved *Settings) (err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	defer func() { // 比上面的放锁先执行：取到的就是这次存下的那份
+		if err == nil {
+			*saved = s.snapshotLocked()
+		}
+	}()
+	if pt.Rev != nil && *pt.Rev != providerRev(s.st) { // 别的窗口刚改过：设置和 Key 都不动
+		return ErrStale
+	}
 	old := s.st
 	st := s.st
 	if pt.Preset != nil {
@@ -713,11 +756,20 @@ func (s *Service) SetQuota(q map[Feature]int64) error {
 	return s.saveLocked()
 }
 
-// SetPrices 整体替换自填的单价。
-func (s *Service) SetPrices(ps []CustomPrice) error {
-	if len(ps) > 100 {
-		return errors.New("自填单价最多 100 条")
-	}
+// maxCustomPrices 自填单价最多几条。
+const maxCustomPrices = 100
+
+// PricesPatch 改自填单价。两个窗口同时开着「设置 → AI」时，以前每次保存都把整张表发过来、整个换掉，
+// 没刷新的那一边一保存，另一边刚加的就没了、刚删的又回来（2026-11-17）。现在界面按条发：
+// 加或改一条发 Add，删一条发 Remove；Prices 是老写法，给了就整张替换。
+type PricesPatch struct {
+	Prices *[]CustomPrice `json:"prices"`       // 给了就整张替换
+	Add    []CustomPrice  `json:"addPrices"`    // 按模型名添加，已经有这个模型的就换掉它
+	Remove []string       `json:"removePrices"` // 按模型名（完全一致）删，找不到的不算错
+}
+
+// checkPrices 逐条检查；同一张表里同一个模型出现两次算错。
+func checkPrices(ps []CustomPrice) error {
 	seen := map[string]bool{}
 	for _, cp := range ps {
 		if err := checkCustomPrice(cp); err != nil {
@@ -728,10 +780,55 @@ func (s *Service) SetPrices(ps []CustomPrice) error {
 		}
 		seen[cp.Model] = true
 	}
+	return nil
+}
+
+// PatchPrices 改自填单价（见 PricesPatch）。顺序：整张替换 → 按条删 → 按条加；合并、数条数、存盘在 s.mu 里一次做完，
+// 后到的那次合在先到的那次存好的结果上。出错（含写盘失败）不改。
+func (s *Service) PatchPrices(p PricesPatch) error {
+	if p.Prices == nil && len(p.Add) == 0 && len(p.Remove) == 0 {
+		return nil // 什么都没给：不改，也不重写设置文件
+	}
+	if p.Prices != nil {
+		if len(*p.Prices) > maxCustomPrices {
+			return errors.New("自填单价最多 100 条")
+		}
+		if err := checkPrices(*p.Prices); err != nil {
+			return err
+		}
+	}
+	if err := checkPrices(p.Add); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.st.Prices = append([]CustomPrice(nil), ps...)
-	return s.saveLocked()
+	next := slices.Clone(s.st.Prices)
+	if p.Prices != nil {
+		next = slices.Clone(*p.Prices)
+	}
+	next = slices.DeleteFunc(next, func(cp CustomPrice) bool { return slices.Contains(p.Remove, cp.Model) })
+	for _, cp := range p.Add {
+		if k := slices.IndexFunc(next, func(x CustomPrice) bool { return x.Model == cp.Model }); k >= 0 {
+			next[k] = cp // 已经有这个模型：原地换掉，表里的位置不动
+		} else {
+			next = append(next, cp)
+		}
+	}
+	if len(next) > maxCustomPrices {
+		return errors.New("自填单价最多 100 条")
+	}
+	st := s.st
+	st.Prices = next
+	if err := s.save(st); err != nil {
+		return err
+	}
+	s.st = st
+	return nil
+}
+
+// SetPrices 整体替换自填的单价（等于只给了 Prices 的 PatchPrices）。
+func (s *Service) SetPrices(ps []CustomPrice) error {
+	return s.PatchPrices(PricesPatch{Prices: &ps})
 }
 
 // RefreshPrices 手动刷新公开价格。没配置 AI，或者只配了本机模型时不取。
@@ -760,6 +857,7 @@ type ProviderView struct {
 	Fallback  bool     `json:"fallback"` // Claude：服务端回退
 	Auth      string   `json:"auth,omitempty"`
 	Echo      string   `json:"echo,omitempty"`
+	Rev       string   `json:"rev"` // 服务商设置的指纹（见 providerRev），保存时带回来，别的窗口改过就拒绝
 }
 
 // ModelPrice 当前模型的单价（每百万 token），给设置页显示。
@@ -800,7 +898,11 @@ const DomesticNote = "按国际站美元价估算，国内站按人民币计费�
 
 // View 当前的设置和状态，不含 Key、不联网。
 func (s *Service) View() View {
-	st := s.snapshot()
+	return s.viewOf(s.snapshot())
+}
+
+// viewOf 按给定的设置算 View；Key 的状态、用量、价格数据照当前的。
+func (s *Service) viewOf(st Settings) View {
 	set, broken := s.keyState()
 	v := View{Presets: Presets(), KeySet: set, KeyBroken: broken, Quota: st.Quota, Prices: s.prices.Status(),
 		CustomPrices: st.Prices, Today: map[Feature]Totals{}, Month: map[Feature]Totals{}, LANAssistant: boolOr(st.LANAssistant, true)}
@@ -812,7 +914,7 @@ func (s *Service) View() View {
 	v.PriceNeeded = s.paid(st)
 	cfg := s.config(st, "", true)
 	v.Provider = ProviderView{Preset: st.Preset, Protocol: st.Protocol, BaseURL: st.BaseURL, Model: st.Model, MaxOutput: st.MaxOutput,
-		Effort: st.Effort, Eager: cfg.Eager, Fallback: cfg.Fallback, Auth: string(cfg.Auth), Echo: string(cfg.Echo)}
+		Effort: st.Effort, Eager: cfg.Eager, Fallback: cfg.Fallback, Auth: string(cfg.Auth), Echo: string(cfg.Echo), Rev: providerRev(st)}
 	for _, f := range []Feature{FeatAssistant, FeatGameChat, FeatCompanion} {
 		v.Today[f] = s.ledger.Today(f)
 		v.Month[f] = s.ledger.Month(f)

@@ -82,18 +82,20 @@ func (c *cat) tunnelOps() {
 	}
 	c.reg.Register(&ops.Op{
 		Name: "tunnel.update", Title: "修改隧道", Level: ops.HumanOnly,
-		Desc:   "整体替换隧道配置（运行中不能改）；凭据留空表示不修改，要删掉存着的凭据传 clearCredential。",
+		Desc:   "只改传了的项（运行中不能改）；凭据不传或留空表示不改，要删掉存着的凭据传 clearCredential；公网地址是运行中记下的，这里不改。",
 		Params: ops.Object(updateFields, "id"),
 		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
-			// 编号也在 Tunnel 的 id 字段里；clearCredential 不是隧道配置，单独取出来，不进 Tunnel（Tunnel 会存盘）
+			// 只取传了的项（两个窗口同时开着时，没刷新的那一边只发自己改的，不把另一边刚存的改回去，2026-11-17）。
+			// clearCredential 不是隧道配置，单独取出来；请求里带了 publicAddr 也不收（Patch 里没有这一项）
 			t, err := bind[struct {
-				tunnel.Tunnel
+				ID string `json:"id"`
+				tunnel.Patch
 				ClearCredential bool `json:"clearCredential"`
 			}](a)
 			if err != nil {
 				return nil, err
 			}
-			if err := c.Tun.UpdateOpt(t.ID, t.Tunnel, tunnel.UpdateOpts{ClearCredential: t.ClearCredential}); err != nil {
+			if err := c.Tun.PatchOpt(t.ID, t.Patch, tunnel.UpdateOpts{ClearCredential: t.ClearCredential}); err != nil {
 				return nil, err
 			}
 			return "ok", nil

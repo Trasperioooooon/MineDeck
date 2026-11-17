@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"minedeck/internal/ai"
 	"minedeck/internal/app"
 )
 
@@ -118,5 +119,118 @@ func TestAISettingsAPI(t *testing.T) {
 	e.call(t, "PUT", "/api/ai/provider", `{"preset":""}`, 200)
 	if v := get(); v.Data.Enabled || v.Data.Provider.Preset != "" {
 		t.Errorf("停用后：%+v", v.Data)
+	}
+}
+
+// aiSettings GET /api/ai/settings 里这几个测试要看的部分。
+type aiSettings struct {
+	Data struct {
+		KeySet   bool `json:"keySet"`
+		Provider struct {
+			Model string `json:"model"`
+			Rev   string `json:"rev"`
+		} `json:"provider"`
+		CustomPrices []struct {
+			Model string  `json:"model"`
+			Input float64 `json:"input"`
+		} `json:"customPrices"`
+	} `json:"data"`
+}
+
+func (e *fullEnv) aiSettings(t *testing.T) aiSettings {
+	t.Helper()
+	var v aiSettings
+	if err := json.Unmarshal(e.call(t, "GET", "/api/ai/settings", "", 200).Body.Bytes(), &v); err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+// 两个窗口同时开着「设置 → AI」：A 带着读到的 rev 换了模型；B 还拿着旧 rev 保存（顺带填了新 Key），409，
+// 正文说清是别的窗口改过，设置和 Key 都没动；B 重新读取拿到新 rev 再存就成（2026-11-17）。
+func TestAIProviderStaleRev(t *testing.T) {
+	e := newFullEnv(t)
+	e.call(t, "PUT", "/api/ai/provider", `{"preset":"deepseek","key":"`+aiKey+`"}`, 200, fromUI)
+	rev := e.aiSettings(t).Data.Provider.Rev
+	if len(rev) != 16 {
+		t.Fatalf("provider.rev：%q", rev)
+	}
+	e.call(t, "PUT", "/api/ai/provider", `{"model":"deepseek-v4-pro","rev":"`+rev+`"}`, 200, fromUI) // 窗口 A
+	revA := e.aiSettings(t).Data.Provider.Rev
+	if revA == rev {
+		t.Fatal("换了模型 rev 应变")
+	}
+	secrets := filepath.Join(app.Base, "secrets.json")
+	before, _ := os.ReadFile(secrets)
+	resp := e.call(t, "PUT", "/api/ai/provider", `{"model":"deepseek-v4-flash","key":"sk-other-key-1","rev":"`+rev+`"}`, 409, fromUI) // 窗口 B
+	if !strings.Contains(resp.Body.String(), "AI 设置刚在别的窗口改过，这一页显示的还是旧的。重新读取以后再改") {
+		t.Errorf("409 的正文：%s", resp.Body)
+	}
+	if v := e.aiSettings(t); v.Data.Provider.Model != "deepseek-v4-pro" || v.Data.Provider.Rev != revA || !v.Data.KeySet {
+		t.Errorf("被拒的保存不该改设置：%+v", v.Data)
+	}
+	if after, _ := os.ReadFile(secrets); string(after) != string(before) {
+		t.Error("被拒的保存不该动 Key")
+	}
+	e.call(t, "PUT", "/api/ai/provider", `{"model":"deepseek-v4-flash","rev":"`+revA+`"}`, 200, fromUI)
+	if v := e.aiSettings(t); v.Data.Provider.Model != "deepseek-v4-flash" || !v.Data.KeySet {
+		t.Errorf("重新读取以后再存：%+v", v.Data)
+	}
+}
+
+// 两个窗口同时开着「设置 → AI」：A 只换 Key（七项设置没变，rev 也不变），A 存好、放开锁以后、算返回内容之前，
+// B 拿着同一个 rev 换了模型。A 拿到的应是自己这次存下的那份（旧模型、旧 rev），不是 B 的新 rev：不然 A 的页面
+// 带着新 rev 和表单上的旧模型再存，版本检查拦不住，B 换的模型就被改回去了（Codex 复审 2026-11-17）。
+func TestAIProviderResponseIsThisSave(t *testing.T) {
+	e := newFullEnv(t)
+	e.call(t, "PUT", "/api/ai/provider", `{"preset":"deepseek","key":"`+aiKey+`"}`, 200, fromUI)
+	v0 := e.aiSettings(t).Data.Provider
+	t.Cleanup(func() { ai.ProviderSavedHook = nil })
+	ai.ProviderSavedHook = func() {
+		ai.ProviderSavedHook = nil
+		e.call(t, "PUT", "/api/ai/provider", `{"model":"deepseek-v4-pro","rev":"`+v0.Rev+`"}`, 200, fromUI) // 窗口 B
+	}
+	var got aiSettings
+	resp := e.call(t, "PUT", "/api/ai/provider", `{"key":"sk-other-key-2","rev":"`+v0.Rev+`"}`, 200, fromUI) // 窗口 A
+	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if ai.ProviderSavedHook != nil {
+		t.Fatal("窗口 B 那次保存没有跑")
+	}
+	if p := got.Data.Provider; p.Rev != v0.Rev || p.Model != v0.Model {
+		t.Fatalf("A 拿到的应是自己存下的那份 %+v：%+v", v0, p)
+	}
+	now := e.aiSettings(t).Data.Provider
+	if now.Model != "deepseek-v4-pro" || now.Rev == v0.Rev {
+		t.Fatalf("B 换的模型应已存下：%+v", now)
+	}
+	// A 带着拿到的 rev 和表单上的旧模型再存（只想改别的）：应被拦下，B 换的模型还在
+	e.call(t, "PUT", "/api/ai/provider", `{"model":"`+v0.Model+`","rev":"`+got.Data.Provider.Rev+`"}`, 409, fromUI)
+	if p := e.aiSettings(t).Data.Provider; p.Model != "deepseek-v4-pro" || p.Rev != now.Rev {
+		t.Errorf("被拦下的保存不该改设置：%+v", p)
+	}
+}
+
+// 自填单价按条增删：A 加了 m1，B 还是旧样子、只发「删 m0」，A 加的留着；添加已有的模型是换掉；
+// 参数不合规的 400；什么都不给不改（2026-11-17）。老写法 {"prices":[...]} 见 TestAISettingsAPI。
+func TestAIPricesPatchAPI(t *testing.T) {
+	e := newFullEnv(t)
+	e.call(t, "PUT", "/api/ai/prices", `{"prices":[{"model":"m0","currency":"USD","input":1,"output":2}]}`, 200, fromUI)
+	e.call(t, "PUT", "/api/ai/prices", `{"addPrices":[{"model":"m1","currency":"CNY","input":3,"output":4}]}`, 200, fromUI) // 窗口 A
+	e.call(t, "PUT", "/api/ai/prices", `{"removePrices":["m0"]}`, 200, fromUI)                                              // 窗口 B
+	if v := e.aiSettings(t).Data.CustomPrices; len(v) != 1 || v[0].Model != "m1" || v[0].Input != 3 {
+		t.Fatalf("应只剩 A 加的 m1：%+v", v)
+	}
+	e.call(t, "PUT", "/api/ai/prices", `{"addPrices":[{"model":"m1","currency":"CNY","input":5,"output":4}]}`, 200, fromUI)
+	e.call(t, "PUT", "/api/ai/prices", `{}`, 200, fromUI)
+	if v := e.aiSettings(t).Data.CustomPrices; len(v) != 1 || v[0].Model != "m1" || v[0].Input != 5 {
+		t.Errorf("添加已有的模型应换掉它，什么都不给不改：%+v", v)
+	}
+	e.call(t, "PUT", "/api/ai/prices", `{"removePrices":[""]}`, 400, fromUI)
+	e.call(t, "PUT", "/api/ai/prices", `{"addPrices":[{"model":"m2","currency":"EUR","input":1,"output":1}]}`, 400, fromUI)
+	e.call(t, "PUT", "/api/ai/prices", `{"addPrices":[{"model":"m2","currency":"USD","input":1,"output":1},{"model":"m2","currency":"USD","input":2,"output":1}]}`, 400, fromUI)
+	if v := e.aiSettings(t).Data.CustomPrices; len(v) != 1 {
+		t.Errorf("400 的不该改：%+v", v)
 	}
 }

@@ -679,22 +679,31 @@ func (c *cat) instanceOps() {
 		},
 	})
 
+	// 两个窗口同时开着「定时任务」时，界面只发改了的：拨开关发 crashRestart，加一条发 addSchedules，删一条发 removeSchedules，
+	// 不再整页发回来把另一边刚存的改回去（2026-11-17）。schedules 整张替换是老写法，照旧能用。
+	schedItem := func() *ops.Schema {
+		return ops.Object(map[string]*ops.Schema{
+			"type": ops.String("restart（重启）、command（执行命令）、backup（备份）"),
+			"at":   ops.String("每天几点，HH:MM"),
+			"args": ops.String("type 为 command 时要执行的命令"),
+		})
+	}
+	type policiesArgs struct {
+		Inst string `json:"inst"`
+		inst.PolicyPatch
+	}
 	c.reg.Register(&ops.Op{
 		Name: "instance.policies.set", Title: "修改崩溃重启与定时任务", Level: ops.Write,
-		Desc: "整体替换：崩溃后是否自动重启，以及每天定时执行的任务（重启、命令、备份）。",
+		Desc: "只改传了的：crashRestart 给了才改；schedules 给了就整张替换定时任务（重启、命令、备份）；" +
+			"removeSchedules、addSchedules 按条删、加（删的是类型、时刻、命令都一样的那一条，找不到不算错）。先整张替换，再删，再加。",
 		Params: withInst(map[string]*ops.Schema{
-			"crashRestart": ops.Boolean("崩溃后自动重启（10 / 30 / 60 秒退避，连续 3 次放弃）"),
-			"schedules": ops.Array("定时任务", ops.Object(map[string]*ops.Schema{
-				"type": ops.String("restart（重启）、command（执行命令）、backup（备份）"),
-				"at":   ops.String("每天几点，HH:MM"),
-				"args": ops.String("type 为 command 时要执行的命令"),
-			})),
+			"crashRestart":    ops.Boolean("崩溃后自动重启（10 / 30 / 60 秒退避，连续 3 次放弃）"),
+			"schedules":       ops.Array("定时任务（给了就整张替换）", schedItem()),
+			"removeSchedules": ops.Array("要删掉的定时任务，每项删一条完全相同的", schedItem()),
+			"addSchedules":    ops.Array("要加上的定时任务", schedItem()),
 		}),
 		Preview: func(_ context.Context, _ ops.Caller, a ops.Args) (*ops.Plan, error) {
-			p, err := bind[struct {
-				Inst string `json:"inst"`
-				inst.Policies
-			}](a)
+			p, err := bind[policiesArgs](a)
 			if err != nil {
 				return nil, err
 			}
@@ -703,25 +712,27 @@ func (c *cat) instanceOps() {
 				return nil, err
 			}
 			cur := i.PoliciesSnapshot()
+			// 和真正保存用同一个合并：预览里列的「改成」就是确认以后存进去的
+			next, err := p.Apply(cur)
+			if err != nil {
+				return nil, err
+			}
 			fp, _ := json.Marshal(cur)
 			plan := &ops.Plan{Summary: fmt.Sprintf("修改「%s」的崩溃重启与定时任务", p.Inst), Pre: map[string]string{"运维策略": string(fp)}}
-			if cur.CrashRestart != p.CrashRestart {
-				plan.Changes = append(plan.Changes, ops.Change{What: "崩溃自动重启", Before: onOff(cur.CrashRestart), After: onOff(p.CrashRestart)})
+			if cur.CrashRestart != next.CrashRestart {
+				plan.Changes = append(plan.Changes, ops.Change{What: "崩溃自动重启", Before: onOff(cur.CrashRestart), After: onOff(next.CrashRestart)})
 			}
-			if before, after := schedText(cur.Schedules), schedText(p.Schedules); before != after {
+			if before, after := schedText(cur.Schedules), schedText(next.Schedules); before != after {
 				plan.Changes = append(plan.Changes, ops.Change{What: "定时任务", Before: before, After: after})
 			}
 			return plan, nil
 		},
 		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
-			p, err := bind[struct {
-				Inst string `json:"inst"`
-				inst.Policies
-			}](a)
+			p, err := bind[policiesArgs](a)
 			if err != nil {
 				return nil, err
 			}
-			if err := c.Mgr.UpdatePolicies(p.Inst, p.Policies); err != nil {
+			if _, err := c.Mgr.PatchPolicies(p.Inst, p.PolicyPatch); err != nil {
 				return nil, err
 			}
 			return "ok", nil

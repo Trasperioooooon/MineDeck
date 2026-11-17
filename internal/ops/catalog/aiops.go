@@ -22,6 +22,16 @@ func (c *cat) aiOps() {
 		return v
 	}
 	price := ops.Number("每百万 token 的单价").Range(0, 100000)
+	priceItem := func() *ops.Schema {
+		return ops.Object(map[string]*ops.Schema{
+			"model":      ops.String("模型名").Len(1, 200),
+			"currency":   ops.String("币种").OneOf("CNY", "USD"),
+			"input":      price,
+			"output":     price,
+			"cacheRead":  price,
+			"cacheWrite": price,
+		}, "model", "currency", "input", "output")
+	}
 
 	c.reg.Register(&ops.Op{
 		Name: "ai.settings.get", Title: "查看 AI 设置", Level: ops.HumanOnly, NoLog: true,
@@ -31,7 +41,8 @@ func (c *cat) aiOps() {
 
 	c.reg.Register(&ops.Op{
 		Name: "ai.provider.set", Title: "修改 AI 服务商设置", Level: ops.HumanOnly, LocalOnly: true, LocalMsg: localMsg,
-		Desc: "只改传了的字段。换了服务商，或者接口地址换到了别的网站（http/https、域名、端口有一样不同），旧 Key 自动清掉、必须重填；同一个网站只改路径或协议，Key 照旧。preset 传空串表示停用 AI。",
+		Desc: "只改传了的字段。换了服务商，或者接口地址换到了别的网站（http/https、域名、端口有一样不同），旧 Key 自动清掉、必须重填；同一个网站只改路径或协议，Key 照旧。preset 传空串表示停用 AI。" +
+			"带上 rev 时，和现在的对不上（别的窗口刚改过）就什么都不改，报 409。",
 		Params: ops.Object(map[string]*ops.Schema{
 			"preset":    ops.String("服务商预设的编号；空串停用").OneOf(presetIDs...),
 			"protocol":  ops.String("协议（只有自定义时可选）").OneOf("openai", "anthropic"),
@@ -42,16 +53,23 @@ func (c *cat) aiOps() {
 			"key":       ops.String("API Key（只写不读；空串清除）").Len(0, 4096),
 			"auth":      ops.String("自定义服务商的鉴权头；空串 = 按协议的默认").OneOf("", "bearer", "api-key", "both"),
 			"echo":      ops.String("自定义服务商是否回传思考内容").OneOf("auto", "on", "off"),
+			"rev":       ops.String("读设置时拿到的 provider.rev（ai.settings.get）；给了而且和现在的不一样，说明别的窗口刚改过，什么都不改，报 409；不给不检查"),
 		}),
 		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
 			pt, err := bind[ai.ProviderPatch](a)
 			if err != nil {
 				return nil, err
 			}
-			if err := c.AI.SetProvider(pt); err != nil {
+			v, err := c.AI.SaveProvider(pt)
+			if err != nil {
+				if errors.Is(err, ai.ErrStale) {
+					return nil, ops.Wrap(409, err)
+				}
 				return nil, err
 			}
-			return view(caller), nil
+			// 回的是这次存下的那份（rev 和设置在锁里一起取的），不存完再另读：见 ai.SaveProvider
+			v.Local = caller.Local
+			return v, nil
 		},
 	})
 
@@ -130,25 +148,20 @@ func (c *cat) aiOps() {
 
 	c.reg.Register(&ops.Op{
 		Name: "ai.prices.set", Title: "修改 AI 自填单价", Level: ops.HumanOnly, LocalOnly: true, LocalMsg: localMsg,
-		Desc: "整体替换自填的单价（每百万 token，元或美元）。自填的优先于公开价格，也能补上查不到的模型。",
+		Desc: "改自填的单价（每百万 token，元或美元）。自填的优先于公开价格，也能补上查不到的模型。三种用法可以一起给：" +
+			"prices 整张替换；removePrices 按模型名删（找不到的不算错）；addPrices 按模型名添加，已经有的就换掉。先替换，再删，再加，合起来最多 100 条。",
 		Params: ops.Object(map[string]*ops.Schema{
-			"prices": ops.Array("自填单价", ops.Object(map[string]*ops.Schema{
-				"model":      ops.String("模型名").Len(1, 200),
-				"currency":   ops.String("币种").OneOf("CNY", "USD"),
-				"input":      price,
-				"output":     price,
-				"cacheRead":  price,
-				"cacheWrite": price,
-			}, "model", "currency", "input", "output")).MaxLen(100),
-		}, "prices"),
+			"prices":       ops.Array("自填单价（给了就整张替换）", priceItem()).MaxLen(100),
+			"addPrices":    ops.Array("要添加或换掉的单价，按模型名对", priceItem()).MaxLen(100),
+			"removePrices": ops.Array("要删掉的单价的模型名", ops.String("模型名").Len(1, 200)).MaxLen(100),
+		}),
 		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
-			body, err := bind[struct {
-				Prices []ai.CustomPrice `json:"prices"`
-			}](a)
+			// 两个窗口同时开着设置页时，界面按条发 addPrices、removePrices，不再整张发回来把另一边刚存的改回去（2026-11-17）
+			p, err := bind[ai.PricesPatch](a)
 			if err != nil {
 				return nil, err
 			}
-			if err := c.AI.SetPrices(body.Prices); err != nil {
+			if err := c.AI.PatchPrices(p); err != nil {
 				return nil, err
 			}
 			return view(caller), nil
