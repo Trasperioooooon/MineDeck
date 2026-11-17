@@ -501,6 +501,12 @@ func checkModsToml(d companionjar.Dependency, ok func(string) bool, want string)
 
 var jarNameRe = regexp.MustCompile(`^[A-Za-z0-9._+-]+\.jar$`)
 
+// jarCheckError 标记内容检查回调返回的错误，和磁盘写入 / 改名失败区分开。
+type jarCheckError struct{ err error }
+
+func (e *jarCheckError) Error() string { return e.err.Error() }
+func (e *jarCheckError) Unwrap() error { return e.err }
+
 // placeJar 把 jar 装进 mods：先写一个不以 .jar 结尾的临时文件（加载器不会把它当模组），读回来交给 check 检查，再改名。
 // check 收到的是临时文件的路径（检查 mods.toml 要读 zip）。
 func placeJar(mods, name string, data []byte, check func(path string) error) error {
@@ -518,20 +524,37 @@ func placeJarCtx(ctx context.Context, mods, name string, data []byte, check func
 		return err
 	}
 	defer lease.Close()
-	return atomicfile.WriteCheckedWith(dest, data, 0o644, func(tmp string) error {
+	err = atomicfile.WriteCheckedWith(dest, data, 0o644, func(tmp string) error {
 		b, err := os.ReadFile(tmp)
 		if err != nil {
 			return err
 		}
 		if !bytes.Equal(b, data) {
-			return fmt.Errorf("写进 mods 的 %s 读回来不一样，没有安装", name)
+			return &jarCheckError{fmt.Errorf("写进 mods 的 %s 读回来不一样，没有安装", name)}
 		}
 		if check != nil {
-			return check(tmp)
+			if err := check(tmp); err != nil {
+				return &jarCheckError{err}
+			}
 		}
 		return nil
 	}, lease.Writer)
-
+	if err == nil {
+		return nil
+	}
+	var ce *jarCheckError
+	if errors.As(err, &ce) {
+		if err == ce {
+			return ce.err
+		}
+		return err
+	}
+	var space *diskguard.NoSpace
+	if errors.As(err, &space) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+		(ctx.Err() != nil && errors.Is(err, ctx.Err())) {
+		return err
+	}
+	return fmt.Errorf("把 %s 放进 mods 失败（可能正被服务器占用，停服后再试）：%w", name, err)
 }
 
 // ---------- Modrinth ----------
