@@ -4323,6 +4323,32 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await cartState({ modCart: { reset: true } }); await page.goto(url("#/instances")); await settle(); }
   });
 
+  await run("待装清单的存档读不出来（被占着或内容坏了）：清单的位置画报错框和「重试」，不说「清单是空的」；加入清单被拒以后报错框还在；放开以后点重试照常列出", async () => {
+    try {
+      await cartState({ modCart: { reset: true } });
+      await page.evaluate(i => fetch("/api/modcart", { method: "POST", body: JSON.stringify({ inst: i, projectIds: ["jei"] }) }), PACK);
+      await cartState({ modCart: { loadFail: "locked" } });
+      await page.goto(url(`#/inst/${encodeURIComponent(PACK)}/cart`)); await settle(600);
+      const box = await page.textContent("#mc-load-err");
+      assert(box.includes("无法显示待装清单：清单的存档 cart.json 读不出来") && box.includes("都还在"), "读不出来时清单的位置应说清原因：" + box);
+      assert((await page.$("#mc-empty")) === null && (await page.$eval("#mc-actions", el => el.hidden)), "读不出来时不该说清单是空的，也不该有清空 / 安装");
+      // 加入清单被拒：提示里说同一句；清单的位置仍是报错框（以前加入失败会重画成「清单是空的」）
+      await page.fill("#mc-q", "JEI"); await page.click("#mc-go"); await settle();
+      await page.click('button[aria-label="加入清单 JEI"]'); await settle(700);
+      const toasts = await page.$$eval(".toast", ts => ts.map(x => x.textContent));
+      assert(toasts.some(x => x.includes("无法加入清单：清单的存档 cart.json 读不出来")), "加入被拒应说清原因：" + JSON.stringify(toasts));
+      assert((await page.$("#mc-load-err")) !== null && (await page.$("#mc-empty")) === null, "加入被拒以后清单的位置应还是报错框");
+      // 文件坏了：重试，说法跟着换成「内容坏了」
+      await cartState({ modCart: { loadFail: "corrupt" } });
+      await page.click("#mc-load-retry"); await settle(600);
+      assert((await page.textContent("#mc-load-err")).includes("内容坏了"), "重试以后说法应跟着换");
+      // 修好了：重试，原来那项照常列出
+      await cartState({ modCart: { loadFail: "" } });
+      await page.click("#mc-load-retry"); await settle(600);
+      assert((await page.$("#mc-load-err")) === null && (await page.textContent("#mc-list")).includes("JEI"), "读出来以后应照常列出原来的清单");
+    } finally { await cartState({ modCart: { reset: true } }); await page.goto(url("#/instances")); await settle(); }
+  });
+
   await run("vanilla 向导保持 4 步：步骤条无「选模组」，构建步照旧跳过直达基本设置", async () => {
     await page.goto(url("#/create")); await settle();
     await page.click("#mode-new"); await settle();
