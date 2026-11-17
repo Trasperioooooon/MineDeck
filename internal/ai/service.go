@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -734,11 +735,20 @@ func (s *Service) SetQuota(q map[Feature]int64) error {
 	return s.saveLocked()
 }
 
-// SetPrices 整体替换自填的单价。
-func (s *Service) SetPrices(ps []CustomPrice) error {
-	if len(ps) > 100 {
-		return errors.New("自填单价最多 100 条")
-	}
+// maxCustomPrices 自填单价最多几条。
+const maxCustomPrices = 100
+
+// PricesPatch 改自填单价。两个窗口同时开着「设置 → AI」时，以前每次保存都把整张表发过来、整个换掉，
+// 没刷新的那一边一保存，另一边刚加的就没了、刚删的又回来（2026-11-17）。现在界面按条发：
+// 加或改一条发 Add，删一条发 Remove；Prices 是老写法，给了就整张替换。
+type PricesPatch struct {
+	Prices *[]CustomPrice `json:"prices"`       // 给了就整张替换
+	Add    []CustomPrice  `json:"addPrices"`    // 按模型名添加，已经有这个模型的就换掉它
+	Remove []string       `json:"removePrices"` // 按模型名（完全一致）删，找不到的不算错
+}
+
+// checkPrices 逐条检查；同一张表里同一个模型出现两次算错。
+func checkPrices(ps []CustomPrice) error {
 	seen := map[string]bool{}
 	for _, cp := range ps {
 		if err := checkCustomPrice(cp); err != nil {
@@ -749,10 +759,52 @@ func (s *Service) SetPrices(ps []CustomPrice) error {
 		}
 		seen[cp.Model] = true
 	}
+	return nil
+}
+
+// PatchPrices 改自填单价（见 PricesPatch）。顺序：整张替换 → 按条删 → 按条加；合并、数条数、存盘在 s.mu 里一次做完，
+// 后到的那次合在先到的那次存好的结果上。出错（含写盘失败）不改。
+func (s *Service) PatchPrices(p PricesPatch) error {
+	if p.Prices != nil {
+		if len(*p.Prices) > maxCustomPrices {
+			return errors.New("自填单价最多 100 条")
+		}
+		if err := checkPrices(*p.Prices); err != nil {
+			return err
+		}
+	}
+	if err := checkPrices(p.Add); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.st.Prices = append([]CustomPrice(nil), ps...)
-	return s.saveLocked()
+	next := slices.Clone(s.st.Prices)
+	if p.Prices != nil {
+		next = slices.Clone(*p.Prices)
+	}
+	next = slices.DeleteFunc(next, func(cp CustomPrice) bool { return slices.Contains(p.Remove, cp.Model) })
+	for _, cp := range p.Add {
+		if k := slices.IndexFunc(next, func(x CustomPrice) bool { return x.Model == cp.Model }); k >= 0 {
+			next[k] = cp // 已经有这个模型：原地换掉，表里的位置不动
+		} else {
+			next = append(next, cp)
+		}
+	}
+	if len(next) > maxCustomPrices {
+		return errors.New("自填单价最多 100 条")
+	}
+	st := s.st
+	st.Prices = next
+	if err := s.save(st); err != nil {
+		return err
+	}
+	s.st = st
+	return nil
+}
+
+// SetPrices 整体替换自填的单价（等于只给了 Prices 的 PatchPrices）。
+func (s *Service) SetPrices(ps []CustomPrice) error {
+	return s.PatchPrices(PricesPatch{Prices: &ps})
 }
 
 // RefreshPrices 手动刷新公开价格。没配置 AI，或者只配了本机模型时不取。

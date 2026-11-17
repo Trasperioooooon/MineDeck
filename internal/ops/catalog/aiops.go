@@ -22,6 +22,16 @@ func (c *cat) aiOps() {
 		return v
 	}
 	price := ops.Number("每百万 token 的单价").Range(0, 100000)
+	priceItem := func() *ops.Schema {
+		return ops.Object(map[string]*ops.Schema{
+			"model":      ops.String("模型名").Len(1, 200),
+			"currency":   ops.String("币种").OneOf("CNY", "USD"),
+			"input":      price,
+			"output":     price,
+			"cacheRead":  price,
+			"cacheWrite": price,
+		}, "model", "currency", "input", "output")
+	}
 
 	c.reg.Register(&ops.Op{
 		Name: "ai.settings.get", Title: "查看 AI 设置", Level: ops.HumanOnly, NoLog: true,
@@ -135,25 +145,20 @@ func (c *cat) aiOps() {
 
 	c.reg.Register(&ops.Op{
 		Name: "ai.prices.set", Title: "修改 AI 自填单价", Level: ops.HumanOnly, LocalOnly: true, LocalMsg: localMsg,
-		Desc: "整体替换自填的单价（每百万 token，元或美元）。自填的优先于公开价格，也能补上查不到的模型。",
+		Desc: "改自填的单价（每百万 token，元或美元）。自填的优先于公开价格，也能补上查不到的模型。三种用法可以一起给：" +
+			"prices 整张替换；removePrices 按模型名删（找不到的不算错）；addPrices 按模型名添加，已经有的就换掉。先替换，再删，再加，合起来最多 100 条。",
 		Params: ops.Object(map[string]*ops.Schema{
-			"prices": ops.Array("自填单价", ops.Object(map[string]*ops.Schema{
-				"model":      ops.String("模型名").Len(1, 200),
-				"currency":   ops.String("币种").OneOf("CNY", "USD"),
-				"input":      price,
-				"output":     price,
-				"cacheRead":  price,
-				"cacheWrite": price,
-			}, "model", "currency", "input", "output")).MaxLen(100),
-		}, "prices"),
+			"prices":       ops.Array("自填单价（给了就整张替换）", priceItem()).MaxLen(100),
+			"addPrices":    ops.Array("要添加或换掉的单价，按模型名对", priceItem()).MaxLen(100),
+			"removePrices": ops.Array("要删掉的单价的模型名", ops.String("模型名").Len(1, 200)).MaxLen(100),
+		}),
 		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
-			body, err := bind[struct {
-				Prices []ai.CustomPrice `json:"prices"`
-			}](a)
+			// 两个窗口同时开着设置页时，界面按条发 addPrices、removePrices，不再整张发回来把另一边刚存的改回去（2026-11-17）
+			p, err := bind[ai.PricesPatch](a)
 			if err != nil {
 				return nil, err
 			}
-			if err := c.AI.SetPrices(body.Prices); err != nil {
+			if err := c.AI.PatchPrices(p); err != nil {
 				return nil, err
 			}
 			return view(caller), nil

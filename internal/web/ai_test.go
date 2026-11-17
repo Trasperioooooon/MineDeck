@@ -176,3 +176,26 @@ func TestAIProviderStaleRev(t *testing.T) {
 		t.Errorf("重新读取以后再存：%+v", v.Data)
 	}
 }
+
+// 自填单价按条增删：A 加了 m1，B 还是旧样子、只发「删 m0」，A 加的留着；添加已有的模型是换掉；
+// 参数不合规的 400；什么都不给不改（2026-11-17）。老写法 {"prices":[...]} 见 TestAISettingsAPI。
+func TestAIPricesPatchAPI(t *testing.T) {
+	e := newFullEnv(t)
+	e.call(t, "PUT", "/api/ai/prices", `{"prices":[{"model":"m0","currency":"USD","input":1,"output":2}]}`, 200, fromUI)
+	e.call(t, "PUT", "/api/ai/prices", `{"addPrices":[{"model":"m1","currency":"CNY","input":3,"output":4}]}`, 200, fromUI) // 窗口 A
+	e.call(t, "PUT", "/api/ai/prices", `{"removePrices":["m0"]}`, 200, fromUI)                                              // 窗口 B
+	if v := e.aiSettings(t).Data.CustomPrices; len(v) != 1 || v[0].Model != "m1" || v[0].Input != 3 {
+		t.Fatalf("应只剩 A 加的 m1：%+v", v)
+	}
+	e.call(t, "PUT", "/api/ai/prices", `{"addPrices":[{"model":"m1","currency":"CNY","input":5,"output":4}]}`, 200, fromUI)
+	e.call(t, "PUT", "/api/ai/prices", `{}`, 200, fromUI)
+	if v := e.aiSettings(t).Data.CustomPrices; len(v) != 1 || v[0].Model != "m1" || v[0].Input != 5 {
+		t.Errorf("添加已有的模型应换掉它，什么都不给不改：%+v", v)
+	}
+	e.call(t, "PUT", "/api/ai/prices", `{"removePrices":[""]}`, 400, fromUI)
+	e.call(t, "PUT", "/api/ai/prices", `{"addPrices":[{"model":"m2","currency":"EUR","input":1,"output":1}]}`, 400, fromUI)
+	e.call(t, "PUT", "/api/ai/prices", `{"addPrices":[{"model":"m2","currency":"USD","input":1,"output":1},{"model":"m2","currency":"USD","input":2,"output":1}]}`, 400, fromUI)
+	if v := e.aiSettings(t).Data.CustomPrices; len(v) != 1 {
+		t.Errorf("400 的不该改：%+v", v)
+	}
+}
