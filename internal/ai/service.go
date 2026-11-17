@@ -527,18 +527,39 @@ func providerRev(st Settings) string {
 // SetProvider 保存服务商设置。preset 传空串表示停用 AI（同时清掉 Key）。
 // 新设置和与它配对的 Key 都存好了才生效，中途写盘失败就退回原样（见 commitLocked）。
 func (s *Service) SetProvider(pt ProviderPatch) error {
-	if err := s.setProvider(pt); err != nil {
-		return err
+	_, err := s.SaveProvider(pt)
+	return err
+}
+
+// ProviderSavedHook 测试用：服务商设置存好、放开锁以后，算返回的视图之前调用（在这里模拟别的窗口紧接着又存了一次）。
+var ProviderSavedHook func()
+
+// SaveProvider 同 SetProvider，另外返回这次存下的设置的视图（Key 的状态、用量、价格数据照当前的）。
+// 视图里的服务商设置和 rev 是在锁里跟这次保存一起取的，不是存完以后另读的：两次之间别的窗口可能又存过一次，
+// 另读拿到的 rev 就是那一次的，这一页带着它和表单上的旧值再存，版本检查就拦不住，把那边刚换的改回去了（Codex 复审 2026-11-17）。
+func (s *Service) SaveProvider(pt ProviderPatch) (View, error) {
+	var st Settings
+	if err := s.setProvider(pt, &st); err != nil {
+		return View{}, err
 	}
 	if s.paid(s.snapshot()) {
 		s.prices.MaybeRefresh()
 	}
-	return nil
+	if ProviderSavedHook != nil {
+		ProviderSavedHook()
+	}
+	return s.viewOf(st), nil
 }
 
-func (s *Service) setProvider(pt ProviderPatch) error {
+// setProvider 存成功时把存下的设置写进 saved（放锁之前取的）。
+func (s *Service) setProvider(pt ProviderPatch, saved *Settings) (err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	defer func() { // 比上面的放锁先执行：取到的就是这次存下的那份
+		if err == nil {
+			*saved = s.snapshotLocked()
+		}
+	}()
 	if pt.Rev != nil && *pt.Rev != providerRev(s.st) { // 别的窗口刚改过：设置和 Key 都不动
 		return ErrStale
 	}
@@ -877,7 +898,11 @@ const DomesticNote = "按国际站美元价估算，国内站按人民币计费�
 
 // View 当前的设置和状态，不含 Key、不联网。
 func (s *Service) View() View {
-	st := s.snapshot()
+	return s.viewOf(s.snapshot())
+}
+
+// viewOf 按给定的设置算 View；Key 的状态、用量、价格数据照当前的。
+func (s *Service) viewOf(st Settings) View {
 	set, broken := s.keyState()
 	v := View{Presets: Presets(), KeySet: set, KeyBroken: broken, Quota: st.Quota, Prices: s.prices.Status(),
 		CustomPrices: st.Prices, Today: map[Feature]Totals{}, Month: map[Feature]Totals{}, LANAssistant: boolOr(st.LANAssistant, true)}

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"minedeck/internal/ai"
 	"minedeck/internal/app"
 )
 
@@ -174,6 +175,40 @@ func TestAIProviderStaleRev(t *testing.T) {
 	e.call(t, "PUT", "/api/ai/provider", `{"model":"deepseek-v4-flash","rev":"`+revA+`"}`, 200, fromUI)
 	if v := e.aiSettings(t); v.Data.Provider.Model != "deepseek-v4-flash" || !v.Data.KeySet {
 		t.Errorf("重新读取以后再存：%+v", v.Data)
+	}
+}
+
+// 两个窗口同时开着「设置 → AI」：A 只换 Key（七项设置没变，rev 也不变），A 存好、放开锁以后、算返回内容之前，
+// B 拿着同一个 rev 换了模型。A 拿到的应是自己这次存下的那份（旧模型、旧 rev），不是 B 的新 rev：不然 A 的页面
+// 带着新 rev 和表单上的旧模型再存，版本检查拦不住，B 换的模型就被改回去了（Codex 复审 2026-11-17）。
+func TestAIProviderResponseIsThisSave(t *testing.T) {
+	e := newFullEnv(t)
+	e.call(t, "PUT", "/api/ai/provider", `{"preset":"deepseek","key":"`+aiKey+`"}`, 200, fromUI)
+	v0 := e.aiSettings(t).Data.Provider
+	t.Cleanup(func() { ai.ProviderSavedHook = nil })
+	ai.ProviderSavedHook = func() {
+		ai.ProviderSavedHook = nil
+		e.call(t, "PUT", "/api/ai/provider", `{"model":"deepseek-v4-pro","rev":"`+v0.Rev+`"}`, 200, fromUI) // 窗口 B
+	}
+	var got aiSettings
+	resp := e.call(t, "PUT", "/api/ai/provider", `{"key":"sk-other-key-2","rev":"`+v0.Rev+`"}`, 200, fromUI) // 窗口 A
+	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if ai.ProviderSavedHook != nil {
+		t.Fatal("窗口 B 那次保存没有跑")
+	}
+	if p := got.Data.Provider; p.Rev != v0.Rev || p.Model != v0.Model {
+		t.Fatalf("A 拿到的应是自己存下的那份 %+v：%+v", v0, p)
+	}
+	now := e.aiSettings(t).Data.Provider
+	if now.Model != "deepseek-v4-pro" || now.Rev == v0.Rev {
+		t.Fatalf("B 换的模型应已存下：%+v", now)
+	}
+	// A 带着拿到的 rev 和表单上的旧模型再存（只想改别的）：应被拦下，B 换的模型还在
+	e.call(t, "PUT", "/api/ai/provider", `{"model":"`+v0.Model+`","rev":"`+got.Data.Provider.Rev+`"}`, 409, fromUI)
+	if p := e.aiSettings(t).Data.Provider; p.Model != "deepseek-v4-pro" || p.Rev != now.Rev {
+		t.Errorf("被拦下的保存不该改设置：%+v", p)
 	}
 }
 

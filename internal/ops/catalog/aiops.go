@@ -60,13 +60,16 @@ func (c *cat) aiOps() {
 			if err != nil {
 				return nil, err
 			}
-			if err := c.AI.SetProvider(pt); err != nil {
+			v, err := c.AI.SaveProvider(pt)
+			if err != nil {
 				if errors.Is(err, ai.ErrStale) {
 					return nil, ops.Wrap(409, err)
 				}
 				return nil, err
 			}
-			return view(caller), nil
+			// 回的是这次存下的那份（rev 和设置在锁里一起取的），不存完再另读：见 ai.SaveProvider
+			v.Local = caller.Local
+			return v, nil
 		},
 	})
 
