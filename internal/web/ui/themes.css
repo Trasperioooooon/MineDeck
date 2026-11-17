@@ -23,8 +23,8 @@
   --control-act: #272f2b;
   --field: #1e2120;
   --hover: rgba(228,234,229,.06);
-  --border: rgba(255,255,255,.08);
-  --border-strong: rgba(255,255,255,.18);
+  --border: rgba(255,255,255,.16);
+  --border-strong: rgba(255,255,255,.26);
   --shadow-rgb: 0 0 0;
   --text: #e4eae5;
   --muted: #a6b5aa;
@@ -109,8 +109,8 @@
   --control-act: #272f2b;
   --field: #1e2120;
   --hover: rgba(228,234,229,.06);
-  --border: rgba(255,255,255,.08);
-  --border-strong: rgba(255,255,255,.18);
+  --border: rgba(255,255,255,.16);
+  --border-strong: rgba(255,255,255,.26);
   --shadow-rgb: 0 0 0;
   --text: #e4eae5;
   --muted: #a6b5aa;

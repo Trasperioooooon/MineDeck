@@ -270,14 +270,14 @@ function showErrDetail(text, actions = []) {
     mask.querySelector('[data-x="close"]').focus();
   });
 }
-/* 剪贴板写不进去时：把原文放进可选中的框并选中，说明按 Ctrl+C。不提示「已复制」。
-   http 的手机远程管理页上 navigator.clipboard 经常没有，execCommand 也会失败。 */
-function showCopyFallback(text) {
-  const prev = document.activeElement;
+/* 剪贴板写不进去时：把原文放进可选中的框并选中，说明怎么手动复制。不提示「已复制」。
+   http 的手机远程管理页上 navigator.clipboard 经常没有，execCommand 也会失败。
+   prev：关掉以后焦点还给谁（copy() 在动剪贴板之前记下的，不然拿到的是临时 textarea 删掉以后的 body） */
+function showCopyFallback(text, prev = document.activeElement) {
   const tid = layerId("copyfb-title");
   const mask = modalLayer(`<div class="modal" id="copy-fallback" role="dialog" aria-modal="true" aria-labelledby="${tid}">
     <h3 id="${tid}">请手动复制</h3>
-    <div class="m-body">剪贴板写不进去。下面是完整原文，已经选中，按 Ctrl+C 复制。</div>
+    <div class="m-body">剪贴板写不进去。下面是完整原文，已经选中：电脑上按 Ctrl+C 复制；手机上长按选中的文字，再点「拷贝」。</div>
     <textarea class="copy-fallback" readonly rows="5" aria-label="要复制的完整内容"></textarea>
     <div class="m-actions"><button class="btn primary" data-x="close">关闭</button></div>
   </div>`);
@@ -300,12 +300,14 @@ function showCopyFallback(text) {
   try { ta.setSelectionRange(0, ta.value.length); } catch {}
 }
 /* 写入剪贴板。成功返回 true。安全上下文优先用 clipboard API；失败或 http 页面再试 execCommand。
-   execCommand 返回 false 或抛错都算失败，不能当成已经复制。 */
+   execCommand 返回 false 或抛错都算失败，不能当成已经复制。
+   execCommand 要把焦点挪到临时 textarea 上，用完删掉以后把焦点还给原来的元素（键盘用户点完复制键焦点不丢） */
 async function writeClipboard(text) {
   const value = String(text ?? "");
   if (window.isSecureContext && navigator.clipboard && navigator.clipboard.writeText) {
     try { await navigator.clipboard.writeText(value); return true; } catch {}
   }
+  const back = document.activeElement;
   let ta;
   try {
     ta = document.createElement("textarea");
@@ -323,12 +325,16 @@ async function writeClipboard(text) {
     return document.execCommand("copy") === true;
   } catch {
     return false;
-  } finally { if (ta) ta.remove(); }
+  } finally {
+    if (ta) ta.remove();
+    if (back && back !== document.body && back.isConnected && back.focus) back.focus({ preventScroll: true });
+  }
 }
 /* 复制到剪贴板。成功才提示已复制，并返回 true。失败弹出手动复制框，返回 false。 */
 async function copy(text, okMsg = "已复制") {
+  const prev = document.activeElement; // 手动复制框关掉以后焦点还给它（比如叠在下面的「报错信息」对话框里的复制键）
   if (await writeClipboard(text)) { toast(okMsg); return true; }
-  showCopyFallback(text);
+  showCopyFallback(text, prev);
   return false;
 }
 /* 复制按钮的微交互：只有真的写进剪贴板才把图标换成对勾。1.3 秒后换回。 */
@@ -1575,7 +1581,7 @@ async function renderInstances() {
       // 主按钮直接进「从零创建」的向导（不替人选核心）；整合包、已有地图、交接包、接管这四种走次要入口去「新建服务器」页挑
       $("#inst-cards").innerHTML = `<div class="empty${first ? " sec-enter" : ""}">${MDPixel.emptySVG(240)}
         <div class="empty-title">还没有服务器</div>
-        选好核心和版本，Java 和服务端会自动下载。<br>
+        选择核心与版本后，MineDeck 将自动补全服务端文件及匹配的 Java 运行环境。<br>
         <a class="btn primary" id="empty-new" href="#/create/new">${icon("plus")} 从零创建</a><br>
         <a class="quiet-link" href="#/create">导入整合包、用已有地图开服、导入交接包或接管已有服务器 →</a></div>`;
       lastSig = "empty"; first = false; return;
@@ -1662,7 +1668,7 @@ async function renderCreate(mode) {
     <div class="recipe-groups">
       <div class="core-group">
         <div class="cg-title">新建</div>
-        <div class="recipe-grid three">
+        <div class="recipe-grid">
           ${card("new", "plusBox", "从零创建", "自选核心与版本；Java 和服务端自动下载。")}
           ${card("import", "package", "导入整合包", "Modrinth / CurseForge，或作者给的现成服务端压缩包。")}
           ${card("world", "globe", "用已有地图开服", "下载的地图、自己的单人世界、别的服务器的世界，拿来开一台新的。")}
@@ -3335,7 +3341,7 @@ async function renderDetail(name, path = "console") {
     el.innerHTML = k + `<span class="mono dh-addr-v" id="d-addr-v">${esc(addr)}</span>
       <button type="button" class="btn sm" id="d-addr-copy" aria-label="复制连接地址">${icon("copy")} 复制</button>
       ${ips.length > 1 ? `<button type="button" class="btn sm ghost" id="d-addr-ip" aria-haspopup="menu" aria-label="换一个 IP（本机有 ${ips.length} 个局域网 IP）">换一个 IP</button>` : ""}
-      <span class="dh-addr-note" title="${live ? "同一局域网的朋友在游戏里添加服务器时填这个" : "服务器开起来以后，朋友填这个地址"}">${live ? "添加服务器时填这个" : "开服后朋友连这个地址"}</span>`;
+      <span class="dh-addr-note">${live ? "同一局域网的朋友在游戏里添加服务器时填这个" : "开服后朋友连这个地址"}</span>`;
     $("#d-addr-copy").onclick = e => copyFlash(e.currentTarget, addr, "已复制连接地址：" + addr);
     const sw = $("#d-addr-ip");
     if (sw) sw.onclick = () => dropMenu(sw, [{ header: "本机的局域网 IP（家用路由器下通常是 192.168 开头的）" },
@@ -5061,15 +5067,8 @@ async function renderTunnels() {
     const logBox = logId ? $("#tlog-" + logId) : null;
     $("#tun-list").innerHTML = list.map(tunRow).join("");
     if (logBox) { const ph = $("#tlog-" + logId); if (ph) ph.replaceWith(logBox); else closeLog(); } // 那条隧道删了就关掉日志
-    $("#tun-list").querySelectorAll("[data-copy]").forEach(b => b.onclick = async () => {
-      await copy(b.dataset.copy, "已复制公网地址：" + b.dataset.copy);
-      // 微交互：图标换成弹出的对勾、文字改「已复制」，1.3 秒后换回
-      if (b.dataset.busy) return;
-      b.dataset.busy = "1";
-      const old = b.innerHTML;
-      b.innerHTML = `<span class="pop" style="display:inline-grid">${icon("check")}</span> 已复制`;
-      setTimeout(() => { b.innerHTML = old; playClass(b, "swap-in"); delete b.dataset.busy; }, 1300);
-    });
+    // 真写进剪贴板才换成对勾「已复制」（copyFlash）；写不进去弹手动复制框，按钮不变（PR #28 复审：这里以前不看结果）
+    $("#tun-list").querySelectorAll("[data-copy]").forEach(b => b.onclick = () => copyFlash(b, b.dataset.copy, "已复制公网地址：" + b.dataset.copy));
     $("#tun-list").querySelectorAll("[data-tstart]").forEach(b => b.onclick = async () => {
       const id = b.dataset.tstart;
       b.disabled = true;

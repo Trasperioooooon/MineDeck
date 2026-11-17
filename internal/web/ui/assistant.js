@@ -99,6 +99,7 @@ window.MDAssist = (() => {
     document.body.classList.add("ai-open");
     A.panel = p;
     wireResize(p);
+    fitMain();
     p.addEventListener("click", e => {
       const r = e.target.closest && e.target.closest("[data-copy-raw]");
       if (r && p.contains(r)) {
@@ -150,6 +151,22 @@ window.MDAssist = (() => {
 
   function ext() { paintExt(); paintBtn(); }
 
+  /* 面板开着时主区要不要让出右侧（app.css 的 body.ai-push，宽于 900 才生效）：让出以后主区还有 AI_MIN_MAIN 宽才让。
+     以前一律让：1024 宽、面板 440 时主区只剩 350 左右、内容横向溢出，面板拖到最宽只剩几十像素（PR #28 复审）。
+     不让的时候面板照旧浮在主区上面。窗口大小、面板宽度变了都重算。 */
+  const AI_MIN_MAIN = 720;
+  function fitMain() {
+    const p = A.panel;
+    let push = false;
+    if (p && window.innerWidth >= 900) {
+      const side = document.getElementById("sidebar");
+      const sw = side ? side.getBoundingClientRect().width : 0;
+      push = window.innerWidth - sw - p.getBoundingClientRect().width >= AI_MIN_MAIN;
+    }
+    document.body.classList.toggle("ai-push", push);
+  }
+  addEventListener("resize", () => { if (A.panel) fitMain(); });
+
   /* 拖左边改宽度，松手后记在这台设备上。往左拖变宽。
      键盘：焦点在手柄上时 ← 变宽、→ 变窄（和拖动的方向一致），一次 16px，按住 Shift 一次 64px，松键后记下。 */
   function wireResize(p) {
@@ -168,8 +185,8 @@ window.MDAssist = (() => {
       h.setAttribute("aria-valuemax", String(max()));
       h.setAttribute("aria-valuenow", String(w));
     };
-    // 先夹到范围里再交给 applyWidth（它遇到范围外的值会回到默认宽度）
-    const set = px => { const w = Math.round(Math.min(max(), Math.max(320, px))); applyWidth(w); aria(w); return w; };
+    // 先夹到范围里再交给 applyWidth（它遇到范围外的值会回到默认宽度）；宽度变了，主区让不让也重新算
+    const set = px => { const w = Math.round(Math.min(max(), Math.max(320, px))); applyWidth(w); aria(w); fitMain(); return w; };
     const save = w => { try { localStorage.setItem(WIDTH_KEY, String(w)); } catch {} };
     aria(now());
     h.addEventListener("focus", () => aria(now())); // 窗口大小可能变过
@@ -220,7 +237,7 @@ window.MDAssist = (() => {
     if (!A.panel) return;
     const p = A.panel;
     A.panel = null;
-    document.body.classList.remove("ai-open");
+    document.body.classList.remove("ai-open", "ai-push");
     clearInterval(A.timer);
     dismiss(p, 160);
     paintBtn();

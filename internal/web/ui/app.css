@@ -223,7 +223,7 @@ h3 { font-size: var(--fs-h3); line-height: 22px; font-weight: var(--fw-semibold)
   border-top: 1px solid var(--border); border-left: 1px solid var(--border);
   border-top-left-radius: var(--r-xl);
   box-shadow: -1px -1px 6px -2px rgb(var(--shadow-rgb) / .08);
-  padding: 26px max(32px, calc((100% - var(--w-wide)) / 2)) 72px;
+  padding: 26px max(32px, calc((100% - var(--w-wide)) / 2)) 24px;
 }
 /* #main 是纵向 flex 滚动容器：子元素一律不收缩。否则设了 overflow 的子元素（如可横滑的标签栏）
    最小高度为 0，内容一长就会被压扁到看不见 */
@@ -296,8 +296,10 @@ body.has-host-chrome .win-ctrls { display: flex; }
               0 8px 16px -6px color-mix(in srgb, var(--accent-solid) var(--glow), rgb(0 0 0 / .55));
 }
 .btn.primary:active { transform: translateY(.5px) scale(.985); transition-duration: var(--dur-1); box-shadow: inset 0 1px 3px rgb(0 0 0 / .25); background: var(--accent-solid-hov); }
+/* 点不了的主按钮换成次要按钮的灰底（不再是一颗点不了的绿按钮抢视线），透明度沿用 .btn:disabled 的 .48，
+   和点不了的次要按钮一个样子，不会被看成能点的次要按钮 */
 .btn.primary:disabled {
-  opacity: 1; box-shadow: none; transform: none;
+  box-shadow: none; transform: none;
   background: var(--control); color: var(--muted); border-color: var(--border);
 }
 /* 第三级：无底无框，悬停才出现浅底；用于「管理」「放弃修改」、工具栏图标 */
@@ -641,11 +643,10 @@ a.inst-name:hover { text-decoration: underline; text-decoration-color: color-mix
 }
 .core-card .check .ico { width: 13px; height: 13px; }
 .core-card.sel .check { display: grid; animation: md-pop var(--dur-3) var(--ease-spring) both; }
-/* 新建页的四种方式：分「新开一台」「把现成的搬进来」两组，四张卡一样大（同一行等高，两组之间靠最小高度对齐：够放两行说明） */
+/* 新建页的五种方式：分「新建」「搬过来」两组，两列排、卡一样大（同一行等高，两组之间靠最小高度对齐：够放两行说明） */
 .recipe-groups { max-width: var(--w-read); }
 .recipe-groups .core-group { margin-bottom: 24px; }
 .recipe-grid { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; gap: 16px; max-width: var(--w-read); }
-.recipe-grid.three { grid-template-columns: repeat(3, 1fr); max-width: var(--w-wide); }
 .recipe-grid .core-card { padding: 22px; align-items: center; min-height: 108px; }
 .recipe-ico {
   width: 48px; height: 48px; flex: none; border-radius: var(--r-md);
@@ -824,7 +825,7 @@ a.inst-name:hover { text-decoration: underline; text-decoration-color: color-mix
 .dh-addr.off .dh-addr-v { color: var(--muted); }
 .dh-addr .dh-addr-note { color: var(--muted); }
 /* 页头下面的常驻提示区（#d-notices）：上次启动失败、模组要求更高的 Java……一条一行，有就显示，解决了就消失 */
-.d-notices { display: flex; flex-direction: column; gap: 6px; margin: -8px 0 14px; max-width: var(--w-wide); }
+.d-notices { display: flex; flex-direction: column; gap: 6px; margin: -2px 0 14px; max-width: var(--w-wide); } /* 页头下边距 12，提示区离按钮行留 10 */
 .d-notices[hidden] { display: none; }
 .d-notice { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 7px 12px; border-radius: var(--r-md); font-size: var(--fs-sm); line-height: 1.6; }
 .d-notice.warn { background: var(--warning-subtle); color: var(--warning-text); }
@@ -833,8 +834,9 @@ a.inst-name:hover { text-decoration: underline; text-decoration-color: color-mix
 .d-notice .btn.sm { --btn-h: 26px; }
 .d-notice .warn-text { font-size: var(--fs-sm); }
 #tab-body { max-width: var(--w-wide); }
-/* 高度按页头（含连接地址那一行）、标签栏、工具条和输入框算，页头多了一行以后少 34px，窗口小的时候快捷键提示才不掉到可视区外 */
-.console { height: calc(100vh - 460px); height: calc(100dvh - 460px); min-height: 120px; overflow-y: auto; font: 12.5px var(--mono); padding: 12px 14px; font-variant-ligatures: none; }
+/* 高度按页头（含连接地址那一行）、标签栏、工具条、输入框和快捷键提示算（页头按钮收进 .dh-actions、标题 22px 以后减 460），
+   常规窗口里整页不多出滚动。高不超过 680 的鼠标窗口改由文件末尾那段让日志区填剩下的高度 */
+.console { height: calc(100vh - 460px); height: calc(100dvh - 460px); min-height: 240px; overflow-y: auto; font: 12.5px var(--mono); padding: 12px 14px; font-variant-ligatures: none; }
 .console-bar .search-field { flex: 1 1 160px; min-width: 0; max-width: 360px; }
 .console-bar .search-field input[type=text] { width: 100%; }
 .console div { white-space: pre-wrap; word-break: break-all; line-height: 1.6; }
@@ -1515,16 +1517,16 @@ a.inst-fail:hover span { text-decoration: underline; }
   .tb-skin-btns { margin-left: 0; }
 }
 
-/* 深色方块的页面底和卡片太近，发丝边再实一点，卡片才分开 */
-[data-scheme="craft"][data-theme="dark"] { --border: rgba(255,255,255,.16); }
-
-/* 助手面板打开时，主区让出右侧，页头的启动 / 停止不被盖住。手机宽下面板本来就占满。 */
+/* 助手面板打开时，主区让出右侧，页头的启动 / 停止不被盖住。让不让由 assistant.js 的 fitMain() 定（body.ai-push）：
+   让了以后主区还有足够宽才让，窗口窄或面板拖得很宽时照旧浮在上面，免得主区挤成一条、横向溢出。
+   左右留白按「让出以后的宽度」重算：#main 的百分比留白是按外层宽度算的，不重算的话内容会缩到中间一小条。 */
 @media (min-width: 900px) {
-  body.ai-open #main { margin-right: var(--ai-w); }
+  body.ai-push #main { margin-right: var(--ai-w); padding-inline: max(32px, calc((100% - var(--w-wide) - var(--ai-w)) / 2)); }
 }
 
-/* 矮窗口（原生最小 1024×576，鼠标）：控制台填剩余高度，命令框留在可视区里。
-   页头和标签不收缩，只把日志区让出来。吸底条在这个高度改回文档流，免得盖住下一节。
+/* 矮窗口（原生最小 1024×576，鼠标）：控制台的日志区填剩下的高度，命令框留在可视区里，快捷键提示收起，页头紧凑一点。
+   放不下的时候（页头提示区好几条、报错横幅展开）整页照常能滚到命令框：日志区按 0 起算、最少 64，
+   #tab-body 只长不缩，内容比窗口高就由 #main 滚动。设置页的保存条照旧吸底。
    不套到手机横屏：那边是底部标签栏，内容层自己滚动。 */
 @media (max-height: 680px) and (min-width: 900px) and (pointer: fine) {
   #main { padding-top: 14px; padding-bottom: 12px; }
@@ -1534,11 +1536,6 @@ a.inst-fail:hover span { text-decoration: underline; }
   .px-avatar.lg svg { width: 28px; height: 28px; }
   .console-keys { display: none; }
   .console-bar { flex-wrap: nowrap; }
-  .save-bar.sticky { position: static; }
-  #main:has(#console) { overflow: hidden; }
-  #tab-body:has(#console) { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
-  #console.console { flex: 1 1 auto; height: auto; min-height: 64px; }
-}
-@media (max-width: 1100px) {
-  .recipe-grid.three { grid-template-columns: 1fr; max-width: var(--w-read); }
+  #tab-body:has(#console) { display: flex; flex-direction: column; flex: 1 0 auto; }
+  #console.console { flex: 1 1 0; height: auto; min-height: 64px; }
 }
