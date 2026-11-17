@@ -2,6 +2,7 @@ package inst
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -116,6 +117,11 @@ func (m *Manager) startInstance(i *Instance) error {
 			}
 			return i.startFailed(err, true)
 		}
+	}
+	// 1.7 ~ 1.11.2 还引用着对它不起作用的那份日志配置（程序启动时没换成）：说一声，后台再试，换成了下次启动生效（见 log4j_migrate.go）
+	if note := log4jStartNote(i); note != "" {
+		i.Console.Append(note)
+		go m.migrateLog4j(context.Background(), i)
 	}
 
 	args := launchArgs(i)

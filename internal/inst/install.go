@@ -3,6 +3,7 @@ package inst
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -759,52 +760,126 @@ func locateLaunchTarget(dir string, core mcsrc.Core, ctx context.Context, mc str
 	return "", fmt.Errorf("安装器未生成可识别的服务端启动文件，请查看服务器文件夹中的 installer.log")
 }
 
-// log4shell 缓解参数（Mojang 官方方案）：<1.18.1 加 noLookups，1.12.2 ~ 1.16.5 另引用官方 xml 日志配置。
+// log4shell 缓解参数（Mojang 官方方案，见 minecraft.net 2021-12-10 的公告）：
+//   - 1.18.1 起不用加；1.17 ~ 1.18 加 noLookups；
+//   - 1.12 ~ 1.16.5 自带的 log4j 是 2.8.1，认不得 noLookups，靠 log4j2_112-116.xml（%msg{nolookups}）；
+//   - 1.7 ~ 1.11.2 自带的是 2.0-beta9，%msg{nolookups} 也认不得，要另一份 log4j2_17-111.xml（按正则丢掉带 ${ 的消息）。
+//     v3.2.0 以前这段也套 112-116 那份，等于没防（2026-11-17 用 1.8.9 原版服务端实测：照样连到 jndi 地址），换法见 log4j_migrate.go；
+//   - 1.7 以前还没用 log4j，什么都不加。
+//
+// noLookups 对 1.7 ~ 1.16.5 不起作用，没有坏处，和以前一样带着：已经建好的服务器里都有它。
 const (
 	log4jNoLookups = "-Dlog4j2.formatMsgNoLookups=true"
-	log4jXML       = "log4j2_112-116.xml" // 创建时下载到实例目录
+	log4jXML       = "log4j2_112-116.xml" // 1.12 ~ 1.16.5 的官方配置，下载到实例目录
 	log4jConfig    = "-Dlog4j.configurationFile=" + log4jXML
+	log4jXML17     = "log4j2_17-111.xml" // 1.7 ~ 1.11.2 的官方配置
+	log4jConfig17  = "-Dlog4j.configurationFile=" + log4jXML17
+	log4jConfigKey = "-Dlog4j.configurationFile="
 )
 
-// applyLog4jMitigation 依据 Mojang 官方公告为老版本添加 log4shell 缓解。
-func applyLog4jMitigation(ctx context.Context, t *tasks.Task, i *Instance) error {
-	newer1181, err := mcsrc.NewerOrEqual(ctx, i.MC, "1.18.1")
-	if err != nil || newer1181 {
-		return err
+// log4jXMLSHA1 两份官方配置的 SHA-1，就是 Mojang 下载地址里的那一串。2026-11-17 照 minecraft.net 公告里的链接下载核对过。
+var log4jXMLSHA1 = map[string]string{
+	log4jXML:   "02937d122c86ce73319ef9975b58896fc1b491d1",
+	log4jXML17: "4bb89a97a66f350bc9f73b3ca8509632682aea2e",
+}
+
+// log4jEras 各段版本要的防护，新的在前：不老于 from 的落在这一段。from 都是官方清单里有的版本号（清单里有「1.7」这一条）。
+var log4jEras = []struct {
+	from      string
+	noLookups bool
+	xml       string // 要哪份官方配置，"" 是不要
+}{
+	{"1.18.1", false, ""},
+	{"1.17", true, ""},
+	{"1.12", true, log4jXML},
+	{"1.7", true, log4jXML17},
+}
+
+// log4jPlan 按 Mojang 的公告给出一个版本要的防护：加不加 noLookups、要哪份官方配置（"" 是不要）。
+// newer(b) 回答这个版本是否不老于 b，它出错（判断不了）时原样返回。比 1.7 还老的什么都不要。
+func log4jPlan(newer func(b string) (bool, error)) (noLookups bool, xml string, err error) {
+	for _, e := range log4jEras {
+		ge, err := newer(e.from)
+		if err != nil {
+			return false, "", err
+		}
+		if ge {
+			return e.noLookups, e.xml, nil
+		}
 	}
-	i.ExtraJVM = append(i.ExtraJVM, log4jNoLookups)
-	newer117, err := mcsrc.NewerOrEqual(ctx, i.MC, "1.17")
+	return false, "", nil
+}
+
+// log4jPlanCached 同 log4jPlan，只看本地清单、不联网（mcsrc.NewerOrEqualCached）。本地没有清单、或者清单里没有这个版本时 ok=false。
+func log4jPlanCached(mc string) (noLookups bool, xml string, ok bool) {
+	noLookups, xml, err := log4jPlan(func(b string) (bool, error) {
+		if ge, ok := mcsrc.NewerOrEqualCached(mc, b); ok {
+			return ge, nil
+		}
+		return false, errors.New("本地版本清单判断不了")
+	})
+	return noLookups, xml, err == nil
+}
+
+// applyLog4jMitigation 依据 Mojang 官方公告为老版本添加 log4shell 缓解。
+// 官方清单里没有这个版本时和以前一样，按 1.12 ~ 1.16.5 加（接管、导入、交接包都先确认清单里有才调它）。
+func applyLog4jMitigation(ctx context.Context, t *tasks.Task, i *Instance) error {
+	known, err := mcsrc.KnownVersion(ctx, i.MC)
 	if err != nil {
 		return err
 	}
-	if !newer117 { // 1.12.2 ~ 1.16.5：官方 xml 配置
-		if err := fetchLog4jXML(ctx, i.Dir); err != nil {
-			t.Logf("log4j 防护配置下载失败（不影响开服，仅安全性降低）: %v", err)
-			return nil
+	noLookups, xml := true, log4jXML
+	if known {
+		if noLookups, xml, err = log4jPlan(func(b string) (bool, error) { return mcsrc.NewerOrEqual(ctx, i.MC, b) }); err != nil {
+			return err
 		}
-		i.ExtraJVM = append(i.ExtraJVM, log4jConfig)
-		t.Logf("已启用 log4shell 漏洞缓解（Mojang 官方方案）")
 	}
+	addLog4jFlags(ctx, t, i, noLookups, xml)
 	return nil
 }
 
-// fetchLog4jXML 把 Mojang 给 1.12–1.16.5 的日志配置放进实例目录。已经在、内容也对得上的不重新下载；
-// 内容对不上的（被别的文件顶掉了）会重新下载。这份文件可能经镜像下载，按官方的 SHA-1 校验
-// （就是下载地址里那一串；2026-11-10 下载核对过）。
-var fetchLog4jXML = func(ctx context.Context, dir string) error { // 是变量：测试里换成不联网的
-	const sum = "02937d122c86ce73319ef9975b58896fc1b491d1"
-	const xmlURL = "https://launcher.mojang.com/v1/objects/" + sum + "/" + log4jXML
-	return dl.Fetch(ctx, dl.Request{URLs: mcsrc.URLPair(xmlURL), Dest: filepath.Join(dir, log4jXML), MinSize: 100, SHA1: sum}, nil)
+// addLog4jFlags 往 i.ExtraJVM 里加上该有的参数。要官方配置的先下载，下载不成不加引用：引用一个不存在的配置文件，
+// log4j 会退回只输出 ERROR 的默认配置，控制台和「启动完成」的判断都会失效。
+func addLog4jFlags(ctx context.Context, t *tasks.Task, i *Instance, noLookups bool, xml string) {
+	if noLookups {
+		i.ExtraJVM = append(i.ExtraJVM, log4jNoLookups)
+	}
+	if xml == "" {
+		return
+	}
+	if err := fetchLog4jXML(ctx, i.Dir, xml); err != nil {
+		t.Logf("log4j 防护配置没下载成（%v）。服务器照样能开，但 %s 只靠这份配置防 log4shell，现在等于没防，先别让不认识的人进服", err, i.MC)
+		return
+	}
+	i.ExtraJVM = append(i.ExtraJVM, log4jConfigKey+xml)
+	t.Logf("已启用 log4shell 漏洞缓解（Mojang 官方方案，%s）", xml)
+}
+
+// log4jObjects 两份官方配置的下载地址前缀，后面接 SHA-1 和文件名（是变量：测试里换成本机的假服务器）。
+var log4jObjects = "https://launcher.mojang.com/v1/objects/"
+
+// fetchLog4jXML 把 Mojang 的一份日志配置（log4jXML 或 log4jXML17）放进实例目录。已经在、内容也对得上的不重新下载；
+// 内容对不上的（被别的文件顶掉了）会重新下载。这份文件可能经镜像下载，按官方的 SHA-1 校验。
+var fetchLog4jXML = func(ctx context.Context, dir, name string) error { // 是变量：测试里换成不联网的
+	sum, ok := log4jXMLSHA1[name]
+	if !ok {
+		return fmt.Errorf("没有 %s 这份官方日志配置", name)
+	}
+	xmlURL := log4jObjects + sum + "/" + name
+	return dl.Fetch(ctx, dl.Request{URLs: mcsrc.URLPair(xmlURL), Dest: filepath.Join(dir, name), MinSize: 100, SHA1: sum}, nil)
 }
 
 // restoreLog4jXML 启动参数里引用着官方日志配置的实例，确认那份文件还是官方的（不是就重新下载）。
 // 整合包导入收尾时调：覆盖目录和清单里的文件是在它下载好以后才写进来的。
 func restoreLog4jXML(ctx context.Context, t *tasks.Task, i *Instance) {
-	if !slices.Contains(i.ExtraJVMSnapshot(), log4jConfig) {
-		return
-	}
-	if err := fetchLog4jXML(ctx, i.Dir); err != nil {
-		t.Logf("⚠ 没能确认 log4j 防护配置是官方的那一份（%v）。联网以后可以删掉服务器文件夹里的 %s 再重新导入", err, log4jXML)
+	args := i.ExtraJVMSnapshot()
+	for _, name := range []string{log4jXML, log4jXML17} {
+		if !slices.Contains(args, log4jConfigKey+name) {
+			continue
+		}
+		if err := fetchLog4jXML(ctx, i.Dir, name); err != nil {
+			t.Logf("⚠ 没能确认 log4j 防护配置是官方的那一份（%v）。联网以后可以删掉服务器文件夹里的 %s 再重新导入", err, name)
+		}
 	}
 }
 
@@ -816,24 +891,30 @@ func log4jFlags(i *Instance) []string {
 		return nil // 代理端不运行 Minecraft 本体，创建时也不加
 	}
 	var flags []string
-	if newer1181, ok := mcsrc.NewerOrEqualCached(i.MC, "1.18.1"); !ok {
+	if noLookups, xml, ok := log4jPlanCached(i.MC); !ok {
 		for _, a := range i.ExtraJVM {
-			if a == log4jNoLookups || a == log4jConfig {
+			if IsLog4jFlag(a) {
 				flags = append(flags, a)
 			}
 		}
-	} else if !newer1181 {
-		flags = append(flags, log4jNoLookups)
-		if newer117, _ := mcsrc.NewerOrEqualCached(i.MC, "1.17"); !newer117 { // 同一清单里 1.17 必可判定
-			flags = append(flags, log4jConfig)
+	} else {
+		if noLookups {
+			flags = append(flags, log4jNoLookups)
+		}
+		if xml != "" {
+			flags = append(flags, log4jConfigKey+xml)
 		}
 	}
-	// 官方 xml 只在创建时下载：文件不在（当初下载失败 / 被删）就不强加引用——引用不存在的配置文件会令 log4j
-	// 退回只输出 ERROR 的默认配置，控制台日志与「启动完成」检测随之失效
-	if _, err := os.Stat(filepath.Join(i.Dir, log4jXML)); err != nil {
-		flags = slices.DeleteFunc(flags, func(a string) bool { return a == log4jConfig })
-	}
-	return flags
+	// 官方 xml 只在创建、接管、导入和换配置（log4j_migrate.go）时下载：文件不在（当初下载失败 / 被删）就不强加引用——
+	// 引用不存在的配置文件会令 log4j 退回只输出 ERROR 的默认配置，控制台日志与「启动完成」检测随之失效
+	return slices.DeleteFunc(flags, func(a string) bool {
+		name, ok := strings.CutPrefix(a, log4jConfigKey)
+		if !ok {
+			return false
+		}
+		_, err := os.Stat(filepath.Join(i.Dir, name))
+		return err != nil
+	})
 }
 
 // withJVMFlags 返回 args 的副本，并令 flags 中每个参数恰好出现一次且即为生效值：同名系统属性的其他取值与重复项

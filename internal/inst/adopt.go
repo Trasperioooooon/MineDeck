@@ -23,7 +23,7 @@ import (
 //   - user_jvm_args.txt（只有 Forge / NeoForge）：内存由 MineDeck 管，原来的另存为 user_jvm_args.before-minedeck.txt，
 //     里面别的 JVM 参数带到自定义 JVM 参数里
 //   - eula.txt：原来没同意过、这次用户勾了同意时才写
-//   - log4j2_112-116.xml：1.12 ~ 1.16.5 的 log4shell 缓解配置，和新建时一样
+//   - log4j2_112-116.xml、log4j2_17-111.xml：1.12 ~ 1.16.5、1.7 ~ 1.11.2 的 log4shell 缓解配置，和新建时一样
 //   - server.properties 的 server-port：只在请求里的端口和文件里的不一样时改这一项（原来的端口和 MineDeck 里别的服务器撞了，
 //     界面默认换了一个，可用性走查 R08），别的项的值不变（存回去时非 ASCII 的字照 MineDeck 保存设置的一贯做法写成 \uXXXX）
 //
@@ -377,7 +377,7 @@ func (m *Manager) runAdopt(ctx context.Context, t *tasks.Task, req AdoptReq, sc 
 		touched = append(touched, "user_jvm_args.txt", jvmArgsBackup)
 	}
 	if kind != mcsrc.KindProxy {
-		touched = append(touched, "eula.txt", log4jXML)
+		touched = append(touched, "eula.txt", log4jXML, log4jXML17)
 	}
 	// 端口要改（R08：原来的端口和 MineDeck 里别的服务器撞了）：server.properties 也算动过的，失败时一起恢复。不改端口就不碰它
 	newPort := 0

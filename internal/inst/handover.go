@@ -70,10 +70,12 @@ func (m *Manager) FinalizeCreate(s Settings, dir string) (*Instance, error) {
 const Log4jNoLookups = log4jNoLookups
 
 // IsLog4jFlag 这条 JVM 参数是不是 MineDeck 自己为 log4shell 防护加的（不是服主手写的）。
-func IsLog4jFlag(arg string) bool { return arg == log4jNoLookups || arg == log4jConfig }
+func IsLog4jFlag(arg string) bool {
+	return arg == log4jNoLookups || arg == log4jConfig || arg == log4jConfig17
+}
 
 // ApplyLog4jMitigation 按这台电脑的情况给老版本套 log4shell 防护（同新建、接管）：往 s.ExtraJVM 里补上该有的参数，
-// 1.12.2 ~ 1.16.5 还会把官方的日志配置下载到 dir。s.ExtraJVM 里已有的同名参数以这里的为准。
+// 1.7 ~ 1.16.5 还会把对应的那份官方日志配置下载到 dir。s.ExtraJVM 里已有的同名参数以这里的为准。
 func ApplyLog4jMitigation(ctx context.Context, t *tasks.Task, s *Settings, dir string) error {
 	i := &Instance{Settings: *s, Dir: dir}
 	own := len(i.ExtraJVM)

@@ -288,12 +288,12 @@ func applyServerProps(ctx context.Context, t *tasks.Task, dir string, req Create
 		req.Port, onOff(fmt.Sprint(req.OnlineMode), false), onOff(fmt.Sprint(req.AllowFlight), false), wlNote)
 }
 
-// applyImportLog4j 老版本的 log4shell 防护，和新建、接管的 applyLog4jMitigation 一样：1.18.1 以前加参数，
-// 1.17 以前再下载官方的日志配置（压缩包里自带的那份是控制文件，不采用）。
+// applyImportLog4j 老版本的 log4shell 防护，和新建、接管的 applyLog4jMitigation 一样按版本分段（见 log4jEras），
+// 要官方日志配置的下载官方那份（压缩包里自带的是控制文件，不采用）。
 // 版本新旧先只看本地清单：getManifest 冷启动时先联网刷新，网络不通能等上两分钟，文件和 Java 都已经就绪了，
 // 不为这一步干等（Codex 复审提醒）。本地清单不认识这个版本时才联网问；官方清单也不认识的分不出新旧，不加（和接管一样）。
 func applyImportLog4j(ctx context.Context, t *tasks.Task, inst *Instance) {
-	newer1181, ok := mcsrc.NewerOrEqualCached(inst.MC, "1.18.1")
+	noLookups, xml, ok := log4jPlanCached(inst.MC)
 	if !ok {
 		known, err := mcsrc.KnownVersion(ctx, inst.MC)
 		if err != nil {
@@ -307,19 +307,7 @@ func applyImportLog4j(ctx context.Context, t *tasks.Task, inst *Instance) {
 		}
 		return
 	}
-	if newer1181 {
-		return
-	}
-	inst.ExtraJVM = append(inst.ExtraJVM, log4jNoLookups)
-	if newer117, _ := mcsrc.NewerOrEqualCached(inst.MC, "1.17"); newer117 {
-		return
-	}
-	if err := fetchLog4jXML(ctx, inst.Dir); err != nil {
-		t.Logf("log4j 防护配置下载失败（不影响开服，仅安全性降低）: %v", err)
-		return
-	}
-	inst.ExtraJVM = append(inst.ExtraJVM, log4jConfig)
-	t.Logf("已启用 log4shell 漏洞缓解（Mojang 官方方案）")
+	addLog4jFlags(ctx, t, inst, noLookups, xml)
 }
 
 // newerOrEqualLocalFirst 版本 a 是否不老于 b：先只看本地清单，两个版本它都认识就不联网；不认识再问官方清单。
