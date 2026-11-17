@@ -3,6 +3,7 @@ package inst
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -56,34 +57,113 @@ func normHHMM(s string) (string, bool) {
 	return fmt.Sprintf("%02d:%02d", h, mi), true
 }
 
-// UpdatePolicies 更新实例策略。
-func (m *Manager) UpdatePolicies(name string, p Policies) error {
-	i, err := m.Get(name)
-	if err != nil {
-		return err
-	}
-	for k, s := range p.Schedules {
+// PolicyPatch 改运维策略：只改传了的。
+//
+// 两个窗口同时开着同一台服务器的「定时任务」时，以前每次保存都把整页的开关和整张任务表发过来、整个换掉，
+// 没刷新的那一边一保存，就把另一边刚加的任务删掉、刚删的又加回来（2026-11-17）。现在界面只发改了什么：
+// 加一条发 Add，删一条发 Remove，拨开关发 CrashRestart；Schedules 是老写法（AI、MCP 或者还开着旧页面的人），给了就整张替换。
+type PolicyPatch struct {
+	CrashRestart *bool       `json:"crashRestart"`    // 给了才改
+	Schedules    *[]Schedule `json:"schedules"`       // 给了就整张替换
+	Remove       []Schedule  `json:"removeSchedules"` // 每一项删掉一条完全相同的，找不到的不算错
+	Add          []Schedule  `json:"addSchedules"`    // 按条追加
+}
+
+// checkSchedules 检查要存进去的任务（类型、时刻、命令不能空），返回时刻补零以后的副本，不改传进来的切片。
+func checkSchedules(in []Schedule) ([]Schedule, error) {
+	out := slices.Clone(in)
+	for k, s := range out {
 		if s.Type != "restart" && s.Type != "command" && s.Type != "backup" {
-			return fmt.Errorf("未知任务类型: %s", s.Type)
+			return nil, fmt.Errorf("未知任务类型: %s", s.Type)
 		}
 		at, ok := normHHMM(s.At)
 		if !ok {
-			return fmt.Errorf("时间格式应为 HH:MM: %s", s.At)
+			return nil, fmt.Errorf("时间格式应为 HH:MM: %s", s.At)
 		}
-		p.Schedules[k].At = at // 存成补零的 HH:MM：调度按 "15:04" 逐字比对，「9:05」原来永远不会触发
+		out[k].At = at // 存成补零的 HH:MM：调度按 "15:04" 逐字比对，「9:05」原来永远不会触发
 		if s.Type == "command" && s.Args == "" {
-			return fmt.Errorf("定时命令不能为空")
+			return nil, fmt.Errorf("定时命令不能为空")
 		}
+	}
+	return out, nil
+}
+
+// sameSchedule 删除时认的「同一条」：类型、规整以后的时刻、命令都一样。两边的时刻都规整一遍：
+// 老配置里可能存着没补零的「9:05」，界面上发来的也可能是「9:05」。删除项 r 的时刻不合法就谁也对不上。
+func sameSchedule(r, s Schedule) bool {
+	rt, ok := normHHMM(r.At)
+	st, _ := normHHMM(s.At)
+	return ok && r.Type == s.Type && rt == st && r.Args == s.Args
+}
+
+// Apply 把改动合到 cur 上，返回改完以后的样子；不改 cur。顺序：整张替换 → 按条删 → 按条加。
+// 预览和真正保存用的都是它，预览里看到的就是存进去的。只检查这次传进来的任务，存着的老任务原样保留
+// （手改过的、没补零的都不动，免得一条老数据挡住「只拨一下崩溃重启」）。
+func (p PolicyPatch) Apply(cur Policies) (Policies, error) {
+	out := Policies{CrashRestart: cur.CrashRestart, Schedules: slices.Clone(cur.Schedules)}
+	if p.CrashRestart != nil {
+		out.CrashRestart = *p.CrashRestart
+	}
+	if p.Schedules != nil {
+		ss, err := checkSchedules(*p.Schedules)
+		if err != nil {
+			return cur, err
+		}
+		out.Schedules = ss
+	}
+	for _, r := range p.Remove {
+		// 一项只删一条：两条一模一样的任务，删一次还剩一条
+		if k := slices.IndexFunc(out.Schedules, func(s Schedule) bool { return sameSchedule(r, s) }); k >= 0 {
+			out.Schedules = slices.Delete(out.Schedules, k, k+1)
+		}
+	}
+	if len(p.Add) > 0 {
+		ss, err := checkSchedules(p.Add)
+		if err != nil {
+			return cur, err
+		}
+		out.Schedules = append(out.Schedules, ss...)
+	}
+	return out, nil
+}
+
+// PatchPolicies 改实例策略（见 PolicyPatch），返回改完以后的样子。读当前的、合并、存盘在 procMu 里一次做完：
+// 两个窗口差不多同时保存，后到的那次合在先到的那次存好的结果上。存盘失败时内存里的也不改。
+func (m *Manager) PatchPolicies(name string, p PolicyPatch) (Policies, error) {
+	i, err := m.Get(name)
+	if err != nil {
+		return Policies{}, err
+	}
+	// 不看现状就能查出来的错（类型、时刻、命令为空）先报，和以前一样不必先去登记「保存实例设置」
+	if _, err := p.Apply(Policies{}); err != nil {
+		return Policies{}, err
 	}
 	release, err := m.UseWorldInstance(i, "保存实例设置")
 	if err != nil {
-		return err
+		return Policies{}, err
 	}
 	defer release()
 	i.procMu.Lock()
 	defer i.procMu.Unlock()
-	i.Policies = p
-	return m.saveInstance(i) // 持锁落盘，避免与并发写竞争地读写 i.Settings
+	next, err := p.Apply(i.Policies)
+	if err != nil {
+		return Policies{}, err
+	}
+	old := i.Policies
+	i.Policies = next
+	if err := m.saveInstance(i); err != nil { // 持锁落盘，避免与并发写竞争地读写 i.Settings
+		i.Policies = old
+		return Policies{}, err
+	}
+	next.Schedules = slices.Clone(next.Schedules) // 交出去的和存着的不共用一块内存
+	return next, nil
+}
+
+// UpdatePolicies 整体替换实例策略：崩溃重启和整张任务表都换成 p 的（等于两项都给了的 PatchPolicies）。
+func (m *Manager) UpdatePolicies(name string, p Policies) error {
+	ss := p.Schedules
+	_, err := m.PatchPolicies(name, PolicyPatch{CrashRestart: &p.CrashRestart, Schedules: &ss})
+	return err
 }
 
 // crashRestart 崩溃后按退避策略自动重启（10s/30s/60s，连续 3 次放弃；
