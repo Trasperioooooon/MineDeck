@@ -1,11 +1,14 @@
 package tunnel
 
 import (
+	"archive/zip"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,14 +70,29 @@ func isFrpcExeName(name string) bool {
 	return strings.HasSuffix(n, ".exe") && strings.Contains(n, "frpc")
 }
 
-// extractZipFlat 解压 zip 并抹平目录层级（frp 发行包带一层目录），返回解压出来的文件名。
-func extractZipFlat(zipPath, destDir string) ([]string, error) {
+// unzipDisk 解压 frpc 时查余量用的设置（是变量：测试里换 Query，造「解压到一半盘满了」）。
+var unzipDisk = diskguard.Options{AllowUnknown: true}
+
+// renameFile 解压的最后一步把临时文件改成正式名字（是变量：测试里让它半路失败）。
+var renameFile = os.Rename
+
+// unzipPart 解压时临时文件的名字：不以 .exe 结尾，findExe 认不出来。
+const unzipPart = ".minedeck-unzip-*.part"
+
+// extractZipFlat 解压 zip 并抹平目录层级（frp 发行包带一层目录），返回这次放进去的文件名。
+//
+// 以前直接往正式文件名里写，解压到一半出错（盘满、zip 坏了）就留下半截的 frpc exe，findExe 下次找到它照用，
+// 隧道一直起不来，只能手动删。现在先写成不以 .exe 结尾的临时文件，全部写完、zip 里记的 CRC 和大小都对上，
+// 再逐个改成正式名字；任何一步失败，删掉这次写出来的临时文件和已经改了名的文件，文件夹回到解压前的样子。
+// 解压前就在的同名文件（用户自己放的、以前解压出来的 LICENSE）不动、不覆盖：只有找不到 frpc 时才解压，
+// 不会有旧的 frpc exe 挡着新的。上次解压到一半程序被关掉留下的临时文件，开始前先清掉。
+func extractZipFlat(zipPath, destDir string) (_ []string, err error) {
 	zr, err := zipguard.Open(zipPath, zipguard.Default)
 	if err != nil {
 		return nil, err
 	}
 	defer zr.Close()
-	lease, err := diskguard.Acquire(context.Background(), destDir, diskguard.Options{AllowUnknown: true})
+	lease, err := diskguard.Acquire(context.Background(), destDir, unzipDisk)
 	if err != nil {
 		return nil, err
 	}
@@ -82,38 +100,90 @@ func extractZipFlat(zipPath, destDir string) ([]string, error) {
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return nil, err
 	}
-	var names []string
+	if stale, _ := filepath.Glob(filepath.Join(destDir, unzipPart)); len(stale) > 0 {
+		for _, p := range stale {
+			_ = os.Remove(p)
+		}
+	}
+	type part struct{ tmp, name string }
+	var parts []part
+	var placed []string // 已经改成正式名字的
+	defer func() {
+		if err == nil {
+			return
+		}
+		for _, p := range parts {
+			_ = os.Remove(p.tmp)
+		}
+		for _, n := range placed {
+			_ = os.Remove(filepath.Join(destDir, n))
+		}
+	}()
+	seen := map[string]int{} // 小写的文件名 → parts 里的位置：Windows 上不分大小写，抹平以后同名的后面那个算数（同以前）
 	for _, f := range zr.File {
 		if err := lease.Check(0); err != nil {
-			return names, err
+			return nil, err
 		}
 		if f.FileInfo().IsDir() {
 			continue
 		}
 		base := filepath.Base(strings.ReplaceAll(f.Name, "\\", "/"))
-		if base == "" || strings.Contains(base, "..") {
+		if base == "" || base == "." || strings.Contains(base, "..") {
 			continue
 		}
-		rc, err := f.Open()
+		if _, err := os.Lstat(filepath.Join(destDir, base)); err == nil {
+			continue
+		}
+		tmp, err := writeZipEntry(f, destDir, lease)
 		if err != nil {
-			return names, err
+			return nil, err
 		}
-		w, err := os.Create(filepath.Join(destDir, base))
-		if err != nil {
-			rc.Close()
-			return names, err
+		if k, ok := seen[strings.ToLower(base)]; ok {
+			_ = os.Remove(parts[k].tmp)
+			parts[k] = part{tmp, base}
+			continue
 		}
-		_, cerr := io.Copy(lease.Writer(w), rc)
-		rc.Close()
-		if werr := w.Close(); cerr == nil {
-			cerr = werr
-		}
-		if cerr != nil {
-			return names, cerr
-		}
-		names = append(names, base)
+		seen[strings.ToLower(base)] = len(parts)
+		parts = append(parts, part{tmp, base})
 	}
-	return names, nil
+	for _, p := range parts {
+		dest := filepath.Join(destDir, p.name)
+		if _, err := os.Lstat(dest); err == nil { // 解压的这会儿冒出来的：不覆盖
+			_ = os.Remove(p.tmp)
+			continue
+		}
+		if err := renameFile(p.tmp, dest); err != nil {
+			return nil, err
+		}
+		placed = append(placed, p.name)
+	}
+	return placed, nil
+}
+
+// writeZipEntry 把 zip 里的一个文件写进 dir 下的临时文件，返回临时文件的路径；出错时不留下它。
+// CRC 对不上时读的那一步就会报错（archive/zip 读到结尾时核对）；写出来的字节数也要和 zip 里记的一样。
+func writeZipEntry(f *zip.File, dir string, lease *diskguard.Lease) (string, error) {
+	rc, err := f.Open()
+	if err != nil {
+		return "", err
+	}
+	defer rc.Close()
+	w, err := os.CreateTemp(dir, unzipPart)
+	if err != nil {
+		return "", err
+	}
+	n, err := io.Copy(lease.Writer(w), rc)
+	if cerr := w.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil && uint64(n) != f.UncompressedSize64 {
+		err = fmt.Errorf("%s 解压出来的大小不对（%d / %d 字节）", f.Name, n, f.UncompressedSize64)
+	}
+	if err != nil {
+		_ = os.Remove(w.Name())
+		return "", err
+	}
+	return w.Name(), nil
 }
 
 // ---------- OpenFrp（基于 OpenFrp OPENAPI，接入条款要求显著署名） ----------
@@ -125,6 +195,7 @@ type openfrpProvider struct{}
 // 这是在绕过 CDN 机器人防护，不是普通的 TLS 兼容设置。EdgeOne 随时可能把「只报 TLS 1.3 的 Go 指纹」
 // 也加进黑名单；失效时这里要重新判断，不能当成永久有效的固定配置。
 // 不设 http.Client.Timeout：总时限仍由 EnsureFrpc 的 context 和 dl 的无进展看门狗控制。
+// 跳转只跟 https 的：下回来的 frpc 没有哈希可对，却是要运行的程序。
 var openfrpHTTPClient = &http.Client{Transport: &http.Transport{
 	Proxy:                 http.ProxyFromEnvironment,
 	TLSHandshakeTimeout:   15 * time.Second,
@@ -132,7 +203,7 @@ var openfrpHTTPClient = &http.Client{Transport: &http.Transport{
 	MaxIdleConnsPerHost:   8,
 	ForceAttemptHTTP2:     true, // 设置 TLSClientConfig 后 Go 不再自动升 h2，必须显式打开。
 	TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS13},
-}}
+}, CheckRedirect: dl.HTTPSRedirect}
 
 // openfrpSoftwareMeta 是 commonQuery?key=software 里和下载 frpc 有关的字段。
 // latest_ver 是纯数字版本（0.68.0），只用于版本比较；下载目录是 latest_full
@@ -154,23 +225,53 @@ const openfrpFrpcZip = "frpc_windows_amd64.zip"
 
 // openfrpFrpcURLs 按官方文档拼下载地址：{source}/{latest_full}/frpc_windows_amd64.zip。
 // latest_full 和下载源两端的斜杠去掉。不拼不带版本的地址，那个路径会 404。
+// 下回来的 frpc 没有哈希可对、却是要运行的程序，所以下载源只认 https 的，别的跳过，一个都不剩就报错。
+// latest_full 还要拼进缓存文件名（openfrpZipCache），只认字母、数字和 ._-。
 func openfrpFrpcURLs(meta openfrpSoftwareMeta) ([]string, error) {
 	full := strings.Trim(strings.TrimSpace(meta.Data.LatestFull), "/")
 	if full == "" || len(meta.Data.Source) == 0 {
 		return nil, fmt.Errorf("OpenFrp 客户端源信息为空")
 	}
+	if !openfrpFullOK(full) {
+		return nil, fmt.Errorf("OpenFrp 给的客户端版本 %q 里有不认识的字符，不下载", full)
+	}
 	urls := make([]string, 0, len(meta.Data.Source))
+	var notHTTPS []string
 	for _, s := range meta.Data.Source {
 		base := strings.TrimRight(strings.TrimSpace(s.Value), "/")
 		if base == "" {
 			continue
 		}
+		if u, err := url.Parse(base); err != nil || u.Scheme != "https" || u.Hostname() == "" {
+			notHTTPS = append(notHTTPS, base)
+			continue
+		}
 		urls = append(urls, base+"/"+full+"/"+openfrpFrpcZip)
+	}
+	if len(urls) == 0 && len(notHTTPS) > 0 {
+		return nil, fmt.Errorf("OpenFrp 给的下载地址都不是 https 的，不下载：%s", strings.Join(notHTTPS, "、"))
 	}
 	if len(urls) == 0 {
 		return nil, fmt.Errorf("OpenFrp 客户端源信息为空")
 	}
 	return urls, nil
+}
+
+// openfrpFullOK latest_full 能不能拼进下载地址和缓存文件名：只有字母、数字和 ._-，不全是点，不太长。
+func openfrpFullOK(full string) bool {
+	if len(full) > 80 || strings.Trim(full, ".") == "" {
+		return false
+	}
+	return !strings.ContainsFunc(full, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '_' || r == '-')
+	})
+}
+
+// openfrpZipCache OpenFrp 的 frpc zip 缓存在哪。文件名带上 latest_full（openfrpFrpcURLs 已经查过字符）：
+// dl.Fetch 对没有哈希的文件只看大小，固定名字的话，换了版本、删掉 frpc 想升级时用的还是旧 zip。
+func openfrpZipCache(meta openfrpSoftwareMeta) string {
+	full := strings.Trim(strings.TrimSpace(meta.Data.LatestFull), "/")
+	return filepath.Join(app.CacheDir, "frpc", "openfrp-frpc-"+full+".zip")
 }
 
 func (openfrpProvider) ID() string { return "openfrp" }
@@ -192,16 +293,23 @@ func (openfrpProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	zipPath := filepath.Join(app.CacheDir, "frpc", "openfrp-frpc.zip")
+	zipPath := openfrpZipCache(meta)
 	if err := dl.Fetch(ctx, dl.Request{URLs: urls, Dest: zipPath, MinSize: 1 << 20, Client: openfrpHTTPClient}, nil); err != nil {
 		_ = os.MkdirAll(dir, 0o755) // 提示里叫人把 exe 放进这个文件夹，先建好（同樱花那条）
 		return "", fmt.Errorf("下载 OpenFrp frpc 失败（可手动从 OpenFrp 下载 frpc_windows_amd64.zip，把 zip 里的 frpc_windows_amd64.exe 放入 %s 文件夹后重试）: %w", dir, err)
 	}
+	// 这个 zip 没有哈希可对，dl.Fetch 下次见它够大就直接复用：解压不了、或者里面没有 frpc 的，删掉，下次重新下载。
+	// frpc 解压出来又被杀毒软件删了的（errFrpcGone）不算 zip 坏了，留着
 	names, err := extractZipFlat(zipPath, dir)
 	if err != nil {
+		_ = os.Remove(zipPath)
 		return "", err
 	}
-	return frpcAfterExtract(dir, names, fmt.Errorf("OpenFrp frpc 解压后未找到可执行文件"))
+	exe, err := frpcAfterExtract(dir, names, fmt.Errorf("OpenFrp frpc 解压后未找到可执行文件"))
+	if err != nil && !errors.Is(err, errFrpcGone) {
+		_ = os.Remove(zipPath)
+	}
+	return exe, err
 }
 
 func (openfrpProvider) Launch(t *Tunnel) ([]string, []string, error) {
@@ -245,8 +353,8 @@ const frpVersion = "0.61.1"
 
 // frpSHA256 为 frp_0.61.1_windows_amd64.zip 的官方 SHA-256，取自 fatedier/frp
 // v0.61.1 Release 附带的 frp_sha256_checksums.txt。下载走国内加速镜像也必须
-// 过这道校验，镜像被投毒/劫持时直接拒收（升级 frpVersion 时须同步更新）。
-const frpSHA256 = "e0094cd0baf03d5ff9ce9739199406871ad8788cf51e766f00ad3a9e7a836f3a"
+// 过这道校验，镜像被投毒/劫持时直接拒收（升级 frpVersion 时须同步更新）。是变量只为测试能换成假 zip 的哈希。
+var frpSHA256 = "e0094cd0baf03d5ff9ce9739199406871ad8788cf51e766f00ad3a9e7a836f3a"
 
 func (customProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	dir := frpcDir("custom")
