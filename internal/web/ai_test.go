@@ -120,3 +120,59 @@ func TestAISettingsAPI(t *testing.T) {
 		t.Errorf("停用后：%+v", v.Data)
 	}
 }
+
+// aiSettings GET /api/ai/settings 里这几个测试要看的部分。
+type aiSettings struct {
+	Data struct {
+		KeySet   bool `json:"keySet"`
+		Provider struct {
+			Model string `json:"model"`
+			Rev   string `json:"rev"`
+		} `json:"provider"`
+		CustomPrices []struct {
+			Model string  `json:"model"`
+			Input float64 `json:"input"`
+		} `json:"customPrices"`
+	} `json:"data"`
+}
+
+func (e *fullEnv) aiSettings(t *testing.T) aiSettings {
+	t.Helper()
+	var v aiSettings
+	if err := json.Unmarshal(e.call(t, "GET", "/api/ai/settings", "", 200).Body.Bytes(), &v); err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+// 两个窗口同时开着「设置 → AI」：A 带着读到的 rev 换了模型；B 还拿着旧 rev 保存（顺带填了新 Key），409，
+// 正文说清是别的窗口改过，设置和 Key 都没动；B 重新读取拿到新 rev 再存就成（2026-11-17）。
+func TestAIProviderStaleRev(t *testing.T) {
+	e := newFullEnv(t)
+	e.call(t, "PUT", "/api/ai/provider", `{"preset":"deepseek","key":"`+aiKey+`"}`, 200, fromUI)
+	rev := e.aiSettings(t).Data.Provider.Rev
+	if len(rev) != 16 {
+		t.Fatalf("provider.rev：%q", rev)
+	}
+	e.call(t, "PUT", "/api/ai/provider", `{"model":"deepseek-v4-pro","rev":"`+rev+`"}`, 200, fromUI) // 窗口 A
+	revA := e.aiSettings(t).Data.Provider.Rev
+	if revA == rev {
+		t.Fatal("换了模型 rev 应变")
+	}
+	secrets := filepath.Join(app.Base, "secrets.json")
+	before, _ := os.ReadFile(secrets)
+	resp := e.call(t, "PUT", "/api/ai/provider", `{"model":"deepseek-v4-flash","key":"sk-other-key-1","rev":"`+rev+`"}`, 409, fromUI) // 窗口 B
+	if !strings.Contains(resp.Body.String(), "AI 设置刚在别的窗口改过，这一页显示的还是旧的。重新读取以后再改") {
+		t.Errorf("409 的正文：%s", resp.Body)
+	}
+	if v := e.aiSettings(t); v.Data.Provider.Model != "deepseek-v4-pro" || v.Data.Provider.Rev != revA || !v.Data.KeySet {
+		t.Errorf("被拒的保存不该改设置：%+v", v.Data)
+	}
+	if after, _ := os.ReadFile(secrets); string(after) != string(before) {
+		t.Error("被拒的保存不该动 Key")
+	}
+	e.call(t, "PUT", "/api/ai/provider", `{"model":"deepseek-v4-flash","rev":"`+revA+`"}`, 200, fromUI)
+	if v := e.aiSettings(t); v.Data.Provider.Model != "deepseek-v4-flash" || !v.Data.KeySet {
+		t.Errorf("重新读取以后再存：%+v", v.Data)
+	}
+}

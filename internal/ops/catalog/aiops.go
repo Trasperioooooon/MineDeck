@@ -31,7 +31,8 @@ func (c *cat) aiOps() {
 
 	c.reg.Register(&ops.Op{
 		Name: "ai.provider.set", Title: "修改 AI 服务商设置", Level: ops.HumanOnly, LocalOnly: true, LocalMsg: localMsg,
-		Desc: "只改传了的字段。换了服务商，或者接口地址换到了别的网站（http/https、域名、端口有一样不同），旧 Key 自动清掉、必须重填；同一个网站只改路径或协议，Key 照旧。preset 传空串表示停用 AI。",
+		Desc: "只改传了的字段。换了服务商，或者接口地址换到了别的网站（http/https、域名、端口有一样不同），旧 Key 自动清掉、必须重填；同一个网站只改路径或协议，Key 照旧。preset 传空串表示停用 AI。" +
+			"带上 rev 时，和现在的对不上（别的窗口刚改过）就什么都不改，报 409。",
 		Params: ops.Object(map[string]*ops.Schema{
 			"preset":    ops.String("服务商预设的编号；空串停用").OneOf(presetIDs...),
 			"protocol":  ops.String("协议（只有自定义时可选）").OneOf("openai", "anthropic"),
@@ -42,6 +43,7 @@ func (c *cat) aiOps() {
 			"key":       ops.String("API Key（只写不读；空串清除）").Len(0, 4096),
 			"auth":      ops.String("自定义服务商的鉴权头；空串 = 按协议的默认").OneOf("", "bearer", "api-key", "both"),
 			"echo":      ops.String("自定义服务商是否回传思考内容").OneOf("auto", "on", "off"),
+			"rev":       ops.String("读设置时拿到的 provider.rev（ai.settings.get）；给了而且和现在的不一样，说明别的窗口刚改过，什么都不改，报 409；不给不检查"),
 		}),
 		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
 			pt, err := bind[ai.ProviderPatch](a)
@@ -49,6 +51,9 @@ func (c *cat) aiOps() {
 				return nil, err
 			}
 			if err := c.AI.SetProvider(pt); err != nil {
+				if errors.Is(err, ai.ErrStale) {
+					return nil, ops.Wrap(409, err)
+				}
 				return nil, err
 			}
 			return view(caller), nil

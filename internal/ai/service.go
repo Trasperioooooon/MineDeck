@@ -3,6 +3,8 @@ package ai
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,6 +30,9 @@ const KeyName = "ai.key"
 
 // ErrDisabled 没配置 AI：AI 部分不初始化，不联网，不取价格（§4.5）。
 var ErrDisabled = errors.New("AI 未启用：先在「设置 → AI」里选择服务商，填好 Key 和模型")
+
+// ErrStale 保存服务商设置时带的 rev 和现在的对不上：别的窗口刚改过，这一页还是旧的（操作层按 409 报）。
+var ErrStale = errors.New("AI 设置刚在别的窗口改过，这一页显示的还是旧的。重新读取以后再改")
 
 // Options Service 的依赖。
 type Options struct {
@@ -503,6 +508,19 @@ type ProviderPatch struct {
 	Key       *string   `json:"key"`
 	Auth      *string   `json:"auth"`
 	Echo      *string   `json:"echo"`
+	// Rev 页面读到的服务商设置的指纹（View 里的 provider.rev）。给了而且和现在的不一样就什么都不改，返回 ErrStale。
+	// 两个窗口同时开着「设置 → AI」时，没刷新的那一边保存会把服务商、地址、模型整组写回去，把另一边刚换的改回原样；
+	// 这一组彼此相关（换服务商连带地址、模型、Key），不适合逐项合并，所以干脆拒绝，让它重新读取（2026-11-17）。
+	Rev *string `json:"rev"`
+}
+
+// providerRev 服务商设置的指纹：存着的预设、协议、地址、模型、思考深度、鉴权、思考回传这七项。
+// 不含输出上限、Eager、Fallback、Key、额度、单价、局域网助手开关：界面不提交它们，测试连接、设额度这些地方改了它们，
+// 不能让还开着的设置页自己跟自己冲突。用存着的值（不是 View 里按协议默认值补过的），编码固定成 JSON 数组。
+func providerRev(st Settings) string {
+	b, _ := json.Marshal([]string{st.Preset, string(st.Protocol), st.BaseURL, st.Model, st.Effort, st.Auth, st.Echo})
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])[:16]
 }
 
 // SetProvider 保存服务商设置。preset 传空串表示停用 AI（同时清掉 Key）。
@@ -520,6 +538,9 @@ func (s *Service) SetProvider(pt ProviderPatch) error {
 func (s *Service) setProvider(pt ProviderPatch) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if pt.Rev != nil && *pt.Rev != providerRev(s.st) { // 别的窗口刚改过：设置和 Key 都不动
+		return ErrStale
+	}
 	old := s.st
 	st := s.st
 	if pt.Preset != nil {
@@ -760,6 +781,7 @@ type ProviderView struct {
 	Fallback  bool     `json:"fallback"` // Claude：服务端回退
 	Auth      string   `json:"auth,omitempty"`
 	Echo      string   `json:"echo,omitempty"`
+	Rev       string   `json:"rev"` // 服务商设置的指纹（见 providerRev），保存时带回来，别的窗口改过就拒绝
 }
 
 // ModelPrice 当前模型的单价（每百万 token），给设置页显示。
@@ -812,7 +834,7 @@ func (s *Service) View() View {
 	v.PriceNeeded = s.paid(st)
 	cfg := s.config(st, "", true)
 	v.Provider = ProviderView{Preset: st.Preset, Protocol: st.Protocol, BaseURL: st.BaseURL, Model: st.Model, MaxOutput: st.MaxOutput,
-		Effort: st.Effort, Eager: cfg.Eager, Fallback: cfg.Fallback, Auth: string(cfg.Auth), Echo: string(cfg.Echo)}
+		Effort: st.Effort, Eager: cfg.Eager, Fallback: cfg.Fallback, Auth: string(cfg.Auth), Echo: string(cfg.Echo), Rev: providerRev(st)}
 	for _, f := range []Feature{FeatAssistant, FeatGameChat, FeatCompanion} {
 		v.Today[f] = s.ledger.Today(f)
 		v.Month[f] = s.ledger.Month(f)
