@@ -8,8 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"minedeck/internal/app"
 	"minedeck/internal/companion"
 	"minedeck/internal/ops"
+	"minedeck/internal/toolbox"
 )
 
 // 两个窗口同时开着同一页（2026-11-17）：只发改了的字段、列表按条增删，没刷新的那一边保存时不把另一边刚存的改回去。
@@ -92,5 +94,40 @@ func TestCompanionZonesAddRemoveOps(t *testing.T) {
 	}
 	if got := names(); !slices.Equal(got, []string{"farm"}) {
 		t.Fatalf("删 mine 以后：%v", got)
+	}
+}
+
+// 工具箱整合包草稿：toolbox.mrpack.draft.save 只改传了的字段；存好的草稿读不出来时报 500、不写。
+func TestToolboxDraftSaveOnlyGivenFields(t *testing.T) {
+	reg, _, _ := newMusicCatalog(t)
+	ctx := context.Background()
+	ui := ops.Caller{Source: ops.SrcUI, Actor: "本机", Local: true}
+	if _, err := reg.Do(ctx, ui, "toolbox.mrpack.draft.save", ops.Args(`{"name":"A 的名字","loaderVersion":"0.16.9"}`)); err != nil { // 窗口 A
+		t.Fatalf("A 改名字：%v", err)
+	}
+	out, err := reg.Do(ctx, ui, "toolbox.mrpack.draft.save", ops.Args(`{"summary":"B 的简介"}`)) // 窗口 B
+	if err != nil {
+		t.Fatalf("B 改简介：%v", err)
+	}
+	want := toolbox.DraftConfig{Name: "A 的名字", VersionID: "1.0.0", Summary: "B 的简介", Core: "fabric", MC: "1.20.1", LoaderVersion: "0.16.9"}
+	if got, ok := out.(toolbox.DraftConfig); !ok || got != want {
+		t.Fatalf("返回的整份：%+v", out)
+	}
+	if got, err := reg.Do(ctx, ui, "toolbox.mrpack.draft.get", ops.Args(`{}`)); err != nil || got.(toolbox.DraftConfig) != want {
+		t.Fatalf("读回来：%+v %v", got, err)
+	}
+	// 存好的草稿读不出来（同名的是个文件夹）：500，不写
+	path := filepath.Join(app.Base, "data", "toolbox", "mrpack-draft.json")
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.Do(ctx, ui, "toolbox.mrpack.draft.save", ops.Args(`{"name":"x"}`)); ops.CodeOf(err) != 500 {
+		t.Fatalf("读不出来时应报 500：%v（%d）", err, ops.CodeOf(err))
+	}
+	if fi, err := os.Stat(path); err != nil || !fi.IsDir() {
+		t.Fatalf("读不出来时不该写：%v", err)
 	}
 }

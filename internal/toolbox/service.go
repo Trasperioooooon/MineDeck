@@ -323,6 +323,14 @@ func (s *Service) GetMrpackDraft() DraftConfig {
 // 不自动保存，免得用默认值盖掉存好的草稿（Codex 复审 beta.3 第四轮）。内容坏了（不是 JSON）按没有草稿算，
 // 坏的内容留着也用不上。
 func (s *Service) ReadMrpackDraft() (DraftConfig, error) {
+	s.draftMu.Lock()
+	defer s.draftMu.Unlock()
+	return s.readDraft()
+}
+
+// readDraft ReadMrpackDraft 读文件的那一段，不拿锁：调用方持有 draftMu（PatchMrpackDraft 在锁里读-合-写，
+// 再调 ReadMrpackDraft 会自己锁住自己）。
+func (s *Service) readDraft() (DraftConfig, error) {
 	def := DraftConfig{
 		Name:      "我的整合包",
 		VersionID: "1.0.0",
@@ -332,8 +340,6 @@ func (s *Service) ReadMrpackDraft() (DraftConfig, error) {
 	if s.dataDir == "" {
 		return def, nil
 	}
-	s.draftMu.Lock()
-	defer s.draftMu.Unlock()
 	b, err := os.ReadFile(filepath.Join(s.dataDir, draftFile))
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -360,8 +366,8 @@ func (s *Service) ReadMrpackDraft() (DraftConfig, error) {
 	return cfg, nil
 }
 
-// SaveMrpackDraft 保存用户的整合包草稿设置（原子写盘）。
-func (s *Service) SaveMrpackDraft(cfg DraftConfig) (DraftConfig, error) {
+// normDraft 去掉各项前后的空白，查长度（太长报 400）。整份保存和按字段改共用。
+func normDraft(cfg *DraftConfig) error {
 	cfg.Name = strings.TrimSpace(cfg.Name)
 	cfg.VersionID = strings.TrimSpace(cfg.VersionID)
 	cfg.Summary = strings.TrimSpace(cfg.Summary)
@@ -369,7 +375,78 @@ func (s *Service) SaveMrpackDraft(cfg DraftConfig) (DraftConfig, error) {
 	cfg.MC = strings.TrimSpace(cfg.MC)
 	cfg.LoaderVersion = strings.TrimSpace(cfg.LoaderVersion)
 	if len([]rune(cfg.Name)) > 100 || len([]rune(cfg.VersionID)) > 50 || len([]rune(cfg.Summary)) > 300 {
-		return cfg, ErrBadRequest("整合包名称、版本号或简介太长")
+		return ErrBadRequest("整合包名称、版本号或简介太长")
+	}
+	return nil
+}
+
+// DraftPatch 只带要改的草稿字段：nil 表示不改，沿用存好的那份（JSON 名同 DraftConfig）。
+// 两个窗口同时开着工具箱时，以前每次保存都把整页的草稿写回去，没刷新的那一边就把另一边刚改的名字、简介改回原样；
+// 现在界面只发和这一页基线不一样的字段（2026-11-17）。
+type DraftPatch struct {
+	Name          *string `json:"name"`
+	VersionID     *string `json:"versionId"`
+	Summary       *string `json:"summary"`
+	Core          *string `json:"core"`
+	MC            *string `json:"mc"`
+	LoaderVersion *string `json:"loaderVersion"`
+	IncludeConfig *bool   `json:"includeConfig"`
+}
+
+// mergeInto 把给了的字段合到 cfg 上。
+func (p DraftPatch) mergeInto(cfg DraftConfig) DraftConfig {
+	set := func(dst, v *string) {
+		if v != nil {
+			*dst = *v
+		}
+	}
+	set(&cfg.Name, p.Name)
+	set(&cfg.VersionID, p.VersionID)
+	set(&cfg.Summary, p.Summary)
+	set(&cfg.Core, p.Core)
+	set(&cfg.MC, p.MC)
+	set(&cfg.LoaderVersion, p.LoaderVersion)
+	if p.IncludeConfig != nil {
+		cfg.IncludeConfig = *p.IncludeConfig
+	}
+	return cfg
+}
+
+// PatchMrpackDraft 只改 p 里给了的字段，返回合起来的整份草稿。读存好的、合、查长度、写盘都在 draftMu 里一次做完，
+// 两个窗口先后保存，后一个合在前一个存下的结果上。存好的文件在却读不出来时报错（*Error，500）、不写：
+// 拿默认值合上去再写，就把存好的草稿盖掉了。内容坏了（不是 JSON）照 ReadMrpackDraft 按默认值算。
+// 没有数据目录时不写盘，只返回合好的。
+func (s *Service) PatchMrpackDraft(p DraftPatch) (DraftConfig, error) {
+	s.draftMu.Lock()
+	defer s.draftMu.Unlock()
+	cur, err := s.readDraft()
+	if err != nil {
+		return DraftConfig{}, &Error{Code: 500, Err: fmt.Errorf("%w，这次的改动没有保存", err)}
+	}
+	cfg := p.mergeInto(cur)
+	if err := normDraft(&cfg); err != nil {
+		return cfg, err
+	}
+	if s.dataDir == "" {
+		return cfg, nil
+	}
+	if err := os.MkdirAll(s.dataDir, 0o755); err != nil {
+		return cfg, fmt.Errorf("创建草稿目录失败：%w", err)
+	}
+	b, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return cfg, err
+	}
+	if err := atomicfile.Write(filepath.Join(s.dataDir, draftFile), b, 0o644); err != nil {
+		return cfg, fmt.Errorf("保存草稿失败：%w", err)
+	}
+	return cfg, nil
+}
+
+// SaveMrpackDraft 保存用户的整合包草稿设置（原子写盘），整份替换。界面和操作层现在走 PatchMrpackDraft。
+func (s *Service) SaveMrpackDraft(cfg DraftConfig) (DraftConfig, error) {
+	if err := normDraft(&cfg); err != nil {
+		return cfg, err
 	}
 	if s.dataDir == "" {
 		return cfg, nil

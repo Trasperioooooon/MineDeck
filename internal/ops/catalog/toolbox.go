@@ -129,7 +129,8 @@ func (c *cat) toolboxOps() {
 
 	c.reg.Register(&ops.Op{
 		Name: "toolbox.mrpack.draft.save", Title: "保存工具箱整合包草稿设置", Level: ops.HumanOnly, NoLog: true,
-		Desc: "持久化工具箱整合包草稿元数据，便于下次打开程序继续挑选模组。",
+		Desc: "持久化工具箱整合包草稿元数据，便于下次打开程序继续挑选模组。只改传了的字段（name、versionId、summary、core、mc、" +
+			"loaderVersion、includeConfig 各自给了才改，没传的沿用存好的），返回合起来的整份草稿；存好的草稿读不出来时报错、不保存。",
 		Params: ops.Object(map[string]*ops.Schema{
 			"name":          ops.String("整合包名称").Len(0, 100),
 			"versionId":     ops.String("版本号").Len(0, 50),
@@ -140,11 +141,13 @@ func (c *cat) toolboxOps() {
 			"includeConfig": ops.Boolean("从实例导出时是否带上 config"),
 		}),
 		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
-			cfg, err := bind[toolbox.DraftConfig](a)
+			// 只取传了的字段（两个窗口同时开着时，没刷新的那一边不把另一边刚改的字段改回去，2026-11-17）
+			p, err := bind[toolbox.DraftPatch](a)
 			if err != nil {
 				return nil, err
 			}
-			out, err := c.Toolbox.SaveMrpackDraft(cfg)
+			// 太长报 400；存好的草稿读不出来是 *toolbox.Error 带的 500（同 draft.get）；写盘失败照旧
+			out, err := c.Toolbox.PatchMrpackDraft(p)
 			if err != nil {
 				return nil, toolboxErr(err)
 			}
