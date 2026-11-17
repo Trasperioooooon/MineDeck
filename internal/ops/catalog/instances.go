@@ -177,7 +177,10 @@ func (c *cat) instanceOps() {
 		},
 	})
 
-	importParams := map[string]*ops.Schema{"file": ops.String("已上传到缓存目录的整合包文件")}
+	importParams := map[string]*ops.Schema{
+		"file":     ops.String("已上传到缓存目录的整合包文件"),
+		"fileName": ops.String("上传时的原文件名（只用来显示，不参与任何路径）"),
+	}
 	for k, v := range createParams {
 		if k == "name" || k == "xmxMb" || k == "port" || k == "eula" || k == "onlineMode" || k == "allowFlight" || k == "motd" || k == "root" || k == "whitelist" {
 			importParams[k] = v
@@ -191,7 +194,8 @@ func (c *cat) instanceOps() {
 		Params: ops.Object(importParams, "file"),
 		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[struct {
-				File string `json:"file"`
+				File     string `json:"file"`
+				FileName string `json:"fileName"`
 				inst.CreateReq
 			}](a)
 			if err != nil {
@@ -205,6 +209,11 @@ func (c *cat) instanceOps() {
 			if err != nil {
 				os.Remove(p.File)
 				return nil, err
+			}
+			if pack.Format == modpack.FormatServer && pack.Root == "" {
+				if name := modpack.DisplayNameFromUpload(p.FileName); name != "" {
+					pack.Name = name
+				}
 			}
 			req := p.CreateReq
 			if !caller.Local {

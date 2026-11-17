@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/zipguard"
@@ -292,6 +295,31 @@ func serverPack(zipPath, root string, c srvCand) *Pack {
 		Format: FormatServer, Name: name, ZipPath: zipPath, Root: root,
 		Core: c.core, MC: c.mc, Loader: c.build, Launch: c.launch,
 	}
+}
+
+// DisplayNameFromUpload 把上传时的原文件名整理成显示用的名字。只用于展示，不能拿去拼任何路径。
+func DisplayNameFromUpload(fileName string) string {
+	s := strings.ReplaceAll(fileName, "\\", "/")
+	if i := strings.LastIndexByte(s, '/'); i >= 0 {
+		s = s[i+1:]
+	}
+	if ext := path.Ext(s); ext != "" {
+		s = strings.TrimSuffix(s, ext)
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if !unicode.IsControl(r) {
+			b.WriteRune(r)
+		}
+	}
+	s = strings.TrimFunc(b.String(), func(r rune) bool {
+		return r == '.' || unicode.IsSpace(r)
+	})
+	if utf8.RuneCountInString(s) > 80 {
+		s = string([]rune(s)[:80])
+	}
+	return s
 }
 
 // serverRoot 服务端文件在最外层，还是只套了一层目录。
