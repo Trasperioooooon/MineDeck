@@ -197,6 +197,8 @@ func TestFailText(t *testing.T) {
 		{errors.New("请检查 Claude 模型名"), "请求 AI 失败：请检查 Claude 模型名", ""},
 		{errors.New("连不上 HTTPS://a.test，检查地址"), "请求 AI 失败：连不上 HTTPS://a.test，检查地址", ""},
 		{errors.New("接口地址要以 http:// 或 https:// 开头"), "请求 AI 失败：接口地址要以 http:// 或 https:// 开头", ""},
+		{fmt.Errorf("%w：%w", ai.ErrDisconnected, ai.ErrResponseTooLarge), ai.ErrResponseTooLarge.Error(), "x"},
+		{ai.ErrResponseTooLarge, "请求 AI 失败：AI 回复内容过多，已停止接收，请缩小问题范围后重试", ""},
 	} {
 		raw := c.err.Error()
 		text, detail := failText(c.err, raw)

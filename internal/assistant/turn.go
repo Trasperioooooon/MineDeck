@@ -360,6 +360,9 @@ func (s *Service) noticeDetailLocked(sess *Session, level, text, detail string) 
 //     拿不准的宁可放进 detail：正文里少一句，比正文里冒出一串英文好。
 func failText(err error, raw string) (text, detail string) {
 	h := ai.HintOf(err)
+	if errors.Is(err, ai.ErrDisconnected) && errors.Is(err, ai.ErrResponseTooLarge) {
+		return ai.ErrResponseTooLarge.Error(), raw
+	}
 	if errors.Is(err, ai.ErrDisconnected) {
 		if h != "" {
 			return "回复中途断开了：" + h, raw
