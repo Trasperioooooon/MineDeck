@@ -270,27 +270,87 @@ function showErrDetail(text, actions = []) {
     mask.querySelector('[data-x="close"]').focus();
   });
 }
-/* 复制到剪贴板：优先 navigator.clipboard；非安全上下文（http 局域网）下其为 undefined，回退 execCommand */
-async function copy(text, okMsg = "已复制") {
-  try {
-    if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(text); toast(okMsg); return; }
-  } catch (e) { /* 落到回退 */ }
-  try {
-    const ta = document.createElement("textarea");
-    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
-    document.body.appendChild(ta); ta.focus(); ta.select();
-    document.execCommand("copy"); ta.remove(); toast(okMsg);
-  } catch (e) { toast("复制失败，请手动复制", true); }
+/* 剪贴板写不进去时：把原文放进可选中的框并选中，说明按 Ctrl+C。不提示「已复制」。
+   http 的手机远程管理页上 navigator.clipboard 经常没有，execCommand 也会失败。 */
+function showCopyFallback(text) {
+  const prev = document.activeElement;
+  const tid = layerId("copyfb-title");
+  const mask = modalLayer(`<div class="modal" id="copy-fallback" role="dialog" aria-modal="true" aria-labelledby="${tid}">
+    <h3 id="${tid}">请手动复制</h3>
+    <div class="m-body">剪贴板写不进去。下面是完整原文，已经选中，按 Ctrl+C 复制。</div>
+    <textarea class="copy-fallback" readonly rows="5" aria-label="要复制的完整内容"></textarea>
+    <div class="m-actions"><button class="btn primary" data-x="close">关闭</button></div>
+  </div>`);
+  const ta = mask.querySelector("textarea");
+  ta.value = String(text ?? "");
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    document.removeEventListener("keydown", onKey);
+    dismiss(mask);
+    if (prev && prev.focus && prev.isConnected) prev.focus();
+  };
+  const onKey = e => { if (e.key === "Escape" && topLayer(mask)) close(); };
+  document.addEventListener("keydown", onKey);
+  mask.querySelector('[data-x="close"]').onclick = close;
+  mask.addEventListener("mousedown", e => { if (e.target === e.currentTarget && !hasFields(mask)) close(); });
+  ta.focus();
+  ta.select();
+  try { ta.setSelectionRange(0, ta.value.length); } catch {}
 }
-/* 复制按钮的微交互：图标换成弹出的对勾（带字的按钮字也改「已复制」），1.3 秒后换回 */
+/* 写入剪贴板。成功返回 true。安全上下文优先用 clipboard API；失败或 http 页面再试 execCommand。
+   execCommand 返回 false 或抛错都算失败，不能当成已经复制。 */
+async function writeClipboard(text) {
+  const value = String(text ?? "");
+  if (window.isSecureContext && navigator.clipboard && navigator.clipboard.writeText) {
+    try { await navigator.clipboard.writeText(value); return true; } catch {}
+  }
+  let ta;
+  try {
+    ta = document.createElement("textarea");
+    ta.className = "copy-scratch";
+    ta.value = value;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "0";
+    ta.style.left = "0";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try { ta.setSelectionRange(0, value.length); } catch {}
+    return document.execCommand("copy") === true;
+  } catch {
+    return false;
+  } finally { if (ta) ta.remove(); }
+}
+/* 复制到剪贴板。成功才提示已复制，并返回 true。失败弹出手动复制框，返回 false。 */
+async function copy(text, okMsg = "已复制") {
+  if (await writeClipboard(text)) { toast(okMsg); return true; }
+  showCopyFallback(text);
+  return false;
+}
+/* 复制按钮的微交互：只有真的写进剪贴板才把图标换成对勾。1.3 秒后换回。 */
 async function copyFlash(b, text, okMsg) {
-  await copy(text, okMsg);
-  if (!b || b.dataset.busy) return;
+  const ok = await copy(text, okMsg);
+  if (!ok || !b || b.dataset.busy) return;
   b.dataset.busy = "1";
   const old = b.innerHTML;
   b.innerHTML = `<span class="pop" style="display:inline-grid">${icon("check")}</span>${b.classList.contains("icon-only") ? "" : " 已复制"}`;
-  setTimeout(() => { b.innerHTML = old; playClass(b, "swap-in"); delete b.dataset.busy; }, 1300);
+  setTimeout(() => { if (!b.isConnected) return; b.innerHTML = old; playClass(b, "swap-in"); delete b.dataset.busy; }, 1300);
 }
+/* data-copy-exact 上的原文（命令、地址、报错）一键复制。属性里是转义后的完整字符串，不带周围的说明。 */
+document.addEventListener("click", ev => {
+  const b = ev.target instanceof Element ? ev.target.closest("[data-copy-exact]") : null;
+  if (!b) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  const text = b.getAttribute("data-copy-exact") || "";
+  const okMsg = b.dataset.copyMsg || "已复制";
+  if (b.classList.contains("btn")) copyFlash(b, text, okMsg);
+  else copy(text, okMsg);
+});
 
 /* 连接地址（可用性走查 R01）：同一局域网的朋友在游戏里「添加服务器」时填的「本机局域网 IP:端口」。
    IP 取 /api/app 的 ips，按 lanIPRank 排（家用网段在前，同「手机远程管理」的默认地址）；详情页头换过 IP 的记在本机，
@@ -1391,8 +1451,8 @@ async function renderInstances() {
   Main().innerHTML = `<div id="inst-chrome" hidden>` +
     pageHead("服务器", "", `<a class="btn primary" href="#/create">${icon("plus")} 新建服务器</a>`, "", "", "inst-summary") + `
     <div class="toolbar">
-      <div class="search-field">${icon("search", "sf-ico")}<input type="text" id="inst-q" placeholder="搜索服务器名称" aria-label="搜索服务器名称" style="width:280px"></div>
-      <select id="inst-sort" style="width:180px" aria-label="排序方式"><option value="recent">排序：最近创建</option><option value="running">排序：运行中优先</option><option value="name">排序：名称</option></select>
+      <div class="search-field">${icon("search", "sf-ico")}<input type="text" id="inst-q" placeholder="搜索服务器名称" aria-label="搜索服务器名称"></div>
+      <select id="inst-sort" aria-label="排序方式"><option value="recent">排序：最近创建</option><option value="running">排序：运行中优先</option><option value="name">排序：名称</option></select>
     </div></div>
     <section id="task-list" hidden style="margin-bottom:24px"></section>
     <div id="inst-cards">${skeletonCards(4)}</div>`;
@@ -1515,7 +1575,7 @@ async function renderInstances() {
       // 主按钮直接进「从零创建」的向导（不替人选核心）；整合包、已有地图、交接包、接管这四种走次要入口去「新建服务器」页挑
       $("#inst-cards").innerHTML = `<div class="empty${first ? " sec-enter" : ""}">${MDPixel.emptySVG(240)}
         <div class="empty-title">还没有服务器</div>
-        选择核心与版本后，MineDeck 将自动补全服务端文件及匹配的 Java 运行环境。<br>
+        选好核心和版本，Java 和服务端会自动下载。<br>
         <a class="btn primary" id="empty-new" href="#/create/new">${icon("plus")} 从零创建</a><br>
         <a class="quiet-link" href="#/create">导入整合包、用已有地图开服、导入交接包或接管已有服务器 →</a></div>`;
       lastSig = "empty"; first = false; return;
@@ -1602,7 +1662,7 @@ async function renderCreate(mode) {
     <div class="recipe-groups">
       <div class="core-group">
         <div class="cg-title">新建</div>
-        <div class="recipe-grid">
+        <div class="recipe-grid three">
           ${card("new", "plusBox", "从零创建", "自选核心与版本；Java 和服务端自动下载。")}
           ${card("import", "package", "导入整合包", "Modrinth / CurseForge，或作者给的现成服务端压缩包。")}
           ${card("world", "globe", "用已有地图开服", "下载的地图、自己的单人世界、别的服务器的世界，拿来开一台新的。")}
@@ -3245,11 +3305,13 @@ async function renderDetail(name, path = "console") {
         <div class="dh-line"><span id="d-status">${headStatus(info)}</span>${coreBadge(info.core)}<span class="badge">${info.kind === "proxy" ? "v" : "MC "}${esc(info.mc)}</span><span class="badge" id="d-java">Java ${info.javaMajor}</span></div>
         <div class="dh-addr" id="d-addr"></div></div>
       <span class="grow"></span>
-      <button class="btn primary" id="d-start" aria-label="启动 ${esc(name)}" ${info.status !== "stopped" ? "disabled" : ""}>${icon("play")} 启动</button>
-      <button class="btn" id="d-stop" aria-label="停止 ${esc(name)}" ${info.status === "stopped" || info.status === "stopping" ? "disabled" : ""}>${icon("stop")} 停止</button>
+      <div class="dh-actions">
+      <button class="btn${info.status === "stopped" ? " primary" : ""}" id="d-start" aria-label="启动 ${esc(name)}" ${info.status !== "stopped" ? "disabled" : ""}>${icon("play")} 启动</button>
+      <button class="btn${info.status === "running" || info.status === "starting" ? " primary" : ""}" id="d-stop" aria-label="停止 ${esc(name)}" ${info.status === "stopped" || info.status === "stopping" ? "disabled" : ""}>${icon("stop")} 停止</button>
       <button class="btn" id="d-restart" aria-label="重启 ${esc(name)}" ${info.status !== "running" ? "disabled" : ""}>${icon("refresh")} 重启</button>
       <button class="btn" id="d-dir" aria-haspopup="menu">${icon("folder")} 打开文件夹 ${icon("chevronDown")}</button>
       <button class="btn ghost icon-only" id="d-more" title="更多操作" aria-label="更多操作 ${esc(name)}" aria-haspopup="menu">${icon("more")}</button>
+      </div>
     </div>
     <div class="d-notices" id="d-notices" hidden></div>
     <div class="tabs" aria-label="${esc(name)} 的标签">${TABS.map(t => tabLink(t.id, t.label, t.id === tab, base + t.id)).join("")}</div>
@@ -3273,7 +3335,7 @@ async function renderDetail(name, path = "console") {
     el.innerHTML = k + `<span class="mono dh-addr-v" id="d-addr-v">${esc(addr)}</span>
       <button type="button" class="btn sm" id="d-addr-copy" aria-label="复制连接地址">${icon("copy")} 复制</button>
       ${ips.length > 1 ? `<button type="button" class="btn sm ghost" id="d-addr-ip" aria-haspopup="menu" aria-label="换一个 IP（本机有 ${ips.length} 个局域网 IP）">换一个 IP</button>` : ""}
-      <span class="dh-addr-note">${live ? "同一局域网的朋友在游戏里添加服务器时填这个" : "开服后朋友连这个地址"}</span>`;
+      <span class="dh-addr-note" title="${live ? "同一局域网的朋友在游戏里添加服务器时填这个" : "服务器开起来以后，朋友填这个地址"}">${live ? "添加服务器时填这个" : "开服后朋友连这个地址"}</span>`;
     $("#d-addr-copy").onclick = e => copyFlash(e.currentTarget, addr, "已复制连接地址：" + addr);
     const sw = $("#d-addr-ip");
     if (sw) sw.onclick = () => dropMenu(sw, [{ header: "本机的局域网 IP（家用路由器下通常是 192.168 开头的）" },
@@ -3376,6 +3438,8 @@ async function renderDetail(name, path = "console") {
       $("#d-start").disabled = cur.status !== "stopped";
       $("#d-stop").disabled = cur.status === "stopped" || cur.status === "stopping";
       $("#d-restart").disabled = cur.status !== "running";
+      $("#d-start").classList.toggle("primary", cur.status === "stopped");
+      $("#d-stop").classList.toggle("primary", cur.status === "running" || cur.status === "starting");
       paintAddr(cur); // 在「设置 → 常用」里改了端口：地址跟着变
       paintFail(cur);
       paintJava(cur);
@@ -3423,7 +3487,7 @@ async function renderDetail(name, path = "console") {
   if (view === "console") {
     body.innerHTML = `
       <div class="console-bar">
-        <div class="search-field">${icon("search", "sf-ico")}<input type="text" id="con-filter" placeholder="过滤日志（如 ERROR / 玩家名）" style="width:280px"></div>
+        <div class="search-field">${icon("search", "sf-ico")}<input type="text" id="con-filter" placeholder="过滤日志（如 ERROR / 玩家名）" aria-label="过滤日志"></div>
         <label class="switch"><input type="checkbox" id="con-scroll" checked><span class="sw"></span><span class="sw-label">自动滚动</span></label>
         <span class="grow"></span>
         <span class="hint">编码</span>
@@ -4943,7 +5007,7 @@ async function renderTunnels() {
         ${t.provider === "custom" && t.hasCredential ? `<button class="btn sm" data-tclear="${esc(t.id)}" aria-label="清除 ${esc(t.name)} 保存的凭据" title="删掉这台电脑上存着的 auth token，之后启动这条隧道不带 token。frps 没设 token 时用得上；设了的话会连不上，要删掉隧道重新添加">清除凭据</button>` : ""}
         <button class="btn sm danger" data-tdel="${esc(t.id)}" aria-label="删除 ${esc(t.name)}">删除</button>
         <div class="tun-meta">${addrHTML}${addrHTML ? `<span class="tun-sep" aria-hidden="true">·</span>` : ""}${follow}</div>
-        ${err ? `<div class="tun-err" style="flex-basis:100%;font-size:var(--fs-xs);color:var(--danger-text);line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere">${esc(err)}</div>` : ""}
+        ${err ? `<div class="tun-err">${esc(err)} <button type="button" class="btn sm ghost" data-copy-exact="${errRawAttr(err)}" data-copy-msg="已复制报错原文" aria-label="复制 ${esc(t.name)} 的报错原文">复制原文</button></div>` : ""}
       </div>
       <div class="task-log" id="tlog-${esc(t.id)}" style="display:none;height:150px;margin:-2px 0 8px"></div>`;
   };
@@ -5498,6 +5562,7 @@ async function setJava(body, info) {
 const lanIPRank = ip => /^192\.168\./.test(ip) ? 0 : /^10\./.test(ip) ? 1 : /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ? 2 : /^169\.254\./.test(ip) ? 4 : 3;
 function setRemote(body, info) {
   const lanPort = info.port || location.port || "27333"; // 实际监听端口（被占用时会随机化）
+  const fwCmd = `netsh advfirewall firewall add rule name="MineDeck" dir=in action=allow protocol=TCP localport=${lanPort}`;
   const ips = rankIPs(info.ips);
   // 开关点了即时保存（开启前必须先有访问密码，后端也会拒绝）。监听地址只在程序启动时绑定：
   // 开启要重启程序才生效，和这次启动不一致时常驻提示；关闭即时生效（后端不再放行局域网的请求）
@@ -5519,12 +5584,12 @@ function setRemote(body, info) {
       <div class="qr-info">
         <div class="ri-title">手机扫码访问</div>
         <div class="ri-sub">用手机相机或浏览器扫码，输入访问密码即可管理；手机要和这台电脑在同一个局域网（同一 Wi-Fi 或路由器）。</div>
-        <div class="qr-url" id="qr-url"></div>
+        <div class="qr-url-row"><div class="qr-url" id="qr-url"></div><button type="button" class="btn sm" id="qr-copy" data-copy-exact="" data-copy-msg="已复制管理页地址" aria-label="复制管理页地址">${icon("copy")} 复制</button></div>
         ${ips.length > 1 ? `<div class="qr-ips">${ips.map((ip, i) => `<button type="button" class="qr-ip" data-i="${i}">${esc(ip)}</button>`).join("")}</div>
         <div class="hint">本机有多个网络地址：扫码打不开就换一个（家用路由器下通常是 192.168.x.x）。</div>` : ""}
       </div>
     </div>` : `<div class="hint">未检测到本机局域网 IP，请确认已连接网络。</div>`) +
-    `<div class="hint">还是打不开的话，用管理员身份运行一次下面这条命令，放行防火墙：<code>netsh advfirewall firewall add rule name="MineDeck" dir=in action=allow protocol=TCP localport=${esc(String(lanPort))}</code></div>`;
+    `<div class="copy-block" id="lan-fw"><div class="copy-block-h"><span>还是打不开的话，用管理员身份在 CMD 里运行这条命令，放行防火墙。</span><button type="button" class="btn sm" id="lan-fw-copy" data-copy-exact="${errRawAttr(fwCmd)}" data-copy-msg="已复制防火墙命令" aria-label="复制防火墙命令">${icon("copy")} 复制命令</button></div><pre class="copy-block-pre" tabindex="0">${esc(fwCmd)}</pre></div>`;
   const lanOn = $("#lan-on"), lanPw = $("#lan-pw");
   const pwErr = msg => { lanPw.classList.toggle("invalid", !!msg); $("#lan-pw-err").innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; };
   const effect = turnOn => turnOn ? (live ? "" : "，重启 MineDeck 后生效") : (live ? "，手机和别的设备现在起打不开管理页" : "");
@@ -5571,6 +5636,8 @@ function setRemote(body, info) {
     $("#qr-box").innerHTML = QR.svg(url);
     $("#qr-box").setAttribute("aria-label", "访问地址二维码：" + url);
     $("#qr-url").textContent = url;
+    const copyBtn = $("#qr-copy");
+    if (copyBtn) copyBtn.setAttribute("data-copy-exact", url);
     body.querySelectorAll(".qr-ip").forEach(b => {
       const on = +b.dataset.i === i;
       b.classList.toggle("cur", on);

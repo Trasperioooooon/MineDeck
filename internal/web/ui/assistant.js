@@ -96,6 +96,7 @@ window.MDAssist = (() => {
       <div class="ap-body" id="ap-body" role="log"></div>
       <div class="ap-foot" id="ap-foot" hidden></div>`;
     document.body.appendChild(p);
+    document.body.classList.add("ai-open");
     A.panel = p;
     wireResize(p);
     p.addEventListener("click", e => {
@@ -219,6 +220,7 @@ window.MDAssist = (() => {
     if (!A.panel) return;
     const p = A.panel;
     A.panel = null;
+    document.body.classList.remove("ai-open");
     clearInterval(A.timer);
     dismiss(p, 160);
     paintBtn();

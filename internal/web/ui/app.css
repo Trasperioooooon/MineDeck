@@ -129,6 +129,7 @@ h3 { font-size: var(--fs-h3); line-height: 22px; font-weight: var(--fw-semibold)
   font-family: var(--mono); font-size: .92em; color: var(--text);
   background: var(--sunken); border: 1px solid var(--border);
   padding: 1px 6px; border-radius: var(--r-xs);
+  -webkit-user-select: text; user-select: text;
 }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* 眉标：像素小方块 + 上下文信息（「共 4 台 · 运行中 1」「第 1 步 / 共 4 步」），不再是纯装饰的英文 */
@@ -222,7 +223,7 @@ h3 { font-size: var(--fs-h3); line-height: 22px; font-weight: var(--fw-semibold)
   border-top: 1px solid var(--border); border-left: 1px solid var(--border);
   border-top-left-radius: var(--r-xl);
   box-shadow: -1px -1px 6px -2px rgb(var(--shadow-rgb) / .08);
-  padding: 26px max(32px, calc((100% - var(--w-wide)) / 2)) 24px;
+  padding: 26px max(32px, calc((100% - var(--w-wide)) / 2)) 72px;
 }
 /* #main 是纵向 flex 滚动容器：子元素一律不收缩。否则设了 overflow 的子元素（如可横滑的标签栏）
    最小高度为 0，内容一长就会被压扁到看不见 */
@@ -258,6 +259,9 @@ body.has-host-chrome .win-ctrls { display: flex; }
 .crumbs a { color: var(--muted); text-decoration: none; }
 .crumbs a:hover { color: var(--text); text-decoration: underline; }
 .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+.toolbar .search-field { flex: 1 1 220px; max-width: 480px; }
+.toolbar .search-field input[type=text] { width: 100%; }
+.toolbar select { width: 180px; }
 
 /* ---------- 按钮：主 / 次 / 第三级 / 危险 ---------- */
 .btn {
@@ -292,7 +296,10 @@ body.has-host-chrome .win-ctrls { display: flex; }
               0 8px 16px -6px color-mix(in srgb, var(--accent-solid) var(--glow), rgb(0 0 0 / .55));
 }
 .btn.primary:active { transform: translateY(.5px) scale(.985); transition-duration: var(--dur-1); box-shadow: inset 0 1px 3px rgb(0 0 0 / .25); background: var(--accent-solid-hov); }
-.btn.primary:disabled { opacity: .45; box-shadow: none; transform: none; background: var(--accent-solid); }
+.btn.primary:disabled {
+  opacity: 1; box-shadow: none; transform: none;
+  background: var(--control); color: var(--muted); border-color: var(--border);
+}
 /* 第三级：无底无框，悬停才出现浅底；用于「管理」「放弃修改」、工具栏图标 */
 .btn.ghost { background: transparent; border-color: transparent; box-shadow: none; }
 .btn.ghost:hover { background: var(--hover); }
@@ -612,7 +619,7 @@ a.inst-name:hover { text-decoration: underline; text-decoration-color: color-mix
 .core-group { margin-bottom: 20px; }
 .cg-title { display: flex; align-items: center; gap: 8px; font-size: var(--fs-xs); font-weight: var(--fw-semibold); color: var(--muted); margin: 0 0 10px; letter-spacing: .02em; }
 .cg-title::after { content: ""; flex: 1; height: 1px; background: var(--border); }
-.core-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.core-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
 .core-card {
   position: relative; display: flex; gap: 12px; align-items: flex-start; padding: 14px; cursor: pointer;
   transition: transform var(--dur-2) var(--ease-out), border-color var(--dur-2), background-color var(--dur-2);
@@ -638,6 +645,7 @@ a.inst-name:hover { text-decoration: underline; text-decoration-color: color-mix
 .recipe-groups { max-width: var(--w-read); }
 .recipe-groups .core-group { margin-bottom: 24px; }
 .recipe-grid { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; gap: 16px; max-width: var(--w-read); }
+.recipe-grid.three { grid-template-columns: repeat(3, 1fr); max-width: var(--w-wide); }
 .recipe-grid .core-card { padding: 22px; align-items: center; min-height: 108px; }
 .recipe-ico {
   width: 48px; height: 48px; flex: none; border-radius: var(--r-md);
@@ -802,7 +810,9 @@ a.inst-name:hover { text-decoration: underline; text-decoration-color: color-mix
 .wc-list a { word-break: break-all; }
 
 /* ---------- 实例详情 ---------- */
-.detail-head { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
+.detail-head { display: flex; align-items: center; gap: 10px 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.detail-head .dh-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; }
+.detail-head h1 { font-size: 22px; line-height: 28px; }
 .detail-head .dh-text { min-width: 0; }
 .detail-head h1 { max-width: 46vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .detail-head .dh-line { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
@@ -824,7 +834,9 @@ a.inst-name:hover { text-decoration: underline; text-decoration-color: color-mix
 .d-notice .warn-text { font-size: var(--fs-sm); }
 #tab-body { max-width: var(--w-wide); }
 /* 高度按页头（含连接地址那一行）、标签栏、工具条和输入框算，页头多了一行以后少 34px，窗口小的时候快捷键提示才不掉到可视区外 */
-.console { height: calc(100vh - 490px); height: calc(100dvh - 490px); min-height: 240px; overflow-y: auto; font: 12.5px var(--mono); padding: 12px 14px; font-variant-ligatures: none; }
+.console { height: calc(100vh - 460px); height: calc(100dvh - 460px); min-height: 120px; overflow-y: auto; font: 12.5px var(--mono); padding: 12px 14px; font-variant-ligatures: none; }
+.console-bar .search-field { flex: 1 1 160px; min-width: 0; max-width: 360px; }
+.console-bar .search-field input[type=text] { width: 100%; }
 .console div { white-space: pre-wrap; word-break: break-all; line-height: 1.6; }
 .console .cmd-echo { color: var(--term-cmd); }
 .console .lv-warn { color: var(--term-warn); }
@@ -1065,7 +1077,22 @@ input.mem-num { width: 96px; height: 30px; font-size: var(--fs-sm); text-align: 
 .qr .qr-bg { fill: var(--qr-light); }
 .qr .qr-fg { fill: var(--qr-dark); }
 .qr-info { flex: 1 1 240px; min-width: 0; }
-.qr-url { margin: 8px 0; font-family: var(--mono); font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--accent-text); word-break: break-all; user-select: all; }
+.qr-url-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.qr-url { margin: 0; flex: 1; min-width: 0; font-family: var(--mono); font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--accent-text); word-break: break-all; -webkit-user-select: all; user-select: all; }
+.copy-block { margin-top: 14px; max-width: var(--w-read); padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); }
+.copy-block-h { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; font-size: var(--fs-sm); }
+.copy-block-pre, .copy-fallback {
+  margin: 0; width: 100%; box-sizing: border-box;
+  padding: 10px 12px; border-radius: var(--r-md);
+  background: var(--sunken); color: var(--text); border: 1px solid var(--border);
+  font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere;
+  -webkit-user-select: text; user-select: text;
+}
+.copy-block-pre { -webkit-user-select: all; user-select: all; }
+.copy-fallback { display: block; resize: vertical; min-height: 96px; }
+.copy-scratch { position: fixed; }
+.tun-err { flex-basis: 100%; display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; font-size: var(--fs-xs); color: var(--danger-text); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
+.tun-err .btn { flex: none; -webkit-user-select: none; user-select: none; }
 /* 多个本机地址时的切换按钮：当前项与其它选中态一样用浅强调底 + 强调色边框 */
 .qr-ips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
 .qr-ip {
@@ -1486,4 +1513,32 @@ a.inst-fail:hover span { text-decoration: underline; }
 @media (max-width: 640px) {
   .tb-skin-top .sp-player { width: 100%; }
   .tb-skin-btns { margin-left: 0; }
+}
+
+/* 深色方块的页面底和卡片太近，发丝边再实一点，卡片才分开 */
+[data-scheme="craft"][data-theme="dark"] { --border: rgba(255,255,255,.16); }
+
+/* 助手面板打开时，主区让出右侧，页头的启动 / 停止不被盖住。手机宽下面板本来就占满。 */
+@media (min-width: 900px) {
+  body.ai-open #main { margin-right: var(--ai-w); }
+}
+
+/* 矮窗口（原生最小 1024×576，鼠标）：控制台填剩余高度，命令框留在可视区里。
+   页头和标签不收缩，只把日志区让出来。吸底条在这个高度改回文档流，免得盖住下一节。
+   不套到手机横屏：那边是底部标签栏，内容层自己滚动。 */
+@media (max-height: 680px) and (min-width: 900px) and (pointer: fine) {
+  #main { padding-top: 14px; padding-bottom: 12px; }
+  .detail-head { margin-bottom: 8px; }
+  .detail-head h1 { font-size: 20px; line-height: 26px; }
+  .px-avatar.lg { width: 40px; height: 40px; }
+  .px-avatar.lg svg { width: 28px; height: 28px; }
+  .console-keys { display: none; }
+  .console-bar { flex-wrap: nowrap; }
+  .save-bar.sticky { position: static; }
+  #main:has(#console) { overflow: hidden; }
+  #tab-body:has(#console) { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+  #console.console { flex: 1 1 auto; height: auto; min-height: 64px; }
+}
+@media (max-width: 1100px) {
+  .recipe-grid.three { grid-template-columns: 1fr; max-width: var(--w-read); }
 }
