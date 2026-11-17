@@ -17,6 +17,7 @@ async function api(path, opts = {}) {
     method: opts.method || "GET",
     headers: { "X-Token": TOKEN(), ...(opts.body ? { "Content-Type": "application/json" } : {}) },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
+    ...(opts.keepalive ? { keepalive: true } : {}), // 页面刷新或关掉时发的：页面没了也送得到（见工具箱草稿的 pagehide）
   });
   let j;
   try { j = await res.json(); } catch { throw new Error(`服务异常 (HTTP ${res.status})`); }

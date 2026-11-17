@@ -8252,7 +8252,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await mockSet({ toolbox: { reset: true }, modCart: { reset: true }, local: true }); }
   });
 
-  await run("工具箱「导出 Modrinth 整合包」的草稿——第一次自动保存还没回来时又改回原样，回来以后补发，存着的和表单上的一样（Codex 复审 2026-11-17）", async () => {
+  await run("两个窗口：工具箱「导出 Modrinth 整合包」的草稿——同一页里第一次自动保存还没回来时又改回原样，回来以后补发，存着的和表单上的一样（Codex 复审 2026-11-17）", async () => {
     await mockSet({ toolbox: { reset: true }, modCart: { reset: true }, local: true });
     try {
       await twoWin("#/toolbox/mrpack-export", "#mp-name", async (pa, pb, last) => {
@@ -8272,6 +8272,31 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         assert(d.name === orig && await pa.inputValue("#mp-name") === orig, "存着的应和表单一样：" + jstr(d));
       });
     } finally { await mockSet({ toolbox: { reset: true }, modCart: { reset: true }, local: true }); }
+  });
+
+  await run("两个窗口：工具箱「导出 Modrinth 整合包」的草稿——第一次自动保存后端存下了、响应还没回来，又改了简介，这时整页刷新，排着的简介也存上（Codex 复审 2026-11-17 第二轮）", async () => {
+    await mockSet({ toolbox: { reset: true }, modCart: { reset: true }, local: true });
+    let release = () => {};
+    try {
+      await twoWin("#/toolbox/mrpack-export", "#mp-name", async (pa) => {
+        let n = 0;
+        const gate = new Promise(r => { release = r; });
+        await pa.route("**/api/toolbox/mrpack/draft", async route => {
+          if (route.request().method() === "PUT" && n++ === 0) { // 第一次：先送到后端存下，回给页面的那一下扣住
+            const resp = await route.fetch();
+            await gate;
+            try { await route.fulfill({ response: resp }); } catch { /* 页面已经刷新了 */ }
+            return;
+          }
+          await route.continue();
+        });
+        await pa.fill("#mp-name", "刷新前改的名字"); await pa.waitForTimeout(600);
+        await pa.fill("#mp-summary", "刷新前写的简介"); await pa.waitForTimeout(600); // 计时到了，第一次还没回来：排着
+        await pa.reload(); await pa.waitForSelector("#mp-name"); await pa.waitForTimeout(600);
+        const d = (await mockSet({})).toolbox.draft;
+        assert(d.name === "刷新前改的名字" && d.summary === "刷新前写的简介", "刷新以前改的两样都应存上：" + jstr(d));
+      });
+    } finally { release(); await mockSet({ toolbox: { reset: true }, modCart: { reset: true }, local: true }); }
   });
 
   await run("设置 → 常用：原来文件里没有的项，同一页里填上存下、再清空存下，清空的那一下也发出去（以前提示已保存，文件里却还留着）", async () => {
