@@ -7813,9 +7813,21 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     assert(await page.evaluate(() => [...document.querySelectorAll(".toast")].some(t => t.textContent.includes("已复制防火墙命令"))), "应提示已复制");
   });
 
-  await run("复制：管理页地址只复制当前 URL，不含访问密码；剪贴板失败时不报成功，并选出完整原文", async () => {
+  // 让剪贴板写不进去（http 的手机页面上常见）：没有 clipboard API，execCommand 也返回 false；还原用 clipRestore（同一个页面里）
+  const clipFail = (execOk = false) => page.evaluate(ok => {
+    if (!window.__clip0) window.__clip0 = { c: Object.getOwnPropertyDescriptor(navigator, "clipboard"), e: document.execCommand };
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+    document.execCommand = () => ok;
+  }, execOk);
+  const clipRestore = () => page.evaluate(() => {
+    if (!window.__clip0) return;
+    if (window.__clip0.c) Object.defineProperty(navigator, "clipboard", window.__clip0.c); else delete navigator.clipboard;
+    document.execCommand = window.__clip0.e; delete window.__clip0;
+  });
+  const toastNow = s => page.evaluate(s => [...document.querySelectorAll(".toast")].some(t => t.textContent.includes(s)), s); // 现在有没有（不等）
+
+  await run("复制：管理页地址只复制当前 URL，不含访问密码；剪贴板失败时不报成功，选出完整原文，关掉以后焦点回到复制键", async () => {
     await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ listenLan: true }) }));
-    await page.evaluate(() => { window.__exec0 = document.execCommand.bind(document); });
     try {
       await page.goto(url("#/settings/remote")); await page.waitForSelector("#qr-copy");
       await clipOk();
@@ -7825,25 +7837,45 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(await copiedNow() === urlWant, "复制的管理页地址：" + await copiedNow());
       assert(!(String(await copiedNow())).includes("密码"), "地址里不该有密码");
       await page.evaluate(() => { document.querySelectorAll(".toast").forEach(t => t.remove()); });
-      await page.evaluate(() => {
-        Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
-        document.execCommand = () => false;
-      });
-      await page.click("#lan-fw-copy");
+      await clipFail();
+      await page.focus("#lan-fw-copy"); await page.keyboard.press("Enter");
       await page.waitForSelector("#copy-fallback textarea");
       const fb = await page.$eval("#copy-fallback textarea", el => ({ v: el.value, a: el.selectionStart, b: el.selectionEnd }));
       const cmd = (await page.textContent("#lan-fw .copy-block-pre")).trim();
       assert(fb.v === cmd && fb.a === 0 && fb.b === cmd.length, "失败时应选中完整命令：" + JSON.stringify(fb));
-      assert(!(await page.evaluate(() => [...document.querySelectorAll(".toast")].some(t => t.textContent.includes("已复制")))), "失败时不该提示已复制");
+      assert(!(await toastNow("已复制")), "失败时不该提示已复制");
+      assert(!(await page.textContent("#lan-fw-copy")).includes("已复制"), "失败时复制键不该变成已复制");
       await page.keyboard.press("Escape");
-      await page.waitForTimeout(200);
+      await page.waitForFunction(() => !document.querySelector("#copy-fallback"));
+      const focused = await page.evaluate(() => document.activeElement && (document.activeElement.id || document.activeElement.tagName));
+      assert(focused === "lan-fw-copy", "手动复制框关掉以后焦点应回到复制键：" + focused);
+      // 走 execCommand 成功的那条路（http 页面上常见）：提示已复制，焦点不丢
+      await clipFail(true);
+      await page.focus("#lan-fw-copy"); await page.keyboard.press("Enter"); await page.waitForTimeout(200);
+      assert(await toastNow("已复制防火墙命令"), "execCommand 成功时应提示已复制");
+      const focused2 = await page.evaluate(() => document.activeElement && (document.activeElement.id || document.activeElement.tagName));
+      assert(focused2 === "lan-fw-copy", "execCommand 复制以后焦点应还在复制键上：" + focused2);
     } finally {
-      await page.evaluate(() => { if (window.__exec0) document.execCommand = window.__exec0; });
+      await clipRestore().catch(() => {});
       await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ listenLan: false }) }));
     }
   });
 
-  await run("详情页头：运行中主按钮是停止，停着时主按钮是启动；1024×576 里命令框仍在窗口内", async () => {
+  await run("复制：隧道卡片的公网地址复制失败时，按钮不变成「已复制」，弹手动复制框", async () => {
+    await page.goto(url("#/tunnels")); await page.waitForSelector("#tun-list [data-copy]");
+    try {
+      await clipFail();
+      const b = await page.$("#tun-list [data-copy]");
+      const addr = await b.getAttribute("data-copy");
+      await b.click(); await page.waitForSelector("#copy-fallback textarea");
+      assert(await page.$eval("#copy-fallback textarea", el => el.value) === addr, "手动复制框里应是公网地址");
+      await page.waitForTimeout(200);
+      assert(!(await page.textContent("#tun-list [data-copy]")).includes("已复制") && !(await toastNow("已复制")), "写不进剪贴板时不该显示已复制");
+      await page.keyboard.press("Escape");
+    } finally { await clipRestore().catch(() => {}); }
+  });
+
+  await run("详情页头：运行中主按钮是停止，停着时主按钮是启动；1024×576 里命令框在窗口内，报错横幅展开时整页能滚到命令框", async () => {
     const surv = encodeURIComponent("生存服 · 朋友");
     const pack = encodeURIComponent("机械动力整合包");
     await page.goto(url("#/inst/" + surv + "/console")); await page.waitForSelector("#d-stop");
@@ -7852,33 +7884,68 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     await page.goto(url("#/inst/" + pack + "/console")); await page.waitForSelector("#d-start");
     const stopCls = await page.evaluate(() => ({ start: $("#d-start").classList.contains("primary"), stop: $("#d-stop").classList.contains("primary") }));
     assert(stopCls.start && !stopCls.stop, "已停止：" + JSON.stringify(stopCls));
+    const geo = () => page.evaluate(() => {
+      const r = s => document.querySelector(s).getBoundingClientRect(), m = document.querySelector("#main");
+      return { it: Math.round(r("#cmd-in").top), ib: Math.round(r("#cmd-in").bottom), vh: innerHeight, ch: Math.round(r("#console").height), ct: Math.round(r("#console").top),
+        bb: Math.round(r(".console-bar").bottom), ov: getComputedStyle(m).overflowY, sh: m.scrollHeight, mch: m.clientHeight, st: m.scrollTop };
+    });
     await page.setViewportSize({ width: 1024, height: 576 });
     try {
-      await page.goto(url("#/inst/" + surv + "/console")); await page.waitForSelector("#cmd-in");
-      await page.waitForTimeout(200);
-      const box = await page.evaluate(() => {
-        const i = document.querySelector("#cmd-in").getBoundingClientRect();
-        const c = document.querySelector("#console").getBoundingClientRect();
-        const bar = document.querySelector(".console-bar").getBoundingClientRect();
-        return { it: i.top, ib: i.bottom, vh: innerHeight, ch: c.height, ct: c.top, bb: bar.bottom, ct2: c.top };
-      });
-      assert(box.ib <= box.vh + 1 && box.it >= 0 && box.ch >= 64 && box.ct >= box.bb - 1, "最小窗口控制台：" + JSON.stringify(box));
+      // 没有提示：不滚就看得见命令框，整页不多出滚动
+      await page.goto(url("#/inst/" + surv + "/console")); await page.waitForSelector("#cmd-in"); await page.waitForTimeout(200);
+      let g = await geo();
+      assert(g.ib <= g.vh + 1 && g.it >= 0 && g.ch >= 64 && g.ct >= g.bb - 1 && g.sh <= g.mch + 1, "最小窗口控制台：" + JSON.stringify(g));
+      // 报错横幅展开：放不下，#main 要能滚，滚得到命令框，滚轮也滚得回页头（PR #28 复审：以前 overflow:hidden 把命令框裁掉、滚不到）
+      await page.goto(url("#/inst/" + pack + "/console")); await page.waitForSelector("#diag-slot details.db-more summary");
+      await page.click("#diag-slot details.db-more summary"); await page.waitForTimeout(300);
+      g = await geo();
+      assert(g.ov !== "hidden" && g.sh > g.mch, "放不下时 #main 应能滚：" + JSON.stringify(g));
+      await page.focus("#cmd-in"); await page.waitForTimeout(200);
+      g = await geo();
+      assert(g.ib <= g.vh + 1 && g.it >= 0 && g.st > 0, "聚焦命令框以后它应在窗口内：" + JSON.stringify(g));
+      const mb = await page.$eval("#main", m => { const b = m.getBoundingClientRect(); return { x: b.left + 40, y: b.top + 40 }; });
+      await page.mouse.move(mb.x, mb.y); await page.mouse.wheel(0, -3000); await page.waitForTimeout(400);
+      assert((await geo()).st === 0, "滚轮应能滚回页头");
     } finally { await page.setViewportSize({ width: 1280, height: 850 }); }
   });
 
-  await run("AI 助手打开时，宽窗口里详情页的启动按钮留在面板左侧", async () => {
-    await page.goto(url("#/inst/" + encodeURIComponent("生存服 · 朋友") + "/console"));
-    await page.waitForSelector("#d-start");
-    await page.click('button[aria-label^="AI 助手"]');
-    await page.waitForSelector("#ai-panel");
-    await page.waitForTimeout(300);
-    const g = await page.evaluate(() => {
-      const b = document.querySelector("#d-start").getBoundingClientRect();
-      const p = document.querySelector("#ai-panel").getBoundingClientRect();
-      return { bright: Math.round(b.right), pleft: Math.round(p.left), open: document.body.classList.contains("ai-open") };
+  await run("AI 助手面板：窗口够宽时主区让出右侧、启动键不被盖住、内容不变窄；窗口窄或面板拖到最宽时照旧浮在上面，主区不被挤坏", async () => {
+    const aiGeo = () => page.evaluate(() => {
+      const m = document.querySelector("#main"), cs = getComputedStyle(m), b = document.querySelector("#d-start").getBoundingClientRect(), p = document.querySelector("#ai-panel");
+      return { open: document.body.classList.contains("ai-open"), push: document.body.classList.contains("ai-push"), mr: cs.marginRight,
+        content: Math.round(m.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)), hscroll: m.scrollWidth > m.clientWidth + 1,
+        bright: Math.round(b.right), pleft: p ? Math.round(p.getBoundingClientRect().left) : null, pw: p ? Math.round(p.getBoundingClientRect().width) : null };
     });
-    assert(g.open && g.bright <= g.pleft + 2, "按钮不该被面板盖住：" + JSON.stringify(g));
-    await page.keyboard.press("Escape");
+    const openPanel = async () => { await page.click('button[aria-label^="AI 助手"]'); await page.waitForSelector("#ai-panel"); await page.waitForTimeout(300); };
+    await page.evaluate(() => localStorage.removeItem("amh_ai_w"));
+    await page.setViewportSize({ width: 1600, height: 900 });
+    try {
+      await page.goto(url("#/inst/" + encodeURIComponent("生存服 · 朋友") + "/console")); await page.waitForSelector("#d-start");
+      const before = await aiGeo();
+      await openPanel();
+      let g = await aiGeo();
+      assert(g.open && g.push && g.mr === g.pw + "px" && g.bright <= g.pleft + 2 && !g.hscroll && g.content >= Math.min(before.content, 700), "宽窗口应让出右侧：" + JSON.stringify({ before, g }));
+      // 键盘把面板拖到最宽（720）：1600 宽时主区剩不到 720，改回浮层
+      await page.focus("#ai-panel .ap-resize");
+      for (let k = 0; k < 8; k++) await page.keyboard.press("Shift+ArrowLeft");
+      await page.waitForTimeout(200);
+      g = await aiGeo();
+      assert(g.pw === 720 && !g.push && g.mr === "0px" && !g.hscroll, "面板拖到最宽时应改回浮层：" + JSON.stringify(g));
+      await page.keyboard.press("Escape"); await page.waitForTimeout(300);
+      g = await aiGeo();
+      assert(!g.open && !g.push && g.mr === "0px", "关掉面板以后：" + JSON.stringify(g));
+      // 默认大小的窗口（1280 宽）、默认宽度的面板：主区放不下，浮在上面，主区不变
+      await page.evaluate(() => localStorage.removeItem("amh_ai_w"));
+      await page.setViewportSize({ width: 1280, height: 850 });
+      await page.goto(url("#/inst/" + encodeURIComponent("生存服 · 朋友") + "/console")); await page.waitForSelector("#d-start");
+      await openPanel();
+      g = await aiGeo();
+      assert(g.open && !g.push && g.mr === "0px" && !g.hscroll, "1280 宽时应浮在上面：" + JSON.stringify(g));
+      await page.keyboard.press("Escape");
+    } finally {
+      await page.evaluate(() => localStorage.removeItem("amh_ai_w")).catch(() => {});
+      await page.setViewportSize({ width: 1280, height: 850 });
+    }
   });
 
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
