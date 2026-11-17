@@ -7965,6 +7965,43 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     }
   });
 
+  await run("设置 → 常用、全部配置：只提交这一页改过的项，两个窗口同时开着时不拿旧值盖回另一边刚存的", async () => {
+    const SURV = "生存服 · 朋友", at = ORIGIN + "#/inst/" + encodeURIComponent(SURV) + "/settings/";
+    const c = await hostCtx({ host: false });
+    try {
+      const pa = await c.newPage(), pb = await c.newPage();
+      for (const p of [pa, pb]) {
+        p.on("pageerror", e => errors.push(pageErr(e)));
+        await p.goto(at + "common"); await p.waitForSelector('[data-k="difficulty"]'); await p.waitForSelector('[data-k="max-players"]');
+      }
+      const lastPut = p => p.evaluate(() => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data.lastPropsPut));
+      const saveNow = async p => {
+        await p.click('.save-bar.sticky [data-sb="save"]');
+        await p.waitForFunction(() => !document.querySelector(".save-bar.sticky").classList.contains("dirty"), null, { timeout: 5000 });
+      };
+      // 电脑上（A）改难度、保存：只发难度
+      const diff = await pa.$eval('[data-k="difficulty"]', s => {
+        const v = [...s.options].map(o => o.value).find(x => x !== s.value);
+        s.value = v; s.dispatchEvent(new Event("change", { bubbles: true })); return v;
+      });
+      await saveNow(pa);
+      let put = await lastPut(pa);
+      assert(put && put.inst === SURV && JSON.stringify(put.pairs) === JSON.stringify([{ key: "difficulty", value: diff }]), "A 只提交难度：" + JSON.stringify(put));
+      // 手机上（B，打开得早，难度还是旧的）只改人数、保存：不带旧的难度
+      await pb.fill('[data-k="max-players"]', "7");
+      await saveNow(pb);
+      put = await lastPut(pb);
+      assert(put && JSON.stringify(put.pairs) === JSON.stringify([{ key: "max-players", value: "7" }]), "B 只提交人数、不带旧的难度：" + JSON.stringify(put));
+      // 全部配置：同样只提交改过的那一项
+      await pa.goto(at + "raw"); await pa.waitForSelector("table.raw input[data-k]");
+      const key = await pa.$eval("table.raw input[data-k]", e => e.dataset.k);
+      await pa.fill(`table.raw input[data-k="${key}"]`, "只改这一项");
+      await saveNow(pa);
+      put = await lastPut(pa);
+      assert(put && JSON.stringify(put.pairs) === JSON.stringify([{ key, value: "只改这一项" }]), "全部配置只提交改过的：" + JSON.stringify(put));
+    } finally { await c.close(); }
+  });
+
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
 
   await browser.close();

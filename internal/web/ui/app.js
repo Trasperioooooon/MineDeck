@@ -1062,7 +1062,8 @@ function saveBar(saveText, note = "") {
    成功以后基线换成 sent，不再是请求回来时表单的样子——请求途中又改的、又加减的定时任务，后台没收到，得继续算「未保存」，
    离开时照样拦。save 自己按服务器的回话改写了表单（清空填过的 Key、回显后端补回的参数、换上 Java 以后的相对值）的，
    返回改写以后应有的基线（一个对象，键同 read()）；返回 false 表示用户取消了，表单仍算没保存。
-   保存途中「保存」键一直置灰：两次保存叠在一起，回来的先后不定，基线就说不准了 */
+   保存途中「保存」键一直置灰：两次保存叠在一起，回来的先后不定，基线就说不准了。
+   save 的第二个参数是当时的基线 base：只想提交改过的项的（server.properties），拿它和 sent 比，和保存条数的是同一份比较 */
 function wireSaveBar(root, gen, read, save) {
   const bar = $(".save-bar.sticky", root);
   const saveBtn = $('[data-sb="save"]', bar);
@@ -1090,7 +1091,7 @@ function wireSaveBar(root, gen, read, save) {
     saveBtn.disabled = true;
     const sent = read();
     try {
-      const r = await save(sent);
+      const r = await save(sent, base);
       if (r !== false && bar.isConnected) base = r && typeof r === "object" ? r : sent; // false：用户取消了，表单仍算没保存
     } catch (e) { toastErr("保存失败", e); }
     saving = false;
@@ -4125,18 +4126,23 @@ async function renderDetail(name, path = "console") {
     const lb = wireLiveBar(body, "服务器运行中：保存后要重启才生效；游戏规则开关马上生效");
     const RESTART = Object.fromEntries((window.PROPS_CATALOG || []).map(p => [p.key, p.restart !== false]));
     let savedProps = readProps();
-    wireSaveBar(body, gen, readProps, async sent => { // sent：点「保存」这一刻的 readProps()，下面发的 pairs 也是这一刻读的
+    wireSaveBar(body, gen, readProps, async (sent, base) => { // sent：点「保存」这一刻的 readProps()，下面发的 pairs 也是这一刻读的
+      // 只提交这一页改过的项（base 是打开这一页或上一次保存时的样子）：另一个窗口刚存的项，这一页没动就不拿旧值盖回去
+      // （Codex 复审 v3.2.0 第一轮。后端本来就只改给到的项、其余照原样）。两边改了同一项的，以后存的为准
       const pairs = [];
       body.querySelectorAll("[data-k]").forEach(el => {
+        const k = el.dataset.k;
+        if ((base[k] ?? "") === (sent[k] ?? "")) return;
         let val;
         if (el.type === "checkbox") val = el.checked ? "true" : "false";
         else val = el.value;
         if (el.type === "number" || el.type === "text" || el.tagName === "SELECT") {
-          if (val === "" && !(el.dataset.k in cur)) return; // 未设置且为空的跳过
+          if (val === "" && !(k in cur)) return; // 未设置且为空的跳过
         }
-        pairs.push({ key: el.dataset.k, value: String(val) });
+        pairs.push({ key: k, value: String(val) });
       });
-      await api(`/api/instances/${encodeURIComponent(name)}/properties`, { method: "PUT", body: { pairs } });
+      // 改过的只有「没设置过的项清空」：文件里本来就没有这一项，不用写
+      if (pairs.length) await api(`/api/instances/${encodeURIComponent(name)}/properties`, { method: "PUT", body: { pairs } });
       // 改的项里有要重启才生效的（MineDeck 保存只写文件，服务端运行中不会重读：目录里的项都标着重启生效）。
       // 按发出去的那份算，不按现在的表单：请求途中又改的还没存（Codex 复审 beta.3）
       const changed = Object.keys(sent).filter(k => sent[k] !== savedProps[k]);
@@ -4168,7 +4174,7 @@ async function renderDetail(name, path = "console") {
         `<tr data-search="${esc(p.key)} ${esc(LABELS[p.key] || "")}"><td>${esc(p.key)}</td><td class="raw-cn">${LABELS[p.key] ? esc(LABELS[p.key]) : ""}</td><td><input type="text" data-k="${esc(p.key)}" value="${esc(p.value)}" aria-label="${esc(p.key)}"></td></tr>`).join("")}</table>
       <div class="sub" id="raw-none" hidden>没有匹配的配置项：换个关键词，或者按 Esc 清空搜索。</div>
       ${saveBar("保存全部", liveBarNote())}</div>`;
-    // 搜索（同常用设置）：只是把不匹配的行藏起来，保存时照样提交全部键值
+    // 搜索（同常用设置）：只是把不匹配的行藏起来，保存时照样提交所有改过的项（藏起来的也算）
     wireSearch($("#raw-search"), () => {
       const q = $("#raw-search").value, n = filterBySearch(q, body.querySelectorAll("table.raw tr"));
       $("#raw-count").textContent = searchKey(q) ? `找到 ${n} 项（共 ${total} 项）` : `共 ${total} 项`;
@@ -4177,9 +4183,11 @@ async function renderDetail(name, path = "console") {
     const lb = wireLiveBar(body, "服务器运行中：保存后要重启才生效");
     wireSaveBar(body, gen,
       () => Object.fromEntries([...body.querySelectorAll("input[data-k]")].map(el => [el.dataset.k, el.value])),
-      async () => {
-        const pairs = [...body.querySelectorAll("input[data-k]")].map(el => ({ key: el.dataset.k, value: el.value }));
-        await api(`/api/instances/${encodeURIComponent(name)}/properties`, { method: "PUT", body: { pairs } });
+      async (sent, base) => {
+        // 同常用设置：只提交改过的项，另一个窗口刚存的不拿这一页的旧值盖回去（Codex 复审 v3.2.0 第一轮）
+        const pairs = [...body.querySelectorAll("input[data-k]")].filter(el => (base[el.dataset.k] ?? "") !== (sent[el.dataset.k] ?? ""))
+          .map(el => ({ key: el.dataset.k, value: el.value }));
+        if (pairs.length) await api(`/api/instances/${encodeURIComponent(name)}/properties`, { method: "PUT", body: { pairs } });
         toast("已保存 server.properties" + (info.status !== "stopped" ? "（重启服务器以后生效）" : ""));
         lb.saved(true); // server.properties 运行中不会重读，改了哪一项都要重启
       });
