@@ -924,16 +924,30 @@ window.MDToolbox = (() => {
       if (d.loaderVersion != null) f.loaderVersion = s(d.loaderVersion);
       return f;
     }
+    // 一次只发一个：路上那次还没回来时又要存的，记下这一刻的表单，等它回来（成没成都一样）再按那时的基线比、补发。
+    // 以前各发各的：第一次（改成新名）还没回来，人又改回旧名，第二次和还没更新的基线一比没变就不发了，
+    // 第一次回来以后基线成了新名，表单是旧名、存着的却是新名（Codex 复审 2026-11-17）。记的是这一刻的表单，不等回来再读：
+    // 这期间切到「从已有服务器导出」，名称、版本、简介几格会换成服务器的，回来再读就把它们存进草稿了
+    let draftSaving = false, draftQueued = null;
     function saveDraftNow() {
       if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
       if (!draftBase) return; // 草稿还没读回来（或读失败）：不存，见上面
-      const now = readDraftForm(), change = {};
-      for (const k of Object.keys(now)) if (now[k] !== draftBase[k]) change[k] = now[k];
+      if (draftSaving) { draftQueued = readDraftForm(); return; }
+      sendDraft(readDraftForm());
+    }
+    function sendDraft(now) {
+      const base = draftBase, change = {}; // 「重新读取」会换一份新的基线：那以后才回来的旧请求不改新基线
+      for (const k of Object.keys(now)) if (now[k] !== base[k]) change[k] = now[k];
       if (!Object.keys(change).length) return;
-      const base = draftBase; // 「重新读取」会换一份新的基线：那以后才回来的旧请求不改新基线
+      draftSaving = true;
       api("/api/toolbox/mrpack/draft", { method: "PUT", body: change })
-        .then(() => { Object.assign(base, change); })
-        .catch(() => {});
+        .then(() => { Object.assign(base, change); }, () => {})
+        .then(() => {
+          draftSaving = false;
+          const q = draftQueued;
+          draftQueued = null;
+          if (q && draftBase) sendDraft(q);
+        });
     }
 
     function mountDraftCart() {
@@ -1193,6 +1207,7 @@ window.MDToolbox = (() => {
         fillDraft(d, true);
         draftBase = draftBaseFrom(d); // 表单整份换成了存好的：基线也换成它
         savePending = false; // 读失败期间排着的那次保存作废：表单已经换成存好的了
+        draftQueued = null; // 记下的旧表单也作废，同上
         draftReady = true;
         paintDraftErr(null);
         mountDraftCart(); // 加载器、版本可能变了，清单按新的查

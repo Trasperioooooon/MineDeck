@@ -8252,6 +8252,28 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await mockSet({ toolbox: { reset: true }, modCart: { reset: true }, local: true }); }
   });
 
+  await run("工具箱「导出 Modrinth 整合包」的草稿——第一次自动保存还没回来时又改回原样，回来以后补发，存着的和表单上的一样（Codex 复审 2026-11-17）", async () => {
+    await mockSet({ toolbox: { reset: true }, modCart: { reset: true }, local: true });
+    try {
+      await twoWin("#/toolbox/mrpack-export", "#mp-name", async (pa, pb, last) => {
+        const orig = await pa.inputValue("#mp-name");
+        let release, n = 0;
+        const gate = new Promise(r => { release = r; });
+        await pa.route("**/api/toolbox/mrpack/draft", async route => { // 只扣住第一次 PUT，放行以前它不回来
+          if (route.request().method() === "PUT" && n++ === 0) await gate;
+          await route.continue();
+        });
+        await pa.fill("#mp-name", "改了又改回去"); await pa.waitForTimeout(600);
+        assert(jstr(last("a", "/api/toolbox/mrpack/draft")) === jstr({ name: "改了又改回去" }), "第一次发出去了：" + jstr(last("a", "/api/toolbox/mrpack/draft")));
+        await pa.fill("#mp-name", orig); await pa.waitForTimeout(600); // 第二次计时到了，第一次还没回来
+        release(); await pa.waitForTimeout(900);
+        assert(jstr(last("a", "/api/toolbox/mrpack/draft")) === jstr({ name: orig }), "回来以后补发改回去的名称：" + jstr(last("a", "/api/toolbox/mrpack/draft")));
+        const d = (await mockSet({})).toolbox.draft;
+        assert(d.name === orig && await pa.inputValue("#mp-name") === orig, "存着的应和表单一样：" + jstr(d));
+      });
+    } finally { await mockSet({ toolbox: { reset: true }, modCart: { reset: true }, local: true }); }
+  });
+
   await run("设置 → 常用：原来文件里没有的项，同一页里填上存下、再清空存下，清空的那一下也发出去（以前提示已保存，文件里却还留着）", async () => {
     const SV = "生存服 · 朋友";
     // 让这台服务器的 server.properties 里没有 resource-pack 这一行
