@@ -3901,11 +3901,21 @@ async function renderDetail(name, path = "console") {
     };
     paintBar = wireSaveBar(body, gen,
       () => Object.fromEntries([["crash", String($("#pol-crash").checked)], ...schedKeys(scheds).map(k => [k, "1"])]),
-      async () => {
-        // 发出去的是点「保存」这一刻的那份：请求途中又加、又删的不算已保存，照旧标「未保存」（Codex 复审 beta.3）
-        const sent = scheds.map(s => ({ ...s }));
-        await api(`/api/instances/${encodeURIComponent(name)}/policies`, { method: "PUT", body: { crashRestart: $("#pol-crash").checked, schedules: sent } });
-        savedKeys = new Set(schedKeys(sent));
+      async (sent, base) => {
+        // 发出去的是点「保存」这一刻的那份：请求途中又加、又删的不算已保存，照旧标「未保存」（Codex 复审 beta.3）。
+        // 只发这一页改了什么：崩溃重启拨过才带；定时任务按条加、删（和保存条数的是同一份键，键里带着「第几条一样的」，
+        // 两条一样的删掉一条也算得出来）。不再整张表发过去：两个窗口同时开着这一页时，另一边刚加的任务这一页没有，
+        // 整张发就把它删了（Codex 复审 v3.2.0 第二轮。后端按条删找不到的不算错，所以另一边已经删掉的再删一次也没事）
+        const now = scheds.map(s => ({ ...s })), keys = schedKeys(now);
+        const had = Object.keys(base).filter(k => k.startsWith("s:")), have = new Set(keys);
+        const req = {};
+        if (sent.crash !== base.crash) req.crashRestart = sent.crash === "true";
+        const add = now.filter((_, i) => !(keys[i] in base));
+        const remove = had.filter(k => !have.has(k)).map(k => { const [type, at, args] = JSON.parse(k.slice(2, k.lastIndexOf("#"))); return { type, at, args }; });
+        if (add.length) req.addSchedules = add;
+        if (remove.length) req.removeSchedules = remove;
+        if (Object.keys(req).length) await api(`/api/instances/${encodeURIComponent(name)}/policies`, { method: "PUT", body: req });
+        savedKeys = new Set(keys);
         if (!stale(gen)) drawScheds();
         toast("定时任务已保存，马上生效");
       });
@@ -4143,6 +4153,9 @@ async function renderDetail(name, path = "console") {
       });
       // 改过的只有「没设置过的项清空」：文件里本来就没有这一项，不用写
       if (pairs.length) await api(`/api/instances/${encodeURIComponent(name)}/properties`, { method: "PUT", body: { pairs } });
+      // 存进去的项从此算「文件里有」：原来没有的项（比如资源包链接）在同一页里填上、保存，再清空、保存时，
+      // 清空的那一下也要发出去，不然上面那条「未设置且为空的跳过」会把它吞掉，提示已保存、文件里却还留着（Codex 复审 v3.2.0 第二轮）
+      for (const p of pairs) cur[p.key] = p.value;
       // 改的项里有要重启才生效的（MineDeck 保存只写文件，服务端运行中不会重读：目录里的项都标着重启生效）。
       // 按发出去的那份算，不按现在的表单：请求途中又改的还没存（Codex 复审 beta.3）
       const changed = Object.keys(sent).filter(k => sent[k] !== savedProps[k]);
@@ -4288,8 +4301,11 @@ async function renderDetail(name, path = "console") {
     paintBar = wireSaveBar(body, gen,
       () => ({ xmx: $("#jm-mem").value, jvm: jvmFlags().join(" "), java: javaPick() }), // 只比较参数本身，换行 / 空格差异不算修改
       async () => {
-        // 内存、参数、Java 都按点「保存」这一刻的读：请求途中又改的不算已保存（Codex 复审 beta.3）
-        const xmx = $("#jm-mem").value, flags = jvmFlags(), pick = javaPick(), memChanged = xmx !== saved.xmx || flags.join(" ") !== saved.jvm;
+        // 内存、参数、Java 都按点「保存」这一刻的读：请求途中又改的不算已保存（Codex 复审 beta.3）。
+        // 内存和参数各管各的，只发改过的那一样（后端 xmxMb 给 0、extraJvm 不给就是不改）：两个窗口同时开着这一页时，
+        // 一边改了参数，另一边只改内存再保存，不会把参数改回打开时的样子（Codex 复审 v3.2.0 第二轮）
+        const xmx = $("#jm-mem").value, flags = jvmFlags(), pick = javaPick();
+        const xmxChanged = xmx !== saved.xmx, jvmChanged = flags.join(" ") !== saved.jvm;
         // 选的 Java 要先下载时，这次保存完会跳去任务页：保存途中把这一页的输入锁住，不让人在途中改了又随跳页丢掉
         // （Codex 复审 beta.3 第二、三轮。第二轮试过留在本页再记一个「正在下载」的状态，带出了下载完、下载失败以后页面不同步的问题，改成锁）
         const locked = pick !== "" && jopts[+pick].download
@@ -4297,13 +4313,20 @@ async function renderDetail(name, path = "console") {
         locked.forEach(el => { el.disabled = true; });
         try {
           const notes = [];
-          if (memChanged) {
-            await api(`/api/instances/${enc}/settings`, { method: "PUT", body: { xmxMb: +xmx, xmsMb: 0, extraJvm: flags } });
-            // 回显实际保存的参数（老版本被删掉的 log4shell 缓解参数会被后端补回）；回读失败不影响已成功的保存。
-            // 只在输入框里还是发出去的那份时回显：请求途中又改了参数的，不拿回读的盖掉新填的
-            const back = await api("/api/instances").then(l => l.find(i => i.name === name)?.extraJvm).catch(() => null);
-            if (back && !stale(gen) && jvmFlags().join(" ") === flags.join(" ")) $("#jm-jvm").value = back.join("\n");
-            saved = { xmx, jvm: (back || flags).join(" ") };
+          if (xmxChanged || jvmChanged) {
+            const body = { xmxMb: xmxChanged ? +xmx : 0, xmsMb: 0 };
+            if (jvmChanged) body.extraJvm = flags;
+            await api(`/api/instances/${enc}/settings`, { method: "PUT", body });
+            if (xmxChanged) saved.xmx = xmx;
+            let back = null;
+            if (jvmChanged) {
+              // 回显实际保存的参数（老版本被删掉的 log4shell 缓解参数会被后端补回）；回读失败不影响已成功的保存。
+              // 只在输入框里还是发出去的那份时回显：请求途中又改了参数的，不拿回读的盖掉新填的。
+              // 只改内存时不回读：那时读到的参数可能是另一个窗口刚存的，会被当成「补回」，也会把这一页没动的参数框换掉
+              back = await api("/api/instances").then(l => l.find(i => i.name === name)?.extraJvm).catch(() => null);
+              if (back && !stale(gen) && jvmFlags().join(" ") === flags.join(" ")) $("#jm-jvm").value = back.join("\n");
+              saved.jvm = (back || flags).join(" ");
+            }
             notes.push("已保存内存与 JVM 参数" + (back?.some(a => !flags.includes(a)) ? "（已自动补回 log4shell 漏洞缓解参数）" : ""));
           }
           if (pick !== "") {
@@ -4388,7 +4411,7 @@ async function renderTunnels() {
         <option value="custom">自定义 frps</option></select></label>
       <label class="field"><span>隧道名称</span><input type="text" id="tn-name" value="我的隧道" maxlength="30"></label>
       <label class="field" data-f="cred"><span id="tn-cred-label">用户密钥</span><input type="password" id="tn-cred" placeholder="仅保存在本机">
-        <small class="hint" id="tn-cred-short" style="display:block;color:var(--warning-text)" aria-live="polite" hidden>凭据短于 6 个字符：日志里含这串凭据的行会整行隐藏，排查问题会不方便，建议换一串更长的。</small></label>
+        <small class="hint" id="tn-cred-short" style="display:block;color:var(--warning-text)" aria-live="polite" hidden>凭据不到 6 个字节（字母和数字一个算一个，汉字一个算三个）：日志里含这串凭据的行会整行隐藏，排查问题会不方便，建议换一串更长的。</small></label>
       <label class="field" data-f="proxy"><span>隧道 ID</span><input type="text" id="tn-proxy" placeholder="如 123456"></label>
       <label class="field" data-f="saddr" hidden><span>frps 服务器地址</span><input type="text" id="tn-saddr" placeholder="1.2.3.4 或 frp.example.com"></label>
       <label class="field" data-f="sport" hidden><span>frps 端口</span><input type="number" id="tn-sport" value="7000"></label>
@@ -5099,14 +5122,15 @@ async function renderTunnels() {
       drawList();
     });
     /* 自定义 frps 存过 token 以后，修改时凭据留空是「不改」，靠这个按钮明说不要了（clearCredential），之后启动不带 token。
-       修改接口是整体替换：其余配置按列表里的原样带回去 */
+       修改接口只改传了的项：这里只发 clearCredential，名称、绑定、跟随启动都不带（列表里的可能是几秒前的，
+       另一个窗口刚改过的会被改回去，Codex 复审 v3.2.0 第二轮） */
     $("#tun-list").querySelectorAll("[data-tclear]").forEach(b => b.onclick = async () => {
       const t = list.find(x => x.id === b.dataset.tclear);
       if (!t) return;
       const r = await confirmModal({ title: `清除「${t.name}」保存的凭据？`, danger: true, okText: "清除", icon: "trash",
         body: "之后启动这条隧道不带 auth token。frps 设了 token 的话会连不上，到时删掉这条隧道重新添加、填上 token 就行。" });
       if (!r) return;
-      try { await api(`/api/tunnels/${t.id}`, { method: "PUT", body: tunBody(t, { clearCredential: true }) }); toast(`已清除「${t.name}」保存的凭据`); }
+      try { await api(`/api/tunnels/${t.id}`, { method: "PUT", body: { clearCredential: true } }); toast(`已清除「${t.name}」保存的凭据`); }
       catch (e) { toastErr("无法清除凭据", e); }
       drawList();
     });
@@ -5135,11 +5159,6 @@ async function renderTunnels() {
     });
     return list;
   };
-  /* 修改接口是整体替换（tunnel.update）：除了要改的几项，其余配置按列表里的原样带回去；凭据留空表示不改
-     （列表不下发凭据）。上次拿到的公网地址也要带回去，不然一改就把「上次」的地址清掉了 */
-  const tunBody = (t, patch) => ({ provider: t.provider, name: t.name, proxyId: t.proxyId || "", serverAddr: t.serverAddr || "", serverPort: t.serverPort || 0,
-    remotePort: t.remotePort || 0, localPort: t.localPort || 0, boundInstance: t.boundInstance || "", autoStart: !!t.autoStart,
-    publicAddr: t.publicAddr || "", purpose: t.purpose || "", proto: t.proto || "", credential: "", ...patch });
   /* 编辑隧道（可用性走查 R12）：只改名称、绑定的服务器、跟随启动三样。服务商、地址、端口、凭据不在这里改：
      换服务商或 frps 地址端口要重填凭据（后端 UpdateOpt 也这么拦），这些照旧删了重新添加。
      几道检查都在后端：只许本人操作（tunnel.update 是仅人工）、不许指向 MineDeck 的网页端口、tunnels.json 没读出来时拒绝、
@@ -5184,10 +5203,16 @@ async function renderTunnels() {
       const name = nameIn.value.trim();
       if (!name) { showErr("请填写隧道名称"); nameIn.focus(); return; }
       showErr("");
+      // 只发这个窗口里改了的（修改接口只改传了的项）：弹窗是照打开那一刻的列表填的，别的窗口这期间改了跟随启动、
+      // 这里只改名字的话，带上弹窗里的旧开关就把它改回去了（Codex 复审 v3.2.0 第二轮）。一样都没改就直接关掉
+      const change = {}, bound = mask.querySelector("#tn-ed-bound").value, auto = mask.querySelector("#tn-ed-auto").checked;
+      if (name !== t.name) change.name = name;
+      if (bound !== (t.boundInstance || "")) change.boundInstance = bound;
+      if (auto !== !!t.autoStart) change.autoStart = auto;
+      if (!Object.keys(change).length) { close(); return; }
       okBtn.disabled = true;
       try {
-        await api(`/api/tunnels/${encodeURIComponent(t.id)}`, { method: "PUT", body: tunBody(t, {
-          name, boundInstance: mask.querySelector("#tn-ed-bound").value, autoStart: mask.querySelector("#tn-ed-auto").checked }) });
+        await api(`/api/tunnels/${encodeURIComponent(t.id)}`, { method: "PUT", body: change });
         close();
         if (stale(gen)) return;
         toast(`已保存「${name}」的修改`);
@@ -5602,7 +5627,8 @@ function setRemote(body, info) {
   const effect = turnOn => turnOn ? (live ? "" : "，重启 MineDeck 后生效") : (live ? "，手机和别的设备现在起打不开管理页" : "");
   // 保存要等一个来回：这期间切去了别的分区或页面，就不再把远程访问画回 body（它可能已经不是当前视图的了）；提示照常弹
   const gen = viewGen;
-  const saved = b => { info.config.listenLan = b.listenLan; if (b.lanPassword) info.lanSet = true; if (!stale(gen)) setRemote(body, info); };
+  // 只记这次真发出去的：单独存密码时没带开关，页面上的开关状态照旧（不拿 undefined 当成关了）
+  const saved = b => { if ("listenLan" in b) info.config.listenLan = b.listenLan; if (b.lanPassword) info.lanSet = true; if (!stale(gen)) setRemote(body, info); };
   let wantOn = false; // 没设密码时拨了开关：记下想开，填好密码点「保存」时一起开
   lanOn.onchange = async () => {
     const turnOn = lanOn.checked;
@@ -5623,11 +5649,14 @@ function setRemote(body, info) {
       toast((turnOn ? "已开启手机远程管理" : "已关闭手机远程管理") + effect(turnOn) + (b.lanPassword && info.lanSet ? "。新的访问密码已保存" : ""));
     } catch (e) { lanOn.checked = !turnOn; lanOn.disabled = false; toastErr(turnOn ? "无法开启手机远程管理" : "无法关闭手机远程管理", e); }
   };
-  // 保存密码：开关开着（或刚才因为没密码被拨回去）时一起开启，即「密码和开关一起保存」
+  // 保存密码：只发密码。只有刚才因为没密码被拨回去的那一下（wantOn）才连开关一起开，即「密码和开关一起保存」。
+  // 不拿页面上的开关状态一起发：另一个窗口刚关掉了远程管理，这一页没刷新、开关还显示开着，一改密码就会把它又打开
+  // （Codex 复审 v3.2.0 第二轮。后端 listenLan 不给就是不改）
   $("#lan-save").onclick = async () => {
     if (!lanPw.value) { pwErr(info.lanSet ? "输入新密码再保存" : "请先输入访问密码"); lanPw.focus(); return; }
-    const b = { listenLan: lanOn.checked || wantOn, lanPassword: lanPw.value };
-    const opening = b.listenLan && !on;
+    const b = { lanPassword: lanPw.value };
+    if (wantOn) b.listenLan = true;
+    const opening = wantOn && !on;
     try {
       await api("/api/config", { method: "PUT", body: b });
       saved(b);
@@ -5876,9 +5905,11 @@ function drawAI(body, v, gen) {
         <input type="number" id="cp-out" min="0" step="any" placeholder="输出" aria-label="输出单价"${dis}>
         <input type="number" id="cp-cache" min="0" step="any" placeholder="缓存（选填）" aria-label="缓存命中单价"${dis}>
         <button class="btn" id="cp-add"${dis}>${icon("plus")} 添加</button></div>`, after: `<div class="field-err ri-err" id="cp-err"></div>` });
+    // 自填单价按条增删（按模型名）：不再把这一页上的整张表发回去——两个本机页面同时开着时，另一边刚加的那条这一页没有，
+    // 整张发就把它删了（Codex 复审 v3.2.0 第二轮）。回来的是整份设置，列表按它重画，另一边加的也就显示出来了
     $("#ai-prices").querySelectorAll("[data-del-price]").forEach(b => b.onclick = () => {
-      const list = (v.customPrices || []).filter((_, i) => i !== +b.dataset.delPrice);
-      savePrices(list, "已删除这条自填单价");
+      const c = (v.customPrices || [])[+b.dataset.delPrice];
+      if (c) savePrices({ removePrices: [c.model] }, "已删除这条自填单价");
     });
     $("#cp-add").onclick = () => {
       const model = $("#cp-model").value.trim(), inp = $("#cp-in").value, out = $("#cp-out").value, cache = $("#cp-cache").value;
@@ -5890,11 +5921,11 @@ function drawAI(body, v, gen) {
       err("");
       const item = { model, currency: $("#cp-cur").value, input: +inp, output: +out };
       if (cache !== "") item.cacheRead = +cache;
-      savePrices([...(v.customPrices || []).filter(c => c.model !== model), item], "已添加自填单价");
+      savePrices({ addPrices: [item] }, "已添加自填单价"); // 同一个模型已经有的，后端换成这一份
     };
   };
-  const savePrices = async (list, msg) => {
-    try { v = await api("/api/ai/prices", { method: "PUT", body: { prices: list } }); toast(msg); }
+  const savePrices = async (change, msg) => {
+    try { v = await api("/api/ai/prices", { method: "PUT", body: change }); toast(msg); }
     catch (e) { toastErr("无法保存自填单价", e); return; }
     if (!stale(gen)) paintPrices();
   };
@@ -5943,7 +5974,18 @@ function drawAI(body, v, gen) {
         if (!r) return false;
         b.key = "";
       }
-      v = await api("/api/ai/provider", { method: "PUT", body: b });
+      // 带上这一页拿到的设置版本：另一个窗口这期间存过 AI 设置的，后端整次不改、回 409。这一页的几项互相牵连
+      // （换了服务商或网站，Key 要清掉；地址跟着服务商），只发改过的项会把这一页的地址配上另一边刚存的服务商和 Key，
+      // 所以这里不合并，拦下来请人重新读取（Codex 复审 v3.2.0 第二轮）。清除 Key、停用 AI 是明说的动作，不带版本
+      if (saved.rev) b.rev = saved.rev;
+      try { v = await api("/api/ai/provider", { method: "PUT", body: b }); }
+      catch (e) {
+        if (e.status !== 409) throw e;
+        const again = await confirmModal({ title: "AI 设置在别的窗口改过了", icon: "refresh", okText: "重新读取",
+          body: "这一页显示的还是打开时的设置，这次没有保存。重新读取最新的设置以后再改（这一页没保存的改动会丢掉）。" });
+        if (again && !stale(gen)) { dirtyCheck = null; navigate(); }
+        return false;
+      }
       // 请求途中又改的不动、也不算已保存（Codex 复审 beta.3）：Key 框和地址框只在还是发出去的那份时才按存好的改写
       const mid = readForm();
       if (f.key.value.trim() === (b.key || "")) f.key.value = ""; // 存好后清空（只填了空白也一样，什么都不存）

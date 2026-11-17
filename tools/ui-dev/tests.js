@@ -207,8 +207,9 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.waitForFunction(() => [...document.querySelectorAll(".toast")].some(t => t.textContent.includes("定时任务已保存")));
     });
     await settle(200);
-    const sent = (lastPut(since, "/policies") || {}).schedules || [];
-    assert(sent.some(s => s.at === "05:00") && !sent.some(s => s.at === "06:30"), "发出去的应只有点保存时的那几条：" + JSON.stringify(sent));
+    // 只发这一页加了的（按条加，不再整张表发过去，见下面两个窗口的那条用例）
+    const body = lastPut(since, "/policies") || {}, sent = body.addSchedules || [];
+    assert(sent.some(s => s.at === "05:00") && !sent.some(s => s.at === "06:30") && !("schedules" in body), "发出去的应只有点保存时加的那条：" + JSON.stringify(body));
     const v = await page.evaluate(() => ({ bar: $(".sb-text").textContent, off: $('[data-sb="save"]').disabled,
       drafts: [...document.querySelectorAll("#sched-list .java-row.draft")].map(r => r.textContent.replace(/\s+/g, " ").trim()),
       saved: [...document.querySelectorAll("#sched-list .java-row:not(.draft)")].map(r => r.textContent.replace(/\s+/g, " ").trim()) }));
@@ -1214,12 +1215,13 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.fill("#cp-out", "150");
       t0 = reqs.length;
       await page.click("#cp-add"); await settle(300);
+      // 按条增删（不再整张表发回去，见下面两个窗口的那条用例）
       const pb = putBody(t0, "/api/ai/prices");
-      assert(pb && JSON.stringify(pb.prices) === JSON.stringify([{ model: "claude-opus-5-5", currency: "CNY", input: 30, output: 150 }]), "自填单价：" + JSON.stringify(pb));
+      assert(pb && JSON.stringify(pb) === JSON.stringify({ addPrices: [{ model: "claude-opus-5-5", currency: "CNY", input: 30, output: 150 }] }), "自填单价：" + JSON.stringify(pb));
       assert((await page.textContent("#ai-model-price")).startsWith("自填：输入 ¥30 · 输出 ¥150"), "自填的应优先：" + await page.textContent("#ai-model-price"));
       t0 = reqs.length;
       await page.click('[data-del-price="0"]'); await settle(300);
-      assert((putBody(t0, "/api/ai/prices") || {}).prices.length === 0 && !(await page.$("[data-del-price]")), "删除自填单价");
+      assert(JSON.stringify(putBody(t0, "/api/ai/prices")) === JSON.stringify({ removePrices: ["claude-opus-5-5"] }) && !(await page.$("[data-del-price]")), "删除自填单价");
       assert((await page.textContent("#ai-model-price")).startsWith("公开价格"), "删掉后回到公开价格");
       // 只配了 Ollama：不花钱，不取价格，不用 Key
       await aiState({ preset: "ollama", protocol: "openai", baseUrl: "http://localhost:11434/v1/", model: "qwen3:8b", key: "" });
@@ -1977,7 +1979,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(!(await page.$("#gc-wl-warn")), "还没授权时不提醒");
       const t0 = reqs.length;
       await page.click('[data-allow="Notch_CN"]'); await settle(400);
-      assert(JSON.stringify(gcPuts(t0).pop()) === JSON.stringify({ allowed: ["Notch_CN"] }), "授权应即时发 PUT：" + JSON.stringify(gcPuts(t0)));
+      // 按名字一个一个发（不再整张名单发回去，见下面两个窗口的那条用例）
+      assert(JSON.stringify(gcPuts(t0).pop()) === JSON.stringify({ addAllowed: ["Notch_CN"] }), "授权应即时发 PUT：" + JSON.stringify(gcPuts(t0)));
       const warn = await page.textContent("#gc-wl-warn");
       assert(warn.includes("没有开启白名单") && warn.includes("Notch_CN 的名字进服"), "没开白名单应提醒：" + warn);
       await page.click("#gc-wl"); await page.waitForSelector(".modal");
@@ -1993,7 +1996,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(!(await page.$("#gc-wl-warn")) && await toastHas("已把 Notch_CN 加进白名单"), "开启后提醒消失");
       const t1 = reqs.length;
       await page.click('[data-allow="Notch_CN"]'); await settle(300);
-      assert(JSON.stringify(gcPuts(t1).pop()) === JSON.stringify({ allowed: [] }) && await toastHas("已收回 Notch_CN 的执行权限"), "收回授权");
+      assert(JSON.stringify(gcPuts(t1).pop()) === JSON.stringify({ removeAllowed: ["Notch_CN"] }) && await toastHas("已收回 Notch_CN 的执行权限"), "收回授权");
       await page.fill("#gc-add-name", "@a"); await page.press("#gc-add-name", "Enter"); await settle(200);
       assert((await page.textContent("#gc-add-err")).includes("@ 开头"), "以 @ 开头的名字应就近提示");
       await page.fill("#gc-add-name", "Bob_2"); await page.click("#gc-add"); await settle(400);
@@ -2195,8 +2198,9 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.fill("#cz-by", "320");
       t0 = reqs.length;
       await page.click('.modal [data-x="ok"]'); await settle(400);
+      // 按条增删（不再整张表发回去，见下面两个窗口的那条用例）：添加 = addZones，编辑 = 删掉原来的名字再加，删除 = removeZones
       const zone = { name: "base", dim: "minecraft:overworld", min: [-120, -64, -80], max: [-40, 320, 10] };
-      assert(JSON.stringify(cpPuts(t0)) === JSON.stringify([{ zones: [zone] }]) && !(await page.$(".modal")), "添加区域：" + JSON.stringify(cpPuts(t0)));
+      assert(JSON.stringify(cpPuts(t0)) === JSON.stringify([{ addZones: [zone] }]) && !(await page.$(".modal")), "添加区域：" + JSON.stringify(cpPuts(t0)));
       assert((await page.textContent('#cp-zones [data-zone="base"]')).includes("主世界 · (-120, -64, -80) → (-40, 320, 10)"), "区域行");
       // 编辑：改名、换成模组的维度
       await page.click('[data-zedit="base"]'); await page.waitForSelector(".modal");
@@ -2205,11 +2209,11 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.fill("#cz-dim-custom", "twilightforest:twilight_forest");
       t0 = reqs.length;
       await page.click('.modal [data-x="ok"]'); await settle(400);
-      assert(JSON.stringify(cpPuts(t0)) === JSON.stringify([{ zones: [{ ...zone, name: "home", dim: "twilightforest:twilight_forest" }] }]), "编辑区域：" + JSON.stringify(cpPuts(t0)));
+      assert(JSON.stringify(cpPuts(t0)) === JSON.stringify([{ removeZones: ["base"], addZones: [{ ...zone, name: "home", dim: "twilightforest:twilight_forest" }] }]), "编辑区域：" + JSON.stringify(cpPuts(t0)));
       t0 = reqs.length;
       await page.click('[data-zdel="home"]'); await page.waitForSelector(".modal");
       await page.click('.modal [data-x="ok"]'); await settle(400);
-      assert(JSON.stringify(cpPuts(t0)) === JSON.stringify([{ zones: [] }]) && (await page.textContent("#cp-zones")).includes("还没有禁挖区域"), "删除区域");
+      assert(JSON.stringify(cpPuts(t0)) === JSON.stringify([{ removeZones: ["home"] }]) && (await page.textContent("#cp-zones")).includes("还没有禁挖区域"), "删除区域");
     } finally { await resetCP(); }
   });
 
@@ -2621,7 +2625,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await page.unroute("**/api/tunnels", fail).catch(() => {}); await tunState({ tunnelsReset: true }); }
   });
 
-  await run("隧道：存着凭据的自定义 frps 有「清除凭据」，确认后带 clearCredential 整体提交、其余配置原样带回；服务商的隧道没有这个按钮", async () => {
+  await run("隧道：存着凭据的自定义 frps 有「清除凭据」，确认后只发 clearCredential、其余配置在后端原样留着；服务商的隧道没有这个按钮", async () => {
     const lastPut = () => page.evaluate(() => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data.lastTunnelPut));
     await tunState({ tunnelsReset: true });
     try {
@@ -2636,10 +2640,12 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click('[data-tclear="t2"]'); await settle(300);
       await page.click('.modal [data-x="ok"]'); await settle(300);
       assert(await toastHas("已清除「自建备用线」保存的凭据"), "清除后要提示");
+      // 修改接口只改传了的项：清除凭据只发这一项，别的配置不拿列表里的（可能是几秒前的）带回去（Codex 复审 v3.2.0 第二轮）
       const b = await lastPut();
-      assert(b && b.clearCredential === true && b.credential === "" && b.provider === "custom" && b.name === "自建备用线" &&
-        b.serverAddr === "frp.example.com" && b.serverPort === 7000 && b.remotePort === 25566 && b.localPort === 25565 &&
-        b.proto === "tcp" && b.purpose === "game" && b.autoStart === false && b.boundInstance === "", "请求体：" + JSON.stringify(b));
+      assert(JSON.stringify(b) === JSON.stringify({ clearCredential: true }), "请求体：" + JSON.stringify(b));
+      const t2 = await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data.tunnels.find(t => t.id === "t2")));
+      assert(t2 && t2.provider === "custom" && t2.name === "自建备用线" && t2.serverAddr === "frp.example.com" && t2.serverPort === 7000 && t2.remotePort === 25566 &&
+        t2.localPort === 25565 && t2.autoStart === false && !t2.hasCredential, "别的配置原样留着、凭据没了：" + JSON.stringify(t2));
       await page.waitForFunction(() => !document.querySelector('[data-tclear="t2"]'), null, { timeout: 2000 }).catch(() => {});
       assert(!(await page.$('[data-tclear="t2"]')), "清掉以后不再显示这个按钮");
       // 运行中不能改：后端的原因接在结论后面
@@ -3505,12 +3511,12 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       ps = lanPuts(t0);
       assert(ps.length === 1 && ps[0].listenLan === true && !("lanPassword" in ps[0]) && (await sw()), "有密码时应直接保存：" + JSON.stringify(ps));
       assert((await page.$("#lan-restart")) !== null, "开启后应提示重启");
-      // 只改密码
+      // 只改密码：只发密码，不带页面上的开关（另一个窗口刚关掉的话，带上就又打开了，Codex 复审 v3.2.0 第二轮）
       await page.fill("#lan-pw", "pw-654321");
       t0 = reqs.length;
       await page.press("#lan-pw", "Enter"); await settle(400);
       ps = lanPuts(t0);
-      assert(ps.length === 1 && ps[0].listenLan === true && ps[0].lanPassword === "pw-654321" && (await lastToast()) === "访问密码已保存", "回车保存密码：" + JSON.stringify(ps) + " " + await lastToast());
+      assert(ps.length === 1 && !("listenLan" in ps[0]) && ps[0].lanPassword === "pw-654321" && (await lastToast()) === "访问密码已保存" && (await sw()), "回车保存密码：" + JSON.stringify(ps) + " " + await lastToast());
       // 密码框为空时点保存：就地提示，不发请求
       t0 = reqs.length;
       await page.click("#lan-save"); await settle(200);
@@ -4472,9 +4478,9 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   }
 
   // ==================== beta.3 小修 ====================
-  // 隧道凭据短于 6 个字符时日志里含它的行会整行隐藏（tunnel.credMasker）：不拒绝（自定义 frps 的令牌本来可以很短），
-  // 添加时给一句提示。长度按 UTF-8 字节算，同后端；前后的空白不算；空着不提示
-  await run("beta.3 小修：添加隧道时凭据短于 6 个字符给一句提示，只提示、照样能添加", async () => {
+  // 隧道凭据不到 6 个字节时日志里含它的行会整行隐藏（tunnel.credMasker）：不拒绝（自定义 frps 的令牌本来可以很短），
+  // 添加时给一句提示。长度按 UTF-8 字节算，同后端；前后的空白不算；空着不提示。提示里也写「字节」（以前写成「字符」，Codex 复审 v3.2.0 第二轮）
+  await run("beta.3 小修：添加隧道时凭据不到 6 个字节给一句提示，只提示、照样能添加", async () => {
     await taState({ tunnelAccounts: { reset: true }, tunnelsReset: true });
     try {
       errors.length = 0;
@@ -4487,7 +4493,9 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         await page.fill("#tn-cred", val);
         assert(await shown() === want, `凭据「${val}」时提示应${want ? "出现" : "不出现"}`);
       }
-      assert((await page.textContent("#tn-cred-short")).includes("日志里含这串凭据的行会整行隐藏，排查问题会不方便，建议换一串更长的"), "提示的说法");
+      const shortText = await page.textContent("#tn-cred-short");
+      assert(shortText.includes("日志里含这串凭据的行会整行隐藏，排查问题会不方便，建议换一串更长的") && shortText.includes("6 个字节") && !shortText.includes("字符"),
+        "提示的说法（按字节算，不说「字符」）：" + shortText);
       // 只是提示：照样发出添加请求，凭据原样带上
       await page.fill("#tn-name", "短令牌"); await page.fill("#tn-saddr", "frp.example.com");
       const t0 = posts.length;
@@ -4962,7 +4970,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       } finally { await L2({ tunnelsReset: true }); }
     });
 
-    await run("beta.3 穿透与设置 R12：「编辑」只改名称、绑定的服务器和跟随启动，其余配置原样带回、凭据留空；指向网页端口、tunnels.json 没读出来、运行中时被拒，原因写在弹窗里、填的不丢", async () => {
+    await run("beta.3 穿透与设置 R12：「编辑」只改名称、绑定的服务器和跟随启动，只发改了的几项、其余配置在后端原样留着；指向网页端口、tunnels.json 没读出来、运行中时被拒，原因写在弹窗里、填的不丢", async () => {
+      const tunOf = id => L2({}).then(s => s.tunnels.find(t => t.id === id));
       await L2({ tunnels: JSON.parse(JSON.stringify(TUNS)) });
       try {
         await page.goto(url("#/tunnels")); await settle(700);
@@ -4976,18 +4985,22 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         await page.check("#tn-ed-auto");
         await page.click('#modal-root [data-x="ok"]'); await settle(500);
         assert(await toastHas("已保存「自建改名」的修改") && !(await page.$("#tn-ed-name")), "保存后关掉弹窗、提示");
+        // 只发改了的三项（修改接口只改传了的项，Codex 复审 v3.2.0 第二轮）；服务商、地址、端口、凭据在后端原样留着
         let b = await lastPut();
-        assert(b && b.name === "自建改名" && b.boundInstance === PACK0 && b.autoStart === true && b.credential === "" && !("clearCredential" in b) &&
-          b.provider === "custom" && b.serverAddr === "frp.example.com" && b.serverPort === 7000 && b.remotePort === 25566 && b.localPort === 25565 && b.proto === "tcp" && b.purpose === "game",
-          "请求体：" + JSON.stringify(b));
+        assert(b && JSON.stringify(b) === JSON.stringify({ name: "自建改名", boundInstance: PACK0, autoStart: true }), "请求体：" + JSON.stringify(b));
+        let t = await tunOf("t2");
+        assert(t.provider === "custom" && t.serverAddr === "frp.example.com" && t.serverPort === 7000 && t.remotePort === 25566 && t.localPort === 25565 &&
+          t.proto === "tcp" && t.purpose === "game" && t.hasCredential === true, "别的配置原样留着：" + JSON.stringify(t));
         await page.waitForFunction(() => (document.querySelector('[data-tun="t2"]') || {}).textContent?.includes("跟随「机械动力整合包」启动：开"), null, { timeout: 3000 }).catch(() => {});
         assert((await rowText("t2")).includes(`跟随「${PACK0}」启动：开`), "行上跟着变：" + await rowText("t2"));
-        // 平台隧道：上次的公网地址、隧道 ID 原样带回（不然一改就丢了「上次」的地址）
+        // 平台隧道：只关了跟随启动，就只发这一项；上次的公网地址、隧道 ID 在后端原样留着（不然一改就丢了「上次」的地址）
         await byName("button", "编辑 朋友联机").click(); await page.waitForSelector("#tn-ed-name");
         await page.uncheck("#tn-ed-auto");
         await page.press("#tn-ed-name", "Enter"); await settle(500);
         b = await lastPut();
-        assert(b.provider === "openfrp" && b.proxyId === "246810" && b.publicAddr === "cn-sz-bgp-1.openfrp.top:23456" && b.autoStart === false && b.credential === "" && b.name === "朋友联机", "平台隧道的请求体：" + JSON.stringify(b));
+        assert(JSON.stringify(b) === JSON.stringify({ autoStart: false }), "平台隧道的请求体：" + JSON.stringify(b));
+        t = await tunOf("t1");
+        assert(t.provider === "openfrp" && t.proxyId === "246810" && t.publicAddr === "cn-sz-bgp-1.openfrp.top:23456" && t.autoStart === false && t.name === "朋友联机", "平台隧道：" + JSON.stringify(t));
         // 绑着的服务器已经不在列表里（移出列表了）：下拉照样选着它、写明列表里没有，只改名字时绑定不被悄悄清掉
         await byName("button", "编辑 旧服的线").click(); await page.waitForSelector("#tn-ed-name");
         const sel = await page.$eval("#tn-ed-bound", s => ({ v: s.value, t: s.selectedOptions[0].textContent }));
@@ -4995,7 +5008,13 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         await page.fill("#tn-ed-name", "旧服的线 2");
         await page.click('#modal-root [data-x="ok"]'); await settle(500);
         b = await lastPut();
-        assert(b.name === "旧服的线 2" && b.boundInstance === "已经移出的服" && b.autoStart === true, "只改名字时绑定照旧：" + JSON.stringify(b));
+        t = await tunOf("t4");
+        assert(JSON.stringify(b) === JSON.stringify({ name: "旧服的线 2" }) && t.boundInstance === "已经移出的服" && t.autoStart === true, "只改名字时绑定照旧：" + JSON.stringify({ b, t }));
+        // 一样都没改就点保存：不发请求，直接关掉
+        const n0 = (await L2({})).lastTunnelPut;
+        await byName("button", "编辑 旧服的线 2").click(); await page.waitForSelector("#tn-ed-name");
+        await page.click('#modal-root [data-x="ok"]'); await settle(300);
+        assert(!(await page.$("#tn-ed-name")) && JSON.stringify((await L2({})).lastTunnelPut) === JSON.stringify(n0), "没改时不该发请求");
         // 指向 MineDeck 网页端口的自定义 frps（以前存下的）：只改名称也被拒，原因写在弹窗里，填的不丢
         await L2({ tunnel: { id: "t2", localPort: PORT } });
         await page.goto(url("#/tunnels")); await settle(700);
@@ -5021,6 +5040,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         await page.goto(url("#/tunnels")); await settle(700);
         await byName("button", "编辑 朋友联机").click(); await page.waitForSelector("#tn-ed-name");
         assert(await page.isVisible("#tn-ed-running"), "运行中要先写明");
+        await page.fill("#tn-ed-name", "运行中改名"); // 什么都不改不会发请求，改个名字才去后端碰「运行中不能改」
         await page.click('#modal-root [data-x="ok"]'); await settle(400);
         assert((await page.textContent("#tn-ed-err")).includes("请先停止隧道再修改"), "运行中：" + await page.textContent("#tn-ed-err"));
         await page.keyboard.press("Escape"); await settle(300);
@@ -7697,8 +7717,11 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
             assert(!draftPuts().length, "草稿读回来以前不该存：" + JSON.stringify(draftPuts()));
             assert(await page.isDisabled('#mp-src [data-src="instance"]'), "草稿读回来以前来源切换应锁着");
             releaseDraft(); await settle(700);
+            // 读回来以后只存人改过的那一格（后端只改传了的字段，没动过的版本号留着存好的 2.1.0）
             const put = draftPuts().pop();
-            assert(put && put.name === "改过的名字" && put.versionId === "2.1.0", "读回来以后存的应是合起来的那份：" + JSON.stringify(put));
+            const stored = (await tbState({})).toolbox.draft;
+            assert(put && JSON.stringify(put) === JSON.stringify({ name: "改过的名字" }) && stored.name === "改过的名字" && stored.versionId === "2.1.0",
+              "读回来以后只存改过的名称、版本号留着：" + JSON.stringify({ put, stored }));
             assert((await page.$eval("#mp-ver", e => e.value)) === "2.1.0" && (await page.$eval("#mp-name", e => e.value)) === "改过的名字", "没动过的版本号补上，改过的名称留着");
           } finally { releaseDraft(); await page.unroute("**/api/toolbox/mrpack/draft", holdDraft); }
           await page.fill("#mp-name", "好友周目整合包"); await settle(400);
@@ -7734,8 +7757,11 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
             assert((await page.$eval("#mp-name", e => e.value)) === "好友周目整合包" && (await page.$eval("#mp-ver", e => e.value)) === "2.1.0", "表单应换成存好的那份");
             assert(!reqs.slice(since).some(r => r.m === "PUT" && r.u === "/api/toolbox/mrpack/draft"), "重新读取本身不存（读失败期间改的作废）");
             await page.fill("#mp-summary", "读回来以后写的简介"); await settle(600);
+            // 只存改了的简介；名称还是存好的那个（读失败期间改的名字作废了，也没有被存进去）
             const put = reqs.slice(since).filter(r => r.m === "PUT" && r.u === "/api/toolbox/mrpack/draft").map(r => JSON.parse(r.b || "{}")).pop();
-            assert(put && put.name === "好友周目整合包" && put.summary === "读回来以后写的简介", "读回来以后应恢复自动保存：" + JSON.stringify(put));
+            const stored = (await tbState({})).toolbox.draft;
+            assert(put && JSON.stringify(put) === JSON.stringify({ summary: "读回来以后写的简介" }) && stored.name === "好友周目整合包" && stored.summary === "读回来以后写的简介",
+              "读回来以后应恢复自动保存：" + JSON.stringify({ put, stored }));
             await page.fill("#mp-summary", ""); await settle(500);
           }
           // 改完马上切到「从已有服务器导出」：排着的保存当场存掉，存的是草稿里的名字，不是切过去以后填上的服务器名（第三轮）
@@ -8000,6 +8026,254 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       put = await lastPut(pa);
       assert(put && JSON.stringify(put.pairs) === JSON.stringify([{ key, value: "只改这一项" }]), "全部配置只提交改过的：" + JSON.stringify(put));
     } finally { await c.close(); }
+  });
+
+  // ==================== 两个窗口同时开着同一处设置（Codex 复审 v3.2.0 第二轮列的十处，2026-11-17 修）====================
+  // 每条都是：两个页面打开同一处（电脑上的窗口 A、手机上早就开着的 B），A 改一样存下，B 拿着打开时的样子改另一样存下。
+  // B 发出去的只有自己改的那一样，或者按条增删，A 刚存的不被改回去；AI 服务商几项互相牵连，B 存的时候被拦下、请它重新读取。
+  // 两个页面各自的 PUT 请求体用 twoWin 记下来；后端最后的样子从仿真后端读
+  const twoWin = async (hash, ready, fn) => {
+    const c = await hostCtx({ host: false });
+    try {
+      const pa = await c.newPage(), pb = await c.newPage(), puts = { a: [], b: [] };
+      for (const [p, k] of [[pa, "a"], [pb, "b"]]) {
+        p.on("pageerror", e => errors.push(pageErr(e)));
+        p.on("request", r => { if (r.method() === "PUT") puts[k].push({ u: decodeURIComponent(new URL(r.url()).pathname), b: JSON.parse(r.postData() || "{}") }); });
+        await p.goto(ORIGIN + hash); await p.waitForSelector(ready); await p.waitForTimeout(400);
+      }
+      const last = (k, suffix) => { const x = puts[k].filter(r => r.u.endsWith(suffix)).pop(); return x ? x.b : null; };
+      await fn(pa, pb, last);
+    } finally { await c.close(); }
+  };
+  const mockSet = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
+  const apiGet = path => page.evaluate(p => fetch(p, { headers: { "X-Token": "mock" } }).then(r => r.json()).then(j => j.data), path);
+  const toastIn = (p, s, timeout = 3000) => p.waitForFunction(x => [...document.querySelectorAll(".toast")].some(t => t.textContent.includes(x)), s, { timeout }).then(() => true, () => false);
+  const saveIn = async p => {
+    await p.click('.save-bar.sticky [data-sb="save"]');
+    await p.waitForFunction(() => !document.querySelector(".save-bar.sticky").classList.contains("dirty"), null, { timeout: 5000 });
+  };
+  const jstr = x => JSON.stringify(x);
+
+  await run("两个窗口：手机远程管理——一边刚关掉了远程管理，另一边（开关还显示开着）只改访问密码，只发密码、不会把它又打开", async () => {
+    await mockSet({ listenLan: true, lanSet: true });
+    try {
+      await twoWin("#/settings/remote", "#lan-on", async (pa, pb, last) => {
+        await pa.click("#lan-on"); await pa.waitForTimeout(400);
+        assert(jstr(last("a", "/api/config")) === jstr({ listenLan: false }), "A 关掉远程管理：" + jstr(last("a", "/api/config")));
+        assert(await pb.$eval("#lan-on", e => e.checked), "B 还没刷新，开关还显示开着");
+        await pb.fill("#lan-pw", "pw-two-win"); await pb.click("#lan-save");
+        assert(await toastIn(pb, "访问密码已保存"), "B 存密码要有提示");
+        assert(jstr(last("b", "/api/config")) === jstr({ lanPassword: "pw-two-win" }), "B 只发密码，不带页面上的开关：" + jstr(last("b", "/api/config")));
+        assert((await mockSet({})).config.listenLan === false, "远程管理还是关着的");
+      });
+    } finally { await mockSet({ listenLan: false, lanSet: false }); }
+  });
+
+  await run("两个窗口：启动与内存——一边改了 JVM 参数，另一边只改内存，只发内存（参数不发、也不回读），参数不被改回", async () => {
+    const PK = "机械动力整合包";
+    await mockSet({ instReset: true });
+    try {
+      await twoWin("#/inst/" + encodeURIComponent(PK) + "/jvm", "#jm-jvm", async (pa, pb, last) => {
+        await pa.fill("#jm-jvm", "-XX:+UseZGC");
+        await saveIn(pa);
+        const a = last("a", "/settings");
+        assert(a && a.xmxMb === 0 && jstr(a.extraJvm) === jstr(["-XX:+UseZGC"]), "A 只发参数（内存给 0 = 不改）：" + jstr(a));
+        await pb.$eval("#jm-mem", el => { el.value = String(+el.value - 1024); el.dispatchEvent(new Event("input", { bubbles: true })); });
+        const want = +(await pb.$eval("#jm-mem", el => el.value));
+        await saveIn(pb);
+        const b = last("b", "/settings");
+        assert(b && b.xmxMb === want && !("extraJvm" in b), "B 只发内存：" + jstr(b));
+        const i = (await mockSet({})).instances.find(x => x.name === PK);
+        assert(jstr(i.extraJvm) === jstr(["-XX:+UseZGC"]) && i.xmxMb === want, "两边改的都在：" + jstr({ jvm: i.extraJvm, xmx: i.xmxMb }));
+        assert((await pb.inputValue("#jm-jvm")) === "-XX:+UseG1GC", "只改内存时不回读，B 没动的参数框不被换掉：" + await pb.inputValue("#jm-jvm"));
+      });
+    } finally { await mockSet({ instReset: true }); }
+  });
+
+  await run("两个窗口：定时任务——一边加了一条，另一边（表还是旧的）删一条、加一条、关掉崩溃重启，只按条发，一边加的那条还在", async () => {
+    const SV = "生存服 · 朋友";
+    await mockSet({ instReset: true });
+    try {
+      await twoWin("#/inst/" + encodeURIComponent(SV) + "/tasks", "#sched-list .java-row", async (pa, pb, last) => {
+        await pa.selectOption("#sc-type", "backup"); await pa.fill("#sc-at", "05:00"); await pa.click("#sc-add");
+        await saveIn(pa);
+        assert(jstr(last("a", "/policies")) === jstr({ addSchedules: [{ type: "backup", at: "05:00", args: "" }] }), "A 只发加的那条：" + jstr(last("a", "/policies")));
+        // B 打开得早，表里没有 05:00 那条：关掉崩溃重启、删掉 04:00 的定时重启、加一条定时命令
+        await pb.click("#pol-crash");
+        await pb.click('#sched-list [data-i="0"]');
+        await pb.selectOption("#sc-type", "command"); await pb.fill("#sc-at", "21:30"); await pb.fill("#sc-args", "say 晚安"); await pb.click("#sc-add");
+        await saveIn(pb);
+        const b = last("b", "/policies");
+        assert(b && b.crashRestart === false && !("schedules" in b) && jstr(b.removeSchedules) === jstr([{ type: "restart", at: "04:00", args: "" }]) &&
+          jstr(b.addSchedules) === jstr([{ type: "command", at: "21:30", args: "say 晚安" }]), "B 只按条发：" + jstr(b));
+        const pol = await apiGet("/api/instances/" + encodeURIComponent(SV) + "/policies");
+        const keys = pol.schedules.map(s => s.type + " " + s.at).sort();
+        assert(pol.crashRestart === false && jstr(keys) === jstr(["backup 05:00", "command 20:00", "command 21:30"]), "A 加的还在、B 删的删了：" + jstr(pol));
+        await pb.reload(); await pb.waitForSelector("#sched-list .java-row"); await pb.waitForTimeout(300);
+        assert((await pb.$$eval("#sched-list .java-row", r => r.length)) === 3, "B 刷新以后看得到三条");
+      });
+    } finally { await mockSet({ instReset: true }); }
+  });
+
+  await run("两个窗口：AI 服务商——一边存了新模型，另一边（还是旧设置）再存时被拦下、请它重新读取；读回来是另一边存的，再存就能存", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-two-win" });
+    try {
+      await twoWin("#/settings/ai", "#ai-model", async (pa, pb, last) => {
+        await pa.fill("#ai-model", "deepseek-v4-pro");
+        await saveIn(pa);
+        const a = last("a", "/api/ai/provider");
+        assert(a && a.model === "deepseek-v4-pro" && typeof a.rev === "string" && a.rev.length > 0, "A 带着设置的版本存：" + jstr(a));
+        await pb.fill("#ai-model", "deepseek-reasoner");
+        await pb.click('.save-bar.sticky [data-sb="save"]');
+        await pb.waitForSelector(".modal");
+        const m = await pb.textContent(".modal");
+        assert(m.includes("AI 设置在别的窗口改过了") && m.includes("这次没有保存"), "B 被拦下要说清：" + m);
+        assert(last("b", "/api/ai/provider").rev === a.rev, "B 带的是打开时的版本：" + jstr(last("b", "/api/ai/provider")));
+        assert((await mockSet({})).ai.model === "deepseek-v4-pro", "A 存的模型没被改回");
+        await pb.click('.modal [data-x="ok"]'); await pb.waitForTimeout(800);
+        assert((await pb.inputValue("#ai-model")) === "deepseek-v4-pro", "重新读取以后是 A 存的：" + await pb.inputValue("#ai-model"));
+        await pb.fill("#ai-model", "deepseek-reasoner");
+        await saveIn(pb);
+        assert((await mockSet({})).ai.model === "deepseek-reasoner", "读回来以后再存就能存");
+      });
+    } finally { await aiState({ reset: true }); }
+  });
+
+  await run("两个窗口：AI 自填单价——一边加了一条，另一边（表还是旧的）删掉另一条，只按条发，一边加的那条还在", async () => {
+    await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-two-win", prices: [{ model: "old-model", currency: "CNY", input: 1, output: 2 }] });
+    try {
+      await twoWin("#/settings/ai", "#cp-add", async (pa, pb, last) => {
+        await pa.fill("#cp-model", "new-model"); await pa.fill("#cp-in", "3"); await pa.fill("#cp-out", "4");
+        await pa.click("#cp-add");
+        assert(await toastIn(pa, "已添加自填单价"), "A 加上");
+        assert(jstr(last("a", "/api/ai/prices")) === jstr({ addPrices: [{ model: "new-model", currency: "CNY", input: 3, output: 4 }] }), "A 只发加的那条：" + jstr(last("a", "/api/ai/prices")));
+        await pb.click('[data-del-price="0"]');
+        assert(await toastIn(pb, "已删除这条自填单价"), "B 删掉");
+        assert(jstr(last("b", "/api/ai/prices")) === jstr({ removePrices: ["old-model"] }), "B 只发删的那条：" + jstr(last("b", "/api/ai/prices")));
+        assert(jstr((await mockSet({})).ai.prices.map(c => c.model)) === jstr(["new-model"]), "A 加的还在：" + jstr((await mockSet({})).ai.prices));
+        assert((await pb.textContent("#ai-prices")).includes("new-model"), "B 按回来的整份设置重画，看得到 A 加的");
+      });
+    } finally { await aiState({ reset: true }); }
+  });
+
+  await run("两个窗口：隧道的编辑和清除凭据——只发改了的几项，另一边刚改的绑定和跟随启动不被弹窗里的旧值改回", async () => {
+    await mockSet({ tunnelsReset: true });
+    try {
+      await twoWin("#/tunnels", "#tun-list [data-tun]", async (pa, pb, last) => {
+        // B 先打开 t2 的编辑弹窗（照这一刻的列表填），A 再把 t2 绑上服务器、打开跟随启动
+        await pb.click('[data-tedit="t2"]'); await pb.waitForSelector("#tn-ed-name");
+        await pa.click('[data-tedit="t2"]'); await pa.waitForSelector("#tn-ed-name");
+        await pa.selectOption("#tn-ed-bound", "机械动力整合包"); await pa.check("#tn-ed-auto");
+        await pa.click('#modal-root [data-x="ok"]');
+        assert(await toastIn(pa, "的修改"), "A 存下");
+        assert(jstr(last("a", "/api/tunnels/t2")) === jstr({ boundInstance: "机械动力整合包", autoStart: true }), "A 只发改了的两项：" + jstr(last("a", "/api/tunnels/t2")));
+        await pb.fill("#tn-ed-name", "B 改的名字");
+        await pb.click('#modal-root [data-x="ok"]');
+        assert(await toastIn(pb, "已保存「B 改的名字」的修改"), "B 存下");
+        assert(jstr(last("b", "/api/tunnels/t2")) === jstr({ name: "B 改的名字" }), "B 只发名字：" + jstr(last("b", "/api/tunnels/t2")));
+        let t2 = (await mockSet({})).tunnels.find(t => t.id === "t2");
+        assert(t2.name === "B 改的名字" && t2.boundInstance === "机械动力整合包" && t2.autoStart === true && t2.hasCredential === true, "两边改的都在：" + jstr(t2));
+        // 清除凭据：只发 clearCredential
+        await pb.click('[data-tclear="t2"]'); await pb.waitForSelector(".modal");
+        await pb.click('.modal [data-x="ok"]');
+        assert(await toastIn(pb, "保存的凭据"), "B 清掉凭据");
+        assert(jstr(last("b", "/api/tunnels/t2")) === jstr({ clearCredential: true }), "清除凭据只发这一项：" + jstr(last("b", "/api/tunnels/t2")));
+        t2 = (await mockSet({})).tunnels.find(t => t.id === "t2");
+        assert(!t2.hasCredential && t2.name === "B 改的名字" && t2.boundInstance === "机械动力整合包" && t2.autoStart === true, "清凭据不动别的：" + jstr(t2));
+      });
+    } finally { await mockSet({ tunnelsReset: true }); }
+  });
+
+  await run("两个窗口：伙伴禁挖区域——按条增删；一边加的区域，另一边删别的不会把它删掉；另一边弹窗里没看到的重名由后端拦下；编辑是删掉原名再加", async () => {
+    const zone = (name, x) => ({ name, dim: "minecraft:overworld", min: [x, -64, 0], max: [x + 10, 320, 10] });
+    const zoneNames = async () => (await apiGet("/api/instances/" + encodeURIComponent(PACK) + "/companion")).settings.zones.map(z => z.name);
+    await cpState({ cp: { reset: true, inst: { [PACK]: { mods: CP_INSTALLED, settings: { enabled: true, exists: true, zones: [zone("base", 0)] } } } } });
+    try {
+      await twoWin("#/inst/" + encodeURIComponent(PACK) + "/companion", "#cp-zone-add", async (pa, pb, last) => {
+        const fillZone = async (p, name, x) => {
+          await p.fill("#cz-name", name);
+          for (const [k, val] of [["ax", x], ["ay", -64], ["az", 0], ["bx", x + 10], ["by", 320], ["bz", 10]]) await p.fill("#cz-" + k, String(val));
+          await p.click('.modal [data-x="ok"]');
+        };
+        // B 先打开「添加」弹窗（重名检查只看这一刻的列表），A 加上 farm
+        await pb.click("#cp-zone-add"); await pb.waitForSelector("#cz-name");
+        await pa.click("#cp-zone-add"); await pa.waitForSelector("#cz-name");
+        await fillZone(pa, "farm", 100);
+        assert(await toastIn(pa, "已添加禁挖区域「farm」"), "A 加上 farm");
+        assert(jstr(last("a", "/companion/settings")) === jstr({ addZones: [zone("farm", 100)] }), "A 只发加的：" + jstr(last("a", "/companion/settings")));
+        // B 加 Farm（大写）：弹窗放行（这一页没看到 farm），后端不分大小写拦下，什么都不改
+        await fillZone(pb, "Farm", 200);
+        assert(await toastIn(pb, "已经有一个叫「Farm」的禁挖区域了"), "重名由后端拦下");
+        assert(jstr(await zoneNames()) === jstr(["base", "farm"]), "被拦下时什么都没改：" + jstr(await zoneNames()));
+        // B 删 base：只发删的，A 加的 farm 还在
+        await pb.click('[data-zdel="base"]'); await pb.waitForSelector(".modal");
+        await pb.click('.modal [data-x="ok"]');
+        assert(await toastIn(pb, "已删除区域「base」"), "B 删掉 base");
+        assert(jstr(last("b", "/companion/settings")) === jstr({ removeZones: ["base"] }), "B 只发删的：" + jstr(last("b", "/companion/settings")));
+        assert(jstr(await zoneNames()) === jstr(["farm"]), "A 加的 farm 还在：" + jstr(await zoneNames()));
+        // 编辑（B 的列表按回来的整份重画了）：farm 改名 orchard = 删掉 farm、加上 orchard
+        await pb.click('[data-zedit="farm"]'); await pb.waitForSelector("#cz-name");
+        await pb.fill("#cz-name", "orchard"); await pb.click('.modal [data-x="ok"]');
+        assert(await toastIn(pb, "已保存区域「orchard」"), "B 改名");
+        assert(jstr(last("b", "/companion/settings")) === jstr({ removeZones: ["farm"], addZones: [zone("orchard", 100)] }), "编辑：" + jstr(last("b", "/companion/settings")));
+        assert(jstr(await zoneNames()) === jstr(["orchard"]), "改名以后：" + jstr(await zoneNames()));
+      });
+    } finally { await resetCP(); }
+  });
+
+  await run("两个窗口：游戏内 AI 的执行权限名单——一边收回了谁，另一边（名单还是旧的）给别人授权，只按名字发，收回的人不会被授权回来", async () => {
+    const SV = "生存服 · 朋友";
+    await gcState({ ...gcReady, gc: { reset: true, inst: { [SV]: { settings: { allowed: ["Alex", "Steve"] } } } } });
+    try {
+      await twoWin("#/inst/" + encodeURIComponent(SV) + "/gameai", '[data-allow="Steve"]', async (pa, pb, last) => {
+        await pa.click('[data-allow="Steve"]');
+        assert(await toastIn(pa, "已收回 Steve 的执行权限"), "A 收回 Steve");
+        assert(jstr(last("a", "/gameai")) === jstr({ removeAllowed: ["Steve"] }), "A 只发收回的：" + jstr(last("a", "/gameai")));
+        await pb.fill("#gc-add-name", "Bob_2"); await pb.click("#gc-add");
+        assert(await toastIn(pb, "已允许 Bob_2 让 AI 执行命令"), "B 授权 Bob_2");
+        assert(jstr(last("b", "/gameai")) === jstr({ addAllowed: ["Bob_2"] }), "B 只发授权的：" + jstr(last("b", "/gameai")));
+        const allowed = (await apiGet("/api/instances/" + encodeURIComponent(SV) + "/gameai")).settings.allowed;
+        assert(jstr(allowed) === jstr(["Alex", "Bob_2"]), "Steve 没被授权回来：" + jstr(allowed));
+      });
+    } finally { await resetGC(); }
+  });
+
+  await run("两个窗口：工具箱「导出 Modrinth 整合包」的草稿——自动保存只发改了的字段，一边改的名称、另一边改的简介都在", async () => {
+    await mockSet({ toolbox: { reset: true }, modCart: { reset: true }, local: true });
+    try {
+      await twoWin("#/toolbox/mrpack-export", "#mp-name", async (pa, pb, last) => {
+        await pa.fill("#mp-name", "A 改的名字"); await pa.waitForTimeout(700);
+        assert(jstr(last("a", "/api/toolbox/mrpack/draft")) === jstr({ name: "A 改的名字" }), "A 只发名称：" + jstr(last("a", "/api/toolbox/mrpack/draft")));
+        await pb.fill("#mp-summary", "B 写的简介"); await pb.waitForTimeout(700);
+        assert(jstr(last("b", "/api/toolbox/mrpack/draft")) === jstr({ summary: "B 写的简介" }), "B 只发简介，不带页面上旧的名称：" + jstr(last("b", "/api/toolbox/mrpack/draft")));
+        const d = (await mockSet({})).toolbox.draft;
+        assert(d.name === "A 改的名字" && d.summary === "B 写的简介" && d.versionId === "1.0.0", "两边改的都在：" + jstr(d));
+      });
+    } finally { await mockSet({ toolbox: { reset: true }, modCart: { reset: true }, local: true }); }
+  });
+
+  await run("设置 → 常用：原来文件里没有的项，同一页里填上存下、再清空存下，清空的那一下也发出去（以前提示已保存，文件里却还留着）", async () => {
+    const SV = "生存服 · 朋友";
+    // 让这台服务器的 server.properties 里没有 resource-pack 这一行
+    const strip = async route => {
+      if (route.request().method() !== "GET") return route.continue();
+      const resp = await route.fetch(), j = await resp.json();
+      j.data.pairs = j.data.pairs.filter(p => p.key !== "resource-pack");
+      await route.fulfill({ response: resp, json: j });
+    };
+    await page.route("**/properties", strip);
+    try {
+      await page.goto(url("#/inst/" + encodeURIComponent(SV) + "/common")); await settle();
+      const save = async () => { await page.click('.save-bar.sticky [data-sb="save"]'); await page.waitForFunction(() => !document.querySelector(".save-bar.sticky").classList.contains("dirty"), null, { timeout: 5000 }); };
+      let since = reqs.length;
+      await page.fill('[data-k="resource-pack"]', "https://example.com/pack.zip");
+      await save();
+      assert(jstr((lastPut(since, "/properties") || {}).pairs) === jstr([{ key: "resource-pack", value: "https://example.com/pack.zip" }]), "填上：" + jstr(lastPut(since, "/properties")));
+      since = reqs.length;
+      await page.fill('[data-k="resource-pack"]', "");
+      await save();
+      assert(jstr((lastPut(since, "/properties") || {}).pairs) === jstr([{ key: "resource-pack", value: "" }]), "清空的那一下也要发：" + jstr(lastPut(since, "/properties")));
+    } finally { await page.unroute("**/properties", strip); }
   });
 
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });

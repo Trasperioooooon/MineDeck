@@ -898,20 +898,42 @@ window.MDToolbox = (() => {
       if (saveTimer) clearTimeout(saveTimer);
       saveTimer = setTimeout(saveDraftNow, 260);
     }
+    // 自动保存只发和基线（上次读回来或存下的样子）不一样的字段，后端只改传了的字段。以前一改就整份发：
+    // 两个窗口同时开着工具箱时，一边刚改了名称，另一边（名称还是旧的）改一下简介，就把名称改回去了（Codex 复审 v3.2.0 第二轮）。
+    // 基线只在存成功以后更新、只更新发出去的那几项；没存上的下次照样会发
+    let draftBase = null;
+    const readDraftForm = () => ({
+      name: nameIn.value.trim(),
+      versionId: verIn.value.trim(),
+      summary: sumIn.value.trim(),
+      core: coreSel.value,
+      mc: mcIn.value.trim(),
+      loaderVersion: loaderIn.value.trim(),
+      includeConfig: !!incCfgEl.checked,
+    });
+    // 读回来的草稿算成基线：和 fillDraft 填表的规矩一样，这样没动过的格子和基线一样、不会发；
+    // 读回来以前人已经动过的格子（fillDraft 不替人改）和基线不一样，第一次自动保存就会存进去。
+    // 「带上 config」不在草稿表单里填（它是「从已有服务器导出」的选项），基线就按页面上现在的样子，人没拨过就不发
+    function draftBaseFrom(d) {
+      const f = readDraftForm(), s = v => String(v ?? "").trim();
+      if (d.name) f.name = s(d.name);
+      if (d.versionId) f.versionId = s(d.versionId);
+      if (d.summary != null) f.summary = s(d.summary);
+      if (d.core && ["fabric", "forge", "neoforge"].includes(d.core)) f.core = d.core;
+      if (d.mc) f.mc = s(d.mc);
+      if (d.loaderVersion != null) f.loaderVersion = s(d.loaderVersion);
+      return f;
+    }
     function saveDraftNow() {
       if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
-      api("/api/toolbox/mrpack/draft", {
-        method: "PUT",
-        body: {
-          name: nameIn.value.trim(),
-          versionId: verIn.value.trim(),
-          summary: sumIn.value.trim(),
-          core: coreSel.value,
-          mc: mcIn.value.trim(),
-          loaderVersion: loaderIn.value.trim(),
-          includeConfig: !!incCfgEl.checked,
-        },
-      }).catch(() => {});
+      if (!draftBase) return; // 草稿还没读回来（或读失败）：不存，见上面
+      const now = readDraftForm(), change = {};
+      for (const k of Object.keys(now)) if (now[k] !== draftBase[k]) change[k] = now[k];
+      if (!Object.keys(change).length) return;
+      const base = draftBase; // 「重新读取」会换一份新的基线：那以后才回来的旧请求不改新基线
+      api("/api/toolbox/mrpack/draft", { method: "PUT", body: change })
+        .then(() => { Object.assign(base, change); })
+        .catch(() => {});
     }
 
     function mountDraftCart() {
@@ -1169,6 +1191,7 @@ window.MDToolbox = (() => {
         if (stale(gen)) return;
         srcBtns.forEach(b => { b.disabled = false; });
         fillDraft(d, true);
+        draftBase = draftBaseFrom(d); // 表单整份换成了存好的：基线也换成它
         savePending = false; // 读失败期间排着的那次保存作废：表单已经换成存好的了
         draftReady = true;
         paintDraftErr(null);
@@ -1193,6 +1216,7 @@ window.MDToolbox = (() => {
       if (draftErr) paintDraftErr(draftErr);
       else {
         fillDraft(draft, false);
+        draftBase = draftBaseFrom(draft || {});
         draftReady = true;
         if (savePending) { savePending = false; scheduleSaveDraft(); }
       }
