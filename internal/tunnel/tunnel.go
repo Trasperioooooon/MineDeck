@@ -545,11 +545,110 @@ type UpdateOpts struct {
 	ClearCredential bool
 }
 
+// Patch 修改隧道时只带要改的项：nil 表示不改，沿用存着的那份。
+// 两个窗口同时开着同一条隧道时，以前「编辑」把整份配置带回去，后存的一边就把另一边刚存的改动（比如刚打开的跟随启动）
+// 改回原样；现在界面只发自己改了的项（2026-11-17）。
+// 没有公网地址：那是运行中从 frpc 的输出里记下的，不是配置，修改时始终留着存着的那个。
+type Patch struct {
+	Provider   *string `json:"provider"`
+	Name       *string `json:"name"`
+	Credential *string `json:"credential"` // 不给或留空表示不改（列表接口不回显凭据）
+	ProxyID    *string `json:"proxyId"`
+	ServerAddr *string `json:"serverAddr"`
+	ServerPort *int    `json:"serverPort"`
+	RemotePort *int    `json:"remotePort"`
+	LocalPort  *int    `json:"localPort"`
+	Bound      *string `json:"boundInstance"`
+	AutoStart  *bool   `json:"autoStart"`
+	Purpose    *string `json:"purpose"`
+	Proto      *string `json:"proto"`
+}
+
+// mergeInto 把给了的项合到 t（存着的那份的副本）上。凭据换成这次填的明文（没填是空，表示沿用），
+// 和 UpdateOpt 收到的整份配置一个样子，后面的检查才能共用。
+func (p Patch) mergeInto(t Tunnel, cred string) Tunnel {
+	set := func(dst, v *string) {
+		if v != nil {
+			*dst = *v
+		}
+	}
+	setInt := func(dst, v *int) {
+		if v != nil {
+			*dst = *v
+		}
+	}
+	set(&t.Provider, p.Provider)
+	set(&t.Name, p.Name)
+	set(&t.ProxyID, p.ProxyID)
+	set(&t.ServerAddr, p.ServerAddr)
+	setInt(&t.ServerPort, p.ServerPort)
+	setInt(&t.RemotePort, p.RemotePort)
+	setInt(&t.LocalPort, p.LocalPort)
+	set(&t.Bound, p.Bound)
+	if p.AutoStart != nil {
+		t.AutoStart = *p.AutoStart
+	}
+	set(&t.Purpose, p.Purpose)
+	set(&t.Proto, p.Proto)
+	t.Credential = cred
+	return t
+}
+
 // Update 更新隧道配置（运行中不可改）。凭据留空表示不改。
 func (m *Manager) Update(id string, t Tunnel) error { return m.UpdateOpt(id, t, UpdateOpts{}) }
 
-// UpdateOpt 同 Update，另带附加要求（比如清除凭据）。
+// UpdateOpt 同 Update，另带附加要求（比如清除凭据）。整份替换：没带的项按零值存（公网地址也取 t 里的）。
+// 界面和操作层现在走 PatchOpt；这里留给整份替换的调用方，检查和写盘与 PatchOpt 共用 checkEdit、replaceLocked。
 func (m *Manager) UpdateOpt(id string, t Tunnel, opt UpdateOpts) error {
+	// 整份配置在拿锁前就能查完：报错的先后和以前一样（填错了先报填错，再看隧道在不在、是不是在运行）
+	if err := checkEdit(&t, opt); err != nil {
+		return err
+	}
+	sealed, err := secret.Seal(t.Credential)
+	if err != nil {
+		return fmt.Errorf("凭据：%w", err)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.retryLoad(); err != nil { // 没读成时列表是空的，不能报成「隧道不存在」
+		return err
+	}
+	return m.replaceLocked(id, t, sealed, opt)
+}
+
+// PatchOpt 只改 p 里给了的项，其余沿用存着的配置（公网地址始终留着）；opt 同 UpdateOpt。
+// 合并在 m.mu 里做：拿锁以后再取存着的那份，两个窗口先后保存，后一个合在前一个存下的结果上，不会把它改回去。
+// 合好以后的检查和写盘和 UpdateOpt 是同一段（checkEdit、replaceLocked）。
+func (m *Manager) PatchOpt(id string, p Patch, opt UpdateOpts) error {
+	// 凭据在拿锁前加密（DPAPI 不快，不占着锁）。先去掉前后空白：UpdateOpt 那边是 validateKeep 修剪过以后才加密的
+	cred := ""
+	if p.Credential != nil {
+		cred = strings.TrimSpace(*p.Credential)
+	}
+	sealed, err := secret.Seal(cred)
+	if err != nil {
+		return fmt.Errorf("凭据：%w", err)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.retryLoad(); err != nil { // 没读成时列表是空的，不能报成「隧道不存在」
+		return err
+	}
+	old := m.get(id)
+	if old == nil {
+		return fmt.Errorf("隧道不存在")
+	}
+	t := p.mergeInto(*old, cred)
+	// 「清凭据只许自定义 frps」、validateKeep 这些要看合好以后的整份：只发 {clearCredential:true} 时，服务商是存着的那个
+	if err := checkEdit(&t, opt); err != nil {
+		return err
+	}
+	return m.replaceLocked(id, t, sealed, opt)
+}
+
+// checkEdit 修改隧道时对新的整份配置的检查（不看 Manager 的状态；顺手规范化 t：去空格、补默认的用途和协议）。
+// UpdateOpt 在拿锁前查，PatchOpt 合好以后在锁里查。
+func checkEdit(t *Tunnel, opt UpdateOpts) error {
 	if opt.ClearCredential {
 		// 先于 validate 查：服务商的隧道凭据留空时 validate 只会说「请填写凭据」，说不清为什么不能清
 		if t.Provider != "custom" {
@@ -563,18 +662,12 @@ func (m *Manager) UpdateOpt(id string, t Tunnel, opt UpdateOpts) error {
 	// OpenFrp、樱花穿透启动时必须带凭据，validate 本来要求填：这里先按「沿用存着的那份」查其余各项，
 	// 存着的那份有没有、能不能带过去，拿锁找到旧配置以后再查（以前这两家的隧道只要不重填凭据，什么都改不了）
 	keep := !opt.ClearCredential && strings.TrimSpace(t.Credential) == ""
-	if err := validateKeep(&t, keep); err != nil {
-		return err
-	}
-	sealed, err := secret.Seal(t.Credential)
-	if err != nil {
-		return fmt.Errorf("凭据：%w", err)
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if err := m.retryLoad(); err != nil { // 没读成时列表是空的，不能报成「隧道不存在」
-		return err
-	}
+	return validateKeep(t, keep)
+}
+
+// replaceLocked 用查过的整份配置 t 换掉存着的那份，调用方持有 m.mu、已经 retryLoad 过。sealed 是这次填的凭据的密文
+// （没填是空）。网页端口、运行中、正在启动、凭据能不能沿用这几道在这里查，写不进磁盘就退回。
+func (m *Manager) replaceLocked(id string, t Tunnel, sealed string, opt UpdateOpts) error {
 	if err := checkGuardPort(&t, m.guardPort); err != nil {
 		return err
 	}
