@@ -194,8 +194,12 @@ func (s *Service) SetSettings(name string, p SettingsPatch) (*View, error) {
 	if _, err := p.Patch.Check(); err != nil {
 		return nil, &Error{Code: 400, Err: err}
 	}
-	if p.MaxCompanions != nil || p.AttackDeny != nil || p.DenyDefault || p.Zones != nil {
+	if p.MaxCompanions != nil || p.AttackDeny != nil || p.DenyDefault || p.EditsZones() {
 		if _, err := Update(info.Dir, p.Patch); err != nil {
+			// 要加的区域和现有的重名、合完超过上限：是这次的改动不对（400，原话给人看），不是写文件失败
+			if ce := (*Error)(nil); errors.As(err, &ce) {
+				return nil, ce
+			}
 			return nil, &Error{Code: 500, Err: fmt.Errorf("写伙伴模组的配置失败：%w", err)}
 		}
 		s.mu.Lock()
