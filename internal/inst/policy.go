@@ -100,7 +100,8 @@ func sameSchedule(r, s Schedule) bool {
 // 预览和真正保存用的都是它，预览里看到的就是存进去的。只检查这次传进来的任务，存着的老任务原样保留
 // （手改过的、没补零的都不动，免得一条老数据挡住「只拨一下崩溃重启」）。
 func (p PolicyPatch) Apply(cur Policies) (Policies, error) {
-	out := Policies{CrashRestart: cur.CrashRestart, Schedules: slices.Clone(cur.Schedules)}
+	out := cur // 整份拷过来再改（以后 Policies 多了字段也带着），任务表另拷一份，不和 cur 共用
+	out.Schedules = slices.Clone(cur.Schedules)
 	if p.CrashRestart != nil {
 		out.CrashRestart = *p.CrashRestart
 	}

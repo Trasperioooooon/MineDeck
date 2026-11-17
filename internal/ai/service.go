@@ -765,6 +765,9 @@ func checkPrices(ps []CustomPrice) error {
 // PatchPrices 改自填单价（见 PricesPatch）。顺序：整张替换 → 按条删 → 按条加；合并、数条数、存盘在 s.mu 里一次做完，
 // 后到的那次合在先到的那次存好的结果上。出错（含写盘失败）不改。
 func (s *Service) PatchPrices(p PricesPatch) error {
+	if p.Prices == nil && len(p.Add) == 0 && len(p.Remove) == 0 {
+		return nil // 什么都没给：不改，也不重写设置文件
+	}
 	if p.Prices != nil {
 		if len(*p.Prices) > maxCustomPrices {
 			return errors.New("自填单价最多 100 条")
