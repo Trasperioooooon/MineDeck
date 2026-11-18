@@ -953,6 +953,9 @@ func TestUploadGuards(t *testing.T) {
 
 // 上传文件的清理：还有效的检测结果用着的文件，放得再久也不删；放弃了就删；程序启动时清空上传目录。
 func TestUploadCleanupFollowsScanLifetime(t *testing.T) {
+	old := diskFree
+	diskFree = func(string) (int64, error) { return 1 << 40, nil }
+	t.Cleanup(func() { diskFree = old })
 	e := newEnv(t, "")
 	zipPath := mkZip(t, map[string]string{"w/level.dat": rawNBT(8), "w/region/r.0.0.mca": "x"})
 	body, err := os.ReadFile(zipPath)
@@ -1443,6 +1446,9 @@ func (c *flipCtx) Err() error {
 // 检测到一半请求取消了：在两个世界之间停下，不把剩下的认完；没出结果的检测，上传的文件当场删掉。
 // 正在排队等名额的，请求取消了就不再等。
 func TestScanStopsWhenRequestIsCancelled(t *testing.T) {
+	old := diskFree
+	diskFree = func(string) (int64, error) { return 1 << 40, nil }
+	t.Cleanup(func() { diskFree = old })
 	e := newEnv(t, "")
 	files := map[string]string{}
 	for i := 0; i < 50; i++ {
