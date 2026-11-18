@@ -150,7 +150,7 @@ func TestLog4jFlagsEras(t *testing.T) {
 }
 
 // 已经建好的 1.7 ~ 1.11.2 服务器：引用着 112-116 那份的换成 17-111；别的参数原样、位置不变；instance.json、run.bat 跟着换；
-// 旧文件不再被引用、服务器停着、内容还是官方那份时删掉。
+// 换下来的旧文件留着不删（用户自己的启动脚本可能还引用着它，见 log4j_migrate.go 开头）。
 func TestMigrateLog4j(t *testing.T) {
 	fetched := stubLog4jFetch(t, nil)
 	dir := t.TempDir()
@@ -178,11 +178,11 @@ func TestMigrateLog4j(t *testing.T) {
 	if !strings.Contains(bat, log4jXML17) || strings.Contains(bat, log4jXML) {
 		t.Fatalf("run.bat 要跟着换：\n%s", bat)
 	}
-	if _, err := os.Stat(filepath.Join(dir, log4jXML)); !os.IsNotExist(err) {
-		t.Fatalf("不再引用的旧文件应删掉：%v", err)
+	if _, err := os.Stat(filepath.Join(dir, log4jXML)); err != nil {
+		t.Fatalf("换下来的旧文件应留着：%v", err)
 	}
 	lines := strings.Join(i.Console.Lines(), "\n")
-	if !strings.Contains(lines, "换成了 Mojang 给 1.7 ~ 1.11.2 的日志配置") || !strings.Contains(lines, "删掉了不再用的 "+log4jXML) {
+	if !strings.Contains(lines, "换成了 Mojang 给 1.7 ~ 1.11.2 的日志配置") || strings.Contains(lines, "删掉") {
 		t.Fatalf("控制台：%s", lines)
 	}
 	if log4jStartNote(i) != "" {
@@ -247,7 +247,7 @@ func TestMigrateLog4jOffline(t *testing.T) {
 }
 
 // 不该换的不动：1.12 ~ 1.16.5 本来就该用 112-116；1.7 以前和判断不了版本的不动参数；代理端不管。
-// 旧文件只在换过的 1.7 ~ 1.11.2 上删，而且内容不是官方那份、或者原来的启动脚本还引用着时不删。
+// 旧文件一律留着：内容改过的、原来的启动脚本还引用着的、用户自己的 start.bat 引用着官方那份的（2026-11-18 Codex 复审的例子）。
 func TestMigrateLog4jLeavesOthers(t *testing.T) {
 	fetched := stubLog4jFetch(t, nil)
 	m := &Manager{insts: map[string]*Instance{}, creating: map[string]bool{}}
@@ -275,12 +275,17 @@ func TestMigrateLog4jLeavesOthers(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(referenced.Dir, runBatBackup), []byte("java -Dlog4j.configurationFile=LOG4J2_112-116.XML -jar server.jar\r\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// 接管来的 1.8.9 已经是新配置了，用户自己的 start.bat 还引用着官方那份旧文件：不删
+	ownScript := add("自己的脚本", mcsrc.CoreVanilla, "1.8.9", []string{log4jNoLookups, log4jConfig17})
+	if err := os.WriteFile(filepath.Join(ownScript.Dir, "start.bat"), []byte("java -Dlog4j.configurationFile=log4j2_112-116.xml -jar server.jar\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	m.MigrateLog4j(context.Background())
 	if len(*fetched) != 0 {
 		t.Fatalf("都不该下载：%q", *fetched)
 	}
-	for _, i := range append(keep, edited, referenced) {
+	for _, i := range append(keep, edited, referenced, ownScript) {
 		if _, err := os.Stat(filepath.Join(i.Dir, log4jXML)); err != nil {
 			t.Errorf("%s：旧文件不该删（%v）", i.Name, err)
 		}
@@ -295,7 +300,7 @@ func TestMigrateLog4jLeavesOthers(t *testing.T) {
 	}
 }
 
-// 启动时还没换成：控制台说一声、照旧用旧配置开（不等下载），后台再试；服务器开着时换上了也不删旧文件，停了以后再过一遍才删。
+// 启动时还没换成：控制台说一声、照旧用旧配置开（不等下载），后台再试；旧文件开着时、停了以后再过一遍都留着。
 func TestMigrateLog4jOnStart(t *testing.T) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -331,15 +336,15 @@ func TestMigrateLog4jOnStart(t *testing.T) {
 		t.Fatalf("后台应换上：%q", i.ExtraJVMSnapshot())
 	}
 	if _, err := os.Stat(filepath.Join(dir, log4jXML)); err != nil {
-		t.Fatalf("服务器开着，旧文件先不删：%v", err)
+		t.Fatalf("服务器开着，旧文件留着：%v", err)
 	}
 	if err := m.Command(i.Name, "stop"); err != nil {
 		t.Fatal(err)
 	}
 	waitStatus(t, i, "stopped")
 	m.MigrateLog4j(context.Background())
-	if _, err := os.Stat(filepath.Join(dir, log4jXML)); !os.IsNotExist(err) {
-		t.Fatalf("停了以后旧文件应删掉：%v", err)
+	if _, err := os.Stat(filepath.Join(dir, log4jXML)); err != nil {
+		t.Fatalf("停了以后再过一遍，旧文件也留着：%v", err)
 	}
 }
 

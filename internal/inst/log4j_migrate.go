@@ -1,17 +1,10 @@
 package inst
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha1"
-	"encoding/hex"
 	"fmt"
-	"io"
 	"log"
-	"os"
-	"path/filepath"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -26,7 +19,8 @@ import (
 // 怎么换：先把新文件下载好、核对过 SHA-1，再把启动参数里引用旧文件的那一条原地换成新的，存 instance.json、重写 run.bat。
 // 下载不成什么都不动，照旧用旧配置开：引用一个不存在的配置文件，log4j 会退回只输出 ERROR 的默认配置，
 // 控制台和「启动完成」的判断都会失效。别的 JVM 参数一条不碰。
-// 旧文件等启动参数和启动脚本里都不再引用它、服务器也停着时才删，而且只删内容还是官方那份的。
+// 换下来的 112-116 那份留在服务器文件夹里，不删：分不清用户自己的启动脚本（比如接管前那台服的 start.bat）还用不用它，
+// 删了那边就只剩 ERROR 输出；启动脚本被占着、重写失败时，原来的 run.bat 也还引用着它。留着只占几 KB（2026-11-18 Codex 复审）。
 
 // log4jMigrating 正在换配置的实例：程序启动时的那一遍和启动服务器时补的那一次，不会同时下载、同时改同一台。
 var log4jMigrating sync.Map // *Instance → struct{}
@@ -52,8 +46,8 @@ func log4jStartNote(i *Instance) string {
 		"这次照旧用它启动；后台正在下载 Mojang 给 1.7 ~ 1.11.2 的 %s，换成了下次启动生效。换成之前先别让不认识的人进服", i.MC, log4jXML, log4jXML17)
 }
 
-// MigrateLog4j 程序启动后在后台调一次：把引用着 112-116 那份配置的 1.7 ~ 1.11.2 服务器换成 17-111 那份，
-// 再清掉换过以后留下的旧文件。结果写进各自的控制台和程序日志。
+// MigrateLog4j 程序启动后在后台调一次：把引用着 112-116 那份配置的 1.7 ~ 1.11.2 服务器换成 17-111 那份。
+// 结果写进各自的控制台和程序日志。
 func (m *Manager) MigrateLog4j(ctx context.Context) {
 	for _, i := range m.List() {
 		m.migrateLog4j(ctx, i)
@@ -66,7 +60,6 @@ func (m *Manager) migrateLog4j(ctx context.Context, i *Instance) {
 		return
 	}
 	defer log4jMigrating.Delete(i)
-	defer m.dropOldLog4jXML(i)
 	if !needsLog4jMigrate(i.SettingsSnapshot()) {
 		return
 	}
@@ -133,46 +126,4 @@ func (m *Manager) swapLog4jConfigLocked(i *Instance) (swapped bool, err error) {
 		return false, err
 	}
 	return true, writeRunBat(i)
-}
-
-// dropOldLog4jXML 1.7 ~ 1.11.2 的服务器换过配置以后，删掉留下的 112-116 那份。启动参数、run.bat、接管前的启动脚本和
-// user_jvm_args 里都不再引用它，服务器停着，文件内容也还是官方那份（自己改过的不删），才删。删不掉不要紧，下次再试。
-func (m *Manager) dropOldLog4jXML(i *Instance) {
-	path := filepath.Join(i.Dir, log4jXML)
-	if _, err := os.Stat(path); err != nil {
-		return
-	}
-	i.procMu.Lock()
-	defer i.procMu.Unlock()
-	if i.state != "" && i.state != "stopped" {
-		return
-	}
-	if _, xml, ok := log4jPlanCached(i.MC); !ok || xml != log4jXML17 || slices.Contains(i.ExtraJVM, log4jConfig) {
-		return
-	}
-	for _, f := range []string{"run.bat", runBatBackup, "user_jvm_args.txt", jvmArgsBackup} {
-		if b, err := os.ReadFile(filepath.Join(i.Dir, f)); err == nil && bytes.Contains(bytes.ToLower(b), []byte(log4jXML)) {
-			return
-		}
-	}
-	if !fileSHA1Is(path, log4jXMLSHA1[log4jXML]) {
-		return
-	}
-	if err := os.Remove(path); err == nil {
-		i.Console.Append("[MineDeck] 删掉了不再用的 " + log4jXML)
-	}
-}
-
-// fileSHA1Is 文件的 SHA-1 是不是 want（读不出来算不是）。
-func fileSHA1Is(path, want string) bool {
-	f, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-	h := sha1.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return false
-	}
-	return strings.EqualFold(hex.EncodeToString(h.Sum(nil)), want)
 }

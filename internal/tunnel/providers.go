@@ -100,9 +100,14 @@ func extractZipFlat(zipPath, destDir string) (_ []string, err error) {
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return nil, err
 	}
-	if stale, _ := filepath.Glob(filepath.Join(destDir, unzipPart)); len(stale) > 0 {
-		for _, p := range stale {
-			_ = os.Remove(p)
+	// 上次留下的临时文件按名字逐个比对，不用 filepath.Glob：destDir 里带 [ ] 这类字符时会被当成通配符，
+	// 匹配到旁边别的文件夹（比如 MineDeck[1] 匹配到 MineDeck1，2026-11-18 Codex 复审）
+	if ents, err := os.ReadDir(destDir); err == nil {
+		pre, suf, _ := strings.Cut(unzipPart, "*")
+		for _, e := range ents {
+			if n := e.Name(); !e.IsDir() && strings.HasPrefix(n, pre) && strings.HasSuffix(n, suf) {
+				_ = os.Remove(filepath.Join(destDir, n))
+			}
 		}
 	}
 	type part struct{ tmp, name string }

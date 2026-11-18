@@ -194,6 +194,30 @@ func TestExtractZipFlatPlacesFiles(t *testing.T) {
 	}
 }
 
+// 清上次留下的临时文件只看这一个文件夹：文件夹名里带 [ ] 时不能被当成通配符，删到旁边文件夹里的东西（2026-11-18 Codex 复审）。
+func TestExtractZipFlatStaleCleanupStaysInFolder(t *testing.T) {
+	root := t.TempDir()
+	dir, other := filepath.Join(root, "MineDeck[1]", "frpc"), filepath.Join(root, "MineDeck1", "frpc")
+	mine, theirs := filepath.Join(dir, ".minedeck-unzip-1.part"), filepath.Join(other, ".minedeck-unzip-2.part")
+	for _, p := range []string{mine, theirs} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("上次留下的"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := extractZipFlat(writeZip(t, frpZip(t, frpEntry{"frp_x/frpc.exe", frpcBody})), dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(mine); !os.IsNotExist(err) {
+		t.Errorf("这个文件夹里上次留下的应清掉：%v", err)
+	}
+	if _, err := os.Stat(theirs); err != nil {
+		t.Errorf("旁边文件夹里的不该动：%v", err)
+	}
+}
+
 // frpcFake 假的 OpenFrp 接口和下载源。所有请求经 rewrite 指到它（地址里的主机名留着，方便看请求的是哪儿）。
 type frpcFake struct {
 	mu      sync.Mutex
