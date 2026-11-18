@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -218,6 +218,9 @@ func TestPendingRespectsWorldHoldAndWorldNamedConfig(t *testing.T) {
 }
 
 func TestPendingRejectsJunctionIntoWorld(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("目录联接是 Windows 上的东西")
+	}
 	m, dir := importEnv(t)
 	task := newImportTask(m, "测试服", dir)
 	writeTree(t, dir, map[string]string{"server.properties": "level-name=world\n", "world/level.dat": "old", "config/base.toml": "config"})
@@ -225,7 +228,11 @@ func TestPendingRejectsJunctionIntoWorld(t *testing.T) {
 	cmd := exec.Command("cmd", "/c", "mklink", "/J", link, filepath.Join(dir, "world"))
 	hideWindow(cmd)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Skipf("建不了目录联接: %v %s", err, out)
+		low := strings.ToLower(string(out))
+		if strings.Contains(low, "privilege") || strings.Contains(low, "not support") || strings.Contains(low, "权限") || strings.Contains(low, "不支持") {
+			t.Skipf("建不了目录联接: %v %s", err, out)
+		}
+		t.Fatalf("建不了目录联接: %v %s", err, out)
 	}
 	t.Cleanup(func() { _ = os.Remove(link) })
 	i, _ := m.Get("测试服")
@@ -332,30 +339,25 @@ func TestHotBackupIsDiscardedAfterProcessRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
 	i.Core = mcsrc.CoreVanilla
 	i.MC = "1.20.1"
 	i.JavaPath = exe
 	i.LaunchTarget = "jar:server.jar"
-	if err := os.WriteFile(i.PropsPath(), []byte(fmt.Sprintf("server-port=%d\n", port)), 0o644); err != nil {
+	// server-port=0 跳过启动前空端口检查，不靠先 Listen 再 Close 抢端口
+	if err := os.WriteFile(i.PropsPath(), []byte("server-port=0\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv(fakeServerEnv, "1")
-	if err := m.Start("s"); err != nil {
-		t.Fatal(err)
-	}
-	waitStatus(t, i, "running")
 	t.Cleanup(func() {
 		if i.Status() != "stopped" {
 			_ = m.Kill("s")
 			waitStatus(t, i, "stopped")
 		}
 	})
+	if err := m.Start("s"); err != nil {
+		t.Fatal(err)
+	}
+	waitStatus(t, i, "running")
 	backupHook = func() {
 		if err := m.Command("s", "crash"); err != nil {
 			t.Error(err)
