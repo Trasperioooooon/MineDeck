@@ -1,6 +1,6 @@
 {
  "title": "Features",
- "desc": "What MineDeck does: creating servers, modpacks, mods, console, backups, tunnels, plus optional AI and music sharing.",
+ "desc": "What MineDeck does: creating servers, maps, modpacks, mods, console, backups, tunnels, plus optional AI and music sharing.",
  "lead": "Each section starts with what you can do; open the details for the rest. Everything described here is in stable {stable}. The MineDeck interface is in Chinese, so labels are given with the Chinese text you will see on screen.",
  "toc": "On this page",
  "moreDetails": "More details",
@@ -29,7 +29,7 @@
    "points": [
     "The usual mapping: Java 8 before 1.17, 16 for 1.17, 17 for 1.18 to 1.20.4, 21 for 1.20.5 to 1.21, and 25 from 26.1 on. What the game version itself declares takes precedence.",
     "The downloaded Java lives in the program folder. It does not change system environment variables or touch the Java you already have.",
-    "Each server can switch Java under Memory / startup (内存 / 启动). If a mod in a modpack needs a newer Java you are told, but starting is not blocked."
+    "Each server can switch Java under Settings → Startup and memory (设置 → 启动与内存). If a mod in a modpack needs a newer Java you are told, but starting is not blocked."
    ],
    "details": [
     "At launch MineDeck scans for installed Java in the background: the registry, JAVA_HOME, PATH and common install folders.",
@@ -55,7 +55,8 @@
     "Environment variables such as JAVA_HOME are cleared when a server starts, so the wrong Java is not picked up.",
     "The port is checked before start. Stopping sends stop first and forces the process to end after about 30 seconds.",
     "Each server's folder contains a run.bat that does the same as the interface, for starting by hand.",
-    "When a task log gets long, its first 40 lines are kept. An old Forge installer that installs nothing yet reports success is now treated as a failure and retried."
+    "When a task log gets long, its first 40 lines are kept. An old Forge installer that installs nothing yet reports success is now treated as a failure and retried.",
+    "An existing Java world can start a server from New server → Open with an existing map (新建服务器 → 用已有地图开服). See Map import."
    ]
   },
   {
@@ -66,14 +67,14 @@
    "points": [
     "A Modrinth .mrpack imports directly: the server type, version and loader are detected, and client-only files are skipped.",
     "CurseForge zips import too. The files inside are downloaded automatically only after you enter your own CurseForge API key; without one the import still completes and you supply those files yourself.",
-    "Before, a single file whose download address was not on an allowed site, or that had no checksum, made the whole import fail. Now such files are listed on the task page under pending files (待决文件), and you choose for each one: skip it (跳过), use a local file instead (用本地文件代替), or trust the site and download (信任站点并下载)."
+    "Before, a single file whose download address was not on an allowed site, or that had no checksum, made the whole import fail. Now such files are listed on the task page under files that did not install (没装上的文件), and you choose for each one: skip it (跳过), use a local file instead (用本地文件代替), or trust the site and download (信任站点并下载)."
    ],
    "details": [
     "The upload limit is 4 GiB.",
     "The CurseForge key is stored encrypted with Windows DPAPI; neither the interface nor the API sends it back in plain text.",
     "Files in a CurseForge manifest are placed by category: mods in mods, resource packs in resourcepacks, shaders in shaderpacks, data packs in datapacks.",
-    "The import form takes a local source folder (本地来源目录). Pending files with the same name in that folder are picked up automatically.",
-    "Pending files are stored in the server folder. They are still there after MineDeck restarts, and you continue from that server's detail page. A skipped file can be handled another way later.",
+    "The import form takes a local source folder (本地来源文件夹). Files that did not install and have the same name in that folder are picked up automatically.",
+    "Files that did not install are stored in the server folder. They are still there after MineDeck restarts, and you continue from that server's detail page. A skipped file can be handled another way later.",
     "Most modpacks on CurseForge are made for clients, and a server built from the manifest may crash on start. Authors of large modpacks usually publish a separate Server Pack, which is the safer choice."
    ]
   },
@@ -91,7 +92,7 @@
     "If the EULA was not accepted before, eula.txt is written only after you tick it in the form.",
     "If the task fails, the files it touched are restored.",
     "Refused locations: a whole drive, the MineDeck program folder, cache and runtime folders, folders that overlap the backup folder, and folders already in the list.",
-    "Extra JVM arguments written in the old launch script are not carried over; the scan page tells you. Anything that relies on -javaagent, such as an external login system, has to be added again under Memory / startup (内存 / 启动).",
+    "Extra JVM arguments written in the old launch script are not carried over; the scan page tells you. Anything that relies on -javaagent, such as an external login system, has to be added again under Settings → Startup and memory (设置 → 启动与内存).",
     "Adopting registers only that one folder; neighbouring servers do not appear in the list with it."
    ]
   },
@@ -116,19 +117,36 @@
    ]
   },
   {
+   "id": "world",
+   "h": "Map import",
+   "icon": "folder",
+   "lead": "Start a new server from a Java Edition world you already have, or replace the map a server is using.",
+   "points": [
+    "Under New server (新建服务器), choose Open with an existing map (用已有地图开服). On a server you already have, open World and backups → Change map (世界与备份 → 换地图) and press Import and replace the current map (导入并替换当前地图).",
+    "On this PC you can pick a folder or an unextracted ZIP. From another device you can only upload a ZIP, up to 8 GB.",
+    "Before a map is replaced, the old world is kept as a restore point. If it fails halfway, or MineDeck is closed in the middle, the next launch restores the old world first, and the server cannot start until that finishes."
+   ],
+   "details": [
+    "A map is recognised by its level.dat, not by the folder name. A pack with several maps lists them for you to pick. Bedrock worlds, modpacks and handover packs are identified and pointed somewhere else; they are not imported.",
+    "The preview states the map's version and the server's, the dimensions it found, and which folders will be replaced. A map newer than the server is blocked.",
+    "A new server is preset to the map's type and version, not silently moved to the latest release.",
+    "The server type, mods, whitelist and port stay as they are. Buildings and chests from a single-player world come across; whether the owner's inventory does depends on which account joins."
+   ]
+  },
+  {
    "id": "mods",
    "h": "Mods and plugins",
    "icon": "cart",
    "lead": "Search for mods and plugins inside MineDeck, see the ones that work with your server type, and install them straight into the server.",
    "points": [
-    "Non-vanilla servers have a Resources tab (资源): search Modrinth and install into mods or plugins. Mods are filtered by game version.",
-    "Mod cart: put the mods or plugins you want in a cart, have their dependencies added automatically, and install them in one go. You can also pick them in the new-server wizard."
+    "A non-vanilla server has a tab for adding things: Plugins (插件) on a plugin or proxy server, Mods (模组) on a modded server, and Plugins and mods (插件和模组) on Mohist or Banner. Search Modrinth and install into mods or plugins. Mods are filtered by game version.",
+    "Install list (待装清单): put the mods or plugins you want on the list, have their dependencies added automatically, and install them in one go. You can also pick them in the new-server wizard."
    ],
    "details": [
     "Plugins are filtered by server type only, not by game version.",
-    "Client-only mods cannot go in the cart; what the server already has is not installed twice; each download must match the checksum Modrinth gives.",
-    "Check dependencies (检查依赖) lists the required ones that are missing. They are installed with the rest even if you skip the check.",
-    "The AI assistant can search and add to the cart for you. Installing is something it can only propose; nothing is installed until you confirm.",
+    "Client-only mods cannot go on the install list; what the server already has is not installed twice; each download must match the checksum Modrinth gives.",
+    "Check requirements (检查前置) lists the required ones that are missing. They are installed with the rest even if you skip the check.",
+    "The AI assistant can search and add to the install list for you. Installing is something it can only propose; nothing is installed until you confirm.",
     "Listing mods, enabling or disabling one, and editing a mod's config file are there for the AI assistant and MCP tools; the interface has no separate entry for them."
    ]
   },
@@ -146,7 +164,7 @@
     "If an old modpack prints garbled text, the console can switch between GBK and UTF-8.",
     "All config (全部配置) lists every key currently in server.properties and can be searched by Chinese name or key.",
     "From Minecraft 1.21.9 on, items that have become game rules, such as PVP and command blocks, are switches that take effect at once while the server is running.",
-    "Memory is set under Memory / startup (内存 / 启动), with a minimum of 1024 MB, and extra JVM arguments can be added there."
+    "Memory is set under Settings → Startup and memory (设置 → 启动与内存), with a minimum of 1024 MB, and extra JVM arguments can be added there."
    ]
   },
   {
@@ -186,11 +204,14 @@
    "lead": "Friends on other networks can join too: add a tunnel and send them the public address.",
    "points": [
     "Works with OpenFrp, SakuraFrp (樱花穿透) and your own frps.",
-    "A tunnel can be bound to a server and start together with it. The public address is copied from the page, and a domain name is shown in preference to an IP."
+    "A tunnel can be bound to a server and start together with it. The public address is copied from the page, and a domain name is shown in preference to an IP.",
+    "You can connect an OpenFrp or SakuraFrp account. OpenFrp uses Browser authorisation (浏览器授权) and never asks for your password; for SakuraFrp you paste an access key and press Connect (连接). Once connected you can see your traffic, and create a tunnel on the provider or import one that already exists."
    ],
    "details": [
     "The client for OpenFrp and for your own frps is downloaded automatically. For SakuraFrp you download it once yourself, following the prompt, and put it in the folder you are shown.",
     "Credentials are stored encrypted with Windows DPAPI and have to be entered again after moving to another PC or another Windows user.",
+    "When creating a SakuraFrp tunnel for a public server, tick This is a public server (这是公开服务器) and use only the nodes it then lists. The wrong node can get the account banned. Check-in and purchases only open the provider's own pages; MineDeck does not check in or place orders for you.",
+    "Connecting an account, viewing the overview, and creating or importing a tunnel can only be done on this PC. Disconnecting an account clears the saved credential; tunnels already imported stay.",
     "Tunnels are for the game or for voice. A voice tunnel's public address is written into the server's voice_host, unless you have set a different value yourself.",
     "If a tunnel fails to start, the reason is shown on its card, and its log can be read in the interface."
    ]

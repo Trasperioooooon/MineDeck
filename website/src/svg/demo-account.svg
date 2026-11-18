@@ -1,0 +1,47 @@
+<!-- 亮点演示：平台账户。左边两张账户卡（第一张无密码框、按钮「浏览器授权」，第二张输入框加按钮「粘贴访问密钥」），光标移到第一张卡的按钮（.1–.42s）→ 点一下（.45s），按钮变成选中态（.52s）→ 右边隧道列表里多出一条公网隧道（.78–1.06s）。
+     默认画面即最终帧。画法和时间线见 css/motion.css 的 A10。按钮名照搬程序界面，由调用方传入；平台名和隧道地址是拉丁字母，直接写在图里。 -->
+<svg class="anim sc-demo demo-account" viewBox="0 0 480 270" xmlns="http://www.w3.org/2000/svg">
+ <!-- 左：两张平台账户卡 -->
+ <rect class="d-shadow" x="14" y="14" width="244" height="248" rx="10"/>
+ <rect class="d-win" x="8" y="8" width="244" height="248" rx="10"/>
+
+ <!-- 第一张卡：无密码框，按钮「浏览器授权」 -->
+ <rect class="d-card" x="20" y="22" width="220" height="102" rx="7"/>
+ <text class="t-b t-lg" x="32" y="46">OpenFrp</text>
+ <rect class="d-soft" x="32" y="58" width="116" height="7" rx="3"/>
+ <rect class="d-btn" x="30" y="78" width="200" height="32" rx="6"/>
+ <text class="t-b" x="130" y="99" text-anchor="middle">{{auth}}</text>
+ <g class="dk-ok"><rect class="d-ok" x="30" y="78" width="200" height="32" rx="6"/><text class="t-b" x="130" y="99" text-anchor="middle">{{auth}}</text></g>
+
+ <!-- 第二张卡：输入框加按钮「粘贴访问密钥」 -->
+ <rect class="d-card" x="20" y="138" width="220" height="104" rx="7"/>
+ <text class="t-b t-lg" x="32" y="160">SakuraFrp</text>
+ <rect class="d-card" x="30" y="168" width="200" height="26" rx="5"/>
+ <rect class="d-softer" x="40" y="178" width="92" height="6" rx="3"/>
+ <rect class="d-btn" x="30" y="200" width="200" height="30" rx="6"/>
+ <text class="t-b" x="130" y="220" text-anchor="middle">{{key}}</text>
+
+ <!-- 右：隧道列表 -->
+ <rect class="d-shadow" x="274" y="14" width="198" height="248" rx="10"/>
+ <rect class="d-win" x="268" y="8" width="198" height="248" rx="10"/>
+
+ <rect class="d-card" x="280" y="24" width="174" height="62" rx="7"/>
+ <rect class="d-softer" x="294" y="42" width="56" height="8" rx="3"/>
+ <rect class="d-soft" x="294" y="58" width="108" height="7" rx="3"/>
+ <circle class="d-dot-ok" cx="438" cy="55" r="5"/>
+
+ <rect class="d-card" x="280" y="98" width="174" height="62" rx="7"/>
+ <rect class="d-softer" x="294" y="116" width="48" height="8" rx="3"/>
+ <rect class="d-soft" x="294" y="132" width="96" height="7" rx="3"/>
+ <circle class="d-dot-off" cx="438" cy="129" r="5"/>
+
+ <g class="dk-new">
+  <rect class="d-newrow" x="280" y="172" width="174" height="68" rx="7"/>
+  <text class="t-b" x="294" y="201">OpenFrp · TCP</text>
+  <text class="t-mono t-muted" x="294" y="221">frp-any.com:25565</text>
+  <circle class="d-dot-ok" cx="438" cy="206" r="5"/>
+ </g>
+
+ <circle class="d-ring dk-ring" cx="206" cy="98" r="13"/>
+ <g transform="translate(206 98)"><g class="dk-cur"><path class="d-cursor" d="M0 0v14l4-4 3 6 2-1-3-6h5z"/></g></g>
+</svg>

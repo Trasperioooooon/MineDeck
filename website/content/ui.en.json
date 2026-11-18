@@ -108,16 +108,16 @@
         },
         {
           "id": "cart",
-          "t": "A mod cart that adds dependencies for you",
+          "t": "An install list that adds dependencies for you",
           "d": "Pick your own mods and plugins without hunting for each dependency.",
           "more": "mods",
           "demo": "demo-cart",
-          "aria": "Illustration: REI is added to the cart, three dependencies are added automatically, then everything is installed and the four items are ticked off one by one",
+          "aria": "Illustration: press Add to list (加入清单) to put REI on the install list (待装清单), three dependencies are added automatically, then press Install all (全部安装) and the four items are ticked off one by one",
           "text": {
-            "add": "Add to cart",
-            "cart": "Cart",
-            "dep": "dep",
-            "install": "Install all"
+            "add": "加入清单",
+            "cart": "待装清单",
+            "dep": "前置",
+            "install": "全部安装"
           }
         },
         {
@@ -128,7 +128,7 @@
           "demo": "demo-pending",
           "aria": "Illustration: three files that could not be downloaded; one is skipped, one is replaced by a local file, and one is downloaded after trusting the site",
           "text": {
-            "title": "Pending files (3)",
+            "title": "没装上的文件（3 个）",
             "skip": "Skip",
             "local": "Use a local file",
             "trust": "Trust site and download"
@@ -145,6 +145,30 @@
             "keep": "Files stay where they are",
             "list": "Servers",
             "added": "Just adopted"
+          }
+        },
+        {
+          "id": "world",
+          "t": "Start a server from an existing map",
+          "d": "Use a downloaded adventure or skyblock map, a single-player save, or another server's world. The button in MineDeck is Open with an existing map (用已有地图开服).",
+          "more": "world",
+          "demo": "demo-world",
+          "aria": "Illustration: the pointer clicks Start from an existing map under a map folder, and a server using that world appears in the list on the right. The button on screen is 用已有地图开服.",
+          "text": {
+            "map": "Skyblock",
+            "open": "Start from existing map"
+          }
+        },
+        {
+          "id": "account",
+          "t": "Connect your tunnel provider accounts",
+          "d": "OpenFrp uses Browser authorisation (浏览器授权) and never asks for your password. SakuraFrp takes a pasted access key (粘贴访问密钥). Once connected you can create or import a tunnel inside MineDeck.",
+          "more": "tunnel",
+          "demo": "demo-account",
+          "aria": "Illustration: two provider cards on the left; the pointer clicks the first card's authorise button, and a public tunnel appears in the list on the right. The button on screen is 浏览器授权.",
+          "text": {
+            "auth": "Authorize in browser",
+            "key": "Paste access key"
           }
         }
       ]

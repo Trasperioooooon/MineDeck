@@ -236,6 +236,19 @@
 .demo-adopt.is-playing .da-new{animation:d-slide .28s var(--motion-ease-out) 1s backwards}
 @keyframes da-scan{0%{opacity:.3;transform:none}85%{opacity:.3;transform:translateY(90px)}100%{opacity:0;transform:translateY(90px)}}
 
+/* 地图导入（1.1s）：光标移到「用已有地图开服」.1–.42 → 点一下 .45，按钮亮起 .52 → 箭头 .68 → 列表里多出这一台 .82 */
+.demo-world.is-playing .dw-cur{animation:d-slide .32s var(--motion-ease-out) .1s backwards}
+.demo-world.is-playing .dw-ring{animation:d-click .3s ease-out .45s}
+.demo-world.is-playing .dw-ok{animation:md-fade .01s steps(1,end) .52s backwards}
+.demo-world.is-playing .dw-arrow{animation:md-fade .01s steps(1,end) .68s backwards}
+.demo-world.is-playing .dw-new{animation:d-slide .28s var(--motion-ease-out) .82s backwards}
+
+/* 平台账户（1.06s）：光标移到第一张卡的「浏览器授权」.1–.42 → 点一下 .45，按钮亮起 .52 → 隧道列表里多出一条 .78 */
+.demo-account.is-playing .dk-cur{animation:d-slide .32s var(--motion-ease-out) .1s backwards}
+.demo-account.is-playing .dk-ring{animation:d-click .3s ease-out .45s}
+.demo-account.is-playing .dk-ok{animation:md-fade .01s steps(1,end) .52s backwards}
+.demo-account.is-playing .dk-new{animation:d-slide .28s var(--motion-ease-out) .78s backwards}
+
 /* 按钮与卡片的悬停过渡已在 components.css；这里统一关闭所有动效 */
 @media (prefers-reduced-motion:reduce){
  *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}

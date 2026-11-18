@@ -11,7 +11,7 @@
  "entries": { "h": "Common tasks", "items": [
    "Sending a command: open the server → Console (控制台) → the input box at the bottom.",
    "Changing settings: open the server → Common settings (常用设置) or All config (全部配置). Items that need a restart are marked.",
-   "Memory and Java: open the server → Memory / startup (内存 / 启动).",
+   "Memory and Java: open the server → Settings → Startup and memory (设置 → 启动与内存).",
    "Starting a server by hand: each server's folder contains a <code>run.bat</code> that does the same as the interface.",
    "Running without a window: <code>MineDeck.exe -nogui</code>. The default port is 27333, <code>-port</code> sets another, and a random port is used if it is taken. The address of the management page and its token are printed to the program's log output. The release build is a windowed program, so you will not see that line if you run it straight from a terminal; redirect standard error to a file.",
    "A stdio bridge for AI tools on this PC: <code>MineDeck.exe -mcp</code>. Turn on the MCP interface in Settings first, and MineDeck has to be running already." ] },
@@ -27,7 +27,7 @@
    { "id": "faq-firewall", "q": "Friends on my LAN cannot connect?", "a": "The first time a server starts, Windows Firewall may ask. Choose Allow access, otherwise friends on the LAN cannot connect." } ] },
  "data": { "h": "Data, moving and uninstalling", "items": [
    "By default everything is in the folder that holds the exe: <code>servers</code>, <code>backups</code>, <code>runtimes</code> (downloaded Java and tunnel clients), <code>cache</code>, <code>logs</code> and <code>data</code>, plus the files <code>config.json</code>, <code>secrets.json</code> and <code>tunnels.json</code>. Only interface preferences are in <code>%LocalAppData%\\MineDeck</code>.",
-   "To move, copy the whole folder. The secrets in <code>secrets.json</code> and <code>tunnels.json</code> are encrypted for this Windows user on this PC, so they have to be entered again after moving to another PC or user. If the new location has a different path, servers that use MineDeck's own Java will report that Java cannot be found and need it set once more under Memory / startup (内存 / 启动). With AI configured you can also ask the assistant to switch it.",
+   "To move, copy the whole folder. The secrets in <code>secrets.json</code> and <code>tunnels.json</code> are encrypted for this Windows user on this PC, so they have to be entered again after moving to another PC or user. If the new location has a different path, servers that use MineDeck's own Java will report that Java cannot be found and need it set once more under Settings → Startup and memory (设置 → 启动与内存). With AI configured you can also ask the assistant to switch it.",
    "Do not delete the <code>runtimes</code> folder. Servers that use the Java in it will not start without it.",
    "Uninstalling: if start-with-Windows is on, turn it off first under Settings → Startup and tray (设置 → 启动与托盘). Then delete the folder that holds the exe, and <code>%LocalAppData%\\MineDeck</code>. If you moved servers or backups somewhere else, delete those folders separately." ] },
  "limits": { "h": "Known limits", "items": [
