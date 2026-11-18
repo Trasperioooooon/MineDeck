@@ -3313,7 +3313,8 @@ function handler(state, ui, portOf) {
             const norm = s => ({ type: s.type, at: hm(s.at), args: s.args || "" });
             let next = Array.isArray(b.schedules) ? b.schedules.map(norm) : pol.schedules.map(s => ({ ...s }));
             for (const r of b.removeSchedules || []) {
-              const k = next.findIndex(s => s.type === r.type && s.at === hm(r.at) && (s.args || "") === (r.args || ""));
+              const rt = hm(r.at);
+              const k = rt ? next.findIndex(s => s.type === r.type && hm(s.at) === rt && (s.args || "") === (r.args || "")) : -1;
               if (k >= 0) next.splice(k, 1);
             }
             next = next.concat((b.addSchedules || []).map(norm));
