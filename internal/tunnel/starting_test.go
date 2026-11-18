@@ -23,7 +23,7 @@ func TestEditRefusedWhileStarting(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "frpc.exe"), []byte("fake"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "frpc.exe"), fakeFrpcExe(), 0o755); err != nil { // 结构完整的假 exe：随手写几个字的会被当成坏文件删掉
 		t.Fatal(err)
 	}
 	entered, release := make(chan struct{}), make(chan struct{})
