@@ -2344,17 +2344,23 @@ async function toolboxHandler(state, req, res, p, m) {
       notice: "客户端把 .zip 放进 .minecraft/resourcepacks/ 并启用即可在离线服中显示自定义皮肤。",
     });
   }
-  if (p === "/api/toolbox/mrpack/draft" && m === "GET") return ok(res, tb.draft);
+  const readDraft = d => ({
+    ...d,
+    name: d.name || "我的整合包",
+    versionId: d.versionId || "1.0.0",
+    core: d.core || "fabric",
+    mc: d.mc || "1.20.1",
+  });
+  if (p === "/api/toolbox/mrpack/draft" && m === "GET") return ok(res, readDraft(tb.draft));
   // 同 toolbox.PatchMrpackDraft：只改传了的字段（两个窗口同时开着工具箱时，不拿一页的旧值盖掉另一页刚改的）
   if (p === "/api/toolbox/mrpack/draft" && m === "PUT") {
-    const b = await readBody(req);
-    for (const k of ["name", "versionId", "summary", "core", "mc", "loaderVersion"]) if (k in b) tb.draft[k] = String(b[k] ?? "").trim();
-    if ("includeConfig" in b) tb.draft.includeConfig = !!b.includeConfig;
-    if (!tb.draft.name) tb.draft.name = "我的整合包";
-    if (!tb.draft.versionId) tb.draft.versionId = "1.0.0";
-    if (!tb.draft.core) tb.draft.core = "fabric";
-    if (!tb.draft.mc) tb.draft.mc = "1.20.1";
-    return ok(res, tb.draft);
+    const b = await readBody(req), next = readDraft(tb.draft);
+    for (const k of ["name", "versionId", "summary", "core", "mc", "loaderVersion"]) if (k in b) next[k] = String(b[k] ?? "").trim();
+    if ("includeConfig" in b) next.includeConfig = !!b.includeConfig;
+    if ([...next.name].length > 100 || [...next.versionId].length > 50 || [...next.summary].length > 300)
+      return err(res, 400, "整合包名称、版本号或简介太长");
+    tb.draft = next;
+    return ok(res, next);
   }
   if (p === "/api/toolbox/mrpack/preview" && m === "POST") {
     const r = tbPreviewMrpack(state, await readBody(req));
