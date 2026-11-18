@@ -391,13 +391,17 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     try {
       await page.goto(url("#/task/task-cancellable"));
       await page.locator("#t-cancel").waitFor({ state: "visible" });
+      // 在取消按钮正显示时切换到提交阶段，确认按钮随状态更新消失
+      committing = true;
+      await page.waitForFunction(() => !document.querySelector("#t-cancel"));
+      assert(await page.locator("#t-cancel").count() === 0, "开始提交以后不应提供取消按钮");
+      // 回到可取消阶段，按钮恢复后再点击取消
+      committing = false;
+      await page.locator("#t-cancel").waitFor({ state: "visible" });
       await page.click("#t-cancel");
       await page.waitForFunction(() => !document.querySelector("#t-cancel"));
       assert(posts === 1, "应当只发一次取消请求");
       assert((await page.textContent("#t-foot")).includes("请勿关闭"), "清理期间任务应仍在进行");
-      committing = true; cancelled = false;
-      await page.goto(url("#/task/task-cancellable")); await settle();
-      assert(await page.locator("#t-cancel").count() === 0, "开始提交以后不应提供取消按钮");
     } finally { await page.unroute(pattern); }
   });
 
