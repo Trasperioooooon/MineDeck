@@ -122,7 +122,8 @@ func TestPathLocksNormalizeAndCancel(t *testing.T) {
 		t.Fatal(err)
 	}
 	abs, _ := filepath.Abs(p)
-	for _, alias := range []string{strings.ToUpper(abs), filepath.Join(dir, "unused", "..", "target")} {
+	// 大小写不同、带 \\?\ 前缀（filepath.Clean 不会去掉前缀，要靠系统句柄路径归一）、以及未预先 Clean 的 .. 写法，都应落到同一把锁
+	for _, alias := range []string{strings.ToUpper(abs), `\\?\` + abs, dir + `\unused\..\target`} {
 		release := LockPath(p)
 		ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
 		got, err := LockPathContext(ctx, alias)
