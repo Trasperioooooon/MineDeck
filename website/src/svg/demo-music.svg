@@ -1,0 +1,38 @@
+<!-- 亮点演示：音乐共享。左边音乐软件在放歌（进度条在走）→ 音符一个个飘向右边 → 服务器里的人头像旁的音量条跳起来，第三个人自己静了音。
+     默认画面即最终帧。画法和时间线见 css/motion.css 的 A10。文字由调用方传入。 -->
+<svg class="anim sc-demo demo-music" viewBox="0 0 480 270" xmlns="http://www.w3.org/2000/svg">
+ <!-- 左：音乐软件 -->
+ <rect class="d-shadow" x="26" y="46" width="150" height="150" rx="9"/>
+ <rect class="d-win" x="20" y="40" width="150" height="150" rx="9"/>
+ <rect class="dm-art" x="34" y="54" width="60" height="60" rx="6"/>
+ <path class="d-note" d="M58 96 a6 5 0 1 0 0.1 0 Z M64 96 V70 l14 -4 v6 l-14 4"/>
+ <rect class="d-softer" x="104" y="62" width="52" height="8" rx="3"/><rect class="d-soft" x="104" y="78" width="36" height="7" rx="3"/>
+ <rect class="d-soft" x="34" y="128" width="122" height="8" rx="4"/>
+ <rect class="d-fill dm-prog" x="34" y="128" width="78" height="8" rx="4"/>
+ <rect class="d-ink" x="88" y="150" width="5" height="16" rx="1"/><rect class="d-ink" x="97" y="150" width="5" height="16" rx="1"/>
+ <path class="d-softer" d="M62 150 v16 l-12 -8 Z M128 150 v16 l12 -8 Z"/>
+ <text class="t-px" x="95" y="222" text-anchor="middle">{{src}}</text>
+
+ <!-- 中：音符 -->
+ <path class="d-path" d="M184 116 Q240 84 296 116"/>
+ <g class="dm-n dm-n1"><path class="d-note" d="M204 118 a6 5 0 1 0 0.1 0 Z M210 118 V98 l10 -3 v6 l-10 3"/></g>
+ <g class="dm-n dm-n2"><path class="d-note" d="M236 104 a6 5 0 1 0 0.1 0 Z M242 104 V84 l10 -3 v6 l-10 3"/></g>
+ <g class="dm-n dm-n3"><path class="d-note" d="M268 118 a6 5 0 1 0 0.1 0 Z M274 118 V98 l10 -3 v6 l-10 3"/></g>
+ <text class="t-muted" x="240" y="222" text-anchor="middle">Simple Voice Chat</text>
+
+ <!-- 右：服务器里的人 -->
+ <rect class="d-shadow" x="316" y="40" width="150" height="46" rx="8"/><rect class="d-card" x="310" y="34" width="150" height="46" rx="8"/>
+ <rect class="dm-a1" x="320" y="44" width="26" height="26" rx="4"/><rect class="d-softer" x="356" y="52" width="44" height="8" rx="3"/>
+ <g class="dm-eq dm-eq1"><rect class="d-fill" x="414" y="56" width="5" height="14" rx="1"/><rect class="d-fill" x="423" y="46" width="5" height="24" rx="1"/><rect class="d-fill" x="432" y="52" width="5" height="18" rx="1"/><rect class="d-fill" x="441" y="60" width="5" height="10" rx="1"/></g>
+
+ <rect class="d-shadow" x="316" y="96" width="150" height="46" rx="8"/><rect class="d-card" x="310" y="90" width="150" height="46" rx="8"/>
+ <rect class="dm-a2" x="320" y="100" width="26" height="26" rx="4"/><rect class="d-softer" x="356" y="108" width="36" height="8" rx="3"/>
+ <g class="dm-eq dm-eq2"><rect class="d-fill" x="414" y="106" width="5" height="20" rx="1"/><rect class="d-fill" x="423" y="114" width="5" height="12" rx="1"/><rect class="d-fill" x="432" y="102" width="5" height="24" rx="1"/><rect class="d-fill" x="441" y="110" width="5" height="16" rx="1"/></g>
+
+ <rect class="d-shadow" x="316" y="152" width="150" height="46" rx="8"/><rect class="d-card" x="310" y="146" width="150" height="46" rx="8"/>
+ <rect class="dm-a3" x="320" y="156" width="26" height="26" rx="4"/><rect class="d-softer" x="356" y="164" width="40" height="8" rx="3"/>
+ <rect class="d-soft" x="414" y="176" width="5" height="6" rx="1"/><rect class="d-soft" x="423" y="176" width="5" height="6" rx="1"/><rect class="d-soft" x="432" y="176" width="5" height="6" rx="1"/><rect class="d-soft" x="441" y="176" width="5" height="6" rx="1"/>
+ <path class="d-mute" d="M412 158 L448 184"/>
+ <text class="t-px" x="385" y="222" text-anchor="middle">{{dst}}</text>
+ <text class="t-muted" x="385" y="242" text-anchor="middle">{{mute}}</text>
+</svg>

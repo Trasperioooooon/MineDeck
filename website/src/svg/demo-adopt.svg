@@ -1,0 +1,50 @@
+<!-- 亮点演示：接管已有服务器。左边是一个老服务器的文件夹，一道扫描条从上扫到下 → 认出核心、版本、内存三样 → 右边的服务器列表里多出这一台。
+     默认画面即最终帧。画法和时间线见 css/motion.css 的 A10。中文由调用方传入；文件名和 Paper、版本号是拉丁字母，直接写在图里。 -->
+<svg class="anim sc-demo demo-adopt" viewBox="0 0 480 270" xmlns="http://www.w3.org/2000/svg">
+ <!-- 左：老服务器的文件夹 -->
+ <rect class="d-shadow" x="14" y="14" width="208" height="248" rx="10"/>
+ <rect class="d-win" x="8" y="8" width="208" height="248" rx="10"/>
+ <path class="d-folder" d="M22 26 h18 l5 5 h21 v20 h-44 Z"/>
+ <text class="t-b t-lg" x="76" y="44">old-server</text>
+ <path class="d-line" d="M20 62 H204"/>
+ <g class="t-mono">
+  <rect class="d-softer" x="24" y="74" width="10" height="12" rx="2"/><text class="t-mono" x="42" y="85">server.jar</text>
+  <rect class="d-softer" x="24" y="96" width="12" height="10" rx="2"/><text class="t-mono" x="42" y="107">world</text>
+  <rect class="d-softer" x="24" y="118" width="12" height="10" rx="2"/><text class="t-mono" x="42" y="129">plugins</text>
+  <rect class="d-softer" x="24" y="140" width="10" height="12" rx="2"/><text class="t-mono" x="42" y="151">run.bat</text>
+  <rect class="d-softer" x="24" y="162" width="10" height="12" rx="2"/><text class="t-mono" x="42" y="173">server.properties</text>
+ </g>
+ <rect class="d-scan da-scan" x="16" y="68" width="192" height="22" rx="4"/>
+ <g class="da-chip da-c1"><rect class="d-ok" x="20" y="192" width="62" height="24" rx="12"/><text class="t-b" x="51" y="209" text-anchor="middle">Paper</text></g>
+ <g class="da-chip da-c2"><rect class="d-ok" x="88" y="192" width="62" height="24" rx="12"/><text class="t-b" x="119" y="209" text-anchor="middle">1.20.1</text></g>
+ <g class="da-chip da-c3"><rect class="d-ok" x="156" y="192" width="50" height="24" rx="12"/><text class="t-b" x="181" y="209" text-anchor="middle">4 GB</text></g>
+ <text class="t-muted" x="112" y="240" text-anchor="middle">{{keep}}</text>
+
+ <!-- 中：箭头 -->
+ <g class="da-arrow"><path class="d-path" d="M224 132 H252"/><path class="d-ink" d="M250 124 L262 132 L250 140 Z"/></g>
+
+ <!-- 右：服务器列表 -->
+ <rect class="d-shadow" x="274" y="14" width="198" height="248" rx="10"/>
+ <rect class="d-win" x="268" y="8" width="198" height="248" rx="10"/>
+ <text class="t-b t-lg" x="282" y="34">{{list}}</text>
+ <path class="d-line" d="M280 46 H454"/>
+
+ <rect class="d-card" x="280" y="56" width="174" height="52" rx="7"/>
+ <rect class="d-dirt" x="290" y="68" width="26" height="26"/><rect class="d-grass" x="290" y="68" width="26" height="8"/><rect class="d-edge" x="290" y="68" width="26" height="26"/>
+ <rect class="d-softer" x="326" y="70" width="62" height="8" rx="3"/><rect class="d-soft" x="326" y="84" width="42" height="7" rx="3"/>
+ <circle class="d-dot-ok" cx="438" cy="82" r="5"/>
+
+ <rect class="d-card" x="280" y="116" width="174" height="52" rx="7"/>
+ <rect class="d-dirt" x="290" y="128" width="26" height="26"/><rect class="d-grass" x="290" y="128" width="26" height="8"/><rect class="d-edge" x="290" y="128" width="26" height="26"/>
+ <rect class="d-softer" x="326" y="130" width="48" height="8" rx="3"/><rect class="d-soft" x="326" y="144" width="56" height="7" rx="3"/>
+ <circle class="d-dot-off" cx="438" cy="142" r="5"/>
+
+ <g class="da-new">
+  <rect class="d-newrow" x="280" y="176" width="174" height="62" rx="7"/>
+  <rect class="d-dirt" x="290" y="188" width="26" height="26"/><rect class="d-grass" x="290" y="188" width="26" height="8"/><rect class="d-edge" x="290" y="188" width="26" height="26"/>
+  <text class="t-b" x="326" y="199">old-server</text>
+  <text class="t-muted t-xs" x="326" y="216">Paper 1.20.1</text>
+  <circle class="d-dot-off" cx="438" cy="202" r="5"/>
+  <text class="t-muted t-xs" x="290" y="231">{{added}}</text>
+ </g>
+</svg>

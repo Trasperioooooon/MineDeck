@@ -1,0 +1,29 @@
+<!-- 亮点演示：游戏内 AI。夜里，玩家在聊天栏打出「@AI ……改成白天」→ AI 回话 → 天亮了，太阳升起来。默认画面即最终帧（白天）。
+     画法和时间线见 css/motion.css 的 A10。文字由调用方传入。 -->
+<svg class="anim sc-demo demo-gameai" viewBox="0 0 480 270" xmlns="http://www.w3.org/2000/svg">
+ <defs><clipPath id="dg-clip"><rect x="8" y="8" width="458" height="248" rx="10"/></clipPath></defs>
+ <rect class="d-shadow" x="14" y="14" width="458" height="248" rx="10"/>
+ <g clip-path="url(#dg-clip)">
+  <rect class="d-sky" x="8" y="8" width="458" height="248"/>
+  <g class="dg-sun"><circle class="d-gold" cx="384" cy="64" r="22"/></g>
+  <rect class="d-cloud" x="70" y="44" width="78" height="16" rx="8"/><rect class="d-cloud" x="94" y="34" width="44" height="16" rx="8"/>
+  <rect class="d-cloud" x="250" y="74" width="60" height="14" rx="7"/>
+  <!-- 地面：一排草方块 -->
+  <rect class="d-dirt" x="8" y="198" width="458" height="58"/>
+  <rect class="d-grass" x="8" y="198" width="458" height="14"/>
+  <path class="d-seam" d="M54 198V256 M100 198V256 M146 198V256 M192 198V256 M238 198V256 M284 198V256 M330 198V256 M376 198V256 M422 198V256"/>
+  <!-- 小人 -->
+  <rect class="dg-body" x="398" y="166" width="16" height="32"/><rect class="dg-head" x="396" y="148" width="20" height="20"/><rect class="d-ink" x="401" y="156" width="3" height="3"/><rect class="d-ink" x="409" y="156" width="3" height="3"/>
+  <!-- 夜色：盖在整个场景上，天亮时淡出 -->
+  <g class="dg-night">
+   <rect class="d-night" x="8" y="8" width="458" height="248"/>
+   <circle class="d-moon" cx="384" cy="64" r="16"/>
+   <rect class="d-moon" x="120" y="52" width="3" height="3"/><rect class="d-moon" x="210" y="34" width="3" height="3"/><rect class="d-moon" x="300" y="96" width="3" height="3"/><rect class="d-moon" x="64" y="104" width="3" height="3"/>
+  </g>
+  <!-- 聊天栏 -->
+  <rect class="d-chatbg" x="20" y="142" width="336" height="46" rx="3"/>
+  <text class="t-chat dg-q" x="30" y="161">{{q}}</text>
+  <text class="t-chat t-ai dg-a" x="30" y="180">{{a}}</text>
+ </g>
+ <rect class="d-frame" x="8" y="8" width="458" height="248" rx="10"/>
+</svg>

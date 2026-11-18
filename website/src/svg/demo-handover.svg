@@ -1,0 +1,43 @@
+<!-- 亮点演示：交接包。左边电脑上的服务器停下（灯变灰）→ 装成一个 .mdpack 包 → 包滑到中间 → 右边电脑上出现同一台服务器，进度条走完，灯变绿。
+     默认画面即最终帧。画法和时间线见 css/motion.css 的 A10。文字由调用方传入。 -->
+<svg class="anim sc-demo demo-handover" viewBox="0 0 480 270" xmlns="http://www.w3.org/2000/svg">
+ <!-- 左：你的电脑 -->
+ <rect class="d-shadow" x="26" y="34" width="160" height="118" rx="9"/>
+ <rect class="d-win" x="20" y="28" width="160" height="118" rx="9"/>
+ <rect class="d-stand" x="88" y="146" width="24" height="12"/><rect class="d-stand" x="66" y="158" width="68" height="7" rx="2"/>
+ <rect class="d-card" x="32" y="42" width="136" height="52" rx="6"/>
+ <rect class="d-dirt" x="42" y="54" width="26" height="26"/><rect class="d-grass" x="42" y="54" width="26" height="8"/><rect class="d-edge" x="42" y="54" width="26" height="26"/>
+ <rect class="d-softer" x="78" y="56" width="58" height="8" rx="3"/><rect class="d-soft" x="78" y="70" width="38" height="7" rx="3"/>
+ <circle class="d-dot-off dh-l" cx="152" cy="60" r="5"/>
+ <rect class="d-soft" x="32" y="102" width="136" height="32" rx="6"/>
+ <text class="t-px" x="100" y="190" text-anchor="middle">{{a}}</text>
+ <text class="t-muted" x="100" y="212" text-anchor="middle">{{s1}}</text>
+
+ <!-- 中：路径和包 -->
+ <path class="d-path" d="M190 88 H288"/>
+ <path class="d-ink" d="M284 79 L298 88 L284 97 Z"/>
+ <g class="dh-box">
+  <rect class="d-shadow" x="218" y="67" width="52" height="46" rx="5"/>
+  <rect class="d-box" x="214" y="63" width="52" height="46" rx="5"/>
+  <rect class="d-tape" x="236" y="63" width="8" height="46"/>
+  <rect class="d-edge" x="214" y="63" width="52" height="46" rx="5"/>
+ </g>
+ <text class="t-px" x="240" y="190" text-anchor="middle">{{file}}</text>
+ <text class="t-muted" x="240" y="212" text-anchor="middle">{{s2}}</text>
+
+ <!-- 右：朋友的电脑 -->
+ <rect class="d-shadow" x="306" y="34" width="160" height="118" rx="9"/>
+ <rect class="d-win" x="300" y="28" width="160" height="118" rx="9"/>
+ <rect class="d-stand" x="368" y="146" width="24" height="12"/><rect class="d-stand" x="346" y="158" width="68" height="7" rx="2"/>
+ <g class="dh-new">
+  <rect class="d-card" x="312" y="42" width="136" height="52" rx="6"/>
+  <rect class="d-dirt" x="322" y="54" width="26" height="26"/><rect class="d-grass" x="322" y="54" width="26" height="8"/><rect class="d-edge" x="322" y="54" width="26" height="26"/>
+  <rect class="d-softer" x="358" y="56" width="58" height="8" rx="3"/><rect class="d-soft" x="358" y="70" width="38" height="7" rx="3"/>
+  <circle class="d-dot-ok dh-r" cx="432" cy="60" r="5"/>
+ </g>
+ <rect class="d-soft" x="312" y="108" width="136" height="10" rx="5"/>
+ <rect class="d-fill dh-fill" x="312" y="108" width="136" height="10" rx="5"/>
+ <g class="dh-done"><circle class="d-dot-ok" cx="432" cy="131" r="7"/><path class="d-tick" d="M428.5 131 l2.5 2.5 l4 -5"/><text class="t-mono t-muted" x="312" y="135">{{done}}</text></g>
+ <text class="t-px" x="380" y="190" text-anchor="middle">{{b}}</text>
+ <text class="t-muted" x="380" y="212" text-anchor="middle">{{s3}}</text>
+</svg>

@@ -1,0 +1,34 @@
+<!-- 亮点演示：报错横幅。日志一行行出来 → 状态从「运行中」变成「已停止」→ 横幅落下 → 光标移到「让 AI 分析」点一下。默认画面即最终帧。
+     画法和时间线见 css/motion.css 的 A10。文字由调用方传入（content/ui.*.json 的 home.show.items[].text），横幅的标题、摘要和按钮名照搬程序界面。 -->
+<svg class="anim sc-demo demo-banner" viewBox="0 0 480 270" xmlns="http://www.w3.org/2000/svg">
+ <rect class="d-shadow" x="14" y="14" width="458" height="248" rx="10"/>
+ <rect class="d-win" x="8" y="8" width="458" height="248" rx="10"/>
+ <path class="d-bar" d="M8 42 V18 a10 10 0 0 1 10 -10 H456 a10 10 0 0 1 10 10 V42 Z"/>
+ <rect class="d-card" x="20" y="16" width="78" height="26" rx="6"/>
+ <text class="t-px" x="59" y="34" text-anchor="middle">{{tab}}</text>
+ <text class="t-muted" x="116" y="34">{{tab2}}</text>
+ <text class="t-muted" x="160" y="34">{{tab3}}</text>
+ <g class="db-run"><rect class="d-ok" x="376" y="15" width="78" height="22" rx="11"/><circle class="d-dot-ok" cx="390" cy="26" r="4"/><text x="400" y="30">{{run}}</text></g>
+ <g class="db-stop"><rect class="d-btn" x="376" y="15" width="78" height="22" rx="11"/><circle class="d-dot-err" cx="390" cy="26" r="4"/><text x="400" y="30">{{stop}}</text></g>
+
+ <rect class="d-dark" x="20" y="52" width="434" height="192" rx="6"/>
+ <text class="t-log db-l1" x="34" y="156">{{l1}}</text>
+ <text class="t-log db-l2" x="34" y="174">{{l2}}</text>
+ <text class="t-log t-err db-l3" x="34" y="192">{{l3}}</text>
+ <text class="t-log t-err db-l4" x="34" y="210">{{l4}}</text>
+ <text class="t-log t-err db-l5" x="34" y="228">{{l5}}</text>
+
+ <g class="db-banner">
+  <rect class="d-shadow" x="34" y="64" width="412" height="74" rx="8"/>
+  <rect class="d-warnbg" x="30" y="60" width="412" height="74" rx="8"/>
+  <path class="d-gold" d="M54 71 L66 93 H42 Z"/>
+  <rect class="d-ink" x="53" y="78" width="2" height="8"/><rect class="d-ink" x="53" y="88" width="2" height="2"/>
+  <text class="t-b t-lg" x="78" y="87">{{title}}</text>
+  <text x="42" y="111">{{sum}}</text>
+  <text class="t-muted t-u" x="42" y="127">{{more}}</text>
+  <rect class="d-btn" x="334" y="68" width="98" height="26" rx="6"/>
+  <text class="t-b" x="383" y="86" text-anchor="middle">{{btn}}</text>
+ </g>
+ <circle class="d-ring db-ring" cx="422" cy="86" r="13"/>
+ <g transform="translate(422 86)"><g class="db-cur"><path class="d-cursor" d="M0 0v14l4-4 3 6 2-1-3-6h5z"/></g></g>
+</svg>

@@ -1,0 +1,7 @@
+<!-- A1 开服：三块方块依次落下叠成一台服务器，状态灯由灰变绿，终端行打出 Done。默认画面即最终帧。 -->
+<svg class="anim anim-hero" viewBox="0 0 220 150" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+ <g class="hb hb-3"><rect x="20" y="96" width="72" height="30" class="hb-dirt"/><rect x="20" y="96" width="72" height="9" class="hb-grass"/><rect x="20" y="96" width="72" height="30" class="hb-edge"/><rect x="74" y="112" width="6" height="6" class="hb-lamp"/></g>
+ <g class="hb hb-2"><rect x="20" y="64" width="72" height="30" class="hb-dirt"/><rect x="20" y="64" width="72" height="9" class="hb-grass"/><rect x="20" y="64" width="72" height="30" class="hb-edge"/><rect x="74" y="80" width="6" height="6" class="hb-lamp"/></g>
+ <g class="hb hb-1"><rect x="20" y="32" width="72" height="30" class="hb-dirt"/><rect x="20" y="32" width="72" height="9" class="hb-grass"/><rect x="20" y="32" width="72" height="30" class="hb-edge"/><rect x="74" y="48" width="6" height="6" class="hb-lamp"/></g>
+ <g class="hb-term"><rect x="108" y="70" width="104" height="44" class="hb-screen"/><text x="116" y="88" class="hb-t1">&gt; start</text><text x="116" y="104" class="hb-t2">Done (3.2s)!</text></g>
+</svg>
