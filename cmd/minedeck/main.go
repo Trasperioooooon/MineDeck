@@ -25,6 +25,7 @@ import (
 	"minedeck/internal/musicshare"
 	"minedeck/internal/ops/catalog"
 	"minedeck/internal/procutil"
+	"minedeck/internal/tmpsweep"
 	"minedeck/internal/tunnel"
 	"minedeck/internal/update"
 	"minedeck/internal/web"
@@ -57,6 +58,7 @@ func main() {
 		fatal("加载服务器列表失败: " + err.Error())
 	}
 	go mgr.MigrateLog4j(context.Background()) // 已经建好的服务器，log4shell 防护整理成现在的做法：换、补、摘（见 inst/log4j_migrate.go）
+	go sweepStaleTemps(mgr)                   // 以前被强退、断电时没写完留下的临时文件，后台清一遍
 	tun := tunnel.NewManager()
 	tun.FollowInstances(func(name string) string { // 开了跟随启动的隧道跟着实例启停
 		i, err := mgr.Get(name)
@@ -255,6 +257,20 @@ func openWebView(url string, sig chan os.Signal, minimized bool) (ok bool) {
 	w.Navigate(url)
 	w.Run()
 	return true
+}
+
+// staleTempAge 临时文件多久没动过才清：正在写的一直在变，写完等着改名的那一下只有几毫秒，一小时绰绰有余。
+const staleTempAge = time.Hour
+
+// sweepStaleTemps 清掉 MineDeck 自己留下、很久没动过的临时文件（见 internal/tmpsweep）。只在程序启动后做一遍。
+func sweepStaleTemps(mgr *inst.Manager) {
+	var dirs []string
+	for _, i := range mgr.List() {
+		dirs = append(dirs, i.Dir)
+	}
+	if r := tmpsweep.Startup(app.Base, app.CacheDir, app.RuntimesDir, dirs, staleTempAge); r.Files > 0 {
+		log.Printf("清掉了 %d 个以前没写完留下的临时文件，共 %.1f MB", r.Files, float64(r.Bytes)/(1<<20))
+	}
 }
 
 func fatal(msg string) {
