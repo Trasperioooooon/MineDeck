@@ -1447,13 +1447,22 @@ async function cpHandler(state, req, res, m, seg) {
       const bad = b.attackDeny.find(x => !/^(?:[a-z0-9_.-]+:)?[a-z0-9_./-]+$/.test(x));
       if (bad) return err(res, 400, `「${bad}」不是生物种类的 ID（如 minecraft:villager）`);
     }
-    for (const list of [b.zones, b.addZones]) {
+    for (const [list, isAdd] of [[b.zones, false], [b.addZones, true]]) {
       if (!Array.isArray(list)) continue;
+      if (list.length > 64) return err(res, 400, "禁挖区域最多 64 个");
       const seen = new Set();
       for (const z of list) {
-        if (!/^[A-Za-z0-9_-]{1,32}$/.test(z.name)) return err(res, 400, `区域名「${z.name}」只能是 1–32 个字母、数字、_、-`);
-        if (seen.has(z.name.toLowerCase())) return err(res, 400, `有两个禁挖区域都叫「${z.name}」`);
-        seen.add(z.name.toLowerCase());
+        if (!Array.isArray(z.min) || z.min.length !== 3 || !Array.isArray(z.max) || z.max.length !== 3 || ![...z.min, ...z.max].every(Number.isInteger))
+          return err(res, 400, `禁挖区域「${z.name}」的两个角都要写 x、y、z 三个坐标`);
+        const name = String(z.name || "").trim(), dim = String(z.dim || "").trim();
+        if (!/^[A-Za-z0-9_-]{1,32}$/.test(name)) return err(res, 400, `区域名「${name}」只能是 1–32 个字母、数字、_、-`);
+        if (!/^[a-z0-9_.-]+:[a-z0-9_./-]+$/.test(dim) || dim.length > 100) return err(res, 400, `维度「${dim}」要写完整的 ID，比如 minecraft:overworld`);
+        for (const c of [z.min, z.max]) {
+          if (c[0] < -30000000 || c[0] > 30000000 || c[2] < -30000000 || c[2] > 30000000) return err(res, 400, `区域「${name}」的 x、z 要在 ±30000000 以内`);
+          if (c[1] < -2048 || c[1] > 2048) return err(res, 400, `区域「${name}」的 y 要在 -2048 到 2048 之间`);
+        }
+        if (seen.has(name.toLowerCase())) return err(res, 400, `${isAdd ? "要加的禁挖区域里" : ""}有两个${isAdd ? "都" : "禁挖区域都"}叫「${name}」`);
+        seen.add(name.toLowerCase());
       }
     }
     // 禁挖区域同 companion.Patch.MergeZones：zones 给了整张替换 → removeZones 按名字（不分大小写）删、找不到不算错 →
