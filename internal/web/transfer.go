@@ -147,7 +147,13 @@ const (
 // parseUpload 解析 multipart 上传。超过 limit 时返回 tooLarge 这句话：请求头里写明了大小的，不等传完就拒掉；
 // 没写或者写小了的，读到上限时拒掉。
 func parseUpload(w http.ResponseWriter, r *http.Request, limit int64, tooLarge string) (err error) {
-	defer func() { err = uploadError(r, err, tooLarge) }()
+	defer func() {
+		var space *diskguard.NoSpace
+		if errors.As(err, &space) {
+			err = tempNoSpaceError(space)
+		}
+		err = uploadError(r, err, tooLarge)
+	}()
 	// 请求体比文件本身多出 multipart 的分隔线和别的表单项。界面是按文件大小拦的，这里留 1 MiB 余量，
 	// 免得一个刚好卡在上限以内的文件，界面放行、传完了又被这里拒掉。
 	limit += 1 << 20
@@ -155,15 +161,18 @@ func parseUpload(w http.ResponseWriter, r *http.Request, limit int64, tooLarge s
 		return ops.Errorf(http.StatusRequestEntityTooLarge, "%s", tooLarge)
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, limit)
-	// ParseMultipartForm 超出内存额度会写系统临时目录，所以对临时目录所在的盘同样查余量（开头一次、每收一段一次）。
+	// 请求体总长在 multipartMemory 以内时，ParseMultipartForm 整段留在内存、不写系统临时目录，
+	// 不查临时盘余量（免得临时盘偏紧时连小文件也传不进来）；长度未知（-1）或超出时仍按临时盘查。
 	// 只查余量，不占那个盘的独占名额：请求体是按对方的网速进来的，占着名额会让同盘的其他写盘操作等它传完，
 	// 自己排队等名额的时间又会被算成「上传没有进展」
-	lease, err := diskguard.Acquire(r.Context(), os.TempDir(), diskguard.Options{Shared: true, Need: max(r.ContentLength, 0), Query: uploadDiskFree})
-	if err != nil {
-		return err
+	if r.ContentLength < 0 || r.ContentLength > multipartMemory {
+		lease, err := diskguard.Acquire(r.Context(), os.TempDir(), diskguard.Options{Shared: true, Need: max(r.ContentLength, 0), Query: uploadDiskFree})
+		if err != nil {
+			return err
+		}
+		defer lease.Close()
+		r.Body = &readerCloser{Reader: lease.Reader(r.Body), Closer: r.Body}
 	}
-	defer lease.Close()
-	r.Body = &readerCloser{Reader: lease.Reader(r.Body), Closer: r.Body}
 	if err := r.ParseMultipartForm(multipartMemory); err != nil {
 		var big *http.MaxBytesError
 		if errors.As(err, &big) || strings.Contains(err.Error(), "request body too large") {
@@ -190,6 +199,13 @@ var uploadDiskFree = diskguard.Free  // 测试注入查询失败和余量不足�
 type readerCloser struct {
 	io.Reader
 	io.Closer
+}
+
+func tempNoSpaceError(space *diskguard.NoSpace) error {
+	if vol := filepath.VolumeName(os.TempDir()); vol != "" {
+		return ops.Errorf(http.StatusInsufficientStorage, "系统临时文件夹所在的磁盘（%s）空间不足，请先腾出空间：%v", vol, space)
+	}
+	return ops.Errorf(http.StatusInsufficientStorage, "系统临时文件夹所在的磁盘空间不足，请先腾出空间：%v", space)
 }
 
 // copyUpload 仅覆盖系统临时文件／内存到缓存的复制，不持锁解析包或启动后续导入。

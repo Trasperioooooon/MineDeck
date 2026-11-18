@@ -80,6 +80,10 @@ func (m *Manager) ImportModpackAsync(pack *modpack.Pack, req CreateReq, cfKey st
 		}
 		if err := m.runImport(ctx, t, pack, req, dir, cfKey); err != nil {
 			m.forgetPending(t.ID())
+			t.SetPending(nil)
+			for _, kind := range []string{"import-pending", "cf-unresolved", "import-kept", "java-req"} {
+				t.RemoveWarning(kind)
+			}
 			// 先清后报失败：任务一显示失败，半成品就得已经删干净了
 			failCreate(t, err, m.discardCreating(req.Name, dir))
 			return

@@ -231,6 +231,17 @@ func (m *Manager) load() {
 	m.loadErr = nil
 	// 列表里写着 null 的项（手改出来的）跳过：里面没有内容，留着的话下面一读字段就崩
 	m.tunnels, m.seq = slices.DeleteFunc(data.Tunnels, func(t *Tunnel) bool { return t == nil }), data.Seq
+	// 手改 tunnels.json 把 seq 调小时，把 seq 抬到现有 tun<数字> 编号的最大值，避免新增隧道撞号；
+	// 只改内存里的值，不为它单独写回文件，下次保存时自然会写进去。
+	for _, t := range m.tunnels {
+		s, ok := strings.CutPrefix(t.ID, "tun")
+		if !ok || s == "" || strings.ContainsFunc(s, func(r rune) bool { return r < '0' || r > '9' }) {
+			continue
+		}
+		if n, err := strconv.Atoi(s); err == nil && n > m.seq {
+			m.seq = n
+		}
+	}
 	m.broken = map[string]bool{}
 	// 旧版存的明文凭据：加密后写回（失败保持原样、只记日志，启动时照旧能用）；解不开的标记出来，不让启动
 	migrated := false

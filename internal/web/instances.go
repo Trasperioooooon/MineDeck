@@ -42,7 +42,9 @@ func (s *Server) handleImportModpack(w http.ResponseWriter, r *http.Request) {
 			_ = os.Remove(dest)
 			return nil, fmt.Errorf("保存上传文件失败: %w", cerr)
 		}
-		return ops.ArgsOf(importFormArgs(r, dest)), nil
+		args := importFormArgs(r, dest)
+		args["fileName"] = hdr.Filename
+		return ops.ArgsOf(args), nil
 	})
 }
 
