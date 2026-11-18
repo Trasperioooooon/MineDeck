@@ -56,7 +56,7 @@ func main() {
 	if err != nil {
 		fatal("加载服务器列表失败: " + err.Error())
 	}
-	go mgr.MigrateLog4j(context.Background()) // 1.7 ~ 1.11.2 的服务器换成该用的 log4shell 防护配置（见 inst/log4j_migrate.go）
+	go mgr.MigrateLog4j(context.Background()) // 已经建好的服务器，log4shell 防护整理成现在的做法：换、补、摘（见 inst/log4j_migrate.go）
 	tun := tunnel.NewManager()
 	tun.FollowInstances(func(name string) string { // 开了跟随启动的隧道跟着实例启停
 		i, err := mgr.Get(name)

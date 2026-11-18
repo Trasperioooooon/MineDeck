@@ -768,6 +768,10 @@ func locateLaunchTarget(dir string, core mcsrc.Core, ctx context.Context, mc str
 //   - 1.7 以前还没用 log4j，什么都不加。
 //
 // noLookups 对 1.7 ~ 1.16.5 不起作用，没有坏处，和以前一样带着：已经建好的服务器里都有它。
+//
+// 上面是按 Minecraft 版本分的。要套官方配置的那两段，再看一眼服务端 jar 自带的 log4j：看得出是修过的版本就不套
+// （2021 年 12 月以后的 Paper 构建；CraftBukkit 系套上 Mojang 的配置控制台没有输出），判断不了的照旧套，见 log4j_bundled.go。
+// 新建、接管、导入、交接包（addLog4jFlags）、保存参数（log4jFlags）、程序启动后和启动服务器时的整理（log4j_migrate.go）都按这一条。
 const (
 	log4jNoLookups = "-Dlog4j2.formatMsgNoLookups=true"
 	log4jXML       = "log4j2_112-116.xml" // 1.12 ~ 1.16.5 的官方配置，下载到实例目录
@@ -840,11 +844,17 @@ func applyLog4jMitigation(ctx context.Context, t *tasks.Task, i *Instance) error
 
 // addLog4jFlags 往 i.ExtraJVM 里加上该有的参数。要官方配置的先下载，下载不成不加引用：引用一个不存在的配置文件，
 // log4j 会退回只输出 ERROR 的默认配置，控制台和「启动完成」的判断都会失效。
+// 服务端自带的 log4j 看得出是修过的（见 log4j_bundled.go），不套官方配置：用不着，而且 CraftBukkit 系套上以后控制台没有输出。
 func addLog4jFlags(ctx context.Context, t *tasks.Task, i *Instance, noLookups bool, xml string) {
 	if noLookups {
 		i.ExtraJVM = append(i.ExtraJVM, log4jNoLookups)
 	}
 	if xml == "" {
+		return
+	}
+	jar := viewLog4jJar(i.Dir, i.LaunchTarget)
+	if jar.fixed {
+		t.Logf("这个服务端自带的 log4j 是 %s，已经修过 log4shell，不用再套 Mojang 的日志配置（%s）", jar.ver, xml)
 		return
 	}
 	if err := fetchLog4jXML(ctx, i.Dir, xml); err != nil {
@@ -853,6 +863,9 @@ func addLog4jFlags(ctx context.Context, t *tasks.Task, i *Instance, noLookups bo
 	}
 	i.ExtraJVM = append(i.ExtraJVM, log4jConfigKey+xml)
 	t.Logf("已启用 log4shell 漏洞缓解（Mojang 官方方案，%s）", xml)
+	if jar.quiet {
+		t.Logf("⚠ %s", log4jQuietNote)
+	}
 }
 
 // log4jObjects 两份官方配置的下载地址前缀，后面接 SHA-1 和文件名（是变量：测试里换成本机的假服务器）。
@@ -885,6 +898,7 @@ func restoreLog4jXML(ctx context.Context, t *tasks.Task, i *Instance) {
 
 // log4jFlags 给出保存 JVM 参数时须强制保留的 log4shell 缓解参数，判定与创建时的 applyLog4jMitigation 一致；
 // 只读本地清单不联网（mcsrc.NewerOrEqualCached），判定不了版本时保守沿用 i.ExtraJVM 中已有的缓解参数。
+// 服务端自带的 log4j 看得出是修过的，不强加官方配置的引用（和 addLog4jFlags、log4j_migrate.go 一致，不然这边不加、那边又补回去）。
 // 调用方须持 procMu。
 func log4jFlags(i *Instance) []string {
 	if mcsrc.KindOf(i.Core) == mcsrc.KindProxy {
@@ -901,7 +915,7 @@ func log4jFlags(i *Instance) []string {
 		if noLookups {
 			flags = append(flags, log4jNoLookups)
 		}
-		if xml != "" {
+		if xml != "" && !log4jSelfFixed(i.Dir, i.LaunchTarget) {
 			flags = append(flags, log4jConfigKey+xml)
 		}
 	}
