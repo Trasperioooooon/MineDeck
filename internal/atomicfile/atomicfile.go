@@ -93,7 +93,7 @@ func copyChecked(path string, r io.Reader, perm fs.FileMode, check func(string) 
 func Replace(tmp, path string) error { return replacePrepared(tmp, path, true) }
 
 func replacePrepared(tmp, path string, allowReadOnly bool) error {
-	f, err := os.OpenFile(tmp, os.O_RDWR, 0)
+	f, err := openForSync(tmp)
 	if err != nil {
 		return err
 	}
