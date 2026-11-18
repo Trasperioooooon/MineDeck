@@ -34,7 +34,7 @@
       "sub": "点左边的名字看演示。",
       "tabsAria": "亮点",
       "beta": "测试版",
-      "betaNote": "这一项目前只在 3.1.0 测试版里。",
+      "betaNote": "这一项目前只在测试版里。",
       "betaLink": "到下载页看测试版",
       "moreLink": "功能页里的说明",
       "replay": "重播",
@@ -91,7 +91,6 @@
         },
         {
           "id": "handover",
-          "beta": true,
           "t": "整台服务器打包交给朋友",
           "d": "不想开了，把存档、模组和配置打成一个文件发过去，朋友导入就能接着开。",
           "more": "handover",
@@ -109,7 +108,6 @@
         },
         {
           "id": "cart",
-          "beta": true,
           "t": "模组放进购物车，前置自动补齐",
           "d": "自己挑模组和插件，不用一个一个找前置。",
           "more": "mods",
@@ -124,7 +122,6 @@
         },
         {
           "id": "pending",
-          "beta": true,
           "t": "整合包里下不了的文件，逐个处理",
           "d": "以前只要有一个文件的下载地址不在允许的站点里，或者没有校验值，整个整合包就导不进来。",
           "more": "modpack",
@@ -139,7 +136,6 @@
         },
         {
           "id": "adopt",
-          "beta": true,
           "t": "以前开的服，收进来接着管",
           "d": "不用重新建，也不用搬文件。",
           "more": "takeover",
@@ -222,6 +218,7 @@
     "icp": "ICP 备案号：{v}",
     "psb": "公安备案号：{v}",
     "pending": "待填写",
+    "psbPending": "审核中",
     "disclaimer": "Minecraft 是 Mojang Synergies AB 的商标。MineDeck 与 Mojang Studios、Microsoft 无关。",
     "fonts": "字体：Fusion Pixel、Geist、Geist Mono、Noto Sans SC，均以 SIL OFL 1.1 授权，裁成子集后在本站托管。",
     "fontLicenses": "字体许可",

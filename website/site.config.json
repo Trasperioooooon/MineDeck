@@ -4,10 +4,11 @@
   "mirror": {
     "enabled": true,
     "template": "https://dl.minedeck.cn/releases/{tag}/{file}",
-    "_note": "占位。镜像地址和同步方式确定后再改；enabled 设为 false 时主按钮改指 GitHub。"
+    "placeholder": false,
+    "_note": "镜像已上线，地址是 dl.minedeck.cn。placeholder 设为 true 时下载页会注明镜像地址是占位；enabled 设为 false 时主按钮改指 GitHub。"
   },
   "beian": {
-    "icp": "",
+    "icp": "浙ICP备2026030166号-3",
     "psb": "",
     "psbCode": "",
     "_note": "备案通过后填写。icp 形如「京ICP备XXXXXXXX号-1」；psb 形如「京公网安备XXXXXXXXXXXXXX号」，psbCode 为其中的数字，用于查询链接。留空时页脚显示「待填写」。"
@@ -16,7 +17,8 @@
   "changelogInitial": 10,
   "contributors": {
     "exclude": [
-      "claude"
+      "claude",
+      "cursoragent"
     ],
     "max": 12,
     "showHiddenNote": true,

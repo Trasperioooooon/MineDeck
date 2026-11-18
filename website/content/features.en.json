@@ -1,7 +1,7 @@
 {
  "title": "Features",
  "desc": "What MineDeck does: creating servers, modpacks, mods, console, backups, tunnels, plus optional AI and music sharing.",
- "lead": "Each section starts with what you can do; open the details for the rest. Items marked Beta are, for now, only in the 3.1.0 betas such as {beta}; everything else is in stable {stable}. The MineDeck interface is in Chinese, so labels are given with the Chinese text you will see on screen.",
+ "lead": "Each section starts with what you can do; open the details for the rest. Everything described here is in stable {stable}. The MineDeck interface is in Chinese, so labels are given with the Chinese text you will see on screen.",
  "toc": "On this page",
  "moreDetails": "More details",
  "shotsLabel": "Screenshots",
@@ -29,10 +29,7 @@
    "points": [
     "The usual mapping: Java 8 before 1.17, 16 for 1.17, 17 for 1.18 to 1.20.4, 21 for 1.20.5 to 1.21, and 25 from 26.1 on. What the game version itself declares takes precedence.",
     "The downloaded Java lives in the program folder. It does not change system environment variables or touch the Java you already have.",
-    {
-     "t": "Each server can switch Java under Memory / startup (内存 / 启动). If a mod in a modpack needs a newer Java you are told, but starting is not blocked.",
-     "channel": "beta"
-    }
+    "Each server can switch Java under Memory / startup (内存 / 启动). If a mod in a modpack needs a newer Java you are told, but starting is not blocked."
    ],
    "details": [
     "At launch MineDeck scans for installed Java in the background: the registry, JAVA_HOME, PATH and common install folders.",
@@ -58,10 +55,7 @@
     "Environment variables such as JAVA_HOME are cleared when a server starts, so the wrong Java is not picked up.",
     "The port is checked before start. Stopping sends stop first and forces the process to end after about 30 seconds.",
     "Each server's folder contains a run.bat that does the same as the interface, for starting by hand.",
-    {
-     "t": "When a task log gets long, its first 40 lines are kept. An old Forge installer that installs nothing yet reports success is now treated as a failure and retried.",
-     "channel": "beta"
-    }
+    "When a task log gets long, its first 40 lines are kept. An old Forge installer that installs nothing yet reports success is now treated as a failure and retried."
    ]
   },
   {
@@ -72,26 +66,14 @@
    "points": [
     "A Modrinth .mrpack imports directly: the server type, version and loader are detected, and client-only files are skipped.",
     "CurseForge zips import too. The files inside are downloaded automatically only after you enter your own CurseForge API key; without one the import still completes and you supply those files yourself.",
-    {
-     "t": "Before, a single file whose download address was not on an allowed site, or that had no checksum, made the whole import fail. Now such files are listed on the task page under pending files (待决文件), and you choose for each one: skip it (跳过), use a local file instead (用本地文件代替), or trust the site and download (信任站点并下载).",
-     "channel": "beta"
-    }
+    "Before, a single file whose download address was not on an allowed site, or that had no checksum, made the whole import fail. Now such files are listed on the task page under pending files (待决文件), and you choose for each one: skip it (跳过), use a local file instead (用本地文件代替), or trust the site and download (信任站点并下载)."
    ],
    "details": [
     "The upload limit is 4 GiB.",
     "The CurseForge key is stored encrypted with Windows DPAPI; neither the interface nor the API sends it back in plain text.",
-    {
-     "t": "Files in a CurseForge manifest are placed by category: mods in mods, resource packs in resourcepacks, shaders in shaderpacks, data packs in datapacks.",
-     "channel": "beta"
-    },
-    {
-     "t": "The import form takes a local source folder (本地来源目录). Pending files with the same name in that folder are picked up automatically.",
-     "channel": "beta"
-    },
-    {
-     "t": "Pending files have to be dealt with in the same run. After MineDeck restarts, the list on the task page is gone and only text lists in the server folder remain.",
-     "channel": "beta"
-    },
+    "Files in a CurseForge manifest are placed by category: mods in mods, resource packs in resourcepacks, shaders in shaderpacks, data packs in datapacks.",
+    "The import form takes a local source folder (本地来源目录). Pending files with the same name in that folder are picked up automatically.",
+    "Pending files are stored in the server folder. They are still there after MineDeck restarts, and you continue from that server's detail page. A skipped file can be handled another way later.",
     "Most modpacks on CurseForge are made for clients, and a server built from the manifest may crash on start. Authors of large modpacks usually publish a separate Server Pack, which is the safer choice."
    ]
   },
@@ -99,7 +81,6 @@
    "id": "takeover",
    "h": "Adopting an existing server",
    "icon": "folder",
-   "channel": "beta",
    "lead": "Point MineDeck at the folder of a server you already run and it is brought in to be managed with the rest. Nothing is recreated and no files are moved.",
    "points": [
     "The server type, version, launch file, memory setting and port are detected.",
@@ -118,7 +99,6 @@
    "id": "handover",
    "h": "Handover packs",
    "icon": "pack",
-   "channel": "beta",
    "lead": "Pack a whole server into one file and hand it to MineDeck on another PC to keep running it.",
    "points": [
     "With the server stopped, choose Hand over to another PC (交接给其他电脑…) in its card menu. You get one .mdpack file to send by any chat app or cloud drive.",
@@ -142,25 +122,13 @@
    "lead": "Search for mods and plugins inside MineDeck, see the ones that work with your server type, and install them straight into the server.",
    "points": [
     "Non-vanilla servers have a Resources tab (资源): search Modrinth and install into mods or plugins. Mods are filtered by game version.",
-    {
-     "t": "Mod cart: put the mods or plugins you want in a cart, have their dependencies added automatically, and install them in one go. You can also pick them in the new-server wizard.",
-     "channel": "beta"
-    }
+    "Mod cart: put the mods or plugins you want in a cart, have their dependencies added automatically, and install them in one go. You can also pick them in the new-server wizard."
    ],
    "details": [
     "Plugins are filtered by server type only, not by game version.",
-    {
-     "t": "Client-only mods cannot go in the cart; what the server already has is not installed twice; each download must match the checksum Modrinth gives.",
-     "channel": "beta"
-    },
-    {
-     "t": "Check dependencies (检查依赖) lists the required ones that are missing. They are installed with the rest even if you skip the check.",
-     "channel": "beta"
-    },
-    {
-     "t": "The AI assistant can search and add to the cart for you. Installing is something it can only propose; nothing is installed until you confirm.",
-     "channel": "beta"
-    },
+    "Client-only mods cannot go in the cart; what the server already has is not installed twice; each download must match the checksum Modrinth gives.",
+    "Check dependencies (检查依赖) lists the required ones that are missing. They are installed with the rest even if you skip the check.",
+    "The AI assistant can search and add to the cart for you. Installing is something it can only propose; nothing is installed until you confirm.",
     "Listing mods, enabling or disabling one, and editing a mod's config file are there for the AI assistant and MCP tools; the interface has no separate entry for them."
    ]
   },
@@ -241,10 +209,7 @@
     "The interface runs in a WebView2 window. Without WebView2 it opens in the default browser.",
     "The default port is 27333; a random port is used if that one is taken.",
     "Start-with-Windows only writes a startup entry for the current user and needs no administrator rights.",
-    {
-     "t": "A background task can be found again from the task list after you switch pages or reload.",
-     "channel": "beta"
-    }
+    "A background task can be found again from the task list after you switch pages or reload."
    ]
   },
   {
@@ -261,7 +226,7 @@
     "Choosing folders, opening directories and changing AI settings are accepted from this PC only; devices on the LAN cannot do them.",
     "Updates: check and apply under Settings → Updates and about (设置 → 更新与关于). All servers have to be stopped first.",
     "A new version is downloaded through accelerators that work in mainland China first, then from GitHub directly, and must match the SHA-256 on the release page.",
-    "A stable install is not offered betas, and one beta does not update to the next. Once the release with the same version number is out, people running a beta can update to it directly."
+    "From 3.2.0 you can choose Stable or Latest (including betas) under Settings → Updates and about (设置 → 更新与关于). If you have not chosen, a stable install follows stable releases only, and a beta is offered newer betas. Versions up to 3.2.0-beta.2 only look up the latest stable release; to move to a newer beta, replace the program yourself."
    ]
   },
   {
@@ -275,7 +240,7 @@
     "AI companions: on NeoForge 1.21.1 or Forge 1.20.1 servers you can spawn companions and tell them in chat to follow, gather, fight or hand over items."
    ],
    "details": [
-    "Two protocols: OpenAI-compatible and Claude. Presets for DeepSeek, Qwen, Kimi, Zhipu, OpenAI, Claude and Ollama (local), plus a custom address.",
+    "Two protocols: OpenAI-compatible and Claude. Presets for DeepSeek, Qwen, Kimi, Zhipu, Xiaomi MiMo, OpenAI, Claude and Ollama (local), plus a custom address.",
     "The key is stored encrypted on this PC. Cost is estimated from public prices, and each feature can have a daily token quota.",
     "The Windows user name, LAN addresses and keys are replaced before text is sent to the model, and you can see exactly what was sent.",
     "The in-game AI allows 60 questions per player per day by default. The first time someone asks after each server start, everyone is told which provider questions are sent to.",

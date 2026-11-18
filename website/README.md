@@ -104,7 +104,7 @@ CSS 按 `@layer tokens, base, components, pages, motion` 排列。断点用 1100
 - **贡献者**：`contributors.exclude` 中的账号不显示（默认排除 `claude`），`type` 为 Bot 的账号总是排除。`showHiddenNote` 控制是否注明「已隐藏 AI 编码工具和机器人账号」。
 - **统计**：`stats.showStars` 现在是 false，Star 数还小的时候先不显示；改成 true 就显示构建时的快照并注明日期。`stats.showDownloads` 默认关闭。
 - **时间**：按 `timezoneOffsetHours`（默认 8，北京时间）显示。
-- **镜像链接**：按 `mirror.template` 生成，`{tag}`、`{file}` 会被替换。默认 `https://dl.minedeck.cn/releases/{tag}/{file}` 是占位；镜像上线前改成实际地址，或把 `mirror.enabled` 设为 false，主按钮改指 GitHub。
+- **镜像链接**：按 `mirror.template` 生成，`{tag}`、`{file}` 会被替换。`https://dl.minedeck.cn/releases/{tag}/{file}` 已经上线，和官网在同一台服务器上。`mirror.placeholder` 设为 true 时下载页会注明镜像地址是占位；把 `mirror.enabled` 设为 false，主按钮改指 GitHub。
 - **文案**：`content/*.json`。功能页的每一组有 `lead`（一句大白话）、`points`（直接显示的要点）和 `details`（折叠起来的细节）；带 `"channel": "beta"` 的条目和整组显示测试版标记，v3.1.0 正式发布后去掉这个字段即可。功能页和帮助页里的事实以仓库的 `docs/功能清单.md` 为准，程序改了行为时两边一起改。
 - **首页亮点展示台**：内容在 `content/ui.*.json` 的 `home.show.items`，一项一个面板。面板里放三种东西之一：`demo`（`src/svg/` 里的演示文件名，文字从 `text` 传进去）、`shot`（`docs/images` 里的截图文件名）、`steps`（三步文字）。现在七项用的都是 `demo`。带 `"beta": true` 的项显示测试版标记和去下载页的链接。
 - **`/data/latest.json`**：给以后客户端检查更新用，字段含 tag、时间、SHA-256、大小、镜像地址和 GitHub 地址。现有客户端代码没有改动。

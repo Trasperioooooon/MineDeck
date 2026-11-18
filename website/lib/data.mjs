@@ -93,7 +93,7 @@ export function buildModel({ raw, repoInfo, contributors, activity, cfg, generat
   const hidden = ((contributors && contributors.list) || []).length - people.length;
 
   return {
-    generated_at: generatedAt, repo: cfg.repo, timezone: `UTC+${cfg.timezoneOffsetHours}`, mirror_placeholder: !!(cfg.mirror && cfg.mirror.enabled),
+    generated_at: generatedAt, repo: cfg.repo, timezone: `UTC+${cfg.timezoneOffsetHours}`, mirror_placeholder: !!(cfg.mirror && cfg.mirror.enabled && cfg.mirror.placeholder),
     latest_stable, latest_beta, show_beta: !!(latest_beta && (!latest_stable || Date.parse(latest_beta.published_at) > Date.parse(latest_stable.published_at))),
     releases, groups, byTag: Object.fromEntries(releases.map((r) => [r.tag, r])), renamed_in: renamed ? renamed.tag : null,
     repoInfo: repoInfo || null,

@@ -9,7 +9,7 @@ export function footer(ctx) {
   const icp = cfg.beian.icp ? `<a href="https://beian.miit.gov.cn/" rel="noopener">${esc(cfg.beian.icp)}</a>` : esc(L.footer.pending);
   const psb = cfg.beian.psb
     ? `<a href="https://beian.mps.gov.cn/#/query/webSearch?code=${esc(cfg.beian.psbCode)}" rel="noopener">${esc(cfg.beian.psb)}</a>`
-    : esc(L.footer.pending);
+    : esc(L.footer.psbPending || L.footer.pending);
   const link = (n) => n.ext ? extLink(ctx, n.ext(cfg), get(L, n.label))
     : n.file ? `<a href="${ctx.root}${n.file}">${esc(get(L, n.label))}</a>`
     : `<a href="${ctx.href(n.route)}${n.hash ? '#' + n.hash : ''}">${esc(get(L, n.label))}</a>`;
