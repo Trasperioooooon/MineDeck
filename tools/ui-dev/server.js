@@ -520,7 +520,7 @@ async function aiHandler(state, req, res, p, m) {
   }
   // 同 ai.PatchPrices：prices 给了整张替换；removePrices 按模型名删（找不到不算错）；addPrices 按模型名添加或替换；合完最多 100 条
   if (p === "/api/ai/prices" && m === "PUT") {
-    if (!Array.isArray(b.prices) && !Array.isArray(b.addPrices) && !Array.isArray(b.removePrices)) return err(res, 400, "缺少参数 prices");
+    if (!Array.isArray(b.prices) && !(b.addPrices || []).length && !(b.removePrices || []).length) return ok(res, aiView(a));
     let next = Array.isArray(b.prices) ? b.prices.map(c => ({ ...c })) : a.prices.map(c => ({ ...c }));
     next = next.filter(c => !(b.removePrices || []).includes(c.model));
     for (const c of b.addPrices || []) { // 同后端：已经有这个模型的原地换掉，位置不动
