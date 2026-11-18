@@ -1522,7 +1522,8 @@ function cpMockState(state, b) {
 // /__mock/state 的 modCart 开关：{ reset: true 清空草稿车与各实例的车（连本地文件）,
 //   searchFail / addFail / localFail / depsFail: 报错文案（搜索和热门清单 / 加 Modrinth 项目 / 从电脑添加 / 检查前置）,
 //   searchDelay: 搜索和热门清单晚多少毫秒才回（看慢的时候挡不挡别的操作）, noDeps: true 依赖检查返回全空,
-//   loadFail: "locked" | "corrupt" cart.json 在却没读出来（被占着 / 内容坏了，说法见 MODCART_LOAD_FAIL）}
+//   loadFail: "locked" | "corrupt" cart.json 在却没读出来（被占着 / 内容坏了，说法见 MODCART_LOAD_FAIL）,
+//   localUploadFail: "unknown-disk" 从电脑添加时查不到接收上传文件所在磁盘的剩余空间（回 503，不改清单）}
 // 响应里的 modcart.lastInstall 是上一次「安装购物车」的请求（inst、withDeps、includeDraft、expect、expectLocal），
 // modcart.searches 是到现在为止的搜索请求（q、category、offset）。
 // 本地文件没有真的 jar 可读，按文件名里的字样仿几种情况（同真后端 modcart.deps 的 local / manual / conflicts）：
@@ -1560,7 +1561,7 @@ const modCartItem = id => {
   return { projectId: id, slug: m.slug, title: m.title, icon: "", kind: m.kind, license: m.license, addedAt: new Date().toISOString() };
 };
 function newModCartState() {
-  return { draft: [], insts: {}, localDraft: [], localInsts: {}, searchFail: "", addFail: "", localFail: "", depsFail: "", searchDelay: 0, noDeps: false,
+  return { draft: [], insts: {}, localDraft: [], localInsts: {}, searchFail: "", addFail: "", localFail: "", localUploadFail: "", depsFail: "", searchDelay: 0, noDeps: false,
     loadFail: "", queries: 0, lastInstall: null, searches: [] };
 }
 function modCartMockState(state, b) {
@@ -1689,6 +1690,7 @@ async function modcartHandler(state, req, res, p, m, u) {
   // 从电脑添加一个 jar（同 modcart.local.add）：multipart 的 file，另带 inst / core / mc。返回整张清单，外加 added 和 duplicate
   if (p === "/api/modcart/local" && m === "POST") {
     const raw = await new Promise(r => { const cs = []; req.on("data", c => cs.push(c)); req.on("end", () => r(Buffer.concat(cs))); });
+    if (mc.localUploadFail === "unknown-disk") return err(res, 503, "暂时查不到接收上传文件所在磁盘的剩余空间，没有接收文件。请稍后重试");
     const { fields, file } = modcartMultipart(raw, req.headers["content-type"]);
     if (mc.localFail) return err(res, 500, mc.localFail);
     if (!file) return err(res, 400, "没有收到文件");

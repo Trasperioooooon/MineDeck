@@ -4355,6 +4355,27 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await cartState({ modCart: { reset: true } }); await page.goto(url("#/instances")); await settle(); }
   });
 
+  await run("待装清单从电脑添加时上传回 503（查不到接收磁盘的剩余空间）：不当成清单读不出来，失败提示显示原话，原来的清单还在；关掉开关再添加能加进去", async () => {
+    try {
+      await cartState({ modCart: { reset: true } });
+      await page.evaluate(i => fetch("/api/modcart", { method: "POST", body: JSON.stringify({ inst: i, projectIds: ["jei"] }) }), PACK);
+      await cartState({ modCart: { localUploadFail: "unknown-disk" } });
+      await page.goto(url(`#/inst/${encodeURIComponent(PACK)}/cart`)); await settle(600);
+      assert((await page.textContent("#mc-list")).includes("JEI"), "原来的清单应列着 JEI");
+      const jar = { name: "custom-1.0.jar", mimeType: "application/java-archive", buffer: Buffer.from("PKcustom") };
+      await page.setInputFiles("#mc-file", [jar]);
+      await page.waitForSelector("#mc-local-err", { timeout: 8000 }); await settle(300);
+      assert((await page.$("#mc-load-err")) === null && !(await page.textContent("#mc-list")).includes("无法显示待装清单"), "上传 503 不该当成清单读不出来");
+      const failText = (await page.textContent("#mc-local-err")).replace(/\s+/g, " ");
+      assert(failText.includes("custom-1.0.jar") && failText.includes("暂时查不到接收上传文件所在磁盘的剩余空间，没有接收文件。请稍后重试"), "失败提示应显示原话：" + failText);
+      assert((await page.textContent("#mc-list")).includes("JEI") && (await page.textContent("#mc-count")).includes("1"), "原来清单里的东西应还列着");
+      await cartState({ modCart: { localUploadFail: "" } });
+      await page.setInputFiles("#mc-file", [jar]);
+      await page.waitForSelector("#mc-local-ok", { timeout: 8000 }); await settle(300);
+      assert((await page.textContent("#mc-list")).includes("custom-1.0.jar") && (await page.textContent("#mc-list")).includes("JEI") && (await page.textContent("#mc-count")).includes("2"), "关掉开关再添加应能加进去");
+    } finally { await cartState({ modCart: { reset: true } }); await page.goto(url("#/instances")); await settle(); }
+  });
+
   await run("vanilla 向导保持 4 步：步骤条无「选模组」，构建步照旧跳过直达基本设置", async () => {
     await page.goto(url("#/create")); await settle();
     await page.click("#mode-new"); await settle();
