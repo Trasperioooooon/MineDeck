@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"minedeck/internal/app"
+	"minedeck/internal/modcart"
 	"minedeck/internal/ops"
 	"minedeck/internal/toolbox"
 )
@@ -22,6 +24,10 @@ func toolboxErr(err error) error {
 	var e *toolbox.Error
 	if errors.As(err, &e) {
 		return ops.Wrap(e.Code, e.Err)
+	}
+	// cart.json 在却没读成：503，界面认这个状态码并显示提示（同 cartErr）
+	if le := (*modcart.LoadError)(nil); errors.As(err, &le) {
+		return ops.Wrap(http.StatusServiceUnavailable, err)
 	}
 	return err
 }
