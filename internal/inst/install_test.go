@@ -17,7 +17,8 @@ const testManifest = `{"latest":{"release":"1.20.1","snapshot":"1.20.1"},"versio
 {"id":"1.21.1","type":"release"},
 {"id":"1.20.1","type":"release"},{"id":"1.19","type":"release"},{"id":"1.18.1","type":"release"},{"id":"1.18","type":"release"},
 {"id":"1.17.1","type":"release"},{"id":"1.17","type":"release"},{"id":"1.16.5","type":"release"},
-{"id":"1.12.2","type":"release"}]}`
+{"id":"1.12.2","type":"release"},{"id":"1.12","type":"release"},{"id":"1.11.2","type":"release"},{"id":"1.8.9","type":"release"},
+{"id":"1.7.10","type":"release"},{"id":"1.7","type":"release"},{"id":"1.6.4","type":"release"}]}`
 
 var testJava17 string // 假的本机 Java 17 的路径，TestMain 里准备
 

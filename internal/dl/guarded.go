@@ -128,18 +128,19 @@ func GuardedClientWithTransport(rt http.RoundTripper) *http.Client {
 }
 
 func guardedRedirect(rt http.RoundTripper) *http.Client {
-	return &http.Client{
-		Transport: rt,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= maxRedirects {
-				return fmt.Errorf("跳转超过 %d 次，已中断", maxRedirects)
-			}
-			if req.URL.Scheme != "https" || req.URL.Hostname() == "" {
-				return fmt.Errorf("重定向到不允许的地址: %s", req.URL)
-			}
-			return nil
-		},
+	return &http.Client{Transport: rt, CheckRedirect: HTTPSRedirect}
+}
+
+// HTTPSRedirect 给 http.Client.CheckRedirect 用：跳转只跟 https 的，最多 maxRedirects 次，跳到哪个主机不限。
+// 整合包文件下载（GuardedClient）和 OpenFrp 的 frpc 下载（没有哈希可对、却是要运行的程序）共用。
+func HTTPSRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= maxRedirects {
+		return fmt.Errorf("跳转超过 %d 次，已中断", maxRedirects)
 	}
+	if req.URL.Scheme != "https" || req.URL.Hostname() == "" {
+		return fmt.Errorf("重定向到不允许的地址: %s", req.URL)
+	}
+	return nil
 }
 
 // guardedTransport 按「这一个请求走不走环境代理」分两条路（见 GuardedClient 的说明）。

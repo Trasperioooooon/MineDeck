@@ -281,7 +281,7 @@ func TestImportServerArchiveLog4j(t *testing.T) {
 	old := fetchLog4jXML
 	t.Cleanup(func() { fetchLog4jXML = old })
 	fetched := 0
-	fetchLog4jXML = func(_ context.Context, dir string) error {
+	fetchLog4jXML = func(_ context.Context, dir, _ string) error {
 		fetched++
 		return os.WriteFile(filepath.Join(dir, log4jXML), []byte("<Configuration/>"), 0o644)
 	}

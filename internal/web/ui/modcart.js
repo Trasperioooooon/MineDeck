@@ -95,6 +95,7 @@ window.MDModCart = (() => {
         dep = null,             // 最近一次依赖检查的结果
         installing = false,     // 已经点了安装（等确认框或接口时不能再点）
         uploading = false,      // 正在往清单里添加本地文件
+        loadErr = null,         // 清单的存档在、却没读出来（后端回 503）时的报错，见 paintList
         loadSeq = 0, depSeq = 0;
     /* 浏览区（热门清单 / 搜索结果）的状态 */
     let query = "", cat = "",   // 这一批结果是按什么查的（点了搜索才算数，不跟着输入框变）
@@ -130,6 +131,23 @@ window.MDModCart = (() => {
         info.map(t => `<div class="hint mc-local-info">${esc(t)}</div>`).join("");
     };
     const paintList = () => {
+      /* cart.json 在、却没读出来（被别的程序占着，或者内容坏了）：清单的位置一直画报错框，不画「清单是空的」。
+         以前后端当成空清单，再加一项就把原文件连同登记着的本地文件盖掉。后端每次被问都会再读一次，点「重试」读成了就照常画 */
+      if (loadErr) {
+        listEl.innerHTML = errBox("无法显示待装清单", loadErr, { id: "mc-load-err", label: "待装清单",
+          hint: "清单里的东西和你从电脑添加的文件都还在，没有动过。读出来之前不能往清单里加、移除或安装。",
+          actions: `<button type="button" class="btn sm" id="mc-load-retry">${icon("refresh")} 重试</button>` });
+        countEl.textContent = "";
+        const rb = $("#mc-load-retry", root);
+        rb.onclick = async () => {
+          rb.disabled = true;
+          await reload();
+          if (!gone() && loadErr) toast("待装清单还是没读出来", true);
+        };
+        paintActions();
+        paintHits();
+        return;
+      }
       const rows = cart.map(it => `
         <div class="java-row mc-item">
           ${tile(it.icon)}
@@ -155,7 +173,13 @@ window.MDModCart = (() => {
       if (dep) paintDeps(); // 依赖检查的结果也跟着变：已经进车的不再算缺
     };
     /* 用接口回来的整张清单换掉页面上的 */
-    const take = d => { cart = d.items || []; local = d.local || []; paintList(); };
+    const take = d => { loadErr = null; cart = d.items || []; local = d.local || []; paintList(); };
+    /* 后端回 503（清单的存档没读出来）：记下来、清单按空的算，返回 true。调用方随后 paintList 画报错框 */
+    const unreadable = e => {
+      if (!e || e.status !== 503) return false;
+      loadErr = e; cart = []; local = []; dep = null; depBox.innerHTML = "";
+      return true;
+    };
     const removeOne = async (btn, url, body, isLocal) => {
       btn.disabled = true;
       ++loadSeq; // 还没回来的读车请求作废：这次移除的结果更新
@@ -164,7 +188,11 @@ window.MDModCart = (() => {
         if (gone()) return;
         take(d);
         if (isLocal && dep) checkDeps(); // 本地文件少了一个，上次查的前置不作数了，重查一遍
-      } catch (e) { toastErr("无法从清单里移除", e); if (!gone() && btn.isConnected) btn.disabled = false; }
+      } catch (e) {
+        toastErr("无法从清单里移除", e);
+        if (unreadable(e) && !gone()) paintList();
+        else if (!gone() && btn.isConnected) btn.disabled = false;
+      }
     };
 
     /* ---- 浏览区：热门清单 / 搜索结果（最近一批结果 + 当前车状态）---- */
@@ -263,6 +291,7 @@ window.MDModCart = (() => {
         else toast(projectIds.length > 1 ? `已加入清单：${projectIds.length} 项前置` : `已加入清单：${one || "1 项"}`);
       } catch (e) {
         toastErr("无法加入清单", e);
+        unreadable(e);
         if (!gone()) paintList(); // 加购失败也逐个按钮复位
       }
     };
@@ -302,17 +331,18 @@ window.MDModCart = (() => {
             let j;
             try { j = await res.json(); } catch { throw new Error(`服务异常 (HTTP ${res.status})`); }
             if (res.status === 401) { showLogin(); throw new Error(j.error || "需要登录"); }
-            if (!j.ok) throw new Error(j.error || "添加失败");
+            if (!j.ok) throw Object.assign(new Error(j.error || "添加失败"), { status: res.status, hint: j.hint });
             if (gone()) return;
             ++loadSeq; // 还没回来的读车请求作废
             take(j.data);
             if (j.data.duplicate) dup++; else added++;
           } catch (e) {
             if (gone()) return;
-            fails.push([f.name, e.message]);
+            fails.push([f.name, unreadable(e) ? e.hint || e.message : e.message]);
           }
         }
       } finally { clearInterval(watch); if (!gone()) setBusy(false); }
+      if (loadErr && !gone()) paintList();
       const said = [added ? `已添加 ${added} 个文件` : "", dup ? `${dup} 个已经在清单里了，没有重复添加` : ""].filter(Boolean).join("；");
       paintLocalState("", fails, said ? said + "。" : "");
       if (added || dup) checkDeps(); // 加完自动查一遍前置
@@ -402,7 +432,8 @@ window.MDModCart = (() => {
         if (outdated()) return;
         dep = null;
         depState.textContent = "";
-        depBox.innerHTML = errBox("前置没有查出来", e, { label: "前置检查", hint: "检查一下网络，再点一次「检查前置」。" });
+        if (unreadable(e)) paintList();
+        else depBox.innerHTML = errBox("前置没有查出来", e, { label: "前置检查", hint: "检查一下网络，再点一次「检查前置」。" });
       } finally { if (!outdated()) depBtn.disabled = false; }
     };
 
@@ -414,7 +445,11 @@ window.MDModCart = (() => {
         const d = await api("/api/modcart" + (targetQuery() ? "?" + targetQuery() : ""));
         if (outdated()) return;
         take(d);
-      } catch (e) { if (!outdated()) listEl.innerHTML = errBox("待装清单没有读出来", e, { label: "待装清单" }); }
+      } catch (e) {
+        if (outdated()) return;
+        if (unreadable(e)) paintList();
+        else listEl.innerHTML = errBox("待装清单没有读出来", e, { label: "待装清单" });
+      }
     };
 
     /* ---- 清空 / 安装（详情页）---- */
@@ -423,7 +458,12 @@ window.MDModCart = (() => {
       if (!total() || clearBtn.disabled) return;
       clearBtn.disabled = true;
       try { await api("/api/modcart/clear", { method: "POST", body: target() }); }
-      catch (e) { toastErr("无法清空清单", e); if (!gone() && clearBtn.isConnected) clearBtn.disabled = false; return; }
+      catch (e) {
+        toastErr("无法清空清单", e);
+        if (!gone() && clearBtn.isConnected) clearBtn.disabled = false;
+        if (unreadable(e) && !gone()) paintList();
+        return;
+      }
       if (gone()) return;
       clearBtn.disabled = false;
       if (dep) { dep = null; depBox.innerHTML = ""; } // 清单空了，上次查的前置不作数了

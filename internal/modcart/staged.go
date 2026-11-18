@@ -259,6 +259,9 @@ func (s *Service) AddLocal(inst, src, name string) (lf LocalFile, dup bool, err 
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.retryLoadLocked(); err != nil { // 没读成时不往暂存目录里放：之后读成了也没登记，下次启动会被清掉
+		return lf, false, err
+	}
 	list := s.locals[inst]
 	for _, x := range list {
 		if x.SHA1 == sum {
@@ -337,6 +340,9 @@ func copyFile(src, dest string) (string, error) {
 func (s *Service) RemoveLocal(inst, sum string) ([]LocalFile, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.retryLoadLocked(); err != nil {
+		return nil, err
+	}
 	list := slices.DeleteFunc(slices.Clone(s.locals[inst]), func(x LocalFile) bool { return x.SHA1 == sum })
 	if len(list) == len(s.locals[inst]) {
 		return s.localsLocked(inst), nil
@@ -351,9 +357,13 @@ func (s *Service) RemoveLocal(inst, sum string) ([]LocalFile, error) {
 }
 
 // ClearAll 把一辆车整个清掉：Modrinth 项目、本地文件的登记和暂存的文件。人在界面上点「清空」、删除服务器时用。
+// cart.json 没读成时什么都不删：这时登记是空的，下面照删暂存目录就把还登记在原文件里的本地文件删了。
 func (s *Service) ClearAll(inst string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.retryLoadLocked(); err != nil {
+		return err
+	}
 	if len(s.carts[inst]) > 0 || len(s.locals[inst]) > 0 {
 		carts, locals := without(s.carts, inst), without(s.locals, inst)
 		if err := s.write(carts, locals); err != nil {

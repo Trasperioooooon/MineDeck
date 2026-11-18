@@ -93,7 +93,7 @@ func (i *Instance) MineDeckFiles() []string {
 	if strings.HasPrefix(s.LaunchTarget, "args:") { // 只有 Forge / NeoForge 的 user_jvm_args.txt 是 MineDeck 改写过的
 		names = append(names, "user_jvm_args.txt", jvmArgsBackup)
 	}
-	names = append(names, log4jXML, "gameai.json", "gameai-state.json", ".minedeck", "config/minedeck")
+	names = append(names, log4jXML, log4jXML17, "gameai.json", "gameai-state.json", ".minedeck", "config/minedeck")
 	var out []string
 	for _, n := range names {
 		if _, err := os.Stat(filepath.Join(i.Dir, filepath.FromSlash(n))); err == nil {

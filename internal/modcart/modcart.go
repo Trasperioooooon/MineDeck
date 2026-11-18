@@ -14,12 +14,15 @@
 package modcart
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
+	"log"
 	"maps"
 	"os"
 	"path/filepath"
@@ -87,13 +90,23 @@ type Service struct {
 	mu     sync.Mutex
 	carts  map[string][]Item
 	locals map[string][]LocalFile // 人从电脑上添加的 jar（见 staged.go），键同 carts
+	// loadErr cart.json 在、却没读成（见 LoadError）。不为空时清单是空的，一律不写 cart.json、不清暂存的本地文件；
+	// 有人要清单、要改清单时再读一次（retryLoadLocked），读成了就清掉
+	loadErr *LoadError
 
 	installMu  sync.Mutex
 	installing map[string]bool
 }
 
+// 启动时 cart.json 读不出来（多半是杀毒、同步盘这类程序刚好占着）隔多久再读、再读几次（同 tunnel 包）。做成变量是为了测试能调小。
+// 坏文件再读也是坏的，不等。
+var (
+	loadRetryWait = 200 * time.Millisecond
+	loadRetries   = 3
+)
+
 // New 建好购物车，读回上次存下的。endpoint 空 = 真的 Modrinth。
-// cart.json 读不懂时另存成 cart.json.bad，从空车开始（不让一个坏文件挡住整个功能）。
+// cart.json 在却没读成时不当空清单（见 LoadError）：读成之前不写 cart.json、不清暂存的本地文件。
 func New(dir, endpoint string) *Service {
 	s := &Service{dir: dir, api: strings.TrimRight(endpoint, "/"), carts: map[string][]Item{}, locals: map[string][]LocalFile{},
 		installing: map[string]bool{}}
@@ -101,18 +114,166 @@ func New(dir, endpoint string) *Service {
 		s.api = ModrinthAPI
 	}
 	s.official = s.api == ModrinthAPI
+	s.load()
+	for i := 0; i < loadRetries && s.loadErr != nil && !s.loadErr.Corrupt; i++ {
+		time.Sleep(loadRetryWait)
+		s.load()
+	}
+	if s.loadErr != nil {
+		log.Printf("待装清单没读出来，读成之前不许保存、不清暂存的本地文件: %v", s.loadErr)
+		return s
+	}
+	s.sweepStaged() // 只在清单真读成了、或者确实是新装时清：没读成时清单是空的，按它清会把暂存的本地文件全删了
+	return s
+}
+
+// LoadError cart.json 在，却没读成：读不出来（被别的程序占着、没有读取权限、同名的文件夹顶着、程序文件夹访问不了），
+// 或者读出来了解析不了（文件坏了、是空的）。
+//
+// 以前读不出来就从空清单开始，启动时还按空清单把暂存的本地文件清掉，之后随便加一项就把原来的 cart.json 盖掉；
+// 解析不了时改名成 cart.json.bad，暂存的本地文件照样清掉。现在这期间清单是空的，加入、移除、清空、添加和移除本地文件
+// 一律拒绝，cart.json 和暂存的文件一个不动；读成了（占着的程序放开了，或者用户修好、挪走了文件）就恢复正常，不用重启。
+// 解析不了时不再另存 .bad、从空清单开始：清单里登记着人从电脑上添加的文件，从空清单开始等于把它们丢了。同 tunnel.LoadError。
+type LoadError struct {
+	Corrupt bool  // true：读出来了但解析不了；false：读不出来
+	Err     error // 系统或 JSON 解析给的原因（不带路径）
+}
+
+func (e *LoadError) Error() string {
+	if e.Corrupt {
+		return "待装清单的存档 cart.json（在 MineDeck 文件夹的 data\\modcart 里）内容坏了，读不出清单里的东西。为了不丢掉清单和你从电脑添加的文件，" +
+			"修好之前不能往清单里加、移除或安装：" + e.Err.Error()
+	}
+	return "待装清单的存档 cart.json（在 MineDeck 文件夹的 data\\modcart 里）读不出来（可能被别的程序占着，或者没有读取权限）。" +
+		"为了不丢掉清单和你从电脑添加的文件，读出来之前不能往清单里加、移除或安装：" + e.Err.Error()
+}
+
+func (e *LoadError) Unwrap() error { return e.Err }
+
+// Hint 界面报错正文接的那句话（60 字以内，不带路径和英文句子，见 app.js 的 errSummary）。两种情况下一步不一样，分开说。
+func (e *LoadError) Hint() string {
+	if e.Corrupt {
+		return "清单的存档 cart.json 内容坏了。用记事本修好它，或者改名挪走后从空清单开始"
+	}
+	return "清单的存档 cart.json 读不出来，可能被别的程序占着。关掉占用它的程序后点「重试」"
+}
+
+// load 读 cart.json，分三种情况：
+//   - 文件不在：新装，或者从没往清单里放过东西，空清单是对的。要程序文件夹看得到才算（见 reallyMissing）；
+//   - 文件在但读不出来（被占着、没权限、同名文件夹顶着）：记进 s.loadErr；
+//   - 读出来了但解析不了（坏 JSON、空文件、没有 carts 这一项）：记进 s.loadErr（Corrupt）。MineDeck 写的文件总带着 carts。
+//
+// s.loadErr 不为空时 s.carts、s.locals 不动。调用方持有 s.mu；New 里别人还拿不到 s，不用锁。
+func (s *Service) load() {
 	b, err := os.ReadFile(s.path())
-	if err == nil {
-		var f cartFile
-		if json.Unmarshal(b, &f) == nil && f.Carts != nil {
-			s.carts = f.Carts
-			s.locals = s.checkedLocals(f.Locals)
-		} else {
-			_ = os.Rename(s.path(), s.path()+".bad")
+	if errors.Is(err, fs.ErrNotExist) {
+		if gone := s.reallyMissing(); gone != nil {
+			s.loadErr = &LoadError{Err: gone}
+			return
+		}
+		s.loadErr = nil
+		return
+	}
+	if err != nil {
+		s.loadErr = &LoadError{Err: noPath(err)}
+		return
+	}
+	b = bytes.TrimPrefix(b, []byte("\xef\xbb\xbf")) // 记事本存的 UTF-8 可能带 BOM：提示里让人用记事本修，修完不能因为这个又读不出来
+	var f cartFile
+	switch err := json.Unmarshal(b, &f); {
+	case len(bytes.TrimSpace(b)) == 0:
+		s.loadErr = &LoadError{Corrupt: true, Err: errors.New("文件是空的")}
+		return
+	case err != nil:
+		s.loadErr = &LoadError{Corrupt: true, Err: jsonErrAt(b, err)}
+		return
+	case f.Carts == nil:
+		s.loadErr = &LoadError{Corrupt: true, Err: errors.New(`文件里找不到 "carts" 这一项`)}
+		return
+	}
+	s.loadErr = nil
+	s.carts, s.locals = f.Carts, s.checkedLocals(f.Locals)
+}
+
+// reallyMissing 读 cart.json 报「不存在」以后再确认一次，是真的新装才返回 nil，否则返回读不出来的原因。
+// Windows 上路径里某一级不在（网络盘断了、U 盘拔了、程序文件夹暂时访问不了）也报「不存在」，当成新装的话，
+// 路径一恢复，下一次保存就把原文件盖掉了（同 tunnel 包的 reallyMissing，2026-11-15 Codex 复审 P1）。
+// data\modcart 在第一次存清单时才建，新装时它和 data 都可能还不在：所以从程序文件夹（cart.json 往上第三级）往下逐级看，
+// 程序文件夹要看得到；在的那几级必须是文件夹；第一个不在的那一级必须是「上一级在、它不在」，就算新装。
+func (s *Service) reallyMissing() error {
+	root := filepath.Dir(filepath.Dir(s.dir))
+	fi, err := os.Stat(root)
+	if err != nil {
+		return fmt.Errorf("程序文件夹访问不了：%w", noPath(err))
+	}
+	if !fi.IsDir() {
+		return errors.New("程序文件夹的位置上不是文件夹")
+	}
+	rel, err := filepath.Rel(root, s.path())
+	if err != nil {
+		return err
+	}
+	cur := root
+	parts := strings.Split(rel, string(filepath.Separator))
+	for k, part := range parts {
+		cur = filepath.Join(cur, part)
+		fi, err := os.Lstat(cur)
+		switch {
+		case err == nil && k == len(parts)-1:
+			return errors.New("刚才读的时候说不存在，再看又在了，这次先不读")
+		case err == nil && !fi.IsDir():
+			return fmt.Errorf("%s 的位置上不是文件夹", part)
+		case err == nil:
+		case fileNotFound(err):
+			return nil
+		default:
+			return noPath(err)
 		}
 	}
-	s.sweepStaged()
-	return s
+	return nil
+}
+
+// jsonErrAt 解析报错带上大概在第几行：提示里让人用记事本修，得知道去哪儿找（同 tunnel 包）。
+func jsonErrAt(b []byte, err error) error {
+	var off int64 = -1
+	var se *json.SyntaxError
+	var te *json.UnmarshalTypeError
+	switch {
+	case errors.As(err, &se):
+		off = se.Offset
+	case errors.As(err, &te):
+		off = te.Offset
+	}
+	if off < 0 || off > int64(len(b)) {
+		return err
+	}
+	return fmt.Errorf("第 %d 行附近：%w", bytes.Count(b[:off], []byte("\n"))+1, err)
+}
+
+// retryLoadLocked 上次没读成时再读一次，返回现在的状态（读成了、或者本来就读成了，是 nil）。调用方持有 s.mu。
+// 没读成期间清单一直是空的、什么也存不进去，所以读成了直接换上，不会冲掉谁的改动。只读一次、不等：它在锁里。
+func (s *Service) retryLoadLocked() error {
+	if s.loadErr == nil {
+		return nil
+	}
+	prev := s.loadErr.Error()
+	s.load()
+	if s.loadErr == nil {
+		log.Printf("待装清单读出来了，恢复正常")
+		return nil
+	}
+	if cur := s.loadErr.Error(); cur != prev {
+		log.Printf("待装清单还是没读出来: %s", cur)
+	}
+	return s.loadErr
+}
+
+// LoadErr cart.json 在却没读成时返回 *LoadError（先再读一次）；读成了、或者文件本来就不在，返回 nil。
+// 操作层查清单、装清单之前先问它：没读成时报出来，不拿一张空清单冒充「清单是空的」。
+func (s *Service) LoadErr() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.retryLoadLocked()
 }
 
 type cartFile struct {
@@ -154,7 +315,12 @@ func (s *Service) putLocalsLocked(inst string, list []LocalFile) error {
 }
 
 // write 写 cart.json（先写临时文件再改名）。报错里不带路径：这些话会原样给到界面和 AI。
+// cart.json 没读成（s.loadErr）时一律不写：内存里是空清单，写下去就把原文件盖掉了。各个改清单的入口在改之前就已经
+// 用 retryLoadLocked 挡下；这里再挡一道，兜住以后新加的写盘点。
 func (s *Service) write(carts map[string][]Item, locals map[string][]LocalFile) error {
+	if s.loadErr != nil {
+		return s.loadErr
+	}
 	if err := os.MkdirAll(s.dir, 0o755); err != nil {
 		return errorf(500, "保存待装清单失败：%v", noPath(err))
 	}
@@ -192,6 +358,9 @@ func (s *Service) Add(ctx context.Context, inst string, ids []string) ([]Item, [
 	if len(want) > MaxItems {
 		return nil, nil, errorf(400, "一次最多加 %d 项", MaxItems)
 	}
+	if err := s.LoadErr(); err != nil { // 存不进去就不用先去问 Modrinth 了
+		return nil, nil, err
+	}
 	projects, err := s.projects(ctx, want)
 	if err != nil {
 		return nil, nil, err
@@ -227,6 +396,9 @@ func (s *Service) Add(ctx context.Context, inst string, ids []string) ([]Item, [
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.retryLoadLocked(); err != nil {
+		return nil, nil, err
+	}
 	cart := slices.Clone(s.carts[inst])
 	n := len(cart)
 	for _, it := range add {
@@ -278,6 +450,9 @@ func (s *Service) Remove(inst, id string) ([]Item, error) {
 func (s *Service) RemoveMany(inst string, ids []string) ([]Item, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.retryLoadLocked(); err != nil {
+		return nil, err
+	}
 	cart := slices.DeleteFunc(slices.Clone(s.carts[inst]), func(it Item) bool {
 		return slices.Contains(ids, it.ProjectID) || slices.Contains(ids, it.Slug)
 	})
@@ -295,6 +470,9 @@ func (s *Service) RemoveMany(inst string, ids []string) ([]Item, error) {
 func (s *Service) Clear(inst string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.retryLoadLocked(); err != nil {
+		return err
+	}
 	if len(s.carts[inst]) == 0 {
 		return nil
 	}

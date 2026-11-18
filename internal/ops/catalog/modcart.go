@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -103,8 +104,15 @@ func cartErr(err error) error {
 	if errors.As(err, &e) {
 		return ops.Wrap(e.Code, e.Err)
 	}
+	// cart.json 在却没读成：503，界面认这个状态码在清单的位置画「读不出来」的报错框（同 tunnel.list）
+	if le := (*modcart.LoadError)(nil); errors.As(err, &le) {
+		return ops.Wrap(http.StatusServiceUnavailable, err)
+	}
 	return err
 }
+
+// cartLoaded 查清单、装清单之前先问一句：cart.json 没读成时清单是空的，不能拿它说「清单是空的」或者照着它装。
+func (c *cat) cartLoaded() error { return cartErr(c.ModCart.LoadErr()) }
 
 // cartTarget 一次购物车操作针对什么：资源类型（mod / plugin）、Modrinth 加载器、按哪个 MC 版本过滤（插件不卡版本，同资源页）、
 // 装到哪个目录。给了 inst 用实例的核心和版本，没给就用参数里的 core、mc。
@@ -337,11 +345,15 @@ func (c *cat) modcartOps() {
 	c.reg.Register(&ops.Op{
 		Name: "modcart.list", Title: "查看待装清单", Level: ops.Read,
 		Desc: "待装清单里有什么（按加入的先后，两样合计最多 50 项）：items 是 Modrinth 项目，local 是用户自己从电脑上添加的 jar" +
-			"（只有文件名、大小和读出来的模组信息；这部分只有用户能加、能移除）。不给 inst 看草稿清单。",
+			"（只有文件名、大小和读出来的模组信息；这部分只有用户能加、能移除）。不给 inst 看草稿清单。" +
+			"清单的存档文件在却没读出来（被别的程序占着、或者内容坏了）时报错，不返回空清单：这期间不能往清单里加、移除或安装。",
 		Params: ops.Object(map[string]*ops.Schema{"inst": cartInst, "cart": cartWhich, "core": cartCore, "mc": cartMC}),
 		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
 			p, err := bindCart(a)
 			if err != nil {
+				return nil, err
+			}
+			if err := c.cartLoaded(); err != nil { // 每次问都会先再读一次，读成了就照常返回
 				return nil, err
 			}
 			return c.view(p, caller), nil
@@ -507,6 +519,9 @@ func (c *cat) modcartOps() {
 			if err != nil {
 				return nil, err
 			}
+			if err := c.cartLoaded(); err != nil {
+				return nil, err
+			}
 			items, locals := c.installItems(p), c.installLocals(p)
 			ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 			defer cancel()
@@ -544,6 +559,9 @@ func (c *cat) modcartOps() {
 			}
 			t, err := c.cartTarget(p)
 			if err != nil {
+				return nil, err
+			}
+			if err := c.cartLoaded(); err != nil {
 				return nil, err
 			}
 			items, locals := c.installItems(p), c.installLocals(p)
@@ -648,6 +666,10 @@ func (c *cat) modcartOps() {
 			done, err := c.ModCart.BeginInstall(t.inst.Name)
 			if err != nil {
 				return nil, cartErr(err)
+			}
+			if err := c.cartLoaded(); err != nil {
+				done()
+				return nil, err
 			}
 			items, locals := c.installItems(p), c.installLocals(p)
 			if len(items) == 0 && len(locals) == 0 {

@@ -1521,7 +1521,8 @@ function cpMockState(state, b) {
 // 从电脑添加的本地文件另存一份（localDraft、localInsts），和 Modrinth 项目一样按车分开。
 // /__mock/state 的 modCart 开关：{ reset: true 清空草稿车与各实例的车（连本地文件）,
 //   searchFail / addFail / localFail / depsFail: 报错文案（搜索和热门清单 / 加 Modrinth 项目 / 从电脑添加 / 检查前置）,
-//   searchDelay: 搜索和热门清单晚多少毫秒才回（看慢的时候挡不挡别的操作）, noDeps: true 依赖检查返回全空 }
+//   searchDelay: 搜索和热门清单晚多少毫秒才回（看慢的时候挡不挡别的操作）, noDeps: true 依赖检查返回全空,
+//   loadFail: "locked" | "corrupt" cart.json 在却没读出来（被占着 / 内容坏了，说法见 MODCART_LOAD_FAIL）}
 // 响应里的 modcart.lastInstall 是上一次「安装购物车」的请求（inst、withDeps、includeDraft、expect、expectLocal），
 // modcart.searches 是到现在为止的搜索请求（q、category、offset）。
 // 本地文件没有真的 jar 可读，按文件名里的字样仿几种情况（同真后端 modcart.deps 的 local / manual / conflicts）：
@@ -1560,7 +1561,7 @@ const modCartItem = id => {
 };
 function newModCartState() {
   return { draft: [], insts: {}, localDraft: [], localInsts: {}, searchFail: "", addFail: "", localFail: "", depsFail: "", searchDelay: 0, noDeps: false,
-    queries: 0, lastInstall: null, searches: [] };
+    loadFail: "", queries: 0, lastInstall: null, searches: [] };
 }
 function modCartMockState(state, b) {
   if (b.reset) state.modcart = newModCartState();
@@ -1631,6 +1632,18 @@ function modcartMultipart(buf, contentType) {
 }
 // 工具箱「导出整合包」那份清单的键（同后端 modcart.Toolbox）：请求带 cart=toolbox 时用它，和向导的草稿车分开
 const TOOLBOX_CART = "<toolbox>";
+// cart.json 在、却没读出来时后端的说法（同 modcart.LoadError 的 Error 和 Hint）：locked 被别的程序占着，corrupt 内容坏了。
+// 由 modCart 的 loadFail 打开：查看清单、加入、移除、清空、从电脑添加、移除本地文件、检查前置、安装都回 503，搜索照常
+const MODCART_LOAD_FAIL = {
+  locked: {
+    raw: "待装清单的存档 cart.json（在 MineDeck 文件夹的 data\\modcart 里）读不出来（可能被别的程序占着，或者没有读取权限）。为了不丢掉清单和你从电脑添加的文件，读出来之前不能往清单里加、移除或安装：The process cannot access the file because it is being used by another process.",
+    hint: "清单的存档 cart.json 读不出来，可能被别的程序占着。关掉占用它的程序后点「重试」",
+  },
+  corrupt: {
+    raw: "待装清单的存档 cart.json（在 MineDeck 文件夹的 data\\modcart 里）内容坏了，读不出清单里的东西。为了不丢掉清单和你从电脑添加的文件，修好之前不能往清单里加、移除或安装：第 9 行附近：unexpected end of JSON input",
+    hint: "清单的存档 cart.json 内容坏了。用记事本修好它，或者改名挪走后从空清单开始",
+  },
+};
 const cartOf = o => (o && o.cart === "toolbox") ? TOOLBOX_CART : ((o && o.inst) || "");
 async function modcartHandler(state, req, res, p, m, u) {
   const q = u.searchParams, mc = state.modcart;
@@ -1652,6 +1665,8 @@ async function modcartHandler(state, req, res, p, m, u) {
       .map(x => ({ project_id: x.projectId, slug: x.slug, title: x.title, description: x.description, downloads: x.downloads, icon_url: "", license: x.license }));
     return ok(res, { type, hits, offset, total: all.length, more: hits.length > 0 && offset + MODCART_PAGE < all.length && offset < MODCART_MAX_OFFSET });
   }
+  const unread = MODCART_LOAD_FAIL[mc.loadFail];
+  if (unread) return err(res, 503, unread.raw, unread.hint);
   if (p === "/api/modcart" && m === "GET") return ok(res, modcartView(state, qCart, q.get("core")));
   if (p === "/api/modcart" && m === "POST") {
     const b = await readBody(req);
@@ -2707,7 +2722,7 @@ function handler(state, ui, portOf) {
     //   mcp（MCP 接口）: 见 mcpMockState；响应里的 mcp.executed / mcp.rejected 是确认、拒绝过的外部 AI 提案
     //   modCart（自选模组 + 购物车，界面上叫「待装清单」）: { reset: true 清空草稿车与各实例的车（连从电脑添加的本地文件）,
     //     searchFail / addFail / localFail / depsFail: 报错文案（搜索和热门清单 / 加 Modrinth 项目 / 从电脑添加 / 检查前置）,
-    //     searchDelay: 搜索和热门清单晚多少毫秒才回, noDeps: true 依赖检查返回全空 }；
+    //     searchDelay: 搜索和热门清单晚多少毫秒才回, noDeps: true 依赖检查返回全空, loadFail: "locked" | "corrupt" cart.json 没读出来 }；
     //     响应里的 modcart.lastInstall 是上一次「安装购物车」的请求（含 expect、expectLocal），modcart.searches 是搜索请求的记录；
     //     本地文件按文件名里的字样仿几种情况（sodium / needs / forge / unknown / dup…），见 modcart 那一节开头的说明
     //   world（地图导入）: 见「地图导入」那一节开头的说明（worldMockState）；来源按名字仿几种情况（bedrock / multi / newer / xss…）
@@ -3307,6 +3322,8 @@ function handler(state, ui, portOf) {
         // includeDraft 会把草稿车（向导「选模组」步挑的）一起装进这台实例并清空草稿车
         if (sub === "modcart" && seg[5] === "install" && m === "POST") {
           const b = await readBody(req), mc = state.modcart, cart = modcartBucket(state, name);
+          const unread = MODCART_LOAD_FAIL[mc.loadFail];
+          if (unread) return err(res, 503, unread.raw, unread.hint);
           // expect：发起的人看到的项目。和这次要装的（实例的车，includeDraft 时再加草稿车）不是同一批就拒绝，同真后端
           const willInstall = [...cart, ...(b.includeDraft ? mc.draft.filter(it => !cart.some(x => x.projectId === it.projectId)) : [])].map(it => it.projectId);
           // expectLocal：发起的人看到的本地文件（SHA-1）。车里有本地文件而请求没带、或者对不上，一律拒绝（比 expect 严：没带也不行），同真后端
