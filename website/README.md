@@ -189,7 +189,7 @@ dist/
 
 - `beian.icp` 填 ICP 备案号，页脚链接到 https://beian.miit.gov.cn/ 。
 - 公安备案拿到后填 `beian.psb` 和纯数字 `beian.psbCode`。公安备案图标没有放进仓库，需要时从官方渠道获取后放进 `src/` 并改 `src/partials/footer.mjs`。
-- 留空时页脚显示「待填写」。填完重新构建并上传 HTML。
+- ICP 号留空时页脚显示「待填写」。公安备案留空时显示「审核中」。填完重新构建并上传 HTML。
 
 ## 许可
 

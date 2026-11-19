@@ -2051,10 +2051,10 @@ async function drawImport() {
 }
 
 /* ---------- 视图：实例交接包（.mdpack）----------
-   别人开不下去的服务器，从卡片菜单「交接给其他电脑」打包发过来；这里选 .mdpack 导入，
+   别人开不下去的服务器，从卡片菜单「导出交接包…」打包发过来；这里选 .mdpack 导入，
    存档、配置、模组全保留，装完直接能启动。操作走 instance.transfer.*，导出导入都在任务页看进度。 */
 
-/* 交接给其他电脑：确认弹窗（隐私提醒 + 完整模式 + 导出位置）→ 后台打包（任务页看进度） */
+/* 导出交接包：确认弹窗（隐私提醒 + 完整模式 + 导出位置）→ 后台打包（任务页看进度） */
 function transferExportModal(info) {
   if ($("#tr-mask")) return; // 上一个还开着
   const d = modalLayer(`<div class="modal" role="dialog" aria-modal="true" aria-labelledby="tr-title">

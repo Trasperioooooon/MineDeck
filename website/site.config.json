@@ -11,7 +11,7 @@
     "icp": "浙ICP备2026030166号-3",
     "psb": "",
     "psbCode": "",
-    "_note": "备案通过后填写。icp 形如「京ICP备XXXXXXXX号-1」；psb 形如「京公网安备XXXXXXXXXXXXXX号」，psbCode 为其中的数字，用于查询链接。留空时页脚显示「待填写」。"
+    "_note": "icp 形如「京ICP备XXXXXXXX号-1」，留空时页脚显示「待填写」。psb 形如「京公网安备XXXXXXXXXXXXXX号」，psbCode 为其中的数字，用于查询链接；psb 留空时页脚显示「审核中」。"
   },
   "timezoneOffsetHours": 8,
   "changelogInitial": 10,

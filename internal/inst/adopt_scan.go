@@ -21,7 +21,7 @@ import (
 // 认出来的东西只是给界面预填，用户都能改；这里不联网、不写任何文件。
 //
 // 各种服务端在文件里留下的记号（Forge / NeoForge、原版、日志三样拿真实的服务器核对过；
-// Paper 系和 Fabric 按它们启动器的源码写的，见 docs/归档/交接说明.md「接管已有服务器」）：
+// Paper 系和 Fabric 按它们启动器的源码写的，见 docs/日志/2026-11-09-接管已有服务器和在界面上换Java.md）：
 //   - Forge / NeoForge（1.17 起）：libraries/net/{minecraftforge/forge,neoforged/neoforge}/<版本>/win_args.txt，
 //     里面有 --fml.mcVersion、--fml.forgeVersion / --fml.neoForgeVersion
 //   - 原版（1.18 起）：jar 的 Main-Class 是 net.minecraft.bundler.Main，根上有 version.json（id、java_version）

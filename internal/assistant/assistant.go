@@ -5,7 +5,7 @@
 // 等人在确认卡片上确认（确认、拒绝、过期、作废都由操作层通知回来）→ 全部处理完一起交回给 AI → 直到 AI 不再调用工具。
 // 一轮最多 8 次工具调用；单个工具结果超过 16 KB 截断。会话在后台跑，界面经事件订阅收流式输出，关掉面板不影响。
 //
-// 用 ai 接入层的顺序（第二阶段交接说明）：Begin → Client → NewConversation → Chat → Record → AddResult / AddToolResults，
+// 用 ai 接入层的顺序（见 docs/日志/2026-10-28-工作分支pensive-pascal-阶段一到四.md「第二阶段」）：Begin → Client → NewConversation → Chat → Record → AddResult / AddToolResults，
 // 出错、拒答、空回复、用户停止时 UndoUser；会话用 Save / LoadConversation 存盘读回。
 //
 // 不引用 Windows API，Linux 上能直接测试。
