@@ -3,7 +3,8 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, extname, join, posix, relative, resolve } from 'node:path';
 import { parseFrontMatter, parseDoc, renderParsedDoc } from './markdown.mjs';
-import { validateDocs, normalizeAlias } from './doc-checks.mjs';
+import { validateDocs, normalizeAlias, aliasShapeError, parseDocHref, canonSitePath, effectiveSitePath } from './doc-checks.mjs';
+import { ROUTES, LANGS } from '../src/routes.mjs';
 import { icon } from '../src/partials/svg.mjs';
 
 const IMG_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg']);
@@ -65,24 +66,57 @@ function gitUpdatedDay(repoRoot, fileRelFromRepo, tzHours, fallback) {
 function buildSearchPayload(treeDocs) {
   return {
     v: 1,
-    docs: treeDocs
-      .filter((d) => !d.untranslated)
-      .map((d) => ({
-        id: `${d.cat}/${d.slug}`,
-        u: `${d.cat}/${d.slug}/`,
-        t: d.title,
-        c: d.catTitle,
-        d: d.description,
-        k: Array.isArray(d.tags) ? d.tags : [],
-        b: !!d.beta,
-        s: d.since || '',
-        p: d.sections.map((s) => ({
-          a: s.a,
-          h: s.h,
-          x: s.x.length > 600 ? s.x.slice(0, 600) : s.x,
-        })),
+    docs: treeDocs.map((d) => ({
+      id: `${d.cat}/${d.slug}`,
+      u: `${d.cat}/${d.slug}/`,
+      t: d.title,
+      c: d.catTitle,
+      d: d.description,
+      k: Array.isArray(d.tags) ? d.tags : [],
+      b: !!d.beta,
+      s: d.since || '',
+      l: d.untranslated ? 'zh' : '',
+      p: d.sections.map((s) => ({
+        a: s.a,
+        h: s.h,
+        x: s.x.length > 600 ? s.x.slice(0, 600) : s.x,
       })),
+    })),
   };
+}
+
+function collectSitePaths(here, docs, aliasIndex) {
+  const paths = new Set();
+  const add = (u) => {
+    if (!u) return;
+    paths.add(canonSitePath(u));
+  };
+  let releaseTags = [];
+  try {
+    const raw = JSON.parse(readFileSync(join(here, 'data/releases.cache.json'), 'utf8'));
+    if (Array.isArray(raw)) {
+      releaseTags = raw.filter((r) => r && !r.draft && (r.tag_name || r.tag)).map((r) => r.tag_name || r.tag);
+    }
+  } catch { /* 没有缓存时版本页不进清单，构建前面会先拦住 */ }
+  for (const route of ROUTES) {
+    if (route.id === 'doc') continue;
+    const langs = route.langs || Object.keys(LANGS);
+    const paramSets = route.id === 'release' ? releaseTags.map((tag) => ({ tag })) : [{}];
+    for (const lang of langs) {
+      for (const params of paramSets) {
+        const path = route.path.replace(/\{(\w+)\}/g, (m, k) => encodeURIComponent(params[k] ?? ''));
+        add((LANGS[lang] || '') + path);
+      }
+    }
+  }
+  for (const d of docs) {
+    if (d.draft) continue;
+    const prefix = d.lang === 'zh' ? '' : '/en';
+    add(`${prefix}/docs/${d.cat}/${d.slug}/`);
+    if (d.lang === 'zh') add(`/en/docs/${d.cat}/${d.slug}/`);
+  }
+  for (const url of aliasIndex.keys()) add(url);
+  return paths;
 }
 
 export function loadDocsModel({ here, repoRoot, emit, tzHours = 8, log = () => {} }) {
@@ -137,9 +171,22 @@ export function loadDocsModel({ here, repoRoot, emit, tzHours = 8, log = () => {
 
   const byKey = new Map(docs.map((d) => [`${d.lang}/${d.cat}/${d.slug}`, d]));
 
+  // 别名索引要在校验之前建好：相对 .md 和功能页关联都靠它找到改名后的文章。
+  const aliasIndex = new Map();
+  for (const d of docs) {
+    if (d.draft) continue;
+    const prefix = d.lang === 'zh' ? '' : `/${d.lang}`;
+    for (const raw of d.aliases) {
+      if (aliasShapeError(raw)) continue;
+      const from = normalizeAlias(raw, prefix);
+      if (!aliasIndex.has(from)) aliasIndex.set(from, d);
+    }
+  }
+
   const resolveRelTarget = (fromDoc, rawUrl) => {
-    const [pathPart, hashPart] = rawUrl.split('#');
-    const cleanPath = pathPart.split('?')[0];
+    const parsed = parseDocHref(rawUrl);
+    if (!parsed || parsed.kind !== 'md') return null;
+    const cleanPath = parsed.path;
     if (!cleanPath || !cleanPath.endsWith('.md')) return null;
     const targetAbs = resolve(dirname(fromDoc.fullPath), cleanPath);
     const langRoot = resolve(docsDir, fromDoc.lang);
@@ -151,14 +198,17 @@ export function loadDocsModel({ here, repoRoot, emit, tzHours = 8, log = () => {
     if (parts.length !== 2 || !parts[1].endsWith('.md')) {
       return { error: `相对文档路径格式无效：${cleanPath}` };
     }
-    const targetDoc = byKey.get(`${fromDoc.lang}/${parts[0]}/${parts[1].slice(0, -3)}`);
+    const slug = parts[1].slice(0, -3);
+    let targetDoc = byKey.get(`${fromDoc.lang}/${parts[0]}/${slug}`);
+    if (!targetDoc || targetDoc.draft) {
+      const prefix = fromDoc.lang === 'zh' ? '' : `/${fromDoc.lang}`;
+      const via = aliasIndex.get(`${prefix}/docs/${parts[0]}/${slug}/`)
+        || (fromDoc.lang === 'en' ? aliasIndex.get(`/docs/${parts[0]}/${slug}/`) : null);
+      if (via && !via.draft) targetDoc = via;
+    }
     if (!targetDoc) return { error: `目标文档不存在：${cleanPath}` };
     if (targetDoc.draft) return { error: `目标文档是草稿（draft: true），正式页面不能链接` };
-    let anchor = hashPart ? hashPart : '';
-    if (anchor) {
-      try { anchor = decodeURIComponent(anchor); } catch {}
-    }
-    return { target: targetDoc, anchor };
+    return { target: targetDoc, anchor: parsed.anchor || '', query: parsed.query || '', fragment: parsed.fragment || '' };
   };
 
   const resolveImgPath = (fromDoc, rawSrc) => {
@@ -175,7 +225,10 @@ export function loadDocsModel({ here, repoRoot, emit, tzHours = 8, log = () => {
     return abs;
   };
 
-  const checkRes = validateDocs({ docs, metaCategories: categories, resolveRelTarget, resolveImgPath });
+  const sitePaths = collectSitePaths(here, docs, aliasIndex);
+  const checkRes = validateDocs({
+    docs, metaCategories: categories, resolveRelTarget, resolveImgPath, sitePaths, aliasTargets: aliasIndex,
+  });
   for (const w of checkRes.warnings) log(`警告：${w}`);
   if (checkRes.errors.length) {
     throw new Error('文档校验未通过：\n' + checkRes.errors.map((e) => '  ' + e).join('\n'));
@@ -209,7 +262,8 @@ export function loadDocsModel({ here, repoRoot, emit, tzHours = 8, log = () => {
   for (const d of enPublished) publishedMap.en.set(`${d.cat}/${d.slug}`, d);
 
   // 所有已发布文章参数列表（对称存在于 zh 与 en，保证 hreflang 一致）
-  const routeKeySet = new Set([...publishedMap.zh.keys(), ...publishedMap.en.keys()]);
+  // 路由只跟已发布的中文稿走。没有中文稿的英文稿在校验阶段已经失败。
+  const routeKeySet = new Set(publishedMap.zh.keys());
   const treeByLang = { zh: [], en: [] };
   const flatByLang = { zh: [], en: [] };
   const articleByKey = { zh: new Map(), en: new Map() };
@@ -262,7 +316,10 @@ export function loadDocsModel({ here, repoRoot, emit, tzHours = 8, log = () => {
     const targetUrl = `${prefix}/docs/${d.cat}/${d.slug}/`;
     for (const rawAl of d.aliases) {
       const fromUrl = normalizeAlias(rawAl, prefix);
-      aliases.push({ lang: d.lang, fromUrl, targetUrl, title: d.title });
+      aliases.push({
+        lang: d.lang, fromUrl, targetUrl, title: d.title,
+        fileRel: d.fileRel, line: d.fmLines.aliases || 1, raw: rawAl,
+      });
     }
   }
 
@@ -284,6 +341,13 @@ export function loadDocsModel({ here, repoRoot, emit, tzHours = 8, log = () => {
     ...flatByLang.en.map((d) => d.title + d.since),
   ].join('');
 
+  const aliasFor = (lang, cat, slug) => {
+    const prefixed = `${lang === 'zh' ? '' : '/en'}/docs/${cat}/${slug}/`;
+    if (aliasIndex.has(prefixed)) return aliasIndex.get(prefixed);
+    if (lang === 'en' && aliasIndex.has(`/docs/${cat}/${slug}/`)) return aliasIndex.get(`/docs/${cat}/${slug}/`);
+    return null;
+  };
+
   return {
     categories,
     catById,
@@ -294,7 +358,12 @@ export function loadDocsModel({ here, repoRoot, emit, tzHours = 8, log = () => {
     aliases,
     searchIndex,
     extraPixelChars,
-    hasDoc: (lang, cat, slug) => publishedMap[lang]?.has(`${cat}/${slug}`) || publishedMap.zh.has(`${cat}/${slug}`),
+    hasDoc: (lang, cat, slug) => publishedMap[lang]?.has(`${cat}/${slug}`) || publishedMap.zh.has(`${cat}/${slug}`) || !!aliasFor(lang, cat, slug),
+    aliasTarget: (lang, cat, slug) => {
+      if (publishedMap[lang]?.has(`${cat}/${slug}`) || publishedMap.zh.has(`${cat}/${slug}`)) return null;
+      const via = aliasFor(lang, cat, slug);
+      return via ? { cat: via.cat, slug: via.slug } : null;
+    },
     renderArticle: (doc, ctx) => {
       const { L } = ctx;
       const copyIcon = icon('copy', { cls: 'i-copy' });
@@ -314,30 +383,31 @@ export function loadDocsModel({ here, repoRoot, emit, tzHours = 8, log = () => {
         calloutTitles: L.docs.callouts,
         calloutIcons,
         resolveImage: (rawSrc) => {
-          if (/^https?:\/\//i.test(rawSrc)) return null;
+          if (/^https?:\/\//i.test(rawSrc) || String(rawSrc || '').trim().startsWith('//')) return null;
           const abs = resolveImgPath(doc, rawSrc);
           const info = abs && imgMeta.get(abs);
           if (!info) return null;
           return { src: ctx.a(info.logical), width: info.width, height: info.height };
         },
         resolveLink: (rawUrl) => {
-          if (/^https?:\/\//i.test(rawUrl)) {
-            const isGh = /^https?:\/\/([\w-]+\.)?github(usercontent)?\.com/.test(rawUrl);
-            return { url: rawUrl, ext: isGh };
+          const parsed = parseDocHref(rawUrl);
+          if (parsed.kind === 'external') {
+            const isGh = /^https?:\/\/([\w-]+\.)?github(usercontent)?\.com/i.test(parsed.url);
+            return { url: parsed.url, ext: isGh };
           }
-          if (rawUrl.startsWith('#')) return { url: rawUrl, ext: false };
-          if (/\.md(?:$|[?#])/i.test(rawUrl) || (!rawUrl.startsWith('/') && !/^[a-z]+:/i.test(rawUrl))) {
+          if (parsed.kind === 'mailto') return { url: parsed.url, ext: false };
+          if (parsed.kind === 'hash') return { url: rawUrl.startsWith('#') ? rawUrl : `#${parsed.fragment || ''}`, ext: false };
+          const tail = (query, fragment) => (query || '') + (fragment ? `#${fragment}` : '');
+          if (parsed.kind === 'md') {
             const res = resolveRelTarget(doc, rawUrl);
             if (!res || res.error) return null;
             const prefix = doc.lang === 'zh' ? '' : '/en';
             const base = ctx.link(`${prefix}/docs/${res.target.cat}/${res.target.slug}/`);
-            const hash = res.anchor ? `#${res.anchor}` : '';
-            return { url: base + hash, ext: false };
+            return { url: base + tail(res.query, res.fragment), ext: false };
           }
-          if (rawUrl.startsWith('/')) {
-            const [p, h] = rawUrl.split('#');
-            const targetPath = doc.lang === 'en' && !p.startsWith('/en/') && !p.startsWith('/assets/') ? '/en' + p : p;
-            return { url: ctx.link(targetPath) + (h ? `#${h}` : ''), ext: false };
+          if (parsed.kind === 'site') {
+            const path = effectiveSitePath(doc.lang, parsed.path);
+            return { url: ctx.link(path) + tail(parsed.query, parsed.fragment), ext: false };
           }
           return null;
         },

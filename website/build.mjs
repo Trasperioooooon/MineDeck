@@ -20,6 +20,7 @@ import { tmpdir } from 'node:os';
 import { fetchAll, hasData, readJson } from './lib/fetch.mjs';
 import { buildModel, pickRelease } from './lib/data.mjs';
 import { loadDocsModel } from './lib/docs.mjs';
+import { outputKey } from './lib/doc-checks.mjs';
 import { ROUTES, LANGS, NAV, FOOTER } from './src/routes.mjs';
 import { renderDocAlias } from './src/pages/doc-alias.mjs';
 import { checkDist } from './lib/checks.mjs';
@@ -107,7 +108,15 @@ for (const route of ROUTES) {
     }
   }
 }
+const occupied = new Map();
+for (const p of PAGES) occupied.set(outputKey('/' + String(p.out).replace(/\\/g, '/')), `${p.lang} ${p.url}`);
 for (const al of data.docs.aliases) {
+  const key = outputKey(al.fromUrl);
+  if (occupied.has(key)) {
+    console.error(`${al.fileRel}:${al.line}: alias「${al.fromUrl}」的输出与已有页面冲突（${occupied.get(key)}）`);
+    process.exit(1);
+  }
+  occupied.set(key, `${al.lang} ${al.fromUrl}`);
   PAGES.push({
     id: 'doc-alias', section: 'docs', lang: al.lang, params: {}, url: al.fromUrl,
     urls: { zh: al.fromUrl, en: al.fromUrl }, out: outFile(al.fromUrl),
@@ -138,7 +147,11 @@ function makeCtx(page, names) {
     preview: PREVIEW, lang, L: C.ui, C, L2: CONTENT[lang === 'zh' ? 'en' : 'zh'].ui, cfg, data, tokens: TOKENS, page, root, link, href,
     nav: NAV, footer: FOOTER, a: (n) => root + 'assets/' + (names[n] || n), assetName: (n) => names[n] || n,
     hasDoc: (cat, slug) => data.docs.hasDoc(lang, cat, slug),
-    docHref: (cat, slug) => link((LANGS[lang] || '') + `/docs/${cat}/${slug}/`),
+    docHref: (cat, slug) => {
+      const via = data.docs.aliasTarget(lang, cat, slug);
+      const dest = via || { cat, slug };
+      return link((LANGS[lang] || '') + `/docs/${dest.cat}/${dest.slug}/`);
+    },
     fmtDate: (iso) => data.localDay(Date.parse(iso)),
     // 面包屑项：{ label, href（相对）, url（站点绝对路径，供 JSON-LD） }
     crumb: (id, label, params = {}) => ({ label, href: href(id, params), url: urlOf(ROUTE_BY_ID[id], lang, params) }),

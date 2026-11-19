@@ -28,4 +28,4 @@ draft: true
 
 | 问题 | 处理方式 |
 | --- | --- |
-| 示例问题 | 参考 [控制台报错横幅索引](../troubleshooting/error-banner-index.md#端口被占) |
+| 示例问题 | 参考 [控制台报错横幅索引](../troubleshooting/error-banner-index.md#port-in-use) |

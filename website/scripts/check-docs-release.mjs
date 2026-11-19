@@ -4,6 +4,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseFrontMatter } from '../lib/markdown.mjs';
+import { sinceError } from '../lib/doc-checks.mjs';
 
 const HERE = resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
 const DOCS_DIR = join(HERE, 'docs-content');
@@ -65,15 +66,18 @@ const stableTag = stable ? (stable.tag_name || stable.tag || '') : '';
 const betaTag = beta ? (beta.tag_name || beta.tag || '') : '';
 
 const zhDocs = walkMarkdown('zh').filter((d) => d.fm.draft !== true);
-const enSet = new Set(walkMarkdown('en').filter((d) => d.fm.draft !== true).map((d) => `${d.cat}/${d.slug}`));
+const enDocs = walkMarkdown('en').filter((d) => d.fm.draft !== true);
+const enSet = new Set(enDocs.map((d) => `${d.cat}/${d.slug}`));
 
 const betaFlagged = [];
 const newerThanStable = [];
 const legacyShots = [];
 const missingEn = [];
+const sinceErrors = [];
 
-for (const d of zhDocs) {
-  const key = `${d.cat}/${d.slug}`;
+for (const d of [...zhDocs, ...enDocs]) {
+  const why = sinceError(d.fm.since);
+  if (why) sinceErrors.push(`${d.rel}: ${why}`);
   if (d.fm.beta === true) betaFlagged.push({ file: d.rel, title: d.fm.title, since: d.fm.since || '' });
   if (d.fm.since && stableTag && cmpSemver(String(d.fm.since), stableTag) > 0) {
     newerThanStable.push({ file: d.rel, title: d.fm.title, since: d.fm.since });
@@ -82,6 +86,9 @@ for (const d of zhDocs) {
   if (shotMatches.length) {
     legacyShots.push({ file: d.rel, title: d.fm.title, images: [...new Set(shotMatches)] });
   }
+}
+for (const d of zhDocs) {
+  const key = `${d.cat}/${d.slug}`;
   if (!enSet.has(key)) {
     missingEn.push({ file: d.rel, expectedEn: `docs-content/en/${key}.md` });
   }
@@ -116,4 +123,10 @@ if (asJson) {
   printGroup(`2. since 晚于当前稳定版 ${stableTag || ''} 的文章`, newerThanStable, (x) => `${x.file} (since=${x.since})`);
   printGroup('3. 引用了 v2.9.0-beta.1 旧版截图的文章', legacyShots, (x) => `${x.file} -> ${x.images.join(', ')}`);
   printGroup('4. 尚未提供英文译文（当前走自动回退页）的文章', missingEn, (x) => `${x.file} -> ${x.expectedEn}`);
+}
+
+if (sinceErrors.length) {
+  console.error(`since 格式不正确（${sinceErrors.length}）`);
+  for (const line of sinceErrors) console.error('  - ' + line);
+  process.exit(1);
 }

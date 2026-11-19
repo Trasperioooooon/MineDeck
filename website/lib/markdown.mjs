@@ -7,8 +7,22 @@ export const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '
 
 function safeUrl(u) {
   u = String(u || '').trim();
+  if (/^mailto:[^\s"'<>]+$/i.test(u)) return u;
   if (/^https?:\/\//i.test(u) || u.startsWith('#') || u.startsWith('/') || u.startsWith('./') || u.startsWith('../')) return u;
   return null;
+}
+
+function splitTableRow(line) {
+  let s = String(line || '').trim().replace(/^\|/, '').replace(/\|$/, '');
+  const cells = [];
+  let cur = '';
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '\\' && s[i + 1] === '|') { cur += '|'; i++; continue; }
+    if (s[i] === '|') { cells.push(cur.trim()); cur = ''; continue; }
+    cur += s[i];
+  }
+  cells.push(cur.trim());
+  return cells;
 }
 
 export function inline(src) {
@@ -54,7 +68,7 @@ function renderLines(lines) {
       continue;
     }
     if (/^\s*\|/.test(line) && i + 1 < lines.length && /^\s*\|?\s*:?-{3,}/.test(lines[i + 1])) {
-      const cells = (l) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+      const cells = (l) => splitTableRow(l);
       const head = cells(line); i += 2;
       const rows = [];
       while (i < lines.length && /^\s*\|/.test(lines[i])) rows.push(cells(lines[i++]));
@@ -88,7 +102,10 @@ function parseList(lines, i, renderSub) {
     const m = l.match(/^\s*([-*+]|\d+\.)\s+(.*)$/);
     if (m && ind === base) { items.push({ text: [m[2]], sub: [] }); i++; continue; }
     if (ind > base && items.length) { items[items.length - 1].sub.push(l.slice(base + 2)); i++; continue; }
-    if (!m && items.length && ind >= base) { items[items.length - 1].text.push(l.trim()); i++; continue; }
+    if (!m && items.length && ind >= base) {
+      if (ind <= base && /^\s*(?:#{1,6}\s|```|>|\||(?:[-*_]){3,}\s*$)/.test(l)) break;
+      items[items.length - 1].text.push(l.trim()); i++; continue;
+    }
     break;
   }
   const tag = ordered ? 'ol' : 'ul';
@@ -342,7 +359,7 @@ function parseDocLines(lines, startLine, state) {
     // 表格
     if (/^\s*\|/.test(line) && i + 1 < lines.length && /^\s*\|?\s*:?-{3,}/.test(lines[i + 1])) {
       const firstLine = lineAt(i);
-      const cells = (l) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+      const cells = (l) => splitTableRow(l);
       const head = cells(line);
       i += 2;
       const rows = [];
@@ -426,6 +443,7 @@ function parseDocList(lines, i, startLine, state) {
       continue;
     }
     if (!m && items.length && ind >= base) {
+      if (ind <= base && /^\s*(?:#{1,6}\s|```|>|\||(?:[-*_]){3,}\s*$)/.test(l)) break;
       collectInlineRefs(l.trim(), lineNo, state);
       state.currentSec.buf.push(stripInlineMd(l.trim()));
       items[items.length - 1].text += ' ' + l.trim();
