@@ -280,7 +280,7 @@ func (r *scanResult) singleNBT(p, display, ext string) (*scanResult, error) {
 	src := &source{root: filepath.Dir(p), ctx: r.ctx}
 	rc, err := src.open(&entry{rel: filepath.Base(p)})
 	if err != nil {
-		return nil, err
+		return nil, barePathErr("这个文件读不了", err)
 	}
 	defer rc.Close()
 	_, root, _, err := nbt.Read(rc, nbt.Limits{MaxFile: 64 << 20, MaxBytes: 64 << 20, MaxDepth: 64, MaxNodes: 2_000_000})

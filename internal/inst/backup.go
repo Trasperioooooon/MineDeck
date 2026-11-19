@@ -212,6 +212,12 @@ func savedLine(line string) bool {
 // backupHook 测试用：世界目录开始压缩之前调用。
 var backupHook func()
 
+// backupNow 给备份文件起名用的时钟（测试里换成不走的）；backupNameTries 名字撞上已有的备份时最多等几毫秒。
+var (
+	backupNow       = time.Now
+	backupNameTries = 500
+)
+
 // errBackupUnsettled 这次备份没做成，是因为服务器正在启动、停止，或者备份期间停止、重启过。
 // 等它稳定下来再备份就行：定时备份据此等一等再试（见 execSchedule），手动备份照原样把这句话报给用户。
 type errBackupUnsettled struct{ msg string }
@@ -293,12 +299,25 @@ func (m *Manager) createBackupWith(i *Instance, label, spare string, lease *disk
 			}
 		}
 	}
-	base := time.Now().Format("20060102-150405.000000000")
-	if label != "" {
-		base += "-" + sanitizeLabel(label)
+	// 备份文件的名字靠时间区分。Windows 的时钟一跳可以有十几毫秒，世界极小时一次备份比这还快：同一跳里接连两次备份
+	// （标签也一样）会算出同一个名字，后一份改名时把前一份盖掉。这个名字已经有文件了，就等时钟往前走了再取；
+	// 等了一阵还是撞（时钟不走了）就报错，不盖已有的备份（2026-11-16 复审记下的）。
+	var fname, dest string
+	for tries := 0; ; tries++ {
+		base := backupNow().Format("20060102-150405.000000000")
+		if label != "" {
+			base += "-" + sanitizeLabel(label)
+		}
+		fname = base + ".zip"
+		dest = filepath.Join(dir, fname)
+		if _, err := os.Lstat(dest); err != nil { // 没有这个名字的文件（或者看不了：照旧往下走，和以前一样）
+			break
+		}
+		if tries >= backupNameTries {
+			return "", fmt.Errorf("备份文件的名字和已有的一份撞上了（%s），这次没有备份，请再试一次", fname)
+		}
+		time.Sleep(time.Millisecond)
 	}
-	fname := base + ".zip"
-	dest := filepath.Join(dir, fname)
 	if backupHook != nil {
 		backupHook()
 	}

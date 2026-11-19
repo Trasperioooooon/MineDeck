@@ -53,7 +53,7 @@ func TestStartShowsAntivirusHint(t *testing.T) {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, "frpc.exe"), []byte("不会真的运行"), 0o755); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "frpc.exe"), fakeFrpcExe(), 0o755); err != nil { // 不会真的运行；结构得完整，不然会被当成坏文件
 			t.Fatal(err)
 		}
 	}

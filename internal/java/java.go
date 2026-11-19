@@ -156,7 +156,7 @@ func fromTUNA(ctx context.Context, major int, logf func(string, ...any), prog dl
 	}, prog); err != nil {
 		return err
 	}
-	return extractZip(zipPath, Dir(major))
+	return extractZipCtx(ctx, zipPath, Dir(major), logf)
 }
 
 // ---------- 来源 2：Adoptium 官方 API ----------
@@ -190,7 +190,7 @@ func fromAdoptium(ctx context.Context, major int, logf func(string, ...any), pro
 			}, prog); err != nil {
 				return err
 			}
-			return extractZip(zipPath, Dir(major))
+			return extractZipCtx(ctx, zipPath, Dir(major), logf)
 		}
 	}
 	return fmt.Errorf("Adoptium 没有 Java %d 的 Windows 64 位版本", major)
@@ -342,9 +342,18 @@ func dirSize(dir string) int64 {
 // extractDiskFree 查磁盘余量的函数；nil 用系统的。测试用它让余量在解压中途变得不够。
 var extractDiskFree func(string) (int64, error)
 
-// extractZip 解压 JRE zip 至 destDir，自动剥离顶层目录，含 zip-slip 防护。
+// extractZip 同 extractZipCtx，不能取消、排队时不出声。
+func extractZip(zipPath, destDir string) error {
+	return extractZipCtx(context.Background(), zipPath, destDir, nil)
+}
+
+// extractZipCtx 解压 JRE zip 至 destDir，自动剥离顶层目录，含 zip-slip 防护。
 // 解到一半失败的，把已经解出来的删掉再返回：不留半截。
-func extractZip(zipPath, destDir string) (err error) {
+//
+// 解压要排队拿这个盘的写入名额：同一个盘上正在做几分钟的备份、还原、地图暂存时，要等它做完。以前等的时候取消不了
+// （用的是 context.Background()），任务日志里也看不出在等什么，新建服务器就停在「准备 Java」不动（2026-11-16 复审记下的）。
+// 现在跟着 ctx 走：排队时、解压途中取消都会停下（解出来的照旧删掉）；要排队时用 logf 说一声。
+func extractZipCtx(ctx context.Context, zipPath, destDir string, logf func(string, ...any)) (err error) {
 	zr, err := zipguard.Open(zipPath, zipguard.Default)
 	if err != nil {
 		return fmt.Errorf("打开 zip 失败: %w", err)
@@ -360,7 +369,13 @@ func extractZip(zipPath, destDir string) (err error) {
 		}
 	}
 	need := max(total-dirSize(destDir), 0)
-	lease, err := diskguard.Acquire(context.Background(), destDir, diskguard.Options{AllowUnknown: true, Need: need, Query: extractDiskFree})
+	opt := diskguard.Options{AllowUnknown: true, Need: need, Query: extractDiskFree}
+	if logf != nil {
+		opt.OnWait = func() {
+			logf("这个盘上正有别的大批量写入在进行（备份、还原、导入地图这类），等它做完再解压 Java；不想等可以取消这个任务")
+		}
+	}
+	lease, err := diskguard.Acquire(ctx, destDir, opt)
 	if err != nil {
 		return err
 	}

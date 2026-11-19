@@ -228,6 +228,9 @@ type openfrpSoftwareMeta struct {
 // openfrpFrpcZip Windows amd64 定制版 frpc 的文件名（官方文档：windows 用 zip）。
 const openfrpFrpcZip = "frpc_windows_amd64.zip"
 
+// openfrpSoftwareAPI 查 OpenFrp 客户端最新版本和下载源的接口。
+const openfrpSoftwareAPI = "https://api.openfrp.net/commonQuery/get?key=software"
+
 // openfrpFrpcURLs 按官方文档拼下载地址：{source}/{latest_full}/frpc_windows_amd64.zip。
 // latest_full 和下载源两端的斜杠去掉。不拼不带版本的地址，那个路径会 404。
 // 下回来的 frpc 没有哈希可对、却是要运行的程序，所以下载源只认 https 的，别的跳过，一个都不剩就报错。
@@ -284,14 +287,17 @@ func (openfrpProvider) ID() string { return "openfrp" }
 func (openfrpProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	dir := frpcDir("openfrp")
 	// 已经放好的 frpc 直接用，不在这里比版本。latest_ver 和 latest_full 不是同一串，不能拿来互相比较。
-	if exe := findExe(dir); exe != "" {
-		return exe, nil
+	// 明显坏掉的（以前解压到一半留下的半截 exe）先删掉，接着重新准备（见 frpcexe.go）。
+	if exe, err := usableFrpc(dir, con, true); err != nil || exe != "" {
+		return exe, err
 	}
 	con.Append("[MineDeck] 下载 OpenFrp 定制版 frpc ...")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+	// 查版本这一步的跳转也只跟 https 的：它返回的下载地址和版本决定下回来哪个 frpc。
+	// 不用 openfrpHTTPClient：只宣告 TLS 1.3 是为了过下载站 CDN 的那道闸，接口这边用不着。
 	var meta openfrpSoftwareMeta
-	if err := dl.FetchJSON(ctx, []string{"https://api.openfrp.net/commonQuery/get?key=software"}, &meta); err != nil {
+	if err := dl.FetchJSONHTTPS(ctx, []string{openfrpSoftwareAPI}, &meta); err != nil {
 		return "", fmt.Errorf("获取 OpenFrp 客户端版本失败: %w", err)
 	}
 	urls, err := openfrpFrpcURLs(meta)
@@ -331,8 +337,9 @@ func (natfrpProvider) ID() string { return "natfrp" }
 
 func (natfrpProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	dir := frpcDir("natfrp")
-	if exe := findExe(dir); exe != "" {
-		return exe, nil
+	// 这里的 frpc 是用户自己放的：半截的才删，别的拿不准的不删、报出来（见 usableFrpc）
+	if exe, err := usableFrpc(dir, con, false); err != nil || exe != "" {
+		return exe, err
 	}
 	// 樱花未提供稳定的直链下载 API，引导用户手动放置（一次性操作）。
 	// 放过又不见了的，多半是被杀毒软件删了（见 blocked.go）：程序分不出是没放过还是被删了，两种都说到。
@@ -363,15 +370,17 @@ var frpSHA256 = "e0094cd0baf03d5ff9ce9739199406871ad8788cf51e766f00ad3a9e7a836f3
 
 func (customProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	dir := frpcDir("custom")
-	if exe := findExe(dir); exe != "" {
-		return exe, nil
+	if exe, err := usableFrpc(dir, con, true); err != nil || exe != "" {
+		return exe, err
 	}
 	con.Append("[MineDeck] 下载标准版 frp 客户端 ...")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	file := fmt.Sprintf("frp_%s_windows_amd64.zip", frpVersion)
 	ghPath := fmt.Sprintf("https://github.com/fatedier/frp/releases/download/v%s/%s", frpVersion, file)
-	urls := dl.GHMirrors(ghPath) // 国内加速镜像优先，最后直连
+	// 国内加速镜像优先，最后直连。这里的跳转不限 https：下回来的 zip 要对上官方的 SHA-256（frpSHA256），内容换不了；
+	// 国内镜像可能跳到 http 的地址，限了反而下不下来
+	urls := dl.GHMirrors(ghPath)
 	zipPath := filepath.Join(app.CacheDir, "frpc", file)
 	if err := dl.Fetch(ctx, dl.Request{URLs: urls, Dest: zipPath, SHA256: frpSHA256, MinSize: 1 << 20}, nil); err != nil {
 		return "", fmt.Errorf("下载 frp 客户端失败（可手动将 frpc.exe 放入 %s）: %w", dir, err)

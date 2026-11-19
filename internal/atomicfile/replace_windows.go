@@ -92,6 +92,27 @@ func retryable(err error, path string, old fs.FileInfo) bool {
 	return true
 }
 
+// beforeReopen 测试用：第 attempt 次重试（从 1 数）重新打开临时文件之前调用。
+var beforeReopen func(attempt int)
+
+// openForSync 替换之前把写好的临时文件重新打开一次，为的是把它刷到盘上。
+// 刚写完关上的文件，杀毒软件、索引、同步盘常常紧接着打开来看一眼；它们打开时要是不许别人写，这一下就报共享冲突。
+// 这和改名时碰到的是同一种短暂占用（见上面 retryDelays 的说明），同样隔一会儿再试，间隔和次数用同一张表。
+// 以前这一下不在重试里：占着临时文件的那个程序，改名那一步等得起，重新打开这一步却当场失败，整次保存就不成了
+// （2026-11-16 复审记下的存疑项，读代码属实）。只认共享冲突：拒绝访问在这里多半是权限的事，等也没用。
+func openForSync(tmp string) (*os.File, error) {
+	f, err := os.OpenFile(tmp, os.O_RDWR, 0)
+	for retries := 0; err != nil && retries < len(retryDelays) && errors.Is(err, windows.ERROR_SHARING_VIOLATION); {
+		time.Sleep(retryDelays[retries])
+		retries++
+		if beforeReopen != nil {
+			beforeReopen(retries)
+		}
+		f, err = os.OpenFile(tmp, os.O_RDWR, 0)
+	}
+	return f, err
+}
+
 func replace(tmp, path string, old fs.FileInfo) error {
 	err := move(tmp, path)
 	retries := 0

@@ -177,13 +177,13 @@ func (s *Service) scan(ctx context.Context, owner, p, display string, uploaded b
 	if uploaded {
 		uploadKey, err = s.holdUpload(p)
 		if err != nil {
-			return nil, err
+			return nil, barePathErr("上传的文件读不了", err)
 		}
 	}
 	// Failure releases this scan's reference, never another scan's file.
 	defer func() {
 		if err != nil && uploaded {
-			err = errors.Join(err, s.releaseUpload(uploadKey))
+			err = errors.Join(err, barePathErr("上传的文件没能删掉", s.releaseUpload(uploadKey)))
 		}
 	}()
 	if err := ctx.Err(); err != nil {
@@ -1711,6 +1711,20 @@ func realOr(p string) string {
 		p = a
 	}
 	return strings.ToLower(filepath.Clean(p))
+}
+
+// barePathErr 把系统错误里带着的本机完整路径去掉，换成 what 这句说明，原因原样包在里面（errors.Is 照旧认得出）。
+// 不是这类错误的原样返回；nil 还是 nil。上传的文件在 MineDeck 文件夹的缓存里，检测结果局域网里的人也看得到。
+func barePathErr(what string, err error) error {
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		return fmt.Errorf("%s：%w", what, pe.Err)
+	}
+	var le *os.LinkError
+	if errors.As(err, &le) {
+		return fmt.Errorf("%s：%w", what, le.Err)
+	}
+	return err
 }
 
 // noPath 错误说明里不带本机路径（读文件的错误会带上完整路径；「地图」页也给局域网里的人看）。

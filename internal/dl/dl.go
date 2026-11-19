@@ -412,12 +412,28 @@ func FetchJSON(ctx context.Context, urls []string, out any) error {
 	return json.Unmarshal(b, out)
 }
 
+// FetchJSONHTTPS 同 FetchJSON，但跳转只跟 https 的（HTTPSRedirect）：给「拿回来的内容决定接下来下载、运行什么」的接口用，
+// 比如 OpenFrp 查 frpc 版本和下载源的那一步。别的设置和 Client 一样（每次按当时的 Client 抄一份，只换跳转的规矩）。
+func FetchJSONHTTPS(ctx context.Context, urls []string, out any) error {
+	c := *Client
+	c.CheckRedirect = HTTPSRedirect
+	b, err := fetchBytes(ctx, &c, urls)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, out)
+}
+
 // FetchBytes 依次尝试多个 URL 获取小体积响应（上限 64MB，单次 30 秒超时）。
 func FetchBytes(ctx context.Context, urls []string) ([]byte, error) {
+	return fetchBytes(ctx, Client, urls)
+}
+
+func fetchBytes(ctx context.Context, client *http.Client, urls []string) ([]byte, error) {
 	var lastErr error
 	for round := 0; round < 2; round++ {
 		for _, u := range urls {
-			b, err := fetchBytesOne(ctx, u)
+			b, err := fetchBytesOne(ctx, client, u)
 			if err == nil {
 				return b, nil
 			}
@@ -430,7 +446,7 @@ func FetchBytes(ctx context.Context, urls []string) ([]byte, error) {
 	return nil, lastErr
 }
 
-func fetchBytesOne(ctx context.Context, url string) ([]byte, error) {
+func fetchBytesOne(ctx context.Context, client *http.Client, url string) ([]byte, error) {
 	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(cctx, http.MethodGet, url, nil)
@@ -439,7 +455,7 @@ func fetchBytesOne(ctx context.Context, url string) ([]byte, error) {
 	}
 	req.Header.Set("User-Agent", UA)
 	req.Header.Set("Accept", "application/json, text/html;q=0.9, */*;q=0.8")
-	resp, err := Client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}

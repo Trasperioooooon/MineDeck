@@ -2,7 +2,6 @@ package inst
 
 import (
 	"bufio"
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -118,11 +117,9 @@ func (m *Manager) startInstance(i *Instance) error {
 			return i.startFailed(err, true)
 		}
 	}
-	// 1.7 ~ 1.11.2 还引用着对它不起作用的那份日志配置（程序启动时没换成）：说一声，后台再试，换成了下次启动生效（见 log4j_migrate.go）
-	if note := log4jStartNote(i); note != "" {
-		i.Console.Append(note)
-		go m.migrateLog4j(context.Background(), i)
-	}
+	// log4shell 防护和现在的做法对不上的（程序启动时那一遍没做成，或者之后才看得出来）：该摘的引用当场摘掉，
+	// 要下载的说一声、后台再试，做成了下次启动生效（见 log4j_migrate.go）
+	m.log4jBeforeStartLocked(i)
 
 	args := launchArgs(i)
 	cmd := exec.Command(i.JavaPath, args...)
