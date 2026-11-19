@@ -23,4 +23,6 @@
 <symbol id="copy" viewBox="0 0 16 16"><path d="M5 5h9v9H5z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M2 11V2h9" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
 <symbol id="feed" viewBox="0 0 16 16"><rect x="2" y="11" width="3" height="3" fill="currentColor"/><path d="M2 7a7 7 0 0 1 7 7M2 2a12 12 0 0 1 12 12" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
 <symbol id="menu" viewBox="0 0 16 16"><path d="M1 3h14M1 8h14M1 13h14" stroke="currentColor" stroke-width="2"/></symbol>
+<symbol id="search" viewBox="0 0 16 16"><path d="M3 2h6v1H3zM2 3h1v6H2zM9 3h1v6H9zM3 9h6v1H3z" fill="currentColor"/><path d="M9 9l5 5" stroke="currentColor" stroke-width="2"/></symbol>
+<symbol id="book" viewBox="0 0 16 16"><path d="M2 2h10a2 2 0 0 1 2 2v10H4a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 11h9" stroke="currentColor" stroke-width="2"/><rect class="p-a" x="5" y="4" width="5" height="4"/></symbol>
 </svg>

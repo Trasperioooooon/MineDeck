@@ -8,6 +8,26 @@ import { icon } from '../partials/svg.mjs';
 
 // 哪组配哪几张截图（docs/images）
 const SHOTS = { cores: ['01-servers.png'], diag: ['02-console-banner.png'], ai: ['03-assistant.png', '04-gameai-log.png', '05-companion.png', '07-settings-ai.png'], music: ['06-music.png'] };
+const DOC_MAP = {
+  cores: ['server-setup', 'cores-and-versions'],
+  java: ['server-setup', 'java-and-jvm'],
+  create: ['server-setup', 'create-server'],
+  modpack: ['server-setup', 'modpack-and-serverpack'],
+  takeover: ['server-setup', 'adopt-and-handover'],
+  handover: ['server-setup', 'adopt-and-handover'],
+  world: ['management', 'map-import'],
+  mods: ['management', 'mods-and-modcart'],
+  console: ['management', 'console-and-tasks'],
+  players: ['management', 'players-whitelist-ban'],
+  backup: ['management', 'backups-and-storage'],
+  tunnel: ['networking', 'tunnels-and-accounts'],
+  window: ['getting-started', 'first-launch-tour'],
+  lan: ['networking', 'remote-and-friends'],
+  toolbox: ['management', 'toolbox'],
+  ai: ['ai-and-mcp', 'ai-assistant'],
+  music: ['in-game', 'music-sharing'],
+  diag: ['troubleshooting', 'error-banner-index'],
+};
 
 export default function features(ctx) {
   const { L, C, data } = ctx;
@@ -24,10 +44,15 @@ export default function features(ctx) {
    ${shots.length ? `<p class="fshots-h">${esc(F.shotsLabel)}</p><div class="fshots">${shots.map((s) => `<figure><a href="${ctx.a(s.f)}"><img src="${ctx.a(s.f)}" alt="${esc(s.alt)}" width="1440" height="900" loading="lazy"></a><figcaption>${esc(s.c)}</figcaption></figure>`).join('')}</div>` : ''}
   </details>`
       : '';
+    const docTarget = DOC_MAP[g.id];
+    const docLink = docTarget && ctx.hasDoc(docTarget[0], docTarget[1])
+      ? `<p class="feat-doc-link">${go(ctx.docHref(docTarget[0], docTarget[1]), L.docs.featureMoreLink)}</p>`
+      : '';
     return `<section class="fgroup card" id="${esc(g.id)}">
   <h2 class="fgroup-h"><span class="ico" style="--c:var(--icon-${gi % 12})">${icon(g.icon || 'block', { cls: 'feat-ico' })}</span><span class="pix">${esc(g.h)}</span>${g.channel === 'beta' ? ' ' + badge : ''}</h2>
   <p class="fgroup-lead">${esc(g.lead)}</p>
   <ul class="flist">${g.points.map(li).join('')}</ul>
+  ${docLink}
   ${more}
  </section>`;
   }).join('\n');

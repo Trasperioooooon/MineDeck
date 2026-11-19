@@ -15,12 +15,14 @@ minedeck.cn 的源码。纯静态站，中英文各一套页面，构建后只�
 | `/features/` | 功能：按组排列，每组先一句大白话和几条要点，细节和截图折叠起来；测试版功能单独标注 |
 | `/releases/` | 更新日志：按大版本分组，可按稳定版 / 测试版筛选（`?channel=beta`） |
 | `/releases/<tag>/` | 单个版本：文件表、SHA-256、发布说明全文和目录、上一版 / 下一版、版本跳转 |
-| `/help/` | 快速开始、常用入口、FAQ、数据位置与卸载、已知边界 |
-| `/feedback/` | 问题与建议表单：生成脱敏报告，按有没有 GitHub 账号分两条路提交 |
+| `/docs/` | 文档中心首页：中文/英文静态搜索框、热门与新手必读、8 个主题分类卡片与版本说明入口 |
+| `/docs/<分类>/<文章>/` | 文档正文页：三栏布局（左目录树 / 中正文 / 右本页目录）、上下篇翻页、最后更新时间与反馈预填 |
+| `/help/` | 精简快速开始、常用入口、并与文档中心同步引导至 FAQ / 数据位置 / 已知边界 |
+| `/feedback/` | 问题与建议表单：支持 `?version=` / `?kind=` / `?doc=` / `?title=` 预填并生成脱敏报告 |
 | `/about/` | 项目简介、贡献者、52 周活动、每月发布数、许可证、致谢、声明 |
 | `/404.html` | 中英双语 404 |
 | `/feed.xml` | Atom 订阅，最多 20 个最近版本（`feedCount`） |
-| `/data/*.json` | `releases.json`（全部版本）、`latest.json`（最新稳定版和测试版）、`stats.json` |
+| `/data/*.json` | `releases.json`、`latest.json`、`stats.json`，以及搜索索引 `docs-index.zh.json` / `docs-index.en.json` |
 
 英文页在 `/en/` 下，结构相同。`/changelog/` 是旧地址，跳转到 `/releases/`。
 
@@ -36,22 +38,32 @@ website/
 ├── lib/
 │   ├── fetch.mjs          从 GitHub 拉数据写进 data/
 │   ├── data.mjs           把 data/ 整理成页面用的模型（分组、上下版本、活动等）
-│   ├── markdown.mjs       Release 说明渲染与标签白名单
-│   └── checks.mjs         产物检查
+│   ├── markdown.mjs       Release 说明 + 文档中心 Markdown 解析与安全白名单
+│   ├── docs.mjs           文档扫描、_meta 目录树、git log 更新时间、搜索索引生成
+│   ├── doc-checks.mjs     文档中心强校验（字段/order/断链/锚点/缺图/隐私泄露扫描）
+│   └── checks.mjs         全站产物检查
 ├── data/                  构建输入（随仓库提交，可离线构建）
 │   ├── releases.cache.json
 │   ├── repo.json          Star 等仓库信息快照
 │   ├── contributors.json
 │   ├── activity.json      每日提交数
 │   └── avatars/           贡献者头像（96px）
+├── docs-content/          文档中心 Markdown 源文件（新增文档只需添 .md）
+│   ├── _meta.json         8 个分类的顺序、图标、中英文标题简介
+│   ├── _template.md       文章模板
+│   ├── CONTRIBUTING.md    文档撰写规范与安全红线说明
+│   ├── zh/                中文文档，按分类/slug 存放
+│   └── en/                英文文档（缺篇时自动生成英文回退页）
+├── scripts/
+│   └── check-docs-release.mjs  发版前检查 beta 标记、since 版本与缺译清单
 ├── content/               文案：ui / features / help，各有 .zh.json 和 .en.json
 ├── src/
 │   ├── tokens.json        设计 token（颜色、字号、间距、圆角、阴影、尺寸、动效、断点）
 │   ├── routes.mjs         路由表、导航、页脚分组
-│   ├── partials/          layout、nav、footer、ui 组件、release、heatmap、people、feedback-form、showcase、svg
-│   ├── pages/             每个页面一个模块
+│   ├── partials/          layout、nav、footer、ui 组件、doc-tree、doc-search 等
+│   ├── pages/             每个页面一个模块（含 docs-home / doc-article / doc-alias）
 │   ├── css/               base / components / pages / motion，构建时按 @layer 合并
-│   ├── js/                core.js（全站）、releases.js、feedback/*.js
+│   ├── js/                core.js（全站）、releases.js、docs.js（原生搜索）、feedback/*.js
 │   └── svg/               图标集、三幅插画（hero、smartscreen、broken-block）和七张首页亮点演示（demo-*）
 ├── fonts/                 Fusion Pixel 原始字体与许可证
 └── ci/build-website.example.yml
@@ -82,10 +94,19 @@ node serve.mjs dist 8080        # 本地看 dist/，含 404 行为
 
 构建失败的情况：
 
-- `src/css/*.css` 里出现颜色字面量（`#fff`、`rgb()` 等）或硬阴影字面量。颜色只能用 `var(--color-*)` 等 token。
+- `src/css/*.css` 里出现颜色字面量（`#fff`、`rgb()` 等）、硬阴影字面量、硬编码 `@media` 宽度断点或硬编码 `z-index`。这些值只能改用 `tokens.json` 的变量或 `{{bp:...}}` 占位。
 - CSS 花括号不配平。
-- 产物 HTML/CSS/JS 中：`src`、`srcset`、CSS `url()`、`fetch()` 指向 GitHub；引用国外 CDN（Google Fonts、jsDelivr、unpkg、cdnjs）；指向 GitHub 的 `<a>` 没有经过 `extLink()`（缺 `data-ext`）。
+- 产物 HTML/CSS/JS 中：会自动加载的资源（`<script src>`、样式表/图标/预加载 `<link href>`、`<img>`/`<source>` 等的 `src`/`srcset`、`poster`/`data-src`/`data-index-*`、CSS `url()`/`@import`、JS `fetch()`）只允许同源相对地址或 `lib/checks.mjs` 里写明的允许名单；仍禁止引用国外 CDN（Google Fonts、jsDelivr、unpkg、cdnjs）；指向 GitHub 的 `<a>` 没有经过 `extLink()`（缺 `data-ext`）。
 - 页面文本里出现 `[object Object]`、`undefined`、`NaN`。
+- **文档中心强校验失败**（精确报告 `文件路径:行号`）：`front-matter` 缺少 `title`/`description`/`order` 或类型错误、同分类 `order` 重复、别名冲突、相对 `.md` / `#锚点` / 图片断链、或正文中混入本机绝对路径、密钥前缀及仓库内部过程目录路径（`docs/日志/` 等）。
+
+## 文档中心维护
+
+日常只需在 `website/docs-content/zh/<分类>/<slug>.md` 新增或修改 Markdown，**不需要改路由、模板或 JS**。详见 [docs-content/CONTRIBUTING.md](./docs-content/CONTRIBUTING.md)。发版前可跑一次核对脚本：
+
+```bash
+node scripts/check-docs-release.mjs
+```
 
 ## 设计 token
 
@@ -95,7 +116,7 @@ node serve.mjs dist 8080        # 本地看 dist/，含 404 行为
 - `color`：语义色，写成 `{palette.grass-500}` 引用，如 `--color-accent`、`--color-beta`、`--color-heat-0..4`。改主题只需要改这里。
 - 其余：`font`、`fs`、`lh`、`fw`、`space`、`radius`、`border`、`shadow`、`size`、`motion`、`z`、`breakpoint`，对应 `--fs-*`、`--space-*` 等。
 
-CSS 按 `@layer tokens, base, components, pages, motion` 排列。断点用 1100px、900px 和 560px；1100 这一档只管首页大标题降一级字号。手机上那张「这是一个 Windows 程序」的提示另外加了 `pointer:coarse`，只在窄屏的触屏设备上出现，电脑上把窗口拖窄不受影响。
+CSS 按 `@layer tokens, base, components, pages, motion` 排列。断点统一定义在 `tokens.json` 的 `breakpoint`，构建时通过 `{{bp:...}}` 注入 CSS 的 `@media` 与 `docs.js`：1100px（`lg`）收紧顶栏间距与导航内边距、把首页大标题降一级字号，并将文档正文页从三栏收为两栏（隐藏右侧粘性本页目录、改在正文上方显示折叠目录）；1000px（`nav`）在 901px–1000px 之间隐藏顶栏 GitHub 文字只留图标并进一步收窄导航内边距；900px（`md`）把顶栏收进折叠菜单、网格与两栏布局折行、版本页切为下拉跳转，同时把文档页收为单栏、左侧目录改为顶部可折叠抽屉（`docs.js` 共用同一断点在窄屏自动折叠、放宽到桌面时恢复展开）；560px（`sm`）收窄容器边距、网格折成单栏、顶栏下载按钮移入菜单，并隐藏文档搜索快捷键提示。手机上那张「这是一个 Windows 程序」的提示另外加了 `pointer:coarse`，只在窄屏的触屏设备上出现，电脑上把窗口拖窄不受影响。
 
 ## 数据与内容
 
@@ -142,12 +163,12 @@ CSS 按 `@layer tokens, base, components, pages, motion` 排列。断点用 1100
 ```
 dist/
 ├── index.html、en/index.html
-├── download/ features/ releases/ releases/<tag>/ help/ feedback/ about/   （每个目录一个 index.html，en/ 下相同）
+├── download/ features/ releases/ releases/<tag>/ docs/ docs/<cat>/<slug>/ help/ feedback/ about/   （每个目录一个 index.html，en/ 下相同）
 ├── changelog/index.html   跳转到 releases/
 ├── 404.html               中英双语，资源用根路径引用
 ├── feed.xml
-├── data/releases.json、latest.json、stats.json
-├── assets/                CSS、JS、字体、图片、头像，文件名带内容 hash；licenses/ 为字体许可证
+├── data/releases.json、latest.json、stats.json、docs-index.zh.json、docs-index.en.json
+├── assets/                CSS、JS、docs-index.*.js、字体、图片、头像，文件名带内容 hash；licenses/ 为字体许可证
 ├── favicon.ico、robots.txt、sitemap.xml
 ```
 
@@ -169,7 +190,7 @@ dist/
 | `robots.txt`、`sitemap.xml`、`favicon.ico` | `max-age=86400` |
 
 - 先传 `assets/`，再传 HTML、JSON、`feed.xml`。旧 hash 文件等 CDN 上的 HTML 都更新后再清理。
-- 每次发布后刷新 CDN 上的目录 `/`、`/en/`，以及 `/data/`、`/feed.xml`。新版本会新增 `/releases/<tag>/` 目录，旧版本页面的「下一版」链接也会变，所以版本页需要一起刷新（按目录刷新 `/releases/`、`/en/releases/` 最省事）。
+- 每次发布或更新文档后，除刷新 `/`、`/en/`、`/data/`、`/feed.xml`、`/releases/` 外，一并刷新 `/docs/`、`/en/docs/` 与 `/sitemap.xml`；`/data/docs-index.*.json` 位于 `/data/` 下会随目录刷新一并生效。
 - CDN 上为 html、css、js、json、xml、txt 开启 Gzip 或 Brotli。woff2 和 png 不用再压。
 - `.woff2` 的 Content-Type 应为 `font/woff2`，`feed.xml` 为 `application/atom+xml` 或 `application/xml`。
 

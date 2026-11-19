@@ -29,7 +29,10 @@ export function icon(name, { cls = '', label } = {}) {
  * @param {{label:string, text?:Record<string,string>, attrs?:string}} o label 为整张图的替代文字
  */
 export function illustration(name, { label, text = {}, attrs = '' }) {
-  return art(name)
-    .replace('<svg ', `<svg role="img" aria-label="${esc(label)}" ${attrs} `)
+  const raw = art(name);
+  const vb = raw.match(/viewBox="0\s+0\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)"/);
+  const dim = vb && !/\bwidth=/.test(raw.slice(0, raw.indexOf('>'))) ? `width="${vb[1]}" height="${vb[2]}" ` : '';
+  return raw
+    .replace('<svg ', `<svg role="img" aria-label="${esc(label)}" ${dim}${attrs} `)
     .replace(/\{\{(\w+)\}\}/g, (m, k) => esc(text[k] ?? ''));
 }

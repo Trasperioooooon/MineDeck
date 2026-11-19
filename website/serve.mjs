@@ -13,7 +13,9 @@ createServer(async (req, res) => {
   try { if ((await stat(f)).isDirectory()) f = join(f, 'index.html'); } catch {}
   try {
     const body = await readFile(f);
-    res.writeHead(200, { 'Content-Type': TYPES[extname(f)] || 'application/octet-stream' }); res.end(body);
+    const hdr = { 'Content-Type': TYPES[extname(f)] || 'application/octet-stream' };
+    if (/\.[0-9a-f]{10}\.(css|js|woff2|png|ico)$/.test(f)) hdr['Cache-Control'] = 'public, max-age=31536000, immutable';
+    res.writeHead(200, hdr); res.end(body);
   } catch {
     try { res.writeHead(404, { 'Content-Type': TYPES['.html'] }); res.end(await readFile(join(root, '404.html'))); } catch { res.writeHead(404); res.end('404'); }
   }

@@ -2,6 +2,7 @@
 // 浏览器端逻辑在 src/js/feedback/*：redact（脱敏）→ report（生成报告与 minedeck.feedback/v1 载荷）→ channels（提交通道）→ form（交互）。
 import { esc } from './util.mjs';
 import { icon } from './svg.mjs';
+import { extLink } from './ui.mjs';
 
 const field = (id, label, control, { hint, req, cls = '', show } = {}) =>
   `<div class="field ${cls}"${show ? ` data-show="${esc(show)}"` : ''}><label for="${id}">${esc(label)}${req ? ' <span class="req" aria-hidden="true">*</span>' : ''}</label>${control}${hint ? `<span class="hint" id="${id}-hint">${esc(hint)}</span>` : ''}</div>`;
@@ -46,7 +47,7 @@ export function feedbackForm(ctx) {
     ? `<div class="card fb-way"><b>${esc(F.wayNo)}</b><p>${esc(F.wayNoP)}</p><div class="cta">${btn(has('endpoint'))}${extra}</div></div>`
     : `<div class="card fb-way"><b>${esc(F.wayNo)}</b><p>${esc(F.wayNoOff)}</p><div class="cta">${keep}${extra}</div></div>`;
   const submit = `<div class="fb-ways">${wayGh}${wayNo}</div>${has('endpoint') && keep ? `<p class="fb-keep"><span>${esc(F.keep)}</span>${keep}</p>` : ''}`;
-  return `<noscript><p class="notice">${esc(F.noJs)} <a href="https://github.com/${esc(cfg.repo)}/issues/new" data-ext target="_blank" rel="noopener">GitHub Issues ↗</a></p></noscript>
+  return `<noscript><p class="notice">${esc(F.noJs)} ${extLink(ctx, `https://github.com/${cfg.repo}/issues/new`, 'GitHub Issues')}</p></noscript>
 <form class="form card js-only" id="fb" novalidate autocomplete="off">
  <script type="application/json" id="fb-config">${JSON.stringify(cfgJson).replace(/</g, '\\u003c')}</script>
  <p class="notice">${esc(F.warn)}</p>

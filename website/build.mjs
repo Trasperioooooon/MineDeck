@@ -19,7 +19,10 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { fetchAll, hasData, readJson } from './lib/fetch.mjs';
 import { buildModel, pickRelease } from './lib/data.mjs';
+import { loadDocsModel } from './lib/docs.mjs';
+import { outputKey } from './lib/doc-checks.mjs';
 import { ROUTES, LANGS, NAV, FOOTER } from './src/routes.mjs';
+import { renderDocAlias } from './src/pages/doc-alias.mjs';
 import { checkDist } from './lib/checks.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -83,6 +86,13 @@ for (const c of data.contributors.list) {
   c.avatarAsset = f && existsSync(f) ? emit(`avatars/${c.login}.png`, readFileSync(f)) && `avatars/${c.login}.png` : null;
 }
 
+try {
+  data.docs = loadDocsModel({ here: HERE, repoRoot: REPO_ROOT, emit, tzHours: cfg.timezoneOffsetHours, log });
+} catch (e) {
+  console.error(e.message || e);
+  process.exit(1);
+}
+
 // ---------- 4. 路由 -> 页面列表 ----------
 const outFile = (url) => (url.endsWith('/') ? url + 'index.html' : url).replace(/^\//, '');
 const urlOf = (route, lang, params = {}) => LANGS[lang] + route.path.replace(/\{(\w+)\}/g, (m, k) => encodeURIComponent(params[k]));
@@ -97,6 +107,22 @@ for (const route of ROUTES) {
         absolute: !!route.absolute, noAlt: !!route.noAlt, noSitemap: !!route.noSitemap, scripts: route.scripts || [], render: route.render });
     }
   }
+}
+const occupied = new Map();
+for (const p of PAGES) occupied.set(outputKey('/' + String(p.out).replace(/\\/g, '/')), `${p.lang} ${p.url}`);
+for (const al of data.docs.aliases) {
+  const key = outputKey(al.fromUrl);
+  if (occupied.has(key)) {
+    console.error(`${al.fileRel}:${al.line}: alias「${al.fromUrl}」的输出与已有页面冲突（${occupied.get(key)}）`);
+    process.exit(1);
+  }
+  occupied.set(key, `${al.lang} ${al.fromUrl}`);
+  PAGES.push({
+    id: 'doc-alias', section: 'docs', lang: al.lang, params: {}, url: al.fromUrl,
+    urls: { zh: al.fromUrl, en: al.fromUrl }, out: outFile(al.fromUrl),
+    absolute: false, noAlt: true, noSitemap: true, scripts: [],
+    render: (ctx) => renderDocAlias(ctx, al),
+  });
 }
 
 function makeCtx(page, names) {
@@ -120,6 +146,12 @@ function makeCtx(page, names) {
   return {
     preview: PREVIEW, lang, L: C.ui, C, L2: CONTENT[lang === 'zh' ? 'en' : 'zh'].ui, cfg, data, tokens: TOKENS, page, root, link, href,
     nav: NAV, footer: FOOTER, a: (n) => root + 'assets/' + (names[n] || n), assetName: (n) => names[n] || n,
+    hasDoc: (cat, slug) => data.docs.hasDoc(lang, cat, slug),
+    docHref: (cat, slug) => {
+      const via = data.docs.aliasTarget(lang, cat, slug);
+      const dest = via || { cat, slug };
+      return link((LANGS[lang] || '') + `/docs/${dest.cat}/${dest.slug}/`);
+    },
     fmtDate: (iso) => data.localDay(Date.parse(iso)),
     // 面包屑项：{ label, href（相对）, url（站点绝对路径，供 JSON-LD） }
     crumb: (id, label, params = {}) => ({ label, href: href(id, params), url: urlOf(ROUTE_BY_ID[id], lang, params) }),
@@ -139,7 +171,7 @@ const ascii = Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i)).
 const textOf = (o) => (typeof o === 'string' ? o : Array.isArray(o) ? o.map(textOf).join('') : o && typeof o === 'object' ? Object.values(o).map(textOf).join('') : '');
 const pageText = draft.replace(/<script[\s\S]*?<\/script>/g, '').replace(/<[^>]*>/g, '');
 // 像素字体用于标题、按钮、版本号等：取文案和版本号；正文字体取所有页面文字
-const pixelChars = new Set(ascii + textOf(CONTENT) + data.releases.map((r) => r.tag).join('') + '0123456789');
+const pixelChars = new Set(ascii + textOf(CONTENT) + data.releases.map((r) => r.tag).join('') + data.docs.extraPixelChars + '0123456789');
 const notoChars = new Set(ascii + pageText + textOf(CONTENT) + '，。、：；！？「」（）—…·→↗✓');
 const hasSubset = spawnSync('pyftsubset', ['--help'], { stdio: 'ignore' }).status === 0;
 if (!hasSubset) log('未找到 pyftsubset（pip install fonttools brotli），字体不做子集，体积会大很多。');
@@ -176,22 +208,35 @@ function tokensCss(t) {
   }
   return `@layer tokens{:root{${out.join(';')}}}\n`;
 }
-// 层顺序即优先级；每个文件包进自己的 @layer。组件和页面样式里不允许颜色、硬阴影字面量。
+// 层顺序即优先级；每个文件包进自己的 @layer。组件和页面样式里不允许颜色、硬阴影、硬编码断点或层级字面量。
+const resolveBp = (s) => s.replace(/\{\{bp:([\w-]+)(\+1)?\}\}/g, (m, k, plus) => {
+  const raw = TOKENS.breakpoint?.[k];
+  if (!raw) { console.error(`tokens.json: 未知断点 ${k}`); process.exit(1); }
+  if (!plus) return raw;
+  const nm = String(raw).match(/^(\d+(?:\.\d+)?)([a-z%]+)$/i);
+  if (!nm) { console.error(`tokens.json: 断点 ${k} 不能 +1：${raw}`); process.exit(1); }
+  return `${Number(nm[1]) + 1}${nm[2]}`;
+});
 const LAYERS = ['base', 'components', 'pages', 'motion'];
 let css = `@layer tokens,${LAYERS.join(',')};\n` + tokensCss(TOKENS);
 for (const layer of LAYERS) {
   const src = readText(join(HERE, 'src/css', `${layer}.css`));
-  const bad = src.replace(/\/\*[\s\S]*?\*\//g, '').match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|\d+px \d+px 0 /g);
+  const stripped = src.replace(/\/\*[\s\S]*?\*\//g, '');
+  const bad = stripped.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|\d+px \d+px 0 /g);
   if (bad) { console.error(`src/css/${layer}.css 里有颜色或阴影字面量 ${bad.join(' ')}，请改用 tokens.json`); process.exit(1); }
-  const depth = src.replace(/\/\*[\s\S]*?\*\//g, '').split('').reduce((d, c) => (d < 0 ? d : c === '{' ? d + 1 : c === '}' ? d - 1 : d), 0);
+  const badBp = stripped.match(/@media[^{]*\b(?:min|max)-width\s*:\s*\d+/g);
+  if (badBp) { console.error(`src/css/${layer}.css 里有硬编码断点 ${badBp.join(' ')}，请改用 tokens.json 的 {{bp:...}}`); process.exit(1); }
+  const badZ = stripped.match(/\bz-index\s*:\s*-?\d+/g);
+  if (badZ) { console.error(`src/css/${layer}.css 里有硬编码层级 ${badZ.join(' ')}，请改用 tokens.json 的 var(--z-*)`); process.exit(1); }
+  const depth = stripped.split('').reduce((d, c) => (d < 0 ? d : c === '{' ? d + 1 : c === '}' ? d - 1 : d), 0);
   if (depth !== 0) { console.error(`src/css/${layer}.css 花括号不配平`); process.exit(1); }
   css += `@layer ${layer}{\n${src}\n}\n`;
 }
-css = css.replace(/\{\{font:(\w+)\}\}/g, (m, k) => assetMap[`${k}.woff2`]);
+css = resolveBp(css).replace(/\{\{font:(\w+)\}\}/g, (m, k) => assetMap[`${k}.woff2`]);
 emit('style.css', Buffer.from(css));
 // 浏览器脚本：core 全站；其余按路由的 scripts 加载。feedback 由几个小模块按顺序拼成一个文件。
-const JS = { 'core.js': ['core.js'], 'releases.js': ['releases.js'], 'feedback.js': ['feedback/redact.js', 'feedback/report.js', 'feedback/channels.js', 'feedback/form.js'] };
-for (const [name, parts] of Object.entries(JS)) emit(name, Buffer.from(parts.map((p) => readText(join(HERE, 'src/js', p))).join('\n')));
+const JS = { 'core.js': ['core.js'], 'releases.js': ['releases.js'], 'docs.js': ['docs.js'], 'feedback.js': ['feedback/redact.js', 'feedback/report.js', 'feedback/channels.js', 'feedback/form.js'] };
+for (const [name, parts] of Object.entries(JS)) emit(name, Buffer.from(resolveBp(parts.map((p) => readText(join(HERE, 'src/js', p))).join('\n'))));
 
 // ---------- 7. 页面与数据 ----------
 for (const p of PAGES) {
@@ -209,6 +254,8 @@ json('releases.json', {
 const latestOf = (r) => r && { tag: r.tag, date: r.published_at, url: `${site}/releases/${encodeURIComponent(r.tag)}/`, sha256: r.exe?.sha256 ?? null, size: r.exe?.size ?? null, download: r.exe?.mirror_url || r.exe?.github_url || null, github: r.exe?.github_url ?? null };
 json('latest.json', { generated_at: data.generated_at, stable: latestOf(data.latest_stable), beta: latestOf(data.latest_beta) });
 json('stats.json', { generated_at: data.generated_at, repo: data.repoInfo, contributors: data.contributors.list.map(({ login, contributions, html_url }) => ({ login, contributions, html_url })), activity: { source: data.activity.source, days: data.activity.days } });
+json('docs-index.zh.json', data.docs.searchIndex.zh);
+json('docs-index.en.json', data.docs.searchIndex.en);
 // Atom
 const xe = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const feedItems = data.releases.slice(0, cfg.feedCount || 20);
@@ -233,4 +280,5 @@ if (problems.length) { console.error('构建检查未通过：\n' + problems.map
 
 if (!(cfg.feedback.channels || []).some((c) => c.type === 'endpoint' && c.enabled && c.url)) log('提醒：反馈页的「直接提交」通道还没开（site.config.json 的 feedback.channels 里 type 为 endpoint 的那一项）。没有 GitHub 账号的人目前只能复制或下载报告。');
 log(`完成：${OUT}（${PAGES.length} 个页面）${cfg.mirror?.enabled ? (data.mirror_placeholder ? '；镜像链接为占位模板 ' : '；镜像链接模板 ') + cfg.mirror.template : ''}`);
+for (const lang of Object.keys(LANGS)) log(`  docs-index.${lang}.json  ${(statSync(join(OUT, 'data', `docs-index.${lang}.json`)).size / 1024).toFixed(1)} KB`);
 for (const [k, v] of Object.entries(assetMap)) if (k.endsWith('.woff2')) log(`  ${v}  ${(statSync(join(OUT, 'assets', v)).size / 1024).toFixed(0)} KB`);

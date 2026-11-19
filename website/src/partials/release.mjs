@@ -3,8 +3,11 @@ import { esc, fmt, zhAttr } from './util.mjs';
 import { versionBadge, button, extLink, copyable, go } from './ui.mjs';
 import { icon } from './svg.mjs';
 
-/** 正文里的站内占位链接 md-release:<tag> 换成当前页面的相对地址 */
-export const localBody = (ctx, r) => r.body_html.replace(/href="md-release:([^"]+)"/g, (m, t) => `href="${ctx.href('release', { tag: t })}"`);
+/** 正文里的站内占位链接 md-release:<tag> 换成当前页面的相对地址，外链统一经由 extLink() */
+export const localBody = (ctx, r) => r.body_html
+  .replace(/href="md-release:([^"]+)"/g, (m, t) => `href="${ctx.href('release', { tag: t })}"`)
+  .replace(/<a href="(https?:\/\/[^"]*)"[^>]*>([\s\S]*?)<\/a>/g, (m, href, inner) =>
+    extLink(ctx, href.replace(/&amp;/g, '&'), '', { html: inner }));
 
 /**
  * exe 的主下载按钮：镜像（主）+ GitHub（备用，外链）。

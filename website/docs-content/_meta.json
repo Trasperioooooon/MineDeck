@@ -1,0 +1,60 @@
+{
+  "categories": [
+    {
+      "id": "getting-started",
+      "order": 10,
+      "icon": "block",
+      "zh": { "title": "开始使用", "desc": "下载与安装、系统要求与已知边界、第一次打开与数据位置。" },
+      "en": { "title": "Getting started", "desc": "Download, SmartScreen, system limits, first launch, data folders, and CLI flags." }
+    },
+    {
+      "id": "server-setup",
+      "order": 20,
+      "icon": "server",
+      "zh": { "title": "开服与新建", "desc": "从零创建、12 种服务端核心、导入整合包、交接包、接管、Java 与配置。" },
+      "en": { "title": "Server setup", "desc": "Create from scratch, 12 server cores, modpacks, handovers, adoption, Java, and properties." }
+    },
+    {
+      "id": "management",
+      "order": 30,
+      "icon": "terminal",
+      "zh": { "title": "日常管理", "desc": "控制台与任务、玩家权限、备份还原、模组/待装清单、换地图、定时与工具箱。" },
+      "en": { "title": "Daily management", "desc": "Console & tasks, players, backups, mods & install list, map import, schedules, and toolbox." }
+    },
+    {
+      "id": "networking",
+      "order": 40,
+      "icon": "tunnel",
+      "zh": { "title": "联机与远程", "desc": "局域网与端口、内网穿透与平台账户、手机远程管理及打包发给朋友。" },
+      "en": { "title": "Networking & sharing", "desc": "LAN & ports, tunnels & provider accounts, mobile remote admin, and sharing with friends." }
+    },
+    {
+      "id": "in-game",
+      "order": 50,
+      "icon": "music",
+      "zh": { "title": "伙伴模组与游戏内功能", "desc": "AI 伙伴与伙伴模组安装、游戏内 AI 问答以及音乐共享语音桥接。" },
+      "en": { "title": "In-game features", "desc": "AI companions, in-game AI chat commands, and Simple Voice Chat music sharing." }
+    },
+    {
+      "id": "ai-and-mcp",
+      "order": 60,
+      "icon": "chip",
+      "zh": { "title": "AI 助手与 MCP", "desc": "配置 AI 服务商与额度、应用内 AI 助手确认机制，以及 MCP 接入外部客户端。" },
+      "en": { "title": "AI & MCP", "desc": "AI providers & quotas, in-app assistant confirmations, and MCP integration." }
+    },
+    {
+      "id": "troubleshooting",
+      "order": 70,
+      "icon": "alert",
+      "zh": { "title": "故障排查", "desc": "按控制台报错原文索引、Java 不匹配、端口与杀软拦截排查及反馈提交。" },
+      "en": { "title": "Troubleshooting", "desc": "Console error banner index, startup & Java, ports & antivirus blocks, and diagnostics." }
+    },
+    {
+      "id": "faq",
+      "order": 80,
+      "icon": "book",
+      "zh": { "title": "常见问题 FAQ", "desc": "Java、联机、版本渠道、备份边界与 AI 费用等高频疑问汇总。" },
+      "en": { "title": "FAQ", "desc": "Frequently asked questions about Java, multiplayer, release channels, backups, and AI." }
+    }
+  ]
+}

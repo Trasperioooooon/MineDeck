@@ -24,7 +24,10 @@ ${alt('en', 'en')}
 <link rel="icon" href="${ctx.root}favicon.ico" sizes="any">
 <link rel="icon" type="image/png" href="${a('logo-144.png')}">
 <link rel="apple-touch-icon" href="${a('logo-144.png')}">
-${ctx.preview ? '' : `<link rel="preload" href="${a('pixel.woff2')}" as="font" type="font/woff2" crossorigin>`}
+${ctx.preview ? '' : `<link rel="preload" href="${a('pixel.woff2')}" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="${a('geist.woff2')}" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="${a('noto.woff2')}" as="font" type="font/woff2" crossorigin>`}
+<script>document.documentElement.classList.add('js')</script>
 <link rel="stylesheet" href="${a('style.css')}">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="MineDeck">

@@ -42,10 +42,19 @@
       else if (el.type === 'radio') el.checked = o[el.name] === el.value;
       else el.value = o[el.name];
     });
-    // URL 参数优先：?version=v3.1.0-beta.3、?kind=beta
+    // URL 参数优先：?version=v3.1.0-beta.3、?kind=beta、?doc=...&title=...
     var p = new URLSearchParams(location.search);
     if (p.get('version') && form.elements.version.querySelector('option[value="' + CSS.escape(p.get('version')) + '"]')) form.elements.version.value = p.get('version');
     var k = p.get('kind'); if (k) { var rb = form.querySelector('input[name=kind][value="' + CSS.escape(k) + '"]'); if (rb) rb.checked = true; }
+    var docId = p.get('doc'), docTitle = p.get('title');
+    if (docId) {
+      var prefix = cfg.lang === 'en' ? '[Docs] ' : '文档反馈：';
+      if (form.elements.title && !form.elements.title.value) form.elements.title.value = (prefix + (docTitle || docId)).slice(0, 80);
+      var refLine = (cfg.lang === 'en' ? 'Doc page: ' : '相关文档：') + docId + (docTitle ? '（' + docTitle + '）' : '');
+      if (form.elements.actual && form.elements.actual.value.indexOf(docId) < 0) {
+        form.elements.actual.value = refLine + (form.elements.actual.value ? '\n' + form.elements.actual.value : '\n');
+      }
+    }
   }
   function missing(f) {
     var L = cfg.labels, m = [];

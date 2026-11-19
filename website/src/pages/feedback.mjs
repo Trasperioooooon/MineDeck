@@ -8,7 +8,9 @@ export default function feedback(ctx) {
   const { L, data, cfg } = ctx;
   const F = L.feedback;
   const latest = data.releases[0];
-  const before = `<div class="card before"><b>${esc(F.before)}</b><a href="${ctx.href('help')}#faq">${esc(F.beforeFaq)} →</a><a href="${ctx.href('help')}#limits">${esc(F.beforeLimits)} →</a>${latest ? `<a href="${ctx.href('release', { tag: latest.tag })}">${esc(fmt(F.beforeLatest, { tag: latest.tag }))} →</a>` : ''}</div>`;
+  const faqHref = ctx.hasDoc('faq', 'general-faq') ? ctx.docHref('faq', 'general-faq') : `${ctx.href('help')}#faq`;
+  const limitsHref = ctx.hasDoc('getting-started', 'requirements-limits') ? ctx.docHref('getting-started', 'requirements-limits') : `${ctx.href('help')}#limits`;
+  const before = `<div class="card before"><b>${esc(F.before)}</b><a href="${esc(faqHref)}">${esc(F.beforeFaq)} →</a><a href="${esc(limitsHref)}">${esc(F.beforeLimits)} →</a>${latest ? `<a href="${ctx.href('release', { tag: latest.tag })}">${esc(fmt(F.beforeLatest, { tag: latest.tag }))} →</a>` : ''}</div>`;
   const main = `${pageHead(ctx, { h: F.h, lead: esc(publicChannels(cfg).some((ch) => ch.type === 'endpoint') ? F.leadDirect : F.lead), crumbs: [ctx.crumb('home', L.crumbHome), ctx.crumb('feedback', L.nav.feedback)] })}
 ${before}
 <div class="fb-layout">
