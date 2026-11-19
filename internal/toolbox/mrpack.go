@@ -638,6 +638,9 @@ func (s *Service) previewFromDraft(ctx context.Context, req MrpackReq) (MrpackPr
 		loaderVer = resolved
 	}
 
+	if err := s.cart.LoadErr(); err != nil {
+		return MrpackPreviewResp{}, err
+	}
 	items := s.cart.List(modcart.Toolbox)
 	locals := s.cart.Locals(modcart.Toolbox)
 	if len(items) == 0 && len(locals) == 0 {

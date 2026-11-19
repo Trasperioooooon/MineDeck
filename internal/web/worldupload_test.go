@@ -46,7 +46,8 @@ func TestWorldUploadPausedClientIsClosed(t *testing.T) {
 		// 下面三条等的就是空闲期限到，机器慢只是晚一点回 408
 		{"文件传到一半停住", true, 32 << 10, 8 << 20, 408, false, 150 * time.Millisecond},
 		{"非文件字段停住", false, 32, 8 << 20, 408, false, 150 * time.Millisecond},
-		{"等待同盘写入时超时", true, 32 << 10, 8 << 20, 408, true, 150 * time.Millisecond},
+		// SaveUploadCtx 使用 Shared: true 不会在同盘独占租约后排队；hold=true 时这里验证的仍是有同盘独占写入在跑的情况下，上传停住照样走空闲超时
+		{"同盘独占写入期间传到一半停住", true, 32 << 10, 8 << 20, 408, true, 150 * time.Millisecond},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newFullEnv(t)

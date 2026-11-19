@@ -520,7 +520,15 @@ async function aiHandler(state, req, res, p, m) {
   }
   // 同 ai.PatchPrices：prices 给了整张替换；removePrices 按模型名删（找不到不算错）；addPrices 按模型名添加或替换；合完最多 100 条
   if (p === "/api/ai/prices" && m === "PUT") {
-    if (!Array.isArray(b.prices) && !Array.isArray(b.addPrices) && !Array.isArray(b.removePrices)) return err(res, 400, "缺少参数 prices");
+    if (!Array.isArray(b.prices) && !(b.addPrices || []).length && !(b.removePrices || []).length) return ok(res, aiView(a));
+    for (const list of [b.prices, b.addPrices]) {
+      if (!Array.isArray(list)) continue;
+      const seen = new Set();
+      for (const c of list) {
+        if (seen.has(c.model)) return err(res, 400, `模型 ${c.model} 填了两次`);
+        seen.add(c.model);
+      }
+    }
     let next = Array.isArray(b.prices) ? b.prices.map(c => ({ ...c })) : a.prices.map(c => ({ ...c }));
     next = next.filter(c => !(b.removePrices || []).includes(c.model));
     for (const c of b.addPrices || []) { // 同后端：已经有这个模型的原地换掉，位置不动
@@ -1439,13 +1447,22 @@ async function cpHandler(state, req, res, m, seg) {
       const bad = b.attackDeny.find(x => !/^(?:[a-z0-9_.-]+:)?[a-z0-9_./-]+$/.test(x));
       if (bad) return err(res, 400, `「${bad}」不是生物种类的 ID（如 minecraft:villager）`);
     }
-    for (const list of [b.zones, b.addZones]) {
+    for (const [list, isAdd] of [[b.zones, false], [b.addZones, true]]) {
       if (!Array.isArray(list)) continue;
+      if (list.length > 64) return err(res, 400, "禁挖区域最多 64 个");
       const seen = new Set();
       for (const z of list) {
-        if (!/^[A-Za-z0-9_-]{1,32}$/.test(z.name)) return err(res, 400, `区域名「${z.name}」只能是 1–32 个字母、数字、_、-`);
-        if (seen.has(z.name.toLowerCase())) return err(res, 400, `有两个禁挖区域都叫「${z.name}」`);
-        seen.add(z.name.toLowerCase());
+        if (!Array.isArray(z.min) || z.min.length !== 3 || !Array.isArray(z.max) || z.max.length !== 3 || ![...z.min, ...z.max].every(Number.isInteger))
+          return err(res, 400, `禁挖区域「${z.name}」的两个角都要写 x、y、z 三个坐标`);
+        const name = String(z.name || "").trim(), dim = String(z.dim || "").trim();
+        if (!/^[A-Za-z0-9_-]{1,32}$/.test(name)) return err(res, 400, `区域名「${name}」只能是 1–32 个字母、数字、_、-`);
+        if (!/^[a-z0-9_.-]+:[a-z0-9_./-]+$/.test(dim) || dim.length > 100) return err(res, 400, `维度「${dim}」要写完整的 ID，比如 minecraft:overworld`);
+        for (const c of [z.min, z.max]) {
+          if (c[0] < -30000000 || c[0] > 30000000 || c[2] < -30000000 || c[2] > 30000000) return err(res, 400, `区域「${name}」的 x、z 要在 ±30000000 以内`);
+          if (c[1] < -2048 || c[1] > 2048) return err(res, 400, `区域「${name}」的 y 要在 -2048 到 2048 之间`);
+        }
+        if (seen.has(name.toLowerCase())) return err(res, 400, `${isAdd ? "要加的禁挖区域里" : ""}有两个${isAdd ? "都" : "禁挖区域都"}叫「${name}」`);
+        seen.add(name.toLowerCase());
       }
     }
     // 禁挖区域同 companion.Patch.MergeZones：zones 给了整张替换 → removeZones 按名字（不分大小写）删、找不到不算错 →
@@ -1522,7 +1539,8 @@ function cpMockState(state, b) {
 // /__mock/state 的 modCart 开关：{ reset: true 清空草稿车与各实例的车（连本地文件）,
 //   searchFail / addFail / localFail / depsFail: 报错文案（搜索和热门清单 / 加 Modrinth 项目 / 从电脑添加 / 检查前置）,
 //   searchDelay: 搜索和热门清单晚多少毫秒才回（看慢的时候挡不挡别的操作）, noDeps: true 依赖检查返回全空,
-//   loadFail: "locked" | "corrupt" cart.json 在却没读出来（被占着 / 内容坏了，说法见 MODCART_LOAD_FAIL）}
+//   loadFail: "locked" | "corrupt" cart.json 在却没读出来（被占着 / 内容坏了，说法见 MODCART_LOAD_FAIL）,
+//   localUploadFail: "unknown-disk" 从电脑添加时查不到接收上传文件所在磁盘的剩余空间（回 503，不改清单）}
 // 响应里的 modcart.lastInstall 是上一次「安装购物车」的请求（inst、withDeps、includeDraft、expect、expectLocal），
 // modcart.searches 是到现在为止的搜索请求（q、category、offset）。
 // 本地文件没有真的 jar 可读，按文件名里的字样仿几种情况（同真后端 modcart.deps 的 local / manual / conflicts）：
@@ -1560,7 +1578,7 @@ const modCartItem = id => {
   return { projectId: id, slug: m.slug, title: m.title, icon: "", kind: m.kind, license: m.license, addedAt: new Date().toISOString() };
 };
 function newModCartState() {
-  return { draft: [], insts: {}, localDraft: [], localInsts: {}, searchFail: "", addFail: "", localFail: "", depsFail: "", searchDelay: 0, noDeps: false,
+  return { draft: [], insts: {}, localDraft: [], localInsts: {}, searchFail: "", addFail: "", localFail: "", localUploadFail: "", depsFail: "", searchDelay: 0, noDeps: false,
     loadFail: "", queries: 0, lastInstall: null, searches: [] };
 }
 function modCartMockState(state, b) {
@@ -1689,6 +1707,7 @@ async function modcartHandler(state, req, res, p, m, u) {
   // 从电脑添加一个 jar（同 modcart.local.add）：multipart 的 file，另带 inst / core / mc。返回整张清单，外加 added 和 duplicate
   if (p === "/api/modcart/local" && m === "POST") {
     const raw = await new Promise(r => { const cs = []; req.on("data", c => cs.push(c)); req.on("end", () => r(Buffer.concat(cs))); });
+    if (mc.localUploadFail === "unknown-disk") return err(res, 503, "暂时查不到接收上传文件所在磁盘的剩余空间，没有接收文件。请稍后重试");
     const { fields, file } = modcartMultipart(raw, req.headers["content-type"]);
     if (mc.localFail) return err(res, 500, mc.localFail);
     if (!file) return err(res, 400, "没有收到文件");
@@ -2334,17 +2353,23 @@ async function toolboxHandler(state, req, res, p, m) {
       notice: "客户端把 .zip 放进 .minecraft/resourcepacks/ 并启用即可在离线服中显示自定义皮肤。",
     });
   }
-  if (p === "/api/toolbox/mrpack/draft" && m === "GET") return ok(res, tb.draft);
+  const readDraft = d => ({
+    ...d,
+    name: d.name || "我的整合包",
+    versionId: d.versionId || "1.0.0",
+    core: d.core || "fabric",
+    mc: d.mc || "1.20.1",
+  });
+  if (p === "/api/toolbox/mrpack/draft" && m === "GET") return ok(res, readDraft(tb.draft));
   // 同 toolbox.PatchMrpackDraft：只改传了的字段（两个窗口同时开着工具箱时，不拿一页的旧值盖掉另一页刚改的）
   if (p === "/api/toolbox/mrpack/draft" && m === "PUT") {
-    const b = await readBody(req);
-    for (const k of ["name", "versionId", "summary", "core", "mc", "loaderVersion"]) if (k in b) tb.draft[k] = String(b[k] ?? "").trim();
-    if ("includeConfig" in b) tb.draft.includeConfig = !!b.includeConfig;
-    if (!tb.draft.name) tb.draft.name = "我的整合包";
-    if (!tb.draft.versionId) tb.draft.versionId = "1.0.0";
-    if (!tb.draft.core) tb.draft.core = "fabric";
-    if (!tb.draft.mc) tb.draft.mc = "1.20.1";
-    return ok(res, tb.draft);
+    const b = await readBody(req), next = readDraft(tb.draft);
+    for (const k of ["name", "versionId", "summary", "core", "mc", "loaderVersion"]) if (k in b) next[k] = String(b[k] ?? "").trim();
+    if ("includeConfig" in b) next.includeConfig = !!b.includeConfig;
+    if ([...next.name].length > 100 || [...next.versionId].length > 50 || [...next.summary].length > 300)
+      return err(res, 400, "整合包名称、版本号或简介太长");
+    tb.draft = next;
+    return ok(res, next);
   }
   if (p === "/api/toolbox/mrpack/preview" && m === "POST") {
     const r = tbPreviewMrpack(state, await readBody(req));
@@ -3303,7 +3328,8 @@ function handler(state, ui, portOf) {
             const norm = s => ({ type: s.type, at: hm(s.at), args: s.args || "" });
             let next = Array.isArray(b.schedules) ? b.schedules.map(norm) : pol.schedules.map(s => ({ ...s }));
             for (const r of b.removeSchedules || []) {
-              const k = next.findIndex(s => s.type === r.type && s.at === hm(r.at) && (s.args || "") === (r.args || ""));
+              const rt = hm(r.at);
+              const k = rt ? next.findIndex(s => s.type === r.type && hm(s.at) === rt && (s.args || "") === (r.args || "")) : -1;
               if (k >= 0) next.splice(k, 1);
             }
             next = next.concat((b.addSchedules || []).map(norm));

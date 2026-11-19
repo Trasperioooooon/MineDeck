@@ -9,6 +9,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -402,5 +403,43 @@ func TestModCartInstallPartialFailure(t *testing.T) {
 	m, err = cartDo(t, reg, ai, "modcart.deps", map[string]any{"inst": "模组服", "includeDraft": true})
 	if err != nil || m["count"].(float64) != 2 || len(m["localHits"].([]any)) != 2 {
 		t.Fatalf("deps 带草稿车：%v %v", m, err)
+	}
+}
+
+// cart.json 内容坏了时，toolbox.mrpack.preview 返回 503 并带 *modcart.LoadError 的 Hint；
+// 修好以后不用重建服务，预览照常。
+func TestToolboxMrpackPreviewReportsCorruptCart(t *testing.T) {
+	reg, mgr, _, _ := newCartCatalog(t)
+	if _, err := cartDo(t, reg, cartUI, "modcart.add", map[string]any{"cart": "toolbox", "projectIds": []string{"alpha"}}); err != nil {
+		t.Fatal(err)
+	}
+	cartDir := filepath.Join(app.Base, "data", "modcart")
+	cartPath := filepath.Join(cartDir, "cart.json")
+	good, err := os.ReadFile(cartPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cartPath, good[:len(good)/2], 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := fakeModrinth(t)
+	cart2 := modcart.New(cartDir, srv.URL)
+	reg2 := New(Env{Mgr: mgr, Tun: tunnel.NewManager(), Port: 27333, ModCart: cart2})
+	args := ops.ArgsOf(map[string]any{"source": "draft", "core": "fabric", "mc": "1.20.1", "loaderVersion": "0.16.9"})
+	_, err = reg2.Do(context.Background(), cartUI, "toolbox.mrpack.preview", args)
+	if ops.CodeOf(err) != 503 {
+		t.Fatalf("cart.json 坏了时应回 503，实际 %d：%v", ops.CodeOf(err), err)
+	}
+	var le *modcart.LoadError
+	if !errors.As(err, &le) || le.Hint() != (&modcart.LoadError{Corrupt: true}).Hint() {
+		t.Fatalf("应带 *modcart.LoadError 的 Hint：%v", err)
+	}
+
+	if err := os.WriteFile(cartPath, good, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg2.Do(context.Background(), cartUI, "toolbox.mrpack.preview", args); err != nil {
+		t.Fatalf("修好以后预览应成功：%v", err)
 	}
 }

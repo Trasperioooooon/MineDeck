@@ -124,6 +124,9 @@ func TestWorldRootConfigFingerprintChanges(t *testing.T) {
 }
 
 func TestCancelledDuplicateScanKeepsSharedUpload(t *testing.T) {
+	old := diskFree
+	diskFree = func(string) (int64, error) { return 1 << 40, nil }
+	t.Cleanup(func() { diskFree = old })
 	e := newEnv(t, "")
 	b, err := os.ReadFile(mkZip(t, map[string]string{"world/level.dat": rawNBT(8)}))
 	if err != nil {
@@ -160,6 +163,9 @@ func TestCancelledDuplicateScanKeepsSharedUpload(t *testing.T) {
 }
 
 func TestCancelledFormatRejectionDoesNotLeaveUpload(t *testing.T) {
+	old := diskFree
+	diskFree = func(string) (int64, error) { return 1 << 40, nil }
+	t.Cleanup(func() { diskFree = old })
 	e := newEnv(t, "")
 	p, err := SaveUpload(strings.NewReader("not a zip"), 1024, 9)
 	if err != nil {

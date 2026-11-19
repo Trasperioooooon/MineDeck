@@ -174,9 +174,11 @@ window.MDModCart = (() => {
     };
     /* 用接口回来的整张清单换掉页面上的 */
     const take = d => { loadErr = null; cart = d.items || []; local = d.local || []; paintList(); };
-    /* 后端回 503（清单的存档没读出来）：记下来、清单按空的算，返回 true。调用方随后 paintList 画报错框 */
+    /* 后端回 503 且是清单的存档 cart.json 没读出来（报错原文或 hint 含 cart.json）：记下来、清单按空的算，返回 true，
+       调用方随后 paintList 画报错框。别的 503（比如从电脑添加上传时查不到接收磁盘的剩余空间）只是那次操作没成，
+       清单本身好好的，照普通错误处理 */
     const unreadable = e => {
-      if (!e || e.status !== 503) return false;
+      if (!e || e.status !== 503 || !(String(e.message || "").includes("cart.json") || String(e.hint || "").includes("cart.json"))) return false;
       loadErr = e; cart = []; local = []; dep = null; depBox.innerHTML = "";
       return true;
     };

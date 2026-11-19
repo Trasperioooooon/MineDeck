@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -828,5 +829,78 @@ func TestReadMrpackDraftReportsReadFailure(t *testing.T) {
 	}
 	if cfg := svc.GetMrpackDraft(); cfg.Name != "我的整合包" {
 		t.Fatalf("生成整合包时用的 GetMrpackDraft 照旧给默认值：%+v", cfg)
+	}
+}
+
+// cart.json 内容坏了时，工具箱草稿预览返回 *modcart.LoadError（不是「清单还是空的」的 ErrBadRequest）；
+// 把文件改好以后，不重建服务，预览照常。
+func TestMrpackDraftPreviewReportsCorruptCartAndRecovers(t *testing.T) {
+	jar := validMinimalJar("knownmod", "fabric")
+	s1 := sha1.Sum(jar)
+	s512 := sha512.Sum512(jar)
+	h1, h512 := hex.EncodeToString(s1[:]), hex.EncodeToString(s512[:])
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reply := func(v any) { _ = json.NewEncoder(w).Encode(v) }
+		switch r.URL.Path {
+		case "/projects":
+			reply([]map[string]any{
+				{"id": "p-known", "slug": "sodium", "title": "Sodium", "project_type": "mod", "server_side": "optional", "license": map[string]any{"id": "LGPL-3.0"}},
+			})
+		case "/project/p-known/version":
+			reply([]map[string]any{{
+				"id": "v-known", "project_id": "p-known", "version_number": "0.5.8", "version_type": "release",
+				"date_published": "2026-01-01T00:00:00Z", "loaders": []string{"fabric"}, "game_versions": []string{"1.20.1"},
+				"files": []map[string]any{{
+					"url": "https://cdn.modrinth.com/data/p-known/versions/v-known/sodium-0.5.8.jar", "filename": "sodium-0.5.8.jar", "primary": true, "size": len(jar),
+					"hashes": map[string]string{"sha1": h1, "sha512": h512},
+				}},
+				"dependencies": []map[string]any{},
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	base := t.TempDir()
+	cartDir := filepath.Join(base, "data", "modcart")
+	cart := modcart.New(cartDir, srv.URL)
+	if _, _, err := cart.Add(context.Background(), modcart.Toolbox, []string{"p-known"}); err != nil {
+		t.Fatal(err)
+	}
+	cartPath := filepath.Join(cartDir, "cart.json")
+	good, err := os.ReadFile(cartPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	broken := good[:len(good)/2]
+	if err := os.WriteFile(cartPath, broken, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 从坏文件起步，模拟启动时 cart.json 已损坏
+	cart2 := modcart.New(cartDir, srv.URL)
+	svc := New(Options{Cart: cart2, DataDir: filepath.Join(base, "data", "toolbox"), CacheDir: filepath.Join(base, "cache", "toolbox")})
+	req := MrpackReq{Source: "draft", Core: "fabric", MC: "1.20.1", LoaderVersion: "0.16.9"}
+	_, err = svc.PreviewMrpack(context.Background(), req)
+	var le *modcart.LoadError
+	if !errors.As(err, &le) || !le.Corrupt {
+		t.Fatalf("cart.json 坏了时预览应返回 Corrupt *modcart.LoadError，实际：%v", err)
+	}
+	var te *Error
+	if errors.As(err, &te) {
+		t.Fatalf("不该当成空清单的 ErrBadRequest：%v", err)
+	}
+
+	// 把文件改好以后，不重建服务，预览照常
+	if err := os.WriteFile(cartPath, good, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prev, err := svc.PreviewMrpack(context.Background(), req)
+	if err != nil {
+		t.Fatalf("cart.json 修好以后不重建服务预览应成功：%v", err)
+	}
+	if prev.DownloadCount < 1 {
+		t.Fatalf("修好以后应读出原来的待装项：%+v", prev)
 	}
 }
