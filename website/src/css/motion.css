@@ -256,7 +256,7 @@ header.top{view-transition-name:site-header}
 main#main{view-transition-name:site-main}
 .dirt{view-transition-name:site-dirt}
 body>footer{view-transition-name:site-footer}
-@media (min-width:901px){
+@media (min-width:{{bp:md+1}}){
  body.page-doc main#main{view-transition-name:none}
  body.page-doc .crumbs{view-transition-name:doc-crumbs}
  body.page-doc .doc-side{view-transition-name:doc-side}
@@ -273,7 +273,7 @@ body>footer{view-transition-name:site-footer}
 ::view-transition-group(site-dirt),
 ::view-transition-group(site-footer),
 ::view-transition-group(doc-crumbs),
-::view-transition-group(doc-side){z-index:3}
+::view-transition-group(doc-side){z-index:var(--z-transition)}
 ::view-transition-old(root),
 ::view-transition-old(site-header),
 ::view-transition-old(site-dirt),

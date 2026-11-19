@@ -26,7 +26,7 @@ b,strong{font-weight:var(--fw-bold)}
 .skip:focus{left:var(--space-8)}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 .is-hidden{display:none!important}
-@media (max-width:560px){.wrap{padding:0 var(--space-16)}}
+@media (max-width:{{bp:sm}}){.wrap{padding:0 var(--space-16)}}
 /* 只在有 JS 时出现的控件（筛选、版本跳转、反馈表单） */
 html:not(.js) .js-only{display:none!important}
 code{font-family:var(--font-mono);font-size:.92em}

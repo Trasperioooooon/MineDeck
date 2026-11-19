@@ -81,7 +81,7 @@
 .sc-steps{display:flex;gap:var(--space-16);align-items:flex-start;padding:var(--space-18)}
 .sc-steps .ico{margin:0}
 .sc-links{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-6) var(--space-22);margin:var(--space-14) 0 0}
-@media (min-width:901px){
+@media (min-width:{{bp:md+1}}){
  .showcase.is-tabs .sc-panel:not(.is-on){display:none}
 }
 
@@ -199,16 +199,16 @@
 .on-phone b{display:block;font-size:var(--fs-body)}
 .on-phone .btn{flex-direction:row;align-items:center;gap:var(--space-8);justify-self:start}
 .on-phone .btn .icon{width:var(--size-legend);height:var(--size-legend)}
-@media (max-width:560px) and (pointer:coarse){
+@media (max-width:{{bp:sm}}) and (pointer:coarse){
  .on-phone{display:grid}
  .has-phone-note .btn.primary{background:var(--color-surface);color:var(--color-text)}
  .has-phone-note .btn.primary .icon{color:var(--color-text)}
 }
 
-@media (max-width:1100px){
+@media (max-width:{{bp:lg}}){
  .hero h1{font-size:var(--fs-px-3)}
 }
-@media (max-width:900px){
+@media (max-width:{{bp:md}}){
  .with-toc,.rel-layout,.fb-layout{grid-template-columns:minmax(0,1fr)}
  .toc-col{position:static}
  .with-toc .toc ol{grid-template-columns:1fr 1fr}
@@ -222,7 +222,7 @@
  .hero h1{font-size:var(--fs-px-3)}
  .gallery{grid-template-columns:1fr 1fr}.gallery .wide{grid-column:auto}
 }
-@media (max-width:560px){
+@media (max-width:{{bp:sm}}){
  .page-title{font-size:var(--fs-px-3)}
  .hero-anim{display:none}
  .with-toc .toc ol{grid-template-columns:1fr}
@@ -283,7 +283,7 @@
 .doc-layout>*{min-width:0}
 .doc-side{position:sticky;top:var(--space-16)}
 /* 桌面目录超高时只滚动分类列表。8.5rem 留给搜索框、目录标题和卡片内边距，搜索弹层不在这个滚动区里。 */
-@media (min-width:901px){
+@media (min-width:{{bp:md+1}}){
  .doc-side{max-height:calc(100vh - var(--space-16) * 2)}
  .doc-tree{max-height:calc(100vh - var(--space-16) * 2 - 8.5rem);overflow-y:auto}
  .doc-search.is-compact{position:relative;z-index:var(--z-menu)}
@@ -378,12 +378,12 @@
 .feat-doc-link{margin:var(--space-10) 0 0;font-size:var(--fs-md)}
 .help-doc-more{margin:var(--space-10) 0 0}
 
-@media (max-width:1100px){
+@media (max-width:{{bp:lg}}){
  .doc-layout{grid-template-columns:var(--size-doc-side) minmax(0,1fr)}
  .doc-toc-col{display:none}
  .doc-toc-inline{display:block}
 }
-@media (max-width:900px){
+@media (max-width:{{bp:md}}){
  .doc-layout,.doc-layout.no-toc{grid-template-columns:minmax(0,1fr);gap:var(--space-16)}
  .doc-side{position:static}
  .doc-search.is-compact .doc-search-pop{min-width:0}
@@ -392,7 +392,7 @@
  .doc-tree-box[open] .doc-tree-mobile-bar{border-bottom:var(--border-hair) dashed var(--color-divider);padding-bottom:var(--space-8);margin-bottom:var(--space-10)}
  .doc-tree-head{display:none}
 }
-@media (max-width:560px){
+@media (max-width:{{bp:sm}}){
  .doc-body{padding:var(--space-16)}
  .doc-search{padding:var(--space-10) var(--space-12)}
  .doc-kbd{display:none}

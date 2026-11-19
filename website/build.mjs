@@ -208,22 +208,35 @@ function tokensCss(t) {
   }
   return `@layer tokens{:root{${out.join(';')}}}\n`;
 }
-// 层顺序即优先级；每个文件包进自己的 @layer。组件和页面样式里不允许颜色、硬阴影字面量。
+// 层顺序即优先级；每个文件包进自己的 @layer。组件和页面样式里不允许颜色、硬阴影、硬编码断点或层级字面量。
+const resolveBp = (s) => s.replace(/\{\{bp:([\w-]+)(\+1)?\}\}/g, (m, k, plus) => {
+  const raw = TOKENS.breakpoint?.[k];
+  if (!raw) { console.error(`tokens.json: 未知断点 ${k}`); process.exit(1); }
+  if (!plus) return raw;
+  const nm = String(raw).match(/^(\d+(?:\.\d+)?)([a-z%]+)$/i);
+  if (!nm) { console.error(`tokens.json: 断点 ${k} 不能 +1：${raw}`); process.exit(1); }
+  return `${Number(nm[1]) + 1}${nm[2]}`;
+});
 const LAYERS = ['base', 'components', 'pages', 'motion'];
 let css = `@layer tokens,${LAYERS.join(',')};\n` + tokensCss(TOKENS);
 for (const layer of LAYERS) {
   const src = readText(join(HERE, 'src/css', `${layer}.css`));
-  const bad = src.replace(/\/\*[\s\S]*?\*\//g, '').match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|\d+px \d+px 0 /g);
+  const stripped = src.replace(/\/\*[\s\S]*?\*\//g, '');
+  const bad = stripped.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|\d+px \d+px 0 /g);
   if (bad) { console.error(`src/css/${layer}.css 里有颜色或阴影字面量 ${bad.join(' ')}，请改用 tokens.json`); process.exit(1); }
-  const depth = src.replace(/\/\*[\s\S]*?\*\//g, '').split('').reduce((d, c) => (d < 0 ? d : c === '{' ? d + 1 : c === '}' ? d - 1 : d), 0);
+  const badBp = stripped.match(/@media[^{]*\b(?:min|max)-width\s*:\s*\d+/g);
+  if (badBp) { console.error(`src/css/${layer}.css 里有硬编码断点 ${badBp.join(' ')}，请改用 tokens.json 的 {{bp:...}}`); process.exit(1); }
+  const badZ = stripped.match(/\bz-index\s*:\s*-?\d+/g);
+  if (badZ) { console.error(`src/css/${layer}.css 里有硬编码层级 ${badZ.join(' ')}，请改用 tokens.json 的 var(--z-*)`); process.exit(1); }
+  const depth = stripped.split('').reduce((d, c) => (d < 0 ? d : c === '{' ? d + 1 : c === '}' ? d - 1 : d), 0);
   if (depth !== 0) { console.error(`src/css/${layer}.css 花括号不配平`); process.exit(1); }
   css += `@layer ${layer}{\n${src}\n}\n`;
 }
-css = css.replace(/\{\{font:(\w+)\}\}/g, (m, k) => assetMap[`${k}.woff2`]);
+css = resolveBp(css).replace(/\{\{font:(\w+)\}\}/g, (m, k) => assetMap[`${k}.woff2`]);
 emit('style.css', Buffer.from(css));
 // 浏览器脚本：core 全站；其余按路由的 scripts 加载。feedback 由几个小模块按顺序拼成一个文件。
 const JS = { 'core.js': ['core.js'], 'releases.js': ['releases.js'], 'docs.js': ['docs.js'], 'feedback.js': ['feedback/redact.js', 'feedback/report.js', 'feedback/channels.js', 'feedback/form.js'] };
-for (const [name, parts] of Object.entries(JS)) emit(name, Buffer.from(parts.map((p) => readText(join(HERE, 'src/js', p))).join('\n')));
+for (const [name, parts] of Object.entries(JS)) emit(name, Buffer.from(resolveBp(parts.map((p) => readText(join(HERE, 'src/js', p))).join('\n'))));
 
 // ---------- 7. 页面与数据 ----------
 for (const p of PAGES) {

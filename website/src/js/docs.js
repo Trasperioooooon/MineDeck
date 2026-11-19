@@ -459,10 +459,10 @@
     }
   } catch (e) {}
 
-  // 窄屏（<=900px）自动折叠左侧目录抽屉，放宽到桌面时恢复展开
+  // 窄屏（<={{bp:md}}）自动折叠左侧目录抽屉，放宽到桌面时恢复展开
   var treeBox = document.querySelector('details.doc-tree-box');
   if (treeBox && window.matchMedia) {
-    var mq = window.matchMedia('(max-width: 900px)');
+    var mq = window.matchMedia('(max-width: {{bp:md}})');
     var applyTree = function (first) {
       if (mq.matches) {
         if (first && !new URLSearchParams(location.search).get('q')) treeBox.open = false;

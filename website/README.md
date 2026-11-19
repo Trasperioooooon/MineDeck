@@ -94,7 +94,7 @@ node serve.mjs dist 8080        # 本地看 dist/，含 404 行为
 
 构建失败的情况：
 
-- `src/css/*.css` 里出现颜色字面量（`#fff`、`rgb()` 等）或硬阴影字面量。颜色只能用 `var(--color-*)` 等 token。
+- `src/css/*.css` 里出现颜色字面量（`#fff`、`rgb()` 等）、硬阴影字面量、硬编码 `@media` 宽度断点或硬编码 `z-index`。这些值只能改用 `tokens.json` 的变量或 `{{bp:...}}` 占位。
 - CSS 花括号不配平。
 - 产物 HTML/CSS/JS 中：会自动加载的资源（`<script src>`、样式表/图标/预加载 `<link href>`、`<img>`/`<source>` 等的 `src`/`srcset`、`poster`/`data-src`/`data-index-*`、CSS `url()`/`@import`、JS `fetch()`）只允许同源相对地址或 `lib/checks.mjs` 里写明的允许名单；仍禁止引用国外 CDN（Google Fonts、jsDelivr、unpkg、cdnjs）；指向 GitHub 的 `<a>` 没有经过 `extLink()`（缺 `data-ext`）。
 - 页面文本里出现 `[object Object]`、`undefined`、`NaN`。
@@ -116,7 +116,7 @@ node scripts/check-docs-release.mjs
 - `color`：语义色，写成 `{palette.grass-500}` 引用，如 `--color-accent`、`--color-beta`、`--color-heat-0..4`。改主题只需要改这里。
 - 其余：`font`、`fs`、`lh`、`fw`、`space`、`radius`、`border`、`shadow`、`size`、`motion`、`z`、`breakpoint`，对应 `--fs-*`、`--space-*` 等。
 
-CSS 按 `@layer tokens, base, components, pages, motion` 排列。断点用 1100px、900px 和 560px；1100 这一档只管首页大标题降一级字号。手机上那张「这是一个 Windows 程序」的提示另外加了 `pointer:coarse`，只在窄屏的触屏设备上出现，电脑上把窗口拖窄不受影响。
+CSS 按 `@layer tokens, base, components, pages, motion` 排列。断点统一定义在 `tokens.json` 的 `breakpoint`，构建时通过 `{{bp:...}}` 注入 CSS 的 `@media` 与 `docs.js`：1100px（`lg`）收紧顶栏间距与导航内边距、把首页大标题降一级字号，并将文档正文页从三栏收为两栏（隐藏右侧粘性本页目录、改在正文上方显示折叠目录）；1000px（`nav`）在 901px–1000px 之间隐藏顶栏 GitHub 文字只留图标并进一步收窄导航内边距；900px（`md`）把顶栏收进折叠菜单、网格与两栏布局折行、版本页切为下拉跳转，同时把文档页收为单栏、左侧目录改为顶部可折叠抽屉（`docs.js` 共用同一断点在窄屏自动折叠、放宽到桌面时恢复展开）；560px（`sm`）收窄容器边距、网格折成单栏、顶栏下载按钮移入菜单，并隐藏文档搜索快捷键提示。手机上那张「这是一个 Windows 程序」的提示另外加了 `pointer:coarse`，只在窄屏的触屏设备上出现，电脑上把窗口拖窄不受影响。
 
 ## 数据与内容
 
