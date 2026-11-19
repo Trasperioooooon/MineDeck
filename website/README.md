@@ -96,7 +96,7 @@ node serve.mjs dist 8080        # 本地看 dist/，含 404 行为
 
 - `src/css/*.css` 里出现颜色字面量（`#fff`、`rgb()` 等）或硬阴影字面量。颜色只能用 `var(--color-*)` 等 token。
 - CSS 花括号不配平。
-- 产物 HTML/CSS/JS 中：`src`、`srcset`、CSS `url()`、`fetch()` 指向 GitHub；引用国外 CDN（Google Fonts、jsDelivr、unpkg、cdnjs）；指向 GitHub 的 `<a>` 没有经过 `extLink()`（缺 `data-ext`）。
+- 产物 HTML/CSS/JS 中：会自动加载的资源（`<script src>`、样式表/图标/预加载 `<link href>`、`<img>`/`<source>` 等的 `src`/`srcset`、`poster`/`data-src`/`data-index-*`、CSS `url()`/`@import`、JS `fetch()`）只允许同源相对地址或 `lib/checks.mjs` 里写明的允许名单；仍禁止引用国外 CDN（Google Fonts、jsDelivr、unpkg、cdnjs）；指向 GitHub 的 `<a>` 没有经过 `extLink()`（缺 `data-ext`）。
 - 页面文本里出现 `[object Object]`、`undefined`、`NaN`。
 - **文档中心强校验失败**（精确报告 `文件路径:行号`）：`front-matter` 缺少 `title`/`description`/`order` 或类型错误、同分类 `order` 重复、别名冲突、相对 `.md` / `#锚点` / 图片断链、或正文中混入本机绝对路径、密钥前缀及仓库内部过程目录路径（`docs/日志/` 等）。
 
