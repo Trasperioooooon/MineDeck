@@ -550,7 +550,7 @@ function renderInlineDoc(src, lineNo, h) {
     if (!r || !r.url) return t;
     const labelHtml = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     return r.ext
-      ? `<a class="ext" href="${esc(r.url)}" data-ext target="_blank" rel="noopener nofollow">${labelHtml}<span class="sr">${esc(h.extSr || '')}</span></a>`
+      ? (h.renderExtLink ? h.renderExtLink(r.url, labelHtml) : `<a class="ext" href="${esc(r.url)}" data-ext target="_blank" rel="noopener">${labelHtml}<span class="sr">${esc(h.extSr || '')}</span></a>`)
       : `<a href="${esc(r.url)}">${labelHtml}</a>`;
   });
   s = s.replace(/(^|[\s(（：:])(https?:\/\/[^\s<)）*]+)/g, (m, pre, u) => {
@@ -558,7 +558,7 @@ function renderInlineDoc(src, lineNo, h) {
     const r = h.resolveLink(rawU, lineNo);
     if (!r || !r.url) return m;
     return r.ext
-      ? `${pre}<a class="ext" href="${esc(r.url)}" data-ext target="_blank" rel="noopener nofollow">${u}<span class="sr">${esc(h.extSr || '')}</span></a>`
+      ? `${pre}${h.renderExtLink ? h.renderExtLink(r.url, u) : `<a class="ext" href="${esc(r.url)}" data-ext target="_blank" rel="noopener">${u}<span class="sr">${esc(h.extSr || '')}</span></a>`}`
       : `${pre}<a href="${esc(r.url)}">${u}</a>`;
   });
   s = s.replace(/\*\*(「[^*]+」)\*\*/g, '<strong class="ui-btn">$1</strong>');
@@ -648,11 +648,26 @@ export function sanitizeDoc(html) {
       const isExt = /\bdata-ext\b/.test(attrs);
       const cls = (attrs.match(/(?:^|\s)class="([^"]*)"/)?.[1] || '').split(/\s+/).filter(isSafeCls).join(' ');
       const aria = attrs.match(/(?:^|\s)aria-label="([^"]*)"/)?.[1];
+      const title = attrs.match(/(?:^|\s)title="([^"]*)"/)?.[1];
+      if (!url) return '<a>';
+      if (isExt) {
+        const extra = [
+          `class="${esc(cls || 'ext')}"`,
+          `href="${esc(url)}"`,
+          'data-ext',
+          'target="_blank"',
+          'rel="noopener"',
+          aria ? `aria-label="${aria}"` : '',
+          title ? `title="${title}"` : '',
+        ].filter(Boolean).join(' ');
+        return `<a ${extra}>`;
+      }
       const extra = [
-        url ? `href="${esc(url)}"` : '',
         cls ? `class="${esc(cls)}"` : '',
+        `href="${esc(url)}"`,
         aria ? `aria-label="${aria}"` : '',
-        isExt ? 'data-ext target="_blank" rel="noopener nofollow"' : (url && /^https?:\/\//i.test(url) ? 'rel="noopener nofollow"' : ''),
+        title ? `title="${title}"` : '',
+        /^https?:\/\//i.test(url) ? 'rel="noopener"' : '',
       ].filter(Boolean).join(' ');
       return `<a${extra ? ' ' + extra : ''}>`;
     }

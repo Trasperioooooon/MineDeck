@@ -20,10 +20,10 @@ export function button({ href, label, sub, primary, size, pix, ext, cls, icon: i
 
 /**
  * 外站链接（ARCH 3.4）：统一 target=_blank、rel=noopener、↗ 和读屏提示。站内有同等内容时应优先给站内链接。
- * @param {{fallback?:boolean, cls?:string, aria?:string, html?:string}} o fallback=true 时追加「备用」标记
+ * @param {{fallback?:boolean, cls?:string, aria?:string, title?:string, html?:string}} o fallback=true 时追加「备用」标记
  */
-export const extLink = (ctx, href, label, { fallback, cls, aria, html } = {}) =>
-  `<a class="${['ext', cls].filter(Boolean).join(' ')}" href="${esc(href)}" data-ext target="_blank" rel="noopener"${aria ? ` aria-label="${esc(aria)}"` : ''}>${html ?? esc(label)}${fallback ? ` <span class="fallback">${esc(ctx.L.fallback)}</span>` : ''}<span class="sr">${esc(ctx.L.extSr)}</span></a>`;
+export const extLink = (ctx, href, label, { fallback, cls, aria, title, html } = {}) =>
+  `<a class="${['ext', cls].filter(Boolean).join(' ')}" href="${esc(href)}" data-ext target="_blank" rel="noopener"${aria ? ` aria-label="${esc(aria)}"` : ''}${title ? ` title="${esc(title)}"` : ''}>${html ?? esc(label)}${fallback ? ` <span class="fallback">${esc(ctx.L.fallback)}</span>` : ''}<span class="sr">${esc(ctx.L.extSr)}</span></a>`;
 
 /** 卡片容器 */
 export const card = (body, { tag = 'div', cls = '', ...rest } = {}) => `<${tag} class="card${cls ? ' ' + cls : ''}"${attrs(rest)}>${body}</${tag}>`;

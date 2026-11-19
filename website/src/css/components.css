@@ -11,6 +11,7 @@
 .gh-ico:hover{color:var(--color-text)}
 .gh-ico .icon{width:var(--size-btn-ico);height:var(--size-btn-ico)}
 .gh-txt:after{content:" ↗";font-size:.85em}
+.gh-ico.ext:after{content:none}
 .lang{margin-left:0}
 .menu{display:none;position:relative;margin-left:auto}
 .menu summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:var(--space-6);border:var(--border-thin) solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-6) var(--space-10);background:var(--color-surface);box-shadow:var(--shadow-2);font:var(--fs-xs)/var(--lh-none) var(--font-pixel)}

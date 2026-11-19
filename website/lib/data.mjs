@@ -15,8 +15,8 @@ function fileKind(name) {
 const KIND_ORDER = ['exe', 'companion-neoforge', 'companion-forge', 'sums', 'other'];
 
 /**
- * 正文里的 GitHub 链接：指向本仓库某个已知版本的，改成站内占位 md-release:<tag>（渲染时换成相对链接）；
- * 其余 GitHub 链接标成外链（data-ext）。h4 加锚点，便于生成本页目录。
+ * 正文里的站内 Release 链接改成占位 md-release:<tag>（页面渲染时换成相对链接，外链统一由 release.mjs 走 extLink()）；
+ * h4 加锚点，便于生成本页目录。
  */
 function localizeBody(html, repo, tags) {
   const relRe = new RegExp(`^https://github\\.com/${repo.replace('/', '\\/')}/releases/tag/([^"#?]+)$`);
@@ -26,7 +26,7 @@ function localizeBody(html, repo, tags) {
     const raw = href.replace(/&amp;/g, '&');
     const rm = raw.match(relRe);
     if (rm && tags.has(decodeURIComponent(rm[1]))) return `<a href="md-release:${decodeURIComponent(rm[1])}">`;
-    if (/^https:\/\/([\w-]+\.)?github(usercontent)?\.com\//.test(raw)) return `<a class="ext" data-ext href="${href}" target="_blank" rel="noopener nofollow">`;
+    if (/^https?:\/\//i.test(raw)) return `<a href="${href}" rel="noopener">`;
     return m;
   });
   html = html.replace(/<h4>([\s\S]*?)<\/h4>/g, (m, inner) => {

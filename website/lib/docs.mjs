@@ -6,6 +6,7 @@ import { parseFrontMatter, parseDoc, renderParsedDoc } from './markdown.mjs';
 import { validateDocs, normalizeAlias, aliasShapeError, parseDocHref, canonSitePath, effectiveSitePath } from './doc-checks.mjs';
 import { ROUTES, LANGS } from '../src/routes.mjs';
 import { icon } from '../src/partials/svg.mjs';
+import { extLink } from '../src/partials/ui.mjs';
 
 const IMG_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg']);
 
@@ -380,6 +381,7 @@ export function loadDocsModel({ here, repoRoot, emit, tzHours = 8, log = () => {
         copyLabel: L.copy,
         copiedLabel: L.copied,
         extSr: L.extSr,
+        renderExtLink: (url, html) => extLink(ctx, url, '', { html }),
         calloutTitles: L.docs.callouts,
         calloutIcons,
         resolveImage: (rawSrc) => {
@@ -392,8 +394,7 @@ export function loadDocsModel({ here, repoRoot, emit, tzHours = 8, log = () => {
         resolveLink: (rawUrl) => {
           const parsed = parseDocHref(rawUrl);
           if (parsed.kind === 'external') {
-            const isGh = /^https?:\/\/([\w-]+\.)?github(usercontent)?\.com/i.test(parsed.url);
-            return { url: parsed.url, ext: isGh };
+            return { url: parsed.url, ext: true };
           }
           if (parsed.kind === 'mailto') return { url: parsed.url, ext: false };
           if (parsed.kind === 'hash') return { url: rawUrl.startsWith('#') ? rawUrl : `#${parsed.fragment || ''}`, ext: false };

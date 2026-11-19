@@ -2,12 +2,18 @@
 // 窄屏把导航收进 <details> 菜单，无 JS 也能展开。当前栏目加 aria-current="page"。
 import { esc, fmt } from './util.mjs';
 import { icon } from './svg.mjs';
+import { extLink } from './ui.mjs';
 import { repo } from '../routes.mjs';
 
 export function nav(ctx) {
   const { L, page, data } = ctx;
   const links = ctx.nav.map((id) => `<a href="${ctx.href(id)}"${page.section === id ? ' aria-current="page"' : ''}>${esc(L.nav[id])}</a>`).join('');
-  const gh = `<a class="gh-ico" href="${repo(ctx.cfg)}" data-ext target="_blank" rel="noopener" aria-label="${esc(L.nav.githubAria)}" title="${esc(L.nav.githubAria)}">${icon('code')}<span class="gh-txt">${esc(L.nav.github)}</span></a>`;
+  const gh = extLink(ctx, repo(ctx.cfg), '', {
+    cls: 'gh-ico',
+    aria: L.nav.githubAria,
+    title: L.nav.githubAria,
+    html: `${icon('code')}<span class="gh-txt">${esc(L.nav.github)}</span>`,
+  });
   const other = page.lang === 'zh' ? 'en' : 'zh';
   const lang = page.noAlt ? '' : `<span class="lang" role="group" aria-label="${esc(L.langSwitchAria)}">${page.lang === 'zh'
     ? `<span aria-current="true">中</span><a href="${ctx.link(page.urls[other])}" hreflang="en" lang="en" data-set-lang="en">EN</a>`
