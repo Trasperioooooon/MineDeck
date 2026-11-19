@@ -19,7 +19,9 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { fetchAll, hasData, readJson } from './lib/fetch.mjs';
 import { buildModel, pickRelease } from './lib/data.mjs';
+import { loadDocsModel } from './lib/docs.mjs';
 import { ROUTES, LANGS, NAV, FOOTER } from './src/routes.mjs';
+import { renderDocAlias } from './src/pages/doc-alias.mjs';
 import { checkDist } from './lib/checks.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -83,6 +85,13 @@ for (const c of data.contributors.list) {
   c.avatarAsset = f && existsSync(f) ? emit(`avatars/${c.login}.png`, readFileSync(f)) && `avatars/${c.login}.png` : null;
 }
 
+try {
+  data.docs = loadDocsModel({ here: HERE, repoRoot: REPO_ROOT, emit, tzHours: cfg.timezoneOffsetHours, log });
+} catch (e) {
+  console.error(e.message || e);
+  process.exit(1);
+}
+
 // ---------- 4. 路由 -> 页面列表 ----------
 const outFile = (url) => (url.endsWith('/') ? url + 'index.html' : url).replace(/^\//, '');
 const urlOf = (route, lang, params = {}) => LANGS[lang] + route.path.replace(/\{(\w+)\}/g, (m, k) => encodeURIComponent(params[k]));
@@ -97,6 +106,14 @@ for (const route of ROUTES) {
         absolute: !!route.absolute, noAlt: !!route.noAlt, noSitemap: !!route.noSitemap, scripts: route.scripts || [], render: route.render });
     }
   }
+}
+for (const al of data.docs.aliases) {
+  PAGES.push({
+    id: 'doc-alias', section: 'docs', lang: al.lang, params: {}, url: al.fromUrl,
+    urls: { zh: al.fromUrl, en: al.fromUrl }, out: outFile(al.fromUrl),
+    absolute: false, noAlt: true, noSitemap: true, scripts: [],
+    render: (ctx) => renderDocAlias(ctx, al),
+  });
 }
 
 function makeCtx(page, names) {
@@ -120,6 +137,8 @@ function makeCtx(page, names) {
   return {
     preview: PREVIEW, lang, L: C.ui, C, L2: CONTENT[lang === 'zh' ? 'en' : 'zh'].ui, cfg, data, tokens: TOKENS, page, root, link, href,
     nav: NAV, footer: FOOTER, a: (n) => root + 'assets/' + (names[n] || n), assetName: (n) => names[n] || n,
+    hasDoc: (cat, slug) => data.docs.hasDoc(lang, cat, slug),
+    docHref: (cat, slug) => link((LANGS[lang] || '') + `/docs/${cat}/${slug}/`),
     fmtDate: (iso) => data.localDay(Date.parse(iso)),
     // 面包屑项：{ label, href（相对）, url（站点绝对路径，供 JSON-LD） }
     crumb: (id, label, params = {}) => ({ label, href: href(id, params), url: urlOf(ROUTE_BY_ID[id], lang, params) }),
@@ -139,7 +158,7 @@ const ascii = Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i)).
 const textOf = (o) => (typeof o === 'string' ? o : Array.isArray(o) ? o.map(textOf).join('') : o && typeof o === 'object' ? Object.values(o).map(textOf).join('') : '');
 const pageText = draft.replace(/<script[\s\S]*?<\/script>/g, '').replace(/<[^>]*>/g, '');
 // 像素字体用于标题、按钮、版本号等：取文案和版本号；正文字体取所有页面文字
-const pixelChars = new Set(ascii + textOf(CONTENT) + data.releases.map((r) => r.tag).join('') + '0123456789');
+const pixelChars = new Set(ascii + textOf(CONTENT) + data.releases.map((r) => r.tag).join('') + data.docs.extraPixelChars + '0123456789');
 const notoChars = new Set(ascii + pageText + textOf(CONTENT) + '，。、：；！？「」（）—…·→↗✓');
 const hasSubset = spawnSync('pyftsubset', ['--help'], { stdio: 'ignore' }).status === 0;
 if (!hasSubset) log('未找到 pyftsubset（pip install fonttools brotli），字体不做子集，体积会大很多。');
@@ -190,7 +209,7 @@ for (const layer of LAYERS) {
 css = css.replace(/\{\{font:(\w+)\}\}/g, (m, k) => assetMap[`${k}.woff2`]);
 emit('style.css', Buffer.from(css));
 // 浏览器脚本：core 全站；其余按路由的 scripts 加载。feedback 由几个小模块按顺序拼成一个文件。
-const JS = { 'core.js': ['core.js'], 'releases.js': ['releases.js'], 'feedback.js': ['feedback/redact.js', 'feedback/report.js', 'feedback/channels.js', 'feedback/form.js'] };
+const JS = { 'core.js': ['core.js'], 'releases.js': ['releases.js'], 'docs.js': ['docs.js'], 'feedback.js': ['feedback/redact.js', 'feedback/report.js', 'feedback/channels.js', 'feedback/form.js'] };
 for (const [name, parts] of Object.entries(JS)) emit(name, Buffer.from(parts.map((p) => readText(join(HERE, 'src/js', p))).join('\n')));
 
 // ---------- 7. 页面与数据 ----------
@@ -209,6 +228,8 @@ json('releases.json', {
 const latestOf = (r) => r && { tag: r.tag, date: r.published_at, url: `${site}/releases/${encodeURIComponent(r.tag)}/`, sha256: r.exe?.sha256 ?? null, size: r.exe?.size ?? null, download: r.exe?.mirror_url || r.exe?.github_url || null, github: r.exe?.github_url ?? null };
 json('latest.json', { generated_at: data.generated_at, stable: latestOf(data.latest_stable), beta: latestOf(data.latest_beta) });
 json('stats.json', { generated_at: data.generated_at, repo: data.repoInfo, contributors: data.contributors.list.map(({ login, contributions, html_url }) => ({ login, contributions, html_url })), activity: { source: data.activity.source, days: data.activity.days } });
+json('docs-index.zh.json', data.docs.searchIndex.zh);
+json('docs-index.en.json', data.docs.searchIndex.en);
 // Atom
 const xe = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const feedItems = data.releases.slice(0, cfg.feedCount || 20);
@@ -233,4 +254,5 @@ if (problems.length) { console.error('构建检查未通过：\n' + problems.map
 
 if (!(cfg.feedback.channels || []).some((c) => c.type === 'endpoint' && c.enabled && c.url)) log('提醒：反馈页的「直接提交」通道还没开（site.config.json 的 feedback.channels 里 type 为 endpoint 的那一项）。没有 GitHub 账号的人目前只能复制或下载报告。');
 log(`完成：${OUT}（${PAGES.length} 个页面）${cfg.mirror?.enabled ? (data.mirror_placeholder ? '；镜像链接为占位模板 ' : '；镜像链接模板 ') + cfg.mirror.template : ''}`);
+for (const lang of Object.keys(LANGS)) log(`  docs-index.${lang}.json  ${(statSync(join(OUT, 'data', `docs-index.${lang}.json`)).size / 1024).toFixed(1)} KB`);
 for (const [k, v] of Object.entries(assetMap)) if (k.endsWith('.woff2')) log(`  ${v}  ${(statSync(join(OUT, 'assets', v)).size / 1024).toFixed(0)} KB`);

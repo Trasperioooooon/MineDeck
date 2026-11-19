@@ -67,7 +67,7 @@ export default function home(ctx) {
  ${secHead({ h: H.helpH })}
  <div class="grid cols-2">
   <a class="card help-card" href="${ctx.href('feedback')}">${icon('alert', { cls: 'feat-ico' })}<span><b>${esc(H.reportT)} →</b><small>${esc(H.reportD)}</small></span></a>
-  <a class="card help-card" href="${ctx.href('help')}#faq">${icon('terminal', { cls: 'feat-ico' })}<span><b>${esc(H.faqT)} →</b><small>${esc(H.faqD)}</small></span></a>
+  <a class="card help-card" href="${esc(ctx.hasDoc('faq', 'general-faq') ? ctx.docHref('faq', 'general-faq') : ctx.href('help') + '#faq')}">${icon('terminal', { cls: 'feat-ico' })}<span><b>${esc(H.faqT)} →</b><small>${esc(H.faqD)}</small></span></a>
  </div>
  <p class="note">${esc(H.sensitive)}</p>
 </section>`;

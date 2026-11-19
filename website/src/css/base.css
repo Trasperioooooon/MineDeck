@@ -1,15 +1,23 @@
 /* 基础：字体、重置、排版、布局容器。只引用 tokens.json 生成的变量。 */
-@font-face{font-family:"MD Pixel";src:url("{{font:pixel}}") format("woff2");font-display:swap}
-@font-face{font-family:"MD Geist";src:url("{{font:geist}}") format("woff2");font-weight:400 600;font-display:swap;unicode-range:U+0020-007E,U+00A0-00FF,U+2013-2014,U+2018-201D,U+2022,U+2026,U+2190-2193}
-@font-face{font-family:"MD Geist Mono";src:url("{{font:geistmono}}") format("woff2");font-weight:400 600;font-display:swap;unicode-range:U+0020-007E}
-@font-face{font-family:"MD Noto Sans SC";src:url("{{font:noto}}") format("woff2");font-weight:400 600;font-display:swap}
+@font-face{font-family:"MD Pixel";src:url("{{font:pixel}}") format("woff2");font-display:fallback}
+@font-face{font-family:"MD Geist";src:url("{{font:geist}}") format("woff2");font-weight:400 600;font-display:fallback;unicode-range:U+0020-007E,U+00A0-00FF,U+2013-2014,U+2018-201D,U+2022,U+2026,U+2190-2193}
+@font-face{font-family:"MD Geist Mono";src:url("{{font:geistmono}}") format("woff2");font-weight:400 600;font-display:fallback;unicode-range:U+0020-007E}
+@font-face{font-family:"MD Noto Sans SC";src:url("{{font:noto}}") format("woff2");font-weight:400 600;font-display:fallback}
+
+/* 备用字体度量对齐：在字体尚未完成加载的短暂首帧内对齐字宽与行高，抑制换字抖动 */
+@font-face{font-family:"MD Pixel Fallback";src:local("Consolas"),local("Courier New");size-adjust:90.5%;ascent-override:102%;descent-override:31%;line-gap-override:0%}
+@font-face{font-family:"MD Geist Fallback";src:local("Segoe UI"),local("PingFang SC"),local("Arial");font-weight:400;size-adjust:104%;ascent-override:93%;descent-override:22%;line-gap-override:0%;unicode-range:U+0020-007E,U+00A0-00FF,U+2013-2014,U+2018-201D,U+2022,U+2026,U+2190-2193}
+@font-face{font-family:"MD Geist Fallback";src:local("Segoe UI Semibold"),local("Segoe UI Bold"),local("Arial Bold");font-weight:500 700;size-adjust:102%;ascent-override:93%;descent-override:22%;line-gap-override:0%;unicode-range:U+0020-007E,U+00A0-00FF,U+2013-2014,U+2018-201D,U+2022,U+2026,U+2190-2193}
+@font-face{font-family:"MD Geist Mono Fallback";src:local("Consolas"),local("SFMono-Regular"),local("Courier New");font-weight:400 700;size-adjust:109%;ascent-override:93%;descent-override:22%;line-gap-override:0%}
+@font-face{font-family:"MD Noto Fallback";src:local("Microsoft YaHei"),local("PingFang SC"),local("Noto Sans CJK SC");font-weight:400 700;size-adjust:100%;ascent-override:106%;descent-override:34%;line-gap-override:0%}
 
 *{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%;scroll-padding-top:var(--space-16)}
+html{-webkit-text-size-adjust:100%;scroll-padding-top:var(--space-16);scrollbar-gutter:stable}
 body{margin:0;background:var(--color-bg);color:var(--color-text);font:var(--fs-body)/var(--lh-body) var(--font-sans);
  background-image:radial-gradient(var(--color-dot) var(--space-1),transparent var(--space-1));background-size:var(--size-tile) var(--size-tile)}
 img{max-width:100%;height:auto}
 a{color:inherit}
+b,strong{font-weight:var(--fw-bold)}
 :focus-visible{outline:var(--border-thick) solid var(--color-accent);outline-offset:var(--space-2)}
 .wrap{max-width:var(--size-container);margin:0 auto;padding:0 var(--space-24)}
 .pix{font-family:var(--font-pixel);font-weight:var(--fw-regular);letter-spacing:.02em}

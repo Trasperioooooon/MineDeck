@@ -249,8 +249,63 @@
 .demo-account.is-playing .dk-ok{animation:md-fade .01s steps(1,end) .52s backwards}
 .demo-account.is-playing .dk-new{animation:d-slide .28s var(--motion-ease-out) .78s backwards}
 
+/* A11 跨页视图过渡（仅现代 Chromium 等支持的浏览器生效，不支持的浏览器保持正常跳转） */
+@view-transition{navigation:auto}
+header.top{view-transition-name:site-header}
+main#main{view-transition-name:site-main}
+.dirt{view-transition-name:site-dirt}
+body>footer{view-transition-name:site-footer}
+@media (min-width:901px){
+ body.page-doc main#main{view-transition-name:none}
+ body.page-doc .crumbs{view-transition-name:doc-crumbs}
+ body.page-doc .doc-side{view-transition-name:doc-side}
+ body.page-doc .doc-main{view-transition-name:doc-main}
+ body.page-doc .doc-toc-col{view-transition-name:doc-toc}
+}
+::view-transition-group(root),
+::view-transition-group(site-header),
+::view-transition-group(site-dirt),
+::view-transition-group(site-footer),
+::view-transition-group(doc-crumbs),
+::view-transition-group(doc-side){animation:none}
+::view-transition-group(site-header),
+::view-transition-group(site-dirt),
+::view-transition-group(site-footer),
+::view-transition-group(doc-crumbs),
+::view-transition-group(doc-side){z-index:3}
+::view-transition-old(root),
+::view-transition-old(site-header),
+::view-transition-old(site-dirt),
+::view-transition-old(site-footer),
+::view-transition-old(doc-crumbs),
+::view-transition-old(doc-side){display:none;animation:none}
+::view-transition-new(root),
+::view-transition-new(site-header),
+::view-transition-new(site-dirt),
+::view-transition-new(site-footer),
+::view-transition-new(doc-crumbs),
+::view-transition-new(doc-side){animation:none;mix-blend-mode:normal}
+::view-transition-old(doc-crumbs):only-child,
+::view-transition-old(doc-side):only-child{display:block;animation:md-vt-out var(--motion-fast) var(--motion-ease) both;mix-blend-mode:normal}
+::view-transition-new(doc-crumbs):only-child,
+::view-transition-new(doc-side):only-child{animation:md-vt-in var(--motion-press) var(--motion-ease) var(--motion-fast) both;mix-blend-mode:normal}
+::view-transition-group(site-main),
+::view-transition-group(doc-main),
+::view-transition-group(doc-toc){animation:none}
+::view-transition-old(site-main),
+::view-transition-old(doc-main),
+::view-transition-old(doc-toc){height:auto;animation:md-vt-out var(--motion-fast) var(--motion-ease) both;mix-blend-mode:normal}
+::view-transition-new(site-main),
+::view-transition-new(doc-main){height:auto;animation:md-vt-in var(--motion-press) var(--motion-ease) var(--motion-fast) both;mix-blend-mode:normal}
+::view-transition-new(doc-toc){height:auto;animation:md-vt-fade var(--motion-press) var(--motion-ease) var(--motion-fast) both;mix-blend-mode:normal}
+@keyframes md-vt-out{to{opacity:0}}
+@keyframes md-vt-fade{from{opacity:0}}
+@keyframes md-vt-in{from{opacity:0;transform:translateY(var(--space-3))}}
+
 /* 按钮与卡片的悬停过渡已在 components.css；这里统一关闭所有动效 */
 @media (prefers-reduced-motion:reduce){
+ @view-transition{navigation:none}
+ ::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important}
  *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
  .will-anim .cal-grid>*{transform:none!important}
 }

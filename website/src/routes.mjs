@@ -10,6 +10,8 @@ import features from './pages/features.mjs';
 import releases from './pages/releases.mjs';
 import release from './pages/release.mjs';
 import help from './pages/help.mjs';
+import docsHome from './pages/docs-home.mjs';
+import docArticle from './pages/doc-article.mjs';
 import feedback from './pages/feedback.mjs';
 import about from './pages/about.mjs';
 import notFound from './pages/not-found.mjs';
@@ -23,6 +25,8 @@ export const ROUTES = [
   { id: 'features', path: '/features/', render: features },
   { id: 'releases', path: '/releases/', render: releases, scripts: ['releases.js'] },
   { id: 'release', path: '/releases/{tag}/', section: 'releases', params: (data) => data.releases.map((r) => ({ tag: r.tag })), render: release },
+  { id: 'docs', path: '/docs/', section: 'docs', scripts: ['docs.js'], render: docsHome },
+  { id: 'doc', path: '/docs/{cat}/{slug}/', section: 'docs', scripts: ['docs.js'], params: (data) => data.docs.routeParams, render: docArticle },
   { id: 'help', path: '/help/', render: help },
   { id: 'feedback', path: '/feedback/', render: feedback, scripts: ['feedback.js'] },
   { id: 'about', path: '/about/', render: about },
@@ -34,12 +38,12 @@ export const ROUTES = [
 const repo = (cfg) => `https://github.com/${cfg.repo}`;
 
 // 顶栏主导航（站内）。GitHub、语言、下载按钮在 nav.mjs 里固定输出。
-export const NAV = ['download', 'features', 'releases', 'help', 'feedback'];
+export const NAV = ['download', 'features', 'releases', 'docs', 'help', 'feedback'];
 
 // 页脚分组：route 为站内页面，hash 为页内锚点，ext 为外站（会标 ↗）
 export const FOOTER = [
   { h: 'product', links: [{ route: 'download', label: 'nav.download' }, { route: 'features', label: 'nav.features' }, { route: 'releases', label: 'nav.releases' }, { file: 'feed.xml', label: 'footer.feed' }] },
-  { h: 'support', links: [{ route: 'help', label: 'nav.help' }, { route: 'feedback', label: 'nav.feedback' }, { route: 'help', hash: 'limits', label: 'footer.knownIssues' }] },
+  { h: 'support', links: [{ route: 'docs', label: 'nav.docs' }, { route: 'help', label: 'nav.help' }, { route: 'feedback', label: 'nav.feedback' }, { route: 'help', hash: 'limits', label: 'footer.knownIssues' }] },
   { h: 'project', links: [{ route: 'about', label: 'nav.about' }, { route: 'about', hash: 'contributors', label: 'footer.contributors' }, { route: 'about', hash: 'license', label: 'footer.license' }, { ext: repo, label: 'footer.source' }] },
 ];
 export { repo };
