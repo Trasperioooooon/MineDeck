@@ -13,14 +13,17 @@ export function nav(ctx) {
     ? `<span aria-current="true">中</span><a href="${ctx.link(page.urls[other])}" hreflang="en" lang="en" data-set-lang="en">EN</a>`
     : `<a href="${ctx.link(page.urls[other])}" hreflang="zh-CN" lang="zh-CN" data-set-lang="zh">中</a><span aria-current="true">EN</span>`}</span>`;
   const st = data.latest_stable;
-  const dl = `<a class="btn sm primary nav-dl" href="${ctx.href('download')}"${page.section === 'download' ? ' aria-current="page"' : ''}>${esc(st ? fmt(L.nav.downloadBtn, { version: st.tag }) : L.nav.download)}</a>`;
+  const dlLabel = esc(st ? fmt(L.nav.downloadBtn, { version: st.tag }) : L.nav.download);
+  const dlCur = page.section === 'download' ? ' aria-current="page"' : '';
+  const dl = `<a class="btn sm primary nav-dl" href="${ctx.href('download')}"${dlCur}>${dlLabel}</a>`;
+  const menuDl = `<a class="btn sm primary menu-dl" href="${ctx.href('download')}"${dlCur}>${dlLabel}</a>`;
   return `<div class="wrap"><header class="top">
  <a class="brand" href="${ctx.href('home')}"><img src="${ctx.a('logo-144.png')}" alt="" width="40" height="40"><span>MineDeck</span></a>
  <nav class="nav nav-main" aria-label="MineDeck">${links}</nav>
  <div class="top-r">${gh}${lang}${dl}</div>
  <details class="menu">
   <summary aria-label="${esc(L.menu)}">${icon('menu')}<span>${esc(L.menu)}</span></summary>
-  <div class="menu-panel card"><nav class="nav nav-menu" aria-label="MineDeck">${links}</nav><div class="menu-row">${gh}${lang}</div></div>
+  <div class="menu-panel card">${menuDl}<nav class="nav nav-menu" aria-label="MineDeck">${links}</nav><div class="menu-row">${gh}${lang}</div></div>
  </details>
 </header></div>`;
 }

@@ -607,6 +607,7 @@
     "searchLoading": "Loading search index…",
     "searchError": "Failed to load the search index. Refresh the page or use the category tree.",
     "searchCount": "{n} matching article(s)",
+    "searchZhBadge": "Chinese text",
     "searchResultsAria": "Search results",
     "featuredH": "Start here",
     "featuredP": "Essential guides for installing MineDeck and fixing common issues.",

@@ -607,6 +607,7 @@
     "searchLoading": "正在加载搜索索引…",
     "searchError": "搜索索引加载失败，请刷新重试或直接浏览目录。",
     "searchCount": "找到 {n} 篇相关文档",
+    "searchZhBadge": "正文为中文",
     "searchResultsAria": "搜索结果",
     "featuredH": "热门与新手必读",
     "featuredP": "第一次用 MineDeck 或刚碰到问题，通常从这几篇开始。",

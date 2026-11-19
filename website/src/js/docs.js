@@ -32,8 +32,10 @@
     LATIN_TOK.lastIndex = 0;
     while ((m = LATIN_TOK.exec(low))) {
       words.push(m[0]);
-      if (m[0].indexOf('-') >= 0) {
-        m[0].split('-').forEach(function (part) { if (part) words.push(part); });
+      if (m[0].indexOf('-') >= 0 || m[0].indexOf('.') >= 0) {
+        m[0].split(/[-.]/).forEach(function (part) {
+          if (part && part !== m[0] && part.length >= 8) words.push(part);
+        });
       }
     }
     return { low: low, bigrams: bigrams, unigrams: unigrams, words: words };
@@ -162,11 +164,30 @@
         });
       }
 
+      function containsToken(d, s, w) {
+        return d.lowT.indexOf(w) >= 0 || d.lowK.indexOf(w) >= 0 || d.lowD.indexOf(w) >= 0 || s.lowH.indexOf(w) >= 0 || s.lowX.indexOf(w) >= 0;
+      }
+      var longWords = qWords.filter(function (w) { return w.length >= 8; });
+
       var bestByDoc = Object.create(null);
       for (var id in secScores) {
         var parts = id.split(':');
         var di = +parts[0], si = +parts[1];
         var d = prepared[di], s = d.secs[si];
+        var keep = true;
+        if (longWords.length) {
+          keep = longWords.some(function (w) {
+            if (s.lowH.indexOf(w) >= 0 || s.lowX.indexOf(w) >= 0) return true;
+            return si === 0 && (d.lowT.indexOf(w) >= 0 || d.lowD.indexOf(w) >= 0);
+          });
+        } else if (qBi.length >= 2) {
+          keep = qBi.some(function (b) { return containsToken(d, s, b); });
+        } else if (qWords.length >= 2) {
+          var matched = 0;
+          qWords.forEach(function (w) { if (containsToken(d, s, w)) matched++; });
+          keep = matched >= 2;
+        }
+        if (!keep) continue;
         var sc = secScores[id];
         if (q.low.length >= 2) {
           if (d.lowT.indexOf(q.low) >= 0) sc += 45;
@@ -221,7 +242,7 @@
       });
     }
 
-    cache[lang] = isFile || !window.fetch
+    var pending = isFile || !window.fetch
       ? loadViaScript()
       : fetch(jsonUrl).then(function (r) {
           if (!r.ok) throw new Error(String(r.status));
@@ -229,7 +250,12 @@
         }).then(buildEngine).catch(function () {
           return loadViaScript();
         });
-    return cache[lang];
+    var wrapped = pending.then(function (engine) { return engine; }, function (err) {
+      if (cache[lang] === wrapped) delete cache[lang];
+      return Promise.reject(err);
+    });
+    cache[lang] = wrapped;
+    return wrapped;
   }
 
   function highlightHtml(text, query, terms) {
@@ -270,21 +296,27 @@
     var isPreview = box.getAttribute('data-preview') === '1';
     var activeIdx = -1;
     var optionIds = [];
+    var queryGen = 0;
+
+    function closePop() {
+      queryGen++;
+      pop.hidden = true;
+      input.setAttribute('aria-expanded', 'false');
+      activeIdx = -1;
+      input.removeAttribute('aria-activedescendant');
+    }
 
     function setExpanded(open) {
-      pop.hidden = !open;
-      input.setAttribute('aria-expanded', open ? 'true' : 'false');
-      if (!open) {
-        activeIdx = -1;
-        input.setAttribute('aria-activedescendant', '');
-      }
+      if (!open) { closePop(); return; }
+      pop.hidden = false;
+      input.setAttribute('aria-expanded', 'true');
     }
 
     function setActive(idx) {
       var opts = [].slice.call(pop.querySelectorAll('[role="option"]'));
       if (!opts.length) {
         activeIdx = -1;
-        input.setAttribute('aria-activedescendant', '');
+        input.removeAttribute('aria-activedescendant');
         return;
       }
       if (idx < 0) idx = opts.length - 1;
@@ -306,12 +338,14 @@
       if (clearBtn) clearBtn.hidden = !input.value;
       if (!val) {
         pop.innerHTML = '';
-        setExpanded(false);
+        closePop();
         if (status) status.textContent = '';
         return;
       }
+      var gen = ++queryGen;
       renderLoading();
       loadIndex(box).then(function (engine) {
+        if (gen !== queryGen) return;
         if (input.value.trim() !== val) return;
         var hits = engine.search(val);
         optionIds = [];
@@ -327,21 +361,24 @@
           optionIds.push(oid);
           var url = docsRoot + hit.doc.u + (isPreview ? 'index.html' : '') + (hit.anchor ? '#' + encodeURIComponent(hit.anchor) : '');
           var subHead = hit.heading ? ' › ' + highlightHtml(hit.heading, val, hit.terms) : '';
-          return '<a class="doc-search-hit" role="option" id="' + esc(oid) + '" aria-selected="' + (idx === 0 ? 'true' : 'false') + '" href="' + esc(url) + '">' +
-            '<span class="doc-hit-top"><span class="doc-hit-cat">' + esc(hit.doc.c) + '</span><span class="doc-hit-title">' + highlightHtml(hit.doc.t, val, hit.terms) + subHead + '</span></span>' +
+          var zhBadge = hit.doc.l === 'zh' && box.getAttribute('data-zh-badge')
+            ? '<span class="doc-untr-dot">' + esc(box.getAttribute('data-zh-badge')) + '</span>' : '';
+          return '<a class="doc-search-hit" role="option" tabindex="-1" id="' + esc(oid) + '" aria-selected="' + (idx === 0 ? 'true' : 'false') + '" href="' + esc(url) + '">' +
+            '<span class="doc-hit-top"><span class="doc-hit-cat">' + esc(hit.doc.c) + '</span>' + zhBadge + '<span class="doc-hit-title">' + highlightHtml(hit.doc.t, val, hit.terms) + subHead + '</span></span>' +
             '<span class="doc-hit-snip">' + highlightHtml(hit.snippetSrc, val, hit.terms) + '</span></a>';
         }).join('');
         setExpanded(true);
         setActive(0);
         if (status) status.textContent = box.getAttribute('data-count').replace('{n}', String(hits.length));
       }).catch(function () {
+        if (gen !== queryGen) return;
         pop.innerHTML = '<div class="doc-search-msg">' + esc(box.getAttribute('data-error')) + '</div>';
         setExpanded(true);
       });
     }
 
     input.addEventListener('focus', function () {
-      loadIndex(box);
+      loadIndex(box).catch(function () {});
       if (input.value.trim()) runQuery();
     });
     input.addEventListener('input', runQuery);
@@ -353,16 +390,25 @@
       });
     }
     input.addEventListener('keydown', function (e) {
+      if (e.isComposing || e.keyCode === 229) return;
       var opts = [].slice.call(pop.querySelectorAll('[role="option"]'));
-      if (e.key === 'ArrowDown' && opts.length) { e.preventDefault(); setActive(activeIdx + 1); }
-      else if (e.key === 'ArrowUp' && opts.length) { e.preventDefault(); setActive(activeIdx - 1); }
-      else if (e.key === 'Enter' && !pop.hidden && opts.length) {
+      var open = !pop.hidden;
+      if (e.key === 'ArrowDown' && open && opts.length) { e.preventDefault(); setActive(activeIdx + 1); }
+      else if (e.key === 'ArrowUp' && open && opts.length) { e.preventDefault(); setActive(activeIdx < 0 ? opts.length - 1 : activeIdx - 1); }
+      else if (e.key === 'Enter' && open && opts.length) {
         var target = opts[activeIdx >= 0 ? activeIdx : 0];
         if (target) { e.preventDefault(); location.href = target.getAttribute('href'); }
       } else if (e.key === 'Escape') {
-        if (!pop.hidden) { e.preventDefault(); setExpanded(false); }
+        if (open) { e.preventDefault(); closePop(); }
         else input.blur();
       }
+    });
+    box.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape' || pop.hidden) return;
+      if (e.isComposing || e.keyCode === 229) return;
+      e.preventDefault();
+      closePop();
+      input.focus();
     });
     document.addEventListener('click', function (e) {
       if (!box.contains(e.target)) setExpanded(false);
@@ -372,6 +418,8 @@
   boxes.forEach(wireBox);
 
   function focusSearch() {
+    var menu = document.querySelector('details.menu');
+    if (menu) menu.open = false;
     var targetBox = boxes[0];
     var treeDetails = targetBox.closest('details.doc-tree-box');
     if (treeDetails && !treeDetails.open) treeDetails.open = true;

@@ -249,8 +249,9 @@
 .demo-account.is-playing .dk-ok{animation:md-fade .01s steps(1,end) .52s backwards}
 .demo-account.is-playing .dk-new{animation:d-slide .28s var(--motion-ease-out) .78s backwards}
 
-/* A11 跨页视图过渡（仅现代 Chromium 等支持的浏览器生效，不支持的浏览器保持正常跳转） */
-@view-transition{navigation:auto}
+/* 跨文档视图过渡会在新旧页面叠化时把点击交给正在消失的文档。
+   从文档首页点进文章后，紧接着点顶栏会点空。每个页面都登记了同一套具名元素，所以整站关掉跨文档过渡，不再靠缩短动画碰运气。页内动效仍保留。 */
+@view-transition{navigation:none}
 header.top{view-transition-name:site-header}
 main#main{view-transition-name:site-main}
 .dirt{view-transition-name:site-dirt}

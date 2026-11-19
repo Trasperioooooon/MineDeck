@@ -9,8 +9,30 @@ export default function help(ctx) {
   const H = C.help;
   const D = L.docs;
   const moveCard = (msg, cta, href) => `<div class="card more-box"><span>${esc(msg)}</span><div class="help-doc-more">${go(href, cta)}</div></div>`;
+  // 旧帮助页的 #faq-* 书签。英文没有防火墙专节，faq-firewall 只落到常见问题页。
+  const FAQ_TARGET = {
+    'faq-java': { cat: 'faq', slug: 'general-faq', zh: 'java', en: 'java' },
+    'faq-remote': { cat: 'faq', slug: 'general-faq', zh: 'remote', en: 'remote-play' },
+    'faq-versions': { cat: 'faq', slug: 'general-faq', zh: 'versions', en: 'cores' },
+    'faq-crash': { cat: 'faq', slug: 'general-faq', zh: 'crash', en: 'crashes' },
+    'faq-ai': { cat: 'faq', slug: 'general-faq', zh: 'ai', en: 'ai-cost' },
+    'faq-friends': { cat: 'faq', slug: 'general-faq', zh: 'friends', en: 'friends-mods' },
+    'faq-beta': { cat: 'faq', slug: 'general-faq', zh: 'beta', en: 'channels' },
+    'faq-smartscreen': { cat: 'getting-started', slug: 'download-install', zh: 'smartscreen', en: 'smartscreen' },
+    'faq-firewall': { cat: 'faq', slug: 'general-faq', zh: 'firewall', en: '' },
+  };
+  const faqLegacy = (items) => {
+    const lang = ctx.lang === 'en' ? 'en' : 'zh';
+    const lis = items.map((f) => {
+      const t = FAQ_TARGET[f.id];
+      if (!t) return '';
+      const href = ctx.docHref(t.cat, t.slug) + (t[lang] ? `#${t[lang]}` : '');
+      return `<li><a id="${esc(f.id)}" href="${esc(href)}">${esc(f.q)}</a></li>`;
+    }).join('');
+    return `<ul class="card list help-faq-legacy">${lis}</ul>`;
+  };
   const faqBody = ctx.hasDoc('faq', 'general-faq')
-    ? moveCard(D.helpFaqMoved, D.helpFaqCta, ctx.docHref('faq', 'general-faq'))
+    ? moveCard(D.helpFaqMoved, D.helpFaqCta, ctx.docHref('faq', 'general-faq')) + faqLegacy(H.faq.items)
     : `<div class="faq">${H.faq.items.map((f) => `<details class="card" id="${esc(f.id)}"><summary>${esc(f.q)}</summary><p>${esc(f.a)}</p><a class="anchor" href="#${esc(f.id)}" aria-label="#">#</a></details>`).join('')}</div>`;
   const dataBody = ctx.hasDoc('getting-started', 'data-migration-uninstall')
     ? moveCard(D.helpDataMoved, D.helpDataCta, ctx.docHref('getting-started', 'data-migration-uninstall'))

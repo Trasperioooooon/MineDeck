@@ -43,18 +43,19 @@ export default function docArticle(ctx) {
     ? `<details class="toc card doc-toc-inline"><summary><b>${esc(D.toc)}</b></summary><ol>${tocItems.map((it) => `<li><a href="#${esc(it.id)}">${esc(it.text)}</a></li>`).join('')}</ol></details>`
     : '';
 
-  const pagerCard = (item, label, cls) => (item
-    ? `<a class="card ${cls}" href="${esc(ctx.link(item.url))}"><small>${esc(label)} · ${esc(item.catTitle)}</small><b>${esc(item.title)}</b></a>`
-    : '<span></span>');
+  const pagerCard = (item, label, cls) => {
+    if (!item) return '<span></span>';
+    const titleLang = ctx.lang === 'en' && item.untranslated ? ' lang="zh-CN"' : '';
+    return `<a class="card ${cls}" href="${esc(ctx.link(item.url))}"><small>${esc(label)} · ${esc(item.catTitle)}</small><b${titleLang}>${esc(item.title)}</b></a>`;
+  };
   const pager = (doc.prev || doc.next)
     ? `<nav class="pager doc-pager" aria-label="${esc(D.pagerAria)}">${pagerCard(doc.prev, D.prevDoc, 'prev')}${pagerCard(doc.next, D.nextDoc, 'next')}</nav>`
     : '';
 
   const branch = (data.repoInfo && data.repoInfo.default_branch) || 'main';
-  const editRepoPath = doc.untranslated
-    ? `website/docs-content/zh/${doc.cat}/${doc.slug}.md`
-    : doc.repoRel;
-  const editUrl = `${repo(cfg)}/edit/${encodeURIComponent(branch)}/${editRepoPath}`;
+  const editUrl = doc.untranslated
+    ? `${repo(cfg)}/new/${encodeURIComponent(branch)}/website/docs-content/en/${doc.cat}?filename=${encodeURIComponent(doc.slug + '.md')}`
+    : `${repo(cfg)}/edit/${encodeURIComponent(branch)}/${doc.repoRel}`;
   const feedbackUrl = `${ctx.href('feedback')}?kind=suggestion&doc=${encodeURIComponent(key)}&title=${encodeURIComponent(doc.title)}`;
 
   const docCrumbList = [

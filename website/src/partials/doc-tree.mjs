@@ -11,7 +11,8 @@ export function docTree(ctx, tree, { currentCat, currentSlug, searchHtml = '' } 
       const cur = isCurrentCat && it.slug === currentSlug;
       const beta = it.beta ? ` <span class="badge bt">${esc(L.log.betaF)}</span>` : '';
       const raw = it.untranslated ? ` <span class="doc-untr-dot" title="${esc(D.untranslatedBadge)}">${esc(D.untranslatedShort)}</span>` : '';
-      return `<li><a href="${esc(ctx.link(it.url))}"${cur ? ' aria-current="page"' : ''}><span>${esc(it.title)}</span>${beta}${raw}</a></li>`;
+      const titleLang = ctx.lang === 'en' && it.untranslated ? ' lang="zh-CN"' : '';
+      return `<li><a href="${esc(ctx.link(it.url))}"${cur ? ' aria-current="page"' : ''}><span${titleLang}>${esc(it.title)}</span>${beta}${raw}</a></li>`;
     }).join('');
     return `<details class="doc-tree-cat"${isCurrentCat ? ' open' : ''}>
    <summary>${icon(c.icon || 'block')}<span>${esc(c.title)}</span></summary>

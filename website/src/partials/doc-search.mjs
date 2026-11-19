@@ -18,7 +18,8 @@ export function docSearch(ctx, { variant = 'hero', initialQuery = '', idPrefix =
   data-empty="${esc(D.searchEmpty)}"
   data-loading="${esc(D.searchLoading)}"
   data-error="${esc(D.searchError)}"
-  data-count="${esc(D.searchCount)}">
+  data-count="${esc(D.searchCount)}"
+  data-zh-badge="${esc(D.searchZhBadge || '')}">
  <div class="doc-search-row js-only">
   <span class="doc-search-ico" aria-hidden="true">${icon('search')}</span>
   <input id="${esc(inputId)}" class="doc-search-in" type="search"

@@ -282,6 +282,12 @@
 .doc-layout{display:grid;grid-template-columns:var(--size-doc-side) minmax(0,1fr) var(--size-doc-toc);gap:var(--space-20);align-items:start}
 .doc-layout>*{min-width:0}
 .doc-side{position:sticky;top:var(--space-16)}
+/* 桌面目录超高时只滚动分类列表。8.5rem 留给搜索框、目录标题和卡片内边距，搜索弹层不在这个滚动区里。 */
+@media (min-width:901px){
+ .doc-side{max-height:calc(100vh - var(--space-16) * 2)}
+ .doc-tree{max-height:calc(100vh - var(--space-16) * 2 - 8.5rem);overflow-y:auto}
+ .doc-search.is-compact{position:relative;z-index:var(--z-menu)}
+}
 .doc-tree-box{padding:var(--space-12)}
 .doc-tree-mobile-bar{display:none;list-style:none;cursor:pointer}
 .doc-tree-mobile-bar::-webkit-details-marker{display:none}
@@ -384,8 +390,6 @@
  .doc-tree-mobile-bar{display:flex;justify-content:space-between;align-items:center;padding:var(--space-4) var(--space-6);font-weight:var(--fw-bold);font-size:var(--fs-body-sm)}
  .doc-tree-mobile-bar small{color:var(--color-text-muted);font-weight:var(--fw-regular);font-size:var(--fs-xs)}
  .doc-tree-box[open] .doc-tree-mobile-bar{border-bottom:var(--border-hair) dashed var(--color-divider);padding-bottom:var(--space-8);margin-bottom:var(--space-10)}
- html.js .doc-tree-box:not([data-tree-init]) .doc-tree-inner{display:none}
- html.js .doc-tree-box:not([data-tree-init]) .doc-tree-mobile-bar{border-bottom:0;padding-bottom:var(--space-4);margin-bottom:0}
  .doc-tree-head{display:none}
 }
 @media (max-width:560px){
