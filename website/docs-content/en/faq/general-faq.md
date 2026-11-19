@@ -5,7 +5,7 @@ order: 10
 since: v3.0.0
 beta: false
 featured: true
-tags: ["FAQ", "Java", "tunnels", "OpenFrp", "SakuraFrp", "SmartScreen", "whitelist", "backups", "AI", "companion mod", "music sharing"]
+tags: ["FAQ", "Java", "tunnels", "OpenFrp", "SakuraFrp", "firewall", "SmartScreen", "whitelist", "backups", "AI", "companion mod", "music sharing"]
 updated: 2026-11-18
 aliases: []
 draft: false
@@ -25,6 +25,13 @@ Starting in `v3.2.0`, the initial wizard defaults whitelist to off so newcomers 
 
 - **Same Wi-Fi / LAN**: No tunnel needed—send your friends the `LAN-IP:port` join address shown in the server header or card (allow Java through Windows Firewall on first start).
 - **Different networks**: Add a tunnel under **「内网穿透」** (OpenFrp, SakuraFrp, or custom `frps`), bind it to the server with **Follow server start** enabled, start the server, and send friends the public address.
+
+## Why can't friends connect over LAN to a newly created server? {#firewall}
+
+There are two common causes:
+
+1. **Windows Firewall is blocking inbound connections**: The first time you start a server, Windows Firewall usually pops up a security alert—be sure to allow it and click **Allow access**. If you previously clicked Cancel, go to Windows Firewall and allow the corresponding `java.exe` through Private and Public networks.
+2. **The management address was used instead of the join address**: Port `27333` is MineDeck's own web and mobile remote management (**「手机远程管理」**) address. Friends joining the game need to connect to the server's own game port (usually `25565`, or the join address shown under **「连接地址」** in the server header).
 
 ## Which versions and cores are supported? {#cores}
 

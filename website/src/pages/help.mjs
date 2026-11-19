@@ -9,7 +9,7 @@ export default function help(ctx) {
   const H = C.help;
   const D = L.docs;
   const moveCard = (msg, cta, href) => `<div class="card more-box"><span>${esc(msg)}</span><div class="help-doc-more">${go(href, cta)}</div></div>`;
-  // 旧帮助页的 #faq-* 书签。英文没有防火墙专节，faq-firewall 只落到常见问题页。
+  // 旧帮助页的 #faq-* 书签。
   const FAQ_TARGET = {
     'faq-java': { cat: 'faq', slug: 'general-faq', zh: 'java', en: 'java' },
     'faq-remote': { cat: 'faq', slug: 'general-faq', zh: 'remote', en: 'remote-play' },
@@ -19,7 +19,7 @@ export default function help(ctx) {
     'faq-friends': { cat: 'faq', slug: 'general-faq', zh: 'friends', en: 'friends-mods' },
     'faq-beta': { cat: 'faq', slug: 'general-faq', zh: 'beta', en: 'channels' },
     'faq-smartscreen': { cat: 'getting-started', slug: 'download-install', zh: 'smartscreen', en: 'smartscreen' },
-    'faq-firewall': { cat: 'faq', slug: 'general-faq', zh: 'firewall', en: '' },
+    'faq-firewall': { cat: 'faq', slug: 'general-faq', zh: 'firewall', en: 'firewall' },
   };
   const faqLegacy = (items) => {
     const lang = ctx.lang === 'en' ? 'en' : 'zh';
