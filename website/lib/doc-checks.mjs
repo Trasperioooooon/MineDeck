@@ -5,9 +5,9 @@ const RESERVED_PATHS = new Set([
   '/', '/download/', '/features/', '/releases/', '/help/', '/feedback/', '/about/', '/changelog/', '/docs/',
 ]);
 
-// 匹配前会把反斜杠折成斜杠并转成小写。只认 e:/minedeck，避免把文档里的示例路径（例如 D:\Games\MineDeck）误判。
+// 匹配前会把反斜杠折成斜杠并转成小写。只拦用户目录和家目录，不拦文档里举例用的安装目录（例如 D:\Games\MineDeck）。
 const LEAK_RULES = [
-  { name: '本机绝对路径', re: /(?:[a-z]:\/users\/|[a-z]:\/users\b|\/users\/[a-z0-9._-]+|\/home\/[a-z0-9._-]+|\be:\/minedeck\b)/ },
+  { name: '本机绝对路径', re: /(?:[a-z]:\/users\/|[a-z]:\/users\b|\/users\/[a-z0-9._-]+|\/home\/[a-z0-9._-]+)/ },
   { name: '疑似密钥或令牌', re: /\b(?:sk-[a-z0-9]{16,}|ghp_[a-z0-9]{20,}|github_pat_[a-z0-9_]{20,}|aiza[a-z0-9_-]{20,})\b|\bbearer\s+[a-z0-9._-]{16,}/ },
   { name: '内部禁公开目录或文件', re: /(?:docs\/(?:日志|测试与评审|调研|归档|设计与参考)(?:\/|$|[^a-z0-9_])|docs\/(?:待办|现状)\.md|\.(?:claude|review|mimocode)(?:\/))/ },
 ];
