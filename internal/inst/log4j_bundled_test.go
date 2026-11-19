@@ -823,3 +823,54 @@ func TestLog4jPomWithoutCoreIsNotTrusted(t *testing.T) {
 		t.Fatalf("带着 log4j-core 的类、版本是修过的，应算修过：%+v", got)
 	}
 }
+
+// 换配置（1.7 ~ 1.11.2 引用着 112-116 的）时，17-111 这个文件名已经被一份不是官方的文件占着：不覆盖、不换引用，说清楚
+// （2026-11-19 Codex 复审第二轮）。
+func TestLog4jSwapRespectsExistingXML(t *testing.T) {
+	fetched := stubLog4jFetch(t, nil)
+	m := newMigrateManager()
+	i := migrateInst(t, m, "自己放了 17-111", mcsrc.CoreVanilla, "1.8.9", []string{log4jNoLookups, log4jConfig})
+	custom := []byte("<Configuration>我自己改过的 17-111</Configuration>")
+	if err := os.WriteFile(filepath.Join(i.Dir, log4jXML17), custom, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.migrateLog4j(context.Background(), i)
+	if b, _ := os.ReadFile(filepath.Join(i.Dir, log4jXML17)); string(b) != string(custom) {
+		t.Fatalf("自己改过的 17-111 被覆盖了：%s", b)
+	}
+	if !slices.Equal(i.ExtraJVM, []string{log4jNoLookups, log4jConfig}) || len(*fetched) != 0 {
+		t.Fatalf("不该换引用、不该下载：%q %q", i.ExtraJVM, *fetched)
+	}
+	if !slices.ContainsFunc(i.Console.Lines(), func(l string) bool {
+		return strings.Contains(l, "没有覆盖它") && strings.Contains(l, "换上引用")
+	}) {
+		t.Fatalf("要说清楚为什么没换：%q", i.Console.Lines())
+	}
+	startFake(t, m, i)
+	if b, _ := os.ReadFile(filepath.Join(i.Dir, log4jXML17)); string(b) != string(custom) || len(*fetched) != 0 {
+		t.Fatalf("开服时也不该覆盖、不该下载：%s %q", b, *fetched)
+	}
+}
+
+// 启动的是 paperclip、它生成的服务端还核对不了（cache 里没有）：看不出是不是套上配置就没输出的那一类，先不补，
+// 开服时也不说「后台正在下载」（2026-11-19 Codex 复审第二轮）。
+func TestLog4jAddWaitsForPaperclipCache(t *testing.T) {
+	fetched := stubLog4jFetch(t, nil)
+	m := newMigrateManager()
+	i := migrateInst(t, m, "缓存清掉了的老 Paper", mcsrc.CorePaper, "1.8.9", []string{log4jNoLookups})
+	patched := paperclipServer(t, i.Dir, "1.8.9", "", true)
+	if err := os.Remove(patched); err != nil {
+		t.Fatal(err)
+	}
+	if v := viewLog4jJar(i.Dir, "jar:server.jar"); !v.clipPending || v.quiet || v.fixed {
+		t.Fatalf("应认成还核对不了的 paperclip：%+v", v)
+	}
+	m.migrateLog4j(context.Background(), i)
+	if !slices.Equal(i.ExtraJVM, []string{log4jNoLookups}) || len(*fetched) != 0 {
+		t.Fatalf("不该补、不该下载：%q %q", i.ExtraJVM, *fetched)
+	}
+	startFake(t, m, i)
+	if slices.ContainsFunc(i.Console.Lines(), func(l string) bool { return strings.Contains(l, "后台正在下载") }) || len(*fetched) != 0 {
+		t.Fatalf("开服时也不该去补：%q %q", i.Console.Lines(), *fetched)
+	}
+}

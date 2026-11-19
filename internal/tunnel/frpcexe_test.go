@@ -339,3 +339,23 @@ func TestOpenfrpVersionQueryRefusesRedirectToHTTP(t *testing.T) {
 		t.Fatalf("跳到 https 的应照常跟：%s %v %q", got, err, hits)
 	}
 }
+
+// 樱花的文件夹里 frpc.exe 是个指向的东西已经不在了的链接、旁边另有一份好的 frpc_windows_amd64.exe：跳过链接、用好的那份，
+// 链接不动（同 v3.2.2 的 findExe，2026-11-19 Codex 复审第二轮）。
+func TestNatfrpSkipsDanglingLink(t *testing.T) {
+	frpcTempDirs(t)
+	dir := frpcDir("natfrp")
+	good := filepath.Join(dir, "frpc_windows_amd64.exe")
+	writeFile(t, good, fakeFrpcExe())
+	link := filepath.Join(dir, "frpc.exe")
+	if err := os.Symlink(filepath.Join(dir, "已经不在了.exe"), link); err != nil {
+		t.Skipf("建不了符号链接（Windows 上要开发者模式或管理员）：%v", err)
+	}
+	got, err := (natfrpProvider{}).EnsureFrpc(procutil.NewConsole())
+	if err != nil || got != good {
+		t.Fatalf("应跳过失效的链接、用好的那份：%s %v", got, err)
+	}
+	if _, err := os.Lstat(link); err != nil {
+		t.Fatalf("链接不该被动：%v", err)
+	}
+}

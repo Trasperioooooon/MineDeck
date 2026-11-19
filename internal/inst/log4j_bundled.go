@@ -166,17 +166,20 @@ func runningServerJar(dir, launchTarget string) (j serverJar, ok bool) {
 	return j, false
 }
 
-// log4jJarView 整理 log4shell 防护时要知道的、关于服务端 jar 的三样。读不出来时三样都是零值，按「判断不了」办。
+// log4jJarView 整理 log4shell 防护时要知道的、关于服务端 jar 的几样。读不出来时都是零值，按「判断不了」办。
 type log4jJarView struct {
 	fixed bool   // 自带的 log4j-core 确认是修过的版本：不用套 Mojang 的日志配置
 	ver   string // log4j-core 的版本记录（有的话）
 	quiet bool   // CraftBukkit 系、不带 TerminalConsoleAppender：套上 Mojang 的配置以后控制台没有输出
+	// clipPending 启动的是 paperclip，它生成的服务端还核对不了（cache 里没有、和补丁说明对不上、文件夹里有 paperclip.properties）：
+	// 看不出是不是 quiet 的那一类，不替它补配置（见 log4jFixFor），等它开过一次再看（2026-11-19 Codex 复审第二轮）
+	clipPending bool
 }
 
 func viewLog4jJar(dir, launchTarget string) log4jJarView {
 	j, ok := runningServerJar(dir, launchTarget)
 	if !ok {
-		return log4jJarView{}
+		return log4jJarView{clipPending: j.clip.PatchedHash != ""}
 	}
 	return log4jJarView{
 		fixed: j.log4jCore != "" && j.hasCore && classifyLog4jCore(j.log4jCore) == log4jBundleFixed,

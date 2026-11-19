@@ -131,18 +131,21 @@ func isStdFrpcName(name string) bool {
 }
 
 // frpcCandidates dir 里文件名像 frpc 的 exe，按 findExe 的先后：frpc.exe、frpc_windows_amd64.exe，然后是别的。
-// 两个标准名直接查，不靠列目录：文件夹没有列目录的权限、却能打开里面的文件时照样找得到（同 findExe）。
+// 两个标准名直接查，不靠列目录：文件夹没有列目录的权限、却能打开里面的文件时照样找得到（同 findExe，用 Stat：
+// 指向的东西已经不在了的链接跳过）。列目录时只跳过直接查已经找到的那几个，别的照旧（比如区分大小写的文件夹里的 FRPC.EXE）。
 func frpcCandidates(dir string) []string {
 	var out []string
+	found := map[string]bool{}
 	for _, n := range stdFrpcNames {
 		p := filepath.Join(dir, n)
-		if st, err := os.Lstat(p); err == nil && !st.IsDir() {
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
 			out = append(out, p)
+			found[n] = true
 		}
 	}
 	ents, _ := os.ReadDir(dir)
 	for _, e := range ents {
-		if e.IsDir() || !isFrpcExeName(e.Name()) || isStdFrpcName(e.Name()) {
+		if e.IsDir() || !isFrpcExeName(e.Name()) || found[strings.ToLower(e.Name())] {
 			continue
 		}
 		out = append(out, filepath.Join(dir, e.Name()))
