@@ -167,6 +167,24 @@ func TestOpenfrpBrokenExeIsReplaced(t *testing.T) {
 	}
 }
 
+// OpenFrp 的文件夹里，不是标准名的坏 exe（可能是人自己留着的东西）不用也不删，照样重新准备标准名的那份（2026-11-19 Codex 复审）。
+func TestOpenfrpKeepsNonStandardBrokenExe(t *testing.T) {
+	good := string(fakeFrpcExe())
+	f := newFrpcFake(t)
+	zipURL := "/client/OF_t1/" + openfrpFrpcZip
+	f.set(func(f *frpcFake) { f.files[zipURL] = openfrpZip(t, good) })
+	dir := frpcDir("openfrp")
+	mine := filepath.Join(dir, "old-frpc-tools.exe")
+	writeFile(t, mine, []byte("<html>人自己留着的东西</html>"))
+	got, err := (openfrpProvider{}).EnsureFrpc(procutil.NewConsole())
+	if err != nil || got != filepath.Join(dir, "frpc_windows_amd64.exe") || readFile(t, got) != good {
+		t.Fatalf("应重新准备标准名的那份：%s %v", got, err)
+	}
+	if readFile(t, mine) != "<html>人自己留着的东西</html>" {
+		t.Fatal("不是标准名的文件不该删")
+	}
+}
+
 // 自定义 frps 的 frpc 也是自己下载的：坏的同样删掉、重新准备；frpc.exe 坏了、旁边另有一份好的，用好的那份。
 func TestCustomBrokenExeIsReplaced(t *testing.T) {
 	f := newFrpcFake(t)

@@ -1,9 +1,11 @@
 package modcart
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -20,6 +22,10 @@ func TestInstallLocalErrorHasNoLocalPath(t *testing.T) {
 	unlock()
 	if err == nil || codeOf(err) != 500 || !strings.Contains(err.Error(), "「custom-1.0.jar」读不了") {
 		t.Fatalf("读不了应报错、说清是哪个文件：%v", err)
+	}
+	var errno syscall.Errno // 去掉路径以后原因还包在错误里，认得出是系统给的哪一种（2026-11-19 Codex 复审）
+	if !errors.As(err, &errno) {
+		t.Errorf("系统给的原因应包在错误里：%v", err)
 	}
 	for _, leak := range []string{root, mods, filepath.Dir(mods), os.TempDir(), `:\`, "local"} {
 		if strings.Contains(err.Error(), leak) {

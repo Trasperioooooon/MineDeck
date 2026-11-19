@@ -199,8 +199,12 @@ func TestTreeStaysInside(t *testing.T) {
 	if !exists(theirs) {
 		t.Fatal("目录联接指过去的文件夹里的东西不该动")
 	}
-	if res := Dir(filepath.Join(root, "link"), time.Hour); res.Files != 1 {
-		t.Fatalf("直接点名这个文件夹时照常清（调用方自己负责点谁的名）：%+v", res)
+	// 直接点名一个目录联接（比如服务器的 mods 联接到共用的模组库）也不清：里面的东西不归这台服务器管
+	if res := Dir(filepath.Join(root, "link"), time.Hour); res.Files != 0 || !exists(theirs) {
+		t.Fatalf("点名的文件夹本身是目录联接时不该清：%+v", res)
+	}
+	if res := Tree(filepath.Join(root, "link"), 2, time.Hour); res.Files != 0 || !exists(theirs) {
+		t.Fatalf("从目录联接开始的树也不该清：%+v", res)
 	}
 }
 

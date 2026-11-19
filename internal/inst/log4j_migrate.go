@@ -2,7 +2,12 @@ package inst
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -83,7 +88,50 @@ func log4jFixFor(s Settings, dir string) (fix log4jFix, xml string, jar log4jJar
 	}
 	jar = viewLog4jJar(dir, s.LaunchTarget)
 	fix, xml = log4jFixOf(s, jar.fixed)
+	if fix == log4jFixAdd && jar.quiet {
+		// CraftBukkit 系（Spigot、老构建的 Paper）套上 Mojang 的配置以后控制台没有输出，MineDeck 一直显示启动中，
+		// 热备份、定时命令和定时重启都跟着不做了；v3.2.2 不替这类服补，这里照旧不补，启动时提醒（log4jQuietBare）。
+		// 要不要给它们另做一份带控制台队列的配置，等作者定（2026-11-19 Codex 复审）。
+		return log4jFixNone, "", jar
+	}
 	return fix, xml, jar
+}
+
+// log4jQuietBare 按版本该套 Mojang 的配置、启动参数里却没有任何日志配置引用的 CraftBukkit 系服务端（看不出自带的 log4j 修没修过）：
+// 套上以后控制台没有输出，所以不替它补（见 log4jFixFor），只在启动时提醒。
+func log4jQuietBare(s Settings, jar log4jJarView) bool {
+	if !jar.quiet || jar.fixed {
+		return false
+	}
+	fix, _ := log4jFixOf(s, false)
+	return fix == log4jFixAdd
+}
+
+// log4jQuietBareNote 上面那类服务器启动时说的那一句。
+const log4jQuietBareNote = "[MineDeck] ⚠ log4shell 防护：这台服务器的启动参数里没有 Mojang 的日志配置。Spigot 自带的日志配置一般防得住，" +
+	"老构建的 Paper 防不住；Mojang 的那份套上以后，这类服务端的控制台没有输出，MineDeck 会一直显示启动中、定时任务也跟着不做，" +
+	"所以没有替它补上。最稳妥的是换成修过 log4shell 的构建（Paper 用这个版本最新的构建），在那之前先别让不认识的人进服"
+
+// log4jXMLOnDisk 服务器文件夹里这份官方配置的情况：在不在，是不是官方的那一份（按 SHA-1 核对）。
+// 读不了的算在、但不是官方的：不覆盖，也不引用。
+func log4jXMLOnDisk(dir, name string) (exists, official bool) {
+	f, err := os.Open(filepath.Join(dir, name))
+	if err != nil {
+		return !errors.Is(err, fs.ErrNotExist), false
+	}
+	defer f.Close()
+	h := sha1.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return true, false
+	}
+	sum, ok := log4jXMLSHA1[name]
+	return true, ok && strings.EqualFold(hex.EncodeToString(h.Sum(nil)), sum)
+}
+
+// log4jXMLConflictNote 要补的配置文件名已经被一份不是官方的文件占着时说的那一句（不带 [MineDeck] 前缀）。
+func log4jXMLConflictNote(mc, xml string) string {
+	return fmt.Sprintf("⚠ log4shell 防护：这台 %s 的服务器没有套上 Mojang 的日志配置，等于没防。服务器文件夹里已经有一份 %s，"+
+		"内容和官方的不一样（可能是自己改过的），MineDeck 没有覆盖它，也没有替它补上引用。要用官方的那份，把这个文件改名或挪走以后重开 MineDeck", mc, xml)
 }
 
 // log4jQuietNote CraftBukkit 系套着 Mojang 的配置时，控制台里说明为什么没有输出（不带 [MineDeck] 前缀）。
@@ -132,8 +180,25 @@ func (m *Manager) log4jBeforeStartLocked(i *Instance) {
 			i.Console.Append("[MineDeck] " + log4jDropNote(jar.ver, "这次启动就生效", err))
 		}
 	case log4jFixSwap, log4jFixAdd:
+		if fix == log4jFixAdd {
+			// 补：文件夹里已经有官方的那一份（比如换回了没修过的构建，引用以前被摘掉过），当场补上，这一次启动就生效；
+			// 有同名、却不是官方的文件，不覆盖、不引用，说清楚
+			if exists, official := log4jXMLOnDisk(i.Dir, xml); exists && !official {
+				i.Console.Append("[MineDeck] " + log4jXMLConflictNote(i.MC, xml))
+				break
+			} else if official {
+				if changed, err := m.applyLog4jFixLocked(i, fix, xml, jar.fixed); changed {
+					i.Console.Append(fmt.Sprintf("[MineDeck] log4shell 防护：服务器文件夹里有 Mojang 的这份日志配置（%s，核对过官方的校验值），"+
+						"启动参数里却没有引用，已经补上，这次启动就生效", xml) + runBatNote(err))
+					break
+				}
+			}
+		}
 		i.Console.Append(log4jPendingNote(i.MC, fix, xml))
 		go m.migrateLog4j(context.Background(), i)
+	}
+	if log4jQuietBare(i.Settings, jar) {
+		i.Console.Append(log4jQuietBareNote)
 	}
 	if jar.quiet && hasOurLog4jConfig(i.ExtraJVM) {
 		i.Console.Append("[MineDeck] ⚠ 这台服务器套着 log4shell 防护配置。" + log4jQuietNote)
@@ -190,6 +255,12 @@ func (m *Manager) migrateLog4j(ctx context.Context, i *Instance) {
 		return
 	}
 	defer release()
+	if fix == log4jFixAdd {
+		if exists, official := log4jXMLOnDisk(i.Dir, xml); exists && !official {
+			note(log4jXMLConflictNote(i.MC, xml)) // 同名、不是官方的文件不覆盖（下载会把它换成官方的）
+			return
+		}
+	}
 	if fix != log4jFixDrop {
 		ctx, cancel := context.WithTimeout(ctx, log4jMigrateTimeout)
 		defer cancel()

@@ -38,6 +38,9 @@ const (
 	log4jCorePom = "META-INF/maven/org.apache.logging.log4j/log4j-core/pom.properties"
 	// termConsoleClass Paper 1.12 起的控制台实现：带着它的不靠 TerminalConsole 队列，套 Mojang 的配置控制台照常。
 	termConsoleClass = "net/minecrell/terminalconsole/TerminalConsoleAppender.class"
+	// log4jCoreClass log4j-core 本身打进了这个 jar 的凭据。只有版本记录、没有这个类的（比如别的启动器重新打包依赖时
+	// 留下的记录，真正的 log4j 从 libraries 里另外加载），版本记录说明不了实际运行的是哪一版，不算修过（2026-11-19 Codex 复审）。
+	log4jCoreClass = "org/apache/logging/log4j/core/LoggerContext.class"
 )
 
 // classifyLog4jCore 按 log4j-core 的版本号分。2.16.0 起「消息里的 ${…} 展开」整个去掉了，给 Java 7、Java 6 的回补版
@@ -84,6 +87,7 @@ type paperclipPatch struct {
 // serverJar 一个服务端 jar 里和日志有关的几样。
 type serverJar struct {
 	log4jCore   string         // log4j-core 的版本记录，没有是空串
+	hasCore     bool           // jar 里真带着 log4j-core 的类（log4jCoreClass）
 	craftBukkit bool           // 主类是 org.bukkit.craftbukkit.*（CraftBukkit、Spigot、Paper 生成的服务端）
 	termConsole bool           // 带着 TerminalConsoleAppender
 	clip        paperclipPatch // paperclip 的补丁说明；不是 paperclip 时是零值
@@ -102,11 +106,15 @@ func readServerJar(path string) (serverJar, error) {
 		switch f.Name {
 		case termConsoleClass:
 			j.termConsole = true
+		case log4jCoreClass:
+			j.hasCore = true
 		case log4jCorePom, "META-INF/MANIFEST.MF", "patch.properties", "patch.json":
 			if rc, err := f.Open(); err == nil {
-				b, _ := io.ReadAll(io.LimitReader(rc, 64<<10))
+				b, err := io.ReadAll(io.LimitReader(rc, 64<<10))
 				rc.Close()
-				small[f.Name] = b
+				if err == nil { // 读到一半出错的不用：半截的记录可能读出错的版本
+					small[f.Name] = b
+				}
 			}
 		}
 	}
@@ -171,7 +179,7 @@ func viewLog4jJar(dir, launchTarget string) log4jJarView {
 		return log4jJarView{}
 	}
 	return log4jJarView{
-		fixed: j.log4jCore != "" && classifyLog4jCore(j.log4jCore) == log4jBundleFixed,
+		fixed: j.log4jCore != "" && j.hasCore && classifyLog4jCore(j.log4jCore) == log4jBundleFixed,
 		ver:   j.log4jCore,
 		quiet: j.craftBukkit && !j.termConsole,
 	}
@@ -180,7 +188,7 @@ func viewLog4jJar(dir, launchTarget string) log4jJarView {
 // bundledLog4j 这台服务器实际运行的那个 jar 里，log4j-core 是什么版本、修没修过。
 func bundledLog4j(dir, launchTarget string) (log4jBundle, string) {
 	j, ok := runningServerJar(dir, launchTarget)
-	if !ok || j.log4jCore == "" {
+	if !ok || j.log4jCore == "" || !j.hasCore {
 		return log4jBundleUnknown, ""
 	}
 	return classifyLog4jCore(j.log4jCore), j.log4jCore

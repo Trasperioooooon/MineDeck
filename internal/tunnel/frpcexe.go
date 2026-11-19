@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"minedeck/internal/procutil"
@@ -122,25 +123,37 @@ func inspectExe(path string) (state exeState, why string) {
 	return exeOK, ""
 }
 
+// stdFrpcNames frpc 的两个标准文件名：自定义 frps 的 zip 里是 frpc.exe，OpenFrp 的是 frpc_windows_amd64.exe，提示里叫人手动放的也是这两个。
+var stdFrpcNames = []string{"frpc.exe", "frpc_windows_amd64.exe"}
+
+func isStdFrpcName(name string) bool {
+	return slices.ContainsFunc(stdFrpcNames, func(s string) bool { return strings.EqualFold(s, name) })
+}
+
 // frpcCandidates dir 里文件名像 frpc 的 exe，按 findExe 的先后：frpc.exe、frpc_windows_amd64.exe，然后是别的。
+// 两个标准名直接查，不靠列目录：文件夹没有列目录的权限、却能打开里面的文件时照样找得到（同 findExe）。
 func frpcCandidates(dir string) []string {
-	ents, _ := os.ReadDir(dir)
-	var first, second, rest []string
-	for _, e := range ents {
-		if e.IsDir() || !isFrpcExeName(e.Name()) {
-			continue
-		}
-		p := filepath.Join(dir, e.Name())
-		switch strings.ToLower(e.Name()) {
-		case "frpc.exe":
-			first = append(first, p)
-		case "frpc_windows_amd64.exe":
-			second = append(second, p)
-		default:
-			rest = append(rest, p)
+	var out []string
+	for _, n := range stdFrpcNames {
+		p := filepath.Join(dir, n)
+		if st, err := os.Lstat(p); err == nil && !st.IsDir() {
+			out = append(out, p)
 		}
 	}
-	return append(append(first, second...), rest...)
+	ents, _ := os.ReadDir(dir)
+	for _, e := range ents {
+		if e.IsDir() || !isFrpcExeName(e.Name()) || isStdFrpcName(e.Name()) {
+			continue
+		}
+		out = append(out, filepath.Join(dir, e.Name()))
+	}
+	return out
+}
+
+// plainDir p 是一个真的文件夹，不是链接、目录联接（那样的话里面的东西其实在别处）。
+func plainDir(p string) bool {
+	st, err := os.Lstat(p)
+	return err == nil && st.IsDir() && st.Mode()&(fs.ModeSymlink|fs.ModeIrregular) == 0
 }
 
 // usableFrpc 在 dir 里找一个能用的 frpc，明显坏掉的先处理掉。返回空串和 nil 表示没有可用的，调用方接着走原来的下载、解压或提示。
@@ -152,18 +165,24 @@ func frpcCandidates(dir string) []string {
 //     不删，报错里说清楚是哪个文件、怎么回事，让人自己处理；文件夹里另有能用的就用那个。
 //
 // 判断不了的（读不了、被占着）一律当成能用的交回去，和以前一样：启动那一步出了错另有说明（见 blocked.go）。
-// 只动 dir 里文件名像 frpc 的 exe（frpcCandidates），别的文件不碰。
+// 只动 dir 里文件名像 frpc 的 exe（frpcCandidates），别的文件不碰。OpenFrp、自定义 frps 的文件夹里，自动删的只有两个标准名
+// （MineDeck 解压出来的、提示里叫人放的就是它们）：别的名字可能是人自己留着的东西，坏了也不用、不删。
+// dir 本身是链接或目录联接时一个都不删：里面的东西其实在别处，不归 MineDeck 管（2026-11-19 Codex 复审）。
 func usableFrpc(dir string, con *procutil.Console, managed bool) (string, error) {
-	var kept []string // 没删的坏文件（樱花）：都不能用时报出来
+	var kept []string // 没删的坏文件：都不能用时报出来
+	canDelete := plainDir(dir)
 	for _, exe := range frpcCandidates(dir) {
 		state, why := inspectExe(exe)
 		if state == exeOK || state == exeUnknown {
 			return exe, nil
 		}
 		name := filepath.Base(exe)
-		if state == exeNotPE && !managed {
+		if !canDelete || (state == exeNotPE && !managed) {
 			kept = append(kept, fmt.Sprintf("%s（%s）", name, why))
 			continue
+		}
+		if managed && !isStdFrpcName(name) {
+			continue // 不是 MineDeck 放的名字：不用、不删，接着重新准备（解压出来的是标准名）
 		}
 		if err := os.Remove(exe); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return "", fmt.Errorf("frpc 文件夹里的 %s 是坏的（%s），又没能删掉它（%w）。请关掉可能占着它的程序，手动删掉这个文件后重试。它在这个文件夹：%s", name, why, err, dir)

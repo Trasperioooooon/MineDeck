@@ -449,22 +449,23 @@ func (s *Service) InstallLocal(lf LocalFile, destDir string) (status string, err
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return "", errorf(500, "创建 %s 文件夹失败：%v", filepath.Base(destDir), noPath(err))
 	}
-	// 下面三处出错都只留原因、不带路径（系统给的原文里是本机的完整路径，这句话会进任务日志和提醒，局域网里的人、AI 助手都看得到）
+	// 下面三处出错都只留原因、不带路径（系统给的原文里是本机的完整路径，这句话会进任务日志和提醒，局域网里的人、AI 助手都看得到）；
+	// 原因用 %w 包着，errors.Is / errors.As 照旧认得出
 	lease, err := diskguard.Acquire(context.Background(), destDir, diskguard.Options{AllowUnknown: true})
 	if err != nil {
-		return "", errorf(500, "复制本地文件失败：%v", noPath(err))
+		return "", errorf(500, "复制本地文件失败：%w", noPath(err))
 	}
 	defer lease.Close()
 	tf, err := os.CreateTemp(destDir, ".minedeck-copy-*.copy")
 	if err != nil {
-		return "", errorf(500, "往 %s 里写文件失败：%v", filepath.Base(destDir), noPath(err))
+		return "", errorf(500, "往 %s 里写文件失败：%w", filepath.Base(destDir), noPath(err))
 	}
 	tmp := tf.Name()
 	defer os.Remove(tmp)
 	in, err := os.Open(src)
 	if err != nil {
 		tf.Close()
-		return "", errorf(500, "暂存的「%s」读不了：%v", lf.FileName, noPath(err))
+		return "", errorf(500, "暂存的「%s」读不了：%w", lf.FileName, noPath(err))
 	}
 	h := sha1.New()
 	_, err = io.Copy(io.MultiWriter(lease.Writer(tf), h), in)
@@ -476,7 +477,7 @@ func (s *Service) InstallLocal(lf LocalFile, destDir string) (status string, err
 		err = e
 	}
 	if err != nil {
-		return "", errorf(500, "复制本地文件失败：%v", noPath(err))
+		return "", errorf(500, "复制本地文件失败：%w", noPath(err))
 	}
 	got := hex.EncodeToString(h.Sum(nil))
 

@@ -451,12 +451,22 @@ func TestMigrateLog4jAddsMissingConfig(t *testing.T) {
 	paperclipServer(t, oldPaper.Dir, "1.12.2", "2.8.1", true)
 
 	m.MigrateLog4j(context.Background())
+	// 没修过的老 Paper（CraftBukkit 系、不带 TerminalConsoleAppender）不补：套上以后控制台没有输出、定时任务跟着失效，
+	// 照 v3.2.2 不动，启动时提醒（2026-11-19 Codex 复审）
+	if !slices.Equal(oldPaper.ExtraJVM, []string{log4jNoLookups}) {
+		t.Errorf("没修过的老 Paper 不该补：%q", oldPaper.ExtraJVM)
+	}
+	if _, err := os.Stat(filepath.Join(oldPaper.Dir, log4jXML)); err == nil {
+		t.Error("没修过的老 Paper 不该去下载配置")
+	}
+	if note := log4jStartNote(oldPaper); note != "" {
+		t.Errorf("不补的就不该说「后台正在下载」：%q", note)
+	}
 	for i, want := range map[*Instance][]string{
-		v189:     {log4jNoLookups, "-Dmy.flag=1", log4jConfig17},
-		v1122:    {"-Xss1M", log4jNoLookups, log4jConfig},
-		forge:    {log4jNoLookups, log4jConfig17},
-		bare:     {log4jConfig},
-		oldPaper: {log4jNoLookups, log4jConfig},
+		v189:  {log4jNoLookups, "-Dmy.flag=1", log4jConfig17},
+		v1122: {"-Xss1M", log4jNoLookups, log4jConfig},
+		forge: {log4jNoLookups, log4jConfig17},
+		bare:  {log4jConfig},
 	} {
 		xml := strings.TrimPrefix(want[len(want)-1], log4jConfigKey)
 		if !slices.Equal(i.ExtraJVM, want) {
@@ -478,7 +488,7 @@ func TestMigrateLog4jAddsMissingConfig(t *testing.T) {
 			t.Errorf("%s：补上以后启动时不该再提示", i.Name)
 		}
 	}
-	want := []string{log4jXML17, log4jXML, log4jXML17, log4jXML, log4jXML}
+	want := []string{log4jXML17, log4jXML, log4jXML17, log4jXML}
 	got := slices.Clone(*fetched)
 	slices.Sort(got)
 	slices.Sort(want)
@@ -487,7 +497,7 @@ func TestMigrateLog4jAddsMissingConfig(t *testing.T) {
 	}
 	// 再过一遍什么都不动
 	m.MigrateLog4j(context.Background())
-	if len(*fetched) != 5 {
+	if len(*fetched) != 4 {
 		t.Fatalf("补过的不该再下载：%q", *fetched)
 	}
 }
@@ -713,12 +723,63 @@ func TestLog4jQuietConsoleNote(t *testing.T) {
 			t.Errorf("%s：控制台照常，不该说没有输出：%q", name, i.Console.Lines())
 		}
 	}
-	// 给 Spigot 补上配置的那一刻也说
+	// 没套上配置的 Spigot：不替它补（套上以后控制台没有输出、定时任务跟着失效），启动时提醒没套、为什么没补，这次照旧不带配置启动
 	bare := migrateInst(t, m, "没套上的 Spigot", mcsrc.CorePaper, "1.12.2", []string{log4jNoLookups})
 	writeJar(t, filepath.Join(bare.Dir, "server.jar"), jars["Spigot"])
 	m.migrateLog4j(context.Background(), bare)
-	if !slices.Equal(bare.ExtraJVM, []string{log4jNoLookups, log4jConfig}) || !quiet(bare.Console.Lines()) || !slices.Equal(*fetched, []string{log4jXML}) {
-		t.Fatalf("补上配置时要说明：%q %q", bare.ExtraJVM, bare.Console.Lines())
+	if !slices.Equal(bare.ExtraJVM, []string{log4jNoLookups}) || len(*fetched) != 0 {
+		t.Fatalf("没套上配置的 Spigot 不该补：%q，下载了 %q", bare.ExtraJVM, *fetched)
+	}
+	startFake(t, m, bare)
+	lines = bare.Console.Lines()
+	launch = slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "启动: java") })
+	if launch < 0 || !slices.Contains(lines[:launch], log4jQuietBareNote) || strings.Contains(lines[launch], "log4j.configurationFile") ||
+		slices.ContainsFunc(lines, func(l string) bool { return strings.Contains(l, "后台正在下载") }) || len(*fetched) != 0 {
+		t.Fatalf("启动时要提醒没套上、照旧不带配置启动、也不去下载：%q", lines)
+	}
+}
+
+// 要补的配置文件名已经被一份不是官方的文件占着（比如自己改过的 112-116）：不覆盖、不引用，程序启动后那一遍和开服时都说清楚。
+// 文件夹里已经有官方的那一份（比如换回了没修过的构建，引用以前被摘掉过）：开服时当场补上，这一次启动就生效（2026-11-19 Codex 复审）。
+func TestLog4jAddRespectsExistingXML(t *testing.T) {
+	fetched := stubLog4jFetch(t, nil)
+	m := newMigrateManager()
+	mine := migrateInst(t, m, "自己改过的", mcsrc.CoreVanilla, "1.12.2", []string{log4jNoLookups})
+	custom := []byte("<Configuration>我自己改过的</Configuration>")
+	if err := os.WriteFile(filepath.Join(mine.Dir, log4jXML), custom, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.migrateLog4j(context.Background(), mine)
+	if b, _ := os.ReadFile(filepath.Join(mine.Dir, log4jXML)); string(b) != string(custom) {
+		t.Fatalf("自己改过的配置被覆盖了：%s", b)
+	}
+	if !slices.Equal(mine.ExtraJVM, []string{log4jNoLookups}) || len(*fetched) != 0 {
+		t.Fatalf("不该引用、不该下载：%q %q", mine.ExtraJVM, *fetched)
+	}
+	if !slices.ContainsFunc(mine.Console.Lines(), func(l string) bool { return strings.Contains(l, "没有覆盖它") }) {
+		t.Fatalf("要说清楚为什么没补：%q", mine.Console.Lines())
+	}
+	startFake(t, m, mine)
+	lines := mine.Console.Lines()
+	launch := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "启动: java") })
+	if launch < 0 || strings.Contains(lines[launch], "log4j.configurationFile") || len(*fetched) != 0 ||
+		slices.ContainsFunc(lines, func(l string) bool { return strings.Contains(l, "后台正在下载") }) {
+		t.Fatalf("开服时也不该引用、不该下载：%q", lines)
+	}
+	if b, _ := os.ReadFile(filepath.Join(mine.Dir, log4jXML)); string(b) != string(custom) {
+		t.Fatalf("开服时自己改过的配置被覆盖了：%s", b)
+	}
+
+	back := migrateInst(t, m, "换回了老构建", mcsrc.CoreVanilla, "1.12.2", []string{log4jNoLookups})
+	officialLog4jXML(t, back.Dir)
+	startFake(t, m, back)
+	lines = back.Console.Lines()
+	launch = slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "启动: java") })
+	if launch < 0 || !strings.Contains(lines[launch], log4jConfig) || len(*fetched) != 0 {
+		t.Fatalf("文件夹里有官方的那一份：这次启动就该带上引用、不用下载：%q %q", lines, *fetched)
+	}
+	if saved, err := readSettings(back.Dir); err != nil || !slices.Equal(saved.ExtraJVM, []string{log4jNoLookups, log4jConfig}) {
+		t.Fatalf("instance.json 要跟着补上：%v %q", err, saved.ExtraJVM)
 	}
 }
 
@@ -740,5 +801,25 @@ func TestStartAddsLog4jConfigInBackground(t *testing.T) {
 	waitConsole(t, i, "重启以后生效")
 	if want := []string{log4jNoLookups, log4jConfig}; !slices.Equal(i.ExtraJVMSnapshot(), want) {
 		t.Fatalf("后台应补上：%q", i.ExtraJVMSnapshot())
+	}
+}
+
+// 只有 log4j-core 的版本记录、jar 里却没有它的类的（别的启动器重新打包依赖时留下的记录，真正的 log4j 从 libraries 另外加载）：
+// 版本记录说明不了实际运行的是哪一版，不算修过，照旧套配置（2026-11-19 Codex 复审）。
+func TestLog4jPomWithoutCoreIsNotTrusted(t *testing.T) {
+	dir := t.TempDir()
+	writeJar(t, filepath.Join(dir, "server.jar"), map[string]string{
+		"META-INF/MANIFEST.MF": "Manifest-Version: 1.0\r\nMain-Class: com.example.Launcher\r\n\r\n",
+		log4jCorePom:           log4jPom("2.17.1"),
+	})
+	if got := viewLog4jJar(dir, "jar:server.jar"); got.fixed {
+		t.Fatalf("没有 log4j-core 的类，不该算修过：%+v", got)
+	}
+	if b, _ := bundledLog4j(dir, "jar:server.jar"); b != log4jBundleUnknown {
+		t.Fatalf("应判断不了：%v", b)
+	}
+	plainServerJar(t, dir, "2.17.1") // 带着类的
+	if got := viewLog4jJar(dir, "jar:server.jar"); !got.fixed {
+		t.Fatalf("带着 log4j-core 的类、版本是修过的，应算修过：%+v", got)
 	}
 }
