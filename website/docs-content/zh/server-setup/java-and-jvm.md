@@ -6,7 +6,7 @@ since: v3.0.0
 beta: false
 featured: false
 tags: ["Java", "JVM", "内存", "启动参数", "runtimes", "Java 8", "Java 17", "Java 21", "Java 25", "log4shell", "JAVA_HOME"]
-updated: 2026-11-18
+updated: 2026-11-19
 aliases: []
 draft: false
 ---
@@ -53,6 +53,6 @@ draft: false
 > [!NOTE]
 > 为避免因为系统全局预设了不兼容参数导致服务器闪退或被强制限死内存，MineDeck 启动 Java 与 `frpc` 进程时会刻意**剥离掉外部系统环境里的 `JAVA_HOME`、`JAVA_OPTS`、`JAVA_TOOL_OPTIONS`、`_JAVA_OPTIONS`、`JDK_JAVA_OPTIONS` 与 `CLASSPATH`**。
 >
-> 同时，对于 **Minecraft 1.18.1 以下的服务器**（代理端除外），MineDeck 会强制保留 `-Dlog4j2.formatMsgNoLookups=true`（并在 `1.12.2`～`1.16.5` 自动配好官方 `log4j2_112-116.xml`；若接管了 `1.7`～`1.11.2` 老服，`v3.2.2` 起也会按官方文件自动改配为 `log4j2_17-111.xml`），就算后续你在框里改了 JVM 参数误删了它也会自动补回，确保不受历史 Log4Shell 漏洞影响。
+> 同时，对于 **Minecraft 1.18.1 以下的服务器**（代理端除外），MineDeck 会按版本保留 log4shell 防护参数，在框里误删了也会补回：1.7 起带上 `-Dlog4j2.formatMsgNoLookups=true`；1.12～1.16.5 引用 Mojang 的 `log4j2_112-116.xml`，1.7～1.11.2 引用 `log4j2_17-111.xml`（v3.2.2 起），都要服务器文件夹里有这份官方文件才会引用。v3.2.3 起，服务端自带的 log4j 已经修过的（比如 2021 年 12 月以后的 Paper 构建）不再引用 Mojang 的配置。Spigot 和 1.11.2 及以前的 Paper 套上 Mojang 的配置以后控制台没有输出，当初没套上的，打开 MineDeck 以后不会替它补，开服时会提醒。这层防护挡不住所有情况，老版本的服务器请只让信得过的人进，详见 [v3.2.3 的发布说明](https://github.com/Trasperioooooon/MineDeck/blob/v3.2.3/docs/releases/v3.2.3.md)。
 
 若服务器启动后报 `UnsupportedClassVersionError` 或 `Unrecognized VM option`，见排查指南：[启动失败与 Java 版本不匹配](../troubleshooting/startup-and-java.md)。
