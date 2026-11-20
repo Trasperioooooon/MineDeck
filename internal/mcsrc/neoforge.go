@@ -14,6 +14,11 @@ import (
 const (
 	neoBMCL  = "https://bmclapi2.bangbang93.com/neoforge"
 	neoMaven = "https://maven.neoforged.net/releases/net/neoforged/neoforge"
+	// neoForgeCDN 和官方 maven 是同一套 /releases 路径（Reposilite）。
+	// 2026-11-20 核对过：maven-metadata.xml 能取到，26.3.0.115 的 installer.jar.sha1
+	// 和 maven.neoforged.net 上的 40 位校验值相同。安装器 jar 只有在拿到官方这份校验值时才把 CDN 加进候选。
+	// https://maven.fastmirror.net/ 当时返回的是一段设置 cookie 再刷新的 HTML，不是 maven-metadata.xml，没有收进下载源。
+	neoForgeCDN = "https://neoforged.forgecdn.net/releases/net/neoforged/neoforge"
 	// NeoForge 与 Forge 在 1.20.1 时代纠缠不清，本工具从 1.20.2 起提供 NeoForge
 	neoFloor = "1.20.2"
 )
@@ -122,15 +127,59 @@ func neoMavenVersions(ctx context.Context, mc string) ([]string, error) {
 }
 
 // NeoInstallerArtifact 解析 NeoForge 安装器下载信息。
-func NeoInstallerArtifact(ver, installerPath string) Artifact {
+// 会向官方 maven 要 installer.jar.sha1（小文件，不下载 jar）。要到了才把 neoforged.forgecdn.net 加进候选，
+// 并且三个地址都按这份官方校验值核对。要不到校验值时不使用 CDN，地址和以前一样（镜像策略决定 BMCLAPI / 官方）。
+// 安装器自己再用 --mirror 拉依赖的行为没有改：那一步信任的是 BMCLAPI，不是这次没逐个核对过的 CDN。
+func NeoInstallerArtifact(ctx context.Context, ver, installerPath string) Artifact {
 	if installerPath == "" {
 		installerPath = fmt.Sprintf("/maven/net/neoforged/neoforge/%s/neoforge-%s-installer.jar", ver, ver)
 	}
 	mirror := "https://bmclapi2.bangbang93.com" + installerPath
 	official := fmt.Sprintf("%s/%s/neoforge-%s-installer.jar", neoMaven, ver, ver)
+	urls := Order2(mirror, official)
+	sha := ""
+	if got, ok := neoOfficialInstallerSHA1(ctx, ver); ok {
+		sha = got
+		if !app.OfficialOnly() {
+			cdn := fmt.Sprintf("%s/%s/neoforge-%s-installer.jar", neoForgeCDN, ver, ver)
+			urls = append([]string{cdn}, urls...)
+		}
+	}
 	return Artifact{
-		URLs:     Order2(mirror, official),
+		URLs:     urls,
+		SHA1:     sha,
 		FileName: fmt.Sprintf("neoforge-%s-installer.jar", ver),
 		MinSize:  512 * 1024,
 	}
+}
+
+// neoOfficialInstallerSHA1 只从官方 maven 读 .sha1。内容必须是 40 位十六进制，HTML 或别的正文不算。
+func neoOfficialInstallerSHA1(ctx context.Context, ver string) (string, bool) {
+	if strings.TrimSpace(ver) == "" || strings.ContainsAny(ver, "/\\?#") {
+		return "", false
+	}
+	u := fmt.Sprintf("%s/%s/neoforge-%s-installer.jar.sha1", neoMaven, url.PathEscape(ver), url.PathEscape(ver))
+	b, err := dl.FetchBytes(ctx, []string{u})
+	if err != nil {
+		return "", false
+	}
+	return parseSHA1Sidecar(b)
+}
+
+// parseSHA1Sidecar 认出 maven 的 .sha1 文件。只认第一段、恰好 40 位十六进制；多出来的 HTML 拒绝。
+func parseSHA1Sidecar(b []byte) (string, bool) {
+	fields := strings.Fields(string(b))
+	if len(fields) == 0 {
+		return "", false
+	}
+	s := strings.ToLower(fields[0])
+	if len(s) != 40 {
+		return "", false
+	}
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return "", false
+		}
+	}
+	return s, true
 }

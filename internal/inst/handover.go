@@ -59,6 +59,7 @@ func (m *Manager) FinalizeCreate(s Settings, dir string) (*Instance, error) {
 	if err := m.saveInstance(i); err != nil {
 		return nil, err
 	}
+	_ = ClearCreatingMarker(dir) // 删不掉也不失败：有 instance.json 时列表只去掉记号，不删目录
 	app.RememberRoot(filepath.Dir(dir))
 	m.mu.Lock()
 	m.insts[s.Name] = i

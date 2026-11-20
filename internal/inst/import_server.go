@@ -77,6 +77,9 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	if err := WriteCreatingMarker(dir, req.Name); err != nil {
+		return err
+	}
 	where := "压缩包最外层"
 	if pack.Root != "" {
 		where = "「" + pack.Root + "」这一层"

@@ -172,6 +172,9 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	if err := inst.WriteCreatingMarker(dir, req.Name); err != nil {
+		return err
+	}
 
 	// ---- 步骤 2 / 3：下载核心、安装服务端（完整模式跳过） ----
 	launch := mf.Instance.LaunchTarget
@@ -416,7 +419,7 @@ func downloadCore(ctx context.Context, t *tasks.Task, mf *Manifest, dir, javaPat
 		if err != nil {
 			return "", "", err
 		}
-		art := mcsrc.NeoInstallerArtifact(build, paths[build])
+		art := mcsrc.NeoInstallerArtifact(ctx, build, paths[build])
 		if err := inst.FetchArtifact(ctx, t, art, "neoforge", dir, art.FileName); err != nil {
 			return "", "", err
 		}
