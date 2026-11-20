@@ -138,7 +138,11 @@ func scanServerDir(dir string) (*AdoptScan, error) {
 		}
 		cands = append(cands, c)
 	}
+	sawVelocityToml := regularFile(filepath.Join(dir, "velocity.toml"))
 	if len(cands) == 0 {
+		if sawVelocityToml {
+			return nil, fmt.Errorf("这个文件夹里有 velocity.toml，但没有认出能启动的 Velocity jar。请确认 jar 在最外层，且清单里的 Main-Class 还是 com.velocitypowered。没有改你的配置")
+		}
 		return nil, noServerErr(dir)
 	}
 
@@ -160,14 +164,21 @@ func scanServerDir(dir string) (*AdoptScan, error) {
 		if sc.prev != nil && strings.EqualFold(c.Target, sc.prev.LaunchTarget) {
 			c.rank += rankPrev
 		}
+		// 有 velocity.toml 时，代理端比同级的游戏 jar 优先。启动脚本点名的已经加了 rankScript（100），仍比这个高。
+		if sawVelocityToml && c.Core == string(mcsrc.CoreVelocity) {
+			c.rank += 15
+		}
 	}
-	// 分数高的在前；分数一样（比如升级后新旧两个 jar 都留着）时版本新的在前
+	// 分数高的在前。分数一样时，只在同一种核心里比版本：Velocity 3.4 和 Paper 1.21 的版本号不是一回事，
+	// 拿来比会把代理端认成游戏服，或反过来。
 	sort.SliceStable(cands, func(a, b int) bool {
 		if cands[a].rank != cands[b].rank {
 			return cands[a].rank > cands[b].rank
 		}
-		if x, y := cands[a].MC, cands[b].MC; x != "" && y != "" && x != y {
-			return versionLess(y, x)
+		if cands[a].Core != "" && cands[a].Core == cands[b].Core {
+			if x, y := cands[a].MC, cands[b].MC; x != "" && y != "" && x != y {
+				return versionLess(y, x)
+			}
 		}
 		return false
 	})
@@ -184,6 +195,9 @@ func scanServerDir(dir string) (*AdoptScan, error) {
 		sc.Targets = append(sc.Targets, cands[i].AdoptTarget)
 	}
 	sc.LaunchTarget, sc.Core, sc.MC, sc.Build, sc.JavaMajor = top.Target, top.Core, top.MC, top.Build, top.JavaMajor
+	if note := mixedServerNote(cands, sawVelocityToml); note != "" {
+		sc.Notes = append(sc.Notes, note)
+	}
 
 	// 内存和 JVM 参数
 	isArgs := strings.HasPrefix(sc.LaunchTarget, "args:")
@@ -411,6 +425,11 @@ func inspectJar(p string) (adoptCand, bool) {
 		if !strings.Contains(lname, "waterfall") {
 			c.note = "这是 BungeeCord 系的代理端，MineDeck 把它当 Waterfall 管理。"
 		}
+	case strings.Contains(lmain, "taiyitist"):
+		// 2026-11-20：TaiyitistMC/Banner 的 README 指向 TaiyitistMC/Taiyitist，GitHub 再 301 到 Teneted/Taiyitist。
+		// 1.21.1 分支的清单主类是 com.taiyitistmc.TaiyitistLauncher。内部 id 仍是 banner，不改下载地址。
+		c.Core, c.rank, c.MC = string(mcsrc.CoreBanner), rankHybrid, inner
+		c.note = "这是 Taiyitist（原 Banner）。MineDeck 仍按 banner 管理，没有改下载地址，也没有改你的文件。"
 	case strings.Contains(lmain, "banner"):
 		c.Core, c.rank, c.MC = string(mcsrc.CoreBanner), rankHybrid, inner
 	case strings.Contains(lmain, "mohist"):
@@ -826,6 +845,28 @@ func suggestName(sc *AdoptScan, dir string) string {
 		return "我的服务器"
 	}
 	return name
+}
+
+func regularFile(p string) bool {
+	st, err := os.Lstat(p)
+	return err == nil && st.Mode().IsRegular()
+}
+
+// mixedServerNote 一个文件夹里认出了不止一种服务端时给人看的一句。不改任何文件。
+func mixedServerNote(cands []adoptCand, sawVelocityToml bool) string {
+	cores := map[string]bool{}
+	for _, c := range cands {
+		if c.Core != "" {
+			cores[c.Core] = true
+		}
+	}
+	if len(cores) < 2 {
+		return ""
+	}
+	if sawVelocityToml && cores[string(mcsrc.CoreVelocity)] {
+		return "这个文件夹里不只有 Velocity。因为有 velocity.toml，先按 Velocity 预填。要改的话在启动方式里选另一个。没有改你的配置。"
+	}
+	return "这个文件夹里有不止一种服务端。没有用版本号把代理端和游戏服比大小，先按文件名和启动脚本预填。请在启动方式里确认。没有改你的配置。"
 }
 
 // noServerErr 文件夹里没找到服务端时的报错：下一层有像服务器的文件夹就点出来（常见的是选到了上一层）。
