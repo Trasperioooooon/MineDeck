@@ -86,6 +86,7 @@ type mrDep struct {
 type Hit struct {
 	ProjectID   string `json:"project_id"`
 	Slug        string `json:"slug"`
+	ProjectType string `json:"project_type,omitempty"` // mod / plugin / …；空的不拿来编网址
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	Downloads   int64  `json:"downloads"`
@@ -157,6 +158,20 @@ func ctxErr(ctx context.Context) error {
 
 // retryWait 重试前等多久（测试里改短）。
 var retryWait = 1500 * time.Millisecond
+
+// ProjectPageURL 用 Modrinth 返回的项目类型和 slug 拼官方项目页。
+// 类型或 slug 缺失、不是 Modrinth 认的那几种、slug 里有别的字符时返回空串，不拿标题或别的字段现编。
+func ProjectPageURL(projectType, slug string) string {
+	switch projectType {
+	case "mod", "plugin", "datapack", "shader", "resourcepack", "modpack":
+	default:
+		return ""
+	}
+	if !validID(slug) {
+		return ""
+	}
+	return "https://modrinth.com/" + projectType + "/" + slug
+}
 
 // validID 能不能拼进接口路径：项目 ID、slug、版本 ID 都只有字母数字和 - _ .，不会是 . 或 ..。
 func validID(id string) bool {
@@ -300,6 +315,9 @@ func (s *Service) Search(ctx context.Context, q SearchQuery) (*SearchResult, err
 		hits = hits[:PageSize]
 	}
 	for i := range hits {
+		if hits[i].ProjectType == "" {
+			hits[i].ProjectType = q.Type // 这次搜索已经按这个类型过滤；响应没带回类型时用它，不另编 slug
+		}
 		hits[i].ServerSide = ""
 	}
 	if hits == nil {
