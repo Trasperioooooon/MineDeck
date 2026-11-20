@@ -1477,7 +1477,7 @@ async function renderInstances() {
     box.innerHTML = `<div class="warn-card"><div class="wc-title">${icon("warn")} 有 ${items.length} 个文件夹是上次创建没完成留下的</div>
       <div class="wc-note">只列出带创建记号、还没登记成服务器的文件夹。接管进来的、你自己放进来的不会出现。不会自动删除。</div>
       ${items.map(it => `<div class="row" style="margin-top:8px"><b>${esc(it.name)}</b><span class="hint">${it.hasWorld ? "里面有存档。" : ""}在「${esc(it.root)}」下</span>
-        <button type="button" class="btn sm ghost" data-drop-left="${esc(it.id)}" data-world="${it.hasWorld ? "1" : "0"}" data-name="${esc(it.name)}">删除这个文件夹</button></div>`).join("")}</div>`;
+        <button type="button" class="btn sm ghost" data-drop-left="${esc(it.id)}" data-world="${it.hasWorld ? "1" : "0"}" data-name="${esc(it.name)}" aria-label="删除没建完的文件夹 ${esc(it.name)}">删除这个文件夹</button></div>`).join("")}</div>`;
     box.querySelectorAll("[data-drop-left]").forEach(b => b.onclick = async () => {
       const ok = await confirmModal({
         title: "删除没建完的文件夹？",
@@ -5640,7 +5640,7 @@ async function setJava(body, info) {
     group(
       (javas.portable.length ? javas.portable.map(j => riRow({ ico: "package", title: `便携 Java ${j.major}`,
         sub: "MineDeck 下载的运行时，单独放着。卸载只删这一套，不删系统里的 Java。有服务器还配着它时会拒绝。",
-        right: `<button type="button" class="btn sm ghost" data-rm-java="${j.major}">卸载</button>` })).join("")
+        right: `<button type="button" class="btn sm ghost" data-rm-java="${j.major}" aria-label="卸载便携 Java ${j.major}">卸载</button>` })).join("")
         : riRow({ ico: "package", title: "便携运行时", sub: "还没有 MineDeck 下载的 Java。新建服务器缺 Java 时会自动下载，不改你系统里已经装的。" })) +
       (javas.scanned.length ? javas.scanned.map(j => riRow({ ico: "coffee", titleHTML: `Java ${j.major} <span class="badge">${esc(j.version)}</span>`, key: j.path })).join("")
         : riRow({ ico: "coffee", title: "本机已安装的 Java", sub: "尚未发现，点下方「重新扫描」或手动添加" })),
