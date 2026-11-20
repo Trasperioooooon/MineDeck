@@ -73,7 +73,7 @@ const CORES = [
   ["neoforge", "NeoForge", "模组·主流", "1.20.2 起的模组加载器，Forge 的社区继任者。", "game"],
   ["forge", "Forge", "模组·经典", "经典模组加载器，适合 1.20.1 及更早的整合包", "game"],
   ["mohist", "Mohist", "混合·Forge+插件", "Forge 模组与 Bukkit 插件共存，整合包服首选之一。", "hybrid"],
-  ["banner", "Banner", "混合·Fabric+插件", "Mohist 团队出品，Fabric 模组与 Bukkit 插件共存。", "hybrid"],
+  ["banner", "Taiyitist（原 Banner）", "混合·Fabric+插件", "Fabric 模组与 Bukkit 插件共存。项目已改名 Taiyitist，下载仍用原来的 banner 构建。", "hybrid"],
   ["velocity", "Velocity", "代理·主流", "PaperMC 出品的现代群组代理端，搭配多后端服使用。", "proxy"],
   ["waterfall", "Waterfall", "代理·经典", "BungeeCord 分支，上游已停止更新，仍可运行。", "proxy"],
 ].map(([id, name, tag, desc, kind]) => ({ id, name, tag, desc, kind }));
@@ -1680,7 +1680,7 @@ async function modcartHandler(state, req, res, p, m, u) {
     const all = (type === "plugin" ? PLUGIN_CATALOG : MOD_CATALOG)
       .filter(x => (!word || x.title.toLowerCase().includes(word) || x.slug.includes(word)) && (!cat || x.cats.includes(cat)));
     const hits = all.slice(offset, offset + MODCART_PAGE)
-      .map(x => ({ project_id: x.projectId, slug: x.slug, title: x.title, description: x.description, downloads: x.downloads, icon_url: "", license: x.license }));
+      .map(x => ({ project_id: x.projectId, slug: x.slug, project_type: type, title: x.title, description: x.description, downloads: x.downloads, icon_url: "", license: x.license }));
     return ok(res, { type, hits, offset, total: all.length, more: hits.length > 0 && offset + MODCART_PAGE < all.length && offset < MODCART_MAX_OFFSET });
   }
   const unread = MODCART_LOAD_FAIL[mc.loadFail];
@@ -3160,6 +3160,7 @@ function handler(state, ui, portOf) {
           if (!state.local) return err(res, 403, "处理没装上的文件仅支持在本机操作（要读、要收这台电脑上的文件）");
           const items = (await readBody(req)).items || [];
           if (!items.length) return err(res, 400, "没有要处理的项");
+          if (items.length > 500) return err(res, 400, "参数 items 最多 500 项");
           if (!L.pending.length && !L.skipped.length) return err(res, 400, "这台服务器没有整合包里没装上的文件");
           const resolved = [];
           for (const act of items) {

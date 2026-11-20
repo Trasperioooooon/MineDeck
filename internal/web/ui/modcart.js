@@ -32,6 +32,16 @@ window.MDModCart = (() => {
   };
   const MAX_LOCAL = 256 * 1024 * 1024; // 单个本地文件的上限，同后端 modcart.MaxLocalSize：超了就不传，免得传完才被拒
 
+  /* 只用接口给的项目类型和 slug。缺一个就不做链接，不用标题现编。 */
+  const pageURL = (type, slug) => {
+    if (!/^(mod|plugin|datapack|shader|resourcepack|modpack)$/.test(type || "")) return "";
+    if (!slug || slug === "." || slug === ".." || slug.length > 100 || !/^[A-Za-z0-9._-]+$/.test(slug)) return "";
+    return "https://modrinth.com/" + type + "/" + slug;
+  };
+  const pageLink = (type, slug, title) => {
+    const href = pageURL(type, slug);
+    return href ? `<a class="btn sm ghost" href="${esc(href)}" target="_blank" rel="noopener noreferrer" aria-label="打开 ${esc(title || slug)} 的项目页">项目页</a>` : "";
+  };
   const KIND_CN = { mod: "模组", plugin: "插件" };
   const kindOf = k => KIND_CN[k] || (k ? k : "");
   /* 下载量：12.5M / 348k（同资源页的写法） */
@@ -153,6 +163,7 @@ window.MDModCart = (() => {
           ${tile(it.icon)}
           <div style="flex:1;min-width:0"><b>${esc(it.title)}</b>
             <div class="jp" style="white-space:normal">${[PLUGIN_CORES.has(ctx.core) ? "插件" : kindOf(it.kind), it.license].filter(Boolean).map(esc).join(" · ")}</div></div>
+          ${pageLink(it.kind, it.slug, it.title)}
           <button class="btn sm ghost mc-del" data-pid="${esc(it.projectId)}" data-t="${esc(it.title)}" aria-label="移除 ${esc(it.title)}">${icon("x")} 移除</button>
         </div>`).concat(local.map(lf => `
         <div class="java-row mc-item mc-local">
@@ -228,6 +239,7 @@ window.MDModCart = (() => {
             <div class="jp" title="${esc(h.description)}">${esc(h.description)}</div></div>
           <span class="jv mc-license" title="${esc(h.license || "")}">${esc(h.license || "")}</span>
           <span class="jv mc-down">${fmtDown(h.downloads)}${icon("download")}</span>
+          ${pageLink(h.project_type, h.slug, h.title)}
           <button class="btn sm mc-add${installed ? " mc-installed" : ""}" data-pid="${esc(h.project_id)}" data-t="${esc(h.title)}" aria-label="${installed ? "已安装" : inCart ? "已在清单" : "加入清单"} ${esc(h.title)}"${inCart ? " disabled" : ""}>${icon(inCart ? "check" : "plus")} ${installed ? "已安装" : inCart ? "已在清单" : "加入清单"}</button>
         </div>`;
       }).join("") : `<div class="sub" id="mc-hits-empty">${query || cat ? `没有找到合适的${noun}。换个关键词或类别试试。` : `这个核心和版本下，Modrinth 上暂时没有能装的${noun}。`}</div>`;

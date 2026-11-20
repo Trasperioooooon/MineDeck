@@ -12,7 +12,7 @@
    "icon": "server",
    "lead": "Twelve server types can be created directly, from vanilla to modded and plugin servers and proxies.",
    "points": [
-    "Vanilla. Plugin servers: Paper, Purpur, Leaves, Folia. Mod loaders: Fabric, Forge, NeoForge. Mods and plugins together: Mohist, Banner. Proxies: Velocity, Waterfall.",
+    "Vanilla. Plugin servers: Paper, Purpur, Leaves, Folia. Mod loaders: Fabric, Forge, NeoForge. Mods and plugins together: Mohist, Taiyitist (formerly Banner). Proxies: Velocity, Waterfall.",
     "Minecraft versions from 1.12.2 on, including the year-numbered 26.x. The version list is read from the official manifests, so new versions show up on their own."
    ],
    "details": [

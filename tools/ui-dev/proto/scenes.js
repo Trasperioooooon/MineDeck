@@ -250,7 +250,7 @@ add("task", "t-pending", "整合包导入完成：没装上的文件", {
 });
 
 // ==================== 服务器详情：每种核心一台 ====================
-const CORE_CN = { paper: "Paper", forge: "Forge", vanilla: "Vanilla 原版", velocity: "Velocity 代理", purpur: "Purpur", leaves: "Leaves", folia: "Folia", fabric: "Fabric", neoforge: "NeoForge", mohist: "Mohist", banner: "Banner", waterfall: "Waterfall 代理" };
+const CORE_CN = { paper: "Paper", forge: "Forge", vanilla: "Vanilla 原版", velocity: "Velocity 代理", purpur: "Purpur", leaves: "Leaves", folia: "Folia", fabric: "Fabric", neoforge: "NeoForge", mohist: "Mohist", banner: "Taiyitist（原 Banner）", waterfall: "Waterfall 代理" };
 const ST_CN = { running: "运行中", stopped: "已停止", starting: "启动中", stopping: "停止中" };
 for (const i of INSTANCES) {
   add("detail", "d-" + i.core, `${CORE_CN[i.core]} · ${i.name}（${ST_CN[i.status]}）`, { hash: `#/inst/${enc(i.name)}/console` });

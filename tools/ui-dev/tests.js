@@ -4066,6 +4066,62 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     }
   });
 
+  await run("添加模组：项目页只用接口给的类型和 slug", async () => {
+    await page.goto(url("#/inst/" + encodeURIComponent("机械动力整合包") + "/addons"));
+    await page.waitForSelector("#mc-hits .mc-add", { timeout: 8000 });
+    const hrefs = await page.$$eval("#mc-hits a[href]", as => as.map(a => a.getAttribute("href")));
+    assert(hrefs.length > 0 && hrefs.every(h => /^https:\/\/modrinth\.com\/mod\/[A-Za-z0-9._-]+$/.test(h)), "项目页：" + JSON.stringify(hrefs));
+  });
+
+  await run("没装上的文件：全选只选可下载项且不默认同意，确认风险是另一步，501 项拒绝", async () => {
+    const task = {
+      id: "task-all", title: "导入整合包 很多外部文件", ended: true, result: "机械动力整合包",
+      pending: [
+        { id: "p1", path: "mods/a.jar", reason: "host", host: "files.example.net", note: "下载地址不在允许列表", urls: ["https://files.example.net/a.jar"], options: ["local", "skip", "trust"] },
+        { id: "p2", path: "mods/b.jar", reason: "host", host: "cdn.example.org", note: "下载地址不在允许列表", urls: ["https://cdn.example.org/b.jar"], options: ["local", "skip", "trust"] },
+        { id: "p3", path: "mods/c.jar", reason: "nohash", note: "整合包没有提供这个文件的校验值，不能自动下载", options: ["skip", "local"] },
+      ],
+    };
+    try {
+      await page.evaluate(t => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList: [t], trustedHosts: [] }) }), task);
+      await page.goto(url("#/task/task-all")); await settle();
+      await page.click("#pnd-trust-all"); await settle();
+      const picked = await page.$$eval("#t-pending .pnd-item", els => els.map(e => ({
+        id: e.dataset.id,
+        act: (e.querySelector("input[type=radio]:checked") || {}).value || "",
+        ack: !!(e.querySelector(".pnd-ackbox") || {}).checked,
+      })));
+      assert(JSON.stringify(picked) === JSON.stringify([
+        { id: "p1", act: "trust", ack: false },
+        { id: "p2", act: "trust", ack: false },
+        { id: "p3", act: "", ack: false },
+      ]), "全选范围：" + JSON.stringify(picked));
+      assert((await page.textContent("#t-pending")).includes("不会把 forgecdn 放进全局白名单"), "应写明不会全局放白");
+      assert((await page.textContent("#t-pending")).includes("没有提供这个文件的校验值"), "缺校验的说明还在");
+      await page.click("#pnd-ack-all"); await settle();
+      const acked = await page.$$eval("#t-pending .pnd-item", els => els.map(e => ({
+        id: e.dataset.id,
+        ack: !!(e.querySelector(".pnd-ackbox") || {}).checked,
+        shown: !!(e.querySelector("label.pnd-ack") && !e.querySelector("label.pnd-ack").hidden),
+      })));
+      assert(JSON.stringify(acked) === JSON.stringify([
+        { id: "p1", ack: true, shown: true },
+        { id: "p2", ack: true, shown: true },
+        { id: "p3", ack: false, shown: false },
+      ]), "确认风险只勾已选的信任项：" + JSON.stringify(acked));
+      const tooMany = await page.evaluate(async () => {
+        const items = Array.from({ length: 501 }, (_, i) => ({ id: "x" + i, act: "skip" }));
+        const r = await fetch("/api/instances/" + encodeURIComponent("机械动力整合包") + "/import-pending", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }),
+        });
+        return r.status + " " + await r.text();
+      });
+      assert(tooMany.includes("400") && tooMany.includes("最多 500 项"), "501 应拒绝：" + tooMany);
+    } finally {
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList: [], trustedHosts: [] }) }));
+    }
+  });
+
   await run("待决面板：选了用本地文件代替但没给路径时拦下，给路径后成功", async () => {
     const task = {
       id: "task-im2", title: "导入整合包 魔改模组包", ended: true, result: "机械动力整合包",

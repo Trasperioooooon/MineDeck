@@ -12,7 +12,7 @@
    "icon": "server",
    "lead": "十二种服务端核心都能直接建，从原版到模组服、插件服和群组代理。",
    "points": [
-    "原版：Vanilla。插件服：Paper、Purpur、Leaves、Folia。模组服：Fabric、Forge、NeoForge。模组和插件都能用：Mohist、Banner。群组代理：Velocity、Waterfall。",
+    "原版：Vanilla。插件服：Paper、Purpur、Leaves、Folia。模组服：Fabric、Forge、NeoForge。模组和插件都能用：Mohist、Taiyitist（原 Banner）。群组代理：Velocity、Waterfall。",
     "Minecraft 版本从 1.12.2 起，包括按年份编号的 26.x。版本列表从官方清单读取，以后出的新版本也会出现。"
    ],
    "details": [
