@@ -49,6 +49,20 @@ var Client = &http.Client{
 		ResponseHeaderTimeout: 60 * time.Second,
 		MaxIdleConnsPerHost:   8,
 	},
+	// 重定向地址里带了账号就停下：不把用户名密码再发出去，失败摘要里也不留这段。
+	CheckRedirect: refuseRedirectSecrets,
+}
+
+// refuseRedirectSecrets 默认客户端的重定向检查。次数沿用标准库的 10 次。
+// 地址里的 userinfo（user:password@host）不跟随：那是凭据，失败时也不该出现在日志里。
+func refuseRedirectSecrets(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("重定向次数太多")
+	}
+	if req.URL != nil && req.URL.User != nil {
+		return errors.New("重定向地址带了账号，已停止")
+	}
+	return nil
 }
 
 // Progress 下载进度回调；total 可能为 -1（未知大小）。
@@ -304,15 +318,13 @@ func compactReason(err error) string {
 	return strings.Join(strings.Fields(err.Error()), " ")
 }
 
-func shortURL(u string) string {
-	if i := strings.Index(u, "://"); i >= 0 {
-		rest := u[i+3:]
-		if j := strings.Index(rest, "/"); j >= 0 {
-			return rest[:j]
-		}
-		return rest
+func shortURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		// 解析不了就不要把原文写进日志：原文里可能有查询串或账号。
+		return "下载地址"
 	}
-	return u
+	return u.Host // Host 不含 userinfo
 }
 
 func fetchOne(ctx context.Context, url string, r Request, prog Progress) error {

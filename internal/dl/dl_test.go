@@ -295,6 +295,57 @@ func TestFetchFailureHidesURL(t *testing.T) {
 	}
 }
 
+// 地址里的账号、查询串，以及重定向里夹带的账号，都不能出现在失败摘要里，也不会跟着重定向发出去。
+func TestFetchFailureHidesCredentials(t *testing.T) {
+	old := retryWait
+	retryWait = func(int) time.Duration { return time.Millisecond }
+	defer func() { retryWait = old }()
+	err := Fetch(context.Background(), Request{
+		URLs:    []string{"http://user:s3cret@127.0.0.1:0/jre.zip?arch=x64&token=tok"},
+		Dest:    filepath.Join(t.TempDir(), "jre.zip"),
+		MinSize: 1,
+	}, nil)
+	if err == nil {
+		t.Fatal("应该失败")
+	}
+	msg := err.Error()
+	for _, leak := range []string{"s3cret", "token=tok", "user:"} {
+		if strings.Contains(msg, leak) {
+			t.Fatalf("摘要泄了凭据 %q：%s", leak, msg)
+		}
+	}
+	if !strings.Contains(msg, "127.0.0.1:0") {
+		t.Fatalf("应保留主机名：%s", msg)
+	}
+
+	hit := false
+	next := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit = true
+		http.Error(w, "no", http.StatusForbidden)
+	}))
+	defer next.Close()
+	redir := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://user:s3cret@"+next.Listener.Addr().String()+"/x?token=tok", http.StatusFound)
+	}))
+	defer redir.Close()
+	err = Fetch(context.Background(), Request{
+		URLs:    []string{redir.URL + "/start"},
+		Dest:    filepath.Join(t.TempDir(), "b.bin"),
+		MinSize: 1,
+		Client:  Client,
+	}, nil)
+	if err == nil {
+		t.Fatal("带账号的重定向应失败")
+	}
+	if hit {
+		t.Fatal("不应跟随带账号的重定向")
+	}
+	msg = err.Error()
+	if strings.Contains(msg, "s3cret") || strings.Contains(msg, "token=tok") {
+		t.Fatalf("重定向失败泄了凭据：%s", msg)
+	}
+}
+
 // 连接类错误去掉地址。本机写文件出错时报错是「操作 路径: 原因」，原因在最后，要原样保留，不能截掉。
 func TestCompactReason(t *testing.T) {
 	ue := &url.Error{Op: "Get", URL: "https://staticassets.naids.com/client/OF_x/frpc_windows_amd64.zip?sig=abc", Err: errors.New("dial tcp: i/o timeout")}
