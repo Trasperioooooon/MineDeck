@@ -235,6 +235,11 @@ func (c *cat) instanceOps() {
 		},
 	})
 
+	// pendingResolveMax 一次「处理没装上的文件」最多带多少项。整合包里白名单外的文件可以有几百个，
+	// 50 会让界面一次提交就报「参数 items 最多 50 项」。500 接受、501 拒绝。界面按这个数分批提交。
+	// 不因此把 forgecdn 放进全局白名单：每一项仍要用户选 trust，并按原来的规则确认站点、校验 SHA-1。
+	const pendingResolveMax = 500
+
 	// 逐项处置导入的待决文件：跳过、保留本地已有 / 手动指定的文件、确认信任自定义站点后下载。
 	// 触到主机上的任意路径（local 的路径、来源目录），和接管一样只许本机的人操作。
 	const importPendingLocalMsg = "处理没装上的文件仅支持在本机操作（要读、要收这台电脑上的文件）"
@@ -252,7 +257,7 @@ func (c *cat) instanceOps() {
 				"path": ops.String("act=local：本地文件路径，或目录路径（按待决文件的相对路径和 mods 下的同名文件找）").Len(0, 300),
 				"url":  ops.String("act=trust：从候选地址的哪一条下载（要和待决记录里列出的一致）").Len(0, 2000),
 				"ack":  ops.Boolean("act=trust：用户已读过风险说明、确认信任这个站点（每个站点第一次必须确认）"),
-			}, "id", "act")).MaxLen(50),
+			}, "id", "act")).MaxLen(pendingResolveMax),
 		}, "taskId", "items"),
 		Run: func(ctx context.Context, _ ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[struct {
@@ -309,7 +314,7 @@ func (c *cat) instanceOps() {
 				"path": ops.String("act=local：本地文件路径，或目录路径（按文件的相对路径和 mods 下的同名文件找）").Len(0, 300),
 				"url":  ops.String("act=trust：从候选地址的哪一条下载（要和清单里列出的一致）").Len(0, 2000),
 				"ack":  ops.Boolean("act=trust：用户已读过风险说明、确认信任这个站点（每个站点第一次必须确认）"),
-			}, "id", "act")).MaxLen(50),
+			}, "id", "act")).MaxLen(pendingResolveMax),
 		}, "items"),
 		Run: func(ctx context.Context, _ ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[struct {
