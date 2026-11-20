@@ -132,6 +132,7 @@ func New(env Env) *ops.Registry {
 	c.playerOps()
 	c.resourceOps()
 	c.mcOps()
+	c.creatingOps()
 	c.tunnelOps()
 	c.accountOps() // 穿透平台账户（OpenFrp / Sakura），Accounts 为 nil 时跳过
 	c.logOps()

@@ -145,8 +145,19 @@ func fromTUNA(ctx context.Context, major int, logf func(string, ...any), prog dl
 	name := ms[len(ms)-1][1] // 目录按版本升序，取最新
 	sha := ""
 	if sb, err := dl.FetchBytes(ctx, []string{base + name + ".sha256.txt"}); err == nil {
-		if fields := strings.Fields(string(sb)); len(fields) > 0 {
+		if fields := strings.Fields(string(sb)); len(fields) > 0 && looksLikeSHA256(fields[0]) {
 			sha = fields[0]
+		}
+	}
+	if sha == "" {
+		// 2026-11-20 清华目录里有 8/11/17/21 的 zip，旁边的 .sha256.txt 是 404。
+		// 文件名和 Adoptium 当前发布的一致时，用 Adoptium 公布的校验值，不拿镜像自己的页面当校验。
+		if sum, ok := adoptiumChecksumFor(ctx, major, name); ok {
+			sha = sum
+			logf("清华镜像没有 %s 的校验文件，改用 Adoptium 公布的 SHA-256", name)
+		} else {
+			logf("清华镜像没有 %s 的校验文件，且对不上 Adoptium 当前发布的文件名，不在没有校验的情况下使用这份压缩包", name)
+			return fmt.Errorf("清华镜像的 %s 没有可用的校验值", name)
 		}
 	}
 	logf("从清华镜像下载 %s", name)
@@ -183,10 +194,25 @@ func fromAdoptium(ctx context.Context, major int, logf func(string, ...any), pro
 			if p.Link == "" || !strings.HasSuffix(p.Name, ".zip") {
 				continue
 			}
-			logf("从 Adoptium 官方源下载 %s", p.Name)
+			if !looksLikeSHA256(p.Checksum) {
+				logf("Adoptium 没有给出 %s 的 SHA-256，跳过这一条", p.Name)
+				continue
+			}
+			urls := []string{p.Link}
+			if !app.OfficialOnly() {
+				// 同一文件名先试清华。校验值仍是 Adoptium 公布的，对不上就换官方地址（多半在 GitHub）。
+				// 没有把华为云、阿里云写进来：2026-11-20 抽查时，缺文件的地址也返回 200 的网页，不能当镜像。
+				urls = []string{
+					fmt.Sprintf("https://mirrors.tuna.tsinghua.edu.cn/Adoptium/%d/jre/x64/windows/%s", major, p.Name),
+					p.Link,
+				}
+				logf("按 Adoptium 公布的 SHA-256 下载 %s（先试清华镜像上的同名文件）", p.Name)
+			} else {
+				logf("从 Adoptium 官方源下载 %s", p.Name)
+			}
 			zipPath := filepath.Join(app.CacheDir, "java", p.Name)
 			if err := dl.Fetch(ctx, dl.Request{
-				URLs: []string{p.Link}, Dest: zipPath, SHA256: p.Checksum, MinSize: 10 << 20,
+				URLs: urls, Dest: zipPath, SHA256: p.Checksum, MinSize: 10 << 20,
 			}, prog); err != nil {
 				return err
 			}
@@ -194,6 +220,72 @@ func fromAdoptium(ctx context.Context, major int, logf func(string, ...any), pro
 		}
 	}
 	return fmt.Errorf("Adoptium 没有 Java %d 的 Windows 64 位版本", major)
+}
+
+// looksLikeSHA256 是不是 64 位十六进制。镜像页面、HTML 404 不能拿来当校验值。
+func looksLikeSHA256(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+// adoptiumChecksumFor 向 Adoptium API 要「这个文件名」的 SHA-256。
+// 先看当前发布，对不上再看最近几份正式版：清华镜像经常比「最新」晚一个小版本，
+// 校验值必须对上这一个文件名，不能拿另一份的校验值去套。两边都没有就不用这份压缩包。
+func adoptiumChecksumFor(ctx context.Context, major int, name string) (string, bool) {
+	latest := fmt.Sprintf(
+		"https://api.adoptium.net/v3/assets/latest/%d/hotspot?os=windows&architecture=x64&image_type=jre&vendor=eclipse",
+		major)
+	var current []struct {
+		Binary struct {
+			Package struct {
+				Checksum string `json:"checksum"`
+				Name     string `json:"name"`
+			} `json:"package"`
+		} `json:"binary"`
+	}
+	if err := dl.FetchJSON(ctx, []string{latest}, &current); err == nil {
+		for _, a := range current {
+			if sum, ok := checksumNamed(a.Binary.Package.Name, a.Binary.Package.Checksum, name); ok {
+				return sum, true
+			}
+		}
+	}
+	page := fmt.Sprintf(
+		"https://api.adoptium.net/v3/assets/feature_releases/%d/ga?os=windows&architecture=x64&image_type=jre&vendor=eclipse&page=0&page_size=10",
+		major)
+	var releases []struct {
+		Binaries []struct {
+			Package struct {
+				Checksum string `json:"checksum"`
+				Name     string `json:"name"`
+			} `json:"package"`
+		} `json:"binaries"`
+	}
+	if err := dl.FetchJSON(ctx, []string{page}, &releases); err != nil {
+		return "", false
+	}
+	for _, rel := range releases {
+		for _, b := range rel.Binaries {
+			if sum, ok := checksumNamed(b.Package.Name, b.Package.Checksum, name); ok {
+				return sum, true
+			}
+		}
+	}
+	return "", false
+}
+
+func checksumNamed(gotName, sum, want string) (string, bool) {
+	if gotName == want && looksLikeSHA256(sum) {
+		return strings.ToLower(sum), true
+	}
+	return "", false
 }
 
 // ---------- 来源 3：Mojang 官方 Java 运行时（BMCLAPI 可镜像，逐文件下载） ----------
