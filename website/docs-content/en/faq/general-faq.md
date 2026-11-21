@@ -38,7 +38,7 @@ There are two common causes:
 Minecraft **1.12.2 through current releases including `26.x`** across **12 server cores**:
 - Vanilla, Paper, Purpur, Leaves, Folia
 - Fabric, NeoForge, Forge (Quilt is not supported)
-- Mohist, Banner (note: paths cannot contain Chinese or non-ASCII characters)
+- Mohist, Taiyitist, formerly Banner (note: paths cannot contain Chinese or non-ASCII characters)
 - Velocity & Waterfall proxies
 
 ## The server failed to start — where should I check first? {#crashes}

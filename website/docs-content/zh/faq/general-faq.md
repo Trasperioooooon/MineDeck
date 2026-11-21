@@ -35,7 +35,7 @@ draft: false
 
 ## 支持哪些 Minecraft 版本与核心？ {#versions}
 
-支持 Minecraft **1.12.2 到最新正式版**（包含按年份编号的 `26.x`），共内置 12 种服务端核心：原版 `Vanilla 原版`，插件服 `Paper`、`Purpur`、`Leaves`、`Folia`，模组服 `Fabric`、`NeoForge`、`Forge`，混合服 `Mohist`、`Banner`，以及群组代理端 `Velocity` 和 `Waterfall`。同时也支持直接导入 Modrinth（`.mrpack`）与 CurseForge（`.zip`）整合包，以及作者打包好的现成服务端压缩包。详见 [新建服务器：从零创建](../server-setup/create-server.md)。
+支持 Minecraft **1.12.2 到最新正式版**（包含按年份编号的 `26.x`），共内置 12 种服务端核心：原版 `Vanilla 原版`，插件服 `Paper`、`Purpur`、`Leaves`、`Folia`，模组服 `Fabric`、`NeoForge`、`Forge`，混合服 `Mohist`、`Taiyitist`（原 Banner），以及群组代理端 `Velocity` 和 `Waterfall`。同时也支持直接导入 Modrinth（`.mrpack`）与 CurseForge（`.zip`）整合包，以及作者打包好的现成服务端压缩包。详见 [新建服务器：从零创建](../server-setup/create-server.md)。
 
 ## 新建服务器后「白名单」为什么默认是关的？ {#whitelist}
 

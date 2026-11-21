@@ -15,7 +15,7 @@ draft: false
 
 - **Paper / Purpur / Leaves / Folia / Velocity / Waterfall**：标签叫 **「插件」**；
 - **Fabric / NeoForge / Forge**：标签叫 **「模组」**；
-- **Mohist / Banner**（混合服）：标签叫 **「插件和模组」**（界面列表目前统一管理 `mods/` 目录下的文件）。
+- **Mohist / Taiyitist（原 Banner）**（混合服）：标签叫 **「插件和模组」**（界面列表目前统一管理 `mods/` 目录下的文件）。
 
 ## 上半区：管理已安装的模组或插件 {#installed}
 
