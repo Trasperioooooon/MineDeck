@@ -4,12 +4,14 @@ package update
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -252,6 +254,9 @@ func compare(a, b string) int {
 	return 0
 }
 
+// errNoSelfUpdate 换程序的那一步（run_windows.go）只有 Windows 版有；Mac 版先拦下，不白下一个 Windows 的 exe。
+var errNoSelfUpdate = errors.New("Mac 版还不能在程序里自动更新，请到发布页下载新版本")
+
 // Apply 下载新版并写入换血脚本；调用方随后应触发程序退出。
 func Apply(ctx context.Context, r *Release) error {
 	if r.AssetURL == "" {
@@ -260,6 +265,9 @@ func Apply(ctx context.Context, r *Release) error {
 	if r.SHA256 == "" {
 		// 无官方校验和则拒绝：避免经第三方镜像下载并执行未经校验的 exe（供应链/MITM RCE）
 		return fmt.Errorf("拿不到这个版本的 SHA256SUMS（文件没有，或下不下来）。没有这份校验，已取消更新。")
+	}
+	if runtime.GOOS != "windows" {
+		return errNoSelfUpdate
 	}
 	exe, err := os.Executable()
 	if err != nil {

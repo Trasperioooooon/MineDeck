@@ -519,5 +519,5 @@ func (m *Manager) OpenDir(name, sub string) error {
 	if st, err := os.Stat(target); err != nil || !st.IsDir() {
 		return fmt.Errorf("这个文件夹还不存在（服务器可能还没生成它）")
 	}
-	return exec.Command("explorer.exe", filepath.Clean(target)).Start()
+	return procutil.OpenFolder(target)
 }

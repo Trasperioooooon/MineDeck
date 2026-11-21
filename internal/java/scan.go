@@ -11,13 +11,10 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"minedeck/internal/app"
-
-	"golang.org/x/sys/windows"
-	"golang.org/x/sys/windows/registry"
+	"minedeck/internal/procutil"
 )
 
 // ScannedJava 本机已安装（非本工具便携部署）的 Java。
@@ -59,7 +56,7 @@ func saveCache(list []ScannedJava) {
 	}
 }
 
-// Scan 扫描本机 Java（注册表 / JAVA_HOME / PATH / 常见安装目录），验证版本后缓存。
+// Scan 扫描本机 Java（注册表或系统的 Java 目录 / JAVA_HOME / PATH / 常见安装目录），验证版本后缓存。
 func Scan() []ScannedJava {
 	seen := map[string]string{} // lower(path) -> 原始路径
 	add := func(p string) {
@@ -67,10 +64,13 @@ func Scan() []ScannedJava {
 			return
 		}
 		p = filepath.Clean(p)
-		if st, err := os.Stat(p); err == nil && st.IsDir() {
-			p = filepath.Join(p, "bin", "java.exe")
+		if skipJava(p) {
+			return
 		}
-		if !strings.EqualFold(filepath.Base(p), "java.exe") {
+		if st, err := os.Stat(p); err == nil && st.IsDir() {
+			p = homeExe(p)
+		}
+		if !strings.EqualFold(filepath.Base(p), exeName) {
 			return
 		}
 		if _, err := os.Stat(p); err != nil {
@@ -80,76 +80,20 @@ func Scan() []ScannedJava {
 		if strings.HasPrefix(strings.ToLower(p), strings.ToLower(app.RuntimesDir)) {
 			return
 		}
-		seen[strings.ToLower(p)] = p
+		seen[seenKey(p)] = p
 	}
 
-	// 1. 注册表
-	for _, root := range []string{`SOFTWARE\JavaSoft`, `SOFTWARE\WOW6432Node\JavaSoft`} {
-		for _, sub := range []string{"JDK", "JRE", "Java Development Kit", "Java Runtime Environment"} {
-			k, err := registry.OpenKey(registry.LOCAL_MACHINE, root+`\`+sub, registry.READ)
-			if err != nil {
-				continue
-			}
-			names, _ := k.ReadSubKeyNames(-1)
-			for _, n := range names {
-				vk, err := registry.OpenKey(registry.LOCAL_MACHINE, root+`\`+sub+`\`+n, registry.READ)
-				if err != nil {
-					continue
-				}
-				if home, _, err := vk.GetStringValue("JavaHome"); err == nil {
-					add(home)
-				}
-				vk.Close()
-			}
-			k.Close()
-		}
-	}
+	// 1. 系统登记的（Windows 是注册表；按平台，见 scan_windows.go / scan_darwin.go）
+	registeredJavas(add)
 
 	// 2. JAVA_HOME 与 PATH
 	add(os.Getenv("JAVA_HOME"))
 	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
-		add(filepath.Join(dir, "java.exe"))
+		add(filepath.Join(dir, exeName))
 	}
 
-	// 3. 常见安装目录
-	home, _ := os.UserHomeDir()
-	var roots []string
-	for _, pf := range []string{os.Getenv("ProgramFiles"), os.Getenv("ProgramFiles(x86)")} {
-		if pf == "" {
-			continue
-		}
-		for _, vendor := range []string{
-			"Java", "Eclipse Adoptium", "Eclipse Foundation", "Microsoft",
-			"Zulu", "BellSoft", "Amazon Corretto", "AdoptOpenJDK", "Semeru",
-		} {
-			roots = append(roots, filepath.Join(pf, vendor))
-		}
-	}
-	if home != "" {
-		roots = append(roots, filepath.Join(home, ".jdks"))
-		// 官方启动器 / 第三方启动器的运行时目录
-		for _, pat := range []string{
-			filepath.Join(os.Getenv("APPDATA"), ".minecraft", "runtime", "*", "windows-x64", "*"),
-			filepath.Join(home, "AppData", "Roaming", ".minecraft", "runtime", "*", "windows-x64", "*"),
-		} {
-			if ms, _ := filepath.Glob(pat); ms != nil {
-				for _, m := range ms {
-					add(m)
-				}
-			}
-		}
-	}
-	for _, r := range roots {
-		ents, err := os.ReadDir(r)
-		if err != nil {
-			continue
-		}
-		for _, e := range ents {
-			if e.IsDir() {
-				add(filepath.Join(r, e.Name()))
-			}
-		}
-	}
+	// 3. 常见安装目录（按平台）
+	commonJavaDirs(add)
 
 	// 4. 并发验证版本
 	type result struct {
@@ -195,7 +139,7 @@ func probeJava(path string) (version string, major int, ok bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, "-version")
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
+	procutil.HideWindow(cmd)
 	out, err := cmd.CombinedOutput() // -version 输出在 stderr
 	if err != nil {
 		return "", 0, false
@@ -213,11 +157,11 @@ func probeJava(path string) (version string, major int, ok bool) {
 func AddManual(path string) (*ScannedJava, error) {
 	p := filepath.Clean(path)
 	if st, err := os.Stat(p); err == nil && st.IsDir() {
-		p = filepath.Join(p, "bin", "java.exe")
+		p = homeExe(p)
 	}
 	// 只允许指向 java 可执行文件本身，避免把任意 exe 交给 probeJava 执行
-	if base := strings.ToLower(filepath.Base(p)); base != "java.exe" && base != "javaw.exe" {
-		return nil, fmt.Errorf("请选择 java.exe（或 Java 的安装文件夹）")
+	if !IsExeName(filepath.Base(p)) {
+		return nil, fmt.Errorf("请选择 %s（或 Java 的安装文件夹）", exeName)
 	}
 	ver, major, ok := probeJava(p)
 	if !ok {

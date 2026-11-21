@@ -14,8 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/sys/windows"
-
 	"minedeck/internal/inst"
 	"minedeck/internal/winname"
 )
@@ -176,38 +174,6 @@ func worldDirNames(level string) []string {
 
 // ---------- 改名 ----------
 
-// moveFile 用 MoveFileEx 改名，带 WRITE_THROUGH：返回时改名已经落盘。不带 COPY_ALLOWED：跨盘就失败，
-// 不会退化成「复制一半再删」。replace 只给记录文件用；目录一律不覆盖已有的目标。
-func moveFile(from, to string, replace bool) error {
-	f, err := windows.UTF16PtrFromString(longPath(from))
-	if err != nil {
-		return err
-	}
-	t, err := windows.UTF16PtrFromString(longPath(to))
-	if err != nil {
-		return err
-	}
-	flags := uint32(windows.MOVEFILE_WRITE_THROUGH)
-	if replace {
-		flags |= windows.MOVEFILE_REPLACE_EXISTING
-	}
-	if err := windows.MoveFileEx(f, t, flags); err != nil {
-		return &os.LinkError{Op: "rename", Old: from, New: to, Err: err}
-	}
-	return nil
-}
-
-// longPath 超过 260 个字符的绝对路径加上 \\?\ 前缀（MoveFileEx 不像 os 包那样自动加）。
-func longPath(p string) string {
-	if len(p) < 248 || strings.HasPrefix(p, `\\?\`) || !filepath.IsAbs(p) {
-		return p
-	}
-	if strings.HasPrefix(p, `\\`) {
-		return `\\?\UNC\` + p[2:]
-	}
-	return `\\?\` + p
-}
-
 func exists(p string) bool {
 	_, err := os.Lstat(p)
 	return err == nil
@@ -266,11 +232,11 @@ func explainMove(err error, s Step) error {
 	var le *os.LinkError
 	if errors.As(err, &le) {
 		switch {
-		case errors.Is(le.Err, windows.ERROR_SHARING_VIOLATION), errors.Is(le.Err, windows.ERROR_ACCESS_DENIED), errors.Is(le.Err, windows.ERROR_LOCK_VIOLATION):
+		case busyErr(le.Err):
 			return fmt.Errorf("「%s」正被别的程序占用（可能是手动启动的服务器、打开着的资源管理器或杀毒软件），没法移动：%w", s.From, err)
-		case errors.Is(le.Err, windows.ERROR_NOT_SAME_DEVICE):
+		case crossDeviceErr(le.Err):
 			return fmt.Errorf("「%s」和目标不在同一个盘上，没法直接移动：%w", s.From, err)
-		case errors.Is(le.Err, windows.ERROR_DISK_FULL), errors.Is(le.Err, windows.ERROR_HANDLE_DISK_FULL):
+		case diskFullErr(le.Err):
 			return fmt.Errorf("磁盘空间不够：%w", err)
 		}
 	}

@@ -3,11 +3,8 @@ package inst
 import (
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
-
-	"golang.org/x/sys/windows"
 )
 
 // fastSettle 把「等服务器稳定下来」的间隔调短（真的时钟）。
@@ -267,19 +264,4 @@ func TestScheduledBackupRetriesWhenZipFailsDuringRestart(t *testing.T) {
 			}
 		})
 	}
-}
-
-// lockExclusive 用不许别人共享的方式打开一个文件，返回放开它的函数（模拟服务端或杀毒软件正占着它）。
-func lockExclusive(t *testing.T, path string) func() {
-	t.Helper()
-	p, err := windows.UTF16PtrFromString(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h, err := windows.CreateFile(p, windows.GENERIC_READ, 0, nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var once sync.Once
-	return func() { once.Do(func() { windows.CloseHandle(h) }) }
 }

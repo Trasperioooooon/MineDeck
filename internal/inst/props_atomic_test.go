@@ -11,8 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/sys/windows"
-
 	"minedeck/internal/atomicfile"
 )
 
@@ -76,15 +74,11 @@ func TestPropsSaveNeverLeavesFileMissing(t *testing.T) {
 	}
 
 	// 原文件正被别的程序独占着：保存失败，原文件原样留着，不留临时文件
-	ptr, _ := windows.UTF16PtrFromString(path)
-	h, err := windows.CreateFile(ptr, windows.GENERIC_READ, 0, nil, windows.OPEN_EXISTING, 0, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	unlock := lockExclusive(t, path)
 	p.Set("difficulty", "peaceful")
 	serr := p.Save(path)
 	ferr := ForceProp(path, "difficulty", "peaceful")
-	windows.CloseHandle(h)
+	unlock()
 	if serr == nil || ferr == nil {
 		t.Errorf("原文件被独占时保存应当报错：Save=%v ForceProp=%v", serr, ferr)
 	}
