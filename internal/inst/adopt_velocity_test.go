@@ -13,11 +13,14 @@ func TestScanVelocityJarAndToml(t *testing.T) {
 	const vel = "zip:META-INF/MANIFEST.MF=Manifest-Version: 1.0\r\nImplementation-Version: 1.1.9\r\nImplementation-Title: Velocity\r\nMain-Class: com.velocitypowered.proxy.Velocity\r\n\r\n"
 	const paper = "zip:" + "META-INF/MANIFEST.MF=Manifest-Version: 1.0\r\nMain-Class: io.papermc.paperclip.Paperclip\r\n\r\n" +
 		"|META-INF/versions.list=abc\t1.21.1\t1.21.1/paper-1.21.1.jar\n"
+	const paperOld = "zip:" + "META-INF/MANIFEST.MF=Manifest-Version: 1.0\r\nMain-Class: io.papermc.paperclip.Paperclip\r\n\r\n" +
+		"|META-INF/versions.list=abc\t1.20.1\t1.20.1/paper-1.20.1.jar\n"
 	toml := "config-version = \"2.7\"\nbind = \"0.0.0.0:25577\"\nonline-mode = true\n"
 
-	t.Run("有 velocity.toml 时不因版本号更小而输给 Paper", func(t *testing.T) {
+	t.Run("有 velocity.toml 时不因版本号更小而输给 Paper 或混合端", func(t *testing.T) {
 		dir := filepath.Join(t.TempDir(), "proxy")
-		writeTree(t, dir, map[string]string{"paper.jar": paper, "velocity.jar": vel, "velocity.toml": toml})
+		mohist := "zip:META-INF/MANIFEST.MF=Manifest-Version: 1.0\r\nMain-Class: com.mohistmc.MohistMCStart\r\n\r\n|META-INF/versions.list=abc\t1.20.1\t1.20.1/mohist-1.20.1.jar\n"
+		writeTree(t, dir, map[string]string{"a-mohist.jar": mohist, "paper.jar": paper, "velocity.jar": vel, "velocity.toml": toml})
 		sc, err := scanServerDir(dir)
 		if err != nil {
 			t.Fatal(err)
@@ -45,6 +48,60 @@ func TestScanVelocityJarAndToml(t *testing.T) {
 		}
 		if !strings.Contains(strings.Join(sc.Notes, "\n"), "不止一种") {
 			t.Fatalf("应说明有歧义：%v", sc.Notes)
+		}
+	})
+
+	t.Run("同分不同核心夹在中间时仍能选出同核心的新版本", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "sandwich")
+		writeTree(t, dir, map[string]string{
+			"a-paper-1.20.1.jar": paperOld,
+			"b-velocity.jar":     vel,
+			"c-paper-1.21.1.jar": paper,
+		})
+		sc, err := scanServerDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sc.Core != "paper" || sc.LaunchTarget != "jar:c-paper-1.21.1.jar" || sc.MC != "1.21.1" {
+			t.Fatalf("应选出新版 Paper 1.21.1，实际：%+v", sc)
+		}
+	})
+
+	t.Run("启动脚本明确点名 Paper 时，即使有 velocity.toml 也不说按 Velocity 预填", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "scripted")
+		writeTree(t, dir, map[string]string{
+			"paper.jar":     paper,
+			"velocity.jar":  vel,
+			"velocity.toml": toml,
+			"run.bat":       "java -Xmx4G -jar paper.jar nogui\r\n",
+		})
+		sc, err := scanServerDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sc.Core != "paper" || sc.LaunchTarget != "jar:paper.jar" {
+			t.Fatalf("启动脚本点名应选 Paper：%+v", sc)
+		}
+		notes := strings.Join(sc.Notes, "\n")
+		if strings.Contains(notes, "按 Velocity 预填") {
+			t.Fatalf("实际选了 Paper，提示不应说按 Velocity 预填：%s", notes)
+		}
+	})
+
+	t.Run("普通 Fabric 与配套原版 jar 并存不误报多种服务端", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "fabric-std")
+		fab := "zip:META-INF/MANIFEST.MF=Manifest-Version: 1.0\r\nMain-Class: net.fabricmc.loader.impl.launch.server.FabricServerLauncher\r\n\r\n|install.properties=game-version=1.21.1\nfabric-loader-version=0.16.9\n"
+		van := "zip:META-INF/MANIFEST.MF=Manifest-Version: 1.0\r\nMain-Class: net.minecraft.bundler.Main\r\n\r\n|version.json={\"id\":\"1.21.1\",\"java_version\":21}"
+		writeTree(t, dir, map[string]string{"fabric-server-launch.jar": fab, "server.jar": van})
+		sc, err := scanServerDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sc.Core != "fabric" {
+			t.Fatalf("应认成 Fabric：%+v", sc)
+		}
+		if strings.Contains(strings.Join(sc.Notes, "\n"), "不止一种服务端") {
+			t.Fatalf("标准 Fabric + server.jar 不应误报混放：%v", sc.Notes)
 		}
 	})
 

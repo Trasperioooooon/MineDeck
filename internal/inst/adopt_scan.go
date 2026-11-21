@@ -141,7 +141,7 @@ func scanServerDir(dir string) (*AdoptScan, error) {
 	sawVelocityToml := regularFile(filepath.Join(dir, "velocity.toml"))
 	if len(cands) == 0 {
 		if sawVelocityToml {
-			return nil, fmt.Errorf("这个文件夹里有 velocity.toml，但没有认出能启动的 Velocity jar。请确认 jar 在最外层，且清单里的 Main-Class 还是 com.velocitypowered。没有改你的配置")
+			return nil, fmt.Errorf("这个文件夹里有 velocity.toml，但最外层没有认出可启动的 Velocity 服务端 jar（请确认 jar 在最外层且入口类为 com.velocitypowered）。未改动你的配置")
 		}
 		return nil, noServerErr(dir)
 	}
@@ -164,24 +164,55 @@ func scanServerDir(dir string) (*AdoptScan, error) {
 		if sc.prev != nil && strings.EqualFold(c.Target, sc.prev.LaunchTarget) {
 			c.rank += rankPrev
 		}
-		// 有 velocity.toml 时，代理端比同级的游戏 jar 优先。启动脚本点名的已经加了 rankScript（100），仍比这个高。
+		// 有 velocity.toml 时，代理端比未点名的其他服务端优先（30+25=55 > rankArgs=50）；启动脚本点名的加了 rankScript（100），仍更高。
 		if sawVelocityToml && c.Core == string(mcsrc.CoreVelocity) {
-			c.rank += 15
+			c.rank += 25
 		}
 	}
-	// 分数高的在前。分数一样时，只在同一种核心里比版本：Velocity 3.4 和 Paper 1.21 的版本号不是一回事，
-	// 拿来比会把代理端认成游戏服，或反过来。
-	sort.SliceStable(cands, func(a, b int) bool {
-		if cands[a].rank != cands[b].rank {
-			return cands[a].rank > cands[b].rank
+	// 分数高的在前。同分时按各核心首次出现的顺序分组，同一种核心内部再按版本新旧排：
+	// 既保证严格弱序（中间夹着别的核心也不会漏选同核心的新版），又不拿 Velocity 版本号和 Minecraft 版本跨核心比大小。
+	coreOrder := make(map[string]int, len(cands))
+	for i, c := range cands {
+		if c.Core != "" {
+			if _, ok := coreOrder[c.Core]; !ok {
+				coreOrder[c.Core] = i
+			}
 		}
-		if cands[a].Core != "" && cands[a].Core == cands[b].Core {
-			if x, y := cands[a].MC, cands[b].MC; x != "" && y != "" && x != y {
+	}
+	groupOf := func(idx int) int {
+		if c := cands[idx].Core; c != "" {
+			return coreOrder[c]
+		}
+		return idx
+	}
+	idxs := make([]int, len(cands))
+	for i := range idxs {
+		idxs[i] = i
+	}
+	sort.SliceStable(idxs, func(a, b int) bool {
+		ia, ib := idxs[a], idxs[b]
+		ca, cb := cands[ia], cands[ib]
+		if ca.rank != cb.rank {
+			return ca.rank > cb.rank
+		}
+		if ga, gb := groupOf(ia), groupOf(ib); ga != gb {
+			return ga < gb
+		}
+		if ca.Core != "" && ca.Core == cb.Core {
+			if x, y := ca.MC, cb.MC; x != "" && y != "" && x != y {
+				return versionLess(y, x)
+			}
+			if x, y := ca.Build, cb.Build; x != "" && y != "" && x != y {
 				return versionLess(y, x)
 			}
 		}
 		return false
 	})
+	sorted := make([]adoptCand, len(cands))
+	for i, k := range idxs {
+		sorted[i] = cands[k]
+	}
+	cands = sorted
 	top := cands[0]
 	// MineDeck 管过的目录、启动文件也还是原来那个：核心和版本信 instance.json 里记的
 	trustPrev := false
@@ -195,8 +226,10 @@ func scanServerDir(dir string) (*AdoptScan, error) {
 		sc.Targets = append(sc.Targets, cands[i].AdoptTarget)
 	}
 	sc.LaunchTarget, sc.Core, sc.MC, sc.Build, sc.JavaMajor = top.Target, top.Core, top.MC, top.Build, top.JavaMajor
-	if note := mixedServerNote(cands, sawVelocityToml); note != "" {
-		sc.Notes = append(sc.Notes, note)
+	if !trustPrev {
+		if note := mixedServerNote(cands, top, sawVelocityToml, hints.targets[strings.ToLower(top.Target)]); note != "" {
+			sc.Notes = append(sc.Notes, note)
+		}
 	}
 
 	// 内存和 JVM 参数
@@ -429,7 +462,7 @@ func inspectJar(p string) (adoptCand, bool) {
 		// 2026-11-20：TaiyitistMC/Banner 的 README 指向 TaiyitistMC/Taiyitist，GitHub 再 301 到 Teneted/Taiyitist。
 		// 1.21.1 分支的清单主类是 com.taiyitistmc.TaiyitistLauncher。内部 id 仍是 banner，不改下载地址。
 		c.Core, c.rank, c.MC = string(mcsrc.CoreBanner), rankHybrid, inner
-		c.note = "这是 Taiyitist（原 Banner）。MineDeck 仍按 banner 管理，没有改下载地址，也没有改你的文件。"
+		c.note = "这是 Taiyitist（原 Banner），未改动你的文件；后续仍按原 Banner 类型管理。"
 	case strings.Contains(lmain, "banner"):
 		c.Core, c.rank, c.MC = string(mcsrc.CoreBanner), rankHybrid, inner
 	case strings.Contains(lmain, "mohist"):
@@ -852,21 +885,28 @@ func regularFile(p string) bool {
 	return err == nil && st.Mode().IsRegular()
 }
 
-// mixedServerNote 一个文件夹里认出了不止一种服务端时给人看的一句。不改任何文件。
-func mixedServerNote(cands []adoptCand, sawVelocityToml bool) string {
+// mixedServerNote 一个文件夹里认出了不止一种独立服务端时给人看的提示。不改任何文件。
+// Fabric、Forge 等加载器与配套的原版 server.jar 并存属于正常结构，不弹混放提示。
+func mixedServerNote(cands []adoptCand, top adoptCand, sawVelocityToml, scripted bool) string {
 	cores := map[string]bool{}
 	for _, c := range cands {
 		if c.Core != "" {
 			cores[c.Core] = true
 		}
 	}
+	if len(cores) == 2 && cores[string(mcsrc.CoreVanilla)] {
+		switch mcsrc.Core(top.Core) {
+		case mcsrc.CoreFabric, mcsrc.CoreForge, mcsrc.CoreNeoForge, mcsrc.CoreMohist, mcsrc.CoreBanner:
+			return ""
+		}
+	}
 	if len(cores) < 2 {
 		return ""
 	}
-	if sawVelocityToml && cores[string(mcsrc.CoreVelocity)] {
-		return "这个文件夹里不只有 Velocity。因为有 velocity.toml，先按 Velocity 预填。要改的话在启动方式里选另一个。没有改你的配置。"
+	if top.Core == string(mcsrc.CoreVelocity) && sawVelocityToml && !scripted {
+		return "这个文件夹里有不止一种服务端；因存在 velocity.toml，已先按 Velocity 预填。如需更改请在「启动文件」里选择其他项，未改动你的配置。"
 	}
-	return "这个文件夹里有不止一种服务端。没有用版本号把代理端和游戏服比大小，先按文件名和启动脚本预填。请在启动方式里确认。没有改你的配置。"
+	return "这个文件夹里有不止一种服务端，已按启动脚本和文件名预填，请在「启动文件」里确认。未改动你的配置。"
 }
 
 // noServerErr 文件夹里没找到服务端时的报错：下一层有像服务器的文件夹就点出来（常见的是选到了上一层）。

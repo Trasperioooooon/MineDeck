@@ -1,14 +1,20 @@
 package inst
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"minedeck/internal/app"
+	"minedeck/internal/winname"
 )
+
+// ErrCreatingConflict 半成品目录当前正在创建或已是登记服务器，拒绝删除时包装此错误（操作层映射为 409）。
+var ErrCreatingConflict = errors.New("creating leftover conflict")
 
 // WriteCreatingMarker 在还没登记的新目录里写下「这次创建还没完成」。
 // 只写我们自己的记号文件，不碰世界、配置。已经登记的服务器不靠这个文件判断。
@@ -26,7 +32,7 @@ func ClearCreatingMarker(dir string) error {
 }
 
 // CreatingLeftover 一次创建没走完、进程重启以后还留在磁盘上的目录。
-// 只包括「在某个服务器根目录的直接子目录里、有创建记号、没有 instance.json」的。
+// 只包括「在某个服务器根目录的直接子目录里、有创建记号、没有 instance.json（及 .bak/.tmp）」的真文件夹。
 // 接管进来的目录、用户自己放的目录没有这个记号，不会出现在这里。
 type CreatingLeftover struct {
 	ID       string `json:"id"`   // 交给删除接口的编号，不是任意路径
@@ -35,32 +41,43 @@ type CreatingLeftover struct {
 	HasWorld bool   `json:"hasWorld"`
 }
 
-// CreatingLeftovers 列出可以手动删的半成品。有 instance.json 的只去掉记号，不列入、不删目录。
+// CreatingLeftovers 列出可以手动删的半成品。有 instance.json（或移出列表留下的 .bak）的只去掉记号，不列入、不删目录。
 func (m *Manager) CreatingLeftovers() []CreatingLeftover {
 	var out []CreatingLeftover
 	for i, root := range app.InstanceRoots() {
+		if !plainCreatingDir(root) {
+			continue
+		}
 		ents, err := os.ReadDir(root)
 		if err != nil {
 			continue
 		}
 		for _, e := range ents {
-			if !e.IsDir() {
+			if !e.IsDir() || e.Type()&(fs.ModeSymlink|fs.ModeIrregular) != 0 {
 				continue
 			}
-			dir := filepath.Join(root, e.Name())
+			name := e.Name()
+			if !winname.OK(name) {
+				continue
+			}
+			dir := filepath.Join(root, name)
 			if !creatingMarkerOwned(dir) {
 				continue
 			}
-			if _, err := os.Lstat(filepath.Join(dir, "instance.json")); err == nil {
+			registered, checkErr := checkNoInstanceFiles(dir)
+			if registered {
 				_ = ClearCreatingMarker(dir)
 				continue
 			}
-			if m.creatingBusy(dir) {
-				continue // 这次创建还在进行，不是上次留下的
+			if checkErr != nil {
+				continue // 读不清是不是已有服务器时不列出来删
+			}
+			if m.creatingOrRegistered(dir) {
+				continue // 正在创建，或已在内存/接管登记里
 			}
 			out = append(out, CreatingLeftover{
-				ID:       strconv.Itoa(i) + "/" + e.Name(),
-				Name:     e.Name(),
+				ID:       strconv.Itoa(i) + "/" + name,
+				Name:     name,
 				RootName: filepath.Base(root),
 				HasWorld: dirHasWorld(dir),
 			})
@@ -73,7 +90,7 @@ func (m *Manager) CreatingLeftovers() []CreatingLeftover {
 }
 
 // DiscardCreatingLeftover 删掉 id 对应的半成品目录。confirm 必须为 true。
-// 再查一遍记号、instance.json、是不是链接、是不是正在创建。任何一条不满足都不删。
+// 占住目录的「创建中」锁后再查一遍记号、instance.json（含 .bak/.tmp）、符号链接与目录联接。任何一条不满足都不删。
 func (m *Manager) DiscardCreatingLeftover(id string, confirm bool) error {
 	if !confirm {
 		return fmt.Errorf("删除没建完的文件夹需要明确确认")
@@ -82,32 +99,45 @@ func (m *Manager) DiscardCreatingLeftover(id string, confirm bool) error {
 	if err != nil {
 		return err
 	}
-	if m.creatingBusy(dir) {
-		return fmt.Errorf("这个文件夹正在被一次创建使用，没有删除")
+	release, err := m.acquireLeftoverDelete(dir)
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	st, err := os.Lstat(dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("找不到这个文件夹")
+		}
+		return fmt.Errorf("检查这个文件夹失败：%w", err)
+	}
+	if !st.IsDir() || st.Mode()&(fs.ModeSymlink|fs.ModeIrregular) != 0 {
+		return fmt.Errorf("这个文件夹是指向别处的链接，没有删除")
 	}
 	if !creatingMarkerOwned(dir) {
 		return fmt.Errorf("这个文件夹没有创建记号，没有删除")
 	}
-	if _, err := os.Lstat(filepath.Join(dir, "instance.json")); err == nil {
+	registered, checkErr := checkNoInstanceFiles(dir)
+	if registered {
 		_ = ClearCreatingMarker(dir)
-		return fmt.Errorf("这个文件夹已经是登记过的服务器，没有删除")
+		return fmt.Errorf("%w：这个文件夹已经是服务器，没有删除", ErrCreatingConflict)
 	}
-	st, err := os.Lstat(dir)
-	if err != nil {
-		return fmt.Errorf("找不到这个文件夹")
+	if checkErr != nil {
+		return checkErr
 	}
-	if st.Mode()&os.ModeSymlink != 0 || !st.IsDir() {
-		return fmt.Errorf("这个文件夹是链接，没有删除")
+	if hasNestedCreatingLink(dir) {
+		return fmt.Errorf("这个文件夹里面含有链接或目录联接，没有删除")
 	}
 	if err := os.RemoveAll(dir); err != nil {
-		return fmt.Errorf("没能删干净：%w。服务器和别的文件夹没有动，可以再试一次", err)
+		return fmt.Errorf("未能删干净：%w。其他服务器和文件夹没有动，可稍后再试", err)
 	}
 	return nil
 }
 
 func (m *Manager) leftoverDir(id string) (string, error) {
 	idxText, name, ok := strings.Cut(id, "/")
-	if !ok || name == "" || strings.ContainsAny(name, `/\`) || name == "." || name == ".." {
+	if !ok || name == "" || strings.ContainsAny(name, `/\`) || !winname.OK(name) {
 		return "", fmt.Errorf("没有这一项")
 	}
 	idx, err := strconv.Atoi(idxText)
@@ -115,9 +145,11 @@ func (m *Manager) leftoverDir(id string) (string, error) {
 	if err != nil || idx < 0 || idx >= len(roots) {
 		return "", fmt.Errorf("没有这一项")
 	}
-	dir := filepath.Join(roots[idx], name)
 	root := filepath.Clean(roots[idx])
-	clean := filepath.Clean(dir)
+	if !plainCreatingDir(root) {
+		return "", fmt.Errorf("没有这一项")
+	}
+	clean := filepath.Clean(filepath.Join(root, name))
 	rel, err := filepath.Rel(root, clean)
 	if err != nil || rel != name || !filepath.IsLocal(rel) {
 		return "", fmt.Errorf("没有这一项")
@@ -125,25 +157,119 @@ func (m *Manager) leftoverDir(id string) (string, error) {
 	return clean, nil
 }
 
-// creatingMarkerOwned 记号是普通文件，目录本身不是链接。
+func plainCreatingDir(p string) bool {
+	st, err := os.Lstat(p)
+	return err == nil && st.IsDir() && st.Mode()&(fs.ModeSymlink|fs.ModeIrregular) == 0
+}
+
+// creatingMarkerOwned 记号是普通文件，目录本身是真文件夹（不是符号链接或目录联接）。
 func creatingMarkerOwned(dir string) bool {
-	dst, err := os.Lstat(dir)
-	if err != nil || dst.Mode()&os.ModeSymlink != 0 || !dst.IsDir() {
+	if !plainCreatingDir(dir) {
 		return false
 	}
 	st, err := os.Lstat(filepath.Join(dir, CreatingMarker))
 	return err == nil && st.Mode().IsRegular()
 }
 
-func (m *Manager) creatingBusy(dir string) bool {
+// checkNoInstanceFiles 确认目录里没有 instance.json、移出列表留底的 instance.json.bak 或正在落盘的 instance.json.tmp。
+// 遇到权限不足、共享冲突等非「不存在」错误时返回 checkErr，绝不当成「没有配置文件」放行删除。
+func checkNoInstanceFiles(dir string) (registered bool, checkErr error) {
+	for _, name := range []string{"instance.json", settingsBackup} {
+		_, err := os.Lstat(filepath.Join(dir, name))
+		if err == nil {
+			return true, nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return false, fmt.Errorf("没法确认这个文件夹是不是已有服务器（%w），没有删除", err)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "instance.json.tmp")); err == nil {
+		return false, fmt.Errorf("%w：这个文件夹正在写入服务器配置，暂时不能删除", ErrCreatingConflict)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return false, fmt.Errorf("没法确认这个文件夹是不是已有服务器（%w），没有删除", err)
+	}
+	return false, nil
+}
+
+func hasNestedCreatingLink(root string) bool {
+	found := false
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			found = true
+			return fs.SkipAll
+		}
+		if p != root && d.Type()&(fs.ModeSymlink|fs.ModeIrregular) != 0 {
+			found = true
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return found || err != nil
+}
+
+func (m *Manager) creatingOrRegistered(dir string) bool {
+	real := realPath(dir)
+	key := dirKeyPrefix + strings.ToLower(real)
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.creating[dirKey(dir)]
+	if m.creating[key] {
+		m.mu.Unlock()
+		return true
+	}
+	for _, inst := range m.insts {
+		ir := realPath(inst.Dir)
+		if sameDir(real, ir) || within(real, ir) || within(ir, real) {
+			m.mu.Unlock()
+			return true
+		}
+	}
+	m.mu.Unlock()
+	for _, d := range app.InstanceDirs() {
+		dr := realPath(d)
+		if sameDir(real, dr) || within(real, dr) || within(dr, real) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Manager) acquireLeftoverDelete(dir string) (func(), error) {
+	real := realPath(dir)
+	key := dirKeyPrefix + strings.ToLower(real)
+	m.mu.Lock()
+	if m.creating[key] {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("%w：这个文件夹正在创建服务器，暂时不能删除", ErrCreatingConflict)
+	}
+	for _, inst := range m.insts {
+		ir := realPath(inst.Dir)
+		if sameDir(real, ir) || within(real, ir) || within(ir, real) {
+			m.mu.Unlock()
+			return nil, fmt.Errorf("%w：这个文件夹已经是列表里的服务器，没有删除", ErrCreatingConflict)
+		}
+	}
+	if m.creating == nil {
+		m.creating = map[string]bool{}
+	}
+	m.creating[key] = true
+	m.mu.Unlock()
+
+	for _, d := range app.InstanceDirs() {
+		dr := realPath(d)
+		if sameDir(real, dr) || within(real, dr) || within(dr, real) {
+			m.releaseCreating(key)
+			return nil, fmt.Errorf("%w：这个文件夹已经是接管登记的服务器，没有删除", ErrCreatingConflict)
+		}
+	}
+	return func() { m.releaseCreating(key) }, nil
 }
 
 func dirHasWorld(dir string) bool {
-	for _, name := range []string{"world", "world_nether", "world_the_end"} {
-		if st, err := os.Lstat(filepath.Join(dir, name, "level.dat")); err == nil && st.Mode().IsRegular() {
+	names := []string{"world", "world_nether", "world_the_end"}
+	if lv := LevelName(dir); lv != "" && lv != "world" {
+		names = append(names, lv, lv+"_nether", lv+"_the_end")
+	}
+	for _, name := range names {
+		if st, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(name), "level.dat")); err == nil && st.Mode().IsRegular() {
 			return true
 		}
 	}

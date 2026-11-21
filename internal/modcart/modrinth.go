@@ -86,7 +86,8 @@ type mrDep struct {
 type Hit struct {
 	ProjectID   string `json:"project_id"`
 	Slug        string `json:"slug"`
-	ProjectType string `json:"project_type,omitempty"` // mod / plugin / …；空的不拿来编网址
+	ProjectType string `json:"project_type,omitempty"` // mod / plugin / …；仅保留接口返回的值，空的不拿来编网址
+	ProjectURL  string `json:"project_url,omitempty"`  // 由 ProjectPageURL 按接口返回的类型和 slug 生成；不合规则为空
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	Downloads   int64  `json:"downloads"`
@@ -315,9 +316,7 @@ func (s *Service) Search(ctx context.Context, q SearchQuery) (*SearchResult, err
 		hits = hits[:PageSize]
 	}
 	for i := range hits {
-		if hits[i].ProjectType == "" {
-			hits[i].ProjectType = q.Type // 这次搜索已经按这个类型过滤；响应没带回类型时用它，不另编 slug
-		}
+		hits[i].ProjectURL = ProjectPageURL(hits[i].ProjectType, hits[i].Slug)
 		hits[i].ServerSide = ""
 	}
 	if hits == nil {
