@@ -331,7 +331,12 @@ func sanitizeNetErr(err error) error {
 	if inner == nil {
 		return errors.New("请求地址无效")
 	}
-	return &netReasonError{msg: strings.Join(strings.Fields(inner.Error()), " "), err: inner}
+	msg := strings.Join(strings.Fields(inner.Error()), " ")
+	if strings.HasPrefix(msg, "failed to parse Location header") {
+		// net/http 会把解析不了的跳转地址原样写进这句话，里面可能带账号和签名查询串
+		msg = "服务器给的跳转地址无效"
+	}
+	return &netReasonError{msg: msg, err: inner}
 }
 
 // compactReason 一个源的失败原因，压成一行。

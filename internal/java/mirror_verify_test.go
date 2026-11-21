@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"minedeck/internal/app"
 	"minedeck/internal/dl"
@@ -238,5 +239,71 @@ func TestFromAdoptiumUsesImageTypeInMirrorPathAndHonorsOfficialOnly(t *testing.T
 	}
 	if len(tunaPaths) != 0 || officialHits != 1 {
 		t.Fatalf("OfficialOnly 不应访问清华镜像：tuna=%v official=%d", tunaPaths, officialHits)
+	}
+}
+
+func TestJavaZipLessComparesVersionThenBuild(t *testing.T) {
+	const p = "OpenJDK17U-jre_x64_windows_hotspot_"
+	cases := []struct{ older, newer string }{
+		{p + "17.0.9_9.zip", p + "17.0.14_7.zip"},
+		{p + "17.0.21_9.zip", p + "17.0.21.1_2.zip"}, // 第四段的 .1 比构建号 9 要紧
+		{"OpenJDK21U-jre_x64_windows_hotspot_21_35.zip", "OpenJDK21U-jre_x64_windows_hotspot_21.0.5_11.zip"},
+		{p + "17.0.14_7.zip", p + "17.0.14_9.zip"},
+		{"OpenJDK8U-jre_x64_windows_hotspot_8u92b14.zip", "OpenJDK8U-jre_x64_windows_hotspot_8u442b06.zip"},
+		{"OpenJDK8U-jre_x64_windows_hotspot_8u442b06.zip", "OpenJDK8U-jre_x64_windows_hotspot_8u442b07.zip"},
+	}
+	for _, c := range cases {
+		if !javaZipLess(c.older, c.newer) || javaZipLess(c.newer, c.older) {
+			t.Errorf("应判 %s 比 %s 旧", c.older, c.newer)
+		}
+	}
+}
+
+// Adoptium 的接口连不上（请求挂住不回）时，清华这条路要在短时限内放弃，并报成「连不上接口」，
+// 让 Ensure 不再走同一个接口的 Adoptium 官方源空等；也不去下清华上的压缩包。
+func TestFromTUNAGivesUpQuicklyWhenAdoptiumUnreachable(t *testing.T) {
+	runtimesIn(t)
+	oldCache := app.CacheDir
+	app.CacheDir = filepath.Join(t.TempDir(), "cache")
+	t.Cleanup(func() { app.CacheDir = oldCache })
+
+	const name = "OpenJDK17U-jre_x64_windows_hotspot_17.0.14_7.zip"
+	zipHits := 0
+	tunaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/17/jre/x64/windows/":
+			_, _ = w.Write([]byte(`<a href="` + name + `">z</a>`))
+		case "/17/jre/x64/windows/" + name:
+			zipHits++
+			http.NotFound(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer tunaSrv.Close()
+	release := make(chan struct{})
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select { // 像被墙的地址一样不回
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	defer apiSrv.Close()
+	defer close(release)
+
+	oldTUNA, oldAdopt, oldWait := tunaAdoptiumBase, adoptiumAPIBase, adoptiumIndexWait
+	tunaAdoptiumBase, adoptiumAPIBase, adoptiumIndexWait = tunaSrv.URL, apiSrv.URL, 300*time.Millisecond
+	t.Cleanup(func() { tunaAdoptiumBase, adoptiumAPIBase, adoptiumIndexWait = oldTUNA, oldAdopt, oldWait })
+
+	start := time.Now()
+	err := fromTUNA(context.Background(), 17, func(string, ...any) {}, nil)
+	if !errors.Is(err, errAdoptiumUnreachable) {
+		t.Fatalf("接口连不上应报 errAdoptiumUnreachable，实际：%v", err)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("接口连不上时等了 %v，应在两个短时限内放弃", d)
+	}
+	if zipHits != 0 {
+		t.Fatalf("没有官方校验值时不应去下清华上的压缩包，请求了 %d 次", zipHits)
 	}
 }

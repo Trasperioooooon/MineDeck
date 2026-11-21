@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"minedeck/internal/app"
 	"minedeck/internal/diskguard"
@@ -100,19 +101,27 @@ func Ensure(ctx context.Context, major int, logf func(string, ...any), prog dl.P
 	}
 	var errs []error
 
+	skipAdoptium := false
 	if !app.OfficialOnly() {
 		if err := fromTUNA(ctx, major, logf, prog); err == nil {
 			return finalize(major)
+		} else if errors.Is(err, errAdoptiumUnreachable) {
+			// 清华那条路要的官方校验值和 Adoptium 官方源是同一个接口，刚连不上，不再空等一轮
+			errs = append(errs, fmt.Errorf("清华镜像: %w", err))
+			skipAdoptium = true
+			logf("Adoptium 的接口连不上，清华镜像和 Adoptium 官方源都用不了，改用 Mojang 官方运行时（BMCLAPI 镜像）")
 		} else {
 			errs = append(errs, fmt.Errorf("清华镜像: %w", err))
-			logf("清华 TUNA 镜像不可用（%v），切换 Adoptium 官方源", err)
+			logf("清华镜像这条路没走通（%v），切换 Adoptium 官方源", err)
 		}
 	}
-	if err := fromAdoptium(ctx, major, logf, prog); err == nil {
-		return finalize(major)
-	} else {
-		errs = append(errs, fmt.Errorf("Adoptium: %w", err))
-		logf("Adoptium 官方源失败（%v），切换 Mojang 官方运行时（BMCLAPI 镜像）", err)
+	if !skipAdoptium {
+		if err := fromAdoptium(ctx, major, logf, prog); err == nil {
+			return finalize(major)
+		} else {
+			errs = append(errs, fmt.Errorf("Adoptium: %w", err))
+			logf("Adoptium 官方源失败（%v），切换 Mojang 官方运行时（BMCLAPI 镜像）", err)
+		}
 	}
 	if err := fromMojang(ctx, major, logf, prog); err == nil {
 		return finalize(major)
@@ -144,18 +153,45 @@ func safeJavaZipName(name string) bool {
 	return strings.HasSuffix(strings.ToLower(name), ".zip") && !strings.ContainsAny(name, `/\`) && winname.OK(name)
 }
 
-// javaZipLess 按文件名里的数字段比新旧（如 17.0.9 < 17.0.14、8u92 < 8u442），避免字母序把 .9 排在 .14 后面。
+// javaZipLess 按文件名里的版本号比新旧（如 17.0.9 < 17.0.14、8u92 < 8u442），避免字母序把 .9 排在 .14 后面。
+// 版本段和构建号分开比：17.0.21.1_2 比 17.0.21_9 新，21.0.5_11 比 21_35 新。只拿数字段一路比会把这两对判反。
 func javaZipLess(a, b string) bool {
-	na, nb := extractNums(a), extractNums(b)
-	for i := 0; i < len(na) && i < len(nb); i++ {
-		if na[i] != nb[i] {
-			return na[i] < nb[i]
+	va, ba := javaZipVersion(a)
+	vb, bb := javaZipVersion(b)
+	for i := 0; i < len(va) || i < len(vb); i++ {
+		x, y := 0, 0
+		if i < len(va) {
+			x = va[i]
+		}
+		if i < len(vb) {
+			y = vb[i]
+		}
+		if x != y {
+			return x < y
 		}
 	}
-	if len(na) != len(nb) {
-		return len(na) < len(nb)
+	if ba != bb {
+		return ba < bb
 	}
 	return a < b
+}
+
+// javaZipVersion 从 Adoptium 的文件名里拆出版本段和构建号：
+// …hotspot_17.0.21.1_2.zip → [17 0 21 1], 2；…hotspot_8u442b06.zip → [8 442], 6；…hotspot_21_35.zip → [21], 35。
+func javaZipVersion(name string) ([]int, int) {
+	s := strings.TrimSuffix(strings.ToLower(name), ".zip")
+	if i := strings.LastIndex(s, "hotspot_"); i >= 0 {
+		s = s[i+len("hotspot_"):]
+	}
+	ver, build := s, ""
+	if i := strings.LastIndexAny(s, "_b"); i >= 0 {
+		ver, build = s[:i], s[i+1:]
+	}
+	b := 0
+	if nums := extractNums(build); len(nums) > 0 {
+		b = nums[0]
+	}
+	return extractNums(ver), b
 }
 
 func extractNums(s string) []int {
@@ -202,9 +238,15 @@ func fromTUNA(ctx context.Context, major int, logf func(string, ...any), prog dl
 	}
 	sort.Slice(names, func(i, j int) bool { return javaZipLess(names[i], names[j]) })
 	// 校验值只认 Adoptium 官方 API 对得上这一个文件名的 SHA-256，不采用镜像站自证的 .sha256.txt。
+	// 官方接口一共只问一次（两个地址、各有短时限），连不上就直接结束，不按文件名一个个重试。
+	sums, err := adoptiumChecksums(ctx, major)
+	if err != nil {
+		logf("取不到 Adoptium 公布的官方 SHA-256（%v），不用清华镜像上的压缩包", err)
+		return err
+	}
 	name, sha := "", ""
 	for i := len(names) - 1; i >= 0; i-- {
-		if sum, ok := adoptiumChecksumFor(ctx, major, names[i]); ok {
+		if sum, ok := sums[names[i]]; ok {
 			name, sha = names[i], sum
 			break
 		}
@@ -291,11 +333,31 @@ func looksLikeSHA256(s string) bool {
 	return true
 }
 
-// adoptiumChecksumFor 向 Adoptium API 要「这个文件名」的 SHA-256。
-// 先看当前发布，对不上再看最近几份正式版：清华镜像经常比「最新」晚一个小版本，
-// 校验值必须对上这一个文件名，不能拿另一份的校验值去套。两边都没有就不用这份压缩包。
-func adoptiumChecksumFor(ctx context.Context, major int, name string) (string, bool) {
+// errAdoptiumUnreachable Adoptium 的接口两个地址都没要到（连不上、超时、回的不是 JSON）。
+// 清华那条路因此不用；Ensure 看到它就不再走同一个接口的 Adoptium 官方源，免得再空等一轮。
+var errAdoptiumUnreachable = errors.New("连不上 Adoptium 的接口")
+
+// adoptiumIndexWait 向 Adoptium 要校验值清单时每个地址最多等多久。
+// 清单很小；国内连不上 api.adoptium.net 时不该让开服白等几分钟（普通下载是两轮、每轮 30 秒）。
+var adoptiumIndexWait = 10 * time.Second
+
+// adoptiumChecksums 向 Adoptium API 要「文件名 → 官方 SHA-256」。
+// 先看当前发布，再看最近几份正式版：清华镜像经常比「最新」晚一个小版本，
+// 用的时候必须对上同一个文件名，不能拿另一份的校验值去套。
+func adoptiumChecksums(ctx context.Context, major int) (map[string]string, error) {
 	apiRoot := strings.TrimRight(adoptiumAPIBase, "/")
+	sums := map[string]string{}
+	add := func(name, sum string) {
+		if name != "" && looksLikeSHA256(sum) {
+			sums[name] = strings.ToLower(sum)
+		}
+	}
+	fetch := func(u string, out any) error {
+		cctx, cancel := context.WithTimeout(ctx, adoptiumIndexWait)
+		defer cancel()
+		return dl.FetchJSONHTTPS(cctx, []string{u}, out)
+	}
+
 	latest := fmt.Sprintf(
 		"%s/latest/%d/hotspot?os=windows&architecture=x64&image_type=jre&vendor=eclipse",
 		apiRoot, major)
@@ -307,13 +369,16 @@ func adoptiumChecksumFor(ctx context.Context, major int, name string) (string, b
 			} `json:"package"`
 		} `json:"binary"`
 	}
-	if err := dl.FetchJSONHTTPS(ctx, []string{latest}, &current); err == nil {
+	errLatest := fetch(latest, &current)
+	if errLatest == nil {
 		for _, a := range current {
-			if sum, ok := checksumNamed(a.Binary.Package.Name, a.Binary.Package.Checksum, name); ok {
-				return sum, true
-			}
+			add(a.Binary.Package.Name, a.Binary.Package.Checksum)
 		}
 	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
 	page := fmt.Sprintf(
 		"%s/feature_releases/%d/ga?os=windows&architecture=x64&image_type=jre&vendor=eclipse&page=0&page_size=20",
 		apiRoot, major)
@@ -325,24 +390,21 @@ func adoptiumChecksumFor(ctx context.Context, major int, name string) (string, b
 			} `json:"package"`
 		} `json:"binaries"`
 	}
-	if err := dl.FetchJSONHTTPS(ctx, []string{page}, &releases); err != nil {
-		return "", false
-	}
-	for _, rel := range releases {
-		for _, b := range rel.Binaries {
-			if sum, ok := checksumNamed(b.Package.Name, b.Package.Checksum, name); ok {
-				return sum, true
+	errPage := fetch(page, &releases)
+	if errPage == nil {
+		for _, rel := range releases {
+			for _, b := range rel.Binaries {
+				add(b.Package.Name, b.Package.Checksum)
 			}
 		}
 	}
-	return "", false
-}
-
-func checksumNamed(gotName, sum, want string) (string, bool) {
-	if gotName == want && looksLikeSHA256(sum) {
-		return strings.ToLower(sum), true
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
-	return "", false
+	if errLatest != nil && errPage != nil {
+		return nil, fmt.Errorf("%w：%v", errAdoptiumUnreachable, errLatest)
+	}
+	return sums, nil
 }
 
 // ---------- 来源 3：Mojang 官方 Java 运行时（BMCLAPI 可镜像，逐文件下载） ----------

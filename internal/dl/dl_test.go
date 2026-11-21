@@ -369,6 +369,25 @@ func TestFetchFailureHidesCredentials(t *testing.T) {
 	if strings.Contains(msg, "s3cret") || strings.Contains(msg, "token=tok") {
 		t.Fatalf("重定向失败泄了凭据：%s", msg)
 	}
+
+	// 跳转地址解析不了时，net/http 会把 Location 原文写进报错，也要去掉
+	badLoc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "https://user:s3cret@example.invalid/%zz?sig=abc")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer badLoc.Close()
+	_, berr := FetchBytes(context.Background(), []string{badLoc.URL + "/start"})
+	if berr == nil {
+		t.Fatal("跳转地址无效应失败")
+	}
+	for _, leak := range []string{"s3cret", "sig=abc", "user:"} {
+		if strings.Contains(berr.Error(), leak) {
+			t.Fatalf("跳转地址解析失败的报错泄了 %q：%v", leak, berr)
+		}
+	}
+	if !strings.Contains(berr.Error(), "跳转地址无效") {
+		t.Fatalf("应说明跳转地址无效：%v", berr)
+	}
 }
 
 // 连接类错误去掉地址。本机写文件出错时报错是「操作 路径: 原因」，原因在最后，要原样保留，不能截掉。

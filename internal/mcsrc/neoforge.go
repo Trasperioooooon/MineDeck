@@ -151,8 +151,10 @@ func NeoInstallerArtifact(ctx context.Context, ver, installerPath string) Artifa
 	if got, ok := neoOfficialInstallerSHA1(ctx, ver); ok {
 		sha = got
 		if !app.OfficialOnly() {
+			// 排在原来的首选后面：forgecdn 在国内的连通性没实测过，排第一的话连不上或很慢时每次都先在它上面耗着。
+			// 首选（BMCLAPI 或官方，看下载源设置）失败了再试它，仍按官方校验值核对。
 			cdn := fmt.Sprintf("%s/%s/neoforge-%s-installer.jar", strings.TrimRight(neoForgeCDNBase, "/"), escVer, escVer)
-			urls = append([]string{cdn}, urls...)
+			urls = append([]string{urls[0], cdn}, urls[1:]...)
 		}
 	}
 	fileName := "neoforge-installer.jar"

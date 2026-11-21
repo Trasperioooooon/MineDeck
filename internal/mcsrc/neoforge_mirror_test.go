@@ -58,14 +58,22 @@ func TestNeoInstallerArtifactOnlyUsesForgeCDNWithOfficialSHA1(t *testing.T) {
 		app.Base = oldBase
 	})
 
-	// 1. 拿到合法官方 SHA-1 且非 OfficialOnly：forgecdn 进首位，并带官方 SHA-1
+	// 1. 拿到合法官方 SHA-1 且非 OfficialOnly：forgecdn 排第二（国内没实测过，不抢原来的首选），并带官方 SHA-1
 	art := NeoInstallerArtifact(context.Background(), "21.1.265", "")
 	if art.SHA1 != wantSHA {
 		t.Fatalf("SHA1 = %q，应为 %q", art.SHA1, wantSHA)
 	}
-	if len(art.URLs) == 0 || !strings.HasPrefix(art.URLs[0], "https://neoforged.forgecdn.net/") {
-		t.Fatalf("有官方校验值时应优先带 forgecdn：%v", art.URLs)
+	if len(art.URLs) != 3 || !strings.HasPrefix(art.URLs[1], "https://neoforged.forgecdn.net/") ||
+		strings.Contains(art.URLs[0], "forgecdn.net") {
+		t.Fatalf("有官方校验值时 forgecdn 应排在原来的首选后面：%v", art.URLs)
 	}
+	_, _ = app.UpdateConfig(func(c *app.Config) error { c.Source = "mirror"; return nil })
+	artMirror := NeoInstallerArtifact(context.Background(), "21.1.265", "")
+	if len(artMirror.URLs) < 2 || !strings.HasPrefix(artMirror.URLs[0], "https://bmclapi2.bangbang93.com/") ||
+		!strings.HasPrefix(artMirror.URLs[1], "https://neoforged.forgecdn.net/") {
+		t.Fatalf("镜像优先时应先 BMCLAPI、再 forgecdn：%v", artMirror.URLs)
+	}
+	_, _ = app.UpdateConfig(func(c *app.Config) error { c.Source = "auto"; return nil })
 
 	// 2. OfficialOnly 模式：即使拿到官方 SHA-1 也不加 forgecdn
 	_, _ = app.UpdateConfig(func(c *app.Config) error { c.Source = "official"; return nil })
