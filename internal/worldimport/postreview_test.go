@@ -15,8 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/sys/windows"
-
 	"minedeck/internal/atomicfile"
 	"minedeck/internal/diskguard"
 	"minedeck/internal/inst"
@@ -458,23 +456,6 @@ func TestRollbackKeepsWorldThatIsNotItsStagedCopy(t *testing.T) {
 
 // ---------- 合并复审第 3 条：看不了的时候不能当成没有 ----------
 
-// lockDirExclusive 像别的程序独占着一个文件夹那样把它打开（不共享），返回放开它的函数。占着的时候别人读不了它。
-func lockDirExclusive(t *testing.T, dir string) (unlock func()) {
-	t.Helper()
-	p, err := windows.UTF16PtrFromString(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h, err := windows.CreateFile(p, windows.GENERIC_READ, 0, nil, windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
-	if err != nil {
-		t.Fatalf("没能独占打开 %s：%v", dir, err)
-	}
-	var once sync.Once
-	unlock = func() { once.Do(func() { windows.CloseHandle(h) }) }
-	t.Cleanup(unlock)
-	return unlock
-}
-
 // 放换地图记录的文件夹在、却读不了：不能当成「没有记录」。这里像别的程序那样把它独占打开来造出读不了。
 // （顺带确认过：那个位置上要是一个同名的文件，系统报的是「找不到路径」，算不存在，里面也确实不可能有记录。）
 func TestUnreadableTxFolderIsNotTreatedAsEmpty(t *testing.T) {
@@ -572,23 +553,6 @@ func TestStepsStopWhenTheyCannotSee(t *testing.T) {
 }
 
 // ---------- 合并复审第 4 条：撤销换回时，设置改不回去不能当成恢复完成 ----------
-
-// lockFileExclusive 像别的程序独占着一个文件那样把它打开（不共享），返回放开它的函数。
-func lockFileExclusive(t *testing.T, path string) (unlock func()) {
-	t.Helper()
-	p, err := windows.UTF16PtrFromString(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h, err := windows.CreateFile(p, windows.GENERIC_READ, 0, nil, windows.OPEN_EXISTING, 0, 0)
-	if err != nil {
-		t.Fatalf("没能独占打开 %s：%v", path, err)
-	}
-	var once sync.Once
-	unlock = func() { once.Do(func() { windows.CloseHandle(h) }) }
-	t.Cleanup(unlock)
-	return unlock
-}
 
 // 导入时改过难度；换回旧地图走到最后核对时出错，要撤销换回：世界搬回去了，设置也得改回导入时的值。
 // 这时候 server.properties 正好被别的程序占着：以前是读不了就跳过、照样记成「已提交」；现在卡住，放开以后重试才算完。
@@ -1223,23 +1187,6 @@ func TestStageIsKeptWhenItCannotBeSeen(t *testing.T) {
 }
 
 // ---------- 撤销换回的另外三种失败（Codex 第二轮点名要补的） ----------
-
-// lockFileNoWrite 像别的程序开着一个文件那样：别人还能读它，但改不了、换不掉。返回放开的函数。
-func lockFileNoWrite(t *testing.T, path string) (unlock func()) {
-	t.Helper()
-	p, err := windows.UTF16PtrFromString(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h, err := windows.CreateFile(p, windows.GENERIC_READ, windows.FILE_SHARE_READ, nil, windows.OPEN_EXISTING, 0, 0)
-	if err != nil {
-		t.Fatalf("没能打开 %s：%v", path, err)
-	}
-	var once sync.Once
-	unlock = func() { once.Do(func() { windows.CloseHandle(h) }) }
-	t.Cleanup(unlock)
-	return unlock
-}
 
 func TestUndoRestoreOtherFailures(t *testing.T) {
 	propOf := func(dir, key string) string {

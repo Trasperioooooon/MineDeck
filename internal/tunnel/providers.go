@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -42,6 +43,13 @@ func providerOf(id string) Provider {
 	}
 	return nil
 }
+
+// errFrpcNotWindows Mac 版还没接上 frpc 的下载：服务商给的、frp 官方的这里都按 Windows 的包下（frpc_windows_amd64.zip），
+// 先拦下，不白下一个 Windows 的 exe。
+var errFrpcNotWindows = errors.New("Mac 版还不能下载 frpc：内网穿透目前只支持 Windows")
+
+// frpcDownloadable 这个平台上下不下载 frpc。是变量只为测试：下载、解压、校验那几步和平台无关，Mac 上跑测试时打开。
+var frpcDownloadable = runtime.GOOS == "windows"
 
 func frpcDir(provider string) string {
 	return filepath.Join(app.RuntimesDir, "frpc", provider)
@@ -291,6 +299,9 @@ func (openfrpProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	if exe, err := usableFrpc(dir, con, true); err != nil || exe != "" {
 		return exe, err
 	}
+	if !frpcDownloadable {
+		return "", errFrpcNotWindows
+	}
 	con.Append("[MineDeck] 下载 OpenFrp 定制版 frpc ...")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -372,6 +383,9 @@ func (customProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	dir := frpcDir("custom")
 	if exe, err := usableFrpc(dir, con, true); err != nil || exe != "" {
 		return exe, err
+	}
+	if !frpcDownloadable {
+		return "", errFrpcNotWindows
 	}
 	con.Append("[MineDeck] 下载标准版 frp 客户端 ...")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)

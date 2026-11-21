@@ -11,8 +11,6 @@ import (
 	"strings"
 	"syscall"
 
-	"golang.org/x/sys/windows"
-
 	"minedeck/internal/diskguard"
 	"minedeck/internal/winname"
 )
@@ -284,7 +282,7 @@ func (c ctxReader) Read(p []byte) (int, error) {
 // diskErr 盘满时说人话。
 func diskErr(err error) error {
 	var errno syscall.Errno
-	if errors.As(err, &errno) && (errno == syscall.Errno(windows.ERROR_DISK_FULL) || errno == syscall.Errno(windows.ERROR_HANDLE_DISK_FULL)) {
+	if errors.As(err, &errno) && diskFullErrno(errno) {
 		return fmt.Errorf("磁盘空间不够，没有替换任何文件（%w）", err)
 	}
 	return err

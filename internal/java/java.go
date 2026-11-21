@@ -36,7 +36,7 @@ func Dir(major int) string {
 	return filepath.Join(app.RuntimesDir, fmt.Sprintf("java-%d", major))
 }
 
-func Exe(major int) string { return filepath.Join(Dir(major), "bin", "java.exe") }
+func Exe(major int) string { return homeExe(Dir(major)) }
 
 // incompleteMark 「这套运行时还没装完」的记号：和 java-N 文件夹并排的一个空文件（runtimes\java-N.incomplete）。
 // Ensure 动手装之前放上，整套装完才拿掉。放在文件夹外面，是因为解压前会把文件夹整个删掉重来。
@@ -91,6 +91,9 @@ func Ensure(ctx context.Context, major int, logf func(string, ...any), prog dl.P
 	if IsInstalled(major) {
 		return Exe(major), nil
 	}
+	if err := autoInstallErr(major); err != nil { // Mac 版还没接上下载源（见 scan_darwin.go）
+		return "", err
+	}
 	logf("需要 Java %d，开始下载便携式运行时（不影响系统环境）", major)
 	// 先放「还没装完」的记号，整套装完（finalize）才拿掉：中途失败或程序被结束，留下的半截不会被当成装好了
 	if err := os.MkdirAll(app.RuntimesDir, 0o755); err != nil {
@@ -133,7 +136,7 @@ func Ensure(ctx context.Context, major int, logf func(string, ...any), prog dl.P
 
 func finalize(major int) (string, error) {
 	if st, err := os.Stat(Exe(major)); err != nil || st.IsDir() {
-		return "", fmt.Errorf("Java %d 装好后没找到 bin\\java.exe", major)
+		return "", fmt.Errorf("Java %d 装好后没找到 %s", major, filepath.Join("bin", exeName))
 	}
 	if err := os.Remove(incompleteMark(major)); err != nil && !os.IsNotExist(err) {
 		return "", fmt.Errorf("Java %d 装好了，但去不掉「还没装完」的记号：%w", major, err)

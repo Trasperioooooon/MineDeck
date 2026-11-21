@@ -25,7 +25,7 @@ func makeJREZipBytes(t *testing.T, marker string) ([]byte, string) {
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	for _, entry := range []struct{ name, body string }{
-		{"jdk-17.0.14+7-jre/bin/java.exe", "jvm-" + marker},
+		{"jdk-17.0.14+7-jre/bin/" + exeName, "jvm-" + marker}, // 程序名跟着平台走：Windows 是 java.exe，Mac 是 java
 		{"jdk-17.0.14+7-jre/lib/modules", strings.Repeat(marker, 1024)},
 	} {
 		w, err := zw.Create(entry.name)

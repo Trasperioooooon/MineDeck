@@ -12,17 +12,12 @@ import (
 	"time"
 
 	"minedeck/internal/mcsrc"
-
-	"golang.org/x/sys/windows"
 )
 
 // PortProbeHost 服务器没填 server-ip（所有网卡）时，开服前试绑端口用的地址；操作层的 port.check 也用它。
 // 空 = 所有网卡：服务器监听的就是所有网卡，这样查得准。
 // 测试里设成 127.0.0.1：每次 go test 编出来的测试程序路径都不一样，绑所有网卡会让 Windows 防火墙每次都弹窗问要不要放行。
 var PortProbeHost = ""
-
-// soExclusiveAddrUse Windows 的 SO_EXCLUSIVEADDRUSE（按定义是 SO_REUSEADDR 取反），x/sys/windows 里没有这个常量。
-const soExclusiveAddrUse = ^windows.SO_REUSEADDR
 
 // portBusyError 服务器要绑的端口被占着，开服前就查出来了。界面把这句话直接接在「无法启动服务器」后面。
 type portBusyError struct {
@@ -216,12 +211,7 @@ func checkBindPort(t bindTarget) error {
 	if host == "" {
 		host = PortProbeHost
 	}
-	lc := net.ListenConfig{Control: func(_, _ string, c syscall.RawConn) error {
-		// 设不上（比如 wine 不认这个选项）就按普通方式试绑，不因为这个报错
-		return c.Control(func(fd uintptr) {
-			_ = windows.SetsockoptInt(windows.Handle(fd), windows.SOL_SOCKET, soExclusiveAddrUse, 1)
-		})
-	}}
+	lc := net.ListenConfig{Control: probeControl} // 按平台，见 portcheck_windows.go / portcheck_unix.go
 	// server-ip 写的是域名时要先解析：给个时限，解析卡住也不让「启动」一直等着（Start 调这里时拿着这台服务器的锁）。
 	// 超时算「别的失败」，照常启动
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -234,9 +224,9 @@ func checkBindPort(t bindTarget) error {
 	var en syscall.Errno
 	if errors.As(err, &en) {
 		switch en {
-		case windows.WSAEADDRINUSE:
+		case errAddrInUse:
 			return &portBusyError{port: port}
-		case windows.WSAEACCES:
+		case errAddrAccess:
 			return &portBusyError{port: port, reserved: true}
 		}
 	}

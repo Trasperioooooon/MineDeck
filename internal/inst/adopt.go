@@ -214,8 +214,8 @@ func (m *Manager) validateAdopt(req *AdoptReq) (*AdoptScan, error) {
 		if req.JavaMajor == 0 {
 			return nil, fmt.Errorf("指定了 Java 的路径，还要写明它是哪个版本")
 		}
-		// 是不是已知的 Java 由操作层查；这里再守一道：只能是 java.exe，路径里不能有会写坏 run.bat 的字符
-		if base := strings.ToLower(filepath.Base(req.JavaPath)); (base != "java.exe" && base != "javaw.exe") || strings.ContainsAny(req.JavaPath, "\"\r\n") {
+		// 是不是已知的 Java 由操作层查；这里再守一道：只能是 java.exe（Mac 上是 java），路径里不能有会写坏 run.bat 的字符
+		if !java.IsExeName(filepath.Base(req.JavaPath)) || strings.ContainsAny(req.JavaPath, "\"\r\n") {
 			return nil, fmt.Errorf("Java 的路径不对：%s", req.JavaPath)
 		}
 		if st, err := os.Stat(req.JavaPath); err != nil || st.IsDir() {
@@ -266,12 +266,14 @@ func (m *Manager) validateAdopt(req *AdoptReq) (*AdoptScan, error) {
 			return nil, err
 		}
 	}
+	// 键是小写的，这边也按小写比：Windows 的 filepath.Rel 本来不分大小写，Mac 上的要两边一样才认得出
+	lower := strings.ToLower(real)
 	for k := range m.creating {
-		if other, ok := strings.CutPrefix(k, dirKeyPrefix); ok && (within(real, other) || within(other, real)) {
+		if other, ok := strings.CutPrefix(k, dirKeyPrefix); ok && (within(lower, other) || within(other, lower)) {
 			return nil, fmt.Errorf("这个文件夹（或它的上层、下层）正在新建或接管中，请稍候")
 		}
 	}
-	sc.key = dirKeyPrefix + strings.ToLower(real)
+	sc.key = dirKeyPrefix + lower
 	m.creating[req.Name], m.creating[sc.key] = true, true
 	return sc, nil
 }

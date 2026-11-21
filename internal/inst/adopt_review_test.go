@@ -9,8 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"golang.org/x/sys/windows"
-
 	"minedeck/internal/app"
 	"minedeck/internal/mcsrc"
 )
@@ -412,20 +410,6 @@ func TestReleaseRenamesEvenIfEdited(t *testing.T) {
 			t.Error("存档被动了")
 		}
 	}
-}
-
-// shortPath 一个已有路径的 8.3 短名写法；这个盘没开短名时原样返回。
-func shortPath(p string) string {
-	u, err := windows.UTF16PtrFromString(p)
-	if err != nil {
-		return p
-	}
-	buf := make([]uint16, 1024)
-	n, err := windows.GetShortPathName(u, &buf[0], uint32(len(buf)))
-	if err != nil || n == 0 || int(n) >= len(buf) {
-		return p
-	}
-	return windows.UTF16ToString(buf[:n])
 }
 
 // 不存在的目录也按真实路径比：上层写成 8.3 短名的，和写长名的算同一个地方。

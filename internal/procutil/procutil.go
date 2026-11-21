@@ -4,13 +4,8 @@ package procutil
 
 import (
 	"os"
-	"os/exec"
 	"strings"
 	"sync"
-	"syscall"
-	"unsafe"
-
-	"golang.org/x/sys/windows"
 )
 
 // ---------- 控制台缓冲与订阅 ----------
@@ -61,41 +56,9 @@ func (c *Console) Subscribe() (replay []string, ch chan string, cancel func()) {
 	}
 }
 
-// ---------- Windows Job Object：确保本程序退出后不留孤儿子进程 ----------
-
-var jobHandle windows.Handle
-
-func InitJob() {
-	h, err := windows.CreateJobObject(nil, nil)
-	if err != nil {
-		return
-	}
-	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
-		BasicLimitInformation: windows.JOBOBJECT_BASIC_LIMIT_INFORMATION{
-			LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-		},
-	}
-	if _, err := windows.SetInformationJobObject(h, windows.JobObjectExtendedLimitInformation,
-		uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info))); err != nil {
-		windows.CloseHandle(h)
-		return
-	}
-	jobHandle = h
-}
-
-func AssignToJob(p *os.Process) {
-	if jobHandle == 0 || p == nil {
-		return
-	}
-	h, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(p.Pid))
-	if err != nil {
-		return
-	}
-	defer windows.CloseHandle(h)
-	_ = windows.AssignProcessToJobObject(jobHandle, h)
-}
-
-// ---------- 环境隔离与窗口隐藏 ----------
+// ---------- 环境隔离 ----------
+//
+// Job Object（防孤儿）和隐藏窗口按平台分在 procutil_windows.go / procutil_unix.go。
 
 // CleanEnv 移除会污染 Java/frpc 行为的环境变量。
 func CleanEnv() []string {
@@ -111,11 +74,4 @@ func CleanEnv() []string {
 		}
 	}
 	return out
-}
-
-func HideWindow(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		HideWindow:    true,
-		CreationFlags: windows.CREATE_NO_WINDOW,
-	}
 }

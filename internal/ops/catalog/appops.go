@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -19,6 +18,7 @@ import (
 	"minedeck/internal/autostart"
 	"minedeck/internal/hostdlg"
 	"minedeck/internal/ops"
+	"minedeck/internal/procutil"
 	"minedeck/internal/update"
 )
 
@@ -378,7 +378,7 @@ func (c *cat) appOps() {
 			if st, err := os.Stat(p); err != nil || !st.IsDir() {
 				return nil, fmt.Errorf("文件夹不存在")
 			}
-			_ = exec.Command("explorer.exe", p).Start()
+			_ = procutil.OpenFolder(p) // Windows 是资源管理器，Mac 是访达
 			return "ok", nil
 		},
 	})
