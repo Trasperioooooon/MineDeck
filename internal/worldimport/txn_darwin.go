@@ -14,20 +14,22 @@ import (
 // Windows 上带 WRITE_THROUGH，这里改完把两边的上级目录刷一次盘（刷盘失败不算改名失败：改名已经做了）。
 // replace 为真（只有记录文件）就是普通的 rename(2)，本来就要原样盖掉旧的。
 func moveFile(from, to string, replace bool) error {
+	rename := func() error { return ignoringEINTR(func() error { return unix.Rename(from, to) }) }
 	var err error
 	if replace {
-		err = unix.Rename(from, to)
+		err = rename()
 	} else {
-		err = unix.RenamexNp(from, to, unix.RENAME_EXCL)
+		err = ignoringEINTR(func() error { return unix.RenamexNp(from, to, unix.RENAME_EXCL) })
 		if errors.Is(err, unix.ENOTSUP) || errors.Is(err, unix.EINVAL) {
 			// 有的文件系统（exFAT 的 U 盘、网络盘）不认 RENAME_EXCL：先看目标在不在，再普通改名。
-			// 用 present 不用 exists：看不清目标在不在（没权限、盘出错）就停下，不冒险去改名盖掉它（Gemini 4 Argon 复审 PR #32）
+			// 用 present 不用 exists：看不清目标在不在（没权限、盘出错）就停下，不冒险去改名盖掉它（Gemini 4 Argon 复审 PR #32）。
+			// 看不清的错误原样返回，不包成改名失败：包了的话 explainMove 会按里面的错误码把它说成「被占用」之类
 			if there, perr := present(to); perr != nil {
-				err = perr
+				return perr
 			} else if there {
 				err = unix.EEXIST
 			} else {
-				err = unix.Rename(from, to)
+				err = rename()
 			}
 		}
 	}
@@ -39,6 +41,16 @@ func moveFile(from, to string, replace bool) error {
 		syncDir(d)
 	}
 	return nil
+}
+
+// ignoringEINTR 系统调用被信号打断（EINTR）就重做，直到不是 EINTR 为止，和 os.Rename 内部的做法一样：
+// 网络盘上改名会被 Go 运行时的抢占信号打断（Gemini 4 Argon 复审 PR #32 第五轮）。
+func ignoringEINTR(fn func() error) error {
+	for {
+		if err := fn(); !errors.Is(err, unix.EINTR) {
+			return err
+		}
+	}
 }
 
 func syncDir(dir string) {
