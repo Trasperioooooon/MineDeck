@@ -21,3 +21,18 @@ jobs:
         run: go vet ./...
       - name: Go 测试
         run: go test ./...
+
+  # Mac 版（PR #32 起同一套代码按平台分文件）：只守着 macOS 上 vet 干净、编得过，免得 Windows 上的改动又让 Mac 编不过。
+  # 不跑 go test：Mac 上已知有 6 个包的测试会失败（缺加密存储、测试写死 Windows 路径），见 docs/日志/2026-11-21-Mac版第0步摸底.md。
+  go-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27" # 和上面的 windows job、release.yml 用同一个版本，见 release.yml 里的说明
+          check-latest: true
+      - name: go vet
+        run: go vet ./...
+      - name: go build
+        run: go build ./...
