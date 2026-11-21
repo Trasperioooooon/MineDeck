@@ -30,7 +30,7 @@ draft: false
 - **纯原版**：`Vanilla 原版` — 官方纯净端，适合原汁原味联机（不支持装服务端插件或模组）。
 - **插件服**：`Paper`、`Purpur`、`Leaves`、`Folia` — 性能好、可装 Bukkit/Paper 插件；其中 `Folia` 为多线程分支，部分老插件不兼容。
 - **模组服**：`Fabric`（轻量、启动快）、`NeoForge`（1.20.2+ 现代主流模组加载器）、`Forge`（经典及 1.20.1/1.12.2 等大量旧模组）。
-- **混合服**：`Mohist`（Forge + 插件）、`Banner`（Fabric + 插件）。注意此类混合核心要求**服务器所在文件夹路径不能含中文等非英文字符**。
+- **混合服**：`Mohist`（Forge + 插件）、`Taiyitist`（原 Banner，Fabric + 插件）。注意此类混合核心要求**服务器所在文件夹路径不能含中文等非英文字符**。
 - **群组代理**：`Velocity`（固定使用 Java 21）、`Waterfall`（固定使用 Java 17），用来把多台下游游戏服串起来，本身不承载世界存档。
 
 ## 第 2 步：选择 Minecraft 版本与构建 {#version}

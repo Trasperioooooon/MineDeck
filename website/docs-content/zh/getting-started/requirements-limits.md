@@ -24,13 +24,13 @@ draft: false
 | **磁盘空间** | 本体为单文件绿色程序；建议放在专门的英文路径文件夹中，并为服务端核心、世界存档和自动备份预留充足空间。 |
 
 > [!WARNING]
-> **路径限制**：如果你要运行 **Mohist** 或 **Banner** 混合核心，服务器所在目录绝对路径**不能包含中文或非 ASCII 字符**，MineDeck 在新建和接管阶段都会拦截此类路径。即便不跑混合端，也强烈建议避免把程序放进系统桌面或带空格/特殊字符的深层目录。
+> **路径限制**：如果你要运行 **Mohist** 或 **Taiyitist**（原 Banner）混合核心，服务器所在目录绝对路径**不能包含中文或非 ASCII 字符**，MineDeck 在新建和接管阶段都会拦截此类路径。即便不跑混合端，也强烈建议避免把程序放进系统桌面或带空格/特殊字符的深层目录。
 
 ## 当前功能边界 {#limits}
 
 以下行为属于程序目前的明确设计边界，使用前建议先心里有数：
 
-- **下载源差异**：Mojang 官方服务端与 Fabric 支持通过国内镜像（BMCLAPI）加速下载；**Paper、Purpur、Leaves、Folia、Mohist、Banner、Velocity、Waterfall 没有国内镜像**，默认直连各自官方接口；安装 Forge 与 NeoForge 时即使走镜像，仍有部分前置步骤需要访问官方源，官方源连不上时可能会失败。
+- **下载源差异**：Mojang 官方服务端与 Fabric 支持通过国内镜像（BMCLAPI）加速下载；**Paper、Purpur、Leaves、Folia、Mohist、Taiyitist（原 Banner）、Velocity、Waterfall 没有国内镜像**，默认直连各自官方接口；安装 Forge 与 NeoForge 时即使走镜像，仍有部分前置步骤需要访问官方源，官方源连不上时可能会失败。
 - **备份范围边界**：世界备份**只包含世界目录，不包含 `mods`、`plugins`、`server.properties` 等配置**。如需把整台服务器打包搬迁或交给朋友，请使用 [接管已有服务器与交接包](../server-setup/adopt-and-handover.md)。
 - **更新前必须停服**：在 **「设置 → 更新与关于」** 执行程序自更新前，必须先停掉所有运行中的服务器。
 - **端口自动避让限制**：新建服务器和改端口时会自动探测同机其他 MineDeck 服务器和正在监听的端口，但 **Windows Hyper-V、WSL 或 Docker 占用的系统保留端口段无法提前预查**（若撞上会在启动前试绑阶段报错提示）。

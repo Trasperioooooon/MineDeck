@@ -1,11 +1,11 @@
 ---
 title: 启动失败与 Java 版本不匹配
-description: 快速解决服务器启动报错、Java 不兼容或运行时损坏、老版本 Forge 安装半截以及 Mohist/Banner 中文路径阻断。
+description: 快速解决服务器启动报错、Java 不兼容或运行时损坏、老版本 Forge 安装半截以及 Mohist/Taiyitist（原 Banner）中文路径阻断。
 order: 20
 since: v3.0.0
 beta: false
 featured: false
-tags: ["启动失败", "Java 版本不对", "去换 Java", "UnsupportedClassVersionError", "runtimes", "Forge", "NeoForge", "Mohist", "Banner", "中文路径"]
+tags: ["启动失败", "Java 版本不对", "去换 Java", "UnsupportedClassVersionError", "runtimes", "Forge", "NeoForge", "Mohist", "Taiyitist", "Banner", "中文路径"]
 updated: 2026-11-18
 aliases: []
 draft: false
@@ -35,12 +35,12 @@ draft: false
 
 ## 三、创建阶段或老版本 Forge / NeoForge 安装失败 {#installer-fail}
 
-- **官方源连通超时**：Mojang 与 Fabric 走国内镜像（BMCLAPI）很顺畅，但 **Paper、Purpur、Leaves、Folia、Mohist、Banner 与代理端没有国内镜像**；同时安装 **Forge / NeoForge** 时即使默认启用 `--mirror`，官方安装器仍有一部分步骤要回源确认库校验文件。如果某次建服在任务页卡住或报错失败，可以到侧栏 **「设置 → 下载与网络」** 尝试切换 **下载源**（`自动` / `国内镜像` / `官方源`）并重新发起一次创建。
+- **官方源连通超时**：Mojang 与 Fabric 走国内镜像（BMCLAPI）很顺畅，但 **Paper、Purpur、Leaves、Folia、Mohist、Taiyitist（原 Banner）与代理端没有国内镜像**；同时安装 **Forge / NeoForge** 时即使默认启用 `--mirror`，官方安装器仍有一部分步骤要回源确认库校验文件。如果某次建服在任务页卡住或报错失败，可以到侧栏 **「设置 → 下载与网络」** 尝试切换 **下载源**（`自动` / `国内镜像` / `官方源`）并重新发起一次创建。
 - **老版本 Forge「半截安装」识别**：部分旧版 Forge 安装器即便内部拉取失败也会返回成功退出码；MineDeck 会将其主动识破为未安装完成并自动最多重试 3 次，如果仍然失败可在任务页点击 **「查看日志」**（保留开头前 40 行）或 **「复制报错信息」** 看清具体卡在哪个库文件下载上。
 
-## 四、Mohist / Banner 提示路径不合法 {#ascii-path}
+## 四、Mohist / Taiyitist 提示路径不合法 {#ascii-path}
 
-因为 **Mohist** 与 **Banner** 混合核心底层路径解析问题，MineDeck 在 **新建**、**导入整合包** 和 **接管已有服务器** 阶段会硬性拦截所有带中文、日文或其他非 ASCII 字符的路径（例如 `D:\我的世界\MineDeck\servers\...`）。
+因为 **Mohist** 与 **Taiyitist**（原 Banner）混合核心底层路径解析问题，MineDeck 在 **新建**、**导入整合包** 和 **接管已有服务器** 阶段会硬性拦截所有带中文、日文或其他非 ASCII 字符的路径（例如 `D:\我的世界\MineDeck\servers\...`）。
 
 请把 `MineDeck.exe` 放在纯英文文件夹（例如 `D:\Games\MineDeck\`），或者到全局 **「设置 → 存储位置」** 把新服务器存放路径改到一个不含中文字符的盘符目录后再试。
 

@@ -24,11 +24,11 @@ Before hosting a long-running world with friends, review MineDeck's supported en
 | **Folder placement** | Portable single `.exe`; keep it inside a dedicated ASCII folder with enough disk space for server cores, worlds, and backups. |
 
 > [!WARNING]
-> **Non-ASCII path restriction**: **Mohist** and **Banner** hybrid cores reject directories whose absolute path contains Chinese or other non-ASCII characters during creation, modpack import, and adoption. Using a clean path such as `D:\Games\MineDeck\` avoids this across all cores.
+> **Non-ASCII path restriction**: **Mohist** and **Taiyitist** (formerly Banner) hybrid cores reject directories whose absolute path contains Chinese or other non-ASCII characters during creation, modpack import, and adoption. Using a clean path such as `D:\Games\MineDeck\` avoids this across all cores.
 
 ## Known functional limits {#limits}
 
-- **Download mirror differences**: Mojang vanilla servers and Fabric accelerate downloads via China mirrors (`BMCLAPI`). **Paper, Purpur, Leaves, Folia, Mohist, Banner, Velocity, and Waterfall download directly from upstream APIs** with no domestic mirror; Forge and NeoForge installers still require partial access to official upstream metadata.
+- **Download mirror differences**: Mojang vanilla servers and Fabric accelerate downloads via China mirrors (`BMCLAPI`). **Paper, Purpur, Leaves, Folia, Mohist, Taiyitist (formerly Banner), Velocity, and Waterfall download directly from upstream APIs** with no domestic mirror; Forge and NeoForge installers still require partial access to official upstream metadata.
 - **Backups exclude mods, plugins, and configs**: World backups only archive the world directory. To package mods, plugins, configs, and worlds together, export a `.mdpack` handover package instead.
 - **Stop servers before updating**: Applying an in-app update in **「设置 → 更新与关于」** requires stopping all active servers first.
 - **Port reservation limits**: The server creation wizard checks existing MineDeck instances and currently listening TCP sockets, **but cannot detect port ranges reserved by Windows Hyper-V, WSL2, or Docker Desktop** ahead of time (those trigger pre-launch bind errors when starting).
