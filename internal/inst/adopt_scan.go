@@ -169,50 +169,60 @@ func scanServerDir(dir string) (*AdoptScan, error) {
 			c.rank += 25
 		}
 	}
-	// 分数高的在前。同分时按各核心首次出现的顺序分组，同一种核心内部再按版本新旧排：
-	// 既保证严格弱序（中间夹着别的核心也不会漏选同核心的新版），又不拿 Velocity 版本号和 Minecraft 版本跨核心比大小。
-	coreOrder := make(map[string]int, len(cands))
+	// 分数高的在前。同分（比如升级后新旧两个 jar 都留着）时按下面几样依次比，每一样都是全序或严格弱序，
+	// 一层层接下去整体仍是严格弱序，中间夹着别的核心、缺版本号都不会漏选新版：
+	//  1. 游戏服（含认不出核心的）算一组，每种代理端各算一组，组按首次出现的先后排：代理端的版本号和 Minecraft 版本不能互相比。
+	//  2. 组内 Minecraft 版本新的在前（代理端这一栏是它自己的版本），没有版本的排最后；数值相同（1.20 和 1.20.0）的接着往下比。
+	//  3. 同一个 Minecraft 版本里按核心首次出现的先后分开：不同核心的构建号不能互相比。
+	//  4. 同一种核心里构建号新的在前，没有的排最后。
+	groupKey := func(c adoptCand) string {
+		if c.Core != "" && mcsrc.KindOf(mcsrc.Core(c.Core)) == mcsrc.KindProxy {
+			return "proxy:" + c.Core
+		}
+		return "game"
+	}
+	groupFirst := map[string]int{}
+	coreFirst := map[string]int{}
 	for i, c := range cands {
-		if c.Core != "" {
-			if _, ok := coreOrder[c.Core]; !ok {
-				coreOrder[c.Core] = i
-			}
+		if _, ok := groupFirst[groupKey(c)]; !ok {
+			groupFirst[groupKey(c)] = i
+		}
+		if _, ok := coreFirst[c.Core]; !ok {
+			coreFirst[c.Core] = i
 		}
 	}
-	groupOf := func(idx int) int {
-		if c := cands[idx].Core; c != "" {
-			return coreOrder[c]
+	// newer x 比 y 新时为 1，旧时为 -1，分不出时为 0。空的算最旧。
+	newer := func(x, y string) int {
+		switch {
+		case x == y:
+			return 0
+		case y == "":
+			return 1
+		case x == "":
+			return -1
+		case versionLess(y, x):
+			return 1
+		case versionLess(x, y):
+			return -1
 		}
-		return idx
+		return 0
 	}
-	idxs := make([]int, len(cands))
-	for i := range idxs {
-		idxs[i] = i
-	}
-	sort.SliceStable(idxs, func(a, b int) bool {
-		ia, ib := idxs[a], idxs[b]
-		ca, cb := cands[ia], cands[ib]
+	sort.SliceStable(cands, func(a, b int) bool {
+		ca, cb := cands[a], cands[b]
 		if ca.rank != cb.rank {
 			return ca.rank > cb.rank
 		}
-		if ga, gb := groupOf(ia), groupOf(ib); ga != gb {
+		if ga, gb := groupFirst[groupKey(ca)], groupFirst[groupKey(cb)]; ga != gb {
 			return ga < gb
 		}
-		if ca.Core != "" && ca.Core == cb.Core {
-			if x, y := ca.MC, cb.MC; x != "" && y != "" && x != y {
-				return versionLess(y, x)
-			}
-			if x, y := ca.Build, cb.Build; x != "" && y != "" && x != y {
-				return versionLess(y, x)
-			}
+		if n := newer(ca.MC, cb.MC); n != 0 {
+			return n > 0
 		}
-		return false
+		if fa, fb := coreFirst[ca.Core], coreFirst[cb.Core]; fa != fb {
+			return fa < fb
+		}
+		return newer(ca.Build, cb.Build) > 0
 	})
-	sorted := make([]adoptCand, len(cands))
-	for i, k := range idxs {
-		sorted[i] = cands[k]
-	}
-	cands = sorted
 	top := cands[0]
 	// MineDeck 管过的目录、启动文件也还是原来那个：核心和版本信 instance.json 里记的
 	trustPrev := false

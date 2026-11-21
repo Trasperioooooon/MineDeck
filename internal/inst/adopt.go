@@ -245,7 +245,7 @@ func (m *Manager) validateAdopt(req *AdoptReq) (*AdoptScan, error) {
 		return nil, fmt.Errorf("需要同意 Minecraft EULA 才能开服")
 	}
 	if (req.Core == mcsrc.CoreMohist || req.Core == mcsrc.CoreBanner) && !isASCII(dir) {
-		return nil, fmt.Errorf("Mohist / Banner 不能放在带中文的路径下（现在是 %s）。请把文件夹挪到纯英文路径下再接管", dir)
+		return nil, fmt.Errorf("Mohist / Taiyitist（原 Banner）不能放在带中文的路径下（现在是 %s）。请把文件夹挪到纯英文路径下再接管", dir)
 	}
 	if req.XmxMB < 512 {
 		req.XmxMB = 2048

@@ -147,3 +147,59 @@ func TestScanTaiyitistAsBanner(t *testing.T) {
 		t.Fatalf("应说明这是改名后的 Banner：%v", sc.Notes)
 	}
 }
+
+// 同分时的先后（PR #31 复审补的）：游戏服之间照旧按 Minecraft 版本挑新的，认不出核心的也一样；
+// 代理端只和同一种代理端比；缺版本号的排最后；数值相同的版本接着比构建号。
+func TestScanTieBreaksAcrossCoresAndMissingVersions(t *testing.T) {
+	mf := func(main, extra string) string {
+		return "zip:META-INF/MANIFEST.MF=Manifest-Version: 1.0\r\nMain-Class: " + main + "\r\n" + extra + "\r\n"
+	}
+	paperOf := func(brand, mc string) string {
+		return mf("io.papermc.paperclip.Paperclip", "") + "|META-INF/versions.list=abc\t" + mc + "\t" + mc + "/" + brand + "-" + mc + ".jar\n"
+	}
+	vel := func(v string) string {
+		if v == "" {
+			return mf("com.velocitypowered.proxy.Velocity", "")
+		}
+		return mf("com.velocitypowered.proxy.Velocity", "Implementation-Version: "+v+"\r\n")
+	}
+	fab := func(mc, loader string) string {
+		s := mf("net.fabricmc.loader.impl.launch.server.FabricServerLauncher", "") + "|install.properties="
+		if mc != "" {
+			s += "game-version=" + mc + "\n"
+		}
+		if loader != "" {
+			s += "fabric-loader-version=" + loader + "\n"
+		}
+		return s
+	}
+	unknown := mf("io.izzel.arclight.server.Launcher", "")
+
+	cases := []struct {
+		name   string
+		files  map[string]string
+		target string
+	}{
+		{"认不出核心的新旧两个 jar 挑新的", map[string]string{"arclight-1.20.1.jar": unknown, "arclight-1.21.1.jar": unknown}, "jar:arclight-1.21.1.jar"},
+		{"换过游戏服核心、旧 jar 没删时挑 Minecraft 版本新的", map[string]string{"paper-1.20.4.jar": paperOf("paper", "1.20.4"), "purpur-1.21.1.jar": paperOf("purpur", "1.21.1")}, "jar:purpur-1.21.1.jar"},
+		{"三个 Velocity 中间那个没有版本号", map[string]string{"a.jar": vel("3.3.0"), "b.jar": vel(""), "c.jar": vel("3.4.0")}, "jar:c.jar"},
+		{"1.20 和 1.20.0 算同一个版本、接着比加载器", map[string]string{"a.jar": fab("1.20", "0.15.0"), "b.jar": fab("1.20.0", "0.16.0"), "c.jar": fab("1.20", "0.17.0")}, "jar:c.jar"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "d")
+			writeTree(t, dir, tc.files)
+			sc, err := scanServerDir(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if sc.LaunchTarget != tc.target {
+				var got []string
+				for _, x := range sc.Targets {
+					got = append(got, x.Target+"["+x.Core+" "+x.MC+" "+x.Build+"]")
+				}
+				t.Fatalf("预填了 %s，应为 %s；候选：%s", sc.LaunchTarget, tc.target, strings.Join(got, " , "))
+			}
+		})
+	}
+}

@@ -16,7 +16,7 @@
 | 离线 UUID | `online-mode=false` 时，游戏按玩家名算出 UUID（不是正版账号那一个）。 | 不另算、不改玩家文件。换地图的说明里已经写了：离线 UUID 接不上正版那份存档。 |
 | 正版 UUID 查询 | 用公开接口按名字查 Mojang 的 UUID。查到不等于这个人证明了自己是这个账号。 | 不做。不做的原因是查到就可以拿去改玩家文件，那是冒充。 |
 | 皮肤 | 客户端从正版会话或皮肤站拿皮肤。离线模式默认没有。 | 工具箱能做离线皮肤资源包。那和 UUID 无关，也不代替皮肤模组。 |
-| 代理转发 | Velocity / Waterfall 的 `online-mode` 和转发模式决定后端看到的 UUID。Velocity 官方 `velocity.toml` 写明 `player-info-forwarding-mode = "none"` 时后端拿到的是离线 UUID。 | 接管时读端口，不改 `velocity.toml`。 |
+| 代理转发 | Velocity / Waterfall 的 `online-mode` 和转发模式决定后端看到的 UUID。Velocity 官方 `velocity.toml` 写明 `player-info-forwarding-mode = "none"` 时后端拿到的是离线 UUID。 | 服务器列表里显示 `velocity.toml` 写的端口；接管和平时都不改这个文件。 |
 | TrueUUID | 第三方模组或插件。要关正版验证，还要客户端配合，并可能迁移玩家数据。 | 不安装，不改 `online-mode`，不迁移。 |
 
 关掉正版验证不会让玩家文件变成正版 UUID，也不会带上皮肤。上次忘了关正版验证，玩家文件用的是正版 UUID；换到没有 TrueUUID 的版本再开离线，名字对得上、文件名对不上，所以要手改文件。这和「MineDeck 再写一次 online-mode」不是同一件事。
