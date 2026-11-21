@@ -2916,7 +2916,7 @@ function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-appl
       ${pending.some(it => (it.options || []).includes("trust")) ? `<div class="row pnd-batch">
         <button type="button" class="btn sm" id="pnd-trust-all">全选可下载项</button>
         <button type="button" class="btn sm" id="pnd-ack-all">确认这些站点的风险</button>
-        <span class="hint">「全选可下载项」只选上面还没处理、且可从外部站点下载的文件；已跳过的、缺校验值或地址不安全的不选，也不会自动勾选风险确认。勾选确认并下载成功后才按域名记住，不会把外部站点放进默认允许列表。</span>
+        <span class="hint">「全选可下载项」只选上面还没选处理方式、且可从外部站点下载的文件；已跳过的、缺校验值的、你已经选了别的处理方式的不动，也不会自动勾选风险确认。勾选确认并下载成功后才按域名记住，不会把外部站点放进默认允许列表。</span>
       </div>` : ""}
       ${pending.map(it => row(it, false)).join("")}`
       : `<div class="wc-title">${icon("info")} 跳过了 ${skipped.length} 个文件，它们没有装上</div><div class="wc-note">要的话在下面换成用本地文件代替${skipped.some(x => (x.options || []).includes("trust")) ? "或信任站点下载" : ""}；不要就不用管。</div>`}
@@ -2941,9 +2941,11 @@ function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-appl
     const ackAll = box.querySelector("#pnd-ack-all");
     if (trustAll) trustAll.onclick = () => {
       let n = 0;
+      const hasSHA1 = id => !!String((view.pending.find(x => x.id === id) || {}).sha1 || ""); // 同后端：没有校验值的不下载
       for (const r of box.querySelectorAll(".pnd-item")) {
         const radio = r.querySelector('input[type=radio][value="trust"]');
-        if (!radio) continue;
+        // 没有校验值的后端不会下载；已经选了处理方式的（包括选了本地文件的）不替人改
+        if (!radio || !hasSHA1(r.dataset.id) || r.querySelector("input[type=radio]:checked")) continue;
         radio.checked = true;
         radio.dispatchEvent(new Event("change"));
         n++;
@@ -3005,10 +3007,17 @@ function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-appl
       syncDone();
       if (wasOpen && !view.pending.length) toast("没装上的文件都处理完了");
     } catch (e) {
-      if (!gone()) {
-        syncDone();
-        toastErr(lastResp ? "部分文件未能处理完" : "无法处理没装上的文件", e);
-      }
+      if (gone()) return;
+      // 出错的那一批可能已经在后端处理了一部分（比如连接在途中断了），手里的旧响应不准：重新要一次清单再画
+      let refreshed = false;
+      try {
+        const v = await api(`/api/instances/${encodeURIComponent(inst)}/import-pending`);
+        if (gone()) return;
+        lastResp = v;
+        refreshed = true;
+      } catch { /* 要不到就按手里已有的画 */ }
+      syncDone();
+      toastErr(refreshed ? "有的文件没处理完，清单已按最新情况刷新" : lastResp ? "部分文件未能处理完" : "无法处理没装上的文件", e);
     } finally {
       const b = box.querySelector(".pnd-apply");
       if (!gone() && b) b.disabled = false;

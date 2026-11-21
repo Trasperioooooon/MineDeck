@@ -2980,6 +2980,7 @@ function handler(state, ui, portOf) {
             const host = it.host || "";
             const hosts = state.trustedHosts || (state.trustedHosts = []);
             if ((it.urls || []).indexOf(act.url) < 0) { done = false; note = "地址要选这一项列出的候选地址"; }
+            else if (!String(it.sha1 || "")) { done = false; note = "这一项没有校验值，下载下来没法核对，不下载"; }
             else if (!act.ack && !hosts.includes(host)) { done = false; note = `站点 ${host} 没有确认过：读一遍风险说明并确认后才下载`; }
             else if (!hosts.includes(host)) { hosts.push(host); note = `确认站点 ${host} 后下载完成，校验通过`; }
             else note = `站点 ${host} 之前确认过，直接下载完成，校验通过`;
@@ -3216,6 +3217,7 @@ function handler(state, ui, portOf) {
             } else if (act.act === "trust") {
               const host = it.host || "", hosts = state.trustedHosts || (state.trustedHosts = []);
               if ((it.urls || []).indexOf(act.url) < 0) { done = false; note = "地址要选这一项列出的候选地址"; }
+              else if (!String(it.sha1 || "")) { done = false; note = "这一项没有校验值，下载下来没法核对，不下载"; } // 同 inst/import.go 的 pendingTrustDownload
               else if (!act.ack && !hosts.includes(host)) { done = false; note = `站点 ${host} 没有确认过：读一遍风险说明并确认后才下载`; }
               else if (!hosts.includes(host)) { hosts.push(host); note = `确认站点 ${host} 后下载完成，校验通过`; }
               else note = `站点 ${host} 之前确认过，直接下载完成，校验通过`;

@@ -4009,7 +4009,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       pending: [
         { id: "p1", path: "mods/modded-custom-host.jar", reason: "host", host: "files.example.net", note: "下载地址不在 MineDeck 允许的站点列表里（只允许 Modrinth、GitHub、GitLab），确认站点可信后才能下载", urls: ["https://files.example.net/modded-custom-host.jar"], sha1: "aa", size: 12345, options: ["local", "skip", "trust"] },
         { id: "p2", path: "mods/no-hash.jar", reason: "nohash", note: "整合包没有提供这个文件的校验值，不能自动下载", options: ["skip", "local"] },
-        { id: "p3", path: "mods/same-host-2.jar", reason: "host", host: "files.example.net", note: "下载地址不在 MineDeck 允许的站点列表里", urls: ["https://files.example.net/same-host-2.jar"], options: ["local", "skip", "trust"] },
+        { id: "p3", path: "mods/same-host-2.jar", reason: "host", host: "files.example.net", note: "下载地址不在 MineDeck 允许的站点列表里", urls: ["https://files.example.net/same-host-2.jar"], sha1: "0123456789abcdef0123456789abcdef01234567", options: ["local", "skip", "trust"] },
       ],
     };
     try {
@@ -4077,14 +4077,19 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     const task = {
       id: "task-all", title: "导入整合包 很多外部文件", ended: true, result: "机械动力整合包",
       pending: [
-        { id: "p1", path: "mods/a.jar", reason: "host", host: "files.example.net", note: "下载地址不在允许列表", urls: ["https://files.example.net/a.jar"], options: ["local", "skip", "trust"] },
-        { id: "p2", path: "mods/b.jar", reason: "host", host: "cdn.example.org", note: "下载地址不在允许列表", urls: ["https://cdn.example.org/b.jar"], options: ["local", "skip", "trust"] },
+        { id: "p1", path: "mods/a.jar", reason: "host", host: "files.example.net", note: "下载地址不在允许列表", urls: ["https://files.example.net/a.jar"], sha1: "0123456789abcdef0123456789abcdef01234567", options: ["local", "skip", "trust"] },
+        { id: "p2", path: "mods/b.jar", reason: "host", host: "cdn.example.org", note: "下载地址不在允许列表", urls: ["https://cdn.example.org/b.jar"], sha1: "0123456789abcdef0123456789abcdef01234567", options: ["local", "skip", "trust"] },
         { id: "p3", path: "mods/c.jar", reason: "nohash", note: "整合包没有提供这个文件的校验值，不能自动下载", options: ["skip", "local"] },
+        // 站点不在列表里、又没有校验值：后端给 trust 选项，但真去下载会被拒，全选不该选它
+        { id: "p4", path: "mods/d.jar", reason: "host", host: "files.example.net", note: "下载地址不在允许列表", urls: ["https://files.example.net/d.jar"], options: ["local", "skip", "trust"] },
+        // 用户已经选了「用本地文件代替」的，全选不替人改
+        { id: "p5", path: "mods/e.jar", reason: "host", host: "files.example.net", note: "下载地址不在允许列表", urls: ["https://files.example.net/e.jar"], sha1: "0123456789abcdef0123456789abcdef01234567", options: ["local", "skip", "trust"] },
       ],
     };
     try {
       await page.evaluate(t => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList: [t], trustedHosts: [] }) }), task);
       await page.goto(url("#/task/task-all")); await settle();
+      await page.check('#t-pending .pnd-item[data-id="p5"] input[value="local"]'); await settle(100);
       await page.click("#pnd-trust-all"); await settle();
       const picked = await page.$$eval("#t-pending .pnd-item", els => els.map(e => ({
         id: e.dataset.id,
@@ -4095,7 +4100,9 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         { id: "p1", act: "trust", ack: false },
         { id: "p2", act: "trust", ack: false },
         { id: "p3", act: "", ack: false },
-      ]), "全选范围：" + JSON.stringify(picked));
+        { id: "p4", act: "", ack: false },
+        { id: "p5", act: "local", ack: false },
+      ]), "全选范围（不选没有校验值的、不改已经选好的）：" + JSON.stringify(picked));
       assert((await page.textContent("#t-pending")).includes("不会把外部站点放进默认允许列表"), "应写明不会放进默认允许列表");
       assert((await page.textContent("#t-pending")).includes("没有提供这个文件的校验值"), "缺校验的说明还在");
       await page.click("#pnd-ack-all"); await settle();
@@ -4108,6 +4115,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         { id: "p1", ack: true, shown: true },
         { id: "p2", ack: true, shown: true },
         { id: "p3", ack: false, shown: false },
+        { id: "p4", ack: false, shown: false },
+        { id: "p5", ack: false, shown: false },
       ]), "确认风险只勾已选的信任项：" + JSON.stringify(acked));
       const tooMany = await page.evaluate(async () => {
         const items = Array.from({ length: 501 }, (_, i) => ({ id: "x" + i, act: "skip" }));
@@ -4125,7 +4134,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   await run("待决面板：选了用本地文件代替但没给路径时拦下，给路径后成功", async () => {
     const task = {
       id: "task-im2", title: "导入整合包 魔改模组包", ended: true, result: "机械动力整合包",
-      pending: [{ id: "p1", path: "mods/modded.jar", reason: "host", host: "files.example.net", urls: ["https://files.example.net/modded.jar"], options: ["local", "skip", "trust"] }],
+      pending: [{ id: "p1", path: "mods/modded.jar", reason: "host", host: "files.example.net", urls: ["https://files.example.net/modded.jar"], sha1: "0123456789abcdef0123456789abcdef01234567", options: ["local", "skip", "trust"] }],
     };
     try {
       await page.evaluate(t => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList: [t], trustedHosts: [] }) }), task);
@@ -6501,7 +6510,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       const task = { id: "task-imx", title: "导入整合包 R09（forge 1.20.1）", ended: true, result: PACK,
         warnings: [{ kind: "import-pending", title: "2 个文件待处理", note: "这些文件没法自动下载。" }],
         pending: [{ id: "p1", path: "mods/no-hash.jar", reason: "nohash", note: "没有校验值", options: ["skip", "local"] },
-          { id: "p2", path: "mods/host.jar", reason: "host", host: "files.example.net", note: "站点不在允许列表里", urls: ["javascript:alert(1)", "https://files.example.net/host.jar"], options: ["local", "skip", "trust"] }] };
+          { id: "p2", path: "mods/host.jar", reason: "host", host: "files.example.net", note: "站点不在允许列表里", urls: ["javascript:alert(1)", "https://files.example.net/host.jar"], sha1: "0123456789abcdef0123456789abcdef01234567", options: ["local", "skip", "trust"] }] };
       try {
         await fState({ taskList: [task], trustedHosts: [] });
         const t0 = reqs.length;
@@ -6802,7 +6811,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       const task = { id: "task-imr", title: "导入整合包 R09 界面（forge 1.20.1）", ended: true, result: PACKX,
         warnings: [{ kind: "import-pending", title: "2 个文件待处理", note: "这些文件没法自动下载。" }],
         pending: [{ id: "p1", path: "mods/no-hash.jar", reason: "nohash", note: "没有校验值", options: ["skip", "local"] },
-          { id: "p2", path: "mods/host.jar", reason: "host", host: "files.example.net", note: "站点不在允许列表里", urls: ["https://files.example.net/host.jar"], options: ["local", "skip", "trust"] }] };
+          { id: "p2", path: "mods/host.jar", reason: "host", host: "files.example.net", note: "站点不在允许列表里", urls: ["https://files.example.net/host.jar"], sha1: "0123456789abcdef0123456789abcdef01234567", options: ["local", "skip", "trust"] }] };
       const enc = encodeURIComponent(PACKX);
       try {
         await xState({ instReset: true, taskList: [task], trustedHosts: [] });
@@ -8483,7 +8492,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       // 3) 没装上的文件：505 项分两批（500 + 5）；第二批若失败，第一批已处理的 500 项仍同步到界面，不会重回 505 项
       const items505 = Array.from({ length: 505 }, (_, k) => ({
         id: "b" + k, path: `mods/m${k}.jar`, reason: "host", host: "cdn.example.org",
-        urls: [`https://cdn.example.org/m${k}.jar`], options: ["local", "skip", "trust"],
+        urls: [`https://cdn.example.org/m${k}.jar`], sha1: "0123456789abcdef0123456789abcdef01234567", options: ["local", "skip", "trust"],
       }));
       await page.evaluate(pnd => fetch("/__mock/state", { method: "POST", body: JSON.stringify({
         taskList: [{ id: "task-505", title: "导入整合包 505", ended: true, result: "机械动力整合包", pending: pnd }],
@@ -8517,6 +8526,34 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         assert(JSON.stringify(postSizes) === JSON.stringify([5]) && (await page.textContent("#t-pending")).includes("都处理完了"), "剩余 5 项重试应完成");
       } finally {
         await page.unroute("**/import-pending", batchRoute);
+      }
+
+      // 3b) 第二批其实已经在后端处理完、只是回应丢了（连接中途断开）：界面要重新要一次清单，不能还显示那 5 项
+      await page.evaluate(pnd => fetch("/__mock/state", { method: "POST", body: JSON.stringify({
+        taskList: [{ id: "task-505", title: "导入整合包 505", ended: true, result: "机械动力整合包", pending: pnd }],
+        trustedHosts: [],
+      }) }), items505);
+      let lostSizes = [];
+      const lostRoute = async route => {
+        if (route.request().method() !== "POST") return route.continue();
+        lostSizes.push((JSON.parse(route.request().postData() || "{}").items || []).length);
+        if (lostSizes.length === 2) {
+          await route.fetch(); // 后端照常处理
+          return route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ ok: false, error: "模拟回应途中断开" }) });
+        }
+        return route.continue();
+      };
+      await page.route("**/import-pending", lostRoute);
+      try {
+        await page.goto(url("#/task/task-505")); await settle(700);
+        await page.click("#pnd-trust-all"); await settle(200);
+        await page.click("#pnd-ack-all"); await settle(200);
+        await page.click("#t-pending-apply"); await settle(900);
+        assert(JSON.stringify(lostSizes) === JSON.stringify([500, 5]), "应分 500+5 两批：" + JSON.stringify(lostSizes));
+        const left = await page.$$eval("#t-pending .pnd-item", els => els.length);
+        assert(left === 0 && (await page.textContent("#t-pending")).includes("都处理完了"), "回应丢了但后端已处理完时，界面应按最新清单显示处理完了，还剩：" + left);
+      } finally {
+        await page.unroute("**/import-pending", lostRoute);
       }
 
       // 4) 待装清单里：合法 slug 给项目页链接，非法 slug（如 .. 或含斜杠）不生成链接
