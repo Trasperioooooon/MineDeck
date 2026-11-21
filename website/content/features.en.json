@@ -18,7 +18,7 @@
    "details": [
     "Which versions each type offers comes from that project's own version list. NeoForge lists the releases from 1.20.2 on; if a version has no NeoForge build yet, you are told at the build step.",
     "Proxies have no EULA and no server.properties. Velocity always uses Java 21 and Waterfall Java 17.",
-    "Mohist and Banner need a folder path without non-English characters."
+    "Mohist and Taiyitist (formerly Banner) need a folder path without non-English characters."
    ]
   },
   {
@@ -49,7 +49,7 @@
     "When MineDeck quits, its running servers and tunnels stop with it; no Java process is left behind."
    ],
    "details": [
-    "Paper, Purpur, Leaves, Folia, Mohist, Banner, Velocity and Waterfall have no mirror in mainland China and use their own official addresses.",
+    "Paper, Purpur, Leaves, Folia, Mohist, Taiyitist (formerly Banner), Velocity and Waterfall have no mirror in mainland China and use their own official addresses.",
     "The download source can be set to automatic, mirror or official under Settings → Download and network (设置 → 下载与网络).",
     "Servers older than 1.18.1 get the log4shell mitigation flags automatically.",
     "Environment variables such as JAVA_HOME are cleared when a server starts, so the wrong Java is not picked up.",
@@ -139,7 +139,7 @@
    "icon": "cart",
    "lead": "Search for mods and plugins inside MineDeck, see the ones that work with your server type, and install them straight into the server.",
    "points": [
-    "A non-vanilla server has a tab for adding things: Plugins (插件) on a plugin or proxy server, Mods (模组) on a modded server, and Plugins and mods (插件和模组) on Mohist or Banner. Search Modrinth and install into mods or plugins. Mods are filtered by game version.",
+    "A non-vanilla server has a tab for adding things: Plugins (插件) on a plugin or proxy server, Mods (模组) on a modded server, and Plugins and mods (插件和模组) on Mohist or Taiyitist (formerly Banner). Search Modrinth and install into mods or plugins. Mods are filtered by game version.",
     "Install list (待装清单): put the mods or plugins you want on the list, have their dependencies added automatically, and install them in one go. You can also pick them in the new-server wizard."
    ],
    "details": [
@@ -280,7 +280,7 @@
     "On Windows 11 it can record just the music program you pick, without game sound or voice chat. On Windows 10 it can only record the whole PC."
    ],
    "details": [
-    "It needs a NeoForge server on 1.20.5 or later, or a Forge or Mohist server on 1.20.1 or later. Fabric and Banner are not supported.",
+    "It needs a NeoForge server on 1.20.5 or later, or a Forge or Mohist server on 1.20.1 or later. Fabric and Taiyitist (formerly Banner) are not supported.",
     "The bridge mod ships with MineDeck and is installed on the server from the music sharing page. The server and your friends all need the same version of Simple Voice Chat.",
     "For friends on other networks you also need a voice tunnel. Without one, the page says that distant players will not hear anything.",
     "Starting a broadcast can only be done by you on this PC; neither AI nor devices on the LAN can do it for you."
@@ -317,7 +317,7 @@
   "NeoForge",
   "Forge",
   "Mohist",
-  "Banner",
+  "Taiyitist (formerly Banner)",
   "Velocity",
   "Waterfall"
  ]

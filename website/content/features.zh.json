@@ -18,7 +18,7 @@
    "details": [
     "各核心能选哪些版本，以该核心自己的版本清单为准。NeoForge 列出的是 1.20.2 及以后的正式版，某个版本还没有 NeoForge 构建时，到选构建那一步才会提示。",
     "代理端没有 EULA，也没有 server.properties。Velocity 固定用 Java 21，Waterfall 固定用 Java 17。",
-    "Mohist 和 Banner 要求服务器所在的路径不含中文等非英文字符。"
+    "Mohist 和 Taiyitist（原 Banner）要求服务器所在的路径不含中文等非英文字符。"
    ]
   },
   {
@@ -49,7 +49,7 @@
     "关掉 MineDeck 时，正在跑的服务器和隧道一起停，不会有 Java 进程留在后台。"
    ],
    "details": [
-    "Paper、Purpur、Leaves、Folia、Mohist、Banner、Velocity、Waterfall 没有国内镜像，直接连各自的官方地址。",
+    "Paper、Purpur、Leaves、Folia、Mohist、Taiyitist（原 Banner）、Velocity、Waterfall 没有国内镜像，直接连各自的官方地址。",
     "下载源可以在「设置 → 下载与网络」里选自动、镜像或官方。",
     "低于 1.18.1 的服务器会自动加上 log4shell 的缓解参数。",
     "启动服务器时会清掉 JAVA_HOME 这类环境变量，免得用到别的 Java。",
@@ -139,7 +139,7 @@
    "icon": "cart",
    "lead": "在 MineDeck 里就能搜模组和插件，按你的核心挑能用的，直接装进服务器。",
    "points": [
-    "非原版的服务器有一个装东西的标签：插件服和代理端叫「插件」，模组服叫「模组」，Mohist、Banner 叫「插件和模组」。在 Modrinth 上搜索，装到 mods 或 plugins。模组会按游戏版本过滤。",
+    "非原版的服务器有一个装东西的标签：插件服和代理端叫「插件」，模组服叫「模组」，Mohist、Taiyitist（原 Banner）叫「插件和模组」。在 Modrinth 上搜索，装到 mods 或 plugins。模组会按游戏版本过滤。",
     "待装清单：把想要的模组或插件先放进待装清单，前置自动补齐，一次装好。新建向导里也可以先挑。"
    ],
    "details": [
@@ -280,7 +280,7 @@
     "Windows 11 上可以只录你选的那个音乐程序，不会录进游戏声音和语音。Windows 10 只能录整机的声音。"
    ],
    "details": [
-    "需要 NeoForge 1.20.5 及以后，或者 Forge、Mohist 1.20.1 及以后的服务器。Fabric 和 Banner 用不了。",
+    "需要 NeoForge 1.20.5 及以后，或者 Forge、Mohist 1.20.1 及以后的服务器。Fabric 和 Taiyitist（原 Banner）用不了。",
     "桥接模组随 MineDeck 自带，在音乐共享页装进服务器。服务器和好友都要装同一版本的 Simple Voice Chat。",
     "朋友不在同一个网络时，还要开一条语音隧道。没开的话，页面上会说明远处的人听不到。",
     "开始广播只能由你在这台电脑上点，AI 和局域网里的设备都不能代劳。"
@@ -317,7 +317,7 @@
   "NeoForge",
   "Forge",
   "Mohist",
-  "Banner",
+  "Taiyitist（原 Banner）",
   "Velocity",
   "Waterfall"
  ]

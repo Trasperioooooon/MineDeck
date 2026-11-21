@@ -73,7 +73,7 @@ const CORES = [
   ["neoforge", "NeoForge", "模组·主流", "1.20.2 起的模组加载器，Forge 的社区继任者。", "game"],
   ["forge", "Forge", "模组·经典", "经典模组加载器，适合 1.20.1 及更早的整合包", "game"],
   ["mohist", "Mohist", "混合·Forge+插件", "Forge 模组与 Bukkit 插件共存，整合包服首选之一。", "hybrid"],
-  ["banner", "Taiyitist（原 Banner）", "混合·Fabric+插件", "Fabric 模组与 Bukkit 插件共存。项目已改名 Taiyitist，下载仍用原来的 banner 构建。", "hybrid"],
+  ["banner", "Taiyitist（原 Banner）", "混合·Fabric+插件", "Fabric 模组与 Bukkit 插件共存（已改名 Taiyitist，下载仍用原 banner 构建）", "hybrid"],
   ["velocity", "Velocity", "代理·主流", "PaperMC 出品的现代群组代理端，搭配多后端服使用。", "proxy"],
   ["waterfall", "Waterfall", "代理·经典", "BungeeCord 分支，上游已停止更新，仍可运行。", "proxy"],
 ].map(([id, name, tag, desc, kind]) => ({ id, name, tag, desc, kind }));
@@ -146,6 +146,12 @@ function newState(ui) {
   state.props = catalog(ui).map(p => ({ key: p.key, value: p.key === "motd" ? "§a生存服 §7· §e一起来玩！" : String(p.def ?? "") }));
   // 同 instance.list 的 javaSource / javaPath / adopted：都用 MineDeck 下载的便携版 Java，都不是接管进来的
   for (const i of state.instances) Object.assign(i, { javaSource: "portable", javaPath: `D:\\MineDeck\\runtimes\\java-${i.javaMajor}\\bin\\java.exe`, adopted: false });
+  state.portableJavas = [
+    { major: 21, path: "D:\\MineDeck\\runtimes\\java-21\\bin\\java.exe" },
+    { major: 17, path: "D:\\MineDeck\\runtimes\\java-17\\bin\\java.exe" },
+  ];
+  state.incompleteJavas = [];
+  state.creatingLeftovers = [];
   state.adoptScan = state.lastAdopt = state.lastJava = state.lastDelete = null; // 接管、换 Java、删除：见 /__mock/state 的说明
   state.lastTunnelPut = null; // 上一次修改隧道（PUT /api/tunnels/{id}）的请求体，见 /__mock/state 的说明
   state.tunnelsLoadFail = ""; // "locked" | "corrupt"：tunnels.json 没读出来，见 LOAD_FAIL
@@ -1680,7 +1686,11 @@ async function modcartHandler(state, req, res, p, m, u) {
     const all = (type === "plugin" ? PLUGIN_CATALOG : MOD_CATALOG)
       .filter(x => (!word || x.title.toLowerCase().includes(word) || x.slug.includes(word)) && (!cat || x.cats.includes(cat)));
     const hits = all.slice(offset, offset + MODCART_PAGE)
-      .map(x => ({ project_id: x.projectId, slug: x.slug, project_type: type, title: x.title, description: x.description, downloads: x.downloads, icon_url: "", license: x.license }));
+      .map(x => ({
+        project_id: x.projectId, slug: x.slug, project_type: type, title: x.title, description: x.description,
+        downloads: x.downloads, icon_url: "", license: x.license,
+        ...(x.slug && /^[A-Za-z0-9._-]+$/.test(x.slug) && x.slug !== "." && x.slug !== ".." ? { project_url: `https://modrinth.com/${type}/${x.slug}` } : {}),
+      }));
     return ok(res, { type, hits, offset, total: all.length, more: hits.length > 0 && offset + MODCART_PAGE < all.length && offset < MODCART_MAX_OFFSET });
   }
   const unread = MODCART_LOAD_FAIL[mc.loadFail];
@@ -2776,8 +2786,12 @@ function handler(state, ui, portOf) {
       if ("otherPorts" in b) state.otherPorts = b.otherPorts || {}; // { 端口: 程序名 } 被别的程序占着的端口（程序名可以是空串）：推荐端口时跳过、端口查询按别的程序占着回
       if (Array.isArray(b.madeDirs)) { state.madeDirs = b.madeDirs; state.lastTransferMkdir = null; }
       if ("pickDir" in b) state.pickDir = b.pickDir === null ? undefined : b.pickDir; // 系统文件夹选择框选到哪个（空串 = 点了取消；null 还原成 E:\MCServers）
-      if (b.instReset) { const fresh = newState(ui); state.instances = fresh.instances; state.lastAdopt = state.lastJava = state.lastDelete = null;
+      if (b.instReset) { const fresh = newState(ui); state.instances = fresh.instances; state.portableJavas = fresh.portableJavas; state.incompleteJavas = []; state.creatingLeftovers = [];
+        state.lastAdopt = state.lastJava = state.lastDelete = null;
         state.lifecycle = []; state.modOps = []; state.lastRestore = state.lastBackup = null; state.modsProjects = 0; } // beta.3 详情页记下的请求一起清掉
+      if (Array.isArray(b.portableJavas)) state.portableJavas = b.portableJavas;
+      if (Array.isArray(b.incompleteJavas)) state.incompleteJavas = b.incompleteJavas;
+      if (Array.isArray(b.creatingLeftovers)) state.creatingLeftovers = b.creatingLeftovers;
       if ("lifecycle" in b) state.lifecycle = b.lifecycle || []; // 停止、重启的请求记录，传空数组清掉
       if ("modOps" in b) state.modOps = b.modOps || [];          // 停用、启用、删除插件或模组的请求记录
       if ("listenLan" in b) { state.config.listenLan = state.lanActive = !!b.listenLan; if (b.listenLan) state.lanSet = true; }
@@ -2886,7 +2900,34 @@ function handler(state, ui, portOf) {
         return ok(res, list);
       }
       if (p === "/api/builds") return ok(res, [232, 231, 230, 229, 228, 225, 220].map((n, i) => ({ id: String(n), label: `2026-10-${String(20 - i * 2).padStart(2, "0")}`, recommended: i === 0 })));
-      if (p === "/api/javas") return ok(res, { portable: [{ major: 21, path: "D:\\MineDeck\\runtimes\\java-21\\bin\\java.exe" }, { major: 17, path: "D:\\MineDeck\\runtimes\\java-17\\bin\\java.exe" }], scanned: [{ major: 21, version: "21.0.4", path: "C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.4.7-hotspot\\bin\\java.exe" }, { major: 8, version: "1.8.0_421", path: "C:\\Program Files\\Java\\jre1.8.0_421\\bin\\java.exe" }] });
+      if (p === "/api/javas") return ok(res, { portable: state.portableJavas || [], incomplete: state.incompleteJavas || [], scanned: [{ major: 21, version: "21.0.4", path: "C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.4.7-hotspot\\bin\\java.exe" }, { major: 8, version: "1.8.0_421", path: "C:\\Program Files\\Java\\jre1.8.0_421\\bin\\java.exe" }] });
+      if (p === "/api/javas/remove" && m === "POST") {
+        if (!state.local) return err(res, 403, "卸载便携 Java 仅支持在本机操作");
+        const b = await readBody(req), major = +b.major;
+        if (!b.confirm) return err(res, 400, "卸载 Java 需要明确确认");
+        if (!(major >= 8 && major <= 64)) return err(res, 400, "不支持的 Java 版本: " + major);
+        const instList = state.empty ? [] : state.instances;
+        const running = instList.filter(i => i.javaSource === "portable" && i.javaMajor === major && i.status !== "stopped").map(i => i.name);
+        if (running.length) return err(res, 409, `服务器正在用 Java ${major} 运行（${running.join("、")}），请先停服再卸载`);
+        const cfgd = instList.filter(i => i.javaSource === "portable" && i.javaMajor === major).map(i => i.name);
+        if (cfgd.length) return err(res, 409, `服务器还在用 Java ${major}（${cfgd.join("、")}），请先到「设置 → 启动与内存」更换后再卸载`);
+        state.portableJavas = (state.portableJavas || []).filter(j => j.major !== major);
+        state.incompleteJavas = (state.incompleteJavas || []).filter(x => x !== major);
+        return ok(res, { major, removed: true });
+      }
+      if (p === "/api/creating-leftovers" && m === "GET") {
+        if (!state.local) return err(res, 403, "查看没建完的服务器文件夹仅支持在本机操作");
+        return ok(res, { items: state.creatingLeftovers || [] });
+      }
+      if (p === "/api/creating-leftovers/discard" && m === "POST") {
+        if (!state.local) return err(res, 403, "清理没建完的服务器文件夹仅支持在本机操作");
+        const b = await readBody(req);
+        if (!b.confirm) return err(res, 400, "清理文件夹需要明确确认");
+        const list = state.creatingLeftovers || [], k = list.findIndex(x => x.id === b.id);
+        if (k < 0) return err(res, 400, "目标文件夹不存在或没有创建记号");
+        list.splice(k, 1);
+        return ok(res, { id: b.id, removed: true });
+      }
       if (p === "/api/javas/scan") return ok(res, [1, 2]);
       if (p === "/api/pickdir") return ok(res, { path: state.pickDir ?? "E:\\MCServers" }); // pickDir 见 /__mock/state 的说明（空串 = 点了取消）
       // 在资源管理器里打开文件夹（同 host.openpath，只许本机）：记下打开的是哪个
@@ -2921,6 +2962,7 @@ function handler(state, ui, portOf) {
         const b = await readBody(req);
         const items = Array.isArray(b.items) ? b.items : [];
         if (!items.length) return err(res, 400, "没有要处理的项");
+        if (items.length > 500) return err(res, 400, "参数 items 最多 500 项");
         const task = state.taskList.find(t => t.id === tid);
         if (!task) return err(res, 404, "任务不存在");
         const resolved = [];

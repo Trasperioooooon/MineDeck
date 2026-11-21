@@ -4096,7 +4096,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         { id: "p2", act: "trust", ack: false },
         { id: "p3", act: "", ack: false },
       ]), "全选范围：" + JSON.stringify(picked));
-      assert((await page.textContent("#t-pending")).includes("不会把 forgecdn 放进全局白名单"), "应写明不会全局放白");
+      assert((await page.textContent("#t-pending")).includes("不会把外部站点放进默认允许列表"), "应写明不会放进默认允许列表");
       assert((await page.textContent("#t-pending")).includes("没有提供这个文件的校验值"), "缺校验的说明还在");
       await page.click("#pnd-ack-all"); await settle();
       const acked = await page.$$eval("#t-pending .pnd-item", els => els.map(e => ({
@@ -8428,6 +8428,122 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await save();
       assert(jstr((lastPut(since, "/properties") || {}).pairs) === jstr([{ key: "resource-pack", value: "" }]), "清空的那一下也要发：" + jstr(lastPut(since, "/properties")));
     } finally { await page.unroute("**/properties", strip); }
+  });
+
+  await run("PR #31：半成品文件夹横幅与确认删除、便携 Java 卸载占用拦截与残留清理、超过 500 项分批提交与中途失败保进度、清单项目页白名单校验", async () => {
+    try {
+      // 1) 半成品文件夹横幅：显示「世界文件」而非「存档」，取消不删，确认后删掉并隐藏横幅
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({
+        instReset: true,
+        creatingLeftovers: [
+          { id: "0/half-srv", name: "half-srv", root: "D:\\MineDeck\\servers", hasWorld: true },
+        ],
+      }) }));
+      await page.goto(url("#/instances")); await settle(500);
+      assert(await page.isVisible("#creating-left"), "有半成品时应露出横幅");
+      const leftTxt = await page.textContent("#creating-left");
+      assert(leftTxt.includes("half-srv") && leftTxt.includes("含世界文件") && !leftTxt.includes("存档"), "半成品横幅文案：" + leftTxt);
+      await page.click('#creating-left [data-drop-left="0/half-srv"]'); await settle(200);
+      const modalBody = await page.textContent(".modal");
+      assert(modalBody.includes("世界文件会一起删掉") && !modalBody.includes("存档"), "确认框文案：" + modalBody);
+      await page.click('.modal [data-x="cancel"]'); await settle(200);
+      assert(await page.isVisible("#creating-left"), "取消确认不该删除");
+      await page.click('#creating-left [data-drop-left="0/half-srv"]'); await settle(200);
+      await page.click('.modal [data-x="ok"]'); await settle(400);
+      assert(await page.$eval("#creating-left", el => el.hidden), "删除后横幅应隐藏");
+
+      // 2) 设置 → Java 运行时：服务器在用便携 Java 17 时回 409 拒绝；无服务器占用的便携 Java 8 可卸载；未完成残留可清理；局域网模式隐藏卸载按钮
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({
+        portableJavas: [
+          { major: 17, path: "D:\\MineDeck\\runtimes\\java-17\\bin\\java.exe" },
+          { major: 8, path: "D:\\MineDeck\\runtimes\\java-8\\bin\\java.exe" },
+        ],
+        incompleteJavas: [11],
+      }) }));
+      await page.goto(url("#/settings/java")); await settle(500);
+      await page.click('[data-rm-java="17"]'); await settle(200);
+      await page.click('.modal [data-x="ok"]'); await settle(400);
+      assert(await toastHas("机械动力整合包"), "被占用时应提示占用它的服务器名");
+      assert((await page.locator('[data-rm-java="17"]').count()) === 1, "被拒绝后按钮仍应可点且项还在");
+
+      await page.click('[data-rm-java="8"]'); await settle(200);
+      await page.click('.modal [data-x="ok"]'); await settle(400);
+      assert((await page.locator('[data-rm-java="8"]').count()) === 0, "无人占用的便携 Java 8 应已卸载");
+
+      assert((await page.textContent("main")).includes("便携 Java 11（残留）"), "未完成残留应在设置里可见");
+      await page.click('[data-rm-java="11"][data-inc="1"]'); await settle(200);
+      await page.click('.modal [data-x="ok"]'); await settle(400);
+      assert((await page.locator('[data-rm-java="11"]').count()) === 0, "残留清理后应消失");
+
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ local: false }) }));
+      await page.goto(url("#/settings/java")); await settle(500);
+      assert((await page.locator("[data-rm-java]").count()) === 0, "局域网非本机不应显示卸载便携 Java 按钮");
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ local: true }) }));
+
+      // 3) 没装上的文件：505 项分两批（500 + 5）；第二批若失败，第一批已处理的 500 项仍同步到界面，不会重回 505 项
+      const items505 = Array.from({ length: 505 }, (_, k) => ({
+        id: "b" + k, path: `mods/m${k}.jar`, reason: "host", host: "cdn.example.org",
+        urls: [`https://cdn.example.org/m${k}.jar`], options: ["local", "skip", "trust"],
+      }));
+      await page.evaluate(pnd => fetch("/__mock/state", { method: "POST", body: JSON.stringify({
+        taskList: [{ id: "task-505", title: "导入整合包 505", ended: true, result: "机械动力整合包", pending: pnd }],
+        trustedHosts: [],
+      }) }), items505);
+      let postSizes = [], failSecond = true;
+      const batchRoute = async route => {
+        if (route.request().method() !== "POST") return route.continue();
+        const body = JSON.parse(route.request().postData() || "{}");
+        postSizes.push((body.items || []).length);
+        if (failSecond && postSizes.length === 2) {
+          return route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ ok: false, error: "模拟第二批网络中断" }) });
+        }
+        return route.continue();
+      };
+      await page.route("**/import-pending", batchRoute);
+      try {
+        await page.goto(url("#/task/task-505")); await settle(700);
+        await page.click("#pnd-trust-all"); await settle(200);
+        await page.click("#pnd-ack-all"); await settle(200);
+        await page.click("#t-pending-apply"); await settle(900);
+        assert(JSON.stringify(postSizes) === JSON.stringify([500, 5]), "505 项应按 500+5 分批提交：" + JSON.stringify(postSizes));
+        const remainAfterFail = await page.$$eval("#t-pending .pnd-item", els => els.length);
+        assert(remainAfterFail === 5, "第二批失败时第一批的 500 项应已从待处理移除，只剩 5 项：" + remainAfterFail);
+
+        // 重试剩下的 5 项（同域名已在第一批记住，重新选上即可完成）
+        failSecond = false; postSizes = [];
+        await page.click("#pnd-trust-all"); await settle(150);
+        await page.click("#pnd-ack-all"); await settle(150);
+        await page.click("#t-pending-apply"); await settle(600);
+        assert(JSON.stringify(postSizes) === JSON.stringify([5]) && (await page.textContent("#t-pending")).includes("都处理完了"), "剩余 5 项重试应完成");
+      } finally {
+        await page.unroute("**/import-pending", batchRoute);
+      }
+
+      // 4) 待装清单里：合法 slug 给项目页链接，非法 slug（如 .. 或含斜杠）不生成链接
+      const badCartRoute = async route => {
+        if (route.request().method() !== "GET") return route.continue();
+        return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+          ok: true, data: {
+            count: 2, total: 2, local: [],
+            items: [
+              { projectId: "jei", slug: "jei", title: "JEI", kind: "mod", license: "MIT" },
+              { projectId: "evil", slug: "../evil", title: "Evil", kind: "mod", license: "MIT" },
+            ],
+          },
+        }) });
+      };
+      await page.route("**/api/modcart?*", badCartRoute);
+      try {
+        await page.goto(url("#/inst/" + encodeURIComponent("机械动力整合包") + "/addons")); await settle(600);
+        const listLinks = await page.$$eval("#mc-list a[href]", as => as.map(a => a.getAttribute("href")));
+        assert(JSON.stringify(listLinks) === JSON.stringify(["https://modrinth.com/mod/jei"]), "非法 slug 不应生成项目页链接：" + JSON.stringify(listLinks));
+      } finally {
+        await page.unroute("**/api/modcart?*", badCartRoute);
+      }
+    } finally {
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ instReset: true, taskList: [], trustedHosts: [], local: true, modCart: { reset: true } }) }));
+      await page.goto(url("#/instances")); await settle();
+    }
   });
 
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
