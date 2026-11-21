@@ -22,6 +22,7 @@ import (
 	"minedeck/internal/diskguard"
 	"minedeck/internal/dl"
 	"minedeck/internal/mcsrc"
+	"minedeck/internal/winname"
 	"minedeck/internal/zipguard"
 )
 
@@ -99,11 +100,13 @@ func Ensure(ctx context.Context, major int, logf func(string, ...any), prog dl.P
 	}
 	var errs []error
 
-	if err := fromTUNA(ctx, major, logf, prog); err == nil {
-		return finalize(major)
-	} else {
-		errs = append(errs, fmt.Errorf("清华镜像: %w", err))
-		logf("清华 TUNA 镜像不可用（%v），切换 Adoptium 官方源", err)
+	if !app.OfficialOnly() {
+		if err := fromTUNA(ctx, major, logf, prog); err == nil {
+			return finalize(major)
+		} else {
+			errs = append(errs, fmt.Errorf("清华镜像: %w", err))
+			logf("清华 TUNA 镜像不可用（%v），切换 Adoptium 官方源", err)
+		}
 	}
 	if err := fromAdoptium(ctx, major, logf, prog); err == nil {
 		return finalize(major)
@@ -131,39 +134,90 @@ func finalize(major int) (string, error) {
 
 // ---------- 来源 1：清华 TUNA Adoptium 镜像 ----------
 
+var (
+	tunaAdoptiumBase = "https://mirrors.tuna.tsinghua.edu.cn/Adoptium"
+	adoptiumAPIBase  = "https://api.adoptium.net/v3/assets"
+	javaMinZipSize   = int64(10 << 20)
+)
+
+func safeJavaZipName(name string) bool {
+	return strings.HasSuffix(strings.ToLower(name), ".zip") && !strings.ContainsAny(name, `/\`) && winname.OK(name)
+}
+
+// javaZipLess 按文件名里的数字段比新旧（如 17.0.9 < 17.0.14、8u92 < 8u442），避免字母序把 .9 排在 .14 后面。
+func javaZipLess(a, b string) bool {
+	na, nb := extractNums(a), extractNums(b)
+	for i := 0; i < len(na) && i < len(nb); i++ {
+		if na[i] != nb[i] {
+			return na[i] < nb[i]
+		}
+	}
+	if len(na) != len(nb) {
+		return len(na) < len(nb)
+	}
+	return a < b
+}
+
+func extractNums(s string) []int {
+	var out []int
+	cur := -1
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= '0' && c <= '9' {
+			if cur < 0 {
+				cur = int(c - '0')
+			} else if cur <= (math.MaxInt-9)/10 {
+				cur = cur*10 + int(c-'0')
+			}
+		} else if cur >= 0 {
+			out = append(out, cur)
+			cur = -1
+		}
+	}
+	if cur >= 0 {
+		out = append(out, cur)
+	}
+	return out
+}
+
 func fromTUNA(ctx context.Context, major int, logf func(string, ...any), prog dl.Progress) error {
-	base := fmt.Sprintf("https://mirrors.tuna.tsinghua.edu.cn/Adoptium/%d/jre/x64/windows/", major)
+	base := fmt.Sprintf("%s/%d/jre/x64/windows/", strings.TrimRight(tunaAdoptiumBase, "/"), major)
 	b, err := dl.FetchBytes(ctx, []string{base})
 	if err != nil {
 		return err
 	}
 	re := regexp.MustCompile(`href="(OpenJDK[^"]*jre[^"]*\.zip)"`)
 	ms := re.FindAllStringSubmatch(string(b), -1)
-	if len(ms) == 0 {
+	var names []string
+	seen := map[string]bool{}
+	for _, m := range ms {
+		cand := m[1]
+		if safeJavaZipName(cand) && !seen[cand] {
+			seen[cand] = true
+			names = append(names, cand)
+		}
+	}
+	if len(names) == 0 {
 		return fmt.Errorf("这个镜像里没有 Java %d 的运行时压缩包", major)
 	}
-	name := ms[len(ms)-1][1] // 目录按版本升序，取最新
-	sha := ""
-	if sb, err := dl.FetchBytes(ctx, []string{base + name + ".sha256.txt"}); err == nil {
-		if fields := strings.Fields(string(sb)); len(fields) > 0 && looksLikeSHA256(fields[0]) {
-			sha = fields[0]
+	sort.Slice(names, func(i, j int) bool { return javaZipLess(names[i], names[j]) })
+	// 校验值只认 Adoptium 官方 API 对得上这一个文件名的 SHA-256，不采用镜像站自证的 .sha256.txt。
+	name, sha := "", ""
+	for i := len(names) - 1; i >= 0; i-- {
+		if sum, ok := adoptiumChecksumFor(ctx, major, names[i]); ok {
+			name, sha = names[i], sum
+			break
 		}
 	}
 	if sha == "" {
-		// 2026-11-20 清华目录里有 8/11/17/21 的 zip，旁边的 .sha256.txt 是 404。
-		// 文件名和 Adoptium 当前发布的一致时，用 Adoptium 公布的校验值，不拿镜像自己的页面当校验。
-		if sum, ok := adoptiumChecksumFor(ctx, major, name); ok {
-			sha = sum
-			logf("清华镜像没有 %s 的校验文件，改用 Adoptium 公布的 SHA-256", name)
-		} else {
-			logf("清华镜像没有 %s 的校验文件，且对不上 Adoptium 当前发布的文件名，不在没有校验的情况下使用这份压缩包", name)
-			return fmt.Errorf("清华镜像的 %s 没有可用的校验值", name)
-		}
+		latest := names[len(names)-1]
+		logf("清华镜像上的 %s 对不上 Adoptium 公布的官方 SHA-256，不在没有官方校验值的情况下使用这份压缩包", latest)
+		return fmt.Errorf("清华镜像的 %s 没有匹配的官方校验值", latest)
 	}
-	logf("从清华镜像下载 %s", name)
+	logf("按 Adoptium 公布的 SHA-256 从清华镜像下载 %s", name)
 	zipPath := filepath.Join(app.CacheDir, "java", name)
 	if err := dl.Fetch(ctx, dl.Request{
-		URLs: []string{base + name}, Dest: zipPath, SHA256: sha, MinSize: 10 << 20,
+		URLs: []string{base + name}, Dest: zipPath, SHA256: sha, MinSize: javaMinZipSize,
 	}, prog); err != nil {
 		return err
 	}
@@ -173,10 +227,12 @@ func fromTUNA(ctx context.Context, major int, logf func(string, ...any), prog dl
 // ---------- 来源 2：Adoptium 官方 API ----------
 
 func fromAdoptium(ctx context.Context, major int, logf func(string, ...any), prog dl.Progress) error {
+	apiRoot := strings.TrimRight(adoptiumAPIBase, "/")
+	tunaRoot := strings.TrimRight(tunaAdoptiumBase, "/")
 	for _, imageType := range []string{"jre", "jdk"} {
 		api := fmt.Sprintf(
-			"https://api.adoptium.net/v3/assets/latest/%d/hotspot?os=windows&architecture=x64&image_type=%s&vendor=eclipse",
-			major, imageType)
+			"%s/latest/%d/hotspot?os=windows&architecture=x64&image_type=%s&vendor=eclipse",
+			apiRoot, major, imageType)
 		var assets []struct {
 			Binary struct {
 				Package struct {
@@ -186,12 +242,12 @@ func fromAdoptium(ctx context.Context, major int, logf func(string, ...any), pro
 				} `json:"package"`
 			} `json:"binary"`
 		}
-		if err := dl.FetchJSON(ctx, []string{api}, &assets); err != nil {
+		if err := dl.FetchJSONHTTPS(ctx, []string{api}, &assets); err != nil {
 			continue
 		}
 		for _, a := range assets {
 			p := a.Binary.Package
-			if p.Link == "" || !strings.HasSuffix(p.Name, ".zip") {
+			if p.Link == "" || !safeJavaZipName(p.Name) {
 				continue
 			}
 			if !looksLikeSHA256(p.Checksum) {
@@ -203,7 +259,7 @@ func fromAdoptium(ctx context.Context, major int, logf func(string, ...any), pro
 				// 同一文件名先试清华。校验值仍是 Adoptium 公布的，对不上就换官方地址（多半在 GitHub）。
 				// 没有把华为云、阿里云写进来：2026-11-20 抽查时，缺文件的地址也返回 200 的网页，不能当镜像。
 				urls = []string{
-					fmt.Sprintf("https://mirrors.tuna.tsinghua.edu.cn/Adoptium/%d/jre/x64/windows/%s", major, p.Name),
+					fmt.Sprintf("%s/%d/%s/x64/windows/%s", tunaRoot, major, imageType, p.Name),
 					p.Link,
 				}
 				logf("按 Adoptium 公布的 SHA-256 下载 %s（先试清华镜像上的同名文件）", p.Name)
@@ -212,7 +268,7 @@ func fromAdoptium(ctx context.Context, major int, logf func(string, ...any), pro
 			}
 			zipPath := filepath.Join(app.CacheDir, "java", p.Name)
 			if err := dl.Fetch(ctx, dl.Request{
-				URLs: urls, Dest: zipPath, SHA256: p.Checksum, MinSize: 10 << 20,
+				URLs: urls, Dest: zipPath, SHA256: p.Checksum, MinSize: javaMinZipSize,
 			}, prog); err != nil {
 				return err
 			}
@@ -239,9 +295,10 @@ func looksLikeSHA256(s string) bool {
 // 先看当前发布，对不上再看最近几份正式版：清华镜像经常比「最新」晚一个小版本，
 // 校验值必须对上这一个文件名，不能拿另一份的校验值去套。两边都没有就不用这份压缩包。
 func adoptiumChecksumFor(ctx context.Context, major int, name string) (string, bool) {
+	apiRoot := strings.TrimRight(adoptiumAPIBase, "/")
 	latest := fmt.Sprintf(
-		"https://api.adoptium.net/v3/assets/latest/%d/hotspot?os=windows&architecture=x64&image_type=jre&vendor=eclipse",
-		major)
+		"%s/latest/%d/hotspot?os=windows&architecture=x64&image_type=jre&vendor=eclipse",
+		apiRoot, major)
 	var current []struct {
 		Binary struct {
 			Package struct {
@@ -250,7 +307,7 @@ func adoptiumChecksumFor(ctx context.Context, major int, name string) (string, b
 			} `json:"package"`
 		} `json:"binary"`
 	}
-	if err := dl.FetchJSON(ctx, []string{latest}, &current); err == nil {
+	if err := dl.FetchJSONHTTPS(ctx, []string{latest}, &current); err == nil {
 		for _, a := range current {
 			if sum, ok := checksumNamed(a.Binary.Package.Name, a.Binary.Package.Checksum, name); ok {
 				return sum, true
@@ -258,8 +315,8 @@ func adoptiumChecksumFor(ctx context.Context, major int, name string) (string, b
 		}
 	}
 	page := fmt.Sprintf(
-		"https://api.adoptium.net/v3/assets/feature_releases/%d/ga?os=windows&architecture=x64&image_type=jre&vendor=eclipse&page=0&page_size=10",
-		major)
+		"%s/feature_releases/%d/ga?os=windows&architecture=x64&image_type=jre&vendor=eclipse&page=0&page_size=20",
+		apiRoot, major)
 	var releases []struct {
 		Binaries []struct {
 			Package struct {
@@ -268,7 +325,7 @@ func adoptiumChecksumFor(ctx context.Context, major int, name string) (string, b
 			} `json:"package"`
 		} `json:"binaries"`
 	}
-	if err := dl.FetchJSON(ctx, []string{page}, &releases); err != nil {
+	if err := dl.FetchJSONHTTPS(ctx, []string{page}, &releases); err != nil {
 		return "", false
 	}
 	for _, rel := range releases {

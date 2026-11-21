@@ -2,12 +2,15 @@ package catalog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
+	"minedeck/internal/inst"
 	"minedeck/internal/java"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/ops"
@@ -90,7 +93,8 @@ func (c *cat) mcOps() {
 			if portable == nil {
 				portable = []java.Info{}
 			}
-			return map[string]any{"portable": portable, "scanned": scanned}, nil
+			incomplete := java.IncompletePortable()
+			return map[string]any{"portable": portable, "scanned": scanned, "incomplete": incomplete}, nil
 		},
 	})
 
@@ -132,25 +136,32 @@ func (c *cat) mcOps() {
 			err = java.RemovePortable(p.Major, func(dir string) error {
 				var configured, running []string
 				for _, i := range c.Mgr.List() {
-					_, path := i.JavaSnapshot()
-					if !javaPathInside(path, dir) {
-						continue
+					_, cfgPath := i.JavaSnapshot()
+					runPath := i.RunningJavaPath()
+					cfgMatch := javaPathInside(cfgPath, dir)
+					runMatch := javaPathInside(runPath, dir)
+					if cfgMatch {
+						configured = append(configured, i.Name)
 					}
-					configured = append(configured, i.Name)
-					switch i.Status() {
-					case "starting", "running", "stopping":
+					if runMatch || (cfgMatch && slices.Contains([]string{"starting", "running", "stopping"}, i.Status())) {
 						running = append(running, i.Name)
 					}
 				}
 				if len(running) > 0 {
-					return ops.Errorf(409, "这些服务器正在用 Java %d，先停掉再卸载：%s", p.Major, strings.Join(running, "、"))
+					return ops.Errorf(409, "服务器正在用 Java %d 运行（%s），请先停服再卸载", p.Major, strings.Join(running, "、"))
 				}
 				if len(configured) > 0 {
-					return ops.Errorf(409, "这些服务器还配着 Java %d，先到「设置 → 启动与内存」换成别的再卸载：%s", p.Major, strings.Join(configured, "、"))
+					return ops.Errorf(409, "服务器还在用 Java %d（%s），请先到「设置 → 启动与内存」更换后再卸载", p.Major, strings.Join(configured, "、"))
+				}
+				if c.Mgr.HasCreating() {
+					return ops.Errorf(409, "有服务器正在创建或导入，可能正在使用便携 Java，请等任务结束再卸载")
 				}
 				return nil
 			})
 			if err != nil {
+				if errors.Is(err, java.ErrBusy) {
+					return nil, ops.Errorf(409, "%s", err.Error())
+				}
 				return nil, err
 			}
 			return map[string]any{"major": p.Major, "removed": true}, nil
@@ -198,11 +209,18 @@ func knownJava(major int, path string) (string, bool) {
 }
 
 // javaPathInside path 是不是 dir 里面的文件（便携 Java 的 java.exe）。不把目录本身或外面的路径算进去。
+// 优先按真实路径比对，兼容 8.3 短名和目录联接；路径现在打不开时退回规范化后的词法相对路径。
 func javaPathInside(path, dir string) bool {
-	path, dir = filepath.Clean(path), filepath.Clean(dir)
+	path, dir = strings.TrimSpace(path), strings.TrimSpace(dir)
 	if path == "" || dir == "" {
 		return false
 	}
+	if rp, err1 := inst.RealPathStrict(path); err1 == nil {
+		if rd, err2 := inst.RealPathStrict(dir); err2 == nil {
+			return rp != rd && inst.InsideReal(rd, rp)
+		}
+	}
+	path, dir = filepath.Clean(path), filepath.Clean(dir)
 	rel, err := filepath.Rel(dir, path)
 	return err == nil && rel != "." && filepath.IsLocal(rel)
 }
