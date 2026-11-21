@@ -3016,6 +3016,7 @@ function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-appl
         lastResp = v;
         refreshed = true;
       } catch { /* 要不到就按手里已有的画 */ }
+      if (gone()) return; // 等清单的时候离开了页面：不在新页面上弹旧页面的错
       syncDone();
       toastErr(refreshed ? "有的文件没处理完，清单已按最新情况刷新" : lastResp ? "部分文件未能处理完" : "无法处理没装上的文件", e);
     } finally {
