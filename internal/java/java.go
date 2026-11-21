@@ -136,7 +136,7 @@ func Ensure(ctx context.Context, major int, logf func(string, ...any), prog dl.P
 
 func finalize(major int) (string, error) {
 	if st, err := os.Stat(Exe(major)); err != nil || st.IsDir() {
-		return "", fmt.Errorf("Java %d 装好后没找到 bin\\java.exe", major)
+		return "", fmt.Errorf("Java %d 装好后没找到 %s", major, filepath.Join("bin", exeName))
 	}
 	if err := os.Remove(incompleteMark(major)); err != nil && !os.IsNotExist(err) {
 		return "", fmt.Errorf("Java %d 装好了，但去不掉「还没装完」的记号：%w", major, err)
