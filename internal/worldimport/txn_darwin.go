@@ -12,18 +12,23 @@ import (
 // moveFile 改名（Mac 版，对应 txn_windows.go）。replace 为假时用 renamex_np 的 RENAME_EXCL：目标已经在就失败，
 // 不会像 rename(2) 那样悄悄盖掉文件或空文件夹。rename 本来就不跨卷（跨卷报 EXDEV），不会退化成「复制一半再删」。
 // Windows 上带 WRITE_THROUGH，这里改完把两边的上级目录刷一次盘（刷盘失败不算改名失败：改名已经做了）。
+// replace 为真（只有记录文件）就是普通的 rename(2)，本来就要原样盖掉旧的。
 func moveFile(from, to string, replace bool) error {
-	var flags uint32
-	if !replace {
-		flags = unix.RENAME_EXCL
-	}
-	err := unix.RenamexNp(from, to, flags)
-	if !replace && (errors.Is(err, unix.ENOTSUP) || errors.Is(err, unix.EINVAL)) {
-		// 有的文件系统（exFAT 的 U 盘、网络盘）不认 RENAME_EXCL：先看目标在不在，再普通改名
-		if exists(to) {
-			err = unix.EEXIST
-		} else {
-			err = unix.Rename(from, to)
+	var err error
+	if replace {
+		err = unix.Rename(from, to)
+	} else {
+		err = unix.RenamexNp(from, to, unix.RENAME_EXCL)
+		if errors.Is(err, unix.ENOTSUP) || errors.Is(err, unix.EINVAL) {
+			// 有的文件系统（exFAT 的 U 盘、网络盘）不认 RENAME_EXCL：先看目标在不在，再普通改名。
+			// 用 present 不用 exists：看不清目标在不在（没权限、盘出错）就停下，不冒险去改名盖掉它（Gemini 4 Argon 复审 PR #32）
+			if there, perr := present(to); perr != nil {
+				err = perr
+			} else if there {
+				err = unix.EEXIST
+			} else {
+				err = unix.Rename(from, to)
+			}
 		}
 	}
 	if err != nil {

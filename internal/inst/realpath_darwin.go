@@ -61,12 +61,26 @@ func RealPathStrict(p string) (string, error) {
 // finalPath 问系统一个已有的文件或文件夹的真实路径；打不开返回 false。
 // O_EVTONLY：只为查路径，不要读权限，也不挡着卷被推出；O_NONBLOCK：碰上命名管道不卡住。
 func finalPath(p string) (string, bool) {
-	fd, err := unix.Open(p, unix.O_EVTONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	var fd int
+	err := ignoringEINTR(func() (err error) {
+		fd, err = unix.Open(p, unix.O_EVTONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+		return err
+	})
 	if err != nil {
 		return "", false
 	}
 	defer unix.Close(fd)
 	return fdPath(uintptr(fd))
+}
+
+// ignoringEINTR 系统调用被信号打断（EINTR）就重做，直到不是 EINTR 为止，和 os 包内部的做法一样：网络盘（SMB、NFS）上 open 会被
+// Go 运行时的抢占信号打断，不重做的话在的文件会被当成打不开，RealPathStrict 就把它报成查不清（Gemini 4 Argon 复审 PR #32）。
+func ignoringEINTR(fn func() error) error {
+	for {
+		if err := fn(); !errors.Is(err, unix.EINTR) {
+			return err
+		}
+	}
 }
 
 // pathBufLen F_GETPATH 的缓冲区大小。写成变量：make 的长度不是常量，缓冲区一定分配在堆上，
@@ -76,7 +90,10 @@ var pathBufLen = unix.PathMax
 // fdPath 问系统一个打开着的文件的路径。
 func fdPath(fd uintptr) (string, bool) {
 	buf := make([]byte, pathBufLen)
-	_, err := unix.FcntlInt(fd, unix.F_GETPATH, int(uintptr(unsafe.Pointer(&buf[0]))))
+	err := ignoringEINTR(func() error {
+		_, err := unix.FcntlInt(fd, unix.F_GETPATH, int(uintptr(unsafe.Pointer(&buf[0]))))
+		return err
+	})
 	runtime.KeepAlive(buf)
 	if err != nil {
 		return "", false
@@ -111,9 +128,13 @@ func OpenFileInside(p, dir string) (*os.File, error) {
 }
 
 // InsideReal real 是不是 root 本身或者在它里面。两个都必须是 RealPathStrict 或者按打开的文件问出来的路径，逐字比较。
+// 没给根（空串）时和 Windows 版一样什么都不算在里面；先判断再去掉末尾的斜杠，不然空串会被当成根目录 /。
 func InsideReal(root, real string) bool {
+	if root == "" {
+		return false
+	}
 	root = strings.TrimRight(root, "/")
-	if root == "" { // 根目录本身：什么都在它里面
+	if root == "" { // 根目录 / 本身：什么都在它里面
 		return strings.HasPrefix(real, "/")
 	}
 	return real == root || strings.HasPrefix(real, root+"/")

@@ -29,5 +29,13 @@ func HideWindow(cmd *exec.Cmd) {
 	cmd.SysProcAttr.Setpgid = true
 }
 
-// OpenFolder 在访达（Finder）里打开一个文件夹。
-func OpenFolder(dir string) error { return exec.Command("open", filepath.Clean(dir)).Start() }
+// OpenFolder 在访达（Finder）里打开一个文件夹。open 把请求交给系统就退出，这里另起一个 goroutine 等它退出：
+// 不等的话每点一次就留下一个僵尸进程，一直到 MineDeck 退出（Gemini 4 Argon 复审 PR #32）。
+func OpenFolder(dir string) error {
+	cmd := exec.Command("open", filepath.Clean(dir))
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go func() { _ = cmd.Wait() }()
+	return nil
+}

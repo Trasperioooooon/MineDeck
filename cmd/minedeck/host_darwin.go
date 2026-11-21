@@ -25,8 +25,11 @@ func openWebView(url string, sig chan os.Signal, minimized bool) bool {
 		log.Println("静默启动：不打开浏览器，界面地址:", url)
 	} else {
 		log.Println("Mac 版还没有原生窗口，用默认浏览器打开界面")
-		if err := exec.Command("open", url).Start(); err != nil {
+		cmd := exec.Command("open", url)
+		if err := cmd.Start(); err != nil {
 			log.Println("打开浏览器失败，请手动打开上面的地址:", err)
+		} else {
+			go func() { _ = cmd.Wait() }() // open 交给系统就退出，在后台收回它，不留僵尸进程
 		}
 	}
 	<-sig
