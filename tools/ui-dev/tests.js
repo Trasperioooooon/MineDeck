@@ -5420,7 +5420,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await p.waitForSelector(EXT_LINK);
       const opened = () => p.evaluate(() => window.__opened.splice(0));
       await p.click(EXT_LINK);
-      await p.click(EXT_LINK, { modifiers: ["Control"] });
+      // Mac 上 Ctrl 点是右键（只发 contextmenu，不发 click），对应 Windows Ctrl 点的是 Cmd 点；ControlOrMeta 在 Windows 上就是 Ctrl
+      await p.click(EXT_LINK, { modifiers: ["ControlOrMeta"] });
       await p.click(EXT_LINK, { modifiers: ["Shift"] });
       await p.click(EXT_LINK, { button: "middle" });
       await p.focus(EXT_LINK); await p.keyboard.press("Enter");
@@ -5484,12 +5485,26 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       p.on("pageerror", e => errors.push(pageErr(e)));
       await p.goto(ORIGIN + "#/settings/about");
       await p.waitForSelector(EXT_LINK);
+      // 页面没拦（没 preventDefault），浏览器才会自己开：在 window 上记下点击（排在页面自己在捕获阶段的处理后面）
+      await p.evaluate(() => {
+        window.__linkEv = [];
+        for (const t of ["click", "auxclick"]) {
+          addEventListener(t, e => { if (e.target instanceof Element && e.target.closest("a")) window.__linkEv.push(t + (e.defaultPrevented ? "（被拦）" : "")); });
+        }
+      });
       for (const opts of [{}, { button: "middle" }]) {
         const [pop] = await Promise.all([c.waitForEvent("page"), p.click(EXT_LINK, opts)]);
-        await pop.waitForLoadState();
-        assert(pop.url() === "https://www.openfrp.net/", "新窗口的地址：" + pop.url());
+        // 中键开的是后台标签页，各平台、各版本的 Chromium 不一样（Mac 上的无头 Chromium 会让它直接崩掉，完整版又绕过拦截真的上网），
+        // 所以不等它加载，只看左键开的那个窗口的地址
+        if (!opts.button) {
+          await pop.waitForLoadState();
+          assert(pop.url() === "https://www.openfrp.net/", "新窗口的地址：" + pop.url());
+        }
         await pop.close();
       }
+      const ev = await p.evaluate(() => window.__linkEv);
+      assert(JSON.stringify(ev) === JSON.stringify(["click", "auxclick"]), "局域网浏览器里点链接不该被页面拦下：" + JSON.stringify(ev));
+      assert(p.url().endsWith("#/settings/about"), "主窗口跳走了：" + p.url());
       const st = await p.evaluate(() => ({ native: /\[native code\]/.test(Function.prototype.toString.call(window.open)), hook: typeof window.__mdOpenURLFailed }));
       assert(st.native && st.hook === "undefined", "局域网浏览器里不该改 window.open：" + JSON.stringify(st));
     } finally { await c.close(); }
