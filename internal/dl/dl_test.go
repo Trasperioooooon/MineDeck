@@ -300,10 +300,14 @@ func TestFetchFailureHidesCredentials(t *testing.T) {
 	old := retryWait
 	retryWait = func(int) time.Duration { return time.Millisecond }
 	defer func() { retryWait = old }()
+	var retryErrs []string
 	err := Fetch(context.Background(), Request{
 		URLs:    []string{"http://user:s3cret@127.0.0.1:0/jre.zip?arch=x64&token=tok"},
 		Dest:    filepath.Join(t.TempDir(), "jre.zip"),
 		MinSize: 1,
+		OnRetry: func(host string, rerr error) {
+			retryErrs = append(retryErrs, host+"|"+rerr.Error())
+		},
 	}, nil)
 	if err == nil {
 		t.Fatal("应该失败")
@@ -313,9 +317,30 @@ func TestFetchFailureHidesCredentials(t *testing.T) {
 		if strings.Contains(msg, leak) {
 			t.Fatalf("摘要泄了凭据 %q：%s", leak, msg)
 		}
+		for _, re := range retryErrs {
+			if strings.Contains(re, leak) {
+				t.Fatalf("OnRetry 泄了凭据 %q：%s", leak, re)
+			}
+		}
 	}
 	if !strings.Contains(msg, "127.0.0.1:0") {
 		t.Fatalf("应保留主机名：%s", msg)
+	}
+
+	// FetchBytes / FetchBytesHTTPS 失败与解析报错同样不能泄露账号密码或查询串
+	for _, raw := range []string{
+		"http://user:s3cret@127.0.0.1:0/api?token=tok",
+		"http://user:s3cret@127.0.0.1:badport/api?token=tok",
+	} {
+		_, berr := FetchBytes(context.Background(), []string{raw})
+		if berr == nil {
+			t.Fatalf("FetchBytes(%q) 应失败", raw)
+		}
+		for _, leak := range []string{"s3cret", "token=tok", "user:"} {
+			if strings.Contains(berr.Error(), leak) {
+				t.Fatalf("FetchBytes 泄了凭据 %q：%v", leak, berr)
+			}
+		}
 	}
 
 	hit := false

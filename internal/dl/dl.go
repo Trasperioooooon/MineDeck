@@ -303,6 +303,37 @@ func newFetchFail(fails []urlFail, tried []error) error {
 	}
 }
 
+// netReasonError 去掉 *url.Error 外壳里的完整 URL（可能含账号、签名查询串），同时保留底层错误的 errors.Is / errors.As。
+type netReasonError struct {
+	msg string
+	err error
+}
+
+func (e *netReasonError) Error() string { return e.msg }
+func (e *netReasonError) Unwrap() error { return e.err }
+
+func sanitizeNetErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	var ue *url.Error
+	if !errors.As(err, &ue) {
+		return err
+	}
+	inner := ue.Err
+	for {
+		var next *url.Error
+		if !errors.As(inner, &next) || next.Err == nil {
+			break
+		}
+		inner = next.Err
+	}
+	if inner == nil {
+		return errors.New("请求地址无效")
+	}
+	return &netReasonError{msg: strings.Join(strings.Fields(inner.Error()), " "), err: inner}
+}
+
 // compactReason 一个源的失败原因，压成一行。
 // 连不上、超时这类错误（*url.Error）只留底层原因：主机名已经写在前面，完整地址只会把句子拉长，
 // 还可能带着签名用的查询串。其余的原样保留，不截断：本机写文件出错时报错是「操作 路径: 原因」，
@@ -312,9 +343,7 @@ func compactReason(err error) string {
 	if err == nil {
 		return ""
 	}
-	if ue, ok := err.(*url.Error); ok && ue.Err != nil {
-		err = ue.Err
-	}
+	err = sanitizeNetErr(err)
 	return strings.Join(strings.Fields(err.Error()), " ")
 }
 
@@ -344,7 +373,7 @@ func fetchOne(ctx context.Context, url string, r Request, prog Progress) error {
 
 	req, err := http.NewRequestWithContext(cctx, http.MethodGet, url, nil)
 	if err != nil {
-		return err
+		return sanitizeNetErr(err)
 	}
 	req.Header.Set("User-Agent", UA)
 	client := r.Client
@@ -353,7 +382,7 @@ func fetchOne(ctx context.Context, url string, r Request, prog Progress) error {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return sanitizeNetErr(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -427,13 +456,18 @@ func FetchJSON(ctx context.Context, urls []string, out any) error {
 // FetchJSONHTTPS 同 FetchJSON，但跳转只跟 https 的（HTTPSRedirect）：给「拿回来的内容决定接下来下载、运行什么」的接口用，
 // 比如 OpenFrp 查 frpc 版本和下载源的那一步。别的设置和 Client 一样（每次按当时的 Client 抄一份，只换跳转的规矩）。
 func FetchJSONHTTPS(ctx context.Context, urls []string, out any) error {
-	c := *Client
-	c.CheckRedirect = HTTPSRedirect
-	b, err := fetchBytes(ctx, &c, urls)
+	b, err := FetchBytesHTTPS(ctx, urls)
 	if err != nil {
 		return err
 	}
 	return json.Unmarshal(b, out)
+}
+
+// FetchBytesHTTPS 同 FetchBytes，但跳转只跟 https 的（HTTPSRedirect 且拦截带 userinfo 的重定向）。
+func FetchBytesHTTPS(ctx context.Context, urls []string) ([]byte, error) {
+	c := *Client
+	c.CheckRedirect = HTTPSRedirect
+	return fetchBytes(ctx, &c, urls)
 }
 
 // FetchBytes 依次尝试多个 URL 获取小体积响应（上限 64MB，单次 30 秒超时）。
@@ -463,13 +497,13 @@ func fetchBytesOne(ctx context.Context, client *http.Client, url string) ([]byte
 	defer cancel()
 	req, err := http.NewRequestWithContext(cctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return nil, sanitizeNetErr(err)
 	}
 	req.Header.Set("User-Agent", UA)
 	req.Header.Set("Accept", "application/json, text/html;q=0.9, */*;q=0.8")
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, sanitizeNetErr(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
