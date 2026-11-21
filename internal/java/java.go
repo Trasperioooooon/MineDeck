@@ -184,8 +184,8 @@ func javaZipVersion(name string) ([]int, int) {
 		s = s[i+len("hotspot_"):]
 	}
 	ver, build := s, ""
-	if i := strings.LastIndexAny(s, "_b"); i >= 0 {
-		ver, build = s[:i], s[i+1:]
+	if i := strings.LastIndexAny(s, "_b"); i >= 0 && allDigits(s[i+1:]) {
+		ver, build = s[:i], s[i+1:] // 切出来的不是纯数字（没有 hotspot_ 前缀的怪名字）就整段当版本
 	}
 	b := 0
 	if nums := extractNums(build); len(nums) > 0 {
@@ -669,4 +669,16 @@ func extractZipCtx(ctx context.Context, zipPath, destDir string, logf func(strin
 		}
 	}
 	return nil
+}
+
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }

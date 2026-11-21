@@ -251,6 +251,7 @@ func TestJavaZipLessComparesVersionThenBuild(t *testing.T) {
 		{p + "17.0.14_7.zip", p + "17.0.14_9.zip"},
 		{"OpenJDK8U-jre_x64_windows_hotspot_8u92b14.zip", "OpenJDK8U-jre_x64_windows_hotspot_8u442b06.zip"},
 		{"OpenJDK8U-jre_x64_windows_hotspot_8u442b06.zip", "OpenJDK8U-jre_x64_windows_hotspot_8u442b07.zip"},
+		{"bellsoft-jre17.0.2.zip", "bellsoft-jre17.0.14.zip"}, // 没有 hotspot_ 的名字不能切在前缀的 b 上
 	}
 	for _, c := range cases {
 		if !javaZipLess(c.older, c.newer) || javaZipLess(c.newer, c.older) {
