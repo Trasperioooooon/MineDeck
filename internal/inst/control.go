@@ -32,6 +32,10 @@ var controlRoot = map[string]bool{
 	PendingReportFile: true,
 }
 
+// CreatingMarker 新建服务器的目录还没登记成功时留下的记号（只在实例根上）。
+// 有 instance.json 的目录不是半成品。没有这个记号的文件夹（接管、用户自己放进来的）不会被当成失败的临时目录。
+const CreatingMarker = ".minedeck-creating"
+
 // controlDirs 整个目录都不采用的（小写、斜杠结尾）：
 //   - config/minedeck：MineDeck 和自家模组之间的端口、令牌。令牌是原来那台电脑上的，要用这些功能时 MineDeck 会重新生成。
 //   - .minedeck：MineDeck 给配置文件留的备份、换地图的记录和恢复点、整合包导入时没装上的文件的清单（PendingListFile）。
@@ -41,7 +45,7 @@ var controlDirs = []string{"config/minedeck/", ".minedeck/", "logs/", "crash-rep
 // IsControlFile rel（相对实例目录）是不是不能由别人给的文件。交接包解包、整合包应用覆盖目录时不采用，交接包导出时也不带。
 func IsControlFile(rel string) bool {
 	low := strings.ToLower(filepath.ToSlash(rel))
-	if controlRoot[low] {
+	if low == CreatingMarker || controlRoot[low] {
 		return true
 	}
 	for _, d := range controlDirs {

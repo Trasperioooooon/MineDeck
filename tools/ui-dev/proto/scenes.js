@@ -244,13 +244,13 @@ add("task", "t-pending", "整合包导入完成：没装上的文件", {
   hash: "#/task/task-im", tag: "new", note: "清单按服务器取（程序重开以后也在）。处理完以后上面那块「N 个文件待处理」跟着变、处理完就消失；跳过的收在「已跳过的 N 个」里，还能改成别的处理。",
   setup: s => { s.taskList = [{ id: "task-im", title: "导入整合包 魔改模组包", ended: true, result: "机械动力整合包",
     warnings: [{ kind: "import-pending", title: "2 个文件待处理", note: "这些文件没法自动下载。" }],
-    pending: [{ id: "p1", path: "mods/modded-custom-host.jar", reason: "host", host: "files.example.net", note: "下载地址不在 MineDeck 允许的站点列表里", urls: ["https://files.example.net/a.jar"], options: ["local", "skip", "trust"] },
+    pending: [{ id: "p1", path: "mods/modded-custom-host.jar", reason: "host", host: "files.example.net", note: "下载地址不在 MineDeck 允许的站点列表里", urls: ["https://files.example.net/a.jar"], sha1: "0123456789abcdef0123456789abcdef01234567", options: ["local", "skip", "trust"] },
       { id: "p2", path: "mods/no-hash.jar", reason: "nohash", note: "整合包没有提供这个文件的校验值", options: ["skip", "local"] }] }];
     s.instPending = { "机械动力整合包": { pending: s.taskList[0].pending, skipped: [{ id: "p3", path: "config/skipped.toml", reason: "badurl", note: "下载地址不是 https", options: ["local"] }] } }; },
 });
 
 // ==================== 服务器详情：每种核心一台 ====================
-const CORE_CN = { paper: "Paper", forge: "Forge", vanilla: "Vanilla 原版", velocity: "Velocity 代理", purpur: "Purpur", leaves: "Leaves", folia: "Folia", fabric: "Fabric", neoforge: "NeoForge", mohist: "Mohist", banner: "Banner", waterfall: "Waterfall 代理" };
+const CORE_CN = { paper: "Paper", forge: "Forge", vanilla: "Vanilla 原版", velocity: "Velocity 代理", purpur: "Purpur", leaves: "Leaves", folia: "Folia", fabric: "Fabric", neoforge: "NeoForge", mohist: "Mohist", banner: "Taiyitist（原 Banner）", waterfall: "Waterfall 代理" };
 const ST_CN = { running: "运行中", stopped: "已停止", starting: "启动中", stopping: "停止中" };
 for (const i of INSTANCES) {
   add("detail", "d-" + i.core, `${CORE_CN[i.core]} · ${i.name}（${ST_CN[i.status]}）`, { hash: `#/inst/${enc(i.name)}/console` });
@@ -331,7 +331,7 @@ add("detail", "d-port-other", "页头：端口被别的程序占着，「改端�
   setup: s => { const i = s.instances.find(x => x.name === "机械动力整合包");
     i.lastStartError = "端口 25566 被别的程序占着，换个端口或关掉占用它的程序"; i.startPortBusy = { port: 25566 }; },
 });
-const PND = [{ id: "p1", path: "mods/modded-custom-host.jar", reason: "host", host: "files.example.net", note: "下载地址不在 MineDeck 允许的站点列表里", urls: ["https://files.example.net/a.jar"], options: ["local", "skip", "trust"] },
+const PND = [{ id: "p1", path: "mods/modded-custom-host.jar", reason: "host", host: "files.example.net", note: "下载地址不在 MineDeck 允许的站点列表里", urls: ["https://files.example.net/a.jar"], sha1: "0123456789abcdef0123456789abcdef01234567", options: ["local", "skip", "trust"] },
   { id: "p2", path: "mods/no-hash.jar", reason: "nohash", note: "整合包没有提供这个文件的校验值", options: ["skip", "local"] }];
 const PND_SKIPPED = [{ id: "p3", path: "config/skipped.toml", reason: "badurl", note: "下载地址不是 https", options: ["local"] }];
 add("detail", "d-pending-notice", "页头：整合包里没装上的文件，点「处理」", {

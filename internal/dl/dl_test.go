@@ -295,6 +295,101 @@ func TestFetchFailureHidesURL(t *testing.T) {
 	}
 }
 
+// 地址里的账号、查询串，以及重定向里夹带的账号，都不能出现在失败摘要里，也不会跟着重定向发出去。
+func TestFetchFailureHidesCredentials(t *testing.T) {
+	old := retryWait
+	retryWait = func(int) time.Duration { return time.Millisecond }
+	defer func() { retryWait = old }()
+	var retryErrs []string
+	err := Fetch(context.Background(), Request{
+		URLs:    []string{"http://user:s3cret@127.0.0.1:0/jre.zip?arch=x64&token=tok"},
+		Dest:    filepath.Join(t.TempDir(), "jre.zip"),
+		MinSize: 1,
+		OnRetry: func(host string, rerr error) {
+			retryErrs = append(retryErrs, host+"|"+rerr.Error())
+		},
+	}, nil)
+	if err == nil {
+		t.Fatal("应该失败")
+	}
+	msg := err.Error()
+	for _, leak := range []string{"s3cret", "token=tok", "user:"} {
+		if strings.Contains(msg, leak) {
+			t.Fatalf("摘要泄了凭据 %q：%s", leak, msg)
+		}
+		for _, re := range retryErrs {
+			if strings.Contains(re, leak) {
+				t.Fatalf("OnRetry 泄了凭据 %q：%s", leak, re)
+			}
+		}
+	}
+	if !strings.Contains(msg, "127.0.0.1:0") {
+		t.Fatalf("应保留主机名：%s", msg)
+	}
+
+	// FetchBytes / FetchBytesHTTPS 失败与解析报错同样不能泄露账号密码或查询串
+	for _, raw := range []string{
+		"http://user:s3cret@127.0.0.1:0/api?token=tok",
+		"http://user:s3cret@127.0.0.1:badport/api?token=tok",
+	} {
+		_, berr := FetchBytes(context.Background(), []string{raw})
+		if berr == nil {
+			t.Fatalf("FetchBytes(%q) 应失败", raw)
+		}
+		for _, leak := range []string{"s3cret", "token=tok", "user:"} {
+			if strings.Contains(berr.Error(), leak) {
+				t.Fatalf("FetchBytes 泄了凭据 %q：%v", leak, berr)
+			}
+		}
+	}
+
+	hit := false
+	next := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit = true
+		http.Error(w, "no", http.StatusForbidden)
+	}))
+	defer next.Close()
+	redir := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://user:s3cret@"+next.Listener.Addr().String()+"/x?token=tok", http.StatusFound)
+	}))
+	defer redir.Close()
+	err = Fetch(context.Background(), Request{
+		URLs:    []string{redir.URL + "/start"},
+		Dest:    filepath.Join(t.TempDir(), "b.bin"),
+		MinSize: 1,
+		Client:  Client,
+	}, nil)
+	if err == nil {
+		t.Fatal("带账号的重定向应失败")
+	}
+	if hit {
+		t.Fatal("不应跟随带账号的重定向")
+	}
+	msg = err.Error()
+	if strings.Contains(msg, "s3cret") || strings.Contains(msg, "token=tok") {
+		t.Fatalf("重定向失败泄了凭据：%s", msg)
+	}
+
+	// 跳转地址解析不了时，net/http 会把 Location 原文写进报错，也要去掉
+	badLoc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "https://user:s3cret@example.invalid/%zz?sig=abc")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer badLoc.Close()
+	_, berr := FetchBytes(context.Background(), []string{badLoc.URL + "/start"})
+	if berr == nil {
+		t.Fatal("跳转地址无效应失败")
+	}
+	for _, leak := range []string{"s3cret", "sig=abc", "user:"} {
+		if strings.Contains(berr.Error(), leak) {
+			t.Fatalf("跳转地址解析失败的报错泄了 %q：%v", leak, berr)
+		}
+	}
+	if !strings.Contains(berr.Error(), "跳转地址无效") {
+		t.Fatalf("应说明跳转地址无效：%v", berr)
+	}
+}
+
 // 连接类错误去掉地址。本机写文件出错时报错是「操作 路径: 原因」，原因在最后，要原样保留，不能截掉。
 func TestCompactReason(t *testing.T) {
 	ue := &url.Error{Op: "Get", URL: "https://staticassets.naids.com/client/OF_x/frpc_windows_amd64.zip?sig=abc", Err: errors.New("dial tcp: i/o timeout")}

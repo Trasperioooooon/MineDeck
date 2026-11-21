@@ -89,6 +89,7 @@ func TestGuardedClientRedirect(t *testing.T) {
 		want string // 错误文案须包含的字样（空串 = 放行）
 	}{
 		{"跳到 http", "http://cdn.modrinth.com/a", "不允许的地址"},
+		{"跳到带账号的 https", "https://user:s3cret@cdn.modrinth.com/a?token=tok", "带了账号"},
 		{"GitHub 发布文件的 CDN", "https://release-assets.githubusercontent.com/github-production-release-asset/1/2", ""},
 		{"CurseForge 的 CDN", "https://mediafilez.forgecdn.net/files/4712/866/x.jar", ""},
 		{"自定义站点自己的 CDN", "https://cdn.files.example.net/c", ""},
@@ -161,6 +162,17 @@ func TestGuardedClientFollowsCDN(t *testing.T) {
 	}
 	if _, err := client.Get("https://files.example.net/c.jar"); err == nil || !strings.Contains(err.Error(), "不允许的地址") {
 		t.Errorf("跳到 http 应中断: %v", err)
+	}
+	// 降级跳转里若夹带了账号和查询串，拒绝报错里也不能把明文带出去
+	uLeak, _ := url.Parse("http://user:s3cret@files.example.net/c.jar?token=tok")
+	errLeak := HTTPSRedirect(&http.Request{URL: uLeak}, []*http.Request{{}})
+	if errLeak == nil {
+		t.Fatal("降级跳转应拒绝")
+	}
+	for _, leak := range []string{"s3cret", "token=tok", "user:"} {
+		if strings.Contains(errLeak.Error(), leak) {
+			t.Fatalf("HTTPSRedirect 报错泄了凭据 %q：%v", leak, errLeak)
+		}
 	}
 }
 

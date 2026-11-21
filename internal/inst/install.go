@@ -123,7 +123,7 @@ func (m *Manager) reserveInstanceDir(req *CreateReq) (string, error) {
 	// Mohist/Banner 的 javaagent 自举对非 ASCII 路径不兼容——校验最终路径而非实例名，
 	// 因此中文实例名在纯英文路径下也可正常使用。
 	if (req.Core == mcsrc.CoreMohist || req.Core == mcsrc.CoreBanner) && !isASCII(dir) {
-		return "", fmt.Errorf("Mohist/Banner 与非英文路径不兼容，请把存放文件夹设为纯英文路径（当前将创建于：%s）", dir)
+		return "", fmt.Errorf("Mohist / Taiyitist（原 Banner）与非英文路径不兼容，请把存放文件夹设为纯英文路径（当前将创建于：%s）", dir)
 	}
 	// 所有校验通过后，原子性登记「创建中」占位。实例要到流水线末尾（Finish）才写入 m.insts，
 	// 期间同名请求（一键部署双击 / 重复 POST）此前都能各自通过校验并建目录，完成时相互覆盖 map
@@ -239,6 +239,10 @@ func (m *Manager) runCreateWith(ctx context.Context, t *tasks.Task, req CreateRe
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	// 登记成功之前一直留着。进程中途没了，下次可以认出来删；已经有 instance.json 的不靠它清理。
+	if err := WriteCreatingMarker(dir, req.Name); err != nil {
+		return err
+	}
 
 	// ---- 步骤 2：下载核心 ----
 	t.StartStep(2)
@@ -315,7 +319,7 @@ func (m *Manager) runCreateWith(ctx context.Context, t *tasks.Task, req CreateRe
 		if err != nil {
 			return err
 		}
-		art := mcsrc.NeoInstallerArtifact(req.Build, paths[req.Build])
+		art := mcsrc.NeoInstallerArtifact(ctx, req.Build, paths[req.Build])
 		if err := fetchToInstance(ctx, t, art, "neoforge", dir, art.FileName); err != nil {
 			return err
 		}
@@ -476,6 +480,10 @@ func (m *Manager) completeCreate(ctx context.Context, t *tasks.Task, i *Instance
 	}
 	if err := m.saveInstance(i); err != nil {
 		return err
+	}
+	// 服务器已经登记。记号删不掉也不失败：下次看到 instance.json 会只去掉记号，不会删服务器。
+	if err := ClearCreatingMarker(i.Dir); err != nil {
+		t.Logf("服务器已创建。创建记号没能去掉（%v），不影响使用", err)
 	}
 	app.RememberRoot(filepath.Dir(i.Dir))
 	m.mu.Lock()

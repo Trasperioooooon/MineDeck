@@ -129,6 +129,7 @@ var regenerable = map[string]bool{
 	// MineDeck 自己的文件：接手的人那边按他的电脑重新生成（见 inst/control.go）
 	"instance.json.bak": true, "instance.json.tmp": true, "run.before-minedeck.bat": true,
 	"log4j2_112-116.xml": true, "log4j2_17-111.xml": true, "gameai.json": true, "gameai-state.json": true, ".minedeck": true,
+	inst.CreatingMarker: true,
 }
 
 // leftOut 实例根目录下没进包、也说不上是可以重新生成的东西（目录名后面带 /）。

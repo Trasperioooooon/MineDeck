@@ -30,6 +30,24 @@ func (i *Instance) JavaSnapshot() (major int, path string) {
 	return i.JavaMajor, i.JavaPath
 }
 
+// RunningJavaPath 当前正在运行（含启动中、停止中）的服务器进程实际执行的 java.exe 路径；未运行时为空。
+// 服务器运行中改过 Java 设置（下次启动才生效）时，i.JavaPath 已变成新的，但进程占着的仍是旧的。
+func (i *Instance) RunningJavaPath() string {
+	i.procMu.Lock()
+	defer i.procMu.Unlock()
+	if i.proc == nil || i.proc.cmd == nil || i.state == "" || i.state == "stopped" {
+		return ""
+	}
+	return i.proc.cmd.Path
+}
+
+// HasCreating 当前是否有正在进行的新建、导入或接管任务。
+func (m *Manager) HasCreating() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.creating) > 0
+}
+
 // SetJava 给实例换 Java：path 是 java.exe 的路径（调用方保证是已知的 Java），下次启动生效；同时重新生成启动脚本。
 func (m *Manager) SetJava(name string, major int, path string) error {
 	i, err := m.Get(name)

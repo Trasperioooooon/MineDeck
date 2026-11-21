@@ -789,7 +789,7 @@ window.MDToolbox = (() => {
               </label>
             </div>
           </div>
-          <div id="mp-no-inst" class="hint" hidden>当前还没有模组服（Fabric / Forge / NeoForge / Mohist / Banner），可以先用「自己挑模组」配整合包。</div>
+          <div id="mp-no-inst" class="hint" hidden>当前还没有模组服（Fabric / Forge / NeoForge / Mohist / Taiyitist），可以先用「自己挑模组」配整合包。</div>
 
           <div class="form-grid tb-grid">
             <label class="field">

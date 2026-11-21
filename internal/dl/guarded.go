@@ -131,16 +131,34 @@ func guardedRedirect(rt http.RoundTripper) *http.Client {
 	return &http.Client{Transport: rt, CheckRedirect: HTTPSRedirect}
 }
 
-// HTTPSRedirect 给 http.Client.CheckRedirect 用：跳转只跟 https 的，最多 maxRedirects 次，跳到哪个主机不限。
-// 整合包文件下载（GuardedClient）和 OpenFrp 的 frpc 下载（没有哈希可对、却是要运行的程序）共用。
+// HTTPSRedirect 给 http.Client.CheckRedirect 用：跳转只跟 https 的，不跟带账号（userinfo）的，
+// 最多 maxRedirects 次，跳到哪个主机不限。
+// 整合包文件下载（GuardedClient）、校验文件拉取（FetchBytesHTTPS）和 OpenFrp 的 frpc 下载共用。
 func HTTPSRedirect(req *http.Request, via []*http.Request) error {
 	if len(via) >= maxRedirects {
 		return fmt.Errorf("跳转超过 %d 次，已中断", maxRedirects)
 	}
-	if req.URL.Scheme != "https" || req.URL.Hostname() == "" {
-		return fmt.Errorf("重定向到不允许的地址: %s", req.URL)
+	if req.URL != nil && req.URL.User != nil {
+		return errors.New("重定向地址带了账号，已停止")
+	}
+	if req.URL == nil || req.URL.Scheme != "https" || req.URL.Hostname() == "" {
+		// 不把 req.URL 原样写进报错：降级跳转的目标里可能带着账号或签名查询串。
+		return fmt.Errorf("重定向到不允许的地址（%s）", redirectTargetDesc(req.URL))
 	}
 	return nil
+}
+
+func redirectTargetDesc(u *url.URL) string {
+	if u == nil {
+		return "空地址"
+	}
+	if u.Host != "" {
+		return u.Scheme + "://" + u.Host
+	}
+	if u.Scheme != "" {
+		return u.Scheme
+	}
+	return "未知地址"
 }
 
 // guardedTransport 按「这一个请求走不走环境代理」分两条路（见 GuardedClient 的说明）。

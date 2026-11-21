@@ -214,6 +214,9 @@ func TestRoutesKeepPathsAndSemantics(t *testing.T) {
 		{"GET", "/api/javas", "", 200, "", nil},
 		{"POST", "/api/javas/scan", "", 200, "", nil},
 		{"POST", "/api/javas/add", `{"path":"C:\\java.exe"}`, 403, "添加本机 Java 仅支持在本机操作", []reqOpt{fromLAN}},
+		{"POST", "/api/javas/remove", `{"major":21,"confirm":true}`, 403, "卸载便携 Java 仅支持在本机操作", []reqOpt{fromLAN}},
+		{"GET", "/api/creating-leftovers", "", 403, "查看没建完的文件夹仅支持在本机操作", []reqOpt{fromLAN}},
+		{"POST", "/api/creating-leftovers/discard", `{"id":"0/x","confirm":true}`, 403, "删除没建完的文件夹仅支持在本机操作", []reqOpt{fromLAN}},
 		{"GET", "/api/instances", "", 200, "", nil},
 		{"POST", "/api/instances", `{"name":"","core":"paper","mc":"1.21.4","eula":true}`, 400, "服务器名称需为 1~40 个字符", nil},
 		{"POST", "/api/import/modpack", "", 400, "上传解析失败", nil},
@@ -314,8 +317,8 @@ func TestRoutesKeepPathsAndSemantics(t *testing.T) {
 		t.Errorf("GET /bg/x.png：HTTP %d %q", rec.Code, rec.Header().Get("Content-Type"))
 	}
 	seen["GET "+pattern("/bg/x.png")] = true
-	if n := len(seen); n != 47+1+7+1+2+1 { // 47 个旧接口 + /api/ops/log + 7 个 /api/ai/* + 后台任务列表 + 接管已有服务器的 2 个 /api/adopt* + 导入待决处置
-		t.Errorf("覆盖了 %d 个接口，应为 59", n)
+	if n := len(seen); n != 47+1+7+1+2+1+3 { // 47 个旧接口 + /api/ops/log + 7 个 /api/ai/* + 后台任务列表 + 接管已有服务器的 2 个 /api/adopt* + 导入待决处置 + 卸载便携 Java 和没建完文件夹的查看、删除
+		t.Errorf("覆盖了 %d 个接口，应为 62", n)
 	}
 	if d := e.dials.list(); len(d) != 0 {
 		t.Errorf("只配了 Ollama，不该有任何对外连接：%v", d)

@@ -2,12 +2,15 @@ package catalog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
+	"minedeck/internal/inst"
 	"minedeck/internal/java"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/ops"
@@ -90,7 +93,8 @@ func (c *cat) mcOps() {
 			if portable == nil {
 				portable = []java.Info{}
 			}
-			return map[string]any{"portable": portable, "scanned": scanned}, nil
+			incomplete := java.IncompletePortable()
+			return map[string]any{"portable": portable, "scanned": scanned, "incomplete": incomplete}, nil
 		},
 	})
 
@@ -107,6 +111,62 @@ func (c *cat) mcOps() {
 	})
 
 	c.javaSetOp()
+
+	// 只删 MineDeck 装在 runtimes/java-N 的便携运行时。系统里扫描到的 Java 不在这里，也没有路径参数可传。
+	c.reg.Register(&ops.Op{
+		Name: "java.remove", Title: "卸载便携 Java", Level: ops.HumanOnly, LocalOnly: true,
+		LocalMsg: "卸载便携 Java 仅支持在本机操作",
+		Desc: "删除 MineDeck 自己下载的某一版便携 Java（runtimes/java-N）。不删除系统里安装的 Java。" +
+			"有服务器还配着它、或正在用它启动时拒绝。confirm 必须为 true。删到一半会留下「没装完」记号，不会把半截当成已装好。",
+		Params: ops.Object(map[string]*ops.Schema{
+			"major":   ops.Integer("要卸载的大版本，例如 17、21").Range(8, 64),
+			"confirm": ops.Boolean("用户已确认删除这一套便携 Java"),
+		}, "major", "confirm"),
+		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+			p, err := bind[struct {
+				Major   int  `json:"major"`
+				Confirm bool `json:"confirm"`
+			}](a)
+			if err != nil {
+				return nil, err
+			}
+			if !p.Confirm {
+				return nil, ops.Errorf(400, "卸载 Java 需要明确确认")
+			}
+			err = java.RemovePortable(p.Major, func(dir string) error {
+				var configured, running []string
+				for _, i := range c.Mgr.List() {
+					_, cfgPath := i.JavaSnapshot()
+					runPath := i.RunningJavaPath()
+					cfgMatch := javaPathInside(cfgPath, dir)
+					runMatch := javaPathInside(runPath, dir)
+					if cfgMatch {
+						configured = append(configured, i.Name)
+					}
+					if runMatch || (cfgMatch && slices.Contains([]string{"starting", "running", "stopping"}, i.Status())) {
+						running = append(running, i.Name)
+					}
+				}
+				if len(running) > 0 {
+					return ops.Errorf(409, "服务器正在用 Java %d 运行（%s），请先停服再卸载", p.Major, strings.Join(running, "、"))
+				}
+				if len(configured) > 0 {
+					return ops.Errorf(409, "服务器还在用 Java %d（%s），请先到「设置 → 启动与内存」更换后再卸载", p.Major, strings.Join(configured, "、"))
+				}
+				if c.Mgr.HasCreating() {
+					return ops.Errorf(409, "有服务器正在创建或导入，可能正在使用便携 Java，请等任务结束再卸载")
+				}
+				return nil
+			})
+			if err != nil {
+				if errors.Is(err, java.ErrBusy) {
+					return nil, ops.Errorf(409, "%s", err.Error())
+				}
+				return nil, err
+			}
+			return map[string]any{"major": p.Major, "removed": true}, nil
+		},
+	})
 
 	// 仅限本机：path 会被作为可执行文件运行（java -version），远程 / 局域网不得指定主机任意路径
 	c.reg.Register(&ops.Op{
@@ -146,6 +206,23 @@ func knownJava(major int, path string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// javaPathInside path 是不是 dir 里面的文件（便携 Java 的 java.exe）。不把目录本身或外面的路径算进去。
+// 优先按真实路径比对，兼容 8.3 短名和目录联接；路径现在打不开时退回规范化后的词法相对路径。
+func javaPathInside(path, dir string) bool {
+	path, dir = strings.TrimSpace(path), strings.TrimSpace(dir)
+	if path == "" || dir == "" {
+		return false
+	}
+	if rp, err1 := inst.RealPathStrict(path); err1 == nil {
+		if rd, err2 := inst.RealPathStrict(dir); err2 == nil {
+			return rp != rd && inst.InsideReal(rd, rp)
+		}
+	}
+	path, dir = filepath.Clean(path), filepath.Clean(dir)
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != "." && filepath.IsLocal(rel)
 }
 
 // javaSetOp 给实例换 Java（§5.2 java_set）：已有这个版本就直接换，没有就在后台下载便携版再换（返回任务编号）。

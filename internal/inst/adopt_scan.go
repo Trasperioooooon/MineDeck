@@ -138,7 +138,11 @@ func scanServerDir(dir string) (*AdoptScan, error) {
 		}
 		cands = append(cands, c)
 	}
+	sawVelocityToml := regularFile(filepath.Join(dir, "velocity.toml"))
 	if len(cands) == 0 {
+		if sawVelocityToml {
+			return nil, fmt.Errorf("这个文件夹里有 velocity.toml，但最外层没有认出可启动的 Velocity 服务端 jar（请确认 jar 在最外层且入口类为 com.velocitypowered）。未改动你的配置")
+		}
 		return nil, noServerErr(dir)
 	}
 
@@ -160,16 +164,64 @@ func scanServerDir(dir string) (*AdoptScan, error) {
 		if sc.prev != nil && strings.EqualFold(c.Target, sc.prev.LaunchTarget) {
 			c.rank += rankPrev
 		}
+		// 有 velocity.toml 时，代理端比未点名的其他服务端优先（30+25=55 > rankArgs=50）；启动脚本点名的加了 rankScript（100），仍更高。
+		if sawVelocityToml && c.Core == string(mcsrc.CoreVelocity) {
+			c.rank += 25
+		}
 	}
-	// 分数高的在前；分数一样（比如升级后新旧两个 jar 都留着）时版本新的在前
+	// 分数高的在前。同分（比如升级后新旧两个 jar 都留着）时按下面几样依次比，每一样都是全序或严格弱序，
+	// 一层层接下去整体仍是严格弱序，中间夹着别的核心、缺版本号都不会漏选新版：
+	//  1. 游戏服（含认不出核心的）算一组，每种代理端各算一组，组按首次出现的先后排：代理端的版本号和 Minecraft 版本不能互相比。
+	//  2. 组内 Minecraft 版本新的在前（代理端这一栏是它自己的版本），没有版本的排最后；数值相同（1.20 和 1.20.0）的接着往下比。
+	//  3. 同一个 Minecraft 版本里按核心首次出现的先后分开：不同核心的构建号不能互相比。
+	//  4. 同一种核心里构建号新的在前，没有的排最后。
+	groupKey := func(c adoptCand) string {
+		if c.Core != "" && mcsrc.KindOf(mcsrc.Core(c.Core)) == mcsrc.KindProxy {
+			return "proxy:" + c.Core
+		}
+		return "game"
+	}
+	groupFirst := map[string]int{}
+	coreFirst := map[string]int{}
+	for i, c := range cands {
+		if _, ok := groupFirst[groupKey(c)]; !ok {
+			groupFirst[groupKey(c)] = i
+		}
+		if _, ok := coreFirst[c.Core]; !ok {
+			coreFirst[c.Core] = i
+		}
+	}
+	// newer x 比 y 新时为 1，旧时为 -1，分不出时为 0。空的算最旧。
+	newer := func(x, y string) int {
+		switch {
+		case x == y:
+			return 0
+		case y == "":
+			return 1
+		case x == "":
+			return -1
+		case versionLess(y, x):
+			return 1
+		case versionLess(x, y):
+			return -1
+		}
+		return 0
+	}
 	sort.SliceStable(cands, func(a, b int) bool {
-		if cands[a].rank != cands[b].rank {
-			return cands[a].rank > cands[b].rank
+		ca, cb := cands[a], cands[b]
+		if ca.rank != cb.rank {
+			return ca.rank > cb.rank
 		}
-		if x, y := cands[a].MC, cands[b].MC; x != "" && y != "" && x != y {
-			return versionLess(y, x)
+		if ga, gb := groupFirst[groupKey(ca)], groupFirst[groupKey(cb)]; ga != gb {
+			return ga < gb
 		}
-		return false
+		if n := newer(ca.MC, cb.MC); n != 0 {
+			return n > 0
+		}
+		if fa, fb := coreFirst[ca.Core], coreFirst[cb.Core]; fa != fb {
+			return fa < fb
+		}
+		return newer(ca.Build, cb.Build) > 0
 	})
 	top := cands[0]
 	// MineDeck 管过的目录、启动文件也还是原来那个：核心和版本信 instance.json 里记的
@@ -184,6 +236,11 @@ func scanServerDir(dir string) (*AdoptScan, error) {
 		sc.Targets = append(sc.Targets, cands[i].AdoptTarget)
 	}
 	sc.LaunchTarget, sc.Core, sc.MC, sc.Build, sc.JavaMajor = top.Target, top.Core, top.MC, top.Build, top.JavaMajor
+	if !trustPrev {
+		if note := mixedServerNote(cands, top, sawVelocityToml, hints.targets[strings.ToLower(top.Target)]); note != "" {
+			sc.Notes = append(sc.Notes, note)
+		}
+	}
 
 	// 内存和 JVM 参数
 	isArgs := strings.HasPrefix(sc.LaunchTarget, "args:")
@@ -411,6 +468,11 @@ func inspectJar(p string) (adoptCand, bool) {
 		if !strings.Contains(lname, "waterfall") {
 			c.note = "这是 BungeeCord 系的代理端，MineDeck 把它当 Waterfall 管理。"
 		}
+	case strings.Contains(lmain, "taiyitist"):
+		// 2026-11-20：TaiyitistMC/Banner 的 README 指向 TaiyitistMC/Taiyitist，GitHub 再 301 到 Teneted/Taiyitist。
+		// 1.21.1 分支的清单主类是 com.taiyitistmc.TaiyitistLauncher。内部 id 仍是 banner，不改下载地址。
+		c.Core, c.rank, c.MC = string(mcsrc.CoreBanner), rankHybrid, inner
+		c.note = "这是 Taiyitist（原 Banner），未改动你的文件；后续仍按原 Banner 类型管理。"
 	case strings.Contains(lmain, "banner"):
 		c.Core, c.rank, c.MC = string(mcsrc.CoreBanner), rankHybrid, inner
 	case strings.Contains(lmain, "mohist"):
@@ -826,6 +888,35 @@ func suggestName(sc *AdoptScan, dir string) string {
 		return "我的服务器"
 	}
 	return name
+}
+
+func regularFile(p string) bool {
+	st, err := os.Lstat(p)
+	return err == nil && st.Mode().IsRegular()
+}
+
+// mixedServerNote 一个文件夹里认出了不止一种独立服务端时给人看的提示。不改任何文件。
+// Fabric、Forge 等加载器与配套的原版 server.jar 并存属于正常结构，不弹混放提示。
+func mixedServerNote(cands []adoptCand, top adoptCand, sawVelocityToml, scripted bool) string {
+	cores := map[string]bool{}
+	for _, c := range cands {
+		if c.Core != "" {
+			cores[c.Core] = true
+		}
+	}
+	if len(cores) == 2 && cores[string(mcsrc.CoreVanilla)] {
+		switch mcsrc.Core(top.Core) {
+		case mcsrc.CoreFabric, mcsrc.CoreForge, mcsrc.CoreNeoForge, mcsrc.CoreMohist, mcsrc.CoreBanner:
+			return ""
+		}
+	}
+	if len(cores) < 2 {
+		return ""
+	}
+	if top.Core == string(mcsrc.CoreVelocity) && sawVelocityToml && !scripted {
+		return "这个文件夹里有不止一种服务端；因存在 velocity.toml，已先按 Velocity 预填。如需更改请在「启动文件」里选择其他项，未改动你的配置。"
+	}
+	return "这个文件夹里有不止一种服务端，已按启动脚本和文件名预填，请在「启动文件」里确认。未改动你的配置。"
 }
 
 // noServerErr 文件夹里没找到服务端时的报错：下一层有像服务器的文件夹就点出来（常见的是选到了上一层）。

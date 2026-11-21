@@ -1463,7 +1463,40 @@ async function renderInstances() {
       <select id="inst-sort" aria-label="排序方式"><option value="recent">排序：最近创建</option><option value="running">排序：运行中优先</option><option value="name">排序：名称</option></select>
     </div></div>
     <section id="task-list" hidden style="margin-bottom:24px"></section>
+    <section id="creating-left" hidden style="margin-bottom:24px"></section>
     <div id="inst-cards">${skeletonCards(4)}</div>`;
+  const paintLeftovers = async () => {
+    const box = $("#creating-left");
+    if (!box) return;
+    let data;
+    try { data = await api("/api/creating-leftovers"); } catch { if (box.isConnected) box.hidden = true; return; }
+    if (stale(gen) || !box.isConnected) return;
+    const items = data.items || [];
+    if (!items.length) { box.hidden = true; box.innerHTML = ""; return; }
+    box.hidden = false;
+    box.innerHTML = `<div class="warn-card"><div class="wc-title">${icon("warn")} 有 ${items.length} 个上次创建没完成的文件夹</div>
+      <div class="wc-note">这里只列出创建中途停下、还没建好的文件夹。接管进来的和你自己放进来的不会出现在这里，也不会自动删除。</div>
+      ${items.map(it => `<div class="row" style="margin-top:8px"><b>${esc(it.name)}</b><span class="hint">${it.hasWorld ? "含世界文件 · " : ""}位于「${esc(it.root)}」</span>
+        <button type="button" class="btn sm ghost" data-drop-left="${esc(it.id)}" data-world="${it.hasWorld ? "1" : "0"}" data-name="${esc(it.name)}" aria-label="删除没建完的文件夹 ${esc(it.name)}（${esc(it.root)}）">删除这个文件夹</button></div>`).join("")}</div>`;
+    box.querySelectorAll("[data-drop-left]").forEach(b => b.onclick = async () => {
+      const ok = await confirmModal({
+        title: "删除没建完的文件夹？",
+        body: `<p>将删除「${esc(b.dataset.name)}」。${b.dataset.world === "1" ? "里面的世界文件会一起删掉，无法恢复。" : "里面的文件会一起删掉。"}已建好的服务器和其他文件夹不会受影响。</p>`,
+        okText: "删除文件夹", danger: true,
+      });
+      if (!ok) return;
+      b.disabled = true;
+      try {
+        await api("/api/creating-leftovers/discard", { method: "POST", body: { id: b.dataset.dropLeft, confirm: true } });
+        toast("已删除没建完的文件夹");
+        if (!stale(gen)) paintLeftovers();
+      } catch (e) {
+        toastErr("无法删除这个文件夹", e);
+        if (!stale(gen) && b.isConnected) b.disabled = false;
+      }
+    });
+  };
+  paintLeftovers();
   const taskList = $("#task-list");
   let lastSig = "", curList = [], prevByName = null; // prevByName：上次渲染时各实例的数据（判定状态切换、播切换动效）
   // 连接地址用的本机局域网 IP（见 pickLanIP）。列表不等 /api/app：拿到之前、或者拿不到时，卡片上只写端口、不给复制，拿到了再重画
@@ -1971,7 +2004,7 @@ async function drawImport() {
         </div>
         <div class="hint" style="margin-top:6px">优先使用此文件夹里的同名文件补全缺失项（跳过线上校验）；还是没装上的文件，导入完成后在任务页、或者这台服务器的详情页里逐个处理。</div></label>
       <div class="field"><label class="switch"><input type="checkbox" id="im-online"${on("online", false)}><span class="sw"></span>
-        <span><span class="sw-label">正版验证</span><div class="sw-desc">默认关闭</div></span></label></div>
+        <span><span class="sw-label">正版验证</span><div class="sw-desc">默认关闭：离线账号可直接进服，但不会使用正版 UUID，也不显示正版皮肤</div></span></label></div>
       <div class="field"><label class="switch"><input type="checkbox" id="im-flight"${on("flight", true)}><span class="sw"></span>
         <span><span class="sw-label">允许飞行</span><div class="sw-desc">整合包建议开启</div></span></label></div>
       ${whitelistField("im-wl", "整合包自带 server.properties 的，白名单也以这里为准。")}
@@ -2592,7 +2625,7 @@ async function drawWizard() {
         ${isProxy ? "" : `
         <label class="field full"><span>服务器介绍（MOTD）</span><input type="text" id="f-motd" value="MineDeck 开服 · 一起来玩"></label>
         <div class="field"><label class="switch"><input type="checkbox" id="f-online"><span class="sw"></span>
-          <span><span class="sw-label">正版验证（online-mode）</span><div class="sw-desc">默认关闭：离线账户可直接进服</div></span></label></div>
+          <span><span class="sw-label">正版验证（online-mode）</span><div class="sw-desc">默认关闭：离线账号可直接进服，但不会使用正版 UUID，也不显示正版皮肤</div></span></label></div>
         <div class="field"><label class="switch"><input type="checkbox" id="f-flight" checked><span class="sw"></span>
           <span><span class="sw-label">允许飞行（allow-flight）</span><div class="sw-desc">默认开启：防止模组移动被误踢</div></span></label></div>
         <label class="field"><span>游戏难度</span><select id="f-diff"><option value="peaceful">和平</option><option value="easy" selected>简单</option><option value="normal">普通</option><option value="hard">困难</option></select></label>
@@ -2840,6 +2873,12 @@ function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-appl
   let view = { pending: [], skipped: [] }, sig = "", had = false;
   const gone = () => stale(gen) || !box.isConnected;
   const httpsOnly = u => /^https:\/\//i.test(String(u || ""));
+  const PENDING_BATCH = 500; // 同后端 pendingResolveMax：500 接受，501 拒绝。多出来的分批提交。
+  const dlHost = it => {
+    const u = (it.urls || []).find(httpsOnly);
+    if (!u) return it.host || "";
+    try { return new URL(u).hostname; } catch { return it.host || ""; }
+  };
   const row = (it, skipped) => `
     <div class="${skipped ? "pnd-skipped" : "pnd-item"}" data-id="${esc(it.id)}">
       <div><b>${esc(it.path)}</b>${skipped ? ` <span class="badge">已跳过</span>` : ""}${it.host ? ` <span class="badge">${esc(it.host)}</span>` : ""}</div>
@@ -2851,7 +2890,7 @@ function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-appl
       </div>
       <input type="text" class="pnd-local" placeholder="本地文件或文件夹的完整路径；填文件夹时按文件名匹配" aria-label="没装上的文件 ${esc(it.path)} 的本地文件或文件夹路径" hidden>
       <label class="pnd-ack" hidden><input type="checkbox" class="pnd-ackbox">
-        <span class="wc-note">我已知晓风险并信任来自 ${it.host ? `「${esc(it.host)}」` : "这个站点"}的文件：该文件缺少校验值，存在传输被篡改风险。勾选后按域名记住（包含该域名的其他端口），以后同域名不再确认。</span></label>
+        <span class="wc-note">我已知晓风险，信任来自「${esc(dlHost(it) || "这个站点")}」的下载。该站点不在默认允许列表里；下载后仍按整合包里的校验值核对，对不上就不装。下载成功后按域名记住（不含端口），以后同站点不再重复确认。</span></label>
     </div>`;
   const rows = () => [...box.querySelectorAll(".pnd-item, .pnd-skipped")];
   const draw = () => {
@@ -2874,6 +2913,11 @@ function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-appl
     box.innerHTML = `<div class="warn-card pnd-card">
       ${pending.length ? `<div class="wc-title">${icon("warn")} 没装上的文件（${pending.length} 个）</div>
       <div class="wc-note">这些文件因为校验失败、链接失效或平台限制没能自动下载。给要处理的选好方式，再点「应用所选的处理」；没选的先不动。</div>
+      ${pending.some(it => (it.options || []).includes("trust")) ? `<div class="row pnd-batch">
+        <button type="button" class="btn sm" id="pnd-trust-all">全选可下载项</button>
+        <button type="button" class="btn sm" id="pnd-ack-all">确认这些站点的风险</button>
+        <span class="hint">「全选可下载项」只选上面还没选处理方式、且可从外部站点下载的文件；已跳过的、缺校验值的、你已经选了别的处理方式的不动，也不会自动勾选风险确认。勾选确认并下载成功后才按域名记住，不会把外部站点放进默认允许列表。</span>
+      </div>` : ""}
       ${pending.map(it => row(it, false)).join("")}`
       : `<div class="wc-title">${icon("info")} 跳过了 ${skipped.length} 个文件，它们没有装上</div><div class="wc-note">要的话在下面换成用本地文件代替${skipped.some(x => (x.options || []).includes("trust")) ? "或信任站点下载" : ""}；不要就不用管。</div>`}
       ${skippedBlock}
@@ -2893,6 +2937,32 @@ function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-appl
       if (st.ack) r.querySelector(".pnd-ackbox").checked = true;
     }
     box.querySelector(".pnd-apply").onclick = apply;
+    const trustAll = box.querySelector("#pnd-trust-all");
+    const ackAll = box.querySelector("#pnd-ack-all");
+    if (trustAll) trustAll.onclick = () => {
+      let n = 0;
+      const hasSHA1 = id => !!String((view.pending.find(x => x.id === id) || {}).sha1 || ""); // 同后端：没有校验值的不下载
+      for (const r of box.querySelectorAll(".pnd-item")) {
+        const radio = r.querySelector('input[type=radio][value="trust"]');
+        // 没有校验值的后端不会下载；已经选了处理方式的（包括选了本地文件的）不替人改
+        if (!radio || !hasSHA1(r.dataset.id) || r.querySelector("input[type=radio]:checked")) continue;
+        radio.checked = true;
+        radio.dispatchEvent(new Event("change"));
+        n++;
+      }
+      toast(n ? `已选中 ${n} 个可下载项，请确认风险后再应用。` : "没有可信任下载的项");
+    };
+    if (ackAll) ackAll.onclick = () => {
+      let n = 0;
+      for (const r of box.querySelectorAll(".pnd-item, .pnd-skipped")) {
+        const radio = r.querySelector('input[type=radio][value="trust"]:checked');
+        const boxAck = r.querySelector(".pnd-ackbox");
+        if (!radio || !boxAck || boxAck.closest("label").hidden) continue;
+        boxAck.checked = true;
+        n++;
+      }
+      toast(n ? `已勾选 ${n} 项风险确认，点「应用所选的处理」开始下载。` : "请先选「信任站点并下载」，再确认风险");
+    };
   };
   const apply = async () => {
     const acts = [];
@@ -2916,18 +2986,39 @@ function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-appl
     if (!acts.length) { toast("先给至少一个文件选处理方式", true); return; }
     const btn = box.querySelector(".pnd-apply");
     btn.disabled = true;
-    try {
-      const r = await api(`/api/instances/${encodeURIComponent(inst)}/import-pending`, { method: "POST", body: { items: acts } });
-      if (gone()) return;
-      out.innerHTML = `<div class="wc-wrap">${(r.resolved || []).map(o =>
+    const resolved = [];
+    let lastResp = null;
+    const wasOpen = view.pending.length;
+    const syncDone = () => {
+      if (!lastResp || gone()) return;
+      out.innerHTML = `<div class="wc-wrap">${resolved.map(o =>
         `<div class="${o.ok ? "hint" : "err-box"}" style="margin-bottom:6px">${o.ok ? "已处理" : "处理失败"}：${esc(o.path)}${o.note ? "，" + esc(o.note) : ""}</div>`).join("")}</div>`;
-      const wasOpen = view.pending.length;
-      view = { pending: r.pending || [], skipped: r.skipped || [] };
+      view = { pending: lastResp.pending || [], skipped: lastResp.skipped || [] };
       draw();
-      if (wasOpen && !view.pending.length) toast("没装上的文件都处理完了");
       if (onChange) onChange(view);
+    };
+    try {
+      for (let i = 0; i < acts.length; i += PENDING_BATCH) {
+        const r = await api(`/api/instances/${encodeURIComponent(inst)}/import-pending`, { method: "POST", body: { items: acts.slice(i, i + PENDING_BATCH) } });
+        if (gone()) return;
+        lastResp = r;
+        resolved.push(...(r.resolved || []));
+      }
+      syncDone();
+      if (wasOpen && !view.pending.length) toast("没装上的文件都处理完了");
     } catch (e) {
-      if (!gone()) toastErr("无法处理没装上的文件", e);
+      if (gone()) return;
+      // 出错的那一批可能已经在后端处理了一部分（比如连接在途中断了），手里的旧响应不准：重新要一次清单再画
+      let refreshed = false;
+      try {
+        const v = await api(`/api/instances/${encodeURIComponent(inst)}/import-pending`);
+        if (gone()) return;
+        lastResp = v;
+        refreshed = true;
+      } catch { /* 要不到就按手里已有的画 */ }
+      if (gone()) return; // 等清单的时候离开了页面：不在新页面上弹旧页面的错
+      syncDone();
+      toastErr(refreshed ? "有的文件没处理完，清单已按最新情况刷新" : lastResp ? "部分文件未能处理完" : "无法处理没装上的文件", e);
     } finally {
       const b = box.querySelector(".pnd-apply");
       if (!gone() && b) b.disabled = false;
@@ -5564,19 +5655,47 @@ async function setJava(body, info) {
   const gen = viewGen;
   const head = settingsHead("Java 运行时", "新建服务器时优先用本机已装的 Java；没有合适的，则使用 MineDeck 下载过的或自动新下一份。");
   body.innerHTML = head + `<div class="sub">加载中…</div>`;
-  let javas = { portable: [], scanned: [] };
+  let javas = { portable: [], scanned: [], incomplete: [] };
   try { javas = await api("/api/javas"); } catch {}
   if (stale(gen)) return;
+  const isLocal = !info || info.local !== false;
+  const portList = javas.portable || [];
+  const incList = (javas.incomplete || []).filter(m => !portList.some(j => j.major === m));
+  const portRows = [
+    ...portList.map(j => riRow({ ico: "package", title: `便携 Java ${j.major}`,
+      sub: "MineDeck 单独下载的运行时。卸载只删这一套，不动系统里的 Java；有服务器正在用或还配着它时会拦下。",
+      right: isLocal ? `<button type="button" class="btn sm ghost" data-rm-java="${j.major}" aria-label="卸载便携 Java ${j.major}">卸载</button>` : "" })),
+    ...incList.map(m => riRow({ ico: "package", title: `便携 Java ${m}（残留）`,
+      sub: "上次下载或卸载没走完留下的文件夹，不能直接用于开服，可点右侧清理。",
+      right: isLocal ? `<button type="button" class="btn sm ghost" data-rm-java="${m}" data-inc="1" aria-label="清理残留的便携 Java ${m}">清理</button>` : "" })),
+  ];
   body.innerHTML = head +
     group(
-      riRow({ ico: "package", title: "便携运行时", sub: "MineDeck 自己下载的 Java，单独放着，不改你系统里已经装的 Java。",
-        right: javas.portable.length ? `<span class="badges">${javas.portable.map(j => `<span class="badge core">Java ${j.major}</span>`).join("")}</span>` : `<span class="ri-summary">暂无</span>` }) +
-      (javas.scanned.length ? javas.scanned.map(j => riRow({ ico: "coffee", titleHTML: `Java ${j.major} <span class="badge">${esc(j.version)}</span>`, key: j.path })).join("")
+      (portRows.length ? portRows.join("")
+        : riRow({ ico: "package", title: "便携运行时", sub: "还没有 MineDeck 下载的 Java。新建服务器缺少合适的 Java 时会自动下载，不影响系统里已有的 Java。" })) +
+      ((javas.scanned || []).length ? javas.scanned.map(j => riRow({ ico: "coffee", titleHTML: `Java ${j.major} <span class="badge">${esc(j.version)}</span>`, key: j.path })).join("")
         : riRow({ ico: "coffee", title: "本机已安装的 Java", sub: "尚未发现，点下方「重新扫描」或手动添加" })),
       { ico: true }) +
     group(riRow({ ico: "plus", title: "手动添加", sub: "粘贴 java.exe 或 JDK 文件夹的路径",
       field: `<input type="text" id="java-path" placeholder="如 C:\\Program Files\\Java\\jdk-21\\bin\\java.exe" aria-label="Java 路径"><button class="btn" id="java-add">添加</button>` }), { ico: true }) +
     `<div class="row" style="margin-top:12px"><button class="btn" id="java-scan">${icon("refresh")} 重新扫描本机 Java</button></div>`;
+  body.querySelectorAll("[data-rm-java]").forEach(b => b.onclick = async () => {
+    const major = Number(b.dataset.rmJava), isInc = b.dataset.inc === "1";
+    const ok = await confirmModal({
+      title: isInc ? `清理便携 Java ${major} 残留？` : `卸载便携 Java ${major}？`,
+      body: isInc
+        ? `<p>将删除没装完或没删干净的便携 Java ${major} 文件夹，系统里安装的 Java 不会受影响。</p>`
+        : `<p>只删除 MineDeck 自己下载的 Java ${major}，系统里安装的 Java 不会受影响。如果有服务器正在用或还配着它，会直接拦下并说明是哪一台。</p>`,
+      okText: isInc ? "清理" : "卸载", danger: true,
+    });
+    if (!ok) return;
+    b.disabled = true;
+    try {
+      await api("/api/javas/remove", { method: "POST", body: { major, confirm: true } });
+      toast(isInc ? `已清理便携 Java ${major} 残留` : `已卸载便携 Java ${major}`);
+      if (!stale(gen)) setJava(body, info);
+    } catch (e) { toastErr(isInc ? "无法清理便携 Java 残留" : "无法卸载便携 Java", e); if (!stale(gen) && b.isConnected) b.disabled = false; }
+  });
   $("#java-scan").onclick = async () => {
     $("#java-scan").disabled = true; $("#java-scan").textContent = "扫描中…（约数秒）";
     try { const list = await api("/api/javas/scan", { method: "POST" }); toast(`扫描完成，发现 ${list.length} 个 Java`); if (!stale(gen)) setJava(body, info); }

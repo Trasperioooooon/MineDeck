@@ -43,7 +43,7 @@ window.PROPS_CATALOG = [
 
   // ===== 玩家与权限 =====
   { key: 'max-players', group: '玩家与权限', type: 'int', def: '20', label: '最大人数', desc: '服务器最多同时在线的玩家数。', since: '', removed: '', gamerule: null, restart: true },
-  { key: 'online-mode', group: '玩家与权限', type: 'bool', def: 'true', label: '正版验证', desc: '开启之后，只有正版账号能进。关闭之后，任何人可以用任意名字进服。', since: '', removed: '', gamerule: null, restart: true },
+  { key: 'online-mode', group: '玩家与权限', type: 'bool', def: 'true', label: '正版验证', desc: '开启后只有正版账号能进；关闭后可用任意名字进服。关闭不会使用正版 UUID，也不会显示正版皮肤（离线模式按玩家名生成 UUID）。如需 TrueUUID 这类模组请自行安装，MineDeck 不会自动安装，也不会替你改此项或迁移玩家数据。', since: '', removed: '', gamerule: null, restart: true },
   { key: 'white-list', group: '玩家与权限', type: 'bool', def: 'false', defSince: { v: '26.3', def: 'true' }, label: '白名单开关', desc: '开启之后，只有名单里的玩家能进。OP 不受白名单限制。文件里没写这一项时按服务端自己的默认：26.3 起是开，更早是关（MineDeck 新建时总会按你选的写进去，见下一行）。', since: '', removed: '', gamerule: null, restart: true },
   { key: 'enforce-whitelist', group: '玩家与权限', type: 'bool', def: 'false', label: '强制白名单', desc: '重载白名单时，把已在线但不在名单里的玩家立即踢出。', since: '1.13', removed: '', gamerule: null, restart: true },
   { key: 'op-permission-level', group: '玩家与权限', type: 'int', def: '4', label: 'OP 权限等级', desc: '/op 授予的权限级别；4 最高，可用 /stop 等全部命令。', since: '', removed: '', gamerule: null, restart: true },

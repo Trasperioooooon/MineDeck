@@ -76,6 +76,9 @@ func New(mgr *inst.Manager, tun *tunnel.Manager, reg *ops.Registry, asst *assist
 	mux.HandleFunc("GET /api/javas", s.handleJavas)
 	mux.HandleFunc("POST /api/javas/scan", s.handleJavaScan)
 	mux.HandleFunc("POST /api/javas/add", s.handleJavaAdd)
+	mux.HandleFunc("POST /api/javas/remove", s.handleJavaRemove)
+	mux.HandleFunc("GET /api/creating-leftovers", s.handleCreatingLeftovers)
+	mux.HandleFunc("POST /api/creating-leftovers/discard", s.handleCreatingDiscard)
 
 	mux.HandleFunc("GET /api/instances", s.handleListInstances)
 	mux.HandleFunc("POST /api/instances", s.handleCreateInstance)

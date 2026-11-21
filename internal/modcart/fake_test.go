@@ -204,14 +204,14 @@ func (f *fakeMR) serve(w http.ResponseWriter, r *http.Request) {
 		f.lastFacets, f.lastOffset, f.lastLimit = q.Get("facets"), q.Get("offset"), q.Get("limit")
 		f.mu.Unlock()
 		all := []map[string]any{
-			{"project_id": "aaa", "slug": "alpha", "title": "Alpha", "description": "d", "downloads": 10, "icon_url": "", "license": "MIT", "server_side": "required", "categories": []string{"fabric", "optimization"}},
-			{"project_id": "client", "slug": "client-only", "title": "Client Only", "description": "d", "downloads": 5, "icon_url": "", "license": "MIT", "server_side": "unsupported", "categories": []string{"fabric", "utility"}},
+			{"project_id": "aaa", "slug": "alpha", "project_type": "mod", "title": "Alpha", "description": "d", "downloads": 10, "icon_url": "", "license": "MIT", "server_side": "required", "categories": []string{"fabric", "optimization"}},
+			{"project_id": "client", "slug": "client-only", "project_type": "mod", "title": "Client Only", "description": "d", "downloads": 5, "icon_url": "", "license": "MIT", "server_side": "unsupported", "categories": []string{"fabric", "utility"}},
 		}
 		if q.Get("query") == "bulk" {
 			all = nil
 			for i := range 45 {
 				id := fmt.Sprintf("bulk%02d", i)
-				all = append(all, map[string]any{"project_id": id, "slug": id, "title": id, "description": "d", "downloads": 1000 - i, "icon_url": "", "license": "MIT", "server_side": "required", "categories": []string{"fabric"}})
+				all = append(all, map[string]any{"project_id": id, "slug": id, "project_type": "mod", "title": id, "description": "d", "downloads": 1000 - i, "icon_url": "", "license": "MIT", "server_side": "required", "categories": []string{"fabric"}})
 			}
 		}
 		var groups [][]string

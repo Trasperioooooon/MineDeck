@@ -49,6 +49,20 @@ var Client = &http.Client{
 		ResponseHeaderTimeout: 60 * time.Second,
 		MaxIdleConnsPerHost:   8,
 	},
+	// 重定向地址里带了账号就停下：不把用户名密码再发出去，失败摘要里也不留这段。
+	CheckRedirect: refuseRedirectSecrets,
+}
+
+// refuseRedirectSecrets 默认客户端的重定向检查。次数沿用标准库的 10 次。
+// 地址里的 userinfo（user:password@host）不跟随：那是凭据，失败时也不该出现在日志里。
+func refuseRedirectSecrets(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("重定向次数太多")
+	}
+	if req.URL != nil && req.URL.User != nil {
+		return errors.New("重定向地址带了账号，已停止")
+	}
+	return nil
 }
 
 // Progress 下载进度回调；total 可能为 -1（未知大小）。
@@ -289,6 +303,42 @@ func newFetchFail(fails []urlFail, tried []error) error {
 	}
 }
 
+// netReasonError 去掉 *url.Error 外壳里的完整 URL（可能含账号、签名查询串），同时保留底层错误的 errors.Is / errors.As。
+type netReasonError struct {
+	msg string
+	err error
+}
+
+func (e *netReasonError) Error() string { return e.msg }
+func (e *netReasonError) Unwrap() error { return e.err }
+
+func sanitizeNetErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	var ue *url.Error
+	if !errors.As(err, &ue) {
+		return err
+	}
+	inner := ue.Err
+	for {
+		var next *url.Error
+		if !errors.As(inner, &next) || next.Err == nil {
+			break
+		}
+		inner = next.Err
+	}
+	if inner == nil {
+		return errors.New("请求地址无效")
+	}
+	msg := strings.Join(strings.Fields(inner.Error()), " ")
+	if strings.HasPrefix(msg, "failed to parse Location header") {
+		// net/http 会把解析不了的跳转地址原样写进这句话，里面可能带账号和签名查询串
+		msg = "服务器给的跳转地址无效"
+	}
+	return &netReasonError{msg: msg, err: inner}
+}
+
 // compactReason 一个源的失败原因，压成一行。
 // 连不上、超时这类错误（*url.Error）只留底层原因：主机名已经写在前面，完整地址只会把句子拉长，
 // 还可能带着签名用的查询串。其余的原样保留，不截断：本机写文件出错时报错是「操作 路径: 原因」，
@@ -298,21 +348,17 @@ func compactReason(err error) string {
 	if err == nil {
 		return ""
 	}
-	if ue, ok := err.(*url.Error); ok && ue.Err != nil {
-		err = ue.Err
-	}
+	err = sanitizeNetErr(err)
 	return strings.Join(strings.Fields(err.Error()), " ")
 }
 
-func shortURL(u string) string {
-	if i := strings.Index(u, "://"); i >= 0 {
-		rest := u[i+3:]
-		if j := strings.Index(rest, "/"); j >= 0 {
-			return rest[:j]
-		}
-		return rest
+func shortURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		// 解析不了就不要把原文写进日志：原文里可能有查询串或账号。
+		return "下载地址"
 	}
-	return u
+	return u.Host // Host 不含 userinfo
 }
 
 func fetchOne(ctx context.Context, url string, r Request, prog Progress) error {
@@ -332,7 +378,7 @@ func fetchOne(ctx context.Context, url string, r Request, prog Progress) error {
 
 	req, err := http.NewRequestWithContext(cctx, http.MethodGet, url, nil)
 	if err != nil {
-		return err
+		return sanitizeNetErr(err)
 	}
 	req.Header.Set("User-Agent", UA)
 	client := r.Client
@@ -341,7 +387,7 @@ func fetchOne(ctx context.Context, url string, r Request, prog Progress) error {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return sanitizeNetErr(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -415,13 +461,18 @@ func FetchJSON(ctx context.Context, urls []string, out any) error {
 // FetchJSONHTTPS 同 FetchJSON，但跳转只跟 https 的（HTTPSRedirect）：给「拿回来的内容决定接下来下载、运行什么」的接口用，
 // 比如 OpenFrp 查 frpc 版本和下载源的那一步。别的设置和 Client 一样（每次按当时的 Client 抄一份，只换跳转的规矩）。
 func FetchJSONHTTPS(ctx context.Context, urls []string, out any) error {
-	c := *Client
-	c.CheckRedirect = HTTPSRedirect
-	b, err := fetchBytes(ctx, &c, urls)
+	b, err := FetchBytesHTTPS(ctx, urls)
 	if err != nil {
 		return err
 	}
 	return json.Unmarshal(b, out)
+}
+
+// FetchBytesHTTPS 同 FetchBytes，但跳转只跟 https 的（HTTPSRedirect 且拦截带 userinfo 的重定向）。
+func FetchBytesHTTPS(ctx context.Context, urls []string) ([]byte, error) {
+	c := *Client
+	c.CheckRedirect = HTTPSRedirect
+	return fetchBytes(ctx, &c, urls)
 }
 
 // FetchBytes 依次尝试多个 URL 获取小体积响应（上限 64MB，单次 30 秒超时）。
@@ -451,13 +502,13 @@ func fetchBytesOne(ctx context.Context, client *http.Client, url string) ([]byte
 	defer cancel()
 	req, err := http.NewRequestWithContext(cctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return nil, sanitizeNetErr(err)
 	}
 	req.Header.Set("User-Agent", UA)
 	req.Header.Set("Accept", "application/json, text/html;q=0.9, */*;q=0.8")
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, sanitizeNetErr(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {

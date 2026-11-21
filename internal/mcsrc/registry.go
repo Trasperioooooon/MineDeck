@@ -175,7 +175,7 @@ func init() {
 		Artifact: MohistArtifact,
 	})
 	register(&coreImpl{
-		Info:     CoreInfo{CoreBanner, "Banner", "混合·Fabric+插件", "Mohist 团队出品，Fabric 模组与 Bukkit 插件共存", KindHybrid},
+		Info:     CoreInfo{CoreBanner, "Taiyitist（原 Banner）", "混合·Fabric+插件", "Fabric 模组与 Bukkit 插件共存（已改名 Taiyitist，下载仍用原 banner 构建）", KindHybrid},
 		Versions: wrapIDVersions(BannerVersions),
 		Builds:   BannerBuilds,
 		Artifact: BannerArtifact,

@@ -65,7 +65,7 @@ func TestLevelsFollowDesign(t *testing.T) {
 			"instance.players.deop", "instance.players.kick", "instance.players.ban", "instance.players.pardon", "tunnel.stop",
 			"instance.restart"},
 		ops.HumanOnly: {"app.config.set", "app.shutdown", "app.update.apply", "host.pickdir", "host.openpath", "instance.import", "task.cancel",
-			"instance.delete", "instance.opendir", "instance.backup.delete", "java.add", "tunnel.add", "tunnel.update", "tunnel.delete",
+			"instance.delete", "instance.opendir", "instance.backup.delete", "java.add", "java.remove", "tunnel.add", "tunnel.update", "tunnel.delete",
 			// beta.3 R10：插件 / 模组页「已安装」里的删除，同删除备份、删除服务器，只许人点
 			"instance.mods.delete",
 			// AI 设置（第二阶段）：AI 永远看不到、也改不了自己的设置和 Key（§3.3）
@@ -73,6 +73,7 @@ func TestLevelsFollowDesign(t *testing.T) {
 			"ai.assistant.set",
 			// 接管已有服务器：要读主机上任意一个文件夹，只许人在本机操作
 			"instance.adopt.scan", "instance.adopt",
+			"instance.creating.list", "instance.creating.discard",
 			// 整合包导入的待决文件：要收这台电脑上的文件，只许人在本机操作
 			"instance.import.pending",
 			// 按服务器查、处置没装上的文件（beta.3 R09）：清单是服务器文件夹里读来的不可信文字，不给 AI；处置同上只许本机
@@ -148,7 +149,7 @@ func TestLevelsFollowDesign(t *testing.T) {
 	slices.Sort(local)
 	if strings.Join(local, ",") != "ai.assistant.set,ai.models.list,ai.prices.refresh,ai.prices.set,ai.provider.set,ai.quota.set,ai.test,"+
 		"gameai.set,gameai.whitelist,"+ // 第四阶段：授权名单和命令模板只能在本机改（§3.3）
-		"host.openpath,host.pickdir,instance.adopt,instance.adopt.scan,instance.import.pending,instance.import.pending.resolve,instance.opendir,java.add"+
+		"host.openpath,host.pickdir,instance.adopt,instance.adopt.scan,instance.creating.discard,instance.creating.list,instance.import.pending,instance.import.pending.resolve,instance.opendir,java.add,java.remove"+
 		",music.sources,music.start,music.system.confirm"+ // 第五阶段
 		",world.import.scanpath" { // 地图导入：读本机文件夹
 		t.Errorf("仅本机的操作：%v", local)

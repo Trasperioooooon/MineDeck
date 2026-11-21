@@ -14,3 +14,15 @@ func (s *Server) handleJavaScan(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleJavaAdd(w http.ResponseWriter, r *http.Request) {
 	s.do(w, r, "java.add", bodyArgs(r))
 }
+
+func (s *Server) handleJavaRemove(w http.ResponseWriter, r *http.Request) {
+	s.do(w, r, "java.remove", bodyArgs(r))
+}
+
+func (s *Server) handleCreatingLeftovers(w http.ResponseWriter, r *http.Request) {
+	s.do(w, r, "instance.creating.list", nil)
+}
+
+func (s *Server) handleCreatingDiscard(w http.ResponseWriter, r *http.Request) {
+	s.do(w, r, "instance.creating.discard", bodyArgs(r))
+}

@@ -77,6 +77,9 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	if err := WriteCreatingMarker(dir, req.Name); err != nil {
+		return err
+	}
 	where := "压缩包最外层"
 	if pack.Root != "" {
 		where = "「" + pack.Root + "」这一层"
@@ -152,7 +155,7 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 		return err
 	}
 	if (core == mcsrc.CoreMohist || core == mcsrc.CoreBanner) && !isASCII(dir) {
-		return fmt.Errorf("Mohist/Banner 与非英文路径不兼容，请把存放文件夹设为纯英文路径（当前将创建于：%s）", dir)
+		return fmt.Errorf("Mohist / Taiyitist（原 Banner）与非英文路径不兼容，请把存放文件夹设为纯英文路径（当前将创建于：%s）", dir)
 	}
 	kind := mcsrc.KindOf(core)
 	t.Logf("按接管已有服务器的办法认出：%s %s，启动文件 %s", core, mc, strings.TrimPrefix(strings.TrimPrefix(launch, "jar:"), "args:"))
