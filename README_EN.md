@@ -31,7 +31,7 @@ This is an overview. Defaults, limits and edge cases for every item are in [docs
 
 ### Creating servers
 
-- **Twelve server types**: Vanilla; plugin servers Paper, Purpur, Leaves and Folia; mod loaders Fabric, Forge and NeoForge; Mohist and Banner, which take both mods and plugins; and the proxies Velocity and Waterfall.
+- **Twelve server types**: Vanilla; plugin servers Paper, Purpur, Leaves and Folia; mod loaders Fabric, Forge and NeoForge; Mohist and Taiyitist (formerly Banner), which take both mods and plugins; and the proxies Velocity and Waterfall.
 - **Versions**: Minecraft 1.12.2 up to the latest release, including the year-numbered 26.x. The version list is read from the official manifests, so new versions show up on their own.
 - **No need to install Java**: MineDeck picks the Java that the game version needs, usually 8, 16, 17, 21 or 25. If a suitable one is already on the PC, it uses that. Otherwise it downloads a copy for its own use, without changing system settings or touching the Java you already have. Once a server is created, you can switch its Java under Settings → Startup and memory (设置 → 启动与内存).
 - **Downloads switch sources and retry**: when one source fails it moves to the next, trying up to 3 rounds in all, and it verifies each file afterwards. Forge and NeoForge installers are pointed at a mirror and, if one fails, run again, up to 3 runs in all.
@@ -136,7 +136,7 @@ Add a tunnel under Tunnels (内网穿透), using OpenFrp, SakuraFrp or your own 
 
 ### Which versions and server types are supported?
 
-Minecraft 1.12.2 up to the latest release, including 26.x. There are 12 server types: Vanilla, Paper, Purpur, Leaves, Folia, Fabric, NeoForge, Forge, Mohist, Banner, Velocity and Waterfall. Modrinth (`.mrpack`) and CurseForge (zip) modpacks can be imported.
+Minecraft 1.12.2 up to the latest release, including 26.x. There are 12 server types: Vanilla, Paper, Purpur, Leaves, Folia, Fabric, NeoForge, Forge, Mohist, Taiyitist (formerly Banner), Velocity and Waterfall. Modrinth (`.mrpack`) and CurseForge (zip) modpacks can be imported.
 
 ### The server will not start and I cannot make sense of the error. What now?
 

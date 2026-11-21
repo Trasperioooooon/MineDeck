@@ -29,7 +29,7 @@ MineDeck 是 Windows 上的我的世界（Minecraft Java 版）一键开服工�
 
 ### 开服
 
-- **十二种服务端核心**：原版；插件服 Paper、Purpur、Leaves、Folia；模组服 Fabric、Forge、NeoForge；模组和插件都能用的 Mohist、Banner；群组代理 Velocity、Waterfall。
+- **十二种服务端核心**：原版；插件服 Paper、Purpur、Leaves、Folia；模组服 Fabric、Forge、NeoForge；模组和插件都能用的 Mohist、Taiyitist（原 Banner）；群组代理 Velocity、Waterfall。
 - **版本**：Minecraft 1.12.2 到最新的正式版，包括 26.x 这种按年份编号的版本。版本列表从官方清单读取，以后出的新版本也会出现在列表里。
 - **Java 不用自己装**：按游戏版本选对应的 Java，常见的是 8、16、17、21、25。电脑里已经有合适的就直接用；没有就下载一份，只给 MineDeck 用，不改系统设置，也不影响你已经装好的 Java。建好以后，每台服务器都可以在「设置 → 启动与内存」里换 Java。
 - **下载会自己换源和重试**：一个源失败就换下一个，最多试 3 轮，下完会校验文件是否完整。安装 Forge 或 NeoForge 时让安装器走镜像，失败了自动再跑，最多跑 3 次。
@@ -134,7 +134,7 @@ MineDeck 是 Windows 上的我的世界（Minecraft Java 版）一键开服工�
 
 ### 支持哪些版本和核心？
 
-Minecraft 1.12.2 到最新的正式版，包括 26.x。核心有 12 种：原版、Paper、Purpur、Leaves、Folia、Fabric、NeoForge、Forge、Mohist、Banner、Velocity、Waterfall。Modrinth（`.mrpack`）和 CurseForge（zip）的整合包可以导入。
+Minecraft 1.12.2 到最新的正式版，包括 26.x。核心有 12 种：原版、Paper、Purpur、Leaves、Folia、Fabric、NeoForge、Forge、Mohist、Taiyitist（原 Banner）、Velocity、Waterfall。Modrinth（`.mrpack`）和 CurseForge（zip）的整合包可以导入。
 
 ### 服务器起不来、报错看不懂怎么办？
 
