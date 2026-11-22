@@ -42,7 +42,7 @@ type instSummary struct {
 	// ConnectPort 朋友在游戏里连这台服务器用的端口（界面上的「连接地址」）：游戏服务器同 port；
 	// 代理端是它自己配置文件里的监听端口（port 对代理端恒为 25565，不是它监听的），配置文件还没生成时为 0
 	ConnectPort int `json:"connectPort"`
-	// LastStartError 上一次启动没起来的原因（端口被占、找不到 Java……）；下次成功起了进程就清掉，只在内存里
+	// LastStartError 上一次启动没起来的原因（端口被占、找不到 Java……）；记在 .minedeck 下，下次启动成功或手动关闭提示时清空
 	LastStartError string `json:"lastStartError,omitempty"`
 	// StartPortBusy 上一次没启动起来是因为端口被占着（R08）：哪个端口、占着的是不是本软件的另一台服务器、能改成哪个。
 	// 界面按它给「改成 N 并启动」或「改端口」，不去解析 lastStartError 那句话。跟着 lastStartError 一起清
@@ -497,6 +497,25 @@ func (c *cat) instanceOps() {
 			// 旧车里剩下的东西会被当成新服务器的。人从电脑上添加、暂存着的本地文件也一起删。
 			if c.ModCart != nil {
 				_ = c.ModCart.ClearAll(p.Inst)
+			}
+			return "ok", nil
+		},
+	})
+
+	c.reg.Register(&ops.Op{
+		Name: "instance.starterr.clear", Title: "关闭上次启动失败提示", Level: ops.HumanOnly, NoLog: true,
+		Desc:   "用户在界面上关掉实例「上次没能启动」的常驻提示，清除内存与磁盘记录。",
+		Params: withInst(nil),
+		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+			p, err := bind[instArgs](a)
+			if err != nil {
+				return nil, err
+			}
+			if _, err := c.get(p.Inst); err != nil {
+				return nil, err
+			}
+			if err := c.Mgr.DismissStartError(p.Inst); err != nil {
+				return nil, err
 			}
 			return "ok", nil
 		},

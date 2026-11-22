@@ -188,7 +188,8 @@ func NewManager() (*Manager, error) {
 			log.Printf("实例名冲突，已跳过重复目录：%s（%s）", s.Name, dir)
 			return
 		}
-		m.insts[s.Name] = &Instance{Settings: s, Dir: dir, Console: newConsole()}
+		startErr, startBusy := loadStartFail(dir)
+		m.insts[s.Name] = &Instance{Settings: s, Dir: dir, Console: newConsole(), startErr: startErr, startBusy: startBusy}
 		// 上次换地图没走完：先封住启动，等 worldimport 按记录处理完再放开（比调度器和任何启动入口都早）
 		if why := PendingWorldTx(dir); why != "" {
 			if m.worldBlock == nil {

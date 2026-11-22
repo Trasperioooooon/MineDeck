@@ -93,12 +93,31 @@ function portsInUse(state, except) {
   return state.instances.filter(i => i.name !== except).map(i => ({ port: i.connectPort ?? i.port, instance: i.name, status: i.status }))
     .filter(u => u.port > 0).sort((a, b) => a.port - b.port || (a.instance < b.instance ? -1 : 1));
 }
-/* 从 from 起没人用的最小端口（同 inst.DefaultPort） */
-function freePort(used, from, other = {}) {
+/* 从 from 起没人用的最小端口（同 inst.DefaultPortSkipping，含系统保留段） */
+function isPortReservedMock(reserved = [], p) {
+  return reserved.some(r => Array.isArray(r) ? p >= r[0] && p <= r[1] : +r === p);
+}
+function freePort(used, from, other = {}, reserved = []) {
   const taken = new Set(used.map(u => u.port));
   let p = from;
-  while ((taken.has(p) || p in other) && p < 65535) p++;
+  while ((taken.has(p) || p in other || isPortReservedMock(reserved, p)) && p < 65535) p++;
   return p;
+}
+function checkMockFormPort(state, rawPort) {
+  const port = +rawPort >= 1 && +rawPort <= 65535 ? +rawPort : 25565;
+  const used = portsInUse(state, ""), other = state.otherPorts || {}, reserved = state.reservedPorts || [];
+  const liveOwner = used.find(u => u.port === port && u.status !== "stopped");
+  const inOther = port in other, inRes = isPortReservedMock(reserved, port);
+  if (!liveOwner && !inOther && !inRes) return null;
+  let suggest = freePort(used, 25565, other, reserved);
+  if (suggest === port) suggest = 0;
+  const sugTxt = suggest ? `（比如 ${suggest}）` : "";
+  if (liveOwner) return { error: `端口 ${port} 正被你的服务器「${liveOwner.instance}」占着，请换个端口${sugTxt}再创建`, portBusy: { port, owner: liveOwner.instance, ...(suggest ? { suggest } : {}) } };
+  if (inOther) {
+    const proc = other[port] || "";
+    return { error: `端口 ${port} 现在被别的程序${proc ? `（${proc}）` : ""}占着，请换个端口${sugTxt}再创建`, portBusy: { port, ...(proc ? { process: proc } : {}), ...(suggest ? { suggest } : {}) } };
+  }
+  return { error: `端口 ${port} 在系统保留的端口范围里，请换个端口${sugTxt}再创建`, portBusy: { port, reserved: true, ...(suggest ? { suggest } : {}) } };
 }
 
 function newState(ui) {
@@ -117,7 +136,8 @@ function newState(ui) {
     instances: [
       { name: "生存服 · 朋友", core: "paper", kind: "game", mc: "1.21.4", build: "232", javaMajor: 21, xmxMb: 4096, xmsMb: 0, port: 25565, status: "running", motd: "§a生存服 §7· §e一起来玩！", dir: "D:\\MineDeck\\servers\\server-20261020-2130", createdAt: "2026-10-20T21:30:00+08:00", consoleEncoding: "auto", onlineCount: 3, uptimeSec: 7980, maxPlayers: 20, extraJvm: [] },
       { name: "机械动力整合包", core: "forge", kind: "game", mc: "1.20.1", build: "47.3.0", javaMajor: 17, xmxMb: 8192, xmsMb: 0, port: 25566, status: "stopped", motd: "§6Create 机械动力 §f整合包", dir: "D:\\MineDeck\\servers\\create-pack", createdAt: "2026-10-18T10:00:00+08:00", consoleEncoding: "gbk", onlineCount: 0, uptimeSec: 0, maxPlayers: 20, extraJvm: ["-XX:+UseG1GC"] },
-      { name: "原版快照测试", core: "vanilla", kind: "game", mc: "26.2", build: "", javaMajor: 25, xmxMb: 2048, xmsMb: 0, port: 25567, status: "starting", motd: "A Minecraft Server", dir: "D:\\MineDeck\\servers\\vanilla-test", createdAt: "2026-10-25T09:00:00+08:00", consoleEncoding: "auto", onlineCount: 0, uptimeSec: 12, maxPlayers: 20, extraJvm: [] },
+      { name: "原版快照测试", core: "vanilla", kind: "game", mc: "26.2", build: "", javaMajor: 25, xmxMb: 2048, xmsMb: 0, port: 25567, status: "starting", motd: "A Minecraft Server", dir: "D:\\MineDeck\\servers\\vanilla-test", createdAt: "2026-10-25T09:00:00+08:00", consoleEncoding: "auto", onlineCount: 0, uptimeSec: 12, maxPlayers: 20, extraJvm: [],
+        gamerules: { pvp: "true", "allow-nether": "true", "enable-command-block": "true", "spawn-monsters": "true" } },
       { name: "群组代理", core: "velocity", kind: "proxy", mc: "3.4.0", build: "450", javaMajor: 21, xmxMb: 1024, xmsMb: 0, port: 25577, status: "stopped", motd: "", dir: "D:\\MineDeck\\servers\\velocity", createdAt: "2026-10-10T09:00:00+08:00", consoleEncoding: "auto", onlineCount: 0, uptimeSec: 0, maxPlayers: 0, extraJvm: [] },
     ],
     tunnels: [
@@ -2767,12 +2787,11 @@ function handler(state, ui, portOf) {
       if ("onboarded" in b) { state.config.onboarded = !!b.onboarded; state.config.tosAccepted = !!b.onboarded; }
       if ("taskStage" in b) state.taskStage = b.taskStage;
       if ("taskList" in b) { state.taskList = b.taskList; state.instPending = {}; }
-      // restart: true 模拟程序重开（beta.3 R09）：任务记录没了，只在内存里的上次启动失败也没了；服务器文件夹里的「没装上的文件」清单还在
+      // restart: true 模拟程序重开（beta.3 R09、阶段 04 A07）：任务记录没了；服务器文件夹里的「没装上的文件」清单和「上次启动失败原因」都在
       //（还没按服务器取过的，先按导入任务生成一份再清任务）
       if (b.restart) {
         for (const t of state.taskList) if (t.result && (t.pending || []).length) instPendingOf(state, t.result);
         state.taskList = [];
-        for (const i of state.instances) { delete i.lastStartError; delete i.startPortBusy; }
       }
       if (b.instPending) Object.assign(state.instPending, b.instPending);
       if ("modsNeed" in b) state.modsNeed = b.modsNeed || {};
@@ -2787,9 +2806,10 @@ function handler(state, ui, portOf) {
       if (Array.isArray(b.madeDirs)) { state.madeDirs = b.madeDirs; state.lastTransferMkdir = null; }
       if ("pickDir" in b) state.pickDir = b.pickDir === null ? undefined : b.pickDir; // 系统文件夹选择框选到哪个（空串 = 点了取消；null 还原成 E:\MCServers）
       if (b.instReset) { const fresh = newState(ui); state.instances = fresh.instances; state.portableJavas = fresh.portableJavas; state.incompleteJavas = []; state.creatingLeftovers = [];
-        state.creating = false; state.javaBusy = false;
+        state.creating = false; state.javaBusy = false; state.reservedPorts = [];
         state.lastAdopt = state.lastJava = state.lastDelete = null;
         state.lifecycle = []; state.modOps = []; state.lastRestore = state.lastBackup = null; state.modsProjects = 0; } // beta.3 详情页记下的请求一起清掉
+      if ("reservedPorts" in b) state.reservedPorts = b.reservedPorts || []; // [[起, 止]] 系统保留的端口范围（Hyper-V / WSL 等），放在 instReset 之后以免同次调用被冲掉
       if (Array.isArray(b.portableJavas)) state.portableJavas = b.portableJavas;
       if (Array.isArray(b.incompleteJavas)) state.incompleteJavas = b.incompleteJavas;
       if (Array.isArray(b.creatingLeftovers)) state.creatingLeftovers = b.creatingLeftovers;
@@ -3037,6 +3057,8 @@ function handler(state, ui, portOf) {
         const raw = await new Promise(r => { const cs = []; req.on("data", c => cs.push(c)); req.on("end", () => r(Buffer.concat(cs).toString("utf8"))); });
         const fields = {};
         for (const mm of raw.matchAll(/name="([^"]+)"\r\n\r\n([^\r]*)\r\n/g)) fields[mm[1]] = mm[2];
+        const pb = checkMockFormPort(state, fields.port);
+        if (pb) { res.writeHead(409, { "Content-Type": "application/json; charset=utf-8" }); return res.end(JSON.stringify({ ok: false, error: pb.error, portBusy: pb.portBusy })); }
         state.lastImport = fields;
         return ok(res, { taskId: "task-1", pack: { name: "测试整合包", mc: "1.20.1", core: "forge", loader: "47.3.0", format: "mrpack", files: 12, pending: 0 } });
       }
@@ -3072,11 +3094,12 @@ function handler(state, ui, portOf) {
       if (p === "/api/ports/suggest") {
         const q = +u.searchParams.get("from"), from = q >= 1 && q <= 65535 ? q : 25565;
         const used = portsInUse(state, u.searchParams.get("except") || "");
-        const by = used.find(x => x.port === from), other = state.otherPorts || {};
+        const by = used.find(x => x.port === from), other = state.otherPorts || {}, reserved = state.reservedPorts || [];
         state.portSuggests = (state.portSuggests || 0) + 1;
-        // fromBusy / fromProcess：from 被别的程序占着（同后端：被本软件的服务器用着的只说 usedBy）
-        const ob = !by && from in other ? { fromBusy: true, ...(other[from] ? { fromProcess: other[from] } : {}) } : {};
-        return ok(res, { port: freePort(used, from, other), from, used, ...(by ? { usedBy: by.instance } : {}), ...ob });
+        // fromBusy / fromProcess / fromReserved：from 被别的程序占着或被系统保留（同后端：被本软件的服务器用着的只说 usedBy）
+        const ob = !by && from in other ? { fromBusy: true, ...(other[from] ? { fromProcess: other[from] } : {}) }
+          : !by && isPortReservedMock(reserved, from) ? { fromBusy: true, fromReserved: true } : {};
+        return ok(res, { port: freePort(used, from, other, reserved), from, used, ...(by ? { usedBy: by.instance } : {}), ...ob });
       }
       // 端口占用查询（同 web：GET /api/ports/{port}）：/__mock/state 里 portBusy 设成哪个端口哪个就占着
       if (seg[2] === "ports" && seg[3]) {
@@ -3150,8 +3173,16 @@ function handler(state, ui, portOf) {
         // 核对通过就收下计划（不能再用第二次）；请求没能开始（createFail，比如重名）时计划放回去，改好还能用同一份
         if (b.worldPlan) { const why = worldCreateCheck(state, b); if (why) return err(res, 400, why); }
         if (state.world.createFail) return err(res, 400, state.world.createFail);
-        if (b.worldPlan) delete state.world.plans[b.worldPlan];
         const c = CORES.find(x => x.id === b.core), kind = c ? c.kind : "game";
+        if (kind !== "proxy") {
+          const pb = checkMockFormPort(state, b.port);
+          if (pb) {
+            state.lastCreate = null;
+            res.writeHead(409, { "Content-Type": "application/json; charset=utf-8" });
+            return res.end(JSON.stringify({ ok: false, error: pb.error, portBusy: pb.portBusy }));
+          }
+        }
+        if (b.worldPlan) delete state.world.plans[b.worldPlan];
         state.instances.push({ name: String(b.name || "新服务器"), core: b.core || "paper", kind, mc: b.mc || "1.21.4", build: b.build || "",
           javaMajor: 21, xmxMb: +b.xmxMb || 4096, xmsMb: 0, port: +b.port || 25565, status: "stopped", motd: b.motd || "",
           dir: "D:\\MineDeck\\servers\\" + (b.name || "new"), createdAt: new Date().toISOString(), consoleEncoding: "auto",
@@ -3344,6 +3375,11 @@ function handler(state, ui, portOf) {
         // beta.3 R08：端口和另一台没停着的服务器一样（同 inst 的 portBusyError 带 owner）：报「被你的服务器「X」占着」，
         // 记下 startPortBusy { port, owner, suggest }（suggest 从这个端口往上、别的服务器都没用的第一个）；
         // startFail 那台另可以带 startPortBusyFail（如 { port }，别的程序占着），失败时一起记成 startPortBusy
+        if (sub === "start-error" && m === "DELETE") {
+          delete i.lastStartError;
+          delete i.startPortBusy;
+          return ok(res, "ok");
+        }
         if (sub === "start" && m === "POST") {
           (state.starts || (state.starts = [])).push({ inst: name, port: i.port });
           const myPort = i.connectPort ?? i.port;
@@ -3411,7 +3447,7 @@ function handler(state, ui, portOf) {
             return ok(res, "ok");
           }
         }
-        if (sub === "properties" && m === "GET") return ok(res, { pairs: state.props, running: i.status === "running" });
+        if (sub === "properties" && m === "GET") return ok(res, { pairs: state.props, running: i.status === "running", ...(i.gamerules ? { gamerules: i.gamerules } : {}) });
         if (sub === "resources" && seg[5] === "search") return ok(res, { hits: [
           { project_id: "a1", title: "EssentialsX", description: "The essential plugin suite for Minecraft servers.", icon_url: "", downloads: 12500000 },
           { project_id: "a2", title: "LuckPerms", description: "A permissions plugin for Minecraft servers.", icon_url: "", downloads: 8300000 },

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -25,6 +26,8 @@ type portBusyError struct {
 	// reserved 系统说「不许访问」（WSAEACCES）：别的程序独占着这个端口，或者它在 Windows 保留的端口范围里
 	// （Hyper-V、WSL、Docker 会成段保留端口）。两种都只能换端口。
 	reserved bool
+	// sysReserved 明确查出落在系统保留的端口段里（netsh excludedportrange）。
+	sysReserved bool
 	// owner 占着它的是本软件管着的另一台服务器（没停着、朋友连的端口和这个一样，可用性走查 R08）；空 = 别的程序。
 	// Java 绑端口带 SO_EXCLUSIVEADDRUSE，另一台 MineDeck 的服务器占着时系统报的也可能是「不许访问」，所以两种都要看
 	owner string
@@ -36,10 +39,226 @@ func (e *portBusyError) Error() string {
 	if e.owner != "" {
 		return fmt.Sprintf("端口 %d 被你的服务器「%s」占着，先停掉它，或者给这台换个端口", e.port, e.owner)
 	}
+	if e.sysReserved {
+		return fmt.Sprintf("端口 %d 在系统保留的端口范围里（Hyper-V、WSL 等保留），换个端口试试", e.port)
+	}
 	if e.reserved {
 		return fmt.Sprintf("端口 %d 用不了：被别的程序独占着，或者在 Windows 保留的端口范围里，换个端口试试", e.port)
 	}
 	return fmt.Sprintf("端口 %d 被别的程序占着，换个端口或关掉占用它的程序", e.port)
+}
+
+type portRange struct {
+	start, end int
+}
+
+// parseExcludedPortRanges 解析 netsh interface ipv4/ipv6 show excludedportrange protocol=tcp 的输出。
+// 输出的标题和脚注随系统语言变化，这里只认「起止两个端口号（可选第三列 *）」的数字行。
+func parseExcludedPortRanges(out string) []portRange {
+	var res []portRange
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.Fields(line)
+		if len(f) != 2 && !(len(f) == 3 && f[2] == "*") {
+			continue
+		}
+		a, err1 := strconv.Atoi(f[0])
+		b, err2 := strconv.Atoi(f[1])
+		if err1 != nil || err2 != nil || a < 1 || b < a || b > 65535 {
+			continue
+		}
+		res = append(res, portRange{start: a, end: b})
+	}
+	return res
+}
+
+const excludedCacheTTL = time.Minute
+
+var (
+	excludedMu         sync.Mutex
+	excludedCachedV4   []portRange
+	excludedCachedV6   []portRange
+	excludedCachedAt   time.Time
+	excludedNow        = time.Now
+	runNetshExcluded   = defaultRunNetshExcluded
+	queryExcludedPorts = loadExcludedPorts
+	queryListenPorts   = defaultListenPorts
+	queryProcessName   = defaultProcessName
+	listenProbesMocked bool
+	lookupIPAddr       = func(ctx context.Context, host string) ([]net.IPAddr, error) {
+		return net.DefaultResolver.LookupIPAddr(ctx, host)
+	}
+)
+
+func resetExcludedCache() {
+	excludedMu.Lock()
+	excludedCachedV4, excludedCachedV6, excludedCachedAt = nil, nil, time.Time{}
+	excludedMu.Unlock()
+}
+
+func loadExcludedPorts() (v4, v6 []portRange) {
+	now := excludedNow()
+	excludedMu.Lock()
+	if !excludedCachedAt.IsZero() && now.Sub(excludedCachedAt) < excludedCacheTTL {
+		v4, v6 = excludedCachedV4, excludedCachedV6
+		excludedMu.Unlock()
+		return v4, v6
+	}
+	excludedMu.Unlock()
+
+	if out, err := runNetshExcluded(false); err == nil {
+		v4 = parseExcludedPortRanges(out)
+	}
+	if out, err := runNetshExcluded(true); err == nil {
+		v6 = parseExcludedPortRanges(out)
+	}
+
+	excludedMu.Lock()
+	excludedCachedV4, excludedCachedV6, excludedCachedAt = v4, v6, excludedNow()
+	excludedMu.Unlock()
+	return v4, v6
+}
+
+func portInRanges(port int, rs []portRange) bool {
+	for _, r := range rs {
+		if port >= r.start && port <= r.end {
+			return true
+		}
+	}
+	return false
+}
+
+// IsPortReserved 这个 TCP 端口是不是落在系统保留的端口范围里（IPv4 或 IPv6）。
+func IsPortReserved(port int) bool {
+	if port < 1 || port > 65535 {
+		return false
+	}
+	v4, v6 := queryExcludedPorts()
+	return portInRanges(port, v4) || portInRanges(port, v6)
+}
+
+func isTargetPortReserved(t bindTarget) bool {
+	v4, v6 := queryExcludedPorts()
+	if t.network == "tcp4" {
+		return portInRanges(t.port, v4)
+	}
+	if t.host != "" {
+		if ip := net.ParseIP(t.host); ip != nil {
+			if ip.To4() != nil {
+				return portInRanges(t.port, v4)
+			}
+			return portInRanges(t.port, v6)
+		}
+	}
+	return portInRanges(t.port, v4) || portInRanges(t.port, v6)
+}
+
+// FormPortBusy 新建或导入表单提交时复查出要用的端口现在被占着或落在系统保留段里，回给表单提示换端口。
+type FormPortBusy struct {
+	Port     int    `json:"port"`
+	Owner    string `json:"owner,omitempty"`    // 正在运行的本软件服务器名
+	Process  string `json:"process,omitempty"`  // 占着它的别的程序名（查不到为空）
+	Reserved bool   `json:"reserved,omitempty"` // 落在系统保留端口范围里
+	Suggest  int    `json:"suggest,omitempty"`  // 建议改成的空闲端口
+}
+
+func (b *FormPortBusy) Error() string {
+	sug := ""
+	if b.Suggest > 0 && b.Suggest != b.Port {
+		sug = fmt.Sprintf("（比如 %d）", b.Suggest)
+	}
+	if b.Owner != "" {
+		return fmt.Sprintf("端口 %d 正被你的服务器「%s」占着，请换个端口%s再创建", b.Port, b.Owner, sug)
+	}
+	if b.Reserved {
+		return fmt.Sprintf("端口 %d 在系统保留的端口范围里，请换个端口%s再创建", b.Port, sug)
+	}
+	proc := ""
+	if b.Process != "" {
+		proc = "（" + b.Process + "）"
+	}
+	return fmt.Sprintf("端口 %d 现在被别的程序%s占着，请换个端口%s再创建", b.Port, proc, sug)
+}
+
+// CheckFormPort 提交新建、导入表单时复查一次要用的端口（含系统保留段）：
+// 只拦现在正开着的服务器、别的监听进程和系统保留段，不试绑所有网卡（不触发防火墙弹窗），
+// 也不拦「另一台停着的服务器配了同一个端口」（两台不同时开的服务器允许共用端口）。
+func (m *Manager) CheckFormPort(port int) *FormPortBusy {
+	if port < 1 || port > 65535 {
+		port = 25565
+	}
+	used := m.PortsInUse("")
+	listen := queryListenPorts()
+	var owner string
+	for _, u := range used {
+		if u.Port == port && u.Status != "stopped" {
+			owner = u.Instance
+			break
+		}
+	}
+	pid, listened := listen[port]
+	if !listened && len(listen) == 0 && !listenProbesMocked {
+		// 受限令牌、沙箱或 Wine 下读不到监听表时，退回在 127.0.0.1 上试绑一次（只绑回环地址，不触发防火墙弹窗）
+		if checkBindPort(bindTarget{network: "tcp", host: "127.0.0.1", port: port}) != nil && !IsPortReserved(port) {
+			listened = true
+		}
+	}
+	reserved := IsPortReserved(port)
+	if owner == "" && !listened && !reserved {
+		return nil
+	}
+	sug, _ := DefaultPortSkipping(used, 25565, func(n int) bool {
+		_, ok := listen[n]
+		return ok
+	})
+	if sug == port {
+		sug = 0
+	}
+	out := &FormPortBusy{Port: port, Suggest: sug}
+	switch {
+	case owner != "":
+		out.Owner = owner
+	case listened:
+		out.Process = queryProcessName(pid)
+	default:
+		out.Reserved = true
+	}
+	return out
+}
+
+// SetPortProbesForTest 供跨包测试注入固定的监听端口表与系统保留段，不受运行测试那台电脑上真实进程或 Hyper-V 保留段影响。
+func SetPortProbesForTest(listeners map[int]string, excluded [][2]int) func() {
+	oldL, oldN, oldE, oldM := queryListenPorts, queryProcessName, queryExcludedPorts, listenProbesMocked
+	fakeL := map[int]int{}
+	fakeNames := map[int]string{}
+	nextPID := 1000
+	for p, name := range listeners {
+		nextPID++
+		fakeL[p] = nextPID
+		fakeNames[nextPID] = name
+	}
+	var rs []portRange
+	for _, r := range excluded {
+		rs = append(rs, portRange{start: r[0], end: r[1]})
+	}
+	queryListenPorts = func() map[int]int { return fakeL }
+	queryProcessName = func(pid int) string { return fakeNames[pid] }
+	queryExcludedPorts = func() ([]portRange, []portRange) { return rs, nil }
+	listenProbesMocked = true
+	return func() {
+		queryListenPorts, queryProcessName, queryExcludedPorts, listenProbesMocked = oldL, oldN, oldE, oldM
+	}
+}
+
+// UseRealPortProbesForTest 供跨包测试临时切回系统真实的监听表与保留段探测。
+func UseRealPortProbesForTest() func() {
+	oldL, oldN, oldE, oldM := queryListenPorts, queryProcessName, queryExcludedPorts, listenProbesMocked
+	queryListenPorts = defaultListenPorts
+	queryProcessName = defaultProcessName
+	queryExcludedPorts = loadExcludedPorts
+	listenProbesMocked = false
+	return func() {
+		queryListenPorts, queryProcessName, queryExcludedPorts, listenProbesMocked = oldL, oldN, oldE, oldM
+	}
 }
 
 // PortBusy 上一次启动时端口被占着（可用性走查 R08），实例列表里的 startPortBusy：界面按它在详情页头给
@@ -146,8 +365,12 @@ func DefaultPortSkipping(used []PortUse, from int, busy func(port int) bool) (po
 		}
 	}
 	usedBy = taken[from]
+	var v4, v6 []portRange
+	if busy != nil {
+		v4, v6 = queryExcludedPorts()
+	}
 	for p := from; p <= 65535; p++ {
-		if _, ok := taken[p]; !ok && (busy == nil || !busy(p)) {
+		if _, ok := taken[p]; !ok && (busy == nil || (!busy(p) && !portInRanges(p, v4) && !portInRanges(p, v6))) {
 			return p, usedBy
 		}
 	}
@@ -160,6 +383,39 @@ func DefaultPortSkipping(used []PortUse, from int, busy func(port int) bool) (po
 type bindTarget struct {
 	network, host string
 	port          int
+}
+
+type resolvedBindTarget struct {
+	target     bindTarget
+	host       string // server-ip 是域名时，在拿 procMu 之前先解析好的 IP；空表示留空通配
+	unresolved bool   // 锁外解析域名失败或超时：直接放行，交给服务端自己报，不再拿着锁重查
+}
+
+// resolveBindTarget 在拿实例锁（procMu）之前解析 server-ip 里的域名（限时 3 秒），免得慢域名把读状态等操作挡住。
+func resolveBindTarget(t bindTarget) resolvedBindTarget {
+	if t.host == "" || net.ParseIP(t.host) != nil {
+		return resolvedBindTarget{target: t, host: t.host}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	ips, err := lookupIPAddr(ctx, t.host)
+	if err != nil || len(ips) == 0 {
+		return resolvedBindTarget{target: t, unresolved: true}
+	}
+	if t.network == "tcp4" {
+		for _, a := range ips {
+			if v4 := a.IP.To4(); v4 != nil {
+				return resolvedBindTarget{target: t, host: v4.String()}
+			}
+		}
+		return resolvedBindTarget{target: t, unresolved: true}
+	}
+	for _, a := range ips {
+		if v4 := a.IP.To4(); v4 != nil {
+			return resolvedBindTarget{target: t, host: v4.String()}
+		}
+	}
+	return resolvedBindTarget{target: t, host: ips[0].IP.String()}
 }
 
 // startPort 服务器启动时要绑的地址和端口：server.properties 里的 server-ip（空 = 所有网卡）和 server-port。
@@ -207,7 +463,19 @@ func preferIPv4Stack(jvm []string) bool {
 // 只认「被占着」（WSAEADDRINUSE）和「不许访问」（WSAEACCES）两种失败；别的失败（server-ip 不是这台电脑的地址、
 // 域名解析不了……）这里不下结论，照常启动，由服务端自己报。
 func checkBindPort(t bindTarget) error {
-	host, port := t.host, t.port
+	return checkResolvedBindPort(resolveBindTarget(t))
+}
+
+func checkResolvedBindPort(r resolvedBindTarget) error {
+	t := r.target
+	port := t.port
+	if isTargetPortReserved(t) {
+		return &portBusyError{port: port, reserved: true, sysReserved: true}
+	}
+	if r.unresolved {
+		return nil
+	}
+	host := r.host
 	if host == "" {
 		host = PortProbeHost
 	}

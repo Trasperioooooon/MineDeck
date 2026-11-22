@@ -119,6 +119,7 @@ func New(mgr *inst.Manager, tun *tunnel.Manager, reg *ops.Registry, asst *assist
 	s.toolboxRoutes(mux)   // 工具箱，见 toolbox.go
 
 	mux.HandleFunc("POST /api/instances/{name}/start", s.handleInstStart)
+	mux.HandleFunc("DELETE /api/instances/{name}/start-error", s.instOp("instance.starterr.clear"))
 	mux.HandleFunc("POST /api/instances/{name}/stop", s.instOp("instance.stop"))
 	mux.HandleFunc("POST /api/instances/{name}/kill", s.instOp("instance.kill"))
 	mux.HandleFunc("POST /api/instances/{name}/opendir", s.handleOpenDir)

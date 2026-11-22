@@ -65,7 +65,7 @@ func TestLevelsFollowDesign(t *testing.T) {
 			"instance.players.deop", "instance.players.kick", "instance.players.ban", "instance.players.pardon", "tunnel.stop",
 			"instance.restart"},
 		ops.HumanOnly: {"app.config.set", "app.shutdown", "app.update.apply", "host.pickdir", "host.openpath", "instance.import", "task.cancel",
-			"instance.delete", "instance.opendir", "instance.backup.delete", "java.add", "java.remove", "tunnel.add", "tunnel.update", "tunnel.delete",
+			"instance.delete", "instance.starterr.clear", "instance.opendir", "instance.backup.delete", "java.add", "java.remove", "tunnel.add", "tunnel.update", "tunnel.delete",
 			// beta.3 R10：插件 / 模组页「已安装」里的删除，同删除备份、删除服务器，只许人点
 			"instance.mods.delete",
 			// AI 设置（第二阶段）：AI 永远看不到、也改不了自己的设置和 Key（§3.3）

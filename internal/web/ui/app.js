@@ -23,7 +23,7 @@ async function api(path, opts = {}) {
   try { j = await res.json(); } catch { throw new Error(`服务异常 (HTTP ${res.status})`); }
   // needLogin 标记：让 boot() 区分「需要登录」与真正的后端故障
   if (res.status === 401) { showLogin(); throw Object.assign(new Error(j.error || "需要登录"), { needLogin: true }); }
-  if (!j.ok) throw Object.assign(new Error(j.error || "未知错误"), { status: res.status, hint: j.hint }); // hint：后端另给的一句人话，见 errSummary
+  if (!j.ok) throw Object.assign(new Error(j.error || "未知错误"), { status: res.status, hint: j.hint, portBusy: j.portBusy }); // hint：后端另给的一句人话，见 errSummary
   return j.data;
 }
 
@@ -1742,20 +1742,26 @@ const suggestPort = () => api("/api/ports/suggest").catch(() => null);
 function wirePortField(input, note, sug, { base = 25565, keep = false, extra = null, avoidOther = true, otherTip = "" } = {}) {
   const used = sug && Array.isArray(sug.used) ? sug.used : [];
   const owner = p => used.find(u => u.port === p);
-  let auto = null; // 默认值换过：{ from, to, by（本软件的哪台）或 proc（别的程序，可能是空串）}
+  let auto = null; // 默认值换过：{ from, to, by（本软件的哪台）、reserved（系统保留）或 proc（别的程序，可能是空串）}
   const o = owner(base);
   if (!keep && o && sug.port && sug.port !== base) auto = { from: base, to: sug.port, by: o.instance };
-  else if (!keep && avoidOther && sug && sug.fromBusy && sug.from === base && sug.port && sug.port !== base) auto = { from: base, to: sug.port, proc: sug.fromProcess || "" };
+  else if (!keep && avoidOther && sug && sug.fromBusy && sug.from === base && sug.port && sug.port !== base)
+    auto = { from: base, to: sug.port, proc: sug.fromProcess || "", reserved: !!sug.fromReserved };
   if (auto) input.value = auto.to;
-  // 手填的端口有没有被别的程序占着：问后端（port.suggest 带 from，它读系统的监听表，回 fromBusy、fromProcess），
+  // 手填的端口有没有被别的程序占着或被系统保留：问后端（port.suggest 带 from，回 fromBusy、fromProcess、fromReserved），
   // 停手 300 毫秒再问，回来的不是现在框里的就不要。不用 port.check：端口空着时它会在所有网卡上试绑一次，
   // 打开表单就可能让防火墙弹窗问要不要放行（Codex 复审 beta.3 之后第一轮）。
-  // 换好的默认值、后端刚查过是空着的默认值，不用再问。查不成不提示，也不拦着提交（同本软件服务器撞端口：只提示）
-  let other = { v: 0, text: "" }, seq = 0, timer = 0;
+  // 默认端口（包括自动换出来的那个）只在刚打开表单那一次免查；之后改过再填回来、以及提交表单时，都照常查（阶段 04 A04）
+  let other = { v: 0, text: "", suggest: 0 }, seq = 0, timer = 0;
+  const busyText = (v, { proc = "", reserved = false, ownerName = "", suggest = 0 } = {}) => {
+    if (ownerName) return `端口 ${v} 已被你的服务器「${ownerName}」使用（它现在开着），两台不能同时开。` +
+      (suggest && suggest !== v ? `换一个吧，比如 ${suggest}。` : "");
+    if (reserved) return `端口 ${v} 在系统保留的端口范围里（Hyper-V、WSL 等保留），开服时会报错。换一个端口${suggest && suggest !== v ? `，比如 ${suggest}` : ""}。`;
+    return `端口 ${v} 现在被别的程序${proc ? `（${proc}）` : ""}占着，开服时会报错。换一个，或者先关掉那个程序。${otherTip}`;
+  };
   const check = (v, init = false) => {
     clearTimeout(timer);
-    if (!(Number.isInteger(v) && v >= 1 && v <= 65535) || owner(v) || (auto && v === auto.to)) return;
-    // 只在打开表单那一次免查：之后手填回这个端口照样问，中间可能有别的程序占上了（Codex 复审 beta.3 之后第二轮）
+    if (!(Number.isInteger(v) && v >= 1 && v <= 65535) || owner(v) || (init && auto && v === auto.to)) return;
     if (init && sug && v === sug.from && !sug.fromBusy && !sug.usedBy) return;
     const my = ++seq;
     timer = setTimeout(async () => {
@@ -1763,27 +1769,51 @@ function wirePortField(input, note, sug, { base = 25565, keep = false, extra = n
       let r;
       try { r = await api(`/api/ports/suggest?from=${v}`); } catch { return; }
       if (my !== seq || !input.isConnected) return;
-      other = { v, text: r && r.fromBusy
-        ? `端口 ${v} 现在被别的程序${r.fromProcess ? `（${r.fromProcess}）` : ""}占着，开服时会报错。换一个，或者先关掉那个程序。${otherTip}` : "" };
+      other = { v, suggest: 0, text: r && r.fromBusy
+        ? busyText(v, { proc: r.fromProcess || "", reserved: !!r.fromReserved, suggest: r.port || 0 }) : "" };
       paint();
     }, 300);
   };
   const paint = () => {
     const v = Number(input.value), hit = Number.isInteger(v) ? owner(v) : null;
-    let text = "", warn = !!hit;
+    let text = "", warn = !!hit, usePort = 0;
     if (hit) text = `端口 ${v} 已被你的服务器「${hit.instance}」使用${hit.status && hit.status !== "stopped" ? "（它现在开着）" : ""}，两台不能同时开。` +
       (sug && sug.port && sug.port !== v ? `换一个吧，比如 ${sug.port}。` : "");
+    else if (other.v === v && other.text) { text = other.text; warn = true; usePort = other.suggest || 0; }
     else if (auto && v === auto.to) text = auto.by ? `${auto.from} 已被「${auto.by}」使用，已改为 ${auto.to}。`
+      : auto.reserved ? `${auto.from} 在系统保留的端口范围里，已改为 ${auto.to}。`
       : `${auto.from} 被别的程序${auto.proc ? `（${auto.proc}）` : ""}占着，已改为 ${auto.to}。`;
-    else if (other.v === v && other.text) { text = other.text; warn = true; }
     const more = extra ? extra(v) : "";
     note.classList.toggle("warn", warn);
-    note.innerHTML = text || more ? `${icon(warn ? "warn" : "info")}<span>${esc(text + more)}</span>` : "";
+    const btn = usePort && usePort !== v ? ` <button type="button" class="btn sm" data-port-use="${usePort}" aria-label="把端口改成 ${usePort}">改成 ${usePort}</button>` : "";
+    note.innerHTML = text || more ? `${icon(warn ? "warn" : "info")}<span>${esc(text + more)}</span>${btn}` : "";
+    const ub = note.querySelector("[data-port-use]");
+    if (ub) ub.onclick = () => {
+      input.value = String(usePort);
+      other = { v: 0, text: "", suggest: 0 };
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.focus();
+    };
+  };
+  const onSubmitBusy = pb => {
+    if (!pb || !pb.port || !input.isConnected) return false;
+    seq++; clearTimeout(timer);
+    const v = Number(pb.port);
+    const sugPort = Number(pb.suggest) || 0;
+    let t = busyText(v, { proc: pb.process || "", reserved: !!pb.reserved, ownerName: pb.owner || "", suggest: sugPort });
+    if (!pb.owner && !pb.reserved && sugPort && sugPort !== v) {
+      t = `端口 ${v} 现在被别的程序${pb.process ? `（${pb.process}）` : ""}占着，开服时会报错。换一个吧，比如 ${sugPort}，或者先关掉那个程序。`;
+    }
+    other = { v, text: t, suggest: sugPort };
+    paint();
+    input.closest(".field")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    input.focus({ preventScroll: true });
+    return true;
   };
   input.addEventListener("input", () => { paint(); check(Number(input.value)); });
   paint();
   check(Number(input.value), true);
-  return { def: auto ? auto.to : base };
+  return { def: auto ? auto.to : base, onSubmitBusy };
 }
 
 /* ---------- 视图：接管已有服务器 ----------
@@ -2019,7 +2049,7 @@ async function drawImport() {
       ${wizFoot("im-back", "返回", `<button class="btn primary" id="im-go">${icon("bolt")} 导入并创建</button>`)}
     </div>`;
   $("#im-back").onclick = goCreateHome;
-  wirePortField($("#im-port"), $("#im-port-note"), sug, { keep: !!fill }); // 默认端口避开别的服务器在用的（R08）；「返回修改」填回来的不换
+  const imPortCtl = wirePortField($("#im-port"), $("#im-port-note"), sug, { keep: !!fill }); // 默认端口避开别的服务器在用的（R08）；「返回修改」填回来的不换
   if (fill) {
     $("#im-wl").checked = !!fill.wl;
     if (!putFile($("#im-file"), fill.file) && fill.file) $("#im-file-err").innerHTML = icon("info") + " " + esc(`上次选的是「${fill.file.name}」，请再选一次`);
@@ -2066,7 +2096,7 @@ async function drawImport() {
     try {
       const res = await fetch("/api/import/modpack", { method: "POST", headers: { "X-Token": TOKEN() }, body: fd });
       const j = await res.json();
-      if (!j.ok) throw Object.assign(new Error(j.error || "导入失败"), { hint: j.hint }); // hint：解析报错另给的一句人话，见 errSummary
+      if (!j.ok) throw Object.assign(new Error(j.error || "导入失败"), { hint: j.hint, portBusy: j.portBusy }); // hint：解析报错另给的一句人话，见 errSummary
       formDrafts.set(j.data.taskId, { mode: "import", data: draft }); // 先按任务号记下，再看页面还在不在
       const pack = j.data.pack || {};
       const pending = (pack.pending || 0) > 0 ? `，${pack.pending} 个文件待处理` : "";
@@ -2077,6 +2107,7 @@ async function drawImport() {
       }
       if (!stale(gen)) location.hash = `#/task/${j.data.taskId}`;
     } catch (e) {
+      if (!stale(gen) && e.portBusy) imPortCtl.onSubmitBusy(e.portBusy);
       toastErr("无法导入整合包", e);
       if (!stale(gen)) { $("#im-go").disabled = false; $("#im-go").innerHTML = icon("bolt") + " 导入并创建"; }
     }
@@ -2700,8 +2731,9 @@ async function drawWizard() {
         $("#f-diff").value = fill.diff; $("#f-mode").value = fill.mode;
       }
     }
-    // 「返回修改」填回来的端口不换；手填的和别的服务器撞了当场提示（不拦着创建）
-    if (!isProxy) portDef = wirePortField($("#f-port"), $("#f-port-note"), sug, { keep: !!fill }).def;
+    // 「返回修改」填回来的端口不换；手填的和别的服务器撞了当场提示（停着的服务器共用端口不拦，正占着或系统保留的提交时后端再拦）
+    let wizPortCtl = null;
+    if (!isProxy) { wizPortCtl = wirePortField($("#f-port"), $("#f-port-note"), sug, { keep: !!fill }); portDef = wizPortCtl.def; }
     updateRoot();
     $("#wcreate").onclick = async () => {
       const okName = checkName(), okPort = checkPort(), okEula = checkEula();
@@ -2798,6 +2830,7 @@ async function drawWizard() {
         await follow();
         if (!launched && !stale(gen)) startPoll(follow, 1500, gen); // 第一次查就结束了的不用再轮询
       } catch (e) {
+        if (!stale(gen) && e.portBusy && wizPortCtl) wizPortCtl.onSubmitBusy(e.portBusy);
         toastErr("无法创建服务器", e);
         if (!stale(gen) && createBtn.isConnected) createBtn.disabled = false;
         if (unlockNav && !stale(gen)) unlockNav();
@@ -3373,6 +3406,8 @@ function instMoreItems(info, onDeleted) {
   ];
 }
 
+const liveGamerules = new Map(); // 实例名 → { [键名]: { val, disk } }：运行中发过 /gamerule 的项，存档落盘前保持刚切的状态
+
 async function renderDetail(name, path = "console") {
   const gen = viewGen;
   let list;
@@ -3469,12 +3504,23 @@ async function renderDetail(name, path = "console") {
       : `<button type="button" class="btn sm" data-port-edit aria-label="改端口：去「设置 → 常用」里的端口">改端口</button>`;
     const el = detailNotice("start-fail", `${icon("warn")}<span class="dn-text">${esc(text)}</span>` + fix +
       (tab !== "console" ? `<a class="btn sm ghost" href="#/inst/${encodeURIComponent(name)}/console">看控制台</a>` : "") +
-      (text.endsWith(raw) ? "" : `<button type="button" class="btn sm ghost" data-err-raw="${errRawAttr(raw)}" aria-label="复制报错信息 上次没能启动">${icon("copy")} 复制报错信息</button>`),
+      (text.endsWith(raw) ? "" : `<button type="button" class="btn sm ghost" data-err-raw="${errRawAttr(raw)}" aria-label="复制报错信息 上次没能启动">${icon("copy")} 复制报错信息</button>`) +
+      `<button type="button" class="btn sm ghost" data-start-dismiss aria-label="关闭这条启动失败提示">关闭提示</button>`,
     { id: "d-start-fail" });
     if (!el) return;
-    const fb = el.querySelector("[data-port-fix]"), eb = el.querySelector("[data-port-edit]");
+    const fb = el.querySelector("[data-port-fix]"), eb = el.querySelector("[data-port-edit]"), db = el.querySelector("[data-start-dismiss]");
     if (fb) fb.onclick = () => fixPort(fb, +fb.dataset.portFix);
     if (eb) eb.onclick = goPortSetting;
+    if (db) db.onclick = async () => {
+      db.disabled = true;
+      try {
+        await api(`/api/instances/${enc}/start-error`, { method: "DELETE" });
+        cur.lastStartError = "";
+        cur.startPortBusy = null;
+        paintFail(cur);
+        placeToasts();
+      } catch (e) { toastErr("无法关闭提示", e); db.disabled = false; }
+    };
   };
   // 配的 Java 找不到了（R21）：常驻在提示区，带路去「设置 → 启动与内存」换一个；换好了（javaMissing 没了）就消失
   const paintJava = cur => {
@@ -4131,7 +4177,19 @@ async function renderDetail(name, path = "console") {
     try { data = await api(`/api/instances/${encodeURIComponent(name)}/properties`); } catch (e) { if (!stale(gen)) body.innerHTML = errBox("无法读取服务器配置", e); return; }
     if (stale(gen)) return;
     const cur = Object.fromEntries(data.pairs.map(p => [p.key, p.value]));
+    const diskRules = data.gamerules && typeof data.gamerules === "object" ? data.gamerules : {};
     const mc = info.mc, running = data.running;
+    if (!running) liveGamerules.delete(name);
+    const gameruleVal = p => {
+      if (running) {
+        const m = liveGamerules.get(name), ov = m && m[p.key];
+        if (ov) {
+          if ((diskRules[p.key] ?? "") === ov.disk) return ov.val;
+          delete m[p.key]; // 磁盘存档已经变了，改认存档里的新值
+        }
+      }
+      return diskRules[p.key] ?? cur[p.key] ?? (p.defSince && verGte(mc, p.defSince.v) ? p.defSince.def : p.def);
+    };
     const GROUPS = ["基础与玩法", "世界生成", "玩家与权限", "性能", "网络与远程管理", "资源包", "安全与杂项"];
     // 按实例版本计算适用项与呈现模式（gamerule 迁移项在新版转为 /gamerule 控件）
     const items = [];
@@ -4149,7 +4207,7 @@ async function renderDetail(name, path = "console") {
       const v = cur[p.key] ?? (p.defSince && verGte(mc, p.defSince.v) ? p.defSince.def : p.def), al = `aria-label="${esc(p.label)}"`;
       if (p.key === "motd") return `<div class="motd-palette" id="motd-pal"></div>
         <input type="text" data-k="motd" id="motd-in" value="${esc(v ?? "")}" ${al} style="width:100%;margin-top:6px"><div class="motd-preview" id="motd-prev"></div>`;
-      if (p.mode === "gamerule") return `<label class="switch" title="游戏规则：服务器运行时通过 /gamerule 即时生效"><input type="checkbox" data-gr="${p.gamerule}" ${v === "true" ? "checked" : ""} ${running ? "" : "disabled"} ${al}><span class="sw"></span></label>`;
+      if (p.mode === "gamerule") { const gv = gameruleVal(p); return `<label class="switch" title="游戏规则：服务器运行时通过 /gamerule 即时生效"><input type="checkbox" data-gr="${p.gamerule}" data-gr-key="${p.key}" ${gv === "true" ? "checked" : ""} ${running ? "" : "disabled"} ${al}><span class="sw"></span></label>`; }
       if (p.mode === "bool") return `<label class="switch"><input type="checkbox" data-k="${p.key}" ${v === "true" ? "checked" : ""} ${al}><span class="sw"></span></label>`;
       if (p.mode === "sel") return `<select data-k="${p.key}" ${al}>${p.opts.map((o, i) => `<option value="${o}" ${v === o ? "selected" : ""}>${esc(p.optNames ? p.optNames[i] : o)}</option>`).join("")}</select>`;
       if (p.mode === "int") return `<input type="number" data-k="${p.key}" value="${esc(v ?? "")}" ${al}>`;
@@ -4183,11 +4241,22 @@ async function renderDetail(name, path = "console") {
       body.querySelectorAll(".cp-group").forEach(g => { g.style.display = filterBySearch(q, g.querySelectorAll(".prop-item")) ? "" : "none"; });
     });
     // 游戏规则开关：运行时即时发送 /gamerule（不写入 server.properties）
-    onStatus.push(c => body.querySelectorAll("[data-gr]").forEach(sw => { sw.disabled = c.status !== "running"; })); // 游戏规则只能在运行中切：开服、停服以后跟着变
+    onStatus.push(c => {
+      if (c.status !== "running") liveGamerules.delete(name);
+      body.querySelectorAll("[data-gr]").forEach(sw => { sw.disabled = c.status !== "running"; });
+    }); // 游戏规则只能在运行中切：开服、停服以后跟着变
     body.querySelectorAll("[data-gr]").forEach(sw => sw.onchange = async () => {
-      const rule = sw.dataset.gr, val = sw.checked;
-      try { await api(`/api/instances/${encodeURIComponent(name)}/command`, { method: "POST", body: { cmd: `gamerule ${rule} ${val}` } }); toast(`已应用游戏规则 ${rule} = ${val}`); }
-      catch (e) { toastErr(`无法应用游戏规则 ${rule}`, e); sw.checked = !val; }
+      const rule = sw.dataset.gr, propKey = sw.dataset.grKey, val = sw.checked;
+      try {
+        await api(`/api/instances/${encodeURIComponent(name)}/command`, { method: "POST", body: { cmd: `gamerule ${rule} ${val}` } });
+        sw.checked = val;
+        if (propKey) {
+          let m = liveGamerules.get(name);
+          if (!m) { m = {}; liveGamerules.set(name, m); }
+          m[propKey] = { val: val ? "true" : "false", disk: diskRules[propKey] ?? "" };
+        }
+        toast(`已应用游戏规则 ${rule} = ${val}`);
+      } catch (e) { toastErr(`无法应用游戏规则 ${rule}`, e); sw.checked = !val; }
     });
     // MOTD 编辑器：色码调色板 + 实时预览
     const motdIn = $("#motd-in", body);

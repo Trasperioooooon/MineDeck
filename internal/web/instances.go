@@ -1,14 +1,17 @@
 package web
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"minedeck/internal/app"
 	"minedeck/internal/inst"
+	"minedeck/internal/mcsrc"
 	"minedeck/internal/ops"
 )
 
@@ -16,36 +19,58 @@ import (
 func (s *Server) handleImportModpack(w http.ResponseWriter, r *http.Request) {
 	r, cleanup := beginUpload(w, r)
 	defer cleanup()
-	s.do(w, r, "instance.import", func() (ops.Args, error) {
-		if err := parseUpload(w, r, modpackUploadLimit, modpackTooLarge); err != nil {
-			return nil, err
-		}
-		file, hdr, err := r.FormFile("file")
-		if err != nil {
-			return nil, fmt.Errorf("缺少整合包文件")
-		}
-		defer file.Close()
-		dir := filepath.Join(app.CacheDir, "import")
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return nil, ops.Wrap(500, err)
-		}
-		out, err := os.CreateTemp(dir, "*.zip") // 上传名不参与路径，避免并发同名覆盖和 Windows 备用数据流。
-		if err != nil {
-			return nil, ops.Wrap(500, err)
-		}
-		dest := out.Name()
-		cerr := copyUpload(r, out, file, hdr.Size, modpackTooLarge)
-		if werr := out.Close(); cerr == nil {
-			cerr = ops.Wrap(500, werr)
-		}
-		if cerr != nil {
-			_ = os.Remove(dest)
-			return nil, fmt.Errorf("保存上传文件失败: %w", cerr)
-		}
-		args := importFormArgs(r, dest)
-		args["fileName"] = hdr.Filename
-		return ops.ArgsOf(args), nil
-	})
+	c := callerOf(r)
+	if err := s.ops.Check(c, "instance.import"); err != nil {
+		writeErr(w, ops.CodeOf(err), err)
+		return
+	}
+	if err := parseUpload(w, r, modpackUploadLimit, modpackTooLarge); err != nil {
+		writeErr(w, ops.CodeOf(err), err)
+		return
+	}
+	file, hdr, err := r.FormFile("file")
+	if err != nil {
+		writeErr(w, 400, fmt.Errorf("缺少整合包文件"))
+		return
+	}
+	defer file.Close()
+	port := 25565
+	if n, err := strconv.Atoi(r.FormValue("port")); err == nil && n >= 1 && n <= 65535 {
+		port = n
+	}
+	if busy := s.mgr.CheckFormPort(port); busy != nil {
+		writePortBusyErr(w, busy)
+		return
+	}
+	dir := filepath.Join(app.CacheDir, "import")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		writeErr(w, 500, ops.Wrap(500, err))
+		return
+	}
+	out, err := os.CreateTemp(dir, "*.zip") // 上传名不参与路径，避免并发同名覆盖和 Windows 备用数据流。
+	if err != nil {
+		writeErr(w, 500, ops.Wrap(500, err))
+		return
+	}
+	dest := out.Name()
+	cerr := copyUpload(r, out, file, hdr.Size, modpackTooLarge)
+	if werr := out.Close(); cerr == nil {
+		cerr = ops.Wrap(500, werr)
+	}
+	if cerr != nil {
+		_ = os.Remove(dest)
+		writeErr(w, ops.CodeOf(cerr), fmt.Errorf("保存上传文件失败: %w", cerr))
+		return
+	}
+	a := importFormArgs(r, dest)
+	a["fileName"] = hdr.Filename
+	res, err := s.ops.Do(r.Context(), c, "instance.import", ops.ArgsOf(a))
+	if err != nil {
+		_ = os.Remove(dest)
+		writeErr(w, ops.CodeOf(err), err)
+		return
+	}
+	writeJSON(w, res)
 }
 
 // importFormArgs 导入整合包表单里的各项 → 操作 instance.import 的参数。表单是一项一项抄过去的：
@@ -122,7 +147,58 @@ func (s *Server) handleListInstances(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
-	s.do(w, r, "instance.create", bodyArgs(r))
+	c := callerOf(r)
+	if err := s.ops.Check(c, "instance.create"); err != nil {
+		writeErr(w, ops.CodeOf(err), err)
+		return
+	}
+	defer r.Body.Close()
+	var m map[string]any
+	if err := decodeJSON(limitedBody(r, maxJSONBody), &m); err != nil {
+		err = bodyErr(err)
+		writeErr(w, ops.CodeOf(err), err)
+		return
+	}
+	if m == nil {
+		m = map[string]any{}
+	}
+	if !c.Source.AI() {
+		nameStr, _ := m["name"].(string)
+		coreStr, _ := m["core"].(string)
+		if strings.TrimSpace(nameStr) != "" && coreStr != "" && mcsrc.KindOf(mcsrc.Core(coreStr)) != mcsrc.KindProxy {
+			port := 25565
+			switch pv := m["port"].(type) {
+			case json.Number:
+				if n, err := pv.Int64(); err == nil && n >= 1 && n <= 65535 {
+					port = int(n)
+				}
+			case float64:
+				if int(pv) >= 1 && int(pv) <= 65535 {
+					port = int(pv)
+				}
+			}
+			if busy := s.mgr.CheckFormPort(port); busy != nil {
+				writePortBusyErr(w, busy)
+				return
+			}
+		}
+	}
+	res, err := s.ops.Do(r.Context(), c, "instance.create", ops.ArgsOf(m))
+	if err != nil {
+		writeErr(w, ops.CodeOf(err), err)
+		return
+	}
+	writeJSON(w, res)
+}
+
+func writePortBusyErr(w http.ResponseWriter, busy *inst.FormPortBusy) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusConflict)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":       false,
+		"error":    busy.Error(),
+		"portBusy": busy,
+	})
 }
 
 func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {

@@ -167,49 +167,68 @@ func (m *Manager) UpdatePolicies(name string, p Policies) error {
 	return err
 }
 
+var crashRestartDelays = []time.Duration{10 * time.Second, 30 * time.Second, 60 * time.Second}
+
 // crashRestart 崩溃后按退避策略自动重启（10s/30s/60s，连续 3 次放弃；
 // 正常运行超过 10 分钟后计数清零）。gen 为崩溃那次运行的代号：只要期间又发生过任何
 // 新的运行（用户手动启动/停止、或上一次退避重启），本次重启即作废，避免把用户主动
-// 停掉的服务器又拉起来。
+// 停掉的服务器又拉起来。端口还被占着时，按同样的退避间隔和次数上限接着排（占连崩次数，不无限重试）。
 func (m *Manager) crashRestart(i *Instance, gen int64) {
-	i.procMu.Lock()
-	if i.runGen != gen {
-		// 期间已有新的运行发生（用户手动启停/上次退避重启），本次作废：
-		// 在自增计数与清零之前就返回，避免污染当前运行的连崩计数与清零时基。
-		i.procMu.Unlock()
-		return
-	}
-	if time.Since(i.startedAt) > 10*time.Minute {
-		i.crashCount = 0
-	}
-	i.crashCount++
-	n := i.crashCount
-	i.procMu.Unlock()
-	if n > 3 {
-		i.Console.Append("[MineDeck] ⚠ 连续崩溃 3 次，已停止自动重启。请检查上方日志排查原因。")
-		return
-	}
-	delay := []time.Duration{10 * time.Second, 30 * time.Second, 60 * time.Second}[n-1]
-	i.Console.Append(fmt.Sprintf("[MineDeck] 检测到服务器异常退出，%v 后自动重启（第 %d/3 次）...", delay, n))
-	time.Sleep(delay)
+	maxTries := len(crashRestartDelays)
 	handled := func() bool { // 用户已手动处理（重启过或正在运行）
 		i.procMu.Lock()
 		defer i.procMu.Unlock()
 		return i.runGen != gen || (i.state != "" && i.state != "stopped")
 	}
-	if handled() {
-		return
+	for first := true; ; first = false {
+		i.procMu.Lock()
+		if i.runGen != gen || (i.state != "" && i.state != "stopped") {
+			// 期间已有新的运行发生（用户手动启停/上次退避重启），本次作废：
+			// 在自增计数与清零之前就返回，避免污染当前运行的连崩计数与清零时基。
+			i.procMu.Unlock()
+			return
+		}
+		if first && time.Since(i.startedAt) > 10*time.Minute {
+			i.crashCount = 0
+		}
+		i.crashCount++
+		n := i.crashCount
+		i.procMu.Unlock()
+		if n > maxTries {
+			i.Console.Append(fmt.Sprintf("[MineDeck] ⚠ 连续崩溃 %d 次，已停止自动重启。请检查上方日志排查原因。", maxTries))
+			return
+		}
+		delay := crashRestartDelays[n-1]
+		if first {
+			i.Console.Append(fmt.Sprintf("[MineDeck] 检测到服务器异常退出，%v 后自动重启（第 %d/%d 次）...", delay, n, maxTries))
+		} else {
+			t, _ := startPort(i, i.ExtraJVMSnapshot())
+			i.Console.Append(fmt.Sprintf("[MineDeck] 仍在等待端口 %d 放开，%v 后再试自动重启（第 %d/%d 次）...", t.port, delay, n, maxTries))
+		}
+		time.Sleep(delay)
+		if handled() {
+			return
+		}
+		m.waitPortFree(i) // 端口一般早放开了；还占着就再等几秒，不让一下子的状态把这次重启取消掉
+		if handled() {
+			return
+		}
+		start := time.Now()
+		err := m.Start(i.Name)
+		var busy *portBusyError
+		retryPort := err != nil && errors.As(err, &busy) && n < maxTries
+		if err != nil {
+			gaveUp := ""
+			if !retryPort {
+				gaveUp = restartGaveUp(err)
+			}
+			i.Console.Append("[MineDeck] 自动重启失败: " + err.Error() + gaveUp)
+		}
+		m.noteAuto(AutoAction{Op: "instance.start", Actor: "崩溃自动重启", Args: map[string]any{"inst": i.Name, "attempt": n}, Err: err, Dur: time.Since(start)})
+		if !retryPort {
+			return
+		}
 	}
-	m.waitPortFree(i) // 端口一般早放开了；还占着就再等几秒，不让一下子的状态把这次重启取消掉
-	if handled() {
-		return
-	}
-	start := time.Now()
-	err := m.Start(i.Name)
-	if err != nil {
-		i.Console.Append("[MineDeck] 自动重启失败: " + err.Error() + restartGaveUp(err))
-	}
-	m.noteAuto(AutoAction{Op: "instance.start", Actor: "崩溃自动重启", Args: map[string]any{"inst": i.Name, "attempt": n}, Err: err, Dur: time.Since(start)})
 }
 
 // startScheduler 全局定时任务调度（每 20 秒检查一次到点任务）。

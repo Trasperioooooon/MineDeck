@@ -8699,6 +8699,165 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     }
   });
 
+  await run("阶段04 A01：常用设置的游戏规则开关优先按世界存档显示；世界未生成时退回 server.properties；运行中切换后立即更新且不等存档落盘", async () => {
+    const aState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
+    const VAN = "原版快照测试", enc = encodeURIComponent(VAN);
+    try {
+      await aState({ instReset: true, commands: [] });
+      // 默认仿真数据里「原版快照测试」（26.2）自带世界存档的 gamerules，enable-command-block 在存档里是 true（server.properties 默认是 false）
+      await page.goto(url(`#/inst/${enc}/settings/common`));
+      await page.waitForSelector('[data-gr="enableCommandBlocks"]');
+      let gr = await page.evaluate(() => ({
+        pvp: document.querySelector('[data-gr="pvp"]').checked,
+        nether: document.querySelector('[data-gr="allowEnteringNetherUsingPortals"]').checked,
+        cmdBlock: document.querySelector('[data-gr="enableCommandBlocks"]').checked,
+        monsters: document.querySelector('[data-gr="spawnMonsters"]').checked,
+        disabled: document.querySelector('[data-gr="pvp"]').disabled,
+      }));
+      assert(gr.pvp && gr.nether && gr.cmdBlock && gr.monsters && gr.disabled, "有世界存档时应按存档值显示（停机/启动中置灰）：" + JSON.stringify(gr));
+
+      // 存档里关掉了 pvp 和 spawn-monsters，即使 server.properties 里还是 true，也按存档值画成关
+      await aState({ inst: { name: VAN, gamerules: { pvp: "false", "allow-nether": "true", "enable-command-block": "true", "spawn-monsters": "false" } } });
+      await page.goto(url(`#/inst/${enc}/console`)); await settle(200);
+      await page.goto(url(`#/inst/${enc}/settings/common`));
+      await page.waitForSelector('[data-gr="pvp"]');
+      gr = await page.evaluate(() => ({
+        pvp: document.querySelector('[data-gr="pvp"]').checked,
+        nether: document.querySelector('[data-gr="allowEnteringNetherUsingPortals"]').checked,
+        cmdBlock: document.querySelector('[data-gr="enableCommandBlocks"]').checked,
+        monsters: document.querySelector('[data-gr="spawnMonsters"]').checked,
+      }));
+      assert(!gr.pvp && gr.nether && gr.cmdBlock && !gr.monsters, "存档值与 server.properties 不同时应以存档为准：" + JSON.stringify(gr));
+
+      // 世界还没生成（后端不返回 gamerules）：退回 server.properties 的旧值（enable-command-block 默认为 false，其余为 true）
+      await aState({ inst: { name: VAN, gamerules: null } });
+      await page.goto(url(`#/inst/${enc}/console`)); await settle(200);
+      await page.goto(url(`#/inst/${enc}/settings/common`));
+      await page.waitForSelector('[data-gr="enableCommandBlocks"]');
+      gr = await page.evaluate(() => ({
+        pvp: document.querySelector('[data-gr="pvp"]').checked,
+        cmdBlock: document.querySelector('[data-gr="enableCommandBlocks"]').checked,
+      }));
+      assert(gr.pvp && !gr.cmdBlock, "读不到存档时应退回 server.properties：" + JSON.stringify(gr));
+
+      // 服务器运行中拨动开关：/gamerule 发送成功后，界面状态跟着改，切页再回来也不等磁盘存档落盘
+      await aState({ inst: { name: VAN, status: "running", gamerules: { pvp: "true", "allow-nether": "true", "enable-command-block": "false", "spawn-monsters": "true" } }, commands: [] });
+      await page.goto(url(`#/inst/${enc}/console`)); await settle(200);
+      await page.goto(url(`#/inst/${enc}/settings/common`));
+      await page.waitForSelector('[data-gr="pvp"]:not([disabled])');
+      await page.click('.prop-item:has([data-gr="pvp"]) .switch');
+      await settle(300);
+      const st = await aState({});
+      assert(JSON.stringify(st.commands) === JSON.stringify([{ inst: VAN, cmd: "gamerule pvp false" }]), "应发送 gamerule 命令：" + JSON.stringify(st.commands));
+      assert((await page.$eval('[data-gr="pvp"]', el => el.checked)) === false, "当页开关状态应立即更新为 false");
+      // 模拟存档尚未自动落盘（后端 gamerules 里 pvp 仍是 true），切到控制台再回常用设置，开关仍保持刚改过的 false
+      await page.click('.tabs .tab[data-t="console"]'); await settle(200);
+      await page.click('.tabs .tab[data-t="settings"]');
+      await page.waitForSelector('[data-gr="pvp"]');
+      assert((await page.$eval('[data-gr="pvp"]', el => el.checked)) === false, "存档落盘前切页回来，开关也应保持刚改过的状态");
+    } finally {
+      await aState({ instReset: true, commands: [] });
+    }
+  });
+
+  await run("阶段04 A04：端口预查识别系统保留段；自动换出的端口改后再填回不再免查；新建与导入提交时端口被占或保留会回传改端口提示且不建服", async () => {
+    const pState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
+    const toWizardFinal = async () => {
+      await page.goto(url("#/create/new")); await page.waitForSelector('.core-card[data-id="paper"]');
+      await page.click('.core-card[data-id="paper"]'); await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
+      await page.click("#wnext"); await page.waitForSelector("#build-rec b");
+      await page.click("#wnext"); await page.waitForSelector("#wiz-mod-body");
+      await page.click("#wnext"); await page.waitForSelector("#f-port");
+      await page.waitForFunction(() => document.querySelector("#f-port-note") !== null);
+    };
+    const portView = (input, note) => page.evaluate(([i, n]) => ({
+      v: $(i).value, note: $(n).textContent.trim(), warn: $(n).classList.contains("warn"),
+      useBtn: ($(n).querySelector("[data-port-use]") || {}).textContent || "",
+    }), [input, note]);
+    try {
+      // 1) 25565 落在系统保留段里时，默认端口自动避开并说明是系统保留；自动换出来的端口（25569）改走后被别的程序占上，再填回 25569 不再免查
+      await pState({ instReset: true, taskStage: 4, modCart: { reset: true }, reservedPorts: [[25565, 25568]], otherPorts: {} });
+      await pState({ inst: { name: "生存服 · 朋友", port: 25590 } });
+      await toWizardFinal();
+      let f = await portView("#f-port", "#f-port-note");
+      assert(f.v === "25569" && f.note.includes("25565 在系统保留的端口范围里，已改为 25569") && !f.warn, "系统保留段默认换端口：" + JSON.stringify(f));
+
+      await page.fill("#f-port", "25575"); await settle(500);
+      await pState({ otherPorts: { 25569: "java.exe" } });
+      await page.fill("#f-port", "25569"); await settle(500);
+      f = await portView("#f-port", "#f-port-note");
+      assert(f.warn && f.note.includes("端口 25569 现在被别的程序（java.exe）占着"), "自动换出来的端口改过再填回也应复查：" + JSON.stringify(f));
+
+      // 2) 表单开着期间默认端口（或自动换出的端口）被占上，不改端口直接提交：后端拦下不建服，表单原地显示改端口提示
+      await pState({ instReset: true, taskStage: 4, modCart: { reset: true }, reservedPorts: [], otherPorts: {} });
+      await pState({ inst: { name: "生存服 · 朋友", port: 25590 } }); // 25565 初始空着
+      await toWizardFinal();
+      f = await portView("#f-port", "#f-port-note");
+      assert(f.v === "25565" && f.note === "", "打开时 25565 空着：" + JSON.stringify(f));
+      await pState({ otherPorts: { 25565: "java.exe" } }); // 表单开着期间 25565 被占上
+      await page.fill("#f-name", "提交复查服"); await page.check("#f-eula");
+      await page.click("#wcreate"); await settle(500);
+      assert(page.url().includes("#/create/new"), "端口被占不应跳去任务页：" + page.url());
+      let st = await pState({});
+      assert(!st.instances.some(i => i.name === "提交复查服"), "端口被占不应创建服务器");
+      f = await portView("#f-port", "#f-port-note");
+      assert(f.warn && f.note.includes("端口 25565 现在被别的程序（java.exe）占着") && f.useBtn.includes("改成 25568"), "提交被拦后表单应给改端口提示：" + JSON.stringify(f));
+      // 点提示上的「改成 25568」再提交即可创建
+      await page.click("#f-port-note [data-port-use]"); await settle(200);
+      assert((await page.inputValue("#f-port")) === "25568", "点改成 25568 应填入新端口");
+      await page.click("#wcreate");
+      await page.waitForFunction(() => location.hash === "#/task/task-1", null, { timeout: 6000 });
+      st = await pState({});
+      assert(st.lastCreate && st.lastCreate.port === 25568, "换端口后创建成功：" + JSON.stringify(st.lastCreate));
+
+      // 3) 导入整合包表单开着期间，自动换出的端口被系统保留段占上，提交同样拦下回传提示
+      await pState({ instReset: true, reservedPorts: [], otherPorts: {} });
+      await page.goto(url("#/create/import")); await page.waitForSelector("#im-port-note");
+      await page.waitForFunction(() => $("#im-port").value === "25568", null, { timeout: 3000 });
+      await pState({ reservedPorts: [[25568, 25570]] });
+      await page.setInputFiles("#im-file", { name: "复查测试.mrpack", mimeType: "application/zip", buffer: Buffer.from("PK\u0003\u0004mrpack") });
+      await page.check("#im-eula");
+      await page.click("#im-go"); await settle(500);
+      assert(page.url().includes("#/create/import"), "导入端口被系统保留应留在表单：" + page.url());
+      f = await portView("#im-port", "#im-port-note");
+      assert(f.warn && f.note.includes("系统保留") && f.useBtn.includes("改成 25571"), "导入被拦后应提示系统保留与建议端口：" + JSON.stringify(f));
+    } finally {
+      await pState({ instReset: true, reservedPorts: [], otherPorts: {}, taskStage: 2, modCart: { reset: true } });
+    }
+  });
+
+  await run("阶段04 A07：上次启动失败原因在程序重开后仍在卡片和详情页头显示；点「关闭提示」后立即清除", async () => {
+    const sState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
+    const PACK0 = "机械动力整合包", enc = encodeURIComponent(PACK0);
+    const why = "端口 25566 被别的程序占着，换个端口或关掉占用它的程序";
+    try {
+      await sState({ instReset: true });
+      await sState({ inst: { name: PACK0, startFail: why, startPortBusyFail: { port: 25566 } } });
+      await page.goto(url(`#/inst/${enc}/console`)); await page.waitForSelector("#d-start");
+      await page.click("#d-start"); await page.waitForSelector("#d-start-fail");
+
+      // 模拟程序重开：落盘的启动失败原因和改端口入口依然保留在卡片与详情页头
+      await sState({ restart: true });
+      await page.goto(url("#/instances")); await page.waitForSelector(`.card[data-name="${PACK0}"] .inst-fail`);
+      assert((await page.textContent(`.card[data-name="${PACK0}"] .inst-fail`)).includes(why), "重开后列表卡片仍应显示启动失败原因");
+
+      await page.goto(url(`#/inst/${enc}/console`)); await page.waitForSelector("#d-start-fail [data-start-dismiss]");
+      const info = await page.evaluate(() => ({
+        text: $("#d-start-fail").textContent,
+        edit: !!$("#d-start-fail [data-port-edit]"),
+      }));
+      assert(info.text.includes(why) && info.edit, "重开后详情页头仍应显示启动失败原因与改端口：" + JSON.stringify(info));
+
+      // 用户在界面上关掉提示：详情页头和列表卡片都清除
+      await page.click("#d-start-fail [data-start-dismiss]");
+      await page.waitForSelector("#d-start-fail", { state: "detached", timeout: 4000 });
+      await page.goto(url("#/instances")); await settle(400);
+      assert(!(await page.$(`.card[data-name="${PACK0}"] .inst-fail`)), "关闭提示后列表卡片上的失败提示应消失");
+    } finally {
+      await sState({ instReset: true });
+    }
+  });
+
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
 
   await browser.close();

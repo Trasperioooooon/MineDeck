@@ -83,12 +83,10 @@ func (b gameBackend) Players(name string) (chatai.Players, error) {
 
 func (b gameBackend) Send(name, cmd, echo string) error { return b.m.CommandEcho(name, cmd, echo) }
 
-// whitelistOn server.properties 的 white-list 是不是 true，按服务端的读法（同一项写了几行认最后一行，见 inst.WhitelistOn）。
-// 原来用 Props.Get 读的是第一行：手改出两行时，这里说的和服务端实际用的可能相反。
-// 文件里没写这一项时按关算（和原来一样）：MineDeck 新建时总会写上，没写的多是接管来的老服务器。
+// whitelistOn server.properties 的 white-list 是不是开，按服务端的读法（同一项写了几行认最后一行，见 inst.WhitelistOn）；
+// 文件里没写这一项时按 Minecraft 版本取服务端自己的默认值（26.3 起默认开，更早默认关，见 inst.EffectiveWhitelistOn）。
 func whitelistOn(i *inst.Instance) bool {
-	on := inst.WhitelistOn(i.Dir)
-	return on != nil && *on
+	return inst.EffectiveWhitelistOn(i.Dir, i.MC)
 }
 
 // gameInfo game.info 的结果：§6.4 列出的只读信息，不含日志、配置文件和别的聊天。

@@ -2,6 +2,7 @@ package inst
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -13,7 +14,9 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"minedeck/internal/atomicfile"
 	"minedeck/internal/events"
+	"minedeck/internal/mclog"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/procutil"
 
@@ -74,8 +77,13 @@ func (m *Manager) startInstance(i *Instance) error {
 	}
 	m.beforeStart(i) // 不能持有 procMu：回调里会查实例状态
 	// 本软件别的服务器各用哪个端口、开着没有：端口被占时拿它说是谁占着、改成哪个（可用性走查 R08）。
-	// 要拿别的服务器的锁，所以在拿自己的锁之前查
+	// 要拿别的服务器的锁，所以在拿自己的锁之前查；server-ip 是域名时也在这里先把域名解析完，不在 procMu 里卡最多 3 秒（A05）
 	peers := m.portPeers(i)
+	var preResolved resolvedBindTarget
+	preTarget, preOK := startPort(i, i.ExtraJVMSnapshot())
+	if preOK {
+		preResolved = resolveBindTarget(preTarget)
+	}
 	i.procMu.Lock()
 	defer i.procMu.Unlock()
 	if i.state != "" && i.state != "stopped" {
@@ -89,7 +97,7 @@ func (m *Manager) startInstance(i *Instance) error {
 		return fmt.Errorf("这台服务器正在打包交接包，等打包完成后再启动")
 	}
 	// 从这里往下的失败是「这台服务器起不来」，不是「现在不能启动」（已经在运行、正在打包、正在换地图）：
-	// 原因写进控制台，并记成「上次启动没成功」，卡片和详情页头常驻显示，下次进程起来了才清掉（可用性走查 R03）。
+	// 原因写进控制台，并记成「上次启动没成功」，卡片和详情页头常驻显示，下次进程起来或用户关掉提示才清掉（可用性走查 R03、阶段 04 A07）。
 	// 右上角的提示一会儿就没了，回来的人只看到一个没反应的「启动」按钮
 	if _, err := os.Stat(i.JavaPath); err != nil {
 		// 路径不放进报错：界面上的提示遇到路径只写结论，这句「去哪里改」就看不到了。路径记在控制台里，「设置 → 启动与内存」页也看得到
@@ -99,7 +107,14 @@ func (m *Manager) startInstance(i *Instance) error {
 	// 端口被占着就直接报错，不先起 Java、等它自己报 BindException（检查报告 D-5）。按服务器真正要绑的地址查
 	//（server-ip、server-port）；代理端的端口在它自己的配置文件里，不查（见 startPort）
 	if t, ok := startPort(i, i.ExtraJVM); ok { // 拿着 procMu，直接读 ExtraJVM
-		if err := checkBindPort(t); err != nil {
+		var bindErr error
+		if preOK && preResolved.target.host == t.host && preResolved.target.network == t.network {
+			preResolved.target.port = t.port
+			bindErr = checkResolvedBindPort(preResolved)
+		} else {
+			bindErr = checkBindPort(t)
+		}
+		if err := bindErr; err != nil {
 			// 占着的是本软件管着的另一台（它没停着、端口一样）：报错点它的名字，再找一个能改成的端口，
 			// 详情页头给「改成 N 并启动」（R08）。以前一律说「被别的程序占着」，人去找别的程序找不到
 			var busy *portBusyError
@@ -142,6 +157,7 @@ func (m *Manager) startInstance(i *Instance) error {
 		return i.startFailed(fmt.Errorf("启动失败: %w", err), true)
 	}
 	i.startErr, i.startBusy = "", nil // 进程起来了：上次没启动成功的原因不再算数
+	clearStartFail(i.Dir)
 	assignToJob(cmd.Process)
 	pr := &proc{cmd: cmd, stdin: bufio.NewWriter(stdin)}
 	i.proc = pr
@@ -225,6 +241,84 @@ func (m *Manager) startInstance(i *Instance) error {
 	return nil
 }
 
+const startFailFileName = "start-fail.json"
+
+type persistedStartFail struct {
+	Error    string    `json:"error"`
+	PortBusy *PortBusy `json:"portBusy,omitempty"`
+}
+
+func plainInstDir(p string) bool {
+	st, err := os.Lstat(p)
+	return err == nil && st.IsDir() && st.Mode()&(os.ModeSymlink|os.ModeIrregular) == 0
+}
+
+func saveStartFail(dir, errMsg string, pb *PortBusy) {
+	if dir == "" || !filepath.IsAbs(dir) || !plainInstDir(dir) {
+		return
+	}
+	mdDir := filepath.Join(dir, ".minedeck")
+	if st, err := os.Lstat(mdDir); err == nil {
+		if !st.IsDir() || st.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
+			return
+		}
+	} else if os.IsNotExist(err) {
+		if os.MkdirAll(mdDir, 0o755) != nil {
+			return
+		}
+	} else {
+		return
+	}
+	target := filepath.Join(mdDir, startFailFileName)
+	if st, err := os.Lstat(target); err == nil && !st.Mode().IsRegular() {
+		return
+	}
+	b, err := json.Marshal(persistedStartFail{Error: errMsg, PortBusy: pb})
+	if err != nil {
+		return
+	}
+	_ = atomicfile.Write(target, b, 0o644)
+}
+
+func clearStartFail(dir string) {
+	if dir == "" || !filepath.IsAbs(dir) || !plainInstDir(dir) {
+		return
+	}
+	mdDir := filepath.Join(dir, ".minedeck")
+	if !plainInstDir(mdDir) {
+		return
+	}
+	target := filepath.Join(mdDir, startFailFileName)
+	if st, err := os.Lstat(target); err == nil && st.Mode().IsRegular() {
+		_ = os.Remove(target)
+	}
+	_ = os.Remove(mdDir) // 只在 .minedeck 已空时顺手清掉空目录；里面有别的控制文件时不会动
+}
+
+func loadStartFail(dir string) (string, *PortBusy) {
+	if dir == "" || !filepath.IsAbs(dir) || !plainInstDir(dir) {
+		return "", nil
+	}
+	mdDir := filepath.Join(dir, ".minedeck")
+	if !plainInstDir(mdDir) {
+		return "", nil
+	}
+	target := filepath.Join(mdDir, startFailFileName)
+	st, err := os.Lstat(target)
+	if err != nil || !st.Mode().IsRegular() || st.Size() <= 0 || st.Size() > 64*1024 {
+		return "", nil
+	}
+	b, err := os.ReadFile(target)
+	if err != nil {
+		return "", nil
+	}
+	var rec persistedStartFail
+	if json.Unmarshal(b, &rec) != nil || strings.TrimSpace(rec.Error) == "" {
+		return "", nil
+	}
+	return rec.Error, rec.PortBusy
+}
+
 // startFailed 记下这次没启动起来的原因并原样返回 err。调用方拿着 procMu。
 // toConsole：控制台里还没有写过原因的（端口被占、进程起不来）补一行；找不到 Java 的那一行带着路径，调用方已经写过了。
 func (i *Instance) startFailed(err error, toConsole bool) error {
@@ -234,14 +328,28 @@ func (i *Instance) startFailed(err error, toConsole bool) error {
 	if errors.As(err, &busy) {
 		i.startBusy = &PortBusy{Port: busy.port, Owner: busy.owner, Suggest: busy.suggest}
 	}
+	saveStartFail(i.Dir, i.startErr, i.startBusy)
 	if toConsole {
 		i.Console.Append("[MineDeck] 没能启动：" + i.startErr)
 	}
 	return err
 }
 
-// LastStartError 上一次启动没起来的原因（端口被占、找不到 Java、进程起不来）；之后成功起过进程、或者从没失败过，是空串。
-// 只在内存里：MineDeck 重开以后就没有了。
+// DismissStartError 用户在界面上关掉「上次启动没成功」的提示：清掉内存记录并删掉 .minedeck 下的落盘文件。
+func (m *Manager) DismissStartError(name string) error {
+	i, err := m.Get(name)
+	if err != nil {
+		return err
+	}
+	i.procMu.Lock()
+	i.startErr, i.startBusy = "", nil
+	clearStartFail(i.Dir)
+	i.procMu.Unlock()
+	return nil
+}
+
+// LastStartError 上一次启动没起来的原因（端口被占、找不到 Java、进程起不来）；之后成功起过进程、手动关掉提示或从没失败过，是空串。
+// 记在服务器自己的 .minedeck/start-fail.json 里，MineDeck 重开后仍在。
 func (i *Instance) LastStartError() string {
 	i.procMu.Lock()
 	defer i.procMu.Unlock()
@@ -433,14 +541,43 @@ func difficultyCommand(mc string, props map[string]string) string {
 	return ""
 }
 
+// doneLineRe 原版、Paper、Forge、NeoForge、Fabric、Velocity 启动完成那一行：
+// 行首必须是方括号日志前缀（1–3 段：[时间 级别]、[时间] [线程/级别]、[时间] [线程/级别] [记录器]），
+// 「]: 」后面紧接「Done (数字s)!」（秒数带小数点或逗号，如 6.812s、3,456s），末尾只允许跟原版的 For help 提示。
+var doneLineRe = regexp.MustCompile(`^\[([^\[\]\r\n]+)\](?: \[([^\[\]\r\n]+)\](?: \[([^\[\]\r\n]*)\])?)?: Done \(\d+(?:[.,]\d+)?s\)!(?: For help, type "help"(?: or "\?")?)?\s*$`)
+
+func doneLoggerOK(logger string) bool {
+	if logger == "" {
+		return true
+	}
+	l := strings.ToLower(logger)
+	return strings.HasPrefix(l, "minecraft/") ||
+		strings.Contains(l, "dedicatedserver") ||
+		strings.Contains(l, "minecraftserver") ||
+		strings.Contains(l, "velocity")
+}
+
 // serverReady 识别各核心的"启动完成"输出。
 func serverReady(line string) bool {
+	s := mclog.Clean(strings.TrimRight(line, "\r\n"))
+	if strings.HasPrefix(s, "> ") || strings.HasPrefix(s, "[MineDeck]") {
+		return false
+	}
+	if m := doneLineRe.FindStringSubmatch(s); m != nil {
+		hasInfo := false
+		if m[2] == "" {
+			hasInfo = strings.HasSuffix(m[1], " INFO") || strings.Contains(m[1], "/INFO")
+		} else {
+			hasInfo = strings.HasSuffix(m[2], "/INFO") || strings.HasSuffix(m[2], " INFO") || m[2] == "INFO"
+		}
+		if hasInfo && doneLoggerOK(m[3]) {
+			return true
+		}
+	}
 	switch {
-	case strings.Contains(line, "Done (") && strings.Contains(line, ")!"): // vanilla/paper/forge/velocity 等
+	case strings.Contains(s, "Mohist 启动成功"), strings.Contains(s, "Mohist started"): // Mohist 中/英
 		return true
-	case strings.Contains(line, "Mohist 启动成功"), strings.Contains(line, "Mohist started"): // Mohist 中/英
-		return true
-	case strings.Contains(line, "Listening on /"): // BungeeCord/Waterfall
+	case strings.Contains(s, "Listening on /"): // BungeeCord/Waterfall
 		return true
 	}
 	return false

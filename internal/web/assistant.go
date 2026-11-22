@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"minedeck/internal/inst"
 	"minedeck/internal/mcp"
 	"minedeck/internal/ops"
 )
@@ -296,7 +297,26 @@ func (s *Server) troubleshootRoutes(mux *http.ServeMux) {
 			}
 			from = n
 		}
-		s.do(w, r, "port.suggest", args(map[string]any{"from": from, "except": r.URL.Query().Get("except")}))
+		c := callerOf(r)
+		if err := s.ops.Check(c, "port.suggest"); err != nil {
+			writeErr(w, ops.CodeOf(err), err)
+			return
+		}
+		res, err := s.ops.Do(r.Context(), c, "port.suggest", ops.ArgsOf(map[string]any{"from": from, "except": r.URL.Query().Get("except")}))
+		if err != nil {
+			writeErr(w, ops.CodeOf(err), err)
+			return
+		}
+		if m, ok := res.(map[string]any); ok {
+			f, _ := m["from"].(int)
+			_, hasBy := m["usedBy"]
+			busy, _ := m["fromBusy"].(bool)
+			if f >= 1 && f <= 65535 && !hasBy && !busy && inst.IsPortReserved(f) {
+				m["fromBusy"] = true
+				m["fromReserved"] = true
+			}
+		}
+		writeJSON(w, res)
 	})
 	mux.HandleFunc("GET /api/ports/{port}", func(w http.ResponseWriter, r *http.Request) {
 		port, err := strconv.Atoi(r.PathValue("port"))

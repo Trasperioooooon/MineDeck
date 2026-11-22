@@ -2,6 +2,8 @@ package worldimport
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"unicode"
@@ -252,4 +254,100 @@ func (m *LevelMeta) applySharedData(gameRulesFile, worldGenFile nbt.Compound) {
 			}
 		}
 	}
+}
+
+// ReadServerGameRules 从服务器的世界存档目录里读出 1.21.9 起由 server.properties 迁成游戏规则的四项开关当前值
+// （键用 server.properties 里的名字：pvp、allow-nether、enable-command-block、spawn-monsters，值规整成 "true" / "false"）。
+// 复用 parseLevel、applySharedData 与 gameRule：既认 1.21.9–1.21.10 的 GameRules 字符串值，也认 1.21.11 起的
+// minecraft:* 命名空间数值，以及 26.1 起搬到 data/minecraft/game_rules.dat（Paper 在 dimensions/minecraft/overworld 下）的共用数据。
+// 世界还没生成、路径含链接或存档读不出来时返回 nil，调用方退回 server.properties。
+func ReadServerGameRules(worldDir string) map[string]string {
+	if !filepath.IsAbs(worldDir) || !plainLocalDir(worldDir) {
+		return nil
+	}
+	root, ok := readLocalNBT(filepath.Join(worldDir, "level.dat"))
+	if !ok {
+		return nil
+	}
+	meta, err := parseLevel(root)
+	if err != nil {
+		return nil
+	}
+	if meta.GameRules == nil {
+		// 26.1 起游戏规则搬出了 level.dat：Paper 放在主世界维度目录里，原版放在世界根的 data/minecraft 下
+		if gr, ok := readSubNBT(worldDir, "dimensions", "minecraft", "overworld", "data", "minecraft", "game_rules.dat"); ok {
+			meta.applySharedData(gr, nil)
+		} else if gr, ok := readSubNBT(worldDir, "data", "minecraft", "game_rules.dat"); ok {
+			meta.applySharedData(gr, nil)
+		}
+	}
+	if len(meta.GameRules) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	put := func(propKey string, candidates [][2]string) {
+		for _, pair := range candidates {
+			if raw, exists := meta.gameRule(pair[0], pair[1]); exists {
+				if b, valid := normRuleBool(raw); valid {
+					out[propKey] = b
+					return
+				}
+			}
+		}
+	}
+	put("pvp", [][2]string{{"pvp", "pvp"}})
+	put("allow-nether", [][2]string{{"allowEnteringNetherUsingPortals", "allow_entering_nether_using_portals"}})
+	put("enable-command-block", [][2]string{
+		{"enableCommandBlocks", "command_blocks_work"},
+		{"commandBlocksEnabled", "command_blocks_work"},
+		{"commandBlocksWork", "command_blocks_work"},
+	})
+	put("spawn-monsters", [][2]string{{"spawnMonsters", "spawn_monsters"}})
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func plainLocalDir(p string) bool {
+	st, err := os.Lstat(p)
+	return err == nil && st.IsDir() && st.Mode()&(os.ModeSymlink|os.ModeIrregular) == 0
+}
+
+func readSubNBT(base string, elems ...string) (nbt.Compound, bool) {
+	cur := base
+	for _, seg := range elems[:len(elems)-1] {
+		cur = filepath.Join(cur, seg)
+		if !plainLocalDir(cur) {
+			return nil, false
+		}
+	}
+	return readLocalNBT(filepath.Join(cur, elems[len(elems)-1]))
+}
+
+func readLocalNBT(p string) (nbt.Compound, bool) {
+	st, err := os.Lstat(p)
+	if err != nil || !st.Mode().IsRegular() || st.Size() > nbt.LevelLimits.MaxFile {
+		return nil, false
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		return nil, false
+	}
+	defer f.Close()
+	_, root, _, err := nbt.Read(f, nbt.LevelLimits)
+	if err != nil {
+		return nil, false
+	}
+	return root, true
+}
+
+func normRuleBool(v string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "true", "1":
+		return "true", true
+	case "false", "0":
+		return "false", true
+	}
+	return "", false
 }

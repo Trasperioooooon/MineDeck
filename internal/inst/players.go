@@ -88,6 +88,22 @@ func (m *Manager) GetPlayers(name string) (*PlayerLists, error) {
 	return out, nil
 }
 
+// DefaultWhitelistOn 服务端自己生成配置、或 server.properties 里缺 white-list 这一项时的默认白名单开关：
+// 26.3（含快照、预发布、候选版）起服务端默认开启白名单，更早的版本默认关闭。
+func DefaultWhitelistOn(mc string) bool {
+	base, _, _ := strings.Cut(strings.TrimSpace(mc), "-")
+	return base != "" && !versionLess(base, "26.3")
+}
+
+// EffectiveWhitelistOn 按服务端的读法取白名单当前开没开：server.properties 写了 white-list 就取最后一行的值，
+// 没写或文件不在时按 Minecraft 版本取服务端的默认值（见 WhitelistOn、DefaultWhitelistOn）。
+func EffectiveWhitelistOn(dir, mc string) bool {
+	if on := WhitelistOn(dir); on != nil {
+		return *on
+	}
+	return DefaultWhitelistOn(mc)
+}
+
 // PlayerAction 执行玩家操作。运行中走控制台命令；停止时直接改名单文件。
 func (m *Manager) PlayerAction(name, action, player string) error {
 	i, err := m.Get(name)
