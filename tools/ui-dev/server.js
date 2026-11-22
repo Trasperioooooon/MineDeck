@@ -2787,11 +2787,14 @@ function handler(state, ui, portOf) {
       if (Array.isArray(b.madeDirs)) { state.madeDirs = b.madeDirs; state.lastTransferMkdir = null; }
       if ("pickDir" in b) state.pickDir = b.pickDir === null ? undefined : b.pickDir; // 系统文件夹选择框选到哪个（空串 = 点了取消；null 还原成 E:\MCServers）
       if (b.instReset) { const fresh = newState(ui); state.instances = fresh.instances; state.portableJavas = fresh.portableJavas; state.incompleteJavas = []; state.creatingLeftovers = [];
+        state.creating = false; state.javaBusy = false;
         state.lastAdopt = state.lastJava = state.lastDelete = null;
         state.lifecycle = []; state.modOps = []; state.lastRestore = state.lastBackup = null; state.modsProjects = 0; } // beta.3 详情页记下的请求一起清掉
       if (Array.isArray(b.portableJavas)) state.portableJavas = b.portableJavas;
       if (Array.isArray(b.incompleteJavas)) state.incompleteJavas = b.incompleteJavas;
       if (Array.isArray(b.creatingLeftovers)) state.creatingLeftovers = b.creatingLeftovers;
+      if ("creating" in b) state.creating = !!b.creating;
+      if ("javaBusy" in b) state.javaBusy = !!b.javaBusy;
       if ("lifecycle" in b) state.lifecycle = b.lifecycle || []; // 停止、重启的请求记录，传空数组清掉
       if ("modOps" in b) state.modOps = b.modOps || [];          // 停用、启用、删除插件或模组的请求记录
       if ("listenLan" in b) { state.config.listenLan = state.lanActive = !!b.listenLan; if (b.listenLan) state.lanSet = true; }
@@ -2905,28 +2908,47 @@ function handler(state, ui, portOf) {
         if (!state.local) return err(res, 403, "卸载便携 Java 仅支持在本机操作");
         const b = await readBody(req), major = +b.major;
         if (!b.confirm) return err(res, 400, "卸载 Java 需要明确确认");
-        if (!(major >= 8 && major <= 64)) return err(res, 400, "不支持的 Java 版本: " + major);
+        if (!(Number.isInteger(major) && major >= 8 && major <= 64)) return err(res, 400, `没有 Java ${major} 的便携运行时`);
+        if (state.javaBusy) return err(res, 409, "正在安装或卸载 Java，请稍后再试");
+        const hasDir = (state.portableJavas || []).some(j => j.major === major);
+        const hasMark = (state.incompleteJavas || []).includes(major);
+        if (!hasDir && !hasMark) return err(res, 400, `没有安装 Java ${major} 的便携运行时`);
         const instList = state.empty ? [] : state.instances;
-        const running = instList.filter(i => i.javaSource === "portable" && i.javaMajor === major && i.status !== "stopped").map(i => i.name);
+        const running = instList.filter(i => i.javaSource === "portable" && i.javaMajor === major && ["starting", "running", "stopping"].includes(i.status)).map(i => i.name);
         if (running.length) return err(res, 409, `服务器正在用 Java ${major} 运行（${running.join("、")}），请先停服再卸载`);
         const cfgd = instList.filter(i => i.javaSource === "portable" && i.javaMajor === major).map(i => i.name);
         if (cfgd.length) return err(res, 409, `服务器还在用 Java ${major}（${cfgd.join("、")}），请先到「设置 → 启动与内存」更换后再卸载`);
+        if (state.creating) return err(res, 409, "有服务器正在创建或导入，可能正在使用便携 Java，请等任务结束再卸载");
         state.portableJavas = (state.portableJavas || []).filter(j => j.major !== major);
         state.incompleteJavas = (state.incompleteJavas || []).filter(x => x !== major);
         return ok(res, { major, removed: true });
       }
       if (p === "/api/creating-leftovers" && m === "GET") {
-        if (!state.local) return err(res, 403, "查看没建完的服务器文件夹仅支持在本机操作");
-        return ok(res, { items: state.creatingLeftovers || [] });
+        if (!state.local) return err(res, 403, "查看没建完的文件夹仅支持在本机操作");
+        const items = (state.creatingLeftovers || [])
+          .filter(x => !x.creating && !x.registered && !x.adopted && !x.hasInstanceJson)
+          .map(({ id, name, root, hasWorld }) => ({ id, name, root, hasWorld: !!hasWorld }));
+        return ok(res, { items });
       }
       if (p === "/api/creating-leftovers/discard" && m === "POST") {
-        if (!state.local) return err(res, 403, "清理没建完的服务器文件夹仅支持在本机操作");
+        if (!state.local) return err(res, 403, "删除没建完的文件夹仅支持在本机操作");
         const b = await readBody(req);
-        if (!b.confirm) return err(res, 400, "清理文件夹需要明确确认");
-        const list = state.creatingLeftovers || [], k = list.findIndex(x => x.id === b.id);
-        if (k < 0) return err(res, 400, "目标文件夹不存在或没有创建记号");
+        if (!b.confirm) return err(res, 400, "删除没建完的文件夹需要明确确认");
+        const idStr = typeof b.id === "string" ? b.id : "";
+        const slash = idStr.indexOf("/");
+        const idxStr = slash > 0 ? idStr.slice(0, slash) : "", dirName = slash > 0 ? idStr.slice(slash + 1) : "";
+        const badWinName = !dirName || dirName === "." || dirName === ".." || /[<>:"/\\|?*\x00-\x1f]/.test(dirName) || /[ .]$/.test(dirName) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(dirName);
+        if (!/^\d+$/.test(idxStr) || badWinName) return err(res, 400, "没有这一项");
+        const list = state.creatingLeftovers || [], k = list.findIndex(x => x.id === idStr);
+        if (k < 0) return err(res, 400, "找不到这个文件夹");
+        const item = list[k];
+        if (item.creating) return err(res, 409, "这个文件夹正在创建服务器，暂时不能删除");
+        if (item.registered) return err(res, 409, "这个文件夹已经是列表里的服务器，没有删除");
+        if (item.adopted) return err(res, 409, "这个文件夹已经是接管登记的服务器，没有删除");
+        if (item.hasInstanceJson) return err(res, 409, "这个文件夹已经是服务器，没有删除");
+        if (item.writing) return err(res, 409, "这个文件夹正在写入服务器配置，暂时不能删除");
         list.splice(k, 1);
-        return ok(res, { id: b.id, removed: true });
+        return ok(res, { removed: idStr });
       }
       if (p === "/api/javas/scan") return ok(res, [1, 2]);
       if (p === "/api/pickdir") return ok(res, { path: state.pickDir ?? "E:\\MCServers" }); // pickDir 见 /__mock/state 的说明（空串 = 点了取消）

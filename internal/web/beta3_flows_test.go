@@ -72,4 +72,33 @@ func TestInstPendingRoutes(t *testing.T) {
 	if b, err := os.ReadFile(filepath.Join(dir, "导入待决清单.txt")); err != nil || !strings.Contains(string(b), "【已跳过】mods/a.jar") {
 		t.Fatalf("给人看的那份跟着更新：%v %s", err, b)
 	}
+
+	// 真 HTTP 路由上校验单批上限（readJSON + 操作层 pendingResolveMax）：501 项在两个待决处置接口上都以 400 拒绝，500 项不被上限拦住
+	batchBody := func(n int) string {
+		type act struct {
+			ID  string `json:"id"`
+			Act string `json:"act"`
+		}
+		items := make([]act, n)
+		for i := range items {
+			items[i] = act{ID: "missing", Act: "skip"}
+		}
+		b, err := json.Marshal(struct {
+			Items []act `json:"items"`
+		}{Items: items})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	for _, route := range []string{ip + "/import-pending", "/api/import/pending/task-no-such"} {
+		rec501 := e.call(t, "POST", route, batchBody(501), 400)
+		if !strings.Contains(rec501.Body.String(), "最多 500 项") {
+			t.Fatalf("%s 提交 501 项应报「最多 500 项」：%s", route, rec501.Body)
+		}
+	}
+	rec500 := e.call(t, "POST", ip+"/import-pending", batchBody(500), 200)
+	if strings.Contains(rec500.Body.String(), "最多 500 项") {
+		t.Fatalf("提交 500 项不应被单批上限拒绝：%s", rec500.Body)
+	}
 }

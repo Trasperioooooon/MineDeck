@@ -10,9 +10,13 @@ const url = hash => ORIGIN + "?n=" + (++n) + hash;
 const results = [];
 
 async function run(name, fn) {
-  if (ONLY && !ONLY.test(name)) return;
-  try { await fn(); results.push(["PASS", name]); }
-  catch (e) { results.push(["FAIL", name, e.message.split("\n")[0]]); }
+  const isPageErrCheck = name === "全程无页面报错";
+  if (ONLY && !ONLY.test(name) && !(isPageErrCheck && results.length > 0)) return;
+  let rec;
+  try { await fn(); rec = ["PASS", name]; }
+  catch (e) { rec = ["FAIL", name, e.message.split("\n")[0]]; }
+  results.push(rec);
+  console.log(rec.join("  "));
 }
 const assert = (c, msg) => { if (!c) throw new Error(msg); };
 
@@ -42,20 +46,26 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ empty: false, onboarded: true, taskStage: 2 }) }));
 
   await run("切页后不残留轮询（快速切换 6 次后，停在隧道页 6 秒内不再请求 /api/instances）", async () => {
-    await page.goto(url("#/instances")); await settle(600);
+    await page.goto(url("#/create"));
+    await page.waitForFunction(() => !!document.querySelector("#mode-new") && !!(document.getElementById("app-ver") && document.getElementById("app-ver").textContent));
     errors.length = 0;
-    // 每次切走都发生在上一视图的首个请求返回之前（mock 很快，故用 evaluate 同步连切）
+    // 从新建页连切 6 次到隧道页：每次切走都发生在上一视图的首个请求返回之前（mock 很快，故用 evaluate 同步连切）
     await page.evaluate(async () => {
       const hs = ["#/instances", "#/settings/java", "#/inst/" + encodeURIComponent("生存服 · 朋友") + "/console", "#/instances", "#/task/task-1", "#/tunnels"];
       for (const h of hs) { location.hash = h; await new Promise(r => setTimeout(r, 5)); }
     });
-    await settle(800);
+    // 等隧道页自己的首次渲染（含首轮 /api/instances、/api/tunnels 拉取和 startPoll 挂好）落定后，再开始 6 秒静默计时
+    await page.waitForFunction(() => {
+      const add = document.querySelector("#tn-add");
+      return !!document.querySelector("#tun-list [data-tun]") && !!(add && typeof add.onclick === "function");
+    });
+    await settle(150);
     const t0 = Date.now();
     await page.waitForTimeout(6000);
-    const inWin = reqs.filter(r => r.t >= t0);
-    const instReqs = inWin.filter(r => r.u === "/api/instances").length;
-    const taskReqs = inWin.filter(r => r.u.startsWith("/api/tasks/")).length;
-    const tunReqs = inWin.filter(r => r.u === "/api/tunnels").length;
+    const t1 = Date.now();
+    const instReqs = reqs.filter(r => r.t >= t0 && r.u === "/api/instances").length;
+    const taskReqs = reqs.filter(r => r.t >= t0 && r.u.startsWith("/api/tasks/")).length;
+    const tunReqs = reqs.filter(r => r.t >= t0 && r.t <= t1 + 200 && r.u === "/api/tunnels").length;
     assert(instReqs === 0 && taskReqs === 0, `残留轮询：/api/instances ${instReqs} 次、/api/tasks ${taskReqs} 次（隧道页本应只轮询 /api/tunnels）`);
     assert(tunReqs >= 1 && tunReqs <= 2, `/api/tunnels 轮询次数异常：${tunReqs}`);
     assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
@@ -559,8 +569,16 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   });
 
   await run("外观：强调色覆盖方案自带的强调色，「跟随方案」可还原", async () => {
-    await page.goto(url("#/settings/appearance")); await settle();
-    const theme = await page.evaluate(() => document.documentElement.dataset.theme);
+    // 单独跑本条时不靠上一条留下的 localStorage：显式从深色 + nord 方案 + 跟随方案起步
+    await page.evaluate(() => {
+      localStorage.setItem("amh_theme", "dark");
+      localStorage.setItem("amh_scheme", "nord");
+      localStorage.setItem("amh_accent", "auto");
+    });
+    await page.goto(url("#/settings/appearance"));
+    await page.waitForSelector('[data-accent-pick="violet"]');
+    const [theme, scheme] = await page.evaluate(() => [document.documentElement.dataset.theme, document.documentElement.dataset.scheme]);
+    assert(scheme === "nord", "初始配色方案应为 nord：" + scheme);
     await page.click('[data-accent-pick="violet"]'); await settle(200);
     const v = await cssVal(`[data-accent="violet"][data-theme="${theme}"]`, "--accent-solid");
     assert((await rootVar("--accent-solid")) === v, `覆盖未生效：${await rootVar("--accent-solid")} ≠ ${v}`);
@@ -8456,27 +8474,70 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
 
   await run("PR #31：半成品文件夹横幅与确认删除、便携 Java 卸载占用拦截与残留清理、超过 500 项分批提交与中途失败保进度、清单项目页白名单校验", async () => {
     try {
-      // 1) 半成品文件夹横幅：显示「世界文件」而非「存档」，取消不删，确认后删掉并隐藏横幅
+      // 1) 半成品文件夹横幅：局域网非本机会话隐藏横幅；本机显示「世界文件」而非「存档」，取消不删，409 冲突弹提示并恢复按钮，提交中按钮禁用防连点，成功后返回 { removed: id } 并隐藏横幅
       await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({
         instReset: true,
+        local: false,
         creatingLeftovers: [
-          { id: "0/half-srv", name: "half-srv", root: "D:\\MineDeck\\servers", hasWorld: true },
+          { id: "0/half-srv", name: "half-srv", root: "servers", hasWorld: true },
         ],
       }) }));
       await page.goto(url("#/instances")); await settle(500);
-      assert(await page.isVisible("#creating-left"), "有半成品时应露出横幅");
+      assert(await page.$eval("#creating-left", el => el.hidden), "局域网非本机会话不应显示半成品残留横幅");
+      assert(!(await toastHas("仅支持在本机操作", 300)), "局域网拉取半成品 403 时应静默隐藏横幅而不弹报错");
+
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ local: true }) }));
+      await page.goto(url("#/instances")); await settle(500);
+      assert(await page.isVisible("#creating-left"), "本机有半成品时应露出横幅");
       const leftTxt = await page.textContent("#creating-left");
-      assert(leftTxt.includes("half-srv") && leftTxt.includes("含世界文件") && !leftTxt.includes("存档"), "半成品横幅文案：" + leftTxt);
+      assert(leftTxt.includes("half-srv") && leftTxt.includes("含世界文件") && leftTxt.includes("位于「servers」") && !leftTxt.includes("存档"), "半成品横幅文案：" + leftTxt);
       await page.click('#creating-left [data-drop-left="0/half-srv"]'); await settle(200);
       const modalBody = await page.textContent(".modal");
       assert(modalBody.includes("世界文件会一起删掉") && !modalBody.includes("存档"), "确认框文案：" + modalBody);
       await page.click('.modal [data-x="cancel"]'); await settle(200);
       assert(await page.isVisible("#creating-left"), "取消确认不该删除");
+
+      // 半成品删除遇 409 冲突（该目录刚开始创建服务器）：提示原因、恢复按钮可点、横幅保留
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({
+        creatingLeftovers: [{ id: "0/half-srv", name: "half-srv", root: "servers", hasWorld: true, creating: true }],
+      }) }));
       await page.click('#creating-left [data-drop-left="0/half-srv"]'); await settle(200);
       await page.click('.modal [data-x="ok"]'); await settle(400);
+      assert((await toastHas("无法删除这个文件夹")) && (await toastHas("正在创建服务器")), "半成品 409 时应弹出原因提示");
+      assert(!(await page.$eval('#creating-left [data-drop-left="0/half-srv"]', b => b.disabled)) && await page.isVisible("#creating-left"), "半成品 409 后按钮应恢复可点且横幅仍在");
+
+      // 半成品正常删除：在途时按钮 disabled 防连点，返回 { removed: "0/half-srv" } 后隐藏横幅
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({
+        creatingLeftovers: [{ id: "0/half-srv", name: "half-srv", root: "servers", hasWorld: true }],
+      }) }));
+      let releaseDiscard, discardArrived;
+      const discardSeen = new Promise(r => { discardArrived = r; });
+      const discardGate = new Promise(r => { releaseDiscard = r; });
+      let discardRespData = null;
+      const holdDiscard = async route => {
+        if (route.request().method() !== "POST") return route.continue();
+        discardArrived();
+        await discardGate;
+        const resp = await route.fetch();
+        discardRespData = (await resp.json()).data;
+        return route.fulfill({ response: resp });
+      };
+      await page.route("**/api/creating-leftovers/discard", holdDiscard);
+      try {
+        await page.click('#creating-left [data-drop-left="0/half-srv"]'); await settle(200);
+        const clickOk = page.click('.modal [data-x="ok"]');
+        await discardSeen;
+        assert(await page.$eval('#creating-left [data-drop-left="0/half-srv"]', b => b.disabled), "删除请求在途时按钮应禁用防连点");
+        releaseDiscard();
+        await clickOk;
+        await settle(400);
+      } finally {
+        await page.unroute("**/api/creating-leftovers/discard", holdDiscard);
+      }
+      assert(discardRespData && discardRespData.removed === "0/half-srv" && Object.keys(discardRespData).length === 1, "删除接口返回字段应为 { removed: id }：" + JSON.stringify(discardRespData));
       assert(await page.$eval("#creating-left", el => el.hidden), "删除后横幅应隐藏");
 
-      // 2) 设置 → Java 运行时：服务器在用便携 Java 17 时回 409 拒绝；无服务器占用的便携 Java 8 可卸载；未完成残留可清理；局域网模式隐藏卸载按钮
+      // 2) 设置 → Java 运行时：服务器占用（409）与正在创建/导入（409）均提示并恢复按钮；卸载在途禁用防连点；未完成残留可清理；局域网隐藏按钮
       await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({
         portableJavas: [
           { major: 17, path: "D:\\MineDeck\\runtimes\\java-17\\bin\\java.exe" },
@@ -8487,11 +8548,39 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.goto(url("#/settings/java")); await settle(500);
       await page.click('[data-rm-java="17"]'); await settle(200);
       await page.click('.modal [data-x="ok"]'); await settle(400);
-      assert(await toastHas("机械动力整合包"), "被占用时应提示占用它的服务器名");
-      assert((await page.locator('[data-rm-java="17"]').count()) === 1, "被拒绝后按钮仍应可点且项还在");
+      assert((await toastHas("无法卸载便携 Java")) && (await toastHas("机械动力整合包")), "被服务器占用 409 时应提示占用它的服务器名");
+      assert((await page.locator('[data-rm-java="17"]').count()) === 1 && !(await page.$eval('[data-rm-java="17"]', b => b.disabled)), "被拒绝后按钮应恢复可点且项还在");
 
+      // 正在创建或导入服务器时卸载便携 Java 返回 409
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ creating: true }) }));
       await page.click('[data-rm-java="8"]'); await settle(200);
       await page.click('.modal [data-x="ok"]'); await settle(400);
+      assert((await toastHas("无法卸载便携 Java")) && (await toastHas("正在创建或导入")), "创建中卸载 Java 409 时应提示等任务结束");
+      assert((await page.locator('[data-rm-java="8"]').count()) === 1 && !(await page.$eval('[data-rm-java="8"]', b => b.disabled)), "409 后 Java 8 按钮应恢复可点");
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ creating: false }) }));
+
+      // 正常卸载便携 Java 8：请求在途时按钮禁用防连点
+      let releaseRmJava, rmJavaArrived;
+      const rmJavaSeen = new Promise(r => { rmJavaArrived = r; });
+      const rmJavaGate = new Promise(r => { releaseRmJava = r; });
+      const holdRmJava = async route => {
+        if (route.request().method() !== "POST") return route.continue();
+        rmJavaArrived();
+        await rmJavaGate;
+        return route.continue();
+      };
+      await page.route("**/api/javas/remove", holdRmJava);
+      try {
+        await page.click('[data-rm-java="8"]'); await settle(200);
+        const okClick = page.click('.modal [data-x="ok"]');
+        await rmJavaSeen;
+        assert(await page.$eval('[data-rm-java="8"]', b => b.disabled), "卸载请求在途时按钮应禁用防连点");
+        releaseRmJava();
+        await okClick;
+        await settle(400);
+      } finally {
+        await page.unroute("**/api/javas/remove", holdRmJava);
+      }
       assert((await page.locator('[data-rm-java="8"]').count()) === 0, "无人占用的便携 Java 8 应已卸载");
 
       assert((await page.textContent("main")).includes("便携 Java 11（残留）"), "未完成残留应在设置里可见");
@@ -8504,7 +8593,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert((await page.locator("[data-rm-java]").count()) === 0, "局域网非本机不应显示卸载便携 Java 按钮");
       await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ local: true }) }));
 
-      // 3) 没装上的文件：505 项分两批（500 + 5）；第二批若失败，第一批已处理的 500 项仍同步到界面，不会重回 505 项
+      // 3) 没装上的文件：505 项分两批（500 + 5），提交期间 #t-pending-apply 禁用防连点；第二批若失败，第一批已处理的 500 项仍同步到界面
       const items505 = Array.from({ length: 505 }, (_, k) => ({
         id: "b" + k, path: `mods/m${k}.jar`, reason: "host", host: "cdn.example.org",
         urls: [`https://cdn.example.org/m${k}.jar`], sha1: "0123456789abcdef0123456789abcdef01234567", options: ["local", "skip", "trust"],
@@ -8513,11 +8602,17 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         taskList: [{ id: "task-505", title: "导入整合包 505", ended: true, result: "机械动力整合包", pending: pnd }],
         trustedHosts: [],
       }) }), items505);
-      let postSizes = [], failSecond = true;
+      let postSizes = [], failSecond = true, releaseFirstBatch, firstBatchArrived;
+      const firstBatchSeen = new Promise(r => { firstBatchArrived = r; });
+      const firstBatchGate = new Promise(r => { releaseFirstBatch = r; });
       const batchRoute = async route => {
         if (route.request().method() !== "POST") return route.continue();
         const body = JSON.parse(route.request().postData() || "{}");
         postSizes.push((body.items || []).length);
+        if (failSecond && postSizes.length === 1) {
+          firstBatchArrived();
+          await firstBatchGate;
+        }
         if (failSecond && postSizes.length === 2) {
           return route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ ok: false, error: "模拟第二批网络中断" }) });
         }
@@ -8528,10 +8623,16 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         await page.goto(url("#/task/task-505")); await settle(700);
         await page.click("#pnd-trust-all"); await settle(200);
         await page.click("#pnd-ack-all"); await settle(200);
-        await page.click("#t-pending-apply"); await settle(900);
+        const applyClick = page.click("#t-pending-apply");
+        await firstBatchSeen;
+        assert(await page.$eval("#t-pending-apply", b => b.disabled), "分批提交在途时应用按钮应禁用防连点");
+        releaseFirstBatch();
+        await applyClick;
+        await settle(900);
         assert(JSON.stringify(postSizes) === JSON.stringify([500, 5]), "505 项应按 500+5 分批提交：" + JSON.stringify(postSizes));
         const remainAfterFail = await page.$$eval("#t-pending .pnd-item", els => els.length);
         assert(remainAfterFail === 5, "第二批失败时第一批的 500 项应已从待处理移除，只剩 5 项：" + remainAfterFail);
+        assert(!(await page.$eval("#t-pending-apply", b => b.disabled)), "分批提交失败结束后应用按钮应恢复可点以便重试");
 
         // 重试剩下的 5 项（同域名已在第一批记住，重新选上即可完成）
         failSecond = false; postSizes = [];
@@ -8602,8 +8703,11 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
 
   await browser.close();
   await mock.close();
-  for (const r of results) console.log(r.join("  "));
   const fails = results.filter(r => r[0] === "FAIL").length;
+  if (fails) {
+    console.log("\n--- 失败汇总 ---");
+    for (const r of results) if (r[0] === "FAIL") console.log(r.join("  "));
+  }
   console.log(`\n${results.length - fails}/${results.length} passed`);
   process.exit(fails ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(2); });
