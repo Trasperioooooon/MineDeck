@@ -117,13 +117,23 @@ func TestCopyAndValidationFailureKeepOriginal(t *testing.T) {
 
 func TestPathLocksNormalizeAndCancel(t *testing.T) {
 	dir := t.TempDir()
-	p := filepath.Join(dir, "target")
+	const fileName = "target-with-a-long-name.txt"
+	p := filepath.Join(dir, fileName)
 	if err := os.WriteFile(p, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	abs, _ := filepath.Abs(p)
-	// 大小写不同、带 \\?\ 前缀（filepath.Clean 不会去掉前缀，要靠系统句柄路径归一）、以及未预先 Clean 的 .. 写法，都应落到同一把锁
-	for _, alias := range []string{strings.ToUpper(abs), `\\?\` + abs, dir + `\unused\..\target`} {
+	// 大小写不同、带 \\?\ 前缀（filepath.Clean 不会去掉前缀，要靠系统句柄路径归一）、未预先 Clean 的 .. 写法，以及 8.3 短名，都应落到同一把锁
+	aliases := []string{strings.ToUpper(abs), `\\?\` + abs, dir + `\unused\..\` + fileName}
+	if short, ok := shortName(abs); ok && !strings.EqualFold(short, abs) {
+		aliases = append(aliases, short)
+	} else {
+		t.Log("这个卷没有给出不同的 8.3 短名，跳过短名一项")
+	}
+	for _, alias := range aliases {
+		if alias == p {
+			t.Fatalf("别名和原路径完全相同，没有测到路径归一：%q", alias)
+		}
 		release := LockPath(p)
 		ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
 		got, err := LockPathContext(ctx, alias)
@@ -217,7 +227,7 @@ func TestFileSymlinkReplacementKeepsQueuedWritersTogether(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(referent, entry); err != nil {
-		if errors.Is(err, windows.ERROR_PRIVILEGE_NOT_HELD) {
+		if os.Getenv("CI") == "" && errors.Is(err, windows.ERROR_PRIVILEGE_NOT_HELD) {
 			t.Skipf("无法执行真实文件symlink用例：账户没有创建符号链接权限：%v", err)
 		}
 		t.Fatal(err)

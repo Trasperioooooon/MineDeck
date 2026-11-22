@@ -5,14 +5,17 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 
 	"minedeck/internal/app"
@@ -349,7 +352,10 @@ func TestNatfrpSkipsDanglingLink(t *testing.T) {
 	writeFile(t, good, fakeFrpcExe())
 	link := filepath.Join(dir, "frpc.exe")
 	if err := os.Symlink(filepath.Join(dir, "已经不在了.exe"), link); err != nil {
-		t.Skipf("建不了符号链接（Windows 上要开发者模式或管理员）：%v", err)
+		if os.Getenv("CI") == "" && runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(1314)) {
+			t.Skipf("建不了符号链接（Windows 上要开发者模式或管理员）：%v", err)
+		}
+		t.Fatalf("建符号链接失败：%v", err)
 	}
 	got, err := (natfrpProvider{}).EnsureFrpc(procutil.NewConsole())
 	if err != nil || got != good {

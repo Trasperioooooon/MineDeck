@@ -29,11 +29,16 @@ func junction(t *testing.T, link, target string) {
 	t.Cleanup(func() { _ = os.Remove(link) })
 }
 
-// symlinkOrSkip 建一个 link 指向 target 的符号链接；没权限时跳过这条用例，别的失败直接判失败。
+// canSkipSymlink 本机没开开发者模式且非管理员时允许跳过符号链接用例；CI 上一律不跳过，防止权限退化后静默漏跑。
+func canSkipSymlink(err error) bool {
+	return os.Getenv("CI") == "" && symlinkUnprivileged(err)
+}
+
+// symlinkOrSkip 建一个 link 指向 target 的符号链接；本机没权限时跳过这条用例，CI 上或别的失败直接判失败。
 func symlinkOrSkip(t *testing.T, target, link string) {
 	t.Helper()
 	if err := os.Symlink(target, link); err != nil {
-		if symlinkUnprivileged(err) {
+		if canSkipSymlink(err) {
 			t.Skipf("建不了符号链接（要开发者模式或管理员）：%v", err)
 		}
 		t.Fatalf("建符号链接失败：%v", err)

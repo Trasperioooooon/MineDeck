@@ -1,11 +1,13 @@
 package inst
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 
 	"minedeck/internal/app"
@@ -97,10 +99,16 @@ func TestCreatingLeftoverSkipsBusyAndLink(t *testing.T) {
 	}
 	link := filepath.Join(root, "link")
 	if err := os.Symlink(outside, link); err != nil {
-		t.Skip("这个环境建不了符号链接：" + err.Error())
+		if os.Getenv("CI") == "" && runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(1314)) {
+			t.Skip("这个环境建不了符号链接：" + err.Error())
+		}
+		t.Fatalf("建符号链接失败：%v", err)
 	}
 	if st, err := os.Lstat(link); err != nil || st.Mode()&os.ModeSymlink == 0 {
-		t.Skip("这个环境的符号链接读不出来（Wine 常见）")
+		if os.Getenv("CI") == "" {
+			t.Skip("这个环境的符号链接读不出来（Wine 常见）")
+		}
+		t.Fatalf("符号链接读不出来：%v %v", st, err)
 	}
 	if err := os.WriteFile(filepath.Join(outside, CreatingMarker), []byte("x\n"), 0o644); err != nil {
 		t.Fatal(err)

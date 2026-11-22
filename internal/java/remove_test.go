@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"minedeck/internal/app"
@@ -73,10 +74,16 @@ func TestRemovePortableRefusesInUseAndSymlink(t *testing.T) {
 	}
 	outside := t.TempDir()
 	if err := os.Symlink(outside, dir); err != nil {
-		t.Skip("这个环境建不了符号链接，真 Windows 上有权限时应拒绝删除链接：" + err.Error())
+		if os.Getenv("CI") == "" && runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(1314)) {
+			t.Skip("这个环境建不了符号链接，真 Windows 上有权限时应拒绝删除链接：" + err.Error())
+		}
+		t.Fatalf("建符号链接失败：%v", err)
 	}
 	if st, err := os.Lstat(dir); err != nil || st.Mode()&os.ModeSymlink == 0 {
-		t.Skip("这个环境的符号链接读不出来（Wine 常见），不把读不到当成已经删掉")
+		if os.Getenv("CI") == "" {
+			t.Skip("这个环境的符号链接读不出来（Wine 常见），不把读不到当成已经删掉")
+		}
+		t.Fatalf("符号链接读不出来：%v %v", st, err)
 	}
 	target := filepath.Join(outside, "keep.txt")
 	if err := os.WriteFile(target, []byte("keep"), 0o644); err != nil {
