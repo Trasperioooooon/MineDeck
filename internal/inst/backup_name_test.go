@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"minedeck/internal/atomicfile"
+	"minedeck/internal/tmpsweep"
 )
 
 // 备份文件的名字靠时间区分。时钟没往前走（Windows 的时钟一跳可以有十几毫秒，极小的世界一次备份比这还快）时接连备份两次、
@@ -214,5 +215,62 @@ func TestBackupPublishNoPlaceholderAndUsesStartTime(t *testing.T) {
 	wantName := start.Format("20060102-150405.000000000") + "-check.zip"
 	if gotName != wantName {
 		t.Fatalf("备份文件名应使用压缩开始前的时间：got=%q want=%q", gotName, wantName)
+	}
+}
+
+// A18.1：新建备份与 zipDirs 打包时的临时文件统一用 .minedeck-backup-<数字>.tmp，与 tmpsweep.IsOurs 对齐。
+func TestBackupTempFileNameMatchesTmpsweep(t *testing.T) {
+	m, dir := tempInstance(t)
+	bdir := backupDirOf("s")
+
+	oldHook := atomicfile.Hook
+	t.Cleanup(func() { atomicfile.Hook = oldHook })
+
+	var sawCreateTemp string
+	atomicfile.Hook = func(p string) {
+		if filepath.Dir(p) != bdir {
+			return
+		}
+		ents, err := os.ReadDir(bdir)
+		if err != nil {
+			t.Errorf("读取备份目录失败：%v", err)
+			return
+		}
+		for _, e := range ents {
+			if strings.HasSuffix(e.Name(), ".tmp") {
+				sawCreateTemp = e.Name()
+			}
+		}
+	}
+
+	if _, err := m.CreateBackup("s", "tmpcheck"); err != nil {
+		t.Fatalf("CreateBackup 失败：%v", err)
+	}
+	if sawCreateTemp == "" {
+		t.Fatal("发布前未在备份目录里观察到 .tmp 临时文件")
+	}
+	if !strings.HasPrefix(sawCreateTemp, ".minedeck-backup-") || !tmpsweep.IsOurs(sawCreateTemp) {
+		t.Fatalf("CreateBackup 临时文件名 = %q，应以 .minedeck-backup- 开头且被 tmpsweep.IsOurs 识别", sawCreateTemp)
+	}
+
+	otherOut := t.TempDir()
+	var sawZipDirsTemp string
+	atomicfile.Hook = func(p string) {
+		if filepath.Dir(p) != otherOut {
+			return
+		}
+		ents, _ := os.ReadDir(otherOut)
+		for _, e := range ents {
+			if strings.HasSuffix(e.Name(), ".tmp") {
+				sawZipDirsTemp = e.Name()
+			}
+		}
+	}
+	if err := zipDirs(dir, []string{"world"}, filepath.Join(otherOut, "manual.zip")); err != nil {
+		t.Fatalf("zipDirs 失败：%v", err)
+	}
+	atomicfile.Hook = oldHook
+	if !strings.HasPrefix(sawZipDirsTemp, ".minedeck-backup-") || !tmpsweep.IsOurs(sawZipDirsTemp) {
+		t.Fatalf("zipDirs 临时文件名 = %q，应以 .minedeck-backup- 开头且被 tmpsweep.IsOurs 识别", sawZipDirsTemp)
 	}
 }

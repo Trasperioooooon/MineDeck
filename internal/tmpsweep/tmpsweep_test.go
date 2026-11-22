@@ -1,6 +1,7 @@
 package tmpsweep
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -8,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"minedeck/internal/app"
 )
 
 // 只认 MineDeck 自己起的那几种名字：前缀、一串数字、后缀都要对上。
@@ -18,6 +21,9 @@ func TestIsOurs(t *testing.T) {
 		".minedeck-copy-4081234567.copy":                true,
 		".minedeck-write-99.tmp":                        true,
 		".minedeck-unzip-123.part":                      true,
+		".minedeck-backup-123456.tmp":                   true,
+		".minedeck-backup-.tmp":                         false,
+		".minedeck-backup-abc.tmp":                      false,
 		".minedeck-download-.part":                      false, // 中间没有数字
 		".minedeck-download-abc.part":                   false,
 		".minedeck-download-12a4.part":                  false,
@@ -31,7 +37,7 @@ func TestIsOurs(t *testing.T) {
 		".minedeck-companion-install":                   false, // 别处用的名字，不是临时文件
 		".minedeck-bridge-operation":                    false,
 		".minedeck":                                     false,
-		".backup-123.tmp":                               false,
+		".backup-123.tmp":                               false, // 旧版备份临时名只在备份文件夹那一层认，不在通用名单里
 		"server.jar":                                    false,
 		"world.zip.part":                                false,
 		".minedeck-write-1234567890123456789012345.tmp": false, // 长得不像 CreateTemp 填的
@@ -135,11 +141,30 @@ func TestDir(t *testing.T) {
 	}
 }
 
-// 程序启动后那一遍清哪些地方：程序文件夹这一层、data、缓存、运行时，服务器文件夹的根上和 mods、plugins、config；
-// 世界文件夹里的、程序文件夹里别的子文件夹里的不翻。
+func writeJSONFile(t *testing.T, path string, v any) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// 程序启动后那一遍清哪些地方：程序文件夹这一层、data、缓存、运行时，每台服务器实际用的备份文件夹这一层，
+// 以及服务器文件夹内限制深度、跳过世界文件夹（含 level.dat 的文件夹）的各层；程序文件夹里别的未登记子文件夹不翻。
 func TestStartup(t *testing.T) {
 	base := t.TempDir()
 	srv, adopted := filepath.Join(base, "servers", "S1"), filepath.Join(t.TempDir(), "接管来的服")
+	writeJSONFile(t, filepath.Join(srv, "instance.json"), map[string]any{"name": "S1"})
+	writeJSONFile(t, filepath.Join(adopted, "instance.json"), map[string]any{"name": "接管服"})
+	put(t, filepath.Join(srv, "world", "level.dat"), 48*time.Hour)
+	put(t, filepath.Join(srv, "worlds", "skyblock", "level.dat"), 48*time.Hour)
+
 	const old = 48 * time.Hour
 	gone := []string{
 		filepath.Join(base, ".minedeck-write-1.tmp"),
@@ -151,19 +176,42 @@ func TestStartup(t *testing.T) {
 		filepath.Join(srv, ".minedeck-write-7.tmp"),
 		filepath.Join(srv, "mods", ".minedeck-copy-8.copy"),
 		filepath.Join(srv, "plugins", ".minedeck-download-9.download"),
+		filepath.Join(srv, "config", "fancymenu", "assets", ".minedeck-download-16.part"),
+		filepath.Join(srv, "kubejs", "server_scripts", ".minedeck-write-17.tmp"),
+		filepath.Join(srv, "resourcepacks", ".minedeck-download-18.part"),
+		filepath.Join(srv, ".minedeck", ".minedeck-write-19.tmp"),
 		filepath.Join(adopted, ".minedeck-download-10.part"),
 		filepath.Join(adopted, "config", ".minedeck-write-11.tmp"),
+		filepath.Join(adopted, "config", "paxi", "datapacks", ".minedeck-write-20.tmp"),
+		filepath.Join(base, "backups", "S1", ".minedeck-backup-21.tmp"),
+		filepath.Join(base, "backups", "S1", ".backup-22.tmp"),
+		filepath.Join(base, "backups", "接管服", ".minedeck-backup-23.tmp"),
 	}
 	stay := []string{
-		filepath.Join(srv, "world", "region", ".minedeck-write-12.tmp"), // 世界里的不翻
-		filepath.Join(srv, "mods", "sub", ".minedeck-copy-13.copy"),     // mods 只看一层
-		filepath.Join(base, "backups", "S1", ".minedeck-write-14.tmp"),  // 备份文件夹不在范围里
-		filepath.Join(base, "servers", ".minedeck-write-15.tmp"),        // 没登记的文件夹不管
+		filepath.Join(srv, "world", ".minedeck-write-12.tmp"),                               // 世界根（有 level.dat）不进
+		filepath.Join(srv, "world", "region", ".minedeck-write-120.tmp"),                    // 世界深层不翻
+		filepath.Join(srv, "worlds", "skyblock", "region", ".minedeck-download-121.part"),   // 子目录里的多世界（有 level.dat）也不进
+		filepath.Join(srv, "a", "b", "c", "d", "e", "f", "g", ".minedeck-download-13.part"), // 超过深度上限不进
+		filepath.Join(base, "backups", "未登记服", ".minedeck-backup-14.tmp"),                   // 没登记的服务器的备份文件夹不管
+		filepath.Join(base, "backups", "未登记服", ".backup-140.tmp"),                           // 同上
+		filepath.Join(base, "servers", ".minedeck-write-15.tmp"),                            // 没登记的文件夹不管
+		filepath.Join(srv, ".backup-24.tmp"),                                                // .backup-*.tmp 在备份文件夹外一律不动
+		filepath.Join(srv, "config", "fancymenu", ".backup-25.tmp"),                         // 同上
+		filepath.Join(base, ".backup-26.tmp"),                                               // 同上
 		filepath.Join(srv, "server.jar"),
 		filepath.Join(base, "config.json"),
 	}
 	for _, p := range append(append([]string{}, gone...), stay...) {
 		put(t, p, old)
+	}
+	short := func(p string) string {
+		if rel, err := filepath.Rel(base, p); err == nil && !strings.HasPrefix(rel, "..") {
+			return filepath.ToSlash(rel)
+		}
+		if rel, err := filepath.Rel(adopted, p); err == nil && !strings.HasPrefix(rel, "..") {
+			return "接管来的服/" + filepath.ToSlash(rel)
+		}
+		return filepath.Base(p)
 	}
 	res := Startup(base, filepath.Join(base, "cache"), filepath.Join(base, "runtimes"), []string{srv, adopted}, time.Hour)
 	if res.Files != len(gone) {
@@ -171,12 +219,171 @@ func TestStartup(t *testing.T) {
 	}
 	for _, p := range gone {
 		if exists(p) {
-			t.Errorf("应清掉：%s", p)
+			t.Errorf("应清掉：%s", short(p))
 		}
 	}
 	for _, p := range stay {
 		if !exists(p) {
-			t.Errorf("不该动：%s", p)
+			t.Errorf("不该动：%s", short(p))
+		}
+	}
+}
+
+// A18.1：备份存放位置改到程序文件夹以外（含曾用旧备份根）、实例目录名与显示名不同（如中文服名）时，
+// 只清每台服务器实际用的备份文件夹这一层，且旧版 .backup-<全数字>.tmp 严格按名字、位置和修改时间清。
+func TestStartupBackupDirsStrictRules(t *testing.T) {
+	base := t.TempDir()
+	customRoot := filepath.Join(t.TempDir(), "自定义备份根")
+	oldRoot := filepath.Join(t.TempDir(), "旧备份根")
+	writeJSONFile(t, filepath.Join(base, "config.json"), map[string]any{
+		"source":      "auto",
+		"backupsDir":  customRoot,
+		"backupRoots": []string{oldRoot},
+	})
+
+	// 中文名服务器的文件夹名是 server-xxx，但备份文件夹按 instance.json 的 name 建在「生存服」下
+	srv := filepath.Join(base, "servers", "server-20261122-120000")
+	writeJSONFile(t, filepath.Join(srv, "instance.json"), map[string]any{"name": "生存服"})
+
+	curBk := filepath.Join(customRoot, "生存服")
+	oldBk := filepath.Join(oldRoot, "生存服")
+	defBk := filepath.Join(base, "backups", "生存服")
+
+	const stale = 48 * time.Hour
+	gone := []string{
+		filepath.Join(curBk, ".minedeck-backup-1001.tmp"),
+		filepath.Join(curBk, ".backup-1002.tmp"),
+		filepath.Join(oldBk, ".backup-1003.tmp"),
+		filepath.Join(defBk, ".minedeck-backup-1004.tmp"),
+	}
+	for _, p := range gone {
+		put(t, p, stale)
+	}
+
+	// 刚写的不清（< 1 小时）
+	fresh := []string{
+		filepath.Join(curBk, ".backup-2001.tmp"),
+		filepath.Join(curBk, ".minedeck-backup-2002.tmp"),
+	}
+	for _, p := range fresh {
+		put(t, p, time.Minute)
+	}
+
+	// 子文件夹里的不清、名字不严格匹配的不清、别处的 .backup-*.tmp 不清、真实备份 zip 不清
+	stay := []string{
+		filepath.Join(curBk, "sub", ".backup-1.tmp"),                            // 子文件夹里的 .backup-1.tmp 不清
+		filepath.Join(curBk, "sub", ".minedeck-backup-1.tmp"),                   // 子文件夹里的 .minedeck-backup-1.tmp 也不清（只看这一层）
+		filepath.Join(curBk, ".backup-abc.tmp"),                                 // 非全数字不清
+		filepath.Join(curBk, ".backup-.tmp"),                                    // 空随机段不清
+		filepath.Join(curBk, ".backup-12a3.tmp"),                                // 混入字母不清
+		filepath.Join(curBk, ".backup-123.tmp.bak"),                             // 多后缀不清
+		filepath.Join(curBk, "my.backup-123.tmp"),                               // 前面多字不清
+		filepath.Join(curBk, "20261122-120000-日常.zip"),                          // 正式备份文件不动
+		filepath.Join(customRoot, ".backup-3001.tmp"),                           // 备份根顶层不动
+		filepath.Join(customRoot, "server-20261122-120000", ".backup-3002.tmp"), // 按目录名而非实例名的旁路文件夹不动
+		filepath.Join(base, "cache", ".backup-3003.tmp"),                        // 缓存目录里的 .backup-*.tmp 不动
+		filepath.Join(srv, "mods", ".backup-3004.tmp"),                          // 服务器目录里的 .backup-*.tmp 不动
+	}
+	for _, p := range stay {
+		put(t, p, stale)
+	}
+
+	label := func(p string) string {
+		for _, pair := range []struct{ root, tag string }{
+			{customRoot, "<customRoot>"},
+			{oldRoot, "<oldRoot>"},
+			{base, "<base>"},
+		} {
+			if rel, err := filepath.Rel(pair.root, p); err == nil && !strings.HasPrefix(rel, "..") {
+				return pair.tag + "/" + filepath.ToSlash(rel)
+			}
+		}
+		return filepath.Base(p)
+	}
+
+	res := Startup(base, filepath.Join(base, "cache"), filepath.Join(base, "runtimes"), []string{srv}, time.Hour)
+	if res.Files != len(gone) {
+		t.Errorf("清了 %d 个，应为 %d 个", res.Files, len(gone))
+	}
+	for _, p := range gone {
+		if exists(p) {
+			t.Errorf("应清掉：%s", label(p))
+		}
+	}
+	for _, p := range append(fresh, stay...) {
+		if !exists(p) {
+			t.Errorf("不该动：%s", label(p))
+		}
+	}
+
+	// 与 app 全局配置联动（app.Base == base 时走 app.AllBackupRoots）
+	t.Run("app配置联动", func(t *testing.T) {
+		b2 := t.TempDir()
+		extBk := filepath.Join(t.TempDir(), "ext-backups")
+		oldAppBase, oldAppBk := app.Base, app.BackupsDir
+		oldCfgBk, oldCfgRoots := app.GetConfig().BackupsDir, append([]string(nil), app.GetConfig().BackupRoots...)
+		t.Cleanup(func() {
+			// 先在临时目录 b2 下把内存里的配置还原，再恢复 app.Base（否则 app.Base 为空时会把 config.json 写到包目录里）
+			_, _ = app.UpdateConfig(func(c *app.Config) error {
+				c.BackupsDir, c.BackupRoots = oldCfgBk, oldCfgRoots
+				return nil
+			})
+			app.Base, app.BackupsDir = oldAppBase, oldAppBk
+		})
+		app.Base = b2
+		app.BackupsDir = filepath.Join(b2, "backups")
+		if _, err := app.UpdateConfig(func(c *app.Config) error {
+			c.BackupsDir = extBk
+			c.BackupRoots = nil
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		s2 := filepath.Join(b2, "servers", "s2")
+		writeJSONFile(t, filepath.Join(s2, "instance.json"), map[string]any{"name": "服二"})
+		target := filepath.Join(extBk, "服二", ".backup-888.tmp")
+		put(t, target, stale)
+		if r := Startup(b2, filepath.Join(b2, "cache"), filepath.Join(b2, "runtimes"), []string{s2}, time.Hour); r.Files != 1 || exists(target) {
+			t.Fatalf("经 app.UpdateConfig 设置的外部备份目录应被清理：%+v exists=%v", r, exists(target))
+		}
+	})
+}
+
+// A21：用户自己起 .minedeck- 开头的正常文件名（以及同前后缀但中间不是纯数字的名字）一律不会被清。
+func TestUserNamedMinedeckFilesKept(t *testing.T) {
+	base := t.TempDir()
+	srv := filepath.Join(base, "servers", "S1")
+	writeJSONFile(t, filepath.Join(srv, "instance.json"), map[string]any{"name": "S1"})
+	bk := filepath.Join(base, "backups", "S1")
+
+	userNames := []string{
+		".minedeck-我的备份.zip",
+		".minedeck-notes.txt",
+		".minedeck-backup-20261122.zip",
+		".minedeck-write-notes.tmp",
+		".minedeck-backup-手动留底.tmp",
+		".minedeck-download-modpack.part",
+	}
+	var allPaths []string
+	for _, name := range userNames {
+		if IsOurs(name) {
+			t.Errorf("IsOurs(%q) = true，用户起的名字不应算临时文件", name)
+		}
+		for _, dir := range []string{base, srv, filepath.Join(srv, "mods"), filepath.Join(srv, "config", "mymod"), bk} {
+			p := filepath.Join(dir, name)
+			put(t, p, 48*time.Hour)
+			allPaths = append(allPaths, p)
+		}
+	}
+
+	res := Startup(base, filepath.Join(base, "cache"), filepath.Join(base, "runtimes"), []string{srv}, time.Hour)
+	if res.Files != 0 {
+		t.Errorf("用户自己起的 .minedeck-* 文件一个都不该删，实际删了 %d 个", res.Files)
+	}
+	for _, p := range allPaths {
+		if !exists(p) {
+			rel, _ := filepath.Rel(base, p)
+			t.Errorf("用户文件被误删：%s", filepath.ToSlash(rel))
 		}
 	}
 }
@@ -212,6 +419,31 @@ func TestTreeStaysInside(t *testing.T) {
 	}
 	if res := Tree(filepath.Join(root, "link"), 2, time.Hour); res.Files != 0 || !exists(theirs) {
 		t.Fatalf("从目录联接开始的树也不该清：%+v", res)
+	}
+
+	// 服务器深层子文件夹、服务器的备份文件夹若是目录联接，Startup 也一律不走进去删
+	theirsLegacy := filepath.Join(outside, ".backup-789.tmp")
+	put(t, theirsLegacy, 48*time.Hour)
+	srv := filepath.Join(base, "servers", "S1")
+	writeJSONFile(t, filepath.Join(srv, "instance.json"), map[string]any{"name": "S1"})
+	if err := os.MkdirAll(filepath.Join(srv, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	srvLink := filepath.Join(srv, "config", "shared")
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", srvLink, outside).CombinedOutput(); err != nil {
+		t.Fatalf("建不了服务器子目录联接：%v %s", err, out)
+	}
+	t.Cleanup(func() { _ = os.Remove(srvLink) })
+	if err := os.MkdirAll(filepath.Join(base, "backups"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bkLink := filepath.Join(base, "backups", "S1")
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", bkLink, outside).CombinedOutput(); err != nil {
+		t.Fatalf("建不了备份目录联接：%v %s", err, out)
+	}
+	t.Cleanup(func() { _ = os.Remove(bkLink) })
+	if res := Startup(base, filepath.Join(base, "cache"), filepath.Join(base, "runtimes"), []string{srv}, time.Hour); res.Files != 0 || !exists(theirs) || !exists(theirsLegacy) {
+		t.Fatalf("Startup 不应穿过服务器子目录或备份目录的联接删外部文件：%+v", res)
 	}
 }
 

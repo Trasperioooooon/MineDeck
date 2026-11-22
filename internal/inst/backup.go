@@ -532,7 +532,7 @@ func zipDirsWith(baseDir string, dirs []string, dest string, lease *diskguard.Le
 }
 
 func writeBackupTemp(baseDir string, dirs []string, outDir string, lease *diskguard.Lease, verify func() error) (string, error) {
-	f, err := os.CreateTemp(outDir, ".backup-*.tmp")
+	f, err := os.CreateTemp(outDir, ".minedeck-backup-*.tmp")
 	if err != nil {
 		return "", err
 	}
