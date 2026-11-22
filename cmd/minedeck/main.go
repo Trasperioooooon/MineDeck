@@ -13,6 +13,8 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"minedeck/internal/app"
@@ -40,6 +42,16 @@ func main() {
 		os.Exit(runMCPBridge())
 	}
 	setDPIAware() // 高 DPI 屏清晰渲染：必须在任何窗口创建前声明 DPI 感知（解析命令行参数不建窗口，放在后面也一样）
+
+	// 同一个文件夹里只许同时开一份 MineDeck，避免两份进程互相覆盖配置和数据。
+	// 放在 -mcp 之后（stdio 桥本来就要和运行中的主程序并存）、app.Init 之前（被拦下的第二份不碰任何数据文件）。
+	if baseDir, err := exeBaseDir(); err == nil {
+		releaseInstance, ok := ensureSingleInstance(baseDir)
+		if !ok {
+			return
+		}
+		defer releaseInstance()
+	}
 
 	if err := app.Init(); err != nil {
 		fatal("初始化数据文件夹失败: " + err.Error())
@@ -168,6 +180,21 @@ func sweepStaleTemps(mgr *inst.Manager) {
 	if r := tmpsweep.Startup(app.Base, app.CacheDir, app.RuntimesDir, dirs, staleTempAge); r.Files > 0 {
 		log.Printf("清掉了 %d 个以前没写完留下的临时文件，共 %.1f MB", r.Files, float64(r.Bytes)/(1<<20))
 	}
+}
+
+func exeBaseDir() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	base := filepath.Dir(exe)
+	// 与 app.Init 对齐：go run 场景下可执行文件落在临时目录，退回工作目录
+	if strings.Contains(base, "go-build") || strings.HasPrefix(base, os.TempDir()) {
+		if wd, werr := os.Getwd(); werr == nil {
+			base = wd
+		}
+	}
+	return base, nil
 }
 
 func fatal(msg string) {
