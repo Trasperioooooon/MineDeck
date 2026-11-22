@@ -17,6 +17,7 @@ import (
 	"unicode"
 
 	"minedeck/internal/app"
+	"minedeck/internal/atomicfile"
 	"minedeck/internal/diskguard"
 	"minedeck/internal/dl"
 	"minedeck/internal/java"
@@ -1070,7 +1071,10 @@ func writeRunBat(i *Instance) error {
 	// 现代 Forge/NeoForge 同步维护 user_jvm_args.txt，便于手动使用官方 run.bat 的用户
 	if strings.HasPrefix(i.LaunchTarget, "args:") {
 		content := fmt.Sprintf("# MineDeck 生成\n-Xms%dM\n-Xmx%dM\n", i.XmsMB, i.XmxMB)
-		_ = os.WriteFile(filepath.Join(i.Dir, "user_jvm_args.txt"), []byte(content), 0o644)
+		_ = atomicfile.WriteProtected(filepath.Join(i.Dir, "user_jvm_args.txt"), []byte(content), 0o644)
 	}
-	return os.WriteFile(filepath.Join(i.Dir, "run.bat"), []byte(sb.String()), 0o644)
+	// 经临时文件刷盘后再原子替换（保留只读保护，用户设成只读时不强行覆盖）：
+	// 写到一半断电不会留下半截脚本；run.bat 若是同别台服共用的符号链接或硬链接，
+	// 替换的是这台服务器自己的目录项，不会把链接指向的那份共用文件一起改掉。
+	return atomicfile.WriteProtected(filepath.Join(i.Dir, "run.bat"), []byte(sb.String()), 0o644)
 }

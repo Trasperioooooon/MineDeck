@@ -74,3 +74,82 @@ func TestBackupNameDoesNotOverwriteExisting(t *testing.T) {
 		}
 	}
 }
+
+// A23.2：建备份文件时用 O_EXCL 占住名字。无论是备份前目录里已经预先有一份同名文件，
+// 还是跨进程在压缩期间先一步写入了同名备份，都不能把已有的那份盖掉，而应换一个时间重取或试满报错。
+func TestBackupExclDoesNotOverwritePreexistingOrConcurrent(t *testing.T) {
+	m, dir := tempInstance(t)
+	bdir := backupDirOf("s")
+	if err := os.MkdirAll(bdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t0 := time.Date(2026, 11, 22, 15, 0, 0, 100000000, time.Local)
+	t1 := t0.Add(time.Millisecond)
+	t2 := t0.Add(2 * time.Millisecond)
+
+	oldNow, oldTries, oldHook := backupNow, backupNameTries, backupHook
+	t.Cleanup(func() {
+		backupNow, backupNameTries, backupHook = oldNow, oldTries, oldHook
+	})
+	backupNameTries = 10
+
+	// 场景 1：目录里预先放好一份同名文件（t0），时钟第一次给 t0、第二次给 t1 -> 预先那份原封不动，新备份落在 t1。
+	preName := t0.Format("20060102-150405.000000000") + "-auto.zip"
+	prePath := filepath.Join(bdir, preName)
+	const preBytes = "preexisting-backup-from-other-tool"
+	if err := os.WriteFile(prePath, []byte(preBytes), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var seq atomic.Int32
+	backupNow = func() time.Time {
+		if seq.Add(1) == 1 {
+			return t0
+		}
+		return t1
+	}
+	gotName, err := m.CreateBackup("s", "auto")
+	if err != nil {
+		t.Fatalf("避开预先存在的同名文件后应成功：%v", err)
+	}
+	if gotName == preName {
+		t.Fatalf("新备份不应继续使用已被占住的名字 %s", gotName)
+	}
+	if got, _ := os.ReadFile(prePath); string(got) != preBytes {
+		t.Fatalf("预先存在的同名文件被盖掉了：%q", got)
+	}
+
+	// 场景 2：跨进程同时备份同一台服——本进程开始备份时 t2 还没人占，压缩途中（backupHook）另一进程先一步建好了 t2 的同名文件；
+	// 本进程落盘时必须靠 O_EXCL 发现名字已被占住，换下一个时间 t3 存，绝不覆盖另一进程刚写好的 t2。
+	raceName := t2.Format("20060102-150405.000000000") + "-auto.zip"
+	racePath := filepath.Join(bdir, raceName)
+	const otherProcBytes = "written-by-another-process-during-zip"
+	t3 := t2.Add(time.Millisecond)
+	var raceCalls atomic.Int32
+	hookFired := false
+	backupNow = func() time.Time {
+		// 另一进程写完之前时钟一直是 t2；本进程撞上 O_EXCL 重取时时钟走到 t3
+		if !hookFired || raceCalls.Add(1) == 1 {
+			return t2
+		}
+		return t3
+	}
+	backupHook = func() {
+		hookFired = true
+		if err := os.WriteFile(racePath, []byte(otherProcBytes), 0o644); err != nil {
+			t.Errorf("模拟另一进程写入同名备份失败：%v", err)
+		}
+	}
+	writeLevel(t, dir, "world-v2")
+	gotRace, err := m.CreateBackup("s", "auto")
+	backupHook = nil
+	if err != nil {
+		t.Fatalf("跨进程撞名后换时间重取应成功：%v", err)
+	}
+	if gotRace == raceName {
+		t.Fatalf("跨进程已先建好 %s，本进程不应仍用同名覆盖", raceName)
+	}
+	if got, _ := os.ReadFile(racePath); string(got) != otherProcBytes {
+		t.Fatalf("另一进程先建好的同名备份被覆盖了：got=%q want=%q", got, otherProcBytes)
+	}
+}

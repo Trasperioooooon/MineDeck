@@ -299,25 +299,6 @@ func (m *Manager) createBackupWith(i *Instance, label, spare string, lease *disk
 			}
 		}
 	}
-	// 备份文件的名字靠时间区分。Windows 的时钟一跳可以有十几毫秒，世界极小时一次备份比这还快：同一跳里接连两次备份
-	// （标签也一样）会算出同一个名字，后一份改名时把前一份盖掉。这个名字已经有文件了，就等时钟往前走了再取；
-	// 等了一阵还是撞（时钟不走了）就报错，不盖已有的备份（2026-11-16 复审记下的）。
-	var fname, dest string
-	for tries := 0; ; tries++ {
-		base := backupNow().Format("20060102-150405.000000000")
-		if label != "" {
-			base += "-" + sanitizeLabel(label)
-		}
-		fname = base + ".zip"
-		dest = filepath.Join(dir, fname)
-		if _, err := os.Lstat(dest); err != nil { // 没有这个名字的文件（或者看不了：照旧往下走，和以前一样）
-			break
-		}
-		if tries >= backupNameTries {
-			return "", fmt.Errorf("备份文件的名字和已有的一份撞上了（%s），这次没有备份，请再试一次", fname)
-		}
-		time.Sleep(time.Millisecond)
-	}
 	if backupHook != nil {
 		backupHook()
 	}
@@ -334,11 +315,16 @@ func (m *Manager) createBackupWith(i *Instance, label, spare string, lease *disk
 		}
 		return nil
 	}
-	if err := zipDirsWith(i.Dir, worlds, dest, lease, verify); err != nil {
+	fname, err := zipDirsExclusive(i.Dir, worlds, dir, label, lease, verify)
+	if err != nil {
 		// 压到一半读文件出错，多半是服务器这时正在停服或重启：存盘时会写临时文件再改名，列出来的文件转眼就不在了。
 		// 这种也按「服务器停止或重启过」报，定时备份会等它稳定下来再试；核对通过的才是真的读不了
 		if verr := verify(); verr != nil {
 			return "", verr
+		}
+		var dup *errBackupNameDup
+		if errors.As(err, &dup) {
+			return "", dup
 		}
 		return "", fmt.Errorf("压缩备份失败: %w", err)
 	}
@@ -479,6 +465,12 @@ func (i *Instance) waitConsole(substr string, timeout time.Duration) bool {
 	}
 }
 
+type errBackupNameDup struct{ fname string }
+
+func (e *errBackupNameDup) Error() string {
+	return fmt.Sprintf("备份文件的名字和已有的一份撞上了（%s），这次没有备份，请再试一次", e.fname)
+}
+
 // zipDirs 将 baseDir 下的若干子目录打包为 zip（跳过 session.lock）。
 func zipDirs(baseDir string, dirs []string, dest string) error {
 	lease, err := diskguard.Acquire(context.Background(), filepath.Dir(dest), diskguard.Options{AllowUnknown: true})
@@ -489,13 +481,61 @@ func zipDirs(baseDir string, dirs []string, dest string) error {
 	return zipDirsWith(baseDir, dirs, dest, lease, nil)
 }
 
+// zipDirsExclusive 先把世界压缩进临时文件并过完 verify，再用 O_EXCL 原子占住最终备份文件名后替换上去：
+// 同一进程同跳时钟、预先存在的同名文件，或跨进程在压缩期间同时备份同一台服时，都不会盖掉已有的备份。
+func zipDirsExclusive(baseDir string, dirs []string, outDir, label string, lease *diskguard.Lease, verify func() error) (string, error) {
+	tmp, err := writeBackupTemp(baseDir, dirs, outDir, lease, verify)
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(tmp)
+	for tries := 0; ; tries++ {
+		base := backupNow().Format("20060102-150405.000000000")
+		if label != "" {
+			base += "-" + sanitizeLabel(label)
+		}
+		fname := base + ".zip"
+		dest := filepath.Join(outDir, fname)
+		rf, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err == nil {
+			_ = rf.Close()
+			if rerr := atomicfile.Replace(tmp, dest); rerr != nil {
+				_ = os.Remove(dest)
+				return "", rerr
+			}
+			return fname, nil
+		}
+		if !errors.Is(err, fs.ErrExist) {
+			return "", err
+		}
+		if tries >= backupNameTries {
+			return "", &errBackupNameDup{fname: fname}
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func zipDirsWith(baseDir string, dirs []string, dest string, lease *diskguard.Lease, verify func() error) error {
-	f, err := os.CreateTemp(filepath.Dir(dest), ".backup-*.tmp")
+	tmp, err := writeBackupTemp(baseDir, dirs, filepath.Dir(dest), lease, verify)
 	if err != nil {
 		return err
 	}
-	tmp := f.Name()
 	defer os.Remove(tmp)
+	return atomicfile.Replace(tmp, dest)
+}
+
+func writeBackupTemp(baseDir string, dirs []string, outDir string, lease *diskguard.Lease, verify func() error) (string, error) {
+	f, err := os.CreateTemp(outDir, ".backup-*.tmp")
+	if err != nil {
+		return "", err
+	}
+	tmp := f.Name()
+	ok := false
+	defer func() {
+		if !ok {
+			_ = os.Remove(tmp)
+		}
+	}()
 	zw := zip.NewWriter(lease.Writer(f))
 	var werr error
 	for _, d := range dirs {
@@ -534,14 +574,15 @@ func zipDirsWith(baseDir string, dirs []string, dest string, lease *diskguard.Le
 		werr = cerr
 	}
 	if werr != nil {
-		return werr
+		return "", werr
 	}
 	if verify != nil {
 		if err := verify(); err != nil {
-			return err
+			return "", err
 		}
 	}
-	return atomicfile.Replace(tmp, dest)
+	ok = true
+	return tmp, nil
 }
 
 // unzipTo 解压 zip 至目录（zip-slip 防护）。
