@@ -37,13 +37,17 @@ var kinds = []struct{ prefix, suffix string }{
 	{".minedeck-backup-", ".tmp"},        // 世界备份压缩包
 }
 
+// maxTempDigits os.CreateTemp 生成的随机段是 uint32 的十进制（0～4294967295，见标准库 os/tempfile.go 的 nextRandom），最多 10 位。
+// 11 位及以上的数字串（例如 14 位时间戳）MineDeck 自己起不出来，按保守原则一律不认。
+const maxTempDigits = 10
+
 func matchTempDigits(name, prefix, suffix string) bool {
 	mid, ok := strings.CutPrefix(name, prefix)
 	if !ok {
 		return false
 	}
 	mid, ok = strings.CutSuffix(mid, suffix)
-	if !ok || mid == "" || len(mid) > 24 {
+	if !ok || mid == "" || len(mid) > maxTempDigits {
 		return false
 	}
 	return strings.Trim(mid, "0123456789") == ""
