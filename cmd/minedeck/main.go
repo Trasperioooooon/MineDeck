@@ -46,9 +46,9 @@ func main() {
 	// 同一个文件夹里只许同时开一份 MineDeck，避免两份进程互相覆盖配置和数据。
 	// 放在 -mcp 之后（stdio 桥本来就要和运行中的主程序并存）、app.Init 之前（被拦下的第二份不碰任何数据文件）。
 	if baseDir, err := exeBaseDir(); err == nil {
-		releaseInstance, ok := ensureSingleInstance(baseDir)
+		releaseInstance, ok := ensureSingleInstance(baseDir, *nogui || *minimized)
 		if !ok {
-			return
+			os.Exit(1)
 		}
 		defer releaseInstance()
 	}

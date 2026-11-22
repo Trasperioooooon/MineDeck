@@ -3,7 +3,10 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
+	"io"
 	"log"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -15,7 +18,7 @@ import (
 )
 
 const (
-	alreadyRunningMsg = "这个文件夹里的 MineDeck 已经开着了"
+	alreadyRunningMsg = "这个文件夹里的 MineDeck 已经开着了。如果刚关掉它，等几秒再打开。"
 
 	_MB_OK              = 0x00000000
 	_MB_ICONINFORMATION = 0x00000040
@@ -25,10 +28,11 @@ const (
 var (
 	pMessageBox = user32t.NewProc("MessageBoxW")
 
-	// 测试里替换：互斥量名字算法、占住时最多等多久（程序内更新换 exe 后重启时旧进程可能还没退干净，默认等 10 秒）、以及提示框。
+	// 测试里替换：互斥量名字算法、占住时最多等多久（默认等 3 秒，兜住刚从托盘退出马上又双击时的收尾）、提示框及标准错误输出。
 	singleInstanceMutexName = defaultSingleInstanceMutexName
-	singleInstanceWait      = 10 * time.Second
+	singleInstanceWait      = 3 * time.Second
 	singleInstanceAlert     = showSingleInstanceBox
+	singleInstanceStderr    = io.Writer(os.Stderr)
 )
 
 // defaultSingleInstanceMutexName 按程序所在文件夹算命名互斥量名：先解开联接和短名再统一大写取 SHA-256，
@@ -54,15 +58,19 @@ func showSingleInstanceBox(msg string) {
 	pMessageBox.Call(0, uintptr(unsafe.Pointer(text)), uintptr(unsafe.Pointer(title)), _MB_OK|_MB_ICONINFORMATION|_MB_SETFOREGROUND)
 }
 
-// ensureSingleInstance 尝试占住 dir 对应的单实例互斥量；拿不到且等满超时后弹系统提示框并返回 ok=false。
-func ensureSingleInstance(dir string) (release func(), ok bool) {
+// ensureSingleInstance 尝试占住 dir 对应的单实例互斥量；拿不到且等满超时后写标准错误并返回 ok=false。
+// quiet 为 true（带 -nogui 或 -minimized，如无人值守脚本、计划任务、开机自启）时不弹系统提示框，避免无人点击挂起或打扰。
+func ensureSingleInstance(dir string, quiet bool) (release func(), ok bool) {
 	rel, acquired, err := acquireSingleInstance(dir)
 	if err != nil {
 		log.Println("单实例检查创建互斥量失败，继续启动:", err)
 		return func() {}, true
 	}
 	if !acquired {
-		singleInstanceAlert(alreadyRunningMsg)
+		_, _ = fmt.Fprintln(singleInstanceStderr, alreadyRunningMsg)
+		if !quiet {
+			singleInstanceAlert(alreadyRunningMsg)
+		}
 		return nil, false
 	}
 	return rel, true

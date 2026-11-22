@@ -2,4 +2,4 @@
 
 package main
 
-func ensureSingleInstance(string) (func(), bool) { return func() {}, true }
+func ensureSingleInstance(string, bool) (func(), bool) { return func() {}, true }
