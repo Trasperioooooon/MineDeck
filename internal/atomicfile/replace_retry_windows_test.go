@@ -1,6 +1,7 @@
 package atomicfile
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"os"
@@ -321,6 +322,228 @@ func TestReadOnlyTargetIsNotRetried(t *testing.T) {
 		t.Errorf("内容：%q", got)
 	}
 	assertNoTemps(t, dir)
+}
+
+// A19.1：只读目标被独占句柄短暂占着，过一会儿放开：退路按同一张间隔表重试，最终换上新内容且保持只读属性。
+func TestReadOnlyTargetRetriesUntilReleased(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "server.properties")
+	if err := os.WriteFile(p, []byte("old"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(p, 0o644) })
+
+	o := hold(t, p, windows.GENERIC_READ, 0, 0) // 独占句柄占住只读目标
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		time.Sleep(30 * time.Millisecond)
+		o.release()
+	}()
+	err := Write(p, []byte("new"), 0o644)
+	<-done
+	if err != nil {
+		t.Fatalf("只读目标短暂被独占后放开，保存应当成功：%v", err)
+	}
+	if got, _ := os.ReadFile(p); string(got) != "new" {
+		t.Fatalf("保存后的内容 = %q，应为 \"new\"", got)
+	}
+	assertNoTemps(t, dir)
+
+	// 钩子确定性校验：第 2 次重试放开时恰好重试 2 次；非占用错误（如临时文件不存在）一次也不重试；
+	// 重试中途只读目标被换成别的只读文件时立即停下且不覆盖。
+	t.Run("间隔表计数与非占用错误直返", func(t *testing.T) {
+		dir := t.TempDir()
+		ro := filepath.Join(dir, "ro.properties")
+		if err := os.WriteFile(ro, []byte("v1"), 0o444); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(ro, 0o644) })
+
+		oldDelays, oldROHook := retryDelays, beforeReadOnlyRetry
+		t.Cleanup(func() { retryDelays, beforeReadOnlyRetry = oldDelays, oldROHook })
+		var roRetries int
+		h := hold(t, ro, windows.GENERIC_READ, 0, 0)
+		retryDelays = ms(10)
+		beforeReadOnlyRetry = func(attempt int) {
+			roRetries = attempt
+			if attempt == 2 {
+				h.release()
+			}
+		}
+		if err := Write(ro, []byte("v2"), 0o644); err != nil {
+			t.Fatalf("第 2 次重试放开后应成功：%v", err)
+		}
+		if roRetries != 2 {
+			t.Fatalf("只读退路应重试 2 次，实际 %d 次", roRetries)
+		}
+		if err := os.Chmod(ro, 0o444); err != nil {
+			t.Fatal(err)
+		}
+
+		// 非占用错误（临时文件不存在）：一次也不重试，当场返回
+		roRetries = 0
+		oldInfo, err := os.Lstat(ro)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := replace(filepath.Join(dir, "no-such.tmp"), ro, oldInfo); !errors.Is(err, windows.ERROR_FILE_NOT_FOUND) {
+			t.Fatalf("临时文件不存在应直接返回 ERROR_FILE_NOT_FOUND：%v", err)
+		}
+		if roRetries != 0 {
+			t.Fatalf("非占用错误不应重试，实际重试 %d 次", roRetries)
+		}
+
+		// 重试途中只读目标被换成另一份文件：停止重试且绝不覆盖新换上的那份
+		roRetries = 0
+		h2 := hold(t, ro, windows.GENERIC_READ, 0, 0)
+		beforeReadOnlyRetry = func(attempt int) {
+			roRetries = attempt
+			if attempt == 1 {
+				h2.release()
+				if err := os.Chmod(ro, 0o644); err != nil {
+					t.Error(err)
+				}
+				if err := os.Rename(ro, ro+".moved"); err != nil {
+					t.Error(err)
+				}
+				if err := os.WriteFile(ro, []byte("other-readonly"), 0o444); err != nil {
+					t.Error(err)
+				}
+			}
+		}
+		t.Cleanup(func() { _ = os.Chmod(ro, 0o644); _ = os.Chmod(ro+".moved", 0o644) })
+		if err := Write(ro, []byte("v3"), 0o644); err == nil || !strings.Contains(err.Error(), "只读目标已改变") {
+			t.Fatalf("目标被替换后应拒绝覆盖：%v", err)
+		}
+		if roRetries != 1 {
+			t.Fatalf("发现目标改变后应立即停在第 1 次重试，实际 %d 次", roRetries)
+		}
+		if got, _ := os.ReadFile(ro); string(got) != "other-readonly" {
+			t.Fatalf("被替换后的新文件被改动：%q", got)
+		}
+	})
+}
+
+// A19.2：ReplaceContext 在刷盘前重开等待与替换目标等待两处都响应 ctx 取消。
+func TestReplaceContextHonorsCancel(t *testing.T) {
+	t.Run("替换等待响应取消", func(t *testing.T) {
+		setRetry(t, []time.Duration{5 * time.Second}, nil)
+		dir := t.TempDir()
+		target := filepath.Join(dir, "target.jar")
+		tmp := filepath.Join(dir, "part.tmp")
+		if err := os.WriteFile(target, []byte("old"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(tmp, []byte("new"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		o := hold(t, target, windows.GENERIC_READ, 0, 0)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+		defer cancel()
+		start := time.Now()
+		err := ReplaceContext(ctx, tmp, target)
+		took := time.Since(start)
+		o.release()
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("应返回 DeadlineExceeded：%v", err)
+		}
+		if took > time.Second {
+			t.Fatalf("等待没有响应 ctx 取消，耗时 %v", took)
+		}
+	})
+
+	t.Run("刷盘重开等待响应取消", func(t *testing.T) {
+		setReopen(t, []time.Duration{5 * time.Second}, nil)
+		tmp, target := tempAndTarget(t)
+		o := hold(t, tmp, windows.GENERIC_READ, windows.FILE_SHARE_READ, 0)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+		defer cancel()
+		start := time.Now()
+		err := ReplaceContext(ctx, tmp, target)
+		took := time.Since(start)
+		o.release()
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("应返回 DeadlineExceeded：%v", err)
+		}
+		if took > time.Second {
+			t.Fatalf("重开等待没有响应 ctx 取消，耗时 %v", took)
+		}
+	})
+}
+
+// A24：只读退路改名后的路径核对按原样比对系统给的真实路径（区分大小写文件夹里只差大小写的名字不能放过），
+// 任一边取不到真实路径时照旧不核对。
+func TestCheckRenamedPathCaseSensitive(t *testing.T) {
+	// 1. 不依赖文件系统的纯函数单元测试
+	const (
+		lowerNT = `\Device\HarddiskVolume1\srv\server.properties`
+		upperNT = `\Device\HarddiskVolume1\srv\Server.Properties`
+		target  = `D:\srv\Server.Properties`
+	)
+	if err := checkRenamedPath(target, upperNT, true, upperNT, true, nil); err != nil {
+		t.Fatalf("完全一致不应报错：%v", err)
+	}
+	err := checkRenamedPath(target, lowerNT, true, upperNT, true, func() (string, bool) {
+		return `D:\srv\server.properties`, true
+	})
+	if err == nil || !strings.Contains(err.Error(), "没有换上") || !strings.Contains(err.Error(), `D:\srv\server.properties`) {
+		t.Fatalf("只差大小写的不同文件应报错并指出实际落点：%v", err)
+	}
+	errFallback := checkRenamedPath(target, lowerNT, true, upperNT, true, func() (string, bool) {
+		return "", false
+	})
+	if errFallback == nil || !strings.Contains(errFallback.Error(), lowerNT) {
+		t.Fatalf("取不到盘符路径时应回退展示设备路径：%v", errFallback)
+	}
+	if err := checkRenamedPath(target, lowerNT, false, upperNT, true, nil); err != nil {
+		t.Fatalf("句柄取不到真实路径时应跳过核对：%v", err)
+	}
+	if err := checkRenamedPath(target, lowerNT, true, "", false, nil); err != nil {
+		t.Fatalf("目标取不到真实路径时应跳过核对：%v", err)
+	}
+
+	// 2. 普通不区分大小写的文件夹里，调用方传入不同大小写保存只读文件：两边真实路径一致，保存正常通过
+	normalDir := t.TempDir()
+	diskFile := filepath.Join(normalDir, "Server.Properties")
+	if err := os.WriteFile(diskFile, []byte("old"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(diskFile, 0o644) })
+	if err := Write(filepath.Join(normalDir, "server.properties"), []byte("new"), 0o644); err != nil {
+		t.Fatalf("普通文件夹下传入不同大小写保存只读文件不应误报：%v", err)
+	}
+
+	// 3. 真实区分大小写的文件夹（通常要管理员权限，建不了或未实际生效就跳过）
+	csDir := t.TempDir()
+	if out, err := exec.Command("fsutil.exe", "file", "setCaseSensitiveInfo", csDir, "enable").CombinedOutput(); err != nil {
+		t.Logf("当前环境无法开启文件夹区分大小写，跳过真实文件夹验证：%v (%s)", err, strings.TrimSpace(string(out)))
+		return
+	}
+	fLower := filepath.Join(csDir, "server.properties")
+	fUpper := filepath.Join(csDir, "Server.Properties")
+	if err := os.WriteFile(fLower, []byte("lower\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fUpper, []byte("upper\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(fLower); string(b) != "lower\n" {
+		t.Log("fsutil 返回 0 但文件夹区分大小写未实际生效，跳过真实文件夹验证")
+		return
+	}
+	u, err := windows.UTF16PtrFromString(fLower)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := windows.CreateFile(u, 0, shareAll, nil, windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer windows.CloseHandle(h)
+	if err := verifyRenamed(h, fUpper); err == nil || !strings.Contains(err.Error(), "没有换上") {
+		t.Fatalf("区分大小写的文件夹里落在只差大小写的另一个文件上应报错：%v", err)
+	}
 }
 
 // 重试期间目标变成了只读（原地改属性，或者被换成另一个只读文件）：绝不盖掉它，也不再接着试。

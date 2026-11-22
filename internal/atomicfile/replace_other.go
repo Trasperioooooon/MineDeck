@@ -3,6 +3,7 @@
 package atomicfile
 
 import (
+	"context"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -10,8 +11,14 @@ import (
 
 func replace(tmp, path string, _ fs.FileInfo) error { return os.Rename(tmp, path) }
 
+func replaceCtx(_ context.Context, tmp, path string, old fs.FileInfo) error {
+	return replace(tmp, path, old)
+}
+
 // openForSync 替换之前把写好的临时文件重新打开，为的是刷盘（Windows 上被占着时会再试，见 replace_windows.go）。
 func openForSync(tmp string) (*os.File, error) { return os.OpenFile(tmp, os.O_RDWR, 0) }
+
+func openForSyncCtx(_ context.Context, tmp string) (*os.File, error) { return openForSync(tmp) }
 func canonicalPath(path string) string {
 	return canonicalEntryPath(path, func(cur string, follow bool) (string, bool) {
 		if !follow {

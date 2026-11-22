@@ -1,6 +1,7 @@
 package atomicfile
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -15,6 +16,9 @@ import (
 )
 
 func longPath(path string) string {
+	if strings.HasPrefix(path, `\\?\`) || strings.HasPrefix(path, `\\.\`) {
+		return path
+	}
 	p, err := filepath.Abs(path)
 	if err != nil {
 		return path
@@ -22,7 +26,18 @@ func longPath(path string) string {
 	if len(p) < 248 {
 		return p
 	}
-	if strings.HasPrefix(p, `\\?\`) {
+	if strings.HasPrefix(p, `\\?\`) || strings.HasPrefix(p, `\\.\`) {
+		return p
+	}
+	if strings.HasPrefix(p, `\\`) {
+		return `\\?\UNC\` + p[2:]
+	}
+	return `\\?\` + p
+}
+
+// verbatimPath 给已是绝对路径的目录加上 \\?\ 字面前缀，避免把上层目录单独拿去打开时被 Win32 剥掉名字末尾的空格和点。
+func verbatimPath(p string) string {
+	if strings.HasPrefix(p, `\\?\`) || strings.HasPrefix(p, `\\.\`) {
 		return p
 	}
 	if strings.HasPrefix(p, `\\`) {
@@ -95,15 +110,42 @@ func retryable(err error, path string, old fs.FileInfo) bool {
 // beforeReopen 测试用：第 attempt 次重试（从 1 数）重新打开临时文件之前调用。
 var beforeReopen func(attempt int)
 
+// beforeReadOnlyRetry 测试用：第 attempt 次重试（从 1 数）只读退路改名之前调用。
+var beforeReadOnlyRetry func(attempt int)
+
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
+func isBusyErr(err error) bool {
+	return errors.Is(err, windows.ERROR_ACCESS_DENIED) || errors.Is(err, windows.ERROR_SHARING_VIOLATION)
+}
+
 // openForSync 替换之前把写好的临时文件重新打开一次，为的是把它刷到盘上。
 // 刚写完关上的文件，杀毒软件、索引、同步盘常常紧接着打开来看一眼；它们打开时要是不许别人写，这一下就报共享冲突。
 // 这和改名时碰到的是同一种短暂占用（见上面 retryDelays 的说明），同样隔一会儿再试，间隔和次数用同一张表。
 // 以前这一下不在重试里：占着临时文件的那个程序，改名那一步等得起，重新打开这一步却当场失败，整次保存就不成了
 // （2026-11-16 复审记下的存疑项，读代码属实）。只认共享冲突：拒绝访问在这里多半是权限的事，等也没用。
 func openForSync(tmp string) (*os.File, error) {
+	return openForSyncCtx(context.Background(), tmp)
+}
+
+func openForSyncCtx(ctx context.Context, tmp string) (*os.File, error) {
 	f, err := os.OpenFile(tmp, os.O_RDWR, 0)
 	for retries := 0; err != nil && retries < len(retryDelays) && errors.Is(err, windows.ERROR_SHARING_VIOLATION); {
-		time.Sleep(retryDelays[retries])
+		if cerr := sleepCtx(ctx, retryDelays[retries]); cerr != nil {
+			return nil, cerr
+		}
 		retries++
 		if beforeReopen != nil {
 			beforeReopen(retries)
@@ -114,10 +156,16 @@ func openForSync(tmp string) (*os.File, error) {
 }
 
 func replace(tmp, path string, old fs.FileInfo) error {
+	return replaceCtx(context.Background(), tmp, path, old)
+}
+
+func replaceCtx(ctx context.Context, tmp, path string, old fs.FileInfo) error {
 	err := move(tmp, path)
 	retries := 0
 	for err != nil && retries < len(retryDelays) && retryable(err, path, old) {
-		time.Sleep(retryDelays[retries])
+		if cerr := sleepCtx(ctx, retryDelays[retries]); cerr != nil {
+			return cerr
+		}
 		retries++
 		if beforeRetry != nil {
 			beforeRetry(retries)
@@ -130,32 +178,57 @@ func replace(tmp, path string, old fs.FileInfo) error {
 	if retries > 0 {
 		err = fmt.Errorf("重试 %d 次仍不行：%w", retries, err)
 	}
-	if !errors.Is(err, windows.ERROR_ACCESS_DENIED) || old == nil || !old.Mode().IsRegular() || old.Mode().Perm()&0o200 != 0 {
+	// 目标一开始就是只读普通文件时，MoveFileEx 遇到只读报 ERROR_ACCESS_DENIED，若同时被独占句柄占着则先报 ERROR_SHARING_VIOLATION；
+	// 两种都交给忽略只读属性的扩展改名退路处理。
+	if !isBusyErr(err) || old == nil || !old.Mode().IsRegular() || old.Mode().Perm()&0o200 != 0 {
 		return err
 	}
-	current, e := os.Lstat(path)
-	if e != nil || !os.SameFile(old, current) {
-		return fmt.Errorf("只读目标已改变，没有覆盖：%w", err)
-	}
+	return replaceReadOnly(ctx, tmp, path, old, err)
+}
+
+// replaceReadOnly 用忽略只读属性的扩展改名替换原只读文件；若目标或临时文件被短暂占用（拒绝访问或共享冲突），
+// 按同一张 retryDelays 间隔表重试，每次重试前都重新核对目标仍是原来的同一份文件，非占用错误照旧立即返回。
+func replaceReadOnly(ctx context.Context, tmp, path string, old fs.FileInfo, moveErr error) error {
 	from, e := windows.UTF16PtrFromString(longPath(tmp))
 	if e != nil {
 		return e
 	}
-	h, e := windows.CreateFile(from, windows.DELETE|windows.SYNCHRONIZE,
-		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE, nil,
-		windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
-	if e != nil {
-		return e
-	}
-	defer windows.CloseHandle(h)
 	buf, e := renameInfoBuffer(path)
 	if e != nil {
 		return e
 	}
-	if e := windows.SetFileInformationByHandle(h, windows.FileRenameInfoEx, &buf[0], uint32(len(buf))); e != nil {
-		return e
+	retries := 0
+	for {
+		current, e := os.Lstat(path)
+		if e != nil || !os.SameFile(old, current) {
+			return fmt.Errorf("只读目标已改变，没有覆盖：%w", moveErr)
+		}
+		h, e := windows.CreateFile(from, windows.DELETE|windows.SYNCHRONIZE,
+			windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE, nil,
+			windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
+		if e == nil {
+			e = windows.SetFileInformationByHandle(h, windows.FileRenameInfoEx, &buf[0], uint32(len(buf)))
+			if e == nil {
+				verr := verifyRenamed(h, path)
+				windows.CloseHandle(h)
+				return verr
+			}
+			windows.CloseHandle(h)
+		}
+		if retries >= len(retryDelays) || !isBusyErr(e) {
+			if retries > 0 {
+				return fmt.Errorf("重试 %d 次仍不行：%w", retries, e)
+			}
+			return e
+		}
+		if cerr := sleepCtx(ctx, retryDelays[retries]); cerr != nil {
+			return cerr
+		}
+		retries++
+		if beforeReadOnlyRetry != nil {
+			beforeReadOnlyRetry(retries)
+		}
 	}
-	return verifyRenamed(h, path)
 }
 
 // renameInfoBuffer 扩展改名（FileRenameInfoEx）要的参数：替换已有的、按 POSIX 规矩、忽略只读属性，新名字是 path。
@@ -181,21 +254,26 @@ func renameInfoBuffer(path string) ([]byte, error) {
 // verifyRenamed 扩展改名报了成功以后，核对改过名的临时文件（句柄 h）现在确实就在 path 上：两边都问系统的规范路径来比。
 // 2026-11-15 CI 上见过一次只读目标走这条退路报成功、内容却没变，查清是名字后面没留结尾的空字符（见 renameInfoBuffer），
 // 新文件被改名到了一个带乱码的名字上。那处已经改了；这道核对是尽力而为的报警器：以后改名改错了地方，多数情况会报错而不是报成功。
-// 抓不到的：两次查询之间有人又改了名；打开了「区分大小写」的文件夹里只差大小写的两个名字（这里按不分大小写比）。
-// 只放在这条退路上（普通的 MoveFileEx 拿的是以空字符结尾的名字，没有这个问题）；不比文件编号，FAT32、exFAT 和一些网络盘上
-// 编号会随改名变（Codex 复审）。任何一边问不到规范路径就不核对，照旧算成功。
+// 两边都经 GetFinalPathNameByHandle 取回磁盘上的真实规范路径后按原样逐字比对（在开了区分大小写的文件夹里也能分出只差大小写的两个文件；
+// 普通文件夹里两边取到的都是同一个目录项的真实大小写，同样一致）。任何一边问不到规范路径就不核对，照旧算成功。
 func verifyRenamed(h windows.Handle, path string) error {
-	got, ok := handleFinal(h, 2)
-	if !ok {
+	got, gotOK := handleFinal(h, 2)
+	if !gotOK {
 		return nil
 	}
-	want, ok := handlePath(path, false)
-	if !ok || strings.EqualFold(got, want) {
+	want, wantOK := handlePath(path, false)
+	return checkRenamedPath(path, got, gotOK, want, wantOK, func() (string, bool) { return handleFinal(h, 0) })
+}
+
+func checkRenamedPath(path, got string, gotOK bool, want string, wantOK bool, display func() (string, bool)) error {
+	if !gotOK || !wantOK || got == want {
 		return nil
 	}
-	where, ok := handleFinal(h, 0)
-	if !ok {
-		where = got
+	where := got
+	if display != nil {
+		if d, ok := display(); ok {
+			where = d
+		}
 	}
 	return fmt.Errorf("改名报告成功，但新文件没有落在 %s 上，而是在 %s，没有换上", path, where)
 }
@@ -284,7 +362,12 @@ func listedPath(path string) (string, bool) {
 // handlePath 打开 path 问系统它的最终路径（设备路径形式）。follow 为 false 时不跟随最后一项的链接。
 // 打开的句柄会挡住别人改名替换这个文件，所以要被原子替换的那个文件先用 listedPath 查，查不准才用它（见 finalPath）。
 func handlePath(path string, follow bool) (string, bool) {
-	u, err := windows.UTF16PtrFromString(longPath(path))
+	target := longPath(path)
+	if follow && (filepath.IsAbs(path) || strings.HasPrefix(path, `\\`)) {
+		// 逐级退回解析上层文件夹时按原样字面打开，不经 Win32 剥除尾空格和尾点（否则 "a." / "a " 会误打开旁边的 "a"）。
+		target = verbatimPath(path)
+	}
+	u, err := windows.UTF16PtrFromString(target)
 	if err != nil {
 		return "", false
 	}

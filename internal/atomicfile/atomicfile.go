@@ -4,6 +4,7 @@ package atomicfile
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -85,15 +86,23 @@ func copyChecked(path string, r io.Reader, perm fs.FileMode, check func(string) 
 			return err
 		}
 	}
-	return replacePrepared(tmp, path, allowReadOnly)
+	return replacePrepared(context.Background(), tmp, path, allowReadOnly)
 }
 
 // Replace 将已写完的同卷临时文件换到 path。失败时 tmp 留给调用方清理，绝不先删原文件。
 // 临时文件先刷盘，再用平台的改名操作发布；不能据此保证故障存储设备的断电行为。
-func Replace(tmp, path string) error { return replacePrepared(tmp, path, true) }
+func Replace(tmp, path string) error { return ReplaceContext(context.Background(), tmp, path) }
 
-func replacePrepared(tmp, path string, allowReadOnly bool) error {
-	f, err := openForSync(tmp)
+// ReplaceContext 同 Replace，但刷盘前重开与替换目标被短暂占用时的重试等待响应 ctx 取消。
+func ReplaceContext(ctx context.Context, tmp, path string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return replacePrepared(ctx, tmp, path, true)
+}
+
+func replacePrepared(ctx context.Context, tmp, path string, allowReadOnly bool) error {
+	f, err := openForSyncCtx(ctx, tmp)
 	if err != nil {
 		return err
 	}
@@ -114,7 +123,7 @@ func replacePrepared(tmp, path string, allowReadOnly bool) error {
 	if Hook != nil {
 		Hook(path)
 	}
-	if err := replace(tmp, path, old); err != nil {
+	if err := replaceCtx(ctx, tmp, path, old); err != nil {
 		return fmt.Errorf("替换文件失败：%w", err)
 	}
 	return nil

@@ -3,6 +3,7 @@ package atomicfile
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -67,9 +68,14 @@ func lockKeyContext(ctx context.Context, key string) (func(), error) {
 // canonicalEntryPath 只在解析上层目录时跟随最后一项；不存在的后缀保留原名。
 // resolve 返回供比较用的真实名称（Windows 会同时规范 8.3 短名）。
 func canonicalEntryPath(path string, resolve func(string, bool) (string, bool)) string {
-	p, err := filepath.Abs(path)
-	if err != nil {
-		p = filepath.Clean(path)
+	p := path
+	// 已带 \\?\ 或 \\.\ 前缀的路径调用方本意就是按原样字面访问，不能再经 filepath.Abs（GetFullPathNameW 会剥掉末尾空格和点）。
+	if !strings.HasPrefix(path, `\\?\`) && !strings.HasPrefix(path, `\\.\`) {
+		if abs, err := filepath.Abs(path); err == nil {
+			p = abs
+		} else {
+			p = filepath.Clean(path)
+		}
 	}
 	rest := ""
 	for cur := p; ; {

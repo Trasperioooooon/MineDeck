@@ -322,6 +322,71 @@ func TestListedPathTwoDefenses(t *testing.T) {
 	})
 }
 
+// A20：上一级是末尾带点或空格的特殊文件夹、旁边又有同名的正常文件夹（如 a. 与 a、a␠ 与 a）时，
+// 文件建出来前后 PathKey 算出的锁键必须完全一致，不能退回上一级时把尾点或尾空格清掉落到旁边的正常文件夹上。
+func TestPathKeyOddParentConsistentBeforeAndAfterCreate(t *testing.T) {
+	dir := t.TempDir()
+	normal := filepath.Join(dir, "a")
+	if err := os.Mkdir(normal, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(normal, "server.properties"), []byte("normal\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	normalKey := PathKey(filepath.Join(normal, "server.properties"))
+
+	created := 0
+	for _, oddName := range []string{"a.", "a..", "a "} {
+		verbatimDir := `\\?\` + dir + `\` + oddName
+		if err := os.Mkdir(verbatimDir, 0o755); err != nil {
+			t.Logf("当前卷不支持创建目录 %q，跳过：%v", oddName, err)
+			continue
+		}
+		created++
+		t.Cleanup(func() { _ = os.RemoveAll(verbatimDir) })
+
+		plainFile := dir + `\` + oddName + `\server.properties`
+		verbatimFile := verbatimDir + `\server.properties`
+
+		beforePlain := PathKey(plainFile)
+		beforeVerbatim := PathKey(verbatimFile)
+		if beforeVerbatim == normalKey {
+			t.Errorf("%q 建文件前的锁键落到了旁边的正常文件夹 a：%q", oddName, beforeVerbatim)
+		}
+
+		// 不带 \\?\ 时，Win32 对单个尾点 "a.\server.properties" 本身就会解析到 "a\server.properties"；
+		// 对双点 "a.." 和尾空格 "a " 则会直接落进特殊文件夹。先测 verbatimFile 排队不分裂，再测 plainFile。
+		targetForQueue := plainFile
+		if oddName == "a." {
+			targetForQueue = verbatimFile
+		}
+		overlap := exerciseNamespaceWaiters(t, func() string { return PathKey(targetForQueue) }, func() {
+			if err := os.WriteFile(verbatimFile, []byte("odd\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		})
+		gotViaPlain, _ := os.ReadFile(plainFile)
+		if string(gotViaPlain) == "odd\n" && beforePlain == normalKey {
+			t.Errorf("%q 不带前缀在 Win32 下实际指向特殊目录，建文件前的锁键却落到了正常文件夹 a", oddName)
+		}
+		if overlap {
+			t.Errorf("%q 在文件创建前后锁键分裂，排队的写入者没有串行化", oddName)
+		}
+
+		afterPlain := PathKey(plainFile)
+		afterVerbatim := PathKey(verbatimFile)
+		if beforePlain != afterPlain {
+			t.Errorf("%q 不带前缀建文件前后锁键不一致：before=%q after=%q", oddName, beforePlain, afterPlain)
+		}
+		if beforeVerbatim != afterVerbatim {
+			t.Errorf("%q 带 \\\\?\\ 前缀建文件前后锁键不一致：before=%q after=%q", oddName, beforeVerbatim, afterVerbatim)
+		}
+	}
+	if created == 0 {
+		t.Skip("当前卷不支持带尾点或尾空格的目录名")
+	}
+}
+
 func shortName(p string) (string, bool) {
 	u, err := windows.UTF16PtrFromString(p)
 	if err != nil {

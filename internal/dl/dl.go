@@ -446,7 +446,7 @@ func fetchOne(ctx context.Context, url string, r Request, prog Progress) error {
 		os.Remove(part)
 		return werr
 	}
-	return atomicfile.Replace(part, r.Dest)
+	return atomicfile.ReplaceContext(ctx, part, r.Dest)
 }
 
 // FetchJSON 依次尝试多个 URL 获取并解析 JSON。
