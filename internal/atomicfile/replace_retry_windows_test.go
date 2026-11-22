@@ -351,7 +351,7 @@ func TestReadOnlyTargetRetriesUntilReleased(t *testing.T) {
 	}
 	assertNoTemps(t, dir)
 
-	// 钩子确定性校验：第 2 次重试放开时恰好重试 2 次；非占用错误（如临时文件不存在）一次也不重试；
+	// 钩子确定性校验：第 2 次重试放开时恰好重试 2 次；退路里重试遇到非占用错误（如临时文件不在了）在第 1 次重试后当场停下；
 	// 重试中途只读目标被换成别的只读文件时立即停下且不覆盖。
 	t.Run("间隔表计数与非占用错误直返", func(t *testing.T) {
 		dir := t.TempDir()
@@ -547,6 +547,9 @@ func TestPublishNew(t *testing.T) {
 			}
 		}
 		n := setRetry(t, ms(10), func(attempt int) {
+			if _, err := os.Lstat(dest); !errors.Is(err, fs.ErrNotExist) {
+				t.Errorf("第 %d 次重试前目标路径已存在（err=%v），不应预先建占位文件", attempt, err)
+			}
 			if attempt == 2 && o != nil {
 				o.release()
 			}

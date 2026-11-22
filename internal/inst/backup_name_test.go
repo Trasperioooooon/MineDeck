@@ -79,8 +79,8 @@ func TestBackupNameDoesNotOverwriteExisting(t *testing.T) {
 	}
 }
 
-// A23.2：建备份文件时用 O_EXCL 占住名字。无论是备份前目录里已经预先有一份同名文件，
-// 还是跨进程在压缩期间先一步写入了同名备份，都不能把已有的那份盖掉，而应换一个时间重取或试满报错。
+// A23.2：备份通过 atomicfile.PublishNew 只在目标不存在时发布（Windows 上是不覆盖的 MoveFileEx 一步发布，非 Windows 是 O_EXCL 占位再改名）。
+// 无论是备份前目录里已经预先有一份同名文件，还是跨进程在压缩期间先一步写入了同名备份，都不能把已有的那份盖掉，而应换一个时间重取或试满报错。
 func TestBackupExclDoesNotOverwritePreexistingOrConcurrent(t *testing.T) {
 	m, dir := tempInstance(t)
 	bdir := backupDirOf("s")
@@ -124,7 +124,7 @@ func TestBackupExclDoesNotOverwritePreexistingOrConcurrent(t *testing.T) {
 	}
 
 	// 场景 2：跨进程同时备份同一台服——本进程开始备份时 t2 还没人占，压缩途中（backupHook）另一进程先一步建好了 t2 的同名文件；
-	// 本进程落盘时必须靠 O_EXCL 发现名字已被占住，换下一个时间 t3 存，绝不覆盖另一进程刚写好的 t2。
+	// 本进程发布时（Windows 不覆盖的 MoveFileEx，非 Windows O_EXCL 占位再改名）必须发现名字已被占住，换下一个时间 t3 存，绝不覆盖另一进程刚写好的 t2。
 	raceName := t2.Format("20060102-150405.000000000") + "-auto.zip"
 	racePath := filepath.Join(bdir, raceName)
 	const otherProcBytes = "written-by-another-process-during-zip"
@@ -132,7 +132,7 @@ func TestBackupExclDoesNotOverwritePreexistingOrConcurrent(t *testing.T) {
 	var raceCalls atomic.Int32
 	hookFired := false
 	backupNow = func() time.Time {
-		// 另一进程写完之前时钟一直是 t2；本进程撞上 O_EXCL 重取时时钟走到 t3
+		// 另一进程写完之前时钟一直是 t2；本进程发布撞上同名重取时时钟走到 t3
 		if !hookFired || raceCalls.Add(1) == 1 {
 			return t2
 		}
