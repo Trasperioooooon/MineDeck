@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -160,7 +159,8 @@ func TestDifferentRealVolumesDoNotBlock(t *testing.T) {
 		h.Close()
 	}
 
-	// 2) 机器上真有第二个挂载卷时（如多盘符开发机或带 D: 的 CI runner），再用两个真实目录端到端验证互不阻塞
+	// 2) 候选目录只留工作目录和 SystemRoot，用不经过 volumeOf 的系统调用判断是不是在另一个卷上；
+	// 序列号不同时先断言 volumeOf 给两边的卷号也不同，再验证跨卷 Acquire 互不阻塞。
 	var cands []string
 	if wd, err := os.Getwd(); err == nil && wd != "" {
 		cands = append(cands, wd)
@@ -168,31 +168,44 @@ func TestDifferentRealVolumesDoNotBlock(t *testing.T) {
 	if sr := os.Getenv("SystemRoot"); sr != "" {
 		cands = append(cands, sr)
 	}
-	if runtime.GOOS == "windows" {
-		for d := byte('C'); d <= 'Z'; d++ {
-			cands = append(cands, string([]byte{d, ':', '\\'}))
-		}
-	} else {
-		cands = append(cands, "/", "/dev", "/tmp")
-	}
 	second := ""
-	for _, c := range cands {
-		if _, bKey, err := volumeOf(c); err == nil && bKey != aKey {
-			second = c
-			break
+	var secondSerial uint32
+	rootSerial, rootOK := testVolumeSerial(root)
+	if rootOK {
+		for _, c := range cands {
+			if s, ok := testVolumeSerial(c); ok && s != rootSerial {
+				second, secondSerial = c, s
+				break
+			}
 		}
 	}
 	if second != "" {
+		_, bKey, err := volumeOf(second)
+		if err != nil {
+			a.Close()
+			t.Fatalf("volumeOf(%q): %v", second, err)
+		}
+		if bKey == aKey {
+			a.Close()
+			t.Fatalf("不同卷（序列号 %#x 与 %#x）被 volumeOf 算成了同一个卷号 %#x", rootSerial, secondSerial, aKey)
+		}
 		rctx, rcancel := context.WithTimeout(context.Background(), time.Second)
 		defer rcancel()
-		b, err := Acquire(rctx, second, Options{Query: plenty})
+		bWaited := false
+		b, err := Acquire(rctx, second, Options{Query: plenty, OnWait: func() { bWaited = true }})
 		if err != nil {
 			a.Close()
 			t.Fatalf("unrelated real volume %q was blocked: %v", second, err)
 		}
+		if bWaited {
+			b.Close()
+			a.Close()
+			t.Fatalf("unrelated real volume %q queued behind current volume", second)
+		}
 		b.Close()
+		t.Logf("第二段已运行：两个真实卷（序列号 %#x 与 %#x）volumeOf 卷号不同（%#x vs %#x）且 Acquire 互不阻塞", rootSerial, secondSerial, aKey, bKey)
 	} else {
-		t.Log("本机只有一个真实挂载卷，真实双卷分支未触发（已通过不同卷键门闸验证互不阻塞）")
+		t.Log("这台机器上工作目录和系统目录在同一个卷（或者查不到卷序列号），第二段没跑")
 	}
 	a.Close()
 

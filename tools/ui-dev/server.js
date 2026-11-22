@@ -2906,9 +2906,11 @@ function handler(state, ui, portOf) {
       if (p === "/api/javas") return ok(res, { portable: state.portableJavas || [], incomplete: state.incompleteJavas || [], scanned: [{ major: 21, version: "21.0.4", path: "C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.4.7-hotspot\\bin\\java.exe" }, { major: 8, version: "1.8.0_421", path: "C:\\Program Files\\Java\\jre1.8.0_421\\bin\\java.exe" }] });
       if (p === "/api/javas/remove" && m === "POST") {
         if (!state.local) return err(res, 403, "卸载便携 Java 仅支持在本机操作");
-        const b = await readBody(req), major = +b.major;
+        const b = await readBody(req), major = typeof b.major === "number" ? b.major : NaN;
+        if (!Number.isInteger(major)) return err(res, 400, "参数 major 类型错误，应为 integer");
+        if (major < 8 || major > 64) return err(res, 400, "参数 major 应在 8 到 64 之间");
+        if (typeof b.confirm !== "boolean") return err(res, 400, "参数 confirm 类型错误，应为 boolean");
         if (!b.confirm) return err(res, 400, "卸载 Java 需要明确确认");
-        if (!(Number.isInteger(major) && major >= 8 && major <= 64)) return err(res, 400, `没有 Java ${major} 的便携运行时`);
         if (state.javaBusy) return err(res, 409, "正在安装或卸载 Java，请稍后再试");
         const hasDir = (state.portableJavas || []).some(j => j.major === major);
         const hasMark = (state.incompleteJavas || []).includes(major);
@@ -2926,7 +2928,7 @@ function handler(state, ui, portOf) {
       if (p === "/api/creating-leftovers" && m === "GET") {
         if (!state.local) return err(res, 403, "查看没建完的文件夹仅支持在本机操作");
         const items = (state.creatingLeftovers || [])
-          .filter(x => !x.creating && !x.registered && !x.adopted && !x.hasInstanceJson)
+          .filter(x => !x.creating && !x.registered && !x.adopted && !x.hasInstanceJson && !x.writing)
           .map(({ id, name, root, hasWorld }) => ({ id, name, root, hasWorld: !!hasWorld }));
         return ok(res, { items });
       }

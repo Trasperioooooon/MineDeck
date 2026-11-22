@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -202,22 +203,23 @@ func TestPathKeySameAsHandleLookup(t *testing.T) {
 }
 
 // listedPath 同时留了两道防线：
-// 1) 通配符检查（* ? < > "）：在打开父目录句柄和调用 FindFirstFile 之前就直接放弃，避免带通配符的查询打开父目录句柄挡住目录改名；
-// 2) 名字比对（long / AlternateFileName）：拦下不含通配符、但 Win32 目录查询规范化后命中了别的目录项的写法（末尾空格、末尾点、以及未 Clean 的 "." / ".."）。
+//  1. 通配符检查（* ? < > "）：replace_windows.go 第 251 行用来避免目录查询把它们当通配符匹配到别的文件。
+//     因为正常卷上的文件名本身不含这五个字符，单看 listedPath 的返回值时这道防线会被后面的名字比对完全盖住，
+//     这里只能靠「有没有调用 handlePath(parent, true) 去打开上一级」来认出它还在入口生效；
+//  2. 名字比对（long / AlternateFileName）：拦下不含通配符、但 Win32 目录查询规范化后命中了别的目录项的写法（末尾空格、末尾点、以及未 Clean 的 "." / ".."）。
 func TestListedPathTwoDefenses(t *testing.T) {
 	t.Run("通配符在打开父目录前直接拦下", func(t *testing.T) {
 		dir := t.TempDir()
 		if err := os.WriteFile(filepath.Join(dir, "cfg1.toml"), []byte("x=1\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		// 建一个带重叠事件句柄的单实例命名管道充当 parent（\\.\pipe\minedeck\<name>）：
-		// 通配符防线存在时，listedPath 在入口直接返回 false，根本不会对 parent 调用 handlePath/CreateFile，事件保持未触发；
-		// 一旦删掉通配符防线（哪怕保留后面的名字比对），listedPath 会先对 parent 调 CreateFile 打开句柄，立刻触发连接完成事件。
-		for idx, wc := range []string{"*", "?", "<", ">", `"`} {
-			if got, ok := listedPath(filepath.Join(dir, "cfg"+wc+".toml")); ok {
-				t.Fatalf("带通配符 %q 的路径不应由 listedPath 返回：%q", wc, got)
-			}
-			pipeParent := fmt.Sprintf(`\\.\pipe\minedeck\listedpath-%d-%d`, os.Getpid(), idx)
+		// Overlapped 在堆上分配并一直保活到本子测试结束；取消后用 GetOverlappedResult(..., true) 等内核彻底写完再关句柄，避免协程栈搬移踩旧地址。
+		var keepAlive []*windows.Overlapped
+		t.Cleanup(func() { runtime.KeepAlive(keepAlive) })
+
+		probePipeOpened := func(tag string, act func(pipeParent string)) bool {
+			t.Helper()
+			pipeParent := fmt.Sprintf(`\\.\pipe\minedeck\listedpath-%d-%s`, os.Getpid(), tag)
 			uPipe, err := windows.UTF16PtrFromString(pipeParent)
 			if err != nil {
 				t.Fatal(err)
@@ -236,23 +238,53 @@ func TestListedPathTwoDefenses(t *testing.T) {
 				_ = windows.CloseHandle(srv)
 				t.Fatalf("创建测试事件失败：%v", err)
 			}
-			var ov windows.Overlapped
+			ov := new(windows.Overlapped)
 			ov.HEvent = ev
-			if err := windows.ConnectNamedPipe(srv, &ov); err != nil && !errors.Is(err, windows.ERROR_IO_PENDING) {
+			keepAlive = append(keepAlive, ov)
+			if err := windows.ConnectNamedPipe(srv, ov); err != nil && !errors.Is(err, windows.ERROR_IO_PENDING) {
 				_ = windows.CloseHandle(ev)
 				_ = windows.CloseHandle(srv)
 				t.Fatalf("挂起命名管道等待失败：%v", err)
 			}
-			_, _ = listedPath(pipeParent + `\cfg` + wc + `.toml`)
+			act(pipeParent)
 			state, waitErr := windows.WaitForSingleObject(ev, 0)
-			_ = windows.CancelIoEx(srv, &ov)
+			_ = windows.CancelIoEx(srv, ov)
+			var transferred uint32
+			if gerr := windows.GetOverlappedResult(srv, ov, &transferred, true); gerr != nil &&
+				!errors.Is(gerr, windows.ERROR_OPERATION_ABORTED) && !errors.Is(gerr, windows.ERROR_PIPE_CONNECTED) {
+				_ = windows.CloseHandle(ev)
+				_ = windows.CloseHandle(srv)
+				t.Fatalf("等待重叠 I/O 落定失败：%v", gerr)
+			}
 			_ = windows.CloseHandle(ev)
 			_ = windows.CloseHandle(srv)
 			if waitErr != nil {
 				t.Fatalf("检查命名管道事件失败：%v", waitErr)
 			}
-			if state == windows.WAIT_OBJECT_0 {
-				t.Fatalf("通配符 %q 没有在打开 parent 前拦住：listedPath 打开了父路径句柄并触发了设备连接", wc)
+			return state == windows.WAIT_OBJECT_0
+		}
+
+		// 正向对照 1：直接调 listedPath 内部打开上一级的 handlePath(parent, true)，确认这个动作确实会被管道察觉。
+		if !probePipeOpened("ctrl-handle", func(pipeParent string) {
+			_, _ = handlePath(pipeParent, true)
+		}) {
+			t.Fatal("正向对照失败：直接调用 handlePath(parent, true) 未触发命名管道连接事件")
+		}
+		// 正向对照 2：对不含通配符的子路径调 listedPath，确认 filepath.Dir / filepath.Abs 没有把 \\.\pipe\... 提前筛掉，避免下面变成空过。
+		if !probePipeOpened("ctrl-listed", func(pipeParent string) {
+			_, _ = listedPath(pipeParent + `\cfg1.toml`)
+		}) {
+			t.Fatal("正向对照失败：不含通配符的 listedPath 未走到 handlePath(parent, true)")
+		}
+
+		for idx, wc := range []string{"*", "?", "<", ">", `"`} {
+			if got, ok := listedPath(filepath.Join(dir, "cfg"+wc+".toml")); ok {
+				t.Fatalf("带通配符 %q 的路径不应由 listedPath 返回：%q", wc, got)
+			}
+			if probePipeOpened(fmt.Sprintf("wc-%d", idx), func(pipeParent string) {
+				_, _ = listedPath(pipeParent + `\cfg` + wc + `.toml`)
+			}) {
+				t.Fatalf("通配符 %q 没有在打开 parent 前拦住：listedPath 调用了 handlePath(parent, true)", wc)
 			}
 		}
 	})
@@ -268,12 +300,14 @@ func TestListedPathTwoDefenses(t *testing.T) {
 			t.Fatal(err)
 		}
 		// 以下写法都不含 * ? < > "（通配符防线一律放行），但 FindFirstFile 在 Win32 路径规范化后会命中别的目录项：
-		// 末尾空格和点会命中去掉尾字符后的真文件；未 Clean 的 \.. 和 \. 会命中上一级或自身目录名，拼在 parent 后面会算出错误的锁键。
+		// 末尾空格和点会命中去掉尾字符后的真文件；未 Clean 的 \.. 和 \. 会命中上一级或自身目录名，拼在 parent 后面会算出错误的路径。
 		for _, p := range []string{file + " ", file + ".", sub + `\..`, sub + `\.`} {
 			if got, ok := listedPath(p); ok {
 				t.Errorf("非通配符失配路径 %q 不应由 listedPath 命中，却得到了 %q", p, got)
 			}
 		}
+		// 注：下面两句测的是 PathKey 端到端的路径归一（lock.go 先调 filepath.Abs 会把 . 和 .. 清掉，到不了 listedPath），
+		// 真正守住 listedPath 名字比对防线的是上面直接调 listedPath 的四条断言。
 		if got, want := PathKey(sub+`\..`), PathKey(dir); got != want {
 			t.Fatalf("未 Clean 的 .. 锁键算错：got=%q want=%q", got, want)
 		}
