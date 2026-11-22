@@ -2906,10 +2906,14 @@ function handler(state, ui, portOf) {
       if (p === "/api/javas") return ok(res, { portable: state.portableJavas || [], incomplete: state.incompleteJavas || [], scanned: [{ major: 21, version: "21.0.4", path: "C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.4.7-hotspot\\bin\\java.exe" }, { major: 8, version: "1.8.0_421", path: "C:\\Program Files\\Java\\jre1.8.0_421\\bin\\java.exe" }] });
       if (p === "/api/javas/remove" && m === "POST") {
         if (!state.local) return err(res, 403, "卸载便携 Java 仅支持在本机操作");
-        const b = await readBody(req), major = typeof b.major === "number" ? b.major : NaN;
-        if (!Number.isInteger(major)) return err(res, 400, "参数 major 类型错误，应为 integer");
+        const b = await readBody(req);
+        if (!b || typeof b !== "object" || Array.isArray(b)) return err(res, 400, "参数应为 JSON 对象");
+        if (b.major === undefined || b.major === null) return err(res, 400, "缺少参数 major");
+        if (b.confirm === undefined || b.confirm === null) return err(res, 400, "缺少参数 confirm");
+        if (typeof b.confirm !== "boolean") return err(res, 400, "参数 confirm 应为布尔值");
+        if (!Number.isInteger(b.major)) return err(res, 400, "参数 major 应为整数");
+        const major = b.major;
         if (major < 8 || major > 64) return err(res, 400, "参数 major 应在 8 到 64 之间");
-        if (typeof b.confirm !== "boolean") return err(res, 400, "参数 confirm 类型错误，应为 boolean");
         if (!b.confirm) return err(res, 400, "卸载 Java 需要明确确认");
         if (state.javaBusy) return err(res, 409, "正在安装或卸载 Java，请稍后再试");
         const hasDir = (state.portableJavas || []).some(j => j.major === major);

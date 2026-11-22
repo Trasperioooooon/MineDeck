@@ -209,6 +209,11 @@ func TestPathKeySameAsHandleLookup(t *testing.T) {
 //  2. 名字比对（long / AlternateFileName）：拦下不含通配符、但 Win32 目录查询规范化后命中了别的目录项的写法（末尾空格、末尾点、以及未 Clean 的 "." / ".."）。
 func TestListedPathTwoDefenses(t *testing.T) {
 	t.Run("通配符在打开父目录前直接拦下", func(t *testing.T) {
+		// 下面在 act 返回后立刻用零等待（WaitForSingleObject(ev, 0)）检查重叠连接事件：
+		// 只有发起 ConnectNamedPipe 的系统线程和打开管道客户端的系统线程是同一个时，事件才保证当场已置位；
+		// 协程若在两者之间被调度到别的系统线程，跨线程完成通知可能还没落定，正向对照会偶发误报失败。
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
 		dir := t.TempDir()
 		if err := os.WriteFile(filepath.Join(dir, "cfg1.toml"), []byte("x=1\n"), 0o644); err != nil {
 			t.Fatal(err)
