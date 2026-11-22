@@ -368,9 +368,7 @@ func TestFolderJunction(t *testing.T) {
 	}
 	outside := filepath.Join(tmp, "outside")
 	write(t, outside, map[string]string{"secret.txt": "x"})
-	if err := mkJunction(filepath.Join(w, "data", "link"), outside); err != nil {
-		t.Skipf("建不了目录联接：%v", err)
-	}
+	mkJunction(t, filepath.Join(w, "data", "link"), outside)
 	r := mustScan(t, w, "w")
 	if !slices.Contains(codes(r.Issues), "links") {
 		t.Fatalf("issues = %v", codes(r.Issues))

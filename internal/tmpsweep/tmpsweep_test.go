@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -190,9 +191,15 @@ func TestTreeStaysInside(t *testing.T) {
 	theirs := filepath.Join(outside, ".minedeck-download-123.part")
 	put(t, theirs, 48*time.Hour)
 	put(t, filepath.Join(root, "x", ".minedeck-download-456.part"), 48*time.Hour)
-	if out, err := exec.Command("cmd", "/c", "mklink", "/J", filepath.Join(root, "link"), outside).CombinedOutput(); err != nil {
-		t.Skipf("建不了目录联接：%v %s", err, out)
+	link := filepath.Join(root, "link")
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, outside).CombinedOutput(); err != nil {
+		low := strings.ToLower(string(out))
+		if strings.Contains(low, "privilege") || strings.Contains(low, "not support") || strings.Contains(low, "权限") || strings.Contains(low, "不支持") {
+			t.Skipf("建不了目录联接：%v %s", err, out)
+		}
+		t.Fatalf("建不了目录联接：%v %s", err, out)
 	}
+	t.Cleanup(func() { _ = os.Remove(link) })
 	if res := Tree(root, 5, time.Hour); res.Files != 1 {
 		t.Fatalf("只该删树里自己的那一个：%+v", res)
 	}

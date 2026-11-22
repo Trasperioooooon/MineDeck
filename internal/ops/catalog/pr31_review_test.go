@@ -55,7 +55,14 @@ func TestJavaRemoveBlocksCreatingAndAliasPath(t *testing.T) {
 	// 2. 实例通过目录联接别名指向便携 Java 时，javaPathInside 仍能识别并回 409 拒绝
 	if runtime.GOOS == "windows" {
 		alias := filepath.Join(t.TempDir(), "rt-link")
-		if _, jerr := exec.Command("cmd", "/c", "mklink", "/J", alias, java.Dir(21)).CombinedOutput(); jerr == nil {
+		if out, jerr := exec.Command("cmd", "/c", "mklink", "/J", alias, java.Dir(21)).CombinedOutput(); jerr != nil {
+			low := strings.ToLower(string(out))
+			if strings.Contains(low, "privilege") || strings.Contains(low, "not support") || strings.Contains(low, "权限") || strings.Contains(low, "不支持") {
+				t.Logf("建不了目录联接，跳过联接别名子段：%v %s", jerr, out)
+			} else {
+				t.Fatalf("建不了目录联接：%v %s", jerr, out)
+			}
+		} else {
 			t.Cleanup(func() { _ = os.Remove(alias) })
 			srvDir := filepath.Join(app.ServersDir, "alias-srv")
 			if err := os.MkdirAll(srvDir, 0o755); err != nil {

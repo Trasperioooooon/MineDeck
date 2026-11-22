@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -291,12 +292,15 @@ func TestTrashMod(t *testing.T) {
 // 只看末级是普通文件拦不住——顺着联接会把外面的文件挪进来，或者在外面建文件夹、放进移走的文件。这几种都要拒绝，外面一个字节都不动。
 // 联接指到服务器文件夹里面的照常能删。
 func TestTrashModRefusesJunctionsOutside(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("目录联接是 Windows 上的东西")
+	}
 	junction := func(link, target string) {
 		t.Helper()
 		cmd := exec.Command("cmd", "/c", "mklink", "/J", link, target)
 		hideWindow(cmd)
 		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Skipf("建不了目录联接: %v %s", err, out)
+			skipOrFailJunction(t, err, out)
 		}
 		t.Cleanup(func() { _ = os.Remove(link) }) // 只删联接本身；在临时目录之后登记，先于临时目录删
 	}

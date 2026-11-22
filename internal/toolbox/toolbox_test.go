@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -742,6 +743,21 @@ func TestLegacySkinHatAndOpaqueBase(t *testing.T) {
 	}
 }
 
+func mkTestJunction(t *testing.T, link, target string) {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		t.Skip("目录联接是 Windows 上的东西")
+	}
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput(); err != nil {
+		low := strings.ToLower(string(out))
+		if strings.Contains(low, "privilege") || strings.Contains(low, "not support") || strings.Contains(low, "权限") || strings.Contains(low, "不支持") {
+			t.Skipf("建不了目录联接：%v %s", err, out)
+		}
+		t.Fatalf("建不了目录联接：%v %s", err, out)
+	}
+	t.Cleanup(func() { _ = os.Remove(link) })
+}
+
 // mods 是联接（或符号链接）时不跟进去读：里面的 jar 可能在服务器文件夹外面（Codex 复审）。
 func TestMrpackRefusesLinkedModsDir(t *testing.T) {
 	oldDirs := []string{app.Base, app.ServersDir, app.BackupsDir, app.CacheDir, app.RuntimesDir}
@@ -758,9 +774,7 @@ func TestMrpackRefusesLinkedModsDir(t *testing.T) {
 	_ = os.MkdirAll(instDir, 0o755)
 	sBytes, _ := json.Marshal(inst.Settings{Name: "联接服", Core: "fabric", MC: "1.20.1", Build: "0.16.9", XmxMB: 1024})
 	_ = os.WriteFile(filepath.Join(instDir, "instance.json"), sBytes, 0o644)
-	if out, err := exec.Command("cmd", "/c", "mklink", "/J", filepath.Join(instDir, "mods"), outside).CombinedOutput(); err != nil {
-		t.Skipf("建不了目录联接：%v %s", err, out)
-	}
+	mkTestJunction(t, filepath.Join(instDir, "mods"), outside)
 	mgr, err := inst.NewManager()
 	if err != nil {
 		t.Fatal(err)
@@ -796,9 +810,7 @@ func TestReadOverrideRefusesFileOutsideServer(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(instDir, "config")); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.Command("cmd", "/c", "mklink", "/J", filepath.Join(instDir, "config"), outside).CombinedOutput(); err != nil {
-		t.Skipf("建不了目录联接：%v %s", err, out)
-	}
+	mkTestJunction(t, filepath.Join(instDir, "config"), outside)
 	if b, err := readOverride(MrpackItemView{srcDiskPath: inside, srcRoot: instDir}); err == nil {
 		t.Fatalf("实际在服务器外面的文件不该读出来：%q", b)
 	}

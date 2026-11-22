@@ -117,7 +117,11 @@ func TestRemovePortableRefusesJunctionAndNestedJunction(t *testing.T) {
 	// 1. java-17 本身是指向外部目录的目录联接（mklink /J）
 	dir := Dir(17)
 	if out, err := exec.Command("cmd", "/c", "mklink", "/J", dir, outside).CombinedOutput(); err != nil {
-		t.Skipf("建不了目录联接：%v %s", err, out)
+		low := strings.ToLower(string(out))
+		if strings.Contains(low, "privilege") || strings.Contains(low, "not support") || strings.Contains(low, "权限") || strings.Contains(low, "不支持") {
+			t.Skipf("建不了目录联接：%v %s", err, out)
+		}
+		t.Fatalf("建不了目录联接：%v %s", err, out)
 	}
 	t.Cleanup(func() { _ = os.Remove(dir) })
 	if err := RemovePortable(17, nil); err == nil || !strings.Contains(err.Error(), "目录联接") {

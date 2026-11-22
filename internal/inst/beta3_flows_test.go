@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -403,13 +404,16 @@ func TestPendingTamperedTrustNeedsHostAndHash(t *testing.T) {
 
 // 接管来的文件夹里 .minedeck 是指到外面的目录联接：清单不读也不写，不顺着联接跑出去。
 func TestPendingListRefusesJunctionedControlDir(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("目录联接是 Windows 上的东西")
+	}
 	dir, newMgr := restartEnv(t)
 	outside := filepath.Join(filepath.Dir(dir), "elsewhere")
 	writeTree(t, outside, map[string]string{"import-pending.json": `{"version":1,"items":[{"id":"p1","path":"mods/a.jar","reason":"nohash"}]}`})
 	cmd := exec.Command("cmd", "/c", "mklink", "/J", filepath.Join(dir, ".minedeck"), outside)
 	hideWindow(cmd)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Skipf("建不了目录联接: %v %s", err, out)
+		skipOrFailJunction(t, err, out)
 	}
 	t.Cleanup(func() { _ = os.Remove(filepath.Join(dir, ".minedeck")) })
 	m := newMgr()

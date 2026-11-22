@@ -311,7 +311,7 @@ func TestCheckAdoptDirRealPaths(t *testing.T) {
 	}
 	link := filepath.Join(user, "link")
 	if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, real).CombinedOutput(); err != nil {
-		t.Skipf("建不了目录联接：%v %s", err, out)
+		skipOrFailJunction(t, err, out)
 	}
 	t.Cleanup(func() { _ = os.Remove(link) }) // 只删联接本身，不动它指的文件夹
 	if got := realPath(link); !strings.EqualFold(got, realPath(real)) {
@@ -328,7 +328,7 @@ func TestCheckAdoptDirRealPaths(t *testing.T) {
 	writeTree(t, other, map[string]string{"server.jar": vanilla21})
 	link2 := filepath.Join(user, "link2")
 	if out, err := exec.Command("cmd", "/c", "mklink", "/J", link2, other).CombinedOutput(); err != nil {
-		t.Skipf("建不了目录联接：%v %s", err, out)
+		skipOrFailJunction(t, err, out)
 	}
 	t.Cleanup(func() { _ = os.Remove(link2) })
 	if got, err := m.checkAdoptDir(link2); err != nil || got != link2 {

@@ -77,6 +77,16 @@ func TestRegisteredDirs(t *testing.T) {
 	}
 }
 
+// skipOrFailJunction 同 lifecycle_review_test.go（18bcf89）：mklink /J 只在明确缺权限或文件系统不支持时跳过，其余失败直接判错。
+func skipOrFailJunction(t *testing.T, err error, out []byte) {
+	t.Helper()
+	low := strings.ToLower(string(out))
+	if strings.Contains(low, "privilege") || strings.Contains(low, "not support") || strings.Contains(low, "权限") || strings.Contains(low, "不支持") {
+		t.Skipf("建不了目录联接：%v %s", err, out)
+	}
+	t.Fatalf("建不了目录联接：%v %s", err, out)
+}
+
 // 登记的是一个目录联接，而启动时是从存放根下面先扫到真实的那个文件夹：移出列表时登记也要去掉，
 // 不能因为两边路径写法不一样就留下一条清不掉的。
 func TestForgetRegisteredAlias(t *testing.T) {
@@ -88,7 +98,7 @@ func TestForgetRegisteredAlias(t *testing.T) {
 	writeTree(t, real, map[string]string{"instance.json": `{"name":"srv","core":"vanilla","mc":"1.21.1","launchTarget":"jar:server.jar"}`})
 	link := filepath.Join(user, "link")
 	if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, real).CombinedOutput(); err != nil {
-		t.Skipf("建不了目录联接：%v %s", err, out)
+		skipOrFailJunction(t, err, out)
 	}
 	t.Cleanup(func() { _ = os.Remove(link) }) // 只删联接本身
 	app.RememberInstanceDir(link)
