@@ -299,6 +299,9 @@ func (m *Manager) createBackupWith(i *Instance, label, spare string, lease *disk
 			}
 		}
 	}
+	// 文件名里的第一个候选时间在压缩开始前取，避免大世界压了几分钟后文件名时间比开始备份晚一大截；
+	// 发布时若这个名字已被占住，再在 zipDirsExclusive 里按当时的时钟重取。
+	startedAt := backupNow()
 	if backupHook != nil {
 		backupHook()
 	}
@@ -315,7 +318,7 @@ func (m *Manager) createBackupWith(i *Instance, label, spare string, lease *disk
 		}
 		return nil
 	}
-	fname, err := zipDirsExclusive(i.Dir, worlds, dir, label, lease, verify)
+	fname, err := zipDirsExclusive(i.Dir, worlds, dir, label, startedAt, lease, verify)
 	if err != nil {
 		// 压到一半读文件出错，多半是服务器这时正在停服或重启：存盘时会写临时文件再改名，列出来的文件转眼就不在了。
 		// 这种也按「服务器停止或重启过」报，定时备份会等它稳定下来再试；核对通过的才是真的读不了
@@ -481,28 +484,32 @@ func zipDirs(baseDir string, dirs []string, dest string) error {
 	return zipDirsWith(baseDir, dirs, dest, lease, nil)
 }
 
-// zipDirsExclusive 先把世界压缩进临时文件并过完 verify，再用 O_EXCL 原子占住最终备份文件名后替换上去：
+func formatBackupName(t time.Time, label string) string {
+	base := t.Format("20060102-150405.000000000")
+	if label != "" {
+		base += "-" + sanitizeLabel(label)
+	}
+	return base + ".zip"
+}
+
+// zipDirsExclusive 先把世界压缩进临时文件并过完 verify，再用 atomicfile.PublishNew 只在目标不存在时一步发布上去：
+// 不在备份文件夹里预先建 0 字节占位 .zip（避免 Windows 上杀毒或资源管理器打开占位导致替换拒绝访问），
 // 同一进程同跳时钟、预先存在的同名文件，或跨进程在压缩期间同时备份同一台服时，都不会盖掉已有的备份。
-func zipDirsExclusive(baseDir string, dirs []string, outDir, label string, lease *diskguard.Lease, verify func() error) (string, error) {
+func zipDirsExclusive(baseDir string, dirs []string, outDir, label string, startedAt time.Time, lease *diskguard.Lease, verify func() error) (string, error) {
 	tmp, err := writeBackupTemp(baseDir, dirs, outDir, lease, verify)
 	if err != nil {
 		return "", err
 	}
 	defer os.Remove(tmp)
 	for tries := 0; ; tries++ {
-		base := backupNow().Format("20060102-150405.000000000")
-		if label != "" {
-			base += "-" + sanitizeLabel(label)
+		ts := startedAt
+		if tries > 0 {
+			ts = backupNow()
 		}
-		fname := base + ".zip"
+		fname := formatBackupName(ts, label)
 		dest := filepath.Join(outDir, fname)
-		rf, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		err := atomicfile.PublishNew(tmp, dest)
 		if err == nil {
-			_ = rf.Close()
-			if rerr := atomicfile.Replace(tmp, dest); rerr != nil {
-				_ = os.Remove(dest)
-				return "", rerr
-			}
 			return fname, nil
 		}
 		if !errors.Is(err, fs.ErrExist) {

@@ -225,7 +225,8 @@ func TestReplaceDoesNotRetryHopelessFailures(t *testing.T) {
 	assertNoTemps(t, dir)
 }
 
-// 原文件一开始是只读的，换之前被人改成可写、还占着：仍按只读的老路走，一次也不重试（守住 old 那一条）。
+// 原文件一开始是只读的，换之前被人改成可写、还占着：不进 MoveFileEx 那条重试循环（setRetry 只计 MoveFileEx 重试，守住 retryable 里 old 那一条），
+// 而是交给核对 SameFile 的只读退路处理。
 func TestOriginallyReadOnlyTargetIsNotRetried(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "server.properties")
@@ -381,17 +382,32 @@ func TestReadOnlyTargetRetriesUntilReleased(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// 非占用错误（临时文件不存在）：一次也不重试，当场返回
+		// 非占用错误（已进入只读退路后，重试时临时文件不在了）：第 2 次尝试报找不到文件、当场返回、一共只重试 1 次，目标内容不变。
 		roRetries = 0
+		tmpForNonBusy := filepath.Join(dir, "vanish-on-retry.tmp")
+		if err := os.WriteFile(tmpForNonBusy, []byte("unused"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 		oldInfo, err := os.Lstat(ro)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := replace(filepath.Join(dir, "no-such.tmp"), ro, oldInfo); !errors.Is(err, windows.ERROR_FILE_NOT_FOUND) {
-			t.Fatalf("临时文件不存在应直接返回 ERROR_FILE_NOT_FOUND：%v", err)
+		hNonBusy := hold(t, ro, windows.GENERIC_READ, 0, 0)
+		beforeReadOnlyRetry = func(attempt int) {
+			roRetries = attempt
+			if attempt == 1 {
+				_ = os.Remove(tmpForNonBusy)
+				hNonBusy.release()
+			}
 		}
-		if roRetries != 0 {
-			t.Fatalf("非占用错误不应重试，实际重试 %d 次", roRetries)
+		if err := replace(tmpForNonBusy, ro, oldInfo); !errors.Is(err, windows.ERROR_FILE_NOT_FOUND) {
+			t.Fatalf("退路中临时文件消失应直接返回 ERROR_FILE_NOT_FOUND：%v", err)
+		}
+		if roRetries != 1 {
+			t.Fatalf("退路遇到非占用错误应在首轮重试后立即停下（1 次），实际重试 %d 次", roRetries)
+		}
+		if got, _ := os.ReadFile(ro); string(got) != "v2" {
+			t.Fatalf("非占用错误后原文件内容被改动：%q", got)
 		}
 
 		// 重试途中只读目标被换成另一份文件：停止重试且绝不覆盖新换上的那份
@@ -421,6 +437,130 @@ func TestReadOnlyTargetRetriesUntilReleased(t *testing.T) {
 		}
 		if got, _ := os.ReadFile(ro); string(got) != "other-readonly" {
 			t.Fatalf("被替换后的新文件被改动：%q", got)
+		}
+	})
+}
+
+// R2：目标是只读文件，且临时文件在刷盘后、改名前被独占句柄短暂占着（此时 MoveFileEx 报 ERROR_SHARING_VIOLATION）：
+// 放行进入只读退路后按同一张间隔表重试，占用放开后保存成功。
+func TestReadOnlyTargetWithHeldTempRetriesUntilReleased(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "server.properties")
+	if err := os.WriteFile(p, []byte("old"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(p, 0o644) })
+
+	released := make(chan struct{})
+	oldHook := Hook
+	t.Cleanup(func() { Hook = oldHook })
+	Hook = func(target string) {
+		if target != p {
+			return
+		}
+		tmps, _ := filepath.Glob(filepath.Join(dir, ".minedeck-write-*.tmp"))
+		if len(tmps) != 1 {
+			t.Errorf("未找到唯一的临时文件：%v", tmps)
+			close(released)
+			return
+		}
+		o := hold(t, tmps[0], windows.GENERIC_READ, 0, 0)
+		go func() {
+			defer close(released)
+			time.Sleep(100 * time.Millisecond)
+			o.release()
+		}()
+	}
+
+	err := Write(p, []byte("new"), 0o644)
+	Hook = oldHook
+	<-released
+	if err != nil {
+		t.Fatalf("只读目标且临时文件被短暂独占后放开，保存应当成功：%v", err)
+	}
+	if got, _ := os.ReadFile(p); string(got) != "new" {
+		t.Fatalf("保存后的内容 = %q，应为 \"new\"", got)
+	}
+	assertNoTemps(t, dir)
+}
+
+// R1：PublishNew 只在目标不存在时发布，目标已存在时返回 fs.ErrExist、不覆盖目标、保留临时文件交给调用方清理；
+// 临时文件被短暂占着时照常重试后成功。
+func TestPublishNew(t *testing.T) {
+	t.Run("目标不存在时成功发布", func(t *testing.T) {
+		dir := t.TempDir()
+		tmp := filepath.Join(dir, "a.tmp")
+		dest := filepath.Join(dir, "out.zip")
+		if err := os.WriteFile(tmp, []byte("zip-bytes"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := PublishNew(tmp, dest); err != nil {
+			t.Fatalf("目标不存在时 PublishNew 应成功：%v", err)
+		}
+		if got, err := os.ReadFile(dest); err != nil || string(got) != "zip-bytes" {
+			t.Fatalf("发布后的内容 = %q, err = %v", got, err)
+		}
+		if _, err := os.Stat(tmp); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("发布成功后临时文件应已移走：%v", err)
+		}
+	})
+
+	t.Run("目标已存在时不覆盖且返回ErrExist", func(t *testing.T) {
+		n := setRetry(t, ms(5), nil)
+		dir := t.TempDir()
+		tmp := filepath.Join(dir, "b.tmp")
+		dest := filepath.Join(dir, "out.zip")
+		if err := os.WriteFile(dest, []byte("existing-backup"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(tmp, []byte("new-backup"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		err := PublishNew(tmp, dest)
+		if !errors.Is(err, fs.ErrExist) {
+			t.Fatalf("目标已存在时应返回满足 errors.Is(..., fs.ErrExist) 的错误，实际：%v", err)
+		}
+		if *n != 0 {
+			t.Fatalf("目标已存在不应重试，实际重试 %d 次", *n)
+		}
+		if got, _ := os.ReadFile(dest); string(got) != "existing-backup" {
+			t.Fatalf("已有目标文件的内容被改动：%q", got)
+		}
+		if got, err := os.ReadFile(tmp); err != nil || string(got) != "new-backup" {
+			t.Fatalf("失败后临时文件应原样留给调用方清理：got=%q err=%v", got, err)
+		}
+	})
+
+	t.Run("临时文件短暂被占时重试后成功", func(t *testing.T) {
+		dir := t.TempDir()
+		tmp := filepath.Join(dir, "c.tmp")
+		dest := filepath.Join(dir, "out.zip")
+		if err := os.WriteFile(tmp, []byte("zip-after-hold"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		var o *holder
+		oldHook := Hook
+		t.Cleanup(func() { Hook = oldHook })
+		Hook = func(p string) {
+			if p == dest {
+				o = hold(t, tmp, windows.GENERIC_READ, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, 0)
+			}
+		}
+		n := setRetry(t, ms(10), func(attempt int) {
+			if attempt == 2 && o != nil {
+				o.release()
+			}
+		})
+		err := PublishNew(tmp, dest)
+		Hook = oldHook
+		if err != nil {
+			t.Fatalf("临时文件放开后 PublishNew 应成功：%v", err)
+		}
+		if *n != 2 {
+			t.Fatalf("应在第 2 次重试成功，实际重试 %d 次", *n)
+		}
+		if got, _ := os.ReadFile(dest); string(got) != "zip-after-hold" {
+			t.Fatalf("内容不对：%q", got)
 		}
 	})
 }

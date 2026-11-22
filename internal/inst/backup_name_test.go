@@ -1,12 +1,16 @@
 package inst
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"minedeck/internal/atomicfile"
 )
 
 // 备份文件的名字靠时间区分。时钟没往前走（Windows 的时钟一跳可以有十几毫秒，极小的世界一次备份比这还快）时接连备份两次、
@@ -151,5 +155,64 @@ func TestBackupExclDoesNotOverwritePreexistingOrConcurrent(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(racePath); string(got) != otherProcBytes {
 		t.Fatalf("另一进程先建好的同名备份被覆盖了：got=%q want=%q", got, otherProcBytes)
+	}
+}
+
+// R1：备份发布前备份目录里不应先出现最终名字的 0 字节占位 .zip（否则杀毒或资源管理器打开占位会让 Windows 改名拒绝访问），
+// 且没撞名时备份文件名里的时间应取压缩开始前那一次，而不是压缩结束后的时间。
+func TestBackupPublishNoPlaceholderAndUsesStartTime(t *testing.T) {
+	m, _ := tempInstance(t)
+	bdir := backupDirOf("s")
+
+	oldNow, oldBackupHook, oldAtomicHook := backupNow, backupHook, atomicfile.Hook
+	t.Cleanup(func() {
+		backupNow, backupHook, atomicfile.Hook = oldNow, oldBackupHook, oldAtomicHook
+	})
+
+	start := time.Date(2026, 11, 22, 20, 0, 0, 0, time.Local)
+	var tick atomic.Int32
+	backupNow = func() time.Time {
+		n := tick.Add(1)
+		return start.Add(time.Duration(n-1) * 10 * time.Second)
+	}
+
+	var callsBeforeZip int32
+	backupHook = func() {
+		callsBeforeZip = tick.Load()
+		// 模拟压缩耗时推进了假时钟：如果发布时才第一次取时间，文件名就会跳到后面的秒数
+		_ = backupNow()
+	}
+
+	hookSawTarget := false
+	atomicfile.Hook = func(p string) {
+		if filepath.Dir(p) != bdir {
+			return
+		}
+		hookSawTarget = true
+		if st, err := os.Lstat(p); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("发布改名前目标路径 %s 已存在（size=%d err=%v），不应预先建占位文件", filepath.Base(p), func() int64 {
+				if st != nil {
+					return st.Size()
+				}
+				return -1
+			}(), err)
+		}
+	}
+
+	gotName, err := m.CreateBackup("s", "check")
+	backupHook = nil
+	atomicfile.Hook = oldAtomicHook
+	if err != nil {
+		t.Fatalf("CreateBackup 失败：%v", err)
+	}
+	if !hookSawTarget {
+		t.Fatal("发布备份时未经过 atomicfile.Hook")
+	}
+	if callsBeforeZip != 1 {
+		t.Fatalf("压缩开始前应先取一次时间，实际在 backupHook 时已调用 %d 次", callsBeforeZip)
+	}
+	wantName := start.Format("20060102-150405.000000000") + "-check.zip"
+	if gotName != wantName {
+		t.Fatalf("备份文件名应使用压缩开始前的时间：got=%q want=%q", gotName, wantName)
 	}
 }

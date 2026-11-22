@@ -24,9 +24,8 @@ var Hook func(path string)
 // 用不同的名字以后，同时保存的两份各自完整，后改名的那一份留下。「后保存的盖掉先保存的改动」这件事它不管，
 // 要靠调用方把「读、改、写」串起来（见 inst.UpdateProps）。
 //
-// 原文件是只读的：Windows 用忽略只读属性的扩展改名，不改变原文件属性。
-// 文件系统不支持则报错并清理临时文件，绝不先删原文件。
-// 原文件不是只读、只是被谁短暂打开着（Windows 上这样改名会被拒绝）：隔一会儿再试几次，约半秒为限，见 replace_windows.go。
+// 原文件是只读的：Windows 用忽略只读属性的扩展改名，不先改动原文件属性；文件系统不支持则报错并清理临时文件，绝不先删原文件。
+// 目标或临时文件被别的程序短暂打开着时（不论原文件可写走普通改名，还是只读走扩展改名退路）：隔一会儿再试几次，约半秒为限，见 replace_windows.go。
 func Write(path string, data []byte, perm fs.FileMode) error {
 	return copyChecked(path, bytes.NewReader(data), perm, nil, nil, true)
 }
@@ -51,7 +50,7 @@ func CopyWith(path string, r io.Reader, perm fs.FileMode, wrap func(io.Writer) i
 	return copyChecked(path, r, perm, nil, wrap, true)
 }
 
-// WriteProtected 保留原有只读保护：配置/密钥缓存等以前拒绝覆盖的文件不能因采用原子写就被强行覆盖。
+// WriteProtected 保留原有只读保护：配置/密钥缓存等以前拒绝覆盖的文件不能因采用原子写就被强行覆盖（目标只读时当场拒绝、不重试；非只读目标被短暂占用照常重试）。
 func WriteProtected(path string, data []byte, perm fs.FileMode) error {
 	return copyChecked(path, bytes.NewReader(data), perm, nil, nil, false)
 }
@@ -99,6 +98,30 @@ func ReplaceContext(ctx context.Context, tmp, path string) error {
 		return err
 	}
 	return replacePrepared(ctx, tmp, path, true)
+}
+
+// PublishNew 将已写完的同卷临时文件发布到 path；与 Replace 的唯一区别是只在目标不存在时才放上去，绝不覆盖已有文件。
+// 目标已存在时立即返回满足 errors.Is(err, fs.ErrExist) 的错误且不动目标；失败时 tmp 留给调用方清理。
+// 需要排队的调用方照 Replace 的规矩自行持有 LockPath。
+func PublishNew(tmp, path string) error {
+	f, err := openForSyncCtx(context.Background(), tmp)
+	if err != nil {
+		return err
+	}
+	err = f.Sync()
+	if e := f.Close(); err == nil {
+		err = e
+	}
+	if err != nil {
+		return fmt.Errorf("刷盘临时文件失败：%w", err)
+	}
+	if Hook != nil {
+		Hook(path)
+	}
+	if err := publishNew(tmp, path); err != nil {
+		return fmt.Errorf("发布文件失败：%w", err)
+	}
+	return nil
 }
 
 func replacePrepared(ctx context.Context, tmp, path string, allowReadOnly bool) error {

@@ -58,6 +58,18 @@ func move(tmp, path string) error {
 	return windows.MoveFileEx(from, to, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
 }
 
+func moveNew(tmp, path string) error {
+	from, err := windows.UTF16PtrFromString(longPath(tmp))
+	if err != nil {
+		return err
+	}
+	to, err := windows.UTF16PtrFromString(longPath(path))
+	if err != nil {
+		return err
+	}
+	return windows.MoveFileEx(from, to, windows.MOVEFILE_WRITE_THROUGH)
+}
+
 // Windows 10/11 的扩展改名可忽略被替换文件的只读属性，不需要先修改任何目标属性。
 // 若文件系统不支持，保存直接失败；绝不退回到按路径清除只读、先删原文件的做法。
 type renameInfo struct {
@@ -178,12 +190,46 @@ func replaceCtx(ctx context.Context, tmp, path string, old fs.FileInfo) error {
 	if retries > 0 {
 		err = fmt.Errorf("重试 %d 次仍不行：%w", retries, err)
 	}
-	// 目标一开始就是只读普通文件时，MoveFileEx 遇到只读报 ERROR_ACCESS_DENIED，若同时被独占句柄占着则先报 ERROR_SHARING_VIOLATION；
-	// 两种都交给忽略只读属性的扩展改名退路处理。
+	// 目标一开始就是只读普通文件时，MoveFileEx 遇到只读目标（无论目标是否被占、怎么被占）报 ERROR_ACCESS_DENIED；
+	// 放行 isBusyErr 里的 ERROR_SHARING_VIOLATION 是为了兜住「目标只读、而临时文件此刻正被短暂占着」的情形，让它也进只读退路重试。
 	if !isBusyErr(err) || old == nil || !old.Mode().IsRegular() || old.Mode().Perm()&0o200 != 0 {
 		return err
 	}
 	return replaceReadOnly(ctx, tmp, path, old, err)
+}
+
+// publishNew 只在目标不存在时把 tmp 移到 path（不带 MOVEFILE_REPLACE_EXISTING，不在目标位置预先建 0 字节占位文件）：
+// 目标已存在时 MoveFileEx 报 ERROR_ALREADY_EXISTS / ERROR_FILE_EXISTS（满足 errors.Is(err, fs.ErrExist)），当场返回、不重试；
+// 临时文件被短暂占着（共享冲突，或目标尚不存在时的拒绝访问）则按同一张 retryDelays 表重试。
+func publishNew(tmp, path string) error {
+	err := moveNew(tmp, path)
+	retries := 0
+	for err != nil && retries < len(retryDelays) && retryableNew(err, path) {
+		time.Sleep(retryDelays[retries])
+		retries++
+		if beforeRetry != nil {
+			beforeRetry(retries)
+		}
+		err = moveNew(tmp, path)
+	}
+	if err != nil && retries > 0 {
+		return fmt.Errorf("重试 %d 次仍不行：%w", retries, err)
+	}
+	return err
+}
+
+func retryableNew(err error, path string) bool {
+	if errors.Is(err, windows.ERROR_ALREADY_EXISTS) || errors.Is(err, windows.ERROR_FILE_EXISTS) {
+		return false
+	}
+	if errors.Is(err, windows.ERROR_SHARING_VIOLATION) {
+		return true
+	}
+	if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+		_, e := os.Lstat(path)
+		return errors.Is(e, fs.ErrNotExist)
+	}
+	return false
 }
 
 // replaceReadOnly 用忽略只读属性的扩展改名替换原只读文件；若目标或临时文件被短暂占用（拒绝访问或共享冲突），
