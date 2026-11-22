@@ -173,11 +173,12 @@ const staleTempAge = time.Hour
 
 // sweepStaleTemps 清掉 MineDeck 自己留下、很久没动过的临时文件（见 internal/tmpsweep）。只在程序启动后做一遍。
 func sweepStaleTemps(mgr *inst.Manager) {
-	var dirs []string
-	for _, i := range mgr.List() {
-		dirs = append(dirs, i.Dir)
+	list := mgr.List()
+	insts := make([]tmpsweep.Instance, len(list))
+	for k, i := range list {
+		insts[k] = tmpsweep.Instance{Dir: i.Dir, Name: i.Name}
 	}
-	if r := tmpsweep.Startup(app.Base, app.CacheDir, app.RuntimesDir, dirs, staleTempAge); r.Files > 0 {
+	if r := tmpsweep.Startup(app.Base, app.CacheDir, app.RuntimesDir, app.AllBackupRoots(), insts, staleTempAge); r.Files > 0 {
 		log.Printf("清掉了 %d 个以前没写完留下的临时文件，共 %.1f MB", r.Files, float64(r.Bytes)/(1<<20))
 	}
 }

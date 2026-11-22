@@ -14,8 +14,6 @@
 package tmpsweep
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -23,8 +21,6 @@ import (
 	"runtime"
 	"strings"
 	"time"
-
-	"minedeck/internal/app"
 )
 
 // instanceMaxDepth 服务器文件夹往下最多找几层（0 是只看服务器根目录这一层）。
@@ -67,6 +63,12 @@ func IsOurs(name string) bool {
 // 名字不是 .minedeck- 开头，只在每台服务器实际用的备份文件夹这一层认，别的地方一概不动。
 func isLegacyBackupTemp(name string) bool {
 	return matchTempDigits(name, ".backup-", ".tmp")
+}
+
+// Instance 一台已登记服务器的文件夹与名称（由调用方从内存传入，这里不读盘上的配置文件）。
+type Instance struct {
+	Dir  string
+	Name string
 }
 
 // Result 清了多少。
@@ -178,22 +180,25 @@ func backupDir(dir string, minAge time.Duration) Result {
 }
 
 // Startup 程序启动后清一遍 MineDeck 管着的文件夹：程序文件夹这一层（设置、密钥就存在这里）、data、下载缓存、
-// 便携运行时这几棵树，每台服务器文件夹（限制层数、跳过带 level.dat 的世界文件夹），以及每台服务器实际用的备份文件夹这一层。
-func Startup(base, cacheDir, runtimesDir string, instanceDirs []string, minAge time.Duration) Result {
+// 便携运行时这几棵树，每台服务器文件夹（限制层数、跳过带 level.dat 的世界文件夹），以及每台服务器在 backupRoots 下的备份文件夹这一层。
+// backupRoots（如 app.AllBackupRoots()）和 instances 由调用方从内存传入，这里不再读盘上的配置文件。
+func Startup(base, cacheDir, runtimesDir string, backupRoots []string, instances []Instance, minAge time.Duration) Result {
 	var res Result
 	res.add(Dir(base, minAge))
 	res.add(Tree(filepath.Join(base, "data"), 4, minAge))
 	res.add(Tree(cacheDir, 6, minAge))
 	res.add(Tree(runtimesDir, 12, minAge))
-	backupRoots := backupRootsOf(base)
+	roots := cleanBackupRoots(backupRoots)
 	seenBackup := map[string]bool{}
-	for _, d := range instanceDirs {
-		res.add(instanceTree(d, instanceMaxDepth, minAge))
-		sub, ok := instanceBackupSub(d)
+	for _, inst := range instances {
+		if inst.Dir != "" {
+			res.add(instanceTree(inst.Dir, instanceMaxDepth, minAge))
+		}
+		sub, ok := backupSubName(inst.Name)
 		if !ok {
 			continue
 		}
-		for _, r := range backupRoots {
+		for _, r := range roots {
 			if !plainDir(r) {
 				continue
 			}
@@ -216,82 +221,29 @@ func pathKey(clean string) string {
 	return clean
 }
 
-type backupConfig struct {
-	BackupsDir  string   `json:"backupsDir"`
-	BackupRoots []string `json:"backupRoots"`
-}
-
-func readBackupConfig(path string) (backupConfig, bool) {
-	var cfg backupConfig
-	st, err := os.Lstat(path)
-	if err != nil || !st.Mode().IsRegular() || st.Size() > 1<<20 {
-		return cfg, false
-	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return cfg, false
-	}
-	if err := json.Unmarshal(bytes.TrimPrefix(b, []byte("\xef\xbb\xbf")), &cfg); err != nil {
-		return cfg, false
-	}
-	return cfg, true
-}
-
-func backupRootsOf(base string) []string {
+func cleanBackupRoots(roots []string) []string {
 	seen := map[string]bool{}
 	var out []string
-	add := func(d string) {
-		d = strings.TrimSpace(d)
-		if d == "" {
-			return
+	for _, r := range roots {
+		r = strings.TrimSpace(r)
+		if r == "" {
+			continue
 		}
-		c := filepath.Clean(d)
+		c := filepath.Clean(r)
 		k := pathKey(c)
 		if !seen[k] {
 			seen[k] = true
 			out = append(out, c)
 		}
 	}
-	if app.Base != "" && base != "" && pathKey(filepath.Clean(app.Base)) == pathKey(filepath.Clean(base)) {
-		for _, r := range app.AllBackupRoots() {
-			add(r)
-		}
-	}
-	if base != "" {
-		if plainDir(base) {
-			if cfg, ok := readBackupConfig(filepath.Join(base, "config.json")); ok {
-				add(cfg.BackupsDir)
-				add(filepath.Join(base, "backups"))
-				for _, r := range cfg.BackupRoots {
-					add(r)
-				}
-			}
-		}
-		add(filepath.Join(base, "backups"))
-	}
 	return out
 }
 
-// instanceBackupSub 从服务器文件夹里的 instance.json 读出实例名，按 inst.backupDirOf 的同一规矩算出备份子文件夹名。
-// 不能直接取 filepath.Base(dir)：中文名服务器的目录名是 server-时间戳，接管来的也是原文件夹名，备份都按 instance.json 的 name 存放。
-func instanceBackupSub(dir string) (string, bool) {
-	p := filepath.Join(dir, "instance.json")
-	st, err := os.Lstat(p)
-	if err != nil || !st.Mode().IsRegular() || st.Size() > 1<<20 {
-		return "", false
-	}
-	b, err := os.ReadFile(p)
-	if err != nil {
-		return "", false
-	}
-	var s struct {
-		Name string `json:"name"`
-	}
-	if err := json.Unmarshal(bytes.TrimPrefix(b, []byte("\xef\xbb\xbf")), &s); err != nil || s.Name == "" {
-		return "", false
-	}
-	sub := filepath.Base(s.Name)
-	if sub == "" || sub == "." || sub == ".." || strings.ContainsAny(sub, `/\:`) || !filepath.IsLocal(sub) {
+// backupSubName 保守校验实例名能不能安全当备份根下面的单层子文件夹名用：
+// 拒绝空串、.、..、带路径分隔符或冒号的名字，并要求 filepath.IsLocal（Windows 上同时挡住 CON 等保留设备名）。
+func backupSubName(name string) (string, bool) {
+	sub := filepath.Base(name)
+	if name == "" || sub == "" || sub == "." || sub == ".." || strings.ContainsAny(name, `/\:`) || !filepath.IsLocal(sub) {
 		return "", false
 	}
 	return sub, true
