@@ -92,32 +92,45 @@ func TestPortSuggestSkipsOtherPrograms(t *testing.T) {
 	if err := do(t, reg, human, "port.suggest", `{"from":30000}`, &r); err != nil || r.Port != 30000 || r.FromBusy || r.FromProcess != "" {
 		t.Errorf("空着的：%v %+v", err, r)
 	}
+	// 从起点往上到 65535 全被占满时（兜底分支）：不能越界，照原样返回起点并标出 fromBusy
+	noListeners(t, map[int]int{65534: self, 65535: self})
+	r = res{}
+	if err := do(t, reg, human, "port.suggest", `{"from":65534}`, &r); err != nil || r.Port != 65534 || r.From != 65534 || !r.FromBusy {
+		t.Errorf("从 65534 往上全满时应兜底返回起点 65534：%v %+v", err, r)
+	}
 }
 
-// 真读一次系统的监听表：自己在本机回环地址上监听一个端口，推荐时要跳过它（只监听 127.0.0.1，不会让防火墙弹窗）
+// 真读一次系统的监听表：自己在非临时高端口段（30000..40000）监听一个回环端口，只断言自己绑住的这个端口能被识别并跳过，
+// 不二次扫描整张监听表跟别的进程抢端口，避免并发跑测试时偶发误报。
 func TestPortSuggestReadsRealListenTable(t *testing.T) {
 	reg, _ := newCatalog(t)
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	var (
+		ln   net.Listener
+		busy int
+		err  error
+	)
+	for p := 30000; p <= 40000; p++ {
+		ln, err = net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(p))
+		if err == nil {
+			busy = p
+			break
+		}
+	}
+	if ln == nil {
+		t.Fatalf("30000..40000 没有可绑定的回环端口：%v", err)
 	}
 	defer ln.Close()
-	busy := ln.Addr().(*net.TCPAddr).Port
 	if pid, ok := tcpListeners()[busy]; !ok || pid != os.Getpid() {
 		t.Fatalf("监听表里没有自己占着的 %d：%v %v", busy, pid, ok)
 	}
 	var r struct {
-		Port     int  `json:"port"`
-		FromBusy bool `json:"fromBusy"`
+		Port        int    `json:"port"`
+		From        int    `json:"from"`
+		FromBusy    bool   `json:"fromBusy"`
+		FromProcess string `json:"fromProcess"`
 	}
-	// 上面还有没人监听的端口时才要求跳过去；系统分到的端口靠近 65535、上面都被占着时按原样给起点（同 DefaultPort 的兜底）
-	above := false
-	ls := tcpListeners()
-	for p := busy + 1; p <= 65535 && !above; p++ {
-		_, used := ls[p]
-		above = !used
-	}
-	if err := do(t, reg, human, "port.suggest", `{"from":`+strconv.Itoa(busy)+`}`, &r); err != nil || !r.FromBusy || (above && r.Port <= busy) {
-		t.Errorf("应跳过 %d：%v %+v（上面有空着的：%v）", busy, err, r, above)
+	if err := do(t, reg, human, "port.suggest", `{"from":`+strconv.Itoa(busy)+`}`, &r); err != nil ||
+		r.From != busy || !r.FromBusy || !strings.EqualFold(r.FromProcess, filepath.Base(os.Args[0])) || r.Port <= busy || r.Port > 65535 {
+		t.Errorf("应识别并跳过自己占着的 %d：%v %+v", busy, err, r)
 	}
 }

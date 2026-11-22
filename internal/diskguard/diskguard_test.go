@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -118,31 +119,87 @@ func TestReaderLimitsImplicitTempWrites(t *testing.T) {
 	}
 }
 
+func occupyVolumeGate(key uint32) *Lease {
+	g := &gate{slot: make(chan struct{}, 1), refs: 1}
+	g.slot <- struct{}{}
+	volumes.Lock()
+	volumes.gates[key] = g
+	volumes.Unlock()
+	return &Lease{ctx: context.Background(), key: key, g: g}
+}
+
 func TestDifferentRealVolumesDoNotBlock(t *testing.T) {
 	root := t.TempDir()
 	_, aKey, err := volumeOf(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	other := os.Getenv("SystemRoot")
-	if other == "" {
-		t.Skip("no second volume available")
+	// 1) 单分区机器上也不跳过：先在全局卷门闸里占住别的卷号（含 0，防止实现把所有卷号都退化成 0），验证 root 所在卷不会被挡住
+	otherKeys := []uint32{aKey ^ 1}
+	if aKey != 0 {
+		otherKeys = append(otherKeys, 0)
 	}
-	_, bKey, err := volumeOf(other)
-	if err != nil || aKey == bKey {
-		t.Skip("test workspace and system directory share a volume")
+	var holds []*Lease
+	for _, k := range otherKeys {
+		h := occupyVolumeGate(k)
+		holds = append(holds, h)
+		defer h.Close()
 	}
-	a, err := Acquire(context.Background(), root, Options{Query: plenty})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer a.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	// Acquiring a lease only reads volume metadata, never writes into SystemRoot.
-	b, err := Acquire(ctx, other, Options{Query: plenty})
+	waited := false
+	a, err := Acquire(ctx, root, Options{Query: plenty, OnWait: func() { waited = true }})
 	if err != nil {
-		t.Fatalf("unrelated volume was blocked: %v", err)
+		t.Fatalf("unrelated volume gate blocked current volume: %v", err)
 	}
-	b.Close()
+	if waited {
+		a.Close()
+		t.Fatal("unrelated volume gate caused current volume to queue")
+	}
+	for _, h := range holds {
+		h.Close()
+	}
+
+	// 2) 机器上真有第二个挂载卷时（如多盘符开发机或带 D: 的 CI runner），再用两个真实目录端到端验证互不阻塞
+	var cands []string
+	if wd, err := os.Getwd(); err == nil && wd != "" {
+		cands = append(cands, wd)
+	}
+	if sr := os.Getenv("SystemRoot"); sr != "" {
+		cands = append(cands, sr)
+	}
+	if runtime.GOOS == "windows" {
+		for d := byte('C'); d <= 'Z'; d++ {
+			cands = append(cands, string([]byte{d, ':', '\\'}))
+		}
+	} else {
+		cands = append(cands, "/", "/dev", "/tmp")
+	}
+	second := ""
+	for _, c := range cands {
+		if _, bKey, err := volumeOf(c); err == nil && bKey != aKey {
+			second = c
+			break
+		}
+	}
+	if second != "" {
+		rctx, rcancel := context.WithTimeout(context.Background(), time.Second)
+		defer rcancel()
+		b, err := Acquire(rctx, second, Options{Query: plenty})
+		if err != nil {
+			a.Close()
+			t.Fatalf("unrelated real volume %q was blocked: %v", second, err)
+		}
+		b.Close()
+	} else {
+		t.Log("本机只有一个真实挂载卷，真实双卷分支未触发（已通过不同卷键门闸验证互不阻塞）")
+	}
+	a.Close()
+
+	volumes.Lock()
+	left := len(volumes.gates)
+	volumes.Unlock()
+	if left != 0 {
+		t.Fatalf("leases leaked %d volume records", left)
+	}
 }

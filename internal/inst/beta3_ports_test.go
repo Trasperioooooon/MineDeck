@@ -173,6 +173,16 @@ func TestDefaultPortSkipsUsed(t *testing.T) {
 	if p, by := DefaultPortSkipping(used, 25565, nil); p != 25568 || by != "生存服" {
 		t.Errorf("busy 为 nil 时同 DefaultPort：%d %q", p, by)
 	}
+	// 从起点到 65535 全被占满时的兜底分支：照原样返回起点并保留 usedBy，不返回 0 或越界端口
+	if p, by := DefaultPortSkipping(used, 25565, func(int) bool { return true }); p != 25565 || by != "生存服" {
+		t.Errorf("全部占满时应回退到起点 25565（生存服）：%d %q", p, by)
+	}
+	if p, by := DefaultPortSkipping(nil, 65534, func(p int) bool { return p >= 65534 }); p != 65534 || by != "" {
+		t.Errorf("65534..65535 占满时应回退到 65534：%d %q", p, by)
+	}
+	if got := freePortFrom(bindTarget{network: "tcp", host: "127.0.0.1", port: 65535}, nil); got != 0 {
+		t.Errorf("65535 往上无可用端口时 freePortFrom 应返回 0，得到 %d", got)
+	}
 }
 
 // 接管：请求里的端口和文件夹里写的一样（或者没给）就不碰 server.properties；不一样只改 server-port 这一行；
