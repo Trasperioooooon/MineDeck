@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -37,8 +38,8 @@ var kinds = []struct{ prefix, suffix string }{
 	{".minedeck-backup-", ".tmp"},        // 世界备份压缩包
 }
 
-// maxTempDigits os.CreateTemp 生成的随机段是 uint32 的十进制（0～4294967295，见标准库 os/tempfile.go 的 nextRandom），最多 10 位。
-// 11 位及以上的数字串（例如 14 位时间戳）MineDeck 自己起不出来，按保守原则一律不认。
+// maxTempDigits os.CreateTemp 生成的随机段是 uint32 的十进制（0～4294967295，不补零，见标准库 os/tempfile.go 的 nextRandom），最多 10 位。
+// 带前导零的序号（如 007、0001）、大于 4294967295 的 10 位数、11 位及以上的数字串（如 14 位时间戳）MineDeck 自己都起不出来，按保守原则一律不认。
 const maxTempDigits = 10
 
 func matchTempDigits(name, prefix, suffix string) bool {
@@ -50,7 +51,14 @@ func matchTempDigits(name, prefix, suffix string) bool {
 	if !ok || mid == "" || len(mid) > maxTempDigits {
 		return false
 	}
-	return strings.Trim(mid, "0123456789") == ""
+	if strings.Trim(mid, "0123456789") != "" {
+		return false
+	}
+	if len(mid) > 1 && mid[0] == '0' {
+		return false
+	}
+	_, err := strconv.ParseUint(mid, 10, 32)
+	return err == nil
 }
 
 // IsOurs name 是不是 MineDeck 起的临时文件名。
@@ -229,8 +237,7 @@ func cleanBackupRoots(roots []string) []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, r := range roots {
-		r = strings.TrimSpace(r)
-		if r == "" {
+		if !filepath.IsAbs(r) {
 			continue
 		}
 		c := filepath.Clean(r)
@@ -244,10 +251,12 @@ func cleanBackupRoots(roots []string) []string {
 }
 
 // backupSubName 保守校验实例名能不能安全当备份根下面的单层子文件夹名用：
-// 拒绝空串、.、..、带路径分隔符或冒号的名字，并要求 filepath.IsLocal（Windows 上同时挡住 CON 等保留设备名）。
+// 拒绝空串、.、..、以点或空格结尾、带路径分隔符或冒号的名字，并要求 filepath.IsLocal（Windows 上同时挡住 CON 等保留设备名）。
 func backupSubName(name string) (string, bool) {
 	sub := filepath.Base(name)
-	if name == "" || sub == "" || sub == "." || sub == ".." || strings.ContainsAny(name, `/\:`) || !filepath.IsLocal(sub) {
+	if name == "" || sub == "" || sub == "." || sub == ".." ||
+		strings.HasSuffix(name, ".") || strings.HasSuffix(name, " ") ||
+		strings.ContainsAny(name, `/\:`) || !filepath.IsLocal(sub) {
 		return "", false
 	}
 	return sub, true

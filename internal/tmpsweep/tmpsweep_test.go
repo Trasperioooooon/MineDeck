@@ -10,18 +10,23 @@ import (
 	"time"
 )
 
-// 只认 MineDeck 自己起的那几种名字：前缀、1～10 位纯数字（os.CreateTemp 填的 uint32）、后缀都要对上。
+// 只认 MineDeck 自己起的那几种名字：前缀、os.CreateTemp 真起得出的 uint32 十进制数（不补零、0～4294967295）、后缀都要对上。
 func TestIsOurs(t *testing.T) {
 	for name, want := range map[string]bool{
 		".minedeck-download-123456789.part":             true,
 		".minedeck-download-1.download":                 true,
 		".minedeck-copy-4294967295.copy":                true, // 10 位（uint32 上界）
-		".minedeck-write-0.tmp":                         true, // 1 位
+		".minedeck-write-0.tmp":                         true, // 单个 0 允许
 		".minedeck-write-99.tmp":                        true,
 		".minedeck-unzip-123.part":                      true,
 		".minedeck-backup-123456.tmp":                   true,
 		".minedeck-backup-.tmp":                         false,
 		".minedeck-backup-abc.tmp":                      false,
+		".minedeck-write-00.tmp":                        false, // 前导零：CreateTemp 不会补零
+		".minedeck-download-007.part":                   false, // 前导零
+		".minedeck-download-0001.part":                  false, // 前导零
+		".minedeck-copy-4294967296.copy":                false, // 10 位但超过 uint32 上界
+		".minedeck-backup-9999999999.tmp":               false, // 10 位但超过 uint32 上界
 		".minedeck-download-42949672950.part":           false, // 11 位：超过 CreateTemp 可能的位数
 		".minedeck-backup-20261122153000.tmp":           false, // 14 位时间戳：不是 CreateTemp 起的
 		".minedeck-write-123456789012345678901234.tmp":  false, // 24 位
@@ -56,6 +61,17 @@ func put(t *testing.T, path string, age time.Duration) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte("0123456789"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	when := time.Now().Add(-age)
+	if err := os.Chtimes(path, when, when); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func putEmptyDir(t *testing.T, path string, age time.Duration) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	when := time.Now().Add(-age)
@@ -144,17 +160,24 @@ func TestTree(t *testing.T) {
 	}
 }
 
-// 只清一层：下面文件夹里的不管。
+// 只清一层：下面文件夹里的不管，名字像临时文件的空文件夹也不删。
 func TestDir(t *testing.T) {
 	root := t.TempDir()
 	put(t, filepath.Join(root, ".minedeck-write-1.tmp"), 48*time.Hour)
 	put(t, filepath.Join(root, "world", ".minedeck-write-2.tmp"), 48*time.Hour)
 	put(t, filepath.Join(root, "instance.json"), 48*time.Hour)
 	put(t, filepath.Join(root, ".minedeck-copy-3.copy"), time.Second)
+	putEmptyDir(t, filepath.Join(root, ".minedeck-write-888.tmp"), 48*time.Hour)
 	if res := Dir(root, time.Hour); res.Files != 1 {
 		t.Fatalf("只该删这一层里那一个：%+v", res)
 	}
-	for p, want := range map[string]bool{".minedeck-write-1.tmp": false, "world/.minedeck-write-2.tmp": true, "instance.json": true, ".minedeck-copy-3.copy": true} {
+	for p, want := range map[string]bool{
+		".minedeck-write-1.tmp":       false,
+		"world/.minedeck-write-2.tmp": true,
+		"instance.json":               true,
+		".minedeck-copy-3.copy":       true,
+		".minedeck-write-888.tmp":     true,
+	} {
 		if exists(filepath.Join(root, filepath.FromSlash(p))) != want {
 			t.Errorf("%s：在不在应为 %v", p, want)
 		}
@@ -294,6 +317,14 @@ func TestStartupBackupDirsStrictRules(t *testing.T) {
 	for _, p := range stay {
 		put(t, p, stale)
 	}
+	// 名字像临时文件的旧空文件夹不动
+	emptyDirs := []string{
+		filepath.Join(curBk, ".backup-889.tmp"),
+		filepath.Join(curBk, ".minedeck-backup-890.tmp"),
+	}
+	for _, d := range emptyDirs {
+		putEmptyDir(t, d, stale)
+	}
 
 	label := func(p string) string {
 		for _, pair := range []struct{ root, tag string }{
@@ -324,7 +355,7 @@ func TestStartupBackupDirsStrictRules(t *testing.T) {
 			t.Errorf("应清掉：%s", label(p))
 		}
 	}
-	for _, p := range append(fresh, stay...) {
+	for _, p := range append(append(fresh, stay...), emptyDirs...) {
 		if !exists(p) {
 			t.Errorf("不该动：%s", label(p))
 		}
@@ -346,6 +377,11 @@ func TestStartupRejectsBadInstanceNames(t *testing.T) {
 		{"NTFS备用数据流", "S1::$DATA"},
 		{"空串", ""},
 		{"带分隔符指别的服", "a/S1"},
+		{"三点", "..."},
+		{"双点加空格", ".. "},
+		{"单点加空格", ". "},
+		{"末尾带点", "S1."},
+		{"末尾带空格", "S1 "},
 	}
 	for _, tc := range cases {
 		t.Run(tc.title, func(t *testing.T) {
@@ -446,7 +482,92 @@ func TestStartupSkipsJunctionBackupRoot(t *testing.T) {
 	}
 }
 
-// R3：随机段位数边界（os.CreateTemp 的 uint32 最多 10 位）：1 位和 10 位照清，11 位和 14 位（如时间戳）一律不动，新旧名字各一套。
+// 服务器文件夹本身是目录联接时，Startup 不穿过联接去删另一头的文件。
+func TestStartupSkipsJunctionInstanceDir(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("目录联接是 Windows 的东西")
+	}
+	outer := t.TempDir()
+	base := filepath.Join(outer, "app")
+	if err := os.MkdirAll(filepath.Join(base, "servers"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	targetSrv := filepath.Join(outer, "真实外部服务器")
+	kept := []string{
+		filepath.Join(targetSrv, ".minedeck-write-101.tmp"),
+		filepath.Join(targetSrv, "mods", ".minedeck-download-102.part"),
+	}
+	for _, p := range kept {
+		put(t, p, 48*time.Hour)
+	}
+	juncSrv := filepath.Join(base, "servers", "S1")
+	makeJunction(t, juncSrv, targetSrv)
+
+	res := Startup(
+		base,
+		filepath.Join(base, "cache"),
+		filepath.Join(base, "runtimes"),
+		[]string{filepath.Join(base, "backups")},
+		[]Instance{{Dir: juncSrv, Name: "S1"}},
+		time.Hour,
+	)
+	if res.Files != 0 {
+		t.Errorf("服务器文件夹是目录联接时不应删文件，实际删了 %d 个", res.Files)
+	}
+	for _, p := range kept {
+		if !exists(p) {
+			rel, _ := filepath.Rel(outer, p)
+			t.Errorf("穿过联接服务器文件夹误删了：%s", filepath.ToSlash(rel))
+		}
+	}
+}
+
+// 备份根只认绝对路径：空串、全空格、相对路径一律跳过，不清到进程当前目录下。
+func TestStartupSkipsNonAbsBackupRoots(t *testing.T) {
+	work := t.TempDir()
+	t.Chdir(work)
+
+	outer := t.TempDir()
+	base := filepath.Join(outer, "app")
+	srv := filepath.Join(base, "servers", "S1")
+	if err := os.MkdirAll(srv, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	kept := []string{
+		filepath.Join(work, "S1", ".backup-1.tmp"),
+		filepath.Join(work, "S1", ".minedeck-backup-2.tmp"),
+		filepath.Join(work, "rel-backups", "S1", ".backup-3.tmp"),
+		filepath.Join(work, "rel-backups", "S1", ".minedeck-backup-4.tmp"),
+	}
+	if runtime.GOOS != "windows" {
+		kept = append(kept, filepath.Join(work, "  ", "S1", ".backup-5.tmp"))
+	}
+	for _, p := range kept {
+		put(t, p, 48*time.Hour)
+	}
+
+	res := Startup(
+		base,
+		filepath.Join(base, "cache"),
+		filepath.Join(base, "runtimes"),
+		[]string{"", "  ", "rel-backups"},
+		[]Instance{{Dir: srv, Name: "S1"}},
+		time.Hour,
+	)
+	if res.Files != 0 {
+		t.Errorf("非绝对路径的备份根不应删文件，实际删了 %d 个", res.Files)
+	}
+	for _, p := range kept {
+		if !exists(p) {
+			rel, _ := filepath.Rel(work, p)
+			t.Errorf("当前目录下误删了：%s", filepath.ToSlash(rel))
+		}
+	}
+}
+
+// R3 + 复审尾巴 1：随机段只认 os.CreateTemp 真起得出的 uint32 十进制数（不补零、0～4294967295）：
+// 0、4294967295 照清；前导零（007、00）、大于 4294967295 的 10 位数（4294967296、9999999999）、11 位和 14 位一律不动，新旧名字各一套。
 func TestDigitLengthBounds(t *testing.T) {
 	base := t.TempDir()
 	srv := filepath.Join(base, "servers", "S1")
@@ -456,12 +577,24 @@ func TestDigitLengthBounds(t *testing.T) {
 	gone := []string{
 		filepath.Join(srv, "mods", ".minedeck-download-0.part"),
 		filepath.Join(srv, "mods", ".minedeck-download-4294967295.part"),
-		filepath.Join(bk, ".minedeck-backup-7.tmp"),
+		filepath.Join(bk, ".minedeck-backup-0.tmp"),
 		filepath.Join(bk, ".minedeck-backup-4294967295.tmp"),
-		filepath.Join(bk, ".backup-7.tmp"),
+		filepath.Join(bk, ".backup-0.tmp"),
 		filepath.Join(bk, ".backup-4294967295.tmp"),
 	}
 	stay := []string{
+		filepath.Join(srv, "mods", ".minedeck-download-007.part"),            // 新名：前导零
+		filepath.Join(srv, "config", "mymod", ".minedeck-write-00.tmp"),      // 新名：前导零
+		filepath.Join(srv, "mods", ".minedeck-download-4294967296.part"),     // 新名：10 位但超过 uint32
+		filepath.Join(srv, "mods", ".minedeck-download-9999999999.part"),     // 新名：10 位但超过 uint32
+		filepath.Join(bk, ".minedeck-backup-007.tmp"),                        // 新名（备份目录）：前导零
+		filepath.Join(bk, ".minedeck-backup-00.tmp"),                         // 新名（备份目录）：前导零
+		filepath.Join(bk, ".minedeck-backup-4294967296.tmp"),                 // 新名（备份目录）：超过 uint32
+		filepath.Join(bk, ".minedeck-backup-9999999999.tmp"),                 // 新名（备份目录）：超过 uint32
+		filepath.Join(bk, ".backup-007.tmp"),                                 // 旧名：前导零
+		filepath.Join(bk, ".backup-00.tmp"),                                  // 旧名：前导零
+		filepath.Join(bk, ".backup-4294967296.tmp"),                          // 旧名：10 位但超过 uint32
+		filepath.Join(bk, ".backup-9999999999.tmp"),                          // 旧名：10 位但超过 uint32
 		filepath.Join(srv, "mods", ".minedeck-download-42949672950.part"),    // 11 位
 		filepath.Join(srv, "mods", ".minedeck-download-20261122153000.part"), // 14 位
 		filepath.Join(bk, ".minedeck-backup-42949672950.tmp"),                // 11 位
@@ -493,7 +626,7 @@ func TestDigitLengthBounds(t *testing.T) {
 	for _, p := range stay {
 		if !exists(p) {
 			rel, _ := filepath.Rel(base, p)
-			t.Errorf("超过 10 位的名字不应被清：%s", filepath.ToSlash(rel))
+			t.Errorf("非 CreateTemp 随机段不应被清：%s", filepath.ToSlash(rel))
 		}
 	}
 }
