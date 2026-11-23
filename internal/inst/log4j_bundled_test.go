@@ -779,6 +779,30 @@ func TestLog4jAddRespectsExistingXML(t *testing.T) {
 	}
 }
 
+// 文件夹里有官方的那一份、开服时要当场补上引用，可 instance.json 写不进去：照实说是设置文件写不进去，不说成在后台下载，
+// 也不去下载；这次照旧启动，参数不动（A50）。
+func TestLog4jAddReportsSettingsWriteFailure(t *testing.T) {
+	fetched := stubLog4jFetch(t, nil)
+	m := newMigrateManager()
+	i := migrateInst(t, m, "设置写不进", mcsrc.CoreVanilla, "1.12.2", []string{log4jNoLookups})
+	officialLog4jXML(t, i.Dir)
+	if err := os.Mkdir(filepath.Join(i.Dir, "instance.json.tmp"), 0o755); err != nil { // 存 instance.json 先写的临时文件写不了
+		t.Fatal(err)
+	}
+	startFake(t, m, i)
+	lines := i.Console.Lines()
+	if !slices.ContainsFunc(lines, func(l string) bool {
+		return strings.Contains(l, "设置文件（instance.json）写不进去") && strings.Contains(l, log4jXML)
+	}) ||
+		slices.ContainsFunc(lines, func(l string) bool { return strings.Contains(l, "后台正在下载") }) {
+		t.Fatalf("应照实说设置文件写不进去、不说在下载：%q", lines)
+	}
+	launch := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "启动: java") })
+	if launch < 0 || strings.Contains(lines[launch], "log4j.configurationFile") || len(*fetched) != 0 || !slices.Equal(i.ExtraJVMSnapshot(), []string{log4jNoLookups}) {
+		t.Fatalf("这次照旧启动、参数不动、不下载：%q %q %q", lines, *fetched, i.ExtraJVMSnapshot())
+	}
+}
+
 // 启动服务器时还没补上配置的（B）：控制台说一声、这次照旧启动（不等下载），后台去补，补上了下次启动生效。
 func TestStartAddsLog4jConfigInBackground(t *testing.T) {
 	release := make(chan struct{})

@@ -210,9 +210,18 @@ func (m *Manager) log4jBeforeStartLocked(i *Instance) {
 		if fix == log4jFixAdd {
 			// 补：文件夹里已经有官方的那一份（比如换回了没修过的构建，引用以前被摘掉过），当场补上，这一次启动就生效
 			if _, official := log4jXMLOnDisk(i.Dir, xml); official {
-				if changed, err := m.applyLog4jFixLocked(i, fix, xml, jar.fixed); changed {
+				changed, err := m.applyLog4jFixLocked(i, fix, xml, jar.fixed)
+				if changed {
 					i.Console.Append(fmt.Sprintf("[MineDeck] log4shell 防护：服务器文件夹里有 Mojang 的这份日志配置（%s，核对过官方的校验值），"+
 						"启动参数里却没有引用，已经补上，这次启动就生效", xml) + runBatNote(err))
+					break
+				}
+				// 配置文件就在，补不上是因为设置文件写不进去：照实说，不说成在后台下载（后台那一遍也只会再写不进去一次）。
+				// 配置文件在这一下没了（不存在）的，照旧去下载
+				if err != nil && !errors.Is(err, fs.ErrNotExist) {
+					i.Console.Append(fmt.Sprintf("[MineDeck] ⚠ log4shell 防护：服务器文件夹里有 Mojang 的这份日志配置（%s），启动参数里却没有引用；"+
+						"要补上，可这台服务器的设置文件（instance.json）写不进去（%v）。这次照旧启动，补上之前先别让不认识的人进服；"+
+						"看看服务器文件夹是不是设成了只读、被别的程序占着，下次启动时会再试", xml, err))
 					break
 				}
 			}
