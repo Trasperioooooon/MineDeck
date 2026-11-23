@@ -69,7 +69,9 @@ func newEnv(t *testing.T) *env {
 	app.ServersDir = filepath.Join(app.Base, "servers")
 	app.BackupsDir = filepath.Join(app.Base, "backups")
 	app.RuntimesDir = filepath.Join(app.Base, "runtimes")
-	setConfig(t, func(c *app.Config) { c.ServersDir, c.BackupsDir, c.Roots, c.BackupRoots = "", "", nil, nil })
+	setConfig(t, func(c *app.Config) {
+		c.ServersDir, c.BackupsDir, c.Roots, c.BackupRoots, c.CreatingRoots = "", "", nil, nil, nil
+	})
 	for _, d := range []string{app.ServersDir, app.BackupsDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
@@ -684,6 +686,37 @@ func TestImportEULAAndPortOverride(t *testing.T) {
 	}
 	if v, _ := props.Get("server-port"); v != "25599" {
 		t.Errorf("端口该按请求改：got %q", v)
+	}
+}
+
+// 交接包导入到一个新的存放位置：登记时把这个位置记成了扫描根，重开以后这台还在列表里（A38）。
+func TestImportIntoNewRootListedAfterRestart(t *testing.T) {
+	newEnv(t)
+	fakeInstance(t, "A 的服")
+	m := manager(t, "A 的服")
+	id, err := ExportAsync(m, ExportReq{Inst: "A 的服", Full: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, _, _, _ := waitTask(t, m, id)
+	if snap.Err != "" {
+		t.Fatalf("导出失败：%s", snap.Err)
+	}
+	root := filepath.Join(t.TempDir(), "新存放位置")
+	iid, err := ImportAsync(m, snap.Result, ImportReq{Name: "B 的服", EULA: true, Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isnap, _, _, _ := waitTask(t, m, iid); isnap.Err != "" {
+		t.Fatalf("导入失败：%s\n%s", isnap.Err, strings.Join(isnap.Log, "\n"))
+	}
+	m2 := manager(t, "B 的服") // 重开，确认这台在列表里
+	b, err := m2.Get("B 的服")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Dir(b.Dir) != root {
+		t.Fatalf("这台应在新的存放位置里：%s", b.Dir)
 	}
 }
 

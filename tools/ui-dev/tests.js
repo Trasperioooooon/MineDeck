@@ -8509,19 +8509,20 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click('.modal [data-x="cancel"]'); await settle(200);
       assert(await page.isVisible("#creating-left"), "取消确认不该删除");
 
-      // 半成品删除遇 409 冲突（该目录刚开始创建服务器）：提示原因、恢复按钮可点、横幅保留
+      // 半成品删除遇 409 冲突（该目录刚开始创建服务器）：提示原因；失败后重新取一次列表，正在创建的不再列出，横幅收起
       await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({
         creatingLeftovers: [{ id: "0/half-srv", name: "half-srv", root: "servers", hasWorld: true, creating: true }],
       }) }));
       await page.click('#creating-left [data-drop-left="0/half-srv"]'); await settle(200);
       await page.click('.modal [data-x="ok"]'); await settle(400);
       assert((await toastHas("无法删除这个文件夹")) && (await toastHas("正在创建服务器")), "半成品 409 时应弹出原因提示");
-      assert(!(await page.$eval('#creating-left [data-drop-left="0/half-srv"]', b => b.disabled)) && await page.isVisible("#creating-left"), "半成品 409 后按钮应恢复可点且横幅仍在");
+      assert(await page.$eval("#creating-left", el => el.hidden), "半成品 409 后应重新取列表：正在创建的不再列出，横幅收起");
 
       // 半成品正常删除：在途时按钮 disabled 防连点，返回 { removed: "0/half-srv" } 后隐藏横幅
       await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({
         creatingLeftovers: [{ id: "0/half-srv", name: "half-srv", root: "servers", hasWorld: true }],
       }) }));
+      await page.goto(url("#/instances")); await settle(500);
       let releaseDiscard, discardArrived;
       const discardSeen = new Promise(r => { discardArrived = r; });
       const discardGate = new Promise(r => { releaseDiscard = r; });
@@ -8707,6 +8708,39 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       }
     } finally {
       await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ instReset: true, taskList: [], trustedHosts: [], local: true, modCart: { reset: true } }) }));
+      await page.goto(url("#/instances")); await settle();
+    }
+  });
+
+  await run("没建完的文件夹：确认框写明在哪个存放位置，删除失败后重新取一次列表、不留旧的那一行", async () => {
+    try {
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({
+        instReset: true,
+        local: true,
+        creatingLeftovers: [
+          { id: "11/half-srv", name: "half-srv", root: "移动硬盘服务器", hasWorld: true },
+          { id: "22/half-srv", name: "half-srv", root: "servers", hasWorld: false },
+        ],
+      }) }));
+      await page.goto(url("#/instances")); await settle(500);
+      await page.click('#creating-left [data-drop-left="11/half-srv"]'); await settle(200);
+      const body = await page.textContent(".modal");
+      assert(body.includes("位于「移动硬盘服务器」的「half-srv」"), "两个位置里有同名的，确认框要写明删的是哪个位置里的：" + body);
+      await page.click('.modal [data-x="cancel"]'); await settle(200);
+
+      // 别处已经把「移动硬盘服务器」里那个删掉了，这里还停着旧列表
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({
+        creatingLeftovers: [{ id: "22/half-srv", name: "half-srv", root: "servers", hasWorld: false }],
+      }) }));
+      await page.click('#creating-left [data-drop-left="11/half-srv"]'); await settle(200);
+      await page.click('.modal [data-x="ok"]'); await settle(400);
+      assert(await toastHas("无法删除这个文件夹"), "删不掉时应提示");
+      assert(!(await page.$('#creating-left [data-drop-left="11/half-srv"]')), "删除失败后应重新取列表，旧的那一行不该还留着");
+      const left = await page.textContent("#creating-left");
+      assert(left.includes("位于「servers」") && !left.includes("移动硬盘服务器"), "重新取到的列表只剩另一个位置里的那一个：" + left);
+      assert(!(await page.$eval('#creating-left [data-drop-left="22/half-srv"]', b => b.disabled)), "重新取到的那一行应能点");
+    } finally {
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ instReset: true, local: true }) }));
       await page.goto(url("#/instances")); await settle();
     }
   });

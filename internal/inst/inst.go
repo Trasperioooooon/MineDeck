@@ -231,6 +231,7 @@ func NewManager() (*Manager, error) {
 	for _, dir := range app.InstanceDirs() {
 		load(dir, false)
 	}
+	promoteCreatedRoots() // 上次登记写完 instance.json、没来得及记扫描根就没了的位置，先补记，下面才扫得到那台（A38）
 	// 多根扫描：内置默认根 + 配置默认根 + 历史自定义根（支持实例散落于不同盘符/目录）；存放位置内部重名的仍按先到先得
 	for _, root := range app.InstanceRoots() {
 		ents, err := os.ReadDir(root)

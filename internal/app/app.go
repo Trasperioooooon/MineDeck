@@ -407,7 +407,8 @@ func instanceRootsOf(c Config) []string {
 }
 
 // RememberRoot 把一个存放位置记成扫描根，以后每次启动都扫它下面带 instance.json 的文件夹。
-// 只在服务器登记成功以后调（新建、导入、交接包的收尾）：建到一半时记的是 RememberCreatingRoot，建不成的位置不该成为扫描根。
+// 只在服务器的 instance.json 写好以后调（新建、导入、交接包登记的收尾，和启动时补记上次没来得及记的）：
+// 建到一半时记的是 RememberCreatingRoot，建不成的位置不该成为扫描根。
 // 只有内置默认根始终被扫描、无需记录；当前配置根也要记，之后改目录或恢复默认时它就不再被扫描。
 func RememberRoot(dir string) {
 	cfgMu.Lock()
@@ -452,7 +453,7 @@ func RememberInstanceDir(dir string) {
 	cfgMu.Lock()
 	defer cfgMu.Unlock()
 	for _, d := range cfg.InstanceDirs {
-		if samePath(d, dir) {
+		if SamePath(d, dir) {
 			return
 		}
 	}
@@ -471,7 +472,7 @@ func ForgetInstanceDir(dir string) {
 	// 另起一个切片，不在原来的上面挪：GetConfig 给出去的副本和 cfg 共用同一块底层数组
 	var kept []string
 	for _, d := range cfg.InstanceDirs {
-		if !samePath(d, dir) {
+		if !SamePath(d, dir) {
 			kept = append(kept, d)
 		}
 	}
@@ -496,7 +497,7 @@ func RememberCreatingRoot(dir string) {
 	cfgMu.Lock()
 	defer cfgMu.Unlock()
 	for _, d := range append(instanceRootsOf(cfg), cfg.CreatingRoots...) {
-		if samePath(d, dir) {
+		if SamePath(d, dir) {
 			return
 		}
 	}
@@ -511,7 +512,7 @@ func ForgetCreatingRoots(dirs ...string) {
 	defer cfgMu.Unlock()
 	var kept []string // 另起一个切片，理由同 ForgetInstanceDir
 	for _, d := range cfg.CreatingRoots {
-		if !slices.ContainsFunc(dirs, func(x string) bool { return samePath(x, d) }) {
+		if !slices.ContainsFunc(dirs, func(x string) bool { return SamePath(x, d) }) {
 			kept = append(kept, d)
 		}
 	}
@@ -522,7 +523,7 @@ func ForgetCreatingRoots(dirs ...string) {
 	saveLocked()
 }
 
-// samePath 两个路径写的是不是同一个位置（Windows 的路径不分大小写）。只按字面比，不解链接。
-func samePath(a, b string) bool {
+// SamePath 两个路径写的是不是同一个位置（Windows 的路径不分大小写）。只按字面比，不解链接。
+func SamePath(a, b string) bool {
 	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
 }

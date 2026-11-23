@@ -70,7 +70,9 @@ func TestCreatingLeftoverIgnoresAdoptedAndRegistered(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(parent, "outside-keep.txt"), []byte("keep"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for _, badID := range []string{"../" + filepath.Base(user), "0/.", "0/..", "0/.. ", "0/...", "0/CON.txt", "0/foo:bar"} {
+	// 斜杠前用这个位置真实的编号：前缀对不上任何位置的话，名字校验拿掉了也照样回「没有这一项」，这几条就白测了。
+	key, _, _ := strings.Cut(list[0].ID, "/")
+	for _, badID := range []string{"../" + filepath.Base(user), key + "/.", key + "/..", key + "/.. ", key + "/...", key + "/CON.txt", key + "/foo:bar"} {
 		if err := m.DiscardCreatingLeftover(badID, true); err == nil || !strings.Contains(err.Error(), "没有这一项") {
 			t.Fatalf("非法编号 %q 应在路径校验层直接拒绝：%v", badID, err)
 		}
@@ -235,6 +237,55 @@ func TestCreatedInNewRootBecomesScanRoot(t *testing.T) {
 	}
 }
 
+// 往新的存放位置里建服，登记写完 instance.json、还没把位置记成扫描根程序就没了：重开以后这台在列表里，位置成了扫描根，
+// 「正在建的位置」里去掉了，残留的记号也去掉了。只有移出列表留下的 instance.json.bak 的不算建成，那个位置不升格（A38）。
+func TestCreatedRootRememberedAtStartupAfterCrash(t *testing.T) {
+	adoptEnv(t)
+	base := t.TempDir()
+	root := filepath.Join(base, "新存放位置")
+	dir := filepath.Join(root, "建成的服")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteCreatingMarker(dir, "建成的服"); err != nil {
+		t.Fatal(err)
+	}
+	// 登记写好了 instance.json，程序在记扫描根之前没了
+	writeTree(t, dir, map[string]string{
+		"instance.json":   `{"name":"建成的服","core":"paper","mc":"1.20.1","xmxMb":1024,"xmsMb":512}`,
+		"world/level.dat": "x",
+	})
+	bakRoot := filepath.Join(base, "只有bak的位置")
+	bakDir := filepath.Join(bakRoot, "移出的服")
+	if err := os.MkdirAll(bakDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteCreatingMarker(bakDir, "移出的服"); err != nil {
+		t.Fatal(err)
+	}
+	writeTree(t, bakDir, map[string]string{settingsBackup: `{"name":"移出的服","core":"paper","mc":"1.20.1"}`})
+
+	m, err := NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Get("建成的服"); err != nil {
+		t.Fatalf("重开以后这台应在列表里：%v", err)
+	}
+	if roots := app.InstanceRoots(); !slices.Contains(roots, root) || slices.Contains(roots, bakRoot) {
+		t.Fatalf("有建成的服的位置应补记成扫描根，只有 .bak 的不该：%v", roots)
+	}
+	if got := app.CreatingRoots(); slices.Contains(got, root) {
+		t.Fatalf("成了扫描根以后应从「正在建的位置」里去掉：%v", got)
+	}
+	if pathExists(filepath.Join(dir, CreatingMarker)) {
+		t.Fatal("这台残留的创建记号应在启动时去掉")
+	}
+	if list := m.CreatingLeftovers(); len(list) != 0 {
+		t.Fatalf("建成的服和移出列表的服都不该当成没建完的：%+v", list)
+	}
+}
+
 // 「正在建的位置」现在读不到（比如在没插上的移动硬盘里）时启动不整理掉它：回来了照样找得到里面的半成品（A38）。
 func TestCreatingRootKeptWhileUnreadable(t *testing.T) {
 	adoptEnv(t)
@@ -257,6 +308,152 @@ func TestCreatingRootKeptWhileUnreadable(t *testing.T) {
 	}
 }
 
+// newCreatingLeftover 照建服流程在 root 里放一个没建完的文件夹（WriteCreatingMarker 会把 root 记进「正在建的位置」），
+// 里面带世界文件，which.txt 写明它在哪个位置。
+func newCreatingLeftover(t *testing.T, root, name string) string {
+	t.Helper()
+	dir := filepath.Join(root, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteCreatingMarker(dir, name); err != nil {
+		t.Fatal(err)
+	}
+	writeTree(t, dir, map[string]string{"world/level.dat": "x", "which.txt": filepath.Base(root)})
+	return dir
+}
+
+// leftoverIDIn 列表里位于 rootName 的那一行的编号。
+func leftoverIDIn(t *testing.T, list []CreatingLeftover, rootName string) string {
+	t.Helper()
+	for _, it := range list {
+		if it.RootName == rootName {
+			return it.ID
+		}
+	}
+	t.Fatalf("列表里没有位于「%s」的一行：%+v", rootName, list)
+	return ""
+}
+
+// restoreServersDirAfter 用例要改默认存放位置时先调：结束时改回默认，再清掉 roots（改回去那一下会把改过的位置并进 roots），
+// 不留给后面的用例。
+func restoreServersDirAfter(t *testing.T) {
+	t.Cleanup(func() {
+		setConfig(t, func(c *app.Config) { c.ServersDir = "" })
+		setConfig(t, func(c *app.Config) { c.Roots = nil })
+	})
+}
+
+func pathExists(p string) bool {
+	_, err := os.Lstat(p)
+	return err == nil
+}
+
+// 两个位置里各有一个同名的半成品。界面列出来以后，其中一个位置因为建成了一台而升成扫描根，位置的先后变了：
+// 界面上停着的旧编号还是指原来那一行，另一个位置里的同名文件夹不动（A38）。
+func TestLeftoverIDKeepsItsRootAfterPromotion(t *testing.T) {
+	importEnv(t)
+	base := t.TempDir()
+	rootA, rootX := filepath.Join(base, "位置A"), filepath.Join(base, "位置X")
+	dirA := newCreatingLeftover(t, rootA, "生存服")
+	dirX := newCreatingLeftover(t, rootX, "生存服")
+	m, err := NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	idA := leftoverIDIn(t, m.CreatingLeftovers(), "位置A")
+	before := app.InstanceRoots()
+
+	// 在位置X 里建成一台（真实的导入现成服务端流水线）：位置X 升成扫描根
+	pack, err := modpack.Parse(zipOf(t, map[string]string{
+		"paper-1.20.1-100.jar": paperJarBytes(t),
+		"eula.txt":             "eula=true\n",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk, _ := m.Tasks.New("导入服务端", serverImportSteps)
+	req := CreateReq{Name: "另一台", XmxMB: 2048, Port: 25573, EULA: true}
+	if err := m.runServerImport(context.Background(), tk, pack, req, filepath.Join(rootX, "另一台")); err != nil {
+		t.Fatalf("导入失败: %v\n日志: %v", err, tk.Snapshot().Log)
+	}
+	if after := app.InstanceRoots(); slices.Contains(before, rootX) || !slices.Contains(after, rootX) {
+		t.Fatalf("位置X 应在建成以后才成为扫描根：之前 %v，之后 %v", before, after)
+	}
+
+	if err := m.DiscardCreatingLeftover(idA, true); err != nil {
+		t.Fatalf("拿列表里位置A 那一行的编号去删：%v", err)
+	}
+	if pathExists(dirA) {
+		t.Fatal("位置A 里的半成品应删掉")
+	}
+	if !pathExists(filepath.Join(dirX, "world", "level.dat")) {
+		t.Fatal("位置X 里的同名半成品不该被动过")
+	}
+}
+
+// 改了默认存放位置以后（旧的并进 roots），位置的先后也会变：拿改之前列出来的编号去删，删的还是原来那个位置里的（A38）。
+func TestLeftoverIDKeepsItsRootAfterDefaultDirChange(t *testing.T) {
+	adoptEnv(t)
+	base := t.TempDir()
+	d1, d2 := filepath.Join(base, "默认1"), filepath.Join(base, "默认2")
+	restoreServersDirAfter(t)
+	setConfig(t, func(c *app.Config) { c.ServersDir, c.Roots = d1, []string{d2} })
+	dir1 := filepath.Join(d1, "生存服")
+	dir2 := filepath.Join(d2, "生存服")
+	for _, d := range []string{dir1, dir2} {
+		writeTree(t, d, map[string]string{CreatingMarker: "生存服\n", "world/level.dat": "x"})
+	}
+	m, err := NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	id1 := leftoverIDIn(t, m.CreatingLeftovers(), "默认1")
+	setConfig(t, func(c *app.Config) { c.ServersDir = d2 })
+	if roots := app.InstanceRoots(); slices.Index(roots, d1) < slices.Index(roots, d2) {
+		t.Fatalf("改了默认存放位置以后两个位置的先后应该变了：%v", roots)
+	}
+
+	if err := m.DiscardCreatingLeftover(id1, true); err != nil {
+		t.Fatalf("拿改之前默认1 那一行的编号去删：%v", err)
+	}
+	if pathExists(dir1) {
+		t.Fatal("默认1 里的半成品应删掉")
+	}
+	if !pathExists(filepath.Join(dir2, "world", "level.dat")) {
+		t.Fatal("默认2 里的同名半成品不该被动过")
+	}
+}
+
+// 扫描根里有两条只差大小写的（Windows 上是同一个文件夹）：里面的半成品只列一次，用列出来的编号删得掉。
+func TestLeftoverRootsDifferingOnlyInCaseListedOnce(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("只有 Windows 上只差大小写的两个路径一定是同一个文件夹")
+	}
+	adoptEnv(t)
+	restoreServersDirAfter(t)
+	setConfig(t, func(c *app.Config) { c.ServersDir = strings.ToUpper(app.ServersDir) })
+	if roots := app.InstanceRoots(); !slices.Contains(roots, app.ServersDir) || !slices.Contains(roots, strings.ToUpper(app.ServersDir)) {
+		t.Fatalf("配置里应有两条只差大小写的扫描根：%v", roots)
+	}
+	half := filepath.Join(app.ServersDir, "half")
+	writeTree(t, half, map[string]string{CreatingMarker: "half\n"})
+	m, err := NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := m.CreatingLeftovers()
+	if len(list) != 1 {
+		t.Fatalf("同一个文件夹只该列一次：%+v", list)
+	}
+	if err := m.DiscardCreatingLeftover(list[0].ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if pathExists(half) {
+		t.Fatal("半成品应删掉")
+	}
+}
+
 func TestCreatingLeftoverSkipsBusyAndLink(t *testing.T) {
 	m, _ := adoptEnv(t)
 	root := app.ServersDir
@@ -269,7 +466,7 @@ func TestCreatingLeftoverSkipsBusyAndLink(t *testing.T) {
 	if list := m.CreatingLeftovers(); len(list) != 0 {
 		t.Fatalf("正在创建的不应列出来：%+v", list)
 	}
-	if err := m.DiscardCreatingLeftover("0/busy", true); err == nil || !strings.Contains(err.Error(), "正在") {
+	if err := m.DiscardCreatingLeftover(leftoverID(root, "busy"), true); err == nil || !strings.Contains(err.Error(), "正在") {
 		t.Fatalf("正在创建的应拒绝删除：%v", err)
 	}
 
@@ -331,7 +528,7 @@ func TestCreatingLeftoverRefusesJunctionAndNestedJunction(t *testing.T) {
 		t.Fatalf("不应穿透目录联接改动外部目录的记号：%v", err)
 	}
 	_ = os.Remove(filepath.Join(outside, "instance.json"))
-	if err := m.DiscardCreatingLeftover("0/junc", true); err == nil || !strings.Contains(err.Error(), "链接") {
+	if err := m.DiscardCreatingLeftover(leftoverID(root, "junc"), true); err == nil || !strings.Contains(err.Error(), "链接") {
 		t.Fatalf("目录联接应拒绝删除：%v", err)
 	}
 	if b, err := os.ReadFile(filepath.Join(outside, "keep.txt")); err != nil || string(b) != "keep" {
@@ -347,7 +544,7 @@ func TestCreatingLeftoverRefusesJunctionAndNestedJunction(t *testing.T) {
 		t.Fatalf("建子联接失败：%v %s", err, out)
 	}
 	t.Cleanup(func() { _ = os.Remove(nested) })
-	if err := m.DiscardCreatingLeftover("0/half-nested", true); err == nil || !strings.Contains(err.Error(), "目录联接") {
+	if err := m.DiscardCreatingLeftover(leftoverID(root, "half-nested"), true); err == nil || !strings.Contains(err.Error(), "目录联接") {
 		t.Fatalf("含子目录联接应拒绝删除：%v", err)
 	}
 	if b, err := os.ReadFile(filepath.Join(outside, "keep.txt")); err != nil || string(b) != "keep" {
@@ -393,8 +590,8 @@ func TestCreatingLeftoverProtectsRemovedBackupAndCustomWorld(t *testing.T) {
 		t.Fatalf("应只列出 custom-world 且认出自定义世界：%+v", list)
 	}
 	for _, name := range []string{"kept-srv", "writing-srv", "in-mem"} {
-		if err := m.DiscardCreatingLeftover("0/"+name, true); err == nil {
-			t.Fatalf("%s 不应被允许删除", name)
+		if err := m.DiscardCreatingLeftover(leftoverID(root, name), true); err == nil || strings.Contains(err.Error(), "没有这一项") {
+			t.Fatalf("%s 不应被允许删除，而且要是因为它本身不能删、不是编号不对：%v", name, err)
 		}
 	}
 	if b, err := os.ReadFile(filepath.Join(kept, "world", "level.dat")); err != nil || string(b) != "precious" {

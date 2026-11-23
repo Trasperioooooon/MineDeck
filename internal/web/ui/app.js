@@ -1509,11 +1509,11 @@ async function renderInstances() {
     box.innerHTML = `<div class="warn-card"><div class="wc-title">${icon("warn")} 有 ${items.length} 个上次创建没完成的文件夹</div>
       <div class="wc-note">这里只列出创建中途停下、还没建好的文件夹。接管进来的和你自己放进来的不会出现在这里，也不会自动删除。</div>
       ${items.map(it => `<div class="row" style="margin-top:8px"><b>${esc(it.name)}</b><span class="hint">${it.hasWorld ? "含世界文件 · " : ""}位于「${esc(it.root)}」</span>
-        <button type="button" class="btn sm ghost" data-drop-left="${esc(it.id)}" data-world="${it.hasWorld ? "1" : "0"}" data-name="${esc(it.name)}" aria-label="删除没建完的文件夹 ${esc(it.name)}（${esc(it.root)}）">删除这个文件夹</button></div>`).join("")}</div>`;
+        <button type="button" class="btn sm ghost" data-drop-left="${esc(it.id)}" data-world="${it.hasWorld ? "1" : "0"}" data-name="${esc(it.name)}" data-root="${esc(it.root)}" aria-label="删除没建完的文件夹 ${esc(it.name)}（${esc(it.root)}）">删除这个文件夹</button></div>`).join("")}</div>`;
     box.querySelectorAll("[data-drop-left]").forEach(b => b.onclick = async () => {
       const ok = await confirmModal({
         title: "删除没建完的文件夹？",
-        body: `<p>将删除「${esc(b.dataset.name)}」。${b.dataset.world === "1" ? "里面的世界文件会一起删掉，无法恢复。" : "里面的文件会一起删掉。"}已建好的服务器和其他文件夹不会受影响。</p>`,
+        body: `<p>将删除位于「${esc(b.dataset.root)}」的「${esc(b.dataset.name)}」。${b.dataset.world === "1" ? "里面的世界文件会一起删掉，无法恢复。" : "里面的文件会一起删掉。"}已建好的服务器和其他文件夹不会受影响。</p>`,
         okText: "删除文件夹", danger: true,
       });
       if (!ok) return;
@@ -1524,7 +1524,9 @@ async function renderInstances() {
         if (!stale(gen)) paintLeftovers();
       } catch (e) {
         toastErr("无法删除这个文件夹", e);
-        if (!stale(gen) && b.isConnected) b.disabled = false;
+        if (stale(gen)) return;
+        if (b.isConnected) b.disabled = false;
+        paintLeftovers(); // 这一行可能已经变了（别处删掉了、开始建了）：重新取一次列表，不让人接着拿旧的这一行再点
       }
     });
   };
