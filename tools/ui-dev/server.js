@@ -2839,6 +2839,7 @@ function handler(state, ui, portOf) {
     //   modsNeed: { 实例名: needJava } GET /api/instances/{名称}/mods 返回的 needJava（实例详情页的 Java 提示用），空对象还原
     //   trustedHosts: [站点] 处置待决文件时已确认过的自定义站点（trust 不再要求 ack），空数组还原
     //   taskNet: 部署任务的 net（同 tasks.NetRetry：{ count, host, what, ago }），null 清掉
+    //   importPack: POST /api/import/modpack 回的 pack 摘要里要改的几项（比如 { format: "server", core: "paper", mcFromLog: true }），null 还原
     //   inst: { name, …字段 } 直接改某台服务器的字段；instReset: true 服务器列表回到初始的四台。
     //     beta.3 P0 用到的字段：startFail（点启动时报这句、记成 lastStartError）、lastStartError、connectPort（代理端没生成配置时 0）、
     //     whitelistOn（玩家名单里的白名单开关，null = server.properties 没写）、adopted + mdFiles（移出列表后会留下的文件）。
@@ -2897,6 +2898,7 @@ function handler(state, ui, portOf) {
       if ("modsNeed" in b) state.modsNeed = b.modsNeed || {};
       if ("trustedHosts" in b) state.trustedHosts = b.trustedHosts || [];
       if ("taskNet" in b) state.taskNet = b.taskNet;
+      if ("importPack" in b) state.importPack = b.importPack; // 导入整合包回的 pack 摘要里要改的几项（format、mcFromLog…），null 还原
       if (b.inst) { const i = state.instances.find(x => x.name === b.inst.name); if (i) Object.assign(i, b.inst); } // 改某台服务器的字段（adopted、javaMajor…）
       if ("adoptScan" in b) state.adoptScan = b.adoptScan; // 接管：下一次识别返回的结果（null 还原成默认的 NeoForge 整合包）
       if ("commands" in b) state.commands = b.commands || []; // 发过的控制台命令（见 POST …/command），传空数组清掉
@@ -3171,7 +3173,7 @@ function handler(state, ui, portOf) {
         const pb = checkMockFormPort(state, fields.port);
         if (pb) { res.writeHead(409, { "Content-Type": "application/json; charset=utf-8" }); return res.end(JSON.stringify({ ok: false, error: pb.error, portBusy: pb.portBusy })); }
         state.lastImport = fields;
-        return ok(res, { taskId: "task-1", pack: { name: "测试整合包", mc: "1.20.1", core: "forge", loader: "47.3.0", format: "mrpack", files: 12, pending: 0 } });
+        return ok(res, { taskId: "task-1", pack: { name: "测试整合包", mc: "1.20.1", core: "forge", loader: "47.3.0", format: "mrpack", files: 12, pending: 0, ...(state.importPack || {}) } });
       }
       // 实例交接包（.mdpack，同 web/transfer.go）：上传回摘要、导入返回任务号；交接的任务一查就是已完成
       if (p === "/api/transfer/upload" && m === "POST") {

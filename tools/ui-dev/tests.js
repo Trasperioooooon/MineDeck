@@ -6490,6 +6490,29 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       } finally { await fState({ taskList: [] }); }
     });
 
+    await run("导入现成服务端：版本号是从压缩包里的日志认出来的，识别结果的提示里写明（A44）", async () => {
+      try {
+        await fState({ importPack: { name: "作者服", format: "server", core: "paper", mc: "1.20.1", loader: "", mcFromLog: true },
+          taskList: [{ id: "task-1", title: "导入服务端 作者服", kind: "server-in", ended: false }] });
+        await page.goto(url("#/create/import")); await page.waitForSelector("#im-file");
+        await page.setInputFiles("#im-file", { name: "作者服.zip", mimeType: "application/zip", buffer: Buffer.from("PK\u0003\u0004server") });
+        await page.check("#im-eula");
+        await page.click("#im-go");
+        await page.waitForFunction(() => [...document.querySelectorAll(".toast")].some(t => t.textContent.includes("已识别为现成服务端")));
+        const t = await page.$$eval(".toast", ts => ts.map(x => x.textContent).join("|"));
+        assert(t.includes("paper 1.20.1") && t.includes("版本号是从压缩包里的日志认出来的"), "提示里要写明版本号从哪来：" + t);
+        await fState({ importPack: { name: "作者服", format: "server", core: "paper", mc: "1.20.1", loader: "", mcFromLog: false } });
+        await page.evaluate(() => document.querySelectorAll(".toast").forEach(x => x.remove()));
+        await page.goto(url("#/create/import")); await page.waitForSelector("#im-file");
+        await page.setInputFiles("#im-file", { name: "作者服.zip", mimeType: "application/zip", buffer: Buffer.from("PK\u0003\u0004server") });
+        await page.check("#im-eula");
+        await page.click("#im-go");
+        await page.waitForFunction(() => [...document.querySelectorAll(".toast")].some(t => t.textContent.includes("已识别为现成服务端")));
+        const t2 = await page.$$eval(".toast", ts => ts.map(x => x.textContent).filter(x => x.includes("已识别为现成服务端")).pop());
+        assert(!t2.includes("日志"), "jar 里写了版本时不该提日志：" + t2);
+      } finally { await fState({ importPack: null, taskList: [] }); }
+    });
+
     await run("beta.3 流程 R13：接管失败以后「返回修改」重新识别那个文件夹，改过的名称、内存和 Java 还在", async () => {
       const failAdopt = r => r.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, data: { id: "task-adopt", kind: "adopt", title: "接管 回填", ended: true,
         error: "文件夹被别的程序占着", steps: [{ name: "检查服务器文件夹", status: "error" }], log: [] } }) });

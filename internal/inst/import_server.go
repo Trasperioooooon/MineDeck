@@ -102,15 +102,19 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 	}
 
 	t.StartStep(1)
-	core, mc, build, launch, major, err := detectImportedServer(dir, pack)
+	srv, err := detectImportedServer(dir, pack)
 	if err != nil {
 		return err
 	}
+	core, mc, build, launch, major := srv.core, srv.mc, srv.build, srv.launch, srv.javaMajor
 	if (core == mcsrc.CoreMohist || core == mcsrc.CoreBanner) && !isASCII(dir) {
 		return fmt.Errorf("Mohist / Taiyitist（原 Banner）与非英文路径不兼容，请把存放文件夹设为纯英文路径（当前将创建于：%s）", dir)
 	}
 	kind := mcsrc.KindOf(core)
 	t.Logf("按接管已有服务器的办法认出：%s %s，启动文件 %s", core, mc, strings.TrimPrefix(strings.TrimPrefix(launch, "jar:"), "args:"))
+	if srv.mcFromLog {
+		noteMCFromLog(t, mc)
+	}
 
 	t.StartStep(2)
 	if major == 0 && kind == mcsrc.KindProxy {
@@ -146,6 +150,7 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 		},
 		Dir: dir, Console: newConsole(),
 	}
+	applyScriptJVM(t, inst, pack)
 	if kind != mcsrc.KindProxy {
 		applyServerProps(ctx, t, dir, req, mc)
 		if b, err := os.ReadFile(filepath.Join(dir, "eula.txt")); err != nil || !reEULA.Match(b) {
@@ -258,33 +263,49 @@ func serverExtractLease(ctx context.Context, t *tasks.Task, dir string, files in
 	return diskguard.Acquire(ctx, dir, diskguard.Options{Need: need, Query: logged, AllowUnknown: true})
 }
 
-// detectImportedServer 先用接管已有服务器的识别（看 jar、参数文件、日志）。
+// importedServer 解压以后认出来的服务端。
+type importedServer struct {
+	core      mcsrc.Core
+	mc, build string
+	launch    string
+	javaMajor int
+	mcFromLog bool // 版本号用的是解析压缩包时从 logs/latest.log 里认的（A44）
+}
+
+// detectImportedServer 先用接管已有服务器的识别（看 jar、参数文件；日志不解压，那套看不到）。
 // 那套没认出来时，再用解析压缩包时看到的结果兜底。
-func detectImportedServer(dir string, pack *modpack.Pack) (core mcsrc.Core, mc, build, launch string, javaMajor int, err error) {
+func detectImportedServer(dir string, pack *modpack.Pack) (importedServer, error) {
 	if sc, scanErr := scanServerDir(dir); scanErr == nil {
 		if mcsrc.ValidCore(mcsrc.Core(sc.Core)) && sc.MC != "" && sc.LaunchTarget != "" {
-			return mcsrc.Core(sc.Core), sc.MC, sc.Build, sc.LaunchTarget, sc.JavaMajor, nil
+			return importedServer{core: mcsrc.Core(sc.Core), mc: sc.MC, build: sc.Build, launch: sc.LaunchTarget, javaMajor: sc.JavaMajor}, nil
 		}
 		// 认出了启动文件但核心或版本是空的：解析阶段看的是同一个启动文件、而且认出了核心和版本，才拿它补上。
 		// 两边说的不是同一个 jar 时不拼凑，不然核心、版本、启动文件可能出自两个 jar。
 		if sc.LaunchTarget != "" && sc.LaunchTarget == pack.Launch && mcsrc.ValidCore(pack.Core) && pack.MC != "" {
-			build = pack.Loader
+			s := importedServer{core: pack.Core, mc: pack.MC, build: pack.Loader, launch: sc.LaunchTarget, javaMajor: sc.JavaMajor, mcFromLog: pack.MCFromLog}
 			if sc.Build != "" {
-				build = sc.Build
+				s.build = sc.Build
 			}
-			mc = pack.MC
 			if sc.MC != "" {
-				mc = sc.MC
+				s.mc, s.mcFromLog = sc.MC, false
 			}
-			return pack.Core, mc, build, sc.LaunchTarget, sc.JavaMajor, nil
+			return s, nil
 		}
 	}
 	if mcsrc.ValidCore(pack.Core) && pack.MC != "" && pack.Launch != "" {
 		if _, statErr := os.Stat(filepath.Join(dir, launchFile(pack.Launch))); statErr == nil {
-			return pack.Core, pack.MC, pack.Loader, pack.Launch, 0, nil
+			return importedServer{core: pack.Core, mc: pack.MC, build: pack.Loader, launch: pack.Launch, mcFromLog: pack.MCFromLog}, nil
 		}
 	}
-	return "", "", "", "", 0, modpack.ServerUnknownError()
+	return importedServer{}, modpack.ServerUnknownError()
+}
+
+// noteMCFromLog 版本号是从压缩包里的日志认出来的（A44）：任务日志和结果里都说明，它是上一次开服时的版本，未必是现在的。
+func noteMCFromLog(t *tasks.Task, mc string) {
+	t.Logf("版本号 %s 是从压缩包里的 logs/latest.log 认出来的（服务端 jar 里没写）", mc)
+	t.AddWarning(tasks.Warning{Kind: "mc-from-log", Title: "版本号是从日志里认出来的",
+		Note: fmt.Sprintf("服务端 jar 里没写 Minecraft 版本，%s 是从压缩包里的 logs/latest.log 认出来的，是这台服务器上一次开服时的版本。"+
+			"版本号决定用哪个 Java、要不要加 log4shell 防护；要是后来换过服务端，这里就不对了，可以先解压，用「新建服务器 → 接管已有服务器」自己填版本。", mc)})
 }
 
 // applyServerProps 端口按导入页上填的改。压缩包里本来就有 server.properties 时，正版验证和允许飞行保留原样：

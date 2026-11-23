@@ -317,7 +317,72 @@ func recognizeServer(zipPath string, files []*zip.File, l zipLayout) (*Pack, err
 			best.mc = id
 		}
 	}
-	return serverPack(zipPath, root, best), nil
+	fromLog := false
+	if best.mc == "" && best.core != "" && mcsrc.KindOf(best.core) != mcsrc.KindProxy {
+		best.mc = logVersionAt(files, root)
+		fromLog = best.mc != ""
+	}
+	p := serverPack(zipPath, root, best)
+	p.MCFromLog = fromLog
+	return p, nil
+}
+
+// reLogVersion 服务端开服时写进 logs/latest.log 的那一行（同接管识别 inst 的 reLogMC）。版本号只收像样的写法。
+var reLogVersion = regexp.MustCompile(`Starting minecraft server version ([0-9][0-9A-Za-z._-]{0,31})`)
+
+// logVersionAt 从压缩包里 root 那一层的 logs/latest.log 认 Minecraft 版本：jar、version.json 都认不出时的最后一招（A44）。
+// 日志不解压（控制目录，见 inst 的 IsControlFile），解压以后接管那套识别看不到它，所以在这里认。
+// 只看开头 512 KB：这一行在开服的头几秒就写了，日志可能很大。是上一次开服时的版本，导入时会说明。
+func logVersionAt(files []*zip.File, root string) string {
+	for _, f := range files {
+		rel, ok := relUnder(zipNameOf(f), root)
+		if !ok || !strings.EqualFold(rel, "logs/latest.log") || !f.Mode().IsRegular() {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return ""
+		}
+		b, _ := io.ReadAll(io.LimitReader(rc, 512<<10))
+		rc.Close()
+		if m := reLogVersion.FindSubmatch(b); m != nil {
+			return string(m[1])
+		}
+		return ""
+	}
+	return ""
+}
+
+// ServerRootFiles 读现成服务端压缩包里服务端那一层（Root）的几个小文件，比如启动脚本：解压时它们不落盘（控制文件），
+// 要看里面写了什么只能从压缩包里读。names 不分大小写，返回的键是小写的名字；比 max 大的、读不出来的不给。
+// 同一个名字（不分大小写）出现几次时用前面那个，和解压时只差大小写的留前一个一致。
+func ServerRootFiles(p *Pack, names []string, max int64) map[string][]byte {
+	out := map[string][]byte{}
+	if p == nil || p.Format != FormatServer {
+		return out
+	}
+	zr, err := zipguard.Open(p.ZipPath, zipguard.Default)
+	if err != nil {
+		return out
+	}
+	defer zr.Close()
+	want := map[string]bool{}
+	for _, n := range names {
+		want[strings.ToLower(n)] = true
+	}
+	seen := map[string]bool{}
+	for _, f := range zr.File {
+		rel, ok := relUnder(zipNameOf(f), p.Root)
+		low := strings.ToLower(rel)
+		if !ok || !want[low] || seen[low] || !f.Mode().IsRegular() {
+			continue
+		}
+		seen[low] = true
+		if b, err := readZipEntry(f, max); err == nil {
+			out[low] = b
+		}
+	}
+	return out
 }
 
 func serverPack(zipPath, root string, c srvCand) *Pack {

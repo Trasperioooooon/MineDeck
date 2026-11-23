@@ -590,3 +590,27 @@ func TestWrapperFoldersUpToThree(t *testing.T) {
 	unrecognized("清单套四层", map[string]string{"一/二/三/四/manifest.json": cf})
 	unrecognized("剥的路上有内容目录", map[string]string{"外/config/manifest.json": cf}) // config 这种不算包装文件夹
 }
+
+// 服务端 jar 里没写版本时，最后看压缩包里的 logs/latest.log（A44）；jar 里写了的以 jar 为准，代理端不看。
+func TestServerVersionFromLog(t *testing.T) {
+	bare := jarOf(t, map[string]string{"META-INF/MANIFEST.MF": "Manifest-Version: 1.0\r\nMain-Class: io.papermc.paperclip.Main\r\n\r\n"})
+	logLine := "[12:00:00] [Server thread/INFO]: Starting minecraft server version 1.20.1\n"
+	p, err := Parse(mkZip(t, map[string]string{"Srv/paper.jar": bare, "Srv/eula.txt": "eula=true\n", "Srv/logs/latest.log": logLine}))
+	if err != nil || p.Core != mcsrc.CorePaper || p.MC != "1.20.1" || !p.MCFromLog {
+		t.Fatalf("jar 里没写版本，应从日志里认出 1.20.1：%+v %v", p, err)
+	}
+	for name, files := range map[string]map[string]string{
+		"没有日志":      {"paper.jar": bare, "eula.txt": "eula=true\n"},
+		"日志里没有那一行":  {"paper.jar": bare, "eula.txt": "eula=true\n", "logs/latest.log": "[12:00:00] Loading libraries\n"},
+		"版本号不像样":    {"paper.jar": bare, "eula.txt": "eula=true\n", "logs/latest.log": "Starting minecraft server version <script>\n"},
+		"日志在别的文件夹里": {"paper.jar": bare, "eula.txt": "eula=true\n", "backup/logs/latest.log": logLine},
+	} {
+		if p, err := Parse(mkZip(t, files)); err != nil || p.MC != "" || p.MCFromLog {
+			t.Errorf("%s：不该认出版本：%+v %v", name, p, err)
+		}
+	}
+	if p, err := Parse(mkZip(t, map[string]string{"paper-1.20.1-100.jar": paperJar(t), "logs/latest.log": "Starting minecraft server version 1.19.4\n"})); err != nil ||
+		p.MC != "1.20.1" || p.MCFromLog {
+		t.Fatalf("jar 里写了版本的以 jar 为准：%+v %v", p, err)
+	}
+}

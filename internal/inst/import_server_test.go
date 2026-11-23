@@ -492,3 +492,38 @@ func TestImportServerArchiveChecksDiskSpace(t *testing.T) {
 		t.Fatalf("查不到余量的盘照做，日志里说一声：%v\n%s", err, log)
 	}
 }
+
+// 服务端 jar 里没写版本、压缩包的日志里有：导入用日志里的版本，任务日志和结果里注明是从日志里认的（A44）。
+func TestImportServerArchiveVersionFromLog(t *testing.T) {
+	m, _ := importEnv(t)
+	bare := jarBytesOf(t, map[string]string{"META-INF/MANIFEST.MF": "Manifest-Version: 1.0\r\nMain-Class: io.papermc.paperclip.Main\r\n\r\n"})
+	run := func(name string, files map[string]string) *Instance {
+		t.Helper()
+		pack, err := modpack.Parse(zipOf(t, files))
+		if err != nil {
+			t.Fatal(err)
+		}
+		tk, _ := m.Tasks.New("导入服务端", serverImportSteps)
+		if err := m.runServerImport(context.Background(), tk, pack, CreateReq{Name: name, XmxMB: 2048, Port: 25578, EULA: true}, filepath.Join(app.ServersDir, name)); err != nil {
+			t.Fatalf("%s 导入失败：%v\n%v", name, err, tk.Snapshot().Log)
+		}
+		w := warningOf(tk, "mc-from-log")
+		fromLog := strings.Contains(strings.Join(tk.Snapshot().Log, "\n"), "是从压缩包里的 logs/latest.log 认出来的")
+		if (w != nil) != fromLog {
+			t.Fatalf("%s：日志和结果要一致：%+v %v", name, w, fromLog)
+		}
+		i, _ := m.Get(name)
+		if fromLog != (name == "日志版本") {
+			t.Fatalf("%s：从日志里认的说明不对：%v", name, fromLog)
+		}
+		return i
+	}
+	if i := run("日志版本", map[string]string{"paper.jar": bare, "eula.txt": "eula=true\n",
+		"logs/latest.log": "[12:00:00] [Server thread/INFO]: Starting minecraft server version 1.20.1\n"}); i.MC != "1.20.1" || i.Core != "paper" {
+		t.Fatalf("应按日志里的版本登记：%s %s", i.Core, i.MC)
+	}
+	if i := run("jar 版本", map[string]string{"paper-1.20.1-100.jar": paperJarBytes(t), "eula.txt": "eula=true\n",
+		"logs/latest.log": "Starting minecraft server version 1.19.4\n"}); i.MC != "1.20.1" {
+		t.Fatalf("jar 里写了版本的以 jar 为准：%s", i.MC)
+	}
+}

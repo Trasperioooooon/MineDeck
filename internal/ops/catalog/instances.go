@@ -191,7 +191,8 @@ func (c *cat) instanceOps() {
 	c.reg.Register(&ops.Op{
 		Name: "instance.import", Title: "导入整合包", Level: ops.HumanOnly,
 		Desc: "从已上传的 Modrinth / CurseForge 整合包创建实例（核心、版本、加载器由整合包决定），返回任务编号。" +
-			"没有清单、但是 mods、plugins、server.properties 或服务端 jar 的压缩包，按现成服务端解压，核心和版本用接管已有服务器的同一套识别。",
+			"没有清单、但看得出是现成服务端的压缩包（mods、plugins、libraries 文件夹，server.properties、eula.txt，或认得出名字的服务端 jar；" +
+			"可以套在文件夹里），按现成服务端解压，核心和版本用接管已有服务器的同一套识别，jar 里没写版本时最后看压缩包里的 logs/latest.log（pack.mcFromLog）。",
 		Params: ops.Object(importParams, "file"),
 		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[struct {
@@ -229,7 +230,7 @@ func (c *cat) instanceOps() {
 			return map[string]any{
 				"taskId": id,
 				"pack": map[string]any{
-					"name": pack.Name, "mc": pack.MC, "core": pack.Core, "loader": pack.Loader,
+					"name": pack.Name, "mc": pack.MC, "core": pack.Core, "loader": pack.Loader, "mcFromLog": pack.MCFromLog,
 					"format": pack.Format, "files": len(pack.Files) + len(pack.CFRefs), "pending": len(pack.Pending),
 				},
 			}, nil

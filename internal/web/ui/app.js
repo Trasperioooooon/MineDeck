@@ -2140,7 +2140,7 @@ async function drawImport() {
       const pack = j.data.pack || {};
       const pending = (pack.pending || 0) > 0 ? `，${pack.pending} 个文件待处理` : "";
       if (pack.format === "server") {
-        toast(pack.core && pack.mc ? `已识别为现成服务端（${pack.core} ${pack.mc}），开始导入` : "已识别为现成服务端，核心和版本解压后再认");
+        toast(pack.core && pack.mc ? `已识别为现成服务端（${pack.core} ${pack.mc}${pack.mcFromLog ? "，版本号是从压缩包里的日志认出来的" : ""}），开始导入` : "已识别为现成服务端，核心和版本解压后再认");
       } else {
         toast(`已识别 ${pack.core} ${pack.mc}（${pack.files} 个组件）` + (pending ? "；其中" + pack.pending + " 项待处理，导入后到任务页逐个处理" : ""));
       }

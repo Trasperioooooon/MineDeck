@@ -70,6 +70,7 @@ type Pack struct {
 	OverrideDirs []string // 依序应用。清单外面若套了一层目录，这里已经带上那一层
 	Root         string   // 清单或服务端文件外面多套的那一层；空表示就在压缩包最外层
 	Launch       string   // 仅 server：认出来的启动方式（jar:… 或 args:…）。导入时还会用接管已有服务器的识别再对一遍
+	MCFromLog    bool     // 仅 server：MC 是从压缩包里的 logs/latest.log 认出来的（A44），别的地方都没写
 }
 
 // Parse 识别并解析整合包 zip，或一份现成的服务端压缩包。
