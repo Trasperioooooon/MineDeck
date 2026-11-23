@@ -897,6 +897,7 @@ func regularFile(p string) bool {
 
 // mixedServerNote 一个文件夹里认出了不止一种独立服务端时给人看的提示。不改任何文件。
 // Fabric、Forge 等加载器与配套的原版 server.jar 并存属于正常结构，不弹混放提示。
+// Paper 系旁边多一个原版 jar 也不弹（很多人会顺手留着，A37），只说一句旁边那个原版的没有用。
 func mixedServerNote(cands []adoptCand, top adoptCand, sawVelocityToml, scripted bool) string {
 	cores := map[string]bool{}
 	for _, c := range cands {
@@ -908,6 +909,10 @@ func mixedServerNote(cands []adoptCand, top adoptCand, sawVelocityToml, scripted
 		switch mcsrc.Core(top.Core) {
 		case mcsrc.CoreFabric, mcsrc.CoreForge, mcsrc.CoreNeoForge, mcsrc.CoreMohist, mcsrc.CoreBanner:
 			return ""
+		case mcsrc.CorePaper, mcsrc.CorePurpur, mcsrc.CoreFolia, mcsrc.CoreLeaves:
+			if note := vanillaBesideNote(cands); note != "" {
+				return note
+			}
 		}
 	}
 	if len(cores) < 2 {
@@ -917,6 +922,20 @@ func mixedServerNote(cands []adoptCand, top adoptCand, sawVelocityToml, scripted
 		return "这个文件夹里有不止一种服务端；因存在 velocity.toml，已先按 Velocity 预填。如需更改请在「启动文件」里选择其他项，未改动你的配置。"
 	}
 	return "这个文件夹里有不止一种服务端，已按启动脚本和文件名预填，请在「启动文件」里确认。未改动你的配置。"
+}
+
+// vanillaBesideNote Paper 系旁边只多一个原版 jar 时的说明；原版的不止一个就返回空串（照旧按「不止一种」提示）。
+func vanillaBesideNote(cands []adoptCand) string {
+	var vanilla []string
+	for _, c := range cands {
+		if c.Core == string(mcsrc.CoreVanilla) {
+			vanilla = append(vanilla, launchFile(c.Target))
+		}
+	}
+	if len(vanilla) != 1 {
+		return ""
+	}
+	return "旁边的 " + vanilla[0] + " 是原版，没有用它。"
 }
 
 // noServerErr 文件夹里没找到服务端时的报错：下一层有像服务器的文件夹就点出来（常见的是选到了上一层）。

@@ -152,6 +152,42 @@ func TestScanServerDir(t *testing.T) {
 					t.Errorf("%+v", sc.Targets)
 				}
 			}},
+		// A37：很多人会顺手把原版 jar 留在 Paper 旁边
+		{name: "Paper 旁边放着原版 server.jar：按 Paper 预填，不说「不止一种」，说一句旁边那个原版的没有用",
+			files: map[string]string{
+				"paper-1.21.1-132.jar": "zip:" + manifestOf("io.papermc.paperclip.Main") + "|META-INF/versions.list=abc\t1.21.1\t1.21.1/paper-1.21.1.jar\n",
+				"server.jar":           vanilla21,
+			},
+			target: "jar:paper-1.21.1-132.jar", core: "paper", mc: "1.21.1", java: 21,
+			check: func(t *testing.T, sc *AdoptScan) {
+				notes := strings.Join(sc.Notes, "\n")
+				if strings.Contains(notes, "不止一种") || !strings.Contains(notes, "旁边的 server.jar 是原版，没有用它") {
+					t.Errorf("%v", sc.Notes)
+				}
+			}},
+		{name: "Paper 和 Fabric 放在一起：照旧提示不止一种服务端",
+			files: map[string]string{
+				"paper-1.21.1-132.jar": "zip:" + manifestOf("io.papermc.paperclip.Main") + "|META-INF/versions.list=abc\t1.21.1\t1.21.1/paper-1.21.1.jar\n",
+				"fabric-server-mc.1.21.1-loader.0.16.5-launcher.1.0.1.jar": "zip:" + manifestOf("net.fabricmc.installer.ServerLauncher") + "|install.properties=fabric-loader-version=0.16.5\ngame-version=1.21.1\n",
+			},
+			target: "jar:fabric-server-mc.1.21.1-loader.0.16.5-launcher.1.0.1.jar", core: "fabric", mc: "1.21.1", build: "0.16.5",
+			check: func(t *testing.T, sc *AdoptScan) {
+				if notes := strings.Join(sc.Notes, "\n"); !strings.Contains(notes, "不止一种") || strings.Contains(notes, "是原版，没有用它") {
+					t.Errorf("%v", sc.Notes)
+				}
+			}},
+		{name: "Paper 旁边放着两个原版 jar：照旧提示不止一种服务端",
+			files: map[string]string{
+				"paper-1.21.1-132.jar":        "zip:" + manifestOf("io.papermc.paperclip.Main") + "|META-INF/versions.list=abc\t1.21.1\t1.21.1/paper-1.21.1.jar\n",
+				"server.jar":                  vanilla21,
+				"minecraft_server.1.21.1.jar": vanilla21,
+			},
+			target: "jar:paper-1.21.1-132.jar", core: "paper", mc: "1.21.1", java: 21,
+			check: func(t *testing.T, sc *AdoptScan) {
+				if notes := strings.Join(sc.Notes, "\n"); !strings.Contains(notes, "不止一种") {
+					t.Errorf("%v", sc.Notes)
+				}
+			}},
 		{name: "安装器生成的 fabric-server-launch.jar 自己不带版本：从旁边的原版 jar 取",
 			files: map[string]string{
 				"fabric-server-launch.jar": "zip:" + manifestOf("net.fabricmc.loader.impl.launch.server.FabricServerLauncher"),
