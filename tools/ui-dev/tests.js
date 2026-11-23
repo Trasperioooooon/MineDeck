@@ -4403,13 +4403,18 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert((await page.textContent("#mc-count")).includes("1"), "清单应是 1 项");
       // 页面没动的时候，别处又往这台服务器的车里加了一项
       await page.evaluate(i => fetch("/api/modcart", { method: "POST", body: JSON.stringify({ inst: i, projectIds: ["create"] }) }), PACK);
-      await page.click("#mc-install"); await settle(900);
+      await page.click("#mc-install");
+      await page.waitForSelector('.modal [data-x="ok"]', { timeout: 5000 });
+      await page.click('.modal [data-x="ok"]');
+      await settle(900);
       const toasts = await page.$$eval(".toast", ts => ts.map(x => x.textContent));
       assert(toasts.some(x => x.includes("无法开始安装：待装清单和你刚才看到的不一样了")), "车变了应拦下并说明：" + JSON.stringify(toasts));
       assert(!page.url().includes("#/task/"), "被拦下时不该跳到任务页：" + page.url());
       assert((await page.textContent("#mc-count")).includes("2") && (await page.textContent("#mc-list")).includes("Create"), "应重新列出现在的清单");
-      // 看过现在的清单再点：照常装，请求里带着页面上列着的两项
+      // 看过现在的清单再点：先确认必装前置，再照常装，请求里带着页面上列着的两项
       await page.click("#mc-install");
+      await page.waitForSelector('.modal [data-x="ok"]', { timeout: 5000 });
+      await page.click('.modal [data-x="ok"]');
       await page.waitForFunction(() => location.hash === "#/task/task-cart", null, { timeout: 8000 });
       const li = (await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data))).modcart.lastInstall;
       assert(li && Array.isArray(li.expect) && li.expect.slice().sort().join() === "create,jei", "安装请求应带上页面上列着的两项：" + JSON.stringify(li));
@@ -9037,6 +9042,160 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(previewAfterSave === previewBeforeSave, "保存后的启动参数应与保存前预览完全一致：" + previewAfterSave + " vs " + previewBeforeSave);
     } finally {
       await mState({ instReset: true });
+    }
+  });
+
+  await run("待装清单：全部安装前没查过前置或清单变过时先查一遍，列必装前置确认，检查失败不安装", async () => {
+    const cartMock = () => page.evaluate(() => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data.modcart));
+    try {
+      await cartState({ modCart: { reset: true } });
+      await page.goto(url(`#/inst/${encodeURIComponent(PACK)}/cart`)); await settle(600);
+      await page.fill("#mc-q", "JEI"); await page.click("#mc-go"); await settle();
+      await page.click('button[aria-label="加入清单 JEI"]'); await settle(700);
+      assert((await cartMock()).depsQueries === 0, "加入 Modrinth 项目时还没查过前置");
+
+      // 1) 没点过「检查前置」直接点「全部安装」：请求前置期间按钮保持防连点，回来后弹出列出必装前置的确认框
+      let releaseDeps;
+      const holdDeps = new Promise(r => { releaseDeps = r; });
+      await page.route("**/api/modcart/deps*", async route => { await holdDeps; await route.continue().catch(() => {}); });
+      await page.click("#mc-install");
+      await settle(150);
+      assert(await page.$eval("#mc-install", b => b.disabled), "等待前置检查期间「全部安装」按钮应保持禁用防连点");
+      releaseDeps();
+      await settle(50);
+      await page.unroute("**/api/modcart/deps*");
+
+      await page.waitForSelector(".modal", { timeout: 5000 });
+      const modalText1 = await page.textContent(".modal");
+      assert(modalText1.includes("另外会自动装上 1 项必装前置") && modalText1.includes("Architectury API"),
+        "没查过前置直接全部安装应弹出列出必装前置的确认框：" + modalText1);
+      await page.click('.modal [data-x="cancel"]'); await settle(200);
+      assert((await cartMock()).lastInstall === null, "点「先不装」不应发出安装请求");
+
+      // 2) 清单在上次检查后变过（已过时）：先给无必装前置的模组查过一次，再加进需要前置的 JEI，点全部安装会重新检查
+      await page.click("#mc-clear"); await settle(500);
+      await page.fill("#mc-q", "Cloth"); await page.click("#mc-go"); await settle();
+      await page.click('button[aria-label="加入清单 Cloth Config API"]'); await settle(700);
+      await page.click("#mc-dep-go"); await settle(500);
+      assert((await page.textContent("#mc-dep-box")).includes("不缺前置"), "单放 Cloth Config API 不缺前置");
+      const beforeAddJei = (await cartMock()).depsQueries;
+
+      await page.fill("#mc-q", "JEI"); await page.click("#mc-go"); await settle();
+      await page.click('button[aria-label="加入清单 JEI"]'); await settle(700);
+
+      // 3) 检查前置失败时：不安装，提示失败原因
+      await cartState({ modCart: { depsFail: "Modrinth 暂时连不上" } });
+      await page.click("#mc-install"); await settle(600);
+      assert((await cartMock()).depsQueries === beforeAddJei + 1, "清单变过后再点安装应重查前置");
+      assert((await cartMock()).lastInstall === null && !page.url().includes("#/task/"), "检查前置失败时不应开始安装");
+      const failToasts = await page.$$eval(".toast", ts => ts.map(x => x.textContent));
+      assert(failToasts.some(x => x.includes("Modrinth 暂时连不上")), "检查前置失败应提示失败原因：" + JSON.stringify(failToasts));
+
+      // 4) 网络恢复后再点「全部安装」：弹出确认框，确认后正常安装
+      await cartState({ modCart: { depsFail: "" } });
+      await page.click("#mc-install");
+      await page.waitForSelector(".modal", { timeout: 5000 });
+      assert((await page.textContent(".modal")).includes("Architectury API"), "重查后确认框应列出 Architectury API");
+      await page.click('.modal [data-x="ok"]');
+      await page.waitForFunction(() => location.hash === "#/task/task-cart", null, { timeout: 8000 });
+      const li = (await cartMock()).lastInstall;
+      assert(li && li.withDeps === true && li.expect.slice().sort().join() === "cloth-config,jei", "确认后应发起安装：" + JSON.stringify(li));
+    } finally {
+      await page.unroute("**/api/modcart/deps*").catch(() => {});
+      await cartState({ modCart: { reset: true } });
+      await page.goto(url("#/instances")); await settle();
+    }
+  });
+
+  await run("没装上的文件：超过 500 项分批提交显示批次进度，还有未提交批次时切页先确认", async () => {
+    const makePending = count => Array.from({ length: count }, (_, i) => ({
+      id: "p" + i,
+      path: `mods/mod-${i}.jar`,
+      reason: "host",
+      host: "files.example.net",
+      note: "下载地址不在允许列表",
+      urls: [`https://files.example.net/mod-${i}.jar`],
+      sha1: "0123456789abcdef0123456789abcdef01234567",
+      options: ["local", "skip", "trust"],
+    }));
+    const setTask = items => page.evaluate(t => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList: [t], trustedHosts: [] }) }), {
+      id: "task-1200", title: "导入整合包 大量外部文件", ended: true, result: "机械动力整合包", pending: items,
+    });
+    try {
+      await setTask(makePending(1200));
+      await page.goto(url("#/task/task-1200")); await settle(600);
+      await page.click("#pnd-trust-all"); await settle(300);
+      await page.click("#pnd-ack-all"); await settle(300);
+
+      let batchNum = 0;
+      const gates = [];
+      for (let k = 0; k < 3; k++) {
+        let go;
+        const p = new Promise(r => { go = r; });
+        gates.push({ p, go });
+      }
+      await page.route("**/import-pending", async route => {
+        if (route.request().method() !== "POST") { await route.continue().catch(() => {}); return; }
+        const idx = batchNum++;
+        if (gates[idx]) await gates[idx].p;
+        await route.continue().catch(() => {});
+      });
+
+      await page.click("#t-pending-apply");
+      await page.waitForFunction(() => (document.querySelector("#t-pending .pnd-prog")?.textContent || "").includes("正在处理第 1 批，共 3 批"), null, { timeout: 5000 });
+
+      // 第 1 批在途、还剩 700 项未提交时切页：弹出确认框，取消则留在当前页继续
+      await page.click('#sidebar a[data-nav="instances"]');
+      await page.waitForSelector(".modal", { timeout: 5000 });
+      const leaveText1 = await page.textContent(".modal");
+      assert(leaveText1.includes("还有 700 项没处理，离开后不会继续"), "中途切页应提示剩余未处理项数：" + leaveText1);
+      await page.click('.modal [data-x="cancel"]'); await settle(150);
+      assert(page.url().includes("#/task/task-1200"), "取消离开后应留在任务页：" + page.url());
+
+      // 放行第 1 批，进入第 2 批：看到「正在处理第 2 批，共 3 批」
+      gates[0].go();
+      await page.waitForFunction(() => (document.querySelector("#t-pending .pnd-prog")?.textContent || "").includes("正在处理第 2 批，共 3 批"), null, { timeout: 5000 });
+
+      // 放行第 2、3 批，全部处理完成
+      gates[1].go();
+      gates[2].go();
+      await page.waitForSelector("#t-pending .pnd-done", { timeout: 10000 });
+      assert(batchNum === 3, "1200 项应分 3 批提交，实际：" + batchNum);
+      await page.unroute("**/import-pending");
+
+      // 再验证确认离开：第 1 批期间确认离开后跳走，后续批次不再提交
+      await setTask(makePending(1200));
+      await page.goto(url("#/task/task-1200")); await settle(600);
+      await page.click("#pnd-trust-all"); await settle(300);
+      await page.click("#pnd-ack-all"); await settle(300);
+
+      let sentBatches = 0, releaseFirst, onFirstSent;
+      const firstHeld = new Promise(r => { releaseFirst = r; });
+      const waitFirstSent = new Promise(r => { onFirstSent = r; });
+      await page.route("**/import-pending", async route => {
+        if (route.request().method() !== "POST") { await route.continue().catch(() => {}); return; }
+        sentBatches++;
+        if (sentBatches === 1) {
+          onFirstSent();
+          await firstHeld;
+        }
+        await route.continue().catch(() => {});
+      });
+
+      await page.click("#t-pending-apply");
+      await waitFirstSent;
+      await page.click('#sidebar a[data-nav="instances"]');
+      await page.waitForSelector(".modal", { timeout: 5000 });
+      assert((await page.textContent(".modal")).includes("还有 700 项没处理，离开后不会继续"), "确认框文案不对");
+      await page.click('.modal [data-x="ok"]');
+      await page.waitForFunction(() => location.hash === "#/instances", null, { timeout: 5000 });
+      releaseFirst();
+      await settle(400);
+      assert(sentBatches === 1, "确认离开后剩下的第 2、3 批不应再提交，实际提交批数：" + sentBatches);
+    } finally {
+      await page.unroute("**/import-pending").catch(() => {});
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList: [], trustedHosts: [] }) }));
+      await page.goto(url("#/instances")); await settle();
     }
   });
 

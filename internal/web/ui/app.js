@@ -1224,11 +1224,30 @@ async function refreshTaskList(slot, gen) {
   } finally { slot._loading = false; }
 }
 
-/* 未保存修改守卫：表单类视图登记 dirtyCheck（返回未保存项数），切页 / 切 tab / 刷新前先确认 */
+/* 未保存修改与进行中操作守卫：表单类视图登记 dirtyCheck（切页 / 切 tab / 刷新前确认），分批提交登记 leaveCheck（只拦站内切页，不拦关窗口和刷新） */
 let dirtyCheck = null;
+let leaveCheck = null;
 let curHash = null;
 let guardOpen = false;
 window.addEventListener("beforeunload", e => { if (dirtyCheck && dirtyCheck() > 0) { e.preventDefault(); e.returnValue = ""; } });
+
+async function confirmBeforeLeave(hash) {
+  const leave = leaveCheck ? leaveCheck() : null;
+  const unsaved = !leave && dirtyCheck ? dirtyCheck() : 0;
+  const prompt = leave || (unsaved > 0 ? {
+    title: "放弃未保存的修改？", danger: true,
+    body: `当前页面还有 <b>${unsaved}</b> 项修改没有保存，离开后这些修改会丢失。`,
+    okText: `放弃 ${unsaved} 项修改`, cancelText: "继续编辑",
+  } : null);
+  if (!prompt) return true;
+  if (curHash && hash !== curHash) history.replaceState(null, "", curHash); // 先退回原地址，确认后再前往
+  guardOpen = true;
+  const ok = await confirmModal(prompt);
+  guardOpen = false;
+  if (!ok) return false;
+  if ((location.hash || "#/instances") !== hash) history.replaceState(null, "", hash);
+  return true;
+}
 
 /* 详情页的旧地址（beta.3 以前的标签编号）→ 新地址（docs/文案重写/04-标签与术语-beta3.md 第一节，可用性走查 R06）。
    AI 助手的回复、提示、书签里还写着旧的。旧的「地图」标签原来就叫 world，现在就是「世界与备份」本身，不用换：
@@ -1245,20 +1264,9 @@ async function navigate() {
   const old = location.hash || "#/instances", hash = upgradeDetailHash(old);
   if (hash !== old) history.replaceState(null, "", hash);
   if (guardOpen) { if (curHash) history.replaceState(null, "", curHash); return; }
-  const unsaved = dirtyCheck ? dirtyCheck() : 0;
-  if (unsaved > 0) {
-    if (curHash && hash !== curHash) history.replaceState(null, "", curHash); // 先退回原地址，确认放弃后再前往
-    guardOpen = true;
-    const ok = await confirmModal({
-      title: "放弃未保存的修改？", danger: true,
-      body: `当前页面还有 <b>${unsaved}</b> 项修改没有保存，离开后这些修改会丢失。`,
-      okText: `放弃 ${unsaved} 项修改`, cancelText: "继续编辑",
-    });
-    guardOpen = false;
-    if (!ok) return;
-    if ((location.hash || "#/instances") !== hash) history.replaceState(null, "", hash);
-  }
+  if (!(await confirmBeforeLeave(hash))) return;
   dirtyCheck = null;
+  leaveCheck = null;
   appearanceView = null;
   curHash = hash;
   viewGen++;
@@ -2919,8 +2927,13 @@ const parentDir = p => { const s = String(p || "").replace(/[\\/]+$/, ""), k = M
    详情页拿它刷新页头那一条。 */
 const PND_ACT = { skip: "跳过", local: "用本地文件代替", trust: "信任站点并下载" };
 function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-apply" } = {}) {
-  let view = { pending: [], skipped: [] }, sig = "", had = false;
+  let view = { pending: [], skipped: [] }, sig = "", had = false, unsubmitted = 0;
   const gone = () => stale(gen) || !box.isConnected;
+  const leavePrompt = () => (!gone() && unsubmitted > 0) ? {
+    title: "还有没处理完的文件", danger: true,
+    body: `还有 <b>${unsubmitted}</b> 项没处理，离开后不会继续。`,
+    okText: "离开", cancelText: "留在这里",
+  } : null;
   const httpsOnly = u => /^https:\/\//i.test(String(u || ""));
   const PENDING_BATCH = 500; // 同后端 pendingResolveMax：500 接受，501 拒绝。多出来的分批提交。
   const dlHost = it => {
@@ -2972,6 +2985,7 @@ function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-appl
       ${skippedBlock}
       <div class="row" style="margin-top:12px">
         <button type="button" class="btn primary pnd-apply" id="${applyId}">应用所选的处理</button>
+        <span class="hint pnd-prog" aria-live="polite" hidden></span>
         <span class="hint">无法自动识别的自定义/魔改模组，可选「用本地文件代替」并指定本地文件路径。</span>
       </div>
     </div>`;
@@ -2990,11 +3004,11 @@ function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-appl
     const ackAll = box.querySelector("#pnd-ack-all");
     if (trustAll) trustAll.onclick = () => {
       let n = 0;
-      const hasSHA1 = id => !!String((view.pending.find(x => x.id === id) || {}).sha1 || ""); // 同后端：没有校验值的不下载
+      const sha1Ids = new Set(view.pending.filter(x => !!String(x.sha1 || "")).map(x => x.id)); // 同后端：没有校验值的不下载
       for (const r of box.querySelectorAll(".pnd-item")) {
         const radio = r.querySelector('input[type=radio][value="trust"]');
         // 没有校验值的后端不会下载；已经选了处理方式的（包括选了本地文件的）不替人改
-        if (!radio || !hasSHA1(r.dataset.id) || r.querySelector("input[type=radio]:checked")) continue;
+        if (!radio || !sha1Ids.has(r.dataset.id) || r.querySelector("input[type=radio]:checked")) continue;
         radio.checked = true;
         radio.dispatchEvent(new Event("change"));
         n++;
@@ -3016,8 +3030,9 @@ function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-appl
   const apply = async () => {
     const acts = [];
     let missing = "";
+    const rowById = new Map(rows().map(x => [x.dataset.id, x]));
     for (const it of [...view.pending, ...view.skipped]) {
-      const r = rows().find(x => x.dataset.id === it.id);
+      const r = rowById.get(it.id);
       const radio = r && r.querySelector("input[type=radio]:checked");
       if (!radio) continue; // 没选的留着下一批
       const act = { id: it.id, act: radio.value };
@@ -3033,8 +3048,11 @@ function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-appl
     }
     if (missing) { toast(missing, true); return; }
     if (!acts.length) { toast("先给至少一个文件选处理方式", true); return; }
-    const btn = box.querySelector(".pnd-apply");
+    const btn = box.querySelector(".pnd-apply"), prog = box.querySelector(".pnd-prog");
+    const totalBatches = Math.ceil(acts.length / PENDING_BATCH);
     btn.disabled = true;
+    const prevLeave = leaveCheck;
+    leaveCheck = () => leavePrompt() || (prevLeave ? prevLeave() : null);
     const resolved = [];
     let lastResp = null;
     const wasOpen = view.pending.length;
@@ -3048,7 +3066,13 @@ function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-appl
     };
     try {
       for (let i = 0; i < acts.length; i += PENDING_BATCH) {
-        const r = await api(`/api/instances/${encodeURIComponent(inst)}/import-pending`, { method: "POST", body: { items: acts.slice(i, i + PENDING_BATCH) } });
+        const batch = acts.slice(i, i + PENDING_BATCH);
+        unsubmitted = Math.max(0, acts.length - (i + batch.length));
+        if (prog && totalBatches > 1) {
+          prog.hidden = false;
+          prog.textContent = `正在处理第 ${Math.floor(i / PENDING_BATCH) + 1} 批，共 ${totalBatches} 批`;
+        }
+        const r = await api(`/api/instances/${encodeURIComponent(inst)}/import-pending`, { method: "POST", body: { items: batch } });
         if (gone()) return;
         lastResp = r;
         resolved.push(...(r.resolved || []));
@@ -3069,6 +3093,10 @@ function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-appl
       syncDone();
       toastErr(refreshed ? "有的文件没处理完，清单已按最新情况刷新" : lastResp ? "部分文件未能处理完" : "无法处理没装上的文件", e);
     } finally {
+      unsubmitted = 0;
+      if (!stale(gen)) leaveCheck = prevLeave;
+      const p = box.querySelector(".pnd-prog");
+      if (!gone() && p) { p.hidden = true; p.textContent = ""; }
       const b = box.querySelector(".pnd-apply");
       if (!gone() && b) b.disabled = false;
     }
@@ -3086,7 +3114,7 @@ function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-appl
       if (b) b.onclick = load;
     }
   };
-  return { load };
+  return { load, leavePrompt };
 }
 /* 详情页头「这台服务器有 N 个整合包文件没装上 [处理]」打开的叠层（R09）：里面就是上面这个处理面板，处理完、跳过以后
    onChange(清单) 让页头那一条跟着变（还没处理的没了就消失）。关掉以后面板不再动（box 不在页面上了） */
@@ -3099,9 +3127,16 @@ function pendingModal(inst, gen, onChange, addonsLabel = "") {
       ${addonsLabel ? `跳过的以后在这台服务器的「${esc(addonsLabel)}」页里也找得到。` : ""}</div>
       <div id="d-pending-out"></div><div id="d-pending-box"><div class="sub">加载中…</div></div></div>
     <div class="m-actions"><button class="btn primary" data-x="close">关闭</button></div></div>`);
-  let closed = false;
-  const close = () => {
-    if (closed) return;
+  let closed = false, confirming = false, ctl = null;
+  const close = async () => {
+    if (closed || confirming) return;
+    const prompt = ctl && ctl.leavePrompt();
+    if (prompt) {
+      confirming = true;
+      const ok = await confirmModal(prompt);
+      confirming = false;
+      if (!ok || closed) return;
+    }
     closed = true;
     document.removeEventListener("keydown", onKey);
     dismiss(mask);
@@ -3111,7 +3146,8 @@ function pendingModal(inst, gen, onChange, addonsLabel = "") {
   document.addEventListener("keydown", onKey);
   mask.querySelector('[data-x="close"]').onclick = close;
   mask.addEventListener("mousedown", e => { if (e.target === e.currentTarget && !hasFields(mask)) close(); }); // 选了、填了的不因为点空了丢掉
-  pendingPanel(mask.querySelector("#d-pending-box"), mask.querySelector("#d-pending-out"), inst, gen, { onChange, applyId: "d-pending-apply" }).load();
+  ctl = pendingPanel(mask.querySelector("#d-pending-box"), mask.querySelector("#d-pending-out"), inst, gen, { onChange, applyId: "d-pending-apply" });
+  ctl.load();
   mask.querySelector('[data-x="close"]').focus();
   return mask;
 }

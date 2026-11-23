@@ -85,7 +85,7 @@ func (s *Service) ScanLocal(ctx context.Context, dir string) Local {
 			continue // 停用的（.jar.disabled）不算已有：服务器不加载它
 		}
 		l.Files = append(l.Files, n)
-		if h, err := fileSHA1(filepath.Join(dir, n)); err == nil {
+		if h, err := cachedFileSHA1(filepath.Join(dir, n)); err == nil {
 			hashOf[n] = h
 			if _, seen := l.Hashes[h]; !seen {
 				l.Hashes[h] = n
@@ -118,8 +118,13 @@ func (s *Service) ScanLocal(ctx context.Context, dir string) Local {
 	return l
 }
 
+// openJarForSHA1 打开要算 SHA-1 的本地 jar（同包测试可替换，统计实际读文件内容的次数）。
+var openJarForSHA1 = func(path string) (*os.File, error) {
+	return os.Open(path)
+}
+
 func fileSHA1(path string) (string, error) {
-	f, err := os.Open(path)
+	f, err := openJarForSHA1(path)
 	if err != nil {
 		return "", err
 	}

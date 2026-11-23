@@ -103,6 +103,7 @@ window.MDModCart = (() => {
     let cart = [],              // 购物车里的 Modrinth 项目（后端的形状）
         local = [],             // 购物车里的本地文件（后端的形状：sha1、fileName、size、title、warn…）
         dep = null,             // 最近一次依赖检查的结果
+        depSig = "",            // dep 对应的清单签名（A29：清单变过以后算过时，点全部安装时重查）
         installing = false,     // 已经点了安装（等确认框或接口时不能再点）
         uploading = false,      // 正在往清单里添加本地文件
         loadErr = null,         // 清单的存档在、却没读出来（后端回 503）时的报错，见 paintList
@@ -115,6 +116,8 @@ window.MDModCart = (() => {
         hitErr = "", moreErr = "", loadingMore = false,
         searchReq = 0;
     const ids = () => new Set(cart.map(it => it.projectId));
+    const cartSig = () => cart.map(it => it.projectId).slice().sort().join(",") + "|" + local.map(lf => lf.sha1).slice().sort().join(",");
+    const clearDep = () => { dep = null; depSig = ""; depBox.innerHTML = ""; };
     const gone = () => stale(gen) || !root.isConnected;
     const total = () => cart.length + local.length;
     /* 请求里指明是哪辆车、按哪种核心看（后端拿核心给本地文件写「加载器不对」的提醒） */
@@ -190,7 +193,7 @@ window.MDModCart = (() => {
        清单本身好好的，照普通错误处理 */
     const unreadable = e => {
       if (!e || e.status !== 503 || !(String(e.message || "").includes("cart.json") || String(e.hint || "").includes("cart.json"))) return false;
-      loadErr = e; cart = []; local = []; dep = null; depBox.innerHTML = "";
+      loadErr = e; cart = []; local = []; clearDep();
       return true;
     };
     const removeOne = async (btn, url, body, isLocal) => {
@@ -431,25 +434,31 @@ window.MDModCart = (() => {
       };
       depBox.querySelectorAll(".mc-opt-add").forEach(b => b.onclick = () => add([b.dataset.pid], [b]));
     };
-    const checkDeps = async () => {
-      const seq = ++depSeq;
+    const runCheckDeps = async rethrow => {
+      const seq = ++depSeq, reqSig = cartSig();
       const outdated = () => seq !== depSeq || gone();
       depBtn.disabled = true;
       depState.textContent = "检查中…";
       try {
         const d = await api("/api/modcart/deps?" + targetQuery());
-        if (outdated()) return;
+        if (outdated()) return false;
         dep = d;
+        depSig = reqSig;
         depState.textContent = "";
         paintList(); // 本地文件那几行的提示换成这次查出来的（里面会接着画前置这一块）
+        return true;
       } catch (e) {
-        if (outdated()) return;
+        if (outdated()) return false;
         dep = null;
+        depSig = "";
         depState.textContent = "";
         if (unreadable(e)) paintList();
         else depBox.innerHTML = errBox("前置没有查出来", e, { label: "前置检查", hint: "检查一下网络，再点一次「检查前置」。" });
+        if (rethrow) throw e;
+        return false;
       } finally { if (!outdated()) depBtn.disabled = false; }
     };
+    const checkDeps = () => runCheckDeps(false);
 
     /* ---- 读一遍购物车 ---- */
     const reload = async () => {
@@ -480,7 +489,7 @@ window.MDModCart = (() => {
       }
       if (gone()) return;
       clearBtn.disabled = false;
-      if (dep) { dep = null; depBox.innerHTML = ""; } // 清单空了，上次查的前置不作数了
+      if (dep) clearDep(); // 清单空了，上次查的前置不作数了
       await reload();
     };
     const insBtn = $("#mc-install", root);
@@ -488,6 +497,17 @@ window.MDModCart = (() => {
       if (installing || uploading) return;
       installing = true; insBtn.disabled = true;
       const reset = () => { installing = false; if (!gone() && insBtn.isConnected) insBtn.disabled = false; };
+      if (!dep || depSig !== cartSig()) { // A29：还没查过前置，或者上次查完以后清单变过，装前先查一遍
+        try {
+          const ok = await runCheckDeps(true);
+          if (gone()) return;
+          if (!ok || !dep) { reset(); return; }
+        } catch (e) {
+          toastErr("检查前置失败，没有开始安装", e);
+          reset();
+          return;
+        }
+      }
       try {
         const have = ids(), miss = dep ? (dep.missing || []).filter(m => !have.has((m.project || {}).projectId)) : [];
         if (miss.length) { // 购物车之外的必装依赖会自动一起装：装之前说一声装了什么
@@ -511,7 +531,7 @@ window.MDModCart = (() => {
       } catch (e) {
         toastErr("无法开始安装", e);
         reset();
-        if (!gone()) { dep = null; depBox.innerHTML = ""; reload(); } // 车可能变了：重新读一遍，旧的依赖检查结果也作废
+        if (!gone()) { clearDep(); reload(); } // 车可能变了：重新读一遍，旧的依赖检查结果也作废
       }
     };
     depBtn.onclick = checkDeps;

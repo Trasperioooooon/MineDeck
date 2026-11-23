@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -395,6 +396,137 @@ func TestScanLocal(t *testing.T) {
 			t.Fatalf("两份 jar 时应固定认 a-copy.jar：%q", got)
 		}
 	}
+}
+
+// A32：扫描 mods 目录算 jar 的 SHA-1 时按「完整路径 + 大小 + 修改时间」做进程内缓存。
+// 同一个文件三样没变时第二次不再读文件内容，但联网查 /version_files 不缓存；修改时间或大小变化则重算；超出上限清掉最旧的且并发安全。
+func TestScanLocalCachesFileSHA1(t *testing.T) {
+	mr := newFakeMR(t)
+	s := New(t.TempDir(), mr.srv.URL)
+	dir := t.TempDir()
+	fn := "fapi-0.92.2+1.20.1.jar"
+	jarPath := filepath.Join(dir, "fabric-api.jar")
+	if err := os.WriteFile(jarPath, mr.files[fn], 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var mu sync.Mutex
+	reads := map[string]int{}
+	oldOpen := openJarForSHA1
+	t.Cleanup(func() { openJarForSHA1 = oldOpen })
+	openJarForSHA1 = func(p string) (*os.File, error) {
+		mu.Lock()
+		reads[filepath.Clean(p)]++
+		mu.Unlock()
+		return os.Open(p)
+	}
+	readCount := func(p string) int {
+		mu.Lock()
+		defer mu.Unlock()
+		return reads[filepath.Clean(p)]
+	}
+
+	// 第一次扫描：读文件内容算哈希，并请求一次 /version_files
+	beforeNet := mr.count("/version_files")
+	l1 := s.ScanLocal(context.Background(), dir)
+	if l1.Projects["fapi"] != "fabric-api.jar" {
+		t.Fatalf("第一次扫描未认出 fapi：%+v", l1.Projects)
+	}
+	if got := readCount(jarPath); got != 1 {
+		t.Fatalf("第一次扫描应读 1 次文件内容，实际 %d", got)
+	}
+	if got := mr.count("/version_files") - beforeNet; got != 1 {
+		t.Fatalf("第一次扫描应请求 1 次 /version_files，实际 %d", got)
+	}
+
+	// 第二次扫描（路径、大小、修改时间都没变）：命中缓存不再读文件内容，但照常联网查 /version_files
+	l2 := s.ScanLocal(context.Background(), dir)
+	if l2.Projects["fapi"] != "fabric-api.jar" {
+		t.Fatalf("第二次扫描未认出 fapi：%+v", l2.Projects)
+	}
+	if got := readCount(jarPath); got != 1 {
+		t.Fatalf("文件未变时第二次扫描不应再读文件内容，实际读了 %d 次", got)
+	}
+	if got := mr.count("/version_files") - beforeNet; got != 2 {
+		t.Fatalf("联网查 /version_files 不缓存，第二次扫描后应累计请求 2 次，实际 %d", got)
+	}
+
+	// 改了修改时间（内容和大小不变）：必须重算
+	st, err := os.Stat(jarPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextMod := st.ModTime().Add(2 * time.Second)
+	if err := os.Chtimes(jarPath, nextMod, nextMod); err != nil {
+		t.Fatal(err)
+	}
+	l3 := s.ScanLocal(context.Background(), dir)
+	if l3.Projects["fapi"] != "fabric-api.jar" {
+		t.Fatalf("改修改时间后扫描未认出 fapi：%+v", l3.Projects)
+	}
+	if got := readCount(jarPath); got != 2 {
+		t.Fatalf("修改时间变了应重新读文件内容计算 SHA-1，实际读了 %d 次", got)
+	}
+
+	// 改了文件大小/内容（即使人为把修改时间设回刚才那一下）：大小变了也必须重算，拿到新哈希
+	otherBody := mr.files["lib4-1.0.jar"]
+	if len(otherBody) == len(mr.files[fn]) {
+		otherBody = append(slices.Clone(otherBody), '!')
+	}
+	if err := os.WriteFile(jarPath, otherBody, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(jarPath, nextMod, nextMod); err != nil {
+		t.Fatal(err)
+	}
+	l4 := s.ScanLocal(context.Background(), dir)
+	if got := readCount(jarPath); got != 3 {
+		t.Fatalf("文件大小变了应重新计算 SHA-1，实际读了 %d 次", got)
+	}
+	if _, ok := l4.Hashes[sha1Hex(otherBody)]; !ok {
+		t.Fatalf("重算后应拿到新内容的 SHA-1：%+v", l4.Hashes)
+	}
+
+	// 缓存达到上限时清掉最旧的条目，且并发读取安全
+	small := newSHA1Cache(3)
+	paths := make([]string, 4)
+	for idx := range paths {
+		p := filepath.Join(t.TempDir(), fmt.Sprintf("m-%d.jar", idx))
+		if err := os.WriteFile(p, []byte(fmt.Sprintf("jar-content-%d", idx)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		paths[idx] = p
+		if _, err := small.fileSHA1(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 先验留在缓存里的 paths[1..3]（均命中缓存，保持读取 1 次），再验已被挤出的最旧项 paths[0]（未命中，重读变成 2 次）
+	for _, idx := range []int{1, 2, 3, 0} {
+		p := paths[idx]
+		if _, err := small.fileSHA1(p); err != nil {
+			t.Fatal(err)
+		}
+		want := 1
+		if idx == 0 {
+			want = 2
+		}
+		if got := readCount(p); got != want {
+			t.Fatalf("paths[%d] 读取次数 = %d，期望 %d", idx, got, want)
+		}
+	}
+
+	var wg sync.WaitGroup
+	for g := 0; g < 16; g++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			p := paths[id%len(paths)]
+			if _, err := small.fileSHA1(p); err != nil {
+				t.Errorf("并发计算 SHA-1 失败：%v", err)
+			}
+		}(g)
+	}
+	wg.Wait()
 }
 
 // 复审补的：加入时只收模组和插件；放不进去时，全是查不到才报 404；写盘失败时内存里的车不变。
