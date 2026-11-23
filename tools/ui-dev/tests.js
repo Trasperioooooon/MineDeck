@@ -6490,6 +6490,33 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       } finally { await fState({ taskList: [] }); }
     });
 
+    await run("导入交接包失败以后「返回修改」回到导入交接包：选过的包重新上传，填的名称、端口、内存、Java 和 EULA 都在（A49）", async () => {
+      const failTransfer = r => r.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, data: { id: "task-transfer-in", kind: "transfer-in",
+        title: "导入交接包 A 的服", ended: true, error: "交接包里的 server.properties 把世界文件夹指到了服务器文件夹外面",
+        steps: [{ name: "校验交接包", status: "error" }], warnings: [], log: [] } }) });
+      await page.route("**/api/tasks/task-transfer-in", failTransfer);
+      try {
+        await page.goto(url("#/create/transfer")); await page.waitForSelector("#tp-file");
+        await page.setInputFiles("#tp-file", { name: "A 的服.mdpack", mimeType: "application/zip", buffer: Buffer.from("PK\u0003\u0004mdpack") });
+        await page.waitForSelector("#tp-name");
+        await page.fill("#tp-name", "交接回填服"); await page.fill("#tp-port", "25604"); await page.selectOption("#tp-java", "21"); await page.check("#tp-eula");
+        await page.fill("#tp-mem-mount .mem-num", "5120"); await page.press("#tp-mem-mount .mem-num", "Tab");
+        await page.click("#tp-go"); await page.waitForFunction(() => location.hash === "#/task/task-transfer-in");
+        await page.waitForSelector("#t-back-edit");
+        assert((await h1()) === "交接包没有导入成", "失败页的标题：" + await h1());
+        const uploads = reqs.filter(r => r.u === "/api/transfer/upload").length;
+        await page.click("#t-back-edit"); await page.waitForSelector("#tp-name");
+        const f = await page.evaluate(() => ({ hash: location.hash, file: ($("#tp-file").files[0] || {}).name || "", name: $("#tp-name").value, port: $("#tp-port").value,
+          java: $("#tp-java").value, eula: $("#tp-eula").checked, mem: $("#tp-mem").value }));
+        assert(f.hash === "#/create/transfer" && f.file === "A 的服.mdpack" && f.name === "交接回填服" && f.port === "25604" && f.java === "21" && f.eula && f.mem === "5120",
+          "返回修改以后的交接包表单：" + JSON.stringify(f));
+        assert(reqs.filter(r => r.u === "/api/transfer/upload").length === uploads + 1, "选回来的包应重新上传一遍");
+        await page.click("#tp-go"); await page.waitForFunction(() => location.hash === "#/task/task-transfer-in");
+        const lt = (await fState({})).lastTransferImport;
+        assert(lt.name === "交接回填服" && lt.port === 25604 && lt.javaMajor === 21 && lt.eula === true && lt.xmxMb === 5120, "再提交的请求：" + JSON.stringify(lt));
+      } finally { await page.unroute("**/api/tasks/task-transfer-in", failTransfer); }
+    });
+
     await run("导入现成服务端：版本号是从压缩包里的日志认出来的，识别结果的提示里写明（A44）", async () => {
       try {
         await fState({ importPack: { name: "作者服", format: "server", core: "paper", mc: "1.20.1", loader: "", mcFromLog: true },

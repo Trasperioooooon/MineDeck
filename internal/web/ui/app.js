@@ -2268,6 +2268,9 @@ async function drawTransfer() {
   if (stale(gen)) return;
   const maxMem = Math.max(2048, app.ramMb - 2048);
   let trapRoot = "", pack = null, packFile = ""; // pack：上传后拿到的摘要；packFile：后端缓存里的包路径
+  // 「返回修改」（A49，同导入整合包）：上次选的包和填的都在。上传的那份导入结束时已经删了，选回来的包要重新上传一遍，
+  // 传完画出表单以后再把填过的盖上去（只盖一次）
+  let fill = takeFill("transfer");
   Main().innerHTML = pageHead("导入交接包", "MineDeck 导出的 .mdpack 交接包；世界、配置、模组和插件都在包里，导入后可以启动。", "",
     `<a href="#/create">新建服务器</a>${icon("chevronRight")}<span>导入交接包</span>`) + `
     <div class="form-grid">
@@ -2312,6 +2315,10 @@ async function drawTransfer() {
     }
   };
   $("#tp-file").addEventListener("change", upload);
+  if (fill) {
+    if (putFile($("#tp-file"), fill.file)) upload();
+    else if (fill.file) fileErr(`上次选的是「${fill.file.name}」，请再选一次`);
+  }
 
   const drawForm = () => {
     const s = pack;
@@ -2358,8 +2365,14 @@ async function drawTransfer() {
         <div class="hint" style="margin-top:4px">原服主在 MineDeck 里同意过 EULA 的，这步可以不勾。</div>
         <div class="field-err" id="tp-eula-err"></div>
       </div>`;
-    renderMemoryControl($("#tp-mem-mount"), { sliderId: "tp-mem", min: 2048, max: maxMem, value: mem, totalMb: app.ramMb, availMb: app.availRamMb,
+    renderMemoryControl($("#tp-mem-mount"), { sliderId: "tp-mem", min: 2048, max: maxMem, value: fill ? fill.mem : mem, totalMb: app.ramMb, availMb: app.availRamMb,
       hint: `${(s.xmxMb / 1024).toFixed(1)} GB 是原来的分配，可沿用或调整` });
+    if (fill) {
+      $("#tp-name").value = fill.name; $("#tp-port").value = fill.port; $("#tp-eula").checked = fill.eula;
+      if ([...$("#tp-java").options].some(o => o.value === fill.java)) $("#tp-java").value = fill.java;
+      trapRoot = fill.root;
+      fill = null;
+    }
     const trUpdateRoot = () => { $("#tp-root").value = trapRoot || app.serversRoot || "程序文件夹\\servers"; };
     trUpdateRoot();
     $("#tp-browse").onclick = async () => {
@@ -2398,14 +2411,16 @@ async function drawTransfer() {
     if (!packFile) { fileErr("交接包还没上传完，或上传失败了"); return; }
     const name = $("#tp-name") ? $("#tp-name").value.trim() : "";
     if (!name) { $("#tp-name").classList.add("invalid"); $("#tp-name-err").innerHTML = icon("warn") + " 请给这台服务器起个名字"; $("#tp-name").focus(); return; }
+    // 「返回修改」的草稿在发请求之前读好（同导入整合包）：等回话的时候切走了，表单就没了
+    const draft = { file: $("#tp-file").files[0], name: $("#tp-name").value, port: $("#tp-port").value, mem: +$("#tp-mem").value,
+      java: $("#tp-java").value, root: trapRoot, eula: $("#tp-eula").checked };
     $("#tp-go").disabled = true;
     $("#tp-go").textContent = "导入中…";
     try {
       const r = await api("/api/transfer/import", { method: "POST", body: {
-        file: packFile, name, xmxMb: $("#tp-mem") ? +$("#tp-mem").value : 0,
-        port: +$("#tp-port").value || 0, eula: $("#tp-eula").checked, root: trapRoot,
-        javaMajor: $("#tp-java") ? +$("#tp-java").value || 0 : 0,
+        file: packFile, name, xmxMb: draft.mem || 0, port: +draft.port || 0, eula: draft.eula, root: trapRoot, javaMajor: +draft.java || 0,
       } });
+      formDrafts.set(r.taskId, { mode: "transfer", data: draft }); // 先按任务号记下，再看页面还在不在
       if (stale(gen)) return;
       toast(`开始导入：${r.pack.core} ${r.pack.mc}（${r.pack.mods} 个模组${r.pack.plugins ? ` / ${r.pack.plugins} 个插件` : ""}）`);
       location.hash = `#/task/${r.taskId}`;
