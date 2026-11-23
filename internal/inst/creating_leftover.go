@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -44,7 +45,7 @@ func markCreated(dir string) error {
 var afterRootRemembered = func(dir string) {}
 
 // leftoverRoots 找没建完的文件夹要扫的位置：扫描根（app.InstanceRoots）加上正在建的位置（app.CreatingRoots）。
-// 按 foldRoot 去重：只差大小写的两条在 Windows 上是同一个文件夹，留着两条的话里面的半成品会列两遍、编号还一样。
+// 按 foldRoot 去重：Windows 上只差大小写的两条是同一个文件夹，留着两条的话里面的半成品会列两遍、编号还一样。
 func leftoverRoots() []string {
 	var roots []string
 	seen := map[string]bool{}
@@ -57,8 +58,16 @@ func leftoverRoots() []string {
 	return roots
 }
 
-// foldRoot 比较存放位置用的写法：化简、转小写（Windows 的路径不分大小写）。
-func foldRoot(root string) string { return strings.ToLower(filepath.Clean(root)) }
+// foldRoot 比较存放位置用的写法：化简，只在 Windows 上再转小写（那里只差大小写的是同一个文件夹）。
+// 别的系统上原样比：区分大小写的卷上（Linux、Mac 的区分大小写 APFS）只差大小写的是两个文件夹，转小写去重会只留先出现的
+// 那一条，同一个编号指谁就取决于先后了。默认不区分大小写的 APFS 上，同一个文件夹会列两遍、编号不同，删哪个都是删它，无害。
+func foldRoot(root string) string {
+	root = filepath.Clean(root)
+	if runtime.GOOS == "windows" {
+		return strings.ToLower(root)
+	}
+	return root
+}
 
 // leftoverID 半成品的编号：「位置的短哈希/文件夹名」，短哈希是 foldRoot 以后的 FNV-32a，写成十进制。
 // 不用位置在 leftoverRoots 里的序号：改默认存放位置、正在建的位置升成扫描根以后序号会挪，
@@ -77,8 +86,8 @@ func leftoverRootKey(root string) string {
 // 写完 instance.json、还没把位置记成扫描根程序就没了（见 markCreated），这里补记成扫描根，这台照常进列表。
 // 只认 instance.json 本身，移出列表留下的 .bak 不算。导入整合包、现成服务端和交接包都不让包里带的 instance.json 落到盘上
 // （IsControlFile），带记号的文件夹里有 instance.json，除了下面跳过的，只会是登记时写的。
-// 跳过单独登记过的文件夹：人把没建完的文件夹接管进来，接管也写 instance.json、记号还在，但接管只认它自己，
-// 把它的上一层升成扫描根的话，那里别的带 instance.json 的文件夹会不声不响地进列表。
+// 跳过单独登记过的文件夹：接管只认它自己，把它的上一层升成扫描根的话，那里别的带 instance.json 的文件夹会不声不响地进列表。
+// 接管现在写文件之前就去掉创建记号（runAdopt）；以前的版本接管进来的没建完的文件夹记号还在，靠这一条挡住。
 func promoteCreatedRoots() {
 	adopted := app.InstanceDirs()
 	isAdopted := func(dir string) bool {

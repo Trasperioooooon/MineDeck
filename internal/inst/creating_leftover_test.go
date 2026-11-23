@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -369,6 +370,118 @@ func TestAdoptedLeftoverDoesNotPromoteItsRoot(t *testing.T) {
 	}
 	if roots := app.InstanceRoots(); slices.Contains(roots, root) {
 		t.Fatalf("接管的文件夹所在的位置不该升成扫描根：%v", roots)
+	}
+}
+
+// 接管一个没建完的文件夹：写文件之前去掉创建记号，接管完成以后盘上不会有「记号加 instance.json」（A38）；
+// 接管中途失败时，记号和别的动过的文件一起放回去，它照旧算没建完的。
+func TestAdoptLeftoverClearsMarkerAndRestoresOnFailure(t *testing.T) {
+	m, _ := adoptEnv(t)
+	root := filepath.Join(t.TempDir(), "新存放位置")
+	req := func(dir, name string) AdoptReq {
+		return AdoptReq{Dir: dir, Name: name, Core: mcsrc.CoreVanilla, MC: "1.21.1",
+			LaunchTarget: "jar:server.jar", XmxMB: 2048, JavaMajor: 21, JavaPath: fakeJava(t)}
+	}
+
+	ok := newCreatingLeftover(t, root, "half-ok")
+	writeTree(t, ok, map[string]string{"server.jar": vanilla21, "eula.txt": "eula=true\n"})
+	if log, err := adopt(t, m, req(ok, "接管成的")); err != nil {
+		t.Fatalf("%v\n%s", err, log)
+	}
+	if pathExists(filepath.Join(ok, CreatingMarker)) {
+		t.Fatal("接管完成以后创建记号应去掉")
+	}
+
+	bad := newCreatingLeftover(t, root, "half-bad")
+	writeTree(t, bad, map[string]string{"server.jar": vanilla21, "eula.txt": "eula=true\n", "run.bat": "@echo off\r\njava -jar server.jar\r\n"})
+	before := mustRead(t, filepath.Join(bad, CreatingMarker))
+	// run.bat 设成只读：去掉记号以后、写 run.bat 这一步失败
+	bat := filepath.Join(bad, "run.bat")
+	if err := os.Chmod(bat, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(bat, 0o644) })
+	if log, err := adopt(t, m, req(bad, "接管不成的")); err == nil {
+		t.Fatalf("run.bat 只读时应失败\n%s", log)
+	}
+	if got := mustRead(t, filepath.Join(bad, CreatingMarker)); got != before {
+		t.Fatalf("接管失败以后创建记号应原样放回去：%q", got)
+	}
+	if list := m.CreatingLeftovers(); !slices.ContainsFunc(list, func(it CreatingLeftover) bool { return it.Name == "half-bad" }) {
+		t.Fatalf("接管失败的那个应照旧算没建完的：%+v", list)
+	}
+}
+
+// 两个位置的短哈希撞了：两边各有一个同名的半成品，编号一模一样，猜不出指的是哪个，删哪个都回「没有这一项」、文件都在（A38）。
+func TestLeftoverIDHashCollisionRefused(t *testing.T) {
+	adoptEnv(t)
+	a, b := collidingRoots(t, t.TempDir())
+	dirA, dirB := newCreatingLeftover(t, a, "生存服"), newCreatingLeftover(t, b, "生存服")
+	m, err := NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := m.CreatingLeftovers()
+	if len(list) != 2 || list[0].ID != list[1].ID {
+		t.Fatalf("撞了哈希的两个位置里的同名半成品应列两行、编号一样：%+v", list)
+	}
+	for _, it := range list {
+		if err := m.DiscardCreatingLeftover(it.ID, true); err == nil || !strings.Contains(err.Error(), "没有这一项") {
+			t.Fatalf("编号对上两个位置时不该去猜：%v", err)
+		}
+	}
+	for _, d := range []string{dirA, dirB} {
+		if !pathExists(filepath.Join(d, "world", "level.dat")) {
+			t.Fatalf("%s 不该被删", d)
+		}
+	}
+}
+
+// collidingRoots 在 base 下找两个短哈希（leftoverRootKey）相同的位置。FNV-32a 只有 32 位，按生日问题十来万个以内就能撞上。
+func collidingRoots(t *testing.T, base string) (string, string) {
+	t.Helper()
+	seen := map[string]string{}
+	for n := 0; n < 3_000_000; n++ {
+		p := filepath.Join(base, "r"+strconv.Itoa(n))
+		k := leftoverRootKey(p)
+		if q, ok := seen[k]; ok {
+			return q, p
+		}
+		seen[k] = p
+	}
+	t.Fatal("没找到短哈希相同的两个位置")
+	return "", ""
+}
+
+// 只在 Windows 上把只差大小写的两个位置当成同一个：区分大小写的卷上它们是两个文件夹，各列各的、编号不同，删一个不动另一个。
+func TestLeftoverRootsCaseFoldOnlyOnWindows(t *testing.T) {
+	base := t.TempDir()
+	upper, lower := filepath.Join(base, "PosA"), filepath.Join(base, "posa")
+	if same := foldRoot(upper) == foldRoot(lower); same != (runtime.GOOS == "windows") {
+		t.Fatalf("foldRoot 只该在 Windows 上不分大小写：%q %q 一样=%v", upper, lower, same)
+	}
+	if runtime.GOOS == "windows" {
+		return
+	}
+	adoptEnv(t)
+	dirU := newCreatingLeftover(t, upper, "half")
+	if pathExists(filepath.Join(lower, "half")) {
+		t.Skip("这个卷不区分大小写（比如 Mac 默认的 APFS），只差大小写的两个位置是同一个文件夹")
+	}
+	dirL := newCreatingLeftover(t, lower, "half")
+	m, err := NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := m.CreatingLeftovers()
+	if len(list) != 2 || list[0].ID == list[1].ID {
+		t.Fatalf("区分大小写的卷上应列两行、编号不同：%+v", list)
+	}
+	if err := m.DiscardCreatingLeftover(leftoverIDIn(t, list, "posa"), true); err != nil {
+		t.Fatal(err)
+	}
+	if pathExists(dirL) || !pathExists(dirU) {
+		t.Fatalf("应只删掉 posa 里的那个：posa 的还在=%v，PosA 的还在=%v", pathExists(dirL), pathExists(dirU))
 	}
 }
 
