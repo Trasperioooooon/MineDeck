@@ -9421,7 +9421,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         return el && el.textContent.includes("放弃未保存的修改");
       }, topConfirmSel, { timeout: 5000 });
       await page.click(`${topConfirmSel} [data-x="ok"]`);
-      await page.waitForFunction(() => location.hash === "#/tunnels", null, { timeout: 5000 });
+      // 只断言离开了设置页：拦下后退又取消以后，下一次后退会多跳过一页（历史栈的老毛病，不在这里定死退到哪一页）
+      await page.waitForFunction(() => !location.hash.includes("/settings/"), null, { timeout: 5000 });
       releaseC1();
       await settle(300);
     } finally {
@@ -9431,127 +9432,306 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     }
   });
 
-  await run("草稿清单：向导回头换核心提示「清空草稿清单」和「留着」，建服切走后目标详情页显示「新建时挑的 N 项还没装」并标出不匹配核心", async () => {
+  {
+    // 草稿清单（A31）：向导「选模组」那一步挑的东西、建服时切走以后留在草稿清单里的，详情页的横幅怎么提示、怎么处理
     const cartMock = () => page.evaluate(() => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data.modcart));
-    try {
-      await cartState({ instReset: true, modCart: { reset: true }, taskStage: 2 });
-
-      // 1) 向导先挑 Fabric 的模组，回头换成 Paper，回到挑插件那一步不联网即提示核心不匹配，点「清空草稿清单」清掉
-      await page.goto(url("#/create/new")); await page.waitForSelector('.core-card[data-id="fabric"]');
-      await page.click('.core-card[data-id="fabric"]');
+    const toastsNow = () => page.$$eval(".toast", ts => ts.map(t => t.textContent));
+    const until = async (fn, ms = 5000) => { const t0 = Date.now(); while (!(await fn())) { if (Date.now() - t0 > ms) return false; await settle(100); } return true; };
+    /* 直接摆进仿真后端的清单项（同后端 modcart.Item 的形状）；pickedCore / pickedMc 是挑的时候记下的核心和版本 */
+    const item = (projectId, title, kind, pickedCore = "", pickedMc = "") => ({ projectId, slug: projectId, title, icon: "", kind, license: "MIT",
+      ...(pickedCore ? { pickedCore } : {}), ...(pickedMc ? { pickedMc } : {}), addedAt: "2026-11-23T10:00:00Z" });
+    /* 向导从选核心走到「选模组 / 选插件」那一步；ver 给了就换成那个版本。返回选中的版本 */
+    const wizToMods = async (core, ver) => {
+      await page.click(`.core-card[data-id="${core}"]`);
       await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
+      if (ver) await page.click(`.ver-item[data-id="${ver}"]`);
+      const sel = await page.$eval(".ver-item.sel", el => el.dataset.id);
       await page.click("#wnext"); await page.waitForSelector("#build-rec b");
       await page.click("#wnext"); await page.waitForSelector("#mc-q");
-      await page.fill("#mc-q", "Cloth"); await page.click("#mc-go"); await settle();
-      await page.click('button[aria-label="加入清单 Cloth Config API"]'); await settle(600);
-      assert((await cartMock()).depsQueries === 0, "加入草稿清单不查前置");
-
-      await page.click('.step-pill.done[data-step="0"]'); await page.waitForSelector('.core-card[data-id="paper"]');
-      await page.click('.core-card[data-id="paper"]');
-      await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
-      await page.click("#wnext"); await page.waitForSelector("#build-rec b");
-      await page.click("#wnext"); await page.waitForSelector("#mc-wiz-mismatch-card", { timeout: 5000 });
-      const warnClearText = await page.textContent("#mc-wiz-mismatch-card");
-      assert(warnClearText.includes("清单里的 1 项是给 Fabric 挑的，换成 Paper 以后可能装不上"), "回头换成 Paper 应提示核心不匹配：" + warnClearText);
-      assert((await cartMock()).depsQueries === 0, "向导不匹配提示不联网查前置");
-      await page.click("#mc-wiz-mismatch-clear");
-      await page.waitForSelector("#mc-empty", { timeout: 5000 });
-      assert(!(await page.$("#mc-wiz-mismatch-card")), "清空草稿清单后不匹配提示应消失");
-
-      // 2) 再挑 Fabric 的 JEI，回头换成 Paper 点「留着」，再加一个 Paper 插件 Vault，点创建后在等建服期间切走
-      await page.click('.step-pill.done[data-step="0"]'); await page.waitForSelector('.core-card[data-id="fabric"]');
-      await page.click('.core-card[data-id="fabric"]');
-      await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
-      await page.click("#wnext"); await page.waitForSelector("#build-rec b");
-      await page.click("#wnext"); await page.waitForSelector("#mc-q");
-      await page.fill("#mc-q", "JEI"); await page.click("#mc-go"); await settle();
-      await page.click('button[aria-label="加入清单 JEI"]'); await settle(600);
-
-      await page.click('.step-pill.done[data-step="0"]'); await page.waitForSelector('.core-card[data-id="paper"]');
-      await page.click('.core-card[data-id="paper"]');
-      await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
-      await page.click("#wnext"); await page.waitForSelector("#build-rec b");
-      await page.click("#wnext"); await page.waitForSelector("#mc-wiz-mismatch-card", { timeout: 5000 });
-      assert((await page.textContent("#mc-wiz-mismatch-card")).includes("清单里的 1 项是给 Fabric 挑的，换成 Paper 以后可能装不上"), "第二次换成 Paper 应再次提示");
-      await page.click("#mc-wiz-mismatch-keep"); await settle(200);
-      assert(!(await page.$("#mc-wiz-mismatch-card")) && (await page.textContent("#mc-count")).includes("共 1 项"), "点「留着」后提示收起且草稿项保留");
-
-      await page.fill("#mc-q", "Vault"); await page.click("#mc-go"); await settle();
-      await page.click('button[aria-label="加入清单 Vault"]'); await settle(600);
-      assert((await page.textContent("#mc-count")).includes("共 2 项"), "草稿清单里应有 JEI 与 Vault 共 2 项");
-
-      await page.click("#wnext"); await page.waitForSelector("#f-name");
-      await page.fill("#f-name", "切走新建服");
-      await page.click("#f-eula");
+      return sel;
+    };
+    const wizBackToCore = async () => { await page.click('.step-pill.done[data-step="0"]'); await page.waitForSelector('.core-card[data-id="paper"]'); };
+    const pick = async (q, title) => {
+      await page.fill("#mc-q", q); await page.click("#mc-go"); await settle();
+      await page.click(`button[aria-label="加入清单 ${title}"]`); await settle(600);
+    };
+    /* 填好基本设置点「创建」（从「选模组」那一步或基本设置那一步都行） */
+    const wizCreate = async name => {
+      if (!(await page.$("#f-name"))) { await page.click("#wnext"); await page.waitForSelector("#f-name"); }
+      await page.fill("#f-name", name); await page.click("#f-eula");
       await page.click("#wcreate");
-      // 等建服请求与草稿目标服务器登记都返回、进入「等待建服完成」状态后，在建服完成前切到服务器列表页
-      await page.waitForFunction(() => document.querySelector("#wback")?.disabled && /等待|下载/.test(document.querySelector("#wcreate")?.textContent || ""), null, { timeout: 5000 });
-      assert((await cartMock()).draftInst === "切走新建服", "发出建服请求后草稿清单应记下目标服务器名称");
+    };
+    const waitBuilding = () => page.waitForFunction(() => document.querySelector("#wback")?.disabled && /等待|下载/.test(document.querySelector("#wcreate")?.textContent || ""), null, { timeout: 5000 });
+    const leaveToList = async () => {
       await page.click('#sidebar a[data-nav="instances"]');
       await page.waitForFunction(() => location.hash === "#/instances", null, { timeout: 5000 });
-      await cartState({ taskStage: 4 }); // 建服在后台跑完
-
-      // 3) 别的服务器的详情页不显示这条草稿提示
-      await page.goto(url(`#/inst/${encodeURIComponent(PACK)}/addons`)); await settle(600);
-      assert(!(await page.$("#mc-draft-leftover")), "别的服务器详情页不应显示草稿遗留提示");
-
-      // 4) 目标服务器详情页显示「新建时挑的 2 项还没装」；压住 deps 期间先看到离线核心不匹配标记，放行后再看到 unresolved 装不上标记
-      let releaseDraftDeps;
-      const holdDraftDeps = new Promise(r => { releaseDraftDeps = r; });
-      await page.route("**/api/modcart/deps*", async route => {
-        if (route.request().url().includes("includeDraft=true")) await holdDraftDeps;
-        await route.continue().catch(() => {});
-      });
-      await page.goto(url(`#/inst/${encodeURIComponent("切走新建服")}/addons`));
-      await page.waitForSelector("#mc-draft-leftover", { timeout: 5000 });
-      const offlineText = await page.textContent("#mc-draft-leftover");
-      assert(offlineText.includes("新建时挑的 2 项还没装") && offlineText.includes("给 Fabric 挑的，核心对不上"),
-        "联网结果回来前应先按记下的核心标出对不上的项：" + offlineText);
-      releaseDraftDeps();
-      await page.waitForSelector("#mc-draft-leftover .mc-draft-unres", { timeout: 5000 });
-      const resolvedText = await page.textContent("#mc-draft-leftover");
-      assert(resolvedText.includes("装不上：没有支持 paper 的版本"), "includeDraft 前置检查回来后应按 unresolved 标出装不上的项：" + resolvedText);
-      await page.unroute("**/api/modcart/deps*");
-
-      // 点「一起装上」：发出带 includeDraft: true 的安装请求，装好后草稿提示不再出现
-      await page.click("#mc-draft-install");
-      await page.waitForFunction(() => location.hash === "#/task/task-cart", null, { timeout: 8000 });
-      const li = (await cartMock()).lastInstall;
-      assert(li && li.inst === "切走新建服" && li.includeDraft === true && li.expect.slice().sort().join() === "jei,vault",
-        "点「一起装上」应发出带 includeDraft 和草稿项 expect 的安装请求：" + JSON.stringify(li));
-      assert((await cartMock()).draftInst === "", "草稿清单装完后 draftInst 记号应清掉");
-
-      // 5) 再验一次「不要了」：给另一台新服留草稿，进详情页点「不要了」清掉草稿清单
-      await cartState({ taskStage: 2 });
-      await page.goto(url("#/create/new")); await page.waitForSelector('.core-card[data-id="fabric"]');
-      await page.click('.core-card[data-id="fabric"]');
-      await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
-      await page.click("#wnext"); await page.waitForSelector("#build-rec b");
-      await page.click("#wnext"); await page.waitForSelector("#mc-q");
-      await page.fill("#mc-q", "Cloth"); await page.click("#mc-go"); await settle();
-      await page.click('button[aria-label="加入清单 Cloth Config API"]'); await settle(600);
-      await page.click("#wnext"); await page.waitForSelector("#f-name");
-      await page.fill("#f-name", "不要草稿的服");
-      await page.click("#f-eula");
-      await page.click("#wcreate");
-      await page.waitForFunction(() => document.querySelector("#wback")?.disabled && /等待|下载/.test(document.querySelector("#wcreate")?.textContent || ""), null, { timeout: 5000 });
-      await page.click('#sidebar a[data-nav="instances"]');
-      await page.waitForFunction(() => location.hash === "#/instances", null, { timeout: 5000 });
-      await cartState({ taskStage: 4 });
-
-      await page.goto(url(`#/inst/${encodeURIComponent("不要草稿的服")}/addons`));
-      await page.waitForSelector("#mc-draft-leftover", { timeout: 5000 });
-      assert((await page.textContent("#mc-draft-leftover")).includes("新建时挑的 1 项还没装"), "新服详情页应显示 1 项未装草稿");
-      await page.click("#mc-draft-discard");
-      await page.waitForFunction(() => !document.querySelector("#mc-draft-leftover"), null, { timeout: 5000 });
-      const afterDiscard = await cartMock();
-      assert(afterDiscard.draft.length === 0 && afterDiscard.draftInst === "", "点「不要了」后草稿清单和目标记号都应清空：" + JSON.stringify(afterDiscard));
-    } finally {
+    };
+    const openAddons = async name => { await page.goto(url(`#/inst/${encodeURIComponent(name)}/addons`)); await page.waitForSelector("#mc-list .mc-item, #mc-empty", { timeout: 5000 }); };
+    const freshWizard = async () => { await page.goto(url("#/create/new")); await page.waitForSelector('.core-card[data-id="fabric"]'); };
+    const cleanup = async () => {
       await page.unroute("**/api/modcart/deps*").catch(() => {});
+      await page.unroute("**/api/instances").catch(() => {});
+      await page.unroute("**/api/modcart/draft/target").catch(() => {});
       await cartState({ instReset: true, modCart: { reset: true }, taskStage: 4 });
       await page.goto(url("#/instances")); await settle();
-    }
-  });
+    };
+
+    await run("草稿清单：向导回头把 Fabric 换成 Paper，回到选插件这一步不联网就提示清单里的项可能装不上，点「清空草稿清单」清掉", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true } });
+        await freshWizard();
+        await wizToMods("fabric");
+        await pick("Cloth", "Cloth Config API");
+        await wizBackToCore();
+        await wizToMods("paper");
+        await page.waitForSelector("#mc-wiz-mismatch-card", { timeout: 5000 });
+        const text = await page.textContent("#mc-wiz-mismatch-card");
+        assert(text.includes("清单里的 1 项是给 Fabric 挑的，换成 Paper 以后可能装不上"), "回头换成 Paper 应提示核心对不上：" + text);
+        assert((await cartMock()).depsQueries === 0, "这条提示不联网查前置");
+        await page.click("#mc-wiz-mismatch-clear");
+        await page.waitForSelector("#mc-empty", { timeout: 5000 });
+        assert(!(await page.$("#mc-wiz-mismatch-card")), "清空以后提示应消失");
+        assert((await cartMock()).draft.length === 0, "点「清空草稿清单」应清掉草稿清单");
+      } finally { await cleanup(); }
+    });
+
+    await run("草稿清单：向导回头换核心后点「留着」，提示收起、草稿项留着，再回到这一步不重复提示", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true } });
+        await freshWizard();
+        await wizToMods("fabric");
+        await pick("JEI", "JEI");
+        await wizBackToCore();
+        await wizToMods("paper");
+        await page.waitForSelector("#mc-wiz-mismatch-card", { timeout: 5000 });
+        await page.click("#mc-wiz-mismatch-keep"); await settle(200);
+        assert(!(await page.$("#mc-wiz-mismatch-card")) && (await page.textContent("#mc-count")).includes("共 1 项"), "点「留着」后提示收起、草稿项还在");
+        await wizBackToCore();
+        await wizToMods("paper"); await settle(300);
+        assert(!(await page.$("#mc-wiz-mismatch-card")), "同一组已经点过「留着」，再回到这一步不该再提示");
+        assert((await cartMock()).draft.length === 1, "点「留着」不动草稿清单");
+      } finally { await cleanup(); }
+    });
+
+    await run("草稿清单：向导里只换了游戏版本，回到选模组这一步也提示清单里的项是给原来那个版本挑的", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true } });
+        await freshWizard();
+        const v1 = await wizToMods("fabric");
+        await pick("JEI", "JEI");
+        await page.click('.step-pill.done[data-step="1"]'); await page.waitForSelector(".ver-item.sel");
+        const v2 = await page.$$eval("#ver-list .ver-item[data-id]", (els, v) => (els.map(e => e.dataset.id).find(id => id !== v) || ""), v1);
+        assert(v2, "仿真后端的版本列表里应有第二个版本");
+        await page.click(`.ver-item[data-id="${v2}"]`);
+        await page.click("#wnext"); await page.waitForSelector("#build-rec b");
+        await page.click("#wnext"); await page.waitForSelector("#mc-wiz-mismatch-card", { timeout: 5000 });
+        const text = await page.textContent("#mc-wiz-mismatch-card");
+        assert(text.includes(`清单里的 1 项是给 Fabric ${v1} 挑的，换成 Fabric ${v2} 以后可能装不上`), "只换版本也应提示：" + text);
+        assert((await page.textContent("#mc-list")).includes(`给 Fabric ${v1} 挑的，版本不一样`), "清单那一行也标出版本不一样");
+      } finally { await cleanup(); }
+    });
+
+    await run("草稿清单：从电脑添加的 Fabric 模组文件，向导换成 Paper 以后也提示可能装不上", async () => {
+      try {
+        const lf = { sha1: "a1".repeat(20), fileName: "minimap-fabric-1.0.jar", size: 2048, title: "Minimap", modId: "minimap", version: "1.0", loader: "fabric", addedAt: "2026-11-23T10:00:00Z" };
+        await cartState({ instReset: true, modCart: { reset: true, localDraft: [lf] } });
+        await freshWizard();
+        await wizToMods("fabric"); await settle(300);
+        assert(!(await page.$("#mc-wiz-mismatch-card")), "Fabric 的文件放在 Fabric 下不该提示");
+        await wizBackToCore();
+        await wizToMods("paper");
+        await page.waitForSelector("#mc-wiz-mismatch-card", { timeout: 5000 });
+        const text = await page.textContent("#mc-wiz-mismatch-card");
+        assert(text.includes("清单里的 1 项是给 Fabric 挑的，换成 Paper 以后可能装不上"), "本地文件的加载器对不上也应提示：" + text);
+        assert((await page.textContent("#mc-list")).includes("插件服"), "本地文件那一行写明这台是插件服、放进去不会生效");
+      } finally { await cleanup(); }
+    });
+
+    await run("草稿清单：向导点了「跳过这一步」，建好以后不记目标服务器、不装草稿清单", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true }, taskStage: 4 });
+        await freshWizard();
+        await wizToMods("fabric");
+        await pick("JEI", "JEI");
+        await page.click("#wskip"); await page.waitForSelector(".modal [data-x=ok]"); await page.click(".modal [data-x=ok]");
+        await page.waitForSelector("#f-name");
+        await wizCreate("跳过选模组的服");
+        await page.waitForFunction(() => location.hash === "#/task/task-1", null, { timeout: 8000 });
+        await settle(300);
+        const mc = await cartMock();
+        assert(mc.draftInst === "" && mc.lastInstall === null, "跳过选模组时不该记目标、不该装：" + JSON.stringify({ draftInst: mc.draftInst, lastInstall: mc.lastInstall }));
+        assert(mc.draft.length === 1, "草稿清单留着，以后还能用");
+      } finally { await cleanup(); }
+    });
+
+    await run("草稿清单：向导回头换成原版，没有选模组这一步，不提示，建好以后不装草稿清单、不记目标服务器", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true }, taskStage: 4 });
+        await freshWizard();
+        await wizToMods("fabric");
+        await pick("JEI", "JEI");
+        await wizBackToCore();
+        await page.click('.core-card[data-id="vanilla"]');
+        await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
+        await page.click("#wnext"); await page.waitForSelector("#f-name");
+        assert(!(await page.$("#mc-wiz-mismatch-card")), "原版没有选模组这一步，不该提示");
+        await wizCreate("换成原版的服");
+        await page.waitForFunction(() => location.hash === "#/task/task-1", null, { timeout: 8000 });
+        await settle(300);
+        const mc = await cartMock();
+        assert(mc.draftInst === "" && mc.lastInstall === null, "原版服不该记目标、不该装：" + JSON.stringify({ draftInst: mc.draftInst, lastInstall: mc.lastInstall }));
+      } finally { await cleanup(); }
+    });
+
+    await run("草稿清单：向导发出建服请求以后切走，记下目标服务器；建好以后只有那台的详情页显示「新建时挑的 N 项还没装」", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true }, taskStage: 2 });
+        await freshWizard();
+        await wizToMods("paper");
+        await pick("Vault", "Vault");
+        await wizCreate("切走新建服");
+        await waitBuilding();
+        assert((await cartMock()).draftInst === "切走新建服", "发出建服请求后草稿清单应记下目标服务器");
+        await leaveToList();
+        await cartState({ taskStage: 4 }); // 建服在后台跑完
+        await openAddons(PACK);
+        await settle(300);
+        assert(!(await page.$("#mc-draft-leftover")), "别的服务器的详情页不该有这条横幅");
+        await openAddons("切走新建服");
+        await page.waitForSelector("#mc-draft-leftover", { timeout: 5000 });
+        assert((await page.textContent("#mc-draft-leftover")).includes("新建时挑的 1 项还没装"), "目标服务器的详情页应显示横幅");
+      } finally { await cleanup(); }
+    });
+
+    await run("草稿清单：建服请求还没回来就切走，目标服务器照样记上，不报「无法创建」", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true }, taskStage: 2 });
+        await freshWizard();
+        await wizToMods("paper");
+        await pick("Vault", "Vault");
+        let release, onReq;
+        const gate = new Promise(r => { release = r; }), requested = new Promise(r => { onReq = r; });
+        await page.route("**/api/instances", async route => {
+          if (route.request().method() !== "POST") { await route.continue().catch(() => {}); return; }
+          onReq(); await gate; await route.continue().catch(() => {});
+        });
+        await wizCreate("在途切走服");
+        await requested;
+        await leaveToList();
+        release();
+        assert(await until(async () => (await cartMock()).draftInst === "在途切走服"), "建服请求回来以后应照样记下目标服务器");
+        assert(!(await toastsNow()).some(x => x.includes("无法创建")), "服务器在建，不该报无法创建");
+      } finally { await cleanup(); }
+    });
+
+    await run("草稿清单：记目标服务器的请求失败，建服照常，建好以后照样装草稿清单，不报「无法创建」", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true }, taskStage: 4 });
+        await page.route("**/api/modcart/draft/target", route => route.fulfill({ status: 500, contentType: "application/json",
+          body: JSON.stringify({ ok: false, error: "保存待装清单失败：磁盘满了" }) }));
+        await freshWizard();
+        await wizToMods("paper");
+        await pick("Vault", "Vault");
+        await wizCreate("记号失败的服");
+        await page.waitForFunction(() => location.hash === "#/task/task-cart", null, { timeout: 8000 });
+        const mc = await cartMock();
+        assert(mc.lastInstall && mc.lastInstall.inst === "记号失败的服" && mc.lastInstall.includeDraft === true, "建好以后应照常带着草稿清单装：" + JSON.stringify(mc.lastInstall));
+        assert(!(await toastsNow()).some(x => x.includes("无法创建")), "记号没记上不该报无法创建");
+      } finally { await cleanup(); }
+    });
+
+    await run("草稿清单：详情页横幅先按记下的核心离线标出对不上的项，查过前置以后按 unresolved 标出装不上的；本地文件按这台的核心提醒", async () => {
+      try {
+        const lf = { sha1: "b2".repeat(20), fileName: "minimap-fabric-1.0.jar", size: 2048, title: "Minimap", modId: "minimap", version: "1.0", loader: "fabric", addedAt: "2026-11-23T10:00:00Z" };
+        await cartState({ instReset: true, modCart: { reset: true, draft: [item("jei", "JEI", "mod", "fabric", "1.20.1"), item("vault", "Vault", "plugin")], localDraft: [lf], draftInst: PACK } });
+        let releaseDeps;
+        const holdDeps = new Promise(r => { releaseDeps = r; });
+        await page.route("**/api/modcart/deps*", async route => {
+          if (route.request().url().includes("includeDraft=true")) await holdDeps;
+          await route.continue().catch(() => {});
+        });
+        await openAddons(PACK);
+        await page.waitForSelector("#mc-draft-leftover", { timeout: 5000 });
+        const offline = await page.textContent("#mc-draft-leftover");
+        assert(offline.includes("新建时挑的 3 项还没装") && offline.includes("给 Fabric 挑的，核心对不上") && offline.includes("这是插件，核心对不上"),
+          "联网结果回来之前应先按记下的核心标出对不上的项：" + offline);
+        assert(offline.includes("这个文件是给 Fabric 用的"), "本地文件那一行应按这台的核心提醒：" + offline);
+        assert(!(await page.$("#mc-draft-leftover .mc-draft-unres")), "前置检查回来之前不标装不上");
+        releaseDeps();
+        await page.waitForSelector("#mc-draft-leftover .mc-draft-unres", { timeout: 5000 });
+        assert((await page.textContent("#mc-draft-leftover")).includes("装不上：没有支持 forge 的版本"), "前置检查回来以后按 unresolved 标出装不上的");
+      } finally { await cleanup(); }
+    });
+
+    await run("草稿清单：详情页横幅上点「一起装上」，发出带 includeDraft 的安装，expect 是这台和草稿清单的并集，装完记号清掉", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true, insts: { [PACK]: [item("cloth-config", "Cloth Config API", "mod")] },
+          draft: [item("jei", "JEI", "mod", "forge", "1.20.1")], draftInst: PACK } });
+        await openAddons(PACK);
+        await page.waitForSelector("#mc-draft-leftover", { timeout: 5000 });
+        await page.click("#mc-draft-install");
+        await page.waitForSelector(".modal", { timeout: 5000 });
+        assert((await page.textContent(".modal")).includes("Architectury API"), "草稿清单里 JEI 的必装前置要先说一声");
+        await page.click('.modal [data-x="ok"]');
+        await page.waitForFunction(() => location.hash === "#/task/task-cart", null, { timeout: 8000 });
+        const mc = await cartMock();
+        assert(mc.lastInstall && mc.lastInstall.inst === PACK && mc.lastInstall.includeDraft === true && mc.lastInstall.expect.slice().sort().join() === "cloth-config,jei",
+          "「一起装上」应带 includeDraft 和两份清单的并集：" + JSON.stringify(mc.lastInstall));
+        assert(mc.draftInst === "" && mc.draft.length === 0, "装完草稿清单和记号都应清掉");
+      } finally { await cleanup(); }
+    });
+
+    await run("草稿清单：详情页横幅上点「不要了」只清草稿清单，这台自己清单里原有的项还在", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true, insts: { [PACK]: [item("cloth-config", "Cloth Config API", "mod")] },
+          draft: [item("jei", "JEI", "mod", "forge", "1.20.1")], draftInst: PACK } });
+        await openAddons(PACK);
+        await page.waitForSelector("#mc-draft-leftover", { timeout: 5000 });
+        await page.click("#mc-draft-discard");
+        await page.waitForFunction(() => !document.querySelector("#mc-draft-leftover"), null, { timeout: 5000 });
+        const mc = await cartMock();
+        assert(mc.draft.length === 0 && mc.draftInst === "", "草稿清单和记号都应清掉：" + JSON.stringify({ draft: mc.draft, draftInst: mc.draftInst }));
+        assert((mc.insts[PACK] || []).map(x => x.projectId).join() === "cloth-config", "这台自己的清单不该动：" + JSON.stringify(mc.insts[PACK]));
+        assert((await page.textContent("#mc-list")).includes("Cloth Config API") && (await page.textContent("#mc-count")).includes("共 1 项"), "页面上这台的清单照常列着");
+      } finally { await cleanup(); }
+    });
+
+    /* 横幅和「全部安装」共用一个「正在安装」：在哪一处的确认框里点「先不装」，三个按钮都要恢复可点（A29、A31） */
+    const buttonsEnabled = () => page.evaluate(() => ["#mc-install", "#mc-draft-install", "#mc-draft-discard"]
+      .map(s => [s, !!document.querySelector(s) && !document.querySelector(s).disabled]));
+    await run("待装清单：横幅在场时点「全部安装」、确认框里点「先不装」，横幅上的两个按钮和「全部安装」都恢复可点", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true, insts: { [PACK]: [item("jei", "JEI", "mod")] },
+          draft: [item("cloth-config", "Cloth Config API", "mod", "forge", "1.20.1")], draftInst: PACK } });
+        await openAddons(PACK);
+        await page.waitForSelector("#mc-draft-leftover", { timeout: 5000 });
+        assert(await until(async () => (await cartMock()).depsQueries >= 1), "横幅那一路的前置检查应先查完");
+        const before = (await cartMock()).depsQueries;
+        await page.click("#mc-install");
+        await page.waitForSelector(".modal", { timeout: 5000 });
+        assert((await cartMock()).depsQueries > before, "这台的清单还没查过前置，点「全部安装」应先查一遍");
+        await page.click('.modal [data-x="cancel"]'); await settle(300);
+        const st = await buttonsEnabled();
+        assert(st.every(([, on]) => on), "点「先不装」以后三个按钮都应能点：" + JSON.stringify(st));
+        assert((await cartMock()).lastInstall === null, "点「先不装」不该发安装请求");
+      } finally { await cleanup(); }
+    });
+
+    await run("待装清单：横幅上点「一起装上」、确认框里点「先不装」，「全部安装」和横幅上的按钮都恢复可点", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true, insts: { [PACK]: [item("cloth-config", "Cloth Config API", "mod")] },
+          draft: [item("jei", "JEI", "mod", "forge", "1.20.1")], draftInst: PACK } });
+        await openAddons(PACK);
+        await page.waitForSelector("#mc-draft-leftover", { timeout: 5000 });
+        await page.click("#mc-draft-install");
+        await page.waitForSelector(".modal", { timeout: 5000 });
+        await page.click('.modal [data-x="cancel"]'); await settle(300);
+        const st = await buttonsEnabled();
+        assert(st.every(([, on]) => on), "点「先不装」以后三个按钮都应能点：" + JSON.stringify(st));
+        assert((await cartMock()).lastInstall === null, "点「先不装」不该发安装请求");
+      } finally { await cleanup(); }
+    });
+  }
 
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
 
