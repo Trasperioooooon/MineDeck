@@ -88,6 +88,63 @@ func TestFailedImportKeepsWorldFrom(t *testing.T) {
 	}
 }
 
+// 换回导入前的地图换到一半失败、自动退回了（世界还是换回之前那个）：记录还是原来那一份。
+// 情形：导入以后又从备份还原过一次（记录指着那份备份），再点「恢复导入前的地图」。
+func TestFailedRestoreKeepsWorldFrom(t *testing.T) {
+	e := newEnv(t, "")
+	if _, msg := e.wait(mustExecute(t, e, e.plan(e.bukkitZip()))); msg != "" {
+		t.Fatal(msg)
+	}
+	file, err := e.m.CreateBackup("生存服", "导入以后")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.m.RestoreBackup("生存服", file); err != nil {
+		t.Fatal(err)
+	}
+	i, _ := e.m.Get("生存服")
+	want := i.WorldFromSnapshot()
+	if want == nil {
+		t.Fatal("测试前提：还原以后应记着这份备份")
+	}
+	st, err := e.s.Status("生存服")
+	if err != nil || len(st.Points) != 1 || !st.Points[0].CanReturn {
+		t.Fatalf("测试前提：%+v %v", st, err)
+	}
+	faultHook = func(p string) error {
+		if p == "old-in-0" {
+			return errors.New("模拟：文件被别的程序占着")
+		}
+		return nil
+	}
+	t.Cleanup(func() { faultHook = nil })
+	id, err := e.s.Restore("生存服", st.Points[0].ID, "restore")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, msg := e.wait(id); !strings.Contains(msg, "没能换回旧地图") {
+		t.Fatalf("测试前提：换回应失败并退回：%q", msg)
+	}
+	if got := e.marker("world/region/r.0.0.mca"); got != "MARK:minecraft:overworld:NEW" {
+		t.Fatalf("测试前提：世界应还是换回之前那个：%s", got)
+	}
+	if got, disk := i.WorldFromSnapshot(), e.worldFromOnDisk(); got == nil || *got != *want || disk == nil || *disk != *want {
+		t.Fatalf("换回退回以后记录应原样留着：内存 %+v，instance.json %+v，原来 %+v", got, disk, want)
+	}
+	// 换回成功：世界换了，照旧清掉
+	faultHook = nil
+	id, err = e.s.Restore("生存服", st.Points[0].ID, "restore")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, msg := e.wait(id); msg != "" {
+		t.Fatal(msg)
+	}
+	if i.WorldFromSnapshot() != nil || e.worldFromOnDisk() != nil {
+		t.Fatal("换回成功以后应清掉记录")
+	}
+}
+
 // 导入成功：世界换了，照旧清掉记录。退回也失败（卡住、要人处理）的拿不准世界是哪一份，也清掉。
 func TestChangedOrStuckImportClearsWorldFrom(t *testing.T) {
 	e, _, src := restoredEnv(t)

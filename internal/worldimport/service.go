@@ -821,6 +821,7 @@ func (s *Service) Execute(owner string, req ExecReq) (string, error) {
 	s.mu.Unlock()
 	t, tctx := s.M.Tasks.New(fmt.Sprintf("导入地图到 %s", p.Inst), importSteps)
 	t.SetKind("world")
+	t.SetInst(p.Inst) // 任务页的「完成」回到这台服务器（A53）
 	ctx, cancel := context.WithCancel(withSpaceConfirmation(tctx, p))
 	s.mu.Lock()
 	s.cancels[t.ID()] = cancelEntry{owner: owner, fn: cancel}
@@ -1445,6 +1446,7 @@ func (s *Service) Restore(name, txID, confirm string) (string, error) {
 	}
 	t, _ := s.M.Tasks.New(fmt.Sprintf("把 %s 换回导入前的地图", name), []string{"占用这台服务器", "换回旧地图", "核对"})
 	t.SetKind("world")
+	t.SetInst(name)
 	dropJob := s.addJob(name, t.ID(), jobRestore, whyRestoring)
 	cleanup := func() { dropJob(); s.forgetSizes() } // 先收尾、后报结果，理由见 addJob
 	go func() {
@@ -1475,6 +1477,7 @@ func (s *Service) runRestore(t *tasks.Task, i *inst.Instance, txID string) (stri
 		err = restorable(i.Dir, j)
 	}
 	if err != nil {
+		s.M.WorldUnchanged(i) // 什么都没换：放掉占位时不清「现在的世界从哪份备份来」（A51）
 		return "", err
 	}
 	t.StartStep(1)
@@ -1484,6 +1487,7 @@ func (s *Service) runRestore(t *tasks.Task, i *inst.Instance, txID string) (stri
 			s.M.SetWorldBlock(name, "换回旧地图没有完成，自动恢复也失败了，服务器已暂停启动。请到「世界与备份 → 换地图」里查看恢复步骤")
 			return "", fmt.Errorf("恢复未完成，服务器已暂停启动：%v", err)
 		}
+		s.M.WorldUnchanged(i) // 没换成或者退回成功：现在的世界还是换回之前那个
 		return "", fmt.Errorf("没能换回旧地图，导入的地图还在原位：%v", err)
 	}
 	t.StartStep(2)

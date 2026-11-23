@@ -107,6 +107,7 @@ func (w *WorldIntent) Release() {
 			delete(m.worldIntent, name)
 			if held {
 				delete(m.worldHold, name)
+				delete(m.worldSame, name) // 意图用自己的 same；别人在这期间误标的也不留到下一次占位
 			}
 		}
 		m.mu.Unlock()

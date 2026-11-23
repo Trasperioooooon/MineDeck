@@ -2916,11 +2916,13 @@ const TASK_KINDS = {
     doneTitle: "待装清单已装好", failTitle: "待装清单没有装成",
     ok: "安装完成", fail: "安装失败", failHint: "可以回到这台服务器的「插件」或「模组」页，在待装清单里再装一次。已经下载的文件有缓存，重试很快。", busy: "安装中，请勿关闭程序…",
     go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/instances", backText: "返回服务器列表", nav: "instances" },
-  // 导入地图、换回导入前的地图（worldimport.js）。这类任务的 result 是一句给人看的话，不是服务器名：resultText 让完成后显示它，去处固定是服务器列表
+  // 导入地图、换回导入前的地图（worldimport.js）。这类任务的 result 是一句给人看的话，不是服务器名：resultText 让完成后显示它；
+  // 「完成」按快照里的 inst 回到那台服务器的「换地图」（A53），没有 inst 的（老版本程序的任务）回服务器列表
   world: { title: "正在更换地图", sub: "导入地图，或者换回导入前的地图。出错时会自动退回原来的世界。", done: "已完成", doneSub: "可以到这台服务器的「世界与备份 → 换地图」里查看", resultText: true,
     doneTitle: "地图已处理完", failTitle: "地图没有处理完", cancelTitle: "已取消换地图", cancelSub: "没有替换任何文件，原来的世界没动。", // 取消只在复制阶段收（换地图那一页的「取消导入」）
     ok: "地图已处理完", fail: "没有完成", failHint: "所有文件都还在。到这台服务器的「世界与备份 → 换地图」里看现在用的是哪一份。", busy: "正在处理地图，请勿关闭程序…",
-    go: "完成，回到服务器列表", href: () => "#/instances", back: "#/instances", backText: "返回服务器列表", nav: "instances" },
+    go: t => t.inst ? "完成，回到这台服务器" : "完成，回到服务器列表",
+    href: (_, t) => t && t.inst ? `#/inst/${encodeURIComponent(t.inst)}/world/map` : "#/instances", back: "#/instances", backText: "返回服务器列表", nav: "instances" },
 };
 /* 侧栏亮哪一项：navigate() 进任务页时先按「新建服务器」亮着（那时还不知道是哪一类任务），拿到任务以后在这里改过来 */
 function markNav(key) {
@@ -3234,7 +3236,7 @@ async function renderTaskPage(taskId) {
     const canEdit = t.ended && !success && formDrafts.has(taskId);
     const openDir = success && K.openDir && t.result && isLocal;
     $("#t-foot").innerHTML = `
-      ${success ? `<a class="btn primary" href="${K.href(t.result)}">${icon("check")} ${K.go}</a>` : ""}
+      ${success ? `<a class="btn primary" href="${K.href(t.result, t)}">${icon("check")} ${esc(typeof K.go === "function" ? K.go(t) : K.go)}</a>` : ""}
       ${openDir ? `<button type="button" class="btn" id="t-open-dir">${icon("folder")} 打开所在文件夹</button>` : ""}
       ${canEdit ? `<button type="button" class="btn${cancelled ? " primary" : ""}" id="t-back-edit">${icon("arrowLeft")} 返回修改</button>` : ""}
       ${t.ended && !success && !canEdit ? `<a class="btn" href="${K.back}">${icon("arrowLeft")} ${K.backText}</a>` : ""}
@@ -3969,7 +3971,10 @@ async function renderDetail(name, path = "console") {
       // 没有的话看换地图的记录：用地图新建的、换过地图的，以前一律写成「服务器自己的世界」。地图在存档里多半叫 world，
       // 人认得的是导入时的文件夹或压缩包名，所以写来源名。恢复点删掉以后就查不到导入过，所以不说「服务器自己的世界」，只说没有记录
       const og = !wf && ws ? MDWorldImport.origin(ws) : null;
-      const nowText = wf
+      // 随交接包带来的（carried，A52）：还原是在原来那台电脑上做的，那份备份不在这台的列表里，照实说，不让人去列表里找
+      const nowText = wf && wf.carried
+        ? `当前世界：原来那台电脑上从 <b>${esc(nice(wf.backupTime) || wf.backup)}</b> 的备份还原来的${wf.label ? `（${esc(wf.label)}）` : ""}，随交接包带过来（那份备份不在这台电脑上）`
+        : wf
         ? `当前世界：从 <b>${esc(nice(wf.backupTime) || wf.backup)}</b> 的备份还原${wf.label ? `（${esc(wf.label)}）` : ""}，还原于 ${esc(nice(wf.at))}`
         : og && og.kind === "import" ? `当前世界：从「<b>${esc(og.source)}</b>」导入的地图${og.at ? `，导入于 ${esc(og.at)}` : ""}`
         : og && og.kind === "returned" ? `当前世界：${og.at ? esc(og.at) + " " : ""}换过一次地图，后来换回了换之前的那张`
@@ -4001,7 +4006,7 @@ async function renderDetail(name, path = "console") {
           const title = b.label || b.file, who = b.label ? `${b.label}（${nice(b.time)}）` : b.file;
           return `
           <div class="row-item"><div class="ri-head"><span class="ri-ico">${icon("package")}</span>
-            <div class="ri-main"><div class="ri-title">${esc(title)}${wf && wf.backup === b.file ? `<span class="tag">现在的世界</span>` : ""}${b.elsewhere ? `<span class="tag neutral" title="${esc(b.dir || "")}">在原来的文件夹</span>` : ""}</div>
+            <div class="ri-main"><div class="ri-title">${esc(title)}${wf && !wf.carried && wf.backup === b.file ? `<span class="tag">现在的世界</span>` : ""}${b.elsewhere ? `<span class="tag neutral" title="${esc(b.dir || "")}">在原来的文件夹</span>` : ""}</div>
               <div class="ri-key">${esc(nice(b.time))} · ${b.sizeMb.toFixed(1)} MB${b.label ? ` · <span class="mono">${esc(b.file)}</span>` : ""}</div></div>
             <div class="ri-right">${running ? `<span class="hint bk-need-stop">会先停服</span>` : ""}<button class="btn sm" data-restore="${esc(b.file)}" data-who="${esc(who)}" aria-label="还原 ${esc(b.file)}">${icon("restore")} 还原</button>
               <button class="btn sm danger" data-del="${esc(b.file)}" aria-label="删除 ${esc(b.file)}">删除</button></div></div></div>`;

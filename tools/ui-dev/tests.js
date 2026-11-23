@@ -5729,11 +5729,13 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click("#wi-task-ok"); await page.waitForSelector("#wi-points [data-wi-point]");
       const row = await page.$eval("#wi-points [data-wi-point]", r => ({ state: r.dataset.state, text: r.textContent, restore: !!r.querySelector("[data-wi-restore]") }));
       assert(row.state === "committed" && row.text.includes("天空之城") && row.restore && (await page.$eval("#wi-status", el => el.textContent)) === "已停止", "导入后的恢复点：" + JSON.stringify(row));
-      // 同一个任务在任务页：结果是一句话，不是服务器名
+      // 同一个任务在任务页：结果是一句话，不是服务器名；「完成」按快照里的 inst 回到这台服务器的「换地图」（A53，以前固定回服务器列表）
       await page.goto(url("#/task/" + taskId)); await page.waitForSelector("#t-foot a.btn.primary");
       const tp = await page.evaluate(() => ({ h1: document.querySelector(".page-head h1").textContent, sub: document.querySelector("#t-sub").textContent,
         href: document.querySelector("#t-foot a.btn.primary").getAttribute("href"), go: document.querySelector("#t-foot a.btn.primary").textContent.trim() }));
-      assert(tp.h1 === "地图已处理完" && tp.sub.includes("还没开服试过") && tp.href === "#/instances" && tp.go.includes("回到服务器列表"), "任务页：" + JSON.stringify(tp));
+      assert(tp.h1 === "地图已处理完" && tp.sub.includes("还没开服试过") && tp.href === worldTab(NAME) && tp.go.includes("回到这台服务器"), "任务页：" + JSON.stringify(tp));
+      await page.click("#t-foot a.btn.primary"); await page.waitForSelector("#wi-points [data-wi-point]");
+      assert(decodeURIComponent(page.url()).endsWith(`#/inst/${NAME}/world/map`), "点「完成」应回到这台服务器的换地图：" + page.url());
     } finally { await wReset(); }
   });
 
@@ -7714,6 +7716,26 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         await dState({ local: false });
         await open(SURV, "console"); await open(SURV, "world/backups");
         assert((await page.textContent("#bk-olds")).includes("另有 2 份") && !(await page.$("[data-bk-open-old]")), "局域网上不给打开");
+      } finally { await dState({ instReset: true, local: true, world: { reset: true } }); }
+    });
+
+    await run("备份页页顶：随交接包带来的备份来源照实说是原来那台电脑上还原的、那份备份不在这台电脑上；本机列表里同名的那份不标「现在的世界」", async () => {
+      await dState({ instReset: true, local: true, world: { reset: true } });
+      try {
+        const FILE = "20261108-234100.000000000-拆主基地前.zip";
+        await dState({ inst: { name: SURV, worldFrom: { backup: FILE, label: "拆主基地前", backupTime: "2026-11-08 23:41:00", at: "2026-11-12 20:05:31", carried: true },
+          backups: [{ file: FILE, sizeMb: 1, time: "2026-11-08 23:41:00", label: "拆主基地前" }] } });
+        await open(SURV, "console"); await open(SURV, "world/backups");
+        const now = await page.textContent("#bk-now");
+        assert(now.includes("原来那台电脑上从 2026-11-08 23:41 的备份还原来的") && now.includes("拆主基地前") && now.includes("不在这台电脑上") && !now.includes("还原于"),
+          "随交接包带来的：" + now);
+        assert(!(await page.$(".bk-list .tag:not(.neutral)")), "本机列表里同名的那份不该标「现在的世界」");
+        // 在这台电脑上自己还原的（没有 carried）照旧：写还原时间，列表里标出来
+        await dState({ inst: { name: SURV, worldFrom: { backup: FILE, label: "拆主基地前", backupTime: "2026-11-08 23:41:00", at: "2026-11-15 21:05:00" } } });
+        await open(SURV, "console"); await open(SURV, "world/backups");
+        const mine = await page.textContent("#bk-now");
+        assert(mine.includes("当前世界：从 2026-11-08 23:41 的备份还原") && mine.includes("还原于 2026-11-15 21:05") && !mine.includes("原来那台电脑上") &&
+          (await page.textContent(".bk-list .tag:not(.neutral)")) === "现在的世界", "本机还原的：" + mine);
       } finally { await dState({ instReset: true, local: true, world: { reset: true } }); }
     });
 

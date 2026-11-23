@@ -2085,7 +2085,7 @@ function worldTask(state, id) {
       levelName: iw.levelName, hasOld: false, oldBytes: 0, keptBytes: 0, error: t.error });
   }
   const copying = isImport && !t.ended && t.step === 1, total = t.bytes || 0;
-  return { id, title: isImport ? `导入地图到 ${t.inst}` : `把 ${t.inst} 换回导入前的地图`, kind: "world",
+  return { id, title: isImport ? `导入地图到 ${t.inst}` : `把 ${t.inst} 换回导入前的地图`, kind: "world", inst: t.inst, // 同 tasks.Snapshot.Inst：任务页「完成」回到这台
     steps: names.map((name, k) => ({ name, status: t.ended ? (t.error ? (k < t.step ? "done" : k === t.step ? (t.cancelDone ? "cancelled" : "error") : "pending") : "done") : k < t.step ? "done" : k === t.step ? "running" : "pending" })),
     label: copying ? "复制地图" : "", done: copying ? Math.round(total * Math.min(1, t.q * 0.4)) : 0, total: copying ? total : 0, warnings: [],
     log: isImport ? ["来源和服务器都和预览时一样", ...(t.step >= 2 || t.ended && !t.error ? [`地图已复制到暂存区（${(total / W_MB).toFixed(1)} MB）`] : []), ...(t.error ? [(t.cancelDone ? "" : "❌ ") + t.error] : [])]
@@ -2844,7 +2844,7 @@ function handler(state, ui, portOf) {
     //     whitelistOn（玩家名单里的白名单开关，null = server.properties 没写）、adopted + mdFiles（移出列表后会留下的文件）。
     //     响应里的 lastCreate / lastImport / lastPropsPut / commands / lastOpenPath 是上一次新建、导入整合包（表单项）、改 server.properties、
     //     发过的控制台命令、打开的文件夹
-    //     beta.3 详情页用到的字段：javaMissing（配的 Java 找不到了）、worldFrom（现在的世界从哪份备份来）、mods（插件 / 模组文件夹里的，见 modsOf）、
+    //     beta.3 详情页用到的字段：javaMissing（配的 Java 找不到了）、worldFrom（现在的世界从哪份备份来；carried 是随交接包带来的）、mods（插件 / 模组文件夹里的，见 modsOf）、
     //     backups（备份清单，见 backupsOf；每项可带 dir、elsewhere，模拟改存放位置以前留在原来文件夹的）、onlineCount。响应里的 lifecycle（停止、重启的请求）、modOps（停用、启用、删除插件或模组的请求）、
     //     lastRestore（还原的请求，含 stopFirst）、lastBackup（立即备份的标签）、modsProjects（带 projects=1 读清单的次数）
     //   adoptScan: 接管已有服务器时「识别」返回的结果（同 inst.AdoptScan），null 还原成默认的；

@@ -63,6 +63,7 @@ func TestHandoverCarriesWorldFrom(t *testing.T) {
 	want := inst.WorldFrom{Backup: "20261108-234100.000000000-拆主基地前.zip", Label: "拆主基地前", BackupTime: "2026-11-08 23:41:00", At: "2026-11-12 20:05:31"}
 	withWorldFrom(t, aDir, &want)
 	_, b := handOver(t, "B 接手")
+	want.Carried = true // 随交接包带来的记上（A52）：B 的备份页页顶照实说那份备份在原来那台电脑上
 	if got := b.WorldFromSnapshot(); got == nil || *got != want {
 		t.Fatalf("导入的那台应沿用这条记录：%+v", got)
 	}

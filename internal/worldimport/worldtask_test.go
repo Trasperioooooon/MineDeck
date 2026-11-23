@@ -69,6 +69,9 @@ func TestImportTaskInWorldStatus(t *testing.T) {
 	if !strings.Contains(res, "「生存服」") {
 		t.Errorf("结果里应有服务器名：%q", res)
 	}
+	if got := e.m.Tasks.Get(id).Snapshot().Inst; got != "生存服" {
+		t.Errorf("任务快照里应记着服务器名（任务页「完成」回到这台）：%q", got)
+	}
 }
 
 // 复制完、进了不能取消的阶段（closeCancel 之后、换地图之前）：不能取消，原因是已经开始停服。
@@ -128,6 +131,9 @@ func TestRestoreTaskInWorldStatus(t *testing.T) {
 	}
 	if !strings.Contains(res, "「生存服」已经换回导入前的地图") {
 		t.Errorf("结果里应有服务器名：%q", res)
+	}
+	if got := e.m.Tasks.Get(id).Snapshot().Inst; got != "生存服" {
+		t.Errorf("任务快照里应记着服务器名：%q", got)
 	}
 }
 

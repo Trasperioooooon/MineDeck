@@ -153,16 +153,36 @@ func (m *Manager) beginWorldChangeInstance(i *Instance, why string, recovery boo
 			defer func() {
 				m.mu.Lock()
 				delete(m.worldHold, name)
+				delete(m.worldSame, name)
 				m.mu.Unlock()
 			}()
 			if worldReleaseHook != nil {
 				worldReleaseHook(name)
 			}
-			if !keepWorldFrom[why] { // 换回、恢复地图：现在的世界不再是从备份还原来的那个了（见 WorldFrom）
+			m.mu.Lock()
+			same := m.worldSame[name]
+			m.mu.Unlock()
+			// 换回、恢复地图：现在的世界不再是从备份还原来的那个了（见 WorldFrom）；确定没换的除外（见 WorldUnchanged）
+			if !keepWorldFrom[why] && !same {
 				m.clearWorldFromHeld(i, name)
 			}
 		})
 	}, nil
+}
+
+// WorldUnchanged 调用方占着这台服务器的位（BeginWorldChangeInstance 一类），做的事确定没换世界时调：换回旧地图在占位以后放弃了，
+// 或者换到一半、自动退回成功了。这时放掉占位不清 WorldFrom（A51），同 WorldIntent.WorldUnchanged。退回也失败、拿不准的别调。
+// 标记只管这一次占位，放掉时一起去掉；没占着位时调了也不起作用。
+func (m *Manager) WorldUnchanged(i *Instance) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if i == nil || m.insts[i.Name] != i || m.worldHold[i.Name] == "" {
+		return
+	}
+	if m.worldSame == nil {
+		m.worldSame = map[string]bool{}
+	}
+	m.worldSame[i.Name] = true
 }
 
 // worldReleaseHook 测试用：换地图类的占位收尾时，清 WorldFrom、存 instance.json 之前调，这时不拿任何锁（同 deleteHook）。

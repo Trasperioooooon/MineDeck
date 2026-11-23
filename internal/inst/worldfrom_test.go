@@ -47,15 +47,55 @@ func TestWorldIntentUnchangedKeepsWorldFrom(t *testing.T) {
 	}
 }
 
-// A52：交接包清单里带来的 WorldFrom 是别人给的，逐项核对；MineDeck 起的备份名按名字重算时间和标签。
+// A51：换回旧地图这类占位（BeginWorldChangeInstance）做的事确定没换世界时，放掉占位不清记录；标记只管那一次占位。
+func TestWorldChangeUnchangedKeepsWorldFrom(t *testing.T) {
+	m, dir := tempInstance(t)
+	i, _ := m.Get("s")
+	want := &WorldFrom{Backup: "20261115-200000-a.zip", At: "2026-11-15 20:00:00"}
+	m.setWorldFrom(i, want)
+	saved := func() *WorldFrom {
+		s, err := readSettings(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s.WorldFrom
+	}
+	hold := func(unchanged bool) {
+		t.Helper()
+		release, err := m.BeginWorldChangeInstance(i, "换回旧地图")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if unchanged {
+			m.WorldUnchanged(i)
+		}
+		release()
+	}
+	m.WorldUnchanged(i) // 没占着位时调了不起作用，不会留到下一次占位
+	hold(false)
+	if i.WorldFromSnapshot() != nil || saved() != nil {
+		t.Fatal("没占着位时的标记不该生效：没说没换的占位应清掉记录")
+	}
+	m.setWorldFrom(i, want)
+	hold(true)
+	if got, disk := i.WorldFromSnapshot(), saved(); got == nil || *got != *want || disk == nil || *disk != *want {
+		t.Fatalf("换回没换成，记录应原样留着：内存 %+v，instance.json %+v", got, disk)
+	}
+	hold(false)
+	if i.WorldFromSnapshot() != nil || saved() != nil {
+		t.Fatal("下一次占位没说没换，应照旧清掉记录（上一次的标记不该留下来）")
+	}
+}
+
+// A52：交接包清单里带来的 WorldFrom 是别人给的，逐项核对；MineDeck 起的备份名按名字重算时间和标签；收下的记上 Carried。
 func TestCarriedWorldFrom(t *testing.T) {
 	good := WorldFrom{Backup: "20261108-234100.000000000-拆主基地前.zip", Label: "清单里乱写的标签", BackupTime: "1999-01-01 00:00:00", At: "2026-11-12 20:05:31"}
 	got := CarriedWorldFrom(&good)
-	if got == nil || got.Backup != good.Backup || got.Label != "拆主基地前" || got.BackupTime != "2026-11-08 23:41:00" || got.At != good.At {
+	if got == nil || got.Backup != good.Backup || got.Label != "拆主基地前" || got.BackupTime != "2026-11-08 23:41:00" || got.At != good.At || !got.Carried {
 		t.Fatalf("MineDeck 起名的备份：%+v", got)
 	}
 	own := WorldFrom{Backup: "我的存档.zip", Label: "不认", BackupTime: "2026-10-01 08:00:00", At: "2026-11-12 20:05:31"}
-	if got := CarriedWorldFrom(&own); got == nil || got.Label != "" || got.BackupTime != own.BackupTime {
+	if got := CarriedWorldFrom(&own); got == nil || got.Label != "" || got.BackupTime != own.BackupTime || !got.Carried {
 		t.Fatalf("自己放进去的 zip：%+v", got)
 	}
 	own.BackupTime = "昨天"

@@ -47,12 +47,15 @@ type Settings struct {
 
 // WorldFrom 现在的世界是从哪份备份还原来的（可用性走查 R11）：详情页「世界与备份」页顶据此写「当前世界：从 某某时间 的备份还原」。
 // 记在 instance.json 里，重开程序后仍在；下一次还原换成那一份，换地图（导入、换回、恢复）时清掉，见 clearWorldFromHeld，
-// 导入没换成、自动退回了的不清（见 WorldIntent.WorldUnchanged）。交接包带着世界导入时随包带过来（见 CarriedWorldFrom）。
+// 导入、换回旧地图没换成、自动退回了的不清（见 WorldIntent.WorldUnchanged、Manager.WorldUnchanged）。
+// 交接包带着世界导入时随包带过来，记上 Carried（见 CarriedWorldFrom）。
 type WorldFrom struct {
 	Backup     string `json:"backup"`               // 备份文件名
 	Label      string `json:"label,omitempty"`      // 备份的标签（文件名里时间后面那段）
 	BackupTime string `json:"backupTime,omitempty"` // 这份备份是什么时候做的（2006-01-02 15:04:05）；文件名里认不出时用文件的修改时间
 	At         string `json:"at"`                   // 什么时候还原的（2006-01-02 15:04:05）
+	// Carried 这条记录是随交接包带来的（A52）：还原是在交出服务器的那台电脑上做的，那份备份不在这台的备份列表里
+	Carried bool `json:"carried,omitempty"`
 }
 
 // WorldFromSnapshot 加锁读取 WorldFrom 的一份拷贝；没有时为 nil。
@@ -68,14 +71,14 @@ func (i *Instance) WorldFromSnapshot() *WorldFrom {
 
 // CarriedWorldFrom 交接包清单里带来的 WorldFrom（A52）：清单是别人给的，逐项核对，有一项不对就整条不要（返回 nil）。
 // 备份文件名只认单独一段、能落在 Windows 上的 .zip 名；两个时间要是 2006-01-02 15:04:05 的写法。
-// 文件名是 MineDeck 起的（带时间和标签）时，备份时间和标签照文件名重算，不用清单里写的。
+// 文件名是 MineDeck 起的（带时间和标签）时，备份时间和标签照文件名重算，不用清单里写的。收下的记上 Carried。
 func CarriedWorldFrom(wf *WorldFrom) *WorldFrom {
 	const layout = "2006-01-02 15:04:05"
 	okTime := func(s string) bool { _, err := time.ParseInLocation(layout, s, time.Local); return err == nil }
 	if wf == nil || len(wf.Backup) > 200 || !strings.HasSuffix(wf.Backup, ".zip") || !winname.OK(wf.Backup) || !okTime(wf.At) {
 		return nil
 	}
-	out := &WorldFrom{Backup: wf.Backup, At: wf.At}
+	out := &WorldFrom{Backup: wf.Backup, At: wf.At, Carried: true}
 	if t, label, ok := parseBackupName(wf.Backup); ok {
 		out.BackupTime, out.Label = t.Format(layout), label
 	} else if okTime(wf.BackupTime) {
@@ -171,6 +174,8 @@ type Manager struct {
 	worldIntent map[string]*WorldIntent
 	worldHold   map[string]string
 	worldBlock  map[string]string
+	// worldSame 占着位、做的事确定没换世界的实例名（见 Manager.WorldUnchanged），放掉占位时一起去掉
+	worldSame map[string]bool
 	// worldUse 正在用这台服务器的世界和设置的操作（备份、保存设置）：实例名 → 在做什么 → 有几个。见 UseWorld
 	worldUse     map[string]map[string]int
 	worldPlacer  WorldPlacer
