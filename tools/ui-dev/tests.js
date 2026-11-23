@@ -6650,6 +6650,28 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       } finally { await fState({ taskList: [], trustedHosts: [] }); }
     });
 
+    await run("导入整合包完成：结果里列出导入时跳过的文件；留下了没装上的文件的清单时，任务页有「打开服务器文件夹」（只在本机，A46）", async () => {
+      const task = { id: "task-skip", title: "导入整合包 原版包（vanilla 1.20.1）", ended: true, result: PACK,
+        warnings: [{ kind: "import-skipped", title: "2 个文件没有装进来", note: "导入时跳过了这些文件，原因写在每一项后面。",
+          items: [{ name: "resourcepacks/光影.zip（整合包清单里写明只给客户端用）" }, { name: "config/CON.txt（名字在 Windows 上写不出来）" }] }],
+        pending: [{ id: "p1", path: "datapacks/x.zip", reason: "nohash", options: ["skip", "local"] }] };
+      try {
+        await fState({ taskList: [task] });
+        await page.goto(url("#/task/task-skip")); await page.waitForSelector("#t-open-inst-dir");
+        const msgs = await page.textContent("#t-msgs");
+        assert(msgs.includes("2 个文件没有装进来") && msgs.includes("resourcepacks/光影.zip（整合包清单里写明只给客户端用）"), "结果里应列出跳过的文件：" + msgs);
+        await page.click("#t-open-inst-dir"); await settle(300);
+        const st = await fState({});
+        assert(st.lastOpenDir && st.lastOpenDir.inst === PACK && !st.lastOpenDir.sub, "应打开这台服务器的文件夹：" + JSON.stringify(st.lastOpenDir));
+        await fState({ taskList: [{ ...task, pending: [] }] });
+        await page.goto(url("#/task/task-skip")); await page.waitForSelector("#t-foot a.primary"); await settle(300);
+        assert(await page.locator("#t-open-inst-dir").count() === 0, "没有留下清单时不该有这个按钮");
+        await fState({ taskList: [task], local: false });
+        await page.goto(url("#/task/task-skip")); await page.waitForSelector("#t-pending .pnd-item"); await settle(300);
+        assert(await page.locator("#t-open-inst-dir").count() === 0, "局域网打开的不该有这个按钮");
+      } finally { await fState({ taskList: [], local: true }); }
+    });
+
     await run("beta.3 流程 R13：导出交接包的任务页侧栏亮「服务器」，完成后标题是「交接包已导出」，有「打开所在文件夹」（只在本机）", async () => {
       try {
         await page.goto(url("#/task/task-transfer-out")); await page.waitForSelector("#t-open-dir");

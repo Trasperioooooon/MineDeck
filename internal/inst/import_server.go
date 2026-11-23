@@ -90,13 +90,7 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 		return fmt.Errorf("解压服务端失败: %w", err)
 	}
 	ScrubControlFiles(dir)
-	t.Logf("解压了 %d 个文件", res.n)
-	if len(res.skipped) > 0 {
-		t.Logf("这些文件的名字在 Windows 上不能用，没有解压：%s", strings.Join(res.skipped, "、"))
-	}
-	if len(res.dups) > 0 {
-		t.Logf("这些文件和压缩包里前面的文件只差大小写，在 Windows 上是同一个文件，没有解压（留的是前面那个）：%s", strings.Join(res.dups, "、"))
-	}
+	res.report(t)
 	if name, ok := CheckLevelName(dir); !ok {
 		return fmt.Errorf("服务端的 server.properties 把世界文件夹（level-name）指到了服务器文件夹外面：%s", name)
 	}
@@ -175,9 +169,30 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 
 // serverExtract 解压现成服务端的结果。
 type serverExtract struct {
-	n       int      // 解出来的文件个数
-	skipped []string // 名字在 Windows 上不能用、没有解压的（最多记 20 个）
-	dups    []string // 和前面的文件只差大小写、没有解压的（最多记 20 个）
+	n       int            // 解出来的文件个数
+	skipped []string       // 名字在 Windows 上不能用、没有解压的（最多记 20 个）
+	dups    []caseConflict // 和前面的文件只差大小写、没有解压的（最多记 20 个）
+}
+
+// report 写进任务日志，跳过的和只差大小写的也写进任务结果（A46、A47）。
+func (res serverExtract) report(t *tasks.Task) {
+	t.Logf("解压了 %d 个文件", res.n)
+	if len(res.skipped) > 0 {
+		t.Logf("这些文件的名字在 Windows 上不能用，没有解压：%s", strings.Join(res.skipped, "、"))
+		files := make([]skippedFile, 0, len(res.skipped))
+		for _, p := range res.skipped {
+			files = append(files, skippedFile{p, "名字在 Windows 上写不出来"})
+		}
+		addSkippedWarning(t, files)
+	}
+	if len(res.dups) > 0 {
+		names := make([]string, 0, len(res.dups))
+		for _, c := range res.dups {
+			names = append(names, c.names[len(c.names)-1])
+		}
+		t.Logf("这些文件和压缩包里前面的文件只差大小写，在 Windows 上是同一个文件，没有解压（留的是前面那个）：%s", strings.Join(names, "、"))
+		addCaseWarning(t, res.dups)
+	}
 }
 
 // extractServerFiles 把现成服务端压缩包解进 dir。整个解压拿着一份磁盘名额，开头按解开以后的总大小查余量（serverExtractLease）。
@@ -212,7 +227,7 @@ func extractServerFiles(ctx context.Context, t *tasks.Task, pack *modpack.Pack, 
 		k := winname.Fold(rel)
 		if first, ok := seen[k]; ok && first != rel {
 			if len(res.dups) < 20 {
-				res.dups = append(res.dups, rel)
+				res.dups = append(res.dups, caseConflict{names: []string{first, rel}, kept: first, why: "压缩包里只差大小写的只解压前面那个"})
 			}
 			return nil
 		}

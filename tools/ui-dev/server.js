@@ -2843,8 +2843,8 @@ function handler(state, ui, portOf) {
     //   inst: { name, …字段 } 直接改某台服务器的字段；instReset: true 服务器列表回到初始的四台。
     //     beta.3 P0 用到的字段：startFail（点启动时报这句、记成 lastStartError）、lastStartError、connectPort（代理端没生成配置时 0）、
     //     whitelistOn（玩家名单里的白名单开关，null = server.properties 没写）、adopted + mdFiles（移出列表后会留下的文件）。
-    //     响应里的 lastCreate / lastImport / lastPropsPut / commands / lastOpenPath 是上一次新建、导入整合包（表单项）、改 server.properties、
-    //     发过的控制台命令、打开的文件夹
+    //     响应里的 lastCreate / lastImport / lastPropsPut / commands / lastOpenPath / lastOpenDir 是上一次新建、导入整合包（表单项）、改 server.properties、
+    //     发过的控制台命令、打开的文件夹（openpath）和服务器文件夹（opendir）
     //     beta.3 详情页用到的字段：javaMissing（配的 Java 找不到了）、worldFrom（现在的世界从哪份备份来；carried 是随交接包带来的）、mods（插件 / 模组文件夹里的，见 modsOf）、
     //     backups（备份清单，见 backupsOf；每项可带 dir、elsewhere，模拟改存放位置以前留在原来文件夹的）、onlineCount。响应里的 lifecycle（停止、重启的请求）、modOps（停用、启用、删除插件或模组的请求）、
     //     lastRestore（还原的请求，含 stopFirst）、lastBackup（立即备份的标签）、modsProjects（带 projects=1 读清单的次数）
@@ -3095,6 +3095,12 @@ function handler(state, ui, portOf) {
       if (p === "/api/openpath" && m === "POST") {
         if (!state.local) return err(res, 403, "打开文件夹仅支持在本机操作");
         state.lastOpenPath = (await readBody(req)).path || "";
+        return ok(res, "ok");
+      }
+      // 打开服务器文件夹（同 instance.opendir，只许本机）：记下打开的是哪台、哪个子文件夹（state.lastOpenDir）
+      if (seg[2] === "instances" && seg[4] === "opendir" && m === "POST") {
+        if (!state.local) return err(res, 403, "打开服务器文件夹仅支持在本机操作");
+        state.lastOpenDir = { inst: decodeURIComponent(seg[3]), sub: u.searchParams.get("sub") || "" };
         return ok(res, "ok");
       }
       if (p === "/api/update/check") { // 同 app.update.check：按生效的渠道查，回包带渠道、查到的是不是测试版、正在用的是不是比它还新

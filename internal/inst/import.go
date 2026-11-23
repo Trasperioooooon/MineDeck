@@ -81,7 +81,7 @@ func (m *Manager) ImportModpackAsync(pack *modpack.Pack, req CreateReq, cfKey st
 		if err := m.runImport(ctx, t, pack, req, dir, cfKey); err != nil {
 			m.forgetPending(t.ID())
 			t.SetPending(nil)
-			for _, kind := range []string{"import-pending", "cf-unresolved", "import-kept", "java-req"} {
+			for _, kind := range []string{"import-pending", "cf-unresolved", "import-kept", "java-req", "import-case", "import-skipped"} {
 				t.RemoveWarning(kind)
 			}
 			// 先清后报失败：任务一显示失败，半成品就得已经删干净了
@@ -197,6 +197,9 @@ func (m *Manager) applyModpack(ctx context.Context, t *tasks.Task, pack *modpack
 	if len(dupDL) > 0 {
 		t.Logf("整合包清单里的这些文件和前面的落点只差大小写，在 Windows 上是同一个文件，没有下载（留的是前面那个）：%s", shortNames(dupDL, 8))
 	}
+	if overrides, err := modpack.OverrideFiles(pack); err == nil { // 读不了的，应用覆盖目录那一步会报出来
+		addCaseWarning(t, modpackCaseConflicts(files, dupDL, overrides))
+	}
 	var total int64
 	for _, f := range files {
 		total = total + f.Size
@@ -276,8 +279,10 @@ func (m *Manager) applyModpack(ctx context.Context, t *tasks.Task, pack *modpack
 	pending := job.take()
 	var kept []keptFile
 	var remain []modpack.PendingFile
+	skipped := skippedFiles(pack.ClientOnly, refused, sink.notTaken)
 	for _, p := range pending {
 		if p.file.Reason != "cf" && !overrideAllowed(p.file.Path) {
+			skipped = append(skipped, skippedFile{p.file.Path, notTakenWhy(p.file.Path)})
 			continue // 落点是 MineDeck 自己的文件：不继承，也不列进待决清单
 		}
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(p.file.Path))); err == nil {
@@ -295,10 +300,138 @@ func (m *Manager) applyModpack(ctx context.Context, t *tasks.Task, pack *modpack
 		}
 		remain = append(remain, p.file)
 	}
+	addSkippedWarning(t, skipped)
 	// 最终控制文件由 completeCreate 重写；这时实例仍不可见。
 	restoreLog4jXML(ctx, t, i)
 	m.finishImportPack(t, i, pack.Name, remain, kept)
 	return nil
+}
+
+// caseConflict 一组只差大小写的落点：Windows 上是同一个文件，只留下一份。names 按写的先后，kept 是内容留下来的那个。
+type caseConflict struct {
+	names []string
+	kept  string
+	why   string // 为什么留它
+}
+
+// modpackCaseConflicts 导入整合包之前找出只差大小写的落点（A13、A47）：清单里下载的之间（dedupeDownloads 只下载前面那个），
+// 下载的和覆盖文件夹里的、覆盖文件夹里的之间（先下载、再一层层写覆盖文件夹，后写的盖掉先写的）。留哪个的规矩不变，
+// 只是在导入结果里列出来，不再只写在日志里。files 是去过重的下载清单，dupDL 是去掉的那些，overrides 是覆盖文件夹里的（按写的先后）。
+func modpackCaseConflicts(files []modpack.File, dupDL, overrides []string) []caseConflict {
+	var out []caseConflict
+	firstDL := map[string]string{}
+	for _, f := range files {
+		firstDL[winname.Fold(path.Clean(f.Path))] = f.Path
+	}
+	for _, d := range dupDL {
+		if k := firstDL[winname.Fold(path.Clean(d))]; k != "" && k != d { // 写法一模一样的不算只差大小写
+			out = append(out, caseConflict{names: []string{k, d}, kept: k, why: "清单里重名的只下载前面那个"})
+		}
+	}
+	type write struct {
+		name     string
+		override bool
+	}
+	groups := map[string][]write{}
+	var order []string
+	add := func(name string, override bool) {
+		k := winname.Fold(path.Clean(name))
+		if _, ok := groups[k]; !ok {
+			order = append(order, k)
+		}
+		groups[k] = append(groups[k], write{name, override})
+	}
+	for _, f := range files {
+		add(f.Path, false)
+	}
+	for _, o := range overrides {
+		if overrideAllowed(o) { // 不采用的不写，不算
+			add(o, true)
+		}
+	}
+	for _, k := range order {
+		ws := groups[k]
+		var names []string
+		fromDL := false
+		for _, w := range ws {
+			if !slices.Contains(names, w.name) {
+				names = append(names, w.name)
+			}
+			fromDL = fromDL || !w.override
+		}
+		if len(names) < 2 {
+			continue
+		}
+		why := "覆盖文件夹里后写的盖掉先写的"
+		if fromDL {
+			why = "覆盖文件夹里的盖掉清单里下载的"
+		}
+		out = append(out, caseConflict{names: names, kept: ws[len(ws)-1].name, why: why})
+	}
+	return out
+}
+
+// maxWarnItems 一条告警最多列几项，多的说一共几个。
+const maxWarnItems = 50
+
+// addCaseWarning 只差大小写的落点写进任务结果（A13、A47）。
+func addCaseWarning(t *tasks.Task, conflicts []caseConflict) {
+	if len(conflicts) == 0 {
+		return
+	}
+	items := make([]tasks.WarnItem, 0, min(len(conflicts), maxWarnItems)+1)
+	for n, c := range conflicts {
+		if n == maxWarnItems {
+			items = append(items, tasks.WarnItem{Name: fmt.Sprintf("……一共 %d 组", len(conflicts))})
+			break
+		}
+		items = append(items, tasks.WarnItem{Name: fmt.Sprintf("%s：留下的是「%s」（%s）", strings.Join(c.names, "、"), c.kept, c.why)})
+	}
+	t.AddWarning(tasks.Warning{Kind: "import-case", Title: fmt.Sprintf("%d 组文件名只差大小写", len(conflicts)),
+		Note: "Windows 上文件名不分大小写，每一组都是同一个文件，只留下一份：内容是下面写的那一个，文件名可能还是最先写的那种写法。" +
+			"要另一份的话，导入完成以后到服务器文件夹里自己换。",
+		Items: items})
+}
+
+// skippedFile 导入时没装进来的一个文件和原因。
+type skippedFile struct{ path, why string }
+
+// skippedFiles 整合包导入时跳过的：清单里写明只给客户端用的、清单里和覆盖文件夹里不采用的（见 overrideAllowed）。
+func skippedFiles(clientOnly, refused, notTaken []string) []skippedFile {
+	var out []skippedFile
+	for _, p := range clientOnly {
+		out = append(out, skippedFile{p, "整合包清单里写明只给客户端用"})
+	}
+	for _, p := range append(slices.Clone(refused), notTaken...) {
+		out = append(out, skippedFile{p, notTakenWhy(p)})
+	}
+	return out
+}
+
+// notTakenWhy overrideAllowed 不收的文件为什么不收。
+func notTakenWhy(rel string) string {
+	if IsControlFile(path.Clean(strings.ReplaceAll(rel, `\`, "/"))) {
+		return "是 MineDeck 自己的文件，由 MineDeck 生成"
+	}
+	return "名字在 Windows 上写不出来"
+}
+
+// addSkippedWarning 导入时没装进来的文件写进任务结果（A46）。以前只写在任务日志里，原版服没有插件 / 模组页，导入完了就找不回来。
+func addSkippedWarning(t *tasks.Task, files []skippedFile) {
+	if len(files) == 0 {
+		return
+	}
+	items := make([]tasks.WarnItem, 0, min(len(files), maxWarnItems)+1)
+	for n, f := range files {
+		if n == maxWarnItems {
+			items = append(items, tasks.WarnItem{Name: fmt.Sprintf("……一共 %d 个", len(files))})
+			break
+		}
+		items = append(items, tasks.WarnItem{Name: fmt.Sprintf("%s（%s）", f.path, f.why)})
+	}
+	t.AddWarning(tasks.Warning{Kind: "import-skipped", Title: fmt.Sprintf("%d 个文件没有装进来", len(files)),
+		Note:  "导入时跳过了这些文件，原因写在每一项后面。只给客户端用的本来就不该装在服务器上；要用别的，导入完成以后自己放进服务器文件夹。",
+		Items: items})
 }
 
 // dedupeDownloads 清单里落点只差大小写的（一模一样的也算）在 Windows 上是同一个文件，而下载是并发的，会同时写它：
