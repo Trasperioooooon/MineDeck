@@ -40,6 +40,12 @@ type Service struct {
 	// importing 正在导入的服务器：同一台一次只导入一张。复制到暂存区时还没占位（WorldBusy 是空的），
 	// 不拦的话别的设备能再发起一次，两边各复制一份，后到的在占位时失败、白复制
 	importing map[string]bool
+	// jobs 正在跑的换地图任务（任务编号 → 哪台服务器、能不能取消），见 jobs.go
+	jobs   map[string]*worldJob
+	jobSeq int
+	// sizes 恢复点大小的缓存（小写的实例目录 → 记录编号 → 大小），sizeGen 每作废一次加一，见 pointsize.go
+	sizes   map[string]map[string]pointSize
+	sizeGen int
 
 	// scanSlots 同时在跑的检测的名额（见 maxConcurrentScans）
 	scanSlots chan struct{}
@@ -77,6 +83,7 @@ type createClaim struct {
 func NewService(m *inst.Manager) *Service {
 	s := &Service{M: m, scans: map[string]*scanResult{}, plans: map[string]*Plan{}, cancels: map[string]cancelEntry{},
 		claims: map[string]*createClaim{}, active: map[string]bool{}, importing: map[string]bool{},
+		jobs: map[string]*worldJob{}, sizes: map[string]map[string]pointSize{},
 		scanSlots: make(chan struct{}, maxConcurrentScans), order: manifestOrder, now: time.Now, StopTimeout: 2 * time.Minute}
 	m.SetWorldPlacer(s.placeForCreate, s.ReleaseCreate)
 	return s
@@ -491,6 +498,7 @@ func (s *Service) evaluate(ctx context.Context, r *scanResult, info *candInfo, t
 	p.Issues = append(p.Issues, worldRootChecks(t)...)
 	p.Issues = append(p.Issues, playerNotes(c, t)...)
 	p.Issues = append(p.Issues, playNotes(c)...)
+	p.Issues = append(p.Issues, hardcoreNote(c, t)...)
 	// 维度：地图没提供的分开说，不能让人以为是导丢了
 	for _, d := range []struct{ id, name string }{{"minecraft:the_nether", "下界"}, {"minecraft:the_end", "末地"}} {
 		if !hasDim(c, d.id) {
@@ -687,6 +695,16 @@ func (c *Candidate) hasPlayerFile(uuid string) bool {
 	return false
 }
 
+// hardcoreNote 用极限模式的地图新建服务器：新服务器会打开极限模式（见 hardcoreProps），新建向导的核对里说一句。
+// 替换已有服务器的地图时不在这里：那边是「可以一起改的设置」，由人勾（见 settingSuggestions）。
+func hardcoreNote(c *Candidate, t *Target) []Issue {
+	if !t.New || !c.Meta.Hardcore {
+		return nil
+	}
+	return []Issue{{Sev: SevInfo, Code: "hardcore",
+		Msg: "这是一张极限模式的地图：新建的服务器会在 server.properties 里打开极限模式（hardcore=true）。极限模式下难度固定为困难，玩家死了只能旁观"}}
+}
+
 // playNotes 冒险 / 小游戏地图的玩法提示：数据包、资源包、命令。
 func playNotes(c *Candidate) []Issue {
 	var is []Issue
@@ -807,16 +825,25 @@ func (s *Service) Execute(owner string, req ExecReq) (string, error) {
 	s.mu.Lock()
 	s.cancels[t.ID()] = cancelEntry{owner: owner, fn: cancel}
 	s.mu.Unlock()
-	go func() {
-		defer func() {
+	dropJob := s.addJob(p.Inst, t.ID(), jobImport, "")
+	// 收尾：撤掉取消和任务的登记、放开这台服务器和钉住的检测结果。先收尾、后报结果（理由见 addJob）；中途 panic 时由 defer 兜底
+	var once sync.Once
+	cleanup := func() {
+		once.Do(func() {
 			s.mu.Lock()
 			delete(s.cancels, t.ID())
 			delete(s.importing, p.Inst)
 			s.mu.Unlock()
+			dropJob()
 			cancel()
 			s.unpin(r)
-		}()
+			s.forgetSizes()
+		})
+	}
+	go func() {
+		defer cleanup()
 		res, err := s.runImport(ctx, t, r, p, props, req.StopFirst)
+		cleanup()
 		if err != nil {
 			// 人在复制阶段点了取消（Service.Cancel 收下了）：按中性的「已取消」结束，不画成失败（同新建、导入整合包的取消，
 			// 复审发现 9）。收下了取消，导入就一定没换地图（见 closeCancel）；这时要是别的原因先把导入停下了，也算取消，原因记进日志
@@ -870,6 +897,7 @@ func (s *Service) closeCancel(ctx context.Context, taskID string) bool {
 		return false
 	}
 	delete(s.cancels, taskID)
+	s.setJobWhyLocked(taskID, whyStopping) // 和拿掉登记同一把锁：之后问「能不能取消」的都得到这句原因
 	return true
 }
 
@@ -921,7 +949,12 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 	if err := saveJournal(tg.Dir, j); err != nil {
 		return "", fmt.Errorf("没能在服务器文件夹里建暂存区：%w", err)
 	}
+	var intent *inst.WorldIntent
+	// 放弃：什么都没换。占过位的也告诉它世界没换，放掉时不清「现在的世界从哪份备份来」（A51）
 	abandon := func(cause error) (string, error) {
+		if intent != nil {
+			intent.WorldUnchanged()
+		}
 		_ = os.RemoveAll(filepath.Join(txAbs(tg.Dir, id), stageSub))
 		j.State, j.Err = TxRolledBack, cause.Error()
 		_ = saveJournal(tg.Dir, j)
@@ -977,7 +1010,7 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 	if who := s.M.WorldUsers(p.Inst); who != "" {
 		return abandon(fmt.Errorf("这台服务器正在%s，等它完成以后再导入。服务器没有被停，没有替换任何文件", who))
 	}
-	intent, err := s.M.BeginWorldIntentInstance(i, "准备换地图")
+	intent, err = s.M.BeginWorldIntentInstance(i, "准备换地图")
 	if err != nil {
 		return abandon(err)
 	}
@@ -1035,19 +1068,22 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 
 	// 4. 换
 	t.StartStep(3)
+	s.setJobWhy(t.ID(), whyReplacing)
 	stuck, err := commitTx(tg.Dir, j, props)
 	if err != nil {
 		if stuck {
 			s.M.SetWorldBlock(p.Inst, "换地图没有完成，自动恢复也失败了，服务器已暂停启动。请到「世界与备份 → 换地图」里查看恢复步骤")
 			return "", fmt.Errorf("恢复未完成，服务器已暂停启动：%v。所有文件都还在，查看恢复步骤：%s", err, txAbs(tg.Dir, id))
 		}
+		intent.WorldUnchanged() // 退回成功：现在的世界就是换图前那个
 		return "", fmt.Errorf("导入中断，已恢复到导入前的世界：%v", err)
 	}
 	t.StartStep(4)
 	if len(j.OldOut) > 0 {
 		t.Logf("导入前的世界留在恢复点里（%s），随时可以在「世界与备份 → 换地图」里换回来", fmtBytes(j.OldBytes))
 	}
-	return "地图文件已导入，还没开服试过。服务器保持停止，启动后进服看看是不是这张地图", nil
+	// 结果里带上服务器名（A53）：任务页、AI 只看结果也知道换的是哪一台
+	return fmt.Sprintf("「%s」的地图文件已导入，还没开服试过。服务器保持停止，启动后进服看看是不是这张地图", p.Inst), nil
 }
 
 // stagedHook 测试用：最后一个文件复制完、还没重新核对来源的那一刻调用。
@@ -1170,7 +1206,8 @@ func checkCreate(p *Plan, core mcsrc.Core, mc string, ack bool) error {
 
 // placeForCreate 新建流水线在登记实例之前调：把计划里的地图放进新服务器的目录（level-name 是 world）。
 // 失败时整台服务器都不建（流水线会删掉目录），不会留下一台启动后随机生成新世界的实例。
-func (s *Service) placeForCreate(ctx context.Context, t *tasks.Task, owner, planID, dir string) error {
+// name 是新服务器的名字：建服请求收下时就定了，记进这次放地图的记录（A54；计划是检测时生成的，那时还没有名字）。
+func (s *Service) placeForCreate(ctx context.Context, t *tasks.Task, owner, planID, name, dir string) error {
 	s.mu.Lock()
 	c := s.claims[planID]
 	if c != nil && c.owner == owner {
@@ -1201,7 +1238,7 @@ func (s *Service) placeForCreate(ctx context.Context, t *tasks.Task, owner, plan
 		return err
 	}
 	id := newID("w")
-	j := &Journal{ID: id, Inst: p.Inst, State: TxStaging, Created: s.now(), Source: r.Source.Name, Candidate: candName(info.c), LevelName: level}
+	j := &Journal{ID: id, Inst: name, State: TxStaging, Created: s.now(), Source: r.Source.Name, Candidate: candName(info.c), LevelName: level}
 	if err := saveJournal(dir, j); err != nil {
 		return err
 	}
@@ -1238,11 +1275,23 @@ func (s *Service) placeForCreate(ctx context.Context, t *tasks.Task, owner, plan
 		}
 		j.NewIn = append(j.NewIn, Step{From: txRel(id) + "/" + stageSub + "/" + n, To: n})
 	}
-	if _, err := commitTx(dir, j, nil); err != nil {
+	if _, err := commitTx(dir, j, hardcoreProps(info.c)); err != nil {
 		return err
 	}
 	t.Logf("地图已放进新服务器")
+	if len(j.PropsAfter) > 0 {
+		t.Logf("这是一张极限模式的地图：server.properties 里打开了极限模式（hardcore=true）")
+	}
 	return nil
+}
+
+// hardcoreProps 用极限模式的地图新建服务器时要写的设置（A53）：专用服务器按 server.properties 的 hardcore 开不开极限，
+// 不看地图自己的标记，不写的话这张图在新服务器上就不是极限模式了。随换地图的那一步一起写（commitTx 的 props），出错一起退回。
+func hardcoreProps(c *Candidate) map[string]string {
+	if !c.Meta.Hardcore {
+		return nil
+	}
+	return map[string]string{"hardcore": "true"}
 }
 
 // ---------- 恢复点、换回旧图、启动时恢复 ----------
@@ -1276,6 +1325,9 @@ type WorldStatus struct {
 	Blocked string         `json:"blocked,omitempty"`
 	Points  []RestorePoint `json:"points"`
 	Proxy   bool           `json:"proxy"`
+	// Task 正在跑的换地图任务（导入或换回旧地图），别的设备打开也接得上进度（A53）。能不能取消要看是谁在问，
+	// 所以 Status 不填，由操作层按调用方用 TaskOf 填上
+	Task *WorldTask `json:"task,omitempty"`
 }
 
 // Status 一台服务器的世界状态和恢复点。
@@ -1294,13 +1346,12 @@ func (s *Service) Status(name string) (*WorldStatus, error) {
 	}
 	good, bad := listJournals(i.Dir)
 	latest := latestCommitted(good, ws.LevelName)
+	sizes := s.pointSizes(i.Dir, good)
 	for _, j := range good {
 		rp := RestorePoint{ID: j.ID, State: j.State, Created: j.Created, Source: j.Source, Candidate: j.Candidate, LevelName: j.LevelName,
 			Err: j.Err, Stuck: j.Stuck}
-		root := txAbs(i.Dir, j.ID)
-		rp.OldBytes = dirBytes(filepath.Join(root, oldSub))
-		rp.KeptBytes = dirBytes(filepath.Join(root, restoreSub))
-		rp.StagedBytes = dirBytes(filepath.Join(root, stageSub))
+		sz := sizes[j.ID]
+		rp.OldBytes, rp.KeptBytes, rp.StagedBytes = sz.old, sz.kept, sz.staged
 		rp.HasOld = j.State == TxCommitted && len(j.OldOut) > 0 && rp.OldBytes > 0
 		rp.CanReturn = rp.HasOld && j == latest
 		ws.Points = append(ws.Points, rp)
@@ -1309,7 +1360,7 @@ func (s *Service) Status(name string) (*WorldStatus, error) {
 	for _, b := range bad {
 		rp := RestorePoint{ID: b.id, State: TxUnreadable, Err: noPath(b.err), Stuck: []string{b.path(i.Dir)}}
 		if !b.root {
-			rp.OldBytes = dirBytes(filepath.Join(b.path(i.Dir), oldSub))
+			rp.OldBytes = countPointBytes(filepath.Join(b.path(i.Dir), oldSub)) // 读不出来的记录不缓存：每次都数
 		}
 		ws.Points = append(ws.Points, rp)
 	}
@@ -1394,41 +1445,53 @@ func (s *Service) Restore(name, txID, confirm string) (string, error) {
 	}
 	t, _ := s.M.Tasks.New(fmt.Sprintf("把 %s 换回导入前的地图", name), []string{"占用这台服务器", "换回旧地图", "核对"})
 	t.SetKind("world")
+	dropJob := s.addJob(name, t.ID(), jobRestore, whyRestoring)
+	cleanup := func() { dropJob(); s.forgetSizes() } // 先收尾、后报结果，理由见 addJob
 	go func() {
-		t.StartStep(0)
-		release, err := s.M.BeginWorldChangeInstance(i, "换回旧地图")
+		defer cleanup()
+		res, err := s.runRestore(t, i, txID)
+		cleanup()
 		if err != nil {
 			t.Fail(err)
 			return
 		}
-		defer release()
-		// 占上位以后再看一遍：等位的这段时间里，别的换回可能刚做完或者退回了
-		if j, err = loadJournal(i.Dir, txID); err == nil {
-			err = restorable(i.Dir, j)
-		}
-		if err != nil {
-			t.Fail(err)
-			return
-		}
-		t.StartStep(1)
-		stuck, err := restoreTx(i.Dir, j)
-		if err != nil {
-			if stuck {
-				s.M.SetWorldBlock(name, "换回旧地图没有完成，自动恢复也失败了，服务器已暂停启动。请到「世界与备份 → 换地图」里查看恢复步骤")
-				t.Fail(fmt.Errorf("恢复未完成，服务器已暂停启动：%v", err))
-				return
-			}
-			t.Fail(fmt.Errorf("没能换回旧地图，导入的地图还在原位：%v", err))
-			return
-		}
-		t.StartStep(2)
-		checked := "" // 只有导入时旧世界有 level.dat 才核对过
-		if j.OldLevelSHA != "" {
-			checked = "，旧地图的 level.dat 核对一致"
-		}
-		t.Finish("已经换回导入前的地图" + checked + "。导入的那份（包括启动后的改动）留在旁边，确认不要了可以删掉")
+		t.Finish(res)
 	}()
 	return t.ID(), nil
+}
+
+// runRestore 换回旧地图的任务本身（Restore 在后台跑它），返回给人看的结果。占位在返回之前放掉。
+func (s *Service) runRestore(t *tasks.Task, i *inst.Instance, txID string) (string, error) {
+	name := i.Name
+	t.StartStep(0)
+	release, err := s.M.BeginWorldChangeInstance(i, "换回旧地图")
+	if err != nil {
+		return "", err
+	}
+	defer release()
+	// 占上位以后再看一遍：等位的这段时间里，别的换回可能刚做完或者退回了
+	j, err := loadJournal(i.Dir, txID)
+	if err == nil {
+		err = restorable(i.Dir, j)
+	}
+	if err != nil {
+		return "", err
+	}
+	t.StartStep(1)
+	stuck, err := restoreTx(i.Dir, j)
+	if err != nil {
+		if stuck {
+			s.M.SetWorldBlock(name, "换回旧地图没有完成，自动恢复也失败了，服务器已暂停启动。请到「世界与备份 → 换地图」里查看恢复步骤")
+			return "", fmt.Errorf("恢复未完成，服务器已暂停启动：%v", err)
+		}
+		return "", fmt.Errorf("没能换回旧地图，导入的地图还在原位：%v", err)
+	}
+	t.StartStep(2)
+	checked := "" // 只有导入时旧世界有 level.dat 才核对过
+	if j.OldLevelSHA != "" {
+		checked = "，旧地图的 level.dat 核对一致"
+	}
+	return fmt.Sprintf("「%s」已经换回导入前的地图%s。导入的那份（包括启动后的改动）留在旁边，确认不要了可以删掉", name, checked), nil
 }
 
 // restorable 这次导入现在能不能换回：已提交、导入前有旧世界、世界名没改过，并且是这个世界最近的一次导入。
@@ -1492,6 +1555,7 @@ func (s *Service) DeletePoint(name, txID, confirm string) error {
 		return err
 	}
 	defer release()
+	defer s.forgetSizes()
 	// 占上位以后重新读一遍再删：等位的这段时间里，换回可能刚好在这份记录上失败了（状态已经不是「已提交」），
 	// 这时候它的文件夹里放着要靠它救回来的世界，不能照着占位之前的判断删掉
 	j, err = loadJournal(i.Dir, txID)
@@ -1524,6 +1588,7 @@ func (s *Service) RecoverAll() {
 
 // recoverInstance 处理一台服务器的记录。withCommit 为假时只清暂存到一半的（这台没有封锁，说明没有切换到一半的）。
 func (s *Service) recoverInstance(i *inst.Instance, withCommit bool) {
+	defer s.forgetSizes() // 退回以后还会删暂存区：记录落盘以后大小才定下来
 	ok := true
 	js, bad := listJournals(i.Dir)
 	for _, b := range bad {

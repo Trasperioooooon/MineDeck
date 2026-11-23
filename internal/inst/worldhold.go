@@ -304,8 +304,9 @@ func (m *Manager) WorldBlocked() map[string]string {
 	return out
 }
 
-// WorldPlacer 新建服务器时把地图放进目录的回调（worldimport 挂上来）：owner 是发起的人，planID 是导入计划。
-type WorldPlacer func(ctx context.Context, t *tasks.Task, owner, planID, dir string) error
+// WorldPlacer 新建服务器时把地图放进目录的回调（worldimport 挂上来）：owner 是发起的人，planID 是导入计划，
+// name 是新服务器的名字（建服请求收下时就定了，放地图的记录里要记上它，A54）。
+type WorldPlacer func(ctx context.Context, t *tasks.Task, owner, planID, name, dir string) error
 
 // SetWorldPlacer 挂上新建时放地图的回调。release 在新建任务结束时调（不管成没成），
 // 放掉建服请求占着的导入计划和上传的文件。

@@ -257,7 +257,7 @@ func TestCreateClaimPinsUpload(t *testing.T) {
 	newDir := filepath.Join(e.tmp, "fresh")
 	write(t, newDir, map[string]string{"server.properties": "server-port=25570\n"})
 	task, ctx := e.m.Tasks.New("test", []string{"x"})
-	if err := e.s.placeForCreate(ctx, task, me, p0.ID, newDir); err != nil {
+	if err := e.s.placeForCreate(ctx, task, me, p0.ID, "新服", newDir); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := wt.ReadMarker(filepath.Join(newDir, "world", "dimensions", "minecraft", "overworld", "region", "r.0.0.mca")); got != "MARK:minecraft:overworld:NEW" {

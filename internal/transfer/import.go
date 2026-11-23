@@ -273,7 +273,7 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 	if n := len(old.Policies.Schedules); n > 0 || old.Policies.CrashRestart {
 		t.Logf("原来的定时任务（%d 条）和崩溃自动重启的设置没有带过来，需要的话在这台服务器的设置里重新加", n)
 	}
-	// 这台服务器的设置从头填，只从包里取两样：分了多少内存、控制台用什么编码。
+	// 这台服务器的设置从头填，只从包里取三样：分了多少内存、控制台用什么编码、现在的世界从哪份备份还原来的（核对过才收）。
 	// 不拿包里那份整个改：以后 Settings 加了新字段，不会不知不觉地跟着包进来。
 	s := inst.Settings{
 		Name: req.Name, Core: mf.Core.Core, MC: mf.Core.MC, Build: build,
@@ -283,6 +283,7 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 	if old.ConsoleEncoding == "utf-8" || old.ConsoleEncoding == "gbk" {
 		s.ConsoleEncoding = old.ConsoleEncoding
 	}
+	s.WorldFrom = carriedWorldFrom(t, old.WorldFrom, dir)
 	if req.XmxMB > 0 {
 		s.XmxMB = req.XmxMB
 	}
@@ -347,6 +348,29 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 	}
 	t.Logf("交接完成 ✔ 世界、配置、模组和插件都带过来了（没带过来的东西见上面几行）")
 	return nil
+}
+
+// carriedWorldFrom 包里记着「现在的世界是从哪份备份还原来的」时，B 这边沿用它，备份页页顶照样说得出来源（A52）。
+// 只在世界确实是包里带来的时候：解包以后 level-name 指的文件夹里有 level.dat。包里没带世界的，
+// B 这边的世界是第一次启动时新生成的，那句话说的就不是它了。记录逐项核对过才收（见 inst.CarriedWorldFrom）。
+func carriedWorldFrom(t *tasks.Task, wf *inst.WorldFrom, dir string) *inst.WorldFrom {
+	if wf == nil {
+		return nil
+	}
+	level, err := inst.LevelNameStrict(dir)
+	if err != nil {
+		return nil
+	}
+	if st, err := os.Stat(filepath.Join(dir, filepath.FromSlash(level), "level.dat")); err != nil || !st.Mode().IsRegular() {
+		return nil
+	}
+	out := inst.CarriedWorldFrom(wf)
+	if out == nil {
+		t.Logf("包里记着现在的世界是从哪份备份还原来的，但这条记录的写法不对，没有采用")
+		return nil
+	}
+	t.Logf("现在的世界是原来那台电脑上从备份「%s」还原来的，这条记录跟着带过来了", out.Backup)
+	return out
 }
 
 // downloadCore 瘦身模式：按 manifest 走创建流水线的同一条路把核心拉下来（含源切换与校验）。

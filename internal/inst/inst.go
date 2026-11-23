@@ -21,6 +21,7 @@ import (
 	"minedeck/internal/atomicfile"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/tasks"
+	"minedeck/internal/winname"
 )
 
 type Settings struct {
@@ -45,7 +46,8 @@ type Settings struct {
 }
 
 // WorldFrom 现在的世界是从哪份备份还原来的（可用性走查 R11）：详情页「世界与备份」页顶据此写「当前世界：从 某某时间 的备份还原」。
-// 记在 instance.json 里，重开程序后仍在；下一次还原换成那一份，换地图（导入、换回、恢复）时清掉，见 clearWorldFrom。
+// 记在 instance.json 里，重开程序后仍在；下一次还原换成那一份，换地图（导入、换回、恢复）时清掉，见 clearWorldFromHeld，
+// 导入没换成、自动退回了的不清（见 WorldIntent.WorldUnchanged）。交接包带着世界导入时随包带过来（见 CarriedWorldFrom）。
 type WorldFrom struct {
 	Backup     string `json:"backup"`               // 备份文件名
 	Label      string `json:"label,omitempty"`      // 备份的标签（文件名里时间后面那段）
@@ -62,6 +64,24 @@ func (i *Instance) WorldFromSnapshot() *WorldFrom {
 	}
 	wf := *i.WorldFrom
 	return &wf
+}
+
+// CarriedWorldFrom 交接包清单里带来的 WorldFrom（A52）：清单是别人给的，逐项核对，有一项不对就整条不要（返回 nil）。
+// 备份文件名只认单独一段、能落在 Windows 上的 .zip 名；两个时间要是 2006-01-02 15:04:05 的写法。
+// 文件名是 MineDeck 起的（带时间和标签）时，备份时间和标签照文件名重算，不用清单里写的。
+func CarriedWorldFrom(wf *WorldFrom) *WorldFrom {
+	const layout = "2006-01-02 15:04:05"
+	okTime := func(s string) bool { _, err := time.ParseInLocation(layout, s, time.Local); return err == nil }
+	if wf == nil || len(wf.Backup) > 200 || !strings.HasSuffix(wf.Backup, ".zip") || !winname.OK(wf.Backup) || !okTime(wf.At) {
+		return nil
+	}
+	out := &WorldFrom{Backup: wf.Backup, At: wf.At}
+	if t, label, ok := parseBackupName(wf.Backup); ok {
+		out.BackupTime, out.Label = t.Format(layout), label
+	} else if okTime(wf.BackupTime) {
+		out.BackupTime = wf.BackupTime
+	}
+	return out
 }
 
 // setWorldFrom 记下（wf 为 nil 时清掉）现在的世界从哪来，并存进 instance.json。存不进去不算还原失败：只是页顶少一句说明，

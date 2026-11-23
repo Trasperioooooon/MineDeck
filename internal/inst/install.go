@@ -415,7 +415,7 @@ func (m *Manager) runCreateWith(ctx context.Context, t *tasks.Task, req CreateRe
 		if m.worldPlacer == nil {
 			return fmt.Errorf("地图导入功能没有准备好")
 		}
-		if err := m.worldPlacer(ctx, t, req.WorldOwner, req.WorldPlan, dir); err != nil {
+		if err := m.worldPlacer(ctx, t, req.WorldOwner, req.WorldPlan, req.Name, dir); err != nil {
 			return fmt.Errorf("没能把地图放进新服务器：%w", err)
 		}
 	}

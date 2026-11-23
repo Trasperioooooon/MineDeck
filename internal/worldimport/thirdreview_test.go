@@ -386,7 +386,7 @@ func TestEveryStrictStagingReadFailureStopsBeforeMovingWorlds(t *testing.T) {
 				dir := filepath.Join(e.tmp, "fresh")
 				write(t, dir, map[string]string{"server.properties": "level-name=world\n"})
 				task, ctx := e.m.Tasks.New("test", []string{"x"})
-				err := e.s.placeForCreate(ctx, task, me, p.ID, dir)
+				err := e.s.placeForCreate(ctx, task, me, p.ID, "新服", dir)
 				if err == nil || !strings.Contains(err.Error(), "injected strict read failure") {
 					t.Fatalf("新建必须保留读取错误：%v", err)
 				}

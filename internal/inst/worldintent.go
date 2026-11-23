@@ -9,6 +9,7 @@ type WorldIntent struct {
 	i    *Instance
 	why  string
 	held bool
+	same bool // 占过位、但世界确定还是原来那个，见 WorldUnchanged
 }
 
 func (m *Manager) BeginWorldIntent(name, why string) (*WorldIntent, error) {
@@ -74,6 +75,14 @@ func (w *WorldIntent) Change() error {
 	return nil
 }
 
+// WorldUnchanged 占过位、但世界确定还是原来那个时调：换图之前就放弃了，或者换到一半、自动退回成功了。
+// 这时放掉不清 WorldFrom，备份页页顶照旧说得出现在的世界从哪份备份来（A51）。退回也失败、拿不准世界是哪一份的别调，照旧清掉。
+func (w *WorldIntent) WorldUnchanged() {
+	w.m.mu.Lock()
+	w.same = true
+	w.m.mu.Unlock()
+}
+
 func (w *WorldIntent) Release() {
 	m, i := w.m, w.i
 	name := i.Name
@@ -90,7 +99,7 @@ func (w *WorldIntent) Release() {
 		m.mu.Unlock()
 		return
 	}
-	held, ours := w.held, m.insts[name] == i
+	held, same, ours := w.held, w.same, m.insts[name] == i
 	m.mu.Unlock()
 	defer func() { // 存盘出了意外也照样放掉（先于 procMu 的解锁执行，锁的顺序不变）
 		m.mu.Lock()
@@ -102,8 +111,8 @@ func (w *WorldIntent) Release() {
 		}
 		m.mu.Unlock()
 	}()
-	// 占上过位，世界就可能已经换成导入的地图：不再说它是从哪份备份还原来的（见 WorldFrom）
-	if held && ours {
+	// 占上过位，世界就可能已经换成导入的地图：不再说它是从哪份备份还原来的（见 WorldFrom）；确定没换的除外（见 WorldUnchanged）
+	if held && !same && ours {
 		m.setWorldFromLocked(i, nil)
 	}
 }
