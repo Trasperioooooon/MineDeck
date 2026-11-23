@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -102,29 +103,9 @@ func Ensure(ctx context.Context, major int, logf func(string, ...any), prog dl.P
 	if err := os.WriteFile(incompleteMark(major), nil, 0o644); err != nil {
 		return "", fmt.Errorf("准备安装 Java %d 失败：%w", major, err)
 	}
-	var errs []error
-
-	skipAdoptium := false
-	if !app.OfficialOnly() {
-		if err := fromTUNA(ctx, major, logf, prog); err == nil {
-			return finalize(major)
-		} else if errors.Is(err, errAdoptiumUnreachable) {
-			// 清华那条路要的官方校验值和 Adoptium 官方源是同一个接口，刚连不上，不再空等一轮
-			errs = append(errs, fmt.Errorf("清华镜像: %w", err))
-			skipAdoptium = true
-			logf("Adoptium 的接口连不上，清华镜像和 Adoptium 官方源都用不了，改用 Mojang 官方运行时（BMCLAPI 镜像）")
-		} else {
-			errs = append(errs, fmt.Errorf("清华镜像: %w", err))
-			logf("清华镜像这条路没走通（%v），切换 Adoptium 官方源", err)
-		}
-	}
-	if !skipAdoptium {
-		if err := fromAdoptium(ctx, major, logf, prog); err == nil {
-			return finalize(major)
-		} else {
-			errs = append(errs, fmt.Errorf("Adoptium: %w", err))
-			logf("Adoptium 官方源失败（%v），切换 Mojang 官方运行时（BMCLAPI 镜像）", err)
-		}
+	errs, ok := fromAdoptiumBuilds(ctx, major, logf, prog)
+	if ok {
+		return finalize(major)
 	}
 	if err := fromMojang(ctx, major, logf, prog); err == nil {
 		return finalize(major)
@@ -132,6 +113,35 @@ func Ensure(ctx context.Context, major int, logf func(string, ...any), prog dl.P
 		errs = append(errs, fmt.Errorf("Mojang 运行时: %w", err))
 	}
 	return "", fmt.Errorf("Java %d 全部下载源均失败: %w", major, errors.Join(errs...))
+}
+
+// fromAdoptiumBuilds 前两个来源：清华镜像（下载源选「官方」时不用），再是 Adoptium 官方源。两条路都要问 Adoptium 的接口
+// （清华那条要官方校验值），前面已经确认接口连不上，后面那条就不再走、直接改用 Mojang 运行时，免得同一个主机再空等一轮（A35）。
+// 装好了返回 ok；没装成返回每条路没走通的原因。
+func fromAdoptiumBuilds(ctx context.Context, major int, logf func(string, ...any), prog dl.Progress) (errs []error, ok bool) {
+	if !app.OfficialOnly() {
+		err := fromTUNA(ctx, major, logf, prog)
+		if err == nil {
+			return nil, true
+		}
+		errs = append(errs, fmt.Errorf("清华镜像: %w", err))
+		if errors.Is(err, errAdoptiumUnreachable) {
+			logf("Adoptium 的接口连不上，清华镜像和 Adoptium 官方源都用不了，直接改用 Mojang 官方运行时（BMCLAPI 镜像）")
+			return errs, false
+		}
+		logf("清华镜像这条路没走通（%v），切换 Adoptium 官方源", err)
+	}
+	err := fromAdoptium(ctx, major, logf, prog)
+	if err == nil {
+		return nil, true
+	}
+	errs = append(errs, fmt.Errorf("Adoptium: %w", err))
+	if errors.Is(err, errAdoptiumUnreachable) {
+		logf("Adoptium 的接口连不上，直接改用 Mojang 官方运行时（BMCLAPI 镜像）")
+	} else {
+		logf("Adoptium 官方源失败（%v），切换 Mojang 官方运行时（BMCLAPI 镜像）", err)
+	}
+	return errs, false
 }
 
 func finalize(major int) (string, error) {
@@ -287,7 +297,10 @@ func fromAdoptium(ctx context.Context, major int, logf func(string, ...any), pro
 				} `json:"package"`
 			} `json:"binary"`
 		}
-		if err := dl.FetchJSONHTTPS(ctx, []string{api}, &assets); err != nil {
+		if err := fetchAdoptiumJSON(ctx, api, &assets); err != nil {
+			if adoptiumDown(err) { // 接口连不上：jdk 那一问是同一个主机，不再空等
+				return fmt.Errorf("%w：%v", errAdoptiumUnreachable, err)
+			}
 			continue
 		}
 		for _, a := range assets {
@@ -336,13 +349,27 @@ func looksLikeSHA256(s string) bool {
 	return true
 }
 
-// errAdoptiumUnreachable Adoptium 的接口两个地址都没要到（连不上、超时、回的不是 JSON）。
+// errAdoptiumUnreachable Adoptium 的接口连不上（连接被拒、DNS 解析失败、超时，见 adoptiumDown）。
 // 清华那条路因此不用；Ensure 看到它就不再走同一个接口的 Adoptium 官方源，免得再空等一轮。
 var errAdoptiumUnreachable = errors.New("连不上 Adoptium 的接口")
 
-// adoptiumIndexWait 向 Adoptium 要校验值清单时每个地址最多等多久。
+// adoptiumIndexWait 向 Adoptium 的接口要清单（校验值、下载地址）时每一问最多等多久。
 // 清单很小；国内连不上 api.adoptium.net 时不该让开服白等几分钟（普通下载是两轮、每轮 30 秒）。
 var adoptiumIndexWait = 10 * time.Second
+
+// fetchAdoptiumJSON 向 Adoptium 的接口问一个清单，最多等 adoptiumIndexWait。
+func fetchAdoptiumJSON(ctx context.Context, u string, out any) error {
+	cctx, cancel := context.WithTimeout(ctx, adoptiumIndexWait)
+	defer cancel()
+	return dl.FetchJSONHTTPS(cctx, []string{u}, out)
+}
+
+// adoptiumDown 这次没问到是不是因为「连不上」：连接被拒、DNS 解析失败、超时这类网络错误（含上面的时限到了）。
+// 回了话的（404、5xx、回的不是 JSON）不算：接口还在，换个参数（jre 换 jdk）可能就有。
+func adoptiumDown(err error) bool {
+	var ne net.Error
+	return errors.As(err, &ne)
+}
 
 // adoptiumChecksums 向 Adoptium API 要「文件名 → 官方 SHA-256」。
 // 先看当前发布，再看最近几份正式版：清华镜像经常比「最新」晚一个小版本，
@@ -354,11 +381,6 @@ func adoptiumChecksums(ctx context.Context, major int) (map[string]string, error
 		if name != "" && looksLikeSHA256(sum) {
 			sums[name] = strings.ToLower(sum)
 		}
-	}
-	fetch := func(u string, out any) error {
-		cctx, cancel := context.WithTimeout(ctx, adoptiumIndexWait)
-		defer cancel()
-		return dl.FetchJSONHTTPS(cctx, []string{u}, out)
 	}
 
 	latest := fmt.Sprintf(
@@ -372,7 +394,7 @@ func adoptiumChecksums(ctx context.Context, major int) (map[string]string, error
 			} `json:"package"`
 		} `json:"binary"`
 	}
-	errLatest := fetch(latest, &current)
+	errLatest := fetchAdoptiumJSON(ctx, latest, &current)
 	if errLatest == nil {
 		for _, a := range current {
 			add(a.Binary.Package.Name, a.Binary.Package.Checksum)
@@ -380,6 +402,9 @@ func adoptiumChecksums(ctx context.Context, major int) (map[string]string, error
 	}
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
+	}
+	if adoptiumDown(errLatest) { // 第二问是同一个主机，不再空等
+		return nil, fmt.Errorf("%w：%v", errAdoptiumUnreachable, errLatest)
 	}
 
 	page := fmt.Sprintf(
@@ -393,7 +418,7 @@ func adoptiumChecksums(ctx context.Context, major int) (map[string]string, error
 			} `json:"package"`
 		} `json:"binaries"`
 	}
-	errPage := fetch(page, &releases)
+	errPage := fetchAdoptiumJSON(ctx, page, &releases)
 	if errPage == nil {
 		for _, rel := range releases {
 			for _, b := range rel.Binaries {
@@ -404,10 +429,14 @@ func adoptiumChecksums(ctx context.Context, major int) (map[string]string, error
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
-	if errLatest != nil && errPage != nil {
-		return nil, fmt.Errorf("%w：%v", errAdoptiumUnreachable, errLatest)
+	switch {
+	case errLatest == nil || errPage == nil:
+		return sums, nil
+	case adoptiumDown(errPage):
+		return nil, fmt.Errorf("%w：%v", errAdoptiumUnreachable, errPage)
 	}
-	return sums, nil
+	// 两问都回了话、却都没给出清单（404、回的不是 JSON）：接口还在，Adoptium 官方源那条路照常试
+	return nil, fmt.Errorf("Adoptium 的接口没给出校验值清单：%v", errLatest)
 }
 
 // ---------- 来源 3：Mojang 官方 Java 运行时（BMCLAPI 可镜像，逐文件下载） ----------
