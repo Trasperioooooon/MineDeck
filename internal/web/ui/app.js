@@ -4749,7 +4749,7 @@ async function renderTunnels() {
       <label class="field" data-f="lport" hidden><span>本地端口（这台服务器的端口）</span><input type="number" id="tn-lport" value="25565"></label>
       <label class="field"><span>绑定服务器</span><select id="tn-bound"><option value="">不绑定</option>
         ${insts.map(i => `<option value="${esc(i.name)}">${esc(i.name)}（端口 ${i.port}）</option>`).join("")}</select></label>
-      <div class="field"><label class="switch"><input type="checkbox" id="tn-auto" checked><span class="sw"></span>
+      <div class="field"><label class="switch"><input type="checkbox" id="tn-auto"><span class="sw"></span>
         <span><span class="sw-label">跟随服务器启动</span><div class="sw-desc">绑定的服务器启动时自动拉起隧道，停服后跟着停</div></span></label></div>
     </div>
     <button class="btn primary" id="tn-add" aria-label="确认添加隧道">${icon("plus")} 添加隧道</button>
@@ -5178,7 +5178,7 @@ async function renderTunnels() {
       okText: "导入",
       extra: `<div class="form-grid" style="margin-top:12px">
         <label class="field full"><span>绑定服务器</span>${boundSelect("tn-imp-bound", "", "bound")}</label>
-        <div class="field full"><label class="switch"><input type="checkbox" id="tn-imp-auto" data-k="auto" checked><span class="sw"></span>
+        <div class="field full"><label class="switch"><input type="checkbox" id="tn-imp-auto" data-k="auto"><span class="sw"></span>
           <span class="sw-label">跟随服务器启动</span></label></div>
       </div>`,
     });
@@ -5237,7 +5237,7 @@ async function renderTunnels() {
             <span class="sw-label">这是公开服务器</span></label>
             <div class="hint" id="tn-cr-public-desc">公开服务器指把连接方式发到论坛、服务器列表、QQ 大群，或在 B 站、抖音、小红书等公开平台宣传招人的服务器。樱花规定公开服务器只能用公开服专用节点（名称含「多线」或带公开游戏标记），用错节点会被封号且不退款。只和熟人小范围联机可以不勾。</div></div>` : ""}
           <label class="field full"><span>绑定服务器</span>${boundSelect("tn-cr-bound")}</label>
-          <div class="field full"><label class="switch"><input type="checkbox" id="tn-cr-auto" checked><span class="sw"></span>
+          <div class="field full"><label class="switch"><input type="checkbox" id="tn-cr-auto"><span class="sw"></span>
             <span class="sw-label">跟随服务器启动</span></label></div>
         </div>
         <div class="field-err" id="tn-cr-err" role="alert"></div>
@@ -5604,6 +5604,8 @@ async function renderTunnels() {
       remotePort: custom ? +$("#tn-rport").value || 0 : 0,
       localPort: custom ? +$("#tn-lport").value || 25565 : 0,
       boundInstance: $("#tn-bound").value,
+      /* 「跟随服务器启动」在这里、导入和平台上创建的对话框里都默认不勾（A62）：勾上以后每次开服都自动把服务器映射到公网，
+         由人自己决定。后端没传这一项时也是不跟随（零值），AI 和 MCP 不能新建隧道 */
       autoStart: $("#tn-auto").checked,
       ...(window.MDMusic ? MDMusic.tunnelExtra() : {}), // 第五阶段：purpose、proto
     };

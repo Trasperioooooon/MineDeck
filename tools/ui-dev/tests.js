@@ -2861,6 +2861,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       const inst = await page.$eval(".modal #tn-imp-bound", s => [...s.options].map(o => o.value).find(v => v) || "");
       assert(inst, "导入弹窗里应能选实例");
       await page.selectOption(".modal #tn-imp-bound", inst);
+      await page.check(".modal #tn-imp-auto"); // 默认不勾（A62），这里要验的是勾上的值也带得出去
       await page.click('.modal [data-x="ok"]');
       const last = await taWait("lastImport", v => v.proxyId === "1001");
       assert(last && last.boundInstance === inst && last.autoStart === true,
@@ -3206,6 +3207,44 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(await page.$eval("#tun-list", e => e.textContent.includes("mc_ok")), "本机隧道列表里应有新隧道");
       assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
     } finally { await resetTA(); }
+  });
+
+  // 「跟随服务器启动」默认不勾（A62，以前三处都默认勾着）：勾上以后每次开服都自动映射到公网，要人自己决定。
+  // 手动添加、导入平台隧道、在平台上创建三处一样，不勾时请求里是 false
+  await run("隧道：添加、导入、平台上创建三处的「跟随服务器启动」默认都不勾，不勾时请求里是 false", async () => {
+    await taState({ tunnelAccounts: { reset: true, openfrp: true }, tunnelsReset: true });
+    try {
+      errors.length = 0;
+      await musicState({ music: { reset: true } });
+      await openOverview("openfrp");
+      // 手动添加
+      await page.click("#tn-toggle");
+      assert(await page.$eval("#tn-auto", e => e.checked) === false, "添加表单里默认应不勾");
+      await page.selectOption("#tn-provider", "natfrp");
+      await page.fill("#tn-name", "默认不跟随"); await page.fill("#tn-cred", "fake-key-123"); await page.fill("#tn-proxy", "123456");
+      await page.click("#tn-add");
+      assert(await toastHas("隧道已添加"), "应添加成功");
+      const body = (await musicState({})).music.tunnelBody;
+      assert(body && body.autoStart === false, "添加的请求体：" + JSON.stringify(body));
+      // 导入平台隧道
+      await page.click('#tn-acc-panel [data-acc-import="openfrp"][data-proxy="1001"]');
+      await page.waitForSelector(".modal #tn-imp-auto");
+      assert(await page.$eval(".modal #tn-imp-auto", e => e.checked) === false, "导入对话框里默认应不勾");
+      await page.click('.modal [data-x="ok"]');
+      const imp = await taWait("lastImport", v => v.proxyId === "1001");
+      assert(imp && imp.autoStart === false, "导入的请求体：" + JSON.stringify(imp));
+      await modalGone(); await settle(300);
+      // 在平台上创建
+      await page.click('#tn-acc-panel [data-acc-create="openfrp"]');
+      await page.waitForSelector(".modal #tn-cr-auto");
+      assert(await page.$eval(".modal #tn-cr-auto", e => e.checked) === false, "创建对话框里默认应不勾");
+      await page.fill("#tn-cr-name", "mc_nofollow");
+      await page.click('.modal [data-x="ok"]');
+      const cr = await taWait("lastCreate", v => v.name === "mc_nofollow");
+      assert(cr && cr.autoStart === false, "创建的请求体：" + JSON.stringify(cr));
+      await modalGone();
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await resetTA(); await resetMusic(); }
   });
 
   // 手动添加隧道请求途中不许再点（A57）：以前连点两下会发两次，加出两条一样的隧道
