@@ -20,8 +20,15 @@ var ErrBusy = errors.New("正在安装或卸载 Java，或者有服务器正在�
 // ErrRemoving 这套便携 Java 正在卸载时把服务器换成它，返回此错误（见 UsePortable）。
 var ErrRemoving = errors.New("这套 Java 正在卸载，没有换上。等卸载完再换，或者换成别的 Java")
 
+// ErrNotInstalled 要换上的便携 Java 已经卸载了、卸到一半，或者没装完整（见 UsePortable）。
+var ErrNotInstalled = errors.New("这套 Java 已经卸载了或者没装完整，没有换上。请换成别的 Java，或者重新下载这一版")
+
 // removeTree 删掉一个运行时目录。测试里换成会失败的函数，用来看删到一半时记号还在。
 var removeTree = os.RemoveAll
+
+// afterSwitchMarked、afterRemoveMarked 两边「登记了自己、还没看对方」的那一刻，默认什么都不做。
+// 测试里换成会停住的函数，钉住两边的先后（见下面互斥那段）。
+var afterSwitchMarked, afterRemoveMarked = func() {}, func() {}
 
 // 卸载和「把服务器换成某套便携 Java」互斥（A34）：以前卸载查完没人用、还没删完的那一会儿，另一个页面能把服务器换成这套，
 // 那台服下次开服就找不到 Java。两边各自先登记自己、再看对方：removing 是正在卸载的大版本（0 是没有，卸载拿着 ensureMu，
@@ -35,15 +42,20 @@ var (
 const maxPortableMajor = 64
 
 // UsePortable 把服务器换成便携 Java major 时，用它包住真正去换的 set：set 做完之前这套 Java 不会被卸载
-// （RemovePortable 报 ErrBusy）；这套 Java 正在卸载时不调 set，返回 ErrRemoving。
+// （RemovePortable 报 ErrBusy）；这套 Java 正在卸载时不调 set，返回 ErrRemoving；已经卸了、卸到一半（失败后留着
+// java.exe 和「没装完」记号）或者没装完整时也不调，返回 ErrNotInstalled：调用方先前查过「装着」，到这里可能已经变了。
 func UsePortable(major int, set func() error) error {
 	if major < 8 || major > maxPortableMajor {
 		return set() // 不是便携 Java 的大版本，RemovePortable 也不会删它
 	}
 	switching[major].Add(1)
 	defer switching[major].Add(-1)
+	afterSwitchMarked()
 	if removing.Load() == int32(major) {
 		return ErrRemoving
+	}
+	if !IsInstalled(major) {
+		return ErrNotInstalled
 	}
 	return set()
 }
@@ -64,14 +76,14 @@ func IncompletePortable() []int {
 		if rest, ok := strings.CutPrefix(name, "java-"); ok {
 			if base, mark := strings.CutSuffix(rest, ".incomplete"); mark {
 				if e.Type().IsRegular() {
-					if major, err := strconv.Atoi(base); err == nil && major >= 8 && major <= 64 && !IsInstalled(major) {
+					if major, err := strconv.Atoi(base); err == nil && major >= 8 && major <= maxPortableMajor && !IsInstalled(major) {
 						seen[major] = true
 					}
 				}
 				continue
 			}
 			if e.IsDir() && e.Type()&(fs.ModeSymlink|fs.ModeIrregular) == 0 {
-				if major, err := strconv.Atoi(rest); err == nil && major >= 8 && major <= 64 && !IsInstalled(major) {
+				if major, err := strconv.Atoi(rest); err == nil && major >= 8 && major <= maxPortableMajor && !IsInstalled(major) {
 					seen[major] = true
 				}
 			}
@@ -138,6 +150,7 @@ func RemovePortable(major int, inUse func(dir string) error) error {
 	}
 	removing.Store(int32(major)) // 先记上自己、再看有没有人正在换成它（顺序见 UsePortable）
 	defer removing.Store(0)
+	afterRemoveMarked()
 	if switching[major].Load() > 0 {
 		return ErrBusy
 	}

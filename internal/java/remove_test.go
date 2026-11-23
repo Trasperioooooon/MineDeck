@@ -155,10 +155,11 @@ func TestRemovePortableRefusesJunctionAndNestedJunction(t *testing.T) {
 }
 
 // 卸载停在「查完有没有人用、还没删」那一刻时把服务器换成这套：换不上（ErrRemoving，真正去换的那一步不调），
-// 别的大版本照常换；卸完以后不再挡（A34）。
+// 别的大版本照常换；卸完以后不再挡：重新装上就能换（A34）。
 func TestUsePortableRefusedWhileRemoving(t *testing.T) {
 	runtimesIn(t)
 	touch(t, Exe(17))
+	touch(t, Exe(21))
 	reached, release := make(chan struct{}), make(chan struct{})
 	unblock := sync.OnceFunc(func() { close(release) })
 	old := removeTree
@@ -181,8 +182,93 @@ func TestUsePortableRefusedWhileRemoving(t *testing.T) {
 	if removeErr != nil {
 		t.Fatal(removeErr)
 	}
+	touch(t, Exe(17)) // 卸完以后重新装上
 	if err := UsePortable(17, func() error { return nil }); err != nil {
 		t.Fatalf("卸完以后不该再挡：%v", err)
+	}
+}
+
+// 换 Java 刚登记了自己、还没看有没有在卸载的那一刻卸载这套：卸载看得到它，报 ErrBusy，什么都不删；
+// 换 Java 随后照常换上（A34）。钉住换 Java 这边「先登记自己、再看对方」的先后。
+func TestRemovePortableBusyWhenSwitchMarkedFirst(t *testing.T) {
+	runtimesIn(t)
+	touch(t, Exe(17))
+	paused, resume := make(chan struct{}), make(chan struct{})
+	release := sync.OnceFunc(func() { close(resume) })
+	old := afterSwitchMarked
+	afterSwitchMarked = func() { close(paused); <-resume }
+	var setErr error
+	called := false
+	done := make(chan struct{})
+	t.Cleanup(func() { release(); <-done; afterSwitchMarked = old }) // 中途失败也让换 Java 走完，不留着「正在换」
+	go func() { setErr = UsePortable(17, func() error { called = true; return nil }); close(done) }()
+	<-paused
+
+	inUseCalled := false
+	if err := RemovePortable(17, func(string) error { inUseCalled = true; return nil }); !errors.Is(err, ErrBusy) || inUseCalled {
+		t.Fatalf("换 Java 已经登记时卸载应报 ErrBusy、不往下查：err=%v 查了有没有人用=%v", err, inUseCalled)
+	}
+	if !IsInstalled(17) {
+		t.Fatal("报忙时不该动这套 Java")
+	}
+	release()
+	<-done
+	if setErr != nil || !called {
+		t.Fatalf("卸载报忙以后，换 Java 应照常换上：err=%v 换了=%v", setErr, called)
+	}
+}
+
+// 卸载刚登记了自己、还没看有没有人在换的那一刻换成这套：换 Java 看得到它，被拒（ErrRemoving），真正去换的那一步不调；
+// 卸载随后照常卸掉（A34）。钉住卸载这边「先登记自己、再看对方」的先后。
+func TestUsePortableRefusedWhenRemoveMarkedFirst(t *testing.T) {
+	runtimesIn(t)
+	touch(t, Exe(17))
+	paused, resume := make(chan struct{}), make(chan struct{})
+	release := sync.OnceFunc(func() { close(resume) })
+	old := afterRemoveMarked
+	afterRemoveMarked = func() { close(paused); <-resume }
+	var removeErr error
+	done := make(chan struct{})
+	t.Cleanup(func() { release(); <-done; afterRemoveMarked = old }) // 中途失败也让卸载走完，不留着「正在卸载」和安装锁
+	go func() { removeErr = RemovePortable(17, func(string) error { return nil }); close(done) }()
+	<-paused
+
+	called := false
+	if err := UsePortable(17, func() error { called = true; return nil }); !errors.Is(err, ErrRemoving) || called {
+		t.Fatalf("卸载已经登记时换成这套应被拒、不去换：err=%v 换了=%v", err, called)
+	}
+	release()
+	<-done
+	if removeErr != nil || IsInstalled(17) {
+		t.Fatalf("换 Java 被拒以后，卸载应照常卸掉：err=%v 还装着=%v", removeErr, IsInstalled(17))
+	}
+}
+
+// 卸到一半失败（java.exe 删不掉、留着「没装完」记号）或者已经卸干净的便携 Java 不让换上：返回 ErrNotInstalled，
+// 真正去换的那一步不调（A34）。调用方查「装着」和换之间，卸载可能已经走完了。
+func TestUsePortableRefusesRemovedOrHalfRemoved(t *testing.T) {
+	runtimesIn(t)
+	touch(t, Exe(17))
+	old := removeTree
+	removeTree = func(string) error { return errors.New("被别的程序占着，删不动") }
+	t.Cleanup(func() { removeTree = old })
+	if err := RemovePortable(17, nil); err == nil {
+		t.Fatal("这次卸载应该失败")
+	}
+	if _, err := os.Stat(Exe(17)); err != nil {
+		t.Fatalf("卸到一半，java.exe 应还在：%v", err)
+	}
+	called := false
+	if err := UsePortable(17, func() error { called = true; return nil }); !errors.Is(err, ErrNotInstalled) || called {
+		t.Fatalf("卸到一半的这套不该换上：err=%v 换了=%v", err, called)
+	}
+
+	removeTree = old
+	if err := RemovePortable(17, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := UsePortable(17, func() error { called = true; return nil }); !errors.Is(err, ErrNotInstalled) || called {
+		t.Fatalf("卸干净的这套不该换上：err=%v 换了=%v", err, called)
 	}
 }
 

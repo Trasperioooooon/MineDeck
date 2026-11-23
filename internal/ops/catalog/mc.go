@@ -136,6 +136,9 @@ func (c *cat) mcOps() {
 				return nil, ops.Errorf(400, "卸载 Java 需要明确确认")
 			}
 			err = java.RemovePortable(p.Major, func(dir string) error {
+				// 先看有没有正在建的，再拿服务器列表：新建、导入、接管是先登记进列表、再放掉「正在创建」。先拿列表的话，
+				// 任务正好在两步之间做完，拿列表时它还没登记，再看时「正在创建」已经放掉，两样都漏
+				creating := c.Mgr.HasCreating()
 				var configured, running []string
 				for _, i := range c.Mgr.List() {
 					_, cfgPath := i.JavaSnapshot()
@@ -155,7 +158,7 @@ func (c *cat) mcOps() {
 				if len(configured) > 0 {
 					return ops.Errorf(409, "服务器还在用 Java %d（%s），请先到「设置 → 启动与内存」更换后再卸载", p.Major, strings.Join(configured, "、"))
 				}
-				if c.Mgr.HasCreating() {
+				if creating {
 					return ops.Errorf(409, "有服务器正在创建或导入，可能正在使用便携 Java，请等任务结束再卸载")
 				}
 				return nil
