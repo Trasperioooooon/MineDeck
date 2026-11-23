@@ -307,7 +307,7 @@ func openfrpZip(t *testing.T, exe string) []byte {
 // 下次启动重新下载，下好的就能用。
 func TestOpenfrpBadZipIsDroppedAndRedownloaded(t *testing.T) {
 	f := newFrpcFake(t)
-	exe := "MZ OpenFrp frpc 一号"
+	exe := string(fakeFrpcExe()) + "一号" // 解压后要过结构检查（inspectExe），随手写的几个字会被当成坏的
 	good := openfrpZip(t, exe)
 	zipURL := "/client/OF_t1/" + openfrpFrpcZip
 	f.set(func(f *frpcFake) { f.files[zipURL] = breakEntry(t, good, frpPad) })
@@ -332,10 +332,59 @@ func TestOpenfrpBadZipIsDroppedAndRedownloaded(t *testing.T) {
 	}
 }
 
+// 缓存里的 zip 能解压、里面的 frpc 却是坏的（以前下坏了、大小又够，dl.Fetch 一直复用它）：以前每次启动都删掉 frpc、
+// 再从这个 zip 解压出同样坏的一份，一直循环。现在解压出来的坏了，连同缓存的 zip 一起删掉，重新下载一次，下好的照常用（A56）。
+func TestOpenfrpCachedZipWithBrokenExeIsRedownloaded(t *testing.T) {
+	f := newFrpcFake(t)
+	zipURL := "/client/OF_t1/" + openfrpFrpcZip
+	good := string(fakeFrpcExe()) + "重新下的"
+	f.set(func(f *frpcFake) { f.files[zipURL] = openfrpZip(t, good) })
+	writeFile(t, filepath.Join(app.CacheDir, "frpc", "openfrp-frpc-OF_t1.zip"), openfrpZip(t, string(fakeFrpcExe()[:700])))
+	dir := frpcDir("openfrp")
+	exe := filepath.Join(dir, "frpc_windows_amd64.exe")
+	writeFile(t, exe, fakeFrpcExe()[:700]) // 上次从那个 zip 解压出来的
+	con := procutil.NewConsole()
+	got, err := (openfrpProvider{}).EnsureFrpc(con)
+	if err != nil || got != exe || readFile(t, got) != good {
+		t.Fatalf("应删掉坏的 zip、重新下载：%s %v", got, err)
+	}
+	if n := f.hitCount(zipURL); n != 1 {
+		t.Fatalf("应重新下载一次，实际 %d 次", n)
+	}
+	if lines := strings.Join(con.Lines(), "\n"); !strings.Contains(lines, "解压出来的 frpc 是坏的：frpc_windows_amd64.exe") || !strings.Contains(lines, "重新下载一次") {
+		t.Fatalf("控制台要说清楚：%s", lines)
+	}
+}
+
+// 下载站给的 zip 里 frpc 就是坏的：只重新下载一次，第二次还是坏的就停下，说清「下载到的 frpc 是坏的」和手动放的办法；
+// 坏的 frpc 和缓存的 zip 都不留，下次启动不会拿它们再来一遍（A56）。
+func TestOpenfrpBrokenExeInDownloadStopsAfterOneRetry(t *testing.T) {
+	f := newFrpcFake(t)
+	zipURL := "/client/OF_t1/" + openfrpFrpcZip
+	f.set(func(f *frpcFake) { f.files[zipURL] = openfrpZip(t, "<html>下载站的报错页</html>") })
+	got, err := (openfrpProvider{}).EnsureFrpc(procutil.NewConsole())
+	dir := frpcDir("openfrp")
+	if got != "" || err == nil || !strings.Contains(err.Error(), "下载到的 frpc 是坏的：frpc_windows_amd64.exe") ||
+		!strings.Contains(err.Error(), "手动从 OpenFrp 下载") || !strings.HasSuffix(err.Error(), dir+" 文件夹后重试") {
+		t.Fatalf("第二次还是坏的应停下报错：%q %v", got, err)
+	}
+	if n := f.hitCount(zipURL); n != 2 {
+		t.Fatalf("应一共下载两次，实际 %d 次", n)
+	}
+	if exe := findExe(dir); exe != "" {
+		t.Fatalf("坏的 frpc 不该留下：%s", exe)
+	}
+	if _, err := os.Stat(filepath.Join(app.CacheDir, "frpc", "openfrp-frpc-OF_t1.zip")); !os.IsNotExist(err) {
+		t.Fatalf("缓存的 zip 应删掉：%v", err)
+	}
+}
+
 // 换了版本（latest_full 变了）：缓存的 zip 名字跟着变，删掉 frpc 想升级时下的是新的，不复用旧 zip。
 func TestOpenfrpNewVersionDoesNotReuseOldZip(t *testing.T) {
 	f := newFrpcFake(t)
-	f.set(func(f *frpcFake) { f.files["/client/OF_t1/"+openfrpFrpcZip] = openfrpZip(t, "MZ 旧版") })
+	f.set(func(f *frpcFake) {
+		f.files["/client/OF_t1/"+openfrpFrpcZip] = openfrpZip(t, string(fakeFrpcExe())+"旧版")
+	})
 	if _, err := (openfrpProvider{}).EnsureFrpc(procutil.NewConsole()); err != nil {
 		t.Fatal(err)
 	}
@@ -344,10 +393,10 @@ func TestOpenfrpNewVersionDoesNotReuseOldZip(t *testing.T) {
 	}
 	f.set(func(f *frpcFake) {
 		f.full = "OF_t2"
-		f.files["/client/OF_t2/"+openfrpFrpcZip] = openfrpZip(t, "MZ 新版")
+		f.files["/client/OF_t2/"+openfrpFrpcZip] = openfrpZip(t, string(fakeFrpcExe())+"新版")
 	})
 	got, err := (openfrpProvider{}).EnsureFrpc(procutil.NewConsole())
-	if err != nil || readFile(t, got) != "MZ 新版" {
+	if err != nil || readFile(t, got) != string(fakeFrpcExe())+"新版" {
 		t.Fatalf("换了版本应下新的：%v", err)
 	}
 	for _, n := range []string{"openfrp-frpc-OF_t1.zip", "openfrp-frpc-OF_t2.zip"} {
@@ -405,9 +454,9 @@ func TestOpenfrpRefusesRedirectToHTTP(t *testing.T) {
 
 	f.set(func(f *frpcFake) {
 		f.redir[zipURL] = "https://cdn.test/real.zip"
-		f.files["/real.zip"] = openfrpZip(t, "MZ 跳过去下到的")
+		f.files["/real.zip"] = openfrpZip(t, string(fakeFrpcExe())+"跳过去下到的")
 	})
-	if got, err := (openfrpProvider{}).EnsureFrpc(procutil.NewConsole()); err != nil || readFile(t, got) != "MZ 跳过去下到的" {
+	if got, err := (openfrpProvider{}).EnsureFrpc(procutil.NewConsole()); err != nil || readFile(t, got) != string(fakeFrpcExe())+"跳过去下到的" {
 		t.Fatalf("跳到 https 的应照常跟：%v", err)
 	}
 }

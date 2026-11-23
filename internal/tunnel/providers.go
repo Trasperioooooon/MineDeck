@@ -310,23 +310,71 @@ func (openfrpProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	zipPath := openfrpZipCache(meta)
+	return openfrpInstall(ctx, con, urls, openfrpZipCache(meta), dir, skip)
+}
+
+// openfrpInstall 下载（或复用缓存的）zip、解压、挑出 frpc；skip 见 usableFrpc。
+// 这个 zip 没有哈希可对：能解压、里面的 frpc 却是坏的时，以前每次启动都删掉 frpc、再从同一个缓存的 zip 解压出同样坏的一份，
+// 一直循环（A56）。现在解压出来的 frpc 坏了就连同缓存的 zip 一起删掉，重新下载一次；还是坏的就停下报错，请人手动放。
+func openfrpInstall(ctx context.Context, con *procutil.Console, urls []string, zipPath, dir string, skip []string) (string, error) {
+	for try := 1; ; try++ {
+		exe, bad, err := openfrpFetchExtract(ctx, urls, zipPath, dir, skip)
+		if err != nil || bad == "" {
+			return exe, err
+		}
+		if try == 2 {
+			_ = os.MkdirAll(dir, 0o755)
+			return "", fmt.Errorf("下载到的 frpc 是坏的：%s。重新下载了一次还是这样，已经删掉。可以手动从 OpenFrp 下载 frpc_windows_amd64.zip，"+
+				"把 zip 里的 frpc_windows_amd64.exe 放入 %s 文件夹后重试", bad, dir)
+		}
+		con.Append(fmt.Sprintf("[MineDeck] 解压出来的 frpc 是坏的：%s。已经删掉它和缓存的压缩包，重新下载一次 ...", bad))
+	}
+}
+
+// openfrpFetchExtract 下载一次、解压一次、挑出 frpc。解压出来的 frpc 是坏的时，bad 说明是哪个、怎么坏的（这时 exe 为空）。
+// 这个 zip 没有哈希可对，dl.Fetch 下次见它够大就直接复用：解压不了、里面的 frpc 是坏的、或者里面没有 frpc 的，删掉，下次重新下载。
+// frpc 解压出来又被杀毒软件删了的（errFrpcGone）不算 zip 坏了，留着。
+func openfrpFetchExtract(ctx context.Context, urls []string, zipPath, dir string, skip []string) (exe, bad string, err error) {
 	if err := dl.Fetch(ctx, dl.Request{URLs: urls, Dest: zipPath, MinSize: 1 << 20, Client: openfrpHTTPClient}, nil); err != nil {
 		_ = os.MkdirAll(dir, 0o755) // 提示里叫人把 exe 放进这个文件夹，先建好（同樱花那条）
-		return "", fmt.Errorf("下载 OpenFrp frpc 失败（可手动从 OpenFrp 下载 frpc_windows_amd64.zip，把 zip 里的 frpc_windows_amd64.exe 放入 %s 文件夹后重试）: %w", dir, err)
+		return "", "", fmt.Errorf("下载 OpenFrp frpc 失败（可手动从 OpenFrp 下载 frpc_windows_amd64.zip，把 zip 里的 frpc_windows_amd64.exe 放入 %s 文件夹后重试）: %w", dir, err)
 	}
-	// 这个 zip 没有哈希可对，dl.Fetch 下次见它够大就直接复用：解压不了、或者里面没有 frpc 的，删掉，下次重新下载。
-	// frpc 解压出来又被杀毒软件删了的（errFrpcGone）不算 zip 坏了，留着
 	names, err := extractZipFlat(zipPath, dir)
 	if err != nil {
 		_ = os.Remove(zipPath)
-		return "", err
+		return "", "", err
+	}
+	if bad, err = dropBadExtracted(dir, names); bad != "" {
+		_ = os.Remove(zipPath)
+	}
+	if err != nil || bad != "" {
+		return "", bad, err
 	}
 	exe, err = frpcAfterExtract(dir, names, skip, fmt.Errorf("OpenFrp frpc 解压后未找到可执行文件"))
 	if err != nil && !errors.Is(err, errFrpcGone) {
 		_ = os.Remove(zipPath)
 	}
-	return exe, err
+	return exe, "", err
+}
+
+// dropBadExtracted 这次解压出来的 frpc 逐个查一遍，坏的删掉（是这次刚放进去的，归 MineDeck 管；删前同样确认没被换掉）。
+// 返回第一个坏的是哪个、怎么坏的，都好时为空。删不掉时返回错误。
+func dropBadExtracted(dir string, names []string) (bad string, err error) {
+	for _, n := range names {
+		if !isFrpcExeName(n) {
+			continue
+		}
+		c, err := checkFrpc(filepath.Join(dir, n), func(exeState) bool { return true })
+		if c.state == exeTruncated || c.state == exeNotPE {
+			if bad == "" {
+				bad = fmt.Sprintf("%s（%s）", n, c.why)
+			}
+			if err != nil {
+				return bad, fmt.Errorf("解压出来的 %s 是坏的（%s），又没能删掉它（%w）。请关掉可能占着它的程序，手动删掉这个文件后重试。它在这个文件夹：%s", n, c.why, err, dir)
+			}
+		}
+	}
+	return bad, nil
 }
 
 func (openfrpProvider) Launch(t *Tunnel) ([]string, []string, error) {
