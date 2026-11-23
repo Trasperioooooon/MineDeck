@@ -613,6 +613,17 @@ func TestAdoptPreservesCustomLog4jXMLWithoutReference(t *testing.T) {
 		if !strings.Contains(bat, log4jConfig) {
 			t.Fatalf("run.bat 应保留旧 .bak 里的引用：\n%s", bat)
 		}
+		for _, w := range snap.Warnings {
+			if w.Kind == "custom-log4j" {
+				t.Fatalf("ExtraJVM 已含该日志配置引用时不应再出 custom-log4j 告警：%+v", w)
+			}
+		}
+		if logJoined := strings.Join(snap.Log, "\n"); strings.Contains(logJoined, "等于没防") {
+			t.Fatalf("ExtraJVM 已含该日志配置引用时接管日志不应说等于没防：\n%s", logJoined)
+		}
+		if con := strings.Join(i.Console.Lines(), "\n"); strings.Contains(con, "等于没防") {
+			t.Fatalf("ExtraJVM 已含该日志配置引用时实例控制台不应说等于没防：\n%s", con)
+		}
 	})
 
 	t.Run("没有同名文件或本身就是官方那份时照旧加上引用", func(t *testing.T) {

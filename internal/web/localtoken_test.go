@@ -212,3 +212,36 @@ func TestListInstancesUnauthorizedOmitsDuplicates(t *testing.T) {
 		t.Fatalf("未鉴权请求不应返回 duplicates：%s", rec.Body.String())
 	}
 }
+
+// 直接调 Server.do（绕过外层 secure 中间件）：局域网调用方请求仅本机操作时，s.ops.Check 拒回 403，且成功后追加顶层字段的回调不被调用。
+func TestServerDoPermissionDeniedSkipsExtraCallback(t *testing.T) {
+	e := newFullEnv(t)
+	tun := tunnel.NewManager()
+	reg := catalog.New(catalog.Env{Mgr: e.mgr, Tun: tun, Port: 27333})
+	s := &Server{mgr: e.mgr, tun: tun, ops: reg}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/openpath", strings.NewReader(`{"path":"."}`))
+	req.Host = "192.168.1.10:27333"
+	req.RemoteAddr = "192.168.1.50:52000"
+	rec := httptest.NewRecorder()
+
+	called := false
+	s.do(rec, req, "host.openpath", nil, func(body map[string]any) {
+		called = true
+		body["duplicates"] = []string{"leaked"}
+	})
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("局域网调用仅本机操作应回 403，实际 HTTP %d：%s", rec.Code, rec.Body.String())
+	}
+	if called {
+		t.Fatal("权限校验失败时不应调用 extra 回调")
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := body["duplicates"]; ok {
+		t.Fatalf("403 响应里不应带有 extra 回调写入的字段：%s", rec.Body.String())
+	}
+}

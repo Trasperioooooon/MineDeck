@@ -200,15 +200,7 @@ func NewManager() (*Manager, error) {
 			if fromRoot {
 				if inst, ok := fromDirs[key]; ok {
 					delete(fromDirs, key)
-					if inst.Dir != dir {
-						oldDir := inst.Dir
-						inst.Dir = dir
-						for idx := range m.skippedDups {
-							if m.skippedDups[idx].KeptDir == oldDir {
-								m.skippedDups[idx].KeptDir = dir
-							}
-						}
-					}
+					inst.Dir = dir
 				}
 			}
 			return
@@ -565,15 +557,6 @@ type SettingsSaveResult struct {
 	Note       string   `json:"note,omitempty"`
 }
 
-func (i *Instance) settingsSnapshot() Settings {
-	i.procMu.Lock()
-	defer i.procMu.Unlock()
-	s := i.Settings
-	s.ExtraJVM = append([]string(nil), i.ExtraJVM...)
-	s.Policies.Schedules = append([]Schedule(nil), i.Policies.Schedules...)
-	return s
-}
-
 // computeSettingsUpdate 按同一套规则校验并算出更新后的运行参数（PreviewSettings 与 UpdateSettingsWithResult 共用，A28）。
 // 只读 cur 值副本与磁盘上的服务端 jar / 日志配置文件，不碰 Instance 锁。
 func computeSettingsUpdate(cur Settings, dir string, xmxMB, xmsMB int, consoleEnc string, extraJVM *[]string) (Settings, SettingsSaveResult, error) {
@@ -618,7 +601,7 @@ func computeSettingsUpdate(cur Settings, dir string, xmxMB, xmsMB int, consoleEn
 // PreviewSettings 不落盘地算出修改运行参数后实际会存、会用的参数（AI 确认卡片和界面「启动与内存」预览共用，A28）。
 // 只在取当前设置快照时短暂持 procMu，开包检查服务端 jar 与读日志配置文件都在锁外完成，不阻塞 Status 等状态查询。
 func (i *Instance) PreviewSettings(xmxMB, xmsMB int, consoleEnc string, extraJVM *[]string) (SettingsSaveResult, error) {
-	cur := i.settingsSnapshot()
+	cur := i.SettingsSnapshot()
 	_, res, err := computeSettingsUpdate(cur, i.Dir, xmxMB, xmsMB, consoleEnc, extraJVM)
 	return res, err
 }
