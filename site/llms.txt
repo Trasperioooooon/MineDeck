@@ -3,7 +3,7 @@
 > MineDeck 是 Windows 上的我的世界（Minecraft Java 版）一键开服工具：单文件 exe，自动下载 Java 和服务端，图形界面管理服务器，整合包一键导入，内置樱花穿透、OpenFrp 内网穿透；可选接入自己的 AI Key，提供 AI 开服助手、游戏内 AI、AI 伙伴，以及音乐共享。MineDeck is a one-click Minecraft (Java Edition) server launcher for Windows. Its interface is Chinese only for now. MIT licensed.
 
 - Platform: Windows 10 / 11 (Windows 11 recommended: music sharing can record a single program there).
-- Distribution: a single `MineDeck.exe` (about 17 MB, no installer, no dependencies), downloaded from GitHub Releases. Current version: 3.2.4 (stable).
+- Distribution: a single `MineDeck.exe` (about 17 MB, no installer, no dependencies), downloaded from GitHub Releases. Current version: 3.2.5 (stable).
 - Server software: Vanilla, Paper, Purpur, Leaves, Folia, Fabric, NeoForge, Forge, Mohist, Taiyitist (formerly Banner), Velocity, Waterfall; Minecraft 1.12.2 to the latest release. Modrinth (`.mrpack`) and CurseForge (zip) modpacks can be imported.
 - Java: picked from Mojang's version metadata and downloaded as a portable runtime; nothing to install by hand.
 - Playing with friends elsewhere: built-in frp tunnels (SakuraFrp, OpenFrp, self-hosted frps).
@@ -18,6 +18,7 @@
 ## Docs
 
 - [README](https://raw.githubusercontent.com/Trasperioooooon/MineDeck/main/README.md): 功能一览、使用、常见问题、从源码构建、架构，末尾有英文简介
+- [v3.2.5 发布说明](https://raw.githubusercontent.com/Trasperioooooon/MineDeck/main/docs/releases/v3.2.5.md): 和 v3.2.4 相比的变化（许可证改为 GNU AGPL-3.0；同一个文件夹里只能开一份 MineDeck；新建、导入时查出被别的程序占着和被 Windows 系统保留的端口；1.21.9 起四个游戏规则开关按世界存档显示、按版本发对的命令；上次启动失败的原因重开后还在；备份不互相覆盖，启动时清理没写完的临时文件范围更大、规则更严；同名服务器接管进来的优先；自带日志配置的老服务器不再被换掉，并说明等于没防）
 - [v3.2.4 发布说明](https://raw.githubusercontent.com/Trasperioooooon/MineDeck/main/docs/releases/v3.2.4.md): 和 v3.2.3 相比的变化（整合包里没装上的文件一次最多处理 500 个、能全选可下载项；能卸载 MineDeck 下载的 Java；从清华镜像下载的 Java 要对上 Adoptium 官方校验值，连不上 Adoptium 官方接口时改用 Mojang 运行时；上次没建完的服务器文件夹能删掉；接管 Velocity 认得更准；Banner 改叫 Taiyitist；能打开 Modrinth 上的项目页；NeoForge 安装器核对官方 SHA-1），给 AI 助手和 MCP 调用方的变化、实际试过的、没实测的、已知情况
 - [v3.2.3 发布说明](https://raw.githubusercontent.com/Trasperioooooon/MineDeck/main/docs/releases/v3.2.3.md): 和 v3.2.2 相比修了什么（服务端自带的 log4j 修过了的不再套 Mojang 的日志配置、已经套上的摘掉，当初没套上配置的老服补上，Spigot 和 1.11.2 及以前的 Paper 不补；认出以前留下的半截 frpc；工具箱导出和待装清单界面在清单读不出来时的说法；程序被强退后留下的临时文件、保存时的重试、报错不带本机路径、解压 Java 排队时能取消、备份不重名），实际试过的、没实测的、已知情况
 - [v3.2.2 发布说明](https://raw.githubusercontent.com/Trasperioooooon/MineDeck/main/docs/releases/v3.2.2.md): 和 v3.2.1 相比修了什么（1.7 到 1.11.2 服务器的 log4shell 防护实测没起作用、换成 Mojang 给这段版本的配置并自动迁移，待装清单读不出来时不再当空清单，frpc 解压失败不再留下半截程序、下载只认 https，另有七个小问题）、给 AI 助手和 MCP 调用方的变化、这一版实际试过的和还没实测过的、已知情况
