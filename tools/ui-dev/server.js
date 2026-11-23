@@ -3012,7 +3012,7 @@ function handler(state, ui, portOf) {
         const major = b.major;
         if (major < 8 || major > 64) return err(res, 400, "参数 major 应在 8 到 64 之间");
         if (!b.confirm) return err(res, 400, "卸载 Java 需要明确确认");
-        if (state.javaBusy) return err(res, 409, "正在安装或卸载 Java，请稍后再试");
+        if (state.javaBusy) return err(res, 409, "正在安装或卸载 Java，或者有服务器正在换成这套 Java，请稍后再试");
         const hasDir = (state.portableJavas || []).some(j => j.major === major);
         const hasMark = (state.incompleteJavas || []).includes(major);
         if (!hasDir && !hasMark) return err(res, 400, `没有安装 Java ${major} 的便携运行时`);

@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 
@@ -150,6 +151,61 @@ func TestRemovePortableRefusesJunctionAndNestedJunction(t *testing.T) {
 	}
 	if b, err := os.ReadFile(keepFile); err != nil || string(b) != "external-java" {
 		t.Fatalf("子联接目标被动过：%v %q", err, b)
+	}
+}
+
+// 卸载停在「查完有没有人用、还没删」那一刻时把服务器换成这套：换不上（ErrRemoving，真正去换的那一步不调），
+// 别的大版本照常换；卸完以后不再挡（A34）。
+func TestUsePortableRefusedWhileRemoving(t *testing.T) {
+	runtimesIn(t)
+	touch(t, Exe(17))
+	reached, release := make(chan struct{}), make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(release) })
+	old := removeTree
+	removeTree = func(dir string) error { close(reached); <-release; return old(dir) }
+	var removeErr error
+	finished := make(chan struct{})
+	t.Cleanup(func() { unblock(); <-finished; removeTree = old }) // 中途失败也让卸载走完，不留着「正在卸载」
+	go func() { removeErr = RemovePortable(17, func(string) error { return nil }); close(finished) }()
+	<-reached
+
+	called := false
+	if err := UsePortable(17, func() error { called = true; return nil }); !errors.Is(err, ErrRemoving) || called {
+		t.Fatalf("卸载途中换成这套应被拒、不去换：err=%v 换了=%v", err, called)
+	}
+	if err := UsePortable(21, func() error { return nil }); err != nil {
+		t.Fatalf("别的大版本不受影响：%v", err)
+	}
+	unblock()
+	<-finished
+	if removeErr != nil {
+		t.Fatal(removeErr)
+	}
+	if err := UsePortable(17, func() error { return nil }); err != nil {
+		t.Fatalf("卸完以后不该再挡：%v", err)
+	}
+}
+
+// 有服务器正在换成这套便携 Java（换的那一步还没做完）时卸载：报 ErrBusy，什么都不删；换完以后照常能卸（A34）。
+func TestRemovePortableBusyWhileSwitching(t *testing.T) {
+	runtimesIn(t)
+	touch(t, Exe(21))
+	inSet, finish, switched := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	release := sync.OnceFunc(func() { close(finish) })
+	t.Cleanup(func() { release(); <-switched }) // 中途失败也让换 Java 走完，不留着「正在换」
+	go func() { _ = UsePortable(21, func() error { close(inSet); <-finish; return nil }); close(switched) }()
+	<-inSet
+
+	if err := RemovePortable(21, nil); !errors.Is(err, ErrBusy) {
+		t.Fatalf("换 Java 途中卸载应报 ErrBusy：%v", err)
+	}
+	if !IsInstalled(21) {
+		t.Fatal("报忙时不该动这套 Java")
+	}
+	release()
+	<-switched
+	if err := RemovePortable(21, nil); err != nil {
+		t.Fatalf("换完以后应能卸：%v", err)
 	}
 }
 

@@ -8,12 +8,14 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"minedeck/internal/inst"
 	"minedeck/internal/java"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/ops"
+	"minedeck/internal/tasks"
 )
 
 // mcOps 核心、版本、构建，以及 Java 运行时。
@@ -117,7 +119,7 @@ func (c *cat) mcOps() {
 		Name: "java.remove", Title: "卸载便携 Java", Level: ops.HumanOnly, LocalOnly: true,
 		LocalMsg: "卸载便携 Java 仅支持在本机操作",
 		Desc: "删除 MineDeck 自己下载的某一版便携 Java（runtimes/java-N）。不删除系统里安装的 Java。" +
-			"有服务器还配着它、或正在用它启动时拒绝。confirm 必须为 true。删到一半会留下「没装完」记号，不会把半截当成已装好。",
+			"有服务器还配着它、正在用它启动、或者正在换成它时拒绝。confirm 必须为 true。删到一半会留下「没装完」记号，不会把半截当成已装好。",
 		Params: ops.Object(map[string]*ops.Schema{
 			"major":   ops.Integer("要卸载的大版本，例如 17、21").Range(8, 64),
 			"confirm": ops.Boolean("用户已确认删除这一套便携 Java"),
@@ -225,6 +227,20 @@ func javaPathInside(path, dir string) bool {
 	return err == nil && rel != "." && filepath.IsLocal(rel)
 }
 
+// setJava 给服务器换上 jp。jp 是 MineDeck 的便携 Java 时和卸载互斥（A34）：这套 Java 正在卸载时换不上（409），
+// 换的途中卸载报忙。本机装的 Java 不经 MineDeck 卸载，直接换。
+func (c *cat) setJava(name string, major int, jp string) error {
+	set := func() error { return c.Mgr.SetJava(name, major, jp) }
+	if !javaPathInside(jp, java.Dir(major)) {
+		return set()
+	}
+	err := java.UsePortable(major, set)
+	if errors.Is(err, java.ErrRemoving) {
+		return ops.Errorf(409, "%s", err.Error())
+	}
+	return err
+}
+
 // javaSetOp 给实例换 Java（§5.2 java_set）：已有这个版本就直接换，没有就在后台下载便携版再换（返回任务编号）。
 func (c *cat) javaSetOp() {
 	type javaArgs struct {
@@ -232,10 +248,12 @@ func (c *cat) javaSetOp() {
 		Major int    `json:"major"`
 		Path  string `json:"path"`
 	}
+	downloads := &javaDownloads{}
 	c.reg.Register(&ops.Op{
 		Name: "instance.java.set", Title: "给服务器换 Java", Level: ops.Write,
 		Desc: "换成指定大版本的 Java，下次启动生效。本机或 MineDeck 已经有这个版本就直接换；没有的话在后台下载便携版（不改系统环境），" +
-			"返回任务编号（进度见 task.get）。path 可以指定用哪一个（必须是 java.list 里列出来的）。",
+			"返回任务编号（进度见 task.get），这台服务器同一个版本的下载还在跑时返回那个任务的编号。" +
+			"path 可以指定用哪一个（必须是 java.list 里列出来的）。那套便携 Java 正在卸载时拒绝。",
 		Params: withInst(map[string]*ops.Schema{
 			"major": ops.Integer("Java 大版本，如 8、17、21").Range(8, 30),
 			"path":  ops.String("用 java.list 里的哪一个 java.exe；空串自动选").Len(0, 500),
@@ -276,7 +294,7 @@ func (c *cat) javaSetOp() {
 				return nil, err
 			}
 			if jp, ok := knownJava(p.Major, p.Path); ok {
-				if err := c.Mgr.SetJava(i.Name, p.Major, jp); err != nil {
+				if err := c.setJava(i.Name, p.Major, jp); err != nil {
 					return nil, err
 				}
 				return map[string]any{"java": jp}, nil
@@ -284,24 +302,66 @@ func (c *cat) javaSetOp() {
 			if p.Path != "" {
 				return nil, ops.Errorf(400, "%s 不是已知的 Java %d（见 java.list）", p.Path, p.Major)
 			}
-			t, ctx := c.Mgr.Tasks.New(fmt.Sprintf("为「%s」准备 Java %d", i.Name, p.Major), []string{"准备 Java 运行时", "换上新的 Java"})
-			t.SetKind("java")
-			go func() {
-				t.StartStep(0)
-				jp, err := java.Ensure(ctx, p.Major, t.Logf, t.ProgressFn(fmt.Sprintf("下载 Java %d", p.Major)))
-				if err != nil {
-					t.Fail(err)
-					return
-				}
-				t.StartStep(1)
-				if err := c.Mgr.SetJava(i.Name, p.Major, jp); err != nil {
-					t.Fail(err)
-					return
-				}
-				t.Logf("已换成 Java %d：%s（下次启动生效）", p.Major, jp)
-				t.Finish(i.Name)
-			}()
-			return map[string]string{"taskId": t.ID()}, nil
+			return map[string]string{"taskId": downloads.start(c, i.Name, p.Major)}, nil
 		},
 	})
+}
+
+// ensureJava 下载、部署便携 Java；测试里换成不联网、能停住的函数。
+var ensureJava = java.Ensure
+
+// javaDownloads 正在跑的「下载便携 Java、下好了换上」任务，按服务器和大版本记（A36）。下载还没完时重新进页再保存一次，
+// 返回已有任务的编号，不再建一个：安装锁本来就不会重复下载文件，但任务列表里会多一个。别的服务器要同一个版本照样建自己的任务：
+// 下好了要换上的是它自己。
+type javaDownloads struct {
+	mu      sync.Mutex
+	running map[javaDownloadKey]string // 值是任务编号
+}
+
+type javaDownloadKey struct {
+	inst  string
+	major int
+}
+
+// start 给服务器 name 起一个下载 Java major 再换上的任务，返回任务编号；同一台、同一个版本的还在跑就返回那一个。
+func (d *javaDownloads) start(c *cat, name string, major int) string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	key := javaDownloadKey{name, major}
+	if id, ok := d.running[key]; ok {
+		return id
+	}
+	t, ctx := c.Mgr.Tasks.New(fmt.Sprintf("为「%s」准备 Java %d", name, major), []string{"准备 Java 运行时", "换上新的 Java"})
+	t.SetKind("java")
+	if d.running == nil {
+		d.running = map[javaDownloadKey]string{}
+	}
+	d.running[key] = t.ID()
+	go func() {
+		err := c.downloadAndSetJava(ctx, t, name, major)
+		d.mu.Lock()
+		delete(d.running, key) // 先去掉再报结果：任务一显示结束，再保存就是新的一次
+		d.mu.Unlock()
+		if err != nil {
+			t.Fail(err)
+			return
+		}
+		t.Finish(name)
+	}()
+	return t.ID()
+}
+
+// downloadAndSetJava 「下载便携 Java、下好了换上」任务的两步。
+func (c *cat) downloadAndSetJava(ctx context.Context, t *tasks.Task, name string, major int) error {
+	t.StartStep(0)
+	jp, err := ensureJava(ctx, major, t.Logf, t.ProgressFn(fmt.Sprintf("下载 Java %d", major)))
+	if err != nil {
+		return err
+	}
+	t.StartStep(1)
+	if err := c.setJava(name, major, jp); err != nil {
+		return err
+	}
+	t.Logf("已换成 Java %d：%s（下次启动生效）", major, jp)
+	return nil
 }

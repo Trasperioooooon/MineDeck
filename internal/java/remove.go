@@ -9,15 +9,44 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"minedeck/internal/app"
 )
 
-// ErrBusy 正在安装或卸载便携 Java 时再发起卸载返回此错误。
-var ErrBusy = errors.New("正在安装或卸载 Java，请稍后再试")
+// ErrBusy 正在安装或卸载便携 Java、或者有服务器正在换成这套便携 Java 时再发起卸载，返回此错误。
+var ErrBusy = errors.New("正在安装或卸载 Java，或者有服务器正在换成这套 Java，请稍后再试")
+
+// ErrRemoving 这套便携 Java 正在卸载时把服务器换成它，返回此错误（见 UsePortable）。
+var ErrRemoving = errors.New("这套 Java 正在卸载，没有换上。等卸载完再换，或者换成别的 Java")
 
 // removeTree 删掉一个运行时目录。测试里换成会失败的函数，用来看删到一半时记号还在。
 var removeTree = os.RemoveAll
+
+// 卸载和「把服务器换成某套便携 Java」互斥（A34）：以前卸载查完没人用、还没删完的那一会儿，另一个页面能把服务器换成这套，
+// 那台服下次开服就找不到 Java。两边各自先登记自己、再看对方：removing 是正在卸载的大版本（0 是没有，卸载拿着 ensureMu，
+// 同一时间只有一个），switching 按大版本记有几台服务器正在换成它。原子操作有统一的先后，两边不会都没看到对方。
+// 没用锁：换 Java 要是去等 ensureMu，别的大版本下载的那几分钟里连换一套现成的 Java 都得干等。
+var (
+	removing  atomic.Int32
+	switching [maxPortableMajor + 1]atomic.Int32
+)
+
+const maxPortableMajor = 64
+
+// UsePortable 把服务器换成便携 Java major 时，用它包住真正去换的 set：set 做完之前这套 Java 不会被卸载
+// （RemovePortable 报 ErrBusy）；这套 Java 正在卸载时不调 set，返回 ErrRemoving。
+func UsePortable(major int, set func() error) error {
+	if major < 8 || major > maxPortableMajor {
+		return set() // 不是便携 Java 的大版本，RemovePortable 也不会删它
+	}
+	switching[major].Add(1)
+	defer switching[major].Add(-1)
+	if removing.Load() == int32(major) {
+		return ErrRemoving
+	}
+	return set()
+}
 
 // IncompletePortable 列出装到一半或删到一半留下的便携 Java 大版本（不算可用运行时，只给设置页列出以便清理）。
 func IncompletePortable() []int {
@@ -58,9 +87,10 @@ func IncompletePortable() []int {
 
 // RemovePortable 删除 MineDeck 自己装在 runtimes/java-N 的运行时。
 // inUse 在拿住安装锁之后再查一遍：有服务器还指着这个目录，或者 Java 正在安装，都不删。
+// 从 inUse 查起到删完，这套 Java 记成正在卸载，这期间换不上它；有服务器正在换成它时报 ErrBusy（见 UsePortable）。
 // 不接受任意路径，也不跟随符号链接或目录联接，因此删不到系统里装的 Java。
 func RemovePortable(major int, inUse func(dir string) error) error {
-	if major < 8 || major > 64 {
+	if major < 8 || major > maxPortableMajor {
 		return fmt.Errorf("没有 Java %d 的便携运行时", major)
 	}
 	if !ensureMu.TryLock() {
@@ -105,6 +135,11 @@ func RemovePortable(major int, inUse func(dir string) error) error {
 	}
 	if dirErr == nil && hasNestedLink(dir) {
 		return fmt.Errorf("Java %d 的文件夹里含有链接或目录联接，没有删除，避免删到别的地方的文件", major)
+	}
+	removing.Store(int32(major)) // 先记上自己、再看有没有人正在换成它（顺序见 UsePortable）
+	defer removing.Store(0)
+	if switching[major].Load() > 0 {
+		return ErrBusy
 	}
 	if inUse != nil {
 		if err := inUse(dir); err != nil {
