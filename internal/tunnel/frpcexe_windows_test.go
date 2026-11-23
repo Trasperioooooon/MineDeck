@@ -21,7 +21,7 @@ func TestInspectExeRealBinary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, why := inspectExe(self); got != exeOK {
+	if got, why, _ := inspectExe(self); got != exeOK {
 		t.Fatalf("测试程序自己是完整的，不该被认成坏的：%d %s", got, why)
 	}
 	for _, name := range []string{"where.exe", "cmd.exe", "notepad.exe", "curl.exe"} {
@@ -29,7 +29,7 @@ func TestInspectExeRealBinary(t *testing.T) {
 		if _, err := os.Stat(sys); err != nil {
 			continue
 		}
-		if got, why := inspectExe(sys); got != exeOK {
+		if got, why, _ := inspectExe(sys); got != exeOK {
 			t.Errorf("系统自带的 %s 不该被认成坏的：%d %s", name, got, why)
 		}
 	}
@@ -43,7 +43,7 @@ func TestInspectExeRealBinary(t *testing.T) {
 	}{{"留一半", len(b) / 2}, {"留九成", len(b) / 10 * 9}, {"只少最后 1 KB", len(b) - 1024}, {"留 4 KB", 4096}, {"留 100 字节", 100}} {
 		p := filepath.Join(t.TempDir(), "frpc.exe")
 		writeFile(t, p, b[:cut.keep])
-		if got, why := inspectExe(p); got != exeTruncated {
+		if got, why, _ := inspectExe(p); got != exeTruncated {
 			t.Errorf("%s：inspectExe = %d %q，应认成半截的", cut.name, got, why)
 		}
 		err := exec.Command(p, "-test.run=^$").Run()
@@ -97,7 +97,7 @@ func TestNatfrpUnreadableExeIsKept(t *testing.T) {
 	half := fakeFrpcExe()[:900] // 内容其实是半截的，但读不到就不能下结论
 	writeFile(t, exe, half)
 	release := lockExclusive(t, exe)
-	if st, why := inspectExe(exe); st != exeUnknown {
+	if st, why, _ := inspectExe(exe); st != exeUnknown {
 		t.Fatalf("读不了的应判断不了：%d %s", st, why)
 	}
 	got, err := (natfrpProvider{}).EnsureFrpc(procutil.NewConsole())

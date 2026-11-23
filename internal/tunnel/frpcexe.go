@@ -36,22 +36,28 @@ const (
 )
 
 // inspectExe 看一个 exe 是不是明显坏掉的，why 是给人看的原因（exeOK 时为空）。只读文件开头的几个头和节表。
-func inspectExe(path string) (state exeState, why string) {
+// seen 是查的那个文件当时的样子，从打开着的句柄上取（打不开时为 nil）：要删它之前拿来核对还是不是这个文件（removeIfUnchanged）。
+func inspectExe(path string) (state exeState, why string, seen os.FileInfo) {
 	if st, err := os.Lstat(path); err != nil {
-		return exeUnknown, err.Error()
+		return exeUnknown, err.Error(), nil
 	} else if !st.Mode().IsRegular() {
-		return exeUnknown, "不是普通文件"
+		return exeUnknown, "不是普通文件", nil
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return exeUnknown, err.Error()
+		return exeUnknown, err.Error(), nil
 	}
 	defer f.Close()
 	st, err := f.Stat()
 	if err != nil {
-		return exeUnknown, err.Error()
+		return exeUnknown, err.Error(), nil
 	}
-	size := st.Size()
+	state, why = inspectPE(f, st.Size())
+	return state, why, st
+}
+
+// inspectPE inspectExe 的结构检查部分：f 是打开着的文件，size 是它的大小。
+func inspectPE(f *os.File, size int64) (exeState, string) {
 	if size == 0 {
 		return exeTruncated, "是个空文件"
 	}
@@ -130,8 +136,8 @@ func isStdFrpcName(name string) bool {
 	return slices.ContainsFunc(stdFrpcNames, func(s string) bool { return strings.EqualFold(s, name) })
 }
 
-// frpcCandidates dir 里文件名像 frpc 的 exe，按 findExe 的先后：frpc.exe、frpc_windows_amd64.exe，然后是别的。
-// 两个标准名直接查，不靠列目录：文件夹没有列目录的权限、却能打开里面的文件时照样找得到（同 findExe，用 Stat：
+// frpcCandidates dir 里文件名像 frpc 的 exe，按挑选的先后：frpc.exe、frpc_windows_amd64.exe，然后是别的（findExe 取第一个）。
+// 两个标准名直接查，不靠列目录：文件夹没有列目录的权限、却能打开里面的文件时照样找得到（用 Stat：
 // 指向的东西已经不在了的链接跳过）。列目录时只跳过直接查已经找到的那几个，别的照旧（比如区分大小写的文件夹里的 FRPC.EXE）。
 func frpcCandidates(dir string) []string {
 	var out []string
@@ -171,34 +177,89 @@ func plainDir(p string) bool {
 // 只动 dir 里文件名像 frpc 的 exe（frpcCandidates），别的文件不碰。OpenFrp、自定义 frps 的文件夹里，自动删的只有两个标准名
 // （MineDeck 解压出来的、提示里叫人放的就是它们）：别的名字可能是人自己留着的东西，坏了也不用、不删。
 // dir 本身是链接或目录联接时一个都不删：里面的东西其实在别处，不归 MineDeck 管（2026-11-19 Codex 复审）。
-func usableFrpc(dir string, con *procutil.Console, managed bool) (string, error) {
+//
+// skip 是判坏了却没删的（OpenFrp、自定义 frps 文件夹里不是标准名的）：接下来解压完挑 frpc 时要跳过它们，
+// 不然解压出来的那份不见了时会又挑中它，盖掉本该报的「frpc 不见了」（A56）。
+func usableFrpc(dir string, con *procutil.Console, managed bool) (exe string, skip []string, err error) {
 	var kept []string // 没删的坏文件：都不能用时报出来
 	canDelete := plainDir(dir)
-	for _, exe := range frpcCandidates(dir) {
-		state, why := inspectExe(exe)
-		if state == exeOK || state == exeUnknown {
-			return exe, nil
-		}
-		name := filepath.Base(exe)
-		if !canDelete || (state == exeNotPE && !managed) {
-			kept = append(kept, fmt.Sprintf("%s（%s）", name, why))
-			continue
-		}
-		if managed && !isStdFrpcName(name) {
-			continue // 不是 MineDeck 放的名字：不用、不删，接着重新准备（解压出来的是标准名）
-		}
-		if err := os.Remove(exe); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return "", fmt.Errorf("frpc 文件夹里的 %s 是坏的（%s），又没能删掉它（%w）。请关掉可能占着它的程序，手动删掉这个文件后重试。它在这个文件夹：%s", name, why, err, dir)
-		}
-		if managed {
-			con.Append(fmt.Sprintf("[MineDeck] 发现坏掉的 frpc：%s %s（多半是以前解压到一半出了错留下的）。已经删掉，现在重新准备", name, why))
-		} else {
-			con.Append(fmt.Sprintf("[MineDeck] 发现坏掉的 frpc：%s %s（多半是复制或下载到一半断了）。已经删掉，请重新下载一份放进来", name, why))
+	for _, p := range frpcCandidates(dir) {
+		name := filepath.Base(p)
+		c, err := checkFrpc(p, func(s exeState) bool {
+			// 樱花的只删半截的；OpenFrp、自定义 frps 的只删标准名（别的名字可能是人自己留着的东西）
+			return canDelete && (managed || s == exeTruncated) && (!managed || isStdFrpcName(name))
+		})
+		switch {
+		case err != nil:
+			return "", skip, fmt.Errorf("frpc 文件夹里的 %s 是坏的（%s），又没能删掉它（%w）。请关掉可能占着它的程序，手动删掉这个文件后重试。它在这个文件夹：%s", name, c.why, err, dir)
+		case c.state == exeOK || c.state == exeUnknown:
+			return p, skip, nil
+		case c.removed && managed:
+			con.Append(fmt.Sprintf("[MineDeck] 发现坏掉的 frpc：%s %s（多半是以前解压到一半出了错留下的）。已经删掉，现在重新准备", name, c.why))
+		case c.removed:
+			con.Append(fmt.Sprintf("[MineDeck] 发现坏掉的 frpc：%s %s（多半是复制或下载到一半断了）。已经删掉，请重新下载一份放进来", name, c.why))
+		case managed && canDelete:
+			skip = append(skip, p) // 不是 MineDeck 放的名字：不用、不删，接着重新准备（解压出来的是标准名）
+		default:
+			kept = append(kept, fmt.Sprintf("%s（%s）", name, c.why))
 		}
 	}
 	if len(kept) > 0 {
-		return "", fmt.Errorf("frpc 文件夹里的 %s 不能运行，可能是下载成了网页，或者下载的是压缩包、没有解开。MineDeck 没有动它；"+
+		return "", skip, fmt.Errorf("frpc 文件夹里的 %s 不能运行，可能是下载成了网页，或者下载的是压缩包、没有解开。MineDeck 没有动它；"+
 			"请把它换成从服务商下载的 frpc exe 后重试。它在这个文件夹：%s", strings.Join(kept, "、"), dir)
 	}
-	return "", nil
+	return "", skip, nil
+}
+
+// frpcCheck checkFrpc 的结果：最后一次查的状态和原因，坏的有没有删掉。
+type frpcCheck struct {
+	state   exeState
+	why     string
+	removed bool
+}
+
+// inspectFrpc 查 frpc 用的 inspectExe（是变量只为测试：查完以后把文件换掉，造「查完到删之间被换了」）。
+var inspectFrpc = inspectExe
+
+// frpcRechecks 查完到删之间文件一再被换掉时，前后一共最多查几次。一直在变说明有程序正往里写，当判断不了。
+const frpcRechecks = 3
+
+// checkFrpc 查 exe 坏没坏；坏了、mayDelete 也说可以删的就删掉。查完到删之间文件可能被换掉（比如用户刚放进来一个好的），
+// 所以删之前再确认还是刚才查的那个文件（removeIfUnchanged），换了就不删、重新查（A56）。
+// 删不掉时返回错误，c 里是查到的原因。
+func checkFrpc(exe string, mayDelete func(exeState) bool) (c frpcCheck, err error) {
+	var seen os.FileInfo
+	c.state, c.why, seen = inspectFrpc(exe)
+	for n := 1; (c.state == exeTruncated || c.state == exeNotPE) && mayDelete(c.state); n++ {
+		changed, err := removeIfUnchanged(exe, seen)
+		if err != nil || !changed {
+			c.removed = err == nil
+			return c, err
+		}
+		if n == frpcRechecks {
+			return frpcCheck{state: exeUnknown, why: "检查的时候文件一直在变"}, nil
+		}
+		c.state, c.why, seen = inspectFrpc(exe)
+	}
+	return c, nil
+}
+
+// removeIfUnchanged 删 path，前提是它还是 seen 那个文件：同一个文件（os.SameFile，挡住改名换进来的），大小和修改时间也没变
+// （挡住原地改写的）。变了就不删，changed 为 true。已经不在了算删掉了。
+// 剩下的空隙是这里的 Lstat 到 os.Remove 之间，只隔一两个系统调用。
+func removeIfUnchanged(path string, seen os.FileInfo) (changed bool, err error) {
+	now, err := os.Lstat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if seen == nil || !os.SameFile(seen, now) || seen.Size() != now.Size() || !seen.ModTime().Equal(now.ModTime()) {
+		return true, nil
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return false, err
+	}
+	return false, nil
 }

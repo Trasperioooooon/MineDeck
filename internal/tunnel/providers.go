@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -55,18 +56,11 @@ func frpcDir(provider string) string {
 	return filepath.Join(app.RuntimesDir, "frpc", provider)
 }
 
-// findExe 在目录中查找 frpc 可执行文件。
-func findExe(dir string) string {
-	for _, cand := range []string{"frpc.exe", "frpc_windows_amd64.exe"} {
-		p := filepath.Join(dir, cand)
-		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+// findExe 在目录中查找 frpc 可执行文件（先后见 frpcCandidates），跳过 skip 里的（这一轮已经判坏、没删的，见 usableFrpc）。
+func findExe(dir string, skip ...string) string {
+	for _, p := range frpcCandidates(dir) {
+		if !slices.Contains(skip, p) {
 			return p
-		}
-	}
-	ents, _ := os.ReadDir(dir)
-	for _, e := range ents {
-		if !e.IsDir() && isFrpcExeName(e.Name()) {
-			return filepath.Join(dir, e.Name())
 		}
 	}
 	return ""
@@ -296,7 +290,8 @@ func (openfrpProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	dir := frpcDir("openfrp")
 	// 已经放好的 frpc 直接用，不在这里比版本。latest_ver 和 latest_full 不是同一串，不能拿来互相比较。
 	// 明显坏掉的（以前解压到一半留下的半截 exe）先删掉，接着重新准备（见 frpcexe.go）。
-	if exe, err := usableFrpc(dir, con, true); err != nil || exe != "" {
+	exe, skip, err := usableFrpc(dir, con, true)
+	if err != nil || exe != "" {
 		return exe, err
 	}
 	if !frpcDownloadable {
@@ -327,7 +322,7 @@ func (openfrpProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 		_ = os.Remove(zipPath)
 		return "", err
 	}
-	exe, err := frpcAfterExtract(dir, names, fmt.Errorf("OpenFrp frpc 解压后未找到可执行文件"))
+	exe, err = frpcAfterExtract(dir, names, skip, fmt.Errorf("OpenFrp frpc 解压后未找到可执行文件"))
 	if err != nil && !errors.Is(err, errFrpcGone) {
 		_ = os.Remove(zipPath)
 	}
@@ -349,7 +344,7 @@ func (natfrpProvider) ID() string { return "natfrp" }
 func (natfrpProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	dir := frpcDir("natfrp")
 	// 这里的 frpc 是用户自己放的：半截的才删，别的拿不准的不删、报出来（见 usableFrpc）
-	if exe, err := usableFrpc(dir, con, false); err != nil || exe != "" {
+	if exe, _, err := usableFrpc(dir, con, false); err != nil || exe != "" {
 		return exe, err
 	}
 	// 樱花未提供稳定的直链下载 API，引导用户手动放置（一次性操作）。
@@ -381,7 +376,8 @@ var frpSHA256 = "e0094cd0baf03d5ff9ce9739199406871ad8788cf51e766f00ad3a9e7a836f3
 
 func (customProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	dir := frpcDir("custom")
-	if exe, err := usableFrpc(dir, con, true); err != nil || exe != "" {
+	exe, skip, err := usableFrpc(dir, con, true)
+	if err != nil || exe != "" {
 		return exe, err
 	}
 	if !frpcDownloadable {
@@ -403,7 +399,7 @@ func (customProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	exe, err := frpcAfterExtract(dir, names, fmt.Errorf("frp 解压后未找到 frpc.exe"))
+	exe, err = frpcAfterExtract(dir, names, skip, fmt.Errorf("frp 解压后未找到 frpc.exe"))
 	if err != nil {
 		return "", err
 	}

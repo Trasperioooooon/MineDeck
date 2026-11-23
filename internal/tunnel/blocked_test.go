@@ -98,20 +98,28 @@ func TestStartShowsAntivirusHint(t *testing.T) {
 }
 
 // 解压完找 frpc：包里有 frpc 却找不到，算不见了；包里本来就没有，照旧报没找到；找到了直接用。
+// 这一轮已经判坏、没删的（skip）不算找到：不然解压出来的那份不见了时会挑中它，盖掉「不见了」的说明（A56）。
 func TestFrpcAfterExtract(t *testing.T) {
 	dir := t.TempDir()
 	notFound := errors.New("解压后未找到可执行文件")
-	if _, err := frpcAfterExtract(dir, []string{"LICENSE", "frpc_windows_amd64.exe"}, notFound); !errors.Is(err, errFrpcGone) {
+	if _, err := frpcAfterExtract(dir, []string{"LICENSE", "frpc_windows_amd64.exe"}, nil, notFound); !errors.Is(err, errFrpcGone) {
 		t.Fatalf("包里有 frpc 却找不到：%v", err)
 	}
-	if _, err := frpcAfterExtract(dir, []string{"LICENSE", "frps.exe"}, notFound); err != notFound {
+	if _, err := frpcAfterExtract(dir, []string{"LICENSE", "frps.exe"}, nil, notFound); err != notFound {
 		t.Fatalf("包里本来就没有：%v", err)
+	}
+	bad := filepath.Join(dir, "frpc_old.exe")
+	if err := os.WriteFile(bad, []byte("判坏了的"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := frpcAfterExtract(dir, []string{"LICENSE", "frpc_windows_amd64.exe"}, []string{bad}, notFound); got != "" || !errors.Is(err, errFrpcGone) {
+		t.Fatalf("判坏了的不该被挑中：%q %v", got, err)
 	}
 	exe := filepath.Join(dir, "frpc.exe")
 	if err := os.WriteFile(exe, []byte("x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := frpcAfterExtract(dir, []string{"frpc.exe"}, notFound); err != nil || got != exe {
+	if got, err := frpcAfterExtract(dir, []string{"frpc.exe"}, []string{bad}, notFound); err != nil || got != exe {
 		t.Fatalf("找到了：%q %v", got, err)
 	}
 }
