@@ -4708,7 +4708,12 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     await page.route(pattern, hold);
     try { await fn(requested, release); } finally { release(); await page.unroute(pattern, hold); }
   };
-  const packCart =`#/inst/${encodeURIComponent(PACK)}/cart`; // Forge 1.20.1 的模组服
+  /* 一批「没装上的文件」（同后端 import-pending 的项）：下载地址不在允许列表里，可以用本地文件代替、跳过或信任站点 */
+  const pendingItems = (prefix, count) => Array.from({ length: count }, (_, i) => ({
+    id: `${prefix}${i}`, path: `mods/${prefix}-${i}.jar`, reason: "host", host: "files.example.net", note: "下载地址不在允许列表",
+    urls: [`https://files.example.net/${prefix}-${i}.jar`], sha1: "0123456789abcdef0123456789abcdef01234567", options: ["local", "skip", "trust"],
+  }));
+  const packCart = `#/inst/${encodeURIComponent(PACK)}/cart`; // Forge 1.20.1 的模组服
   /* 一个「jar」：仿真后端只看开头是不是 PK，内容不同 SHA-1 就不同 */
   const jarFile = (name, body = name) => ({ name, mimeType: "application/java-archive", buffer: Buffer.from("PK" + body) });
   /* 走到向导的「选模组 / 选插件」那一步 */
@@ -9156,21 +9161,11 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   });
 
   await run("没装上的文件：超过 500 项分批提交显示批次进度，还有未提交批次时切页先确认", async () => {
-    const makePending = count => Array.from({ length: count }, (_, i) => ({
-      id: "p" + i,
-      path: `mods/mod-${i}.jar`,
-      reason: "host",
-      host: "files.example.net",
-      note: "下载地址不在允许列表",
-      urls: [`https://files.example.net/mod-${i}.jar`],
-      sha1: "0123456789abcdef0123456789abcdef01234567",
-      options: ["local", "skip", "trust"],
-    }));
     const setTask = items => page.evaluate(t => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList: [t], trustedHosts: [] }) }), {
       id: "task-1200", title: "导入整合包 大量外部文件", ended: true, result: "机械动力整合包", pending: items,
     });
     try {
-      await setTask(makePending(1200));
+      await setTask(pendingItems("p", 1200));
       await page.goto(url("#/task/task-1200")); await settle(600);
       await page.click("#pnd-trust-all"); await settle(300);
       await page.click("#pnd-ack-all"); await settle(300);
@@ -9212,7 +9207,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.unroute("**/import-pending");
 
       // 再验证确认离开：第 1 批期间确认离开后跳走，后续批次不再提交
-      await setTask(makePending(1200));
+      await setTask(pendingItems("p", 1200));
       await page.goto(url("#/task/task-1200")); await settle(600);
       await page.click("#pnd-trust-all"); await settle(300);
       await page.click("#pnd-ack-all"); await settle(300);
@@ -9248,16 +9243,6 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   });
 
   await run("没装上的文件：详情页叠层分批提交点关闭确认、两处同时分批互不抹掉离开确认、未保存修改一起确认", async () => {
-    const makeItems = (prefix, count) => Array.from({ length: count }, (_, i) => ({
-      id: `${prefix}${i}`,
-      path: `mods/${prefix}-${i}.jar`,
-      reason: "host",
-      host: "files.example.net",
-      note: "下载地址不在允许列表",
-      urls: [`https://files.example.net/${prefix}-${i}.jar`],
-      sha1: "0123456789abcdef0123456789abcdef01234567",
-      options: ["local", "skip", "trust"],
-    }));
     const setInstPending = items => page.evaluate(([name, list]) =>
       fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList: [], trustedHosts: [], instPending: { [name]: { pending: list, skipped: [] } } }) }),
       [PACK, items]);
@@ -9265,7 +9250,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
 
     try {
       // 1) 详情页头叠层里分批提交尚未发完时点「关闭」：弹出确认框，取消留在叠层，确认关闭后后续批次不再发
-      await setInstPending(makeItems("m", 1200));
+      await setInstPending(pendingItems("m", 1200));
       await page.goto(url(`#/inst/${encodeURIComponent(PACK)}/console`)); await settle(600);
       await page.click("[data-pnd-open]");
       await page.waitForSelector(".pnd-modal #d-pending-apply", { timeout: 5000 });
@@ -9305,7 +9290,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.unroute("**/import-pending");
 
       // 2) 两处同时分批（模组页内嵌面板先开始、页头叠层后开始），先开始的先结束，后一处的离开确认仍在
-      await setInstPending(makeItems("a", 600));
+      await setInstPending(pendingItems("a", 600));
       await page.goto(url(`#/inst/${encodeURIComponent(PACK)}/addons`)); await settle(700);
       await page.waitForSelector("#ad-pending-apply", { timeout: 5000 });
       await page.click("#ad-pending-box #pnd-trust-all"); await settle(250);
@@ -9336,7 +9321,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await waitA1;
 
       // 再准备另一组 1200 项并打开叠层启动分批（3 批，剩 700 项未提交）
-      await setInstPending(makeItems("b", 1200));
+      await setInstPending(pendingItems("b", 1200));
       await page.evaluate(n => pendingModal(n, viewGen, () => {}), PACK);
       await page.waitForSelector(".pnd-modal #d-pending-apply", { timeout: 5000 });
       await page.click(".pnd-modal #pnd-trust-all"); await settle(250);
@@ -9365,7 +9350,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.unroute("**/import-pending");
 
       // 3) 设置页有未保存修改、同时叠层正在分批提交，浏览器后退时两件事依次都问到
-      await setInstPending(makeItems("c", 1200));
+      await setInstPending(pendingItems("c", 1200));
       await page.goto(url("#/tunnels")); await settle(250);
       await page.evaluate(() => { location.hash = "#/instances"; }); await settle(250);
       await page.evaluate(h => { location.hash = h; }, `#/inst/${encodeURIComponent(PACK)}/settings/common`);
@@ -9805,11 +9790,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     /* A124：安装请求发出去以后要跳任务页，这一下被离开确认拦下（同一页上「整合包里没装上的」正在分批提交）、人点了「留在这里」，
        还留在这一页：三个按钮不能一直停在禁用 */
     await run("待装清单：点了「全部安装」、跳任务页被离开确认拦下，选「留在这里」以后三个按钮都恢复可点", async () => {
-      const pendingItems = Array.from({ length: 1200 }, (_, i) => ({ id: "q" + i, path: `mods/q-${i}.jar`, reason: "host", host: "files.example.net",
-        note: "下载地址不在允许列表", urls: [`https://files.example.net/q-${i}.jar`], sha1: "0123456789abcdef0123456789abcdef01234567", options: ["local", "skip", "trust"] }));
-      let releaseBatch = () => {};
       try {
-        await cartState({ instReset: true, taskList: [], trustedHosts: [], instPending: { [PACK]: { pending: pendingItems, skipped: [] } },
+        await cartState({ instReset: true, taskList: [], trustedHosts: [], instPending: { [PACK]: { pending: pendingItems("q", 1200), skipped: [] } },
           modCart: { reset: true, insts: { [PACK]: [item("cloth-config", "Cloth Config API", "mod")] },
             draft: [item("vault", "Vault", "plugin")], draftInst: PACK } });
         await openAddons(PACK);
@@ -9817,27 +9799,20 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         await page.waitForSelector("#ad-pending-apply", { timeout: 5000 });
         await page.click("#ad-pending-box #pnd-trust-all"); await settle(250);
         await page.click("#ad-pending-box #pnd-ack-all"); await settle(250);
-        const gate = new Promise(r => { releaseBatch = r; });
-        let onBatch;
-        const batchSent = new Promise(r => { onBatch = r; });
-        await page.route("**/import-pending", async route => {
-          if (route.request().method() === "POST") { onBatch(); await gate; }
-          await route.continue().catch(() => {});
+        await holdPost("**/import-pending", async requested => {
+          await page.click("#ad-pending-apply");
+          await requested; // 第 1 批在途，还有 700 项没提交：离开确认登记着
+          await page.click("#mc-install");
+          await page.waitForSelector(".modal", { timeout: 8000 });
+          assert((await page.textContent(".modal")).includes("还有 700 项还没提交"), "跳任务页之前应先问还没提交的那些：" + await page.textContent(".modal"));
+          assert((await cartMock()).lastInstall, "安装请求应已发出");
+          await page.click('.modal [data-x="cancel"]'); await settle(300);
+          assert(await page.evaluate(() => location.hash) === `#/inst/${encodeURIComponent(PACK)}/addons`, "选「留在这里」应还在这一页：" + await page.evaluate(() => location.hash));
+          const st = await buttonsEnabled();
+          assert(st.every(([, on]) => on), "留在这一页时三个按钮都应能点：" + JSON.stringify(st));
         });
-        await page.click("#ad-pending-apply");
-        await batchSent; // 第 1 批在途，还有 700 项没提交：离开确认登记着
-        await page.click("#mc-install");
-        await page.waitForSelector(".modal", { timeout: 8000 });
-        assert((await page.textContent(".modal")).includes("还有 700 项还没提交"), "跳任务页之前应先问还没提交的那些：" + await page.textContent(".modal"));
-        assert((await cartMock()).lastInstall, "安装请求应已发出");
-        await page.click('.modal [data-x="cancel"]'); await settle(300);
-        assert(await page.evaluate(() => location.hash) === `#/inst/${encodeURIComponent(PACK)}/addons`, "选「留在这里」应还在这一页：" + await page.evaluate(() => location.hash));
-        const st = await buttonsEnabled();
-        assert(st.every(([, on]) => on), "留在这一页时三个按钮都应能点：" + JSON.stringify(st));
       } finally {
-        releaseBatch();
-        await page.unroute("**/import-pending").catch(() => {});
-        // 剩下的两批照常发完，离开确认撤掉以后再切页，别把确认框留给下一条用例
+        // holdPost 出来时已经放行：剩下的两批照常发完，离开确认撤掉以后再切页，别把确认框留给下一条用例
         await page.waitForFunction(() => { const b = document.querySelector("#ad-pending-apply"); return !b || !b.disabled; }, null, { timeout: 8000 }).catch(() => {});
         await cartState({ instPending: { [PACK]: { pending: [], skipped: [] } }, taskList: [], trustedHosts: [] });
         await cleanup();
