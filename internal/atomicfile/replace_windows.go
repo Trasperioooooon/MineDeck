@@ -143,6 +143,25 @@ func isBusyErr(err error) bool {
 	return errors.Is(err, windows.ERROR_ACCESS_DENIED) || errors.Is(err, windows.ERROR_SHARING_VIOLATION)
 }
 
+// RetryRemove 执行文件或文件夹删除；碰上共享冲突或刚删完里面最后一个文件时的目录非空假象，按 retryDelays 重试。
+// 不重试拒绝访问：只读属性或权限不足等半秒也不会好。
+func RetryRemove(op func() error) error {
+	err := op()
+	for retries := 0; err != nil && retries < len(retryDelays) && isRemoveBusyErr(err); {
+		time.Sleep(retryDelays[retries])
+		retries++
+		if beforeRetry != nil {
+			beforeRetry(retries)
+		}
+		err = op()
+	}
+	return err
+}
+
+func isRemoveBusyErr(err error) bool {
+	return errors.Is(err, windows.ERROR_SHARING_VIOLATION) || errors.Is(err, windows.ERROR_DIR_NOT_EMPTY)
+}
+
 // openForSync 替换之前把写好的临时文件重新打开一次，为的是把它刷到盘上。
 // 刚写完关上的文件，杀毒软件、索引、同步盘常常紧接着打开来看一眼；它们打开时要是不许别人写，这一下就报共享冲突。
 // 这和改名时碰到的是同一种短暂占用（见上面 retryDelays 的说明），同样隔一会儿再试，间隔和次数用同一张表。

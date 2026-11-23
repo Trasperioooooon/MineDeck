@@ -10,16 +10,15 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 	"unicode"
 
 	"minedeck/internal/app"
+	"minedeck/internal/atomicfile"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/tasks"
 )
@@ -440,53 +439,39 @@ func safeRemoveInstanceDir(i *Instance) error {
 	if err != nil || s.Name != i.Name {
 		return fmt.Errorf("这个文件夹对不上这台服务器（instance.json 读不出来，或里面的名字不一致），已拒绝删除: %s", dir)
 	}
-	if err := removeInstanceDirMarkerLast(dir); err != nil {
+	emptyDirErr, err := removeInstanceDirMarkerLast(dir)
+	if err != nil {
 		return fmt.Errorf("删除文件失败: %w", err)
+	}
+	if emptyDirErr != nil {
+		log.Printf("服务器「%s」的文件已删空，但文件夹本身正被别的程序占用，留了一个空文件夹：%s（%v）", i.Name, dir, emptyDirErr)
 	}
 	return nil
 }
 
-// removeRetryDelays 删除实例文件遇到短暂共享冲突时的重试间隔（对齐 atomicfile 前几档）。
-var removeRetryDelays = []time.Duration{
-	1 * time.Millisecond, 2 * time.Millisecond, 4 * time.Millisecond,
-	8 * time.Millisecond, 16 * time.Millisecond, 32 * time.Millisecond,
-}
-
-func isTransientRemoveErr(err error) bool {
-	if runtime.GOOS != "windows" || err == nil {
-		return false
-	}
-	// 32 = ERROR_SHARING_VIOLATION，145 = ERROR_DIR_NOT_EMPTY（刚删完最后一个文件时 NTFS 可能短暂未释放目录项）
-	return errors.Is(err, syscall.Errno(32)) || errors.Is(err, syscall.Errno(145))
-}
-
-func removeWithRetry(op func() error) error {
-	err := op()
-	for _, d := range removeRetryDelays {
-		if !isTransientRemoveErr(err) {
-			break
-		}
-		time.Sleep(d)
-		err = op()
-	}
-	return err
+// walkInstanceDir 顶层路径是往里逐项删（true），还是只删这一个目录项本身（false）。
+// 只看 ModeDir，不排除 ModeIrregular：Go 1.23 起符号链接和目录联接都不带 ModeDir，
+// 而 OneDrive 按需文件这类云同步真文件夹报 ModeDir|ModeIrregular，必须往里删。
+func walkInstanceDir(mode fs.FileMode) bool {
+	return mode.IsDir()
 }
 
 // removeInstanceDirMarkerLast 不跟顶层链接；普通目录先删 instance.json 以外的条目，最后删 instance.json 与空目录。
-func removeInstanceDirMarkerLast(dir string) error {
+// instance.json 已经删掉、只剩删空文件夹失败时返回 emptyDirErr（err 为 nil），由调用方记日志并照常移出列表。
+func removeInstanceDirMarkerLast(dir string) (emptyDirErr error, err error) {
 	st, err := os.Lstat(dir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil
+			return nil, nil
 		}
-		return err
+		return nil, err
 	}
-	if !st.IsDir() || st.Mode()&(fs.ModeSymlink|fs.ModeIrregular) != 0 {
-		return removeWithRetry(func() error { return os.Remove(dir) })
+	if !walkInstanceDir(st.Mode()) {
+		return nil, atomicfile.RetryRemove(func() error { return os.Remove(dir) })
 	}
 	ents, err := os.ReadDir(dir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var markers []string
 	for _, e := range ents {
@@ -495,20 +480,20 @@ func removeInstanceDirMarkerLast(dir string) error {
 			continue
 		}
 		child := filepath.Join(dir, e.Name())
-		if err := removeWithRetry(func() error { return os.RemoveAll(child) }); err != nil {
-			return err
+		if err := atomicfile.RetryRemove(func() error { return os.RemoveAll(child) }); err != nil {
+			return nil, err
 		}
 	}
 	for _, name := range markers {
 		p := filepath.Join(dir, name)
-		if err := removeWithRetry(func() error { return os.Remove(p) }); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return err
+		if err := atomicfile.RetryRemove(func() error { return os.Remove(p) }); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return nil, err
 		}
 	}
-	if err := removeWithRetry(func() error { return os.Remove(dir) }); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
+	if err := atomicfile.RetryRemove(func() error { return os.Remove(dir) }); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err, nil
 	}
-	return nil
+	return nil, nil
 }
 
 // 打包任务的占位：打包时读着实例目录里的世界和配置，这期间启动、删除都会打出坏包。

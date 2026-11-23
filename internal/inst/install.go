@@ -852,12 +852,10 @@ func applyLog4jMitigation(ctx context.Context, t *tasks.Task, i *Instance) error
 }
 
 // customLog4jConflictParts 文件夹里已有同名但内容不是官方的日志配置、MineDeck 没有套上官方配置也没替它加引用时的说明
-// （接管 A26 与保存/预览启动设置 A25 共用，复用 log4jXMLConflictNote 再接上自用配置的提示）。
+// （接管 A26 与保存/预览启动设置 A25 共用）。
 func customLog4jConflictParts(mc, xml string) (title, detail string) {
-	base := strings.TrimPrefix(log4jXMLConflictNote(mc, xml, log4jFixAdd), "⚠ ")
-	title, body, _ := strings.Cut(base, "。")
-	detail = body + fmt.Sprintf("；要用自己的，在「启动与内存」里加上 %s%s", log4jConfigKey, xml)
-	return title, detail
+	title, body := log4jXMLConflictParts(mc, xml, log4jFixAdd)
+	return title, body + fmt.Sprintf("；要用自己的，在「启动与内存」里加上 %s%s", log4jConfigKey, xml)
 }
 
 // addLog4jFlags 往 i.ExtraJVM 里加上该有的参数。要官方配置的先下载，下载不成不加引用：引用一个不存在的配置文件，

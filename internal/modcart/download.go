@@ -123,15 +123,22 @@ var openJarForSHA1 = func(path string) (*os.File, error) {
 	return os.Open(path)
 }
 
+// hashOpenedSHA1 计算已打开文件的 SHA-1（小写十六进制），一并返回读到的字节数。
+func hashOpenedSHA1(f *os.File) (string, int64, error) {
+	h := sha1.New()
+	n, err := io.Copy(h, f)
+	if err != nil {
+		return "", n, err
+	}
+	return hex.EncodeToString(h.Sum(nil)), n, nil
+}
+
 func fileSHA1(path string) (string, error) {
 	f, err := openJarForSHA1(path)
 	if err != nil {
 		return "", err
 	}
 	defer f.Close()
-	h := sha1.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	sum, _, err := hashOpenedSHA1(f)
+	return sum, err
 }

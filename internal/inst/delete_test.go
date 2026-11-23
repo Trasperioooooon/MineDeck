@@ -1,6 +1,7 @@
 package inst
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,28 @@ import (
 	"minedeck/internal/app"
 	"minedeck/internal/mcsrc"
 )
+
+// 顶层实例路径的删除分支：真文件夹（含带 ModeIrregular 的云同步文件夹）往里逐项删，链接、目录联接和普通文件只删自身。
+func TestWalkInstanceDir(t *testing.T) {
+	cases := []struct {
+		name string
+		mode fs.FileMode
+		want bool
+	}{
+		{"普通文件夹", fs.ModeDir, true},
+		{"云同步文件夹（ModeDir|ModeIrregular）", fs.ModeDir | fs.ModeIrregular, true},
+		{"符号链接", fs.ModeSymlink, false},
+		{"目录联接（仅 ModeIrregular）", fs.ModeIrregular, false},
+		{"普通文件", 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := walkInstanceDir(tc.mode); got != tc.want {
+				t.Fatalf("walkInstanceDir(%v) = %v，应为 %v", tc.mode, got, tc.want)
+			}
+		})
+	}
+}
 
 // 连同文件删除服务器时，先删其余文件、最后才删 instance.json（A121）：
 // 中途碰上被别的程序独占的文件时，删除报错、instance.json 仍在、实例仍留在列表里；放开占用后再删可干净删完。

@@ -2,9 +2,6 @@ package modcart
 
 import (
 	"container/list"
-	"crypto/sha1"
-	"encoding/hex"
-	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -105,14 +102,12 @@ func (c *sha1Cache) fileSHA1(path string) (string, error) {
 		f.Close()
 		return "", err
 	}
-	h := sha1.New()
-	written, copyErr := io.Copy(h, f)
+	sum, written, copyErr := hashOpenedSHA1(f)
 	stAfter, statAfterErr := f.Stat()
 	_ = f.Close()
 	if copyErr != nil {
 		return "", copyErr
 	}
-	sum := hex.EncodeToString(h.Sum(nil))
 
 	if statAfterErr == nil && written == stBefore.Size() && stAfter.Size() == key.size && stAfter.ModTime().UnixNano() == key.modNano {
 		c.put(key, sum)

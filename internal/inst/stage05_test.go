@@ -315,7 +315,7 @@ func TestConcurrentStartAndDelete(t *testing.T) {
 					_ = m.Kill(name)
 					waitStatus(t, inst, "stopped")
 				}
-				// 刚结束的子进程句柄可能还在由内核异步放开；instance.json 最后才删（A121），遇到「删除文件失败」仍可继续删完
+				// 删除碰上短暂占用失败时 instance.json 还在，可以再删（A121）
 				delDeadline := time.Now().Add(2 * time.Second)
 				for {
 					err := m.Delete(name, files)

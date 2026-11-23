@@ -808,3 +808,71 @@ func TestRenameInfoBufferNameIsNulTerminated(t *testing.T) {
 		}
 	}
 }
+
+// 删除遇到短暂占用时按同一张间隔表重试：中途放开能删掉，一直占着照旧报错，只读拒绝访问不白等。
+func TestRetryRemove(t *testing.T) {
+	t.Run("短暂共享冲突放开后成功", func(t *testing.T) {
+		dir := t.TempDir()
+		p := filepath.Join(dir, "busy.dat")
+		if err := os.WriteFile(p, []byte("data"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		o := hold(t, p, windows.GENERIC_READ, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, 0)
+		n := setRetry(t, ms(5), func(attempt int) {
+			if attempt == 2 {
+				o.release()
+			}
+		})
+		if err := RetryRemove(func() error { return os.Remove(p) }); err != nil {
+			t.Fatalf("放开以后应当删得掉：%v", err)
+		}
+		if *n != 2 {
+			t.Errorf("应当在第 2 次重试时成功，实际重试了 %d 次", *n)
+		}
+		if _, err := os.Stat(p); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("文件应当已不存在：%v", err)
+		}
+	})
+
+	t.Run("一直占着时用尽次数后报错", func(t *testing.T) {
+		dir := t.TempDir()
+		p := filepath.Join(dir, "locked.dat")
+		if err := os.WriteFile(p, []byte("data"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		o := hold(t, p, windows.GENERIC_READ, 0, 0)
+		n := setRetry(t, ms(4), nil)
+		err := RetryRemove(func() error { return os.Remove(p) })
+		o.release()
+		if !errors.Is(err, windows.ERROR_SHARING_VIOLATION) {
+			t.Fatalf("应当报共享冲突：%v", err)
+		}
+		if *n != 4 {
+			t.Errorf("应当重试 4 次，实际 %d 次", *n)
+		}
+		if _, statErr := os.Stat(p); statErr != nil {
+			t.Errorf("删不掉时文件应当还在：%v", statErr)
+		}
+	})
+
+	t.Run("只读拒绝访问不重试", func(t *testing.T) {
+		dir := t.TempDir()
+		p := filepath.Join(dir, "readonly.dat")
+		if err := os.WriteFile(p, []byte("data"), 0o444); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(p, 0o644) })
+		u, err := windows.UTF16PtrFromString(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := setRetry(t, ms(5), nil)
+		err = RetryRemove(func() error { return windows.DeleteFile(u) })
+		if !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+			t.Fatalf("只读文件 DeleteFile 应报拒绝访问：%v", err)
+		}
+		if *n != 0 {
+			t.Errorf("拒绝访问不该重试，实际重试了 %d 次", *n)
+		}
+	})
+}
