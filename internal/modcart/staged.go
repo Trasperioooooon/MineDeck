@@ -356,7 +356,7 @@ func (s *Service) RemoveLocal(inst, sum string) ([]LocalFile, error) {
 	return s.localsLocked(inst), nil
 }
 
-// ClearAll 把一辆车整个清掉：Modrinth 项目、本地文件的登记和暂存的文件。人在界面上点「清空」、删除服务器时用。
+// ClearAll 把一辆车整个清掉：Modrinth 项目、本地文件的登记和暂存的文件。人在界面上点「清空」时用（删除服务器用 ForgetInstance）。
 // cart.json 没读成时什么都不删：这时登记是空的，下面照删暂存目录就把还登记在原文件里的本地文件删了。
 func (s *Service) ClearAll(inst string) error {
 	s.mu.Lock()
@@ -364,9 +364,13 @@ func (s *Service) ClearAll(inst string) error {
 	if err := s.retryLoadLocked(); err != nil {
 		return err
 	}
-	if len(s.carts[inst]) > 0 || len(s.locals[inst]) > 0 {
-		carts, locals := without(s.carts, inst), without(s.locals, inst)
-		if err := s.writeLocked(carts, locals, s.draftInst); err != nil {
+	return s.clearAllLocked(inst, s.draftInst)
+}
+
+// clearAllLocked 清掉 inst 这辆车（同 ClearAll），草稿清单的目标服务器记号一起换成 draftInst。调用方持有 s.mu，cart.json 已读成。
+func (s *Service) clearAllLocked(inst, draftInst string) error {
+	if len(s.carts[inst]) > 0 || len(s.locals[inst]) > 0 || draftInst != s.draftInst {
+		if err := s.writeLocked(without(s.carts, inst), without(s.locals, inst), draftInst); err != nil {
 			return err
 		}
 	}

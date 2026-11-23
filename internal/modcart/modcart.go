@@ -8,6 +8,7 @@
 //
 // 车里有两样东西：Modrinth 上的项目（Item），和人从自己电脑上添加的 jar（LocalFile，见 staged.go）。
 // 本地文件暂存在 <程序目录>/data/modcart/local/ 下面，每辆车一个文件夹，登记在同一份 cart.json 里；两样合计不超过 50 项。
+// 删服务器时 cart.json 读不出来，「这台的车要清」先记在旁边的 cart-pending-removals.json，读出来以后补清（见 forget.go）。
 //
 // 这个包只管购物车、Modrinth 查询、前置闭包、下载、暂存本地文件和本地依赖核对，不认识实例和任务；
 // 操作层（ops/catalog/modcart.go）把它接到实例、后台任务和权限上。
@@ -127,7 +128,8 @@ func New(dir, endpoint string) *Service {
 		log.Printf("待装清单没读出来，读成之前不许保存、不清暂存的本地文件: %v", s.loadErr)
 		return s
 	}
-	s.sweepStaged() // 只在清单真读成了、或者确实是新装时清：没读成时清单是空的，按它清会把暂存的本地文件全删了
+	s.settleRemovalsLocked() // 上次没读成那段时间删掉的服务器，这时补清它们的清单（见 forget.go）
+	s.sweepStaged()          // 只在清单真读成了、或者确实是新装时清：没读成时清单是空的，按它清会把暂存的本地文件全删了
 	return s
 }
 
@@ -269,6 +271,7 @@ func (s *Service) retryLoadLocked() error {
 	s.load()
 	if s.loadErr == nil {
 		log.Printf("待装清单读出来了，恢复正常")
+		s.settleRemovalsLocked() // 先补清没读成那段时间删掉的服务器（见 forget.go），再办触发这次重读的请求
 		return nil
 	}
 	if cur := s.loadErr.Error(); cur != prev {
@@ -296,24 +299,26 @@ func (s *Service) path() string { return filepath.Join(s.dir, "cart.json") }
 
 // putLocked 把 inst 的车换成 cart：先写盘，写成了才改内存（写盘失败时内存和磁盘还是同一个样子）。调用方持有 s.mu。
 func (s *Service) putLocked(inst string, cart []Item) error {
-	next := maps.Clone(s.carts)
-	if len(cart) == 0 {
-		delete(next, inst)
-	} else {
-		next[inst] = cart
-	}
-	return s.writeLocked(next, s.locals, s.draftInst)
+	return s.writeLocked(withEntry(s.carts, inst, cart), s.locals, s.draftInst)
 }
 
 // putLocalsLocked 把 inst 的本地文件登记换成 list：同 putLocked，先写盘再改内存。调用方持有 s.mu。
 func (s *Service) putLocalsLocked(inst string, list []LocalFile) error {
-	next := maps.Clone(s.locals)
-	if len(list) == 0 {
-		delete(next, inst)
-	} else {
-		next[inst] = list
+	return s.writeLocked(s.carts, withEntry(s.locals, inst, list), s.draftInst)
+}
+
+// withEntry 复制一份 m，把 key 换成 v（v 是空的就去掉 key）。不改 m：写盘成功之前内存里的清单不动（见 writeLocked）。
+func withEntry[V any](m map[string][]V, key string, v []V) map[string][]V {
+	out := maps.Clone(m)
+	if out == nil {
+		out = map[string][]V{}
 	}
-	return s.writeLocked(s.carts, next, s.draftInst)
+	if len(v) == 0 {
+		delete(out, key)
+	} else {
+		out[key] = v
+	}
+	return out
 }
 
 // writeLocked 写 cart.json（先写临时文件再改名），写成了才同步更新内存状态。报错里不带路径：这些话会原样给到界面和 AI。
@@ -364,20 +369,6 @@ func (s *Service) SetDraftInst(inst string) error {
 		return nil
 	}
 	return s.writeLocked(s.carts, s.locals, inst)
-}
-
-// ForgetDraftInst 删掉一台服务器时调：草稿清单记的正是这台，就把记号清掉，草稿清单本身不动。
-// 不清的话，以后同名新建、接管或导入一台，详情页会冒出「新建时挑的 N 项还没装」（A31）。
-func (s *Service) ForgetDraftInst(inst string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.retryLoadLocked(); err != nil {
-		return err
-	}
-	if s.draftInst == "" || s.draftInst != inst {
-		return nil
-	}
-	return s.writeLocked(s.carts, s.locals, "")
 }
 
 // List 一辆车里的东西（按加入的先后）。

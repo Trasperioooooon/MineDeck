@@ -547,6 +547,81 @@ func TestInstanceDeleteForgetsDraftTarget(t *testing.T) {
 	}
 }
 
+// cart.json 读不出来时删服务器（A30）：服务器照常删、结果照旧是 ok；读出来以后（这里是下一次看草稿清单）那台的清单、
+// 暂存的本地文件和指向它的记号都清掉，以后再建一台同名的看不到上一台留下的东西。连记也记不下来时服务器照样删了，
+// 结果里的 note 说清这台的东西没清掉。
+func TestInstanceDeleteWhileCartUnreadable(t *testing.T) {
+	reg, mgr, _, _ := newCartCatalog(t)
+	if _, err := cartDo(t, reg, cartUI, "modcart.add", map[string]any{"inst": "模组服", "projectIds": []string{"aaa"}}); err != nil {
+		t.Fatal(err)
+	}
+	addLocalFile(t, reg, "模组服", "mine.jar", localJar(t, "mine", nil))
+	if _, err := cartDo(t, reg, cartUI, "modcart.add", map[string]any{"projectIds": []string{"fapi"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cartDo(t, reg, cartUI, "modcart.draft.target", map[string]any{"inst": "模组服"}); err != nil {
+		t.Fatal(err)
+	}
+	cartDir := filepath.Join(app.Base, "data", "modcart")
+	cartPath, staged := filepath.Join(cartDir, "cart.json"), filepath.Join(cartDir, "local")
+	good, err := os.ReadFile(cartPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 换一份从坏文件起步的清单（相当于重启 MineDeck 时 cart.json 刚好坏了）
+	restart := func() (*ops.Registry, *modcart.Service) {
+		if err := os.WriteFile(cartPath, good[:len(good)/2], 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cart := modcart.New(cartDir, fakeModrinth(t).URL)
+		return New(Env{Mgr: mgr, Tun: tunnel.NewManager(), Port: 27333, ModCart: cart}), cart
+	}
+
+	reg2, cart2 := restart()
+	res, err := reg2.Do(context.Background(), cartUI, "instance.delete", ops.ArgsOf(map[string]any{"inst": "模组服", "files": false}))
+	if err != nil || res != "ok" {
+		t.Fatalf("读不出来时删服照常、记下来以后结果不多话：%v %v", res, err)
+	}
+	if countFiles(staged) != 1 {
+		t.Fatalf("读不出来时暂存的本地文件不能删：%d", countFiles(staged))
+	}
+	if err := os.WriteFile(cartPath, good, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cartDo(t, reg2, cartUI, "modcart.list", map[string]any{}); err != nil {
+		t.Fatalf("修好以后清单照常：%v", err)
+	}
+	if ids, locals := cartIDs(cart2, "模组服"), localSHAs(cart2, "模组服"); len(ids) != 0 || len(locals) != 0 || countFiles(staged) != 0 {
+		t.Fatalf("读出来以后删掉的那台的清单和暂存的文件应清掉：%v %v 暂存 %d 个", ids, locals, countFiles(staged))
+	}
+	if di := cart2.DraftInst(); di != "" {
+		t.Fatalf("指向删掉的那台的记号应清掉：%q", di)
+	}
+	if ids := cartIDs(cart2, modcart.Draft); len(ids) != 1 || ids[0] != "fapi" {
+		t.Fatalf("草稿清单本身应留着：%v", ids)
+	}
+
+	// 删服记录的位置上顶着一个文件夹：记不下来
+	if err := os.Mkdir(filepath.Join(cartDir, "cart-pending-removals.json"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	good, err = os.ReadFile(cartPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg3, _ := restart()
+	m, err := cartDo(t, reg3, cartUI, "instance.delete", map[string]any{"inst": "生存服", "files": false})
+	if err != nil {
+		t.Fatalf("记不下来也照样删服：%v", err)
+	}
+	if note, _ := m["note"].(string); !strings.Contains(note, "服务器已经删了") || !strings.Contains(note, "没能记下来") {
+		t.Fatalf("结果里应说清这台的东西没清掉：%v", m)
+	}
+	if _, err := mgr.Get("生存服"); err == nil {
+		t.Fatal("服务器应已删掉")
+	}
+}
+
 // 往草稿清单里加时记下的核心归一成小写、去掉首尾空白（AI 传「Fabric 」不会在 Fabric 服务器上被判成对不上）；
 // 认不出来的核心连同版本都不记，也不报错（A31）。
 func TestModCartDraftOriginNormalizesCore(t *testing.T) {

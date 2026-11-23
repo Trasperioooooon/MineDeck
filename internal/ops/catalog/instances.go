@@ -495,10 +495,13 @@ func (c *cat) instanceOps() {
 			}
 			// 这台服务器的购物车跟着清掉：购物车按实例名存，不清的话以后新建一台同名的，
 			// 旧车里剩下的东西会被当成新服务器的。人从电脑上添加、暂存着的本地文件也一起删。
-			// 草稿清单记的目标是这台的，记号同理也清掉（草稿清单本身留着）。
+			// 草稿清单记的目标是这台的，记号同理也清掉（草稿清单本身留着）。cart.json 读不出来时记下来，读出来以后补清（A30）。
+			// 清不掉也记不下来时服务器照样删了，在结果里说一声
 			if c.ModCart != nil {
-				_ = c.ModCart.ClearAll(p.Inst)
-				_ = c.ModCart.ForgetDraftInst(p.Inst)
+				if err := c.ModCart.ForgetInstance(p.Inst); err != nil {
+					return map[string]string{"note": "服务器已经删了，但待装清单里这台的东西没清掉：" + err.Error() +
+						"。以后再建一台同名的服务器，打开它的待装清单看一眼，用不上的清空就行"}, nil
+				}
 			}
 			return "ok", nil
 		},

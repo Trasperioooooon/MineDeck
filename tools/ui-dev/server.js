@@ -1608,7 +1608,20 @@ const modCartItem = (id, pickedCore = "", pickedMc = "") => {
 };
 function newModCartState() {
   return { draft: [], insts: {}, localDraft: [], localInsts: {}, draftInst: "", searchFail: "", addFail: "", localFail: "", localUploadFail: "", depsFail: "", depsDelay: 0, searchDelay: 0, noDeps: false,
-    loadFail: "", queries: 0, depsQueries: 0, lastInstall: null, searches: [] };
+    loadFail: "", queries: 0, depsQueries: 0, lastInstall: null, searches: [], pendingRemovals: [] };
+}
+/* 删服务器时清掉这台的清单（Modrinth 项目、本地文件）和指向它的记号（同 modcart.ForgetInstance，B08）。
+   cart.json 读不出来（loadFail）时清不了，先记进 pendingRemovals，读出来以后头一次用清单时补清（A30）。
+   读不出来期间清单加不进东西，补清时这台的清单里只有删服之前的，整个清掉就和真后端按加入时间比的结果一样 */
+function forgetCartOf(state, name) {
+  const mc = state.modcart;
+  if (MODCART_LOAD_FAIL[mc.loadFail]) { if (!mc.pendingRemovals.includes(name)) mc.pendingRemovals.push(name); return; }
+  delete mc.insts[name];
+  delete mc.localInsts[name];
+  if (mc.draftInst === name) mc.draftInst = "";
+}
+function settleCartRemovals(state) {
+  for (const name of state.modcart.pendingRemovals.splice(0)) forgetCartOf(state, name);
 }
 function syncDraftInst(state) {
   if (!state.modcart.draft.length && !state.modcart.localDraft.length) state.modcart.draftInst = "";
@@ -1745,6 +1758,7 @@ async function modcartHandler(state, req, res, p, m, u) {
   }
   const unread = MODCART_LOAD_FAIL[mc.loadFail];
   if (unread) return err(res, 503, unread.raw, unread.hint);
+  settleCartRemovals(state); // 先补清读不出来那段时间删掉的服务器，再办这次请求（同 modcart.retryLoadLocked）
   if (p === "/api/modcart" && m === "GET") return ok(res, modcartView(state, qCart, q.get("core")));
   if (p === "/api/modcart" && m === "POST") {
     const b = await readBody(req), key = cartOf(b);
@@ -3310,14 +3324,11 @@ function handler(state, ui, portOf) {
         const name = seg[3], sub = seg[4] || "";
         const i = state.instances.find(x => x.name === name);
         if (!i) return err(res, 404, "服务器不存在");
-        // 删除（同 inst.Manager.Delete）：files=0 只移出列表。这台的待装清单（Modrinth 项目和本地文件）跟着清，
-        // 草稿车记的目标是这台的，记号也清（同 instance.delete）：不清的话以后建一台同名的会看到上一台留下的东西（B08）
+        // 删除（同 inst.Manager.Delete）：files=0 只移出列表。这台的待装清单跟着清（见 forgetCartOf）
         if (!sub && m === "DELETE") {
           state.lastDelete = { inst: name, files: u.searchParams.get("files") === "1" };
           state.instances = state.instances.filter(x => x !== i);
-          delete state.modcart.insts[name];
-          delete state.modcart.localInsts[name];
-          if (state.modcart.draftInst === name) state.modcart.draftInst = "";
+          forgetCartOf(state, name);
           return ok(res, "ok");
         }
         if (sub === "world") return worldInstHandler(state, req, res, m, seg, i); // 地图：世界状态、换回旧地图、删除恢复点、重试恢复
@@ -3567,9 +3578,11 @@ function handler(state, ui, portOf) {
         // 安装购物车（同 web 的 modcart install）：返回 kind "mods" 的任务编号；
         // includeDraft 会把草稿车（向导「选模组」步挑的）一起装进这台实例并清空草稿车
         if (sub === "modcart" && seg[5] === "install" && m === "POST") {
-          const b = await readBody(req), mc = state.modcart, cart = modcartBucket(state, name);
+          const b = await readBody(req), mc = state.modcart;
           const unread = MODCART_LOAD_FAIL[mc.loadFail];
           if (unread) return err(res, 503, unread.raw, unread.hint);
+          settleCartRemovals(state);
+          const cart = modcartBucket(state, name);
           // expect：发起的人看到的项目。和这次要装的（实例的车，includeDraft 时再加草稿车）不是同一批就拒绝，同真后端
           const willInstall = [...cart, ...(b.includeDraft ? mc.draft.filter(it => !cart.some(x => x.projectId === it.projectId)) : [])].map(it => it.projectId);
           // expectLocal：发起的人看到的本地文件（SHA-1）。车里有本地文件而请求没带、或者对不上，一律拒绝（比 expect 严：没带也不行），同真后端

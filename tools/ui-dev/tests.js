@@ -9636,6 +9636,26 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       } finally { await cleanup(); }
     });
 
+    /* A30：cart.json 读不出来时删服，仿真后端也先记下、读出来以后头一次用清单时补清（同真后端 modcart.ForgetInstance） */
+    await run("草稿清单：cart.json 读不出来时删掉一台服务器，读出来以后再建同名的，也看不到上一台留下的东西", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true, insts: { [PACK]: [item("jei", "JEI", "mod")] },
+          draft: [item("cloth-config", "Cloth Config API", "mod", "forge", "1.20.1")], draftInst: PACK, loadFail: "corrupt" } });
+        const del = await page.evaluate(n => fetch(`/api/instances/${encodeURIComponent(n)}?files=0`, { method: "DELETE", headers: { "X-Token": "mock" } }).then(r => r.status), PACK);
+        assert(del === 200, "读不出来时照样能删服：" + del);
+        let mc = await cartMock();
+        assert((mc.insts[PACK] || []).length === 1 && mc.pendingRemovals.join() === PACK, "读不出来时清不了，先记下：" + JSON.stringify(mc));
+        await cartState({ modCart: { loadFail: "" } });
+        await page.evaluate(n => fetch("/api/instances", { method: "POST", headers: { "X-Token": "mock" },
+          body: JSON.stringify({ name: n, core: "forge", mc: "1.20.1", port: 25570, eula: true }) }), PACK);
+        await openAddons(PACK);
+        assert(!!(await page.$("#mc-empty")), "同名新建的那台清单应是空的：" + await page.textContent("#mc-list"));
+        assert(!(await page.$("#mc-draft-leftover")), "同名新建的那台不该冒出新建时挑的横幅");
+        mc = await cartMock();
+        assert(!mc.pendingRemovals.length && mc.draftInst === "" && mc.draft.length === 1, "补清以后记录清空、记号清掉、草稿清单留着：" + JSON.stringify(mc));
+      } finally { await cleanup(); }
+    });
+
     await run("草稿清单：建服请求还没回来就切走，目标服务器照样记上，不报「无法创建」", async () => {
       try {
         await cartState({ instReset: true, modCart: { reset: true }, taskStage: 2 });
