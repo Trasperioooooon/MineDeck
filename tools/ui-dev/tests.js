@@ -4696,7 +4696,19 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
 
   // ---- 热门清单、从电脑添加本地文件、两栏版面（2026-11） ----
   const cartMock = async () => (await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data))).modcart;
-  const packCart = `#/inst/${encodeURIComponent(PACK)}/cart`; // Forge 1.20.1 的模组服
+  const toastsNow = () => page.$$eval(".toast", ts => ts.map(t => t.textContent));
+  // holdPost：拦住 pattern 的 POST，等测试放行（同一地址的 GET 轮询照常过）
+  const holdPost = async (pattern, fn) => {
+    let release, seen;
+    const gate = new Promise(r => release = r), requested = new Promise(r => seen = r);
+    const hold = async route => {
+      if (route.request().method() !== "POST") return route.continue().catch(() => {});
+      seen(); await gate; await route.continue().catch(() => {});
+    };
+    await page.route(pattern, hold);
+    try { await fn(requested, release); } finally { release(); await page.unroute(pattern, hold); }
+  };
+  const packCart =`#/inst/${encodeURIComponent(PACK)}/cart`; // Forge 1.20.1 的模组服
   /* 一个「jar」：仿真后端只看开头是不是 PK，内容不同 SHA-1 就不同 */
   const jarFile = (name, body = name) => ({ name, mimeType: "application/java-archive", buffer: Buffer.from("PK" + body) });
   /* 走到向导的「选模组 / 选插件」那一步 */
@@ -6454,18 +6466,6 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
 
     // 「返回修改」的草稿要在发请求之前拍下（2026-11-16 Codex 复审 beta.3）：以前请求回来以后才去读表单，大整合包上传、建服请求还没回来时
     // 切到别的页面，表单已经没了，一读就出错——任务明明在跑，界面却报「无法导入整合包」「无法创建服务器」，草稿也没留下。
-    // holdPost：拦住 pattern 的 POST，等测试放行（同一地址的 GET 轮询照常过）
-    const holdPost = async (pattern, fn) => {
-      let release, seen;
-      const gate = new Promise(r => release = r), requested = new Promise(r => seen = r);
-      const hold = async route => {
-        if (route.request().method() !== "POST") return route.continue().catch(() => {});
-        seen(); await gate; await route.continue().catch(() => {});
-      };
-      await page.route(pattern, hold);
-      try { await fn(requested, release); } finally { release(); await page.unroute(pattern, hold); }
-    };
-    const toastsNow = () => page.$$eval(".toast", ts => ts.map(t => t.textContent));
 
     await run("beta.3 流程 R13：导入整合包上传途中切到别的页面，任务照常开始、不误报「无法导入」，失败以后「返回修改」填的都在（Codex 复审 beta.3）", async () => {
       const before = errors.length;
@@ -9046,7 +9046,6 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   });
 
   await run("待装清单：全部安装前没查过前置或清单变过时先查一遍，列必装前置确认，检查失败不安装", async () => {
-    const cartMock = () => page.evaluate(() => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data.modcart));
     try {
       await cartState({ modCart: { reset: true } });
       await page.goto(url(`#/inst/${encodeURIComponent(PACK)}/cart`)); await settle(600);
@@ -9108,7 +9107,6 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   });
 
   await run("待装清单：查前置期间清单变了，自动补查并按最新清单列出必装前置", async () => {
-    const cartMock = () => page.evaluate(() => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data.modcart));
     try {
       await cartState({ modCart: { reset: true } });
       await page.goto(url(`#/inst/${encodeURIComponent(PACK)}/cart`)); await settle(600);
@@ -9434,8 +9432,6 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
 
   {
     // 草稿清单（A31）：向导「选模组」那一步挑的东西、建服时切走以后留在草稿清单里的，详情页的横幅怎么提示、怎么处理
-    const cartMock = () => page.evaluate(() => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data.modcart));
-    const toastsNow = () => page.$$eval(".toast", ts => ts.map(t => t.textContent));
     const until = async (fn, ms = 5000) => { const t0 = Date.now(); while (!(await fn())) { if (Date.now() - t0 > ms) return false; await settle(100); } return true; };
     /* 直接摆进仿真后端的清单项（同后端 modcart.Item 的形状）；pickedCore / pickedMc 是挑的时候记下的核心和版本 */
     const item = (projectId, title, kind, pickedCore = "", pickedMc = "") => ({ projectId, slug: projectId, title, icon: "", kind, license: "MIT",
@@ -9603,23 +9599,56 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       } finally { await cleanup(); }
     });
 
+    /* 记目标服务器是仅人工的写操作，每记一次进一条操作记录：草稿清单是空的时向导不发，免得每次建服都多一条 */
+    await run("草稿清单：向导「选模组」这一步什么都没挑就建服，不发记目标服务器的请求", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true }, taskStage: 4 });
+        await freshWizard();
+        await wizToMods("paper");
+        const since = reqs.length;
+        await wizCreate("空清单新建服");
+        await page.waitForFunction(() => location.hash === "#/task/task-1", null, { timeout: 8000 });
+        await settle(300);
+        const sent = reqs.slice(since).filter(r => r.m === "POST").map(r => r.u);
+        assert(sent.includes("/api/instances") && !sent.includes("/api/modcart/draft/target"), "只该发建服请求：" + JSON.stringify(sent));
+      } finally { await cleanup(); }
+    });
+
+    /* B08：删服务器时仿真后端也清掉这台的清单（同真后端 instance.delete） */
+    await run("草稿清单：删掉一台服务器再建一台同名的，看不到上一台留在待装清单里的东西和新建时挑的横幅", async () => {
+      try {
+        const lf = { sha1: "e5".repeat(20), fileName: "old-own-1.0.jar", size: 2048, title: "Old Own", modId: "oldown", version: "1.0", loader: "forge", addedAt: "2026-11-23T10:00:00Z" };
+        await cartState({ instReset: true, modCart: { reset: true, insts: { [PACK]: [item("jei", "JEI", "mod")] }, localInsts: { [PACK]: [lf] },
+          draft: [item("cloth-config", "Cloth Config API", "mod", "forge", "1.20.1")], draftInst: PACK } });
+        await page.goto(url("#/instances")); await settle();
+        await page.click(`.card[data-name="${PACK}"] [data-act="more"]`);
+        await page.click(".dropmenu button.danger"); await settle(250);
+        await page.click('#modal-root [data-x="ok"]');
+        await page.waitForFunction(n => !document.querySelector(`.card[data-name="${n}"]`), PACK, { timeout: 5000 });
+        const mc = await cartMock();
+        assert(!(mc.insts[PACK] || []).length && !(mc.localInsts[PACK] || []).length && mc.draftInst === "", "删掉以后这台的清单和记号都应清掉：" + JSON.stringify(mc));
+        assert(mc.draft.length === 1, "草稿清单本身留着");
+        await page.evaluate(n => fetch("/api/instances", { method: "POST", headers: { "X-Token": "mock" },
+          body: JSON.stringify({ name: n, core: "forge", mc: "1.20.1", port: 25570, eula: true }) }), PACK);
+        await openAddons(PACK);
+        assert(!!(await page.$("#mc-empty")), "同名新建的那台清单应是空的：" + await page.textContent("#mc-list"));
+        assert(!(await page.$("#mc-draft-leftover")), "同名新建的那台不该冒出新建时挑的横幅");
+      } finally { await cleanup(); }
+    });
+
     await run("草稿清单：建服请求还没回来就切走，目标服务器照样记上，不报「无法创建」", async () => {
       try {
         await cartState({ instReset: true, modCart: { reset: true }, taskStage: 2 });
         await freshWizard();
         await wizToMods("paper");
         await pick("Vault", "Vault");
-        let release, onReq;
-        const gate = new Promise(r => { release = r; }), requested = new Promise(r => { onReq = r; });
-        await page.route("**/api/instances", async route => {
-          if (route.request().method() !== "POST") { await route.continue().catch(() => {}); return; }
-          onReq(); await gate; await route.continue().catch(() => {});
+        await holdPost("**/api/instances", async (requested, release) => {
+          await wizCreate("在途切走服");
+          await requested;
+          await leaveToList();
+          release();
+          assert(await until(async () => (await cartMock()).draftInst === "在途切走服"), "建服请求回来以后应照样记下目标服务器");
         });
-        await wizCreate("在途切走服");
-        await requested;
-        await leaveToList();
-        release();
-        assert(await until(async () => (await cartMock()).draftInst === "在途切走服"), "建服请求回来以后应照样记下目标服务器");
         assert(!(await toastsNow()).some(x => x.includes("无法创建")), "服务器在建，不该报无法创建");
       } finally { await cleanup(); }
     });
@@ -9681,6 +9710,42 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       } finally { await cleanup(); }
     });
 
+    /* 同「全部安装」那条（A29）：查前置那几秒里左边的「加入清单」还能点，加进来的那项不在检查结果里，
+       检查回来要比出清单变了、重查，确认框列出它的必装前置；不能带着 withDeps 直接装，把它的前置不声不响一起装了（A31） */
+    await run("草稿清单：横幅上点「一起装上」、查前置期间往这台的清单里加了带必装前置的项，放行后先列出它的前置再确认，确认前不发安装", async () => {
+      try {
+        const lf = (sha1, fileName, title) => ({ sha1, fileName, size: 2048, title, modId: title.toLowerCase(), version: "1.0", loader: "forge", addedAt: "2026-11-23T10:00:00Z" });
+        const draftLf = lf("c3".repeat(20), "draft-pick-1.0.jar", "Draftpick"), instLf = lf("d4".repeat(20), "own-pick-1.0.jar", "Ownpick");
+        await cartState({ instReset: true, modCart: { reset: true, draft: [item("cloth-config", "Cloth Config API", "mod", "forge", "1.20.1")],
+          localDraft: [draftLf], localInsts: { [PACK]: [instLf] }, draftInst: PACK } });
+        /* 压住带草稿的检查：后端按旧清单算完以后才压，放行时交回的是旧清单的结果 */
+        let release, held = 0, released = false;
+        const gate = new Promise(r => { release = r; });
+        await page.route("**/api/modcart/deps*", async route => {
+          if (released || !route.request().url().includes("includeDraft=true")) { await route.continue().catch(() => {}); return; }
+          const resp = await route.fetch(); held++; await gate; await route.fulfill({ response: resp }).catch(() => {});
+        });
+        await openAddons(PACK);
+        await page.waitForSelector("#mc-draft-leftover", { timeout: 5000 });
+        await page.fill("#mc-q", "JEI"); await page.click("#mc-go"); await settle();
+        assert(await until(async () => held >= 1), "打开时那次带草稿的检查应已发出");
+        await page.click("#mc-draft-install");
+        assert(await until(async () => held >= 2), "点「一起装上」应再发一次带草稿的检查");
+        await page.click('button[aria-label="加入清单 JEI"]');
+        await page.waitForFunction(() => (document.querySelector("#mc-count")?.textContent || "").includes("共 2 项"), null, { timeout: 5000 });
+        released = true; release();
+        await page.waitForSelector(".modal", { timeout: 5000 });
+        const text = await page.textContent(".modal");
+        assert(text.includes("Architectury API"), "放行后应弹出列了 JEI 必装前置的确认框：" + text);
+        assert((await cartMock()).lastInstall === null, "确认前不应发出安装请求");
+        await page.click('.modal [data-x="ok"]');
+        await page.waitForFunction(() => location.hash === "#/task/task-cart", null, { timeout: 8000 });
+        const li = (await cartMock()).lastInstall, sorted = a => (a || []).slice().sort().join();
+        assert(li && li.includeDraft === true && sorted(li.expect) === "cloth-config,jei", "确认后应按两份清单最新的并集安装：" + JSON.stringify(li));
+        assert(sorted(li.expectLocal) === sorted([draftLf.sha1, instLf.sha1]), "expectLocal 应是两份清单里本地文件的并集：" + JSON.stringify(li));
+      } finally { await cleanup(); }
+    });
+
     await run("草稿清单：详情页横幅上点「不要了」只清草稿清单，这台自己清单里原有的项还在", async () => {
       try {
         await cartState({ instReset: true, modCart: { reset: true, insts: { [PACK]: [item("cloth-config", "Cloth Config API", "mod")] },
@@ -9715,6 +9780,48 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         assert(st.every(([, on]) => on), "点「先不装」以后三个按钮都应能点：" + JSON.stringify(st));
         assert((await cartMock()).lastInstall === null, "点「先不装」不该发安装请求");
       } finally { await cleanup(); }
+    });
+
+    /* A124：安装请求发出去以后要跳任务页，这一下被离开确认拦下（同一页上「整合包里没装上的」正在分批提交）、人点了「留在这里」，
+       还留在这一页：三个按钮不能一直停在禁用 */
+    await run("待装清单：点了「全部安装」、跳任务页被离开确认拦下，选「留在这里」以后三个按钮都恢复可点", async () => {
+      const pendingItems = Array.from({ length: 1200 }, (_, i) => ({ id: "q" + i, path: `mods/q-${i}.jar`, reason: "host", host: "files.example.net",
+        note: "下载地址不在允许列表", urls: [`https://files.example.net/q-${i}.jar`], sha1: "0123456789abcdef0123456789abcdef01234567", options: ["local", "skip", "trust"] }));
+      let releaseBatch = () => {};
+      try {
+        await cartState({ instReset: true, taskList: [], trustedHosts: [], instPending: { [PACK]: { pending: pendingItems, skipped: [] } },
+          modCart: { reset: true, insts: { [PACK]: [item("cloth-config", "Cloth Config API", "mod")] },
+            draft: [item("vault", "Vault", "plugin")], draftInst: PACK } });
+        await openAddons(PACK);
+        await page.waitForSelector("#mc-draft-leftover", { timeout: 5000 });
+        await page.waitForSelector("#ad-pending-apply", { timeout: 5000 });
+        await page.click("#ad-pending-box #pnd-trust-all"); await settle(250);
+        await page.click("#ad-pending-box #pnd-ack-all"); await settle(250);
+        const gate = new Promise(r => { releaseBatch = r; });
+        let onBatch;
+        const batchSent = new Promise(r => { onBatch = r; });
+        await page.route("**/import-pending", async route => {
+          if (route.request().method() === "POST") { onBatch(); await gate; }
+          await route.continue().catch(() => {});
+        });
+        await page.click("#ad-pending-apply");
+        await batchSent; // 第 1 批在途，还有 700 项没提交：离开确认登记着
+        await page.click("#mc-install");
+        await page.waitForSelector(".modal", { timeout: 8000 });
+        assert((await page.textContent(".modal")).includes("还有 700 项还没提交"), "跳任务页之前应先问还没提交的那些：" + await page.textContent(".modal"));
+        assert((await cartMock()).lastInstall, "安装请求应已发出");
+        await page.click('.modal [data-x="cancel"]'); await settle(300);
+        assert(await page.evaluate(() => location.hash) === `#/inst/${encodeURIComponent(PACK)}/addons`, "选「留在这里」应还在这一页：" + await page.evaluate(() => location.hash));
+        const st = await buttonsEnabled();
+        assert(st.every(([, on]) => on), "留在这一页时三个按钮都应能点：" + JSON.stringify(st));
+      } finally {
+        releaseBatch();
+        await page.unroute("**/import-pending").catch(() => {});
+        // 剩下的两批照常发完，离开确认撤掉以后再切页，别把确认框留给下一条用例
+        await page.waitForFunction(() => { const b = document.querySelector("#ad-pending-apply"); return !b || !b.disabled; }, null, { timeout: 8000 }).catch(() => {});
+        await cartState({ instPending: { [PACK]: { pending: [], skipped: [] } }, taskList: [], trustedHosts: [] });
+        await cleanup();
+      }
     });
 
     await run("待装清单：横幅上点「一起装上」、确认框里点「先不装」，「全部安装」和横幅上的按钮都恢复可点", async () => {

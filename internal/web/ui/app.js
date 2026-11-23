@@ -2822,21 +2822,21 @@ async function drawWizard() {
         });
         formDrafts.set(r.taskId, { mode: "new", data: redo }); // 先按任务号记下，再看页面还在不在
         if (world) MDWorldImport.wizardCreated(world.worldPlan, r.taskId); // 请求被收下了：跟着建服任务，成了才清检测结果（见 worldimport.js）
-        if (redo.wiz.core !== "vanilla" && !redo.wiz.skipMods) {
-          await api("/api/modcart/draft/target", { method: "POST", body: { inst: name } }).catch(() => {}); // 记下草稿清单归这台新服务器（A31）；失败不挡建服
-        }
-        if (stale(gen)) { toast("已开始创建，可在新建服务器页查看进度"); return; }
         /* 「选模组」步挑好的内容放在草稿购物车里（不带 inst）。空车照旧直接跳部署任务页；
            有货时留在向导这一页等建服任务跑完，再把草稿车一起装上（装模组是一条 kind "mods" 的任务，跳到那页看进度）。
            「有货」两样都算：Modrinth 上挑的项目（count），和从电脑添加的本地文件（local）——只加了本地文件也要装。
-           建服失败仍然跳建服任务页，失败的日志要看得见；跳转本身就是切页，startPoll 停在旧代际上自然失效。 */
+           建服失败仍然跳建服任务页，失败的日志要看得见；跳转本身就是切页，startPoll 停在旧代际上自然失效。
+           有货时先记下草稿清单归这台新服务器（A31），放在看页面还在不在之前：建服途中切走了也记得上；失败不挡建服。
+           空车不记：记号是仅人工的写操作，记一次进一条操作记录 */
+        const hasDraft = d => !!d && (d.count > 0 || (d.local || []).length > 0);
         let draft = null;
         // 原版没有「选模组」这一步，草稿车里剩下的（上次没装的）不能装进原版服；点了「跳过这一步」的这次也不装
-        if (wiz.core !== "vanilla" && !wiz.skipMods) {
+        if (redo.wiz.core !== "vanilla" && !redo.wiz.skipMods) {
           try { draft = await api("/api/modcart"); } catch { draft = null; } // 老后端没这个接口：当作空车
-          if (stale(gen)) return;
+          if (hasDraft(draft)) await api("/api/modcart/draft/target", { method: "POST", body: { inst: name } }).catch(() => {});
         }
-        if (!draft || !(draft.count > 0 || (draft.local || []).length > 0)) { location.hash = `#/task/${r.taskId}`; return; }
+        if (stale(gen)) { toast("已开始创建，可在新建服务器页查看进度"); return; }
+        if (!hasDraft(draft)) { location.hash = `#/task/${r.taskId}`; return; }
         /* 等建服的这段时间不能回上一步：回去会重画向导（换代号），这里就不再接着装，服务器却已经在建了 */
         const back = $("#wback");
         if (back) back.disabled = true;

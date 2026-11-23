@@ -1,7 +1,10 @@
 package inst
 
 import (
+	"bytes"
+	"errors"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,5 +89,31 @@ func TestDeleteKeepsInstanceJSONWhenFileBusy(t *testing.T) {
 	}
 	if _, getErr := m.Get("占着文件的服"); getErr == nil {
 		t.Fatal("再次删除成功后服务器不应仍在列表里")
+	}
+}
+
+// 删到最后文件夹没删掉时，日志按文件夹里实际还剩什么说：空的说留了空文件夹；不空的（删的同时有程序写进了文件）
+// 写清还剩几项、是哪些、文件夹在哪，不能也说成「留了一个空文件夹」。
+func TestLogLeftInstanceDirSaysWhatIsLeft(t *testing.T) {
+	capture := func(dir string) string {
+		prevOut := log.Writer()
+		var buf bytes.Buffer
+		log.SetOutput(&buf)
+		defer log.SetOutput(prevOut)
+		logLeftInstanceDir("留下文件夹的服", dir, errors.New("占用"))
+		return buf.String()
+	}
+
+	empty := t.TempDir()
+	if got := capture(empty); !strings.Contains(got, "留了一个空文件夹") || !strings.Contains(got, empty) {
+		t.Errorf("空文件夹：%q", got)
+	}
+
+	full := t.TempDir()
+	writeTree(t, full, map[string]string{"a.log": "x", "b.log": "x", "c.log": "x", "d.log": "x"})
+	got := capture(full)
+	if strings.Contains(got, "空文件夹") || !strings.Contains(got, "还剩 4 项") || !strings.Contains(got, "a.log") ||
+		!strings.Contains(got, "…") || !strings.Contains(got, full) {
+		t.Errorf("文件夹不空时应写清还剩几项和路径：%q", got)
 	}
 }

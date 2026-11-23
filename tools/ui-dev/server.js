@@ -3310,11 +3310,14 @@ function handler(state, ui, portOf) {
         const name = seg[3], sub = seg[4] || "";
         const i = state.instances.find(x => x.name === name);
         if (!i) return err(res, 404, "服务器不存在");
-        // 删除（同 inst.Manager.Delete）：files=0 只移出列表
+        // 删除（同 inst.Manager.Delete）：files=0 只移出列表。这台的待装清单（Modrinth 项目和本地文件）跟着清，
+        // 草稿车记的目标是这台的，记号也清（同 instance.delete）：不清的话以后建一台同名的会看到上一台留下的东西（B08）
         if (!sub && m === "DELETE") {
           state.lastDelete = { inst: name, files: u.searchParams.get("files") === "1" };
           state.instances = state.instances.filter(x => x !== i);
-          if (state.modcart.draftInst === name) state.modcart.draftInst = ""; // 草稿车记的目标是这台的，记号跟着清（同 instance.delete）
+          delete state.modcart.insts[name];
+          delete state.modcart.localInsts[name];
+          if (state.modcart.draftInst === name) state.modcart.draftInst = "";
           return ok(res, "ok");
         }
         if (sub === "world") return worldInstHandler(state, req, res, m, seg, i); // 地图：世界状态、换回旧地图、删除恢复点、重试恢复

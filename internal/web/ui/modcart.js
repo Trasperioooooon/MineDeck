@@ -659,6 +659,9 @@ window.MDModCart = (() => {
         const running = ctx.status && ctx.status !== "stopped";
         toast(`已开始安装清单里的 ${snap.expect.length + snap.expectLocal.length} 项` + (running ? "。服务器正在运行，装完要重启才生效" : ""));
         location.hash = `#/task/${encodeURIComponent(r.taskId)}`;
+        /* 这一下切页可能被离开确认拦下（同一页上正分批提交没装上的文件），人选了留在这里，按钮不能一直禁用着（A124）。
+           切页是在这之后才处理的：真切走了，这一页随后整个换掉，先把按钮画回来也无妨 */
+        reset();
       } catch (e) {
         toastErr("无法开始安装", e);
         reset();
