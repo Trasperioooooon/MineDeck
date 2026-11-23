@@ -64,7 +64,7 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 | GET/POST | `/api/instances/{name}/players` | 玩家名单与操作 `{action, player}`。GET 返回 `{online, whitelist, ops, banned, whitelistOn}`，`whitelistOn` 是 server.properties 里的白名单开关（按服务端的读法，同一项写了几行认最后一行），没写这一项时为 `null`（服务端用它自己的默认值：26.3 起开，更早关）。界面上拨白名单开关走 `PUT .../properties` 改 `white-list`，服务器开着时再 `POST .../command` 发 `whitelist on` / `whitelist off` |
 | GET | `/api/instances/{name}/resources/search?q=` | Modrinth 兼容资源搜索 |
 | POST | `/api/instances/{name}/resources/install` | `{projectId}` 安装到 mods/plugins |
-| DELETE | `/api/instances/{name}?files=1` | 删除实例。`files=1` 连实例目录一起删；不带就只是移出列表：文件全留着，目录里的 `instance.json` 改名成 `instance.json.bak`（下次启动不会再被扫出来），以后可以用 `/api/adopt` 加回来，原来的设置从 `.bak` 里带回 |
+| DELETE | `/api/instances/{name}?files=1` | 删除实例。`files=1` 连实例目录一起删；不带就只是移出列表：文件全留着，目录里的 `instance.json` 改名成 `instance.json.bak`（下次启动不会再被扫出来），以后可以用 `/api/adopt` 加回来，原来的设置从 `.bak` 里带回。两种都会清掉这台的待装清单（Modrinth 项目、本地文件和暂存的文件；草稿清单记的目标是这台的，记号也清掉），免得以后同名新建的那台看到上一台的东西；`cart.json` 读不出来时先记进 `cart-pending-removals.json`，读出来以后再清（见下面「自选模组和待装清单」）。正常返回 `"ok"`；清不掉也记不下来时服务器照样删，`data` 是 `{note}`，一句话说明这台在待装清单里的东西没清掉 |
 | GET | `/api/creating-leftovers` · POST `/api/creating-leftovers/discard` | 上次没建完的服务器文件夹（操作 `instance.creating.list`、`instance.creating.discard`）。新建、导入整合包、导入现成服务端和交接包时，服务器登记好之前在文件夹里写一个 `.minedeck-creating` 记号，登记成功后去掉。`GET` 列出各个服务器存放根下带这个记号、又没有 `instance.json`（含移出列表留下的 `.bak`、写到一半的 `.tmp`）的文件夹：`{items:[{id, name, root, hasWorld}]}`，`id` 是给删除接口用的编号、不是路径，`root` 是所在存放根的文件夹名，`hasWorld` 表示里面有世界文件；已经登记的服务器只顺手去掉记号，不列。没有记号的文件夹（接管的、用户自己放进来的）不列。`POST` 的 body `{"id":"…","confirm":true}`，`confirm` 必须为 true；正在创建的、已经登记的回 409，没有记号、编号不合规、文件夹本身或里面有符号链接和目录联接的回 400。两个都**仅本机**，AI 不能调用（仅人工），`GET` 不记进操作记录 |
 
 **接管已有服务器**（`/api/adopt/scan`、`/api/adopt`，操作 `instance.adopt.scan`、`instance.adopt`，都是仅人工、仅本机）：把用户自己以前开的服务器文件夹就地登记成实例，不搬文件，不改存档和配置。
@@ -147,7 +147,7 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 
 ### 自选模组和待装清单
 
-自己挑 Modrinth 上的模组或插件放进待装清单，算出还缺哪些前置，一次装进服务器；自己下载好的 jar 也可以从电脑上直接添加进同一张清单。清单存在后端（`<程序目录>/data/modcart/cart.json`），按实例分开；不带 `inst` 的是**草稿清单**，给新建服务器向导和 AI 帮人开服用（实例还没建好），建好以后安装时带上 `includeDraft` 一起装。每张清单最多 50 项（Modrinth 项目和本地文件合起来算）。界面上叫「待装清单」，接口路径、操作名和存盘文件沿用原来的 `modcart` / `cart`。
+自己挑 Modrinth 上的模组或插件放进待装清单，算出还缺哪些前置，一次装进服务器；自己下载好的 jar 也可以从电脑上直接添加进同一张清单。清单存在后端（`<程序目录>/data/modcart/cart.json`），按实例分开；不带 `inst` 的是**草稿清单**，给新建服务器向导和 AI 帮人开服用（实例还没建好），建好以后安装时带上 `includeDraft` 一起装。每张清单最多 50 项（Modrinth 项目和本地文件合起来算）。界面上叫「待装清单」，接口路径、操作名和存盘文件沿用原来的 `modcart` / `cart`。删服务器时 `cart.json` 读不出来，「这台的清单要清」和删除的时间先记在旁边的 `cart-pending-removals.json`；`cart.json` 读出来的那一刻（启动时，或者不重启、下一次用清单时）先补清，再办这次请求：只清删服之前加进清单的东西和那时记的草稿目标，删服以后同名新建的那台加的、记的留着。
 
 都经过操作层，权限分三档：
 

@@ -1400,7 +1400,7 @@ async function deleteInstance(info) {
   const files = r.files && typed.value.trim() === name;
   if (r.files && !files) return false;
   try {
-    await api(`/api/instances/${encodeURIComponent(name)}?files=${files ? 1 : 0}`, { method: "DELETE" });
+    const r = await api(`/api/instances/${encodeURIComponent(name)}?files=${files ? 1 : 0}`, { method: "DELETE" });
     if (files) toast(`已删除「${name}」和它的文件夹`);
     else {
       const dir = info.dir || "";
@@ -1410,6 +1410,9 @@ async function deleteInstance(info) {
           onClick: () => api("/api/openpath", { method: "POST", body: { path: dir } }).catch(e => toastErr("无法打开文件夹", e)) }] : [],
       });
     }
+    // 服务器删了，这台的待装清单却没清掉（后端读不出、也记不下来）：删服照常算成功，另给一条带「详情」的提示，
+    // 免得以后同名新建的那台冒出上一台的东西时不知道是从哪来的
+    if (r && r.note) toast(`「${name}」待装清单里的东西没清掉，以后再建同名的服务器时看一眼它的待装清单`, true, r.note);
     return true;
   } catch (e) { toastErr(files ? "无法删除服务器" : "无法把服务器移出列表", e); return false; }
 }
@@ -2827,13 +2830,14 @@ async function drawWizard() {
            「有货」两样都算：Modrinth 上挑的项目（count），和从电脑添加的本地文件（local）——只加了本地文件也要装。
            建服失败仍然跳建服任务页，失败的日志要看得见；跳转本身就是切页，startPoll 停在旧代际上自然失效。
            有货时先记下草稿清单归这台新服务器（A31），放在看页面还在不在之前：建服途中切走了也记得上；失败不挡建服。
-           空车不记：记号是仅人工的写操作，记一次进一条操作记录 */
+           空车不记：记号是仅人工的写操作，记一次进一条操作记录。读草稿清单偶发失败（draft 为 null）时照样记：
+           不知道是不是空车，后端在草稿清单真是空的时不记，有货却漏记的话那台的详情页就不出「新建时挑的 N 项还没装」 */
         const hasDraft = d => !!d && (d.count > 0 || (d.local || []).length > 0);
         let draft = null;
         // 原版没有「选模组」这一步，草稿车里剩下的（上次没装的）不能装进原版服；点了「跳过这一步」的这次也不装
         if (redo.wiz.core !== "vanilla" && !redo.wiz.skipMods) {
           try { draft = await api("/api/modcart"); } catch { draft = null; } // 老后端没这个接口：当作空车
-          if (hasDraft(draft)) await api("/api/modcart/draft/target", { method: "POST", body: { inst: name } }).catch(() => {});
+          if (draft === null || hasDraft(draft)) await api("/api/modcart/draft/target", { method: "POST", body: { inst: name } }).catch(() => {});
         }
         if (stale(gen)) { toast("已开始创建，可在新建服务器页查看进度"); return; }
         if (!hasDraft(draft)) { location.hash = `#/task/${r.taskId}`; return; }

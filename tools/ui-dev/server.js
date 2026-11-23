@@ -1568,7 +1568,8 @@ function cpMockState(state, b) {
 //   searchFail / addFail / localFail / depsFail: 报错文案（搜索和热门清单 / 加 Modrinth 项目 / 从电脑添加 / 检查前置）,
 //   searchDelay: 搜索和热门清单晚多少毫秒才回（看慢的时候挡不挡别的操作）, noDeps: true 依赖检查返回全空,
 //   loadFail: "locked" | "corrupt" cart.json 在却没读出来（被占着 / 内容坏了，说法见 MODCART_LOAD_FAIL）,
-//   localUploadFail: "unknown-disk" 从电脑添加时查不到接收上传文件所在磁盘的剩余空间（回 503，不改清单）}
+//   localUploadFail: "unknown-disk" 从电脑添加时查不到接收上传文件所在磁盘的剩余空间（回 503，不改清单）,
+//   forgetFail: 原因 删服务器时这台的清单清不掉、也记不下来（同后端 ForgetInstance 报错：服务器照样删，结果里带 note）}
 // 响应里的 modcart.lastInstall 是上一次「安装购物车」的请求（inst、withDeps、includeDraft、expect、expectLocal），
 // modcart.searches 是到现在为止的搜索请求（q、category、offset）。
 // 本地文件没有真的 jar 可读，按文件名里的字样仿几种情况（同真后端 modcart.deps 的 local / manual / conflicts）：
@@ -1608,17 +1609,20 @@ const modCartItem = (id, pickedCore = "", pickedMc = "") => {
 };
 function newModCartState() {
   return { draft: [], insts: {}, localDraft: [], localInsts: {}, draftInst: "", searchFail: "", addFail: "", localFail: "", localUploadFail: "", depsFail: "", depsDelay: 0, searchDelay: 0, noDeps: false,
-    loadFail: "", queries: 0, depsQueries: 0, lastInstall: null, searches: [], pendingRemovals: [] };
+    loadFail: "", forgetFail: "", queries: 0, depsQueries: 0, lastInstall: null, searches: [], pendingRemovals: [] };
 }
 /* 删服务器时清掉这台的清单（Modrinth 项目、本地文件）和指向它的记号（同 modcart.ForgetInstance，B08）。
    cart.json 读不出来（loadFail）时清不了，先记进 pendingRemovals，读出来以后头一次用清单时补清（A30）。
-   读不出来期间清单加不进东西，补清时这台的清单里只有删服之前的，整个清掉就和真后端按加入时间比的结果一样 */
+   读不出来期间清单加不进东西，补清时这台的清单里只有删服之前的，整个清掉就和真后端按加入时间比的结果一样。
+   清不掉也记不下来（forgetFail）时清单不动，返回删服结果里的 note（同 instance.delete），其余情况返回空串 */
 function forgetCartOf(state, name) {
   const mc = state.modcart;
-  if (MODCART_LOAD_FAIL[mc.loadFail]) { if (!mc.pendingRemovals.includes(name)) mc.pendingRemovals.push(name); return; }
+  if (mc.forgetFail) return "服务器已经删了，但待装清单里这台的东西没清掉：" + mc.forgetFail + "。以后再建一台同名的服务器，打开它的待装清单看一眼，用不上的清空就行";
+  if (MODCART_LOAD_FAIL[mc.loadFail]) { if (!mc.pendingRemovals.includes(name)) mc.pendingRemovals.push(name); return ""; }
   delete mc.insts[name];
   delete mc.localInsts[name];
   if (mc.draftInst === name) mc.draftInst = "";
+  return "";
 }
 function settleCartRemovals(state) {
   for (const name of state.modcart.pendingRemovals.splice(0)) forgetCartOf(state, name);
@@ -3328,8 +3332,8 @@ function handler(state, ui, portOf) {
         if (!sub && m === "DELETE") {
           state.lastDelete = { inst: name, files: u.searchParams.get("files") === "1" };
           state.instances = state.instances.filter(x => x !== i);
-          forgetCartOf(state, name);
-          return ok(res, "ok");
+          const note = forgetCartOf(state, name);
+          return ok(res, note ? { note } : "ok");
         }
         if (sub === "world") return worldInstHandler(state, req, res, m, seg, i); // 地图：世界状态、换回旧地图、删除恢复点、重试恢复
         // 没装上的文件（同 instance.import.pending.get / resolve，beta.3 R09）：按服务器查、处置；skip 把那一项挪进 skipped（还能再处理），

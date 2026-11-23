@@ -9641,6 +9641,46 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       } finally { await cleanup(); }
     });
 
+    /* A30：删服时这台的清单清不掉、也记不下来，后端照样删、结果里带 note（同 instance.delete）；界面要让人看得到 */
+    await run("删除：待装清单清不掉时删服照常算成功，另给一条带「详情」的提示说这台的东西没清掉", async () => {
+      try {
+        const why = "待装清单读不出来，也没能记下来等读出来以后再清（拒绝访问）";
+        await cartState({ instReset: true, modCart: { reset: true, insts: { [PACK]: [item("jei", "JEI", "mod")] }, forgetFail: why } });
+        await page.goto(url("#/instances")); await settle();
+        await page.click(`.card[data-name="${PACK}"] [data-act="more"]`);
+        await page.click(".dropmenu button.danger"); await settle(250);
+        await page.click('#modal-root [data-x="ok"]');
+        await page.waitForFunction(n => !document.querySelector(`.card[data-name="${n}"]`), PACK, { timeout: 5000 });
+        await settle(300);
+        const ts = await page.$$eval(".toast", els => els.map(e => ({ err: e.classList.contains("error"), text: e.textContent })));
+        assert(ts.some(x => !x.err && x.text.includes("移出列表")), "删服照常算成功：" + JSON.stringify(ts));
+        assert(ts.some(x => x.err && x.text.includes(`「${PACK}」待装清单里的东西没清掉`)), "另给一条提示：" + JSON.stringify(ts));
+        await page.locator(".toast.error", { hasText: "待装清单里的东西没清掉" }).last().locator('button[aria-label="查看报错详情"]').click();
+        await page.waitForSelector(".err-detail");
+        assert((await page.textContent(".err-detail")).includes(why), "「详情」里是后端给的原话：" + await page.textContent(".err-detail"));
+        await page.click('.modal [data-x="close"]'); await settle(200);
+      } finally { await cleanup(); }
+    });
+
+    /* 向导建服时 GET /api/modcart 偶发失败：不知道草稿清单空不空，照样记目标（后端在草稿清单真是空的时不记） */
+    await run("草稿清单：向导建服时读草稿清单偶发失败，照样记下目标服务器，再去建服任务页", async () => {
+      const bareCart = u => u.pathname === "/api/modcart" && !u.search;
+      const failGet = route => route.request().method() === "GET"
+        ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ ok: false, error: "读取待装清单失败" }) })
+        : route.continue().catch(() => {});
+      try {
+        await cartState({ instReset: true, modCart: { reset: true }, taskStage: 4 });
+        await freshWizard();
+        await wizToMods("paper");
+        await pick("Vault", "Vault");
+        await page.click("#wnext"); await page.waitForSelector("#f-name");
+        await page.route(bareCart, failGet);
+        await wizCreate("读清单失败的服");
+        await page.waitForFunction(() => location.hash === "#/task/task-1", null, { timeout: 8000 });
+        assert(await until(async () => (await cartMock()).draftInst === "读清单失败的服"), "读草稿清单失败时也应记下目标服务器：" + JSON.stringify((await cartMock()).draftInst));
+      } finally { await page.unroute(bareCart, failGet).catch(() => {}); await cleanup(); }
+    });
+
     await run("草稿清单：建服请求还没回来就切走，目标服务器照样记上，不报「无法创建」", async () => {
       try {
         await cartState({ instReset: true, modCart: { reset: true }, taskStage: 2 });
