@@ -243,6 +243,7 @@ func NewManager() (*Manager, error) {
 			}
 		}
 	}
+	m.clearStaleCreatingMarkers() // 列半成品的接口只读，残留的创建记号在这里去掉（A38）
 	m.startScheduler()
 	return m, nil
 }

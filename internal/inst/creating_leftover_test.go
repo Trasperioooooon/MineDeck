@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -31,8 +32,8 @@ func TestCreatingLeftoverIgnoresAdoptedAndRegistered(t *testing.T) {
 	if len(list) != 1 || list[0].Name != "half" || !list[0].HasWorld {
 		t.Fatalf("只该列出没登记的半成品：%+v", list)
 	}
-	if _, err := os.Lstat(filepath.Join(real, CreatingMarker)); !os.IsNotExist(err) {
-		t.Fatalf("已登记的服务器应只去掉记号：%v", err)
+	if _, err := os.Lstat(filepath.Join(real, CreatingMarker)); err != nil {
+		t.Fatalf("列半成品只读，已登记的服务器里残留的记号留到下次启动再去掉：%v", err)
 	}
 	if _, err := os.Lstat(filepath.Join(real, "instance.json")); err != nil {
 		t.Fatalf("已登记的服务器被动过：%v", err)
@@ -74,6 +75,66 @@ func TestCreatingLeftoverIgnoresAdoptedAndRegistered(t *testing.T) {
 	}
 	if b, err := os.ReadFile(filepath.Join(parent, "outside-keep.txt")); err != nil || string(b) != "keep" {
 		t.Fatalf("父目录被动过：%v %q", err, b)
+	}
+}
+
+// 列半成品的接口只读，盘上的东西一样不动；已经登记成服务器（instance.json，或移出列表留下的 .bak）的文件夹里残留的
+// 创建记号在下次启动时去掉，没登记的半成品的记号留着（A38）。
+func TestStaleCreatingMarkerClearedAtStartup(t *testing.T) {
+	m, _ := adoptEnv(t)
+	real := filepath.Join(app.ServersDir, "real")
+	writeTree(t, real, map[string]string{CreatingMarker: "real\n", "instance.json": `{"name":"real"}`})
+	kept := filepath.Join(app.ServersDir, "kept")
+	writeTree(t, kept, map[string]string{CreatingMarker: "kept\n", settingsBackup: `{"name":"kept"}`})
+	half := filepath.Join(app.ServersDir, "half")
+	writeTree(t, half, map[string]string{CreatingMarker: "half\n"})
+	marker := func(dir string) bool {
+		_, err := os.Lstat(filepath.Join(dir, CreatingMarker))
+		return err == nil
+	}
+
+	if list := m.CreatingLeftovers(); len(list) != 1 || list[0].Name != "half" {
+		t.Fatalf("只该列出没登记的半成品：%+v", list)
+	}
+	if !marker(real) || !marker(kept) || !marker(half) {
+		t.Fatal("列半成品不该去掉任何记号")
+	}
+	if _, err := NewManager(); err != nil {
+		t.Fatal(err)
+	}
+	if marker(real) || marker(kept) {
+		t.Fatal("启动时应去掉已登记的服务器里残留的记号")
+	}
+	if !marker(half) {
+		t.Fatal("没登记的半成品的记号要留着，下次还能列出来")
+	}
+	if got := mustRead(t, filepath.Join(real, "instance.json")); got != `{"name":"real"}` {
+		t.Fatalf("去记号不该动服务器的配置：%q", got)
+	}
+}
+
+// 第一次往一个新的存放位置里建服，记号放下以后、建完以前程序崩了：下次启动照样扫得到那里的半成品（A38）。
+// 放记号的时候就把存放位置记进配置；原来要到建完才记，崩在中间就扫不到那里。
+func TestCreatingLeftoverInNewRootFoundAfterCrash(t *testing.T) {
+	adoptEnv(t)
+	root := filepath.Join(t.TempDir(), "新存放位置")
+	dir := filepath.Join(root, "half-new")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(app.InstanceRoots(), root) {
+		t.Fatal("这个存放位置一开始不该在配置里")
+	}
+	if err := WriteCreatingMarker(dir, "新位置的服"); err != nil {
+		t.Fatal(err)
+	}
+	// 程序在这里没了：不走登记那一步，直接重开
+	m2, err := NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list := m2.CreatingLeftovers(); len(list) != 1 || list[0].Name != "half-new" || list[0].RootName != "新存放位置" {
+		t.Fatalf("下次启动应扫得到新存放位置里的半成品：%+v", list)
 	}
 }
 

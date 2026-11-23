@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,9 +17,12 @@ import (
 // ErrCreatingConflict 半成品目录当前正在创建或已是登记服务器，拒绝删除时包装此错误（操作层映射为 409）。
 var ErrCreatingConflict = errors.New("creating leftover conflict")
 
-// WriteCreatingMarker 在还没登记的新目录里写下「这次创建还没完成」。
+// WriteCreatingMarker 在还没登记的新目录里写下「这次创建还没完成」。新建、导入整合包、导入现成服务端和交接包都经这里。
 // 只写我们自己的记号文件，不碰世界、配置。已经登记的服务器不靠这个文件判断。
+// 写之前先把 dir 所在的存放位置记进配置：下次启动只扫配置里记着的位置，第一次往一个新位置里建服时，要是记号放下了、
+// 位置还没记住程序就崩了，那里的半成品就没人知道了（A38）。建不成也留着这个位置，下次启动多看一个文件夹而已。
 func WriteCreatingMarker(dir, name string) error {
+	app.RememberRoot(filepath.Dir(dir))
 	return os.WriteFile(filepath.Join(dir, CreatingMarker), []byte(strings.TrimSpace(name)+"\n"), 0o644)
 }
 
@@ -41,8 +45,25 @@ type CreatingLeftover struct {
 	HasWorld bool   `json:"hasWorld"`
 }
 
-// CreatingLeftovers 列出可以手动删的半成品。有 instance.json（或移出列表留下的 .bak）的只去掉记号，不列入、不删目录。
+// CreatingLeftovers 列出可以手动删的半成品。只读，不改盘上的东西：有 instance.json（或移出列表留下的 .bak）的不列入，
+// 它里面残留的记号留到下次启动时去掉（clearStaleCreatingMarkers），或者有人点删的时候去掉（DiscardCreatingLeftover）。
 func (m *Manager) CreatingLeftovers() []CreatingLeftover {
+	return m.scanCreatingLeftovers(nil)
+}
+
+// clearStaleCreatingMarkers 启动时（NewManager）去掉已经登记成服务器的文件夹里残留的创建记号：登记成功以后去记号那一下失败了
+// （被占着），或者程序正好崩在那中间。留着的话，以后这台的 instance.json 要是没了，它会被当成半成品列出来、能被删掉。
+// 启动时还没有正在创建的任务，去掉的只会是残留的。
+func (m *Manager) clearStaleCreatingMarkers() {
+	m.scanCreatingLeftovers(func(dir string) {
+		if err := ClearCreatingMarker(dir); err != nil {
+			log.Printf("已登记的服务器文件夹里残留的创建记号去不掉，下次启动再试：%s（%v）", dir, err)
+		}
+	})
+}
+
+// scanCreatingLeftovers 扫各个存放位置下带创建记号的文件夹，列出没登记的半成品。已经登记成服务器的不列，交给 registered（可以是 nil）。
+func (m *Manager) scanCreatingLeftovers(registered func(dir string)) []CreatingLeftover {
 	var out []CreatingLeftover
 	for i, root := range app.InstanceRoots() {
 		if !plainCreatingDir(root) {
@@ -64,9 +85,11 @@ func (m *Manager) CreatingLeftovers() []CreatingLeftover {
 			if !creatingMarkerOwned(dir) {
 				continue
 			}
-			registered, checkErr := checkNoInstanceFiles(dir)
-			if registered {
-				_ = ClearCreatingMarker(dir)
+			isServer, checkErr := checkNoInstanceFiles(dir)
+			if isServer {
+				if registered != nil {
+					registered(dir)
+				}
 				continue
 			}
 			if checkErr != nil {

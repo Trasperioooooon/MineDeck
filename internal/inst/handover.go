@@ -2,10 +2,8 @@ package inst
 
 import (
 	"context"
-	"path/filepath"
 	"sync"
 
-	"minedeck/internal/app"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/tasks"
 )
@@ -49,8 +47,8 @@ func (m *Manager) BeginPackingInstance(i *Instance) (release func(), ok bool) {
 	return func() { once.Do(func() { m.unmarkPacking(name) }) }, true
 }
 
-// FinalizeCreate 写 run.bat 和 instance.json，记下扫描根，把实例注册进列表。
-// s 里的 Name 必须已经过校验（和 dir 对应），JavaPath 应已在本机确认存在。
+// FinalizeCreate 写 run.bat 和 instance.json，把实例注册进列表。扫描根在放创建记号时就记下了（WriteCreatingMarker），
+// 调用方要先放记号再开始建。s 里的 Name 必须已经过校验（和 dir 对应），JavaPath 应已在本机确认存在。
 func (m *Manager) FinalizeCreate(s Settings, dir string) (*Instance, error) {
 	i := &Instance{Settings: s, Dir: dir, Console: newConsole()}
 	if err := writeRunBat(i); err != nil {
@@ -59,8 +57,7 @@ func (m *Manager) FinalizeCreate(s Settings, dir string) (*Instance, error) {
 	if err := m.saveInstance(i); err != nil {
 		return nil, err
 	}
-	_ = ClearCreatingMarker(dir) // 删不掉也不失败：有 instance.json 时列表只去掉记号，不删目录
-	app.RememberRoot(filepath.Dir(dir))
+	_ = ClearCreatingMarker(dir) // 删不掉也不失败：有 instance.json 的不会被当成半成品，下次启动时去掉记号
 	m.mu.Lock()
 	m.insts[s.Name] = i
 	m.mu.Unlock()
