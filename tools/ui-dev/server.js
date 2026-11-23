@@ -1747,16 +1747,23 @@ async function modcartHandler(state, req, res, p, m, u) {
   if (unread) return err(res, 503, unread.raw, unread.hint);
   if (p === "/api/modcart" && m === "GET") return ok(res, modcartView(state, qCart, q.get("core")));
   if (p === "/api/modcart" && m === "POST") {
-    const b = await readBody(req), key = cartOf(b), di = String(b.draftInst || "").trim();
+    const b = await readBody(req), key = cartOf(b);
     if (mc.addFail) return err(res, 500, mc.addFail);
-    if (di && key !== "") return err(res, 400, "只有草稿清单能记下目标服务器");
-    if (!(b.projectIds || []).length && !di) return err(res, 400, "没有给要加入的项目");
+    if (!(b.projectIds || []).length) return err(res, 400, "没有给要加入的项目");
     const cart = bucket(key);
-    for (const id of (b.projectIds || [])) {
-      if (!cart.some(x => x.projectId === id)) cart.push(modCartItem(id, key === "" ? (b.core || "") : "", key === "" ? (b.mc || "") : ""));
+    // 草稿车记下挑的时候的核心和版本（同后端 draftOrigin）：核心归一成小写，认不出来的连同版本都不记
+    const pickedCore = String(b.core || "").trim().toLowerCase(), known = key === "" && CORES.some(c => c.id === pickedCore);
+    for (const id of b.projectIds) {
+      if (!cart.some(x => x.projectId === id)) cart.push(modCartItem(id, known ? pickedCore : "", known ? String(b.mc || "").trim() : ""));
     }
-    if (di && (mc.draft.length + mc.localDraft.length > 0)) mc.draftInst = di;
     return ok(res, modcartView(state, key, b.core));
+  }
+  // 记下草稿车是给哪台新服务器挑的（同 modcart.draft.target，仅人工）：草稿车空着时不记
+  if (p === "/api/modcart/draft/target" && m === "POST") {
+    const b = await readBody(req), di = String(b.inst || "").trim();
+    if (!di) return err(res, 400, "没有给服务器名称");
+    if (mc.draft.length + mc.localDraft.length > 0) mc.draftInst = di;
+    return ok(res, modcartView(state, "", ""));
   }
   if (p === "/api/modcart/remove" && m === "POST") {
     const b = await readBody(req), key = cartOf(b), cart = bucket(key), af = cart.filter(x => x.projectId !== b.projectId);
@@ -3307,6 +3314,7 @@ function handler(state, ui, portOf) {
         if (!sub && m === "DELETE") {
           state.lastDelete = { inst: name, files: u.searchParams.get("files") === "1" };
           state.instances = state.instances.filter(x => x !== i);
+          if (state.modcart.draftInst === name) state.modcart.draftInst = ""; // 草稿车记的目标是这台的，记号跟着清（同 instance.delete）
           return ok(res, "ok");
         }
         if (sub === "world") return worldInstHandler(state, req, res, m, seg, i); // 地图：世界状态、换回旧地图、删除恢复点、重试恢复

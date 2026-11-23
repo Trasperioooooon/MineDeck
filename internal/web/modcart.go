@@ -40,6 +40,9 @@ func (s *Server) modcartRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/modcart/clear", func(w http.ResponseWriter, r *http.Request) {
 		s.do(w, r, "modcart.clear", bodyArgs(r))
 	})
+	mux.HandleFunc("POST /api/modcart/draft/target", func(w http.ResponseWriter, r *http.Request) {
+		s.do(w, r, "modcart.draft.target", bodyArgs(r))
+	})
 	mux.HandleFunc("POST /api/modcart/local", s.handleModcartLocal)
 	mux.HandleFunc("POST /api/modcart/local/remove", func(w http.ResponseWriter, r *http.Request) {
 		s.do(w, r, "modcart.local.remove", bodyArgs(r))

@@ -495,8 +495,10 @@ func (c *cat) instanceOps() {
 			}
 			// 这台服务器的购物车跟着清掉：购物车按实例名存，不清的话以后新建一台同名的，
 			// 旧车里剩下的东西会被当成新服务器的。人从电脑上添加、暂存着的本地文件也一起删。
+			// 草稿清单记的目标是这台的，记号同理也清掉（草稿清单本身留着）。
 			if c.ModCart != nil {
 				_ = c.ModCart.ClearAll(p.Inst)
+				_ = c.ModCart.ForgetDraftInst(p.Inst)
 			}
 			return "ok", nil
 		},

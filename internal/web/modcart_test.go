@@ -142,7 +142,7 @@ func TestModCartRoutes(t *testing.T) {
 	if it := d["items"].([]any)[0].(map[string]any); it["pickedCore"] != "fabric" || it["pickedMc"] != "1.20.1" {
 		t.Errorf("草稿车应记下核心和版本：%v", it)
 	}
-	if d = data(t, e.call(t, "POST", "/api/modcart", `{"draftInst":"模组服"}`, 200)); d["draftInst"] != "模组服" {
+	if d = data(t, e.call(t, "POST", "/api/modcart/draft/target", `{"inst":"模组服"}`, 200)); d["draftInst"] != "模组服" {
 		t.Errorf("草稿车应记下目标服务器：%v", d)
 	}
 	if d = data(t, e.call(t, "GET", "/api/modcart/deps?inst="+url.QueryEscape("模组服"), "", 200)); len(d["files"].([]any)) != 0 {

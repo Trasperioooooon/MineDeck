@@ -316,13 +316,9 @@ func (s *Service) putLocalsLocked(inst string, list []LocalFile) error {
 	return s.writeLocked(s.carts, next, s.draftInst)
 }
 
-func (s *Service) write(carts map[string][]Item, locals map[string][]LocalFile) error {
-	return s.writeLocked(carts, locals, s.draftInst)
-}
-
 // writeLocked 写 cart.json（先写临时文件再改名），写成了才同步更新内存状态。报错里不带路径：这些话会原样给到界面和 AI。
 // cart.json 没读成（s.loadErr）时一律不写：内存里是空清单，写下去就把原文件盖掉了。各个改清单的入口在改之前就已经
-// 用 retryLoadLocked 挡下；这里再挡一道，兜住以后新加的写盘点。草稿清单一旦全空，目标服务器记号跟着清掉。
+// 用 retryLoadLocked 挡下；这里再挡一道，兜住以后新加的写盘点。草稿清单一旦全空，目标服务器记号跟着清掉。调用方持有 s.mu。
 func (s *Service) writeLocked(carts map[string][]Item, locals map[string][]LocalFile, draftInst string) error {
 	if s.loadErr != nil {
 		return s.loadErr
@@ -368,6 +364,20 @@ func (s *Service) SetDraftInst(inst string) error {
 		return nil
 	}
 	return s.writeLocked(s.carts, s.locals, inst)
+}
+
+// ForgetDraftInst 删掉一台服务器时调：草稿清单记的正是这台，就把记号清掉，草稿清单本身不动。
+// 不清的话，以后同名新建、接管或导入一台，详情页会冒出「新建时挑的 N 项还没装」（A31）。
+func (s *Service) ForgetDraftInst(inst string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.retryLoadLocked(); err != nil {
+		return err
+	}
+	if s.draftInst == "" || s.draftInst != inst {
+		return nil
+	}
+	return s.writeLocked(s.carts, s.locals, "")
 }
 
 // List 一辆车里的东西（按加入的先后）。
