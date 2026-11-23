@@ -39,5 +39,5 @@
 
 ## Optional
 
-- [Source code](https://github.com/Trasperioooooon/MineDeck): Go + WebView2, MIT License
-- [LICENSE](https://raw.githubusercontent.com/Trasperioooooon/MineDeck/main/LICENSE): MIT
+- [Source code](https://github.com/Trasperioooooon/MineDeck): Go + WebView2, GNU AGPL-3.0 (v3.2.4 and earlier: MIT)
+- [LICENSE](https://raw.githubusercontent.com/Trasperioooooon/MineDeck/main/LICENSE): GNU AGPL-3.0

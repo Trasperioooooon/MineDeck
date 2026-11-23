@@ -6501,7 +6501,7 @@ function setAbout(body, info) {
       内网穿透基于 <b>OpenFrp OPENAPI</b> 接入（<a href="https://www.openfrp.net" target="_blank">openfrp.net</a>）。<br>
       界面字体：Geist、Geist Mono（© The Geist Project Authors）与 Noto Sans SC（© Adobe），均为 SIL Open Font License 1.1，
       子集随程序内嵌，许可原文见 <a href="fonts/OFL-Geist.txt" target="_blank">OFL-Geist.txt</a>、<a href="fonts/OFL-NotoSansSC.txt" target="_blank">OFL-NotoSansSC.txt</a>。<br>
-      本软件为开源项目，遵循仓库 LICENSE（MIT）。<br>
+      本软件以 GNU AGPL-3.0 开源，源码在 <a href="https://github.com/Trasperioooooon/MineDeck" target="_blank">GitHub</a>。<br>
       Minecraft 是 Mojang Studios 的商标，本工具与 Mojang / Microsoft / 网易均无隶属或授权关系。<br>
       NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.
     </div>` +
@@ -6587,7 +6587,7 @@ function showOnboarding(info) {
             <li><b>遵守官方条款</b>：使用本工具搭建与运行服务器，须遵守 <b>Minecraft EULA</b> 与 Microsoft 服务协议；如你使用网易代理的中国版《我的世界》账号或内容，请另行遵守网易的用户协议（两套账号体系互不相通，本工具仅面向国际 Java 版服务端）。</li>
             <li><b>正版建议</b>：建议使用正版 Mojang / Microsoft 账号并开启正版验证联机。是否使用离线模式由你自行决定并自行承担相应后果，本工具不提供任何绕过正版验证的功能。</li>
             <li><b>对外服务责任自负</b>：通过内网穿透等方式向他人开放服务器时，你是该服务器的运营者，须自行遵守所在地法律法规（含网络安全与未成年人保护相关规定），并对服务器内容与运营行为负责。</li>
-            <li><b>开源免责</b>：本软件基于 MIT 协议按「现状」提供，不作任何明示或默示担保。因使用或无法使用本软件导致的任何数据丢失、账号问题或其他损失，作者及贡献者不承担责任。</li>
+            <li><b>开源免责</b>：本软件按 GNU AGPL-3.0 协议以「现状」提供，不作任何明示或默示担保。因使用或无法使用本软件导致的任何数据丢失、账号问题或其他损失，作者及贡献者不承担责任。</li>
           </ol>
         </div>
         <label class="ob-agree"><input type="checkbox" id="ob-agree"><span>我已阅读并同意上述《用户协议与免责声明》及 <a href="https://aka.ms/MinecraftEULA" target="_blank">Minecraft EULA</a></span></label>

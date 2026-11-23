@@ -200,7 +200,9 @@ The local HTTP API is described in [docs/设计与参考/API.md](docs/设计与�
 
 ## License
 
-The program is under the [MIT License](LICENSE).
+Starting with v3.2.5, the program is licensed under the [GNU AGPL-3.0](LICENSE) (version 3 only, `AGPL-3.0-only`). You may use, modify and redistribute it; if you distribute a modified version, or let others use a modified version over a network, you must publish its source under the same license. Versions up to and including v3.2.4 were released under the MIT License and stay under it; the MIT text from that period is kept in [docs/许可/MIT-v3.2.4及以前.txt](docs/许可/MIT-v3.2.4及以前.txt).
+
+The companion mod (`companion/`) and the voice-chat bridge mod (`bridge/voicechat/`) are still under MIT for now; they will be relicensed the next time they are rebuilt.
 
 The Geist, Geist Mono and Noto Sans SC fonts embedded in the interface are under the [SIL Open Font License 1.1](https://openfontlicense.org/). What ships is a subset that keeps the copyright and license information inside the fonts. The license texts are in [`internal/web/ui/fonts/`](internal/web/ui/fonts/), and how the subsets are made is described in [tools/fonts/README.md](tools/fonts/README.md) (in Chinese).
 

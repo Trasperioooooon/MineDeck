@@ -198,7 +198,9 @@ cd ..\MineDeck-dev
 
 ## 许可证
 
-程序本身是 [MIT License](LICENSE)。
+程序本身从 v3.2.5 起以 [GNU AGPL-3.0](LICENSE)（只限第 3 版，`AGPL-3.0-only`）授权：可以自由使用、修改、再发布；发布改过的版本，或者把改过的版本放到网络上给别人用，都要按同样的协议公开源码。v3.2.4 及以前的版本是按 MIT 发布的，那些版本照旧按 MIT，MIT 时期的许可原文留在 [docs/许可/MIT-v3.2.4及以前.txt](docs/许可/MIT-v3.2.4及以前.txt)。
+
+伙伴模组（`companion/`）和语音桥接模组（`bridge/voicechat/`）目前仍按 MIT，等下次重新打包时再一起改。
 
 界面内嵌的 Geist、Geist Mono、Noto Sans SC 三款字体使用 [SIL Open Font License 1.1](https://openfontlicense.org/)。打进程序的是子集，保留了字体内的版权与许可信息，许可原文在 [`internal/web/ui/fonts/`](internal/web/ui/fonts/)，生成方式见 [tools/fonts/README.md](tools/fonts/README.md)。
 
