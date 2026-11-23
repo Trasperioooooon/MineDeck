@@ -5714,9 +5714,11 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click('.tabs .tab[data-t="console"]'); await page.waitForSelector("#console");
       // beta.3 R06：「地图」成了「世界与备份」下的「换地图」子页，点标签进的是「备份」，再点子页
       await page.click('.tabs .tab[data-t="world"]'); await page.click('.sub-tabs .tab[data-t="map"]'); await page.waitForSelector("#wi-task");
-      // 开始停服、换地图以后不能取消
-      await page.waitForSelector("#wi-task-acts .warn-text", { timeout: 15000 });
-      assert(!(await page.$("#wi-cancel")) && (await page.$eval("#wi-task-acts", el => el.textContent)).includes("不能取消"), "换地图阶段不该还有取消键");
+      // 开始停服、换地图以后不能取消：取消键变灰，旁边写着后端给的原因（A53，以前是整个键收掉、写一句固定的话）
+      await page.waitForSelector("#wi-cancel[disabled]", { timeout: 15000 });
+      const late = await page.$eval("#wi-task-acts", el => el.textContent);
+      assert((late.includes("不能取消") || late.includes("不能停")) && (await page.$eval("#wi-cancel", b => b.getAttribute("aria-describedby"))) === "wi-cancel-why",
+        "换地图阶段取消键应变灰并写出原因：" + late);
       assert((await wState({})).world.discards.length === 0, "任务还在跑就清了检测结果");
       await page.waitForSelector("#wi-task-done-text", { timeout: 15000 });
       const done = await page.$eval("#wi-task-done-text", el => el.textContent);
@@ -6033,6 +6035,31 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await wReset(); }
   });
 
+  await run("地图：别的设备发起的换地图，打开换地图页就接上它的进度；取消键是灰的、写着只有发起的那台设备能取消；看完回到首页不会又被接回去", async () => {
+    await wReset();
+    try {
+      await wState({ world: { foreignTask: { inst: PACK, kind: "import" } } });
+      const t0 = reqs.length;
+      await page.goto(url(worldTab(PACK))); await page.waitForSelector("#wi-task");
+      await page.waitForSelector("#wi-cancel[disabled]");
+      const v = await page.evaluate(() => ({ title: document.querySelector("#wi-task-title").textContent, why: document.querySelector("#wi-cancel-why").textContent,
+        btn: document.querySelector("#wi-cancel").textContent.trim() }));
+      assert(v.title.includes("机械动力整合包") && v.why.includes("只有发起这次导入的那台设备能取消") && v.btn === "取消导入", "接上的进度：" + JSON.stringify(v));
+      await page.waitForSelector("#wi-task-done-text", { timeout: 15000 });
+      const done = await page.$eval("#wi-task-done-text", el => el.textContent);
+      assert(done.includes("「机械动力整合包」的地图文件已导入"), "结果里应有服务器名：" + done);
+      assert(!(await page.$("#wi-task-again")) && wPosts(t0, "/api/world/cancel") === 0, "别人发起的导入：没有「重新核对」，也没发过取消");
+      await page.click("#wi-task-ok"); await page.waitForSelector("#wi-start");
+      await settle(3500); // 首页三秒刷新一次：刷过以后还停在首页
+      assert((await page.$("#wi-start")) && !(await page.$("#wi-task")), "看完回到首页以后不该又被接回进度页");
+      // 别的设备在换回旧地图：接上以后写明正在换回，没有取消键
+      await wState({ world: { foreignTask: { inst: PACK, kind: "restore", point: "w7f3a9c21" } } });
+      await page.waitForSelector("#wi-task", { timeout: 8000 });
+      assert((await page.$eval("#wi-task-title", el => el.textContent)).includes("换回导入前的地图") && !(await page.$("#wi-cancel")), "接上换回旧地图的进度");
+      await page.waitForSelector("#wi-task-done-text", { timeout: 15000 });
+    } finally { await wReset(); }
+  });
+
   // 新建向导里选一张地图：点「用已有地图开服」→ 填路径检测 → 停在第一步（核心已经按地图预选）
   const wWizPick = async pth => {
     await page.goto(url("#/create/new")); await page.waitForSelector("#wi-wiz-pick");
@@ -6103,6 +6130,20 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.goto(url("#/create")); await settle(500);
       await page.goto(url("#/create/new")); await page.waitForSelector("#wi-wiz-pick");
       assert((await wState({})).world.discards.length === 1, "回到新建页不该再清一遍：" + JSON.stringify((await wState({})).world.discards));
+    } finally { await wReset(); }
+  });
+
+  await run("新建向导带地图：极限模式的地图，最后一步的核对里写明新服务器会打开极限模式；替换已有服务器的地图时不说这句", async () => {
+    await wReset();
+    try {
+      await wWizPick("D:\\Maps\\hardcore-map");
+      await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
+      await page.click("#wnext"); await page.waitForSelector("#wi-wiz-plan #wi-rel");
+      const info = await page.$eval("#wi-wiz-plan", el => el.textContent);
+      assert(info.includes("极限模式的地图") && info.includes("hardcore=true"), "核对里应写明会打开极限模式：" + info);
+      await wOpenFlow(PACK);
+      await wScan("D:\\Maps\\hardcore-map"); await page.waitForSelector("#wi-go");
+      assert(!(await page.$eval("#wi-stage", el => el.textContent)).includes("hardcore=true"), "替换已有服务器的地图时不该说新服务器会打开极限模式");
     } finally { await wReset(); }
   });
 

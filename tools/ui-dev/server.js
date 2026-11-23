@@ -1854,11 +1854,14 @@ const SNAPS = ["26.3-snapshot-2", "26.3-snapshot-1", "26.2-rc1"];
 //   带 damaged → 只有 level.dat_old 的世界（不能导入，原因写在候选的 issues 里、顶层没有）；
 //   带 multi → 一个来源里三张地图（其中一张 level.dat 读不出来）；带 newer → 26.2 保存的地图（比多数服务器新，计划里被拦下）；
 //   带 1193 → 1.19.3 保存的（版本列表里没有这个版本）；带 forge → 用过 Forge 模组的世界；带 plain → 1.20.1 的纯原版世界，没有说明书和资源包；
-//   带 xss → 地图名和说明书里夹着一段 HTML（看界面是不是只当文字）；其余 → 「天空之城」，1.19.4 保存的冒险地图
+//   带 xss → 地图名和说明书里夹着一段 HTML（看界面是不是只当文字）；带 hardcore → 极限模式的地图（用它新建时核对里说一句）；
+//   其余 → 「天空之城」，1.19.4 保存的冒险地图
 // 计划按 VERSIONS 里的先后比新旧：地图更新 = 拦下，更旧 = 要确认，不在表里 = 版本不明、要确认；
 //   单人存档、资源包各给一条提醒；难度和默认模式跟服务器不一样时给设置建议；服务器没停时 mustStop。
 // 任务（kind "world"）按查询次数往前走：导入查到第 5 次结束（前两次在「复制地图到暂存区」，这时取消才有用），换回旧地图第 3 次结束。
+// 没结束的任务在世界状态里（task：编号、种类、能不能取消、不能的原因，同 worldimport.TaskOf；查世界状态不让任务往前走）。
 // /__mock/state 的 world：{ reset: true 回到初始数据, quick: true 任务第 2 次查询就结束, free: 目标盘剩下多少字节,
+//   foreignTask: { inst, kind } 造一个别的设备发起的任务（import 或 restore；这台设备取消不了它）,
 //   scanFail / planFail / importFail: 这一步直接报这句错, taskFail: 任务最后以这句话失败, dropPlans: true 存着的计划全部作废（同过期）,
 //   createFail: 新建服务器的请求在收下计划以后报这句错（同重名：计划放回去，改好还能用同一份）,
 //   inst: { 服务器名: { busy, levelName, noWorld, retryFail, points: [...] } } 直接改某台服务器的世界状态
@@ -1893,6 +1896,31 @@ function worldMockState(state, b) {
   for (const k of ["quick", "free", "scanFail", "planFail", "importFail", "taskFail", "createFail"]) if (k in b) w[k] = b[k];
   if (b.dropPlans) w.plans = {}; // 存着的计划全部作废（同计划过期）
   for (const [name, patch] of Object.entries(b.inst || {})) Object.assign(worldInst(state, name), patch);
+  if (b.foreignTask) { // 别的设备发起的：照着导入、换回那两处建任务，只是带上 foreign
+    const ft = b.foreignTask, id = "task-" + worldId("world-");
+    w.tasks[id] = ft.kind === "restore" ? { kind: "restore", inst: ft.inst, q: 0, step: 0, point: ft.point || "", foreign: true }
+      : { kind: "import", inst: ft.inst, q: 0, step: 0, plan: { replace: ["world"] }, source: "别的设备上传.zip", candidate: "别人的地图", bytes: 200 * W_MB, foreign: true };
+  }
+}
+// 没结束的换地图任务在世界状态里的样子（同 worldimport.TaskOf）：只有这台设备发起的导入、还在复制时能取消
+const WORLD_WHY = {
+  restore: "正在换回导入前的地图，这一步不能停：换完或者自动退回以后才会结束",
+  foreign: "只有发起这次导入的那台设备能取消",
+  cancelling: "已经在取消了，正在清掉复制了一半的地图",
+  stopping: "已经开始停服、准备换上新地图，不能取消了：会换完，出错就自动退回原来的世界",
+  replacing: "正在替换世界文件夹，这一步不能停：换完或者自动退回原来的世界以后才会结束",
+};
+function worldCancelWhy(t) {
+  if (t.kind === "restore") return WORLD_WHY.restore;
+  if (t.foreign) return WORLD_WHY.foreign;
+  if (t.cancelled) return WORLD_WHY.cancelling;
+  return t.step <= 1 ? "" : t.step === 2 ? WORLD_WHY.stopping : WORLD_WHY.replacing;
+}
+function worldRunning(state, name) {
+  const hit = Object.entries(state.world.tasks).filter(([, t]) => t.inst === name && !t.ended).pop(); // 后建的在后
+  if (!hit) return undefined;
+  const [id, t] = hit, why = worldCancelWhy(t);
+  return { id, kind: t.kind, canCancel: !why, ...(why ? { cancelWhy: why } : {}) };
 }
 // 一台服务器的世界状态（同 worldimport.WorldStatus 里跟着服务器走的那几项）
 function worldInst(state, name) {
@@ -1959,6 +1987,7 @@ function worldScan(state, name, uploaded) {
     if (/newer/.test(n)) Object.assign(c.meta, { versionName: "26.2", versionId: 4800, dataVersion: 4800 });
     if (/1193/.test(n)) Object.assign(c.meta, { versionName: "1.19.3", versionId: 3218, dataVersion: 3218 });
     if (/forge/.test(n)) Object.assign(c.meta, { serverBrands: ["forge"], wasModded: true, modMarkers: ["fml"] });
+    if (/hardcore/.test(n)) c.meta.hardcore = true;
     scan.candidates = [c];
     scan.readmes["SkyCity/说明.txt"] = "【天空之城】冒险地图\n作者：云上工坊\n\n推荐 1.19.4，2-6 人，冒险模式。\n要打开命令方块：enable-command-block=true\n更新地址 https://example.com/skycity\n" +
       (xss ? "看这里 " + WORLD_XSS + " <b>不该变粗</b>\n" : "");
@@ -1993,6 +2022,8 @@ function worldPlan(state, scan, cand, inst, core, mc) {
   if (cand.datapacks.length) issues.push({ sev: "info", code: "datapacks", msg: `地图自带 ${cand.datapacks.length} 个数据包，导入后由游戏按地图里的设置加载。导入本身不运行包里的任何程序`, detail: cand.datapacks.join("、") });
   if (m.allowCommands) issues.push({ sev: "info", code: "commands", msg: "地图允许使用命令。如果地图用到命令方块，要在服务器设置里打开命令方块（enable-command-block）；MineDeck 不会自动打开" });
   if (cand.readme.length) issues.push({ sev: "info", code: "readme", msg: "地图带了说明书，里面可能写着推荐的版本、人数和需要的设置，导入前看一眼" });
+  // 同 worldimport.hardcoreNote：只在用地图新建时说（新服务器会打开 hardcore）
+  if (!inst && m.hardcore) issues.push({ sev: "info", code: "hardcore", msg: "这是一张极限模式的地图：新建的服务器会在 server.properties 里打开极限模式（hardcore=true）。极限模式下难度固定为困难，玩家死了只能旁观" });
   const replace = !inst || iw.noWorld ? [] : WORLD_BUKKIT.has(inst.core) ? [level, level + "_nether", level + "_the_end"] : [level];
   const settings = [];
   if (inst) {
@@ -2043,11 +2074,11 @@ function worldTask(state, id) {
         if (inst && t.stopFirst) { inst.status = "stopped"; inst.uptimeSec = 0; inst.onlineCount = 0; }
         iw.points.unshift({ id: worldId("w"), state: "committed", created: new Date().toISOString(), source: t.source, candidate: t.candidate, levelName: iw.levelName,
           hasOld: t.plan.replace.length > 0, oldBytes: t.plan.replace.length ? 412 * W_MB : 0, keptBytes: 0 });
-        t.result = "地图文件已导入，还没开服试过。服务器保持停止，启动后进服看看是不是这张地图";
+        t.result = `「${t.inst}」的地图文件已导入，还没开服试过。服务器保持停止，启动后进服看看是不是这张地图`;
       } else {
         const pt = iw.points.find(x => x.id === t.point);
         if (pt) Object.assign(pt, { state: "restored", hasOld: false, keptBytes: pt.keptBytes || 431 * W_MB, oldBytes: 0 });
-        t.result = "已经换回导入前的地图，旧地图的 level.dat 核对一致。导入的那份（包括启动后的改动）留在旁边，确认不要了可以删掉";
+        t.result = `「${t.inst}」已经换回导入前的地图，旧地图的 level.dat 核对一致。导入的那份（包括启动后的改动）留在旁边，确认不要了可以删掉`;
       }
     }
     if (t.ended && t.error && isImport) iw.points.unshift({ id: worldId("w"), state: "rolled-back", created: new Date().toISOString(), source: t.source, candidate: t.candidate,
@@ -2088,6 +2119,8 @@ async function worldHandler(state, req, res, p, m) {
     const t = w.tasks[b.taskId];
     w.cancels.push(b.taskId);
     if (!t || t.ended) return err(res, 400, "这个任务已经不能取消了"), true;
+    const why = t.cancelled ? "" : worldCancelWhy(t); // 同 world.import.cancel：取消不了时说为什么；已经收下的再点照样成功
+    if (why) return err(res, 400, why), true;
     t.cancelled = true;
     return ok(res, "ok"), true;
   }
@@ -2147,7 +2180,8 @@ async function worldInstHandler(state, req, res, m, seg, i) {
     // blocked 同 WorldStatus.Blocked：启动被封锁（有卡住、读不出来的记录，或者直接给了 blocked），「重试恢复」只在这时出现
     const blocked = iw.blocked !== undefined ? iw.blocked
       : iw.busy && iw.points.some(x => ["stuck", "unreadable"].includes(x.state)) ? iw.busy : "";
-    return ok(res, { levelName: iw.levelName, status: i.status, busy: iw.busy || undefined, blocked: blocked || undefined, points, proxy: i.kind === "proxy" });
+    return ok(res, { levelName: iw.levelName, status: i.status, busy: iw.busy || undefined, blocked: blocked || undefined, points, proxy: i.kind === "proxy",
+      task: worldRunning(state, i.name) });
   }
   if (m !== "POST") return err(res, 405, "方法不对");
   const b = await readBody(req), pt = iw.points.find(x => x.id === b.id);
