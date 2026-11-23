@@ -95,7 +95,7 @@ func assertBlocked(t *testing.T, s *Service, c seededCart, corrupt bool) {
 	_, err = s.RemoveLocal(Draft, c.local.SHA1)
 	wantLoadError(t, err, corrupt)
 	s.mu.Lock()
-	err = s.writeLocked(map[string][]Item{}, nil, "")
+	err = s.writeLocked(map[string][]Item{}, nil, draftTarget{})
 	s.mu.Unlock()
 	wantLoadError(t, err, corrupt)
 	if len(s.List(Draft)) != 0 || len(s.Locals(Draft)) != 0 {

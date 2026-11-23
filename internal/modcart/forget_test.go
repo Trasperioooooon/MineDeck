@@ -72,6 +72,14 @@ func (c forgetCart) fix(t *testing.T) {
 	}
 }
 
+// blockCartSave 在 cart.json 的临时文件的位置上放一个文件夹：之后存清单都存不进去（cart.json 和暂存的文件都还在）。
+func (c forgetCart) blockCartSave(t *testing.T) {
+	t.Helper()
+	if err := os.Mkdir(c.cartPath()+".tmp", 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // readRemovalsFile 读删服记录的原样内容。
 func readRemovalsFile(t *testing.T, c forgetCart) removalsFile {
 	t.Helper()
@@ -369,5 +377,162 @@ func TestForgetInstanceWhenReadable(t *testing.T) {
 	}
 	if _, err := os.Stat(c.removalsPath()); !os.IsNotExist(err) {
 		t.Fatalf("读得出来时不该留删服记录：%v", err)
+	}
+}
+
+// 补清时 cart.json 存不进去：什么都不删。暂存的文件、删服记录原样留着，cart.json 不变，清单上旧服的东西也还在，
+// 等下次读成 cart.json 时再补。先删了暂存的文件，清单里却还登记着它，以后装的时候就找不到文件了。
+func TestSettleRemovalsKeepsEverythingWhenCartUnsaved(t *testing.T) {
+	c := seedForget(t)
+	s := c.unreadable(t)
+	if err := s.ForgetInstance(oldInst); err != nil {
+		t.Fatal(err)
+	}
+	record := readText(t, c.removalsPath())
+	c.fix(t)
+	c.blockCartSave(t)
+	if err := s.LoadErr(); err != nil {
+		t.Fatalf("补清存不进去不该挡清单：%v", err)
+	}
+	if _, err := os.Stat(c.staged); err != nil {
+		t.Fatalf("补清没存进去时暂存的本地文件不能删：%v", err)
+	}
+	if readText(t, c.removalsPath()) != record {
+		t.Fatal("补清没存进去时删服记录应原样留着")
+	}
+	if readText(t, c.cartPath()) != c.json {
+		t.Fatal("补清没存进去时 cart.json 不该变")
+	}
+	if len(s.List(oldInst)) != 1 || len(s.Locals(oldInst)) != 1 || s.DraftInst() != oldInst {
+		t.Fatalf("补清没存进去时清单照旧：%+v %+v %q", s.List(oldInst), s.Locals(oldInst), s.DraftInst())
+	}
+}
+
+// 已有的删服记录读不出来（写到一半）时，读不出来 cart.json 的那段时间又删一台：报错（由删服的结果说明），
+// 不拿只有这一台的新记录盖掉它，盖掉就把上次记下的那几台丢了。
+func TestForgetInstanceKeepsUnreadableRecord(t *testing.T) {
+	c := seedForget(t)
+	s := c.unreadable(t)
+	body := `{"version":1,"removals":[{"inst":"别的服"`
+	if err := os.WriteFile(c.removalsPath(), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ForgetInstance(oldInst); err == nil || !strings.Contains(err.Error(), "没能记下来") {
+		t.Fatalf("已有的记录读不出来时应报记不下来：%v", err)
+	}
+	if got := readText(t, c.removalsPath()); got != body {
+		t.Fatalf("读不出来的删服记录被盖掉了：%s", got)
+	}
+}
+
+// 读得出来时删服、cart.json 却存不进去：报错，清单、记号和暂存的文件都不动（先存清单、存成了才删文件），
+// 也不留删服记录。界面上点「清空」（ClearAll）走的是同一段，一起测。
+func TestClearCartKeepsStagedWhenCartUnsaved(t *testing.T) {
+	for name, clear := range map[string]func(*Service) error{
+		"删服务器": func(s *Service) error { return s.ForgetInstance(oldInst) },
+		"清空":   func(s *Service) error { return s.ClearAll(oldInst) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := seedForget(t)
+			s := New(c.dir, c.mr.srv.URL)
+			c.blockCartSave(t)
+			if err := clear(s); err == nil {
+				t.Fatal("cart.json 存不进去时应报错")
+			}
+			if _, err := os.Stat(c.staged); err != nil {
+				t.Fatalf("清单没存进去时暂存的本地文件不能删：%v", err)
+			}
+			if readText(t, c.cartPath()) != c.json {
+				t.Fatal("清单没存进去时 cart.json 不该变")
+			}
+			if len(s.List(oldInst)) != 1 || len(s.Locals(oldInst)) != 1 || s.DraftInst() != oldInst {
+				t.Fatalf("清单没存进去时内存里的清单照旧：%+v %+v %q", s.List(oldInst), s.Locals(oldInst), s.DraftInst())
+			}
+			if _, err := os.Stat(c.removalsPath()); !os.IsNotExist(err) {
+				t.Fatalf("读得出来时不该留删服记录：%v", err)
+			}
+		})
+	}
+}
+
+// 补清看草稿清单记号是什么时候记的：删服之前记的（指着被删的那台）清掉，删服以后记的（同名新建的那台）留着，
+// 老的 cart.json 里没有记的时间，按删服之前算。
+func TestSettleRemovalsDraftMarkByTime(t *testing.T) {
+	for name, tc := range map[string]struct {
+		markAfterDelete bool // 记号是删服以后记的
+		noTime          bool // 老文件：没有 draftInstAt
+		want            string
+	}{
+		"删服之前记的":    {want: ""},
+		"删服以后记的":    {markAfterDelete: true, want: oldInst},
+		"老文件没有记的时间": {noTime: true, want: ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := seedForget(t)
+			var f cartFile
+			if err := json.Unmarshal([]byte(c.json), &f); err != nil {
+				t.Fatal(err)
+			}
+			if f.DraftInst != oldInst || f.DraftInstAt.IsZero() {
+				t.Fatalf("记目标时应带上时间：%q %v", f.DraftInst, f.DraftInstAt)
+			}
+			deletedAt := f.DraftInstAt.Add(time.Hour)
+			if tc.markAfterDelete {
+				deletedAt = f.DraftInstAt.Add(-time.Hour)
+			}
+			if tc.noTime {
+				f.DraftInstAt = time.Time{}
+			}
+			b, _ := json.Marshal(f)
+			if tc.noTime && strings.Contains(string(b), "draftInstAt") {
+				t.Fatalf("没有时间时不该写出 draftInstAt：%s", b)
+			}
+			if err := os.WriteFile(c.cartPath(), b, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			rb, _ := json.Marshal(removalsFile{Version: 1, Removals: []removal{{Inst: oldInst, At: deletedAt}}})
+			if err := os.WriteFile(c.removalsPath(), rb, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if got := New(c.dir, c.mr.srv.URL).DraftInst(); got != tc.want {
+				t.Fatalf("补清以后草稿清单记的目标：%q，应为 %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// 补清晚了（读成 cart.json 那一刻删服记录坏着）的这段时间里，同名新建的那台记了目标：上一台留下的记号正好是同一个名字，
+// 重记时也要换上新的时间，下次补清时才分得出来，那台的详情页照样有「新建时挑的 N 项还没装」。
+func TestSettleRemovalsKeepsMarkSetAgainForSameName(t *testing.T) {
+	c := seedForget(t)
+	s := c.unreadable(t)
+	if err := s.ForgetInstance(oldInst); err != nil {
+		t.Fatal(err)
+	}
+	record := readText(t, c.removalsPath())
+	deletedAt := readRemovalsFile(t, c).Removals[0].At
+	if err := os.WriteFile(c.removalsPath(), []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c.fix(t)
+	if err := s.LoadErr(); err != nil {
+		t.Fatal(err)
+	}
+	if s.DraftInst() != oldInst {
+		t.Fatalf("删服记录坏着时先不清，上一台的记号还在：%q", s.DraftInst())
+	}
+	waitPast(deletedAt)
+	if err := s.SetDraftInst(oldInst); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(c.removalsPath(), []byte(record), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s2 := New(c.dir, c.mr.srv.URL)
+	if got := s2.DraftInst(); got != oldInst {
+		t.Fatalf("删服以后重记的目标应留着：%q", got)
+	}
+	if got := s2.List(oldInst); len(got) != 0 {
+		t.Fatalf("删服之前就在的照清：%+v", got)
 	}
 }

@@ -24,9 +24,10 @@ import (
 //
 // 补做的规矩：
 //   - 只清删除之前就在清单里的。Modrinth 项目和本地文件都按加入时间比，删除以后才加进来的（同名新建的那台加的）留着；
-//   - 草稿清单记的目标服务器还是这个名字，记号清掉（草稿清单本身留着）；
+//   - 草稿清单记的目标服务器还是这个名字、又是删除之前记的（老文件没有记的时间，按删除之前算），记号清掉，
+//     草稿清单本身留着；删除以后记的是同名新建的那台，留着；
 //   - 这个文件读不出来、内容坏了：留着不动，记一句程序日志，下次读成 cart.json（下次启动）时再试，不挡 cart.json 的读写；
-//   - cart.json 存成了才删这个文件。没删掉的话下次再补一遍，按加入时间比，结果一样。
+//   - cart.json 存成了才删这个文件。没删掉的话下次再补一遍：清单里的东西和记号都按时间比，删除以后加的、记的不动，结果一样。
 
 const removalsName = "cart-pending-removals.json"
 
@@ -60,11 +61,7 @@ func (s *Service) ForgetInstance(inst string) error {
 		log.Printf("删服务器「%s」时待装清单读不出来，记下了，读出来以后再清这台的清单", inst)
 		return nil
 	}
-	draftInst := s.draftInst
-	if draftInst == inst {
-		draftInst = ""
-	}
-	if err := s.clearAllLocked(inst, draftInst); err != nil {
+	if err := s.clearAllLocked(inst, true); err != nil {
 		log.Printf("删服务器「%s」时待装清单没存进去: %v", inst, err)
 		return err
 	}
@@ -126,7 +123,7 @@ func (s *Service) settleRemovalsLocked() {
 	}
 	p := s.planRemovals(list)
 	if len(p.names) > 0 {
-		if err := s.writeLocked(p.carts, p.locals, p.draftInst); err != nil {
+		if err := s.writeLocked(p.carts, p.locals, p.draft); err != nil {
 			log.Printf("待装清单补清删掉的服务器时没存进去，删服记录先留着，下次再试: %v", err)
 			return
 		}
@@ -136,22 +133,22 @@ func (s *Service) settleRemovalsLocked() {
 		_ = os.RemoveAll(path)
 	}
 	if err := atomicfile.RetryRemove(func() error { return os.Remove(s.removalsPath()) }); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		log.Printf("待装清单的删服记录 %s 删不掉，下次读成清单时会再补一遍（只清删服之前加的）: %v", removalsName, noPath(err))
+		log.Printf("待装清单的删服记录 %s 删不掉，下次读成清单时会再补一遍（只清删服之前加的东西和记的目标）: %v", removalsName, noPath(err))
 	}
 }
 
 // removalPlan 补清要做的事：换上去的清单和记号、要删的暂存文件或文件夹、补清了哪几台。
 type removalPlan struct {
-	carts     map[string][]Item
-	locals    map[string][]LocalFile
-	draftInst string
-	staged    []string // 这台的本地文件一个不剩时是它的暂存文件夹，还剩着的时候是拿掉的那几个暂存文件
-	names     []string
+	carts  map[string][]Item
+	locals map[string][]LocalFile
+	draft  draftTarget
+	staged []string // 这台的本地文件一个不剩时是它的暂存文件夹，还剩着的时候是拿掉的那几个暂存文件
+	names  []string
 }
 
 // planRemovals 按删服记录算出补清以后的清单，不动内存里的（写盘成功才换上去）。调用方持有 s.mu。
 func (s *Service) planRemovals(list []removal) removalPlan {
-	p := removalPlan{carts: s.carts, locals: s.locals, draftInst: s.draftInst}
+	p := removalPlan{carts: s.carts, locals: s.locals, draft: s.draft}
 	for _, r := range list {
 		if r.Inst == Draft || r.Inst == Toolbox {
 			continue // 不是服务器的清单：坏记录不能把草稿清单、工具箱的清单清了
@@ -171,9 +168,9 @@ func (s *Service) planRemovals(list []removal) removalPlan {
 				p.staged = append(p.staged, s.stagedPath(r.Inst, lf.SHA1))
 			}
 		}
-		markCleared := p.draftInst == r.Inst
+		markCleared := p.draft.Inst == r.Inst && !p.draft.At.After(r.At)
 		if markCleared {
-			p.draftInst = ""
+			p.draft = draftTarget{}
 		}
 		if len(dropItems)+len(dropLocals) > 0 || markCleared {
 			p.names = append(p.names, r.Inst)

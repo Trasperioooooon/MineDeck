@@ -91,10 +91,10 @@ type Service struct {
 	api      string // Modrinth 接口地址，测试时换成本机的假服务
 	official bool   // 用的是真的 Modrinth：下载地址只认它的 CDN
 
-	mu        sync.Mutex
-	carts     map[string][]Item
-	locals    map[string][]LocalFile // 人从电脑上添加的 jar（见 staged.go），键同 carts
-	draftInst string                 // 草稿清单是给哪台新建服务器挑的（A31）；草稿清单空了自动清掉
+	mu     sync.Mutex
+	carts  map[string][]Item
+	locals map[string][]LocalFile // 人从电脑上添加的 jar（见 staged.go），键同 carts
+	draft  draftTarget            // 草稿清单是给哪台新建服务器挑的；草稿清单空了自动清掉
 	// loadErr cart.json 在、却没读成（见 LoadError）。不为空时清单是空的，一律不写 cart.json、不清暂存的本地文件；
 	// 有人要清单、要改清单时再读一次（retryLoadLocked），读成了就清掉
 	loadErr *LoadError
@@ -200,9 +200,9 @@ func (s *Service) load() {
 	s.loadErr = nil
 	s.carts, s.locals = f.Carts, s.checkedLocals(f.Locals)
 	if len(s.carts[Draft]) > 0 || len(s.locals[Draft]) > 0 {
-		s.draftInst = strings.TrimSpace(f.DraftInst)
+		s.draft = draftTarget{Inst: strings.TrimSpace(f.DraftInst), At: f.DraftInstAt}
 	} else {
-		s.draftInst = ""
+		s.draft = draftTarget{}
 	}
 }
 
@@ -262,7 +262,9 @@ func jsonErrAt(b []byte, err error) error {
 }
 
 // retryLoadLocked 上次没读成时再读一次，返回现在的状态（读成了、或者本来就读成了，是 nil）。调用方持有 s.mu。
-// 没读成期间清单一直是空的、什么也存不进去，所以读成了直接换上，不会冲掉谁的改动。只读一次、不等：它在锁里。
+// 没读成期间清单一直是空的、什么也存不进去，所以读成了直接换上，不会冲掉谁的改动。
+// 只读一次，读不成不隔一会儿再读：它在锁里，别的请求都排在后面。读成了要先补清删服记录，删不掉那份记录时
+// 会在锁里重试一会儿（Windows 上最多约半秒，见 settleRemovalsLocked）。
 func (s *Service) retryLoadLocked() error {
 	if s.loadErr == nil {
 		return nil
@@ -289,22 +291,30 @@ func (s *Service) LoadErr() error {
 }
 
 type cartFile struct {
-	Version   int                    `json:"version"`
-	Carts     map[string][]Item      `json:"carts"`               // 键：实例名；空串 = 草稿车
-	Locals    map[string][]LocalFile `json:"locals,omitempty"`    // 暂存的本地文件，键同上
-	DraftInst string                 `json:"draftInst,omitempty"` // 草稿车是给哪台新建服务器挑的（A31）
+	Version     int                    `json:"version"`
+	Carts       map[string][]Item      `json:"carts"`                // 键：实例名；空串 = 草稿车
+	Locals      map[string][]LocalFile `json:"locals,omitempty"`     // 暂存的本地文件，键同上
+	DraftInst   string                 `json:"draftInst,omitempty"`  // 草稿车是给哪台新建服务器挑的（A31）
+	DraftInstAt time.Time              `json:"draftInstAt,omitzero"` // DraftInst 是什么时候记的（UTC），见 draftTarget
+}
+
+// draftTarget 草稿清单是给哪台新建服务器挑的（A31），和记下的时间。补清删服记录时按时间分：删服之前记的指着被删的那台，
+// 清掉；删服以后记的是同名新建的那台，留着（A30）。老的 cart.json 里没有时间，读进来是零值，按删服之前算。
+type draftTarget struct {
+	Inst string
+	At   time.Time
 }
 
 func (s *Service) path() string { return filepath.Join(s.dir, "cart.json") }
 
 // putLocked 把 inst 的车换成 cart：先写盘，写成了才改内存（写盘失败时内存和磁盘还是同一个样子）。调用方持有 s.mu。
 func (s *Service) putLocked(inst string, cart []Item) error {
-	return s.writeLocked(withEntry(s.carts, inst, cart), s.locals, s.draftInst)
+	return s.writeLocked(withEntry(s.carts, inst, cart), s.locals, s.draft)
 }
 
 // putLocalsLocked 把 inst 的本地文件登记换成 list：同 putLocked，先写盘再改内存。调用方持有 s.mu。
 func (s *Service) putLocalsLocked(inst string, list []LocalFile) error {
-	return s.writeLocked(s.carts, withEntry(s.locals, inst, list), s.draftInst)
+	return s.writeLocked(s.carts, withEntry(s.locals, inst, list), s.draft)
 }
 
 // withEntry 复制一份 m，把 key 换成 v（v 是空的就去掉 key）。不改 m：写盘成功之前内存里的清单不动（见 writeLocked）。
@@ -324,17 +334,17 @@ func withEntry[V any](m map[string][]V, key string, v []V) map[string][]V {
 // writeLocked 写 cart.json（先写临时文件再改名），写成了才同步更新内存状态。报错里不带路径：这些话会原样给到界面和 AI。
 // cart.json 没读成（s.loadErr）时一律不写：内存里是空清单，写下去就把原文件盖掉了。各个改清单的入口在改之前就已经
 // 用 retryLoadLocked 挡下；这里再挡一道，兜住以后新加的写盘点。草稿清单一旦全空，目标服务器记号跟着清掉。调用方持有 s.mu。
-func (s *Service) writeLocked(carts map[string][]Item, locals map[string][]LocalFile, draftInst string) error {
+func (s *Service) writeLocked(carts map[string][]Item, locals map[string][]LocalFile, draft draftTarget) error {
 	if s.loadErr != nil {
 		return s.loadErr
 	}
 	if len(carts[Draft]) == 0 && len(locals[Draft]) == 0 {
-		draftInst = ""
+		draft = draftTarget{}
 	}
 	if err := os.MkdirAll(s.dir, 0o755); err != nil {
 		return errorf(500, "保存待装清单失败：%v", noPath(err))
 	}
-	b, _ := json.MarshalIndent(cartFile{Version: 1, Carts: carts, Locals: locals, DraftInst: draftInst}, "", "  ")
+	b, _ := json.MarshalIndent(cartFile{Version: 1, Carts: carts, Locals: locals, DraftInst: draft.Inst, DraftInstAt: draft.At}, "", "  ")
 	tmp := s.path() + ".tmp"
 	if err := os.WriteFile(tmp, b, 0o644); err != nil {
 		return errorf(500, "保存待装清单失败：%v", noPath(err))
@@ -343,7 +353,7 @@ func (s *Service) writeLocked(carts map[string][]Item, locals map[string][]Local
 		os.Remove(tmp)
 		return errorf(500, "保存待装清单失败：%v", noPath(err))
 	}
-	s.carts, s.locals, s.draftInst = carts, locals, draftInst
+	s.carts, s.locals, s.draft = carts, locals, draft
 	return nil
 }
 
@@ -351,10 +361,11 @@ func (s *Service) writeLocked(carts map[string][]Item, locals map[string][]Local
 func (s *Service) DraftInst() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.draftInst
+	return s.draft.Inst
 }
 
-// SetDraftInst 记下草稿清单是给哪台新建服务器挑的（A31）；草稿清单本身是空的时不记。
+// SetDraftInst 记下草稿清单是给哪台新建服务器挑的（A31）和记下的时间；草稿清单本身是空的时不记。
+// 记着的已经是这个名字也重记时间：它可能是删服之前给被删的那台记的、补清还没来得及清（A30），新记的要和它分开。
 func (s *Service) SetDraftInst(inst string) error {
 	inst = strings.TrimSpace(inst)
 	s.mu.Lock()
@@ -365,10 +376,13 @@ func (s *Service) SetDraftInst(inst string) error {
 	if len(s.carts[Draft]) == 0 && len(s.locals[Draft]) == 0 {
 		inst = ""
 	}
-	if s.draftInst == inst {
-		return nil
+	if inst == "" {
+		if s.draft.Inst == "" {
+			return nil
+		}
+		return s.writeLocked(s.carts, s.locals, draftTarget{})
 	}
-	return s.writeLocked(s.carts, s.locals, inst)
+	return s.writeLocked(s.carts, s.locals, draftTarget{Inst: inst, At: time.Now().UTC()})
 }
 
 // List 一辆车里的东西（按加入的先后）。

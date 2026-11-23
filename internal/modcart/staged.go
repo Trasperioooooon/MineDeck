@@ -364,29 +364,23 @@ func (s *Service) ClearAll(inst string) error {
 	if err := s.retryLoadLocked(); err != nil {
 		return err
 	}
-	return s.clearAllLocked(inst, s.draftInst)
+	return s.clearAllLocked(inst, false)
 }
 
-// clearAllLocked 清掉 inst 这辆车（同 ClearAll），草稿清单的目标服务器记号一起换成 draftInst。调用方持有 s.mu，cart.json 已读成。
-func (s *Service) clearAllLocked(inst, draftInst string) error {
-	if len(s.carts[inst]) > 0 || len(s.locals[inst]) > 0 || draftInst != s.draftInst {
-		if err := s.writeLocked(without(s.carts, inst), without(s.locals, inst), draftInst); err != nil {
+// clearAllLocked 清掉 inst 这辆车（同 ClearAll）；forgetMark 为真时，草稿清单记的目标服务器是 inst 的，记号一起清掉
+// （删服务器时用）。调用方持有 s.mu，cart.json 已读成。
+func (s *Service) clearAllLocked(inst string, forgetMark bool) error {
+	draft := s.draft
+	if forgetMark && draft.Inst == inst {
+		draft = draftTarget{}
+	}
+	if len(s.carts[inst]) > 0 || len(s.locals[inst]) > 0 || draft.Inst != s.draft.Inst {
+		if err := s.writeLocked(withEntry(s.carts, inst, nil), withEntry(s.locals, inst, nil), draft); err != nil {
 			return err
 		}
 	}
 	_ = os.RemoveAll(s.stagedDir(inst)) // 登记先清，文件后删：中途断了也只是多出几个没登记的文件，下次启动会清
 	return nil
-}
-
-// without 复制一份去掉 key 的 map。
-func without[V any](m map[string]V, key string) map[string]V {
-	out := make(map[string]V, len(m))
-	for k, v := range m {
-		if k != key {
-			out[k] = v
-		}
-	}
-	return out
 }
 
 // LocalFingerprint 清单里有哪些本地文件的指纹（按内容，不看顺序）。和 Fingerprint 一样给安装提案当前置条件。
