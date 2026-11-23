@@ -36,7 +36,7 @@ func (s *Server) handleGetProps(w http.ResponseWriter, r *http.Request) {
 // 世界还没生成、level-name 越界或有歧义、中间目录含链接、存档损坏时都返回 nil，界面退回 server.properties。
 func (s *Server) readInstanceGameRules(name string) map[string]string {
 	i, err := s.mgr.Get(name)
-	if err != nil || mcsrc.KindOf(i.Core) == mcsrc.KindProxy || !filepath.IsAbs(i.Dir) {
+	if err != nil || mcsrc.KindOf(i.Core) == mcsrc.KindProxy || !inst.UsesServerGameRules(i.MC) || !filepath.IsAbs(i.Dir) {
 		return nil
 	}
 	if !isPlainDir(i.Dir) {

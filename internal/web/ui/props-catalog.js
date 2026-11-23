@@ -6,7 +6,7 @@
 //   since  = 引入版本；removed = 移除版本；两者为空字符串表示全程可用 / 未移除。
 //   type   = 'bool' | 'int' | 'str' | 'sel' | 'gamerule-bool'
 //            gamerule-bool 表示该键在 1.21.9 已迁移为同名/对应游戏规则。
-//   gamerule = 迁移目标游戏规则名（非迁移项为 null）。
+//   gamerule = 1.21.9–1.21.10 的迁移目标游戏规则名（非迁移项为 null）；gameruleSince = { v: 版本, rule: 新规则名 }（1.21.11 起改用下划线名）。
 //   restart  = 改了要不要重启服务器才生效。MineDeck 保存时只写 server.properties，服务端运行中不会重读这个文件，
 //              所以目录里每一项都是 true（2026-11-15 可用性走查 R07 核过：后端没有哪一项是保存后即时应用的）。
 //              gamerule-bool 在新版本上呈现为「游戏规则」开关，走 /gamerule 命令马上生效，界面上不看这一项。
@@ -22,9 +22,9 @@ window.PROPS_CATALOG = [
   { key: 'hardcore', group: '基础与玩法', type: 'bool', def: 'false', label: '极限模式', desc: '难度固定为困难。玩家死亡后进入旁观。', since: '', removed: '', gamerule: null, restart: true },
   { key: 'pvp', group: '基础与玩法', type: 'gamerule-bool', def: 'true', label: '玩家互斗', desc: '关闭后玩家之间无法互相攻击造成伤害。', since: '', removed: '1.21.9', gamerule: 'pvp', restart: true },
   { key: 'allow-flight', group: '基础与玩法', type: 'bool', def: 'false', label: '允许飞行', desc: '允许生存玩家用模组飞行；关闭时悬空玩家会被踢出。', since: '', removed: '', gamerule: null, restart: true },
-  { key: 'allow-nether', group: '基础与玩法', type: 'gamerule-bool', def: 'true', label: '允许下界', desc: '关闭后下界传送门失效，玩家无法前往下界。', since: '', removed: '1.21.9', gamerule: 'allowEnteringNetherUsingPortals', restart: true },
-  { key: 'enable-command-block', group: '基础与玩法', type: 'gamerule-bool', def: 'false', label: '命令方块', desc: '开启后命令方块才能工作。', since: '', removed: '1.21.9', gamerule: 'enableCommandBlocks', restart: true },
-  { key: 'spawn-monsters', group: '基础与玩法', type: 'gamerule-bool', def: 'true', label: '生成怪物', desc: '关闭后夜晚和黑暗处不再自然刷出怪物。', since: '', removed: '1.21.9', gamerule: 'spawnMonsters', restart: true },
+  { key: 'allow-nether', group: '基础与玩法', type: 'gamerule-bool', def: 'true', label: '允许下界', desc: '关闭后下界传送门失效，玩家无法前往下界。', since: '', removed: '1.21.9', gamerule: 'allowEnteringNetherUsingPortals', gameruleSince: { v: '1.21.11', rule: 'allow_entering_nether_using_portals' }, restart: true },
+  { key: 'enable-command-block', group: '基础与玩法', type: 'gamerule-bool', def: 'false', label: '命令方块', desc: '开启后命令方块才能工作。', since: '', removed: '1.21.9', gamerule: 'commandBlocksEnabled', gameruleSince: { v: '1.21.11', rule: 'command_blocks_work' }, restart: true },
+  { key: 'spawn-monsters', group: '基础与玩法', type: 'gamerule-bool', def: 'true', label: '生成怪物', desc: '关闭后夜晚和黑暗处不再自然刷出怪物。', since: '', removed: '1.21.9', gamerule: 'spawnMonsters', gameruleSince: { v: '1.21.11', rule: 'spawn_monsters' }, restart: true },
   { key: 'spawn-animals', group: '基础与玩法', type: 'bool', def: 'true', label: '生成动物', desc: '关闭后不再自然刷出牛、羊等友好动物。', since: '', removed: '1.21.2', gamerule: null, restart: true },
   { key: 'spawn-npcs', group: '基础与玩法', type: 'bool', def: 'true', label: '生成村民', desc: '关闭后村庄不再刷出村民。', since: '', removed: '1.21.2', gamerule: null, restart: true },
   { key: 'player-idle-timeout', group: '基础与玩法', type: 'int', def: '0', label: '挂机踢出', desc: '玩家发呆超过该分钟数被自动踢出，0 为永不踢。', since: '', removed: '', gamerule: null, restart: true },

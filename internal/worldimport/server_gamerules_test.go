@@ -10,7 +10,7 @@ import (
 )
 
 func TestReadServerGameRules(t *testing.T) {
-	t.Run("1.21.9-1.21.10 旧式 GameRules 字符串值", func(t *testing.T) {
+	t.Run("1.21.9-1.21.10 旧式 GameRules 字符串值（正式版 commandBlocksEnabled）", func(t *testing.T) {
 		dir := t.TempDir()
 		if err := worldtest.WriteLevelDat(filepath.Join(dir, "level.dat"), worldtest.LevelOpts{
 			VersionName: "1.21.10",
@@ -18,7 +18,7 @@ func TestReadServerGameRules(t *testing.T) {
 			GameRules: map[string]string{
 				"pvp":                             "false",
 				"allowEnteringNetherUsingPortals": "false",
-				"enableCommandBlocks":             "true",
+				"commandBlocksEnabled":            "true",
 				"spawnMonsters":                   "false",
 				"keepInventory":                   "true",
 			},
@@ -34,6 +34,23 @@ func TestReadServerGameRules(t *testing.T) {
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("ReadServerGameRules = %#v，应为 %#v", got, want)
+		}
+	})
+
+	t.Run("1.21.9 快照 enableCommandBlocks 字符串值也兼容", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := worldtest.WriteLevelDat(filepath.Join(dir, "level.dat"), worldtest.LevelOpts{
+			VersionName: "25w35a",
+			DataVersion: 4540,
+			GameRules: map[string]string{
+				"enableCommandBlocks": "true",
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		got := ReadServerGameRules(dir)
+		if got["enable-command-block"] != "true" {
+			t.Fatalf("快照键 enableCommandBlocks 应识别为 true：%#v", got)
 		}
 	})
 
@@ -137,6 +154,27 @@ func TestReadServerGameRules(t *testing.T) {
 		}
 		if got := ReadServerGameRules(broken); len(got) != 0 {
 			t.Fatalf("损坏的 level.dat 应返回空：%#v", got)
+		}
+	})
+
+	t.Run("读取 level.dat 时允许并发改名（Windows 带 FILE_SHARE_DELETE）", func(t *testing.T) {
+		dir := t.TempDir()
+		p := filepath.Join(dir, "level.dat")
+		if err := worldtest.WriteLevelDat(p, worldtest.LevelOpts{
+			VersionName: "1.21.10",
+			DataVersion: 4556,
+			GameRules:   map[string]string{"pvp": "false"},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		f, err := openLocalRead(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		// 模拟服务端存盘时先把旧 level.dat 改名成 level.dat_old：不带 FILE_SHARE_DELETE 在 Windows 上会报共享冲突
+		if err := os.Rename(p, p+"_old"); err != nil {
+			t.Fatalf("打开 level.dat 期间服务端改名不应失败（需带 FILE_SHARE_DELETE）：%v", err)
 		}
 	})
 }

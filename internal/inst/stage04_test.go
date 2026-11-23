@@ -299,7 +299,7 @@ func TestStartFailPersistedAcrossManagerReload(t *testing.T) {
 		t.Fatalf("重开后 LastStartPortBusy 丢失：%+v", pb)
 	}
 
-	// 用户在界面上关掉提示：内存和磁盘上的文件都清掉
+	// 用户在界面上关掉提示：内存和磁盘上的文件都清掉，但不删 .minedeck 文件夹本身（R5.5）
 	if err := m2.DismissStartError("落盘测试服"); err != nil {
 		t.Fatal(err)
 	}
@@ -309,8 +309,11 @@ func TestStartFailPersistedAcrossManagerReload(t *testing.T) {
 	if _, err := os.Stat(failFile); !os.IsNotExist(err) {
 		t.Fatalf("关闭提示后磁盘文件应删掉：%v", err)
 	}
+	if st, err := os.Stat(filepath.Dir(failFile)); err != nil || !st.IsDir() {
+		t.Fatalf("clearStartFail 不应把 .minedeck 文件夹本身删掉：%v", err)
+	}
 
-	// 再次启动失败落盘，然后放开端口启动成功：文件同样被清掉
+	// 再次启动失败落盘，然后放开端口启动成功：文件同样被清掉，.minedeck 文件夹保留
 	if err := m2.Start("落盘测试服"); err == nil {
 		t.Fatal("端口仍占着应失败")
 	}
@@ -335,6 +338,9 @@ func TestStartFailPersistedAcrossManagerReload(t *testing.T) {
 	}
 	if _, err := os.Stat(failFile); !os.IsNotExist(err) {
 		t.Fatalf("启动成功后磁盘文件应删掉：%v", err)
+	}
+	if st, err := os.Stat(filepath.Dir(failFile)); err != nil || !st.IsDir() {
+		t.Fatalf("启动成功清掉失败文件后也不应把 .minedeck 文件夹删掉：%v", err)
 	}
 	_ = m3.Kill("落盘测试服")
 	waitStatus(t, i3, "stopped")
@@ -387,5 +393,168 @@ func TestEffectiveWhitelistOnByVersion(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(dirExplicitOn, "server.properties"), []byte("white-list=true\n"), 0o644)
 	if !EffectiveWhitelistOn(dirExplicitOn, "1.20.1") {
 		t.Error("老版本明确写了 white-list=true 时应为 true")
+	}
+}
+
+// R2：试绑报 WSAEACCES、需要查 netsh 保留段时，netsh 不得在 procMu 锁里跑，Start 进行期间 i.Status() 要在 100ms 内返回。
+func TestStartNetshDoesNotHoldProcLock(t *testing.T) {
+	oldRun, oldQuery, oldListen := runNetshExcluded, queryExcludedPorts, listenBindPort
+	resetExcludedCache()
+	t.Cleanup(func() {
+		runNetshExcluded, queryExcludedPorts, listenBindPort = oldRun, oldQuery, oldListen
+		resetExcludedCache()
+	})
+	queryExcludedPorts = loadExcludedPorts
+
+	ln, port := occupy(t, "127.0.0.1")
+	_ = ln.Close()
+
+	listenBindPort = func(ctx context.Context, network, address string) (net.Listener, error) {
+		return nil, &net.OpError{Op: "listen", Net: network, Err: errAddrAccess}
+	}
+	entered := make(chan struct{})
+	var once sync.Once
+	runNetshExcluded = func(ipv6 bool) (string, error) {
+		once.Do(func() { close(entered) })
+		time.Sleep(500 * time.Millisecond)
+		if ipv6 {
+			return "", nil
+		}
+		return fmt.Sprintf("Start Port End Port\n%d %d\n", port, port), nil
+	}
+
+	m, i := portInst(t, "慢netsh测试", fmt.Sprintf("server-ip=127.0.0.1\nserver-port=%d\n", port), mcsrc.CoreVanilla)
+	startDone := make(chan struct{})
+	var startErr error
+	go func() {
+		defer close(startDone)
+		startErr = m.Start(i.Name)
+	}()
+	t.Cleanup(func() { <-startDone })
+
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("试绑报 WSAEACCES 后没有去查 netsh 保留段")
+	}
+
+	readDone := make(chan string, 1)
+	go func() {
+		readDone <- i.Status()
+	}()
+	select {
+	case st := <-readDone:
+		if st != "stopped" {
+			t.Errorf("查 netsh 期间状态应为 stopped，得到 %q", st)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Start 查 netsh 期间 i.Status() 超过 100ms 未返回（netsh 跑在了 procMu 锁里）")
+	}
+
+	<-startDone
+	if startErr == nil || !strings.Contains(startErr.Error(), "系统保留") {
+		t.Fatalf("查完 netsh 命中保留段后应报系统保留：%v", startErr)
+	}
+}
+
+// R3：新建、导入提交复查端口（CheckFormPort）时，本软件自己的服务器（不管停着还是正开着、在监听表里）一律不拦；
+// 别的程序监听着或系统保留段照旧拦下。
+func TestCheckFormPortOwnServerNotBlocked(t *testing.T) {
+	t.Setenv(fakeServerEnv, "1")
+	ln1, stoppedPort := occupy(t, "127.0.0.1")
+	_ = ln1.Close()
+	ln2, runningPort := occupy(t, "127.0.0.1")
+	_ = ln2.Close()
+
+	m, _ := portInst(t, "停着的服", fmt.Sprintf("server-port=%d\n", stoppedPort), mcsrc.CoreVanilla)
+	_, iRun := portInst(t, "开着的服", fmt.Sprintf("server-ip=127.0.0.1\nserver-port=%d\n", runningPort), mcsrc.CoreVanilla)
+	m.insts[iRun.Name] = iRun
+
+	if err := m.Start(iRun.Name); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if iRun.Status() != "stopped" {
+			_ = m.Kill(iRun.Name)
+			waitStatus(t, iRun, "stopped")
+		}
+	})
+	waitStatus(t, iRun, "running")
+
+	otherPort := runningPort + 10
+	resPort := runningPort + 20
+	if otherPort > 65000 {
+		otherPort = 25610
+		resPort = 25620
+	}
+	// 监听表里同时有「开着的服」那个端口（模拟它的 java.exe 正在监听）和另一个外部程序 nginx.exe 占着的端口
+	restore := SetPortProbesForTest(
+		map[int]string{
+			runningPort: "java.exe",
+			otherPort:   "nginx.exe",
+		},
+		[][2]int{{resPort, resPort + 2}},
+	)
+	defer restore()
+
+	if got := m.CheckFormPort(stoppedPort); got != nil {
+		t.Errorf("另一台停着的本软件服务器用着端口 %d 时不应拦下：%+v", stoppedPort, got)
+	}
+	if got := m.CheckFormPort(runningPort); got != nil {
+		t.Errorf("另一台正开着的本软件服务器用着端口 %d（监听表里是它的 java.exe）时不应拦下：%+v", runningPort, got)
+	}
+	if got := m.CheckFormPort(otherPort); got == nil || got.Process != "nginx.exe" || got.Reserved {
+		t.Errorf("别的程序监听着端口 %d 时应照旧拦下：%+v", otherPort, got)
+	}
+	if got := m.CheckFormPort(resPort + 1); got == nil || !got.Reserved {
+		t.Errorf("系统保留段端口 %d 应照旧拦下：%+v", resPort+1, got)
+	}
+}
+
+// R5.3：freePortFrom 找建议端口时复用拿锁前已解析好的地址，不逐个端口重复解析 server-ip 域名。
+func TestFreePortFromDoesNotReResolveDomain(t *testing.T) {
+	t.Setenv(fakeServerEnv, "1")
+	oldLookup := lookupIPAddr
+	t.Cleanup(func() { lookupIPAddr = oldLookup })
+
+	resolves := 0
+	var mu sync.Mutex
+	lookupIPAddr = func(ctx context.Context, host string) ([]net.IPAddr, error) {
+		if host == "peer-host.invalid" {
+			mu.Lock()
+			resolves++
+			mu.Unlock()
+			return []net.IPAddr{{IP: net.ParseIP("127.0.0.1")}}, nil
+		}
+		return net.DefaultResolver.LookupIPAddr(ctx, host)
+	}
+
+	hold, port := occupy(t, "127.0.0.1")
+	defer hold.Close()
+	holdNext, _ := listenOn("127.0.0.1", port+1)
+	if holdNext != nil {
+		defer holdNext.Close()
+	}
+
+	m, a := portInst(t, "运行服", fmt.Sprintf("server-ip=127.0.0.1\nserver-port=%d\n", port), mcsrc.CoreVanilla)
+	a.procMu.Lock()
+	a.state = "running"
+	a.procMu.Unlock()
+	_, b := portInst(t, "撞端口服", fmt.Sprintf("server-ip=peer-host.invalid\nserver-port=%d\n", port), mcsrc.CoreVanilla)
+	_, c := portInst(t, "占位服", fmt.Sprintf("server-port=%d\n", port+2), mcsrc.CoreVanilla)
+	m.insts[b.Name], m.insts[c.Name] = b, c
+
+	err := m.Start(b.Name)
+	if err == nil {
+		t.Fatal("端口占着时应启动失败")
+	}
+	mu.Lock()
+	gotResolves := resolves
+	mu.Unlock()
+	if gotResolves != 1 {
+		t.Fatalf("Start + freePortFrom 全程应只解析一次 server-ip 域名，实际解析了 %d 次", gotResolves)
+	}
+	if pb := b.LastStartPortBusy(); pb == nil || pb.Owner != "运行服" || pb.Suggest <= port {
+		t.Fatalf("应给出建议端口：%+v", pb)
 	}
 }

@@ -43,12 +43,26 @@ func TestPortSuggestAndSubmitRecheck(t *testing.T) {
 		t.Fatalf("保留段里的端口预查不对：%+v", sug.Data)
 	}
 
-	// 2) 新建表单提交时：默认端口或自动换出的端口在表单打开后被别的程序占上、或落在保留段里，一律拒绝创建并回传改端口提示
+	// 2) 新建表单提交时：默认端口或自动换出的端口在表单打开后被别的程序占上、或落在保留段里，一律拒绝创建并回传改端口提示；
+	//    但本软件自己的服务器（比如 25565 上的「生存服」）占着端口时，提交不拦（R3）。
 	restore2 := inst.SetPortProbesForTest(
 		map[int]string{25568: "java.exe"},
 		[][2]int{{25570, 25572}},
 	)
 	defer restore2()
+
+	recOwn := e.call(t, "POST", "/api/instances",
+		`{"name":"共用自家端口服","core":"paper","mc":"1.21.4","port":25565,"eula":true}`,
+		http.StatusOK, fromUI)
+	var ownTask struct {
+		Data struct {
+			TaskID string `json:"taskId"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recOwn.Body.Bytes(), &ownTask); err != nil {
+		t.Fatal(err)
+	}
+	_ = waitTaskEnded(t, e, ownTask.Data.TaskID)
 
 	rec = e.call(t, "POST", "/api/instances",
 		`{"name":"占端口新服","core":"paper","mc":"1.21.4","port":25568,"eula":true}`,
@@ -120,6 +134,41 @@ func TestPortSuggestAndSubmitRecheck(t *testing.T) {
 	}
 	if ents, err := os.ReadDir(filepath.Join(app.CacheDir, "import")); err == nil && len(ents) > 0 {
 		t.Fatalf("端口被占拦下导入时不应在 cache/import 留下上传文件：%v", ents)
+	}
+
+	// 导入整合包若用本软件自己的服务器同端口（25565），同样只提示不拦（200）
+	{
+		var ownBody bytes.Buffer
+		ownMW := multipart.NewWriter(&ownBody)
+		_ = ownMW.WriteField("name", "共用自家端口导入服")
+		_ = ownMW.WriteField("port", "25565")
+		_ = ownMW.WriteField("eula", "true")
+		ownFW, err := ownMW.CreateFormFile("file", "pack.zip")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = ownFW.Write(bareServerZip(t, ""))
+		_ = ownMW.Close()
+		ownReq := httptest.NewRequest("POST", "/api/import/modpack", &ownBody)
+		ownReq.Host = "127.0.0.1"
+		ownReq.RemoteAddr = "127.0.0.1:52000"
+		ownReq.Header.Set("X-Token", Token)
+		ownReq.Header.Set("Sec-Fetch-Site", "same-origin")
+		ownReq.Header.Set("Content-Type", ownMW.FormDataContentType())
+		ownRec := httptest.NewRecorder()
+		e.h.ServeHTTP(ownRec, ownReq)
+		if ownRec.Code != http.StatusOK {
+			t.Fatalf("导入整合包用自家服务器同端口不应被 409 拦下，实际 %d：%s", ownRec.Code, ownRec.Body.String())
+		}
+		var ownImpTask struct {
+			Data struct {
+				TaskID string `json:"taskId"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(ownRec.Body.Bytes(), &ownImpTask); err != nil {
+			t.Fatal(err)
+		}
+		_ = waitTaskEnded(t, e, ownImpTask.Data.TaskID)
 	}
 
 	// 4) 真正在回环地址上占住一个端口，走系统真实监听表也能拦下

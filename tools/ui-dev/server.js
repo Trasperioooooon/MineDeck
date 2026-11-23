@@ -107,12 +107,12 @@ function checkMockFormPort(state, rawPort) {
   const port = +rawPort >= 1 && +rawPort <= 65535 ? +rawPort : 25565;
   const used = portsInUse(state, ""), other = state.otherPorts || {}, reserved = state.reservedPorts || [];
   const liveOwner = used.find(u => u.port === port && u.status !== "stopped");
-  const inOther = port in other, inRes = isPortReservedMock(reserved, port);
-  if (!liveOwner && !inOther && !inRes) return null;
+  // R3：本软件自己的服务器（不管开着还是停着）占着端口时，提交只提示、不拦；只拦别的程序占着和系统保留段
+  const inOther = !liveOwner && (port in other), inRes = isPortReservedMock(reserved, port);
+  if (!inOther && !inRes) return null;
   let suggest = freePort(used, 25565, other, reserved);
   if (suggest === port) suggest = 0;
   const sugTxt = suggest ? `（比如 ${suggest}）` : "";
-  if (liveOwner) return { error: `端口 ${port} 正被你的服务器「${liveOwner.instance}」占着，请换个端口${sugTxt}再创建`, portBusy: { port, owner: liveOwner.instance, ...(suggest ? { suggest } : {}) } };
   if (inOther) {
     const proc = other[port] || "";
     return { error: `端口 ${port} 现在被别的程序${proc ? `（${proc}）` : ""}占着，请换个端口${sugTxt}再创建`, portBusy: { port, ...(proc ? { process: proc } : {}), ...(suggest ? { suggest } : {}) } };

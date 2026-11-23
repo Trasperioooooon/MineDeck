@@ -4202,12 +4202,13 @@ async function renderDetail(name, path = "console") {
       items.push({ ...p, mode });
     }
     const inGroup = g => items.filter(p => p.group === g);
+    const gameruleOf = p => (p.gameruleSince && verGte(mc, p.gameruleSince.v)) ? p.gameruleSince.rule : p.gamerule;
     // 每个控件都用设置项的中文名当可访问名称（行里的名字和控件没有 label 关联，读屏和自动化原来读不到名字）
     const fieldHTML = p => {
       const v = cur[p.key] ?? (p.defSince && verGte(mc, p.defSince.v) ? p.defSince.def : p.def), al = `aria-label="${esc(p.label)}"`;
       if (p.key === "motd") return `<div class="motd-palette" id="motd-pal"></div>
         <input type="text" data-k="motd" id="motd-in" value="${esc(v ?? "")}" ${al} style="width:100%;margin-top:6px"><div class="motd-preview" id="motd-prev"></div>`;
-      if (p.mode === "gamerule") { const gv = gameruleVal(p); return `<label class="switch" title="游戏规则：服务器运行时通过 /gamerule 即时生效"><input type="checkbox" data-gr="${p.gamerule}" data-gr-key="${p.key}" ${gv === "true" ? "checked" : ""} ${running ? "" : "disabled"} ${al}><span class="sw"></span></label>`; }
+      if (p.mode === "gamerule") { const gv = gameruleVal(p), gr = gameruleOf(p); return `<label class="switch" title="游戏规则：服务器运行时通过 /gamerule 即时生效"><input type="checkbox" data-gr="${gr}" data-gr-key="${p.key}" ${gv === "true" ? "checked" : ""} ${running ? "" : "disabled"} ${al}><span class="sw"></span></label>`; }
       if (p.mode === "bool") return `<label class="switch"><input type="checkbox" data-k="${p.key}" ${v === "true" ? "checked" : ""} ${al}><span class="sw"></span></label>`;
       if (p.mode === "sel") return `<select data-k="${p.key}" ${al}>${p.opts.map((o, i) => `<option value="${o}" ${v === o ? "selected" : ""}>${esc(p.optNames ? p.optNames[i] : o)}</option>`).join("")}</select>`;
       if (p.mode === "int") return `<input type="number" data-k="${p.key}" value="${esc(v ?? "")}" ${al}>`;

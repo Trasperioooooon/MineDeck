@@ -325,16 +325,21 @@ func readSubNBT(base string, elems ...string) (nbt.Compound, bool) {
 	return readLocalNBT(filepath.Join(cur, elems[len(elems)-1]))
 }
 
+var openLocalRead = os.Open
+
 func readLocalNBT(p string) (nbt.Compound, bool) {
 	st, err := os.Lstat(p)
 	if err != nil || !st.Mode().IsRegular() || st.Size() > nbt.LevelLimits.MaxFile {
 		return nil, false
 	}
-	f, err := os.Open(p)
+	f, err := openLocalRead(p)
 	if err != nil {
 		return nil, false
 	}
 	defer f.Close()
+	if fst, err := f.Stat(); err != nil || !fst.Mode().IsRegular() || fst.Size() > nbt.LevelLimits.MaxFile {
+		return nil, false
+	}
 	_, root, _, err := nbt.Read(f, nbt.LevelLimits)
 	if err != nil {
 		return nil, false

@@ -8704,14 +8704,14 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     const VAN = "原版快照测试", enc = encodeURIComponent(VAN);
     try {
       await aState({ instReset: true, commands: [] });
-      // 默认仿真数据里「原版快照测试」（26.2）自带世界存档的 gamerules，enable-command-block 在存档里是 true（server.properties 默认是 false）
+      // 默认仿真数据里「原版快照测试」（26.2，>= 1.21.11）自带世界存档的 gamerules，enable-command-block 在存档里是 true（server.properties 默认是 false）
       await page.goto(url(`#/inst/${enc}/settings/common`));
-      await page.waitForSelector('[data-gr="enableCommandBlocks"]');
+      await page.waitForSelector('[data-gr="command_blocks_work"]');
       let gr = await page.evaluate(() => ({
         pvp: document.querySelector('[data-gr="pvp"]').checked,
-        nether: document.querySelector('[data-gr="allowEnteringNetherUsingPortals"]').checked,
-        cmdBlock: document.querySelector('[data-gr="enableCommandBlocks"]').checked,
-        monsters: document.querySelector('[data-gr="spawnMonsters"]').checked,
+        nether: document.querySelector('[data-gr="allow_entering_nether_using_portals"]').checked,
+        cmdBlock: document.querySelector('[data-gr="command_blocks_work"]').checked,
+        monsters: document.querySelector('[data-gr="spawn_monsters"]').checked,
         disabled: document.querySelector('[data-gr="pvp"]').disabled,
       }));
       assert(gr.pvp && gr.nether && gr.cmdBlock && gr.monsters && gr.disabled, "有世界存档时应按存档值显示（停机/启动中置灰）：" + JSON.stringify(gr));
@@ -8723,9 +8723,9 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.waitForSelector('[data-gr="pvp"]');
       gr = await page.evaluate(() => ({
         pvp: document.querySelector('[data-gr="pvp"]').checked,
-        nether: document.querySelector('[data-gr="allowEnteringNetherUsingPortals"]').checked,
-        cmdBlock: document.querySelector('[data-gr="enableCommandBlocks"]').checked,
-        monsters: document.querySelector('[data-gr="spawnMonsters"]').checked,
+        nether: document.querySelector('[data-gr="allow_entering_nether_using_portals"]').checked,
+        cmdBlock: document.querySelector('[data-gr="command_blocks_work"]').checked,
+        monsters: document.querySelector('[data-gr="spawn_monsters"]').checked,
       }));
       assert(!gr.pvp && gr.nether && gr.cmdBlock && !gr.monsters, "存档值与 server.properties 不同时应以存档为准：" + JSON.stringify(gr));
 
@@ -8733,22 +8733,53 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await aState({ inst: { name: VAN, gamerules: null } });
       await page.goto(url(`#/inst/${enc}/console`)); await settle(200);
       await page.goto(url(`#/inst/${enc}/settings/common`));
-      await page.waitForSelector('[data-gr="enableCommandBlocks"]');
+      await page.waitForSelector('[data-gr="command_blocks_work"]');
       gr = await page.evaluate(() => ({
         pvp: document.querySelector('[data-gr="pvp"]').checked,
-        cmdBlock: document.querySelector('[data-gr="enableCommandBlocks"]').checked,
+        cmdBlock: document.querySelector('[data-gr="command_blocks_work"]').checked,
       }));
       assert(gr.pvp && !gr.cmdBlock, "读不到存档时应退回 server.properties：" + JSON.stringify(gr));
 
-      // 服务器运行中拨动开关：/gamerule 发送成功后，界面状态跟着改，切页再回来也不等磁盘存档落盘
-      await aState({ inst: { name: VAN, status: "running", gamerules: { pvp: "true", "allow-nether": "true", "enable-command-block": "false", "spawn-monsters": "true" } }, commands: [] });
+      // R4：1.21.10 的服务器运行中拨开关，规则名取 1.21.9–1.21.10 正式版名字（commandBlocksEnabled、allowEnteringNetherUsingPortals、spawnMonsters）
+      await aState({ inst: { name: VAN, mc: "1.21.10", status: "running", gamerules: { pvp: "true", "allow-nether": "true", "enable-command-block": "false", "spawn-monsters": "true" } }, commands: [] });
       await page.goto(url(`#/inst/${enc}/console`)); await settle(200);
       await page.goto(url(`#/inst/${enc}/settings/common`));
-      await page.waitForSelector('[data-gr="pvp"]:not([disabled])');
+      await page.waitForSelector('[data-gr="commandBlocksEnabled"]:not([disabled])');
+      await page.click('.prop-item:has([data-gr="commandBlocksEnabled"]) .switch');
+      await settle(250);
+      assert(await toastHas("已应用游戏规则 commandBlocksEnabled = true"), "1.21.10 提示应显示实际发出的规则名 commandBlocksEnabled");
+      await page.click('.prop-item:has([data-gr="allowEnteringNetherUsingPortals"]) .switch');
+      await settle(200);
+      await page.click('.prop-item:has([data-gr="spawnMonsters"]) .switch');
+      await settle(200);
+      let st = await aState({});
+      assert(JSON.stringify(st.commands) === JSON.stringify([
+        { inst: VAN, cmd: "gamerule commandBlocksEnabled true" },
+        { inst: VAN, cmd: "gamerule allowEnteringNetherUsingPortals false" },
+        { inst: VAN, cmd: "gamerule spawnMonsters false" },
+      ]), "1.21.10 应发正式版驼峰规则名：" + JSON.stringify(st.commands));
+
+      // R4：1.21.11 起的服务器运行中拨开关，规则名改为下划线名字（command_blocks_work、allow_entering_nether_using_portals、spawn_monsters），且切页回来保持刚拨过的状态
+      await aState({ inst: { name: VAN, mc: "1.21.11", status: "running", gamerules: { pvp: "true", "allow-nether": "true", "enable-command-block": "false", "spawn-monsters": "true" } }, commands: [] });
+      await page.goto(url(`#/inst/${enc}/console`)); await settle(200);
+      await page.goto(url(`#/inst/${enc}/settings/common`));
+      await page.waitForSelector('[data-gr="command_blocks_work"]:not([disabled])');
+      await page.click('.prop-item:has([data-gr="command_blocks_work"]) .switch');
+      await settle(250);
+      assert(await toastHas("已应用游戏规则 command_blocks_work = true"), "1.21.11 提示应显示实际发出的规则名 command_blocks_work");
+      await page.click('.prop-item:has([data-gr="allow_entering_nether_using_portals"]) .switch');
+      await settle(200);
+      await page.click('.prop-item:has([data-gr="spawn_monsters"]) .switch');
+      await settle(200);
       await page.click('.prop-item:has([data-gr="pvp"]) .switch');
-      await settle(300);
-      const st = await aState({});
-      assert(JSON.stringify(st.commands) === JSON.stringify([{ inst: VAN, cmd: "gamerule pvp false" }]), "应发送 gamerule 命令：" + JSON.stringify(st.commands));
+      await settle(200);
+      st = await aState({});
+      assert(JSON.stringify(st.commands) === JSON.stringify([
+        { inst: VAN, cmd: "gamerule command_blocks_work true" },
+        { inst: VAN, cmd: "gamerule allow_entering_nether_using_portals false" },
+        { inst: VAN, cmd: "gamerule spawn_monsters false" },
+        { inst: VAN, cmd: "gamerule pvp false" },
+      ]), "1.21.11 应发下划线规则名：" + JSON.stringify(st.commands));
       assert((await page.$eval('[data-gr="pvp"]', el => el.checked)) === false, "当页开关状态应立即更新为 false");
       // 模拟存档尚未自动落盘（后端 gamerules 里 pvp 仍是 true），切到控制台再回常用设置，开关仍保持刚改过的 false
       await page.click('.tabs .tab[data-t="console"]'); await settle(200);
@@ -8821,6 +8852,20 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(page.url().includes("#/create/import"), "导入端口被系统保留应留在表单：" + page.url());
       f = await portView("#im-port", "#im-port-note");
       assert(f.warn && f.note.includes("系统保留") && f.useBtn.includes("改成 25571"), "导入被拦后应提示系统保留与建议端口：" + JSON.stringify(f));
+
+      // 4) R3：另一台本软件的服务器正开着、占着同一个端口时，表单上照旧显示软提示，但提交能建成、不回 409 拦着
+      await pState({ instReset: true, taskStage: 4, modCart: { reset: true }, reservedPorts: [], otherPorts: {} });
+      await toWizardFinal();
+      await page.fill("#f-port", "25565"); // 「生存服 · 朋友」正开着（running），用着 25565
+      f = await portView("#f-port", "#f-port-note");
+      assert(f.warn && f.note.includes("生存服 · 朋友") && f.note.includes("它现在开着") && f.note.includes("两台不能同时开"),
+        "撞了正开着的自家服务器应有软提示：" + JSON.stringify(f));
+      await page.fill("#f-name", "共用运行服端口"); await page.check("#f-eula");
+      await page.click("#wcreate");
+      await page.waitForFunction(() => location.hash === "#/task/task-1", null, { timeout: 6000 });
+      st = await pState({});
+      assert(st.lastCreate && st.lastCreate.name === "共用运行服端口" && st.lastCreate.port === 25565,
+        "另一台自家服务器开着时同端口新建应能建成：" + JSON.stringify(st.lastCreate));
     } finally {
       await pState({ instReset: true, reservedPorts: [], otherPorts: {}, taskStage: 2, modCart: { reset: true } });
     }

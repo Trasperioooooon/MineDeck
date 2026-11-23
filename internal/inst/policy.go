@@ -180,6 +180,7 @@ func (m *Manager) crashRestart(i *Instance, gen int64) {
 		defer i.procMu.Unlock()
 		return i.runGen != gen || (i.state != "" && i.state != "stopped")
 	}
+	var waitPort int
 	for first := true; ; first = false {
 		i.procMu.Lock()
 		if i.runGen != gen || (i.state != "" && i.state != "stopped") {
@@ -202,8 +203,7 @@ func (m *Manager) crashRestart(i *Instance, gen int64) {
 		if first {
 			i.Console.Append(fmt.Sprintf("[MineDeck] 检测到服务器异常退出，%v 后自动重启（第 %d/%d 次）...", delay, n, maxTries))
 		} else {
-			t, _ := startPort(i, i.ExtraJVMSnapshot())
-			i.Console.Append(fmt.Sprintf("[MineDeck] 仍在等待端口 %d 放开，%v 后再试自动重启（第 %d/%d 次）...", t.port, delay, n, maxTries))
+			i.Console.Append(fmt.Sprintf("[MineDeck] 仍在等待端口 %d 放开，%v 后再试自动重启（第 %d/%d 次）...", waitPort, delay, n, maxTries))
 		}
 		time.Sleep(delay)
 		if handled() {
@@ -217,6 +217,9 @@ func (m *Manager) crashRestart(i *Instance, gen int64) {
 		err := m.Start(i.Name)
 		var busy *portBusyError
 		retryPort := err != nil && errors.As(err, &busy) && n < maxTries
+		if retryPort {
+			waitPort = busy.port
+		}
 		if err != nil {
 			gaveUp := ""
 			if !retryPort {

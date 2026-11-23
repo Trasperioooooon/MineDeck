@@ -53,12 +53,13 @@ type portRange struct {
 }
 
 // parseExcludedPortRanges 解析 netsh interface ipv4/ipv6 show excludedportrange protocol=tcp 的输出。
-// 输出的标题和脚注随系统语言变化，这里只认「起止两个端口号（可选第三列 *）」的数字行。
+// 输出的标题和脚注随系统语言变化，这里只认「起止两个端口号」的两列数字行；
+// 第三列带 * 的「管理的端口排除」在 Windows 上照常能绑定，不算系统保留段（阶段 04 返工 R1）。
 func parseExcludedPortRanges(out string) []portRange {
 	var res []portRange
 	for _, line := range strings.Split(out, "\n") {
 		f := strings.Fields(line)
-		if len(f) != 2 && !(len(f) == 3 && f[2] == "*") {
+		if len(f) != 2 {
 			continue
 		}
 		a, err1 := strconv.Atoi(f[0])
@@ -86,6 +87,10 @@ var (
 	listenProbesMocked bool
 	lookupIPAddr       = func(ctx context.Context, host string) ([]net.IPAddr, error) {
 		return net.DefaultResolver.LookupIPAddr(ctx, host)
+	}
+	listenBindPort = func(ctx context.Context, network, address string) (net.Listener, error) {
+		lc := net.ListenConfig{Control: probeControl} // 按平台，见 portcheck_windows.go / portcheck_unix.go
+		return lc.Listen(ctx, network, address)
 	}
 )
 
@@ -180,30 +185,45 @@ func (b *FormPortBusy) Error() string {
 }
 
 // CheckFormPort 提交新建、导入表单时复查一次要用的端口（含系统保留段）：
-// 只拦现在正开着的服务器、别的监听进程和系统保留段，不试绑所有网卡（不触发防火墙弹窗），
-// 也不拦「另一台停着的服务器配了同一个端口」（两台不同时开的服务器允许共用端口）。
+// 只拦别的监听进程、系统保留段，以及读不到监听表时回环试绑兜底失败的情况；
+// 不试绑所有网卡（不触发防火墙弹窗），也不拦本软件自己的服务器（不管开着还是停着，走查 R08 允许两台不同时开的服务器共用端口）。
 func (m *Manager) CheckFormPort(port int) *FormPortBusy {
 	if port < 1 || port > 65535 {
 		port = 25565
 	}
 	used := m.PortsInUse("")
-	listen := queryListenPorts()
-	var owner string
+	ownPIDs := map[int]bool{}
+	for _, inst := range m.List() {
+		if pid := inst.PID(); pid > 0 {
+			ownPIDs[pid] = true
+		}
+	}
+	var liveOwn bool
 	for _, u := range used {
 		if u.Port == port && u.Status != "stopped" {
-			owner = u.Instance
+			liveOwn = true
 			break
 		}
 	}
+	listen := queryListenPorts()
 	pid, listened := listen[port]
-	if !listened && len(listen) == 0 && !listenProbesMocked {
-		// 受限令牌、沙箱或 Wine 下读不到监听表时，退回在 127.0.0.1 上试绑一次（只绑回环地址，不触发防火墙弹窗）
-		if checkBindPort(bindTarget{network: "tcp", host: "127.0.0.1", port: port}) != nil && !IsPortReserved(port) {
-			listened = true
-		}
+	if liveOwn || ownPIDs[pid] {
+		// 本软件自己的服务器正开着时，监听表里它（或它拉起的 java 子进程）占着这一条不算「别的程序」
+		listened = false
 	}
 	reserved := IsPortReserved(port)
-	if owner == "" && !listened && !reserved {
+	if !liveOwn && !listened && !reserved && len(listen) == 0 && !listenProbesMocked {
+		// 受限令牌、沙箱或 Wine 下读不到监听表时，退回在 127.0.0.1 上试绑一次（只绑回环地址，不触发防火墙弹窗）
+		if err := checkBindPort(bindTarget{network: "tcp", host: "127.0.0.1", port: port}); err != nil {
+			var busy *portBusyError
+			if errors.As(err, &busy) && busy.sysReserved {
+				reserved = true
+			} else {
+				listened = true
+			}
+		}
+	}
+	if !listened && !reserved {
 		return nil
 	}
 	sug, _ := DefaultPortSkipping(used, 25565, func(n int) bool {
@@ -214,12 +234,9 @@ func (m *Manager) CheckFormPort(port int) *FormPortBusy {
 		sug = 0
 	}
 	out := &FormPortBusy{Port: port, Suggest: sug}
-	switch {
-	case owner != "":
-		out.Owner = owner
-	case listened:
+	if listened {
 		out.Process = queryProcessName(pid)
-	default:
+	} else {
 		out.Reserved = true
 	}
 	return out
@@ -249,12 +266,12 @@ func SetPortProbesForTest(listeners map[int]string, excluded [][2]int) func() {
 	}
 }
 
-// UseRealPortProbesForTest 供跨包测试临时切回系统真实的监听表与保留段探测。
+// UseRealPortProbesForTest 供跨包测试临时切回系统真实的监听表探测（仍屏蔽真实 netsh，避免测试受本机保留段影响）。
 func UseRealPortProbesForTest() func() {
 	oldL, oldN, oldE, oldM := queryListenPorts, queryProcessName, queryExcludedPorts, listenProbesMocked
 	queryListenPorts = defaultListenPorts
 	queryProcessName = defaultProcessName
-	queryExcludedPorts = loadExcludedPorts
+	queryExcludedPorts = func() ([]portRange, []portRange) { return nil, nil }
 	listenProbesMocked = false
 	return func() {
 		queryListenPorts, queryProcessName, queryExcludedPorts, listenProbesMocked = oldL, oldN, oldE, oldM
@@ -296,20 +313,25 @@ const portSuggestTries = 200
 
 // freePortFrom 「改成 N 并启动」的 N：从被占的端口往上，本软件别的服务器都没配、现在照服务端的绑法也绑得上的第一个端口。
 // 从被占的端口往上找，不从 25565 找：改完离原来的近，也不会把人往 25565 这种最常被占的端口上带。都不行返回 0。
+// 先解析一次地址再逐个端口试绑，避免 server-ip 写的是域名时在循环里重复解析。
 func freePortFrom(t bindTarget, peers []portPeer) int {
+	return freePortFromResolved(resolveBindTarget(t), peers)
+}
+
+func freePortFromResolved(r resolvedBindTarget, peers []portPeer) int {
 	taken := map[int]bool{}
 	for _, p := range peers {
 		taken[p.port] = true
 	}
 	tried := 0
-	for p := t.port + 1; p <= 65535 && tried < portSuggestTries; p++ {
+	for p := r.target.port + 1; p <= 65535 && tried < portSuggestTries; p++ {
 		if taken[p] {
 			continue
 		}
 		tried++
-		c := t
-		c.port = p
-		if checkBindPort(c) == nil {
+		c := r
+		c.target.port = p
+		if probeResolvedBindPort(c) == nil {
 			return p
 		}
 	}
@@ -467,11 +489,19 @@ func checkBindPort(t bindTarget) error {
 }
 
 func checkResolvedBindPort(r resolvedBindTarget) error {
+	err := probeResolvedBindPort(r)
+	var busy *portBusyError
+	if errors.As(err, &busy) && busy.reserved && isTargetPortReserved(r.target) {
+		busy.sysReserved = true
+	}
+	return err
+}
+
+// probeResolvedBindPort 只按已解析好的地址做试绑：绑得上就放行，不管 netsh 怎么说；
+// 只有试绑报 WSAEACCES（errAddrAccess）时记下 reserved=true，由锁外再去查 netsh 保留段细化报错（阶段 04 返工 R1、R2）。
+func probeResolvedBindPort(r resolvedBindTarget) error {
 	t := r.target
 	port := t.port
-	if isTargetPortReserved(t) {
-		return &portBusyError{port: port, reserved: true, sysReserved: true}
-	}
 	if r.unresolved {
 		return nil
 	}
@@ -479,12 +509,9 @@ func checkResolvedBindPort(r resolvedBindTarget) error {
 	if host == "" {
 		host = PortProbeHost
 	}
-	lc := net.ListenConfig{Control: probeControl} // 按平台，见 portcheck_windows.go / portcheck_unix.go
-	// server-ip 写的是域名时要先解析：给个时限，解析卡住也不让「启动」一直等着（Start 调这里时拿着这台服务器的锁）。
-	// 超时算「别的失败」，照常启动
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	ln, err := lc.Listen(ctx, t.network, net.JoinHostPort(host, strconv.Itoa(port)))
+	ln, err := listenBindPort(ctx, t.network, net.JoinHostPort(host, strconv.Itoa(port)))
 	if err == nil {
 		ln.Close()
 		return nil

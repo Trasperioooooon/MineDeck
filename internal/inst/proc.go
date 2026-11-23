@@ -85,38 +85,57 @@ func (m *Manager) startInstance(i *Instance) error {
 		preResolved = resolveBindTarget(preTarget)
 	}
 	i.procMu.Lock()
-	defer i.procMu.Unlock()
-	if i.state != "" && i.state != "stopped" {
-		return errors.New(startBusyMsg(i.state))
+	locked := true
+	unlock := func() {
+		if locked {
+			locked = false
+			i.procMu.Unlock()
+		}
 	}
-	// 换地图的占位和封锁在 procMu 里再看一遍：占位也是拿着 procMu 占的，两边不会错开（见 worldhold.go）
-	if why := m.WorldBusy(name); why != "" {
-		return errors.New(why)
+	defer unlock()
+	checkReadyLocked := func() error {
+		if i.state != "" && i.state != "stopped" {
+			return errors.New(startBusyMsg(i.state))
+		}
+		// 换地图的占位和封锁在 procMu 里再看一遍：占位也是拿着 procMu 占的，两边不会错开（见 worldhold.go）
+		if why := m.WorldBusy(name); why != "" {
+			return errors.New(why)
+		}
+		if m.isPacking(name) {
+			return fmt.Errorf("这台服务器正在打包交接包，等打包完成后再启动")
+		}
+		// 从这里往下的失败是「这台服务器起不来」，不是「现在不能启动」（已经在运行、正在打包、正在换地图）：
+		// 原因写进控制台，并记成「上次启动没成功」，卡片和详情页头常驻显示，下次进程起来或用户关掉提示才清掉（可用性走查 R03、阶段 04 A07）。
+		// 右上角的提示一会儿就没了，回来的人只看到一个没反应的「启动」按钮
+		if _, err := os.Stat(i.JavaPath); err != nil {
+			// 路径不放进报错：界面上的提示遇到路径只写结论，这句「去哪里改」就看不到了。路径记在控制台里，「设置 → 启动与内存」页也看得到
+			i.Console.Append(fmt.Sprintf("[MineDeck] 找不到 Java：%s", i.JavaPath))
+			return i.startFailed(errors.New("找不到这台服务器用的 Java，请到这台服务器详情页的「设置 → 启动与内存」里重新选一个 Java。"), false)
+		}
+		return nil
 	}
-	if m.isPacking(name) {
-		return fmt.Errorf("这台服务器正在打包交接包，等打包完成后再启动")
-	}
-	// 从这里往下的失败是「这台服务器起不来」，不是「现在不能启动」（已经在运行、正在打包、正在换地图）：
-	// 原因写进控制台，并记成「上次启动没成功」，卡片和详情页头常驻显示，下次进程起来或用户关掉提示才清掉（可用性走查 R03、阶段 04 A07）。
-	// 右上角的提示一会儿就没了，回来的人只看到一个没反应的「启动」按钮
-	if _, err := os.Stat(i.JavaPath); err != nil {
-		// 路径不放进报错：界面上的提示遇到路径只写结论，这句「去哪里改」就看不到了。路径记在控制台里，「设置 → 启动与内存」页也看得到
-		i.Console.Append(fmt.Sprintf("[MineDeck] 找不到 Java：%s", i.JavaPath))
-		return i.startFailed(errors.New("找不到这台服务器用的 Java，请到这台服务器详情页的「设置 → 启动与内存」里重新选一个 Java。"), false)
+	if err := checkReadyLocked(); err != nil {
+		return err
 	}
 	// 端口被占着就直接报错，不先起 Java、等它自己报 BindException（检查报告 D-5）。按服务器真正要绑的地址查
 	//（server-ip、server-port）；代理端的端口在它自己的配置文件里，不查（见 startPort）
 	if t, ok := startPort(i, i.ExtraJVM); ok { // 拿着 procMu，直接读 ExtraJVM
-		var bindErr error
-		if preOK && preResolved.target.host == t.host && preResolved.target.network == t.network {
-			preResolved.target.port = t.port
-			bindErr = checkResolvedBindPort(preResolved)
-		} else {
-			bindErr = checkBindPort(t)
+		r := preResolved
+		if !preOK || r.target.host != t.host || r.target.network != t.network {
+			// 极少见：拿锁前那一下配置刚被改过，放开锁解析完再重新进锁检查，不在 procMu 里解析域名
+			unlock()
+			r = resolveBindTarget(t)
+			i.procMu.Lock()
+			locked = true
+			if err := checkReadyLocked(); err != nil {
+				return err
+			}
 		}
-		if err := bindErr; err != nil {
-			// 占着的是本软件管着的另一台（它没停着、端口一样）：报错点它的名字，再找一个能改成的端口，
-			// 详情页头给「改成 N 并启动」（R08）。以前一律说「被别的程序占着」，人去找别的程序找不到
+		r.target.port = t.port
+		if err := probeResolvedBindPort(r); err != nil {
+			failGen := i.runGen
+			// 放开 procMu 再查保留段（netsh 无缓存时最多 6 秒）或试绑建议端口，不挡 Status() 等读操作（阶段 04 返工 R2、R5.3）
+			unlock()
 			var busy *portBusyError
 			if errors.As(err, &busy) {
 				for _, p := range peers {
@@ -126,10 +145,17 @@ func (m *Manager) startInstance(i *Instance) error {
 					}
 				}
 				if busy.owner != "" {
-					busy.suggest = freePortFrom(t, peers)
+					busy.suggest = freePortFromResolved(r, peers)
+				} else if busy.reserved && isTargetPortReserved(t) {
+					busy.sysReserved = true
 				}
 			}
-			return i.startFailed(err, true)
+			i.procMu.Lock()
+			locked = true
+			if i.runGen == failGen && (i.state == "" || i.state == "stopped") {
+				return i.startFailed(err, true)
+			}
+			return err
 		}
 	}
 	// log4shell 防护和现在的做法对不上的（程序启动时那一遍没做成，或者之后才看得出来）：该摘的引用当场摘掉，
@@ -292,7 +318,6 @@ func clearStartFail(dir string) {
 	if st, err := os.Lstat(target); err == nil && st.Mode().IsRegular() {
 		_ = os.Remove(target)
 	}
-	_ = os.Remove(mdDir) // 只在 .minedeck 已空时顺手清掉空目录；里面有别的控制文件时不会动
 }
 
 func loadStartFail(dir string) (string, *PortBusy) {
@@ -505,6 +530,13 @@ func writeLine(p *proc, line string) error {
 		return err
 	}
 	return p.stdin.Flush()
+}
+
+// UsesServerGameRules 这个 Minecraft 版本是不是已把 pvp、allow-nether、enable-command-block、spawn-monsters
+// 四项从 server.properties 迁成了世界游戏规则（1.21.9 起；更老的版本只在 server.properties 里管，不用读存档）。
+func UsesServerGameRules(mc string) bool {
+	base, _, _ := strings.Cut(strings.TrimSpace(mc), "-")
+	return base != "" && !versionLess(base, "1.21.9")
 }
 
 // difficultyCommand 开服完成时要不要按 server.properties 补一条 difficulty 命令。26.1 起难度存进了世界数据，
