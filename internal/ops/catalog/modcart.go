@@ -48,6 +48,7 @@ type modcartArgs struct {
 	Offset       int      `json:"offset"`
 	ProjectIDs   []string `json:"projectIds"`
 	ProjectID    string   `json:"projectId"`
+	DraftInst    string   `json:"draftInst"`
 	WithDeps     *bool    `json:"withDeps"`
 	IncludeDraft bool     `json:"includeDraft"`
 	// Expect 发起安装的人当时看到的购物车（项目 ID）。给了就核对：和现在要装的不一样就不装。
@@ -205,7 +206,13 @@ func (c *cat) view(p modcartArgs, caller ops.Caller) map[string]any {
 			t = &ct
 		}
 	}
-	return cartView(c.ModCart.List(p.key), c.ModCart.Locals(p.key), t, caller.Source.AI())
+	v := cartView(c.ModCart.List(p.key), c.ModCart.Locals(p.key), t, caller.Source.AI())
+	if p.key == modcart.Draft {
+		if di := c.ModCart.DraftInst(); di != "" {
+			v["draftInst"] = di
+		}
+	}
+	return v
 }
 
 // installItems 这次要装的：实例的车，includeDraft 时再加上草稿车。
@@ -345,8 +352,8 @@ func (c *cat) modcartOps() {
 	c.reg.Register(&ops.Op{
 		Name: "modcart.list", Title: "查看待装清单", Level: ops.Read,
 		Desc: "待装清单里有什么（按加入的先后，两样合计最多 50 项）：items 是 Modrinth 项目，local 是用户自己从电脑上添加的 jar" +
-			"（只有文件名、大小和读出来的模组信息；这部分只有用户能加、能移除）。不给 inst 看草稿清单。" +
-			"清单的存档文件在却没读出来（被别的程序占着、或者内容坏了）时报错，不返回空清单：这期间不能往清单里加、移除或安装。",
+			"（只有文件名、大小和读出来的模组信息；这部分只有用户能加、能移除）。不给 inst 看草稿清单（草稿清单里的项目会带上挑的时候记下的 pickedCore 和 pickedMc；" +
+			"记过目标新建服务器时还带 draftInst）。清单的存档文件在却没读出来（被别的程序占着、或者内容坏了）时报错，不返回空清单：这期间不能往清单里加、移除或安装。",
 		Params: ops.Object(map[string]*ops.Schema{"inst": cartInst, "cart": cartWhich, "core": cartCore, "mc": cartMC}),
 		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
 			p, err := bindCart(a)
@@ -363,27 +370,46 @@ func (c *cat) modcartOps() {
 	c.reg.Register(&ops.Op{
 		Name: "modcart.add", Title: "把模组或插件加进待装清单", Level: ops.Read,
 		Desc: "把 Modrinth 项目加进待装清单（一次可以加多个），只是暂存，不下载、不改服务器。加入时会向 Modrinth 核对：" +
-			"查不到的、只在客户端用的模组不放进去，在 skipped 里说明原因。返回整份清单。每份清单最多 50 项（连本地文件一起算）。",
-		Params: ops.Object(map[string]*ops.Schema{"inst": cartInst, "cart": cartWhich,
-			"projectIds": ops.Array("要加入的 Modrinth 项目 ID 或 slug", projectID).MaxLen(modcart.MaxItems)}, "projectIds"),
+			"查不到的、只在客户端用的模组不放进去，在 skipped 里说明原因；往草稿清单里加时可带 core 和 mc 记下挑的时候针对的核心和版本，" +
+			"新建服务器发出请求时可带 draftInst 记下这份草稿清单是给哪台新服务器挑的（清空或装完后自动清掉）。返回整份清单。每份清单最多 50 项（连本地文件一起算）。",
+		Params: ops.Object(map[string]*ops.Schema{
+			"inst":       cartInst,
+			"cart":       cartWhich,
+			"core":       ops.String("往草稿清单里加时记下是给哪种核心挑的（可选，如 fabric、forge、neoforge、paper）").Len(0, 20),
+			"mc":         ops.String("往草稿清单里加时记下是给哪个 Minecraft 版本挑的（可选，如 1.20.1）").Len(0, 40),
+			"draftInst":  ops.String("草稿清单要装进的新服务器名称（可选，向导开始创建时记下；草稿清单为空时不记，清空或装完后自动清掉）").Len(0, 100),
+			"projectIds": ops.Array("要加入的 Modrinth 项目 ID 或 slug", projectID).MaxLen(modcart.MaxItems),
+		}),
 		Run: func(ctx context.Context, caller ops.Caller, a ops.Args) (any, error) {
 			p, err := bindCart(a)
 			if err != nil {
 				return nil, err
 			}
-			if len(p.ProjectIDs) == 0 {
+			di := strings.TrimSpace(p.DraftInst)
+			if di != "" && p.key != modcart.Draft {
+				return nil, ops.Errorf(400, "只有草稿清单能记下目标服务器")
+			}
+			if len(p.ProjectIDs) == 0 && di == "" {
 				return nil, ops.Errorf(400, "没有给要加入的项目")
 			}
-			if p.Inst != "" {
-				if _, err := c.cartTarget(p); err != nil {
-					return nil, err
+			var skipped []modcart.Skipped
+			if len(p.ProjectIDs) > 0 {
+				if p.Inst != "" {
+					if _, err := c.cartTarget(p); err != nil {
+						return nil, err
+					}
+				}
+				tctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+				_, skipped, err = c.ModCart.AddFor(tctx, p.key, p.Core, p.MC, p.ProjectIDs)
+				cancel()
+				if err != nil {
+					return nil, cartErr(err)
 				}
 			}
-			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			defer cancel()
-			_, skipped, err := c.ModCart.Add(ctx, p.key, p.ProjectIDs)
-			if err != nil {
-				return nil, cartErr(err)
+			if di != "" {
+				if err := c.ModCart.SetDraftInst(di); err != nil {
+					return nil, cartErr(err)
+				}
 			}
 			v := c.view(p, caller)
 			if len(skipped) > 0 {

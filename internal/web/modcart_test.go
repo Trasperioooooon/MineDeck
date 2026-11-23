@@ -137,8 +137,21 @@ func TestModCartRoutes(t *testing.T) {
 		t.Errorf("清空：%v", d)
 	}
 
-	// 向导的提交链：草稿车里放好，建好的实例带上 includeDraft 装
-	e.call(t, "POST", "/api/modcart", `{"projectIds":["aaa"]}`, 200)
+	// 向导的提交链：草稿车里放好（记下核心版本和目标服务器），查前置支持 includeDraft，建好的实例带上 includeDraft 装
+	d = data(t, e.call(t, "POST", "/api/modcart", `{"projectIds":["aaa"],"core":"fabric","mc":"1.20.1"}`, 200))
+	if it := d["items"].([]any)[0].(map[string]any); it["pickedCore"] != "fabric" || it["pickedMc"] != "1.20.1" {
+		t.Errorf("草稿车应记下核心和版本：%v", it)
+	}
+	if d = data(t, e.call(t, "POST", "/api/modcart", `{"draftInst":"模组服"}`, 200)); d["draftInst"] != "模组服" {
+		t.Errorf("草稿车应记下目标服务器：%v", d)
+	}
+	if d = data(t, e.call(t, "GET", "/api/modcart/deps?inst="+url.QueryEscape("模组服"), "", 200)); len(d["files"].([]any)) != 0 {
+		t.Errorf("不带 includeDraft 时不应算入草稿车：%v", d)
+	}
+	if d = data(t, e.call(t, "GET", "/api/modcart/deps?inst="+url.QueryEscape("模组服")+"&includeDraft=true", "", 200)); len(d["files"].([]any)) != 2 || len(d["missing"].([]any)) != 1 {
+		t.Errorf("带 includeDraft=true 应把草稿车算进前置检查：%v", d)
+	}
+	e.call(t, "GET", "/api/modcart/deps?inst="+url.QueryEscape("模组服")+"&includeDraft=bad", "", 400)
 	e.call(t, "POST", "/api/instances/nope/modcart/install", `{"includeDraft":true}`, 404)
 	id := data(t, e.call(t, "POST", ip+"/modcart/install", `{"includeDraft":true}`, 200))["taskId"].(string)
 	deadline := time.Now().Add(20 * time.Second)
@@ -160,8 +173,8 @@ func TestModCartRoutes(t *testing.T) {
 			t.Errorf("没装上 %s", fn)
 		}
 	}
-	if d := data(t, e.call(t, "GET", "/api/modcart", "", 200)); d["count"].(float64) != 0 {
-		t.Errorf("装好后草稿车应清掉：%v", d)
+	if d := data(t, e.call(t, "GET", "/api/modcart", "", 200)); d["count"].(float64) != 0 || d["draftInst"] != nil {
+		t.Errorf("装好后草稿车和 draftInst 应清掉：%v", d)
 	}
 	e.call(t, "POST", ip+"/modcart/install", `{}`, 400) // 车空了
 

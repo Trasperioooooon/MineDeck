@@ -641,3 +641,90 @@ func TestClosureEdges(t *testing.T) {
 		t.Fatalf("找不到：%+v", plan.Unresolved)
 	}
 }
+
+// 草稿清单逐项记下挑时的核心与 MC 版本，实例和工具箱的清单不记；老格式 cart.json 照常读；
+// 记下目标新建服务器后，清空或移光草稿清单时记号跟着清掉（A31）。
+func TestDraftOriginAndTargetInst(t *testing.T) {
+	mr := newFakeMR(t)
+	dir := t.TempDir()
+
+	// 先放一份老格式的 cart.json（没有 draftInst、pickedCore、pickedMc），确认照常读出
+	legacy := `{"version":1,"carts":{"":[{"projectId":"aaa","slug":"alpha","title":"Alpha","kind":"mod","license":"MIT","addedAt":"2026-01-01T00:00:00Z"}]}}`
+	if err := os.WriteFile(filepath.Join(dir, "cart.json"), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := New(dir, mr.srv.URL)
+	got := s.List(Draft)
+	if len(got) != 1 || got[0].ProjectID != "aaa" || got[0].PickedCore != "" || got[0].PickedMC != "" {
+		t.Fatalf("老格式 cart.json 读回不对：%+v", got)
+	}
+	if s.DraftInst() != "" {
+		t.Fatalf("老格式不应有 draftInst：%q", s.DraftInst())
+	}
+	if err := s.ClearAll(Draft); err != nil {
+		t.Fatal(err)
+	}
+
+	// 空草稿车记目标服务器：不记
+	if err := s.SetDraftInst("空服"); err != nil {
+		t.Fatal(err)
+	}
+	if s.DraftInst() != "" {
+		t.Fatalf("草稿清单为空时不应记下 draftInst：%q", s.DraftInst())
+	}
+
+	// 加入草稿车记下核心和版本；实例清单和工具箱清单不记
+	items, _, err := s.AddFor(context.Background(), Draft, "fabric", "1.20.1", []string{"aaa"})
+	if err != nil || len(items) != 1 || items[0].PickedCore != "fabric" || items[0].PickedMC != "1.20.1" {
+		t.Fatalf("草稿清单应记下核心和版本：%+v %v", items, err)
+	}
+	instItems, _, err := s.AddFor(context.Background(), "生存服", "fabric", "1.20.1", []string{"aaa"})
+	if err != nil || len(instItems) != 1 || instItems[0].PickedCore != "" || instItems[0].PickedMC != "" {
+		t.Fatalf("实例清单不应记 pickedCore/pickedMc：%+v %v", instItems, err)
+	}
+	tbItems, _, err := s.AddFor(context.Background(), Toolbox, "fabric", "1.20.1", []string{"aaa"})
+	if err != nil || len(tbItems) != 1 || tbItems[0].PickedCore != "" || tbItems[0].PickedMC != "" {
+		t.Fatalf("工具箱清单不应记 pickedCore/pickedMc：%+v %v", tbItems, err)
+	}
+
+	// 记下目标服务器，重新加载后仍在
+	if err := s.SetDraftInst("新模组服"); err != nil {
+		t.Fatal(err)
+	}
+	s2 := New(dir, mr.srv.URL)
+	if s2.DraftInst() != "新模组服" {
+		t.Fatalf("重读后 draftInst 应为 新模组服，实际 %q", s2.DraftInst())
+	}
+	if d := s2.List(Draft); len(d) != 1 || d[0].PickedCore != "fabric" || d[0].PickedMC != "1.20.1" {
+		t.Fatalf("重读后草稿项核心版本丢失：%+v", d)
+	}
+
+	// 把草稿清单最后一项移掉：draftInst 自动清掉（盘上也不再写）
+	if _, err := s2.Remove(Draft, "aaa"); err != nil {
+		t.Fatal(err)
+	}
+	if s2.DraftInst() != "" {
+		t.Fatalf("草稿清单空了以后 draftInst 应自动清掉，实际 %q", s2.DraftInst())
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "cart.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "draftInst") {
+		t.Fatalf("草稿清单空了以后 cart.json 不应残留 draftInst：%s", raw)
+	}
+
+	// 再加一项并记目标服务器，用 ClearAll 清空后同样跟着清掉
+	if _, _, err := s2.AddFor(context.Background(), Draft, "paper", "1.21.4", []string{"aaa"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s2.SetDraftInst("第二台服"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s2.ClearAll(Draft); err != nil {
+		t.Fatal(err)
+	}
+	if s2.DraftInst() != "" {
+		t.Fatalf("ClearAll 清空草稿清单后 draftInst 应清掉，实际 %q", s2.DraftInst())
+	}
+}

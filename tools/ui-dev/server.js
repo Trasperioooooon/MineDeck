@@ -1601,13 +1601,17 @@ const PLUGIN_CATALOG = [
 ];
 const PLUGIN_CORES = new Set(["paper", "purpur", "leaves", "folia", "velocity", "waterfall"]); // 搜出来的是插件，其余是模组（同后端 resourceSpec：Mohist、Banner 按模组算）
 const MODCART_PAGE = 20, MODCART_MAX_OFFSET = 80, MODCART_MAX_ITEMS = 50; // 同后端 modcart.PageSize / MaxOffset / MaxItems
-const modCartItem = id => {
+const modCartItem = (id, pickedCore = "", pickedMc = "") => {
   const m = [...MOD_CATALOG, ...PLUGIN_CATALOG].find(x => x.projectId === id) || { slug: id, title: id, kind: "mod", license: "" };
-  return { projectId: id, slug: m.slug, title: m.title, icon: "", kind: m.kind, license: m.license, addedAt: new Date().toISOString() };
+  return { projectId: id, slug: m.slug, title: m.title, icon: "", kind: m.kind, license: m.license,
+    ...(pickedCore ? { pickedCore } : {}), ...(pickedMc ? { pickedMc } : {}), addedAt: new Date().toISOString() };
 };
 function newModCartState() {
-  return { draft: [], insts: {}, localDraft: [], localInsts: {}, searchFail: "", addFail: "", localFail: "", localUploadFail: "", depsFail: "", depsDelay: 0, searchDelay: 0, noDeps: false,
+  return { draft: [], insts: {}, localDraft: [], localInsts: {}, draftInst: "", searchFail: "", addFail: "", localFail: "", localUploadFail: "", depsFail: "", depsDelay: 0, searchDelay: 0, noDeps: false,
     loadFail: "", queries: 0, depsQueries: 0, lastInstall: null, searches: [] };
+}
+function syncDraftInst(state) {
+  if (!state.modcart.draft.length && !state.modcart.localDraft.length) state.modcart.draftInst = "";
 }
 function modCartMockState(state, b) {
   if (b.reset) state.modcart = newModCartState();
@@ -1635,24 +1639,42 @@ function modcartLocalWarn(loader, core) {
 /* 整张清单的样子（同后端 cartView）：items 是 Modrinth 项目，local 是本地文件，count 是 items 的个数，total 是两样合计 */
 function modcartView(state, inst, core) {
   const items = modcartBucket(state, inst), locals = modcartLocals(state, inst), c = modcartCore(state, inst, core);
-  return { count: items.length, total: items.length + locals.length, items,
+  return { count: items.length, total: items.length + locals.length,
+    ...(inst === "" && state.modcart.draftInst ? { draftInst: state.modcart.draftInst } : {}),
+    items,
     local: locals.map(lf => { const warn = modcartLocalWarn(lf.loader, c); return { ...lf, ...(warn ? { warn } : {}) }; }) };
 }
+const loaderFamilyOf = c => (c === "fabric" || c === "banner") ? "fabric"
+  : (c === "forge" || c === "mohist") ? "forge"
+  : (c === "paper" || c === "purpur" || c === "leaves" || c === "folia") ? "bukkit" : (c || "");
 /* 依赖检查：JEI 缺必装前置 Architectury API，可选候选 Cloth Config API，都进车之后就不再列（noDeps 时一律返回全空）。
-   本地文件按文件名里的字样仿几种情况，见本节开头。 */
-function modcartDeps(state, inst, core) {
-  const cartItems = modcartBucket(state, inst), ids = new Set(cartItems.map(x => x.projectId)), locals = modcartLocals(state, inst), c = modcartCore(state, inst, core);
+   includeDraft=true 且给了实例名时把草稿车也并进来；核心生态对不上的项目放进 unresolved。 */
+function modcartDeps(state, inst, core, includeDraft = false) {
+  let cartItems = [...modcartBucket(state, inst)], locals = [...modcartLocals(state, inst)];
+  if (includeDraft && inst && inst !== TOOLBOX_CART) {
+    for (const it of state.modcart.draft) if (!cartItems.some(x => x.projectId === it.projectId)) cartItems.push(it);
+    for (const lf of state.modcart.localDraft) if (!locals.some(x => x.sha1 === lf.sha1)) locals.push(lf);
+  }
+  const c = modcartCore(state, inst, core);
   const empty = { files: [], missing: [], optional: [], conflicts: [], localHits: [], unresolved: [], local: [], manual: [] };
   if (state.modcart.noDeps) return empty;
+  const wantKind = c ? modcartType(state, c) : "";
+  const compatItems = [], unresolved = [];
+  for (const it of cartItems) {
+    const coreConflict = c && ((it.kind && wantKind && it.kind !== wantKind) || (it.pickedCore && loaderFamilyOf(it.pickedCore) !== loaderFamilyOf(c)));
+    if (coreConflict) unresolved.push({ projectId: it.projectId, title: it.title, reason: `没有支持 ${c} 的版本` });
+    else compatItems.push(it);
+  }
+  const ids = new Set(compatItems.map(x => x.projectId));
   const miss = id => !ids.has(id);
   const missing = miss("architectury") && ids.has("jei")
     ? [{ project: { projectId: "architectury", title: "Architectury API", versionNumber: "9.2.14", fileName: "architectury-9.2.14-forge.jar", size: 580602, license: "LGPL-3.0" }, dependencyOf: "JEI" }]
     : [];
   const files = [
-    ...cartItems.map(it => ({ projectId: it.projectId, title: it.title, versionNumber: "1.0.0", fileName: `${it.slug || it.projectId}-1.0.0.jar`, size: 409600, license: it.license || "MIT" })),
+    ...compatItems.map(it => ({ projectId: it.projectId, title: it.title, versionNumber: "1.0.0", fileName: `${it.slug || it.projectId}-1.0.0.jar`, size: 409600, license: it.license || "MIT" })),
     ...missing.map(m => ({ ...m.project, fromDep: true, dependencyOf: m.dependencyOf })),
   ];
-  const out = { ...empty, files, missing,
+  const out = { ...empty, files, missing, unresolved,
     optional: miss("cloth-config") && ids.size ? [{ project: { projectId: "cloth-config", title: "Cloth Config API", versionNumber: "11.3.0", fileName: "cloth-config-11.3.0-forge.jar", size: 512334, license: "LGPL-3.0" }, dependencyOf: "Create" }] : [],
   };
   for (const lf of locals) {
@@ -1725,22 +1747,29 @@ async function modcartHandler(state, req, res, p, m, u) {
   if (unread) return err(res, 503, unread.raw, unread.hint);
   if (p === "/api/modcart" && m === "GET") return ok(res, modcartView(state, qCart, q.get("core")));
   if (p === "/api/modcart" && m === "POST") {
-    const b = await readBody(req);
+    const b = await readBody(req), key = cartOf(b), di = String(b.draftInst || "").trim();
     if (mc.addFail) return err(res, 500, mc.addFail);
-    const cart = bucket(cartOf(b));
-    for (const id of (b.projectIds || [])) if (!cart.some(x => x.projectId === id)) cart.push(modCartItem(id));
-    return ok(res, modcartView(state, cartOf(b), b.core));
+    if (di && key !== "") return err(res, 400, "只有草稿清单能记下目标服务器");
+    if (!(b.projectIds || []).length && !di) return err(res, 400, "没有给要加入的项目");
+    const cart = bucket(key);
+    for (const id of (b.projectIds || [])) {
+      if (!cart.some(x => x.projectId === id)) cart.push(modCartItem(id, key === "" ? (b.core || "") : "", key === "" ? (b.mc || "") : ""));
+    }
+    if (di && (mc.draft.length + mc.localDraft.length > 0)) mc.draftInst = di;
+    return ok(res, modcartView(state, key, b.core));
   }
   if (p === "/api/modcart/remove" && m === "POST") {
-    const b = await readBody(req), cart = bucket(cartOf(b)), af = cart.filter(x => x.projectId !== b.projectId);
+    const b = await readBody(req), key = cartOf(b), cart = bucket(key), af = cart.filter(x => x.projectId !== b.projectId);
     cart.length = 0; cart.push(...af);
-    return ok(res, modcartView(state, cartOf(b), b.core));
+    if (key === "") syncDraftInst(state);
+    return ok(res, modcartView(state, key, b.core));
   }
   // 清空（界面上是人点的）：Modrinth 项目和本地文件都清
   if (p === "/api/modcart/clear" && m === "POST") {
-    const b = await readBody(req);
-    bucket(cartOf(b)).length = 0; modcartLocals(state, cartOf(b)).length = 0;
-    return ok(res, modcartView(state, cartOf(b), b.core));
+    const b = await readBody(req), key = cartOf(b);
+    bucket(key).length = 0; modcartLocals(state, key).length = 0;
+    if (key === "") syncDraftInst(state);
+    return ok(res, modcartView(state, key, b.core));
   }
   // 从电脑添加一个 jar（同 modcart.local.add）：multipart 的 file，另带 inst / core / mc。返回整张清单，外加 added 和 duplicate
   if (p === "/api/modcart/local" && m === "POST") {
@@ -1772,17 +1801,19 @@ async function modcartHandler(state, req, res, p, m, u) {
     return ok(res, { ...modcartView(state, inst, fields.core), added: { sha1: lf.sha1, fileName: lf.fileName, title: lf.title, size: lf.size }, duplicate });
   }
   if (p === "/api/modcart/local/remove" && m === "POST") {
-    const b = await readBody(req), locals = modcartLocals(state, cartOf(b));
+    const b = await readBody(req), key = cartOf(b), locals = modcartLocals(state, key);
     if (!/^[0-9a-fA-F]{40}$/.test(b.sha1 || "")) return err(res, 400, "参数 sha1 格式不对");
     const af = locals.filter(x => x.sha1 !== b.sha1.toLowerCase());
     locals.length = 0; locals.push(...af);
-    return ok(res, modcartView(state, cartOf(b), b.core));
+    if (key === "") syncDraftInst(state);
+    return ok(res, modcartView(state, key, b.core));
   }
   if (p === "/api/modcart/deps") {
     mc.depsQueries++;
     if (mc.depsDelay) await new Promise(r => setTimeout(r, mc.depsDelay));
     if (mc.depsFail) return err(res, 502, mc.depsFail);
-    return ok(res, modcartDeps(state, qCart, q.get("core")));
+    const incDraft = q.get("includeDraft") === "true" || q.get("includeDraft") === "1";
+    return ok(res, modcartDeps(state, qCart, q.get("core"), incDraft));
   }
   return ok(res, {});
 }
@@ -3541,7 +3572,10 @@ function handler(state, ui, portOf) {
             return err(res, 409, "清单里的本地文件和你刚才看到的不一样了（可能是上次没装完留下的，或者别的窗口加的）。先看一眼现在的清单，再点安装");
           mc.lastInstall = { inst: name, withDeps: b.withDeps !== false, includeDraft: !!b.includeDraft, expect: b.expect || null, expectLocal: b.expectLocal || null,
             copied: willCopy.length };
-          if (b.includeDraft) { for (const it of mc.draft) if (!cart.some(x => x.projectId === it.projectId)) cart.push({ ...it }); mc.draft = []; mc.localDraft = []; }
+          if (b.includeDraft) {
+            for (const it of mc.draft) if (!cart.some(x => x.projectId === it.projectId)) cart.push({ ...it });
+            mc.draft = []; mc.localDraft = []; mc.draftInst = "";
+          }
           locals.length = 0; // 本地文件装进服务器以后就从清单里拿掉了
           mc.queries = 0;
           return ok(res, { taskId: "task-cart" });

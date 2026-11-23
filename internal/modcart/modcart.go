@@ -56,8 +56,11 @@ type Item struct {
 	License   string `json:"license,omitempty"` // 许可证的 SPDX 写法，如 MIT、LGPL-3.0-only；Modrinth 自定义的是 LicenseRef-…
 	// ServerSide、ClientSide Modrinth 标的服务端、客户端要不要装（required / optional / unsupported / unknown）。
 	// 导出整合包时写进 env；老清单里没有，按要装算
-	ServerSide string    `json:"serverSide,omitempty"`
-	ClientSide string    `json:"clientSide,omitempty"`
+	ServerSide string `json:"serverSide,omitempty"`
+	ClientSide string `json:"clientSide,omitempty"`
+	// PickedCore、PickedMC 加入草稿清单时针对的服务器核心与 MC 版本（A31）；实例和工具箱的清单不记。
+	PickedCore string    `json:"pickedCore,omitempty"`
+	PickedMC   string    `json:"pickedMc,omitempty"`
 	AddedAt    time.Time `json:"addedAt"`
 }
 
@@ -87,9 +90,10 @@ type Service struct {
 	api      string // Modrinth 接口地址，测试时换成本机的假服务
 	official bool   // 用的是真的 Modrinth：下载地址只认它的 CDN
 
-	mu     sync.Mutex
-	carts  map[string][]Item
-	locals map[string][]LocalFile // 人从电脑上添加的 jar（见 staged.go），键同 carts
+	mu        sync.Mutex
+	carts     map[string][]Item
+	locals    map[string][]LocalFile // 人从电脑上添加的 jar（见 staged.go），键同 carts
+	draftInst string                 // 草稿清单是给哪台新建服务器挑的（A31）；草稿清单空了自动清掉
 	// loadErr cart.json 在、却没读成（见 LoadError）。不为空时清单是空的，一律不写 cart.json、不清暂存的本地文件；
 	// 有人要清单、要改清单时再读一次（retryLoadLocked），读成了就清掉
 	loadErr *LoadError
@@ -193,6 +197,11 @@ func (s *Service) load() {
 	}
 	s.loadErr = nil
 	s.carts, s.locals = f.Carts, s.checkedLocals(f.Locals)
+	if len(s.carts[Draft]) > 0 || len(s.locals[Draft]) > 0 {
+		s.draftInst = strings.TrimSpace(f.DraftInst)
+	} else {
+		s.draftInst = ""
+	}
 }
 
 // reallyMissing 读 cart.json 报「不存在」以后再确认一次，是真的新装才返回 nil，否则返回读不出来的原因。
@@ -277,9 +286,10 @@ func (s *Service) LoadErr() error {
 }
 
 type cartFile struct {
-	Version int                    `json:"version"`
-	Carts   map[string][]Item      `json:"carts"`            // 键：实例名；空串 = 草稿车
-	Locals  map[string][]LocalFile `json:"locals,omitempty"` // 暂存的本地文件，键同上
+	Version   int                    `json:"version"`
+	Carts     map[string][]Item      `json:"carts"`               // 键：实例名；空串 = 草稿车
+	Locals    map[string][]LocalFile `json:"locals,omitempty"`    // 暂存的本地文件，键同上
+	DraftInst string                 `json:"draftInst,omitempty"` // 草稿车是给哪台新建服务器挑的（A31）
 }
 
 func (s *Service) path() string { return filepath.Join(s.dir, "cart.json") }
@@ -292,11 +302,7 @@ func (s *Service) putLocked(inst string, cart []Item) error {
 	} else {
 		next[inst] = cart
 	}
-	if err := s.write(next, s.locals); err != nil {
-		return err
-	}
-	s.carts = next
-	return nil
+	return s.writeLocked(next, s.locals, s.draftInst)
 }
 
 // putLocalsLocked 把 inst 的本地文件登记换成 list：同 putLocked，先写盘再改内存。调用方持有 s.mu。
@@ -307,24 +313,27 @@ func (s *Service) putLocalsLocked(inst string, list []LocalFile) error {
 	} else {
 		next[inst] = list
 	}
-	if err := s.write(s.carts, next); err != nil {
-		return err
-	}
-	s.locals = next
-	return nil
+	return s.writeLocked(s.carts, next, s.draftInst)
 }
 
-// write 写 cart.json（先写临时文件再改名）。报错里不带路径：这些话会原样给到界面和 AI。
-// cart.json 没读成（s.loadErr）时一律不写：内存里是空清单，写下去就把原文件盖掉了。各个改清单的入口在改之前就已经
-// 用 retryLoadLocked 挡下；这里再挡一道，兜住以后新加的写盘点。
 func (s *Service) write(carts map[string][]Item, locals map[string][]LocalFile) error {
+	return s.writeLocked(carts, locals, s.draftInst)
+}
+
+// writeLocked 写 cart.json（先写临时文件再改名），写成了才同步更新内存状态。报错里不带路径：这些话会原样给到界面和 AI。
+// cart.json 没读成（s.loadErr）时一律不写：内存里是空清单，写下去就把原文件盖掉了。各个改清单的入口在改之前就已经
+// 用 retryLoadLocked 挡下；这里再挡一道，兜住以后新加的写盘点。草稿清单一旦全空，目标服务器记号跟着清掉。
+func (s *Service) writeLocked(carts map[string][]Item, locals map[string][]LocalFile, draftInst string) error {
 	if s.loadErr != nil {
 		return s.loadErr
+	}
+	if len(carts[Draft]) == 0 && len(locals[Draft]) == 0 {
+		draftInst = ""
 	}
 	if err := os.MkdirAll(s.dir, 0o755); err != nil {
 		return errorf(500, "保存待装清单失败：%v", noPath(err))
 	}
-	b, _ := json.MarshalIndent(cartFile{Version: 1, Carts: carts, Locals: locals}, "", "  ")
+	b, _ := json.MarshalIndent(cartFile{Version: 1, Carts: carts, Locals: locals, DraftInst: draftInst}, "", "  ")
 	tmp := s.path() + ".tmp"
 	if err := os.WriteFile(tmp, b, 0o644); err != nil {
 		return errorf(500, "保存待装清单失败：%v", noPath(err))
@@ -333,7 +342,32 @@ func (s *Service) write(carts map[string][]Item, locals map[string][]LocalFile) 
 		os.Remove(tmp)
 		return errorf(500, "保存待装清单失败：%v", noPath(err))
 	}
+	s.carts, s.locals, s.draftInst = carts, locals, draftInst
 	return nil
+}
+
+// DraftInst 草稿清单记下的目标服务器名称；没有或已清空时为空串。
+func (s *Service) DraftInst() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.draftInst
+}
+
+// SetDraftInst 记下草稿清单是给哪台新建服务器挑的（A31）；草稿清单本身是空的时不记。
+func (s *Service) SetDraftInst(inst string) error {
+	inst = strings.TrimSpace(inst)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.retryLoadLocked(); err != nil {
+		return err
+	}
+	if len(s.carts[Draft]) == 0 && len(s.locals[Draft]) == 0 {
+		inst = ""
+	}
+	if s.draftInst == inst {
+		return nil
+	}
+	return s.writeLocked(s.carts, s.locals, inst)
 }
 
 // List 一辆车里的东西（按加入的先后）。
@@ -346,6 +380,11 @@ func (s *Service) List(inst string) []Item {
 // Add 把项目加进购物车（ids 可以是项目 ID 或 slug）。先向 Modrinth 查一遍：查不到的、只在客户端用的模组不放进去，
 // 在 skipped 里说明原因；已经在车里的不重复放。全都放不进去时报错。返回整辆车。
 func (s *Service) Add(ctx context.Context, inst string, ids []string) ([]Item, []Skipped, error) {
+	return s.AddFor(ctx, inst, "", "", ids)
+}
+
+// AddFor 同 Add；往草稿清单（inst == Draft）里加时一并记下当时针对的 core 和 mc（A31），实例和工具箱的清单不记。
+func (s *Service) AddFor(ctx context.Context, inst, core, mc string, ids []string) ([]Item, []Skipped, error) {
 	want := []string{}
 	for _, id := range ids {
 		if id = strings.TrimSpace(id); id != "" && !slices.Contains(want, id) {
@@ -365,6 +404,11 @@ func (s *Service) Add(ctx context.Context, inst string, ids []string) ([]Item, [
 	if err != nil {
 		return nil, nil, err
 	}
+	pickedCore, pickedMC := "", ""
+	if inst == Draft {
+		pickedCore = strings.TrimSpace(core)
+		pickedMC = strings.TrimSpace(mc)
+	}
 	var add []Item
 	var skipped []Skipped
 	for _, id := range want {
@@ -380,7 +424,8 @@ func (s *Service) Add(ctx context.Context, inst string, ids []string) ([]Item, [
 			// 同一个项目给了 ID 又给了 slug
 		default:
 			add = append(add, Item{ProjectID: p.ID, Slug: p.Slug, Title: p.Title, Icon: p.IconURL, Kind: p.ProjectType,
-				License: p.License.ID, ServerSide: p.ServerSide, ClientSide: p.ClientSide, AddedAt: time.Now().UTC()})
+				License: p.License.ID, ServerSide: p.ServerSide, ClientSide: p.ClientSide,
+				PickedCore: pickedCore, PickedMC: pickedMC, AddedAt: time.Now().UTC()})
 		}
 	}
 	if len(add) == 0 {

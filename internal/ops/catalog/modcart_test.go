@@ -443,3 +443,50 @@ func TestToolboxMrpackPreviewReportsCorruptCart(t *testing.T) {
 		t.Fatalf("修好以后预览应成功：%v", err)
 	}
 }
+
+// 草稿清单操作层记下核心版本与目标服务器，安装或清空后目标记号自动清除（A31）。
+func TestModCartDraftOriginAndTarget(t *testing.T) {
+	reg, mgr, _, _ := newCartCatalog(t)
+	m, err := cartDo(t, reg, cartUI, "modcart.add", map[string]any{"projectIds": []string{"aaa"}, "core": "fabric", "mc": "1.20.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	it := m["items"].([]any)[0].(map[string]any)
+	if it["pickedCore"] != "fabric" || it["pickedMc"] != "1.20.1" {
+		t.Fatalf("草稿清单项应带 pickedCore/pickedMc：%v", it)
+	}
+
+	instAdd, err := cartDo(t, reg, cartUI, "modcart.add", map[string]any{"inst": "模组服", "projectIds": []string{"aaa"}, "core": "fabric", "mc": "1.20.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instIt := instAdd["items"].([]any)[0].(map[string]any)
+	if instIt["pickedCore"] != nil || instIt["pickedMc"] != nil {
+		t.Fatalf("实例清单项不应带 pickedCore/pickedMc：%v", instIt)
+	}
+	_, _ = cartDo(t, reg, cartUI, "modcart.clear", map[string]any{"inst": "模组服"})
+
+	if _, err := cartDo(t, reg, cartUI, "modcart.add", map[string]any{"inst": "模组服", "draftInst": "模组服"}); ops.CodeOf(err) != 400 {
+		t.Fatalf("非草稿清单传 draftInst 应报 400：%v", err)
+	}
+	m, err = cartDo(t, reg, cartUI, "modcart.add", map[string]any{"draftInst": "模组服"})
+	if err != nil || m["draftInst"] != "模组服" {
+		t.Fatalf("记下草稿清单目标服务器：%v %v", m, err)
+	}
+	if instList, _ := cartDo(t, reg, cartUI, "modcart.list", map[string]any{"inst": "模组服"}); instList["draftInst"] != nil {
+		t.Fatalf("实例清单不应返回 draftInst：%v", instList)
+	}
+
+	// 带 includeDraft 安装完成后，草稿清单与 draftInst 一并清掉
+	ins, err := cartDo(t, reg, cartUI, "modcart.install", map[string]any{"inst": "模组服", "includeDraft": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := waitTask(t, mgr, ins["taskId"].(string)); s.Err != "" {
+		t.Fatalf("安装失败：%+v", s)
+	}
+	after, err := cartDo(t, reg, cartUI, "modcart.list", map[string]any{})
+	if err != nil || after["count"].(float64) != 0 || after["draftInst"] != nil {
+		t.Fatalf("装完后草稿清单和 draftInst 都应清掉：%v %v", after, err)
+	}
+}

@@ -13,11 +13,36 @@ window.MDModCart = (() => {
      建服完成后带着草稿车一起装时，把它当成「人看到的那些」发给后端核对（见 app.js 的提交链）：
      草稿车里多出人没看过的东西（上次向导半途放弃留下的文件、AI 助手加的项目），后端不装。 */
   let draftSeen = null;
+  /* 向导回头改了核心或版本时，点过「留着」的那一组（核心|版本|不匹配项），同一组不再反复打扰；再换成别的核心或版本时照常提醒（A31） */
+  let wizKeptKey = "";
   /* 有「插件 / 模组」标签（详情页的 addons，已安装 + 待装清单，可用性走查 R10）的实例：原版没有模组加载器，不需要 */
   const applies = info => !!info && info.core !== "vanilla";
 
   /* 这种核心装的是什么：插件端（Paper 一系和两种代理端）是「插件」，其余是「模组」（同后端 resourceSpec：Mohist、Banner 在这里也按模组算） */
   const PLUGIN_CORES = new Set(["paper", "purpur", "leaves", "folia", "velocity", "waterfall"]);
+  const CORE_NAMES = { fabric: "Fabric", forge: "Forge", neoforge: "NeoForge", paper: "Paper", purpur: "Purpur",
+    leaves: "Leaves", folia: "Folia", mohist: "Mohist", banner: "Banner", velocity: "Velocity", waterfall: "Waterfall", vanilla: "原版" };
+  const LOADER_NAMES = { fabric: "Fabric", forge: "Forge", neoforge: "NeoForge", "neoforge+forge": "Forge / NeoForge", quilt: "Quilt", plugin: "插件服" };
+  const coreLabel = c => CORE_NAMES[c] || c || "";
+  /* 按后端 resourceSpec 归并同生态的加载器：Paper/Purpur/Leaves/Folia 同属 bukkit 插件系，Fabric/Banner 同属 fabric，Forge/Mohist 同属 forge */
+  const loaderFamily = c => (c === "fabric" || c === "banner") ? "fabric"
+    : (c === "forge" || c === "mohist") ? "forge"
+    : (c === "paper" || c === "purpur" || c === "leaves" || c === "folia") ? "bukkit" : (c || "");
+  const draftItemMismatch = (it, core, mc) => {
+    if (!core) return null;
+    const pc = it.pickedCore || "", pm = it.pickedMc || "";
+    if (pc) {
+      if (loaderFamily(pc) !== loaderFamily(core)) return { id: "p:" + it.projectId, reason: `给 ${coreLabel(pc)} 挑的，核心对不上`, origin: coreLabel(pc), coreDiff: true };
+      if (!PLUGIN_CORES.has(core) && pm && mc && pm !== mc) return { id: "p:" + it.projectId, reason: `给 ${coreLabel(pc)} ${pm} 挑的，版本不一样`, origin: `${coreLabel(pc)} ${pm}`, coreDiff: false };
+      return null;
+    }
+    const wantKind = PLUGIN_CORES.has(core) ? "plugin" : "mod";
+    return (it.kind && it.kind !== wantKind) ? { id: "p:" + it.projectId, reason: `这是${KIND_CN[it.kind] || it.kind}，核心对不上`, origin: KIND_CN[it.kind] || it.kind, coreDiff: true } : null;
+  };
+  const draftLocalMismatch = (lf, core) => {
+    if (!core || !lf.loader || lf.loader === "unknown" || !lf.warn) return null;
+    return { id: "l:" + lf.sha1, reason: lf.warn, origin: LOADER_NAMES[lf.loader] || lf.loader, coreDiff: true };
+  };
   const nounOf = core => PLUGIN_CORES.has(core) ? "插件" : "模组";
   /* 详情页 addons 标签上的名字（docs/文案重写/04-标签与术语-beta3.md 第一节）：插件服叫「插件」，模组服叫「模组」，
      两样都能装的 Mohist、Banner 叫「插件和模组」 */
@@ -78,7 +103,9 @@ window.MDModCart = (() => {
           <div id="mc-more-row" class="mc-more-row" hidden></div>
         </section>
         <aside class="mc-side" id="mc-side" aria-label="待装清单">
+          <div id="mc-draft-box"></div>
           <h3 class="mc-gh">待装清单 <span class="hint" id="mc-count" aria-live="polite"></span></h3>
+          <div id="mc-wiz-mismatch"></div>
           <div id="mc-list">${skeletonRows(2)}</div>
           <div class="row mc-local-row">
             <button class="btn" id="mc-local-pick">${icon("folder")} 从电脑添加…</button>
@@ -97,17 +124,23 @@ window.MDModCart = (() => {
         </aside>
       </div>`;
     const qEl = $("#mc-q", root), hitsEl = $("#mc-hits", root), titleEl = $("#mc-hits-title", root), moreRow = $("#mc-more-row", root),
+      draftBox = $("#mc-draft-box", root), wizMismatchEl = $("#mc-wiz-mismatch", root),
       listEl = $("#mc-list", root), countEl = $("#mc-count", root), actionsEl = $("#mc-actions", root), sideEl = $("#mc-side", root),
       localState = $("#mc-local-state", root), pickBtn = $("#mc-local-pick", root), fileEl = $("#mc-file", root),
       depBtn = $("#mc-dep-go", root), depState = $("#mc-dep-state", root), depBox = $("#mc-dep-box", root);
     let cart = [],              // 购物车里的 Modrinth 项目（后端的形状）
         local = [],             // 购物车里的本地文件（后端的形状：sha1、fileName、size、title、warn…）
+        draftCart = [],         // 详情页：建这台服务器时留在草稿车里还没装的项目（A31）
+        draftLocal = [],        // 详情页：建这台服务器时留在草稿车里还没装的本地文件
+        draftDep = null,        // 详情页：带上草稿车（includeDraft=true）算出来的前置与 unresolved
+        draftDepSig = "",
+        draftInstalling = false,
         dep = null,             // 最近一次依赖检查的结果
         depSig = "",            // dep 对应的清单签名（A29：清单变过以后算过时，点全部安装时重查）
         installing = false,     // 已经点了安装（等确认框或接口时不能再点）
         uploading = false,      // 正在往清单里添加本地文件
         loadErr = null,         // 清单的存档在、却没读出来（后端回 503）时的报错，见 paintList
-        loadSeq = 0, depSeq = 0, depInFlight = null;
+        loadSeq = 0, depSeq = 0, depInFlight = null, draftDepSeq = 0, draftDepInFlight = null;
     /* 浏览区（热门清单 / 搜索结果）的状态 */
     let query = "", cat = "",   // 这一批结果是按什么查的（点了搜索才算数，不跟着输入框变）
         hits = [],              // 已经列出来的
@@ -130,7 +163,89 @@ window.MDModCart = (() => {
     const paintActions = () => {
       actionsEl.hidden = !total();
       const insBtn = $("#mc-install", root);
-      if (insBtn) { insBtn.innerHTML = icon("download") + ` 全部安装（${total()}）`; insBtn.disabled = installing || uploading; }
+      if (insBtn) { insBtn.innerHTML = icon("download") + ` 全部安装（${total()}）`; insBtn.disabled = installing || draftInstalling || uploading; }
+      const dInsBtn = $("#mc-draft-install", root), dDisBtn = $("#mc-draft-discard", root);
+      if (dInsBtn) dInsBtn.disabled = draftInstalling || installing || uploading;
+      if (dDisBtn) dDisBtn.disabled = draftInstalling || installing;
+    };
+    /* 向导里回头改了核心或版本，按每项记下的核心/版本不联网提示对不上的项（A31） */
+    const paintWizMismatch = () => {
+      if (inst || cartKey || !ctx.core || loadErr) { wizMismatchEl.innerHTML = ""; return; }
+      if (!total()) { wizKeptKey = ""; wizMismatchEl.innerHTML = ""; return; }
+      const bad = [
+        ...cart.map(it => draftItemMismatch(it, ctx.core, ctx.mc)).filter(Boolean),
+        ...local.map(lf => draftLocalMismatch(lf, ctx.core)).filter(Boolean),
+      ];
+      if (!bad.length) { wizMismatchEl.innerHTML = ""; return; }
+      const key = `${ctx.core}|${ctx.mc || ""}|${bad.map(x => x.id).sort().join(",")}`;
+      if (wizKeptKey === key) { wizMismatchEl.innerHTML = ""; return; }
+      const origins = [...new Set(bad.map(x => x.origin))];
+      const fromText = origins.length === 1 ? origins[0] : "别的核心或版本";
+      const toText = bad.some(x => x.coreDiff) ? coreLabel(ctx.core) : `${coreLabel(ctx.core)} ${ctx.mc || ""}`.trim();
+      wizMismatchEl.innerHTML = `
+        <div class="warn-card" id="mc-wiz-mismatch-card" style="margin-bottom:10px">
+          <div class="wc-title">${icon("warn")} 清单里的 ${bad.length} 项是给 ${esc(fromText)} 挑的，换成 ${esc(toText)} 以后可能装不上</div>
+          <div class="row" style="margin-top:8px;gap:8px">
+            <button type="button" class="btn sm" id="mc-wiz-mismatch-clear">清空草稿清单</button>
+            <button type="button" class="btn sm ghost" id="mc-wiz-mismatch-keep">留着</button>
+          </div>
+        </div>`;
+      $("#mc-wiz-mismatch-clear", root).onclick = () => { wizKeptKey = ""; clearBtn.click(); };
+      $("#mc-wiz-mismatch-keep", root).onclick = () => { wizKeptKey = key; paintWizMismatch(); };
+    };
+    const combinedDraftSig = () => {
+      const p = [...new Set([...cart.map(x => x.projectId), ...draftCart.map(x => x.projectId)])].sort().join(",");
+      const l = [...new Set([...local.map(x => x.sha1), ...draftLocal.map(x => x.sha1)])].sort().join(",");
+      return p + "|" + l;
+    };
+    /* 详情页：建这台服务器时切走留下的草稿清单（A31）。先按记下的核心离线标出对不上的，再等 includeDraft=true 的检查结果标出装不上的 */
+    const paintDraftBox = () => {
+      const n = draftCart.length + draftLocal.length;
+      if (!inst || cartKey || !n || loadErr) { draftBox.innerHTML = ""; return; }
+      const unresMap = new Map(((draftDep && draftDep.unresolved) || []).map(u => [u.projectId, u.reason]));
+      const lcMap = new Map(((draftDep && draftDep.local) || []).map(x => [x.sha1, x]));
+      const itemRows = draftCart.map(it => {
+        const off = draftItemMismatch(it, ctx.core, ctx.mc);
+        const unres = unresMap.get(it.projectId);
+        return `<div class="java-row mc-draft-row" data-pid="${esc(it.projectId)}" style="padding:6px 8px">
+          <div style="flex:1;min-width:0"><b>${esc(it.title)}</b>${off ? ` <span class="tag warn mc-draft-mismatch">${esc(off.reason)}</span>` : ""}
+            ${unres ? `<div class="warn-text mc-draft-unres">${icon("warn")}<span>装不上：${esc(unres)}</span></div>` : ""}
+          </div>
+        </div>`;
+      }).concat(draftLocal.map(lf => {
+        const lc = lcMap.get(lf.sha1);
+        const w = (lc && lc.warn) || lf.warn || "";
+        return `<div class="java-row mc-draft-row" data-sha="${esc(lf.sha1)}" style="padding:6px 8px">
+          <div style="flex:1;min-width:0"><b>${esc(lf.title || lf.fileName)}</b> <span class="hint">（本地文件 · ${esc(lf.fileName)}）</span>
+            ${w ? `<div class="warn-text mc-draft-mismatch">${icon("warn")}<span>${esc(w)}</span></div>` : ""}
+          </div>
+        </div>`;
+      }));
+      draftBox.innerHTML = `
+        <div class="warn-card" id="mc-draft-leftover" style="margin-bottom:12px">
+          <div class="wc-title">${icon("package")} 新建时挑的 ${n} 项还没装</div>
+          <div class="wc-note">建这台服务器时切到了别的页面，当时草稿清单里的内容还留着。</div>
+          <div class="mc-draft-list" style="margin:8px 0">${itemRows.join("")}</div>
+          <div class="row" style="gap:8px">
+            <button type="button" class="btn primary sm" id="mc-draft-install"${draftInstalling || installing || uploading ? " disabled" : ""}>${icon("download")} 一起装上</button>
+            <button type="button" class="btn sm ghost" id="mc-draft-discard"${draftInstalling || installing ? " disabled" : ""}>不要了</button>
+          </div>
+        </div>`;
+      $("#mc-draft-discard", root).onclick = async () => {
+        const disBtn = $("#mc-draft-discard", root);
+        if (disBtn) disBtn.disabled = true;
+        try {
+          await api("/api/modcart/clear", { method: "POST", body: {} });
+          if (gone()) return;
+          draftCart = []; draftLocal = []; draftDep = null; draftDepSig = "";
+          paintDraftBox();
+          toast("已清掉未安装的草稿清单");
+        } catch (e) {
+          toastErr("无法清空草稿清单", e);
+          if (!gone()) paintDraftBox();
+        }
+      };
+      $("#mc-draft-install", root).onclick = installWithDraft;
     };
     /* 本地文件那一行下面的提示：先用清单接口给的（加载器不对、读不出信息），查过前置以后换成更准的那一份 */
     const localNotes = lf => {
@@ -147,6 +262,8 @@ window.MDModCart = (() => {
       /* cart.json 在、却没读出来（被别的程序占着，或者内容坏了）：清单的位置一直画报错框，不画「清单是空的」。
          以前后端当成空清单，再加一项就把原文件连同登记着的本地文件盖掉。后端每次被问都会再读一次，点「重试」读成了就照常画 */
       if (loadErr) {
+        wizMismatchEl.innerHTML = "";
+        draftBox.innerHTML = "";
         listEl.innerHTML = errBox("无法显示待装清单", loadErr, { id: "mc-load-err", label: "待装清单",
           hint: "清单里的东西和你从电脑添加的文件都还在，没有动过。读出来之前不能往清单里加、移除或安装。",
           actions: `<button type="button" class="btn sm" id="mc-load-retry">${icon("refresh")} 重试</button>` });
@@ -161,14 +278,17 @@ window.MDModCart = (() => {
         paintHits();
         return;
       }
-      const rows = cart.map(it => `
+      const rows = cart.map(it => {
+        const wizOff = (!inst && !cartKey) ? draftItemMismatch(it, ctx.core, ctx.mc) : null;
+        return `
         <div class="java-row mc-item">
           ${tile(it.icon)}
-          <div style="flex:1;min-width:0"><b>${esc(it.title)}</b>
+          <div style="flex:1;min-width:0"><b>${esc(it.title)}</b>${wizOff ? ` <span class="tag warn mc-item-mismatch">${esc(wizOff.reason)}</span>` : ""}
             <div class="jp" style="white-space:normal">${[PLUGIN_CORES.has(ctx.core) ? "插件" : kindOf(it.kind), it.license].filter(Boolean).map(esc).join(" · ")}</div></div>
           ${pageLink(it.kind, it.slug, it.title)}
           <button class="btn sm ghost mc-del" data-pid="${esc(it.projectId)}" data-t="${esc(it.title)}" aria-label="移除 ${esc(it.title)}">${icon("x")} 移除</button>
-        </div>`).concat(local.map(lf => `
+        </div>`;
+      }).concat(local.map(lf => `
         <div class="java-row mc-item mc-local">
           <span class="res-noicon">${icon("doc")}</span>
           <div style="flex:1;min-width:0"><b>${esc(lf.title || lf.fileName)}</b>
@@ -180,7 +300,9 @@ window.MDModCart = (() => {
         : `<div class="sub" id="mc-empty">清单是空的。在列表里点「加入清单」，或用下面的「从电脑添加…」放入自己下载的文件，${cartKey ? "挑齐后在下面导出整合包" : "挑齐后一起安装"}。</div>`;
       countEl.textContent = total() ? `共 ${total()} 项` : "";
       if (!inst && !cartKey) draftSeen = { expect: cart.map(it => it.projectId), expectLocal: local.map(lf => lf.sha1) }; // 草稿车：记下画在页面上的是哪些
+      paintWizMismatch();
       paintActions();
+      if (inst && !cartKey && (draftCart.length + draftLocal.length > 0)) paintDraftBox();
       listEl.querySelectorAll(".mc-del").forEach(b => b.onclick = () => removeOne(b, "/api/modcart/remove", { projectId: b.dataset.pid }, false));
       listEl.querySelectorAll(".mc-del-local").forEach(b => b.onclick = () => removeOne(b, "/api/modcart/local/remove", { sha1: b.dataset.sha }, true));
       paintHits(); // 车里有了/少了，搜索结果按钮的状态跟着变
@@ -496,14 +618,112 @@ window.MDModCart = (() => {
       };
     };
 
+    const runCheckDraftDeps = rethrow => {
+      if (!inst || cartKey) return Promise.resolve("ok");
+      const seq = ++draftDepSeq, reqSig = combinedDraftSig();
+      const outdated = () => seq !== draftDepSeq || gone();
+      const p = (async () => {
+        try {
+          const qs = Object.entries({ inst, core: ctx.core || "", mc: ctx.mc || "", includeDraft: "true" })
+            .filter(([, v]) => v !== "").map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+          const d = await api("/api/modcart/deps?" + qs);
+          if (outdated()) return "superseded";
+          draftDep = d;
+          draftDepSig = reqSig;
+          paintDraftBox();
+          return "ok";
+        } catch (e) {
+          if (outdated()) return "superseded";
+          draftDep = null;
+          draftDepSig = "";
+          if (rethrow) throw e;
+          return "error";
+        } finally {
+          if (draftDepInFlight === p) draftDepInFlight = null;
+        }
+      })();
+      draftDepInFlight = p;
+      return p;
+    };
+    const ensureFreshDraftDeps = async () => {
+      for (let attempt = 0; attempt < 3 && (!draftDep || draftDepSig !== combinedDraftSig()); attempt++) {
+        try {
+          let st = await runCheckDraftDeps(true);
+          while (st === "superseded" && draftDepInFlight && !gone()) st = await draftDepInFlight;
+          if (gone()) return null;
+          if (st === "error" || !draftDep) {
+            toast("检查前置失败，没有开始安装", true);
+            return null;
+          }
+        } catch (e) {
+          toastErr("检查前置失败，没有开始安装", e);
+          return null;
+        }
+      }
+      if (gone()) return null;
+      if (!draftDep || draftDepSig !== combinedDraftSig()) {
+        toast("检查期间清单变了，再点一次一起装上", true);
+        return null;
+      }
+      const expect = [...new Set([...cart.map(x => x.projectId), ...draftCart.map(x => x.projectId)])];
+      const expectLocal = [...new Set([...local.map(x => x.sha1), ...draftLocal.map(x => x.sha1)])];
+      return { dep: draftDep, expect, expectLocal, count: expect.length + expectLocal.length };
+    };
+    const installWithDraft = async () => {
+      if (draftInstalling || installing || uploading) return;
+      draftInstalling = true; paintActions();
+      const reset = () => { draftInstalling = false; if (!gone()) paintActions(); };
+      const snap = await ensureFreshDraftDeps();
+      if (gone()) return;
+      if (!snap) { reset(); return; }
+      try {
+        const have = new Set(snap.expect), miss = (snap.dep.missing || []).filter(m => !have.has((m.project || {}).projectId));
+        if (miss.length) {
+          const ok = await confirmModal({
+            title: `另外会自动装上 ${miss.length} 项必装前置`,
+            body: `清单里的${noun}需要它们，安装时会一起下载：<br>${miss.map(m => esc(m.project.title)).join("、")}`,
+            okText: "一起安装", cancelText: "先不装", icon: "package",
+          });
+          if (gone()) return;
+          if (!ok) { reset(); return; }
+        }
+        const r = await api(`/api/instances/${encodeURIComponent(inst)}/modcart/install`, { method: "POST",
+          body: { withDeps: true, includeDraft: true, expect: snap.expect, expectLocal: snap.expectLocal } });
+        if (stale(gen)) return;
+        const running = ctx.status && ctx.status !== "stopped";
+        toast(`已开始安装清单里的 ${snap.count} 项` + (running ? "。服务器正在运行，装完要重启才生效" : ""));
+        location.hash = `#/task/${encodeURIComponent(r.taskId)}`;
+      } catch (e) {
+        toastErr("无法开始安装", e);
+        reset();
+        if (!gone()) { clearDep(); reload(); }
+      }
+    };
+
     /* ---- 读一遍购物车 ---- */
     const reload = async () => {
       const seq = ++loadSeq;
       const outdated = () => seq !== loadSeq || gone();
       try {
-        const d = await api("/api/modcart" + (targetQuery() ? "?" + targetQuery() : ""));
+        const draftQs = (inst && !cartKey) ? Object.entries({ core: ctx.core || "", mc: ctx.mc || "" })
+          .filter(([, v]) => v !== "").map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&") : "";
+        const [d, dDraft] = await Promise.all([
+          api("/api/modcart" + (targetQuery() ? "?" + targetQuery() : "")),
+          (inst && !cartKey) ? api("/api/modcart" + (draftQs ? "?" + draftQs : "")).catch(() => null) : Promise.resolve(null),
+        ]);
         if (outdated()) return;
+        if (inst && !cartKey && dDraft && dDraft.draftInst === inst && ((dDraft.items || []).length + (dDraft.local || []).length > 0)) {
+          draftCart = dDraft.items || [];
+          draftLocal = dDraft.local || [];
+        } else {
+          draftCart = [];
+          draftLocal = [];
+          draftDep = null;
+          draftDepSig = "";
+        }
         take(d);
+        paintDraftBox();
+        if (draftCart.length + draftLocal.length > 0) runCheckDraftDeps(false);
       } catch (e) {
         if (outdated()) return;
         if (unreadable(e)) paintList();

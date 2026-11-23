@@ -366,10 +366,9 @@ func (s *Service) ClearAll(inst string) error {
 	}
 	if len(s.carts[inst]) > 0 || len(s.locals[inst]) > 0 {
 		carts, locals := without(s.carts, inst), without(s.locals, inst)
-		if err := s.write(carts, locals); err != nil {
+		if err := s.writeLocked(carts, locals, s.draftInst); err != nil {
 			return err
 		}
-		s.carts, s.locals = carts, locals
 	}
 	_ = os.RemoveAll(s.stagedDir(inst)) // 登记先清，文件后删：中途断了也只是多出几个没登记的文件，下次启动会清
 	return nil

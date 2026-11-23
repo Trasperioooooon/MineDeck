@@ -2822,6 +2822,9 @@ async function drawWizard() {
         });
         formDrafts.set(r.taskId, { mode: "new", data: redo }); // 先按任务号记下，再看页面还在不在
         if (world) MDWorldImport.wizardCreated(world.worldPlan, r.taskId); // 请求被收下了：跟着建服任务，成了才清检测结果（见 worldimport.js）
+        if (redo.wiz.core !== "vanilla" && !redo.wiz.skipMods) {
+          await api("/api/modcart", { method: "POST", body: { draftInst: name } }).catch(() => {}); // 记下草稿清单归这台新服务器（A31）；失败不挡建服
+        }
         if (stale(gen)) { toast("已开始创建，可在新建服务器页查看进度"); return; }
         /* 「选模组」步挑好的内容放在草稿购物车里（不带 inst）。空车照旧直接跳部署任务页；
            有货时留在向导这一页等建服任务跑完，再把草稿车一起装上（装模组是一条 kind "mods" 的任务，跳到那页看进度）。

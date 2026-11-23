@@ -45,7 +45,17 @@ func (s *Server) modcartRoutes(mux *http.ServeMux) {
 		s.do(w, r, "modcart.local.remove", bodyArgs(r))
 	})
 	mux.HandleFunc("GET /api/modcart/deps", func(w http.ResponseWriter, r *http.Request) {
-		s.do(w, r, "modcart.deps", queryArgs(r, "inst", "cart", "core", "mc"))
+		s.do(w, r, "modcart.deps", func() (ops.Args, error) {
+			m := queryMap(r, "inst", "cart", "core", "mc")
+			if v := r.URL.Query().Get("includeDraft"); v != "" {
+				b, err := strconv.ParseBool(v)
+				if err != nil {
+					return nil, ops.Errorf(400, "参数 includeDraft 应为布尔值")
+				}
+				m["includeDraft"] = b
+			}
+			return ops.ArgsOf(m), nil
+		})
 	})
 	mux.HandleFunc("POST /api/instances/{name}/modcart/install", func(w http.ResponseWriter, r *http.Request) {
 		s.do(w, r, "modcart.install", bodyArgs(r, "inst", r.PathValue("name")))
