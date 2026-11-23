@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"minedeck/internal/app"
+	"minedeck/internal/mcsrc"
 	"minedeck/internal/modpack"
 )
 
@@ -286,6 +287,91 @@ func TestCreatedRootRememberedAtStartupAfterCrash(t *testing.T) {
 	}
 }
 
+// 登记的先后（markCreated）：记成扫描根的那一刻，instance.json 已经写好、创建记号还在；两步之间程序没了，
+// 下次启动才认得出来（TestCreatedRootRememberedAtStartupAfterCrash）。新建和导入走的 completeCreate、交接包走的 FinalizeCreate 各走一遍（A38）。
+func TestRegistrationRemembersRootBeforeClearingMarker(t *testing.T) {
+	m, _ := importEnv(t)
+	var seen []string
+	afterRootRemembered = func(dir string) {
+		seen = append(seen, filepath.Base(dir))
+		if !pathExists(filepath.Join(dir, "instance.json")) {
+			t.Errorf("%s：记扫描根之前 instance.json 应已写好", dir)
+		}
+		if !slices.Contains(app.InstanceRoots(), filepath.Dir(dir)) {
+			t.Errorf("%s：这时位置应已记成扫描根：%v", dir, app.InstanceRoots())
+		}
+		if !pathExists(filepath.Join(dir, CreatingMarker)) {
+			t.Errorf("%s：记扫描根之前不该先去掉创建记号", dir)
+		}
+	}
+	t.Cleanup(func() { afterRootRemembered = func(string) {} })
+	base := t.TempDir()
+
+	pack, err := modpack.Parse(zipOf(t, map[string]string{
+		"paper-1.20.1-100.jar": paperJarBytes(t),
+		"eula.txt":             "eula=true\n",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk, _ := m.Tasks.New("导入服务端", serverImportSteps)
+	req := CreateReq{Name: "导入的服", XmxMB: 2048, Port: 25573, EULA: true}
+	if err := m.runServerImport(context.Background(), tk, pack, req, filepath.Join(base, "位置1", "imported")); err != nil {
+		t.Fatalf("导入失败: %v\n日志: %v", err, tk.Snapshot().Log)
+	}
+
+	dir := filepath.Join(base, "位置2", "handover")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteCreatingMarker(dir, "交接的服"); err != nil {
+		t.Fatal(err)
+	}
+	s := Settings{Name: "交接的服", Core: mcsrc.CorePaper, MC: "1.20.1", JavaPath: fakeJava(t), LaunchTarget: "jar:server.jar", XmxMB: 1024, XmsMB: 512}
+	if _, err := m.FinalizeCreate(s, dir); err != nil {
+		t.Fatal(err)
+	}
+
+	if !slices.Equal(seen, []string{"imported", "handover"}) {
+		t.Fatalf("两处登记都该经过 markCreated：%v", seen)
+	}
+	for _, d := range []string{filepath.Join(base, "位置1", "imported"), dir} {
+		if pathExists(filepath.Join(d, CreatingMarker)) {
+			t.Errorf("%s：登记完记号应去掉", d)
+		}
+	}
+}
+
+// 新位置里留下一个没建完的文件夹，人把它接管进来（接管写 instance.json、单独登记这个文件夹，记号还在）。
+// 重开以后这个位置不该因此升成扫描根：接管只认它自己，位置里别的带 instance.json 的文件夹不进列表（A38）。
+func TestAdoptedLeftoverDoesNotPromoteItsRoot(t *testing.T) {
+	m, _ := adoptEnv(t)
+	root := filepath.Join(t.TempDir(), "新存放位置")
+	writeTree(t, filepath.Join(root, "old-srv"), map[string]string{
+		"instance.json": `{"name":"别处留下的服","core":"paper","mc":"1.20.1","xmxMb":1024,"xmsMb":512}`,
+	})
+	half := newCreatingLeftover(t, root, "half")
+	writeTree(t, half, map[string]string{"server.jar": vanilla21, "eula.txt": "eula=true\n"})
+	if log, err := adopt(t, m, AdoptReq{Dir: half, Name: "接管的服", Core: mcsrc.CoreVanilla, MC: "1.21.1",
+		LaunchTarget: "jar:server.jar", XmxMB: 2048, JavaMajor: 21, JavaPath: fakeJava(t)}); err != nil {
+		t.Fatalf("%v\n%s", err, log)
+	}
+
+	m2, err := NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m2.Get("接管的服"); err != nil {
+		t.Fatalf("接管进来的应在列表里：%v", err)
+	}
+	if _, err := m2.Get("别处留下的服"); err == nil {
+		t.Fatal("这个位置里别的服务器不该因为接管了一个文件夹而进列表")
+	}
+	if roots := app.InstanceRoots(); slices.Contains(roots, root) {
+		t.Fatalf("接管的文件夹所在的位置不该升成扫描根：%v", roots)
+	}
+}
+
 // 「正在建的位置」现在读不到（比如在没插上的移动硬盘里）时启动不整理掉它：回来了照样找得到里面的半成品（A38）。
 func TestCreatingRootKeptWhileUnreadable(t *testing.T) {
 	adoptEnv(t)
@@ -309,7 +395,7 @@ func TestCreatingRootKeptWhileUnreadable(t *testing.T) {
 }
 
 // newCreatingLeftover 照建服流程在 root 里放一个没建完的文件夹（WriteCreatingMarker 会把 root 记进「正在建的位置」），
-// 里面带世界文件，which.txt 写明它在哪个位置。
+// 里面带世界文件。
 func newCreatingLeftover(t *testing.T, root, name string) string {
 	t.Helper()
 	dir := filepath.Join(root, name)
@@ -319,7 +405,7 @@ func newCreatingLeftover(t *testing.T, root, name string) string {
 	if err := WriteCreatingMarker(dir, name); err != nil {
 		t.Fatal(err)
 	}
-	writeTree(t, dir, map[string]string{"world/level.dat": "x", "which.txt": filepath.Base(root)})
+	writeTree(t, dir, map[string]string{"world/level.dat": "x"})
 	return dir
 }
 

@@ -35,8 +35,13 @@ func WriteCreatingMarker(dir, name string) error {
 // 返回的只是记号去没去掉：去不掉不算登记失败，有 instance.json 的不会被当成半成品，下次启动时去掉记号。
 func markCreated(dir string) error {
 	app.RememberRoot(filepath.Dir(dir))
+	afterRootRemembered(dir)
 	return ClearCreatingMarker(dir)
 }
+
+// afterRootRemembered markCreated 里「已经记成扫描根、还没去记号」的那一刻，默认什么都不做。
+// 测试里换成查看盘上状态的函数，钉住两步的先后。
+var afterRootRemembered = func(dir string) {}
 
 // leftoverRoots 找没建完的文件夹要扫的位置：扫描根（app.InstanceRoots）加上正在建的位置（app.CreatingRoots）。
 // 按 foldRoot 去重：只差大小写的两条在 Windows 上是同一个文件夹，留着两条的话里面的半成品会列两遍、编号还一样。
@@ -70,13 +75,21 @@ func leftoverRootKey(root string) string {
 
 // promoteCreatedRoots 启动时、扫服务器之前调：正在建的位置里有文件夹带着创建记号、又已经有 instance.json，说明上次登记
 // 写完 instance.json、还没把位置记成扫描根程序就没了（见 markCreated），这里补记成扫描根，这台照常进列表。
-// 只认 instance.json 本身，移出列表留下的 .bak 不算。这个判据靠得住：导入整合包、现成服务端和交接包都不让包里带的
-// instance.json 落到盘上（IsControlFile），带记号的文件夹里有 instance.json，只会是登记时写的。
+// 只认 instance.json 本身，移出列表留下的 .bak 不算。导入整合包、现成服务端和交接包都不让包里带的 instance.json 落到盘上
+// （IsControlFile），带记号的文件夹里有 instance.json，除了下面跳过的，只会是登记时写的。
+// 跳过单独登记过的文件夹：人把没建完的文件夹接管进来，接管也写 instance.json、记号还在，但接管只认它自己，
+// 把它的上一层升成扫描根的话，那里别的带 instance.json 的文件夹会不声不响地进列表。
 func promoteCreatedRoots() {
+	adopted := app.InstanceDirs()
+	isAdopted := func(dir string) bool {
+		real := realPath(dir)
+		return slices.ContainsFunc(adopted, func(d string) bool { return sameDir(real, realPath(d)) })
+	}
 	for _, r := range app.CreatingRoots() {
 		names, _ := creatingChildren(r)
 		for _, name := range names {
-			if st, err := os.Lstat(filepath.Join(r, name, "instance.json")); err == nil && st.Mode().IsRegular() {
+			dir := filepath.Join(r, name)
+			if st, err := os.Lstat(filepath.Join(dir, "instance.json")); err == nil && st.Mode().IsRegular() && !isAdopted(dir) {
 				app.RememberRoot(r)
 				break
 			}
