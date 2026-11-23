@@ -297,9 +297,13 @@ func TestConcurrentStartAndDelete(t *testing.T) {
 			var deleted bool
 			raceEnd := time.Now().Add(25 * time.Millisecond)
 			for time.Now().Before(raceEnd) {
-				if err := m.Delete(name, files); err == nil {
+				err := m.Delete(name, files)
+				if err == nil {
 					deleted = true
 					break
+				}
+				if strings.Contains(err.Error(), "找不到 instance.json") {
+					t.Fatalf("第 %d 轮并发期间 Delete 丢失了 instance.json：%v", round, err)
 				}
 				_ = m.Kill(name)
 				time.Sleep(time.Millisecond)
@@ -311,8 +315,17 @@ func TestConcurrentStartAndDelete(t *testing.T) {
 					_ = m.Kill(name)
 					waitStatus(t, inst, "stopped")
 				}
-				if err := m.Delete(name, files); err != nil {
-					t.Fatalf("第 %d 轮（files=%v）并发结束后删除失败：%v", round, files, err)
+				// 刚结束的子进程句柄可能还在由内核异步放开；instance.json 最后才删（A121），遇到「删除文件失败」仍可继续删完
+				delDeadline := time.Now().Add(2 * time.Second)
+				for {
+					err := m.Delete(name, files)
+					if err == nil {
+						break
+					}
+					if !files || !strings.Contains(err.Error(), "删除文件失败") || !time.Now().Before(delDeadline) {
+						t.Fatalf("第 %d 轮（files=%v）并发结束后删除失败：%v", round, files, err)
+					}
+					time.Sleep(5 * time.Millisecond)
 				}
 			}
 			if inst.Status() != "stopped" || inst.PID() != 0 {

@@ -6,13 +6,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 	"unicode"
 
@@ -432,6 +435,7 @@ func releaseInstanceDir(i *Instance) error {
 
 // safeRemoveInstanceDir 仅当目录内的 instance.json 确属本实例时才整目录删除，
 // 从而支持任意自定义位置（不再依赖是否位于默认 servers 根下）。
+// 先删其余文件、最后才删 instance.json（A121）：中途遇上被占用的文件失败时 instance.json 仍在，下次还能再删。
 func safeRemoveInstanceDir(i *Instance) error {
 	dir := filepath.Clean(i.Dir)
 	if dir == "" || dir == filepath.Dir(dir) || dir == filepath.Clean(app.Base) {
@@ -444,8 +448,73 @@ func safeRemoveInstanceDir(i *Instance) error {
 	if err != nil || s.Name != i.Name {
 		return fmt.Errorf("这个文件夹对不上这台服务器（instance.json 读不出来，或里面的名字不一致），已拒绝删除: %s", dir)
 	}
-	if err := os.RemoveAll(dir); err != nil {
+	if err := removeInstanceDirMarkerLast(dir); err != nil {
 		return fmt.Errorf("删除文件失败: %w", err)
+	}
+	return nil
+}
+
+// removeRetryDelays 删除实例文件遇到短暂共享冲突时的重试间隔（对齐 atomicfile 前几档）。
+var removeRetryDelays = []time.Duration{
+	1 * time.Millisecond, 2 * time.Millisecond, 4 * time.Millisecond,
+	8 * time.Millisecond, 16 * time.Millisecond, 32 * time.Millisecond,
+}
+
+func isTransientRemoveErr(err error) bool {
+	if runtime.GOOS != "windows" || err == nil {
+		return false
+	}
+	// 32 = ERROR_SHARING_VIOLATION，145 = ERROR_DIR_NOT_EMPTY（刚删完最后一个文件时 NTFS 可能短暂未释放目录项）
+	return errors.Is(err, syscall.Errno(32)) || errors.Is(err, syscall.Errno(145))
+}
+
+func removeWithRetry(op func() error) error {
+	err := op()
+	for _, d := range removeRetryDelays {
+		if !isTransientRemoveErr(err) {
+			break
+		}
+		time.Sleep(d)
+		err = op()
+	}
+	return err
+}
+
+// removeInstanceDirMarkerLast 不跟顶层链接；普通目录先删 instance.json 以外的条目，最后删 instance.json 与空目录。
+func removeInstanceDirMarkerLast(dir string) error {
+	st, err := os.Lstat(dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if !st.IsDir() || st.Mode()&(fs.ModeSymlink|fs.ModeIrregular) != 0 {
+		return removeWithRetry(func() error { return os.Remove(dir) })
+	}
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	var markers []string
+	for _, e := range ents {
+		if strings.EqualFold(e.Name(), "instance.json") {
+			markers = append(markers, e.Name())
+			continue
+		}
+		child := filepath.Join(dir, e.Name())
+		if err := removeWithRetry(func() error { return os.RemoveAll(child) }); err != nil {
+			return err
+		}
+	}
+	for _, name := range markers {
+		p := filepath.Join(dir, name)
+		if err := removeWithRetry(func() error { return os.Remove(p) }); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+	}
+	if err := removeWithRetry(func() error { return os.Remove(dir) }); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
 	}
 	return nil
 }
