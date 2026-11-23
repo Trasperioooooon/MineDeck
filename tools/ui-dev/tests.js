@@ -3120,23 +3120,25 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(await page.$eval(".toast.error", t => !t.textContent.includes("Access is denied")), "提示正文不该是系统的英文原文");
       assert(await localTunnels() === before, "导入失败后本机列表不该多出隧道");
       await modalGone(); await settle(400);
-      // 创建：平台上建好了、本机存不上，提示要说去导入、别再创建
+      // 创建：平台上建好了、本机存不上，要说去导入、别再创建。原因写在对话框里（A57 起不再只弹提示）：正文接后端那句人话，
+      // 复制键里是完整原文
       await page.click('#tn-acc-panel [data-acc-create="openfrp"]');
       await page.waitForSelector("#tn-cr-name");
       await page.fill("#tn-cr-name", "mc_savefail");
       await page.click('.modal [data-x="ok"]');
       await taWait("lastCreate", v => v.name === "mc_savefail");
       const CHINT = "平台上的隧道已建好，但没能存进 MineDeck。检查磁盘后在平台隧道列表里导入它，不要再创建";
-      assert(await toastHas(CHINT), "创建失败应提示平台上已建好、去导入");
+      const crErr = await page.waitForFunction(h => { const e = document.querySelector(".modal #tn-cr-err"); return !!e && e.textContent.includes(h); }, CHINT, { timeout: 3000 }).then(() => true, () => false);
+      assert(crErr, "创建失败应在对话框里说平台上已建好、去导入：" + await page.$eval(".modal #tn-cr-err", e => e.textContent).catch(() => "（对话框没了）"));
       assert(!(await toastHas("已创建并导入", 300)), "写不进去时不该提示已创建并导入");
-      const cr = await toastDetail(CHINT);
-      assert(cr.includes("平台上的隧道已经建好") && cr.includes("Access is denied"), "「详情」里应是完整原文：" + cr);
+      const cr = await page.$eval(".modal #tn-cr-err [data-err-raw]", b => b.getAttribute("data-err-raw"));
+      assert(cr.includes("平台上的隧道已经建好") && cr.includes("Access is denied"), "复制键里应是完整原文：" + cr);
+      assert(!(await page.$eval("#tn-cr-err", e => e.textContent.includes("Access is denied"))), "正文不该是系统的英文原文");
       assert(await localTunnels() === before, "创建失败后本机列表不该多出隧道");
       // 磁盘恢复以后：再建一条照常成功，刚才平台上建好、本机没存上的那条也能导入（两条编号不能撞上，Codex 复审发现仿真后端撞过）
       const failedId = String(((await taState({})).overviews.openfrp.tunnels.find(t => t.name === "mc_savefail") || {}).id || "");
       assert(failedId, "平台概览里应有刚才建好的那条");
-      const cancel = await page.$('.modal [data-x="cancel"]'); // 看「详情」时按的 Esc 可能已经把创建对话框一起关了
-      if (cancel) await cancel.click();
+      await page.click('.modal [data-x="cancel"]');
       await modalGone();
       await taState({ tunnelAccounts: { saveFail: false } });
       await page.click('#tn-acc-panel [data-acc-create="openfrp"]');
@@ -3157,6 +3159,74 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(await localTunnels() === before + 2, "恢复以后本机应多出两条");
       assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
     } finally { await resetTA(); }
+  });
+
+  // 创建隧道被拒（A57）：对话框留着、写明原因（后端给的话）、填的东西都在、按钮恢复，改了再试；写不进磁盘时平台上那条
+  // 已经建好，概览要重新拉，关掉对话框就能导入。成功时对话框关掉、概览里有新隧道
+  await run("平台账户：创建隧道失败时对话框留着写明原因、按钮能再点、概览重新拉；成功后关掉对话框、概览里有新隧道", async () => {
+    await taState({ tunnelAccounts: { reset: true, openfrp: true }, tunnelsReset: true });
+    const errText = () => page.$eval(".modal #tn-cr-err", e => e.textContent.trim()).catch(() => "（对话框没了）");
+    try {
+      errors.length = 0;
+      await openOverview("openfrp");
+      // 一：平台不接受（公网端口填成 0）：平台上什么都没建
+      await page.click('#tn-acc-panel [data-acc-create="openfrp"]');
+      await page.waitForSelector("#tn-cr-name");
+      await page.fill("#tn-cr-name", "mc_retry");
+      await page.fill("#tn-cr-rport", "0");
+      await page.click('.modal [data-x="ok"]');
+      await taWait("lastCreate", v => v.name === "mc_retry");
+      await page.waitForFunction(() => /\S/.test((document.querySelector(".modal #tn-cr-err") || {}).textContent || ""), null, { timeout: 3000 }).catch(() => {});
+      assert((await errText()).includes("没能创建隧道：OpenFrp 需要填写有效的公网端口"), "对话框里应写明原因：" + await errText());
+      assert(await page.$eval(".modal #tn-cr-name", e => e.value) === "mc_retry", "填的东西不该丢");
+      assert(await page.$eval('.modal [data-x="ok"]', b => !b.disabled), "按钮应恢复可点");
+      // 二：写不进磁盘：原因照样在对话框里；平台上那条已经建好，后面的概览重新拉过，看得到它、能导入
+      await taState({ tunnelAccounts: { saveFail: true } });
+      await page.fill("#tn-cr-rport", "25566");
+      await page.click('.modal [data-x="ok"]');
+      await taWait("lastCreate", v => v.name === "mc_retry" && v.remotePort === 25566);
+      await page.waitForFunction(() => ((document.querySelector(".modal #tn-cr-err") || {}).textContent || "").includes("平台上的隧道已建好"), null, { timeout: 3000 }).catch(() => {});
+      assert((await errText()).includes("平台上的隧道已建好，但没能存进 MineDeck"), "写不进磁盘时对话框里应说平台上已建好、去导入：" + await errText());
+      assert(await page.$eval('.modal [data-x="ok"]', b => !b.disabled), "按钮应恢复可点");
+      const made = (await taState({})).overviews.openfrp.tunnels.find(t => t.name === "mc_retry");
+      assert(made, "平台概览里应有刚建好的那条");
+      await page.waitForSelector(`#tn-acc-panel [data-acc-import="openfrp"][data-proxy="${made.id}"]`, { timeout: 3000 }).catch(() => {});
+      assert(await page.$(`#tn-acc-panel [data-acc-import="openfrp"][data-proxy="${made.id}"]`), "对话框后面的概览应已重新拉过、能导入刚建好的那条");
+      // 三：磁盘恢复，换个名字再建：成功，对话框关掉，概览和本机列表里都有新隧道
+      await taState({ tunnelAccounts: { saveFail: false } });
+      await page.fill("#tn-cr-name", "mc_ok");
+      await page.click('.modal [data-x="ok"]');
+      await taWait("lastCreate", v => v.name === "mc_ok");
+      assert(await toastHas("已创建并导入"), "应提示已创建并导入");
+      await modalGone();
+      assert(await page.$("#tn-cr-name") === null, "成功后对话框应关闭");
+      await page.waitForFunction(() => [...document.querySelectorAll("#tn-acc-panel [data-plat-tun]")].some(r => r.textContent.includes("mc_ok")), null, { timeout: 3000 }).catch(() => {});
+      assert(await page.evaluate(() => [...document.querySelectorAll("#tn-acc-panel [data-plat-tun]")].some(r => r.textContent.includes("mc_ok"))), "概览里应有新隧道");
+      await page.waitForFunction(() => document.querySelector("#tun-list") && document.querySelector("#tun-list").textContent.includes("mc_ok"), null, { timeout: 3000 }).catch(() => {});
+      assert(await page.$eval("#tun-list", e => e.textContent.includes("mc_ok")), "本机隧道列表里应有新隧道");
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await resetTA(); }
+  });
+
+  // 手动添加隧道请求途中不许再点（A57）：以前连点两下会发两次，加出两条一样的隧道
+  await run("隧道：手动添加的按钮请求途中不能再点，连点两下只发一次", async () => {
+    await taState({ tunnelAccounts: { reset: true }, tunnelsReset: true });
+    try {
+      errors.length = 0;
+      await musicState({ music: { reset: true } });
+      await page.goto(url("#/tunnels")); await settle();
+      await page.click("#tn-toggle");
+      await page.selectOption("#tn-provider", "natfrp");
+      await page.fill("#tn-name", "连点测试"); await page.fill("#tn-cred", "fake-key-123"); await page.fill("#tn-proxy", "123456");
+      const before = reqs.length;
+      await page.evaluate(() => { const b = document.querySelector("#tn-add"); b.click(); b.click(); });
+      assert(await toastHas("隧道已添加"), "应添加成功");
+      await settle(300);
+      const posts = reqs.slice(before).filter(r => r.m === "POST" && r.u === "/api/tunnels").length;
+      assert(posts === 1, "连点两下只该发一次：" + posts);
+      assert(await page.$eval("#tn-add", b => !b.disabled), "请求结束后按钮应恢复");
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await resetTA(); await resetMusic(); }
   });
 
   // 手动新增走 toastErr → errSummary：后端给的 hint 要被接进正文（这一条也就验了 hint 守 errSummary 的规矩）

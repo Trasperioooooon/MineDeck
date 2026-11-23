@@ -5269,8 +5269,9 @@ async function renderTunnels() {
       const i = insts.find(x => x.name === q("#tn-cr-bound").value), port = i ? connectPortOf(i) : 0;
       if (!lportTyped && port && q("#tn-cr-type").value === "tcp") q("#tn-cr-lport").value = port;
     });
-    // 对话框里的提示：kind 记下是哪一类（name 名称不合规 / node 没有可用节点），改了对应的地方才清掉
+    // 对话框里的提示：kind 记下是哪一类（name 名称不合规 / node 没有可用节点 / server 后端报的错），改了对应的地方才清掉
     const showErr = (msg, kind = "") => { errEl.textContent = msg || ""; errEl.dataset.kind = msg ? kind : ""; };
+    const showServerErr = e => { errEl.innerHTML = errInline("没能创建隧道", e, { label: "创建隧道" }); errEl.dataset.kind = "server"; };
     nameIn.oninput = () => { if (errEl.dataset.kind === "name") showErr(""); };
     // 樱花勾了「这是公开服务器」：节点只列公开服专用的（publicGameAllowed）；一个都没有就不让创建
     const paintNodes = () => {
@@ -5314,9 +5315,13 @@ async function renderTunnels() {
         await refreshAccounts(provider);
       } catch (e) {
         if (stale(gen)) { close(); return; }
-        // 平台上建好了、本机写不进磁盘时后端另给一句人话（说清去导入、别再创建），原文进「详情」
-        toast(e.hint || e.message, true, e.message);
-        okBtn.disabled = false;
+        /* 原因写在对话框里（以前只弹一下提示），填的东西都留着，按钮恢复，改了再试。平台上建好了、本机写不进磁盘时
+           后端另给一句人话（说清去导入、别再创建），正文接那一句，原文在复制键里。平台上可能已经建好了，后面的概览
+           重新拉一次（后端已丢掉概览缓存），关掉对话框就能看到那一条、点「导入到 MineDeck」（A57）。
+           等的时候对话框已经被关掉的，照旧弹提示 */
+        if (closed) toastErr("没能创建隧道", e);
+        else { showServerErr(e); okBtn.disabled = false; }
+        refreshAccounts(provider);
       }
     };
     nameIn.focus();
@@ -5583,6 +5588,9 @@ async function renderTunnels() {
   startPoll(drawList, 4000, gen);
 
   $("#tn-add").onclick = async () => {
+    // 请求途中不许再点：以前连点两下会加出两条一样的隧道（A57）
+    const addBtn = $("#tn-add");
+    if (addBtn.disabled) return;
     const p = provSel.value, custom = p === "custom";
     // frps 地址和端口只有自定义 frps 用：樱花、OpenFrp 的端口在服务商后台填，以前把隐藏着的默认值（25565 / 25566 / 7000）
     // 也发过去存进了 tunnels.json，看着像真的端口（测试报告第五轮）
@@ -5599,6 +5607,7 @@ async function renderTunnels() {
       autoStart: $("#tn-auto").checked,
       ...(window.MDMusic ? MDMusic.tunnelExtra() : {}), // 第五阶段：purpose、proto
     };
+    addBtn.disabled = true;
     try {
       await api("/api/tunnels", { method: "POST", body });
       toast("隧道已添加");
@@ -5608,7 +5617,8 @@ async function renderTunnels() {
       credShort();
       await drawList();
       if (!stale(gen)) paintForm();
-    } catch (e) { toastErr("无法添加隧道", e); }
+    } catch (e) { toastErr("无法添加隧道", e); } // 写不进磁盘时表单留着、填的东西不丢，按钮恢复，改了再试
+    addBtn.disabled = false;
   };
 }
 
