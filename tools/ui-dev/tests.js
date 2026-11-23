@@ -5664,7 +5664,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     assert(none.includes("还没有恢复点") && (await page.$eval("#wi-status", el => el.textContent)) === "运行中", "没有恢复点的服务器：" + none);
   });
 
-  await run("地图导入：本机选文件夹 → 核对页（版本关系、地图没提供的维度、会换掉什么、设置建议默认不勾）→ 确认了才点得动 → 危险确认框 → 任务进度（复制阶段才有取消）→ 结果；任务结束前不清检测结果", async () => {
+  await run("地图导入：本机选文件夹 → 核对页（版本关系、地图没提供的维度、会换掉什么、设置建议默认不勾）→ 确认了才点得动 → 危险确认框 → 任务进度（复制阶段才能取消，之后取消键变灰并写出原因）→ 结果；任务结束前不清检测结果", async () => {
     const NAME = "生存服 · 朋友";
     await wReset();
     try {

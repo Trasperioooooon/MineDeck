@@ -1,6 +1,7 @@
 package worldimport
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -127,6 +128,25 @@ func TestRestoreTaskInWorldStatus(t *testing.T) {
 	}
 	if !strings.Contains(res, "「生存服」已经换回导入前的地图") {
 		t.Errorf("结果里应有服务器名：%q", res)
+	}
+}
+
+// 世界状态里任务的字段名：界面和 AI 照这几个名字读；没有正在跑的任务时不带 task。
+func TestWorldTaskJSON(t *testing.T) {
+	b, err := json.Marshal(WorldStatus{Points: []RestorePoint{}, Task: &WorldTask{ID: "t1", Kind: jobImport, CancelWhy: whyNotOwner}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	task, _ := m["task"].(map[string]any)
+	if task == nil || task["id"] != "t1" || task["kind"] != "import" || task["canCancel"] != false || task["cancelWhy"] != whyNotOwner {
+		t.Fatalf("task 的样子：%s", b)
+	}
+	if b, _ = json.Marshal(WorldStatus{Points: []RestorePoint{}}); strings.Contains(string(b), `"task"`) {
+		t.Fatalf("没有任务时不该带 task：%s", b)
 	}
 }
 

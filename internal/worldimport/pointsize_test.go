@@ -3,6 +3,7 @@ package worldimport
 import (
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // countSizes 把 countPointBytes 换成会计数的，返回读数的函数。
@@ -15,19 +16,27 @@ func countSizes(t *testing.T) func() int64 {
 	return n.Load
 }
 
-// 恢复点的大小算一次就缓存起来（A53）：记录没变时再查状态不再数；复制时数到的 0 不会留到提交以后（换回键照样有）；
-// 记录一变（重存一次）就重数；删掉的恢复点跟着出去。
+// 恢复点的大小算一次就缓存起来（A53）：正在复制的那一份不数；复制时报的 0 不会留到提交以后（换回键照样有）；
+// 记录没变时再查状态不再数；记录一变（重存一次）就重数；删掉的恢复点跟着出去。
 func TestStatusCachesPointSizes(t *testing.T) {
 	e := newEnv(t, "")
 	counted := countSizes(t)
 	var duringCopy *WorldStatus
-	stagedHook = func() { duringCopy, _ = e.s.Status("生存服") }
+	var copyCounts int64
+	stagedHook = func() {
+		before := counted()
+		duringCopy, _ = e.s.Status("生存服")
+		copyCounts = counted() - before
+	}
 	t.Cleanup(func() { stagedHook = nil })
 	if _, msg := e.wait(mustExecute(t, e, e.plan(e.bukkitZip()))); msg != "" {
 		t.Fatal(msg)
 	}
 	if duringCopy == nil || len(duringCopy.Points) != 1 || duringCopy.Points[0].HasOld {
 		t.Fatalf("测试前提：复制的时候查过一次，那时恢复点里还没有旧世界：%+v", duringCopy)
+	}
+	if copyCounts != 0 {
+		t.Fatalf("正在复制的那一份不该去数（暂存区正被写着）：数了 %d 次", copyCounts)
 	}
 	st, err := e.s.Status("生存服")
 	if err != nil || len(st.Points) != 1 || !st.Points[0].HasOld || !st.Points[0].CanReturn || st.Points[0].OldBytes == 0 {
@@ -41,11 +50,12 @@ func TestStatusCachesPointSizes(t *testing.T) {
 	if again.Points[0].OldBytes != st.Points[0].OldBytes || !again.Points[0].CanReturn {
 		t.Fatalf("缓存里的数不对：%+v", again.Points[0])
 	}
-	// 记录重存一次（更新时间变了）：重数
+	// 记录重存一次（更新时间变了）：重数。先等一下，免得两次存盘落在同一个时间刻度上
 	j, err := loadJournal(e.dir, st.Points[0].ID)
 	if err != nil {
 		t.Fatal(err)
 	}
+	time.Sleep(20 * time.Millisecond)
 	if err := saveJournal(e.dir, j); err != nil {
 		t.Fatal(err)
 	}

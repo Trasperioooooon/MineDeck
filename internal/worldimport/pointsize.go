@@ -10,7 +10,7 @@ import (
 // 恢复点一多、世界一大就慢，界面只好放慢轮询。现在同一份记录（编号、更新时间、状态都没变）只数一次。
 //
 // 只缓存落定了的记录（已导入、没有生效、已换回）：之后它们的文件夹只随记录一起变，而每次 saveJournal 都会换更新时间。
-// 正在进行的导入、正在换、卡住的每次都重数。记录落盘以后还有收尾（退回以后才删暂存区），所以导入、换回、删恢复点、
+// 正在复制的那一份不数（按 0 报），正在换、卡住的每次都重数。记录落盘以后还有收尾（退回以后才删暂存区），所以导入、换回、删恢复点、
 // 启动恢复做完时整个作废（forgetSizes）；作废的同时有人在数的，数完不存（sizeGen）。
 
 // pointSize 一份记录的三样大小，连同数的时候记录的更新时间和状态（对不上就重数）。
@@ -43,12 +43,19 @@ func (s *Service) pointSizes(dir string, js []*Journal) map[string]pointSize {
 			continue
 		}
 		root := txAbs(dir, j.ID)
+		active := s.isActive(root)
+		if active && (j.State == TxStaging || j.State == TxStaged) {
+			// 正在复制的那一份：暂存区正被写着，复制到哪了看任务的进度。不在这里一遍遍地数（进度页每隔一两秒查一次世界状态），
+			// 按 0 报。提交以后到导入收尾之前它也还在册，那时要照常数，不然刚导入完的那条会短暂显示成换不回
+			out[j.ID] = pointSize{updated: j.Updated, state: j.State}
+			continue
+		}
 		ps := pointSize{updated: j.Updated, state: j.State,
 			old:    countPointBytes(filepath.Join(root, oldSub)),
 			kept:   countPointBytes(filepath.Join(root, restoreSub)),
 			staged: countPointBytes(filepath.Join(root, stageSub))}
 		out[j.ID] = ps
-		if sizeSettled(j.State) && !s.isActive(root) {
+		if sizeSettled(j.State) && !active {
 			keep[j.ID] = ps
 		}
 	}
