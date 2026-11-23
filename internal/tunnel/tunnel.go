@@ -91,7 +91,8 @@ type Manager struct {
 	loadErr *LoadError
 
 	autoMu   sync.Mutex
-	autoHook func(AutoAction) // 跟随实例自动启停之后的回调（操作层用它写操作记录）
+	autoHook func(AutoAction)            // 跟随实例自动启停之后的回调（操作层用它写操作记录）
+	instSay  func(instance, line string) // 往服务器的控制台里写一句（操作层注入：隧道层够不着服务器）
 }
 
 // AutoAction 跟着实例自动启停隧道的一次操作，交给操作层写一条操作记录（来源 schedule），
@@ -117,6 +118,22 @@ func (m *Manager) noteAuto(a AutoAction) {
 	m.autoMu.Unlock()
 	if fn != nil {
 		fn(a)
+	}
+}
+
+// SetInstanceConsole 登记往服务器控制台写一句的办法（操作层在启动时注入）。
+func (m *Manager) SetInstanceConsole(fn func(instance, line string)) {
+	m.autoMu.Lock()
+	m.instSay = fn
+	m.autoMu.Unlock()
+}
+
+func (m *Manager) sayToInstance(instance, line string) {
+	m.autoMu.Lock()
+	fn := m.instSay
+	m.autoMu.Unlock()
+	if fn != nil {
+		fn(instance, line)
 	}
 }
 
@@ -1369,10 +1386,9 @@ func (m *Manager) followArgs(id, instance string) map[string]any {
 // StartBound 启动绑定到某实例且开启了跟随启动的隧道（实例启动后调用）。每拉起（或拉不起）一条记一条操作记录。
 func (m *Manager) StartBound(instance string) {
 	delay := startDelay // 在派发前固定本次等待时间，后台不再读可调整的默认值。
-	// tunnels.json 开机时被占着、之后又没人打开隧道页：这里再读一次，读成了照常拉起跟随的隧道；
-	// 还是没读成，就不知道有哪些隧道跟着这台服务器，只能记一笔（没有隧道编号，记不了操作记录）
+	// tunnels.json 开机时被占着、之后又没人打开隧道页：这里再读一次，读成了照常拉起跟随的隧道
 	if err := m.LoadErr(); err != nil {
-		log.Printf("服务器「%s」启动了，但隧道配置没读出来，跟随它启动的隧道这次拉不起来: %v", instance, err)
+		m.noteFollowLoadErr(instance, err)
 		return
 	}
 	for _, id := range m.bound(instance) {
@@ -1393,6 +1409,17 @@ func (m *Manager) StartBound(instance string) {
 			m.noteAuto(AutoAction{Op: "tunnel.start", Actor: followActor, Args: m.followArgs(id, instance), Err: err, Dur: time.Since(start)})
 		}()
 	}
+}
+
+// noteFollowLoadErr 服务器启动了、tunnels.json 却还是没读成：不知道有哪些隧道跟着这台服务器，一条也拉不起来。
+// 以前只记一行程序日志，事后在操作记录和服务器控制台里都看不出隧道为什么没起来（A59）。现在操作记录里记一条
+// （没有隧道编号，参数只有实例名），服务器的控制台里也说一句。
+func (m *Manager) noteFollowLoadErr(instance string, err error) {
+	log.Printf("服务器「%s」启动了，但隧道配置没读出来，跟随它启动的隧道这次拉不起来: %v", instance, err)
+	m.noteAuto(AutoAction{Op: "tunnel.start", Actor: followActor, Args: map[string]any{"inst": instance},
+		Err: fmt.Errorf("隧道配置读不出来，这次没有拉起跟随启动的隧道。%w", err)})
+	m.sayToInstance(instance, "[MineDeck] 隧道配置读不出来，这次没有拉起跟随这台服务器启动的隧道。原因："+err.Error()+
+		"。处理好以后到「内网穿透」页手动启动隧道")
 }
 
 // StopBound 停掉绑定到某实例、开了跟随启动、正在运行的隧道（实例停了之后调用），返回停了几条。

@@ -277,3 +277,34 @@ func TestTunnelFollowWritesOpLog(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 }
+
+// 服务器启动时隧道配置读不出来（这里是内容坏了）：跟随的隧道一条也拉不起来，以前只记一行程序日志。
+// 现在操作记录里记一条（来源 schedule、带实例名、带原因），服务器的控制台里也说一句（A59）。
+func TestTunnelFollowLoadErrorWritesOpLogAndConsole(t *testing.T) {
+	newCatalog(t)
+	if err := os.WriteFile(filepath.Join(app.Base, "tunnels.json"), []byte(`{"seq":1,"tunnels":[`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mgr, err := inst.NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tun := tunnel.NewManager()
+	if tun.LoadErr() == nil {
+		t.Fatal("坏了的 tunnels.json 应读不出来")
+	}
+	reg := New(Env{Mgr: mgr, Tun: tun, Port: 27333})
+	tun.StartBound("生存服")
+	recs, _ := reg.Log.Query(ops.Query{Inst: "生存服", Op: "tunnel."})
+	if len(recs) != 1 || recs[0].Op != "tunnel.start" || recs[0].Src != ops.SrcSchedule || recs[0].Actor != "跟随服务器" || recs[0].OK ||
+		!strings.Contains(recs[0].Err, "这次没有拉起跟随启动的隧道") || !strings.Contains(recs[0].Err, "tunnels.json 的内容坏了") {
+		t.Fatalf("操作记录：%+v", recs)
+	}
+	i, err := mgr.Get("生存服")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lines := strings.Join(i.Console.Lines(), "\n"); !strings.Contains(lines, "[MineDeck] 隧道配置读不出来，这次没有拉起跟随这台服务器启动的隧道") {
+		t.Fatalf("服务器控制台里应说一句：%q", lines)
+	}
+}

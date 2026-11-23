@@ -157,6 +157,13 @@ func New(env Env) *ops.Registry {
 			reg.Record(ops.Caller{Source: ops.SrcSchedule, Actor: a.Actor, Local: true}, a.Op, ops.ArgsOf(a.Args), a.Err, a.Dur)
 		})
 	}
+	if env.Tun != nil && env.Mgr != nil { // 跟随启动整个拉不起来（隧道配置读不出来）时，在服务器的控制台里说一句
+		env.Tun.SetInstanceConsole(func(name, line string) {
+			if i, err := env.Mgr.Get(name); err == nil {
+				i.Console.Append(line)
+			}
+		})
+	}
 	return reg
 }
 

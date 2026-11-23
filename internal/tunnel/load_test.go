@@ -363,6 +363,7 @@ func TestAccountsRefuseWhileTunnelsUnread(t *testing.T) {
 // 跟随实例启动：开机时没读成、之后又没人打开隧道页，服务器启动时 StartBound 自己再读一次；
 // 还是没读成就什么都不拉，读成了照常去拉跟着这台服务器的隧道（这里没有樱花的 frpc，拉的结果是「首次使用需手动放置」，
 // 说明确实去拉了）。
+// 没读成的那次不能悄无声息（A59）：操作记录里记一条拉不起来的（不知道是哪几条隧道，只带实例名），服务器控制台里说一句。
 func TestStartBoundRetriesLoad(t *testing.T) {
 	tempBase(t)
 	old := startDelay
@@ -376,8 +377,22 @@ func TestStartBoundRetriesLoad(t *testing.T) {
 	wantLoadError(t, m.LoadErr(), true)
 	notes := make(chan AutoAction, 4)
 	m.SetAutoHook(func(a AutoAction) { notes <- a })
+	var said []string
+	m.SetInstanceConsole(func(instance, line string) { said = append(said, instance+"｜"+line) })
 
 	m.StartBound("S1")
+	select {
+	case a := <-notes:
+		if a.Op != "tunnel.start" || a.Actor != followActor || a.Args["inst"] != "S1" || a.Args["id"] != nil || a.Err == nil ||
+			!strings.Contains(a.Err.Error(), "这次没有拉起跟随启动的隧道") || !errors.As(a.Err, new(*LoadError)) {
+			t.Fatalf("没读成时应记一条拉不起来的操作记录：%+v", a)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("没读成时也要记操作记录")
+	}
+	if len(said) != 1 || !strings.HasPrefix(said[0], "S1｜[MineDeck] 隧道配置读不出来") || !strings.Contains(said[0], "tunnels.json 的内容坏了") {
+		t.Fatalf("服务器控制台里应说一句：%q", said)
+	}
 	select {
 	case a := <-notes:
 		t.Fatalf("没读成时不该去拉隧道：%+v", a)
