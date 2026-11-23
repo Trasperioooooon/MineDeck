@@ -632,7 +632,7 @@ func TestReleaseThenAdoptBack(t *testing.T) {
 func TestAdoptRefusesPortableJavaBeingRemoved(t *testing.T) {
 	m, user := adoptEnv(t)
 	exe := java.Exe(21)
-	writeTree(t, filepath.Dir(exe), map[string]string{"java.exe": ""})
+	writeTree(t, filepath.Dir(exe), map[string]string{filepath.Base(exe): ""})
 	dir := filepath.Join(user, "srv")
 	writeTree(t, dir, map[string]string{"server.jar": vanilla21, "eula.txt": "eula=true\n"})
 	req := AdoptReq{Dir: dir, Name: "接管的服", Core: mcsrc.CoreVanilla, MC: "1.21.1", LaunchTarget: "jar:server.jar", JavaMajor: 21, JavaPath: exe}
@@ -672,7 +672,7 @@ func TestAdoptRefusesPortableJavaBeingRemoved(t *testing.T) {
 func TestAdoptRefusesHalfRemovedPortableJava(t *testing.T) {
 	m, user := adoptEnv(t)
 	exe := java.Exe(21)
-	writeTree(t, filepath.Dir(exe), map[string]string{"java.exe": ""})
+	writeTree(t, filepath.Dir(exe), map[string]string{filepath.Base(exe): ""})
 	if err := os.WriteFile(java.Dir(21)+".incomplete", nil, 0o644); err != nil { // 卸载删到一半失败时留下的记号
 		t.Fatal(err)
 	}

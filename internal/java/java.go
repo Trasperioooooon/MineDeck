@@ -364,10 +364,10 @@ func fetchAdoptiumJSON(ctx context.Context, u string, out any) error {
 	return dl.FetchJSONHTTPS(cctx, []string{u}, out)
 }
 
-// adoptiumDown 这次没问到是不是因为「连不上」：错误底下是 net.Error 才算，也就是连接被拒、代理连不上、DNS 解析失败、
-// 等到了上面的时限（时限到了是 context.DeadlineExceeded，它也是 net.Error）。连上以后才出的错都不算：证书不受信、
-// 代理回 502、对面连上就断开、https 跳到 http 被拒；回了话的 404、5xx、回的不是 JSON 也不算（接口还在，jre 换 jdk 可能就有）；
-// 上层取消不算。
+// adoptiumDown 这次没问到是不是因为「连不上」：错误底下是 net.Error 才算。在本机试过：连接被拒、代理连不上、等到了上面的时限
+// （context.DeadlineExceeded 也是 net.Error）算；证书不受信、代理回 502、对面一连上就关掉、https 跳到 http 被拒、上层取消，
+// 以及回了话的 404、5xx、回的不是 JSON 都不算（接口还在，jre 换 jdk 可能就有）。没试过、按类型看也算的：DNS 解析失败、
+// 读到一半连接被重置（底下是 *net.OpError）。
 func adoptiumDown(err error) bool {
 	var ne net.Error
 	return errors.As(err, &ne)
