@@ -280,10 +280,8 @@ func TestLog4jEntryPointsFollowBundled(t *testing.T) {
 			})
 			t.Run(name+"/保存参数", func(t *testing.T) {
 				i := newInst(t)
-				for _, f := range []string{log4jXML, log4jXML17} { // 两份配置文件都在：加不加只看该不该套
-					if err := os.WriteFile(filepath.Join(i.Dir, f), []byte("<Configuration/>"), 0o644); err != nil {
-						t.Fatal(err)
-					}
+				for _, f := range []string{log4jXML, log4jXML17} { // 两份官方配置文件都在：加不加只看该不该套
+					officialLog4jXMLFile(t, i.Dir, f)
 				}
 				if got := log4jFlags(i); !slices.Equal(got, want) {
 					t.Fatalf("log4jFlags = %q，应为 %q", got, want)
@@ -346,9 +344,7 @@ func TestUpdateSettingsFollowsBundledLog4j(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()
 			paperclipServer(t, dir, "1.16.5", c.ver, false)
-			if err := os.WriteFile(filepath.Join(dir, log4jXML), []byte("<Configuration/>"), 0o644); err != nil {
-				t.Fatal(err)
-			}
+			officialLog4jXMLFile(t, dir, log4jXML)
 			i := &Instance{Settings: Settings{Name: "存参数", Core: mcsrc.CorePaper, MC: "1.16.5", JavaPath: `jdk\bin\java.exe`, XmxMB: 1024, XmsMB: 512,
 				LaunchTarget: "jar:server.jar", ExtraJVM: c.start}, Dir: dir, Console: newConsole()}
 			m := &Manager{insts: map[string]*Instance{i.Name: i}, creating: map[string]bool{}}

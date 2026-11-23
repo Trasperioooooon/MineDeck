@@ -143,7 +143,22 @@ func (s *Server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListInstances(w http.ResponseWriter, r *http.Request) {
-	s.do(w, r, "instance.list", nil)
+	c := callerOf(r)
+	if err := s.ops.Check(c, "instance.list"); err != nil {
+		writeErr(w, ops.CodeOf(err), err)
+		return
+	}
+	res, err := s.ops.Do(r.Context(), c, "instance.list", nil)
+	if err != nil {
+		writeErr(w, ops.CodeOf(err), err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":         true,
+		"data":       res,
+		"duplicates": s.mgr.SkippedDuplicates(),
+	})
 }
 
 func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
@@ -229,4 +244,35 @@ func (s *Server) handleInstStart(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSetSettings(w http.ResponseWriter, r *http.Request) {
 	s.do(w, r, "instance.settings.set", bodyArgs(r, "inst", r.PathValue("name")))
+}
+
+// handlePreviewSettings 不落盘地算出「启动与内存」页当前填写内容会存下、会使用的完整参数（A28、A25.2）。
+func (s *Server) handlePreviewSettings(w http.ResponseWriter, r *http.Request) {
+	c := callerOf(r)
+	if err := s.ops.Check(c, "instance.list"); err != nil {
+		writeErr(w, ops.CodeOf(err), err)
+		return
+	}
+	var body struct {
+		XmxMB           int       `json:"xmxMb"`
+		XmsMB           int       `json:"xmsMb"`
+		ConsoleEncoding string    `json:"consoleEncoding"`
+		ExtraJVM        *[]string `json:"extraJvm"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		err = bodyErr(err)
+		writeErr(w, ops.CodeOf(err), err)
+		return
+	}
+	name := r.PathValue("name")
+	if _, err := s.mgr.Get(name); err != nil {
+		writeErr(w, http.StatusNotFound, err)
+		return
+	}
+	res, err := s.mgr.PreviewSettings(name, body.XmxMB, body.XmsMB, body.ConsoleEncoding, body.ExtraJVM)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, res)
 }

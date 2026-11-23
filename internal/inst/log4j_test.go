@@ -39,17 +39,23 @@ func stubLog4jFetch(t *testing.T, fail func() error) *[]string {
 	return &got
 }
 
-// officialLog4jXML 在 dir 里放一份 112-116，并把它的 SHA-1 临时当成官方的（测试里拿不到真文件）。
-func officialLog4jXML(t *testing.T, dir string) {
+// officialLog4jXMLFile 在 dir 里放一份指定名字（112-116 或 17-111）的官方日志配置，并把它的 SHA-1 临时当成官方的（测试里拿不到真文件）。
+func officialLog4jXMLFile(t *testing.T, dir, name string) {
 	t.Helper()
-	body := []byte("<Configuration>112-116</Configuration>")
-	if err := os.WriteFile(filepath.Join(dir, log4jXML), body, 0o644); err != nil {
+	body := []byte("<Configuration>" + name + "</Configuration>")
+	if err := os.WriteFile(filepath.Join(dir, name), body, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	sum := sha1.Sum(body)
-	old := log4jXMLSHA1[log4jXML]
-	t.Cleanup(func() { log4jXMLSHA1[log4jXML] = old })
-	log4jXMLSHA1[log4jXML] = hex.EncodeToString(sum[:])
+	old := log4jXMLSHA1[name]
+	t.Cleanup(func() { log4jXMLSHA1[name] = old })
+	log4jXMLSHA1[name] = hex.EncodeToString(sum[:])
+}
+
+// officialLog4jXML 在 dir 里放一份 112-116，并把它的 SHA-1 临时当成官方的（测试里拿不到真文件）。
+func officialLog4jXML(t *testing.T, dir string) {
+	t.Helper()
+	officialLog4jXMLFile(t, dir, log4jXML)
 }
 
 // 按 Mojang 的公告分段：1.18.1 起不加；1.17 ~ 1.18 只加参数；1.12 ~ 1.16.5 用 112-116；1.7 ~ 1.11.2 用 17-111；1.7 以前什么都不加。
@@ -137,9 +143,7 @@ func TestLog4jFlagsEras(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()
 			for _, f := range c.files {
-				if err := os.WriteFile(filepath.Join(dir, f), []byte("<Configuration/>"), 0o644); err != nil {
-					t.Fatal(err)
-				}
+				officialLog4jXMLFile(t, dir, f)
 			}
 			i := &Instance{Settings: Settings{Name: "t", Core: mcsrc.CorePaper, MC: c.mc, ExtraJVM: c.initial}, Dir: dir}
 			if got := log4jFlags(i); !slices.Equal(got, c.want) {

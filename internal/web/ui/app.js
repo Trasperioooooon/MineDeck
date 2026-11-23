@@ -24,7 +24,7 @@ async function api(path, opts = {}) {
   // needLogin 标记：让 boot() 区分「需要登录」与真正的后端故障
   if (res.status === 401) { showLogin(); throw Object.assign(new Error(j.error || "需要登录"), { needLogin: true }); }
   if (!j.ok) throw Object.assign(new Error(j.error || "未知错误"), { status: res.status, hint: j.hint, portBusy: j.portBusy }); // hint：后端另给的一句人话，见 errSummary
-  return j.data;
+  return opts.full ? j : j.data;
 }
 
 /* 局域网访问的密码登录遮罩 */
@@ -1462,9 +1462,20 @@ async function renderInstances() {
       <div class="search-field">${icon("search", "sf-ico")}<input type="text" id="inst-q" placeholder="搜索服务器名称" aria-label="搜索服务器名称"></div>
       <select id="inst-sort" aria-label="排序方式"><option value="recent">排序：最近创建</option><option value="running">排序：运行中优先</option><option value="name">排序：名称</option></select>
     </div></div>
+    <section id="dup-dirs" hidden style="margin-bottom:24px"></section>
     <section id="task-list" hidden style="margin-bottom:24px"></section>
     <section id="creating-left" hidden style="margin-bottom:24px"></section>
     <div id="inst-cards">${skeletonCards(4)}</div>`;
+  const paintDuplicates = dups => {
+    const box = $("#dup-dirs");
+    if (!box) return;
+    if (!dups.length) { box.hidden = true; box.innerHTML = ""; box._html = ""; return; }
+    const html = `<div class="warn-card"><div class="wc-title">${icon("warn")} 有 ${dups.length} 个服务器文件夹因为重名没有列出来</div>
+      <ul class="wc-list">${dups.map(d => `<li>文件夹 <code class="mono">${esc(d.dir)}</code> 里的服务器和列表里的「<b>${esc(d.name)}</b>」${d.keptDir ? `（<code class="mono">${esc(d.keptDir)}</code>）` : ""}重名，没有列出来。</li>`).join("")}</ul>
+      <div class="wc-note">要把两台都显示出来，请改掉其中一台的名字（打开没列出来的那个文件夹里的 <code>instance.json</code>，把 <code>"name"</code> 改成别的名字后重开 MineDeck；或者先把列表里这台移出列表，再用别的名字接管回来）。</div></div>`;
+    box.hidden = false;
+    if (box._html !== html) { box.innerHTML = html; box._html = html; }
+  };
   const paintLeftovers = async () => {
     const box = $("#creating-left");
     if (!box) return;
@@ -1599,12 +1610,17 @@ async function renderInstances() {
   let first = true;
   const draw = async () => {
     refreshTaskList(taskList, gen);
-    let list;
-    try { list = await api("/api/instances"); } catch (e) {
+    let list, dups = [];
+    try {
+      const resp = await api("/api/instances", { full: true });
+      list = resp.data || [];
+      dups = resp.duplicates || [];
+    } catch (e) {
       if (!stale(gen)) $("#inst-cards").innerHTML = errBox("无法获取服务器列表", e, { hint: "正在自动重试" });
       return;
     }
     if (stale(gen)) return;
+    paintDuplicates(dups);
     curList = list;
     const running = list.filter(i => i.status === "running").length;
     const online = list.reduce((s, i) => s + (i.onlineCount || 0), 0);
@@ -4420,6 +4436,12 @@ async function renderDetail(name, path = "console") {
           <button class="btn sm" id="jm-clear">清空</button>
         </div>
         <div class="hint" style="margin:-4px 0 12px">套用后将替换下方输入框中的全部现有参数。</div>
+        <div class="field" id="jm-preview-box">
+          <span>实际启动参数预览</span>
+          <div class="hint">保存后实际写入启动脚本并用来开服的参数（老版本需保留的 log4shell 防护参数由后端统一补上）：</div>
+          <div class="mono" id="jm-preview" style="padding:10px 12px;border-radius:8px;background:var(--surface-2);word-break:break-all;line-height:1.6">加载中…</div>
+          <div class="warn-text" id="jm-preview-note" hidden style="margin-top:6px;line-height:1.6"></div>
+        </div>
         <label class="field" id="jm-java-box"><span>Java</span>
           <select id="jm-java" aria-label="这台服务器用的 Java" aria-describedby="jm-java-hint"><option value="">加载中…</option></select>
           <div class="hint" id="jm-java-hint">新建时已按 Minecraft 版本选好（1.20.1 用 Java 17，1.21 用 21，26.1 起用 25）。整合包要求其他版本时在这里换，和上面的设置一起保存，下次启动生效。本机没有的版本，保存时会先下载一份。</div>
@@ -4458,6 +4480,36 @@ async function renderDetail(name, path = "console") {
     const LOG4J_FIX = ["-Dlog4j2.formatMsgNoLookups=true", "-Dlog4j.configurationFile=log4j2_112-116.xml", "-Dlog4j.configurationFile=log4j2_17-111.xml"];
     const jvmFlags = () => $("#jm-jvm").value.split(/\s+/).map(s => s.trim()).filter(Boolean);
     const keptFix = () => { const cur = jvmFlags(); return LOG4J_FIX.filter(f => cur.includes(f)); };
+    // 启动参数预览（A28、A25.2）：由后端用和保存同一套函数算好返回，前端只负责展示，不自己拼参数
+    let previewSeq = 0, previewTimer = 0;
+    const refreshJvmPreview = immediate => {
+      clearTimeout(previewTimer);
+      const run = async () => {
+        if (stale(gen) || !$("#jm-preview")) return;
+        const seq = ++previewSeq;
+        try {
+          const r = await api(`/api/instances/${enc}/settings/preview`, {
+            method: "POST",
+            body: { xmxMb: +$("#jm-mem").value, xmsMb: 0, extraJvm: jvmFlags() },
+          });
+          if (stale(gen) || seq !== previewSeq || !$("#jm-preview")) return;
+          $("#jm-preview").textContent = "java " + (r.launchArgs || []).join(" ");
+          const noteEl = $("#jm-preview-note");
+          if (r.note) { noteEl.hidden = false; noteEl.innerHTML = icon("warn") + " <span>" + esc(r.note) + "</span>"; }
+          else { noteEl.hidden = true; noteEl.innerHTML = ""; }
+        } catch (e) {
+          if (stale(gen) || seq !== previewSeq || !$("#jm-preview")) return;
+          $("#jm-preview").textContent = e && e.message ? e.message : "暂时无法预览参数";
+          $("#jm-preview-note").hidden = true;
+          $("#jm-preview-note").innerHTML = "";
+        }
+      };
+      if (immediate) run(); else previewTimer = setTimeout(run, 120);
+    };
+    $("#jm-jvm").addEventListener("input", () => refreshJvmPreview(false));
+    $("#jm-mem-mount").addEventListener("input", () => refreshJvmPreview(false));
+    $("#jm-mem-mount").addEventListener("change", () => refreshJvmPreview(true));
+    refreshJvmPreview(true);
     const lb = wireLiveBar(body, "服务器运行中：保存后要重启才生效");
     let saved = { xmx: $("#jm-mem").value, jvm: jvmFlags().join(" ") }; // 内存和参数上一次存下来的样子：只换 Java 时不重写启动设置
     paintBar = wireSaveBar(body, gen,
@@ -4476,20 +4528,22 @@ async function renderDetail(name, path = "console") {
         try {
           const notes = [];
           if (xmxChanged || jvmChanged) {
-            const body = { xmxMb: xmxChanged ? +xmx : 0, xmsMb: 0 };
-            if (jvmChanged) body.extraJvm = flags;
-            await api(`/api/instances/${enc}/settings`, { method: "PUT", body });
+            const reqBody = { xmxMb: xmxChanged ? +xmx : 0, xmsMb: 0 };
+            if (jvmChanged) reqBody.extraJvm = flags;
+            const saveRes = await api(`/api/instances/${enc}/settings`, { method: "PUT", body: reqBody });
             if (xmxChanged) saved.xmx = xmx;
-            let back = null;
+            let back = saveRes && Array.isArray(saveRes.extraJvm) ? saveRes.extraJvm : null;
             if (jvmChanged) {
               // 回显实际保存的参数（老版本被删掉的 log4shell 缓解参数会被后端补回）；回读失败不影响已成功的保存。
               // 只在输入框里还是发出去的那份时回显：请求途中又改了参数的，不拿回读的盖掉新填的。
               // 只改内存时不回读：那时读到的参数可能是另一个窗口刚存的，会被当成「补回」，也会把这一页没动的参数框换掉
-              back = await api("/api/instances").then(l => l.find(i => i.name === name)?.extraJvm).catch(() => null);
+              if (!back) back = await api("/api/instances").then(l => l.find(i => i.name === name)?.extraJvm).catch(() => null);
               if (back && !stale(gen) && jvmFlags().join(" ") === flags.join(" ")) $("#jm-jvm").value = back.join("\n");
               saved.jvm = (back || flags).join(" ");
             }
-            notes.push("已保存内存与 JVM 参数" + (back?.some(a => !flags.includes(a)) ? "（已自动补回 log4shell 漏洞缓解参数）" : ""));
+            let msg = "已保存内存与 JVM 参数" + (back?.some(a => !flags.includes(a)) ? "（已自动补回 log4shell 漏洞缓解参数）" : "");
+            if (jvmChanged && saveRes && saveRes.note) msg += "。" + saveRes.note;
+            notes.push(msg);
           }
           if (pick !== "") {
             const o = jopts[+pick];
@@ -4509,6 +4563,7 @@ async function renderDetail(name, path = "console") {
           }
           toast(notes.join("；") + (info.status === "stopped" ? "，下次启动生效" : "，重启服务器后生效"));
           lb.saved(true);
+          refreshJvmPreview(true);
           // 新的基线是存下的那份：内存和参数按提交的（参数带上后端补回的）；Java 是相对「现在用的」算的，换上以后就是没改（空串）
           return { xmx: saved.xmx, jvm: saved.jvm, java: "" };
         } finally {
@@ -4519,12 +4574,14 @@ async function renderDetail(name, path = "console") {
       const fix = keptFix();
       $("#jm-jvm").value = [...aikarsFlags(+$("#jm-mem").value), ...fix].join("\n");
       paintBar();
+      refreshJvmPreview(true);
       toast(`已填入 Aikar's Flags${fix.length ? "（保留 log4shell 漏洞缓解参数）" : ""}，保存后生效`);
     };
     $("#jm-clear").onclick = () => {
       const fix = keptFix();
       $("#jm-jvm").value = fix.join("\n");
       paintBar();
+      refreshJvmPreview(true);
       if (fix.length) toast("已清空（保留 log4shell 漏洞缓解参数）");
     };
   }

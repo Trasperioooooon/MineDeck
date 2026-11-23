@@ -569,16 +569,23 @@ func (c *cat) instanceOps() {
 			}
 			xmx, xms, enc := i.MemSnapshot()
 			jvm := i.ExtraJVMSnapshot()
+			prev, err := i.PreviewSettings(p.XmxMB, p.XmsMB, p.ConsoleEncoding, p.ExtraJVM)
+			if err != nil {
+				return nil, ops.Wrap(400, err)
+			}
 			plan := &ops.Plan{Summary: fmt.Sprintf("修改「%s」的运行参数（下次启动生效）", p.Inst),
 				Pre: map[string]string{"运行参数": fmt.Sprintf("%d/%d/%s/%q", xmx, xms, enc, jvm)}}
-			if p.XmxMB > 0 && p.XmxMB != xmx {
-				plan.Changes = append(plan.Changes, ops.Change{What: "最大内存（MB）", Before: strconv.Itoa(xmx), After: strconv.Itoa(p.XmxMB)})
+			if p.XmxMB > 0 && prev.XmxMB != xmx {
+				plan.Changes = append(plan.Changes, ops.Change{What: "最大内存（MB）", Before: strconv.Itoa(xmx), After: strconv.Itoa(prev.XmxMB)})
 			}
 			if p.ConsoleEncoding != "" && p.ConsoleEncoding != enc {
 				plan.Changes = append(plan.Changes, ops.Change{What: "控制台编码", Before: enc, After: p.ConsoleEncoding})
 			}
-			if p.ExtraJVM != nil && !slices.Equal(*p.ExtraJVM, jvm) {
-				plan.Changes = append(plan.Changes, ops.Change{What: "JVM 参数", Before: strings.Join(jvm, " "), After: strings.Join(*p.ExtraJVM, " ")})
+			if p.ExtraJVM != nil && (!slices.Equal(prev.ExtraJVM, jvm) || !slices.Equal(prev.ExtraJVM, *p.ExtraJVM)) {
+				plan.Changes = append(plan.Changes, ops.Change{What: "JVM 参数", Before: strings.Join(jvm, " "), After: strings.Join(prev.ExtraJVM, " ")})
+			}
+			if prev.Note != "" {
+				plan.Warning = prev.Note
 			}
 			return plan, nil
 		},
@@ -587,10 +594,11 @@ func (c *cat) instanceOps() {
 			if err != nil {
 				return nil, err
 			}
-			if err := c.Mgr.UpdateSettings(p.Inst, p.XmxMB, p.XmsMB, p.ConsoleEncoding, p.ExtraJVM); err != nil {
+			res, err := c.Mgr.UpdateSettingsWithResult(p.Inst, p.XmxMB, p.XmsMB, p.ConsoleEncoding, p.ExtraJVM)
+			if err != nil {
 				return nil, err
 			}
-			return "ok", nil
+			return res, nil
 		},
 	})
 

@@ -121,9 +121,7 @@ func TestUpdateSettingsKeepsLog4jFix(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()
 			if c.xml {
-				if err := os.WriteFile(filepath.Join(dir, log4jXML), []byte("<Configuration/>"), 0o644); err != nil {
-					t.Fatal(err)
-				}
+				officialLog4jXML(t, dir)
 			}
 			i := &Instance{Settings: Settings{
 				Name: "t", Core: c.core, MC: c.mc, JavaPath: `C:\java\bin\java.exe`,

@@ -164,7 +164,16 @@ type Manager struct {
 	pendingInst map[string]pendingRef
 	resolveMu   sync.Mutex // 待决文件的处置一次只做一批，见 ResolveImportPending
 
+	skippedDups []SkippedDuplicate // 启动加载时因为重名没列出来的文件夹（A08）
+
 	closing atomic.Bool // ShutdownAll 开始以后为真：程序正在退出，等着重试的定时备份不再动手
+}
+
+// SkippedDuplicate 启动加载服务器时，因为名字和已加载的另一台撞了而没有列出来的文件夹（A08）。
+type SkippedDuplicate struct {
+	Name    string `json:"name"`
+	Dir     string `json:"dir"`
+	KeptDir string `json:"keptDir"` // 列表里留着的那台服务器所在的文件夹
 }
 
 func NewManager() (*Manager, error) {
@@ -184,8 +193,9 @@ func NewManager() (*Manager, error) {
 			return
 		}
 		seen[key] = true
-		if _, dup := m.insts[s.Name]; dup {
+		if kept, dup := m.insts[s.Name]; dup {
 			log.Printf("实例名冲突，已跳过重复目录：%s（%s）", s.Name, dir)
+			m.skippedDups = append(m.skippedDups, SkippedDuplicate{Name: s.Name, Dir: dir, KeptDir: kept.Dir})
 			return
 		}
 		startErr, startBusy := loadStartFail(dir)
@@ -198,7 +208,14 @@ func NewManager() (*Manager, error) {
 			m.worldBlock[s.Name] = why
 		}
 	}
-	// 多根扫描：内置默认根 + 配置默认根 + 历史自定义根（支持实例散落于不同盘符/目录）
+	// 单独登记的文件夹（接管进来的服务器）先读（A08）：只读它自己，不看它的上一层。
+	// 先读它，后插上的移动硬盘或存放位置里后冒出来的同名服务器才不会顶掉接管进来的那台。
+	// 文件夹现在不在（比如在没插上的移动硬盘里）就跳过，登记留着，回来了照样认；
+	// 登记只在这台服务器移出列表或被删掉时去掉（见 Delete）。
+	for _, dir := range app.InstanceDirs() {
+		load(dir)
+	}
+	// 多根扫描：内置默认根 + 配置默认根 + 历史自定义根（支持实例散落于不同盘符/目录）；存放位置内部重名的仍按先到先得
 	for _, root := range app.InstanceRoots() {
 		ents, err := os.ReadDir(root)
 		if err != nil {
@@ -210,14 +227,37 @@ func NewManager() (*Manager, error) {
 			}
 		}
 	}
-	// 单独登记的文件夹（接管进来的服务器）：只读它自己，不看它的上一层。
-	// 文件夹现在不在（比如在没插上的移动硬盘里）就跳过，登记留着，回来了照样认；
-	// 登记只在这台服务器移出列表或被删掉时去掉（见 Delete）。
-	for _, dir := range app.InstanceDirs() {
-		load(dir)
-	}
 	m.startScheduler()
 	return m, nil
+}
+
+// SkippedDuplicates 返回启动加载时因为重名没列出来的文件夹（A08）。
+// 若被跳过的文件夹后来已经挪走、删掉或改了名字，不再继续提示。
+func (m *Manager) SkippedDuplicates() []SkippedDuplicate {
+	m.mu.Lock()
+	dups := append([]SkippedDuplicate(nil), m.skippedDups...)
+	keptByName := make(map[string]string, len(dups))
+	for _, d := range dups {
+		if k, ok := m.insts[d.Name]; ok {
+			keptByName[d.Name] = k.Dir
+		}
+	}
+	m.mu.Unlock()
+	if len(dups) == 0 {
+		return []SkippedDuplicate{}
+	}
+	out := make([]SkippedDuplicate, 0, len(dups))
+	for _, d := range dups {
+		s, err := readSettings(d.Dir)
+		if err != nil || s.Name != d.Name {
+			continue
+		}
+		if kd, ok := keptByName[d.Name]; ok {
+			d.KeptDir = kd
+		}
+		out = append(out, d)
+	}
+	return out
 }
 
 // readSettings 读实例目录里的 instance.json。开头的 UTF-8 BOM 去掉再解析：记事本存成「UTF-8 带 BOM」、
@@ -408,22 +448,91 @@ func (m *Manager) unmarkPacking(name string) {
 	delete(m.packing, name)
 }
 
+// SettingsSaveResult 保存或预览运行参数的结果：给出补齐 log4shell 防护后的实际参数、完整启动参数，以及有非官方同名日志配置时的说明（A25.2、A28）。
+type SettingsSaveResult struct {
+	XmxMB      int      `json:"xmxMb"`
+	XmsMB      int      `json:"xmsMb"`
+	ExtraJVM   []string `json:"extraJvm"`
+	LaunchArgs []string `json:"launchArgs"`
+	Note       string   `json:"note,omitempty"`
+}
+
+// PreviewSettings 不落盘地算出修改运行参数后实际会存、会用的参数（AI 确认卡片和界面「启动与内存」预览共用，A28）。
+// 规则与 UpdateSettingsWithResult 完全一致，都调 completeExtraJVMLocked。
+func (i *Instance) PreviewSettings(xmxMB, xmsMB int, consoleEnc string, extraJVM *[]string) (SettingsSaveResult, error) {
+	switch consoleEnc {
+	case "auto", "utf-8", "gbk", "":
+	default:
+		return SettingsSaveResult{}, fmt.Errorf("不支持的控制台编码: %s", consoleEnc)
+	}
+	i.procMu.Lock()
+	defer i.procMu.Unlock()
+	if extraJVM != nil {
+		if err := validateJVMArgs(*extraJVM, i.ExtraJVM); err != nil {
+			return SettingsSaveResult{}, err
+		}
+	}
+	nextXmx, nextXms := i.XmxMB, i.XmsMB
+	if xmxMB > 0 {
+		if xmxMB < 512 {
+			return SettingsSaveResult{}, fmt.Errorf("最大内存不能低于 512MB")
+		}
+		if xmsMB < 128 || xmsMB > xmxMB {
+			xmsMB = min(1024, xmxMB)
+		}
+		nextXmx, nextXms = xmxMB, xmsMB
+	}
+	nextEnc := i.ConsoleEncoding
+	if consoleEnc != "" {
+		nextEnc = consoleEnc
+	}
+	nextJVM := append([]string(nil), i.ExtraJVM...)
+	var note string
+	if extraJVM != nil {
+		nextJVM, note = completeExtraJVMLocked(i, *extraJVM)
+	}
+	tmp := Instance{Settings: i.Settings, Dir: i.Dir}
+	tmp.XmxMB, tmp.XmsMB, tmp.ConsoleEncoding, tmp.ExtraJVM = nextXmx, nextXms, nextEnc, nextJVM
+	return SettingsSaveResult{
+		XmxMB:      nextXmx,
+		XmsMB:      nextXms,
+		ExtraJVM:   nextJVM,
+		LaunchArgs: launchArgs(&tmp),
+		Note:       note,
+	}, nil
+}
+
+// PreviewSettings 按实例名预览运行参数（见 Instance.PreviewSettings）。
+func (m *Manager) PreviewSettings(name string, xmxMB, xmsMB int, consoleEnc string, extraJVM *[]string) (SettingsSaveResult, error) {
+	i, err := m.Get(name)
+	if err != nil {
+		return SettingsSaveResult{}, err
+	}
+	return i.PreviewSettings(xmxMB, xmsMB, consoleEnc, extraJVM)
+}
+
 // UpdateSettings 调整实例运行参数（内存、控制台编码、自定义 JVM 参数）并重新生成启动脚本。
 // xmxMB<=0 表示不修改内存；consoleEnc 为空表示不修改编码；extraJVM 为 nil 表示不修改 JVM 参数。
 func (m *Manager) UpdateSettings(name string, xmxMB, xmsMB int, consoleEnc string, extraJVM *[]string) error {
+	_, err := m.UpdateSettingsWithResult(name, xmxMB, xmsMB, consoleEnc, extraJVM)
+	return err
+}
+
+// UpdateSettingsWithResult 同 UpdateSettings，并返回补齐后的实际参数与说明（A25.2、A28）。
+func (m *Manager) UpdateSettingsWithResult(name string, xmxMB, xmsMB int, consoleEnc string, extraJVM *[]string) (SettingsSaveResult, error) {
 	i, err := m.Get(name)
 	if err != nil {
-		return err
+		return SettingsSaveResult{}, err
 	}
 	release, err := m.UseWorldInstance(i, "保存启动设置")
 	if err != nil {
-		return err
+		return SettingsSaveResult{}, err
 	}
 	defer release()
 	switch consoleEnc {
 	case "auto", "utf-8", "gbk", "":
 	default:
-		return fmt.Errorf("不支持的控制台编码: %s", consoleEnc)
+		return SettingsSaveResult{}, fmt.Errorf("不支持的控制台编码: %s", consoleEnc)
 	}
 	// 运行中控制台 goroutine 会并发读这些字段，写入必须持锁；
 	// 落盘（saveInstance 序列化 i.Settings、writeRunBat 读取 i 字段）也在锁内完成，
@@ -432,12 +541,12 @@ func (m *Manager) UpdateSettings(name string, xmxMB, xmsMB int, consoleEnc strin
 	defer i.procMu.Unlock()
 	if extraJVM != nil { // 要和现有的参数比，所以放在锁里；任何字段都还没改
 		if err := validateJVMArgs(*extraJVM, i.ExtraJVM); err != nil {
-			return err
+			return SettingsSaveResult{}, err
 		}
 	}
 	if xmxMB > 0 {
 		if xmxMB < 512 {
-			return fmt.Errorf("最大内存不能低于 512MB")
+			return SettingsSaveResult{}, fmt.Errorf("最大内存不能低于 512MB")
 		}
 		if xmsMB < 128 || xmsMB > xmxMB {
 			xmsMB = min(1024, xmxMB)
@@ -447,14 +556,24 @@ func (m *Manager) UpdateSettings(name string, xmxMB, xmsMB int, consoleEnc strin
 	if consoleEnc != "" {
 		i.ConsoleEncoding = consoleEnc
 	}
+	var note string
 	if extraJVM != nil {
-		// 老版本的 log4shell 缓解参数强制保留：套用预设、清空或手动删掉后保存都会补回
-		i.ExtraJVM = withJVMFlags(*extraJVM, log4jFlags(i))
+		// 老版本的 log4shell 缓解参数强制保留（同名文件不是官方那份时不强加引用，见 completeExtraJVMLocked）
+		i.ExtraJVM, note = completeExtraJVMLocked(i, *extraJVM)
 	}
 	if err := m.saveInstance(i); err != nil {
-		return err
+		return SettingsSaveResult{}, err
 	}
-	return writeRunBat(i)
+	if err := writeRunBat(i); err != nil {
+		return SettingsSaveResult{}, err
+	}
+	return SettingsSaveResult{
+		XmxMB:      i.XmxMB,
+		XmsMB:      i.XmsMB,
+		ExtraJVM:   append([]string(nil), i.ExtraJVM...),
+		LaunchArgs: launchArgs(i),
+		Note:       note,
+	}, nil
 }
 
 // consoleEnc 加锁读取控制台编码（供输出 goroutine 每行调用）。

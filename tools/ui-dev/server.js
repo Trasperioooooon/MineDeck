@@ -172,6 +172,8 @@ function newState(ui) {
   ];
   state.incompleteJavas = [];
   state.creatingLeftovers = [];
+  state.duplicateDirs = [];
+  state.adoptTask = null;
   state.adoptScan = state.lastAdopt = state.lastJava = state.lastDelete = null; // 接管、换 Java、删除：见 /__mock/state 的说明
   state.lastTunnelPut = null; // 上一次修改隧道（PUT /api/tunnels/{id}）的请求体，见 /__mock/state 的说明
   state.tunnelsLoadFail = ""; // "locked" | "corrupt"：tunnels.json 没读出来，见 LOAD_FAIL
@@ -2806,10 +2808,13 @@ function handler(state, ui, portOf) {
       if (Array.isArray(b.madeDirs)) { state.madeDirs = b.madeDirs; state.lastTransferMkdir = null; }
       if ("pickDir" in b) state.pickDir = b.pickDir === null ? undefined : b.pickDir; // 系统文件夹选择框选到哪个（空串 = 点了取消；null 还原成 E:\MCServers）
       if (b.instReset) { const fresh = newState(ui); state.instances = fresh.instances; state.portableJavas = fresh.portableJavas; state.incompleteJavas = []; state.creatingLeftovers = [];
+        state.duplicateDirs = []; state.adoptTask = null;
         state.creating = false; state.javaBusy = false; state.reservedPorts = [];
         state.lastAdopt = state.lastJava = state.lastDelete = null;
         state.lifecycle = []; state.modOps = []; state.lastRestore = state.lastBackup = null; state.modsProjects = 0; } // beta.3 详情页记下的请求一起清掉
       if ("reservedPorts" in b) state.reservedPorts = b.reservedPorts || []; // [[起, 止]] 系统保留的端口范围（Hyper-V / WSL 等），放在 instReset 之后以免同次调用被冲掉
+      if (Array.isArray(b.duplicateDirs)) state.duplicateDirs = b.duplicateDirs;
+      if ("adoptTask" in b) state.adoptTask = b.adoptTask || null;
       if (Array.isArray(b.portableJavas)) state.portableJavas = b.portableJavas;
       if (Array.isArray(b.incompleteJavas)) state.incompleteJavas = b.incompleteJavas;
       if (Array.isArray(b.creatingLeftovers)) state.creatingLeftovers = b.creatingLeftovers;
@@ -2820,8 +2825,11 @@ function handler(state, ui, portOf) {
       if ("listenLan" in b) { state.config.listenLan = state.lanActive = !!b.listenLan; if (b.listenLan) state.lanSet = true; }
       if ("lanSet" in b) state.lanSet = !!b.lanSet;
       if ("lanActive" in b) state.lanActive = !!b.lanActive;
-      // 模拟老版本实例：保存 JVM 参数时后端强制补回 log4shell 缓解参数（同 inst.UpdateSettings）
-      if (b.legacy) { const i = state.instances.find(x => x.name === b.legacy.name); if (i) { i.extraJvm = b.legacy.extraJvm; i.forceFlags = b.legacy.forceFlags; } }
+      // 模拟老版本实例：保存 / 预览 JVM 参数时后端强制补回 log4shell 缓解参数（同 inst.UpdateSettingsWithResult / PreviewSettings）
+      if (b.legacy) {
+        const i = state.instances.find(x => x.name === b.legacy.name);
+        if (i) { i.extraJvm = b.legacy.extraJvm; i.forceFlags = b.legacy.forceFlags; i.customLog4jXml = b.legacy.customLog4jXml || ""; }
+      }
       if ("cfKey" in b) state.cfKey = String(b.cfKey || "");
       if ("cfKeyBroken" in b) state.cfKeyBroken = !!b.cfKeyBroken;
       if ("local" in b) state.local = !!b.local; // false 模拟从局域网打开（Webhook 地址只给开头）
@@ -3117,8 +3125,9 @@ function handler(state, ui, portOf) {
       if (p === "/api/tasks/task-adopt" || p === "/api/tasks/task-java") {
         const adopt = p.endsWith("adopt");
         const names = adopt ? ["检查服务器文件夹", "准备 Java 运行时", "登记到 MineDeck"] : ["准备 Java 运行时", "换上新的 Java"];
-        return ok(res, { id: p.split("/").pop(), kind: adopt ? "adopt" : "java", steps: names.map(name => ({ name, status: "done" })), label: "", done: 0, total: 0, warnings: [],
-          log: adopt ? ["服务器文件夹：" + ((state.lastAdopt || {}).dir || ""), "原来的 run.bat 另存为 run.before-minedeck.bat", "接管完成 ✔ 世界、模组、插件和配置文件都没有动"] : ["已换成 Java 25（下次启动生效）"],
+        const extra = adopt && state.adoptTask ? state.adoptTask : {};
+        return ok(res, { id: p.split("/").pop(), kind: adopt ? "adopt" : "java", steps: names.map(name => ({ name, status: "done" })), label: "", done: 0, total: 0, warnings: extra.warnings || [],
+          log: adopt ? (extra.log || ["服务器文件夹：" + ((state.lastAdopt || {}).dir || ""), "原来的 run.bat 另存为 run.before-minedeck.bat", "接管完成 ✔ 世界、模组、插件和配置文件都没有动"]) : ["已换成 Java 25（下次启动生效）"],
           ended: true, result: adopt ? (state.lastAdopt || {}).name || "create-pack" : (state.lastJava || {}).inst || "机械动力整合包" });
       }
       // 购物车安装模组的任务（kind "mods"，任务页的说法跟着换）：第 3 次查询后完成，result = 实例名
@@ -3162,7 +3171,11 @@ function handler(state, ui, portOf) {
       // connectPort（同 instance.list）：朋友连进来的端口。仿真里的代理端 port 写的就是它自己的端口；没生成配置的代理端用 inst 设成 0
       // lastStartError：上一次启动没起来的原因（startFail 那台点启动时记下，成功启动清掉）
       // backupDir 同真后端（当前备份根下面按服务器名）；mods、backups 是仿真自己存的插件 / 模组和备份清单，不在列表里
-      if (p === "/api/instances" && m === "GET") return ok(res, insts().map(({ mods, backups, ...i }) => ({ ...i, connectPort: i.connectPort ?? i.port, backupDir: i.backupDir ?? "D:\\MineDeck\\backups\\" + i.name })));
+      if (p === "/api/instances" && m === "GET") {
+        const data = insts().map(({ mods, backups, ...i }) => ({ ...i, connectPort: i.connectPort ?? i.port, backupDir: i.backupDir ?? "D:\\MineDeck\\backups\\" + i.name }));
+        res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+        return res.end(JSON.stringify({ ok: true, data, duplicates: state.empty ? [] : (state.duplicateDirs || []) }));
+      }
       // 创建实例（向导提交）：真的登记进列表（Java 21 / 已停止等按表单补全），
       // 这样紧接着带上草稿车的 POST .../modcart/install 才能按名字找到这台实例（真后端此时也已经建好了）
       if (p === "/api/instances" && m === "POST") {
@@ -3364,11 +3377,52 @@ function handler(state, ui, portOf) {
           state.lastTransferExport = { inst: name, ...b };
           return ok(res, { taskId: "task-transfer-out" });
         }
-        if (sub === "settings" && m === "PUT") {
+        if (sub === "settings" && (m === "PUT" || (seg[5] === "preview" && m === "POST"))) {
           const b = await readBody(req);
-          if (Array.isArray(b.extraJvm)) i.extraJvm = [...b.extraJvm, ...(i.forceFlags || []).filter(f => !b.extraJvm.includes(f))]; // 已有的原位保留，缺的追加
-          if (b.xmxMb > 0) i.xmxMb = b.xmxMb;
-          return ok(res, {});
+          const curOld = new Set(i.extraJvm || []);
+          if (Array.isArray(b.extraJvm)) {
+            for (const a of b.extraJvm) {
+              if (curOld.has(a)) continue;
+              if (/[\x00-\x1f\x7f]/.test(a)) return err(res, 400, "JVM 参数里不能有换行、制表符这类控制字符");
+              if (String(a).includes('"')) return err(res, 400, "JVM 参数里不能有双引号");
+            }
+          }
+          const nextXmx = b.xmxMb > 0 ? +b.xmxMb : i.xmxMb;
+          if (b.xmxMb > 0 && nextXmx < 512) return err(res, 400, "最大内存不能低于 512MB");
+          const nextXms = Math.min(1024, nextXmx);
+          const nextEnc = b.consoleEncoding || i.consoleEncoding || "auto";
+          let nextJvm = (i.extraJvm || []).slice(), note = "";
+          if (Array.isArray(b.extraJvm)) {
+            let flags = (i.forceFlags || []).slice();
+            if (i.customLog4jXml) flags = flags.filter(f => f !== "-Dlog4j.configurationFile=" + i.customLog4jXml);
+            const want = new Map(flags.map(f => [f.split("=")[0], f]));
+            const kept = new Set();
+            nextJvm = [];
+            for (const a of b.extraJvm) {
+              const k = String(a).split("=")[0];
+              if (want.has(k)) {
+                const wf = want.get(k);
+                if (a !== wf || kept.has(wf)) continue;
+                kept.add(wf);
+              }
+              nextJvm.push(a);
+            }
+            for (const f of flags) if (!kept.has(f)) nextJvm.push(f);
+            if (i.customLog4jXml && !nextJvm.includes("-Dlog4j.configurationFile=" + i.customLog4jXml)) {
+              note = `服务器文件夹里的 ${i.customLog4jXml} 不是 Mojang 官方那份，没有自动加上它的引用，log4shell 防护要靠它自己`;
+            }
+          }
+          const launchArgs = [
+            `-Xms${nextXms}M`, `-Xmx${nextXmx}M`, "-Dfile.encoding=UTF-8",
+            ...(nextEnc !== "gbk" ? ["-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8"] : []),
+            ...nextJvm, "-jar", "server.jar", "nogui",
+          ];
+          if (m === "PUT" && !seg[5]) {
+            if (Array.isArray(b.extraJvm)) i.extraJvm = nextJvm;
+            if (b.xmxMb > 0) i.xmxMb = nextXmx;
+            if (b.consoleEncoding) i.consoleEncoding = nextEnc;
+          }
+          return ok(res, { xmxMb: nextXmx, xmsMb: nextXms, extraJvm: nextJvm, launchArgs, ...(note ? { note } : {}) });
         }
         // 启动（同 inst.Manager.Start）：inst 设了 startFail 的，报这句并记成上次启动失败（lastStartError），控制台多一行；
         // 起得来的清掉上次的原因。状态不变（别的用例按「停着」「运行中」的初始状态写的）

@@ -87,8 +87,8 @@ func skipOrFailJunction(t *testing.T, err error, out []byte) {
 	t.Fatalf("建不了目录联接：%v %s", err, out)
 }
 
-// 登记的是一个目录联接，而启动时是从存放根下面先扫到真实的那个文件夹：移出列表时登记也要去掉，
-// 不能因为两边路径写法不一样就留下一条清不掉的。
+// 登记的是一个目录联接，真实文件夹又同时在存放根下面（或两条登记指着同一个真实文件夹）：
+// A08 起单独登记的先加载，同一个真实文件夹只算一次；移出列表时不管加载时认的是哪条路径，按真实路径都能把登记清干净。
 func TestForgetRegisteredAlias(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("目录联接是 Windows 上的东西")
@@ -107,13 +107,38 @@ func TestForgetRegisteredAlias(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if i, err := m2.Get("srv"); err != nil || i.Dir != real || len(m2.List()) != 1 {
-		t.Fatalf("应只认到存放根下面的那一个：%v（%d 台）", err, len(m2.List()))
+	if i, err := m2.Get("srv"); err != nil || i.Dir != link || len(m2.List()) != 1 || len(m2.SkippedDuplicates()) != 0 {
+		t.Fatalf("单独登记的联接应优先加载且不把同一真实目录算重名：%v dir=%q（%d 台，重名=%v）", err, func() string {
+			if i == nil {
+				return ""
+			}
+			return i.Dir
+		}(), len(m2.List()), m2.SkippedDuplicates())
 	}
 	if err := m2.Delete("srv", false); err != nil {
 		t.Fatal(err)
 	}
 	if got := app.InstanceDirs(); len(got) != 0 {
 		t.Errorf("移出列表后，经目录联接登记的那一条还留着：%v", got)
+	}
+
+	// 再测 i.Dir != link 的情况：真实路径和联接都登记在 InstanceDirs 里，加载认到第一条 real，移出列表时联接那条登记也按真实路径一起清掉
+	if err := os.Rename(filepath.Join(real, settingsBackup), filepath.Join(real, "instance.json")); err != nil {
+		t.Fatal(err)
+	}
+	app.RememberInstanceDir(real)
+	app.RememberInstanceDir(link)
+	m3, err := NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i, err := m3.Get("srv"); err != nil || i.Dir != real || len(m3.List()) != 1 {
+		t.Fatalf("应认到第一条真实目录且只算一台：%v（%d 台）", err, len(m3.List()))
+	}
+	if err := m3.Delete("srv", false); err != nil {
+		t.Fatal(err)
+	}
+	if got := app.InstanceDirs(); len(got) != 0 {
+		t.Errorf("i.Dir 是真实路径时，经目录联接登记的别名也应一起清掉：%v", got)
 	}
 }

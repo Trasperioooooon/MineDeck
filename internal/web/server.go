@@ -129,6 +129,7 @@ func New(mgr *inst.Manager, tun *tunnel.Manager, reg *ops.Registry, asst *assist
 	mux.HandleFunc("GET /api/instances/{name}/properties", s.handleGetProps)
 	mux.HandleFunc("PUT /api/instances/{name}/properties", s.handleSetProps)
 	mux.HandleFunc("PUT /api/instances/{name}/settings", s.handleSetSettings)
+	mux.HandleFunc("POST /api/instances/{name}/settings/preview", s.handlePreviewSettings)
 
 	mux.HandleFunc("GET /api/ops/log", s.handleOpLog)
 

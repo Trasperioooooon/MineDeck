@@ -8903,6 +8903,114 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     }
   });
 
+  await run("阶段05 A08：重名文件夹提示横幅在服务器列表页顶写出文件夹位置、撞上的服务器名与改名处理办法", async () => {
+    const mState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
+    try {
+      await mState({
+        instReset: true,
+        duplicateDirs: [
+          { name: "生存服 · 朋友", dir: "F:\\MCBackup\\survival-copy", keptDir: "D:\\OtherDisk\\adopted-survival" },
+        ],
+      });
+      await page.goto(url("#/instances"));
+      await page.waitForSelector("#dup-dirs:not([hidden]) .warn-card");
+      const text = await page.textContent("#dup-dirs");
+      assert(
+        text.includes("F:\\MCBackup\\survival-copy") &&
+        text.includes("生存服 · 朋友") &&
+        text.includes("D:\\OtherDisk\\adopted-survival") &&
+        text.includes("instance.json"),
+        "重名提示应写清被跳过的文件夹、撞上的服务器与改名办法：" + text,
+      );
+      await mState({ duplicateDirs: [] });
+      await page.goto(url("#/instances")); await settle(300);
+      assert(await page.$eval("#dup-dirs", el => el.hidden), "没有重名文件夹时提示横幅应隐藏");
+    } finally {
+      await mState({ instReset: true });
+    }
+  });
+
+  await run("阶段05 A26：接管自带非官方日志配置的服务器时，任务结果卡片与日志写出未替换说明", async () => {
+    const mState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
+    const customMsg = "这台服务器自带了自己的日志配置，MineDeck 没有替换，log4shell 防护要靠它自己";
+    try {
+      await mState({
+        instReset: true,
+        adoptScan: {
+          dir: "D:\\OldServers\\mc112", name: "老112服", core: "vanilla", mc: "1.12.2", build: "",
+          launchTarget: "jar:server.jar",
+          targets: [{ target: "jar:server.jar", label: "server.jar（Vanilla 原版 1.12.2）", core: "vanilla", mc: "1.12.2", build: "", javaMajor: 8 }],
+          javaMajor: 8, xmxMb: 2048, extraJvm: [], port: 25575, eula: true, hasWorld: true, managed: false, notes: [], whitelistOn: false,
+        },
+        adoptTask: {
+          warnings: [{
+            kind: "custom-log4j",
+            title: customMsg,
+            note: "服务器文件夹里已有一份和官方内容不一样的 log4j2_112-116.xml，保持原样，也没有往启动参数里加 -Dlog4j.configurationFile=log4j2_112-116.xml。",
+          }],
+          log: [
+            "服务器文件夹：D:\\OldServers\\mc112",
+            "⚠ " + customMsg + "（log4j2_112-116.xml）",
+            "接管完成 ✔ 世界、模组、插件和配置文件都没有动",
+          ],
+        },
+      });
+      await page.goto(url("#/create/adopt"));
+      await page.waitForSelector("#ad-dir");
+      await page.fill("#ad-dir", "D:\\OldServers\\mc112");
+      await page.click("#ad-scan");
+      await page.waitForSelector("#ad-name");
+      await page.click("#ad-go");
+      await page.waitForSelector('#t-msgs .warn-card[data-warn="custom-log4j"]');
+      const warnText = await page.textContent('#t-msgs .warn-card[data-warn="custom-log4j"]');
+      const logText = await page.textContent("#task-log");
+      assert(warnText.includes(customMsg) && warnText.includes("log4j2_112-116.xml"), "接管结果告警应说明自定义日志配置未替换：" + warnText);
+      assert(logText.includes(customMsg), "接管任务日志也应包含该说明：" + logText);
+    } finally {
+      await mState({ instReset: true, adoptScan: null });
+    }
+  });
+
+  await run("阶段05 A25 A28：启动与内存预览显示后端自动补齐的 log4shell 参数；同名日志配置非官方时不补引用并说明原因", async () => {
+    const mState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
+    const PK = "机械动力整合包", enc = encodeURIComponent(PK);
+    const FIX = ["-Dlog4j2.formatMsgNoLookups=true", "-Dlog4j.configurationFile=log4j2_112-116.xml"];
+    try {
+      // 1) 官方日志配置在盘上时：即使在输入框里把缓解参数删掉，预览仍实时展示后端自动补上的两条 log4shell 参数
+      await mState({ instReset: true, legacy: { name: PK, extraJvm: ["-XX:+UseG1GC", ...FIX], forceFlags: FIX } });
+      await page.goto(url(`#/inst/${enc}/settings/jvm`));
+      await page.waitForSelector("#jm-preview");
+      await page.fill("#jm-jvm", "-XX:+UseZGC");
+      await page.waitForFunction(() => {
+        const t = document.querySelector("#jm-preview")?.textContent || "";
+        return t.includes("-XX:+UseZGC") && t.includes("-Dlog4j2.formatMsgNoLookups=true") && t.includes("-Dlog4j.configurationFile=log4j2_112-116.xml");
+      });
+      assert(await page.$eval("#jm-preview-note", el => el.hidden), "官方日志配置不应显示冲突提示");
+
+      // 2) 文件夹里是同名非官方日志配置时：预览和保存都不强加 -Dlog4j.configurationFile= 引用，且两处都写出原因
+      await mState({ legacy: { name: PK, extraJvm: ["-Dlog4j2.formatMsgNoLookups=true"], forceFlags: FIX, customLog4jXml: "log4j2_112-116.xml" } });
+      await page.goto(url(`#/inst/${enc}/settings/jvm`));
+      await page.waitForFunction(() => !document.querySelector("#jm-preview-note")?.hidden);
+      await page.fill("#jm-jvm", "-XX:+UseG1GC");
+      await page.waitForFunction(() => (document.querySelector("#jm-preview")?.textContent || "").includes("-XX:+UseG1GC"));
+      const prev = await page.evaluate(() => ({
+        cmd: $("#jm-preview").textContent,
+        note: $("#jm-preview-note").textContent,
+      }));
+      assert(prev.cmd.includes("-Dlog4j2.formatMsgNoLookups=true") && !prev.cmd.includes("-Dlog4j.configurationFile=log4j2_112-116.xml"),
+        "非官方日志配置时预览不应强加引用：" + JSON.stringify(prev));
+      assert(prev.note.includes("log4j2_112-116.xml") && prev.note.includes("不是 Mojang 官方那份"),
+        "预览应说明未自动加上引用的原因：" + JSON.stringify(prev));
+
+      await page.click('[data-sb="save"]');
+      await page.waitForFunction(() => [...document.querySelectorAll(".toast")].some(t => t.textContent.includes("不是 Mojang 官方那份")));
+      assert(!(await page.inputValue("#jm-jvm")).includes("-Dlog4j.configurationFile=log4j2_112-116.xml"),
+        "保存后回显的参数框也不应被强加官方引用：" + await page.inputValue("#jm-jvm"));
+    } finally {
+      await mState({ instReset: true });
+    }
+  });
+
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
 
   await browser.close();

@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"minedeck/internal/atomicfile"
 	"minedeck/internal/mcsrc"
 )
 
@@ -278,7 +279,8 @@ func (m *Manager) migrateLog4j(ctx context.Context, i *Instance) {
 	if fix != log4jFixDrop {
 		ctx, cancel := context.WithTimeout(ctx, log4jMigrateTimeout)
 		defer cancel()
-		if err := fetchLog4jXML(ctx, i.Dir, xml); err != nil {
+		conflict, err := fetchAndPublishLog4jXML(ctx, i.Dir, xml)
+		if err != nil {
 			if fix == log4jFixSwap {
 				note(fmt.Sprintf("⚠ log4shell 防护：这台 %s 的服务器还引用着 1.12 ~ 1.16.5 的那份日志配置（%s），对这个版本不起作用；"+
 					"Mojang 给 1.7 ~ 1.11.2 的 %s 没下载成（%v）。服务器照样能开，先别让不认识的人进服；联网以后再启动一次或者重开 MineDeck 会再试",
@@ -287,6 +289,10 @@ func (m *Manager) migrateLog4j(ctx context.Context, i *Instance) {
 				note(fmt.Sprintf("⚠ log4shell 防护：这台 %s 的服务器没有套上 Mojang 的日志配置，等于没防；这次 %s 也没下载成（%v）。"+
 					"服务器照样能开，先别让不认识的人进服；联网以后再启动一次或者重开 MineDeck 会再试", i.MC, xml, err))
 			}
+			return
+		}
+		if conflict {
+			note(log4jXMLConflictNote(i.MC, xml, fix))
 			return
 		}
 	}
@@ -367,4 +373,60 @@ func (m *Manager) applyLog4jFixLocked(i *Instance, fix log4jFix, xml string, sel
 		return false, err
 	}
 	return true, writeRunBat(i)
+}
+
+// fetchAndPublishLog4jXML 先把官方日志配置下载到临时目录，真正落进实例目录前拿着路径锁再看一次目标文件（A25.1）：
+// 下载那两分钟里用户如果自己保存了同名、但不是官方那份的日志配置，绝不覆盖，返回 conflict=true。
+func fetchAndPublishLog4jXML(ctx context.Context, dir, name string) (conflict bool, err error) {
+	stageDir, err := os.MkdirTemp("", "minedeck-log4j-*")
+	if err != nil {
+		return false, err
+	}
+	defer os.RemoveAll(stageDir)
+	if err := fetchLog4jXML(ctx, stageDir, name); err != nil {
+		return false, err
+	}
+	data, err := os.ReadFile(filepath.Join(stageDir, name))
+	if err != nil {
+		return false, err
+	}
+	dest := filepath.Join(dir, name)
+	unlock, err := atomicfile.LockPathContext(ctx, dest)
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+	if exists, official := log4jXMLOnDisk(dir, name); exists {
+		if !official {
+			return true, nil
+		}
+		return false, nil
+	}
+	tmpFile, err := os.CreateTemp(dir, ".minedeck-write-*.tmp")
+	if err != nil {
+		return false, err
+	}
+	tmp := tmpFile.Name()
+	defer func() { _ = os.Remove(tmp) }()
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		return false, err
+	}
+	if err := tmpFile.Chmod(0o644); err != nil {
+		_ = tmpFile.Close()
+		return false, err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return false, err
+	}
+	if err := atomicfile.PublishNew(tmp, dest); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			if _, official := log4jXMLOnDisk(dir, name); official {
+				return false, nil
+			}
+			return true, nil
+		}
+		return false, err
+	}
+	return false, nil
 }
