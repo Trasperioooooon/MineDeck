@@ -107,7 +107,7 @@ window.MDModCart = (() => {
         installing = false,     // 已经点了安装（等确认框或接口时不能再点）
         uploading = false,      // 正在往清单里添加本地文件
         loadErr = null,         // 清单的存档在、却没读出来（后端回 503）时的报错，见 paintList
-        loadSeq = 0, depSeq = 0;
+        loadSeq = 0, depSeq = 0, depInFlight = null;
     /* 浏览区（热门清单 / 搜索结果）的状态 */
     let query = "", cat = "",   // 这一批结果是按什么查的（点了搜索才算数，不跟着输入框变）
         hits = [],              // 已经列出来的
@@ -434,31 +434,67 @@ window.MDModCart = (() => {
       };
       depBox.querySelectorAll(".mc-opt-add").forEach(b => b.onclick = () => add([b.dataset.pid], [b]));
     };
-    const runCheckDeps = async rethrow => {
+    const runCheckDeps = rethrow => {
       const seq = ++depSeq, reqSig = cartSig();
       const outdated = () => seq !== depSeq || gone();
       depBtn.disabled = true;
       depState.textContent = "检查中…";
-      try {
-        const d = await api("/api/modcart/deps?" + targetQuery());
-        if (outdated()) return false;
-        dep = d;
-        depSig = reqSig;
-        depState.textContent = "";
-        paintList(); // 本地文件那几行的提示换成这次查出来的（里面会接着画前置这一块）
-        return true;
-      } catch (e) {
-        if (outdated()) return false;
-        dep = null;
-        depSig = "";
-        depState.textContent = "";
-        if (unreadable(e)) paintList();
-        else depBox.innerHTML = errBox("前置没有查出来", e, { label: "前置检查", hint: "检查一下网络，再点一次「检查前置」。" });
-        if (rethrow) throw e;
-        return false;
-      } finally { if (!outdated()) depBtn.disabled = false; }
+      const p = (async () => {
+        try {
+          const d = await api("/api/modcart/deps?" + targetQuery());
+          if (outdated()) return "superseded";
+          dep = d;
+          depSig = reqSig;
+          depState.textContent = "";
+          paintList(); // 本地文件那几行的提示换成这次查出来的（里面会接着画前置这一块）
+          return "ok";
+        } catch (e) {
+          if (outdated()) return "superseded";
+          dep = null;
+          depSig = "";
+          depState.textContent = "";
+          if (unreadable(e)) paintList();
+          else depBox.innerHTML = errBox("前置没有查出来", e, { label: "前置检查", hint: "检查一下网络，再点一次「检查前置」。" });
+          if (rethrow) throw e;
+          return "error";
+        } finally {
+          if (depInFlight === p) depInFlight = null;
+          if (!outdated()) depBtn.disabled = false;
+        }
+      })();
+      depInFlight = p;
+      return p;
     };
     const checkDeps = () => runCheckDeps(false);
+    /* 装前核对前置检查结果是否对应当前清单（A29）：没查过、或者查前置期间清单又变了，就重查（最多 3 次）；
+       返回和这次检查结果严格对应的清单快照，保证确认框列的前置与实际安装补的前置基于同一份清单 */
+    const ensureFreshDeps = async () => {
+      for (let attempt = 0; attempt < 3 && (!dep || depSig !== cartSig()); attempt++) {
+        try {
+          let st = await runCheckDeps(true);
+          while (st === "superseded" && depInFlight && !gone()) st = await depInFlight;
+          if (gone()) return null;
+          if (st === "error" || !dep) {
+            toast("检查前置失败，没有开始安装", true);
+            return null;
+          }
+        } catch (e) {
+          toastErr("检查前置失败，没有开始安装", e);
+          return null;
+        }
+      }
+      if (gone()) return null;
+      if (!dep || depSig !== cartSig()) {
+        toast("检查期间清单变了，再点一次全部安装", true);
+        return null;
+      }
+      return {
+        dep,
+        expect: cart.map(it => it.projectId),
+        expectLocal: local.map(lf => lf.sha1),
+        count: total(),
+      };
+    };
 
     /* ---- 读一遍购物车 ---- */
     const reload = async () => {
@@ -497,19 +533,11 @@ window.MDModCart = (() => {
       if (installing || uploading) return;
       installing = true; insBtn.disabled = true;
       const reset = () => { installing = false; if (!gone() && insBtn.isConnected) insBtn.disabled = false; };
-      if (!dep || depSig !== cartSig()) { // A29：还没查过前置，或者上次查完以后清单变过，装前先查一遍
-        try {
-          const ok = await runCheckDeps(true);
-          if (gone()) return;
-          if (!ok || !dep) { reset(); return; }
-        } catch (e) {
-          toastErr("检查前置失败，没有开始安装", e);
-          reset();
-          return;
-        }
-      }
+      const snap = await ensureFreshDeps();
+      if (gone()) return;
+      if (!snap) { reset(); return; }
       try {
-        const have = ids(), miss = dep ? (dep.missing || []).filter(m => !have.has((m.project || {}).projectId)) : [];
+        const have = new Set(snap.expect), miss = (snap.dep.missing || []).filter(m => !have.has((m.project || {}).projectId));
         if (miss.length) { // 购物车之外的必装依赖会自动一起装：装之前说一声装了什么
           const ok = await confirmModal({
             title: `另外会自动装上 ${miss.length} 项必装前置`,
@@ -519,14 +547,12 @@ window.MDModCart = (() => {
           if (gone()) return; // 等确认框时切走了
           if (!ok) { reset(); return; }
         }
-        const n = total();
-        /* expect / expectLocal：现在页面上列着的这些（Modrinth 项目的 ID、本地文件的 SHA-1）。往车里加东西不用确认
-           （AI 助手、别的窗口都能加），后端发现车里的和这里看到的不一样就不装，免得装上人没看过的东西。 */
+        /* expect / expectLocal：拿检查完成那一刻确认过的清单快照发给后端核对；等确认框期间如果清单又变了，后端回 409 拦住 */
         const r = await api(`/api/instances/${encodeURIComponent(inst)}/modcart/install`, { method: "POST",
-          body: { withDeps: true, expect: cart.map(it => it.projectId), expectLocal: local.map(lf => lf.sha1) } });
+          body: { withDeps: true, expect: snap.expect, expectLocal: snap.expectLocal } });
         if (stale(gen)) return;
         const running = ctx.status && ctx.status !== "stopped";
-        toast(`已开始安装清单里的 ${n} 项` + (running ? "。服务器正在运行，装完要重启才生效" : ""));
+        toast(`已开始安装清单里的 ${snap.count} 项` + (running ? "。服务器正在运行，装完要重启才生效" : ""));
         location.hash = `#/task/${encodeURIComponent(r.taskId)}`;
       } catch (e) {
         toastErr("无法开始安装", e);

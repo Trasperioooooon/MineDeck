@@ -9107,6 +9107,56 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     }
   });
 
+  await run("待装清单：查前置期间清单变了，自动补查并按最新清单列出必装前置", async () => {
+    const cartMock = () => page.evaluate(() => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data.modcart));
+    try {
+      await cartState({ modCart: { reset: true } });
+      await page.goto(url(`#/inst/${encodeURIComponent(PACK)}/cart`)); await settle(600);
+      await page.fill("#mc-q", "Cloth"); await page.click("#mc-go"); await settle();
+      await page.click('button[aria-label="加入清单 Cloth Config API"]'); await settle(700);
+      await page.fill("#mc-q", "JEI"); await page.click("#mc-go"); await settle();
+
+      // 先让后端按只有 Cloth Config 的清单算出检查结果，再把响应压住；期间把带必装前置的 JEI 加进清单
+      let releaseFirst, onFetched;
+      const holdFirst = new Promise(r => { releaseFirst = r; });
+      const waitFetched = new Promise(r => { onFetched = r; });
+      let seenDeps = 0;
+      await page.route("**/api/modcart/deps*", async route => {
+        seenDeps++;
+        if (seenDeps === 1) {
+          const resp = await route.fetch();
+          onFetched();
+          await holdFirst;
+          await route.fulfill({ response: resp }).catch(() => {});
+          return;
+        }
+        await route.continue().catch(() => {});
+      });
+
+      await page.click("#mc-install");
+      await waitFetched;
+      await page.click('button[aria-label="加入清单 JEI"]');
+      await page.waitForFunction(() => (document.querySelector("#mc-count")?.textContent || "").includes("共 2 项"), null, { timeout: 5000 });
+      releaseFirst();
+
+      await page.waitForSelector(".modal", { timeout: 5000 });
+      const modalText = await page.textContent(".modal");
+      assert(seenDeps >= 2, "查前置期间清单变了应自动重查一遍，实际请求次数：" + seenDeps);
+      assert(modalText.includes("另外会自动装上 1 项必装前置") && modalText.includes("Architectury API"),
+        "重查后应弹出列出 JEI 必装前置的确认框：" + modalText);
+      assert((await cartMock()).lastInstall === null, "确认前不应发出安装请求");
+
+      await page.click('.modal [data-x="ok"]');
+      await page.waitForFunction(() => location.hash === "#/task/task-cart", null, { timeout: 8000 });
+      const li = (await cartMock()).lastInstall;
+      assert(li && li.withDeps === true && li.expect.slice().sort().join() === "cloth-config,jei", "确认后应按最新清单安装：" + JSON.stringify(li));
+    } finally {
+      await page.unroute("**/api/modcart/deps*").catch(() => {});
+      await cartState({ modCart: { reset: true } });
+      await page.goto(url("#/instances")); await settle();
+    }
+  });
+
   await run("没装上的文件：超过 500 项分批提交显示批次进度，还有未提交批次时切页先确认", async () => {
     const makePending = count => Array.from({ length: count }, (_, i) => ({
       id: "p" + i,
@@ -9148,7 +9198,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click('#sidebar a[data-nav="instances"]');
       await page.waitForSelector(".modal", { timeout: 5000 });
       const leaveText1 = await page.textContent(".modal");
-      assert(leaveText1.includes("还有 700 项没处理，离开后不会继续"), "中途切页应提示剩余未处理项数：" + leaveText1);
+      assert(leaveText1.includes("还有 700 项还没提交，离开后不会继续；正在处理的这一批会照常做完"), "中途切页应提示剩余未提交项数与在途批次：" + leaveText1);
       await page.click('.modal [data-x="cancel"]'); await settle(150);
       assert(page.url().includes("#/task/task-1200"), "取消离开后应留在任务页：" + page.url());
 
@@ -9186,7 +9236,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await waitFirstSent;
       await page.click('#sidebar a[data-nav="instances"]');
       await page.waitForSelector(".modal", { timeout: 5000 });
-      assert((await page.textContent(".modal")).includes("还有 700 项没处理，离开后不会继续"), "确认框文案不对");
+      assert((await page.textContent(".modal")).includes("还有 700 项还没提交，离开后不会继续；正在处理的这一批会照常做完"), "确认框文案不对");
       await page.click('.modal [data-x="ok"]');
       await page.waitForFunction(() => location.hash === "#/instances", null, { timeout: 5000 });
       releaseFirst();
@@ -9195,6 +9245,188 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally {
       await page.unroute("**/import-pending").catch(() => {});
       await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList: [], trustedHosts: [] }) }));
+      await page.goto(url("#/instances")); await settle();
+    }
+  });
+
+  await run("没装上的文件：详情页叠层分批提交点关闭确认、两处同时分批互不抹掉离开确认、未保存修改一起确认", async () => {
+    const makeItems = (prefix, count) => Array.from({ length: count }, (_, i) => ({
+      id: `${prefix}${i}`,
+      path: `mods/${prefix}-${i}.jar`,
+      reason: "host",
+      host: "files.example.net",
+      note: "下载地址不在允许列表",
+      urls: [`https://files.example.net/${prefix}-${i}.jar`],
+      sha1: "0123456789abcdef0123456789abcdef01234567",
+      options: ["local", "skip", "trust"],
+    }));
+    const setInstPending = items => page.evaluate(([name, list]) =>
+      fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList: [], trustedHosts: [], instPending: { [name]: { pending: list, skipped: [] } } }) }),
+      [PACK, items]);
+    const topConfirmSel = "#modal-root > .modal-mask:not([data-leaving]) .modal:not(.pnd-modal)";
+
+    try {
+      // 1) 详情页头叠层里分批提交尚未发完时点「关闭」：弹出确认框，取消留在叠层，确认关闭后后续批次不再发
+      await setInstPending(makeItems("m", 1200));
+      await page.goto(url(`#/inst/${encodeURIComponent(PACK)}/console`)); await settle(600);
+      await page.click("[data-pnd-open]");
+      await page.waitForSelector(".pnd-modal #d-pending-apply", { timeout: 5000 });
+      await page.click(".pnd-modal #pnd-trust-all"); await settle(250);
+      await page.click(".pnd-modal #pnd-ack-all"); await settle(250);
+
+      let sentModal = 0, releaseModalBatch1, onModalBatch1;
+      const holdModalBatch1 = new Promise(r => { releaseModalBatch1 = r; });
+      const waitModalBatch1 = new Promise(r => { onModalBatch1 = r; });
+      await page.route("**/import-pending", async route => {
+        if (route.request().method() !== "POST") { await route.continue().catch(() => {}); return; }
+        sentModal++;
+        if (sentModal === 1) { onModalBatch1(); await holdModalBatch1; }
+        await route.continue().catch(() => {});
+      });
+
+      await page.click("#d-pending-apply");
+      await waitModalBatch1;
+      await page.click('.pnd-modal [data-x="close"]');
+      await page.waitForSelector(topConfirmSel, { timeout: 5000 });
+      const closePromptText = await page.textContent(topConfirmSel);
+      assert(closePromptText.includes("还有 700 项还没提交，离开后不会继续；正在处理的这一批会照常做完"),
+        "叠层关闭时应提示未提交项数与在途批次：" + closePromptText);
+
+      // 点「留在这里」取消关闭：叠层仍在
+      await page.click(`${topConfirmSel} [data-x="cancel"]`); await settle(200);
+      assert(!!(await page.$(".pnd-modal:not([data-leaving])")), "取消关闭后叠层应继续保留");
+
+      // 再点「关闭」并确认「离开」：叠层关掉，放行在途批次后第 2、3 批不再发
+      await page.click('.pnd-modal [data-x="close"]');
+      await page.waitForSelector(topConfirmSel, { timeout: 5000 });
+      await page.click(`${topConfirmSel} [data-x="ok"]`);
+      await page.waitForFunction(() => !document.querySelector(".pnd-modal") || document.querySelector(".pnd-modal").closest("[data-leaving]"), null, { timeout: 5000 });
+      releaseModalBatch1();
+      await settle(400);
+      assert(sentModal === 1, "叠层确认关闭后剩下的批次不应再发，实际批数：" + sentModal);
+      await page.unroute("**/import-pending");
+
+      // 2) 两处同时分批（模组页内嵌面板先开始、页头叠层后开始），先开始的先结束，后一处的离开确认仍在
+      await setInstPending(makeItems("a", 600));
+      await page.goto(url(`#/inst/${encodeURIComponent(PACK)}/addons`)); await settle(700);
+      await page.waitForSelector("#ad-pending-apply", { timeout: 5000 });
+      await page.click("#ad-pending-box #pnd-trust-all"); await settle(250);
+      await page.click("#ad-pending-box #pnd-ack-all"); await settle(250);
+
+      const aGates = [null, null].map(() => { let go; const p = new Promise(r => { go = r; }); return { p, go }; });
+      let aCount = 0, bCount = 0, releaseB1, onA1, onB1;
+      const holdB1 = new Promise(r => { releaseB1 = r; });
+      const waitA1 = new Promise(r => { onA1 = r; });
+      const waitB1 = new Promise(r => { onB1 = r; });
+      await page.route("**/import-pending", async route => {
+        if (route.request().method() !== "POST") { await route.continue().catch(() => {}); return; }
+        const body = JSON.parse(route.request().postData() || "{}");
+        const firstId = ((body.items || [])[0] || {}).id || "";
+        if (firstId.startsWith("a")) {
+          const idx = aCount++;
+          if (idx === 0) onA1();
+          if (aGates[idx]) await aGates[idx].p;
+        } else if (firstId.startsWith("b")) {
+          bCount++;
+          if (bCount === 1) { onB1(); await holdB1; }
+        }
+        await route.continue().catch(() => {});
+      });
+
+      // 先启动内嵌面板（600 项 = 2 批）
+      await page.click("#ad-pending-apply");
+      await waitA1;
+
+      // 再准备另一组 1200 项并打开叠层启动分批（3 批，剩 700 项未提交）
+      await setInstPending(makeItems("b", 1200));
+      await page.evaluate(n => pendingModal(n, viewGen, () => {}), PACK);
+      await page.waitForSelector(".pnd-modal #d-pending-apply", { timeout: 5000 });
+      await page.click(".pnd-modal #pnd-trust-all"); await settle(250);
+      await page.click(".pnd-modal #pnd-ack-all"); await settle(250);
+      await page.click("#d-pending-apply");
+      await waitB1;
+
+      // 让先开始的 #ad-pending-box 两批全部跑完（它的注销函数已执行）
+      aGates[0].go();
+      aGates[1].go();
+      await page.waitForFunction(() => {
+        const b = document.querySelector("#ad-pending-apply");
+        return !b || !b.disabled;
+      }, null, { timeout: 8000 });
+      await settle(200);
+
+      // 此时触发切页：后开始的叠层仍在第 1 批，离开确认不能被先结束的那一处抹掉
+      await page.evaluate(() => { location.hash = "#/instances"; });
+      await page.waitForSelector(topConfirmSel, { timeout: 5000 });
+      const secondStillGuarded = await page.textContent(topConfirmSel);
+      assert(secondStillGuarded.includes("还有 700 项还没提交"), "先开始的面板结束后，另一处的离开确认仍应在：" + secondStillGuarded);
+      await page.click(`${topConfirmSel} [data-x="ok"]`);
+      await page.waitForFunction(() => location.hash === "#/instances", null, { timeout: 5000 });
+      releaseB1();
+      await settle(300);
+      await page.unroute("**/import-pending");
+
+      // 3) 设置页有未保存修改、同时叠层正在分批提交，浏览器后退时两件事依次都问到
+      await setInstPending(makeItems("c", 1200));
+      await page.goto(url("#/tunnels")); await settle(250);
+      await page.evaluate(() => { location.hash = "#/instances"; }); await settle(250);
+      await page.evaluate(h => { location.hash = h; }, `#/inst/${encodeURIComponent(PACK)}/settings/common`);
+      await page.waitForSelector("#motd-in", { timeout: 5000 });
+      await page.fill("#motd-in", "改过但还没保存的介绍");
+      await page.waitForFunction(() => document.querySelector(".save-bar")?.classList.contains("dirty"), null, { timeout: 5000 });
+
+      await page.click("[data-pnd-open]");
+      await page.waitForSelector(".pnd-modal #d-pending-apply", { timeout: 5000 });
+      await page.click(".pnd-modal #pnd-trust-all"); await settle(250);
+      await page.click(".pnd-modal #pnd-ack-all"); await settle(250);
+
+      let cCount = 0, releaseC1, onC1;
+      const holdC1 = new Promise(r => { releaseC1 = r; });
+      const waitC1 = new Promise(r => { onC1 = r; });
+      await page.route("**/import-pending", async route => {
+        if (route.request().method() !== "POST") { await route.continue().catch(() => {}); return; }
+        cCount++;
+        if (cCount === 1) { onC1(); await holdC1; }
+        await route.continue().catch(() => {});
+      });
+
+      await page.click("#d-pending-apply");
+      await waitC1;
+
+      // 触发浏览器后退：第一道问未提交批次，点「离开」后第二道接着问未保存修改
+      await page.goBack();
+      await page.waitForSelector(topConfirmSel, { timeout: 5000 });
+      const ask1 = await page.textContent(topConfirmSel);
+      assert(ask1.includes("还有 700 项还没提交"), "第一道确认应问未提交的分批项：" + ask1);
+      await page.click(`${topConfirmSel} [data-x="ok"]`);
+
+      await page.waitForFunction(sel => {
+        const el = document.querySelector(sel);
+        return el && el.textContent.includes("放弃未保存的修改");
+      }, topConfirmSel, { timeout: 5000 });
+      const ask2 = await page.textContent(topConfirmSel);
+      assert(ask2.includes("没有保存") && ask2.includes("修改会丢失"), "第二道确认应问未保存的设置修改：" + ask2);
+
+      // 在第二道点「继续编辑」取消：仍留在设置页，修改没丢
+      await page.click(`${topConfirmSel} [data-x="cancel"]`); await settle(200);
+      assert(page.url().includes("/settings/common"), "第二道取消后应留在设置页：" + page.url());
+      assert((await page.inputValue("#motd-in")) === "改过但还没保存的介绍", "取消离开后未保存内容应还在");
+
+      // 再退一次，两道都点确认：成功离开设置页
+      await page.goBack();
+      await page.waitForSelector(topConfirmSel, { timeout: 5000 });
+      await page.click(`${topConfirmSel} [data-x="ok"]`);
+      await page.waitForFunction(sel => {
+        const el = document.querySelector(sel);
+        return el && el.textContent.includes("放弃未保存的修改");
+      }, topConfirmSel, { timeout: 5000 });
+      await page.click(`${topConfirmSel} [data-x="ok"]`);
+      await page.waitForFunction(() => location.hash === "#/tunnels", null, { timeout: 5000 });
+      releaseC1();
+      await settle(300);
+    } finally {
+      await page.unroute("**/import-pending").catch(() => {});
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ instReset: true, taskList: [], trustedHosts: [] }) }));
       await page.goto(url("#/instances")); await settle();
     }
   });

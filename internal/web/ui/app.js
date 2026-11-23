@@ -1224,27 +1224,36 @@ async function refreshTaskList(slot, gen) {
   } finally { slot._loading = false; }
 }
 
-/* 未保存修改与进行中操作守卫：表单类视图登记 dirtyCheck（切页 / 切 tab / 刷新前确认），分批提交登记 leaveCheck（只拦站内切页，不拦关窗口和刷新） */
+/* 未保存修改与进行中操作守卫：表单类视图登记 dirtyCheck（切页 / 切 tab / 刷新前确认），分批提交登记到 leaveChecks（只拦站内切页，不拦关窗口和刷新） */
 let dirtyCheck = null;
-let leaveCheck = null;
+const leaveChecks = new Set();
+const registerLeaveCheck = fn => { leaveChecks.add(fn); return () => leaveChecks.delete(fn); };
 let curHash = null;
 let guardOpen = false;
 window.addEventListener("beforeunload", e => { if (dirtyCheck && dirtyCheck() > 0) { e.preventDefault(); e.returnValue = ""; } });
 
 async function confirmBeforeLeave(hash) {
-  const leave = leaveCheck ? leaveCheck() : null;
-  const unsaved = !leave && dirtyCheck ? dirtyCheck() : 0;
-  const prompt = leave || (unsaved > 0 ? {
+  const prompts = [];
+  for (const fn of leaveChecks) {
+    const p = fn();
+    if (p) prompts.push(p);
+  }
+  const unsaved = dirtyCheck ? dirtyCheck() : 0;
+  if (unsaved > 0) prompts.push({
     title: "放弃未保存的修改？", danger: true,
     body: `当前页面还有 <b>${unsaved}</b> 项修改没有保存，离开后这些修改会丢失。`,
     okText: `放弃 ${unsaved} 项修改`, cancelText: "继续编辑",
-  } : null);
-  if (!prompt) return true;
+  });
+  if (!prompts.length) return true;
   if (curHash && hash !== curHash) history.replaceState(null, "", curHash); // 先退回原地址，确认后再前往
   guardOpen = true;
-  const ok = await confirmModal(prompt);
-  guardOpen = false;
-  if (!ok) return false;
+  try {
+    for (const prompt of prompts) {
+      if (!(await confirmModal(prompt))) return false;
+    }
+  } finally {
+    guardOpen = false;
+  }
   if ((location.hash || "#/instances") !== hash) history.replaceState(null, "", hash);
   return true;
 }
@@ -1266,7 +1275,7 @@ async function navigate() {
   if (guardOpen) { if (curHash) history.replaceState(null, "", curHash); return; }
   if (!(await confirmBeforeLeave(hash))) return;
   dirtyCheck = null;
-  leaveCheck = null;
+  leaveChecks.clear();
   appearanceView = null;
   curHash = hash;
   viewGen++;
@@ -1274,6 +1283,7 @@ async function navigate() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   if (prTimer) { clearTimeout(prTimer); prTimer = null; }
   document.querySelectorAll(".dropmenu").forEach(x => x._close ? x._close(true) : x.remove());
+  document.querySelectorAll(".modal-mask").forEach(x => { if (x._closeOnNav) x._closeOnNav(); });
   keysBefore = keyRects();
   const m = hash.match(/^#\/([a-z]+)(?:\/(.+))?$/);
   const view = m ? m[1] : "instances";
@@ -2926,16 +2936,48 @@ const parentDir = p => { const s = String(p || "").replace(/[\\/]+$/, ""), k = M
    清单是从服务器文件夹里读来的，别人可能改过：文字一律转义，链接只画 https 的。onChange(清单) 在处置以后调：任务页拿它刷新上面的告警，
    详情页拿它刷新页头那一条。 */
 const PND_ACT = { skip: "跳过", local: "用本地文件代替", trust: "信任站点并下载" };
+const PENDING_BATCH = 500; // 同后端 pendingResolveMax：500 接受，501 拒绝。多出来的分批提交。
+const pendingLeavePrompt = n => n > 0 ? {
+  title: "还有没处理完的文件", danger: true,
+  body: `还有 <b>${n}</b> 项还没提交，离开后不会继续；正在处理的这一批会照常做完。`,
+  okText: "离开", cancelText: "留在这里",
+} : null;
+/* 分批提交没装上的文件处理方式（A33）：显示批次进度并在 leaveChecks 里登记离开确认，任务页面板和详情页叠层共用 */
+async function submitPendingBatches(inst, acts, { prog, gone, onUnsubmitted }) {
+  const totalBatches = Math.ceil(acts.length / PENDING_BATCH);
+  let left = 0;
+  const setLeft = n => { left = n; onUnsubmitted(n); };
+  const unregister = registerLeaveCheck(() => gone() ? null : pendingLeavePrompt(left));
+  const resolved = [];
+  let lastResp = null, err = null;
+  try {
+    for (let i = 0; i < acts.length; i += PENDING_BATCH) {
+      const batch = acts.slice(i, i + PENDING_BATCH);
+      setLeft(Math.max(0, acts.length - (i + batch.length)));
+      if (prog && totalBatches > 1) {
+        prog.hidden = false;
+        prog.textContent = `正在处理第 ${Math.floor(i / PENDING_BATCH) + 1} 批，共 ${totalBatches} 批`;
+      }
+      const r = await api(`/api/instances/${encodeURIComponent(inst)}/import-pending`, { method: "POST", body: { items: batch } });
+      if (gone()) return { stopped: true, resolved, lastResp, err: null };
+      lastResp = r;
+      resolved.push(...(r.resolved || []));
+    }
+  } catch (e) {
+    err = e;
+  } finally {
+    setLeft(0);
+    unregister();
+    if (!gone() && prog) { prog.hidden = true; prog.textContent = ""; }
+  }
+  return { stopped: gone(), resolved, lastResp, err };
+}
+
 function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-apply" } = {}) {
   let view = { pending: [], skipped: [] }, sig = "", had = false, unsubmitted = 0;
-  const gone = () => stale(gen) || !box.isConnected;
-  const leavePrompt = () => (!gone() && unsubmitted > 0) ? {
-    title: "还有没处理完的文件", danger: true,
-    body: `还有 <b>${unsubmitted}</b> 项没处理，离开后不会继续。`,
-    okText: "离开", cancelText: "留在这里",
-  } : null;
+  const gone = () => stale(gen) || !box.isConnected || !!box.closest("[data-leaving]");
+  const leavePrompt = () => gone() ? null : pendingLeavePrompt(unsubmitted);
   const httpsOnly = u => /^https:\/\//i.test(String(u || ""));
-  const PENDING_BATCH = 500; // 同后端 pendingResolveMax：500 接受，501 拒绝。多出来的分批提交。
   const dlHost = it => {
     const u = (it.urls || []).find(httpsOnly);
     if (!u) return it.host || "";
@@ -3049,13 +3091,11 @@ function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-appl
     if (missing) { toast(missing, true); return; }
     if (!acts.length) { toast("先给至少一个文件选处理方式", true); return; }
     const btn = box.querySelector(".pnd-apply"), prog = box.querySelector(".pnd-prog");
-    const totalBatches = Math.ceil(acts.length / PENDING_BATCH);
     btn.disabled = true;
-    const prevLeave = leaveCheck;
-    leaveCheck = () => leavePrompt() || (prevLeave ? prevLeave() : null);
-    const resolved = [];
-    let lastResp = null;
     const wasOpen = view.pending.length;
+    const { stopped, resolved, lastResp: batchResp, err } = await submitPendingBatches(inst, acts,
+      { prog, gone, onUnsubmitted: n => { unsubmitted = n; } });
+    let lastResp = batchResp;
     const syncDone = () => {
       if (!lastResp || gone()) return;
       out.innerHTML = `<div class="wc-wrap">${resolved.map(o =>
@@ -3064,42 +3104,25 @@ function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-appl
       draw();
       if (onChange) onChange(view);
     };
-    try {
-      for (let i = 0; i < acts.length; i += PENDING_BATCH) {
-        const batch = acts.slice(i, i + PENDING_BATCH);
-        unsubmitted = Math.max(0, acts.length - (i + batch.length));
-        if (prog && totalBatches > 1) {
-          prog.hidden = false;
-          prog.textContent = `正在处理第 ${Math.floor(i / PENDING_BATCH) + 1} 批，共 ${totalBatches} 批`;
+    if (!stopped) {
+      if (!err) {
+        syncDone();
+        if (wasOpen && !view.pending.length) toast("没装上的文件都处理完了");
+      } else {
+        // 出错的那一批可能已经在后端处理了一部分（比如连接在途中断了），手里的旧响应不准：重新要一次清单再画
+        let refreshed = false;
+        try {
+          const v = await api(`/api/instances/${encodeURIComponent(inst)}/import-pending`);
+          if (!gone()) { lastResp = v; refreshed = true; }
+        } catch { /* 要不到就按手里已有的画 */ }
+        if (!gone()) {
+          syncDone();
+          toastErr(refreshed ? "有的文件没处理完，清单已按最新情况刷新" : lastResp ? "部分文件未能处理完" : "无法处理没装上的文件", err);
         }
-        const r = await api(`/api/instances/${encodeURIComponent(inst)}/import-pending`, { method: "POST", body: { items: batch } });
-        if (gone()) return;
-        lastResp = r;
-        resolved.push(...(r.resolved || []));
       }
-      syncDone();
-      if (wasOpen && !view.pending.length) toast("没装上的文件都处理完了");
-    } catch (e) {
-      if (gone()) return;
-      // 出错的那一批可能已经在后端处理了一部分（比如连接在途中断了），手里的旧响应不准：重新要一次清单再画
-      let refreshed = false;
-      try {
-        const v = await api(`/api/instances/${encodeURIComponent(inst)}/import-pending`);
-        if (gone()) return;
-        lastResp = v;
-        refreshed = true;
-      } catch { /* 要不到就按手里已有的画 */ }
-      if (gone()) return; // 等清单的时候离开了页面：不在新页面上弹旧页面的错
-      syncDone();
-      toastErr(refreshed ? "有的文件没处理完，清单已按最新情况刷新" : lastResp ? "部分文件未能处理完" : "无法处理没装上的文件", e);
-    } finally {
-      unsubmitted = 0;
-      if (!stale(gen)) leaveCheck = prevLeave;
-      const p = box.querySelector(".pnd-prog");
-      if (!gone() && p) { p.hidden = true; p.textContent = ""; }
-      const b = box.querySelector(".pnd-apply");
-      if (!gone() && b) b.disabled = false;
     }
+    const b = box.querySelector(".pnd-apply");
+    if (!gone() && b) b.disabled = false;
   };
   const load = async () => {
     try {
@@ -3128,6 +3151,12 @@ function pendingModal(inst, gen, onChange, addonsLabel = "") {
       <div id="d-pending-out"></div><div id="d-pending-box"><div class="sub">加载中…</div></div></div>
     <div class="m-actions"><button class="btn primary" data-x="close">关闭</button></div></div>`);
   let closed = false, confirming = false, ctl = null;
+  mask._closeOnNav = () => {
+    if (closed) return;
+    closed = true;
+    document.removeEventListener("keydown", onKey);
+    dismiss(mask);
+  };
   const close = async () => {
     if (closed || confirming) return;
     const prompt = ctl && ctl.leavePrompt();
