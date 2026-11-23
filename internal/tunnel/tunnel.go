@@ -1418,7 +1418,8 @@ func (m *Manager) noteFollowLoadErr(instance string, err error) {
 	log.Printf("服务器「%s」启动了，但隧道配置没读出来，跟随它启动的隧道这次拉不起来: %v", instance, err)
 	m.noteAuto(AutoAction{Op: "tunnel.start", Actor: followActor, Args: map[string]any{"inst": instance},
 		Err: fmt.Errorf("隧道配置读不出来，这次没有拉起跟随启动的隧道。%w", err)})
-	m.sayToInstance(instance, "[MineDeck] 隧道配置读不出来，这次没有拉起跟随这台服务器启动的隧道。原因："+err.Error()+
+	// 读不出来就不知道这台服务器有没有绑隧道，每台开服的都会收到这句，所以不说成一定有
+	m.sayToInstance(instance, "[MineDeck] 隧道配置读不出来，有隧道跟随这台服务器启动的话，这次没有拉起。原因："+err.Error()+
 		"。处理好以后到「内网穿透」页手动启动隧道")
 }
 

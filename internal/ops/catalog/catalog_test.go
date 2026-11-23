@@ -304,7 +304,7 @@ func TestTunnelFollowLoadErrorWritesOpLogAndConsole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lines := strings.Join(i.Console.Lines(), "\n"); !strings.Contains(lines, "[MineDeck] 隧道配置读不出来，这次没有拉起跟随这台服务器启动的隧道") {
+	if lines := strings.Join(i.Console.Lines(), "\n"); !strings.Contains(lines, "[MineDeck] 隧道配置读不出来，有隧道跟随这台服务器启动的话，这次没有拉起") {
 		t.Fatalf("服务器控制台里应说一句：%q", lines)
 	}
 }
