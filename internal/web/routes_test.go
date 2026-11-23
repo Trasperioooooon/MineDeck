@@ -30,6 +30,7 @@ import (
 // 记下它想连的地址；Key 用真的 DPAPI 存进 secrets.json。
 type fullEnv struct {
 	h       http.Handler
+	mgr     *inst.Manager
 	secrets []string // 任何响应里都不能出现的东西
 	tunID   string
 	dials   *noDial
@@ -123,7 +124,7 @@ func newFullEnv(t *testing.T) *fullEnv {
 	asst := catalog.NewAssistant(reg, aiSvc, Token)
 	mcpSvc := catalog.NewMCP(reg, Token)
 	mcpSvc.Start(27333, 27333)
-	e := &fullEnv{h: New(mgr, tun, reg, asst, WithMCP(mcpSvc)), tunID: tt.ID, dials: nd, asst: asst, mcp: mcpSvc}
+	e := &fullEnv{h: New(mgr, tun, reg, asst, WithMCP(mcpSvc)), mgr: mgr, tunID: tt.ID, dials: nd, asst: asst, mcp: mcpSvc}
 	e.call(t, "PUT", "/api/config", `{"lanPassword":"`+lanPass+`","listenLan":true,"webhookUrl":"https://hook.example/x?access_token=`+hookToken+`"}`, 200)
 	e.secrets = []string{cfKey, lanPass, sakuraKey, frpsToken, app.GetConfig().AccessPasswordHash}
 	return e

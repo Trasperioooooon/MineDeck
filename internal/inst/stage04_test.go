@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -556,5 +557,164 @@ func TestFreePortFromDoesNotReResolveDomain(t *testing.T) {
 	}
 	if pb := b.LastStartPortBusy(); pb == nil || pb.Owner != "运行服" || pb.Suggest <= port {
 		t.Fatalf("应给出建议端口：%+v", pb)
+	}
+}
+
+// 阶段 04 尾巴 2：本软件一台服务器真开着，正在监听和自己当前配置不一样的端口（比如运行中改过端口还没重启）：
+// liveOwn 为假，只靠 ownPIDs[pid] 认出是自家进程，CheckFormPort 不拦。
+func TestCheckFormPortOwnPIDWithoutLiveOwn(t *testing.T) {
+	t.Setenv(fakeServerEnv, "1")
+	ln1, actualPort := occupy(t, "127.0.0.1")
+	_ = ln1.Close()
+	cfgPort := actualPort + 1
+	otherPort := actualPort + 2
+	if otherPort > 65000 {
+		cfgPort = 25631
+		otherPort = 25632
+	}
+
+	m, iRun := portInst(t, "改过端口还没重启的服", fmt.Sprintf("server-ip=127.0.0.1\nserver-port=%d\n", actualPort), mcsrc.CoreVanilla)
+	if err := m.Start(iRun.Name); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if iRun.Status() != "stopped" {
+			_ = m.Kill(iRun.Name)
+			waitStatus(t, iRun, "stopped")
+		}
+	})
+	waitStatus(t, iRun, "running")
+
+	pid := iRun.PID()
+	if pid <= 0 {
+		t.Fatalf("运行中的服务器应有真实进程号，实际 %d", pid)
+	}
+	// 模拟运行中改了 server.properties 的端口（下次重启才生效）：ConnectPort 已变成 cfgPort，actualPort 上 liveOwn 为假
+	if err := os.WriteFile(iRun.PropsPath(), []byte(fmt.Sprintf("server-ip=127.0.0.1\nserver-port=%d\n", cfgPort)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := iRun.ConnectPort(); got != cfgPort {
+		t.Fatalf("配置端口应已变成 %d，实际 %d", cfgPort, got)
+	}
+
+	oldL, oldN, oldE, oldM := queryListenPorts, queryProcessName, queryExcludedPorts, listenProbesMocked
+	t.Cleanup(func() {
+		queryListenPorts, queryProcessName, queryExcludedPorts, listenProbesMocked = oldL, oldN, oldE, oldM
+	})
+	queryListenPorts = func() map[int]int {
+		return map[int]int{
+			actualPort: pid,
+			otherPort:  pid + 50000,
+		}
+	}
+	queryProcessName = func(p int) string {
+		if p == pid {
+			return "java.exe"
+		}
+		return "other.exe"
+	}
+	queryExcludedPorts = func() ([]portRange, []portRange) { return nil, nil }
+	listenProbesMocked = true
+
+	if got := m.CheckFormPort(actualPort); got != nil {
+		t.Fatalf("自家运行中进程（PID=%d）监听的旧端口 %d 不应被拦下：%+v", pid, actualPort, got)
+	}
+	if got := m.CheckFormPort(otherPort); got == nil || got.Process != "other.exe" {
+		t.Fatalf("别的进程监听的端口 %d 仍应拦下：%+v", otherPort, got)
+	}
+}
+
+// 阶段 04 尾巴 4：startInstance 试绑失败后放开 procMu 去查保留段的窗口里，另一次启动已成功（含仍在运行、或随后正常停服），
+// 迟到的第一次 Start 返回错误时不得补写过期的失败记录。
+func TestStartPortFailWindowInterleave(t *testing.T) {
+	t.Setenv(fakeServerEnv, "1")
+	for _, stopBeforeRelease := range []bool{false, true} {
+		name := "窗口内启动成功保持运行"
+		if stopBeforeRelease {
+			name = "窗口内启动成功又正常停服"
+		}
+		t.Run(name, func(t *testing.T) {
+			oldRun, oldQuery, oldListen := runNetshExcluded, queryExcludedPorts, listenBindPort
+			resetExcludedCache()
+			t.Cleanup(func() {
+				runNetshExcluded, queryExcludedPorts, listenBindPort = oldRun, oldQuery, oldListen
+				resetExcludedCache()
+			})
+			queryExcludedPorts = loadExcludedPorts
+
+			ln, port := occupy(t, "127.0.0.1")
+			_ = ln.Close()
+
+			var firstProbe atomic.Bool
+			firstProbe.Store(true)
+			listenBindPort = func(ctx context.Context, network, address string) (net.Listener, error) {
+				if firstProbe.CompareAndSwap(true, false) {
+					return nil, &net.OpError{Op: "listen", Net: network, Err: errAddrAccess}
+				}
+				return oldListen(ctx, network, address)
+			}
+
+			entered := make(chan struct{})
+			gate := make(chan struct{})
+			var enterOnce, gateOnce sync.Once
+			releaseGate := func() { gateOnce.Do(func() { close(gate) }) }
+			t.Cleanup(releaseGate)
+
+			runNetshExcluded = func(ipv6 bool) (string, error) {
+				enterOnce.Do(func() { close(entered) })
+				<-gate
+				if ipv6 {
+					return "", nil
+				}
+				return fmt.Sprintf("Start Port End Port\n%d %d\n", port, port), nil
+			}
+
+			m, i := portInst(t, "放锁交错服", fmt.Sprintf("server-ip=127.0.0.1\nserver-port=%d\n", port), mcsrc.CoreVanilla)
+			t.Cleanup(func() {
+				if i.Status() != "stopped" {
+					_ = m.Kill(i.Name)
+					waitStatus(t, i, "stopped")
+				}
+			})
+
+			done1 := make(chan error, 1)
+			go func() {
+				done1 <- m.Start(i.Name)
+			}()
+
+			select {
+			case <-entered:
+			case <-time.After(3 * time.Second):
+				t.Fatal("第一次 Start 没有进入放锁查保留段窗口")
+			}
+
+			// 在第一次 Start 放开 procMu 的窗口里，第二次 Start 成功把服务器拉起
+			if err := m.Start(i.Name); err != nil {
+				t.Fatalf("窗口内第二次 Start 应成功：%v", err)
+			}
+			waitStatus(t, i, "running")
+			if stopBeforeRelease {
+				if err := m.Command(i.Name, "stop"); err != nil {
+					t.Fatal(err)
+				}
+				waitStatus(t, i, "stopped")
+			}
+
+			releaseGate()
+			err1 := <-done1
+			if err1 == nil {
+				t.Fatal("第一次 Start 试绑失败，应返回错误")
+			}
+			if got := i.LastStartError(); got != "" {
+				t.Fatalf("已有新一次运行后，迟到的失败不应写入 LastStartError：%q", got)
+			}
+			if pb := i.LastStartPortBusy(); pb != nil {
+				t.Fatalf("已有新一次运行后，迟到的失败不应写入 LastStartPortBusy：%+v", pb)
+			}
+			failFile := filepath.Join(i.Dir, ".minedeck", startFailFileName)
+			if _, err := os.Stat(failFile); !os.IsNotExist(err) {
+				t.Fatalf("不应生成 .minedeck/start-fail.json：%v", err)
+			}
+		})
 	}
 }

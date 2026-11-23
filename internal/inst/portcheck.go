@@ -208,7 +208,10 @@ func (m *Manager) CheckFormPort(port int) *FormPortBusy {
 	listen := queryListenPorts()
 	pid, listened := listen[port]
 	if liveOwn || ownPIDs[pid] {
-		// 本软件自己的服务器正开着时，监听表里它（或它拉起的 java 子进程）占着这一条不算「别的程序」
+		// ownPIDs 按真实进程号认（含运行中改了端口设置、还没重启的情况）；
+		// liveOwn 是进程号对不上时的兜底（比如用户选的 Java 是会再起子进程的包装器），错的方向是少拦不是多拦。
+		// 已知的取舍：别的程序实际占着这个端口，而本软件某台服务器配置里也写着它、又不是停着的，
+		// 这种情况会被放过去；开服前的试绑会兜住。
 		listened = false
 	}
 	reserved := IsPortReserved(port)
