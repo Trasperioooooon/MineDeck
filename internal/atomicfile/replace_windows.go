@@ -93,7 +93,7 @@ var retryDelays = []time.Duration{
 	32 * time.Millisecond, 64 * time.Millisecond, 125 * time.Millisecond, 125 * time.Millisecond, 125 * time.Millisecond,
 }
 
-// beforeRetry 测试用：第 attempt 次重试（从 1 数）调用 MoveFileEx 之前调用。
+// beforeRetry 测试用：第 attempt 次重试（从 1 数）再做一次之前调用，替换、publishNew 是再调 MoveFileEx 之前，RetryRemove 是再删之前。
 var beforeRetry func(attempt int)
 
 // retryable 失败是不是值得再试一次：错误是拒绝访问或共享冲突，而且目标不是只读文件、不是文件夹。

@@ -444,9 +444,31 @@ func safeRemoveInstanceDir(i *Instance) error {
 		return fmt.Errorf("删除文件失败: %w", err)
 	}
 	if emptyDirErr != nil {
-		log.Printf("服务器「%s」的文件已删空，但文件夹本身正被别的程序占用，留了一个空文件夹：%s（%v）", i.Name, dir, emptyDirErr)
+		logLeftInstanceDir(i.Name, dir, emptyDirErr)
 	}
 	return nil
+}
+
+// logLeftInstanceDir 删到最后只剩文件夹本身没删掉时（照常移出列表）记一笔，按文件夹里实际还剩什么说：
+// 多半是文件夹被别的程序当成工作目录占着、里面是空的；也可能删的同时有程序往里写了文件，文件夹其实不空。
+func logLeftInstanceDir(name, dir string, cause error) {
+	ents, err := os.ReadDir(dir)
+	switch {
+	case err != nil:
+		log.Printf("服务器「%s」已移出列表，但文件夹本身没删掉，也读不出里面还剩什么：%s（%v；%v）", name, dir, cause, err)
+	case len(ents) == 0:
+		log.Printf("服务器「%s」的文件已删空，但文件夹本身正被别的程序占用，留了一个空文件夹：%s（%v）", name, dir, cause)
+	default:
+		names := make([]string, 0, 3)
+		for _, e := range ents[:min(len(ents), 3)] {
+			names = append(names, e.Name())
+		}
+		if len(ents) > len(names) {
+			names = append(names, "…")
+		}
+		log.Printf("服务器「%s」已移出列表，但文件夹没有删掉，里面还剩 %d 项（%s）：%s（%v）。"+
+			"可能是删的同时有程序往里写了文件，或者还有程序开着里面的文件", name, len(ents), strings.Join(names, "、"), dir, cause)
+	}
 }
 
 // walkInstanceDir 顶层路径是往里逐项删（true），还是只删这一个目录项本身（false）。
