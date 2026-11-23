@@ -178,8 +178,10 @@ func (m *Manager) applyModpack(ctx context.Context, t *tasks.Task, pack *modpack
 			})
 		}
 	}
-	// 清单里点名要下载的文件，落点也不能是 MineDeck 自己的文件：实例这时已经登记好了，
-	// 清单里写一条 path 是 instance.json 的，下载下来就把刚登记的那份顶掉了。覆盖目录那边同理（见下面）。
+	// 清单里点名要下载的文件，落点也不能是 MineDeck 自己的文件。这时还没登记（下载和覆盖都在 completeCreate 之前），
+	// 登记只按内存里的设置重写 instance.json 和 run.bat：老版本的日志配置、游戏内 AI 的设置这些下载下来就算数了；
+	// 带着创建记号的文件夹里也不能出现外来的 instance.json，这时程序没了，下次启动会当成登记写到一半（promoteCreatedRoots）。
+	// 覆盖目录那边同理（见 overrideSink.write）。
 	var refused []string
 	files = slices.DeleteFunc(files, func(f modpack.File) bool {
 		if overrideAllowed(f.Path) {
@@ -332,9 +334,10 @@ func newOverrideSinkContext(ctx context.Context, dir string) *overrideSink {
 }
 
 func (s *overrideSink) write(rel string, r io.Reader) error {
-	// 覆盖目录是整合包作者给的文件，写进来的时候实例已经登记好了：MineDeck 自己的文件（instance.json、run.bat、
-	// 老版本的日志配置、游戏内 AI 的设置这些）不能让它顶掉，否则重启 MineDeck 以后用哪个 Java、带什么参数、
-	// 有哪些定时任务就都是整合包说了算。名字在 Windows 上写不出原样的（设备名、结尾是点或空格的）也不收。
+	// 覆盖目录是整合包作者给的文件，写进来的时候实例还没登记（登记在最后，completeCreate）：MineDeck 自己的文件
+	// （instance.json、run.bat、老版本的日志配置、游戏内 AI 的设置这些）一律不收。登记只重写 instance.json 和 run.bat，
+	// 别的收进来就生效了；外来的 instance.json 还会让中途断掉的导入在下次启动时被当成登记写到一半（promoteCreatedRoots）。
+	// 名字在 Windows 上写不出原样的（设备名、结尾是点或空格的）也不收。
 	if !overrideAllowed(rel) {
 		s.notTaken = append(s.notTaken, rel)
 		return nil

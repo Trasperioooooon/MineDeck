@@ -535,7 +535,15 @@ func (m *Manager) discardCreating(name, dir string) error {
 	} else if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	return os.RemoveAll(abs)
+	if err := os.RemoveAll(abs); err != nil {
+		// 删到一半（有文件被别的程序占着）：创建记号多半已经先删掉了，剩下的文件夹（整合包导入还会有没装上的文件的清单）
+		// 就既不在列表里、也不算没建完的。放回记号，让「没建完的文件夹」那里统一处理（A48）。
+		if registered, _ := checkNoInstanceFiles(abs); plainCreatingDir(abs) && !registered {
+			_ = WriteCreatingMarker(abs, name)
+		}
+		return err
+	}
+	return nil
 }
 
 func isASCII(s string) bool {

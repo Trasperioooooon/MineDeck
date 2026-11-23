@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"minedeck/internal/app"
+	"minedeck/internal/atomicfile"
 	"minedeck/internal/dl/dltest"
 	"minedeck/internal/inst"
 	"minedeck/internal/mcsrc"
@@ -717,6 +720,62 @@ func TestImportIntoNewRootListedAfterRestart(t *testing.T) {
 	}
 	if filepath.Dir(b.Dir) != root {
 		t.Fatalf("这台应在新的存放位置里：%s", b.Dir)
+	}
+}
+
+// 导入交接包走到一半（解完包、正在按填的端口改 server.properties）程序没了：文件夹带着创建记号，重开以后在「没建完的文件夹」里；
+// 接着走完导入，记号去掉、不再列出来（A48）。
+func TestImportInterruptedLeavesListedLeftover(t *testing.T) {
+	newEnv(t)
+	fakeInstance(t, "A 的服")
+	m := manager(t, "A 的服")
+	id, err := ExportAsync(m, ExportReq{Inst: "A 的服", Full: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, _, _, _ := waitTask(t, m, id)
+	if snap.Err != "" {
+		t.Fatalf("导出失败：%s", snap.Err)
+	}
+	root := filepath.Join(t.TempDir(), "新存放位置")
+	reached, gate := make(chan string, 1), make(chan struct{})
+	var once sync.Once
+	old := atomicfile.Hook
+	t.Cleanup(func() { atomicfile.Hook = old })
+	atomicfile.Hook = func(p string) {
+		if filepath.Base(p) != "server.properties" || !strings.HasPrefix(p, root) {
+			return
+		}
+		once.Do(func() { reached <- filepath.Dir(p); <-gate })
+	}
+	iid, err := ImportAsync(m, snap.Result, ImportReq{Name: "B 的服", EULA: true, Root: root, Port: 25599})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dir string
+	select {
+	case dir = <-reached:
+	case <-time.After(30 * time.Second):
+		close(gate)
+		t.Fatal("导入没走到改端口那一步")
+	}
+	listed := func() bool {
+		m2, err := inst.NewManager() // 这时重开：只看盘上的东西
+		if err != nil {
+			t.Fatal(err)
+		}
+		return slices.ContainsFunc(m2.CreatingLeftovers(), func(it inst.CreatingLeftover) bool { return it.Name == filepath.Base(dir) })
+	}
+	if _, err := os.Stat(filepath.Join(dir, inst.CreatingMarker)); err != nil || !listed() {
+		close(gate)
+		t.Fatalf("解完包的文件夹应带着创建记号，重开以后列为没建完的：%v", err)
+	}
+	close(gate)
+	if isnap, _, _, _ := waitTask(t, m, iid); isnap.Err != "" {
+		t.Fatalf("放行以后导入应完成：%s\n%s", isnap.Err, strings.Join(isnap.Log, "\n"))
+	}
+	if _, err := os.Stat(filepath.Join(dir, inst.CreatingMarker)); !os.IsNotExist(err) || listed() {
+		t.Fatalf("导入成功以后不该再有创建记号，也不该列为没建完的：%v", err)
 	}
 }
 

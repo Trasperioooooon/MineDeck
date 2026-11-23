@@ -10,10 +10,13 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
+	"time"
 
 	"minedeck/internal/app"
+	"minedeck/internal/atomicfile"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/modpack"
 )
@@ -482,6 +485,160 @@ func TestLeftoverRootsCaseFoldOnlyOnWindows(t *testing.T) {
 	}
 	if pathExists(dirL) || !pathExists(dirU) {
 		t.Fatalf("应只删掉 posa 里的那个：posa 的还在=%v，PosA 的还在=%v", pathExists(dirL), pathExists(dirU))
+	}
+}
+
+// pauseAtWrite 让第一次原子写入名字是 base 的文件（atomicfile.Hook）停在写好、还没换上去的那一刻：返回停住时那个文件所在的
+// 文件夹和放行的函数。用来模拟导入走到一半时程序没了：停着的时候只看盘上的东西。
+func pauseAtWrite(t *testing.T, base string) (reached <-chan string, release func()) {
+	t.Helper()
+	at, gate := make(chan string, 1), make(chan struct{})
+	var once sync.Once
+	old := atomicfile.Hook
+	atomicfile.Hook = func(p string) {
+		if filepath.Base(p) != base {
+			return
+		}
+		first := false
+		once.Do(func() { first = true })
+		if first {
+			at <- filepath.Dir(p)
+			<-gate
+		}
+	}
+	var closeOnce sync.Once
+	release = func() { closeOnce.Do(func() { close(gate) }) }
+	t.Cleanup(func() { release(); atomicfile.Hook = old })
+	return at, release
+}
+
+func waitPaused(t *testing.T, reached <-chan string) string {
+	t.Helper()
+	select {
+	case dir := <-reached:
+		return dir
+	case <-time.After(10 * time.Second):
+		t.Fatal("导入没走到要停的那一步")
+		return ""
+	}
+}
+
+// listedAfterRestart 程序这时没了、重开以后「没建完的文件夹」里有没有 dir：只看盘上的东西，不带这次运行在内存里记的「正在创建」。
+func listedAfterRestart(dir string) bool {
+	fresh := &Manager{insts: map[string]*Instance{}, creating: map[string]bool{}}
+	return slices.ContainsFunc(fresh.CreatingLeftovers(), func(it CreatingLeftover) bool { return it.Name == filepath.Base(dir) })
+}
+
+// 导入整合包走到一半（覆盖目录已经写进去、没装上的文件的清单正在写）程序没了：文件夹带着创建记号，重开以后在「没建完的文件夹」里；
+// 接着走完导入，记号去掉、不再列出来（A48）。
+func TestModpackImportInterruptedLeavesListedLeftover(t *testing.T) {
+	stubWaterfallDownloads(t)
+	m, _ := importEnv(t)
+	reached, release := pauseAtWrite(t, PendingReportFile)
+	id, err := m.ImportModpackAsync(testPendingPack(t), CreateReq{Name: "打断服"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := waitPaused(t, reached)
+	if !pathExists(filepath.Join(dir, CreatingMarker)) || !pathExists(filepath.Join(dir, "config", "a.txt")) {
+		t.Fatal("写到一半的文件夹里应有覆盖目录的文件和创建记号")
+	}
+	if !listedAfterRestart(dir) {
+		t.Fatal("重开以后应列在「没建完的文件夹」里")
+	}
+	release()
+	if sn := waitImportTask(t, m, id); sn.Err != "" {
+		t.Fatalf("放行以后导入应完成：%+v", sn)
+	}
+	if pathExists(filepath.Join(dir, CreatingMarker)) || listedAfterRestart(dir) {
+		t.Fatal("导入成功以后不该再有创建记号，也不该列为没建完的")
+	}
+}
+
+// 导入现成服务端走到一半（解压完、正在改 server.properties）程序没了：同上（A48）。
+func TestServerImportInterruptedLeavesListedLeftover(t *testing.T) {
+	m, _ := importEnv(t)
+	pack, err := modpack.Parse(zipOf(t, map[string]string{
+		"server.properties":    "server-port=25565\n",
+		"paper-1.20.1-100.jar": paperJarBytes(t),
+		"eula.txt":             "eula=true\n",
+		"world/level.dat":      "x",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reached, release := pauseAtWrite(t, "server.properties")
+	dir := filepath.Join(app.ServersDir, "server-half")
+	tk, _ := m.Tasks.New("导入服务端", serverImportSteps)
+	done := make(chan error, 1)
+	go func() {
+		done <- m.runServerImport(context.Background(), tk, pack, CreateReq{Name: "打断服", XmxMB: 2048, Port: 25570, EULA: true}, dir)
+	}()
+	if got := waitPaused(t, reached); got != dir {
+		t.Fatalf("停在了别处：%s", got)
+	}
+	if !pathExists(filepath.Join(dir, CreatingMarker)) || !listedAfterRestart(dir) {
+		t.Fatal("解压到一半的文件夹应带着创建记号，重开以后列为没建完的")
+	}
+	release()
+	if err := <-done; err != nil {
+		t.Fatalf("放行以后导入应完成：%v\n%v", err, tk.Snapshot().Log)
+	}
+	if pathExists(filepath.Join(dir, CreatingMarker)) || listedAfterRestart(dir) {
+		t.Fatal("导入成功以后不该再有创建记号，也不该列为没建完的")
+	}
+}
+
+// 导入整合包在收尾时失败，半成品又没删干净（有文件被别的程序占着）：删的时候创建记号先没了，这里要放回去，
+// 剩下的文件夹出现在「没建完的文件夹」里，等文件放开以后在那里删掉（A48）。
+func TestModpackImportCleanupFailureKeepsMarker(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("只有 Windows 上打开着的文件删不掉")
+	}
+	stubWaterfallDownloads(t)
+	m, _ := importEnv(t)
+	var dir string
+	var held *os.File
+	old := atomicfile.Hook
+	t.Cleanup(func() {
+		atomicfile.Hook = old
+		if held != nil {
+			held.Close()
+		}
+	})
+	atomicfile.Hook = func(p string) {
+		if filepath.Base(p) != PendingReportFile || held != nil {
+			return
+		}
+		dir = filepath.Dir(p)
+		held, _ = os.Open(filepath.Join(dir, "config", "a.txt")) // 别的程序占着这个文件
+		_ = os.Mkdir(filepath.Join(dir, "run.bat"), 0o755)       // 收尾写 run.bat 失败
+	}
+	id, err := m.ImportModpackAsync(testPendingPack(t), CreateReq{Name: "删不干净"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sn := waitImportTask(t, m, id)
+	if held == nil {
+		t.Fatalf("没走到收尾：%+v", sn)
+	}
+	if !pathExists(dir) {
+		t.Skip("这台电脑上打开着的文件也删得掉，碰不上删不干净的情形")
+	}
+	if !strings.Contains(sn.Err, "清理半成品失败") {
+		t.Fatalf("任务应说清楚半成品没清干净：%+v", sn)
+	}
+	if !pathExists(filepath.Join(dir, CreatingMarker)) || !listedAfterRestart(dir) {
+		t.Fatal("没删干净的半成品应带着创建记号，列在「没建完的文件夹」里")
+	}
+	held.Close()
+	held = nil
+	fresh := &Manager{insts: map[string]*Instance{}, creating: map[string]bool{}}
+	if err := fresh.DiscardCreatingLeftover(leftoverID(filepath.Dir(dir), filepath.Base(dir)), true); err != nil {
+		t.Fatal(err)
+	}
+	if pathExists(dir) {
+		t.Fatal("文件放开以后应能在「没建完的文件夹」那里删掉")
 	}
 }
 
