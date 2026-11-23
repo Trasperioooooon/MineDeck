@@ -79,7 +79,13 @@ func Parse(zipPath string) (*Pack, error) {
 		return nil, fmt.Errorf("无法打开整合包（需为 .mrpack 或 zip）: %w", err)
 	}
 	defer zr.Close()
-	loc, err := findIndex(zr.File)
+	return parseFiles(zipPath, zr.File)
+}
+
+// parseFiles 认压缩包里的条目（Parse 打开以后的那一步）。zipPath 只记进 Pack，后面解压时再打开。
+func parseFiles(zipPath string, files []*zip.File) (*Pack, error) {
+	layout := newZipLayout(files)
+	loc, err := findIndex(files, layout)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +97,7 @@ func Parse(zipPath string) (*Pack, error) {
 			return parseCurseForge(zipPath, loc.file, loc.root)
 		}
 	}
-	return recognizeServer(zipPath, zr.File)
+	return recognizeServer(zipPath, files, layout)
 }
 
 func readZipFile(f *zip.File, out any) error {

@@ -2053,7 +2053,7 @@ async function drawImport() {
   const fill = takeFill("import"); // 「返回修改」：上次填的（连选的文件）
   let imRoot = fill ? fill.root : "";
   const on = (k, def) => (fill ? fill[k] : def) ? " checked" : "";
-  Main().innerHTML = pageHead("导入整合包", "Modrinth（.mrpack）、CurseForge（zip），或作者打包好的现成服务端。清单和服务端文件可以在最外层，也可以只套一层文件夹。核心和版本会自动识别。", "",
+  Main().innerHTML = pageHead("导入整合包", "Modrinth（.mrpack）、CurseForge（zip），或作者打包好的现成服务端。清单和服务端文件可以在最外层，也可以套在文件夹里（只有一个文件夹一层层套着的，最多认三层）。核心和版本会自动识别。", "",
     `<a href="#/create">新建服务器</a>${icon("chevronRight")}<span>导入整合包</span>`) + `
     <div class="form-grid">
       <label class="field full"><span>整合包文件</span><input type="file" id="im-file" accept=".mrpack,.zip"><div class="field-err" id="im-file-err"></div></label>

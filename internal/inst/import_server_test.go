@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"minedeck/internal/app"
+	"minedeck/internal/diskguard"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/modpack"
 )
@@ -438,5 +440,55 @@ func TestImportServerArchiveCaseDuplicates(t *testing.T) {
 	log := strings.Join(tk.Snapshot().Log, "\n")
 	if !strings.Contains(log, "只差大小写") || !strings.Contains(log, "config/dup.toml") || !strings.Contains(log, "CONFIG/DUP.TOML") || strings.Contains(log, "config/same.toml") {
 		t.Errorf("日志应列出只差大小写、没解压的那两个：%s", log)
+	}
+}
+
+// 解压现成服务端之前按解开以后的总大小查磁盘余量（A40，同交接包导入）：装不下就一个文件都不写；
+// 刚好装得下的照常导入；查不到余量的盘照做，日志里说一声。
+func TestImportServerArchiveChecksDiskSpace(t *testing.T) {
+	m, _ := importEnv(t)
+	z := zipOf(t, map[string]string{
+		"paper-1.20.1-100.jar":   paperJarBytes(t),
+		"server.properties":      "server-port=25565\n",
+		"eula.txt":               "eula=true\n",
+		"world/region/r.0.0.mca": strings.Repeat("\x00", 4<<20),
+	})
+	zr, err := zip.OpenReader(z)
+	if err != nil {
+		t.Fatal(err)
+	}
+	need := diskguard.Reserve
+	for _, f := range zr.File {
+		need += int64(f.UncompressedSize64) + 4096
+	}
+	zr.Close()
+	old := serverImportDiskFree
+	t.Cleanup(func() { serverImportDiskFree = old })
+	run := func(name string, free func(string) (int64, error)) (string, string, error) {
+		pack, err := modpack.Parse(z)
+		if err != nil {
+			t.Fatal(err)
+		}
+		serverImportDiskFree = free
+		dir := filepath.Join(app.ServersDir, name)
+		tk, _ := m.Tasks.New("导入服务端", serverImportSteps)
+		err = m.runServerImport(context.Background(), tk, pack, CreateReq{Name: name, XmxMB: 2048, Port: 25576, EULA: true}, dir)
+		return dir, strings.Join(tk.Snapshot().Log, "\n"), err
+	}
+
+	dir, _, err := run("差一点", func(string) (int64, error) { return need - 1, nil })
+	var full *diskguard.NoSpace
+	if !errors.As(err, &full) {
+		t.Fatalf("差一个字节装不下也该在解压前停下：%v", err)
+	}
+	if got := dirNames(t, dir); !slices.Equal(got, []string{CreatingMarker}) {
+		t.Fatalf("装不下时一个文件都不该写：%q", got)
+	}
+	if _, _, err := run("刚好", func(string) (int64, error) { return need, nil }); err != nil {
+		t.Fatalf("刚好装得下应照常导入：%v", err)
+	}
+	_, log, err := run("查不到", func(string) (int64, error) { return 0, errors.New("这块盘查不了") })
+	if err != nil || !strings.Contains(log, "没查到存放位置所在的盘还剩多少空间") {
+		t.Fatalf("查不到余量的盘照做，日志里说一声：%v\n%s", err, log)
 	}
 }

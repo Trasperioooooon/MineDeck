@@ -9,6 +9,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -19,7 +20,8 @@ import (
 )
 
 // 清单不在压缩包最外层时，常见的是作者把整个文件夹又压了一遍：整合包名/manifest.json。
-// 只认这一层，而且整包里只能有一处。mods、config 这种内容目录里碰巧有个同名文件，不当成清单。
+// 套一层的照旧在各个顶层文件夹里找，整包里只能有一处；mods、config 这种内容目录里碰巧有个同名文件，不当成清单。
+// 再往里只沿着「这一层只有一个文件夹、没有别的文件」往下剥，最多剥到第三层（A41，见 zipLayout.wrapped）。
 
 // 解压现成服务端时的上限。正常的服务器（世界、模组、配置）到不了这么大；
 // 用来挡住「声明很小、展开巨大」的压缩包。
@@ -57,24 +59,36 @@ type nestHit struct {
 
 // findIndex 找 Modrinth / CurseForge 的清单。
 // 最外层有就用最外层（和以前一样，zip 里谁排在前面用谁）。
-// 否则只接受唯一的一层包装目录。两处都有、或同一层里两种清单都在，不猜。
-func findIndex(files []*zip.File) (*indexLoc, error) {
+// 否则只接受唯一的一层包装目录，再不然沿着单独一个文件夹往里剥（最多三层）。两处都有、或同一层里两种清单都在，不猜。
+// 最外层自己已经像一台服务端的，里面文件夹里的 manifest.json 不算（A40：网页文件、插件数据里常有同名的 manifest.json）。
+func findIndex(files []*zip.File, l zipLayout) (*indexLoc, error) {
 	nests := map[string]*nestHit{}
 	var order []string
 	budget := indexSniffMax
+	nestedOK := !l.looksLikeServer("")
+	deep := ""
+	if nestedOK {
+		deep = l.wrapped()
+		if slices.ContainsFunc(strings.Split(deep, "/"), func(d string) bool { return !isWrapperDir(d) }) {
+			deep = "" // 剥的路上有 mods、config 这种内容目录：不是包装文件夹
+		}
+	}
 	for _, f := range files {
 		name := zipNameOf(f)
 		if name == "" || isZipDir(f, name) {
 			continue
 		}
 		if !strings.Contains(name, "/") {
-			if kind, ok := indexKind(name); ok && isIndexFile(f, kind, &budget) {
+			if kind, ok := indexKind(name); ok && isIndexFile(f, kind, &budget, false) {
 				return &indexLoc{file: f, kind: kind}, nil // 最外层的就用它，后面的不用再看
 			}
 			continue
 		}
-		dir, base, ok := oneLevel(name)
-		if !ok || !isWrapperDir(dir) {
+		if !nestedOK {
+			continue
+		}
+		dir, base, ok := wrapperLevel(name, deep)
+		if !ok {
 			continue
 		}
 		kind, ok := indexKind(base)
@@ -85,7 +99,7 @@ func findIndex(files []*zip.File) (*indexLoc, error) {
 		if n != nil && (kind == FormatMrpack && n.mr != nil || kind == FormatCurseForge && n.cf != nil) {
 			continue // 这一层已经有一份同类的了（zip 里可以有同名的条目）：用前面那份，后面的不再解开看
 		}
-		if !isIndexFile(f, kind, &budget) {
+		if !isIndexFile(f, kind, &budget, true) {
 			continue
 		}
 		if n == nil {
@@ -138,21 +152,23 @@ func indexKind(base string) (string, bool) {
 // manifest.json（files 是一串路径，带 serverPackCreatorVersion）。以前它被当成 CurseForge 清单去解析，
 // 报一句 JSON 类型错误，走不到服务端的识别。CurseForge 的清单写着 manifestType: minecraftModpack；
 // 老一些或别的工具导出的可能没写这一项，但一定有 minecraft 那一段（版本和加载器在里面）。两样都没有的不算。
-// 读不出来、不是 JSON 的仍然当成清单，让解析那一步把原因报出来。
-// budget 是这一次找清单还能解开的字节数（从 indexSniffMax 起扣，每份至少扣 indexSniffMin），不够看这一份的，也按清单算。
-func isIndexFile(f *zip.File, kind string, budget *int64) bool {
+// 最外层的读不出来、不是 JSON 的仍然当成清单，让解析那一步把原因报出来。
+// budget 是这一次找清单还能解开的字节数（从 indexSniffMax 起扣，每份至少扣 indexSniffMin），不够看这一份的，最外层的也按清单算。
+// nested（在文件夹里的）从严：要读得出来，而且 minecraft 那一段写着版本才算（A40）。文件夹里的 manifest.json 多半是别的东西
+// （网页文件、插件的数据），读不出来就当成清单的话，整包会被当成 CurseForge 整合包、报一句看不懂的错。
+func isIndexFile(f *zip.File, kind string, budget *int64, nested bool) bool {
 	if kind != FormatCurseForge {
 		return true
 	}
 	size := int64(f.UncompressedSize64)
 	cost := max(size, indexSniffMin)
 	if size < 0 || cost > *budget {
-		return true
+		return !nested
 	}
 	*budget -= cost
 	b, err := readZipEntry(f, size) // zip 库读的时候会核对实际大小，写小了、写大了都读不出来
 	if err != nil {
-		return true
+		return !nested
 	}
 	b = bytes.TrimPrefix(b, []byte("\xef\xbb\xbf")) // 记事本这类存出来的开头带 BOM，json 不认
 	var m struct {
@@ -160,12 +176,34 @@ func isIndexFile(f *zip.File, kind string, budget *int64) bool {
 		Minecraft    json.RawMessage `json:"minecraft"`
 	}
 	if json.Unmarshal(b, &m) != nil {
-		return true
+		return !nested
 	}
-	if m.ManifestType != "" {
-		return m.ManifestType == "minecraftModpack"
+	if m.ManifestType != "" && m.ManifestType != "minecraftModpack" {
+		return false
 	}
-	return len(m.Minecraft) > 0 && string(m.Minecraft) != "null"
+	if nested {
+		var mc struct {
+			Version string `json:"version"`
+		}
+		return json.Unmarshal(m.Minecraft, &mc) == nil && strings.TrimSpace(mc.Version) != ""
+	}
+	return m.ManifestType != "" || len(m.Minecraft) > 0 && string(m.Minecraft) != "null"
+}
+
+// wrapperLevel name 是不是直接放在某个包装文件夹里的文件：套一层的「文件夹/文件」（文件夹名不能是 mods 这种内容目录），
+// 或者正好在 deep（沿着单独一个文件夹剥进去的那一层，见 zipLayout.wrapped）里。
+func wrapperLevel(name, deep string) (dir, base string, ok bool) {
+	if dir, base, ok := oneLevel(name); ok {
+		return dir, base, isWrapperDir(dir)
+	}
+	if deep == "" {
+		return "", "", false
+	}
+	base, ok = strings.CutPrefix(name, deep+"/")
+	if !ok || base == "" || strings.Contains(base, "/") {
+		return "", "", false
+	}
+	return deep, base, true
 }
 
 // oneLevel 路径是不是「刚好一层目录 + 文件名」。../、绝对路径、再深一层都不算。
@@ -230,11 +268,11 @@ func hinted(hint, format string, a ...any) error {
 
 // ServerUnknownError 能看出是服务端、但核心或版本认不出来时给用户的说明。
 func ServerUnknownError() error {
-	return hinted("看着像现成服务端，但没认出核心和版本", "这个压缩包像是一台现成的服务端（有 mods、plugins、server.properties 或服务端 jar），但没认出核心和 Minecraft 版本。请确认 Forge / NeoForge 的 libraries，或 Fabric / Paper / 原版的服务端 jar 就在里面（可以套一层文件夹）。只有启动脚本或加载器安装器的 Server Pack，需要先解压，按包作者的说明运行包里的启动脚本或安装器，把加载器装好，再用「新建服务器 → 接管已有服务器」选中那个文件夹。加载器已装好但仍认不出时，也可以解压后用接管，类型和版本可以自己填。")
+	return hinted("看着像现成服务端，但没认出核心和版本", "这个压缩包像是一台现成的服务端（有 mods、plugins、server.properties 或服务端 jar），但没认出核心和 Minecraft 版本。请确认 Forge / NeoForge 的 libraries，或 Fabric / Paper / 原版的服务端 jar 就在里面（可以套在文件夹里：套一层的随便套，只有一个文件夹一层层套着的最多认三层）。只有启动脚本或加载器安装器的 Server Pack，需要先解压，按包作者的说明运行包里的启动脚本或安装器，把加载器装好，再用「新建服务器 → 接管已有服务器」选中那个文件夹。加载器已装好但仍认不出时，也可以解压后用接管，类型和版本可以自己填。")
 }
 
 func unrecognizedPackError() error {
-	return hinted("没认出这个压缩包，既没有整合包清单，也看不出是服务端", "无法识别这个压缩包。Modrinth 整合包要有 modrinth.index.json，CurseForge 整合包要有 manifest.json，放在最外层，或只套一层文件夹（例如「整合包名/manifest.json」）。如果这是作者给的现成服务端，压缩包里应能看到 mods、plugins、server.properties 或服务端 jar。也可以先解压，再用「新建服务器 → 接管已有服务器」选中那个文件夹。")
+	return hinted("没认出这个压缩包，既没有整合包清单，也看不出是服务端", "无法识别这个压缩包。Modrinth 整合包要有 modrinth.index.json，CurseForge 整合包要有 manifest.json，放在最外层，或套在文件夹里（例如「整合包名/manifest.json」；只有一个文件夹一层层套着的，最多认三层）。如果这是作者给的现成服务端，压缩包里应能看到 mods、plugins、libraries、server.properties、eula.txt 或认得出名字的服务端 jar。也可以先解压，再用「新建服务器 → 接管已有服务器」选中那个文件夹。")
 }
 
 func ambiguousServerError(dirs []string) error {
@@ -246,9 +284,9 @@ func ambiguousServerError(dirs []string) error {
 	return hinted("压缩包里有好几台服务端，一次只能导入一台", "压缩包里有好几个看起来像服务端的文件夹（%s），没法判断该导入哪一个。请只打包其中一台，或用「新建服务器 → 接管已有服务器」选中具体的文件夹。", strings.Join(shown, "、"))
 }
 
-// recognizeServer 没有整合包清单时，看是不是一台现成的服务端（可能也套了一层文件夹）。
-func recognizeServer(zipPath string, files []*zip.File) (*Pack, error) {
-	root, roots, ok := serverRoot(files)
+// recognizeServer 没有整合包清单时，看是不是一台现成的服务端（可能也套在文件夹里）。
+func recognizeServer(zipPath string, files []*zip.File, l zipLayout) (*Pack, error) {
+	root, roots, ok := serverRoot(l)
 	if !ok {
 		if len(roots) > 1 {
 			return nil, ambiguousServerError(roots)
@@ -283,8 +321,8 @@ func recognizeServer(zipPath string, files []*zip.File) (*Pack, error) {
 }
 
 func serverPack(zipPath, root string, c srvCand) *Pack {
-	name := root
-	if name == "" {
+	name := path.Base(root) // 套了几层的取最里面那个文件夹的名字
+	if root == "" {
 		name = strings.TrimSuffix(filepath.Base(zipPath), filepath.Ext(zipPath))
 	}
 	name = strings.TrimSpace(name)
@@ -322,68 +360,137 @@ func DisplayNameFromUpload(fileName string) string {
 	return s
 }
 
-// serverRoot 服务端文件在最外层，还是只套了一层目录。
-// 最外层自己像服务端就用最外层（旁边再套一个文件夹时不猜里面那个）。
-func serverRoot(files []*zip.File) (root string, nested []string, ok bool) {
-	if hasServerTrait(files, "") {
-		return "", nil, true
-	}
-	seen := map[string]bool{}
-	for _, f := range files {
-		name := zipNameOf(f)
-		if name == "" || isZipDir(f, name) {
-			continue
-		}
-		dir, _, found := strings.Cut(name, "/")
-		if !found || seen[dir] {
-			continue
-		}
-		clean, err := safeRelPath(dir)
-		if err != nil || clean != dir {
-			continue
-		}
-		seen[dir] = true
-		if hasServerTrait(files, dir) {
-			nested = append(nested, dir)
-		}
-	}
-	if len(nested) == 1 {
-		return nested[0], nested, true
-	}
-	return "", nested, false
+// maxWrapDepth 包装文件夹最多剥几层（A41）。
+const maxWrapDepth = 3
+
+// zipLayout 压缩包最外几层（到 maxWrapDepth 为止）每一层直接放着什么：键是这一层的路径（最外层是空串）。
+// 扫一遍条目就建好，找清单和找服务端在哪一层都查它。以前对每个顶层文件夹都把全部条目扫一遍，
+// 八千个顶层文件夹要一秒多（A40）。
+type zipLayout map[string]*zipLevel
+
+type zipLevel struct {
+	files  int             // 直接放在这一层的文件个数
+	dirs   map[string]bool // 直接的子文件夹
+	server bool            // 这一层像服务端（见 serverEntry）
 }
 
-func hasServerTrait(files []*zip.File, root string) bool {
+func newZipLayout(files []*zip.File) zipLayout {
+	l := zipLayout{}
+	level := func(p string) *zipLevel {
+		lv := l[p]
+		if lv == nil {
+			lv = &zipLevel{dirs: map[string]bool{}}
+			l[p] = lv
+		}
+		return lv
+	}
 	for _, f := range files {
 		name := zipNameOf(f)
-		rel, ok := relUnder(name, root)
-		if !ok {
+		isDir := isZipDir(f, name)
+		name = strings.TrimSuffix(name, "/")
+		if name == "" {
 			continue
 		}
-		if isServerTrait(rel) {
+		if clean, err := safeRelPath(name); err != nil || clean != name {
+			continue // ../、盘符这类：服务端压缩包整包拒绝（auditServerPaths），这里不算它在哪一层
+		}
+		segs := strings.Split(name, "/")
+		for d := 0; d < len(segs) && d <= maxWrapDepth; d++ {
+			lv := level(strings.Join(segs[:d], "/"))
+			if d < len(segs)-1 || isDir {
+				lv.dirs[segs[d]] = true
+				lv.server = lv.server || serverEntry(segs[d], true)
+			} else {
+				lv.files++
+				lv.server = lv.server || serverEntry(segs[d], false)
+			}
+		}
+	}
+	return l
+}
+
+// looksLikeServer 压缩包里 p 这一层看起来是不是一台服务端。
+func (l zipLayout) looksLikeServer(p string) bool {
+	lv := l[p]
+	return lv != nil && lv.server
+}
+
+// wrapped 从最外层起，这一层只有一个文件夹、没有别的文件就往里剥一层，最多剥 maxWrapDepth 层（A41）：返回剥到的那一层。
+// 只剥了一层或者一层都剥不了时返回空串：一层的照旧按「各个顶层文件夹里找」认，不靠这里。
+func (l zipLayout) wrapped() string {
+	cur := ""
+	for depth := 0; depth < maxWrapDepth; depth++ {
+		lv := l[cur]
+		if lv == nil || lv.files != 0 || len(lv.dirs) != 1 {
+			break
+		}
+		for d := range lv.dirs {
+			cur = path.Join(cur, d)
+		}
+	}
+	if strings.Count(cur, "/") == 0 {
+		return ""
+	}
+	return cur
+}
+
+// serverEntry 直接放在某一层的这一项算不算服务端的特征：server.properties、eula.txt、mods、plugins、libraries 文件夹，
+// 或者名字认得出的服务端 jar（knownServerJar）。名字认不出的 jar 单独一个不算（A40）：套了一层的服务端旁边多放一个
+// 别的 jar（工具、备份的旧核心），以前最外层就算「像服务端」，里面那台反而认不出了。
+func serverEntry(name string, isDir bool) bool {
+	low := strings.ToLower(name)
+	if isDir {
+		return low == "mods" || low == "plugins" || low == "libraries"
+	}
+	return low == "server.properties" || low == "eula.txt" || knownServerJar(name)
+}
+
+// knownServerJar 文件名看得出是服务端或加载器的启动 jar。和 serverCands 认核心时看文件名的那一套一致（candFromName），
+// 再加上原版、Spigot / CraftBukkit、BungeeCord 和 Taiyitist 的常见名字：这几种是按 jar 里的主类认的，名字不在那一套里。
+// 安装器、BuildTools 不算。
+func knownServerJar(name string) bool {
+	if !isRootJar(name) {
+		return false
+	}
+	if _, ok := candFromName(name); ok {
+		return true
+	}
+	stem := strings.TrimSuffix(strings.ToLower(name), ".jar")
+	if stem == "server" {
+		return true
+	}
+	for _, p := range []string{"minecraft_server", "spigot", "craftbukkit", "bungeecord", "taiyitist"} {
+		if strings.HasPrefix(stem, p) {
 			return true
 		}
 	}
 	return false
 }
 
-func isServerTrait(rel string) bool {
-	low := strings.ToLower(rel)
-	switch {
-	case low == "server.properties":
-		return true
-	case low == "mods" || strings.HasPrefix(low, "mods/"):
-		return true
-	case low == "plugins" || strings.HasPrefix(low, "plugins/"):
-		return true
-	case strings.HasPrefix(low, "libraries/net/minecraftforge/forge/"),
-		strings.HasPrefix(low, "libraries/net/neoforged/neoforge/"):
-		return true
-	case isRootJar(rel):
-		return true
-	default:
-		return false
+// serverRoot 服务端文件在压缩包的哪一层。最外层自己像服务端就用最外层（旁边再套一个文件夹时不猜里面那个）；
+// 不然看各个顶层文件夹，正好一个像服务端就用它；再不然沿着单独一个文件夹往里剥（最多三层，A41）。
+// nested 是像服务端的顶层文件夹，不止一个时调用方报「好几台」。
+func serverRoot(l zipLayout) (root string, nested []string, ok bool) {
+	if l.looksLikeServer("") {
+		return "", nil, true
 	}
+	if top := l[""]; top != nil {
+		for dir := range top.dirs {
+			if l.looksLikeServer(dir) {
+				nested = append(nested, dir)
+			}
+		}
+	}
+	switch {
+	case len(nested) == 1:
+		return nested[0], nested, true
+	case len(nested) > 1:
+		return "", nested, false
+	}
+	if deep := l.wrapped(); deep != "" && l.looksLikeServer(deep) {
+		return deep, nil, true
+	}
+	return "", nil, false
 }
 
 func isRootJar(rel string) bool {
@@ -802,7 +909,9 @@ func firstNonEmpty(ss ...string) string {
 // ExtractServer 把现成服务端压缩包解进实例目录。Root 那一层会剥掉。
 // 每条路径都过 safeRelPath，过不了就整包拒绝、一个文件都不写。
 // 符号链接不展开。writeFile 拿到的 rel 已经是剥掉 Root 之后的相对路径。
-func ExtractServer(p *Pack, writeFile func(rel string, r io.Reader) error) (int, error) {
+// begin（可以是 nil）在数完要解的文件、写第一个之前调一次，拿到文件个数和按 zip 里写的大小合计的总字节数：
+// 调用方在这里查磁盘余量（A40），返回错误就一个文件都不写。
+func ExtractServer(p *Pack, begin func(files int, total int64) error, writeFile func(rel string, r io.Reader) error) (int, error) {
 	if p == nil || p.Format != FormatServer {
 		return 0, fmt.Errorf("这不是服务端压缩包")
 	}
@@ -846,6 +955,11 @@ func ExtractServer(p *Pack, writeFile func(rel string, r io.Reader) error) (int,
 	}
 	if total > serverMaxBytes {
 		return 0, fmt.Errorf("压缩包解开后有 %.1f GB，超过了一次能导入的上限（%d GB）", float64(total)/(1<<30), serverMaxBytes>>30)
+	}
+	if begin != nil {
+		if err := begin(len(ents), total); err != nil {
+			return 0, err
+		}
 	}
 	n := 0
 	for _, e := range ents {

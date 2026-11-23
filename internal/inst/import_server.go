@@ -85,65 +85,17 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 		where = "「" + pack.Root + "」这一层"
 	}
 	t.Logf("按现成服务端解压（文件在%s）", where)
-	cleanDest := filepath.Clean(dir)
-	var skipped []string        // 名字在 Windows 上不能用、没有解压的文件（最多记 20 个）
-	var dups []string           // 和前面的文件只差大小写、没有解压的（最多记 20 个）
-	seen := map[string]string{} // 已经解压的文件：不分大小写的路径 → 包里的写法
-	n, err := modpack.ExtractServer(pack, func(rel string, r io.Reader) error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		// 和交接包一样：别人给的 instance.json、run.bat 不能落下来，不然下次启动就按包里写的去跑。
-		// 名字在 Windows 上不能用的（CON、CON.txt、COM1.log 这类设备名，结尾是点或空格的）也和整合包覆盖目录一样跳过。
-		if !overrideAllowed(rel) {
-			if !IsControlFile(rel) && len(skipped) < 20 {
-				skipped = append(skipped, rel)
-			}
-			return nil
-		}
-		// 只差大小写的两个名字在 Windows 上是同一个文件，后一个会把前一个盖掉（v3.1.0 正式版前检查 C-2e）：
-		// 和名字不能用的一样跳过、日志里列出来，留前一个。不整包拒绝：服务端包常在 Linux 上打，那边这是两个文件，
-		// 拒了整包就导不进来了。写法一模一样出现两次的照旧以后一个为准
-		k := winname.Fold(rel)
-		if first, ok := seen[k]; ok && first != rel {
-			if len(dups) < 20 {
-				dups = append(dups, rel)
-			}
-			return nil
-		}
-		seen[k] = rel
-		target := filepath.Join(cleanDest, filepath.FromSlash(rel))
-		if target == cleanDest || !strings.HasPrefix(target, cleanDest+string(os.PathSeparator)) {
-			return fmt.Errorf("整合包内含非法路径: %s", rel)
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
-		}
-		lease, err := diskguard.Acquire(ctx, filepath.Dir(target), diskguard.Options{AllowUnknown: true})
-		if err != nil {
-			return err
-		}
-		defer lease.Close()
-		w, err := os.Create(target)
-		if err != nil {
-			return err
-		}
-		_, cerr := io.Copy(lease.Writer(w), r)
-		if werr := w.Close(); cerr == nil {
-			cerr = werr
-		}
-		return cerr
-	})
+	res, err := extractServerFiles(ctx, t, pack, dir)
 	if err != nil {
 		return fmt.Errorf("解压服务端失败: %w", err)
 	}
 	ScrubControlFiles(dir)
-	t.Logf("解压了 %d 个文件", n)
-	if len(skipped) > 0 {
-		t.Logf("这些文件的名字在 Windows 上不能用，没有解压：%s", strings.Join(skipped, "、"))
+	t.Logf("解压了 %d 个文件", res.n)
+	if len(res.skipped) > 0 {
+		t.Logf("这些文件的名字在 Windows 上不能用，没有解压：%s", strings.Join(res.skipped, "、"))
 	}
-	if len(dups) > 0 {
-		t.Logf("这些文件和压缩包里前面的文件只差大小写，在 Windows 上是同一个文件，没有解压（留的是前面那个）：%s", strings.Join(dups, "、"))
+	if len(res.dups) > 0 {
+		t.Logf("这些文件和压缩包里前面的文件只差大小写，在 Windows 上是同一个文件，没有解压（留的是前面那个）：%s", strings.Join(res.dups, "、"))
 	}
 	if name, ok := CheckLevelName(dir); !ok {
 		return fmt.Errorf("服务端的 server.properties 把世界文件夹（level-name）指到了服务器文件夹外面：%s", name)
@@ -214,6 +166,96 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 
 	t.Logf("服务端导入完成 ✔ 世界、模组、插件和配置用的是压缩包里的那份，没有重新下载核心")
 	return nil
+}
+
+// serverExtract 解压现成服务端的结果。
+type serverExtract struct {
+	n       int      // 解出来的文件个数
+	skipped []string // 名字在 Windows 上不能用、没有解压的（最多记 20 个）
+	dups    []string // 和前面的文件只差大小写、没有解压的（最多记 20 个）
+}
+
+// extractServerFiles 把现成服务端压缩包解进 dir。整个解压拿着一份磁盘名额，开头按解开以后的总大小查余量（serverExtractLease）。
+func extractServerFiles(ctx context.Context, t *tasks.Task, pack *modpack.Pack, dir string) (serverExtract, error) {
+	var res serverExtract
+	var lease *diskguard.Lease
+	defer func() {
+		if lease != nil {
+			lease.Close()
+		}
+	}()
+	cleanDest := filepath.Clean(dir)
+	seen := map[string]string{} // 已经解压的文件：不分大小写的路径 → 包里的写法
+	n, err := modpack.ExtractServer(pack, func(files int, total int64) (err error) {
+		lease, err = serverExtractLease(ctx, t, dir, files, total)
+		return err
+	}, func(rel string, r io.Reader) error {
+		if err := lease.Check(0); err != nil { // 也查取消
+			return err
+		}
+		// 和交接包一样：别人给的 instance.json、run.bat 不能落下来，不然下次启动就按包里写的去跑。
+		// 名字在 Windows 上不能用的（CON、CON.txt、COM1.log 这类设备名，结尾是点或空格的）也和整合包覆盖目录一样跳过。
+		if !overrideAllowed(rel) {
+			if !IsControlFile(rel) && len(res.skipped) < 20 {
+				res.skipped = append(res.skipped, rel)
+			}
+			return nil
+		}
+		// 只差大小写的两个名字在 Windows 上是同一个文件，后一个会把前一个盖掉（v3.1.0 正式版前检查 C-2e）：
+		// 和名字不能用的一样跳过、日志里列出来，留前一个。不整包拒绝：服务端包常在 Linux 上打，那边这是两个文件，
+		// 拒了整包就导不进来了。写法一模一样出现两次的照旧以后一个为准
+		k := winname.Fold(rel)
+		if first, ok := seen[k]; ok && first != rel {
+			if len(res.dups) < 20 {
+				res.dups = append(res.dups, rel)
+			}
+			return nil
+		}
+		seen[k] = rel
+		target := filepath.Join(cleanDest, filepath.FromSlash(rel))
+		if target == cleanDest || !strings.HasPrefix(target, cleanDest+string(os.PathSeparator)) {
+			return fmt.Errorf("整合包内含非法路径: %s", rel)
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		w, err := os.Create(target)
+		if err != nil {
+			return err
+		}
+		_, cerr := io.Copy(lease.Writer(w), r)
+		if werr := w.Close(); cerr == nil {
+			cerr = werr
+		}
+		return cerr
+	})
+	res.n = n
+	return res, err
+}
+
+// serverImportDiskFree 查磁盘余量的函数；nil 用系统的。测试里换成余量不够、查不到的。
+var serverImportDiskFree func(string) (int64, error)
+
+// serverExtractLease 解压现成服务端之前按解开以后的总大小要磁盘余量（A40），做法同交接包导入（transfer 的 extractPrefix）：
+// 总大小加上每个文件 4 KiB 的零头，装不下就在写第一个文件之前停下，免得把盘写满、连累同一块盘上别的服务器。
+// 查不到余量的盘照做（有的盘就是查不了），日志里说一声。写的过程中 diskguard 照常每隔一段再查一次。
+func serverExtractLease(ctx context.Context, t *tasks.Task, dir string, files int, total int64) (*diskguard.Lease, error) {
+	query := serverImportDiskFree
+	if query == nil {
+		query = diskguard.Free
+	}
+	warned := false
+	logged := func(p string) (int64, error) {
+		n, err := query(p)
+		if err != nil && !warned {
+			warned = true
+			t.Logf("没查到存放位置所在的盘还剩多少空间（%v），这一步检查跳过", err)
+		}
+		return n, err
+	}
+	// 文件数、总大小在 ExtractServer 里已经过了上限（20 万个、8 GB），加起来不会溢出
+	need := total + int64(files)*4096
+	return diskguard.Acquire(ctx, dir, diskguard.Options{Need: need, Query: logged, AllowUnknown: true})
 }
 
 // detectImportedServer 先用接管已有服务器的识别（看 jar、参数文件、日志）。

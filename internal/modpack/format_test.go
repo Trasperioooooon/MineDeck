@@ -2,11 +2,14 @@ package modpack
 
 import (
 	"archive/zip"
+	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"minedeck/internal/mcsrc"
@@ -337,7 +340,7 @@ func TestMaliciousZipPaths(t *testing.T) {
 	if _, err := Parse(z); err == nil || !strings.Contains(err.Error(), "非法路径") {
 		t.Fatalf("服务端压缩包里的非法路径应拒绝: %v", err)
 	}
-	n, err := ExtractServer(&Pack{Format: FormatServer, ZipPath: z, Root: "Srv"}, func(rel string, r io.Reader) error {
+	n, err := ExtractServer(&Pack{Format: FormatServer, ZipPath: z, Root: "Srv"}, nil, func(rel string, r io.Reader) error {
 		t.Fatalf("不应写出 %s", rel)
 		return nil
 	})
@@ -358,7 +361,7 @@ func TestExtractServerStripsWrapper(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := map[string]string{}
-	if _, err := ExtractServer(p, func(rel string, r io.Reader) error {
+	if _, err := ExtractServer(p, nil, func(rel string, r io.Reader) error {
 		b, err := io.ReadAll(r)
 		got[rel] = string(b)
 		return err
@@ -408,4 +411,182 @@ func TestLibraryJarNotGuessedByName(t *testing.T) {
 	if err == nil {
 		t.Fatalf("库 jar 不该被当成 Paper 服务端：%+v", pack)
 	}
+}
+
+// 八千个顶层文件夹的压缩包：找服务端在哪一层只扫一遍条目建好各层的样子（zipLayout），serverRoot 只查它、碰不到条目本身。
+// 以前对每个顶层文件夹都把全部条目扫一遍，这样的包要一秒多（A40）；上限放得很宽，只挡回到那种做法。
+func TestServerRootManyTopLevelDirs(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	add := func(name, body string) {
+		w, err := zw.CreateHeader(&zip.FileHeader{Name: name, Method: zip.Store})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 8000; i++ {
+		add(fmt.Sprintf("d%04d/readme.txt", i), "x")
+		add(fmt.Sprintf("d%04d/sub/a.txt", i), "x")
+	}
+	add("Srv/server.properties", "server-port=25565\n")
+	add("Srv/paper-1.20.1-100.jar", paperJar(t))
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	p, err := parseFiles("内存里的.zip", zr.File)
+	if took := time.Since(start); took > time.Second {
+		t.Fatalf("认这个包用了 %v", took)
+	}
+	if err != nil || p.Format != FormatServer || p.Root != "Srv" || p.Core != mcsrc.CorePaper {
+		t.Fatalf("应认出 Srv 里那台 Paper：%+v %v", p, err)
+	}
+}
+
+// 「像服务端」要看到服务端的特征，名字认不出的 jar 单独一个不算（A40）：套了一层的服务端旁边多放一个这样的 jar，
+// 以前最外层就算像服务端，里面那台认不出来了。
+func TestUnknownJarAloneIsNotServer(t *testing.T) {
+	tool := jarOf(t, map[string]string{"META-INF/MANIFEST.MF": "Manifest-Version: 1.0\r\nMain-Class: com.example.Tool\r\n\r\n"})
+	p, err := Parse(mkZip(t, map[string]string{
+		"备份工具.jar":                      tool,
+		"MyServer/server.properties":    "server-port=25565\n",
+		"MyServer/paper-1.20.1-100.jar": paperJar(t),
+	}))
+	if err != nil || p.Root != "MyServer" || p.Core != mcsrc.CorePaper || p.MC != "1.20.1" {
+		t.Fatalf("旁边多一个认不出的 jar，里面那台照样该认出来：%+v %v", p, err)
+	}
+	var h interface{ Hint() string }
+	if _, err := Parse(mkZip(t, map[string]string{"备份工具.jar": tool})); !errors.As(err, &h) || !strings.HasPrefix(h.Hint(), "没认出这个压缩包") {
+		t.Fatalf("只有一个认不出的 jar，不该算服务端：%v", err)
+	}
+	// 特征是这几样里的任何一样：放在最外层，就按最外层认，不再往文件夹里找
+	for _, trait := range []string{"eula.txt", "server.properties", "mods/a.jar", "plugins/a.jar", "libraries/x/y.jar", "server.jar", "paper.jar", "spigot-1.20.1.jar"} {
+		_, err := Parse(mkZip(t, map[string]string{
+			trait:                           "x",
+			"MyServer/server.properties":    "server-port=25565\n",
+			"MyServer/paper-1.20.1-100.jar": paperJar(t),
+		}))
+		if !errors.As(err, &h) || h.Hint() != "看着像现成服务端，但没认出核心和版本" {
+			t.Fatalf("最外层有 %s 时应按最外层认（认不出核心）：%v", trait, err)
+		}
+	}
+}
+
+func TestKnownServerJar(t *testing.T) {
+	for name, want := range map[string]bool{
+		"server.jar": true, "minecraft_server.1.12.2.jar": true, "paper-1.20.1-100.jar": true, "purpur.jar": true,
+		"fabric-server-launch.jar": true, "forge-1.12.2-14.23.5.2860.jar": true, "spigot-1.20.1.jar": true,
+		"craftbukkit.jar": true, "BungeeCord.jar": true, "velocity-3.3.0.jar": true, "quilt-server-launch.jar": true,
+		"Mohist-1.20.1.jar": true, "taiyitist-1.21.1.jar": true,
+		// 名字像 Paper 的库：算特征，认核心时打开 jar 看主类才知道不是（见 TestLibraryJarNotGuessedByName）
+		"PaperLib-1.20.1.jar":                true,
+		"forge-1.20.1-47.2.20-installer.jar": false, "BuildTools.jar": false, "备份工具.jar": false,
+		"server.properties": false, "serverstarter-2.4.0.jar": false,
+	} {
+		if got := knownServerJar(name); got != want {
+			t.Errorf("knownServerJar(%q) = %v，应为 %v", name, got, want)
+		}
+	}
+}
+
+// 文件夹里的 manifest.json 要真像 CurseForge 清单才算（A40）：最外层已经像服务端时，里面的一概不算；
+// 不然也要读得出来、minecraft 那一段写着版本。最外层的那份照旧：读不出来也当成清单，把原因报出来。
+func TestNestedManifestMustLookLikeCurseForge(t *testing.T) {
+	paper := paperJar(t)
+	for name, manifest := range map[string]string{
+		"网页的清单":   `{"name":"控制面板","icons":[{"src":"a.png"}],"start_url":"/"}`,
+		"不是 JSON": "<html>",
+		"像 CF 的":  cfManifest("9.9.9", "forge-1.0"),
+	} {
+		t.Run("最外层是服务端时，"+name, func(t *testing.T) {
+			p, err := Parse(mkZip(t, map[string]string{
+				"server.properties":      "server-port=25565\n",
+				"paper-1.20.1-100.jar":   paper,
+				"plugins/web/index.html": "<html>",
+				"web/manifest.json":      manifest,
+			}))
+			if err != nil || p.Format != FormatServer || p.Root != "" || p.MC != "1.20.1" {
+				t.Fatalf("应按最外层的服务端认：%+v %v", p, err)
+			}
+		})
+	}
+	for name, manifest := range map[string]string{
+		"网页的清单":       `{"name":"控制面板","icons":[{"src":"a.png"}]}`,
+		"不是 JSON":     "<html>",
+		"minecraft 空": `{"manifestType":"minecraftModpack","minecraft":{}}`,
+	} {
+		t.Run("套一层时，"+name, func(t *testing.T) {
+			p, err := Parse(mkZip(t, map[string]string{
+				"包/manifest.json":        manifest,
+				"包/server.properties":    "server-port=25565\n",
+				"包/paper-1.20.1-100.jar": paper,
+			}))
+			if err != nil || p.Format != FormatServer || p.Root != "包" {
+				t.Fatalf("不像 CurseForge 清单，应按里面的服务端认：%+v %v", p, err)
+			}
+		})
+	}
+	if p, err := Parse(mkZip(t, map[string]string{"包/manifest.json": cfManifest("1.20.1", "forge-47.3.0")})); err != nil || p.Format != FormatCurseForge {
+		t.Fatalf("套一层的 CurseForge 清单照旧认：%+v %v", p, err)
+	}
+}
+
+// 包装文件夹最多剥三层，每一层都只有一个文件夹、没有别的文件时才往里剥（A41）。四层的照旧认不出。
+func TestWrapperFoldersUpToThree(t *testing.T) {
+	server := func(prefix string) map[string]string {
+		return map[string]string{
+			prefix + "server.properties":    "server-port=25565\n",
+			prefix + "mods/jei.jar":         "mod",
+			prefix + "paper-1.20.1-100.jar": paperJar(t),
+		}
+	}
+	for _, c := range []struct{ prefix, root, name string }{
+		{"外/里/", "外/里", "里"},
+		{"外/中/里/", "外/中/里", "里"},
+	} {
+		p, err := Parse(mkZip(t, server(c.prefix)))
+		if err != nil || p.Format != FormatServer || p.Root != c.root || p.Name != c.name || p.Core != mcsrc.CorePaper {
+			t.Fatalf("%s：应认成套着的服务端：%+v %v", c.prefix, p, err)
+		}
+		got := map[string]string{}
+		if _, err := ExtractServer(p, nil, func(rel string, r io.Reader) error {
+			b, err := io.ReadAll(r)
+			got[rel] = string(b)
+			return err
+		}); err != nil || got["mods/jei.jar"] != "mod" || got["server.properties"] == "" {
+			t.Fatalf("%s：解出来应剥掉外面几层：%v %v", c.prefix, got, err)
+		}
+	}
+	unrecognized := func(what string, files map[string]string) {
+		t.Helper()
+		var h interface{ Hint() string }
+		if _, err := Parse(mkZip(t, files)); !errors.As(err, &h) || h.Hint() != "没认出这个压缩包，既没有整合包清单，也看不出是服务端" {
+			t.Fatalf("%s：应照旧认不出：%v", what, err)
+		}
+	}
+	unrecognized("套四层", server("一/二/三/四/"))
+	withNote := server("外/里/")
+	withNote["外/说明.txt"] = "这一层还有别的文件"
+	unrecognized("中间一层有别的文件", withNote)
+	withSibling := server("外/里/")
+	withSibling["外/另一个/a.txt"] = "这一层有两个文件夹"
+	unrecognized("中间一层有两个文件夹", withSibling)
+
+	cf := cfManifest("1.20.1", "forge-47.3.0")
+	if p, err := Parse(mkZip(t, map[string]string{"外/中/里/manifest.json": cf, "外/中/里/overrides/config/a.txt": "hi"})); err != nil ||
+		p.Format != FormatCurseForge || p.Root != "外/中/里" || overridesOf(t, p)["config/a.txt"] != "hi" {
+		t.Fatalf("套三层的 CurseForge 整合包应认出来、覆盖目录带上外面几层：%+v %v", p, err)
+	}
+	if p, err := Parse(mkZip(t, map[string]string{"外/里/modrinth.index.json": mrpackIndex("")})); err != nil || p.Format != FormatMrpack || p.Root != "外/里" {
+		t.Fatalf("套两层的 Modrinth 整合包应认出来：%+v %v", p, err)
+	}
+	unrecognized("清单套四层", map[string]string{"一/二/三/四/manifest.json": cf})
+	unrecognized("剥的路上有内容目录", map[string]string{"外/config/manifest.json": cf}) // config 这种不算包装文件夹
 }

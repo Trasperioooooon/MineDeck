@@ -2,6 +2,7 @@ package modpack
 
 import (
 	"archive/zip"
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -31,6 +32,30 @@ func mkZip(t *testing.T, files map[string]string) string {
 		}
 	}
 	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// mkZipOrdered 同 mkZip，条目按给的先后写进去（要看 zip 里谁排在前面时用）。
+func mkZipOrdered(t *testing.T, entries [][2]string) string {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, e := range entries {
+		fw, err := zw.Create(e[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fw.Write([]byte(e[1])); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(t.TempDir(), "pack.zip")
+	if err := os.WriteFile(p, buf.Bytes(), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return p
