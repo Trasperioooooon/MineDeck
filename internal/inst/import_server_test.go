@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"minedeck/internal/app"
+	"minedeck/internal/atomicfile"
 	"minedeck/internal/diskguard"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/modpack"
@@ -525,5 +526,45 @@ func TestImportServerArchiveVersionFromLog(t *testing.T) {
 	if i := run("jar 版本", map[string]string{"paper-1.20.1-100.jar": paperJarBytes(t), "eula.txt": "eula=true\n",
 		"logs/latest.log": "Starting minecraft server version 1.19.4\n"}); i.MC != "1.20.1" {
 		t.Fatalf("jar 里写了版本的以 jar 为准：%s", i.MC)
+	}
+}
+
+// 导入现成服务端在收尾时失败：没装进来的文件、只差大小写的、启动脚本里的参数这些结果都不留在任务上，
+// 失败了就没有这台服务器（同导入整合包）。
+func TestServerImportFailureDropsResultWarnings(t *testing.T) {
+	m, _ := importEnv(t)
+	pack, err := modpack.Parse(zipOrdered(t, [][2]string{
+		{"paper-1.20.1-100.jar", paperJarBytes(t)},
+		{"eula.txt", "eula=true\n"},
+		{"server.properties", "server-port=25565\n"},
+		{"start.bat", "java -XX:+UseG1GC -javaagent:x.jar -jar paper-1.20.1-100.jar\r\n"},
+		{"config/Dup.toml", "first"},
+		{"config/dup.toml", "second"},
+		{"config/CON.txt", "x"},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := atomicfile.Hook
+	t.Cleanup(func() { atomicfile.Hook = old })
+	atomicfile.Hook = func(p string) {
+		if filepath.Base(p) == "server.properties" { // 改端口的时候：让收尾写 run.bat 失败
+			_ = os.Mkdir(filepath.Join(filepath.Dir(p), "run.bat"), 0o755)
+		}
+	}
+	id, err := m.importServerAsync(pack, CreateReq{Name: "收尾失败", XmxMB: 2048, Port: 25580, EULA: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sn := waitImportTask(t, m, id)
+	if sn.Err == "" {
+		t.Fatalf("应失败：%+v", sn)
+	}
+	log := strings.Join(sn.Log, "\n")
+	if !strings.Contains(log, "只差大小写") || !strings.Contains(log, "JVM 参数") {
+		t.Fatalf("失败之前应走到了写这些结果的地方：%s", log)
+	}
+	if len(sn.Warnings) != 0 {
+		t.Fatalf("失败以后不该留着这些结果：%+v", sn.Warnings)
 	}
 }

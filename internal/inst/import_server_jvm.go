@@ -335,7 +335,8 @@ func launchesTarget(toks []string, launch string) bool {
 	return false
 }
 
-// filterScriptJVM 按安全规矩挑出能带过来的 JVM 参数（A43）：只带 -XX:、-D、-X 开头的；内存（-Xmx、-Xms）用导入页上填的；
+// filterScriptJVM 按安全规矩挑出能带过来的 JVM 参数（A43）：只带 -XX:、-D、-X 开头的；内存（-Xmx、-Xms 和它们的
+// -XX:MaxHeapSize 这类写法）用导入页上填的；
 // 能让 Java 另外加载程序的（-javaagent、-agentlib、-agentpath、-Xbootclasspath、-Xrun）、出错时执行命令的
 // （-XX:OnError、-XX:OnOutOfMemoryError）、再从文件里读参数的（-XX:Flags、-XX:VMOptionsFile，能夹带上面那些）一律不带；
 // 日志配置（-Dlog4j…）由 MineDeck 按版本套 log4shell 防护，不带。带空格、引号、控制字符的设置页存不了，
@@ -346,8 +347,8 @@ func filterScriptJVM(args []string) (carried []string, dropped []droppedJVMArg) 
 		switch {
 		case strings.ContainsAny(a, "%$"):
 			drop(a, "里面有脚本变量，看不出是什么")
-		case strings.HasPrefix(a, "-Xmx") || strings.HasPrefix(a, "-Xms"):
-			drop(a, "内存按导入页上填的")
+		case hasAnyPrefix(a, "-Xmx", "-Xms", "-XX:MaxHeapSize", "-XX:InitialHeapSize", "-XX:MinHeapSize"):
+			drop(a, "内存按导入页上填的") // 后三个是 -Xmx、-Xms 的另一种写法，带过来会盖掉 MineDeck 的内存设置
 		case hasAnyPrefix(a, "-javaagent", "-agentlib", "-agentpath", "-Xbootclasspath", "-Xrun"):
 			drop(a, "会让 Java 另外加载程序，一律不带")
 		case hasAnyPrefix(a, "-XX:OnError", "-XX:OnOutOfMemoryError"):

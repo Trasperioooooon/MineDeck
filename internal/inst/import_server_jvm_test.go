@@ -67,7 +67,7 @@ func TestScriptJavaOptionsPicksLaunchLine(t *testing.T) {
 func TestFilterScriptJVM(t *testing.T) {
 	carried, dropped := filterScriptJVM([]string{
 		"-XX:+UseG1GC", "-Dfile.encoding=UTF-8", "-Xss2M", "-XX:+UseG1GC", "-Xlog:gc*:file=gc.log",
-		"-Xmx6G", "-Xms2G",
+		"-Xmx6G", "-Xms2G", "-XX:MaxHeapSize=8g", "-XX:InitialHeapSize=1g", "-XX:MinHeapSize=1g",
 		"-javaagent:authlib-injector.jar=example.com", "-agentlib:jdwp=transport=dt_socket", "-agentpath:/tmp/x.so",
 		"-Xbootclasspath/a:evil.jar", "-Xrunjdwp:server=y",
 		"-XX:OnError=cmd /c calc", "-XX:OnOutOfMemoryError=calc", "-XX:VMOptionsFile=more.txt", "-XX:Flags=.hotspotrc",
@@ -83,7 +83,7 @@ func TestFilterScriptJVM(t *testing.T) {
 		why[d.arg] = d.why
 	}
 	for arg, part := range map[string]string{
-		"-Xmx6G": "内存", "-Xms2G": "内存",
+		"-Xmx6G": "内存", "-Xms2G": "内存", "-XX:MaxHeapSize=8g": "内存", "-XX:InitialHeapSize=1g": "内存", "-XX:MinHeapSize=1g": "内存",
 		"-javaagent:authlib-injector.jar=example.com": "另外加载程序", "-agentlib:jdwp=transport=dt_socket": "另外加载程序",
 		"-agentpath:/tmp/x.so": "另外加载程序", "-Xbootclasspath/a:evil.jar": "另外加载程序", "-Xrunjdwp:server=y": "另外加载程序",
 		"-XX:OnError=cmd /c calc": "执行命令", "-XX:OnOutOfMemoryError=calc": "执行命令", "-XX:VMOptionsFile=more.txt": "再读参数", "-XX:Flags=.hotspotrc": "再读参数",

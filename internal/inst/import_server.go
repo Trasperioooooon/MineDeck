@@ -60,8 +60,12 @@ func (m *Manager) importServerAsync(pack *modpack.Pack, req CreateReq) (string, 
 		defer m.releaseCreating(dirKey(dir))
 		defer os.Remove(pack.ZipPath)
 		if err := m.runServerImport(ctx, t, pack, req, dir); err != nil {
+			// 失败了就没有这台服务器，关于它的文件、参数、版本的结果不留（同导入整合包）
+			for _, kind := range []string{"import-skipped", "import-case", "script-jvm", "mc-from-log"} {
+				t.RemoveWarning(kind)
+			}
 			// 先清后报失败：任务一显示失败，半成品就得已经删干净了（失败框上写着可以重试；交接包导入同样的顺序）
-			failCreate(t, err, m.discardCreating(req.Name, dir))
+			failCreate(t, err, m.discardImport(req.Name, dir))
 			return
 		}
 		t.Finish(req.Name)
