@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -19,11 +20,70 @@ var ErrCreatingConflict = errors.New("creating leftover conflict")
 
 // WriteCreatingMarker 在还没登记的新目录里写下「这次创建还没完成」。新建、导入整合包、导入现成服务端和交接包都经这里。
 // 只写我们自己的记号文件，不碰世界、配置。已经登记的服务器不靠这个文件判断。
-// 写之前先把 dir 所在的存放位置记进配置：下次启动只扫配置里记着的位置，第一次往一个新位置里建服时，要是记号放下了、
-// 位置还没记住程序就崩了，那里的半成品就没人知道了（A38）。建不成也留着这个位置，下次启动多看一个文件夹而已。
+// 写之前先把 dir 所在的存放位置记进「正在建的位置」（A38）：第一次往一个新位置里建服、记号放下了还没建完程序就崩了，
+// 下次启动找没建完的文件夹时也扫得到那里。不记成扫描根：建不成的话，那个位置里别的带 instance.json 的文件夹
+// 不该因此进服务器列表。建成了由登记处记成扫描根（completeCreate、FinalizeCreate）。
 func WriteCreatingMarker(dir, name string) error {
-	app.RememberRoot(filepath.Dir(dir))
+	app.RememberCreatingRoot(filepath.Dir(dir))
 	return os.WriteFile(filepath.Join(dir, CreatingMarker), []byte(strings.TrimSpace(name)+"\n"), 0o644)
+}
+
+// leftoverRoots 找没建完的文件夹要扫的位置：扫描根（app.InstanceRoots）在前，后面接正在建的位置（app.CreatingRoots）里
+// 还不在前面的，顺序固定。半成品的编号是「在这份列表里的序号/文件夹名」，列和删都经这里取，序号才对得上。
+func leftoverRoots() []string {
+	roots := app.InstanceRoots()
+	for _, r := range app.CreatingRoots() {
+		if !hasPathFold(roots, r) {
+			roots = append(roots, filepath.Clean(r))
+		}
+	}
+	return roots
+}
+
+// pruneCreatingRoots 启动时整理「正在建的位置」：已经成了扫描根的，和底下没有带创建记号的文件夹的，去掉。
+// 只在启动时做，那时没有正在建的任务。位置本身现在读不到（比如在没插上的移动硬盘里）的留着，回来了照样找得到半成品。
+func pruneCreatingRoots() {
+	scan := app.InstanceRoots()
+	var drop []string
+	for _, r := range app.CreatingRoots() {
+		if hasPathFold(scan, r) {
+			drop = append(drop, r)
+		} else if has, readable := hasCreatingChild(r); readable && !has {
+			drop = append(drop, r)
+		}
+	}
+	if len(drop) > 0 {
+		app.ForgetCreatingRoots(drop...)
+	}
+}
+
+// hasCreatingChild root 下面还有没有找半成品时会看的、带创建记号的文件夹（条件同 scanCreatingLeftovers）。
+// root 读不出来时 readable 为 false；root 是链接或目录联接时找半成品本来就不扫它，算读得出、没有。
+func hasCreatingChild(root string) (has, readable bool) {
+	st, err := os.Lstat(root)
+	if err != nil {
+		return false, false
+	}
+	if !st.IsDir() || st.Mode()&(fs.ModeSymlink|fs.ModeIrregular) != 0 {
+		return false, true
+	}
+	ents, err := os.ReadDir(root)
+	if err != nil {
+		return false, false
+	}
+	for _, e := range ents {
+		if e.IsDir() && e.Type()&(fs.ModeSymlink|fs.ModeIrregular) == 0 && winname.OK(e.Name()) &&
+			creatingMarkerOwned(filepath.Join(root, e.Name())) {
+			return true, true
+		}
+	}
+	return false, true
+}
+
+// hasPathFold list 里有没有和 p 写的是同一个位置的（不分大小写，只按字面比）。
+func hasPathFold(list []string, p string) bool {
+	p = filepath.Clean(p)
+	return slices.ContainsFunc(list, func(x string) bool { return strings.EqualFold(filepath.Clean(x), p) })
 }
 
 // ClearCreatingMarker 登记成功以后去掉记号。文件本来就没有不算失败。
@@ -62,10 +122,11 @@ func (m *Manager) clearStaleCreatingMarkers() {
 	})
 }
 
-// scanCreatingLeftovers 扫各个存放位置下带创建记号的文件夹，列出没登记的半成品。已经登记成服务器的不列，交给 registered（可以是 nil）。
+// scanCreatingLeftovers 扫各个存放位置（leftoverRoots）下带创建记号的文件夹，列出没登记的半成品。
+// 已经登记成服务器的不列，交给 registered（可以是 nil）。
 func (m *Manager) scanCreatingLeftovers(registered func(dir string)) []CreatingLeftover {
 	var out []CreatingLeftover
-	for i, root := range app.InstanceRoots() {
+	for i, root := range leftoverRoots() {
 		if !plainCreatingDir(root) {
 			continue
 		}
@@ -164,7 +225,7 @@ func (m *Manager) leftoverDir(id string) (string, error) {
 		return "", fmt.Errorf("没有这一项")
 	}
 	idx, err := strconv.Atoi(idxText)
-	roots := app.InstanceRoots()
+	roots := leftoverRoots()
 	if err != nil || idx < 0 || idx >= len(roots) {
 		return "", fmt.Errorf("没有这一项")
 	}

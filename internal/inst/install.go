@@ -483,10 +483,10 @@ func (m *Manager) completeCreate(ctx context.Context, t *tasks.Task, i *Instance
 		return err
 	}
 	// 服务器已经登记。记号删不掉也不失败：有 instance.json 的不会被当成半成品，下次启动时去掉记号。
-	// 存放位置在放记号的时候就记住了（见 WriteCreatingMarker）。
 	if err := ClearCreatingMarker(i.Dir); err != nil {
 		t.Logf("服务器已创建。创建记号没能去掉（%v），不影响使用", err)
 	}
+	app.RememberRoot(filepath.Dir(i.Dir)) // 登记成功了才把这个位置记成扫描根（建到一半时只记成「正在建的位置」）
 	m.mu.Lock()
 	m.insts[i.Name] = i
 	m.mu.Unlock()

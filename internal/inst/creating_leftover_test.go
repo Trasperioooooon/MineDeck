@@ -1,6 +1,7 @@
 package inst
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	"minedeck/internal/app"
+	"minedeck/internal/modpack"
 )
 
 func TestCreatingLeftoverIgnoresAdoptedAndRegistered(t *testing.T) {
@@ -113,8 +115,8 @@ func TestStaleCreatingMarkerClearedAtStartup(t *testing.T) {
 	}
 }
 
-// 第一次往一个新的存放位置里建服，记号放下以后、建完以前程序崩了：下次启动照样扫得到那里的半成品（A38）。
-// 放记号的时候就把存放位置记进配置；原来要到建完才记，崩在中间就扫不到那里。
+// 第一次往一个新的存放位置里建服，记号放下以后、建完以前程序崩了：下次启动照样扫得到那里的半成品，能删；
+// 删掉以后再重开，这个位置从「正在建的位置」里去掉（A38）。这个位置自始至终不是扫描根。
 func TestCreatingLeftoverInNewRootFoundAfterCrash(t *testing.T) {
 	adoptEnv(t)
 	root := filepath.Join(t.TempDir(), "新存放位置")
@@ -128,13 +130,130 @@ func TestCreatingLeftoverInNewRootFoundAfterCrash(t *testing.T) {
 	if err := WriteCreatingMarker(dir, "新位置的服"); err != nil {
 		t.Fatal(err)
 	}
-	// 程序在这里没了：不走登记那一步，直接重开
+	// 程序在这里没了：不走登记那一步，直接重开（重开两次：还有半成品的位置启动时不能被整理掉）
+	if _, err := NewManager(); err != nil {
+		t.Fatal(err)
+	}
 	m2, err := NewManager()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if list := m2.CreatingLeftovers(); len(list) != 1 || list[0].Name != "half-new" || list[0].RootName != "新存放位置" {
+	list := m2.CreatingLeftovers()
+	if len(list) != 1 || list[0].Name != "half-new" || list[0].RootName != "新存放位置" {
 		t.Fatalf("下次启动应扫得到新存放位置里的半成品：%+v", list)
+	}
+	if slices.Contains(app.InstanceRoots(), root) {
+		t.Fatalf("没建成的位置不该成为扫描根：%v", app.InstanceRoots())
+	}
+	if err := m2.DiscardCreatingLeftover(list[0].ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(dir); !os.IsNotExist(err) {
+		t.Fatalf("半成品应删掉：%v", err)
+	}
+	if _, err := NewManager(); err != nil {
+		t.Fatal(err)
+	}
+	if got := app.CreatingRoots(); slices.Contains(got, root) {
+		t.Fatalf("半成品删掉以后重开，这个位置应从「正在建的位置」里去掉：%v", got)
+	}
+}
+
+// 人挑了一个新的存放位置，里面本来就有一个带 instance.json 的文件夹（别处留下的服务器）。导入现成服务端在放了记号以后失败、
+// 半成品清掉了：重开以后那台不进列表，这个位置不是扫描根，也从「正在建的位置」里去掉了（A38）。
+func TestFailedImportInNewRootKeepsNeighbourOut(t *testing.T) {
+	m, _ := importEnv(t)
+	root := filepath.Join(t.TempDir(), "人挑的存放位置")
+	neighbour := filepath.Join(root, "old-srv")
+	writeTree(t, neighbour, map[string]string{
+		"instance.json": `{"name":"别处留下的服","core":"paper","mc":"1.20.1","xmxMb":1024,"xmsMb":512}`,
+	})
+	pack, err := modpack.Parse(zipOf(t, map[string]string{
+		"server.properties":    "level-name=../../outside\n", // 解压以后才查出来：导入在放了记号以后失败
+		"paper-1.20.1-100.jar": paperJarBytes(t),
+		"eula.txt":             "eula=true\n",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := m.importServerAsync(pack, CreateReq{Name: "新服", XmxMB: 2048, EULA: true, Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := waitImportTask(t, m, id); !strings.Contains(s.Err, "世界文件夹") {
+		t.Fatalf("应因为世界文件夹指到外面而失败：%+v", s)
+	}
+	if ents, _ := os.ReadDir(root); len(ents) != 1 {
+		t.Fatalf("失败以后这个位置里只该剩原来那个文件夹：%v", ents)
+	}
+	m2, err := NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m2.Get("别处留下的服"); err == nil {
+		t.Fatal("导入失败以后，这个位置里别处留下的服务器不该进列表")
+	}
+	if roots := app.InstanceRoots(); slices.Contains(roots, root) {
+		t.Fatalf("导入失败的位置不该成为扫描根：%v", roots)
+	}
+	if got := app.CreatingRoots(); slices.Contains(got, root) {
+		t.Fatalf("没有半成品了，重开以后应从「正在建的位置」里去掉：%v", got)
+	}
+	if b := mustRead(t, filepath.Join(neighbour, "instance.json")); !strings.Contains(b, "别处留下的服") {
+		t.Fatalf("旁边那台的配置不该被动过：%s", b)
+	}
+}
+
+// 往新的存放位置里建成了：这个位置成了扫描根，重开能列出这台，「正在建的位置」里随之去掉（A38）。
+func TestCreatedInNewRootBecomesScanRoot(t *testing.T) {
+	m, _ := importEnv(t)
+	root := filepath.Join(t.TempDir(), "新存放位置")
+	pack, err := modpack.Parse(zipOf(t, map[string]string{
+		"paper-1.20.1-100.jar": paperJarBytes(t),
+		"eula.txt":             "eula=true\n",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk, _ := m.Tasks.New("导入服务端", serverImportSteps)
+	req := CreateReq{Name: "新位置的服", XmxMB: 2048, Port: 25573, EULA: true}
+	if err := m.runServerImport(context.Background(), tk, pack, req, filepath.Join(root, "srv")); err != nil {
+		t.Fatalf("导入失败: %v\n日志: %v", err, tk.Snapshot().Log)
+	}
+	if roots := app.InstanceRoots(); !slices.Contains(roots, root) {
+		t.Fatalf("建成以后这个位置应成为扫描根：%v", roots)
+	}
+	m2, err := NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m2.Get("新位置的服"); err != nil {
+		t.Fatalf("重开以后应列出建成的服务器：%v", err)
+	}
+	if got := app.CreatingRoots(); slices.Contains(got, root) {
+		t.Fatalf("已经是扫描根了，重开以后应从「正在建的位置」里去掉：%v", got)
+	}
+}
+
+// 「正在建的位置」现在读不到（比如在没插上的移动硬盘里）时启动不整理掉它：回来了照样找得到里面的半成品（A38）。
+func TestCreatingRootKeptWhileUnreadable(t *testing.T) {
+	adoptEnv(t)
+	root := filepath.Join(t.TempDir(), "移动硬盘")
+	dir := filepath.Join(root, "half")
+	app.RememberCreatingRoot(root) // 记过以后这个位置就读不到了
+	if _, err := NewManager(); err != nil {
+		t.Fatal(err)
+	}
+	if got := app.CreatingRoots(); !slices.Contains(got, root) {
+		t.Fatalf("读不到的位置不该被整理掉：%v", got)
+	}
+	writeTree(t, dir, map[string]string{CreatingMarker: "half\n"})
+	m2, err := NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list := m2.CreatingLeftovers(); len(list) != 1 || list[0].Name != "half" {
+		t.Fatalf("位置回来以后应找得到里面的半成品：%+v", list)
 	}
 }
 

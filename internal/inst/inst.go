@@ -244,6 +244,7 @@ func NewManager() (*Manager, error) {
 		}
 	}
 	m.clearStaleCreatingMarkers() // 列半成品的接口只读，残留的创建记号在这里去掉（A38）
+	pruneCreatingRoots()          // 去掉记号以后再整理「正在建的位置」：只剩已登记服务器的位置也就没有半成品了
 	m.startScheduler()
 	return m, nil
 }
