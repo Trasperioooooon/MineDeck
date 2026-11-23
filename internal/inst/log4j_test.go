@@ -433,3 +433,83 @@ func TestFetchLog4jXMLVerifies(t *testing.T) {
 		t.Fatalf("内容对不上应报错、不动原来的文件：%v %q", err, mustRead(t, path))
 	}
 }
+
+// 实例目录里已经有官方那份日志配置时，启动迁移（补引用和换引用两条路）直接复用盘上文件，不发网络请求；
+// 即使离线（下载源全回 404）也能把缺失或错配的引用修好。
+func TestMigrateLog4jSkipsDownloadWhenOfficialOnDisk(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	oldBase := log4jObjects
+	t.Cleanup(func() { log4jObjects = oldBase })
+	log4jObjects = srv.URL + "/"
+
+	dirAdd := t.TempDir()
+	officialLog4jXMLFile(t, dirAdd, log4jXML)
+	instAdd := &Instance{
+		Settings: Settings{
+			Name: "离线补引用", Core: mcsrc.CoreVanilla, MC: "1.12.2",
+			JavaPath: `jdk\bin\java.exe`, XmxMB: 1024, XmsMB: 512,
+			LaunchTarget: "jar:server.jar", ExtraJVM: []string{log4jNoLookups},
+		},
+		Dir: dirAdd, Console: newConsole(),
+	}
+
+	dirSwap := t.TempDir()
+	officialLog4jXMLFile(t, dirSwap, log4jXML)
+	officialLog4jXMLFile(t, dirSwap, log4jXML17)
+	instSwap := &Instance{
+		Settings: Settings{
+			Name: "离线换引用", Core: mcsrc.CoreVanilla, MC: "1.8.9",
+			JavaPath: `jdk\bin\java.exe`, XmxMB: 1024, XmsMB: 512,
+			LaunchTarget: "jar:server.jar", ExtraJVM: []string{log4jNoLookups, log4jConfig},
+		},
+		Dir: dirSwap, Console: newConsole(),
+	}
+
+	m := &Manager{
+		insts:    map[string]*Instance{instAdd.Name: instAdd, instSwap.Name: instSwap},
+		creating: map[string]bool{},
+	}
+	for _, i := range []*Instance{instAdd, instSwap} {
+		if err := m.saveInstance(i); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeRunBat(i); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m.MigrateLog4j(context.Background())
+
+	if got := hits.Load(); got != 0 {
+		t.Fatalf("官方配置文件已在盘上时不应发 HTTP 请求，实际请求了 %d 次", got)
+	}
+	if want := []string{log4jNoLookups, log4jConfig}; !slices.Equal(instAdd.ExtraJVM, want) {
+		t.Fatalf("1.12.2 应补上引用：got=%q want=%q（console=%s）", instAdd.ExtraJVM, want, strings.Join(instAdd.Console.Lines(), "\n"))
+	}
+	if want := []string{log4jNoLookups, log4jConfig17}; !slices.Equal(instSwap.ExtraJVM, want) {
+		t.Fatalf("1.8.9 应换上 17-111 引用：got=%q want=%q（console=%s）", instSwap.ExtraJVM, want, strings.Join(instSwap.Console.Lines(), "\n"))
+	}
+	for _, tc := range []struct {
+		inst *Instance
+		want string
+	}{
+		{instAdd, log4jConfig},
+		{instSwap, log4jConfig17},
+	} {
+		saved, err := readSettings(tc.inst.Dir)
+		if err != nil || !slices.Contains(saved.ExtraJVM, tc.want) {
+			t.Fatalf("%s 的 instance.json 未写入 %s：%v %q", tc.inst.Name, tc.want, err, saved.ExtraJVM)
+		}
+		if bat := mustRead(t, filepath.Join(tc.inst.Dir, "run.bat")); !strings.Contains(bat, tc.want) {
+			t.Fatalf("%s 的 run.bat 未写入 %s：\n%s", tc.inst.Name, tc.want, bat)
+		}
+		if con := strings.Join(tc.inst.Console.Lines(), "\n"); strings.Contains(con, "⚠") {
+			t.Fatalf("%s 控制台不应报迁移告警：\n%s", tc.inst.Name, con)
+		}
+	}
+}

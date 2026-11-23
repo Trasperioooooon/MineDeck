@@ -83,7 +83,7 @@ func TestListInstancesIncludesSkippedDuplicates(t *testing.T) {
 	}
 }
 
-// A28 + A25.2：启动设置页的预览接口 POST /api/instances/{name}/settings/preview 与保存接口 PUT .../settings
+// A28 + A25（保存参数校验）：启动设置页的预览接口 POST /api/instances/{name}/settings/preview 与保存接口 PUT .../settings
 // 返回完全一致的补齐后参数与说明。
 func TestSettingsPreviewAndSaveMatchOnLog4j(t *testing.T) {
 	e := newFullEnv(t)
@@ -140,7 +140,9 @@ func TestSettingsPreviewAndSaveMatchOnLog4j(t *testing.T) {
 	if !slices.Equal(pResp.Data.LaunchArgs, sResp.Data.LaunchArgs) {
 		t.Fatalf("预览与保存的启动参数不一致：\npreview=%q\nsaved=%q", pResp.Data.LaunchArgs, sResp.Data.LaunchArgs)
 	}
-	if pResp.Data.Note == "" || pResp.Data.Note != sResp.Data.Note || !strings.Contains(sResp.Data.Note, "不是 Mojang 官方那份") {
-		t.Fatalf("预览与保存结果都应包含非官方日志配置说明：preview=%q saved=%q", pResp.Data.Note, sResp.Data.Note)
+	if pResp.Data.Note == "" || pResp.Data.Note != sResp.Data.Note ||
+		!strings.Contains(sResp.Data.Note, "等于没防") ||
+		!strings.Contains(sResp.Data.Note, "-Dlog4j.configurationFile=log4j2_112-116.xml") {
+		t.Fatalf("预览与保存结果都应包含等于没防及加引用说明：preview=%q saved=%q", pResp.Data.Note, sResp.Data.Note)
 	}
 }

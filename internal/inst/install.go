@@ -851,8 +851,17 @@ func applyLog4jMitigation(ctx context.Context, t *tasks.Task, i *Instance) error
 	return nil
 }
 
-// adoptCustomLog4jNote 接管时文件夹里已有同名但内容不是官方的日志配置时，在接管结果和控制台里说的那一句（A26）。
-const adoptCustomLog4jNote = "这台服务器自带了自己的日志配置，MineDeck 没有替换，log4shell 防护要靠它自己"
+// customLog4jConflictParts 文件夹里已有同名但内容不是官方的日志配置、MineDeck 没有套上官方配置也没替它加引用时的说明
+// （接管 A26 与保存/预览启动设置 A25 共用，口径对齐 log4jXMLConflictNote）。
+func customLog4jConflictParts(mc, xml string) (title, detail string) {
+	title = fmt.Sprintf("log4shell 防护：这台 %s 的服务器没有套上 Mojang 的日志配置，等于没防", mc)
+	detail = fmt.Sprintf(
+		"服务器文件夹里已经有一份 %s，内容和官方的不一样（可能是自己改过的），MineDeck 没有覆盖它，也没有替它加上引用。"+
+			"要用官方的那份，把这个文件改名或挪走以后重开 MineDeck；要用自己的，在「启动与内存」里加上 %s%s",
+		xml, log4jConfigKey, xml,
+	)
+	return title, detail
+}
 
 // addLog4jFlags 往 i.ExtraJVM 里加上该有的参数。要官方配置的先下载，下载不成不加引用：引用一个不存在的配置文件，
 // log4j 会退回只输出 ERROR 的默认配置，控制台和「启动完成」的判断都会失效。
@@ -872,15 +881,16 @@ func addLog4jFlags(ctx context.Context, t *tasks.Task, i *Instance, noLookups bo
 	}
 	if i.Adopted {
 		if exists, official := log4jXMLOnDisk(i.Dir, xml); exists && !official {
-			msg := fmt.Sprintf("%s（%s）", adoptCustomLog4jNote, xml)
-			t.Logf("⚠ %s", msg)
+			title, detail := customLog4jConflictParts(i.MC, xml)
+			full := title + "。" + detail
+			t.Logf("⚠ %s", full)
 			t.AddWarning(tasks.Warning{
 				Kind:  "custom-log4j",
-				Title: adoptCustomLog4jNote,
-				Note:  fmt.Sprintf("服务器文件夹里已有一份和官方内容不一样的 %s，保持原样，也没有往启动参数里加 %s%s。", xml, log4jConfigKey, xml),
+				Title: title,
+				Note:  detail,
 			})
 			if i.Console != nil {
-				i.Console.Append("[MineDeck] ⚠ " + msg)
+				i.Console.Append("[MineDeck] ⚠ " + full)
 			}
 			return
 		}
@@ -924,23 +934,26 @@ func restoreLog4jXML(ctx context.Context, t *tasks.Task, i *Instance) {
 	}
 }
 
+// checkLog4jSelfFixed 查服务端自带的 log4j 是否已经修过 log4shell（同包测试里可换慢替身验证锁粒度）。
+var checkLog4jSelfFixed = log4jSelfFixed
+
 // log4jFlags 给出保存 JVM 参数时须强制保留的 log4shell 缓解参数，判定与创建时的 applyLog4jMitigation 一致；
-// 只读本地清单不联网（mcsrc.NewerOrEqualCached），判定不了版本时保守沿用 i.ExtraJVM 中已有的缓解参数。
+// 只读本地清单不联网（mcsrc.NewerOrEqualCached），判定不了版本时保守沿用已有的缓解参数。
 // 服务端自带的 log4j 看得出是修过的，不强加官方配置的引用（和 addLog4jFlags、log4j_migrate.go 一致，不然这边不加、那边又补回去）。
-// 只有文件夹里的日志配置文件确实是 Mojang 官方那份时才强加引用（A25.2）。调用方须持 procMu。
+// 只有文件夹里的日志配置文件确实是 Mojang 官方那份时才强加引用（A25 保存参数校验）。
 func log4jFlags(i *Instance) []string {
-	flags, _ := log4jFlagsAndNote(i)
+	flags, _ := log4jFlagsFor(i.Settings, i.Dir)
 	return flags
 }
 
-// log4jFlagsAndNote 同 log4jFlags；当该套官方配置、文件夹里却放着同名但非官方的文件时，不把引用放进强制保留列表，
-// 并返回被跳过的那个配置文件名供保存结果和预览说明（A25.2）。调用方须持 procMu。
-func log4jFlagsAndNote(i *Instance) (flags []string, skippedXML string) {
-	if mcsrc.KindOf(i.Core) == mcsrc.KindProxy {
+// log4jFlagsFor 按设置副本与实例目录计算须强制保留的 log4shell 参数（不依赖 Instance 锁）；
+// 当该套官方配置、文件夹里却放着同名但非官方的文件时，不把引用放进强制保留列表，并返回被跳过的配置文件名供保存和预览说明（A25 保存参数校验）。
+func log4jFlagsFor(s Settings, dir string) (flags []string, skippedXML string) {
+	if mcsrc.KindOf(s.Core) == mcsrc.KindProxy {
 		return nil, "" // 代理端不运行 Minecraft 本体，创建时也不加
 	}
-	if noLookups, xml, ok := log4jPlanCached(i.MC); !ok {
-		for _, a := range i.ExtraJVM {
+	if noLookups, xml, ok := log4jPlanCached(s.MC); !ok {
+		for _, a := range s.ExtraJVM {
 			if IsLog4jFlag(a) {
 				flags = append(flags, a)
 			}
@@ -949,19 +962,19 @@ func log4jFlagsAndNote(i *Instance) (flags []string, skippedXML string) {
 		if noLookups {
 			flags = append(flags, log4jNoLookups)
 		}
-		if xml != "" && !log4jSelfFixed(i.Dir, i.LaunchTarget) {
+		if xml != "" && !checkLog4jSelfFixed(dir, s.LaunchTarget) {
 			flags = append(flags, log4jConfigKey+xml)
 		}
 	}
 	// 官方 xml 只在创建、接管、导入和换配置（log4j_migrate.go）时下载：
 	// 文件不在（当初下载失败 / 被删）就不强加引用——引用不存在的配置文件会令 log4j 退回只输出 ERROR 的默认配置；
-	// 文件在但内容不是官方那份（A25.2）也绝不强加引用，并记下文件名供结果说明。
+	// 文件在但内容不是官方那份（A25 保存参数校验）也绝不强加引用，并记下文件名供结果说明。
 	flags = slices.DeleteFunc(flags, func(a string) bool {
 		name, ok := strings.CutPrefix(a, log4jConfigKey)
 		if !ok {
 			return false
 		}
-		exists, official := log4jXMLOnDisk(i.Dir, name)
+		exists, official := log4jXMLOnDisk(dir, name)
 		if !official {
 			if exists {
 				skippedXML = name
@@ -973,13 +986,14 @@ func log4jFlagsAndNote(i *Instance) (flags []string, skippedXML string) {
 	return flags, skippedXML
 }
 
-// completeExtraJVMLocked 统一补齐保存、AI 确认卡片和界面预览要用的自定义 JVM 参数（A28、A25.2）。
-// 调用方须持 i.procMu。
-func completeExtraJVMLocked(i *Instance, args []string) (effective []string, note string) {
-	flags, skippedXML := log4jFlagsAndNote(i)
+// completeExtraJVM 统一补齐保存、AI 确认卡片和界面预览要用的自定义 JVM 参数（A28，A25 保存参数校验）。
+// 只读设置值副本与磁盘文件，不需要持 procMu。
+func completeExtraJVM(s Settings, dir string, args []string) (effective []string, note string) {
+	flags, skippedXML := log4jFlagsFor(s, dir)
 	effective = withJVMFlags(args, flags)
 	if skippedXML != "" && !slices.Contains(effective, log4jConfigKey+skippedXML) {
-		note = fmt.Sprintf("服务器文件夹里的 %s 不是 Mojang 官方那份，没有自动加上它的引用，log4shell 防护要靠它自己", skippedXML)
+		title, detail := customLog4jConflictParts(s.MC, skippedXML)
+		note = title + "。" + detail
 	}
 	return effective, note
 }

@@ -375,21 +375,32 @@ func (m *Manager) applyLog4jFixLocked(i *Instance, fix log4jFix, xml string, sel
 	return true, writeRunBat(i)
 }
 
-// fetchAndPublishLog4jXML 先把官方日志配置下载到临时目录，真正落进实例目录前拿着路径锁再看一次目标文件（A25.1）：
-// 下载那两分钟里用户如果自己保存了同名、但不是官方那份的日志配置，绝不覆盖，返回 conflict=true。
+// fetchAndPublishLog4jXML 确保实例目录里有官方日志配置；需要下载时先下到临时目录，落进实例目录前拿着路径锁再看一次目标文件
+// （A25 下载并发保护）：下载期间用户如果自己保存了同名、但不是官方那份的日志配置，绝不覆盖，返回 conflict=true。
 func fetchAndPublishLog4jXML(ctx context.Context, dir, name string) (conflict bool, err error) {
-	stageDir, err := os.MkdirTemp("", "minedeck-log4j-*")
+	if _, official := log4jXMLOnDisk(dir, name); official {
+		return false, nil
+	}
+	data, err := stageLog4jXML(ctx, name)
 	if err != nil {
 		return false, err
+	}
+	return publishLog4jXMLIfAbsent(ctx, dir, name, data)
+}
+
+func stageLog4jXML(ctx context.Context, name string) ([]byte, error) {
+	stageDir, err := os.MkdirTemp("", "minedeck-log4j-*")
+	if err != nil {
+		return nil, err
 	}
 	defer os.RemoveAll(stageDir)
 	if err := fetchLog4jXML(ctx, stageDir, name); err != nil {
-		return false, err
+		return nil, err
 	}
-	data, err := os.ReadFile(filepath.Join(stageDir, name))
-	if err != nil {
-		return false, err
-	}
+	return os.ReadFile(filepath.Join(stageDir, name))
+}
+
+func publishLog4jXMLIfAbsent(ctx context.Context, dir, name string, data []byte) (conflict bool, err error) {
 	dest := filepath.Join(dir, name)
 	unlock, err := atomicfile.LockPathContext(ctx, dest)
 	if err != nil {
@@ -397,10 +408,7 @@ func fetchAndPublishLog4jXML(ctx context.Context, dir, name string) (conflict bo
 	}
 	defer unlock()
 	if exists, official := log4jXMLOnDisk(dir, name); exists {
-		if !official {
-			return true, nil
-		}
-		return false, nil
+		return !official, nil
 	}
 	tmpFile, err := os.CreateTemp(dir, ".minedeck-write-*.tmp")
 	if err != nil {
@@ -421,10 +429,8 @@ func fetchAndPublishLog4jXML(ctx context.Context, dir, name string) (conflict bo
 	}
 	if err := atomicfile.PublishNew(tmp, dest); err != nil {
 		if errors.Is(err, fs.ErrExist) {
-			if _, official := log4jXMLOnDisk(dir, name); official {
-				return false, nil
-			}
-			return true, nil
+			_, official := log4jXMLOnDisk(dir, name)
+			return !official, nil
 		}
 		return false, err
 	}

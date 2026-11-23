@@ -329,8 +329,8 @@ func callerOf(r *http.Request) ops.Caller {
 }
 
 // do 解析请求 → ops.Do → 写回响应。先判权限，再调 parse 取参数（取不到按它带的状态码报，默认 400），最后执行。
-// 成功时响应仍是 {"ok":true,"data":…}；失败时状态码取自操作层的错误。
-func (s *Server) do(w http.ResponseWriter, r *http.Request, name string, parse func() (ops.Args, error)) {
+// 成功时响应仍是 {"ok":true,"data":…}（extra 可按需补顶层字段，只在鉴权与执行成功后才调）；失败时状态码取自操作层的错误。
+func (s *Server) do(w http.ResponseWriter, r *http.Request, name string, parse func() (ops.Args, error), extra ...func(map[string]any)) {
 	c := callerOf(r)
 	if err := s.ops.Check(c, name); err != nil {
 		writeErr(w, ops.CodeOf(err), err)
@@ -349,7 +349,16 @@ func (s *Server) do(w http.ResponseWriter, r *http.Request, name string, parse f
 		writeErr(w, ops.CodeOf(err), err)
 		return
 	}
-	writeJSON(w, res)
+	if len(extra) == 0 {
+		writeJSON(w, res)
+		return
+	}
+	body := map[string]any{"ok": true, "data": res}
+	for _, fn := range extra {
+		fn(body)
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(body)
 }
 
 // args 固定的参数。

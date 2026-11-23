@@ -5,11 +5,18 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"minedeck/internal/ai"
 	"minedeck/internal/app"
+	"minedeck/internal/dl"
+	"minedeck/internal/inst"
+	"minedeck/internal/ops/catalog"
+	"minedeck/internal/tunnel"
 )
 
 // 「仅本机」不能只看连接来自 127.0.0.1：经本机 frpc 转发进来的请求也是。局域网登录的人带着 Cookie 从隧道进来，
@@ -161,4 +168,47 @@ func (e *fullEnv) tunnels(t *testing.T) []tunnelRow {
 		t.Fatal(err)
 	}
 	return v.Data
+}
+
+// GET /api/instances 走统一的 s.do：未登录的局域网请求被鉴权拦下（401），既不返回 data 也不泄露 duplicates。
+func TestListInstancesUnauthorizedOmitsDuplicates(t *testing.T) {
+	e := newFullEnv(t)
+	adoptedDir := filepath.Join(t.TempDir(), "adopted-dup")
+	if err := os.MkdirAll(adoptedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sBytes, _ := json.Marshal(inst.Settings{
+		Name: "生存服", Core: "paper", MC: "1.21.4", JavaMajor: 21, JavaPath: filepath.Join(app.Base, "no-java.exe"),
+		XmxMB: 4096, XmsMB: 1024, LaunchTarget: "jar:server.jar", Adopted: true,
+	})
+	if err := os.WriteFile(filepath.Join(adoptedDir, "instance.json"), sBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app.RememberInstanceDir(adoptedDir)
+
+	mgr, err := inst.NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { mgr.ShutdownAll(time.Second) })
+	if len(mgr.SkippedDuplicates()) == 0 {
+		t.Fatal("前置条件：mgr 应有重名跳过记录")
+	}
+	tun := tunnel.NewManager()
+	aiSvc := ai.NewService(ai.Options{Dir: filepath.Join(app.Base, "data", "ai-unauth"), Keys: app.Secrets(), HTTP: e.dials.client(), Mirrors: dl.GHMirrors})
+	reg := catalog.New(catalog.Env{Mgr: mgr, Tun: tun, Accounts: tunnel.NewAccounts(tun, app.Secrets()), AI: aiSvc, Port: 27333})
+	e.h = New(mgr, tun, reg, catalog.NewAssistant(reg, aiSvc, Token))
+	e.mgr = mgr
+
+	rec := e.call(t, "GET", "/api/instances", "", 401, noToken, fromLAN)
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if _, hasData := body["data"]; hasData {
+		t.Fatalf("未鉴权请求不应返回 data：%s", rec.Body.String())
+	}
+	if _, hasDups := body["duplicates"]; hasDups {
+		t.Fatalf("未鉴权请求不应返回 duplicates：%s", rec.Body.String())
+	}
 }

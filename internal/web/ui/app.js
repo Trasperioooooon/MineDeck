@@ -1472,7 +1472,7 @@ async function renderInstances() {
     if (!dups.length) { box.hidden = true; box.innerHTML = ""; box._html = ""; return; }
     const html = `<div class="warn-card"><div class="wc-title">${icon("warn")} 有 ${dups.length} 个服务器文件夹因为重名没有列出来</div>
       <ul class="wc-list">${dups.map(d => `<li>文件夹 <code class="mono">${esc(d.dir)}</code> 里的服务器和列表里的「<b>${esc(d.name)}</b>」${d.keptDir ? `（<code class="mono">${esc(d.keptDir)}</code>）` : ""}重名，没有列出来。</li>`).join("")}</ul>
-      <div class="wc-note">要把两台都显示出来，请改掉其中一台的名字（打开没列出来的那个文件夹里的 <code>instance.json</code>，把 <code>"name"</code> 改成别的名字后重开 MineDeck；或者先把列表里这台移出列表，再用别的名字接管回来）。</div></div>`;
+      <div class="wc-note">要把两台都显示出来，请改掉其中一台的名字（打开没列出来的那个文件夹里的 <code>instance.json</code>，把 <code>"name"</code> 改成别的名字后重开 MineDeck；或者先把列表里这台移出列表，再用别的名字接管回来，然后重开 MineDeck）。</div></div>`;
     box.hidden = false;
     if (box._html !== html) { box.innerHTML = html; box._html = html; }
   };
@@ -4480,7 +4480,16 @@ async function renderDetail(name, path = "console") {
     const LOG4J_FIX = ["-Dlog4j2.formatMsgNoLookups=true", "-Dlog4j.configurationFile=log4j2_112-116.xml", "-Dlog4j.configurationFile=log4j2_17-111.xml"];
     const jvmFlags = () => $("#jm-jvm").value.split(/\s+/).map(s => s.trim()).filter(Boolean);
     const keptFix = () => { const cur = jvmFlags(); return LOG4J_FIX.filter(f => cur.includes(f)); };
-    // 启动参数预览（A28、A25.2）：由后端用和保存同一套函数算好返回，前端只负责展示，不自己拼参数
+    let saved = { xmx: $("#jm-mem").value, jvm: jvmFlags().join(" ") }; // 内存和参数上一次存下来的样子：只换 Java 时不重写启动设置
+    // 预览与保存共用同一套请求体构造：只发相对 saved 改过的字段（xmxMb 给 0、extraJvm 不传表示不改），保证预览和点保存算出来的完全一致
+    const buildSettingsReq = () => {
+      const xmx = $("#jm-mem").value, flags = jvmFlags();
+      const xmxChanged = xmx !== saved.xmx, jvmChanged = flags.join(" ") !== saved.jvm;
+      const reqBody = { xmxMb: xmxChanged ? +xmx : 0, xmsMb: 0 };
+      if (jvmChanged) reqBody.extraJvm = flags;
+      return { xmx, flags, xmxChanged, jvmChanged, reqBody };
+    };
+    // 启动参数预览（A28，A25 保存参数校验）：由后端用和保存同一套函数算好返回，前端只负责展示，不自己拼参数
     let previewSeq = 0, previewTimer = 0;
     const refreshJvmPreview = immediate => {
       clearTimeout(previewTimer);
@@ -4490,7 +4499,7 @@ async function renderDetail(name, path = "console") {
         try {
           const r = await api(`/api/instances/${enc}/settings/preview`, {
             method: "POST",
-            body: { xmxMb: +$("#jm-mem").value, xmsMb: 0, extraJvm: jvmFlags() },
+            body: buildSettingsReq().reqBody,
           });
           if (stale(gen) || seq !== previewSeq || !$("#jm-preview")) return;
           $("#jm-preview").textContent = "java " + (r.launchArgs || []).join(" ");
@@ -4511,15 +4520,14 @@ async function renderDetail(name, path = "console") {
     $("#jm-mem-mount").addEventListener("change", () => refreshJvmPreview(true));
     refreshJvmPreview(true);
     const lb = wireLiveBar(body, "服务器运行中：保存后要重启才生效");
-    let saved = { xmx: $("#jm-mem").value, jvm: jvmFlags().join(" ") }; // 内存和参数上一次存下来的样子：只换 Java 时不重写启动设置
     paintBar = wireSaveBar(body, gen,
       () => ({ xmx: $("#jm-mem").value, jvm: jvmFlags().join(" "), java: javaPick() }), // 只比较参数本身，换行 / 空格差异不算修改
       async () => {
         // 内存、参数、Java 都按点「保存」这一刻的读：请求途中又改的不算已保存（Codex 复审 beta.3）。
         // 内存和参数各管各的，只发改过的那一样（后端 xmxMb 给 0、extraJvm 不给就是不改）：两个窗口同时开着这一页时，
         // 一边改了参数，另一边只改内存再保存，不会把参数改回打开时的样子（Codex 复审 v3.2.0 第二轮）
-        const xmx = $("#jm-mem").value, flags = jvmFlags(), pick = javaPick();
-        const xmxChanged = xmx !== saved.xmx, jvmChanged = flags.join(" ") !== saved.jvm;
+        const { xmx, flags, xmxChanged, jvmChanged, reqBody } = buildSettingsReq();
+        const pick = javaPick();
         // 选的 Java 要先下载时，这次保存完会跳去任务页：保存途中把这一页的输入锁住，不让人在途中改了又随跳页丢掉
         // （Codex 复审 beta.3 第二、三轮。第二轮试过留在本页再记一个「正在下载」的状态，带出了下载完、下载失败以后页面不同步的问题，改成锁）
         const locked = pick !== "" && jopts[+pick].download
@@ -4528,16 +4536,16 @@ async function renderDetail(name, path = "console") {
         try {
           const notes = [];
           if (xmxChanged || jvmChanged) {
-            const reqBody = { xmxMb: xmxChanged ? +xmx : 0, xmsMb: 0 };
-            if (jvmChanged) reqBody.extraJvm = flags;
             const saveRes = await api(`/api/instances/${enc}/settings`, { method: "PUT", body: reqBody });
             if (xmxChanged) saved.xmx = xmx;
-            let back = saveRes && Array.isArray(saveRes.extraJvm) ? saveRes.extraJvm : null;
+            let back = null;
             if (jvmChanged) {
               // 回显实际保存的参数（老版本被删掉的 log4shell 缓解参数会被后端补回）；回读失败不影响已成功的保存。
               // 只在输入框里还是发出去的那份时回显：请求途中又改了参数的，不拿回读的盖掉新填的。
-              // 只改内存时不回读：那时读到的参数可能是另一个窗口刚存的，会被当成「补回」，也会把这一页没动的参数框换掉
-              if (!back) back = await api("/api/instances").then(l => l.find(i => i.name === name)?.extraJvm).catch(() => null);
+              // 只改内存时不取回传的参数：那时后端返回的 extraJvm 可能是另一个窗口刚存的，会被当成「补回」，也会把这一页没动的参数框换掉
+              back = saveRes && Array.isArray(saveRes.extraJvm)
+                ? saveRes.extraJvm
+                : await api("/api/instances").then(l => l.find(i => i.name === name)?.extraJvm).catch(() => null);
               if (back && !stale(gen) && jvmFlags().join(" ") === flags.join(" ")) $("#jm-jvm").value = back.join("\n");
               saved.jvm = (back || flags).join(" ");
             }

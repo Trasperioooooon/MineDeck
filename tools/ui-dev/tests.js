@@ -8232,6 +8232,8 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         await saveIn(pb);
         const b = last("b", "/settings");
         assert(b && b.xmxMb === want && !("extraJvm" in b), "B 只发内存：" + jstr(b));
+        const bToasts = await pb.$$eval(".toast", els => els.map(e => e.textContent).join(" | "));
+        assert(bToasts.includes("已保存内存与 JVM 参数") && !bToasts.includes("补回"), "只改内存时提示不应误报自动补回：" + bToasts);
         const i = (await mockSet({})).instances.find(x => x.name === PK);
         assert(jstr(i.extraJvm) === jstr(["-XX:+UseZGC"]) && i.xmxMb === want, "两边改的都在：" + jstr({ jvm: i.extraJvm, xmx: i.xmxMb }));
         assert((await pb.inputValue("#jm-jvm")) === "-XX:+UseG1GC", "只改内存时不回读，B 没动的参数框不被换掉：" + await pb.inputValue("#jm-jvm"));
@@ -8903,7 +8905,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     }
   });
 
-  await run("阶段05 A08：重名文件夹提示横幅在服务器列表页顶写出文件夹位置、撞上的服务器名与改名处理办法", async () => {
+  await run("A08：重名文件夹提示横幅在服务器列表页顶写出文件夹位置、撞上的服务器名与改名处理办法", async () => {
     const mState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
     try {
       await mState({
@@ -8919,8 +8921,9 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         text.includes("F:\\MCBackup\\survival-copy") &&
         text.includes("生存服 · 朋友") &&
         text.includes("D:\\OtherDisk\\adopted-survival") &&
-        text.includes("instance.json"),
-        "重名提示应写清被跳过的文件夹、撞上的服务器与改名办法：" + text,
+        text.includes("instance.json") &&
+        text.includes("再用别的名字接管回来，然后重开 MineDeck"),
+        "重名提示应写清被跳过的文件夹、撞上的服务器与两种改名后重开办法：" + text,
       );
       await mState({ duplicateDirs: [] });
       await page.goto(url("#/instances")); await settle(300);
@@ -8930,9 +8933,10 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     }
   });
 
-  await run("阶段05 A26：接管自带非官方日志配置的服务器时，任务结果卡片与日志写出未替换说明", async () => {
+  await run("A26：接管自带非官方日志配置的服务器时，任务结果卡片与日志写出等于没防及处理办法", async () => {
     const mState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
-    const customMsg = "这台服务器自带了自己的日志配置，MineDeck 没有替换，log4shell 防护要靠它自己";
+    const customTitle = "log4shell 防护：这台 1.12.2 的服务器没有套上 Mojang 的日志配置，等于没防";
+    const customNote = "服务器文件夹里已经有一份 log4j2_112-116.xml，内容和官方的不一样（可能是自己改过的），MineDeck 没有覆盖它，也没有替它加上引用。要用官方的那份，把这个文件改名或挪走以后重开 MineDeck；要用自己的，在「启动与内存」里加上 -Dlog4j.configurationFile=log4j2_112-116.xml";
     try {
       await mState({
         instReset: true,
@@ -8945,12 +8949,12 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         adoptTask: {
           warnings: [{
             kind: "custom-log4j",
-            title: customMsg,
-            note: "服务器文件夹里已有一份和官方内容不一样的 log4j2_112-116.xml，保持原样，也没有往启动参数里加 -Dlog4j.configurationFile=log4j2_112-116.xml。",
+            title: customTitle,
+            note: customNote,
           }],
           log: [
             "服务器文件夹：D:\\OldServers\\mc112",
-            "⚠ " + customMsg + "（log4j2_112-116.xml）",
+            "⚠ " + customTitle + "。" + customNote,
             "接管完成 ✔ 世界、模组、插件和配置文件都没有动",
           ],
         },
@@ -8964,20 +8968,20 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.waitForSelector('#t-msgs .warn-card[data-warn="custom-log4j"]');
       const warnText = await page.textContent('#t-msgs .warn-card[data-warn="custom-log4j"]');
       const logText = await page.textContent("#task-log");
-      assert(warnText.includes(customMsg) && warnText.includes("log4j2_112-116.xml"), "接管结果告警应说明自定义日志配置未替换：" + warnText);
-      assert(logText.includes(customMsg), "接管任务日志也应包含该说明：" + logText);
+      assert(warnText.includes("等于没防") && warnText.includes("-Dlog4j.configurationFile=log4j2_112-116.xml"), "接管结果告警应说明等于没防及处理办法：" + warnText);
+      assert(logText.includes("等于没防") && logText.includes("-Dlog4j.configurationFile=log4j2_112-116.xml"), "接管任务日志也应包含该说明：" + logText);
     } finally {
       await mState({ instReset: true, adoptScan: null });
     }
   });
 
-  await run("阶段05 A25 A28：启动与内存预览显示后端自动补齐的 log4shell 参数；同名日志配置非官方时不补引用并说明原因", async () => {
+  await run("A25 A28：启动与内存预览显示后端自动补齐的 log4shell 参数；同名日志配置非官方时不补引用并说明原因", async () => {
     const mState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
     const PK = "机械动力整合包", enc = encodeURIComponent(PK);
     const FIX = ["-Dlog4j2.formatMsgNoLookups=true", "-Dlog4j.configurationFile=log4j2_112-116.xml"];
     try {
       // 1) 官方日志配置在盘上时：即使在输入框里把缓解参数删掉，预览仍实时展示后端自动补上的两条 log4shell 参数
-      await mState({ instReset: true, legacy: { name: PK, extraJvm: ["-XX:+UseG1GC", ...FIX], forceFlags: FIX } });
+      await mState({ instReset: true, legacy: { name: PK, mc: "1.16.5", extraJvm: ["-XX:+UseG1GC", ...FIX], forceFlags: FIX } });
       await page.goto(url(`#/inst/${enc}/settings/jvm`));
       await page.waitForSelector("#jm-preview");
       await page.fill("#jm-jvm", "-XX:+UseZGC");
@@ -8987,25 +8991,50 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       });
       assert(await page.$eval("#jm-preview-note", el => el.hidden), "官方日志配置不应显示冲突提示");
 
-      // 2) 文件夹里是同名非官方日志配置时：预览和保存都不强加 -Dlog4j.configurationFile= 引用，且两处都写出原因
-      await mState({ legacy: { name: PK, extraJvm: ["-Dlog4j2.formatMsgNoLookups=true"], forceFlags: FIX, customLog4jXml: "log4j2_112-116.xml" } });
+      // 2) 文件夹里是同名非官方日志配置时：编辑参数后预览和保存都不强加 -Dlog4j.configurationFile= 引用，且两处都写出等于没防及处理办法
+      await mState({ legacy: { name: PK, mc: "1.16.5", extraJvm: ["-Dlog4j2.formatMsgNoLookups=true"], forceFlags: FIX, customLog4jXml: "log4j2_112-116.xml" } });
       await page.goto(url(`#/inst/${enc}/settings/jvm`));
-      await page.waitForFunction(() => !document.querySelector("#jm-preview-note")?.hidden);
+      await page.waitForSelector("#jm-preview");
       await page.fill("#jm-jvm", "-XX:+UseG1GC");
-      await page.waitForFunction(() => (document.querySelector("#jm-preview")?.textContent || "").includes("-XX:+UseG1GC"));
+      await page.waitForFunction(() => !document.querySelector("#jm-preview-note")?.hidden && (document.querySelector("#jm-preview")?.textContent || "").includes("-XX:+UseG1GC"));
       const prev = await page.evaluate(() => ({
         cmd: $("#jm-preview").textContent,
         note: $("#jm-preview-note").textContent,
       }));
       assert(prev.cmd.includes("-Dlog4j2.formatMsgNoLookups=true") && !prev.cmd.includes("-Dlog4j.configurationFile=log4j2_112-116.xml"),
         "非官方日志配置时预览不应强加引用：" + JSON.stringify(prev));
-      assert(prev.note.includes("log4j2_112-116.xml") && prev.note.includes("不是 Mojang 官方那份"),
-        "预览应说明未自动加上引用的原因：" + JSON.stringify(prev));
+      assert(prev.note.includes("等于没防") && prev.note.includes("-Dlog4j.configurationFile=log4j2_112-116.xml"),
+        "预览应说明等于没防及处理办法：" + JSON.stringify(prev));
 
       await page.click('[data-sb="save"]');
-      await page.waitForFunction(() => [...document.querySelectorAll(".toast")].some(t => t.textContent.includes("不是 Mojang 官方那份")));
+      await page.waitForFunction(() => [...document.querySelectorAll(".toast")].some(t => t.textContent.includes("等于没防")));
       assert(!(await page.inputValue("#jm-jvm")).includes("-Dlog4j.configurationFile=log4j2_112-116.xml"),
         "保存后回显的参数框也不应被强加官方引用：" + await page.inputValue("#jm-jvm"));
+    } finally {
+      await mState({ instReset: true });
+    }
+  });
+
+  await run("启动与内存：未改最大内存时预览与保存共用请求体，保留原有最小内存", async () => {
+    const mState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
+    const PK = "机械动力整合包", enc = encodeURIComponent(PK);
+    try {
+      await mState({ instReset: true });
+      await mState({ inst: { name: PK, xmsMb: 2048 } });
+      await page.goto(url(`#/inst/${enc}/settings/jvm`));
+      await page.waitForFunction(() => (document.querySelector("#jm-preview")?.textContent || "").includes("-Xms2048M"));
+      await page.fill("#jm-jvm", "-XX:+UseZGC");
+      await page.waitForFunction(() => {
+        const t = document.querySelector("#jm-preview")?.textContent || "";
+        return t.includes("-XX:+UseZGC") && t.includes("-Xms2048M");
+      });
+      const previewBeforeSave = await page.textContent("#jm-preview");
+      assert(previewBeforeSave.includes("-Xms2048M") && !previewBeforeSave.includes("-Xms1024M"),
+        "只改 JVM 参数时预览不应把 -Xms2048M 重算成 -Xms1024M：" + previewBeforeSave);
+      await page.click('[data-sb="save"]');
+      await page.waitForFunction(() => !document.querySelector(".save-bar.sticky").classList.contains("dirty"));
+      const previewAfterSave = await page.textContent("#jm-preview");
+      assert(previewAfterSave === previewBeforeSave, "保存后的启动参数应与保存前预览完全一致：" + previewAfterSave + " vs " + previewBeforeSave);
     } finally {
       await mState({ instReset: true });
     }

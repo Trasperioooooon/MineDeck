@@ -2828,7 +2828,12 @@ function handler(state, ui, portOf) {
       // 模拟老版本实例：保存 / 预览 JVM 参数时后端强制补回 log4shell 缓解参数（同 inst.UpdateSettingsWithResult / PreviewSettings）
       if (b.legacy) {
         const i = state.instances.find(x => x.name === b.legacy.name);
-        if (i) { i.extraJvm = b.legacy.extraJvm; i.forceFlags = b.legacy.forceFlags; i.customLog4jXml = b.legacy.customLog4jXml || ""; }
+        if (i) {
+          i.extraJvm = b.legacy.extraJvm;
+          i.forceFlags = b.legacy.forceFlags;
+          i.customLog4jXml = b.legacy.customLog4jXml || "";
+          if (b.legacy.mc) i.mc = b.legacy.mc;
+        }
       }
       if ("cfKey" in b) state.cfKey = String(b.cfKey || "");
       if ("cfKeyBroken" in b) state.cfKeyBroken = !!b.cfKeyBroken;
@@ -3389,7 +3394,9 @@ function handler(state, ui, portOf) {
           }
           const nextXmx = b.xmxMb > 0 ? +b.xmxMb : i.xmxMb;
           if (b.xmxMb > 0 && nextXmx < 512) return err(res, 400, "最大内存不能低于 512MB");
-          const nextXms = Math.min(1024, nextXmx);
+          const nextXms = b.xmxMb > 0
+            ? (b.xmsMb >= 128 && b.xmsMb <= nextXmx ? +b.xmsMb : Math.min(1024, nextXmx))
+            : (i.xmsMb > 0 ? i.xmsMb : Math.min(1024, nextXmx));
           const nextEnc = b.consoleEncoding || i.consoleEncoding || "auto";
           let nextJvm = (i.extraJvm || []).slice(), note = "";
           if (Array.isArray(b.extraJvm)) {
@@ -3409,7 +3416,7 @@ function handler(state, ui, portOf) {
             }
             for (const f of flags) if (!kept.has(f)) nextJvm.push(f);
             if (i.customLog4jXml && !nextJvm.includes("-Dlog4j.configurationFile=" + i.customLog4jXml)) {
-              note = `服务器文件夹里的 ${i.customLog4jXml} 不是 Mojang 官方那份，没有自动加上它的引用，log4shell 防护要靠它自己`;
+              note = `log4shell 防护：这台 ${i.mc} 的服务器没有套上 Mojang 的日志配置，等于没防。服务器文件夹里已经有一份 ${i.customLog4jXml}，内容和官方的不一样（可能是自己改过的），MineDeck 没有覆盖它，也没有替它加上引用。要用官方的那份，把这个文件改名或挪走以后重开 MineDeck；要用自己的，在「启动与内存」里加上 -Dlog4j.configurationFile=${i.customLog4jXml}`;
             }
           }
           const launchArgs = [
@@ -3419,7 +3426,7 @@ function handler(state, ui, portOf) {
           ];
           if (m === "PUT" && !seg[5]) {
             if (Array.isArray(b.extraJvm)) i.extraJvm = nextJvm;
-            if (b.xmxMb > 0) i.xmxMb = nextXmx;
+            if (b.xmxMb > 0) { i.xmxMb = nextXmx; i.xmsMb = nextXms; }
             if (b.consoleEncoding) i.consoleEncoding = nextEnc;
           }
           return ok(res, { xmxMb: nextXmx, xmsMb: nextXms, extraJvm: nextJvm, launchArgs, ...(note ? { note } : {}) });

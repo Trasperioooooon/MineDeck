@@ -15,7 +15,7 @@ import (
 	"minedeck/internal/ops"
 )
 
-// A28 + A25.2：AI 助手提出修改启动参数（instance.settings.set）时，确认卡片里展示的 JVM 参数就是实际会存、会用的参数
+// A28 + A25（保存参数校验）：AI 助手提出修改启动参数（instance.settings.set）时，确认卡片里展示的 JVM 参数就是实际会存、会用的参数
 // （含自动补上的 log4shell 参数）；遇到同名非官方日志配置文件时不强加引用，并在确认卡片的 warning 里说明。
 func TestSettingsProposalPreviewMatchesSavedLog4jArgs(t *testing.T) {
 	old := []string{app.Base, app.ServersDir, app.BackupsDir, app.CacheDir, app.RuntimesDir}
@@ -105,8 +105,8 @@ func TestSettingsProposalPreviewMatchesSavedLog4jArgs(t *testing.T) {
 	if len(prop2.Plan.Changes) != 1 || prop2.Plan.Changes[0].After != wantAfter {
 		t.Fatalf("非官方日志配置不应在确认卡片里强加引用，实际：%+v", prop2.Plan.Changes)
 	}
-	if !strings.Contains(prop2.Plan.Warning, "log4j2_112-116.xml") || !strings.Contains(prop2.Plan.Warning, "不是 Mojang 官方那份") {
-		t.Fatalf("确认卡片 Warning 应说明未自动加引用的原因，实际：%q", prop2.Plan.Warning)
+	if !strings.Contains(prop2.Plan.Warning, "等于没防") || !strings.Contains(prop2.Plan.Warning, "-Dlog4j.configurationFile=log4j2_112-116.xml") {
+		t.Fatalf("确认卡片 Warning 应说明等于没防及手动加引用的办法，实际：%q", prop2.Plan.Warning)
 	}
 	decOut, err := reg.Confirm(ctx, uiCaller, prop2.ID, false)
 	if err != nil {

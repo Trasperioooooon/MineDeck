@@ -88,7 +88,7 @@ func skipOrFailJunction(t *testing.T, err error, out []byte) {
 }
 
 // 登记的是一个目录联接，真实文件夹又同时在存放根下面（或两条登记指着同一个真实文件夹）：
-// A08 起单独登记的先加载，同一个真实文件夹只算一次；移出列表时不管加载时认的是哪条路径，按真实路径都能把登记清干净。
+// 同一个真实文件夹只算一次；同时在存放根下面时 i.Dir 用存放根下的真实目录，移出列表时按真实路径把联接登记也清干净。
 func TestForgetRegisteredAlias(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("目录联接是 Windows 上的东西")
@@ -107,8 +107,8 @@ func TestForgetRegisteredAlias(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if i, err := m2.Get("srv"); err != nil || i.Dir != link || len(m2.List()) != 1 || len(m2.SkippedDuplicates()) != 0 {
-		t.Fatalf("单独登记的联接应优先加载且不把同一真实目录算重名：%v dir=%q（%d 台，重名=%v）", err, func() string {
+	if i, err := m2.Get("srv"); err != nil || i.Dir != real || len(m2.List()) != 1 || len(m2.SkippedDuplicates()) != 0 {
+		t.Fatalf("同一个真实文件夹也在存放根下面时应采用根下目录且不算重名：%v dir=%q（%d 台，重名=%v）", err, func() string {
 			if i == nil {
 				return ""
 			}
@@ -122,7 +122,7 @@ func TestForgetRegisteredAlias(t *testing.T) {
 		t.Errorf("移出列表后，经目录联接登记的那一条还留着：%v", got)
 	}
 
-	// 再测 i.Dir != link 的情况：真实路径和联接都登记在 InstanceDirs 里，加载认到第一条 real，移出列表时联接那条登记也按真实路径一起清掉
+	// 再测真实路径和联接都登记在 InstanceDirs 里的情况：加载认到 real，移出列表时联接那条登记也按真实路径一起清掉
 	if err := os.Rename(filepath.Join(real, settingsBackup), filepath.Join(real, "instance.json")); err != nil {
 		t.Fatal(err)
 	}
@@ -133,12 +133,111 @@ func TestForgetRegisteredAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	if i, err := m3.Get("srv"); err != nil || i.Dir != real || len(m3.List()) != 1 {
-		t.Fatalf("应认到第一条真实目录且只算一台：%v（%d 台）", err, len(m3.List()))
+		t.Fatalf("应认到真实目录且只算一台：%v（%d 台）", err, len(m3.List()))
 	}
 	if err := m3.Delete("srv", false); err != nil {
 		t.Fatal(err)
 	}
 	if got := app.InstanceDirs(); len(got) != 0 {
 		t.Errorf("i.Dir 是真实路径时，经目录联接登记的别名也应一起清掉：%v", got)
+	}
+}
+
+// 真实目录在 ServersDir 里、又经目录联接登记在 InstanceDirs 里时，「连同文件删除」必须删掉真实目录并清掉登记，
+// 重载 Manager 后这台服务器不会从 ServersDir 里复活。
+func TestDeleteRemovesRootDirWhenRegisteredViaJunction(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("目录联接是 Windows 上的东西")
+	}
+	_, user := adoptEnv(t)
+	real := filepath.Join(app.ServersDir, "srv-del")
+	writeTree(t, real, map[string]string{
+		"instance.json":   `{"name":"联接服","core":"vanilla","mc":"1.21.1","launchTarget":"jar:server.jar","adopted":true}`,
+		"world/level.dat": "world-data",
+	})
+	link := filepath.Join(user, "link-del")
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, real).CombinedOutput(); err != nil {
+		skipOrFailJunction(t, err, out)
+	}
+	t.Cleanup(func() { _ = os.Remove(link) })
+	app.RememberInstanceDir(link)
+
+	m1, err := NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { m1.ShutdownAll(0) })
+
+	if err := m1.Delete("联接服", true); err != nil {
+		t.Fatalf("连同文件删除应成功：%v", err)
+	}
+	if _, err := os.Stat(real); !os.IsNotExist(err) {
+		t.Fatalf("ServersDir 下的真实实例文件夹应已删掉，实际 err=%v", err)
+	}
+	if got := app.InstanceDirs(); len(got) != 0 {
+		t.Fatalf("删除后联接登记应已清掉：%v", got)
+	}
+
+	m2, err := NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { m2.ShutdownAll(0) })
+	if _, err := m2.Get("联接服"); err == nil || len(m2.List()) != 0 {
+		t.Fatalf("重载后已删掉的服务器不应复活：list=%d err=%v", len(m2.List()), err)
+	}
+}
+
+// 列表里那台保留下来的同名服务器移出列表后，或者原先被跳过的文件夹自己已经被接管进列表后，SkippedDuplicates 不再继续提示它。
+func TestSkippedDuplicatesClearedAfterRemovingKept(t *testing.T) {
+	_, user := adoptEnv(t)
+	root2 := filepath.Join(user, "root2")
+	if _, err := app.UpdateConfig(func(c *app.Config) error {
+		c.Roots = []string{root2}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	keptDir := filepath.Join(user, "kept-srv")
+	dupDir1 := filepath.Join(app.ServersDir, "dup-srv-1")
+	dupDir2 := filepath.Join(root2, "dup-srv-2")
+	for _, d := range []string{keptDir, dupDir1, dupDir2} {
+		writeTree(t, d, map[string]string{
+			"instance.json": `{"name":"同名服","core":"vanilla","mc":"1.21.1","launchTarget":"jar:server.jar"}`,
+			"server.jar":    vanilla21,
+			"eula.txt":      "eula=true\n",
+		})
+	}
+	app.RememberInstanceDir(keptDir)
+
+	m, err := NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { m.ShutdownAll(0) })
+
+	if got := len(m.SkippedDuplicates()); got != 2 {
+		t.Fatalf("初始应有 2 个重名跳过项，实际 %d", got)
+	}
+
+	// 把列表里留着的那台移出列表：列表里已经没有「同名服」，不再提示「和列表里的同名服重名」
+	if err := m.Delete("同名服", false); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.SkippedDuplicates(); len(got) != 0 {
+		t.Fatalf("移出保留实例后不应继续报告重名跳过项，实际：%+v", got)
+	}
+
+	// 再把 dupDir1 直接接管成「同名服」：dupDir1 自己进了列表不该再出现在重名提示里，还没进列表的 dupDir2 指向新的保留目录
+	if out, err := adopt(t, m, AdoptReq{
+		Dir: dupDir1, Name: "同名服", Core: mcsrc.CoreVanilla, MC: "1.21.1",
+		LaunchTarget: "jar:server.jar", JavaMajor: 21, JavaPath: fakeJava(t),
+	}); err != nil {
+		t.Fatalf("接管 dupDir1 失败：%v\n%s", err, out)
+	}
+	want := []SkippedDuplicate{{Name: "同名服", Dir: dupDir2, KeptDir: dupDir1}}
+	if got := m.SkippedDuplicates(); !slices.Equal(got, want) {
+		t.Fatalf("接管 dupDir1 后 SkippedDuplicates = %+v，期望 %+v", got, want)
 	}
 }

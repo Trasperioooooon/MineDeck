@@ -178,8 +178,9 @@ type SkippedDuplicate struct {
 
 func NewManager() (*Manager, error) {
 	m := &Manager{insts: map[string]*Instance{}, creating: map[string]bool{}, Tasks: tasks.NewManager()}
-	seen := map[string]bool{} // 已经登记过的目录（真实路径）：同一个文件夹从两条路都能找到时只算一次
-	load := func(dir string) {
+	seen := map[string]bool{}          // 已经登记过的目录（真实路径）：同一个文件夹从两条路都能找到时只算一次
+	fromDirs := map[string]*Instance{} // 从 InstanceDirs 加载的实例（按真实路径记）：后面若在存放根下面扫到同一个真实文件夹，把 Dir 改成存放根下的路径
+	load := func(dir string, fromRoot bool) {
 		s, err := readSettings(dir)
 		if os.IsNotExist(err) {
 			return // 不是实例目录，或者这个文件夹现在不在
@@ -190,6 +191,23 @@ func NewManager() (*Manager, error) {
 		}
 		key := strings.ToLower(realPath(dir))
 		if seen[key] {
+			// 同一个真实文件夹既经目录联接登记在 InstanceDirs 里，又在某个存放根下面被扫到：
+			// i.Dir 用存放根下面那条路径，免得「连同文件删除」只删掉联接而留下真目录在下次启动复活；
+			// 「登记的优先」只管两个不同文件夹撞名的情形（A08）。
+			if fromRoot {
+				if inst, ok := fromDirs[key]; ok {
+					delete(fromDirs, key)
+					if inst.Dir != dir {
+						oldDir := inst.Dir
+						inst.Dir = dir
+						for idx := range m.skippedDups {
+							if m.skippedDups[idx].KeptDir == oldDir {
+								m.skippedDups[idx].KeptDir = dir
+							}
+						}
+					}
+				}
+			}
 			return
 		}
 		seen[key] = true
@@ -199,7 +217,11 @@ func NewManager() (*Manager, error) {
 			return
 		}
 		startErr, startBusy := loadStartFail(dir)
-		m.insts[s.Name] = &Instance{Settings: s, Dir: dir, Console: newConsole(), startErr: startErr, startBusy: startBusy}
+		inst := &Instance{Settings: s, Dir: dir, Console: newConsole(), startErr: startErr, startBusy: startBusy}
+		m.insts[s.Name] = inst
+		if !fromRoot {
+			fromDirs[key] = inst
+		}
 		// 上次换地图没走完：先封住启动，等 worldimport 按记录处理完再放开（比调度器和任何启动入口都早）
 		if why := PendingWorldTx(dir); why != "" {
 			if m.worldBlock == nil {
@@ -213,7 +235,7 @@ func NewManager() (*Manager, error) {
 	// 文件夹现在不在（比如在没插上的移动硬盘里）就跳过，登记留着，回来了照样认；
 	// 登记只在这台服务器移出列表或被删掉时去掉（见 Delete）。
 	for _, dir := range app.InstanceDirs() {
-		load(dir)
+		load(dir, false)
 	}
 	// 多根扫描：内置默认根 + 配置默认根 + 历史自定义根（支持实例散落于不同盘符/目录）；存放位置内部重名的仍按先到先得
 	for _, root := range app.InstanceRoots() {
@@ -223,7 +245,7 @@ func NewManager() (*Manager, error) {
 		}
 		for _, e := range ents {
 			if e.IsDir() {
-				load(filepath.Join(root, e.Name()))
+				load(filepath.Join(root, e.Name()), true)
 			}
 		}
 	}
@@ -232,29 +254,45 @@ func NewManager() (*Manager, error) {
 }
 
 // SkippedDuplicates 返回启动加载时因为重名没列出来的文件夹（A08）。
-// 若被跳过的文件夹后来已经挪走、删掉或改了名字，不再继续提示。
+// 若列表里已经没有这台同名服务器、或者被跳过的文件夹自己已进入列表、或者磁盘上已挪走/删掉/改了名，不再继续提示。
 func (m *Manager) SkippedDuplicates() []SkippedDuplicate {
 	m.mu.Lock()
 	dups := append([]SkippedDuplicate(nil), m.skippedDups...)
+	var instDirs []string
 	keptByName := make(map[string]string, len(dups))
-	for _, d := range dups {
-		if k, ok := m.insts[d.Name]; ok {
-			keptByName[d.Name] = k.Dir
+	if len(dups) > 0 {
+		instDirs = make([]string, 0, len(m.insts))
+		for _, inst := range m.insts {
+			instDirs = append(instDirs, inst.Dir)
+		}
+		for _, d := range dups {
+			if k, ok := m.insts[d.Name]; ok {
+				keptByName[d.Name] = k.Dir
+			}
 		}
 	}
 	m.mu.Unlock()
 	if len(dups) == 0 {
 		return []SkippedDuplicate{}
 	}
+	loaded := make(map[string]bool, len(instDirs))
+	for _, dir := range instDirs {
+		loaded[strings.ToLower(realPath(dir))] = true
+	}
 	out := make([]SkippedDuplicate, 0, len(dups))
 	for _, d := range dups {
+		kd, ok := keptByName[d.Name]
+		if !ok {
+			continue
+		}
+		if loaded[strings.ToLower(realPath(d.Dir))] {
+			continue
+		}
 		s, err := readSettings(d.Dir)
 		if err != nil || s.Name != d.Name {
 			continue
 		}
-		if kd, ok := keptByName[d.Name]; ok {
-			d.KeptDir = kd
-		}
+		d.KeptDir = kd
 		out = append(out, d)
 	}
 	return out
@@ -344,8 +382,9 @@ func (m *Manager) Delete(name string, files bool) error {
 	if deleteHook != nil {
 		deleteHook()
 	}
-	// 这台服务器的单独登记（接管进来的才有）。登记的写法可能和 i.Dir 不一样——比如登记的是一个目录联接，
-	// 而启动时是从某个存放根下面先扫到它的——所以按真实路径找；要赶在删文件夹之前找，删了就解不出真实路径了
+	// 这台服务器的单独登记（接管进来的才有）。登记的写法可能和 i.Dir 不一样——比如登记的是目录联接，
+	// 而真实文件夹也在某个存放根下面（加载时 i.Dir 用的是存放根下的路径），或者同一文件夹登记过别名——
+	// 所以按真实路径找；要赶在删文件夹之前找，删了就解不出真实路径了
 	var registered []string
 	if dirs := app.InstanceDirs(); len(dirs) > 0 {
 		real := realPath(i.Dir)
@@ -448,7 +487,7 @@ func (m *Manager) unmarkPacking(name string) {
 	delete(m.packing, name)
 }
 
-// SettingsSaveResult 保存或预览运行参数的结果：给出补齐 log4shell 防护后的实际参数、完整启动参数，以及有非官方同名日志配置时的说明（A25.2、A28）。
+// SettingsSaveResult 保存或预览运行参数的结果：给出补齐 log4shell 防护后的实际参数、完整启动参数，以及有非官方同名日志配置时的说明（A28，A25 保存参数校验）。
 type SettingsSaveResult struct {
 	XmxMB      int      `json:"xmxMb"`
 	XmsMB      int      `json:"xmsMb"`
@@ -457,49 +496,62 @@ type SettingsSaveResult struct {
 	Note       string   `json:"note,omitempty"`
 }
 
-// PreviewSettings 不落盘地算出修改运行参数后实际会存、会用的参数（AI 确认卡片和界面「启动与内存」预览共用，A28）。
-// 规则与 UpdateSettingsWithResult 完全一致，都调 completeExtraJVMLocked。
-func (i *Instance) PreviewSettings(xmxMB, xmsMB int, consoleEnc string, extraJVM *[]string) (SettingsSaveResult, error) {
+func (i *Instance) settingsSnapshot() Settings {
+	i.procMu.Lock()
+	defer i.procMu.Unlock()
+	s := i.Settings
+	s.ExtraJVM = append([]string(nil), i.ExtraJVM...)
+	s.Policies.Schedules = append([]Schedule(nil), i.Policies.Schedules...)
+	return s
+}
+
+// computeSettingsUpdate 按同一套规则校验并算出更新后的运行参数（PreviewSettings 与 UpdateSettingsWithResult 共用，A28）。
+// 只读 cur 值副本与磁盘上的服务端 jar / 日志配置文件，不碰 Instance 锁。
+func computeSettingsUpdate(cur Settings, dir string, xmxMB, xmsMB int, consoleEnc string, extraJVM *[]string) (Settings, SettingsSaveResult, error) {
 	switch consoleEnc {
 	case "auto", "utf-8", "gbk", "":
 	default:
-		return SettingsSaveResult{}, fmt.Errorf("不支持的控制台编码: %s", consoleEnc)
+		return Settings{}, SettingsSaveResult{}, fmt.Errorf("不支持的控制台编码: %s", consoleEnc)
 	}
-	i.procMu.Lock()
-	defer i.procMu.Unlock()
 	if extraJVM != nil {
-		if err := validateJVMArgs(*extraJVM, i.ExtraJVM); err != nil {
-			return SettingsSaveResult{}, err
+		if err := validateJVMArgs(*extraJVM, cur.ExtraJVM); err != nil {
+			return Settings{}, SettingsSaveResult{}, err
 		}
 	}
-	nextXmx, nextXms := i.XmxMB, i.XmsMB
+	next := cur
+	next.ExtraJVM = append([]string(nil), cur.ExtraJVM...)
 	if xmxMB > 0 {
 		if xmxMB < 512 {
-			return SettingsSaveResult{}, fmt.Errorf("最大内存不能低于 512MB")
+			return Settings{}, SettingsSaveResult{}, fmt.Errorf("最大内存不能低于 512MB")
 		}
 		if xmsMB < 128 || xmsMB > xmxMB {
 			xmsMB = min(1024, xmxMB)
 		}
-		nextXmx, nextXms = xmxMB, xmsMB
+		next.XmxMB, next.XmsMB = xmxMB, xmsMB
 	}
-	nextEnc := i.ConsoleEncoding
 	if consoleEnc != "" {
-		nextEnc = consoleEnc
+		next.ConsoleEncoding = consoleEnc
 	}
-	nextJVM := append([]string(nil), i.ExtraJVM...)
 	var note string
 	if extraJVM != nil {
-		nextJVM, note = completeExtraJVMLocked(i, *extraJVM)
+		next.ExtraJVM, note = completeExtraJVM(next, dir, *extraJVM)
 	}
-	tmp := Instance{Settings: i.Settings, Dir: i.Dir}
-	tmp.XmxMB, tmp.XmsMB, tmp.ConsoleEncoding, tmp.ExtraJVM = nextXmx, nextXms, nextEnc, nextJVM
-	return SettingsSaveResult{
-		XmxMB:      nextXmx,
-		XmsMB:      nextXms,
-		ExtraJVM:   nextJVM,
+	tmp := Instance{Settings: next, Dir: dir}
+	return next, SettingsSaveResult{
+		XmxMB:      next.XmxMB,
+		XmsMB:      next.XmsMB,
+		ExtraJVM:   append([]string(nil), next.ExtraJVM...),
 		LaunchArgs: launchArgs(&tmp),
 		Note:       note,
 	}, nil
+}
+
+// PreviewSettings 不落盘地算出修改运行参数后实际会存、会用的参数（AI 确认卡片和界面「启动与内存」预览共用，A28）。
+// 只在取当前设置快照时短暂持 procMu，开包检查服务端 jar 与读日志配置文件都在锁外完成，不阻塞 Status 等状态查询。
+func (i *Instance) PreviewSettings(xmxMB, xmsMB int, consoleEnc string, extraJVM *[]string) (SettingsSaveResult, error) {
+	cur := i.settingsSnapshot()
+	_, res, err := computeSettingsUpdate(cur, i.Dir, xmxMB, xmsMB, consoleEnc, extraJVM)
+	return res, err
 }
 
 // PreviewSettings 按实例名预览运行参数（见 Instance.PreviewSettings）。
@@ -518,7 +570,7 @@ func (m *Manager) UpdateSettings(name string, xmxMB, xmsMB int, consoleEnc strin
 	return err
 }
 
-// UpdateSettingsWithResult 同 UpdateSettings，并返回补齐后的实际参数与说明（A25.2、A28）。
+// UpdateSettingsWithResult 同 UpdateSettings，并返回补齐后的实际参数与说明（A28，A25 保存参数校验）。
 func (m *Manager) UpdateSettingsWithResult(name string, xmxMB, xmsMB int, consoleEnc string, extraJVM *[]string) (SettingsSaveResult, error) {
 	i, err := m.Get(name)
 	if err != nil {
@@ -529,51 +581,25 @@ func (m *Manager) UpdateSettingsWithResult(name string, xmxMB, xmsMB int, consol
 		return SettingsSaveResult{}, err
 	}
 	defer release()
-	switch consoleEnc {
-	case "auto", "utf-8", "gbk", "":
-	default:
-		return SettingsSaveResult{}, fmt.Errorf("不支持的控制台编码: %s", consoleEnc)
-	}
 	// 运行中控制台 goroutine 会并发读这些字段，写入必须持锁；
 	// 落盘（saveInstance 序列化 i.Settings、writeRunBat 读取 i 字段）也在锁内完成，
 	// 避免与并发的 UpdateSettings 竞争地读写 i.Settings
 	i.procMu.Lock()
 	defer i.procMu.Unlock()
-	if extraJVM != nil { // 要和现有的参数比，所以放在锁里；任何字段都还没改
-		if err := validateJVMArgs(*extraJVM, i.ExtraJVM); err != nil {
-			return SettingsSaveResult{}, err
-		}
+	next, res, err := computeSettingsUpdate(i.Settings, i.Dir, xmxMB, xmsMB, consoleEnc, extraJVM)
+	if err != nil {
+		return SettingsSaveResult{}, err
 	}
-	if xmxMB > 0 {
-		if xmxMB < 512 {
-			return SettingsSaveResult{}, fmt.Errorf("最大内存不能低于 512MB")
-		}
-		if xmsMB < 128 || xmsMB > xmxMB {
-			xmsMB = min(1024, xmxMB)
-		}
-		i.XmxMB, i.XmsMB = xmxMB, xmsMB
-	}
-	if consoleEnc != "" {
-		i.ConsoleEncoding = consoleEnc
-	}
-	var note string
-	if extraJVM != nil {
-		// 老版本的 log4shell 缓解参数强制保留（同名文件不是官方那份时不强加引用，见 completeExtraJVMLocked）
-		i.ExtraJVM, note = completeExtraJVMLocked(i, *extraJVM)
-	}
+	old := i.Settings
+	i.Settings = next
 	if err := m.saveInstance(i); err != nil {
+		i.Settings = old
 		return SettingsSaveResult{}, err
 	}
 	if err := writeRunBat(i); err != nil {
 		return SettingsSaveResult{}, err
 	}
-	return SettingsSaveResult{
-		XmxMB:      i.XmxMB,
-		XmsMB:      i.XmsMB,
-		ExtraJVM:   append([]string(nil), i.ExtraJVM...),
-		LaunchArgs: launchArgs(i),
-		Note:       note,
-	}, nil
+	return res, nil
 }
 
 // consoleEnc 加锁读取控制台编码（供输出 goroutine 每行调用）。

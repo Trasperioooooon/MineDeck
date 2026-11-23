@@ -157,7 +157,7 @@ func TestConcurrentStartAndDelete(t *testing.T) {
 			autoMu.Unlock()
 		})
 		m.crashRestart(i, 0)
-		// 定时重启在服务器停下以前在 policy.go:349 直接返回；即使停服后走到 policy.go:370，调的也是上面测过的 m.Start
+		// 定时重启在服务器停下以前由 execSchedule 直接返回；即使停服后继续往下走，调的也是上面测过的 m.Start
 		m.execSchedule(i, Schedule{Type: "restart", At: "04:00"})
 
 		close(releaseDelete)
@@ -439,8 +439,11 @@ func TestSaveAndPreviewSettingsOnlyReferenceOfficialLog4jXML(t *testing.T) {
 		if !slices.Equal(prev.LaunchArgs, savedRes.LaunchArgs) {
 			t.Fatalf("预览与保存的完整启动参数应完全一致：\npreview=%q\nsaved=%q", prev.LaunchArgs, savedRes.LaunchArgs)
 		}
-		if prev.Note == "" || prev.Note != savedRes.Note || !strings.Contains(savedRes.Note, log4jXML) || !strings.Contains(savedRes.Note, "不是 Mojang 官方那份") {
-			t.Fatalf("结果里应说明没有自动加上引用：preview=%q saved=%q", prev.Note, savedRes.Note)
+		if prev.Note == "" || prev.Note != savedRes.Note ||
+			!strings.Contains(savedRes.Note, "等于没防") ||
+			!strings.Contains(savedRes.Note, "改名或挪走") ||
+			!strings.Contains(savedRes.Note, log4jConfigKey+log4jXML) {
+			t.Fatalf("结果里应说明等于没防及两种处理办法：preview=%q saved=%q", prev.Note, savedRes.Note)
 		}
 		bat := mustRead(t, filepath.Join(dir, "run.bat"))
 		if strings.Contains(bat, log4jConfigKey) {
@@ -483,15 +486,78 @@ func TestSaveAndPreviewSettingsOnlyReferenceOfficialLog4jXML(t *testing.T) {
 	})
 }
 
-// A26：接管时文件夹里已有同名、内容不是官方的日志配置，不替换、不下载、不加引用（含旧 instance.json.bak 里带过引用的情况），
-// 并在接管结果（告警与日志）和实例控制台里说明「这台服务器自带了自己的日志配置，MineDeck 没有替换，log4shell 防护要靠它自己」；
+// A26：接管时文件夹里已有同名、内容不是官方的日志配置，不替换、不下载、不新加官方引用，
+// 旧 instance.json.bak 里原本已有的引用原样保留（不替用户摘掉），并在接管结果（告警与日志）和控制台里写明等于没防及两种处理办法；
 // 官方那份或没有这个文件的照旧。
 func TestAdoptPreservesCustomLog4jXMLWithoutReference(t *testing.T) {
-	t.Run("已有非官方日志配置时不替换不加引用并写入说明", func(t *testing.T) {
+	t.Run("全新接管已有非官方日志配置时不替换不加引用并写入说明", func(t *testing.T) {
+		fetched := stubLog4jFetch(t, nil)
+		m, user := adoptEnv(t)
+		dir := filepath.Join(user, "custom-112-fresh")
+		customXML := "<Configuration><!-- 服主自己的日志配置 --></Configuration>"
+		writeTree(t, dir, map[string]string{
+			"server.jar":        vanilla21,
+			"eula.txt":          "eula=true\n",
+			"server.properties": "server-port=25590\n",
+			log4jXML:            customXML,
+		})
+
+		taskID, err := m.AdoptAsync(AdoptReq{
+			Dir: dir, Name: "自带日志的新接管服", Core: mcsrc.CoreVanilla, MC: "1.12.2",
+			LaunchTarget: "jar:server.jar", JavaMajor: 8, JavaPath: fakeJava(t),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		snap := waitAdoptTask(t, m, taskID)
+		if snap.Err != "" {
+			t.Fatalf("接管应成功，实际报错：%s", snap.Err)
+		}
+		if len(*fetched) != 0 {
+			t.Fatalf("已有非官方同名文件时不应下载替换：%v", *fetched)
+		}
+		if got := mustRead(t, filepath.Join(dir, log4jXML)); got != customXML {
+			t.Fatalf("用户的日志配置被改了：%q", got)
+		}
+
+		i, err := m.Get("自带日志的新接管服")
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantJVM := []string{log4jNoLookups}
+		if !slices.Equal(i.ExtraJVM, wantJVM) {
+			t.Fatalf("ExtraJVM 不应新加 -Dlog4j.configurationFile 引用：%q（期望 %q）", i.ExtraJVM, wantJVM)
+		}
+		bat := mustRead(t, filepath.Join(dir, "run.bat"))
+		if strings.Contains(bat, log4jConfigKey) {
+			t.Fatalf("run.bat 不应新加 -Dlog4j.configurationFile 引用：\n%s", bat)
+		}
+
+		logJoined := strings.Join(snap.Log, "\n")
+		if !strings.Contains(logJoined, "等于没防") || !strings.Contains(logJoined, log4jConfigKey+log4jXML) {
+			t.Errorf("接管任务日志里缺少等于没防及加参数说明：\n%s", logJoined)
+		}
+		foundWarn := false
+		for _, w := range snap.Warnings {
+			if strings.Contains(w.Title, "等于没防") && strings.Contains(w.Note, log4jConfigKey+log4jXML) && strings.Contains(w.Note, "改名或挪走") {
+				foundWarn = true
+				break
+			}
+		}
+		if !foundWarn {
+			t.Errorf("接管任务结果告警里缺少等于没防及处理办法说明：%+v", snap.Warnings)
+		}
+		con := strings.Join(i.Console.Lines(), "\n")
+		if !strings.Contains(con, "等于没防") || !strings.Contains(con, log4jConfigKey+log4jXML) {
+			t.Errorf("实例控制台里缺少说明：\n%s", con)
+		}
+	})
+
+	t.Run("旧bak里已有日志配置引用时原样保留且不替换自定义文件", func(t *testing.T) {
 		fetched := stubLog4jFetch(t, nil)
 		m, user := adoptEnv(t)
 		dir := filepath.Join(user, "custom-112")
-		customXML := "<Configuration><!-- 服主自己的日志配置 --></Configuration>"
+		customXML := "<Configuration><!-- 服主靠旧引用生效的日志配置 --></Configuration>"
 		prevBak, _ := json.Marshal(Settings{
 			Name: "旧记录", Core: mcsrc.CoreVanilla, MC: "1.12.2", LaunchTarget: "jar:server.jar",
 			ExtraJVM: []string{"-XX:+UseG1GC", log4jNoLookups, log4jConfig},
@@ -526,32 +592,13 @@ func TestAdoptPreservesCustomLog4jXMLWithoutReference(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		wantJVM := []string{"-XX:+UseG1GC", log4jNoLookups}
+		wantJVM := []string{"-XX:+UseG1GC", log4jNoLookups, log4jConfig}
 		if !slices.Equal(i.ExtraJVM, wantJVM) {
-			t.Fatalf("ExtraJVM 不应带 -Dlog4j.configurationFile 引用：%q（期望 %q）", i.ExtraJVM, wantJVM)
+			t.Fatalf("旧 .bak 里带过的引用应原样保留：%q（期望 %q）", i.ExtraJVM, wantJVM)
 		}
 		bat := mustRead(t, filepath.Join(dir, "run.bat"))
-		if strings.Contains(bat, log4jConfigKey) {
-			t.Fatalf("run.bat 不应带 -Dlog4j.configurationFile 引用：\n%s", bat)
-		}
-
-		wantMsg := "这台服务器自带了自己的日志配置，MineDeck 没有替换，log4shell 防护要靠它自己"
-		if !strings.Contains(strings.Join(snap.Log, "\n"), wantMsg) {
-			t.Errorf("接管任务日志里缺少说明：\n%s", strings.Join(snap.Log, "\n"))
-		}
-		foundWarn := false
-		for _, w := range snap.Warnings {
-			if strings.Contains(w.Title, wantMsg) || strings.Contains(w.Note, wantMsg) {
-				foundWarn = true
-				break
-			}
-		}
-		if !foundWarn {
-			t.Errorf("接管任务结果告警里缺少说明：%+v", snap.Warnings)
-		}
-		con := strings.Join(i.Console.Lines(), "\n")
-		if !strings.Contains(con, wantMsg) {
-			t.Errorf("实例控制台里缺少说明：\n%s", con)
+		if !strings.Contains(bat, log4jConfig) {
+			t.Fatalf("run.bat 应保留旧 .bak 里的引用：\n%s", bat)
 		}
 	})
 

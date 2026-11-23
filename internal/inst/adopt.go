@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -450,21 +449,7 @@ func (m *Manager) writeAdoptFiles(ctx context.Context, t *tasks.Task, inst *Inst
 			if err := applyLog4jMitigation(ctx, t, inst); err != nil {
 				t.Logf("没能判断要不要加 log4shell 防护（%v），先跳过", err)
 			}
-			base := inst.ExtraJVM[:own:own]
-			added := inst.ExtraJVM[own:]
-			// A26：以前移出列表留下的 instance.json.bak 里如果带过官方那两条日志配置引用，而现在文件夹里的同名文件已不是官方那份，
-			// addLog4jFlags 没有加引用，旧记录里的同名官方引用也一起摘掉，免得接管完还是引用上去
-			if scPresent := !hasOurLog4jConfig(added); scPresent {
-				base = slices.DeleteFunc(base, func(a string) bool {
-					name, ok := strings.CutPrefix(a, log4jConfigKey)
-					if !ok || (name != log4jXML && name != log4jXML17) {
-						return false
-					}
-					exists, official := log4jXMLOnDisk(dir, name)
-					return exists && !official
-				})
-			}
-			inst.ExtraJVM = withJVMFlags(base, added)
+			inst.ExtraJVM = withJVMFlags(inst.ExtraJVM[:own:own], inst.ExtraJVM[own:])
 		}
 	}
 	if b, err := os.ReadFile(filepath.Join(dir, "run.bat")); err == nil && !isOurRunBat(b) {

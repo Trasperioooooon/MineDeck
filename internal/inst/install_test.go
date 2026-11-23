@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"minedeck/internal/app"
 	"minedeck/internal/mcsrc"
@@ -271,5 +273,60 @@ func TestInstallerSaid(t *testing.T) {
 	unknown := feed("Target Directory: .", "Done.")
 	if err := unknown.err(); err != nil || unknown.success {
 		t.Errorf("不认识的输出不该拦：%v %+v", err, unknown)
+	}
+}
+
+// 预览运行参数做 jar 内 log4j 检查时不持 procMu，慢盘或大包检查期间 Status 仍能立刻返回。
+func TestPreviewSettingsDoesNotHoldProcLockDuringJarCheck(t *testing.T) {
+	dir := t.TempDir()
+	officialLog4jXML(t, dir)
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	oldCheck := checkLog4jSelfFixed
+	t.Cleanup(func() { checkLog4jSelfFixed = oldCheck })
+	checkLog4jSelfFixed = func(string, string) bool {
+		once.Do(func() { close(entered) })
+		<-release
+		return false
+	}
+
+	i := &Instance{
+		Settings: Settings{
+			Name: "预览锁粒度服", Core: mcsrc.CoreVanilla, MC: "1.16.5",
+			JavaPath: `jdk\bin\java.exe`, XmxMB: 2048, XmsMB: 1024,
+			LaunchTarget: "jar:server.jar", ExtraJVM: []string{log4jNoLookups, log4jConfig},
+		},
+		Dir: dir, Console: newConsole(),
+	}
+	m := &Manager{insts: map[string]*Instance{i.Name: i}, creating: map[string]bool{}}
+
+	input := []string{"-XX:+UseG1GC"}
+	previewDone := make(chan error, 1)
+	go func() {
+		_, err := m.PreviewSettings(i.Name, 0, 0, "", &input)
+		previewDone <- err
+	}()
+
+	<-entered
+	statusDone := make(chan string, 1)
+	go func() {
+		statusDone <- i.Status()
+	}()
+
+	select {
+	case st := <-statusDone:
+		if st != "stopped" {
+			t.Fatalf("Status = %q，期望 stopped", st)
+		}
+	case <-time.After(100 * time.Millisecond):
+		close(release)
+		t.Fatal("PreviewSettings 检查服务端 jar 期间阻塞了 i.Status() 超过 100ms")
+	}
+
+	close(release)
+	if err := <-previewDone; err != nil {
+		t.Fatalf("PreviewSettings 失败：%v", err)
 	}
 }
