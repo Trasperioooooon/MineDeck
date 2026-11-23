@@ -1400,7 +1400,7 @@ async function deleteInstance(info) {
   const files = r.files && typed.value.trim() === name;
   if (r.files && !files) return false;
   try {
-    const r = await api(`/api/instances/${encodeURIComponent(name)}?files=${files ? 1 : 0}`, { method: "DELETE" });
+    const res = await api(`/api/instances/${encodeURIComponent(name)}?files=${files ? 1 : 0}`, { method: "DELETE" });
     if (files) toast(`已删除「${name}」和它的文件夹`);
     else {
       const dir = info.dir || "";
@@ -1412,7 +1412,7 @@ async function deleteInstance(info) {
     }
     // 服务器删了，这台的待装清单却没清掉（后端读不出、也记不下来）：删服照常算成功，另给一条带「详情」的提示，
     // 免得以后同名新建的那台冒出上一台的东西时不知道是从哪来的
-    if (r && r.note) toast(`「${name}」待装清单里的东西没清掉，以后再建同名的服务器时看一眼它的待装清单`, true, r.note);
+    if (res && res.note) toast(`「${name}」待装清单里的东西没清掉，以后再建同名的服务器时看一眼它的待装清单`, true, res.note);
     return true;
   } catch (e) { toastErr(files ? "无法删除服务器" : "无法把服务器移出列表", e); return false; }
 }
