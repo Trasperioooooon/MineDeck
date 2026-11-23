@@ -422,6 +422,7 @@ func (m *Manager) runAdopt(ctx context.Context, t *tasks.Task, req AdoptReq, sc 
 // checkChosenJava 接管时人指定的 java.exe 还能不能用。指向 MineDeck 的便携 Java（runtimes/java-major 里面）时经
 // java.UsePortable 查，和卸载互斥（A34）：这套正在卸载、已经卸了或者没装完整都不接管。接管从校验起就占着「正在创建」，
 // 卸载是先记上「正在卸载」再查有没有正在创建的；这边先占「正在创建」再看「正在卸载」，两边总有一边看得到另一边。
+// 这里只按 major 认是哪一套便携 Java：major 和 path 对得上由操作层保证（instance.adopt 先过 knownJava，path 必须是这个大版本的）。
 func checkChosenJava(path string, major int) error {
 	stat := func() error {
 		if st, err := os.Stat(path); err != nil || st.IsDir() {

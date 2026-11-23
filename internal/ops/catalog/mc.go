@@ -256,7 +256,7 @@ func (c *cat) javaSetOp() {
 		Name: "instance.java.set", Title: "给服务器换 Java", Level: ops.Write,
 		Desc: "换成指定大版本的 Java，下次启动生效。本机或 MineDeck 已经有这个版本就直接换；没有的话在后台下载便携版（不改系统环境），" +
 			"返回任务编号（进度见 task.get），这台服务器同一个版本的下载还在跑时返回那个任务的编号。" +
-			"path 可以指定用哪一个（必须是 java.list 里列出来的）。那套便携 Java 正在卸载时拒绝。",
+			"path 可以指定用哪一个（必须是 java.list 里列出来的）。那套便携 Java 正在卸载时拒绝，换成已卸载或没装完整的那套也会被拒。",
 		Params: withInst(map[string]*ops.Schema{
 			"major": ops.Integer("Java 大版本，如 8、17、21").Range(8, 30),
 			"path":  ops.String("用 java.list 里的哪一个 java.exe；空串自动选").Len(0, 500),
