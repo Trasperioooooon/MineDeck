@@ -4731,7 +4731,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     // 故意乱序，版本号最大的是草稿
     const RELS = [{ tag: "v3.1.1" }, { tag: "v3.2.0-beta.2", prerelease: true }, { tag: "v3.1.2" }, { tag: "v3.2.0-beta.10", prerelease: true },
       { tag: "v3.2.0-beta.3", prerelease: true }, { tag: "v3.3.0", draft: true }];
-    const reset = () => UC({ version: "2.9.0-beta.2", releases: [{ tag: "v2.8.3" }, { tag: "v2.9.0-beta.1", prerelease: true }, { tag: "v2.9.0-beta.2", prerelease: true }], updateChannel: "", updateFail: "" });
+    const reset = () => UC({ version: "2.9.0-beta.2", releases: [{ tag: "v2.8.3" }, { tag: "v2.9.0-beta.1", prerelease: true }, { tag: "v2.9.0-beta.2", prerelease: true }], updateChannel: "", updateFail: "", startupUpdate: null });
     const picked = () => page.$$eval('#up-channel [role="radio"]', rs => rs.filter(r => r.getAttribute("aria-checked") === "true").map(r => r.dataset.ch).join(","));
     const result = () => page.$eval("#up-result", e => e.textContent.replace(/\s+/g, " ").trim());
     const check = async () => {
@@ -4740,28 +4740,28 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       return result();
     };
 
-    await run("beta.3 更新渠道：两种渠道的选择会保存，改了马上存；没选过时按正在用的版本定（测试版按最新版、正式版按稳定版）", async () => {
+    await run("beta.3 更新渠道：三种渠道选择（跟随当前版本、稳定版、最新版）会保存，没选过或选回跟随当前版本时按正在用的版本定", async () => {
       try {
         errors.length = 0;
         await UC({ version: "3.2.0-beta.3", releases: RELS, updateChannel: "" });
         await page.goto(url("#/settings/about")); await settle(500);
-        assert(await picked() === "latest", "用着测试版、没选过时应按最新版：" + await picked());
+        assert(await picked() === "auto", "没选过时应选中「跟随当前版本」：" + await picked());
         const head = await page.textContent("#up-ch-sub");
         assert(head.includes("还没选过") && head.includes("「最新版」"), "没选过时的说明：" + head);
         const labels = await page.$$eval('#up-channel [role="radio"]', rs => rs.map(r => r.textContent.replace(/\s+/g, " ").trim()));
-        assert(labels.length === 2 && labels[0].includes("稳定版（只收正式版）") && labels[1].includes("最新版（包括测试版）") && labels[1].includes("测试版可能有还没发现的问题"),
-          "两个选项：" + labels.join(" | "));
-        // 没选过时再点默认的那项：也存下来、给提示（回访走查 11-16），静默检查关着时提示里说还要打开它
+        assert(labels.length === 3 && labels[0].includes("跟随当前版本（默认）") && labels[1].includes("稳定版（只收正式版）") && labels[2].includes("最新版（包括测试版）") && labels[2].includes("测试版可能有还没发现的问题"),
+          "三个选项：" + labels.join(" | "));
+        // 选最新版：存进配置，提示里写明；静默检查关着时提醒还要打开它
         await page.click('label.switch:has(#up-silent)'); await settle(250);
         assert(!(await page.isChecked("#up-silent")), "静默检查应先关上");
         const t00 = reqs.length;
         await page.click('#up-channel [data-ch="latest"]'); await settle(300);
         const put0 = reqs.slice(t00).filter(r => r.m === "PUT" && r.u === "/api/config").map(r => JSON.parse(r.b || "{}"));
-        assert(put0.length === 1 && put0[0].updateChannel === "latest", "点默认项也要保存：" + JSON.stringify(put0));
-        assert(await page.locator(".toast", { hasText: "已选定最新版" }).count() >= 1, "没有「已选定最新版」的提示");
+        assert(put0.length === 1 && put0[0].updateChannel === "latest", "选最新版要保存：" + JSON.stringify(put0));
+        assert(await page.locator(".toast", { hasText: "已改成最新版" }).count() >= 1, "没有「已改成最新版」的提示");
         assert(await page.locator(".toast", { hasText: "启动时静默检查更新" }).count() >= 1, "静默检查关着时应提醒还要打开它");
-        assert(!(await page.textContent("#up-ch-sub")).includes("还没选过"), "点过默认项以后不该再说还没选过");
-        // 选过以后再点同一项：不再发请求，只提示现在就是它
+        assert(!(await page.textContent("#up-ch-sub")).includes("还没选过"), "选定后不该再说还没选过");
+        // 再点同一项：不再发请求，只提示现在就是它
         const t01 = reqs.length;
         await page.click('#up-channel [data-ch="latest"]'); await settle(300);
         assert(!reqs.slice(t01).some(r => r.m === "PUT" && r.u === "/api/config") && await page.locator(".toast", { hasText: "现在就是「最新版」" }).count() >= 1, "再点同一项");
@@ -4775,17 +4775,24 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         assert((await UC({})).config.updateChannel === "stable", "仿真后端里没存上");
         assert(await picked() === "stable", "点了以后的选中项：" + await picked());
         assert(await page.locator(".toast", { hasText: "已改成稳定版" }).count() >= 1, "没有「已改成稳定版」的提示");
-        assert(!(await page.textContent("#up-ch-sub")).includes("还没选过"), "选过以后不该再说还没选过");
         // 重新进来还是稳定版：用着测试版也以选的为准
         await page.goto(url("#/settings/about")); await settle(500);
         assert(await picked() === "stable", "重新进来：" + await picked());
+        // A79：点回「跟随当前版本（默认）」：发 {updateChannel: ""}，配置项清回未选状态，重新按当前版本定渠道
+        const tAuto = reqs.length;
+        await page.click('#up-channel [data-ch="auto"]'); await settle(300);
+        const putAuto = reqs.slice(tAuto).filter(r => r.m === "PUT" && r.u === "/api/config").map(r => JSON.parse(r.b || "{}"));
+        assert(putAuto.length === 1 && putAuto[0].updateChannel === "", "选回跟随当前版本要发空串：" + JSON.stringify(putAuto));
+        assert(!((await UC({})).config.updateChannel), "仿真后端里 updateChannel 应清回空");
+        assert(await picked() === "auto", "选中项应切回 auto：" + await picked());
+        assert((await page.textContent("#up-ch-sub")).includes("「最新版」"), "用着测试版切回跟随当前版本，说明应跟随最新版：" + await page.textContent("#up-ch-sub"));
         // 键盘也能选：聚焦「最新版」按空格
         await page.focus('#up-channel [data-ch="latest"]'); await page.keyboard.press(" "); await settle(300);
         assert((await UC({})).config.updateChannel === "latest" && await picked() === "latest", "键盘选最新版：" + await picked());
-        // 用着正式版、没选过：按稳定版
+        // 用着正式版、没选过：按稳定版，选回 auto 后也是稳定版
         await UC({ version: "3.1.2", updateChannel: "" });
         await page.goto(url("#/settings/about")); await settle(500);
-        assert(await picked() === "stable", "用着正式版、没选过时应按稳定版：" + await picked());
+        assert(await picked() === "auto", "用着正式版、没选过时选中 auto：" + await picked());
         assert((await page.textContent("#up-ch-sub")).includes("「稳定版」"), "没选过时的说明：" + await page.textContent("#up-ch-sub"));
         assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
       } finally { await reset(); }
@@ -4826,6 +4833,33 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         const t = await check();
         assert(await page.locator("#up-result button").count() === 0 && !t.includes("发现新版本"), "不该提示更新：" + t);
         assert(t.includes("按「稳定版」查") && t.includes("最新的正式版是 v3.1.2") && t.includes("你用的是测试版 v3.2.0-beta.3") && t.includes("正式版 3.2.0 出来以后会提示"), "说法：" + t);
+      } finally { await reset(); }
+    });
+
+    await run("启动时查到新版本（A78）与稳定版只有预发布（A80）：不弹窗，侧栏设置和小节显示小圆点，「更新与关于」显示启动通知和「查看」", async () => {
+      try {
+        errors.length = 0;
+        await UC({
+          version: "3.2.4",
+          updateChannel: "stable",
+          releases: [{ tag: "v3.3.0-beta.1", prerelease: true }],
+          startupUpdate: { tag: "v3.3.0", channel: "stable", prerelease: false, notes: "修复若干问题" },
+        });
+        await page.goto(url("#/instances")); await settle(500);
+        assert(await page.locator(".modal").count() === 0, "有启动更新通知时不应弹窗");
+        assert(!(await page.$eval("#nav-settings-dot", el => el.hidden)), "侧栏「设置」应显示小圆点");
+        await page.goto(url("#/settings/about")); await settle(500);
+        assert(!(await page.$eval("#set-about-dot", el => el.hidden)), "设置左侧「更新与关于」应显示小圆点");
+        assert((await page.textContent("#up-startup")).includes("启动时查到新版本 v3.3.0"), "启动通知文案：" + await page.textContent("#up-startup"));
+        await page.click("#up-startup-view"); await settle(200);
+        assert(await page.locator("#up-startup").count() === 0, "点「查看」后应收掉启动通知条");
+        assert(await page.$eval("#nav-settings-dot", el => el.hidden), "点「查看」后侧栏圆点应收掉");
+        assert(await page.$eval("#set-about-dot", el => el.hidden), "点「查看」后设置导航圆点应收掉");
+        assert((await result()).includes("v3.3.0") && await page.locator("#up-result button", { hasText: "立即更新并重启" }).count() === 1, "应展开新版本和更新按钮：" + await result());
+        // A80：稳定渠道只有预发布版时，检查更新提示暂无正式版、不报错也不出更新按钮
+        const noStable = await check();
+        assert(noStable.includes("还没有正式发布的版本") && await page.locator("#up-result button").count() === 0, "只有预发布时：" + noStable);
+        assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
       } finally { await reset(); }
     });
   }
