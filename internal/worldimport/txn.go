@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"minedeck/internal/inst"
+	"minedeck/internal/linkmode"
 	"minedeck/internal/winname"
 )
 
@@ -482,7 +483,7 @@ func stageIsOurs(stage string, j *Journal) bool {
 		if p == stage {
 			return nil
 		}
-		if d.Type()&(os.ModeSymlink|os.ModeIrregular) != 0 {
+		if linkmode.IsLink(d.Type()) {
 			return fmt.Errorf("暂存区含特殊路径")
 		}
 		rel, err := filepath.Rel(stage, p)

@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 
 	"minedeck/internal/app"
+	"minedeck/internal/linkmode"
 )
 
 // ErrBusy 正在安装或卸载便携 Java、或者有服务器正在换成这套便携 Java 时再发起卸载，返回此错误。
@@ -82,7 +83,7 @@ func IncompletePortable() []int {
 				}
 				continue
 			}
-			if e.IsDir() && e.Type()&(fs.ModeSymlink|fs.ModeIrregular) == 0 {
+			if linkmode.IsPlainDirEntry(e) {
 				if major, err := strconv.Atoi(rest); err == nil && major >= 8 && major <= maxPortableMajor && !IsInstalled(major) {
 					seen[major] = true
 				}
@@ -120,7 +121,7 @@ func RemovePortable(major int, inUse func(dir string) error) error {
 			return fmt.Errorf("没有安装 Java %d 的便携运行时", major)
 		}
 		return fmt.Errorf("检查运行时目录失败：%w", rerr)
-	} else if !rst.IsDir() || rst.Mode()&(fs.ModeSymlink|fs.ModeIrregular) != 0 {
+	} else if !linkmode.IsPlainDirInfo(rst) {
 		return fmt.Errorf("运行时目录是链接或目录联接，没有删除")
 	}
 
@@ -136,7 +137,7 @@ func RemovePortable(major int, inUse func(dir string) error) error {
 	if os.IsNotExist(dirErr) && os.IsNotExist(markErr) {
 		return fmt.Errorf("没有安装 Java %d 的便携运行时", major)
 	}
-	if dirErr == nil && dirSt.Mode()&(fs.ModeSymlink|fs.ModeIrregular) != 0 {
+	if dirErr == nil && linkmode.IsLink(dirSt.Mode()) {
 		return fmt.Errorf("Java %d 的文件夹是链接或目录联接，没有删除，避免删到别的地方的 Java", major)
 	}
 	if dirErr == nil && !dirSt.IsDir() {
@@ -175,8 +176,7 @@ func RemovePortable(major int, inUse func(dir string) error) error {
 }
 
 func plainDir(p string) bool {
-	st, err := os.Lstat(p)
-	return err == nil && st.IsDir() && st.Mode()&(fs.ModeSymlink|fs.ModeIrregular) == 0
+	return linkmode.IsPlainDir(p)
 }
 
 func hasNestedLink(root string) bool {
@@ -186,7 +186,7 @@ func hasNestedLink(root string) bool {
 			found = true
 			return fs.SkipAll
 		}
-		if p != root && d.Type()&(fs.ModeSymlink|fs.ModeIrregular) != 0 {
+		if p != root && linkmode.IsLink(d.Type()) {
 			found = true
 			return fs.SkipAll
 		}

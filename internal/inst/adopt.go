@@ -476,7 +476,7 @@ func (m *Manager) writeAdoptFiles(ctx context.Context, t *tasks.Task, inst *Inst
 			if !req.EULA {
 				return fmt.Errorf("需要同意 Minecraft EULA 才能开服")
 			}
-			if err := os.WriteFile(filepath.Join(dir, "eula.txt"),
+			if err := writeFileNoHardlink(filepath.Join(dir, "eula.txt"),
 				[]byte("# 用户已在 MineDeck 中确认同意 Minecraft EULA (https://aka.ms/MinecraftEULA)\neula=true\n"), 0o644); err != nil {
 				return err
 			}
@@ -540,7 +540,7 @@ func snapshotFiles(dir string, names []string) (restore func(), err error) {
 	return func() {
 		for _, s := range snaps {
 			if s.existed {
-				_ = os.WriteFile(s.path, s.data, 0o644)
+				_ = writeFileNoHardlink(s.path, s.data, 0o644)
 			} else {
 				_ = os.Remove(s.path)
 			}

@@ -452,9 +452,10 @@ func (m *Manager) saveInstance(i *Instance) error {
 	if err != nil {
 		return err
 	}
-	// 先写临时文件再改名：写到一半断电也不会留下半截的 instance.json（那样这台服务器下次就列不出来了）
+	// 先写临时文件再改名：写到一半断电也不会留下半截的 instance.json；改名替换也会安全断开
+	// instance.json 自身的硬链接，writeFileNoHardlink 则防止预先存在的 .tmp 硬链接写穿到外面（A11）。
 	path := filepath.Join(i.Dir, "instance.json")
-	if err := os.WriteFile(path+".tmp", b, 0o644); err != nil {
+	if err := writeFileNoHardlink(path+".tmp", b, 0o644); err != nil {
 		return err
 	}
 	return os.Rename(path+".tmp", path)

@@ -500,7 +500,7 @@ func (s *overrideSink) write(rel string, r io.Reader) error {
 		return err
 	}
 	defer lease.Close()
-	w, err := os.Create(dest)
+	w, err := openInPlaceNoHardlink(dest, 0o644)
 	if err != nil {
 		return err
 	}
@@ -682,6 +682,7 @@ func copyLocalFileContext(ctx context.Context, src, dest string) error {
 		return err
 	}
 	defer lease.Close()
+	// atomicfile.CopyWith 经临时文件改名替换，即使目标已有硬链接也会安全断开、不改穿外面的文件（A11）。
 	err = atomicfile.CopyWith(dest, in, 0o644, lease.Writer)
 	if err != nil && ctx.Err() != nil {
 		return ctx.Err()
@@ -1062,6 +1063,7 @@ func copyPendingFile(ctx context.Context, src, dest string) error {
 		return err
 	}
 	defer lease.Close()
+	// atomicfile.CopyWith 经临时文件改名替换，即使目标已有硬链接也会安全断开、不改穿外面的文件（A11）。
 	err = atomicfile.CopyWith(dest, in, 0o644, lease.Writer)
 	if err != nil && ctx.Err() != nil {
 		return ctx.Err()
@@ -1137,7 +1139,7 @@ func writeUnresolvedReport(dir string, refs []modpack.CFRef) {
 		pf, wi := cfPendingOf(r)
 		sb.WriteString(fmt.Sprintf("%s\r\n  %s\r\n  %s\r\n\r\n", pf.Path, pf.Note, wi.URL))
 	}
-	_ = os.WriteFile(filepath.Join(dir, "未解析模组清单.txt"), []byte(sb.String()), 0o644)
+	_ = writeFileNoHardlink(filepath.Join(dir, "未解析模组清单.txt"), []byte(sb.String()), 0o644)
 }
 
 // cfPendingOf 一个没法自动下载的 CurseForge 文件：待决清单里的一项，和告警列表里可以点的一行。

@@ -16,6 +16,7 @@ import (
 
 	"minedeck/internal/atomicfile"
 	"minedeck/internal/events"
+	"minedeck/internal/linkmode"
 	"minedeck/internal/mclog"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/procutil"
@@ -275,8 +276,7 @@ type persistedStartFail struct {
 }
 
 func plainInstDir(p string) bool {
-	st, err := os.Lstat(p)
-	return err == nil && st.IsDir() && st.Mode()&(os.ModeSymlink|os.ModeIrregular) == 0
+	return linkmode.IsPlainDir(p)
 }
 
 func saveStartFail(dir, errMsg string, pb *PortBusy) {
@@ -285,7 +285,7 @@ func saveStartFail(dir, errMsg string, pb *PortBusy) {
 	}
 	mdDir := filepath.Join(dir, ".minedeck")
 	if st, err := os.Lstat(mdDir); err == nil {
-		if !st.IsDir() || st.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
+		if !linkmode.IsPlainDirInfo(st) {
 			return
 		}
 	} else if os.IsNotExist(err) {
@@ -303,6 +303,7 @@ func saveStartFail(dir, errMsg string, pb *PortBusy) {
 	if err != nil {
 		return
 	}
+	// atomicfile.Write 写临时文件并改名覆盖：即使 target 先前是硬链接也会安全断开、不写穿到外面（A11）。
 	_ = atomicfile.Write(target, b, 0o644)
 }
 

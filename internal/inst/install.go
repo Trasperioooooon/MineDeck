@@ -22,6 +22,7 @@ import (
 	"minedeck/internal/dl"
 	"minedeck/internal/errhint"
 	"minedeck/internal/java"
+	"minedeck/internal/linkmode"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/tasks"
 )
@@ -290,7 +291,7 @@ func (m *Manager) runCreateWith(ctx context.Context, t *tasks.Task, req CreateRe
 		if err := fetchToInstance(ctx, t, mcsrc.VanillaServerArtifact(meta), "vanilla/"+req.MC, dir, "server.jar"); err != nil {
 			return err
 		}
-		if err := os.WriteFile(filepath.Join(dir, "fabric-server-launcher.properties"),
+		if err := writeFileNoHardlink(filepath.Join(dir, "fabric-server-launcher.properties"),
 			[]byte("serverJar=server.jar\n"), 0o644); err != nil {
 			return err
 		}
@@ -370,7 +371,7 @@ func (m *Manager) runCreateWith(ctx context.Context, t *tasks.Task, req CreateRe
 	if kind == mcsrc.KindProxy {
 		t.Logf("代理端无需 EULA 与 server.properties，首次启动后在服务器文件夹里编辑它自带的配置文件")
 	} else {
-		if err := os.WriteFile(filepath.Join(dir, "eula.txt"),
+		if err := writeFileNoHardlink(filepath.Join(dir, "eula.txt"),
 			[]byte("# 用户已在 MineDeck 中确认同意 Minecraft EULA (https://aka.ms/MinecraftEULA)\neula=true\n"), 0o644); err != nil {
 			return err
 		}
@@ -528,7 +529,7 @@ func (m *Manager) discardCreating(name, dir string) error {
 	if err != nil || abs == filepath.Dir(abs) || strings.EqualFold(abs, filepath.Clean(app.Base)) {
 		return fmt.Errorf("创建目录异常，已保留文件")
 	}
-	if st, err := os.Lstat(abs); err == nil && st.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
+	if st, err := os.Lstat(abs); err == nil && linkmode.IsLink(st.Mode()) {
 		return fmt.Errorf("创建目录已变成链接，已保留文件")
 	} else if err != nil && !os.IsNotExist(err) {
 		return err
@@ -585,7 +586,7 @@ func copyFileContext(ctx context.Context, src, dst string) error {
 		return err
 	}
 	defer lease.Close()
-	out, err := os.Create(dst)
+	out, err := openInPlaceNoHardlink(dst, 0o644)
 	if err != nil {
 		return err
 	}
