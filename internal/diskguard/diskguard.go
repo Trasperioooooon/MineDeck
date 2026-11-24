@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -17,10 +18,30 @@ const Reserve int64 = 256 << 20
 
 var ErrUnknown = errors.New("查不到磁盘剩余空间，暂未继续写入")
 
-type NoSpace struct{ Need, Free int64 }
+type NoSpace struct {
+	Need, Free int64
+	Volume     string
+}
 
 func (e *NoSpace) Error() string {
 	return fmt.Sprintf("磁盘空间不够（需要保留或写入 %.2f GiB，只剩 %.2f GiB）", float64(e.Need)/(1<<30), float64(e.Free)/(1<<30))
+}
+
+// Hint 返回给界面报错正文展示的简短中文修复建议（不含盘符冒号或完整路径）。
+func (e *NoSpace) Hint() string {
+	prefix := "磁盘"
+	if e.Volume != "" {
+		prefix = e.Volume
+	}
+	return prefix + "剩余空间不足，请清理磁盘空间或更换存放文件夹后再试"
+}
+
+func volumeLabel(dir string) string {
+	v := filepath.VolumeName(dir)
+	if len(v) == 2 && v[1] == ':' && ((v[0] >= 'A' && v[0] <= 'Z') || (v[0] >= 'a' && v[0] <= 'z')) {
+		return strings.ToUpper(v[:1]) + " 盘"
+	}
+	return ""
 }
 
 type Options struct {
@@ -158,7 +179,7 @@ func (l *Lease) Check(bytes int64) error {
 		need = bytes + l.opt.Reserve
 	}
 	if free < need {
-		return &NoSpace{Need: need, Free: free}
+		return &NoSpace{Need: need, Free: free, Volume: volumeLabel(l.dir)}
 	}
 	return nil
 }
