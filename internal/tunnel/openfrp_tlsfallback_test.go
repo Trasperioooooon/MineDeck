@@ -49,33 +49,35 @@ func newTLSSource(t *testing.T, maxTLS uint16, h http.HandlerFunc) *tlsSource {
 
 func (s *tlsSource) zipURL() string { return s.srv.URL + "/client/OF_t1/" + openfrpFrpcZip }
 
-// trustingCopy c 的副本：传输层克隆一份，只加上测试证书（cert 为 nil 时不加）。
-func trustingCopy(c *http.Client, cert *x509.Certificate) *http.Client {
+// trustingCopy c 的副本：传输层克隆一份，只加上测试证书（一张都不给时不加）。
+func trustingCopy(c *http.Client, certs ...*x509.Certificate) *http.Client {
 	tr := c.Transport.(*http.Transport).Clone()
-	if cert != nil {
+	if len(certs) > 0 {
 		tr.TLSClientConfig.RootCAs = x509.NewCertPool()
-		tr.TLSClientConfig.RootCAs.AddCert(cert)
+		for _, cert := range certs {
+			tr.TLSClientConfig.RootCAs.AddCert(cert)
+		}
 	}
 	cp := *c
 	cp.Transport = tr
 	return &cp
 }
 
-// trustTestCert 两个下载客户端都换成认得 cert 的副本，测完换回。
-func trustTestCert(t *testing.T, cert *x509.Certificate) {
+// trustTestCert 两个下载客户端都换成认得这些证书的副本，测完换回。
+func trustTestCert(t *testing.T, certs ...*x509.Certificate) {
 	t.Helper()
 	oldOF, oldCompat := openfrpHTTPClient, openfrpCompatHTTPClient
-	openfrpHTTPClient, openfrpCompatHTTPClient = trustingCopy(oldOF, cert), trustingCopy(oldCompat, cert)
+	openfrpHTTPClient, openfrpCompatHTTPClient = trustingCopy(oldOF, certs...), trustingCopy(oldCompat, certs...)
 	t.Cleanup(func() { openfrpHTTPClient, openfrpCompatHTTPClient = oldOF, oldCompat })
 }
 
-// installOpenfrpFrom 照 EnsureFrpc 查完版本以后的样子，从这个地址下载、解压 OpenFrp 的 frpc；交回结果和控制台里的话。
+// installOpenfrpFrom 照 EnsureFrpc 查完版本以后的样子，从这些地址下载、解压 OpenFrp 的 frpc；交回结果和控制台里的话。
 // 调之前先 frpcTempDirs。
-func installOpenfrpFrom(t *testing.T, zipURL string) (exe, lines string, err error) {
+func installOpenfrpFrom(t *testing.T, zipURLs ...string) (exe, lines string, err error) {
 	t.Helper()
 	con := procutil.NewConsole()
 	zipPath := filepath.Join(app.CacheDir, "frpc", "openfrp-frpc-OF_t1.zip")
-	exe, err = openfrpInstall(t.Context(), con, []string{zipURL}, zipPath, frpcDir("openfrp"), nil)
+	exe, err = openfrpInstall(t.Context(), con, zipURLs, zipPath, frpcDir("openfrp"), nil)
 	return exe, strings.Join(con.Lines(), "\n"), err
 }
 
@@ -97,6 +99,28 @@ func TestOpenfrpZipFallsBackWhenOnlyTLS12(t *testing.T) {
 	}
 	if n := src.hits.Load(); n != 1 {
 		t.Errorf("只报 TLS 1.3 的那几次握不上手、进不来，退回以后下一次就够：实际进来 %d 次", n)
+	}
+}
+
+// 握不上手的不是最后一个下载源，也退回：第一个源只会 TLS 1.2、放着好的 zip，第二个会 TLS 1.3、回 404。
+// dl 交回的错误只认得出最后一个源的 404；退不退看的是途中有没有握手失败，所以照样退回，从第一个源下成。
+func TestOpenfrpZipFallsBackWhenAnEarlierSourceFailsHandshake(t *testing.T) {
+	frpcTempDirs(t)
+	exe := string(fakeFrpcExe()) + "第一个源的"
+	pkg := openfrpZip(t, exe)
+	only12 := newTLSSource(t, tls.VersionTLS12, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(pkg) })
+	modern := newTLSSource(t, 0, http.NotFound)
+	trustTestCert(t, only12.srv.Certificate(), modern.srv.Certificate())
+
+	got, lines, err := installOpenfrpFrom(t, only12.zipURL(), modern.zipURL())
+	if err != nil || readFile(t, got) != exe {
+		t.Fatalf("退回以后应从第一个源下成：%q %v\n%s", got, err, lines)
+	}
+	if !strings.Contains(lines, tlsFallbackNote) {
+		t.Errorf("控制台要说换了连接方式：%s", lines)
+	}
+	if a, b := only12.hits.Load(), modern.hits.Load(); a != 1 || b != 3 {
+		t.Errorf("第一个源只有退回那次进得来（1 次），第二个源只有只报 TLS 1.3 的三轮：实际 %d、%d 次", a, b)
 	}
 }
 
@@ -200,23 +224,23 @@ func TestOpenfrpHandshakeFailuresWorthFallback(t *testing.T) {
 	cases := []struct {
 		name      string
 		url       string
-		trust     *x509.Certificate
+		trust     []*x509.Certificate
 		hsTimeout time.Duration
 		handshake bool // 有没有走到握手
 		want      bool // 该不该记下
 	}{
-		{"只会 TLS 1.2，回告警", only12.srv.URL, only12.srv.Certificate(), 0, true, true},
+		{"只会 TLS 1.2，回告警", only12.srv.URL, []*x509.Certificate{only12.srv.Certificate()}, 0, true, true},
 		{"老式服务器直接回 TLS 1.2 的 ServerHello", rawTLSPeer(t, answerTLS12Hello), nil, 0, true, true},
 		{"读完 ClientHello 就掐断连接", rawTLSPeer(t, resetAfterHello), nil, 0, true, true},
 		{"回的不是 TLS", rawTLSPeer(t, answerPlainHTTP), nil, 0, true, true},
 		{"握手超时", rawTLSPeer(t, stayQuiet), nil, 200 * time.Millisecond, true, false},
 		{"证书对不上", ok.srv.URL, nil, 0, true, false},
 		{"连不上", closedPortURL(t), nil, 0, false, false},
-		{"握手成功", ok.srv.URL, ok.srv.Certificate(), 0, true, false},
+		{"握手成功", ok.srv.URL, []*x509.Certificate{ok.srv.Certificate()}, 0, true, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			cl := trustingCopy(openfrpHTTPClient, c.trust)
+			cl := trustingCopy(openfrpHTTPClient, c.trust...)
 			if c.hsTimeout > 0 {
 				cl.Transport.(*http.Transport).TLSHandshakeTimeout = c.hsTimeout
 			}
