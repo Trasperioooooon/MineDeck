@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -93,6 +94,9 @@ func dupFixture(t *testing.T) (orig string, creds []string) {
 }
 
 var dupWantIDs = []string{"tun1", "tun2", "tun3", "tun4", "tun5"}
+
+// dupWantRenamed dupFixture 读进来时换了号的那几条（操作记录 args 里的 renamed）。
+var dupWantRenamed = []renumbered{{"语音", "tun1", "tun3"}, {"自建", "tun2", "tun4"}, {"第三个一号", "tun1", "tun5"}}
 
 type diskTunnels struct {
 	Seq     int `json:"seq"`
@@ -185,9 +189,8 @@ func TestLoadRenumbersDuplicateIDs(t *testing.T) {
 		t.Fatalf("登记回调时应补上一条换号的操作记录：%+v", notes)
 	}
 	a := notes[0]
-	want := []renumbered{{"语音", "tun1", "tun3"}, {"自建", "tun2", "tun4"}, {"第三个一号", "tun1", "tun5"}}
 	if got, _ := a.Args["renamed"].([]renumbered); a.Op != "tunnel.renumber" || a.Actor != renumberActor || a.Err != nil ||
-		a.Args["backup"] != bakName || a.Args["backupSealed"] != nil || !slices.Equal(got, want) {
+		a.Args["backup"] != bakName || a.Args["backupSealed"] != nil || !slices.Equal(got, dupWantRenamed) {
 		t.Fatalf("换号的操作记录：%+v", a)
 	}
 
@@ -403,8 +406,9 @@ func TestRenumberReadOnlyFile(t *testing.T) {
 		t.Fatalf("备份应还是那一份：%v", got)
 	}
 	a := nextNote(t, notes, "换好的编号写进去了，应补一条成功的换号操作记录")
-	if got, _ := a.Args["renamed"].([]renumbered); a.Op != "tunnel.renumber" || a.Err != nil || a.Args["backup"] != bakName || len(got) != 3 {
-		t.Fatalf("补的那条换号操作记录：%+v", a)
+	if got, _ := a.Args["renamed"].([]renumbered); a.Op != "tunnel.renumber" || a.Actor != "读取隧道配置" || a.Err != nil ||
+		a.Args["backup"] != bakName || a.Args["backupSealed"] != nil || !slices.Equal(got, dupWantRenamed) {
+		t.Fatalf("补的那条换号操作记录（谁做的、换了哪几条、备份名，凭据没加密过的不带 backupSealed）：%+v", a)
 	}
 }
 
@@ -563,16 +567,18 @@ func within(t *testing.T, d time.Duration, what string, f func()) {
 	select {
 	case <-done:
 	case <-time.After(d):
-		t.Fatalf("%s过了 %v 还没返回：多半是持着 m.mu 调了回调，回调里再拿锁就卡死了", what, d)
+		t.Fatalf("%s过了 %v 还没返回：多半是持着锁（m.mu 或 m.autoMu）调了回调，回调里再拿锁就卡死了", what, d)
 	}
 }
 
-// 换号的操作记录不在持着 m.mu 的时候交给回调：回调里再调要拿锁的方法（这里是 List）不会卡死。两条持着锁的路：
-// 启动时没读成、之后才读成（retryLoad），启动时没写进去、之后保存才写进去（save）。
+// 换号的操作记录不在持着 m.mu、m.autoMu 的时候交给回调：回调里再调要拿这两把锁的方法（List 拿 m.mu，flushNotes 拿
+// m.autoMu、读 autoHook）不会卡死。两条持着 m.mu 的路：启动时没读成、之后才读成（retryLoad），启动时没写进去、
+// 之后保存才写进去（save）。
 func TestRenumberNoteOutsideLock(t *testing.T) {
 	listing := func(m *Manager, got chan<- []string) func(AutoAction) {
 		return func(a AutoAction) {
 			if a.Op == "tunnel.renumber" {
+				m.flushNotes() // 这时没有排着队的，只是拿一下 m.autoMu
 				got <- tunnelIDs(m)
 			}
 		}
@@ -602,7 +608,7 @@ func TestRenumberNoteOutsideLock(t *testing.T) {
 				t.Fatalf("回调里拿到的列表：%v", ids)
 			}
 		case <-time.After(3 * time.Second):
-			t.Fatal("回调没收到换号的操作记录，或者回调里的 List 卡住了")
+			t.Fatal("回调没收到换号的操作记录，或者回调里再拿锁（List、flushNotes）卡住了")
 		}
 	})
 	t.Run("之后保存才写进去", func(t *testing.T) {
@@ -621,8 +627,9 @@ func TestRenumberNoteOutsideLock(t *testing.T) {
 		backupNameTries = 1
 		m := NewManager()
 		got := make(chan []string, 4)
-		m.SetAutoHook(listing(m, got))
-		<-got // 启动时那条（没写回去）在登记回调时交出来，那时没持着锁
+		// 启动时那条（没写回去）在登记回调时当场交出来，那时没持着锁
+		within(t, 3*time.Second, "登记回调（SetAutoHook）", func() { m.SetAutoHook(listing(m, got)) })
+		<-got
 		backupNameTries = oldTries
 		var err error
 		within(t, 3*time.Second, "写进换好的编号的那次保存（Add）", func() { _, err = m.Add(openfrpTunnel("新加的")) })
@@ -635,7 +642,7 @@ func TestRenumberNoteOutsideLock(t *testing.T) {
 				t.Fatalf("回调里拿到的列表：%v", ids)
 			}
 		case <-time.After(3 * time.Second):
-			t.Fatal("回调没收到补的那条换号操作记录，或者回调里的 List 卡住了")
+			t.Fatal("回调没收到补的那条换号操作记录，或者回调里再拿锁（List、flushNotes）卡住了")
 		}
 	})
 }
@@ -825,7 +832,8 @@ func TestRenumberPlaintextReadOnlyLeavesNoBackup(t *testing.T) {
 		t.Fatalf("写进去的编号：%v", ids)
 	}
 	a := nextNote(t, notes, "换好的编号写进去了，应补一条成功的换号操作记录")
-	if a.Op != "tunnel.renumber" || a.Err != nil || a.Args["backup"] != bakName || a.Args["backupSealed"] != true {
+	if got, _ := a.Args["renamed"].([]renumbered); a.Op != "tunnel.renumber" || a.Actor != "读取隧道配置" || a.Err != nil ||
+		a.Args["backup"] != bakName || a.Args["backupSealed"] != true || !slices.Equal(got, []renumbered{{"乙", "tun1", "tun2"}}) {
 		t.Fatalf("补的那条换号操作记录：%+v", a)
 	}
 
@@ -1005,5 +1013,26 @@ func TestRenumberReloadDropsStalePending(t *testing.T) {
 	m.SetAutoHook(func(a AutoAction) { notes = append(notes, a) })
 	if len(notes) != 1 || notes[0].Err == nil {
 		t.Fatalf("只该有启动时那一条（没写回去）换号的操作记录：%+v", notes)
+	}
+}
+
+// 名字像备份、大小也对得上（0 字节，配空的原内容）、却不是普通文件的（这里是 unix socket 文件）：不当成现成的备份。
+// socket 文件本来也读不出来，这条钉的是结果，单靠它看不出「只认普通文件」那一查在不在。
+// 用相对路径建 socket：放在临时文件夹里的完整路径可能超过 socket 地址的长度上限。
+func TestRenumberSameBackupSkipsSocket(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	name := "tunnels.json.bak-20200101-000000"
+	ln, err := net.Listen("unix", name)
+	if err != nil {
+		t.Skipf("这台机器建不了 unix socket 文件：%v", err)
+	}
+	defer ln.Close() // 关掉时会删掉 socket 文件，所以等查完再关
+	fi, err := os.Lstat(filepath.Join(dir, name))
+	if err != nil || fi.Mode().IsRegular() || fi.Size() != 0 {
+		t.Fatalf("没造出 0 字节的非普通文件：%v %v", fi, err)
+	}
+	if got := sameBackup(dir, "tunnels.json", []byte{}); got != "" {
+		t.Fatalf("socket 文件不该被当成现成的备份：%s", got)
 	}
 }
