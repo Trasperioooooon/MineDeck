@@ -636,11 +636,12 @@ func TestRenumberNoteOutsideLock(t *testing.T) {
 	})
 }
 
-// 旧版明文凭据加撞号的假数据：两条都是 tun1，凭据都是明文。
+// 旧版明文凭据加撞号的假数据：两条都是 tun1，凭据都是明文。seq 手改成了 0：读进来时先抬到 1，换号后是 2，
+// 加密版备份里该是抬过、没换号的 1（老版本这次启动写回去的那个），和文件里的 0、换号后的 2 都分得开。
 const (
 	plainCredA = "PLAIN-fake-key-AAAA-not-real"
 	plainCredB = "PLAIN-fake-key-BBBB-not-real"
-	plainDup   = `{"seq":1,"tunnels":[{"id":"tun1","provider":"natfrp","name":"甲","credential":"` + plainCredA +
+	plainDup   = `{"seq":0,"tunnels":[{"id":"tun1","provider":"natfrp","name":"甲","credential":"` + plainCredA +
 		`","proxyId":"1","autoStart":false},{"id":"tun1","provider":"natfrp","name":"乙","credential":"` + plainCredB + `","proxyId":"2","autoStart":true}]}`
 )
 
@@ -747,8 +748,13 @@ func TestRenumberPlaintextReadOnlyLeavesNoBackup(t *testing.T) {
 	if err := os.Chmod(tunnelsPath(), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	logs := captureLog(t)
 	if _, err := m.Add(openfrpTunnel("新加的")); err != nil {
 		t.Fatal(err)
+	}
+	if s := logs.String(); !strings.Contains(s, "读 tunnels.json 时换过的重复编号这次写进去了") || !strings.Contains(s, bakName) ||
+		!strings.Contains(s, "备份不是原文件逐字节的样子") {
+		t.Fatalf("程序日志应说换好的编号这次写进去了、备份在哪、备份里的凭据加密过：%s", s)
 	}
 	if got := backupNames(t); !slices.Equal(got, []string{bakName}) {
 		t.Fatalf("写进去之前应先留一份备份：%v", got)
