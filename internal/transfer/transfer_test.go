@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -794,5 +795,95 @@ func TestImportDuplicateName(t *testing.T) {
 	}
 	if _, err := ImportAsync(m, snap.Result, ImportReq{Name: "A 的服", EULA: true}); err == nil || !strings.Contains(err.Error(), "已有同名的服务器") {
 		t.Errorf("重名导入该被拒：%v", err)
+	}
+}
+
+// 导入交接包在收尾时失败，半成品又没删干净（有文件被别的程序占着）：失败原因照实说没清干净，剩下的文件夹带着创建记号，
+// 列在「没建完的文件夹」里，文件放开以后能在那里删掉（A48）。
+func TestImportCleanupFailureKeepsMarker(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("只有 Windows 上打开着的文件删不掉")
+	}
+	newEnv(t)
+	fakeInstance(t, "A 的服")
+	m := manager(t, "A 的服")
+	id, err := ExportAsync(m, ExportReq{Inst: "A 的服", Full: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, _, _, _ := waitTask(t, m, id)
+	if snap.Err != "" {
+		t.Fatalf("导出失败：%s", snap.Err)
+	}
+	root := filepath.Join(t.TempDir(), "新存放位置")
+	var dir string
+	var held *os.File
+	var mu sync.Mutex
+	old := atomicfile.Hook
+	t.Cleanup(func() {
+		atomicfile.Hook = old
+		mu.Lock()
+		defer mu.Unlock()
+		if held != nil {
+			held.Close()
+		}
+	})
+	atomicfile.Hook = func(p string) {
+		mu.Lock()
+		defer mu.Unlock()
+		if filepath.Base(p) != "server.properties" || !strings.HasPrefix(p, root) || held != nil {
+			return
+		}
+		// 改端口的时候：别的程序占着世界里的一个文件，收尾写 run.bat 又会失败（那个位置上放一个文件夹）
+		dir = filepath.Dir(p)
+		held, _ = os.Open(filepath.Join(dir, "world", "level.dat"))
+		_ = os.Mkdir(filepath.Join(dir, "run.bat"), 0o755)
+	}
+	iid, err := ImportAsync(m, snap.Result, ImportReq{Name: "B 的服", EULA: true, Root: root, Port: 25599})
+	if err != nil {
+		t.Fatal(err)
+	}
+	isnap, _, _, _ := waitTask(t, m, iid)
+	mu.Lock()
+	got := dir
+	mu.Unlock()
+	if got == "" || isnap.Err == "" {
+		t.Fatalf("应在收尾时失败：%+v", isnap)
+	}
+	if _, err := os.Stat(got); err != nil {
+		t.Skip("这台电脑上打开着的文件也删得掉，碰不上删不干净的情形")
+	}
+	if !strings.Contains(isnap.Err, "清理半成品失败") {
+		t.Fatalf("失败原因里要照实说半成品没清干净：%q", isnap.Err)
+	}
+	listedID := func() string {
+		m2, err := inst.NewManager() // 这时重开：只看盘上的东西
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, it := range m2.CreatingLeftovers() {
+			if it.Name == filepath.Base(got) {
+				return it.ID
+			}
+		}
+		return ""
+	}
+	leftover := listedID()
+	if _, err := os.Stat(filepath.Join(got, inst.CreatingMarker)); err != nil || leftover == "" {
+		t.Fatalf("没删干净的半成品应带着创建记号，列在「没建完的文件夹」里：%v", err)
+	}
+	mu.Lock()
+	held.Close()
+	held = nil
+	mu.Unlock()
+	m3, err := inst.NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m3.DiscardCreatingLeftover(leftover, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(got); !os.IsNotExist(err) {
+		t.Fatalf("文件放开以后应能在「没建完的文件夹」那里删掉：%v", err)
 	}
 }

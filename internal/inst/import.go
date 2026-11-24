@@ -84,26 +84,13 @@ func (m *Manager) ImportModpackAsync(pack *modpack.Pack, req CreateReq, cfKey st
 			for _, kind := range []string{"import-pending", "cf-unresolved", "import-kept", "java-req", "import-case", "import-skipped"} {
 				t.RemoveWarning(kind)
 			}
-			// 先清后报失败：任务一显示失败，半成品就得已经删干净了
-			failCreate(t, err, m.discardImport(req.Name, dir))
+			// 先清后报失败：任务一显示失败，半成品就得已经删干净了（删不干净的带着记号留在「没建完的文件夹」里，见 discardCreatingDir）
+			failCreate(t, err, m.discardCreating(req.Name, dir))
 			return
 		}
 		t.Finish(req.Name)
 	}()
 	return t.ID(), nil
-}
-
-// discardImport 导入整合包、现成服务端失败时清掉半成品（discardCreating）。删到一半（有文件被别的程序占着）时，创建记号多半
-// 已经先删掉了，剩下的文件夹（整合包导入还有没装上的文件的清单）就既不在列表里、也不算没建完的，没处可管：把记号放回去，
-// 让「没建完的文件夹」那里统一处理（A48）。记号是这次任务自己放的，它没了、文件夹还在又没有 instance.json，只会是删到一半。
-func (m *Manager) discardImport(name, dir string) error {
-	err := m.discardCreating(name, dir)
-	if err != nil && plainCreatingDir(dir) && !creatingMarkerOwned(dir) {
-		if registered, _ := checkNoInstanceFiles(dir); !registered {
-			_ = WriteCreatingMarker(dir, name)
-		}
-	}
-	return err
 }
 
 // pendingJob 收尾前还在攒的待决文件（并发下载里也会产生：哈希校验不符）。

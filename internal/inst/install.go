@@ -517,7 +517,8 @@ func failCreate(t *tasks.Task, err, cleanupErr error) {
 	t.Fail(err)
 }
 
-// discardCreating 只清理由当前创建任务独占、尚未发布的目录。
+// discardCreating 只清理由当前创建任务独占、尚未发布的目录；文件夹里有没有这次放的创建记号决定怎么清（见 discardCreatingDir）。
+// 新建、导入整合包、导入现成服务端失败时都经这里，交接包经 DiscardCreate。
 func (m *Manager) discardCreating(name, dir string) error {
 	m.mu.Lock()
 	owned := m.creating[name] && m.creating[dirKey(dir)] && m.insts[name] == nil
@@ -535,7 +536,7 @@ func (m *Manager) discardCreating(name, dir string) error {
 	} else if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	return os.RemoveAll(abs)
+	return discardCreatingDir(abs, name)
 }
 
 func isASCII(s string) bool {

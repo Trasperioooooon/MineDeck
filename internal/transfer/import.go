@@ -96,10 +96,14 @@ func ImportAsync(m *inst.Manager, path string, req ImportReq) (string, error) {
 			}
 		}
 		if err := runImport(ctx, t, m, mf, path, req, dir); err != nil {
-			// 先清后报失败：失败框上写着「半成品已经清理干净，可以重试」，任务一显示失败就得是真的（测试也是一看到失败就去查文件夹）
+			// 先清后报失败：任务一显示失败，半成品就得已经清过（测试也是一看到失败就去查文件夹）。清理和新建、导入整合包是同一套：
+			// 只整个删这次放过创建记号的，删不干净的带着记号留在「没建完的文件夹」里；删不干净时失败原因里照实说（同 inst 的 failCreate）
 			_ = m.Delete(req.Name, false) // 万一已经注册（收尾失败）：从列表移出
-			os.RemoveAll(dir)             // 目录是本程序新建的半成品，整体清掉
+			cleanupErr := m.DiscardCreate(req.Name, dir)
 			finish()
+			if cleanupErr != nil {
+				err = fmt.Errorf("%w；清理半成品失败：%v", err, cleanupErr)
+			}
 			t.Fail(err)
 			return
 		}

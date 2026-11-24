@@ -3,6 +3,8 @@ package inst
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,8 +19,10 @@ import (
 
 	"minedeck/internal/app"
 	"minedeck/internal/atomicfile"
+	"minedeck/internal/dl"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/modpack"
+	"minedeck/internal/tasks"
 )
 
 func TestCreatingLeftoverIgnoresAdoptedAndRegistered(t *testing.T) {
@@ -953,4 +957,227 @@ func TestCreatingLeftoverProtectsRemovedBackupAndCustomWorld(t *testing.T) {
 	if b, err := os.ReadFile(filepath.Join(kept, "world", "level.dat")); err != nil || string(b) != "precious" {
 		t.Fatalf("移出列表的服务器文件被动过：%v %q", err, b)
 	}
+}
+
+// discardCreating 只整个删这次放过创建记号的文件夹（A48）：没有记号的（放记号之前就失败了，预留的路径上是别人的东西）
+// 只删得掉空的，有东西就照实报错、一个不动、不补记号；有记号的整个删。
+func TestDiscardCreatingOnlyOwnFolder(t *testing.T) {
+	m, _ := importEnv(t)
+	reserve := func(name string) string {
+		t.Helper()
+		req := CreateReq{Name: name, Core: mcsrc.CoreVanilla, MC: "1.20.1", EULA: true}
+		dir, err := m.validateCreate(&req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { m.releaseCreating(req.Name); m.releaseCreating(dirKey(dir)) })
+		return dir
+	}
+
+	others := reserve("others")
+	writeTree(t, others, map[string]string{"world/level.dat": "别人的世界", "notes.txt": "别人的笔记"})
+	if err := m.discardCreating("others", others); err == nil || !strings.Contains(err.Error(), "不是这次建的") {
+		t.Fatalf("没有记号、里面有东西：应照实报错：%v", err)
+	}
+	if !pathExists(filepath.Join(others, "world", "level.dat")) || !pathExists(filepath.Join(others, "notes.txt")) || pathExists(filepath.Join(others, CreatingMarker)) {
+		t.Fatal("别人的文件一个都不该动，也不该补记号")
+	}
+
+	empty := reserve("empty")
+	if err := os.MkdirAll(empty, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.discardCreating("empty", empty); err != nil || pathExists(empty) {
+		t.Fatalf("没有记号的空文件夹（建好还没放记号就失败了）删掉：%v %v", err, pathExists(empty))
+	}
+	if err := m.discardCreating("empty", empty); err != nil {
+		t.Fatalf("文件夹还没建就失败的，没什么可删：%v", err)
+	}
+
+	own := reserve("own")
+	if err := os.MkdirAll(own, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteCreatingMarker(own, "own"); err != nil {
+		t.Fatal(err)
+	}
+	writeTree(t, own, map[string]string{"world/level.dat": "x", "server.jar": "core"})
+	if err := m.discardCreating("own", own); err != nil || pathExists(own) {
+		t.Fatalf("放过记号的整个删：%v %v", err, pathExists(own))
+	}
+}
+
+// 删到一半时文件夹里还有 instance.json（被占着删不掉）：已经是登记过的样子，不放回创建记号（A48）。
+func TestDiscardCreatingNoMarkerBackWithInstanceJSON(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("只有 Windows 上打开着的文件删不掉")
+	}
+	m, _ := importEnv(t)
+	req := CreateReq{Name: "with-json", Core: mcsrc.CoreVanilla, MC: "1.20.1", EULA: true}
+	dir, err := m.validateCreate(&req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.releaseCreating(req.Name)
+	defer m.releaseCreating(dirKey(dir))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteCreatingMarker(dir, req.Name); err != nil {
+		t.Fatal(err)
+	}
+	writeTree(t, dir, map[string]string{"instance.json": "{}", "world/level.dat": "x"})
+	held, err := os.Open(filepath.Join(dir, "instance.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	if err := m.discardCreating(req.Name, dir); err == nil {
+		t.Skip("这台电脑上打开着的文件也删得掉，碰不上删不干净的情形")
+	}
+	if !pathExists(filepath.Join(dir, "instance.json")) || pathExists(filepath.Join(dir, CreatingMarker)) {
+		t.Fatal("有 instance.json 的不该放回创建记号")
+	}
+}
+
+// gateDownloads 让第一次连网（建服的第一步，解析版本信息）停住：返回走到那里的信号和放行的函数，放行以后连网都失败。
+func gateDownloads(t *testing.T) (reached <-chan struct{}, release func()) {
+	t.Helper()
+	at, gate := make(chan struct{}, 1), make(chan struct{})
+	old := dl.Client.Transport
+	dl.Client.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		select {
+		case at <- struct{}{}:
+		default:
+		}
+		<-gate
+		return nil, fmt.Errorf("测试里连不上 %s", r.URL.Host)
+	})
+	var once sync.Once
+	release = func() { once.Do(func() { close(gate) }) }
+	t.Cleanup(func() { release(); dl.Client.Transport = old })
+	return at, release
+}
+
+// 导入整合包在放创建记号之前就失败（解析版本信息那一步连不上），这段时间里预留的路径上冒出了别人的文件夹，里面还有个文件
+// 被占着：别人的文件一个不少，不补记号、不列在「没建完的文件夹」里，失败原因里照实说没删（A48）。
+func TestImportFailedBeforeMarkerKeepsOthersFolder(t *testing.T) {
+	m, _ := importEnv(t)
+	reached, release := gateDownloads(t)
+	pack := &modpack.Pack{Format: modpack.FormatMrpack, Name: "早早失败", Core: mcsrc.CorePaper, MC: "1.20.1", Loader: "latest",
+		ZipPath: zipOrdered(t, [][2]string{{"overrides/config/a.txt", "hi"}}), OverrideDirs: []string{"overrides"}}
+	id, err := m.ImportModpackAsync(pack, CreateReq{Name: "stranger", EULA: true}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-reached:
+	case <-time.After(10 * time.Second):
+		t.Fatal("导入没走到解析版本信息那一步")
+	}
+	dir := filepath.Join(app.ServersDir, "stranger")
+	if pathExists(dir) {
+		t.Fatal("这时还不该建过文件夹")
+	}
+	writeTree(t, dir, map[string]string{"world/level.dat": "别人的世界", "notes.txt": "别人的笔记"})
+	held, err := os.Open(filepath.Join(dir, "notes.txt")) // 别的程序占着：整个删的话删到一半，以前还会被补上记号
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	release()
+	sn := waitImportTask(t, m, id)
+	if !strings.Contains(sn.Err, "清理半成品失败") || !strings.Contains(sn.Err, "不是这次建的") {
+		t.Fatalf("失败原因里要照实说文件夹没删：%q", sn.Err)
+	}
+	for _, f := range []string{"world/level.dat", "notes.txt"} {
+		if !pathExists(filepath.Join(dir, filepath.FromSlash(f))) {
+			t.Errorf("别人的 %s 被删了", f)
+		}
+	}
+	if pathExists(filepath.Join(dir, CreatingMarker)) || listedAfterRestart(dir) {
+		t.Fatal("别人的文件夹不该补上创建记号、列进「没建完的文件夹」")
+	}
+}
+
+// heldCleanupFailure 在第一次原子写入名字是 base 的文件时埋下两件事：收尾写 run.bat 会失败（run.bat 的位置上放一个文件夹），
+// 文件夹里第一个 jar 被别的程序占着、删不干净。返回的函数给出出事的那个文件夹（任务走到那一步以后才有值）。
+func heldCleanupFailure(t *testing.T, base string) func() string {
+	t.Helper()
+	var dir string
+	var held *os.File
+	var mu sync.Mutex
+	old := atomicfile.Hook
+	t.Cleanup(func() {
+		atomicfile.Hook = old
+		mu.Lock()
+		defer mu.Unlock()
+		if held != nil {
+			held.Close()
+		}
+	})
+	atomicfile.Hook = func(p string) {
+		mu.Lock()
+		defer mu.Unlock()
+		if filepath.Base(p) != base || held != nil {
+			return
+		}
+		dir = filepath.Dir(p)
+		if jars, _ := filepath.Glob(filepath.Join(dir, "*.jar")); len(jars) > 0 {
+			held, _ = os.Open(jars[0])
+		}
+		_ = os.Mkdir(filepath.Join(dir, "run.bat"), 0o755)
+	}
+	return func() string { mu.Lock(); defer mu.Unlock(); return dir }
+}
+
+// 导入现成服务端、普通新建在收尾时失败，半成品又没删干净：带着创建记号，列在「没建完的文件夹」里（A48）。
+func TestServerImportAndCreateCleanupFailureKeepMarker(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("只有 Windows 上打开着的文件删不掉")
+	}
+	check := func(t *testing.T, dir string, sn tasks.Snapshot) {
+		t.Helper()
+		if dir == "" {
+			t.Fatalf("没走到收尾：%+v", sn)
+		}
+		if !pathExists(dir) {
+			t.Skip("这台电脑上打开着的文件也删得掉，碰不上删不干净的情形")
+		}
+		if !strings.Contains(sn.Err, "清理半成品失败") {
+			t.Fatalf("任务应说清楚半成品没清干净：%q", sn.Err)
+		}
+		if !pathExists(filepath.Join(dir, CreatingMarker)) || !listedAfterRestart(dir) {
+			t.Fatal("没删干净的半成品应带着创建记号，列在「没建完的文件夹」里")
+		}
+	}
+
+	t.Run("现成服务端", func(t *testing.T) {
+		m, _ := importEnv(t)
+		pack, err := modpack.Parse(zipOf(t, map[string]string{
+			"paper-1.20.1-100.jar": paperJarBytes(t), "eula.txt": "eula=true\n", "server.properties": "server-port=25565\n", "world/level.dat": "x",
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		dirOf := heldCleanupFailure(t, "server.properties")
+		id, err := m.importServerAsync(pack, CreateReq{Name: "server-half", XmxMB: 2048, Port: 25582, EULA: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sn := waitImportTask(t, m, id)
+		check(t, dirOf(), sn)
+	})
+
+	t.Run("普通新建", func(t *testing.T) {
+		stubWaterfallDownloads(t)
+		m, _ := importEnv(t)
+		dirOf := heldCleanupFailure(t, "run.bat")
+		id, err := m.CreateAsync(CreateReq{Name: "create-half", Core: mcsrc.CoreWaterfall, MC: "1.20"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sn := waitImportTask(t, m, id)
+		check(t, dirOf(), sn)
+	})
 }

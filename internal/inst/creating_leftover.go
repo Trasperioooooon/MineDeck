@@ -40,6 +40,34 @@ func markCreated(dir string) error {
 	return ClearCreatingMarker(dir)
 }
 
+// discardCreatingDir 建服、导入失败时清掉 dir（discardCreating 已经核对过是这次任务预留的、不是链接）。
+// 只有这次任务放过创建记号的才整个删：放记号之前失败的，预留的路径上要是冒出了别人的文件夹（人自己、别的程序放的），
+// 里面的东西不是这次建的，只删得掉空文件夹，删不掉照实报错（A48）。四条路（新建、整合包、现成服务端、交接包）都是
+// 建好文件夹紧接着放记号，中间不写别的。
+// 整个删到一半（有文件被别的程序占着）时记号多半已经先没了，剩下的文件夹既不在列表里、也不算没建完的，没处可管：
+// 还是真文件夹、又没有 instance.json 的，把记号放回去，由「没建完的文件夹」那里统一处理。
+func discardCreatingDir(dir, name string) error {
+	if !creatingMarkerOwned(dir) {
+		if err := os.Remove(dir); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("文件夹里有不是这次建的东西，没有删（%w）", err)
+		}
+		return nil
+	}
+	err := os.RemoveAll(dir)
+	if err != nil && plainCreatingDir(dir) && !creatingMarkerOwned(dir) {
+		if registered, _ := checkNoInstanceFiles(dir); !registered {
+			_ = WriteCreatingMarker(dir, name)
+		}
+	}
+	return err
+}
+
+// DiscardCreate 交接包导入失败时清掉 ReserveCreate 预留、还没登记的文件夹，和新建、导入整合包失败时同一套（discardCreating）。
+// 返回的错误要照实告诉人：文件夹里还留着东西。
+func (m *Manager) DiscardCreate(name, dir string) error {
+	return m.discardCreating(name, dir)
+}
+
 // afterRootRemembered markCreated 里「已经记成扫描根、还没去记号」的那一刻，默认什么都不做。
 // 测试里换成查看盘上状态的函数，钉住两步的先后。
 var afterRootRemembered = func(dir string) {}

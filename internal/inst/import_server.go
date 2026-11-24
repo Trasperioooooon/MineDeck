@@ -65,7 +65,7 @@ func (m *Manager) importServerAsync(pack *modpack.Pack, req CreateReq) (string, 
 				t.RemoveWarning(kind)
 			}
 			// 先清后报失败：任务一显示失败，半成品就得已经删干净了（失败框上写着可以重试；交接包导入同样的顺序）
-			failCreate(t, err, m.discardImport(req.Name, dir))
+			failCreate(t, err, m.discardCreating(req.Name, dir))
 			return
 		}
 		t.Finish(req.Name)
