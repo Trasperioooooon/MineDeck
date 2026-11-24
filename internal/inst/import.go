@@ -211,7 +211,8 @@ func (m *Manager) applyModpack(ctx context.Context, t *tasks.Task, pack *modpack
 		t.Logf("整合包清单里的这些文件和前面的落点只差大小写，在 Windows 上是同一个文件，没有下载（留的是前面那个）：%s", shortNames(dupDL, 8))
 	}
 	if overrides, err := modpack.OverrideFiles(pack); err == nil { // 读不了的，应用覆盖目录那一步会报出来
-		addCaseWarning(t, modpackCaseConflicts(files, dupDL, overrides))
+		conflicts := modpackCaseConflicts(files, dupDL, overrides)
+		addCaseWarning(t, conflicts, len(conflicts))
 	}
 	var total int64
 	for _, f := range files {
@@ -313,7 +314,7 @@ func (m *Manager) applyModpack(ctx context.Context, t *tasks.Task, pack *modpack
 		}
 		remain = append(remain, p.file)
 	}
-	addSkippedWarning(t, skipped)
+	addSkippedWarning(t, skipped, len(skipped))
 	// 最终控制文件由 completeCreate 重写；这时实例仍不可见。
 	restoreLog4jXML(ctx, t, i)
 	m.finishImportPack(t, i, pack.Name, remain, kept)
@@ -387,23 +388,33 @@ func modpackCaseConflicts(files []modpack.File, dupDL, overrides []string) []cas
 // maxWarnItems 一条告警最多列几项，多的说一共几个。
 const maxWarnItems = 50
 
-// addCaseWarning 只差大小写的落点写进任务结果（A13、A47）。
-func addCaseWarning(t *tasks.Task, conflicts []caseConflict) {
-	if len(conflicts) == 0 {
+// warnItems 告警里列的项：最多 maxWarnItems 项。total 是一共有几个（names 可能已经只记了前面一部分），
+// 比列出来的多时末尾说一共几个，unit 是「个」「组」。
+func warnItems(names []string, total int, unit string) []tasks.WarnItem {
+	shown := names[:min(len(names), maxWarnItems)]
+	items := make([]tasks.WarnItem, 0, len(shown)+1)
+	for _, n := range shown {
+		items = append(items, tasks.WarnItem{Name: n})
+	}
+	if total > len(shown) {
+		items = append(items, tasks.WarnItem{Name: fmt.Sprintf("……一共 %d %s", total, unit)})
+	}
+	return items
+}
+
+// addCaseWarning 只差大小写的落点写进任务结果（A13、A47）。total 是一共几组（conflicts 可能只记了前面一部分）。
+func addCaseWarning(t *tasks.Task, conflicts []caseConflict, total int) {
+	if total == 0 {
 		return
 	}
-	items := make([]tasks.WarnItem, 0, min(len(conflicts), maxWarnItems)+1)
-	for n, c := range conflicts {
-		if n == maxWarnItems {
-			items = append(items, tasks.WarnItem{Name: fmt.Sprintf("……一共 %d 组", len(conflicts))})
-			break
-		}
-		items = append(items, tasks.WarnItem{Name: fmt.Sprintf("%s：留下的是「%s」（%s）", strings.Join(c.names, "、"), c.kept, c.why)})
+	names := make([]string, 0, min(len(conflicts), maxWarnItems))
+	for _, c := range conflicts[:min(len(conflicts), maxWarnItems)] {
+		names = append(names, fmt.Sprintf("%s：留下的是「%s」（%s）", strings.Join(c.names, "、"), c.kept, c.why))
 	}
-	t.AddWarning(tasks.Warning{Kind: "import-case", Title: fmt.Sprintf("%d 组文件名只差大小写", len(conflicts)),
+	t.AddWarning(tasks.Warning{Kind: "import-case", Title: fmt.Sprintf("%d 组文件名只差大小写", total),
 		Note: "Windows 上文件名不分大小写，每一组都是同一个文件，只留下一份：内容是下面写的那一个，文件名可能还是最先写的那种写法。" +
 			"要另一份的话，导入完成以后到服务器文件夹里自己换。",
-		Items: items})
+		Items: warnItems(names, total, "组")})
 }
 
 // skippedFile 导入时没装进来的一个文件和原因。
@@ -430,21 +441,18 @@ func notTakenWhy(rel string) string {
 }
 
 // addSkippedWarning 导入时没装进来的文件写进任务结果（A46）。以前只写在任务日志里，原版服没有插件 / 模组页，导入完了就找不回来。
-func addSkippedWarning(t *tasks.Task, files []skippedFile) {
-	if len(files) == 0 {
+// total 是一共几个（files 可能只记了前面一部分）。
+func addSkippedWarning(t *tasks.Task, files []skippedFile, total int) {
+	if total == 0 {
 		return
 	}
-	items := make([]tasks.WarnItem, 0, min(len(files), maxWarnItems)+1)
-	for n, f := range files {
-		if n == maxWarnItems {
-			items = append(items, tasks.WarnItem{Name: fmt.Sprintf("……一共 %d 个", len(files))})
-			break
-		}
-		items = append(items, tasks.WarnItem{Name: fmt.Sprintf("%s（%s）", f.path, f.why)})
+	names := make([]string, 0, min(len(files), maxWarnItems))
+	for _, f := range files[:min(len(files), maxWarnItems)] {
+		names = append(names, fmt.Sprintf("%s（%s）", f.path, f.why))
 	}
-	t.AddWarning(tasks.Warning{Kind: "import-skipped", Title: fmt.Sprintf("%d 个文件没有装进来", len(files)),
+	t.AddWarning(tasks.Warning{Kind: "import-skipped", Title: fmt.Sprintf("%d 个文件没有装进来", total),
 		Note:  "导入时跳过了这些文件，原因写在每一项后面。只给客户端用的本来就不该装在服务器上；要用别的，导入完成以后自己放进服务器文件夹。",
-		Items: items})
+		Items: warnItems(names, total, "个")})
 }
 
 // dedupeDownloads 清单里落点只差大小写的（一模一样的也算）在 Windows 上是同一个文件，而下载是并发的，会同时写它：
@@ -518,10 +526,16 @@ func (s *overrideSink) write(rel string, r io.Reader) error {
 
 // shortNames 写进任务日志的文件清单：最多列 max 个，多的说一共几个。
 func shortNames(items []string, max int) string {
-	if len(items) <= max {
-		return strings.Join(items, "、")
+	return shortNamesOf(items, len(items), max)
+}
+
+// shortNamesOf 同 shortNames，total 是一共几个（items 可能只记了前面一部分）。
+func shortNamesOf(items []string, total, max int) string {
+	shown := items[:min(len(items), max)]
+	if total <= len(shown) {
+		return strings.Join(shown, "、")
 	}
-	return strings.Join(items[:max], "、") + fmt.Sprintf("、…等 %d 个", len(items))
+	return strings.Join(shown, "、") + fmt.Sprintf("、…等 %d 个", total)
 }
 
 // overrideAllowed 整合包覆盖目录里的这个文件（rel 相对实例目录，斜杠分隔）能不能写进来。规矩见 runImport 里用它的地方。

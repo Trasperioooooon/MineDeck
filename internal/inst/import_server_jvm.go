@@ -2,8 +2,10 @@ package inst
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"path"
+	"regexp"
 	"slices"
 	"strings"
 	"unicode"
@@ -22,6 +24,15 @@ var importScripts = []string{"run.bat", "start.bat", "run.sh", "start.sh"}
 // userJVMArgsFile Forge / NeoForge 的启动脚本用 @user_jvm_args.txt 读的参数文件，里面的也算脚本里的 JVM 参数。
 const userJVMArgsFile = "user_jvm_args.txt"
 
+// maxScriptLine 脚本里一个变量的值、展开以后的一行最长多少。`set A=%A%%A%` 一行翻一倍，二三十行就能把内存吃光；
+// 超了整份按认不出办，什么都不带。正常脚本里启动 Java 的那一行也就几百个字。
+const maxScriptLine = 32 << 10
+
+var (
+	errScriptTooLong = errors.New("变量展开以后太长")
+	errNoJavaLine    = errors.New("认不出启动 Java 的那一行")
+)
+
 // droppedJVMArg 没带过来的一个参数和原因。
 type droppedJVMArg struct{ arg, why string }
 
@@ -29,36 +40,48 @@ type droppedJVMArg struct{ arg, why string }
 type scriptJVM struct {
 	script  string // 从哪个脚本认的
 	carried []string
+	memory  []string // 内存参数：内存按导入页上填的，这几个不算「没带」
 	dropped []droppedJVMArg
 }
 
 // packScriptJVM 读压缩包里的启动脚本，认出启动 launch（jar:… 或 args:…）那一行 Java 的 JVM 参数并过一遍 filterScriptJVM。
-// ok 为 false 是没认出启动 Java 的那一行。
-func packScriptJVM(pack *modpack.Pack, launch string) (scriptJVM, bool) {
+// found 为 false 是压缩包里没有这几个脚本。err 是有脚本却认不出（errNoJavaLine）、或者变量展开以后太长（errScriptTooLong，
+// 这时 sj.script 是那个脚本）：都什么都不带。
+func packScriptJVM(pack *modpack.Pack, launch string) (sj scriptJVM, found bool, err error) {
 	files := modpack.ServerRootFiles(pack, append(slices.Clone(importScripts), userJVMArgsFile), 256<<10)
 	for _, name := range importScripts {
 		b, ok := files[name]
 		if !ok {
 			continue
 		}
-		opts, ok := scriptJavaOptions(b, strings.HasSuffix(name, ".bat"), launch)
-		if !ok {
+		found = true
+		toks, err := scriptJavaOptions(b, strings.HasSuffix(name, ".bat"), launch)
+		if errors.Is(err, errScriptTooLong) {
+			return scriptJVM{script: name}, true, err
+		}
+		if err != nil {
 			continue
 		}
-		var expanded []string
-		for _, o := range opts {
+		var opts []string
+		for _, o := range toks {
 			if isUserJVMArgsRef(o) {
+				var args []string
 				for _, line := range strings.Split(string(bytes.TrimPrefix(files[userJVMArgsFile], []byte("\xef\xbb\xbf"))), "\n") {
-					expanded = append(expanded, argfileTokens(line)...)
+					args = append(args, argfileTokens(line)...)
 				}
+				opts = append(opts, jvmOptions(args)...)
 				continue
 			}
-			expanded = append(expanded, o)
+			opts = append(opts, o)
 		}
-		carried, dropped := filterScriptJVM(expanded)
-		return scriptJVM{script: name, carried: carried, dropped: dropped}, true
+		sj = filterScriptJVM(opts)
+		sj.script = name
+		return sj, true, nil
 	}
-	return scriptJVM{}, false
+	if found {
+		return scriptJVM{}, true, errNoJavaLine
+	}
+	return scriptJVM{}, false, nil
 }
 
 func isUserJVMArgsRef(tok string) bool {
@@ -66,42 +89,58 @@ func isUserJVMArgsRef(tok string) bool {
 	return ok && strings.EqualFold(path.Base(strings.ReplaceAll(rest, `\`, "/")), userJVMArgsFile)
 }
 
-// scriptJavaOptions 从一个脚本里找启动 Java 的那一行，返回 java 和启动目标（-jar、@参数文件、-cp、主类）之间的那些参数。
+// scriptJavaOptions 从一个脚本里找启动 Java 的那一行，返回 java 和启动目标之间的那些参数（见 jvmOptions）。
 // bat 为 true 时按 cmd 的写法读（^ 续行、set、%变量%），否则按 sh（\ 续行、赋值、$变量）。
-// 有几行都在启动 Java 时，优先点名 launch 的那一行，没有就用第一行。
-func scriptJavaOptions(src []byte, bat bool, launch string) ([]string, bool) {
+// 有几行都在启动 Java 时，优先点名 launch 的那一行，没有就用第一行。没有这一行回 errNoJavaLine；
+// 变量的值或者展开以后的一行超过 maxScriptLine 回 errScriptTooLong。
+func scriptJavaOptions(src []byte, bat bool, launch string) ([]string, error) {
 	vars := map[string]string{}
 	var lines [][]string
 	for _, line := range scriptLines(src, bat) {
 		if isScriptComment([]byte(line)) {
 			continue
 		}
+		var toks []string
 		if bat {
 			line = strings.TrimSpace(strings.TrimPrefix(line, "@"))
 			if name, val, ok := batSet(line); ok {
-				vars[strings.ToUpper(name)] = expandBatVars(val, vars)
+				v, ok := expandBatVars(val, vars)
+				if !ok {
+					return nil, errScriptTooLong
+				}
+				vars[strings.ToUpper(name)] = v
 				continue
 			}
-			if toks := splitArgs(expandBatVars(line, vars), false); isJavaCommand(toks) {
-				lines = append(lines, toks)
+			expanded, ok := expandBatVars(line, vars)
+			if !ok {
+				return nil, errScriptTooLong
 			}
-			continue
-		}
-		line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
-		if name, val, ok := shAssign(line); ok {
-			vars[name] = expandShVars(val, vars)
-			continue
-		}
-		toks := splitArgs(expandShVars(line, vars), true)
-		if len(toks) > 0 && toks[0] == "exec" {
-			toks = toks[1:]
+			toks = splitArgs(expanded, false)
+		} else {
+			line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+			if name, val, ok := shAssign(line); ok {
+				v, ok := expandShVars(val, vars)
+				if !ok {
+					return nil, errScriptTooLong
+				}
+				vars[name] = v
+				continue
+			}
+			expanded, ok := expandShVars(line, vars)
+			if !ok {
+				return nil, errScriptTooLong
+			}
+			toks = splitArgs(expanded, true)
+			if len(toks) > 0 && toks[0] == "exec" {
+				toks = toks[1:]
+			}
 		}
 		if isJavaCommand(toks) {
 			lines = append(lines, toks)
 		}
 	}
 	if len(lines) == 0 {
-		return nil, false
+		return nil, errNoJavaLine
 	}
 	pick := lines[0]
 	for _, toks := range lines {
@@ -110,18 +149,36 @@ func scriptJavaOptions(src []byte, bat bool, launch string) ([]string, bool) {
 			break
 		}
 	}
+	return jvmOptions(pick[1:]), nil
+}
+
+// jvmPairOptions 后面跟着一个值的 Java 选项（`--add-opens 模块/包=目标`、`-cp 路径`）：选项和值算一项，列进「没带」；
+// 不能把值当成主类，截掉后面的 JVM 参数。
+var jvmPairOptions = map[string]bool{
+	"-cp": true, "-classpath": true, "--class-path": true, "-p": true, "--module-path": true, "--upgrade-module-path": true,
+	"--add-opens": true, "--add-exports": true, "--add-reads": true, "--add-modules": true, "--patch-module": true, "--limit-modules": true,
+}
+
+// jvmOptions java 后面的参数里取出 JVM 参数：到 -jar、-m（后面是启动目标和给服务端的参数）或者第一个不是 - 开头的
+// （主类、@参数文件）为止。认不出的变量（%JAVA_OPTS%、$OPTS）多半是一串 JVM 参数，接着往下看，由 filterScriptJVM 说明为什么不带。
+func jvmOptions(toks []string) []string {
 	var opts []string
-	for _, tok := range pick[1:] {
+	for k := 0; k < len(toks); k++ {
+		tok := toks[k]
 		low := strings.ToLower(tok)
-		// 后面是启动目标和给服务端的参数。认不出的变量（%JAVA_OPTS%、$OPTS）多半是一串 JVM 参数，接着往下看，
-		// 由 filterScriptJVM 说明为什么不带
-		if low == "-jar" || low == "-cp" || low == "-classpath" || low == "--class-path" || low == "-m" || low == "--module" ||
-			!strings.HasPrefix(tok, "-") && !isUserJVMArgsRef(tok) && !strings.ContainsAny(tok, "%$") {
-			break
+		switch {
+		case low == "-jar" || low == "-m" || low == "--module":
+			return opts
+		case jvmPairOptions[low] && k+1 < len(toks):
+			opts = append(opts, tok+" "+toks[k+1])
+			k++
+		case strings.HasPrefix(tok, "-") || isUserJVMArgsRef(tok) || strings.ContainsAny(tok, "%$"):
+			opts = append(opts, tok)
+		default:
+			return opts
 		}
-		opts = append(opts, tok)
 	}
-	return opts, true
+	return opts
 }
 
 // scriptLines 按行拆开，接上续行（cmd 行末的 ^、sh 行末的 \，拿掉它和换行，下一行直接接上）。
@@ -182,9 +239,13 @@ func shAssign(line string) (name, val string, ok bool) {
 
 // expandBatVars 换掉 cmd 的变量：脚本里 set 过的换成值；%~dp0 这类（脚本所在的文件夹）、%*、%1 换成空；%% 是一个 %。
 // 没 set 过的原样留着：它的值在别人的电脑上，看不到，带着它的参数就不带了（见 filterScriptJVM）。
-func expandBatVars(s string, vars map[string]string) string {
+// 换出来超过 maxScriptLine 时停下，ok 为 false。
+func expandBatVars(s string, vars map[string]string) (string, bool) {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
+		if b.Len() > maxScriptLine {
+			return "", false
+		}
 		if s[i] != '%' {
 			b.WriteByte(s[i])
 			continue
@@ -221,13 +282,16 @@ func expandBatVars(s string, vars map[string]string) string {
 			i += end + 1
 		}
 	}
-	return b.String()
+	return b.String(), b.Len() <= maxScriptLine
 }
 
 // expandShVars 换掉 sh 的变量：赋值过的 $NAME、${NAME} 换成值；$@、$*、$1 换成空；别的原样留着（同 expandBatVars）。
-func expandShVars(s string, vars map[string]string) string {
+func expandShVars(s string, vars map[string]string) (string, bool) {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
+		if b.Len() > maxScriptLine {
+			return "", false
+		}
 		if s[i] != '$' || i+1 >= len(s) {
 			b.WriteByte(s[i])
 			continue
@@ -255,7 +319,7 @@ func expandShVars(s string, vars map[string]string) string {
 		}
 		b.WriteByte('$')
 	}
-	return b.String()
+	return b.String(), b.Len() <= maxScriptLine
 }
 
 // splitArgs 按空白拆成参数，双引号里的空白不拆、引号去掉；sh 另认单引号和引号外面的反斜杠转义。
@@ -335,39 +399,124 @@ func launchesTarget(toks []string, launch string) bool {
 	return false
 }
 
-// filterScriptJVM 按安全规矩挑出能带过来的 JVM 参数（A43）：只带 -XX:、-D、-X 开头的；内存（-Xmx、-Xms 和它们的
-// -XX:MaxHeapSize 这类写法）用导入页上填的；
-// 能让 Java 另外加载程序的（-javaagent、-agentlib、-agentpath、-Xbootclasspath、-Xrun）、出错时执行命令的
-// （-XX:OnError、-XX:OnOutOfMemoryError）、再从文件里读参数的（-XX:Flags、-XX:VMOptionsFile，能夹带上面那些）一律不带；
-// 日志配置（-Dlog4j…）由 MineDeck 按版本套 log4shell 防护，不带。带空格、引号、控制字符的设置页存不了，
-// 带着认不出的脚本变量的不知道是什么，也不带。最多带 100 个，重复的只留一个。
-func filterScriptJVM(args []string) (carried []string, dropped []droppedJVMArg) {
-	drop := func(a, why string) { dropped = append(dropped, droppedJVMArg{a, why}) }
-	for _, a := range args {
-		switch {
-		case strings.ContainsAny(a, "%$"):
-			drop(a, "里面有脚本变量，看不出是什么")
-		case hasAnyPrefix(a, "-Xmx", "-Xms", "-XX:MaxHeapSize", "-XX:InitialHeapSize", "-XX:MinHeapSize"):
-			drop(a, "内存按导入页上填的") // 后三个是 -Xmx、-Xms 的另一种写法，带过来会盖掉 MineDeck 的内存设置
-		case hasAnyPrefix(a, "-javaagent", "-agentlib", "-agentpath", "-Xbootclasspath", "-Xrun"):
-			drop(a, "会让 Java 另外加载程序，一律不带")
-		case hasAnyPrefix(a, "-XX:OnError", "-XX:OnOutOfMemoryError"):
-			drop(a, "出错时会执行命令，一律不带")
-		case hasAnyPrefix(a, "-XX:Flags", "-XX:VMOptionsFile"):
-			drop(a, "会从别的文件里再读参数，一律不带")
-		case len(a) > 2 && strings.HasPrefix(strings.ToLower(a), "-dlog4j"):
-			drop(a, "日志配置由 MineDeck 按版本处理")
-		case strings.IndexFunc(a, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) || r == '"' }) >= 0:
-			drop(a, "带空格或引号，设置里存不了")
-		case strings.HasPrefix(a, "-XX:") && len(a) > 4, !strings.HasPrefix(a, "-XX:") && len(a) > 2 && hasAnyPrefix(a, "-D", "-X"):
-			if !slices.Contains(carried, a) && len(carried) < 100 {
-				carried = append(carried, a)
-			}
-		default:
-			drop(a, "只带 -XX:、-D、-X 开头的")
+// 启动脚本里哪些 JVM 参数带过来（A43）。带过来的存进 instance.json，以后换核心、换 Java 都还在，每次开服都用；
+// JVM 参数能让 Java 读写服务器文件夹外面的文件、另外加载程序、开网络端口，所以只带调性能的几类，别的列出来不带，
+// 要用的人确认可信以后自己到「设置 → 启动与内存」里加。下面几张表就是全部规矩，filterScriptJVM 按这个先后看。
+const (
+	whyVar      = "里面有脚本变量，看不出是什么"
+	whyLoads    = "会让 Java 另外加载程序，一律不带"
+	whyPrefix   = "只带 -XX:、-D、-X 开头的"
+	whyLong     = "太长"
+	whySpace    = "带空格或引号，设置里存不了"
+	whyXX       = "-XX: 只带开关和数值，带路径、文字的不带"
+	whyX        = "-X 只带 -Xss、-Xmn、-Xshare:auto 这几样"
+	whyNoName   = "-D 后面没写名字"
+	whyEncoding = "编码由 MineDeck 管"
+	whyTooMany  = "带过来的已经够多了，后面的没带"
+)
+
+var (
+	// jvmDeniedPrefixes 不管后面写什么都不带的：另外加载程序的、出错时执行命令的、从别的文件里再读参数的（能夹带前面这些）、
+	// 放开别的程序随时挂进 Java 的。原因写得具体些，人才知道为什么。
+	jvmDeniedPrefixes = []struct{ prefix, why string }{
+		{"-javaagent", whyLoads}, {"-agentlib", whyLoads}, {"-agentpath", whyLoads}, {"-Xbootclasspath", whyLoads}, {"-Xrun", whyLoads},
+		{"-XX:OnError", "出错时会执行命令，一律不带"}, {"-XX:OnOutOfMemoryError", "出错时会执行命令，一律不带"},
+		{"-XX:Flags", "会从别的文件里再读参数，一律不带"}, {"-XX:VMOptionsFile", "会从别的文件里再读参数，一律不带"},
+		{"-XX:+EnableDynamicAgentLoading", "会让别的程序随时挂进 Java，一律不带"},
+	}
+	// jvmMemoryPrefixes 内存：按导入页上填的。后三个是 -Xmx、-Xms 的另一种写法，带过来会盖掉 MineDeck 的内存设置。
+	jvmMemoryPrefixes = []string{"-Xmx", "-Xms", "-XX:MaxHeapSize", "-XX:InitialHeapSize", "-XX:MinHeapSize"}
+	// jvmAllowedXX -XX: 只带开关（-XX:+名、-XX:-名）和数值（-XX:名=200、=8M、=75.0）；带路径、带文字的
+	// （-XX:HeapDumpPath、-XX:ErrorFile、-XX:SharedArchiveFile、-XX:AOTLibrary 这类）自然出局。
+	jvmAllowedXX = regexp.MustCompile(`^-XX:(?:[+-][A-Za-z][A-Za-z0-9_]*|[A-Za-z][A-Za-z0-9_]*=[0-9]+(?:\.[0-9]+)?[kKmMgGtT]?)$`)
+	// jvmAllowedX -X（不是 -XX:）只带这几样；-Xlog、-Xloggc 能往任意位置写文件，-Xdebug、-Xverify 这类关掉检查，都不带。
+	jvmAllowedX = regexp.MustCompile(`^-X(?:(?:ss|mn)[0-9]+[kKmMgG]?|share:(?:auto|off)|noclassgc|incgc)$`)
+	// jvmDeniedProps -D 不带的名字（小写比，前缀对上就算）。编码排在前面：sun.stdout.encoding 也落在 sun. 里，原因要说成编码。
+	// 模组和服务端自己的（-Dfml.*、-Dpaper.*、-Dterminal.* 这些）不受影响。
+	jvmDeniedProps = []struct{ prefix, why string }{
+		{"file.encoding", whyEncoding}, {"stdout.encoding", whyEncoding}, {"stderr.encoding", whyEncoding},
+		{"sun.stdout.encoding", whyEncoding}, {"sun.stderr.encoding", whyEncoding},
+		{"java.", "改的是 Java 自己的设置"}, {"javax.", "改的是 Java 自己的设置"}, {"jdk.", "改的是 Java 自己的设置"},
+		{"sun.", "改的是 Java 自己的设置"}, {"com.sun.", "改的是 Java 自己的设置"},
+		{"http.proxy", "会改 Java 连网走的代理"}, {"https.proxy", "会改 Java 连网走的代理"}, {"socksproxy", "会改 Java 连网走的代理"},
+		{"ftp.proxy", "会改 Java 连网走的代理"}, {"http.nonproxyhosts", "会改 Java 连网走的代理"}, {"ftp.nonproxyhosts", "会改 Java 连网走的代理"},
+		{"socksnonproxyhosts", "会改 Java 连网走的代理"},
+		{"minecraft.api.", "会改正版验证连的服务器"},
+		{"log4j", "日志配置由 MineDeck 按版本处理"},
+	}
+)
+
+const (
+	maxScriptArg     = 1024    // 单个参数最长多少
+	maxCarriedJVM    = 100     // 最多带多少个
+	maxCarriedJVMLen = 8 << 10 // 带过来的加起来最长多少：run.bat 那一行在 Windows 上总共不能超过 32767 个字
+)
+
+// judgeScriptJVM 一个参数怎么办：why 为空是能带；memory 为 true 是内存参数（按导入页上填的，不算没带）。
+func judgeScriptJVM(a string) (why string, memory bool) {
+	if strings.ContainsAny(a, "%$") {
+		return whyVar, false
+	}
+	for _, d := range jvmDeniedPrefixes {
+		if strings.HasPrefix(a, d.prefix) {
+			return d.why, false
 		}
 	}
-	return carried, dropped
+	if !strings.HasPrefix(a, "-X") && !strings.HasPrefix(a, "-D") {
+		return whyPrefix, false
+	}
+	if len(a) > maxScriptArg {
+		return whyLong, false
+	}
+	if strings.IndexFunc(a, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) || r == '"' }) >= 0 {
+		return whySpace, false
+	}
+	if hasAnyPrefix(a, jvmMemoryPrefixes...) {
+		return "", true
+	}
+	switch {
+	case strings.HasPrefix(a, "-XX:"):
+		if !jvmAllowedXX.MatchString(a) {
+			return whyXX, false
+		}
+	case strings.HasPrefix(a, "-D"):
+		name, _, _ := strings.Cut(strings.ToLower(a[2:]), "=")
+		if name == "" {
+			return whyNoName, false
+		}
+		for _, d := range jvmDeniedProps {
+			if strings.HasPrefix(name, d.prefix) {
+				return d.why, false
+			}
+		}
+	default:
+		if !jvmAllowedX.MatchString(a) {
+			return whyX, false
+		}
+	}
+	return "", false
+}
+
+// filterScriptJVM 按上面的规矩把参数分成带过来的、内存、没带的。重复的只带一个；带的个数、总长有上限（maxCarriedJVM、maxCarriedJVMLen）。
+func filterScriptJVM(args []string) scriptJVM {
+	var sj scriptJVM
+	total := 0
+	for _, a := range args {
+		why, memory := judgeScriptJVM(a)
+		switch {
+		case memory:
+			sj.memory = append(sj.memory, a)
+		case why != "":
+			sj.dropped = append(sj.dropped, droppedJVMArg{a, why})
+		case slices.Contains(sj.carried, a):
+		case len(sj.carried) >= maxCarriedJVM || total+len(a) > maxCarriedJVMLen:
+			sj.dropped = append(sj.dropped, droppedJVMArg{a, whyTooMany})
+		default:
+			sj.carried = append(sj.carried, a)
+			total += len(a)
+		}
+	}
+	return sj
 }
 
 func hasAnyPrefix(s string, prefixes ...string) bool {
@@ -375,9 +524,23 @@ func hasAnyPrefix(s string, prefixes ...string) bool {
 }
 
 // applyScriptJVM 把启动脚本里能带的 JVM 参数放进 inst.ExtraJVM，带了哪些、没带哪些写进任务日志和任务的结果（告警）。
+// 有启动脚本却认不出时什么都不带，任务日志说一句。
 func applyScriptJVM(t *tasks.Task, inst *Instance, pack *modpack.Pack) {
-	sj, ok := packScriptJVM(pack, inst.LaunchTarget)
-	if !ok || len(sj.carried)+len(sj.dropped) == 0 {
+	sj, found, err := packScriptJVM(pack, inst.LaunchTarget)
+	switch {
+	case !found:
+		return
+	case errors.Is(err, errScriptTooLong):
+		t.Logf("%s 里的变量展开以后太长（超过 %d KB），按认不出办，里面的 JVM 参数一个都没带过来；需要的话到「设置 → 启动与内存」里自己加", sj.script, maxScriptLine>>10)
+		return
+	case err != nil:
+		t.Logf("启动脚本里认不出启动 Java 的那一行（比如是用 start、if 或者 & 连着别的命令起的），里面的 JVM 参数没有带过来；需要的话到「设置 → 启动与内存」里自己加")
+		return
+	}
+	if len(sj.memory) > 0 {
+		t.Logf("%s 里的内存设置（%s）没有用，内存按导入页上填的 %d MB", sj.script, shortNames(sj.memory, 8), inst.XmxMB)
+	}
+	if len(sj.carried)+len(sj.dropped) == 0 {
 		return
 	}
 	inst.ExtraJVM = mergeArgs(inst.ExtraJVM, sj.carried)
@@ -390,22 +553,27 @@ func applyScriptJVM(t *tasks.Task, inst *Instance, pack *modpack.Pack) {
 	default:
 		title = fmt.Sprintf("启动脚本里有 %d 个 JVM 参数没带过来", len(sj.dropped))
 	}
-	note := "只带 -XX:、-D、-X 开头的；内存按导入页上填的；能让 Java 另外加载程序、执行命令的（-javaagent、-XX:OnError 这类）和日志配置一律不带，需要的话确认可信以后到「设置 → 启动与内存」里自己加。"
+	note := "只带调性能的几类（-XX: 的开关和数值、-Xss 这几样、-D 里不是 Java 自己的设置的）；内存按导入页上填的；" +
+		"能让 Java 另外加载程序、执行命令、往别处写文件、改代理的和日志配置一律不带，需要的话确认可信以后到「设置 → 启动与内存」里自己加。"
 	if len(sj.carried) > 0 {
-		t.Logf("%s 里的这些 JVM 参数带到了「自定义 JVM 参数」：%s", sj.script, strings.Join(sj.carried, " "))
+		t.Logf("%s 里的这些 JVM 参数带到了「自定义 JVM 参数」：%s", sj.script, shortNames(sj.carried, 20))
 		note = "带过来的在「设置 → 启动与内存」的自定义 JVM 参数里：" + strings.Join(sj.carried, " ") +
 			"。它们是给原来那个 Java 写的，换了大版本以后有的可能不认（比如老的 -XX:+UseConcMarkSweepGC），开不了服就到那里删掉。" + note
 	}
-	items := make([]tasks.WarnItem, 0, len(sj.dropped))
+	names := make([]string, 0, len(sj.dropped))
 	for _, d := range sj.dropped {
-		items = append(items, tasks.WarnItem{Name: fmt.Sprintf("%s（%s）", d.arg, d.why)})
+		names = append(names, fmt.Sprintf("%s（%s）", clipArg(d.arg), d.why))
 	}
-	if len(items) > 0 {
-		names := make([]string, 0, len(sj.dropped))
-		for _, it := range items {
-			names = append(names, it.Name)
-		}
-		t.Logf("%s 里的这些 JVM 参数没带过来：%s", sj.script, strings.Join(names, "、"))
+	if len(names) > 0 {
+		t.Logf("%s 里的这些 JVM 参数没带过来：%s", sj.script, shortNames(names, 20))
 	}
-	t.AddWarning(tasks.Warning{Kind: "script-jvm", Title: title, Note: note, Items: items})
+	t.AddWarning(tasks.Warning{Kind: "script-jvm", Title: title, Note: note, Items: warnItems(names, len(names), "个")})
+}
+
+// clipArg 告警和日志里列一个参数：太长的只列开头。
+func clipArg(a string) string {
+	if r := []rune(a); len(r) > 120 {
+		return string(r[:120]) + "…"
+	}
+	return a
 }

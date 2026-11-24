@@ -2,6 +2,7 @@ package inst
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"path"
@@ -173,5 +174,38 @@ func TestServerImportListsSkippedAndCaseConflicts(t *testing.T) {
 	}
 	if w := warningOf(tk, "import-skipped"); w == nil || len(w.Items) != 1 || w.Items[0].Name != "config/CON.txt（名字在 Windows 上写不出来）" {
 		t.Fatalf("名字写不出来的应写进结果：%+v", w)
+	}
+}
+
+// 现成服务端里写不出名字的、只差大小写的比告警能列的多：标题和日志写一共几个，列表只列前面一部分（A46、A47）。
+func TestServerImportCountsAllSkippedAndCaseConflicts(t *testing.T) {
+	m, _ := importEnv(t)
+	entries := [][2]string{{"paper-1.20.1-100.jar", paperJarBytes(t)}, {"eula.txt", "eula=true\n"}}
+	for k := 0; k < maxWarnItems+10; k++ {
+		entries = append(entries, [2]string{fmt.Sprintf("config/CON.%02d.txt", k), "x"})
+	}
+	for k := 0; k < maxWarnItems+5; k++ {
+		entries = append(entries, [2]string{fmt.Sprintf("data/f%02d.txt", k), "a"}, [2]string{fmt.Sprintf("data/F%02d.txt", k), "b"})
+	}
+	pack, err := modpack.Parse(zipOrdered(t, entries))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk, _ := m.Tasks.New("导入服务端", serverImportSteps)
+	if err := m.runServerImport(context.Background(), tk, pack, CreateReq{Name: "好多", XmxMB: 2048, Port: 25581, EULA: true}, filepath.Join(app.ServersDir, "many")); err != nil {
+		t.Fatalf("导入失败：%v", err)
+	}
+	for kind, want := range map[string]struct {
+		title string
+		total int
+	}{"import-skipped": {fmt.Sprintf("%d 个文件没有装进来", maxWarnItems+10), maxWarnItems + 10}, "import-case": {fmt.Sprintf("%d 组文件名只差大小写", maxWarnItems+5), maxWarnItems + 5}} {
+		w := warningOf(tk, kind)
+		if w == nil || w.Title != want.title || len(w.Items) != maxWarnItems+1 || !strings.Contains(w.Items[maxWarnItems].Name, fmt.Sprintf("一共 %d", want.total)) {
+			t.Errorf("%s：标题写一共几个、只列前 %d 项：%+v", kind, maxWarnItems, w)
+		}
+	}
+	log := strings.Join(tk.Snapshot().Log, "\n")
+	if !strings.Contains(log, fmt.Sprintf("…等 %d 个", maxWarnItems+10)) || !strings.Contains(log, fmt.Sprintf("…等 %d 个", maxWarnItems+5)) {
+		t.Fatalf("日志里也写一共几个：%s", log)
 	}
 }

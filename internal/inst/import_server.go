@@ -171,31 +171,33 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 	return nil
 }
 
-// serverExtract 解压现成服务端的结果。
+// serverExtract 解压现成服务端的结果。名单只记前 maxWarnItems 个（告警最多列这么多），一共几个另外数。
 type serverExtract struct {
-	n       int            // 解出来的文件个数
-	skipped []string       // 名字在 Windows 上不能用、没有解压的（最多记 20 个）
-	dups    []caseConflict // 和前面的文件只差大小写、没有解压的（最多记 20 个）
+	n        int            // 解出来的文件个数
+	skipped  []string       // 名字在 Windows 上不能用、没有解压的
+	nSkipped int            // 一共几个
+	dups     []caseConflict // 和前面的文件只差大小写、没有解压的
+	nDups    int            // 一共几组
 }
 
 // report 写进任务日志，跳过的和只差大小写的也写进任务结果（A46、A47）。
 func (res serverExtract) report(t *tasks.Task) {
 	t.Logf("解压了 %d 个文件", res.n)
-	if len(res.skipped) > 0 {
-		t.Logf("这些文件的名字在 Windows 上不能用，没有解压：%s", strings.Join(res.skipped, "、"))
+	if res.nSkipped > 0 {
+		t.Logf("这些文件的名字在 Windows 上不能用，没有解压：%s", shortNamesOf(res.skipped, res.nSkipped, 20))
 		files := make([]skippedFile, 0, len(res.skipped))
 		for _, p := range res.skipped {
 			files = append(files, skippedFile{p, "名字在 Windows 上写不出来"})
 		}
-		addSkippedWarning(t, files)
+		addSkippedWarning(t, files, res.nSkipped)
 	}
-	if len(res.dups) > 0 {
+	if res.nDups > 0 {
 		names := make([]string, 0, len(res.dups))
 		for _, c := range res.dups {
 			names = append(names, c.names[len(c.names)-1])
 		}
-		t.Logf("这些文件和压缩包里前面的文件只差大小写，在 Windows 上是同一个文件，没有解压（留的是前面那个）：%s", strings.Join(names, "、"))
-		addCaseWarning(t, res.dups)
+		t.Logf("这些文件和压缩包里前面的文件只差大小写，在 Windows 上是同一个文件，没有解压（留的是前面那个）：%s", shortNamesOf(names, res.nDups, 20))
+		addCaseWarning(t, res.dups, res.nDups)
 	}
 }
 
@@ -220,8 +222,10 @@ func extractServerFiles(ctx context.Context, t *tasks.Task, pack *modpack.Pack, 
 		// 和交接包一样：别人给的 instance.json、run.bat 不能落下来，不然下次启动就按包里写的去跑。
 		// 名字在 Windows 上不能用的（CON、CON.txt、COM1.log 这类设备名，结尾是点或空格的）也和整合包覆盖目录一样跳过。
 		if !overrideAllowed(rel) {
-			if !IsControlFile(rel) && len(res.skipped) < 20 {
-				res.skipped = append(res.skipped, rel)
+			if !IsControlFile(rel) {
+				if res.nSkipped++; len(res.skipped) < maxWarnItems {
+					res.skipped = append(res.skipped, rel)
+				}
 			}
 			return nil
 		}
@@ -230,7 +234,7 @@ func extractServerFiles(ctx context.Context, t *tasks.Task, pack *modpack.Pack, 
 		// 拒了整包就导不进来了。写法一模一样出现两次的照旧以后一个为准
 		k := winname.Fold(rel)
 		if first, ok := seen[k]; ok && first != rel {
-			if len(res.dups) < 20 {
+			if res.nDups++; len(res.dups) < maxWarnItems {
 				res.dups = append(res.dups, caseConflict{names: []string{first, rel}, kept: first, why: "压缩包里只差大小写的只解压前面那个"})
 			}
 			return nil
