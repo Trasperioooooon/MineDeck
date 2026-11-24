@@ -134,6 +134,8 @@ function newState(ui) {
     releases: [{ tag: "v2.8.3" }, { tag: "v2.9.0-beta.1", prerelease: true }, { tag: "v2.9.0-beta.2", prerelease: true }],
     updateFail: "",
     startupUpdate: null,
+    apiDelay: {}, // { "PUT /api/config": 250 }，界面测试用：让指定接口晚一点返回
+    draftHoldName: "", // 若设置，PUT /api/toolbox/mrpack/draft 带了此 name 时延迟到放行/超时后再继续（模拟乱序到达）
     lanSet: false, // 是否已设局域网访问密码（同 web：密码只写不读，/api/app 只给 lanSet）
     lanActive: false, // 这次「启动」是否已监听在局域网上：改 listenLan 不变（真机要重启），/__mock/state 的 listenLan 模拟重启后
     cfKey: "", // 同 web：CurseForge API Key 只写不读，不放进 config，/api/app 只给 cfKeySet
@@ -2441,6 +2443,8 @@ function tbPreviewMrpack(state, b) {
 function newToolboxState() {
   return {
     draft: { name: "我的整合包", versionId: "1.0.0", summary: "", core: "fabric", mc: "1.20.1", loaderVersion: "", includeConfig: false },
+    draftSeq: {},
+    draftSeqOrder: [],
     downloads: {},
     lastSkinBuild: null,
     lastMrpackBuild: null,
@@ -2500,13 +2504,39 @@ async function toolboxHandler(state, req, res, p, m) {
   if (p === "/api/toolbox/mrpack/draft" && m === "GET") return ok(res, readDraft(tb.draft));
   // 同 toolbox.PatchMrpackDraft：只改传了的字段（两个窗口同时开着工具箱时，不拿一页的旧值盖掉另一页刚改的）
   if (p === "/api/toolbox/mrpack/draft" && m === "PUT") {
-    const b = await readBody(req), next = readDraft(tb.draft);
-    for (const k of ["name", "versionId", "summary", "core", "mc", "loaderVersion"]) if (k in b) next[k] = String(b[k] ?? "").trim();
-    if ("includeConfig" in b) next.includeConfig = !!b.includeConfig;
+    const b = await readBody(req);
+    if (state.draftHoldName && b.name === state.draftHoldName) {
+      await new Promise(r => setTimeout(r, 450)); // 模拟先发的请求路上慢了半拍，等后发的先落盘再送到
+    }
+    const clientId = String(b.clientId ?? req.headers["x-draft-client"] ?? "").trim();
+    const rawSeq = b.seq ?? req.headers["x-draft-seq"];
+    const seq = Number.isInteger(+rawSeq) && +rawSeq > 0 ? +rawSeq : 0;
+    const seen = clientId && seq ? (tb.draftSeq[clientId] || {}) : null;
+    const next = readDraft(tb.draft), applied = [];
+    for (const k of ["name", "versionId", "summary", "core", "mc", "loaderVersion"]) {
+      if (k in b && (!seen || seq > (seen[k] || 0))) {
+        next[k] = String(b[k] ?? "").trim();
+        applied.push(k);
+      }
+    }
+    if ("includeConfig" in b && (!seen || seq > (seen.includeConfig || 0))) {
+      next.includeConfig = !!b.includeConfig;
+      applied.push("includeConfig");
+    }
     if ([...next.name].length > 100 || [...next.versionId].length > 50 || [...next.summary].length > 300)
       return err(res, 400, "整合包名称、版本号或简介太长");
-    tb.draft = next;
-    return ok(res, next);
+    if (applied.length > 0) {
+      tb.draft = next;
+      if (clientId && seq) {
+        if (!tb.draftSeq[clientId]) {
+          tb.draftSeq[clientId] = {};
+          tb.draftSeqOrder.push(clientId);
+          while (tb.draftSeqOrder.length > 64) delete tb.draftSeq[tb.draftSeqOrder.shift()];
+        }
+        for (const k of applied) tb.draftSeq[clientId][k] = seq;
+      }
+    }
+    return ok(res, tb.draft);
   }
   if (p === "/api/toolbox/mrpack/preview" && m === "POST") {
     const r = tbPreviewMrpack(state, await readBody(req));
@@ -2956,6 +2986,8 @@ function handler(state, ui, portOf) {
       if ("updateChannel" in b) { if (b.updateChannel) state.config.updateChannel = b.updateChannel; else delete state.config.updateChannel; } // 空 = 没选过
       if ("updateFail" in b) state.updateFail = String(b.updateFail || ""); // 检查更新报这句错（502），空串还原
       if ("startupUpdate" in b) state.startupUpdate = b.startupUpdate || null; // 启动后台查到的新版本通知 {tag, notes?, prerelease?, channel}
+      if ("apiDelay" in b) state.apiDelay = b.apiDelay || {}; // 界面测试：按 "METHOD /path" 或路径前缀延迟响应（毫秒）
+      if ("draftHoldName" in b) state.draftHoldName = String(b.draftHoldName || ""); // A65 乱序测试：匹配的草稿名称保存延迟 450ms 再落盘
       if ("credBroken" in b) for (const t of state.tunnels) t.credBroken = t.id === b.credBroken;
       if (b.tunnelsReset) { state.tunnels = newState(ui).tunnels; state.lastTunnelPut = null; } // 隧道回到初始的两条
       if ("tunnelsLoadFail" in b) state.tunnelsLoadFail = b.tunnelsLoadFail || ""; // "locked" | "corrupt" | ""（读出来了）
@@ -2995,8 +3027,12 @@ function handler(state, ui, portOf) {
       return res.end(fs.readFileSync(fp));
     }
     const insts = () => state.empty ? [] : state.instances;
+    const dp = decodeURIComponent(p);
     const seg = p.split("/").map(decodeURIComponent); // ["", "api", "instances", name, sub...]
     try {
+      const dMap = state.apiDelay || {};
+      const delayMs = dMap[`${m} ${dp}`] ?? dMap[`${m} ${p}`] ?? dMap[dp] ?? dMap[p] ?? 0;
+      if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
       if (p === "/api/app") return ok(res, { version: state.version, updateChannel: updateChannelOf(state), ...(state.startupUpdate ? { startupUpdate: state.startupUpdate } : {}), base: "D:\\MineDeck", ramMb: 16384, availRamMb: 9216, port: portOf(), serversRoot: state.config.serversDir || "D:\\MineDeck\\servers", backupsRoot: state.config.backupsDir || "D:\\MineDeck\\backups", config: publicCfg(state), local: state.local, lanSet: state.lanSet, lanActive: state.lanActive, cfKeySet: !!state.cfKey && !state.cfKeyBroken, cfKeyBroken: state.cfKeyBroken, autoStart: state.autoStart, ips: ["172.22.48.1", "192.168.1.23", "10.0.0.5"] });
       if (p === "/api/bg") return ok(res, { images: [] });
       if (p === "/api/ops/log") {

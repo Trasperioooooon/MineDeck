@@ -195,7 +195,11 @@ window.MDGameChat = (() => {
       const sig = JSON.stringify([v.players, ro]);
       if (box.dataset.sig === sig) return;
       box.dataset.sig = sig;
-      const focused = document.activeElement && box.contains(document.activeElement) ? document.activeElement.dataset.allow : null;
+      const ae = document.activeElement;
+      const focused = ae && box.contains(ae) ? ae.dataset.allow : null;
+      const addFocused = !!(ae && ae.id === "gc-add-name");
+      let selStart = null, selEnd = null;
+      if (addFocused) { try { selStart = ae.selectionStart; selEnd = ae.selectionEnd; } catch {} }
       const typing = $("#gc-add-name") ? $("#gc-add-name").value : "";
       const rows = v.players.map(p => riRow({ ico: "player", titleHTML: `${esc(p.name)}<span class="gc-badges">${badges(p)}</span>`,
         right: swHTML(`data-allow="${esc(p.name)}"`, p.allowed, `允许 ${p.name} 让 AI 执行命令`, dis) }));
@@ -212,12 +216,24 @@ window.MDGameChat = (() => {
         addErr(bad);
         if (bad) return;
         if ((v.settings.allowed || []).some(x => x.toLowerCase() === n.toLowerCase())) { addErr(`${n} 已经授权了`); return; }
-        if (await setAllowed(n, true)) $("#gc-add-name").value = "";
+        const kt = MDKeepTyped(["#gc-add-name"], box);
+        const addBtn = $("#gc-add");
+        if (addBtn) addBtn.disabled = true;
+        const ok = await setAllowed(n, true);
+        if (stale(gen)) return;
+        const curInp = $("#gc-add-name"), curBtn = $("#gc-add");
+        if (curBtn) curBtn.disabled = false;
+        if (ok && curInp && !kt.anyChanged(box)) curInp.value = "";
+        else if (ok) kt.restore(box, "#gc-add");
       };
       $("#gc-add").onclick = add;
       $("#gc-add-name").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); add(); } };
       $("#gc-add-name").addEventListener("input", () => addErr(""));
       if (focused) box.querySelector(`[data-allow="${CSS.escape(focused)}"]`)?.focus();
+      else if (addFocused) {
+        const curInp = $("#gc-add-name");
+        if (curInp) { curInp.focus(); if (selStart != null && curInp.setSelectionRange) try { curInp.setSelectionRange(selStart, selEnd); } catch {} }
+      }
     };
     // 授权、收回都按名字一个一个发（addAllowed、removeAllowed，后端不分大小写）。不再把这一页上的整张名单发回去：
     // 两个本机页面同时开着时，一边刚收回了谁的权限，另一边（名单还是旧的）再给别人授权，就会把那个人又授权回来（Codex 复审 v3.2.0 第二轮）

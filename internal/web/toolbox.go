@@ -14,6 +14,51 @@ import (
 	"minedeck/internal/toolbox"
 )
 
+// draftPatchArgs 解析工具箱草稿保存请求的 JSON 体，并补充请求头里可选的 X-Draft-Client / X-Draft-Seq（防乱序覆盖，A65）。
+func draftPatchArgs(r *http.Request) func() (ops.Args, error) {
+	base := bodyArgs(r)
+	cid := strings.TrimSpace(r.Header.Get("X-Draft-Client"))
+	seqStr := strings.TrimSpace(r.Header.Get("X-Draft-Seq"))
+	return func() (ops.Args, error) {
+		a, err := base()
+		if err != nil {
+			return nil, err
+		}
+		if cid == "" && seqStr == "" {
+			return a, nil
+		}
+		var raw map[string]any
+		if len(a) > 0 {
+			if uerr := json.Unmarshal(a, &raw); uerr != nil {
+				// JSON 语法不对或不是对象：交回给 ops 按原样报错
+				return a, nil
+			}
+		}
+		if raw == nil {
+			raw = map[string]any{}
+		}
+		changed := false
+		if cid != "" && raw["clientId"] == nil {
+			raw["clientId"] = cid
+			changed = true
+		}
+		if seqStr != "" && raw["seq"] == nil {
+			if seq, perr := strconv.ParseInt(seqStr, 10, 64); perr == nil && seq > 0 {
+				raw["seq"] = seq
+				changed = true
+			}
+		}
+		if !changed {
+			return a, nil
+		}
+		out, merr := json.Marshal(raw)
+		if merr != nil {
+			return a, nil
+		}
+		return ops.Args(out), nil
+	}
+}
+
 func (s *Server) toolboxRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/toolbox/skin-pack/preview", func(w http.ResponseWriter, r *http.Request) {
 		s.do(w, r, "toolbox.skinpack.preview", bodyArgs(r))
@@ -25,7 +70,7 @@ func (s *Server) toolboxRoutes(mux *http.ServeMux) {
 		s.do(w, r, "toolbox.mrpack.draft.get", nil)
 	})
 	mux.HandleFunc("PUT /api/toolbox/mrpack/draft", func(w http.ResponseWriter, r *http.Request) {
-		s.do(w, r, "toolbox.mrpack.draft.save", bodyArgs(r))
+		s.do(w, r, "toolbox.mrpack.draft.save", draftPatchArgs(r))
 	})
 	mux.HandleFunc("POST /api/toolbox/mrpack/preview", func(w http.ResponseWriter, r *http.Request) {
 		s.do(w, r, "toolbox.mrpack.preview", bodyArgs(r))

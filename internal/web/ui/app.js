@@ -15,7 +15,7 @@ const TOKEN = () => localStorage.getItem("amh_token") || "";
 async function api(path, opts = {}) {
   const res = await fetch(path, {
     method: opts.method || "GET",
-    headers: { "X-Token": TOKEN(), ...(opts.body ? { "Content-Type": "application/json" } : {}) },
+    headers: { "X-Token": TOKEN(), ...(opts.body ? { "Content-Type": "application/json" } : {}), ...(opts.headers || {}) },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
     ...(opts.keepalive ? { keepalive: true } : {}), // 页面刷新或关掉时发的：页面没了也送得到（见工具箱草稿的 pagehide）
   });
@@ -1033,6 +1033,65 @@ function addDirtySource(gen, fn) {
   const prev = dirtyCheck;
   dirtyCheck = prev ? () => prev() + fn() : fn;
 }
+
+/* A63：保存途中用户接着在输入框里改过时，重绘后保留用户当前输入和光标位置，并把保存按钮恢复可用。 */
+function keepTyped(specs, root = document) {
+  const list = specs.map(s => (typeof s === "string" ? { sel: s } : s));
+  const readEl = (el, kind) => (el ? (kind === "check" || el.type === "checkbox" ? !!el.checked : el.value) : undefined);
+  const writeEl = (el, val, kind) => {
+    if (!el || val === undefined) return;
+    if (kind === "check" || el.type === "checkbox") el.checked = !!val;
+    else el.value = val;
+  };
+  const snap = new Map();
+  for (const s of list) {
+    const el = root ? root.querySelector(s.sel) : null;
+    snap.set(s.sel, readEl(el, s.kind));
+  }
+  let live = null;
+  const captureLive = (curRoot = root) => {
+    const vals = new Map();
+    let anyChanged = false, activeSel = "", selStart = null, selEnd = null;
+    const ae = document.activeElement;
+    for (const s of list) {
+      const el = curRoot ? curRoot.querySelector(s.sel) : null;
+      const cur = readEl(el, s.kind), prev = snap.get(s.sel);
+      const changed = cur !== undefined && prev !== undefined && cur !== prev;
+      if (changed) anyChanged = true;
+      vals.set(s.sel, { val: cur, changed, kind: s.kind });
+      if (el && ae === el) {
+        activeSel = s.sel;
+        try { selStart = el.selectionStart; selEnd = el.selectionEnd; } catch {}
+      }
+    }
+    live = { vals, anyChanged, activeSel, selStart, selEnd };
+    return live;
+  };
+  const restore = (nextRoot = root, btnSel = "") => {
+    const st = live || captureLive(nextRoot);
+    if (!st.anyChanged) return false;
+    for (const s of list) {
+      const info = st.vals.get(s.sel);
+      if (!info || !info.changed) continue;
+      const el = nextRoot ? nextRoot.querySelector(s.sel) : null;
+      writeEl(el, info.val, s.kind);
+    }
+    if (btnSel) {
+      const btn = nextRoot ? nextRoot.querySelector(btnSel) : $(btnSel);
+      if (btn) btn.disabled = false;
+    }
+    if (st.activeSel) {
+      const ae = nextRoot ? nextRoot.querySelector(st.activeSel) : $(st.activeSel);
+      if (ae && ae.focus) {
+        ae.focus();
+        if (st.selStart != null && ae.setSelectionRange) try { ae.setSelectionRange(st.selStart, st.selEnd); } catch {}
+      }
+    }
+    return true;
+  };
+  return { captureLive, restore, anyChanged: (r = root) => captureLive(r).anyChanged };
+}
+window.MDKeepTyped = keepTyped;
 
 /* 单个输入框 +「保存」按钮：值没变时按钮置灰，回车即保存；未保存的改动同样受切页守卫保护 */
 function bindSaveInput(input, btn, save, gen) {
@@ -5565,20 +5624,29 @@ async function renderTunnels() {
     const showErr = html => { errEl.innerHTML = html || ""; };
     nameIn.addEventListener("input", () => showErr(""));
     nameIn.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); okBtn.click(); } });
+    let curT = { ...t };
     okBtn.onclick = async () => {
       const name = nameIn.value.trim();
       if (!name) { showErr("请填写隧道名称"); nameIn.focus(); return; }
       showErr("");
       // 只发这个窗口里改了的（修改接口只改传了的项）：弹窗是照打开那一刻的列表填的，别的窗口这期间改了跟随启动、
       // 这里只改名字的话，带上弹窗里的旧开关就把它改回去了（Codex 复审 v3.2.0 第二轮）。一样都没改就直接关掉
+      const kt = keepTyped(["#tn-ed-name", "#tn-ed-bound", "#tn-ed-auto"], mask);
       const change = {}, bound = mask.querySelector("#tn-ed-bound").value, auto = mask.querySelector("#tn-ed-auto").checked;
-      if (name !== t.name) change.name = name;
-      if (bound !== (t.boundInstance || "")) change.boundInstance = bound;
-      if (auto !== !!t.autoStart) change.autoStart = auto;
+      if (name !== curT.name) change.name = name;
+      if (bound !== (curT.boundInstance || "")) change.boundInstance = bound;
+      if (auto !== !!curT.autoStart) change.autoStart = auto;
       if (!Object.keys(change).length) { close(); return; }
       okBtn.disabled = true;
       try {
-        await api(`/api/tunnels/${encodeURIComponent(t.id)}`, { method: "PUT", body: change });
+        await api(`/api/tunnels/${encodeURIComponent(curT.id)}`, { method: "PUT", body: change });
+        if (!closed && kt.anyChanged(mask)) {
+          curT = { ...curT, ...change };
+          kt.restore(mask, '[data-x="ok"]');
+          toast(`已保存「${name}」的修改（框里有未保存的新改动）`);
+          if (!stale(gen)) drawList();
+          return;
+        }
         close();
         if (stale(gen)) return;
         toast(`已保存「${name}」的修改`);
@@ -6044,26 +6112,39 @@ function setRemote(body, info) {
       }
       b.lanPassword = lanPw.value; // 密码框里已经填了：和开关一起保存
     } else if (lanPw.value) b.lanPassword = lanPw.value; // 已有密码时框里填了新的：也一起保存，不然重画清空了框，用户以为新密码生效了（独立评审发现）
+    const kt = b.lanPassword ? keepTyped(["#lan-pw"], body) : null;
     lanOn.disabled = true;
     try {
       await api("/api/config", { method: "PUT", body: b });
+      if (kt && !stale(gen)) kt.captureLive(body);
       saved(b);
-      toast((turnOn ? "已开启手机远程管理" : "已关闭手机远程管理") + effect(turnOn) + (b.lanPassword && info.lanSet ? "。新的访问密码已保存" : ""));
+      const kept = kt && !stale(gen) && kt.restore(body, "#lan-save");
+      if (kept && $("#lan-save")) $("#lan-save").classList.add("primary");
+      toast((turnOn ? "已开启手机远程管理" : "已关闭手机远程管理") + effect(turnOn) + (b.lanPassword && info.lanSet ? "。新的访问密码已保存" : "") + (kept ? "（输入框里还有未保存的新改动）" : ""));
     } catch (e) { lanOn.checked = !turnOn; lanOn.disabled = false; toastErr(turnOn ? "无法开启手机远程管理" : "无法关闭手机远程管理", e); }
   };
   // 保存密码：只发密码。只有刚才因为没密码被拨回去的那一下（wantOn）才连开关一起开，即「密码和开关一起保存」。
   // 不拿页面上的开关状态一起发：另一个窗口刚关掉了远程管理，这一页没刷新、开关还显示开着，一改密码就会把它又打开
   // （Codex 复审 v3.2.0 第二轮。后端 listenLan 不给就是不改）
-  $("#lan-save").onclick = async () => {
+  const saveBtn = $("#lan-save");
+  saveBtn.onclick = async () => {
     if (!lanPw.value) { pwErr(info.lanSet ? "输入新密码再保存" : "请先输入访问密码"); lanPw.focus(); return; }
     const b = { lanPassword: lanPw.value };
     if (wantOn) b.listenLan = true;
     const opening = wantOn && !on;
+    const kt = keepTyped(["#lan-pw"], body);
+    saveBtn.disabled = true;
     try {
       await api("/api/config", { method: "PUT", body: b });
+      if (!stale(gen)) kt.captureLive(body);
       saved(b);
-      toast(opening ? "访问密码已保存，已开启手机远程管理" + effect(true) : "访问密码已保存");
-    } catch (e) { toastErr("无法保存访问密码", e); }
+      const kept = !stale(gen) && kt.restore(body, "#lan-save");
+      if (kept && $("#lan-save")) $("#lan-save").classList.add("primary");
+      toast((opening ? "访问密码已保存，已开启手机远程管理" + effect(true) : "访问密码已保存") + (kept ? "（输入框里还有未保存的新改动）" : ""));
+    } catch (e) {
+      if (!stale(gen) && saveBtn.isConnected) saveBtn.disabled = false;
+      toastErr("无法保存访问密码", e);
+    }
   };
   lanPw.oninput = () => pwErr("");
   lanPw.onkeydown = e => { if (e.key === "Enter") $("#lan-save").click(); };
@@ -6323,13 +6404,22 @@ function drawAI(body, v, gen) {
       err("");
       const item = { model, currency: $("#cp-cur").value, input: +inp, output: +out };
       if (cache !== "") item.cacheRead = +cache;
-      savePrices({ addPrices: [item] }, "已添加自填单价"); // 同一个模型已经有的，后端换成这一份
+      const kt = keepTyped(["#cp-model", "#cp-cur", "#cp-in", "#cp-out", "#cp-cache"], $("#ai-prices"));
+      $("#cp-add").disabled = true;
+      savePrices({ addPrices: [item] }, "已添加自填单价", kt); // 同一个模型已经有的，后端换成这一份
     };
   };
-  const savePrices = async (change, msg) => {
+  const savePrices = async (change, msg, kt) => {
     try { v = await api("/api/ai/prices", { method: "PUT", body: change }); toast(msg); }
-    catch (e) { toastErr("无法保存自填单价", e); return; }
-    if (!stale(gen)) paintPrices();
+    catch (e) {
+      if (!stale(gen) && $("#cp-add")) $("#cp-add").disabled = false;
+      toastErr("无法保存自填单价", e); return;
+    }
+    if (!stale(gen)) {
+      if (kt) kt.captureLive($("#ai-prices"));
+      paintPrices();
+      if (kt) kt.restore($("#ai-prices"), "#cp-add");
+    }
   };
   const paintTest = () => {
     const btn = $("#ai-test");
