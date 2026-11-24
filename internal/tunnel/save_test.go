@@ -300,7 +300,8 @@ func TestLoadMigrationSurvivesSaveFailure(t *testing.T) {
 // 报错提示接的那句话要守界面的规矩（app.js 的 errSummary）：60 字以内、有中文、不带「: 」和路径，不然界面不用它。
 func TestSaveHintsFitErrorToast(t *testing.T) {
 	for _, h := range []string{(&SaveError{Err: os.ErrPermission}).Hint(),
-		(&createdNotImportedError{err: &SaveError{Err: os.ErrPermission}}).Hint(), (&createdNotImportedError{err: errAccountChanged}).Hint()} {
+		(&createdNotImportedError{err: &SaveError{Err: os.ErrPermission}}).Hint(), (&createdNotImportedError{err: errAccountChanged}).Hint(),
+		(&createdNotImportedError{err: &unconfirmedError{err: errAccountChanged}}).Hint()} {
 		if n := utf8.RuneCountInString(h); n == 0 || n > 60 {
 			t.Errorf("提示 %d 字，要在 1–60 字之间：%s", n, h)
 		}
