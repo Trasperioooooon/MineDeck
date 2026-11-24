@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -124,6 +125,75 @@ func TestScriptJavaOptionsVarBlowup(t *testing.T) {
 	ok := "set A=-XX:+UseG1GC\r\nset A=%A% %A%\r\njava %A% -jar server.jar\r\n"
 	if opts, err := scriptJavaOptions([]byte(ok), true, "jar:server.jar"); err != nil || !slices.Equal(opts, []string{"-XX:+UseG1GC", "-XX:+UseG1GC"}) {
 		t.Fatalf("没超上限的照常认：%q %v", opts, err)
+	}
+}
+
+// allocDuring fn 期间一共申请了多少字节内存（runtime.MemStats.TotalAlloc 的差）。
+func allocDuring(fn func()) uint64 {
+	var a, b runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&a)
+	fn()
+	runtime.ReadMemStats(&b)
+	return b.TotalAlloc - a.TotalAlloc
+}
+
+// 单个变量、单行都没超上限，整份加起来很大（A43）：一个一万六千字的变量在一千行启动 Java 的命令里各用两次（脚本才 29 KB），
+// 或者两千个变量各存两份它。都要在整份的上限那里停下、按认不出办，一路申请的内存有上限：一千行那份现在四十几 MB
+// （停下之前展开的三十来行拆成参数），以前要申请一个多 GB；两千个变量那份现在两三 MB，以前一百多 MB。
+func TestScriptJavaOptionsExpandBudget(t *testing.T) {
+	half := strings.Repeat("a ", 8190) // 拆开是八千多个参数
+	var bat, sh, vars strings.Builder
+	bat.WriteString("set A=" + half + "\r\n")
+	sh.WriteString("A=\"" + half + "\"\n")
+	for i := 0; i < 1000; i++ {
+		bat.WriteString("java %A%%A%\r\n")
+		sh.WriteString("java $A$A\n")
+	}
+	vars.WriteString("set A=" + strings.Repeat("a", 16380) + "\r\n")
+	for i := 0; i < 2000; i++ {
+		fmt.Fprintf(&vars, "set V%d=%%A%%%%A%%\r\n", i)
+	}
+	vars.WriteString("java -XX:+UseG1GC -jar server.jar\r\n")
+	for name, c := range map[string]struct {
+		src   string
+		bat   bool
+		limit uint64
+	}{
+		"bat 一千行": {bat.String(), true, 128 << 20},
+		"sh 一千行":  {sh.String(), false, 128 << 20},
+		"两千个变量":   {vars.String(), true, 32 << 20},
+	} {
+		var opts []string
+		var err error
+		got := allocDuring(func() { opts, err = scriptJavaOptions([]byte(c.src), c.bat, "jar:server.jar") })
+		if !errors.Is(err, errScriptTooLong) || opts != nil {
+			t.Errorf("%s：整份展开超了上限，应按认不出办：%d 个参数 %v", name, len(opts), err)
+		}
+		if got > c.limit {
+			t.Errorf("%s：申请了 %d MB 内存，应在 %d MB 以内：展开到整份的上限就该停下", name, got>>20, c.limit>>20)
+		}
+	}
+}
+
+// 一行里把一个将近 32 KB 的变量引用两万次：一边换一边量，超过一行的上限立刻停下，不先拼出几百 MB 再看（A43）。
+func TestScriptJavaOptionsManyRefsStopEarly(t *testing.T) {
+	a := strings.Repeat("a", maxScriptLine-10)
+	for name, c := range map[string]struct {
+		src string
+		bat bool
+	}{
+		"bat": {"set A=" + a + "\r\njava " + strings.Repeat("%A%", 20000) + " -jar server.jar\r\n", true},
+		"sh":  {"A=" + a + "\njava " + strings.Repeat("$A ", 20000) + "-jar server.jar\n", false},
+	} {
+		var err error
+		got := allocDuring(func() { _, err = scriptJavaOptions([]byte(c.src), c.bat, "jar:server.jar") })
+		if !errors.Is(err, errScriptTooLong) {
+			t.Errorf("%s：应按认不出办：%v", name, err)
+		}
+		if got > 16<<20 {
+			t.Errorf("%s：申请了 %d MB 内存，超过一行的上限就该停下", name, got>>20)
+		}
 	}
 }
 

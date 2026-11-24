@@ -28,6 +28,11 @@ const userJVMArgsFile = "user_jvm_args.txt"
 // 超了整份按认不出办，什么都不带。正常脚本里启动 Java 的那一行也就几百个字。
 const maxScriptLine = 32 << 10
 
+// maxScriptExpand 一份脚本里各个变量的值、各行展开以后的长度加起来最多多少（A43）。只限单个变量和单行还不够：
+// 一个将近 32 KB 的变量在一千行里各用一次（脚本才 29 KB）就是几十 MB，拆成参数还要再翻几倍；几千个这样的变量也一样。
+// 比读脚本的上限（256 KB）大得多，没有变量的脚本碰不到它。超了同样整份按认不出办。
+const maxScriptExpand = 1 << 20
+
 var (
 	errScriptTooLong = errors.New("变量展开以后太长")
 	errNoJavaLine    = errors.New("认不出启动 Java 的那一行")
@@ -91,65 +96,89 @@ func isUserJVMArgsRef(tok string) bool {
 
 // scriptJavaOptions 从一个脚本里找启动 Java 的那一行，返回 java 和启动目标之间的那些参数（见 jvmOptions）。
 // bat 为 true 时按 cmd 的写法读（^ 续行、set、%变量%），否则按 sh（\ 续行、赋值、$变量）。
-// 有几行都在启动 Java 时，优先点名 launch 的那一行，没有就用第一行。没有这一行回 errNoJavaLine；
-// 变量的值或者展开以后的一行超过 maxScriptLine 回 errScriptTooLong。
+// 有几行都在启动 Java 时，用第一行点名 launch 的，没有就用第一行：只留着第一行，碰到点名的就不再往下看。
+// 没有这一行回 errNoJavaLine；展开超了上限（见 scriptExpander）回 errScriptTooLong。
 func scriptJavaOptions(src []byte, bat bool, launch string) ([]string, error) {
-	vars := map[string]string{}
-	var lines [][]string
+	e := scriptExpander{bat: bat, vars: map[string]string{}}
+	var first []string
 	for _, line := range scriptLines(src, bat) {
 		if isScriptComment([]byte(line)) {
 			continue
 		}
-		var toks []string
-		if bat {
-			line = strings.TrimSpace(strings.TrimPrefix(line, "@"))
-			if name, val, ok := batSet(line); ok {
-				v, ok := expandBatVars(val, vars)
-				if !ok {
-					return nil, errScriptTooLong
-				}
-				vars[strings.ToUpper(name)] = v
-				continue
-			}
-			expanded, ok := expandBatVars(line, vars)
-			if !ok {
-				return nil, errScriptTooLong
-			}
-			toks = splitArgs(expanded, false)
-		} else {
-			line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
-			if name, val, ok := shAssign(line); ok {
-				v, ok := expandShVars(val, vars)
-				if !ok {
-					return nil, errScriptTooLong
-				}
-				vars[name] = v
-				continue
-			}
-			expanded, ok := expandShVars(line, vars)
-			if !ok {
-				return nil, errScriptTooLong
-			}
-			toks = splitArgs(expanded, true)
-			if len(toks) > 0 && toks[0] == "exec" {
-				toks = toks[1:]
-			}
+		toks, err := e.line(line)
+		if err != nil {
+			return nil, err
 		}
-		if isJavaCommand(toks) {
-			lines = append(lines, toks)
+		if !isJavaCommand(toks) {
+			continue
+		}
+		if launchesTarget(toks, launch) {
+			return jvmOptions(toks[1:]), nil
+		}
+		if first == nil {
+			first = toks
 		}
 	}
-	if len(lines) == 0 {
+	if first == nil {
 		return nil, errNoJavaLine
 	}
-	pick := lines[0]
-	for _, toks := range lines {
-		if launchesTarget(toks, launch) {
-			pick = toks
-			break
+	return jvmOptions(first[1:]), nil
+}
+
+// scriptExpander 一行一行展开脚本：记着赋值过的变量，和整份已经展开了多少。
+type scriptExpander struct {
+	bat   bool // 按 cmd 的写法（见 scriptJavaOptions）
+	vars  map[string]string
+	spent int // 已经展开出来的长度，见 maxScriptExpand
+}
+
+// line 展开一行：是赋值的记下变量，toks 为空；别的拆成参数（sh 去掉开头的 exec）。
+// 一个变量的值、展开以后的这一行超过 maxScriptLine，或者整份加起来超过 maxScriptExpand，回 errScriptTooLong。
+func (e *scriptExpander) line(line string) (toks []string, err error) {
+	if e.bat {
+		line = strings.TrimSpace(strings.TrimPrefix(line, "@"))
+		if name, val, ok := batSet(line); ok {
+			return nil, e.assign(strings.ToUpper(name), val)
+		}
+	} else {
+		line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+		if name, val, ok := shAssign(line); ok {
+			return nil, e.assign(name, val)
 		}
 	}
-	return jvmOptions(pick[1:]), nil
+	expanded, err := e.expand(line)
+	if err != nil {
+		return nil, err
+	}
+	toks = splitArgs(expanded, !e.bat)
+	if !e.bat && len(toks) > 0 && toks[0] == "exec" {
+		toks = toks[1:]
+	}
+	return toks, nil
+}
+
+func (e *scriptExpander) assign(name, val string) error {
+	v, err := e.expand(val)
+	if err == nil {
+		e.vars[name] = v
+	}
+	return err
+}
+
+// expand 换掉 s 里的变量，展开出来的长度记进 spent。
+func (e *scriptExpander) expand(s string) (string, error) {
+	var out string
+	var ok bool
+	if e.bat {
+		out, ok = expandBatVars(s, e.vars)
+	} else {
+		out, ok = expandShVars(s, e.vars)
+	}
+	e.spent += len(out)
+	if !ok || e.spent > maxScriptExpand {
+		return "", errScriptTooLong
+	}
+	return out, nil
 }
 
 // jvmPairOptions 后面跟着一个值的 Java 选项（`--add-opens 模块/包=目标`、`-cp 路径`）：选项和值算一项，列进「没带」；
@@ -531,7 +560,8 @@ func applyScriptJVM(t *tasks.Task, inst *Instance, pack *modpack.Pack) {
 	case !found:
 		return
 	case errors.Is(err, errScriptTooLong):
-		t.Logf("%s 里的变量展开以后太长（超过 %d KB），按认不出办，里面的 JVM 参数一个都没带过来；需要的话到「设置 → 启动与内存」里自己加", sj.script, maxScriptLine>>10)
+		t.Logf("%s 里的变量展开以后太长（一个变量或一行超过 %d KB，或者整份加起来超过 %d MB），按认不出办，里面的 JVM 参数一个都没带过来；需要的话到「设置 → 启动与内存」里自己加",
+			sj.script, maxScriptLine>>10, maxScriptExpand>>20)
 		return
 	case err != nil:
 		t.Logf("启动脚本里认不出启动 Java 的那一行（比如是用 start、if 或者 & 连着别的命令起的），里面的 JVM 参数没有带过来；需要的话到「设置 → 启动与内存」里自己加")
