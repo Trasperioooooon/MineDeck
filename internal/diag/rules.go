@@ -515,9 +515,11 @@ func rulePort(c *ruleCtx) *Finding {
 		}
 	}
 	f := &Finding{Rule: "port-in-use", Title: "端口被占", Evidence: c.evidence(idx)}
-	what := "服务器的端口"
+	what, portKey := "服务器的端口", "server-port"
 	for _, i := range c.find(queryRe) {
-		what = map[string]string{"query": "查询（query）端口", "rcon": "远程控制（RCON）端口", "RCON": "远程控制（RCON）端口"}[queryRe.FindStringSubmatch(c.ls[i].text)[1]]
+		kind := queryRe.FindStringSubmatch(c.ls[i].text)[1]
+		what = map[string]string{"query": "查询（query）端口", "rcon": "远程控制（RCON）端口", "RCON": "远程控制（RCON）端口"}[kind]
+		portKey = strings.ToLower(kind) + ".port"
 		f.Evidence = c.evidence(append([]int{i}, idx...))
 	}
 	if port > 0 && what == "服务器的端口" {
@@ -526,6 +528,9 @@ func rulePort(c *ruleCtx) *Finding {
 		f.Summary = what + "已经被占用了（可能是上次没关干净、开了两个，或者被别的程序占了）"
 	}
 	f.Fixes = []string{"查一下是哪个程序占着这个端口，关掉它", "或者在 server.properties 里把 server-port 改成别的（如 25566），好友连的时候也要换成新端口"}
+	if portKey != "server-port" { // 查询和 RCON 的端口跟玩家进服无关：改它，好友不用换地址
+		f.Fixes[1] = "或者在 server.properties 里把 " + portKey + " 改成别的空闲端口，好友连的地址不用换"
+	}
 	return f
 }
 
