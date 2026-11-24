@@ -203,28 +203,14 @@ func (m *Manager) log4jBeforeStartLocked(i *Instance) {
 		}
 	case log4jFixSwap, log4jFixAdd:
 		// 要用的那份文件名被一份不是官方的文件占着（可能是自己改过的）：不覆盖、不引用，说清楚
-		if exists, official := log4jXMLOnDisk(i.Dir, xml); exists && !official {
+		exists, official := log4jXMLOnDisk(i.Dir, xml)
+		if exists && !official {
 			i.Console.Append("[MineDeck] " + log4jXMLConflictNote(i.MC, xml, fix))
 			break
 		}
-		if fix == log4jFixAdd {
-			// 补：文件夹里已经有官方的那一份（比如换回了没修过的构建，引用以前被摘掉过），当场补上，这一次启动就生效
-			if _, official := log4jXMLOnDisk(i.Dir, xml); official {
-				changed, err := m.applyLog4jFixLocked(i, fix, xml, jar.fixed)
-				if changed {
-					i.Console.Append(fmt.Sprintf("[MineDeck] log4shell 防护：服务器文件夹里有 Mojang 的这份日志配置（%s，核对过官方的校验值），"+
-						"启动参数里却没有引用，已经补上，这次启动就生效", xml) + runBatNote(err))
-					break
-				}
-				// 配置文件就在，补不上是因为设置文件写不进去：照实说，不说成在后台下载（后台那一遍也只会再写不进去一次）。
-				// 配置文件在这一下没了（不存在）的，照旧去下载
-				if err != nil && !errors.Is(err, fs.ErrNotExist) {
-					i.Console.Append(fmt.Sprintf("[MineDeck] ⚠ log4shell 防护：服务器文件夹里有 Mojang 的这份日志配置（%s），启动参数里却没有引用；"+
-						"要补上，可这台服务器的设置文件（instance.json）写不进去（%v）。这次照旧启动，补上之前先别让不认识的人进服；"+
-						"看看服务器文件夹是不是设成了只读、被别的程序占着，下次启动时会再试", xml, err))
-					break
-				}
-			}
+		// 官方的那一份已经在文件夹里（补：换回了没修过的构建、引用以前被摘掉过；换：17-111 以前下载过）：当场做，这一次启动就生效
+		if official && m.log4jFixOnDiskLocked(i, fix, xml, jar.fixed) {
+			break
 		}
 		i.Console.Append(log4jPendingNote(i.MC, fix, xml))
 		go m.migrateLog4j(context.Background(), i)
@@ -235,6 +221,30 @@ func (m *Manager) log4jBeforeStartLocked(i *Instance) {
 	if jar.quiet && hasOurLog4jConfig(i.ExtraJVM) {
 		i.Console.Append("[MineDeck] ⚠ 这台服务器套着 log4shell 防护配置。" + log4jQuietNote)
 	}
+}
+
+// log4jFixOnDiskLocked 开服前，要换上、补上的那份官方配置已经在服务器文件夹里：当场改启动参数，控制台说一声。
+// 返回 false 是没做成、又不是设置文件写不进去（配置文件在这一下没了，或者参数刚被别处改过）：由调用方照旧交给后台去下载。
+// 设置文件写不进去的照实说，不说成在后台下载（后台那一遍也只会再写不进去一次）。调用方拿着 procMu。
+func (m *Manager) log4jFixOnDiskLocked(i *Instance, fix log4jFix, xml string, selfFixed bool) bool {
+	what := fmt.Sprintf("服务器文件夹里有 Mojang 的这份日志配置（%s，核对过官方的校验值），启动参数里却没有引用", xml)
+	act := "补上"
+	if fix == log4jFixSwap {
+		what = fmt.Sprintf("服务器文件夹里已经有 Mojang 给 1.7 ~ 1.11.2 的日志配置（%s，核对过官方的校验值），启动参数还引用着 1.12 ~ 1.16.5 的那份（%s），"+
+			"对 %s 不起作用", xml, log4jXML, i.MC)
+		act = "换上"
+	}
+	changed, err := m.applyLog4jFixLocked(i, fix, xml, selfFixed)
+	switch {
+	case changed:
+		i.Console.Append(fmt.Sprintf("[MineDeck] log4shell 防护：%s，已经%s，这次启动就生效", what, act) + runBatNote(err))
+		return true
+	case err != nil && !errors.Is(err, fs.ErrNotExist):
+		i.Console.Append(fmt.Sprintf("[MineDeck] ⚠ log4shell 防护：%s；要%s，可这台服务器的设置文件（instance.json）写不进去（%v）。"+
+			"这次照旧启动，%s之前先别让不认识的人进服；看看服务器文件夹是不是设成了只读、被别的程序占着，下次启动时会再试", what, act, err, act))
+		return true
+	}
+	return false
 }
 
 // log4jDropNote 摘掉引用以后说的那一句（不带 [MineDeck] 前缀）。batErr 是重写 run.bat 的错误。
@@ -322,7 +332,8 @@ func (m *Manager) migrateLog4j(ctx context.Context, i *Instance) {
 			if fix == log4jFixDrop {
 				note(fmt.Sprintf("log4shell 防护：没能把 Mojang 日志配置的引用从 instance.json 里摘掉（%v），启动参数还是原来的。下次启动这台服务器时再试", err))
 			} else {
-				note(fmt.Sprintf("⚠ log4shell 防护：%s 下载好了，但没能存进 instance.json（%v），启动参数还是原来的。下次启动或者重开 MineDeck 时再试", xml, err))
+				// 官方那份可能本来就在文件夹里、这次没下载，不说成「下载好了」
+				note(fmt.Sprintf("⚠ log4shell 防护：%s 已经在服务器文件夹里，但没能把它的引用存进 instance.json（%v），启动参数还是原来的。下次启动或者重开 MineDeck 时再试", xml, err))
 			}
 		}
 		return // 没出错也没改：下载的这会儿启动参数被改过了，下一遍再看

@@ -1,9 +1,11 @@
 package inst
 
 import (
+	"archive/zip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -93,7 +95,15 @@ type serverJar struct {
 	clip        paperclipPatch // paperclip 的补丁说明；不是 paperclip 时是零值
 }
 
-// readServerJar 打开一个 jar 读出 serverJar。
+// jarMetaMax jar 里这几份元数据最多读多大。真的 pom.properties、MANIFEST.MF、补丁说明都只有几百字节到几 KB。
+const jarMetaMax = 64 << 10
+
+// errJarMetaUnsure jar 里的元数据靠不住（A50）：看的那几个条目同名的出现了两次（Java 和 paperclip 用哪一份说不准，
+// patch.* 重复时 MineDeck 核对的缓存 jar 可能不是 paperclip 下次要跑的那个）、太大（申报的或者实际读到的超过 jarMetaMax，
+// 截半的记录可能读出错的版本）、读不完整、pom.properties 里 version 写了两次又不一样。都按「判断不了」办，照旧套防护。
+var errJarMetaUnsure = errors.New("jar 里的元数据靠不住")
+
+// readServerJar 打开一个 jar 读出 serverJar。元数据靠不住时回 errJarMetaUnsure。
 func readServerJar(path string) (serverJar, error) {
 	var j serverJar
 	zr, err := zipguard.Open(path, zipguard.Default)
@@ -102,23 +112,34 @@ func readServerJar(path string) (serverJar, error) {
 	}
 	defer zr.Close()
 	small := map[string][]byte{}
+	seen := map[string]bool{}
 	for _, f := range zr.File {
+		switch f.Name {
+		case termConsoleClass, log4jCoreClass, log4jCorePom, "META-INF/MANIFEST.MF", "patch.properties", "patch.json":
+		default:
+			continue
+		}
+		if seen[f.Name] {
+			return serverJar{}, errJarMetaUnsure
+		}
+		seen[f.Name] = true
 		switch f.Name {
 		case termConsoleClass:
 			j.termConsole = true
 		case log4jCoreClass:
 			j.hasCore = true
-		case log4jCorePom, "META-INF/MANIFEST.MF", "patch.properties", "patch.json":
-			if rc, err := f.Open(); err == nil {
-				b, err := io.ReadAll(io.LimitReader(rc, 64<<10))
-				rc.Close()
-				if err == nil { // 读到一半出错的不用：半截的记录可能读出错的版本
-					small[f.Name] = b
-				}
+		default:
+			b, ok := readJarMeta(f)
+			if !ok {
+				return serverJar{}, errJarMetaUnsure
 			}
+			small[f.Name] = b
 		}
 	}
 	if b := small[log4jCorePom]; b != nil {
+		if pomVersionsDisagree(b) {
+			return serverJar{}, errJarMetaUnsure
+		}
 		j.log4jCore = propOf(b, "version")
 	}
 	j.craftBukkit = strings.HasPrefix(parseManifest(small["META-INF/MANIFEST.MF"])["Main-Class"], "org.bukkit.craftbukkit.")
@@ -128,6 +149,50 @@ func readServerJar(path string) (serverJar, error) {
 		_ = json.Unmarshal(b, &j.clip)
 	}
 	return j, nil
+}
+
+// readJarMeta 读一份元数据：申报的大小和实际读到的都不能超过 jarMetaMax（多读一个字节再判，申报可以写小），读不完整的也不用。
+func readJarMeta(f *zip.File) ([]byte, bool) {
+	if f.UncompressedSize64 > jarMetaMax {
+		return nil, false
+	}
+	rc, err := f.Open()
+	if err != nil {
+		return nil, false
+	}
+	defer rc.Close()
+	b, err := io.ReadAll(io.LimitReader(rc, jarMetaMax+1))
+	return b, err == nil && len(b) <= jarMetaMax
+}
+
+// pomVersionsDisagree pom.properties 里 version 不止一行、写的又不一样（A50）：propOf 取第一行（它是共用的，不改），
+// Java 的 Properties 认最后一行，两边说的可能不是一个版本。键按 Java 的读法认：= 、: 或空白隔开，\r 也算换行。
+func pomVersionsDisagree(b []byte) bool {
+	first, seen := "", false
+	for _, line := range strings.FieldsFunc(string(b), func(r rune) bool { return r == '\n' || r == '\r' }) {
+		line = strings.TrimLeft(line, " \t\f")
+		if line == "" || line[0] == '#' || line[0] == '!' {
+			continue
+		}
+		key, val := line, ""
+		if i := strings.IndexAny(line, "=: \t\f"); i >= 0 {
+			key = line[:i]
+			val = strings.TrimLeft(line[i:], " \t\f")
+			if val != "" && (val[0] == '=' || val[0] == ':') {
+				val = val[1:]
+			}
+		}
+		if key != "version" {
+			continue
+		}
+		val = strings.TrimSpace(val)
+		if !seen {
+			first, seen = val, true
+		} else if val != first {
+			return true
+		}
+	}
+	return false
 }
 
 // runningServerJar 这台服务器实际运行的那个 jar。只看「jar:」启动的：启动的 jar 不是 paperclip 的就是它自己；
