@@ -82,6 +82,9 @@ func TestPackShapes(t *testing.T) {
 		paperAt("Mac 打的：套一层 Paper 加 __MACOSX", "Srv", m("Srv/"+pj, paper, "Srv/"+sp, "x=1\n", "Srv/.DS_Store", "x", "__MACOSX/Srv/._server.properties", "x")),
 		paperAt("Mac 打的：套两层 Paper 加 __MACOSX", "A/Srv", m("A/Srv/"+pj, paper, "A/Srv/"+sp, "x=1\n", "__MACOSX/A/Srv/._server.properties", "x")),
 		paperAt("Mac 打的：套两层 Paper，中间一层有 .DS_Store", "A/Srv", m("A/Srv/"+pj, paper, "A/Srv/"+sp, "x=1\n", "A/.DS_Store", "x")),
+		// ._ 文件和真文件夹并排、不在 __MACOSX/ 里（解压工具把资源分支直接放在旁边）：只靠 ._ 那条规矩剥得进去
+		paperAt("Mac 打的：套两层 Paper，中间一层有和文件夹并排的 ._ 文件", "A/Srv", m("A/Srv/"+pj, paper, "A/Srv/"+sp, "x=1\n", "A/._Srv", "x")),
+		paperAt("Mac 打的：最外层有和文件夹并排的 ._ 文件，套两层 Paper", "A/Srv", m("._A", "x", "A/Srv/"+pj, paper, "A/Srv/"+sp, "x=1\n")),
 		paperAt("Mac 打的：套三层 Paper 加 __MACOSX", "A/B/Srv", m("A/B/Srv/"+pj, paper, "A/B/Srv/"+sp, "x=1\n", "__MACOSX/A/B/Srv/._server.properties", "x")),
 		cfPack("Mac 打的：套一层 CF 清单加 __MACOSX", "Pack", m("Pack/manifest.json", cf, "Pack/overrides/a.txt", "x", "__MACOSX/Pack/._manifest.json", "x")),
 		cfPack("Mac 打的：套两层 CF 清单加 __MACOSX", "A/Pack", m("A/Pack/manifest.json", cf, "A/Pack/overrides/a.txt", "x", "__MACOSX/A/Pack/._manifest.json", "x")),
