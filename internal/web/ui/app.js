@@ -5333,6 +5333,7 @@ async function renderTunnels() {
       };
       if (isSakura) body.publicServer = !!(pub && pub.checked);
       busy = okBtn.disabled = true;
+      if (pub) pub.disabled = true; // 切它会重画节点、改写下面那句报错（paintNodes）：请求途中和建成以后都不让动
       try {
         await api(`/api/tunnel-accounts/${provider}/tunnels`, { method: "POST", body });
         close();
@@ -5351,7 +5352,7 @@ async function renderTunnels() {
         if (closed) { toastErr("没能创建隧道", e); return; }
         showServerErr(e);
         if (e.created) showGoImport(name, reload);
-        else { busy = false; okBtn.disabled = nodeSel.disabled; }
+        else { busy = false; okBtn.disabled = nodeSel.disabled; if (pub) pub.disabled = false; }
       }
     };
     nameIn.focus();

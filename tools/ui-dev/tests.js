@@ -3239,11 +3239,15 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await resetTA(); }
   });
 
-  // 樱花创建框请求途中切「这是公开服务器」（A57）：以前切一下节点列表重画，「创建并导入」跟着被放开，能发第二次创建，
-  // 平台上多出一条。现在请求途中一直点不了，只发一次
-  await run("平台账户：樱花创建框请求途中切「这是公开服务器」，「创建并导入」仍点不了，只发一次创建", async () => {
+  // 樱花创建框请求途中（A57）：以前切一下「这是公开服务器」节点列表重画，「创建并导入」跟着被放开，能发第二次创建，
+  // 平台上多出一条。现在请求途中开关和按钮都锁着，硬点也只发一次
+  await run("平台账户：樱花创建框请求途中「这是公开服务器」和「创建并导入」都锁着，硬点也只发一次创建", async () => {
     const pattern = "**/api/tunnel-accounts/natfrp/tunnels";
     const slow = async route => { await new Promise(r => setTimeout(r, 1500)); await route.continue(); };
+    const locked = () => page.evaluate(() => {
+      const ok = document.querySelector('.modal [data-x="ok"]'), pub = document.querySelector(".modal #tn-cr-public");
+      return { ok: ok.disabled, pub: pub.disabled, checked: pub.checked };
+    });
     await taState({ tunnelAccounts: { reset: true, natfrp: true }, tunnelsReset: true });
     try {
       errors.length = 0;
@@ -3254,9 +3258,11 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.route(pattern, slow);
       const before = reqs.length;
       await page.click('.modal [data-x="ok"]');
-      assert(await page.$eval('.modal [data-x="ok"]', x => x.disabled), "请求途中按钮应禁用");
-      await page.click("#tn-cr-public");
-      assert(await page.$eval('.modal [data-x="ok"]', x => x.disabled), "请求途中切「这是公开服务器」以后按钮也该禁用");
+      let l = await locked();
+      assert(l.ok && l.pub && !l.checked, "请求途中按钮和「这是公开服务器」都应锁住：" + JSON.stringify(l));
+      await page.$eval(".modal #tn-cr-public", x => x.click());
+      l = await locked();
+      assert(l.ok && l.pub && !l.checked, "请求途中硬点开关也不该切过去、放开按钮：" + JSON.stringify(l));
       await page.$eval('.modal [data-x="ok"]', x => x.click());
       assert(await toastHas("已创建并导入", 4000), "这一次创建应成功");
       await modalGone(); await settle(300);
@@ -3265,6 +3271,47 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(posts === 1 && n1 === n0 + 1, `只该发一次创建：发了 ${posts} 次，平台隧道 ${n0} → ${n1}`);
       assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
     } finally { await page.unroute(pattern, slow); await resetTA(); }
+  });
+
+  // 樱花创建框：平台上没建成的，「这是公开服务器」跟着按钮放开；平台上已经建好的（created），开关也锁着。以前建好以后还能切，
+  // 没有公开服节点的账户切过去，「平台上的隧道已建好……」那句会被「没有可用的公开服专用节点」盖掉，底下却还是「关闭，去导入」（A57）
+  await run("平台账户：樱花创建框没建成时「这是公开服务器」放开，平台上已建好以后锁着，「平台上的隧道已建好」那句不被盖掉", async () => {
+    await taState({ tunnelAccounts: { reset: true, natfrp: true, saveFail: true, overviews: { natfrp: { nodes: [
+      { id: 11, name: "北京联通", description: "仅 TCP", canCreate: true, tcp: true, udp: false, publicGameAllowed: false },
+    ] } } }, tunnelsReset: true });
+    const dlg = () => page.evaluate(() => {
+      const q = s => document.querySelector(".modal " + s) || {};
+      return { ok: q('[data-x="ok"]').disabled, pub: q("#tn-cr-public").disabled, checked: q("#tn-cr-public").checked,
+        err: (q("#tn-cr-err").textContent || "").trim(), goHidden: q('[data-x="go-import"]').hidden };
+    });
+    try {
+      errors.length = 0;
+      await openOverview("natfrp");
+      await page.click('#tn-acc-panel [data-acc-create="natfrp"]');
+      await page.waitForSelector("#tn-cr-public");
+      // 一：本地端口填 0，平台上没建成：按钮和开关都放开，改了再试
+      await page.fill("#tn-cr-lport", "0");
+      await page.click('.modal [data-x="ok"]');
+      await taWait("lastCreate", v => v.provider === "natfrp" && v.localPort === 0);
+      await page.waitForFunction(() => /\S/.test((document.querySelector(".modal #tn-cr-err") || {}).textContent || ""), null, { timeout: 3000 }).catch(() => {});
+      let d = await dlg();
+      assert(!d.ok && !d.pub && d.goHidden, "平台上没建成：按钮和「这是公开服务器」都应放开：" + JSON.stringify(d));
+      // 二：平台上建好了、本机写不进磁盘：开关锁住，硬点也不切过去，报错那句还在
+      await page.fill("#tn-cr-lport", "25565");
+      await page.click('.modal [data-x="ok"]');
+      await taWait("lastCreate", v => v.provider === "natfrp" && v.localPort === 25565);
+      await page.waitForFunction(() => ((document.querySelector(".modal #tn-cr-err") || {}).textContent || "").includes("平台上的隧道已建好"), null, { timeout: 3000 }).catch(() => {});
+      d = await dlg();
+      assert(d.pub && !d.checked && !d.goHidden && d.err.includes("平台上的隧道已建好"), "平台上建好了：「这是公开服务器」应锁住、报错那句在：" + JSON.stringify(d));
+      await page.$eval(".modal #tn-cr-public", x => x.click());
+      await settle(200);
+      d = await dlg();
+      assert(d.pub && !d.checked && !d.goHidden && d.err.includes("平台上的隧道已建好") && !d.err.includes("没有可用的公开服专用节点"),
+        "硬点开关也不该切过去、盖掉「平台上的隧道已建好」：" + JSON.stringify(d));
+      await page.click('.modal [data-x="go-import"]');
+      await modalGone();
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await resetTA(); }
   });
 
   // 「跟随服务器启动」默认不勾（A62，以前三处都默认勾着）：勾上以后每次开服都自动映射到公网，要人自己决定。
