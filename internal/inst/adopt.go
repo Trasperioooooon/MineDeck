@@ -382,6 +382,12 @@ func (m *Manager) runAdopt(ctx context.Context, t *tasks.Task, req AdoptReq, sc 
 	if kind != mcsrc.KindProxy {
 		touched = append(touched, "eula.txt", log4jXML, log4jXML17)
 	}
+	// 接管的是一个没建完的文件夹（带创建记号）：动手之前先去掉记号，失败时和别的文件一起放回去。不去的话，写完 instance.json、
+	// 还没单独登记时程序没了，下次启动会把它当成「登记写到一半」，把上一层补记成扫描根（promoteCreatedRoots）。
+	marked := creatingMarkerOwned(dir)
+	if marked {
+		touched = append(touched, CreatingMarker)
+	}
 	// 端口要改（R08：原来的端口和 MineDeck 里别的服务器撞了）：server.properties 也算动过的，失败时一起恢复。不改端口就不碰它
 	newPort := 0
 	if req.Port > 0 && req.Port != propsPort(dir) {
@@ -391,6 +397,12 @@ func (m *Manager) runAdopt(ctx context.Context, t *tasks.Task, req AdoptReq, sc 
 	restore, err := snapshotFiles(dir, touched)
 	if err != nil {
 		return err
+	}
+	if marked {
+		if err := ClearCreatingMarker(dir); err != nil {
+			restore()
+			return fmt.Errorf("没能去掉文件夹里「没建完」的记号（%w），没有接管", err)
+		}
 	}
 	if newPort > 0 {
 		old := propsPort(dir)

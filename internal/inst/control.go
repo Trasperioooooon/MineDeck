@@ -16,8 +16,9 @@ import (
 // controlRoot 实例根目录下由 MineDeck 自己写、自己读的文件（小写）：别人给的包里带了也不采用。
 //   - instance.json、run.bat、user_jvm_args.txt 决定这台电脑上执行什么。交接包不拦的话，导入在解包之后、收尾之前被打断
 //     （关程序、断电），目录里留下的就是包里那份 instance.json——下次启动扫描会把它登记成一台服务器，
-//     用哪个程序当 Java、带什么参数全由包说了算。整合包的覆盖目录是在实例登记之后才写的，带一份 instance.json
-//     会直接顶掉刚登记的那份，重启 MineDeck 以后生效。
+//     用哪个程序当 Java、带什么参数全由包说了算。整合包的覆盖目录是在登记之前写的（登记按内存里的设置重写 instance.json
+//     和 run.bat），带一份 instance.json 进来，导入中途程序没了的话，下次启动会把它当成登记写到一半、照包里写的登记
+//     （见 promoteCreatedRoots）。
 //   - log4j2_112-116.xml、log4j2_17-111.xml 是老版本的日志配置：MineDeck 看到这个文件在，就给启动参数加上对它的引用；
 //     老版本 log4j 的配置文件能跑脚本、能发 JNDI 请求，和 JVM 参数是同一类东西。只用官方下载的那份。
 //   - gameai.json、gameai-state.json 是游戏内 AI 的设置和记账（谁能用、用了多少）：花的是这台电脑主人的钱，不能由包来定。

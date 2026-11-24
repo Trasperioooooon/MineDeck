@@ -6,11 +6,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"minedeck/internal/app"
+	"minedeck/internal/atomicfile"
 	"minedeck/internal/dl/dltest"
 	"minedeck/internal/inst"
 	"minedeck/internal/mcsrc"
@@ -720,6 +724,62 @@ func TestImportIntoNewRootListedAfterRestart(t *testing.T) {
 	}
 }
 
+// 导入交接包走到一半（解完包、正在按填的端口改 server.properties）程序没了：文件夹带着创建记号，重开以后在「没建完的文件夹」里；
+// 接着走完导入，记号去掉、不再列出来（A48）。
+func TestImportInterruptedLeavesListedLeftover(t *testing.T) {
+	newEnv(t)
+	fakeInstance(t, "A 的服")
+	m := manager(t, "A 的服")
+	id, err := ExportAsync(m, ExportReq{Inst: "A 的服", Full: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, _, _, _ := waitTask(t, m, id)
+	if snap.Err != "" {
+		t.Fatalf("导出失败：%s", snap.Err)
+	}
+	root := filepath.Join(t.TempDir(), "新存放位置")
+	reached, gate := make(chan string, 1), make(chan struct{})
+	var once sync.Once
+	old := atomicfile.Hook
+	t.Cleanup(func() { atomicfile.Hook = old })
+	atomicfile.Hook = func(p string) {
+		if filepath.Base(p) != "server.properties" || !strings.HasPrefix(p, root) {
+			return
+		}
+		once.Do(func() { reached <- filepath.Dir(p); <-gate })
+	}
+	iid, err := ImportAsync(m, snap.Result, ImportReq{Name: "B 的服", EULA: true, Root: root, Port: 25599})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dir string
+	select {
+	case dir = <-reached:
+	case <-time.After(30 * time.Second):
+		close(gate)
+		t.Fatal("导入没走到改端口那一步")
+	}
+	listed := func() bool {
+		m2, err := inst.NewManager() // 这时重开：只看盘上的东西
+		if err != nil {
+			t.Fatal(err)
+		}
+		return slices.ContainsFunc(m2.CreatingLeftovers(), func(it inst.CreatingLeftover) bool { return it.Name == filepath.Base(dir) })
+	}
+	if _, err := os.Stat(filepath.Join(dir, inst.CreatingMarker)); err != nil || !listed() {
+		close(gate)
+		t.Fatalf("解完包的文件夹应带着创建记号，重开以后列为没建完的：%v", err)
+	}
+	close(gate)
+	if isnap, _, _, _ := waitTask(t, m, iid); isnap.Err != "" {
+		t.Fatalf("放行以后导入应完成：%s\n%s", isnap.Err, strings.Join(isnap.Log, "\n"))
+	}
+	if _, err := os.Stat(filepath.Join(dir, inst.CreatingMarker)); !os.IsNotExist(err) || listed() {
+		t.Fatalf("导入成功以后不该再有创建记号，也不该列为没建完的：%v", err)
+	}
+}
+
 // 重名导入被拒。
 func TestImportDuplicateName(t *testing.T) {
 	newEnv(t)
@@ -735,5 +795,157 @@ func TestImportDuplicateName(t *testing.T) {
 	}
 	if _, err := ImportAsync(m, snap.Result, ImportReq{Name: "A 的服", EULA: true}); err == nil || !strings.Contains(err.Error(), "已有同名的服务器") {
 		t.Errorf("重名导入该被拒：%v", err)
+	}
+}
+
+// 导入交接包在收尾时失败，半成品又没删干净（有文件被别的程序占着）：失败原因照实说没清干净，剩下的文件夹带着创建记号，
+// 列在「没建完的文件夹」里，文件放开以后能在那里删掉（A48）。
+func TestImportCleanupFailureKeepsMarker(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("只有 Windows 上打开着的文件删不掉")
+	}
+	newEnv(t)
+	fakeInstance(t, "A 的服")
+	m := manager(t, "A 的服")
+	id, err := ExportAsync(m, ExportReq{Inst: "A 的服", Full: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, _, _, _ := waitTask(t, m, id)
+	if snap.Err != "" {
+		t.Fatalf("导出失败：%s", snap.Err)
+	}
+	root := filepath.Join(t.TempDir(), "新存放位置")
+	var dir string
+	var held *os.File
+	var mu sync.Mutex
+	old := atomicfile.Hook
+	t.Cleanup(func() {
+		atomicfile.Hook = old
+		mu.Lock()
+		defer mu.Unlock()
+		if held != nil {
+			held.Close()
+		}
+	})
+	atomicfile.Hook = func(p string) {
+		mu.Lock()
+		defer mu.Unlock()
+		if filepath.Base(p) != "server.properties" || !strings.HasPrefix(p, root) || held != nil {
+			return
+		}
+		// 改端口的时候：别的程序占着世界里的一个文件，收尾写 run.bat 又会失败（那个位置上放一个文件夹）
+		dir = filepath.Dir(p)
+		held, _ = os.Open(filepath.Join(dir, "world", "level.dat"))
+		_ = os.Mkdir(filepath.Join(dir, "run.bat"), 0o755)
+	}
+	iid, err := ImportAsync(m, snap.Result, ImportReq{Name: "B 的服", EULA: true, Root: root, Port: 25599})
+	if err != nil {
+		t.Fatal(err)
+	}
+	isnap, _, _, _ := waitTask(t, m, iid)
+	mu.Lock()
+	got := dir
+	mu.Unlock()
+	if got == "" || isnap.Err == "" {
+		t.Fatalf("应在收尾时失败：%+v", isnap)
+	}
+	if _, err := os.Stat(got); err != nil {
+		t.Skip("这台电脑上打开着的文件也删得掉，碰不上删不干净的情形")
+	}
+	if !strings.Contains(isnap.Err, "清理半成品失败") || !isnap.CleanupFailed {
+		t.Fatalf("失败原因里要照实说半成品没清干净：%q", isnap.Err)
+	}
+	listedID := func() string {
+		m2, err := inst.NewManager() // 这时重开：只看盘上的东西
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, it := range m2.CreatingLeftovers() {
+			if it.Name == filepath.Base(got) {
+				return it.ID
+			}
+		}
+		return ""
+	}
+	leftover := listedID()
+	if _, err := os.Stat(filepath.Join(got, inst.CreatingMarker)); err != nil || leftover == "" {
+		t.Fatalf("没删干净的半成品应带着创建记号，列在「没建完的文件夹」里：%v", err)
+	}
+	mu.Lock()
+	held.Close()
+	held = nil
+	mu.Unlock()
+	m3, err := inst.NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m3.DiscardCreatingLeftover(leftover, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(got); !os.IsNotExist(err) {
+		t.Fatalf("文件放开以后应能在「没建完的文件夹」那里删掉：%v", err)
+	}
+}
+
+// 预留以后、建文件夹之前，同一个位置上冒出了别人的文件夹（空的、有东西的各一种）：导入在建文件夹那一步失败，说清那里已经有
+// 文件夹、没有动它；失败时的清理（DiscardCreate）不碰它，不放创建记号（A48）。建文件夹之前没有能停下来放文件夹的地方，
+// 这里照 ImportAsync 的先后直接走：预留、放文件夹、runImport、清理。
+func TestImportDirAppearedAfterReserveLeftAlone(t *testing.T) {
+	newEnv(t)
+	fakeInstance(t, "A 的服")
+	m := manager(t, "A 的服")
+	id, err := ExportAsync(m, ExportReq{Inst: "A 的服", Full: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, _, _, _ := waitTask(t, m, id)
+	if snap.Err != "" {
+		t.Fatalf("导出失败：%s", snap.Err)
+	}
+	mf, err := ReadManifest(snap.Result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for kind, files := range map[string]map[string]string{
+		"空文件夹": {},
+		"有东西":  {"world/level.dat": "别人的世界", "notes.txt": "别人的笔记"},
+	} {
+		t.Run(kind, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "存放位置")
+			req := ImportReq{Name: "B 的服（" + kind + "）", EULA: true, Root: root}
+			creq := inst.CreateReq{Name: req.Name, Core: mf.Core.Core, MC: mf.Core.MC, Build: mf.Core.Build, EULA: true, Root: root}
+			dir, err := m.ReserveCreate(&creq)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer m.ReleaseCreate(creq.Name, dir)
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			for name, body := range files {
+				writeFile(t, filepath.Join(dir, filepath.FromSlash(name)), body)
+			}
+			tk, ctx := m.Tasks.New("导入交接包", importSteps)
+			err = runImport(ctx, tk, m, mf, snap.Result, req, dir)
+			if err == nil || !strings.Contains(err.Error(), "这个位置已经有一个同名文件夹（可能是刚放进来的），没有动它") {
+				t.Fatalf("应在建文件夹那一步失败、说清那里已经有文件夹：%v", err)
+			}
+			if cerr := m.DiscardCreate(err, req.Name, dir); cerr != nil {
+				t.Fatalf("别人的文件夹不进清理，不该报清理失败：%v", cerr)
+			}
+			entries, rerr := os.ReadDir(dir)
+			if want := map[bool]int{true: 0, false: 2}[len(files) == 0]; rerr != nil || len(entries) != want {
+				t.Fatalf("别人的文件夹应原样留着、不多不少：%v %v", entries, rerr)
+			}
+			for name, body := range files {
+				if b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(name))); err != nil || string(b) != body {
+					t.Errorf("别人的 %s 被动过：%q %v", name, b, err)
+				}
+			}
+			if _, err := m.Get(req.Name); err == nil {
+				t.Error("不该登记成服务器")
+			}
+		})
 	}
 }

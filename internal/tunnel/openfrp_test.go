@@ -256,6 +256,11 @@ func TestOpenfrpHTTPClientOffersOnlyTLS13(t *testing.T) {
 	if got := hello(openfrpHTTPClient); len(got) != 1 || got[0] != tls.VersionTLS13 {
 		t.Errorf("openfrpHTTPClient 应只报 TLS 1.3，实际报了 %#x", got)
 	}
+	if got := hello(openfrpCompatHTTPClient); !slices.Contains(got, uint16(tls.VersionTLS12)) || !slices.Contains(got, uint16(tls.VersionTLS13)) {
+		t.Errorf("握不上手时退回用的 openfrpCompatHTTPClient 应 TLS 1.2、1.3 都报（只报 1.3 就等于没退），实际报了 %#x", got)
+	} else if slices.ContainsFunc(got, func(v uint16) bool { return v < tls.VersionTLS12 }) {
+		t.Errorf("退回以后最低也得是 TLS 1.2，openfrpCompatHTTPClient 却报了更低的：%#x", got)
+	}
 	if got := hello(dl.Client); !slices.Contains(got, uint16(tls.VersionTLS12)) {
 		t.Errorf("对照用的 dl.Client 应该也报 TLS 1.2（不报的话这条测试就分不出两者了），实际 %#x", got)
 	}

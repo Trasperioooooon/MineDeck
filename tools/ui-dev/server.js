@@ -13,8 +13,8 @@ const UI_DEFAULT = path.resolve(__dirname, "..", "..", "internal", "web", "ui");
 const PORT_DEFAULT = 27390; // 避开 MineDeck 自己的默认端口 27333，本机同时开着程序也不冲突
 
 const ok = (res, data) => { res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" }); res.end(JSON.stringify({ ok: true, data })); };
-// hint：同后端 writeErr，报错链上另给的一句人话（没有就不带）
-const err = (res, code, msg, hint) => { res.writeHead(code, { "Content-Type": "application/json; charset=utf-8" }); res.end(JSON.stringify(hint ? { ok: false, error: msg, hint } : { ok: false, error: msg })); };
+// hint：同后端 writeErr，报错链上另给的一句人话（没有就不带）；extra 是另外几项，比如平台上已经建好时的 { created: true }
+const err = (res, code, msg, hint, extra) => { res.writeHead(code, { "Content-Type": "application/json; charset=utf-8" }); res.end(JSON.stringify({ ok: false, error: msg, ...(hint ? { hint } : {}), ...extra })); };
 const readBody = req => new Promise(r => { let b = ""; req.on("data", c => b += c); req.on("end", () => { try { r(JSON.parse(b || "{}")); } catch { r({}); } }); });
 // 同 ops/catalog 的 maskWebhook：只留协议和主机（含端口），后面常带着令牌，换成 ***；解析不了的整个遮掉，空串还是空串
 const maskWebhook = u => { if (!u) return ""; try { const x = new URL(u); return x.host ? `${x.protocol}//${x.host}/***` : "***"; } catch { return "***"; } };
@@ -670,6 +670,7 @@ async function musicHandler(state, req, res, p, m, seg) {
   musicSync(state);
   if (p === "/api/tunnels" && m === "POST") { // 隧道表单带上了用途、协议没有
     ms.tunnelBody = await readBody(req);
+    if (badProxyId(ms.tunnelBody.provider, ms.tunnelBody.proxyId)) return err(res, 400, BAD_PROXY_ID); // 同后端：先于读写 tunnels.json 查
     if (loadFail(state, res, 400)) return; // tunnels.json 没读出来：读出来之前什么都不存
     if (state.tunnelAccounts.saveFail) return err(res, 400, SAVE_FAIL_RAW, SAVE_FAIL_HINT); // tunnels.json 写不进去（同平台账户的 saveFail）
     return ok(res, { id: "t9" });
@@ -2626,6 +2627,9 @@ const LOAD_FAIL = {
     hint: "MineDeck 文件夹里的 tunnels.json 内容坏了。用记事本修好它，或者改名挪走后从空列表开始",
   },
 };
+// OpenFrp、樱花的隧道 ID 只收数字（同 tunnel.checkProxyID）：新增时、修改改了编号或服务商时查，不是数字回 400
+const BAD_PROXY_ID = "隧道 ID 只能是数字（在服务商官网的隧道列表里看）";
+const badProxyId = (provider, id) => (provider === "openfrp" || provider === "natfrp") && !(/^\d+$/.test(String(id ?? "").trim()) && +String(id).trim() > 0);
 const loadFail = (state, res, code) => {
   const f = LOAD_FAIL[state.tunnelsLoadFail];
   if (!f) return false;
@@ -2806,9 +2810,9 @@ async function tunnelAccountsHandler(state, req, res, p, m, seg) {
       });
       ov.account.tunnelCount = (ov.account.tunnelCount || 0) + 1;
     }
-    if (ta.saveFail) {
+    if (ta.saveFail) { // 同后端：平台上已经建好、本机没导入成，响应带 created（界面锁住创建、引导去导入）
       err(res, 400, "平台上的隧道已经建好，但保存到 MineDeck 失败: " + SAVE_FAIL_RAW + "。磁盘恢复以后在平台隧道列表里导入这条隧道，不要再创建一次",
-        "平台上的隧道已建好，但没能存进 MineDeck。检查磁盘后在平台隧道列表里导入它，不要再创建");
+        "平台上的隧道已建好，但没能存进 MineDeck。检查磁盘后在平台隧道列表里导入它，不要再创建", { created: true });
       return true;
     }
     ok(res, tun);
@@ -2829,6 +2833,8 @@ function handler(state, ui, portOf) {
     //   taskStage: 部署任务进行到第几步（0–4，4 = 完成），"error" = 第 2 步失败
     //   taskList: 后台任务快照数组；同时覆盖对应任务详情里的字段，模拟并行任务及离开期间完成的任务。
     //     带 canCancel 的可以点「取消」（POST /api/tasks/{id}/cancel）：先是 cancelling，再查两次就按「已取消」结束（cancelled、error 是那句中文、正在做的那一步 cancelled）
+    //     失败以后半成品没清干净的带 cleanupFailed: true（同 tasks.Snapshot.CleanupFailed，error 后面接着「；清理半成品失败：…」）：
+    //     只在单个任务的快照里，列表摘要不带（同真后端）
     //     设 taskList 时没装上的文件（instPending）一起清掉，下次按新的任务重新生成
     //   instPending: { 服务器名: { pending, skipped } } 直接摆好某台服务器没装上的文件（不经导入任务，程序重开以后的样子）
     //   restart: true 模拟程序重开：任务记录、上次启动失败（lastStartError、startPortBusy）清掉，没装上的文件清单留着
@@ -2839,11 +2845,12 @@ function handler(state, ui, portOf) {
     //   modsNeed: { 实例名: needJava } GET /api/instances/{名称}/mods 返回的 needJava（实例详情页的 Java 提示用），空对象还原
     //   trustedHosts: [站点] 处置待决文件时已确认过的自定义站点（trust 不再要求 ack），空数组还原
     //   taskNet: 部署任务的 net（同 tasks.NetRetry：{ count, host, what, ago }），null 清掉
+    //   importPack: POST /api/import/modpack 回的 pack 摘要里要改的几项（比如 { format: "server", core: "paper", mcFromLog: true }），null 还原
     //   inst: { name, …字段 } 直接改某台服务器的字段；instReset: true 服务器列表回到初始的四台。
     //     beta.3 P0 用到的字段：startFail（点启动时报这句、记成 lastStartError）、lastStartError、connectPort（代理端没生成配置时 0）、
     //     whitelistOn（玩家名单里的白名单开关，null = server.properties 没写）、adopted + mdFiles（移出列表后会留下的文件）。
-    //     响应里的 lastCreate / lastImport / lastPropsPut / commands / lastOpenPath 是上一次新建、导入整合包（表单项）、改 server.properties、
-    //     发过的控制台命令、打开的文件夹
+    //     响应里的 lastCreate / lastImport / lastPropsPut / commands / lastOpenPath / lastOpenDir 是上一次新建、导入整合包（表单项）、改 server.properties、
+    //     发过的控制台命令、打开的文件夹（openpath）和服务器文件夹（opendir）
     //     beta.3 详情页用到的字段：javaMissing（配的 Java 找不到了）、worldFrom（现在的世界从哪份备份来；carried 是随交接包带来的）、mods（插件 / 模组文件夹里的，见 modsOf）、
     //     backups（备份清单，见 backupsOf；每项可带 dir、elsewhere，模拟改存放位置以前留在原来文件夹的）、onlineCount。响应里的 lifecycle（停止、重启的请求）、modOps（停用、启用、删除插件或模组的请求）、
     //     lastRestore（还原的请求，含 stopFirst）、lastBackup（立即备份的标签）、modsProjects（带 projects=1 读清单的次数）
@@ -2897,6 +2904,7 @@ function handler(state, ui, portOf) {
       if ("modsNeed" in b) state.modsNeed = b.modsNeed || {};
       if ("trustedHosts" in b) state.trustedHosts = b.trustedHosts || [];
       if ("taskNet" in b) state.taskNet = b.taskNet;
+      if ("importPack" in b) state.importPack = b.importPack; // 导入整合包回的 pack 摘要里要改的几项（format、mcFromLog…），null 还原
       if (b.inst) { const i = state.instances.find(x => x.name === b.inst.name); if (i) Object.assign(i, b.inst); } // 改某台服务器的字段（adopted、javaMajor…）
       if ("adoptScan" in b) state.adoptScan = b.adoptScan; // 接管：下一次识别返回的结果（null 还原成默认的 NeoForge 整合包）
       if ("commands" in b) state.commands = b.commands || []; // 发过的控制台命令（见 POST …/command），传空数组清掉
@@ -3095,6 +3103,12 @@ function handler(state, ui, portOf) {
         state.lastOpenPath = (await readBody(req)).path || "";
         return ok(res, "ok");
       }
+      // 打开服务器文件夹（同 instance.opendir，只许本机）：记下打开的是哪台、哪个子文件夹（state.lastOpenDir）
+      if (seg[2] === "instances" && seg[4] === "opendir" && m === "POST") {
+        if (!state.local) return err(res, 403, "打开服务器文件夹仅支持在本机操作");
+        state.lastOpenDir = { inst: decodeURIComponent(seg[3]), sub: u.searchParams.get("sub") || "" };
+        return ok(res, "ok");
+      }
       if (p === "/api/update/check") { // 同 app.update.check：按生效的渠道查，回包带渠道、查到的是不是测试版、正在用的是不是比它还新
         if (state.updateFail) return err(res, 502, state.updateFail);
         const r = updateCheck(state);
@@ -3171,7 +3185,7 @@ function handler(state, ui, portOf) {
         const pb = checkMockFormPort(state, fields.port);
         if (pb) { res.writeHead(409, { "Content-Type": "application/json; charset=utf-8" }); return res.end(JSON.stringify({ ok: false, error: pb.error, portBusy: pb.portBusy })); }
         state.lastImport = fields;
-        return ok(res, { taskId: "task-1", pack: { name: "测试整合包", mc: "1.20.1", core: "forge", loader: "47.3.0", format: "mrpack", files: 12, pending: 0 } });
+        return ok(res, { taskId: "task-1", pack: { name: "测试整合包", mc: "1.20.1", core: "forge", loader: "47.3.0", format: "mrpack", files: 12, pending: 0, ...(state.importPack || {}) } });
       }
       // 实例交接包（.mdpack，同 web/transfer.go）：上传回摘要、导入返回任务号；交接的任务一查就是已完成
       if (p === "/api/transfer/upload" && m === "POST") {
@@ -3344,6 +3358,7 @@ function handler(state, ui, portOf) {
         if (b.clearCredential && String(b.credential || "").trim()) return err(res, 400, "要清除凭据，就不要同时填新的凭据");
         if (!String(n.name || "").trim()) return err(res, 400, "请填写隧道名称");
         if (t.running) return err(res, 400, "请先停止隧道再修改");
+        if ((n.proxyId !== t.proxyId || n.provider !== t.provider) && badProxyId(n.provider, n.proxyId)) return err(res, 400, BAD_PROXY_ID);
         // 自定义 frps 不许指向 MineDeck 自己的网页端口（同 tunnel.checkGuardPort，PR #20）：按合起来的那份查，只改名字也拦
         if (n.provider === "custom" && +n.localPort === portOf()) return err(res, 400, `本地端口 ${portOf()} 是 MineDeck 自己的网页端口，不能映射到公网：要填的是 Minecraft 服务器的端口`);
         // 凭据留空表示沿用存着的那份（可用性走查 R12 的「编辑」）：换服务商、换 frps 地址端口要重填；没有存着的、又是要凭据的服务商时要填

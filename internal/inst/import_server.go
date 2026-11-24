@@ -60,8 +60,12 @@ func (m *Manager) importServerAsync(pack *modpack.Pack, req CreateReq) (string, 
 		defer m.releaseCreating(dirKey(dir))
 		defer os.Remove(pack.ZipPath)
 		if err := m.runServerImport(ctx, t, pack, req, dir); err != nil {
+			// 失败了就没有这台服务器，关于它的文件、参数、版本的结果不留（同导入整合包）
+			for _, kind := range []string{"import-skipped", "import-case", "script-jvm", "mc-from-log"} {
+				t.RemoveWarning(kind)
+			}
 			// 先清后报失败：任务一显示失败，半成品就得已经删干净了（失败框上写着可以重试；交接包导入同样的顺序）
-			failCreate(t, err, m.discardCreating(req.Name, dir))
+			failCreate(t, err, m.discardFailed(err, req.Name, dir))
 			return
 		}
 		t.Finish(req.Name)
@@ -74,10 +78,7 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 	defer cancel()
 
 	t.StartStep(0)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	if err := WriteCreatingMarker(dir, req.Name); err != nil {
+	if err := MkdirCreating(dir, req.Name); err != nil {
 		return err
 	}
 	where := "压缩包最外层"
@@ -85,80 +86,30 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 		where = "「" + pack.Root + "」这一层"
 	}
 	t.Logf("按现成服务端解压（文件在%s）", where)
-	cleanDest := filepath.Clean(dir)
-	var skipped []string        // 名字在 Windows 上不能用、没有解压的文件（最多记 20 个）
-	var dups []string           // 和前面的文件只差大小写、没有解压的（最多记 20 个）
-	seen := map[string]string{} // 已经解压的文件：不分大小写的路径 → 包里的写法
-	n, err := modpack.ExtractServer(pack, func(rel string, r io.Reader) error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		// 和交接包一样：别人给的 instance.json、run.bat 不能落下来，不然下次启动就按包里写的去跑。
-		// 名字在 Windows 上不能用的（CON、CON.txt、COM1.log 这类设备名，结尾是点或空格的）也和整合包覆盖目录一样跳过。
-		if !overrideAllowed(rel) {
-			if !IsControlFile(rel) && len(skipped) < 20 {
-				skipped = append(skipped, rel)
-			}
-			return nil
-		}
-		// 只差大小写的两个名字在 Windows 上是同一个文件，后一个会把前一个盖掉（v3.1.0 正式版前检查 C-2e）：
-		// 和名字不能用的一样跳过、日志里列出来，留前一个。不整包拒绝：服务端包常在 Linux 上打，那边这是两个文件，
-		// 拒了整包就导不进来了。写法一模一样出现两次的照旧以后一个为准
-		k := winname.Fold(rel)
-		if first, ok := seen[k]; ok && first != rel {
-			if len(dups) < 20 {
-				dups = append(dups, rel)
-			}
-			return nil
-		}
-		seen[k] = rel
-		target := filepath.Join(cleanDest, filepath.FromSlash(rel))
-		if target == cleanDest || !strings.HasPrefix(target, cleanDest+string(os.PathSeparator)) {
-			return fmt.Errorf("整合包内含非法路径: %s", rel)
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
-		}
-		lease, err := diskguard.Acquire(ctx, filepath.Dir(target), diskguard.Options{AllowUnknown: true})
-		if err != nil {
-			return err
-		}
-		defer lease.Close()
-		w, err := os.Create(target)
-		if err != nil {
-			return err
-		}
-		_, cerr := io.Copy(lease.Writer(w), r)
-		if werr := w.Close(); cerr == nil {
-			cerr = werr
-		}
-		return cerr
-	})
+	res, err := extractServerFiles(ctx, t, pack, dir)
 	if err != nil {
 		return fmt.Errorf("解压服务端失败: %w", err)
 	}
 	ScrubControlFiles(dir)
-	t.Logf("解压了 %d 个文件", n)
-	if len(skipped) > 0 {
-		t.Logf("这些文件的名字在 Windows 上不能用，没有解压：%s", strings.Join(skipped, "、"))
-	}
-	if len(dups) > 0 {
-		t.Logf("这些文件和压缩包里前面的文件只差大小写，在 Windows 上是同一个文件，没有解压（留的是前面那个）：%s", strings.Join(dups, "、"))
-	}
+	res.report(t)
 	if name, ok := CheckLevelName(dir); !ok {
 		return fmt.Errorf("服务端的 server.properties 把世界文件夹（level-name）指到了服务器文件夹外面：%s", name)
 	}
 
 	t.StartStep(1)
-	core, mc, build, launch, major, err := detectImportedServer(dir, pack)
+	srv, err := detectImportedServer(dir, pack)
 	if err != nil {
 		return err
 	}
+	core, mc, build, launch, major := srv.core, srv.mc, srv.build, srv.launch, srv.javaMajor
 	if (core == mcsrc.CoreMohist || core == mcsrc.CoreBanner) && !isASCII(dir) {
 		return fmt.Errorf("Mohist / Taiyitist（原 Banner）与非英文路径不兼容，请把存放文件夹设为纯英文路径（当前将创建于：%s）", dir)
 	}
 	kind := mcsrc.KindOf(core)
 	t.Logf("按接管已有服务器的办法认出：%s %s，启动文件 %s", core, mc, strings.TrimPrefix(strings.TrimPrefix(launch, "jar:"), "args:"))
+	if srv.mcFromLog {
+		noteMCFromLog(t, mc)
+	}
 
 	t.StartStep(2)
 	if major == 0 && kind == mcsrc.KindProxy {
@@ -194,6 +145,7 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 		},
 		Dir: dir, Console: newConsole(),
 	}
+	applyScriptJVM(t, inst, pack)
 	if kind != mcsrc.KindProxy {
 		applyServerProps(ctx, t, dir, req, mc)
 		if b, err := os.ReadFile(filepath.Join(dir, "eula.txt")); err != nil || !reEULA.Match(b) {
@@ -216,33 +168,178 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 	return nil
 }
 
-// detectImportedServer 先用接管已有服务器的识别（看 jar、参数文件、日志）。
-// 那套没认出来时，再用解析压缩包时看到的结果兜底。
-func detectImportedServer(dir string, pack *modpack.Pack) (core mcsrc.Core, mc, build, launch string, javaMajor int, err error) {
-	if sc, scanErr := scanServerDir(dir); scanErr == nil {
-		if mcsrc.ValidCore(mcsrc.Core(sc.Core)) && sc.MC != "" && sc.LaunchTarget != "" {
-			return mcsrc.Core(sc.Core), sc.MC, sc.Build, sc.LaunchTarget, sc.JavaMajor, nil
+// serverExtract 解压现成服务端的结果。名单只记前 maxWarnItems 个（告警最多列这么多），一共几个另外数。
+type serverExtract struct {
+	n        int            // 解出来的文件个数
+	skipped  []string       // 名字在 Windows 上不能用、没有解压的
+	nSkipped int            // 一共几个
+	dups     []caseConflict // 和前面的文件只差大小写、没有解压的
+	nDups    int            // 一共几组
+}
+
+// report 写进任务日志，跳过的和只差大小写的也写进任务结果（A46、A47）。
+func (res serverExtract) report(t *tasks.Task) {
+	t.Logf("解压了 %d 个文件", res.n)
+	if res.nSkipped > 0 {
+		t.Logf("这些文件的名字在 Windows 上不能用，没有解压：%s", shortNamesOf(res.skipped, res.nSkipped, 20))
+		files := make([]skippedFile, 0, len(res.skipped))
+		for _, p := range res.skipped {
+			files = append(files, skippedFile{p, "名字在 Windows 上写不出来"})
 		}
-		// 认出了启动文件但核心或版本是空的：解析阶段看的是同一个启动文件、而且认出了核心和版本，才拿它补上。
-		// 两边说的不是同一个 jar 时不拼凑，不然核心、版本、启动文件可能出自两个 jar。
-		if sc.LaunchTarget != "" && sc.LaunchTarget == pack.Launch && mcsrc.ValidCore(pack.Core) && pack.MC != "" {
-			build = pack.Loader
-			if sc.Build != "" {
-				build = sc.Build
+		addSkippedWarning(t, files, res.nSkipped)
+	}
+	if res.nDups > 0 {
+		names := make([]string, 0, len(res.dups))
+		for _, c := range res.dups {
+			names = append(names, c.names[len(c.names)-1])
+		}
+		t.Logf("这些文件和压缩包里前面的文件只差大小写，在 Windows 上是同一个文件，没有解压（留的是前面那个）：%s", shortNamesOf(names, res.nDups, 20))
+		addCaseWarning(t, res.dups, res.nDups)
+	}
+}
+
+// extractServerFiles 把现成服务端压缩包解进 dir。整个解压拿着一份磁盘名额，开头按解开以后的总大小查余量（serverExtractLease）。
+func extractServerFiles(ctx context.Context, t *tasks.Task, pack *modpack.Pack, dir string) (serverExtract, error) {
+	var res serverExtract
+	var lease *diskguard.Lease
+	defer func() {
+		if lease != nil {
+			lease.Close()
+		}
+	}()
+	cleanDest := filepath.Clean(dir)
+	seen := map[string]string{} // 已经解压的文件：不分大小写的路径 → 包里的写法
+	n, err := modpack.ExtractServer(pack, func(files []modpack.ServerFile) (err error) {
+		lease, err = serverExtractLease(ctx, t, dir, files)
+		return err
+	}, func(rel string, r io.Reader) error {
+		if err := lease.Check(0); err != nil { // 也查取消
+			return err
+		}
+		// 和交接包一样：别人给的 instance.json、run.bat 不能落下来，不然下次启动就按包里写的去跑。
+		// 名字在 Windows 上不能用的（CON、CON.txt、COM1.log 这类设备名，结尾是点或空格的）也和整合包覆盖目录一样跳过。
+		if !overrideAllowed(rel) {
+			if !IsControlFile(rel) {
+				if res.nSkipped++; len(res.skipped) < maxWarnItems {
+					res.skipped = append(res.skipped, rel)
+				}
 			}
-			mc = pack.MC
-			if sc.MC != "" {
-				mc = sc.MC
+			return nil
+		}
+		// 只差大小写的两个名字在 Windows 上是同一个文件，后一个会把前一个盖掉（v3.1.0 正式版前检查 C-2e）：
+		// 和名字不能用的一样跳过、日志里列出来，留前一个。不整包拒绝：服务端包常在 Linux 上打，那边这是两个文件，
+		// 拒了整包就导不进来了。写法一模一样出现两次的照旧以后一个为准
+		k := winname.Fold(rel)
+		if first, ok := seen[k]; ok && first != rel {
+			if res.nDups++; len(res.dups) < maxWarnItems {
+				res.dups = append(res.dups, caseConflict{names: []string{first, rel}, kept: first, why: "压缩包里只差大小写的只解压前面那个"})
 			}
-			return pack.Core, mc, build, sc.LaunchTarget, sc.JavaMajor, nil
+			return nil
+		}
+		seen[k] = rel
+		target := filepath.Join(cleanDest, filepath.FromSlash(rel))
+		if target == cleanDest || !strings.HasPrefix(target, cleanDest+string(os.PathSeparator)) {
+			return fmt.Errorf("整合包内含非法路径: %s", rel)
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		w, err := os.Create(target)
+		if err != nil {
+			return err
+		}
+		_, cerr := io.Copy(lease.Writer(w), r)
+		if werr := w.Close(); cerr == nil {
+			cerr = werr
+		}
+		return cerr
+	})
+	res.n = n
+	return res, err
+}
+
+// serverImportDiskFree 查磁盘余量的函数；nil 用系统的。测试里换成余量不够、查不到的。
+var serverImportDiskFree func(string) (int64, error)
+
+// serverExtractLease 解压现成服务端之前按解开以后的总大小要磁盘余量（A40），做法同交接包导入（transfer 的 extractPrefix）：
+// 总大小加上每个文件 4 KiB 的零头，装不下就在写第一个文件之前停下，免得把盘写满、连累同一块盘上别的服务器。
+// 只算真要写的：控制文件（logs/ 这些）和名字写不出来的不落盘，不算（见 extractServerFiles 里的 overrideAllowed）。
+// 查不到余量的盘照做（有的盘就是查不了），日志里说一声。写的过程中 diskguard 照常每隔一段再查一次。
+func serverExtractLease(ctx context.Context, t *tasks.Task, dir string, files []modpack.ServerFile) (*diskguard.Lease, error) {
+	query := serverImportDiskFree
+	if query == nil {
+		query = diskguard.Free
+	}
+	warned := false
+	logged := func(p string) (int64, error) {
+		n, err := query(p)
+		if err != nil && !warned {
+			warned = true
+			t.Logf("没查到存放位置所在的盘还剩多少空间（%v），这一步检查跳过", err)
+		}
+		return n, err
+	}
+	// 文件数、总大小在 ExtractServer 里已经过了上限（20 万个、8 GB），加起来不会溢出
+	var need int64
+	for _, f := range files {
+		if overrideAllowed(f.Rel) {
+			need += f.Size + 4096
+		}
+	}
+	return diskguard.Acquire(ctx, dir, diskguard.Options{Need: need, Query: logged, AllowUnknown: true})
+}
+
+// importedServer 解压以后认出来的服务端。
+type importedServer struct {
+	core      mcsrc.Core
+	mc, build string
+	launch    string
+	javaMajor int
+	mcFromLog bool // 版本号用的是解析压缩包时从 logs/latest.log 里认的（A44）
+}
+
+// detectImportedServer 先用接管已有服务器的识别（看 jar、参数文件；日志不解压，那套看不到）。
+// 那套没认出来时，再用解析压缩包时看到的结果兜底。
+func detectImportedServer(dir string, pack *modpack.Pack) (importedServer, error) {
+	if sc, scanErr := scanServerDir(dir); scanErr == nil {
+		if s, ok := importedFromScan(sc, pack); ok {
+			return s, nil
 		}
 	}
 	if mcsrc.ValidCore(pack.Core) && pack.MC != "" && pack.Launch != "" {
 		if _, statErr := os.Stat(filepath.Join(dir, launchFile(pack.Launch))); statErr == nil {
-			return pack.Core, pack.MC, pack.Loader, pack.Launch, 0, nil
+			return importedServer{core: pack.Core, mc: pack.MC, build: pack.Loader, launch: pack.Launch, mcFromLog: pack.MCFromLog}, nil
 		}
 	}
-	return "", "", "", "", 0, modpack.ServerUnknownError()
+	return importedServer{}, modpack.ServerUnknownError()
+}
+
+// importedFromScan 接管那套识别的结果 sc 认全了就用它。认出了启动文件、核心或版本却是空的：解析阶段看的是同一个启动文件、
+// 而且认出了核心和版本，才拿解析的补上；两边说的不是同一个 jar 时不拼凑，不然核心、版本、启动文件可能出自两个 jar。
+// 版本用的是 sc 认出来的（jar 里写着的），就不算从日志认的（A44）。
+func importedFromScan(sc *AdoptScan, pack *modpack.Pack) (importedServer, bool) {
+	if mcsrc.ValidCore(mcsrc.Core(sc.Core)) && sc.MC != "" && sc.LaunchTarget != "" {
+		return importedServer{core: mcsrc.Core(sc.Core), mc: sc.MC, build: sc.Build, launch: sc.LaunchTarget, javaMajor: sc.JavaMajor}, true
+	}
+	if sc.LaunchTarget == "" || sc.LaunchTarget != pack.Launch || !mcsrc.ValidCore(pack.Core) || pack.MC == "" {
+		return importedServer{}, false
+	}
+	s := importedServer{core: pack.Core, mc: pack.MC, build: pack.Loader, launch: sc.LaunchTarget, javaMajor: sc.JavaMajor, mcFromLog: pack.MCFromLog}
+	if sc.Build != "" {
+		s.build = sc.Build
+	}
+	if sc.MC != "" {
+		s.mc, s.mcFromLog = sc.MC, false
+	}
+	return s, true
+}
+
+// noteMCFromLog 版本号是从压缩包里的日志认出来的（A44）：任务日志和结果里都说明，它是上一次开服时的版本，未必是现在的。
+func noteMCFromLog(t *tasks.Task, mc string) {
+	t.Logf("版本号 %s 是从压缩包里的 logs/latest.log 认出来的（服务端 jar 里没写）", mc)
+	t.AddWarning(tasks.Warning{Kind: "mc-from-log", Title: "版本号是从日志里认出来的",
+		Note: fmt.Sprintf("服务端 jar 里没写 Minecraft 版本，%s 是从压缩包里的 logs/latest.log 认出来的，是这台服务器上一次开服时的版本。"+
+			"版本号决定用哪个 Java、要不要加 log4shell 防护；要是后来换过服务端，这里就不对了，可以先解压，用「新建服务器 → 接管已有服务器」自己填版本。", mc)})
 }
 
 // applyServerProps 端口按导入页上填的改。压缩包里本来就有 server.properties 时，正版验证和允许飞行保留原样：

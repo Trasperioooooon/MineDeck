@@ -2861,6 +2861,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       const inst = await page.$eval(".modal #tn-imp-bound", s => [...s.options].map(o => o.value).find(v => v) || "");
       assert(inst, "导入弹窗里应能选实例");
       await page.selectOption(".modal #tn-imp-bound", inst);
+      await page.check(".modal #tn-imp-auto"); // 默认不勾（A62），这里要验的是勾上的值也带得出去
       await page.click('.modal [data-x="ok"]');
       const last = await taWait("lastImport", v => v.proxyId === "1001");
       assert(last && last.boundInstance === inst && last.autoStart === true,
@@ -3120,23 +3121,25 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(await page.$eval(".toast.error", t => !t.textContent.includes("Access is denied")), "提示正文不该是系统的英文原文");
       assert(await localTunnels() === before, "导入失败后本机列表不该多出隧道");
       await modalGone(); await settle(400);
-      // 创建：平台上建好了、本机存不上，提示要说去导入、别再创建
+      // 创建：平台上建好了、本机存不上，要说去导入、别再创建。原因写在对话框里（A57 起不再只弹提示）：正文接后端那句人话，
+      // 复制键里是完整原文
       await page.click('#tn-acc-panel [data-acc-create="openfrp"]');
       await page.waitForSelector("#tn-cr-name");
       await page.fill("#tn-cr-name", "mc_savefail");
       await page.click('.modal [data-x="ok"]');
       await taWait("lastCreate", v => v.name === "mc_savefail");
       const CHINT = "平台上的隧道已建好，但没能存进 MineDeck。检查磁盘后在平台隧道列表里导入它，不要再创建";
-      assert(await toastHas(CHINT), "创建失败应提示平台上已建好、去导入");
+      const crErr = await page.waitForFunction(h => { const e = document.querySelector(".modal #tn-cr-err"); return !!e && e.textContent.includes(h); }, CHINT, { timeout: 3000 }).then(() => true, () => false);
+      assert(crErr, "创建失败应在对话框里说平台上已建好、去导入：" + await page.$eval(".modal #tn-cr-err", e => e.textContent).catch(() => "（对话框没了）"));
       assert(!(await toastHas("已创建并导入", 300)), "写不进去时不该提示已创建并导入");
-      const cr = await toastDetail(CHINT);
-      assert(cr.includes("平台上的隧道已经建好") && cr.includes("Access is denied"), "「详情」里应是完整原文：" + cr);
+      const cr = await page.$eval(".modal #tn-cr-err [data-err-raw]", b => b.getAttribute("data-err-raw"));
+      assert(cr.includes("平台上的隧道已经建好") && cr.includes("Access is denied"), "复制键里应是完整原文：" + cr);
+      assert(!(await page.$eval("#tn-cr-err", e => e.textContent.includes("Access is denied"))), "正文不该是系统的英文原文");
       assert(await localTunnels() === before, "创建失败后本机列表不该多出隧道");
       // 磁盘恢复以后：再建一条照常成功，刚才平台上建好、本机没存上的那条也能导入（两条编号不能撞上，Codex 复审发现仿真后端撞过）
       const failedId = String(((await taState({})).overviews.openfrp.tunnels.find(t => t.name === "mc_savefail") || {}).id || "");
       assert(failedId, "平台概览里应有刚才建好的那条");
-      const cancel = await page.$('.modal [data-x="cancel"]'); // 看「详情」时按的 Esc 可能已经把创建对话框一起关了
-      if (cancel) await cancel.click();
+      await page.click('.modal [data-x="cancel"]');
       await modalGone();
       await taState({ tunnelAccounts: { saveFail: false } });
       await page.click('#tn-acc-panel [data-acc-create="openfrp"]');
@@ -3157,6 +3160,217 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(await localTunnels() === before + 2, "恢复以后本机应多出两条");
       assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
     } finally { await resetTA(); }
+  });
+
+  // 创建隧道失败（A57）：对话框留着、写明原因（后端给的话）、填的东西都在，后面的概览重新拉。平台上没建成的，按钮恢复、改了再试；
+  // 平台上已经建好、本机没导入成的（后端回 created），再点一次平台上就多一条：「创建并导入」锁住，换成「关闭，去导入」，
+  // 关掉以后去概览里导入那一条。成功时对话框关掉、概览里有新隧道
+  await run("平台账户：创建隧道失败时原因写在对话框里、概览重新拉；平台上没建成的按钮恢复，建成了的锁住、换成「关闭，去导入」；成功后关掉对话框、概览里有新隧道", async () => {
+    await taState({ tunnelAccounts: { reset: true, openfrp: true }, tunnelsReset: true });
+    const errText = () => page.$eval(".modal #tn-cr-err", e => e.textContent.trim()).catch(() => "（对话框没了）");
+    const createPosts = since => reqs.slice(since).filter(r => r.m === "POST" && r.u === "/api/tunnel-accounts/openfrp/tunnels").length;
+    const btns = () => page.evaluate(() => {
+      const b = x => document.querySelector(`.modal [data-x="${x}"]`) || {};
+      return { okHidden: b("ok").hidden, okDisabled: b("ok").disabled, goHidden: b("go-import").hidden, goDisabled: b("go-import").disabled, goText: (b("go-import").textContent || "").trim() };
+    });
+    try {
+      errors.length = 0;
+      await openOverview("openfrp");
+      // 一：平台不接受（公网端口填成 0）：平台上什么都没建，按钮恢复，改了再试
+      await page.click('#tn-acc-panel [data-acc-create="openfrp"]');
+      await page.waitForSelector("#tn-cr-name");
+      await page.fill("#tn-cr-name", "mc_retry");
+      await page.fill("#tn-cr-rport", "0");
+      await page.click('.modal [data-x="ok"]');
+      await taWait("lastCreate", v => v.name === "mc_retry");
+      await page.waitForFunction(() => /\S/.test((document.querySelector(".modal #tn-cr-err") || {}).textContent || ""), null, { timeout: 3000 }).catch(() => {});
+      assert((await errText()).includes("没能创建隧道：OpenFrp 需要填写有效的公网端口"), "对话框里应写明原因：" + await errText());
+      assert(await page.$eval(".modal #tn-cr-name", e => e.value) === "mc_retry", "填的东西不该丢");
+      let b = await btns();
+      assert(!b.okHidden && !b.okDisabled && b.goHidden, "平台上没建成：「创建并导入」应恢复可点，不出「关闭，去导入」：" + JSON.stringify(b));
+      // 二：平台上建好了、本机写不进磁盘：原因照样在对话框里；「创建并导入」锁住，换成「关闭，去导入」，硬点也不再发创建
+      await taState({ tunnelAccounts: { saveFail: true } });
+      await page.fill("#tn-cr-rport", "25566");
+      const before = reqs.length;
+      await page.click('.modal [data-x="ok"]');
+      await taWait("lastCreate", v => v.name === "mc_retry" && v.remotePort === 25566);
+      await page.waitForFunction(() => ((document.querySelector(".modal #tn-cr-err") || {}).textContent || "").includes("平台上的隧道已建好"), null, { timeout: 3000 }).catch(() => {});
+      assert((await errText()).includes("平台上的隧道已建好，但没能存进 MineDeck"), "写不进磁盘时对话框里应说平台上已建好、去导入：" + await errText());
+      b = await btns();
+      assert(b.okHidden && b.okDisabled && !b.goHidden && !b.goDisabled && b.goText === "关闭，去导入", "平台上建好了：「创建并导入」应锁住、换成「关闭，去导入」：" + JSON.stringify(b));
+      await page.$eval('.modal [data-x="ok"]', x => x.click());
+      await settle(500);
+      assert(createPosts(before) === 1, "锁住以后再点也不该发创建：" + createPosts(before));
+      const made = (await taState({})).overviews.openfrp.tunnels.find(t => t.name === "mc_retry");
+      assert(made, "平台概览里应有刚建好的那条");
+      const impSel = `#tn-acc-panel [data-acc-import="openfrp"][data-proxy="${made.id}"]`;
+      await page.waitForSelector(impSel, { timeout: 3000 }).catch(() => {});
+      assert(await page.$(impSel), "对话框后面的概览应已重新拉过、能导入刚建好的那条");
+      // 三：点「关闭，去导入」：对话框关掉，焦点落在那一条的「导入到 MineDeck」上；磁盘恢复以后导入成功，不用再建
+      await page.click('.modal [data-x="go-import"]');
+      await modalGone();
+      assert(await page.$("#tn-cr-name") === null, "点「关闭，去导入」后对话框应关闭");
+      await page.waitForFunction(s => document.activeElement && document.activeElement.matches(s), impSel, { timeout: 3000 }).catch(() => {});
+      assert(await page.evaluate(s => !!document.activeElement && document.activeElement.matches(s), impSel), "焦点应落在刚建好那条的「导入到 MineDeck」上");
+      assert(createPosts(before) === 1, "关掉对话框也不该再发创建：" + createPosts(before));
+      await taState({ tunnelAccounts: { saveFail: false } });
+      await page.click(impSel);
+      await page.waitForSelector('.modal [data-x="ok"]');
+      await page.click('.modal [data-x="ok"]');
+      await taWait("lastImport", v => v.proxyId === String(made.id));
+      assert(await toastHas("已导入到 MineDeck"), "刚才建好、没存上的那条应能导入");
+      await modalGone();
+      await page.waitForFunction(() => document.querySelector("#tun-list") && document.querySelector("#tun-list").textContent.includes("mc_retry"), null, { timeout: 3000 }).catch(() => {});
+      assert(await page.$eval("#tun-list", e => e.textContent.includes("mc_retry")), "本机隧道列表里应有导入的那条");
+      // 四：再建一条：成功，对话框关掉，概览和本机列表里都有新隧道
+      await page.click('#tn-acc-panel [data-acc-create="openfrp"]');
+      await page.waitForSelector("#tn-cr-name");
+      await page.fill("#tn-cr-name", "mc_ok");
+      await page.click('.modal [data-x="ok"]');
+      await taWait("lastCreate", v => v.name === "mc_ok");
+      assert(await toastHas("已创建并导入"), "应提示已创建并导入");
+      await modalGone();
+      assert(await page.$("#tn-cr-name") === null, "成功后对话框应关闭");
+      await page.waitForFunction(() => [...document.querySelectorAll("#tn-acc-panel [data-plat-tun]")].some(r => r.textContent.includes("mc_ok")), null, { timeout: 3000 }).catch(() => {});
+      assert(await page.evaluate(() => [...document.querySelectorAll("#tn-acc-panel [data-plat-tun]")].some(r => r.textContent.includes("mc_ok"))), "概览里应有新隧道");
+      await page.waitForFunction(() => document.querySelector("#tun-list") && document.querySelector("#tun-list").textContent.includes("mc_ok"), null, { timeout: 3000 }).catch(() => {});
+      assert(await page.$eval("#tun-list", e => e.textContent.includes("mc_ok")), "本机隧道列表里应有新隧道");
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await resetTA(); }
+  });
+
+  // 樱花创建框请求途中（A57）：以前切一下「这是公开服务器」节点列表重画，「创建并导入」跟着被放开，能发第二次创建，
+  // 平台上多出一条。现在请求途中开关和按钮都锁着，硬点也只发一次
+  await run("平台账户：樱花创建框请求途中「这是公开服务器」和「创建并导入」都锁着，硬点也只发一次创建", async () => {
+    const pattern = "**/api/tunnel-accounts/natfrp/tunnels";
+    const slow = async route => { await new Promise(r => setTimeout(r, 1500)); await route.continue(); };
+    const locked = () => page.evaluate(() => {
+      const ok = document.querySelector('.modal [data-x="ok"]'), pub = document.querySelector(".modal #tn-cr-public");
+      return { ok: ok.disabled, pub: pub.disabled, checked: pub.checked };
+    });
+    await taState({ tunnelAccounts: { reset: true, natfrp: true }, tunnelsReset: true });
+    try {
+      errors.length = 0;
+      await openOverview("natfrp");
+      await page.click('#tn-acc-panel [data-acc-create="natfrp"]');
+      await page.waitForSelector("#tn-cr-public");
+      const n0 = (await taState({})).overviews.natfrp.tunnels.length;
+      await page.route(pattern, slow);
+      const before = reqs.length;
+      await page.click('.modal [data-x="ok"]');
+      let l = await locked();
+      assert(l.ok && l.pub && !l.checked, "请求途中按钮和「这是公开服务器」都应锁住：" + JSON.stringify(l));
+      await page.$eval(".modal #tn-cr-public", x => x.click());
+      l = await locked();
+      assert(l.ok && l.pub && !l.checked, "请求途中硬点开关也不该切过去、放开按钮：" + JSON.stringify(l));
+      await page.$eval('.modal [data-x="ok"]', x => x.click());
+      assert(await toastHas("已创建并导入", 4000), "这一次创建应成功");
+      await modalGone(); await settle(300);
+      const posts = reqs.slice(before).filter(r => r.m === "POST" && r.u === "/api/tunnel-accounts/natfrp/tunnels").length;
+      const n1 = (await taState({})).overviews.natfrp.tunnels.length;
+      assert(posts === 1 && n1 === n0 + 1, `只该发一次创建：发了 ${posts} 次，平台隧道 ${n0} → ${n1}`);
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await page.unroute(pattern, slow); await resetTA(); }
+  });
+
+  // 樱花创建框：平台上没建成的，「这是公开服务器」跟着按钮放开；平台上已经建好的（created），开关也锁着。以前建好以后还能切，
+  // 没有公开服节点的账户切过去，「平台上的隧道已建好……」那句会被「没有可用的公开服专用节点」盖掉，底下却还是「关闭，去导入」（A57）
+  await run("平台账户：樱花创建框没建成时「这是公开服务器」放开，平台上已建好以后锁着，「平台上的隧道已建好」那句不被盖掉", async () => {
+    await taState({ tunnelAccounts: { reset: true, natfrp: true, saveFail: true, overviews: { natfrp: { nodes: [
+      { id: 11, name: "北京联通", description: "仅 TCP", canCreate: true, tcp: true, udp: false, publicGameAllowed: false },
+    ] } } }, tunnelsReset: true });
+    const dlg = () => page.evaluate(() => {
+      const q = s => document.querySelector(".modal " + s) || {};
+      return { ok: q('[data-x="ok"]').disabled, pub: q("#tn-cr-public").disabled, checked: q("#tn-cr-public").checked,
+        err: (q("#tn-cr-err").textContent || "").trim(), goHidden: q('[data-x="go-import"]').hidden };
+    });
+    try {
+      errors.length = 0;
+      await openOverview("natfrp");
+      await page.click('#tn-acc-panel [data-acc-create="natfrp"]');
+      await page.waitForSelector("#tn-cr-public");
+      // 一：本地端口填 0，平台上没建成：按钮和开关都放开，改了再试
+      await page.fill("#tn-cr-lport", "0");
+      await page.click('.modal [data-x="ok"]');
+      await taWait("lastCreate", v => v.provider === "natfrp" && v.localPort === 0);
+      await page.waitForFunction(() => /\S/.test((document.querySelector(".modal #tn-cr-err") || {}).textContent || ""), null, { timeout: 3000 }).catch(() => {});
+      let d = await dlg();
+      assert(!d.ok && !d.pub && d.goHidden, "平台上没建成：按钮和「这是公开服务器」都应放开：" + JSON.stringify(d));
+      // 二：平台上建好了、本机写不进磁盘：开关锁住，硬点也不切过去，报错那句还在
+      await page.fill("#tn-cr-lport", "25565");
+      await page.click('.modal [data-x="ok"]');
+      await taWait("lastCreate", v => v.provider === "natfrp" && v.localPort === 25565);
+      await page.waitForFunction(() => ((document.querySelector(".modal #tn-cr-err") || {}).textContent || "").includes("平台上的隧道已建好"), null, { timeout: 3000 }).catch(() => {});
+      d = await dlg();
+      assert(d.pub && !d.checked && !d.goHidden && d.err.includes("平台上的隧道已建好"), "平台上建好了：「这是公开服务器」应锁住、报错那句在：" + JSON.stringify(d));
+      await page.$eval(".modal #tn-cr-public", x => x.click());
+      await settle(200);
+      d = await dlg();
+      assert(d.pub && !d.checked && !d.goHidden && d.err.includes("平台上的隧道已建好") && !d.err.includes("没有可用的公开服专用节点"),
+        "硬点开关也不该切过去、盖掉「平台上的隧道已建好」：" + JSON.stringify(d));
+      await page.click('.modal [data-x="go-import"]');
+      await modalGone();
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await resetTA(); }
+  });
+
+  // 「跟随服务器启动」默认不勾（A62，以前三处都默认勾着）：勾上以后每次开服都自动映射到公网，要人自己决定。
+  // 手动添加、导入平台隧道、在平台上创建三处一样，不勾时请求里是 false
+  await run("隧道：添加、导入、平台上创建三处的「跟随服务器启动」默认都不勾，不勾时请求里是 false", async () => {
+    await taState({ tunnelAccounts: { reset: true, openfrp: true }, tunnelsReset: true });
+    try {
+      errors.length = 0;
+      await musicState({ music: { reset: true } });
+      await openOverview("openfrp");
+      // 手动添加
+      await page.click("#tn-toggle");
+      assert(await page.$eval("#tn-auto", e => e.checked) === false, "添加表单里默认应不勾");
+      await page.selectOption("#tn-provider", "natfrp");
+      await page.fill("#tn-name", "默认不跟随"); await page.fill("#tn-cred", "fake-key-123"); await page.fill("#tn-proxy", "123456");
+      await page.click("#tn-add");
+      assert(await toastHas("隧道已添加"), "应添加成功");
+      const body = (await musicState({})).music.tunnelBody;
+      assert(body && body.autoStart === false, "添加的请求体：" + JSON.stringify(body));
+      // 导入平台隧道
+      await page.click('#tn-acc-panel [data-acc-import="openfrp"][data-proxy="1001"]');
+      await page.waitForSelector(".modal #tn-imp-auto");
+      assert(await page.$eval(".modal #tn-imp-auto", e => e.checked) === false, "导入对话框里默认应不勾");
+      await page.click('.modal [data-x="ok"]');
+      const imp = await taWait("lastImport", v => v.proxyId === "1001");
+      assert(imp && imp.autoStart === false, "导入的请求体：" + JSON.stringify(imp));
+      await modalGone(); await settle(300);
+      // 在平台上创建
+      await page.click('#tn-acc-panel [data-acc-create="openfrp"]');
+      await page.waitForSelector(".modal #tn-cr-auto");
+      assert(await page.$eval(".modal #tn-cr-auto", e => e.checked) === false, "创建对话框里默认应不勾");
+      await page.fill("#tn-cr-name", "mc_nofollow");
+      await page.click('.modal [data-x="ok"]');
+      const cr = await taWait("lastCreate", v => v.name === "mc_nofollow");
+      assert(cr && cr.autoStart === false, "创建的请求体：" + JSON.stringify(cr));
+      await modalGone();
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await resetTA(); await resetMusic(); }
+  });
+
+  // 手动添加隧道请求途中不许再点（A57）：以前连点两下会发两次，加出两条一样的隧道
+  await run("隧道：手动添加的按钮请求途中不能再点，连点两下只发一次", async () => {
+    await taState({ tunnelAccounts: { reset: true }, tunnelsReset: true });
+    try {
+      errors.length = 0;
+      await musicState({ music: { reset: true } });
+      await page.goto(url("#/tunnels")); await settle();
+      await page.click("#tn-toggle");
+      await page.selectOption("#tn-provider", "natfrp");
+      await page.fill("#tn-name", "连点测试"); await page.fill("#tn-cred", "fake-key-123"); await page.fill("#tn-proxy", "123456");
+      const before = reqs.length;
+      await page.evaluate(() => { const b = document.querySelector("#tn-add"); b.click(); b.click(); });
+      assert(await toastHas("隧道已添加"), "应添加成功");
+      await settle(300);
+      const posts = reqs.slice(before).filter(r => r.m === "POST" && r.u === "/api/tunnels").length;
+      assert(posts === 1, "连点两下只该发一次：" + posts);
+      assert(await page.$eval("#tn-add", b => !b.disabled), "请求结束后按钮应恢复");
+      assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+    } finally { await resetTA(); await resetMusic(); }
   });
 
   // 手动新增走 toastErr → errSummary：后端给的 hint 要被接进正文（这一条也就验了 hint 守 errSummary 的规矩）
@@ -6490,6 +6704,83 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       } finally { await fState({ taskList: [] }); }
     });
 
+    await run("导入交接包失败以后「返回修改」回到导入交接包：选过的包重新上传，填的名称、端口、内存、Java 和 EULA 都在（A49）", async () => {
+      const failTransfer = r => r.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, data: { id: "task-transfer-in", kind: "transfer-in",
+        title: "导入交接包 A 的服", ended: true, error: "交接包里的 server.properties 把世界文件夹指到了服务器文件夹外面",
+        steps: [{ name: "校验交接包", status: "error" }], warnings: [], log: [] } }) });
+      await page.route("**/api/tasks/task-transfer-in", failTransfer);
+      try {
+        await page.goto(url("#/create/transfer")); await page.waitForSelector("#tp-file");
+        await page.setInputFiles("#tp-file", { name: "A 的服.mdpack", mimeType: "application/zip", buffer: Buffer.from("PK\u0003\u0004mdpack") });
+        await page.waitForSelector("#tp-name");
+        await page.fill("#tp-name", "交接回填服"); await page.fill("#tp-port", "25604"); await page.selectOption("#tp-java", "21"); await page.check("#tp-eula");
+        await page.fill("#tp-mem-mount .mem-num", "5120"); await page.press("#tp-mem-mount .mem-num", "Tab");
+        await page.click("#tp-go"); await page.waitForFunction(() => location.hash === "#/task/task-transfer-in");
+        await page.waitForSelector("#t-back-edit");
+        assert((await h1()) === "交接包没有导入成", "失败页的标题：" + await h1());
+        const uploads = reqs.filter(r => r.u === "/api/transfer/upload").length;
+        await page.click("#t-back-edit"); await page.waitForSelector("#tp-name");
+        const f = await page.evaluate(() => ({ hash: location.hash, file: ($("#tp-file").files[0] || {}).name || "", name: $("#tp-name").value, port: $("#tp-port").value,
+          java: $("#tp-java").value, eula: $("#tp-eula").checked, mem: $("#tp-mem").value }));
+        assert(f.hash === "#/create/transfer" && f.file === "A 的服.mdpack" && f.name === "交接回填服" && f.port === "25604" && f.java === "21" && f.eula && f.mem === "5120",
+          "返回修改以后的交接包表单：" + JSON.stringify(f));
+        assert(reqs.filter(r => r.u === "/api/transfer/upload").length === uploads + 1, "选回来的包应重新上传一遍");
+        await page.click("#tp-go"); await page.waitForFunction(() => location.hash === "#/task/task-transfer-in");
+        const lt = (await fState({})).lastTransferImport;
+        assert(lt.name === "交接回填服" && lt.port === 25604 && lt.javaMajor === 21 && lt.eula === true && lt.xmxMb === 5120, "再提交的请求：" + JSON.stringify(lt));
+      } finally { await page.unroute("**/api/tasks/task-transfer-in", failTransfer); }
+    });
+
+    await run("建服、导入失败时半成品没删干净（任务带 cleanupFailed）：失败框不说「已经清理干净」，说去「没建完的文件夹」里处理；只认这个字段，error 里有「清理半成品失败」几个字却没带它的照旧（A48）", async () => {
+      const err = id => `解压服务端失败（${id}）；清理半成品失败：remove paper.jar: The process cannot access the file`;
+      try {
+        await fState({ taskList: [
+          { id: "task-l1", title: "导入服务端 作者服", kind: "server-in", ended: true, error: err("task-l1"), cleanupFailed: true },
+          { id: "task-l2", title: "导入交接包 A 的服", kind: "transfer-in", ended: true, error: err("task-l2"), cleanupFailed: true },
+          { id: "task-l3", title: "导入整合包 测试整合包（forge 1.20.1）", ended: true, error: err("task-l3"), cleanupFailed: true },
+          { id: "task-l4", title: "导入服务端 作者服", kind: "server-in", ended: true, error: err("task-l4") },
+          { id: "task-l5", title: "导入交接包 A 的服", kind: "transfer-in", ended: true, error: "交接包里缺少启动文件（task-l5）" },
+        ] });
+        const box = async id => {
+          await page.goto(url("#/task/" + id));
+          await page.waitForFunction(id => (($("#t-msgs .err-box") || {}).textContent || "").includes(id), id);
+          return page.textContent("#t-msgs .err-box");
+        };
+        for (const id of ["task-l1", "task-l2", "task-l3"]) {
+          const t = await box(id);
+          assert(t.includes("文件夹没删干净") && t.includes("服务器页上方「没建完的文件夹」里") && !t.includes("已经清理干净") && !t.includes("再试一次很快"),
+            id + "：半成品没删干净时应说去没建完的文件夹里处理：" + t);
+        }
+        for (const id of ["task-l4", "task-l5"]) {
+          const t = await box(id);
+          assert(t.includes("半成品的文件夹已经清理干净，可以重试") && !t.includes("文件夹没删干净"), id + "：没带 cleanupFailed 的照旧接 failHint，不按 error 里的字认：" + t);
+        }
+      } finally { await fState({ taskList: [] }); }
+    });
+
+    await run("导入现成服务端：版本号是从压缩包里的日志认出来的，识别结果的提示里写明（A44）", async () => {
+      try {
+        await fState({ importPack: { name: "作者服", format: "server", core: "paper", mc: "1.20.1", loader: "", mcFromLog: true },
+          taskList: [{ id: "task-1", title: "导入服务端 作者服", kind: "server-in", ended: false }] });
+        await page.goto(url("#/create/import")); await page.waitForSelector("#im-file");
+        await page.setInputFiles("#im-file", { name: "作者服.zip", mimeType: "application/zip", buffer: Buffer.from("PK\u0003\u0004server") });
+        await page.check("#im-eula");
+        await page.click("#im-go");
+        await page.waitForFunction(() => [...document.querySelectorAll(".toast")].some(t => t.textContent.includes("已识别为现成服务端")));
+        const t = await page.$$eval(".toast", ts => ts.map(x => x.textContent).join("|"));
+        assert(t.includes("paper 1.20.1") && t.includes("版本号是从压缩包里的日志认出来的"), "提示里要写明版本号从哪来：" + t);
+        await fState({ importPack: { name: "作者服", format: "server", core: "paper", mc: "1.20.1", loader: "", mcFromLog: false } });
+        await page.evaluate(() => document.querySelectorAll(".toast").forEach(x => x.remove()));
+        await page.goto(url("#/create/import")); await page.waitForSelector("#im-file");
+        await page.setInputFiles("#im-file", { name: "作者服.zip", mimeType: "application/zip", buffer: Buffer.from("PK\u0003\u0004server") });
+        await page.check("#im-eula");
+        await page.click("#im-go");
+        await page.waitForFunction(() => [...document.querySelectorAll(".toast")].some(t => t.textContent.includes("已识别为现成服务端")));
+        const t2 = await page.$$eval(".toast", ts => ts.map(x => x.textContent).filter(x => x.includes("已识别为现成服务端")).pop());
+        assert(!t2.includes("日志"), "jar 里写了版本时不该提日志：" + t2);
+      } finally { await fState({ importPack: null, taskList: [] }); }
+    });
+
     await run("beta.3 流程 R13：接管失败以后「返回修改」重新识别那个文件夹，改过的名称、内存和 Java 还在", async () => {
       const failAdopt = r => r.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, data: { id: "task-adopt", kind: "adopt", title: "接管 回填", ended: true,
         error: "文件夹被别的程序占着", steps: [{ name: "检查服务器文件夹", status: "error" }], log: [] } }) });
@@ -6625,6 +6916,28 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         const v = await page.evaluate(n => fetch(`/api/instances/${encodeURIComponent(n)}/import-pending`, { headers: { "X-Token": "mock" } }).then(r => r.json()), PACK);
         assert(v.ok && v.data.skipped.length === 1 && v.data.pending.length === 0, "按服务器的接口：" + JSON.stringify(v));
       } finally { await fState({ taskList: [], trustedHosts: [] }); }
+    });
+
+    await run("导入整合包完成：结果里列出导入时跳过的文件；留下了没装上的文件的清单时，任务页有「打开服务器文件夹」（只在本机，A46）", async () => {
+      const task = { id: "task-skip", title: "导入整合包 原版包（vanilla 1.20.1）", ended: true, result: PACK,
+        warnings: [{ kind: "import-skipped", title: "2 个文件没有装进来", note: "导入时跳过了这些文件，原因写在每一项后面。",
+          items: [{ name: "resourcepacks/光影.zip（整合包清单里写明只给客户端用）" }, { name: "config/CON.txt（名字在 Windows 上写不出来）" }] }],
+        pending: [{ id: "p1", path: "datapacks/x.zip", reason: "nohash", options: ["skip", "local"] }] };
+      try {
+        await fState({ taskList: [task] });
+        await page.goto(url("#/task/task-skip")); await page.waitForSelector("#t-open-inst-dir");
+        const msgs = await page.textContent("#t-msgs");
+        assert(msgs.includes("2 个文件没有装进来") && msgs.includes("resourcepacks/光影.zip（整合包清单里写明只给客户端用）"), "结果里应列出跳过的文件：" + msgs);
+        await page.click("#t-open-inst-dir"); await settle(300);
+        const st = await fState({});
+        assert(st.lastOpenDir && st.lastOpenDir.inst === PACK && !st.lastOpenDir.sub, "应打开这台服务器的文件夹：" + JSON.stringify(st.lastOpenDir));
+        await fState({ taskList: [{ ...task, pending: [] }] });
+        await page.goto(url("#/task/task-skip")); await page.waitForSelector("#t-foot a.primary"); await settle(300);
+        assert(await page.locator("#t-open-inst-dir").count() === 0, "没有留下清单时不该有这个按钮");
+        await fState({ taskList: [task], local: false });
+        await page.goto(url("#/task/task-skip")); await page.waitForSelector("#t-pending .pnd-item"); await settle(300);
+        assert(await page.locator("#t-open-inst-dir").count() === 0, "局域网打开的不该有这个按钮");
+      } finally { await fState({ taskList: [], local: true }); }
     });
 
     await run("beta.3 流程 R13：导出交接包的任务页侧栏亮「服务器」，完成后标题是「交接包已导出」，有「打开所在文件夹」（只在本机）", async () => {

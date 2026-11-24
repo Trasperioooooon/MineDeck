@@ -59,9 +59,10 @@ func frpcGoneHint(exe string) string {
 	return hint
 }
 
-// frpcAfterExtract 解压完以后找 frpc。压缩包里有 frpc、解压完却找不到，算 errFrpcGone；包里本来就没有，返回 notFound。
-func frpcAfterExtract(dir string, extracted []string, notFound error) (string, error) {
-	if exe := findExe(dir); exe != "" {
+// frpcAfterExtract 解压完以后找 frpc，跳过 skip 里这一轮已经判坏的（见 usableFrpc）。
+// 压缩包里有 frpc、解压完却找不到，算 errFrpcGone；包里本来就没有，返回 notFound。
+func frpcAfterExtract(dir string, extracted, skip []string, notFound error) (string, error) {
+	if exe := findExe(dir, skip...); exe != "" {
 		return exe, nil
 	}
 	for _, n := range extracted {

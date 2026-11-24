@@ -96,6 +96,13 @@ func TestCreateFailureAndCancellationNeverPublish(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			// 照建服流程：建好文件夹先放创建记号，再往里写东西（清理只整个删放过记号的，见 discardCreatingDir）
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := WriteCreatingMarker(dir, req.Name); err != nil {
+				t.Fatal(err)
+			}
 			writeTree(t, dir, map[string]string{"config/partial.toml": "partial"})
 			i := &Instance{Settings: Settings{Name: req.Name}, Dir: dir}
 			task, ctx := m.Tasks.New("创建", nil)

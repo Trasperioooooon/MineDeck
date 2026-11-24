@@ -256,6 +256,9 @@ func TestRoutesKeepPathsAndSemantics(t *testing.T) {
 		// 清除凭据要明说（clearCredential），而且只有自定义 frps 能清；上面新增的自定义 frps 是 tun2
 		{"PUT", "/api/tunnels/" + e.tunID, `{"provider":"natfrp","name":"樱花 2","proxyId":"9","clearCredential":true}`, 400, "只有自定义 frps 的隧道能清除凭据", nil},
 		{"PUT", "/api/tunnels/tun2", `{"provider":"custom","name":"自建","serverAddr":"5.6.7.8","serverPort":7000,"remotePort":25566,"localPort":25565,"clearCredential":true}`, 200, "", nil},
+		// OpenFrp、樱花的隧道 ID 只收数字（A60）：新增和修改都回 400
+		{"POST", "/api/tunnels", `{"provider":"natfrp","name":"樱花 3","credential":"` + sakuraKey + `","proxyId":"8,9"}`, 400, "隧道 ID 只能是数字", nil},
+		{"PUT", "/api/tunnels/" + e.tunID, `{"proxyId":"8,9"}`, 400, "隧道 ID 只能是数字", nil},
 		{"DELETE", "/api/tunnels/tun999", "", 400, "隧道不存在", nil},
 		{"POST", "/api/tunnels/" + e.tunID + "/start", "", 400, "首次使用需手动放置樱花 frpc", nil},
 		{"POST", "/api/tunnels/" + e.tunID + "/stop", "", 400, "隧道未在运行", nil},

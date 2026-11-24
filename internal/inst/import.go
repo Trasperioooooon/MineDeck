@@ -81,11 +81,11 @@ func (m *Manager) ImportModpackAsync(pack *modpack.Pack, req CreateReq, cfKey st
 		if err := m.runImport(ctx, t, pack, req, dir, cfKey); err != nil {
 			m.forgetPending(t.ID())
 			t.SetPending(nil)
-			for _, kind := range []string{"import-pending", "cf-unresolved", "import-kept", "java-req"} {
+			for _, kind := range []string{"import-pending", "cf-unresolved", "import-kept", "java-req", "import-case", "import-skipped"} {
 				t.RemoveWarning(kind)
 			}
-			// 先清后报失败：任务一显示失败，半成品就得已经删干净了
-			failCreate(t, err, m.discardCreating(req.Name, dir))
+			// 先清后报失败：任务一显示失败，半成品就得已经删干净了（删不干净的带着记号留在「没建完的文件夹」里，见 discardCreatingDir）
+			failCreate(t, err, m.discardFailed(err, req.Name, dir))
 			return
 		}
 		t.Finish(req.Name)
@@ -178,8 +178,10 @@ func (m *Manager) applyModpack(ctx context.Context, t *tasks.Task, pack *modpack
 			})
 		}
 	}
-	// 清单里点名要下载的文件，落点也不能是 MineDeck 自己的文件：实例这时已经登记好了，
-	// 清单里写一条 path 是 instance.json 的，下载下来就把刚登记的那份顶掉了。覆盖目录那边同理（见下面）。
+	// 清单里点名要下载的文件，落点也不能是 MineDeck 自己的文件。这时还没登记（下载和覆盖都在 completeCreate 之前），
+	// 登记只按内存里的设置重写 instance.json 和 run.bat：老版本的日志配置、游戏内 AI 的设置这些下载下来就算数了；
+	// 带着创建记号的文件夹里也不能出现外来的 instance.json，这时程序没了，下次启动会当成登记写到一半（promoteCreatedRoots）。
+	// 覆盖目录那边同理（见 overrideSink.write）。
 	var refused []string
 	files = slices.DeleteFunc(files, func(f modpack.File) bool {
 		if overrideAllowed(f.Path) {
@@ -194,6 +196,10 @@ func (m *Manager) applyModpack(ctx context.Context, t *tasks.Task, pack *modpack
 	files, dupDL := dedupeDownloads(files)
 	if len(dupDL) > 0 {
 		t.Logf("整合包清单里的这些文件和前面的落点只差大小写，在 Windows 上是同一个文件，没有下载（留的是前面那个）：%s", shortNames(dupDL, 8))
+	}
+	if overrides, err := modpack.OverrideFiles(pack); err == nil { // 读不了的，应用覆盖目录那一步会报出来
+		conflicts := modpackCaseConflicts(files, dupDL, overrides)
+		addCaseWarning(t, conflicts, len(conflicts))
 	}
 	var total int64
 	for _, f := range files {
@@ -274,8 +280,10 @@ func (m *Manager) applyModpack(ctx context.Context, t *tasks.Task, pack *modpack
 	pending := job.take()
 	var kept []keptFile
 	var remain []modpack.PendingFile
+	skipped := skippedFiles(pack.ClientOnly, refused, sink.notTaken)
 	for _, p := range pending {
 		if p.file.Reason != "cf" && !overrideAllowed(p.file.Path) {
+			skipped = append(skipped, skippedFile{p.file.Path, notTakenWhy(p.file.Path)})
 			continue // 落点是 MineDeck 自己的文件：不继承，也不列进待决清单
 		}
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(p.file.Path))); err == nil {
@@ -293,10 +301,145 @@ func (m *Manager) applyModpack(ctx context.Context, t *tasks.Task, pack *modpack
 		}
 		remain = append(remain, p.file)
 	}
+	addSkippedWarning(t, skipped, len(skipped))
 	// 最终控制文件由 completeCreate 重写；这时实例仍不可见。
 	restoreLog4jXML(ctx, t, i)
 	m.finishImportPack(t, i, pack.Name, remain, kept)
 	return nil
+}
+
+// caseConflict 一组只差大小写的落点：Windows 上是同一个文件，只留下一份。names 按写的先后，kept 是内容留下来的那个。
+type caseConflict struct {
+	names []string
+	kept  string
+	why   string // 为什么留它
+}
+
+// modpackCaseConflicts 导入整合包之前找出只差大小写的落点（A13、A47）：清单里下载的之间（dedupeDownloads 只下载前面那个），
+// 下载的和覆盖文件夹里的、覆盖文件夹里的之间（先下载、再一层层写覆盖文件夹，后写的盖掉先写的）。留哪个的规矩不变，
+// 只是在导入结果里列出来，不再只写在日志里。files 是去过重的下载清单，dupDL 是去掉的那些，overrides 是覆盖文件夹里的（按写的先后）。
+func modpackCaseConflicts(files []modpack.File, dupDL, overrides []string) []caseConflict {
+	var out []caseConflict
+	firstDL := map[string]string{}
+	for _, f := range files {
+		firstDL[winname.Fold(path.Clean(f.Path))] = f.Path
+	}
+	for _, d := range dupDL {
+		if k := firstDL[winname.Fold(path.Clean(d))]; k != "" && k != d { // 写法一模一样的不算只差大小写
+			out = append(out, caseConflict{names: []string{k, d}, kept: k, why: "清单里重名的只下载前面那个"})
+		}
+	}
+	type write struct {
+		name     string
+		override bool
+	}
+	groups := map[string][]write{}
+	var order []string
+	add := func(name string, override bool) {
+		k := winname.Fold(path.Clean(name))
+		if _, ok := groups[k]; !ok {
+			order = append(order, k)
+		}
+		groups[k] = append(groups[k], write{name, override})
+	}
+	for _, f := range files {
+		add(f.Path, false)
+	}
+	for _, o := range overrides {
+		if overrideAllowed(o) { // 不采用的不写，不算
+			add(o, true)
+		}
+	}
+	for _, k := range order {
+		ws := groups[k]
+		var names []string
+		fromDL := false
+		for _, w := range ws {
+			if !slices.Contains(names, w.name) {
+				names = append(names, w.name)
+			}
+			fromDL = fromDL || !w.override
+		}
+		if len(names) < 2 {
+			continue
+		}
+		why := "覆盖文件夹里后写的盖掉先写的"
+		if fromDL {
+			why = "覆盖文件夹里的盖掉清单里下载的"
+		}
+		out = append(out, caseConflict{names: names, kept: ws[len(ws)-1].name, why: why})
+	}
+	return out
+}
+
+// maxWarnItems 一条告警最多列几项，多的说一共几个。
+const maxWarnItems = 50
+
+// warnItems 告警里列的项：最多 maxWarnItems 项。total 是一共有几个（names 可能已经只记了前面一部分），
+// 比列出来的多时末尾说一共几个，unit 是「个」「组」。
+func warnItems(names []string, total int, unit string) []tasks.WarnItem {
+	shown := names[:min(len(names), maxWarnItems)]
+	items := make([]tasks.WarnItem, 0, len(shown)+1)
+	for _, n := range shown {
+		items = append(items, tasks.WarnItem{Name: n})
+	}
+	if total > len(shown) {
+		items = append(items, tasks.WarnItem{Name: fmt.Sprintf("……一共 %d %s", total, unit)})
+	}
+	return items
+}
+
+// addCaseWarning 只差大小写的落点写进任务结果（A13、A47）。total 是一共几组（conflicts 可能只记了前面一部分）。
+func addCaseWarning(t *tasks.Task, conflicts []caseConflict, total int) {
+	if total == 0 {
+		return
+	}
+	names := make([]string, 0, min(len(conflicts), maxWarnItems))
+	for _, c := range conflicts[:min(len(conflicts), maxWarnItems)] {
+		names = append(names, fmt.Sprintf("%s：留下的是「%s」（%s）", strings.Join(c.names, "、"), c.kept, c.why))
+	}
+	t.AddWarning(tasks.Warning{Kind: "import-case", Title: fmt.Sprintf("%d 组文件名只差大小写", total),
+		Note: "Windows 上文件名不分大小写，每一组都是同一个文件，只留下一份：内容是下面写的那一个，文件名可能还是最先写的那种写法。" +
+			"要另一份的话，导入完成以后到服务器文件夹里自己换。",
+		Items: warnItems(names, total, "组")})
+}
+
+// skippedFile 导入时没装进来的一个文件和原因。
+type skippedFile struct{ path, why string }
+
+// skippedFiles 整合包导入时跳过的：清单里写明只给客户端用的、清单里和覆盖文件夹里不采用的（见 overrideAllowed）。
+func skippedFiles(clientOnly, refused, notTaken []string) []skippedFile {
+	var out []skippedFile
+	for _, p := range clientOnly {
+		out = append(out, skippedFile{p, "整合包清单里写明只给客户端用"})
+	}
+	for _, p := range append(slices.Clone(refused), notTaken...) {
+		out = append(out, skippedFile{p, notTakenWhy(p)})
+	}
+	return out
+}
+
+// notTakenWhy overrideAllowed 不收的文件为什么不收。
+func notTakenWhy(rel string) string {
+	if IsControlFile(path.Clean(strings.ReplaceAll(rel, `\`, "/"))) {
+		return "是 MineDeck 自己的文件，由 MineDeck 生成"
+	}
+	return "名字在 Windows 上写不出来"
+}
+
+// addSkippedWarning 导入时没装进来的文件写进任务结果（A46）。以前只写在任务日志里，原版服没有插件 / 模组页，导入完了就找不回来。
+// total 是一共几个（files 可能只记了前面一部分）。
+func addSkippedWarning(t *tasks.Task, files []skippedFile, total int) {
+	if total == 0 {
+		return
+	}
+	names := make([]string, 0, min(len(files), maxWarnItems))
+	for _, f := range files[:min(len(files), maxWarnItems)] {
+		names = append(names, fmt.Sprintf("%s（%s）", f.path, f.why))
+	}
+	t.AddWarning(tasks.Warning{Kind: "import-skipped", Title: fmt.Sprintf("%d 个文件没有装进来", total),
+		Note:  "导入时跳过了这些文件，原因写在每一项后面。只给客户端用的本来就不该装在服务器上；要用别的，导入完成以后自己放进服务器文件夹。",
+		Items: warnItems(names, total, "个")})
 }
 
 // dedupeDownloads 清单里落点只差大小写的（一模一样的也算）在 Windows 上是同一个文件，而下载是并发的，会同时写它：
@@ -332,9 +475,10 @@ func newOverrideSinkContext(ctx context.Context, dir string) *overrideSink {
 }
 
 func (s *overrideSink) write(rel string, r io.Reader) error {
-	// 覆盖目录是整合包作者给的文件，写进来的时候实例已经登记好了：MineDeck 自己的文件（instance.json、run.bat、
-	// 老版本的日志配置、游戏内 AI 的设置这些）不能让它顶掉，否则重启 MineDeck 以后用哪个 Java、带什么参数、
-	// 有哪些定时任务就都是整合包说了算。名字在 Windows 上写不出原样的（设备名、结尾是点或空格的）也不收。
+	// 覆盖目录是整合包作者给的文件，写进来的时候实例还没登记（登记在最后，completeCreate）：MineDeck 自己的文件
+	// （instance.json、run.bat、老版本的日志配置、游戏内 AI 的设置这些）一律不收。登记只重写 instance.json 和 run.bat，
+	// 别的收进来就生效了；外来的 instance.json 还会让中途断掉的导入在下次启动时被当成登记写到一半（promoteCreatedRoots）。
+	// 名字在 Windows 上写不出原样的（设备名、结尾是点或空格的）也不收。
 	if !overrideAllowed(rel) {
 		s.notTaken = append(s.notTaken, rel)
 		return nil
@@ -369,10 +513,16 @@ func (s *overrideSink) write(rel string, r io.Reader) error {
 
 // shortNames 写进任务日志的文件清单：最多列 max 个，多的说一共几个。
 func shortNames(items []string, max int) string {
-	if len(items) <= max {
-		return strings.Join(items, "、")
+	return shortNamesOf(items, len(items), max)
+}
+
+// shortNamesOf 同 shortNames，total 是一共几个（items 可能只记了前面一部分）。
+func shortNamesOf(items []string, total, max int) string {
+	shown := items[:min(len(items), max)]
+	if total <= len(shown) {
+		return strings.Join(shown, "、")
 	}
-	return strings.Join(items[:max], "、") + fmt.Sprintf("、…等 %d 个", len(items))
+	return strings.Join(shown, "、") + fmt.Sprintf("、…等 %d 个", total)
 }
 
 // overrideAllowed 整合包覆盖目录里的这个文件（rel 相对实例目录，斜杠分隔）能不能写进来。规矩见 runImport 里用它的地方。

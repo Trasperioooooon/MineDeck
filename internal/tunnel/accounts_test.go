@@ -110,6 +110,9 @@ type openFrpServer struct {
 	created   bool
 	newName   string
 	clientPub *[32]byte
+
+	// newProxyReply 非空时由它回 newProxy（上面的 failNext、rotateTo 不管 newProxy），返回平台上是否真的建了
+	newProxyReply func(w http.ResponseWriter) (created bool)
 }
 
 func newOpenFrpServer(t *testing.T) *openFrpServer {
@@ -228,6 +231,12 @@ func newOpenFrpServer(t *testing.T) *openFrpServer {
 		name, _ := body["name"].(string)
 		if !openFrpTunnelName.MatchString(name) {
 			t.Errorf("不合规的隧道名不应发到 OpenFrp: %q", name)
+		}
+		if f.newProxyReply != nil {
+			if f.newProxyReply(w) {
+				f.created, f.newName = true, name
+			}
+			return
 		}
 		f.created, f.newName = true, name
 		writeOpenFrp(w, nil)

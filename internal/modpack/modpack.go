@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -70,6 +71,8 @@ type Pack struct {
 	OverrideDirs []string // 依序应用。清单外面若套了一层目录，这里已经带上那一层
 	Root         string   // 清单或服务端文件外面多套的那一层；空表示就在压缩包最外层
 	Launch       string   // 仅 server：认出来的启动方式（jar:… 或 args:…）。导入时还会用接管已有服务器的识别再对一遍
+	MCFromLog    bool     // 仅 server：MC 是从压缩包里的 logs/latest.log 认出来的（A44），别的地方都没写
+	ClientOnly   []string // 仅 mrpack：清单里写明服务端用不上（env.server 是 unsupported）、没有装的文件，导入结果里列出来（A46）
 }
 
 // Parse 识别并解析整合包 zip，或一份现成的服务端压缩包。
@@ -79,19 +82,61 @@ func Parse(zipPath string) (*Pack, error) {
 		return nil, fmt.Errorf("无法打开整合包（需为 .mrpack 或 zip）: %w", err)
 	}
 	defer zr.Close()
-	loc, err := findIndex(zr.File)
+	return parseFiles(zipPath, zr.File)
+}
+
+// parseFiles 认压缩包里的条目（Parse 打开以后的那一步）。zipPath 只记进 Pack，后面解压时再打开。
+// 最外层像服务端时只按最外层认（A40）；它的凭据只有 eula.txt、mods、plugins、libraries 这类旁证、又认不出核心的，
+// 再往里看一层（parseInside），里面也认不出就照旧说最外层认不出核心。
+func parseFiles(zipPath string, files []*zip.File) (*Pack, error) {
+	layout := newZipLayout(files)
+	outer := layout.looksLikeServer("")
+	p, err := parseLayout(zipPath, files, layout, outer)
+	if !outer || !layout.weakServer("") || !errors.Is(err, errServerUnknown) {
+		return p, err
+	}
+	return parseInside(zipPath, files, layout, err)
+}
+
+// parseInside 最外层像服务端、凭据只有旁证又认不出核心（outerErr）时往里看一层（A40）。里面的整合包清单照收：服务端包的
+// 最外层常带着 mods/，清单套在一层文件夹里。里面的服务端只在最外层的旁证只有 eula.txt、libraries/ 时收：带着 mods/、plugins/
+// 的最外层多半就是那台服务端本身（加载器、核心没放进来），里面的是备份之类，拿它顶替的话外面的模组和配置都丢了。
+func parseInside(zipPath string, files []*zip.File, layout zipLayout, outerErr error) (*Pack, error) {
+	if layout.hasModsOrPlugins("") {
+		loc, err := findIndex(files, layout, true)
+		if err != nil {
+			return nil, err
+		}
+		if loc == nil {
+			return nil, outerErr
+		}
+		return parseIndex(zipPath, loc)
+	}
+	inner, err := parseLayout(zipPath, files, layout, false)
+	if errors.Is(err, errUnrecognized) {
+		return nil, outerErr
+	}
+	return inner, err
+}
+
+// parseLayout 先找整合包清单，没有再认现成服务端。outer 为 true 时只按最外层认：文件夹里的清单不看，服务端就是最外层。
+func parseLayout(zipPath string, files []*zip.File, layout zipLayout, outer bool) (*Pack, error) {
+	loc, err := findIndex(files, layout, !outer)
 	if err != nil {
 		return nil, err
 	}
 	if loc != nil {
-		switch loc.kind {
-		case FormatMrpack:
-			return parseMrpack(zipPath, loc.file, loc.root)
-		default:
-			return parseCurseForge(zipPath, loc.file, loc.root)
-		}
+		return parseIndex(zipPath, loc)
 	}
-	return recognizeServer(zipPath, zr.File)
+	return recognizeServer(zipPath, files, layout, outer)
+}
+
+// parseIndex 按找到的那份清单解析整合包。
+func parseIndex(zipPath string, loc *indexLoc) (*Pack, error) {
+	if loc.kind == FormatMrpack {
+		return parseMrpack(zipPath, loc.file, loc.root)
+	}
+	return parseCurseForge(zipPath, loc.file, loc.root)
 }
 
 func readZipFile(f *zip.File, out any) error {
@@ -160,7 +205,10 @@ func parseMrpack(zipPath string, f *zip.File, root string) (*Pack, error) {
 	}
 	for _, fl := range idx.Files {
 		if fl.Env != nil && fl.Env.Server == "unsupported" {
-			continue // 仅客户端文件（材质、光影等）
+			if rel, err := safeRelPath(fl.Path); err == nil { // 仅客户端文件（材质、光影等）：不装，只记下来给人看
+				p.ClientOnly = append(p.ClientOnly, rel)
+			}
+			continue
 		}
 		rel, err := safeRelPath(fl.Path)
 		if err != nil {
@@ -459,6 +507,53 @@ func ResolveCF(ctx context.Context, refs []CFRef, apiKey string) (files []File, 
 	return files, unresolved, err
 }
 
+// overrideEntry 覆盖目录里要写进实例的一个文件。
+type overrideEntry struct {
+	f    *zip.File
+	rel  string // 相对实例目录
+	size int64
+}
+
+// overrideEntries 覆盖目录里要写进实例的文件，按写的先后：OverrideDirs 依次来，每个目录里按 zip 里的先后。
+// total 是按 zip 里写的大小合计。路径不安全的整包拒绝。
+func overrideEntries(files []*zip.File, dirs []string) (ents []overrideEntry, total int64, err error) {
+	for _, prefix := range dirs {
+		for _, f := range files {
+			name := zipNameOf(f)
+			if !strings.HasPrefix(name, prefix+"/") || isZipDir(f, name) || !f.Mode().IsRegular() {
+				continue
+			}
+			rel, err := safeRelPath(strings.TrimPrefix(name, prefix+"/"))
+			if err != nil {
+				return nil, 0, err
+			}
+			size := int64(f.UncompressedSize64)
+			if size < 0 || total+size < total {
+				return nil, 0, fmt.Errorf("整合包里的文件大小不对: %s", f.Name)
+			}
+			total += size
+			ents = append(ents, overrideEntry{f: f, rel: rel, size: size})
+		}
+	}
+	return ents, total, nil
+}
+
+// OverrideFiles 覆盖目录里要写进实例的文件（相对实例目录），按写的先后（同 ExtractOverrides）。
+// 导入前用它找只差大小写的落点（A13、A47）；读不了的返回错误，真正解压时 ExtractOverrides 会报出来。
+func OverrideFiles(p *Pack) ([]string, error) {
+	zr, err := zipguard.Open(p.ZipPath, zipguard.Default)
+	if err != nil {
+		return nil, err
+	}
+	defer zr.Close()
+	ents, _, err := overrideEntries(zr.File, p.OverrideDirs)
+	out := make([]string, 0, len(ents))
+	for _, e := range ents {
+		out = append(out, e.rel)
+	}
+	return out, err
+}
+
 // 整合包覆盖目录解开后的上限，和现成服务端压缩包一样（serverMaxFiles、serverMaxBytes）。
 // 写成变量只是为了测试能调小。
 var (
@@ -478,30 +573,9 @@ func ExtractOverrides(p *Pack, destDir string, writeFile func(rel string, r io.R
 		return err
 	}
 	defer zr.Close()
-	type entry struct {
-		f    *zip.File
-		rel  string
-		size int64
-	}
-	var ents []entry
-	var total int64
-	for _, prefix := range p.OverrideDirs {
-		for _, f := range zr.File {
-			name := zipNameOf(f)
-			if !strings.HasPrefix(name, prefix+"/") || isZipDir(f, name) || !f.Mode().IsRegular() {
-				continue
-			}
-			rel, err := safeRelPath(strings.TrimPrefix(name, prefix+"/"))
-			if err != nil {
-				return err
-			}
-			size := int64(f.UncompressedSize64)
-			if size < 0 || total+size < total {
-				return fmt.Errorf("整合包里的文件大小不对: %s", f.Name)
-			}
-			total += size
-			ents = append(ents, entry{f: f, rel: rel, size: size})
-		}
+	ents, total, err := overrideEntries(zr.File, p.OverrideDirs)
+	if err != nil {
+		return err
 	}
 	if len(ents) > overrideMaxFiles {
 		return fmt.Errorf("整合包的覆盖文件有 %d 个，超过了一次能导入的上限（%d 个）", len(ents), overrideMaxFiles)

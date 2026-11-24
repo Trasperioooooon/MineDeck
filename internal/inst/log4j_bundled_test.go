@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"net"
 	"os"
 	"path/filepath"
@@ -779,6 +780,30 @@ func TestLog4jAddRespectsExistingXML(t *testing.T) {
 	}
 }
 
+// 文件夹里有官方的那一份、开服时要当场补上引用，可 instance.json 写不进去：照实说是设置文件写不进去，不说成在后台下载，
+// 也不去下载；这次照旧启动，参数不动（A50）。
+func TestLog4jAddReportsSettingsWriteFailure(t *testing.T) {
+	fetched := stubLog4jFetch(t, nil)
+	m := newMigrateManager()
+	i := migrateInst(t, m, "设置写不进", mcsrc.CoreVanilla, "1.12.2", []string{log4jNoLookups})
+	officialLog4jXML(t, i.Dir)
+	if err := os.Mkdir(filepath.Join(i.Dir, "instance.json.tmp"), 0o755); err != nil { // 存 instance.json 先写的临时文件写不了
+		t.Fatal(err)
+	}
+	startFake(t, m, i)
+	lines := i.Console.Lines()
+	if !slices.ContainsFunc(lines, func(l string) bool {
+		return strings.Contains(l, "设置文件（instance.json）写不进去") && strings.Contains(l, log4jXML)
+	}) ||
+		slices.ContainsFunc(lines, func(l string) bool { return strings.Contains(l, "后台正在下载") }) {
+		t.Fatalf("应照实说设置文件写不进去、不说在下载：%q", lines)
+	}
+	launch := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "启动: java") })
+	if launch < 0 || strings.Contains(lines[launch], "log4j.configurationFile") || len(*fetched) != 0 || !slices.Equal(i.ExtraJVMSnapshot(), []string{log4jNoLookups}) {
+		t.Fatalf("这次照旧启动、参数不动、不下载：%q %q %q", lines, *fetched, i.ExtraJVMSnapshot())
+	}
+}
+
 // 启动服务器时还没补上配置的（B）：控制台说一声、这次照旧启动（不等下载），后台去补，补上了下次启动生效。
 func TestStartAddsLog4jConfigInBackground(t *testing.T) {
 	release := make(chan struct{})
@@ -868,5 +893,237 @@ func TestLog4jAddWaitsForPaperclipCache(t *testing.T) {
 	startFake(t, m, i)
 	if slices.ContainsFunc(i.Console.Lines(), func(l string) bool { return strings.Contains(l, "后台正在下载") }) || len(*fetched) != 0 {
 		t.Fatalf("开服时也不该去补：%q %q", i.Console.Lines(), *fetched)
+	}
+}
+
+// writeJarEntries 按给的先后造一个 jar，同名的条目可以出现几次。
+func writeJarEntries(t *testing.T, path string, entries [][2]string) {
+	t.Helper()
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(f)
+	for _, e := range entries {
+		w, err := zw.Create(e[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write([]byte(e[1])); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// writeJarUnderstated 造一个 jar，里面 name 这一条申报的大小写成 10 字节、实际是 body。
+func writeJarUnderstated(t *testing.T, path string, entries [][2]string, name, body string) {
+	t.Helper()
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(f)
+	for _, e := range entries {
+		w, _ := zw.Create(e[0])
+		_, _ = w.Write([]byte(e[1]))
+	}
+	w, err := zw.CreateRaw(&zip.FileHeader{Name: name, Method: zip.Store, CRC32: crc32.ChecksumIEEE([]byte(body)),
+		CompressedSize64: uint64(len(body)), UncompressedSize64: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte(body)); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// jar 里的元数据靠不住时按「判断不了」办，照旧套防护（A50）：看的条目同名的出现两次、元数据超过 64 KB（申报的或实际读到的）、
+// pom.properties 里 version 写了两次又不一样。造的 jar 里另一份、后半截都是没修过的 2.14.1，以前会被判成修过了。
+func TestLog4jUnreliableJarMetadataIsUnknown(t *testing.T) {
+	pad := strings.Repeat("# 填充\n", 12000) // 七万多字节
+	core := [2]string{log4jCoreClass, "x"}
+	mf := [2]string{"META-INF/MANIFEST.MF", craftMain}
+	pom := func(body string) [2]string { return [2]string{log4jCorePom, body} }
+	clip := func(hash string) [2]string {
+		return [2]string{"patch.properties", "version=1.16.5\npatchedHash=" + hash + "\n"}
+	}
+	clipJSON := func(hash string) [2]string { // 2016–2019 年那种 paperclip
+		return [2]string{"patch.json", `{"patch":"paperMC.patch","originalHash":"00","patchedHash":"` + hash + `","version":"1.11.2"}`}
+	}
+	cases := map[string][][2]string{
+		"同名条目两份：前 2.14.1 后 2.17.1":        {mf, core, pom(log4jPom("2.14.1")), pom(log4jPom("2.17.1"))},
+		"同名条目两份：前 2.17.1 后 2.14.1":        {mf, core, pom(log4jPom("2.17.1")), pom(log4jPom("2.14.1"))},
+		"超长：前 64 KB 里写 2.17.1、后面写 2.14.1": {mf, core, pom(log4jPom("2.17.1") + pad + "version=2.14.1\n")},
+		"超长：version 只在 64 KB 以后":          {mf, core, pom(pad + "version=2.17.1\n")},
+		"同一个键两次：先 2.17.1 后 2.14.1":        {mf, core, pom("version=2.17.1\nversion=2.14.1\n")},
+		"同一个键两次，另一种分隔：先 = 后 :":            {mf, core, pom("version=2.17.1\r\nversion: 2.14.1\r\n")},
+		"log4j 的类两份（两个版本并在一个 jar 里）":      {mf, core, core, pom(log4jPom("2.17.1"))},
+		"控制台的类两份":                         {mf, core, {termConsoleClass, "a"}, {termConsoleClass, "b"}, pom(log4jPom("2.17.1"))},
+		"MANIFEST.MF 两份":                  {mf, mf, core, pom(log4jPom("2.17.1"))},
+		"补丁说明两份":                          {mf, core, pom(log4jPom("2.17.1")), clip("AA"), clip("BB")},
+		"老的补丁说明（patch.json）两份":            {mf, core, pom(log4jPom("2.17.1")), clipJSON("AA"), clipJSON("BB")},
+	}
+	settings := Settings{Core: mcsrc.CorePaper, MC: "1.16.5", LaunchTarget: "jar:server.jar", ExtraJVM: []string{log4jNoLookups, log4jConfig}}
+	for name, entries := range cases {
+		dir := t.TempDir()
+		writeJarEntries(t, filepath.Join(dir, "server.jar"), entries)
+		if _, err := readServerJar(filepath.Join(dir, "server.jar")); !errors.Is(err, errJarMetaUnsure) {
+			t.Errorf("%s：应认成元数据靠不住：%v", name, err)
+		}
+		if v := viewLog4jJar(dir, "jar:server.jar"); v.fixed {
+			t.Errorf("%s：不该判成修过了：%+v", name, v)
+		}
+		if b, _ := bundledLog4j(dir, "jar:server.jar"); b != log4jBundleUnknown {
+			t.Errorf("%s：应判断不了：%v", name, b)
+		}
+		if fix, _, _ := log4jFixFor(settings, dir); fix == log4jFixDrop {
+			t.Errorf("%s：判断不了时照旧套着防护，不该摘掉", name)
+		}
+	}
+
+	dir := t.TempDir()
+	writeJarUnderstated(t, filepath.Join(dir, "server.jar"), [][2]string{mf, core}, log4jCorePom, log4jPom("2.17.1")+pad)
+	if _, err := readServerJar(filepath.Join(dir, "server.jar")); !errors.Is(err, errJarMetaUnsure) {
+		t.Errorf("申报写小、实际超过 64 KB 的也算靠不住：%v", err)
+	}
+
+	// 对照：只有一份、键写一次（或者写两次一样）的照常认
+	for name, body := range map[string]string{"只有一份": log4jPom("2.17.1"), "同一个键两次、写的一样": "version=2.17.1\nversion=2.17.1\n"} {
+		dir := t.TempDir()
+		writeJarEntries(t, filepath.Join(dir, "server.jar"), [][2]string{mf, core, pom(body)})
+		if v := viewLog4jJar(dir, "jar:server.jar"); !v.fixed || v.ver != "2.17.1" {
+			t.Errorf("%s：应照常认成修过的 2.17.1：%+v", name, v)
+		}
+	}
+}
+
+// 带签名的 jar 的 MANIFEST.MF 很大（后面逐个文件列着摘要，原版 1.21.11 的有 1.9 MB）：不算元数据靠不住，主段里的 Main-Class
+// 照常认，自带的 log4j 照常判断（A50）。对照：主段本身在前 64 KB 里没结束的（Main-Class 在 64 KB 以后），申报写小、实际 1 MB 的，
+// 照旧算靠不住。
+func TestLog4jBigSignedManifest(t *testing.T) {
+	digests := strings.Repeat("Name: net/minecraft/server/A.class\r\nSHA-256-Digest: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\r\n\r\n", 11000)
+	core := [2]string{log4jCoreClass, "x"}
+	pom := [2]string{log4jCorePom, log4jPom("2.17.1")}
+	write := func(t *testing.T, manifest string) string {
+		dir := t.TempDir()
+		writeJarEntries(t, filepath.Join(dir, "server.jar"), [][2]string{{"META-INF/MANIFEST.MF", manifest}, core, pom})
+		return dir
+	}
+
+	signed := craftMain + digests // craftMain 末尾已经是空行，主段到那里
+	if len(signed) < 1<<20 {
+		t.Fatalf("造的清单不够大：%d", len(signed))
+	}
+	dir := write(t, signed)
+	j, err := readServerJar(filepath.Join(dir, "server.jar"))
+	if err != nil || !j.craftBukkit {
+		t.Fatalf("清单 1 MB、Main-Class 在开头：不该算靠不住，Main-Class 要认得出：%+v %v", j, err)
+	}
+	if v := viewLog4jJar(dir, "jar:server.jar"); !v.fixed || v.ver != "2.17.1" || !v.quiet {
+		t.Fatalf("自带的 log4j 照常判断：%+v", v)
+	}
+
+	pad := strings.Repeat("X-Pad: "+strings.Repeat("a", 60)+"\r\n", 1200) // 主段八万多字节
+	dir = write(t, "Manifest-Version: 1.0\r\n"+pad+"Main-Class: org.bukkit.craftbukkit.Main\r\n\r\n"+digests)
+	if _, err := readServerJar(filepath.Join(dir, "server.jar")); !errors.Is(err, errJarMetaUnsure) {
+		t.Errorf("主段在 64 KB 里没结束：应算靠不住：%v", err)
+	}
+	if v := viewLog4jJar(dir, "jar:server.jar"); v.fixed {
+		t.Errorf("主段在 64 KB 里没结束：不该判成修过了：%+v", v)
+	}
+	dir = t.TempDir()
+	writeJarUnderstated(t, filepath.Join(dir, "server.jar"), [][2]string{core, pom}, "META-INF/MANIFEST.MF", signed)
+	if _, err := readServerJar(filepath.Join(dir, "server.jar")); !errors.Is(err, errJarMetaUnsure) {
+		t.Errorf("清单申报写小、实际 1 MB 的照旧算靠不住：%v", err)
+	}
+}
+
+// 换配置（1.7 ~ 1.11.2 引用着 112-116 的）时，官方的 17-111 已经在文件夹里：开服时当场换上，这一次启动就生效、不下载；
+// instance.json 写不进去时照实说，不说成在后台下载（A50，同「补」那一支）。
+func TestLog4jSwapUsesOfficialXMLOnDisk(t *testing.T) {
+	fetched := stubLog4jFetch(t, nil)
+	m := newMigrateManager()
+	i := migrateInst(t, m, "17-111 已在", mcsrc.CoreVanilla, "1.8.9", []string{log4jNoLookups, log4jConfig})
+	officialLog4jXMLFile(t, i.Dir, log4jXML17)
+	startFake(t, m, i)
+	lines := i.Console.Lines()
+	launch := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "启动: java") })
+	if launch < 0 || !strings.Contains(lines[launch], log4jConfig17) || strings.Contains(lines[launch], log4jConfig+" ") || len(*fetched) != 0 ||
+		slices.ContainsFunc(lines, func(l string) bool { return strings.Contains(l, "后台正在下载") }) ||
+		!slices.ContainsFunc(lines, func(l string) bool { return strings.Contains(l, "已经换上，这次启动就生效") }) {
+		t.Fatalf("17-111 已在：这次启动就该换上、不下载、不说在后台下载：%q %q", lines, *fetched)
+	}
+	if saved, err := readSettings(i.Dir); err != nil || !slices.Equal(saved.ExtraJVM, []string{log4jNoLookups, log4jConfig17}) {
+		t.Fatalf("instance.json 要跟着换：%v %q", err, saved.ExtraJVM)
+	}
+
+	stuck := migrateInst(t, m, "设置写不进", mcsrc.CoreVanilla, "1.8.9", []string{log4jNoLookups, log4jConfig})
+	officialLog4jXMLFile(t, stuck.Dir, log4jXML17)
+	if err := os.Mkdir(filepath.Join(stuck.Dir, "instance.json.tmp"), 0o755); err != nil { // 存 instance.json 先写的临时文件写不了
+		t.Fatal(err)
+	}
+	startFake(t, m, stuck)
+	lines = stuck.Console.Lines()
+	if !slices.ContainsFunc(lines, func(l string) bool {
+		return strings.Contains(l, "设置文件（instance.json）写不进去") && strings.Contains(l, log4jXML17) && strings.Contains(l, "要换上")
+	}) || slices.ContainsFunc(lines, func(l string) bool { return strings.Contains(l, "后台正在下载") }) || len(*fetched) != 0 {
+		t.Fatalf("应照实说设置文件写不进去、不说在下载：%q", lines)
+	}
+	if !slices.Equal(stuck.ExtraJVMSnapshot(), []string{log4jNoLookups, log4jConfig}) {
+		t.Fatalf("这次照旧带着原来的启动：%q", stuck.ExtraJVMSnapshot())
+	}
+}
+
+// 开服前看着官方配置在文件夹里，当场换上、补上时它又没了（不存在）：不说成设置文件写不进去，交回去照旧在后台下载（A50）。
+func TestLog4jFixOnDiskFallsBackWhenXMLGone(t *testing.T) {
+	m := newMigrateManager()
+	for _, c := range []struct {
+		fix   log4jFix
+		mc    string
+		extra []string
+		xml   string
+	}{
+		{log4jFixAdd, "1.12.2", []string{log4jNoLookups}, log4jXML},
+		{log4jFixSwap, "1.8.9", []string{log4jNoLookups, log4jConfig}, log4jXML17},
+	} {
+		i := migrateInst(t, m, fmt.Sprintf("配置没了-%d", c.fix), mcsrc.CoreVanilla, c.mc, c.extra)
+		i.procMu.Lock()
+		done := m.log4jFixOnDiskLocked(i, c.fix, c.xml, false)
+		i.procMu.Unlock()
+		if done || slices.ContainsFunc(i.Console.Lines(), func(l string) bool { return strings.Contains(l, "写不进去") }) {
+			t.Fatalf("配置文件没了：应交回去下载，不说写不进去：%v %q", done, i.Console.Lines())
+		}
+		if !slices.Equal(i.ExtraJVMSnapshot(), c.extra) {
+			t.Fatalf("参数不该动：%q", i.ExtraJVMSnapshot())
+		}
+	}
+}
+
+// 后台整理时官方配置本来就在文件夹里（没有下载），却没能存进 instance.json：不说成「下载好了」。
+func TestMigrateLog4jSettingsFailureNotSaidDownloaded(t *testing.T) {
+	fetched := stubLog4jFetch(t, nil)
+	m := newMigrateManager()
+	i := migrateInst(t, m, "后台写不进", mcsrc.CoreVanilla, "1.12.2", []string{log4jNoLookups})
+	officialLog4jXML(t, i.Dir)
+	if err := os.Mkdir(filepath.Join(i.Dir, "instance.json.tmp"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m.migrateLog4j(context.Background(), i)
+	lines := i.Console.Lines()
+	if len(*fetched) != 0 || !slices.ContainsFunc(lines, func(l string) bool { return strings.Contains(l, "没能把它的引用存进 instance.json") }) ||
+		slices.ContainsFunc(lines, func(l string) bool { return strings.Contains(l, "下载好了") }) {
+		t.Fatalf("没下载就不该说下载好了：%q %q", lines, *fetched)
 	}
 }

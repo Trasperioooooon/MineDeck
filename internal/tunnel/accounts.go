@@ -758,6 +758,7 @@ func (a *Accounts) CreateTunnel(ctx context.Context, o AccountTunnelOptions) (St
 		return Status{}, fmt.Errorf("语音隧道必须使用 UDP")
 	}
 	var st Status
+	var created bool
 	var err error
 	gen := a.generation(o.Provider)
 	switch o.Provider {
@@ -768,42 +769,70 @@ func (a *Accounts) CreateTunnel(ctx context.Context, o AccountTunnelOptions) (St
 		if o.RemotePort < 1 || o.RemotePort > 65535 {
 			return Status{}, fmt.Errorf("OpenFrp 需要填写有效的公网端口")
 		}
-		st, err = a.createOpenFrpTunnel(ctx, o, gen)
+		st, created, err = a.createOpenFrpTunnel(ctx, o, gen)
 	case "natfrp":
 		if o.RemotePort < 0 || o.RemotePort > 65535 {
 			return Status{}, fmt.Errorf("公网端口无效")
 		}
-		st, err = a.createSakuraTunnel(ctx, o, gen)
+		st, created, err = a.createSakuraTunnel(ctx, o, gen)
 	default:
 		return Status{}, fmt.Errorf("未知穿透平台: %s", o.Provider)
 	}
 	// 平台上可能已经建成（哪怕后面导入失败），概览一律重新拉
 	a.forgetOverview(o.Provider)
-	if se := (*SaveError)(nil); errors.As(err, &se) {
-		err = &createdNotSavedError{err: err}
+	if created && err != nil {
+		err = &createdNotImportedError{err: err}
 	}
 	return st, err
 }
 
-// createdNotSavedError 平台上的隧道已经建好，写进本机的 tunnels.json 时失败（磁盘满了、文件只读）。
-// 这时再点一次「创建」会在平台上再建一条，所以要说清楚：平台上那条已经有了，磁盘恢复以后去导入它。
-type createdNotSavedError struct{ err error }
+// createdNotImportedError 平台的创建请求已经成功返回，之后的步骤失败、本机没有这条隧道：认不出新建的是哪条、
+// 取 frpc 用的密钥时出错、途中账户被断开或换了、写进 tunnels.json 时失败（磁盘满了、文件只读）。
+// 这时再点一次「创建」会在平台上再建一条（A57），所以按「请求已经成功返回」认，不按错误类型：
+// 报错要说清去平台隧道列表里导入，界面也要认出来锁住创建（PlatformCreated，网页层据此在响应里加 created）。
+type createdNotImportedError struct{ err error }
 
-func (e *createdNotSavedError) Error() string {
-	return "平台上的隧道已经建好，但" + e.err.Error() + "。磁盘恢复以后在平台隧道列表里导入这条隧道，不要再创建一次"
+func (e *createdNotImportedError) Error() string {
+	switch {
+	case e.saveFailed():
+		return "平台上的隧道已经建好，但" + e.err.Error() + "。磁盘恢复以后在平台隧道列表里导入这条隧道，不要再创建一次"
+	case e.unconfirmed():
+		return "平台回了成功，但" + e.err.Error() + "。请到平台隧道列表里看一下有没有建好，有就导入它，不要再创建一次"
+	}
+	return "平台上的隧道已经建好，但没能导入 MineDeck：" + e.err.Error() + "。在平台隧道列表里导入它，不要再创建一次"
 }
 
-func (e *createdNotSavedError) Unwrap() error { return e.err }
+func (e *createdNotImportedError) Unwrap() error { return e.err }
 
-// Hint 规矩同 SaveError.Hint。
-func (e *createdNotSavedError) Hint() string {
-	return "平台上的隧道已建好，但没能存进 MineDeck。检查磁盘后在平台隧道列表里导入它，不要再创建"
+// PlatformCreated 平台上已经建好（或者多半已经建好，见 unconfirmedError）：界面不再放开「创建并导入」，改成引导去导入。
+func (e *createdNotImportedError) PlatformCreated() bool { return true }
+
+// Hint 规矩同 SaveError.Hint。写不进磁盘时下一步是先查磁盘、确认不了时是先去看有没有建好，分开说。
+func (e *createdNotImportedError) Hint() string {
+	switch {
+	case e.saveFailed():
+		return "平台上的隧道已建好，但没能存进 MineDeck。检查磁盘后在平台隧道列表里导入它，不要再创建"
+	case e.unconfirmed():
+		return "平台回了成功，但没能确认隧道建好。请到平台隧道列表里看一下，有就导入它，不要再创建"
+	}
+	return "平台上的隧道已建好，但没能导入 MineDeck。在平台隧道列表里导入它，不要再创建"
 }
 
-func (a *Accounts) createOpenFrpTunnel(ctx context.Context, o AccountTunnelOptions, gen uint64) (Status, error) {
+func (e *createdNotImportedError) saveFailed() bool  { return errors.As(e.err, new(*SaveError)) }
+func (e *createdNotImportedError) unconfirmed() bool { return errors.As(e.err, new(*unconfirmedError)) }
+
+// unconfirmedError 平台的创建请求回了 2xx、也没明说失败，之后却出了错（响应体看不懂、读到一半断了、换发的授权存不进去）：
+// 平台上多半已经建好，只是 MineDeck 确认不了。宁可引导人去平台列表里看，也不放开按钮冒重复建一条的险（A57）。
+type unconfirmedError struct{ err error }
+
+func (e *unconfirmedError) Error() string { return e.err.Error() }
+func (e *unconfirmedError) Unwrap() error { return e.err }
+
+// createOpenFrpTunnel 在 OpenFrp 上建隧道并写进本机。第二个返回值为 true：newProxy 回了成功（见 openFrpDo），平台上已经建好或多半已经建好。
+func (a *Accounts) createOpenFrpTunnel(ctx context.Context, o AccountTunnelOptions, gen uint64) (Status, bool, error) {
 	var nodes openFrpNodeList
 	if err := a.openFrpPostAt(ctx, &gen, "/frp/api/getNodeList", map[string]any{}, &nodes); err != nil {
-		return Status{}, err
+		return Status{}, false, err
 	}
 	var node *openFrpNode
 	for i := range nodes.List {
@@ -813,11 +842,11 @@ func (a *Accounts) createOpenFrpTunnel(ctx context.Context, o AccountTunnelOptio
 		}
 	}
 	if node == nil || node.Status != http.StatusOK || node.FullyLoaded || !node.ProtocolSupport[o.Type] {
-		return Status{}, fmt.Errorf("所选 OpenFrp 节点不可用或不支持 %s", strings.ToUpper(o.Type))
+		return Status{}, false, fmt.Errorf("所选 OpenFrp 节点不可用或不支持 %s", strings.ToUpper(o.Type))
 	}
 	var before openFrpProxyList
 	if err := a.openFrpPostAt(ctx, &gen, "/frp/api/getUserProxies", map[string]any{}, &before); err != nil {
-		return Status{}, err
+		return Status{}, false, err
 	}
 	old := make(map[int]bool, len(before.List))
 	for _, proxy := range before.List {
@@ -829,9 +858,18 @@ func (a *Accounts) createOpenFrpTunnel(ctx context.Context, o AccountTunnelOptio
 		"local_port": strconv.Itoa(o.LocalPort), "name": o.Name, "node_id": o.NodeID,
 		"proxyProtocolVersion": false, "remote_port": o.RemotePort, "type": o.Type,
 	}
-	if err := a.openFrpPostAt(ctx, &gen, "/frp/api/newProxy", request, nil); err != nil {
-		return Status{}, err
+	if applied, err := a.openFrpDo(ctx, &gen, "/frp/api/newProxy", request, nil); err != nil {
+		if applied { // 平台回了成功，之后才出错：多半已经建好
+			return Status{}, true, &unconfirmedError{err}
+		}
+		return Status{}, false, err
 	}
+	st, err := a.adoptNewOpenFrp(ctx, o, gen, old)
+	return st, true, err
+}
+
+// adoptNewOpenFrp newProxy 成功以后：从隧道列表里认出新建的那条（old 是建之前就有的编号），取 frpc 用的密钥，写进本机。
+func (a *Accounts) adoptNewOpenFrp(ctx context.Context, o AccountTunnelOptions, gen uint64, old map[int]bool) (Status, error) {
 	var after openFrpProxyList
 	if err := a.openFrpPostAt(ctx, &gen, "/frp/api/getUserProxies", map[string]any{}, &after); err != nil {
 		return Status{}, fmt.Errorf("OpenFrp 已接受创建请求，但刷新隧道列表失败：%w", err)
@@ -852,33 +890,38 @@ func (a *Accounts) createOpenFrpTunnel(ctx context.Context, o AccountTunnelOptio
 	return a.addLocalTunnel("openfrp", strconv.Itoa(created[0].ID), created[0].ProxyName, user.Token, o, gen)
 }
 
-func (a *Accounts) createSakuraTunnel(ctx context.Context, o AccountTunnelOptions, gen uint64) (Status, error) {
+// createSakuraTunnel 在樱花上建隧道并写进本机。第二个返回值为 true：POST /tunnels 回了成功（见 sakuraDo），平台上已经建好或多半已经建好。
+func (a *Accounts) createSakuraTunnel(ctx context.Context, o AccountTunnelOptions, gen uint64) (Status, bool, error) {
 	token, err := a.sakuraTokenAt(gen)
 	if err != nil {
-		return Status{}, err
+		return Status{}, false, err
 	}
 	var info sakuraUserInfo
 	if err := a.sakuraGet(ctx, "/user/info", token, &info); err != nil {
-		return Status{}, err
+		return Status{}, false, err
+	}
+	// 没有这个密钥 frpc 连不上，导入也会因为它失败：在平台上建之前就报，不白建一条
+	if info.Token == "" {
+		return Status{}, false, fmt.Errorf("SakuraFrp 账户没有可用于 frpc 的访问密钥，没有创建隧道")
 	}
 	if err := a.checkGen("natfrp", gen); err != nil {
-		return Status{}, err
+		return Status{}, false, err
 	}
 	var nodes map[string]sakuraNode
 	if err := a.sakuraGet(ctx, "/nodes", token, &nodes); err != nil {
-		return Status{}, err
+		return Status{}, false, err
 	}
 	node, ok := nodes[strconv.Itoa(o.NodeID)]
 	if !ok || node.Flag&(1<<2) == 0 {
-		return Status{}, fmt.Errorf("所选 SakuraFrp 节点不可创建隧道")
+		return Status{}, false, fmt.Errorf("所选 SakuraFrp 节点不可创建隧道")
 	}
 	if o.Type == "udp" && node.Flag&(1<<5) == 0 {
-		return Status{}, fmt.Errorf("所选 SakuraFrp 节点不支持 UDP")
+		return Status{}, false, fmt.Errorf("所选 SakuraFrp 节点不支持 UDP")
 	}
 	// 樱花官方 API 文档的规定：公开游戏服务器只能用 flag&2048 != 0 或名称含「多线」的节点（「三线」不算），
 	// 违反会被封号且不退款。
 	if o.PublicServer && !sakuraPublicGameNode(node) {
-		return Status{}, fmt.Errorf("公开游戏服务器只能用樱花的公开服专用节点（名称含「多线」或标有公开游戏标记的节点）")
+		return Status{}, false, fmt.Errorf("公开游戏服务器只能用樱花的公开服专用节点（名称含「多线」或标有公开游戏标记的节点）")
 	}
 	request := map[string]any{
 		"name": o.Name, "type": o.Type, "node": o.NodeID,
@@ -888,19 +931,20 @@ func (a *Accounts) createSakuraTunnel(ctx context.Context, o AccountTunnelOption
 		request["remote"] = strconv.Itoa(o.RemotePort)
 	}
 	if err := a.checkGen("natfrp", gen); err != nil {
-		return Status{}, err
+		return Status{}, false, err
 	}
 	var created sakuraTunnel
-	if err := a.sakuraRequestJSON(ctx, http.MethodPost, "/tunnels", token, request, &created); err != nil {
-		return Status{}, err
+	if applied, err := a.sakuraRequestJSON(ctx, http.MethodPost, "/tunnels", token, request, &created); err != nil {
+		if applied { // 平台回了成功，之后才出错：多半已经建好
+			return Status{}, true, &unconfirmedError{err}
+		}
+		return Status{}, false, err
 	}
 	if created.ID <= 0 {
-		return Status{}, fmt.Errorf("SakuraFrp 已返回成功，但没有返回新隧道编号；请刷新平台隧道列表后手动导入")
+		return Status{}, true, fmt.Errorf("SakuraFrp 已返回成功，但没有返回新隧道编号；请刷新平台隧道列表后手动导入")
 	}
-	if info.Token == "" {
-		return Status{}, fmt.Errorf("SakuraFrp 隧道已创建，但账户没有可用于 frpc 的访问密钥")
-	}
-	return a.addLocalTunnel("natfrp", strconv.Itoa(created.ID), created.Name, info.Token, o, gen)
+	st, err := a.addLocalTunnel("natfrp", strconv.Itoa(created.ID), created.Name, info.Token, o, gen)
+	return st, true, err
 }
 
 func (a *Accounts) ImportTunnel(ctx context.Context, o AccountTunnelImport) (Status, error) {
@@ -912,9 +956,9 @@ func (a *Accounts) ImportTunnel(ctx context.Context, o AccountTunnelImport) (Sta
 		return Status{}, err
 	}
 	o.Provider = strings.ToLower(strings.TrimSpace(o.Provider))
-	// 编号统一写成平台的十进制形式：「007」「+7」都能被 Atoi 认成 7，原样存下会绕过下面的重复检查，还会原样进 frpc 的参数
-	id, err := strconv.Atoi(strings.TrimSpace(o.ProxyID))
-	if err != nil || id <= 0 || strings.ContainsAny(strings.TrimSpace(o.ProxyID), "+-") {
+	// 编号统一写成平台的十进制形式（见 parseProxyID）：原样存下会绕过下面的重复检查，还会原样进 frpc 的参数
+	id, ok := parseProxyID(o.ProxyID)
+	if !ok {
 		return Status{}, fmt.Errorf("隧道编号无效")
 	}
 	o.ProxyID = strconv.Itoa(id)
@@ -1036,60 +1080,77 @@ func (a *Accounts) addLocalTunnel(provider, proxyID, name, credential string, o 
 // openFrpPostAt 调 OpenFrp 的接口。want 非空时，这次请求必须用 *want 那一代的账户：
 // 一次多步操作途中账户被断开或换了，就不再用新账户的凭据发后面的请求。
 func (a *Accounts) openFrpPostAt(ctx context.Context, want *uint64, path string, body any, out any) error {
+	_, err := a.openFrpDo(ctx, want, path, body, out)
+	return err
+}
+
+// openFrpDo 同 openFrpPostAt，另外交回 applied：HTTP 回了 2xx，响应里也没明说失败（flag 不是 false）。
+// 这时哪怕后面出了错（响应体看不懂、读到一半断了、换发的授权存不进去），平台多半已经照做了：
+// 创建隧道靠它分「没建成」和「可能已经建好」（A57）。交回的错误和 openFrpPostAt 一样。
+func (a *Accounts) openFrpDo(ctx context.Context, want *uint64, path string, body any, out any) (applied bool, err error) {
 	// 凭据和代数在同一把锁里读：读完凭据才断开的话，代数也已经对不上，换发的新值不会把账户连回去
 	a.mu.Lock()
 	gen := a.openGen
 	if want != nil && *want != gen {
 		a.mu.Unlock()
-		return errAccountChanged
+		return false, errAccountChanged
 	}
 	authorization, err := a.keys.Get(openFrpAuthKey)
 	a.mu.Unlock()
 	if err != nil {
-		return fmt.Errorf("读取 OpenFrp 授权失败: %w", err)
+		return false, fmt.Errorf("读取 OpenFrp 授权失败: %w", err)
 	}
 	if authorization == "" {
-		return fmt.Errorf("请先连接 OpenFrp 账户")
+		return false, fmt.Errorf("请先连接 OpenFrp 账户")
 	}
 	data, headers, status, err := a.request(ctx, http.MethodPost, a.openAPI, path, authorization, body, true)
+	ok := status >= 200 && status < 300
 	if err != nil {
-		return err
+		return ok, err // 响应头回了 2xx、读响应体时断了的，也算平台可能已经照做
 	}
 	if status == http.StatusUnauthorized {
-		return fmt.Errorf("OpenFrp 登录已失效，请重新连接账户")
+		return false, fmt.Errorf("OpenFrp 登录已失效，请重新连接账户")
 	}
-	if status < 200 || status >= 300 {
-		return responseError(status, data, authorization)
-	}
-	// OpenFrp 文档说请求任意接口时「有概率返回新值」，但没写放在哪；这里按响应头 Authorization 收。
-	// 只认成功响应里的、像样的新值，并且这期间账户没被断开或重新登录过，否则宁可不收。
-	if rotated := strings.TrimSpace(headers.Get("Authorization")); rotated != "" && rotated != authorization && validAuthorization(rotated) {
-		a.mu.Lock()
-		if a.openGen == gen {
-			err = a.keys.Set(openFrpAuthKey, rotated)
-		}
-		a.mu.Unlock()
-		if err != nil {
-			return fmt.Errorf("更新 OpenFrp 授权失败: %w", err)
-		}
+	if !ok {
+		return false, responseError(status, data, authorization)
 	}
 	var envelope struct {
-		Flag bool            `json:"flag"`
+		Flag *bool           `json:"flag"` // 没写 flag 的不算平台明说没做
 		Msg  string          `json:"msg"`
 		Data json.RawMessage `json:"data"`
 	}
-	if err := json.Unmarshal(data, &envelope); err != nil {
-		return fmt.Errorf("OpenFrp API 响应格式无效")
+	parseErr := json.Unmarshal(data, &envelope)
+	applied = parseErr != nil || envelope.Flag == nil || *envelope.Flag // 平台明说没做的（flag 为 false）才算没照做
+	if err := a.keepRotatedAuth(headers, authorization, gen); err != nil {
+		return applied, fmt.Errorf("更新 OpenFrp 授权失败: %w", err)
 	}
-	if !envelope.Flag {
-		return fmt.Errorf("OpenFrp API 请求失败: %s", safeMessage(scrub(envelope.Msg, authorization)))
+	if parseErr != nil {
+		return true, fmt.Errorf("OpenFrp API 响应格式无效")
+	}
+	if envelope.Flag == nil || !*envelope.Flag {
+		return applied, fmt.Errorf("OpenFrp API 请求失败: %s", safeMessage(scrub(envelope.Msg, authorization)))
 	}
 	if out != nil && len(envelope.Data) != 0 && string(envelope.Data) != "null" {
 		if err := json.Unmarshal(envelope.Data, out); err != nil {
-			return fmt.Errorf("OpenFrp API 数据格式无效")
+			return true, fmt.Errorf("OpenFrp API 数据格式无效")
 		}
 	}
-	return nil
+	return true, nil
+}
+
+// keepRotatedAuth 收下成功响应里换发的 OpenFrp 授权。OpenFrp 文档说请求任意接口时「有概率返回新值」，但没写放在哪；
+// 这里按响应头 Authorization 收。只认像样的新值，并且这期间账户没被断开或重新登录过（gen 还是发请求时那一代），否则宁可不收。
+func (a *Accounts) keepRotatedAuth(headers http.Header, authorization string, gen uint64) error {
+	rotated := strings.TrimSpace(headers.Get("Authorization"))
+	if rotated == "" || rotated == authorization || !validAuthorization(rotated) {
+		return nil
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.openGen != gen {
+		return nil
+	}
+	return a.keys.Set(openFrpAuthKey, rotated)
 }
 
 // checkGen 一次多步操作的下一步之前确认账户还是开始时那一个。
@@ -1137,44 +1198,56 @@ func (a *Accounts) sakuraGet(ctx context.Context, path, token string, out any) e
 	return nil
 }
 
-func (a *Accounts) sakuraRequestJSON(ctx context.Context, method, path, token string, body, out any) error {
-	data, err := a.sakuraRequest(ctx, method, path, token, body)
+// sakuraRequestJSON 发请求、把响应体解析进 out。applied 同 sakuraDo：平台回了 2xx、没写错误码的，
+// 之后响应体看不懂也算平台可能已经照做（创建隧道靠它分「没建成」和「可能已经建好」，A57）。
+func (a *Accounts) sakuraRequestJSON(ctx context.Context, method, path, token string, body, out any) (applied bool, err error) {
+	data, applied, err := a.sakuraDo(ctx, method, path, token, body)
 	if err != nil {
-		return err
+		return applied, err
 	}
 	if out != nil && len(data) != 0 {
 		if err := json.Unmarshal(data, out); err != nil {
-			return fmt.Errorf("SakuraFrp API 响应格式无效")
+			return true, fmt.Errorf("SakuraFrp API 响应格式无效")
 		}
 	}
-	return nil
+	return true, nil
 }
 
 func (a *Accounts) sakuraRequest(ctx context.Context, method, path, token string, body any) ([]byte, error) {
+	data, _, err := a.sakuraDo(ctx, method, path, token, body)
+	return data, err
+}
+
+// sakuraDo 同 sakuraRequest，另外交回 applied：HTTP 回了 2xx，响应体里也没写错误码（2xx 里写着 code≥400 的，按平台明说没做）。
+// 响应头回了 2xx、读响应体时断了的，也算 applied。
+func (a *Accounts) sakuraDo(ctx context.Context, method, path, token string, body any) (data []byte, applied bool, err error) {
 	data, _, status, err := a.request(ctx, method, a.sakuraAPI, path, "Bearer "+token, body, false)
+	ok := status >= 200 && status < 300
 	if err != nil {
-		return nil, err
+		return nil, ok, err
 	}
-	if status < 200 || status >= 300 {
-		return nil, responseError(status, data, token)
+	if !ok {
+		return nil, false, responseError(status, data, token)
 	}
 	var apiErr struct {
 		Code int    `json:"code"`
 		Msg  string `json:"msg"`
 	}
 	if json.Unmarshal(data, &apiErr) == nil && apiErr.Code >= 400 {
-		return nil, fmt.Errorf("SakuraFrp API 请求失败: %s", safeMessage(scrub(apiErr.Msg, token)))
+		return nil, false, fmt.Errorf("SakuraFrp API 请求失败: %s", safeMessage(scrub(apiErr.Msg, token)))
 	}
-	return data, nil
+	return data, true, nil
 }
 
+// request 发一次请求。出错时状态码照样交回（没拿到响应是 0）：响应头已经到了、读响应体时才断的，
+// 调用方要知道平台回的是什么（见 openFrpDo、sakuraDo）。
 func (a *Accounts) request(ctx context.Context, method, base, path, authorization string, body any, openFrp bool) ([]byte, http.Header, int, error) {
 	data, headers, status, err := a.doJSON(ctx, a.client, method, base, path, authorization, body)
 	if err != nil {
 		if openFrp {
-			return nil, nil, 0, fmt.Errorf("连接 OpenFrp 失败: %w", err)
+			return nil, nil, status, fmt.Errorf("连接 OpenFrp 失败: %w", err)
 		}
-		return nil, nil, 0, fmt.Errorf("连接 SakuraFrp 失败: %w", err)
+		return nil, nil, status, fmt.Errorf("连接 SakuraFrp 失败: %w", err)
 	}
 	return data, headers, status, nil
 }

@@ -8,11 +8,13 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 
 	"minedeck/internal/app"
+	"minedeck/internal/tasks"
 	"minedeck/internal/winname"
 )
 
@@ -39,12 +41,81 @@ func markCreated(dir string) error {
 	return ClearCreatingMarker(dir)
 }
 
+// discardCreatingDir 建服、导入失败时清掉 dir（discardCreating 已经核对过是这次任务预留的、不是链接）。
+// 只有这次任务放过创建记号的才整个删：放记号之前失败的，预留的路径上要是冒出了别人的文件夹（人自己、别的程序放的），
+// 里面的东西不是这次建的，只删得掉空文件夹，删不掉照实报错（A48）。四条路（新建、整合包、现成服务端、交接包）都是
+// 建好文件夹紧接着放记号，中间不写别的。
+// 整个删到一半（有文件被别的程序占着）时记号多半已经先没了，剩下的文件夹既不在列表里、也不算没建完的，没处可管：
+// 还是真文件夹、又没有 instance.json 的，把记号放回去，由「没建完的文件夹」那里统一处理。
+func discardCreatingDir(dir, name string) error {
+	if !creatingMarkerOwned(dir) {
+		if err := os.Remove(dir); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("文件夹里有不是这次建的东西，没有删（%w）", err)
+		}
+		return nil
+	}
+	err := os.RemoveAll(dir)
+	if err != nil && plainCreatingDir(dir) && !creatingMarkerOwned(dir) {
+		if registered, _ := checkNoInstanceFiles(dir); !registered {
+			_ = WriteCreatingMarker(dir, name)
+		}
+	}
+	return err
+}
+
+// DiscardCreate 交接包导入失败（cause 是失败原因）时清掉 ReserveCreate 预留、还没登记的文件夹，和新建、导入整合包失败时
+// 同一套（discardFailed）。返回的错误要照实告诉人：文件夹里还留着东西。
+func (m *Manager) DiscardCreate(cause error, name, dir string) error {
+	return m.discardFailed(cause, name, dir)
+}
+
+// FailLeftover 建服、导入失败，半成品又没清干净（cleanupErr）时结束任务：失败原因后面接上清理失败的那句，任务记上
+// cleanupFailed，界面按它说去「没建完的文件夹」里处理（不按这几个字认）。新建、整合包、现成服务端（failCreate）和交接包都经这里。
+func FailLeftover(t *tasks.Task, err, cleanupErr error) {
+	t.MarkCleanupFailed()
+	t.Fail(fmt.Errorf("%w；清理半成品失败：%v", err, cleanupErr))
+}
+
+// errCreateDirTaken 预留（reserveInstanceDir）以后、建文件夹之前，那个位置上已经有了一个文件夹（人刚放进来的、别的程序建的）。
+var errCreateDirTaken = errors.New("这个位置已经有一个同名文件夹（可能是刚放进来的），没有动它")
+
+// MkdirCreating 建这次创建任务的服务器文件夹，放上创建记号（新建、导入整合包、导入现成服务端、交接包都经这里）。
+// 本层用 os.Mkdir 而不是 MkdirAll：预留以后、建文件夹之前别人在同一个位置放了文件夹的话，MkdirAll 照样成功、紧接着放上
+// 记号，之后失败就会按「自己建的」整个删掉（A48）。已经有了就回 errCreateDirTaken，失败时不进清理（见 discardFailed）。
+// 记号在登记成功之前一直留着：进程中途没了，下次可以认出来删；已经有 instance.json 的不靠它清理。
+func MkdirCreating(dir, name string) error {
+	beforeCreateDir(dir)
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		return err
+	}
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return fmt.Errorf("%w：%s", errCreateDirTaken, dir)
+		}
+		return err
+	}
+	return WriteCreatingMarker(dir, name)
+}
+
+// discardFailed 建服、导入失败（cause 是失败原因）以后清半成品，四条路都经这里。失败在建文件夹那一步、那个位置上已经有
+// 别人的文件夹的（errCreateDirTaken）不进清理：那不是这次建的，一样不动，也不再报一句「文件夹里有不是这次建的东西」。
+func (m *Manager) discardFailed(cause error, name, dir string) error {
+	if errors.Is(cause, errCreateDirTaken) {
+		return nil
+	}
+	return m.discardCreating(name, dir)
+}
+
+// beforeCreateDir MkdirCreating 建文件夹之前的那一刻，默认什么都不做。测试里换成往那个位置放东西的函数，
+// 模拟预留以后、建文件夹之前别人放进来的文件夹。
+var beforeCreateDir = func(dir string) {}
+
 // afterRootRemembered markCreated 里「已经记成扫描根、还没去记号」的那一刻，默认什么都不做。
 // 测试里换成查看盘上状态的函数，钉住两步的先后。
 var afterRootRemembered = func(dir string) {}
 
 // leftoverRoots 找没建完的文件夹要扫的位置：扫描根（app.InstanceRoots）加上正在建的位置（app.CreatingRoots）。
-// 按 foldRoot 去重：只差大小写的两条在 Windows 上是同一个文件夹，留着两条的话里面的半成品会列两遍、编号还一样。
+// 按 foldRoot 去重：Windows 上只差大小写的两条是同一个文件夹，留着两条的话里面的半成品会列两遍、编号还一样。
 func leftoverRoots() []string {
 	var roots []string
 	seen := map[string]bool{}
@@ -57,8 +128,16 @@ func leftoverRoots() []string {
 	return roots
 }
 
-// foldRoot 比较存放位置用的写法：化简、转小写（Windows 的路径不分大小写）。
-func foldRoot(root string) string { return strings.ToLower(filepath.Clean(root)) }
+// foldRoot 比较存放位置用的写法：化简，只在 Windows 上再转小写（那里只差大小写的是同一个文件夹）。
+// 别的系统上原样比：区分大小写的卷上（Linux、Mac 的区分大小写 APFS）只差大小写的是两个文件夹，转小写去重会只留先出现的
+// 那一条，同一个编号指谁就取决于先后了。默认不区分大小写的 APFS 上，同一个文件夹会列两遍、编号不同，删哪个都是删它，无害。
+func foldRoot(root string) string {
+	root = filepath.Clean(root)
+	if runtime.GOOS == "windows" {
+		return strings.ToLower(root)
+	}
+	return root
+}
 
 // leftoverID 半成品的编号：「位置的短哈希/文件夹名」，短哈希是 foldRoot 以后的 FNV-32a，写成十进制。
 // 不用位置在 leftoverRoots 里的序号：改默认存放位置、正在建的位置升成扫描根以后序号会挪，
@@ -77,8 +156,8 @@ func leftoverRootKey(root string) string {
 // 写完 instance.json、还没把位置记成扫描根程序就没了（见 markCreated），这里补记成扫描根，这台照常进列表。
 // 只认 instance.json 本身，移出列表留下的 .bak 不算。导入整合包、现成服务端和交接包都不让包里带的 instance.json 落到盘上
 // （IsControlFile），带记号的文件夹里有 instance.json，除了下面跳过的，只会是登记时写的。
-// 跳过单独登记过的文件夹：人把没建完的文件夹接管进来，接管也写 instance.json、记号还在，但接管只认它自己，
-// 把它的上一层升成扫描根的话，那里别的带 instance.json 的文件夹会不声不响地进列表。
+// 跳过单独登记过的文件夹：接管只认它自己，把它的上一层升成扫描根的话，那里别的带 instance.json 的文件夹会不声不响地进列表。
+// 接管现在写文件之前就去掉创建记号（runAdopt）；以前的版本接管进来的没建完的文件夹记号还在，靠这一条挡住。
 func promoteCreatedRoots() {
 	adopted := app.InstanceDirs()
 	isAdopted := func(dir string) bool {

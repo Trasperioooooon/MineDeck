@@ -89,26 +89,33 @@ type Manager struct {
 	// loadErr tunnels.json 在、却没读成（见 LoadError）。不为空时列表是空的，一律不许保存；
 	// 有人要列表、要保存、要启动时再读一次（retryLoad），读成了就清掉
 	loadErr *LoadError
+	// renum 读进来时给重复编号换了号、还没写进 tunnels.json 的那次换号（A58）。不为空时 save 先在旁边留一份
+	// 读进来时的那份的备份再写，写成了才清掉：带重复编号的那份被换掉之前，旁边一定有它的备份
+	renum *pendingRenumber
 
 	autoMu   sync.Mutex
-	autoHook func(AutoAction) // 跟随实例自动启停之后的回调（操作层用它写操作记录）
+	autoHook func(AutoAction)            // 跟随实例自动启停之后的回调（操作层用它写操作记录）
+	instSay  func(instance, line string) // 往服务器的控制台里写一句（操作层注入：隧道层够不着服务器）
+	pending  []AutoAction                // 排着队、还没交给 autoHook 的操作记录（见 noteSoon）
 }
 
-// AutoAction 跟着实例自动启停隧道的一次操作，交给操作层写一条操作记录（来源 schedule），
-// 事后在 logs\ops 里查得到「隧道是谁拉起来、谁停掉的」。和 inst.AutoAction 一个样子。
+// AutoAction 隧道层自己做的一次操作，交给操作层写一条操作记录（来源 schedule）：跟着实例自动启停隧道，
+// 事后在 logs\ops 里查得到「隧道是谁拉起来、谁停掉的」；读 tunnels.json 时给重复的编号换号。和 inst.AutoAction 一个样子。
 type AutoAction struct {
-	Op    string         // tunnel.start | tunnel.stop
-	Actor string         // "跟随实例"
-	Args  map[string]any // id、隧道名 tunnel、实例名 inst
+	Op    string         // tunnel.start | tunnel.stop | tunnel.renumber
+	Actor string         // followActor | renumberActor
+	Args  map[string]any // 启停：id、隧道名 tunnel、实例名 inst；换号：renamed、backup、backupSealed、backupSealFailed
 	Err   error
 	Dur   time.Duration
 }
 
-// SetAutoHook 登记自动启停的回调（操作层在启动时注入）。
+// SetAutoHook 登记自动启停的回调（操作层在启动时注入）。程序启动时读 tunnels.json 换过编号的话，那时回调还没登记，
+// 那条记录在这里补交。
 func (m *Manager) SetAutoHook(fn func(AutoAction)) {
 	m.autoMu.Lock()
 	m.autoHook = fn
 	m.autoMu.Unlock()
+	m.flushNotes()
 }
 
 func (m *Manager) noteAuto(a AutoAction) {
@@ -117,6 +124,50 @@ func (m *Manager) noteAuto(a AutoAction) {
 	m.autoMu.Unlock()
 	if fn != nil {
 		fn(a)
+	}
+}
+
+// noteSoon 同 noteAuto，但不在调用方手里调回调：读 tunnels.json（load）、保存（save）时可能持着 m.mu，
+// 程序启动时（NewManager）操作层又还没登记回调。先排队，回调在就另起一个 goroutine 交出去，不在就等 SetAutoHook 时补交。
+func (m *Manager) noteSoon(a AutoAction) {
+	m.autoMu.Lock()
+	m.pending = append(m.pending, a)
+	ready := m.autoHook != nil
+	m.autoMu.Unlock()
+	if ready {
+		go m.flushNotes()
+	}
+}
+
+// flushNotes 把排着队的操作记录交给回调；回调还没登记时留着不动。
+func (m *Manager) flushNotes() {
+	m.autoMu.Lock()
+	fn, notes := m.autoHook, m.pending
+	if fn != nil {
+		m.pending = nil
+	}
+	m.autoMu.Unlock()
+	if fn == nil {
+		return
+	}
+	for _, a := range notes {
+		fn(a)
+	}
+}
+
+// SetInstanceConsole 登记往服务器控制台写一句的办法（操作层在启动时注入）。
+func (m *Manager) SetInstanceConsole(fn func(instance, line string)) {
+	m.autoMu.Lock()
+	m.instSay = fn
+	m.autoMu.Unlock()
+}
+
+func (m *Manager) sayToInstance(instance, line string) {
+	m.autoMu.Lock()
+	fn := m.instSay
+	m.autoMu.Unlock()
+	if fn != nil {
+		fn(instance, line)
 	}
 }
 
@@ -194,7 +245,10 @@ func (e *LoadError) Hint() string {
 //     只有空白的文件、{} 和 null 不算：里面没有能丢的东西，按空列表处理。
 //
 // m.loadErr 不为空时 m.tunnels、m.seq 不动（还是空的）。调用方持有 m.mu；NewManager 里别人还拿不到 m，不用锁。
+// 只有 NewManager 和 retryLoad（m.loadErr 不为空、列表还是空的）调它，读成一次以后不会再调：
+// 调的时候一条隧道也没在跑，换编号（renumberDuplicates）不会让哪个运行中的 frpc 对不上号。
 func (m *Manager) load() {
+	m.renum = nil // 上次读进来时没写进去的换号不作数：这次读到的是另一份，要不要换号、备份什么都按这次的来
 	b, err := os.ReadFile(m.file())
 	if errors.Is(err, fs.ErrNotExist) {
 		if gone := m.reallyMissing(err); gone != nil {
@@ -208,6 +262,7 @@ func (m *Manager) load() {
 		m.loadErr = &LoadError{Err: err}
 		return
 	}
+	raw := b // 原样的字节：要给重复编号换号时，一般备份的就是它（见 newPendingRenumber）
 	// 记事本存的 UTF-8 可能带 BOM：提示里让人用记事本修，修完不能因为这个又读不出来
 	b = bytes.TrimPrefix(b, []byte("\xef\xbb\xbf"))
 	if len(bytes.TrimSpace(b)) == 0 {
@@ -242,9 +297,12 @@ func (m *Manager) load() {
 			m.seq = n
 		}
 	}
+	// 换号要在标记凭据解不开之前：m.broken 按编号记，重复的编号会把两条隧道的标记混在一起
+	seqRead := m.seq // 换号之前的 seq：有明文凭据要加密时，备份里写的是它（见 newPendingRenumber）
+	renamed := m.renumberDuplicates()
 	m.broken = map[string]bool{}
 	// 旧版存的明文凭据：加密后写回（失败保持原样、只记日志，启动时照旧能用）；解不开的标记出来，不让启动
-	migrated := false
+	migrated, sealFailed := false, 0
 	for _, t := range m.tunnels {
 		// 老版本给樱花、OpenFrp 隧道存的 25565 / 25566 这类不参与启动的数：只在内存里清，不为它单独改写用户的文件，
 		// 下次因为别的原因保存时自然就没了
@@ -252,8 +310,13 @@ func (m *Manager) load() {
 		switch {
 		case t.Credential == "":
 		case !secret.IsSealed(t.Credential):
-			if sealed, err := secret.Seal(t.Credential); err != nil {
-				log.Printf("隧道「%s」的凭据加密失败，暂时保留明文: %v", t.Name, err)
+			if sealed, err := sealSecret(t.Credential); err != nil {
+				sealFailed++
+				also := ""
+				if len(renamed) > 0 {
+					also = "，换号前留的备份里这一条也是明文（和 tunnels.json 一样）"
+				}
+				log.Printf("隧道「%s」的凭据加密失败，暂时保留明文%s: %v", t.Name, also, err)
 			} else {
 				t.Credential, migrated = sealed, true
 			}
@@ -263,12 +326,169 @@ func (m *Manager) load() {
 			}
 		}
 	}
-	// 写不回去不要紧：内存里已经是密文，照常能用；文件里暂时还是明文，下次哪里保存成功时一起写进去
-	if migrated {
-		if err := m.save(); err != nil {
-			log.Printf("隧道凭据加密后写回失败，文件里暂时还是明文，下次保存时再写: %v", saveCause(err))
+	if len(renamed) > 0 {
+		m.renum = m.newPendingRenumber(raw, seqRead, renamed, migrated, sealFailed)
+	}
+	m.writeBackLoaded(migrated)
+}
+
+// sealSecret 读进来时给旧版明文凭据加密（load）。做成变量只给测试替换：Windows 上 DPAPI 实际不会失败，加密失败的那一支
+// 只能这样测。新增、修改照旧直接调 secret.Seal。
+var sealSecret = secret.Seal
+
+// writeBackLoaded 读进来以后要改写文件的两件事合成一次写：旧版明文凭据加密（migrated）、重复编号换号（m.renum）。
+// 写不回去不要紧：内存里已经是密文、编号已经不重复，这次运行照常用；没写进去的，下次哪里保存成功时一起写进去
+// （m.renum 留着，那时照样先备份），下次启动也会再来一遍。写不回去不算没读成，不碰 m.loadErr。
+func (m *Manager) writeBackLoaded(migrated bool) {
+	p := m.renum
+	if !migrated && p == nil {
+		return
+	}
+	backup, err := m.write()
+	if err != nil && migrated {
+		log.Printf("隧道凭据加密后写回失败，文件里暂时还是明文，下次保存时再写: %v", saveCause(err))
+	}
+	if p != nil {
+		m.noteRenumbered(p, backup, err)
+	}
+}
+
+// pendingRenumber 读进来时换了号、还没写进 tunnels.json 的那次换号。
+type pendingRenumber struct {
+	backup     []byte // 改写之前在旁边留的备份的内容，见 newPendingRenumber
+	backupErr  error  // 备份内容编不出来：这时备份留不下，也就不写（见 write）
+	renamed    []renumbered
+	sealed     bool // backup 里原来的明文凭据已经加密，不是读进来时逐字节的样子
+	sealFailed int  // sealed 时，加密失败、备份里还是明文的条数
+}
+
+// newPendingRenumber 换了号的那份 tunnels.json 被改写之前要留的备份：一般是读进来时的原样字节（raw，BOM 也在）。
+// 原文件里有旧版明文凭据、这次加密了（migrated）的，原样留就是把明文长期放在程序文件夹里；这时备份写成凭据已加密、
+// 编号和 seq 还是换号前的那一版，也就是老版本这次启动会写回去的样子。加密失败的那几条（sealFailed 条）还是明文，
+// 和 tunnels.json 一样。只拷一份来改，m.tunnels 不动。
+func (m *Manager) newPendingRenumber(raw []byte, seq int, renamed []renumbered, migrated bool, sealFailed int) *pendingRenumber {
+	p := &pendingRenumber{backup: raw, renamed: renamed}
+	if !migrated {
+		return p
+	}
+	from := make(map[string]string, len(renamed)) // 新编号 → 换号前的编号（新编号不会和任何一条撞）
+	for _, r := range renamed {
+		from[r.To] = r.From
+	}
+	before := make([]*Tunnel, len(m.tunnels))
+	for i, t := range m.tunnels {
+		c := *t
+		if id, ok := from[c.ID]; ok {
+			c.ID = id
+		}
+		before[i] = &c
+	}
+	b, err := encodeSealedBackup(seq, before)
+	if err != nil {
+		// 不能退回原样字节：里面有明文。记下来，write 按备份留不下处理，不写
+		p.backup, p.backupErr = nil, fmt.Errorf("凭据加密过的那一版编不出来：%w", err)
+		return p
+	}
+	p.backup, p.sealed, p.sealFailed = b, true, sealFailed
+	return p
+}
+
+// encodeSealedBackup 凭据加密过的那种备份的编法，和保存用同一个（encodeTunnels）。做成变量只给测试替换：隧道配置里
+// 只有字符串、数字和真假，真数据编不出来的情况造不出来；保存照旧直接调 encodeTunnels，替换了也只让备份这一边编不出来。
+var encodeSealedBackup = encodeTunnels
+
+// args 换号那条操作记录的 args：换了哪几条、备份的文件名（只写文件名；没留下备份时没有）、备份里的凭据是不是这次加密的、
+// 其中加密失败还是明文的有几条（有才写）。
+func (p *pendingRenumber) args(backup string) map[string]any {
+	a := map[string]any{"renamed": p.renamed}
+	if backup != "" {
+		a["backup"] = backup
+		if p.sealed {
+			a["backupSealed"] = true
+			if p.sealFailed > 0 {
+				a["backupSealFailed"] = p.sealFailed
+			}
 		}
 	}
+	return a
+}
+
+// backupSays 程序日志里说备份在哪的那一句。
+func (p *pendingRenumber) backupSays(backup string) string {
+	s := "读进来时的那份 tunnels.json 备份在同一文件夹里的 " + backup
+	if p.sealed {
+		s += "，原文件里的旧版明文凭据在备份里已经加密"
+		if p.sealFailed > 0 {
+			s += fmt.Sprintf("（加密失败的 %d 条除外）", p.sealFailed)
+		}
+		s += "，备份不是原文件逐字节的样子"
+	}
+	return s
+}
+
+// renumbered 读 tunnels.json 时换了编号的一条隧道（也是操作记录里 renamed 的一项）。
+type renumbered struct {
+	Tunnel string `json:"tunnel"` // 隧道名
+	From   string `json:"from"`
+	To     string `json:"to"`
+}
+
+// renumberActor 读 tunnels.json 时给重复编号换号，操作记录里写的「谁做的」。
+const renumberActor = "读取隧道配置"
+
+// renumberDuplicates 编号和前面某条重复的隧道换一个新编号（A58）。以前手改 tunnels.json 把 seq 调小，新增的隧道会拿到
+// 已有的编号；按编号改、删、启动时只认得靠前的那条（get），后面那条改不了、删不掉，两条自定义 frps 的隧道还会写同一份
+// frpc 配置。靠前的那条留着原编号：别处记着的编号（以前的操作记录、AI 的提案、网页上开着的卡片）分不清指的是哪一条，
+// 一律算它的。新编号照 Add 的办法让 seq 往上加；调用方已经把 seq 抬到现有 tun<数字> 的最大值，再对一遍已有的编号兜底。
+// 只在 load 里调：那时还没有隧道在跑（见 load 的说明），没有哪个 frpc 还记着旧编号。
+func (m *Manager) renumberDuplicates() []renumbered {
+	taken := make(map[string]bool, len(m.tunnels))
+	for _, t := range m.tunnels {
+		taken[t.ID] = true
+	}
+	kept := make(map[string]bool, len(m.tunnels))
+	var out []renumbered
+	for _, t := range m.tunnels {
+		if !kept[t.ID] {
+			kept[t.ID] = true
+			continue
+		}
+		id := ""
+		for id == "" || taken[id] {
+			m.seq++
+			id = "tun" + strconv.Itoa(m.seq)
+		}
+		taken[id] = true
+		out = append(out, renumbered{Tunnel: t.Name, From: t.ID, To: id})
+		t.ID = id
+	}
+	return out
+}
+
+// noteRenumbered 换号的结果在程序日志和操作记录里各记一条：几条、各换成了什么、备份叫什么（只写文件名）。
+// werr 是写回 tunnels.json 的结果：没写进去时这次运行照新编号用，之后保存或下次启动时再写。
+func (m *Manager) noteRenumbered(p *pendingRenumber, backup string, werr error) {
+	parts := make([]string, len(p.renamed))
+	for i, r := range p.renamed {
+		parts[i] = fmt.Sprintf("「%s」%s→%s", r.Tunnel, r.From, r.To)
+	}
+	msg := fmt.Sprintf("tunnels.json 里有 %d 条隧道的编号和前面的重复，已换成新编号：%s", len(p.renamed), strings.Join(parts, "、"))
+	if backup != "" {
+		msg += "。" + p.backupSays(backup)
+	}
+	var err error
+	if werr != nil {
+		err = fmt.Errorf("换好的编号没能写回 tunnels.json，这次运行照新编号用，之后保存或下次启动时再写：%w", saveCause(werr))
+		msg += "。" + err.Error()
+	}
+	log.Print(msg)
+	m.noteSoon(AutoAction{Op: "tunnel.renumber", Actor: renumberActor, Args: p.args(backup), Err: err})
+}
+
+// noteRenumberSaved 启动时没写进去的换号，这次保存写进去了：程序日志和操作记录各补一条成功的，带上备份的文件名。
+func (m *Manager) noteRenumberSaved(p *pendingRenumber, backup string) {
+	log.Printf("读 tunnels.json 时换过的重复编号这次写进去了，%s", p.backupSays(backup))
+	m.noteSoon(AutoAction{Op: "tunnel.renumber", Actor: renumberActor, Args: p.args(backup)})
 }
 
 // reallyMissing 读 tunnels.json 报「不存在」（readErr）以后再确认一次，是真的新装才返回 nil，否则返回读不出来的原因。
@@ -424,22 +644,137 @@ func saveCause(err error) error {
 // tunnels.json 没读成（m.loadErr）时一律不写：内存里是空列表，写下去就把原文件里的隧道和凭据盖掉了。
 // 新增、修改、删除在改内存之前就已经用 retryLoad 挡下；这里再挡一道，兜住以后新加的保存点。
 // 报的是 LoadError 本身，不包成 SaveError：「这次的改动没有保存、检查磁盘」说的不是这回事。
+//
+// 读进来时给重复编号换过号、还没写回去（m.renum）的，先在旁边留一份读进来时的那份的备份再写，见 write；
+// 写进去了，程序日志和操作记录补一条（启动时那条记的是没写进去）。
 func (m *Manager) save() error {
-	if m.loadErr != nil {
-		return m.loadErr
+	p := m.renum
+	backup, err := m.write()
+	if err == nil && p != nil {
+		m.noteRenumberSaved(p, backup)
 	}
-	data := struct {
+	return err
+}
+
+// write 同 save，另外返回为换号前的那份留的备份的文件名（不带文件夹；没有要备份的是空的）。
+// 备份留不下（包括备份内容编不出来，见 newPendingRenumber）就不写：那份被换掉以后，重复编号原来的样子就只在备份里了。
+// 备份留下了、写却没写成时，m.renum 留着，下次保存再写；备份一般也留着（keepBackup 认得出已经有一份一模一样的，
+// 不会再多一份），只有凭据这次加密过的那种认不出来，刚留的就删掉（见 dropBackup）。
+func (m *Manager) write() (backup string, err error) {
+	if m.loadErr != nil {
+		return "", m.loadErr
+	}
+	b, err := encodeTunnels(m.seq, m.tunnels)
+	if err != nil {
+		return "", &SaveError{Err: err}
+	}
+	fresh := false
+	if p := m.renum; p != nil {
+		berr := p.backupErr
+		if berr == nil {
+			backup, fresh, berr = keepBackup(m.file(), p.backup)
+		}
+		if berr != nil {
+			return "", &SaveError{Err: fmt.Errorf("改写之前没能先给读进来时的那份留备份：%w", berr)}
+		}
+	}
+	if err := atomicfile.WriteProtected(m.file(), b, 0o600); err != nil { // 凭据文件收紧权限
+		if fresh && m.renum.sealed {
+			backup = dropBackup(m.file(), backup)
+		}
+		return backup, &SaveError{Err: err}
+	}
+	m.renum = nil
+	return backup, nil
+}
+
+// encodeTunnels tunnels.json 的写法。保存和凭据加密过的那种备份（newPendingRenumber）共用，两边一个样子。
+func encodeTunnels(seq int, tunnels []*Tunnel) ([]byte, error) {
+	return json.MarshalIndent(struct {
 		Seq     int       `json:"seq"`
 		Tunnels []*Tunnel `json:"tunnels"`
-	}{m.seq, m.tunnels}
-	b, err := json.MarshalIndent(data, "", "  ")
+	}{seq, tunnels}, "", "  ")
+}
+
+// dropBackup 写回没成时删掉刚留的、凭据这次加密过的那种备份，返回还在的备份名（删掉了是空的）。DPAPI 每次加密的密文
+// 都不一样，这种备份 keepBackup 认不出「内容一样的旧备份」，tunnels.json 只读时不删就每次启动多一份；
+// 写回没成，原文件还在，用不着它，下次写之前会再留一份。删不掉就留着，照实报它的名字。
+func dropBackup(path, name string) string {
+	if err := os.Remove(filepath.Join(filepath.Dir(path), name)); err != nil {
+		log.Printf("tunnels.json 没写进去，刚留的备份 %s 也没删掉: %v", name, err)
+		return name
+	}
+	return ""
+}
+
+// 备份文件名里的时间取哪个钟（测试里钉住）、同一个名字被占了时最多试几个（-2、-3……）。
+var (
+	backupNow       = time.Now
+	backupNameTries = 100
+)
+
+// keepBackup 在 path 旁边留一份内容是 orig 的备份，返回备份的文件名（不带文件夹）和是不是这次新留的。名字是
+// 「原名.bak-年月日-时分秒」，.gitignore 里的 /tunnels.json* 管得到。旁边已经有一份内容一模一样的就用那份，不再另存：
+// tunnels.json 设成只读时每次启动都写不回去，不能每次都多一份。同一秒里再来一次、内容又不一样，名字就加上 -2、-3；
+// 发布用 PublishNew，名字被占了只会报错，绝不盖掉已有的备份。备份里有凭据（旧版明文的已经加密，见 newPendingRenumber；
+// 加密失败的还是明文），权限和 tunnels.json 一样收紧。
+func keepBackup(path string, orig []byte) (string, bool, error) {
+	dir, base := filepath.Dir(path), filepath.Base(path)
+	if name := sameBackup(dir, base, orig); name != "" {
+		return name, false, nil
+	}
+	f, err := os.CreateTemp(dir, ".minedeck-write-*.tmp")
+	if err != nil {
+		return "", false, err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	_, err = f.Write(orig)
 	if err == nil {
-		err = atomicfile.WriteProtected(m.file(), b, 0o600) // 凭据文件收紧权限
+		err = f.Chmod(0o600)
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
 	}
 	if err != nil {
-		return &SaveError{Err: err}
+		return "", false, err
 	}
-	return nil
+	stem := base + ".bak-" + backupNow().Format("20060102-150405")
+	for i := 1; i <= backupNameTries; i++ {
+		name := stem
+		if i > 1 {
+			name = fmt.Sprintf("%s-%d", stem, i)
+		}
+		err := atomicfile.PublishNew(tmp, filepath.Join(dir, name))
+		if err == nil {
+			return name, true, nil
+		}
+		if !errors.Is(err, fs.ErrExist) {
+			return "", false, err
+		}
+	}
+	return "", false, fmt.Errorf("%s 起头的 %d 个名字都被占了", stem, backupNameTries)
+}
+
+// sameBackup dir 里已有的、内容和 orig 一模一样的「base.bak-…」备份的文件名，没有时为空。只认普通文件，
+// 不顺着链接去读别处的东西；读不出来的当没有，另存一份。
+func sameBackup(dir, base string, orig []byte) string {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	for _, e := range ents {
+		if !e.Type().IsRegular() || !strings.HasPrefix(e.Name(), base+".bak-") {
+			continue
+		}
+		if fi, err := e.Info(); err != nil || fi.Size() != int64(len(orig)) {
+			continue
+		}
+		if b, err := os.ReadFile(filepath.Join(dir, e.Name())); err == nil && bytes.Equal(b, orig) {
+			return e.Name()
+		}
+	}
+	return ""
 }
 
 // Status 隧道运行状态。
@@ -518,6 +853,9 @@ func (m *Manager) Console(id string) *procutil.Console {
 // Add 新增隧道配置。
 func (m *Manager) Add(t Tunnel) (*Tunnel, error) {
 	if err := validate(&t); err != nil {
+		return nil, err
+	}
+	if err := checkProxyID(&t, nil); err != nil {
 		return nil, err
 	}
 	sealed, err := secret.Seal(t.Credential)
@@ -692,6 +1030,9 @@ func (m *Manager) replaceLocked(id string, t Tunnel, sealed string, opt UpdateOp
 	if old == nil {
 		return fmt.Errorf("隧道不存在")
 	}
+	if err := checkProxyID(&t, old); err != nil {
+		return err
+	}
 	t.ID = id
 	fixed := false // 换掉了存着的凭据：解不开的标记要清掉。等写进磁盘以后再清，写不进去时这条隧道仍是解不开的那份凭据
 	if opt.ClearCredential {
@@ -798,6 +1139,31 @@ func normServerAddr(addr string) string {
 func needsCredential(provider string) bool { return provider == "openfrp" || provider == "natfrp" }
 
 var errNeedCredential = errors.New("请填写凭据与隧道 ID（在服务商官网创建隧道后获取）")
+
+var errBadProxyID = errors.New("隧道 ID 只能是数字（在服务商官网的隧道列表里看）")
+
+// parseProxyID 平台的隧道编号（OpenFrp、樱花都是正整数）。「007」「+7」都能被 Atoi 认成 7，带正负号的另外拒掉；
+// 调用方按 strconv.Itoa(id) 存，同一条隧道只有一种写法，查重才查得出来。
+func parseProxyID(s string) (int, bool) {
+	s = strings.TrimSpace(s)
+	id, err := strconv.Atoi(s)
+	return id, err == nil && id > 0 && !strings.ContainsAny(s, "+-")
+}
+
+// checkProxyID OpenFrp、樱花的隧道 ID 只收数字，存成十进制形式（同 ImportTunnel）。编号原样交给 frpc（樱花拼成 -f 凭据:编号），
+// 以前什么都收：局域网会话沿用存着的凭据时能把它改成「8,9」这种，frpc 自己怎么解析逗号、冒号没查清（A60）。
+// old 是改之前存着的那份（新增时为 nil）：编号和服务商都没变的不查，以前存下的不是数字的编号照常能改别的、能启动。
+func checkProxyID(t, old *Tunnel) error {
+	if !needsCredential(t.Provider) || old != nil && t.ProxyID == old.ProxyID && t.Provider == old.Provider {
+		return nil
+	}
+	id, ok := parseProxyID(t.ProxyID)
+	if !ok {
+		return errBadProxyID
+	}
+	t.ProxyID = strconv.Itoa(id)
+	return nil
+}
 
 func validate(t *Tunnel) error { return validateKeep(t, false) }
 
@@ -1369,10 +1735,9 @@ func (m *Manager) followArgs(id, instance string) map[string]any {
 // StartBound 启动绑定到某实例且开启了跟随启动的隧道（实例启动后调用）。每拉起（或拉不起）一条记一条操作记录。
 func (m *Manager) StartBound(instance string) {
 	delay := startDelay // 在派发前固定本次等待时间，后台不再读可调整的默认值。
-	// tunnels.json 开机时被占着、之后又没人打开隧道页：这里再读一次，读成了照常拉起跟随的隧道；
-	// 还是没读成，就不知道有哪些隧道跟着这台服务器，只能记一笔（没有隧道编号，记不了操作记录）
+	// tunnels.json 开机时被占着、之后又没人打开隧道页：这里再读一次，读成了照常拉起跟随的隧道
 	if err := m.LoadErr(); err != nil {
-		log.Printf("服务器「%s」启动了，但隧道配置没读出来，跟随它启动的隧道这次拉不起来: %v", instance, err)
+		m.noteFollowLoadErr(instance, err)
 		return
 	}
 	for _, id := range m.bound(instance) {
@@ -1393,6 +1758,23 @@ func (m *Manager) StartBound(instance string) {
 			m.noteAuto(AutoAction{Op: "tunnel.start", Actor: followActor, Args: m.followArgs(id, instance), Err: err, Dur: time.Since(start)})
 		}()
 	}
+}
+
+// noteFollowLoadErr 服务器启动了、tunnels.json 却还是没读成：不知道有哪些隧道跟着这台服务器，一条也拉不起来。
+// 以前只记一行程序日志，事后在操作记录和服务器控制台里都看不出隧道为什么没起来（A59）。现在操作记录里记一条
+// （没有隧道编号，参数只有实例名），服务器的控制台里也说一句。
+func (m *Manager) noteFollowLoadErr(instance string, err error) {
+	log.Printf("服务器「%s」启动了，但隧道配置没读出来，跟随它启动的隧道这次拉不起来: %v", instance, err)
+	m.noteAuto(AutoAction{Op: "tunnel.start", Actor: followActor, Args: map[string]any{"inst": instance},
+		Err: fmt.Errorf("隧道配置读不出来，这次没有拉起跟随启动的隧道。%w", err)})
+	// 读不出来就不知道这台服务器有没有绑隧道，每台开服的都会收到这句，所以不说成一定有。
+	// 原因用 LoadError 给人看的那句（短、不带路径和系统的英文原话，局域网里也看得到控制台），原文在上面的操作记录和程序日志里
+	why := "隧道配置文件 tunnels.json 读不出来"
+	if le := (*LoadError)(nil); errors.As(err, &le) {
+		why = le.Hint()
+	}
+	m.sayToInstance(instance, "[MineDeck] 隧道配置读不出来，有隧道跟随这台服务器启动的话，这次没有拉起。"+why+
+		"。处理好以后到「内网穿透」页手动启动隧道")
 }
 
 // StopBound 停掉绑定到某实例、开了跟随启动、正在运行的隧道（实例停了之后调用），返回停了几条。

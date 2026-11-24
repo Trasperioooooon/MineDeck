@@ -277,3 +277,62 @@ func TestTunnelFollowWritesOpLog(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 }
+
+// 服务器启动时隧道配置读不出来（这里是内容坏了）：跟随的隧道一条也拉不起来，以前只记一行程序日志。
+// 现在操作记录里记一条（来源 schedule、带实例名、带原因），服务器的控制台里也说一句（A59）。
+func TestTunnelFollowLoadErrorWritesOpLogAndConsole(t *testing.T) {
+	newCatalog(t)
+	if err := os.WriteFile(filepath.Join(app.Base, "tunnels.json"), []byte(`{"seq":1,"tunnels":[`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mgr, err := inst.NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tun := tunnel.NewManager()
+	if tun.LoadErr() == nil {
+		t.Fatal("坏了的 tunnels.json 应读不出来")
+	}
+	reg := New(Env{Mgr: mgr, Tun: tun, Port: 27333})
+	tun.StartBound("生存服")
+	recs, _ := reg.Log.Query(ops.Query{Inst: "生存服", Op: "tunnel."})
+	if len(recs) != 1 || recs[0].Op != "tunnel.start" || recs[0].Src != ops.SrcSchedule || recs[0].Actor != "跟随服务器" || recs[0].OK ||
+		!strings.Contains(recs[0].Err, "这次没有拉起跟随启动的隧道") || !strings.Contains(recs[0].Err, "tunnels.json 的内容坏了") {
+		t.Fatalf("操作记录：%+v", recs)
+	}
+	i, err := mgr.Get("生存服")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 控制台局域网里也看得到：说给人看的那句，不带 tunnels.json 的完整路径和解析器的原话（原文在操作记录里）
+	if lines := strings.Join(i.Console.Lines(), "\n"); !strings.Contains(lines, "[MineDeck] 隧道配置读不出来，有隧道跟随这台服务器启动的话，这次没有拉起") ||
+		!strings.Contains(lines, (&tunnel.LoadError{Corrupt: true}).Hint()) || strings.Contains(lines, app.Base) || strings.Contains(lines, "JSON") {
+		t.Fatalf("服务器控制台里应说一句短的：%q", lines)
+	}
+}
+
+// tunnels.json 里有以前撞了号的隧道（A58）：程序启动时读它换的号，那时操作层还没建（main 里 tunnel.NewManager 在
+// catalog.New 之前），登记回调时补记一条：来源 schedule、op 为 tunnel.renumber，带换了哪几条和备份的文件名，不带凭据。
+func TestTunnelRenumberAtStartupWritesOpLog(t *testing.T) {
+	newCatalog(t)
+	data := `{"seq":1,"tunnels":[{"id":"tun1","provider":"natfrp","name":"游戏","credential":"dpapi:QUFBQS1mYWtlLXR3bw==","proxyId":"10","autoStart":false},` +
+		`{"id":"tun1","provider":"natfrp","name":"语音","credential":"dpapi:RkFLRS1ub3QtYS1yZWFsLWNyZWQ+Lz0=","proxyId":"11","autoStart":false}]}`
+	if err := os.WriteFile(filepath.Join(app.Base, "tunnels.json"), []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mgr, err := inst.NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tun := tunnel.NewManager()
+	reg := New(Env{Mgr: mgr, Tun: tun, Port: 27333})
+	recs, _ := reg.Log.Query(ops.Query{Op: "tunnel.renumber"})
+	if len(recs) != 1 {
+		t.Fatalf("启动时换了号，应补记一条操作记录：%+v", recs)
+	}
+	r, args := recs[0], string(recs[0].Args)
+	if r.Src != ops.SrcSchedule || r.Actor != "读取隧道配置" || !r.OK || !strings.Contains(args, `"from":"tun1","to":"tun2"`) ||
+		!strings.Contains(args, `"tunnel":"语音"`) || !strings.Contains(args, `"backup":"tunnels.json.bak-`) || strings.Contains(args, "dpapi:") {
+		t.Fatalf("换号的操作记录：%+v（args %s）", r, args)
+	}
+}

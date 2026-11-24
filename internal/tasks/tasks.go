@@ -77,6 +77,9 @@ type Snapshot struct {
 	Cancelled bool `json:"cancelled,omitempty"`
 	// Cancelling 取消请求已经收下、还在清理半成品（任务还没结束）
 	Cancelling bool `json:"cancelling,omitempty"`
+	// CleanupFailed 建服、导入失败以后半成品没清干净（文件被占着之类，error 里写着原因）：界面不再说「已经清理干净」，
+	// 改说去「没建完的文件夹」里处理。界面只认这个字段，不按 error 里的字认。
+	CleanupFailed bool `json:"cleanupFailed,omitempty"`
 }
 
 // Summary 任务列表里的一项：只带认出任务、看出状态要用的字段，和 Snapshot 里的同名字段含义相同。
@@ -121,6 +124,8 @@ type Task struct {
 	canCancel bool
 	cancelled bool // 用户的取消请求收下了（Cancel）
 	endCancel bool // 按「已取消」结束的（EndCancelled），见 Snapshot.Cancelled
+
+	cleanupFailed bool // 失败以后半成品没清干净（MarkCleanupFailed），见 Snapshot.CleanupFailed
 
 	netCount int       // 这一步里出过几次网络问题
 	netHost  string    // 最近一次的地址
@@ -410,6 +415,14 @@ func (t *Task) Finish(result string) {
 	t.cancel()
 }
 
+// MarkCleanupFailed 记下这个任务失败以后半成品没清干净（见 Snapshot.CleanupFailed）。在 Fail 之前调：
+// 界面一看到任务结束就读快照。
+func (t *Task) MarkCleanupFailed() {
+	t.mu.Lock()
+	t.cleanupFailed = true
+	t.mu.Unlock()
+}
+
 func (t *Task) Fail(err error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -453,7 +466,7 @@ func (t *Task) Snapshot() Snapshot {
 		ID: t.id, Title: t.title, Kind: t.kind, Inst: t.inst, Label: t.label,
 		Done: t.done, Total: t.total,
 		Ended: t.ended, CanCancel: t.canCancel && !t.ended, Err: t.err, Result: t.result,
-		Cancelled: t.ended && t.endCancel, Cancelling: t.cancelled && !t.ended,
+		Cancelled: t.ended && t.endCancel, Cancelling: t.cancelled && !t.ended, CleanupFailed: t.cleanupFailed,
 	}
 	s.Steps = append(s.Steps, t.steps...)
 	s.Log = t.logLines()

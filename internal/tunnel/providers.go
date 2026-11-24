@@ -7,12 +7,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"minedeck/internal/app"
@@ -55,18 +59,11 @@ func frpcDir(provider string) string {
 	return filepath.Join(app.RuntimesDir, "frpc", provider)
 }
 
-// findExe 在目录中查找 frpc 可执行文件。
-func findExe(dir string) string {
-	for _, cand := range []string{"frpc.exe", "frpc_windows_amd64.exe"} {
-		p := filepath.Join(dir, cand)
-		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+// findExe 在目录中查找 frpc 可执行文件（先后见 frpcCandidates），跳过 skip 里的（这一轮已经判坏、没删的，见 usableFrpc）。
+func findExe(dir string, skip ...string) string {
+	for _, p := range frpcCandidates(dir) {
+		if !slices.Contains(skip, p) {
 			return p
-		}
-	}
-	ents, _ := os.ReadDir(dir)
-	for _, e := range ents {
-		if !e.IsDir() && isFrpcExeName(e.Name()) {
-			return filepath.Join(dir, e.Name())
 		}
 	}
 	return ""
@@ -207,16 +204,28 @@ type openfrpProvider struct{}
 // 会把 Go 默认 ClientHello 当机器人并返回 567；只宣告 TLS 1.3 会改变 ClientHello，实测可以过闸。
 // 这是在绕过 CDN 机器人防护，不是普通的 TLS 兼容设置。EdgeOne 随时可能把「只报 TLS 1.3 的 Go 指纹」
 // 也加进黑名单；失效时这里要重新判断，不能当成永久有效的固定配置。
+//
+// openfrpCompatHTTPClient 是握手没成时的退路（A55，见 openfrpDownloadZip）：网络出口只支持到 TLS 1.2 的
+// （少数公司网络、代理、杀毒软件的 HTTPS 扫描）只报 TLS 1.3 就握不上手。它报的是 Go 默认的 ClientHello，
+// 直连 EdgeOne 那个源多半还是 567；下不下得成要看别的下载源，下不成就照报错手动放 frpc。不为过 567 伪造 TLS 指纹。
+var (
+	openfrpHTTPClient       = newOpenfrpHTTPClient(tls.VersionTLS13)
+	openfrpCompatHTTPClient = newOpenfrpHTTPClient(0) // 0：用 Go 默认的最低版本
+)
+
+// newOpenfrpHTTPClient 两个下载客户端只差 TLS 最低版本，别的在这一处设，退回的那个不会漏掉哪一条。
 // 不设 http.Client.Timeout：总时限仍由 EnsureFrpc 的 context 和 dl 的无进展看门狗控制。
 // 跳转只跟 https 的：下回来的 frpc 没有哈希可对，却是要运行的程序。
-var openfrpHTTPClient = &http.Client{Transport: &http.Transport{
-	Proxy:                 http.ProxyFromEnvironment,
-	TLSHandshakeTimeout:   15 * time.Second,
-	ResponseHeaderTimeout: 60 * time.Second,
-	MaxIdleConnsPerHost:   8,
-	ForceAttemptHTTP2:     true, // 设置 TLSClientConfig 后 Go 不再自动升 h2，必须显式打开。
-	TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS13},
-}, CheckRedirect: dl.HTTPSRedirect}
+func newOpenfrpHTTPClient(minTLS uint16) *http.Client {
+	return &http.Client{Transport: &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		TLSHandshakeTimeout:   15 * time.Second,
+		ResponseHeaderTimeout: 60 * time.Second,
+		MaxIdleConnsPerHost:   8,
+		ForceAttemptHTTP2:     true, // 设置 TLSClientConfig 后 Go 不再自动升 h2，必须显式打开。
+		TLSClientConfig:       &tls.Config{MinVersion: minTLS},
+	}, CheckRedirect: dl.HTTPSRedirect}
+}
 
 // openfrpSoftwareMeta 是 commonQuery?key=software 里和下载 frpc 有关的字段。
 // latest_ver 是纯数字版本（0.68.0），只用于版本比较；下载目录是 latest_full
@@ -296,7 +305,8 @@ func (openfrpProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	dir := frpcDir("openfrp")
 	// 已经放好的 frpc 直接用，不在这里比版本。latest_ver 和 latest_full 不是同一串，不能拿来互相比较。
 	// 明显坏掉的（以前解压到一半留下的半截 exe）先删掉，接着重新准备（见 frpcexe.go）。
-	if exe, err := usableFrpc(dir, con, true); err != nil || exe != "" {
+	exe, skip, err := usableFrpc(dir, con, true)
+	if err != nil || exe != "" {
 		return exe, err
 	}
 	if !frpcDownloadable {
@@ -315,23 +325,165 @@ func (openfrpProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	zipPath := openfrpZipCache(meta)
-	if err := dl.Fetch(ctx, dl.Request{URLs: urls, Dest: zipPath, MinSize: 1 << 20, Client: openfrpHTTPClient}, nil); err != nil {
-		_ = os.MkdirAll(dir, 0o755) // 提示里叫人把 exe 放进这个文件夹，先建好（同樱花那条）
-		return "", fmt.Errorf("下载 OpenFrp frpc 失败（可手动从 OpenFrp 下载 frpc_windows_amd64.zip，把 zip 里的 frpc_windows_amd64.exe 放入 %s 文件夹后重试）: %w", dir, err)
+	return openfrpInstall(ctx, con, urls, openfrpZipCache(meta), dir, skip)
+}
+
+// openfrpInstall 下载（或复用缓存的）zip、解压、挑出 frpc；skip 见 usableFrpc。
+// 这个 zip 没有哈希可对：能解压、里面的 frpc 却是坏的时，以前每次启动都删掉 frpc、再从同一个缓存的 zip 解压出同样坏的一份，
+// 一直循环（A56）。现在解压出来的 frpc 坏了就连同缓存的 zip 一起删掉，重新下载一次；还是坏的就停下报错，请人手动放。
+func openfrpInstall(ctx context.Context, con *procutil.Console, urls []string, zipPath, dir string, skip []string) (string, error) {
+	for try := 1; ; try++ {
+		exe, bad, err := openfrpFetchExtract(ctx, con, urls, zipPath, dir, skip)
+		if err != nil || bad == "" {
+			return exe, err
+		}
+		if try == 2 {
+			_ = os.MkdirAll(dir, 0o755)
+			return "", fmt.Errorf("下载到的 frpc 是坏的：%s。重新下载了一次还是这样，已经删掉。可以手动从 OpenFrp 下载 frpc_windows_amd64.zip，"+
+				"把 zip 里的 frpc_windows_amd64.exe 放入 %s 文件夹后重试", bad, dir)
+		}
+		con.Append(fmt.Sprintf("[MineDeck] 解压出来的 frpc 是坏的：%s。已经删掉它和缓存的压缩包，重新下载一次 ...", bad))
 	}
-	// 这个 zip 没有哈希可对，dl.Fetch 下次见它够大就直接复用：解压不了、或者里面没有 frpc 的，删掉，下次重新下载。
-	// frpc 解压出来又被杀毒软件删了的（errFrpcGone）不算 zip 坏了，留着
+}
+
+// openfrpFetchExtract 下载一次、解压一次、挑出 frpc。解压出来的 frpc 是坏的时，bad 说明是哪个、怎么坏的（这时 exe 为空）。
+// 这个 zip 没有哈希可对，dl.Fetch 下次见它够大就直接复用：解压不了、里面的 frpc 是坏的、或者里面没有 frpc 的，删掉，下次重新下载；
+// 删不掉的照实报出来（dropZipCache）。
+// frpc 解压出来又被杀毒软件删了的（errFrpcGone）不算 zip 坏了，留着。
+func openfrpFetchExtract(ctx context.Context, con *procutil.Console, urls []string, zipPath, dir string, skip []string) (exe, bad string, err error) {
+	if err := openfrpDownloadZip(ctx, con, urls, zipPath); err != nil {
+		_ = os.MkdirAll(dir, 0o755) // 提示里叫人把 exe 放进这个文件夹，先建好（同樱花那条）
+		return "", "", fmt.Errorf("下载 OpenFrp frpc 失败（可手动从 OpenFrp 下载 frpc_windows_amd64.zip，把 zip 里的 frpc_windows_amd64.exe 放入 %s 文件夹后重试）: %w", dir, err)
+	}
 	names, err := extractZipFlat(zipPath, dir)
 	if err != nil {
-		_ = os.Remove(zipPath)
-		return "", err
+		return "", "", alsoDropZip(err, zipPath)
 	}
-	exe, err := frpcAfterExtract(dir, names, fmt.Errorf("OpenFrp frpc 解压后未找到可执行文件"))
+	if bad, err = dropBadExtracted(con, dir, names); err != nil {
+		return "", bad, alsoDropZip(err, zipPath)
+	}
+	if bad != "" {
+		// 删不掉就不进第二轮：下一轮 dl.Fetch 见它够大会直接复用，说「重新下载了一次」就不是真的
+		if zerr := dropZipCache(zipPath); zerr != nil {
+			return "", bad, fmt.Errorf("下载到的 frpc 是坏的：%s，%w", bad, zerr)
+		}
+		return "", bad, nil
+	}
+	exe, err = frpcAfterExtract(dir, names, skip, fmt.Errorf("OpenFrp frpc 解压后未找到可执行文件"))
 	if err != nil && !errors.Is(err, errFrpcGone) {
-		_ = os.Remove(zipPath)
+		err = alsoDropZip(err, zipPath)
 	}
-	return exe, err
+	return exe, "", err
+}
+
+// openfrpDownloadZip 下载 frpc 的 zip：先用只报 TLS 1.3 的 openfrpHTTPClient；没下成、值得退回的（见 tlsFallbackWorth），
+// 换 openfrpCompatHTTPClient 把整次下载再来一遍，只退这一次。两次用的是同一个 dl.Request，大小检查一样，
+// 下回来以后的解压、结构检查也一样。
+func openfrpDownloadZip(ctx context.Context, con *procutil.Console, urls []string, zipPath string) error {
+	req := dl.Request{URLs: urls, Dest: zipPath, MinSize: 1 << 20, Client: openfrpHTTPClient}
+	watched, handshakeErr := watchTLSHandshake(ctx)
+	err := dl.Fetch(watched, req, nil)
+	hsErr := handshakeErr()
+	if !tlsFallbackWorth(ctx, err, hsErr) {
+		return err
+	}
+	con.Append(fmt.Sprintf("[MineDeck] TLS 1.3 连不上，改用兼容的连接方式重试 ...（握手时：%v）", hsErr))
+	req.Client = openfrpCompatHTTPClient
+	compatErr := dl.Fetch(ctx, req, nil)
+	if compatErr == nil {
+		return nil
+	}
+	// 往外传的是退回那次的错误：frpcBlockedHint 用 dl.AnyFailure 认「写盘时被杀毒软件拦下」，
+	// AnyFailure 只逐个看找到的第一个多源汇总错误，那得是最后这一次。前一次只留说法。
+	return fmt.Errorf("两种连接方式都试过了。只用 TLS 1.3 时：%v；改用兼容的连接方式后：%w", err, compatErr)
+}
+
+// tlsFallbackWorth 第一次下载（只报 TLS 1.3）没成以后，值不值得换兼容的客户端再来一次：途中有握手没成（hsErr）才退。
+// 总时限到了、被取消的不退。写盘时被杀毒软件拦下的也不退：卡在本机，换 TLS 版本救不了；
+// 退了的话往外传的是退回那次的错误，frpcBlockedHint 就认不出这一次被拦下了。
+func tlsFallbackWorth(ctx context.Context, err, hsErr error) bool {
+	return err != nil && hsErr != nil && ctx.Err() == nil && !dl.AnyFailure(err, isVirusErr)
+}
+
+// watchTLSHandshake 给 ctx 挂上 httptrace，记下途中第一次没成的 TLS 握手（换个 TLS 版本也救不了的不记）。
+// 看握手这一步本身，是因为 dl 交回来的错误分不出来：连接在握手时和传数据时被重置是同一种错误；
+// 老式服务器、中间设备直接回 TLS 1.2 时 Go 给的是一句没有类型的错误；回明文时 net/http 还会把 RecordHeaderError 换成别的说法。
+func watchTLSHandshake(ctx context.Context) (context.Context, func() error) {
+	var mu sync.Mutex // 握手在拨号的协程里，请求结束以后还可能在跑
+	var first error
+	done := func(_ tls.ConnectionState, err error) {
+		if err == nil || !tlsVersionMayHelp(err) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if first == nil {
+			first = err
+		}
+	}
+	get := func() error {
+		mu.Lock()
+		defer mu.Unlock()
+		return first
+	}
+	return httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{TLSHandshakeDone: done}), get
+}
+
+// tlsVersionMayHelp 握手没成的原因，换个 TLS 版本有没有可能解决。超时、被取消、证书对不上的，换了也一样，不退回。
+func tlsVersionMayHelp(err error) bool {
+	var ne net.Error
+	var cert *tls.CertificateVerificationError
+	switch {
+	case errors.As(err, &cert), errors.Is(err, context.Canceled):
+		return false
+	case errors.As(err, &ne) && ne.Timeout(): // context.DeadlineExceeded 也算
+		return false
+	}
+	return true
+}
+
+// dropZipCache 删掉坏了的缓存 zip（已经不在了算删掉了）。删不掉（被别的程序开着）时交回给人看的一句，带上系统给的原因：
+// 留着它的话下次启动还是复用它，得请人自己处理。
+func dropZipCache(zipPath string) error {
+	err := os.Remove(zipPath)
+	if err == nil || errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if pe := (*os.PathError)(nil); errors.As(err, &pe) {
+		err = pe.Err // 路径后面会写，不重复
+	}
+	return fmt.Errorf("缓存的压缩包删不掉（%w），请关掉占用它的程序或手动删掉 %s 后重试", err, zipPath)
+}
+
+// alsoDropZip 出错以后连缓存的 zip 一起删掉；删不掉时把那一句接在 err 后面（errors.Is 两个原因都认得出）。
+func alsoDropZip(err error, zipPath string) error {
+	if zerr := dropZipCache(zipPath); zerr != nil {
+		return fmt.Errorf("%w。%w", err, zerr)
+	}
+	return err
+}
+
+// dropBadExtracted 这次解压出来的 frpc 逐个查一遍，坏的删掉（是这次刚放进去的，归 MineDeck 管；删前同样确认没被换掉）。
+// 返回第一个坏的是哪个、怎么坏的，都好时为空。删不掉时返回错误。一直在变、按判断不了放过的，往隧道日志里说一句。
+func dropBadExtracted(con *procutil.Console, dir string, names []string) (bad string, err error) {
+	for _, n := range names {
+		if !isFrpcExeName(n) {
+			continue
+		}
+		c, err := checkFrpc(filepath.Join(dir, n), func(exeState) bool { return true })
+		if c.changing {
+			noteFrpcChanging(con, n)
+		}
+		if c.state == exeTruncated || c.state == exeNotPE {
+			if bad == "" {
+				bad = fmt.Sprintf("%s（%s）", n, c.why)
+			}
+			if err != nil {
+				return bad, fmt.Errorf("解压出来的 %s 是坏的（%s），又没能删掉它（%w）。请关掉可能占着它的程序，手动删掉这个文件后重试。它在这个文件夹：%s", n, c.why, err, dir)
+			}
+		}
+	}
+	return bad, nil
 }
 
 func (openfrpProvider) Launch(t *Tunnel) ([]string, []string, error) {
@@ -349,7 +501,7 @@ func (natfrpProvider) ID() string { return "natfrp" }
 func (natfrpProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	dir := frpcDir("natfrp")
 	// 这里的 frpc 是用户自己放的：半截的才删，别的拿不准的不删、报出来（见 usableFrpc）
-	if exe, err := usableFrpc(dir, con, false); err != nil || exe != "" {
+	if exe, _, err := usableFrpc(dir, con, false); err != nil || exe != "" {
 		return exe, err
 	}
 	// 樱花未提供稳定的直链下载 API，引导用户手动放置（一次性操作）。
@@ -381,7 +533,8 @@ var frpSHA256 = "e0094cd0baf03d5ff9ce9739199406871ad8788cf51e766f00ad3a9e7a836f3
 
 func (customProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	dir := frpcDir("custom")
-	if exe, err := usableFrpc(dir, con, true); err != nil || exe != "" {
+	exe, skip, err := usableFrpc(dir, con, true)
+	if err != nil || exe != "" {
 		return exe, err
 	}
 	if !frpcDownloadable {
@@ -403,7 +556,7 @@ func (customProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	exe, err := frpcAfterExtract(dir, names, fmt.Errorf("frp 解压后未找到 frpc.exe"))
+	exe, err = frpcAfterExtract(dir, names, skip, fmt.Errorf("frp 解压后未找到 frpc.exe"))
 	if err != nil {
 		return "", err
 	}

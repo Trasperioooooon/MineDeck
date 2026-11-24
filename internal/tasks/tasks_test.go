@@ -187,3 +187,26 @@ func TestSetInst(t *testing.T) {
 		t.Fatalf("没设服务器的任务不该带 inst：%s", b)
 	}
 }
+
+// 失败以后半成品没清干净的任务，快照里带 cleanupFailed（界面按它说去「没建完的文件夹」里处理）；别的任务不带这个字段。
+func TestCleanupFailedInSnapshot(t *testing.T) {
+	mg := NewManager()
+	left, _ := mg.New("导入服务端", []string{"解压"})
+	left.MarkCleanupFailed()
+	left.Fail(fmt.Errorf("解压失败；清理半成品失败：文件被占着"))
+	plain, _ := mg.New("导入服务端", []string{"解压"})
+	plain.Fail(fmt.Errorf("解压失败；清理半成品失败：只是原因里有这几个字"))
+	if sn := left.Snapshot(); !sn.CleanupFailed || !sn.Ended {
+		t.Fatalf("没清干净的应带 cleanupFailed：%+v", sn)
+	}
+	b, err := json.Marshal(plain.Snapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "cleanupFailed") {
+		t.Fatalf("没调 MarkCleanupFailed 的不该带这个字段（不按 error 里的字认）：%s", b)
+	}
+	if b, _ := json.Marshal(left.Snapshot()); !strings.Contains(string(b), `"cleanupFailed":true`) {
+		t.Fatalf("JSON 里的字段名：%s", b)
+	}
+}

@@ -190,7 +190,7 @@ func (m *Manager) CreateAsync(req CreateReq) (string, error) {
 			defer m.releaseWorldPlan(req.WorldOwner, req.WorldPlan)
 		}
 		if err := m.runCreate(ctx, t, req, dir); err != nil {
-			failCreate(t, err, m.discardCreating(req.Name, dir))
+			failCreate(t, err, m.discardFailed(err, req.Name, dir))
 			return
 		}
 		t.Finish(req.Name)
@@ -237,11 +237,7 @@ func (m *Manager) runCreateWith(ctx context.Context, t *tasks.Task, req CreateRe
 	}
 	t.Logf("Java 就绪: %s", javaPath)
 
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	// 登记成功之前一直留着。进程中途没了，下次可以认出来删；已经有 instance.json 的不靠它清理。
-	if err := WriteCreatingMarker(dir, req.Name); err != nil {
+	if err := MkdirCreating(dir, req.Name); err != nil {
 		return err
 	}
 
@@ -503,11 +499,11 @@ func cancelledOr(t *tasks.Task, err error) error {
 
 // failCreate 新建、导入整合包、导入服务端这几种后台任务出错收尾（半成品已经按 cleanupErr 的结果清过）。
 // 用户点了取消、半成品也清干净了：任务按「已取消」结束（tasks.EndCancelled），界面显示中性的「已取消」，不是失败；
-// 取消以后没清干净的仍是失败，原因里带上清理失败的那句——文件夹里留了东西，要人去看（2026-11-14 复审发现 9）。
+// 取消以后没清干净的仍是失败，原因里带上清理失败的那句——文件夹里留了东西，要人去看（2026-11-14 复审发现 9，见 FailLeftover）。
 func failCreate(t *tasks.Task, err, cleanupErr error) {
 	err = cancelledOr(t, err)
 	if cleanupErr != nil {
-		t.Fail(fmt.Errorf("%w；清理半成品失败：%v", err, cleanupErr))
+		FailLeftover(t, err, cleanupErr)
 		return
 	}
 	if t.Cancelled() {
@@ -517,7 +513,8 @@ func failCreate(t *tasks.Task, err, cleanupErr error) {
 	t.Fail(err)
 }
 
-// discardCreating 只清理由当前创建任务独占、尚未发布的目录。
+// discardCreating 只清理由当前创建任务独占、尚未发布的目录；文件夹里有没有这次放的创建记号决定怎么清（见 discardCreatingDir）。
+// 新建、导入整合包、导入现成服务端、交接包失败时都经 discardFailed 到这里。
 func (m *Manager) discardCreating(name, dir string) error {
 	m.mu.Lock()
 	owned := m.creating[name] && m.creating[dirKey(dir)] && m.insts[name] == nil
@@ -535,7 +532,7 @@ func (m *Manager) discardCreating(name, dir string) error {
 	} else if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	return os.RemoveAll(abs)
+	return discardCreatingDir(abs, name)
 }
 
 func isASCII(s string) bool {

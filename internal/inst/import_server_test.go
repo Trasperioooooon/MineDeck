@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,8 @@ import (
 	"time"
 
 	"minedeck/internal/app"
+	"minedeck/internal/atomicfile"
+	"minedeck/internal/diskguard"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/modpack"
 )
@@ -438,5 +441,149 @@ func TestImportServerArchiveCaseDuplicates(t *testing.T) {
 	log := strings.Join(tk.Snapshot().Log, "\n")
 	if !strings.Contains(log, "只差大小写") || !strings.Contains(log, "config/dup.toml") || !strings.Contains(log, "CONFIG/DUP.TOML") || strings.Contains(log, "config/same.toml") {
 		t.Errorf("日志应列出只差大小写、没解压的那两个：%s", log)
+	}
+}
+
+// 解压现成服务端之前按解开以后的总大小查磁盘余量（A40，同交接包导入）：装不下就一个文件都不写；
+// 刚好装得下的照常导入；查不到余量的盘照做，日志里说一声。不解压的控制文件（logs/ 这些）不算在要的余量里。
+func TestImportServerArchiveChecksDiskSpace(t *testing.T) {
+	m, _ := importEnv(t)
+	z := zipOf(t, map[string]string{
+		"paper-1.20.1-100.jar":   paperJarBytes(t),
+		"server.properties":      "server-port=25565\n",
+		"eula.txt":               "eula=true\n",
+		"world/region/r.0.0.mca": strings.Repeat("\x00", 4<<20),
+		"logs/old.log":           strings.Repeat("\x00", 8<<20), // 不解压
+	})
+	zr, err := zip.OpenReader(z)
+	if err != nil {
+		t.Fatal(err)
+	}
+	need := diskguard.Reserve
+	for _, f := range zr.File {
+		if !strings.HasPrefix(f.Name, "logs/") {
+			need += int64(f.UncompressedSize64) + 4096
+		}
+	}
+	zr.Close()
+	old := serverImportDiskFree
+	t.Cleanup(func() { serverImportDiskFree = old })
+	run := func(name string, free func(string) (int64, error)) (string, string, error) {
+		pack, err := modpack.Parse(z)
+		if err != nil {
+			t.Fatal(err)
+		}
+		serverImportDiskFree = free
+		dir := filepath.Join(app.ServersDir, name)
+		tk, _ := m.Tasks.New("导入服务端", serverImportSteps)
+		err = m.runServerImport(context.Background(), tk, pack, CreateReq{Name: name, XmxMB: 2048, Port: 25576, EULA: true}, dir)
+		return dir, strings.Join(tk.Snapshot().Log, "\n"), err
+	}
+
+	dir, _, err := run("差一点", func(string) (int64, error) { return need - 1, nil })
+	var full *diskguard.NoSpace
+	if !errors.As(err, &full) {
+		t.Fatalf("差一个字节装不下也该在解压前停下：%v", err)
+	}
+	if got := dirNames(t, dir); !slices.Equal(got, []string{CreatingMarker}) {
+		t.Fatalf("装不下时一个文件都不该写：%q", got)
+	}
+	if _, _, err := run("刚好", func(string) (int64, error) { return need, nil }); err != nil {
+		t.Fatalf("刚好装得下应照常导入：%v", err)
+	}
+	_, log, err := run("查不到", func(string) (int64, error) { return 0, errors.New("这块盘查不了") })
+	if err != nil || !strings.Contains(log, "没查到存放位置所在的盘还剩多少空间") {
+		t.Fatalf("查不到余量的盘照做，日志里说一声：%v\n%s", err, log)
+	}
+}
+
+// 服务端 jar 里没写版本、压缩包的日志里有：导入用日志里的版本，任务日志和结果里注明是从日志里认的（A44）。
+func TestImportServerArchiveVersionFromLog(t *testing.T) {
+	m, _ := importEnv(t)
+	bare := jarBytesOf(t, map[string]string{"META-INF/MANIFEST.MF": "Manifest-Version: 1.0\r\nMain-Class: io.papermc.paperclip.Main\r\n\r\n"})
+	run := func(name string, files map[string]string) *Instance {
+		t.Helper()
+		pack, err := modpack.Parse(zipOf(t, files))
+		if err != nil {
+			t.Fatal(err)
+		}
+		tk, _ := m.Tasks.New("导入服务端", serverImportSteps)
+		if err := m.runServerImport(context.Background(), tk, pack, CreateReq{Name: name, XmxMB: 2048, Port: 25578, EULA: true}, filepath.Join(app.ServersDir, name)); err != nil {
+			t.Fatalf("%s 导入失败：%v\n%v", name, err, tk.Snapshot().Log)
+		}
+		w := warningOf(tk, "mc-from-log")
+		fromLog := strings.Contains(strings.Join(tk.Snapshot().Log, "\n"), "是从压缩包里的 logs/latest.log 认出来的")
+		if (w != nil) != fromLog {
+			t.Fatalf("%s：日志和结果要一致：%+v %v", name, w, fromLog)
+		}
+		i, _ := m.Get(name)
+		if fromLog != (name == "日志版本") {
+			t.Fatalf("%s：从日志里认的说明不对：%v", name, fromLog)
+		}
+		return i
+	}
+	if i := run("日志版本", map[string]string{"paper.jar": bare, "eula.txt": "eula=true\n",
+		"logs/latest.log": "[12:00:00] [Server thread/INFO]: Starting minecraft server version 1.20.1\n"}); i.MC != "1.20.1" || i.Core != "paper" {
+		t.Fatalf("应按日志里的版本登记：%s %s", i.Core, i.MC)
+	}
+	if i := run("jar 版本", map[string]string{"paper-1.20.1-100.jar": paperJarBytes(t), "eula.txt": "eula=true\n",
+		"logs/latest.log": "Starting minecraft server version 1.19.4\n"}); i.MC != "1.20.1" {
+		t.Fatalf("jar 里写了版本的以 jar 为准：%s", i.MC)
+	}
+}
+
+// 接管那套识别认出了启动文件和版本、没认出核心，拿解析时的核心补上：版本用的是 jar 里认出来的，就不说成从日志认的（A44）。
+func TestImportedFromScanVersionSource(t *testing.T) {
+	pack := &modpack.Pack{Format: modpack.FormatServer, Core: mcsrc.CorePaper, MC: "1.19.4", MCFromLog: true, Launch: "jar:server.jar"}
+	s, ok := importedFromScan(&AdoptScan{LaunchTarget: "jar:server.jar", MC: "1.20.1"}, pack)
+	if !ok || s.core != mcsrc.CorePaper || s.mc != "1.20.1" || s.mcFromLog {
+		t.Fatalf("版本是 jar 里认出来的，不算从日志认的：%+v %v", s, ok)
+	}
+	s, ok = importedFromScan(&AdoptScan{LaunchTarget: "jar:server.jar"}, pack)
+	if !ok || s.mc != "1.19.4" || !s.mcFromLog {
+		t.Fatalf("版本只能用解析时从日志认的：%+v %v", s, ok)
+	}
+	if s, ok := importedFromScan(&AdoptScan{LaunchTarget: "jar:other.jar", MC: "1.20.1"}, pack); ok {
+		t.Fatalf("两边说的不是同一个 jar 时不拼凑：%+v", s)
+	}
+}
+
+// 导入现成服务端在收尾时失败：没装进来的文件、只差大小写的、启动脚本里的参数这些结果都不留在任务上，
+// 失败了就没有这台服务器（同导入整合包）。
+func TestServerImportFailureDropsResultWarnings(t *testing.T) {
+	m, _ := importEnv(t)
+	pack, err := modpack.Parse(zipOrdered(t, [][2]string{
+		{"paper-1.20.1-100.jar", paperJarBytes(t)},
+		{"eula.txt", "eula=true\n"},
+		{"server.properties", "server-port=25565\n"},
+		{"start.bat", "java -XX:+UseG1GC -javaagent:x.jar -jar paper-1.20.1-100.jar\r\n"},
+		{"config/Dup.toml", "first"},
+		{"config/dup.toml", "second"},
+		{"config/CON.txt", "x"},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := atomicfile.Hook
+	t.Cleanup(func() { atomicfile.Hook = old })
+	atomicfile.Hook = func(p string) {
+		if filepath.Base(p) == "server.properties" { // 改端口的时候：让收尾写 run.bat 失败
+			_ = os.Mkdir(filepath.Join(filepath.Dir(p), "run.bat"), 0o755)
+		}
+	}
+	id, err := m.importServerAsync(pack, CreateReq{Name: "收尾失败", XmxMB: 2048, Port: 25580, EULA: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sn := waitImportTask(t, m, id)
+	if sn.Err == "" {
+		t.Fatalf("应失败：%+v", sn)
+	}
+	log := strings.Join(sn.Log, "\n")
+	if !strings.Contains(log, "只差大小写") || !strings.Contains(log, "JVM 参数") {
+		t.Fatalf("失败之前应走到了写这些结果的地方：%s", log)
+	}
+	if len(sn.Warnings) != 0 {
+		t.Fatalf("失败以后不该留着这些结果：%+v", sn.Warnings)
 	}
 }

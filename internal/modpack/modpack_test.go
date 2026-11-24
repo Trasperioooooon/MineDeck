@@ -2,6 +2,7 @@ package modpack
 
 import (
 	"archive/zip"
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -31,6 +32,30 @@ func mkZip(t *testing.T, files map[string]string) string {
 		}
 	}
 	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// mkZipOrdered 同 mkZip，条目按给的先后写进去（要看 zip 里谁排在前面时用）。
+func mkZipOrdered(t *testing.T, entries [][2]string) string {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, e := range entries {
+		fw, err := zw.Create(e[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fw.Write([]byte(e[1])); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(t.TempDir(), "pack.zip")
+	if err := os.WriteFile(p, buf.Bytes(), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return p
@@ -231,5 +256,15 @@ func TestReclassify(t *testing.T) {
 	p2.Reclassify(nil)
 	if len(p2.Files) != 0 || len(p2.Pending) != 1 {
 		t.Fatalf("无信任记忆时不应移任何项: %+v %+v", p2.Files, p2.Pending)
+	}
+}
+
+// 清单里写明服务端用不上的文件不装，记进 ClientOnly，导入结果里列出来（A46）。
+func TestParseMrpackRecordsClientOnly(t *testing.T) {
+	idx := mrpackIndex(`{"path":"resourcepacks/光影.zip","hashes":{"sha1":"` + goodSHA1 + `"},"env":{"client":"required","server":"unsupported"},"downloads":["https://cdn.modrinth.com/a.zip"],"fileSize":1},` +
+		`{"path":"mods/a.jar","hashes":{"sha1":"` + goodSHA1 + `"},"env":{"client":"required","server":"required"},"downloads":["https://cdn.modrinth.com/a.jar"],"fileSize":1}`)
+	p, err := Parse(mkZip(t, map[string]string{"modrinth.index.json": idx}))
+	if err != nil || len(p.ClientOnly) != 1 || p.ClientOnly[0] != "resourcepacks/光影.zip" || len(p.Files) != 1 || p.Files[0].Path != "mods/a.jar" {
+		t.Fatalf("只给客户端用的不装、记下来：%+v %v", p, err)
 	}
 }

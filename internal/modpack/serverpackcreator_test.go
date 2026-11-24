@@ -90,29 +90,37 @@ func TestCurseForgeManifestDetection(t *testing.T) {
 }
 
 // 为了看 manifest.json 的内容解开的总量有上限，每看一份至少扣 indexSniffMin（申报大小写成 0 的也扣）：
-// 上限只够看两份时，第三份不看内容、按文件名算，成了唯一的一处清单。
-// 三份实际都只有两百来字节：要是只按实际大小扣，三份都看得了，就都不算清单。
+// 上限只够看两份时，排在后面的不看内容。最外层的那份按文件名算，成了清单；文件夹里的从严，看不了内容就不算（A40）。
+// 几份实际都只有两百来字节：要是只按实际大小扣，都看得了，就都不算清单。
 func TestIndexSniffBudget(t *testing.T) {
-	files := map[string]string{"A/manifest.json": spcManifest, "B/manifest.json": spcManifest, "C/manifest.json": spcManifest}
-	find := func() *indexLoc {
-		zr, err := zip.OpenReader(mkZip(t, files))
+	entries := [][2]string{{"A/manifest.json", spcManifest}, {"B/manifest.json", spcManifest}, {"C/manifest.json", spcManifest}}
+	find := func(entries [][2]string) *indexLoc {
+		zr, err := zip.OpenReader(mkZipOrdered(t, entries))
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer zr.Close()
-		loc, err := findIndex(zr.File)
+		l := newZipLayout(zr.File)
+		loc, err := findIndex(zr.File, l, !l.looksLikeServer(""))
 		if err != nil {
 			t.Fatal(err)
 		}
 		return loc
 	}
-	if loc := find(); loc != nil {
+	rootLast := append(entries[:2:2], [2]string{"manifest.json", spcManifest})
+	if loc := find(entries); loc != nil {
 		t.Fatalf("三份都是 ServerPackCreator 的，都不该算清单：%+v", loc)
+	}
+	if loc := find(rootLast); loc != nil {
+		t.Fatalf("最外层那份也是 ServerPackCreator 的，不该算清单：%+v", loc)
 	}
 	old := indexSniffMax
 	indexSniffMax = 2 * indexSniffMin
 	defer func() { indexSniffMax = old }()
-	if loc := find(); loc == nil || loc.kind != FormatCurseForge {
-		t.Fatalf("上限只够看两份时，第三份应按文件名算成清单：%+v", loc)
+	if loc := find(entries); loc != nil {
+		t.Fatalf("上限只够看两份时，文件夹里的第三份看不了内容，不该算清单：%+v", loc)
+	}
+	if loc := find(rootLast); loc == nil || loc.kind != FormatCurseForge || loc.root != "" {
+		t.Fatalf("上限只够看两份时，最外层排在后面的那份应按文件名算成清单：%+v", loc)
 	}
 }

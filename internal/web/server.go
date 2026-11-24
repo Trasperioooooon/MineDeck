@@ -229,6 +229,8 @@ func writeJSON(w http.ResponseWriter, v any) {
 
 // writeErr 报错：error 是完整原文。报错链上有错误另给了一句给人看的话（Hint()，例如 AI 服务商的「Key 不对或已失效」）时，
 // 放进 hint：原文带着状态码和服务商的英文原话，界面的报错正文整句接不上，就接这一句（app.js 的 errSummary），原文照旧进「详情」。
+// 报错链上有错误说平台上已经建好了（PlatformCreated()，在穿透平台创建隧道、本机没导入成）时加 created: true：
+// 界面认它锁住「创建并导入」、引导去导入，再点一次平台上就多一条（A57）。
 func writeErr(w http.ResponseWriter, code int, err error) {
 	body := map[string]any{"ok": false, "error": err.Error()}
 	var h interface{ Hint() string }
@@ -236,6 +238,10 @@ func writeErr(w http.ResponseWriter, code int, err error) {
 		if s := h.Hint(); s != "" {
 			body["hint"] = s
 		}
+	}
+	var c interface{ PlatformCreated() bool }
+	if errors.As(err, &c) && c.PlatformCreated() {
+		body["created"] = true
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)

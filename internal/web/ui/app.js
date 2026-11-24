@@ -23,7 +23,7 @@ async function api(path, opts = {}) {
   try { j = await res.json(); } catch { throw new Error(`服务异常 (HTTP ${res.status})`); }
   // needLogin 标记：让 boot() 区分「需要登录」与真正的后端故障
   if (res.status === 401) { showLogin(); throw Object.assign(new Error(j.error || "需要登录"), { needLogin: true }); }
-  if (!j.ok) throw Object.assign(new Error(j.error || "未知错误"), { status: res.status, hint: j.hint, portBusy: j.portBusy }); // hint：后端另给的一句人话，见 errSummary
+  if (!j.ok) throw Object.assign(new Error(j.error || "未知错误"), { status: res.status, hint: j.hint, portBusy: j.portBusy, created: j.created }); // hint：后端另给的一句人话，见 errSummary；created：平台上的隧道已建好（见 createPlatTunnel）
   return opts.full ? j : j.data;
 }
 
@@ -2053,7 +2053,7 @@ async function drawImport() {
   const fill = takeFill("import"); // 「返回修改」：上次填的（连选的文件）
   let imRoot = fill ? fill.root : "";
   const on = (k, def) => (fill ? fill[k] : def) ? " checked" : "";
-  Main().innerHTML = pageHead("导入整合包", "Modrinth（.mrpack）、CurseForge（zip），或作者打包好的现成服务端。清单和服务端文件可以在最外层，也可以只套一层文件夹。核心和版本会自动识别。", "",
+  Main().innerHTML = pageHead("导入整合包", "Modrinth（.mrpack）、CurseForge（zip），或作者打包好的现成服务端。清单和服务端文件可以在最外层，也可以套在文件夹里（只有一个文件夹一层层套着的，最多认三层）。核心和版本会自动识别。", "",
     `<a href="#/create">新建服务器</a>${icon("chevronRight")}<span>导入整合包</span>`) + `
     <div class="form-grid">
       <label class="field full"><span>整合包文件</span><input type="file" id="im-file" accept=".mrpack,.zip"><div class="field-err" id="im-file-err"></div></label>
@@ -2140,7 +2140,7 @@ async function drawImport() {
       const pack = j.data.pack || {};
       const pending = (pack.pending || 0) > 0 ? `，${pack.pending} 个文件待处理` : "";
       if (pack.format === "server") {
-        toast(pack.core && pack.mc ? `已识别为现成服务端（${pack.core} ${pack.mc}），开始导入` : "已识别为现成服务端，核心和版本解压后再认");
+        toast(pack.core && pack.mc ? `已识别为现成服务端（${pack.core} ${pack.mc}${pack.mcFromLog ? "，版本号是从压缩包里的日志认出来的" : ""}），开始导入` : "已识别为现成服务端，核心和版本解压后再认");
       } else {
         toast(`已识别 ${pack.core} ${pack.mc}（${pack.files} 个组件）` + (pending ? "；其中" + pack.pending + " 项待处理，导入后到任务页逐个处理" : ""));
       }
@@ -2268,6 +2268,9 @@ async function drawTransfer() {
   if (stale(gen)) return;
   const maxMem = Math.max(2048, app.ramMb - 2048);
   let trapRoot = "", pack = null, packFile = ""; // pack：上传后拿到的摘要；packFile：后端缓存里的包路径
+  // 「返回修改」（A49，同导入整合包）：上次选的包和填的都在。上传的那份导入结束时已经删了，选回来的包要重新上传一遍，
+  // 传完画出表单以后再把填过的盖上去（只盖一次）
+  let fill = takeFill("transfer");
   Main().innerHTML = pageHead("导入交接包", "MineDeck 导出的 .mdpack 交接包；世界、配置、模组和插件都在包里，导入后可以启动。", "",
     `<a href="#/create">新建服务器</a>${icon("chevronRight")}<span>导入交接包</span>`) + `
     <div class="form-grid">
@@ -2312,6 +2315,10 @@ async function drawTransfer() {
     }
   };
   $("#tp-file").addEventListener("change", upload);
+  if (fill) {
+    if (putFile($("#tp-file"), fill.file)) upload();
+    else if (fill.file) fileErr(`上次选的是「${fill.file.name}」，请再选一次`);
+  }
 
   const drawForm = () => {
     const s = pack;
@@ -2358,8 +2365,14 @@ async function drawTransfer() {
         <div class="hint" style="margin-top:4px">原服主在 MineDeck 里同意过 EULA 的，这步可以不勾。</div>
         <div class="field-err" id="tp-eula-err"></div>
       </div>`;
-    renderMemoryControl($("#tp-mem-mount"), { sliderId: "tp-mem", min: 2048, max: maxMem, value: mem, totalMb: app.ramMb, availMb: app.availRamMb,
+    renderMemoryControl($("#tp-mem-mount"), { sliderId: "tp-mem", min: 2048, max: maxMem, value: fill ? fill.mem : mem, totalMb: app.ramMb, availMb: app.availRamMb,
       hint: `${(s.xmxMb / 1024).toFixed(1)} GB 是原来的分配，可沿用或调整` });
+    if (fill) {
+      $("#tp-name").value = fill.name; $("#tp-port").value = fill.port; $("#tp-eula").checked = fill.eula;
+      if ([...$("#tp-java").options].some(o => o.value === fill.java)) $("#tp-java").value = fill.java;
+      trapRoot = fill.root;
+      fill = null;
+    }
     const trUpdateRoot = () => { $("#tp-root").value = trapRoot || app.serversRoot || "程序文件夹\\servers"; };
     trUpdateRoot();
     $("#tp-browse").onclick = async () => {
@@ -2398,14 +2411,16 @@ async function drawTransfer() {
     if (!packFile) { fileErr("交接包还没上传完，或上传失败了"); return; }
     const name = $("#tp-name") ? $("#tp-name").value.trim() : "";
     if (!name) { $("#tp-name").classList.add("invalid"); $("#tp-name-err").innerHTML = icon("warn") + " 请给这台服务器起个名字"; $("#tp-name").focus(); return; }
+    // 「返回修改」的草稿在发请求之前读好（同导入整合包）：等回话的时候切走了，表单就没了
+    const draft = { file: $("#tp-file").files[0], name: $("#tp-name").value, port: $("#tp-port").value, mem: +$("#tp-mem").value,
+      java: $("#tp-java").value, root: trapRoot, eula: $("#tp-eula").checked };
     $("#tp-go").disabled = true;
     $("#tp-go").textContent = "导入中…";
     try {
       const r = await api("/api/transfer/import", { method: "POST", body: {
-        file: packFile, name, xmxMb: $("#tp-mem") ? +$("#tp-mem").value : 0,
-        port: +$("#tp-port").value || 0, eula: $("#tp-eula").checked, root: trapRoot,
-        javaMajor: $("#tp-java") ? +$("#tp-java").value || 0 : 0,
+        file: packFile, name, xmxMb: draft.mem || 0, port: +draft.port || 0, eula: draft.eula, root: trapRoot, javaMajor: +draft.java || 0,
       } });
+      formDrafts.set(r.taskId, { mode: "transfer", data: draft }); // 先按任务号记下，再看页面还在不在
       if (stale(gen)) return;
       toast(`开始导入：${r.pack.core} ${r.pack.mc}（${r.pack.mods} 个模组${r.pack.plugins ? ` / ${r.pack.plugins} 个插件` : ""}）`);
       location.hash = `#/task/${r.taskId}`;
@@ -2924,6 +2939,10 @@ const TASK_KINDS = {
     go: t => t.inst ? "完成，回到这台服务器" : "完成，回到服务器列表",
     href: (_, t) => t && t.inst ? `#/inst/${encodeURIComponent(t.inst)}/world/map` : "#/instances", back: "#/instances", backText: "返回服务器列表", nav: "instances" },
 };
+/* 建服、导入失败以后半成品没删干净（快照里 cleanupFailed，后端 inst.FailLeftover 记的）：失败框不接上面的 failHint
+   （交接包、现成服务端那两项说的是「已经清理干净」），换这一句。只认这个字段，不按 error 里「清理半成品失败」几个字认（A48）。
+   没删干净的不一定是这次建的（原因里会说），所以只说这次建了一半的在哪 */
+const LEFTOVER_HINT = "文件夹没删干净：这次建了一半的会列在服务器页上方「没建完的文件夹」里，到那里处理。";
 /* 侧栏亮哪一项：navigate() 进任务页时先按「新建服务器」亮着（那时还不知道是哪一类任务），拿到任务以后在这里改过来 */
 function markNav(key) {
   const before = keyRects();
@@ -3215,7 +3234,7 @@ async function renderTaskPage(taskId) {
     const cancelText = /context canceled/i.test(t.error || "") ? "已取消" : (t.error || "已取消");
     $("#t-msgs").innerHTML = (t.ended && t.cancelled
       ? `<div class="task-note" role="status">${icon("info")}<span>${esc(cancelText)}。${draft ? "之前填的都还在，点「返回修改」接着改。" : ""}</span></div>`
-      : t.error ? `<div class="err-box"><b>${K.fail}：</b>${esc(t.error)}<br><br>${K.failHint}${draft ? "点「返回修改」回到刚才的表单，填过的都在。" : ""}
+      : t.error ? `<div class="err-box"><b>${K.fail}：</b>${esc(t.error)}<br><br>${t.cleanupFailed ? LEFTOVER_HINT : K.failHint}${draft ? "点「返回修改」回到刚才的表单，填过的都在。" : ""}
         <div style="margin-top:8px"><button class="btn sm ghost" data-copy-task-fail>${icon("copy")} 复制报错信息</button></div></div>` : "") +
       (t.warnings || []).map(w => `<div class="warn-card" data-warn="${esc(w.kind || "")}">
         <div class="wc-title">${icon("warn")} ${esc(w.title)}</div>
@@ -3235,9 +3254,14 @@ async function renderTaskPage(taskId) {
     const K = kindOf(t), success = t.ended && !t.error, cancelled = t.ended && !!t.cancelled;
     const canEdit = t.ended && !success && formDrafts.has(taskId);
     const openDir = success && K.openDir && t.result && isLocal;
+    // 导入整合包留下了没装上的文件的清单：服务器文件夹里的「导入待决清单.txt」，在处理面板上点了「跳过」的也还记在里面
+    // （导入时就没装进来的那些列在上面的「没有装进来」告警里，不在这份清单里）。原版服没有插件 / 模组页，点了跳过以后
+    // 详情页也不再提，给个打开服务器文件夹的按钮，导入完了也找得回来（A46）。只在本机（后端也只认本机）
+    const openList = success && panel && t.result && isLocal;
     $("#t-foot").innerHTML = `
       ${success ? `<a class="btn primary" href="${K.href(t.result, t)}">${icon("check")} ${esc(typeof K.go === "function" ? K.go(t) : K.go)}</a>` : ""}
       ${openDir ? `<button type="button" class="btn" id="t-open-dir">${icon("folder")} 打开所在文件夹</button>` : ""}
+      ${openList ? `<button type="button" class="btn" id="t-open-inst-dir" title="里面的「导入待决清单.txt」列着没装上的文件，处理时点了「跳过」的也在">${icon("folder")} 打开服务器文件夹</button>` : ""}
       ${canEdit ? `<button type="button" class="btn${cancelled ? " primary" : ""}" id="t-back-edit">${icon("arrowLeft")} 返回修改</button>` : ""}
       ${t.ended && !success && !canEdit ? `<a class="btn" href="${K.back}">${icon("arrowLeft")} ${K.backText}</a>` : ""}
       ${!t.ended ? `<span class="warn-text">${icon("warn")} ${t.cancelling ? "正在取消，清理半成品，请勿关闭程序…" : K.busy}</span>` : ""}
@@ -3248,6 +3272,11 @@ async function renderTaskPage(taskId) {
     if (od) od.onclick = async () => {
       try { await api("/api/openpath", { method: "POST", body: { path: parentDir(t.result) } }); }
       catch (e) { toastErr("无法打开交接包所在的文件夹", e); }
+    };
+    const oid = $("#t-open-inst-dir");
+    if (oid) oid.onclick = async () => {
+      try { await api(`/api/instances/${encodeURIComponent(t.result)}/opendir`, { method: "POST" }); }
+      catch (e) { toastErr("无法打开服务器文件夹", e); }
     };
     const cancelButton = $("#t-cancel");
     if (cancelButton) cancelButton.onclick = async () => {
@@ -4725,7 +4754,7 @@ async function renderTunnels() {
       <label class="field" data-f="lport" hidden><span>本地端口（这台服务器的端口）</span><input type="number" id="tn-lport" value="25565"></label>
       <label class="field"><span>绑定服务器</span><select id="tn-bound"><option value="">不绑定</option>
         ${insts.map(i => `<option value="${esc(i.name)}">${esc(i.name)}（端口 ${i.port}）</option>`).join("")}</select></label>
-      <div class="field"><label class="switch"><input type="checkbox" id="tn-auto" checked><span class="sw"></span>
+      <div class="field"><label class="switch"><input type="checkbox" id="tn-auto"><span class="sw"></span>
         <span><span class="sw-label">跟随服务器启动</span><div class="sw-desc">绑定的服务器启动时自动拉起隧道，停服后跟着停</div></span></label></div>
     </div>
     <button class="btn primary" id="tn-add" aria-label="确认添加隧道">${icon("plus")} 添加隧道</button>
@@ -5154,7 +5183,7 @@ async function renderTunnels() {
       okText: "导入",
       extra: `<div class="form-grid" style="margin-top:12px">
         <label class="field full"><span>绑定服务器</span>${boundSelect("tn-imp-bound", "", "bound")}</label>
-        <div class="field full"><label class="switch"><input type="checkbox" id="tn-imp-auto" data-k="auto" checked><span class="sw"></span>
+        <div class="field full"><label class="switch"><input type="checkbox" id="tn-imp-auto" data-k="auto"><span class="sw"></span>
           <span class="sw-label">跟随服务器启动</span></label></div>
       </div>`,
     });
@@ -5213,7 +5242,7 @@ async function renderTunnels() {
             <span class="sw-label">这是公开服务器</span></label>
             <div class="hint" id="tn-cr-public-desc">公开服务器指把连接方式发到论坛、服务器列表、QQ 大群，或在 B 站、抖音、小红书等公开平台宣传招人的服务器。樱花规定公开服务器只能用公开服专用节点（名称含「多线」或带公开游戏标记），用错节点会被封号且不退款。只和熟人小范围联机可以不勾。</div></div>` : ""}
           <label class="field full"><span>绑定服务器</span>${boundSelect("tn-cr-bound")}</label>
-          <div class="field full"><label class="switch"><input type="checkbox" id="tn-cr-auto" checked><span class="sw"></span>
+          <div class="field full"><label class="switch"><input type="checkbox" id="tn-cr-auto"><span class="sw"></span>
             <span class="sw-label">跟随服务器启动</span></label></div>
         </div>
         <div class="field-err" id="tn-cr-err" role="alert"></div>
@@ -5221,9 +5250,12 @@ async function renderTunnels() {
       <div class="m-actions">
         <button class="btn" data-x="cancel">取消</button>
         <button class="btn primary" data-x="ok">创建并导入</button>
+        <button class="btn primary" data-x="go-import" hidden>关闭，去导入</button>
       </div>
     </div>`);
     let closed = false;
+    // busy：请求途中，或者平台上已经建好、本机没导入成。两种都不能再发创建：后一种再点一次，平台上就多一条（A57）
+    let busy = false;
     const close = () => {
       if (closed) return;
       closed = true;
@@ -5245,8 +5277,9 @@ async function renderTunnels() {
       const i = insts.find(x => x.name === q("#tn-cr-bound").value), port = i ? connectPortOf(i) : 0;
       if (!lportTyped && port && q("#tn-cr-type").value === "tcp") q("#tn-cr-lport").value = port;
     });
-    // 对话框里的提示：kind 记下是哪一类（name 名称不合规 / node 没有可用节点），改了对应的地方才清掉
+    // 对话框里的提示：kind 记下是哪一类（name 名称不合规 / node 没有可用节点 / server 后端报的错），改了对应的地方才清掉
     const showErr = (msg, kind = "") => { errEl.textContent = msg || ""; errEl.dataset.kind = msg ? kind : ""; };
+    const showServerErr = e => { errEl.innerHTML = errInline("没能创建隧道", e, { label: "创建隧道" }); errEl.dataset.kind = "server"; };
     nameIn.oninput = () => { if (errEl.dataset.kind === "name") showErr(""); };
     // 樱花勾了「这是公开服务器」：节点只列公开服专用的（publicGameAllowed）；一个都没有就不让创建
     const paintNodes = () => {
@@ -5254,12 +5287,32 @@ async function renderTunnels() {
       const keep = nodeSel.value;
       nodeSel.innerHTML = nodeOpts(list);
       if (list.some(n => String(n.id) === keep)) nodeSel.value = keep;
-      nodeSel.disabled = okBtn.disabled = !list.length;
+      nodeSel.disabled = !list.length;
+      okBtn.disabled = busy || !list.length; // 请求途中切开关也不能把按钮放开
       if (!list.length) showErr("没有可用的公开服专用节点，公开服务器暂时不能在这里创建隧道。", "node");
       else if (errEl.dataset.kind === "node") showErr("");
     };
     if (pub) pub.onchange = paintNodes;
+    // 平台上已经建好、本机没导入成：主按钮换成「关闭，去导入」。关掉以后等后面的概览拉完，平台隧道列表里同名的只有一条时
+    // 滚过去、焦点放到它的「导入到 MineDeck」上；认不准就只关掉
+    const goBtn = q('[data-x="go-import"]');
+    const showGoImport = (name, reload) => {
+      okBtn.hidden = true;
+      goBtn.hidden = false;
+      goBtn.focus();
+      goBtn.onclick = async () => {
+        close();
+        await reload;
+        if (stale(gen)) return;
+        const rows = [...document.querySelectorAll("#tn-acc-panel [data-plat-tun]")].filter(r => (r.querySelector("b") || {}).textContent === name);
+        const imp = rows.length === 1 && rows[0].querySelector("[data-acc-import]");
+        if (!imp) return;
+        rows[0].scrollIntoView({ block: "center" });
+        imp.focus();
+      };
+    };
     okBtn.onclick = async () => {
+      if (busy) return;
       const name = nameIn.value.trim();
       if (isOpenFrp && !OPENFRP_NAME_RE.test(name)) {
         showErr("OpenFrp 的隧道名只能用英文字母、数字、下划线和连字符，最长 30 个字符", "name");
@@ -5279,7 +5332,8 @@ async function renderTunnels() {
         purpose: q("#tn-cr-type").value === "udp" ? "voice" : "game",
       };
       if (isSakura) body.publicServer = !!(pub && pub.checked);
-      okBtn.disabled = true;
+      busy = okBtn.disabled = true;
+      if (pub) pub.disabled = true; // 切它会重画节点、改写下面那句报错（paintNodes）：请求途中和建成以后都不让动
       try {
         await api(`/api/tunnel-accounts/${provider}/tunnels`, { method: "POST", body });
         close();
@@ -5290,9 +5344,15 @@ async function renderTunnels() {
         await refreshAccounts(provider);
       } catch (e) {
         if (stale(gen)) { close(); return; }
-        // 平台上建好了、本机写不进磁盘时后端另给一句人话（说清去导入、别再创建），原文进「详情」
-        toast(e.hint || e.message, true, e.message);
-        okBtn.disabled = false;
+        /* 原因写在对话框里（以前只弹一下提示），填的东西都留着；正文接后端另给的那句人话，原文在复制键里。
+           后面的概览一律重新拉（后端已丢掉概览缓存）：平台上可能已经建好了，关掉对话框就能看到那一条。
+           平台上没建成的，按钮恢复，改了再试（没有可用节点时仍点不了，同 paintNodes）；后端说平台上已经建好了的（created），
+           按钮不再放开、换成「关闭，去导入」（A57）。等的时候对话框已经被关掉的，照旧弹提示 */
+        const reload = refreshAccounts(provider);
+        if (closed) { toastErr("没能创建隧道", e); return; }
+        showServerErr(e);
+        if (e.created) showGoImport(name, reload);
+        else { busy = false; okBtn.disabled = nodeSel.disabled; if (pub) pub.disabled = false; }
       }
     };
     nameIn.focus();
@@ -5559,6 +5619,9 @@ async function renderTunnels() {
   startPoll(drawList, 4000, gen);
 
   $("#tn-add").onclick = async () => {
+    // 请求途中不许再点：以前连点两下会加出两条一样的隧道（A57）
+    const addBtn = $("#tn-add");
+    if (addBtn.disabled) return;
     const p = provSel.value, custom = p === "custom";
     // frps 地址和端口只有自定义 frps 用：樱花、OpenFrp 的端口在服务商后台填，以前把隐藏着的默认值（25565 / 25566 / 7000）
     // 也发过去存进了 tunnels.json，看着像真的端口（测试报告第五轮）
@@ -5572,9 +5635,12 @@ async function renderTunnels() {
       remotePort: custom ? +$("#tn-rport").value || 0 : 0,
       localPort: custom ? +$("#tn-lport").value || 25565 : 0,
       boundInstance: $("#tn-bound").value,
+      /* 「跟随服务器启动」在这里、导入和平台上创建的对话框里都默认不勾（A62）：勾上以后每次开服都自动把服务器映射到公网，
+         由人自己决定。后端没传这一项时也是不跟随（零值），AI 和 MCP 不能新建隧道 */
       autoStart: $("#tn-auto").checked,
       ...(window.MDMusic ? MDMusic.tunnelExtra() : {}), // 第五阶段：purpose、proto
     };
+    addBtn.disabled = true;
     try {
       await api("/api/tunnels", { method: "POST", body });
       toast("隧道已添加");
@@ -5584,7 +5650,8 @@ async function renderTunnels() {
       credShort();
       await drawList();
       if (!stale(gen)) paintForm();
-    } catch (e) { toastErr("无法添加隧道", e); }
+    } catch (e) { toastErr("无法添加隧道", e); } // 写不进磁盘时表单留着、填的东西不丢，按钮恢复，改了再试
+    addBtn.disabled = false;
   };
 }
 

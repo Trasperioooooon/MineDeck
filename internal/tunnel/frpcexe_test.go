@@ -17,6 +17,7 @@ import (
 	"sync"
 	"syscall"
 	"testing"
+	"time"
 
 	"minedeck/internal/app"
 	"minedeck/internal/dl"
@@ -102,18 +103,18 @@ func TestInspectExe(t *testing.T) {
 	} {
 		p := filepath.Join(t.TempDir(), "frpc.exe")
 		writeFile(t, p, c.body)
-		if got, why := inspectExe(p); got != c.want || (got == exeOK) != (why == "") {
+		if got, why, _ := inspectExe(p); got != c.want || (got == exeOK) != (why == "") {
 			t.Errorf("%s：inspectExe = %d %q，应为 %d", c.name, got, why, c.want)
 		}
 	}
-	if got, _ := inspectExe(filepath.Join(t.TempDir(), "没有这个文件.exe")); got != exeUnknown {
+	if got, _, _ := inspectExe(filepath.Join(t.TempDir(), "没有这个文件.exe")); got != exeUnknown {
 		t.Errorf("文件不在：%d，应判断不了", got)
 	}
 	dir := filepath.Join(t.TempDir(), "frpc.exe")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := inspectExe(dir); got != exeUnknown {
+	if got, _, _ := inspectExe(dir); got != exeUnknown {
 		t.Errorf("是个文件夹：%d，应判断不了", got)
 	}
 }
@@ -185,6 +186,198 @@ func TestOpenfrpKeepsNonStandardBrokenExe(t *testing.T) {
 	}
 	if readFile(t, mine) != "<html>人自己留着的东西</html>" {
 		t.Fatal("不是标准名的文件不该删")
+	}
+}
+
+// 判坏了、不是标准名的 frpc 只是不删，这一轮解压完挑 frpc 时也不能又挑中它（A56）。
+// 包里的 frpc 也不是标准名、排在它后面时，以前列目录挑到的是这个坏的。
+func TestOpenfrpSkipsJudgedBrokenExeAfterExtract(t *testing.T) {
+	good := string(fakeFrpcExe()) + "包里的"
+	f := newFrpcFake(t)
+	zipURL := "/client/OF_t1/" + openfrpFrpcZip
+	f.set(func(f *frpcFake) {
+		f.files[zipURL] = frpZip(t, frpEntry{"frpc_b.exe", good}, frpEntry{"README.txt", frpPad})
+	})
+	dir := frpcDir("openfrp")
+	old := filepath.Join(dir, "frpc_a_old.exe")
+	writeFile(t, old, fakeFrpcExe()[:700])
+	got, err := (openfrpProvider{}).EnsureFrpc(procutil.NewConsole())
+	if err != nil || got != filepath.Join(dir, "frpc_b.exe") || readFile(t, got) != good {
+		t.Fatalf("应挑解压出来的那份，不是刚判坏的：%s %v", got, err)
+	}
+	if readFile(t, old) != string(fakeFrpcExe()[:700]) {
+		t.Fatal("不是标准名的坏文件照旧不删")
+	}
+}
+
+// 解压出来的 frpc 转眼不见了（被杀毒软件删了）：报「frpc 不见了」，不拿文件夹里判坏的那个顶上（A56）。
+func TestOpenfrpGoneAfterExtractNotReplacedByJudgedBroken(t *testing.T) {
+	f := newFrpcFake(t)
+	zipURL := "/client/OF_t1/" + openfrpFrpcZip
+	f.set(func(f *frpcFake) { f.files[zipURL] = openfrpZip(t, string(fakeFrpcExe())) })
+	dir := frpcDir("openfrp")
+	old := filepath.Join(dir, "old-frpc.exe")
+	writeFile(t, old, fakeFrpcExe()[:700])
+	oldRename := renameFile
+	t.Cleanup(func() { renameFile = oldRename })
+	renameFile = func(from, to string) error {
+		if err := os.Rename(from, to); err != nil {
+			return err
+		}
+		if isFrpcExeName(filepath.Base(to)) {
+			return os.Remove(to) // 改好名字的那一下就被删了
+		}
+		return nil
+	}
+	got, err := (openfrpProvider{}).EnsureFrpc(procutil.NewConsole())
+	if got != "" || !errors.Is(err, errFrpcGone) {
+		t.Fatalf("应报 frpc 不见了：%q %v", got, err)
+	}
+}
+
+// 查出 frpc 坏了、到删它之间，文件被换成了好的（比如用户刚放进来一个）：不删，重新查，用换进来的这份，也不去下载（A56）。
+// 原地改写（大小变了）和改名换进来（大小、修改时间都和原来一样，只有文件本身不同）两种都要认出来。
+// 删前确认比的三样各有一条只靠它认得出的：改名换进来只靠「是不是同一个文件」，原地改写成一样长的只靠修改时间，
+// 原地改写成不一样长、修改时间又被改回原样的只靠大小。
+func TestBrokenFrpcReplacedBeforeDeleteIsKept(t *testing.T) {
+	notPE := fakeFrpcExe()
+	copy(notPE[0x40:], "XX\x00\x00") // 和好的一样长，开头是 MZ、后面不是 PE 头
+	stat := func(t *testing.T, p string) os.FileInfo {
+		t.Helper()
+		st, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+	for _, c := range []struct {
+		name    string
+		old     []byte
+		replace func(t *testing.T, path string) []byte
+	}{
+		{"原地改写成大小不同的", fakeFrpcExe()[:700], func(t *testing.T, path string) []byte {
+			b := append(fakeFrpcExe(), "用户刚放的"...)
+			writeFile(t, path, b)
+			return b
+		}},
+		{"改名换进来、大小和修改时间都一样", notPE, func(t *testing.T, path string) []byte {
+			st, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b := fakeFrpcExe()
+			tmp := filepath.Join(filepath.Dir(path), "incoming.tmp")
+			writeFile(t, tmp, b)
+			if err := os.Chtimes(tmp, st.ModTime(), st.ModTime()); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Rename(tmp, path); err != nil {
+				t.Fatal(err)
+			}
+			return b
+		}},
+		{"原地改写、大小一样、修改时间不同", notPE, func(t *testing.T, path string) []byte {
+			before := stat(t, path)
+			b := fakeFrpcExe()
+			writeFile(t, path, b)
+			later := before.ModTime().Add(2 * time.Second) // 明着设，不靠两次写之间隔了多久
+			if err := os.Chtimes(path, later, later); err != nil {
+				t.Fatal(err)
+			}
+			if now := stat(t, path); !os.SameFile(before, now) || now.Size() != before.Size() || now.ModTime().Equal(before.ModTime()) {
+				t.Fatal("前提：同一个文件、大小没变、修改时间变了")
+			}
+			return b
+		}},
+		{"原地改写成大小不同、修改时间改回原样", fakeFrpcExe()[:700], func(t *testing.T, path string) []byte {
+			before := stat(t, path)
+			b := append(fakeFrpcExe(), "用户刚放的"...)
+			writeFile(t, path, b)
+			if err := os.Chtimes(path, before.ModTime(), before.ModTime()); err != nil {
+				t.Fatal(err)
+			}
+			if now := stat(t, path); !os.SameFile(before, now) || now.Size() == before.Size() || !now.ModTime().Equal(before.ModTime()) {
+				t.Fatal("前提：同一个文件、修改时间没变、大小变了")
+			}
+			return b
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFrpcFake(t)
+			zipURL := "/client/OF_t1/" + openfrpFrpcZip
+			f.set(func(f *frpcFake) { f.files[zipURL] = openfrpZip(t, string(fakeFrpcExe())+"下载的") })
+			exe := filepath.Join(frpcDir("openfrp"), "frpc_windows_amd64.exe")
+			writeFile(t, exe, c.old)
+			var want []byte
+			old := inspectFrpc
+			t.Cleanup(func() { inspectFrpc = old })
+			inspectFrpc = func(p string) (exeState, string, os.FileInfo) {
+				state, why, seen := inspectExe(p)
+				if want == nil {
+					want = c.replace(t, p) // 查完、还没删的这会儿被换掉
+				}
+				return state, why, seen
+			}
+			got, err := (openfrpProvider{}).EnsureFrpc(procutil.NewConsole())
+			if err != nil || got != exe || readFile(t, exe) != string(want) {
+				t.Fatalf("换进来的好文件不该删，应直接用：%s %v", got, err)
+			}
+			if n := f.hitCount(".zip"); n != 0 {
+				t.Fatalf("有好的就不该去下载：%d 次", n)
+			}
+		})
+	}
+}
+
+// 一直在变的 frpc（有程序正往里写）：不删，当判断不了交回去，和读不了的一样由启动那一步报；隧道日志里说一句（A56）。
+func TestBrokenFrpcKeepsChangingIsNotDeleted(t *testing.T) {
+	frpcTempDirs(t)
+	exe := filepath.Join(frpcDir("openfrp"), "frpc.exe")
+	writeFile(t, exe, fakeFrpcExe()[:300])
+	n := 0
+	old := inspectFrpc
+	t.Cleanup(func() { inspectFrpc = old })
+	inspectFrpc = func(p string) (exeState, string, os.FileInfo) {
+		state, why, seen := inspectExe(p)
+		n++
+		writeFile(t, p, fakeFrpcExe()[:300+n]) // 每查一次就又长了一点，还是半截的
+		return state, why, seen
+	}
+	con := procutil.NewConsole()
+	got, err := (openfrpProvider{}).EnsureFrpc(con)
+	if err != nil || got != exe || n != frpcRechecks {
+		t.Fatalf("一直在变的应当判断不了、照旧交回去：%s %v（查了 %d 次）", got, err, n)
+	}
+	if lines := strings.Join(con.Lines(), "\n"); !strings.Contains(lines, "检查 frpc（frpc.exe）的时候文件一直在变") {
+		t.Fatalf("隧道日志里要说一句：%s", lines)
+	}
+	if _, err := os.Stat(exe); err != nil {
+		t.Fatalf("不该删：%v", err)
+	}
+}
+
+// 刚解压出来的 frpc 一直在变（杀毒软件最容易在这一刻扫描）：同样不删、当判断不了交回去，隧道日志里也说那一句（A56）。
+func TestExtractedFrpcKeepsChangingIsNoted(t *testing.T) {
+	f := newFrpcFake(t)
+	zipURL := "/client/OF_t1/" + openfrpFrpcZip
+	f.set(func(f *frpcFake) { f.files[zipURL] = openfrpZip(t, string(fakeFrpcExe()[:300])) })
+	n := 0
+	old := inspectFrpc
+	t.Cleanup(func() { inspectFrpc = old })
+	inspectFrpc = func(p string) (exeState, string, os.FileInfo) { // 文件夹原来是空的，查的只有解压出来的那份
+		state, why, seen := inspectExe(p)
+		n++
+		writeFile(t, p, fakeFrpcExe()[:300+n]) // 每查一次就又长了一点，还是半截的
+		return state, why, seen
+	}
+	con := procutil.NewConsole()
+	exe := filepath.Join(frpcDir("openfrp"), "frpc_windows_amd64.exe")
+	got, err := (openfrpProvider{}).EnsureFrpc(con)
+	if err != nil || got != exe || n != frpcRechecks || f.hitCount(zipURL) != 1 {
+		t.Fatalf("一直在变的应当判断不了、照旧交回去：%s %v（查了 %d 次，下载 %d 次）", got, err, n, f.hitCount(zipURL))
+	}
+	if lines := strings.Join(con.Lines(), "\n"); !strings.Contains(lines, "检查 frpc（frpc_windows_amd64.exe）的时候文件一直在变") {
+		t.Fatalf("隧道日志里要说一句：%s", lines)
 	}
 }
 
