@@ -739,6 +739,9 @@ func (m *Manager) Add(t Tunnel) (*Tunnel, error) {
 	if err := validate(&t); err != nil {
 		return nil, err
 	}
+	if err := checkProxyID(&t, nil); err != nil {
+		return nil, err
+	}
 	sealed, err := secret.Seal(t.Credential)
 	if err != nil {
 		return nil, fmt.Errorf("凭据：%w", err)
@@ -911,6 +914,9 @@ func (m *Manager) replaceLocked(id string, t Tunnel, sealed string, opt UpdateOp
 	if old == nil {
 		return fmt.Errorf("隧道不存在")
 	}
+	if err := checkProxyID(&t, old); err != nil {
+		return err
+	}
 	t.ID = id
 	fixed := false // 换掉了存着的凭据：解不开的标记要清掉。等写进磁盘以后再清，写不进去时这条隧道仍是解不开的那份凭据
 	if opt.ClearCredential {
@@ -1017,6 +1023,31 @@ func normServerAddr(addr string) string {
 func needsCredential(provider string) bool { return provider == "openfrp" || provider == "natfrp" }
 
 var errNeedCredential = errors.New("请填写凭据与隧道 ID（在服务商官网创建隧道后获取）")
+
+var errBadProxyID = errors.New("隧道 ID 只能是数字（在服务商官网的隧道列表里看）")
+
+// parseProxyID 平台的隧道编号（OpenFrp、樱花都是正整数）。「007」「+7」都能被 Atoi 认成 7，带正负号的另外拒掉；
+// 调用方按 strconv.Itoa(id) 存，同一条隧道只有一种写法，查重才查得出来。
+func parseProxyID(s string) (int, bool) {
+	s = strings.TrimSpace(s)
+	id, err := strconv.Atoi(s)
+	return id, err == nil && id > 0 && !strings.ContainsAny(s, "+-")
+}
+
+// checkProxyID OpenFrp、樱花的隧道 ID 只收数字，存成十进制形式（同 ImportTunnel）。编号原样交给 frpc（樱花拼成 -f 凭据:编号），
+// 以前什么都收：局域网会话沿用存着的凭据时能把它改成「8,9」这种，frpc 自己怎么解析逗号、冒号没查清（A60）。
+// old 是改之前存着的那份（新增时为 nil）：编号和服务商都没变的不查，以前存下的不是数字的编号照常能改别的、能启动。
+func checkProxyID(t, old *Tunnel) error {
+	if !needsCredential(t.Provider) || old != nil && t.ProxyID == old.ProxyID && t.Provider == old.Provider {
+		return nil
+	}
+	id, ok := parseProxyID(t.ProxyID)
+	if !ok {
+		return errBadProxyID
+	}
+	t.ProxyID = strconv.Itoa(id)
+	return nil
+}
 
 func validate(t *Tunnel) error { return validateKeep(t, false) }
 

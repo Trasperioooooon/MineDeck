@@ -86,8 +86,8 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 ### 穿透
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET/POST | `/api/tunnels` | 列表（每项含运行态 `lastError`——最近一次失败原因：frpc 起来之前就失败的写成「启动失败：…」或「跟随启动失败：…」（比如樱花还没放 frpc），frpc 报的错照原文，没报错就退出的写「frpc 意外退出（退出码 N）…」；frpc 起来或报成功时清空；`credBroken`——凭据解不开，多半是换了电脑或 Windows 用户，这条隧道不能启动，要重填凭据；`hasCredential`——存着凭据，凭据本身不下发）/ 新增 |
-| PUT/DELETE | `/api/tunnels/{id}` | 修改 / 删除。修改只改传了的项（字段同新增；运行中不能改）：凭据不传或留空表示不改，要删掉存着的凭据传 `clearCredential: true`（只有自定义 frps 能这样）；换服务商、换 frps 地址或端口要同时重填凭据；公网地址 `publicAddr` 是运行中记下的，不从请求里取。界面的「编辑」只发改了的名称、绑定、跟随启动，「清除凭据」只发 `clearCredential`（2026-11-17 以前是整份替换） |
+| GET/POST | `/api/tunnels` | 列表（每项含运行态 `lastError`——最近一次失败原因：frpc 起来之前就失败的写成「启动失败：…」或「跟随启动失败：…」（比如樱花还没放 frpc），frpc 报的错照原文，没报错就退出的写「frpc 意外退出（退出码 N）…」；frpc 起来或报成功时清空；`credBroken`——凭据解不开，多半是换了电脑或 Windows 用户，这条隧道不能启动，要重填凭据；`hasCredential`——存着凭据，凭据本身不下发）/ 新增。OpenFrp、樱花的隧道 ID `proxyId` 只收数字，按十进制存（「007」存成 7），不是数字的回 400「隧道 ID 只能是数字」 |
+| PUT/DELETE | `/api/tunnels/{id}` | 修改 / 删除。修改只改传了的项（字段同新增；运行中不能改）：凭据不传或留空表示不改，要删掉存着的凭据传 `clearCredential: true`（只有自定义 frps 能这样）；换服务商、换 frps 地址或端口要同时重填凭据；OpenFrp、樱花改了 `proxyId` 或换了服务商时，`proxyId` 同新增只收数字，没改的旧数据（以前什么都收）照常保存、启动；公网地址 `publicAddr` 是运行中记下的，不从请求里取。界面的「编辑」只发改了的名称、绑定、跟随启动，「清除凭据」只发 `clearCredential`（2026-11-17 以前是整份替换） |
 | POST | `/api/tunnels/{id}/start` \| `/stop` | 启停 frpc |
 | GET | `/api/tunnels/{id}/console` | SSE frpc 日志 |
 
@@ -115,9 +115,9 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 
 `serverAddr`、`serverPort`、`remotePort`、`localPort` 只有自定义 frps 用。樱花、OpenFrp 的隧道启动时只传「凭据 + 隧道 ID」，端口在服务商后台填，这几项传了也不存、列表里也不给（`localPort` 不再总是出现）；老版本存下的 25565 / 25566 这类数在加载时清掉并写回。
 
-`serverAddr` 只能是域名或 IP：域名每段是字母（中文也行）、数字、连字符、下划线，用点隔开；不能带 `http://`、端口、空白、引号、花括号，不合规的回 400。前后空格和 IPv6 的方括号会去掉再存。地址会原样写进 frpc 的配置，而 frpc 把整份配置当模板渲染，所以要挡住模板写法；启动前再查一遍，以前存下的不合规地址启动时报错，不生成配置。`PUT` 时凭据留空表示不改，但换了 `provider`，或者自定义 frps 换了 `serverAddr`、`serverPort`，凭据留空回 400（「换了服务商或 frps 地址、端口，要重新填一次凭据」），免得旧令牌被带到新的服务器上。樱花、OpenFrp 的隧道凭据留空也行，沿用存着的那份（beta.3 以前这两家不重填凭据就什么都改不了）；原来没有凭据可沿用时（比如从不带 token 的自定义 frps 改过来）回 400「请填写凭据与隧道 ID」。界面上的「编辑」就这样用：只改 `name`、`boundInstance`、`autoStart`，其余字段按列表里的原样带回（包括 `publicAddr`，不然上次拿到的地址会被清掉），凭据留空；网页端口、`tunnels.json` 没读出来、运行中这几道检查和别的修改一样。
+`serverAddr` 只能是域名或 IP：域名每段是字母（中文也行）、数字、连字符、下划线，用点隔开；不能带 `http://`、端口、空白、引号、花括号，不合规的回 400。前后空格和 IPv6 的方括号会去掉再存。地址会原样写进 frpc 的配置，而 frpc 把整份配置当模板渲染，所以要挡住模板写法；启动前再查一遍，以前存下的不合规地址启动时报错，不生成配置。`PUT` 时凭据留空表示不改，但换了 `provider`，或者自定义 frps 换了 `serverAddr`、`serverPort`，凭据留空回 400（「换了服务商或 frps 地址、端口，要重新填一次凭据」），免得旧令牌被带到新的服务器上。樱花、OpenFrp 的隧道凭据留空也行，沿用存着的那份（beta.3 以前这两家不重填凭据就什么都改不了）；原来没有凭据可沿用时（比如从不带 token 的自定义 frps 改过来）回 400「请填写凭据与隧道 ID」。界面上的「编辑」就这样用：只发改了的 `name`、`boundInstance`、`autoStart`，别的字段不带、后端照存着的留着（`publicAddr` 本来就不从请求里取），凭据留空；网页端口、`tunnels.json` 没读出来、运行中这几道检查和别的修改一样。
 
-要把自定义 frps 存着的凭据删掉，`PUT` 时带 `clearCredential: true`（`credential` 留空，其余字段照常整体提交）：`tunnels.json` 里的凭据清空，之后启动不带 token；这是明说不要凭据，换了地址、端口也放行。凭据解不开的（`credBroken`）也能这样清掉。樱花、OpenFrp 启动时必须带凭据，传了回 400；同时填了新凭据也回 400。
+要把自定义 frps 存着的凭据删掉，`PUT` 时带 `clearCredential: true`（`credential` 留空，别的字段可以不带，界面的「清除凭据」只发这一项）：`tunnels.json` 里的凭据清空，之后启动不带 token；这是明说不要凭据，换了地址、端口也放行。凭据解不开的（`credBroken`）也能这样清掉。樱花、OpenFrp 启动时必须带凭据，传了回 400；同时填了新凭据也回 400。
 
 `publicAddr` 从 frpc 的输出里认：同一次运行里既有域名形式又有 IP 形式（樱花会同时打「使用 >>域名:端口<< 连接」和「或使用节点 IP 连接（不推荐）」两行）时取域名，IP 会随节点变。
 

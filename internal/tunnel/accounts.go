@@ -935,9 +935,9 @@ func (a *Accounts) ImportTunnel(ctx context.Context, o AccountTunnelImport) (Sta
 		return Status{}, err
 	}
 	o.Provider = strings.ToLower(strings.TrimSpace(o.Provider))
-	// 编号统一写成平台的十进制形式：「007」「+7」都能被 Atoi 认成 7，原样存下会绕过下面的重复检查，还会原样进 frpc 的参数
-	id, err := strconv.Atoi(strings.TrimSpace(o.ProxyID))
-	if err != nil || id <= 0 || strings.ContainsAny(strings.TrimSpace(o.ProxyID), "+-") {
+	// 编号统一写成平台的十进制形式（见 parseProxyID）：原样存下会绕过下面的重复检查，还会原样进 frpc 的参数
+	id, ok := parseProxyID(o.ProxyID)
+	if !ok {
 		return Status{}, fmt.Errorf("隧道编号无效")
 	}
 	o.ProxyID = strconv.Itoa(id)

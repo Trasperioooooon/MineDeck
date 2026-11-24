@@ -15,7 +15,7 @@ var tunnelFields = map[string]*ops.Schema{
 	"provider":      ops.String("服务商：openfrp、natfrp（樱花）、custom（自建 frps）"),
 	"name":          ops.String("隧道名称"),
 	"credential":    ops.String("OpenFrp 用户密钥 / 樱花访问密钥 / 自建 frps 的 token（只写不读；修改时留空表示不变）"),
-	"proxyId":       ops.String("OpenFrp、樱花的隧道 ID"),
+	"proxyId":       ops.String("OpenFrp、樱花的隧道 ID（只能是数字）"),
 	"serverAddr":    ops.String("自建 frps 的地址"),
 	"serverPort":    ops.Integer("自建 frps 的端口"),
 	"remotePort":    ops.Integer("自建 frps 上的公网端口"),

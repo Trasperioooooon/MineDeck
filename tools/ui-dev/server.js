@@ -670,6 +670,7 @@ async function musicHandler(state, req, res, p, m, seg) {
   musicSync(state);
   if (p === "/api/tunnels" && m === "POST") { // 隧道表单带上了用途、协议没有
     ms.tunnelBody = await readBody(req);
+    if (badProxyId(ms.tunnelBody.provider, ms.tunnelBody.proxyId)) return err(res, 400, BAD_PROXY_ID); // 同后端：先于读写 tunnels.json 查
     if (loadFail(state, res, 400)) return; // tunnels.json 没读出来：读出来之前什么都不存
     if (state.tunnelAccounts.saveFail) return err(res, 400, SAVE_FAIL_RAW, SAVE_FAIL_HINT); // tunnels.json 写不进去（同平台账户的 saveFail）
     return ok(res, { id: "t9" });
@@ -2626,6 +2627,9 @@ const LOAD_FAIL = {
     hint: "MineDeck 文件夹里的 tunnels.json 内容坏了。用记事本修好它，或者改名挪走后从空列表开始",
   },
 };
+// OpenFrp、樱花的隧道 ID 只收数字（同 tunnel.checkProxyID）：新增时、修改改了编号或服务商时查，不是数字回 400
+const BAD_PROXY_ID = "隧道 ID 只能是数字（在服务商官网的隧道列表里看）";
+const badProxyId = (provider, id) => (provider === "openfrp" || provider === "natfrp") && !(/^\d+$/.test(String(id ?? "").trim()) && +String(id).trim() > 0);
 const loadFail = (state, res, code) => {
   const f = LOAD_FAIL[state.tunnelsLoadFail];
   if (!f) return false;
@@ -3352,6 +3356,7 @@ function handler(state, ui, portOf) {
         if (b.clearCredential && String(b.credential || "").trim()) return err(res, 400, "要清除凭据，就不要同时填新的凭据");
         if (!String(n.name || "").trim()) return err(res, 400, "请填写隧道名称");
         if (t.running) return err(res, 400, "请先停止隧道再修改");
+        if ((n.proxyId !== t.proxyId || n.provider !== t.provider) && badProxyId(n.provider, n.proxyId)) return err(res, 400, BAD_PROXY_ID);
         // 自定义 frps 不许指向 MineDeck 自己的网页端口（同 tunnel.checkGuardPort，PR #20）：按合起来的那份查，只改名字也拦
         if (n.provider === "custom" && +n.localPort === portOf()) return err(res, 400, `本地端口 ${portOf()} 是 MineDeck 自己的网页端口，不能映射到公网：要填的是 Minecraft 服务器的端口`);
         // 凭据留空表示沿用存着的那份（可用性走查 R12 的「编辑」）：换服务商、换 frps 地址端口要重填；没有存着的、又是要凭据的服务商时要填
