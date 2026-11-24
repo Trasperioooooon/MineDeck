@@ -23,6 +23,7 @@ import (
 	"minedeck/internal/app"
 	"minedeck/internal/diskguard"
 	"minedeck/internal/dl"
+	"minedeck/internal/errhint"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/winname"
 	"minedeck/internal/zipguard"
@@ -86,6 +87,11 @@ func Installed() []Info {
 var ensureMu sync.Mutex
 
 // Ensure 确保指定 major 版本的便携 Java 就绪，返回 java.exe 绝对路径。
+const (
+	javaDownloadHint  = "自动下载运行时失败，可在「设置 → 下载与网络」切换源或手动添加"
+	javaMarkCleanHint = "便携运行时已装好，但临时标记未删掉，请检查目录权限"
+)
+
 func Ensure(ctx context.Context, major int, logf func(string, ...any), prog dl.Progress) (string, error) {
 	ensureMu.Lock()
 	defer ensureMu.Unlock()
@@ -98,10 +104,10 @@ func Ensure(ctx context.Context, major int, logf func(string, ...any), prog dl.P
 	logf("需要 Java %d，开始下载便携式运行时（不影响系统环境）", major)
 	// 先放「还没装完」的记号，整套装完（finalize）才拿掉：中途失败或程序被结束，留下的半截不会被当成装好了
 	if err := os.MkdirAll(app.RuntimesDir, 0o755); err != nil {
-		return "", fmt.Errorf("准备安装 Java %d 失败：%w", major, err)
+		return "", errhint.Wrap(fmt.Errorf("准备安装 Java %d 失败：%w", major, err), javaDownloadHint)
 	}
 	if err := os.WriteFile(incompleteMark(major), nil, 0o644); err != nil {
-		return "", fmt.Errorf("准备安装 Java %d 失败：%w", major, err)
+		return "", errhint.Wrap(fmt.Errorf("准备安装 Java %d 失败：%w", major, err), javaDownloadHint)
 	}
 	errs, ok := fromAdoptiumBuilds(ctx, major, logf, prog)
 	if ok {
@@ -112,7 +118,7 @@ func Ensure(ctx context.Context, major int, logf func(string, ...any), prog dl.P
 	} else {
 		errs = append(errs, fmt.Errorf("Mojang 运行时: %w", err))
 	}
-	return "", fmt.Errorf("Java %d 全部下载源均失败: %w", major, errors.Join(errs...))
+	return "", errhint.Wrap(fmt.Errorf("Java %d 全部下载源均失败: %w", major, errors.Join(errs...)), javaDownloadHint)
 }
 
 // fromAdoptiumBuilds 前两个来源：清华镜像（下载源选「官方」时不用），再是 Adoptium 官方源。两条路都要问 Adoptium 的接口
@@ -149,7 +155,7 @@ func finalize(major int) (string, error) {
 		return "", fmt.Errorf("Java %d 装好后没找到 %s", major, filepath.Join("bin", exeName))
 	}
 	if err := os.Remove(incompleteMark(major)); err != nil && !os.IsNotExist(err) {
-		return "", fmt.Errorf("Java %d 装好了，但去不掉「还没装完」的记号：%w", major, err)
+		return "", errhint.Wrap(fmt.Errorf("Java %d 装好了，但去不掉「还没装完」的记号：%w", major, err), javaMarkCleanHint)
 	}
 	return Exe(major), nil
 }

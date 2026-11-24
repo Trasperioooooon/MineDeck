@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"minedeck/internal/errhint"
 	"minedeck/internal/inst"
 	"minedeck/internal/winname"
 )
@@ -46,7 +47,7 @@ func MakeExportDir(m *inst.Manager, instName, dest string) (dir string, created 
 		}
 		return dest, false, nil
 	} else if !errors.Is(err, fs.ErrNotExist) {
-		return "", false, fmt.Errorf("导出文件夹不可用: %w", err)
+		return "", false, errhint.Wrap(fmt.Errorf("导出文件夹不可用: %w", err), "导出文件夹不可用，请检查路径权限或重新选择一个文件夹")
 	}
 	parent, name := filepath.Dir(dest), filepath.Base(dest)
 	if parent == dest || !winname.OK(name) {
@@ -61,7 +62,7 @@ func MakeExportDir(m *inst.Manager, instName, dest string) (dir string, created 
 				return dest, false, nil
 			}
 		}
-		return "", false, fmt.Errorf("没能新建导出文件夹: %w", err)
+		return "", false, errhint.Wrap(fmt.Errorf("没能新建导出文件夹: %w", err), "导出文件夹不可用，请检查路径权限或重新选择一个文件夹")
 	}
 	return dest, true, nil
 }

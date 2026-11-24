@@ -17,6 +17,7 @@ import (
 	"minedeck/internal/app"
 	"minedeck/internal/atomicfile"
 	"minedeck/internal/diskguard"
+	"minedeck/internal/errhint"
 	"minedeck/internal/events"
 	"minedeck/internal/zipguard"
 )
@@ -329,7 +330,7 @@ func (m *Manager) createBackupWith(i *Instance, label, spare string, lease *disk
 		if errors.As(err, &dup) {
 			return "", dup
 		}
-		return "", fmt.Errorf("压缩备份失败: %w", err)
+		return "", errhint.Wrap(fmt.Errorf("压缩备份失败: %w", err), "生成备份压缩包失败，请检查备份盘剩余空间和写入权限")
 	}
 	m.pruneBackups(name, spare)
 	events.Publish("backup.done", map[string]any{"instance": name, "file": fname})
@@ -362,17 +363,17 @@ func (m *Manager) RestoreBackup(name, file string) error {
 	// 先按「看不了就停下」的读法定下现在的世界目录：这份清单决定下面删哪些文件夹
 	worlds, err := i.worldDirsStrict()
 	if err != nil {
-		return fmt.Errorf("没有还原，什么都没动：%w", err)
+		return errhint.Wrap(fmt.Errorf("没有还原，什么都没动：%w", err), "还原前准备或自动备份失败，请检查磁盘空间和文件占用后再试")
 	}
 	if len(worlds) > 0 {
 		if _, err := m.createBackup(name, "还原前自动", filepath.Base(src)); err != nil {
-			return fmt.Errorf("还原前自动备份失败，已中止: %w", err)
+			return errhint.Wrap(fmt.Errorf("还原前自动备份失败，已中止: %w", err), "还原前准备或自动备份失败，请检查磁盘空间和文件占用后再试")
 		}
 	}
 	// 预检和空间租约都必须先于删旧世界，拒绝损坏或过大的包时旧世界仍在。
 	zr, err := zipguard.Open(src, zipguard.Default)
 	if err != nil {
-		return fmt.Errorf("备份打不开，没有还原：%w", err)
+		return errhint.Wrap(fmt.Errorf("备份打不开，没有还原：%w", err), "备份压缩包打不开或已损坏，请检查备份文件是否完整")
 	}
 	defer zr.Close()
 	if err := checkBackupPaths(zr.File, i.Dir); err != nil {
@@ -385,11 +386,11 @@ func (m *Manager) RestoreBackup(name, file string) error {
 	defer lease.Close()
 	for _, d := range worlds {
 		if err := os.RemoveAll(filepath.Join(i.Dir, d)); err != nil {
-			return fmt.Errorf("清理旧世界失败: %w", err)
+			return errhint.Wrap(fmt.Errorf("清理旧世界失败: %w", err), "清理或解压世界文件失败，请确认没有其他程序占着文件")
 		}
 	}
 	if err := unzipReaderTo(zr.Reader, i.Dir, lease); err != nil {
-		return fmt.Errorf("解压备份失败: %w", err)
+		return errhint.Wrap(fmt.Errorf("解压备份失败: %w", err), "清理或解压世界文件失败，请确认没有其他程序占着文件")
 	}
 	i.Console.Append("[MineDeck] 世界已还原至备份 " + filepath.Base(file))
 	// 记下现在的世界是从哪份备份来的（R11）：详情页「世界与备份」页顶照着写，重开程序后仍在

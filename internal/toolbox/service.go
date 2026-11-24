@@ -20,6 +20,7 @@ import (
 
 	"minedeck/internal/app"
 	"minedeck/internal/atomicfile"
+	"minedeck/internal/errhint"
 	"minedeck/internal/inst"
 	"minedeck/internal/modcart"
 	"minedeck/internal/winname"
@@ -189,7 +190,7 @@ func newDownloadID() (string, error) {
 func (s *Service) saveArtifact(fileName string, data []byte, sha1Hex string) (DownloadEntry, error) {
 	dir := s.downloadsDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return DownloadEntry{}, fmt.Errorf("创建缓存目录失败：%w", err)
+		return DownloadEntry{}, errhint.Wrap(fmt.Errorf("创建缓存目录失败：%w", err), "写入下载缓存失败，请检查程序文件夹权限与磁盘空间")
 	}
 	id, err := newDownloadID()
 	if err != nil {
@@ -197,7 +198,7 @@ func (s *Service) saveArtifact(fileName string, data []byte, sha1Hex string) (Do
 	}
 	binPath := filepath.Join(dir, id+".bin")
 	if err := atomicfile.Write(binPath, data, 0o644); err != nil {
-		return DownloadEntry{}, fmt.Errorf("写入缓存文件失败：%w", err)
+		return DownloadEntry{}, errhint.Wrap(fmt.Errorf("写入缓存文件失败：%w", err), "写入下载缓存失败，请检查程序文件夹权限与磁盘空间")
 	}
 	entry := DownloadEntry{
 		ID:       id,
@@ -210,7 +211,7 @@ func (s *Service) saveArtifact(fileName string, data []byte, sha1Hex string) (Do
 	metaBytes, _ := json.Marshal(entry)
 	if err := atomicfile.Write(filepath.Join(dir, id+".meta.json"), metaBytes, 0o644); err != nil {
 		_ = os.Remove(binPath) // 没有 meta 的 .bin 重启以后认不回来，留着只占地方
-		return DownloadEntry{}, fmt.Errorf("写入缓存文件失败：%w", err)
+		return DownloadEntry{}, errhint.Wrap(fmt.Errorf("写入缓存文件失败：%w", err), "写入下载缓存失败，请检查程序文件夹权限与磁盘空间")
 	}
 
 	s.dlMu.Lock()
@@ -265,7 +266,7 @@ func copyToHostDir(destDir, fileName string, data []byte) (string, error) {
 	}
 	target := filepath.Join(clean, fileName)
 	if err := atomicfile.Write(target, data, 0o644); err != nil {
-		return "", fmt.Errorf("保存到指定文件夹失败：%w", err)
+		return "", errhint.Wrap(fmt.Errorf("保存到指定文件夹失败：%w", err), "保存到目标文件夹失败，请检查写入权限与磁盘剩余空间")
 	}
 	return target, nil
 }
@@ -516,14 +517,14 @@ func (s *Service) PatchMrpackDraft(p DraftPatch) (DraftConfig, error) {
 	}
 	if s.dataDir != "" {
 		if err := os.MkdirAll(s.dataDir, 0o755); err != nil {
-			return cfg, fmt.Errorf("创建草稿目录失败：%w", err)
+			return cfg, errhint.Wrap(fmt.Errorf("创建草稿目录失败：%w", err), "读写整合包草稿失败，请检查程序文件夹权限与磁盘空间")
 		}
 		b, err := json.MarshalIndent(cfg, "", "  ")
 		if err != nil {
 			return cfg, err
 		}
 		if err := atomicfile.Write(filepath.Join(s.dataDir, draftFile), b, 0o644); err != nil {
-			return cfg, fmt.Errorf("保存草稿失败：%w", err)
+			return cfg, errhint.Wrap(fmt.Errorf("保存草稿失败：%w", err), "读写整合包草稿失败，请检查程序文件夹权限与磁盘空间")
 		}
 	}
 	s.advanceSeqLocked(p.ClientID, p.Seq, applied)
@@ -539,7 +540,7 @@ func (s *Service) SaveMrpackDraft(cfg DraftConfig) (DraftConfig, error) {
 		return cfg, nil
 	}
 	if err := os.MkdirAll(s.dataDir, 0o755); err != nil {
-		return cfg, fmt.Errorf("创建草稿目录失败：%w", err)
+		return cfg, errhint.Wrap(fmt.Errorf("创建草稿目录失败：%w", err), "读写整合包草稿失败，请检查程序文件夹权限与磁盘空间")
 	}
 	b, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -548,7 +549,7 @@ func (s *Service) SaveMrpackDraft(cfg DraftConfig) (DraftConfig, error) {
 	s.draftMu.Lock()
 	defer s.draftMu.Unlock()
 	if err := atomicfile.Write(filepath.Join(s.dataDir, draftFile), b, 0o644); err != nil {
-		return cfg, fmt.Errorf("保存草稿失败：%w", err)
+		return cfg, errhint.Wrap(fmt.Errorf("保存草稿失败：%w", err), "读写整合包草稿失败，请检查程序文件夹权限与磁盘空间")
 	}
 	return cfg, nil
 }

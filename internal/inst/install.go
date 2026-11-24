@@ -20,6 +20,7 @@ import (
 	"minedeck/internal/atomicfile"
 	"minedeck/internal/diskguard"
 	"minedeck/internal/dl"
+	"minedeck/internal/errhint"
 	"minedeck/internal/java"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/tasks"
@@ -107,7 +108,7 @@ func (m *Manager) reserveInstanceDir(req *CreateReq) (string, error) {
 	}
 	root = filepath.Clean(root)
 	if err := os.MkdirAll(root, 0o755); err != nil {
-		return "", fmt.Errorf("存放文件夹不可用: %w", err)
+		return "", errhint.Wrap(fmt.Errorf("存放文件夹不可用: %w", err), "服务器存放文件夹不可用，请检查路径权限或更换位置")
 	}
 	// 目录名用 slug（与中文显示名解耦）；同名自动追加序号
 	slug := slugify(req.Name)
@@ -617,7 +618,7 @@ func runInstaller(ctx context.Context, t *tasks.Task, javaExe, dir, installerJar
 			return ctx.Err()
 		}
 	}
-	return fmt.Errorf("安装器多次运行失败：%w。请查看服务器文件夹里的 installer.jar.log，或在「设置 → 下载与网络」中切换下载源后重试。", lastErr)
+	return errhint.Wrap(fmt.Errorf("安装器多次运行失败：%w。请查看服务器文件夹里的 installer.jar.log，或在「设置 → 下载与网络」中切换下载源后重试。", lastErr), "服务端安装器运行失败，请切换下载源重试或查看安装日志")
 }
 
 func runInstallerOnce(ctx context.Context, t *tasks.Task, javaExe, dir, installerJar string) error {
@@ -637,7 +638,7 @@ func runInstallerOnce(ctx context.Context, t *tasks.Task, javaExe, dir, installe
 	}
 	cmd.Stderr = cmd.Stdout
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("无法启动安装器: %w", err)
+		return errhint.Wrap(fmt.Errorf("无法启动安装器: %w", err), "服务端安装器运行失败，请切换下载源重试或查看安装日志")
 	}
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -661,7 +662,7 @@ func runInstallerOnce(ctx context.Context, t *tasks.Task, javaExe, dir, installe
 		_, _ = io.Copy(io.Discard, stdout)
 	}
 	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("安装器退出异常: %w", err)
+		return errhint.Wrap(fmt.Errorf("安装器退出异常: %w", err), "服务端安装器运行失败，请切换下载源重试或查看安装日志")
 	}
 	if scanErr != nil {
 		return nil

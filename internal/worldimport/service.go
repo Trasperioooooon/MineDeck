@@ -19,6 +19,7 @@ import (
 
 	"minedeck/internal/app"
 	"minedeck/internal/diskguard"
+	"minedeck/internal/errhint"
 	"minedeck/internal/inst"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/tasks"
@@ -405,7 +406,7 @@ func (s *Service) targetOf(name string) (*Target, *inst.Instance, error) {
 		t.Props = inst.JavaProps(b)
 	case errors.Is(err, fs.ErrNotExist):
 	default:
-		return nil, nil, fmt.Errorf("读不了这台服务器的 server.properties：%w", err)
+		return nil, nil, errhint.Wrap(fmt.Errorf("读不了这台服务器的 server.properties：%w", err), "读取服务器主配置失败，请检查文件权限或是否被占用")
 	}
 	t.jarWV = jarWorldVersion(i.Dir, i.LaunchTarget)
 	return t, i, nil
@@ -919,7 +920,7 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 		if ctx.Err() != nil { // 打开来源的时候人点了取消：不带出 context canceled 这类英文原因
 			return "", errImportCancelled
 		}
-		return "", fmt.Errorf("来源打不开了：%w", err)
+		return "", errhint.Wrap(fmt.Errorf("来源打不开了：%w", err), "读取地图来源失败，请确认文件或文件夹还在且未被占用")
 	}
 	defer src.Close()
 	info, err := rebind(r, src, p.CandidateID)
@@ -948,7 +949,7 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 		Candidate: candName(info.c), LevelName: tg.LevelName}
 	defer s.setActive(txAbs(tg.Dir, id))() // 记录落盘之前就登记：重试恢复看到这份记录时，它一定已经在册
 	if err := saveJournal(tg.Dir, j); err != nil {
-		return "", fmt.Errorf("没能在服务器文件夹里建暂存区：%w", err)
+		return "", errhint.Wrap(fmt.Errorf("没能在服务器文件夹里建暂存区：%w", err), "创建地图暂存记录失败，请检查服务器文件夹写入权限与空间")
 	}
 	var intent *inst.WorldIntent
 	// 放弃：什么都没换。占过位的也告诉它世界没换，放掉时不清「现在的世界从哪份备份来」（A51）
@@ -1111,7 +1112,7 @@ func rebind(r *scanResult, src *source, candID string) (*candInfo, error) {
 	info := &candInfo{c: old.c, roots: old.roots}
 	files, err := rescan(src, info)
 	if err != nil {
-		return nil, fmt.Errorf("地图来源读不全了，没有替换任何文件。请重新检测：%w", err)
+		return nil, errhint.Wrap(fmt.Errorf("地图来源读不全了，没有替换任何文件。请重新检测：%w", err), "读取地图来源失败，请确认文件或文件夹还在且未被占用")
 	}
 	info.files = files
 	info.fp = fingerprint(info.files)
@@ -1222,7 +1223,7 @@ func (s *Service) placeForCreate(ctx context.Context, t *tasks.Task, owner, plan
 	ctx = withSpaceConfirmation(ctx, p)
 	src, err := reopenCtx(ctx, r)
 	if err != nil {
-		return fmt.Errorf("地图来源打不开了：%w", err)
+		return errhint.Wrap(fmt.Errorf("地图来源打不开了：%w", err), "读取地图来源失败，请确认文件或文件夹还在且未被占用")
 	}
 	defer src.Close()
 	info, err := rebind(r, src, p.CandidateID)

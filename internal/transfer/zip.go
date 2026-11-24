@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"minedeck/internal/diskguard"
+	"minedeck/internal/errhint"
 	"minedeck/internal/inst"
 	"minedeck/internal/modinfo"
 	"minedeck/internal/winname"
@@ -94,7 +95,7 @@ func writePack(ctx context.Context, dest string, files []packFile, mf *Manifest,
 		}
 		r, err := os.Open(pf.abs)
 		if err != nil {
-			return fail(fmt.Errorf("读不了 %s: %w", pf.rel, err))
+			return fail(errhint.Wrap(fmt.Errorf("读不了 %s: %w", pf.rel, err), "读取或写入交接包失败，请检查磁盘剩余空间和文件占用"))
 		}
 		var sum string
 		var isMod bool
@@ -111,7 +112,7 @@ func writePack(ctx context.Context, dest string, files []packFile, mf *Manifest,
 		}
 		r.Close()
 		if err != nil {
-			return fail(fmt.Errorf("打包 %s 失败: %w", pf.rel, err))
+			return fail(errhint.Wrap(fmt.Errorf("打包 %s 失败: %w", pf.rel, err), "读取或写入交接包失败，请检查磁盘剩余空间和文件占用"))
 		}
 		if isMod {
 			mf.addMod(pf, sum)
@@ -383,7 +384,7 @@ func extractPrefix(ctx context.Context, src, destDir string, opts extractOpts,
 		}
 		rc.Close()
 		if cerr != nil {
-			return res, fmt.Errorf("解包 %s 失败: %w", e.name, cerr)
+			return res, errhint.Wrap(fmt.Errorf("解包 %s 失败: %w", e.name, cerr), "解压交接包失败，请检查磁盘空间或确认压缩包完整后再试")
 		}
 		if k != e.size {
 			return res, fmt.Errorf("解包 %s 后不完整（写到 %d 字节，包里记的是 %d）", e.name, k, e.size)

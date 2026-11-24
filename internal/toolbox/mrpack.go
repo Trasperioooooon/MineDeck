@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"minedeck/internal/errhint"
 	"minedeck/internal/inst"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/modcart"
@@ -257,7 +258,7 @@ func (s *Service) BuildMrpack(ctx context.Context, req MrpackReq) (MrpackBuildRe
 	}
 	idxBytes, err := json.MarshalIndent(idx, "", "  ")
 	if err != nil {
-		return MrpackBuildResp{}, fmt.Errorf("生成整合包索引失败：%w", err)
+		return MrpackBuildResp{}, errhint.Wrap(fmt.Errorf("生成整合包索引失败：%w", err), "打包整合包失败，请检查内存或磁盘空间后重试")
 	}
 
 	var buf bytes.Buffer
@@ -300,7 +301,7 @@ func (s *Service) BuildMrpack(ctx context.Context, req MrpackReq) (MrpackBuildRe
 		writtenOverrides++
 	}
 	if err := zw.Close(); err != nil {
-		return MrpackBuildResp{}, fmt.Errorf("压缩整合包失败：%w", err)
+		return MrpackBuildResp{}, errhint.Wrap(fmt.Errorf("压缩整合包失败：%w", err), "打包整合包失败，请检查内存或磁盘空间后重试")
 	}
 	if len(lateSecrets) > 0 {
 		warnings = append(slices.Clone(warnings), fmt.Sprintf("这些配置文件在生成时看起来带着密码、令牌或密钥（可能是预览以后被改过），没有打进包：%s", strings.Join(lateSecrets, "、")))
@@ -410,10 +411,10 @@ func (s *Service) previewFromInstance(ctx context.Context, req MrpackReq) (Mrpac
 			return MrpackPreviewResp{}, ErrBadRequest("这台服务器的 mods 不是普通文件夹（可能是联接或符号链接），为了不把服务器文件夹外面的文件打进包，导出不了")
 		}
 		if ents, err = os.ReadDir(modsDir); err != nil {
-			return MrpackPreviewResp{}, fmt.Errorf("读取 mods 文件夹失败：%w", err)
+			return MrpackPreviewResp{}, errhint.Wrap(fmt.Errorf("读取 mods 文件夹失败：%w", err), "扫描模组文件夹失败，请检查文件夹权限与文件是否被占用")
 		}
 	} else if !os.IsNotExist(err) {
-		return MrpackPreviewResp{}, fmt.Errorf("读取 mods 文件夹失败：%w", err)
+		return MrpackPreviewResp{}, errhint.Wrap(fmt.Errorf("读取 mods 文件夹失败：%w", err), "扫描模组文件夹失败，请检查文件夹权限与文件是否被占用")
 	}
 
 	type diskJar struct {
@@ -457,7 +458,7 @@ func (s *Service) previewFromInstance(ctx context.Context, req MrpackReq) (Mrpac
 		}
 		h1, h512, sz, err := hashFileBoth(p)
 		if err != nil {
-			return MrpackPreviewResp{}, fmt.Errorf("校验 %s 失败：%w", n, err)
+			return MrpackPreviewResp{}, errhint.Wrap(fmt.Errorf("校验 %s 失败：%w", n, err), "扫描模组文件夹失败，请检查文件夹权限与文件是否被占用")
 		}
 		jars = append(jars, diskJar{name: n, path: p, sha1: h1, sha512: h512, size: sz})
 		sha1List = append(sha1List, h1)
@@ -649,7 +650,7 @@ func (s *Service) previewFromDraft(ctx context.Context, req MrpackReq) (MrpackPr
 
 	plan, err := s.cart.ClosureWith(ctx, items, locals, modcart.Local{}, []string{modLoader}, mc)
 	if err != nil {
-		return MrpackPreviewResp{}, fmt.Errorf("计算模组版本和前置依赖失败：%w", err)
+		return MrpackPreviewResp{}, errhint.Wrap(fmt.Errorf("计算模组版本和前置依赖失败：%w", err), "获取模组版本和前置失败，请检查网络后重试")
 	}
 
 	withDeps := req.WithDeps == nil || *req.WithDeps

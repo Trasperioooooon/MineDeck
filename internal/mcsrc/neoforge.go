@@ -11,6 +11,7 @@ import (
 
 	"minedeck/internal/app"
 	"minedeck/internal/dl"
+	"minedeck/internal/errhint"
 )
 
 const (
@@ -75,7 +76,7 @@ func NeoBuilds(ctx context.Context, mc string) ([]BuildInfo, map[string]string, 
 		if err == nil {
 			err = fmt.Errorf("该版本暂无 NeoForge 构建")
 		}
-		return nil, nil, fmt.Errorf("获取 NeoForge 构建列表失败: %w", err)
+		return nil, nil, errhint.Wrap(fmt.Errorf("获取 NeoForge 构建列表失败: %w", err), mcsrcFetchHint)
 	}
 	out := make([]BuildInfo, 0, len(vers))
 	for i := len(vers) - 1; i >= 0; i-- {

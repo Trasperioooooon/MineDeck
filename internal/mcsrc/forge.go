@@ -10,6 +10,7 @@ import (
 
 	"minedeck/internal/app"
 	"minedeck/internal/dl"
+	"minedeck/internal/errhint"
 )
 
 const (
@@ -51,7 +52,7 @@ func ForgeMCVersions(ctx context.Context) ([]string, error) {
 	if len(ids) == 0 {
 		promos := forgePromos(ctx)
 		if len(promos) == 0 {
-			return nil, fmt.Errorf("无法获取 Forge 支持版本列表（镜像与官方源均失败）")
+			return nil, errhint.Wrap(fmt.Errorf("无法获取 Forge 支持版本列表（镜像与官方源均失败）"), mcsrcFetchHint)
 		}
 		seen := map[string]bool{}
 		for k := range promos {
@@ -83,7 +84,7 @@ func ForgeBuilds(ctx context.Context, mc string) ([]BuildInfo, error) {
 		if err == nil {
 			err = merr
 		}
-		return nil, fmt.Errorf("获取 Forge 构建列表失败: %w", err)
+		return nil, errhint.Wrap(fmt.Errorf("获取 Forge 构建列表失败: %w", err), mcsrcFetchHint)
 	}
 	out := make([]BuildInfo, 0, len(vers))
 	for i := len(vers) - 1; i >= 0; i-- { // metadata 为旧在前

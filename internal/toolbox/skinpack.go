@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"minedeck/internal/errhint"
 )
 
 const (
@@ -633,7 +635,7 @@ func (s *Service) finishBuildSkinPack(req SkinBuildReq, prev SkinPreviewResp) (S
 		return SkinBuildResp{}, err
 	}
 	if err := zw.Close(); err != nil {
-		return SkinBuildResp{}, fmt.Errorf("压缩皮肤材质包失败：%w", err)
+		return SkinBuildResp{}, errhint.Wrap(fmt.Errorf("压缩皮肤材质包失败：%w", err), "压缩皮肤资源包失败，请检查磁盘剩余空间后重试")
 	}
 
 	zipBytes := buf.Bytes()

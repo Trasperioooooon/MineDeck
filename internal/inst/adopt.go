@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"minedeck/internal/app"
+	"minedeck/internal/errhint"
 	"minedeck/internal/java"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/tasks"
@@ -81,7 +82,7 @@ func (m *Manager) checkAdoptDir(dir string) (string, error) {
 	dir = filepath.Clean(dir)
 	st, err := os.Stat(dir)
 	if err != nil || !st.IsDir() {
-		return "", fmt.Errorf("找不到这个文件夹：%s", dir)
+		return "", errhint.Wrap(fmt.Errorf("找不到这个文件夹：%s", dir), "找不到选择的服务器文件夹，请确认路径没有填错或被移动")
 	}
 	// 后面的比较都用真实路径：经目录联接（junction）、符号链接、subst 的盘符绕一圈进来的同一个文件夹，要认得出是同一个。
 	// 登记成实例的目录仍然是用户选的那个路径
@@ -217,10 +218,10 @@ func (m *Manager) validateAdopt(req *AdoptReq) (*AdoptScan, error) {
 		}
 		// 是不是已知的 Java 由操作层查；这里再守一道：只能是 java.exe（Mac 上是 java），路径里不能有会写坏 run.bat 的字符
 		if !java.IsExeName(filepath.Base(req.JavaPath)) || strings.ContainsAny(req.JavaPath, "\"\r\n") {
-			return nil, fmt.Errorf("Java 的路径不对：%s", req.JavaPath)
+			return nil, errhint.Wrap(fmt.Errorf("Java 的路径不对：%s", req.JavaPath), "填写的运行时路径不可用，请重新选择或核对位置")
 		}
 		if st, err := os.Stat(req.JavaPath); err != nil || st.IsDir() {
-			return nil, fmt.Errorf("找不到 Java：%s", req.JavaPath)
+			return nil, errhint.Wrap(fmt.Errorf("找不到 Java：%s", req.JavaPath), "填写的运行时路径不可用，请重新选择或核对位置")
 		}
 	}
 	dir, err := m.checkAdoptDir(req.Dir)
@@ -491,7 +492,7 @@ func (m *Manager) writeAdoptFiles(ctx context.Context, t *tasks.Task, inst *Inst
 	}
 	if b, err := os.ReadFile(filepath.Join(dir, "run.bat")); err == nil && !isOurRunBat(b) {
 		if saved, err := backupOnce(dir, "run.bat", runBatBackup); err != nil {
-			return fmt.Errorf("备份原来的 run.bat 失败: %w", err)
+			return errhint.Wrap(fmt.Errorf("备份原来的 run.bat 失败: %w", err), "备份原有启动脚本失败，请检查文件夹写入权限或解除文件占用")
 		} else if saved {
 			t.Logf("原来的 run.bat 另存为 %s", runBatBackup)
 		}
@@ -499,7 +500,7 @@ func (m *Manager) writeAdoptFiles(ctx context.Context, t *tasks.Task, inst *Inst
 	if strings.HasPrefix(inst.LaunchTarget, "args:") {
 		if b, err := os.ReadFile(filepath.Join(dir, "user_jvm_args.txt")); err == nil && !isOurJVMArgs(b) {
 			if saved, err := backupOnce(dir, "user_jvm_args.txt", jvmArgsBackup); err != nil {
-				return fmt.Errorf("备份原来的 user_jvm_args.txt 失败: %w", err)
+				return errhint.Wrap(fmt.Errorf("备份原来的 user_jvm_args.txt 失败: %w", err), "备份原有启动脚本失败，请检查文件夹写入权限或解除文件占用")
 			} else if saved {
 				t.Logf("原来的 user_jvm_args.txt 另存为 %s（里面的内存设置改由 MineDeck 管）", jvmArgsBackup)
 			}
@@ -532,7 +533,7 @@ func snapshotFiles(dir string, names []string) (restore func(), err error) {
 		}
 		b, err := os.ReadFile(p)
 		if err != nil {
-			return nil, fmt.Errorf("读不了 %s：%w", n, err)
+			return nil, errhint.Wrap(fmt.Errorf("读不了 %s：%w", n, err), "读取原有配置文件失败，请检查文件权限或是否被占用")
 		}
 		snaps = append(snaps, snap{path: p, data: b, existed: true})
 	}

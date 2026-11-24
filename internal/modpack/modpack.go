@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"minedeck/internal/dl"
+	"minedeck/internal/errhint"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/winname"
 	"minedeck/internal/zipguard"
@@ -79,7 +80,7 @@ type Pack struct {
 func Parse(zipPath string) (*Pack, error) {
 	zr, err := zipguard.Open(zipPath, zipguard.Default)
 	if err != nil {
-		return nil, fmt.Errorf("无法打开整合包（需为 .mrpack 或 zip）: %w", err)
+		return nil, errhint.Wrap(fmt.Errorf("无法打开整合包（需为 .mrpack 或 zip）: %w", err), "打不开这个整合包，请确认是完整的压缩包后再试")
 	}
 	defer zr.Close()
 	return parseFiles(zipPath, zr.File)
@@ -183,7 +184,7 @@ func parseMrpack(zipPath string, f *zip.File, root string) (*Pack, error) {
 		} `json:"files"`
 	}
 	if err := readZipFile(f, &idx); err != nil {
-		return nil, fmt.Errorf("解析 modrinth.index.json 失败: %w", err)
+		return nil, errhint.Wrap(fmt.Errorf("解析 modrinth.index.json 失败: %w", err), "整合包里的清单损坏或格式不对，请重新下载整合包后再试")
 	}
 	p := &Pack{Format: FormatMrpack, Name: idx.Name, ZipPath: zipPath, Root: root,
 		OverrideDirs: []string{joinRoot(root, "overrides"), joinRoot(root, "server-overrides")}}
@@ -261,7 +262,7 @@ func parseCurseForge(zipPath string, f *zip.File, root string) (*Pack, error) {
 		} `json:"files"`
 	}
 	if err := readZipFile(f, &man); err != nil {
-		return nil, fmt.Errorf("解析 manifest.json 失败: %w", err)
+		return nil, errhint.Wrap(fmt.Errorf("解析 manifest.json 失败: %w", err), "整合包里的清单损坏或格式不对，请重新下载整合包后再试")
 	}
 	p := &Pack{Format: FormatCurseForge, Name: man.Name, ZipPath: zipPath, Root: root, MC: man.Minecraft.Version}
 	ov := man.Overrides

@@ -16,6 +16,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"minedeck/internal/errhint"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/zipguard"
 )
@@ -1078,7 +1079,7 @@ func ExtractServer(p *Pack, begin func(files []ServerFile) error, writeFile func
 	}
 	zr, err := zipguard.Open(p.ZipPath, zipguard.Default)
 	if err != nil {
-		return 0, fmt.Errorf("无法打开整合包（需为 .mrpack 或 zip）: %w", err)
+		return 0, errhint.Wrap(fmt.Errorf("无法打开整合包（需为 .mrpack 或 zip）: %w", err), "打不开这个整合包，请确认是完整的压缩包后再试")
 	}
 	defer zr.Close()
 	if err := auditServerPaths(zr.File); err != nil {

@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"minedeck/internal/errhint"
 )
 
 // 插件 / 模组页「已安装」列表里的「删除」（可用性走查 R10）：不真的删，移进服务器文件夹里的 .minedeck/已删除/<mods|plugins>/，
@@ -73,7 +75,7 @@ func (m *Manager) TrashMod(name, sub, file string) (string, error) {
 		return "", err
 	}
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
-		return "", fmt.Errorf("没能建好放删除文件的文件夹：%w", err)
+		return "", errhint.Wrap(fmt.Errorf("没能建好放删除文件的文件夹：%w", err), "移走旧文件失败，可能正被服务器或杀毒软件占用，停服后再试")
 	}
 	stem := f[:len(f)-len(ext)]
 	dest := filepath.Join(destDir, f)
@@ -87,7 +89,7 @@ func (m *Manager) TrashMod(name, sub, file string) (string, error) {
 		dest = filepath.Join(destDir, fmt.Sprintf("%s (%d)%s", stem, k, ext))
 	}
 	if err := os.Rename(src, dest); err != nil {
-		return "", fmt.Errorf("没能移走 %s（可能被别的程序占着）：%w", f, err)
+		return "", errhint.Wrap(fmt.Errorf("没能移走 %s（可能被别的程序占着）：%w", f, err), "移走旧文件失败，可能正被服务器或杀毒软件占用，停服后再试")
 	}
 	rel, err := filepath.Rel(i.Dir, dest)
 	if err != nil {

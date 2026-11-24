@@ -6,6 +6,7 @@ import (
 	"net/url"
 
 	"minedeck/internal/dl"
+	"minedeck/internal/errhint"
 )
 
 const (
@@ -24,7 +25,7 @@ func FabricMCVersions(ctx context.Context) ([]string, error) {
 		Stable  bool   `json:"stable"`
 	}
 	if err := dl.FetchJSON(ctx, fabricURLs("/v2/versions/game"), &games); err != nil {
-		return nil, fmt.Errorf("获取 Fabric 版本列表失败: %w", err)
+		return nil, errhint.Wrap(fmt.Errorf("获取 Fabric 版本列表失败: %w", err), mcsrcFetchHint)
 	}
 	var ids []string
 	for _, g := range games {
@@ -44,7 +45,7 @@ func FabricLoaders(ctx context.Context, mc string) ([]BuildInfo, error) {
 		} `json:"loader"`
 	}
 	if err := dl.FetchJSON(ctx, fabricURLs("/v2/versions/loader/"+url.PathEscape(mc)), &list); err != nil {
-		return nil, fmt.Errorf("获取 Fabric Loader 列表失败: %w", err)
+		return nil, errhint.Wrap(fmt.Errorf("获取 Fabric Loader 列表失败: %w", err), mcsrcFetchHint)
 	}
 	if len(list) == 0 {
 		return nil, fmt.Errorf("MC %s 暂无 Fabric 支持", mc)
@@ -68,7 +69,7 @@ func FabricInstallerVersion(ctx context.Context) (string, error) {
 		Stable  bool   `json:"stable"`
 	}
 	if err := dl.FetchJSON(ctx, fabricURLs("/v2/versions/installer"), &list); err != nil {
-		return "", fmt.Errorf("获取 Fabric 安装器版本失败: %w", err)
+		return "", errhint.Wrap(fmt.Errorf("获取 Fabric 安装器版本失败: %w", err), mcsrcFetchHint)
 	}
 	for _, i := range list {
 		if i.Stable {
