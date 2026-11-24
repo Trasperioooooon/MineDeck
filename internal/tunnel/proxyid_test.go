@@ -24,7 +24,7 @@ func proxyIDOf(t *testing.T, m *Manager, id string) string {
 func TestProxyIDOnlyDigits(t *testing.T) {
 	tempBase(t)
 	m := NewManager()
-	for _, bad := range []string{"8,9", "abc", "+7", "-7", "0", "7 8", "9:1"} {
+	for _, bad := range []string{"8,9", "abc", "+7", "-7", "0", "00", "7 8", "9:1", "99999999999999999999", "１２３"} { // 超过 int 的、全角数字也拒
 		if _, err := m.Add(Tunnel{Provider: "natfrp", Name: "樱花", Credential: "fake-sakura-key", ProxyID: bad}); !errors.Is(err, errBadProxyID) {
 			t.Errorf("新增时隧道 ID %q 应被拒：%v", bad, err)
 		}
@@ -36,8 +36,16 @@ func TestProxyIDOnlyDigits(t *testing.T) {
 	if err != nil || added.ProxyID != "7" {
 		t.Fatalf("「 007 」应存成 7：%+v %v", added, err)
 	}
-	if _, err := m.Add(Tunnel{Provider: "custom", Name: "自建", ServerAddr: "frp.example.com", ServerPort: 7000, RemotePort: 25566, LocalPort: 25565, ProxyID: "随便"}); err != nil {
+	custom, err := m.Add(Tunnel{Provider: "custom", Name: "自建", ServerAddr: "frp.example.com", ServerPort: 7000, RemotePort: 25566, LocalPort: 25565, ProxyID: "随便"})
+	if err != nil {
 		t.Fatalf("自定义 frps 不用隧道 ID，不该查：%v", err)
+	}
+	// 自定义 frps 改成樱花：隧道 ID 从这时起要用上，得是数字
+	if err := m.PatchOpt(custom.ID, Patch{Provider: twStr("natfrp"), Credential: twStr("fake-sakura-key")}, UpdateOpts{}); !errors.Is(err, errBadProxyID) {
+		t.Fatalf("自定义 frps 改成樱花时隧道 ID 也要是数字：%v", err)
+	}
+	if got := proxyIDOf(t, m, custom.ID); got != "随便" {
+		t.Fatalf("被拒的修改不该动存着的：%q", got)
 	}
 
 	if err := m.PatchOpt(added.ID, Patch{ProxyID: twStr("8,9")}, UpdateOpts{}); !errors.Is(err, errBadProxyID) {
