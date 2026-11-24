@@ -1224,11 +1224,39 @@ async function refreshTaskList(slot, gen) {
   } finally { slot._loading = false; }
 }
 
-/* 未保存修改守卫：表单类视图登记 dirtyCheck（返回未保存项数），切页 / 切 tab / 刷新前先确认 */
+/* 未保存修改与进行中操作守卫：表单类视图登记 dirtyCheck（切页 / 切 tab / 刷新前确认），分批提交登记到 leaveChecks（只拦站内切页，不拦关窗口和刷新） */
 let dirtyCheck = null;
+const leaveChecks = new Set();
+const registerLeaveCheck = fn => { leaveChecks.add(fn); return () => leaveChecks.delete(fn); };
 let curHash = null;
 let guardOpen = false;
 window.addEventListener("beforeunload", e => { if (dirtyCheck && dirtyCheck() > 0) { e.preventDefault(); e.returnValue = ""; } });
+
+async function confirmBeforeLeave(hash) {
+  const prompts = [];
+  for (const fn of leaveChecks) {
+    const p = fn();
+    if (p) prompts.push(p);
+  }
+  const unsaved = dirtyCheck ? dirtyCheck() : 0;
+  if (unsaved > 0) prompts.push({
+    title: "放弃未保存的修改？", danger: true,
+    body: `当前页面还有 <b>${unsaved}</b> 项修改没有保存，离开后这些修改会丢失。`,
+    okText: `放弃 ${unsaved} 项修改`, cancelText: "继续编辑",
+  });
+  if (!prompts.length) return true;
+  if (curHash && hash !== curHash) history.replaceState(null, "", curHash); // 先退回原地址，确认后再前往
+  guardOpen = true;
+  try {
+    for (const prompt of prompts) {
+      if (!(await confirmModal(prompt))) return false;
+    }
+  } finally {
+    guardOpen = false;
+  }
+  if ((location.hash || "#/instances") !== hash) history.replaceState(null, "", hash);
+  return true;
+}
 
 /* 详情页的旧地址（beta.3 以前的标签编号）→ 新地址（docs/文案重写/04-标签与术语-beta3.md 第一节，可用性走查 R06）。
    AI 助手的回复、提示、书签里还写着旧的。旧的「地图」标签原来就叫 world，现在就是「世界与备份」本身，不用换：
@@ -1245,20 +1273,9 @@ async function navigate() {
   const old = location.hash || "#/instances", hash = upgradeDetailHash(old);
   if (hash !== old) history.replaceState(null, "", hash);
   if (guardOpen) { if (curHash) history.replaceState(null, "", curHash); return; }
-  const unsaved = dirtyCheck ? dirtyCheck() : 0;
-  if (unsaved > 0) {
-    if (curHash && hash !== curHash) history.replaceState(null, "", curHash); // 先退回原地址，确认放弃后再前往
-    guardOpen = true;
-    const ok = await confirmModal({
-      title: "放弃未保存的修改？", danger: true,
-      body: `当前页面还有 <b>${unsaved}</b> 项修改没有保存，离开后这些修改会丢失。`,
-      okText: `放弃 ${unsaved} 项修改`, cancelText: "继续编辑",
-    });
-    guardOpen = false;
-    if (!ok) return;
-    if ((location.hash || "#/instances") !== hash) history.replaceState(null, "", hash);
-  }
+  if (!(await confirmBeforeLeave(hash))) return;
   dirtyCheck = null;
+  leaveChecks.clear();
   appearanceView = null;
   curHash = hash;
   viewGen++;
@@ -1266,6 +1283,7 @@ async function navigate() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   if (prTimer) { clearTimeout(prTimer); prTimer = null; }
   document.querySelectorAll(".dropmenu").forEach(x => x._close ? x._close(true) : x.remove());
+  document.querySelectorAll(".modal-mask").forEach(x => { if (x._closeOnNav) x._closeOnNav(); });
   keysBefore = keyRects();
   const m = hash.match(/^#\/([a-z]+)(?:\/(.+))?$/);
   const view = m ? m[1] : "instances";
@@ -1382,7 +1400,7 @@ async function deleteInstance(info) {
   const files = r.files && typed.value.trim() === name;
   if (r.files && !files) return false;
   try {
-    await api(`/api/instances/${encodeURIComponent(name)}?files=${files ? 1 : 0}`, { method: "DELETE" });
+    const res = await api(`/api/instances/${encodeURIComponent(name)}?files=${files ? 1 : 0}`, { method: "DELETE" });
     if (files) toast(`已删除「${name}」和它的文件夹`);
     else {
       const dir = info.dir || "";
@@ -1392,6 +1410,9 @@ async function deleteInstance(info) {
           onClick: () => api("/api/openpath", { method: "POST", body: { path: dir } }).catch(e => toastErr("无法打开文件夹", e)) }] : [],
       });
     }
+    // 服务器删了，这台的待装清单却没清掉（后端读不出、也记不下来）：删服照常算成功，另给一条带「详情」的提示，
+    // 免得以后同名新建的那台冒出上一台的东西时不知道是从哪来的
+    if (res && res.note) toast(`「${name}」待装清单里的东西没清掉，以后再建同名的服务器时看一眼它的待装清单`, true, res.note);
     return true;
   } catch (e) { toastErr(files ? "无法删除服务器" : "无法把服务器移出列表", e); return false; }
 }
@@ -1488,11 +1509,11 @@ async function renderInstances() {
     box.innerHTML = `<div class="warn-card"><div class="wc-title">${icon("warn")} 有 ${items.length} 个上次创建没完成的文件夹</div>
       <div class="wc-note">这里只列出创建中途停下、还没建好的文件夹。接管进来的和你自己放进来的不会出现在这里，也不会自动删除。</div>
       ${items.map(it => `<div class="row" style="margin-top:8px"><b>${esc(it.name)}</b><span class="hint">${it.hasWorld ? "含世界文件 · " : ""}位于「${esc(it.root)}」</span>
-        <button type="button" class="btn sm ghost" data-drop-left="${esc(it.id)}" data-world="${it.hasWorld ? "1" : "0"}" data-name="${esc(it.name)}" aria-label="删除没建完的文件夹 ${esc(it.name)}（${esc(it.root)}）">删除这个文件夹</button></div>`).join("")}</div>`;
+        <button type="button" class="btn sm ghost" data-drop-left="${esc(it.id)}" data-world="${it.hasWorld ? "1" : "0"}" data-name="${esc(it.name)}" data-root="${esc(it.root)}" aria-label="删除没建完的文件夹 ${esc(it.name)}（${esc(it.root)}）">删除这个文件夹</button></div>`).join("")}</div>`;
     box.querySelectorAll("[data-drop-left]").forEach(b => b.onclick = async () => {
       const ok = await confirmModal({
         title: "删除没建完的文件夹？",
-        body: `<p>将删除「${esc(b.dataset.name)}」。${b.dataset.world === "1" ? "里面的世界文件会一起删掉，无法恢复。" : "里面的文件会一起删掉。"}已建好的服务器和其他文件夹不会受影响。</p>`,
+        body: `<p>将删除位于「${esc(b.dataset.root)}」的「${esc(b.dataset.name)}」。${b.dataset.world === "1" ? "里面的世界文件会一起删掉，无法恢复。" : "里面的文件会一起删掉。"}已建好的服务器和其他文件夹不会受影响。</p>`,
         okText: "删除文件夹", danger: true,
       });
       if (!ok) return;
@@ -1503,7 +1524,9 @@ async function renderInstances() {
         if (!stale(gen)) paintLeftovers();
       } catch (e) {
         toastErr("无法删除这个文件夹", e);
-        if (!stale(gen) && b.isConnected) b.disabled = false;
+        if (stale(gen)) return;
+        if (b.isConnected) b.disabled = false;
+        paintLeftovers(); // 这一行可能已经变了（别处删掉了、开始建了）：重新取一次列表，不让人接着拿旧的这一行再点
       }
     });
   };
@@ -2804,18 +2827,22 @@ async function drawWizard() {
         });
         formDrafts.set(r.taskId, { mode: "new", data: redo }); // 先按任务号记下，再看页面还在不在
         if (world) MDWorldImport.wizardCreated(world.worldPlan, r.taskId); // 请求被收下了：跟着建服任务，成了才清检测结果（见 worldimport.js）
-        if (stale(gen)) { toast("已开始创建，可在新建服务器页查看进度"); return; }
         /* 「选模组」步挑好的内容放在草稿购物车里（不带 inst）。空车照旧直接跳部署任务页；
            有货时留在向导这一页等建服任务跑完，再把草稿车一起装上（装模组是一条 kind "mods" 的任务，跳到那页看进度）。
            「有货」两样都算：Modrinth 上挑的项目（count），和从电脑添加的本地文件（local）——只加了本地文件也要装。
-           建服失败仍然跳建服任务页，失败的日志要看得见；跳转本身就是切页，startPoll 停在旧代际上自然失效。 */
+           建服失败仍然跳建服任务页，失败的日志要看得见；跳转本身就是切页，startPoll 停在旧代际上自然失效。
+           有货时先记下草稿清单归这台新服务器（A31），放在看页面还在不在之前：建服途中切走了也记得上；失败不挡建服。
+           空车不记：记号是仅人工的写操作，记一次进一条操作记录。读草稿清单偶发失败（draft 为 null）时照样记：
+           不知道是不是空车，后端在草稿清单真是空的时不记，有货却漏记的话那台的详情页就不出「新建时挑的 N 项还没装」 */
+        const hasDraft = d => !!d && (d.count > 0 || (d.local || []).length > 0);
         let draft = null;
         // 原版没有「选模组」这一步，草稿车里剩下的（上次没装的）不能装进原版服；点了「跳过这一步」的这次也不装
-        if (wiz.core !== "vanilla" && !wiz.skipMods) {
+        if (redo.wiz.core !== "vanilla" && !redo.wiz.skipMods) {
           try { draft = await api("/api/modcart"); } catch { draft = null; } // 老后端没这个接口：当作空车
-          if (stale(gen)) return;
+          if (draft === null || hasDraft(draft)) await api("/api/modcart/draft/target", { method: "POST", body: { inst: name } }).catch(() => {});
         }
-        if (!draft || !(draft.count > 0 || (draft.local || []).length > 0)) { location.hash = `#/task/${r.taskId}`; return; }
+        if (stale(gen)) { toast("已开始创建，可在新建服务器页查看进度"); return; }
+        if (!hasDraft(draft)) { location.hash = `#/task/${r.taskId}`; return; }
         /* 等建服的这段时间不能回上一步：回去会重画向导（换代号），这里就不再接着装，服务器却已经在建了 */
         const back = $("#wback");
         if (back) back.disabled = true;
@@ -2889,11 +2916,13 @@ const TASK_KINDS = {
     doneTitle: "待装清单已装好", failTitle: "待装清单没有装成",
     ok: "安装完成", fail: "安装失败", failHint: "可以回到这台服务器的「插件」或「模组」页，在待装清单里再装一次。已经下载的文件有缓存，重试很快。", busy: "安装中，请勿关闭程序…",
     go: "完成，进入控制台", href: name => `#/inst/${encodeURIComponent(name)}`, back: "#/instances", backText: "返回服务器列表", nav: "instances" },
-  // 导入地图、换回导入前的地图（worldimport.js）。这类任务的 result 是一句给人看的话，不是服务器名：resultText 让完成后显示它，去处固定是服务器列表
+  // 导入地图、换回导入前的地图（worldimport.js）。这类任务的 result 是一句给人看的话，不是服务器名：resultText 让完成后显示它；
+  // 「完成」按快照里的 inst 回到那台服务器的「换地图」（A53），没有 inst 的（老版本程序的任务）回服务器列表
   world: { title: "正在更换地图", sub: "导入地图，或者换回导入前的地图。出错时会自动退回原来的世界。", done: "已完成", doneSub: "可以到这台服务器的「世界与备份 → 换地图」里查看", resultText: true,
     doneTitle: "地图已处理完", failTitle: "地图没有处理完", cancelTitle: "已取消换地图", cancelSub: "没有替换任何文件，原来的世界没动。", // 取消只在复制阶段收（换地图那一页的「取消导入」）
     ok: "地图已处理完", fail: "没有完成", failHint: "所有文件都还在。到这台服务器的「世界与备份 → 换地图」里看现在用的是哪一份。", busy: "正在处理地图，请勿关闭程序…",
-    go: "完成，回到服务器列表", href: () => "#/instances", back: "#/instances", backText: "返回服务器列表", nav: "instances" },
+    go: t => t.inst ? "完成，回到这台服务器" : "完成，回到服务器列表",
+    href: (_, t) => t && t.inst ? `#/inst/${encodeURIComponent(t.inst)}/world/map` : "#/instances", back: "#/instances", backText: "返回服务器列表", nav: "instances" },
 };
 /* 侧栏亮哪一项：navigate() 进任务页时先按「新建服务器」亮着（那时还不知道是哪一类任务），拿到任务以后在这里改过来 */
 function markNav(key) {
@@ -2918,11 +2947,48 @@ const parentDir = p => { const s = String(p || "").replace(/[\\/]+$/, ""), k = M
    清单是从服务器文件夹里读来的，别人可能改过：文字一律转义，链接只画 https 的。onChange(清单) 在处置以后调：任务页拿它刷新上面的告警，
    详情页拿它刷新页头那一条。 */
 const PND_ACT = { skip: "跳过", local: "用本地文件代替", trust: "信任站点并下载" };
+const PENDING_BATCH = 500; // 同后端 pendingResolveMax：500 接受，501 拒绝。多出来的分批提交。
+const pendingLeavePrompt = n => n > 0 ? {
+  title: "还有没处理完的文件", danger: true,
+  body: `还有 <b>${n}</b> 项还没提交，离开后不会继续；正在处理的这一批会照常做完。`,
+  okText: "离开", cancelText: "留在这里",
+} : null;
+/* 分批提交没装上的文件处理方式（A33）：显示批次进度并在 leaveChecks 里登记离开确认，任务页面板和详情页叠层共用 */
+async function submitPendingBatches(inst, acts, { prog, gone, onUnsubmitted }) {
+  const totalBatches = Math.ceil(acts.length / PENDING_BATCH);
+  let left = 0;
+  const setLeft = n => { left = n; onUnsubmitted(n); };
+  const unregister = registerLeaveCheck(() => gone() ? null : pendingLeavePrompt(left));
+  const resolved = [];
+  let lastResp = null, err = null;
+  try {
+    for (let i = 0; i < acts.length; i += PENDING_BATCH) {
+      const batch = acts.slice(i, i + PENDING_BATCH);
+      setLeft(Math.max(0, acts.length - (i + batch.length)));
+      if (prog && totalBatches > 1) {
+        prog.hidden = false;
+        prog.textContent = `正在处理第 ${Math.floor(i / PENDING_BATCH) + 1} 批，共 ${totalBatches} 批`;
+      }
+      const r = await api(`/api/instances/${encodeURIComponent(inst)}/import-pending`, { method: "POST", body: { items: batch } });
+      if (gone()) return { stopped: true, resolved, lastResp, err: null };
+      lastResp = r;
+      resolved.push(...(r.resolved || []));
+    }
+  } catch (e) {
+    err = e;
+  } finally {
+    setLeft(0);
+    unregister();
+    if (!gone() && prog) { prog.hidden = true; prog.textContent = ""; }
+  }
+  return { stopped: gone(), resolved, lastResp, err };
+}
+
 function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-apply" } = {}) {
-  let view = { pending: [], skipped: [] }, sig = "", had = false;
-  const gone = () => stale(gen) || !box.isConnected;
+  let view = { pending: [], skipped: [] }, sig = "", had = false, unsubmitted = 0;
+  const gone = () => stale(gen) || !box.isConnected || !!box.closest("[data-leaving]");
+  const leavePrompt = () => gone() ? null : pendingLeavePrompt(unsubmitted);
   const httpsOnly = u => /^https:\/\//i.test(String(u || ""));
-  const PENDING_BATCH = 500; // 同后端 pendingResolveMax：500 接受，501 拒绝。多出来的分批提交。
   const dlHost = it => {
     const u = (it.urls || []).find(httpsOnly);
     if (!u) return it.host || "";
@@ -2972,6 +3038,7 @@ function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-appl
       ${skippedBlock}
       <div class="row" style="margin-top:12px">
         <button type="button" class="btn primary pnd-apply" id="${applyId}">应用所选的处理</button>
+        <span class="hint pnd-prog" aria-live="polite" hidden></span>
         <span class="hint">无法自动识别的自定义/魔改模组，可选「用本地文件代替」并指定本地文件路径。</span>
       </div>
     </div>`;
@@ -2990,11 +3057,11 @@ function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-appl
     const ackAll = box.querySelector("#pnd-ack-all");
     if (trustAll) trustAll.onclick = () => {
       let n = 0;
-      const hasSHA1 = id => !!String((view.pending.find(x => x.id === id) || {}).sha1 || ""); // 同后端：没有校验值的不下载
+      const sha1Ids = new Set(view.pending.filter(x => !!String(x.sha1 || "")).map(x => x.id)); // 同后端：没有校验值的不下载
       for (const r of box.querySelectorAll(".pnd-item")) {
         const radio = r.querySelector('input[type=radio][value="trust"]');
         // 没有校验值的后端不会下载；已经选了处理方式的（包括选了本地文件的）不替人改
-        if (!radio || !hasSHA1(r.dataset.id) || r.querySelector("input[type=radio]:checked")) continue;
+        if (!radio || !sha1Ids.has(r.dataset.id) || r.querySelector("input[type=radio]:checked")) continue;
         radio.checked = true;
         radio.dispatchEvent(new Event("change"));
         n++;
@@ -3016,8 +3083,9 @@ function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-appl
   const apply = async () => {
     const acts = [];
     let missing = "";
+    const rowById = new Map(rows().map(x => [x.dataset.id, x]));
     for (const it of [...view.pending, ...view.skipped]) {
-      const r = rows().find(x => x.dataset.id === it.id);
+      const r = rowById.get(it.id);
       const radio = r && r.querySelector("input[type=radio]:checked");
       if (!radio) continue; // 没选的留着下一批
       const act = { id: it.id, act: radio.value };
@@ -3033,11 +3101,12 @@ function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-appl
     }
     if (missing) { toast(missing, true); return; }
     if (!acts.length) { toast("先给至少一个文件选处理方式", true); return; }
-    const btn = box.querySelector(".pnd-apply");
+    const btn = box.querySelector(".pnd-apply"), prog = box.querySelector(".pnd-prog");
     btn.disabled = true;
-    const resolved = [];
-    let lastResp = null;
     const wasOpen = view.pending.length;
+    const { stopped, resolved, lastResp: batchResp, err } = await submitPendingBatches(inst, acts,
+      { prog, gone, onUnsubmitted: n => { unsubmitted = n; } });
+    let lastResp = batchResp;
     const syncDone = () => {
       if (!lastResp || gone()) return;
       out.innerHTML = `<div class="wc-wrap">${resolved.map(o =>
@@ -3046,32 +3115,25 @@ function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-appl
       draw();
       if (onChange) onChange(view);
     };
-    try {
-      for (let i = 0; i < acts.length; i += PENDING_BATCH) {
-        const r = await api(`/api/instances/${encodeURIComponent(inst)}/import-pending`, { method: "POST", body: { items: acts.slice(i, i + PENDING_BATCH) } });
-        if (gone()) return;
-        lastResp = r;
-        resolved.push(...(r.resolved || []));
+    if (!stopped) {
+      if (!err) {
+        syncDone();
+        if (wasOpen && !view.pending.length) toast("没装上的文件都处理完了");
+      } else {
+        // 出错的那一批可能已经在后端处理了一部分（比如连接在途中断了），手里的旧响应不准：重新要一次清单再画
+        let refreshed = false;
+        try {
+          const v = await api(`/api/instances/${encodeURIComponent(inst)}/import-pending`);
+          if (!gone()) { lastResp = v; refreshed = true; }
+        } catch { /* 要不到就按手里已有的画 */ }
+        if (!gone()) {
+          syncDone();
+          toastErr(refreshed ? "有的文件没处理完，清单已按最新情况刷新" : lastResp ? "部分文件未能处理完" : "无法处理没装上的文件", err);
+        }
       }
-      syncDone();
-      if (wasOpen && !view.pending.length) toast("没装上的文件都处理完了");
-    } catch (e) {
-      if (gone()) return;
-      // 出错的那一批可能已经在后端处理了一部分（比如连接在途中断了），手里的旧响应不准：重新要一次清单再画
-      let refreshed = false;
-      try {
-        const v = await api(`/api/instances/${encodeURIComponent(inst)}/import-pending`);
-        if (gone()) return;
-        lastResp = v;
-        refreshed = true;
-      } catch { /* 要不到就按手里已有的画 */ }
-      if (gone()) return; // 等清单的时候离开了页面：不在新页面上弹旧页面的错
-      syncDone();
-      toastErr(refreshed ? "有的文件没处理完，清单已按最新情况刷新" : lastResp ? "部分文件未能处理完" : "无法处理没装上的文件", e);
-    } finally {
-      const b = box.querySelector(".pnd-apply");
-      if (!gone() && b) b.disabled = false;
     }
+    const b = box.querySelector(".pnd-apply");
+    if (!gone() && b) b.disabled = false;
   };
   const load = async () => {
     try {
@@ -3086,7 +3148,7 @@ function pendingPanel(box, out, inst, gen, { onChange, applyId = "t-pending-appl
       if (b) b.onclick = load;
     }
   };
-  return { load };
+  return { load, leavePrompt };
 }
 /* 详情页头「这台服务器有 N 个整合包文件没装上 [处理]」打开的叠层（R09）：里面就是上面这个处理面板，处理完、跳过以后
    onChange(清单) 让页头那一条跟着变（还没处理的没了就消失）。关掉以后面板不再动（box 不在页面上了） */
@@ -3099,9 +3161,22 @@ function pendingModal(inst, gen, onChange, addonsLabel = "") {
       ${addonsLabel ? `跳过的以后在这台服务器的「${esc(addonsLabel)}」页里也找得到。` : ""}</div>
       <div id="d-pending-out"></div><div id="d-pending-box"><div class="sub">加载中…</div></div></div>
     <div class="m-actions"><button class="btn primary" data-x="close">关闭</button></div></div>`);
-  let closed = false;
-  const close = () => {
+  let closed = false, confirming = false, ctl = null;
+  mask._closeOnNav = () => {
     if (closed) return;
+    closed = true;
+    document.removeEventListener("keydown", onKey);
+    dismiss(mask);
+  };
+  const close = async () => {
+    if (closed || confirming) return;
+    const prompt = ctl && ctl.leavePrompt();
+    if (prompt) {
+      confirming = true;
+      const ok = await confirmModal(prompt);
+      confirming = false;
+      if (!ok || closed) return;
+    }
     closed = true;
     document.removeEventListener("keydown", onKey);
     dismiss(mask);
@@ -3111,7 +3186,8 @@ function pendingModal(inst, gen, onChange, addonsLabel = "") {
   document.addEventListener("keydown", onKey);
   mask.querySelector('[data-x="close"]').onclick = close;
   mask.addEventListener("mousedown", e => { if (e.target === e.currentTarget && !hasFields(mask)) close(); }); // 选了、填了的不因为点空了丢掉
-  pendingPanel(mask.querySelector("#d-pending-box"), mask.querySelector("#d-pending-out"), inst, gen, { onChange, applyId: "d-pending-apply" }).load();
+  ctl = pendingPanel(mask.querySelector("#d-pending-box"), mask.querySelector("#d-pending-out"), inst, gen, { onChange, applyId: "d-pending-apply" });
+  ctl.load();
   mask.querySelector('[data-x="close"]').focus();
   return mask;
 }
@@ -3160,7 +3236,7 @@ async function renderTaskPage(taskId) {
     const canEdit = t.ended && !success && formDrafts.has(taskId);
     const openDir = success && K.openDir && t.result && isLocal;
     $("#t-foot").innerHTML = `
-      ${success ? `<a class="btn primary" href="${K.href(t.result)}">${icon("check")} ${K.go}</a>` : ""}
+      ${success ? `<a class="btn primary" href="${K.href(t.result, t)}">${icon("check")} ${esc(typeof K.go === "function" ? K.go(t) : K.go)}</a>` : ""}
       ${openDir ? `<button type="button" class="btn" id="t-open-dir">${icon("folder")} 打开所在文件夹</button>` : ""}
       ${canEdit ? `<button type="button" class="btn${cancelled ? " primary" : ""}" id="t-back-edit">${icon("arrowLeft")} 返回修改</button>` : ""}
       ${t.ended && !success && !canEdit ? `<a class="btn" href="${K.back}">${icon("arrowLeft")} ${K.backText}</a>` : ""}
@@ -3895,7 +3971,10 @@ async function renderDetail(name, path = "console") {
       // 没有的话看换地图的记录：用地图新建的、换过地图的，以前一律写成「服务器自己的世界」。地图在存档里多半叫 world，
       // 人认得的是导入时的文件夹或压缩包名，所以写来源名。恢复点删掉以后就查不到导入过，所以不说「服务器自己的世界」，只说没有记录
       const og = !wf && ws ? MDWorldImport.origin(ws) : null;
-      const nowText = wf
+      // 随交接包带来的（carried，A52）：还原是在原来那台电脑上做的，那份备份不在这台的列表里，照实说，不让人去列表里找
+      const nowText = wf && wf.carried
+        ? `当前世界：原来那台电脑上从 <b>${esc(nice(wf.backupTime) || wf.backup)}</b> 的备份还原来的${wf.label ? `（${esc(wf.label)}）` : ""}，随交接包带过来（那份备份不在这台电脑上）`
+        : wf
         ? `当前世界：从 <b>${esc(nice(wf.backupTime) || wf.backup)}</b> 的备份还原${wf.label ? `（${esc(wf.label)}）` : ""}，还原于 ${esc(nice(wf.at))}`
         : og && og.kind === "import" ? `当前世界：从「<b>${esc(og.source)}</b>」导入的地图${og.at ? `，导入于 ${esc(og.at)}` : ""}`
         : og && og.kind === "returned" ? `当前世界：${og.at ? esc(og.at) + " " : ""}换过一次地图，后来换回了换之前的那张`
@@ -3927,7 +4006,7 @@ async function renderDetail(name, path = "console") {
           const title = b.label || b.file, who = b.label ? `${b.label}（${nice(b.time)}）` : b.file;
           return `
           <div class="row-item"><div class="ri-head"><span class="ri-ico">${icon("package")}</span>
-            <div class="ri-main"><div class="ri-title">${esc(title)}${wf && wf.backup === b.file ? `<span class="tag">现在的世界</span>` : ""}${b.elsewhere ? `<span class="tag neutral" title="${esc(b.dir || "")}">在原来的文件夹</span>` : ""}</div>
+            <div class="ri-main"><div class="ri-title">${esc(title)}${wf && !wf.carried && wf.backup === b.file ? `<span class="tag">现在的世界</span>` : ""}${b.elsewhere ? `<span class="tag neutral" title="${esc(b.dir || "")}">在原来的文件夹</span>` : ""}</div>
               <div class="ri-key">${esc(nice(b.time))} · ${b.sizeMb.toFixed(1)} MB${b.label ? ` · <span class="mono">${esc(b.file)}</span>` : ""}</div></div>
             <div class="ri-right">${running ? `<span class="hint bk-need-stop">会先停服</span>` : ""}<button class="btn sm" data-restore="${esc(b.file)}" data-who="${esc(who)}" aria-label="还原 ${esc(b.file)}">${icon("restore")} 还原</button>
               <button class="btn sm danger" data-del="${esc(b.file)}" aria-label="删除 ${esc(b.file)}">删除</button></div></div></div>`;

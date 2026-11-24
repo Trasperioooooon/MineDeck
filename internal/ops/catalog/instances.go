@@ -118,7 +118,8 @@ func (c *cat) instanceOps() {
 		Desc: "所有实例：核心、版本、Java、内存、端口、状态、在线人数、运行时长、MOTD；connectPort 是玩家连进来用的端口（代理端以它为准），" +
 			"lastStartError 是上一次没启动起来的原因（端口被占、找不到 Java 等，下次启动成功后清空），端口被占时 startPortBusy 写着端口、" +
 			"占着它的是哪台服务器（owner，空是别的程序）、可以改成的端口（suggest）；javaMissing 为 true 表示配的 java.exe 现在找不到了；" +
-			"worldFrom 是现在的世界从哪份备份还原来的（没有就是没还原过，或者还原以后换过地图）。",
+			"worldFrom 是现在的世界从哪份备份还原来的（没有就是没还原过，或者还原以后换过地图）；" +
+			"其中 carried 为 true 的是随交接包带来的：还原是在交出服务器的那台电脑上做的，那份备份不在这台电脑的备份列表里。",
 		Run: func(context.Context, ops.Caller, ops.Args) (any, error) {
 			out := []instSummary{}
 			for _, i := range c.Mgr.List() {
@@ -341,7 +342,8 @@ func (c *cat) instanceOps() {
 		Name: "task.list", Title: "查看后台任务", Level: ops.Read,
 		Desc: "本次运行的新建实例、整合包导入、接管已有服务器、Java 下载、交接包导入导出任务，按创建时间从新到旧排列，包含已完成、失败和用户取消的任务。" +
 			"每个任务只给摘要（标题、是否结束、当前进度、出错原因、告警条数），步骤、日志和告警明细用 task.get 查。" +
-			"cancelled 为 true 的是用户取消的（error 里是一句说明，不是出错），cancelling 为 true 的正在取消、清理半成品。",
+			"cancelled 为 true 的是用户取消的（error 里是一句说明，不是出错），cancelling 为 true 的正在取消、清理半成品。" +
+			"inst 是任务操作的服务器（目前只有换地图的任务带，它的 result 是一句话、不是服务器名）。",
 		Run: func(context.Context, ops.Caller, ops.Args) (any, error) {
 			return c.Mgr.Tasks.List(), nil
 		},
@@ -349,7 +351,7 @@ func (c *cat) instanceOps() {
 
 	c.reg.Register(&ops.Op{
 		Name: "task.get", Title: "查看任务进度", Level: ops.Read,
-		Desc:   "新建实例、导入整合包、接管已有服务器、换 Java、交接包导入导出的后台任务：各步骤状态、下载进度、日志、告警。",
+		Desc:   "新建实例、导入整合包、接管已有服务器、换 Java、交接包导入导出、换地图的后台任务：各步骤状态、下载进度、日志、告警；inst 是任务操作的服务器（目前只有换地图的任务带）。",
 		Params: ops.Object(map[string]*ops.Schema{"id": ops.String("任务编号")}, "id"),
 		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[struct {
@@ -495,8 +497,13 @@ func (c *cat) instanceOps() {
 			}
 			// 这台服务器的购物车跟着清掉：购物车按实例名存，不清的话以后新建一台同名的，
 			// 旧车里剩下的东西会被当成新服务器的。人从电脑上添加、暂存着的本地文件也一起删。
+			// 草稿清单记的目标是这台的，记号同理也清掉（草稿清单本身留着）。cart.json 读不出来时记下来，读出来以后补清（A30）。
+			// 清不掉也记不下来时服务器照样删了，在结果里说一声
 			if c.ModCart != nil {
-				_ = c.ModCart.ClearAll(p.Inst)
+				if err := c.ModCart.ForgetInstance(p.Inst); err != nil {
+					return map[string]string{"note": "服务器已经删了，但待装清单里这台的东西没清掉：" + err.Error() +
+						"。以后再建一台同名的服务器，打开它的待装清单看一眼，用不上的清空就行"}, nil
+				}
 			}
 			return "ok", nil
 		},

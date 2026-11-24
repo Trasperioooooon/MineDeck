@@ -106,6 +106,8 @@ func TestLevelsFollowDesign(t *testing.T) {
 	want[ops.Write] = append(want[ops.Write], "modcart.install")
 	// 人从自己电脑上添加、移除 jar：文件是人给的，仅人工（不限本机，同整合包上传 instance.import）
 	want[ops.HumanOnly] = append(want[ops.HumanOnly], "modcart.local.add", "modcart.local.remove")
+	// 草稿清单记下是给哪台新服务器挑的：只有向导在人点了「创建」以后记，AI 记了能把详情页的提示挂到任意服务器上（A31）
+	want[ops.HumanOnly] = append(want[ops.HumanOnly], "modcart.draft.target")
 	// 穿透平台账户：Env.Accounts 非空时才登记；本测试不传，故不列入 want（见 accounts.go）。
 	// 地图导入：世界状态（恢复点列表）是读；读本机文件夹的检测只许人在本机；检测上传、预览、导入、换回、删恢复点都仅人工
 	want[ops.Read] = append(want[ops.Read], "world.status")

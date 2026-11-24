@@ -15,7 +15,7 @@ func (c *cat) creatingOps() {
 	c.reg.Register(&ops.Op{
 		Name: "instance.creating.list", Title: "查看没建完的文件夹", Level: ops.HumanOnly, LocalOnly: true, NoLog: true,
 		LocalMsg: "查看没建完的文件夹仅支持在本机操作",
-		Desc: "列出服务器根目录下、带有创建记号、还没有 instance.json 的文件夹。有登记的服务器只去掉记号，不出现在这里。" +
+		Desc: "列出服务器根目录和正在建的位置下、带有创建记号、还没有 instance.json 的文件夹。只读，不改任何文件；已经登记的服务器不出现在这里。" +
 			"没有记号的目录（接管、自己拷进来的）不会列出。",
 		Run: func(context.Context, ops.Caller, ops.Args) (any, error) {
 			return map[string]any{"items": c.Mgr.CreatingLeftovers()}, nil

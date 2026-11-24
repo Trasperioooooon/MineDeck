@@ -2,6 +2,7 @@ package inst
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -328,8 +329,8 @@ func (m *Manager) runAdopt(ctx context.Context, t *tasks.Task, req AdoptReq, sc 
 	t.StartStep(1)
 	javaPath := req.JavaPath
 	if javaPath != "" {
-		if st, err := os.Stat(javaPath); err != nil || st.IsDir() {
-			return fmt.Errorf("找不到 Java：%s", javaPath)
+		if err := checkChosenJava(javaPath, major); err != nil {
+			return err
 		}
 	} else {
 		var err error
@@ -416,6 +417,30 @@ func (m *Manager) runAdopt(ctx context.Context, t *tasks.Task, req AdoptReq, sc 
 		t.Logf("接管完成 ✔ 世界、模组、插件和配置文件都没有动")
 	}
 	return nil
+}
+
+// checkChosenJava 接管时人指定的 java.exe 还能不能用。指向 MineDeck 的便携 Java（runtimes/java-major 里面）时经
+// java.UsePortable 查，和卸载互斥（A34）：这套正在卸载、已经卸了或者没装完整都不接管。接管从校验起就占着「正在创建」，
+// 卸载是先记上「正在卸载」再查有没有正在创建的；这边先占「正在创建」再看「正在卸载」，两边总有一边看得到另一边。
+// 这里只按 major 认是哪一套便携 Java：major 和 path 对得上由操作层保证（instance.adopt 先过 knownJava，path 必须是这个大版本的）。
+func checkChosenJava(path string, major int) error {
+	stat := func() error {
+		if st, err := os.Stat(path); err != nil || st.IsDir() {
+			return fmt.Errorf("找不到 Java：%s", path)
+		}
+		return nil
+	}
+	if !within(realPath(path), realPath(java.Dir(major))) {
+		return stat()
+	}
+	switch err := java.UsePortable(major, stat); {
+	case errors.Is(err, java.ErrRemoving):
+		return fmt.Errorf("选的 Java %d 正在卸载，没有接管。等卸载完再试，或者换一个 Java", major)
+	case errors.Is(err, java.ErrNotInstalled):
+		return fmt.Errorf("选的 Java %d 已经卸载了或者没装完整，没有接管。请换一个 Java 再试", major)
+	default:
+		return err
+	}
 }
 
 // propsPort 文件夹里 server.properties 写的端口，按服务端的读法（同 Instance.Port）；没写、读不出来按服务端默认的 25565。

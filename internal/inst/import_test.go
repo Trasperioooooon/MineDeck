@@ -34,7 +34,7 @@ func importEnv(t *testing.T) (*Manager, string) {
 	// 配置复位（TrustedHosts 清空），避免用例之间互相污染
 	setConfig(t, func(c *app.Config) {
 		c.TrustedHosts = nil
-		c.ServersDir, c.BackupsDir, c.Roots, c.BackupRoots = "", "", nil, nil
+		c.ServersDir, c.BackupsDir, c.Roots, c.BackupRoots, c.CreatingRoots = "", "", nil, nil, nil
 	})
 	return &Manager{insts: map[string]*Instance{}, creating: map[string]bool{}, Tasks: tasks.NewManager()}, t.TempDir()
 }

@@ -27,6 +27,8 @@ import (
 // 风险等级：搜索、看车、加进车、拿出来、清空、查前置都是读操作——购物车只是一张暂存的清单，不动服务器里的任何文件，
 // AI 可以直接帮人挑；真正往服务器里放文件的 modcart.install 是写操作，AI 发起时生成提案卡片，卡片上逐个列出要下载的文件。
 // 购物车按实例分开存；inst 不填是「草稿车」：新建服务器时实例还不存在，先挑好放这里，建好以后 install 带上 includeDraft 一起装。
+// 草稿车记下「是给哪台新服务器挑的」（modcart.draft.target）是仅人工：只有向导在人点了「创建」以后记，那台的详情页才会
+// 提示「新建时挑的 N 项还没装」；AI 能记的话，就能把这条提示挂到任意一台服务器上（A31）。
 //
 // 车里还能放人从自己电脑上添加的 jar（本地文件，见 internal/modcart/staged.go）。这部分的规矩：
 //   - 添加（modcart.local.add）、移除（modcart.local.remove）是仅人工：文件是人给的，AI 助手和 MCP 客户端不能往里放，也不能拿掉。
@@ -150,6 +152,16 @@ func (c *cat) cartTarget(p modcartArgs) (cartTarget, error) {
 	return t, nil
 }
 
+// draftOrigin 往草稿清单里加时要记下的核心和版本（A31）：核心归一成小写、去掉首尾空白，界面拿它和新服务器的核心
+// 逐字比，AI 传来的「Fabric」原样存下会被判成对不上。认不出来的核心连同版本都不记：只有版本没有核心，界面用不上。
+func draftOrigin(core, mc string) (string, string) {
+	c := mcsrc.Core(strings.ToLower(strings.TrimSpace(core)))
+	if !mcsrc.ValidCore(c) {
+		return "", ""
+	}
+	return string(c), strings.TrimSpace(mc)
+}
+
 // localView 清单里一个本地文件给外面看的样子：没有路径。warn 是按这台服务器的核心看出来的提醒（加载器不对、读不出信息）。
 type localView struct {
 	SHA1     string    `json:"sha1,omitempty"` // 给 AI 的不带：移除、安装时的核对都只有人能做
@@ -205,7 +217,13 @@ func (c *cat) view(p modcartArgs, caller ops.Caller) map[string]any {
 			t = &ct
 		}
 	}
-	return cartView(c.ModCart.List(p.key), c.ModCart.Locals(p.key), t, caller.Source.AI())
+	v := cartView(c.ModCart.List(p.key), c.ModCart.Locals(p.key), t, caller.Source.AI())
+	if p.key == modcart.Draft {
+		if di := c.ModCart.DraftInst(); di != "" {
+			v["draftInst"] = di
+		}
+	}
+	return v
 }
 
 // installItems 这次要装的：实例的车，includeDraft 时再加上草稿车。
@@ -345,8 +363,8 @@ func (c *cat) modcartOps() {
 	c.reg.Register(&ops.Op{
 		Name: "modcart.list", Title: "查看待装清单", Level: ops.Read,
 		Desc: "待装清单里有什么（按加入的先后，两样合计最多 50 项）：items 是 Modrinth 项目，local 是用户自己从电脑上添加的 jar" +
-			"（只有文件名、大小和读出来的模组信息；这部分只有用户能加、能移除）。不给 inst 看草稿清单。" +
-			"清单的存档文件在却没读出来（被别的程序占着、或者内容坏了）时报错，不返回空清单：这期间不能往清单里加、移除或安装。",
+			"（只有文件名、大小和读出来的模组信息；这部分只有用户能加、能移除）。不给 inst 看草稿清单（草稿清单里的项目会带上挑的时候记下的 pickedCore 和 pickedMc；" +
+			"记过目标新建服务器时还带 draftInst）。清单的存档文件在却没读出来（被别的程序占着、或者内容坏了）时报错，不返回空清单：这期间不能往清单里加、移除或安装。",
 		Params: ops.Object(map[string]*ops.Schema{"inst": cartInst, "cart": cartWhich, "core": cartCore, "mc": cartMC}),
 		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
 			p, err := bindCart(a)
@@ -363,9 +381,15 @@ func (c *cat) modcartOps() {
 	c.reg.Register(&ops.Op{
 		Name: "modcart.add", Title: "把模组或插件加进待装清单", Level: ops.Read,
 		Desc: "把 Modrinth 项目加进待装清单（一次可以加多个），只是暂存，不下载、不改服务器。加入时会向 Modrinth 核对：" +
-			"查不到的、只在客户端用的模组不放进去，在 skipped 里说明原因。返回整份清单。每份清单最多 50 项（连本地文件一起算）。",
-		Params: ops.Object(map[string]*ops.Schema{"inst": cartInst, "cart": cartWhich,
-			"projectIds": ops.Array("要加入的 Modrinth 项目 ID 或 slug", projectID).MaxLen(modcart.MaxItems)}, "projectIds"),
+			"查不到的、只在客户端用的模组不放进去，在 skipped 里说明原因；往草稿清单里加时可带 core 和 mc 记下挑的时候针对的核心和版本" +
+			"（核心认不出来就都不记）。返回整份清单。每份清单最多 50 项（连本地文件一起算）。",
+		Params: ops.Object(map[string]*ops.Schema{
+			"inst":       cartInst,
+			"cart":       cartWhich,
+			"core":       ops.String("往草稿清单里加时记下是给哪种核心挑的（可选，如 fabric、forge、neoforge、paper）").Len(0, 20),
+			"mc":         ops.String("往草稿清单里加时记下是给哪个 Minecraft 版本挑的（可选，如 1.20.1）").Len(0, 40),
+			"projectIds": ops.Array("要加入的 Modrinth 项目 ID 或 slug", projectID).MaxLen(modcart.MaxItems),
+		}, "projectIds"),
 		Run: func(ctx context.Context, caller ops.Caller, a ops.Args) (any, error) {
 			p, err := bindCart(a)
 			if err != nil {
@@ -379,9 +403,10 @@ func (c *cat) modcartOps() {
 					return nil, err
 				}
 			}
+			p.Core, p.MC = draftOrigin(p.Core, p.MC)
 			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
-			_, skipped, err := c.ModCart.Add(ctx, p.key, p.ProjectIDs)
+			_, skipped, err := c.ModCart.AddFor(ctx, p.key, p.Core, p.MC, p.ProjectIDs)
 			if err != nil {
 				return nil, cartErr(err)
 			}
@@ -390,6 +415,29 @@ func (c *cat) modcartOps() {
 				v["skipped"] = skipped
 			}
 			return v, nil
+		},
+	})
+
+	c.reg.Register(&ops.Op{
+		Name: "modcart.draft.target", Title: "记下草稿清单是给哪台新服务器挑的", Level: ops.HumanOnly,
+		Desc: "新建向导发出建服请求以后调：记下草稿清单要装进哪台新服务器。建服途中切到了别的页面、草稿清单没装上时，" +
+			"那台服务器的详情页会提示「新建时挑的 N 项还没装」。草稿清单是空的时不记；清空、装完或删掉那台服务器时记号跟着清掉。",
+		Params: ops.Object(map[string]*ops.Schema{"inst": ops.String("新服务器的名称（建服请求里的 name）").Len(1, 100)}, "inst"),
+		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
+			p, err := bind[struct {
+				Inst string `json:"inst"`
+			}](a)
+			if err != nil {
+				return nil, err
+			}
+			if strings.TrimSpace(p.Inst) == "" {
+				return nil, ops.Errorf(400, "没有给服务器名称")
+			}
+			// 不查这台在不在：向导调它的时候服务器多半还在建，列表里还没有
+			if err := c.ModCart.SetDraftInst(p.Inst); err != nil {
+				return nil, cartErr(err)
+			}
+			return c.view(modcartArgs{key: modcart.Draft}, caller), nil
 		},
 	})
 

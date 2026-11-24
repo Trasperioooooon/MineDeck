@@ -30,6 +30,9 @@ func publishNew(tmp, path string) error {
 	return nil
 }
 
+// RetryRemove 非 Windows 下删除文件或空文件夹没有共享冲突，直接调一次。
+func RetryRemove(op func() error) error { return op() }
+
 // openForSync 替换之前把写好的临时文件重新打开，为的是刷盘（Windows 上被占着时会再试，见 replace_windows.go）。
 func openForSync(tmp string) (*os.File, error) { return os.OpenFile(tmp, os.O_RDWR, 0) }
 

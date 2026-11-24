@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -17,8 +18,10 @@ import (
 	"unicode"
 
 	"minedeck/internal/app"
+	"minedeck/internal/atomicfile"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/tasks"
+	"minedeck/internal/winname"
 )
 
 type Settings struct {
@@ -43,12 +46,16 @@ type Settings struct {
 }
 
 // WorldFrom 现在的世界是从哪份备份还原来的（可用性走查 R11）：详情页「世界与备份」页顶据此写「当前世界：从 某某时间 的备份还原」。
-// 记在 instance.json 里，重开程序后仍在；下一次还原换成那一份，换地图（导入、换回、恢复）时清掉，见 clearWorldFrom。
+// 记在 instance.json 里，重开程序后仍在；下一次还原换成那一份，换地图（导入、换回、恢复）时清掉，见 clearWorldFromHeld，
+// 导入、换回旧地图没换成、自动退回了的不清（见 WorldIntent.WorldUnchanged、Manager.WorldUnchanged）。
+// 交接包带着世界导入时随包带过来，记上 Carried（见 CarriedWorldFrom）。
 type WorldFrom struct {
 	Backup     string `json:"backup"`               // 备份文件名
 	Label      string `json:"label,omitempty"`      // 备份的标签（文件名里时间后面那段）
 	BackupTime string `json:"backupTime,omitempty"` // 这份备份是什么时候做的（2006-01-02 15:04:05）；文件名里认不出时用文件的修改时间
 	At         string `json:"at"`                   // 什么时候还原的（2006-01-02 15:04:05）
+	// Carried 这条记录是随交接包带来的（A52）：还原是在交出服务器的那台电脑上做的，那份备份不在这台的备份列表里
+	Carried bool `json:"carried,omitempty"`
 }
 
 // WorldFromSnapshot 加锁读取 WorldFrom 的一份拷贝；没有时为 nil。
@@ -60,6 +67,24 @@ func (i *Instance) WorldFromSnapshot() *WorldFrom {
 	}
 	wf := *i.WorldFrom
 	return &wf
+}
+
+// CarriedWorldFrom 交接包清单里带来的 WorldFrom（A52）：清单是别人给的，逐项核对，有一项不对就整条不要（返回 nil）。
+// 备份文件名只认单独一段、能落在 Windows 上的 .zip 名；两个时间要是 2006-01-02 15:04:05 的写法。
+// 文件名是 MineDeck 起的（带时间和标签）时，备份时间和标签照文件名重算，不用清单里写的。收下的记上 Carried。
+func CarriedWorldFrom(wf *WorldFrom) *WorldFrom {
+	const layout = "2006-01-02 15:04:05"
+	okTime := func(s string) bool { _, err := time.ParseInLocation(layout, s, time.Local); return err == nil }
+	if wf == nil || len(wf.Backup) > 200 || !strings.HasSuffix(wf.Backup, ".zip") || !winname.OK(wf.Backup) || !okTime(wf.At) {
+		return nil
+	}
+	out := &WorldFrom{Backup: wf.Backup, At: wf.At, Carried: true}
+	if t, label, ok := parseBackupName(wf.Backup); ok {
+		out.BackupTime, out.Label = t.Format(layout), label
+	} else if okTime(wf.BackupTime) {
+		out.BackupTime = wf.BackupTime
+	}
+	return out
 }
 
 // setWorldFrom 记下（wf 为 nil 时清掉）现在的世界从哪来，并存进 instance.json。存不进去不算还原失败：只是页顶少一句说明，
@@ -149,6 +174,8 @@ type Manager struct {
 	worldIntent map[string]*WorldIntent
 	worldHold   map[string]string
 	worldBlock  map[string]string
+	// worldSame 占着位、做的事确定没换世界的实例名（见 Manager.WorldUnchanged），放掉占位时一起去掉
+	worldSame map[string]bool
 	// worldUse 正在用这台服务器的世界和设置的操作（备份、保存设置）：实例名 → 在做什么 → 有几个。见 UseWorld
 	worldUse     map[string]map[string]int
 	worldPlacer  WorldPlacer
@@ -197,15 +224,7 @@ func NewManager() (*Manager, error) {
 			if fromRoot {
 				if inst, ok := fromDirs[key]; ok {
 					delete(fromDirs, key)
-					if inst.Dir != dir {
-						oldDir := inst.Dir
-						inst.Dir = dir
-						for idx := range m.skippedDups {
-							if m.skippedDups[idx].KeptDir == oldDir {
-								m.skippedDups[idx].KeptDir = dir
-							}
-						}
-					}
+					inst.Dir = dir
 				}
 			}
 			return
@@ -237,6 +256,7 @@ func NewManager() (*Manager, error) {
 	for _, dir := range app.InstanceDirs() {
 		load(dir, false)
 	}
+	promoteCreatedRoots() // 上次登记写完 instance.json、没来得及记扫描根就没了的位置，先补记，下面才扫得到那台（A38）
 	// 多根扫描：内置默认根 + 配置默认根 + 历史自定义根（支持实例散落于不同盘符/目录）；存放位置内部重名的仍按先到先得
 	for _, root := range app.InstanceRoots() {
 		ents, err := os.ReadDir(root)
@@ -249,6 +269,8 @@ func NewManager() (*Manager, error) {
 			}
 		}
 	}
+	m.clearStaleCreatingMarkers() // 列半成品的接口只读，残留的创建记号在这里去掉（A38）
+	pruneCreatingRoots()          // 去掉记号以后再整理「正在建的位置」：只剩已登记服务器的位置也就没有半成品了
 	m.startScheduler()
 	return m, nil
 }
@@ -432,6 +454,7 @@ func releaseInstanceDir(i *Instance) error {
 
 // safeRemoveInstanceDir 仅当目录内的 instance.json 确属本实例时才整目录删除，
 // 从而支持任意自定义位置（不再依赖是否位于默认 servers 根下）。
+// 先删其余文件、最后才删 instance.json（A121）：中途遇上被占用的文件失败时 instance.json 仍在，下次还能再删。
 func safeRemoveInstanceDir(i *Instance) error {
 	dir := filepath.Clean(i.Dir)
 	if dir == "" || dir == filepath.Dir(dir) || dir == filepath.Clean(app.Base) {
@@ -444,10 +467,83 @@ func safeRemoveInstanceDir(i *Instance) error {
 	if err != nil || s.Name != i.Name {
 		return fmt.Errorf("这个文件夹对不上这台服务器（instance.json 读不出来，或里面的名字不一致），已拒绝删除: %s", dir)
 	}
-	if err := os.RemoveAll(dir); err != nil {
+	emptyDirErr, err := removeInstanceDirMarkerLast(dir)
+	if err != nil {
 		return fmt.Errorf("删除文件失败: %w", err)
 	}
+	if emptyDirErr != nil {
+		logLeftInstanceDir(i.Name, dir, emptyDirErr)
+	}
 	return nil
+}
+
+// logLeftInstanceDir 删到最后只剩文件夹本身没删掉时（照常移出列表）记一笔，按文件夹里实际还剩什么说：
+// 多半是文件夹被别的程序当成工作目录占着、里面是空的；也可能删的同时有程序往里写了文件，文件夹其实不空。
+func logLeftInstanceDir(name, dir string, cause error) {
+	ents, err := os.ReadDir(dir)
+	switch {
+	case err != nil:
+		log.Printf("服务器「%s」已移出列表，但文件夹本身没删掉，也读不出里面还剩什么：%s（%v；%v）", name, dir, cause, err)
+	case len(ents) == 0:
+		log.Printf("服务器「%s」的文件已删空，但文件夹本身正被别的程序占用，留了一个空文件夹：%s（%v）", name, dir, cause)
+	default:
+		names := make([]string, 0, 3)
+		for _, e := range ents[:min(len(ents), 3)] {
+			names = append(names, e.Name())
+		}
+		if len(ents) > len(names) {
+			names = append(names, "…")
+		}
+		log.Printf("服务器「%s」已移出列表，但文件夹没有删掉，里面还剩 %d 项（%s）：%s（%v）。"+
+			"可能是删的同时有程序往里写了文件，或者还有程序开着里面的文件", name, len(ents), strings.Join(names, "、"), dir, cause)
+	}
+}
+
+// walkInstanceDir 顶层路径是往里逐项删（true），还是只删这一个目录项本身（false）。
+// 只看 ModeDir，不排除 ModeIrregular：Go 1.23 起符号链接和目录联接都不带 ModeDir，
+// 而 OneDrive 按需文件这类云同步真文件夹报 ModeDir|ModeIrregular，必须往里删。
+func walkInstanceDir(mode fs.FileMode) bool {
+	return mode.IsDir()
+}
+
+// removeInstanceDirMarkerLast 不跟顶层链接；普通目录先删 instance.json 以外的条目，最后删 instance.json 与空目录。
+// instance.json 已经删掉、只剩删空文件夹失败时返回 emptyDirErr（err 为 nil），由调用方记日志并照常移出列表。
+func removeInstanceDirMarkerLast(dir string) (emptyDirErr error, err error) {
+	st, err := os.Lstat(dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if !walkInstanceDir(st.Mode()) {
+		return nil, atomicfile.RetryRemove(func() error { return os.Remove(dir) })
+	}
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var markers []string
+	for _, e := range ents {
+		if strings.EqualFold(e.Name(), "instance.json") {
+			markers = append(markers, e.Name())
+			continue
+		}
+		child := filepath.Join(dir, e.Name())
+		if err := atomicfile.RetryRemove(func() error { return os.RemoveAll(child) }); err != nil {
+			return nil, err
+		}
+	}
+	for _, name := range markers {
+		p := filepath.Join(dir, name)
+		if err := atomicfile.RetryRemove(func() error { return os.Remove(p) }); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return nil, err
+		}
+	}
+	if err := atomicfile.RetryRemove(func() error { return os.Remove(dir) }); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err, nil
+	}
+	return nil, nil
 }
 
 // 打包任务的占位：打包时读着实例目录里的世界和配置，这期间启动、删除都会打出坏包。
@@ -496,15 +592,6 @@ type SettingsSaveResult struct {
 	Note       string   `json:"note,omitempty"`
 }
 
-func (i *Instance) settingsSnapshot() Settings {
-	i.procMu.Lock()
-	defer i.procMu.Unlock()
-	s := i.Settings
-	s.ExtraJVM = append([]string(nil), i.ExtraJVM...)
-	s.Policies.Schedules = append([]Schedule(nil), i.Policies.Schedules...)
-	return s
-}
-
 // computeSettingsUpdate 按同一套规则校验并算出更新后的运行参数（PreviewSettings 与 UpdateSettingsWithResult 共用，A28）。
 // 只读 cur 值副本与磁盘上的服务端 jar / 日志配置文件，不碰 Instance 锁。
 func computeSettingsUpdate(cur Settings, dir string, xmxMB, xmsMB int, consoleEnc string, extraJVM *[]string) (Settings, SettingsSaveResult, error) {
@@ -549,7 +636,7 @@ func computeSettingsUpdate(cur Settings, dir string, xmxMB, xmsMB int, consoleEn
 // PreviewSettings 不落盘地算出修改运行参数后实际会存、会用的参数（AI 确认卡片和界面「启动与内存」预览共用，A28）。
 // 只在取当前设置快照时短暂持 procMu，开包检查服务端 jar 与读日志配置文件都在锁外完成，不阻塞 Status 等状态查询。
 func (i *Instance) PreviewSettings(xmxMB, xmsMB int, consoleEnc string, extraJVM *[]string) (SettingsSaveResult, error) {
-	cur := i.settingsSnapshot()
+	cur := i.SettingsSnapshot()
 	_, res, err := computeSettingsUpdate(cur, i.Dir, xmxMB, xmsMB, consoleEnc, extraJVM)
 	return res, err
 }

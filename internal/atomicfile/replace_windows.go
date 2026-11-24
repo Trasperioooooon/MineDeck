@@ -93,7 +93,7 @@ var retryDelays = []time.Duration{
 	32 * time.Millisecond, 64 * time.Millisecond, 125 * time.Millisecond, 125 * time.Millisecond, 125 * time.Millisecond,
 }
 
-// beforeRetry 测试用：第 attempt 次重试（从 1 数）调用 MoveFileEx 之前调用。
+// beforeRetry 测试用：第 attempt 次重试（从 1 数）再做一次之前调用，替换、publishNew 是再调 MoveFileEx 之前，RetryRemove 是再删之前。
 var beforeRetry func(attempt int)
 
 // retryable 失败是不是值得再试一次：错误是拒绝访问或共享冲突，而且目标不是只读文件、不是文件夹。
@@ -141,6 +141,25 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 
 func isBusyErr(err error) bool {
 	return errors.Is(err, windows.ERROR_ACCESS_DENIED) || errors.Is(err, windows.ERROR_SHARING_VIOLATION)
+}
+
+// RetryRemove 执行文件或文件夹删除；碰上共享冲突或刚删完里面最后一个文件时的目录非空假象，按 retryDelays 重试。
+// 不重试拒绝访问：只读属性或权限不足等半秒也不会好。
+func RetryRemove(op func() error) error {
+	err := op()
+	for retries := 0; err != nil && retries < len(retryDelays) && isRemoveBusyErr(err); {
+		time.Sleep(retryDelays[retries])
+		retries++
+		if beforeRetry != nil {
+			beforeRetry(retries)
+		}
+		err = op()
+	}
+	return err
+}
+
+func isRemoveBusyErr(err error) bool {
+	return errors.Is(err, windows.ERROR_SHARING_VIOLATION) || errors.Is(err, windows.ERROR_DIR_NOT_EMPTY)
 }
 
 // openForSync 替换之前把写好的临时文件重新打开一次，为的是把它刷到盘上。

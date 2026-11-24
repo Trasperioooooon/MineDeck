@@ -114,7 +114,24 @@ func TestCreatingListNoLogAndDiscardStatusCodes(t *testing.T) {
 	if err := inst.WriteCreatingMarker(cdir, creq.Name); err != nil {
 		t.Fatal(err)
 	}
-	_, err = reg.Do(context.Background(), ui, "instance.creating.discard", ops.Args(`{"id":"0/`+filepath.Base(cdir)+`","confirm":true}`))
+	// 正在创建的不在列表里。编号斜杠前那段代表存放位置：在同一个位置里另放一个半成品，从列表里取它的，再接上这个文件夹名
+	side := filepath.Join(app.ServersDir, "旁边的半成品")
+	if err := os.MkdirAll(side, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := inst.WriteCreatingMarker(side, "旁边的半成品"); err != nil {
+		t.Fatal(err)
+	}
+	var key string
+	for _, it := range mgr.CreatingLeftovers() {
+		if it.Name == "旁边的半成品" {
+			key, _, _ = strings.Cut(it.ID, "/")
+		}
+	}
+	if key == "" {
+		t.Fatalf("列表里应有旁边那个半成品：%+v", mgr.CreatingLeftovers())
+	}
+	_, err = reg.Do(context.Background(), ui, "instance.creating.discard", ops.Args(`{"id":"`+key+`/`+filepath.Base(cdir)+`","confirm":true}`))
 	var oe *ops.Error
 	if !errors.As(err, &oe) || oe.Code != 409 {
 		t.Fatalf("正在创建的目录应回 409：%v", err)

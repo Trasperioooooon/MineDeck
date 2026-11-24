@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -54,6 +55,11 @@ type Config struct {
 	// InstanceDirs 单独登记的服务器文件夹（接管进来的）。启动时直接读它里面的 instance.json，不扫它的上一层：
 	// 上一层是用户自己的目录，里面别的文件夹没经用户点头不该出现在列表里。
 	InstanceDirs []string `json:"instanceDirs,omitempty"`
+
+	// CreatingRoots 正在往里面建服务器、还没记进 Roots 的存放位置（A38）。放创建记号之前记上，建到一半程序没了，
+	// 下次启动找没建完的文件夹时多扫这几个位置。启动时扫服务器不扫它们：建不成的话，这个位置里别的带 instance.json 的
+	// 文件夹不该因此进列表。建成了由登记处记进 Roots；启动时去掉已经进了 Roots 的、底下没有带创建记号的文件夹的。
+	CreatingRoots []string `json:"creatingRoots,omitempty"`
 
 	// ChromeColor 界面标题栏的底色（#rrggbb，小写），由原生窗口里的前端在外观变化时上报；
 	// 下次启动时作为 WebView2 画出页面之前的默认底色，避免冷启动白闪。空 = 按系统浅 / 深色取默认值。
@@ -376,20 +382,22 @@ func addBackupRoot(c *Config, dir string) {
 }
 
 // InstanceRoots 返回所有需要扫描实例的根目录（去重、保持顺序）。
-func InstanceRoots() []string {
+func InstanceRoots() []string { return instanceRootsOf(GetConfig()) }
+
+// instanceRootsOf 按配置 c 算 InstanceRoots。拿着 cfgMu 时用它，不能再调 GetConfig。
+func instanceRootsOf(c Config) []string {
 	seen := map[string]bool{}
 	var out []string
 	add := func(d string) {
 		if d == "" {
 			return
 		}
-		c := filepath.Clean(d)
-		if !seen[c] {
-			seen[c] = true
-			out = append(out, c)
+		p := filepath.Clean(d)
+		if !seen[p] {
+			seen[p] = true
+			out = append(out, p)
 		}
 	}
-	c := GetConfig()
 	add(ServersDir)   // 内置默认根
 	add(c.ServersDir) // 配置的默认根
 	for _, r := range c.Roots {
@@ -398,7 +406,9 @@ func InstanceRoots() []string {
 	return out
 }
 
-// RememberRoot 记录一个曾放置实例的根，便于下次启动扫描发现。
+// RememberRoot 把一个存放位置记成扫描根，以后每次启动都扫它下面带 instance.json 的文件夹。
+// 只在服务器的 instance.json 写好以后调（新建、导入、交接包登记的收尾，和启动时补记上次没来得及记的）：
+// 建到一半时记的是 RememberCreatingRoot，建不成的位置不该成为扫描根。
 // 只有内置默认根始终被扫描、无需记录；当前配置根也要记，之后改目录或恢复默认时它就不再被扫描。
 func RememberRoot(dir string) {
 	cfgMu.Lock()
@@ -443,7 +453,7 @@ func RememberInstanceDir(dir string) {
 	cfgMu.Lock()
 	defer cfgMu.Unlock()
 	for _, d := range cfg.InstanceDirs {
-		if samePath(d, dir) {
+		if SamePath(d, dir) {
 			return
 		}
 	}
@@ -462,7 +472,7 @@ func ForgetInstanceDir(dir string) {
 	// 另起一个切片，不在原来的上面挪：GetConfig 给出去的副本和 cfg 共用同一块底层数组
 	var kept []string
 	for _, d := range cfg.InstanceDirs {
-		if !samePath(d, dir) {
+		if !SamePath(d, dir) {
 			kept = append(kept, d)
 		}
 	}
@@ -473,7 +483,47 @@ func ForgetInstanceDir(dir string) {
 	saveLocked()
 }
 
-// samePath 两个路径写的是不是同一个位置（Windows 的路径不分大小写）。只按字面比，不解链接。
-func samePath(a, b string) bool {
+// CreatingRoots 返回正在建服务器、还没记成扫描根的存放位置（见 Config.CreatingRoots）。
+func CreatingRoots() []string {
+	return append([]string{}, GetConfig().CreatingRoots...)
+}
+
+// RememberCreatingRoot 放创建记号之前记下所在的存放位置（A38）。已经是扫描根的不记：找没建完的文件夹时那里本来就扫。
+func RememberCreatingRoot(dir string) {
+	if dir == "" {
+		return
+	}
+	dir = filepath.Clean(dir)
+	cfgMu.Lock()
+	defer cfgMu.Unlock()
+	for _, d := range append(instanceRootsOf(cfg), cfg.CreatingRoots...) {
+		if SamePath(d, dir) {
+			return
+		}
+	}
+	// 另起一个切片再接，理由同 RememberInstanceDir
+	cfg.CreatingRoots = append(append([]string{}, cfg.CreatingRoots...), dir)
+	saveLocked()
+}
+
+// ForgetCreatingRoots 从「正在建的位置」里去掉 dirs。只在启动时整理用（那时没有正在建的任务），没记过的不管。
+func ForgetCreatingRoots(dirs ...string) {
+	cfgMu.Lock()
+	defer cfgMu.Unlock()
+	var kept []string // 另起一个切片，理由同 ForgetInstanceDir
+	for _, d := range cfg.CreatingRoots {
+		if !slices.ContainsFunc(dirs, func(x string) bool { return SamePath(x, d) }) {
+			kept = append(kept, d)
+		}
+	}
+	if len(kept) == len(cfg.CreatingRoots) {
+		return
+	}
+	cfg.CreatingRoots = kept
+	saveLocked()
+}
+
+// SamePath 两个路径写的是不是同一个位置（Windows 的路径不分大小写）。只按字面比，不解链接。
+func SamePath(a, b string) bool {
 	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
 }

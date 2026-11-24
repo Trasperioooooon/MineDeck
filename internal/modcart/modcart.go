@@ -8,6 +8,7 @@
 //
 // 车里有两样东西：Modrinth 上的项目（Item），和人从自己电脑上添加的 jar（LocalFile，见 staged.go）。
 // 本地文件暂存在 <程序目录>/data/modcart/local/ 下面，每辆车一个文件夹，登记在同一份 cart.json 里；两样合计不超过 50 项。
+// 删服务器时 cart.json 读不出来，「这台的车要清」先记在旁边的 cart-pending-removals.json，读出来以后补清（见 forget.go）。
 //
 // 这个包只管购物车、Modrinth 查询、前置闭包、下载、暂存本地文件和本地依赖核对，不认识实例和任务；
 // 操作层（ops/catalog/modcart.go）把它接到实例、后台任务和权限上。
@@ -56,8 +57,11 @@ type Item struct {
 	License   string `json:"license,omitempty"` // 许可证的 SPDX 写法，如 MIT、LGPL-3.0-only；Modrinth 自定义的是 LicenseRef-…
 	// ServerSide、ClientSide Modrinth 标的服务端、客户端要不要装（required / optional / unsupported / unknown）。
 	// 导出整合包时写进 env；老清单里没有，按要装算
-	ServerSide string    `json:"serverSide,omitempty"`
-	ClientSide string    `json:"clientSide,omitempty"`
+	ServerSide string `json:"serverSide,omitempty"`
+	ClientSide string `json:"clientSide,omitempty"`
+	// PickedCore、PickedMC 加入草稿清单时针对的服务器核心与 MC 版本（A31）；实例和工具箱的清单不记。
+	PickedCore string    `json:"pickedCore,omitempty"`
+	PickedMC   string    `json:"pickedMc,omitempty"`
 	AddedAt    time.Time `json:"addedAt"`
 }
 
@@ -90,6 +94,7 @@ type Service struct {
 	mu     sync.Mutex
 	carts  map[string][]Item
 	locals map[string][]LocalFile // 人从电脑上添加的 jar（见 staged.go），键同 carts
+	draft  draftTarget            // 草稿清单是给哪台新建服务器挑的；草稿清单空了自动清掉
 	// loadErr cart.json 在、却没读成（见 LoadError）。不为空时清单是空的，一律不写 cart.json、不清暂存的本地文件；
 	// 有人要清单、要改清单时再读一次（retryLoadLocked），读成了就清掉
 	loadErr *LoadError
@@ -123,7 +128,8 @@ func New(dir, endpoint string) *Service {
 		log.Printf("待装清单没读出来，读成之前不许保存、不清暂存的本地文件: %v", s.loadErr)
 		return s
 	}
-	s.sweepStaged() // 只在清单真读成了、或者确实是新装时清：没读成时清单是空的，按它清会把暂存的本地文件全删了
+	s.settleRemovalsLocked() // 上次没读成那段时间删掉的服务器，这时补清它们的清单（见 forget.go）
+	s.sweepStaged()          // 只在清单真读成了、或者确实是新装时清：没读成时清单是空的，按它清会把暂存的本地文件全删了
 	return s
 }
 
@@ -193,6 +199,11 @@ func (s *Service) load() {
 	}
 	s.loadErr = nil
 	s.carts, s.locals = f.Carts, s.checkedLocals(f.Locals)
+	if len(s.carts[Draft]) > 0 || len(s.locals[Draft]) > 0 {
+		s.draft = draftTarget{Inst: strings.TrimSpace(f.DraftInst), At: f.DraftInstAt}
+	} else {
+		s.draft = draftTarget{}
+	}
 }
 
 // reallyMissing 读 cart.json 报「不存在」以后再确认一次，是真的新装才返回 nil，否则返回读不出来的原因。
@@ -251,7 +262,9 @@ func jsonErrAt(b []byte, err error) error {
 }
 
 // retryLoadLocked 上次没读成时再读一次，返回现在的状态（读成了、或者本来就读成了，是 nil）。调用方持有 s.mu。
-// 没读成期间清单一直是空的、什么也存不进去，所以读成了直接换上，不会冲掉谁的改动。只读一次、不等：它在锁里。
+// 没读成期间清单一直是空的、什么也存不进去，所以读成了直接换上，不会冲掉谁的改动。
+// 只读一次，读不成不隔一会儿再读：它在锁里，别的请求都排在后面。读成了要先补清删服记录，删不掉那份记录时
+// 会在锁里重试一会儿（Windows 上最多约半秒，见 settleRemovalsLocked）。
 func (s *Service) retryLoadLocked() error {
 	if s.loadErr == nil {
 		return nil
@@ -260,6 +273,7 @@ func (s *Service) retryLoadLocked() error {
 	s.load()
 	if s.loadErr == nil {
 		log.Printf("待装清单读出来了，恢复正常")
+		s.settleRemovalsLocked() // 先补清没读成那段时间删掉的服务器（见 forget.go），再办触发这次重读的请求
 		return nil
 	}
 	if cur := s.loadErr.Error(); cur != prev {
@@ -277,54 +291,60 @@ func (s *Service) LoadErr() error {
 }
 
 type cartFile struct {
-	Version int                    `json:"version"`
-	Carts   map[string][]Item      `json:"carts"`            // 键：实例名；空串 = 草稿车
-	Locals  map[string][]LocalFile `json:"locals,omitempty"` // 暂存的本地文件，键同上
+	Version     int                    `json:"version"`
+	Carts       map[string][]Item      `json:"carts"`                // 键：实例名；空串 = 草稿车
+	Locals      map[string][]LocalFile `json:"locals,omitempty"`     // 暂存的本地文件，键同上
+	DraftInst   string                 `json:"draftInst,omitempty"`  // 草稿车是给哪台新建服务器挑的（A31）
+	DraftInstAt time.Time              `json:"draftInstAt,omitzero"` // DraftInst 是什么时候记的（UTC），见 draftTarget
+}
+
+// draftTarget 草稿清单是给哪台新建服务器挑的（A31），和记下的时间。补清删服记录时按时间分：删服之前记的指着被删的那台，
+// 清掉；删服以后记的是同名新建的那台，留着（A30）。老的 cart.json 里没有时间，读进来是零值，按删服之前算。
+type draftTarget struct {
+	Inst string
+	At   time.Time
 }
 
 func (s *Service) path() string { return filepath.Join(s.dir, "cart.json") }
 
 // putLocked 把 inst 的车换成 cart：先写盘，写成了才改内存（写盘失败时内存和磁盘还是同一个样子）。调用方持有 s.mu。
 func (s *Service) putLocked(inst string, cart []Item) error {
-	next := maps.Clone(s.carts)
-	if len(cart) == 0 {
-		delete(next, inst)
-	} else {
-		next[inst] = cart
-	}
-	if err := s.write(next, s.locals); err != nil {
-		return err
-	}
-	s.carts = next
-	return nil
+	return s.writeLocked(withEntry(s.carts, inst, cart), s.locals, s.draft)
 }
 
 // putLocalsLocked 把 inst 的本地文件登记换成 list：同 putLocked，先写盘再改内存。调用方持有 s.mu。
 func (s *Service) putLocalsLocked(inst string, list []LocalFile) error {
-	next := maps.Clone(s.locals)
-	if len(list) == 0 {
-		delete(next, inst)
-	} else {
-		next[inst] = list
-	}
-	if err := s.write(s.carts, next); err != nil {
-		return err
-	}
-	s.locals = next
-	return nil
+	return s.writeLocked(s.carts, withEntry(s.locals, inst, list), s.draft)
 }
 
-// write 写 cart.json（先写临时文件再改名）。报错里不带路径：这些话会原样给到界面和 AI。
+// withEntry 复制一份 m，把 key 换成 v（v 是空的就去掉 key）。不改 m：写盘成功之前内存里的清单不动（见 writeLocked）。
+func withEntry[V any](m map[string][]V, key string, v []V) map[string][]V {
+	out := maps.Clone(m)
+	if out == nil {
+		out = map[string][]V{}
+	}
+	if len(v) == 0 {
+		delete(out, key)
+	} else {
+		out[key] = v
+	}
+	return out
+}
+
+// writeLocked 写 cart.json（先写临时文件再改名），写成了才同步更新内存状态。报错里不带路径：这些话会原样给到界面和 AI。
 // cart.json 没读成（s.loadErr）时一律不写：内存里是空清单，写下去就把原文件盖掉了。各个改清单的入口在改之前就已经
-// 用 retryLoadLocked 挡下；这里再挡一道，兜住以后新加的写盘点。
-func (s *Service) write(carts map[string][]Item, locals map[string][]LocalFile) error {
+// 用 retryLoadLocked 挡下；这里再挡一道，兜住以后新加的写盘点。草稿清单一旦全空，目标服务器记号跟着清掉。调用方持有 s.mu。
+func (s *Service) writeLocked(carts map[string][]Item, locals map[string][]LocalFile, draft draftTarget) error {
 	if s.loadErr != nil {
 		return s.loadErr
+	}
+	if len(carts[Draft]) == 0 && len(locals[Draft]) == 0 {
+		draft = draftTarget{}
 	}
 	if err := os.MkdirAll(s.dir, 0o755); err != nil {
 		return errorf(500, "保存待装清单失败：%v", noPath(err))
 	}
-	b, _ := json.MarshalIndent(cartFile{Version: 1, Carts: carts, Locals: locals}, "", "  ")
+	b, _ := json.MarshalIndent(cartFile{Version: 1, Carts: carts, Locals: locals, DraftInst: draft.Inst, DraftInstAt: draft.At}, "", "  ")
 	tmp := s.path() + ".tmp"
 	if err := os.WriteFile(tmp, b, 0o644); err != nil {
 		return errorf(500, "保存待装清单失败：%v", noPath(err))
@@ -333,7 +353,36 @@ func (s *Service) write(carts map[string][]Item, locals map[string][]LocalFile) 
 		os.Remove(tmp)
 		return errorf(500, "保存待装清单失败：%v", noPath(err))
 	}
+	s.carts, s.locals, s.draft = carts, locals, draft
 	return nil
+}
+
+// DraftInst 草稿清单记下的目标服务器名称；没有或已清空时为空串。
+func (s *Service) DraftInst() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.draft.Inst
+}
+
+// SetDraftInst 记下草稿清单是给哪台新建服务器挑的（A31）和记下的时间；草稿清单本身是空的时不记。
+// 记着的已经是这个名字也重记时间：它可能是删服之前给被删的那台记的、补清还没来得及清（A30），新记的要和它分开。
+func (s *Service) SetDraftInst(inst string) error {
+	inst = strings.TrimSpace(inst)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.retryLoadLocked(); err != nil {
+		return err
+	}
+	if len(s.carts[Draft]) == 0 && len(s.locals[Draft]) == 0 {
+		inst = ""
+	}
+	if inst == "" {
+		if s.draft.Inst == "" {
+			return nil
+		}
+		return s.writeLocked(s.carts, s.locals, draftTarget{})
+	}
+	return s.writeLocked(s.carts, s.locals, draftTarget{Inst: inst, At: time.Now().UTC()})
 }
 
 // List 一辆车里的东西（按加入的先后）。
@@ -346,6 +395,11 @@ func (s *Service) List(inst string) []Item {
 // Add 把项目加进购物车（ids 可以是项目 ID 或 slug）。先向 Modrinth 查一遍：查不到的、只在客户端用的模组不放进去，
 // 在 skipped 里说明原因；已经在车里的不重复放。全都放不进去时报错。返回整辆车。
 func (s *Service) Add(ctx context.Context, inst string, ids []string) ([]Item, []Skipped, error) {
+	return s.AddFor(ctx, inst, "", "", ids)
+}
+
+// AddFor 同 Add；往草稿清单（inst == Draft）里加时一并记下当时针对的 core 和 mc（A31），实例和工具箱的清单不记。
+func (s *Service) AddFor(ctx context.Context, inst, core, mc string, ids []string) ([]Item, []Skipped, error) {
 	want := []string{}
 	for _, id := range ids {
 		if id = strings.TrimSpace(id); id != "" && !slices.Contains(want, id) {
@@ -365,6 +419,11 @@ func (s *Service) Add(ctx context.Context, inst string, ids []string) ([]Item, [
 	if err != nil {
 		return nil, nil, err
 	}
+	pickedCore, pickedMC := "", ""
+	if inst == Draft {
+		pickedCore = strings.TrimSpace(core)
+		pickedMC = strings.TrimSpace(mc)
+	}
 	var add []Item
 	var skipped []Skipped
 	for _, id := range want {
@@ -380,7 +439,8 @@ func (s *Service) Add(ctx context.Context, inst string, ids []string) ([]Item, [
 			// 同一个项目给了 ID 又给了 slug
 		default:
 			add = append(add, Item{ProjectID: p.ID, Slug: p.Slug, Title: p.Title, Icon: p.IconURL, Kind: p.ProjectType,
-				License: p.License.ID, ServerSide: p.ServerSide, ClientSide: p.ClientSide, AddedAt: time.Now().UTC()})
+				License: p.License.ID, ServerSide: p.ServerSide, ClientSide: p.ClientSide,
+				PickedCore: pickedCore, PickedMC: pickedMC, AddedAt: time.Now().UTC()})
 		}
 	}
 	if len(add) == 0 {

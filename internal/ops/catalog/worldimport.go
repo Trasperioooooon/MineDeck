@@ -135,7 +135,7 @@ func (c *cat) worldOps() {
 
 	c.reg.Register(&ops.Op{
 		Name: "world.import.cancel", Title: "取消地图导入", Level: ops.HumanOnly,
-		Desc:   "取消正在复制的地图导入（已经开始换地图的会做完或退回再结束）。",
+		Desc:   "取消正在复制的地图导入（已经开始换地图的会做完或退回再结束）。取消不了时报错里说为什么；点之前想知道能不能取消，看 world.status 的 task。",
 		Params: ops.Object(map[string]*ops.Schema{"taskId": ops.String("任务编号")}, "taskId"),
 		Run: func(_ context.Context, cl ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[struct {
@@ -144,8 +144,8 @@ func (c *cat) worldOps() {
 			if err != nil {
 				return nil, err
 			}
-			if !w.Cancel(owner(cl), p.TaskID) { // 只有发起导入的人能取消
-				return nil, fmt.Errorf("这个任务已经不能取消了")
+			if !w.Cancel(owner(cl), p.TaskID) { // 只有发起导入的人能取消；取消不了时说为什么（A53）
+				return nil, fmt.Errorf("%s", w.CancelRefusal(owner(cl), p.TaskID))
 			}
 			return "ok", nil
 		},
@@ -168,7 +168,9 @@ func (c *cat) worldOps() {
 
 	c.reg.Register(&ops.Op{
 		Name: "world.status", Title: "查看地图与恢复点", Level: ops.Read,
-		Desc:   "服务器当前的世界名（level-name）、是否正在换地图，以及以前导入地图留下的恢复点（能不能换回导入前的地图）。",
+		Desc: "服务器当前的世界名（level-name）、是否正在换地图，以及以前导入地图留下的恢复点（能不能换回导入前的地图）。" +
+			"正在导入地图或换回旧地图时，task 是那个任务：id 可以用 task.get 查进度，kind 是 import 或 restore，" +
+			"canCancel 说问的人现在能不能取消，不能时 cancelWhy 说为什么（只有发起导入的人、在复制阶段能取消）。",
 		Params: withInst(nil),
 		Run: func(_ context.Context, cl ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[instArgs](a)
@@ -179,6 +181,8 @@ func (c *cat) worldOps() {
 			if err != nil {
 				return nil, err
 			}
+			// 正在跑的换地图任务：能不能取消要看是谁在问，所以在这里按调用方填
+			st.Task = w.TaskOf(owner(cl), p.Inst)
 			if cl.Source.AI() || !cl.Local { // 本机路径不给 AI，也不给别的设备
 				for k := range st.Points {
 					if n := len(st.Points[k].Stuck); n > 0 {

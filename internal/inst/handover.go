@@ -2,10 +2,8 @@ package inst
 
 import (
 	"context"
-	"path/filepath"
 	"sync"
 
-	"minedeck/internal/app"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/tasks"
 )
@@ -59,8 +57,7 @@ func (m *Manager) FinalizeCreate(s Settings, dir string) (*Instance, error) {
 	if err := m.saveInstance(i); err != nil {
 		return nil, err
 	}
-	_ = ClearCreatingMarker(dir) // 删不掉也不失败：有 instance.json 时列表只去掉记号，不删目录
-	app.RememberRoot(filepath.Dir(dir))
+	_ = markCreated(dir) // 先记扫描根、再去记号（理由见 markCreated）；记号删不掉也不失败
 	m.mu.Lock()
 	m.insts[s.Name] = i
 	m.mu.Unlock()

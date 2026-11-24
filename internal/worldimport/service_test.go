@@ -329,7 +329,7 @@ func TestPlaceForCreate(t *testing.T) {
 	newDir := filepath.Join(app.ServersDir, "fresh")
 	write(t, newDir, map[string]string{"server.properties": "server-port=25570\n"})
 	task, ctx := e.m.Tasks.New("test", []string{"x"})
-	if err := e.s.placeForCreate(ctx, task, me, p.ID, newDir); err != nil {
+	if err := e.s.placeForCreate(ctx, task, me, p.ID, "新服", newDir); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := wt.ReadMarker(filepath.Join(newDir, "world", "dimensions", "minecraft", "the_nether", "region", "r.0.0.mca"))

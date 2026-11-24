@@ -4403,13 +4403,18 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert((await page.textContent("#mc-count")).includes("1"), "清单应是 1 项");
       // 页面没动的时候，别处又往这台服务器的车里加了一项
       await page.evaluate(i => fetch("/api/modcart", { method: "POST", body: JSON.stringify({ inst: i, projectIds: ["create"] }) }), PACK);
-      await page.click("#mc-install"); await settle(900);
+      await page.click("#mc-install");
+      await page.waitForSelector('.modal [data-x="ok"]', { timeout: 5000 });
+      await page.click('.modal [data-x="ok"]');
+      await settle(900);
       const toasts = await page.$$eval(".toast", ts => ts.map(x => x.textContent));
       assert(toasts.some(x => x.includes("无法开始安装：待装清单和你刚才看到的不一样了")), "车变了应拦下并说明：" + JSON.stringify(toasts));
       assert(!page.url().includes("#/task/"), "被拦下时不该跳到任务页：" + page.url());
       assert((await page.textContent("#mc-count")).includes("2") && (await page.textContent("#mc-list")).includes("Create"), "应重新列出现在的清单");
-      // 看过现在的清单再点：照常装，请求里带着页面上列着的两项
+      // 看过现在的清单再点：先确认必装前置，再照常装，请求里带着页面上列着的两项
       await page.click("#mc-install");
+      await page.waitForSelector('.modal [data-x="ok"]', { timeout: 5000 });
+      await page.click('.modal [data-x="ok"]');
       await page.waitForFunction(() => location.hash === "#/task/task-cart", null, { timeout: 8000 });
       const li = (await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data))).modcart.lastInstall;
       assert(li && Array.isArray(li.expect) && li.expect.slice().sort().join() === "create,jei", "安装请求应带上页面上列着的两项：" + JSON.stringify(li));
@@ -4691,6 +4696,23 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
 
   // ---- 热门清单、从电脑添加本地文件、两栏版面（2026-11） ----
   const cartMock = async () => (await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data))).modcart;
+  const toastsNow = () => page.$$eval(".toast", ts => ts.map(t => t.textContent));
+  // holdPost：拦住 pattern 的 POST，等测试放行（同一地址的 GET 轮询照常过）
+  const holdPost = async (pattern, fn) => {
+    let release, seen;
+    const gate = new Promise(r => release = r), requested = new Promise(r => seen = r);
+    const hold = async route => {
+      if (route.request().method() !== "POST") return route.continue().catch(() => {});
+      seen(); await gate; await route.continue().catch(() => {});
+    };
+    await page.route(pattern, hold);
+    try { await fn(requested, release); } finally { release(); await page.unroute(pattern, hold); }
+  };
+  /* 一批「没装上的文件」（同后端 import-pending 的项）：下载地址不在允许列表里，可以用本地文件代替、跳过或信任站点 */
+  const pendingItems = (prefix, count) => Array.from({ length: count }, (_, i) => ({
+    id: `${prefix}${i}`, path: `mods/${prefix}-${i}.jar`, reason: "host", host: "files.example.net", note: "下载地址不在允许列表",
+    urls: [`https://files.example.net/${prefix}-${i}.jar`], sha1: "0123456789abcdef0123456789abcdef01234567", options: ["local", "skip", "trust"],
+  }));
   const packCart = `#/inst/${encodeURIComponent(PACK)}/cart`; // Forge 1.20.1 的模组服
   /* 一个「jar」：仿真后端只看开头是不是 PK，内容不同 SHA-1 就不同 */
   const jarFile = (name, body = name) => ({ name, mimeType: "application/java-archive", buffer: Buffer.from("PK" + body) });
@@ -5642,7 +5664,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     assert(none.includes("还没有恢复点") && (await page.$eval("#wi-status", el => el.textContent)) === "运行中", "没有恢复点的服务器：" + none);
   });
 
-  await run("地图导入：本机选文件夹 → 核对页（版本关系、地图没提供的维度、会换掉什么、设置建议默认不勾）→ 确认了才点得动 → 危险确认框 → 任务进度（复制阶段才有取消）→ 结果；任务结束前不清检测结果", async () => {
+  await run("地图导入：本机选文件夹 → 核对页（版本关系、地图没提供的维度、会换掉什么、设置建议默认不勾）→ 确认了才点得动 → 危险确认框 → 任务进度（复制阶段才能取消，之后取消键变灰并写出原因）→ 结果；任务结束前不清检测结果", async () => {
     const NAME = "生存服 · 朋友";
     await wReset();
     try {
@@ -5692,9 +5714,11 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click('.tabs .tab[data-t="console"]'); await page.waitForSelector("#console");
       // beta.3 R06：「地图」成了「世界与备份」下的「换地图」子页，点标签进的是「备份」，再点子页
       await page.click('.tabs .tab[data-t="world"]'); await page.click('.sub-tabs .tab[data-t="map"]'); await page.waitForSelector("#wi-task");
-      // 开始停服、换地图以后不能取消
-      await page.waitForSelector("#wi-task-acts .warn-text", { timeout: 15000 });
-      assert(!(await page.$("#wi-cancel")) && (await page.$eval("#wi-task-acts", el => el.textContent)).includes("不能取消"), "换地图阶段不该还有取消键");
+      // 开始停服、换地图以后不能取消：取消键变灰，旁边写着后端给的原因（A53，以前是整个键收掉、写一句固定的话）
+      await page.waitForSelector("#wi-cancel[disabled]", { timeout: 15000 });
+      const late = await page.$eval("#wi-task-acts", el => el.textContent);
+      assert((late.includes("不能取消") || late.includes("不能停")) && (await page.$eval("#wi-cancel", b => b.getAttribute("aria-describedby"))) === "wi-cancel-why",
+        "换地图阶段取消键应变灰并写出原因：" + late);
       assert((await wState({})).world.discards.length === 0, "任务还在跑就清了检测结果");
       await page.waitForSelector("#wi-task-done-text", { timeout: 15000 });
       const done = await page.$eval("#wi-task-done-text", el => el.textContent);
@@ -5705,11 +5729,13 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click("#wi-task-ok"); await page.waitForSelector("#wi-points [data-wi-point]");
       const row = await page.$eval("#wi-points [data-wi-point]", r => ({ state: r.dataset.state, text: r.textContent, restore: !!r.querySelector("[data-wi-restore]") }));
       assert(row.state === "committed" && row.text.includes("天空之城") && row.restore && (await page.$eval("#wi-status", el => el.textContent)) === "已停止", "导入后的恢复点：" + JSON.stringify(row));
-      // 同一个任务在任务页：结果是一句话，不是服务器名
+      // 同一个任务在任务页：结果是一句话，不是服务器名；「完成」按快照里的 inst 回到这台服务器的「换地图」（A53，以前固定回服务器列表）
       await page.goto(url("#/task/" + taskId)); await page.waitForSelector("#t-foot a.btn.primary");
       const tp = await page.evaluate(() => ({ h1: document.querySelector(".page-head h1").textContent, sub: document.querySelector("#t-sub").textContent,
         href: document.querySelector("#t-foot a.btn.primary").getAttribute("href"), go: document.querySelector("#t-foot a.btn.primary").textContent.trim() }));
-      assert(tp.h1 === "地图已处理完" && tp.sub.includes("还没开服试过") && tp.href === "#/instances" && tp.go.includes("回到服务器列表"), "任务页：" + JSON.stringify(tp));
+      assert(tp.h1 === "地图已处理完" && tp.sub.includes("还没开服试过") && tp.href === worldTab(NAME) && tp.go.includes("回到这台服务器"), "任务页：" + JSON.stringify(tp));
+      await page.click("#t-foot a.btn.primary"); await page.waitForSelector("#wi-points [data-wi-point]");
+      assert(decodeURIComponent(page.url()).endsWith(`#/inst/${NAME}/world/map`), "点「完成」应回到这台服务器的换地图：" + page.url());
     } finally { await wReset(); }
   });
 
@@ -6011,6 +6037,31 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await wReset(); }
   });
 
+  await run("地图：别的设备发起的换地图，打开换地图页就接上它的进度；取消键是灰的、写着只有发起的那台设备能取消；看完回到首页不会又被接回去", async () => {
+    await wReset();
+    try {
+      await wState({ world: { foreignTask: { inst: PACK, kind: "import" } } });
+      const t0 = reqs.length;
+      await page.goto(url(worldTab(PACK))); await page.waitForSelector("#wi-task");
+      await page.waitForSelector("#wi-cancel[disabled]");
+      const v = await page.evaluate(() => ({ title: document.querySelector("#wi-task-title").textContent, why: document.querySelector("#wi-cancel-why").textContent,
+        btn: document.querySelector("#wi-cancel").textContent.trim() }));
+      assert(v.title.includes("机械动力整合包") && v.why.includes("只有发起这次导入的那台设备能取消") && v.btn === "取消导入", "接上的进度：" + JSON.stringify(v));
+      await page.waitForSelector("#wi-task-done-text", { timeout: 15000 });
+      const done = await page.$eval("#wi-task-done-text", el => el.textContent);
+      assert(done.includes("「机械动力整合包」的地图文件已导入"), "结果里应有服务器名：" + done);
+      assert(!(await page.$("#wi-task-again")) && wPosts(t0, "/api/world/cancel") === 0, "别人发起的导入：没有「重新核对」，也没发过取消");
+      await page.click("#wi-task-ok"); await page.waitForSelector("#wi-start");
+      await settle(3500); // 首页三秒刷新一次：刷过以后还停在首页
+      assert((await page.$("#wi-start")) && !(await page.$("#wi-task")), "看完回到首页以后不该又被接回进度页");
+      // 别的设备在换回旧地图：接上以后写明正在换回，没有取消键
+      await wState({ world: { foreignTask: { inst: PACK, kind: "restore", point: "w7f3a9c21" } } });
+      await page.waitForSelector("#wi-task", { timeout: 8000 });
+      assert((await page.$eval("#wi-task-title", el => el.textContent)).includes("换回导入前的地图") && !(await page.$("#wi-cancel")), "接上换回旧地图的进度");
+      await page.waitForSelector("#wi-task-done-text", { timeout: 15000 });
+    } finally { await wReset(); }
+  });
+
   // 新建向导里选一张地图：点「用已有地图开服」→ 填路径检测 → 停在第一步（核心已经按地图预选）
   const wWizPick = async pth => {
     await page.goto(url("#/create/new")); await page.waitForSelector("#wi-wiz-pick");
@@ -6081,6 +6132,20 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.goto(url("#/create")); await settle(500);
       await page.goto(url("#/create/new")); await page.waitForSelector("#wi-wiz-pick");
       assert((await wState({})).world.discards.length === 1, "回到新建页不该再清一遍：" + JSON.stringify((await wState({})).world.discards));
+    } finally { await wReset(); }
+  });
+
+  await run("新建向导带地图：极限模式的地图，最后一步的核对里写明新服务器会打开极限模式；替换已有服务器的地图时不说这句", async () => {
+    await wReset();
+    try {
+      await wWizPick("D:\\Maps\\hardcore-map");
+      await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
+      await page.click("#wnext"); await page.waitForSelector("#wi-wiz-plan #wi-rel");
+      const info = await page.$eval("#wi-wiz-plan", el => el.textContent);
+      assert(info.includes("极限模式的地图") && info.includes("hardcore=true"), "核对里应写明会打开极限模式：" + info);
+      await wOpenFlow(PACK);
+      await wScan("D:\\Maps\\hardcore-map"); await page.waitForSelector("#wi-go");
+      assert(!(await page.$eval("#wi-stage", el => el.textContent)).includes("hardcore=true"), "替换已有服务器的地图时不该说新服务器会打开极限模式");
     } finally { await wReset(); }
   });
 
@@ -6449,18 +6514,6 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
 
     // 「返回修改」的草稿要在发请求之前拍下（2026-11-16 Codex 复审 beta.3）：以前请求回来以后才去读表单，大整合包上传、建服请求还没回来时
     // 切到别的页面，表单已经没了，一读就出错——任务明明在跑，界面却报「无法导入整合包」「无法创建服务器」，草稿也没留下。
-    // holdPost：拦住 pattern 的 POST，等测试放行（同一地址的 GET 轮询照常过）
-    const holdPost = async (pattern, fn) => {
-      let release, seen;
-      const gate = new Promise(r => release = r), requested = new Promise(r => seen = r);
-      const hold = async route => {
-        if (route.request().method() !== "POST") return route.continue().catch(() => {});
-        seen(); await gate; await route.continue().catch(() => {});
-      };
-      await page.route(pattern, hold);
-      try { await fn(requested, release); } finally { release(); await page.unroute(pattern, hold); }
-    };
-    const toastsNow = () => page.$$eval(".toast", ts => ts.map(t => t.textContent));
 
     await run("beta.3 流程 R13：导入整合包上传途中切到别的页面，任务照常开始、不误报「无法导入」，失败以后「返回修改」填的都在（Codex 复审 beta.3）", async () => {
       const before = errors.length;
@@ -7666,6 +7719,26 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       } finally { await dState({ instReset: true, local: true, world: { reset: true } }); }
     });
 
+    await run("备份页页顶：随交接包带来的备份来源照实说是原来那台电脑上还原的、那份备份不在这台电脑上；本机列表里同名的那份不标「现在的世界」", async () => {
+      await dState({ instReset: true, local: true, world: { reset: true } });
+      try {
+        const FILE = "20261108-234100.000000000-拆主基地前.zip";
+        await dState({ inst: { name: SURV, worldFrom: { backup: FILE, label: "拆主基地前", backupTime: "2026-11-08 23:41:00", at: "2026-11-12 20:05:31", carried: true },
+          backups: [{ file: FILE, sizeMb: 1, time: "2026-11-08 23:41:00", label: "拆主基地前" }] } });
+        await open(SURV, "console"); await open(SURV, "world/backups");
+        const now = await page.textContent("#bk-now");
+        assert(now.includes("原来那台电脑上从 2026-11-08 23:41 的备份还原来的") && now.includes("拆主基地前") && now.includes("不在这台电脑上") && !now.includes("还原于"),
+          "随交接包带来的：" + now);
+        assert(!(await page.$(".bk-list .tag:not(.neutral)")), "本机列表里同名的那份不该标「现在的世界」");
+        // 在这台电脑上自己还原的（没有 carried）照旧：写还原时间，列表里标出来
+        await dState({ inst: { name: SURV, worldFrom: { backup: FILE, label: "拆主基地前", backupTime: "2026-11-08 23:41:00", at: "2026-11-15 21:05:00" } } });
+        await open(SURV, "console"); await open(SURV, "world/backups");
+        const mine = await page.textContent("#bk-now");
+        assert(mine.includes("当前世界：从 2026-11-08 23:41 的备份还原") && mine.includes("还原于 2026-11-15 21:05") && !mine.includes("原来那台电脑上") &&
+          (await page.textContent(".bk-list .tag:not(.neutral)")) === "现在的世界", "本机还原的：" + mine);
+      } finally { await dState({ instReset: true, local: true, world: { reset: true } }); }
+    });
+
     await run("beta.3 详情 R16：常用、启动与内存、全部配置、定时任务都用吸底保存条；定时任务点「添加」进草稿（标「未保存」），保存条按条数算", async () => {
       await dState({ instReset: true });
       for (const t of ["settings/common", "settings/jvm", "settings/raw", "tasks"]) {
@@ -8499,19 +8572,20 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.click('.modal [data-x="cancel"]'); await settle(200);
       assert(await page.isVisible("#creating-left"), "取消确认不该删除");
 
-      // 半成品删除遇 409 冲突（该目录刚开始创建服务器）：提示原因、恢复按钮可点、横幅保留
+      // 半成品删除遇 409 冲突（该目录刚开始创建服务器）：提示原因；失败后重新取一次列表，正在创建的不再列出，横幅收起
       await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({
         creatingLeftovers: [{ id: "0/half-srv", name: "half-srv", root: "servers", hasWorld: true, creating: true }],
       }) }));
       await page.click('#creating-left [data-drop-left="0/half-srv"]'); await settle(200);
       await page.click('.modal [data-x="ok"]'); await settle(400);
       assert((await toastHas("无法删除这个文件夹")) && (await toastHas("正在创建服务器")), "半成品 409 时应弹出原因提示");
-      assert(!(await page.$eval('#creating-left [data-drop-left="0/half-srv"]', b => b.disabled)) && await page.isVisible("#creating-left"), "半成品 409 后按钮应恢复可点且横幅仍在");
+      assert(await page.$eval("#creating-left", el => el.hidden), "半成品 409 后应重新取列表：正在创建的不再列出，横幅收起");
 
       // 半成品正常删除：在途时按钮 disabled 防连点，返回 { removed: "0/half-srv" } 后隐藏横幅
       await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({
         creatingLeftovers: [{ id: "0/half-srv", name: "half-srv", root: "servers", hasWorld: true }],
       }) }));
+      await page.goto(url("#/instances")); await settle(500);
       let releaseDiscard, discardArrived;
       const discardSeen = new Promise(r => { discardArrived = r; });
       const discardGate = new Promise(r => { releaseDiscard = r; });
@@ -8697,6 +8771,39 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       }
     } finally {
       await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ instReset: true, taskList: [], trustedHosts: [], local: true, modCart: { reset: true } }) }));
+      await page.goto(url("#/instances")); await settle();
+    }
+  });
+
+  await run("没建完的文件夹：确认框写明在哪个存放位置，删除失败后重新取一次列表、不留旧的那一行", async () => {
+    try {
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({
+        instReset: true,
+        local: true,
+        creatingLeftovers: [
+          { id: "11/half-srv", name: "half-srv", root: "移动硬盘服务器", hasWorld: true },
+          { id: "22/half-srv", name: "half-srv", root: "servers", hasWorld: false },
+        ],
+      }) }));
+      await page.goto(url("#/instances")); await settle(500);
+      await page.click('#creating-left [data-drop-left="11/half-srv"]'); await settle(200);
+      const body = await page.textContent(".modal");
+      assert(body.includes("位于「移动硬盘服务器」的「half-srv」"), "两个位置里有同名的，确认框要写明删的是哪个位置里的：" + body);
+      await page.click('.modal [data-x="cancel"]'); await settle(200);
+
+      // 别处已经把「移动硬盘服务器」里那个删掉了，这里还停着旧列表
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({
+        creatingLeftovers: [{ id: "22/half-srv", name: "half-srv", root: "servers", hasWorld: false }],
+      }) }));
+      await page.click('#creating-left [data-drop-left="11/half-srv"]'); await settle(200);
+      await page.click('.modal [data-x="ok"]'); await settle(400);
+      assert(await toastHas("无法删除这个文件夹"), "删不掉时应提示");
+      assert(!(await page.$('#creating-left [data-drop-left="11/half-srv"]')), "删除失败后应重新取列表，旧的那一行不该还留着");
+      const left = await page.textContent("#creating-left");
+      assert(left.includes("位于「servers」") && !left.includes("移动硬盘服务器"), "重新取到的列表只剩另一个位置里的那一个：" + left);
+      assert(!(await page.$eval('#creating-left [data-drop-left="22/half-srv"]', b => b.disabled)), "重新取到的那一行应能点");
+    } finally {
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ instReset: true, local: true }) }));
       await page.goto(url("#/instances")); await settle();
     }
   });
@@ -9039,6 +9146,831 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await mState({ instReset: true });
     }
   });
+
+  await run("待装清单：全部安装前没查过前置或清单变过时先查一遍，列必装前置确认，检查失败不安装", async () => {
+    try {
+      await cartState({ modCart: { reset: true } });
+      await page.goto(url(`#/inst/${encodeURIComponent(PACK)}/cart`)); await settle(600);
+      await page.fill("#mc-q", "JEI"); await page.click("#mc-go"); await settle();
+      await page.click('button[aria-label="加入清单 JEI"]'); await settle(700);
+      assert((await cartMock()).depsQueries === 0, "加入 Modrinth 项目时还没查过前置");
+
+      // 1) 没点过「检查前置」直接点「全部安装」：请求前置期间按钮保持防连点，回来后弹出列出必装前置的确认框
+      let releaseDeps;
+      const holdDeps = new Promise(r => { releaseDeps = r; });
+      await page.route("**/api/modcart/deps*", async route => { await holdDeps; await route.continue().catch(() => {}); });
+      await page.click("#mc-install");
+      await settle(150);
+      assert(await page.$eval("#mc-install", b => b.disabled), "等待前置检查期间「全部安装」按钮应保持禁用防连点");
+      releaseDeps();
+      await settle(50);
+      await page.unroute("**/api/modcart/deps*");
+
+      await page.waitForSelector(".modal", { timeout: 5000 });
+      const modalText1 = await page.textContent(".modal");
+      assert(modalText1.includes("另外会自动装上 1 项必装前置") && modalText1.includes("Architectury API"),
+        "没查过前置直接全部安装应弹出列出必装前置的确认框：" + modalText1);
+      await page.click('.modal [data-x="cancel"]'); await settle(200);
+      assert((await cartMock()).lastInstall === null, "点「先不装」不应发出安装请求");
+
+      // 2) 清单在上次检查后变过（已过时）：先给无必装前置的模组查过一次，再加进需要前置的 JEI，点全部安装会重新检查
+      await page.click("#mc-clear"); await settle(500);
+      await page.fill("#mc-q", "Cloth"); await page.click("#mc-go"); await settle();
+      await page.click('button[aria-label="加入清单 Cloth Config API"]'); await settle(700);
+      await page.click("#mc-dep-go"); await settle(500);
+      assert((await page.textContent("#mc-dep-box")).includes("不缺前置"), "单放 Cloth Config API 不缺前置");
+      const beforeAddJei = (await cartMock()).depsQueries;
+
+      await page.fill("#mc-q", "JEI"); await page.click("#mc-go"); await settle();
+      await page.click('button[aria-label="加入清单 JEI"]'); await settle(700);
+
+      // 3) 检查前置失败时：不安装，提示失败原因
+      await cartState({ modCart: { depsFail: "Modrinth 暂时连不上" } });
+      await page.click("#mc-install"); await settle(600);
+      assert((await cartMock()).depsQueries === beforeAddJei + 1, "清单变过后再点安装应重查前置");
+      assert((await cartMock()).lastInstall === null && !page.url().includes("#/task/"), "检查前置失败时不应开始安装");
+      const failToasts = await page.$$eval(".toast", ts => ts.map(x => x.textContent));
+      assert(failToasts.some(x => x.includes("Modrinth 暂时连不上")), "检查前置失败应提示失败原因：" + JSON.stringify(failToasts));
+
+      // 4) 网络恢复后再点「全部安装」：弹出确认框，确认后正常安装
+      await cartState({ modCart: { depsFail: "" } });
+      await page.click("#mc-install");
+      await page.waitForSelector(".modal", { timeout: 5000 });
+      assert((await page.textContent(".modal")).includes("Architectury API"), "重查后确认框应列出 Architectury API");
+      await page.click('.modal [data-x="ok"]');
+      await page.waitForFunction(() => location.hash === "#/task/task-cart", null, { timeout: 8000 });
+      const li = (await cartMock()).lastInstall;
+      assert(li && li.withDeps === true && li.expect.slice().sort().join() === "cloth-config,jei", "确认后应发起安装：" + JSON.stringify(li));
+    } finally {
+      await page.unroute("**/api/modcart/deps*").catch(() => {});
+      await cartState({ modCart: { reset: true } });
+      await page.goto(url("#/instances")); await settle();
+    }
+  });
+
+  await run("待装清单：查前置期间清单变了，自动补查并按最新清单列出必装前置", async () => {
+    try {
+      await cartState({ modCart: { reset: true } });
+      await page.goto(url(`#/inst/${encodeURIComponent(PACK)}/cart`)); await settle(600);
+      await page.fill("#mc-q", "Cloth"); await page.click("#mc-go"); await settle();
+      await page.click('button[aria-label="加入清单 Cloth Config API"]'); await settle(700);
+      await page.fill("#mc-q", "JEI"); await page.click("#mc-go"); await settle();
+
+      // 先让后端按只有 Cloth Config 的清单算出检查结果，再把响应压住；期间把带必装前置的 JEI 加进清单
+      let releaseFirst, onFetched;
+      const holdFirst = new Promise(r => { releaseFirst = r; });
+      const waitFetched = new Promise(r => { onFetched = r; });
+      let seenDeps = 0;
+      await page.route("**/api/modcart/deps*", async route => {
+        seenDeps++;
+        if (seenDeps === 1) {
+          const resp = await route.fetch();
+          onFetched();
+          await holdFirst;
+          await route.fulfill({ response: resp }).catch(() => {});
+          return;
+        }
+        await route.continue().catch(() => {});
+      });
+
+      await page.click("#mc-install");
+      await waitFetched;
+      await page.click('button[aria-label="加入清单 JEI"]');
+      await page.waitForFunction(() => (document.querySelector("#mc-count")?.textContent || "").includes("共 2 项"), null, { timeout: 5000 });
+      releaseFirst();
+
+      await page.waitForSelector(".modal", { timeout: 5000 });
+      const modalText = await page.textContent(".modal");
+      assert(seenDeps >= 2, "查前置期间清单变了应自动重查一遍，实际请求次数：" + seenDeps);
+      assert(modalText.includes("另外会自动装上 1 项必装前置") && modalText.includes("Architectury API"),
+        "重查后应弹出列出 JEI 必装前置的确认框：" + modalText);
+      assert((await cartMock()).lastInstall === null, "确认前不应发出安装请求");
+
+      await page.click('.modal [data-x="ok"]');
+      await page.waitForFunction(() => location.hash === "#/task/task-cart", null, { timeout: 8000 });
+      const li = (await cartMock()).lastInstall;
+      assert(li && li.withDeps === true && li.expect.slice().sort().join() === "cloth-config,jei", "确认后应按最新清单安装：" + JSON.stringify(li));
+    } finally {
+      await page.unroute("**/api/modcart/deps*").catch(() => {});
+      await cartState({ modCart: { reset: true } });
+      await page.goto(url("#/instances")); await settle();
+    }
+  });
+
+  await run("没装上的文件：超过 500 项分批提交显示批次进度，还有未提交批次时切页先确认", async () => {
+    const setTask = items => page.evaluate(t => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList: [t], trustedHosts: [] }) }), {
+      id: "task-1200", title: "导入整合包 大量外部文件", ended: true, result: "机械动力整合包", pending: items,
+    });
+    try {
+      await setTask(pendingItems("p", 1200));
+      await page.goto(url("#/task/task-1200")); await settle(600);
+      await page.click("#pnd-trust-all"); await settle(300);
+      await page.click("#pnd-ack-all"); await settle(300);
+
+      let batchNum = 0;
+      const gates = [];
+      for (let k = 0; k < 3; k++) {
+        let go;
+        const p = new Promise(r => { go = r; });
+        gates.push({ p, go });
+      }
+      await page.route("**/import-pending", async route => {
+        if (route.request().method() !== "POST") { await route.continue().catch(() => {}); return; }
+        const idx = batchNum++;
+        if (gates[idx]) await gates[idx].p;
+        await route.continue().catch(() => {});
+      });
+
+      await page.click("#t-pending-apply");
+      await page.waitForFunction(() => (document.querySelector("#t-pending .pnd-prog")?.textContent || "").includes("正在处理第 1 批，共 3 批"), null, { timeout: 5000 });
+
+      // 第 1 批在途、还剩 700 项未提交时切页：弹出确认框，取消则留在当前页继续
+      await page.click('#sidebar a[data-nav="instances"]');
+      await page.waitForSelector(".modal", { timeout: 5000 });
+      const leaveText1 = await page.textContent(".modal");
+      assert(leaveText1.includes("还有 700 项还没提交，离开后不会继续；正在处理的这一批会照常做完"), "中途切页应提示剩余未提交项数与在途批次：" + leaveText1);
+      await page.click('.modal [data-x="cancel"]'); await settle(150);
+      assert(page.url().includes("#/task/task-1200"), "取消离开后应留在任务页：" + page.url());
+
+      // 放行第 1 批，进入第 2 批：看到「正在处理第 2 批，共 3 批」
+      gates[0].go();
+      await page.waitForFunction(() => (document.querySelector("#t-pending .pnd-prog")?.textContent || "").includes("正在处理第 2 批，共 3 批"), null, { timeout: 5000 });
+
+      // 放行第 2、3 批，全部处理完成
+      gates[1].go();
+      gates[2].go();
+      await page.waitForSelector("#t-pending .pnd-done", { timeout: 10000 });
+      assert(batchNum === 3, "1200 项应分 3 批提交，实际：" + batchNum);
+      await page.unroute("**/import-pending");
+
+      // 再验证确认离开：第 1 批期间确认离开后跳走，后续批次不再提交
+      await setTask(pendingItems("p", 1200));
+      await page.goto(url("#/task/task-1200")); await settle(600);
+      await page.click("#pnd-trust-all"); await settle(300);
+      await page.click("#pnd-ack-all"); await settle(300);
+
+      let sentBatches = 0, releaseFirst, onFirstSent;
+      const firstHeld = new Promise(r => { releaseFirst = r; });
+      const waitFirstSent = new Promise(r => { onFirstSent = r; });
+      await page.route("**/import-pending", async route => {
+        if (route.request().method() !== "POST") { await route.continue().catch(() => {}); return; }
+        sentBatches++;
+        if (sentBatches === 1) {
+          onFirstSent();
+          await firstHeld;
+        }
+        await route.continue().catch(() => {});
+      });
+
+      await page.click("#t-pending-apply");
+      await waitFirstSent;
+      await page.click('#sidebar a[data-nav="instances"]');
+      await page.waitForSelector(".modal", { timeout: 5000 });
+      assert((await page.textContent(".modal")).includes("还有 700 项还没提交，离开后不会继续；正在处理的这一批会照常做完"), "确认框文案不对");
+      await page.click('.modal [data-x="ok"]');
+      await page.waitForFunction(() => location.hash === "#/instances", null, { timeout: 5000 });
+      releaseFirst();
+      await settle(400);
+      assert(sentBatches === 1, "确认离开后剩下的第 2、3 批不应再提交，实际提交批数：" + sentBatches);
+    } finally {
+      await page.unroute("**/import-pending").catch(() => {});
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList: [], trustedHosts: [] }) }));
+      await page.goto(url("#/instances")); await settle();
+    }
+  });
+
+  await run("没装上的文件：详情页叠层分批提交点关闭确认、两处同时分批互不抹掉离开确认、未保存修改一起确认", async () => {
+    const setInstPending = items => page.evaluate(([name, list]) =>
+      fetch("/__mock/state", { method: "POST", body: JSON.stringify({ taskList: [], trustedHosts: [], instPending: { [name]: { pending: list, skipped: [] } } }) }),
+      [PACK, items]);
+    const topConfirmSel = "#modal-root > .modal-mask:not([data-leaving]) .modal:not(.pnd-modal)";
+
+    try {
+      // 1) 详情页头叠层里分批提交尚未发完时点「关闭」：弹出确认框，取消留在叠层，确认关闭后后续批次不再发
+      await setInstPending(pendingItems("m", 1200));
+      await page.goto(url(`#/inst/${encodeURIComponent(PACK)}/console`)); await settle(600);
+      await page.click("[data-pnd-open]");
+      await page.waitForSelector(".pnd-modal #d-pending-apply", { timeout: 5000 });
+      await page.click(".pnd-modal #pnd-trust-all"); await settle(250);
+      await page.click(".pnd-modal #pnd-ack-all"); await settle(250);
+
+      let sentModal = 0, releaseModalBatch1, onModalBatch1;
+      const holdModalBatch1 = new Promise(r => { releaseModalBatch1 = r; });
+      const waitModalBatch1 = new Promise(r => { onModalBatch1 = r; });
+      await page.route("**/import-pending", async route => {
+        if (route.request().method() !== "POST") { await route.continue().catch(() => {}); return; }
+        sentModal++;
+        if (sentModal === 1) { onModalBatch1(); await holdModalBatch1; }
+        await route.continue().catch(() => {});
+      });
+
+      await page.click("#d-pending-apply");
+      await waitModalBatch1;
+      await page.click('.pnd-modal [data-x="close"]');
+      await page.waitForSelector(topConfirmSel, { timeout: 5000 });
+      const closePromptText = await page.textContent(topConfirmSel);
+      assert(closePromptText.includes("还有 700 项还没提交，离开后不会继续；正在处理的这一批会照常做完"),
+        "叠层关闭时应提示未提交项数与在途批次：" + closePromptText);
+
+      // 点「留在这里」取消关闭：叠层仍在
+      await page.click(`${topConfirmSel} [data-x="cancel"]`); await settle(200);
+      assert(!!(await page.$(".pnd-modal:not([data-leaving])")), "取消关闭后叠层应继续保留");
+
+      // 再点「关闭」并确认「离开」：叠层关掉，放行在途批次后第 2、3 批不再发
+      await page.click('.pnd-modal [data-x="close"]');
+      await page.waitForSelector(topConfirmSel, { timeout: 5000 });
+      await page.click(`${topConfirmSel} [data-x="ok"]`);
+      await page.waitForFunction(() => !document.querySelector(".pnd-modal") || document.querySelector(".pnd-modal").closest("[data-leaving]"), null, { timeout: 5000 });
+      releaseModalBatch1();
+      await settle(400);
+      assert(sentModal === 1, "叠层确认关闭后剩下的批次不应再发，实际批数：" + sentModal);
+      await page.unroute("**/import-pending");
+
+      // 2) 两处同时分批（模组页内嵌面板先开始、页头叠层后开始），先开始的先结束，后一处的离开确认仍在
+      await setInstPending(pendingItems("a", 600));
+      await page.goto(url(`#/inst/${encodeURIComponent(PACK)}/addons`)); await settle(700);
+      await page.waitForSelector("#ad-pending-apply", { timeout: 5000 });
+      await page.click("#ad-pending-box #pnd-trust-all"); await settle(250);
+      await page.click("#ad-pending-box #pnd-ack-all"); await settle(250);
+
+      const aGates = [null, null].map(() => { let go; const p = new Promise(r => { go = r; }); return { p, go }; });
+      let aCount = 0, bCount = 0, releaseB1, onA1, onB1;
+      const holdB1 = new Promise(r => { releaseB1 = r; });
+      const waitA1 = new Promise(r => { onA1 = r; });
+      const waitB1 = new Promise(r => { onB1 = r; });
+      await page.route("**/import-pending", async route => {
+        if (route.request().method() !== "POST") { await route.continue().catch(() => {}); return; }
+        const body = JSON.parse(route.request().postData() || "{}");
+        const firstId = ((body.items || [])[0] || {}).id || "";
+        if (firstId.startsWith("a")) {
+          const idx = aCount++;
+          if (idx === 0) onA1();
+          if (aGates[idx]) await aGates[idx].p;
+        } else if (firstId.startsWith("b")) {
+          bCount++;
+          if (bCount === 1) { onB1(); await holdB1; }
+        }
+        await route.continue().catch(() => {});
+      });
+
+      // 先启动内嵌面板（600 项 = 2 批）
+      await page.click("#ad-pending-apply");
+      await waitA1;
+
+      // 再准备另一组 1200 项并打开叠层启动分批（3 批，剩 700 项未提交）
+      await setInstPending(pendingItems("b", 1200));
+      await page.evaluate(n => pendingModal(n, viewGen, () => {}), PACK);
+      await page.waitForSelector(".pnd-modal #d-pending-apply", { timeout: 5000 });
+      await page.click(".pnd-modal #pnd-trust-all"); await settle(250);
+      await page.click(".pnd-modal #pnd-ack-all"); await settle(250);
+      await page.click("#d-pending-apply");
+      await waitB1;
+
+      // 让先开始的 #ad-pending-box 两批全部跑完（它的注销函数已执行）
+      aGates[0].go();
+      aGates[1].go();
+      await page.waitForFunction(() => {
+        const b = document.querySelector("#ad-pending-apply");
+        return !b || !b.disabled;
+      }, null, { timeout: 8000 });
+      await settle(200);
+
+      // 此时触发切页：后开始的叠层仍在第 1 批，离开确认不能被先结束的那一处抹掉
+      await page.evaluate(() => { location.hash = "#/instances"; });
+      await page.waitForSelector(topConfirmSel, { timeout: 5000 });
+      const secondStillGuarded = await page.textContent(topConfirmSel);
+      assert(secondStillGuarded.includes("还有 700 项还没提交"), "先开始的面板结束后，另一处的离开确认仍应在：" + secondStillGuarded);
+      await page.click(`${topConfirmSel} [data-x="ok"]`);
+      await page.waitForFunction(() => location.hash === "#/instances", null, { timeout: 5000 });
+      releaseB1();
+      await settle(300);
+      await page.unroute("**/import-pending");
+
+      // 3) 设置页有未保存修改、同时叠层正在分批提交，浏览器后退时两件事依次都问到
+      await setInstPending(pendingItems("c", 1200));
+      await page.goto(url("#/tunnels")); await settle(250);
+      await page.evaluate(() => { location.hash = "#/instances"; }); await settle(250);
+      await page.evaluate(h => { location.hash = h; }, `#/inst/${encodeURIComponent(PACK)}/settings/common`);
+      await page.waitForSelector("#motd-in", { timeout: 5000 });
+      await page.fill("#motd-in", "改过但还没保存的介绍");
+      await page.waitForFunction(() => document.querySelector(".save-bar")?.classList.contains("dirty"), null, { timeout: 5000 });
+
+      await page.click("[data-pnd-open]");
+      await page.waitForSelector(".pnd-modal #d-pending-apply", { timeout: 5000 });
+      await page.click(".pnd-modal #pnd-trust-all"); await settle(250);
+      await page.click(".pnd-modal #pnd-ack-all"); await settle(250);
+
+      let cCount = 0, releaseC1, onC1;
+      const holdC1 = new Promise(r => { releaseC1 = r; });
+      const waitC1 = new Promise(r => { onC1 = r; });
+      await page.route("**/import-pending", async route => {
+        if (route.request().method() !== "POST") { await route.continue().catch(() => {}); return; }
+        cCount++;
+        if (cCount === 1) { onC1(); await holdC1; }
+        await route.continue().catch(() => {});
+      });
+
+      await page.click("#d-pending-apply");
+      await waitC1;
+
+      // 触发浏览器后退：第一道问未提交批次，点「离开」后第二道接着问未保存修改
+      await page.goBack();
+      await page.waitForSelector(topConfirmSel, { timeout: 5000 });
+      const ask1 = await page.textContent(topConfirmSel);
+      assert(ask1.includes("还有 700 项还没提交"), "第一道确认应问未提交的分批项：" + ask1);
+      await page.click(`${topConfirmSel} [data-x="ok"]`);
+
+      await page.waitForFunction(sel => {
+        const el = document.querySelector(sel);
+        return el && el.textContent.includes("放弃未保存的修改");
+      }, topConfirmSel, { timeout: 5000 });
+      const ask2 = await page.textContent(topConfirmSel);
+      assert(ask2.includes("没有保存") && ask2.includes("修改会丢失"), "第二道确认应问未保存的设置修改：" + ask2);
+
+      // 在第二道点「继续编辑」取消：仍留在设置页，修改没丢
+      await page.click(`${topConfirmSel} [data-x="cancel"]`); await settle(200);
+      assert(page.url().includes("/settings/common"), "第二道取消后应留在设置页：" + page.url());
+      assert((await page.inputValue("#motd-in")) === "改过但还没保存的介绍", "取消离开后未保存内容应还在");
+
+      // 再退一次，两道都点确认：成功离开设置页
+      await page.goBack();
+      await page.waitForSelector(topConfirmSel, { timeout: 5000 });
+      await page.click(`${topConfirmSel} [data-x="ok"]`);
+      await page.waitForFunction(sel => {
+        const el = document.querySelector(sel);
+        return el && el.textContent.includes("放弃未保存的修改");
+      }, topConfirmSel, { timeout: 5000 });
+      await page.click(`${topConfirmSel} [data-x="ok"]`);
+      // 只断言离开了设置页：拦下后退又取消以后，下一次后退会多跳过一页（历史栈的老毛病，不在这里定死退到哪一页）
+      await page.waitForFunction(() => !location.hash.includes("/settings/"), null, { timeout: 5000 });
+      releaseC1();
+      await settle(300);
+    } finally {
+      await page.unroute("**/import-pending").catch(() => {});
+      await page.evaluate(() => fetch("/__mock/state", { method: "POST", body: JSON.stringify({ instReset: true, taskList: [], trustedHosts: [] }) }));
+      await page.goto(url("#/instances")); await settle();
+    }
+  });
+
+  {
+    // 草稿清单（A31）：向导「选模组」那一步挑的东西、建服时切走以后留在草稿清单里的，详情页的横幅怎么提示、怎么处理
+    const until = async (fn, ms = 5000) => { const t0 = Date.now(); while (!(await fn())) { if (Date.now() - t0 > ms) return false; await settle(100); } return true; };
+    /* 直接摆进仿真后端的清单项（同后端 modcart.Item 的形状）；pickedCore / pickedMc 是挑的时候记下的核心和版本 */
+    const item = (projectId, title, kind, pickedCore = "", pickedMc = "") => ({ projectId, slug: projectId, title, icon: "", kind, license: "MIT",
+      ...(pickedCore ? { pickedCore } : {}), ...(pickedMc ? { pickedMc } : {}), addedAt: "2026-11-23T10:00:00Z" });
+    /* 向导从选核心走到「选模组 / 选插件」那一步；ver 给了就换成那个版本。返回选中的版本 */
+    const wizToMods = async (core, ver) => {
+      await page.click(`.core-card[data-id="${core}"]`);
+      await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
+      if (ver) await page.click(`.ver-item[data-id="${ver}"]`);
+      const sel = await page.$eval(".ver-item.sel", el => el.dataset.id);
+      await page.click("#wnext"); await page.waitForSelector("#build-rec b");
+      await page.click("#wnext"); await page.waitForSelector("#mc-q");
+      return sel;
+    };
+    const wizBackToCore = async () => { await page.click('.step-pill.done[data-step="0"]'); await page.waitForSelector('.core-card[data-id="paper"]'); };
+    const pick = async (q, title) => {
+      await page.fill("#mc-q", q); await page.click("#mc-go"); await settle();
+      await page.click(`button[aria-label="加入清单 ${title}"]`); await settle(600);
+    };
+    /* 填好基本设置点「创建」（从「选模组」那一步或基本设置那一步都行） */
+    const wizCreate = async name => {
+      if (!(await page.$("#f-name"))) { await page.click("#wnext"); await page.waitForSelector("#f-name"); }
+      await page.fill("#f-name", name); await page.click("#f-eula");
+      await page.click("#wcreate");
+    };
+    const waitBuilding = () => page.waitForFunction(() => document.querySelector("#wback")?.disabled && /等待|下载/.test(document.querySelector("#wcreate")?.textContent || ""), null, { timeout: 5000 });
+    const leaveToList = async () => {
+      await page.click('#sidebar a[data-nav="instances"]');
+      await page.waitForFunction(() => location.hash === "#/instances", null, { timeout: 5000 });
+    };
+    const openAddons = async name => { await page.goto(url(`#/inst/${encodeURIComponent(name)}/addons`)); await page.waitForSelector("#mc-list .mc-item, #mc-empty", { timeout: 5000 }); };
+    const freshWizard = async () => { await page.goto(url("#/create/new")); await page.waitForSelector('.core-card[data-id="fabric"]'); };
+    const cleanup = async () => {
+      await page.unroute("**/api/modcart/deps*").catch(() => {});
+      await page.unroute("**/api/instances").catch(() => {});
+      await page.unroute("**/api/modcart/draft/target").catch(() => {});
+      await cartState({ instReset: true, modCart: { reset: true }, taskStage: 4 });
+      await page.goto(url("#/instances")); await settle();
+    };
+
+    await run("草稿清单：向导回头把 Fabric 换成 Paper，回到选插件这一步不联网就提示清单里的项可能装不上，点「清空草稿清单」清掉", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true } });
+        await freshWizard();
+        await wizToMods("fabric");
+        await pick("Cloth", "Cloth Config API");
+        await wizBackToCore();
+        await wizToMods("paper");
+        await page.waitForSelector("#mc-wiz-mismatch-card", { timeout: 5000 });
+        const text = await page.textContent("#mc-wiz-mismatch-card");
+        assert(text.includes("清单里的 1 项是给 Fabric 挑的，换成 Paper 以后可能装不上"), "回头换成 Paper 应提示核心对不上：" + text);
+        assert((await cartMock()).depsQueries === 0, "这条提示不联网查前置");
+        await page.click("#mc-wiz-mismatch-clear");
+        await page.waitForSelector("#mc-empty", { timeout: 5000 });
+        assert(!(await page.$("#mc-wiz-mismatch-card")), "清空以后提示应消失");
+        assert((await cartMock()).draft.length === 0, "点「清空草稿清单」应清掉草稿清单");
+      } finally { await cleanup(); }
+    });
+
+    await run("草稿清单：向导回头换核心后点「留着」，提示收起、草稿项留着，再回到这一步不重复提示", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true } });
+        await freshWizard();
+        await wizToMods("fabric");
+        await pick("JEI", "JEI");
+        await wizBackToCore();
+        await wizToMods("paper");
+        await page.waitForSelector("#mc-wiz-mismatch-card", { timeout: 5000 });
+        await page.click("#mc-wiz-mismatch-keep"); await settle(200);
+        assert(!(await page.$("#mc-wiz-mismatch-card")) && (await page.textContent("#mc-count")).includes("共 1 项"), "点「留着」后提示收起、草稿项还在");
+        await wizBackToCore();
+        await wizToMods("paper"); await settle(300);
+        assert(!(await page.$("#mc-wiz-mismatch-card")), "同一组已经点过「留着」，再回到这一步不该再提示");
+        assert((await cartMock()).draft.length === 1, "点「留着」不动草稿清单");
+      } finally { await cleanup(); }
+    });
+
+    await run("草稿清单：向导里只换了游戏版本，回到选模组这一步也提示清单里的项是给原来那个版本挑的", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true } });
+        await freshWizard();
+        const v1 = await wizToMods("fabric");
+        await pick("JEI", "JEI");
+        await page.click('.step-pill.done[data-step="1"]'); await page.waitForSelector(".ver-item.sel");
+        const v2 = await page.$$eval("#ver-list .ver-item[data-id]", (els, v) => (els.map(e => e.dataset.id).find(id => id !== v) || ""), v1);
+        assert(v2, "仿真后端的版本列表里应有第二个版本");
+        await page.click(`.ver-item[data-id="${v2}"]`);
+        await page.click("#wnext"); await page.waitForSelector("#build-rec b");
+        await page.click("#wnext"); await page.waitForSelector("#mc-wiz-mismatch-card", { timeout: 5000 });
+        const text = await page.textContent("#mc-wiz-mismatch-card");
+        assert(text.includes(`清单里的 1 项是给 Fabric ${v1} 挑的，换成 Fabric ${v2} 以后可能装不上`), "只换版本也应提示：" + text);
+        assert((await page.textContent("#mc-list")).includes(`给 Fabric ${v1} 挑的，版本不一样`), "清单那一行也标出版本不一样");
+      } finally { await cleanup(); }
+    });
+
+    await run("草稿清单：从电脑添加的 Fabric 模组文件，向导换成 Paper 以后也提示可能装不上", async () => {
+      try {
+        const lf = { sha1: "a1".repeat(20), fileName: "minimap-fabric-1.0.jar", size: 2048, title: "Minimap", modId: "minimap", version: "1.0", loader: "fabric", addedAt: "2026-11-23T10:00:00Z" };
+        await cartState({ instReset: true, modCart: { reset: true, localDraft: [lf] } });
+        await freshWizard();
+        await wizToMods("fabric"); await settle(300);
+        assert(!(await page.$("#mc-wiz-mismatch-card")), "Fabric 的文件放在 Fabric 下不该提示");
+        await wizBackToCore();
+        await wizToMods("paper");
+        await page.waitForSelector("#mc-wiz-mismatch-card", { timeout: 5000 });
+        const text = await page.textContent("#mc-wiz-mismatch-card");
+        assert(text.includes("清单里的 1 项是给 Fabric 挑的，换成 Paper 以后可能装不上"), "本地文件的加载器对不上也应提示：" + text);
+        assert((await page.textContent("#mc-list")).includes("插件服"), "本地文件那一行写明这台是插件服、放进去不会生效");
+      } finally { await cleanup(); }
+    });
+
+    await run("草稿清单：向导点了「跳过这一步」，建好以后不记目标服务器、不装草稿清单", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true }, taskStage: 4 });
+        await freshWizard();
+        await wizToMods("fabric");
+        await pick("JEI", "JEI");
+        await page.click("#wskip"); await page.waitForSelector(".modal [data-x=ok]"); await page.click(".modal [data-x=ok]");
+        await page.waitForSelector("#f-name");
+        await wizCreate("跳过选模组的服");
+        await page.waitForFunction(() => location.hash === "#/task/task-1", null, { timeout: 8000 });
+        await settle(300);
+        const mc = await cartMock();
+        assert(mc.draftInst === "" && mc.lastInstall === null, "跳过选模组时不该记目标、不该装：" + JSON.stringify({ draftInst: mc.draftInst, lastInstall: mc.lastInstall }));
+        assert(mc.draft.length === 1, "草稿清单留着，以后还能用");
+      } finally { await cleanup(); }
+    });
+
+    await run("草稿清单：向导回头换成原版，没有选模组这一步，不提示，建好以后不装草稿清单、不记目标服务器", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true }, taskStage: 4 });
+        await freshWizard();
+        await wizToMods("fabric");
+        await pick("JEI", "JEI");
+        await wizBackToCore();
+        await page.click('.core-card[data-id="vanilla"]');
+        await page.click("#wnext"); await page.waitForSelector(".ver-item.sel");
+        await page.click("#wnext"); await page.waitForSelector("#f-name");
+        assert(!(await page.$("#mc-wiz-mismatch-card")), "原版没有选模组这一步，不该提示");
+        await wizCreate("换成原版的服");
+        await page.waitForFunction(() => location.hash === "#/task/task-1", null, { timeout: 8000 });
+        await settle(300);
+        const mc = await cartMock();
+        assert(mc.draftInst === "" && mc.lastInstall === null, "原版服不该记目标、不该装：" + JSON.stringify({ draftInst: mc.draftInst, lastInstall: mc.lastInstall }));
+      } finally { await cleanup(); }
+    });
+
+    await run("草稿清单：向导发出建服请求以后切走，记下目标服务器；建好以后只有那台的详情页显示「新建时挑的 N 项还没装」", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true }, taskStage: 2 });
+        await freshWizard();
+        await wizToMods("paper");
+        await pick("Vault", "Vault");
+        await wizCreate("切走新建服");
+        await waitBuilding();
+        assert((await cartMock()).draftInst === "切走新建服", "发出建服请求后草稿清单应记下目标服务器");
+        await leaveToList();
+        await cartState({ taskStage: 4 }); // 建服在后台跑完
+        await openAddons(PACK);
+        await settle(300);
+        assert(!(await page.$("#mc-draft-leftover")), "别的服务器的详情页不该有这条横幅");
+        await openAddons("切走新建服");
+        await page.waitForSelector("#mc-draft-leftover", { timeout: 5000 });
+        assert((await page.textContent("#mc-draft-leftover")).includes("新建时挑的 1 项还没装"), "目标服务器的详情页应显示横幅");
+      } finally { await cleanup(); }
+    });
+
+    /* 记目标服务器是仅人工的写操作，每记一次进一条操作记录：草稿清单是空的时向导不发，免得每次建服都多一条 */
+    await run("草稿清单：向导「选模组」这一步什么都没挑就建服，不发记目标服务器的请求", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true }, taskStage: 4 });
+        await freshWizard();
+        await wizToMods("paper");
+        const since = reqs.length;
+        await wizCreate("空清单新建服");
+        await page.waitForFunction(() => location.hash === "#/task/task-1", null, { timeout: 8000 });
+        await settle(300);
+        const sent = reqs.slice(since).filter(r => r.m === "POST").map(r => r.u);
+        assert(sent.includes("/api/instances") && !sent.includes("/api/modcart/draft/target"), "只该发建服请求：" + JSON.stringify(sent));
+      } finally { await cleanup(); }
+    });
+
+    /* B08：删服务器时仿真后端也清掉这台的清单（同真后端 instance.delete） */
+    await run("草稿清单：删掉一台服务器再建一台同名的，看不到上一台留在待装清单里的东西和新建时挑的横幅", async () => {
+      try {
+        const lf = { sha1: "e5".repeat(20), fileName: "old-own-1.0.jar", size: 2048, title: "Old Own", modId: "oldown", version: "1.0", loader: "forge", addedAt: "2026-11-23T10:00:00Z" };
+        await cartState({ instReset: true, modCart: { reset: true, insts: { [PACK]: [item("jei", "JEI", "mod")] }, localInsts: { [PACK]: [lf] },
+          draft: [item("cloth-config", "Cloth Config API", "mod", "forge", "1.20.1")], draftInst: PACK } });
+        await page.goto(url("#/instances")); await settle();
+        await page.click(`.card[data-name="${PACK}"] [data-act="more"]`);
+        await page.click(".dropmenu button.danger"); await settle(250);
+        await page.click('#modal-root [data-x="ok"]');
+        await page.waitForFunction(n => !document.querySelector(`.card[data-name="${n}"]`), PACK, { timeout: 5000 });
+        const mc = await cartMock();
+        assert(!(mc.insts[PACK] || []).length && !(mc.localInsts[PACK] || []).length && mc.draftInst === "", "删掉以后这台的清单和记号都应清掉：" + JSON.stringify(mc));
+        assert(mc.draft.length === 1, "草稿清单本身留着");
+        await page.evaluate(n => fetch("/api/instances", { method: "POST", headers: { "X-Token": "mock" },
+          body: JSON.stringify({ name: n, core: "forge", mc: "1.20.1", port: 25570, eula: true }) }), PACK);
+        await openAddons(PACK);
+        assert(!!(await page.$("#mc-empty")), "同名新建的那台清单应是空的：" + await page.textContent("#mc-list"));
+        assert(!(await page.$("#mc-draft-leftover")), "同名新建的那台不该冒出新建时挑的横幅");
+      } finally { await cleanup(); }
+    });
+
+    /* A30：cart.json 读不出来时删服，仿真后端也先记下、读出来以后头一次用清单时补清（同真后端 modcart.ForgetInstance） */
+    await run("草稿清单：cart.json 读不出来时删掉一台服务器，读出来以后再建同名的，也看不到上一台留下的东西", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true, insts: { [PACK]: [item("jei", "JEI", "mod")] },
+          draft: [item("cloth-config", "Cloth Config API", "mod", "forge", "1.20.1")], draftInst: PACK, loadFail: "corrupt" } });
+        const del = await page.evaluate(n => fetch(`/api/instances/${encodeURIComponent(n)}?files=0`, { method: "DELETE", headers: { "X-Token": "mock" } }).then(r => r.status), PACK);
+        assert(del === 200, "读不出来时照样能删服：" + del);
+        let mc = await cartMock();
+        assert((mc.insts[PACK] || []).length === 1 && mc.pendingRemovals.join() === PACK, "读不出来时清不了，先记下：" + JSON.stringify(mc));
+        await cartState({ modCart: { loadFail: "" } });
+        await page.evaluate(n => fetch("/api/instances", { method: "POST", headers: { "X-Token": "mock" },
+          body: JSON.stringify({ name: n, core: "forge", mc: "1.20.1", port: 25570, eula: true }) }), PACK);
+        await openAddons(PACK);
+        assert(!!(await page.$("#mc-empty")), "同名新建的那台清单应是空的：" + await page.textContent("#mc-list"));
+        assert(!(await page.$("#mc-draft-leftover")), "同名新建的那台不该冒出新建时挑的横幅");
+        mc = await cartMock();
+        assert(!mc.pendingRemovals.length && mc.draftInst === "" && mc.draft.length === 1, "补清以后记录清空、记号清掉、草稿清单留着：" + JSON.stringify(mc));
+      } finally { await cleanup(); }
+    });
+
+    /* A30：删服时这台的清单清不掉、也记不下来，后端照样删、结果里带 note（同 instance.delete）；界面要让人看得到 */
+    await run("删除：待装清单清不掉时删服照常算成功，另给一条带「详情」的提示说这台的东西没清掉", async () => {
+      try {
+        const why = "待装清单读不出来，也没能记下来等读出来以后再清（拒绝访问）";
+        await cartState({ instReset: true, modCart: { reset: true, insts: { [PACK]: [item("jei", "JEI", "mod")] }, forgetFail: why } });
+        await page.goto(url("#/instances")); await settle();
+        await page.click(`.card[data-name="${PACK}"] [data-act="more"]`);
+        await page.click(".dropmenu button.danger"); await settle(250);
+        await page.click('#modal-root [data-x="ok"]');
+        await page.waitForFunction(n => !document.querySelector(`.card[data-name="${n}"]`), PACK, { timeout: 5000 });
+        await settle(300);
+        const ts = await page.$$eval(".toast", els => els.map(e => ({ err: e.classList.contains("error"), text: e.textContent })));
+        assert(ts.some(x => !x.err && x.text.includes("移出列表")), "删服照常算成功：" + JSON.stringify(ts));
+        assert(ts.some(x => x.err && x.text.includes(`「${PACK}」待装清单里的东西没清掉`)), "另给一条提示：" + JSON.stringify(ts));
+        await page.locator(".toast.error", { hasText: "待装清单里的东西没清掉" }).last().locator('button[aria-label="查看报错详情"]').click();
+        await page.waitForSelector(".err-detail");
+        assert((await page.textContent(".err-detail")).includes(why), "「详情」里是后端给的原话：" + await page.textContent(".err-detail"));
+        await page.click('.modal [data-x="close"]'); await settle(200);
+      } finally { await cleanup(); }
+    });
+
+    /* 向导建服时 GET /api/modcart 偶发失败：不知道草稿清单空不空，照样记目标（后端在草稿清单真是空的时不记） */
+    await run("草稿清单：向导建服时读草稿清单偶发失败，照样记下目标服务器，再去建服任务页", async () => {
+      const bareCart = u => u.pathname === "/api/modcart" && !u.search;
+      const failGet = route => route.request().method() === "GET"
+        ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ ok: false, error: "读取待装清单失败" }) })
+        : route.continue().catch(() => {});
+      try {
+        await cartState({ instReset: true, modCart: { reset: true }, taskStage: 4 });
+        await freshWizard();
+        await wizToMods("paper");
+        await pick("Vault", "Vault");
+        await page.click("#wnext"); await page.waitForSelector("#f-name");
+        await page.route(bareCart, failGet);
+        await wizCreate("读清单失败的服");
+        await page.waitForFunction(() => location.hash === "#/task/task-1", null, { timeout: 8000 });
+        assert(await until(async () => (await cartMock()).draftInst === "读清单失败的服"), "读草稿清单失败时也应记下目标服务器：" + JSON.stringify((await cartMock()).draftInst));
+      } finally { await page.unroute(bareCart, failGet).catch(() => {}); await cleanup(); }
+    });
+
+    await run("草稿清单：建服请求还没回来就切走，目标服务器照样记上，不报「无法创建」", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true }, taskStage: 2 });
+        await freshWizard();
+        await wizToMods("paper");
+        await pick("Vault", "Vault");
+        await holdPost("**/api/instances", async (requested, release) => {
+          await wizCreate("在途切走服");
+          await requested;
+          await leaveToList();
+          release();
+          assert(await until(async () => (await cartMock()).draftInst === "在途切走服"), "建服请求回来以后应照样记下目标服务器");
+        });
+        assert(!(await toastsNow()).some(x => x.includes("无法创建")), "服务器在建，不该报无法创建");
+      } finally { await cleanup(); }
+    });
+
+    await run("草稿清单：记目标服务器的请求失败，建服照常，建好以后照样装草稿清单，不报「无法创建」", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true }, taskStage: 4 });
+        await page.route("**/api/modcart/draft/target", route => route.fulfill({ status: 500, contentType: "application/json",
+          body: JSON.stringify({ ok: false, error: "保存待装清单失败：磁盘满了" }) }));
+        await freshWizard();
+        await wizToMods("paper");
+        await pick("Vault", "Vault");
+        await wizCreate("记号失败的服");
+        await page.waitForFunction(() => location.hash === "#/task/task-cart", null, { timeout: 8000 });
+        const mc = await cartMock();
+        assert(mc.lastInstall && mc.lastInstall.inst === "记号失败的服" && mc.lastInstall.includeDraft === true, "建好以后应照常带着草稿清单装：" + JSON.stringify(mc.lastInstall));
+        assert(!(await toastsNow()).some(x => x.includes("无法创建")), "记号没记上不该报无法创建");
+      } finally { await cleanup(); }
+    });
+
+    await run("草稿清单：详情页横幅先按记下的核心离线标出对不上的项，查过前置以后按 unresolved 标出装不上的；本地文件按这台的核心提醒", async () => {
+      try {
+        const lf = { sha1: "b2".repeat(20), fileName: "minimap-fabric-1.0.jar", size: 2048, title: "Minimap", modId: "minimap", version: "1.0", loader: "fabric", addedAt: "2026-11-23T10:00:00Z" };
+        await cartState({ instReset: true, modCart: { reset: true, draft: [item("jei", "JEI", "mod", "fabric", "1.20.1"), item("vault", "Vault", "plugin")], localDraft: [lf], draftInst: PACK } });
+        let releaseDeps;
+        const holdDeps = new Promise(r => { releaseDeps = r; });
+        await page.route("**/api/modcart/deps*", async route => {
+          if (route.request().url().includes("includeDraft=true")) await holdDeps;
+          await route.continue().catch(() => {});
+        });
+        await openAddons(PACK);
+        await page.waitForSelector("#mc-draft-leftover", { timeout: 5000 });
+        const offline = await page.textContent("#mc-draft-leftover");
+        assert(offline.includes("新建时挑的 3 项还没装") && offline.includes("给 Fabric 挑的，核心对不上") && offline.includes("这是插件，核心对不上"),
+          "联网结果回来之前应先按记下的核心标出对不上的项：" + offline);
+        assert(offline.includes("这个文件是给 Fabric 用的"), "本地文件那一行应按这台的核心提醒：" + offline);
+        assert(!(await page.$("#mc-draft-leftover .mc-draft-unres")), "前置检查回来之前不标装不上");
+        releaseDeps();
+        await page.waitForSelector("#mc-draft-leftover .mc-draft-unres", { timeout: 5000 });
+        assert((await page.textContent("#mc-draft-leftover")).includes("装不上：没有支持 forge 的版本"), "前置检查回来以后按 unresolved 标出装不上的");
+      } finally { await cleanup(); }
+    });
+
+    await run("草稿清单：详情页横幅上点「一起装上」，发出带 includeDraft 的安装，expect 是这台和草稿清单的并集，装完记号清掉", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true, insts: { [PACK]: [item("cloth-config", "Cloth Config API", "mod")] },
+          draft: [item("jei", "JEI", "mod", "forge", "1.20.1")], draftInst: PACK } });
+        await openAddons(PACK);
+        await page.waitForSelector("#mc-draft-leftover", { timeout: 5000 });
+        await page.click("#mc-draft-install");
+        await page.waitForSelector(".modal", { timeout: 5000 });
+        assert((await page.textContent(".modal")).includes("Architectury API"), "草稿清单里 JEI 的必装前置要先说一声");
+        await page.click('.modal [data-x="ok"]');
+        await page.waitForFunction(() => location.hash === "#/task/task-cart", null, { timeout: 8000 });
+        const mc = await cartMock();
+        assert(mc.lastInstall && mc.lastInstall.inst === PACK && mc.lastInstall.includeDraft === true && mc.lastInstall.expect.slice().sort().join() === "cloth-config,jei",
+          "「一起装上」应带 includeDraft 和两份清单的并集：" + JSON.stringify(mc.lastInstall));
+        assert(mc.draftInst === "" && mc.draft.length === 0, "装完草稿清单和记号都应清掉");
+      } finally { await cleanup(); }
+    });
+
+    /* 同「全部安装」那条（A29）：查前置那几秒里左边的「加入清单」还能点，加进来的那项不在检查结果里，
+       检查回来要比出清单变了、重查，确认框列出它的必装前置；不能带着 withDeps 直接装，把它的前置不声不响一起装了（A31） */
+    await run("草稿清单：横幅上点「一起装上」、查前置期间往这台的清单里加了带必装前置的项，放行后先列出它的前置再确认，确认前不发安装", async () => {
+      try {
+        const lf = (sha1, fileName, title) => ({ sha1, fileName, size: 2048, title, modId: title.toLowerCase(), version: "1.0", loader: "forge", addedAt: "2026-11-23T10:00:00Z" });
+        const draftLf = lf("c3".repeat(20), "draft-pick-1.0.jar", "Draftpick"), instLf = lf("d4".repeat(20), "own-pick-1.0.jar", "Ownpick");
+        await cartState({ instReset: true, modCart: { reset: true, draft: [item("cloth-config", "Cloth Config API", "mod", "forge", "1.20.1")],
+          localDraft: [draftLf], localInsts: { [PACK]: [instLf] }, draftInst: PACK } });
+        /* 压住带草稿的检查：后端按旧清单算完以后才压，放行时交回的是旧清单的结果 */
+        let release, held = 0, released = false;
+        const gate = new Promise(r => { release = r; });
+        await page.route("**/api/modcart/deps*", async route => {
+          if (released || !route.request().url().includes("includeDraft=true")) { await route.continue().catch(() => {}); return; }
+          const resp = await route.fetch(); held++; await gate; await route.fulfill({ response: resp }).catch(() => {});
+        });
+        await openAddons(PACK);
+        await page.waitForSelector("#mc-draft-leftover", { timeout: 5000 });
+        await page.fill("#mc-q", "JEI"); await page.click("#mc-go"); await settle();
+        assert(await until(async () => held >= 1), "打开时那次带草稿的检查应已发出");
+        await page.click("#mc-draft-install");
+        assert(await until(async () => held >= 2), "点「一起装上」应再发一次带草稿的检查");
+        await page.click('button[aria-label="加入清单 JEI"]');
+        await page.waitForFunction(() => (document.querySelector("#mc-count")?.textContent || "").includes("共 2 项"), null, { timeout: 5000 });
+        released = true; release();
+        await page.waitForFunction(() => document.querySelector(".modal") || location.hash.startsWith("#/task/"), null, { timeout: 8000 });
+        assert((await cartMock()).lastInstall === null, "确认前不应发出安装请求：" + JSON.stringify((await cartMock()).lastInstall));
+        const text = await page.textContent(".modal");
+        assert(text.includes("Architectury API"), "放行后应弹出列了 JEI 必装前置的确认框：" + text);
+        await page.click('.modal [data-x="ok"]');
+        await page.waitForFunction(() => location.hash === "#/task/task-cart", null, { timeout: 8000 });
+        const li = (await cartMock()).lastInstall, sorted = a => (a || []).slice().sort().join();
+        assert(li && li.includeDraft === true && sorted(li.expect) === "cloth-config,jei", "确认后应按两份清单最新的并集安装：" + JSON.stringify(li));
+        assert(sorted(li.expectLocal) === sorted([draftLf.sha1, instLf.sha1]), "expectLocal 应是两份清单里本地文件的并集：" + JSON.stringify(li));
+      } finally { await cleanup(); }
+    });
+
+    await run("草稿清单：详情页横幅上点「不要了」只清草稿清单，这台自己清单里原有的项还在", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true, insts: { [PACK]: [item("cloth-config", "Cloth Config API", "mod")] },
+          draft: [item("jei", "JEI", "mod", "forge", "1.20.1")], draftInst: PACK } });
+        await openAddons(PACK);
+        await page.waitForSelector("#mc-draft-leftover", { timeout: 5000 });
+        await page.click("#mc-draft-discard");
+        await page.waitForFunction(() => !document.querySelector("#mc-draft-leftover"), null, { timeout: 5000 });
+        const mc = await cartMock();
+        assert(mc.draft.length === 0 && mc.draftInst === "", "草稿清单和记号都应清掉：" + JSON.stringify({ draft: mc.draft, draftInst: mc.draftInst }));
+        assert((mc.insts[PACK] || []).map(x => x.projectId).join() === "cloth-config", "这台自己的清单不该动：" + JSON.stringify(mc.insts[PACK]));
+        assert((await page.textContent("#mc-list")).includes("Cloth Config API") && (await page.textContent("#mc-count")).includes("共 1 项"), "页面上这台的清单照常列着");
+      } finally { await cleanup(); }
+    });
+
+    /* 横幅和「全部安装」共用一个「正在安装」：在哪一处的确认框里点「先不装」，三个按钮都要恢复可点（A29、A31） */
+    const buttonsEnabled = () => page.evaluate(() => ["#mc-install", "#mc-draft-install", "#mc-draft-discard"]
+      .map(s => [s, !!document.querySelector(s) && !document.querySelector(s).disabled]));
+    await run("待装清单：横幅在场时点「全部安装」、确认框里点「先不装」，横幅上的两个按钮和「全部安装」都恢复可点", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true, insts: { [PACK]: [item("jei", "JEI", "mod")] },
+          draft: [item("cloth-config", "Cloth Config API", "mod", "forge", "1.20.1")], draftInst: PACK } });
+        await openAddons(PACK);
+        await page.waitForSelector("#mc-draft-leftover", { timeout: 5000 });
+        assert(await until(async () => (await cartMock()).depsQueries >= 1), "横幅那一路的前置检查应先查完");
+        const before = (await cartMock()).depsQueries;
+        await page.click("#mc-install");
+        await page.waitForSelector(".modal", { timeout: 5000 });
+        assert((await cartMock()).depsQueries > before, "这台的清单还没查过前置，点「全部安装」应先查一遍");
+        await page.click('.modal [data-x="cancel"]'); await settle(300);
+        const st = await buttonsEnabled();
+        assert(st.every(([, on]) => on), "点「先不装」以后三个按钮都应能点：" + JSON.stringify(st));
+        assert((await cartMock()).lastInstall === null, "点「先不装」不该发安装请求");
+      } finally { await cleanup(); }
+    });
+
+    /* A124：安装请求发出去以后要跳任务页，这一下被离开确认拦下（同一页上「整合包里没装上的」正在分批提交）、人点了「留在这里」，
+       还留在这一页：三个按钮不能一直停在禁用 */
+    await run("待装清单：点了「全部安装」、跳任务页被离开确认拦下，选「留在这里」以后三个按钮都恢复可点", async () => {
+      try {
+        await cartState({ instReset: true, taskList: [], trustedHosts: [], instPending: { [PACK]: { pending: pendingItems("q", 1200), skipped: [] } },
+          modCart: { reset: true, insts: { [PACK]: [item("cloth-config", "Cloth Config API", "mod")] },
+            draft: [item("vault", "Vault", "plugin")], draftInst: PACK } });
+        await openAddons(PACK);
+        await page.waitForSelector("#mc-draft-leftover", { timeout: 5000 });
+        await page.waitForSelector("#ad-pending-apply", { timeout: 5000 });
+        await page.click("#ad-pending-box #pnd-trust-all"); await settle(250);
+        await page.click("#ad-pending-box #pnd-ack-all"); await settle(250);
+        await holdPost("**/import-pending", async requested => {
+          await page.click("#ad-pending-apply");
+          await requested; // 第 1 批在途，还有 700 项没提交：离开确认登记着
+          await page.click("#mc-install");
+          await page.waitForSelector(".modal", { timeout: 8000 });
+          assert((await page.textContent(".modal")).includes("还有 700 项还没提交"), "跳任务页之前应先问还没提交的那些：" + await page.textContent(".modal"));
+          assert((await cartMock()).lastInstall, "安装请求应已发出");
+          await page.click('.modal [data-x="cancel"]'); await settle(300);
+          assert(await page.evaluate(() => location.hash) === `#/inst/${encodeURIComponent(PACK)}/addons`, "选「留在这里」应还在这一页：" + await page.evaluate(() => location.hash));
+          const st = await buttonsEnabled();
+          assert(st.every(([, on]) => on), "留在这一页时三个按钮都应能点：" + JSON.stringify(st));
+        });
+      } finally {
+        // holdPost 出来时已经放行：剩下的两批照常发完，离开确认撤掉以后再切页，别把确认框留给下一条用例
+        await page.waitForFunction(() => { const b = document.querySelector("#ad-pending-apply"); return !b || !b.disabled; }, null, { timeout: 8000 }).catch(() => {});
+        await cartState({ instPending: { [PACK]: { pending: [], skipped: [] } }, taskList: [], trustedHosts: [] });
+        await cleanup();
+      }
+    });
+
+    await run("待装清单：横幅上点「一起装上」、确认框里点「先不装」，「全部安装」和横幅上的按钮都恢复可点", async () => {
+      try {
+        await cartState({ instReset: true, modCart: { reset: true, insts: { [PACK]: [item("cloth-config", "Cloth Config API", "mod")] },
+          draft: [item("jei", "JEI", "mod", "forge", "1.20.1")], draftInst: PACK } });
+        await openAddons(PACK);
+        await page.waitForSelector("#mc-draft-leftover", { timeout: 5000 });
+        await page.click("#mc-draft-install");
+        await page.waitForSelector(".modal", { timeout: 5000 });
+        await page.click('.modal [data-x="cancel"]'); await settle(300);
+        const st = await buttonsEnabled();
+        assert(st.every(([, on]) => on), "点「先不装」以后三个按钮都应能点：" + JSON.stringify(st));
+        assert((await cartMock()).lastInstall === null, "点「先不装」不该发安装请求");
+      } finally { await cleanup(); }
+    });
+  }
 
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
 

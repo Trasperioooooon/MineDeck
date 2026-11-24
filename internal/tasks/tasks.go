@@ -57,6 +57,7 @@ type Snapshot struct {
 	ID        string        `json:"id"`
 	Title     string        `json:"title"`
 	Kind      string        `json:"kind,omitempty"` // 空 = 新建 / 导入（部署）；adopt = 接管已有服务器；java = 换 Java。界面按它换说法
+	Inst      string        `json:"inst,omitempty"` // 操作的是哪台服务器（SetInst），没设的没有；换地图的结果是一句话，任务页靠它回到那台服务器
 	Steps     []Step        `json:"steps"`
 	Log       []string      `json:"log"`
 	Label     string        `json:"label"`
@@ -85,6 +86,7 @@ type Summary struct {
 	ID           string `json:"id"`
 	Title        string `json:"title"`
 	Kind         string `json:"kind,omitempty"` // 同 Snapshot.Kind：空 = 部署，adopt = 接管已有服务器，java = 换 Java
+	Inst         string `json:"inst,omitempty"` // 同 Snapshot.Inst
 	Label        string `json:"label"`
 	Done         int64  `json:"done"`
 	Total        int64  `json:"total"`
@@ -102,6 +104,7 @@ type Task struct {
 	id        string
 	title     string
 	kind      string
+	inst      string
 	mu        sync.Mutex
 	steps     []Step
 	log       []string
@@ -227,7 +230,7 @@ func (t *Task) summary() Summary {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return Summary{
-		ID: t.id, Title: t.title, Kind: t.kind, Label: t.label,
+		ID: t.id, Title: t.title, Kind: t.kind, Inst: t.inst, Label: t.label,
 		Done: t.done, Total: t.total,
 		Ended: t.ended, CanCancel: t.canCancel && !t.ended, Err: t.err, Result: t.result,
 		WarningCount: len(t.warnings),
@@ -243,6 +246,13 @@ func (t *Task) ID() string { return t.id }
 func (t *Task) SetKind(kind string) {
 	t.mu.Lock()
 	t.kind = kind
+	t.mu.Unlock()
+}
+
+// SetInst 标明这个任务操作的是哪台服务器（见 Snapshot.Inst）。
+func (t *Task) SetInst(name string) {
+	t.mu.Lock()
+	t.inst = name
 	t.mu.Unlock()
 }
 
@@ -440,7 +450,7 @@ func (t *Task) Snapshot() Snapshot {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	s := Snapshot{
-		ID: t.id, Title: t.title, Kind: t.kind, Label: t.label,
+		ID: t.id, Title: t.title, Kind: t.kind, Inst: t.inst, Label: t.label,
 		Done: t.done, Total: t.total,
 		Ended: t.ended, CanCancel: t.canCancel && !t.ended, Err: t.err, Result: t.result,
 		Cancelled: t.ended && t.endCancel, Cancelling: t.cancelled && !t.ended,

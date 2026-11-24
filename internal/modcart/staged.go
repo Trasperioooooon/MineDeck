@@ -356,7 +356,7 @@ func (s *Service) RemoveLocal(inst, sum string) ([]LocalFile, error) {
 	return s.localsLocked(inst), nil
 }
 
-// ClearAll 把一辆车整个清掉：Modrinth 项目、本地文件的登记和暂存的文件。人在界面上点「清空」、删除服务器时用。
+// ClearAll 把一辆车整个清掉：Modrinth 项目、本地文件的登记和暂存的文件。人在界面上点「清空」时用（删除服务器用 ForgetInstance）。
 // cart.json 没读成时什么都不删：这时登记是空的，下面照删暂存目录就把还登记在原文件里的本地文件删了。
 func (s *Service) ClearAll(inst string) error {
 	s.mu.Lock()
@@ -364,26 +364,23 @@ func (s *Service) ClearAll(inst string) error {
 	if err := s.retryLoadLocked(); err != nil {
 		return err
 	}
-	if len(s.carts[inst]) > 0 || len(s.locals[inst]) > 0 {
-		carts, locals := without(s.carts, inst), without(s.locals, inst)
-		if err := s.write(carts, locals); err != nil {
+	return s.clearAllLocked(inst, false)
+}
+
+// clearAllLocked 清掉 inst 这辆车（同 ClearAll）；forgetMark 为真时，草稿清单记的目标服务器是 inst 的，记号一起清掉
+// （删服务器时用）。调用方持有 s.mu，cart.json 已读成。
+func (s *Service) clearAllLocked(inst string, forgetMark bool) error {
+	draft := s.draft
+	if forgetMark && draft.Inst == inst {
+		draft = draftTarget{}
+	}
+	if len(s.carts[inst]) > 0 || len(s.locals[inst]) > 0 || draft.Inst != s.draft.Inst {
+		if err := s.writeLocked(withEntry(s.carts, inst, nil), withEntry(s.locals, inst, nil), draft); err != nil {
 			return err
 		}
-		s.carts, s.locals = carts, locals
 	}
 	_ = os.RemoveAll(s.stagedDir(inst)) // 登记先清，文件后删：中途断了也只是多出几个没登记的文件，下次启动会清
 	return nil
-}
-
-// without 复制一份去掉 key 的 map。
-func without[V any](m map[string]V, key string) map[string]V {
-	out := make(map[string]V, len(m))
-	for k, v := range m {
-		if k != key {
-			out[k] = v
-		}
-	}
-	return out
 }
 
 // LocalFingerprint 清单里有哪些本地文件的指纹（按内容，不看顺序）。和 Fingerprint 一样给安装提案当前置条件。

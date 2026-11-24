@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -397,6 +398,137 @@ func TestScanLocal(t *testing.T) {
 	}
 }
 
+// A32：扫描 mods 目录算 jar 的 SHA-1 时按「完整路径 + 大小 + 修改时间」做进程内缓存。
+// 同一个文件三样没变时第二次不再读文件内容，但联网查 /version_files 不缓存；修改时间或大小变化则重算；超出上限清掉最旧的且并发安全。
+func TestScanLocalCachesFileSHA1(t *testing.T) {
+	mr := newFakeMR(t)
+	s := New(t.TempDir(), mr.srv.URL)
+	dir := t.TempDir()
+	fn := "fapi-0.92.2+1.20.1.jar"
+	jarPath := filepath.Join(dir, "fabric-api.jar")
+	if err := os.WriteFile(jarPath, mr.files[fn], 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var mu sync.Mutex
+	reads := map[string]int{}
+	oldOpen := openJarForSHA1
+	t.Cleanup(func() { openJarForSHA1 = oldOpen })
+	openJarForSHA1 = func(p string) (*os.File, error) {
+		mu.Lock()
+		reads[filepath.Clean(p)]++
+		mu.Unlock()
+		return os.Open(p)
+	}
+	readCount := func(p string) int {
+		mu.Lock()
+		defer mu.Unlock()
+		return reads[filepath.Clean(p)]
+	}
+
+	// 第一次扫描：读文件内容算哈希，并请求一次 /version_files
+	beforeNet := mr.count("/version_files")
+	l1 := s.ScanLocal(context.Background(), dir)
+	if l1.Projects["fapi"] != "fabric-api.jar" {
+		t.Fatalf("第一次扫描未认出 fapi：%+v", l1.Projects)
+	}
+	if got := readCount(jarPath); got != 1 {
+		t.Fatalf("第一次扫描应读 1 次文件内容，实际 %d", got)
+	}
+	if got := mr.count("/version_files") - beforeNet; got != 1 {
+		t.Fatalf("第一次扫描应请求 1 次 /version_files，实际 %d", got)
+	}
+
+	// 第二次扫描（路径、大小、修改时间都没变）：命中缓存不再读文件内容，但照常联网查 /version_files
+	l2 := s.ScanLocal(context.Background(), dir)
+	if l2.Projects["fapi"] != "fabric-api.jar" {
+		t.Fatalf("第二次扫描未认出 fapi：%+v", l2.Projects)
+	}
+	if got := readCount(jarPath); got != 1 {
+		t.Fatalf("文件未变时第二次扫描不应再读文件内容，实际读了 %d 次", got)
+	}
+	if got := mr.count("/version_files") - beforeNet; got != 2 {
+		t.Fatalf("联网查 /version_files 不缓存，第二次扫描后应累计请求 2 次，实际 %d", got)
+	}
+
+	// 改了修改时间（内容和大小不变）：必须重算
+	st, err := os.Stat(jarPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextMod := st.ModTime().Add(2 * time.Second)
+	if err := os.Chtimes(jarPath, nextMod, nextMod); err != nil {
+		t.Fatal(err)
+	}
+	l3 := s.ScanLocal(context.Background(), dir)
+	if l3.Projects["fapi"] != "fabric-api.jar" {
+		t.Fatalf("改修改时间后扫描未认出 fapi：%+v", l3.Projects)
+	}
+	if got := readCount(jarPath); got != 2 {
+		t.Fatalf("修改时间变了应重新读文件内容计算 SHA-1，实际读了 %d 次", got)
+	}
+
+	// 改了文件大小/内容（即使人为把修改时间设回刚才那一下）：大小变了也必须重算，拿到新哈希
+	otherBody := mr.files["lib4-1.0.jar"]
+	if len(otherBody) == len(mr.files[fn]) {
+		otherBody = append(slices.Clone(otherBody), '!')
+	}
+	if err := os.WriteFile(jarPath, otherBody, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(jarPath, nextMod, nextMod); err != nil {
+		t.Fatal(err)
+	}
+	l4 := s.ScanLocal(context.Background(), dir)
+	if got := readCount(jarPath); got != 3 {
+		t.Fatalf("文件大小变了应重新计算 SHA-1，实际读了 %d 次", got)
+	}
+	if _, ok := l4.Hashes[sha1Hex(otherBody)]; !ok {
+		t.Fatalf("重算后应拿到新内容的 SHA-1：%+v", l4.Hashes)
+	}
+
+	// 缓存达到上限时清掉最旧的条目，且并发读取安全
+	small := newSHA1Cache(3)
+	paths := make([]string, 4)
+	for idx := range paths {
+		p := filepath.Join(t.TempDir(), fmt.Sprintf("m-%d.jar", idx))
+		if err := os.WriteFile(p, []byte(fmt.Sprintf("jar-content-%d", idx)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		paths[idx] = p
+		if _, err := small.fileSHA1(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 先验留在缓存里的 paths[1..3]（均命中缓存，保持读取 1 次），再验已被挤出的最旧项 paths[0]（未命中，重读变成 2 次）
+	for _, idx := range []int{1, 2, 3, 0} {
+		p := paths[idx]
+		if _, err := small.fileSHA1(p); err != nil {
+			t.Fatal(err)
+		}
+		want := 1
+		if idx == 0 {
+			want = 2
+		}
+		if got := readCount(p); got != want {
+			t.Fatalf("paths[%d] 读取次数 = %d，期望 %d", idx, got, want)
+		}
+	}
+
+	var wg sync.WaitGroup
+	for g := 0; g < 16; g++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			p := paths[id%len(paths)]
+			if _, err := small.fileSHA1(p); err != nil {
+				t.Errorf("并发计算 SHA-1 失败：%v", err)
+			}
+		}(g)
+	}
+	wg.Wait()
+}
+
 // 复审补的：加入时只收模组和插件；放不进去时，全是查不到才报 404；写盘失败时内存里的车不变。
 func TestAddKindsAndErrors(t *testing.T) {
 	mr := newFakeMR(t)
@@ -507,5 +639,92 @@ func TestClosureEdges(t *testing.T) {
 	}
 	if !slices.ContainsFunc(plan.Unresolved, func(u Unresolved) bool { return strings.Contains(u.Reason, "X6 需要的那个版本") }) {
 		t.Fatalf("找不到：%+v", plan.Unresolved)
+	}
+}
+
+// 草稿清单逐项记下挑时的核心与 MC 版本，实例和工具箱的清单不记；老格式 cart.json 照常读；
+// 记下目标新建服务器后，清空或移光草稿清单时记号跟着清掉（A31）。
+func TestDraftOriginAndTargetInst(t *testing.T) {
+	mr := newFakeMR(t)
+	dir := t.TempDir()
+
+	// 先放一份老格式的 cart.json（没有 draftInst、pickedCore、pickedMc），确认照常读出
+	legacy := `{"version":1,"carts":{"":[{"projectId":"aaa","slug":"alpha","title":"Alpha","kind":"mod","license":"MIT","addedAt":"2026-01-01T00:00:00Z"}]}}`
+	if err := os.WriteFile(filepath.Join(dir, "cart.json"), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := New(dir, mr.srv.URL)
+	got := s.List(Draft)
+	if len(got) != 1 || got[0].ProjectID != "aaa" || got[0].PickedCore != "" || got[0].PickedMC != "" {
+		t.Fatalf("老格式 cart.json 读回不对：%+v", got)
+	}
+	if s.DraftInst() != "" {
+		t.Fatalf("老格式不应有 draftInst：%q", s.DraftInst())
+	}
+	if err := s.ClearAll(Draft); err != nil {
+		t.Fatal(err)
+	}
+
+	// 空草稿车记目标服务器：不记
+	if err := s.SetDraftInst("空服"); err != nil {
+		t.Fatal(err)
+	}
+	if s.DraftInst() != "" {
+		t.Fatalf("草稿清单为空时不应记下 draftInst：%q", s.DraftInst())
+	}
+
+	// 加入草稿车记下核心和版本；实例清单和工具箱清单不记
+	items, _, err := s.AddFor(context.Background(), Draft, "fabric", "1.20.1", []string{"aaa"})
+	if err != nil || len(items) != 1 || items[0].PickedCore != "fabric" || items[0].PickedMC != "1.20.1" {
+		t.Fatalf("草稿清单应记下核心和版本：%+v %v", items, err)
+	}
+	instItems, _, err := s.AddFor(context.Background(), "生存服", "fabric", "1.20.1", []string{"aaa"})
+	if err != nil || len(instItems) != 1 || instItems[0].PickedCore != "" || instItems[0].PickedMC != "" {
+		t.Fatalf("实例清单不应记 pickedCore/pickedMc：%+v %v", instItems, err)
+	}
+	tbItems, _, err := s.AddFor(context.Background(), Toolbox, "fabric", "1.20.1", []string{"aaa"})
+	if err != nil || len(tbItems) != 1 || tbItems[0].PickedCore != "" || tbItems[0].PickedMC != "" {
+		t.Fatalf("工具箱清单不应记 pickedCore/pickedMc：%+v %v", tbItems, err)
+	}
+
+	// 记下目标服务器，重新加载后仍在
+	if err := s.SetDraftInst("新模组服"); err != nil {
+		t.Fatal(err)
+	}
+	s2 := New(dir, mr.srv.URL)
+	if s2.DraftInst() != "新模组服" {
+		t.Fatalf("重读后 draftInst 应为 新模组服，实际 %q", s2.DraftInst())
+	}
+	if d := s2.List(Draft); len(d) != 1 || d[0].PickedCore != "fabric" || d[0].PickedMC != "1.20.1" {
+		t.Fatalf("重读后草稿项核心版本丢失：%+v", d)
+	}
+
+	// 把草稿清单最后一项移掉：draftInst 自动清掉（盘上也不再写）
+	if _, err := s2.Remove(Draft, "aaa"); err != nil {
+		t.Fatal(err)
+	}
+	if s2.DraftInst() != "" {
+		t.Fatalf("草稿清单空了以后 draftInst 应自动清掉，实际 %q", s2.DraftInst())
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "cart.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "draftInst") {
+		t.Fatalf("草稿清单空了以后 cart.json 不应残留 draftInst：%s", raw)
+	}
+
+	// 再加一项并记目标服务器，用 ClearAll 清空后同样跟着清掉
+	if _, _, err := s2.AddFor(context.Background(), Draft, "paper", "1.21.4", []string{"aaa"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s2.SetDraftInst("第二台服"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s2.ClearAll(Draft); err != nil {
+		t.Fatal(err)
+	}
+	if s2.DraftInst() != "" {
+		t.Fatalf("ClearAll 清空草稿清单后 draftInst 应清掉，实际 %q", s2.DraftInst())
 	}
 }

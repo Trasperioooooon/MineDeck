@@ -48,8 +48,8 @@ window.MDWorldImport = (() => {
     if (activeUpload && !activeUpload.alive()) activeUpload.abort();
   }, 0));
 
-  /* 这一页发起的换地图任务（服务器名 → 任务）：切到别的标签再回来还能接着看进度。记在 sessionStorage 里，刷新页面也认得。
-     后端的世界状态里没有任务编号，别的设备上发起的这里看不到，只能看到「正在换地图」的提示。 */
+  /* 正在看的换地图任务（服务器名 → 任务）：切到别的标签再回来还能接着看进度。记在 sessionStorage 里，刷新页面也认得。
+     别的设备上发起的，世界状态里带着它的编号（task），首页一看到就接上（A53）。 */
   const LIVE_KEY = "md_world_tasks";
   const live = (() => { try { return JSON.parse(sessionStorage.getItem(LIVE_KEY) || "{}") || {}; } catch { return {}; } })();
   const saveLive = () => { try { sessionStorage.setItem(LIVE_KEY, JSON.stringify(live)); } catch { /* 存不了就只在这一次页面里记着 */ } };
@@ -499,6 +499,14 @@ window.MDWorldImport = (() => {
       const s = JSON.stringify(next);
       if (!force && s === sig) return; // 没变化就不重画，免得打断正在看的人
       st = next; sig = s;
+      // 有换地图正在跑、这一页还没在看它（别的设备发起的，或者换了浏览器标签）：接上它的进度（A53）。
+      // 后端在任务显示结束之前就不再带着它，看完点「完成」回到这里不会又被接回去
+      if (st.task && st.task.id && !live[name]) {
+        live[name] = { taskId: st.task.id, kind: st.task.kind === "restore" ? "restore" : "import" };
+        saveLive();
+        showTask();
+        return;
+      }
       drawHome();
     };
     const busyHTML = () => {
@@ -546,10 +554,10 @@ window.MDWorldImport = (() => {
         <div class="group has-ico wi-group" id="wi-points">${pts.map(pointRow).join("") ||
           `<div class="row-item"><div class="ri-head"><div class="ri-main"><div class="ri-sub">还没有恢复点。导入地图时，原来的世界会留在这里。</div></div></div></div>`}</div>
         ${pts.length ? `<div class="hint wi-lead">恢复点是原样留下的世界文件夹，不在普通备份里，也不会被定时备份挤掉。它一直留着，直到你在这里删掉。</div>` : ""}`;
-      /* 自动刷新要省着来：后端每次都要把各个恢复点的文件夹数一遍大小。平时十来秒一次，正在换地图（或卡住）时三秒一次；
+      /* 三秒刷新一次：恢复点的大小后端算过一次就缓存起来了（A53），不再每次都数文件夹；别的设备发起的换地图也靠它及时接上。
          页头看到服务器状态变了（刚停下、刚启动）就马上刷一次，「恢复导入前的地图」能不能点跟着它走 */
       let n = 0;
-      tick = () => { n++; if (info.status !== st.status || n % (st.busy ? 2 : 8) === 0) loadHome(false); };
+      tick = () => { n++; if (info.status !== st.status || n % 2 === 0) loadHome(false); };
       $("#wi-start", body).onclick = () => startFlow();
       const retry = $("#wi-retry", body);
       if (retry) retry.onclick = async () => {
@@ -709,8 +717,9 @@ window.MDWorldImport = (() => {
       const poll = async () => {
         if (gone() || ended || loading) return;
         loading = true;
-        let t;
-        try { t = await api(`/api/tasks/${E(job.taskId)}`); }
+        let t, ws = null;
+        // 导入时一并查世界状态：能不能取消听后端的（task.canCancel / cancelWhy，A53）
+        try { [t, ws] = await Promise.all([api(`/api/tasks/${E(job.taskId)}`), isImport ? api(base).catch(() => null) : null]); }
         catch (e) {
           if (gone()) return;
           if (e.status === 404) { // 任务记录没了（程序重启过）：回首页，看磁盘上实际是什么状态
@@ -737,18 +746,22 @@ window.MDWorldImport = (() => {
         }
         const lg = $("#wi-task-log", body), text = (t.log || []).join("\n");
         if (lg.textContent !== text) lg.textContent = text;
-        // 取消只在复制到暂存区之前和期间有用：开始停服、换地图以后，后端会换完或者自己退回
+        // 取消只在复制到暂存区之前和期间有用，而且只有发起的人能取消：后端的世界状态里说了算，不能时按钮变灰、写出原因。
+        // 查不到它（请求失败、任务刚收尾）时按步骤估：一个步骤都还没开始，或者还在复制，算能取消
+        const ctl = ws && ws.task && ws.task.id === job.taskId ? ws.task : null;
         const run = steps.findIndex(s => s.status === "running");
-        // 一个步骤都还没开始（任务刚建好）也算还能取消
         const notYet = run < 0 && !steps.some(s => s.status === "done");
-        const canCancel = isImport && !t.ended && (notYet || (run >= 0 && run <= 1));
+        const canCancel = isImport && !t.ended && (ctl ? !!ctl.canCancel : notYet || (run >= 0 && run <= 1));
+        const why = canCancel ? "" : (ctl && ctl.cancelWhy) || "已经开始换地图，不能取消了：会换完，出错就自动退回原来的世界。";
         const acts = $("#wi-task-acts", body);
-        const sigNow = t.ended ? "ended" : canCancel ? (cancelling ? "cancelling" : "cancel") : isImport ? "late" : "busy";
+        const sigNow = t.ended ? "ended" : isImport ? `${canCancel}|${cancelling}|${why}` : "busy";
         if (sigNow !== actsSig) {
           actsSig = sigNow;
-          acts.innerHTML = t.ended ? "" : canCancel
-            ? `<span class="hint">地图还在复制，原来的世界没有动。</span><span class="grow"></span><button type="button" class="btn" id="wi-cancel"${cancelling ? " disabled" : ""}>${cancelling ? "正在取消…" : "取消导入"}</button>`
-            : `<span class="warn-text">${icon("warn")} ${isImport ? "已经开始换地图，不能取消了：会换完，出错就自动退回原来的世界。" : "正在换回，请不要关闭程序。"}</span>`;
+          acts.innerHTML = t.ended ? "" : isImport
+            ? (canCancel ? `<span class="hint" id="wi-cancel-why">地图还在复制，原来的世界没有动。</span>`
+              : `<span class="warn-text" id="wi-cancel-why">${icon("warn")} ${esc(why)}</span>`) +
+              `<span class="grow"></span><button type="button" class="btn" id="wi-cancel" aria-describedby="wi-cancel-why"${canCancel && !cancelling ? "" : " disabled"}>${cancelling ? "正在取消…" : "取消导入"}</button>`
+            : `<span class="warn-text">${icon("warn")} 正在换回，请不要关闭程序。</span>`;
           const c = $("#wi-cancel", body);
           if (c) c.onclick = async () => {
             cancelling = true; c.disabled = true; c.textContent = "正在取消…";

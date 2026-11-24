@@ -138,14 +138,22 @@ func log4jXMLOnDisk(dir, name string) (exists, official bool) {
 	return true, ok && strings.EqualFold(hex.EncodeToString(h.Sum(nil)), sum)
 }
 
-// log4jXMLConflictNote 要补、要换上的配置文件名已经被一份不是官方的文件占着时说的那一句（不带 [MineDeck] 前缀）。
-func log4jXMLConflictNote(mc, xml string, fix log4jFix) string {
+// log4jXMLConflictParts 要补、要换上的配置文件名已经被一份不是官方的文件占着时的标题和正文（不带 ⚠ 前缀）。
+func log4jXMLConflictParts(mc, xml string, fix log4jFix) (title, body string) {
 	what, act := "没有套上 Mojang 的日志配置", "补上引用"
 	if fix == log4jFixSwap {
 		what, act = "还引用着 1.12 ~ 1.16.5 的那份日志配置，对这个版本不起作用", "换上引用"
 	}
-	return fmt.Sprintf("⚠ log4shell 防护：这台 %s 的服务器%s，等于没防。服务器文件夹里已经有一份 %s，"+
-		"内容和官方的不一样（可能是自己改过的），MineDeck 没有覆盖它，也没有替它%s。要用官方的那份，把这个文件改名或挪走以后重开 MineDeck", mc, what, xml, act)
+	title = fmt.Sprintf("log4shell 防护：这台 %s 的服务器%s，等于没防", mc, what)
+	body = fmt.Sprintf("服务器文件夹里已经有一份 %s，内容和官方的不一样（可能是自己改过的），MineDeck 没有覆盖它，也没有替它%s。"+
+		"要用官方的那份，把这个文件改名或挪走以后重开 MineDeck", xml, act)
+	return title, body
+}
+
+// log4jXMLConflictNote 要补、要换上的配置文件名已经被一份不是官方的文件占着时说的那一句（不带 [MineDeck] 前缀）。
+func log4jXMLConflictNote(mc, xml string, fix log4jFix) string {
+	title, body := log4jXMLConflictParts(mc, xml, fix)
+	return "⚠ " + title + "。" + body
 }
 
 // log4jQuietNote CraftBukkit 系套着 Mojang 的配置时，控制台里说明为什么没有输出（不带 [MineDeck] 前缀）。

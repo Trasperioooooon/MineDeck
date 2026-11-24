@@ -3,6 +3,7 @@ package inst
 import (
 	"archive/zip"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"minedeck/internal/app"
+	"minedeck/internal/java"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/tasks"
 )
@@ -25,7 +27,7 @@ func adoptEnv(t *testing.T) (*Manager, string) {
 	app.BackupsDir = filepath.Join(app.Base, "backups")
 	app.RuntimesDir = filepath.Join(app.Base, "runtimes")
 	setConfig(t, func(c *app.Config) {
-		c.ServersDir, c.BackupsDir, c.Roots, c.BackupRoots, c.InstanceDirs = "", "", nil, nil, nil
+		c.ServersDir, c.BackupsDir, c.Roots, c.BackupRoots, c.InstanceDirs, c.CreatingRoots = "", "", nil, nil, nil, nil
 	})
 	return &Manager{insts: map[string]*Instance{}, creating: map[string]bool{}, Tasks: tasks.NewManager()}, t.TempDir()
 }
@@ -150,6 +152,42 @@ func TestScanServerDir(t *testing.T) {
 			check: func(t *testing.T, sc *AdoptScan) {
 				if len(sc.Targets) != 2 || sc.Targets[1].Core != "vanilla" {
 					t.Errorf("%+v", sc.Targets)
+				}
+			}},
+		// A37：很多人会顺手把原版 jar 留在 Paper 旁边
+		{name: "Paper 旁边放着原版 server.jar：按 Paper 预填，不说「不止一种」，说一句旁边那个原版的没有用",
+			files: map[string]string{
+				"paper-1.21.1-132.jar": "zip:" + manifestOf("io.papermc.paperclip.Main") + "|META-INF/versions.list=abc\t1.21.1\t1.21.1/paper-1.21.1.jar\n",
+				"server.jar":           vanilla21,
+			},
+			target: "jar:paper-1.21.1-132.jar", core: "paper", mc: "1.21.1", java: 21,
+			check: func(t *testing.T, sc *AdoptScan) {
+				notes := strings.Join(sc.Notes, "\n")
+				if strings.Contains(notes, "不止一种") || !strings.Contains(notes, "旁边的 server.jar 是原版，没有用它") {
+					t.Errorf("%v", sc.Notes)
+				}
+			}},
+		{name: "Paper 和 Fabric 放在一起：照旧提示不止一种服务端",
+			files: map[string]string{
+				"paper-1.21.1-132.jar": "zip:" + manifestOf("io.papermc.paperclip.Main") + "|META-INF/versions.list=abc\t1.21.1\t1.21.1/paper-1.21.1.jar\n",
+				"fabric-server-mc.1.21.1-loader.0.16.5-launcher.1.0.1.jar": "zip:" + manifestOf("net.fabricmc.installer.ServerLauncher") + "|install.properties=fabric-loader-version=0.16.5\ngame-version=1.21.1\n",
+			},
+			target: "jar:fabric-server-mc.1.21.1-loader.0.16.5-launcher.1.0.1.jar", core: "fabric", mc: "1.21.1", build: "0.16.5",
+			check: func(t *testing.T, sc *AdoptScan) {
+				if notes := strings.Join(sc.Notes, "\n"); !strings.Contains(notes, "不止一种") || strings.Contains(notes, "是原版，没有用它") {
+					t.Errorf("%v", sc.Notes)
+				}
+			}},
+		{name: "Paper 旁边放着两个原版 jar：照旧提示不止一种服务端",
+			files: map[string]string{
+				"paper-1.21.1-132.jar":        "zip:" + manifestOf("io.papermc.paperclip.Main") + "|META-INF/versions.list=abc\t1.21.1\t1.21.1/paper-1.21.1.jar\n",
+				"server.jar":                  vanilla21,
+				"minecraft_server.1.21.1.jar": vanilla21,
+			},
+			target: "jar:paper-1.21.1-132.jar", core: "paper", mc: "1.21.1", java: 21,
+			check: func(t *testing.T, sc *AdoptScan) {
+				if notes := strings.Join(sc.Notes, "\n"); !strings.Contains(notes, "不止一种") {
+					t.Errorf("%v", sc.Notes)
 				}
 			}},
 		{name: "安装器生成的 fabric-server-launch.jar 自己不带版本：从旁边的原版 jar 取",
@@ -586,5 +624,68 @@ func TestReleaseThenAdoptBack(t *testing.T) {
 	}
 	if got := app.InstanceDirs(); len(got) != 0 {
 		t.Errorf("删掉以后单独登记还留着：%v", got)
+	}
+}
+
+// 接管时指定的是 MineDeck 的便携 Java，而这套正在卸载（A34）：卸载已经查完「没有服务器配着、没有正在建的」，还没删，
+// 这时另一个页面的接管从头走到尾。接管要被拒、不登记、文件夹不动，卸载照常删掉。
+func TestAdoptRefusesPortableJavaBeingRemoved(t *testing.T) {
+	m, user := adoptEnv(t)
+	exe := java.Exe(21)
+	writeTree(t, filepath.Dir(exe), map[string]string{filepath.Base(exe): ""})
+	dir := filepath.Join(user, "srv")
+	writeTree(t, dir, map[string]string{"server.jar": vanilla21, "eula.txt": "eula=true\n"})
+	req := AdoptReq{Dir: dir, Name: "接管的服", Core: mcsrc.CoreVanilla, MC: "1.21.1", LaunchTarget: "jar:server.jar", JavaMajor: 21, JavaPath: exe}
+
+	var adoptLog string
+	var adoptErr error
+	removeErr := java.RemovePortable(21, func(d string) error {
+		if m.HasCreating() { // 和 java.remove 操作的查法一样：先看有没有正在建的，再看有没有服务器配着它
+			return errors.New("有服务器正在创建")
+		}
+		for _, i := range m.List() {
+			if _, p := i.JavaSnapshot(); within(p, d) {
+				return errors.New("有服务器配着它")
+			}
+		}
+		adoptLog, adoptErr = adopt(t, m, req) // 查完了、放行，删之前接管走完
+		return nil
+	})
+	if removeErr != nil {
+		t.Fatalf("卸载应照常走完：%v", removeErr)
+	}
+	if adoptErr == nil || !strings.Contains(adoptErr.Error(), "正在卸载") {
+		t.Fatalf("这套 Java 正在卸载，接管应被拒：%v\n%s", adoptErr, adoptLog)
+	}
+	if _, err := m.Get("接管的服"); err == nil {
+		t.Fatal("被拒的接管不该登记")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "instance.json")); err == nil {
+		t.Fatal("被拒的接管不该往文件夹里写东西")
+	}
+	if java.IsInstalled(21) {
+		t.Fatal("卸载应照常删掉这套 Java")
+	}
+}
+
+// 接管时指定的便携 Java 卸到一半（java.exe 还在、带着「没装完」记号）：不接管，不登记（A34）。
+func TestAdoptRefusesHalfRemovedPortableJava(t *testing.T) {
+	m, user := adoptEnv(t)
+	exe := java.Exe(21)
+	writeTree(t, filepath.Dir(exe), map[string]string{filepath.Base(exe): ""})
+	if err := os.WriteFile(java.Dir(21)+".incomplete", nil, 0o644); err != nil { // 卸载删到一半失败时留下的记号
+		t.Fatal(err)
+	}
+	if got := java.IncompletePortable(); !slices.Equal(got, []int{21}) {
+		t.Fatalf("应造出一套卸到一半的 Java 21：%v", got)
+	}
+	dir := filepath.Join(user, "srv")
+	writeTree(t, dir, map[string]string{"server.jar": vanilla21, "eula.txt": "eula=true\n"})
+	_, err := adopt(t, m, AdoptReq{Dir: dir, Name: "接管的服", Core: mcsrc.CoreVanilla, MC: "1.21.1", LaunchTarget: "jar:server.jar", JavaMajor: 21, JavaPath: exe})
+	if err == nil || !strings.Contains(err.Error(), "没装完整") {
+		t.Fatalf("卸到一半的便携 Java 不该拿来接管：%v", err)
+	}
+	if _, err := m.Get("接管的服"); err == nil {
+		t.Fatal("被拒的接管不该登记")
 	}
 }

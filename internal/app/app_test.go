@@ -115,6 +115,49 @@ func TestRememberInstanceDir(t *testing.T) {
 	}
 }
 
+// 「正在建的位置」（A38）：已经是扫描根的不记；去重不看大小写和末尾的分隔符；重启后还在；记了不会变成扫描根；
+// 去掉以后不再有；记、去都不写到别处早先拿到的那份配置上。
+func TestCreatingRoots(t *testing.T) {
+	tempBase(t)
+	conf, old := filepath.Join(Base, "D", "MC"), filepath.Join(Base, "old")
+	setServersDir(t, conf)
+	RememberRoot(old)
+	a, b := filepath.Join(Base, "new", "A"), filepath.Join(Base, "new", "B")
+	for _, d := range []string{a, a + string(filepath.Separator), strings.ToUpper(a), b, "", ServersDir, conf, strings.ToUpper(old)} {
+		RememberCreatingRoot(d)
+	}
+	restart()
+	if got := CreatingRoots(); !slices.Equal(got, []string{a, b}) {
+		t.Fatalf("CreatingRoots = %v，应为 [%s %s]", got, a, b)
+	}
+	if roots := InstanceRoots(); slices.Contains(roots, a) || slices.Contains(roots, b) {
+		t.Fatalf("正在建的位置不该成为扫描根：%v", roots)
+	}
+
+	held := GetConfig().CreatingRoots // 别处早先拿到的一份配置
+	c := filepath.Join(Base, "new", "C")
+	RememberCreatingRoot(c)
+	ForgetCreatingRoots(c)
+	spare := GetConfig().CreatingRoots
+	RememberCreatingRoot(c)
+	if got := spare[:cap(spare)]; len(got) > len(spare) && got[len(spare)] == c {
+		t.Errorf("记的时候写进了别处手里那份配置的底层数组：%v", got)
+	}
+	ForgetCreatingRoots(strings.ToUpper(a)+string(filepath.Separator), c, filepath.Join(Base, "没记过的"))
+	if !slices.Equal(held, []string{a, b}) {
+		t.Errorf("去掉的时候改到了别处手里的那份配置：%v", held)
+	}
+	restart()
+	if got := CreatingRoots(); !slices.Equal(got, []string{b}) {
+		t.Fatalf("去掉 A、C 之后 CreatingRoots = %v，应为 [%s]", got, b)
+	}
+	ForgetCreatingRoots(b)
+	restart()
+	if raw, err := os.ReadFile(configPath()); err != nil || strings.Contains(string(raw), "creatingRoots") {
+		t.Fatalf("清空以后 config.json 里不该再有 creatingRoots：%s %v", raw, err)
+	}
+}
+
 func TestParseHexColor(t *testing.T) {
 	for in, want := range map[string]string{"#202020": "#202020", "#EAE5D7": "#eae5d7", "#0e1210": "#0e1210"} {
 		if got, ok := ParseHexColor(in); !ok || got != want {

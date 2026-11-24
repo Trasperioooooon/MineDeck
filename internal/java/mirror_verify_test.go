@@ -8,11 +8,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -257,6 +261,151 @@ func TestJavaZipLessComparesVersionThenBuild(t *testing.T) {
 		if !javaZipLess(c.older, c.newer) || javaZipLess(c.newer, c.older) {
 			t.Errorf("应判 %s 比 %s 旧", c.older, c.newer)
 		}
+	}
+}
+
+// dialLog offlineNet 记下的拨号：拨过哪些主机（本机的 httptest 服务不算）。
+type dialLog struct {
+	mu    sync.Mutex
+	hosts []string
+}
+
+func (d *dialLog) add(host string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.hosts = append(d.hosts, host)
+}
+
+func (d *dialLog) count(host string) int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	n := 0
+	for _, h := range d.hosts {
+		if h == host {
+			n++
+		}
+	}
+	return n
+}
+
+// offlineNet 把 dl.Client 换成拨号可控的客户端：本机的 httptest 服务照常连；hang 里的主机像被墙的地址一样挂住，
+// 等到这一问的时限；别的主机一律当连接被拒。测试里不会连到外面去。
+func offlineNet(t *testing.T, hang ...string) *dialLog {
+	t.Helper()
+	log := &dialLog{}
+	stop := make(chan struct{})
+	dial := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, _, _ := net.SplitHostPort(addr)
+		if host == "127.0.0.1" {
+			return (&net.Dialer{}).DialContext(ctx, network, addr)
+		}
+		log.add(host)
+		if slices.Contains(hang, host) {
+			select {
+			case <-ctx.Done():
+			case <-stop:
+			}
+			return nil, &net.OpError{Op: "dial", Net: network, Err: os.ErrDeadlineExceeded}
+		}
+		return nil, &net.OpError{Op: "dial", Net: network, Err: errors.New("connection refused")}
+	}
+	old := dl.Client
+	dl.Client = &http.Client{Transport: &http.Transport{DialContext: dial}}
+	t.Cleanup(func() { close(stop); dl.Client = old })
+	return log
+}
+
+// sourcesIn 下载源设成 source（auto / official），缓存放进临时目录；用完改回 auto。
+func sourcesIn(t *testing.T, source string) {
+	t.Helper()
+	runtimesIn(t)
+	oldCache, oldBase := app.CacheDir, app.Base
+	app.CacheDir = filepath.Join(t.TempDir(), "cache")
+	app.Base = t.TempDir() // 改下载源会存配置：存进临时目录
+	if _, err := app.UpdateConfig(func(c *app.Config) error { c.Source = source; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = app.UpdateConfig(func(c *app.Config) error { c.Source = "auto"; return nil })
+		app.CacheDir, app.Base = oldCache, oldBase
+	})
+}
+
+// 清华镜像和 Adoptium 接口都连不上（或者下载源选「官方」而 Adoptium 接口连不上）时：第一次问 Adoptium 的接口就确认连不上，
+// 同一个主机的下一问（jdk）不再问，很快走到 Mojang 运行时，任务日志里说明（A35）。原来这一步按默认时限等，两问各两轮三十秒。
+func TestEnsureSkipsAdoptiumWhenUnreachable(t *testing.T) {
+	const tunaHost, apiHost = "mirror.tuna.example", "api.adoptium.example"
+	for name, source := range map[string]string{"两个源都连不上": "auto", "下载源选官方": "official"} {
+		t.Run(name, func(t *testing.T) {
+			sourcesIn(t, source)
+			dials := offlineNet(t, apiHost)
+			oldTUNA, oldAdopt, oldWait := tunaAdoptiumBase, adoptiumAPIBase, adoptiumIndexWait
+			tunaAdoptiumBase, adoptiumAPIBase, adoptiumIndexWait = "https://"+tunaHost+"/Adoptium", "https://"+apiHost+"/v3/assets", 300*time.Millisecond
+			t.Cleanup(func() { tunaAdoptiumBase, adoptiumAPIBase, adoptiumIndexWait = oldTUNA, oldAdopt, oldWait })
+
+			var logMu sync.Mutex
+			var logs []string
+			logf := func(f string, a ...any) { logMu.Lock(); logs = append(logs, fmt.Sprintf(f, a...)); logMu.Unlock() }
+			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			defer cancel()
+			start := time.Now()
+			_, err := Ensure(ctx, 17, logf, nil)
+			if err == nil {
+				t.Fatal("哪个源都连不上，不该装成")
+			}
+			if d := time.Since(start); d > 3*time.Second {
+				t.Fatalf("Adoptium 接口连不上时等了 %v，应很快改用 Mojang 运行时", d)
+			}
+			if n := dials.count(apiHost); n != 1 {
+				t.Fatalf("Adoptium 的接口应只问一次（jdk 那一问跳过），实际拨了 %d 次", n)
+			}
+			if dials.count("launchermeta.mojang.com") == 0 {
+				t.Fatalf("应走到 Mojang 运行时那一步，拨过的主机：%v", dials.hosts)
+			}
+			if source == "official" && dials.count(tunaHost) != 0 {
+				t.Fatal("下载源选官方时不该问清华镜像")
+			}
+			if all := strings.Join(logs, "\n"); !strings.Contains(all, "Adoptium 的接口连不上，直接改用 Mojang") {
+				t.Fatalf("任务日志里应说明直接改用 Mojang 运行时：\n%s", all)
+			}
+		})
+	}
+}
+
+// Adoptium 的接口回了话、只是没有（404）：不算连不上，清华那条路要不到校验值以后，Adoptium 官方源那条路照常试，jre 没有再问 jdk（A35）。
+func TestEnsureKeepsAdoptiumWhenItReplies(t *testing.T) {
+	sourcesIn(t, "auto")
+	offlineNet(t)
+	const name = "OpenJDK17U-jre_x64_windows_hotspot_17.0.14_7.zip"
+	tunaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/17/jre/x64/windows/" {
+			_, _ = w.Write([]byte(`<a href="` + name + `">z</a>`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer tunaSrv.Close()
+	var mu sync.Mutex
+	var asked []string
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		asked = append(asked, r.URL.Path+"?"+r.URL.RawQuery)
+		mu.Unlock()
+		http.NotFound(w, r)
+	}))
+	defer apiSrv.Close()
+	oldTUNA, oldAdopt := tunaAdoptiumBase, adoptiumAPIBase
+	tunaAdoptiumBase, adoptiumAPIBase = tunaSrv.URL, apiSrv.URL
+	t.Cleanup(func() { tunaAdoptiumBase, adoptiumAPIBase = oldTUNA, oldAdopt })
+
+	if _, err := Ensure(context.Background(), 17, func(string, ...any) {}, nil); err == nil {
+		t.Fatal("哪个源都没有，不该装成")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	all := strings.Join(asked, "\n")
+	if !strings.Contains(all, "feature_releases") || !strings.Contains(all, "image_type=jdk") {
+		t.Fatalf("接口回了 404 不算连不上：校验值的两问和官方源的 jre、jdk 都该问到，实际：\n%s", all)
 	}
 }
 

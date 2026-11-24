@@ -1568,7 +1568,8 @@ function cpMockState(state, b) {
 //   searchFail / addFail / localFail / depsFail: 报错文案（搜索和热门清单 / 加 Modrinth 项目 / 从电脑添加 / 检查前置）,
 //   searchDelay: 搜索和热门清单晚多少毫秒才回（看慢的时候挡不挡别的操作）, noDeps: true 依赖检查返回全空,
 //   loadFail: "locked" | "corrupt" cart.json 在却没读出来（被占着 / 内容坏了，说法见 MODCART_LOAD_FAIL）,
-//   localUploadFail: "unknown-disk" 从电脑添加时查不到接收上传文件所在磁盘的剩余空间（回 503，不改清单）}
+//   localUploadFail: "unknown-disk" 从电脑添加时查不到接收上传文件所在磁盘的剩余空间（回 503，不改清单）,
+//   forgetFail: 原因 删服务器时这台的清单清不掉、也记不下来（同后端 ForgetInstance 报错：服务器照样删，结果里带 note）}
 // 响应里的 modcart.lastInstall 是上一次「安装购物车」的请求（inst、withDeps、includeDraft、expect、expectLocal），
 // modcart.searches 是到现在为止的搜索请求（q、category、offset）。
 // 本地文件没有真的 jar 可读，按文件名里的字样仿几种情况（同真后端 modcart.deps 的 local / manual / conflicts）：
@@ -1601,13 +1602,33 @@ const PLUGIN_CATALOG = [
 ];
 const PLUGIN_CORES = new Set(["paper", "purpur", "leaves", "folia", "velocity", "waterfall"]); // 搜出来的是插件，其余是模组（同后端 resourceSpec：Mohist、Banner 按模组算）
 const MODCART_PAGE = 20, MODCART_MAX_OFFSET = 80, MODCART_MAX_ITEMS = 50; // 同后端 modcart.PageSize / MaxOffset / MaxItems
-const modCartItem = id => {
+const modCartItem = (id, pickedCore = "", pickedMc = "") => {
   const m = [...MOD_CATALOG, ...PLUGIN_CATALOG].find(x => x.projectId === id) || { slug: id, title: id, kind: "mod", license: "" };
-  return { projectId: id, slug: m.slug, title: m.title, icon: "", kind: m.kind, license: m.license, addedAt: new Date().toISOString() };
+  return { projectId: id, slug: m.slug, title: m.title, icon: "", kind: m.kind, license: m.license,
+    ...(pickedCore ? { pickedCore } : {}), ...(pickedMc ? { pickedMc } : {}), addedAt: new Date().toISOString() };
 };
 function newModCartState() {
-  return { draft: [], insts: {}, localDraft: [], localInsts: {}, searchFail: "", addFail: "", localFail: "", localUploadFail: "", depsFail: "", searchDelay: 0, noDeps: false,
-    loadFail: "", queries: 0, lastInstall: null, searches: [] };
+  return { draft: [], insts: {}, localDraft: [], localInsts: {}, draftInst: "", searchFail: "", addFail: "", localFail: "", localUploadFail: "", depsFail: "", depsDelay: 0, searchDelay: 0, noDeps: false,
+    loadFail: "", forgetFail: "", queries: 0, depsQueries: 0, lastInstall: null, searches: [], pendingRemovals: [] };
+}
+/* 删服务器时清掉这台的清单（Modrinth 项目、本地文件）和指向它的记号（同 modcart.ForgetInstance，B08）。
+   cart.json 读不出来（loadFail）时清不了，先记进 pendingRemovals，读出来以后头一次用清单时补清（A30）。
+   读不出来期间清单加不进东西，补清时这台的清单里只有删服之前的，整个清掉就和真后端按加入时间比的结果一样。
+   清不掉也记不下来（forgetFail）时清单不动，返回删服结果里的 note（同 instance.delete），其余情况返回空串 */
+function forgetCartOf(state, name) {
+  const mc = state.modcart;
+  if (mc.forgetFail) return "服务器已经删了，但待装清单里这台的东西没清掉：" + mc.forgetFail + "。以后再建一台同名的服务器，打开它的待装清单看一眼，用不上的清空就行";
+  if (MODCART_LOAD_FAIL[mc.loadFail]) { if (!mc.pendingRemovals.includes(name)) mc.pendingRemovals.push(name); return ""; }
+  delete mc.insts[name];
+  delete mc.localInsts[name];
+  if (mc.draftInst === name) mc.draftInst = "";
+  return "";
+}
+function settleCartRemovals(state) {
+  for (const name of state.modcart.pendingRemovals.splice(0)) forgetCartOf(state, name);
+}
+function syncDraftInst(state) {
+  if (!state.modcart.draft.length && !state.modcart.localDraft.length) state.modcart.draftInst = "";
 }
 function modCartMockState(state, b) {
   if (b.reset) state.modcart = newModCartState();
@@ -1635,18 +1656,42 @@ function modcartLocalWarn(loader, core) {
 /* 整张清单的样子（同后端 cartView）：items 是 Modrinth 项目，local 是本地文件，count 是 items 的个数，total 是两样合计 */
 function modcartView(state, inst, core) {
   const items = modcartBucket(state, inst), locals = modcartLocals(state, inst), c = modcartCore(state, inst, core);
-  return { count: items.length, total: items.length + locals.length, items,
+  return { count: items.length, total: items.length + locals.length,
+    ...(inst === "" && state.modcart.draftInst ? { draftInst: state.modcart.draftInst } : {}),
+    items,
     local: locals.map(lf => { const warn = modcartLocalWarn(lf.loader, c); return { ...lf, ...(warn ? { warn } : {}) }; }) };
 }
-/* 依赖检查：必装候选 Architectury、可选候选 Cloth Config，都进车之后就不再列（noDeps 时一律返回全空）。
-   本地文件按文件名里的字样仿几种情况，见本节开头。 */
-function modcartDeps(state, inst, core) {
-  const ids = new Set(modcartBucket(state, inst).map(x => x.projectId)), locals = modcartLocals(state, inst), c = modcartCore(state, inst, core);
+const loaderFamilyOf = c => (c === "fabric" || c === "banner") ? "fabric"
+  : (c === "forge" || c === "mohist") ? "forge"
+  : (c === "paper" || c === "purpur" || c === "leaves" || c === "folia") ? "bukkit" : (c || "");
+/* 依赖检查：JEI 缺必装前置 Architectury API，可选候选 Cloth Config API，都进车之后就不再列（noDeps 时一律返回全空）。
+   includeDraft=true 且给了实例名时把草稿车也并进来；核心生态对不上的项目放进 unresolved。 */
+function modcartDeps(state, inst, core, includeDraft = false) {
+  let cartItems = [...modcartBucket(state, inst)], locals = [...modcartLocals(state, inst)];
+  if (includeDraft && inst && inst !== TOOLBOX_CART) {
+    for (const it of state.modcart.draft) if (!cartItems.some(x => x.projectId === it.projectId)) cartItems.push(it);
+    for (const lf of state.modcart.localDraft) if (!locals.some(x => x.sha1 === lf.sha1)) locals.push(lf);
+  }
+  const c = modcartCore(state, inst, core);
   const empty = { files: [], missing: [], optional: [], conflicts: [], localHits: [], unresolved: [], local: [], manual: [] };
   if (state.modcart.noDeps) return empty;
+  const wantKind = c ? modcartType(state, c) : "";
+  const compatItems = [], unresolved = [];
+  for (const it of cartItems) {
+    const coreConflict = c && ((it.kind && wantKind && it.kind !== wantKind) || (it.pickedCore && loaderFamilyOf(it.pickedCore) !== loaderFamilyOf(c)));
+    if (coreConflict) unresolved.push({ projectId: it.projectId, title: it.title, reason: `没有支持 ${c} 的版本` });
+    else compatItems.push(it);
+  }
+  const ids = new Set(compatItems.map(x => x.projectId));
   const miss = id => !ids.has(id);
-  const out = { ...empty,
-    missing: miss("architectury") && ids.size ? [{ project: { projectId: "architectury", title: "Architectury API", versionNumber: "9.2.14", fileName: "architectury-9.2.14-forge.jar", size: 580602, license: "LGPL-3.0" }, dependencyOf: "JEI" }] : [],
+  const missing = miss("architectury") && ids.has("jei")
+    ? [{ project: { projectId: "architectury", title: "Architectury API", versionNumber: "9.2.14", fileName: "architectury-9.2.14-forge.jar", size: 580602, license: "LGPL-3.0" }, dependencyOf: "JEI" }]
+    : [];
+  const files = [
+    ...compatItems.map(it => ({ projectId: it.projectId, title: it.title, versionNumber: "1.0.0", fileName: `${it.slug || it.projectId}-1.0.0.jar`, size: 409600, license: it.license || "MIT" })),
+    ...missing.map(m => ({ ...m.project, fromDep: true, dependencyOf: m.dependencyOf })),
+  ];
+  const out = { ...empty, files, missing, unresolved,
     optional: miss("cloth-config") && ids.size ? [{ project: { projectId: "cloth-config", title: "Cloth Config API", versionNumber: "11.3.0", fileName: "cloth-config-11.3.0-forge.jar", size: 512334, license: "LGPL-3.0" }, dependencyOf: "Create" }] : [],
   };
   for (const lf of locals) {
@@ -1717,24 +1762,39 @@ async function modcartHandler(state, req, res, p, m, u) {
   }
   const unread = MODCART_LOAD_FAIL[mc.loadFail];
   if (unread) return err(res, 503, unread.raw, unread.hint);
+  settleCartRemovals(state); // 先补清读不出来那段时间删掉的服务器，再办这次请求（同 modcart.retryLoadLocked）
   if (p === "/api/modcart" && m === "GET") return ok(res, modcartView(state, qCart, q.get("core")));
   if (p === "/api/modcart" && m === "POST") {
-    const b = await readBody(req);
+    const b = await readBody(req), key = cartOf(b);
     if (mc.addFail) return err(res, 500, mc.addFail);
-    const cart = bucket(cartOf(b));
-    for (const id of (b.projectIds || [])) if (!cart.some(x => x.projectId === id)) cart.push(modCartItem(id));
-    return ok(res, modcartView(state, cartOf(b), b.core));
+    if (!(b.projectIds || []).length) return err(res, 400, "没有给要加入的项目");
+    const cart = bucket(key);
+    // 草稿车记下挑的时候的核心和版本（同后端 draftOrigin）：核心归一成小写，认不出来的连同版本都不记
+    const pickedCore = String(b.core || "").trim().toLowerCase(), known = key === "" && CORES.some(c => c.id === pickedCore);
+    for (const id of b.projectIds) {
+      if (!cart.some(x => x.projectId === id)) cart.push(modCartItem(id, known ? pickedCore : "", known ? String(b.mc || "").trim() : ""));
+    }
+    return ok(res, modcartView(state, key, b.core));
+  }
+  // 记下草稿车是给哪台新服务器挑的（同 modcart.draft.target，仅人工）：草稿车空着时不记
+  if (p === "/api/modcart/draft/target" && m === "POST") {
+    const b = await readBody(req), di = String(b.inst || "").trim();
+    if (!di) return err(res, 400, "没有给服务器名称");
+    if (mc.draft.length + mc.localDraft.length > 0) mc.draftInst = di;
+    return ok(res, modcartView(state, "", ""));
   }
   if (p === "/api/modcart/remove" && m === "POST") {
-    const b = await readBody(req), cart = bucket(cartOf(b)), af = cart.filter(x => x.projectId !== b.projectId);
+    const b = await readBody(req), key = cartOf(b), cart = bucket(key), af = cart.filter(x => x.projectId !== b.projectId);
     cart.length = 0; cart.push(...af);
-    return ok(res, modcartView(state, cartOf(b), b.core));
+    if (key === "") syncDraftInst(state);
+    return ok(res, modcartView(state, key, b.core));
   }
   // 清空（界面上是人点的）：Modrinth 项目和本地文件都清
   if (p === "/api/modcart/clear" && m === "POST") {
-    const b = await readBody(req);
-    bucket(cartOf(b)).length = 0; modcartLocals(state, cartOf(b)).length = 0;
-    return ok(res, modcartView(state, cartOf(b), b.core));
+    const b = await readBody(req), key = cartOf(b);
+    bucket(key).length = 0; modcartLocals(state, key).length = 0;
+    if (key === "") syncDraftInst(state);
+    return ok(res, modcartView(state, key, b.core));
   }
   // 从电脑添加一个 jar（同 modcart.local.add）：multipart 的 file，另带 inst / core / mc。返回整张清单，外加 added 和 duplicate
   if (p === "/api/modcart/local" && m === "POST") {
@@ -1766,15 +1826,19 @@ async function modcartHandler(state, req, res, p, m, u) {
     return ok(res, { ...modcartView(state, inst, fields.core), added: { sha1: lf.sha1, fileName: lf.fileName, title: lf.title, size: lf.size }, duplicate });
   }
   if (p === "/api/modcart/local/remove" && m === "POST") {
-    const b = await readBody(req), locals = modcartLocals(state, cartOf(b));
+    const b = await readBody(req), key = cartOf(b), locals = modcartLocals(state, key);
     if (!/^[0-9a-fA-F]{40}$/.test(b.sha1 || "")) return err(res, 400, "参数 sha1 格式不对");
     const af = locals.filter(x => x.sha1 !== b.sha1.toLowerCase());
     locals.length = 0; locals.push(...af);
-    return ok(res, modcartView(state, cartOf(b), b.core));
+    if (key === "") syncDraftInst(state);
+    return ok(res, modcartView(state, key, b.core));
   }
   if (p === "/api/modcart/deps") {
+    mc.depsQueries++;
+    if (mc.depsDelay) await new Promise(r => setTimeout(r, mc.depsDelay));
     if (mc.depsFail) return err(res, 502, mc.depsFail);
-    return ok(res, modcartDeps(state, qCart, q.get("core")));
+    const incDraft = q.get("includeDraft") === "true" || q.get("includeDraft") === "1";
+    return ok(res, modcartDeps(state, qCart, q.get("core"), incDraft));
   }
   return ok(res, {});
 }
@@ -1790,11 +1854,14 @@ const SNAPS = ["26.3-snapshot-2", "26.3-snapshot-1", "26.2-rc1"];
 //   带 damaged → 只有 level.dat_old 的世界（不能导入，原因写在候选的 issues 里、顶层没有）；
 //   带 multi → 一个来源里三张地图（其中一张 level.dat 读不出来）；带 newer → 26.2 保存的地图（比多数服务器新，计划里被拦下）；
 //   带 1193 → 1.19.3 保存的（版本列表里没有这个版本）；带 forge → 用过 Forge 模组的世界；带 plain → 1.20.1 的纯原版世界，没有说明书和资源包；
-//   带 xss → 地图名和说明书里夹着一段 HTML（看界面是不是只当文字）；其余 → 「天空之城」，1.19.4 保存的冒险地图
+//   带 xss → 地图名和说明书里夹着一段 HTML（看界面是不是只当文字）；带 hardcore → 极限模式的地图（用它新建时核对里说一句）；
+//   其余 → 「天空之城」，1.19.4 保存的冒险地图
 // 计划按 VERSIONS 里的先后比新旧：地图更新 = 拦下，更旧 = 要确认，不在表里 = 版本不明、要确认；
 //   单人存档、资源包各给一条提醒；难度和默认模式跟服务器不一样时给设置建议；服务器没停时 mustStop。
 // 任务（kind "world"）按查询次数往前走：导入查到第 5 次结束（前两次在「复制地图到暂存区」，这时取消才有用），换回旧地图第 3 次结束。
+// 没结束的任务在世界状态里（task：编号、种类、能不能取消、不能的原因，同 worldimport.TaskOf；查世界状态不让任务往前走）。
 // /__mock/state 的 world：{ reset: true 回到初始数据, quick: true 任务第 2 次查询就结束, free: 目标盘剩下多少字节,
+//   foreignTask: { inst, kind } 造一个别的设备发起的任务（import 或 restore；这台设备取消不了它）,
 //   scanFail / planFail / importFail: 这一步直接报这句错, taskFail: 任务最后以这句话失败, dropPlans: true 存着的计划全部作废（同过期）,
 //   createFail: 新建服务器的请求在收下计划以后报这句错（同重名：计划放回去，改好还能用同一份）,
 //   inst: { 服务器名: { busy, levelName, noWorld, retryFail, points: [...] } } 直接改某台服务器的世界状态
@@ -1829,6 +1896,31 @@ function worldMockState(state, b) {
   for (const k of ["quick", "free", "scanFail", "planFail", "importFail", "taskFail", "createFail"]) if (k in b) w[k] = b[k];
   if (b.dropPlans) w.plans = {}; // 存着的计划全部作废（同计划过期）
   for (const [name, patch] of Object.entries(b.inst || {})) Object.assign(worldInst(state, name), patch);
+  if (b.foreignTask) { // 别的设备发起的：照着导入、换回那两处建任务，只是带上 foreign
+    const ft = b.foreignTask, id = "task-" + worldId("world-");
+    w.tasks[id] = ft.kind === "restore" ? { kind: "restore", inst: ft.inst, q: 0, step: 0, point: ft.point || "", foreign: true }
+      : { kind: "import", inst: ft.inst, q: 0, step: 0, plan: { replace: ["world"] }, source: "别的设备上传.zip", candidate: "别人的地图", bytes: 200 * W_MB, foreign: true };
+  }
+}
+// 没结束的换地图任务在世界状态里的样子（同 worldimport.TaskOf）：只有这台设备发起的导入、还在复制时能取消
+const WORLD_WHY = {
+  restore: "正在换回导入前的地图，这一步不能停：换完或者自动退回以后才会结束",
+  foreign: "只有发起这次导入的那台设备能取消",
+  cancelling: "已经在取消了，正在清掉复制了一半的地图",
+  stopping: "已经开始停服、准备换上新地图，不能取消了：会换完，出错就自动退回原来的世界",
+  replacing: "正在替换世界文件夹，这一步不能停：换完或者自动退回原来的世界以后才会结束",
+};
+function worldCancelWhy(t) {
+  if (t.kind === "restore") return WORLD_WHY.restore;
+  if (t.foreign) return WORLD_WHY.foreign;
+  if (t.cancelled) return WORLD_WHY.cancelling;
+  return t.step <= 1 ? "" : t.step === 2 ? WORLD_WHY.stopping : WORLD_WHY.replacing;
+}
+function worldRunning(state, name) {
+  const hit = Object.entries(state.world.tasks).filter(([, t]) => t.inst === name && !t.ended).pop(); // 后建的在后
+  if (!hit) return undefined;
+  const [id, t] = hit, why = worldCancelWhy(t);
+  return { id, kind: t.kind, canCancel: !why, ...(why ? { cancelWhy: why } : {}) };
 }
 // 一台服务器的世界状态（同 worldimport.WorldStatus 里跟着服务器走的那几项）
 function worldInst(state, name) {
@@ -1895,6 +1987,7 @@ function worldScan(state, name, uploaded) {
     if (/newer/.test(n)) Object.assign(c.meta, { versionName: "26.2", versionId: 4800, dataVersion: 4800 });
     if (/1193/.test(n)) Object.assign(c.meta, { versionName: "1.19.3", versionId: 3218, dataVersion: 3218 });
     if (/forge/.test(n)) Object.assign(c.meta, { serverBrands: ["forge"], wasModded: true, modMarkers: ["fml"] });
+    if (/hardcore/.test(n)) c.meta.hardcore = true;
     scan.candidates = [c];
     scan.readmes["SkyCity/说明.txt"] = "【天空之城】冒险地图\n作者：云上工坊\n\n推荐 1.19.4，2-6 人，冒险模式。\n要打开命令方块：enable-command-block=true\n更新地址 https://example.com/skycity\n" +
       (xss ? "看这里 " + WORLD_XSS + " <b>不该变粗</b>\n" : "");
@@ -1929,6 +2022,8 @@ function worldPlan(state, scan, cand, inst, core, mc) {
   if (cand.datapacks.length) issues.push({ sev: "info", code: "datapacks", msg: `地图自带 ${cand.datapacks.length} 个数据包，导入后由游戏按地图里的设置加载。导入本身不运行包里的任何程序`, detail: cand.datapacks.join("、") });
   if (m.allowCommands) issues.push({ sev: "info", code: "commands", msg: "地图允许使用命令。如果地图用到命令方块，要在服务器设置里打开命令方块（enable-command-block）；MineDeck 不会自动打开" });
   if (cand.readme.length) issues.push({ sev: "info", code: "readme", msg: "地图带了说明书，里面可能写着推荐的版本、人数和需要的设置，导入前看一眼" });
+  // 同 worldimport.hardcoreNote：只在用地图新建时说（新服务器会打开 hardcore）
+  if (!inst && m.hardcore) issues.push({ sev: "info", code: "hardcore", msg: "这是一张极限模式的地图：新建的服务器会在 server.properties 里打开极限模式（hardcore=true）。极限模式下难度固定为困难，玩家死了只能旁观" });
   const replace = !inst || iw.noWorld ? [] : WORLD_BUKKIT.has(inst.core) ? [level, level + "_nether", level + "_the_end"] : [level];
   const settings = [];
   if (inst) {
@@ -1979,18 +2074,18 @@ function worldTask(state, id) {
         if (inst && t.stopFirst) { inst.status = "stopped"; inst.uptimeSec = 0; inst.onlineCount = 0; }
         iw.points.unshift({ id: worldId("w"), state: "committed", created: new Date().toISOString(), source: t.source, candidate: t.candidate, levelName: iw.levelName,
           hasOld: t.plan.replace.length > 0, oldBytes: t.plan.replace.length ? 412 * W_MB : 0, keptBytes: 0 });
-        t.result = "地图文件已导入，还没开服试过。服务器保持停止，启动后进服看看是不是这张地图";
+        t.result = `「${t.inst}」的地图文件已导入，还没开服试过。服务器保持停止，启动后进服看看是不是这张地图`;
       } else {
         const pt = iw.points.find(x => x.id === t.point);
         if (pt) Object.assign(pt, { state: "restored", hasOld: false, keptBytes: pt.keptBytes || 431 * W_MB, oldBytes: 0 });
-        t.result = "已经换回导入前的地图，旧地图的 level.dat 核对一致。导入的那份（包括启动后的改动）留在旁边，确认不要了可以删掉";
+        t.result = `「${t.inst}」已经换回导入前的地图，旧地图的 level.dat 核对一致。导入的那份（包括启动后的改动）留在旁边，确认不要了可以删掉`;
       }
     }
     if (t.ended && t.error && isImport) iw.points.unshift({ id: worldId("w"), state: "rolled-back", created: new Date().toISOString(), source: t.source, candidate: t.candidate,
       levelName: iw.levelName, hasOld: false, oldBytes: 0, keptBytes: 0, error: t.error });
   }
   const copying = isImport && !t.ended && t.step === 1, total = t.bytes || 0;
-  return { id, title: isImport ? `导入地图到 ${t.inst}` : `把 ${t.inst} 换回导入前的地图`, kind: "world",
+  return { id, title: isImport ? `导入地图到 ${t.inst}` : `把 ${t.inst} 换回导入前的地图`, kind: "world", inst: t.inst, // 同 tasks.Snapshot.Inst：任务页「完成」回到这台
     steps: names.map((name, k) => ({ name, status: t.ended ? (t.error ? (k < t.step ? "done" : k === t.step ? (t.cancelDone ? "cancelled" : "error") : "pending") : "done") : k < t.step ? "done" : k === t.step ? "running" : "pending" })),
     label: copying ? "复制地图" : "", done: copying ? Math.round(total * Math.min(1, t.q * 0.4)) : 0, total: copying ? total : 0, warnings: [],
     log: isImport ? ["来源和服务器都和预览时一样", ...(t.step >= 2 || t.ended && !t.error ? [`地图已复制到暂存区（${(total / W_MB).toFixed(1)} MB）`] : []), ...(t.error ? [(t.cancelDone ? "" : "❌ ") + t.error] : [])]
@@ -2024,6 +2119,8 @@ async function worldHandler(state, req, res, p, m) {
     const t = w.tasks[b.taskId];
     w.cancels.push(b.taskId);
     if (!t || t.ended) return err(res, 400, "这个任务已经不能取消了"), true;
+    const why = t.cancelled ? "" : worldCancelWhy(t); // 同 world.import.cancel：取消不了时说为什么；已经收下的再点照样成功
+    if (why) return err(res, 400, why), true;
     t.cancelled = true;
     return ok(res, "ok"), true;
   }
@@ -2083,7 +2180,8 @@ async function worldInstHandler(state, req, res, m, seg, i) {
     // blocked 同 WorldStatus.Blocked：启动被封锁（有卡住、读不出来的记录，或者直接给了 blocked），「重试恢复」只在这时出现
     const blocked = iw.blocked !== undefined ? iw.blocked
       : iw.busy && iw.points.some(x => ["stuck", "unreadable"].includes(x.state)) ? iw.busy : "";
-    return ok(res, { levelName: iw.levelName, status: i.status, busy: iw.busy || undefined, blocked: blocked || undefined, points, proxy: i.kind === "proxy" });
+    return ok(res, { levelName: iw.levelName, status: i.status, busy: iw.busy || undefined, blocked: blocked || undefined, points, proxy: i.kind === "proxy",
+      task: worldRunning(state, i.name) });
   }
   if (m !== "POST") return err(res, 405, "方法不对");
   const b = await readBody(req), pt = iw.points.find(x => x.id === b.id);
@@ -2746,7 +2844,7 @@ function handler(state, ui, portOf) {
     //     whitelistOn（玩家名单里的白名单开关，null = server.properties 没写）、adopted + mdFiles（移出列表后会留下的文件）。
     //     响应里的 lastCreate / lastImport / lastPropsPut / commands / lastOpenPath 是上一次新建、导入整合包（表单项）、改 server.properties、
     //     发过的控制台命令、打开的文件夹
-    //     beta.3 详情页用到的字段：javaMissing（配的 Java 找不到了）、worldFrom（现在的世界从哪份备份来）、mods（插件 / 模组文件夹里的，见 modsOf）、
+    //     beta.3 详情页用到的字段：javaMissing（配的 Java 找不到了）、worldFrom（现在的世界从哪份备份来；carried 是随交接包带来的）、mods（插件 / 模组文件夹里的，见 modsOf）、
     //     backups（备份清单，见 backupsOf；每项可带 dir、elsewhere，模拟改存放位置以前留在原来文件夹的）、onlineCount。响应里的 lifecycle（停止、重启的请求）、modOps（停用、启用、删除插件或模组的请求）、
     //     lastRestore（还原的请求，含 stopFirst）、lastBackup（立即备份的标签）、modsProjects（带 projects=1 读清单的次数）
     //   adoptScan: 接管已有服务器时「识别」返回的结果（同 inst.AdoptScan），null 还原成默认的；
@@ -2948,7 +3046,7 @@ function handler(state, ui, portOf) {
         const major = b.major;
         if (major < 8 || major > 64) return err(res, 400, "参数 major 应在 8 到 64 之间");
         if (!b.confirm) return err(res, 400, "卸载 Java 需要明确确认");
-        if (state.javaBusy) return err(res, 409, "正在安装或卸载 Java，请稍后再试");
+        if (state.javaBusy) return err(res, 409, "正在安装或卸载 Java，或者有服务器正在换成这套 Java，请稍后再试");
         const hasDir = (state.portableJavas || []).some(j => j.major === major);
         const hasMark = (state.incompleteJavas || []).includes(major);
         if (!hasDir && !hasMark) return err(res, 400, `没有安装 Java ${major} 的便携运行时`);
@@ -3264,11 +3362,12 @@ function handler(state, ui, portOf) {
         const name = seg[3], sub = seg[4] || "";
         const i = state.instances.find(x => x.name === name);
         if (!i) return err(res, 404, "服务器不存在");
-        // 删除（同 inst.Manager.Delete）：files=0 只移出列表
+        // 删除（同 inst.Manager.Delete）：files=0 只移出列表。这台的待装清单跟着清（见 forgetCartOf）
         if (!sub && m === "DELETE") {
           state.lastDelete = { inst: name, files: u.searchParams.get("files") === "1" };
           state.instances = state.instances.filter(x => x !== i);
-          return ok(res, "ok");
+          const note = forgetCartOf(state, name);
+          return ok(res, note ? { note } : "ok");
         }
         if (sub === "world") return worldInstHandler(state, req, res, m, seg, i); // 地图：世界状态、换回旧地图、删除恢复点、重试恢复
         // 没装上的文件（同 instance.import.pending.get / resolve，beta.3 R09）：按服务器查、处置；skip 把那一项挪进 skipped（还能再处理），
@@ -3416,7 +3515,7 @@ function handler(state, ui, portOf) {
             }
             for (const f of flags) if (!kept.has(f)) nextJvm.push(f);
             if (i.customLog4jXml && !nextJvm.includes("-Dlog4j.configurationFile=" + i.customLog4jXml)) {
-              note = `log4shell 防护：这台 ${i.mc} 的服务器没有套上 Mojang 的日志配置，等于没防。服务器文件夹里已经有一份 ${i.customLog4jXml}，内容和官方的不一样（可能是自己改过的），MineDeck 没有覆盖它，也没有替它加上引用。要用官方的那份，把这个文件改名或挪走以后重开 MineDeck；要用自己的，在「启动与内存」里加上 -Dlog4j.configurationFile=${i.customLog4jXml}`;
+              note = `log4shell 防护：这台 ${i.mc} 的服务器没有套上 Mojang 的日志配置，等于没防。服务器文件夹里已经有一份 ${i.customLog4jXml}，内容和官方的不一样（可能是自己改过的），MineDeck 没有覆盖它，也没有替它补上引用。要用官方的那份，把这个文件改名或挪走以后重开 MineDeck；要用自己的，在「启动与内存」里加上 -Dlog4j.configurationFile=${i.customLog4jXml}`;
             }
           }
           const launchArgs = [
@@ -3517,9 +3616,11 @@ function handler(state, ui, portOf) {
         // 安装购物车（同 web 的 modcart install）：返回 kind "mods" 的任务编号；
         // includeDraft 会把草稿车（向导「选模组」步挑的）一起装进这台实例并清空草稿车
         if (sub === "modcart" && seg[5] === "install" && m === "POST") {
-          const b = await readBody(req), mc = state.modcart, cart = modcartBucket(state, name);
+          const b = await readBody(req), mc = state.modcart;
           const unread = MODCART_LOAD_FAIL[mc.loadFail];
           if (unread) return err(res, 503, unread.raw, unread.hint);
+          settleCartRemovals(state);
+          const cart = modcartBucket(state, name);
           // expect：发起的人看到的项目。和这次要装的（实例的车，includeDraft 时再加草稿车）不是同一批就拒绝，同真后端
           const willInstall = [...cart, ...(b.includeDraft ? mc.draft.filter(it => !cart.some(x => x.projectId === it.projectId)) : [])].map(it => it.projectId);
           // expectLocal：发起的人看到的本地文件（SHA-1）。车里有本地文件而请求没带、或者对不上，一律拒绝（比 expect 严：没带也不行），同真后端
@@ -3533,7 +3634,10 @@ function handler(state, ui, portOf) {
             return err(res, 409, "清单里的本地文件和你刚才看到的不一样了（可能是上次没装完留下的，或者别的窗口加的）。先看一眼现在的清单，再点安装");
           mc.lastInstall = { inst: name, withDeps: b.withDeps !== false, includeDraft: !!b.includeDraft, expect: b.expect || null, expectLocal: b.expectLocal || null,
             copied: willCopy.length };
-          if (b.includeDraft) { for (const it of mc.draft) if (!cart.some(x => x.projectId === it.projectId)) cart.push({ ...it }); mc.draft = []; mc.localDraft = []; }
+          if (b.includeDraft) {
+            for (const it of mc.draft) if (!cart.some(x => x.projectId === it.projectId)) cart.push({ ...it });
+            mc.draft = []; mc.localDraft = []; mc.draftInst = "";
+          }
           locals.length = 0; // 本地文件装进服务器以后就从清单里拿掉了
           mc.queries = 0;
           return ok(res, { taskId: "task-cart" });

@@ -168,3 +168,22 @@ func TestLogKeepsHeadWhenTooLong(t *testing.T) {
 		t.Fatalf("说明行后面接的不对：%q", got[logHead+1])
 	}
 }
+
+// 任务操作的服务器（A53）：设了的快照和列表摘要里都有 inst；没设的（别的任务）不带这一项，和以前一样。
+func TestSetInst(t *testing.T) {
+	mg := NewManager()
+	world, _ := mg.New("导入地图到 生存服", []string{"复制"})
+	world.SetInst("生存服")
+	other, _ := mg.New("创建服务器", []string{"下载"})
+	if s := world.Snapshot(); s.Inst != "生存服" {
+		t.Fatalf("快照里的 inst：%q", s.Inst)
+	}
+	list := mg.List()
+	if list[1].ID != world.ID() || list[1].Inst != "生存服" || list[0].Inst != "" {
+		t.Fatalf("列表摘要里的 inst：%+v", list)
+	}
+	b, _ := json.Marshal(other.Snapshot())
+	if strings.Contains(string(b), `"inst"`) {
+		t.Fatalf("没设服务器的任务不该带 inst：%s", b)
+	}
+}

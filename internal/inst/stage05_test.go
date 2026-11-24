@@ -297,9 +297,13 @@ func TestConcurrentStartAndDelete(t *testing.T) {
 			var deleted bool
 			raceEnd := time.Now().Add(25 * time.Millisecond)
 			for time.Now().Before(raceEnd) {
-				if err := m.Delete(name, files); err == nil {
+				err := m.Delete(name, files)
+				if err == nil {
 					deleted = true
 					break
+				}
+				if strings.Contains(err.Error(), "找不到 instance.json") {
+					t.Fatalf("第 %d 轮并发期间 Delete 丢失了 instance.json：%v", round, err)
 				}
 				_ = m.Kill(name)
 				time.Sleep(time.Millisecond)
@@ -311,8 +315,17 @@ func TestConcurrentStartAndDelete(t *testing.T) {
 					_ = m.Kill(name)
 					waitStatus(t, inst, "stopped")
 				}
-				if err := m.Delete(name, files); err != nil {
-					t.Fatalf("第 %d 轮（files=%v）并发结束后删除失败：%v", round, files, err)
+				// 删除碰上短暂占用失败时 instance.json 还在，可以再删（A121）
+				delDeadline := time.Now().Add(2 * time.Second)
+				for {
+					err := m.Delete(name, files)
+					if err == nil {
+						break
+					}
+					if !files || !strings.Contains(err.Error(), "删除文件失败") || !time.Now().Before(delDeadline) {
+						t.Fatalf("第 %d 轮（files=%v）并发结束后删除失败：%v", round, files, err)
+					}
+					time.Sleep(5 * time.Millisecond)
 				}
 			}
 			if inst.Status() != "stopped" || inst.PID() != 0 {
@@ -599,6 +612,17 @@ func TestAdoptPreservesCustomLog4jXMLWithoutReference(t *testing.T) {
 		bat := mustRead(t, filepath.Join(dir, "run.bat"))
 		if !strings.Contains(bat, log4jConfig) {
 			t.Fatalf("run.bat 应保留旧 .bak 里的引用：\n%s", bat)
+		}
+		for _, w := range snap.Warnings {
+			if w.Kind == "custom-log4j" {
+				t.Fatalf("ExtraJVM 已含该日志配置引用时不应再出 custom-log4j 告警：%+v", w)
+			}
+		}
+		if logJoined := strings.Join(snap.Log, "\n"); strings.Contains(logJoined, "等于没防") {
+			t.Fatalf("ExtraJVM 已含该日志配置引用时接管日志不应说等于没防：\n%s", logJoined)
+		}
+		if con := strings.Join(i.Console.Lines(), "\n"); strings.Contains(con, "等于没防") {
+			t.Fatalf("ExtraJVM 已含该日志配置引用时实例控制台不应说等于没防：\n%s", con)
 		}
 	})
 

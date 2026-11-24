@@ -415,7 +415,7 @@ func (m *Manager) runCreateWith(ctx context.Context, t *tasks.Task, req CreateRe
 		if m.worldPlacer == nil {
 			return fmt.Errorf("地图导入功能没有准备好")
 		}
-		if err := m.worldPlacer(ctx, t, req.WorldOwner, req.WorldPlan, dir); err != nil {
+		if err := m.worldPlacer(ctx, t, req.WorldOwner, req.WorldPlan, req.Name, dir); err != nil {
 			return fmt.Errorf("没能把地图放进新服务器：%w", err)
 		}
 	}
@@ -482,11 +482,10 @@ func (m *Manager) completeCreate(ctx context.Context, t *tasks.Task, i *Instance
 	if err := m.saveInstance(i); err != nil {
 		return err
 	}
-	// 服务器已经登记。记号删不掉也不失败：下次看到 instance.json 会只去掉记号，不会删服务器。
-	if err := ClearCreatingMarker(i.Dir); err != nil {
+	// 服务器已经登记：先记扫描根、再去记号（先后的理由见 markCreated）。记号删不掉也不失败。
+	if err := markCreated(i.Dir); err != nil {
 		t.Logf("服务器已创建。创建记号没能去掉（%v），不影响使用", err)
 	}
-	app.RememberRoot(filepath.Dir(i.Dir))
 	m.mu.Lock()
 	m.insts[i.Name] = i
 	m.mu.Unlock()
@@ -852,21 +851,16 @@ func applyLog4jMitigation(ctx context.Context, t *tasks.Task, i *Instance) error
 }
 
 // customLog4jConflictParts 文件夹里已有同名但内容不是官方的日志配置、MineDeck 没有套上官方配置也没替它加引用时的说明
-// （接管 A26 与保存/预览启动设置 A25 共用，口径对齐 log4jXMLConflictNote）。
+// （接管 A26 与保存/预览启动设置 A25 共用）。
 func customLog4jConflictParts(mc, xml string) (title, detail string) {
-	title = fmt.Sprintf("log4shell 防护：这台 %s 的服务器没有套上 Mojang 的日志配置，等于没防", mc)
-	detail = fmt.Sprintf(
-		"服务器文件夹里已经有一份 %s，内容和官方的不一样（可能是自己改过的），MineDeck 没有覆盖它，也没有替它加上引用。"+
-			"要用官方的那份，把这个文件改名或挪走以后重开 MineDeck；要用自己的，在「启动与内存」里加上 %s%s",
-		xml, log4jConfigKey, xml,
-	)
-	return title, detail
+	title, body := log4jXMLConflictParts(mc, xml, log4jFixAdd)
+	return title, body + fmt.Sprintf("；要用自己的，在「启动与内存」里加上 %s%s", log4jConfigKey, xml)
 }
 
 // addLog4jFlags 往 i.ExtraJVM 里加上该有的参数。要官方配置的先下载，下载不成不加引用：引用一个不存在的配置文件，
 // log4j 会退回只输出 ERROR 的默认配置，控制台和「启动完成」的判断都会失效。
 // 服务端自带的 log4j 看得出是修过的（见 log4j_bundled.go），不套官方配置：用不着，而且 CraftBukkit 系套上以后控制台没有输出。
-// 接管已有服务器时，如果文件夹里已经有同名但不是官方那份的日志配置，不替换、不加引用，在接管结果和控制台说明（A26）。
+// 接管已有服务器时，如果文件夹里已经有同名但不是官方那份的日志配置，不替换、不加引用；旧记录里还没有这条引用时在接管结果和控制台说明（A26）。
 func addLog4jFlags(ctx context.Context, t *tasks.Task, i *Instance, noLookups bool, xml string) {
 	if noLookups {
 		i.ExtraJVM = append(i.ExtraJVM, log4jNoLookups)
@@ -881,16 +875,18 @@ func addLog4jFlags(ctx context.Context, t *tasks.Task, i *Instance, noLookups bo
 	}
 	if i.Adopted {
 		if exists, official := log4jXMLOnDisk(i.Dir, xml); exists && !official {
-			title, detail := customLog4jConflictParts(i.MC, xml)
-			full := title + "。" + detail
-			t.Logf("⚠ %s", full)
-			t.AddWarning(tasks.Warning{
-				Kind:  "custom-log4j",
-				Title: title,
-				Note:  detail,
-			})
-			if i.Console != nil {
-				i.Console.Append("[MineDeck] ⚠ " + full)
+			if !slices.Contains(i.ExtraJVM, log4jConfigKey+xml) {
+				title, detail := customLog4jConflictParts(i.MC, xml)
+				full := title + "。" + detail
+				t.Logf("⚠ %s", full)
+				t.AddWarning(tasks.Warning{
+					Kind:  "custom-log4j",
+					Title: title,
+					Note:  detail,
+				})
+				if i.Console != nil {
+					i.Console.Append("[MineDeck] ⚠ " + full)
+				}
 			}
 			return
 		}
