@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"minedeck/internal/dl"
-	"minedeck/internal/errhint"
 )
 
 // PaperMC 已于 2025 年下线 api.papermc.io v2（HTTP 410），现行为 Fill v3。
@@ -42,7 +41,7 @@ func fillVersions(ctx context.Context, project string, game bool) ([]string, err
 		} `json:"versions"`
 	}
 	if err := dl.FetchJSON(ctx, []string{fillRoot + project + "/versions"}, &resp); err != nil {
-		return nil, errhint.Wrap(fmt.Errorf("获取 %s 版本列表失败: %w", project, err), mcsrcFetchHint)
+		return nil, fmt.Errorf("获取 %s 版本列表失败: %w", project, err)
 	}
 	var ids []string
 	for _, v := range resp.Versions {
@@ -78,7 +77,7 @@ func fillBuildList(ctx context.Context, project, mc string) ([]fillBuild, error)
 	var builds []fillBuild
 	u := fillRoot + project + "/versions/" + url.PathEscape(mc) + "/builds"
 	if err := dl.FetchJSON(ctx, []string{u}, &builds); err != nil {
-		return nil, errhint.Wrap(fmt.Errorf("获取 %s 构建列表失败: %w", project, err), mcsrcFetchHint)
+		return nil, fmt.Errorf("获取 %s 构建列表失败: %w", project, err)
 	}
 	sort.Slice(builds, func(a, b int) bool { return builds[a].ID > builds[b].ID })
 	return builds, nil
@@ -91,7 +90,7 @@ func fillArtifact(ctx context.Context, project, mc, build string) (Artifact, err
 		var b fillBuild
 		u := fillRoot + project + "/versions/" + url.PathEscape(mc) + "/builds/latest"
 		if err := dl.FetchJSON(ctx, []string{u}, &b); err != nil {
-			return Artifact{}, errhint.Wrap(fmt.Errorf("获取 %s 最新构建失败: %w", project, err), mcsrcFetchHint)
+			return Artifact{}, fmt.Errorf("获取 %s 最新构建失败: %w", project, err)
 		}
 		chosen = &b
 	} else {

@@ -234,15 +234,7 @@ func writeJSON(w http.ResponseWriter, v any) {
 // 界面认它锁住「创建并导入」、引导去导入，再点一次平台上就多一条（A57）。
 func writeErr(w http.ResponseWriter, code int, err error) {
 	body := map[string]any{"ok": false, "error": err.Error()}
-	var hint string
-	var h interface{ Hint() string }
-	if errors.As(err, &h) {
-		hint = h.Hint()
-	}
-	if hint == "" {
-		hint = errhint.FromError(err)
-	}
-	if hint != "" {
+	if hint := errhint.FromError(err); hint != "" {
 		body["hint"] = hint
 	}
 	var c interface{ PlatformCreated() bool }

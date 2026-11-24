@@ -480,7 +480,7 @@ func ValidVoiceHost(v string) error {
 	if v == "" {
 		return nil
 	}
-	const voiceHostHint = "语音地址格式不对，请填写域名或地址加端口号"
+	const voiceHostHint = "请填写域名或地址，不带「http://」，可以带端口"
 	host, port := v, ""
 	if strings.HasPrefix(v, "[") || strings.Count(v, ":") == 1 {
 		h, p, err := net.SplitHostPort(v)
@@ -497,7 +497,7 @@ func ValidVoiceHost(v string) error {
 	}
 	if port != "" {
 		if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
-			return errhint.Wrap(fmt.Errorf("语音地址的端口不对：%q", port), voiceHostHint)
+			return errhint.Wrap(fmt.Errorf("语音地址的端口不对：%q", port), "端口要在 1 到 65535 之间")
 		}
 	}
 	return nil

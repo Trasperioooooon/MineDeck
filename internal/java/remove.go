@@ -12,10 +12,7 @@ import (
 	"sync/atomic"
 
 	"minedeck/internal/app"
-	"minedeck/internal/errhint"
 )
-
-const javaRemoveHint = "清理便携运行时失败，请确认没有服务器正在使用它并检查目录权限"
 
 // ErrBusy 正在安装或卸载便携 Java、或者有服务器正在换成这套便携 Java 时再发起卸载，返回此错误。
 var ErrBusy = errors.New("正在安装或卸载 Java，或者有服务器正在换成这套 Java，请稍后再试")
@@ -122,7 +119,7 @@ func RemovePortable(major int, inUse func(dir string) error) error {
 		if os.IsNotExist(rerr) {
 			return fmt.Errorf("没有安装 Java %d 的便携运行时", major)
 		}
-		return errhint.Wrap(fmt.Errorf("检查运行时目录失败：%w", rerr), javaRemoveHint)
+		return fmt.Errorf("检查运行时目录失败：%w", rerr)
 	} else if !rst.IsDir() || rst.Mode()&(fs.ModeSymlink|fs.ModeIrregular) != 0 {
 		return fmt.Errorf("运行时目录是链接或目录联接，没有删除")
 	}
@@ -131,10 +128,10 @@ func RemovePortable(major int, inUse func(dir string) error) error {
 	dirSt, dirErr := os.Lstat(dir)
 	markSt, markErr := os.Lstat(mark)
 	if dirErr != nil && !os.IsNotExist(dirErr) {
-		return errhint.Wrap(fmt.Errorf("检查 Java %d 目录失败：%w", major, dirErr), javaRemoveHint)
+		return fmt.Errorf("检查 Java %d 目录失败：%w", major, dirErr)
 	}
 	if markErr != nil && !os.IsNotExist(markErr) {
-		return errhint.Wrap(fmt.Errorf("检查 Java %d 安装记号失败：%w", major, markErr), javaRemoveHint)
+		return fmt.Errorf("检查 Java %d 安装记号失败：%w", major, markErr)
 	}
 	if os.IsNotExist(dirErr) && os.IsNotExist(markErr) {
 		return fmt.Errorf("没有安装 Java %d 的便携运行时", major)
@@ -164,15 +161,15 @@ func RemovePortable(major int, inUse func(dir string) error) error {
 	}
 	// 先写「没装完」，这样删到一半也不会被当成已经装好。
 	if err := os.WriteFile(mark, nil, 0o644); err != nil {
-		return errhint.Wrap(fmt.Errorf("没法标记 Java %d 正在卸载：%w", major, err), javaRemoveHint)
+		return fmt.Errorf("没法标记 Java %d 正在卸载：%w", major, err)
 	}
 	if dirErr == nil {
 		if err := removeTree(dir); err != nil {
-			return errhint.Wrap(fmt.Errorf("Java %d 未能删干净：%w。它不会再被当成可用版本，可在设置里再删一次", major, err), javaRemoveHint)
+			return fmt.Errorf("Java %d 未能删干净：%w。它不会再被当成可用版本，可在设置里再删一次", major, err)
 		}
 	}
 	if err := os.Remove(mark); err != nil && !os.IsNotExist(err) {
-		return errhint.Wrap(fmt.Errorf("Java %d 的文件夹已经删掉，但未完成记号还在：%w", major, err), javaRemoveHint)
+		return fmt.Errorf("Java %d 的文件夹已经删掉，但未完成记号还在：%w", major, err)
 	}
 	return nil
 }

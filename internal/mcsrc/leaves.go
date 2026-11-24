@@ -8,7 +8,6 @@ import (
 	"strconv"
 
 	"minedeck/internal/dl"
-	"minedeck/internal/errhint"
 )
 
 // LeavesMC API（Paper v2 风格）：Leaves 是修复原版特性的 Paper 分支，国人维护。
@@ -30,7 +29,7 @@ func LeavesVersions(ctx context.Context) ([]string, error) {
 		Versions []string `json:"versions"`
 	}
 	if err := dl.FetchJSON(ctx, []string{leavesRoot}, &resp); err != nil {
-		return nil, errhint.Wrap(fmt.Errorf("获取 Leaves 版本列表失败: %w", err), mcsrcFetchHint)
+		return nil, fmt.Errorf("获取 Leaves 版本列表失败: %w", err)
 	}
 	return orderAndFloor(ctx, resp.Versions)
 }
@@ -41,7 +40,7 @@ func leavesBuildList(ctx context.Context, mc string) ([]leavesBuild, error) {
 	}
 	u := leavesRoot + "/versions/" + url.PathEscape(mc) + "/builds"
 	if err := dl.FetchJSON(ctx, []string{u}, &resp); err != nil {
-		return nil, errhint.Wrap(fmt.Errorf("获取 Leaves 构建列表失败: %w", err), mcsrcFetchHint)
+		return nil, fmt.Errorf("获取 Leaves 构建列表失败: %w", err)
 	}
 	if len(resp.Builds) == 0 {
 		return nil, fmt.Errorf("MC %s 暂无 Leaves 构建", mc)

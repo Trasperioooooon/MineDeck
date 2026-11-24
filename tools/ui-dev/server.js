@@ -3381,7 +3381,7 @@ function handler(state, ui, portOf) {
         const names = ["下载 Java 21 运行时", "下载 Paper 1.21.4 核心", "同意 EULA 并生成配置", "生成启动脚本"];
         const steps = names.map((name, i) => ({ name, status: st === "error" ? (i < 1 ? "done" : i === 1 ? "error" : "pending") : i < st ? "done" : i === st ? "running" : "pending" }));
         const ended = st === "error" || st >= names.length;
-        return ok(res, { id: seg[3], title: "创建 Paper 服务器", steps, label: ended ? "" : "下载 paper-1.21.4-232.jar", done: 31457280, total: 52428800, error: st === "error" ? "下载 paper-1.21.4-232.jar 失败：所有下载源均不可用（BMCLAPI 超时、官方源 403）" : "", warnings: [], log: ["[1/4] 检测到本机 Java 21，复用", "[2/4] 正在从 api.papermc.io 下载核心…", "  已下载 30.0 MB / 50.0 MB"], ended, result: "生存服 · 朋友", net: !ended && state.taskNet ? state.taskNet : undefined, ...state.taskList.find(t => t.id === seg[3]) });
+        return ok(res, { id: seg[3], title: "创建 Paper 服务器", steps, label: ended ? "" : "下载 paper-1.21.4-232.jar", done: 31457280, total: 52428800, error: st === "error" ? "下载 paper-1.21.4-232.jar 失败：所有下载源均不可用（BMCLAPI 超时、官方源 403）" : "", ...(st === "error" ? { errHint: "网络请求超时，请检查网络或代理后再试" } : {}), warnings: [], log: ["[1/4] 检测到本机 Java 21，复用", "[2/4] 正在从 api.papermc.io 下载核心…", "  已下载 30.0 MB / 50.0 MB"], ended, result: "生存服 · 朋友", net: !ended && state.taskNet ? state.taskNet : undefined, ...state.taskList.find(t => t.id === seg[3]) });
       }
       // connectPort（同 instance.list）：朋友连进来的端口。仿真里的代理端 port 写的就是它自己的端口；没生成配置的代理端用 inst 设成 0
       // lastStartError：上一次启动没起来的原因（startFail 那台点启动时记下，成功启动清掉）

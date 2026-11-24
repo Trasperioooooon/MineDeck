@@ -13,7 +13,6 @@ import (
 
 	"minedeck/internal/app"
 	"minedeck/internal/diskguard"
-	"minedeck/internal/errhint"
 	"minedeck/internal/inst"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/modinfo"
@@ -61,7 +60,7 @@ func ExportAsync(m *inst.Manager, req ExportReq) (string, error) {
 			if err != nil && errors.Is(err, fs.ErrNotExist) {
 				return "", fmt.Errorf("%s: %s", ErrExportDirMissing, dest)
 			}
-			return "", errhint.Wrap(fmt.Errorf("导出文件夹不可用: %s", dest), "导出文件夹不可用，请检查路径权限或重新选择一个文件夹")
+			return "", fmt.Errorf("导出文件夹不可用: %s", dest)
 		}
 		// 目录在本实例的文件夹里的话，下一次导出会把上次的包也打进去
 		if rel, err := filepath.Rel(i.Dir, dest); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
@@ -70,7 +69,7 @@ func ExportAsync(m *inst.Manager, req ExportReq) (string, error) {
 	} else {
 		dest = filepath.Join(app.CacheDir, "transfer")
 		if err := os.MkdirAll(dest, 0o755); err != nil {
-			return "", errhint.Wrap(fmt.Errorf("导出文件夹不可用: %w", err), "导出文件夹不可用，请检查路径权限或重新选择一个文件夹")
+			return "", fmt.Errorf("导出文件夹不可用: %w", err)
 		}
 	}
 	mode := req.Mode
@@ -294,7 +293,7 @@ func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, 
 	}
 	for _, w := range worlds {
 		if err := walk(w, &worldBytes, nil); err != nil {
-			return "", errhint.Wrap(fmt.Errorf("清点世界文件夹失败: %w", err), "读取世界文件夹失败，请检查目录权限或关闭占用它的程序")
+			return "", fmt.Errorf("清点世界文件夹失败: %w", err)
 		}
 	}
 	// level-name 之外的世界（Multiverse 这类多世界插件建的大厅、资源世界）：根目录下带 level.dat 的文件夹都是世界
@@ -311,7 +310,7 @@ func runExport(ctx context.Context, t *tasks.Task, i *inst.Instance, full bool, 
 				continue
 			}
 			if err := walk(e.Name(), &worldBytes, nil); err != nil {
-				return "", errhint.Wrap(fmt.Errorf("清点世界文件夹失败: %w", err), "读取世界文件夹失败，请检查目录权限或关闭占用它的程序")
+				return "", fmt.Errorf("清点世界文件夹失败: %w", err)
 			}
 			t.Logf("另一个世界 %s 也一起带上", e.Name())
 		}

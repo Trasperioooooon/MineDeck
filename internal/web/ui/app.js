@@ -3321,7 +3321,7 @@ async function renderTaskPage(taskId) {
     const cancelText = /context canceled/i.test(t.error || "") ? "已取消" : (t.error || "已取消");
     $("#t-msgs").innerHTML = (t.ended && t.cancelled
       ? `<div class="task-note" role="status">${icon("info")}<span>${esc(cancelText)}。${draft ? "之前填的都还在，点「返回修改」接着改。" : ""}</span></div>`
-      : t.error ? `<div class="err-box"><b>${K.fail}：</b>${esc(t.error)}<br><br>${t.cleanupFailed ? LEFTOVER_HINT : K.failHint}${draft ? "点「返回修改」回到刚才的表单，填过的都在。" : ""}
+      : t.error ? `<div class="err-box"><b>${K.fail}：</b>${esc(t.error)}${t.errHint ? `<div style="margin-top:6px">${esc(t.errHint)}</div><div style="margin-top:6px">` : "<br><br>"}${t.cleanupFailed ? LEFTOVER_HINT : K.failHint}${draft ? "点「返回修改」回到刚才的表单，填过的都在。" : ""}${t.errHint ? "</div>" : ""}
         <div style="margin-top:8px"><button class="btn sm ghost" data-copy-task-fail>${icon("copy")} 复制报错信息</button></div></div>` : "") +
       (t.warnings || []).map(w => `<div class="warn-card" data-warn="${esc(w.kind || "")}">
         <div class="wc-title">${icon("warn")} ${esc(w.title)}</div>

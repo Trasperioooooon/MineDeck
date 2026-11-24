@@ -1,10 +1,14 @@
 package tasks
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"strings"
 	"testing"
+
+	"minedeck/internal/errhint"
 )
 
 func TestListKeepsRunningAndEndedTasksNewestFirst(t *testing.T) {
@@ -208,5 +212,37 @@ func TestCleanupFailedInSnapshot(t *testing.T) {
 	}
 	if b, _ := json.Marshal(left.Snapshot()); !strings.Contains(string(b), `"cleanupFailed":true`) {
 		t.Fatalf("JSON 里的字段名：%s", b)
+	}
+}
+
+func TestFailCapturesErrHintInSnapshot(t *testing.T) {
+	mg := NewManager()
+
+	// 1. 显式 Wrap 提示与底层错误兜底提示都能写进快照 errHint
+	tk1, _ := mg.New("导入服务端", []string{"解压"})
+	tk1.Fail(errhint.Wrap(fmt.Errorf("解压失败"), "压缩包可能损坏，请检查后重试"))
+	sn1 := tk1.Snapshot()
+	if sn1.ErrHint != "压缩包可能损坏，请检查后重试" {
+		t.Fatalf("显式 Hint 未带入快照：%+v", sn1)
+	}
+
+	tk2, _ := mg.New("下载核心", []string{"下载"})
+	tk2.Fail(fmt.Errorf("写入失败：%w", fs.ErrPermission))
+	sn2 := tk2.Snapshot()
+	if !strings.Contains(sn2.ErrHint, "权限") {
+		t.Fatalf("底层权限错误未兜底写入 errHint：%+v", sn2)
+	}
+
+	// 2. 纯业务中文错误与取消错误不带 errHint（序列化省略该字段）
+	tk3, _ := mg.New("纯业务", nil)
+	tk3.Fail(fmt.Errorf("找不到启动入口"))
+	if b, _ := json.Marshal(tk3.Snapshot()); strings.Contains(string(b), "errHint") {
+		t.Fatalf("没有提示时不应输出 errHint：%s", b)
+	}
+
+	tk4, _ := mg.New("已取消", nil)
+	tk4.Fail(context.Canceled)
+	if sn4 := tk4.Snapshot(); sn4.ErrHint != "" {
+		t.Fatalf("context.Canceled 不应产生 errHint：%q", sn4.ErrHint)
 	}
 }

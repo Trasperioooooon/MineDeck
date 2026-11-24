@@ -80,7 +80,11 @@ type Pack struct {
 func Parse(zipPath string) (*Pack, error) {
 	zr, err := zipguard.Open(zipPath, zipguard.Default)
 	if err != nil {
-		return nil, errhint.Wrap(fmt.Errorf("无法打开整合包（需为 .mrpack 或 zip）: %w", err), "打不开这个整合包，请确认是完整的压缩包后再试")
+		wrapErr := fmt.Errorf("无法打开整合包（需为 .mrpack 或 zip）: %w", err)
+		if errors.Is(err, zip.ErrFormat) || errors.Is(err, zip.ErrChecksum) || errors.Is(err, zip.ErrAlgorithm) || errors.Is(err, zipguard.ErrTooLarge) {
+			return nil, errhint.Wrap(wrapErr, "打不开这个整合包，请确认是完整的压缩包后再试")
+		}
+		return nil, wrapErr
 	}
 	defer zr.Close()
 	return parseFiles(zipPath, zr.File)

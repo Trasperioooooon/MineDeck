@@ -49,7 +49,7 @@ func impl(c Core) (*coreImpl, error) {
 	return nil, fmt.Errorf("未知核心类型: %s", c)
 }
 
-const mcsrcFetchHint = "获取版本列表失败，请检查网络或在「设置 → 下载与网络」切换下载源"
+const mcsrcFetchHint = "请检查网络，或在「设置 → 下载与网络」切换下载源"
 
 // Cores 返回全部核心的元数据（UI 展示顺序）。
 func Cores() []CoreInfo {

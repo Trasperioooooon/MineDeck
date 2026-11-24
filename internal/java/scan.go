@@ -166,7 +166,7 @@ func AddManual(path string) (*ScannedJava, error) {
 	}
 	ver, major, ok := probeJava(p)
 	if !ok {
-		return nil, errhint.Wrap(fmt.Errorf("无法识别该路径的 Java（java -version 执行失败）: %s", p), "这个路径下的程序无法运行，请确认选的是可用的运行时目录")
+		return nil, errhint.Wrap(fmt.Errorf("无法识别该路径的 Java（java -version 执行失败）: %s", p), "这个路径下的 Java 运行不了，请确认选的 Java 完整可用")
 	}
 	j := ScannedJava{Path: p, Major: major, Version: ver}
 	list := Cached()

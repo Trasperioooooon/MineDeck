@@ -468,7 +468,7 @@ func (b *PriceBook) fetch(ctx context.Context) (result error) {
 	if lastErr == nil {
 		lastErr = errors.New("没有可用的下载地址")
 	}
-	return errhint.Wrap(fmt.Errorf("价格数据取不到：%w", lastErr), "拉取公开价格表失败，请检查网络，或直接填写自填单价")
+	return errhint.Wrap(fmt.Errorf("价格数据取不到：%w", lastErr), "请检查网络，或直接填写自填单价")
 }
 
 func shortHost(u string) string {

@@ -192,7 +192,11 @@ func usableFrpc(dir string, con *procutil.Console, managed bool) (exe string, sk
 		})
 		switch {
 		case err != nil:
-			return "", skip, errhint.Wrap(fmt.Errorf("frpc 文件夹里的 %s 是坏的（%s），又没能删掉它（%w）。请关掉可能占着它的程序，手动删掉这个文件后重试。它在这个文件夹：%s", name, c.why, err, dir), frpcDamagedHint)
+			wrapErr := fmt.Errorf("frpc 文件夹里的 %s 是坏的（%s），又没能删掉它（%w）。请关掉可能占着它的程序，手动删掉这个文件后重试。它在这个文件夹：%s", name, c.why, err, dir)
+			if errhint.FromError(err) != "" {
+				return "", skip, wrapErr
+			}
+			return "", skip, errhint.Wrap(wrapErr, frpcDamagedHint)
 		case c.state == exeOK || c.state == exeUnknown:
 			if c.changing {
 				noteFrpcChanging(con, name)

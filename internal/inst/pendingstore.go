@@ -265,7 +265,7 @@ func readPendingList(dir string) (*pendingList, error) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, errhint.Wrap(fmt.Errorf("读不了这台服务器的「没装上的文件」清单：%w", err), "读取未装文件清单失败，请检查文件夹权限或解除程序占用")
+		return nil, fmt.Errorf("读不了这台服务器的「没装上的文件」清单：%w", err)
 	}
 	defer f.Close()
 	if st, err := f.Stat(); err == nil && !st.Mode().IsRegular() {
@@ -273,14 +273,14 @@ func readPendingList(dir string) (*pendingList, error) {
 	}
 	b, err := io.ReadAll(io.LimitReader(f, pendingFileMax+1))
 	if err != nil {
-		return nil, errhint.Wrap(fmt.Errorf("读不了这台服务器的「没装上的文件」清单：%w", err), "读取未装文件清单失败，请检查文件夹权限或解除程序占用")
+		return nil, fmt.Errorf("读不了这台服务器的「没装上的文件」清单：%w", err)
 	}
 	if len(b) > pendingFileMax {
 		return nil, fmt.Errorf("「没装上的文件」清单太大（超过 1 MB），不像是 MineDeck 写的，没有读")
 	}
 	var l pendingList
 	if err := json.Unmarshal(bytes.TrimPrefix(b, []byte("\xef\xbb\xbf")), &l); err != nil {
-		return nil, errhint.Wrap(fmt.Errorf("「没装上的文件」清单的内容坏了，读不出来（%s）：%v", PendingListFile, err), "未装文件清单格式损坏，可备份后删除该清单文件再重新导入")
+		return nil, errhint.Wrap(fmt.Errorf("「没装上的文件」清单的内容坏了，读不出来（%s）：%v", PendingListFile, err), "「没装上的文件」清单格式坏了，可删除该清单后按需手动补装")
 	}
 	l.sanitize()
 	return &l, nil

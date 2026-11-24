@@ -28,9 +28,14 @@ import (
 )
 
 const (
-	frpcDownloadHint = "自动下载穿透客户端失败，请检查网络或按详情说明手动放入"
-	frpcDamagedHint  = "穿透客户端异常，请查看详情说明并处理文件夹里的程序后重试"
+	frpcDownloadHint = "请检查网络，或点「详情」按说明手动放入客户端"
+	frpcDamagedHint  = "客户端异常，请点「详情」或「复制原文」查看处理"
 )
+
+func isLocalIOHint(err error) bool {
+	s := errhint.FromError(err)
+	return strings.Contains(s, "磁盘") || strings.Contains(s, "占用") || strings.Contains(s, "权限")
+}
 
 // Provider 一个穿透服务商的适配器。
 type Provider interface {
@@ -359,7 +364,11 @@ func openfrpInstall(ctx context.Context, con *procutil.Console, urls []string, z
 func openfrpFetchExtract(ctx context.Context, con *procutil.Console, urls []string, zipPath, dir string, skip []string) (exe, bad string, err error) {
 	if err := openfrpDownloadZip(ctx, con, urls, zipPath); err != nil {
 		_ = os.MkdirAll(dir, 0o755) // 提示里叫人把 exe 放进这个文件夹，先建好（同樱花那条）
-		return "", "", errhint.Wrap(fmt.Errorf("下载 OpenFrp frpc 失败（可手动从 OpenFrp 下载 frpc_windows_amd64.zip，把 zip 里的 frpc_windows_amd64.exe 放入 %s 文件夹后重试）: %w", dir, err), frpcDownloadHint)
+		wrapErr := fmt.Errorf("下载 OpenFrp frpc 失败（可手动从 OpenFrp 下载 frpc_windows_amd64.zip，把 zip 里的 frpc_windows_amd64.exe 放入 %s 文件夹后重试）: %w", dir, err)
+		if isLocalIOHint(err) {
+			return "", "", wrapErr
+		}
+		return "", "", errhint.Wrap(wrapErr, frpcDownloadHint)
 	}
 	names, err := extractZipFlat(zipPath, dir)
 	if err != nil {
@@ -478,7 +487,11 @@ func dropBadExtracted(con *procutil.Console, dir string, names []string) (bad st
 				bad = fmt.Sprintf("%s（%s）", n, c.why)
 			}
 			if err != nil {
-				return bad, errhint.Wrap(fmt.Errorf("解压出来的 %s 是坏的（%s），又没能删掉它（%w）。请关掉可能占着它的程序，手动删掉这个文件后重试。它在这个文件夹：%s", n, c.why, err, dir), frpcDamagedHint)
+				wrapErr := fmt.Errorf("解压出来的 %s 是坏的（%s），又没能删掉它（%w）。请关掉可能占着它的程序，手动删掉这个文件后重试。它在这个文件夹：%s", n, c.why, err, dir)
+				if errhint.FromError(err) != "" {
+					return bad, wrapErr
+				}
+				return bad, errhint.Wrap(wrapErr, frpcDamagedHint)
 			}
 		}
 	}
@@ -549,7 +562,11 @@ func (customProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 	urls := dl.GHMirrors(ghPath)
 	zipPath := filepath.Join(app.CacheDir, "frpc", file)
 	if err := dl.Fetch(ctx, dl.Request{URLs: urls, Dest: zipPath, SHA256: frpSHA256, MinSize: 1 << 20}, nil); err != nil {
-		return "", errhint.Wrap(fmt.Errorf("下载 frp 客户端失败（可手动将 frpc.exe 放入 %s）: %w", dir, err), frpcDownloadHint)
+		wrapErr := fmt.Errorf("下载 frp 客户端失败（可手动将 frpc.exe 放入 %s）: %w", dir, err)
+		if isLocalIOHint(err) {
+			return "", wrapErr
+		}
+		return "", errhint.Wrap(wrapErr, frpcDownloadHint)
 	}
 	names, err := extractZipFlat(zipPath, dir)
 	if err != nil {

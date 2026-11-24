@@ -7690,6 +7690,25 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       assert(!(await page.$("#modal-root > .modal-mask:not(.leave)")), "再按 Esc 关掉删除框");
     });
 
+    await run("后台任务失败带 errHint 报错提示：任务页失败框紧跟显示中文排查建议，不带 errHint 时照旧（A85）", async () => {
+      try {
+        await pState({ taskList: [
+          { id: "task-hint-yes", title: "创建 Paper 服务器", ended: true, error: "写入 core.jar 失败：permission denied", errHint: "没有读写权限，请检查文件夹权限或关闭占用它的程序", steps: [{ name: "下载核心", status: "error" }], warnings: [], log: [] },
+          { id: "task-hint-no", title: "创建 Paper 服务器", ended: true, error: "找不到启动入口", steps: [{ name: "安装服务端", status: "error" }], warnings: [], log: [] },
+        ] });
+        await page.goto(url("#/task/task-hint-yes"));
+        await page.waitForSelector("#t-msgs .err-box");
+        const box1 = await page.textContent("#t-msgs .err-box");
+        assert(box1.includes("写入 core.jar 失败") && box1.includes("没有读写权限，请检查文件夹权限或关闭占用它的程序"),
+          "带 errHint 的失败框应写出建议：" + box1);
+        await page.goto(url("#/task/task-hint-no"));
+        await page.waitForSelector("#t-msgs .err-box");
+        const box2 = await page.textContent("#t-msgs .err-box");
+        assert(box2.includes("找不到启动入口") && !box2.includes("undefined"),
+          "不带 errHint 时不应显示 undefined：" + box2);
+      } finally { await pState({ taskList: [] }); }
+    });
+
     await run("beta.3 P0 R05/U28/U30：删除默认只移出列表；打开开关后按钮写「删除服务器和文件夹」、输对名字才能点；移出后提示写出文件夹、带「打开文件夹」；接管来的写出会留下哪些 MineDeck 的文件", async () => {
       await pState({ instReset: true, local: true });
       try {

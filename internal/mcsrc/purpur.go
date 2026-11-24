@@ -6,7 +6,6 @@ import (
 	"net/url"
 
 	"minedeck/internal/dl"
-	"minedeck/internal/errhint"
 )
 
 const purpurBase = "https://api.purpurmc.org/v2/purpur"
@@ -17,7 +16,7 @@ func PurpurVersions(ctx context.Context) ([]string, error) {
 		Versions []string `json:"versions"`
 	}
 	if err := dl.FetchJSON(ctx, []string{purpurBase}, &resp); err != nil {
-		return nil, errhint.Wrap(fmt.Errorf("获取 Purpur 版本列表失败: %w", err), mcsrcFetchHint)
+		return nil, fmt.Errorf("获取 Purpur 版本列表失败: %w", err)
 	}
 	return orderAndFloor(ctx, resp.Versions)
 }
@@ -31,7 +30,7 @@ func PurpurBuilds(ctx context.Context, mc string) ([]BuildInfo, error) {
 		} `json:"builds"`
 	}
 	if err := dl.FetchJSON(ctx, []string{purpurBase + "/" + url.PathEscape(mc)}, &resp); err != nil {
-		return nil, errhint.Wrap(fmt.Errorf("获取 Purpur 构建列表失败: %w", err), mcsrcFetchHint)
+		return nil, fmt.Errorf("获取 Purpur 构建列表失败: %w", err)
 	}
 	out := make([]BuildInfo, 0, len(resp.Builds.All))
 	for i := len(resp.Builds.All) - 1; i >= 0; i-- { // all 为旧在前
@@ -50,7 +49,7 @@ func PurpurArtifact(ctx context.Context, mc, build string) (Artifact, error) {
 			} `json:"builds"`
 		}
 		if err := dl.FetchJSON(ctx, []string{purpurBase + "/" + url.PathEscape(mc)}, &resp); err != nil {
-			return Artifact{}, errhint.Wrap(fmt.Errorf("获取 Purpur 最新构建失败: %w", err), mcsrcFetchHint)
+			return Artifact{}, fmt.Errorf("获取 Purpur 最新构建失败: %w", err)
 		}
 		build = resp.Builds.Latest
 	}
@@ -58,7 +57,7 @@ func PurpurArtifact(ctx context.Context, mc, build string) (Artifact, error) {
 		MD5 string `json:"md5"`
 	}
 	if err := dl.FetchJSON(ctx, []string{purpurBase + "/" + url.PathEscape(mc) + "/" + url.PathEscape(build)}, &info); err != nil {
-		return Artifact{}, errhint.Wrap(fmt.Errorf("获取 Purpur 构建信息失败: %w", err), mcsrcFetchHint)
+		return Artifact{}, fmt.Errorf("获取 Purpur 构建信息失败: %w", err)
 	}
 	return Artifact{
 		URLs:     []string{fmt.Sprintf("%s/%s/%s/download", purpurBase, url.PathEscape(mc), url.PathEscape(build))},

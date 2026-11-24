@@ -72,11 +72,11 @@ func NeoBuilds(ctx context.Context, mc string) ([]BuildInfo, map[string]string, 
 	}
 	// 官方 maven-metadata.xml 兜底
 	vers, err := neoMavenVersions(ctx, mc)
-	if err != nil || len(vers) == 0 {
-		if err == nil {
-			err = fmt.Errorf("该版本暂无 NeoForge 构建")
-		}
+	if err != nil {
 		return nil, nil, errhint.Wrap(fmt.Errorf("获取 NeoForge 构建列表失败: %w", err), mcsrcFetchHint)
+	}
+	if len(vers) == 0 {
+		return nil, nil, fmt.Errorf("获取 NeoForge 构建列表失败: 该版本暂无 NeoForge 构建")
 	}
 	out := make([]BuildInfo, 0, len(vers))
 	for i := len(vers) - 1; i >= 0; i-- {

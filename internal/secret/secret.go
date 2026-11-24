@@ -20,8 +20,15 @@ import (
 
 const prefix = "dpapi:"
 
+type unreadableError string
+
+func (e unreadableError) Error() string { return string(e) }
+func (e unreadableError) Hint() string {
+	return "保存的密钥无法解开，可能换了电脑或系统账户，请重新填写"
+}
+
 // ErrUnreadable 密文解不开：多半是换了电脑或 Windows 用户。调用方按「没设置」处理，并提示用户重填。
-var ErrUnreadable = errors.New("保存的密钥读不出来。可能换了电脑或 Windows 用户。请重新填写。")
+var ErrUnreadable error = unreadableError("保存的密钥读不出来。可能换了电脑或 Windows 用户。请重新填写。")
 
 // IsSealed 是否已是加密后的写法（"dpapi:" 开头）。
 func IsSealed(s string) bool { return strings.HasPrefix(s, prefix) }
@@ -109,7 +116,7 @@ func (s *Store) load() (map[string]string, error) {
 		return nil, err
 	}
 	if err := json.Unmarshal(b, &m); err != nil {
-		return nil, errhint.Wrap(fmt.Errorf("%s %w: %v", s.path, errCorrupt, err), "保存的密钥无法解开，可能换了电脑或系统账户，请重新填写")
+		return nil, errhint.Wrap(fmt.Errorf("%s %w: %v", s.path, errCorrupt, err), "密钥存储文件坏了，重新填写并保存即可自动重建")
 	}
 	return m, nil
 }

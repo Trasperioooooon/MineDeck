@@ -12,7 +12,7 @@ import (
 
 	"minedeck/internal/ai"
 	"minedeck/internal/diskguard"
-	"minedeck/internal/errhint"
+	"minedeck/internal/errhint/hintcheck"
 	"minedeck/internal/ops"
 )
 
@@ -101,7 +101,7 @@ func TestWriteErrFallbackHints(t *testing.T) {
 	b1 := read(500, fmt.Errorf("写出失败：%w", ns))
 	if h, _ := b1["hint"].(string); !strings.HasPrefix(h, "D 盘剩余空间不足") {
 		t.Fatalf("diskguard.NoSpace 未输出预期 hint：%v", b1)
-	} else if herr := errhint.CheckUIHint(h); herr != nil {
+	} else if herr := hintcheck.CheckUIHint(h); herr != nil {
 		t.Fatal(herr)
 	}
 	if b1["error"] != "写出失败："+ns.Error() {
@@ -111,14 +111,14 @@ func TestWriteErrFallbackHints(t *testing.T) {
 	b2 := read(500, fmt.Errorf("保存配置：%w", os.ErrPermission))
 	if h, _ := b2["hint"].(string); !strings.Contains(h, "权限") {
 		t.Fatalf("权限错误应兜底 hint：%v", b2)
-	} else if herr := errhint.CheckUIHint(h); herr != nil {
+	} else if herr := hintcheck.CheckUIHint(h); herr != nil {
 		t.Fatal(herr)
 	}
 
 	b3 := read(400, fmt.Errorf("打开整合包：%w", zip.ErrFormat))
 	if h, _ := b3["hint"].(string); !strings.Contains(h, "压缩包损坏") {
 		t.Fatalf("损坏压缩包应兜底 hint：%v", b3)
-	} else if herr := errhint.CheckUIHint(h); herr != nil {
+	} else if herr := hintcheck.CheckUIHint(h); herr != nil {
 		t.Fatal(herr)
 	}
 }

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"minedeck/internal/dl"
-	"minedeck/internal/errhint"
 )
 
 // MohistMC 新版 API（api.mohistmc.com）：托管 Mohist（Forge+Bukkit 混合服）
@@ -28,7 +27,7 @@ func mohistVersions(ctx context.Context, project string) ([]string, error) {
 		Name string `json:"name"`
 	}
 	if err := dl.FetchJSON(ctx, []string{mohistAPI + project + "/versions"}, &list); err != nil {
-		return nil, errhint.Wrap(fmt.Errorf("获取 %s 版本列表失败: %w", project, err), mcsrcFetchHint)
+		return nil, fmt.Errorf("获取 %s 版本列表失败: %w", project, err)
 	}
 	ids := make([]string, 0, len(list))
 	for _, v := range list {
@@ -41,7 +40,7 @@ func mohistBuildList(ctx context.Context, project, mc string) ([]mohistBuild, er
 	var builds []mohistBuild
 	u := mohistAPI + project + "/" + url.PathEscape(mc) + "/builds"
 	if err := dl.FetchJSON(ctx, []string{u}, &builds); err != nil {
-		return nil, errhint.Wrap(fmt.Errorf("获取 %s 构建列表失败: %w", project, err), mcsrcFetchHint)
+		return nil, fmt.Errorf("获取 %s 构建列表失败: %w", project, err)
 	}
 	if len(builds) == 0 {
 		return nil, fmt.Errorf("MC %s 暂无 %s 构建", mc, project)

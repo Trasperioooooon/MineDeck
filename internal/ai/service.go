@@ -16,8 +16,6 @@ import (
 	"sync"
 	"time"
 	"unicode"
-
-	"minedeck/internal/errhint"
 )
 
 // KeyStore Key 的存放处（Windows 上是 secret.Store：DPAPI 加密存进 secrets.json）。Key 不落盘明文，
@@ -686,12 +684,10 @@ func (s *Service) setProvider(pt ProviderPatch, saved *Settings) (err error) {
 // Key 还是旧的，后面的请求会把旧 Key 发到新地址；设置存好了、新 Key 没存上的话，盘上也是这样，重启以后照旧。
 // 现在 Key 要变时先清掉旧 Key，再写设置，最后存新 Key；退回时先写回旧设置，写回成功了才放回旧 Key。
 // 哪一步失败、退回时又失败，最坏也只是「某个地址 + 没有 Key」（要重填），不会是「新地址 + 旧 Key」。
-const aiSaveHint = "保存设置或密钥失败，请检查程序文件夹的写入权限"
-
 func (s *Service) commitLocked(st Settings, newKey *string) error {
 	if newKey == nil {
 		if err := s.save(st); err != nil {
-			return errhint.Wrap(fmt.Errorf("保存设置失败：%w", err), aiSaveHint)
+			return fmt.Errorf("保存设置失败：%w", err)
 		}
 		s.st = st
 		return nil
@@ -702,7 +698,7 @@ func (s *Service) commitLocked(st Settings, newKey *string) error {
 	}
 	if err := s.save(st); err != nil {
 		_ = s.setKey(oldKey) // 设置没写进去：放回旧 Key，还是原来那一对（放不回去就是没填 Key，不会配错）
-		return errhint.Wrap(fmt.Errorf("保存设置失败：%w", err), aiSaveHint)
+		return fmt.Errorf("保存设置失败：%w", err)
 	}
 	if *newKey != "" {
 		if err := s.setKey(*newKey); err != nil {
@@ -726,7 +722,7 @@ func (s *Service) setKey(k string) error {
 		return errors.New("没有地方存 Key")
 	}
 	if err := s.keys.Set(KeyName, k); err != nil {
-		return errhint.Wrap(fmt.Errorf("保存 Key 失败：%w", err), aiSaveHint)
+		return fmt.Errorf("保存 Key 失败：%w", err)
 	}
 	return nil
 }

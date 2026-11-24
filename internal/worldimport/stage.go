@@ -1,6 +1,7 @@
 package worldimport
 
 import (
+	"archive/zip"
 	"context"
 	"errors"
 	"fmt"
@@ -174,7 +175,7 @@ func stageFiles(ctx context.Context, src *source, files []stagedFile, stageRoot 
 func copyEntry(ctx context.Context, src *source, e *entry, dst string, buf []byte, lease *diskguard.Lease) error {
 	rc, err := src.open(e)
 	if err != nil {
-		return errhint.Wrap(fmt.Errorf("读不了来源里的 %s：%w", e.rel, err), "读取或解压地图文件失败，请检查压缩包完整性与磁盘空间")
+		return fmt.Errorf("读不了来源里的 %s：%w", e.rel, err)
 	}
 	defer rc.Close()
 	if f, ok := rc.(*os.File); ok {
@@ -206,9 +207,13 @@ func copyEntry(ctx context.Context, src *source, e *entry, dst string, buf []byt
 			return cerr
 		}
 		if src.kind == "zip" {
-			return errhint.Wrap(fmt.Errorf("压缩包里的 %s 解不开（可能下载不完整、校验不对），没有替换任何文件：%w", e.rel, diskErr(cerr)), "读取或解压地图文件失败，请检查压缩包完整性与磁盘空间")
+			wrapErr := fmt.Errorf("压缩包里的 %s 解不开（可能下载不完整、校验不对），没有替换任何文件：%w", e.rel, diskErr(cerr))
+			if errors.Is(cerr, zip.ErrFormat) || errors.Is(cerr, zip.ErrChecksum) || errors.Is(cerr, zip.ErrAlgorithm) || errors.Is(cerr, io.ErrUnexpectedEOF) {
+				return errhint.Wrap(wrapErr, "地图压缩包可能损坏，没有替换任何文件")
+			}
+			return wrapErr
 		}
-		return errhint.Wrap(fmt.Errorf("复制 %s 失败：%w", e.rel, diskErr(cerr)), "读取或解压地图文件失败，请检查压缩包完整性与磁盘空间")
+		return fmt.Errorf("复制 %s 失败：%w", e.rel, diskErr(cerr))
 	}
 	if n != e.size {
 		if src.kind == "zip" {

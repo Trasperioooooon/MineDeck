@@ -406,7 +406,7 @@ func (s *Service) targetOf(name string) (*Target, *inst.Instance, error) {
 		t.Props = inst.JavaProps(b)
 	case errors.Is(err, fs.ErrNotExist):
 	default:
-		return nil, nil, errhint.Wrap(fmt.Errorf("读不了这台服务器的 server.properties：%w", err), "读取服务器主配置失败，请检查文件权限或是否被占用")
+		return nil, nil, fmt.Errorf("读不了这台服务器的 server.properties：%w", err)
 	}
 	t.jarWV = jarWorldVersion(i.Dir, i.LaunchTarget)
 	return t, i, nil
@@ -920,7 +920,7 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 		if ctx.Err() != nil { // 打开来源的时候人点了取消：不带出 context canceled 这类英文原因
 			return "", errImportCancelled
 		}
-		return "", errhint.Wrap(fmt.Errorf("来源打不开了：%w", err), "读取地图来源失败，请确认文件或文件夹还在且未被占用")
+		return "", wrapReopenSourceErr(r, fmt.Errorf("来源打不开了：%w", err))
 	}
 	defer src.Close()
 	info, err := rebind(r, src, p.CandidateID)
@@ -949,7 +949,7 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 		Candidate: candName(info.c), LevelName: tg.LevelName}
 	defer s.setActive(txAbs(tg.Dir, id))() // 记录落盘之前就登记：重试恢复看到这份记录时，它一定已经在册
 	if err := saveJournal(tg.Dir, j); err != nil {
-		return "", errhint.Wrap(fmt.Errorf("没能在服务器文件夹里建暂存区：%w", err), "创建地图暂存记录失败，请检查服务器文件夹写入权限与空间")
+		return "", fmt.Errorf("没能在服务器文件夹里建暂存区：%w", err)
 	}
 	var intent *inst.WorldIntent
 	// 放弃：什么都没换。占过位的也告诉它世界没换，放掉时不清「现在的世界从哪份备份来」（A51）
@@ -1103,6 +1103,32 @@ func mustModern(ctx context.Context, order versionOrder, mc string) bool {
 	return m
 }
 
+// wrapReopenSourceErr 按来源类型区分打不开的原因：zip 还在但解不开时说明压缩包损坏，不要误用「未被占用」盖掉。
+func wrapReopenSourceErr(r *scanResult, err error) error {
+	if r == nil {
+		return err
+	}
+	var se *sourceErr
+	if errors.As(err, &se) && se.Code == "too-many" {
+		return errhint.Wrap(err, "地图压缩包里文件过多或清单超限，请检查压缩包")
+	}
+	if r.Source.Kind == "zip" {
+		f, openErr := os.Open(r.Source.Path)
+		if openErr != nil {
+			if errors.Is(openErr, fs.ErrNotExist) {
+				return errhint.Wrap(err, "找不到选择的地图压缩包，请重新选择后再试")
+			}
+			return fmt.Errorf("%w（%w）", err, openErr)
+		}
+		_ = f.Close()
+		return errhint.Wrap(err, "地图压缩包打不开或可能已损坏，请确认压缩包完整后重试")
+	}
+	if _, statErr := os.Stat(r.Source.Path); statErr != nil && errors.Is(statErr, fs.ErrNotExist) {
+		return errhint.Wrap(err, "找不到选择的地图文件夹，请确认它没有被移动或删除")
+	}
+	return err
+}
+
 // rebind 在重新打开的来源上找回候选的文件清单，并重算它的指纹。
 func rebind(r *scanResult, src *source, candID string) (*candInfo, error) {
 	old := r.cands[candID]
@@ -1112,7 +1138,7 @@ func rebind(r *scanResult, src *source, candID string) (*candInfo, error) {
 	info := &candInfo{c: old.c, roots: old.roots}
 	files, err := rescan(src, info)
 	if err != nil {
-		return nil, errhint.Wrap(fmt.Errorf("地图来源读不全了，没有替换任何文件。请重新检测：%w", err), "读取地图来源失败，请确认文件或文件夹还在且未被占用")
+		return nil, fmt.Errorf("地图来源读不全了，没有替换任何文件。请重新检测：%w", err)
 	}
 	info.files = files
 	info.fp = fingerprint(info.files)
@@ -1223,7 +1249,10 @@ func (s *Service) placeForCreate(ctx context.Context, t *tasks.Task, owner, plan
 	ctx = withSpaceConfirmation(ctx, p)
 	src, err := reopenCtx(ctx, r)
 	if err != nil {
-		return errhint.Wrap(fmt.Errorf("地图来源打不开了：%w", err), "读取地图来源失败，请确认文件或文件夹还在且未被占用")
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return wrapReopenSourceErr(r, fmt.Errorf("地图来源打不开了：%w", err))
 	}
 	defer src.Close()
 	info, err := rebind(r, src, p.CandidateID)

@@ -13,10 +13,7 @@ import (
 	"strings"
 
 	"minedeck/internal/atomicfile"
-	"minedeck/internal/errhint"
 )
-
-const bridgeJarHint = "替换语音桥接模组失败，可能正被占用，请先停止服务器再试"
 
 // 打进 exe 的桥接模组：bridge/voicechat 用 build.sh --fallback 构建的两个 jar，原样入库在 jar/ 下。
 // 构建是可复现的（固定时间戳、文件按顺序打包、Created-By 自己写），同样的源码和 JDK 21 构建出的 jar 逐字节相同；
@@ -165,7 +162,7 @@ func installJar(modsDir, name string, data []byte, sum string) (JarStatus, []str
 			}
 			return nil
 		}); err != nil {
-			return JarStatus{}, nil, errhint.Wrap(fmt.Errorf("安装桥接模组失败（%s 可能正被占用，停服后再试）：%w", name, err), bridgeJarHint)
+			return JarStatus{}, nil, fmt.Errorf("安装桥接模组失败（%s 可能正被占用，停服后再试）：%w", name, err)
 		}
 
 	}
@@ -180,7 +177,7 @@ func installJar(modsDir, name string, data []byte, sum string) (JarStatus, []str
 			continue
 		}
 		if err := os.Remove(filepath.Join(modsDir, e.Name())); err != nil {
-			errs = append(errs, errhint.Wrap(fmt.Errorf("删不掉旧版本 %s（可能正被服务器占用，停服后再试）：%w", e.Name(), err), bridgeJarHint))
+			errs = append(errs, fmt.Errorf("删不掉旧版本 %s（可能正被服务器占用，停服后再试）：%w", e.Name(), err))
 			continue
 		}
 		removed = append(removed, e.Name())

@@ -151,11 +151,18 @@ func isStableRelease(r ghRelease) bool {
 	return !r.Draft && !r.Prerelease && versionTag.MatchString(strings.TrimSpace(r.TagName)) && !isPre(r.TagName)
 }
 
+func wrapUpdateFallbackHint(err error, fallbackHint string) error {
+	if err == nil || errhint.FromError(err) != "" {
+		return err
+	}
+	return errhint.Wrap(err, fallbackHint)
+}
+
 func fetchReleasesPage(ctx context.Context, repo string) ([]ghRelease, error) {
 	var list []ghRelease
 	api := apiBase + "/repos/" + repo + "/releases?per_page=30"
 	if err := dl.FetchJSON(ctx, []string{api}, &list); err != nil {
-		return nil, errhint.Wrap(fmt.Errorf("检查更新失败（连不上 GitHub）：%w", err), "连不上更新服务器，请检查网络后重试，或直接去发布页查看")
+		return nil, wrapUpdateFallbackHint(fmt.Errorf("检查更新失败（连不上 GitHub）：%w", err), "请检查网络后重试，或直接去发布页查看")
 	}
 	return list, nil
 }
@@ -193,7 +200,7 @@ func check(ctx context.Context, repo, channel, current string) (*Release, bool, 
 		channel = app.UpdateStable
 		api := apiBase + "/repos/" + repo + "/releases/latest"
 		if err := dl.FetchJSON(ctx, []string{api}, &rel); err != nil {
-			return nil, false, errhint.Wrap(fmt.Errorf("检查更新失败（连不上 GitHub）：%w", err), "连不上更新服务器，请检查网络后重试，或直接去发布页查看")
+			return nil, false, wrapUpdateFallbackHint(fmt.Errorf("检查更新失败（连不上 GitHub）：%w", err), "请检查网络后重试，或直接去发布页查看")
 		}
 		if rel.TagName == "" {
 			return nil, false, fmt.Errorf("这个仓库还没有任何发布版本")
@@ -405,7 +412,7 @@ func Apply(ctx context.Context, r *Release) error {
 	if err := dl.Fetch(cctx, dl.Request{
 		URLs: dl.GHMirrors(r.AssetURL), Dest: newExe, MinSize: 4 << 20, SHA256: r.SHA256,
 	}, nil); err != nil {
-		return errhint.Wrap(fmt.Errorf("下载新版本失败: %w", err), "下载新版本失败，请检查网络后重试，或去发布页手动下载")
+		return wrapUpdateFallbackHint(fmt.Errorf("下载新版本失败: %w", err), "请检查网络后重试，或去发布页手动下载")
 	}
 	// 换 exe 的脚本等本进程退出以后才动手，怎么写的、为什么这么写见 run_windows.go 的 swapScript
 	return startSwap(app.Base, exe, newExe, os.Getpid())

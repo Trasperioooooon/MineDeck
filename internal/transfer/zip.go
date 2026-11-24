@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -95,7 +96,7 @@ func writePack(ctx context.Context, dest string, files []packFile, mf *Manifest,
 		}
 		r, err := os.Open(pf.abs)
 		if err != nil {
-			return fail(errhint.Wrap(fmt.Errorf("读不了 %s: %w", pf.rel, err), "读取或写入交接包失败，请检查磁盘剩余空间和文件占用"))
+			return fail(fmt.Errorf("读不了 %s: %w", pf.rel, err))
 		}
 		var sum string
 		var isMod bool
@@ -112,7 +113,7 @@ func writePack(ctx context.Context, dest string, files []packFile, mf *Manifest,
 		}
 		r.Close()
 		if err != nil {
-			return fail(errhint.Wrap(fmt.Errorf("打包 %s 失败: %w", pf.rel, err), "读取或写入交接包失败，请检查磁盘剩余空间和文件占用"))
+			return fail(fmt.Errorf("打包 %s 失败: %w", pf.rel, err))
 		}
 		if isMod {
 			mf.addMod(pf, sum)
@@ -384,7 +385,11 @@ func extractPrefix(ctx context.Context, src, destDir string, opts extractOpts,
 		}
 		rc.Close()
 		if cerr != nil {
-			return res, errhint.Wrap(fmt.Errorf("解包 %s 失败: %w", e.name, cerr), "解压交接包失败，请检查磁盘空间或确认压缩包完整后再试")
+			wrapErr := fmt.Errorf("解包 %s 失败: %w", e.name, cerr)
+			if errors.Is(cerr, zip.ErrFormat) || errors.Is(cerr, zip.ErrChecksum) || errors.Is(cerr, zip.ErrAlgorithm) || errors.Is(cerr, io.ErrUnexpectedEOF) {
+				return res, errhint.Wrap(wrapErr, "交接包可能损坏或没写完整，请重新获取后再试")
+			}
+			return res, wrapErr
 		}
 		if k != e.size {
 			return res, fmt.Errorf("解包 %s 后不完整（写到 %d 字节，包里记的是 %d）", e.name, k, e.size)

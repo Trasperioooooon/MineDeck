@@ -7,7 +7,10 @@ import (
 	"syscall"
 )
 
-func isFileBusy(error) bool { return false }
+func isFileBusy(err error) bool {
+	var errno syscall.Errno
+	return errors.As(err, &errno) && errno == syscall.ETXTBSY
+}
 
 func isDiskFull(err error) bool {
 	var errno syscall.Errno
