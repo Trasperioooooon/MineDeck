@@ -8616,7 +8616,9 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   };
   const mockSet = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
   const apiGet = path => page.evaluate(p => fetch(p, { headers: { "X-Token": "mock" } }).then(r => r.json()).then(j => j.data), path);
-  const toastIn = (p, s, timeout = 3000) => p.waitForFunction(x => [...document.querySelectorAll(".toast")].some(t => t.textContent.includes(x)), s, { timeout }).then(() => true, () => false);
+  const toastIn = (p, s, timeout = 5000) => p.waitForFunction(x => [...document.querySelectorAll(".toast")].some(t => t.textContent.includes(x)), s, { timeout }).then(() => true, () => false);
+  const until = async (fn, ms = 5000) => { const t0 = Date.now(); while (!(await fn())) { if (Date.now() - t0 > ms) return false; await settle(50); } return true; };
+  const waitHeld = async (count = 1) => { assert(await until(async () => ((await mockSet({})).heldReqs || []).length >= count), `等待仿真后端扣住请求超时（期望 ${count} 个）`); };
   const saveIn = async p => {
     await p.click('.save-bar.sticky [data-sb="save"]');
     await p.waitForFunction(() => !document.querySelector(".save-bar.sticky").classList.contains("dirty"), null, { timeout: 5000 });
@@ -8871,16 +8873,21 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   });
 
   await run("两个窗口：工具箱整合包草稿（A65-1）——乱序到达时不拿旧序号把新值改回", async () => {
-    await mockSet({ toolbox: { reset: true }, modCart: { reset: true }, local: true, draftHoldName: "较早发出的旧名" });
+    await mockSet({
+      toolbox: { reset: true }, modCart: { reset: true }, local: true,
+      holdReq: { method: "PUT", path: "/api/toolbox/mrpack/draft", body: { name: "较早发出的旧名" }, flushHeaders: true },
+    });
     try {
       await twoWin("#/toolbox/mrpack-export", "#mp-name", async (pa) => {
-        await pa.fill("#mp-name", "较早发出的旧名"); await pa.waitForTimeout(450); // 已发出且正在服务端延迟 450ms
-        await pa.fill("#mp-name", "后来改的新名"); // 还在防抖，立刻刷新由 pagehide 送出新名（先到服务端）
-        await pa.reload(); await pa.waitForSelector("#mp-name"); await pa.waitForTimeout(650); // 等延迟的那次也落完
-        const d = (await mockSet({})).toolbox.draft;
+        await pa.fill("#mp-name", "较早发出的旧名");
+        await waitHeld(1); // 先发出的请求已经抵达仿真后端并被扣住
+        await pa.fill("#mp-name", "后来改的新名"); // 还在防抖，立刻刷新由 pagehide 送出新名（先落盘）
+        await pa.reload(); await pa.waitForSelector("#mp-name");
+        assert(await until(async () => (await mockSet({})).toolbox.draft.name === "后来改的新名"), "刷新时送出的新名应先落盘");
+        const d = (await mockSet({ releaseHold: true })).toolbox.draft;
         assert(d.name === "后来改的新名", "乱序到达的旧请求不能把新值改回：" + jstr(d));
       });
-    } finally { await mockSet({ toolbox: { reset: true }, modCart: { reset: true }, local: true, draftHoldName: "" }); }
+    } finally { await mockSet({ holdReq: null, toolbox: { reset: true }, modCart: { reset: true }, local: true }); }
   });
 
   await run("两个窗口：工具箱整合包草稿（A65-2）——一边有请求在途时改别的字段并离开页面，不重发未再改的在途字段去盖掉另一窗口的新值", async () => {
@@ -8888,24 +8895,26 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     let rel = () => {};
     try {
       await twoWin("#/toolbox/mrpack-export", "#mp-name", async (pa, pb) => {
-        let held = false;
+        let held = false, respHeld = false;
         const gate = new Promise(r => { rel = r; });
         await pa.route("**/api/toolbox/mrpack/draft", async route => {
           if (route.request().method() === "PUT" && !held) {
             held = true;
             const resp = await route.fetch(); // 第一次已落盘，扣住响应让客户端还以为在途
+            respHeld = true;
             await gate;
             try { await route.fulfill({ response: resp }); } catch {}
             return;
           }
           await route.continue();
         });
-        await pa.fill("#mp-name", "A 的名称"); await pa.waitForTimeout(450);
-        assert((await mockSet({})).toolbox.draft.name === "A 的名称", "A 的第一次应已存上");
-        await pb.fill("#mp-name", "B 覆盖的名称"); await pb.waitForTimeout(450);
-        assert((await mockSet({})).toolbox.draft.name === "B 覆盖的名称", "B 应已保存成功");
-        await pa.fill("#mp-summary", "A 补改的简介"); await pa.waitForTimeout(450); // A 在途，仅改简介
-        await pa.reload(); await pa.waitForSelector("#mp-name"); await pa.waitForTimeout(250);
+        await pa.fill("#mp-name", "A 的名称");
+        assert(await until(async () => respHeld && (await mockSet({})).toolbox.draft.name === "A 的名称"), "A 的第一次应已存上");
+        await pb.fill("#mp-name", "B 覆盖的名称");
+        assert(await until(async () => (await mockSet({})).toolbox.draft.name === "B 覆盖的名称"), "B 应已保存成功");
+        await pa.fill("#mp-summary", "A 补改的简介"); // A 在途，仅改简介
+        await pa.reload(); await pa.waitForSelector("#mp-name");
+        assert(await until(async () => (await mockSet({})).toolbox.draft.summary === "A 补改的简介"), "A 离开页面补发的简介应已落盘");
         const d = (await mockSet({})).toolbox.draft;
         assert(d.name === "B 覆盖的名称" && d.summary === "A 补改的简介", "A 补发简介时不能重发没变的名称盖掉 B：" + jstr(d));
       });
@@ -8916,10 +8925,13 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     await mockSet({ toolbox: { reset: true }, modCart: { reset: true }, local: true });
     try {
       await twoWin("#/toolbox/mrpack-export", "#mp-name", async (pa) => {
-        await pa.fill("#mp-name", "先存好的名称"); await pa.waitForTimeout(450); // 第一次已完成且已无在途请求
+        const firstDone = pa.waitForResponse(r => r.url().includes("/api/toolbox/mrpack/draft") && r.request().method() === "PUT");
+        await pa.fill("#mp-name", "先存好的名称");
+        await firstDone; // 确认第一次已完成且已无在途请求
         await pa.fill("#mp-summary", "防抖期里刷新前的简介");
         await pa.reload(); // 不等 260ms 防抖结束立刻刷新
-        await pa.waitForSelector("#mp-name"); await pa.waitForTimeout(250);
+        await pa.waitForSelector("#mp-name");
+        assert(await until(async () => (await mockSet({})).toolbox.draft.summary === "防抖期里刷新前的简介"), "防抖期里刷新也应触发 pagehide 送出新改动");
         const d = (await mockSet({})).toolbox.draft;
         assert(d.name === "先存好的名称" && d.summary === "防抖期里刷新前的简介", "防抖期里刷新也应触发 pagehide 送出新改动：" + jstr(d));
       });
@@ -8927,112 +8939,113 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
   });
 
   await run("两个窗口（A63-1）：手机远程管理保存访问密码途中接着打字，响应回来后保留当前输入", async () => {
-    await mockSet({ listenLan: true, lanSet: true, apiDelay: {} });
+    await mockSet({ listenLan: true, lanSet: true, holdReq: null });
     try {
       await twoWin("#/settings/remote", "#lan-pw", async (pa) => {
         await pa.fill("#lan-pw", "first-pw-1");
-        await mockSet({ apiDelay: { "PUT /api/config": 700 } });
+        await mockSet({ holdReq: "PUT /api/config" });
         await pa.click("#lan-save");
-        await pa.waitForTimeout(150);
+        await waitHeld(1);
         await pa.focus("#lan-pw");
         await pa.keyboard.press("End");
         await pa.type("#lan-pw", "-more");
+        await mockSet({ releaseHold: true });
         assert(await toastIn(pa, "还有未保存的新改动"), "保存途中改过应提示还有新改动");
         assert((await pa.inputValue("#lan-pw")) === "first-pw-1-more", "接着打的字不能被清掉：" + await pa.inputValue("#lan-pw"));
         assert(!(await pa.$eval("#lan-save", e => e.disabled)), "保存按钮应恢复可用");
-        await mockSet({ apiDelay: {} });
         await pa.click("#lan-save");
         assert(await toastIn(pa, "访问密码已保存"), "再点保存应成功");
       });
-    } finally { await mockSet({ listenLan: false, lanSet: false, apiDelay: {} }); }
+    } finally { await mockSet({ listenLan: false, lanSet: false, holdReq: null }); }
   });
 
   await run("两个窗口（A63-2）：AI 自填单价添加途中接着改输入框，响应回来后保留当前输入", async () => {
     await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-two-win", prices: [] });
-    await mockSet({ apiDelay: {} });
+    await mockSet({ holdReq: null });
     try {
       await twoWin("#/settings/ai", "#cp-add", async (pa) => {
         await pa.fill("#cp-model", "m1"); await pa.fill("#cp-in", "1"); await pa.fill("#cp-out", "2");
-        await mockSet({ apiDelay: { "PUT /api/ai/prices": 700 } });
+        await mockSet({ holdReq: "PUT /api/ai/prices" });
         await pa.click("#cp-add");
-        await pa.waitForTimeout(150);
+        await waitHeld(1);
         await pa.fill("#cp-model", "m2-next");
+        await mockSet({ releaseHold: true });
         assert(await toastIn(pa, "已添加自填单价"), "第一次添加完成要有提示");
         assert((await pa.textContent("#ai-prices")).includes("m1"), "已添加的 m1 应在列表里");
         assert((await pa.inputValue("#cp-model")) === "m2-next", "保存途中接着改的型号名不能被清掉：" + await pa.inputValue("#cp-model"));
         assert(!(await pa.$eval("#cp-add", e => e.disabled)), "添加按钮应恢复可用");
       });
-    } finally { await mockSet({ apiDelay: {} }); await aiState({ reset: true }); }
+    } finally { await mockSet({ holdReq: null }); await aiState({ reset: true }); }
   });
 
   await run("两个窗口（A63-3）：隧道编辑弹窗保存途中接着修改名称，弹窗不关且保留后续修改", async () => {
-    await mockSet({ tunnelsReset: true, apiDelay: {} });
+    await mockSet({ tunnelsReset: true, holdReq: null });
     try {
       await twoWin("#/tunnels", "#tun-list [data-tun]", async (pa) => {
         await pa.click('[data-tedit="t2"]'); await pa.waitForSelector("#tn-ed-name");
         await pa.fill("#tn-ed-name", "第一次保存名");
-        await mockSet({ apiDelay: { "PUT /api/tunnels/t2": 700 } });
+        await mockSet({ holdReq: "PUT /api/tunnels/t2" });
         await pa.click('#modal-root [data-x="ok"]');
-        await pa.waitForTimeout(150);
+        await waitHeld(1);
         await pa.fill("#tn-ed-name", "接着又改的名字");
+        await mockSet({ releaseHold: true });
         assert(await toastIn(pa, "有未保存的新改动"), "保存途中改过应提示弹窗保持打开");
         assert((await pa.inputValue("#tn-ed-name")) === "接着又改的名字", "弹窗应保留接着打的字：" + await pa.inputValue("#tn-ed-name"));
         assert(!(await pa.$eval('#modal-root [data-x="ok"]', e => e.disabled)), "确认保存按钮应恢复可用");
-        await mockSet({ apiDelay: {} });
         await pa.click('#modal-root [data-x="ok"]');
         assert(await toastIn(pa, "已保存「接着又改的名字」的修改"), "再点保存应保存最新名称");
         const t2 = (await mockSet({})).tunnels.find(t => t.id === "t2");
         assert(t2 && t2.name === "接着又改的名字", "最终保存的名称应是最新的：" + jstr(t2));
       });
-    } finally { await mockSet({ tunnelsReset: true, apiDelay: {} }); }
+    } finally { await mockSet({ tunnelsReset: true, holdReq: null }); }
   });
 
   await run("两个窗口（A63-4）：伙伴禁挖区域编辑保存途中接着改名，弹窗不关且第二次可正确替换", async () => {
     const zone = (name, x) => ({ name, dim: "minecraft:overworld", min: [x, -64, 0], max: [x + 10, 320, 10] });
     await cpState({ cp: { reset: true, inst: { [PACK]: { mods: CP_INSTALLED, settings: { enabled: true, exists: true, zones: [zone("base", 0)] } } } } });
-    await mockSet({ apiDelay: {} });
+    await mockSet({ holdReq: null });
     try {
       await twoWin("#/inst/" + encodeURIComponent(PACK) + "/companion", "[data-zedit='base']", async (pa) => {
         await pa.click('[data-zedit="base"]'); await pa.waitForSelector("#cz-name");
         await pa.fill("#cz-name", "farm1");
-        await mockSet({ apiDelay: { ["PUT /api/instances/" + PACK + "/companion/settings"]: 700 } });
+        await mockSet({ holdReq: "PUT /api/instances/" + PACK + "/companion/settings" });
         await pa.click('.modal [data-x="ok"]');
-        await pa.waitForTimeout(150);
+        await waitHeld(1);
         await pa.fill("#cz-name", "farm2");
+        await mockSet({ releaseHold: true });
         assert(await toastIn(pa, "有未保存的新改动"), "保存途中改过应保留弹窗");
         assert((await pa.inputValue("#cz-name")) === "farm2", "弹窗里接着改的名称应还在：" + await pa.inputValue("#cz-name"));
         assert(!(await pa.$eval('.modal [data-x="ok"]', e => e.disabled)), "确定按钮应恢复可用");
-        await mockSet({ apiDelay: {} });
         await pa.click('.modal [data-x="ok"]');
         assert(await toastIn(pa, "已保存区域「farm2」"), "再点确定应保存 farm2");
         const names = (await apiGet("/api/instances/" + encodeURIComponent(PACK) + "/companion")).settings.zones.map(z => z.name);
         assert(jstr(names) === jstr(["farm2"]), "应只保留最后改好的 farm2：" + jstr(names));
       });
-    } finally { await mockSet({ apiDelay: {} }); await resetCP(); }
+    } finally { await mockSet({ holdReq: null }); await resetCP(); }
   });
 
   await run("两个窗口（A63-5）：游戏内 AI 授权玩家途中接着输入下一个玩家，响应回来后不清空输入框", async () => {
     const SV = "生存服 · 朋友";
     await gcState({ ...gcReady, gc: { reset: true, inst: { [SV]: { settings: { allowed: ["Alex", "Steve"] } } } } });
-    await mockSet({ apiDelay: {} });
+    await mockSet({ holdReq: null });
     try {
       await twoWin("#/inst/" + encodeURIComponent(SV) + "/gameai", "#gc-add-name", async (pa) => {
         await pa.fill("#gc-add-name", "Bob_1");
-        await mockSet({ apiDelay: { ["PUT /api/instances/" + SV + "/gameai"]: 700 } });
+        await mockSet({ holdReq: "PUT /api/instances/" + SV + "/gameai" });
         await pa.click("#gc-add");
-        await pa.waitForTimeout(150);
+        await waitHeld(1);
         await pa.focus("#gc-add-name");
         await pa.fill("#gc-add-name", "Carol_2");
+        await mockSet({ releaseHold: true });
         assert(await toastIn(pa, "已允许 Bob_1 让 AI 执行命令"), "第一次授权应成功");
         assert((await pa.inputValue("#gc-add-name")) === "Carol_2", "接着输入的下一个玩家名不能被清空：" + await pa.inputValue("#gc-add-name"));
         assert(!(await pa.$eval("#gc-add", e => e.disabled)), "授权按钮应恢复可用");
-        await mockSet({ apiDelay: {} });
         await pa.click("#gc-add");
         assert(await toastIn(pa, "已允许 Carol_2 让 AI 执行命令"), "接着可授权 Carol_2");
         const allowed = (await apiGet("/api/instances/" + encodeURIComponent(SV) + "/gameai")).settings.allowed;
         assert(allowed.includes("Bob_1") && allowed.includes("Carol_2"), "两个人名都要授上权：" + jstr(allowed));
       });
-    } finally { await mockSet({ apiDelay: {} }); await resetGC(); }
+    } finally { await mockSet({ holdReq: null }); await resetGC(); }
   });
 
   await run("设置 → 常用：原来文件里没有的项，同一页里填上存下、再清空存下，清空的那一下也发出去（以前提示已保存，文件里却还留着）", async () => {

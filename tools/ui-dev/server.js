@@ -12,10 +12,10 @@ const { URL } = require("url");
 const UI_DEFAULT = path.resolve(__dirname, "..", "..", "internal", "web", "ui");
 const PORT_DEFAULT = 27390; // 避开 MineDeck 自己的默认端口 27333，本机同时开着程序也不冲突
 
-const ok = (res, data) => { res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" }); res.end(JSON.stringify({ ok: true, data })); };
+const ok = (res, data) => { if (!res.headersSent) res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" }); res.end(JSON.stringify({ ok: true, data })); };
 // hint：同后端 writeErr，报错链上另给的一句人话（没有就不带）；extra 是另外几项，比如平台上已经建好时的 { created: true }
 const err = (res, code, msg, hint, extra) => { res.writeHead(code, { "Content-Type": "application/json; charset=utf-8" }); res.end(JSON.stringify({ ok: false, error: msg, ...(hint ? { hint } : {}), ...extra })); };
-const readBody = req => new Promise(r => { let b = ""; req.on("data", c => b += c); req.on("end", () => { try { r(JSON.parse(b || "{}")); } catch { r({}); } }); });
+const readBody = req => req._bodyPromise || (req._bodyPromise = new Promise(r => { let b = ""; req.on("data", c => b += c); req.on("end", () => { try { r(JSON.parse(b || "{}")); } catch { r({}); } }); }));
 // 同 ops/catalog 的 maskWebhook：只留协议和主机（含端口），后面常带着令牌，换成 ***；解析不了的整个遮掉，空串还是空串
 const maskWebhook = u => { if (!u) return ""; try { const x = new URL(u); return x.host ? `${x.protocol}//${x.host}/***` : "***"; } catch { return "***"; } };
 // 同 publicConfig：从局域网打开时（state.local 为 false）Webhook 地址只给遮掉的
@@ -134,8 +134,7 @@ function newState(ui) {
     releases: [{ tag: "v2.8.3" }, { tag: "v2.9.0-beta.1", prerelease: true }, { tag: "v2.9.0-beta.2", prerelease: true }],
     updateFail: "",
     startupUpdate: null,
-    apiDelay: {}, // { "PUT /api/config": 250 }，界面测试用：让指定接口晚一点返回
-    draftHoldName: "", // 若设置，PUT /api/toolbox/mrpack/draft 带了此 name 时延迟到放行/超时后再继续（模拟乱序到达）
+    heldReqs: [], // 界面测试：当前被 holdReq 扣住的请求 [{ id, method, path, body }]
     lanSet: false, // 是否已设局域网访问密码（同 web：密码只写不读，/api/app 只给 lanSet）
     lanActive: false, // 这次「启动」是否已监听在局域网上：改 listenLan 不变（真机要重启），/__mock/state 的 listenLan 模拟重启后
     cfKey: "", // 同 web：CurseForge API Key 只写不读，不放进 config，/api/app 只给 cfKeySet
@@ -2506,9 +2505,6 @@ async function toolboxHandler(state, req, res, p, m) {
   // 同 toolbox.PatchMrpackDraft：只改传了的字段（两个窗口同时开着工具箱时，不拿一页的旧值盖掉另一页刚改的）
   if (p === "/api/toolbox/mrpack/draft" && m === "PUT") {
     const b = await readBody(req);
-    if (state.draftHoldName && b.name === state.draftHoldName) {
-      await new Promise(r => setTimeout(r, 450)); // 模拟先发的请求路上慢了半拍，等后发的先落盘再送到
-    }
     const clientId = String(b.clientId ?? req.headers["x-draft-client"] ?? "").trim();
     const rawSeq = b.seq ?? req.headers["x-draft-seq"];
     const seq = Number.isInteger(+rawSeq) && +rawSeq > 0 ? +rawSeq : 0;
@@ -2860,6 +2856,34 @@ async function tunnelAccountsHandler(state, req, res, p, m, seg) {
 }
 
 function handler(state, ui, portOf) {
+  let holdRules = [];
+  let nextHoldId = 0;
+  const heldGates = new Map(); // id -> { resolve, done, markDone }
+  const normalizeHoldRule = spec => {
+    if (typeof spec === "string") {
+      const sp = spec.trim().indexOf(" ");
+      return sp > 0
+        ? { method: spec.slice(0, sp).toUpperCase(), path: spec.slice(sp + 1).trim(), once: true, body: null }
+        : { method: "", path: spec.trim(), once: true, body: null };
+    }
+    return {
+      method: String(spec.method || "").toUpperCase(),
+      path: String(spec.path || ""),
+      once: spec.once !== false,
+      flushHeaders: !!spec.flushHeaders,
+      body: spec.body && typeof spec.body === "object" ? spec.body : null,
+    };
+  };
+  const releaseHeld = async target => {
+    const waits = [];
+    for (const [id, g] of [...heldGates.entries()]) {
+      if (target === true || target == null || id === target) {
+        waits.push(g.done);
+        g.resolve();
+      }
+    }
+    if (waits.length) await Promise.all(waits);
+  };
   return async (req, res) => {
     const u = new URL(req.url, "http://x");
     const p = u.pathname;
@@ -2989,8 +3013,11 @@ function handler(state, ui, portOf) {
       if ("updateChannel" in b) { if (b.updateChannel) state.config.updateChannel = b.updateChannel; else delete state.config.updateChannel; } // 空 = 没选过
       if ("updateFail" in b) state.updateFail = String(b.updateFail || ""); // 检查更新报这句错（502），空串还原
       if ("startupUpdate" in b) state.startupUpdate = b.startupUpdate || null; // 启动后台查到的新版本通知 {tag, notes?, prerelease?, channel}
-      if ("apiDelay" in b) state.apiDelay = b.apiDelay || {}; // 界面测试：按 "METHOD /path" 或路径前缀延迟响应（毫秒）
-      if ("draftHoldName" in b) state.draftHoldName = String(b.draftHoldName || ""); // A65 乱序测试：匹配的草稿名称保存延迟 450ms 再落盘
+      if ("holdReq" in b) { // 界面测试：按 "METHOD /path" 或 { method, path, body?, once? } 扣住匹配的请求，null 清规则并全部放行
+        if (!b.holdReq) { holdRules = []; await releaseHeld(true); }
+        else holdRules = (Array.isArray(b.holdReq) ? b.holdReq : [b.holdReq]).map(normalizeHoldRule);
+      }
+      if ("releaseHold" in b && b.releaseHold) await releaseHeld(b.releaseHold); // true 放行全部，或指定单个请求 id
       if ("credBroken" in b) for (const t of state.tunnels) t.credBroken = t.id === b.credBroken;
       if (b.tunnelsReset) { state.tunnels = newState(ui).tunnels; state.lastTunnelPut = null; } // 隧道回到初始的两条
       if ("tunnelsLoadFail" in b) state.tunnelsLoadFail = b.tunnelsLoadFail || ""; // "locked" | "corrupt" | ""（读出来了）
@@ -3032,10 +3059,32 @@ function handler(state, ui, portOf) {
     const insts = () => state.empty ? [] : state.instances;
     const dp = decodeURIComponent(p);
     const seg = p.split("/").map(decodeURIComponent); // ["", "api", "instances", name, sub...]
+    let heldId = 0;
     try {
-      const dMap = state.apiDelay || {};
-      const delayMs = dMap[`${m} ${dp}`] ?? dMap[`${m} ${p}`] ?? dMap[dp] ?? dMap[p] ?? 0;
-      if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
+      const candidates = holdRules.filter(r => (!r.method || r.method === m) && (r.path === dp || r.path === p));
+      if (candidates.length) {
+        const reqBody = String(req.headers["content-type"] || "").startsWith("multipart/") ? null : await readBody(req);
+        const rule = candidates.find(r => !r.body || Object.entries(r.body).every(([k, v]) => reqBody && reqBody[k] === v));
+        if (rule) {
+          if (rule.once) {
+            const idx = holdRules.indexOf(rule);
+            if (idx >= 0) holdRules.splice(idx, 1);
+          }
+          heldId = ++nextHoldId;
+          let releaseGate, markDone;
+          const gate = new Promise(r => { releaseGate = r; });
+          const done = new Promise(r => { markDone = r; });
+          state.heldReqs.push({ id: heldId, method: m, path: dp, body: reqBody });
+          heldGates.set(heldId, { resolve: releaseGate, done, markDone });
+          if (rule.flushHeaders && !res.headersSent) {
+            res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+            res.flushHeaders();
+          }
+          const timer = setTimeout(releaseGate, 15000);
+          await gate;
+          clearTimeout(timer);
+        }
+      }
       if (p === "/api/app") return ok(res, { version: state.version, updateChannel: updateChannelOf(state), ...(state.startupUpdate ? { startupUpdate: state.startupUpdate } : {}), base: "D:\\MineDeck", ramMb: 16384, availRamMb: 9216, port: portOf(), serversRoot: state.config.serversDir || "D:\\MineDeck\\servers", backupsRoot: state.config.backupsDir || "D:\\MineDeck\\backups", config: publicCfg(state), local: state.local, lanSet: state.lanSet, lanActive: state.lanActive, cfKeySet: !!state.cfKey && !state.cfKeyBroken, cfKeyBroken: state.cfKeyBroken, autoStart: state.autoStart, ips: ["172.22.48.1", "192.168.1.23", "10.0.0.5"] });
       if (p === "/api/bg") return ok(res, { images: [] });
       if (p === "/api/ops/log") {
@@ -3712,6 +3761,15 @@ function handler(state, ui, portOf) {
       }
       return ok(res, {});
     } catch (e) { return err(res, 500, String(e)); }
+    finally {
+      if (heldId) {
+        const idx = state.heldReqs.findIndex(x => x.id === heldId);
+        if (idx >= 0) state.heldReqs.splice(idx, 1);
+        const g = heldGates.get(heldId);
+        heldGates.delete(heldId);
+        if (g) g.markDone();
+      }
+    }
   };
 }
 
