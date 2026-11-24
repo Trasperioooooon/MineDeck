@@ -66,8 +66,11 @@ type Usage struct {
 	Estimated  bool  `json:"estimated,omitempty"` // 流中途断开、拿不到用量，按字数估算的
 }
 
-// Total 这次一共处理了多少 token（每日额度按它算）。
+// Total 这次一共处理了多少 token（含缓存命中和缓存写入）。
 func (u Usage) Total() int64 { return u.Input + u.Output + u.CacheRead + u.CacheWrite }
+
+// QuotaTokens 这次算入每日额度的 token（只算输入和输出；Output 已包含 Reasoning，缓存命中与写入不计入）。
+func (u Usage) QuotaTokens() int64 { return u.Input + u.Output }
 
 // Prompt 输入一共多少 token（按输入长度分档计价时用）。
 func (u Usage) Prompt() int64 { return u.Input + u.CacheRead + u.CacheWrite }

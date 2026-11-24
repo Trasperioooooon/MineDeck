@@ -181,6 +181,7 @@ function newState(ui) {
   state.incompleteJavas = [];
   state.creatingLeftovers = [];
   state.duplicateDirs = [];
+  state.brokenInstances = [];
   state.adoptTask = null;
   state.adoptScan = state.lastAdopt = state.lastJava = state.lastDelete = null; // 接管、换 Java、删除：见 /__mock/state 的说明
   state.lastTunnelPut = null; // 上一次修改隧道（PUT /api/tunnels/{id}）的请求体，见 /__mock/state 的说明
@@ -2941,6 +2942,7 @@ function handler(state, ui, portOf) {
       if ("trustedHosts" in b) state.trustedHosts = b.trustedHosts || [];
       if ("taskNet" in b) state.taskNet = b.taskNet;
       if ("importPack" in b) state.importPack = b.importPack; // 导入整合包回的 pack 摘要里要改的几项（format、mcFromLog…），null 还原
+      if (Array.isArray(b.instances)) state.instances = b.instances;
       if (b.inst) { const i = state.instances.find(x => x.name === b.inst.name); if (i) Object.assign(i, b.inst); } // 改某台服务器的字段（adopted、javaMajor…）
       if ("adoptScan" in b) state.adoptScan = b.adoptScan; // 接管：下一次识别返回的结果（null 还原成默认的 NeoForge 整合包）
       if ("commands" in b) state.commands = b.commands || []; // 发过的控制台命令（见 POST …/command），传空数组清掉
@@ -2950,12 +2952,13 @@ function handler(state, ui, portOf) {
       if (Array.isArray(b.madeDirs)) { state.madeDirs = b.madeDirs; state.lastTransferMkdir = null; }
       if ("pickDir" in b) state.pickDir = b.pickDir === null ? undefined : b.pickDir; // 系统文件夹选择框选到哪个（空串 = 点了取消；null 还原成 E:\MCServers）
       if (b.instReset) { const fresh = newState(ui); state.instances = fresh.instances; state.portableJavas = fresh.portableJavas; state.incompleteJavas = []; state.creatingLeftovers = [];
-        state.duplicateDirs = []; state.adoptTask = null;
+        state.duplicateDirs = []; state.brokenInstances = []; state.adoptTask = null;
         state.creating = false; state.javaBusy = false; state.reservedPorts = [];
-        state.lastAdopt = state.lastJava = state.lastDelete = null;
+        state.lastAdopt = state.lastJava = state.lastDelete = state.lastOpenDir = null;
         state.lifecycle = []; state.modOps = []; state.lastRestore = state.lastBackup = null; state.modsProjects = 0; } // beta.3 详情页记下的请求一起清掉
       if ("reservedPorts" in b) state.reservedPorts = b.reservedPorts || []; // [[起, 止]] 系统保留的端口范围（Hyper-V / WSL 等），放在 instReset 之后以免同次调用被冲掉
       if (Array.isArray(b.duplicateDirs)) state.duplicateDirs = b.duplicateDirs;
+      if (Array.isArray(b.brokenInstances)) state.brokenInstances = b.brokenInstances;
       if ("adoptTask" in b) state.adoptTask = b.adoptTask || null;
       if (Array.isArray(b.portableJavas)) state.portableJavas = b.portableJavas;
       if (Array.isArray(b.incompleteJavas)) state.incompleteJavas = b.incompleteJavas;
@@ -3337,7 +3340,7 @@ function handler(state, ui, portOf) {
       if (p === "/api/instances" && m === "GET") {
         const data = insts().map(({ mods, backups, ...i }) => ({ ...i, connectPort: i.connectPort ?? i.port, backupDir: i.backupDir ?? "D:\\MineDeck\\backups\\" + i.name }));
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
-        return res.end(JSON.stringify({ ok: true, data, duplicates: state.empty ? [] : (state.duplicateDirs || []) }));
+        return res.end(JSON.stringify({ ok: true, data, duplicates: state.empty ? [] : (state.duplicateDirs || []), broken: state.empty ? [] : (state.brokenInstances || []), local: state.local !== false }));
       }
       // 创建实例（向导提交）：真的登记进列表（Java 21 / 已停止等按表单补全），
       // 这样紧接着带上草稿车的 POST .../modcart/install 才能按名字找到这台实例（真后端此时也已经建好了）

@@ -10484,6 +10484,59 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     });
   }
 
+  await run("A104：instance.json 损坏的服务器在列表显示只读提示卡、点卡不跳转，本机可打开文件夹而局域网隐藏", async () => {
+    const mState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
+    const brokenID = "__broken__:badjson1";
+    try {
+      await mState({
+        instReset: true,
+        local: true,
+        brokenInstances: [
+          { id: brokenID, folder: "broken-pack", reason: "设置文件 JSON 格式有误（可能是括号、引号或逗号没写对）" },
+        ],
+      });
+      await page.goto(url("#/instances"));
+      await page.waitForSelector(`.card[data-broken="${brokenID}"]`);
+      const cardInfo = await page.$eval(`.card[data-broken="${brokenID}"]`, c => ({
+        text: c.textContent,
+        hasOpen: !!c.querySelector("[data-open-broken]"),
+        hasStart: !!c.querySelector('[data-act="start"], [data-act="stop"]'),
+        hasMore: !!c.querySelector('[data-act="more"]'),
+        hasLink: !!c.querySelector("a"),
+        hasName: "name" in c.dataset,
+      }));
+      assert(
+        cardInfo.text.includes("broken-pack") &&
+        cardInfo.text.includes("无法读取") &&
+        cardInfo.text.includes("这台服务器的设置文件读不出来：设置文件 JSON 格式有误") &&
+        cardInfo.hasOpen && !cardInfo.hasStart && !cardInfo.hasMore && !cardInfo.hasLink && !cardInfo.hasName,
+        "损坏卡片应显示文件夹名、错误原因与「打开文件夹」，不应有启停/管理/更多操作：" + JSON.stringify(cardInfo),
+      );
+      await page.click(`.card[data-broken="${brokenID}"] .inst-fail`);
+      await settle(200);
+      assert(await page.evaluate(() => location.hash) === "#/instances", "点损坏卡片空白处应留在列表页：" + await page.evaluate(() => location.hash));
+
+      await page.click(`.card[data-broken="${brokenID}"] [data-open-broken]`);
+      await page.waitForFunction(id => fetch("/__mock/state", { method: "POST", body: "{}" }).then(r => r.json()).then(j => j.data.lastOpenDir?.inst === id), brokenID);
+
+      // 局域网访客：隐藏「打开文件夹」，改提示去主机处理
+      await mState({ local: false });
+      await page.goto(url("#/instances"));
+      await page.waitForSelector(`.card[data-broken="${brokenID}"] .hint`);
+      assert(!(await page.$(`.card[data-broken="${brokenID}"] [data-open-broken]`)), "局域网打开时不应显示「打开文件夹」按钮");
+      assert((await page.textContent(`.card[data-broken="${brokenID}"]`)).includes("请到主机上打开这个文件夹"), "局域网打开时应提示去主机操作");
+
+      // 只有损坏目录、没有正常服务器时：不显示「还没有服务器」空态
+      await mState({ local: true, instances: [] });
+      await page.goto(url("#/instances"));
+      await page.waitForSelector(`.card[data-broken="${brokenID}"]`);
+      assert(!(await page.$("#inst-cards .empty")), "存在损坏目录时不应落到「还没有服务器」空态");
+      assert((await page.textContent("#inst-summary")).includes("1 个文件夹配置无法读取"), "页顶摘要应列出配置无法读取的个数");
+    } finally {
+      await mState({ instReset: true, local: true });
+    }
+  });
+
   await run("全程无页面报错", async () => { assert(errors.length === 0, errors.slice(0, 3).join(" | ")); });
 
   await browser.close();

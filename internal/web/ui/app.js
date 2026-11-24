@@ -1591,10 +1591,19 @@ async function renderInstances() {
   };
   paintLeftovers();
   const taskList = $("#task-list");
-  let lastSig = "", curList = [], prevByName = null; // prevByName：上次渲染时各实例的数据（判定状态切换、播切换动效）
+  let lastSig = "", curList = [], curBroken = [], curLocal = true, prevByName = null; // prevByName：上次渲染时各实例的数据（判定状态切换、播切换动效）
   // 连接地址用的本机局域网 IP（见 pickLanIP）。列表不等 /api/app：拿到之前、或者拿不到时，卡片上只写端口、不给复制，拿到了再重画
   let lanIP = pickLanIP(knownIPs || []);
   const appInfo = api("/api/app").catch(() => ({}));
+  const brokenCardHTML = (b, n, enter) => `
+    <div class="card st-stopped${enter ? " item-enter" : ""}" style="--i:${n}" data-broken="${esc(b.id)}">
+      <div class="inst-head"><span style="color:var(--warning-text);flex:none;display:inline-flex;align-items:center">${icon("warn")}</span><div class="inst-title"><div class="inst-name">${esc(b.folder)}</div><div class="inst-sub">设置文件无法读取</div></div><span class="badge warn">无法读取</span></div>
+      <div class="inst-fail" style="margin-top:4px" title="${esc(b.reason)}">${icon("warn")}<span style="-webkit-line-clamp:unset">${esc(`这台服务器的设置文件读不出来：${b.reason}`)}</span></div>
+      <div class="inst-actions">
+        ${curLocal ? `<button type="button" class="btn sm" data-open-broken="${esc(b.id)}" aria-label="打开文件夹 ${esc(b.folder)}">${icon("folder")} 打开文件夹</button>`
+          : `<span class="hint">请到主机上打开这个文件夹，检查或修复 instance.json</span>`}
+      </div>
+    </div>`;
   const cardHTML = (i, n, enter, prev) => {
     const proxy = i.kind === "proxy";
     const gb = (i.xmxMb / 1024).toFixed(1) + " GB";
@@ -1640,6 +1649,7 @@ async function renderInstances() {
   const animateChanges = prev => {
     if (!prev || reducedMotion()) return;
     $("#inst-cards").querySelectorAll(".card").forEach(card => {
+      if (!card.dataset.name) return;
       const i = curList.find(x => x.name === card.dataset.name), p = prev.get(card.dataset.name);
       if (!i || !p || p.status === i.status) return;
       animatePill(card.querySelector(".st-pill"), p.status, i.status);
@@ -1656,12 +1666,21 @@ async function renderInstances() {
     let list = curList.filter(i => !q || i.name.toLowerCase().includes(q));
     if (sort === "name") list = list.slice().sort((a, b) => a.name.localeCompare(b.name));
     else if (sort === "running") list = list.slice().sort((a, b) => (b.status === "running") - (a.status === "running"));
+    const brokenList = curBroken.filter(b => !q || (b.folder || "").toLowerCase().includes(q) || (b.reason || "").toLowerCase().includes(q));
     const prev = prevByName;
     prevByName = new Map(curList.map(i => [i.name, i]));
-    if (!list.length) { $("#inst-cards").innerHTML = `<div class="empty" style="padding:40px 0">没有名称包含「${esc(q)}」的服务器</div>`; return; }
-    $("#inst-cards").innerHTML = `<div class="cards">` + list.map((i, n) => cardHTML(i, n, enter, prev && prev.get(i.name))).join("") + `</div>`;
+    if (!list.length && !brokenList.length) { $("#inst-cards").innerHTML = `<div class="empty" style="padding:40px 0">没有名称包含「${esc(q)}」的服务器</div>`; return; }
+    $("#inst-cards").innerHTML = `<div class="cards">` + list.map((i, n) => cardHTML(i, n, enter, prev && prev.get(i.name))).join("") + brokenList.map((b, n) => brokenCardHTML(b, list.length + n, enter)).join("") + `</div>`;
     animateChanges(prev);
     $("#inst-cards").querySelectorAll(".inst-meta").forEach(el => { if (el.dataset.motd) renderMotd(el, el.dataset.motd); });
+    $("#inst-cards").querySelectorAll("[data-open-broken]").forEach(btn => btn.onclick = async ev => {
+      ev.stopPropagation();
+      try {
+        await api(`/api/instances/${encodeURIComponent(btn.dataset.openBroken)}/opendir`, { method: "POST" });
+      } catch (e) {
+        toastErr("无法打开文件夹", e);
+      }
+    });
     $("#inst-cards").querySelectorAll("[data-act]").forEach(b => b.onclick = async ev => {
       ev.stopPropagation();
       const name = b.closest(".card").dataset.name, act = b.dataset.act;
@@ -1683,8 +1702,9 @@ async function renderInstances() {
       } catch (e) { if (act === "start") toastErr("无法启动服务器", e, { actions: await startFixes(name) }); else toastErr("无法停止服务器", e); }
       lastSig = ""; draw();
     });
-    // 整卡可点：点卡片空白处进入详情（卡内按钮 / 链接各自处理）
+    // 整卡可点：点卡片空白处进入详情（卡内按钮 / 链接各自处理；配置损坏卡片不进详情）
     $("#inst-cards").querySelectorAll(".card").forEach(c => c.onclick = e => {
+      if (c.dataset.broken || !c.dataset.name) return;
       if (e.target.closest("button, a")) return;
       location.hash = `#/inst/${encodeURIComponent(c.dataset.name)}`;
     });
@@ -1692,11 +1712,13 @@ async function renderInstances() {
   let first = true;
   const draw = async () => {
     refreshTaskList(taskList, gen);
-    let list, dups = [];
+    let list, dups = [], broken = [], isLocal = true;
     try {
       const resp = await api("/api/instances", { full: true });
       list = resp.data || [];
       dups = resp.duplicates || [];
+      broken = resp.broken || [];
+      if (typeof resp.local === "boolean") isLocal = resp.local;
     } catch (e) {
       if (!stale(gen)) $("#inst-cards").innerHTML = errBox("无法获取服务器列表", e, { hint: "正在自动重试" });
       return;
@@ -1704,10 +1726,15 @@ async function renderInstances() {
     if (stale(gen)) return;
     paintDuplicates(dups);
     curList = list;
+    curBroken = broken;
+    curLocal = isLocal;
     const running = list.filter(i => i.status === "running").length;
     const online = list.reduce((s, i) => s + (i.onlineCount || 0), 0);
-    $("#inst-summary").innerHTML = list.length ? `共 ${list.length} 台${SEP}运行中 ${running} 台${online ? `${SEP}在线 ${online} 人` : ""}` : "";
-    if (!list.length) {
+    const brokenSummary = broken.length ? `${SEP}配置无法读取 ${broken.length} 个` : "";
+    $("#inst-summary").innerHTML = list.length
+      ? `共 ${list.length} 台${SEP}运行中 ${running} 台${online ? `${SEP}在线 ${online} 人` : ""}${brokenSummary}`
+      : broken.length ? `共 ${broken.length} 个文件夹配置无法读取` : "";
+    if (!list.length && !broken.length) {
       $("#inst-chrome").hidden = true; // 没有实例时不显示「服务器」标题与搜索/排序
       $("#inst-cards").classList.add("page-fill");
       // 一个主行动 + 一个安静的次要入口（两个同权重按钮等于没有主按钮）。
@@ -1723,7 +1750,8 @@ async function renderInstances() {
     $("#inst-cards").classList.remove("page-fill");
     // 签名：数据无实质变化则跳过重绘（消除周期性闪烁与焦点丢失，也不重播动效）；启动中按秒推进分段条，所以带上时长
     // 端口、上次启动失败的原因、连接地址的 IP 也算：崩溃自动重启、定时重启没起来时，卡片上要跟着冒出原因
-    const sig = list.map(i => `${i.name}:${i.status}:${i.status === "running" ? Math.floor(i.uptimeSec / 60) + "/" + i.onlineCount : i.status === "starting" ? Math.floor(i.uptimeSec / 3) : ""}:${connectPortOf(i)}:${i.lastStartError || ""}:${i.javaMissing ? 1 : 0}`).join("|") + "#" + $("#inst-q").value + "#" + $("#inst-sort").value + "#" + lanIP;
+    const sig = list.map(i => `${i.name}:${i.status}:${i.status === "running" ? Math.floor(i.uptimeSec / 60) + "/" + i.onlineCount : i.status === "starting" ? Math.floor(i.uptimeSec / 3) : ""}:${connectPortOf(i)}:${i.lastStartError || ""}:${i.javaMissing ? 1 : 0}`).join("|")
+      + "#" + broken.map(b => `${b.id}:${b.folder}:${b.reason}`).join("|") + "#" + (isLocal ? 1 : 0) + "#" + $("#inst-q").value + "#" + $("#inst-sort").value + "#" + lanIP;
     if (sig === lastSig) return;
     lastSig = sig;
     // 首屏：骨架淡出（160ms）后卡片逐项入场（错峰 28ms）；之后的重绘不再播入场
@@ -1741,7 +1769,7 @@ async function renderInstances() {
     const ips = learnIPs(app);
     if (stale(gen)) return;
     lanIP = pickLanIP(ips);
-    if (curList.length) draw();
+    if (curList.length || curBroken.length) draw();
   });
   await draw();
   startPoll(draw, 3000, gen);
@@ -6278,7 +6306,7 @@ function drawAI(body, v, gen) {
       { ico: true, attrs: `id="ai-form"` }) +
     (ro ? "" : saveBar("保存")) +
     group(riRow({ ico: "monitor", title: "测试连接", sub: `<span id="ai-test-sub"></span>`, right: `<button class="btn" id="ai-test"${dis}>${icon("bolt")} 测试连接</button>` }), { ico: true }) +
-    settingsHead("每日额度", "按功能分别设每天最多用多少 token（输入、输出、缓存都算），用完后这项功能暂停到第二天 0 点。留空或填 0 表示不限。") +
+    settingsHead("每日额度", "按功能分别设每天最多用多少 token（只算输入和输出，缓存不计入额度），用完后这项功能暂停到第二天 0 点。留空或填 0 表示不限。") +
     group(AI_FEATS.map(f => riRow({ ico: "clock", title: f.name, sub: `<span id="q-sub-${f.id}">${aiUsageLine(v.today[f.id], v.month[f.id])}</span>`,
       field: `<input type="number" id="q-${f.id}" min="0" step="any" inputmode="decimal" placeholder="不限" value="${v.quota[f.id] ? v.quota[f.id] / 10000 : ""}" aria-label="${esc(f.name)}每日额度（万 token）"${dis}>` +
         `<span class="ri-unit">万 token / 天</span><button class="btn" id="q-save-${f.id}" aria-label="保存${esc(f.name)}每日额度"${dis}>保存</button>`,

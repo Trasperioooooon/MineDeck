@@ -110,7 +110,7 @@ func (c *cat) aiOps() {
 
 	c.reg.Register(&ops.Op{
 		Name: "ai.quota.set", Title: "修改 AI 每日额度", Level: ops.HumanOnly, LocalOnly: true, LocalMsg: localMsg,
-		Desc: "按功能设每天最多用多少 token（输入、输出、缓存都算），0 表示不限。用完后这项功能暂停到第二天。",
+		Desc: "按功能设每天最多用多少 token（只算输入和输出，缓存不计入），0 表示不限。用完后这项功能暂停到第二天。",
 		Params: ops.Object(map[string]*ops.Schema{
 			"assistant": ops.Integer("应用内助手（局域网登录的设备和本机共用）").Range(0, 1e12),
 			"gamechat":  ops.Integer("游戏内 AI").Range(0, 1e12),
