@@ -90,6 +90,8 @@ func TestPackShapes(t *testing.T) {
 		{name: "套一层，manifest.json 明写类型、版本空着", files: m("Pack/manifest.json", `{"manifestType":"minecraftModpack","minecraft":{"version":"","modLoaders":[]},"files":[]}`, "Pack/overrides/a.txt", "x"),
 			hint: "无法识别整合包加载器"},
 		cfPack("最外层 mods/ 加套一层 CF 清单", "Pack", m("mods/a.jar", "m", "Pack/manifest.json", cf)),
+		paperAt("最外层 mods/ 里有 fabric-api（名字像服务端 jar），里面套着 Paper", "Srv", m("mods/fabric-api-0.92.2.jar", "x", "Srv/"+pj, paper, "Srv/"+sp, "x=1\n")),
+		paperAt("最外层 plugins/ 里有 Paper 开头的插件，里面套着 Paper", "Srv", m("plugins/PaperLib-1.0.jar", "x", "Srv/"+pj, paper, "Srv/"+sp, "x=1\n")),
 		paperAt("两个顶层文件夹：一个是服务端，一个里面有网页 manifest.json", "Srv", m("Srv/"+pj, paper, "Srv/"+sp, "x=1\n", "site/manifest.json", web)),
 		paperAt("spigot-1.20.1.jar 单独一个", "", m("spigot-1.20.1.jar", paper)),
 		{name: "老 Forge：forge-1.12.2-….jar 加 minecraft_server.1.12.2.jar 加 libraries/",

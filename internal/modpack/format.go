@@ -610,6 +610,11 @@ func serverRoot(l zipLayout, outer bool) (root string, nested []string, ok bool)
 	}
 	if top := l[""]; top != nil {
 		for dir := range top.dirs {
+			// mods、plugins、libraries 本身是服务端的旁证，不会是套着一台服务端的那层文件夹：里面的 fabric-api-*.jar 这类
+			// 名字像服务端 jar，不跳过的话，最外层只多一个 mods/ 时往里看，会和真正那台一起被当成「好几台」
+			if serverEntry(dir, true) {
+				continue
+			}
 			if l.looksLikeServer(dir) {
 				nested = append(nested, dir)
 			}

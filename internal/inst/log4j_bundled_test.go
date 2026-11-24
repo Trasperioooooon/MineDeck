@@ -1006,7 +1006,7 @@ func TestLog4jUnreliableJarMetadataIsUnknown(t *testing.T) {
 }
 
 // 换配置（1.7 ~ 1.11.2 引用着 112-116 的）时，官方的 17-111 已经在文件夹里：开服时当场换上，这一次启动就生效、不下载；
-// instance.json 写不进去时照实说，不说成在后台下载（复审方第 7 节第 11 条，同「补」那一支）。
+// instance.json 写不进去时照实说，不说成在后台下载（A50，同「补」那一支）。
 func TestLog4jSwapUsesOfficialXMLOnDisk(t *testing.T) {
 	fetched := stubLog4jFetch(t, nil)
 	m := newMigrateManager()
