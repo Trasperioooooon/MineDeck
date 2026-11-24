@@ -17,6 +17,7 @@ import (
 	"sync"
 	"syscall"
 	"testing"
+	"time"
 
 	"minedeck/internal/app"
 	"minedeck/internal/dl"
@@ -236,9 +237,19 @@ func TestOpenfrpGoneAfterExtractNotReplacedByJudgedBroken(t *testing.T) {
 
 // 查出 frpc 坏了、到删它之间，文件被换成了好的（比如用户刚放进来一个）：不删，重新查，用换进来的这份，也不去下载（A56）。
 // 原地改写（大小变了）和改名换进来（大小、修改时间都和原来一样，只有文件本身不同）两种都要认出来。
+// 删前确认比的三样各有一条只靠它认得出的：改名换进来只靠「是不是同一个文件」，原地改写成一样长的只靠修改时间，
+// 原地改写成不一样长、修改时间又被改回原样的只靠大小。
 func TestBrokenFrpcReplacedBeforeDeleteIsKept(t *testing.T) {
 	notPE := fakeFrpcExe()
 	copy(notPE[0x40:], "XX\x00\x00") // 和好的一样长，开头是 MZ、后面不是 PE 头
+	stat := func(t *testing.T, p string) os.FileInfo {
+		t.Helper()
+		st, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
 	for _, c := range []struct {
 		name    string
 		old     []byte
@@ -262,6 +273,31 @@ func TestBrokenFrpcReplacedBeforeDeleteIsKept(t *testing.T) {
 			}
 			if err := os.Rename(tmp, path); err != nil {
 				t.Fatal(err)
+			}
+			return b
+		}},
+		{"原地改写、大小一样、修改时间不同", notPE, func(t *testing.T, path string) []byte {
+			before := stat(t, path)
+			b := fakeFrpcExe()
+			writeFile(t, path, b)
+			later := before.ModTime().Add(2 * time.Second) // 明着设，不靠两次写之间隔了多久
+			if err := os.Chtimes(path, later, later); err != nil {
+				t.Fatal(err)
+			}
+			if now := stat(t, path); !os.SameFile(before, now) || now.Size() != before.Size() || now.ModTime().Equal(before.ModTime()) {
+				t.Fatal("前提：同一个文件、大小没变、修改时间变了")
+			}
+			return b
+		}},
+		{"原地改写成大小不同、修改时间改回原样", fakeFrpcExe()[:700], func(t *testing.T, path string) []byte {
+			before := stat(t, path)
+			b := append(fakeFrpcExe(), "用户刚放的"...)
+			writeFile(t, path, b)
+			if err := os.Chtimes(path, before.ModTime(), before.ModTime()); err != nil {
+				t.Fatal(err)
+			}
+			if now := stat(t, path); !os.SameFile(before, now) || now.Size() == before.Size() || !now.ModTime().Equal(before.ModTime()) {
+				t.Fatal("前提：同一个文件、修改时间没变、大小变了")
 			}
 			return b
 		}},

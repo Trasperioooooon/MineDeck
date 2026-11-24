@@ -332,7 +332,8 @@ func openfrpInstall(ctx context.Context, con *procutil.Console, urls []string, z
 }
 
 // openfrpFetchExtract 下载一次、解压一次、挑出 frpc。解压出来的 frpc 是坏的时，bad 说明是哪个、怎么坏的（这时 exe 为空）。
-// 这个 zip 没有哈希可对，dl.Fetch 下次见它够大就直接复用：解压不了、里面的 frpc 是坏的、或者里面没有 frpc 的，删掉，下次重新下载。
+// 这个 zip 没有哈希可对，dl.Fetch 下次见它够大就直接复用：解压不了、里面的 frpc 是坏的、或者里面没有 frpc 的，删掉，下次重新下载；
+// 删不掉的照实报出来（dropZipCache）。
 // frpc 解压出来又被杀毒软件删了的（errFrpcGone）不算 zip 坏了，留着。
 func openfrpFetchExtract(ctx context.Context, urls []string, zipPath, dir string, skip []string) (exe, bad string, err error) {
 	if err := dl.Fetch(ctx, dl.Request{URLs: urls, Dest: zipPath, MinSize: 1 << 20, Client: openfrpHTTPClient}, nil); err != nil {
@@ -341,20 +342,44 @@ func openfrpFetchExtract(ctx context.Context, urls []string, zipPath, dir string
 	}
 	names, err := extractZipFlat(zipPath, dir)
 	if err != nil {
-		_ = os.Remove(zipPath)
-		return "", "", err
+		return "", "", alsoDropZip(err, zipPath)
 	}
-	if bad, err = dropBadExtracted(dir, names); bad != "" {
-		_ = os.Remove(zipPath)
+	if bad, err = dropBadExtracted(dir, names); err != nil {
+		return "", bad, alsoDropZip(err, zipPath)
 	}
-	if err != nil || bad != "" {
-		return "", bad, err
+	if bad != "" {
+		// 删不掉就不进第二轮：下一轮 dl.Fetch 见它够大会直接复用，说「重新下载了一次」就不是真的
+		if zerr := dropZipCache(zipPath); zerr != nil {
+			return "", bad, fmt.Errorf("下载到的 frpc 是坏的：%s，%w", bad, zerr)
+		}
+		return "", bad, nil
 	}
 	exe, err = frpcAfterExtract(dir, names, skip, fmt.Errorf("OpenFrp frpc 解压后未找到可执行文件"))
 	if err != nil && !errors.Is(err, errFrpcGone) {
-		_ = os.Remove(zipPath)
+		err = alsoDropZip(err, zipPath)
 	}
 	return exe, "", err
+}
+
+// dropZipCache 删掉坏了的缓存 zip（已经不在了算删掉了）。删不掉（被别的程序开着）时交回给人看的一句，带上系统给的原因：
+// 留着它的话下次启动还是复用它，得请人自己处理。
+func dropZipCache(zipPath string) error {
+	err := os.Remove(zipPath)
+	if err == nil || errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if pe := (*os.PathError)(nil); errors.As(err, &pe) {
+		err = pe.Err // 路径后面会写，不重复
+	}
+	return fmt.Errorf("缓存的压缩包删不掉（%w），请关掉占用它的程序或手动删掉 %s 后重试", err, zipPath)
+}
+
+// alsoDropZip 出错以后连缓存的 zip 一起删掉；删不掉时把那一句接在 err 后面（errors.Is 照旧认得出 err）。
+func alsoDropZip(err error, zipPath string) error {
+	if zerr := dropZipCache(zipPath); zerr != nil {
+		return fmt.Errorf("%w。%v", err, zerr)
+	}
+	return err
 }
 
 // dropBadExtracted 这次解压出来的 frpc 逐个查一遍，坏的删掉（是这次刚放进去的，归 MineDeck 管；删前同样确认没被换掉）。

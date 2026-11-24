@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"minedeck/internal/app"
 	"minedeck/internal/procutil"
 )
 
@@ -87,6 +88,65 @@ func TestBrokenExeCannotBeRemoved(t *testing.T) {
 	}
 	if readFile(t, exe) != "不是程序" {
 		t.Fatal("删不掉的文件不该被改")
+	}
+}
+
+// OpenFrp 缓存的 zip 里 frpc 是坏的，zip 又被别的程序开着、删不掉（只许读，不许删）：不进第二轮（下一轮 dl.Fetch 会直接复用它，
+// 说「重新下载了一次」不是真的），也不去下载；报下载到的 frpc 是坏的、缓存的压缩包删不掉，请人关掉占用它的程序或手动删掉（A56）。
+func TestOpenfrpBrokenZipCannotBeDeleted(t *testing.T) {
+	f := newFrpcFake(t)
+	zipURL := "/client/OF_t1/" + openfrpFrpcZip
+	f.set(func(f *frpcFake) { f.files[zipURL] = openfrpZip(t, string(fakeFrpcExe())) })
+	cache := filepath.Join(app.CacheDir, "frpc", "openfrp-frpc-OF_t1.zip")
+	writeFile(t, cache, openfrpZip(t, string(fakeFrpcExe()[:700])))
+	release := holdNoDelete(t, cache)
+	defer release()
+	con := procutil.NewConsole()
+	got, err := (openfrpProvider{}).EnsureFrpc(con)
+	if got != "" || err == nil || !strings.Contains(err.Error(), "下载到的 frpc 是坏的：frpc_windows_amd64.exe") ||
+		!strings.Contains(err.Error(), "缓存的压缩包删不掉（") || !strings.HasSuffix(err.Error(), "请关掉占用它的程序或手动删掉 "+cache+" 后重试") ||
+		strings.Contains(err.Error(), "重新下载了一次") {
+		t.Fatalf("压缩包删不掉应照实报、不进第二轮：%q %v", got, err)
+	}
+	if n := f.hitCount(zipURL); n != 0 {
+		t.Fatalf("不该去下载：%d 次", n)
+	}
+	if lines := strings.Join(con.Lines(), "\n"); strings.Contains(lines, "重新下载一次") {
+		t.Fatalf("控制台不该说重新下载：%s", lines)
+	}
+	if _, err := os.Stat(cache); err != nil {
+		t.Fatalf("删不掉的压缩包还在：%v", err)
+	}
+	if exe := findExe(frpcDir("openfrp")); exe != "" {
+		t.Fatalf("解压出来的坏 frpc 照样删掉：%s", exe)
+	}
+}
+
+// OpenFrp 的 frpc 文件夹是目录联接（里面的东西其实在用户别处的文件夹里）：里面坏了的标准名 frpc 和用户别的文件都不删、不改，
+// 报出来请人处理，也不去下载（同 usableFrpc 的规矩，2026-11-19 Codex 复审）。联接的建法同 renumber_windows_test.go。
+func TestOpenfrpJunctionFolderNotTouched(t *testing.T) {
+	f := newFrpcFake(t)
+	user := filepath.Join(t.TempDir(), "用户自己的文件夹")
+	broken := fakeFrpcExe()[:700]
+	writeFile(t, filepath.Join(user, "frpc_windows_amd64.exe"), broken)
+	writeFile(t, filepath.Join(user, "笔记.txt"), []byte("用户的"))
+	link := frpcDir("openfrp")
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, user).CombinedOutput(); err != nil {
+		t.Fatalf("建不了目录联接：%v %s", err, out)
+	}
+	t.Cleanup(func() { _ = os.Remove(link) }) // 只删联接本身
+	got, err := (openfrpProvider{}).EnsureFrpc(procutil.NewConsole())
+	if got != "" || err == nil || !strings.Contains(err.Error(), "MineDeck 没有动它") {
+		t.Fatalf("联接文件夹里坏的 frpc 应报出来、不动：%q %v", got, err)
+	}
+	if readFile(t, filepath.Join(user, "frpc_windows_amd64.exe")) != string(broken) || readFile(t, filepath.Join(user, "笔记.txt")) != "用户的" {
+		t.Fatal("联接文件夹里用户原有的文件不该删、不该改")
+	}
+	if n := f.hitCount(""); n != 0 {
+		t.Fatalf("不该去下载：%d 次请求", n)
 	}
 }
 
