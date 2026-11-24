@@ -100,7 +100,8 @@ func TestIndexSniffBudget(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer zr.Close()
-		loc, err := findIndex(zr.File, newZipLayout(zr.File))
+		l := newZipLayout(zr.File)
+		loc, err := findIndex(zr.File, l, !l.looksLikeServer(""))
 		if err != nil {
 			t.Fatal(err)
 		}

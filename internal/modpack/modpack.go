@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -85,9 +86,25 @@ func Parse(zipPath string) (*Pack, error) {
 }
 
 // parseFiles 认压缩包里的条目（Parse 打开以后的那一步）。zipPath 只记进 Pack，后面解压时再打开。
+// 最外层像服务端时只按最外层认（A40）；它的凭据只有 eula.txt、mods、libraries 这类旁证、又认不出核心的，
+// 再看里面一层的清单和服务端，里面也认不出就照旧说最外层认不出核心。
 func parseFiles(zipPath string, files []*zip.File) (*Pack, error) {
 	layout := newZipLayout(files)
-	loc, err := findIndex(files, layout)
+	outer := layout.looksLikeServer("")
+	p, err := parseLayout(zipPath, files, layout, outer)
+	if !outer || !layout.weakServer("") || !errors.Is(err, errServerUnknown) {
+		return p, err
+	}
+	inner, ierr := parseLayout(zipPath, files, layout, false)
+	if errors.Is(ierr, errUnrecognized) {
+		return nil, err
+	}
+	return inner, ierr
+}
+
+// parseLayout 先找整合包清单，没有再认现成服务端。outer 为 true 时只按最外层认：文件夹里的清单不看，服务端就是最外层。
+func parseLayout(zipPath string, files []*zip.File, layout zipLayout, outer bool) (*Pack, error) {
+	loc, err := findIndex(files, layout, !outer)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +116,7 @@ func parseFiles(zipPath string, files []*zip.File) (*Pack, error) {
 			return parseCurseForge(zipPath, loc.file, loc.root)
 		}
 	}
-	return recognizeServer(zipPath, files, layout)
+	return recognizeServer(zipPath, files, layout, outer)
 }
 
 func readZipFile(f *zip.File, out any) error {

@@ -466,8 +466,8 @@ func TestUnknownJarAloneIsNotServer(t *testing.T) {
 	if _, err := Parse(mkZip(t, map[string]string{"备份工具.jar": tool})); !errors.As(err, &h) || !strings.HasPrefix(h.Hint(), "没认出这个压缩包") {
 		t.Fatalf("只有一个认不出的 jar，不该算服务端：%v", err)
 	}
-	// 特征是这几样里的任何一样：放在最外层，就按最外层认，不再往文件夹里找
-	for _, trait := range []string{"eula.txt", "server.properties", "mods/a.jar", "plugins/a.jar", "libraries/x/y.jar", "server.jar", "paper.jar", "spigot-1.20.1.jar"} {
+	// 最外层有 server.properties 或名字认得出的服务端 jar：它就是服务端本身，按最外层认，认不出核心也不往文件夹里找
+	for _, trait := range []string{"server.properties", "server.jar", "paper.jar", "spigot-1.20.1.jar"} {
 		_, err := Parse(mkZip(t, map[string]string{
 			trait:                           "x",
 			"MyServer/server.properties":    "server-port=25565\n",
@@ -476,6 +476,21 @@ func TestUnknownJarAloneIsNotServer(t *testing.T) {
 		if !errors.As(err, &h) || h.Hint() != "看着像现成服务端，但没认出核心和版本" {
 			t.Fatalf("最外层有 %s 时应按最外层认（认不出核心）：%v", trait, err)
 		}
+	}
+	// 最外层只多一个 eula.txt、mods/、plugins/、libraries/ 这类旁证：最外层认不出核心时再看里面一层，认出里面那台
+	for _, trait := range []string{"eula.txt", "mods/a.jar", "plugins/a.jar", "libraries/x/y.jar"} {
+		p, err := Parse(mkZip(t, map[string]string{
+			trait:                           "x",
+			"MyServer/server.properties":    "server-port=25565\n",
+			"MyServer/paper-1.20.1-100.jar": paperJar(t),
+		}))
+		if err != nil || p.Root != "MyServer" || p.Core != mcsrc.CorePaper {
+			t.Fatalf("最外层只多一个 %s 时应认出里面那台：%+v %v", trait, p, err)
+		}
+	}
+	// 里面也认不出的，照旧说最外层认不出核心
+	if _, err := Parse(mkZip(t, map[string]string{"eula.txt": "x", "Other/readme.txt": "x"})); !errors.As(err, &h) || h.Hint() != "看着像现成服务端，但没认出核心和版本" {
+		t.Fatalf("里面也认不出时应照旧报最外层认不出核心：%v", err)
 	}
 }
 
@@ -518,9 +533,9 @@ func TestNestedManifestMustLookLikeCurseForge(t *testing.T) {
 		})
 	}
 	for name, manifest := range map[string]string{
-		"网页的清单":       `{"name":"控制面板","icons":[{"src":"a.png"}]}`,
-		"不是 JSON":     "<html>",
-		"minecraft 空": `{"manifestType":"minecraftModpack","minecraft":{}}`,
+		"网页的清单":                       `{"name":"控制面板","icons":[{"src":"a.png"}]}`,
+		"不是 JSON":                     "<html>",
+		"没写 manifestType、minecraft 空": `{"minecraft":{}}`,
 	} {
 		t.Run("套一层时，"+name, func(t *testing.T) {
 			p, err := Parse(mkZip(t, map[string]string{
@@ -535,6 +550,11 @@ func TestNestedManifestMustLookLikeCurseForge(t *testing.T) {
 	}
 	if p, err := Parse(mkZip(t, map[string]string{"包/manifest.json": cfManifest("1.20.1", "forge-47.3.0")})); err != nil || p.Format != FormatCurseForge {
 		t.Fatalf("套一层的 CurseForge 清单照旧认：%+v %v", p, err)
+	}
+	// 明写 manifestType: minecraftModpack 的就是 CurseForge 清单，版本空着也算，由解析报出具体缺什么，不说笼统的「没认出」
+	emptyMC := `{"manifestType":"minecraftModpack","minecraft":{"version":"","modLoaders":[]},"files":[]}`
+	if _, err := Parse(mkZip(t, map[string]string{"包/manifest.json": emptyMC, "包/overrides/a.txt": "x"})); err == nil || !strings.Contains(err.Error(), "无法识别整合包加载器") {
+		t.Fatalf("明写了 manifestType 的应按清单解析、报具体原因：%v", err)
 	}
 }
 
