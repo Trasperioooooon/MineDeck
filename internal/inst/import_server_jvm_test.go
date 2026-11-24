@@ -202,9 +202,14 @@ func TestFilterScriptJVM(t *testing.T) {
 	carry := []string{
 		"-XX:+UseG1GC", "-XX:-UseBiasedLocking", "-XX:MaxGCPauseMillis=200", "-XX:G1HeapRegionSize=8M", "-XX:MaxRAMPercentage=75.0",
 		"-XX:+HeapDumpOnOutOfMemoryError",
+		// 常见调优参数集要用的两个开关照旧带；关掉检查的只拒 - 的那种写法
+		"-XX:+UnlockDiagnosticVMOptions", "-XX:+UnlockExperimentalVMOptions", "-XX:+BytecodeVerificationRemote",
 		"-Xss2M", "-Xmn512m", "-Xshare:auto", "-Xshare:off", "-Xnoclassgc", "-Xincgc",
 		"-Dfml.queryResult=confirm", "-Dpaper.playerconnection.keepalive=60", "-Dterminal.jline=false", "-Daikars.new.flags=true",
 		"-Dusing.aikars.flags=https://mcflags.emc.gs", "-Dfoo",
+		// user. 只拒 user.dir、user.home；值是相对路径、不是路径的照旧带
+		"-Duser.timezone=Asia/Shanghai", "-Duser.language=zh", "-Duser.country=CN",
+		"-Dfoo.dir=config/foo", "-Dfoo.range=1..5", "-Dfoo.list=a,b",
 	}
 	memory := []string{"-Xmx6G", "-Xms2G", "-XX:MaxHeapSize=8g", "-XX:InitialHeapSize=1g", "-XX:MinHeapSize=1g"}
 	drop := map[string]string{
@@ -214,6 +219,9 @@ func TestFilterScriptJVM(t *testing.T) {
 		"-XX:OnError=cmd /c calc": "执行命令", "-XX:OnOutOfMemoryError=calc": "执行命令",
 		"-XX:VMOptionsFile=more.txt": "再读参数", "-XX:Flags=.hotspotrc": "再读参数",
 		"-XX:+EnableDynamicAgentLoading": "挂进 Java",
+		// 关掉 Java 对程序的检查、让后台的服务器停下等人
+		"-XX:-BytecodeVerificationRemote": "关掉 Java 对程序的检查", "-XX:-BytecodeVerificationLocal": "关掉 Java 对程序的检查",
+		"-XX:+ShowMessageBoxOnError": "弹窗等人点", "-XX:+PauseAtStartup": "停住等人",
 		// -XX: 只带开关和数值
 		"-XX:AOTLibrary=./evil.so": "-XX: 只带", "-XX:SharedArchiveFile=x.jsa": "-XX: 只带", "-XX:HeapDumpPath=C:\\x.hprof": "-XX: 只带",
 		"-XX:ErrorFile=..\\x.log": "-XX: 只带", "-XX:LogFile=C:\\x.log": "-XX: 只带", "-XX:CompileCommandFile=x": "-XX: 只带", "-XX:": "-XX: 只带",
@@ -230,6 +238,13 @@ func TestFilterScriptJVM(t *testing.T) {
 		"-Dftp.proxyHost=x": "代理", "-Dhttp.nonProxyHosts=*": "代理",
 		"-Dminecraft.api.auth.host=https://evil.example": "正版验证", "-Dlog4j.configurationFile=my.xml": "日志配置",
 		"-Dlog4j2.formatMsgNoLookups=true": "日志配置", "-DLog4jContextSelector=x": "日志配置", "-D": "没写名字",
+		"-Dorg.apache.logging.log4j.formatMsgNoLookups=false": "日志配置",
+		"-Duser.dir=.": "当前文件夹", "-Duser.home=home": "用户文件夹",
+		"-Djna.library.path=natives": "另外加载程序", "-Djna.boot.library.path=natives": "另外加载程序",
+		"-Dfabric.addMods=extra": "另外加载程序", "-DbundlerRepoDir=libs": "另外加载程序", "-DbundlerMainClass=x.Main": "另外加载程序",
+		// -D 的值指到服务器文件夹外面：盘符、\\ 或 / 开头、file: 网址、带 .. 段，一串路径里有一个这样的也算
+		"-Dfoo.path=C:\\evil": "外面", "-Dfoo.path=d:/evil": "外面", "-Dfoo.path=\\\\server\\share": "外面", "-Dfoo.path=/etc/x": "外面",
+		"-Dfoo.path=../outside": "外面", "-Dfoo.path=config\\..\\..\\x": "外面", "-Dfoo.path=file:///C:/x": "外面", "-Dfoo.paths=libs;C:\\x": "外面",
 		// 变量、空格、别的开头、太长
 		"%JAVA_OPTS%": "变量", "$OPTS": "变量", "-Dmotd=hello world": "空格",
 		"-server": "只带 -XX:、-D、-X", "--add-opens=java.base/java.lang=ALL-UNNAMED": "只带 -XX:、-D、-X", "-ea": "只带 -XX:、-D、-X",

@@ -441,17 +441,23 @@ const (
 	whyX        = "-X 只带 -Xss、-Xmn、-Xshare:auto 这几样"
 	whyNoName   = "-D 后面没写名字"
 	whyEncoding = "编码由 MineDeck 管"
+	whyOutside  = "指到服务器文件夹外面"
 	whyTooMany  = "带过来的已经够多了，后面的没带"
 )
 
 var (
 	// jvmDeniedPrefixes 不管后面写什么都不带的：另外加载程序的、出错时执行命令的、从别的文件里再读参数的（能夹带前面这些）、
-	// 放开别的程序随时挂进 Java 的。原因写得具体些，人才知道为什么。
+	// 放开别的程序随时挂进 Java 的、关掉 Java 对程序的检查的、让后台的服务器停下等人点的。原因写得具体些，人才知道为什么。
+	// -XX:+UnlockDiagnosticVMOptions、-XX:+UnlockExperimentalVMOptions 不在这里：常见的调优参数集要用它们。
 	jvmDeniedPrefixes = []struct{ prefix, why string }{
 		{"-javaagent", whyLoads}, {"-agentlib", whyLoads}, {"-agentpath", whyLoads}, {"-Xbootclasspath", whyLoads}, {"-Xrun", whyLoads},
 		{"-XX:OnError", "出错时会执行命令，一律不带"}, {"-XX:OnOutOfMemoryError", "出错时会执行命令，一律不带"},
 		{"-XX:Flags", "会从别的文件里再读参数，一律不带"}, {"-XX:VMOptionsFile", "会从别的文件里再读参数，一律不带"},
 		{"-XX:+EnableDynamicAgentLoading", "会让别的程序随时挂进 Java，一律不带"},
+		{"-XX:-BytecodeVerificationRemote", "会关掉 Java 对程序的检查（同 -Xverify:none），一律不带"},
+		{"-XX:-BytecodeVerificationLocal", "会关掉 Java 对程序的检查（同 -Xverify:none），一律不带"},
+		{"-XX:+ShowMessageBoxOnError", "崩溃时会弹窗等人点，后台的服务器会一直卡着"},
+		{"-XX:+PauseAtStartup", "启动时会停住等人，服务器起不来"},
 	}
 	// jvmMemoryPrefixes 内存：按导入页上填的。后三个是 -Xmx、-Xms 的另一种写法，带过来会盖掉 MineDeck 的内存设置。
 	jvmMemoryPrefixes = []string{"-Xmx", "-Xms", "-XX:MaxHeapSize", "-XX:InitialHeapSize", "-XX:MinHeapSize"}
@@ -461,17 +467,23 @@ var (
 	// jvmAllowedX -X（不是 -XX:）只带这几样；-Xlog、-Xloggc 能往任意位置写文件，-Xdebug、-Xverify 这类关掉检查，都不带。
 	jvmAllowedX = regexp.MustCompile(`^-X(?:(?:ss|mn)[0-9]+[kKmMgG]?|share:(?:auto|off)|noclassgc|incgc)$`)
 	// jvmDeniedProps -D 不带的名字（小写比，前缀对上就算）。编码排在前面：sun.stdout.encoding 也落在 sun. 里，原因要说成编码。
-	// 模组和服务端自己的（-Dfml.*、-Dpaper.*、-Dterminal.* 这些）不受影响。
+	// 模组和服务端自己的（-Dfml.*、-Dpaper.*、-Dterminal.* 这些）不受影响；user. 只拒这两个，user.timezone、user.language、
+	// user.country 照旧带（国内的脚本常写）。名字过了的，值再过一遍 propOutside。
 	jvmDeniedProps = []struct{ prefix, why string }{
 		{"file.encoding", whyEncoding}, {"stdout.encoding", whyEncoding}, {"stderr.encoding", whyEncoding},
 		{"sun.stdout.encoding", whyEncoding}, {"sun.stderr.encoding", whyEncoding},
 		{"java.", "改的是 Java 自己的设置"}, {"javax.", "改的是 Java 自己的设置"}, {"jdk.", "改的是 Java 自己的设置"},
 		{"sun.", "改的是 Java 自己的设置"}, {"com.sun.", "改的是 Java 自己的设置"},
+		{"user.dir", "会改 Java 认的当前文件夹"}, {"user.home", "会改 Java 认的用户文件夹"},
 		{"http.proxy", "会改 Java 连网走的代理"}, {"https.proxy", "会改 Java 连网走的代理"}, {"socksproxy", "会改 Java 连网走的代理"},
 		{"ftp.proxy", "会改 Java 连网走的代理"}, {"http.nonproxyhosts", "会改 Java 连网走的代理"}, {"ftp.nonproxyhosts", "会改 Java 连网走的代理"},
 		{"socksnonproxyhosts", "会改 Java 连网走的代理"},
 		{"minecraft.api.", "会改正版验证连的服务器"},
-		{"log4j", "日志配置由 MineDeck 按版本处理"},
+		// jna.library.path、jna.boot.library.path 指定从哪里加载本地库；fabric.addMods 另外加载模组；
+		// Paper 启动器的 bundlerRepoDir、bundlerMainClass 改从哪里解出、启动哪个程序
+		{"jna.", whyLoads}, {"fabric.addmods", whyLoads}, {"bundler", whyLoads},
+		// org.apache.logging.log4j.* 是 log4j 2.10 起 log4j2.* 的另一种写法，能盖掉 MineDeck 给老版本加的 formatMsgNoLookups
+		{"log4j", "日志配置由 MineDeck 按版本处理"}, {"org.apache.logging.log4j.", "日志配置由 MineDeck 按版本处理"},
 	}
 )
 
@@ -509,21 +521,48 @@ func judgeScriptJVM(a string) (why string, memory bool) {
 			return whyXX, false
 		}
 	case strings.HasPrefix(a, "-D"):
-		name, _, _ := strings.Cut(strings.ToLower(a[2:]), "=")
-		if name == "" {
-			return whyNoName, false
-		}
-		for _, d := range jvmDeniedProps {
-			if strings.HasPrefix(name, d.prefix) {
-				return d.why, false
-			}
-		}
+		return judgeProp(a[2:]), false
 	default:
 		if !jvmAllowedX.MatchString(a) {
 			return whyX, false
 		}
 	}
 	return "", false
+}
+
+// judgeProp 一个 -D（prop 是 -D 后面那段）带不带：先按名字（jvmDeniedProps），再按值（propOutside）。空串是能带。
+func judgeProp(prop string) string {
+	name, val, _ := strings.Cut(prop, "=")
+	name = strings.ToLower(name)
+	if name == "" {
+		return whyNoName
+	}
+	for _, d := range jvmDeniedProps {
+		if strings.HasPrefix(name, d.prefix) {
+			return d.why
+		}
+	}
+	if propOutside(val) {
+		return whyOutside
+	}
+	return ""
+}
+
+// propOutside -D 的值像是指到服务器文件夹外面的路径：绝对路径（盘符开头、\ 或 / 开头、file: 网址）或者带 .. 段的。
+// 带过来的存进 instance.json，模组、服务端照着它读写的就不是这台服务器的文件了。用 ; 或 , 隔开的一串路径逐个看。
+// 网址（Aikar 参数里的 https://mcflags.emc.gs）、相对路径（config/foo）、Asia/Shanghai 这类不受影响。
+func propOutside(val string) bool {
+	for _, part := range strings.FieldsFunc(val, func(r rune) bool { return r == ';' || r == ',' }) {
+		low := strings.ToLower(part)
+		if strings.HasPrefix(part, "/") || strings.HasPrefix(part, `\`) || strings.HasPrefix(low, "file:") ||
+			len(low) >= 2 && low[1] == ':' && low[0] >= 'a' && low[0] <= 'z' {
+			return true
+		}
+		if slices.Contains(strings.FieldsFunc(part, func(r rune) bool { return r == '/' || r == '\\' }), "..") {
+			return true
+		}
+	}
+	return false
 }
 
 // filterScriptJVM 按上面的规矩把参数分成带过来的、内存、没带的。重复的只带一个；带的个数、总长有上限（maxCarriedJVM、maxCarriedJVMLen）。
