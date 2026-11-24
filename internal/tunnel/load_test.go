@@ -390,8 +390,10 @@ func TestStartBoundRetriesLoad(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("没读成时也要记操作记录")
 	}
-	if len(said) != 1 || !strings.HasPrefix(said[0], "S1｜[MineDeck] 隧道配置读不出来") || !strings.Contains(said[0], "tunnels.json 的内容坏了") {
-		t.Fatalf("服务器控制台里应说一句：%q", said)
+	// 控制台里说的是给人看的那句（LoadError.Hint），不带路径和解析器的原话；原文在操作记录里
+	if len(said) != 1 || !strings.HasPrefix(said[0], "S1｜[MineDeck] 隧道配置读不出来") || !strings.Contains(said[0], (&LoadError{Corrupt: true}).Hint()) ||
+		strings.Contains(said[0], app.Base) || strings.Contains(said[0], "JSON") {
+		t.Fatalf("服务器控制台里应说一句短的：%q", said)
 	}
 	select {
 	case a := <-notes:

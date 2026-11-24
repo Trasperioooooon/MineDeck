@@ -193,6 +193,9 @@ func usableFrpc(dir string, con *procutil.Console, managed bool) (exe string, sk
 		case err != nil:
 			return "", skip, fmt.Errorf("frpc 文件夹里的 %s 是坏的（%s），又没能删掉它（%w）。请关掉可能占着它的程序，手动删掉这个文件后重试。它在这个文件夹：%s", name, c.why, err, dir)
 		case c.state == exeOK || c.state == exeUnknown:
+			if c.changing { // 交给启动那一步；起不来时隧道日志里有这一句，知道它当时正被改着
+				con.Append(fmt.Sprintf("[MineDeck] 检查 frpc（%s）的时候文件一直在变，可能有程序正在写它。没有删，照常用它启动", name))
+			}
 			return p, skip, nil
 		case c.removed && managed:
 			con.Append(fmt.Sprintf("[MineDeck] 发现坏掉的 frpc：%s %s（多半是以前解压到一半出了错留下的）。已经删掉，现在重新准备", name, c.why))
@@ -213,9 +216,10 @@ func usableFrpc(dir string, con *procutil.Console, managed bool) (exe string, sk
 
 // frpcCheck checkFrpc 的结果：最后一次查的状态和原因，坏的有没有删掉。
 type frpcCheck struct {
-	state   exeState
-	why     string
-	removed bool
+	state    exeState
+	why      string
+	removed  bool
+	changing bool // 查完到删之间一再被换掉，按判断不了交回去（state 是 exeUnknown）
 }
 
 // inspectFrpc 查 frpc 用的 inspectExe（是变量只为测试：查完以后把文件换掉，造「查完到删之间被换了」）。
@@ -237,7 +241,7 @@ func checkFrpc(exe string, mayDelete func(exeState) bool) (c frpcCheck, err erro
 			return c, err
 		}
 		if n == frpcRechecks {
-			return frpcCheck{state: exeUnknown, why: "检查的时候文件一直在变"}, nil
+			return frpcCheck{state: exeUnknown, why: "检查的时候文件一直在变", changing: true}, nil
 		}
 		c.state, c.why, seen = inspectFrpc(exe)
 	}

@@ -304,8 +304,10 @@ func TestTunnelFollowLoadErrorWritesOpLogAndConsole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lines := strings.Join(i.Console.Lines(), "\n"); !strings.Contains(lines, "[MineDeck] 隧道配置读不出来，有隧道跟随这台服务器启动的话，这次没有拉起") {
-		t.Fatalf("服务器控制台里应说一句：%q", lines)
+	// 控制台局域网里也看得到：说给人看的那句，不带 tunnels.json 的完整路径和解析器的原话（原文在操作记录里）
+	if lines := strings.Join(i.Console.Lines(), "\n"); !strings.Contains(lines, "[MineDeck] 隧道配置读不出来，有隧道跟随这台服务器启动的话，这次没有拉起") ||
+		!strings.Contains(lines, (&tunnel.LoadError{Corrupt: true}).Hint()) || strings.Contains(lines, app.Base) || strings.Contains(lines, "JSON") {
+		t.Fatalf("服务器控制台里应说一句短的：%q", lines)
 	}
 }
 

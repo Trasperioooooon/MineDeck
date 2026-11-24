@@ -329,7 +329,7 @@ func TestBrokenFrpcReplacedBeforeDeleteIsKept(t *testing.T) {
 	}
 }
 
-// 一直在变的 frpc（有程序正往里写）：不删，当判断不了交回去，和读不了的一样由启动那一步报（A56）。
+// 一直在变的 frpc（有程序正往里写）：不删，当判断不了交回去，和读不了的一样由启动那一步报；隧道日志里说一句（A56）。
 func TestBrokenFrpcKeepsChangingIsNotDeleted(t *testing.T) {
 	frpcTempDirs(t)
 	exe := filepath.Join(frpcDir("openfrp"), "frpc.exe")
@@ -343,9 +343,13 @@ func TestBrokenFrpcKeepsChangingIsNotDeleted(t *testing.T) {
 		writeFile(t, p, fakeFrpcExe()[:300+n]) // 每查一次就又长了一点，还是半截的
 		return state, why, seen
 	}
-	got, err := (openfrpProvider{}).EnsureFrpc(procutil.NewConsole())
+	con := procutil.NewConsole()
+	got, err := (openfrpProvider{}).EnsureFrpc(con)
 	if err != nil || got != exe || n != frpcRechecks {
 		t.Fatalf("一直在变的应当判断不了、照旧交回去：%s %v（查了 %d 次）", got, err, n)
+	}
+	if lines := strings.Join(con.Lines(), "\n"); !strings.Contains(lines, "检查 frpc（frpc.exe）的时候文件一直在变") {
+		t.Fatalf("隧道日志里要说一句：%s", lines)
 	}
 	if _, err := os.Stat(exe); err != nil {
 		t.Fatalf("不该删：%v", err)
