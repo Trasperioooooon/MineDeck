@@ -1,5 +1,5 @@
 // 从 data/ 下的原始数据生成页面模型：版本（含上一版/下一版、分组、文件说明）、最新版本、统计、贡献者、活动。
-import { render, sanitize, summary } from './markdown.mjs';
+import { esc, render, sanitize, summary } from './markdown.mjs';
 
 const DAY = 86400e3;
 const sizeLabel = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
@@ -14,9 +14,26 @@ function fileKind(name) {
 }
 const KIND_ORDER = ['exe', 'companion-neoforge', 'companion-forge', 'sums', 'other'];
 
+// 2026-11-16 整理 docs 目录时挪了位置、老发布说明里又钉在 main 上链着的文件，按这张表换到新位置（A96）。
+// 钉在标签上的链接不换：那个标签里文件还在原处，换了反而打不开。只收确实挪过、发布说明里确实链到的。
+const MOVED_DOCS = {
+  'docs/地图导入-使用说明.md': 'docs/使用指南/地图导入-使用说明.md',
+};
+
+function movedDocUrl(raw, repo) {
+  const prefix = `https://github.com/${repo}/blob/main/`;
+  if (!raw.startsWith(prefix)) return raw;
+  const rest = raw.slice(prefix.length);
+  const cut = rest.search(/[?#]/);
+  const path = cut < 0 ? rest : rest.slice(0, cut);
+  let key;
+  try { key = decodeURIComponent(path); } catch { return raw; }
+  return MOVED_DOCS[key] ? prefix + MOVED_DOCS[key] + (cut < 0 ? '' : rest.slice(cut)) : raw;
+}
+
 /**
  * 正文里的站内 Release 链接改成占位 md-release:<tag>（页面渲染时换成相对链接，外链统一由 release.mjs 走 extLink()）；
- * h4 加锚点，便于生成本页目录。
+ * 指向仓库里挪过位置的文档的链接换到新位置（MOVED_DOCS）；h4 加锚点，便于生成本页目录。
  */
 function localizeBody(html, repo, tags) {
   const relRe = new RegExp(`^https://github\\.com/${repo.replace('/', '\\/')}/releases/tag/([^"#?]+)$`);
@@ -26,6 +43,8 @@ function localizeBody(html, repo, tags) {
     const raw = href.replace(/&amp;/g, '&');
     const rm = raw.match(relRe);
     if (rm && tags.has(decodeURIComponent(rm[1]))) return `<a href="md-release:${decodeURIComponent(rm[1])}">`;
+    const moved = movedDocUrl(raw, repo);
+    if (moved !== raw) return `<a href="${esc(moved)}" rel="noopener">`;
     if (/^https?:\/\//i.test(raw)) return `<a href="${href}" rel="noopener">`;
     return m;
   });
