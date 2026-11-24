@@ -152,7 +152,7 @@ func New(env Env) *ops.Registry {
 			reg.Record(ops.Caller{Source: ops.SrcSchedule, Actor: a.Actor, Local: true}, a.Op, ops.ArgsOf(a.Args), a.Err, a.Dur)
 		})
 	}
-	if env.Tun != nil { // 隧道跟着实例自动启停（「跟随实例」）也各记一条，失败的带上错误
+	if env.Tun != nil { // 隧道跟着实例自动启停（「跟随实例」）、读 tunnels.json 时给重复编号换号，也各记一条，失败的带上错误
 		env.Tun.SetAutoHook(func(a tunnel.AutoAction) {
 			reg.Record(ops.Caller{Source: ops.SrcSchedule, Actor: a.Actor, Local: true}, a.Op, ops.ArgsOf(a.Args), a.Err, a.Dur)
 		})

@@ -308,3 +308,29 @@ func TestTunnelFollowLoadErrorWritesOpLogAndConsole(t *testing.T) {
 		t.Fatalf("服务器控制台里应说一句：%q", lines)
 	}
 }
+
+// tunnels.json 里有以前撞了号的隧道（A58）：程序启动时读它换的号，那时操作层还没建（main 里 tunnel.NewManager 在
+// catalog.New 之前），登记回调时补记一条：来源 schedule、op 为 tunnel.renumber，带换了哪几条和备份的文件名，不带凭据。
+func TestTunnelRenumberAtStartupWritesOpLog(t *testing.T) {
+	newCatalog(t)
+	data := `{"seq":1,"tunnels":[{"id":"tun1","provider":"natfrp","name":"游戏","credential":"dpapi:QUFBQS1mYWtlLXR3bw==","proxyId":"10","autoStart":false},` +
+		`{"id":"tun1","provider":"natfrp","name":"语音","credential":"dpapi:RkFLRS1ub3QtYS1yZWFsLWNyZWQ+Lz0=","proxyId":"11","autoStart":false}]}`
+	if err := os.WriteFile(filepath.Join(app.Base, "tunnels.json"), []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mgr, err := inst.NewManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tun := tunnel.NewManager()
+	reg := New(Env{Mgr: mgr, Tun: tun, Port: 27333})
+	recs, _ := reg.Log.Query(ops.Query{Op: "tunnel.renumber"})
+	if len(recs) != 1 {
+		t.Fatalf("启动时换了号，应补记一条操作记录：%+v", recs)
+	}
+	r, args := recs[0], string(recs[0].Args)
+	if r.Src != ops.SrcSchedule || r.Actor != "读取隧道配置" || !r.OK || !strings.Contains(args, `"from":"tun1","to":"tun2"`) ||
+		!strings.Contains(args, `"tunnel":"语音"`) || !strings.Contains(args, `"backup":"tunnels.json.bak-`) || strings.Contains(args, "dpapi:") {
+		t.Fatalf("换号的操作记录：%+v（args %s）", r, args)
+	}
+}
