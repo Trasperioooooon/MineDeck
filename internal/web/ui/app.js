@@ -2939,6 +2939,10 @@ const TASK_KINDS = {
     go: t => t.inst ? "完成，回到这台服务器" : "完成，回到服务器列表",
     href: (_, t) => t && t.inst ? `#/inst/${encodeURIComponent(t.inst)}/world/map` : "#/instances", back: "#/instances", backText: "返回服务器列表", nav: "instances" },
 };
+/* 建服、导入失败以后半成品没删干净（快照里 cleanupFailed，后端 inst.FailLeftover 记的）：失败框不接上面的 failHint
+   （交接包、现成服务端那两项说的是「已经清理干净」），换这一句。只认这个字段，不按 error 里「清理半成品失败」几个字认（A48）。
+   没删干净的不一定是这次建的（原因里会说），所以只说这次建了一半的在哪 */
+const LEFTOVER_HINT = "文件夹没删干净：这次建了一半的会列在服务器页上方「没建完的文件夹」里，到那里处理。";
 /* 侧栏亮哪一项：navigate() 进任务页时先按「新建服务器」亮着（那时还不知道是哪一类任务），拿到任务以后在这里改过来 */
 function markNav(key) {
   const before = keyRects();
@@ -3230,7 +3234,7 @@ async function renderTaskPage(taskId) {
     const cancelText = /context canceled/i.test(t.error || "") ? "已取消" : (t.error || "已取消");
     $("#t-msgs").innerHTML = (t.ended && t.cancelled
       ? `<div class="task-note" role="status">${icon("info")}<span>${esc(cancelText)}。${draft ? "之前填的都还在，点「返回修改」接着改。" : ""}</span></div>`
-      : t.error ? `<div class="err-box"><b>${K.fail}：</b>${esc(t.error)}<br><br>${K.failHint}${draft ? "点「返回修改」回到刚才的表单，填过的都在。" : ""}
+      : t.error ? `<div class="err-box"><b>${K.fail}：</b>${esc(t.error)}<br><br>${t.cleanupFailed ? LEFTOVER_HINT : K.failHint}${draft ? "点「返回修改」回到刚才的表单，填过的都在。" : ""}
         <div style="margin-top:8px"><button class="btn sm ghost" data-copy-task-fail>${icon("copy")} 复制报错信息</button></div></div>` : "") +
       (t.warnings || []).map(w => `<div class="warn-card" data-warn="${esc(w.kind || "")}">
         <div class="wc-title">${icon("warn")} ${esc(w.title)}</div>

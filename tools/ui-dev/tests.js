@@ -6684,6 +6684,33 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       } finally { await page.unroute("**/api/tasks/task-transfer-in", failTransfer); }
     });
 
+    await run("建服、导入失败时半成品没删干净（任务带 cleanupFailed）：失败框不说「已经清理干净」，说去「没建完的文件夹」里处理；只认这个字段，error 里有「清理半成品失败」几个字却没带它的照旧（A48）", async () => {
+      const err = id => `解压服务端失败（${id}）；清理半成品失败：remove paper.jar: The process cannot access the file`;
+      try {
+        await fState({ taskList: [
+          { id: "task-l1", title: "导入服务端 作者服", kind: "server-in", ended: true, error: err("task-l1"), cleanupFailed: true },
+          { id: "task-l2", title: "导入交接包 A 的服", kind: "transfer-in", ended: true, error: err("task-l2"), cleanupFailed: true },
+          { id: "task-l3", title: "导入整合包 测试整合包（forge 1.20.1）", ended: true, error: err("task-l3"), cleanupFailed: true },
+          { id: "task-l4", title: "导入服务端 作者服", kind: "server-in", ended: true, error: err("task-l4") },
+          { id: "task-l5", title: "导入交接包 A 的服", kind: "transfer-in", ended: true, error: "交接包里缺少启动文件（task-l5）" },
+        ] });
+        const box = async id => {
+          await page.goto(url("#/task/" + id));
+          await page.waitForFunction(id => (($("#t-msgs .err-box") || {}).textContent || "").includes(id), id);
+          return page.textContent("#t-msgs .err-box");
+        };
+        for (const id of ["task-l1", "task-l2", "task-l3"]) {
+          const t = await box(id);
+          assert(t.includes("文件夹没删干净") && t.includes("服务器页上方「没建完的文件夹」里") && !t.includes("已经清理干净") && !t.includes("再试一次很快"),
+            id + "：半成品没删干净时应说去没建完的文件夹里处理：" + t);
+        }
+        for (const id of ["task-l4", "task-l5"]) {
+          const t = await box(id);
+          assert(t.includes("半成品的文件夹已经清理干净，可以重试") && !t.includes("文件夹没删干净"), id + "：没带 cleanupFailed 的照旧接 failHint，不按 error 里的字认：" + t);
+        }
+      } finally { await fState({ taskList: [] }); }
+    });
+
     await run("导入现成服务端：版本号是从压缩包里的日志认出来的，识别结果的提示里写明（A44）", async () => {
       try {
         await fState({ importPack: { name: "作者服", format: "server", core: "paper", mc: "1.20.1", loader: "", mcFromLog: true },

@@ -499,11 +499,11 @@ func cancelledOr(t *tasks.Task, err error) error {
 
 // failCreate 新建、导入整合包、导入服务端这几种后台任务出错收尾（半成品已经按 cleanupErr 的结果清过）。
 // 用户点了取消、半成品也清干净了：任务按「已取消」结束（tasks.EndCancelled），界面显示中性的「已取消」，不是失败；
-// 取消以后没清干净的仍是失败，原因里带上清理失败的那句——文件夹里留了东西，要人去看（2026-11-14 复审发现 9）。
+// 取消以后没清干净的仍是失败，原因里带上清理失败的那句——文件夹里留了东西，要人去看（2026-11-14 复审发现 9，见 FailLeftover）。
 func failCreate(t *tasks.Task, err, cleanupErr error) {
 	err = cancelledOr(t, err)
 	if cleanupErr != nil {
-		t.Fail(fmt.Errorf("%w；清理半成品失败：%v", err, cleanupErr))
+		FailLeftover(t, err, cleanupErr)
 		return
 	}
 	if t.Cancelled() {

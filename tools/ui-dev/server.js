@@ -2833,6 +2833,8 @@ function handler(state, ui, portOf) {
     //   taskStage: 部署任务进行到第几步（0–4，4 = 完成），"error" = 第 2 步失败
     //   taskList: 后台任务快照数组；同时覆盖对应任务详情里的字段，模拟并行任务及离开期间完成的任务。
     //     带 canCancel 的可以点「取消」（POST /api/tasks/{id}/cancel）：先是 cancelling，再查两次就按「已取消」结束（cancelled、error 是那句中文、正在做的那一步 cancelled）
+    //     失败以后半成品没清干净的带 cleanupFailed: true（同 tasks.Snapshot.CleanupFailed，error 后面接着「；清理半成品失败：…」）：
+    //     只在单个任务的快照里，列表摘要不带（同真后端）
     //     设 taskList 时没装上的文件（instPending）一起清掉，下次按新的任务重新生成
     //   instPending: { 服务器名: { pending, skipped } } 直接摆好某台服务器没装上的文件（不经导入任务，程序重开以后的样子）
     //   restart: true 模拟程序重开：任务记录、上次启动失败（lastStartError、startPortBusy）清掉，没装上的文件清单留着

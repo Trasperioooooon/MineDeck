@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"minedeck/internal/app"
+	"minedeck/internal/tasks"
 	"minedeck/internal/winname"
 )
 
@@ -66,6 +67,13 @@ func discardCreatingDir(dir, name string) error {
 // 同一套（discardFailed）。返回的错误要照实告诉人：文件夹里还留着东西。
 func (m *Manager) DiscardCreate(cause error, name, dir string) error {
 	return m.discardFailed(cause, name, dir)
+}
+
+// FailLeftover 建服、导入失败，半成品又没清干净（cleanupErr）时结束任务：失败原因后面接上清理失败的那句，任务记上
+// cleanupFailed，界面按它说去「没建完的文件夹」里处理（不按这几个字认）。新建、整合包、现成服务端（failCreate）和交接包都经这里。
+func FailLeftover(t *tasks.Task, err, cleanupErr error) {
+	t.MarkCleanupFailed()
+	t.Fail(fmt.Errorf("%w；清理半成品失败：%v", err, cleanupErr))
 }
 
 // errCreateDirTaken 预留（reserveInstanceDir）以后、建文件夹之前，那个位置上已经有了一个文件夹（人刚放进来的、别的程序建的）。

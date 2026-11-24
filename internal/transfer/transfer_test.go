@@ -853,7 +853,7 @@ func TestImportCleanupFailureKeepsMarker(t *testing.T) {
 	if _, err := os.Stat(got); err != nil {
 		t.Skip("这台电脑上打开着的文件也删得掉，碰不上删不干净的情形")
 	}
-	if !strings.Contains(isnap.Err, "清理半成品失败") {
+	if !strings.Contains(isnap.Err, "清理半成品失败") || !isnap.CleanupFailed {
 		t.Fatalf("失败原因里要照实说半成品没清干净：%q", isnap.Err)
 	}
 	listedID := func() string {

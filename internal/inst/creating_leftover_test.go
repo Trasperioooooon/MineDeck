@@ -629,8 +629,8 @@ func TestModpackImportCleanupFailureKeepsMarker(t *testing.T) {
 	if !pathExists(dir) {
 		t.Skip("这台电脑上打开着的文件也删得掉，碰不上删不干净的情形")
 	}
-	if !strings.Contains(sn.Err, "清理半成品失败") {
-		t.Fatalf("任务应说清楚半成品没清干净：%+v", sn)
+	if !strings.Contains(sn.Err, "清理半成品失败") || !sn.CleanupFailed {
+		t.Fatalf("任务应说清楚半成品没清干净、记上 cleanupFailed：%+v", sn)
 	}
 	if !pathExists(filepath.Join(dir, CreatingMarker)) || !listedAfterRestart(dir) {
 		t.Fatal("没删干净的半成品应带着创建记号，列在「没建完的文件夹」里")
@@ -1087,8 +1087,8 @@ func TestImportFailedBeforeMarkerKeepsOthersFolder(t *testing.T) {
 	defer held.Close()
 	release()
 	sn := waitImportTask(t, m, id)
-	if !strings.Contains(sn.Err, "清理半成品失败") || !strings.Contains(sn.Err, "不是这次建的") {
-		t.Fatalf("失败原因里要照实说文件夹没删：%q", sn.Err)
+	if !strings.Contains(sn.Err, "清理半成品失败") || !strings.Contains(sn.Err, "不是这次建的") || !sn.CleanupFailed {
+		t.Fatalf("失败原因里要照实说文件夹没删、记上 cleanupFailed：%q %v", sn.Err, sn.CleanupFailed)
 	}
 	for _, f := range []string{"world/level.dat", "notes.txt"} {
 		if !pathExists(filepath.Join(dir, filepath.FromSlash(f))) {
@@ -1144,8 +1144,8 @@ func TestServerImportAndCreateCleanupFailureKeepMarker(t *testing.T) {
 		if !pathExists(dir) {
 			t.Skip("这台电脑上打开着的文件也删得掉，碰不上删不干净的情形")
 		}
-		if !strings.Contains(sn.Err, "清理半成品失败") {
-			t.Fatalf("任务应说清楚半成品没清干净：%q", sn.Err)
+		if !strings.Contains(sn.Err, "清理半成品失败") || !sn.CleanupFailed {
+			t.Fatalf("任务应说清楚半成品没清干净、记上 cleanupFailed：%q %v", sn.Err, sn.CleanupFailed)
 		}
 		if !pathExists(filepath.Join(dir, CreatingMarker)) || !listedAfterRestart(dir) {
 			t.Fatal("没删干净的半成品应带着创建记号，列在「没建完的文件夹」里")
@@ -1237,7 +1237,7 @@ func TestCreateDirAppearedAfterReserveLeftAlone(t *testing.T) {
 				default:
 					t.Fatalf("没走到建文件夹那一步：%+v", sn)
 				}
-				if !strings.Contains(sn.Err, "这个位置已经有一个同名文件夹（可能是刚放进来的），没有动它") || strings.Contains(sn.Err, "清理半成品失败") {
+				if !strings.Contains(sn.Err, "这个位置已经有一个同名文件夹（可能是刚放进来的），没有动它") || strings.Contains(sn.Err, "清理半成品失败") || sn.CleanupFailed {
 					t.Fatalf("应在建文件夹那一步失败、说清那里已经有文件夹，不进清理：%q", sn.Err)
 				}
 				top := map[string]bool{}
