@@ -86,8 +86,8 @@ func Parse(zipPath string) (*Pack, error) {
 }
 
 // parseFiles 认压缩包里的条目（Parse 打开以后的那一步）。zipPath 只记进 Pack，后面解压时再打开。
-// 最外层像服务端时只按最外层认（A40）；它的凭据只有 eula.txt、mods、libraries 这类旁证、又认不出核心的，
-// 再看里面一层的清单和服务端，里面也认不出就照旧说最外层认不出核心。
+// 最外层像服务端时只按最外层认（A40）；它的凭据只有 eula.txt、mods、plugins、libraries 这类旁证、又认不出核心的，
+// 再往里看一层（parseInside），里面也认不出就照旧说最外层认不出核心。
 func parseFiles(zipPath string, files []*zip.File) (*Pack, error) {
 	layout := newZipLayout(files)
 	outer := layout.looksLikeServer("")
@@ -95,11 +95,28 @@ func parseFiles(zipPath string, files []*zip.File) (*Pack, error) {
 	if !outer || !layout.weakServer("") || !errors.Is(err, errServerUnknown) {
 		return p, err
 	}
-	inner, ierr := parseLayout(zipPath, files, layout, false)
-	if errors.Is(ierr, errUnrecognized) {
-		return nil, err
+	return parseInside(zipPath, files, layout, err)
+}
+
+// parseInside 最外层像服务端、凭据只有旁证又认不出核心（outerErr）时往里看一层（A40）。里面的整合包清单照收：服务端包的
+// 最外层常带着 mods/，清单套在一层文件夹里。里面的服务端只在最外层的旁证只有 eula.txt、libraries/ 时收：带着 mods/、plugins/
+// 的最外层多半就是那台服务端本身（加载器、核心没放进来），里面的是备份之类，拿它顶替的话外面的模组和配置都丢了。
+func parseInside(zipPath string, files []*zip.File, layout zipLayout, outerErr error) (*Pack, error) {
+	if layout.hasModsOrPlugins("") {
+		loc, err := findIndex(files, layout, true)
+		if err != nil {
+			return nil, err
+		}
+		if loc == nil {
+			return nil, outerErr
+		}
+		return parseIndex(zipPath, loc)
 	}
-	return inner, ierr
+	inner, err := parseLayout(zipPath, files, layout, false)
+	if errors.Is(err, errUnrecognized) {
+		return nil, outerErr
+	}
+	return inner, err
 }
 
 // parseLayout 先找整合包清单，没有再认现成服务端。outer 为 true 时只按最外层认：文件夹里的清单不看，服务端就是最外层。
@@ -109,14 +126,17 @@ func parseLayout(zipPath string, files []*zip.File, layout zipLayout, outer bool
 		return nil, err
 	}
 	if loc != nil {
-		switch loc.kind {
-		case FormatMrpack:
-			return parseMrpack(zipPath, loc.file, loc.root)
-		default:
-			return parseCurseForge(zipPath, loc.file, loc.root)
-		}
+		return parseIndex(zipPath, loc)
 	}
 	return recognizeServer(zipPath, files, layout, outer)
+}
+
+// parseIndex 按找到的那份清单解析整合包。
+func parseIndex(zipPath string, loc *indexLoc) (*Pack, error) {
+	if loc.kind == FormatMrpack {
+		return parseMrpack(zipPath, loc.file, loc.root)
+	}
+	return parseCurseForge(zipPath, loc.file, loc.root)
 }
 
 func readZipFile(f *zip.File, out any) error {

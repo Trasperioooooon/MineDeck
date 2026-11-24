@@ -477,8 +477,8 @@ func TestUnknownJarAloneIsNotServer(t *testing.T) {
 			t.Fatalf("最外层有 %s 时应按最外层认（认不出核心）：%v", trait, err)
 		}
 	}
-	// 最外层只多一个 eula.txt、mods/、plugins/、libraries/ 这类旁证：最外层认不出核心时再看里面一层，认出里面那台
-	for _, trait := range []string{"eula.txt", "mods/a.jar", "plugins/a.jar", "libraries/x/y.jar"} {
+	// 最外层只多一个 eula.txt 或 libraries/：最外层认不出核心时再看里面一层，认出里面那台
+	for _, trait := range []string{"eula.txt", "libraries/x/y.jar"} {
 		p, err := Parse(mkZip(t, map[string]string{
 			trait:                           "x",
 			"MyServer/server.properties":    "server-port=25565\n",
@@ -486,6 +486,17 @@ func TestUnknownJarAloneIsNotServer(t *testing.T) {
 		}))
 		if err != nil || p.Root != "MyServer" || p.Core != mcsrc.CorePaper {
 			t.Fatalf("最外层只多一个 %s 时应认出里面那台：%+v %v", trait, p, err)
+		}
+	}
+	// 最外层带着 mods/、plugins/：它多半就是那台服务端本身（核心没放进来），里面那台不拿来顶替，照旧报认不出核心
+	for _, trait := range []string{"mods/a.jar", "plugins/a.jar", "Mods/a.jar"} {
+		_, err := Parse(mkZip(t, map[string]string{
+			trait:                           "x",
+			"MyServer/server.properties":    "server-port=25565\n",
+			"MyServer/paper-1.20.1-100.jar": paperJar(t),
+		}))
+		if !errors.As(err, &h) || h.Hint() != "看着像现成服务端，但没认出核心和版本" {
+			t.Fatalf("最外层有 %s 时不该认里面那台，应报认不出核心：%v", trait, err)
 		}
 	}
 	// 里面也认不出的，照旧说最外层认不出核心

@@ -523,10 +523,25 @@ func (l zipLayout) looksLikeServer(p string) bool {
 }
 
 // weakServer p 这一层像服务端，凭据却只有 eula.txt、mods、plugins、libraries 这类旁证（没有 server.properties、
-// 也没有名字认得出的服务端 jar）：认不出核心时，真正的服务端或整合包清单可能在里面一层（A40 的退路，见 parseFiles）。
+// 也没有名字认得出的服务端 jar）：认不出核心时，整合包清单（旁证只有 eula.txt、libraries 时还有服务端）可能在里面一层
+// （A40 的退路，见 parseInside）。
 func (l zipLayout) weakServer(p string) bool {
 	lv := l[p]
 	return lv != nil && lv.server && !lv.strong
+}
+
+// hasModsOrPlugins p 这一层直接放着 mods 或 plugins 文件夹（不分大小写）。
+func (l zipLayout) hasModsOrPlugins(p string) bool {
+	lv := l[p]
+	if lv == nil {
+		return false
+	}
+	for d := range lv.dirs {
+		if low := strings.ToLower(d); low == "mods" || low == "plugins" {
+			return true
+		}
+	}
+	return false
 }
 
 // innermost 从最外层起，这一层只有一个文件夹、没有别的文件就往里剥一层，最多剥 maxWrapDepth 层（A41）：返回剥到的那一层，
@@ -610,8 +625,9 @@ func serverRoot(l zipLayout, outer bool) (root string, nested []string, ok bool)
 	}
 	if top := l[""]; top != nil {
 		for dir := range top.dirs {
-			// mods、plugins、libraries 本身是服务端的旁证，不会是套着一台服务端的那层文件夹：里面的 fabric-api-*.jar 这类
-			// 名字像服务端 jar，不跳过的话，最外层只多一个 mods/ 时往里看，会和真正那台一起被当成「好几台」
+			// mods、plugins、libraries 本身是服务端的旁证，不会是套着一台服务端的那层文件夹：里面的 fabric-api-*.jar、
+			// PaperLib-*.jar 这类名字像服务端 jar，不跳过的话，最外层只多一个 libraries/ 时往里看（见 parseInside），
+			// 会和真正那台一起被当成「好几台」
 			if serverEntry(dir, true) {
 				continue
 			}

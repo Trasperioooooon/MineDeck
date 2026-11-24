@@ -22,6 +22,7 @@ type packShape struct {
 // 真实包常见的样子各认成什么（A40、A41）。规矩改过几回，这张表钉住：以前认得出的现在照样认得出；
 // 故意改了的只有两处（A40）——最外层旁边多一个工具 jar、里面套着服务端的，认里面那台（以前认不出）；
 // 网页文件夹里的 manifest.json 不算清单。只有核心加启动脚本、名字不在名单里的 jar 按内容认；Mac 打的 zip 夹带的东西不算数。
+// 最外层像服务端却认不出核心时往里看一层：清单照收；服务端只在最外层的旁证只有 eula.txt、libraries/ 时收。
 func TestPackShapes(t *testing.T) {
 	paper := paperJar(t)
 	vanilla := jarOf(t, map[string]string{
@@ -90,8 +91,14 @@ func TestPackShapes(t *testing.T) {
 		{name: "套一层，manifest.json 明写类型、版本空着", files: m("Pack/manifest.json", `{"manifestType":"minecraftModpack","minecraft":{"version":"","modLoaders":[]},"files":[]}`, "Pack/overrides/a.txt", "x"),
 			hint: "无法识别整合包加载器"},
 		cfPack("最外层 mods/ 加套一层 CF 清单", "Pack", m("mods/a.jar", "m", "Pack/manifest.json", cf)),
-		paperAt("最外层 mods/ 里有 fabric-api（名字像服务端 jar），里面套着 Paper", "Srv", m("mods/fabric-api-0.92.2.jar", "x", "Srv/"+pj, paper, "Srv/"+sp, "x=1\n")),
-		paperAt("最外层 plugins/ 里有 Paper 开头的插件，里面套着 Paper", "Srv", m("plugins/PaperLib-1.0.jar", "x", "Srv/"+pj, paper, "Srv/"+sp, "x=1\n")),
+		// 最外层带着 mods/、plugins/ 的多半就是那台服务端本身，里面的服务端不拿来顶替（外面的模组、配置会丢），同基准
+		{name: "最外层 mods/ 里有 fabric-api（名字像服务端 jar），里面套着 Paper", files: m("mods/fabric-api-0.92.2.jar", "x", "Srv/"+pj, paper, "Srv/"+sp, "x=1\n"), hint: unknownCore},
+		{name: "最外层 plugins/ 里有 Paper 开头的插件，里面套着 Paper", files: m("plugins/PaperLib-1.0.jar", "x", "Srv/"+pj, paper, "Srv/"+sp, "x=1\n"), hint: unknownCore},
+		{name: "没装加载器的服务端包（mods/、config/、eula.txt、安装器），backup/ 里放着一台老 Paper",
+			files: m("mods/a.jar", "m", "config/a.toml", "x", "eula.txt", "eula=true\n", "forge-1.20.1-47.2.0-installer.jar", tool, "backup/"+pj, paper, "backup/"+sp, "x=1\n"),
+			hint:  unknownCore},
+		paperAt("最外层 eula.txt 加 libraries/ 里有名字像服务端的 jar，里面套着 Paper", "Srv",
+			m("eula.txt", "eula=true\n", "libraries/paper-1.20.1-100.jar", "x", "Srv/"+pj, paper, "Srv/"+sp, "x=1\n")),
 		paperAt("两个顶层文件夹：一个是服务端，一个里面有网页 manifest.json", "Srv", m("Srv/"+pj, paper, "Srv/"+sp, "x=1\n", "site/manifest.json", web)),
 		paperAt("spigot-1.20.1.jar 单独一个", "", m("spigot-1.20.1.jar", paper)),
 		{name: "老 Forge：forge-1.12.2-….jar 加 minecraft_server.1.12.2.jar 加 libraries/",
