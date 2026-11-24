@@ -260,6 +260,10 @@ func TestOpenFrpCreatedJudgedByNewProxyReply(t *testing.T) {
 			w.(http.Flusher).Flush()
 			panic(http.ErrAbortHandler) // 响应头和半截响应体已经发出去，接着断开连接
 		}, false, true, "读取穿透平台响应失败"},
+		{"回了成功、响应体里没有 flag", func(w http.ResponseWriter) bool {
+			_ = json.NewEncoder(w).Encode(map[string]any{"msg": "稍后再试"})
+			return true
+		}, false, true, "OpenFrp API 请求失败"},
 		{"回了成功、换发的授权存不进去", rotateThen(reply(http.StatusOK, true, "OK")), true, true, "更新 OpenFrp 授权失败"},
 		{"回了 2xx、flag 为 false", reply(http.StatusOK, false, "隧道名已被占用"), false, false, "隧道名已被占用"},
 		{"flag 为 false、换发的授权也存不进去", rotateThen(reply(http.StatusOK, false, "隧道名已被占用")), true, false, "更新 OpenFrp 授权失败"},

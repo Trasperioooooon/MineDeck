@@ -1115,20 +1115,20 @@ func (a *Accounts) openFrpDo(ctx context.Context, want *uint64, path string, bod
 		return false, responseError(status, data, authorization)
 	}
 	var envelope struct {
-		Flag bool            `json:"flag"`
+		Flag *bool           `json:"flag"` // 没写 flag 的不算平台明说没做
 		Msg  string          `json:"msg"`
 		Data json.RawMessage `json:"data"`
 	}
 	parseErr := json.Unmarshal(data, &envelope)
-	applied = parseErr != nil || envelope.Flag // 平台明说没做的（flag 为 false）才算没照做
+	applied = parseErr != nil || envelope.Flag == nil || *envelope.Flag // 平台明说没做的（flag 为 false）才算没照做
 	if err := a.keepRotatedAuth(headers, authorization, gen); err != nil {
 		return applied, fmt.Errorf("更新 OpenFrp 授权失败: %w", err)
 	}
 	if parseErr != nil {
 		return true, fmt.Errorf("OpenFrp API 响应格式无效")
 	}
-	if !envelope.Flag {
-		return false, fmt.Errorf("OpenFrp API 请求失败: %s", safeMessage(scrub(envelope.Msg, authorization)))
+	if envelope.Flag == nil || !*envelope.Flag {
+		return applied, fmt.Errorf("OpenFrp API 请求失败: %s", safeMessage(scrub(envelope.Msg, authorization)))
 	}
 	if out != nil && len(envelope.Data) != 0 && string(envelope.Data) != "null" {
 		if err := json.Unmarshal(envelope.Data, out); err != nil {
