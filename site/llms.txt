@@ -1,6 +1,6 @@
 # MineDeck
 
-> MineDeck 是 Windows 上的我的世界（Minecraft Java 版）一键开服工具：单文件 exe，自动下载 Java 和服务端，图形界面管理服务器，整合包一键导入，内置樱花穿透、OpenFrp 内网穿透；可选接入自己的 AI Key，提供 AI 开服助手、游戏内 AI、AI 伙伴，以及音乐共享。MineDeck is a one-click Minecraft (Java Edition) server launcher for Windows. Its interface is Chinese only for now. MIT licensed.
+> MineDeck 是 Windows 上的我的世界（Minecraft Java 版）一键开服工具：单文件 exe，自动下载 Java 和服务端，图形界面管理服务器，整合包一键导入，内置樱花穿透、OpenFrp 内网穿透；可选接入自己的 AI Key，提供 AI 开服助手、游戏内 AI、AI 伙伴，以及音乐共享。MineDeck is a one-click Minecraft (Java Edition) server launcher for Windows. Its interface is Chinese only for now. Licensed under GNU AGPL-3.0 (v3.2.4 and earlier: MIT).
 
 - Platform: Windows 10 / 11 (Windows 11 recommended: music sharing can record a single program there).
 - Distribution: a single `MineDeck.exe` (about 17 MB, no installer, no dependencies), downloaded from GitHub Releases. Current version: 3.2.7 (stable).
