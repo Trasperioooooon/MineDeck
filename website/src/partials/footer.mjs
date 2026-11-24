@@ -6,9 +6,9 @@ const get = (L, path) => path.split('.').reduce((o, k) => o && o[k], L);
 
 export function footer(ctx) {
   const { L, cfg, page, data } = ctx;
-  const icp = cfg.beian.icp ? `<a href="https://beian.miit.gov.cn/" rel="noopener">${esc(cfg.beian.icp)}</a>` : esc(L.footer.pending);
+  const icp = cfg.beian.icp ? extLink(ctx, 'https://beian.miit.gov.cn/', cfg.beian.icp) : esc(L.footer.pending);
   const psb = cfg.beian.psb
-    ? `<a href="https://beian.mps.gov.cn/#/query/webSearch?code=${esc(cfg.beian.psbCode)}" rel="noopener">${esc(cfg.beian.psb)}</a>`
+    ? extLink(ctx, `https://beian.mps.gov.cn/#/query/webSearch?code=${cfg.beian.psbCode}`, cfg.beian.psb)
     : esc(L.footer.psbPending || L.footer.pending);
   const link = (n) => n.ext ? extLink(ctx, n.ext(cfg), get(L, n.label))
     : n.file ? `<a href="${ctx.root}${n.file}">${esc(get(L, n.label))}</a>`
