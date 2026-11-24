@@ -3,6 +3,7 @@ package tunnel
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -838,5 +839,171 @@ func TestRenumberPlaintextReadOnlyLeavesNoBackup(t *testing.T) {
 	case a := <-notes:
 		t.Fatalf("写进去以后不该再记换号：%+v", a)
 	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// failSeal 读进来时给明文凭据加密（sealSecret），plains 里的那几句加密失败，别的照常加密。按内容决定，不按调用次序。
+func failSeal(t *testing.T, plains ...string) {
+	t.Helper()
+	old := sealSecret
+	t.Cleanup(func() { sealSecret = old })
+	sealSecret = func(s string) (string, error) {
+		if slices.Contains(plains, s) {
+			return "", errors.New("假的加密失败")
+		}
+		return old(s)
+	}
+}
+
+// 明文凭据加撞号、凭据全都加密失败：没有加密过的那一版可留，备份是读进来时的原样字节（里面的明文和写回的 tunnels.json
+// 一样）；程序日志里每条加密失败的都说一句备份里这一条也是明文；操作记录不带 backupSealed。
+func TestRenumberSealFailsKeepsRawBackup(t *testing.T) {
+	tempBase(t)
+	bakName := pinBackupClock(t)
+	failSeal(t, plainDupCreds...)
+	if err := os.WriteFile(tunnelsPath(), []byte(plainDup), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	logs := captureLog(t)
+	m := NewManager()
+	if ids := tunnelIDs(m); !slices.Equal(ids, []string{"tun1", "tun2"}) {
+		t.Fatalf("编号：%v", ids)
+	}
+	if got := backupNames(t); !slices.Equal(got, []string{bakName}) {
+		t.Fatalf("应留一份备份：%v", got)
+	}
+	if got := readFile(t, filepath.Join(app.Base, bakName)); got != plainDup {
+		t.Fatalf("凭据全都加密失败时，备份应是读进来时的原样字节：%s", got)
+	}
+	s := logs.String()
+	for _, name := range []string{"甲", "乙"} {
+		if !strings.Contains(s, "隧道「"+name+"」的凭据加密失败，暂时保留明文，换号前留的备份里这一条也是明文") {
+			t.Fatalf("程序日志应说「%s」加密失败、备份里这一条也是明文：%s", name, s)
+		}
+	}
+	if strings.Contains(s, "已经加密") {
+		t.Fatalf("凭据全都加密失败，不该说备份里已经加密：%s", s)
+	}
+	var notes []AutoAction
+	m.SetAutoHook(func(a AutoAction) { notes = append(notes, a) })
+	if len(notes) != 1 || notes[0].Err != nil || notes[0].Args["backup"] != bakName ||
+		notes[0].Args["backupSealed"] != nil || notes[0].Args["backupSealFailed"] != nil {
+		t.Fatalf("操作记录应带备份名、不说备份加密过：%+v", notes)
+	}
+}
+
+// 明文凭据加撞号、只有一条加密失败：备份还是凭据加密过的那一版，加密失败的那条在备份里是明文（和写回的 tunnels.json
+// 一样），别的解得开；程序日志说清加密失败的有几条除外，操作记录带上条数。
+func TestRenumberSealPartlyFailsSaysHowMany(t *testing.T) {
+	tempBase(t)
+	bakName := pinBackupClock(t)
+	failSeal(t, plainCredB)
+	if err := os.WriteFile(tunnelsPath(), []byte(plainDup), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	logs := captureLog(t)
+	m := NewManager()
+	if got := backupNames(t); !slices.Equal(got, []string{bakName}) {
+		t.Fatalf("应留一份备份：%v", got)
+	}
+	bak := readFile(t, filepath.Join(app.Base, bakName))
+	noPlaintext(t, "备份", bak, plainCredA)
+	var d diskTunnels
+	if err := json.Unmarshal([]byte(bak), &d); err != nil {
+		t.Fatalf("备份解析不了：%v\n%s", err, bak)
+	}
+	if ids := diskIDs(d); !slices.Equal(ids, []string{"tun1", "tun1"}) || d.Seq != 1 {
+		t.Fatalf("备份里的编号和 seq 应是换号前的：%v seq=%d", ids, d.Seq)
+	}
+	if got, err := secret.Unseal(d.Tunnels[0].Credential); err != nil || got != plainCredA {
+		t.Fatalf("备份里加密成功的那条应解得开：%q %v", got, err)
+	}
+	if d.Tunnels[1].Credential != plainCredB {
+		t.Fatalf("备份里加密失败的那条应和写回的文件一样是明文：%q", d.Tunnels[1].Credential)
+	}
+	if s := logs.String(); !strings.Contains(s, "原文件里的旧版明文凭据在备份里已经加密（加密失败的 1 条除外），备份不是原文件逐字节的样子") {
+		t.Fatalf("程序日志应说加密失败的有几条除外：%s", s)
+	}
+	var notes []AutoAction
+	m.SetAutoHook(func(a AutoAction) { notes = append(notes, a) })
+	if len(notes) != 1 || notes[0].Err != nil || notes[0].Args["backup"] != bakName ||
+		notes[0].Args["backupSealed"] != true || notes[0].Args["backupSealFailed"] != 1 {
+		t.Fatalf("操作记录应说备份加密过、其中 1 条加密失败：%+v", notes)
+	}
+}
+
+// 凭据加密过的那一版备份编不出来：不退回读进来时的原样字节（里面有明文），按备份留不下处理，tunnels.json 一个字不动、
+// 也不留备份，操作记录说没写回去。之后保存也一样拒绝：带重复编号的那份被换掉之前，旁边一定得有它的备份。
+func TestRenumberSealedBackupEncodeFailsWritesNothing(t *testing.T) {
+	tempBase(t)
+	pinBackupClock(t)
+	old := encodeSealedBackup
+	t.Cleanup(func() { encodeSealedBackup = old })
+	encodeSealedBackup = func(int, []*Tunnel) ([]byte, error) { return nil, errors.New("假的编不出来") }
+	if err := os.WriteFile(tunnelsPath(), []byte(plainDup), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager()
+	if ids := tunnelIDs(m); !slices.Equal(ids, []string{"tun1", "tun2"}) {
+		t.Fatalf("写不回去时内存里的编号也不该重复：%v", ids)
+	}
+	if got := backupNames(t); len(got) != 0 {
+		t.Fatalf("备份编不出来时不该留下任何备份（尤其是带明文的原样字节）：%v", got)
+	}
+	if readFile(t, tunnelsPath()) != plainDup {
+		t.Fatal("备份留不下时不该改写 tunnels.json")
+	}
+	var notes []AutoAction
+	m.SetAutoHook(func(a AutoAction) { notes = append(notes, a) })
+	if len(notes) != 1 || notes[0].Err == nil || !strings.Contains(notes[0].Err.Error(), "没能先给读进来时的那份留备份") ||
+		notes[0].Args["backup"] != nil {
+		t.Fatalf("操作记录应说没写回去、没有备份：%+v", notes)
+	}
+	if _, err := m.Add(openfrpTunnel("新加的")); err == nil {
+		t.Fatal("备份留不下，之后保存也该拒绝")
+	}
+	if got := backupNames(t); len(got) != 0 || readFile(t, tunnelsPath()) != plainDup {
+		t.Fatalf("保存被拒时不该留备份、不该改写 tunnels.json：%v", got)
+	}
+}
+
+// 再读一次 tunnels.json 时，上次读进来时换了号、还没写进去的那次不作数：这次读到的没有重复编号，之后保存不再留备份、
+// 不再补记换号。
+func TestRenumberReloadDropsStalePending(t *testing.T) {
+	tempBase(t)
+	bakName := pinBackupClock(t)
+	orig, _ := dupFixture(t)
+	if err := os.WriteFile(tunnelsPath(), []byte(orig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// 唯一能用的备份名被占着：启动时备份留不下，换号挂着没写进去
+	if err := os.WriteFile(filepath.Join(app.Base, bakName), []byte("别的东西"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oldTries := backupNameTries
+	t.Cleanup(func() { backupNameTries = oldTries })
+	backupNameTries = 1
+	m := NewManager()
+	if m.renum == nil {
+		t.Fatal("启动时写不回去，换号应还挂着")
+	}
+	clean := `{"seq":1,"tunnels":[{"id":"tun1","provider":"natfrp","name":"甲","credential":"` + fakeSealedA + `","proxyId":"1","autoStart":false}]}`
+	if err := os.WriteFile(tunnelsPath(), []byte(clean), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m.mu.Lock()
+	m.load()
+	m.mu.Unlock()
+	backupNameTries = oldTries
+	if _, err := m.Add(openfrpTunnel("新加的")); err != nil {
+		t.Fatal(err)
+	}
+	if got := backupNames(t); !slices.Equal(got, []string{bakName}) {
+		t.Fatalf("再读到的没有重复编号，保存时不该再留备份：%v", got)
+	}
+	var notes []AutoAction
+	m.SetAutoHook(func(a AutoAction) { notes = append(notes, a) })
+	if len(notes) != 1 || notes[0].Err == nil {
+		t.Fatalf("只该有启动时那一条（没写回去）换号的操作记录：%+v", notes)
 	}
 }
