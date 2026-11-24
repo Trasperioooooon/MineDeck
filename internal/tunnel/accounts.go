@@ -758,6 +758,7 @@ func (a *Accounts) CreateTunnel(ctx context.Context, o AccountTunnelOptions) (St
 		return Status{}, fmt.Errorf("语音隧道必须使用 UDP")
 	}
 	var st Status
+	var created bool
 	var err error
 	gen := a.generation(o.Provider)
 	switch o.Provider {
@@ -768,42 +769,56 @@ func (a *Accounts) CreateTunnel(ctx context.Context, o AccountTunnelOptions) (St
 		if o.RemotePort < 1 || o.RemotePort > 65535 {
 			return Status{}, fmt.Errorf("OpenFrp 需要填写有效的公网端口")
 		}
-		st, err = a.createOpenFrpTunnel(ctx, o, gen)
+		st, created, err = a.createOpenFrpTunnel(ctx, o, gen)
 	case "natfrp":
 		if o.RemotePort < 0 || o.RemotePort > 65535 {
 			return Status{}, fmt.Errorf("公网端口无效")
 		}
-		st, err = a.createSakuraTunnel(ctx, o, gen)
+		st, created, err = a.createSakuraTunnel(ctx, o, gen)
 	default:
 		return Status{}, fmt.Errorf("未知穿透平台: %s", o.Provider)
 	}
 	// 平台上可能已经建成（哪怕后面导入失败），概览一律重新拉
 	a.forgetOverview(o.Provider)
-	if se := (*SaveError)(nil); errors.As(err, &se) {
-		err = &createdNotSavedError{err: err}
+	if created && err != nil {
+		err = &createdNotImportedError{err: err}
 	}
 	return st, err
 }
 
-// createdNotSavedError 平台上的隧道已经建好，写进本机的 tunnels.json 时失败（磁盘满了、文件只读）。
-// 这时再点一次「创建」会在平台上再建一条，所以要说清楚：平台上那条已经有了，磁盘恢复以后去导入它。
-type createdNotSavedError struct{ err error }
+// createdNotImportedError 平台的创建请求已经成功返回，之后的步骤失败、本机没有这条隧道：认不出新建的是哪条、
+// 取 frpc 用的密钥时出错、途中账户被断开或换了、写进 tunnels.json 时失败（磁盘满了、文件只读）。
+// 这时再点一次「创建」会在平台上再建一条（A57），所以按「请求已经成功返回」认，不按错误类型：
+// 报错要说清去平台隧道列表里导入，界面也要认出来锁住创建（PlatformCreated，网页层据此在响应里加 created）。
+type createdNotImportedError struct{ err error }
 
-func (e *createdNotSavedError) Error() string {
-	return "平台上的隧道已经建好，但" + e.err.Error() + "。磁盘恢复以后在平台隧道列表里导入这条隧道，不要再创建一次"
+func (e *createdNotImportedError) Error() string {
+	if e.saveFailed() {
+		return "平台上的隧道已经建好，但" + e.err.Error() + "。磁盘恢复以后在平台隧道列表里导入这条隧道，不要再创建一次"
+	}
+	return "平台上的隧道已经建好，但没能导入 MineDeck：" + e.err.Error() + "。在平台隧道列表里导入它，不要再创建一次"
 }
 
-func (e *createdNotSavedError) Unwrap() error { return e.err }
+func (e *createdNotImportedError) Unwrap() error { return e.err }
 
-// Hint 规矩同 SaveError.Hint。
-func (e *createdNotSavedError) Hint() string {
-	return "平台上的隧道已建好，但没能存进 MineDeck。检查磁盘后在平台隧道列表里导入它，不要再创建"
+// PlatformCreated 平台上已经建好：界面不再放开「创建并导入」，改成引导去导入。
+func (e *createdNotImportedError) PlatformCreated() bool { return true }
+
+// Hint 规矩同 SaveError.Hint。写不进磁盘时下一步是先查磁盘，分开说。
+func (e *createdNotImportedError) Hint() string {
+	if e.saveFailed() {
+		return "平台上的隧道已建好，但没能存进 MineDeck。检查磁盘后在平台隧道列表里导入它，不要再创建"
+	}
+	return "平台上的隧道已建好，但没能导入 MineDeck。在平台隧道列表里导入它，不要再创建"
 }
 
-func (a *Accounts) createOpenFrpTunnel(ctx context.Context, o AccountTunnelOptions, gen uint64) (Status, error) {
+func (e *createdNotImportedError) saveFailed() bool { return errors.As(e.err, new(*SaveError)) }
+
+// createOpenFrpTunnel 在 OpenFrp 上建隧道并写进本机。第二个返回值为 true：newProxy 已经成功返回，平台上已经建好。
+func (a *Accounts) createOpenFrpTunnel(ctx context.Context, o AccountTunnelOptions, gen uint64) (Status, bool, error) {
 	var nodes openFrpNodeList
 	if err := a.openFrpPostAt(ctx, &gen, "/frp/api/getNodeList", map[string]any{}, &nodes); err != nil {
-		return Status{}, err
+		return Status{}, false, err
 	}
 	var node *openFrpNode
 	for i := range nodes.List {
@@ -813,11 +828,11 @@ func (a *Accounts) createOpenFrpTunnel(ctx context.Context, o AccountTunnelOptio
 		}
 	}
 	if node == nil || node.Status != http.StatusOK || node.FullyLoaded || !node.ProtocolSupport[o.Type] {
-		return Status{}, fmt.Errorf("所选 OpenFrp 节点不可用或不支持 %s", strings.ToUpper(o.Type))
+		return Status{}, false, fmt.Errorf("所选 OpenFrp 节点不可用或不支持 %s", strings.ToUpper(o.Type))
 	}
 	var before openFrpProxyList
 	if err := a.openFrpPostAt(ctx, &gen, "/frp/api/getUserProxies", map[string]any{}, &before); err != nil {
-		return Status{}, err
+		return Status{}, false, err
 	}
 	old := make(map[int]bool, len(before.List))
 	for _, proxy := range before.List {
@@ -830,8 +845,14 @@ func (a *Accounts) createOpenFrpTunnel(ctx context.Context, o AccountTunnelOptio
 		"proxyProtocolVersion": false, "remote_port": o.RemotePort, "type": o.Type,
 	}
 	if err := a.openFrpPostAt(ctx, &gen, "/frp/api/newProxy", request, nil); err != nil {
-		return Status{}, err
+		return Status{}, false, err
 	}
+	st, err := a.adoptNewOpenFrp(ctx, o, gen, old)
+	return st, true, err
+}
+
+// adoptNewOpenFrp newProxy 成功以后：从隧道列表里认出新建的那条（old 是建之前就有的编号），取 frpc 用的密钥，写进本机。
+func (a *Accounts) adoptNewOpenFrp(ctx context.Context, o AccountTunnelOptions, gen uint64, old map[int]bool) (Status, error) {
 	var after openFrpProxyList
 	if err := a.openFrpPostAt(ctx, &gen, "/frp/api/getUserProxies", map[string]any{}, &after); err != nil {
 		return Status{}, fmt.Errorf("OpenFrp 已接受创建请求，但刷新隧道列表失败：%w", err)
@@ -852,33 +873,34 @@ func (a *Accounts) createOpenFrpTunnel(ctx context.Context, o AccountTunnelOptio
 	return a.addLocalTunnel("openfrp", strconv.Itoa(created[0].ID), created[0].ProxyName, user.Token, o, gen)
 }
 
-func (a *Accounts) createSakuraTunnel(ctx context.Context, o AccountTunnelOptions, gen uint64) (Status, error) {
+// createSakuraTunnel 在樱花上建隧道并写进本机。第二个返回值为 true：POST /tunnels 已经成功返回，平台上已经建好。
+func (a *Accounts) createSakuraTunnel(ctx context.Context, o AccountTunnelOptions, gen uint64) (Status, bool, error) {
 	token, err := a.sakuraTokenAt(gen)
 	if err != nil {
-		return Status{}, err
+		return Status{}, false, err
 	}
 	var info sakuraUserInfo
 	if err := a.sakuraGet(ctx, "/user/info", token, &info); err != nil {
-		return Status{}, err
+		return Status{}, false, err
 	}
 	if err := a.checkGen("natfrp", gen); err != nil {
-		return Status{}, err
+		return Status{}, false, err
 	}
 	var nodes map[string]sakuraNode
 	if err := a.sakuraGet(ctx, "/nodes", token, &nodes); err != nil {
-		return Status{}, err
+		return Status{}, false, err
 	}
 	node, ok := nodes[strconv.Itoa(o.NodeID)]
 	if !ok || node.Flag&(1<<2) == 0 {
-		return Status{}, fmt.Errorf("所选 SakuraFrp 节点不可创建隧道")
+		return Status{}, false, fmt.Errorf("所选 SakuraFrp 节点不可创建隧道")
 	}
 	if o.Type == "udp" && node.Flag&(1<<5) == 0 {
-		return Status{}, fmt.Errorf("所选 SakuraFrp 节点不支持 UDP")
+		return Status{}, false, fmt.Errorf("所选 SakuraFrp 节点不支持 UDP")
 	}
 	// 樱花官方 API 文档的规定：公开游戏服务器只能用 flag&2048 != 0 或名称含「多线」的节点（「三线」不算），
 	// 违反会被封号且不退款。
 	if o.PublicServer && !sakuraPublicGameNode(node) {
-		return Status{}, fmt.Errorf("公开游戏服务器只能用樱花的公开服专用节点（名称含「多线」或标有公开游戏标记的节点）")
+		return Status{}, false, fmt.Errorf("公开游戏服务器只能用樱花的公开服专用节点（名称含「多线」或标有公开游戏标记的节点）")
 	}
 	request := map[string]any{
 		"name": o.Name, "type": o.Type, "node": o.NodeID,
@@ -888,19 +910,20 @@ func (a *Accounts) createSakuraTunnel(ctx context.Context, o AccountTunnelOption
 		request["remote"] = strconv.Itoa(o.RemotePort)
 	}
 	if err := a.checkGen("natfrp", gen); err != nil {
-		return Status{}, err
+		return Status{}, false, err
 	}
 	var created sakuraTunnel
 	if err := a.sakuraRequestJSON(ctx, http.MethodPost, "/tunnels", token, request, &created); err != nil {
-		return Status{}, err
+		return Status{}, false, err
 	}
 	if created.ID <= 0 {
-		return Status{}, fmt.Errorf("SakuraFrp 已返回成功，但没有返回新隧道编号；请刷新平台隧道列表后手动导入")
+		return Status{}, true, fmt.Errorf("SakuraFrp 已返回成功，但没有返回新隧道编号；请刷新平台隧道列表后手动导入")
 	}
 	if info.Token == "" {
-		return Status{}, fmt.Errorf("SakuraFrp 隧道已创建，但账户没有可用于 frpc 的访问密钥")
+		return Status{}, true, fmt.Errorf("SakuraFrp 隧道已创建，但账户没有可用于 frpc 的访问密钥")
 	}
-	return a.addLocalTunnel("natfrp", strconv.Itoa(created.ID), created.Name, info.Token, o, gen)
+	st, err := a.addLocalTunnel("natfrp", strconv.Itoa(created.ID), created.Name, info.Token, o, gen)
+	return st, true, err
 }
 
 func (a *Accounts) ImportTunnel(ctx context.Context, o AccountTunnelImport) (Status, error) {

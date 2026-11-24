@@ -299,7 +299,8 @@ func TestLoadMigrationSurvivesSaveFailure(t *testing.T) {
 
 // 报错提示接的那句话要守界面的规矩（app.js 的 errSummary）：60 字以内、有中文、不带「: 」和路径，不然界面不用它。
 func TestSaveHintsFitErrorToast(t *testing.T) {
-	for _, h := range []string{(&SaveError{Err: os.ErrPermission}).Hint(), (&createdNotSavedError{}).Hint()} {
+	for _, h := range []string{(&SaveError{Err: os.ErrPermission}).Hint(),
+		(&createdNotImportedError{err: &SaveError{Err: os.ErrPermission}}).Hint(), (&createdNotImportedError{err: errAccountChanged}).Hint()} {
 		if n := utf8.RuneCountInString(h); n == 0 || n > 60 {
 			t.Errorf("提示 %d 字，要在 1–60 字之间：%s", n, h)
 		}
@@ -338,8 +339,11 @@ func TestAccountImportAndCreateReportSaveFailure(t *testing.T) {
 		t.Fatalf("创建失败的说法要讲清平台上已建好、去导入：%v", err)
 	}
 	var h interface{ Hint() string }
-	if !errors.As(err, &h) || !strings.Contains(h.Hint(), "导入") {
-		t.Fatalf("创建失败的提示要说去导入：%v", err)
+	if !errors.As(err, &h) || !strings.Contains(h.Hint(), "导入") || !strings.Contains(h.Hint(), "检查磁盘") {
+		t.Fatalf("创建失败的提示要说查磁盘、去导入：%v", err)
+	}
+	if !platformCreated(err) {
+		t.Fatalf("平台上已建好，要让界面认出来锁住创建（PlatformCreated）：%v", err)
 	}
 	if n := len(a.tunnels.List()); n != 0 {
 		t.Fatalf("创建写盘失败后本机多了 %d 条隧道", n)
@@ -375,8 +379,8 @@ func TestSakuraImportAndCreateReportSaveFailure(t *testing.T) {
 		t.Fatal("樱花上应已建好（测的就是建好以后本机存不上）")
 	}
 	var h interface{ Hint() string }
-	if !strings.Contains(err.Error(), "平台上的隧道已经建好") || !errors.As(err, &h) || !strings.Contains(h.Hint(), "导入") {
-		t.Fatalf("创建失败的说法要讲清平台上已建好、去导入：%v", err)
+	if !strings.Contains(err.Error(), "平台上的隧道已经建好") || !errors.As(err, &h) || !strings.Contains(h.Hint(), "导入") || !platformCreated(err) {
+		t.Fatalf("创建失败的说法要讲清平台上已建好、去导入，并带 PlatformCreated：%v", err)
 	}
 	if n := len(a.tunnels.List()); n != 0 {
 		t.Fatalf("写盘失败后本机多了 %d 条隧道", n)

@@ -353,7 +353,7 @@ func TestAccountsRefuseWhileTunnelsUnread(t *testing.T) {
 	a := NewAccounts(m, secret.NewStore(filepath.Join(app.Base, "secrets.json")))
 	_, err := a.CreateTunnel(context.Background(), AccountTunnelOptions{Provider: "openfrp", Name: "mc", NodeID: 1, LocalPort: 25565, Type: "tcp", RemotePort: 30000})
 	wantLoadError(t, err, true)
-	if errors.As(err, new(*createdNotSavedError)) {
+	if platformCreated(err) {
 		t.Fatalf("还没去平台上建，不该说已经建好：%v", err)
 	}
 	_, err = a.ImportTunnel(context.Background(), AccountTunnelImport{Provider: "openfrp", ProxyID: "1001"})
