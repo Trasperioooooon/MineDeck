@@ -106,7 +106,7 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 | GET | `/api/tunnel-accounts/{provider}/overview` | 账户信息、节点、平台隧道列表，按平台缓存 30 秒；连接、断开、创建、导入后作废 |
 | POST | `/api/tunnel-accounts/{provider}/sign` | 签到入口，不签到：返回 `{ ok:false, openURL, message }`。OpenFrp 是控制台的签到深链（控制台自己拉起人机验证），樱花是用户中心 |
 | GET | `/api/tunnel-accounts/{provider}/purchase` | `{ options:[{ title, url, kind }] }`，全是官方页面 |
-| POST | `/api/tunnel-accounts/{provider}/tunnels` | 在平台创建隧道并导入本机：`{ name, nodeId, type, localPort, remotePort?, boundInstance?, autoStart?, purpose?, publicServer? }`。OpenFrp 的 `name` 只能是英文字母、数字、下划线和连字符（最长 30），`remotePort` 必填；樱花 `publicServer:true` 时只能用公开服专用节点，不填公网端口时由平台分配。`localPort` 不能是 MineDeck 自己的网页端口。途中账户被断开或换了，不写进本机，报错里会说平台上可能已经建好 |
+| POST | `/api/tunnel-accounts/{provider}/tunnels` | 在平台创建隧道并导入本机：`{ name, nodeId, type, localPort, remotePort?, boundInstance?, autoStart?, purpose?, publicServer? }`。OpenFrp 的 `name` 只能是英文字母、数字、下划线和连字符（最长 30），`remotePort` 必填；樱花 `publicServer:true` 时只能用公开服专用节点，不填公网端口时由平台分配。`localPort` 不能是 MineDeck 自己的网页端口。平台的创建请求已经成功返回、之后没能导入本机的（认不出新建的那条、取 frpc 密钥出错、途中账户被断开或换了、`tunnels.json` 写不进去），报错里说平台上已经建好、去平台隧道列表里导入，响应另带 `created: true`：界面据此锁住「创建并导入」、换成「关闭，去导入」，再点一次平台上就会多一条 |
 | POST | `/api/tunnel-accounts/{provider}/import` | 导入已有平台隧道：`{ proxyId, boundInstance?, autoStart?, purpose? }`，`proxyId` 只收纯数字，按平台的编号存；平台隧道的本地端口是 MineDeck 自己的网页端口时拒绝导入 |
 
 接口来源、对方的使用要求和还没用真实账号核实的事项见 [`docs/设计与参考/frp-account-api-notes.md`](frp-account-api-notes.md)。

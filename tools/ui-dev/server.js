@@ -13,8 +13,8 @@ const UI_DEFAULT = path.resolve(__dirname, "..", "..", "internal", "web", "ui");
 const PORT_DEFAULT = 27390; // 避开 MineDeck 自己的默认端口 27333，本机同时开着程序也不冲突
 
 const ok = (res, data) => { res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" }); res.end(JSON.stringify({ ok: true, data })); };
-// hint：同后端 writeErr，报错链上另给的一句人话（没有就不带）
-const err = (res, code, msg, hint) => { res.writeHead(code, { "Content-Type": "application/json; charset=utf-8" }); res.end(JSON.stringify(hint ? { ok: false, error: msg, hint } : { ok: false, error: msg })); };
+// hint：同后端 writeErr，报错链上另给的一句人话（没有就不带）；extra 是另外几项，比如平台上已经建好时的 { created: true }
+const err = (res, code, msg, hint, extra) => { res.writeHead(code, { "Content-Type": "application/json; charset=utf-8" }); res.end(JSON.stringify({ ok: false, error: msg, ...(hint ? { hint } : {}), ...extra })); };
 const readBody = req => new Promise(r => { let b = ""; req.on("data", c => b += c); req.on("end", () => { try { r(JSON.parse(b || "{}")); } catch { r({}); } }); });
 // 同 ops/catalog 的 maskWebhook：只留协议和主机（含端口），后面常带着令牌，换成 ***；解析不了的整个遮掉，空串还是空串
 const maskWebhook = u => { if (!u) return ""; try { const x = new URL(u); return x.host ? `${x.protocol}//${x.host}/***` : "***"; } catch { return "***"; } };
@@ -2806,9 +2806,9 @@ async function tunnelAccountsHandler(state, req, res, p, m, seg) {
       });
       ov.account.tunnelCount = (ov.account.tunnelCount || 0) + 1;
     }
-    if (ta.saveFail) {
+    if (ta.saveFail) { // 同后端：平台上已经建好、本机没导入成，响应带 created（界面锁住创建、引导去导入）
       err(res, 400, "平台上的隧道已经建好，但保存到 MineDeck 失败: " + SAVE_FAIL_RAW + "。磁盘恢复以后在平台隧道列表里导入这条隧道，不要再创建一次",
-        "平台上的隧道已建好，但没能存进 MineDeck。检查磁盘后在平台隧道列表里导入它，不要再创建");
+        "平台上的隧道已建好，但没能存进 MineDeck。检查磁盘后在平台隧道列表里导入它，不要再创建", { created: true });
       return true;
     }
     ok(res, tun);

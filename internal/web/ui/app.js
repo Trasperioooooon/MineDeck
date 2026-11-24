@@ -23,7 +23,7 @@ async function api(path, opts = {}) {
   try { j = await res.json(); } catch { throw new Error(`服务异常 (HTTP ${res.status})`); }
   // needLogin 标记：让 boot() 区分「需要登录」与真正的后端故障
   if (res.status === 401) { showLogin(); throw Object.assign(new Error(j.error || "需要登录"), { needLogin: true }); }
-  if (!j.ok) throw Object.assign(new Error(j.error || "未知错误"), { status: res.status, hint: j.hint, portBusy: j.portBusy }); // hint：后端另给的一句人话，见 errSummary
+  if (!j.ok) throw Object.assign(new Error(j.error || "未知错误"), { status: res.status, hint: j.hint, portBusy: j.portBusy, created: j.created }); // hint：后端另给的一句人话，见 errSummary；created：平台上的隧道已建好（见 createPlatTunnel）
   return opts.full ? j : j.data;
 }
 
@@ -5246,9 +5246,12 @@ async function renderTunnels() {
       <div class="m-actions">
         <button class="btn" data-x="cancel">取消</button>
         <button class="btn primary" data-x="ok">创建并导入</button>
+        <button class="btn primary" data-x="go-import" hidden>关闭，去导入</button>
       </div>
     </div>`);
     let closed = false;
+    // busy：请求途中，或者平台上已经建好、本机没导入成。两种都不能再发创建：后一种再点一次，平台上就多一条（A57）
+    let busy = false;
     const close = () => {
       if (closed) return;
       closed = true;
@@ -5280,12 +5283,32 @@ async function renderTunnels() {
       const keep = nodeSel.value;
       nodeSel.innerHTML = nodeOpts(list);
       if (list.some(n => String(n.id) === keep)) nodeSel.value = keep;
-      nodeSel.disabled = okBtn.disabled = !list.length;
+      nodeSel.disabled = !list.length;
+      okBtn.disabled = busy || !list.length; // 请求途中切开关也不能把按钮放开
       if (!list.length) showErr("没有可用的公开服专用节点，公开服务器暂时不能在这里创建隧道。", "node");
       else if (errEl.dataset.kind === "node") showErr("");
     };
     if (pub) pub.onchange = paintNodes;
+    // 平台上已经建好、本机没导入成：主按钮换成「关闭，去导入」。关掉以后等后面的概览拉完，平台隧道列表里同名的只有一条时
+    // 滚过去、焦点放到它的「导入到 MineDeck」上；认不准就只关掉
+    const goBtn = q('[data-x="go-import"]');
+    const showGoImport = (name, reload) => {
+      okBtn.hidden = true;
+      goBtn.hidden = false;
+      goBtn.focus();
+      goBtn.onclick = async () => {
+        close();
+        await reload;
+        if (stale(gen)) return;
+        const rows = [...document.querySelectorAll("#tn-acc-panel [data-plat-tun]")].filter(r => (r.querySelector("b") || {}).textContent === name);
+        const imp = rows.length === 1 && rows[0].querySelector("[data-acc-import]");
+        if (!imp) return;
+        rows[0].scrollIntoView({ block: "center" });
+        imp.focus();
+      };
+    };
     okBtn.onclick = async () => {
+      if (busy) return;
       const name = nameIn.value.trim();
       if (isOpenFrp && !OPENFRP_NAME_RE.test(name)) {
         showErr("OpenFrp 的隧道名只能用英文字母、数字、下划线和连字符，最长 30 个字符", "name");
@@ -5305,7 +5328,7 @@ async function renderTunnels() {
         purpose: q("#tn-cr-type").value === "udp" ? "voice" : "game",
       };
       if (isSakura) body.publicServer = !!(pub && pub.checked);
-      okBtn.disabled = true;
+      busy = okBtn.disabled = true;
       try {
         await api(`/api/tunnel-accounts/${provider}/tunnels`, { method: "POST", body });
         close();
@@ -5316,13 +5339,15 @@ async function renderTunnels() {
         await refreshAccounts(provider);
       } catch (e) {
         if (stale(gen)) { close(); return; }
-        /* 原因写在对话框里（以前只弹一下提示），填的东西都留着，按钮恢复，改了再试。平台上建好了、本机写不进磁盘时
-           后端另给一句人话（说清去导入、别再创建），正文接那一句，原文在复制键里。平台上可能已经建好了，后面的概览
-           重新拉一次（后端已丢掉概览缓存），关掉对话框就能看到那一条、点「导入到 MineDeck」（A57）。
-           等的时候对话框已经被关掉的，照旧弹提示 */
-        if (closed) toastErr("没能创建隧道", e);
-        else { showServerErr(e); okBtn.disabled = false; }
-        refreshAccounts(provider);
+        /* 原因写在对话框里（以前只弹一下提示），填的东西都留着；正文接后端另给的那句人话，原文在复制键里。
+           后面的概览一律重新拉（后端已丢掉概览缓存）：平台上可能已经建好了，关掉对话框就能看到那一条。
+           平台上没建成的，按钮恢复，改了再试（没有可用节点时仍点不了，同 paintNodes）；后端说平台上已经建好了的（created），
+           按钮不再放开、换成「关闭，去导入」（A57）。等的时候对话框已经被关掉的，照旧弹提示 */
+        const reload = refreshAccounts(provider);
+        if (closed) { toastErr("没能创建隧道", e); return; }
+        showServerErr(e);
+        if (e.created) showGoImport(name, reload);
+        else { busy = false; okBtn.disabled = nodeSel.disabled; }
       }
     };
     nameIn.focus();
