@@ -356,6 +356,31 @@ func TestBrokenFrpcKeepsChangingIsNotDeleted(t *testing.T) {
 	}
 }
 
+// 刚解压出来的 frpc 一直在变（杀毒软件最容易在这一刻扫描）：同样不删、当判断不了交回去，隧道日志里也说那一句（A56）。
+func TestExtractedFrpcKeepsChangingIsNoted(t *testing.T) {
+	f := newFrpcFake(t)
+	zipURL := "/client/OF_t1/" + openfrpFrpcZip
+	f.set(func(f *frpcFake) { f.files[zipURL] = openfrpZip(t, string(fakeFrpcExe()[:300])) })
+	n := 0
+	old := inspectFrpc
+	t.Cleanup(func() { inspectFrpc = old })
+	inspectFrpc = func(p string) (exeState, string, os.FileInfo) { // 文件夹原来是空的，查的只有解压出来的那份
+		state, why, seen := inspectExe(p)
+		n++
+		writeFile(t, p, fakeFrpcExe()[:300+n]) // 每查一次就又长了一点，还是半截的
+		return state, why, seen
+	}
+	con := procutil.NewConsole()
+	exe := filepath.Join(frpcDir("openfrp"), "frpc_windows_amd64.exe")
+	got, err := (openfrpProvider{}).EnsureFrpc(con)
+	if err != nil || got != exe || n != frpcRechecks || f.hitCount(zipURL) != 1 {
+		t.Fatalf("一直在变的应当判断不了、照旧交回去：%s %v（查了 %d 次，下载 %d 次）", got, err, n, f.hitCount(zipURL))
+	}
+	if lines := strings.Join(con.Lines(), "\n"); !strings.Contains(lines, "检查 frpc（frpc_windows_amd64.exe）的时候文件一直在变") {
+		t.Fatalf("隧道日志里要说一句：%s", lines)
+	}
+}
+
 // 自定义 frps 的 frpc 也是自己下载的：坏的同样删掉、重新准备；frpc.exe 坏了、旁边另有一份好的，用好的那份。
 func TestCustomBrokenExeIsReplaced(t *testing.T) {
 	f := newFrpcFake(t)

@@ -193,8 +193,8 @@ func usableFrpc(dir string, con *procutil.Console, managed bool) (exe string, sk
 		case err != nil:
 			return "", skip, fmt.Errorf("frpc 文件夹里的 %s 是坏的（%s），又没能删掉它（%w）。请关掉可能占着它的程序，手动删掉这个文件后重试。它在这个文件夹：%s", name, c.why, err, dir)
 		case c.state == exeOK || c.state == exeUnknown:
-			if c.changing { // 交给启动那一步；起不来时隧道日志里有这一句，知道它当时正被改着
-				con.Append(fmt.Sprintf("[MineDeck] 检查 frpc（%s）的时候文件一直在变，可能有程序正在写它。没有删，照常用它启动", name))
+			if c.changing {
+				noteFrpcChanging(con, name)
 			}
 			return p, skip, nil
 		case c.removed && managed:
@@ -212,6 +212,12 @@ func usableFrpc(dir string, con *procutil.Console, managed bool) (exe string, sk
 			"请把它换成从服务商下载的 frpc exe 后重试。它在这个文件夹：%s", strings.Join(kept, "、"), dir)
 	}
 	return "", skip, nil
+}
+
+// noteFrpcChanging 查 frpc 时文件一直在变、按判断不了交回去的（见 checkFrpc），往隧道日志里说一句：
+// 交给启动那一步，起不来时知道它当时正被改着。已经放着的（usableFrpc）、刚解压出来的（dropBadExtracted）都用这一句。
+func noteFrpcChanging(con *procutil.Console, name string) {
+	con.Append(fmt.Sprintf("[MineDeck] 检查 frpc（%s）的时候文件一直在变，可能有程序正在写它。没有删，照常用它启动", name))
 }
 
 // frpcCheck checkFrpc 的结果：最后一次查的状态和原因，坏的有没有删掉。

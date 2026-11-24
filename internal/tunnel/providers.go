@@ -318,7 +318,7 @@ func (openfrpProvider) EnsureFrpc(con *procutil.Console) (string, error) {
 // 一直循环（A56）。现在解压出来的 frpc 坏了就连同缓存的 zip 一起删掉，重新下载一次；还是坏的就停下报错，请人手动放。
 func openfrpInstall(ctx context.Context, con *procutil.Console, urls []string, zipPath, dir string, skip []string) (string, error) {
 	for try := 1; ; try++ {
-		exe, bad, err := openfrpFetchExtract(ctx, urls, zipPath, dir, skip)
+		exe, bad, err := openfrpFetchExtract(ctx, con, urls, zipPath, dir, skip)
 		if err != nil || bad == "" {
 			return exe, err
 		}
@@ -335,7 +335,7 @@ func openfrpInstall(ctx context.Context, con *procutil.Console, urls []string, z
 // 这个 zip 没有哈希可对，dl.Fetch 下次见它够大就直接复用：解压不了、里面的 frpc 是坏的、或者里面没有 frpc 的，删掉，下次重新下载；
 // 删不掉的照实报出来（dropZipCache）。
 // frpc 解压出来又被杀毒软件删了的（errFrpcGone）不算 zip 坏了，留着。
-func openfrpFetchExtract(ctx context.Context, urls []string, zipPath, dir string, skip []string) (exe, bad string, err error) {
+func openfrpFetchExtract(ctx context.Context, con *procutil.Console, urls []string, zipPath, dir string, skip []string) (exe, bad string, err error) {
 	if err := dl.Fetch(ctx, dl.Request{URLs: urls, Dest: zipPath, MinSize: 1 << 20, Client: openfrpHTTPClient}, nil); err != nil {
 		_ = os.MkdirAll(dir, 0o755) // 提示里叫人把 exe 放进这个文件夹，先建好（同樱花那条）
 		return "", "", fmt.Errorf("下载 OpenFrp frpc 失败（可手动从 OpenFrp 下载 frpc_windows_amd64.zip，把 zip 里的 frpc_windows_amd64.exe 放入 %s 文件夹后重试）: %w", dir, err)
@@ -344,7 +344,7 @@ func openfrpFetchExtract(ctx context.Context, urls []string, zipPath, dir string
 	if err != nil {
 		return "", "", alsoDropZip(err, zipPath)
 	}
-	if bad, err = dropBadExtracted(dir, names); err != nil {
+	if bad, err = dropBadExtracted(con, dir, names); err != nil {
 		return "", bad, alsoDropZip(err, zipPath)
 	}
 	if bad != "" {
@@ -374,22 +374,25 @@ func dropZipCache(zipPath string) error {
 	return fmt.Errorf("缓存的压缩包删不掉（%w），请关掉占用它的程序或手动删掉 %s 后重试", err, zipPath)
 }
 
-// alsoDropZip 出错以后连缓存的 zip 一起删掉；删不掉时把那一句接在 err 后面（errors.Is 照旧认得出 err）。
+// alsoDropZip 出错以后连缓存的 zip 一起删掉；删不掉时把那一句接在 err 后面（errors.Is 两个原因都认得出）。
 func alsoDropZip(err error, zipPath string) error {
 	if zerr := dropZipCache(zipPath); zerr != nil {
-		return fmt.Errorf("%w。%v", err, zerr)
+		return fmt.Errorf("%w。%w", err, zerr)
 	}
 	return err
 }
 
 // dropBadExtracted 这次解压出来的 frpc 逐个查一遍，坏的删掉（是这次刚放进去的，归 MineDeck 管；删前同样确认没被换掉）。
-// 返回第一个坏的是哪个、怎么坏的，都好时为空。删不掉时返回错误。
-func dropBadExtracted(dir string, names []string) (bad string, err error) {
+// 返回第一个坏的是哪个、怎么坏的，都好时为空。删不掉时返回错误。一直在变、按判断不了放过的，往隧道日志里说一句。
+func dropBadExtracted(con *procutil.Console, dir string, names []string) (bad string, err error) {
 	for _, n := range names {
 		if !isFrpcExeName(n) {
 			continue
 		}
 		c, err := checkFrpc(filepath.Join(dir, n), func(exeState) bool { return true })
+		if c.changing {
+			noteFrpcChanging(con, n)
+		}
 		if c.state == exeTruncated || c.state == exeNotPE {
 			if bad == "" {
 				bad = fmt.Sprintf("%s（%s）", n, c.why)

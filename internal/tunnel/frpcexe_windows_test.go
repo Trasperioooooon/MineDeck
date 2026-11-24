@@ -1,6 +1,7 @@
 package tunnel
 
 import (
+	"archive/zip"
 	"errors"
 	"os"
 	"os/exec"
@@ -111,7 +112,7 @@ func TestOpenfrpBrokenZipCannotBeDeleted(t *testing.T) {
 	if n := f.hitCount(zipURL); n != 0 {
 		t.Fatalf("不该去下载：%d 次", n)
 	}
-	if lines := strings.Join(con.Lines(), "\n"); strings.Contains(lines, "重新下载一次") {
+	if lines := strings.Join(con.Lines(), "\n"); strings.Contains(lines, "重新下载") { // 「重新下载了一次」「重新下载一次」都不该有
 		t.Fatalf("控制台不该说重新下载：%s", lines)
 	}
 	if _, err := os.Stat(cache); err != nil {
@@ -119,6 +120,44 @@ func TestOpenfrpBrokenZipCannotBeDeleted(t *testing.T) {
 	}
 	if exe := findExe(frpcDir("openfrp")); exe != "" {
 		t.Fatalf("解压出来的坏 frpc 照样删掉：%s", exe)
+	}
+}
+
+// OpenFrp 缓存的 zip 不能用、又被别的程序开着删不掉：zip 本身坏了解压不了的、里面没有 frpc 的，报错前后两段
+// （哪里不对、压缩包删不掉）都在，errors.Is 两个原因都认得出；不去下载（A56）。
+func TestOpenfrpUnusableZipCannotBeDeleted(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		zip   []byte // 不小于 1 MiB：小了 dl.Fetch 不复用缓存，会去重新下载
+		want  string // 前一段
+		cause error  // 前一段的原因，errors.Is 要认得出（没有可认的为 nil）
+	}{
+		{"zip 本身坏了", []byte(frpPad), "zip", zip.ErrFormat},
+		{"zip 里没有 frpc", frpZip(t, frpEntry{"README.txt", frpPad}), "OpenFrp frpc 解压后未找到可执行文件", nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFrpcFake(t)
+			zipURL := "/client/OF_t1/" + openfrpFrpcZip
+			f.set(func(f *frpcFake) { f.files[zipURL] = openfrpZip(t, string(fakeFrpcExe())) })
+			cache := filepath.Join(app.CacheDir, "frpc", "openfrp-frpc-OF_t1.zip")
+			writeFile(t, cache, c.zip)
+			release := holdNoDelete(t, cache)
+			defer release()
+			got, err := (openfrpProvider{}).EnsureFrpc(procutil.NewConsole())
+			if got != "" || err == nil || !strings.Contains(err.Error(), c.want) || !strings.Contains(err.Error(), "缓存的压缩包删不掉（") ||
+				!strings.HasSuffix(err.Error(), "请关掉占用它的程序或手动删掉 "+cache+" 后重试") {
+				t.Fatalf("两段都要说：%q %v", got, err)
+			}
+			if !errors.Is(err, windows.ERROR_SHARING_VIOLATION) || c.cause != nil && !errors.Is(err, c.cause) {
+				t.Fatalf("errors.Is 要认得出两个原因（%v、删不掉）：%v", c.cause, err)
+			}
+			if n := f.hitCount(zipURL); n != 0 {
+				t.Fatalf("不该去下载：%d 次", n)
+			}
+			if _, err := os.Stat(cache); err != nil {
+				t.Fatalf("删不掉的压缩包还在：%v", err)
+			}
+		})
 	}
 }
 
