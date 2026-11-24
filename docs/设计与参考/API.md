@@ -121,7 +121,9 @@ MineDeck 的 GUI 与后端通过本地 HTTP API 通信，该 API 同时对外开
 
 `publicAddr` 从 frpc 的输出里认：同一次运行里既有域名形式又有 IP 形式（樱花会同时打「使用 >>域名:端口<< 连接」和「或使用节点 IP 连接（不推荐）」两行）时取域名，IP 会随节点变。
 
-开了「跟随实例启动」的隧道跟着绑定的实例启停（实例启动后约 2 秒拉起；停服 5 秒后还停着就停掉），每次各记一条操作记录：`op` 为 `tunnel.start` / `tunnel.stop`，`src` 为 `schedule`，`actor` 为「跟随实例」，`inst` 是绑定的实例，`args` 里有隧道编号 `id` 和隧道名 `tunnel`；拉不起来的记为失败并带上错误。
+开了「跟随实例启动」的隧道跟着绑定的实例启停（实例启动后约 2 秒拉起；停服 5 秒后还停着就停掉），每次各记一条操作记录：`op` 为 `tunnel.start` / `tunnel.stop`，`src` 为 `schedule`，`actor` 为「跟随服务器」（以前的记录里是「跟随实例」），`inst` 是绑定的实例，`args` 里有隧道编号 `id` 和隧道名 `tunnel`；拉不起来的记为失败并带上错误。
+
+`tunnels.json` 里以前撞了号的隧道（两条编号一样），读进来时靠前的那条留着原编号，后面的换新编号，先在同一文件夹里留一份备份（`tunnels.json.bak-年月日-时分秒`）再写回。这件事记一条操作记录：`op` 为 `tunnel.renumber`，`src` 为 `schedule`，`actor` 为「读取隧道配置」，`args` 里 `renamed` 是换了号的几条（`[{tunnel, from, to}]`：隧道名、原编号、新编号），`backup` 是备份的文件名（只有文件名；没留下备份时没有这一项），`backupSealed` 为 `true` 表示原文件里有旧版明文凭据，备份里的凭据已经加密，不是原文件逐字节的样子。写不回去时记为失败并带上原因，这次运行照新编号用；之后某次保存把换好的编号写进去了，再补一条成功的。别处记着的旧编号（以前的操作记录、AI 的提案）一律算靠前那条的。
 
 ### 音乐共享（第五阶段）
 
@@ -215,7 +217,7 @@ AI 是可选功能。没配置时（`enabled` 为 false）MineDeck 不连接任�
  "inst":"生存服","args":{"pairs":[{"key":"max-players","value":"10"}]},"ok":true,"ms":12}
 ```
 
-- `src` 是来源：`ui`（本机界面）、`api`（本机的其他程序）、`lan`（局域网设备，`actor` 是它的地址）、`schedule`（定时任务、崩溃自动重启和隧道跟随实例自动启停，`actor` 写明是哪一种：「定时任务」「崩溃自动重启」「跟随实例」）；`assistant`（应用内 AI 助手）、`gamechat`（游戏内 AI，`actor` 是玩家名，见「游戏内 AI（第四阶段）」）、`companion`（留给以后的 AI 伙伴）。AI 发起的写操作要人确认后才执行，记录里带 `proposal`（提案编号）和 `approvedBy`（确认的人）。
+- `src` 是来源：`ui`（本机界面）、`api`（本机的其他程序）、`lan`（局域网设备，`actor` 是它的地址）、`schedule`（定时任务、崩溃自动重启、隧道跟随服务器自动启停，以及读 `tunnels.json` 时给重复的隧道编号换号，`actor` 写明是哪一种：「定时任务」「崩溃自动重启」「跟随服务器」「读取隧道配置」；跟随启停以前的记录里是「跟随实例」）；`assistant`（应用内 AI 助手）、`gamechat`（游戏内 AI，`actor` 是玩家名，见「游戏内 AI（第四阶段）」）、`companion`（留给以后的 AI 伙伴）。AI 发起的写操作要人确认后才执行，记录里带 `proposal`（提案编号）和 `approvedBy`（确认的人）。
 - 失败的操作也记，`ok` 为 false，`err` 是错误信息。
 - Key、密码、令牌、凭据、Webhook 地址，以及 server.properties 里像密码的项（如 `rcon.password`），在 `args` 里一律写成 `***`（清空时保留空串；`clearCredential` 这类真假值原样记）。
 
