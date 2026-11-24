@@ -95,12 +95,14 @@ type serverJar struct {
 	clip        paperclipPatch // paperclip 的补丁说明；不是 paperclip 时是零值
 }
 
-// jarMetaMax jar 里这几份元数据最多读多大。真的 pom.properties、MANIFEST.MF、补丁说明都只有几百字节到几 KB。
+// jarMetaMax jar 里这几份元数据最多读多大。真的 pom.properties、补丁说明都只有几百字节到几 KB；
+// MANIFEST.MF 带签名时很大，只读主段（见 readJarManifest）。
 const jarMetaMax = 64 << 10
 
 // errJarMetaUnsure jar 里的元数据靠不住（A50）：看的那几个条目同名的出现了两次（Java 和 paperclip 用哪一份说不准，
 // patch.* 重复时 MineDeck 核对的缓存 jar 可能不是 paperclip 下次要跑的那个）、太大（申报的或者实际读到的超过 jarMetaMax，
-// 截半的记录可能读出错的版本）、读不完整、pom.properties 里 version 写了两次又不一样。都按「判断不了」办，照旧套防护。
+// 截半的记录可能读出错的版本；MANIFEST.MF 例外，见 readJarManifest）、读不完整、pom.properties 里 version 写了两次又不一样。
+// 都按「判断不了」办，照旧套防护。
 var errJarMetaUnsure = errors.New("jar 里的元数据靠不住")
 
 // readServerJar 打开一个 jar 读出 serverJar。元数据靠不住时回 errJarMetaUnsure。
@@ -129,7 +131,11 @@ func readServerJar(path string) (serverJar, error) {
 		case log4jCoreClass:
 			j.hasCore = true
 		default:
-			b, ok := readJarMeta(f)
+			read := readJarMeta
+			if f.Name == "META-INF/MANIFEST.MF" {
+				read = readJarManifest
+			}
+			b, ok := read(f)
 			if !ok {
 				return serverJar{}, errJarMetaUnsure
 			}
@@ -163,6 +169,31 @@ func readJarMeta(f *zip.File) ([]byte, bool) {
 	defer rc.Close()
 	b, err := io.ReadAll(io.LimitReader(rc, jarMetaMax+1))
 	return b, err == nil && len(b) <= jarMetaMax
+}
+
+// readJarManifest 读 MANIFEST.MF。这里只看主段里的 Main-Class；带签名的 jar 清单后面逐个文件列着摘要，原版 1.21.11 的
+// 有 1.9 MB、forge 1.7.10 universal 的有 112 KB，整个不读也不该因此判断不了（A50）。申报超过 jarMetaMax 的只读前面这一截，
+// 主段（到第一个空行为止）在里面完整的就只用主段；没结束的按靠不住办（64 KB 以后还能再写一个 Main-Class）。
+// 申报没超的照 readJarMeta（申报写小、实际超长的照旧算靠不住）。
+func readJarManifest(f *zip.File) ([]byte, bool) {
+	if f.UncompressedSize64 <= jarMetaMax {
+		return readJarMeta(f)
+	}
+	rc, err := f.Open()
+	if err != nil {
+		return nil, false
+	}
+	defer rc.Close()
+	b, err := io.ReadAll(io.LimitReader(rc, jarMetaMax))
+	if err != nil {
+		return nil, false
+	}
+	s := strings.ReplaceAll(string(b), "\r\n", "\n")
+	end := strings.Index(s, "\n\n")
+	if end < 0 {
+		return nil, false
+	}
+	return []byte(s[:end+1]), true
 }
 
 // pomVersionsDisagree pom.properties 里 version 不止一行、写的又不一样（A50）：propOf 取第一行（它是共用的，不改），

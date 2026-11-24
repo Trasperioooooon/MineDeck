@@ -959,6 +959,9 @@ func TestLog4jUnreliableJarMetadataIsUnknown(t *testing.T) {
 	clip := func(hash string) [2]string {
 		return [2]string{"patch.properties", "version=1.16.5\npatchedHash=" + hash + "\n"}
 	}
+	clipJSON := func(hash string) [2]string { // 2016–2019 年那种 paperclip
+		return [2]string{"patch.json", `{"patch":"paperMC.patch","originalHash":"00","patchedHash":"` + hash + `","version":"1.11.2"}`}
+	}
 	cases := map[string][][2]string{
 		"同名条目两份：前 2.14.1 后 2.17.1":        {mf, core, pom(log4jPom("2.14.1")), pom(log4jPom("2.17.1"))},
 		"同名条目两份：前 2.17.1 后 2.14.1":        {mf, core, pom(log4jPom("2.17.1")), pom(log4jPom("2.14.1"))},
@@ -970,6 +973,7 @@ func TestLog4jUnreliableJarMetadataIsUnknown(t *testing.T) {
 		"控制台的类两份":                         {mf, core, {termConsoleClass, "a"}, {termConsoleClass, "b"}, pom(log4jPom("2.17.1"))},
 		"MANIFEST.MF 两份":                  {mf, mf, core, pom(log4jPom("2.17.1"))},
 		"补丁说明两份":                          {mf, core, pom(log4jPom("2.17.1")), clip("AA"), clip("BB")},
+		"老的补丁说明（patch.json）两份":            {mf, core, pom(log4jPom("2.17.1")), clipJSON("AA"), clipJSON("BB")},
 	}
 	settings := Settings{Core: mcsrc.CorePaper, MC: "1.16.5", LaunchTarget: "jar:server.jar", ExtraJVM: []string{log4jNoLookups, log4jConfig}}
 	for name, entries := range cases {
@@ -1002,6 +1006,47 @@ func TestLog4jUnreliableJarMetadataIsUnknown(t *testing.T) {
 		if v := viewLog4jJar(dir, "jar:server.jar"); !v.fixed || v.ver != "2.17.1" {
 			t.Errorf("%s：应照常认成修过的 2.17.1：%+v", name, v)
 		}
+	}
+}
+
+// 带签名的 jar 的 MANIFEST.MF 很大（后面逐个文件列着摘要，原版 1.21.11 的有 1.9 MB）：不算元数据靠不住，主段里的 Main-Class
+// 照常认，自带的 log4j 照常判断（A50）。对照：主段本身在前 64 KB 里没结束的（Main-Class 在 64 KB 以后），申报写小、实际 1 MB 的，
+// 照旧算靠不住。
+func TestLog4jBigSignedManifest(t *testing.T) {
+	digests := strings.Repeat("Name: net/minecraft/server/A.class\r\nSHA-256-Digest: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\r\n\r\n", 11000)
+	core := [2]string{log4jCoreClass, "x"}
+	pom := [2]string{log4jCorePom, log4jPom("2.17.1")}
+	write := func(t *testing.T, manifest string) string {
+		dir := t.TempDir()
+		writeJarEntries(t, filepath.Join(dir, "server.jar"), [][2]string{{"META-INF/MANIFEST.MF", manifest}, core, pom})
+		return dir
+	}
+
+	signed := craftMain + digests // craftMain 末尾已经是空行，主段到那里
+	if len(signed) < 1<<20 {
+		t.Fatalf("造的清单不够大：%d", len(signed))
+	}
+	dir := write(t, signed)
+	j, err := readServerJar(filepath.Join(dir, "server.jar"))
+	if err != nil || !j.craftBukkit {
+		t.Fatalf("清单 1 MB、Main-Class 在开头：不该算靠不住，Main-Class 要认得出：%+v %v", j, err)
+	}
+	if v := viewLog4jJar(dir, "jar:server.jar"); !v.fixed || v.ver != "2.17.1" || !v.quiet {
+		t.Fatalf("自带的 log4j 照常判断：%+v", v)
+	}
+
+	pad := strings.Repeat("X-Pad: "+strings.Repeat("a", 60)+"\r\n", 1200) // 主段八万多字节
+	dir = write(t, "Manifest-Version: 1.0\r\n"+pad+"Main-Class: org.bukkit.craftbukkit.Main\r\n\r\n"+digests)
+	if _, err := readServerJar(filepath.Join(dir, "server.jar")); !errors.Is(err, errJarMetaUnsure) {
+		t.Errorf("主段在 64 KB 里没结束：应算靠不住：%v", err)
+	}
+	if v := viewLog4jJar(dir, "jar:server.jar"); v.fixed {
+		t.Errorf("主段在 64 KB 里没结束：不该判成修过了：%+v", v)
+	}
+	dir = t.TempDir()
+	writeJarUnderstated(t, filepath.Join(dir, "server.jar"), [][2]string{core, pom}, "META-INF/MANIFEST.MF", signed)
+	if _, err := readServerJar(filepath.Join(dir, "server.jar")); !errors.Is(err, errJarMetaUnsure) {
+		t.Errorf("清单申报写小、实际 1 MB 的照旧算靠不住：%v", err)
 	}
 }
 
