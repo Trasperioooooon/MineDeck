@@ -648,7 +648,7 @@ func (m *Manager) write() (backup string, err error) {
 	fresh := false
 	if m.renum != nil {
 		if backup, fresh, err = keepBackup(m.file(), m.renum.backup); err != nil {
-			return "", &SaveError{Err: fmt.Errorf("改写之前没能先留一份原文件的备份：%w", err)}
+			return "", &SaveError{Err: fmt.Errorf("改写之前没能先给读进来时的那份留备份：%w", err)}
 		}
 	}
 	if err := atomicfile.WriteProtected(m.file(), b, 0o600); err != nil { // 凭据文件收紧权限

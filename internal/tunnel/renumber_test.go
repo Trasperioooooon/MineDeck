@@ -3,6 +3,7 @@ package tunnel
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -19,7 +20,7 @@ import (
 
 // 这一组测的是 tunnels.json 里已经撞了号（A58）：以前手改把 seq 调小，新增的隧道拿到了已有的编号，文件里就有两条
 // 一样编号的隧道，按编号改、删、启动时只认得靠前的那条。现在读进来时靠前的那条留着原编号，后面的换新编号，
-// 先在旁边留一份原文件的备份再写回；凭据原样搬过去。测试里的凭据都是假的：dpapi: 开头的是编出来的乱码（解不开，
+// 先在旁边给读进来时的那份留一份备份再写回；凭据原样搬过去。测试里的凭据都是假的：dpapi: 开头的是编出来的乱码（解不开，
 // 会被标成「凭据解不开」），能解开的是现场加密的假话，明文的是一眼看得出是假的字串。
 
 // 假的密文：带 base64 里的 +、/、=，看 JSON 写回去以后一个字节都没变
@@ -132,6 +133,7 @@ func TestLoadRenumbersDuplicateIDs(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	logs := captureLog(t)
 	m := NewManager()
 	if err := m.LoadErr(); err != nil {
 		t.Fatalf("有重复编号不算没读成：%v", err)
@@ -174,6 +176,7 @@ func TestLoadRenumbersDuplicateIDs(t *testing.T) {
 	if b := readFile(t, filepath.Join(app.Base, bakName)); b != orig {
 		t.Fatalf("备份和原文件不一样：\n原：%q\n备：%q", orig, b)
 	}
+	saysBackupOfLoaded(t, logs.String())
 
 	var notes []AutoAction
 	m.SetAutoHook(func(a AutoAction) { notes = append(notes, a) })
@@ -328,8 +331,8 @@ func TestRenumberNoBackupNoWrite(t *testing.T) {
 	}
 	var notes []AutoAction
 	m.SetAutoHook(func(a AutoAction) { notes = append(notes, a) })
-	if len(notes) != 1 || notes[0].Err == nil || !strings.Contains(notes[0].Err.Error(), "没能先留一份原文件的备份") ||
-		notes[0].Args["backup"] != nil {
+	if len(notes) != 1 || notes[0].Err == nil || !strings.Contains(notes[0].Err.Error(), "没能先给读进来时的那份留备份") ||
+		strings.Contains(notes[0].Err.Error(), "原文件的备份") || notes[0].Args["backup"] != nil {
 		t.Fatalf("操作记录应说没写回去、没有备份：%+v", notes)
 	}
 
@@ -645,29 +648,43 @@ const (
 		`","proxyId":"1","autoStart":false},{"id":"tun1","provider":"natfrp","name":"乙","credential":"` + plainCredB + `","proxyId":"2","autoStart":true}]}`
 )
 
-// noPlaintext 文件里不该有明文凭据。
-func noPlaintext(t *testing.T, what, s string) {
+// plainDupCreds plainDup 里按顺序的两条明文凭据。
+var plainDupCreds = []string{plainCredA, plainCredB}
+
+// noPlaintext 文件里不该有 plains 里的任何一条明文凭据。
+func noPlaintext(t *testing.T, what, s string, plains ...string) {
 	t.Helper()
-	if strings.Contains(s, plainCredA) || strings.Contains(s, plainCredB) {
-		t.Fatalf("%s里有明文凭据：%s", what, s)
+	for _, p := range plains {
+		if strings.Contains(s, p) {
+			t.Fatalf("%s里有明文凭据：%s", what, s)
+		}
 	}
 }
 
-// sealedBackupOK 凭据加密过的那种备份：编号和 seq 是换号前的，凭据解得开、是原来的明文。
-func sealedBackupOK(t *testing.T, bak string) {
+// sealedBackupOK 凭据加密过的那种备份：编号按顺序是换号前的 ids、seq 是 seq，没有明文，凭据都解得开、按顺序是 plains。
+func sealedBackupOK(t *testing.T, bak string, ids []string, seq int, plains []string) {
 	t.Helper()
-	noPlaintext(t, "备份", bak)
+	noPlaintext(t, "备份", bak, plains...)
 	var d diskTunnels
 	if err := json.Unmarshal([]byte(bak), &d); err != nil {
 		t.Fatalf("备份解析不了：%v\n%s", err, bak)
 	}
-	if ids := diskIDs(d); !slices.Equal(ids, []string{"tun1", "tun1"}) || d.Seq != 1 {
-		t.Fatalf("备份里的编号和 seq 应是换号前的：%v seq=%d", ids, d.Seq)
+	if got := diskIDs(d); !slices.Equal(got, ids) || d.Seq != seq {
+		t.Fatalf("备份里的编号和 seq 应是换号前的：%q seq=%d", got, d.Seq)
 	}
-	for i, want := range []string{plainCredA, plainCredB} {
+	for i, want := range plains {
 		if got, err := secret.Unseal(d.Tunnels[i].Credential); err != nil || got != want {
 			t.Fatalf("备份里第 %d 条的凭据解不开或不对：%q %v", i+1, got, err)
 		}
+	}
+}
+
+// saysBackupOfLoaded 程序日志说备份时说的是「读进来时的那份」，不说「原文件的备份」：启动时写不回去、之后才写进去的，
+// 那时盘上的文件未必还是读进来的那份。
+func saysBackupOfLoaded(t *testing.T, s string) {
+	t.Helper()
+	if !strings.Contains(s, "读进来时的那份") || strings.Contains(s, "原文件的备份") {
+		t.Fatalf("程序日志说备份时应说是读进来时的那份：%s", s)
 	}
 }
 
@@ -689,17 +706,57 @@ func TestRenumberPlaintextNotKeptInBackup(t *testing.T) {
 		t.Fatalf("应留一份备份：%v", got)
 	}
 	bak, written := readFile(t, filepath.Join(app.Base, bakName)), readFile(t, tunnelsPath())
-	sealedBackupOK(t, bak)
-	noPlaintext(t, "写回的 tunnels.json ", written)
+	sealedBackupOK(t, bak, []string{"tun1", "tun1"}, 1, plainDupCreds)
+	noPlaintext(t, "写回的 tunnels.json ", written, plainDupCreds...)
 	sameButIDs(t, bak, written)
 	if !strings.Contains(logs.String(), "备份不是原文件逐字节的样子") {
 		t.Fatalf("程序日志应说明备份里的凭据加密过：%s", logs.String())
 	}
+	saysBackupOfLoaded(t, logs.String())
 	var notes []AutoAction
 	m.SetAutoHook(func(a AutoAction) { notes = append(notes, a) })
 	if len(notes) != 1 || notes[0].Err != nil || notes[0].Args["backup"] != bakName || notes[0].Args["backupSealed"] != true {
 		t.Fatalf("操作记录应带备份名，并说明备份里的凭据加密过：%+v", notes)
 	}
+}
+
+// plainManyDup 旧版明文凭据加多处撞号的假数据：三条 tun1、两条空串编号（手改出来的），凭据都是明文，返回原文和按顺序的
+// 明文凭据。seq 手改成了 0：读进来抬到 1；换号是第三条 tun1→tun2、第四条 ""→tun3、第五条 tun1→tun4，之后 seq 是 4。
+func plainManyDup() (orig string, plains []string) {
+	ids := []string{"tun1", "", "tun1", "", "tun1"}
+	parts := make([]string, len(ids))
+	for i, id := range ids {
+		plain := fmt.Sprintf("PLAIN-fake-key-%d%d%d%d-not-real", i+1, i+1, i+1, i+1)
+		plains = append(plains, plain)
+		parts[i] = fmt.Sprintf(`{"id":%q,"provider":"natfrp","name":"第%d条","credential":%q,"proxyId":"%d","autoStart":false}`, id, i+1, plain, i+1)
+	}
+	return `{"seq":0,"tunnels":[` + strings.Join(parts, ",") + `]}`, plains
+}
+
+// 明文凭据加多处撞号（同一个编号撞了三条、空串编号撞了两条）：加密版备份里每一条的编号都还原成换号前的样子（空串的
+// 也还原成空串），seq 是抬过、没换号的那个，没有明文、凭据都解得开；写回的文件里编号不再重复，和备份只差编号和 seq。
+func TestRenumberPlaintextManyDupsBackupRestoresIDs(t *testing.T) {
+	tempBase(t)
+	bakName := pinBackupClock(t)
+	orig, plains := plainManyDup()
+	if err := os.WriteFile(tunnelsPath(), []byte(orig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager()
+	wantIDs := []string{"tun1", "", "tun2", "tun3", "tun4"}
+	if ids := tunnelIDs(m); !slices.Equal(ids, wantIDs) {
+		t.Fatalf("编号：%q", ids)
+	}
+	if got := backupNames(t); !slices.Equal(got, []string{bakName}) {
+		t.Fatalf("应留一份备份：%v", got)
+	}
+	bak, written := readFile(t, filepath.Join(app.Base, bakName)), readFile(t, tunnelsPath())
+	sealedBackupOK(t, bak, []string{"tun1", "", "tun1", "", "tun1"}, 1, plains)
+	noPlaintext(t, "写回的 tunnels.json ", written, plains...)
+	if d, _ := readDisk(t); !slices.Equal(diskIDs(d), wantIDs) || d.Seq != 4 {
+		t.Fatalf("写回的文件：编号 %q、seq %d", diskIDs(d), d.Seq)
+	}
+	sameButIDs(t, bak, written)
 }
 
 // 明文加撞号、tunnels.json 只读：写不回去。这种备份每次加密的密文都不一样，认不出旧的那份，刚留的就删掉：启动几次、
@@ -756,11 +813,12 @@ func TestRenumberPlaintextReadOnlyLeavesNoBackup(t *testing.T) {
 		!strings.Contains(s, "备份不是原文件逐字节的样子") {
 		t.Fatalf("程序日志应说换好的编号这次写进去了、备份在哪、备份里的凭据加密过：%s", s)
 	}
+	saysBackupOfLoaded(t, logs.String())
 	if got := backupNames(t); !slices.Equal(got, []string{bakName}) {
 		t.Fatalf("写进去之前应先留一份备份：%v", got)
 	}
-	sealedBackupOK(t, readFile(t, filepath.Join(app.Base, bakName)))
-	noPlaintext(t, "写回的 tunnels.json ", readFile(t, tunnelsPath()))
+	sealedBackupOK(t, readFile(t, filepath.Join(app.Base, bakName)), []string{"tun1", "tun1"}, 1, plainDupCreds)
+	noPlaintext(t, "写回的 tunnels.json ", readFile(t, tunnelsPath()), plainDupCreds...)
 	d, _ := readDisk(t)
 	if ids := diskIDs(d); !slices.Equal(ids, []string{"tun1", "tun2", "tun3"}) {
 		t.Fatalf("写进去的编号：%v", ids)
