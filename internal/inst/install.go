@@ -852,7 +852,7 @@ func applyLog4jMitigation(ctx context.Context, t *tasks.Task, i *Instance) error
 // （接管 A26 与保存/预览启动设置 A25 共用）。
 func customLog4jConflictParts(mc, xml string) (title, detail string) {
 	title, body := log4jXMLConflictParts(mc, xml, log4jFixAdd)
-	return title, body + fmt.Sprintf("；要用自己的，在「启动与内存」里加上 %s%s", log4jConfigKey, xml)
+	return title, body + fmt.Sprintf("；要用自己的，在「设置 → 启动与内存」里加上 %s%s", log4jConfigKey, xml)
 }
 
 // addLog4jFlags 往 i.ExtraJVM 里加上该有的参数。要官方配置的先下载，下载不成不加引用：引用一个不存在的配置文件，

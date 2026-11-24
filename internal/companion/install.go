@@ -23,7 +23,13 @@ import (
 	companionjar "minedeck/internal/companion/jar"
 	"minedeck/internal/diskguard"
 	"minedeck/internal/dl"
+	"minedeck/internal/errhint"
 	"minedeck/internal/modinfo"
+)
+
+const (
+	companionModFileHint = "替换伙伴模组文件失败，可能正被占用，请先停止服务器再试"
+	companionDepDownHint = "下载伙伴前置模组失败，请检查网络后重试"
 )
 
 // 安装（README「安装」「打进 MineDeck 的 jar」，清单的 tested-first 规则）：
@@ -400,7 +406,7 @@ func (s *Service) Install(ctx context.Context, name string) (*InstallResult, err
 				continue
 			}
 			if err := os.Remove(filepath.Join(mods, f.File)); err != nil && !os.IsNotExist(err) {
-				return fmt.Errorf("删不掉旧版本 %s（可能正被服务器占用，停服后再试）：%w", f.File, err)
+				return errhint.Wrap(fmt.Errorf("删不掉旧版本 %s（可能正被服务器占用，停服后再试）：%w", f.File, err), companionModFileHint)
 			}
 			res.Removed = append(res.Removed, f.File)
 		}
@@ -467,16 +473,16 @@ func (s *Service) installDep(ctx context.Context, mods string, d companionjar.De
 		}
 		return t.File, "", nil
 	case !errors.Is(err, errGone):
-		return "", "", &Error{Code: 502, Err: fmt.Errorf("下载 %s %s 失败：%w", d.Name, t.VersionNumber, err)}
+		return "", "", &Error{Code: 502, Err: errhint.Wrap(fmt.Errorf("下载 %s %s 失败：%w", d.Name, t.VersionNumber, err), companionDepDownHint)}
 	}
 	// 实测过的版本下载不到：回退到 Modrinth 上符合规则的、发布最晚的 release
 	v, f, err := s.pickFallback(ctx, d)
 	if err != nil {
-		return "", "", &Error{Code: 502, Err: fmt.Errorf("%s 实测过的版本 %s 下载不到，在 Modrinth 上也没找到能用的版本：%w", d.Name, t.VersionNumber, err)}
+		return "", "", &Error{Code: 502, Err: errhint.Wrap(fmt.Errorf("%s 实测过的版本 %s 下载不到，在 Modrinth 上也没找到能用的版本：%w", d.Name, t.VersionNumber, err), companionDepDownHint)}
 	}
 	data, err = s.download(ctx, f.URL, f.Size, f.Hashes.SHA512)
 	if err != nil {
-		return "", "", &Error{Code: 502, Err: fmt.Errorf("下载 %s %s 失败：%w", d.Name, v.VersionNumber, err)}
+		return "", "", &Error{Code: 502, Err: errhint.Wrap(fmt.Errorf("下载 %s %s 失败：%w", d.Name, v.VersionNumber, err), companionDepDownHint)}
 	}
 	name := filepath.Base(f.Filename)
 	if err := placeJarCtx(ctx, mods, name, data, checkModsToml(d, func(ver string) bool { return InRange(ver, d.VersionRange) }, "范围 "+d.VersionRange)); err != nil {
@@ -554,7 +560,7 @@ func placeJarCtx(ctx context.Context, mods, name string, data []byte, check func
 		(ctx.Err() != nil && errors.Is(err, ctx.Err())) {
 		return err
 	}
-	return fmt.Errorf("把 %s 放进 mods 失败（可能正被服务器占用，停服后再试）：%w", name, err)
+	return errhint.Wrap(fmt.Errorf("把 %s 放进 mods 失败（可能正被服务器占用，停服后再试）：%w", name, err), companionModFileHint)
 }
 
 // ---------- Modrinth ----------

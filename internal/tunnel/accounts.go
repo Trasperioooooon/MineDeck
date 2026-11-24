@@ -19,8 +19,11 @@ import (
 	"golang.org/x/crypto/nacl/box"
 
 	"minedeck/internal/app"
+	"minedeck/internal/errhint"
 	"minedeck/internal/secret"
 )
+
+const tunnelAccountHint = "穿透平台请求失败，请检查网络、账户授权或稍后再试"
 
 const (
 	openFrpAuthKey = "tunnel.openfrp.authorization"
@@ -281,7 +284,7 @@ func (a *Accounts) forgetOverview(provider string) {
 func (a *Accounts) BeginOpenFrpLogin(ctx context.Context) (OpenFrpLogin, error) {
 	public, private, err := box.GenerateKey(rand.Reader)
 	if err != nil {
-		return OpenFrpLogin{}, fmt.Errorf("生成 OpenFrp 授权密钥失败: %w", err)
+		return OpenFrpLogin{}, errhint.Wrap(fmt.Errorf("生成 OpenFrp 授权密钥失败: %w", err), tunnelAccountHint)
 	}
 	gen := a.generation("openfrp")
 	body := map[string]string{"public_key": base64.URLEncoding.EncodeToString(public[:])}
@@ -308,7 +311,7 @@ func (a *Accounts) BeginOpenFrpLogin(ctx context.Context) (OpenFrpLogin, error) 
 	}
 	if resp.Code != 200 || resp.Data.RequestUUID == "" {
 		clear(private[:])
-		return OpenFrpLogin{}, fmt.Errorf("OpenFrp 登录请求失败: %s", safeMessage(resp.Msg))
+		return OpenFrpLogin{}, errhint.Wrap(fmt.Errorf("OpenFrp 登录请求失败: %s", safeMessage(resp.Msg)), tunnelAccountHint)
 	}
 	if !validOpenFrpAuthorizationURL(resp.Data.AuthorizationURL) {
 		clear(private[:])
@@ -391,14 +394,14 @@ func (a *Accounts) PollOpenFrpLogin(ctx context.Context, id string) (OpenFrpLogi
 		if resp.Code == 0 || resp.Code == http.StatusNoContent || resp.Code == http.StatusOK {
 			return OpenFrpLoginPoll{Pending: true}, nil
 		}
-		return OpenFrpLoginPoll{}, fmt.Errorf("OpenFrp 登录轮询失败: %s", safeMessage(resp.Msg))
+		return OpenFrpLoginPoll{}, errhint.Wrap(fmt.Errorf("OpenFrp 登录轮询失败: %s", safeMessage(resp.Msg)), tunnelAccountHint)
 	}
 	if resp.Code != http.StatusOK {
-		return OpenFrpLoginPoll{}, fmt.Errorf("OpenFrp 登录轮询失败: %s", safeMessage(resp.Msg))
+		return OpenFrpLoginPoll{}, errhint.Wrap(fmt.Errorf("OpenFrp 登录轮询失败: %s", safeMessage(resp.Msg)), tunnelAccountHint)
 	}
 	plain, err := decryptOpenFrpAuthorization(resp.Data.AuthorizationData, headers.Get("X-Request-Public-Key"), &privateKey)
 	if err != nil {
-		return OpenFrpLoginPoll{}, fmt.Errorf("解密 OpenFrp 授权信息失败: %w", err)
+		return OpenFrpLoginPoll{}, errhint.Wrap(fmt.Errorf("解密 OpenFrp 授权信息失败: %w", err), tunnelAccountHint)
 	}
 	authorization := strings.TrimSpace(string(plain))
 	clear(plain)
@@ -412,7 +415,7 @@ func (a *Accounts) PollOpenFrpLogin(ctx context.Context, id string) (OpenFrpLogi
 		return OpenFrpLoginPoll{}, fmt.Errorf("这次 OpenFrp 授权已经取消，请重新连接")
 	}
 	if err := a.keys.Set(openFrpAuthKey, authorization); err != nil {
-		return OpenFrpLoginPoll{}, fmt.Errorf("保存 OpenFrp 授权失败: %w", err)
+		return OpenFrpLoginPoll{}, errhint.Wrap(fmt.Errorf("保存 OpenFrp 授权失败: %w", err), tunnelAccountHint)
 	}
 	// 连上了：这次和其余还在等的登录全部作废，较早发起的登录不能再回来覆盖这次的授权
 	for pid, ps := range a.pending {
@@ -493,7 +496,7 @@ func (a *Accounts) ConnectSakura(ctx context.Context, token string) (AccountInfo
 		return AccountInfo{}, fmt.Errorf("连接期间 SakuraFrp 账户被断开或换了密钥，请重新连接")
 	}
 	if err := a.keys.Set(sakuraAuthKey, token); err != nil {
-		return AccountInfo{}, fmt.Errorf("保存 SakuraFrp 访问密钥失败: %w", err)
+		return AccountInfo{}, errhint.Wrap(fmt.Errorf("保存 SakuraFrp 访问密钥失败: %w", err), tunnelAccountHint)
 	}
 	a.bumpLocked("natfrp")
 	return sakuraAccount(info), nil
@@ -1067,7 +1070,7 @@ func (a *Accounts) addLocalTunnel(provider, proxyID, name, credential string, o 
 	})
 	a.mu.Unlock()
 	if err != nil {
-		return Status{}, fmt.Errorf("保存到 MineDeck 失败: %w", err)
+		return Status{}, errhint.Wrap(fmt.Errorf("保存到 MineDeck 失败: %w", err), tunnelAccountHint)
 	}
 	for _, local := range a.tunnels.List() {
 		if local.ID == added.ID {
@@ -1098,7 +1101,7 @@ func (a *Accounts) openFrpDo(ctx context.Context, want *uint64, path string, bod
 	authorization, err := a.keys.Get(openFrpAuthKey)
 	a.mu.Unlock()
 	if err != nil {
-		return false, fmt.Errorf("读取 OpenFrp 授权失败: %w", err)
+		return false, errhint.Wrap(fmt.Errorf("读取 OpenFrp 授权失败: %w", err), tunnelAccountHint)
 	}
 	if authorization == "" {
 		return false, fmt.Errorf("请先连接 OpenFrp 账户")
@@ -1122,13 +1125,13 @@ func (a *Accounts) openFrpDo(ctx context.Context, want *uint64, path string, bod
 	parseErr := json.Unmarshal(data, &envelope)
 	applied = parseErr != nil || envelope.Flag == nil || *envelope.Flag // 平台明说没做的（flag 为 false）才算没照做
 	if err := a.keepRotatedAuth(headers, authorization, gen); err != nil {
-		return applied, fmt.Errorf("更新 OpenFrp 授权失败: %w", err)
+		return applied, errhint.Wrap(fmt.Errorf("更新 OpenFrp 授权失败: %w", err), tunnelAccountHint)
 	}
 	if parseErr != nil {
 		return true, fmt.Errorf("OpenFrp API 响应格式无效")
 	}
 	if envelope.Flag == nil || !*envelope.Flag {
-		return applied, fmt.Errorf("OpenFrp API 请求失败: %s", safeMessage(scrub(envelope.Msg, authorization)))
+		return applied, errhint.Wrap(fmt.Errorf("OpenFrp API 请求失败: %s", safeMessage(scrub(envelope.Msg, authorization))), tunnelAccountHint)
 	}
 	if out != nil && len(envelope.Data) != 0 && string(envelope.Data) != "null" {
 		if err := json.Unmarshal(envelope.Data, out); err != nil {
@@ -1171,7 +1174,7 @@ func (a *Accounts) sakuraTokenAt(gen uint64) (string, error) {
 	token, err := a.keys.Get(sakuraAuthKey)
 	a.mu.Unlock()
 	if err != nil {
-		return "", fmt.Errorf("读取 SakuraFrp 访问密钥失败: %w", err)
+		return "", errhint.Wrap(fmt.Errorf("读取 SakuraFrp 访问密钥失败: %w", err), tunnelAccountHint)
 	}
 	if token == "" {
 		return "", fmt.Errorf("请先连接 SakuraFrp 账户")
@@ -1234,7 +1237,7 @@ func (a *Accounts) sakuraDo(ctx context.Context, method, path, token string, bod
 		Msg  string `json:"msg"`
 	}
 	if json.Unmarshal(data, &apiErr) == nil && apiErr.Code >= 400 {
-		return nil, false, fmt.Errorf("SakuraFrp API 请求失败: %s", safeMessage(scrub(apiErr.Msg, token)))
+		return nil, false, errhint.Wrap(fmt.Errorf("SakuraFrp API 请求失败: %s", safeMessage(scrub(apiErr.Msg, token))), tunnelAccountHint)
 	}
 	return data, true, nil
 }
@@ -1245,9 +1248,9 @@ func (a *Accounts) request(ctx context.Context, method, base, path, authorizatio
 	data, headers, status, err := a.doJSON(ctx, a.client, method, base, path, authorization, body)
 	if err != nil {
 		if openFrp {
-			return nil, nil, status, fmt.Errorf("连接 OpenFrp 失败: %w", err)
+			return nil, nil, status, errhint.Wrap(fmt.Errorf("连接 OpenFrp 失败: %w", err), tunnelAccountHint)
 		}
-		return nil, nil, status, fmt.Errorf("连接 SakuraFrp 失败: %w", err)
+		return nil, nil, status, errhint.Wrap(fmt.Errorf("连接 SakuraFrp 失败: %w", err), tunnelAccountHint)
 	}
 	return data, headers, status, nil
 }

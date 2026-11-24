@@ -34,8 +34,11 @@ import (
 
 	"minedeck/internal/assistant"
 	"minedeck/internal/atomicfile"
+	"minedeck/internal/errhint"
 	"minedeck/internal/ops"
 )
+
+const mcpSaveHint = "保存接口设置或令牌失败，请检查程序文件夹的写入权限"
 
 // 协议版本。
 const (
@@ -240,7 +243,7 @@ func (s *Service) ResetToken() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.newTokenLocked(); err != nil {
-		return fmt.Errorf("重置 MCP 令牌失败：%w", err)
+		return errhint.Wrap(fmt.Errorf("重置 MCP 令牌失败：%w", err), mcpSaveHint)
 	}
 	return nil
 }
@@ -261,7 +264,7 @@ func (s *Service) SetEnabled(on bool) error {
 	if on && (s.sum == nil || s.broken) {
 		if err := s.newTokenLocked(); err != nil {
 			s.mu.Unlock()
-			return fmt.Errorf("生成 MCP 令牌失败：%w", err)
+			return errhint.Wrap(fmt.Errorf("生成 MCP 令牌失败：%w", err), mcpSaveHint)
 		}
 	}
 	prev := s.enabled
@@ -269,7 +272,7 @@ func (s *Service) SetEnabled(on bool) error {
 	if err := s.saveLocked(); err != nil {
 		s.enabled = prev
 		s.mu.Unlock()
-		return fmt.Errorf("保存 MCP 设置失败：%w", err)
+		return errhint.Wrap(fmt.Errorf("保存 MCP 设置失败：%w", err), mcpSaveHint)
 	}
 	s.mu.Unlock()
 	s.writeRuntime()

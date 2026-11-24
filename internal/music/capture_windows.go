@@ -11,6 +11,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"minedeck/internal/errhint"
 )
 
 const (
@@ -268,7 +270,7 @@ func (s *session) openSystem() error {
 		hr = s.enum.GetDevice(s.opts.Device, &s.device)
 		s.logf("IMMDeviceEnumerator::GetDevice(%s) → %s", s.opts.Device, hr)
 		if hr.failed() || s.device == nil {
-			return fmt.Errorf("找不到指定的播放设备（可能被拔掉或禁用了，请重新选择）：%w", hr.err("IMMDeviceEnumerator::GetDevice"))
+			return errhint.Wrap(fmt.Errorf("找不到指定的播放设备（可能被拔掉或禁用了，请重新选择）：%w", hr.err("IMMDeviceEnumerator::GetDevice")), "找不到所选的播放设备，可能已拔掉或禁用，请重新选择音源")
 		}
 	} else {
 		flow, flowName := uint32(eRender), "eRender"

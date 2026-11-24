@@ -11,7 +11,11 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"minedeck/internal/errhint"
 )
+
+const companionCfgHint = "读写伙伴模组配置失败，请检查服务器文件夹权限与磁盘空间"
 
 // LinkView 和伙伴模组的连接。
 type LinkView struct {
@@ -69,7 +73,7 @@ func (s *Service) Status(name string) (*View, error) {
 	}
 	cfg, err := ReadConfig(info.Dir)
 	if err != nil {
-		return nil, &Error{Code: 500, Err: fmt.Errorf("读伙伴模组的配置失败：%w", err)}
+		return nil, &Error{Code: 500, Err: errhint.Wrap(fmt.Errorf("读伙伴模组的配置失败：%w", err), companionCfgHint)}
 	}
 	v.Settings = SettingsView{Config: cfg, DefaultDeny: DefaultAttackDeny, MaxLimit: MaxCompanionsLimit, MaxZones: MaxZones}
 
@@ -200,7 +204,7 @@ func (s *Service) SetSettings(name string, p SettingsPatch) (*View, error) {
 			if ce := (*Error)(nil); errors.As(err, &ce) {
 				return nil, ce
 			}
-			return nil, &Error{Code: 500, Err: fmt.Errorf("写伙伴模组的配置失败：%w", err)}
+			return nil, &Error{Code: 500, Err: errhint.Wrap(fmt.Errorf("写伙伴模组的配置失败：%w", err), companionCfgHint)}
 		}
 		s.mu.Lock()
 		s.roomLocked(name).settled = time.Now()
@@ -209,7 +213,7 @@ func (s *Service) SetSettings(name string, p SettingsPatch) (*View, error) {
 	if p.Enabled != nil {
 		if *p.Enabled {
 			if _, _, err := EnsureConfig(info.Dir, EnsureOptions{Avoid: s.portsInUse(name)}); err != nil {
-				return nil, &Error{Code: 500, Err: fmt.Errorf("写伙伴模组的配置失败：%w", err)}
+				return nil, &Error{Code: 500, Err: errhint.Wrap(fmt.Errorf("写伙伴模组的配置失败：%w", err), companionCfgHint)}
 			}
 			s.mu.Lock()
 			s.roomLocked(name).settled = time.Now()
@@ -218,7 +222,7 @@ func (s *Service) SetSettings(name string, p SettingsPatch) (*View, error) {
 		} else {
 			s.drop(name, "MineDeck 关掉了伙伴", true)
 			if _, err := Disable(info.Dir); err != nil {
-				return nil, &Error{Code: 500, Err: fmt.Errorf("写伙伴模组的配置失败：%w", err)}
+				return nil, &Error{Code: 500, Err: errhint.Wrap(fmt.Errorf("写伙伴模组的配置失败：%w", err), companionCfgHint)}
 			}
 		}
 	}

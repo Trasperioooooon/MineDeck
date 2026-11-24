@@ -3576,7 +3576,7 @@ function handler(state, ui, portOf) {
             }
             for (const f of flags) if (!kept.has(f)) nextJvm.push(f);
             if (i.customLog4jXml && !nextJvm.includes("-Dlog4j.configurationFile=" + i.customLog4jXml)) {
-              note = `log4shell 防护：这台 ${i.mc} 的服务器没有套上 Mojang 的日志配置，等于没防。服务器文件夹里已经有一份 ${i.customLog4jXml}，内容和官方的不一样（可能是自己改过的），MineDeck 没有覆盖它，也没有替它补上引用。要用官方的那份，把这个文件改名或挪走以后重开 MineDeck；要用自己的，在「启动与内存」里加上 -Dlog4j.configurationFile=${i.customLog4jXml}`;
+              note = `log4shell 防护：这台 ${i.mc} 的服务器没有套上 Mojang 的日志配置，等于没防。服务器文件夹里已经有一份 ${i.customLog4jXml}，内容和官方的不一样（可能是自己改过的），MineDeck 没有覆盖它，也没有替它补上引用。要用官方的那份，把这个文件改名或挪走以后重开 MineDeck；要用自己的，在「设置 → 启动与内存」里加上 -Dlog4j.configurationFile=${i.customLog4jXml}`;
             }
           }
           const launchArgs = [

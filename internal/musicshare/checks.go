@@ -20,6 +20,7 @@ import (
 
 	"minedeck/internal/atomicfile"
 	"minedeck/internal/bridge"
+	"minedeck/internal/errhint"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/music"
 	"minedeck/internal/zipguard"
@@ -479,11 +480,12 @@ func ValidVoiceHost(v string) error {
 	if v == "" {
 		return nil
 	}
+	const voiceHostHint = "语音地址格式不对，请填写域名或地址加端口号"
 	host, port := v, ""
 	if strings.HasPrefix(v, "[") || strings.Count(v, ":") == 1 {
 		h, p, err := net.SplitHostPort(v)
 		if err != nil || p == "" {
-			return fmt.Errorf("语音地址写得不对：%q（应为 域名或 IP，可以带端口，如 frp-xxx.natfrp.cloud:12345）", v)
+			return errhint.Wrap(fmt.Errorf("语音地址写得不对：%q（应为 域名或 IP，可以带端口，如 frp-xxx.natfrp.cloud:12345）", v), voiceHostHint)
 		}
 		host, port = h, p
 		if strings.Contains(h, ":") {
@@ -491,11 +493,11 @@ func ValidVoiceHost(v string) error {
 		}
 	}
 	if !hostRe.MatchString(host) || len(host) > 253 {
-		return fmt.Errorf("语音地址写得不对：%q（应为 域名或 IP，可以带端口，如 frp-xxx.natfrp.cloud:12345）", v)
+		return errhint.Wrap(fmt.Errorf("语音地址写得不对：%q（应为 域名或 IP，可以带端口，如 frp-xxx.natfrp.cloud:12345）", v), voiceHostHint)
 	}
 	if port != "" {
 		if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
-			return fmt.Errorf("语音地址的端口不对：%q", port)
+			return errhint.Wrap(fmt.Errorf("语音地址的端口不对：%q", port), voiceHostHint)
 		}
 	}
 	return nil

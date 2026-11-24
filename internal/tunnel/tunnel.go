@@ -28,6 +28,7 @@ import (
 
 	"minedeck/internal/app"
 	"minedeck/internal/atomicfile"
+	"minedeck/internal/errhint"
 	"minedeck/internal/events"
 	"minedeck/internal/procutil"
 	"minedeck/internal/secret"
@@ -1314,7 +1315,7 @@ func (m *Manager) start(id, why string) error {
 			// EnsureFrpc 刚找到它，启动时却说文件不存在：转眼被删了
 			err = fmt.Errorf("%w（%w）", errFrpcGone, err)
 		}
-		return failFrpc(fmt.Errorf("frpc 启动失败: %w", err), filepath.Dir(exe))
+		return failFrpc(errhint.Wrap(fmt.Errorf("frpc 启动失败: %w", err), "启动穿透客户端失败，可能被安全软件拦截，请查看详情说明"), filepath.Dir(exe))
 	}
 	procutil.AssignToJob(cmd.Process)
 	rs := &runState{cmd: cmd, stdin: bufio.NewWriter(stdin)}

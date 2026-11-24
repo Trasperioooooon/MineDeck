@@ -453,7 +453,7 @@ func (m *Manager) ResolveInstancePending(ctx context.Context, name string, acts 
 		return nil, ImportPendingView{}, fmt.Errorf("没有要处理的项")
 	}
 	if !m.resolveMu.TryLock() {
-		return nil, ImportPendingView{}, fmt.Errorf("上一批待处理的文件还在处理（可能在下载），等它完成再试")
+		return nil, ImportPendingView{}, fmt.Errorf("上一批没装上的文件还在处理（可能在下载），等它完成再试")
 	}
 	defer m.resolveMu.Unlock()
 	i, err := m.Get(name)

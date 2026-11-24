@@ -14,6 +14,8 @@ import (
 	"os"
 	"strings"
 	"sync"
+
+	"minedeck/internal/errhint"
 )
 
 const prefix = "dpapi:"
@@ -107,7 +109,7 @@ func (s *Store) load() (map[string]string, error) {
 		return nil, err
 	}
 	if err := json.Unmarshal(b, &m); err != nil {
-		return nil, fmt.Errorf("%s %w: %v", s.path, errCorrupt, err)
+		return nil, errhint.Wrap(fmt.Errorf("%s %w: %v", s.path, errCorrupt, err), "保存的密钥无法解开，可能换了电脑或系统账户，请重新填写")
 	}
 	return m, nil
 }
