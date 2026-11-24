@@ -3250,13 +3250,14 @@ async function renderTaskPage(taskId) {
     const K = kindOf(t), success = t.ended && !t.error, cancelled = t.ended && !!t.cancelled;
     const canEdit = t.ended && !success && formDrafts.has(taskId);
     const openDir = success && K.openDir && t.result && isLocal;
-    // 导入整合包留下了没装上的文件的清单：服务器文件夹里的「导入待决清单.txt」，跳过的也记在里面。原版服没有插件 / 模组页，
-    // 跳过以后详情页也不再提，给个打开服务器文件夹的按钮，导入完了也找得回来（A46）。只在本机（后端也只认本机）
+    // 导入整合包留下了没装上的文件的清单：服务器文件夹里的「导入待决清单.txt」，在处理面板上点了「跳过」的也还记在里面
+    // （导入时就没装进来的那些列在上面的「没有装进来」告警里，不在这份清单里）。原版服没有插件 / 模组页，点了跳过以后
+    // 详情页也不再提，给个打开服务器文件夹的按钮，导入完了也找得回来（A46）。只在本机（后端也只认本机）
     const openList = success && panel && t.result && isLocal;
     $("#t-foot").innerHTML = `
       ${success ? `<a class="btn primary" href="${K.href(t.result, t)}">${icon("check")} ${esc(typeof K.go === "function" ? K.go(t) : K.go)}</a>` : ""}
       ${openDir ? `<button type="button" class="btn" id="t-open-dir">${icon("folder")} 打开所在文件夹</button>` : ""}
-      ${openList ? `<button type="button" class="btn" id="t-open-inst-dir" title="里面的「导入待决清单.txt」列着没装上的和跳过的文件">${icon("folder")} 打开服务器文件夹</button>` : ""}
+      ${openList ? `<button type="button" class="btn" id="t-open-inst-dir" title="里面的「导入待决清单.txt」列着没装上的文件，处理时点了「跳过」的也在">${icon("folder")} 打开服务器文件夹</button>` : ""}
       ${canEdit ? `<button type="button" class="btn${cancelled ? " primary" : ""}" id="t-back-edit">${icon("arrowLeft")} 返回修改</button>` : ""}
       ${t.ended && !success && !canEdit ? `<a class="btn" href="${K.back}">${icon("arrowLeft")} ${K.backText}</a>` : ""}
       ${!t.ended ? `<span class="warn-text">${icon("warn")} ${t.cancelling ? "正在取消，清理半成品，请勿关闭程序…" : K.busy}</span>` : ""}
