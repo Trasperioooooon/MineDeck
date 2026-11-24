@@ -7,13 +7,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"minedeck/internal/app"
@@ -201,16 +204,28 @@ type openfrpProvider struct{}
 // 会把 Go 默认 ClientHello 当机器人并返回 567；只宣告 TLS 1.3 会改变 ClientHello，实测可以过闸。
 // 这是在绕过 CDN 机器人防护，不是普通的 TLS 兼容设置。EdgeOne 随时可能把「只报 TLS 1.3 的 Go 指纹」
 // 也加进黑名单；失效时这里要重新判断，不能当成永久有效的固定配置。
+//
+// openfrpCompatHTTPClient 是握手没成时的退路（A55，见 openfrpDownloadZip）：网络出口只支持到 TLS 1.2 的
+// （少数公司网络、代理、杀毒软件的 HTTPS 扫描）只报 TLS 1.3 就握不上手。它报的是 Go 默认的 ClientHello，
+// 直连 EdgeOne 那个源多半还是 567；下不下得成要看别的下载源，下不成就照报错手动放 frpc。不为过 567 伪造 TLS 指纹。
+var (
+	openfrpHTTPClient       = newOpenfrpHTTPClient(tls.VersionTLS13)
+	openfrpCompatHTTPClient = newOpenfrpHTTPClient(0) // 0：用 Go 默认的最低版本
+)
+
+// newOpenfrpHTTPClient 两个下载客户端只差 TLS 最低版本，别的在这一处设，退回的那个不会漏掉哪一条。
 // 不设 http.Client.Timeout：总时限仍由 EnsureFrpc 的 context 和 dl 的无进展看门狗控制。
 // 跳转只跟 https 的：下回来的 frpc 没有哈希可对，却是要运行的程序。
-var openfrpHTTPClient = &http.Client{Transport: &http.Transport{
-	Proxy:                 http.ProxyFromEnvironment,
-	TLSHandshakeTimeout:   15 * time.Second,
-	ResponseHeaderTimeout: 60 * time.Second,
-	MaxIdleConnsPerHost:   8,
-	ForceAttemptHTTP2:     true, // 设置 TLSClientConfig 后 Go 不再自动升 h2，必须显式打开。
-	TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS13},
-}, CheckRedirect: dl.HTTPSRedirect}
+func newOpenfrpHTTPClient(minTLS uint16) *http.Client {
+	return &http.Client{Transport: &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		TLSHandshakeTimeout:   15 * time.Second,
+		ResponseHeaderTimeout: 60 * time.Second,
+		MaxIdleConnsPerHost:   8,
+		ForceAttemptHTTP2:     true, // 设置 TLSClientConfig 后 Go 不再自动升 h2，必须显式打开。
+		TLSClientConfig:       &tls.Config{MinVersion: minTLS},
+	}, CheckRedirect: dl.HTTPSRedirect}
+}
 
 // openfrpSoftwareMeta 是 commonQuery?key=software 里和下载 frpc 有关的字段。
 // latest_ver 是纯数字版本（0.68.0），只用于版本比较；下载目录是 latest_full
@@ -336,7 +351,7 @@ func openfrpInstall(ctx context.Context, con *procutil.Console, urls []string, z
 // 删不掉的照实报出来（dropZipCache）。
 // frpc 解压出来又被杀毒软件删了的（errFrpcGone）不算 zip 坏了，留着。
 func openfrpFetchExtract(ctx context.Context, con *procutil.Console, urls []string, zipPath, dir string, skip []string) (exe, bad string, err error) {
-	if err := dl.Fetch(ctx, dl.Request{URLs: urls, Dest: zipPath, MinSize: 1 << 20, Client: openfrpHTTPClient}, nil); err != nil {
+	if err := openfrpDownloadZip(ctx, con, urls, zipPath); err != nil {
 		_ = os.MkdirAll(dir, 0o755) // 提示里叫人把 exe 放进这个文件夹，先建好（同樱花那条）
 		return "", "", fmt.Errorf("下载 OpenFrp frpc 失败（可手动从 OpenFrp 下载 frpc_windows_amd64.zip，把 zip 里的 frpc_windows_amd64.exe 放入 %s 文件夹后重试）: %w", dir, err)
 	}
@@ -359,6 +374,65 @@ func openfrpFetchExtract(ctx context.Context, con *procutil.Console, urls []stri
 		err = alsoDropZip(err, zipPath)
 	}
 	return exe, "", err
+}
+
+// openfrpDownloadZip 下载 frpc 的 zip：先用只报 TLS 1.3 的 openfrpHTTPClient；整次没下成、途中又有 TLS 握手没成的，
+// 换 openfrpCompatHTTPClient 把整次下载再来一遍，只退这一次。两次用的是同一个 dl.Request，大小检查一样，
+// 下回来以后的解压、结构检查也一样。
+func openfrpDownloadZip(ctx context.Context, con *procutil.Console, urls []string, zipPath string) error {
+	req := dl.Request{URLs: urls, Dest: zipPath, MinSize: 1 << 20, Client: openfrpHTTPClient}
+	watched, handshakeErr := watchTLSHandshake(ctx)
+	err := dl.Fetch(watched, req, nil)
+	hsErr := handshakeErr()
+	if err == nil || hsErr == nil || ctx.Err() != nil {
+		return err
+	}
+	con.Append(fmt.Sprintf("[MineDeck] TLS 1.3 连不上，改用兼容的连接方式重试 ...（握手时：%v）", hsErr))
+	req.Client = openfrpCompatHTTPClient
+	compatErr := dl.Fetch(ctx, req, nil)
+	if compatErr == nil {
+		return nil
+	}
+	// 往外传的是退回那次的错误：frpcBlockedHint 用 dl.AnyFailure 认「写盘时被杀毒软件拦下」，
+	// AnyFailure 只逐个看找到的第一个多源汇总错误，那得是最后这一次。前一次只留说法。
+	return fmt.Errorf("两种连接方式都试过了。只用 TLS 1.3 时：%v；改用兼容的连接方式后：%w", err, compatErr)
+}
+
+// watchTLSHandshake 给 ctx 挂上 httptrace，记下途中第一次没成的 TLS 握手（换个 TLS 版本也救不了的不记）。
+// 看握手这一步本身，是因为 dl 交回来的错误分不出来：连接在握手时和传数据时被重置是同一种错误；
+// 老式服务器、中间设备直接回 TLS 1.2 时 Go 给的是一句没有类型的错误；回明文时 net/http 还会把 RecordHeaderError 换成别的说法。
+func watchTLSHandshake(ctx context.Context) (context.Context, func() error) {
+	var mu sync.Mutex // 握手在拨号的协程里，请求结束以后还可能在跑
+	var first error
+	done := func(_ tls.ConnectionState, err error) {
+		if err == nil || !tlsVersionMayHelp(err) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if first == nil {
+			first = err
+		}
+	}
+	get := func() error {
+		mu.Lock()
+		defer mu.Unlock()
+		return first
+	}
+	return httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{TLSHandshakeDone: done}), get
+}
+
+// tlsVersionMayHelp 握手没成的原因，换个 TLS 版本有没有可能解决。超时、被取消、证书对不上的，换了也一样，不退回。
+func tlsVersionMayHelp(err error) bool {
+	var ne net.Error
+	var cert *tls.CertificateVerificationError
+	switch {
+	case errors.As(err, &cert), errors.Is(err, context.Canceled):
+		return false
+	case errors.As(err, &ne) && ne.Timeout(): // context.DeadlineExceeded 也算
+		return false
+	}
+	return true
 }
 
 // dropZipCache 删掉坏了的缓存 zip（已经不在了算删掉了）。删不掉（被别的程序开着）时交回给人看的一句，带上系统给的原因：
