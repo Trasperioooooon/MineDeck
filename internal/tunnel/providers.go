@@ -376,7 +376,7 @@ func openfrpFetchExtract(ctx context.Context, con *procutil.Console, urls []stri
 	return exe, "", err
 }
 
-// openfrpDownloadZip 下载 frpc 的 zip：先用只报 TLS 1.3 的 openfrpHTTPClient；整次没下成、途中又有 TLS 握手没成的，
+// openfrpDownloadZip 下载 frpc 的 zip：先用只报 TLS 1.3 的 openfrpHTTPClient；没下成、值得退回的（见 tlsFallbackWorth），
 // 换 openfrpCompatHTTPClient 把整次下载再来一遍，只退这一次。两次用的是同一个 dl.Request，大小检查一样，
 // 下回来以后的解压、结构检查也一样。
 func openfrpDownloadZip(ctx context.Context, con *procutil.Console, urls []string, zipPath string) error {
@@ -384,7 +384,7 @@ func openfrpDownloadZip(ctx context.Context, con *procutil.Console, urls []strin
 	watched, handshakeErr := watchTLSHandshake(ctx)
 	err := dl.Fetch(watched, req, nil)
 	hsErr := handshakeErr()
-	if err == nil || hsErr == nil || ctx.Err() != nil {
+	if !tlsFallbackWorth(ctx, err, hsErr) {
 		return err
 	}
 	con.Append(fmt.Sprintf("[MineDeck] TLS 1.3 连不上，改用兼容的连接方式重试 ...（握手时：%v）", hsErr))
@@ -396,6 +396,13 @@ func openfrpDownloadZip(ctx context.Context, con *procutil.Console, urls []strin
 	// 往外传的是退回那次的错误：frpcBlockedHint 用 dl.AnyFailure 认「写盘时被杀毒软件拦下」，
 	// AnyFailure 只逐个看找到的第一个多源汇总错误，那得是最后这一次。前一次只留说法。
 	return fmt.Errorf("两种连接方式都试过了。只用 TLS 1.3 时：%v；改用兼容的连接方式后：%w", err, compatErr)
+}
+
+// tlsFallbackWorth 第一次下载（只报 TLS 1.3）没成以后，值不值得换兼容的客户端再来一次：途中有握手没成（hsErr）才退。
+// 总时限到了、被取消的不退。写盘时被杀毒软件拦下的也不退：卡在本机，换 TLS 版本救不了；
+// 退了的话往外传的是退回那次的错误，frpcBlockedHint 就认不出这一次被拦下了。
+func tlsFallbackWorth(ctx context.Context, err, hsErr error) bool {
+	return err != nil && hsErr != nil && ctx.Err() == nil && !dl.AnyFailure(err, isVirusErr)
 }
 
 // watchTLSHandshake 给 ctx 挂上 httptrace，记下途中第一次没成的 TLS 握手（换个 TLS 版本也救不了的不记）。
