@@ -48,6 +48,59 @@ func TestRenumberThroughJunction(t *testing.T) {
 	}
 }
 
+// 程序文件夹里有名字像备份的目录联接和文件夹（这台机器建不了文件符号链接，用它们代替）：不当成现成的备份，
+// 照样另留一份真的备份；联接还是联接，它指着的文件夹、那个文件夹都不动。
+func TestRenumberSkipsNonFileNamedLikeBackup(t *testing.T) {
+	tempBase(t)
+	bakName := pinBackupClock(t)
+	orig, _ := dupFixture(t)
+	if err := os.WriteFile(tunnelsPath(), []byte(orig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "别处")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "tunnels.json"), []byte(orig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(app.Base, "tunnels.json.bak-20200101-000000")
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput(); err != nil {
+		t.Fatalf("建不了目录联接：%v %s", err, out)
+	}
+	t.Cleanup(func() { _ = os.Remove(link) })
+	dir := filepath.Join(app.Base, "tunnels.json.bak-20200101-000001")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewManager()
+	if ids := tunnelIDs(m); !slices.Equal(ids, dupWantIDs) {
+		t.Fatalf("编号：%v", ids)
+	}
+	want := []string{filepath.Base(link), filepath.Base(dir), bakName}
+	if got := backupNames(t); !slices.Equal(got, want) {
+		t.Fatalf("应另留一份真的备份：%v", got)
+	}
+	if got := readFile(t, filepath.Join(app.Base, bakName)); got != orig {
+		t.Fatal("备份应是原文件")
+	}
+	var notes []AutoAction
+	m.SetAutoHook(func(a AutoAction) { notes = append(notes, a) })
+	if len(notes) != 1 || notes[0].Args["backup"] != bakName {
+		t.Fatalf("操作记录里的备份应是新留的那份：%+v", notes)
+	}
+	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeIrregular == 0 && fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("联接应还是联接：%v %v", fi.Mode(), err)
+	}
+	if got := readFile(t, filepath.Join(target, "tunnels.json")); got != orig {
+		t.Fatal("联接指着的文件夹里的东西被动了")
+	}
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		t.Fatalf("名字像备份的文件夹应还在：%v", err)
+	}
+}
+
 // tunnels.json 被别的程序开着、只许读（杀毒、同步盘常这样）：读得出来，换号照做，写回换不上去（atomicfile 重试一小会儿后放弃）；
 // 内存里编号照样不重复，原文件一个字不动，备份留着，不算没读成。放开以后，下一次保存把换好的编号写进去，不再多一份备份。
 // 独占着连读都不让的，走「没读成」那一套（load_windows_test.go），不进换号。
