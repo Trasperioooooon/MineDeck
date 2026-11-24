@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -385,13 +386,11 @@ func TestOpenfrpHandshakeFailuresWorthFallbackInterrupted(t *testing.T) {
 		{"请求和拨号都在握手途中被取消", 0, true, context.Canceled, func(err error) bool { return errors.Is(err, context.Canceled) }},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			hello := make(chan struct{}, 1)
+			hello := make(chan struct{}) // 对端读完 ClientHello 时关上
+			var once sync.Once
 			peer := rawTLSPeer(t, func(conn net.Conn) {
 				readClientHello(conn)
-				select {
-				case hello <- struct{}{}:
-				default:
-				}
+				once.Do(func() { close(hello) })
 				stayQuiet(conn)
 			})
 			cl := trustingCopy(openfrpHTTPClient)
@@ -412,6 +411,11 @@ func TestOpenfrpHandshakeFailuresWorthFallbackInterrupted(t *testing.T) {
 			}
 			defer cancel()
 			afterDo := func() {
+				select { // 到期的那行，机器卡的时候请求可能在握手开始之前就返回了：等对端读到 ClientHello 再看握手
+				case <-hello:
+				case <-time.After(5 * time.Second):
+					t.Fatal("5 秒内对端没收到 ClientHello")
+				}
 				if c.closeIdle {
 					cl.CloseIdleConnections()
 				}
