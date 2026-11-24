@@ -633,4 +633,18 @@ func TestServerVersionFromLog(t *testing.T) {
 		p.MC != "1.20.1" || p.MCFromLog {
 		t.Fatalf("jar 里写了版本的以 jar 为准：%+v %v", p, err)
 	}
+	// 代理端不跑 Minecraft 本体，日志里就算有这一行也不是它的版本
+	velocity := jarOf(t, map[string]string{"META-INF/MANIFEST.MF": "Manifest-Version: 1.0\r\nMain-Class: com.velocitypowered.proxy.Velocity\r\n\r\n"})
+	if p, err := Parse(mkZip(t, map[string]string{"velocity.jar": velocity, "logs/latest.log": logLine})); err != nil ||
+		p.Core != mcsrc.CoreVelocity || p.MC != "" || p.MCFromLog {
+		t.Fatalf("代理端不从日志认版本：%+v %v", p, err)
+	}
+	// 只看日志的开头 512 KB：这一行在开服的头几秒就写了，再往后的不看
+	late := strings.Repeat("[12:00:00] [Server thread/INFO]: 填充\n", (512<<10)/40+100) + logLine
+	if p, err := Parse(mkZip(t, map[string]string{"paper.jar": bare, "eula.txt": "eula=true\n", "logs/latest.log": late})); err != nil || p.MC != "" || p.MCFromLog {
+		t.Fatalf("512 KB 以后才出现的那一行不认：%+v %v", p, err)
+	}
+	if p, err := Parse(mkZip(t, map[string]string{"paper.jar": bare, "eula.txt": "eula=true\n", "logs/latest.log": logLine + late})); err != nil || p.MC != "1.20.1" {
+		t.Fatalf("开头就有的照常认，后面再长也不碍事：%+v %v", p, err)
+	}
 }

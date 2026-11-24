@@ -1040,12 +1040,18 @@ func firstNonEmpty(ss ...string) string {
 	return ""
 }
 
+// ServerFile 现成服务端压缩包里要交给 writeFile 的一个文件：剥掉 Root 之后的相对路径、zip 里写的大小。
+type ServerFile struct {
+	Rel  string
+	Size int64
+}
+
 // ExtractServer 把现成服务端压缩包解进实例目录。Root 那一层会剥掉。
 // 每条路径都过 safeRelPath，过不了就整包拒绝、一个文件都不写。
 // 符号链接不展开。writeFile 拿到的 rel 已经是剥掉 Root 之后的相对路径。
-// begin（可以是 nil）在数完要解的文件、写第一个之前调一次，拿到文件个数和按 zip 里写的大小合计的总字节数：
-// 调用方在这里查磁盘余量（A40），返回错误就一个文件都不写。
-func ExtractServer(p *Pack, begin func(files int, total int64) error, writeFile func(rel string, r io.Reader) error) (int, error) {
+// begin（可以是 nil）在数完要解的文件、写第一个之前调一次，拿到全部文件：调用方在这里按真要写的那些查磁盘余量
+// （A40；writeFile 不落盘的控制文件不算），返回错误就一个文件都不写。
+func ExtractServer(p *Pack, begin func(files []ServerFile) error, writeFile func(rel string, r io.Reader) error) (int, error) {
 	if p == nil || p.Format != FormatServer {
 		return 0, fmt.Errorf("这不是服务端压缩包")
 	}
@@ -1091,7 +1097,11 @@ func ExtractServer(p *Pack, begin func(files int, total int64) error, writeFile 
 		return 0, fmt.Errorf("压缩包解开后有 %.1f GB，超过了一次能导入的上限（%d GB）", float64(total)/(1<<30), serverMaxBytes>>30)
 	}
 	if begin != nil {
-		if err := begin(len(ents), total); err != nil {
+		list := make([]ServerFile, 0, len(ents))
+		for _, e := range ents {
+			list = append(list, ServerFile{Rel: e.rel, Size: e.size})
+		}
+		if err := begin(list); err != nil {
 			return 0, err
 		}
 	}

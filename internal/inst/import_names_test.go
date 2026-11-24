@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"minedeck/internal/app"
+	"minedeck/internal/atomicfile"
 	"minedeck/internal/dl"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/modpack"
@@ -207,5 +208,34 @@ func TestServerImportCountsAllSkippedAndCaseConflicts(t *testing.T) {
 	log := strings.Join(tk.Snapshot().Log, "\n")
 	if !strings.Contains(log, fmt.Sprintf("…等 %d 个", maxWarnItems+10)) || !strings.Contains(log, fmt.Sprintf("…等 %d 个", maxWarnItems+5)) {
 		t.Fatalf("日志里也写一共几个：%s", log)
+	}
+}
+
+// 导入整合包在收尾时失败：只差大小写的、没装进来的这两条结果不留在任务上，失败了就没有这台服务器（同导入现成服务端）。
+func TestModpackImportFailureDropsResultWarnings(t *testing.T) {
+	stubWaterfallDownloads(t)
+	m, _ := importEnv(t)
+	pack := testPendingPack(t)
+	pack.ZipPath = zipOrdered(t, [][2]string{{"overrides/config/a.txt", "hi"}, {"overrides/config/A.txt", "HI"}})
+	pack.ClientOnly = []string{"resourcepacks/光影.zip"}
+	old := atomicfile.Hook
+	t.Cleanup(func() { atomicfile.Hook = old })
+	atomicfile.Hook = func(p string) {
+		if filepath.Base(p) == PendingReportFile { // 写没装上的文件的清单的时候：让收尾写 run.bat 失败
+			_ = os.Mkdir(filepath.Join(filepath.Dir(p), "run.bat"), 0o755)
+		}
+	}
+	id, err := m.ImportModpackAsync(pack, CreateReq{Name: "整合包收尾失败"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sn := waitImportTask(t, m, id)
+	if sn.Err == "" || !strings.Contains(strings.Join(sn.Log, "\n"), "只差大小写") {
+		t.Fatalf("应走到写这些结果的地方、随后失败：%+v", sn)
+	}
+	for _, w := range sn.Warnings {
+		if w.Kind == "import-case" || w.Kind == "import-skipped" {
+			t.Fatalf("失败以后不该留着这条结果：%+v", w)
+		}
 	}
 }

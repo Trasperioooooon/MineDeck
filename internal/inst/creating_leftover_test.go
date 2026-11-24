@@ -1181,3 +1181,62 @@ func TestServerImportAndCreateCleanupFailureKeepMarker(t *testing.T) {
 		check(t, dirOf(), sn)
 	})
 }
+
+// 接管一个没建完的文件夹：写 run.bat、instance.json 的时候创建记号已经不在（不然写完 instance.json 程序没了，下次启动会把它
+// 当成登记写到一半）。instance.json 不经 atomicfile，看的是紧挨在它前面写的 run.bat（writeAdoptFiles）。
+// 记号去不掉（被别的程序占着）时不接管，这两个文件都不写，记号原样留着（A38）。
+func TestAdoptClearsMarkerBeforeWritingSettings(t *testing.T) {
+	m, _ := adoptEnv(t)
+	root := filepath.Join(t.TempDir(), "新存放位置")
+	req := func(dir, name string) AdoptReq {
+		return AdoptReq{Dir: dir, Name: name, Core: mcsrc.CoreVanilla, MC: "1.21.1",
+			LaunchTarget: "jar:server.jar", XmxMB: 2048, JavaMajor: 21, JavaPath: fakeJava(t)}
+	}
+	var mu sync.Mutex
+	markerAtWrite := map[string]bool{}
+	old := atomicfile.Hook
+	t.Cleanup(func() { atomicfile.Hook = old })
+	atomicfile.Hook = func(p string) {
+		if filepath.Base(p) == "run.bat" {
+			mu.Lock()
+			markerAtWrite[filepath.Dir(p)] = pathExists(filepath.Join(filepath.Dir(p), CreatingMarker))
+			mu.Unlock()
+		}
+	}
+
+	ok := newCreatingLeftover(t, root, "half-ok")
+	writeTree(t, ok, map[string]string{"server.jar": vanilla21, "eula.txt": "eula=true\n"})
+	if log, err := adopt(t, m, req(ok, "接管成的")); err != nil {
+		t.Fatalf("%v\n%s", err, log)
+	}
+	mu.Lock()
+	had, wrote := markerAtWrite[ok]
+	mu.Unlock()
+	if !wrote || had {
+		t.Fatalf("写 run.bat、instance.json 的时候创建记号应已去掉：写了=%v 记号还在=%v", wrote, had)
+	}
+
+	if runtime.GOOS != "windows" {
+		return // 只有 Windows 上打开着的文件删不掉
+	}
+	stuck := newCreatingLeftover(t, root, "half-stuck")
+	writeTree(t, stuck, map[string]string{"server.jar": vanilla21, "eula.txt": "eula=true\n"})
+	held, err := os.Open(filepath.Join(stuck, CreatingMarker))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	log, err := adopt(t, m, req(stuck, "接管不了的"))
+	if err == nil {
+		if !pathExists(filepath.Join(stuck, CreatingMarker)) {
+			t.Skip("这台电脑上打开着的文件也删得掉，碰不上去不掉记号的情形")
+		}
+		t.Fatalf("记号去不掉时不该接管\n%s", log)
+	}
+	mu.Lock()
+	_, wrote = markerAtWrite[stuck]
+	mu.Unlock()
+	if wrote || pathExists(filepath.Join(stuck, "instance.json")) || !pathExists(filepath.Join(stuck, CreatingMarker)) {
+		t.Fatalf("记号去不掉：不该写 run.bat、instance.json，记号原样留着：%v", err)
+	}
+}

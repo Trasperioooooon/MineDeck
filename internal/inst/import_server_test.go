@@ -445,7 +445,7 @@ func TestImportServerArchiveCaseDuplicates(t *testing.T) {
 }
 
 // 解压现成服务端之前按解开以后的总大小查磁盘余量（A40，同交接包导入）：装不下就一个文件都不写；
-// 刚好装得下的照常导入；查不到余量的盘照做，日志里说一声。
+// 刚好装得下的照常导入；查不到余量的盘照做，日志里说一声。不解压的控制文件（logs/ 这些）不算在要的余量里。
 func TestImportServerArchiveChecksDiskSpace(t *testing.T) {
 	m, _ := importEnv(t)
 	z := zipOf(t, map[string]string{
@@ -453,6 +453,7 @@ func TestImportServerArchiveChecksDiskSpace(t *testing.T) {
 		"server.properties":      "server-port=25565\n",
 		"eula.txt":               "eula=true\n",
 		"world/region/r.0.0.mca": strings.Repeat("\x00", 4<<20),
+		"logs/old.log":           strings.Repeat("\x00", 8<<20), // 不解压
 	})
 	zr, err := zip.OpenReader(z)
 	if err != nil {
@@ -460,7 +461,9 @@ func TestImportServerArchiveChecksDiskSpace(t *testing.T) {
 	}
 	need := diskguard.Reserve
 	for _, f := range zr.File {
-		need += int64(f.UncompressedSize64) + 4096
+		if !strings.HasPrefix(f.Name, "logs/") {
+			need += int64(f.UncompressedSize64) + 4096
+		}
 	}
 	zr.Close()
 	old := serverImportDiskFree
@@ -526,6 +529,22 @@ func TestImportServerArchiveVersionFromLog(t *testing.T) {
 	if i := run("jar 版本", map[string]string{"paper-1.20.1-100.jar": paperJarBytes(t), "eula.txt": "eula=true\n",
 		"logs/latest.log": "Starting minecraft server version 1.19.4\n"}); i.MC != "1.20.1" {
 		t.Fatalf("jar 里写了版本的以 jar 为准：%s", i.MC)
+	}
+}
+
+// 接管那套识别认出了启动文件和版本、没认出核心，拿解析时的核心补上：版本用的是 jar 里认出来的，就不说成从日志认的（A44）。
+func TestImportedFromScanVersionSource(t *testing.T) {
+	pack := &modpack.Pack{Format: modpack.FormatServer, Core: mcsrc.CorePaper, MC: "1.19.4", MCFromLog: true, Launch: "jar:server.jar"}
+	s, ok := importedFromScan(&AdoptScan{LaunchTarget: "jar:server.jar", MC: "1.20.1"}, pack)
+	if !ok || s.core != mcsrc.CorePaper || s.mc != "1.20.1" || s.mcFromLog {
+		t.Fatalf("版本是 jar 里认出来的，不算从日志认的：%+v %v", s, ok)
+	}
+	s, ok = importedFromScan(&AdoptScan{LaunchTarget: "jar:server.jar"}, pack)
+	if !ok || s.mc != "1.19.4" || !s.mcFromLog {
+		t.Fatalf("版本只能用解析时从日志认的：%+v %v", s, ok)
+	}
+	if s, ok := importedFromScan(&AdoptScan{LaunchTarget: "jar:other.jar", MC: "1.20.1"}, pack); ok {
+		t.Fatalf("两边说的不是同一个 jar 时不拼凑：%+v", s)
 	}
 }
 

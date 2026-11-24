@@ -212,8 +212,8 @@ func extractServerFiles(ctx context.Context, t *tasks.Task, pack *modpack.Pack, 
 	}()
 	cleanDest := filepath.Clean(dir)
 	seen := map[string]string{} // 已经解压的文件：不分大小写的路径 → 包里的写法
-	n, err := modpack.ExtractServer(pack, func(files int, total int64) (err error) {
-		lease, err = serverExtractLease(ctx, t, dir, files, total)
+	n, err := modpack.ExtractServer(pack, func(files []modpack.ServerFile) (err error) {
+		lease, err = serverExtractLease(ctx, t, dir, files)
 		return err
 	}, func(rel string, r io.Reader) error {
 		if err := lease.Check(0); err != nil { // 也查取消
@@ -266,8 +266,9 @@ var serverImportDiskFree func(string) (int64, error)
 
 // serverExtractLease 解压现成服务端之前按解开以后的总大小要磁盘余量（A40），做法同交接包导入（transfer 的 extractPrefix）：
 // 总大小加上每个文件 4 KiB 的零头，装不下就在写第一个文件之前停下，免得把盘写满、连累同一块盘上别的服务器。
+// 只算真要写的：控制文件（logs/ 这些）和名字写不出来的不落盘，不算（见 extractServerFiles 里的 overrideAllowed）。
 // 查不到余量的盘照做（有的盘就是查不了），日志里说一声。写的过程中 diskguard 照常每隔一段再查一次。
-func serverExtractLease(ctx context.Context, t *tasks.Task, dir string, files int, total int64) (*diskguard.Lease, error) {
+func serverExtractLease(ctx context.Context, t *tasks.Task, dir string, files []modpack.ServerFile) (*diskguard.Lease, error) {
 	query := serverImportDiskFree
 	if query == nil {
 		query = diskguard.Free
@@ -282,7 +283,12 @@ func serverExtractLease(ctx context.Context, t *tasks.Task, dir string, files in
 		return n, err
 	}
 	// 文件数、总大小在 ExtractServer 里已经过了上限（20 万个、8 GB），加起来不会溢出
-	need := total + int64(files)*4096
+	var need int64
+	for _, f := range files {
+		if overrideAllowed(f.Rel) {
+			need += f.Size + 4096
+		}
+	}
 	return diskguard.Acquire(ctx, dir, diskguard.Options{Need: need, Query: logged, AllowUnknown: true})
 }
 
@@ -299,19 +305,7 @@ type importedServer struct {
 // 那套没认出来时，再用解析压缩包时看到的结果兜底。
 func detectImportedServer(dir string, pack *modpack.Pack) (importedServer, error) {
 	if sc, scanErr := scanServerDir(dir); scanErr == nil {
-		if mcsrc.ValidCore(mcsrc.Core(sc.Core)) && sc.MC != "" && sc.LaunchTarget != "" {
-			return importedServer{core: mcsrc.Core(sc.Core), mc: sc.MC, build: sc.Build, launch: sc.LaunchTarget, javaMajor: sc.JavaMajor}, nil
-		}
-		// 认出了启动文件但核心或版本是空的：解析阶段看的是同一个启动文件、而且认出了核心和版本，才拿它补上。
-		// 两边说的不是同一个 jar 时不拼凑，不然核心、版本、启动文件可能出自两个 jar。
-		if sc.LaunchTarget != "" && sc.LaunchTarget == pack.Launch && mcsrc.ValidCore(pack.Core) && pack.MC != "" {
-			s := importedServer{core: pack.Core, mc: pack.MC, build: pack.Loader, launch: sc.LaunchTarget, javaMajor: sc.JavaMajor, mcFromLog: pack.MCFromLog}
-			if sc.Build != "" {
-				s.build = sc.Build
-			}
-			if sc.MC != "" {
-				s.mc, s.mcFromLog = sc.MC, false
-			}
+		if s, ok := importedFromScan(sc, pack); ok {
 			return s, nil
 		}
 	}
@@ -321,6 +315,26 @@ func detectImportedServer(dir string, pack *modpack.Pack) (importedServer, error
 		}
 	}
 	return importedServer{}, modpack.ServerUnknownError()
+}
+
+// importedFromScan 接管那套识别的结果 sc 认全了就用它。认出了启动文件、核心或版本却是空的：解析阶段看的是同一个启动文件、
+// 而且认出了核心和版本，才拿解析的补上；两边说的不是同一个 jar 时不拼凑，不然核心、版本、启动文件可能出自两个 jar。
+// 版本用的是 sc 认出来的（jar 里写着的），就不算从日志认的（A44）。
+func importedFromScan(sc *AdoptScan, pack *modpack.Pack) (importedServer, bool) {
+	if mcsrc.ValidCore(mcsrc.Core(sc.Core)) && sc.MC != "" && sc.LaunchTarget != "" {
+		return importedServer{core: mcsrc.Core(sc.Core), mc: sc.MC, build: sc.Build, launch: sc.LaunchTarget, javaMajor: sc.JavaMajor}, true
+	}
+	if sc.LaunchTarget == "" || sc.LaunchTarget != pack.Launch || !mcsrc.ValidCore(pack.Core) || pack.MC == "" {
+		return importedServer{}, false
+	}
+	s := importedServer{core: pack.Core, mc: pack.MC, build: pack.Loader, launch: sc.LaunchTarget, javaMajor: sc.JavaMajor, mcFromLog: pack.MCFromLog}
+	if sc.Build != "" {
+		s.build = sc.Build
+	}
+	if sc.MC != "" {
+		s.mc, s.mcFromLog = sc.MC, false
+	}
+	return s, true
 }
 
 // noteMCFromLog 版本号是从压缩包里的日志认出来的（A44）：任务日志和结果里都说明，它是上一次开服时的版本，未必是现在的。
