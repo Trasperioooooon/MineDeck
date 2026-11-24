@@ -1182,6 +1182,88 @@ func TestServerImportAndCreateCleanupFailureKeepMarker(t *testing.T) {
 	})
 }
 
+// 预留以后、建文件夹之前，同一个位置上冒出了别人的文件夹（空的、有东西的各一种）：新建、导入整合包、导入现成服务端都在建文件夹
+// 那一步失败，说清那里已经有文件夹、没有动它；不进清理（空文件夹也还在），不放创建记号，不列进「没建完的文件夹」（A48）。
+// 交接包的同一条见 transfer 的 TestImportDirAppearedAfterReserveLeftAlone。
+func TestCreateDirAppearedAfterReserveLeftAlone(t *testing.T) {
+	starts := map[string]func(t *testing.T, m *Manager) (string, error){
+		"普通新建": func(t *testing.T, m *Manager) (string, error) {
+			return m.CreateAsync(CreateReq{Name: "appeared", Core: mcsrc.CoreWaterfall, MC: "1.20"})
+		},
+		"导入整合包": func(t *testing.T, m *Manager) (string, error) {
+			return m.ImportModpackAsync(testPendingPack(t), CreateReq{Name: "appeared"}, "")
+		},
+		"导入现成服务端": func(t *testing.T, m *Manager) (string, error) {
+			pack, err := modpack.Parse(zipOf(t, map[string]string{
+				"paper-1.20.1-100.jar": paperJarBytes(t), "eula.txt": "eula=true\n", "server.properties": "server-port=25565\n",
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			return m.importServerAsync(pack, CreateReq{Name: "appeared", XmxMB: 2048, Port: 25584, EULA: true})
+		},
+	}
+	others := map[string]map[string]string{
+		"空文件夹": {},
+		"有东西":  {"world/level.dat": "别人的世界", "notes.txt": "别人的笔记"},
+	}
+	for path, start := range starts {
+		for kind, files := range others {
+			t.Run(path+"，"+kind, func(t *testing.T) {
+				stubWaterfallDownloads(t) // 万一照旧建进那个文件夹、往下走了，也不连网
+				m, _ := importEnv(t)
+				placed := make(chan string, 1)
+				old := beforeCreateDir
+				t.Cleanup(func() { beforeCreateDir = old })
+				beforeCreateDir = func(dir string) { // 在任务的协程里：出错记下来，由下面断言
+					err := os.MkdirAll(dir, 0o755)
+					for name, body := range files {
+						p := filepath.Join(dir, filepath.FromSlash(name))
+						err = errors.Join(err, os.MkdirAll(filepath.Dir(p), 0o755), os.WriteFile(p, []byte(body), 0o644))
+					}
+					if err != nil {
+						dir = "放别人的文件夹失败：" + err.Error()
+					}
+					placed <- dir
+				}
+				id, err := start(t, m)
+				if err != nil {
+					t.Fatal(err)
+				}
+				sn := waitImportTask(t, m, id)
+				var dir string
+				select {
+				case dir = <-placed:
+				default:
+					t.Fatalf("没走到建文件夹那一步：%+v", sn)
+				}
+				if !strings.Contains(sn.Err, "这个位置已经有一个同名文件夹（可能是刚放进来的），没有动它") || strings.Contains(sn.Err, "清理半成品失败") {
+					t.Fatalf("应在建文件夹那一步失败、说清那里已经有文件夹，不进清理：%q", sn.Err)
+				}
+				top := map[string]bool{}
+				for name := range files {
+					first, _, _ := strings.Cut(name, "/")
+					top[first] = true
+				}
+				if entries, err := os.ReadDir(dir); err != nil || len(entries) != len(top) {
+					t.Errorf("别人的文件夹应原样留着、不多不少：%v %v", entries, err)
+				}
+				for name, body := range files {
+					if b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(name))); err != nil || string(b) != body {
+						t.Errorf("别人的 %s 被动过：%q %v", name, b, err)
+					}
+				}
+				if pathExists(filepath.Join(dir, CreatingMarker)) || listedAfterRestart(dir) {
+					t.Error("别人的文件夹不该放上创建记号、列进「没建完的文件夹」")
+				}
+				if _, err := m.Get("appeared"); err == nil {
+					t.Error("不该登记成服务器")
+				}
+			})
+		}
+	}
+}
+
 // 接管一个没建完的文件夹：写 run.bat、instance.json 的时候创建记号已经不在（不然写完 instance.json 程序没了，下次启动会把它
 // 当成登记写到一半）。instance.json 不经 atomicfile，看的是紧挨在它前面写的 run.bat（writeAdoptFiles）。
 // 记号去不掉（被别的程序占着）时不接管，这两个文件都不写，记号原样留着（A38）。

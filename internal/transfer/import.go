@@ -97,9 +97,10 @@ func ImportAsync(m *inst.Manager, path string, req ImportReq) (string, error) {
 		}
 		if err := runImport(ctx, t, m, mf, path, req, dir); err != nil {
 			// 先清后报失败：任务一显示失败，半成品就得已经清过（测试也是一看到失败就去查文件夹）。清理和新建、导入整合包是同一套：
-			// 只整个删这次放过创建记号的，删不干净的带着记号留在「没建完的文件夹」里；删不干净时失败原因里照实说（同 inst 的 failCreate）
-			_ = m.Delete(req.Name, false) // 万一已经注册（收尾失败）：从列表移出
-			cleanupErr := m.DiscardCreate(req.Name, dir)
+			// 只整个删这次放过创建记号的，删不干净的带着记号留在「没建完的文件夹」里；删不干净时失败原因里照实说（同 inst 的 failCreate）。
+			// 登记是 FinalizeCreate 的最后一步，FinalizeCreate 又是 runImport 的最后一步：走到这里时这台还没登记。
+			// 以后在它后面加步骤，要先处理好已经登记的那台怎么清理
+			cleanupErr := m.DiscardCreate(err, req.Name, dir)
 			finish()
 			if cleanupErr != nil {
 				err = fmt.Errorf("%w；清理半成品失败：%v", err, cleanupErr)
@@ -173,10 +174,7 @@ func runImport(ctx context.Context, t *tasks.Task, m *inst.Manager, mf *Manifest
 		return err
 	}
 	t.Logf("Java 就绪: %s", javaPath)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	if err := inst.WriteCreatingMarker(dir, req.Name); err != nil {
+	if err := inst.MkdirCreating(dir, req.Name); err != nil {
 		return err
 	}
 

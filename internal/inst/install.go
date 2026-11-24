@@ -190,7 +190,7 @@ func (m *Manager) CreateAsync(req CreateReq) (string, error) {
 			defer m.releaseWorldPlan(req.WorldOwner, req.WorldPlan)
 		}
 		if err := m.runCreate(ctx, t, req, dir); err != nil {
-			failCreate(t, err, m.discardCreating(req.Name, dir))
+			failCreate(t, err, m.discardFailed(err, req.Name, dir))
 			return
 		}
 		t.Finish(req.Name)
@@ -237,11 +237,7 @@ func (m *Manager) runCreateWith(ctx context.Context, t *tasks.Task, req CreateRe
 	}
 	t.Logf("Java 就绪: %s", javaPath)
 
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	// 登记成功之前一直留着。进程中途没了，下次可以认出来删；已经有 instance.json 的不靠它清理。
-	if err := WriteCreatingMarker(dir, req.Name); err != nil {
+	if err := MkdirCreating(dir, req.Name); err != nil {
 		return err
 	}
 
@@ -518,7 +514,7 @@ func failCreate(t *tasks.Task, err, cleanupErr error) {
 }
 
 // discardCreating 只清理由当前创建任务独占、尚未发布的目录；文件夹里有没有这次放的创建记号决定怎么清（见 discardCreatingDir）。
-// 新建、导入整合包、导入现成服务端失败时都经这里，交接包经 DiscardCreate。
+// 新建、导入整合包、导入现成服务端、交接包失败时都经 discardFailed 到这里。
 func (m *Manager) discardCreating(name, dir string) error {
 	m.mu.Lock()
 	owned := m.creating[name] && m.creating[dirKey(dir)] && m.insts[name] == nil

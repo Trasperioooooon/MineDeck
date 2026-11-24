@@ -85,7 +85,7 @@ func (m *Manager) ImportModpackAsync(pack *modpack.Pack, req CreateReq, cfKey st
 				t.RemoveWarning(kind)
 			}
 			// 先清后报失败：任务一显示失败，半成品就得已经删干净了（删不干净的带着记号留在「没建完的文件夹」里，见 discardCreatingDir）
-			failCreate(t, err, m.discardCreating(req.Name, dir))
+			failCreate(t, err, m.discardFailed(err, req.Name, dir))
 			return
 		}
 		t.Finish(req.Name)

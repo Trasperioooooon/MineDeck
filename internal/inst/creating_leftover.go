@@ -62,11 +62,45 @@ func discardCreatingDir(dir, name string) error {
 	return err
 }
 
-// DiscardCreate 交接包导入失败时清掉 ReserveCreate 预留、还没登记的文件夹，和新建、导入整合包失败时同一套（discardCreating）。
-// 返回的错误要照实告诉人：文件夹里还留着东西。
-func (m *Manager) DiscardCreate(name, dir string) error {
+// DiscardCreate 交接包导入失败（cause 是失败原因）时清掉 ReserveCreate 预留、还没登记的文件夹，和新建、导入整合包失败时
+// 同一套（discardFailed）。返回的错误要照实告诉人：文件夹里还留着东西。
+func (m *Manager) DiscardCreate(cause error, name, dir string) error {
+	return m.discardFailed(cause, name, dir)
+}
+
+// errCreateDirTaken 预留（reserveInstanceDir）以后、建文件夹之前，那个位置上已经有了一个文件夹（人刚放进来的、别的程序建的）。
+var errCreateDirTaken = errors.New("这个位置已经有一个同名文件夹（可能是刚放进来的），没有动它")
+
+// MkdirCreating 建这次创建任务的服务器文件夹，放上创建记号（新建、导入整合包、导入现成服务端、交接包都经这里）。
+// 本层用 os.Mkdir 而不是 MkdirAll：预留以后、建文件夹之前别人在同一个位置放了文件夹的话，MkdirAll 照样成功、紧接着放上
+// 记号，之后失败就会按「自己建的」整个删掉（A48）。已经有了就回 errCreateDirTaken，失败时不进清理（见 discardFailed）。
+// 记号在登记成功之前一直留着：进程中途没了，下次可以认出来删；已经有 instance.json 的不靠它清理。
+func MkdirCreating(dir, name string) error {
+	beforeCreateDir(dir)
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		return err
+	}
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return fmt.Errorf("%w：%s", errCreateDirTaken, dir)
+		}
+		return err
+	}
+	return WriteCreatingMarker(dir, name)
+}
+
+// discardFailed 建服、导入失败（cause 是失败原因）以后清半成品，四条路都经这里。失败在建文件夹那一步、那个位置上已经有
+// 别人的文件夹的（errCreateDirTaken）不进清理：那不是这次建的，一样不动，也不再报一句「文件夹里有不是这次建的东西」。
+func (m *Manager) discardFailed(cause error, name, dir string) error {
+	if errors.Is(cause, errCreateDirTaken) {
+		return nil
+	}
 	return m.discardCreating(name, dir)
 }
+
+// beforeCreateDir MkdirCreating 建文件夹之前的那一刻，默认什么都不做。测试里换成往那个位置放东西的函数，
+// 模拟预留以后、建文件夹之前别人放进来的文件夹。
+var beforeCreateDir = func(dir string) {}
 
 // afterRootRemembered markCreated 里「已经记成扫描根、还没去记号」的那一刻，默认什么都不做。
 // 测试里换成查看盘上状态的函数，钉住两步的先后。

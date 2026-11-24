@@ -65,7 +65,7 @@ func (m *Manager) importServerAsync(pack *modpack.Pack, req CreateReq) (string, 
 				t.RemoveWarning(kind)
 			}
 			// 先清后报失败：任务一显示失败，半成品就得已经删干净了（失败框上写着可以重试；交接包导入同样的顺序）
-			failCreate(t, err, m.discardCreating(req.Name, dir))
+			failCreate(t, err, m.discardFailed(err, req.Name, dir))
 			return
 		}
 		t.Finish(req.Name)
@@ -78,10 +78,7 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 	defer cancel()
 
 	t.StartStep(0)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	if err := WriteCreatingMarker(dir, req.Name); err != nil {
+	if err := MkdirCreating(dir, req.Name); err != nil {
 		return err
 	}
 	where := "压缩包最外层"

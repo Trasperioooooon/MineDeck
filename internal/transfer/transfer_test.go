@@ -887,3 +887,65 @@ func TestImportCleanupFailureKeepsMarker(t *testing.T) {
 		t.Fatalf("文件放开以后应能在「没建完的文件夹」那里删掉：%v", err)
 	}
 }
+
+// 预留以后、建文件夹之前，同一个位置上冒出了别人的文件夹（空的、有东西的各一种）：导入在建文件夹那一步失败，说清那里已经有
+// 文件夹、没有动它；失败时的清理（DiscardCreate）不碰它，不放创建记号（A48）。建文件夹之前没有能停下来放文件夹的地方，
+// 这里照 ImportAsync 的先后直接走：预留、放文件夹、runImport、清理。
+func TestImportDirAppearedAfterReserveLeftAlone(t *testing.T) {
+	newEnv(t)
+	fakeInstance(t, "A 的服")
+	m := manager(t, "A 的服")
+	id, err := ExportAsync(m, ExportReq{Inst: "A 的服", Full: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, _, _, _ := waitTask(t, m, id)
+	if snap.Err != "" {
+		t.Fatalf("导出失败：%s", snap.Err)
+	}
+	mf, err := ReadManifest(snap.Result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for kind, files := range map[string]map[string]string{
+		"空文件夹": {},
+		"有东西":  {"world/level.dat": "别人的世界", "notes.txt": "别人的笔记"},
+	} {
+		t.Run(kind, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "存放位置")
+			req := ImportReq{Name: "B 的服（" + kind + "）", EULA: true, Root: root}
+			creq := inst.CreateReq{Name: req.Name, Core: mf.Core.Core, MC: mf.Core.MC, Build: mf.Core.Build, EULA: true, Root: root}
+			dir, err := m.ReserveCreate(&creq)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer m.ReleaseCreate(creq.Name, dir)
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			for name, body := range files {
+				writeFile(t, filepath.Join(dir, filepath.FromSlash(name)), body)
+			}
+			tk, ctx := m.Tasks.New("导入交接包", importSteps)
+			err = runImport(ctx, tk, m, mf, snap.Result, req, dir)
+			if err == nil || !strings.Contains(err.Error(), "这个位置已经有一个同名文件夹（可能是刚放进来的），没有动它") {
+				t.Fatalf("应在建文件夹那一步失败、说清那里已经有文件夹：%v", err)
+			}
+			if cerr := m.DiscardCreate(err, req.Name, dir); cerr != nil {
+				t.Fatalf("别人的文件夹不进清理，不该报清理失败：%v", cerr)
+			}
+			entries, rerr := os.ReadDir(dir)
+			if want := map[bool]int{true: 0, false: 2}[len(files) == 0]; rerr != nil || len(entries) != want {
+				t.Fatalf("别人的文件夹应原样留着、不多不少：%v %v", entries, rerr)
+			}
+			for name, body := range files {
+				if b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(name))); err != nil || string(b) != body {
+					t.Errorf("别人的 %s 被动过：%q %v", name, b, err)
+				}
+			}
+			if _, err := m.Get(req.Name); err == nil {
+				t.Error("不该登记成服务器")
+			}
+		})
+	}
+}
