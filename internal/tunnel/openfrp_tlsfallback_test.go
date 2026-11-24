@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"minedeck/internal/app"
 	"minedeck/internal/dl"
 	"minedeck/internal/procutil"
 )
@@ -49,6 +48,14 @@ func newTLSSource(t *testing.T, maxTLS uint16, h http.HandlerFunc) *tlsSource {
 
 func (s *tlsSource) zipURL() string { return s.srv.URL + "/client/OF_t1/" + openfrpFrpcZip }
 
+// httptestCert httptest 起的 https 服务器共用的那张自带测试证书。哪天不是同一张了，下面的下载用例都会因为证书对不上失败，不会悄悄通过。
+func httptestCert(t *testing.T) *x509.Certificate {
+	t.Helper()
+	s := httptest.NewTLSServer(http.NotFoundHandler())
+	defer s.Close()
+	return s.Certificate()
+}
+
 // trustingCopy c 的副本：传输层克隆一份，只加上测试证书（一张都不给时不加）。
 func trustingCopy(c *http.Client, certs ...*x509.Certificate) *http.Client {
 	tr := c.Transport.(*http.Transport).Clone()
@@ -63,35 +70,56 @@ func trustingCopy(c *http.Client, certs ...*x509.Certificate) *http.Client {
 	return &cp
 }
 
-// trustTestCert 两个下载客户端都换成认得这些证书的副本，测完换回。
-func trustTestCert(t *testing.T, certs ...*x509.Certificate) {
+// trustTestCert 两个下载客户端都换成认得 cert 的副本，测完（连同并行的子用例）换回。
+func trustTestCert(t *testing.T, cert *x509.Certificate) {
 	t.Helper()
 	oldOF, oldCompat := openfrpHTTPClient, openfrpCompatHTTPClient
-	openfrpHTTPClient, openfrpCompatHTTPClient = trustingCopy(oldOF, certs...), trustingCopy(oldCompat, certs...)
+	openfrpHTTPClient, openfrpCompatHTTPClient = trustingCopy(oldOF, cert), trustingCopy(oldCompat, cert)
 	t.Cleanup(func() { openfrpHTTPClient, openfrpCompatHTTPClient = oldOF, oldCompat })
 }
 
-// installOpenfrpFrom 照 EnsureFrpc 查完版本以后的样子，从这些地址下载、解压 OpenFrp 的 frpc；交回结果和控制台里的话。
-// 调之前先 frpcTempDirs。
-func installOpenfrpFrom(t *testing.T, zipURLs ...string) (exe, lines string, err error) {
+// installOpenfrpFrom 照 EnsureFrpc 查完版本以后的样子，从这些地址下载、解压 OpenFrp 的 frpc 到一个临时文件夹；
+// 交回那个文件夹、结果和控制台里的话。文件夹和 zip 的位置直接给，不经 frpcDir、app.CacheDir：子用例并行跑，不能改包变量。
+func installOpenfrpFrom(t *testing.T, zipURLs ...string) (dir, exe, lines string, err error) {
 	t.Helper()
 	con := procutil.NewConsole()
-	zipPath := filepath.Join(app.CacheDir, "frpc", "openfrp-frpc-OF_t1.zip")
-	exe, err = openfrpInstall(t.Context(), con, zipURLs, zipPath, frpcDir("openfrp"), nil)
-	return exe, strings.Join(con.Lines(), "\n"), err
+	base := t.TempDir()
+	dir = filepath.Join(base, "runtimes", "frpc", "openfrp")
+	exe, err = openfrpInstall(t.Context(), con, zipURLs, filepath.Join(base, "cache", "frpc", "openfrp-frpc-OF_t1.zip"), dir, nil)
+	return dir, exe, strings.Join(con.Lines(), "\n"), err
+}
+
+// TestOpenfrpZipTLSFallback 退路的几条下载用例。每条都要等 dl.Fetch 整次下载失败一到两次，每次固定等两段轮间间隔（2 秒、4 秒，
+// dl 的退避，包外调不了），所以并行跑，一遍的时间是最慢那条（两次都失败的，12 秒左右）。
+// 两个下载客户端换成认得测试证书的副本只在这里做一次，子用例里不改任何包变量。
+func TestOpenfrpZipTLSFallback(t *testing.T) {
+	trustTestCert(t, httptestCert(t))
+	for _, c := range []struct {
+		name string
+		run  func(t *testing.T)
+	}{
+		{"FallsBackWhenOnlyTLS12", testZipFallsBackWhenOnlyTLS12},
+		{"FallsBackWhenAnEarlierSourceFailsHandshake", testZipFallsBackWhenAnEarlierSourceFailsHandshake},
+		{"FallbackRefusesRedirectToHTTP", testZipFallbackRefusesRedirectToHTTP},
+		{"FallbackFailureNamesBothTries", testZipFallbackFailureNamesBothTries},
+		{"NoFallbackWhenTLS13Works", testZipNoFallbackWhenTLS13Works},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			c.run(t)
+		})
+	}
 }
 
 // 下载源只会 TLS 1.2（网络出口只支持到 1.2 时就是这样）：只报 TLS 1.3 的那次握不上手，退回以后下成，
 // 解压、结构检查照常过，frpc 能用；控制台说一句换了连接方式。
-func TestOpenfrpZipFallsBackWhenOnlyTLS12(t *testing.T) {
-	frpcTempDirs(t)
+func testZipFallsBackWhenOnlyTLS12(t *testing.T) {
 	exe := string(fakeFrpcExe()) + "退回以后下到的"
 	pkg := openfrpZip(t, exe)
 	src := newTLSSource(t, tls.VersionTLS12, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(pkg) })
-	trustTestCert(t, src.srv.Certificate())
 
-	got, lines, err := installOpenfrpFrom(t, src.zipURL())
-	if err != nil || got != filepath.Join(frpcDir("openfrp"), "frpc_windows_amd64.exe") || readFile(t, got) != exe {
+	dir, got, lines, err := installOpenfrpFrom(t, src.zipURL())
+	if err != nil || got != filepath.Join(dir, "frpc_windows_amd64.exe") || readFile(t, got) != exe {
 		t.Fatalf("退回以后应下成、能用：%q %v\n%s", got, err, lines)
 	}
 	if !strings.Contains(lines, tlsFallbackNote) {
@@ -104,15 +132,13 @@ func TestOpenfrpZipFallsBackWhenOnlyTLS12(t *testing.T) {
 
 // 握不上手的不是最后一个下载源，也退回：第一个源只会 TLS 1.2、放着好的 zip，第二个会 TLS 1.3、回 404。
 // dl 交回的错误只认得出最后一个源的 404；退不退看的是途中有没有握手失败，所以照样退回，从第一个源下成。
-func TestOpenfrpZipFallsBackWhenAnEarlierSourceFailsHandshake(t *testing.T) {
-	frpcTempDirs(t)
+func testZipFallsBackWhenAnEarlierSourceFailsHandshake(t *testing.T) {
 	exe := string(fakeFrpcExe()) + "第一个源的"
 	pkg := openfrpZip(t, exe)
 	only12 := newTLSSource(t, tls.VersionTLS12, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(pkg) })
 	modern := newTLSSource(t, 0, http.NotFound)
-	trustTestCert(t, only12.srv.Certificate(), modern.srv.Certificate())
 
-	got, lines, err := installOpenfrpFrom(t, only12.zipURL(), modern.zipURL())
+	_, got, lines, err := installOpenfrpFrom(t, only12.zipURL(), modern.zipURL())
 	if err != nil || readFile(t, got) != exe {
 		t.Fatalf("退回以后应从第一个源下成：%q %v\n%s", got, err, lines)
 	}
@@ -126,8 +152,7 @@ func TestOpenfrpZipFallsBackWhenAnEarlierSourceFailsHandshake(t *testing.T) {
 
 // 退回的那次跳转照样只跟 https：下载源（只会 TLS 1.2）把 zip 跳到一个 http 的地址，那边真放着一个好的 zip，也不去拿；
 // 下载失败，frpc 文件夹里不留 frpc。
-func TestOpenfrpZipFallbackRefusesRedirectToHTTP(t *testing.T) {
-	frpcTempDirs(t)
+func testZipFallbackRefusesRedirectToHTTP(t *testing.T) {
 	pkg := openfrpZip(t, string(fakeFrpcExe()))
 	var plainHits atomic.Int32
 	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -138,9 +163,8 @@ func TestOpenfrpZipFallbackRefusesRedirectToHTTP(t *testing.T) {
 	src := newTLSSource(t, tls.VersionTLS12, func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, plain.URL+"/frpc.zip", http.StatusFound)
 	})
-	trustTestCert(t, src.srv.Certificate())
 
-	got, lines, err := installOpenfrpFrom(t, src.zipURL())
+	dir, got, lines, err := installOpenfrpFrom(t, src.zipURL())
 	if err == nil || !strings.Contains(err.Error(), "重定向到不允许的地址") {
 		t.Fatalf("退回以后跳到 http 也应中断：%q %v", got, err)
 	}
@@ -150,7 +174,7 @@ func TestOpenfrpZipFallbackRefusesRedirectToHTTP(t *testing.T) {
 	if n := plainHits.Load(); n != 0 {
 		t.Fatalf("不该去请求 http 的地址：%d 次", n)
 	}
-	if exe := findExe(frpcDir("openfrp")); exe != "" {
+	if exe := findExe(dir); exe != "" {
 		t.Fatalf("下载失败不该留下 frpc：%s", exe)
 	}
 }
@@ -158,17 +182,15 @@ func TestOpenfrpZipFallbackRefusesRedirectToHTTP(t *testing.T) {
 // 退回以后还是没下成（直连 EdgeOne 时多半是这样：Go 默认的握手会被当成机器人，回 567）：报错先说手动放 frpc 的办法，
 // 再说两种方式都试过了、各自为什么没成。往外传的是退回那次的错误，dl.AnyFailure 逐个看得到它的每一次尝试
 // （frpcBlockedHint 靠这个认「写盘时被杀毒软件拦下」）。
-func TestOpenfrpZipFallbackFailureNamesBothTries(t *testing.T) {
-	frpcTempDirs(t)
+func testZipFallbackFailureNamesBothTries(t *testing.T) {
 	src := newTLSSource(t, tls.VersionTLS12, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(567) })
-	trustTestCert(t, src.srv.Certificate())
 
-	_, _, err := installOpenfrpFrom(t, src.zipURL())
+	dir, _, _, err := installOpenfrpFrom(t, src.zipURL())
 	if err == nil {
 		t.Fatal("应该下载失败")
 	}
 	msg := err.Error()
-	guide, both := strings.Index(msg, "frpc_windows_amd64.exe 放入 "+frpcDir("openfrp")), strings.Index(msg, "两种连接方式都试过了")
+	guide, both := strings.Index(msg, "frpc_windows_amd64.exe 放入 "+dir), strings.Index(msg, "两种连接方式都试过了")
 	if guide < 0 || both < guide {
 		t.Fatalf("先说手动放 frpc 的办法，再说两种方式都试过了：%s", msg)
 	}
@@ -187,8 +209,7 @@ func TestOpenfrpZipFallbackFailureNamesBothTries(t *testing.T) {
 
 // 不是握手的毛病不退回：下载源会 TLS 1.3、回 404 时照原样报错，控制台不说换连接方式，只有只报 TLS 1.3 的那三轮请求；
 // 下成的时候也没有退回的事。
-func TestOpenfrpZipNoFallbackWhenTLS13Works(t *testing.T) {
-	frpcTempDirs(t)
+func testZipNoFallbackWhenTLS13Works(t *testing.T) {
 	pkg := openfrpZip(t, string(fakeFrpcExe()))
 	var serve atomic.Bool
 	src := newTLSSource(t, 0, func(w http.ResponseWriter, r *http.Request) {
@@ -198,9 +219,8 @@ func TestOpenfrpZipNoFallbackWhenTLS13Works(t *testing.T) {
 		}
 		_, _ = w.Write(pkg)
 	})
-	trustTestCert(t, src.srv.Certificate())
 
-	_, lines, err := installOpenfrpFrom(t, src.zipURL())
+	_, _, lines, err := installOpenfrpFrom(t, src.zipURL())
 	if err == nil || !strings.Contains(err.Error(), "HTTP 404（该源没有这个文件）") || strings.Contains(err.Error(), "两种连接方式") {
 		t.Fatalf("404 应照原样报错、不退回：%v", err)
 	}
@@ -209,7 +229,7 @@ func TestOpenfrpZipNoFallbackWhenTLS13Works(t *testing.T) {
 	}
 
 	serve.Store(true)
-	got, lines, err := installOpenfrpFrom(t, src.zipURL())
+	_, got, lines, err := installOpenfrpFrom(t, src.zipURL())
 	if err != nil || got == "" || strings.Contains(lines, tlsFallbackNote) || src.hits.Load() != 4 {
 		t.Fatalf("下成了就没有退回的事：%q %v，进来 %d 次\n%s", got, err, src.hits.Load(), lines)
 	}
