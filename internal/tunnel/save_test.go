@@ -36,6 +36,16 @@ func openfrpTunnel(name string) Tunnel {
 	return Tunnel{Provider: "openfrp", Name: name, Credential: "openfrp-key-" + name, ProxyID: "42"}
 }
 
+// anyTunnel 测的不是凭据、只要拿一条隧道去新增或修改时用。Windows 上就是 openfrpTunnel。
+// Mac 上还没有加密存储（钥匙串还没做，D01）：新增、修改先给凭据加密，加密失败就报错，走不到要测的那一步；
+// 所以换成不带凭据的自定义 frps，空凭据不用加密。
+func anyTunnel(name string) Tunnel {
+	if runtime.GOOS == "windows" {
+		return openfrpTunnel(name)
+	}
+	return Tunnel{Provider: "custom", Name: name, ServerAddr: "frp.example.com", ServerPort: 7000, RemotePort: 30001, LocalPort: 25565}
+}
+
 func tunnelIDs(m *Manager) []string {
 	var ids []string
 	for _, st := range m.List() {

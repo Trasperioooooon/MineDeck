@@ -231,17 +231,17 @@ func TestAdoptRollsBackOnFailure(t *testing.T) {
 		"world/level.dat":   "存档",
 	}
 	writeTree(t, dir, before)
-	// run.bat 设成只读：备份、改写 user_jvm_args.txt、写 eula.txt 都成功之后，写 run.bat 这一步失败
-	bat := filepath.Join(dir, "run.bat")
-	if err := os.Chmod(bat, 0o444); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(bat, 0o644) })
+	// run.bat 设成换不掉（Windows 上只读，Mac 上「已锁定」）：备份、改写 user_jvm_args.txt、写 eula.txt 都成功之后，写 run.bat 这一步失败
+	makeUnreplaceable(t, filepath.Join(dir, "run.bat"))
 
 	log, err := adopt(t, m, AdoptReq{Dir: dir, Name: "整合包", Core: mcsrc.CoreNeoForge, MC: "1.21.1", Build: "21.1.265",
 		LaunchTarget: "args:libraries/net/neoforged/neoforge/21.1.265/win_args.txt", XmxMB: 4096, JavaMajor: 21, JavaPath: fakeJava(t), EULA: true})
 	if err == nil {
-		t.Fatalf("run.bat 只读时应失败\n%s", log)
+		t.Fatalf("run.bat 换不掉时应失败\n%s", log)
+	}
+	// 要在写 run.bat 这一步才失败，前面几步动过文件，恢复才有东西可测；更早就失败的话，下面的检查不测什么也会过
+	if !strings.Contains(log, "原来的 run.bat 另存为") {
+		t.Fatalf("应在备份过原来的 run.bat 之后才失败：%v\n%s", err, log)
 	}
 	for name, body := range before {
 		if got := mustRead(t, filepath.Join(dir, filepath.FromSlash(name))); got != body {
@@ -412,7 +412,7 @@ func TestReleaseRenamesEvenIfEdited(t *testing.T) {
 	}
 }
 
-// 不存在的目录也按真实路径比：上层写成 8.3 短名的，和写长名的算同一个地方。
+// 不存在的目录也按真实路径比：上层换了一种写法的（Windows 上写成 8.3 短名，Mac 上经符号链接绕进来），和写长名的算同一个地方。
 // GitHub 的测试机临时目录就是短名（RUNNER~1）：列表里一台服务器的目录已经不在了，选它的上层接管时没认出来，
 // 合入 main 后的第一次 CI 挂在这里，本地的临时目录是长名所以没发现。
 func TestRealPathOfMissingDir(t *testing.T) {
@@ -423,22 +423,41 @@ func TestRealPathOfMissingDir(t *testing.T) {
 	if got := realPath(filepath.Join(long, "missing", "deeper")); !strings.EqualFold(got, want) {
 		t.Errorf("不存在的目录：%q，应为 %q", got, want)
 	}
-	if got := realPath(`Q:\no\such\drive`); got != `Q:\no\such\drive` {
+	// 一级都打不开时原样返回。Mac 上没有盘符，根目录 / 总打得开：最上一级就不在的，原样接在 / 后面，结果也是原样
+	gone := `Q:\no\such\drive`
+	if runtime.GOOS != "windows" {
+		gone = "/minedeck-no-such-dir/no/such"
+	}
+	if got := realPath(gone); got != gone {
 		t.Errorf("一级都打不开时原样返回：%q", got)
 	}
-	short := shortPath(long)
-	if strings.EqualFold(short, long) {
-		t.Skip("这个盘没开 8.3 短名，短名那一半测不了")
+	other := otherSpelling(t, user, long)
+	if got := realPath(filepath.Join(other, "missing", "deeper")); !strings.EqualFold(got, want) {
+		t.Errorf("上层换了写法的不存在的目录：%q，应为 %q", got, want)
 	}
-	if got := realPath(filepath.Join(short, "missing", "deeper")); !strings.EqualFold(got, want) {
-		t.Errorf("上层写成短名的不存在的目录：%q，应为 %q", got, want)
+	// 列表里一台服务器的目录用的是另一种写法、而且已经不在了：选它的上层，照样认得出里面有它
+	m.insts["inner"] = &Instance{Settings: Settings{Name: "inner"}, Dir: filepath.Join(other, "inner"), Console: newConsole()}
+	for _, dir := range []string{long, other} {
+		if _, err := m.checkAdoptDir(dir); err == nil || !strings.Contains(err.Error(), "里面还放着服务器「inner」") {
+			t.Errorf("%q：%v", dir, err)
+		}
 	}
-	// 列表里一台服务器的目录写的是短名、而且已经不在了：选它的上层，照样认得出里面有它
-	m.insts["inner"] = &Instance{Settings: Settings{Name: "inner"}, Dir: filepath.Join(short, "inner"), Console: newConsole()}
-	if _, err := m.checkAdoptDir(long); err == nil || !strings.Contains(err.Error(), "里面还放着服务器「inner」") {
-		t.Errorf("%v", err)
+}
+
+// otherSpelling 已有文件夹 long 的另一种写法。Windows 上是 8.3 短名（盘上没开短名就跳过）；
+// Mac 上没有短名，换成 user 里一个指向它的符号链接。
+func otherSpelling(t *testing.T, user, long string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		short := shortPath(long)
+		if strings.EqualFold(short, long) {
+			t.Skip("这个盘没开 8.3 短名，短名那一半测不了")
+		}
+		return short
 	}
-	if _, err := m.checkAdoptDir(short); err == nil || !strings.Contains(err.Error(), "里面还放着服务器「inner」") {
-		t.Errorf("%v", err)
+	link := filepath.Join(user, "link")
+	if err := os.Symlink(long, link); err != nil {
+		t.Fatal(err)
 	}
+	return link
 }

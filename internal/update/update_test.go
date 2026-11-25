@@ -3,9 +3,11 @@ package update
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -225,7 +227,15 @@ func TestLatestChannelStillNeedsChecksums(t *testing.T) {
 	if rel.SHA256 != "" {
 		t.Fatalf("没有 SHA256SUMS 时不该有校验和：%q", rel.SHA256)
 	}
-	if err := Apply(context.Background(), rel); err == nil || !strings.Contains(err.Error(), "SHA256SUMS") {
+	err = Apply(context.Background(), rel)
+	// Mac 版还不能在程序里换程序，Apply 一进来就拦下（不白下一个 Windows 的 exe），走不到看校验和那一步
+	if runtime.GOOS != "windows" {
+		if !errors.Is(err, errNoSelfUpdate) {
+			t.Fatalf("Mac 版应先拦下「不能在程序里自动更新」：%v", err)
+		}
+		return
+	}
+	if err == nil || !strings.Contains(err.Error(), "SHA256SUMS") {
 		t.Fatalf("没有官方校验和的预发布版应拒绝更新：%v", err)
 	}
 }

@@ -22,8 +22,8 @@ jobs:
       - name: Go 测试
         run: go test ./...
 
-  # Mac 版（PR #32 起同一套代码按平台分文件）：只守着 macOS 上 vet 干净、编得过，免得 Windows 上的改动又让 Mac 编不过。
-  # 不跑 go test：Mac 上已知有 6 个包的测试会失败（缺加密存储、测试写死 Windows 路径），见 docs/日志/2026-11-21-Mac版第0步摸底.md。
+  # Mac 版（PR #32 起同一套代码按平台分文件）：守着 macOS 上 vet 干净、编得过、Go 测试都过，免得 Windows 上的改动又让 Mac 坏掉。
+  # 只对 Windows 有意义的用例在 Mac 上按平台分开写或跳过；钥匙串还没做（D01），要加密存储的用例在 Mac 上跳过（A93）。
   go-macos:
     runs-on: macos-latest
     steps:
@@ -36,6 +36,8 @@ jobs:
         run: go vet ./...
       - name: go build
         run: go build ./...
+      - name: go test
+        run: go test ./... -count=1
 
   # 检查内置伙伴与音乐语音桥接模组 jar 与源码是否一致（需在 Linux 上跑 gradle / javac，不改动上面 windows / macos 两个任务）。
   embedded-jars:

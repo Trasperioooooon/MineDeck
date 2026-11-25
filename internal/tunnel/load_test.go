@@ -63,7 +63,7 @@ func assertBlocked(t *testing.T, m *Manager, before string, corrupt bool) {
 	if ids := tunnelIDs(m); len(ids) != 0 {
 		t.Fatalf("没读成时列表应是空的：%v", ids)
 	}
-	got, err := m.Add(openfrpTunnel("二号"))
+	got, err := m.Add(anyTunnel("二号"))
 	wantLoadError(t, err, corrupt)
 	if got != nil {
 		t.Fatalf("没读成时不该加进去：%+v", got)
@@ -71,7 +71,7 @@ func assertBlocked(t *testing.T, m *Manager, before string, corrupt bool) {
 	if m.seq != 0 || len(m.tunnels) != 0 {
 		t.Fatalf("没读成时内存被改了：seq=%d tunnels=%d", m.seq, len(m.tunnels))
 	}
-	wantLoadError(t, m.Update("tun1", openfrpTunnel("改名")), corrupt)
+	wantLoadError(t, m.Update("tun1", anyTunnel("改名")), corrupt)
 	wantLoadError(t, m.Delete("tun1"), corrupt)
 	wantLoadError(t, m.Start("tun1"), corrupt)
 	wantLoadError(t, m.save(), corrupt) // 最后一道闸：哪个保存点漏了检查，也写不下去

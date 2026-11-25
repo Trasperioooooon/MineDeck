@@ -513,7 +513,7 @@ func TestNoDuplicatesThenSaveLeavesNoBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := NewManager()
-	if _, err := m.Add(openfrpTunnel("新加的")); err != nil {
+	if _, err := m.Add(anyTunnel("新加的")); err != nil {
 		t.Fatal(err)
 	}
 	if got := backupNames(t); len(got) != 0 {

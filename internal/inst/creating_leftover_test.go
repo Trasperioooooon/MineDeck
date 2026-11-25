@@ -402,14 +402,15 @@ func TestAdoptLeftoverClearsMarkerAndRestoresOnFailure(t *testing.T) {
 	bad := newCreatingLeftover(t, root, "half-bad")
 	writeTree(t, bad, map[string]string{"server.jar": vanilla21, "eula.txt": "eula=true\n", "run.bat": "@echo off\r\njava -jar server.jar\r\n"})
 	before := mustRead(t, filepath.Join(bad, CreatingMarker))
-	// run.bat 设成只读：去掉记号以后、写 run.bat 这一步失败
-	bat := filepath.Join(bad, "run.bat")
-	if err := os.Chmod(bat, 0o444); err != nil {
-		t.Fatal(err)
+	// run.bat 设成换不掉（Windows 上只读，Mac 上「已锁定」）：去掉记号以后、写 run.bat 这一步失败
+	makeUnreplaceable(t, filepath.Join(bad, "run.bat"))
+	log, err := adopt(t, m, req(bad, "接管不成的"))
+	if err == nil {
+		t.Fatalf("run.bat 换不掉时应失败\n%s", log)
 	}
-	t.Cleanup(func() { _ = os.Chmod(bat, 0o644) })
-	if log, err := adopt(t, m, req(bad, "接管不成的")); err == nil {
-		t.Fatalf("run.bat 只读时应失败\n%s", log)
+	// 要在去掉记号、备份过 run.bat 之后才失败，记号放回去才算测到了
+	if !strings.Contains(log, "原来的 run.bat 另存为") {
+		t.Fatalf("应在备份过原来的 run.bat 之后才失败：%v\n%s", err, log)
 	}
 	if got := mustRead(t, filepath.Join(bad, CreatingMarker)); got != before {
 		t.Fatalf("接管失败以后创建记号应原样放回去：%q", got)
