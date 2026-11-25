@@ -104,7 +104,7 @@ func checkResult(current string, rel *update.Release, has bool) map[string]any {
 		"channel":           rel.Channel,
 		"prerelease":        rel.Prerelease,
 		"currentPrerelease": update.IsPre(current),
-		"ahead":             update.Newer(current, rel.Tag),
+		"ahead":             rel.Tag != "" && update.Newer(current, rel.Tag),
 	}
 }
 
@@ -114,7 +114,7 @@ func (c *cat) appOps() {
 		Desc: "MineDeck 的版本、本机内存总量和可用量、实际监听端口、实例和备份的存放目录、全局配置（不含任何密钥）、本机的局域网 IP、局域网访问这次启动是否已生效。",
 		Run: func(_ context.Context, caller ops.Caller, _ ops.Args) (any, error) {
 			cfSet, cfBroken := app.CFKeyState()
-			return map[string]any{
+			out := map[string]any{
 				"version":     app.Version,
 				"os":          app.OSVersion(),
 				"base":        app.Base,
@@ -133,7 +133,11 @@ func (c *cat) appOps() {
 				"updateChannel": app.UpdateChannel(),
 				"autoStart":     autostart.Enabled(), // 开机自启真值以注册表为准
 				"ips":           localIPs(),
-			}, nil
+			}
+			if su := update.StartupUpdate(); su != nil {
+				out["startupUpdate"] = su
+			}
+			return out, nil
 		},
 	})
 
@@ -146,7 +150,7 @@ func (c *cat) appOps() {
 			"webhookUrl":         ops.String("事件推送地址，以 http(s):// 开头；空串关闭"),
 			"updateRepo":         ops.String("检查更新用的 GitHub 仓库，如 user/MineDeck"),
 			"checkUpdateOnStart": ops.Boolean("启动时在后台检查一次更新"),
-			"updateChannel":      ops.String("更新渠道：stable（稳定版，只收正式版）、latest（最新版，包括测试版）").OneOf(app.UpdateStable, app.UpdateLatest),
+			"updateChannel":      ops.String("更新渠道：空串（跟随当前版本）、stable（稳定版，只收正式版）、latest（最新版，包括测试版）").OneOf("", app.UpdateStable, app.UpdateLatest),
 			"serversDir":         ops.String("新实例的默认存放目录（仅本机；空串恢复默认）"),
 			"backupsDir":         ops.String("备份目录（仅本机；空串恢复默认）"),
 			"backupKeep":         ops.Integer("每个实例保留的备份份数，1–1000（超出按边界算）"),
@@ -283,6 +287,9 @@ func (c *cat) appOps() {
 					return nil, ops.Errorf(500, "设置开机自启失败: %w", err)
 				}
 			}
+			if body.UpdateChannel != nil || body.UpdateRepo != nil {
+				update.ClearStartupUpdate()
+			}
 			return publicConfig(caller), nil
 		},
 	})
@@ -311,6 +318,7 @@ func (c *cat) appOps() {
 			if err != nil {
 				return nil, ops.Wrap(502, err)
 			}
+			update.ClearStartupUpdate()
 			return checkResult(app.Version, rel, has), nil
 		},
 	})

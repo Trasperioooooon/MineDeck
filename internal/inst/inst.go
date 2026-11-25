@@ -3,6 +3,8 @@ package inst
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -192,6 +194,7 @@ type Manager struct {
 	resolveMu   sync.Mutex // 待决文件的处置一次只做一批，见 ResolveImportPending
 
 	skippedDups []SkippedDuplicate // 启动加载时因为重名没列出来的文件夹（A08）
+	brokenDirs  []string           // 启动加载时因为 instance.json 读不出来或损坏没列出来的文件夹
 
 	closing atomic.Bool // ShutdownAll 开始以后为真：程序正在退出，等着重试的定时备份不再动手
 }
@@ -203,6 +206,47 @@ type SkippedDuplicate struct {
 	KeptDir string `json:"keptDir"` // 列表里留着的那台服务器所在的文件夹
 }
 
+// BrokenInstance 启动加载时文件夹里有 instance.json、但读不出来或解析失败的服务器。
+type BrokenInstance struct {
+	ID     string `json:"id"`     // 只用于「打开文件夹」的编号，不含完整路径
+	Folder string `json:"folder"` // 文件夹名，不含完整路径
+	Reason string `json:"reason"` // 面向用户的中文原因，不含完整路径
+}
+
+const brokenIDPrefix = "__broken__:"
+
+var errMissingInstanceName = errors.New("没有 name")
+
+func brokenID(dir string) string {
+	sum := sha256.Sum256([]byte(foldRoot(realPath(dir))))
+	return brokenIDPrefix + hex.EncodeToString(sum[:8])
+}
+
+func brokenSettingsReason(err error) string {
+	if errors.Is(err, errMissingInstanceName) {
+		return "设置文件里缺少服务器名称（name）"
+	}
+	if errors.Is(err, fs.ErrPermission) {
+		return "没有权限读取设置文件"
+	}
+	var syn *json.SyntaxError
+	if errors.As(err, &syn) {
+		return "设置文件 JSON 格式有误（可能是括号、引号或逗号没写对）"
+	}
+	var ut *json.UnmarshalTypeError
+	if errors.As(err, &ut) {
+		if ut.Field != "" {
+			return fmt.Sprintf("设置文件里字段 %q 的格式不对", ut.Field)
+		}
+		return "设置文件里有字段格式不对"
+	}
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		return "无法读取设置文件"
+	}
+	return "设置文件无法解析"
+}
+
 func NewManager() (*Manager, error) {
 	m := &Manager{insts: map[string]*Instance{}, creating: map[string]bool{}, Tasks: tasks.NewManager()}
 	seen := map[string]bool{}          // 已经登记过的目录（真实路径）：同一个文件夹从两条路都能找到时只算一次
@@ -212,11 +256,15 @@ func NewManager() (*Manager, error) {
 		if os.IsNotExist(err) {
 			return // 不是实例目录，或者这个文件夹现在不在
 		}
+		key := strings.ToLower(realPath(dir))
 		if err != nil {
-			log.Printf("实例配置读不出来，这个目录没有列出来：%s（%v）", dir, err)
+			if !seen[key] {
+				seen[key] = true
+				m.brokenDirs = append(m.brokenDirs, dir)
+				log.Printf("实例配置读不出来，这个目录没有列出来：%s（%v）", dir, err)
+			}
 			return
 		}
-		key := strings.ToLower(realPath(dir))
 		if seen[key] {
 			// 同一个真实文件夹既经目录联接登记在 InstanceDirs 里，又在某个存放根下面被扫到：
 			// i.Dir 用存放根下面那条路径，免得「连同文件删除」只删掉联接而留下真目录在下次启动复活；
@@ -320,6 +368,63 @@ func (m *Manager) SkippedDuplicates() []SkippedDuplicate {
 	return out
 }
 
+// BrokenInstances 返回启动加载时因为 instance.json 读不出来或格式坏了而没有列出来的服务器目录。
+// 目录被删掉、instance.json 被删掉或修好能正常读取后，不再继续返回；只返回文件夹名与编号，不暴露磁盘路径。
+func (m *Manager) BrokenInstances() []BrokenInstance {
+	m.mu.Lock()
+	dirs := append([]string(nil), m.brokenDirs...)
+	var instDirs []string
+	if len(dirs) > 0 {
+		instDirs = make([]string, 0, len(m.insts))
+		for _, inst := range m.insts {
+			instDirs = append(instDirs, inst.Dir)
+		}
+	}
+	m.mu.Unlock()
+	if len(dirs) == 0 {
+		return []BrokenInstance{}
+	}
+	loaded := make(map[string]bool, len(instDirs))
+	for _, dir := range instDirs {
+		loaded[strings.ToLower(realPath(dir))] = true
+	}
+	out := make([]BrokenInstance, 0, len(dirs))
+	for _, dir := range dirs {
+		if loaded[strings.ToLower(realPath(dir))] {
+			continue
+		}
+		_, err := readSettings(dir)
+		if err == nil || os.IsNotExist(err) {
+			continue
+		}
+		folder := filepath.Base(filepath.Clean(dir))
+		if folder == "" || folder == "." || folder == string(filepath.Separator) {
+			continue
+		}
+		out = append(out, BrokenInstance{
+			ID:     brokenID(dir),
+			Folder: folder,
+			Reason: brokenSettingsReason(err),
+		})
+	}
+	return out
+}
+
+func (m *Manager) brokenDirByID(id string) (string, bool) {
+	if !strings.HasPrefix(id, brokenIDPrefix) {
+		return "", false
+	}
+	m.mu.Lock()
+	dirs := append([]string(nil), m.brokenDirs...)
+	m.mu.Unlock()
+	for _, dir := range dirs {
+		if brokenID(dir) == id {
+			return dir, true
+		}
+	}
+	return "", false
+}
+
 // readSettings 读实例目录里的 instance.json。开头的 UTF-8 BOM 去掉再解析：记事本存成「UTF-8 带 BOM」、
 // PowerShell 5.1 的 Set-Content 写的都有，不去掉这台服务器会从列表里消失（测试报告发现 10）。
 func readSettings(dir string) (Settings, error) {
@@ -337,7 +442,7 @@ func readSettingsFile(path string) (Settings, error) {
 		return s, err
 	}
 	if s.Name == "" {
-		return s, fmt.Errorf("没有 name")
+		return s, errMissingInstanceName
 	}
 	return s, nil
 }

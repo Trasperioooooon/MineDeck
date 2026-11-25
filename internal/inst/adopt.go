@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"minedeck/internal/app"
+	"minedeck/internal/errhint"
 	"minedeck/internal/java"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/tasks"
@@ -81,7 +82,7 @@ func (m *Manager) checkAdoptDir(dir string) (string, error) {
 	dir = filepath.Clean(dir)
 	st, err := os.Stat(dir)
 	if err != nil || !st.IsDir() {
-		return "", fmt.Errorf("找不到这个文件夹：%s", dir)
+		return "", errhint.Wrap(fmt.Errorf("找不到这个文件夹：%s", dir), "请确认选择的服务器文件夹路径没有填错或被移动")
 	}
 	// 后面的比较都用真实路径：经目录联接（junction）、符号链接、subst 的盘符绕一圈进来的同一个文件夹，要认得出是同一个。
 	// 登记成实例的目录仍然是用户选的那个路径
@@ -217,10 +218,10 @@ func (m *Manager) validateAdopt(req *AdoptReq) (*AdoptScan, error) {
 		}
 		// 是不是已知的 Java 由操作层查；这里再守一道：只能是 java.exe（Mac 上是 java），路径里不能有会写坏 run.bat 的字符
 		if !java.IsExeName(filepath.Base(req.JavaPath)) || strings.ContainsAny(req.JavaPath, "\"\r\n") {
-			return nil, fmt.Errorf("Java 的路径不对：%s", req.JavaPath)
+			return nil, errhint.Wrap(fmt.Errorf("Java 的路径不对：%s", req.JavaPath), "填写的 Java 路径不可用，请重新选择或核对位置")
 		}
 		if st, err := os.Stat(req.JavaPath); err != nil || st.IsDir() {
-			return nil, fmt.Errorf("找不到 Java：%s", req.JavaPath)
+			return nil, errhint.Wrap(fmt.Errorf("找不到 Java：%s", req.JavaPath), "填写的 Java 路径不可用，请重新选择或核对位置")
 		}
 	}
 	dir, err := m.checkAdoptDir(req.Dir)

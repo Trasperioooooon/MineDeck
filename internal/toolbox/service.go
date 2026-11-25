@@ -49,7 +49,9 @@ type Service struct {
 	dataDir  string
 	cacheDir string
 
-	draftMu sync.Mutex
+	draftMu       sync.Mutex
+	draftSeq      map[string]map[string]int64 // clientId -> field -> 已接受的最大序号（A65 防乱序）
+	draftSeqOrder []string
 	// buildMu 生成一次只做一份：整包在内存里拼，局域网的人连点几次不至于同时占好几份几百 MB 的内存
 	buildMu sync.Mutex
 
@@ -382,7 +384,7 @@ func normDraft(cfg *DraftConfig) error {
 
 // DraftPatch 只带要改的草稿字段：nil 表示不改，沿用存好的那份（JSON 名同 DraftConfig）。
 // 两个窗口同时开着工具箱时，以前每次保存都把整页的草稿写回去，没刷新的那一边就把另一边刚改的名字、简介改回原样；
-// 现在界面只发和这一页基线不一样的字段（2026-11-17）。
+// 现在界面只发和这一页基线不一样的字段（2026-11-17）。另可带 ClientID 与递增 Seq，乱序到达的旧请求逐字段忽略（A65）。
 type DraftPatch struct {
 	Name          *string `json:"name"`
 	VersionID     *string `json:"versionId"`
@@ -391,6 +393,86 @@ type DraftPatch struct {
 	MC            *string `json:"mc"`
 	LoaderVersion *string `json:"loaderVersion"`
 	IncludeConfig *bool   `json:"includeConfig"`
+	ClientID      string  `json:"clientId,omitempty"`
+	Seq           int64   `json:"seq,omitempty"`
+}
+
+const maxDraftSeqClients = 64
+
+// filterBySeqLocked 按 clientId 与字段各自记录的最大序号过滤掉乱序晚到的旧字段。调用方持有 draftMu。
+func (s *Service) filterBySeqLocked(p DraftPatch) (DraftPatch, []string, bool) {
+	hasAny := p.Name != nil || p.VersionID != nil || p.Summary != nil || p.Core != nil || p.MC != nil || p.LoaderVersion != nil || p.IncludeConfig != nil
+	if p.ClientID == "" || p.Seq <= 0 {
+		return p, nil, hasAny
+	}
+	seen := s.draftSeq[p.ClientID]
+	accept := func(field string, set bool) bool {
+		return set && p.Seq > seen[field]
+	}
+	var applied []string
+	if !accept("name", p.Name != nil) {
+		p.Name = nil
+	} else {
+		applied = append(applied, "name")
+	}
+	if !accept("versionId", p.VersionID != nil) {
+		p.VersionID = nil
+	} else {
+		applied = append(applied, "versionId")
+	}
+	if !accept("summary", p.Summary != nil) {
+		p.Summary = nil
+	} else {
+		applied = append(applied, "summary")
+	}
+	if !accept("core", p.Core != nil) {
+		p.Core = nil
+	} else {
+		applied = append(applied, "core")
+	}
+	if !accept("mc", p.MC != nil) {
+		p.MC = nil
+	} else {
+		applied = append(applied, "mc")
+	}
+	if !accept("loaderVersion", p.LoaderVersion != nil) {
+		p.LoaderVersion = nil
+	} else {
+		applied = append(applied, "loaderVersion")
+	}
+	if !accept("includeConfig", p.IncludeConfig != nil) {
+		p.IncludeConfig = nil
+	} else {
+		applied = append(applied, "includeConfig")
+	}
+	return p, applied, len(applied) > 0
+}
+
+func (s *Service) advanceSeqLocked(clientID string, seq int64, fields []string) {
+	if clientID == "" || seq <= 0 || len(fields) == 0 {
+		return
+	}
+	if s.draftSeq == nil {
+		s.draftSeq = map[string]map[string]int64{}
+	}
+	m := s.draftSeq[clientID]
+	if m == nil {
+		m = map[string]int64{}
+		s.draftSeq[clientID] = m
+		s.draftSeqOrder = append(s.draftSeqOrder, clientID)
+		for len(s.draftSeqOrder) > maxDraftSeqClients {
+			evict := s.draftSeqOrder[0]
+			s.draftSeqOrder = s.draftSeqOrder[1:]
+			delete(s.draftSeq, evict)
+		}
+	} else if idx := slices.Index(s.draftSeqOrder, clientID); idx >= 0 {
+		s.draftSeqOrder = append(append(s.draftSeqOrder[:idx], s.draftSeqOrder[idx+1:]...), clientID)
+	}
+	for _, f := range fields {
+		if seq > m[f] {
+			m[f] = seq
+		}
+	}
 }
 
 // mergeInto 把给了的字段合到 cfg 上。
@@ -413,8 +495,8 @@ func (p DraftPatch) mergeInto(cfg DraftConfig) DraftConfig {
 }
 
 // PatchMrpackDraft 只改 p 里给了的字段，返回合起来的整份草稿。读存好的、合、查长度、写盘都在 draftMu 里一次做完，
-// 两个窗口先后保存，后一个合在前一个存下的结果上。存好的文件在却读不出来时报错（*Error，500）、不写：
-// 拿默认值合上去再写，就把存好的草稿盖掉了。内容坏了（不是 JSON）照 ReadMrpackDraft 按默认值算。
+// 两个窗口先后保存，后一个合在前一个存下的结果上。带 ClientID 和 Seq 时忽略序号不大于已存值的字段。
+// 存好的文件在却读不出来时报错（*Error，500）、不写：拿默认值合上去再写，就把存好的草稿盖掉了。内容坏了（不是 JSON）照 ReadMrpackDraft 按默认值算。
 // 没有数据目录时不写盘，只返回合好的。
 func (s *Service) PatchMrpackDraft(p DraftPatch) (DraftConfig, error) {
 	s.draftMu.Lock()
@@ -423,23 +505,28 @@ func (s *Service) PatchMrpackDraft(p DraftPatch) (DraftConfig, error) {
 	if err != nil {
 		return DraftConfig{}, &Error{Code: 500, Err: fmt.Errorf("%w，这次的改动没有保存", err)}
 	}
-	cfg := p.mergeInto(cur)
+	eff, applied, anyNew := s.filterBySeqLocked(p)
+	if !anyNew {
+		_ = normDraft(&cur)
+		return cur, nil
+	}
+	cfg := eff.mergeInto(cur)
 	if err := normDraft(&cfg); err != nil {
 		return cfg, err
 	}
-	if s.dataDir == "" {
-		return cfg, nil
+	if s.dataDir != "" {
+		if err := os.MkdirAll(s.dataDir, 0o755); err != nil {
+			return cfg, fmt.Errorf("创建草稿目录失败：%w", err)
+		}
+		b, err := json.MarshalIndent(cfg, "", "  ")
+		if err != nil {
+			return cfg, err
+		}
+		if err := atomicfile.Write(filepath.Join(s.dataDir, draftFile), b, 0o644); err != nil {
+			return cfg, fmt.Errorf("保存草稿失败：%w", err)
+		}
 	}
-	if err := os.MkdirAll(s.dataDir, 0o755); err != nil {
-		return cfg, fmt.Errorf("创建草稿目录失败：%w", err)
-	}
-	b, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return cfg, err
-	}
-	if err := atomicfile.Write(filepath.Join(s.dataDir, draftFile), b, 0o644); err != nil {
-		return cfg, fmt.Errorf("保存草稿失败：%w", err)
-	}
+	s.advanceSeqLocked(p.ClientID, p.Seq, applied)
 	return cfg, nil
 }
 

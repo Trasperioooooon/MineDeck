@@ -36,3 +36,22 @@ jobs:
         run: go vet ./...
       - name: go build
         run: go build ./...
+
+  # 检查内置伙伴与音乐语音桥接模组 jar 与源码是否一致（需在 Linux 上跑 gradle / javac，不改动上面 windows / macos 两个任务）。
+  embedded-jars:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: |
+            17
+            21
+          cache: gradle
+      - name: 检查内置 AI 伙伴模组 jar（A105）
+        env:
+          GRADLE_OPTS: -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_17_X64,JAVA_HOME_21_X64
+        run: ./companion/update-embedded.sh --check
+      - name: 检查内置语音桥接模组 jar（A105）
+        run: ./bridge/voicechat/update-embedded.sh --check

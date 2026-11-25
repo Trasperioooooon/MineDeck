@@ -19,8 +19,11 @@ import (
 	"golang.org/x/crypto/nacl/box"
 
 	"minedeck/internal/app"
+	"minedeck/internal/errhint"
 	"minedeck/internal/secret"
 )
+
+const tunnelReauthHint = "平台登录已失效，请重新连接这个平台账户"
 
 const (
 	openFrpAuthKey = "tunnel.openfrp.authorization"
@@ -1109,7 +1112,7 @@ func (a *Accounts) openFrpDo(ctx context.Context, want *uint64, path string, bod
 		return ok, err // 响应头回了 2xx、读响应体时断了的，也算平台可能已经照做
 	}
 	if status == http.StatusUnauthorized {
-		return false, fmt.Errorf("OpenFrp 登录已失效，请重新连接账户")
+		return false, errhint.Wrap(fmt.Errorf("OpenFrp 登录已失效，请重新连接账户"), tunnelReauthHint)
 	}
 	if !ok {
 		return false, responseError(status, data, authorization)
@@ -1234,7 +1237,11 @@ func (a *Accounts) sakuraDo(ctx context.Context, method, path, token string, bod
 		Msg  string `json:"msg"`
 	}
 	if json.Unmarshal(data, &apiErr) == nil && apiErr.Code >= 400 {
-		return nil, false, fmt.Errorf("SakuraFrp API 请求失败: %s", safeMessage(scrub(apiErr.Msg, token)))
+		err := fmt.Errorf("SakuraFrp API 请求失败: %s", safeMessage(scrub(apiErr.Msg, token)))
+		if apiErr.Code == http.StatusUnauthorized || apiErr.Code == http.StatusForbidden {
+			err = errhint.Wrap(err, tunnelReauthHint)
+		}
+		return nil, false, err
 	}
 	return data, true, nil
 }
@@ -1299,10 +1306,16 @@ func responseError(status int, data []byte, secrets ...string) error {
 	if status == http.StatusTooManyRequests {
 		return fmt.Errorf("穿透平台说请求太频繁（HTTP 429），稍等一会儿再试")
 	}
+	var err error
 	if msg := safeMessage(scrub(resp.Msg, secrets...)); msg != "" {
-		return fmt.Errorf("穿透平台返回 HTTP %d: %s", status, msg)
+		err = fmt.Errorf("穿透平台返回 HTTP %d: %s", status, msg)
+	} else {
+		err = fmt.Errorf("穿透平台返回 HTTP %d", status)
 	}
-	return fmt.Errorf("穿透平台返回 HTTP %d", status)
+	if len(secrets) > 0 && (status == http.StatusUnauthorized || status == http.StatusForbidden) {
+		return errhint.Wrap(err, tunnelReauthHint)
+	}
+	return err
 }
 
 // scrub 把文本里出现的凭据换成 ***。

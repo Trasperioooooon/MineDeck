@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -214,5 +215,16 @@ func TestDifferentRealVolumesDoNotBlock(t *testing.T) {
 	volumes.Unlock()
 	if left != 0 {
 		t.Fatalf("leases leaked %d volume records", left)
+	}
+}
+
+func TestNoSpaceHint(t *testing.T) {
+	e := &NoSpace{Need: 1 << 30, Free: 128 << 20}
+	if got := e.Hint(); !strings.HasPrefix(got, "磁盘剩余空间不足") {
+		t.Fatalf("默认 Hint 不符：%q", got)
+	}
+	withVol := &NoSpace{Need: 1 << 30, Free: 128 << 20, Volume: "D 盘"}
+	if got := withVol.Hint(); !strings.HasPrefix(got, "D 盘剩余空间不足") {
+		t.Fatalf("带盘符 Hint 不符：%q", got)
 	}
 }

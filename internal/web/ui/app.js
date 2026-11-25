@@ -15,7 +15,7 @@ const TOKEN = () => localStorage.getItem("amh_token") || "";
 async function api(path, opts = {}) {
   const res = await fetch(path, {
     method: opts.method || "GET",
-    headers: { "X-Token": TOKEN(), ...(opts.body ? { "Content-Type": "application/json" } : {}) },
+    headers: { "X-Token": TOKEN(), ...(opts.body ? { "Content-Type": "application/json" } : {}), ...(opts.headers || {}) },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
     ...(opts.keepalive ? { keepalive: true } : {}), // 页面刷新或关掉时发的：页面没了也送得到（见工具箱草稿的 pagehide）
   });
@@ -1034,6 +1034,65 @@ function addDirtySource(gen, fn) {
   dirtyCheck = prev ? () => prev() + fn() : fn;
 }
 
+/* A63：保存途中用户接着在输入框里改过时，重绘后保留用户当前输入和光标位置，并把保存按钮恢复可用。 */
+function keepTyped(specs, root = document) {
+  const list = specs.map(s => (typeof s === "string" ? { sel: s } : s));
+  const readEl = (el, kind) => (el ? (kind === "check" || el.type === "checkbox" ? !!el.checked : el.value) : undefined);
+  const writeEl = (el, val, kind) => {
+    if (!el || val === undefined) return;
+    if (kind === "check" || el.type === "checkbox") el.checked = !!val;
+    else el.value = val;
+  };
+  const snap = new Map();
+  for (const s of list) {
+    const el = root ? root.querySelector(s.sel) : null;
+    snap.set(s.sel, readEl(el, s.kind));
+  }
+  let live = null;
+  const captureLive = (curRoot = root) => {
+    const vals = new Map();
+    let anyChanged = false, activeSel = "", selStart = null, selEnd = null;
+    const ae = document.activeElement;
+    for (const s of list) {
+      const el = curRoot ? curRoot.querySelector(s.sel) : null;
+      const cur = readEl(el, s.kind), prev = snap.get(s.sel);
+      const changed = cur !== undefined && prev !== undefined && cur !== prev;
+      if (changed) anyChanged = true;
+      vals.set(s.sel, { val: cur, changed, kind: s.kind });
+      if (el && ae === el) {
+        activeSel = s.sel;
+        try { selStart = el.selectionStart; selEnd = el.selectionEnd; } catch {}
+      }
+    }
+    live = { vals, anyChanged, activeSel, selStart, selEnd };
+    return live;
+  };
+  const restore = (nextRoot = root, btnSel = "") => {
+    const st = live || captureLive(nextRoot);
+    if (!st.anyChanged) return false;
+    for (const s of list) {
+      const info = st.vals.get(s.sel);
+      if (!info || !info.changed) continue;
+      const el = nextRoot ? nextRoot.querySelector(s.sel) : null;
+      writeEl(el, info.val, s.kind);
+    }
+    if (btnSel) {
+      const btn = nextRoot ? nextRoot.querySelector(btnSel) : $(btnSel);
+      if (btn) btn.disabled = false;
+    }
+    if (st.activeSel) {
+      const ae = nextRoot ? nextRoot.querySelector(st.activeSel) : $(st.activeSel);
+      if (ae && ae.focus) {
+        ae.focus();
+        if (st.selStart != null && ae.setSelectionRange) try { ae.setSelectionRange(st.selStart, st.selEnd); } catch {}
+      }
+    }
+    return true;
+  };
+  return { captureLive, restore, anyChanged: (r = root) => captureLive(r).anyChanged };
+}
+window.MDKeepTyped = keepTyped;
+
 /* 单个输入框 +「保存」按钮：值没变时按钮置灰，回车即保存；未保存的改动同样受切页守卫保护 */
 function bindSaveInput(input, btn, save, gen) {
   let base = input.value;
@@ -1532,10 +1591,19 @@ async function renderInstances() {
   };
   paintLeftovers();
   const taskList = $("#task-list");
-  let lastSig = "", curList = [], prevByName = null; // prevByName：上次渲染时各实例的数据（判定状态切换、播切换动效）
+  let lastSig = "", curList = [], curBroken = [], curLocal = true, prevByName = null; // prevByName：上次渲染时各实例的数据（判定状态切换、播切换动效）
   // 连接地址用的本机局域网 IP（见 pickLanIP）。列表不等 /api/app：拿到之前、或者拿不到时，卡片上只写端口、不给复制，拿到了再重画
   let lanIP = pickLanIP(knownIPs || []);
   const appInfo = api("/api/app").catch(() => ({}));
+  const brokenCardHTML = (b, n, enter) => `
+    <div class="card st-stopped${enter ? " item-enter" : ""}" style="--i:${n}" data-broken="${esc(b.id)}">
+      <div class="inst-head"><span style="color:var(--warning-text);flex:none;display:inline-flex;align-items:center">${icon("warn")}</span><div class="inst-title"><div class="inst-name">${esc(b.folder)}</div><div class="inst-sub">设置文件无法读取</div></div><span class="badge warn">无法读取</span></div>
+      <div class="inst-fail" style="margin-top:4px" title="${esc(b.reason)}">${icon("warn")}<span style="-webkit-line-clamp:unset">${esc(`这台服务器的设置文件读不出来：${b.reason}`)}</span></div>
+      <div class="inst-actions">
+        ${curLocal ? `<button type="button" class="btn sm" data-open-broken="${esc(b.id)}" aria-label="打开文件夹 ${esc(b.folder)}">${icon("folder")} 打开文件夹</button>`
+          : `<span class="hint">请到主机上打开这个文件夹，检查或修复 instance.json</span>`}
+      </div>
+    </div>`;
   const cardHTML = (i, n, enter, prev) => {
     const proxy = i.kind === "proxy";
     const gb = (i.xmxMb / 1024).toFixed(1) + " GB";
@@ -1581,6 +1649,7 @@ async function renderInstances() {
   const animateChanges = prev => {
     if (!prev || reducedMotion()) return;
     $("#inst-cards").querySelectorAll(".card").forEach(card => {
+      if (!card.dataset.name) return;
       const i = curList.find(x => x.name === card.dataset.name), p = prev.get(card.dataset.name);
       if (!i || !p || p.status === i.status) return;
       animatePill(card.querySelector(".st-pill"), p.status, i.status);
@@ -1597,12 +1666,21 @@ async function renderInstances() {
     let list = curList.filter(i => !q || i.name.toLowerCase().includes(q));
     if (sort === "name") list = list.slice().sort((a, b) => a.name.localeCompare(b.name));
     else if (sort === "running") list = list.slice().sort((a, b) => (b.status === "running") - (a.status === "running"));
+    const brokenList = curBroken.filter(b => !q || (b.folder || "").toLowerCase().includes(q) || (b.reason || "").toLowerCase().includes(q));
     const prev = prevByName;
     prevByName = new Map(curList.map(i => [i.name, i]));
-    if (!list.length) { $("#inst-cards").innerHTML = `<div class="empty" style="padding:40px 0">没有名称包含「${esc(q)}」的服务器</div>`; return; }
-    $("#inst-cards").innerHTML = `<div class="cards">` + list.map((i, n) => cardHTML(i, n, enter, prev && prev.get(i.name))).join("") + `</div>`;
+    if (!list.length && !brokenList.length) { $("#inst-cards").innerHTML = `<div class="empty" style="padding:40px 0">没有名称包含「${esc(q)}」的服务器</div>`; return; }
+    $("#inst-cards").innerHTML = `<div class="cards">` + list.map((i, n) => cardHTML(i, n, enter, prev && prev.get(i.name))).join("") + brokenList.map((b, n) => brokenCardHTML(b, list.length + n, enter)).join("") + `</div>`;
     animateChanges(prev);
     $("#inst-cards").querySelectorAll(".inst-meta").forEach(el => { if (el.dataset.motd) renderMotd(el, el.dataset.motd); });
+    $("#inst-cards").querySelectorAll("[data-open-broken]").forEach(btn => btn.onclick = async ev => {
+      ev.stopPropagation();
+      try {
+        await api(`/api/instances/${encodeURIComponent(btn.dataset.openBroken)}/opendir`, { method: "POST" });
+      } catch (e) {
+        toastErr("无法打开文件夹", e);
+      }
+    });
     $("#inst-cards").querySelectorAll("[data-act]").forEach(b => b.onclick = async ev => {
       ev.stopPropagation();
       const name = b.closest(".card").dataset.name, act = b.dataset.act;
@@ -1624,8 +1702,9 @@ async function renderInstances() {
       } catch (e) { if (act === "start") toastErr("无法启动服务器", e, { actions: await startFixes(name) }); else toastErr("无法停止服务器", e); }
       lastSig = ""; draw();
     });
-    // 整卡可点：点卡片空白处进入详情（卡内按钮 / 链接各自处理）
+    // 整卡可点：点卡片空白处进入详情（卡内按钮 / 链接各自处理；配置损坏卡片不进详情）
     $("#inst-cards").querySelectorAll(".card").forEach(c => c.onclick = e => {
+      if (c.dataset.broken || !c.dataset.name) return;
       if (e.target.closest("button, a")) return;
       location.hash = `#/inst/${encodeURIComponent(c.dataset.name)}`;
     });
@@ -1633,11 +1712,13 @@ async function renderInstances() {
   let first = true;
   const draw = async () => {
     refreshTaskList(taskList, gen);
-    let list, dups = [];
+    let list, dups = [], broken = [], isLocal = true;
     try {
       const resp = await api("/api/instances", { full: true });
       list = resp.data || [];
       dups = resp.duplicates || [];
+      broken = resp.broken || [];
+      if (typeof resp.local === "boolean") isLocal = resp.local;
     } catch (e) {
       if (!stale(gen)) $("#inst-cards").innerHTML = errBox("无法获取服务器列表", e, { hint: "正在自动重试" });
       return;
@@ -1645,10 +1726,15 @@ async function renderInstances() {
     if (stale(gen)) return;
     paintDuplicates(dups);
     curList = list;
+    curBroken = broken;
+    curLocal = isLocal;
     const running = list.filter(i => i.status === "running").length;
     const online = list.reduce((s, i) => s + (i.onlineCount || 0), 0);
-    $("#inst-summary").innerHTML = list.length ? `共 ${list.length} 台${SEP}运行中 ${running} 台${online ? `${SEP}在线 ${online} 人` : ""}` : "";
-    if (!list.length) {
+    const brokenSummary = broken.length ? `${SEP}配置无法读取 ${broken.length} 个` : "";
+    $("#inst-summary").innerHTML = list.length
+      ? `共 ${list.length} 台${SEP}运行中 ${running} 台${online ? `${SEP}在线 ${online} 人` : ""}${brokenSummary}`
+      : broken.length ? `共 ${broken.length} 个文件夹配置无法读取` : "";
+    if (!list.length && !broken.length) {
       $("#inst-chrome").hidden = true; // 没有实例时不显示「服务器」标题与搜索/排序
       $("#inst-cards").classList.add("page-fill");
       // 一个主行动 + 一个安静的次要入口（两个同权重按钮等于没有主按钮）。
@@ -1664,7 +1750,8 @@ async function renderInstances() {
     $("#inst-cards").classList.remove("page-fill");
     // 签名：数据无实质变化则跳过重绘（消除周期性闪烁与焦点丢失，也不重播动效）；启动中按秒推进分段条，所以带上时长
     // 端口、上次启动失败的原因、连接地址的 IP 也算：崩溃自动重启、定时重启没起来时，卡片上要跟着冒出原因
-    const sig = list.map(i => `${i.name}:${i.status}:${i.status === "running" ? Math.floor(i.uptimeSec / 60) + "/" + i.onlineCount : i.status === "starting" ? Math.floor(i.uptimeSec / 3) : ""}:${connectPortOf(i)}:${i.lastStartError || ""}:${i.javaMissing ? 1 : 0}`).join("|") + "#" + $("#inst-q").value + "#" + $("#inst-sort").value + "#" + lanIP;
+    const sig = list.map(i => `${i.name}:${i.status}:${i.status === "running" ? Math.floor(i.uptimeSec / 60) + "/" + i.onlineCount : i.status === "starting" ? Math.floor(i.uptimeSec / 3) : ""}:${connectPortOf(i)}:${i.lastStartError || ""}:${i.javaMissing ? 1 : 0}`).join("|")
+      + "#" + broken.map(b => `${b.id}:${b.folder}:${b.reason}`).join("|") + "#" + (isLocal ? 1 : 0) + "#" + $("#inst-q").value + "#" + $("#inst-sort").value + "#" + lanIP;
     if (sig === lastSig) return;
     lastSig = sig;
     // 首屏：骨架淡出（160ms）后卡片逐项入场（错峰 28ms）；之后的重绘不再播入场
@@ -1682,7 +1769,7 @@ async function renderInstances() {
     const ips = learnIPs(app);
     if (stale(gen)) return;
     lanIP = pickLanIP(ips);
-    if (curList.length) draw();
+    if (curList.length || curBroken.length) draw();
   });
   await draw();
   startPoll(draw, 3000, gen);
@@ -3234,7 +3321,7 @@ async function renderTaskPage(taskId) {
     const cancelText = /context canceled/i.test(t.error || "") ? "已取消" : (t.error || "已取消");
     $("#t-msgs").innerHTML = (t.ended && t.cancelled
       ? `<div class="task-note" role="status">${icon("info")}<span>${esc(cancelText)}。${draft ? "之前填的都还在，点「返回修改」接着改。" : ""}</span></div>`
-      : t.error ? `<div class="err-box"><b>${K.fail}：</b>${esc(t.error)}<br><br>${t.cleanupFailed ? LEFTOVER_HINT : K.failHint}${draft ? "点「返回修改」回到刚才的表单，填过的都在。" : ""}
+      : t.error ? `<div class="err-box"><b>${K.fail}：</b>${esc(t.error)}${t.errHint ? `<div style="margin-top:6px">${esc(t.errHint)}</div><div style="margin-top:6px">` : "<br><br>"}${t.cleanupFailed ? LEFTOVER_HINT : K.failHint}${draft ? "点「返回修改」回到刚才的表单，填过的都在。" : ""}${t.errHint ? "</div>" : ""}
         <div style="margin-top:8px"><button class="btn sm ghost" data-copy-task-fail>${icon("copy")} 复制报错信息</button></div></div>` : "") +
       (t.warnings || []).map(w => `<div class="warn-card" data-warn="${esc(w.kind || "")}">
         <div class="wc-title">${icon("warn")} ${esc(w.title)}</div>
@@ -5565,20 +5652,29 @@ async function renderTunnels() {
     const showErr = html => { errEl.innerHTML = html || ""; };
     nameIn.addEventListener("input", () => showErr(""));
     nameIn.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); okBtn.click(); } });
+    let curT = { ...t };
     okBtn.onclick = async () => {
       const name = nameIn.value.trim();
       if (!name) { showErr("请填写隧道名称"); nameIn.focus(); return; }
       showErr("");
       // 只发这个窗口里改了的（修改接口只改传了的项）：弹窗是照打开那一刻的列表填的，别的窗口这期间改了跟随启动、
       // 这里只改名字的话，带上弹窗里的旧开关就把它改回去了（Codex 复审 v3.2.0 第二轮）。一样都没改就直接关掉
+      const kt = keepTyped(["#tn-ed-name", "#tn-ed-bound", "#tn-ed-auto"], mask);
       const change = {}, bound = mask.querySelector("#tn-ed-bound").value, auto = mask.querySelector("#tn-ed-auto").checked;
-      if (name !== t.name) change.name = name;
-      if (bound !== (t.boundInstance || "")) change.boundInstance = bound;
-      if (auto !== !!t.autoStart) change.autoStart = auto;
+      if (name !== curT.name) change.name = name;
+      if (bound !== (curT.boundInstance || "")) change.boundInstance = bound;
+      if (auto !== !!curT.autoStart) change.autoStart = auto;
       if (!Object.keys(change).length) { close(); return; }
       okBtn.disabled = true;
       try {
-        await api(`/api/tunnels/${encodeURIComponent(t.id)}`, { method: "PUT", body: change });
+        await api(`/api/tunnels/${encodeURIComponent(curT.id)}`, { method: "PUT", body: change });
+        if (!closed && kt.anyChanged(mask)) {
+          curT = { ...curT, ...change };
+          kt.restore(mask, '[data-x="ok"]');
+          toast(`已保存「${name}」的修改（框里有未保存的新改动）`);
+          if (!stale(gen)) drawList();
+          return;
+        }
         close();
         if (stale(gen)) return;
         toast(`已保存「${name}」的修改`);
@@ -5680,7 +5776,7 @@ async function renderSettings(section) {
     Main().innerHTML = pageHead("设置", "", "", "", "", "set-eyebrow") + `
       <div class="settings-layout">
         <nav class="settings-nav" aria-label="设置分区">${SETTINGS_SECTIONS.map(s => `
-          <a class="set-nav" data-sec="${s.id}" href="#/settings/${s.id}"><span class="sn-ico">${icon(s.icon)}</span>${s.label}</a>`).join("")}</nav>
+          <a class="set-nav" data-sec="${s.id}" href="#/settings/${s.id}"><span class="sn-ico">${icon(s.icon)}</span>${s.label}${s.id === "about" ? `<i class="nav-dot" id="set-about-dot" hidden aria-hidden="true"></i>` : ""}</a>`).join("")}</nav>
         <div class="settings-body" id="set-body"><div class="sub">加载中…</div></div>
       </div>`;
   }
@@ -5695,6 +5791,7 @@ async function renderSettings(section) {
   let info;
   try { info = await api("/api/app"); } catch (e) { if (!stale(gen)) body.innerHTML = errBox("无法读取设置", e); return; }
   if (stale(gen)) return; // 快速连点分区时，先发后至的旧响应不得覆盖当前分区
+  syncUpdateDot(info);
   ({ appearance: setAppearance, download: setDownload, storage: setStorage, java: setJava, remote: setRemote, notify: setNotify, ai: setAI, startup: setStartup, about: setAbout }[section])(body, info);
   playClass(body, "sec-enter"); // 只动被替换的分区内容（上移 4px 淡入）
 }
@@ -6043,26 +6140,39 @@ function setRemote(body, info) {
       }
       b.lanPassword = lanPw.value; // 密码框里已经填了：和开关一起保存
     } else if (lanPw.value) b.lanPassword = lanPw.value; // 已有密码时框里填了新的：也一起保存，不然重画清空了框，用户以为新密码生效了（独立评审发现）
+    const kt = b.lanPassword ? keepTyped(["#lan-pw"], body) : null;
     lanOn.disabled = true;
     try {
       await api("/api/config", { method: "PUT", body: b });
+      if (kt && !stale(gen)) kt.captureLive(body);
       saved(b);
-      toast((turnOn ? "已开启手机远程管理" : "已关闭手机远程管理") + effect(turnOn) + (b.lanPassword && info.lanSet ? "。新的访问密码已保存" : ""));
+      const kept = kt && !stale(gen) && kt.restore(body, "#lan-save");
+      if (kept && $("#lan-save")) $("#lan-save").classList.add("primary");
+      toast((turnOn ? "已开启手机远程管理" : "已关闭手机远程管理") + effect(turnOn) + (b.lanPassword && info.lanSet ? "。新的访问密码已保存" : "") + (kept ? "（输入框里还有未保存的新改动）" : ""));
     } catch (e) { lanOn.checked = !turnOn; lanOn.disabled = false; toastErr(turnOn ? "无法开启手机远程管理" : "无法关闭手机远程管理", e); }
   };
   // 保存密码：只发密码。只有刚才因为没密码被拨回去的那一下（wantOn）才连开关一起开，即「密码和开关一起保存」。
   // 不拿页面上的开关状态一起发：另一个窗口刚关掉了远程管理，这一页没刷新、开关还显示开着，一改密码就会把它又打开
   // （Codex 复审 v3.2.0 第二轮。后端 listenLan 不给就是不改）
-  $("#lan-save").onclick = async () => {
+  const saveBtn = $("#lan-save");
+  saveBtn.onclick = async () => {
     if (!lanPw.value) { pwErr(info.lanSet ? "输入新密码再保存" : "请先输入访问密码"); lanPw.focus(); return; }
     const b = { lanPassword: lanPw.value };
     if (wantOn) b.listenLan = true;
     const opening = wantOn && !on;
+    const kt = keepTyped(["#lan-pw"], body);
+    saveBtn.disabled = true;
     try {
       await api("/api/config", { method: "PUT", body: b });
+      if (!stale(gen)) kt.captureLive(body);
       saved(b);
-      toast(opening ? "访问密码已保存，已开启手机远程管理" + effect(true) : "访问密码已保存");
-    } catch (e) { toastErr("无法保存访问密码", e); }
+      const kept = !stale(gen) && kt.restore(body, "#lan-save");
+      if (kept && $("#lan-save")) $("#lan-save").classList.add("primary");
+      toast((opening ? "访问密码已保存，已开启手机远程管理" + effect(true) : "访问密码已保存") + (kept ? "（输入框里还有未保存的新改动）" : ""));
+    } catch (e) {
+      if (!stale(gen) && saveBtn.isConnected) saveBtn.disabled = false;
+      toastErr("无法保存访问密码", e);
+    }
   };
   lanPw.oninput = () => pwErr("");
   lanPw.onkeydown = e => { if (e.key === "Enter") $("#lan-save").click(); };
@@ -6196,7 +6306,7 @@ function drawAI(body, v, gen) {
       { ico: true, attrs: `id="ai-form"` }) +
     (ro ? "" : saveBar("保存")) +
     group(riRow({ ico: "monitor", title: "测试连接", sub: `<span id="ai-test-sub"></span>`, right: `<button class="btn" id="ai-test"${dis}>${icon("bolt")} 测试连接</button>` }), { ico: true }) +
-    settingsHead("每日额度", "按功能分别设每天最多用多少 token（输入、输出、缓存都算），用完后这项功能暂停到第二天 0 点。留空或填 0 表示不限。") +
+    settingsHead("每日额度", "按功能分别设每天最多用多少 token（只算输入和输出，缓存不计入额度），用完后这项功能暂停到第二天 0 点。留空或填 0 表示不限。") +
     group(AI_FEATS.map(f => riRow({ ico: "clock", title: f.name, sub: `<span id="q-sub-${f.id}">${aiUsageLine(v.today[f.id], v.month[f.id])}</span>`,
       field: `<input type="number" id="q-${f.id}" min="0" step="any" inputmode="decimal" placeholder="不限" value="${v.quota[f.id] ? v.quota[f.id] / 10000 : ""}" aria-label="${esc(f.name)}每日额度（万 token）"${dis}>` +
         `<span class="ri-unit">万 token / 天</span><button class="btn" id="q-save-${f.id}" aria-label="保存${esc(f.name)}每日额度"${dis}>保存</button>`,
@@ -6322,13 +6432,22 @@ function drawAI(body, v, gen) {
       err("");
       const item = { model, currency: $("#cp-cur").value, input: +inp, output: +out };
       if (cache !== "") item.cacheRead = +cache;
-      savePrices({ addPrices: [item] }, "已添加自填单价"); // 同一个模型已经有的，后端换成这一份
+      const kt = keepTyped(["#cp-model", "#cp-cur", "#cp-in", "#cp-out", "#cp-cache"], $("#ai-prices"));
+      $("#cp-add").disabled = true;
+      savePrices({ addPrices: [item] }, "已添加自填单价", kt); // 同一个模型已经有的，后端换成这一份
     };
   };
-  const savePrices = async (change, msg) => {
+  const savePrices = async (change, msg, kt) => {
     try { v = await api("/api/ai/prices", { method: "PUT", body: change }); toast(msg); }
-    catch (e) { toastErr("无法保存自填单价", e); return; }
-    if (!stale(gen)) paintPrices();
+    catch (e) {
+      if (!stale(gen) && $("#cp-add")) $("#cp-add").disabled = false;
+      toastErr("无法保存自填单价", e); return;
+    }
+    if (!stale(gen)) {
+      if (kt) kt.captureLive($("#ai-prices"));
+      paintPrices();
+      if (kt) kt.restore($("#ai-prices"), "#cp-add");
+    }
   };
   const paintTest = () => {
     const btn = $("#ai-test");
@@ -6607,27 +6726,52 @@ function drawAI(body, v, gen) {
 }
 
 /* — 更新与关于 — */
-/* 更新渠道（config.updateChannel）：稳定版只收正式版，最新版正式版和测试版都收。没选过时后端按正在用的版本定（info.updateChannel） */
+/* 更新渠道（config.updateChannel）："" 跟随当前版本（默认，正式版跟稳定版、测试版跟最新版）；stable 只收正式版；latest 正式版和测试版都收 */
 const UPDATE_CH = {
-  stable: { name: "稳定版", t: "稳定版（只收正式版）", d: "只提示正式发布的版本。" },
-  latest: { name: "最新版", t: "最新版（包括测试版）", d: "正式版和测试版都提示，哪个新提示哪个。测试版可能有还没发现的问题。" },
+  auto:   { name: "跟随当前版本", t: "跟随当前版本（默认）", d: "正式版只收正式版，测试版连测试版一起收；以后装回正式版也会自动跟回正式版。" },
+  stable: { name: "稳定版",       t: "稳定版（只收正式版）",   d: "只提示正式发布的版本。" },
+  latest: { name: "最新版",       t: "最新版（包括测试版）",   d: "正式版和测试版都提示，哪个新提示哪个。测试版可能有还没发现的问题。" },
+};
+const UPDATE_CH_ORDER = ["auto", "stable", "latest"];
+let seenStartupTag = ""; // A78：点过「查看」的启动更新版本不再亮圆点
+const syncUpdateDot = info => {
+  const show = !!(info && info.startupUpdate && info.startupUpdate.tag && info.startupUpdate.tag !== seenStartupTag);
+  const navDot = $("#nav-settings-dot"), aboutDot = $("#set-about-dot");
+  if (navDot) navDot.hidden = !show;
+  if (aboutDot) aboutDot.hidden = !show;
 };
 const updateChName = ch => (UPDATE_CH[ch] || UPDATE_CH.stable).name;
-const updateChSub = (ch, chosen) => "检查更新和启动时的检查都按这里选的来。" +
-  (chosen ? "" : `还没选过，按正在用的版本先定成「${updateChName(ch)}」。`);
+const updateChSub = (eff, raw) => "检查更新和启动时的检查都按这里选的来。" +
+  (raw ? "" : `还没选过，按正在用的版本定成「${updateChName(eff)}」。`);
 /* 检查更新的结果写明按哪个渠道查的、查到的是正式版还是测试版。
    ahead：正在用的比查到的还新，不提示更新（稳定渠道上用着测试版时，说清楚等同号的正式版出来再提示） */
 function updateResultText(r) {
   const head = `按「${updateChName(r.channel)}」查：`;
+  if (!r.latest || !r.latest.tag) return `${head}还没有正式发布的版本，暂不更新（当前 v${r.current}）`;
   const kind = r.prerelease ? "测试版" : "正式版";
   if (r.ahead && r.channel === "stable" && r.currentPrerelease)
     return `${head}最新的正式版是 ${r.latest.tag}。你用的是测试版 v${r.current}，比它新，不会退回去；正式版 ${String(r.current).split(/[-+]/)[0]} 出来以后会提示更新。`;
   if (r.ahead) return `${head}已是最新。正在用的 v${r.current} 比查到的 ${r.latest.tag}（${kind}）还新。`;
   return `${head}已是最新（v${r.current}，${kind}）`;
 }
+function renderFoundUpdate(out, { tag, prerelease, channel, current }) {
+  out.innerHTML = `按「${esc(updateChName(channel))}」查：发现新版本 <b style="color:var(--accent-text)">${esc(tag)}</b>（${prerelease ? "测试版" : "正式版"}），当前 v${esc(current)} `;
+  const btn = document.createElement("button");
+  btn.className = "btn sm primary";
+  btn.innerHTML = icon("arrowUp") + " 立即更新并重启";
+  btn.onclick = async () => {
+    btn.disabled = true;
+    try { await api("/api/update/apply", { method: "POST" }); document.body.innerHTML = `<div style="padding:80px;text-align:center;color:var(--muted)">正在更新，程序将自动重启…</div>`; }
+    catch (e) { toastErr("无法更新 MineDeck", e); btn.disabled = false; }
+  };
+  out.appendChild(btn);
+}
 function setAbout(body, info) {
-  const ch = UPDATE_CH[info.updateChannel] ? info.updateChannel : (/-/.test(info.version) ? "latest" : "stable");
+  let effCh = info.updateChannel === "latest" || info.updateChannel === "stable" ? info.updateChannel : (/-/.test(info.version) ? "latest" : "stable");
+  let rawCh = info.config.updateChannel === "stable" || info.config.updateChannel === "latest" ? info.config.updateChannel : "";
+  const selCh = () => rawCh || "auto";
   const chCheck = on => `<span class="ri-check${on ? " on" : ""}" aria-hidden="true">${icon("check")}</span>`;
+  const su = info.startupUpdate && info.startupUpdate.tag && info.startupUpdate.tag !== seenStartupTag ? info.startupUpdate : null;
   body.innerHTML = `<div class="brand-head about-head">${logoImg()}<div><h2>MineDeck</h2><div class="sub">Windows 本地 Minecraft 开服工具 · v${esc(info.version)}</div></div></div>` +
     settingsHead("版本与更新", "") +
     group(
@@ -6638,10 +6782,11 @@ function setAbout(body, info) {
       riRow({ ico: "refresh", title: "启动时静默检查更新", sub: "程序启动后在后台按下面选的更新渠道检查一次新版本（需已填写更新仓库）",
         right: `<label class="switch"><input type="checkbox" id="up-silent" ${info.config.checkUpdateOnStart ? "checked" : ""} aria-label="启动时静默检查更新"><span class="sw"></span></label>` }),
       { ico: true }) +
+    (su ? `<div class="set-note up-startup" id="up-startup" role="status">${icon("info")}<span>启动时查到新版本 <b>${esc(su.tag)}</b></span><button type="button" class="btn sm" id="up-startup-view">查看</button></div>` : "") +
     `<div class="hint" id="up-result" aria-live="polite"></div>` +
-    settingsHead("更新渠道", `<span id="up-ch-sub">${esc(updateChSub(ch, !!info.config.updateChannel))}</span>`) +
-    group(["stable", "latest"].map(v => riRow({ title: UPDATE_CH[v].t, sub: esc(UPDATE_CH[v].d), right: chCheck(ch === v), cls: "choice" + (ch === v ? " sel" : ""),
-      attrs: `role="radio" tabindex="0" aria-checked="${ch === v}" data-ch="${v}"` })).join(""), { attrs: `id="up-channel" role="radiogroup" aria-label="更新渠道"` }) +
+    settingsHead("更新渠道", `<span id="up-ch-sub">${esc(updateChSub(effCh, rawCh))}</span>`) +
+    group(UPDATE_CH_ORDER.map(v => riRow({ title: UPDATE_CH[v].t, sub: esc(UPDATE_CH[v].d), right: chCheck(selCh() === v), cls: "choice" + (selCh() === v ? " sel" : ""),
+      attrs: `role="radio" tabindex="0" aria-checked="${selCh() === v}" data-ch="${v}"` })).join(""), { attrs: `id="up-channel" role="radiogroup" aria-label="更新渠道"` }) +
     settingsHead("关于", "") +
     `<div class="hint" style="line-height:1.9">
       内网穿透基于 <b>OpenFrp OPENAPI</b> 接入（<a href="https://www.openfrp.net" target="_blank">openfrp.net</a>）。<br>
@@ -6661,18 +6806,35 @@ function setAbout(body, info) {
     try { await api("/api/config", { method: "PUT", body: { checkUpdateOnStart: $("#up-silent").checked } }); toast($("#up-silent").checked ? "已开启启动时检查更新" : "已关闭启动时检查更新"); }
     catch (e) { toastErr($("#up-silent").checked ? "无法开启启动时检查更新" : "无法关闭启动时检查更新", e); $("#up-silent").checked = !$("#up-silent").checked; }
   };
-  // 选了马上保存；上一个渠道查出来的结果（连同「立即更新并重启」）不再作数，清掉。
+  const hideStartupBanner = tag => {
+    if (tag) seenStartupTag = tag;
+    info.startupUpdate = null;
+    syncUpdateDot(info);
+    const ban = $("#up-startup");
+    if (ban) ban.remove();
+  };
+  if ($("#up-startup-view")) {
+    $("#up-startup-view").onclick = () => {
+      hideStartupBanner(su.tag);
+      renderFoundUpdate($("#up-result"), { tag: su.tag, prerelease: !!su.prerelease, channel: su.channel || effCh, current: info.version });
+    };
+  }
+  // 选了马上保存；上一个渠道查出来的结果（连同「立即更新并重启」）和启动提示不再作数，清掉。
   // chSeq 记改过几次渠道：改之前发出去、改之后才回来的检查结果也不要了
-  // 没选过时默认的那项也能点：点了就存下来、算选过（回访走查 11-16：再点一下没反应，又写着「还没选过」，不知道记没记住）。
-  // 只改渠道不会让程序自己去查，静默检查关着时提示里顺带说一句
-  let chSeq = 0, chosen = !!info.config.updateChannel;
+  let chSeq = 0;
   const pickCh = async c => {
     const v = c.dataset.ch, out = $("#up-result"), grp = $("#up-channel"), sub = $("#up-ch-sub");
-    const wasSel = c.classList.contains("sel");
-    if (wasSel && chosen) { toast(`现在就是「${updateChName(v)}」`); return; }
+    const wantRaw = v === "auto" ? "" : v;
+    if (selCh() === v) {
+      toast(v === "auto" ? `现在就是「跟随当前版本」（当前按「${updateChName(effCh)}」查）` : `现在就是「${updateChName(v)}」`);
+      return;
+    }
     try {
-      await api("/api/config", { method: "PUT", body: { updateChannel: v } });
-      chosen = true;
+      await api("/api/config", { method: "PUT", body: { updateChannel: wantRaw } });
+      rawCh = wantRaw;
+      effCh = rawCh || (/-/.test(info.version) ? "latest" : "stable");
+      info.config.updateChannel = rawCh;
+      info.updateChannel = effCh;
       chSeq++;
       grp.querySelectorAll(".row-item").forEach(x => {
         const on = x === c;
@@ -6680,11 +6842,14 @@ function setAbout(body, info) {
         x.setAttribute("aria-checked", String(on));
         x.querySelector(".ri-check").classList.toggle("on", on);
       });
-      sub.textContent = updateChSub(v, true);
+      sub.textContent = updateChSub(effCh, rawCh);
       out.textContent = "";
+      hideStartupBanner(su ? su.tag : "");
       const silentOff = !$("#up-silent").checked;
-      toast((wasSel ? "已选定" : "已改成") + (v === "latest" ? "最新版：正式版和测试版都会提示" : "稳定版：只提示正式版") +
-        (silentOff ? "。要程序启动时自己检查，还得打开上面的「启动时静默检查更新」" : ""));
+      const msg = v === "auto"
+        ? `已改成跟随当前版本（当前按「${updateChName(effCh)}」查）`
+        : "已改成" + (v === "latest" ? "最新版：正式版和测试版都会提示" : "稳定版：只提示正式版");
+      toast(msg + (silentOff ? "。要程序启动时自己检查，还得打开上面的「启动时静默检查更新」" : ""));
     } catch (e) { toastErr("无法切换更新渠道", e); }
   };
   $("#up-channel").querySelectorAll(".row-item").forEach(c => {
@@ -6697,17 +6862,9 @@ function setAbout(body, info) {
     try {
       const r = await api("/api/update/check", { method: "POST" });
       if (seq !== chSeq) return; // 查的时候改了渠道：这是按旧渠道查的，不显示
+      hideStartupBanner(su ? su.tag : "");
       if (r.hasUpdate) {
-        out.innerHTML = `按「${esc(updateChName(r.channel))}」查：发现新版本 <b style="color:var(--accent-text)">${esc(r.latest.tag)}</b>（${r.prerelease ? "测试版" : "正式版"}），当前 v${esc(r.current)} `;
-        const btn = document.createElement("button");
-        btn.className = "btn sm primary";
-        btn.innerHTML = icon("arrowUp") + " 立即更新并重启";
-        btn.onclick = async () => {
-          btn.disabled = true;
-          try { await api("/api/update/apply", { method: "POST" }); document.body.innerHTML = `<div style="padding:80px;text-align:center;color:var(--muted)">正在更新，程序将自动重启…</div>`; }
-          catch (e) { toastErr("无法更新 MineDeck", e); btn.disabled = false; }
-        };
-        out.appendChild(btn);
+        renderFoundUpdate(out, { tag: r.latest.tag, prerelease: r.prerelease, channel: r.channel, current: r.current });
       } else {
         out.textContent = updateResultText(r);
       }
@@ -6776,6 +6933,7 @@ async function applyBackground() {
   try {
     info = await api("/api/app");
     $("#app-ver").textContent = info.version;
+    syncUpdateDot(info);
     const cores = await api("/api/cores").catch(() => []);
     cores.forEach(c => CORES[c.id] = c);
   } catch (e) {

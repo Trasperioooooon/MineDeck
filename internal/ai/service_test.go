@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -443,13 +444,13 @@ func TestLedgerQuotaAndCost(t *testing.T) {
 		t.Errorf("查不到价格应返回 nil：%+v", c)
 	}
 	today := s.View().Today[FeatAssistant]
-	if today.Requests != 3 || today.Tokens != 4100 || today.Estimated != 1 || today.Unpriced != 1 ||
+	if today.Requests != 3 || today.Tokens != 3100 || today.Estimated != 1 || today.Unpriced != 1 ||
 		!near(today.Cost["USD"], 1000*3e-7+1000*6e-9+500*1.2e-6) || !near(today.Cost["CNY"], 0.006) {
 		t.Errorf("今天的合计：%+v", today)
 	}
 	// 额度用完：暂停到第二天
 	var qe *QuotaError
-	if err := s.Begin(FeatAssistant); !errors.As(err, &qe) || qe.Used != 4100 || qe.Limit != 3000 || !strings.Contains(err.Error(), "明天 0 点恢复") {
+	if err := s.Begin(FeatAssistant); !errors.As(err, &qe) || qe.Used != 3100 || qe.Limit != 3000 || !strings.Contains(err.Error(), "明天 0 点恢复") {
 		t.Fatalf("额度用完应报错：%v", err)
 	}
 	if err := s.Begin(FeatGameChat); err != nil {
@@ -461,7 +462,7 @@ func TestLedgerQuotaAndCost(t *testing.T) {
 	}
 	s.Record(FeatAssistant, &Result{Usage: Usage{Input: 50}})
 	month := s.View().Month[FeatAssistant]
-	if month.Requests != 4 || month.Tokens != 4150 {
+	if month.Requests != 4 || month.Tokens != 3150 {
 		t.Errorf("本月合计：%+v", month)
 	}
 	now = now.Add(24 * time.Hour) // 11 月 1 日：本月从零算
@@ -531,5 +532,114 @@ func TestLANAssistantSetting(t *testing.T) {
 	}
 	if d := nd.dials(); len(d) != 0 {
 		t.Errorf("不该联网：%v", d)
+	}
+}
+
+// 每日额度只算输入与输出 token（缓存读取和写入仍正常计费，但不消耗额度）；磁盘上的旧账不迁移、不改写。
+func TestQuotaOnlyCountsInputAndOutput(t *testing.T) {
+	ps := &priceServer{body: samplePrices(t)}
+	f := ps.serve(t)
+	now := time.Date(2026, 10, 30, 14, 0, 0, 0, time.Local)
+	clock := func() time.Time { return now }
+
+	// A. 新记账：Input + Output 计入额度，CacheRead / CacheWrite / Reasoning 不占额度，但 CacheRead 照常计费。
+	s := NewService(Options{Dir: t.TempDir(), Keys: &memKeys{m: map[string]string{}}, HTTP: f.srv.Client(), Now: clock, PriceURL: f.srv.URL + "/m2/litellm.json"})
+	if err := s.SetProvider(ProviderPatch{Preset: strp("deepseek"), Key: strp("sk-1"), Model: strp("deepseek-v4-flash")}); err != nil {
+		t.Fatal(err)
+	}
+	s.prices.wait()
+	if err := s.SetQuota(map[Feature]int64{FeatAssistant: 1000}); err != nil {
+		t.Fatal(err)
+	}
+	c := s.Record(FeatAssistant, &Result{
+		Model: "deepseek-v4-flash",
+		Usage: Usage{Input: 600, Output: 400, Reasoning: 150, CacheRead: 5000, CacheWrite: 2000},
+	})
+	wantCost := 600*3e-7 + 5000*6e-9 + 400*1.2e-6
+	if c == nil || !near(c.Amount, wantCost) {
+		t.Fatalf("带缓存的费用估算：%+v，期望 %v", c, wantCost)
+	}
+	today := s.View().Today[FeatAssistant]
+	if today.Tokens != 1000 {
+		t.Fatalf("额度用量应只算 Input+Output=1000：%d（%+v）", today.Tokens, today)
+	}
+	if used, limit := s.Usage(FeatAssistant); used.Tokens != 1000 || limit != 1000 {
+		t.Fatalf("Usage() 应返回 1000/1000：%+v limit=%d", used, limit)
+	}
+	var qe *QuotaError
+	if err := s.Begin(FeatAssistant); !errors.As(err, &qe) || qe.Used != 1000 || qe.Limit != 1000 {
+		t.Fatalf("达到 1000 上限时 Begin 应报 QuotaError(1000/1000)：%v", err)
+	}
+
+	// B. 预置磁盘 usage.json：含一条拆过明细的旧记录（tokens 里当年混进了缓存）和一条未拆分的早期记录，读出来只按新口径算、盘上文件原封不动。
+	dir := t.TempDir()
+	rawUsage := []byte(`{
+ "v": 1,
+ "days": {
+  "2026-10-29": {
+   "assistant": {
+    "requests": 2,
+    "input": 300,
+    "output": 200,
+    "cacheRead": 4000,
+    "cacheWrite": 1000,
+    "tokens": 5500
+   }
+  },
+  "2026-10-30": {
+   "assistant": {
+    "requests": 1,
+    "tokens": 250
+   }
+  }
+ }
+}
+`)
+	usagePath := filepath.Join(dir, "usage.json")
+	if err := os.WriteFile(usagePath, rawUsage, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	nd := &noDial{}
+	s2 := NewService(Options{Dir: dir, Keys: &memKeys{m: map[string]string{}}, HTTP: nd.client(), Now: clock})
+	if err := s2.SetProvider(ProviderPatch{Preset: strp("ollama"), Model: strp("qwen3:8b")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s2.SetQuota(map[Feature]int64{FeatAssistant: 400}); err != nil {
+		t.Fatal(err)
+	}
+	v := s2.View()
+	if v.Today[FeatAssistant].Tokens != 250 {
+		t.Errorf("未拆分的早期记录应保留 250：%d", v.Today[FeatAssistant].Tokens)
+	}
+	if v.Month[FeatAssistant].Tokens != 750 {
+		t.Errorf("本月合计应为 300+200+250=750（忽略旧记录里的缓存 5000）：%d", v.Month[FeatAssistant].Tokens)
+	}
+	if used, limit := s2.Usage(FeatAssistant); used.Tokens != 250 || limit != 400 {
+		t.Errorf("Usage() 期望 250/400：%+v %d", used, limit)
+	}
+	if err := s2.Begin(FeatAssistant); err != nil {
+		t.Errorf("还没到 400 不应超限：%v", err)
+	}
+	gotDisk, err := os.ReadFile(usagePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotDisk, rawUsage) {
+		t.Errorf("读取/检查用量不应该改写盘上的 usage.json：\ngot:\n%s\nwant:\n%s", gotDisk, rawUsage)
+	}
+	// 再记一笔（Input 100 + Output 50 + CacheRead 900）：在 250 基础上只加 150 -> 正好 400 触发上限，且重启后不回退。
+	s2.Record(FeatAssistant, &Result{Usage: Usage{Input: 100, Output: 50, CacheRead: 900}})
+	if got := s2.View().Today[FeatAssistant].Tokens; got != 400 {
+		t.Errorf("叠加新请求后应为 250+100+50=400：%d", got)
+	}
+	if err := s2.Begin(FeatAssistant); !errors.As(err, &qe) || qe.Used != 400 || qe.Limit != 400 {
+		t.Errorf("达到 400 应拦住：%v", err)
+	}
+	s3 := NewService(Options{Dir: dir, Keys: &memKeys{m: map[string]string{}}, HTTP: nd.client(), Now: clock})
+	if got := s3.View().Today[FeatAssistant].Tokens; got != 400 {
+		t.Errorf("写盘并重启后仍应保留 400：%d", got)
+	}
+	if len(nd.dials()) != 0 {
+		t.Errorf("本机模型不该联网：%v", nd.dials())
 	}
 }

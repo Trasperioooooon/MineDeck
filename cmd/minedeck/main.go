@@ -120,14 +120,12 @@ func main() {
 	mcpSvc.Start(addr.Port, *port) // 打开着 MCP 接口时写运行时文件（端口），stdio 桥据此找到这个 MineDeck
 	log.Println("MineDeck 已启动:", url)
 
-	// 启动时静默检查更新（可在设置中开关；仅日志提示，不打断）
+	// 启动时静默检查更新（可在设置中开关；写渠道与结果日志，查到新版本时记入内存供界面安静提示）
 	if cfg := app.GetConfig(); cfg.CheckUpdateOnStart && cfg.UpdateRepo != "" {
 		go func(repo string) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			if rel, has, err := update.Check(ctx, repo); err == nil && has {
-				log.Printf("发现新版本 %s（当前 v%s），可在设置中一键更新", rel.Tag, app.Version)
-			}
+			update.RunStartupCheck(ctx, repo, log.Printf)
 		}(cfg.UpdateRepo)
 	}
 

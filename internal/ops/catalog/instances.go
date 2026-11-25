@@ -558,7 +558,7 @@ func (c *cat) instanceOps() {
 		ExtraJVM        *[]string `json:"extraJvm"`
 	}
 	c.reg.Register(&ops.Op{
-		Name: "instance.settings.set", Title: "修改内存与启动参数", Level: ops.Write,
+		Name: "instance.settings.set", Title: "修改启动与内存", Level: ops.Write,
 		Desc: "改最大 / 最小内存、控制台编码、自定义 JVM 参数，并重新生成启动脚本；下次启动生效。",
 		Params: withInst(map[string]*ops.Schema{
 			"xmxMb":           ops.Integer("最大内存（MB），不低于 512；0 表示不改"),

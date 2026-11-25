@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"minedeck/internal/diskguard"
+	"minedeck/internal/errhint"
 	"minedeck/internal/inst"
 	"minedeck/internal/modinfo"
 	"minedeck/internal/winname"
@@ -383,7 +385,11 @@ func extractPrefix(ctx context.Context, src, destDir string, opts extractOpts,
 		}
 		rc.Close()
 		if cerr != nil {
-			return res, fmt.Errorf("解包 %s 失败: %w", e.name, cerr)
+			wrapErr := fmt.Errorf("解包 %s 失败: %w", e.name, cerr)
+			if errors.Is(cerr, zip.ErrFormat) || errors.Is(cerr, zip.ErrChecksum) || errors.Is(cerr, zip.ErrAlgorithm) || errors.Is(cerr, io.ErrUnexpectedEOF) {
+				return res, errhint.Wrap(wrapErr, "交接包可能损坏或没写完整，请重新获取后再试")
+			}
+			return res, wrapErr
 		}
 		if k != e.size {
 			return res, fmt.Errorf("解包 %s 后不完整（写到 %d 字节，包里记的是 %d）", e.name, k, e.size)

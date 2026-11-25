@@ -33,7 +33,7 @@ type Cost struct {
 	Source   string  `json:"source"` // litellm / custom / local（本机模型，不计费）
 }
 
-// Totals 一段时间的合计。Tokens 是额度按的那个数（输入 + 输出 + 缓存命中 + 缓存写入）。
+// Totals 一段时间的合计。Tokens 是计入每日额度的 token（只算输入 + 输出；历史未拆分的旧记录沿用原 totals）。
 type Totals struct {
 	Requests   int64              `json:"requests"`
 	Input      int64              `json:"input"`
@@ -45,16 +45,34 @@ type Totals struct {
 	Estimated  int64              `json:"estimated,omitempty"` // 其中几次的用量是按字数估的
 	Unpriced   int64              `json:"unpriced,omitempty"`  // 其中几次查不到价格（只记了 token）
 	Cost       map[string]float64 `json:"cost,omitempty"`      // 币种 → 金额（估）
+	QuotaOnly  bool               `json:"quotaOnly,omitempty"` // 记账时 Tokens 已按只算输入+输出规整，防止与同日未拆分旧账混记后重算丢失旧账
+}
+
+// quotaTokens 按「只算输入和输出」口径统计该条记录计入额度的 token；
+// 对磁盘上分不出 Input/Output/Cache 明细的老记录（Tokens > 四项之和）保留其未拆分部分，不迁移不改写 usage.json。
+func (t *Totals) quotaTokens() int64 {
+	if t.QuotaOnly {
+		return t.Tokens
+	}
+	unsplit := t.Tokens - (t.Input + t.Output + t.CacheRead + t.CacheWrite)
+	if unsplit < 0 {
+		unsplit = 0
+	}
+	return t.Input + t.Output + unsplit
 }
 
 func (t *Totals) add(u Usage, c *Cost) {
+	if !t.QuotaOnly {
+		t.Tokens = t.quotaTokens()
+		t.QuotaOnly = true
+	}
 	t.Requests++
 	t.Input += u.Input
 	t.Output += u.Output
 	t.CacheRead += u.CacheRead
 	t.CacheWrite += u.CacheWrite
 	t.Reasoning += u.Reasoning
-	t.Tokens += u.Total()
+	t.Tokens += u.QuotaTokens()
 	if u.Estimated {
 		t.Estimated++
 	}
@@ -78,7 +96,7 @@ func (t *Totals) merge(o *Totals) {
 	t.CacheRead += o.CacheRead
 	t.CacheWrite += o.CacheWrite
 	t.Reasoning += o.Reasoning
-	t.Tokens += o.Tokens
+	t.Tokens += o.quotaTokens()
 	t.Estimated += o.Estimated
 	t.Unpriced += o.Unpriced
 	for k, v := range o.Cost {
@@ -239,6 +257,8 @@ func (l *Ledger) Month(f Feature) Totals {
 
 func clone(t *Totals) Totals {
 	c := *t
+	c.Tokens = t.quotaTokens()
+	c.QuotaOnly = false
 	if t.Cost != nil {
 		c.Cost = map[string]float64{}
 		for k, v := range t.Cost {

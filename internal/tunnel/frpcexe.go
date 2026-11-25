@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"minedeck/internal/errhint"
 	"minedeck/internal/procutil"
 )
 
@@ -191,7 +192,11 @@ func usableFrpc(dir string, con *procutil.Console, managed bool) (exe string, sk
 		})
 		switch {
 		case err != nil:
-			return "", skip, fmt.Errorf("frpc 文件夹里的 %s 是坏的（%s），又没能删掉它（%w）。请关掉可能占着它的程序，手动删掉这个文件后重试。它在这个文件夹：%s", name, c.why, err, dir)
+			wrapErr := fmt.Errorf("frpc 文件夹里的 %s 是坏的（%s），又没能删掉它（%w）。请关掉可能占着它的程序，手动删掉这个文件后重试。它在这个文件夹：%s", name, c.why, err, dir)
+			if errhint.FromError(err) != "" {
+				return "", skip, wrapErr
+			}
+			return "", skip, errhint.Wrap(wrapErr, frpcDamagedHint)
 		case c.state == exeOK || c.state == exeUnknown:
 			if c.changing {
 				noteFrpcChanging(con, name)
@@ -208,8 +213,8 @@ func usableFrpc(dir string, con *procutil.Console, managed bool) (exe string, sk
 		}
 	}
 	if len(kept) > 0 {
-		return "", skip, fmt.Errorf("frpc 文件夹里的 %s 不能运行，可能是下载成了网页，或者下载的是压缩包、没有解开。MineDeck 没有动它；"+
-			"请把它换成从服务商下载的 frpc exe 后重试。它在这个文件夹：%s", strings.Join(kept, "、"), dir)
+		return "", skip, errhint.Wrap(fmt.Errorf("frpc 文件夹里的 %s 不能运行，可能是下载成了网页，或者下载的是压缩包、没有解开。MineDeck 没有动它；"+
+			"请把它换成从服务商下载的 frpc exe 后重试。它在这个文件夹：%s", strings.Join(kept, "、"), dir), frpcDamagedHint)
 	}
 	return "", skip, nil
 }
