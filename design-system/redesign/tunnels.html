@@ -93,7 +93,7 @@
   <h1>内网穿透 · 跟着服务器走</h1>
   <p class="d">作者的意见：建好服务器以后紧接着就该开内网穿透，这是一个连续的过程；每条隧道也该跟着它的服务器，单独开一页很奇怪。
     主会话同意，而且以前的可用性走查也记过「服务器页没有通往内网穿透的入口」（A74）。下面是改法：<b>隧道挪到服务器身上</b>（新建向导最后一步、详情页一个「联机」标签），
-    <b>只有平台账户是跨服务器的</b>，收进设置；胶囊里的「内网穿透」就不要了。</p>
+    <b>只有平台账户是跨服务器的</b>，收进设置；胶囊里的「内网穿透」就不要了。<b>作者 11-26 定了这个方向。</b></p>
 
   <div class="flows">
     <div class="flow"><h3>现在：朋友想进外地的服务器</h3>
@@ -161,7 +161,7 @@
   </div>
   <p class="note" style="margin-top:12px">首页卡片右下角那个圆钮跟着变：有隧道是地球、复制公网地址；没有是链接、复制局域网地址。卡片「···」里加一项「开内网穿透…」，直接跳到这个标签。</p>
 
-  <h2>③ 设置 · 穿透账户<small>只放跨服务器的东西：平台账户、签到和流量、还没绑服务器的老隧道</small></h2>
+  <h2>③ 设置 · 内网穿透<small>作者定了：胶囊里不要单独的「内网穿透」，连账户、看全部隧道都在设置里</small></h2>
   <div class="panel">
     <div class="accs">
       <div class="acc"><div class="row"><span class="n">OpenFrp</span><span class="sp"></span><span class="pill ok"><i class="dot"></i>已连接</span></div>
@@ -171,17 +171,23 @@
       <div class="acc"><div class="row"><span class="n">自己的 frps</span><span class="sp"></span></div>
         <div class="meta">不需要账户：在某台服务器的「联机」里填地址、端口和令牌就行。</div><div class="acts"><span class="btn ghost">怎么用</span></div></div>
     </div>
-    <div class="sub">还没绑定服务器的隧道 · 1</div>
-    <div class="trow" style="margin:0 0 0"><span class="ico-b"><i data-ic="globe"></i></span><div><div class="v" style="font-size:14px">我的隧道</div><div class="k">樱花穿透 · 隧道 778899 · 以前在「内网穿透」页加的</div></div><span class="sp"></span>
-      <span class="btn soft">绑定到…</span><span class="btn ghost ic" title="删除"><i data-ic="trash"></i></span></div>
+    <div class="sub">全部隧道 · 4　<span class="k" style="font-weight:400">平时在各台服务器的「联机」里管，这里只是总览；点一行跳到那台服务器</span></div>
+    <div class="tlist" style="margin:0">
+      <div class="trow"><span id="t1"></span><div><div class="v" style="font-size:14px">生存服 · 朋友</div><div class="k">游戏 · OpenFrp · 香港 2 号 · frp-hk.openfrp.net:31234</div></div><span class="sp"></span><span class="pill ok"><i class="dot"></i>已连上</span><span class="btn ghost ic" title="到这台服务器"><i data-ic="chevronRight"></i></span></div>
+      <div class="trow"><span id="t2"></span><div><div class="v" style="font-size:14px">空岛生存</div><div class="k">游戏 · OpenFrp · 上海 1 号 · 服务器开着，隧道没连上</div></div><span class="sp"></span><span class="pill" style="background:var(--danger-subtle);color:var(--danger-text)"><i class="dot"></i>连不上</span><span class="btn ghost ic" title="到这台服务器"><i data-ic="chevronRight"></i></span></div>
+      <div class="trow"><span id="t3"></span><div><div class="v" style="font-size:14px">空岛生存</div><div class="k">语音 · 樱花穿透 · 隧道 556677</div></div><span class="sp"></span><span class="pill off"><i class="dot"></i>没开</span><span class="btn ghost ic" title="到这台服务器"><i data-ic="chevronRight"></i></span></div>
+      <div class="trow"><span class="ico-b"><i data-ic="globe"></i></span><div><div class="v" style="font-size:14px">我的隧道 <span class="k">· 没绑定服务器</span></div><div class="k">樱花穿透 · 隧道 778899 · 以前在「内网穿透」页加的</div></div><span class="sp"></span>
+        <span class="btn soft">绑定到…</span><span class="btn ghost ic" title="删除"><i data-ic="trash"></i></span></div>
+    </div>
   </div>
 
   <h2>还要定的</h2>
-  <p class="note">一台服务器最多两条（游戏、语音各一条），作者定了够用；语音照旧能用但不再往上加功能，那一行只在装了 Simple Voice Chat 的服务器上出现。「设置 → 穿透账户」放在设置的哪一组，等设置页的结构定了再说。</p>
+  <p class="note">一台服务器最多两条（游戏、语音各一条），作者定了够用；语音照旧能用但不再往上加功能，那一行只在装了 Simple Voice Chat 的服务器上出现。「设置 → 内网穿透」放在设置的哪一组，等设置页的结构定了再说。</p>
 </main>
 <script>
 document.getElementById("av1").innerHTML = MDPixel16.avatar("paper", "", 32);
 document.getElementById("av2").innerHTML = MDPixel16.avatar("forge", "", 32);
+for (const [id, core] of [["t1", "paper"], ["t2", "purpur"], ["t3", "purpur"]]) document.getElementById(id).innerHTML = MDPixel16.avatar(core, "", 32);
 KIT_READY.then(() => KIT.hydrate(document.querySelector(".page")));
 </script>
 </body>
