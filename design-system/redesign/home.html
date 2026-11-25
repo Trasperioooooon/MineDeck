@@ -217,9 +217,21 @@ window.EXTRA_ICONS = {
   .cap a.new { background: var(--accent-solid); color: var(--on-accent); margin-left: 4px; }
   .cap a.new:hover { background: var(--accent-solid-hov); }
 
+  /* 胶囊只放图标（作者 11-26）：每个都是 40 的圆，字收进悬停提示和读屏名称里；提示在胶囊上方弹出 */
+  .cap { gap: 4px; }
+  .cap a { width: 40px; padding: 0; justify-content: center; position: relative; }
+  .cap a .ico { width: 18px; height: 18px; }
+  .cap a.home { padding: 0; }
+  .cap a.new { margin-left: 2px; }
+  .cap .sep { margin: 0 2px; }
+  .cap a[data-tip]::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%) translateY(4px);
+    padding: 5px 10px; border-radius: var(--r-sm); background: var(--overlay); border: 1px solid var(--border); box-shadow: var(--elev-2);
+    color: var(--text); font-size: 12px; font-weight: 500; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s, transform .12s; }
+  .cap a[data-tip]:hover::after, .cap a[data-tip]:focus-visible::after { opacity: 1; transform: translateX(-50%) translateY(0); }
+  body.nav-top .cap a[data-tip]::after { bottom: auto; top: calc(100% + 10px); }
   /* ?nav=top：胶囊放进标题栏正中 */
   body.nav-top .cap { top: 4px; bottom: auto; padding: 3px; box-shadow: var(--elev-1); }
-  body.nav-top .cap a { height: 30px; padding: 0 12px; font-size: 12.5px; }
+  body.nav-top .cap a { height: 30px; width: 30px; font-size: 12.5px; }
   body.nav-top .cap a.home img { width: 16px; height: 16px; }
   body.nav-top .page { padding-bottom: 60px; }
 
@@ -363,13 +375,13 @@ if (QS.get("embed")) document.body.classList.add("embed");
 </main>
 
 <nav class="cap" aria-label="导航">
-  <a class="home on" href="#" title="服务器（主页）"><img src="../../internal/web/ui/img/logo-20.png" alt="服务器"></a>
-  <a href="#"><i data-ic="globe"></i>内网穿透</a>
-  <a href="#"><i data-ic="toolbox"></i>工具箱</a>
-  <a href="#"><i data-ic="gear"></i>设置</a>
+  <a class="home on" href="#" aria-label="服务器（主页）" data-tip="服务器"><img src="../../internal/web/ui/img/logo-20.png" alt=""></a>
+  <a href="#" aria-label="内网穿透" data-tip="内网穿透"><i data-ic="globe"></i></a>
+  <a href="#" aria-label="工具箱" data-tip="工具箱"><i data-ic="toolbox"></i></a>
+  <a href="#" aria-label="设置" data-tip="设置"><i data-ic="gear"></i></a>
   <span class="sep"></span>
-  <a class="ai" href="#" title="AI 助手（Ctrl+K）"><i data-ic="sparkle"></i>AI 助手</a>
-  <a class="new" href="#"><i data-ic="plus"></i>新建</a>
+  <a class="ai" href="#" aria-label="AI 助手" data-tip="AI 助手 · Ctrl+K"><i data-ic="sparkle"></i></a>
+  <a class="new" href="#" aria-label="新建服务器" data-tip="新建服务器 · Ctrl+N"><i data-ic="plus"></i></a>
 </nav>
 
 <div class="tip">草图 · 基准窗口 1280×800 · 字标 <a href="?cell=7">大</a> <a href="?cell=6">中</a> <a href="?">小</a> · <a href="?mode=pin">收藏超过 3 台</a> · 页头 <a href="?head=0">原来</a> <a href="?head=a">A</a> <a href="?head=b">B</a> <a href="?head=c">C</a> <a href="?">D（定了）</a>（<a href="head-options.html">对比</a>）· 胶囊在下面 <a href="?nav=top">放进标题栏</a> · <a href="?">放回下面</a> · 配色 <a href="?scheme=craft&theme=light">方块浅色</a> <a href="?">Nord 深色</a> · 圆角 <a href="?">连续曲率</a> <a href="?corner=round">普通圆弧</a> · <a href="?guides=1">辅助线</a></div>

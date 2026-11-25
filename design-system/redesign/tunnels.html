@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>草图 · 内网穿透跟着服务器走</title>
+<script src="kit.js"></script>
+<script src="pixel16.js"></script>
+<link rel="stylesheet" href="kit.css">
+<style>
+  body { background: var(--bg); }
+  .page { max-width: 1160px; margin: 0 auto; padding: 28px 40px 80px; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 6px; }
+  .d { font-size: 13px; color: var(--muted); line-height: 21px; margin: 0 0 6px; max-width: 920px; }
+  .d b { color: var(--text); font-weight: 600; }
+  h2 { font-size: 15px; font-weight: 600; margin: 34px 0 4px; display: flex; align-items: baseline; gap: 10px; }
+  h2 small { font-size: 12.5px; font-weight: 400; color: var(--muted); }
+  .note { font-size: 12.5px; color: var(--muted); line-height: 20px; margin: 0 0 12px; max-width: 920px; }
+
+  /* 现在 vs 改成：两条路径并排 */
+  .flows { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 18px; }
+  .flow { background: var(--surface); border-radius: 20px; padding: 16px 18px; box-shadow: var(--elev-1); }
+  .flow h3 { margin: 0 0 12px; font-size: 13px; font-weight: 600; color: var(--muted); }
+  .steps { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .step { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: var(--r-full); background: var(--surface-2); font-size: 12.5px; }
+  .step.out { background: color-mix(in srgb, var(--warning) 18%, var(--surface)); color: var(--warning-text); }
+  .step.good { background: var(--accent-subtle); color: var(--accent-text); }
+  .arr { color: var(--faint); font-size: 12px; }
+
+  /* 通用的小零件 */
+  .panel { background: var(--surface); border-radius: 26px; padding: 8px; box-shadow: var(--elev-1); }
+  .inner { background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); border-radius: 18px; padding: 14px 16px; }
+  .row { display: flex; align-items: center; gap: 12px; }
+  .sp { flex: 1; }
+  .k { font-size: 12px; color: var(--muted); }
+  .v { font-size: 15px; font-weight: 600; }
+  .mono { font-family: var(--mono); }
+  .btn { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border-radius: 18px; font-size: 13px; font-weight: 500; white-space: nowrap;
+         background: var(--control); color: var(--text); border: 1px solid var(--border); }
+  .btn.ic { width: 36px; padding: 0; justify-content: center; }
+  .btn.pri { background: var(--accent-solid); color: var(--on-accent); border-color: transparent; }
+  .btn.soft { background: var(--accent-subtle); color: var(--accent-text); border-color: transparent; }
+  .btn.ghost { background: none; border-color: transparent; color: var(--muted); }
+  .pill { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 13px; font-size: 12px; font-weight: 500; }
+  .pill i.dot { width: 7px; height: 7px; border-radius: 2px; background: currentColor; }
+  .pill.ok { background: var(--success-subtle); color: var(--success-text); }
+  .pill.off { background: var(--surface-2); color: var(--faint); }
+  .sw { width: 36px; height: 20px; border-radius: 10px; background: var(--accent-solid); position: relative; flex: none; }
+  .sw::after { content: ""; position: absolute; right: 3px; top: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; }
+  .px-avatar { --c: #7a8aa0; width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: 12px;
+               background: color-mix(in srgb, var(--c) 26%, var(--surface)); }
+  .px-avatar svg { width: 32px; height: 32px; display: block; }
+
+  /* ① 向导最后一步 */
+  .wiz { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .choice { border-radius: 18px; padding: 16px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); border: 2px solid transparent; }
+  .choice.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+  .choice .t { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .choice .s { font-size: 12.5px; color: var(--muted); }
+  .plats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+  .plat { border-radius: 18px; padding: 12px 14px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); border: 2px solid transparent; }
+  .plat.on { border-color: var(--accent); }
+  .plat .n { font-size: 14px; font-weight: 600; }
+  .plat .m { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .wizfoot { display: flex; align-items: center; gap: 8px; padding: 8px 8px 0; }
+  .wizfoot .hint { font-size: 12px; color: var(--faint); }
+
+  /* ② 详情页「联机」 */
+  .dhead { display: flex; align-items: center; gap: 14px; padding: 8px 10px 14px; }
+  .dhead h3 { margin: 0; font-size: 18px; }
+  .tabs { display: flex; gap: 2px; padding: 0 6px 12px; }
+  .tab { height: 32px; padding: 0 14px; border-radius: 16px; display: flex; align-items: center; font-size: 13px; color: var(--muted); }
+  .tab.on { background: var(--accent-subtle); color: var(--accent-text); font-weight: 500; }
+  .addr2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .tlist { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+  .trow { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+  .trow .ico-b { width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; background: var(--surface); color: var(--muted); flex: none; }
+  .trow.add { background: none; border: 1px dashed var(--border); color: var(--muted); font-size: 13px; }
+  .empty { text-align: center; padding: 28px 16px; }
+  .empty .v { margin: 8px 0 4px; }
+
+  /* ③ 设置 → 穿透账户 */
+  .accs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .acc { border-radius: 18px; padding: 14px 16px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); display: flex; flex-direction: column; gap: 10px; min-height: 132px; }
+  .acc .row .n { font-size: 14px; font-weight: 600; }
+  .acc .meta { font-size: 12px; color: var(--muted); line-height: 19px; }
+  .acc .acts { margin-top: auto; display: flex; gap: 6px; }
+  .sub { font-size: 13px; font-weight: 600; color: var(--muted); margin: 14px 8px 8px; }
+  .three { display: grid; grid-template-columns: 1fr; gap: 16px; }
+</style>
+</head>
+<body>
+<main class="page">
+  <h1>内网穿透 · 跟着服务器走</h1>
+  <p class="d">作者的意见：建好服务器以后紧接着就该开内网穿透，这是一个连续的过程；每条隧道也该跟着它的服务器，单独开一页很奇怪。
+    主会话同意，而且以前的可用性走查也记过「服务器页没有通往内网穿透的入口」（A74）。下面是改法：<b>隧道挪到服务器身上</b>（新建向导最后一步、详情页一个「联机」标签），
+    <b>只有平台账户是跨服务器的</b>，收进设置；胶囊里的「内网穿透」就不要了。</p>
+
+  <div class="flows">
+    <div class="flow"><h3>现在：朋友想进外地的服务器</h3>
+      <div class="steps"><span class="step">建好服务器</span><span class="arr">→</span><span class="step">切到「内网穿透」页</span><span class="arr">→</span>
+        <span class="step out">去服务商网站建隧道、抄 ID 和密钥</span><span class="arr">→</span><span class="step">回来「添加隧道」</span><span class="arr">→</span><span class="step">选绑定哪台服务器</span><span class="arr">→</span><span class="step">勾跟随启动</span></div>
+      <p class="note" style="margin:12px 0 0">连上平台账户以后可以在 MineDeck 里直接建，但入口在穿透页最下面；服务器页上看不到它有没有隧道、公网地址是什么。</p></div>
+    <div class="flow"><h3>改成</h3>
+      <div class="steps"><span class="step">新建向导最后一步「让朋友连进来」</span><span class="arr">→</span><span class="step good">选「开内网穿透」、选平台</span><span class="arr">→</span><span class="step good">MineDeck 在平台上建好、绑好、跟着服务器启动</span></div>
+      <p class="note" style="margin:12px 0 0">平台账户只在第一次连一下（在向导里、详情页里、设置里都能连）。以后在服务器的「联机」标签里看地址、开停、换平台。</p></div>
+  </div>
+
+  <h2>① 新建向导 · 最后一步「让朋友连进来」<small>默认只在局域网；选了内网穿透才往下展开</small></h2>
+  <div class="panel">
+    <div class="wiz">
+      <div class="choice"><div class="t"><i data-ic="server"></i>只在局域网</div><div class="s">和你连同一个 Wi-Fi 的朋友能进。以后随时能在服务器的「联机」里再开内网穿透。</div></div>
+      <div class="choice on"><div class="t"><i data-ic="globe"></i>开内网穿透</div><div class="s">外地的朋友也能进。MineDeck 用你的平台账户建一条隧道，跟着服务器一起启动。</div></div>
+    </div>
+    <div class="plats">
+      <div class="plat on"><div class="row"><span class="n">OpenFrp</span><span class="sp"></span><span class="pill ok"><i class="dot"></i>已连接</span></div><div class="m">账户 steve · 节点：自动选最快的</div></div>
+      <div class="plat"><div class="row"><span class="n">樱花穿透</span><span class="sp"></span><span class="pill off">未连接</span></div><div class="m">点一下连接账户，在浏览器里登录一次</div></div>
+      <div class="plat"><div class="row"><span class="n">自己的 frps</span><span class="sp"></span></div><div class="m">有自己的服务器才用：填地址、端口、令牌</div></div>
+    </div>
+    <div class="wizfoot"><span class="hint">会在 OpenFrp 上新建一条 TCP 隧道，本地端口填这台服务器的 25565，服务器启动时一起连上。</span><span class="sp"></span>
+      <span class="btn ghost">上一步</span><span class="btn pri"><i data-ic="check"></i>创建服务器</span></div>
+  </div>
+
+  <h2>② 服务器详情 · 「联机」标签<small>局域网地址、公网地址和这台服务器的隧道都在这儿</small></h2>
+  <div class="three">
+    <div class="panel">
+      <div class="dhead"><span id="av1"></span><h3>生存服 · 朋友</h3><span class="pill ok"><i class="dot"></i>运行中</span></div>
+      <div class="tabs"><span class="tab">控制台</span><span class="tab">玩家</span><span class="tab">世界与备份</span><span class="tab">插件</span><span class="tab on">联机</span><span class="tab">定时任务</span><span class="tab">设置</span></div>
+      <div class="addr2">
+        <div class="inner row"><div><div class="k">局域网 · 同一个 Wi-Fi 的朋友</div><div class="v mono">192.168.1.5:25565</div></div><span class="sp"></span><span class="btn ic" title="复制"><i data-ic="copy"></i></span></div>
+        <div class="inner row"><div><div class="k">公网 · 外地的朋友</div><div class="v mono">frp-hk.openfrp.net:31234</div></div><span class="sp"></span><span class="btn ic" title="复制"><i data-ic="copy"></i></span></div>
+      </div>
+      <div class="tlist">
+        <div class="trow"><span class="ico-b"><i data-ic="globe"></i></span><div><div class="v" style="font-size:14px">游戏隧道</div><div class="k">OpenFrp · 香港节点 · 隧道 123456</div></div><span class="sp"></span>
+          <span class="pill ok"><i class="dot"></i>已连上</span><span class="k" style="margin-left:8px">跟着服务器启动</span><span class="sw"></span><span class="btn ghost ic" title="更多"><i data-ic="more"></i></span></div>
+        <div class="trow add"><i data-ic="plus"></i>加一条语音隧道（装了 Simple Voice Chat 的服务器用）</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="dhead"><span id="av2"></span><h3>机械动力整合包</h3><span class="pill off"><i class="dot"></i>已停止</span></div>
+      <div class="tabs"><span class="tab">控制台</span><span class="tab">玩家</span><span class="tab">世界与备份</span><span class="tab">模组</span><span class="tab on">联机</span><span class="tab">定时任务</span><span class="tab">设置</span></div>
+      <div class="addr2">
+        <div class="inner row"><div><div class="k">局域网 · 同一个 Wi-Fi 的朋友</div><div class="v mono">192.168.1.5:25566</div></div><span class="sp"></span><span class="btn ic" title="复制"><i data-ic="copy"></i></span></div>
+        <div class="inner empty"><div class="k">公网 · 外地的朋友</div><div class="v">还没开内网穿透</div><div class="k" style="margin-bottom:12px">外地的朋友现在连不进来</div><span class="btn soft"><i data-ic="globe"></i>开内网穿透</span></div>
+      </div>
+    </div>
+  </div>
+  <p class="note" style="margin-top:12px">首页卡片右下角那个圆钮跟着变：有隧道是地球、复制公网地址；没有是链接、复制局域网地址。卡片「···」里加一项「开内网穿透…」，直接跳到这个标签。</p>
+
+  <h2>③ 设置 · 穿透账户<small>只放跨服务器的东西：平台账户、签到和流量、还没绑服务器的老隧道</small></h2>
+  <div class="panel">
+    <div class="accs">
+      <div class="acc"><div class="row"><span class="n">OpenFrp</span><span class="sp"></span><span class="pill ok"><i class="dot"></i>已连接</span></div>
+        <div class="meta">账户 steve · 今天已签到<br>剩余流量 18.4 GB · 用着 2 条隧道</div><div class="acts"><span class="btn">打开控制台</span><span class="btn ghost">断开</span></div></div>
+      <div class="acc"><div class="row"><span class="n">樱花穿透</span><span class="sp"></span><span class="pill off">未连接</span></div>
+        <div class="meta">连上以后，新建服务器和「联机」里就能直接用它建隧道。</div><div class="acts"><span class="btn soft">连接账户</span></div></div>
+      <div class="acc"><div class="row"><span class="n">自己的 frps</span><span class="sp"></span></div>
+        <div class="meta">不需要账户：在某台服务器的「联机」里填地址、端口和令牌就行。</div><div class="acts"><span class="btn ghost">怎么用</span></div></div>
+    </div>
+    <div class="sub">还没绑定服务器的隧道 · 1</div>
+    <div class="trow" style="margin:0 0 0"><span class="ico-b"><i data-ic="globe"></i></span><div><div class="v" style="font-size:14px">我的隧道</div><div class="k">樱花穿透 · 隧道 778899 · 以前在「内网穿透」页加的</div></div><span class="sp"></span>
+      <span class="btn soft">绑定到…</span><span class="btn ghost ic" title="删除"><i data-ic="trash"></i></span></div>
+  </div>
+
+  <h2>还要定的</h2>
+  <p class="note">一台服务器最多两条隧道（游戏一条、语音一条）够不够；平台上已有的隧道要不要在「联机」里「导入」（现在穿透页能导入）；「设置 → 穿透账户」放在设置的哪一组，要等设置页的结构定了再说。</p>
+</main>
+<script>
+document.getElementById("av1").innerHTML = MDPixel16.avatar("paper", "", 32);
+document.getElementById("av2").innerHTML = MDPixel16.avatar("forge", "", 32);
+KIT_READY.then(() => KIT.hydrate(document.querySelector(".page")));
+</script>
+</body>
+</html>
