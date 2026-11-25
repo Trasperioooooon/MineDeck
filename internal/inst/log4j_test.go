@@ -146,8 +146,8 @@ func TestLog4jFlagsEras(t *testing.T) {
 				officialLog4jXMLFile(t, dir, f)
 			}
 			i := &Instance{Settings: Settings{Name: "t", Core: mcsrc.CorePaper, MC: c.mc, ExtraJVM: c.initial}, Dir: dir}
-			if got := log4jFlags(i); !slices.Equal(got, c.want) {
-				t.Fatalf("log4jFlags = %q，应为 %q", got, c.want)
+			if got, _ := log4jFlagsFor(i.Settings, i.Dir); !slices.Equal(got, c.want) {
+				t.Fatalf("log4jFlagsFor = %q，应为 %q", got, c.want)
 			}
 		})
 	}

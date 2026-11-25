@@ -569,7 +569,7 @@ func TestReleaseThenAdoptBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	jvm := []string{"-XX:+UseZGC"}
-	if err := m.UpdateSettings("朋友服", 0, 0, "gbk", &jvm); err != nil {
+	if _, err := m.UpdateSettingsWithResult("朋友服", 0, 0, "gbk", &jvm); err != nil {
 		t.Fatal(err)
 	}
 

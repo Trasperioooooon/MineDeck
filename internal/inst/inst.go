@@ -756,14 +756,8 @@ func (m *Manager) PreviewSettings(name string, xmxMB, xmsMB int, consoleEnc stri
 	return i.PreviewSettings(xmxMB, xmsMB, consoleEnc, extraJVM)
 }
 
-// UpdateSettings 调整实例运行参数（内存、控制台编码、自定义 JVM 参数）并重新生成启动脚本。
+// UpdateSettingsWithResult 调整实例运行参数（内存、控制台编码、自定义 JVM 参数）、重新生成启动脚本，并返回补齐后的实际参数与说明（A28，A25 保存参数校验）。
 // xmxMB<=0 表示不修改内存；consoleEnc 为空表示不修改编码；extraJVM 为 nil 表示不修改 JVM 参数。
-func (m *Manager) UpdateSettings(name string, xmxMB, xmsMB int, consoleEnc string, extraJVM *[]string) error {
-	_, err := m.UpdateSettingsWithResult(name, xmxMB, xmsMB, consoleEnc, extraJVM)
-	return err
-}
-
-// UpdateSettingsWithResult 同 UpdateSettings，并返回补齐后的实际参数与说明（A28，A25 保存参数校验）。
 func (m *Manager) UpdateSettingsWithResult(name string, xmxMB, xmsMB int, consoleEnc string, extraJVM *[]string) (SettingsSaveResult, error) {
 	i, err := m.Get(name)
 	if err != nil {
@@ -776,7 +770,7 @@ func (m *Manager) UpdateSettingsWithResult(name string, xmxMB, xmsMB int, consol
 	defer release()
 	// 运行中控制台 goroutine 会并发读这些字段，写入必须持锁；
 	// 落盘（saveInstance 序列化 i.Settings、writeRunBat 读取 i 字段）也在锁内完成，
-	// 避免与并发的 UpdateSettings 竞争地读写 i.Settings
+	// 避免与并发的 UpdateSettingsWithResult 竞争地读写 i.Settings
 	i.procMu.Lock()
 	defer i.procMu.Unlock()
 	next, res, err := computeSettingsUpdate(i.Settings, i.Dir, xmxMB, xmsMB, consoleEnc, extraJVM)
@@ -802,7 +796,7 @@ func (i *Instance) consoleEnc() string {
 	return i.ConsoleEncoding
 }
 
-// MemSnapshot 加锁快照 UpdateSettings 会改写的三个字段（供 API 摘要读取，杜绝跨包裸读数据竞争）。
+// MemSnapshot 加锁快照 UpdateSettingsWithResult 会改写的三个字段（供 API 摘要读取，杜绝跨包裸读数据竞争）。
 func (i *Instance) MemSnapshot() (xmxMB, xmsMB int, enc string) {
 	i.procMu.Lock()
 	defer i.procMu.Unlock()

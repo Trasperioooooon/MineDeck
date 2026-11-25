@@ -139,7 +139,7 @@ func TestUpdateSettingsKeepsLog4jFix(t *testing.T) {
 			}, Dir: dir}
 			m := &Manager{insts: map[string]*Instance{"t": i}, creating: map[string]bool{}}
 			submit := slices.Clone(c.submit)
-			if err := m.UpdateSettings("t", 4096, 0, "", &submit); err != nil {
+			if _, err := m.UpdateSettingsWithResult("t", 4096, 0, "", &submit); err != nil {
 				t.Fatal(err)
 			}
 			if !slices.Equal(i.ExtraJVM, c.want) {
@@ -188,7 +188,7 @@ func TestUpdateSettingsNilExtraJVMUntouched(t *testing.T) {
 		XmxMB: 2048, XmsMB: 1024, LaunchTarget: "jar:server.jar", ExtraJVM: []string{"-Xss1M"},
 	}, Dir: t.TempDir()}
 	m := &Manager{insts: map[string]*Instance{"t": i}, creating: map[string]bool{}}
-	if err := m.UpdateSettings("t", 0, 0, "gbk", nil); err != nil {
+	if _, err := m.UpdateSettingsWithResult("t", 0, 0, "gbk", nil); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(i.ExtraJVM, []string{"-Xss1M"}) || i.ConsoleEncoding != "gbk" {

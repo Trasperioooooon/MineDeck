@@ -180,11 +180,11 @@ func TestUpdateSettingsKeepsOldQuotedArgs(t *testing.T) {
 		XmxMB: 2048, XmsMB: 1024, LaunchTarget: "jar:server.jar", ExtraJVM: []string{`-Dold="x"`}}, Dir: dir}
 	m := &Manager{insts: map[string]*Instance{"t": i}, creating: map[string]bool{}}
 	same := []string{`-Dold="x"`}
-	if err := m.UpdateSettings("t", 4096, 0, "", &same); err != nil || i.XmxMB != 4096 {
+	if _, err := m.UpdateSettingsWithResult("t", 4096, 0, "", &same); err != nil || i.XmxMB != 4096 {
 		t.Fatalf("只改内存应能保存：%v，XmxMB=%d", err, i.XmxMB)
 	}
 	added := []string{`-Dold="x"`, `-Dnew="y"`}
-	if err := m.UpdateSettings("t", 8192, 0, "", &added); err == nil || i.XmxMB != 4096 || len(i.ExtraJVM) != 1 {
+	if _, err := m.UpdateSettingsWithResult("t", 8192, 0, "", &added); err == nil || i.XmxMB != 4096 || len(i.ExtraJVM) != 1 {
 		t.Fatalf("新加带双引号的参数应拒绝、什么都不改：%v，XmxMB=%d，ExtraJVM=%q", err, i.XmxMB, i.ExtraJVM)
 	}
 }

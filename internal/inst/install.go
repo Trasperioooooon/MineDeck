@@ -778,7 +778,7 @@ func locateLaunchTarget(dir string, core mcsrc.Core, ctx context.Context, mc str
 //
 // 上面是按 Minecraft 版本分的。要套官方配置的那两段，再看一眼服务端 jar 自带的 log4j：看得出是修过的版本就不套
 // （2021 年 12 月以后的 Paper 构建；CraftBukkit 系套上 Mojang 的配置控制台没有输出），判断不了的照旧套，见 log4j_bundled.go。
-// 新建、接管、导入、交接包（addLog4jFlags）、保存参数（log4jFlags）、程序启动后和启动服务器时的整理（log4j_migrate.go）都按这一条。
+// 新建、接管、导入、交接包（addLog4jFlags）、保存与预览参数（log4jFlagsFor）、程序启动后和启动服务器时的整理（log4j_migrate.go）都按这一条。
 const (
 	log4jNoLookups = "-Dlog4j2.formatMsgNoLookups=true"
 	log4jXML       = "log4j2_112-116.xml" // 1.12 ~ 1.16.5 的官方配置，下载到实例目录
@@ -932,17 +932,9 @@ func restoreLog4jXML(ctx context.Context, t *tasks.Task, i *Instance) {
 // checkLog4jSelfFixed 查服务端自带的 log4j 是否已经修过 log4shell（同包测试里可换慢替身验证锁粒度）。
 var checkLog4jSelfFixed = log4jSelfFixed
 
-// log4jFlags 给出保存 JVM 参数时须强制保留的 log4shell 缓解参数，判定与创建时的 applyLog4jMitigation 一致；
-// 只读本地清单不联网（mcsrc.NewerOrEqualCached），判定不了版本时保守沿用已有的缓解参数。
-// 服务端自带的 log4j 看得出是修过的，不强加官方配置的引用（和 addLog4jFlags、log4j_migrate.go 一致，不然这边不加、那边又补回去）。
-// 只有文件夹里的日志配置文件确实是 Mojang 官方那份时才强加引用（A25 保存参数校验）。
-func log4jFlags(i *Instance) []string {
-	flags, _ := log4jFlagsFor(i.Settings, i.Dir)
-	return flags
-}
-
-// log4jFlagsFor 按设置副本与实例目录计算须强制保留的 log4shell 参数（不依赖 Instance 锁）；
-// 当该套官方配置、文件夹里却放着同名但非官方的文件时，不把引用放进强制保留列表，并返回被跳过的配置文件名供保存和预览说明（A25 保存参数校验）。
+// log4jFlagsFor 按设置副本与实例目录计算保存/预览 JVM 参数时须强制保留的 log4shell 缓解参数（不依赖 Instance 锁），
+// 判定与 applyLog4jMitigation 一致；只读本地清单不联网（mcsrc.NewerOrEqualCached），判定不了版本时保守沿用已有参数，
+// 服务端自带 log4j 修过或文件夹里放着同名但非官方的文件时不把引用放进强制保留列表，并后一种情况返回被跳过的配置文件名（A25 保存参数校验）。
 func log4jFlagsFor(s Settings, dir string) (flags []string, skippedXML string) {
 	if mcsrc.KindOf(s.Core) == mcsrc.KindProxy {
 		return nil, "" // 代理端不运行 Minecraft 本体，创建时也不加
