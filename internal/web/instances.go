@@ -145,6 +145,8 @@ func (s *Server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListInstances(w http.ResponseWriter, r *http.Request) {
 	s.do(w, r, "instance.list", nil, func(m map[string]any) {
 		m["duplicates"] = s.mgr.SkippedDuplicates()
+		m["broken"] = s.mgr.BrokenInstances()
+		m["local"] = callerOf(r).Local
 	})
 }
 

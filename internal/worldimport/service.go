@@ -19,6 +19,7 @@ import (
 
 	"minedeck/internal/app"
 	"minedeck/internal/diskguard"
+	"minedeck/internal/errhint"
 	"minedeck/internal/inst"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/tasks"
@@ -919,7 +920,7 @@ func (s *Service) runImport(ctx context.Context, t *tasks.Task, r *scanResult, p
 		if ctx.Err() != nil { // 打开来源的时候人点了取消：不带出 context canceled 这类英文原因
 			return "", errImportCancelled
 		}
-		return "", fmt.Errorf("来源打不开了：%w", err)
+		return "", wrapReopenSourceErr(r, fmt.Errorf("来源打不开了：%w", err))
 	}
 	defer src.Close()
 	info, err := rebind(r, src, p.CandidateID)
@@ -1102,6 +1103,32 @@ func mustModern(ctx context.Context, order versionOrder, mc string) bool {
 	return m
 }
 
+// wrapReopenSourceErr 按来源类型区分打不开的原因：zip 还在但解不开时说明压缩包损坏，不要误用「未被占用」盖掉。
+func wrapReopenSourceErr(r *scanResult, err error) error {
+	if r == nil {
+		return err
+	}
+	var se *sourceErr
+	if errors.As(err, &se) && se.Code == "too-many" {
+		return errhint.Wrap(err, "地图压缩包里文件过多或清单超限，请检查压缩包")
+	}
+	if r.Source.Kind == "zip" {
+		f, openErr := os.Open(r.Source.Path)
+		if openErr != nil {
+			if errors.Is(openErr, fs.ErrNotExist) {
+				return errhint.Wrap(err, "找不到选择的地图压缩包，请重新选择后再试")
+			}
+			return fmt.Errorf("%w（%w）", err, openErr)
+		}
+		_ = f.Close()
+		return errhint.Wrap(err, "地图压缩包打不开或可能已损坏，请确认压缩包完整后重试")
+	}
+	if _, statErr := os.Stat(r.Source.Path); statErr != nil && errors.Is(statErr, fs.ErrNotExist) {
+		return errhint.Wrap(err, "找不到选择的地图文件夹，请确认它没有被移动或删除")
+	}
+	return err
+}
+
 // rebind 在重新打开的来源上找回候选的文件清单，并重算它的指纹。
 func rebind(r *scanResult, src *source, candID string) (*candInfo, error) {
 	old := r.cands[candID]
@@ -1222,7 +1249,10 @@ func (s *Service) placeForCreate(ctx context.Context, t *tasks.Task, owner, plan
 	ctx = withSpaceConfirmation(ctx, p)
 	src, err := reopenCtx(ctx, r)
 	if err != nil {
-		return fmt.Errorf("地图来源打不开了：%w", err)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return wrapReopenSourceErr(r, fmt.Errorf("地图来源打不开了：%w", err))
 	}
 	defer src.Close()
 	info, err := rebind(r, src, p.CandidateID)

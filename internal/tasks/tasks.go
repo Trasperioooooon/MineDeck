@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"minedeck/internal/errhint"
 )
 
 type Step struct {
@@ -66,6 +68,7 @@ type Snapshot struct {
 	Ended     bool          `json:"ended"`
 	CanCancel bool          `json:"canCancel"`
 	Err       string        `json:"error,omitempty"`
+	ErrHint   string        `json:"errHint,omitempty"`
 	Result    string        `json:"result,omitempty"`
 	Warnings  []Warning     `json:"warnings,omitempty"`
 	Pending   []PendingItem `json:"pending,omitempty"` // 整合包导入的待决文件（已结束的任务也可能有）：逐项列出、待用户处置
@@ -117,6 +120,7 @@ type Task struct {
 	total     int64
 	ended     bool
 	err       string
+	errHint   string
 	result    string
 	warnings  []Warning
 	pending   []PendingItem
@@ -433,6 +437,7 @@ func (t *Task) Fail(err error) {
 	}
 	t.ended = true
 	t.err = err.Error()
+	t.errHint = errhint.FromError(err)
 	t.appendLog("❌ " + err.Error())
 	t.cancel()
 }
@@ -465,7 +470,7 @@ func (t *Task) Snapshot() Snapshot {
 	s := Snapshot{
 		ID: t.id, Title: t.title, Kind: t.kind, Inst: t.inst, Label: t.label,
 		Done: t.done, Total: t.total,
-		Ended: t.ended, CanCancel: t.canCancel && !t.ended, Err: t.err, Result: t.result,
+		Ended: t.ended, CanCancel: t.canCancel && !t.ended, Err: t.err, ErrHint: t.errHint, Result: t.result,
 		Cancelled: t.ended && t.endCancel, Cancelling: t.cancelled && !t.ended, CleanupFailed: t.cleanupFailed,
 	}
 	s.Steps = append(s.Steps, t.steps...)

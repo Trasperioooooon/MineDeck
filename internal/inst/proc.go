@@ -671,8 +671,23 @@ func (m *Manager) ShutdownAll(wait time.Duration) {
 	}
 }
 
+var openFolder = procutil.OpenFolder
+
 // OpenDir 在资源管理器中打开实例目录，或其白名单子目录（sub，做穿越防护）。
 func (m *Manager) OpenDir(name, sub string) error {
+	if strings.HasPrefix(name, brokenIDPrefix) {
+		if strings.TrimSpace(sub) != "" {
+			return fmt.Errorf("配置读不出来的服务器只能打开服务器文件夹本身")
+		}
+		dir, ok := m.brokenDirByID(name)
+		if !ok {
+			return fmt.Errorf("找不到这个服务器文件夹")
+		}
+		if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+			return fmt.Errorf("这个文件夹已经不在了")
+		}
+		return openFolder(dir)
+	}
 	i, err := m.Get(name)
 	if err != nil {
 		return err
@@ -688,5 +703,5 @@ func (m *Manager) OpenDir(name, sub string) error {
 	if st, err := os.Stat(target); err != nil || !st.IsDir() {
 		return fmt.Errorf("这个文件夹还不存在（服务器可能还没生成它）")
 	}
-	return procutil.OpenFolder(target)
+	return openFolder(target)
 }

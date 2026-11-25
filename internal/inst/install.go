@@ -20,6 +20,7 @@ import (
 	"minedeck/internal/atomicfile"
 	"minedeck/internal/diskguard"
 	"minedeck/internal/dl"
+	"minedeck/internal/errhint"
 	"minedeck/internal/java"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/tasks"
@@ -617,7 +618,7 @@ func runInstaller(ctx context.Context, t *tasks.Task, javaExe, dir, installerJar
 			return ctx.Err()
 		}
 	}
-	return fmt.Errorf("安装器多次运行失败：%w。请查看服务器文件夹里的 installer.jar.log，或在「设置 → 下载与网络」中切换下载源后重试。", lastErr)
+	return errhint.Wrap(fmt.Errorf("安装器多次运行失败：%w。请查看服务器文件夹里的 installer.jar.log，或在「设置 → 下载与网络」中切换下载源后重试。", lastErr), "可以在「设置 → 下载与网络」切换下载源重试，或查看安装日志")
 }
 
 func runInstallerOnce(ctx context.Context, t *tasks.Task, javaExe, dir, installerJar string) error {
@@ -637,7 +638,7 @@ func runInstallerOnce(ctx context.Context, t *tasks.Task, javaExe, dir, installe
 	}
 	cmd.Stderr = cmd.Stdout
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("无法启动安装器: %w", err)
+		return errhint.Wrap(fmt.Errorf("无法启动安装器: %w", err), "请检查所选 Java 能不能用，或者是不是被安全软件拦住了")
 	}
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -661,7 +662,7 @@ func runInstallerOnce(ctx context.Context, t *tasks.Task, javaExe, dir, installe
 		_, _ = io.Copy(io.Discard, stdout)
 	}
 	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("安装器退出异常: %w", err)
+		return errhint.Wrap(fmt.Errorf("安装器退出异常: %w", err), "可以在「设置 → 下载与网络」切换下载源重试，或查看安装日志")
 	}
 	if scanErr != nil {
 		return nil
@@ -851,7 +852,7 @@ func applyLog4jMitigation(ctx context.Context, t *tasks.Task, i *Instance) error
 // （接管 A26 与保存/预览启动设置 A25 共用）。
 func customLog4jConflictParts(mc, xml string) (title, detail string) {
 	title, body := log4jXMLConflictParts(mc, xml, log4jFixAdd)
-	return title, body + fmt.Sprintf("；要用自己的，在「启动与内存」里加上 %s%s", log4jConfigKey, xml)
+	return title, body + fmt.Sprintf("；要用自己的，在「设置 → 启动与内存」里加上 %s%s", log4jConfigKey, xml)
 }
 
 // addLog4jFlags 往 i.ExtraJVM 里加上该有的参数。要官方配置的先下载，下载不成不加引用：引用一个不存在的配置文件，

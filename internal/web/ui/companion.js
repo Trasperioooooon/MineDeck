@@ -90,13 +90,13 @@ window.MDCompanion = (() => {
      返回值就交出去。Esc、取消返回 null；有要填的东西，点外面不关（点空了填的就丢了，同 confirmModal）。setup(mask) 在弹窗画好后调用（接上弹窗里的联动）。
      用 app.js 的弹层叠放（modalLayer）：叠在 #modal-root 里的一层，不再把整个 #modal-root 换掉——
      弹窗里出错点「详情」，报错信息叠在上面，关掉回到这个弹窗，填的都还在（可用性走查 R04）。Esc 和回车只给最上面那一层 */
-  function formModal({ title, body, okText = "确定", check, setup }) {
+  function formModal({ title, body, okText = "确定", check, setup, submit }) {
     return new Promise(resolve => {
       const prev = document.activeElement, tid = layerId("cp-m-title");
       const mask = modalLayer(`<div class="modal cp-form" role="dialog" aria-modal="true" aria-labelledby="${tid}">
         <h3 id="${tid}">${esc(title)}</h3>${body}
         <div class="m-actions"><button class="btn" data-x="cancel">取消</button><button class="btn primary" data-x="ok">${esc(okText)}</button></div></div>`);
-      let done = false;
+      let done = false, saving = false;
       const end = v => {
         if (done) return;
         done = true;
@@ -105,7 +105,17 @@ window.MDCompanion = (() => {
         if (prev && prev.focus) prev.focus();
         resolve(v);
       };
-      const ok = () => { const v = check(mask); if (v != null) end(v); };
+      const ok = async () => {
+        if (done || saving) return;
+        const v = check(mask);
+        if (v == null) return;
+        if (!submit) { end(v); return; }
+        saving = true;
+        const btn = mask.querySelector('[data-x="ok"]');
+        if (btn) btn.disabled = true;
+        try { await submit(v, mask, end, btn); }
+        finally { saving = false; if (!done && btn && btn.isConnected) btn.disabled = false; }
+      };
       const onKey = e => {
         if (!topLayer(mask)) return;
         if (e.key === "Escape") end(null);
@@ -328,11 +338,11 @@ window.MDCompanion = (() => {
       try { await put(change); toast(msg); return true; } catch (e) { toastErr("无法保存禁挖区域", e); return false; }
     };
     const editZone = async z => {
-      const zs = v.settings.zones || [];
+      let curZone = z ? { ...z } : null;
       const known = DIMS.some(d => d[0] === (z ? z.dim : "minecraft:overworld"));
       const cur = z || { name: "", dim: "minecraft:overworld", min: ["", "", ""], max: ["", "", ""] };
       const xyz = (id, c) => ["x", "y", "z"].map((k, i) => `<label><span>${k}</span><input type="text" id="cz-${id}${k}" inputmode="numeric" value="${esc(c[i])}" aria-label="${id === "a" ? "角 1" : "角 2"} 的 ${k}"></label>`).join("");
-      const res = await formModal({ title: z ? `编辑禁挖区域「${z.name}」` : "添加禁挖区域", okText: "保存",
+      await formModal({ title: z ? `编辑禁挖区域「${z.name}」` : "添加禁挖区域", okText: "保存",
         body: `<div class="m-body">两个角的方块坐标，包含两端，比如家的东北角和西南角。y 不确定的话，填 -64 到 320，就把上下都圈进去了。</div>
           <div class="cp-fields">
             <label class="cp-f"><span>名字</span><input type="text" id="cz-name" maxlength="32" spellcheck="false" value="${esc(cur.name)}" placeholder="如 base、farm"></label>
@@ -351,7 +361,8 @@ window.MDCompanion = (() => {
           const err = (inp, msg) => { fieldErr(q("#cz-err"), null, msg); mask.querySelectorAll(".invalid").forEach(e => e.classList.remove("invalid")); if (inp) { inp.classList.add("invalid"); inp.focus(); } return null; };
           const n = q("#cz-name").value.trim();
           if (!zoneNameOK(n)) return err(q("#cz-name"), "名字只能是 1–32 个字母、数字、_、-");
-          if (zs.some(x => x.name.toLowerCase() === n.toLowerCase() && (!z || x.name !== z.name))) return err(q("#cz-name"), `已经有一个叫「${n}」的区域`);
+          const curZones = v.settings.zones || [];
+          if (curZones.some(x => x.name.toLowerCase() === n.toLowerCase() && (!curZone || x.name !== curZone.name))) return err(q("#cz-name"), `已经有一个叫「${n}」的区域`);
           const dim = q("#cz-dim").value || q("#cz-dim-custom").value.trim();
           if (!dimOK(dim)) return err(q("#cz-dim-custom"), "维度要写完整的 ID，比如 minecraft:overworld");
           const pts = [];
@@ -365,9 +376,29 @@ window.MDCompanion = (() => {
             pts.push(c);
           }
           return { name: n, dim, min: pts[0], max: pts[1] };
+        },
+        submit: async (res, mask, close, okBtn) => {
+          const kt = MDKeepTyped(["#cz-name", "#cz-dim", "#cz-dim-custom", "#cz-ax", "#cz-ay", "#cz-az", "#cz-bx", "#cz-by", "#cz-bz"], mask);
+          try {
+            await put(curZone ? { removeZones: [curZone.name], addZones: [res] } : { addZones: [res] });
+          } catch (e) {
+            close(null);
+            toastErr("无法保存禁挖区域", e);
+            return;
+          }
+          const msg = curZone ? `已保存区域「${res.name}」` : `已添加禁挖区域「${res.name}」`;
+          if (mask.isConnected && !mask.dataset.leaving && kt.anyChanged(mask)) {
+            curZone = res;
+            const h3 = mask.querySelector("h3");
+            if (h3) h3.textContent = `编辑禁挖区域「${res.name}」`;
+            if (okBtn) okBtn.disabled = false;
+            kt.restore(mask, '[data-x="ok"]');
+            toast(msg + "（框里有未保存的新改动）");
+            return;
+          }
+          close(res);
+          toast(msg);
         } });
-      if (!res || stale(gen)) return;
-      await saveZones(z ? { removeZones: [z.name], addZones: [res] } : { addZones: [res] }, z ? `已保存区域「${res.name}」` : `已添加禁挖区域「${res.name}」`);
     };
     const delZone = async n => {
       const r = await confirmModal({ title: `删除禁挖区域「${n}」？`, body: "删掉以后伙伴就可以拆、放这片区域里的方块了。", okText: "删除", danger: true, icon: "trash" });

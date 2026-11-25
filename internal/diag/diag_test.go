@@ -216,6 +216,34 @@ func TestFindingDetails(t *testing.T) {
 	}
 }
 
+// 端口被占的修复说明要指向真正被占的那个端口（A96）：查询或 RCON 起不来时改的是 query.port、rcon.port，
+// 不是游戏端口 server-port，也不用让好友换地址。日志行是照原版的写法拼的，不是真机日志。
+func TestPortInUseFixNamesTheBoundPort(t *testing.T) {
+	for _, c := range []struct{ name, failLine, wantKey string }{
+		{"查询端口", "[12:00:08] [Server thread/WARN]: Unable to initialise query system on 0.0.0.0:25565", "query.port"},
+		{"RCON 端口", "[12:00:08] [Server thread/WARN]: Unable to initialise RCON on 0.0.0.0:25575", "rcon.port"},
+	} {
+		lines := []string{
+			"[12:00:01] [Server thread/INFO]: Starting Minecraft server on *:25565",
+			c.failLine,
+			"java.net.BindException: Address already in use: bind",
+		}
+		f := find(Analyze(Input{Lines: lines, Core: "vanilla", Port: 25565}), "port-in-use")
+		if f == nil {
+			t.Fatalf("%s：没认出端口被占", c.name)
+		}
+		fixes := strings.Join(f.Fixes, "\n")
+		if !strings.Contains(fixes, c.wantKey) || strings.Contains(fixes, "server-port") || strings.Contains(fixes, "换成新端口") {
+			t.Errorf("%s：修复说明应改 %s、不提 server-port、不让好友换端口：%q", c.name, c.wantKey, f.Fixes)
+		}
+	}
+	// 游戏端口被占时原来的说法不变
+	f := find(Analyze(input(t, "testdata/positive/port-in-use@vanilla-1.21.1.log")), "port-in-use")
+	if f == nil || !strings.Contains(strings.Join(f.Fixes, "\n"), "server-port") {
+		t.Errorf("游戏端口被占时仍应说改 server-port：%+v", f)
+	}
+}
+
 // 退出状态：用户停服、强杀、在控制台打 stop 都不算崩溃；自己退出、规则又没认出原因时给一条「异常退出」。
 // 只看最近一次启动之后的输出。
 func TestExitState(t *testing.T) {

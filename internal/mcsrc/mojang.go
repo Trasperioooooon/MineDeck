@@ -14,6 +14,7 @@ import (
 
 	"minedeck/internal/app"
 	"minedeck/internal/dl"
+	"minedeck/internal/errhint"
 )
 
 const (
@@ -120,7 +121,7 @@ func getManifest(ctx context.Context) (*manifest, map[string]int, error) {
 		}
 	}
 	if err != nil {
-		return nil, nil, fmt.Errorf("获取 Minecraft 版本清单失败: %w", err)
+		return nil, nil, errhint.Wrap(fmt.Errorf("获取 Minecraft 版本清单失败: %w", err), mcsrcFetchHint)
 	}
 	idx := indexVersions(&m)
 	maniData, maniIdx, maniAt = &m, idx, time.Now()
@@ -270,7 +271,7 @@ func GetVersionMeta(ctx context.Context, id string) (*VersionMeta, error) {
 		} `json:"downloads"`
 	}
 	if err := dl.FetchJSON(ctx, URLPair(entry.URL), &vj); err != nil {
-		return nil, fmt.Errorf("获取版本 %s 元数据失败: %w", id, err)
+		return nil, errhint.Wrap(fmt.Errorf("获取版本 %s 元数据失败: %w", id, err), mcsrcFetchHint)
 	}
 	major := vj.JavaVersion.MajorVersion
 	if major == 0 {

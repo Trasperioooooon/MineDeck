@@ -124,7 +124,7 @@ func (r *room) converse(ctx context.Context, j *job, set Settings, caller ops.Ca
 		}
 		if res != nil {
 			usage.Add(res.Usage)
-			r.addTokens(res.Usage.Total())
+			r.addTokens(res.Usage.QuotaTokens())
 		}
 		if err == nil && res.Stop == ai.StopRefusal {
 			err = errRefused

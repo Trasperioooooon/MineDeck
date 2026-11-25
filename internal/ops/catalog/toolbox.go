@@ -145,6 +145,8 @@ func (c *cat) toolboxOps() {
 			"mc":            ops.String("Minecraft 版本").Len(0, 40),
 			"loaderVersion": ops.String("加载器版本").Len(0, 80),
 			"includeConfig": ops.Boolean("从实例导出时是否带上 config"),
+			"clientId":      ops.String("发送端会话标识（可选，用于忽略乱序到达的旧请求）").Len(0, 64),
+			"seq":           ops.Integer("同会话递增序号（可选，与 clientId 配合使用）").Range(0, 1e12),
 		}),
 		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
 			// 只取传了的字段（两个窗口同时开着时，没刷新的那一边不把另一边刚改的字段改回去，2026-11-17）

@@ -12,24 +12,24 @@ const { URL } = require("url");
 const UI_DEFAULT = path.resolve(__dirname, "..", "..", "internal", "web", "ui");
 const PORT_DEFAULT = 27390; // 避开 MineDeck 自己的默认端口 27333，本机同时开着程序也不冲突
 
-const ok = (res, data) => { res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" }); res.end(JSON.stringify({ ok: true, data })); };
+const ok = (res, data) => { if (!res.headersSent) res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" }); res.end(JSON.stringify({ ok: true, data })); };
 // hint：同后端 writeErr，报错链上另给的一句人话（没有就不带）；extra 是另外几项，比如平台上已经建好时的 { created: true }
 const err = (res, code, msg, hint, extra) => { res.writeHead(code, { "Content-Type": "application/json; charset=utf-8" }); res.end(JSON.stringify({ ok: false, error: msg, ...(hint ? { hint } : {}), ...extra })); };
-const readBody = req => new Promise(r => { let b = ""; req.on("data", c => b += c); req.on("end", () => { try { r(JSON.parse(b || "{}")); } catch { r({}); } }); });
+const readBody = req => req._bodyPromise || (req._bodyPromise = new Promise(r => { let b = ""; req.on("data", c => b += c); req.on("end", () => { try { r(JSON.parse(b || "{}")); } catch { r({}); } }); }));
 // 同 ops/catalog 的 maskWebhook：只留协议和主机（含端口），后面常带着令牌，换成 ***；解析不了的整个遮掉，空串还是空串
 const maskWebhook = u => { if (!u) return ""; try { const x = new URL(u); return x.host ? `${x.protocol}//${x.host}/***` : "***"; } catch { return "***"; } };
 // 同 publicConfig：从局域网打开时（state.local 为 false）Webhook 地址只给遮掉的
 const publicCfg = state => (state.local ? state.config : { ...state.config, webhookUrl: maskWebhook(state.config.webhookUrl) });
 
 // ---- 更新渠道（同 internal/update 和 app.UpdateChannelFor）----
-// 版本比较照语义化版本：先比三段数字；数字相同时正式版比预发布版新；都是预发布时逐段比后缀（纯数字按数字比，别的按字符串比、
-// 不分大小写，纯数字的段比非数字的段旧，段数少的更旧）；v 前缀、空白、+构建信息不算
+// 版本比较照严格的语义化版本（A84）：先比三段数字；数字相同时正式版比预发布版新；都是预发布时逐段比后缀（纯数字按数字比，
+// 别的按 ASCII 区分大小写比，纯数字的段比非数字的段旧，段数少的更旧）；v 前缀、空白、+构建信息不算
 const parseVer = v => {
   const s = String(v || "").trim().replace(/^[vV]/, "").split("+")[0];
   const i = s.indexOf("-"), core = i < 0 ? s : s.slice(0, i);
   const nums = core.split(".").slice(0, 3).map(x => BigInt((/^\d*/.exec(x)[0]) || "0"));
   while (nums.length < 3) nums.push(0n);
-  return { nums, pre: i < 0 ? null : s.slice(i + 1).toLowerCase().split(".") };
+  return { nums, pre: i < 0 ? null : s.slice(i + 1).split(".") };
 };
 const cmpVer = (a, b) => {
   const x = parseVer(a), y = parseVer(b);
@@ -45,15 +45,20 @@ const cmpVer = (a, b) => {
 const isPreVer = v => parseVer(v).pre !== null;
 // 生效的更新渠道：选过的为准；没选过按正在用的版本，测试版按 latest、正式版按 stable
 const updateChannelOf = state => ["stable", "latest"].includes(state.config.updateChannel) ? state.config.updateChannel : (String(state.version).includes("-") ? "latest" : "stable");
-// 同 app.update.check：stable 只看正式版（GitHub 的 releases/latest），latest 跳过草稿、在全部里按版本号取最大的；回包同 checkResult
+// 同 app.update.check：stable 只看正式版（若 latest 是预发布则回退列表找正式版，找不到当没有更新）；latest 跳过草稿、在全部里按版本号取最大的
 function updateCheck(state) {
   const ch = updateChannelOf(state);
-  const pool = state.releases.filter(r => !r.draft && /^[vV]?\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/.test(r.tag) && (ch === "latest" || !(r.prerelease || isPreVer(r.tag))));
-  if (!pool.length) return null;
+  const allValid = state.releases.filter(r => !r.draft && /^[vV]?\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/.test(r.tag));
+  if (!allValid.length) return null;
+  const pool = ch === "latest" ? allValid : allValid.filter(r => !(r.prerelease || isPreVer(r.tag)));
+  if (!pool.length) {
+    return { current: state.version, latest: { tag: "", notes: "", sizeBytes: 0, prerelease: false }, hasUpdate: false,
+      channel: ch, prerelease: false, currentPrerelease: isPreVer(state.version), ahead: false };
+  }
   const rel = pool.reduce((a, b) => (cmpVer(b.tag, a.tag) > 0 ? b : a));
   const pre = !!rel.prerelease || isPreVer(rel.tag);
   return { current: state.version, latest: { tag: rel.tag, notes: rel.notes || "", sizeBytes: 12582912, prerelease: pre }, hasUpdate: cmpVer(rel.tag, state.version) > 0,
-    channel: ch, prerelease: pre, currentPrerelease: isPreVer(state.version), ahead: cmpVer(state.version, rel.tag) > 0 };
+    channel: ch, prerelease: pre, currentPrerelease: isPreVer(state.version), ahead: !!rel.tag && cmpVer(state.version, rel.tag) > 0 };
 }
 
 // props-catalog.js 在 Node 中求值，取默认值生成一份「已首启」的 server.properties
@@ -128,6 +133,8 @@ function newState(ui) {
     // GitHub 上的发布（检查更新从这里挑，同 app.update.check）；/__mock/state 的 releases 整份换，updateFail 让检查更新报这句错
     releases: [{ tag: "v2.8.3" }, { tag: "v2.9.0-beta.1", prerelease: true }, { tag: "v2.9.0-beta.2", prerelease: true }],
     updateFail: "",
+    startupUpdate: null,
+    heldReqs: [], // 界面测试：当前被 holdReq 扣住的请求 [{ id, method, path, body }]
     lanSet: false, // 是否已设局域网访问密码（同 web：密码只写不读，/api/app 只给 lanSet）
     lanActive: false, // 这次「启动」是否已监听在局域网上：改 listenLan 不变（真机要重启），/__mock/state 的 listenLan 模拟重启后
     cfKey: "", // 同 web：CurseForge API Key 只写不读，不放进 config，/api/app 只给 cfKeySet
@@ -173,6 +180,7 @@ function newState(ui) {
   state.incompleteJavas = [];
   state.creatingLeftovers = [];
   state.duplicateDirs = [];
+  state.brokenInstances = [];
   state.adoptTask = null;
   state.adoptScan = state.lastAdopt = state.lastJava = state.lastDelete = null; // 接管、换 Java、删除：见 /__mock/state 的说明
   state.lastTunnelPut = null; // 上一次修改隧道（PUT /api/tunnels/{id}）的请求体，见 /__mock/state 的说明
@@ -2435,6 +2443,8 @@ function tbPreviewMrpack(state, b) {
 function newToolboxState() {
   return {
     draft: { name: "我的整合包", versionId: "1.0.0", summary: "", core: "fabric", mc: "1.20.1", loaderVersion: "", includeConfig: false },
+    draftSeq: {},
+    draftSeqOrder: [],
     downloads: {},
     lastSkinBuild: null,
     lastMrpackBuild: null,
@@ -2494,13 +2504,36 @@ async function toolboxHandler(state, req, res, p, m) {
   if (p === "/api/toolbox/mrpack/draft" && m === "GET") return ok(res, readDraft(tb.draft));
   // 同 toolbox.PatchMrpackDraft：只改传了的字段（两个窗口同时开着工具箱时，不拿一页的旧值盖掉另一页刚改的）
   if (p === "/api/toolbox/mrpack/draft" && m === "PUT") {
-    const b = await readBody(req), next = readDraft(tb.draft);
-    for (const k of ["name", "versionId", "summary", "core", "mc", "loaderVersion"]) if (k in b) next[k] = String(b[k] ?? "").trim();
-    if ("includeConfig" in b) next.includeConfig = !!b.includeConfig;
+    const b = await readBody(req);
+    const clientId = String(b.clientId ?? req.headers["x-draft-client"] ?? "").trim();
+    const rawSeq = b.seq ?? req.headers["x-draft-seq"];
+    const seq = Number.isInteger(+rawSeq) && +rawSeq > 0 ? +rawSeq : 0;
+    const seen = clientId && seq ? (tb.draftSeq[clientId] || {}) : null;
+    const next = readDraft(tb.draft), applied = [];
+    for (const k of ["name", "versionId", "summary", "core", "mc", "loaderVersion"]) {
+      if (k in b && (!seen || seq > (seen[k] || 0))) {
+        next[k] = String(b[k] ?? "").trim();
+        applied.push(k);
+      }
+    }
+    if ("includeConfig" in b && (!seen || seq > (seen.includeConfig || 0))) {
+      next.includeConfig = !!b.includeConfig;
+      applied.push("includeConfig");
+    }
     if ([...next.name].length > 100 || [...next.versionId].length > 50 || [...next.summary].length > 300)
       return err(res, 400, "整合包名称、版本号或简介太长");
-    tb.draft = next;
-    return ok(res, next);
+    if (applied.length > 0) {
+      tb.draft = next;
+      if (clientId && seq) {
+        if (!tb.draftSeq[clientId]) {
+          tb.draftSeq[clientId] = {};
+          tb.draftSeqOrder.push(clientId);
+          while (tb.draftSeqOrder.length > 64) delete tb.draftSeq[tb.draftSeqOrder.shift()];
+        }
+        for (const k of applied) tb.draftSeq[clientId][k] = seq;
+      }
+    }
+    return ok(res, tb.draft);
   }
   if (p === "/api/toolbox/mrpack/preview" && m === "POST") {
     const r = tbPreviewMrpack(state, await readBody(req));
@@ -2823,6 +2856,34 @@ async function tunnelAccountsHandler(state, req, res, p, m, seg) {
 }
 
 function handler(state, ui, portOf) {
+  let holdRules = [];
+  let nextHoldId = 0;
+  const heldGates = new Map(); // id -> { resolve, done, markDone }
+  const normalizeHoldRule = spec => {
+    if (typeof spec === "string") {
+      const sp = spec.trim().indexOf(" ");
+      return sp > 0
+        ? { method: spec.slice(0, sp).toUpperCase(), path: spec.slice(sp + 1).trim(), once: true, body: null }
+        : { method: "", path: spec.trim(), once: true, body: null };
+    }
+    return {
+      method: String(spec.method || "").toUpperCase(),
+      path: String(spec.path || ""),
+      once: spec.once !== false,
+      flushHeaders: !!spec.flushHeaders,
+      body: spec.body && typeof spec.body === "object" ? spec.body : null,
+    };
+  };
+  const releaseHeld = async target => {
+    const waits = [];
+    for (const [id, g] of [...heldGates.entries()]) {
+      if (target === true || target == null || id === target) {
+        waits.push(g.done);
+        g.resolve();
+      }
+    }
+    if (waits.length) await Promise.all(waits);
+  };
   return async (req, res) => {
     const u = new URL(req.url, "http://x");
     const p = u.pathname;
@@ -2905,6 +2966,7 @@ function handler(state, ui, portOf) {
       if ("trustedHosts" in b) state.trustedHosts = b.trustedHosts || [];
       if ("taskNet" in b) state.taskNet = b.taskNet;
       if ("importPack" in b) state.importPack = b.importPack; // 导入整合包回的 pack 摘要里要改的几项（format、mcFromLog…），null 还原
+      if (Array.isArray(b.instances)) state.instances = b.instances;
       if (b.inst) { const i = state.instances.find(x => x.name === b.inst.name); if (i) Object.assign(i, b.inst); } // 改某台服务器的字段（adopted、javaMajor…）
       if ("adoptScan" in b) state.adoptScan = b.adoptScan; // 接管：下一次识别返回的结果（null 还原成默认的 NeoForge 整合包）
       if ("commands" in b) state.commands = b.commands || []; // 发过的控制台命令（见 POST …/command），传空数组清掉
@@ -2914,12 +2976,13 @@ function handler(state, ui, portOf) {
       if (Array.isArray(b.madeDirs)) { state.madeDirs = b.madeDirs; state.lastTransferMkdir = null; }
       if ("pickDir" in b) state.pickDir = b.pickDir === null ? undefined : b.pickDir; // 系统文件夹选择框选到哪个（空串 = 点了取消；null 还原成 E:\MCServers）
       if (b.instReset) { const fresh = newState(ui); state.instances = fresh.instances; state.portableJavas = fresh.portableJavas; state.incompleteJavas = []; state.creatingLeftovers = [];
-        state.duplicateDirs = []; state.adoptTask = null;
+        state.duplicateDirs = []; state.brokenInstances = []; state.adoptTask = null;
         state.creating = false; state.javaBusy = false; state.reservedPorts = [];
-        state.lastAdopt = state.lastJava = state.lastDelete = null;
+        state.lastAdopt = state.lastJava = state.lastDelete = state.lastOpenDir = null;
         state.lifecycle = []; state.modOps = []; state.lastRestore = state.lastBackup = null; state.modsProjects = 0; } // beta.3 详情页记下的请求一起清掉
       if ("reservedPorts" in b) state.reservedPorts = b.reservedPorts || []; // [[起, 止]] 系统保留的端口范围（Hyper-V / WSL 等），放在 instReset 之后以免同次调用被冲掉
       if (Array.isArray(b.duplicateDirs)) state.duplicateDirs = b.duplicateDirs;
+      if (Array.isArray(b.brokenInstances)) state.brokenInstances = b.brokenInstances;
       if ("adoptTask" in b) state.adoptTask = b.adoptTask || null;
       if (Array.isArray(b.portableJavas)) state.portableJavas = b.portableJavas;
       if (Array.isArray(b.incompleteJavas)) state.incompleteJavas = b.incompleteJavas;
@@ -2949,6 +3012,12 @@ function handler(state, ui, portOf) {
       if (Array.isArray(b.releases)) state.releases = b.releases; // GitHub 上的发布 [{tag, prerelease?, draft?}]
       if ("updateChannel" in b) { if (b.updateChannel) state.config.updateChannel = b.updateChannel; else delete state.config.updateChannel; } // 空 = 没选过
       if ("updateFail" in b) state.updateFail = String(b.updateFail || ""); // 检查更新报这句错（502），空串还原
+      if ("startupUpdate" in b) state.startupUpdate = b.startupUpdate || null; // 启动后台查到的新版本通知 {tag, notes?, prerelease?, channel}
+      if ("holdReq" in b) { // 界面测试：按 "METHOD /path" 或 { method, path, body?, once? } 扣住匹配的请求，null 清规则并全部放行
+        if (!b.holdReq) { holdRules = []; await releaseHeld(true); }
+        else holdRules = (Array.isArray(b.holdReq) ? b.holdReq : [b.holdReq]).map(normalizeHoldRule);
+      }
+      if ("releaseHold" in b && b.releaseHold) await releaseHeld(b.releaseHold); // true 放行全部，或指定单个请求 id
       if ("credBroken" in b) for (const t of state.tunnels) t.credBroken = t.id === b.credBroken;
       if (b.tunnelsReset) { state.tunnels = newState(ui).tunnels; state.lastTunnelPut = null; } // 隧道回到初始的两条
       if ("tunnelsLoadFail" in b) state.tunnelsLoadFail = b.tunnelsLoadFail || ""; // "locked" | "corrupt" | ""（读出来了）
@@ -2988,9 +3057,35 @@ function handler(state, ui, portOf) {
       return res.end(fs.readFileSync(fp));
     }
     const insts = () => state.empty ? [] : state.instances;
+    const dp = decodeURIComponent(p);
     const seg = p.split("/").map(decodeURIComponent); // ["", "api", "instances", name, sub...]
+    let heldId = 0;
     try {
-      if (p === "/api/app") return ok(res, { version: state.version, updateChannel: updateChannelOf(state), base: "D:\\MineDeck", ramMb: 16384, availRamMb: 9216, port: portOf(), serversRoot: state.config.serversDir || "D:\\MineDeck\\servers", backupsRoot: state.config.backupsDir || "D:\\MineDeck\\backups", config: publicCfg(state), local: state.local, lanSet: state.lanSet, lanActive: state.lanActive, cfKeySet: !!state.cfKey && !state.cfKeyBroken, cfKeyBroken: state.cfKeyBroken, autoStart: state.autoStart, ips: ["172.22.48.1", "192.168.1.23", "10.0.0.5"] });
+      const candidates = holdRules.filter(r => (!r.method || r.method === m) && (r.path === dp || r.path === p));
+      if (candidates.length) {
+        const reqBody = String(req.headers["content-type"] || "").startsWith("multipart/") ? null : await readBody(req);
+        const rule = candidates.find(r => !r.body || Object.entries(r.body).every(([k, v]) => reqBody && reqBody[k] === v));
+        if (rule) {
+          if (rule.once) {
+            const idx = holdRules.indexOf(rule);
+            if (idx >= 0) holdRules.splice(idx, 1);
+          }
+          heldId = ++nextHoldId;
+          let releaseGate, markDone;
+          const gate = new Promise(r => { releaseGate = r; });
+          const done = new Promise(r => { markDone = r; });
+          state.heldReqs.push({ id: heldId, method: m, path: dp, body: reqBody });
+          heldGates.set(heldId, { resolve: releaseGate, done, markDone });
+          if (rule.flushHeaders && !res.headersSent) {
+            res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+            res.flushHeaders();
+          }
+          const timer = setTimeout(releaseGate, 15000);
+          await gate;
+          clearTimeout(timer);
+        }
+      }
+      if (p === "/api/app") return ok(res, { version: state.version, updateChannel: updateChannelOf(state), ...(state.startupUpdate ? { startupUpdate: state.startupUpdate } : {}), base: "D:\\MineDeck", ramMb: 16384, availRamMb: 9216, port: portOf(), serversRoot: state.config.serversDir || "D:\\MineDeck\\servers", backupsRoot: state.config.backupsDir || "D:\\MineDeck\\backups", config: publicCfg(state), local: state.local, lanSet: state.lanSet, lanActive: state.lanActive, cfKeySet: !!state.cfKey && !state.cfKeyBroken, cfKeyBroken: state.cfKeyBroken, autoStart: state.autoStart, ips: ["172.22.48.1", "192.168.1.23", "10.0.0.5"] });
       if (p === "/api/bg") return ok(res, { images: [] });
       if (p === "/api/ops/log") {
         const q = u.searchParams, lim = Math.min(+q.get("limit") || 100, 1000);
@@ -3009,8 +3104,9 @@ function handler(state, ui, portOf) {
       if (p === "/api/cores") return ok(res, CORES);
       if (p === "/api/config" && m === "PUT") {
         const b = await readBody(req);
-        // 同 app.config.set 的参数说明：更新渠道只收 stable / latest，别的整次拒绝（局域网也能改，同 updateRepo）
-        if ("updateChannel" in b && !["stable", "latest"].includes(b.updateChannel)) return err(res, 400, "参数 updateChannel 只能是 stable、latest 之一");
+        // 同 app.config.set 的参数说明：更新渠道收空串（跟随当前版本）、stable、latest，别的整次拒绝（局域网也能改，同 updateRepo）
+        if ("updateChannel" in b && !["", "stable", "latest"].includes(b.updateChannel)) return err(res, 400, "参数 updateChannel 只能是 \"\"、stable、latest 之一");
+        if ("updateChannel" in b || "updateRepo" in b) state.startupUpdate = null;
         // 同 web.go：chromeColor 只收 #rrggbb（存为小写），格式不对整次拒绝；空串清除
         if ("chromeColor" in b) {
           if (b.chromeColor !== "" && !/^#[0-9a-f]{6}$/i.test(b.chromeColor)) return err(res, 400, "chromeColor 须为 #rrggbb 形式的颜色");
@@ -3112,7 +3208,9 @@ function handler(state, ui, portOf) {
       if (p === "/api/update/check") { // 同 app.update.check：按生效的渠道查，回包带渠道、查到的是不是测试版、正在用的是不是比它还新
         if (state.updateFail) return err(res, 502, state.updateFail);
         const r = updateCheck(state);
-        return r ? ok(res, r) : err(res, 502, "这个仓库还没有任何发布版本");
+        if (!r) return err(res, 502, "这个仓库还没有任何发布版本");
+        state.startupUpdate = null;
+        return ok(res, r);
       }
       // 接管已有服务器（同 web/instances.go 的 /api/adopt/scan、/api/adopt，inst/adopt.go）：识别只读，接管返回任务编号
       if (p === "/api/adopt/scan" && m === "POST") {
@@ -3283,7 +3381,7 @@ function handler(state, ui, portOf) {
         const names = ["下载 Java 21 运行时", "下载 Paper 1.21.4 核心", "同意 EULA 并生成配置", "生成启动脚本"];
         const steps = names.map((name, i) => ({ name, status: st === "error" ? (i < 1 ? "done" : i === 1 ? "error" : "pending") : i < st ? "done" : i === st ? "running" : "pending" }));
         const ended = st === "error" || st >= names.length;
-        return ok(res, { id: seg[3], title: "创建 Paper 服务器", steps, label: ended ? "" : "下载 paper-1.21.4-232.jar", done: 31457280, total: 52428800, error: st === "error" ? "下载 paper-1.21.4-232.jar 失败：所有下载源均不可用（BMCLAPI 超时、官方源 403）" : "", warnings: [], log: ["[1/4] 检测到本机 Java 21，复用", "[2/4] 正在从 api.papermc.io 下载核心…", "  已下载 30.0 MB / 50.0 MB"], ended, result: "生存服 · 朋友", net: !ended && state.taskNet ? state.taskNet : undefined, ...state.taskList.find(t => t.id === seg[3]) });
+        return ok(res, { id: seg[3], title: "创建 Paper 服务器", steps, label: ended ? "" : "下载 paper-1.21.4-232.jar", done: 31457280, total: 52428800, error: st === "error" ? "下载 paper-1.21.4-232.jar 失败：所有下载源均不可用（BMCLAPI 超时、官方源 403）" : "", ...(st === "error" ? { errHint: "网络请求超时，请检查网络或代理后再试" } : {}), warnings: [], log: ["[1/4] 检测到本机 Java 21，复用", "[2/4] 正在从 api.papermc.io 下载核心…", "  已下载 30.0 MB / 50.0 MB"], ended, result: "生存服 · 朋友", net: !ended && state.taskNet ? state.taskNet : undefined, ...state.taskList.find(t => t.id === seg[3]) });
       }
       // connectPort（同 instance.list）：朋友连进来的端口。仿真里的代理端 port 写的就是它自己的端口；没生成配置的代理端用 inst 设成 0
       // lastStartError：上一次启动没起来的原因（startFail 那台点启动时记下，成功启动清掉）
@@ -3291,7 +3389,7 @@ function handler(state, ui, portOf) {
       if (p === "/api/instances" && m === "GET") {
         const data = insts().map(({ mods, backups, ...i }) => ({ ...i, connectPort: i.connectPort ?? i.port, backupDir: i.backupDir ?? "D:\\MineDeck\\backups\\" + i.name }));
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
-        return res.end(JSON.stringify({ ok: true, data, duplicates: state.empty ? [] : (state.duplicateDirs || []) }));
+        return res.end(JSON.stringify({ ok: true, data, duplicates: state.empty ? [] : (state.duplicateDirs || []), broken: state.empty ? [] : (state.brokenInstances || []), local: state.local !== false }));
       }
       // 创建实例（向导提交）：真的登记进列表（Java 21 / 已停止等按表单补全），
       // 这样紧接着带上草稿车的 POST .../modcart/install 才能按名字找到这台实例（真后端此时也已经建好了）
@@ -3530,7 +3628,7 @@ function handler(state, ui, portOf) {
             }
             for (const f of flags) if (!kept.has(f)) nextJvm.push(f);
             if (i.customLog4jXml && !nextJvm.includes("-Dlog4j.configurationFile=" + i.customLog4jXml)) {
-              note = `log4shell 防护：这台 ${i.mc} 的服务器没有套上 Mojang 的日志配置，等于没防。服务器文件夹里已经有一份 ${i.customLog4jXml}，内容和官方的不一样（可能是自己改过的），MineDeck 没有覆盖它，也没有替它补上引用。要用官方的那份，把这个文件改名或挪走以后重开 MineDeck；要用自己的，在「启动与内存」里加上 -Dlog4j.configurationFile=${i.customLog4jXml}`;
+              note = `log4shell 防护：这台 ${i.mc} 的服务器没有套上 Mojang 的日志配置，等于没防。服务器文件夹里已经有一份 ${i.customLog4jXml}，内容和官方的不一样（可能是自己改过的），MineDeck 没有覆盖它，也没有替它补上引用。要用官方的那份，把这个文件改名或挪走以后重开 MineDeck；要用自己的，在「设置 → 启动与内存」里加上 -Dlog4j.configurationFile=${i.customLog4jXml}`;
             }
           }
           const launchArgs = [
@@ -3663,6 +3761,15 @@ function handler(state, ui, portOf) {
       }
       return ok(res, {});
     } catch (e) { return err(res, 500, String(e)); }
+    finally {
+      if (heldId) {
+        const idx = state.heldReqs.findIndex(x => x.id === heldId);
+        if (idx >= 0) state.heldReqs.splice(idx, 1);
+        const g = heldGates.get(heldId);
+        heldGates.delete(heldId);
+        if (g) g.markDone();
+      }
+    }
   };
 }
 

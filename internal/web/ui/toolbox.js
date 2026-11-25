@@ -9,6 +9,7 @@ window.MDToolbox = (() => {
   const MAX_SKINS = 18;
   const MOD_CORES = new Set(["fabric", "forge", "neoforge", "mohist", "banner"]);
   const MC_PRESETS = ["26.3", "26.2", "26.1", "1.21.11", "1.21.4", "1.20.4", "1.20.1", "1.19.4", "1.19.2", "1.18.2", "1.12.2", "1.8.9"];
+  let activeDraftHide = null; // 同一页只留一个 pagehide 监听（重进页面时先摘旧的）
 
   const TOOLS = [
     {
@@ -898,10 +899,11 @@ window.MDToolbox = (() => {
       if (saveTimer) clearTimeout(saveTimer);
       saveTimer = setTimeout(saveDraftNow, 260);
     }
-    // 自动保存只发和基线（上次读回来或存下的样子）不一样的字段，后端只改传了的字段。以前一改就整份发：
-    // 两个窗口同时开着工具箱时，一边刚改了名称，另一边（名称还是旧的）改一下简介，就把名称改回去了（Codex 复审 v3.2.0 第二轮）。
-    // 基线只在存成功以后更新、只更新发出去的那几项；没存上的下次照样会发
-    let draftBase = null;
+    // 自动保存只发和已发出基线（draftSent）不一样的字段，后端只改传了的字段并按 (clientId, seq) 忽略乱序晚到的旧值（A65）。
+    // draftBase 记服务端已确认的值；draftSent 记已经带着 keepalive 发出去的最新值，所以离开页面补发只送还没发出的新改动，
+    // 不会把路上那次没再改过的格再重发一遍盖掉另一窗口刚存的值。
+    const draftClientId = String(Math.random()).slice(2, 10) + Date.now().toString(36);
+    let draftBase = null, draftSent = null, draftSeq = 0, draftSentSeq = {};
     const readDraftForm = () => ({
       name: nameIn.value.trim(),
       versionId: verIn.value.trim(),
@@ -924,46 +926,72 @@ window.MDToolbox = (() => {
       if (d.loaderVersion != null) f.loaderVersion = s(d.loaderVersion);
       return f;
     }
-    // 一次只发一个：路上那次还没回来时又要存的，记下这一刻的表单，等它回来（成没成都一样）再按那时的基线比、补发。
-    // 以前各发各的：第一次（改成新名）还没回来，人又改回旧名，第二次和还没更新的基线一比没变就不发了，
-    // 第一次回来以后基线成了新名，表单是旧名、存着的却是新名（Codex 复审 2026-11-17）。记的是这一刻的表单，不等回来再读：
-    // 这期间切到「从已有服务器导出」，名称、版本、简介几格会换成服务器的，回来再读就把它们存进草稿了。
-    // 排着的那份碰上整页刷新或关掉（站内切页不算，那时照样会发完），在 pagehide 里当场发出去，见 flushDraftOnHide（Codex 复审第二轮）
+    if (activeDraftHide) {
+      window.removeEventListener("pagehide", activeDraftHide);
+      activeDraftHide = null;
+    }
+    // 一次只发一个：路上那次还没回来时又要存的，记下这一刻的表单，等它回来后再按那时的基线比、补发。
+    // 所有发出草稿的请求都带 keepalive: true 与 (clientId, seq)，并在整个编辑期挂着 pagehide：
+    // 即使上一次刚返回、下一次还在防抖计时里就整页刷新，flushDraftOnHide 也能把新改动送出去。
     let draftInflight = null, draftQueued = null; // 路上那次发出去的改动；路上时又要存的那一刻的表单
     function saveDraftNow() {
       if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
-      if (!draftBase) return; // 草稿还没读回来（或读失败）：不存，见上面
+      if (!draftBase || !draftSent) return; // 草稿还没读回来（或读失败）：不存，见上面
       if (draftInflight) { draftQueued = readDraftForm(); return; }
       sendDraft(readDraftForm());
     }
     function sendDraft(now) {
-      const base = draftBase, change = {}; // 「重新读取」会换一份新的基线：那以后才回来的旧请求不改新基线
-      for (const k of Object.keys(now)) if (now[k] !== base[k]) change[k] = now[k];
+      const base = draftBase, sent = draftSent, change = {}; // 「重新读取」会换一份新基线和已发记录：旧请求不改新基线
+      for (const k of Object.keys(now)) if (now[k] !== sent[k]) change[k] = now[k];
       if (!Object.keys(change).length) return;
+      const seq = ++draftSeq;
+      Object.assign(sent, change);
+      for (const k of Object.keys(change)) draftSentSeq[k] = seq;
       draftInflight = change;
-      window.addEventListener("pagehide", flushDraftOnHide);
-      api("/api/toolbox/mrpack/draft", { method: "PUT", body: change })
-        .then(() => { Object.assign(base, change); }, () => {})
+      api("/api/toolbox/mrpack/draft", {
+        method: "PUT",
+        body: change,
+        keepalive: true,
+        headers: { "X-Draft-Client": draftClientId, "X-Draft-Seq": String(seq) },
+      })
+        .then(() => { if (draftBase === base) Object.assign(base, change); },
+          () => {
+            if (draftBase === base && draftSent === sent) {
+              for (const k of Object.keys(change)) if (draftSentSeq[k] === seq) sent[k] = base[k];
+            }
+          })
         .then(() => {
           draftInflight = null;
           const q = draftQueued;
           draftQueued = null;
-          if (q && draftBase) sendDraft(q);
-          if (!draftInflight) window.removeEventListener("pagehide", flushDraftOnHide);
+          if (q && draftBase && draftSent) sendDraft(q);
         });
     }
-    // 有请求在路上时整页刷新或关掉：排着的那份（计时还没到的就取这一刻的表单）当场发出去，keepalive 让页面没了也送得到。
-    // 路上那次改过的几格也按这一刻的值带上：只和还没更新的基线比，改回原样的那一格就不发了（同上面的漏存）
+    // 整页刷新或关掉页面之前：只把还留在表单/队列里、比 draftSent 更新的字段用 keepalive 送出去；
+    // 已经在路上、用户没再改过的格不再重发，免得盖掉另一个窗口刚存的值。
     function flushDraftOnHide() {
       window.removeEventListener("pagehide", flushDraftOnHide);
-      const q = saveTimer && st.source === "draft" ? readDraftForm() : draftQueued;
+      if (activeDraftHide === flushDraftOnHide) activeDraftHide = null;
+      if (stale(gen) || !draftReady || !draftBase || !draftSent) return;
+      const q = st.source === "draft" ? readDraftForm() : draftQueued;
       if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
       draftQueued = null;
-      if (!q || !draftBase) return;
+      if (!q) return;
       const change = {};
-      for (const k of Object.keys(q)) if (q[k] !== draftBase[k] || (draftInflight && k in draftInflight)) change[k] = q[k];
-      if (Object.keys(change).length) api("/api/toolbox/mrpack/draft", { method: "PUT", body: change, keepalive: true }).catch(() => {});
+      for (const k of Object.keys(q)) if (q[k] !== draftSent[k]) change[k] = q[k];
+      if (!Object.keys(change).length) return;
+      const seq = ++draftSeq;
+      Object.assign(draftSent, change);
+      for (const k of Object.keys(change)) draftSentSeq[k] = seq;
+      api("/api/toolbox/mrpack/draft", {
+        method: "PUT",
+        body: change,
+        keepalive: true,
+        headers: { "X-Draft-Client": draftClientId, "X-Draft-Seq": String(seq) },
+      }).catch(() => {});
     }
+    activeDraftHide = flushDraftOnHide;
+    window.addEventListener("pagehide", flushDraftOnHide);
 
     function mountDraftCart() {
       if (!window.MDModCart || st.source !== "draft") return;
@@ -1220,7 +1248,9 @@ window.MDToolbox = (() => {
         if (stale(gen)) return;
         srcBtns.forEach(b => { b.disabled = false; });
         fillDraft(d, true);
-        draftBase = draftBaseFrom(d); // 表单整份换成了存好的：基线也换成它
+        draftBase = draftBaseFrom(d); // 表单整份换成了存好的：基线与已发记录一起换成它
+        draftSent = { ...draftBase };
+        draftSentSeq = {};
         savePending = false; // 读失败期间排着的那次保存作废：表单已经换成存好的了
         draftQueued = null; // 记下的旧表单也作废，同上
         draftReady = true;
@@ -1247,6 +1277,8 @@ window.MDToolbox = (() => {
       else {
         fillDraft(draft, false);
         draftBase = draftBaseFrom(draft || {});
+        draftSent = { ...draftBase };
+        draftSentSeq = {};
         draftReady = true;
         if (savePending) { savePending = false; scheduleSaveDraft(); }
       }

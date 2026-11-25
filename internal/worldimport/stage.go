@@ -1,6 +1,7 @@
 package worldimport
 
 import (
+	"archive/zip"
 	"context"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"syscall"
 
 	"minedeck/internal/diskguard"
+	"minedeck/internal/errhint"
 	"minedeck/internal/winname"
 )
 
@@ -205,7 +207,11 @@ func copyEntry(ctx context.Context, src *source, e *entry, dst string, buf []byt
 			return cerr
 		}
 		if src.kind == "zip" {
-			return fmt.Errorf("压缩包里的 %s 解不开（可能下载不完整、校验不对），没有替换任何文件：%w", e.rel, diskErr(cerr))
+			wrapErr := fmt.Errorf("压缩包里的 %s 解不开（可能下载不完整、校验不对），没有替换任何文件：%w", e.rel, diskErr(cerr))
+			if errors.Is(cerr, zip.ErrFormat) || errors.Is(cerr, zip.ErrChecksum) || errors.Is(cerr, zip.ErrAlgorithm) || errors.Is(cerr, io.ErrUnexpectedEOF) {
+				return errhint.Wrap(wrapErr, "地图压缩包可能损坏，没有替换任何文件")
+			}
+			return wrapErr
 		}
 		return fmt.Errorf("复制 %s 失败：%w", e.rel, diskErr(cerr))
 	}

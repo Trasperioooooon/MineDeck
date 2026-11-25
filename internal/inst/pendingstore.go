@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"minedeck/internal/atomicfile"
+	"minedeck/internal/errhint"
 	"minedeck/internal/modpack"
 	"minedeck/internal/tasks"
 )
@@ -279,7 +280,7 @@ func readPendingList(dir string) (*pendingList, error) {
 	}
 	var l pendingList
 	if err := json.Unmarshal(bytes.TrimPrefix(b, []byte("\xef\xbb\xbf")), &l); err != nil {
-		return nil, fmt.Errorf("「没装上的文件」清单的内容坏了，读不出来（%s）：%v", PendingListFile, err)
+		return nil, errhint.Wrap(fmt.Errorf("「没装上的文件」清单的内容坏了，读不出来（%s）：%v", PendingListFile, err), "「没装上的文件」清单格式坏了，可删除该清单后按需手动补装")
 	}
 	l.sanitize()
 	return &l, nil
@@ -452,7 +453,7 @@ func (m *Manager) ResolveInstancePending(ctx context.Context, name string, acts 
 		return nil, ImportPendingView{}, fmt.Errorf("没有要处理的项")
 	}
 	if !m.resolveMu.TryLock() {
-		return nil, ImportPendingView{}, fmt.Errorf("上一批待处理的文件还在处理（可能在下载），等它完成再试")
+		return nil, ImportPendingView{}, fmt.Errorf("上一批没装上的文件还在处理（可能在下载），等它完成再试")
 	}
 	defer m.resolveMu.Unlock()
 	i, err := m.Get(name)

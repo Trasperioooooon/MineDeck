@@ -747,7 +747,7 @@ func (m *Manager) ResolveImportPending(ctx context.Context, taskID string, acts 
 	// 一次只处置一批：两个请求同时处置同一项（开了两个窗口）会一起写同一个 .part，落下来的可能是拼坏的文件
 	// 下载可能要等上一两分钟，所以拿不到锁就直接告诉对方，不让请求干等着转圈
 	if !m.resolveMu.TryLock() {
-		return nil, nil, fmt.Errorf("上一批待处理的文件还在处理（可能在下载），等它完成再试")
+		return nil, nil, fmt.Errorf("上一批没装上的文件还在处理（可能在下载），等它完成再试")
 	}
 	defer m.resolveMu.Unlock()
 	t := m.Tasks.Get(taskID)
