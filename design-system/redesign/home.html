@@ -74,6 +74,11 @@ window.EXTRA_ICONS = {
   .rc .meta { font-size: 12px; color: var(--faint); }
   .rc .play { margin-left: auto; width: 32px; height: 32px; border-radius: var(--r-full); display: grid; place-items: center; color: var(--accent-text); background: var(--accent-subtle); flex: none; }
   .rc > div { min-width: 0; }
+  .rc .meta.on { color: var(--success-text); display: flex; align-items: center; gap: 6px; }
+  .rc .meta.on i { width: 6px; height: 6px; border-radius: 2px; background: var(--success); }
+  .rc .play.stop { color: var(--muted); background: var(--surface-2); }
+  .lc .st.off { color: var(--faint); } .lc .st.off i { background: var(--faint); box-shadow: none; }
+  .btn.go { background: var(--accent-subtle); color: var(--accent-text); border-color: transparent; }
 
   /* 像素头像（照 app.css 的 .px-avatar） */
   .px-avatar { --c: #7a8aa0; width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: var(--r-md);
@@ -92,7 +97,10 @@ window.EXTRA_ICONS = {
   .cap a.home { padding: 0 12px; }
   .cap a.home img { width: 20px; height: 20px; image-rendering: pixelated; }
   .cap .sep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
-  .cap a.new { background: var(--accent-solid); color: var(--on-accent); margin-left: 2px; }
+  .cap a.ai { color: var(--text); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border); }
+  .cap a.ai .ico { color: var(--accent-text); }
+  .cap a.ai:hover { background: var(--control-hov); }
+  .cap a.new { background: var(--accent-solid); color: var(--on-accent); margin-left: 4px; }
   .cap a.new:hover { background: var(--accent-solid-hov); }
 
   /* ?nav=top：胶囊放进标题栏正中 */
@@ -112,7 +120,6 @@ window.EXTRA_ICONS = {
 <header class="tb">
   <div class="brand"><img src="../../internal/web/ui/img/logo-16.png" alt="">MineDeck</div>
   <div class="sp"></div>
-  <span class="ai"><i data-ic="sparkle"></i>AI 助手</span>
   <div class="win"><span><i data-ic="winMin"></i></span><span><i data-ic="winMax"></i></span><span><i data-ic="winClose"></i></span></div>
 </header>
 
@@ -127,7 +134,7 @@ window.EXTRA_ICONS = {
     <span class="iconbtn" title="排序：最近创建"><i data-ic="sort"></i></span>
   </div>
 
-  <div class="sec">正在运行 <span class="n">3</span></div>
+  <div class="sec">最近玩的</div>
   <div class="live">
     <div class="lc">
       <div class="top"><span data-av="paper" data-sz="lg"></span><div><div class="nm">生存服 · 朋友</div><div class="meta">Paper · 1.21.4</div></div><span class="st"><i></i>运行中</span></div>
@@ -135,9 +142,9 @@ window.EXTRA_ICONS = {
       <div class="acts"><span class="btn"><i data-ic="console"></i>控制台</span><span class="btn ghost"><i data-ic="stop"></i>停止</span><span class="btn ghost more"><i data-ic="more"></i></span></div>
     </div>
     <div class="lc">
-      <div class="top"><span data-av="purpur" data-sz="lg"></span><div><div class="nm">空岛生存</div><div class="meta">Purpur · 1.21.4</div></div><span class="st"><i></i>运行中</span></div>
-      <div class="big"><div><div class="v">7<small>/30</small></div><div class="k">在线</div></div><div><div class="v">5:02</div><div class="k">已运行</div></div><div style="margin-left:auto;align-self:center"><span class="addr">:25570<i data-ic="copy"></i></span></div></div>
-      <div class="acts"><span class="btn"><i data-ic="console"></i>控制台</span><span class="btn ghost"><i data-ic="stop"></i>停止</span><span class="btn ghost more"><i data-ic="more"></i></span></div>
+      <div class="top"><span data-av="forge" data-sz="lg"></span><div><div class="nm">机械动力整合包</div><div class="meta">Forge · 1.20.1</div></div><span class="st off"><i></i>已停止</span></div>
+      <div class="big"><div><div class="v">昨天</div><div class="k">上次玩</div></div><div><div class="v">36<small> 小时</small></div><div class="k">一共开过</div></div><div style="margin-left:auto;align-self:center"><span class="addr">:25566<i data-ic="copy"></i></span></div></div>
+      <div class="acts"><span class="btn go"><i data-ic="play"></i>启动</span><span class="btn ghost"><i data-ic="console"></i>控制台</span><span class="btn ghost more"><i data-ic="more"></i></span></div>
     </div>
     <div class="lc">
       <div class="top"><span data-av="vanilla" data-sz="lg"></span><div><div class="nm">原版快照测试</div><div class="meta">原版 · 26.2</div></div><span class="st warm"><i></i>启动中</span></div>
@@ -148,7 +155,7 @@ window.EXTRA_ICONS = {
 
   <div class="sec">其他 <span class="n">5</span></div>
   <div class="rest">
-    <div class="rc"><span data-av="forge" data-sz="sm"></span><div><div class="nm">机械动力整合包</div><div class="meta">Forge · 1.20.1</div></div><span class="play" title="启动"><i data-ic="play"></i></span></div>
+    <div class="rc"><span data-av="purpur" data-sz="sm"></span><div><div class="nm">空岛生存</div><div class="meta on"><i></i>7 人在线</div></div><span class="play stop" title="停止"><i data-ic="stop"></i></span></div>
     <div class="rc"><span data-av="leaves" data-sz="sm"></span><div><div class="nm">红石科技服</div><div class="meta">Leaves · 1.21.4</div></div><span class="play" title="启动"><i data-ic="play"></i></span></div>
     <div class="rc"><span data-av="neoforge" data-sz="sm"></span><div><div class="nm">匠魂与暮色</div><div class="meta">NeoForge · 1.21.1</div></div><span class="play" title="启动"><i data-ic="play"></i></span></div>
     <div class="rc"><span data-av="mohist" data-sz="sm"></span><div><div class="nm">模组加插件</div><div class="meta">Mohist · 1.20.1</div></div><span class="play" title="启动"><i data-ic="play"></i></span></div>
@@ -162,6 +169,7 @@ window.EXTRA_ICONS = {
   <a href="#"><i data-ic="toolbox"></i>工具箱</a>
   <a href="#"><i data-ic="gear"></i>设置</a>
   <span class="sep"></span>
+  <a class="ai" href="#" title="AI 助手（Ctrl+K）"><i data-ic="sparkle"></i>AI 助手</a>
   <a class="new" href="#"><i data-ic="plus"></i>新建</a>
 </nav>
 
