@@ -2,15 +2,13 @@ package inst
 
 import (
 	"context"
-	"encoding/binary"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
-	"unsafe"
 
+	"minedeck/internal/portprobe"
 	"minedeck/internal/procutil"
 
 	"golang.org/x/sys/windows"
@@ -56,70 +54,10 @@ func defaultRunNetshExcluded(ipv6 bool) (string, error) {
 	return string(out), nil
 }
 
-var (
-	iphlpapi                = windows.NewLazySystemDLL("iphlpapi.dll")
-	procGetExtendedTCPTable = iphlpapi.NewProc("GetExtendedTcpTable")
-)
-
-const (
-	tcpTableOwnerPIDListener = 3
-	afInet                   = 2
-	afInet6                  = 23
-)
-
 // defaultListenPorts 读取系统的 TCP 监听表（IPv4 和 IPv6），不试绑端口，不触发防火墙弹窗。
-func defaultListenPorts() map[int]int {
-	out := map[int]int{}
-	if procGetExtendedTCPTable.Find() != nil {
-		return out
-	}
-	for _, af := range []uint32{afInet, afInet6} {
-		rowLen, portOff, pidOff := 24, 8, 20
-		if af == afInet6 {
-			rowLen, portOff, pidOff = 56, 20, 52
-		}
-		var size uint32
-		_, _, _ = procGetExtendedTCPTable.Call(0, uintptr(unsafe.Pointer(&size)), 0, uintptr(af), tcpTableOwnerPIDListener, 0)
-		if size == 0 || size > 16<<20 {
-			continue
-		}
-		buf := make([]byte, size+256)
-		size = uint32(len(buf))
-		r, _, _ := procGetExtendedTCPTable.Call(uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&size)), 0, uintptr(af), tcpTableOwnerPIDListener, 0)
-		if r != 0 || len(buf) < 4 {
-			continue
-		}
-		n := int(binary.LittleEndian.Uint32(buf[0:4]))
-		for k := 0; k < n; k++ {
-			row := 4 + k*rowLen
-			if row+rowLen > len(buf) {
-				break
-			}
-			p := int(buf[row+portOff])<<8 | int(buf[row+portOff+1])
-			pid := int(binary.LittleEndian.Uint32(buf[row+pidOff:]))
-			if pid > 0 {
-				if _, ok := out[p]; !ok {
-					out[p] = pid
-				}
-			}
-		}
-	}
-	return out
-}
+func defaultListenPorts() map[int]int { return portprobe.TCPListeners() }
 
-func defaultProcessName(pid int) string {
-	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
-	if err != nil {
-		return ""
-	}
-	defer windows.CloseHandle(h)
-	buf := make([]uint16, windows.MAX_PATH)
-	n := uint32(len(buf))
-	if err := windows.QueryFullProcessImageName(h, 0, &buf[0], &n); err != nil {
-		return ""
-	}
-	return filepath.Base(strings.ReplaceAll(windows.UTF16ToString(buf[:n]), `\`, "/"))
-}
+func defaultProcessName(pid int) string { return portprobe.ProcessName(pid) }
 
 // extraBindHosts Windows 下通配地址按 SO_EXCLUSIVEADDRUSE 试绑一次即可覆盖回环与所有网卡，无需额外地址。
 func extraBindHosts(_, _ string) []string { return nil }
