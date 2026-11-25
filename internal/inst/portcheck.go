@@ -245,42 +245,6 @@ func (m *Manager) CheckFormPort(port int) *FormPortBusy {
 	return out
 }
 
-// SetPortProbesForTest 供跨包测试注入固定的监听端口表与系统保留段，不受运行测试那台电脑上真实进程或 Hyper-V 保留段影响。
-func SetPortProbesForTest(listeners map[int]string, excluded [][2]int) func() {
-	oldL, oldN, oldE, oldM := queryListenPorts, queryProcessName, queryExcludedPorts, listenProbesMocked
-	fakeL := map[int]int{}
-	fakeNames := map[int]string{}
-	nextPID := 1000
-	for p, name := range listeners {
-		nextPID++
-		fakeL[p] = nextPID
-		fakeNames[nextPID] = name
-	}
-	var rs []portRange
-	for _, r := range excluded {
-		rs = append(rs, portRange{start: r[0], end: r[1]})
-	}
-	queryListenPorts = func() map[int]int { return fakeL }
-	queryProcessName = func(pid int) string { return fakeNames[pid] }
-	queryExcludedPorts = func() ([]portRange, []portRange) { return rs, nil }
-	listenProbesMocked = true
-	return func() {
-		queryListenPorts, queryProcessName, queryExcludedPorts, listenProbesMocked = oldL, oldN, oldE, oldM
-	}
-}
-
-// UseRealPortProbesForTest 供跨包测试临时切回系统真实的监听表探测（仍屏蔽真实 netsh，避免测试受本机保留段影响）。
-func UseRealPortProbesForTest() func() {
-	oldL, oldN, oldE, oldM := queryListenPorts, queryProcessName, queryExcludedPorts, listenProbesMocked
-	queryListenPorts = defaultListenPorts
-	queryProcessName = defaultProcessName
-	queryExcludedPorts = func() ([]portRange, []portRange) { return nil, nil }
-	listenProbesMocked = false
-	return func() {
-		queryListenPorts, queryProcessName, queryExcludedPorts, listenProbesMocked = oldL, oldN, oldE, oldM
-	}
-}
-
 // PortBusy 上一次启动时端口被占着（可用性走查 R08），实例列表里的 startPortBusy：界面按它在详情页头给
 // 「改成 N 并启动」（本软件的另一台服务器占着）或「改端口」（别的程序占着）。同 LastStartError，只在内存里，进程起来了就清掉。
 type PortBusy struct {
