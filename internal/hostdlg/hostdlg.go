@@ -11,6 +11,7 @@ import (
 	"errors"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // ErrBusy 已经有一个对话框开着（上一次点的还没选完）。
@@ -26,6 +27,8 @@ var (
 	activeDisp     *dispatcher
 	nativePicker   = pickFolderNative
 	fallbackPicker = pickFolderFallback
+	// rewakeInterval 派发出去的弹窗还没开始执行时，隔多久补发一次唤醒（见 callNativePicker）
+	rewakeInterval = 200 * time.Millisecond
 )
 
 type dispatcher struct {
@@ -40,6 +43,7 @@ func SetOwner(hwnd uintptr) { owner.Store(hwnd) }
 
 // SetDispatcher 注册主窗口 UI 线程的派发入口。非 UI 线程调用 PickFolder 时，
 // 原生系统对话框会切回 UI 线程执行，避免跨线程持有 hwndOwner 时模态弹窗卡死或失焦。
+// dispatch 会被调好几次（补发唤醒），也会在 UI 线程上被调，不能阻塞。
 // 返回的 clear 应在主窗口消息循环退出时调用，以解除绑定并唤醒仍在等待的调用。
 func SetDispatcher(uiThreadID uint32, dispatch func(func())) (clear func()) {
 	var d *dispatcher
@@ -83,6 +87,11 @@ func currentDispatcher() *dispatcher {
 
 // callNativePicker 在登记了 UI 派发器且当前不在 UI 线程上时，将原生弹窗切到 UI 线程执行；
 // 若本身已在 UI 线程或未登记派发器（-nogui / 单元测试），则直接在当前线程打开以免自锁。
+//
+// go-webview2 的派发是「回调排队 + 发一条线程消息叫醒 UI 线程」，系统的模态循环会吞掉这条消息（对话框实测过；拖动窗口、托盘菜单的模态循环按同一个机制推断，没单独测），
+// 排着的回调要等下一次有人派发才执行。所以：对话框关掉以后补派发一次空的，冲出开着期间别处派发的回调（绑定函数的回应等）；
+// 弹窗还没开始执行时隔 rewakeInterval 补发一次空的，开始执行或派发器被清掉就停。
+// UI 线程上直调的那条路不补发：现在没有这样调的地方，以后有了要调用方自己补派发一次。
 func callNativePicker(ownerHWND uintptr, title string) (path string, stopped bool, err error) {
 	d := currentDispatcher()
 	if d == nil || (d.uiThreadID != 0 && currentThreadID() == d.uiThreadID) {
@@ -94,19 +103,32 @@ func callNativePicker(ownerHWND uintptr, title string) (path string, stopped boo
 		err  error
 	}
 	doneCh := make(chan nativeRes, 1)
+	started := make(chan struct{})
 	d.fn(func() {
+		close(started)
 		p, e := nativePicker(ownerHWND, title)
+		d.fn(func() {})
 		doneCh <- nativeRes{path: p, err: e}
 	})
-	select {
-	case r := <-doneCh:
-		return r.path, false, r.err
-	case <-d.stopped:
+	rewake := time.NewTicker(rewakeInterval)
+	defer rewake.Stop()
+	startedC, rewakeC := (<-chan struct{})(started), rewake.C
+	for {
 		select {
 		case r := <-doneCh:
 			return r.path, false, r.err
-		default:
-			return "", true, nil
+		case <-d.stopped:
+			select {
+			case r := <-doneCh:
+				return r.path, false, r.err
+			default:
+				return "", true, nil
+			}
+		case <-startedC:
+			rewake.Stop()
+			startedC, rewakeC = nil, nil // 已经开始了：不再看它，也不再补发
+		case <-rewakeC:
+			d.fn(func() {})
 		}
 	}
 }

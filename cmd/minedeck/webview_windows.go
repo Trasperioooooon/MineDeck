@@ -81,8 +81,9 @@ func openWebView(url string, sig chan os.Signal, minimized bool) (ok bool) {
 	w.Bind("hostOpenURL", func(raw string) error {
 		return openExternalURL(raw, func(err error) { w.Dispatch(func() { w.Eval(openURLFailedJS(err)) }) })
 	})
-	// 主窗口导航兜底拦截：绕开 JS 事件的顶层跳转（外链、file://、拖拽文件等）全部拦在主窗口外，
-	// 外部 http/https 转交默认浏览器打开，其余直接取消，避免特权本地应用窗口跳转到外部或本地页面。
+	// 主窗口导航兜底（A89）：页面绕开上面的外链拦截、让主窗口自己跳走时（脚本改 location、file:// 之类），在 NavigationStarting 里取消，
+	// 外部 http/https 交给默认浏览器，别的协议只取消。挡的是主窗口换成别的页面，挡不住请求：取消以后那一笔 GET 照样发到了对方（实测），
+	// 所以走到这里的外部地址会被请求两次。iframe 不归它管，新开的窗口也不归它管（读代码得出）；拖进来的文件管不管没验证过。
 	if removeNavGuard, err := installWebViewNavGuard(w, url, func(err error) {
 		w.Dispatch(func() { w.Eval(openURLFailedJS(err)) })
 	}); err != nil {
