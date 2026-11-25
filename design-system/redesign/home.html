@@ -21,16 +21,17 @@ window.EXTRA_ICONS = {
   body { background: var(--bg); overflow-x: hidden; }
 
   /* 标题栏：和内容同一张底，不再是单独的一条深色 */
-  .tb { height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 0 0 16px; position: sticky; top: 0; z-index: 5;
+  .tb { height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 0 0 16px; position: sticky; top: 0; z-index: 5;
         background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(12px); }
   .tb .brand { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
   .tb .brand img { width: 16px; height: 16px; image-rendering: pixelated; }
   .tb .sp { flex: 1; }
-  .tb .win { display: flex; height: 44px; }
+  .tb .win { display: flex; height: 40px; }
   .tb .win span { width: 46px; display: grid; place-items: center; color: var(--muted); }
 
   /* 内容 */
-  .page { max-width: 1160px; margin: 0 auto; padding: 20px 40px 120px; }
+  /* 基准窗口 1280×800（16:10，逻辑像素）：第一次打开不出竖向滚动条，胶囊不压住「其他」。底边留白 = 胶囊 52 + 离底 18 + 间隔 16 = 86 */
+  .page { max-width: 1160px; margin: 0 auto; padding: 12px 40px 86px; }
   .head { display: flex; align-items: flex-end; gap: 12px; margin-bottom: 28px; }
   .head h1 { font-size: 26px; line-height: 34px; font-weight: 600; letter-spacing: -.015em; margin: 0; }
   .head .sum { display: flex; gap: 14px; margin-top: 6px; font-size: 13px; color: var(--muted); }
@@ -40,7 +41,7 @@ window.EXTRA_ICONS = {
   .search { display: flex; align-items: center; gap: 8px; width: 240px; height: 36px; padding: 0 12px; border-radius: var(--r-full);
             background: var(--field); border: 1px solid var(--border); color: var(--faint); font-size: 13px; }
 
-  .sec { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; min-height: 32px; }
+  .sec { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; min-height: 32px; }
   .sec h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0; }
   .sec .n { font-family: var(--mono); font-size: 13px; color: var(--faint); }
   .sec .hint { font-size: 12px; color: var(--faint); }
@@ -182,10 +183,11 @@ window.EXTRA_ICONS = {
 
   /* 其余的小块 */
   .rest { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
-  .rc { display: flex; align-items: center; gap: 10px; padding: 12px 12px 12px 14px; border-radius: var(--r-md); background: color-mix(in srgb, var(--surface) 55%, var(--bg)); }
+  .rc { display: flex; align-items: center; background: color-mix(in srgb, var(--surface) 55%, var(--bg)); } /* 圆角和内边距用上面「小块也同心」那条（外 20、内边距 8）：以前这条写在后面把它盖掉了 */
   .rc:hover { background: var(--surface); box-shadow: var(--elev-1); }
   .rc .nm { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .rc .meta { color: var(--faint); }
+  .rc .nm { line-height: 20px; } .rc .meta { line-height: 18px; } /* 两行字 38 高，和头像、启动键一样，小块正好 54 */
   .rc .meta.on { color: var(--success-text); display: flex; align-items: center; gap: 6px; }
   .rc .meta.on i { width: 6px; height: 6px; border-radius: 2px; background: var(--success); }
   .rc > div { min-width: 0; flex: 1; }
@@ -200,7 +202,7 @@ window.EXTRA_ICONS = {
   .px-avatar.sm { width: 34px; height: 34px; border-radius: var(--r-sm); } .px-avatar.sm svg { width: 22px; height: 22px; }
 
   /* 悬浮胶囊导航 */
-  .cap { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 10; display: flex; align-items: center; gap: 2px; padding: 5px;
+  .cap { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 10; display: flex; align-items: center; gap: 2px; padding: 5px;
          border-radius: var(--r-full); background: color-mix(in srgb, var(--overlay) 86%, transparent); backdrop-filter: blur(16px) saturate(1.2);
          border: 1px solid var(--border); box-shadow: var(--elev-3); }
   .cap a { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: var(--r-full); color: var(--muted); font-size: 13px; font-weight: 500; text-decoration: none; white-space: nowrap; }
@@ -257,7 +259,7 @@ window.EXTRA_ICONS = {
   body.head-c .page { padding-top: 12px; }
   /* D（作者 11-26 的主意）：上半截一个块状的像素字标 MineDeck，下面紧跟 B 的概览条；标题栏里的 MineDeck 字就不要了，只留小图标 */
   /* 第二版（作者：概览条不用那么长、字再大一点、上面多留白）：字每格 7 像素，上面留 40；概览条不再铺满，跟着内容的宽度、在字底下居中 */
-  .hd { flex-direction: column; align-items: center; gap: 40px; margin: 40px 0 32px; }
+  .hd { flex-direction: column; align-items: center; gap: 36px; margin: 32px 0 24px; } /* 基准 1280×800 下排得下的上限：字上面 84（含标题栏 40），字和概览条之间 36 */
   .hd .mark svg { display: block; }
   .hd .hb { display: flex; width: auto; margin: 0; }
   .hd .hb .sp { flex: 0 0 4px; }
@@ -268,7 +270,7 @@ window.EXTRA_ICONS = {
      三张卡照样是原来的宽度、不被渐隐盖住，渐隐只落在页边里露出来的半张邻卡上；滑到头那一边就不再渐隐、也没有箭头 */
   @property --fl { syntax: "<length>"; inherits: false; initial-value: 0px; }
   @property --fr { syntax: "<length>"; inherits: false; initial-value: 0px; }
-  .car { position: relative; margin-bottom: 36px; }
+  .car { position: relative; margin-bottom: 24px; }
   .car .track { margin-bottom: 0; }
   .car.scroll .track { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
     scroll-behavior: smooth;
@@ -370,7 +372,7 @@ if (QS.get("embed")) document.body.classList.add("embed");
   <a class="new" href="#"><i data-ic="plus"></i>新建</a>
 </nav>
 
-<div class="tip">草图 · <a href="?mode=pin">收藏超过 3 台</a> · 页头 <a href="?head=0">原来</a> <a href="?head=a">A</a> <a href="?head=b">B</a> <a href="?head=c">C</a> <a href="?">D（定了）</a>（<a href="head-options.html">对比</a>）· 胶囊在下面 <a href="?nav=top">放进标题栏</a> · <a href="?">放回下面</a> · 配色 <a href="?scheme=craft&theme=light">方块浅色</a> <a href="?">Nord 深色</a> · 圆角 <a href="?">连续曲率</a> <a href="?corner=round">普通圆弧</a> · <a href="?guides=1">辅助线</a></div>
+<div class="tip">草图 · 基准窗口 1280×800 · <a href="?mode=pin">收藏超过 3 台</a> · 页头 <a href="?head=0">原来</a> <a href="?head=a">A</a> <a href="?head=b">B</a> <a href="?head=c">C</a> <a href="?">D（定了）</a>（<a href="head-options.html">对比</a>）· 胶囊在下面 <a href="?nav=top">放进标题栏</a> · <a href="?">放回下面</a> · 配色 <a href="?scheme=craft&theme=light">方块浅色</a> <a href="?">Nord 深色</a> · 圆角 <a href="?">连续曲率</a> <a href="?corner=round">普通圆弧</a> · <a href="?guides=1">辅助线</a></div>
 
 <script>
 // 假数据：recent 越小越近（正在开着的算「现在」），hours 是一共开过的小时数，pin 是置顶，icon 是服务器自己的 server-icon.png（这里用 16 格的假图代替）
