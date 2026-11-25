@@ -4862,6 +4862,19 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
       } finally { await reset(); }
     });
+    await run("启动时查到新版本（A78）：后台检查比界面打开晚查完时，圆点过一会儿自己亮，不用先进设置", async () => {
+      try {
+        errors.length = 0;
+        await UC({ version: "3.2.4", updateChannel: "stable", startupUpdate: null });
+        await page.goto(url("#/instances")); await settle(500);
+        assert(await page.$eval("#nav-settings-dot", el => el.hidden), "还没查到时不该亮圆点");
+        await UC({ startupUpdate: { tag: "v3.3.0", channel: "stable", prerelease: false, notes: "修复若干问题" } }); // 后台检查这时才查完
+        await page.waitForFunction(() => !document.getElementById("nav-settings-dot").hidden, null, { timeout: 8000 })
+          .catch(() => { throw new Error("后台检查查完以后，侧栏「设置」的圆点没有自己亮"); });
+        assert(await page.locator(".modal").count() === 0, "查到新版本时不应弹窗");
+        assert(errors.length === 0, "页面报错：" + errors.slice(0, 2).join(" | "));
+      } finally { await reset(); }
+    });
   }
 
   // ==================== beta.3 小修 ====================
