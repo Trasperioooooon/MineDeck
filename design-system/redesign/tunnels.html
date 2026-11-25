@@ -112,11 +112,11 @@
       <div class="choice on"><div class="t"><i data-ic="globe"></i>开内网穿透</div><div class="s">外地的朋友也能进。MineDeck 用你的平台账户建一条隧道，跟着服务器一起启动。</div></div>
     </div>
     <div class="plats">
-      <div class="plat on"><div class="row"><span class="n">OpenFrp</span><span class="sp"></span><span class="pill ok"><i class="dot"></i>已连接</span></div><div class="m">账户 steve · 节点：自动选最快的</div></div>
+      <div class="plat on"><div class="row"><span class="n">OpenFrp</span><span class="sp"></span><span class="pill ok"><i class="dot"></i>已连接</span></div><div class="m">账户 steve · 直接新建，不用去官网</div></div>
       <div class="plat"><div class="row"><span class="n">樱花穿透</span><span class="sp"></span><span class="pill off">未连接</span></div><div class="m">点一下连接账户，在浏览器里登录一次</div></div>
       <div class="plat"><div class="row"><span class="n">自己的 frps</span><span class="sp"></span></div><div class="m">有自己的服务器才用：填地址、端口、令牌</div></div>
     </div>
-    <div class="wizfoot"><span class="hint">会在 OpenFrp 上新建一条 TCP 隧道，本地端口填这台服务器的 25565，服务器启动时一起连上。</span><span class="sp"></span>
+    <div class="wizfoot"><span class="hint">MineDeck 直接在 OpenFrp 上新建一条隧道：名字、节点（自动挑一个能用的，香港 2 号）、本地端口 25565 都替你填好，服务器启动时一起连上。想自己挑节点点 <a style="color:var(--accent-text)">换节点</a>；平台上已经建过的，点 <a style="color:var(--accent-text)">用已有的</a>。</span><span class="sp"></span>
       <span class="btn ghost">上一步</span><span class="btn pri"><i data-ic="check"></i>创建服务器</span></div>
   </div>
 
@@ -132,7 +132,7 @@
       <div class="tlist">
         <div class="trow"><span class="ico-b"><i data-ic="globe"></i></span><div><div class="v" style="font-size:14px">游戏隧道</div><div class="k">OpenFrp · 香港节点 · 隧道 123456</div></div><span class="sp"></span>
           <span class="pill ok"><i class="dot"></i>已连上</span><span class="k" style="margin-left:8px">跟着服务器启动</span><span class="sw"></span><span class="btn ghost ic" title="更多"><i data-ic="more"></i></span></div>
-        <div class="trow add"><i data-ic="plus"></i>加一条语音隧道（装了 Simple Voice Chat 的服务器用）</div>
+        <div class="trow add"><i data-ic="plus"></i>加一条语音隧道 <span class="k">（这台装了 Simple Voice Chat 才出现这一行）</span></div>
       </div>
     </div>
     <div class="panel">
@@ -142,6 +142,21 @@
         <div class="inner row"><div><div class="k">局域网 · 同一个 Wi-Fi 的朋友</div><div class="v mono">192.168.1.5:25566</div></div><span class="sp"></span><span class="btn ic" title="复制"><i data-ic="copy"></i></span></div>
         <div class="inner empty"><div class="k">公网 · 外地的朋友</div><div class="v">还没开内网穿透</div><div class="k" style="margin-bottom:12px">外地的朋友现在连不进来</div><span class="btn soft"><i data-ic="globe"></i>开内网穿透</span></div>
       </div>
+    </div>
+  </div>
+  <h2 style="margin-top:22px">②′ 在「联机」里点「开内网穿透」以后<small>默认就是新建；平台上已经有的隧道排在下面，叫「用已有的」</small></h2>
+  <div class="panel">
+    <div class="inner">
+      <div class="row" style="margin-bottom:12px"><span class="k" style="width:56px">平台</span>
+        <span class="pill ok" style="height:32px;padding:0 14px;border-radius:16px">OpenFrp · 已连接</span><span class="pill off" style="height:32px;padding:0 14px;border-radius:16px">樱花穿透 · 去连接</span><span class="pill off" style="height:32px;padding:0 14px;border-radius:16px">自己的 frps</span></div>
+      <div class="row"><span class="k" style="width:56px">节点</span><span class="btn">自动 · 香港 2 号（延迟最低）<i data-ic="chevronDown"></i></span><span class="sp"></span>
+        <span class="btn pri"><i data-ic="plus"></i>新建隧道</span></div>
+      <p class="note" style="margin:10px 0 0">本地端口填这台服务器的 25566，隧道名用服务器名的拼音，跟着服务器启动。樱花还要勾一下「这是公开服务器」（樱花的规矩）。</p>
+    </div>
+    <div class="sub">或者用平台上已有的 · 2</div>
+    <div class="tlist" style="margin:0">
+      <div class="trow"><span class="ico-b"><i data-ic="globe"></i></span><div><div class="v" style="font-size:14px">create_mod</div><div class="k">OpenFrp · 上海 1 号 · 本地端口 25566，和这台服务器对得上</div></div><span class="sp"></span><span class="btn soft">用这条</span></div>
+      <div class="trow" style="opacity:.55"><span class="ico-b"><i data-ic="globe"></i></span><div><div class="v" style="font-size:14px">old_server</div><div class="k">OpenFrp · 香港 2 号 · 本地端口 25565，对不上（要先在平台上改端口）</div></div><span class="sp"></span><span class="btn ghost">对不上</span></div>
     </div>
   </div>
   <p class="note" style="margin-top:12px">首页卡片右下角那个圆钮跟着变：有隧道是地球、复制公网地址；没有是链接、复制局域网地址。卡片「···」里加一项「开内网穿透…」，直接跳到这个标签。</p>
@@ -162,7 +177,7 @@
   </div>
 
   <h2>还要定的</h2>
-  <p class="note">一台服务器最多两条隧道（游戏一条、语音一条）够不够；平台上已有的隧道要不要在「联机」里「导入」（现在穿透页能导入）；「设置 → 穿透账户」放在设置的哪一组，要等设置页的结构定了再说。</p>
+  <p class="note">一台服务器最多两条（游戏、语音各一条），作者定了够用；语音照旧能用但不再往上加功能，那一行只在装了 Simple Voice Chat 的服务器上出现。「设置 → 穿透账户」放在设置的哪一组，等设置页的结构定了再说。</p>
 </main>
 <script>
 document.getElementById("av1").innerHTML = MDPixel16.avatar("paper", "", 32);
