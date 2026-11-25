@@ -222,8 +222,12 @@ window.EXTRA_ICONS = {
   .cap a { width: 40px; padding: 0; justify-content: center; position: relative; }
   .cap a .ico { width: 18px; height: 18px; }
   .cap a.home { padding: 0; }
-  .cap a.new { margin-left: 2px; }
-  .cap .sep { margin: 0 2px; }
+  /* 作者 11-26：所有图标间距一样（不再有分隔线），AI 助手在设置里能关，新建固定在最右 */
+  body.no-ai .cap a.ai { display: none; }
+  .cap a.new { margin-left: 0; }
+  /* 进新建向导时胶囊往下沉出屏幕；从向导回来时从下面浮上来 */
+  .cap { transition: transform .32s cubic-bezier(.4, 0, .2, 1), opacity .32s; }
+  body.leaving .cap, body.entering .cap { transform: translate(-50%, 160%); opacity: 0; }
   .cap a[data-tip]::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%) translateY(4px);
     padding: 5px 10px; border-radius: var(--r-sm); background: var(--overlay); border: 1px solid var(--border); box-shadow: var(--elev-2);
     color: var(--text); font-size: 12px; font-weight: 500; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s, transform .12s; }
@@ -308,6 +312,16 @@ window.EXTRA_ICONS = {
   .car-nav.next { right: -18px; }
   .car.can-left .car-nav.prev, .car.can-right .car-nav.next { display: grid; }
   .car:hover .car-nav { opacity: 1; }
+  /* 空首页（?empty=1，作者 11-26）：只有字标（比有服务器时大两档，每格 7）和一行小字，在胶囊上面的空间里居中再往上提一点 */
+  .hero { display: none; }
+  body.empty .page > :not(.hero) { display: none; }
+  body.empty .hero { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px;
+    min-height: calc(100vh - 40px - 12px - 86px); padding-bottom: 9vh; box-sizing: border-box; }
+  .hero p { margin: 0; font-size: 14px; color: var(--muted); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  .hero .plus { width: 26px; height: 26px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--accent-solid); color: var(--on-accent); cursor: pointer; }
+  .hero .plus .ico { width: 15px; height: 15px; }
+  .hero a { color: var(--accent-text); text-decoration: none; }
+  .hero a:hover { text-decoration: underline; }
   /* 对比页里嵌着看时不要胶囊和角落的说明 */
   body.embed .cap, body.embed .tip { display: none; }
   html:has(body.embed), body.embed { overflow: hidden; }
@@ -323,6 +337,9 @@ if (QS.get("nav") === "top") document.body.classList.add("nav-top");
 if (QS.get("guides")) document.body.classList.add("guides");
 document.body.classList.add("head-" + (["0", "a", "b", "c", "d"].includes(QS.get("head")) ? QS.get("head") : "d"));
 if (QS.get("mark") === "left") document.body.classList.add("mark-left");
+if (QS.get("ai") === "0") document.body.classList.add("no-ai");
+if (QS.get("empty")) document.body.classList.add("empty");
+if (QS.get("enter")) document.body.classList.add("entering");
 if (QS.get("embed")) document.body.classList.add("embed");
 </script>
 
@@ -335,6 +352,8 @@ if (QS.get("embed")) document.body.classList.add("embed");
 </header>
 
 <main class="page">
+  <div class="hero" id="hero"><div class="mark" id="hero-mark"></div>
+    <p>点击底部导航栏的<span class="plus" id="hero-plus" role="button" aria-label="新建服务器"><i data-ic="plus"></i></span>开始创建服务器，或者……<a href="#">探索一下本应用？</a></p></div>
   <div class="head">
     <div>
       <h1>服务器</h1>
@@ -366,7 +385,7 @@ if (QS.get("embed")) document.body.classList.add("embed");
     <button class="car-nav next" data-dir="1" aria-label="往右看"><i data-ic="chevronRight"></i></button>
   </div>
 
-  <div class="sec"><h2>其他</h2><span class="n" id="rest-n"></span><span class="hint" id="rest-hint"></span></div>
+  <div class="sec"><h2>其他</h2></div>
   <div class="car scroll rest-car" id="rest-car">
     <div class="rest track" id="rest"></div>
     <button class="car-nav prev" data-dir="-1" aria-label="往左看"><i data-ic="chevronRight"></i></button>
@@ -378,12 +397,11 @@ if (QS.get("embed")) document.body.classList.add("embed");
   <a class="home on" href="#" aria-label="服务器（主页）" data-tip="服务器"><img src="../../internal/web/ui/img/logo-20.png" alt=""></a>
   <a href="#" aria-label="工具箱" data-tip="工具箱"><i data-ic="toolbox"></i></a>
   <a href="#" aria-label="设置" data-tip="设置"><i data-ic="gear"></i></a>
-  <span class="sep"></span>
   <a class="ai" href="#" aria-label="AI 助手" data-tip="AI 助手 · Ctrl+K"><i data-ic="sparkle"></i></a>
   <a class="new" href="#" aria-label="新建服务器" data-tip="新建服务器 · Ctrl+N"><i data-ic="plus"></i></a>
 </nav>
 
-<div class="tip">草图 · 基准窗口 1280×800 · 字标 <a href="?cell=7">大</a> <a href="?cell=6">中</a> <a href="?">小</a> · <a href="?mode=pin">收藏超过 3 台</a> · 页头 <a href="?head=0">原来</a> <a href="?head=a">A</a> <a href="?head=b">B</a> <a href="?head=c">C</a> <a href="?">D（定了）</a>（<a href="head-options.html">对比</a>）· 胶囊在下面 <a href="?nav=top">放进标题栏</a> · <a href="?">放回下面</a> · 配色 <a href="?scheme=craft&theme=light">方块浅色</a> <a href="?">Nord 深色</a> · 圆角 <a href="?">连续曲率</a> <a href="?corner=round">普通圆弧</a> · <a href="?guides=1">辅助线</a></div>
+<div class="tip">草图 · 基准窗口 1280×800 · <a href="?empty=1">第一次打开（空）</a> · <a href="?ai=0">关掉 AI 按钮</a> · 点胶囊最右的 + 进向导 · 字标 <a href="?cell=7">大</a> <a href="?cell=6">中</a> <a href="?">小</a> · <a href="?mode=pin">收藏超过 3 台</a> · 页头 <a href="?head=0">原来</a> <a href="?head=a">A</a> <a href="?head=b">B</a> <a href="?head=c">C</a> <a href="?">D（定了）</a>（<a href="head-options.html">对比</a>）· 胶囊在下面 <a href="?nav=top">放进标题栏</a> · <a href="?">放回下面</a> · 配色 <a href="?scheme=craft&theme=light">方块浅色</a> <a href="?">Nord 深色</a> · 圆角 <a href="?">连续曲率</a> <a href="?corner=round">普通圆弧</a> · <a href="?guides=1">辅助线</a></div>
 
 <script>
 // 假数据：recent 越小越近（正在开着的算「现在」），hours 是一共开过的小时数，pin 是置顶，icon 是服务器自己的 server-icon.png（这里用 16 格的假图代替）
@@ -406,9 +424,9 @@ const SERVERS = [
   { name: "老群组入口", core: "waterfall", label: "Waterfall", mc: "1.21", st: "stopped", port: 25587, last: "半年前", hours: 1, recent: 15, pin: false },
 ];
 const MODES = {
-  recent: { title: "最近玩的", by: (a, b) => a.recent - b.recent },
-  hours: { title: "玩得最多", by: (a, b) => b.hours - a.hours },
-  pin: { title: "收藏", by: (a, b) => (b.pin - a.pin) || (a.recent - b.recent) },
+  recent: { title: "最近游玩", by: (a, b) => a.recent - b.recent },
+  hours: { title: "游玩最久", by: (a, b) => b.hours - a.hours },
+  pin: { title: "我的收藏", by: (a, b) => (b.pin - a.pin) || (a.recent - b.recent) },
 };
 let mode = MODES[QS.get("mode")] ? QS.get("mode") : "recent";
 // 有 server-icon.png 用它，没有用核心头像（作者 11-26 定）
@@ -456,10 +474,9 @@ function render() {
   car.classList.toggle("scroll", many);
   document.getElementById("top-title").textContent = MODES[mode].title;
   const pins = SERVERS.filter(s => s.pin).length;
-  document.getElementById("top-hint").textContent = mode === "pin" && pins < 3 ? (pins ? "空出来的位置按最近启动补上" : "点卡片上的星标，把常用的收藏在这里") : many ? `${pins} 台，左右滑动看全部` : "";
+  document.getElementById("top-hint").textContent = mode === "pin" && pins < 3 ? (pins ? "空出来的位置按最近启动补上" : "点卡片上的星标，把常用的收藏在这里") : "";
   document.getElementById("live").innerHTML = top.map(([s, i]) => big(s, i)).join("");
   document.getElementById("rest").innerHTML = rest.map(([s, i]) => tile(s, i)).join("");
-  document.getElementById("rest-n").textContent = rest.length;
   const run = SERVERS.filter(s => s.st === "running"), ppl = run.reduce((n, s) => n + s.players, 0);
   document.getElementById("sum").innerHTML = `<span><span class="dot"></span><b>${run.length}</b> 台运行中</span><span><b>${ppl}</b> 人在线</span><span>共 <b>${SERVERS.length}</b> 台</span>`;
   const idle = SERVERS.length - run.length - SERVERS.filter(s => s.st === "starting").length;
@@ -481,7 +498,6 @@ function render() {
   for (const b of document.querySelectorAll(".seg button")) { b.classList.toggle("on", b.dataset.mode === mode); b.setAttribute("aria-checked", b.dataset.mode === mode); }
   KIT.hydrate(document.querySelector(".page"));
   carS.edges(); restS.edges();
-  document.getElementById("rest-hint").textContent = restTrack.scrollWidth > restTrack.clientWidth + 4 ? "左右滑动看全部" : "";
 }
 document.querySelector(".seg").addEventListener("click", e => { const b = e.target.closest("button"); if (b && b.dataset.mode !== mode) { mode = b.dataset.mode; carS.reset(); restS.reset(); render(); } });
 document.querySelector(".page").addEventListener("click", e => { const p = e.target.closest(".pin"); if (p) { const s = SERVERS[+p.dataset.i]; s.pin = !s.pin; render(); } });
@@ -543,6 +559,13 @@ const car = document.getElementById("car"), live = document.getElementById("live
 const restCar = document.getElementById("rest-car"), restTrack = document.getElementById("rest");
 const carS = hscroll(car, live, () => live.querySelector(".lc").offsetWidth + 16);
 const restS = hscroll(restCar, restTrack, () => restTrack.querySelector(".rc").offsetWidth + 12);
+// 点「新建」：胶囊先沉下去，再进向导（草图里是另一页 wizard.html，带上配色这些参数）
+const keep = () => { const q = new URLSearchParams(location.search); ["enter", "mode"].forEach(k => q.delete(k)); return q.toString(); };
+const toWizard = e => { e.preventDefault(); document.body.classList.add("leaving"); setTimeout(() => { location.href = "wizard.html" + (keep() ? "?" + keep() : ""); }, 320); };
+document.querySelector(".cap a.new").addEventListener("click", toWizard);
+document.getElementById("hero-plus").addEventListener("click", toWizard);
+if (document.body.classList.contains("entering")) requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove("entering")));
+document.getElementById("hero-mark").innerHTML = MDWordmark.svg({ cell: 7, tone: QS.get("tone") === "mono" ? "mono" : "duo" });
 KIT_READY.then(render);
 </script>
 </body>

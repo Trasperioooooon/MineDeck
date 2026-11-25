@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>草图 · 新建服务器（只看底部的上一步、下一步）</title>
+<script src="kit.js"></script>
+<script src="pixel16.js"></script>
+<link rel="stylesheet" href="kit.css">
+<style>
+  body { background: var(--bg); overflow-x: hidden; }
+  .tb { height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 0 0 16px; position: sticky; top: 0; z-index: 5;
+        background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(12px); }
+  .tb img { width: 16px; height: 16px; image-rendering: pixelated; }
+  .tb .sp { flex: 1; }
+  .tb .win { display: flex; height: 40px; }
+  .tb .win span { width: 46px; display: grid; place-items: center; color: var(--muted); }
+  /* 和首页同一套版心：1160 宽、两边 40；底边留白 86 给底下的按钮 */
+  .page { max-width: 1160px; margin: 0 auto; padding: 28px 40px 86px; }
+  .eyebrow { font-size: 12.5px; color: var(--muted); margin-bottom: 6px; }
+  h1 { margin: 0 0 6px; font-size: 26px; font-weight: 600; letter-spacing: -.01em; }
+  .lede { margin: 0 0 24px; font-size: 13.5px; color: var(--muted); }
+  .choices { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+  .choice { background: var(--surface); border-radius: 26px; padding: 8px; box-shadow: var(--elev-1); border: 2px solid transparent; cursor: pointer; }
+  .choice.on { border-color: var(--accent); }
+  .choice .top { height: 132px; border-radius: 18px; display: grid; place-items: center; background: color-mix(in srgb, var(--c) 26%, var(--surface)); }
+  .choice .top svg { width: 64px; height: 64px; }
+  .choice .t { font-size: 16px; font-weight: 600; margin: 12px 10px 2px; }
+  .choice .s { font-size: 12.5px; color: var(--muted); margin: 0 10px 12px; }
+  .placeholder { height: 360px; border-radius: 26px; border: 1px dashed var(--border); display: grid; place-items: center; color: var(--faint); font-size: 13px; }
+  .note { margin-top: 18px; font-size: 12px; color: var(--faint); }
+
+  /* 底部：胶囊沉下去以后，左下角「上一步」、右下角「下一步」，和版心的左右边对齐，高度和离底跟胶囊一样（52、18）；
+     中间一排小点是第几步（主会话加的，不要可以去掉） */
+  .wnav { position: fixed; left: 0; right: 0; bottom: 18px; z-index: 10; pointer-events: none; }
+  .wnav .in { max-width: 1160px; margin: 0 auto; padding: 0 40px; display: flex; align-items: center; }
+  .wnav .sp { flex: 1; }
+  .wbtn { pointer-events: auto; height: 52px; padding: 0 22px; border-radius: 26px; display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+          border: 1px solid var(--border); box-shadow: var(--elev-3); transition: transform .32s cubic-bezier(.4, 0, .2, 1), opacity .32s; }
+  .wbtn.back { color: var(--text); background: color-mix(in srgb, var(--overlay) 86%, transparent); backdrop-filter: blur(16px) saturate(1.2); }
+  .wbtn.back .ico { transform: rotate(180deg); }
+  .wbtn.next { color: var(--on-accent); background: var(--accent-solid); border-color: transparent; }
+  .wbtn.next:hover { background: var(--accent-solid-hov); }
+  .dots { display: flex; gap: 8px; pointer-events: auto; transition: opacity .32s; }
+  .dots i { width: 8px; height: 8px; border-radius: 3px; background: color-mix(in srgb, var(--text) 18%, transparent); }
+  .dots i.on { width: 22px; background: var(--accent); }
+  body.hidden-nav .wbtn { transform: translateY(160%); opacity: 0; }
+  body.hidden-nav .dots { opacity: 0; }
+  .tip { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); z-index: 6; font-size: 11.5px; color: var(--faint); }
+  .tip a { color: var(--accent-text); }
+</style>
+</head>
+<body class="hidden-nav">
+<header class="tb"><img src="../../internal/web/ui/img/logo-16.png" alt=""><div class="sp"></div>
+  <div class="win"><span><i data-ic="winMin"></i></span><span><i data-ic="winMax"></i></span><span><i data-ic="winClose"></i></span></div></header>
+<main class="page" id="page"></main>
+<div class="wnav"><div class="in">
+  <button class="wbtn back" id="back"><i data-ic="chevronRight"></i>上一步</button>
+  <span class="sp"></span><span class="dots" id="dots"></span><span class="sp"></span>
+  <button class="wbtn next" id="next">下一步<i data-ic="chevronRight"></i></button>
+</div></div>
+<div class="tip">草图 · 向导里面的内容还没讨论（问题 U05、U06），这里只看进来时胶囊沉下去、底部换成上一步和下一步</div>
+<script>
+const QS = new URLSearchParams(location.search);
+const STEPS = [
+  { title: "怎么玩？", lede: "先选玩法，下一步只列这一类的核心，推荐的已经选好。" },
+  { title: "选版本", lede: "" },
+  { title: "设置", lede: "" },
+];
+let step = 0, pick = 1;
+const CH = [["vanilla", "原版", "什么都不加，和单人一样"], ["paper", "插件", "加插件：领地、经济、小游戏"], ["forge", "模组", "加模组：科技、魔法、整合包"], ["velocity", "其他", "混合服、群组代理"]];
+function render() {
+  const s = STEPS[step];
+  document.getElementById("page").innerHTML = `<div class="eyebrow">新建服务器 · 第 ${step + 1} 步，共 ${STEPS.length} 步</div><h1>${s.title}</h1>${s.lede ? `<p class="lede">${s.lede}</p>` : `<p class="lede">&nbsp;</p>`}` +
+    (step === 0 ? `<div class="choices">${CH.map(([k, t, d], i) => `<div class="choice${i === pick ? " on" : ""}" data-i="${i}" style="--c:${MDPixel16.CORE_COLORS[k]}"><div class="top">${MDPixel16.svg(k, 64)}</div><div class="t">${t}</div><div class="s">${d}</div></div>`).join("")}</div>`
+      : `<div class="placeholder">这一步的内容还没画</div>`) +
+    `<p class="note">第一步的「上一步」回到首页（胶囊再浮上来）；最后一步的「下一步」变成「创建服务器」。</p>`;
+  document.getElementById("dots").innerHTML = STEPS.map((_, i) => `<i class="${i === step ? "on" : ""}"></i>`).join("");
+  document.getElementById("next").innerHTML = step === STEPS.length - 1 ? `<i data-ic="check"></i>创建服务器` : `下一步<i data-ic="chevronRight"></i>`;
+  KIT.hydrate(document.body);
+}
+document.getElementById("page").addEventListener("click", e => { const c = e.target.closest(".choice"); if (c) { pick = +c.dataset.i; render(); } });
+document.getElementById("next").addEventListener("click", () => { if (step < STEPS.length - 1) { step++; render(); } });
+document.getElementById("back").addEventListener("click", () => {
+  if (step > 0) { step--; render(); return; }
+  // 第一步再往回：按钮沉下去，回首页，胶囊从下面浮上来
+  document.body.classList.add("hidden-nav");
+  const q = new URLSearchParams(location.search); q.set("enter", "1");
+  setTimeout(() => { location.href = "home.html?" + q.toString(); }, 320);
+});
+KIT_READY.then(() => { render(); requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove("hidden-nav"))); });
+</script>
+</body>
+</html>
