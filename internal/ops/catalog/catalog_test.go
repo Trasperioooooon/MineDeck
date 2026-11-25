@@ -80,7 +80,9 @@ func TestLevelsFollowDesign(t *testing.T) {
 			// 按服务器查、处置没装上的文件（beta.3 R09）：清单是服务器文件夹里读来的不可信文字，不给 AI；处置同上只许本机
 			"instance.import.pending.get", "instance.import.pending.resolve",
 			// beta.3 R08：新建、导入、接管的表单拿默认端口（MineDeck 里别的服务器都没用的最小端口）。只读，但只给界面用，不进 AI 的工具清单
-			"port.suggest"},
+			"port.suggest",
+			// A28：界面「启动与内存」页实时试算保存参数结果。只读且不记操作记录，不进 AI 工具清单
+			"instance.settings.preview"},
 	}
 	// 穿透平台账户操作由 Accounts 注入后才登记；本测试 Env 不传 Accounts，故不列入 want。
 
