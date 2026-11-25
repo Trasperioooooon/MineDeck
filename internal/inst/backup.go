@@ -664,7 +664,9 @@ func checkBackupTargetPath(cleanDest, realDest string, f *zip.File) (string, err
 	}
 	realTarget, err := RealPathStrict(target)
 	if err != nil || !InsideReal(realDest, realTarget) {
-		return "", fmt.Errorf("备份内含非法路径: %s", f.Name)
+		// 上面几级都不是链接，走到这里多半是服务器文件夹里已有的目标本身指到了外面
+		rel, _ := filepath.Rel(cleanDest, target)
+		return "", fmt.Errorf("服务器文件夹里的「%s」指到了服务器文件夹外面，或者查不清实际在哪里，没有还原", filepath.ToSlash(rel))
 	}
 	return target, nil
 }

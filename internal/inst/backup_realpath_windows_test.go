@@ -95,3 +95,42 @@ func TestBackupRestoreDoesNotLinkCheckTargetItself(t *testing.T) {
 		t.Fatalf("解压也不该被挡住：%v", err)
 	}
 }
+
+// 目标本身是服务器文件夹里一个指到外面的目录联接：上面那段只查上一级，这种由 RealPathStrict + InsideReal 拦住，
+// 报错要说清是服务器文件夹里的哪一个，不说成备份的毛病。
+func TestBackupRestoreRefusesTargetLinkedOutside(t *testing.T) {
+	base := t.TempDir()
+	outside := filepath.Join(base, "outside")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(base, "server")
+	if err := os.MkdirAll(filepath.Join(dest, "world"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	junc := filepath.Join(dest, "world", "region")
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", junc, outside).CombinedOutput(); err != nil {
+		t.Fatalf("建目录联接失败（%v）：%s", err, string(out))
+	}
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	fw, err := zw.Create("world/region")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = fw.Write([]byte("escaped"))
+	_ = zw.Close()
+	zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = checkBackupPaths(zr.File, dest)
+	if err == nil || !strings.Contains(err.Error(), "「world/region」指到了服务器文件夹外面") {
+		t.Fatalf("目标本身指到外面的应被拦住，并说清是哪一个：%v", err)
+	}
+	ents, _ := os.ReadDir(outside)
+	if len(ents) != 0 {
+		t.Fatalf("外面的文件夹里不该多出东西：%d 项", len(ents))
+	}
+}
