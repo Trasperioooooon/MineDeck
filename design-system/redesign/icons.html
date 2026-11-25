@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>草图 · 核心头像重画</title>
+<script src="kit.js"></script>
+<script src="../../internal/web/ui/pixel.js"></script>
+<script src="pixel16.js"></script>
+<link rel="stylesheet" href="kit.css">
+<style>
+  body { background: var(--bg); }
+  .page { max-width: 1160px; margin: 0 auto; padding: 28px 40px 60px; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+  .d { font-size: 12.5px; color: var(--muted); margin: 0 0 8px; }
+  .d a { color: var(--accent-text); }
+  h2 { font-size: 15px; font-weight: 600; margin: 30px 0 12px; }
+  .sheet { display: flex; flex-wrap: wrap; gap: 18px 10px; }
+  .sheet figure { margin: 0; width: 70px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .sheet figcaption { font-size: 11.5px; color: var(--muted); text-align: center; }
+  .px-avatar { --c: #7a8aa0; width: 44px; height: 44px; flex: none; display: grid; place-items: center; border-radius: 10px;
+               background: color-mix(in srgb, var(--c) 26%, var(--surface)); box-shadow: inset 0 1px 0 rgb(255 255 255 / .08), 0 0 0 1px color-mix(in srgb, var(--c) 30%, transparent); }
+  .px-avatar svg { display: block; }
+  .px-avatar.big { width: 64px; height: 64px; border-radius: 14px; }
+  table { border-collapse: separate; border-spacing: 0; width: 100%; background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--elev-1); overflow: hidden; }
+  th, td { padding: 10px 16px; text-align: left; font-size: 13px; border-top: 1px solid var(--border); vertical-align: middle; }
+  th { font-size: 12px; font-weight: 500; color: var(--muted); border-top: 0; background: color-mix(in srgb, var(--surface-2) 60%, var(--surface)); }
+  td.nm { font-weight: 600; } td.nm small { display: block; font-weight: 400; color: var(--faint); font-size: 11.5px; }
+  .raw { display: inline-grid; place-items: center; padding: 4px; border-radius: 8px;
+         background: repeating-conic-gradient(color-mix(in srgb, var(--text) 8%, transparent) 0 25%, transparent 0 50%) 0 0 / 8px 8px; }
+  .raw svg { display: block; }
+  .old .px-avatar svg { width: 24px; height: 24px; }
+  .note { font-size: 12px; color: var(--muted); }
+  .covers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .card { background: var(--surface); border-radius: 26px; padding: 8px; box-shadow: var(--elev-1); }
+  .cover { height: 60px; padding: 8px; display: flex; align-items: center; gap: 12px; border-radius: 18px; position: relative; overflow: hidden; background: color-mix(in srgb, var(--c) 30%, var(--surface)); }
+  .cover::after { content: ""; position: absolute; inset: 0; opacity: .16; pointer-events: none;
+    background-image: linear-gradient(45deg, rgb(0 0 0 / .5) 25%, transparent 25%, transparent 75%, rgb(0 0 0 / .5) 75%), linear-gradient(45deg, rgb(0 0 0 / .5) 25%, transparent 25%, transparent 75%, rgb(0 0 0 / .5) 75%);
+    background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+  .cover > * { position: relative; z-index: 1; }
+  .cover .nm { font-size: 15px; font-weight: 600; }
+  .cover .meta { font-size: 12px; color: color-mix(in srgb, var(--text) 70%, transparent); }
+  .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+  .rc { display: flex; align-items: center; gap: 12px; padding: 8px 10px 8px 8px; border-radius: 20px; background: color-mix(in srgb, var(--surface) 55%, var(--bg)); }
+  .rc .px-avatar { width: 40px; height: 40px; border-radius: 12px; }
+  .rc .nm { font-size: 14px; font-weight: 500; } .rc .meta { font-size: 12px; color: var(--faint); }
+</style>
+</head>
+<body>
+<main class="page">
+  <h1>核心头像 · 重画</h1>
+  <p class="d">新的一套是 16×16，按同一套规矩画：最外一圈描边、光从左上来、尽量占满格子；方块类（草方块、紫珀块、没认出来的核心用圆石）都画成背包里那种斜看的立方体。图标按 16 的整数倍显示（卡片里 32 像素）才锐利。
+    配色 <a href="?">Nord 深色</a> · <a href="?scheme=craft&theme=light">方块浅色</a> · <a href="?scheme=github&theme=light">GitHub 浅色</a></p>
+
+  <h2>新的一套</h2>
+  <div class="sheet" id="sheet"></div>
+
+  <h2>新旧对比</h2>
+  <table><thead><tr><th style="width:22%">核心</th><th>现在（12×12）</th><th>新的（卡片里的大小）</th><th>新的 · 原大 16</th><th>新的 · 放大 3 倍</th><th style="width:30%">改了什么</th></tr></thead><tbody id="cmp"></tbody></table>
+
+  <h2>放进卡片里</h2>
+  <div class="covers" id="covers"></div>
+  <div class="tiles" id="tiles"></div>
+</main>
+<script>
+const NAMES = {
+  vanilla: ["原版", "草方块"], paper: ["Paper", "纸飞机"], purpur: ["Purpur", "紫珀块"], leaves: ["Leaves", "叶子"], folia: ["Folia", "花盆里的树苗"],
+  fabric: ["Fabric", "线轴"], forge: ["Forge", "铁砧"], neoforge: ["NeoForge", "铁砧 + 烧红的锭"], mohist: ["Mohist", "齿轮"],
+  banner: ["Taiyitist（原 Banner）", "旗帜"], velocity: ["Velocity", "闪电"], waterfall: ["Waterfall", "水滴"], unknown: ["没认出来的核心", "圆石"],
+};
+const WHY = {
+  vanilla: "原来是一块正面贴满格子的平面，比别的图标重一截；改成斜看的立方体，有顶面和两个侧面。",
+  paper: "原来是一张带折角的纸，太像「文档」图标；改成纸飞机，Paper 自己的标志也是纸飞机。",
+  purpur: "原来是平铺的格子花纹；改成立方体，三个面拉开明暗（不然看着是一团紫色），顶面和侧面都画上紫珀块的方格缝。",
+  leaves: "原来的叶子太细、边缘锯齿；加宽、两头收尖，加了主脉和侧脉。",
+  folia: "原来是两片小叶加一条土；改成种在花盆里的树苗，叶子大一些。",
+  fabric: "原来是满格的编织纹，和别的图标不是一类东西；改成线轴（布料、纺织的意思）。",
+  forge: "形状基本不变，加了描边和左上亮右下暗，铁砧角更尖。",
+  neoforge: "原来火星是几个散点；改成铁砧上放一块烧红的锭，再加几点火星，和 Forge 一眼分得开。",
+  mohist: "原来的齿轮齿不匀；改成八个齿、中间开孔，算出来的圆，四周对称。",
+  banner: "原来的旗子是空心线条；改成实心的旗面，下边剪出燕尾，中间一个菱形纹章。",
+  velocity: "原来是两道细斜线；先试了两道粗箭头，在 16 格里像一对括号，改成闪电（快）。",
+  waterfall: "原来上面一条黑边、下面一片水，看不出是瀑布；试过石崖加水柱，像窗户、像水龙头，改成最好认的水滴。",
+  unknown: "原来是一块平面的圆石；改成圆石立方体，和草方块、紫珀块一个画法。",
+};
+const C = MDPixel16.CORES;
+const SHORT = { banner: "Taiyitist", unknown: "认不出" };
+document.getElementById("sheet").innerHTML = C.map(k => `<figure>${MDPixel16.avatar(k, "", 32)}<figcaption>${SHORT[k] || NAMES[k][0]}</figcaption></figure>`).join("");
+document.getElementById("cmp").innerHTML = C.map(k => `<tr>
+  <td class="nm">${NAMES[k][0]}<small>${NAMES[k][1]}</small></td>
+  <td class="old">${MDPixel.avatar(k === "unknown" ? "zzz" : k)}</td>
+  <td>${MDPixel16.avatar(k, "", 32)}</td>
+  <td><span class="raw">${MDPixel16.svg(k, 16)}</span></td>
+  <td><span class="raw">${MDPixel16.svg(k, 48)}</span></td>
+  <td class="note">${WHY[k]}</td></tr>`).join("");
+const S = [["生存服 · 朋友", "paper", "Paper · 1.21.4"], ["机械动力整合包", "forge", "Forge · 1.20.1"], ["原版快照测试", "vanilla", "原版 · 26.2"]];
+document.getElementById("covers").innerHTML = S.map(([n, k, m]) => `<div class="card"><div class="cover" style="--c:${MDPixel16.CORE_COLORS[k]}">${MDPixel16.avatar(k, "", 32)}<div><div class="nm">${n}</div><div class="meta">${m}</div></div></div></div>`).join("");
+const T = [["空岛生存", "purpur", "Purpur · 1.21.4"], ["红石科技服", "leaves", "Leaves · 1.21.4"], ["匠魂与暮色", "neoforge", "NeoForge · 1.21.1"], ["模组加插件", "mohist", "Mohist · 1.20.1"],
+  ["群组代理", "velocity", "Velocity · 3.4.0"], ["周末活动服", "folia", "Folia · 1.21.4"], ["轻量模组服", "fabric", "Fabric · 1.21.1"], ["Banner 试验场", "banner", "Taiyitist · 1.20.1"], ["老群组入口", "waterfall", "Waterfall · 1.21"]];
+document.getElementById("tiles").innerHTML = T.map(([n, k, m]) => `<div class="rc">${MDPixel16.avatar(k, "", 32)}<div><div class="nm">${n}</div><div class="meta">${m}</div></div></div>`).join("");
+</script>
+</body>
+</html>
