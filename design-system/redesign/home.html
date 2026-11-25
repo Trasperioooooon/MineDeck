@@ -317,11 +317,12 @@ window.EXTRA_ICONS = {
   body.empty .page > :not(.hero) { display: none; }
   body.empty .hero { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px;
     min-height: calc(100vh - 40px - 12px - 86px); padding-bottom: 9vh; box-sizing: border-box; }
-  .hero p { margin: 0; font-size: 14px; color: var(--muted); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; }
-  .hero .plus { width: 26px; height: 26px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--accent-solid); color: var(--on-accent); cursor: pointer; }
-  .hero .plus .ico { width: 15px; height: 15px; }
-  .hero a { color: var(--accent-text); text-decoration: none; }
-  .hero a:hover { text-decoration: underline; }
+  /* 作者 11-26：上面加应用图标（16 格的图标按每格 7 像素放大，和字标同一个像素大小）；＋ 小一点、跟着字走；「探索一下本应用？」只是逗一下，不是链接 */
+  .hero .hero-logo { width: 112px; height: 112px; image-rendering: pixelated; margin-bottom: -4px; }
+  .hero p { margin: 0; font-size: 14px; line-height: 22px; color: var(--muted); text-align: center; }
+  .hero .plus { width: 18px; height: 18px; margin: 0 5px; border-radius: 50%; display: inline-grid; place-items: center; vertical-align: -3px;
+                background: var(--accent-solid); color: var(--on-accent); cursor: pointer; }
+  .hero .plus .ico { width: 12px; height: 12px; }
   /* 对比页里嵌着看时不要胶囊和角落的说明 */
   body.embed .cap, body.embed .tip { display: none; }
   html:has(body.embed), body.embed { overflow: hidden; }
@@ -352,8 +353,9 @@ if (QS.get("embed")) document.body.classList.add("embed");
 </header>
 
 <main class="page">
-  <div class="hero" id="hero"><div class="mark" id="hero-mark"></div>
-    <p>点击底部导航栏的<span class="plus" id="hero-plus" role="button" aria-label="新建服务器"><i data-ic="plus"></i></span>开始创建服务器，或者……<a href="#">探索一下本应用？</a></p></div>
+  <div class="hero" id="hero"><img class="hero-logo" src="../../internal/web/ui/img/logo-16.png" alt="">
+    <div class="mark" id="hero-mark"></div>
+    <p>点击底部导航栏的<span class="plus" id="hero-plus" role="button" aria-label="新建服务器"><i data-ic="plus"></i></span>开始创建服务器，或者……探索一下本应用？</p></div>
   <div class="head">
     <div>
       <h1>服务器</h1>
