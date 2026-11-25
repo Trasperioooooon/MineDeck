@@ -432,6 +432,23 @@ func (m *Manager) runAdopt(ctx context.Context, t *tasks.Task, req AdoptReq, sc 
 	return nil
 }
 
+// JavaPathInside 判断 path 是否位于 dir 目录内部（例如便携 Java 目录内的 java 可执行文件），不把 dir 本身或外部路径算进去。
+// 优先按真实路径比对，兼容短名、符号链接与目录联接；路径不存在或打不开时退回解析已有祖先后的词法相对路径。
+func JavaPathInside(path, dir string) bool {
+	path, dir = strings.TrimSpace(path), strings.TrimSpace(dir)
+	if path == "" || dir == "" {
+		return false
+	}
+	if rp, err1 := RealPathStrict(path); err1 == nil {
+		if rd, err2 := RealPathStrict(dir); err2 == nil {
+			return rp != rd && InsideReal(rd, rp)
+		}
+	}
+	rp, rd := realPath(path), realPath(dir)
+	rel, err := filepath.Rel(rd, rp)
+	return err == nil && rel != "." && filepath.IsLocal(rel)
+}
+
 // checkChosenJava 接管时人指定的 java.exe 还能不能用。指向 MineDeck 的便携 Java（runtimes/java-major 里面）时经
 // java.UsePortable 查，和卸载互斥（A34）：这套正在卸载、已经卸了或者没装完整都不接管。接管从校验起就占着「正在创建」，
 // 卸载是先记上「正在卸载」再查有没有正在创建的；这边先占「正在创建」再看「正在卸载」，两边总有一边看得到另一边。
@@ -443,7 +460,7 @@ func checkChosenJava(path string, major int) error {
 		}
 		return nil
 	}
-	if !within(realPath(path), realPath(java.Dir(major))) {
+	if !JavaPathInside(path, java.Dir(major)) {
 		return stat()
 	}
 	switch err := java.UsePortable(major, stat); {
