@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>草图 · 首页（服务器）</title>
+<script>
+// 程序里没有的图标：工具箱、窗口三键（照 index.html 里内联的那几个）
+window.EXTRA_ICONS = {
+  toolbox: '<path d="M5.5 4V2.8A.8.8 0 016.3 2h3.4a.8.8 0 01.8.8V4"/><rect x="2" y="4" width="12" height="9.5" rx="1.6"/><path d="M2 8h12M6.5 8v1.6h3V8"/>',
+  winMin: '<path d="M4 8h8"/>', winMax: '<rect x="4" y="4" width="8" height="8" rx="1"/>', winClose: '<path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/>',
+  sort: '<path d="M4 3v10M2 11l2 2 2-2M9 4h5M9 8h3.5M9 12h2"/>', console: '<rect x="2" y="3" width="12" height="10" rx="1.6"/><path d="M4.8 6.5l1.8 1.5-1.8 1.5M8 10h3"/>',
+};
+</script>
+<script src="kit.js"></script>
+<script src="../../internal/web/ui/pixel.js"></script>
+<link rel="stylesheet" href="kit.css">
+<style>
+  body { background: var(--bg); overflow-x: hidden; }
+
+  /* 标题栏：和内容同一张底，不再是单独的一条深色 */
+  .tb { height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 0 0 16px; position: sticky; top: 0; z-index: 5;
+        background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(12px); }
+  .tb .brand { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
+  .tb .brand img { width: 16px; height: 16px; image-rendering: pixelated; }
+  .tb .sp { flex: 1; }
+  .tb .ai { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: var(--r-full); color: var(--muted); font-size: 13px; font-weight: 500; }
+  .tb .ai:hover { background: var(--hover); color: var(--text); }
+  .tb .win { display: flex; height: 44px; }
+  .tb .win span { width: 46px; display: grid; place-items: center; color: var(--muted); }
+
+  /* 内容 */
+  .page { max-width: 1160px; margin: 0 auto; padding: 20px 40px 120px; }
+  .head { display: flex; align-items: flex-end; gap: 12px; margin-bottom: 28px; }
+  .head h1 { font-size: 26px; line-height: 34px; font-weight: 600; letter-spacing: -.015em; margin: 0; }
+  .head .sum { display: flex; gap: 14px; margin-top: 6px; font-size: 13px; color: var(--muted); }
+  .head .sum b { color: var(--text); font-weight: 600; }
+  .head .sum .dot { display: inline-block; width: 7px; height: 7px; border-radius: 2px; background: var(--success); margin-right: 6px; vertical-align: 1px; }
+  .head .sp { flex: 1; }
+  .search { display: flex; align-items: center; gap: 8px; width: 240px; height: 36px; padding: 0 12px; border-radius: var(--r-full);
+            background: var(--field); border: 1px solid var(--border); color: var(--faint); font-size: 13px; }
+  .iconbtn { width: 36px; height: 36px; display: grid; place-items: center; border-radius: var(--r-full); color: var(--muted); border: 1px solid var(--border); }
+
+  .sec { display: flex; align-items: baseline; gap: 8px; margin: 0 0 12px; font-size: 13px; font-weight: 600; color: var(--muted); }
+  .sec .n { font-family: var(--mono); font-weight: 400; color: var(--faint); }
+
+  /* 正在运行的：大卡，是这一页的主角 */
+  .live { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 16px; margin-bottom: 36px; }
+  .lc { background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--elev-1); padding: 18px; display: flex; flex-direction: column; gap: 16px; }
+  .lc .top { display: flex; align-items: center; gap: 12px; }
+  .lc .nm { font-size: 15px; font-weight: 600; line-height: 22px; }
+  .lc .meta { font-size: 12px; color: var(--muted); }
+  .lc .st { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--success-text); }
+  .lc .st i { width: 8px; height: 8px; border-radius: 2px; background: var(--success); box-shadow: 0 0 0 3px var(--success-subtle); }
+  .lc .st.warm { color: var(--warning-text); } .lc .st.warm i { background: var(--warning); box-shadow: 0 0 0 3px var(--warning-subtle); }
+  .lc .big { display: flex; align-items: baseline; gap: 22px; }
+  .lc .big .v { font-size: 22px; font-weight: 600; font-family: var(--mono); letter-spacing: -.02em; }
+  .lc .big .v small { font-size: 13px; color: var(--faint); font-weight: 400; }
+  .lc .big .k { font-size: 12px; color: var(--muted); }
+  .lc .addr { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 13px; color: var(--text); padding: 4px 10px; border-radius: var(--r-full); background: var(--surface-2); }
+  .lc .addr .ico { color: var(--faint); width: 14px; height: 14px; }
+  .bar { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 62%; background: var(--warning); border-radius: 3px; }
+  .lc .acts { display: flex; gap: 8px; align-items: center; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px; border-radius: var(--r-full); font-size: 13px; font-weight: 500;
+         background: var(--control); color: var(--text); border: 1px solid var(--border); }
+  .btn.ghost { background: none; border-color: transparent; color: var(--muted); }
+  .lc .acts .more { margin-left: auto; }
+
+  /* 没在运行的：小块，一行四个 */
+  .rest { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+  .rc { display: flex; align-items: center; gap: 12px; padding: 12px 12px 12px 14px; border-radius: var(--r-md); background: color-mix(in srgb, var(--surface) 55%, var(--bg)); }
+  .rc:hover { background: var(--surface); box-shadow: var(--elev-1); }
+  .rc .nm { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rc .meta { font-size: 12px; color: var(--faint); }
+  .rc .play { margin-left: auto; width: 32px; height: 32px; border-radius: var(--r-full); display: grid; place-items: center; color: var(--accent-text); background: var(--accent-subtle); flex: none; }
+  .rc > div { min-width: 0; }
+
+  /* 像素头像（照 app.css 的 .px-avatar） */
+  .px-avatar { --c: #7a8aa0; width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: var(--r-md);
+               background: color-mix(in srgb, var(--c) 26%, var(--surface)); box-shadow: inset 0 1px 0 rgb(255 255 255 / .06), 0 0 0 1px color-mix(in srgb, var(--c) 30%, transparent); }
+  .px-avatar svg { width: 24px; height: 24px; display: block; }
+  .px-avatar.lg { width: 48px; height: 48px; border-radius: var(--r-md); } .px-avatar.lg svg { width: 32px; height: 32px; }
+  .px-avatar.sm { width: 34px; height: 34px; border-radius: var(--r-sm); } .px-avatar.sm svg { width: 22px; height: 22px; }
+
+  /* 悬浮胶囊导航 */
+  .cap { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 10; display: flex; align-items: center; gap: 2px; padding: 5px;
+         border-radius: var(--r-full); background: color-mix(in srgb, var(--overlay) 86%, transparent); backdrop-filter: blur(16px) saturate(1.2);
+         border: 1px solid var(--border); box-shadow: var(--elev-3); }
+  .cap a { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: var(--r-full); color: var(--muted); font-size: 13px; font-weight: 500; text-decoration: none; white-space: nowrap; }
+  .cap a:hover { color: var(--text); background: var(--hover); }
+  .cap a.on { color: var(--accent-text); background: var(--accent-subtle); }
+  .cap a.home { padding: 0 12px; }
+  .cap a.home img { width: 20px; height: 20px; image-rendering: pixelated; }
+  .cap .sep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
+  .cap a.new { background: var(--accent-solid); color: var(--on-accent); margin-left: 2px; }
+  .cap a.new:hover { background: var(--accent-solid-hov); }
+
+  /* ?nav=top：胶囊放进标题栏正中 */
+  body.nav-top .cap { position: fixed; top: 4px; bottom: auto; padding: 3px; box-shadow: var(--elev-1); }
+  body.nav-top .cap a { height: 30px; padding: 0 12px; font-size: 12.5px; }
+  body.nav-top .cap a.home img { width: 16px; height: 16px; }
+  body.nav-top .page { padding-bottom: 60px; }
+  body.nav-top .tb { height: 44px; }
+
+  .tip { position: fixed; left: 12px; bottom: 12px; font-size: 11.5px; color: var(--faint); }
+  .tip a { color: var(--accent-text); }
+</style>
+</head>
+<body>
+<script>if (new URLSearchParams(location.search).get("nav") === "top") document.body.classList.add("nav-top");</script>
+
+<header class="tb">
+  <div class="brand"><img src="../../internal/web/ui/img/logo-16.png" alt="">MineDeck</div>
+  <div class="sp"></div>
+  <span class="ai"><i data-ic="sparkle"></i>AI 助手</span>
+  <div class="win"><span><i data-ic="winMin"></i></span><span><i data-ic="winMax"></i></span><span><i data-ic="winClose"></i></span></div>
+</header>
+
+<main class="page">
+  <div class="head">
+    <div>
+      <h1>服务器</h1>
+      <div class="sum"><span><span class="dot"></span><b>2</b> 台运行中</span><span><b>10</b> 人在线</span><span>共 <b>8</b> 台</span></div>
+    </div>
+    <div class="sp"></div>
+    <div class="search"><i data-ic="search"></i>搜索</div>
+    <span class="iconbtn" title="排序：最近创建"><i data-ic="sort"></i></span>
+  </div>
+
+  <div class="sec">正在运行 <span class="n">3</span></div>
+  <div class="live">
+    <div class="lc">
+      <div class="top"><span data-av="paper" data-sz="lg"></span><div><div class="nm">生存服 · 朋友</div><div class="meta">Paper · 1.21.4</div></div><span class="st"><i></i>运行中</span></div>
+      <div class="big"><div><div class="v">3<small>/20</small></div><div class="k">在线</div></div><div><div class="v">2:13</div><div class="k">已运行</div></div><div style="margin-left:auto;align-self:center"><span class="addr">:25565<i data-ic="copy"></i></span></div></div>
+      <div class="acts"><span class="btn"><i data-ic="console"></i>控制台</span><span class="btn ghost"><i data-ic="stop"></i>停止</span><span class="btn ghost more"><i data-ic="more"></i></span></div>
+    </div>
+    <div class="lc">
+      <div class="top"><span data-av="purpur" data-sz="lg"></span><div><div class="nm">空岛生存</div><div class="meta">Purpur · 1.21.4</div></div><span class="st"><i></i>运行中</span></div>
+      <div class="big"><div><div class="v">7<small>/30</small></div><div class="k">在线</div></div><div><div class="v">5:02</div><div class="k">已运行</div></div><div style="margin-left:auto;align-self:center"><span class="addr">:25570<i data-ic="copy"></i></span></div></div>
+      <div class="acts"><span class="btn"><i data-ic="console"></i>控制台</span><span class="btn ghost"><i data-ic="stop"></i>停止</span><span class="btn ghost more"><i data-ic="more"></i></span></div>
+    </div>
+    <div class="lc">
+      <div class="top"><span data-av="vanilla" data-sz="lg"></span><div><div class="nm">原版快照测试</div><div class="meta">原版 · 26.2</div></div><span class="st warm"><i></i>启动中</span></div>
+      <div style="display:flex;flex-direction:column;gap:8px;padding:6px 0 2px"><div class="bar"><i></i></div><div class="meta" style="font-size:12px;color:var(--muted)">正在加载世界 · 12 秒</div></div>
+      <div class="acts"><span class="btn"><i data-ic="console"></i>控制台</span><span class="btn ghost"><i data-ic="stop"></i>停止</span><span class="btn ghost more"><i data-ic="more"></i></span></div>
+    </div>
+  </div>
+
+  <div class="sec">其他 <span class="n">5</span></div>
+  <div class="rest">
+    <div class="rc"><span data-av="forge" data-sz="sm"></span><div><div class="nm">机械动力整合包</div><div class="meta">Forge · 1.20.1</div></div><span class="play" title="启动"><i data-ic="play"></i></span></div>
+    <div class="rc"><span data-av="leaves" data-sz="sm"></span><div><div class="nm">红石科技服</div><div class="meta">Leaves · 1.21.4</div></div><span class="play" title="启动"><i data-ic="play"></i></span></div>
+    <div class="rc"><span data-av="neoforge" data-sz="sm"></span><div><div class="nm">匠魂与暮色</div><div class="meta">NeoForge · 1.21.1</div></div><span class="play" title="启动"><i data-ic="play"></i></span></div>
+    <div class="rc"><span data-av="mohist" data-sz="sm"></span><div><div class="nm">模组加插件</div><div class="meta">Mohist · 1.20.1</div></div><span class="play" title="启动"><i data-ic="play"></i></span></div>
+    <div class="rc"><span data-av="velocity" data-sz="sm"></span><div><div class="nm">群组代理</div><div class="meta">Velocity · 3.4.0</div></div><span class="play" title="启动"><i data-ic="play"></i></span></div>
+  </div>
+</main>
+
+<nav class="cap" aria-label="导航">
+  <a class="home on" href="#" title="服务器（主页）"><img src="../../internal/web/ui/img/logo-20.png" alt="服务器"></a>
+  <a href="#"><i data-ic="globe"></i>内网穿透</a>
+  <a href="#"><i data-ic="toolbox"></i>工具箱</a>
+  <a href="#"><i data-ic="gear"></i>设置</a>
+  <span class="sep"></span>
+  <a class="new" href="#"><i data-ic="plus"></i>新建</a>
+</nav>
+
+<div class="tip">草图 · 胶囊在下面 <a href="?nav=top">放进标题栏</a> · <a href="?">放回下面</a> · 配色 <a href="?scheme=craft&theme=light">方块浅色</a> <a href="?">Nord 深色</a></div>
+
+<script>
+for (const el of document.querySelectorAll("[data-av]")) el.outerHTML = MDPixel.avatar(el.dataset.av, el.dataset.sz || "");
+</script>
+</body>
+</html>

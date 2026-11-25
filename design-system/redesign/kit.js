@@ -1,4 +1,6 @@
 // 界面重构草图的小工具，放在 <head> 里同步引入。
+// 看草图：在仓库根目录起一个静态服务（比如 `python -m http.server 27395 --bind 127.0.0.1`），
+// 打开 http://127.0.0.1:27395/design-system/redesign/<页面>.html。直接双击 html 读不到 app.js，图标会是空的。
 // 1. 照 URL 参数设外观：?scheme=nord&theme=dark&accent=auto，默认是作者常用的 Nord 深色。
 // 2. 把 <i data-ic="图标名"></i> 换成程序自己的图标：现读 internal/web/ui/app.js 里的 ICON 映射，
 //    所以草图和真界面用的是同一套图标；草图要用程序里还没有的，在页面里先定义 window.EXTRA_ICONS = { 名字: "<path …/>" }。
