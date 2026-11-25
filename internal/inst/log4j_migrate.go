@@ -438,24 +438,7 @@ func publishLog4jXMLIfAbsent(ctx context.Context, dir, name string, data []byte)
 	if exists, official := log4jXMLOnDisk(dir, name); exists {
 		return !official, nil
 	}
-	tmpFile, err := os.CreateTemp(dir, ".minedeck-write-*.tmp")
-	if err != nil {
-		return false, err
-	}
-	tmp := tmpFile.Name()
-	defer func() { _ = os.Remove(tmp) }()
-	if _, err := tmpFile.Write(data); err != nil {
-		_ = tmpFile.Close()
-		return false, err
-	}
-	if err := tmpFile.Chmod(0o644); err != nil {
-		_ = tmpFile.Close()
-		return false, err
-	}
-	if err := tmpFile.Close(); err != nil {
-		return false, err
-	}
-	if err := atomicfile.PublishNew(tmp, dest); err != nil {
+	if err := atomicfile.WriteNew(dest, data, 0o644); err != nil {
 		if errors.Is(err, fs.ErrExist) {
 			_, official := log4jXMLOnDisk(dir, name)
 			return !official, nil

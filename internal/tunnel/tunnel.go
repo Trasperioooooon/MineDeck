@@ -717,28 +717,12 @@ var (
 // keepBackup 在 path 旁边留一份内容是 orig 的备份，返回备份的文件名（不带文件夹）和是不是这次新留的。名字是
 // 「原名.bak-年月日-时分秒」，.gitignore 里的 /tunnels.json* 管得到。旁边已经有一份内容一模一样的就用那份，不再另存：
 // tunnels.json 设成只读时每次启动都写不回去，不能每次都多一份。同一秒里再来一次、内容又不一样，名字就加上 -2、-3；
-// 发布用 PublishNew，名字被占了只会报错，绝不盖掉已有的备份。备份里有凭据（旧版明文的已经加密，见 newPendingRenumber；
+// 发布用 atomicfile.WriteNew，名字被占了只会报错，绝不盖掉已有的备份。备份里有凭据（旧版明文的已经加密，见 newPendingRenumber；
 // 加密失败的还是明文），权限和 tunnels.json 一样收紧。
 func keepBackup(path string, orig []byte) (string, bool, error) {
 	dir, base := filepath.Dir(path), filepath.Base(path)
 	if name := sameBackup(dir, base, orig); name != "" {
 		return name, false, nil
-	}
-	f, err := os.CreateTemp(dir, ".minedeck-write-*.tmp")
-	if err != nil {
-		return "", false, err
-	}
-	tmp := f.Name()
-	defer os.Remove(tmp)
-	_, err = f.Write(orig)
-	if err == nil {
-		err = f.Chmod(0o600)
-	}
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		return "", false, err
 	}
 	stem := base + ".bak-" + backupNow().Format("20060102-150405")
 	for i := 1; i <= backupNameTries; i++ {
@@ -746,7 +730,7 @@ func keepBackup(path string, orig []byte) (string, bool, error) {
 		if i > 1 {
 			name = fmt.Sprintf("%s-%d", stem, i)
 		}
-		err := atomicfile.PublishNew(tmp, filepath.Join(dir, name))
+		err := atomicfile.WriteNew(filepath.Join(dir, name), orig, 0o600)
 		if err == nil {
 			return name, true, nil
 		}
