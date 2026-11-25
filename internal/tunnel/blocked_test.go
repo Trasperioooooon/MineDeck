@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -45,6 +46,9 @@ func TestFrpcBlockedHint(t *testing.T) {
 
 // 启动隧道时 frpc 被拦下或转眼不见了：返回的错误和卡片上都是中文说明，系统给的原文记在日志里；别的启动错误照旧。
 func TestStartShowsAntivirusHint(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	old := startFrpc
 	t.Cleanup(func() { startFrpc = old })

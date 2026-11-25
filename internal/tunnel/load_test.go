@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -31,6 +32,9 @@ func tunnelsPath() string { return filepath.Join(app.Base, "tunnels.json") }
 // seedTunnels 先用正常的 Manager 存一条带凭据的隧道，返回磁盘上的原文。
 func seedTunnels(t *testing.T) string {
 	t.Helper()
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	if _, err := NewManager().Add(openfrpTunnel("一号")); err != nil {
 		t.Fatal(err)
 	}
@@ -95,6 +99,9 @@ func assertRecovered(t *testing.T, m *Manager) {
 
 // 文件不在：新装，空列表是对的，照常能加、能存。
 func TestLoadMissingFileStartsEmpty(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	m := NewManager()
 	if err := m.LoadErr(); err != nil {
@@ -136,6 +143,9 @@ func TestLoadCorruptFileBlocksSavesUntilFixed(t *testing.T) {
 
 // 坏文件被用户改名挪走：下一次读就是「文件不在」，从空列表开始；挪走的那份原样留着。
 func TestLoadCorruptFileMovedAwayStartsEmpty(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	if err := os.WriteFile(tunnelsPath(), []byte(`{"seq":1,"tunnels":[{"id":"tun1",`), 0o600); err != nil {
 		t.Fatal(err)
@@ -251,6 +261,9 @@ func TestLoadMissingTunnelsKey(t *testing.T) {
 
 // 修好以后，修改、删除、启动各自就会再读一次、照常做，不用先有人看列表（Codex 复审建议补的）。
 func TestEachOperationRecoversOnItsOwn(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	good := `{"seq":1,"tunnels":[{"id":"tun1","provider":"natfrp","name":"游戏","credential":"k","proxyId":"10"}]}`
 	setup := func(t *testing.T) *Manager {
 		tempBase(t)
@@ -293,6 +306,9 @@ func TestEachOperationRecoversOnItsOwn(t *testing.T) {
 
 // 只有空白的文件（老版本覆盖写时断电留下的）：里面没有能丢的东西，按空列表算，不挡保存。
 func TestLoadBlankFileIsEmpty(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	if err := os.WriteFile(tunnelsPath(), []byte(" \r\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -324,6 +340,9 @@ func TestLoadSkipsNullEntries(t *testing.T) {
 
 // 开机时没读成、之后读成了的那一次，也照常把老版本的明文凭据加密写回（迁移不能因为晚读而漏掉）。
 func TestRecoveredLoadStillMigratesPlaintext(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	if err := os.WriteFile(tunnelsPath(), []byte(`{"seq":1,"tunnels":[{"id":"tun1",`), 0o600); err != nil {
 		t.Fatal(err)
@@ -365,6 +384,9 @@ func TestAccountsRefuseWhileTunnelsUnread(t *testing.T) {
 // 说明确实去拉了）。
 // 没读成的那次不能悄无声息（A59）：操作记录里记一条拉不起来的（不知道是哪几条隧道，只带实例名），服务器控制台里说一句。
 func TestStartBoundRetriesLoad(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	old := startDelay
 	startDelay = 10 * time.Millisecond

@@ -120,3 +120,6 @@ func defaultProcessName(pid int) string {
 	}
 	return filepath.Base(strings.ReplaceAll(windows.UTF16ToString(buf[:n]), `\`, "/"))
 }
+
+// extraBindHosts Windows 下通配地址按 SO_EXCLUSIVEADDRUSE 试绑一次即可覆盖回环与所有网卡，无需额外地址。
+func extraBindHosts(_, _ string) []string { return nil }

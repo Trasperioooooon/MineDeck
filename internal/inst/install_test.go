@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -22,6 +23,13 @@ const testManifest = `{"latest":{"release":"1.20.1","snapshot":"1.20.1"},"versio
 {"id":"1.12.2","type":"release"},{"id":"1.12","type":"release"},{"id":"1.11.2","type":"release"},{"id":"1.8.9","type":"release"},
 {"id":"1.7.10","type":"release"},{"id":"1.7","type":"release"},{"id":"1.6.4","type":"release"}]}`
 
+func fakeJavaBin() string {
+	if runtime.GOOS == "windows" {
+		return "java.exe"
+	}
+	return "java"
+}
+
 var testJava17 string // 假的本机 Java 17 的路径，TestMain 里准备
 
 func TestMain(m *testing.M) {
@@ -37,7 +45,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	// adopt_test.go：一个「本机已安装」的假 Java 17（java.Cached 从缓存目录的 javas.json 读）
-	testJava17 = filepath.Join(dir, "jdk17", "bin", "java.exe")
+	testJava17 = filepath.Join(dir, "jdk17", "bin", fakeJavaBin())
 	javas, _ := json.Marshal([]map[string]any{{"path": testJava17, "major": 17, "version": "17.0.1"}})
 	if err := os.MkdirAll(filepath.Dir(testJava17), 0o755); err != nil {
 		panic(err)

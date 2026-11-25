@@ -346,8 +346,9 @@ func adopt(t *testing.T, m *Manager, req AdoptReq) (string, error) {
 
 func fakeJava(t *testing.T) string {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), "jdk", "bin", "java.exe")
-	writeTree(t, filepath.Dir(p), map[string]string{"java.exe": ""})
+	bin := fakeJavaBin()
+	p := filepath.Join(t.TempDir(), "jdk", "bin", bin)
+	writeTree(t, filepath.Dir(p), map[string]string{bin: ""})
 	return p
 }
 
@@ -528,7 +529,7 @@ func TestValidateAdopt(t *testing.T) {
 		"启动文件不在":     func(r *AdoptReq) { r.LaunchTarget = "jar:other/evil.jar" },
 		"重新识别":       func(r *AdoptReq) { r.LaunchTarget = `jar:..\x\server.jar` },
 		"8 到 30 之间":  func(r *AdoptReq) { r.JavaMajor = 99 },
-		"还要写明它是哪个版本": func(r *AdoptReq) { r.JavaPath = `C:\java.exe` },
+		"还要写明它是哪个版本": func(r *AdoptReq) { r.JavaPath = filepath.Join(t.TempDir(), fakeJavaBin()) },
 		"Mohist":     func(r *AdoptReq) { r.Core = mcsrc.CoreMohist; r.Dir = filepath.Join(user, "中文") },
 	} {
 		req := ok

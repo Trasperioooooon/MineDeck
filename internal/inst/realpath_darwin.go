@@ -3,6 +3,7 @@ package inst
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -106,25 +107,41 @@ func fdPath(fd uintptr) (string, bool) {
 }
 
 // OpenFileInside 打开 p 来读，并按打开以后的文件核对它实际落在 dir 里面（见 realpath_windows.go）。
+// 带 O_NONBLOCK 打开再查 S_IFREG：遇到命名管道（FIFO）时直接打开会一直卡住等写入端，先非阻塞打开并用 Fstat
+// 确认是普通文件、核对落点后，再清掉 O_NONBLOCK 恢复常规读取行为。
 func OpenFileInside(p, dir string) (*os.File, error) {
 	root, err := RealPathStrict(dir)
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.Open(p)
+	var fd int
+	err = ignoringEINTR(func() (err error) {
+		fd, err = unix.Open(p, unix.O_RDONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+		return err
+	})
 	if err != nil {
-		return nil, err
+		return nil, &os.PathError{Op: "open", Path: p, Err: err}
 	}
-	real, ok := fdPath(f.Fd())
+	var st unix.Stat_t
+	if err := ignoringEINTR(func() error { return unix.Fstat(fd, &st) }); err != nil {
+		_ = unix.Close(fd)
+		return nil, &os.PathError{Op: "stat", Path: p, Err: err}
+	}
+	if st.Mode&unix.S_IFMT != unix.S_IFREG {
+		_ = unix.Close(fd)
+		return nil, fmt.Errorf("不是普通文件: %s", filepath.Base(p))
+	}
+	real, ok := fdPath(uintptr(fd))
 	if !ok {
-		f.Close()
+		_ = unix.Close(fd)
 		return nil, ErrRealPath
 	}
 	if !InsideReal(root, real) {
-		f.Close()
+		_ = unix.Close(fd)
 		return nil, ErrOutside
 	}
-	return f, nil
+	_ = unix.SetNonblock(fd, false)
+	return os.NewFile(uintptr(fd), p), nil
 }
 
 // InsideReal real 是不是 root 本身或者在它里面。两个都必须是 RealPathStrict 或者按打开的文件问出来的路径，逐字比较。

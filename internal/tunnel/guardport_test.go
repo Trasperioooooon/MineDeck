@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -16,6 +17,9 @@ import (
 // 自定义 frps 的隧道不能指向 MineDeck 自己的网页端口：经 frpc 进来的请求都来自 127.0.0.1，映射出去等于把管理界面摆到公网上。
 // 新增、修改时拒绝；以前存下的（或者网页端口这次换了），手动启动和跟随实例启动时也拒绝，frpc 不会被拉起来。
 func TestGuardPortBlocksWebPort(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	// 放一个假的 frpc，启动也换成只记次数：万一检查漏了，测试不会去下载 frp、也不会真的起进程
 	dir := frpcDir("custom")

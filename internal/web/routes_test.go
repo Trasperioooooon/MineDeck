@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -75,6 +76,9 @@ const (
 
 func newFullEnv(t *testing.T) *fullEnv {
 	t.Helper()
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	old := []string{app.Base, app.ServersDir, app.BackupsDir, app.CacheDir, app.RuntimesDir}
 	t.Cleanup(func() {
 		app.Base, app.ServersDir, app.BackupsDir, app.CacheDir, app.RuntimesDir = old[0], old[1], old[2], old[3], old[4]

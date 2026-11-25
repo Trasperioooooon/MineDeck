@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -75,14 +76,18 @@ func TestRememberRoot(t *testing.T) {
 	}
 }
 
-// 单独登记的服务器文件夹（接管进来的）：去重不看大小写和末尾的分隔符；重启后还在；去掉以后不再有；
+// 单独登记的服务器文件夹（接管进来的）：去重看干净路径（Windows 上不区分大小写，类 Unix 区分）；重启后还在；去掉以后不再有；
 // 不会连带把它的上一层记成扫描根。
 func TestRememberInstanceDir(t *testing.T) {
 	tempBase(t)
 	a, b := filepath.Join(Base, "old", "A"), filepath.Join(Base, "old", "B")
+	aliasA := filepath.Join(Base, "old", ".", "A")
 	RememberInstanceDir(a)
 	RememberInstanceDir(a + string(filepath.Separator))
-	RememberInstanceDir(strings.ToUpper(a))
+	RememberInstanceDir(aliasA)
+	if runtime.GOOS == "windows" {
+		RememberInstanceDir(strings.ToUpper(a))
+	}
 	RememberInstanceDir(b)
 	RememberInstanceDir("")
 	restart()
@@ -105,7 +110,11 @@ func TestRememberInstanceDir(t *testing.T) {
 	}
 	ForgetInstanceDir(c)
 	ForgetInstanceDir(filepath.Join(Base, "old", "没登记过的"))
-	ForgetInstanceDir(strings.ToUpper(a) + string(filepath.Separator))
+	if runtime.GOOS == "windows" {
+		ForgetInstanceDir(strings.ToUpper(a) + string(filepath.Separator))
+	} else {
+		ForgetInstanceDir(aliasA + string(filepath.Separator))
+	}
 	if !slices.Equal(held, []string{a, b}) {
 		t.Errorf("去掉登记时改到了别处手里的那份配置：%v", held)
 	}
@@ -115,7 +124,7 @@ func TestRememberInstanceDir(t *testing.T) {
 	}
 }
 
-// 「正在建的位置」（A38）：已经是扫描根的不记；去重不看大小写和末尾的分隔符；重启后还在；记了不会变成扫描根；
+// 「正在建的位置」（A38）：已经是扫描根的不记；去重看干净路径（Windows 上不区分大小写，类 Unix 区分）；重启后还在；记了不会变成扫描根；
 // 去掉以后不再有；记、去都不写到别处早先拿到的那份配置上。
 func TestCreatingRoots(t *testing.T) {
 	tempBase(t)
@@ -123,7 +132,13 @@ func TestCreatingRoots(t *testing.T) {
 	setServersDir(t, conf)
 	RememberRoot(old)
 	a, b := filepath.Join(Base, "new", "A"), filepath.Join(Base, "new", "B")
-	for _, d := range []string{a, a + string(filepath.Separator), strings.ToUpper(a), b, "", ServersDir, conf, strings.ToUpper(old)} {
+	aliasA := filepath.Join(Base, "new", ".", "A")
+	aliasOld := old + string(filepath.Separator)
+	cands := []string{a, a + string(filepath.Separator), aliasA, b, "", ServersDir, conf, aliasOld}
+	if runtime.GOOS == "windows" {
+		cands = append(cands, strings.ToUpper(a), strings.ToUpper(old))
+	}
+	for _, d := range cands {
 		RememberCreatingRoot(d)
 	}
 	restart()
@@ -143,7 +158,11 @@ func TestCreatingRoots(t *testing.T) {
 	if got := spare[:cap(spare)]; len(got) > len(spare) && got[len(spare)] == c {
 		t.Errorf("记的时候写进了别处手里那份配置的底层数组：%v", got)
 	}
-	ForgetCreatingRoots(strings.ToUpper(a)+string(filepath.Separator), c, filepath.Join(Base, "没记过的"))
+	forgetA := aliasA + string(filepath.Separator)
+	if runtime.GOOS == "windows" {
+		forgetA = strings.ToUpper(a) + string(filepath.Separator)
+	}
+	ForgetCreatingRoots(forgetA, c, filepath.Join(Base, "没记过的"))
 	if !slices.Equal(held, []string{a, b}) {
 		t.Errorf("去掉的时候改到了别处手里的那份配置：%v", held)
 	}
@@ -155,6 +174,19 @@ func TestCreatingRoots(t *testing.T) {
 	restart()
 	if raw, err := os.ReadFile(configPath()); err != nil || strings.Contains(string(raw), "creatingRoots") {
 		t.Fatalf("清空以后 config.json 里不该再有 creatingRoots：%s %v", raw, err)
+	}
+}
+
+func TestSamePathCaseSensitivity(t *testing.T) {
+	base := t.TempDir()
+	pos := filepath.Join(base, "Pos")
+	same := pos + string(filepath.Separator)
+	diffCase := filepath.Join(base, "pos")
+	if !SamePath(pos, same) {
+		t.Fatalf("仅差末尾分隔符应为同一路径：%q vs %q", pos, same)
+	}
+	if got := SamePath(pos, diffCase); got != (runtime.GOOS == "windows") {
+		t.Fatalf("SamePath(%q, %q) = %v, want %v", pos, diffCase, got, runtime.GOOS == "windows")
 	}
 }
 

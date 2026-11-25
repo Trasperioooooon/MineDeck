@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +16,9 @@ import (
 // 凭据短于 6 个字符（自定义 frps 的令牌本来可以很短）：不拒绝，界面上添加时只给一句提示（beta.3 主会话定的，见复审发现 10）。
 // 已经存好的短凭据隧道照常读出来、照常启动，令牌原样交给 frpc；日志里含它的行整行隐藏这一点不变（见 credmask_test.go）。
 func TestShortCredentialTunnelStillLoadsAndStarts(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	ping, err := exec.LookPath("ping") // 替 frpc：参数不对，马上退出
 	if err != nil {

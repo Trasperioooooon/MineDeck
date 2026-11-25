@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -33,6 +34,9 @@ func TestCheckServerAddr(t *testing.T) {
 
 // 新增、修改隧道时不许用模板写法的地址；以前存下的，启动时也拒绝，不生成配置。
 func TestTemplateAddrRejected(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	m := NewManager()
 	if _, err := m.Add(Tunnel{Provider: "custom", Name: "自建", Credential: "tok", ServerAddr: tplAddr, ServerPort: 7000, RemotePort: 25566, LocalPort: 25565}); err == nil {
@@ -66,6 +70,9 @@ func TestTemplateAddrRejected(t *testing.T) {
 // 凭据留空表示不改；但换了服务商，或者 frps 换了地址、端口，要重新填，免得旧令牌被带到新的服务器（B-5）。
 // 真正会把令牌带走的是改成自定义 frps 的那几种：改成服务商的，本来就要填凭据（validate 会拦）。
 func TestCredentialRebindOnTargetChange(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	m := NewManager()
 	c, err := m.Add(Tunnel{Provider: "custom", Name: "自建", Credential: "old-token", ServerAddr: "frp.example.com", ServerPort: 7000, RemotePort: 25566, LocalPort: 25565})
@@ -126,6 +133,9 @@ func TestCredentialRebindOnTargetChange(t *testing.T) {
 // 自定义 frps 存过的凭据能明说清掉（clearCredential）：tunnels.json 和内存里都不再有，启动时配置里没有 auth.token、
 // 也不往 frpc 传令牌；换地址、端口时选清除也放行。凭据留空照旧是「不改」；服务商的隧道不能清。
 func TestClearCredential(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	m := NewManager()
 	c, err := m.Add(Tunnel{Provider: "custom", Name: "自建", Credential: "old-token", ServerAddr: "frp.example.com", ServerPort: 7000, RemotePort: 25566, LocalPort: 25565})

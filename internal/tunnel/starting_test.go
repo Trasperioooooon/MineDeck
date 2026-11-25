@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -83,6 +84,9 @@ func TestEditRefusedWhileStarting(t *testing.T) {
 // 登记成运行中之前再核对一遍：隧道还在、配置还是启动时拍下的那份。准备期间改、删已经被拦着，这里兜住以后别的路径改了配置的情况——
 // 对不上就把刚起来的 frpc 结束掉、不登记，报一句能直接显示的话（Codex 复审 beta.3 的建议）。
 func TestStartDropsFrpcWhenConfigChanged(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("frpc 结构检查只认 Windows PE 程序（Mac 版 frpc 见 D01）")
+	}
 	tempBase(t)
 	ping, err := exec.LookPath("ping") // 替 frpc：参数不对，马上退出
 	if err != nil {

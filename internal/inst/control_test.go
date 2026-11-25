@@ -3,6 +3,7 @@ package inst
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"minedeck/internal/app"
@@ -17,11 +18,20 @@ func TestSafeLevelName(t *testing.T) {
 			t.Errorf("%q 是实例目录里面的名字，应该认", ok)
 		}
 	}
+	if runtime.GOOS == "windows" {
+		for _, bad := range []string{
+			`\abs`, "C:/Windows", `C:\Windows`, "C:world", `\\host\share\w`, // 盘符、反斜杠绝对路径、网络路径（Windows 规则）
+			"world:stream", "NUL", "con/x", // Windows 备用数据流、保留设备名
+		} {
+			if SafeLevelName(bad) {
+				t.Errorf("%q 在 Windows 上指到服务器目录外面，不应认", bad)
+			}
+		}
+	}
 	for _, bad := range []string{
 		"", " ", ".", "./", "a/..", "world/..", // 空的，或者指回实例目录自己：还原时会把整台服务器删掉
-		"..", "../other-server", `..\other-server`, "world/../..", "a/../../b", // 指到外面
-		"/abs", `\abs`, "C:/Windows", `C:\Windows`, "C:world", `\\host\share\w`, // 绝对路径、盘符、网络路径
-		"world:stream", "NUL", "con/x", // 备用数据流、保留设备名
+		"..", "../other-server", "world/../..", "a/../../b", // 指到外面
+		"/abs", // 绝对路径
 	} {
 		if SafeLevelName(bad) {
 			t.Errorf("%q 不该被当成世界目录的名字", bad)
@@ -89,10 +99,13 @@ func TestCheckLevelName(t *testing.T) {
 
 // TestIsControlFile MineDeck 自己读写的文件不能由别人给（交接包、整合包的覆盖目录）。
 func TestIsControlFile(t *testing.T) {
+	if runtime.GOOS == "windows" && !IsControlFile(`Config\MineDeck\voicebridge.properties`) {
+		t.Errorf("%q 应识别为控制文件", `Config\MineDeck\voicebridge.properties`)
+	}
 	for _, c := range []string{
 		"instance.json", "Instance.JSON", "instance.json.bak", "instance.json.tmp", "run.bat", "RUN.BAT",
 		"run.before-minedeck.bat", "user_jvm_args.txt", "log4j2_112-116.xml", "gameai.json", "gameai-state.json",
-		"config/minedeck/companion.properties", `Config\MineDeck\voicebridge.properties`, ".minedeck/config-backups/x",
+		"config/minedeck/companion.properties", ".minedeck/config-backups/x",
 		"logs/latest.log", "crash-reports/crash.txt",
 	} {
 		if !IsControlFile(c) {

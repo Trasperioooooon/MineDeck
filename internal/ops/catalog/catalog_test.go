@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -248,6 +249,9 @@ func TestPropsProposalFlow(t *testing.T) {
 // 隧道跟着实例自动启停也写操作记录（测试报告第五轮）：来源 schedule、actor「跟随实例」、带实例名，失败的带上错误。
 // 这里是首次使用樱花还没放 frpc 时的跟随启动。
 func TestTunnelFollowWritesOpLog(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	newCatalog(t) // 只用它准备好临时程序目录
 	mgr, err := inst.NewManager()
 	if err != nil {

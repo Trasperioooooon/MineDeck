@@ -12,27 +12,39 @@ import (
 // 用权限（读不了）加不可更改标记（chflags uchg：改不了、换不掉、删不掉，同一文件夹里别的东西照常）来模拟；
 // 放开时改回原样，测试结束时也会改回去（不然临时文件夹删不掉）。
 
-// hold unreadable 时把 path 的权限清零（读不了），再加上不可更改标记，返回改回去的函数。
+// hold unreadable 时把 path 的权限清零（读不了），再加上不可更改标记；先用 O_EVTONLY 拿到文件描述符，
+// 后续加锁、解锁与清理都经 fd（Fchmod/Fchflags），避免上层目录被改名后按路径撤不掉标记导致临时目录清不干净。
 func hold(t *testing.T, path string, unreadable bool) func() {
 	t.Helper()
 	st, err := os.Stat(path)
 	if err != nil {
 		t.Fatalf("没能占住 %s：%v", path, err)
 	}
+	fd, err := unix.Open(path, unix.O_EVTONLY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		t.Fatalf("没能占住 %s：%v", path, err)
+	}
 	if unreadable {
-		if err := os.Chmod(path, 0); err != nil {
+		if err := unix.Fchmod(fd, 0); err != nil {
+			_ = unix.Close(fd)
 			t.Fatalf("没能占住 %s：%v", path, err)
 		}
 	}
-	if err := unix.Chflags(path, unix.UF_IMMUTABLE); err != nil {
-		_ = os.Chmod(path, st.Mode().Perm())
+	if err := unix.Fchflags(fd, unix.UF_IMMUTABLE); err != nil {
+		if unreadable {
+			_ = unix.Fchmod(fd, uint32(st.Mode().Perm()))
+		}
+		_ = unix.Close(fd)
 		t.Fatalf("没能占住 %s：%v", path, err)
 	}
 	var once sync.Once
 	undo := func() {
 		once.Do(func() {
-			_ = unix.Chflags(path, 0)
-			_ = os.Chmod(path, st.Mode().Perm())
+			_ = unix.Fchflags(fd, 0)
+			if unreadable {
+				_ = unix.Fchmod(fd, uint32(st.Mode().Perm()))
+			}
+			_ = unix.Close(fd)
 		})
 	}
 	t.Cleanup(undo)

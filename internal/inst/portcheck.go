@@ -501,7 +501,7 @@ func checkResolvedBindPort(r resolvedBindTarget) error {
 }
 
 // probeResolvedBindPort 只按已解析好的地址做试绑：绑得上就放行，不管 netsh 怎么说；
-// 只有试绑报 WSAEACCES（errAddrAccess）时记下 reserved=true，由锁外再去查 netsh 保留段细化报错（阶段 04 返工 R1、R2）。
+// 只有试绑报 WSAEACCES（errAddrAccess）时记下 reserved=true，由锁外再去查 netsh 保留段细化报错（R1、R2）。
 func probeResolvedBindPort(r resolvedBindTarget) error {
 	t := r.target
 	port := t.port
@@ -512,9 +512,21 @@ func probeResolvedBindPort(r resolvedBindTarget) error {
 	if host == "" {
 		host = PortProbeHost
 	}
+	if err := probeBindAddr(t.network, host, port); err != nil {
+		return err
+	}
+	for _, extra := range extraBindHosts(t.network, host) {
+		if err := probeBindAddr(t.network, extra, port); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func probeBindAddr(network, host string, port int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	ln, err := listenBindPort(ctx, t.network, net.JoinHostPort(host, strconv.Itoa(port)))
+	ln, err := listenBindPort(ctx, network, net.JoinHostPort(host, strconv.Itoa(port)))
 	if err == nil {
 		ln.Close()
 		return nil

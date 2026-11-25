@@ -416,6 +416,9 @@ func TestDifficultyCommand(t *testing.T) {
 
 // 规范路径逐字比较：打开了「区分大小写」的文件夹里 Foo 和 foo 是两个文件夹，外面的 foo 不能算在 Foo 里面（Codex 复审 beta.3 第三轮）
 func TestInsideRealIsExact(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows 卷设备规范路径测试仅在 Windows 上运行")
+	}
 	root := `\Device\HarddiskVolume3\srv\Foo`
 	cases := []struct {
 		real string

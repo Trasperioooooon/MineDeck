@@ -54,3 +54,20 @@ func defaultListenPorts() map[int]int {
 }
 
 func defaultProcessName(int) string { return "" }
+
+// extraBindHosts 类 Unix（Mac）上监听通配地址和 127.0.0.1 能同时成功：另一程序只占着 127.0.0.1（或 ::1）时，
+// 仅试绑通配地址会误判空闲。通配或 0.0.0.0/:: 时补试回环地址。
+func extraBindHosts(network, host string) []string {
+	switch host {
+	case "":
+		if network == "tcp4" {
+			return []string{"127.0.0.1"}
+		}
+		return []string{"127.0.0.1", "::1"}
+	case "0.0.0.0":
+		return []string{"127.0.0.1"}
+	case "::":
+		return []string{"::1"}
+	}
+	return nil
+}
