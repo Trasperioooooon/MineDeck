@@ -1,0 +1,27 @@
+/* 界面重构草图的公共底子：只借程序的配色令牌和字体，不引 app.css（草图要从零画，不沿用现有组件的样子）。
+   圆角、投影、字体栈照抄 app.css 开头的定义，app.css 改了这里要跟着改。 */
+@import url("../../internal/web/ui/fonts/fonts.css");
+@import url("../../internal/web/ui/themes.css");
+
+:root {
+  --font: "MD Geist", "MD Noto Sans SC", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  --mono: "MD Geist Mono", "MD Noto Sans SC", "Cascadia Mono", Consolas, "Microsoft YaHei UI", monospace;
+  --r-xs: 6px; --r-sm: 9px; --r-md: 12px; --r-lg: 18px; --r-xl: 24px; --r-full: 999px;
+  --elev-1: 0 1px 2px rgb(var(--shadow-rgb) / .07), 0 1px 1px rgb(var(--shadow-rgb) / .04);
+  --elev-2: 0 10px 24px -8px rgb(var(--shadow-rgb) / .18), 0 3px 8px -2px rgb(var(--shadow-rgb) / .08);
+  --elev-3: 0 14px 32px -10px rgb(var(--shadow-rgb) / .22), 0 4px 12px -2px rgb(var(--shadow-rgb) / .08);
+}
+[data-theme="dark"] {
+  --elev-1: 0 1px 2px rgb(0 0 0 / .32), 0 0 0 1px rgb(0 0 0 / .10);
+  --elev-2: 0 12px 28px -8px rgb(0 0 0 / .60), 0 3px 8px -2px rgb(0 0 0 / .32);
+  --elev-3: 0 16px 36px -10px rgb(0 0 0 / .62), 0 4px 12px -2px rgb(0 0 0 / .34);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--chrome); color: var(--text); font: 400 14px/22px var(--font); font-synthesis-weight: none; -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; }
+.ico { width: 16px; height: 16px; flex: none; }
+.mono { font-family: var(--mono); }
+.muted { color: var(--muted); }
+.faint { color: var(--faint); }
