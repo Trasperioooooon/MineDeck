@@ -217,7 +217,7 @@ window.EXTRA_ICONS = {
   body.nav-top .cap a.home img { width: 16px; height: 16px; }
   body.nav-top .page { padding-bottom: 60px; }
 
-  .tip { position: fixed; left: 12px; bottom: 12px; font-size: 11.5px; color: var(--faint); }
+  .tip { position: fixed; left: 12px; bottom: 12px; max-width: 230px; font-size: 11.5px; line-height: 18px; color: var(--faint); }
   .tip a { color: var(--accent-text); }
 </style>
 </head>
@@ -269,7 +269,7 @@ if (QS.get("guides")) document.body.classList.add("guides");
   <a class="new" href="#"><i data-ic="plus"></i>新建</a>
 </nav>
 
-<div class="tip">草图 · 胶囊在下面 <a href="?nav=top">放进标题栏</a> · <a href="?">放回下面</a> · 配色 <a href="?scheme=craft&theme=light">方块浅色</a> <a href="?">Nord 深色</a></div>
+<div class="tip">草图 · 胶囊在下面 <a href="?nav=top">放进标题栏</a> · <a href="?">放回下面</a> · 配色 <a href="?scheme=craft&theme=light">方块浅色</a> <a href="?">Nord 深色</a> · 圆角 <a href="?">连续曲率</a> <a href="?corner=round">普通圆弧</a> · <a href="?guides=1">辅助线</a></div>
 
 <script>
 // 假数据：recent 越小越近（正在开着的算「现在」），hours 是一共开过的小时数，pin 是置顶

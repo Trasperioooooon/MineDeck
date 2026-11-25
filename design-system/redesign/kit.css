@@ -4,6 +4,8 @@
 @import url("../../internal/web/ui/themes.css");
 
 :root {
+  /* 圆角：连续曲率，和 app.css 一样（数值是曲线起点，约为视觉半径的 1.5 倍）。?corner=round 换回普通圆弧对比 */
+  --corner: superellipse(1.7);
   --font: "MD Geist", "MD Noto Sans SC", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
   --mono: "MD Geist Mono", "MD Noto Sans SC", "Cascadia Mono", Consolas, "Microsoft YaHei UI", monospace;
   --r-xs: 6px; --r-sm: 9px; --r-md: 12px; --r-lg: 18px; --r-xl: 24px; --r-full: 999px;
@@ -16,6 +18,13 @@
   --elev-2: 0 12px 28px -8px rgb(0 0 0 / .60), 0 3px 8px -2px rgb(0 0 0 / .32);
   --elev-3: 0 16px 36px -10px rgb(0 0 0 / .62), 0 4px 12px -2px rgb(0 0 0 / .34);
 }
+
+/* 不支持 corner-shape 的浏览器：换成视觉半径相同的普通圆角（同 app.css） */
+@supports not (corner-shape: superellipse(2)) {
+  :root { --r-xs: 4px; --r-sm: 6px; --r-md: 8px; --r-lg: 12px; --r-xl: 16px; }
+}
+*, *::before, *::after { corner-shape: var(--corner); }
+[data-corner="round"] *, [data-corner="round"] *::before, [data-corner="round"] *::after { corner-shape: round !important; }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
