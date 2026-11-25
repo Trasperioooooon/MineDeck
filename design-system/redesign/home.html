@@ -220,6 +220,44 @@ window.EXTRA_ICONS = {
   body.nav-top .cap a.home img { width: 16px; height: 16px; }
   body.nav-top .page { padding-bottom: 60px; }
 
+  /* 页头的几种写法（11-26 作者觉得「服务器」大标题 + 一行小字 + 最右边的搜索框太突兀）：?head=a / b / c，不带是现在的 */
+  .hv { display: none; }
+  body:not([class*="head-"]) .hv-0, body.head-a .hv-a, body.head-b .hv-b { display: flex; }
+  body[class*="head-"] .head { display: none; }
+  .iconbtn { width: 36px; height: 36px; flex: none; border-radius: var(--r-full); display: grid; place-items: center; color: var(--muted);
+             background: var(--control); border: 1px solid var(--border); }
+  /* A：标题换成一句有用的话，搜索收成一个圆钮 */
+  .ha { align-items: center; gap: 16px; margin-bottom: 26px; }
+  .ha .line { font-size: 22px; line-height: 30px; font-weight: 600; letter-spacing: -.01em; }
+  .ha .line .ok { color: var(--success-text); }
+  .ha .line .mut { color: var(--muted); font-weight: 500; }
+  .ha .sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .ha .sp { flex: 1; }
+  /* B：统计和搜索装进一条和卡片同款的圆角条（外圆角 20、内边距 8，里面的块圆角 12，同心） */
+  .hb { align-items: center; gap: 8px; padding: 8px; border-radius: 20px; background: var(--surface); box-shadow: var(--elev-1); margin-bottom: 28px; }
+  .hb .chip { height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-radius: 12px; font-size: 13px; color: var(--muted);
+              background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+  .hb .chip b { font-family: var(--mono); font-size: 18px; font-weight: 600; color: var(--text); letter-spacing: -.02em; }
+  .hb .chip.ok b { color: var(--success-text); }
+  .hb .chip .dot { width: 8px; height: 8px; border-radius: 2px; background: var(--success); }
+  .hb .sp { flex: 1; }
+  .hb .find { display: flex; align-items: center; gap: 8px; width: 300px; height: 40px; padding: 0 14px; border-radius: 12px;
+              background: var(--field); border: 1px solid var(--border); color: var(--faint); font-size: 13px; }
+  .hb .find kbd, .tb-search kbd { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--faint); }
+  /* C：页头整个拿掉。统计挪到标题栏左边（MineDeck 后面一行小字），搜索放进标题栏正中，页面一上来就是卡片 */
+  .tb-stats, .tb-search { display: none; }
+  body.head-c .tb-stats { display: flex; align-items: center; gap: 10px; margin-left: 4px; padding-left: 12px; border-left: 1px solid var(--border);
+                          height: 16px; font-size: 12px; color: var(--muted); }
+  body.head-c .tb-stats b { color: var(--text); font-weight: 600; }
+  body.head-c .tb-stats .dot { display: inline-block; width: 7px; height: 7px; border-radius: 2px; background: var(--success); margin-right: 5px; vertical-align: 1px; }
+  body.head-c .tb-search { display: flex; position: absolute; left: 50%; top: 7px; transform: translateX(-50%); width: 360px; height: 30px; align-items: center; gap: 8px;
+                           padding: 0 12px; border-radius: var(--r-full); background: color-mix(in srgb, var(--text) 6%, var(--bg)); border: 1px solid var(--border);
+                           color: var(--faint); font-size: 12.5px; }
+  body.head-c .page { padding-top: 12px; }
+  /* 对比页里嵌着看时不要胶囊和角落的说明 */
+  body.embed .cap, body.embed .tip { display: none; }
+  html:has(body.embed), body.embed { overflow: hidden; }
+
   .tip { position: fixed; left: 12px; bottom: 12px; max-width: 230px; font-size: 11.5px; line-height: 18px; color: var(--faint); }
   .tip a { color: var(--accent-text); }
 </style>
@@ -229,10 +267,14 @@ window.EXTRA_ICONS = {
 const QS = new URLSearchParams(location.search);
 if (QS.get("nav") === "top") document.body.classList.add("nav-top");
 if (QS.get("guides")) document.body.classList.add("guides");
+if (["a", "b", "c"].includes(QS.get("head"))) document.body.classList.add("head-" + QS.get("head"));
+if (QS.get("embed")) document.body.classList.add("embed");
 </script>
 
 <header class="tb">
   <div class="brand"><img src="../../internal/web/ui/img/logo-16.png" alt="">MineDeck</div>
+  <div class="tb-stats" id="tb-stats"></div>
+  <div class="tb-search"><i data-ic="search"></i>搜索服务器<kbd>Ctrl F</kbd></div>
   <div class="sp"></div>
   <div class="win"><span><i data-ic="winMin"></i></span><span><i data-ic="winMax"></i></span><span><i data-ic="winClose"></i></span></div>
 </header>
@@ -246,6 +288,12 @@ if (QS.get("guides")) document.body.classList.add("guides");
     <div class="sp"></div>
     <div class="search"><i data-ic="search"></i>搜索</div>
   </div>
+  <div class="hv hv-a ha">
+    <div><div class="line" id="ha-line"></div><div class="sub" id="ha-sub"></div></div>
+    <span class="sp"></span>
+    <span class="iconbtn" title="搜索服务器（Ctrl+F）"><i data-ic="search"></i></span>
+  </div>
+  <div class="hv hv-b hb" id="hb"></div>
 
   <div class="sec">
     <h2 id="top-title"></h2><span class="hint" id="top-hint"></span>
@@ -272,7 +320,7 @@ if (QS.get("guides")) document.body.classList.add("guides");
   <a class="new" href="#"><i data-ic="plus"></i>新建</a>
 </nav>
 
-<div class="tip">草图 · 胶囊在下面 <a href="?nav=top">放进标题栏</a> · <a href="?">放回下面</a> · 配色 <a href="?scheme=craft&theme=light">方块浅色</a> <a href="?">Nord 深色</a> · 圆角 <a href="?">连续曲率</a> <a href="?corner=round">普通圆弧</a> · <a href="?guides=1">辅助线</a></div>
+<div class="tip">草图 · 页头 <a href="?">现在</a> <a href="?head=a">A</a> <a href="?head=b">B</a> <a href="?head=c">C</a>（<a href="head-options.html">对比</a>）· 胶囊在下面 <a href="?nav=top">放进标题栏</a> · <a href="?">放回下面</a> · 配色 <a href="?scheme=craft&theme=light">方块浅色</a> <a href="?">Nord 深色</a> · 圆角 <a href="?">连续曲率</a> <a href="?corner=round">普通圆弧</a> · <a href="?guides=1">辅助线</a></div>
 
 <script>
 // 假数据：recent 越小越近（正在开着的算「现在」），hours 是一共开过的小时数，pin 是置顶，icon 是服务器自己的 server-icon.png（这里用 16 格的假图代替）
@@ -340,6 +388,13 @@ function render() {
   document.getElementById("rest-n").textContent = rest.length;
   const run = SERVERS.filter(s => s.st === "running"), ppl = run.reduce((n, s) => n + s.players, 0);
   document.getElementById("sum").innerHTML = `<span><span class="dot"></span><b>${run.length}</b> 台运行中</span><span><b>${ppl}</b> 人在线</span><span>共 <b>${SERVERS.length}</b> 台</span>`;
+  const idle = SERVERS.length - run.length - SERVERS.filter(s => s.st === "starting").length;
+  document.getElementById("ha-line").innerHTML = run.length ? `<span class="ok">${run.length} 台开着</span><span class="mut">，</span>${ppl} 人在线` : `服务器都停着`;
+  document.getElementById("ha-sub").textContent = `共 ${SERVERS.length} 台服务器，${idle} 台停着`;
+  document.getElementById("hb").innerHTML = `<div class="chip ok"><span class="dot"></span><b>${run.length}</b>台运行中</div><div class="chip"><b>${ppl}</b>人在线</div><div class="chip"><b>${SERVERS.length}</b>台服务器</div>
+    <span class="sp"></span><div class="find"><i data-ic="search"></i>搜索服务器<kbd>Ctrl F</kbd></div>`;
+  document.getElementById("tb-stats").innerHTML = `<span><span class="dot"></span><b>${run.length}</b> 台运行中</span><span><b>${ppl}</b> 人在线</span><span>共 <b>${SERVERS.length}</b> 台</span>`;
+  KIT.hydrate(document.querySelector(".tb"));
   for (const b of document.querySelectorAll(".seg button")) { b.classList.toggle("on", b.dataset.mode === mode); b.setAttribute("aria-checked", b.dataset.mode === mode); }
   KIT.hydrate(document.querySelector(".page"));
 }
