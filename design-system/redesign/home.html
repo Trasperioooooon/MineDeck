@@ -120,6 +120,39 @@ window.EXTRA_ICONS = {
   .stbr.warm { color: var(--warning-text); } .stbr.warm i { background: var(--warning); box-shadow: 0 0 0 3px var(--warning-subtle); }
   .stbr.off { color: var(--faint); } .stbr.off i { background: var(--faint); }
 
+  /* 第七版：同心圆角。卡片外圆角 R、内边距 p，贴着卡片边的东西圆角一律 R − p，圆弧和卡片的圆弧同一个圆心。
+     R = 26、p = 8：封面、数字面板圆角 18；底下一排按钮高 36，胶囊圆角正好 18；封面里的两个圆按钮直径 30、离封面边 3，
+     半径 15 + 3 = 18，又和封面同心。?guides=1 打开辅助线看圆心。 */
+  .lc { --R: 26px; --p: 8px; --ri: calc(var(--R) - var(--p)); border-radius: var(--R); padding: var(--p); height: auto; }
+  .lc .cover { height: 64px; border-radius: var(--ri); overflow: hidden; }
+  .lc .cover .tools { top: 3px; right: 3px; gap: 2px; }
+  .lc .cover .pin, .lc .cover .mini { width: 30px; height: 30px; background: color-mix(in srgb, var(--surface) 60%, transparent); }
+  .lc .dhead { padding: 0 10px; margin-top: -24px; }
+  .lc .dhead .px-avatar { width: 52px; height: 52px; box-shadow: 0 0 0 4px var(--surface); }
+  .lc .dhead .px-avatar svg { width: 34px; height: 34px; }
+  .lc .inner { padding: 10px 0 0; gap: 8px; }
+  .stats { gap: 0; height: 60px; border-radius: var(--ri); background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+  .stats > div { background: none; border-radius: 0; padding: 9px 14px; }
+  .stats > div + div { border-left: 1px solid var(--border); }
+  .boot { height: 60px; border-radius: var(--ri); padding: 0 14px; }
+  .lc .btn { height: 36px; border-radius: calc(36px / 2); padding: 0 14px; white-space: nowrap; flex: none; }
+  .lc .btn.ic { width: 36px; padding: 0; }
+  .lc .stbr { height: 36px; padding: 0 14px; border-radius: 18px; }
+  .stbr.ok { background: var(--success-subtle); } .stbr.warm { background: var(--warning-subtle); } .stbr.off { background: var(--surface-2); }
+  .stbr i { box-shadow: none !important; }
+
+  /* 小块也同心：外圆角 20、内边距 8，头像和按钮圆角 12 */
+  .rc { --R: 20px; --p: 8px; border-radius: var(--R); padding: var(--p) 10px var(--p) var(--p); gap: 12px; }
+  .rc .px-avatar.sm { width: 38px; height: 38px; border-radius: calc(var(--R) - var(--p)); }
+  .rc .play { width: 38px; height: 38px; border-radius: calc(var(--R) - var(--p)); margin-right: -2px; }
+
+  /* 辅助线：把贴边元素的圆角补成整圆，看是不是和卡片的圆角同心 */
+  body.guides .lc { outline: 1px dashed color-mix(in srgb, var(--accent) 50%, transparent); }
+  body.guides .lc .cover, body.guides .stats, body.guides .boot, body.guides .lc .btn, body.guides .lc .stbr { outline: 1px dashed var(--accent); outline-offset: 0; }
+  body.guides .lc::before, body.guides .lc::after { content: ""; position: absolute; border-radius: 50%; pointer-events: none; z-index: 5; }
+  body.guides .lc::before { left: 0; bottom: 0; width: calc(var(--R) * 2); height: calc(var(--R) * 2); border: 1px dashed var(--danger); }
+  body.guides .lc::after { left: var(--p); bottom: var(--p); width: calc(var(--ri) * 2); height: calc(var(--ri) * 2); border: 1px dashed var(--danger); }
+
   /* 星标（置顶）：一直显示，没钉的是空心灰星，钉住的是实心黄星（第六版：作者不要悬停才出现） */
   .pin { width: 28px; height: 28px; border-radius: var(--r-full); border: 0; background: none; display: grid; place-items: center; color: var(--faint); cursor: pointer; flex: none; }
   .pin.on { color: var(--warning); }
@@ -171,7 +204,11 @@ window.EXTRA_ICONS = {
 </style>
 </head>
 <body>
-<script>if (new URLSearchParams(location.search).get("nav") === "top") document.body.classList.add("nav-top");</script>
+<script>
+const QS = new URLSearchParams(location.search);
+if (QS.get("nav") === "top") document.body.classList.add("nav-top");
+if (QS.get("guides")) document.body.classList.add("guides");
+</script>
 
 <header class="tb">
   <div class="brand"><img src="../../internal/web/ui/img/logo-16.png" alt="">MineDeck</div>
@@ -195,7 +232,7 @@ window.EXTRA_ICONS = {
     <div class="seg" role="radiogroup" aria-label="上面三张大卡按什么挑">
       <button data-mode="recent" role="radio"><i data-ic="clock"></i>最近启动</button>
       <button data-mode="hours" role="radio"><i data-ic="bolt"></i>游玩时长</button>
-      <button data-mode="pin" role="radio"><i data-ic="star"></i>置顶</button>
+      <button data-mode="pin" role="radio"><i data-ic="star"></i>收藏</button>
     </div>
   </div>
   <div class="live" id="live"></div>
@@ -231,11 +268,11 @@ const SERVERS = [
 const MODES = {
   recent: { title: "最近玩的", by: (a, b) => a.recent - b.recent },
   hours: { title: "玩得最多", by: (a, b) => b.hours - a.hours },
-  pin: { title: "置顶", by: (a, b) => (b.pin - a.pin) || (a.recent - b.recent) },
+  pin: { title: "收藏", by: (a, b) => (b.pin - a.pin) || (a.recent - b.recent) },
 };
 let mode = "recent";
 const av = (s, sz) => MDPixel.avatar(s.core, sz);
-const star = (s, i) => `<button class="pin${s.pin ? " on" : ""}" data-i="${i}" title="${s.pin ? "取消置顶" : "置顶"}"><i data-ic="${s.pin ? "starOn" : "star"}"></i></button>`;
+const star = (s, i) => `<button class="pin${s.pin ? " on" : ""}" data-i="${i}" title="${s.pin ? "取消收藏" : "收藏"}"><i data-ic="${s.pin ? "starOn" : "star"}"></i></button>`;
 const status = s => s.st === "running" ? `<span class="st"><i></i>运行中</span>` : s.st === "starting" ? `<span class="st warm"><i></i>启动中</span>` : `<span class="st off"><i></i>已停止</span>`;
 
 function big(s, i) {
@@ -246,9 +283,9 @@ function big(s, i) {
     acts = `<span class="btn"><i data-ic="console"></i>控制台</span><span class="btn stop"><i data-ic="stop"></i>停止</span>${link}`;
     st = `<span class="stbr ok"><i></i>运行中</span>`;
   } else if (s.st === "starting") {
-    body = `<div class="boot"><div class="bar"><i></i></div><div class="steps"><span>准备 Java ✓</span><span>·</span><b>加载世界</b><span>·</span><span>就绪</span></div></div>`;
+    body = `<div class="boot"><div class="bar"><i></i></div><div class="steps"><span>准备 Java ✓</span><span>·</span><b>加载世界</b><span>·</span><span>就绪</span><span style="margin-left:auto">12 秒</span></div></div>`;
     acts = `<span class="btn"><i data-ic="console"></i>控制台</span><span class="btn stop"><i data-ic="stop"></i>停止</span>${link}`;
-    st = `<span class="stbr warm"><i></i>启动中 · 12 秒</span>`;
+    st = `<span class="stbr warm"><i></i>启动中</span>`;
   } else {
     body = `<div class="stats"><div><div class="k">上次玩</div><div class="v">${s.last}</div></div><div><div class="k">时长总计</div><div class="v">${s.hours}<small> 小时</small></div></div></div>`;
     acts = `<span class="btn go"><i data-ic="play"></i>启动</span>${link}`;
@@ -268,7 +305,7 @@ function render() {
   const top = sorted.slice(0, 3), rest = sorted.slice(3);
   document.getElementById("top-title").textContent = MODES[mode].title;
   const pins = SERVERS.filter(s => s.pin).length;
-  document.getElementById("top-hint").textContent = mode === "pin" && pins < 3 ? (pins ? "空出来的位置按最近启动补上" : "点卡片上的星标，把常用的钉在这里") : "";
+  document.getElementById("top-hint").textContent = mode === "pin" && pins < 3 ? (pins ? "空出来的位置按最近启动补上" : "点卡片上的星标，把常用的收藏在这里") : "";
   document.getElementById("live").innerHTML = top.map(([s, i]) => big(s, i)).join("");
   document.getElementById("rest").innerHTML = rest.map(([s, i]) => tile(s, i)).join("");
   document.getElementById("rest-n").textContent = rest.length;
