@@ -874,19 +874,7 @@ func addLog4jFlags(ctx context.Context, t *tasks.Task, i *Instance, noLookups bo
 	}
 	if i.Adopted {
 		if exists, official := log4jXMLOnDisk(i.Dir, xml); exists && !official {
-			if !slices.Contains(i.ExtraJVM, log4jConfigKey+xml) {
-				title, detail := customLog4jConflictParts(i.MC, xml)
-				full := title + "。" + detail
-				t.Logf("⚠ %s", full)
-				t.AddWarning(tasks.Warning{
-					Kind:  "custom-log4j",
-					Title: title,
-					Note:  detail,
-				})
-				if i.Console != nil {
-					i.Console.Append("[MineDeck] ⚠ " + full)
-				}
-			}
+			warnAdoptedCustomLog4j(t, i, xml)
 			return
 		}
 	}
@@ -898,6 +886,24 @@ func addLog4jFlags(ctx context.Context, t *tasks.Task, i *Instance, noLookups bo
 	t.Logf("已启用 log4shell 漏洞缓解（Mojang 官方方案，%s）", xml)
 	if jar.quiet {
 		t.Logf("⚠ %s", log4jQuietNote)
+	}
+}
+
+// warnAdoptedCustomLog4j 接管服务器时目录里已有同名但非官方的日志配置，不覆盖、不强加引用，仅记录告警（A26）。
+func warnAdoptedCustomLog4j(t *tasks.Task, i *Instance, xml string) {
+	if slices.Contains(i.ExtraJVM, log4jConfigKey+xml) {
+		return
+	}
+	title, detail := customLog4jConflictParts(i.MC, xml)
+	full := title + "。" + detail
+	t.Logf("⚠ %s", full)
+	t.AddWarning(tasks.Warning{
+		Kind:  "custom-log4j",
+		Title: title,
+		Note:  detail,
+	})
+	if i.Console != nil {
+		i.Console.Append("[MineDeck] ⚠ " + full)
 	}
 }
 

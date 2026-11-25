@@ -469,18 +469,9 @@ func propsPort(dir string) int {
 // writeAdoptFiles 接管时往文件夹里写的全部东西：eula.txt、log4shell 缓解、两份备份、run.bat、instance.json。
 // 出错就返回，由调用方把动过的文件恢复原样。
 func (m *Manager) writeAdoptFiles(ctx context.Context, t *tasks.Task, inst *Instance, req AdoptReq, kind mcsrc.CoreKind, known bool) error {
-	dir := inst.Dir
 	if kind != mcsrc.KindProxy {
-		// EULA 以现在文件里的为准（准备 Java 的这段时间里可能变了），没同意过又没勾同意的不写
-		if b, err := readCapped(filepath.Join(dir, "eula.txt"), 64<<10); err != nil || !reEULA.Match(b) {
-			if !req.EULA {
-				return fmt.Errorf("需要同意 Minecraft EULA 才能开服")
-			}
-			if err := writeFileNoHardlink(filepath.Join(dir, "eula.txt"),
-				[]byte("# 用户已在 MineDeck 中确认同意 Minecraft EULA (https://aka.ms/MinecraftEULA)\neula=true\n"), 0o644); err != nil {
-				return err
-			}
-			t.Logf("已写入 eula.txt（你在上一步同意了 Minecraft EULA）")
+		if err := ensureAdoptedEULA(t, inst.Dir, req.EULA); err != nil {
+			return err
 		}
 		if known { // log4shell 防护（老版本），和新建时一样；已有的同名参数以这里的为准
 			own := len(inst.ExtraJVM)
@@ -490,26 +481,49 @@ func (m *Manager) writeAdoptFiles(ctx context.Context, t *tasks.Task, inst *Inst
 			inst.ExtraJVM = withJVMFlags(inst.ExtraJVM[:own:own], inst.ExtraJVM[own:])
 		}
 	}
-	if b, err := os.ReadFile(filepath.Join(dir, "run.bat")); err == nil && !isOurRunBat(b) {
-		if saved, err := backupOnce(dir, "run.bat", runBatBackup); err != nil {
+	if err := backupAdoptedScripts(t, inst); err != nil {
+		return err
+	}
+	if err := writeRunBat(inst); err != nil {
+		return err
+	}
+	return m.saveInstance(inst)
+}
+
+func ensureAdoptedEULA(t *tasks.Task, dir string, agreed bool) error {
+	// EULA 以现在文件里的为准（准备 Java 的这段时间里可能变了），没同意过又没勾同意的不写
+	if b, err := readCapped(filepath.Join(dir, "eula.txt"), 64<<10); err == nil && reEULA.Match(b) {
+		return nil
+	}
+	if !agreed {
+		return fmt.Errorf("需要同意 Minecraft EULA 才能开服")
+	}
+	if err := writeFileNoHardlink(filepath.Join(dir, "eula.txt"),
+		[]byte("# 用户已在 MineDeck 中确认同意 Minecraft EULA (https://aka.ms/MinecraftEULA)\neula=true\n"), 0o644); err != nil {
+		return err
+	}
+	t.Logf("已写入 eula.txt（你在上一步同意了 Minecraft EULA）")
+	return nil
+}
+
+func backupAdoptedScripts(t *tasks.Task, inst *Instance) error {
+	if b, err := os.ReadFile(filepath.Join(inst.Dir, "run.bat")); err == nil && !isOurRunBat(b) {
+		if saved, err := backupOnce(inst.Dir, "run.bat", runBatBackup); err != nil {
 			return fmt.Errorf("备份原来的 run.bat 失败: %w", err)
 		} else if saved {
 			t.Logf("原来的 run.bat 另存为 %s", runBatBackup)
 		}
 	}
 	if strings.HasPrefix(inst.LaunchTarget, "args:") {
-		if b, err := os.ReadFile(filepath.Join(dir, "user_jvm_args.txt")); err == nil && !isOurJVMArgs(b) {
-			if saved, err := backupOnce(dir, "user_jvm_args.txt", jvmArgsBackup); err != nil {
+		if b, err := os.ReadFile(filepath.Join(inst.Dir, "user_jvm_args.txt")); err == nil && !isOurJVMArgs(b) {
+			if saved, err := backupOnce(inst.Dir, "user_jvm_args.txt", jvmArgsBackup); err != nil {
 				return fmt.Errorf("备份原来的 user_jvm_args.txt 失败: %w", err)
 			} else if saved {
 				t.Logf("原来的 user_jvm_args.txt 另存为 %s（里面的内存设置改由 MineDeck 管）", jvmArgsBackup)
 			}
 		}
 	}
-	if err := writeRunBat(inst); err != nil {
-		return err
-	}
-	return m.saveInstance(inst)
+	return nil
 }
 
 // snapshotFiles 记下 dir 里这几个文件现在的样子（内容，或者「没有」），返回一个把它们恢复原样的函数。

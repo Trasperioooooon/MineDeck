@@ -286,14 +286,7 @@ func (m *Manager) migrateLog4j(ctx context.Context, i *Instance) {
 	}
 	release, err := m.UseWorldInstance(i, "更新 log4shell 防护")
 	if err != nil {
-		switch fix {
-		case log4jFixSwap:
-			note(fmt.Sprintf("⚠ log4shell 防护：这台 %s 的服务器还引用着 1.12 ~ 1.16.5 的那份日志配置，对这个版本不起作用，这次没换（%v）。下次启动或者重开 MineDeck 时再试", i.MC, err))
-		case log4jFixAdd:
-			note(fmt.Sprintf("⚠ log4shell 防护：这台 %s 的服务器没有套上 Mojang 的日志配置，等于没防，这次没补上（%v）。下次启动或者重开 MineDeck 时再试", i.MC, err))
-		case log4jFixDrop:
-			note(fmt.Sprintf("log4shell 防护：这个服务端自带的 log4j 已经修过，用不着 Mojang 的日志配置，这次没能摘掉它的引用（%v）。下次启动这台服务器时再试", err))
-		}
+		note(log4jBusyNote(i.MC, fix, err))
 		return
 	}
 	defer release()
@@ -308,14 +301,7 @@ func (m *Manager) migrateLog4j(ctx context.Context, i *Instance) {
 		defer cancel()
 		conflict, err := fetchAndPublishLog4jXML(ctx, i.Dir, xml)
 		if err != nil {
-			if fix == log4jFixSwap {
-				note(fmt.Sprintf("⚠ log4shell 防护：这台 %s 的服务器还引用着 1.12 ~ 1.16.5 的那份日志配置（%s），对这个版本不起作用；"+
-					"Mojang 给 1.7 ~ 1.11.2 的 %s 没下载成（%v）。服务器照样能开，先别让不认识的人进服；联网以后再启动一次或者重开 MineDeck 会再试",
-					i.MC, log4jXML, xml, err))
-			} else {
-				note(fmt.Sprintf("⚠ log4shell 防护：这台 %s 的服务器没有套上 Mojang 的日志配置，等于没防；这次 %s 也没下载成（%v）。"+
-					"服务器照样能开，先别让不认识的人进服；联网以后再启动一次或者重开 MineDeck 会再试", i.MC, xml, err))
-			}
+			note(log4jFetchErrNote(i.MC, xml, fix, err))
 			return
 		}
 		if conflict {
@@ -327,6 +313,32 @@ func (m *Manager) migrateLog4j(ctx context.Context, i *Instance) {
 	changed, err := m.applyLog4jFixLocked(i, fix, xml, jar.fixed)
 	running := i.state != "" && i.state != "stopped"
 	i.procMu.Unlock()
+	reportMigratedLog4j(note, i.MC, xml, fix, jar, running, changed, err)
+}
+
+func log4jBusyNote(mc string, fix log4jFix, err error) string {
+	switch fix {
+	case log4jFixSwap:
+		return fmt.Sprintf("⚠ log4shell 防护：这台 %s 的服务器还引用着 1.12 ~ 1.16.5 的那份日志配置，对这个版本不起作用，这次没换（%v）。下次启动或者重开 MineDeck 时再试", mc, err)
+	case log4jFixAdd:
+		return fmt.Sprintf("⚠ log4shell 防护：这台 %s 的服务器没有套上 Mojang 的日志配置，等于没防，这次没补上（%v）。下次启动或者重开 MineDeck 时再试", mc, err)
+	case log4jFixDrop:
+		return fmt.Sprintf("log4shell 防护：这个服务端自带的 log4j 已经修过，用不着 Mojang 的日志配置，这次没能摘掉它的引用（%v）。下次启动这台服务器时再试", err)
+	}
+	return ""
+}
+
+func log4jFetchErrNote(mc, xml string, fix log4jFix, err error) string {
+	if fix == log4jFixSwap {
+		return fmt.Sprintf("⚠ log4shell 防护：这台 %s 的服务器还引用着 1.12 ~ 1.16.5 的那份日志配置（%s），对这个版本不起作用；"+
+			"Mojang 给 1.7 ~ 1.11.2 的 %s 没下载成（%v）。服务器照样能开，先别让不认识的人进服；联网以后再启动一次或者重开 MineDeck 会再试",
+			mc, log4jXML, xml, err)
+	}
+	return fmt.Sprintf("⚠ log4shell 防护：这台 %s 的服务器没有套上 Mojang 的日志配置，等于没防；这次 %s 也没下载成（%v）。"+
+		"服务器照样能开，先别让不认识的人进服；联网以后再启动一次或者重开 MineDeck 会再试", mc, xml, err)
+}
+
+func reportMigratedLog4j(note func(string), mc, xml string, fix log4jFix, jar log4jJarView, running, changed bool, err error) {
 	if !changed {
 		if err != nil {
 			if fix == log4jFixDrop {
@@ -344,9 +356,9 @@ func (m *Manager) migrateLog4j(ctx context.Context, i *Instance) {
 	}
 	switch fix {
 	case log4jFixSwap:
-		note(fmt.Sprintf("log4shell 防护换成了 Mojang 给 1.7 ~ 1.11.2 的日志配置（%s）：原来引用的 1.12 ~ 1.16.5 那份对 %s 不起作用。%s", xml, i.MC, when) + runBatNote(err))
+		note(fmt.Sprintf("log4shell 防护换成了 Mojang 给 1.7 ~ 1.11.2 的日志配置（%s）：原来引用的 1.12 ~ 1.16.5 那份对 %s 不起作用。%s", xml, mc, when) + runBatNote(err))
 	case log4jFixAdd:
-		msg := fmt.Sprintf("log4shell 防护补上了 Mojang 的日志配置（%s，核对过官方的校验值）：这台 %s 的服务器原来的启动参数里没有它（当初多半没下载成），等于没防。%s", xml, i.MC, when) + runBatNote(err)
+		msg := fmt.Sprintf("log4shell 防护补上了 Mojang 的日志配置（%s，核对过官方的校验值）：这台 %s 的服务器原来的启动参数里没有它（当初多半没下载成），等于没防。%s", xml, mc, when) + runBatNote(err)
 		if jar.quiet { // 补上以后这台的控制台就没有输出了，当场说清楚
 			msg += "。" + log4jQuietNote
 		}
