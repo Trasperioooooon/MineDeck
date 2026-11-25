@@ -86,14 +86,7 @@ func (m *Manager) startInstance(i *Instance) error {
 		preResolved = resolveBindTarget(preTarget)
 	}
 	i.procMu.Lock()
-	locked := true
-	unlock := func() {
-		if locked {
-			locked = false
-			i.procMu.Unlock()
-		}
-	}
-	defer unlock()
+	defer i.procMu.Unlock()
 	checkReadyLocked := func() error {
 		if i.state != "" && i.state != "stopped" {
 			return errors.New(startBusyMsg(i.state))
@@ -120,44 +113,8 @@ func (m *Manager) startInstance(i *Instance) error {
 	}
 	// 端口被占着就直接报错，不先起 Java、等它自己报 BindException（检查报告 D-5）。按服务器真正要绑的地址查
 	//（server-ip、server-port）；代理端的端口在它自己的配置文件里，不查（见 startPort）
-	if t, ok := startPort(i, i.ExtraJVM); ok { // 拿着 procMu，直接读 ExtraJVM
-		r := preResolved
-		if !preOK || r.target.host != t.host || r.target.network != t.network {
-			// 极少见：拿锁前那一下配置刚被改过，放开锁解析完再重新进锁检查，不在 procMu 里解析域名
-			unlock()
-			r = resolveBindTarget(t)
-			i.procMu.Lock()
-			locked = true
-			if err := checkReadyLocked(); err != nil {
-				return err
-			}
-		}
-		r.target.port = t.port
-		if err := probeResolvedBindPort(r); err != nil {
-			failGen := i.runGen
-			// 放开 procMu 再查保留段（netsh 无缓存时最多 6 秒）或试绑建议端口，不挡 Status() 等读操作（A05、A07）
-			unlock()
-			var busy *portBusyError
-			if errors.As(err, &busy) {
-				for _, p := range peers {
-					if p.live && p.port == t.port {
-						busy.owner = p.name
-						break
-					}
-				}
-				if busy.owner != "" {
-					busy.suggest = freePortFromResolved(r, peers)
-				} else if busy.reserved && isTargetPortReserved(t) {
-					busy.sysReserved = true
-				}
-			}
-			i.procMu.Lock()
-			locked = true
-			if i.runGen == failGen && (i.state == "" || i.state == "stopped") {
-				return i.startFailed(err, true)
-			}
-			return err
-		}
+	if err := m.checkStartPort(i, peers, preOK, preResolved, checkReadyLocked); err != nil {
+		return err
 	}
 	// log4shell 防护和现在的做法对不上的（程序启动时那一遍没做成，或者之后才看得出来）：该摘的引用当场摘掉，
 	// 要下载的说一声、后台再试，做成了下次启动生效（见 log4j_migrate.go）
@@ -266,6 +223,61 @@ func (m *Manager) startInstance(i *Instance) error {
 	}()
 	events.Publish("instance.start", map[string]any{"instance": i.Name})
 	return nil
+}
+
+// checkStartPort 进来时拿着 i.procMu、出去时还拿着 i.procMu，中间解析域名或查保留段、试绑建议端口时会临时放开再重拿。
+func (m *Manager) checkStartPort(i *Instance, peers []portPeer, preOK bool, preResolved resolvedBindTarget, checkReadyLocked func() error) error {
+	t, ok := startPort(i, i.ExtraJVM) // 拿着 procMu，直接读 ExtraJVM
+	if !ok {
+		return nil
+	}
+	withUnlocked := func(fn func()) {
+		i.procMu.Unlock()
+		relocked := false
+		defer func() {
+			if !relocked {
+				i.procMu.Lock()
+			}
+		}()
+		fn()
+		i.procMu.Lock()
+		relocked = true
+	}
+	r := preResolved
+	if !preOK || r.target.host != t.host || r.target.network != t.network {
+		// 极少见：拿锁前那一下配置刚被改过，放开锁解析完再重新进锁检查，不在 procMu 里解析域名
+		withUnlocked(func() { r = resolveBindTarget(t) })
+		if err := checkReadyLocked(); err != nil {
+			return err
+		}
+	}
+	r.target.port = t.port
+	err := probeResolvedBindPort(r)
+	if err == nil {
+		return nil
+	}
+	failGen := i.runGen
+	// 放开 procMu 再查保留段（netsh 无缓存时最多 6 秒）或试绑建议端口，不挡 Status() 等读操作（A05、A07）
+	withUnlocked(func() {
+		var busy *portBusyError
+		if errors.As(err, &busy) {
+			for _, p := range peers {
+				if p.live && p.port == t.port {
+					busy.owner = p.name
+					break
+				}
+			}
+			if busy.owner != "" {
+				busy.suggest = freePortFromResolved(r, peers)
+			} else if busy.reserved && isTargetPortReserved(t) {
+				busy.sysReserved = true
+			}
+		}
+	})
+	if i.runGen == failGen && (i.state == "" || i.state == "stopped") {
+		return i.startFailed(err, true)
+	}
+	return err
 }
 
 const startFailFileName = "start-fail.json"
