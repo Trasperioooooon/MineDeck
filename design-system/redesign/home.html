@@ -221,10 +221,10 @@ window.EXTRA_ICONS = {
   body.nav-top .cap a.home img { width: 16px; height: 16px; }
   body.nav-top .page { padding-bottom: 60px; }
 
-  /* 页头的几种写法（11-26 作者觉得「服务器」大标题 + 一行小字 + 最右边的搜索框太突兀）：?head=a / b / c，不带是现在的 */
+  /* 页头的几种写法（11-26 作者觉得「服务器」大标题 + 一行小字 + 最右边的搜索框太突兀）：?head=0 是原来的、a / b / c / d；作者定了 D，不带参数就是 D */
   .hv { display: none; }
-  body:not([class*="head-"]) .hv-0, body.head-a .hv-a, body.head-b .hv-b, body.head-d .hv-d { display: flex; }
-  body[class*="head-"] .head { display: none; }
+  body.head-0 .hv-0, body.head-a .hv-a, body.head-b .hv-b, body.head-d .hv-d { display: flex; }
+  body:not(.head-0) .head { display: none; }
   .iconbtn { width: 36px; height: 36px; flex: none; border-radius: var(--r-full); display: grid; place-items: center; color: var(--muted);
              background: var(--control); border: 1px solid var(--border); }
   /* A：标题换成一句有用的话，搜索收成一个圆钮 */
@@ -264,6 +264,29 @@ window.EXTRA_ICONS = {
   .hd .hb .find { width: 240px; }
   body.head-d .tb .brand { font-size: 0; }
   body.head-d.mark-left .hd { align-items: flex-start; }
+  /* 收藏超过 3 台（作者 11-26 的主意）：上面一排变成能左右滑的一条，两边渐隐。滑动的那条往两边各伸进页边 40 像素，
+     三张卡照样是原来的宽度、不被渐隐盖住，渐隐只落在页边里露出来的半张邻卡上；滑到头那一边就不再渐隐、也没有箭头 */
+  @property --fl { syntax: "<length>"; inherits: false; initial-value: 0px; }
+  @property --fr { syntax: "<length>"; inherits: false; initial-value: 0px; }
+  .car { position: relative; margin-bottom: 36px; }
+  .car .live { margin-bottom: 0; }
+  .car.scroll .live { display: flex; gap: 16px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+    scroll-snap-type: x mandatory; scroll-padding-inline: 40px; scroll-behavior: smooth;
+    margin: -8px -40px -14px; padding: 8px 40px 14px; cursor: grab;
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
+    transition: --fl .2s ease, --fr .2s ease; }
+  .car.scroll .live::-webkit-scrollbar { display: none; }
+  .car.scroll .live > .lc { flex: 0 0 calc((100% - 32px) / 3); scroll-snap-align: start; }
+  .car.scroll .live.dragging { scroll-snap-type: none; scroll-behavior: auto; cursor: grabbing; user-select: none; }
+  .car.can-left .live { --fl: 40px; } .car.can-right .live { --fr: 40px; }
+  .car-nav { position: absolute; top: 50%; z-index: 3; width: 36px; height: 36px; border-radius: 50%; display: none; place-items: center; padding: 0;
+    transform: translateY(-50%); color: var(--text); cursor: pointer; opacity: 0; transition: opacity .15s;
+    background: color-mix(in srgb, var(--overlay) 88%, transparent); backdrop-filter: blur(8px); border: 1px solid var(--border); box-shadow: var(--elev-3); }
+  .car-nav.prev { left: -18px; } .car-nav.prev .ico { transform: rotate(180deg); }
+  .car-nav.next { right: -18px; }
+  .car.can-left .car-nav.prev, .car.can-right .car-nav.next { display: grid; }
+  .car:hover .car-nav { opacity: 1; }
   /* 对比页里嵌着看时不要胶囊和角落的说明 */
   body.embed .cap, body.embed .tip { display: none; }
   html:has(body.embed), body.embed { overflow: hidden; }
@@ -277,7 +300,7 @@ window.EXTRA_ICONS = {
 const QS = new URLSearchParams(location.search);
 if (QS.get("nav") === "top") document.body.classList.add("nav-top");
 if (QS.get("guides")) document.body.classList.add("guides");
-if (["a", "b", "c", "d"].includes(QS.get("head"))) document.body.classList.add("head-" + QS.get("head"));
+document.body.classList.add("head-" + (["0", "a", "b", "c", "d"].includes(QS.get("head")) ? QS.get("head") : "d"));
 if (QS.get("mark") === "left") document.body.classList.add("mark-left");
 if (QS.get("embed")) document.body.classList.add("embed");
 </script>
@@ -316,7 +339,11 @@ if (QS.get("embed")) document.body.classList.add("embed");
       <button data-mode="pin" role="radio"><i data-ic="star"></i>收藏</button>
     </div>
   </div>
-  <div class="live" id="live"></div>
+  <div class="car" id="car">
+    <div class="live" id="live"></div>
+    <button class="car-nav prev" data-dir="-1" aria-label="往左看"><i data-ic="chevronRight"></i></button>
+    <button class="car-nav next" data-dir="1" aria-label="往右看"><i data-ic="chevronRight"></i></button>
+  </div>
 
   <div class="sec"><h2>其他</h2><span class="n" id="rest-n"></span></div>
   <div class="rest" id="rest"></div>
@@ -332,7 +359,7 @@ if (QS.get("embed")) document.body.classList.add("embed");
   <a class="new" href="#"><i data-ic="plus"></i>新建</a>
 </nav>
 
-<div class="tip">草图 · 页头 <a href="?">现在</a> <a href="?head=a">A</a> <a href="?head=b">B</a> <a href="?head=c">C</a> <a href="?head=d">D</a>（<a href="head-options.html">对比</a>）· 胶囊在下面 <a href="?nav=top">放进标题栏</a> · <a href="?">放回下面</a> · 配色 <a href="?scheme=craft&theme=light">方块浅色</a> <a href="?">Nord 深色</a> · 圆角 <a href="?">连续曲率</a> <a href="?corner=round">普通圆弧</a> · <a href="?guides=1">辅助线</a></div>
+<div class="tip">草图 · <a href="?mode=pin">收藏超过 3 台</a> · 页头 <a href="?head=0">原来</a> <a href="?head=a">A</a> <a href="?head=b">B</a> <a href="?head=c">C</a> <a href="?">D（定了）</a>（<a href="head-options.html">对比</a>）· 胶囊在下面 <a href="?nav=top">放进标题栏</a> · <a href="?">放回下面</a> · 配色 <a href="?scheme=craft&theme=light">方块浅色</a> <a href="?">Nord 深色</a> · 圆角 <a href="?">连续曲率</a> <a href="?corner=round">普通圆弧</a> · <a href="?guides=1">辅助线</a></div>
 
 <script>
 // 假数据：recent 越小越近（正在开着的算「现在」），hours 是一共开过的小时数，pin 是置顶，icon 是服务器自己的 server-icon.png（这里用 16 格的假图代替）
@@ -341,9 +368,9 @@ const SERVERS = [
   { name: "生存服 · 朋友", core: "paper", label: "Paper", mc: "1.21.4", st: "running", players: 3, max: 20, up: "2:13", port: 25565, tunnel: "frp-hk.openfrp.net:31234", last: "现在", hours: 128, recent: 1, pin: true, icon: "sunset" },
   { name: "机械动力整合包", core: "forge", label: "Forge", mc: "1.20.1", st: "stopped", port: 25566, last: "昨天", hours: 36, recent: 2, pin: false },
   { name: "空岛生存", core: "purpur", label: "Purpur", mc: "1.21.4", st: "running", players: 7, max: 30, up: "5:02", port: 25570, last: "现在", hours: 212, recent: 3, pin: true },
-  { name: "红石科技服", core: "leaves", label: "Leaves", mc: "1.21.4", st: "stopped", port: 25571, last: "3 天前", hours: 54, recent: 4, pin: false },
+  { name: "红石科技服", core: "leaves", label: "Leaves", mc: "1.21.4", st: "stopped", port: 25571, last: "3 天前", hours: 54, recent: 4, pin: true },
   { name: "匠魂与暮色", core: "neoforge", label: "NeoForge", mc: "1.21.1", st: "stopped", port: 25574, last: "上周", hours: 90, recent: 5, pin: true, icon: "gem" },
-  { name: "模组加插件", core: "mohist", label: "Mohist", mc: "1.20.1", st: "stopped", port: 25575, last: "两周前", hours: 8, recent: 6, pin: false },
+  { name: "模组加插件", core: "mohist", label: "Mohist", mc: "1.20.1", st: "stopped", port: 25575, last: "两周前", hours: 8, recent: 6, pin: true },
   { name: "群组代理", core: "velocity", label: "Velocity", mc: "3.4.0", st: "stopped", port: 25577, last: "上个月", hours: 2, recent: 7, pin: false },
 ];
 const MODES = {
@@ -351,7 +378,7 @@ const MODES = {
   hours: { title: "玩得最多", by: (a, b) => b.hours - a.hours },
   pin: { title: "收藏", by: (a, b) => (b.pin - a.pin) || (a.recent - b.recent) },
 };
-let mode = "recent";
+let mode = MODES[QS.get("mode")] ? QS.get("mode") : "recent";
 // 有 server-icon.png 用它，没有用核心头像（作者 11-26 定）
 const FAKE_ICON_PAL = { k: "#1b1f2a", s: "#5fa8e8", S: "#9fd0ff", y: "#ffd35a", g: "#5bb03a", G: "#88d45a", d: "#3f7a2a", b: "#6b4a2e", o: "#ff9a3c", w: "#f4f1e8", n: "#2d3550" };
 const FAKE_ICONS = {
@@ -391,10 +418,13 @@ function tile(s, i) {
 }
 function render() {
   const sorted = SERVERS.map((s, i) => [s, i]).sort((x, y) => MODES[mode].by(x[0], y[0]));
-  const top = sorted.slice(0, 3), rest = sorted.slice(3);
+  // 收藏超过 3 台：上面一排放下全部收藏、能左右滑；没收藏的才进「其他」
+  const pinned = sorted.filter(([s]) => s.pin), many = mode === "pin" && pinned.length > 3;
+  const top = many ? pinned : sorted.slice(0, 3), rest = many ? sorted.filter(([s]) => !s.pin) : sorted.slice(3);
+  car.classList.toggle("scroll", many);
   document.getElementById("top-title").textContent = MODES[mode].title;
   const pins = SERVERS.filter(s => s.pin).length;
-  document.getElementById("top-hint").textContent = mode === "pin" && pins < 3 ? (pins ? "空出来的位置按最近启动补上" : "点卡片上的星标，把常用的收藏在这里") : "";
+  document.getElementById("top-hint").textContent = mode === "pin" && pins < 3 ? (pins ? "空出来的位置按最近启动补上" : "点卡片上的星标，把常用的收藏在这里") : many ? `${pins} 台，左右滑动看全部` : "";
   document.getElementById("live").innerHTML = top.map(([s, i]) => big(s, i)).join("");
   document.getElementById("rest").innerHTML = rest.map(([s, i]) => tile(s, i)).join("");
   document.getElementById("rest-n").textContent = rest.length;
@@ -412,9 +442,33 @@ function render() {
   KIT.hydrate(document.querySelector(".tb"));
   for (const b of document.querySelectorAll(".seg button")) { b.classList.toggle("on", b.dataset.mode === mode); b.setAttribute("aria-checked", b.dataset.mode === mode); }
   KIT.hydrate(document.querySelector(".page"));
+  edges();
 }
-document.querySelector(".seg").addEventListener("click", e => { const b = e.target.closest("button"); if (b) { mode = b.dataset.mode; render(); } });
+document.querySelector(".seg").addEventListener("click", e => { const b = e.target.closest("button"); if (b && b.dataset.mode !== mode) { mode = b.dataset.mode; live.scrollTo({ left: 0, behavior: "instant" }); render(); } });
 document.querySelector(".page").addEventListener("click", e => { const p = e.target.closest(".pin"); if (p) { const s = SERVERS[+p.dataset.i]; s.pin = !s.pin; render(); } });
+// 左右滑：两边有没看到的卡才显示那一边的渐隐和箭头；箭头一次挪一张；按住拖也能滑（松手吸到最近的一张）；Shift+滚轮、触控板横扫是浏览器自带的
+const car = document.getElementById("car"), live = document.getElementById("live");
+function edges() {
+  const on = car.classList.contains("scroll");
+  car.classList.toggle("can-left", on && live.scrollLeft > 4);
+  car.classList.toggle("can-right", on && live.scrollLeft + live.clientWidth < live.scrollWidth - 4);
+}
+live.addEventListener("scroll", () => requestAnimationFrame(edges), { passive: true });
+addEventListener("resize", edges);
+car.addEventListener("click", e => { const b = e.target.closest(".car-nav"); if (b) live.scrollBy({ left: +b.dataset.dir * (live.querySelector(".lc").offsetWidth + 16) }); });
+let drag = null;
+live.addEventListener("pointerdown", e => {
+  if (!car.classList.contains("scroll") || e.button !== 0 || e.target.closest("button, .btn, .pin, .mini")) return;
+  drag = { x: e.clientX, left: live.scrollLeft, moved: false, id: e.pointerId };
+});
+live.addEventListener("pointermove", e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x;
+  if (!drag.moved && Math.abs(dx) > 4) { drag.moved = true; live.setPointerCapture(drag.id); live.classList.add("dragging"); }
+  if (drag.moved) live.scrollLeft = drag.left - dx;
+});
+const endDrag = () => { if (drag && drag.moved) live.classList.remove("dragging"); drag = null; };
+live.addEventListener("pointerup", endDrag); live.addEventListener("pointercancel", endDrag);
 KIT_READY.then(render);
 </script>
 </body>
