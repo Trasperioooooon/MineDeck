@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -20,6 +21,13 @@ import (
 )
 
 // 第三阶段新增的读写能力（设计文档 §5.2）。
+
+func testJavaBin() string {
+	if runtime.GOOS == "windows" {
+		return "java.exe"
+	}
+	return "java"
+}
 
 // newModCatalog 临时程序目录里放一个停止的 NeoForge 实例「整合包」：mods 里两个模组、几份配置、日志和崩溃报告。
 func newModCatalog(t *testing.T) (*ops.Registry, *inst.Manager, string) {
@@ -37,7 +45,7 @@ func newModCatalog(t *testing.T) (*ops.Registry, *inst.Manager, string) {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(app.ServersDir, "pack")
-	java17 := filepath.Join(app.Base, "jdk17", "bin", "java.exe")
+	java17 := filepath.Join(app.Base, "jdk17", "bin", testJavaBin())
 	s, _ := json.Marshal(inst.Settings{Name: "整合包", Core: "neoforge", MC: "1.21.1", JavaMajor: 17, JavaPath: java17, XmxMB: 6144, XmsMB: 1024})
 	files := map[string]string{
 		"instance.json":                                      string(s),
@@ -48,11 +56,11 @@ func newModCatalog(t *testing.T) (*ops.Registry, *inst.Manager, string) {
 		"logs/latest.log":                                    "[12:00:00] [main/INFO] [x/]: 第一行\n[12:00:01] [main/WARN] [x/]: 有点问题\n[12:00:02] [main/ERROR] [x/]: 出错了 boom\n[12:00:03] [main/INFO] [x/]: 最后一行\n",
 		"crash-reports/crash-2026-10-28_13.10.44-server.txt": "---- Minecraft Crash Report ----\nDescription: Watching Server\n\njava.lang.Error: Watchdog\n\tat a.B.c(B.java:1)\n\nA detailed walkthrough of the error\n-- System Details --\n\tJava Version: 17.0.12\n",
 		"hs_err_pid4242.log":                                 "#\n# A fatal error has been detected by the Java Runtime Environment:\n#\n#  EXCEPTION_ACCESS_VIOLATION\n#\n\nUSERNAME=alice\n",
-		"jdk17/bin/java.exe":                                 "",
+		"jdk17/bin/java":                                     "",
 	}
 	for name, body := range files {
 		p := filepath.Join(dir, filepath.FromSlash(name))
-		if name == "jdk17/bin/java.exe" {
+		if name == "jdk17/bin/java" {
 			p = java17
 		}
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -68,7 +76,7 @@ func newModCatalog(t *testing.T) (*ops.Registry, *inst.Manager, string) {
 	writeTestJar(t, filepath.Join(dir, "mods", "create-1.21.1-6.0.4.jar"), map[string]string{"META-INF/neoforge.mods.toml": "[[mods]]\nmodId=\"create\"\nversion=\"6.0.4\"\n[[mixins]]\nconfig=\"create.mixins.json\"\n[[dependencies.create]]\nmodId=\"geckolib\"\ntype=\"required\"\nversionRange=\"[4.4,)\"\n"})
 	writeTestJar(t, filepath.Join(dir, "mods", "xaerominimap.jar"), map[string]string{"META-INF/neoforge.mods.toml": "[[mods]]\nmodId=\"xaerominimap\"\nversion=\"24.5\"\n", "xaero/minimap/XaeroMinimap.class": "x"})
 	// 本机已有的 Java 21（MineDeck 的便携版目录）
-	j21 := filepath.Join(app.RuntimesDir, "java-21", "bin", "java.exe")
+	j21 := filepath.Join(app.RuntimesDir, "java-21", "bin", testJavaBin())
 	_ = os.MkdirAll(filepath.Dir(j21), 0o755)
 	_ = os.WriteFile(j21, nil, 0o644)
 	mgr, err := inst.NewManager()
@@ -449,7 +457,7 @@ func TestWriteOps(t *testing.T) {
 		t.Fatal(err)
 	}
 	p = res.(*ops.Proposal)
-	if c := p.Plan.Changes[0]; !strings.HasPrefix(c.Before, "Java 17") || !strings.Contains(c.After, filepath.Join("java-21", "bin", "java.exe")) {
+	if c := p.Plan.Changes[0]; !strings.HasPrefix(c.Before, "Java 17") || !strings.Contains(c.After, filepath.Join("java-21", "bin", testJavaBin())) {
 		t.Errorf("换 Java 的预览：%+v", c)
 	}
 	if _, err := reg.Confirm(ctx, human, p.ID, false); err != nil {

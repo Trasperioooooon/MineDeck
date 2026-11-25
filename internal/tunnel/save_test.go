@@ -36,6 +36,16 @@ func openfrpTunnel(name string) Tunnel {
 	return Tunnel{Provider: "openfrp", Name: name, Credential: "openfrp-key-" + name, ProxyID: "42"}
 }
 
+// anyTunnel 测的不是凭据、只要拿一条隧道去新增或修改时用。Windows 上就是 openfrpTunnel。
+// Mac 上还没有加密存储（钥匙串还没做，D01）：新增、修改先给凭据加密，加密失败就报错，走不到要测的那一步；
+// 所以换成不带凭据的自定义 frps，空凭据不用加密。
+func anyTunnel(name string) Tunnel {
+	if runtime.GOOS == "windows" {
+		return openfrpTunnel(name)
+	}
+	return Tunnel{Provider: "custom", Name: name, ServerAddr: "frp.example.com", ServerPort: 7000, RemotePort: 30001, LocalPort: 25565}
+}
+
 func tunnelIDs(m *Manager) []string {
 	var ids []string
 	for _, st := range m.List() {
@@ -54,6 +64,9 @@ func wantSaveError(t *testing.T, err error) {
 
 // 新增：报错，内存里没有多出这条，编号也退回去；磁盘上的文件一字不变；恢复以后再加，编号接着原来的用，重启后都在。
 func TestAddFailsAndRollsBackWhenSaveFails(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	m := NewManager()
 	if _, err := m.Add(openfrpTunnel("一号")); err != nil {
@@ -124,6 +137,9 @@ func TestAddFailsWhenTunnelsJSONReadOnly(t *testing.T) {
 
 // 修改：报错，隧道的内容原样退回；「凭据解不开」的标记也留着（换凭据、清凭据都要写进磁盘以后才算数）。
 func TestUpdateFailsAndRollsBackWhenSaveFails(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	m := NewManager()
 	c, err := m.Add(Tunnel{Provider: "custom", Name: "自建", Credential: "old-token", ServerAddr: "frp.example.com", ServerPort: 7000, RemotePort: 25566, LocalPort: 25565})
@@ -167,6 +183,9 @@ func TestUpdateFailsAndRollsBackWhenSaveFails(t *testing.T) {
 
 // 删除：报错，隧道原样留在原位（删第一条、中间那条都试：原地挪动的写法会把列表弄成 [甲, 丙, 丙]），标记也留着。
 func TestDeleteFailsAndRollsBackWhenSaveFails(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	m := NewManager()
 	for _, n := range []string{"甲", "乙", "丙"} {
@@ -214,6 +233,9 @@ func TestDeleteFailsAndRollsBackWhenSaveFails(t *testing.T) {
 // 公网地址存不进去：内存里照样是新地址（隧道确实连上了），控制台里说一声，不记成卡片上的红字，也不卡住；
 // 之后哪次保存成功，地址一起写进去。
 func TestPublicAddrKeptAndReportedWhenSaveFails(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	m := NewManager()
 	a, err := m.Add(openfrpTunnel("一号"))
@@ -314,6 +336,9 @@ func TestSaveHintsFitErrorToast(t *testing.T) {
 // 平台账户的导入和创建：写不进磁盘时报失败，本机列表里不多出隧道；创建的报错要说清平台上已经建好、去导入，
 // 不然再点一次创建就在平台上多建一条。磁盘恢复以后，导入照常能成（查重没有被失败的那次挡住）。
 func TestAccountImportAndCreateReportSaveFailure(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	f := newOpenFrpServer(t)
 	a, _ := testAccounts(t, f.srv.URL, f.srv.URL, f.srv.URL)
 	loginOpenFrp(t, a)
@@ -364,6 +389,9 @@ func TestAccountImportAndCreateReportSaveFailure(t *testing.T) {
 
 // 樱花同理（创建、导入的前几步和 OpenFrp 不一样，写本机那一步是同一条路）。
 func TestSakuraImportAndCreateReportSaveFailure(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	srv, lastCreate := sakuraServer(t, nil)
 	a, _ := testAccounts(t, srv.URL, srv.URL, srv.URL)
 	ctx := context.Background()

@@ -19,6 +19,7 @@ import (
 	"time"
 	"unicode"
 
+	"minedeck/internal/linkmode"
 	"minedeck/internal/winname"
 	"minedeck/internal/zipguard"
 )
@@ -289,7 +290,7 @@ func openFolderCtx(ctx context.Context, dir string) (*source, error) {
 		}
 		rel, _ := filepath.Rel(root, p)
 		rel = filepath.ToSlash(rel)
-		if d.Type()&(fs.ModeSymlink|fs.ModeIrregular|fs.ModeDevice|fs.ModeNamedPipe|fs.ModeSocket|fs.ModeCharDevice) != 0 {
+		if linkmode.IsLink(d.Type()) || d.Type()&(fs.ModeDevice|fs.ModeNamedPipe|fs.ModeSocket|fs.ModeCharDevice) != 0 {
 			s.links = append(s.links, rel)
 			if d.IsDir() {
 				return fs.SkipDir

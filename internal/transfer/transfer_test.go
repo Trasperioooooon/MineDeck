@@ -45,7 +45,11 @@ func TestMain(m *testing.M) {
 	if err := os.WriteFile(filepath.Join(dir, "version_manifest_v2.json"), []byte(testManifest), 0o644); err != nil {
 		panic(err)
 	}
-	testJava17 = filepath.Join(dir, "jdk17", "bin", "java.exe")
+	javaExe := "java"
+	if runtime.GOOS == "windows" {
+		javaExe = "java.exe"
+	}
+	testJava17 = filepath.Join(dir, "jdk17", "bin", javaExe)
 	javas, _ := json.Marshal([]map[string]any{{"path": testJava17, "major": 17, "version": "17.0.1"}})
 	if err := os.MkdirAll(filepath.Dir(testJava17), 0o755); err != nil {
 		panic(err)

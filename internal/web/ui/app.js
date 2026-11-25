@@ -1532,6 +1532,70 @@ const skeletonCards = (n = 6) => `<div class="cards sk-cards">` + Array.from({ l
 const skeletonRows = (n = 7) => Array.from({ length: n }, () =>
   `<div class="sk-row"><span class="sk" style="width:38%;height:13px"></span><span class="sk" style="width:52px;height:12px"></span></div>`).join("");
 
+function renderDupDirsCard(box, dups) {
+  if (!box) return;
+  if (!dups.length) { box.hidden = true; box.innerHTML = ""; box._html = ""; return; }
+  const html = `<div class="warn-card"><div class="wc-title">${icon("warn")} 有 ${dups.length} 个服务器文件夹因为重名没有列出来</div>
+      <ul class="wc-list">${dups.map(d => `<li>文件夹 <code class="mono">${esc(d.dir)}</code> 里的服务器和列表里的「<b>${esc(d.name)}</b>」${d.keptDir ? `（<code class="mono">${esc(d.keptDir)}</code>）` : ""}重名，没有列出来。</li>`).join("")}</ul>
+      <div class="wc-note">要把两台都显示出来，请改掉其中一台的名字（打开没列出来的那个文件夹里的 <code>instance.json</code>，把 <code>"name"</code> 改成别的名字后重开 MineDeck；或者先把列表里这台移出列表，再用别的名字接管回来，然后重开 MineDeck）。</div></div>`;
+  box.hidden = false;
+  if (box._html !== html) { box.innerHTML = html; box._html = html; }
+}
+
+function instanceBrokenCardHTML(b, n, enter, curLocal) {
+  return `
+    <div class="card st-stopped${enter ? " item-enter" : ""}" style="--i:${n}" data-broken="${esc(b.id)}">
+      <div class="inst-head"><span style="color:var(--warning-text);flex:none;display:inline-flex;align-items:center">${icon("warn")}</span><div class="inst-title"><div class="inst-name">${esc(b.folder)}</div><div class="inst-sub">设置文件无法读取</div></div><span class="badge warn">无法读取</span></div>
+      <div class="inst-fail" style="margin-top:4px" title="${esc(b.reason)}">${icon("warn")}<span style="-webkit-line-clamp:unset">${esc(`这台服务器的设置文件读不出来：${b.reason}`)}</span></div>
+      <div class="inst-actions">
+        ${curLocal ? `<button type="button" class="btn sm" data-open-broken="${esc(b.id)}" aria-label="打开文件夹 ${esc(b.folder)}">${icon("folder")} 打开文件夹</button>`
+          : `<span class="hint">请到主机上打开这个文件夹，检查或修复 instance.json</span>`}
+      </div>
+    </div>`;
+}
+
+function instanceCardHTML(i, n, enter, prev, lanIP) {
+  const proxy = i.kind === "proxy";
+  const gb = (i.xmxMb / 1024).toFixed(1) + " GB";
+  const href = `#/inst/${encodeURIComponent(i.name)}`;
+  const changed = prev && prev.status !== i.status;
+  const stat = statRow(i), prevStat = changed ? statRow(prev) : "";
+  // 状态行展开 / 收起（grid 0fr ↔ 1fr）：状态切换时先按旧样子渲染（无 → 有：先收起；有 → 无：先展开旧内容），渲染后再切
+  const collapse = stat
+    ? `<div class="collapse${changed && !prevStat ? " closed" : ""}" data-stat><div>${stat}</div></div>`
+    : `<div class="collapse${changed && prevStat ? "" : " closed"}" data-stat${changed && prevStat ? " data-close" : ""}><div>${changed ? prevStat : ""}</div></div>`;
+  // 删除、打开文件夹收进「···」：危险操作不与「启动」同排同尺寸，多一步才够得着；「管理」「···」是第三级按钮。
+  // 每张卡片都有同名的「启动」「管理」「···」：可访问名称带上服务器名（「启动 生存服」），读屏、自动化按名字找得到是哪一台
+  const nm = esc(i.name);
+  // 端口旁边的复制键复制整个连接地址（R01）；代理端的端口第一次启动、生成配置文件以后才知道，之前不写
+  const port = connectPortOf(i), addr = lanIP && port ? `${lanIP}:${port}` : "";
+  const portKV = port ? `<span>端口<b>${port}</b>${addr ? `<button type="button" class="btn sm ghost icon-only copy-addr" data-act="copy" data-addr="${esc(addr)}" title="复制连接地址 ${esc(addr)}" aria-label="复制连接地址 ${nm}">${icon("copy")}</button>` : ""}</span>` : "";
+  // 上次没启动起来：常驻在卡片上，下次启动成功才消失（R03）。原因按报错的规矩写：看得懂的整句接上，带路径的只写结论、原文在悬停提示里
+  // 配的 Java 找不到了（R21）：常驻一行，点了去「设置 → 启动与内存」换。这是根本原因，「上次没能启动：找不到 Java」那一行就不再写一遍
+  const fail = i.javaMissing
+    ? `<a class="inst-fail inst-java-missing" href="${href}/settings/jvm" title="${esc(i.javaPath || "")}" aria-label="找不到 Java，去换一个 ${nm}">${icon("warn")}<span>找不到这台服务器配的 Java，去「设置 → 启动与内存」换一个</span></a>`
+    : i.lastStartError && i.status === "stopped"
+    ? `<div class="inst-fail" title="${esc(i.lastStartError)}">${icon("warn")}<span>${esc(i.startPortBusy && i.startPortBusy.owner
+      ? `上次没能启动：端口 ${i.startPortBusy.port} 被你的服务器「${i.startPortBusy.owner}」占着` // R08：名字可能很长，不按 60 字的规矩截成结论
+      : errSummary("上次没能启动", { message: i.lastStartError }).text)}</span></div>` : "";
+  return `
+    <div class="card st-${i.status}${enter ? " item-enter" : ""}" style="--i:${n}" data-name="${esc(i.name)}">
+      <div class="inst-head">${avatarOf(i.core)}<div class="inst-title"><a class="inst-name" href="${href}">${esc(i.name)}</a><div class="inst-sub">${proxy ? "群组代理" : "游戏服务器"}</div></div>${stPill(i.status)}</div>
+      <div class="badges">${coreBadge(i.core)}<span class="badge">${proxy ? "v" : "MC "}${esc(i.mc)}</span></div>
+      <div class="kv inst-config">${portKV}<span>内存<b>${gb}</b></span><span>Java<b>${i.javaMajor}</b></span></div>
+      ${fail}
+      ${collapse}
+      <div class="inst-meta" data-motd="${esc(i.motd || "")}"></div>
+      <div class="inst-actions">
+        ${i.status === "stopped" ? `<button class="btn sm primary" data-act="start" aria-label="启动 ${nm}">${icon("play")} 启动</button>`
+          : `<button class="btn sm" data-act="stop" aria-label="停止 ${nm}" ${i.status === "stopping" ? "disabled" : ""}>${icon("stop")} 停止</button>`}
+        <a class="btn sm ghost" href="${href}" aria-label="管理 ${nm}">管理</a>
+        <span class="grow"></span>
+        <button class="btn sm ghost icon-only" data-act="more" title="更多操作" aria-label="更多操作 ${nm}" aria-haspopup="menu">${icon("more")}</button>
+      </div>
+    </div>`;
+}
+
 async function renderInstances() {
   const gen = viewGen;
   // 标题与搜索/排序工具栏包进 #inst-chrome：没有实例时整块隐藏（空态自身即整页主体），
@@ -1546,16 +1610,7 @@ async function renderInstances() {
     <section id="task-list" hidden style="margin-bottom:24px"></section>
     <section id="creating-left" hidden style="margin-bottom:24px"></section>
     <div id="inst-cards">${skeletonCards(4)}</div>`;
-  const paintDuplicates = dups => {
-    const box = $("#dup-dirs");
-    if (!box) return;
-    if (!dups.length) { box.hidden = true; box.innerHTML = ""; box._html = ""; return; }
-    const html = `<div class="warn-card"><div class="wc-title">${icon("warn")} 有 ${dups.length} 个服务器文件夹因为重名没有列出来</div>
-      <ul class="wc-list">${dups.map(d => `<li>文件夹 <code class="mono">${esc(d.dir)}</code> 里的服务器和列表里的「<b>${esc(d.name)}</b>」${d.keptDir ? `（<code class="mono">${esc(d.keptDir)}</code>）` : ""}重名，没有列出来。</li>`).join("")}</ul>
-      <div class="wc-note">要把两台都显示出来，请改掉其中一台的名字（打开没列出来的那个文件夹里的 <code>instance.json</code>，把 <code>"name"</code> 改成别的名字后重开 MineDeck；或者先把列表里这台移出列表，再用别的名字接管回来，然后重开 MineDeck）。</div></div>`;
-    box.hidden = false;
-    if (box._html !== html) { box.innerHTML = html; box._html = html; }
-  };
+  const paintDuplicates = dups => renderDupDirsCard($("#dup-dirs"), dups);
   const paintLeftovers = async () => {
     const box = $("#creating-left");
     if (!box) return;
@@ -1595,56 +1650,8 @@ async function renderInstances() {
   // 连接地址用的本机局域网 IP（见 pickLanIP）。列表不等 /api/app：拿到之前、或者拿不到时，卡片上只写端口、不给复制，拿到了再重画
   let lanIP = pickLanIP(knownIPs || []);
   const appInfo = api("/api/app").catch(() => ({}));
-  const brokenCardHTML = (b, n, enter) => `
-    <div class="card st-stopped${enter ? " item-enter" : ""}" style="--i:${n}" data-broken="${esc(b.id)}">
-      <div class="inst-head"><span style="color:var(--warning-text);flex:none;display:inline-flex;align-items:center">${icon("warn")}</span><div class="inst-title"><div class="inst-name">${esc(b.folder)}</div><div class="inst-sub">设置文件无法读取</div></div><span class="badge warn">无法读取</span></div>
-      <div class="inst-fail" style="margin-top:4px" title="${esc(b.reason)}">${icon("warn")}<span style="-webkit-line-clamp:unset">${esc(`这台服务器的设置文件读不出来：${b.reason}`)}</span></div>
-      <div class="inst-actions">
-        ${curLocal ? `<button type="button" class="btn sm" data-open-broken="${esc(b.id)}" aria-label="打开文件夹 ${esc(b.folder)}">${icon("folder")} 打开文件夹</button>`
-          : `<span class="hint">请到主机上打开这个文件夹，检查或修复 instance.json</span>`}
-      </div>
-    </div>`;
-  const cardHTML = (i, n, enter, prev) => {
-    const proxy = i.kind === "proxy";
-    const gb = (i.xmxMb / 1024).toFixed(1) + " GB";
-    const href = `#/inst/${encodeURIComponent(i.name)}`;
-    const changed = prev && prev.status !== i.status;
-    const stat = statRow(i), prevStat = changed ? statRow(prev) : "";
-    // 状态行展开 / 收起（grid 0fr ↔ 1fr）：状态切换时先按旧样子渲染（无 → 有：先收起；有 → 无：先展开旧内容），渲染后再切
-    const collapse = stat
-      ? `<div class="collapse${changed && !prevStat ? " closed" : ""}" data-stat><div>${stat}</div></div>`
-      : `<div class="collapse${changed && prevStat ? "" : " closed"}" data-stat${changed && prevStat ? " data-close" : ""}><div>${changed ? prevStat : ""}</div></div>`;
-    // 删除、打开文件夹收进「···」：危险操作不与「启动」同排同尺寸，多一步才够得着；「管理」「···」是第三级按钮。
-    // 每张卡片都有同名的「启动」「管理」「···」：可访问名称带上服务器名（「启动 生存服」），读屏、自动化按名字找得到是哪一台
-    const nm = esc(i.name);
-    // 端口旁边的复制键复制整个连接地址（R01）；代理端的端口第一次启动、生成配置文件以后才知道，之前不写
-    const port = connectPortOf(i), addr = lanIP && port ? `${lanIP}:${port}` : "";
-    const portKV = port ? `<span>端口<b>${port}</b>${addr ? `<button type="button" class="btn sm ghost icon-only copy-addr" data-act="copy" data-addr="${esc(addr)}" title="复制连接地址 ${esc(addr)}" aria-label="复制连接地址 ${nm}">${icon("copy")}</button>` : ""}</span>` : "";
-    // 上次没启动起来：常驻在卡片上，下次启动成功才消失（R03）。原因按报错的规矩写：看得懂的整句接上，带路径的只写结论、原文在悬停提示里
-    // 配的 Java 找不到了（R21）：常驻一行，点了去「设置 → 启动与内存」换。这是根本原因，「上次没能启动：找不到 Java」那一行就不再写一遍
-    const fail = i.javaMissing
-      ? `<a class="inst-fail inst-java-missing" href="${href}/settings/jvm" title="${esc(i.javaPath || "")}" aria-label="找不到 Java，去换一个 ${nm}">${icon("warn")}<span>找不到这台服务器配的 Java，去「设置 → 启动与内存」换一个</span></a>`
-      : i.lastStartError && i.status === "stopped"
-      ? `<div class="inst-fail" title="${esc(i.lastStartError)}">${icon("warn")}<span>${esc(i.startPortBusy && i.startPortBusy.owner
-        ? `上次没能启动：端口 ${i.startPortBusy.port} 被你的服务器「${i.startPortBusy.owner}」占着` // R08：名字可能很长，不按 60 字的规矩截成结论
-        : errSummary("上次没能启动", { message: i.lastStartError }).text)}</span></div>` : "";
-    return `
-    <div class="card st-${i.status}${enter ? " item-enter" : ""}" style="--i:${n}" data-name="${esc(i.name)}">
-      <div class="inst-head">${avatarOf(i.core)}<div class="inst-title"><a class="inst-name" href="${href}">${esc(i.name)}</a><div class="inst-sub">${proxy ? "群组代理" : "游戏服务器"}</div></div>${stPill(i.status)}</div>
-      <div class="badges">${coreBadge(i.core)}<span class="badge">${proxy ? "v" : "MC "}${esc(i.mc)}</span></div>
-      <div class="kv inst-config">${portKV}<span>内存<b>${gb}</b></span><span>Java<b>${i.javaMajor}</b></span></div>
-      ${fail}
-      ${collapse}
-      <div class="inst-meta" data-motd="${esc(i.motd || "")}"></div>
-      <div class="inst-actions">
-        ${i.status === "stopped" ? `<button class="btn sm primary" data-act="start" aria-label="启动 ${nm}">${icon("play")} 启动</button>`
-          : `<button class="btn sm" data-act="stop" aria-label="停止 ${nm}" ${i.status === "stopping" ? "disabled" : ""}>${icon("stop")} 停止</button>`}
-        <a class="btn sm ghost" href="${href}" aria-label="管理 ${nm}">管理</a>
-        <span class="grow"></span>
-        <button class="btn sm ghost icon-only" data-act="more" title="更多操作" aria-label="更多操作 ${nm}" aria-haspopup="menu">${icon("more")}</button>
-      </div>
-    </div>`;
-  };
+  const brokenCardHTML = (b, n, enter) => instanceBrokenCardHTML(b, n, enter, curLocal);
+  const cardHTML = (i, n, enter, prev) => instanceCardHTML(i, n, enter, prev, lanIP);
   // 状态切换的卡片：胶囊变色 + 文字换场 + 波纹、在线人数格逐个点亮、操作按钮换场、状态行展开 / 收起
   const animateChanges = prev => {
     if (!prev || reducedMotion()) return;
@@ -1877,7 +1884,7 @@ function wirePortField(input, note, sug, { base = 25565, keep = false, extra = n
   // 手填的端口有没有被别的程序占着或被系统保留：问后端（port.suggest 带 from，回 fromBusy、fromProcess、fromReserved），
   // 停手 300 毫秒再问，回来的不是现在框里的就不要。不用 port.check：端口空着时它会在所有网卡上试绑一次，
   // 打开表单就可能让防火墙弹窗问要不要放行（Codex 复审 beta.3 之后第一轮）。
-  // 默认端口（包括自动换出来的那个）只在刚打开表单那一次免查；之后改过再填回来、以及提交表单时，都照常查（阶段 04 A04）
+  // 默认端口（包括自动换出来的那个）只在刚打开表单那一次免查；之后改过再填回来、以及提交表单时，都照常查（A04）
   let other = { v: 0, text: "", suggest: 0 }, seq = 0, timer = 0;
   const busyText = (v, { proc = "", reserved = false, ownerName = "", suggest = 0 } = {}) => {
     if (ownerName) return `端口 ${v} 已被你的服务器「${ownerName}」使用（它现在开着），两台不能同时开。` +
@@ -3616,6 +3623,47 @@ function instMoreItems(info, onDeleted) {
 
 const liveGamerules = new Map(); // 实例名 → { [键名]: { val, disk } }：运行中发过 /gamerule 的项，存档落盘前保持刚切的状态
 
+function wireJvmPreview(enc, gen, saved, jvmFlags) {
+  // 预览与保存共用同一套请求体构造：只发相对 saved 改过的字段（xmxMb 给 0、extraJvm 不传表示不改），保证预览和点保存算出来的完全一致
+  const buildSettingsReq = () => {
+    const xmx = $("#jm-mem").value, flags = jvmFlags();
+    const xmxChanged = xmx !== saved.xmx, jvmChanged = flags.join(" ") !== saved.jvm;
+    const reqBody = { xmxMb: xmxChanged ? +xmx : 0, xmsMb: 0 };
+    if (jvmChanged) reqBody.extraJvm = flags;
+    return { xmx, flags, xmxChanged, jvmChanged, reqBody };
+  };
+  // 启动参数预览（A28，A25 保存参数校验）：由后端用和保存同一套函数算好返回，前端只负责展示，不自己拼参数
+  let previewSeq = 0, previewTimer = 0;
+  const refreshJvmPreview = immediate => {
+    clearTimeout(previewTimer);
+    const run = async () => {
+      if (stale(gen) || !$("#jm-preview")) return;
+      const seq = ++previewSeq;
+      try {
+        const r = await api(`/api/instances/${enc}/settings/preview`, {
+          method: "POST",
+          body: buildSettingsReq().reqBody,
+        });
+        if (stale(gen) || seq !== previewSeq || !$("#jm-preview")) return;
+        $("#jm-preview").textContent = "java " + (r.launchArgs || []).join(" ");
+        const noteEl = $("#jm-preview-note");
+        if (r.note) { noteEl.hidden = false; noteEl.innerHTML = icon("warn") + " <span>" + esc(r.note) + "</span>"; }
+        else { noteEl.hidden = true; noteEl.innerHTML = ""; }
+      } catch (e) {
+        if (stale(gen) || seq !== previewSeq || !$("#jm-preview")) return;
+        $("#jm-preview").textContent = e && e.message ? e.message : "暂时无法预览参数";
+        $("#jm-preview-note").hidden = true;
+        $("#jm-preview-note").innerHTML = "";
+      }
+    };
+    if (immediate) run(); else previewTimer = setTimeout(run, 120);
+  };
+  $("#jm-jvm").addEventListener("input", () => refreshJvmPreview(false));
+  $("#jm-mem-mount").addEventListener("input", () => refreshJvmPreview(false));
+  $("#jm-mem-mount").addEventListener("change", () => refreshJvmPreview(true));
+  return { buildSettingsReq, refreshJvmPreview };
+}
+
 async function renderDetail(name, path = "console") {
   const gen = viewGen;
   let list;
@@ -4676,43 +4724,7 @@ async function renderDetail(name, path = "console") {
     const jvmFlags = () => $("#jm-jvm").value.split(/\s+/).map(s => s.trim()).filter(Boolean);
     const keptFix = () => { const cur = jvmFlags(); return LOG4J_FIX.filter(f => cur.includes(f)); };
     let saved = { xmx: $("#jm-mem").value, jvm: jvmFlags().join(" ") }; // 内存和参数上一次存下来的样子：只换 Java 时不重写启动设置
-    // 预览与保存共用同一套请求体构造：只发相对 saved 改过的字段（xmxMb 给 0、extraJvm 不传表示不改），保证预览和点保存算出来的完全一致
-    const buildSettingsReq = () => {
-      const xmx = $("#jm-mem").value, flags = jvmFlags();
-      const xmxChanged = xmx !== saved.xmx, jvmChanged = flags.join(" ") !== saved.jvm;
-      const reqBody = { xmxMb: xmxChanged ? +xmx : 0, xmsMb: 0 };
-      if (jvmChanged) reqBody.extraJvm = flags;
-      return { xmx, flags, xmxChanged, jvmChanged, reqBody };
-    };
-    // 启动参数预览（A28，A25 保存参数校验）：由后端用和保存同一套函数算好返回，前端只负责展示，不自己拼参数
-    let previewSeq = 0, previewTimer = 0;
-    const refreshJvmPreview = immediate => {
-      clearTimeout(previewTimer);
-      const run = async () => {
-        if (stale(gen) || !$("#jm-preview")) return;
-        const seq = ++previewSeq;
-        try {
-          const r = await api(`/api/instances/${enc}/settings/preview`, {
-            method: "POST",
-            body: buildSettingsReq().reqBody,
-          });
-          if (stale(gen) || seq !== previewSeq || !$("#jm-preview")) return;
-          $("#jm-preview").textContent = "java " + (r.launchArgs || []).join(" ");
-          const noteEl = $("#jm-preview-note");
-          if (r.note) { noteEl.hidden = false; noteEl.innerHTML = icon("warn") + " <span>" + esc(r.note) + "</span>"; }
-          else { noteEl.hidden = true; noteEl.innerHTML = ""; }
-        } catch (e) {
-          if (stale(gen) || seq !== previewSeq || !$("#jm-preview")) return;
-          $("#jm-preview").textContent = e && e.message ? e.message : "暂时无法预览参数";
-          $("#jm-preview-note").hidden = true;
-          $("#jm-preview-note").innerHTML = "";
-        }
-      };
-      if (immediate) run(); else previewTimer = setTimeout(run, 120);
-    };
-    $("#jm-jvm").addEventListener("input", () => refreshJvmPreview(false));
-    $("#jm-mem-mount").addEventListener("input", () => refreshJvmPreview(false));
-    $("#jm-mem-mount").addEventListener("change", () => refreshJvmPreview(true));
+    const { buildSettingsReq, refreshJvmPreview } = wireJvmPreview(enc, gen, saved, jvmFlags);
     refreshJvmPreview(true);
     const lb = wireLiveBar(body, "服务器运行中：保存后要重启才生效");
     paintBar = wireSaveBar(body, gen,

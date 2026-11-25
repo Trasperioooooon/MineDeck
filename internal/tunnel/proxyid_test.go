@@ -3,6 +3,7 @@ package tunnel
 import (
 	"errors"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -22,6 +23,9 @@ func proxyIDOf(t *testing.T, m *Manager, id string) string {
 // OpenFrp、樱花的隧道 ID 只收数字（A60）：新增和修改时规范成十进制，不是数字的回「隧道 ID 只能是数字」，存着的不动。
 // 自定义 frps 不用隧道 ID，不查。
 func TestProxyIDOnlyDigits(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	m := NewManager()
 	for _, bad := range []string{"8,9", "abc", "+7", "-7", "0", "00", "7 8", "9:1", "99999999999999999999", "１２３"} { // 超过 int 的、全角数字也拒
@@ -61,6 +65,9 @@ func TestProxyIDOnlyDigits(t *testing.T) {
 
 // 以前存下的不是数字的隧道 ID（那时什么都收）：不改它时照常改名、改跟随，照常去启动；换服务商时要过一遍（A60）。
 func TestLegacyNonNumericProxyIDKeptWhenUnchanged(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	legacy := `{"seq":1,"tunnels":[{"id":"tun1","provider":"natfrp","name":"旧的","credential":"fake-sakura-key","proxyId":"abc","autoStart":false}]}`
 	if err := os.WriteFile(tunnelsPath(), []byte(legacy), 0o600); err != nil {

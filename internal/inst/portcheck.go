@@ -54,7 +54,7 @@ type portRange struct {
 
 // parseExcludedPortRanges 解析 netsh interface ipv4/ipv6 show excludedportrange protocol=tcp 的输出。
 // 输出的标题和脚注随系统语言变化，这里只认「起止两个端口号」的两列数字行；
-// 第三列带 * 的「管理的端口排除」在 Windows 上照常能绑定，不算系统保留段（阶段 04 返工 R1）。
+// 第三列带 * 的「管理的端口排除」在 Windows 上照常能绑定，不算系统保留段（A04）。
 func parseExcludedPortRanges(out string) []portRange {
 	var res []portRange
 	for _, line := range strings.Split(out, "\n") {
@@ -243,42 +243,6 @@ func (m *Manager) CheckFormPort(port int) *FormPortBusy {
 		out.Reserved = true
 	}
 	return out
-}
-
-// SetPortProbesForTest 供跨包测试注入固定的监听端口表与系统保留段，不受运行测试那台电脑上真实进程或 Hyper-V 保留段影响。
-func SetPortProbesForTest(listeners map[int]string, excluded [][2]int) func() {
-	oldL, oldN, oldE, oldM := queryListenPorts, queryProcessName, queryExcludedPorts, listenProbesMocked
-	fakeL := map[int]int{}
-	fakeNames := map[int]string{}
-	nextPID := 1000
-	for p, name := range listeners {
-		nextPID++
-		fakeL[p] = nextPID
-		fakeNames[nextPID] = name
-	}
-	var rs []portRange
-	for _, r := range excluded {
-		rs = append(rs, portRange{start: r[0], end: r[1]})
-	}
-	queryListenPorts = func() map[int]int { return fakeL }
-	queryProcessName = func(pid int) string { return fakeNames[pid] }
-	queryExcludedPorts = func() ([]portRange, []portRange) { return rs, nil }
-	listenProbesMocked = true
-	return func() {
-		queryListenPorts, queryProcessName, queryExcludedPorts, listenProbesMocked = oldL, oldN, oldE, oldM
-	}
-}
-
-// UseRealPortProbesForTest 供跨包测试临时切回系统真实的监听表探测（仍屏蔽真实 netsh，避免测试受本机保留段影响）。
-func UseRealPortProbesForTest() func() {
-	oldL, oldN, oldE, oldM := queryListenPorts, queryProcessName, queryExcludedPorts, listenProbesMocked
-	queryListenPorts = defaultListenPorts
-	queryProcessName = defaultProcessName
-	queryExcludedPorts = func() ([]portRange, []portRange) { return nil, nil }
-	listenProbesMocked = false
-	return func() {
-		queryListenPorts, queryProcessName, queryExcludedPorts, listenProbesMocked = oldL, oldN, oldE, oldM
-	}
 }
 
 // PortBusy 上一次启动时端口被占着（可用性走查 R08），实例列表里的 startPortBusy：界面按它在详情页头给
@@ -501,7 +465,7 @@ func checkResolvedBindPort(r resolvedBindTarget) error {
 }
 
 // probeResolvedBindPort 只按已解析好的地址做试绑：绑得上就放行，不管 netsh 怎么说；
-// 只有试绑报 WSAEACCES（errAddrAccess）时记下 reserved=true，由锁外再去查 netsh 保留段细化报错（阶段 04 返工 R1、R2）。
+// 只有试绑报 WSAEACCES（errAddrAccess）时记下 reserved=true，由锁外再去查 netsh 保留段细化报错（R1、R2）。
 func probeResolvedBindPort(r resolvedBindTarget) error {
 	t := r.target
 	port := t.port
@@ -512,9 +476,21 @@ func probeResolvedBindPort(r resolvedBindTarget) error {
 	if host == "" {
 		host = PortProbeHost
 	}
+	if err := probeBindAddr(t.network, host, port); err != nil {
+		return err
+	}
+	for _, extra := range extraBindHosts(t.network, host) {
+		if err := probeBindAddr(t.network, extra, port); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func probeBindAddr(network, host string, port int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	ln, err := listenBindPort(ctx, t.network, net.JoinHostPort(host, strconv.Itoa(port)))
+	ln, err := listenBindPort(ctx, network, net.JoinHostPort(host, strconv.Itoa(port)))
 	if err == nil {
 		ln.Close()
 		return nil

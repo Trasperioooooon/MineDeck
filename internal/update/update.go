@@ -391,15 +391,15 @@ var errNoSelfUpdate = errors.New("Mac 版还不能在程序里自动更新，请
 
 // Apply 下载新版并写入换血脚本；调用方随后应触发程序退出。
 func Apply(ctx context.Context, r *Release) error {
+	if runtime.GOOS != "windows" {
+		return errNoSelfUpdate
+	}
 	if r.AssetURL == "" {
 		return fmt.Errorf("这个版本没有附带 exe 文件")
 	}
 	if r.SHA256 == "" {
 		// 无官方校验和则拒绝：避免经第三方镜像下载并执行未经校验的 exe（供应链/MITM RCE）
 		return fmt.Errorf("拿不到这个版本的 SHA256SUMS（文件没有，或下不下来）。没有这份校验，已取消更新。")
-	}
-	if runtime.GOOS != "windows" {
-		return errNoSelfUpdate
 	}
 	exe, err := os.Executable()
 	if err != nil {

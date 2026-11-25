@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -254,6 +255,9 @@ func newOpenFrpServer(t *testing.T) *openFrpServer {
 
 func loginOpenFrp(t *testing.T, a *Accounts) {
 	t.Helper()
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	login, err := a.BeginOpenFrpLogin(context.Background())
 	if err != nil || login.ID != "req-1" || !strings.Contains(login.URL, "console.openfrp.net") {
 		t.Fatalf("login begin: %+v %v", login, err)
@@ -459,6 +463,9 @@ func sakuraServerHooks(t *testing.T, onInfo, onCreate func()) (*httptest.Server,
 }
 
 func TestSakuraConnectOverviewCreateImport(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	srv, lastCreate := sakuraServer(t, nil)
 	a, keys := testAccounts(t, srv.URL, srv.URL, srv.URL)
 	if _, err := a.ConnectSakura(context.Background(), "wrong-access-key"); err == nil {
@@ -515,6 +522,9 @@ func TestSakuraConnectOverviewCreateImport(t *testing.T) {
 }
 
 func TestSakuraDisconnectDuringConnect(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	var a *Accounts
 	srv, _ := sakuraServer(t, func() {
 		if err := a.Disconnect("natfrp"); err != nil {
@@ -626,6 +636,9 @@ func TestGuardPortRejectsManagementPort(t *testing.T) {
 }
 
 func TestSakuraDisconnectDuringCreateDoesNotSaveLocally(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	var a *Accounts
 	srv, _ := sakuraServerHooks(t, nil, func() {
 		if err := a.Disconnect("natfrp"); err != nil {
@@ -737,6 +750,9 @@ func TestCancelReportsWhetherLoginWasPending(t *testing.T) {
 }
 
 func TestSakuraCreateStopsWhenDisconnectedBeforePost(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	var a *Accounts
 	armed := false
 	srv, lastCreate := sakuraServerHooks(t, func() {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -292,7 +293,11 @@ func TestImportDropsRuntimeSettings(t *testing.T) {
 		t.Errorf("注释掉的 eula=true 不算同意过：%v", err)
 	}
 	// 启动文件指到服务器文件夹外面：导入失败，目录清干净
-	id, err := ImportAsync(m, rawPack(t, manifest("100", `jar:..\..\outside.jar`), files), ImportReq{Name: "越界启动", EULA: true})
+	outsideLaunch := "jar:../../outside.jar"
+	if runtime.GOOS == "windows" {
+		outsideLaunch = `jar:..\..\outside.jar`
+	}
+	id, err := ImportAsync(m, rawPack(t, manifest("100", outsideLaunch), files), ImportReq{Name: "越界启动", EULA: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,12 +357,17 @@ func TestImportDropsRuntimeSettings(t *testing.T) {
 	// 原来照单全收，接手的人之后点一次「还原备份」，删掉的就是 level-name 指着的那个文件夹
 	neighbour := filepath.Join(app.ServersDir, "other-server", "precious.txt")
 	writeFile(t, neighbour, "隔壁服务器的东西")
-	for k, bad := range []string{
-		"level-name=../other-server", "level-name=..", "level-name=.", "level-name=world/../..", "level-name=C:/Windows", "level-name=...",
+	badLevels := []string{
+		"level-name=../other-server", "level-name=..", "level-name=.", "level-name=world/../..", "level-name=...",
 		// 换个写法骗过检查：MineDeck 自己读到的是 world 或者「没写」，服务端读到的是越界的路径
 		"level-name=world\nlevel-name=../other-server", "level-name:../other-server", "level-name ../other-server",
-		`level\-name=../other-server`, `level-name=.\./other-server`, "level-name=w\\\n/../../other-server",
-	} {
+		`level\-name=../other-server`, "level-name=w\\\n/../../other-server",
+	}
+	if runtime.GOOS == "windows" {
+		// Windows 特有的盘符与反斜杠写法在类 Unix 上只是普通文件名，不越界
+		badLevels = append(badLevels, "level-name=C:/Windows", `level-name=.\./other-server`)
+	}
+	for k, bad := range badLevels {
 		evil := [][2]string{
 			{"instance/server.jar", "fake"}, {"instance/eula.txt", "eula=true\n"},
 			{"instance/server.properties", "server-port=25570\n" + bad + "\n"},

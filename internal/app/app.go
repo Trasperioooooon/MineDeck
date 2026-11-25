@@ -522,8 +522,3 @@ func ForgetCreatingRoots(dirs ...string) {
 	cfg.CreatingRoots = kept
 	saveLocked()
 }
-
-// SamePath 两个路径写的是不是同一个位置（Windows 的路径不分大小写）。只按字面比，不解链接。
-func SamePath(a, b string) bool {
-	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
-}

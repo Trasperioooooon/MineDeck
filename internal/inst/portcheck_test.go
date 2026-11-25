@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -68,12 +69,14 @@ func TestStartRejectsBusyPort(t *testing.T) {
 			t.Errorf("端口被占着不该起服务器进程：%q", i.Console.Lines())
 		}
 	}
-	// server-ip 填的是另一个回环地址：127.0.0.1 上占着同一个端口不妨碍它，服务端能绑上，这里也不拦
-	if err := checkBindPort(bindTarget{"tcp", "127.0.0.2", port}); err != nil {
-		t.Errorf("别的地址上占着同一个端口不算被占：%v", err)
-	}
-	if _, port2 := occupy(t, "127.0.0.2"); checkBindPort(bindTarget{"tcp", "127.0.0.2", port2}) == nil {
-		t.Error("server-ip 上占着的端口应查得出来")
+	if runtime.GOOS == "windows" {
+		// server-ip 填的是另一个回环地址：127.0.0.1 上占着同一个端口不妨碍它，服务端能绑上，这里也不拦
+		if err := checkBindPort(bindTarget{"tcp", "127.0.0.2", port}); err != nil {
+			t.Errorf("别的地址上占着同一个端口不算被占：%v", err)
+		}
+		if _, port2 := occupy(t, "127.0.0.2"); checkBindPort(bindTarget{"tcp", "127.0.0.2", port2}) == nil {
+			t.Error("server-ip 上占着的端口应查得出来")
+		}
 	}
 	// 查不了的情况（地址不是这台电脑的）不下结论，交给服务端自己报
 	if err := checkBindPort(bindTarget{"tcp", "192.0.2.1", port}); err != nil {

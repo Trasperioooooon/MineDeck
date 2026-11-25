@@ -19,6 +19,7 @@ import (
 	"minedeck/internal/diskguard"
 	"minedeck/internal/errhint"
 	"minedeck/internal/events"
+	"minedeck/internal/linkmode"
 	"minedeck/internal/zipguard"
 )
 
@@ -621,25 +622,70 @@ func unzipTo(src, destDir string) error {
 
 func checkBackupPaths(files []*zip.File, destDir string) error {
 	cleanDest := filepath.Clean(destDir)
+	realDest, err := RealPathStrict(cleanDest)
+	if err != nil {
+		return fmt.Errorf("备份还原目标文件夹不可用: %w", err)
+	}
 	for _, f := range files {
-		target := filepath.Join(cleanDest, filepath.FromSlash(strings.ReplaceAll(f.Name, "\\", "/")))
-		if !strings.HasPrefix(target, cleanDest+string(os.PathSeparator)) {
-			return fmt.Errorf("备份内含非法路径: %s", f.Name)
+		if _, err := checkBackupTargetPath(cleanDest, realDest, f); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
+// checkBackupTargetPath 校验备份条目不会借由 ..、符号链接或目录联接落到 destDir 之外（A12）。
+func checkBackupTargetPath(cleanDest, realDest string, f *zip.File) (string, error) {
+	if f.Mode()&fs.ModeSymlink != 0 {
+		return "", fmt.Errorf("备份内含符号链接: %s", f.Name)
+	}
+	rel := filepath.FromSlash(strings.ReplaceAll(f.Name, "\\", "/"))
+	target := filepath.Join(cleanDest, rel)
+	if target == cleanDest || !strings.HasPrefix(target, cleanDest+string(os.PathSeparator)) {
+		return "", fmt.Errorf("备份内含非法路径: %s", f.Name)
+	}
+	// 从上一级文件夹查起，逐级看已存在的部分是不是符号链接、目录联接。不查目标本身：OneDrive 这类云同步的文件
+	// 在 Go 里可能也只报 ModeIrregular，和联接分不开，查它会让现有的世界文件挡住整次还原；目标本身指到外面的，
+	// 由下面的 RealPathStrict + InsideReal 拦住。
+	for cur := filepath.Dir(target); cur != cleanDest; {
+		if st, err := os.Lstat(cur); err == nil {
+			if linkmode.IsLink(st.Mode()) {
+				rel, _ := filepath.Rel(cleanDest, cur)
+				return "", fmt.Errorf("服务器文件夹里的「%s」是指向别处的链接，没有还原", filepath.ToSlash(rel))
+			}
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return "", fmt.Errorf("检查备份落点失败: %s（%w）", f.Name, err)
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			break
+		}
+		cur = parent
+	}
+	realTarget, err := RealPathStrict(target)
+	if err != nil || !InsideReal(realDest, realTarget) {
+		// 上面几级都不是链接，走到这里多半是服务器文件夹里已有的目标本身指到了外面
+		rel, _ := filepath.Rel(cleanDest, target)
+		return "", fmt.Errorf("服务器文件夹里的「%s」指到了服务器文件夹外面，或者查不清实际在哪里，没有还原", filepath.ToSlash(rel))
+	}
+	return target, nil
+}
+
 func unzipReaderTo(zr *zip.Reader, destDir string, lease *diskguard.Lease) error {
 	cleanDest := filepath.Clean(destDir)
+	realDest, err := RealPathStrict(cleanDest)
+	if err != nil {
+		return fmt.Errorf("备份还原目标文件夹不可用: %w", err)
+	}
 	for _, f := range zr.File {
-		if err := lease.Check(0); err != nil {
-			return err
+		if lease != nil {
+			if err := lease.Check(0); err != nil {
+				return err
+			}
 		}
-		name := strings.ReplaceAll(f.Name, "\\", "/")
-		target := filepath.Join(cleanDest, filepath.FromSlash(name))
-		if !strings.HasPrefix(target, cleanDest+string(os.PathSeparator)) {
-			return fmt.Errorf("备份内含非法路径: %s", f.Name)
+		target, err := checkBackupTargetPath(cleanDest, realDest, f)
+		if err != nil {
+			return err
 		}
 		if f.FileInfo().IsDir() {
 			continue
@@ -651,12 +697,16 @@ func unzipReaderTo(zr *zip.Reader, destDir string, lease *diskguard.Lease) error
 		if err != nil {
 			return err
 		}
-		w, err := os.Create(target)
+		w, err := openInPlaceNoHardlink(target, 0o644)
 		if err != nil {
 			rc.Close()
 			return err
 		}
-		_, cerr := io.Copy(lease.Writer(w), rc)
+		var dst io.Writer = w
+		if lease != nil {
+			dst = lease.Writer(w)
+		}
+		_, cerr := io.Copy(dst, rc)
 		rc.Close()
 		if werr := w.Close(); cerr == nil {
 			cerr = werr

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"minedeck/internal/app"
+	"minedeck/internal/fakeserver"
 	"minedeck/internal/mcsrc"
 )
 
@@ -22,11 +24,18 @@ const testManifest = `{"latest":{"release":"1.20.1","snapshot":"1.20.1"},"versio
 {"id":"1.12.2","type":"release"},{"id":"1.12","type":"release"},{"id":"1.11.2","type":"release"},{"id":"1.8.9","type":"release"},
 {"id":"1.7.10","type":"release"},{"id":"1.7","type":"release"},{"id":"1.6.4","type":"release"}]}`
 
+func fakeJavaBin() string {
+	if runtime.GOOS == "windows" {
+		return "java.exe"
+	}
+	return "java"
+}
+
 var testJava17 string // 假的本机 Java 17 的路径，TestMain 里准备
 
 func TestMain(m *testing.M) {
 	if os.Getenv(fakeServerEnv) == "1" { // proc_test.go：测试程序自己扮演服务器进程
-		os.Exit(fakeServer())
+		os.Exit(fakeserver.Run())
 	}
 	dir, err := os.MkdirTemp("", "amh-inst-test")
 	if err != nil {
@@ -37,7 +46,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	// adopt_test.go：一个「本机已安装」的假 Java 17（java.Cached 从缓存目录的 javas.json 读）
-	testJava17 = filepath.Join(dir, "jdk17", "bin", "java.exe")
+	testJava17 = filepath.Join(dir, "jdk17", "bin", fakeJavaBin())
 	javas, _ := json.Marshal([]map[string]any{{"path": testJava17, "major": 17, "version": "17.0.1"}})
 	if err := os.MkdirAll(filepath.Dir(testJava17), 0o755); err != nil {
 		panic(err)
@@ -131,7 +140,7 @@ func TestUpdateSettingsKeepsLog4jFix(t *testing.T) {
 			}, Dir: dir}
 			m := &Manager{insts: map[string]*Instance{"t": i}, creating: map[string]bool{}}
 			submit := slices.Clone(c.submit)
-			if err := m.UpdateSettings("t", 4096, 0, "", &submit); err != nil {
+			if _, err := m.UpdateSettingsWithResult("t", 4096, 0, "", &submit); err != nil {
 				t.Fatal(err)
 			}
 			if !slices.Equal(i.ExtraJVM, c.want) {
@@ -180,7 +189,7 @@ func TestUpdateSettingsNilExtraJVMUntouched(t *testing.T) {
 		XmxMB: 2048, XmsMB: 1024, LaunchTarget: "jar:server.jar", ExtraJVM: []string{"-Xss1M"},
 	}, Dir: t.TempDir()}
 	m := &Manager{insts: map[string]*Instance{"t": i}, creating: map[string]bool{}}
-	if err := m.UpdateSettings("t", 0, 0, "gbk", nil); err != nil {
+	if _, err := m.UpdateSettingsWithResult("t", 0, 0, "gbk", nil); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(i.ExtraJVM, []string{"-Xss1M"}) || i.ConsoleEncoding != "gbk" {

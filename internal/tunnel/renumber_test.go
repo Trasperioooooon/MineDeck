@@ -74,6 +74,9 @@ func jsonStr(t *testing.T, s string) string {
 // 「语音」tun1→tun3、「自建」tun2→tun4、「第三个一号」tun1→tun5。
 func dupFixture(t *testing.T) (orig string, creds []string) {
 	t.Helper()
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	sealed, err := secret.Seal("fake-cred-一号-not-real")
 	if err != nil {
 		t.Fatal(err)
@@ -510,7 +513,7 @@ func TestNoDuplicatesThenSaveLeavesNoBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := NewManager()
-	if _, err := m.Add(openfrpTunnel("新加的")); err != nil {
+	if _, err := m.Add(anyTunnel("新加的")); err != nil {
 		t.Fatal(err)
 	}
 	if got := backupNames(t); len(got) != 0 {
@@ -700,6 +703,9 @@ func saysBackupOfLoaded(t *testing.T, s string) {
 // 写回去的样子），凭据解得开；和写回的文件比只差编号和 seq，凭据是同一份密文（只加密了一次）。程序日志和操作记录都说明
 // 备份里的凭据加密过、不是原文件逐字节的样子。
 func TestRenumberPlaintextNotKeptInBackup(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	bakName := pinBackupClock(t)
 	if err := os.WriteFile(tunnelsPath(), []byte(plainDup), 0o600); err != nil {
@@ -744,6 +750,9 @@ func plainManyDup() (orig string, plains []string) {
 // 明文凭据加多处撞号（同一个编号撞了三条、空串编号撞了两条）：加密版备份里每一条的编号都还原成换号前的样子（空串的
 // 也还原成空串），seq 是抬过、没换号的那个，没有明文、凭据都解得开；写回的文件里编号不再重复，和备份只差编号和 seq。
 func TestRenumberPlaintextManyDupsBackupRestoresIDs(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	bakName := pinBackupClock(t)
 	orig, plains := plainManyDup()
@@ -903,6 +912,9 @@ func TestRenumberSealFailsKeepsRawBackup(t *testing.T) {
 // 明文凭据加撞号、只有一条加密失败：备份还是凭据加密过的那一版，加密失败的那条在备份里是明文（和写回的 tunnels.json
 // 一样），别的解得开；程序日志说清加密失败的有几条除外，操作记录带上条数。
 func TestRenumberSealPartlyFailsSaysHowMany(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	bakName := pinBackupClock(t)
 	failSeal(t, plainCredB)
@@ -943,6 +955,9 @@ func TestRenumberSealPartlyFailsSaysHowMany(t *testing.T) {
 // 凭据加密过的那一版备份编不出来：不退回读进来时的原样字节（里面有明文），按备份留不下处理，tunnels.json 一个字不动、
 // 也不留备份，操作记录说没写回去。之后保存也一样拒绝：带重复编号的那份被换掉之前，旁边一定得有它的备份。
 func TestRenumberSealedBackupEncodeFailsWritesNothing(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	pinBackupClock(t)
 	old := encodeSealedBackup

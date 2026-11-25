@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -79,7 +80,9 @@ func TestLevelsFollowDesign(t *testing.T) {
 			// 按服务器查、处置没装上的文件（beta.3 R09）：清单是服务器文件夹里读来的不可信文字，不给 AI；处置同上只许本机
 			"instance.import.pending.get", "instance.import.pending.resolve",
 			// beta.3 R08：新建、导入、接管的表单拿默认端口（MineDeck 里别的服务器都没用的最小端口）。只读，但只给界面用，不进 AI 的工具清单
-			"port.suggest"},
+			"port.suggest",
+			// A28：界面「启动与内存」页实时试算保存参数结果。只读且不记操作记录，不进 AI 工具清单
+			"instance.settings.preview"},
 	}
 	// 穿透平台账户操作由 Accounts 注入后才登记；本测试 Env 不传 Accounts，故不列入 want。
 
@@ -248,6 +251,9 @@ func TestPropsProposalFlow(t *testing.T) {
 // 隧道跟着实例自动启停也写操作记录（测试报告第五轮）：来源 schedule、actor「跟随实例」、带实例名，失败的带上错误。
 // 这里是首次使用樱花还没放 frpc 时的跟随启动。
 func TestTunnelFollowWritesOpLog(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	newCatalog(t) // 只用它准备好临时程序目录
 	mgr, err := inst.NewManager()
 	if err != nil {

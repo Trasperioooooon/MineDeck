@@ -293,11 +293,13 @@ func TestCheckAdoptDir(t *testing.T) {
 	writeTree(t, app.CacheDir, map[string]string{"vanilla/1.21.1/server.jar": vanilla21})
 	writeTree(t, user, map[string]string{"server.jar": vanilla21})
 
+	// 整个磁盘、结尾带分隔符按本机的写法：Windows 上是 C:\ 和 …\，Mac 上是 / 和 …/
+	sep := string(filepath.Separator)
 	for dir, want := range map[string]string{
 		"":                              "请先选择",
 		"relative\\dir":                 "完整的路径",
 		filepath.Join(user, "nope"):     "找不到这个文件夹",
-		filepath.VolumeName(user) + `\`: "整个磁盘",
+		filepath.VolumeName(user) + sep: "整个磁盘",
 		app.Base:                        "程序文件夹",
 		filepath.Dir(app.Base):          "程序文件夹",
 		app.ServersDir:                  "总文件夹",
@@ -310,7 +312,7 @@ func TestCheckAdoptDir(t *testing.T) {
 			t.Errorf("%q 应拒绝（%s）：%v", dir, want, err)
 		}
 	}
-	for _, dir := range []string{user, orphan, user + `\`} {
+	for _, dir := range []string{user, orphan, user + sep} {
 		if got, err := m.checkAdoptDir(dir); err != nil || got != filepath.Clean(dir) {
 			t.Errorf("%q 应可以接管：%q %v", dir, got, err)
 		}
@@ -346,8 +348,9 @@ func adopt(t *testing.T, m *Manager, req AdoptReq) (string, error) {
 
 func fakeJava(t *testing.T) string {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), "jdk", "bin", "java.exe")
-	writeTree(t, filepath.Dir(p), map[string]string{"java.exe": ""})
+	bin := fakeJavaBin()
+	p := filepath.Join(t.TempDir(), "jdk", "bin", bin)
+	writeTree(t, filepath.Dir(p), map[string]string{bin: ""})
 	return p
 }
 
@@ -413,9 +416,11 @@ func TestAdoptNeoForge(t *testing.T) {
 	if got := mustRead(t, filepath.Join(dir, jvmArgsBackup)); got != userArgs {
 		t.Errorf("原来的 user_jvm_args.txt 没原样另存：%q", got)
 	}
+	// 参数文件按本机的分隔符写（launchArgs 用 filepath.FromSlash）：Windows 上是反斜杠；Mac 上生成的也是 run.bat，里面是正斜杠
+	argsFile := `"@` + filepath.FromSlash("libraries/net/neoforged/neoforge/21.1.265/win_args.txt") + `"`
 	bat := mustRead(t, filepath.Join(dir, "run.bat"))
 	if !isOurRunBat([]byte(bat)) || !strings.Contains(bat, java) || !strings.Contains(bat, `"-Xmx6144M"`) || !strings.Contains(bat, `"-Dfoo=bar"`) ||
-		!strings.Contains(bat, `"@libraries\net\neoforged\neoforge\21.1.265\win_args.txt"`) {
+		!strings.Contains(bat, argsFile) {
 		t.Errorf("生成的 run.bat：%s", bat)
 	}
 	if s, err := readSettings(dir); err != nil || s.Name != "create-pack" || !s.Adopted {
@@ -528,7 +533,7 @@ func TestValidateAdopt(t *testing.T) {
 		"启动文件不在":     func(r *AdoptReq) { r.LaunchTarget = "jar:other/evil.jar" },
 		"重新识别":       func(r *AdoptReq) { r.LaunchTarget = `jar:..\x\server.jar` },
 		"8 到 30 之间":  func(r *AdoptReq) { r.JavaMajor = 99 },
-		"还要写明它是哪个版本": func(r *AdoptReq) { r.JavaPath = `C:\java.exe` },
+		"还要写明它是哪个版本": func(r *AdoptReq) { r.JavaPath = filepath.Join(t.TempDir(), fakeJavaBin()) },
 		"Mohist":     func(r *AdoptReq) { r.Core = mcsrc.CoreMohist; r.Dir = filepath.Join(user, "中文") },
 	} {
 		req := ok
@@ -568,7 +573,7 @@ func TestReleaseThenAdoptBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	jvm := []string{"-XX:+UseZGC"}
-	if err := m.UpdateSettings("朋友服", 0, 0, "gbk", &jvm); err != nil {
+	if _, err := m.UpdateSettingsWithResult("朋友服", 0, 0, "gbk", &jvm); err != nil {
 		t.Fatal(err)
 	}
 

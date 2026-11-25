@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -34,6 +35,9 @@ func TestBatQuoteArgForJava(t *testing.T) {
 // 真让 cmd 跑 run.bat、起真的 java，看 JVM 收到的系统属性和 JVM 参数里写的是否一字不差：
 // cmd 那一层不能多执行命令，java.exe 那一层不能把参数拆错、串位。找不到 java 就跳过（GitHub 的 Windows 机器上有）。
 func TestRunBatArgsReachJava(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("run.bat 由 cmd.exe 执行，仅在 Windows 上运行")
+	}
 	java := ""
 	if h := os.Getenv("JAVA_HOME"); h != "" {
 		if p := filepath.Join(h, "bin", "java.exe"); func() bool { _, err := os.Stat(p); return err == nil }() {
@@ -102,6 +106,9 @@ func TestRunBatArgsReachJava(t *testing.T) {
 // （v3.1.0 正式版前检查 B-7）。这里真让 cmd 跑一遍生成的 run.bat：Java 路径指向不存在的文件，
 // 不会起任何程序；只看输出里有没有冒出被注入的 echo。
 func TestRunBatNoInjection(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("run.bat 由 cmd.exe 执行，仅在 Windows 上运行")
+	}
 	dir := t.TempDir()
 	i := &Instance{Settings: Settings{
 		// 绕过 validateName 直接写：模拟以前存下的、或者接管来的 instance.json 里的名字
@@ -173,11 +180,11 @@ func TestUpdateSettingsKeepsOldQuotedArgs(t *testing.T) {
 		XmxMB: 2048, XmsMB: 1024, LaunchTarget: "jar:server.jar", ExtraJVM: []string{`-Dold="x"`}}, Dir: dir}
 	m := &Manager{insts: map[string]*Instance{"t": i}, creating: map[string]bool{}}
 	same := []string{`-Dold="x"`}
-	if err := m.UpdateSettings("t", 4096, 0, "", &same); err != nil || i.XmxMB != 4096 {
+	if _, err := m.UpdateSettingsWithResult("t", 4096, 0, "", &same); err != nil || i.XmxMB != 4096 {
 		t.Fatalf("只改内存应能保存：%v，XmxMB=%d", err, i.XmxMB)
 	}
 	added := []string{`-Dold="x"`, `-Dnew="y"`}
-	if err := m.UpdateSettings("t", 8192, 0, "", &added); err == nil || i.XmxMB != 4096 || len(i.ExtraJVM) != 1 {
+	if _, err := m.UpdateSettingsWithResult("t", 8192, 0, "", &added); err == nil || i.XmxMB != 4096 || len(i.ExtraJVM) != 1 {
 		t.Fatalf("新加带双引号的参数应拒绝、什么都不改：%v，XmxMB=%d，ExtraJVM=%q", err, i.XmxMB, i.ExtraJVM)
 	}
 }

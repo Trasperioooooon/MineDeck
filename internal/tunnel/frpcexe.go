@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"minedeck/internal/errhint"
+	"minedeck/internal/linkmode"
 	"minedeck/internal/procutil"
 )
 
@@ -162,8 +163,7 @@ func frpcCandidates(dir string) []string {
 
 // plainDir p 是一个真的文件夹，不是链接、目录联接（那样的话里面的东西其实在别处）。
 func plainDir(p string) bool {
-	st, err := os.Lstat(p)
-	return err == nil && st.IsDir() && st.Mode()&(fs.ModeSymlink|fs.ModeIrregular) == 0
+	return linkmode.IsPlainDir(p)
 }
 
 // usableFrpc 在 dir 里找一个能用的 frpc，明显坏掉的先处理掉。返回空串和 nil 表示没有可用的，调用方接着走原来的下载、解压或提示。

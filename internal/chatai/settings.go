@@ -11,6 +11,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"minedeck/internal/atomicfile"
 )
 
 // 设置和状态存在实例目录里（跟着实例走：删实例时一起删掉，同名的新实例不会继承旧的授权名单）。
@@ -384,14 +386,9 @@ func encodeJSON(v any) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// writeFile 写服务器文件夹里的 gameai.json、gameai-state.json：经随机名字的临时文件改名替换（A11）。
+// 以前固定先写「原名.tmp」，那个名字上要是放着服务器文件夹外某个文件的硬链接，外面那份会被盖掉。
+// 只读的目标在 Windows 上照旧报错（以前的 os.Rename 也换不掉只读文件）。
 func writeFile(path string, b []byte) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	return nil
+	return atomicfile.WriteProtected(path, b, 0o644)
 }

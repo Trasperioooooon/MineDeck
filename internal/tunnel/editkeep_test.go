@@ -3,6 +3,7 @@ package tunnel
 import (
 	"errors"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -32,6 +33,9 @@ func statusOf(t *testing.T, m *Manager, id string) Status {
 }
 
 func TestEditKeepsStoredCredential(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	for _, prov := range []string{"openfrp", "natfrp"} {
 		t.Run(prov, func(t *testing.T) {
 			tempBase(t)
@@ -63,6 +67,9 @@ func TestEditKeepsStoredCredential(t *testing.T) {
 }
 
 func TestEditKeepRules(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	m := NewManager()
 	nat, err := m.Add(Tunnel{Provider: "natfrp", Name: "樱花", Credential: "k", ProxyID: "9"})
@@ -112,6 +119,9 @@ func TestEditKeepRules(t *testing.T) {
 
 // 以前存下的、指向网页端口的自定义 frps 隧道：只改名称也不放行（编辑守住 PR #20 那道检查）
 func TestEditKeepsGuardPort(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	const web = 27333
 	m := NewManager()

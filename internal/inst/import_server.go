@@ -152,7 +152,7 @@ func (m *Manager) runServerImport(ctx context.Context, t *tasks.Task, pack *modp
 			if !req.EULA {
 				return fmt.Errorf("需要同意 Minecraft EULA 才能开服")
 			}
-			if err := os.WriteFile(filepath.Join(dir, "eula.txt"),
+			if err := writeFileNoHardlink(filepath.Join(dir, "eula.txt"),
 				[]byte("# 用户已在 MineDeck 中确认同意 Minecraft EULA (https://aka.ms/MinecraftEULA)\neula=true\n"), 0o644); err != nil {
 				return err
 			}
@@ -244,7 +244,7 @@ func extractServerFiles(ctx context.Context, t *tasks.Task, pack *modpack.Pack, 
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
-		w, err := os.Create(target)
+		w, err := openInPlaceNoHardlink(target, 0o644)
 		if err != nil {
 			return err
 		}
