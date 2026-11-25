@@ -15,6 +15,7 @@ window.EXTRA_ICONS = {
 </script>
 <script src="kit.js"></script>
 <script src="pixel16.js"></script>
+<script src="wordmark.js"></script>
 <link rel="stylesheet" href="kit.css">
 <style>
   body { background: var(--bg); overflow-x: hidden; }
@@ -222,7 +223,7 @@ window.EXTRA_ICONS = {
 
   /* 页头的几种写法（11-26 作者觉得「服务器」大标题 + 一行小字 + 最右边的搜索框太突兀）：?head=a / b / c，不带是现在的 */
   .hv { display: none; }
-  body:not([class*="head-"]) .hv-0, body.head-a .hv-a, body.head-b .hv-b { display: flex; }
+  body:not([class*="head-"]) .hv-0, body.head-a .hv-a, body.head-b .hv-b, body.head-d .hv-d { display: flex; }
   body[class*="head-"] .head { display: none; }
   .iconbtn { width: 36px; height: 36px; flex: none; border-radius: var(--r-full); display: grid; place-items: center; color: var(--muted);
              background: var(--control); border: 1px solid var(--border); }
@@ -254,6 +255,12 @@ window.EXTRA_ICONS = {
                            padding: 0 12px; border-radius: var(--r-full); background: color-mix(in srgb, var(--text) 6%, var(--bg)); border: 1px solid var(--border);
                            color: var(--faint); font-size: 12.5px; }
   body.head-c .page { padding-top: 12px; }
+  /* D（作者 11-26 的主意）：上半截一个块状的像素字标 MineDeck，下面紧跟 B 的概览条；标题栏里的 MineDeck 字就不要了，只留小图标 */
+  .hd { flex-direction: column; align-items: center; gap: 18px; margin: 4px 0 28px; }
+  .hd .mark svg { display: block; }
+  .hd .hb { display: flex; width: 100%; margin: 0; }
+  body.head-d .tb .brand { font-size: 0; }
+  body.head-d.mark-left .hd { align-items: flex-start; }
   /* 对比页里嵌着看时不要胶囊和角落的说明 */
   body.embed .cap, body.embed .tip { display: none; }
   html:has(body.embed), body.embed { overflow: hidden; }
@@ -267,7 +274,8 @@ window.EXTRA_ICONS = {
 const QS = new URLSearchParams(location.search);
 if (QS.get("nav") === "top") document.body.classList.add("nav-top");
 if (QS.get("guides")) document.body.classList.add("guides");
-if (["a", "b", "c"].includes(QS.get("head"))) document.body.classList.add("head-" + QS.get("head"));
+if (["a", "b", "c", "d"].includes(QS.get("head"))) document.body.classList.add("head-" + QS.get("head"));
+if (QS.get("mark") === "left") document.body.classList.add("mark-left");
 if (QS.get("embed")) document.body.classList.add("embed");
 </script>
 
@@ -294,6 +302,7 @@ if (QS.get("embed")) document.body.classList.add("embed");
     <span class="iconbtn" title="搜索服务器（Ctrl+F）"><i data-ic="search"></i></span>
   </div>
   <div class="hv hv-b hb" id="hb"></div>
+  <div class="hv hv-d hd"><div class="mark" id="hd-mark"></div><div class="hb" id="hd-strip"></div></div>
 
   <div class="sec">
     <h2 id="top-title"></h2><span class="hint" id="top-hint"></span>
@@ -320,7 +329,7 @@ if (QS.get("embed")) document.body.classList.add("embed");
   <a class="new" href="#"><i data-ic="plus"></i>新建</a>
 </nav>
 
-<div class="tip">草图 · 页头 <a href="?">现在</a> <a href="?head=a">A</a> <a href="?head=b">B</a> <a href="?head=c">C</a>（<a href="head-options.html">对比</a>）· 胶囊在下面 <a href="?nav=top">放进标题栏</a> · <a href="?">放回下面</a> · 配色 <a href="?scheme=craft&theme=light">方块浅色</a> <a href="?">Nord 深色</a> · 圆角 <a href="?">连续曲率</a> <a href="?corner=round">普通圆弧</a> · <a href="?guides=1">辅助线</a></div>
+<div class="tip">草图 · 页头 <a href="?">现在</a> <a href="?head=a">A</a> <a href="?head=b">B</a> <a href="?head=c">C</a> <a href="?head=d">D</a>（<a href="head-options.html">对比</a>）· 胶囊在下面 <a href="?nav=top">放进标题栏</a> · <a href="?">放回下面</a> · 配色 <a href="?scheme=craft&theme=light">方块浅色</a> <a href="?">Nord 深色</a> · 圆角 <a href="?">连续曲率</a> <a href="?corner=round">普通圆弧</a> · <a href="?guides=1">辅助线</a></div>
 
 <script>
 // 假数据：recent 越小越近（正在开着的算「现在」），hours 是一共开过的小时数，pin 是置顶，icon 是服务器自己的 server-icon.png（这里用 16 格的假图代替）
@@ -391,8 +400,11 @@ function render() {
   const idle = SERVERS.length - run.length - SERVERS.filter(s => s.st === "starting").length;
   document.getElementById("ha-line").innerHTML = run.length ? `<span class="ok">${run.length} 台开着</span><span class="mut">，</span>${ppl} 人在线` : `服务器都停着`;
   document.getElementById("ha-sub").textContent = `共 ${SERVERS.length} 台服务器，${idle} 台停着`;
-  document.getElementById("hb").innerHTML = `<div class="chip ok"><span class="dot"></span><b>${run.length}</b>台运行中</div><div class="chip"><b>${ppl}</b>人在线</div><div class="chip"><b>${SERVERS.length}</b>台服务器</div>
+  const strip = `<div class="chip ok"><span class="dot"></span><b>${run.length}</b>台运行中</div><div class="chip"><b>${ppl}</b>人在线</div><div class="chip"><b>${SERVERS.length}</b>台服务器</div>
     <span class="sp"></span><div class="find"><i data-ic="search"></i>搜索服务器<kbd>Ctrl F</kbd></div>`;
+  document.getElementById("hb").innerHTML = strip;
+  document.getElementById("hd-strip").innerHTML = strip;
+  document.getElementById("hd-mark").innerHTML = MDWordmark.svg({ cell: +(QS.get("cell") || 5), tone: QS.get("tone") === "mono" ? "mono" : "duo" });
   document.getElementById("tb-stats").innerHTML = `<span><span class="dot"></span><b>${run.length}</b> 台运行中</span><span><b>${ppl}</b> 人在线</span><span>共 <b>${SERVERS.length}</b> 台</span>`;
   KIT.hydrate(document.querySelector(".tb"));
   for (const b of document.querySelectorAll(".seg button")) { b.classList.toggle("on", b.dataset.mode === mode); b.setAttribute("aria-checked", b.dataset.mode === mode); }

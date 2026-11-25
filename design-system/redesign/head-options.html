@@ -15,6 +15,7 @@
   .opt h2 { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
   .opt p { font-size: 12.5px; color: var(--muted); margin: 0 0 10px; line-height: 20px; max-width: 900px; }
   /* 首页按真实窗口宽度 1264 嵌进来，再整体缩到这一栏的宽度；只看上面一截（页头 + 三张大卡） */
+  .frame.tall { --h: 400px; aspect-ratio: 1264 / 400; }
   .frame { --w: 1264px; --h: 330px; width: 100%; aspect-ratio: 1264 / 330; overflow: hidden; border-radius: var(--r-lg); box-shadow: var(--elev-1); border: 1px solid var(--border); position: relative; }
   .frame iframe { position: absolute; left: 0; top: 0; width: var(--w); height: var(--h); border: 0; transform-origin: 0 0; }
 </style>
@@ -33,13 +34,14 @@ const OPTS = [
   ["a", "A · 一句话", "标题换成一句有用的话：「2 台开着，10 人在线」，开着的数字用绿色；下面一行「共 8 台服务器，5 台停着」。都停着时这句换成「服务器都停着」。搜索收成右边一个圆钮，点开再展开成输入框（Ctrl+F 也行）。最省地方，读起来像在跟人说话。"],
   ["b", "B · 概览条", "统计和搜索装进一条和卡片同一个样子的圆角条：三块数字（运行中、在线、一共几台）在左，搜索框在右。外圆角 20、内边距 8、里面的块圆角 12，和下面的小块一样同心。看着最「整齐」，但页面上多了一层东西。"],
   ["c", "C · 拿掉页头", "页头整个不要了：统计挪到窗口标题栏 MineDeck 后面，一行小字；搜索放进标题栏正中，像很多桌面软件顶上的搜索框。页面一上来就是「最近玩的」和卡片。最干净，但要是胶囊也放进标题栏（那个问题还没定），两个会抢同一个位置，只能二选一。"],
+  ["d", "D · 像素字标 + 概览条（作者的主意）", "上半截一个块状的像素字 MINEDECK，往下挤出两格厚、外面一圈深色描边，MINE 用图标的草绿、DECK 白；下面紧跟 B 的概览条。标题栏里的 MineDeck 字去掉，只留小图标。字是自己一格一格排的，不照 Minecraft 的标志描：不用它的字形、石头纹理和透视，免得像官方。<a href=\"home.html?head=d&tone=mono\">全白的</a> · <a href=\"home.html?head=d&mark=left\">靠左放</a>"],
 ];
 const scale = () => document.querySelectorAll(".frame").forEach(f => { f.querySelector("iframe").style.transform = `scale(${f.clientWidth / 1264})`; });
 const qs = location.search.replace(/^\?/, "");
 document.getElementById("opts").innerHTML = OPTS.map(([k, t, d]) => {
   const q = [k && "head=" + k, qs].filter(Boolean).join("&");
   return `<section class="opt"><h2>${t} <a href="home.html${q ? "?" + q : ""}" style="font-size:12.5px;font-weight:400">整页看</a></h2><p>${d}</p>
-    <div class="frame"><iframe src="home.html?embed=1${k ? "&head=" + k : ""}${qs ? "&" + qs : ""}" loading="lazy" tabindex="-1" title="${t}"></iframe></div></section>`;
+    <div class="frame${k === "d" ? " tall" : ""}"><iframe src="home.html?embed=1${k ? "&head=" + k : ""}${qs ? "&" + qs : ""}" loading="lazy" tabindex="-1" title="${t}"></iframe></div></section>`;
 }).join("");
 scale(); addEventListener("resize", scale);
 </script>
