@@ -87,6 +87,14 @@ window.EXTRA_ICONS = {
                background: color-mix(in srgb, var(--c) 26%, var(--surface)); box-shadow: inset 0 1px 0 rgb(255 255 255 / .06), 0 0 0 1px color-mix(in srgb, var(--c) 30%, transparent); }
   .px-avatar svg { width: 24px; height: 24px; display: block; }
   .px-avatar.lg { width: 48px; height: 48px; } .px-avatar.lg svg { width: 32px; height: 32px; }
+  /* D：A 的内容 + 一条窄一点的封面，头像压在封面下沿 */
+  .card.d .cover { height: 58px; }
+  .card.d .cover .pill { top: 10px; }
+  .card.d .cover .pin { top: 6px; }
+  .dhead { display: flex; align-items: flex-end; gap: 12px; padding: 0 18px; margin-top: -22px; position: relative; z-index: 2; }
+  .dhead .avwrap { border-radius: var(--r-md); box-shadow: 0 0 0 4px var(--surface); flex: none; }
+  .dhead .nm { padding-bottom: 1px; }
+  .card.d .pad { padding-top: 14px; }
   .notes { margin-top: 36px; font-size: 12.5px; color: var(--muted); line-height: 20px; max-width: 860px; }
 </style>
 </head>
@@ -167,12 +175,30 @@ const C = {
     `<span class="btn">${I("console")}控制台</span><span class="btn ghost">${I("stop")}停止</span><span class="sp"></span><span class="btn ghost ic">${I("more")}</span>`),
 };
 
+// —— D：A 的内容 + C 的封面 ——
+const dCard = (s, pill, body, acts) => `<div class="card d" style="--c:${MDPixel.CORE_COLORS[s.core]}"><div class="cover">${pill}<span class="pin">${I("starOn")}</span></div>
+  <div class="dhead"><span class="avwrap">${av(s)}</span><div style="min-width:0"><div class="nm">${s.name}</div><div class="sub">${s.label} · ${s.mc}</div></div></div>
+  <div class="pad">${body}<div class="acts">${acts}</div></div></div>`;
+const port = s => `<div><div class="k">端口</div><div class="v" style="display:flex;align-items:center;gap:6px">${s.port}<span style="color:var(--faint)">${I("copy")}</span></div></div>`;
+const D = {
+  run: s => dCard(s, `<span class="pill ok"><span class="d"></span>运行中</span>`,
+    `<div class="stats"><div><div class="k">在线</div><div class="v">${s.players.length}<small>/${s.max}</small></div></div><div><div class="k">已运行</div><div class="v">${s.upShort}</div></div>${port(s)}</div>`,
+    `<span class="btn">${I("console")}控制台</span><span class="btn ghost">${I("stop")}停止</span><span class="sp"></span><span class="btn ghost ic">${I("more")}</span>`),
+  stop: s => dCard(s, `<span class="pill off"><span class="d"></span>已停止</span>`,
+    `<div class="stats"><div><div class="k">上次玩</div><div class="v" style="font-size:17px">${s.lastShort}</div></div><div><div class="k">一共开过</div><div class="v">${s.hours}<small>h</small></div></div>${port(s)}</div>`,
+    `<span class="btn go">${I("play")}启动</span><span class="sp"></span><span class="btn ghost ic">${I("more")}</span>`),
+  boot: s => dCard(s, `<span class="pill warm"><span class="d"></span>启动中</span>`,
+    `<div style="display:flex;flex-direction:column;gap:8px;padding:6px 0 18px"><div class="bar"><i></i></div><div class="steps"><span>准备 Java ✓</span><span>·</span><b>加载世界</b><span>·</span><span>就绪</span></div></div>`,
+    `<span class="btn">${I("console")}控制台</span><span class="btn ghost">${I("stop")}停止</span><span class="sp"></span><span class="btn ghost ic">${I("more")}</span>`),
+};
+
 const row = (title, desc, cards, rec, labels = ["开着", "停着", "启动中"]) =>
   `<div class="row-h"><h2>${title}</h2>${rec ? '<span class="rec">我推荐</span>' : ""}<span class="d">${desc}</span></div>
    <div class="grid">${cards.map((c, i) => `<div><div class="cap-l">${labels[i]}</div>${c}</div>`).join("")}</div>`;
 
 KIT_READY.then(() => {
   document.getElementById("rows").innerHTML =
+    row("D · A 的内容 + C 的封面", "作者选的方向：封面窄一点，状态和星标放在封面上，头像压在封面下沿，下面是 A 的三格数字。", [D.run(S.run), D.stop(S.stop), D.boot(S.boot)], false) +
     row("A · 数据为主", "三格数字一样大，状态是右上角的胶囊。整齐，但哪一格都不比别的重要。", [A.run(S.run), A.stop(S.stop), A.boot(S.boot)]) +
     row("B · 人和连接为主", "状态并进名字下面那一行；中间是谁在玩；底下是朋友要的连接地址，点一下复制。按钮只剩图标。", [B.run(S.run), B.stop(S.stop), B.boot(S.boot)], true) +
     row("B 的另外几种样子", "绑了内网穿透时地址换成公网的；没能启动时原因和修法直接在卡上；停止中。", [B.run(S.run, true), B.fail(S.stop), B.stopping(S.run)], false, ["开着、绑了内网穿透", "没能启动", "正在停止"]) +

@@ -77,6 +77,28 @@ window.EXTRA_ICONS = {
   .btn.go { background: var(--accent-subtle); color: var(--accent-text); border-color: transparent; }
   .lc .acts .more { margin-left: auto; }
 
+  /* 大卡第四版：A 的三格数字 + C 的核心色封面（作者 11-25 选的） */
+  .lc { padding: 0; gap: 0; overflow: hidden; position: relative; }
+  .lc .cover { height: 58px; position: relative; background: color-mix(in srgb, var(--c) 30%, var(--surface)); }
+  .lc .cover::after { content: ""; position: absolute; inset: 0; opacity: .16; pointer-events: none;
+    background-image: linear-gradient(45deg, rgb(0 0 0 / .5) 25%, transparent 25%, transparent 75%, rgb(0 0 0 / .5) 75%), linear-gradient(45deg, rgb(0 0 0 / .5) 25%, transparent 25%, transparent 75%, rgb(0 0 0 / .5) 75%);
+    background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+  .lc .cover .st { position: absolute; top: 10px; left: 12px; margin: 0; z-index: 1; padding: 3px 10px 3px 8px; border-radius: var(--r-full); backdrop-filter: blur(6px);
+                   background: color-mix(in srgb, var(--surface) 70%, transparent); }
+  .lc .cover .st i { box-shadow: none; }
+  .lc .cover .pin { position: absolute; top: 6px; right: 8px; z-index: 1; }
+  .lc .dhead { display: flex; align-items: flex-end; gap: 12px; padding: 0 18px; margin-top: -22px; position: relative; z-index: 2; }
+  .lc .dhead .px-avatar { box-shadow: 0 0 0 4px var(--surface); }
+  .lc .inner { padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 14px; flex: 1; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .stats > div { padding: 8px 10px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+  .stats .k { font-size: 11.5px; color: var(--muted); }
+  .stats .v { font-family: var(--mono); font-size: 20px; font-weight: 600; letter-spacing: -.02em; line-height: 28px; display: flex; align-items: center; gap: 6px; }
+  .stats .v small { font-size: 12px; color: var(--faint); font-weight: 400; }
+  .stats .v .ico { color: var(--faint); width: 14px; height: 14px; }
+  .steps { display: flex; gap: 6px; font-size: 11.5px; color: var(--faint); }
+  .steps b { color: var(--warning-text); font-weight: 500; }
+
   /* 星标（置顶）：钉住的一直亮着，没钉的悬停才出现 */
   .pin { width: 28px; height: 28px; border-radius: var(--r-full); border: 0; background: none; display: grid; place-items: center; color: var(--faint); cursor: pointer; opacity: 0; flex: none; }
   .pin.on { opacity: 1; color: var(--warning); }
@@ -197,19 +219,21 @@ const star = (s, i) => `<button class="pin${s.pin ? " on" : ""}" data-i="${i}" t
 const status = s => s.st === "running" ? `<span class="st"><i></i>运行中</span>` : s.st === "starting" ? `<span class="st warm"><i></i>启动中</span>` : `<span class="st off"><i></i>已停止</span>`;
 
 function big(s, i) {
-  const addr = `<div style="margin-left:auto;align-self:center"><span class="addr">:${s.port}<i data-ic="copy"></i></span></div>`;
+  const port = `<div><div class="k">端口</div><div class="v" title="点一下复制连接地址">${s.port}<i data-ic="copy"></i></div></div>`;
   let body, acts;
   if (s.st === "running") {
-    body = `<div class="big"><div><div class="v">${s.players}<small>/${s.max}</small></div><div class="k">在线</div></div><div><div class="v">${s.up}</div><div class="k">已运行</div></div>${addr}</div>`;
+    body = `<div class="stats"><div><div class="k">在线</div><div class="v">${s.players}<small>/${s.max}</small></div></div><div><div class="k">已运行</div><div class="v">${s.up}</div></div>${port}</div>`;
     acts = `<span class="btn"><i data-ic="console"></i>控制台</span><span class="btn ghost"><i data-ic="stop"></i>停止</span>`;
   } else if (s.st === "starting") {
-    body = `<div style="display:flex;flex-direction:column;gap:8px;padding:6px 0 2px"><div class="bar"><i></i></div><div class="meta">正在加载世界 · 12 秒</div></div>`;
+    body = `<div style="display:flex;flex-direction:column;gap:8px;padding:8px 0 20px"><div class="bar"><i></i></div><div class="steps"><span>准备 Java ✓</span><span>·</span><b>加载世界</b><span>·</span><span>就绪</span></div></div>`;
     acts = `<span class="btn"><i data-ic="console"></i>控制台</span><span class="btn ghost"><i data-ic="stop"></i>停止</span>`;
   } else {
-    body = `<div class="big"><div><div class="v">${s.last}</div><div class="k">上次玩</div></div><div><div class="v">${s.hours}<small> 小时</small></div><div class="k">一共开过</div></div>${addr}</div>`;
-    acts = `<span class="btn go"><i data-ic="play"></i>启动</span><span class="btn ghost"><i data-ic="console"></i>控制台</span>`;
+    body = `<div class="stats"><div><div class="k">上次玩</div><div class="v" style="font-size:17px">${s.last}</div></div><div><div class="k">一共开过</div><div class="v">${s.hours}<small>h</small></div></div>${port}</div>`;
+    acts = `<span class="btn go"><i data-ic="play"></i>启动</span>`;
   }
-  return `<div class="lc"><div class="top">${av(s, "lg")}<div style="min-width:0"><div class="nm">${s.name}</div><div class="meta">${s.label} · ${s.mc}</div></div><span style="margin-left:auto"></span>${star(s, i)}${status(s)}</div>${body}<div class="acts">${acts}<span class="btn ghost more"><i data-ic="more"></i></span></div></div>`;
+  return `<div class="lc" style="--c:${MDPixel.CORE_COLORS[s.core]}"><div class="cover">${status(s)}${star(s, i)}</div>
+    <div class="dhead">${av(s, "lg")}<div style="min-width:0"><div class="nm">${s.name}</div><div class="meta">${s.label} · ${s.mc}</div></div></div>
+    <div class="inner">${body}<div class="acts">${acts}<span class="btn ghost more"><i data-ic="more"></i></span></div></div></div>`;
 }
 function tile(s, i) {
   const meta = s.st === "running" ? `<div class="meta on"><i></i>${s.players} 人在线</div>` : `<div class="meta">${s.label} · ${s.mc}</div>`;
