@@ -1,7 +1,6 @@
 package inst
 
 import (
-	"bufio"
 	"fmt"
 	"net"
 	"os"
@@ -13,44 +12,15 @@ import (
 	"time"
 
 	"minedeck/internal/events"
+	"minedeck/internal/fakeserver"
 	"minedeck/internal/mcsrc"
 )
 
-// fakeServerEnv 设了它，测试程序就扮演服务器进程（TestMain 里先看）：打出 Done，然后按标准输入里的命令行事。
-const fakeServerEnv = "MINEDECK_FAKE_SERVER"
+// fakeServerEnv 设了它，测试程序就扮演服务器进程（TestMain 里先看，见 internal/fakeserver）：打出 Done，然后按标准输入里的命令行事。
+const fakeServerEnv = fakeserver.Env
 
 // fakeSaveEnv 仿真服务端收到 save-all flush 怎么回：world = 回「Saved the world」，silent = 不回，别的 = 回「Saved the game」。
-const fakeSaveEnv = "MINEDECK_FAKE_SAVE"
-
-// fakeServer stop：像原版那样打「Stopping the server」再退出；opstop：游戏里的管理员发的 stop；
-// crash：什么都不说直接退出码 0（模组加载失败时 Forge 就是这样）。
-func fakeServer() int {
-	fmt.Println(`[12:00:00] [Server thread/INFO]: Done (1.0s)! For help, type "help"`)
-	sc := bufio.NewScanner(os.Stdin)
-	for sc.Scan() {
-		switch strings.TrimSpace(sc.Text()) {
-		case "stop":
-			fmt.Println("[12:00:01] [Server thread/INFO]: Stopping the server")
-			return 0
-		case "opstop":
-			fmt.Println("[12:00:01] [Server thread/INFO]: [Steve: Stopping the server]")
-			return 0
-		case "crash":
-			return 0
-		case "save-all flush":
-			switch os.Getenv(fakeSaveEnv) {
-			case "world": // 1.12.2 及更早的说法
-				fmt.Println("[12:00:01] [Server thread/INFO]: Saved the world")
-			case "silent": // 保存得慢，迟迟不回确认
-			default:
-				fmt.Println("[12:00:01] [Server thread/INFO]: Saved the game")
-			}
-		case "save-on":
-			fmt.Println("[12:00:01] [Server thread/INFO]: Automatic saving enabled")
-		}
-	}
-	return 0
-}
+const fakeSaveEnv = fakeserver.SaveEnv
 
 // 控制台发 stop、游戏里的管理员发 stop 都是用户自己要停：退出时发 instance.stop、不走崩溃自动重启；
 // 没人要停、进程自己以退出码 0 退了，仍算崩溃，而且不说「正常关闭」（测试报告：控制台 stop 后被崩溃自动重启拉起来）。

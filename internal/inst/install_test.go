@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"minedeck/internal/app"
+	"minedeck/internal/fakeserver"
 	"minedeck/internal/mcsrc"
 )
 
@@ -34,7 +35,7 @@ var testJava17 string // 假的本机 Java 17 的路径，TestMain 里准备
 
 func TestMain(m *testing.M) {
 	if os.Getenv(fakeServerEnv) == "1" { // proc_test.go：测试程序自己扮演服务器进程
-		os.Exit(fakeServer())
+		os.Exit(fakeserver.Run())
 	}
 	dir, err := os.MkdirTemp("", "amh-inst-test")
 	if err != nil {
