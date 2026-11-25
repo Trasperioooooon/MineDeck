@@ -611,6 +611,33 @@ func (c *cat) instanceOps() {
 	})
 
 	c.reg.Register(&ops.Op{
+		// NoLog：只读，界面输入变化即实时试算，不记操作记录
+		Name: "instance.settings.preview", Title: "预览启动与内存参数", Level: ops.HumanOnly, NoLog: true,
+		Desc: "不落盘地算出「启动与内存」页当前填写内容会存下、会使用的完整参数与提示，仅供界面实时预览（A28，A25 保存参数校验）。",
+		Params: withInst(map[string]*ops.Schema{
+			"xmxMb":           ops.Integer("最大内存（MB），不低于 512；0 表示不改"),
+			"xmsMb":           ops.Integer("最小内存（MB）；不合理时按 min(1024, 最大内存) 算"),
+			"consoleEncoding": ops.String("控制台编码：auto、utf-8、gbk；空表示不改"),
+			"extraJvm":        ops.Array("自定义 JVM 参数，一行一个，传了就整体替换", ops.String("一个参数")),
+		}),
+		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
+			p, err := bind[settingsArgs](a)
+			if err != nil {
+				return nil, err
+			}
+			i, err := c.get(p.Inst)
+			if err != nil {
+				return nil, err
+			}
+			res, err := i.PreviewSettings(p.XmxMB, p.XmsMB, p.ConsoleEncoding, p.ExtraJVM)
+			if err != nil {
+				return nil, ops.Wrap(400, err)
+			}
+			return res, nil
+		},
+	})
+
+	c.reg.Register(&ops.Op{
 		Name: "instance.props.get", Title: "读取 server.properties", Level: ops.Read,
 		Desc:   "server.properties 的全部键值（按文件里的顺序），以及服务器是否在运行（运行中改的要重启才生效）。",
 		Params: withInst(nil),

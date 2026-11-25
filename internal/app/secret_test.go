@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -27,6 +28,9 @@ func fileHas(t *testing.T, name, s string) bool {
 
 // 旧配置里的明文 cfApiKey：启动时加密挪进 secrets.json，config.json 里不再有它，读出来照旧可用。
 func TestMigrateCFKey(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	writeConfig(t, map[string]any{"source": "auto", "cfApiKey": "plain-cf-key-123", "webhookUrl": "https://example.com/hook"})
 	restart()
@@ -75,6 +79,9 @@ func TestMigrateCFKeyFailureKeepsPlaintext(t *testing.T) {
 
 // 保存新 Key 加密存放，并顺手清掉残留的旧明文；空串清除；解不开时当作没设置。
 func TestSetCFKey(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	writeConfig(t, map[string]any{"source": "auto", "cfApiKey": "leftover-plain"})
 	restart() // 不迁移，模拟上次迁移失败留下的明文

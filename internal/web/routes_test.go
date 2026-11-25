@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -33,6 +34,7 @@ type fullEnv struct {
 	mgr     *inst.Manager
 	secrets []string // 任何响应里都不能出现的东西
 	tunID   string
+	acc     *tunnel.Accounts
 	dials   *noDial
 	asst    *assistant.Service
 	mcp     *mcp.Service // MCP 接口（默认关着）
@@ -75,6 +77,9 @@ const (
 
 func newFullEnv(t *testing.T) *fullEnv {
 	t.Helper()
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	old := []string{app.Base, app.ServersDir, app.BackupsDir, app.CacheDir, app.RuntimesDir}
 	t.Cleanup(func() {
 		app.Base, app.ServersDir, app.BackupsDir, app.CacheDir, app.RuntimesDir = old[0], old[1], old[2], old[3], old[4]
@@ -124,7 +129,7 @@ func newFullEnv(t *testing.T) *fullEnv {
 	asst := catalog.NewAssistant(reg, aiSvc, Token)
 	mcpSvc := catalog.NewMCP(reg, Token)
 	mcpSvc.Start(27333, 27333)
-	e := &fullEnv{h: New(mgr, tun, reg, asst, WithMCP(mcpSvc)), mgr: mgr, tunID: tt.ID, dials: nd, asst: asst, mcp: mcpSvc}
+	e := &fullEnv{h: New(mgr, tun, reg, asst, WithMCP(mcpSvc)), mgr: mgr, tunID: tt.ID, acc: accounts, dials: nd, asst: asst, mcp: mcpSvc}
 	e.call(t, "PUT", "/api/config", `{"lanPassword":"`+lanPass+`","listenLan":true,"webhookUrl":"https://hook.example/x?access_token=`+hookToken+`"}`, 200)
 	e.secrets = []string{cfKey, lanPass, sakuraKey, frpsToken, app.GetConfig().AccessPasswordHash}
 	return e

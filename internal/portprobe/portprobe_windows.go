@@ -1,4 +1,4 @@
-package catalog
+package portprobe
 
 import (
 	"encoding/binary"
@@ -19,32 +19,6 @@ const (
 	afInet                   = 2
 	afInet6                  = 23
 )
-
-// portOwners 查哪些进程在监听这个端口（TCP 只看监听的，UDP 看绑定的），IPv4 和 IPv6 都查。查不到返回空。
-func portOwners(port int, udp bool) []int {
-	seen := map[int]bool{}
-	var out []int
-	portTable(udp, func(p, pid int) {
-		if p == port && !seen[pid] {
-			seen[pid] = true
-			out = append(out, pid)
-		}
-	})
-	return out
-}
-
-// tcpListeners 这台电脑上正在监听的 TCP 端口，端口 → 第一个查到的进程编号（IPv4 和 IPv6 都算）。
-// 只读一次系统的监听表，不试绑端口：推荐默认端口时要连着看好多个，而且试绑所有网卡会让防火墙弹窗问要不要放行（见 inst.PortProbeHost）。
-// 查不了（没有这个系统调用）返回空表。
-func tcpListeners() map[int]int {
-	out := map[int]int{}
-	portTable(false, func(p, pid int) {
-		if _, ok := out[p]; !ok {
-			out[p] = pid
-		}
-	})
-	return out
-}
 
 // portTable 把系统的 TCP 监听表（udp 为真时是 UDP 绑定表）逐行交给 fn(端口, 进程编号)，IPv4 和 IPv6 都给；进程编号为 0 的行不给。
 func portTable(udp bool, fn func(port, pid int)) {
@@ -70,7 +44,9 @@ func portTable(udp bool, fn func(port, pid int)) {
 		if size == 0 || size > 16<<20 {
 			continue
 		}
-		buf := make([]byte, size)
+		// 两次调用之间如果多出几个监听端口，size+256 留出富余
+		buf := make([]byte, size+256)
+		size = uint32(len(buf))
 		r, _, _ := proc.Call(uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&size)), 0, uintptr(af), uintptr(class), 0)
 		if r != 0 || len(buf) < 4 {
 			continue
@@ -91,8 +67,8 @@ func portTable(udp bool, fn func(port, pid int)) {
 	}
 }
 
-// processName 进程的程序名（如 java.exe）；查不到返回空串。
-func processName(pid int) string {
+// ProcessName 进程的程序名（如 java.exe）；查不到返回空串。
+func ProcessName(pid int) string {
 	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
 	if err != nil {
 		return ""
@@ -103,5 +79,5 @@ func processName(pid int) string {
 	if err := windows.QueryFullProcessImageName(h, 0, &buf[0], &n); err != nil {
 		return ""
 	}
-	return baseExe(windows.UTF16ToString(buf[:n]))
+	return BaseExe(windows.UTF16ToString(buf[:n]))
 }

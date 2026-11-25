@@ -310,3 +310,61 @@ func TestJournalValidate(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// 上次写到一半留下的 journal.json.tmp 要是服务器文件夹外某个文件的硬链接（A11），再写记录时不能改到外面那份。
+func TestSaveJournalLeftoverTmpHardlinkUntouched(t *testing.T) {
+	dir, j := setup(t)
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	const keep = "outside, do not touch\n"
+	if err := os.WriteFile(outside, []byte(keep), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tmp := journalPath(dir, j.ID) + ".tmp"
+	if err := os.Link(outside, tmp); err != nil {
+		t.Fatalf("建硬链接失败（要在允许建硬链接的盘上跑）：%v", err)
+	}
+	j.State = TxCommitting
+	if err := saveJournal(dir, j); err != nil {
+		t.Fatalf("写记录：%v", err)
+	}
+	if got := read(t, outside); got != keep {
+		t.Fatalf("服务器文件夹外的文件被改了：%q", got)
+	}
+	j2, err := loadJournal(dir, j.ID)
+	if err != nil || j2.State != TxCommitting {
+		t.Fatalf("记录应写成新的状态：%+v %v", j2, err)
+	}
+	if _, err := os.Lstat(tmp); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("临时文件应已改名成 journal.json：%v", err)
+	}
+}
+
+// 留下的 journal.json.tmp 是外面某个只读文件的硬链接：外面那份的内容和只读属性都不能动。
+// Windows 上 os.Remove 删只读文件会先去掉只读属性，硬链接两端共用这个属性，所以不能先删再说。
+func TestSaveJournalReadOnlyLeftoverTmpKeepsOutsideReadOnly(t *testing.T) {
+	dir, j := setup(t)
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	const keep = "outside, read-only\n"
+	if err := os.WriteFile(outside, []byte(keep), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(outside, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(outside, 0o644) })
+	if err := os.Link(outside, journalPath(dir, j.ID)+".tmp"); err != nil {
+		t.Fatalf("建硬链接失败（要在允许建硬链接的盘上跑）：%v", err)
+	}
+	j.State = TxCommitting
+	_ = saveJournal(dir, j) // 写不写得成不要紧（以前带 O_TRUNC 也是打不开、报错），要紧的是外面那份
+	st, err := os.Stat(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode().Perm()&0o200 != 0 {
+		t.Fatalf("外面那份的只读属性被去掉了：%v", st.Mode())
+	}
+	if got := read(t, outside); got != keep {
+		t.Fatalf("服务器文件夹外的文件被改了：%q", got)
+	}
+}

@@ -9,25 +9,33 @@ import (
 )
 
 // lockExclusive 模拟别的程序独占着一个文件（见 testlock_windows_test.go）。Mac 上没有独占打开：
-// 改成读写不了（权限清零），再加上不可更改标记（chflags uchg：换不掉、删不掉），放开时改回原样。
+// 按打开着的文件描述符（O_EVTONLY）清零权限并加不可更改标记（chflags uchg），撤销和清理也走这个 fd，
+// 这样即使测试途中上层文件夹被改名，仍能稳定撤销标记让临时目录删得掉。
 func lockExclusive(t *testing.T, path string) func() {
 	t.Helper()
 	st, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(path, 0); err != nil {
+	fd, err := unix.Open(path, unix.O_EVTONLY|unix.O_CLOEXEC, 0)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := unix.Chflags(path, unix.UF_IMMUTABLE); err != nil {
-		_ = os.Chmod(path, st.Mode().Perm())
+	if err := unix.Fchmod(fd, 0); err != nil {
+		_ = unix.Close(fd)
+		t.Fatal(err)
+	}
+	if err := unix.Fchflags(fd, unix.UF_IMMUTABLE); err != nil {
+		_ = unix.Fchmod(fd, uint32(st.Mode().Perm()))
+		_ = unix.Close(fd)
 		t.Fatal(err)
 	}
 	var once sync.Once
 	undo := func() {
 		once.Do(func() {
-			_ = unix.Chflags(path, 0)
-			_ = os.Chmod(path, st.Mode().Perm())
+			_ = unix.Fchflags(fd, 0)
+			_ = unix.Fchmod(fd, uint32(st.Mode().Perm()))
+			_ = unix.Close(fd)
 		})
 	}
 	t.Cleanup(undo)

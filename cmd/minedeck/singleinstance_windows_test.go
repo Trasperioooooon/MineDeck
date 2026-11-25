@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// A23.1（含返工 R5、R6）：同一个文件夹里同时只许开一份 MineDeck，默认等 3 秒；
+// A23.1：同一个文件夹里同时只许开一份 MineDeck，默认等 3 秒；
 // 普通启动拿不到时写标准错误并弹系统提示框，带 -nogui 或 -minimized（quiet=true）时只写标准错误不弹框；
 // 不同文件夹各放一份可同时开，旧进程在等待期内退出则新进程可接着拿到。
 func TestSingleInstancePerFolder(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"io"
 	"net/url"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -12,6 +13,9 @@ import (
 // frpc 的输出进控制台缓冲和卡片上的报错之前，先遮掉这次启动用的凭据（2026-11-14 Codex 复审第 6 条）。
 // 这两处局域网登录的设备都看得到；OpenFrp、樱花的凭据是放在命令行参数里交给 frpc 的。
 func TestFrpcOutputMasksCredential(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	const cred = "sk-Secret+Token/123=中"
 	m := NewManager()
@@ -81,6 +85,9 @@ func TestCredMasker(t *testing.T) {
 }
 
 func TestShortCredentialMaskPreservesControlSignals(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	m := NewManager()
 	tt, err := m.Add(Tunnel{Provider: "natfrp", Name: "short", Credential: "1", ProxyID: "9"})

@@ -560,7 +560,7 @@ func TestFreePortFromDoesNotReResolveDomain(t *testing.T) {
 	}
 }
 
-// 阶段 04 尾巴 2：本软件一台服务器真开着，正在监听和自己当前配置不一样的端口（比如运行中改过端口还没重启）：
+// A04：本软件一台服务器真开着，正在监听和自己当前配置不一样的端口（比如运行中改过端口还没重启）：
 // liveOwn 为假，只靠 ownPIDs[pid] 认出是自家进程，CheckFormPort 不拦。
 func TestCheckFormPortOwnPIDWithoutLiveOwn(t *testing.T) {
 	t.Setenv(fakeServerEnv, "1")
@@ -624,7 +624,7 @@ func TestCheckFormPortOwnPIDWithoutLiveOwn(t *testing.T) {
 	}
 }
 
-// 阶段 04 尾巴 4：startInstance 试绑失败后放开 procMu 去查保留段的窗口里，另一次启动已成功（含仍在运行、或随后正常停服），
+// A07：startInstance 试绑失败后放开 procMu 去查保留段的窗口里，另一次启动已成功（含仍在运行、或随后正常停服），
 // 迟到的第一次 Start 返回错误时不得补写过期的失败记录。
 func TestStartPortFailWindowInterleave(t *testing.T) {
 	t.Setenv(fakeServerEnv, "1")

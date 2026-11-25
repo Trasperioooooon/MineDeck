@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -41,6 +42,9 @@ const nasty = `tok+en&"q'<x>\y 中文😀` // 含 html/template 会转义的字�
 
 // 新增、修改隧道后 tunnels.json 里只有 DPAPI 密文；列表接口不下发凭据；凭据留空表示不修改。
 func TestCredentialsEncryptedAtRest(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	m := NewManager()
 	a, err := m.Add(Tunnel{Provider: "openfrp", Name: "朋友联机", Credential: "openfrp-user-key-123", ProxyID: "42", LocalPort: 25565})
@@ -83,6 +87,9 @@ func TestCredentialsEncryptedAtRest(t *testing.T) {
 
 // 旧版 tunnels.json 的明文凭据：启动时加密写回；旧版留下的、写着明文 token 的 frpc 配置文件一并删掉。
 func TestMigratePlaintextTunnels(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	legacy := `{"seq":2,"tunnels":[
 {"id":"tun1","provider":"natfrp","name":"樱花","credential":"sakura-access-key","proxyId":"9","localPort":25565,"autoStart":false},
@@ -125,6 +132,9 @@ func TestMigratePlaintextTunnels(t *testing.T) {
 
 // 换了电脑或 Windows 用户：凭据解不开，列表里标出来，启动直接报错（不去下载 frpc、不起进程）。
 func TestUnreadableCredential(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	data := `{"seq":1,"tunnels":[{"id":"tun1","provider":"custom","name":"自建","credential":"dpapi:AAAA","serverAddr":"1.2.3.4","serverPort":7000,"remotePort":25566,"localPort":25565,"autoStart":false}]}`
 	if err := os.WriteFile(filepath.Join(app.Base, "tunnels.json"), []byte(data), 0o600); err != nil {
@@ -219,6 +229,9 @@ func TestCustomFrpcConfigHasNoToken(t *testing.T) {
 
 // tunnels.json 的整体结构不变（老版本读得懂、字段没少）。
 func TestTunnelsJSONShape(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	m := NewManager()
 	if _, err := m.Add(Tunnel{Provider: "openfrp", Name: "a", Credential: "k", ProxyID: "1", LocalPort: 25565}); err != nil {
@@ -239,6 +252,9 @@ func TestTunnelsJSONShape(t *testing.T) {
 // 用途（第五阶段）：老数据没有这一项按「游戏」算；语音隧道照样存取；写错了报错。自定义 frps 可以选 UDP
 // （语音隧道用），配置里生成 type = "udp"；樱花、OpenFrp 的协议在服务商后台定，传了也清掉。
 func TestTunnelPurposeAndProto(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	legacy := `{"seq":1,"tunnels":[{"id":"tun1","provider":"natfrp","name":"老隧道","credential":"","proxyId":"9","localPort":25565,"autoStart":false}]}`
 	if err := os.WriteFile(filepath.Join(app.Base, "tunnels.json"), []byte(legacy), 0o600); err != nil {
@@ -283,6 +299,9 @@ func TestTunnelPurposeAndProto(t *testing.T) {
 
 // 拿到公网地址时发 tunnel.up，带上隧道编号（音乐共享按编号找到绑定的实例，把语音隧道的地址写进 voice_host）。
 func TestTunnelUpEventHasID(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	got := make(chan map[string]any, 4)
 	events.Subscribe(func(e events.Event) {
@@ -312,6 +331,9 @@ func TestTunnelUpEventHasID(t *testing.T) {
 // 开了跟随启动的隧道跟着实例停（测试报告 C-03）：停服后等一会儿还是停着就停掉；没勾跟随启动的、别的实例的不动；
 // 重启（停了马上又开）不来回开关。
 func TestFollowInstancesStop(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	old := stopGrace
 	stopGrace = 50 * time.Millisecond
@@ -365,6 +387,9 @@ func TestFollowInstancesStop(t *testing.T) {
 // 跟随启动失败（首次使用樱花还没放 frpc）：记一条失败的 tunnel.start 操作记录（带错误），失败原因记进 lastError，
 // 卡片上直接显示，说明是「跟随启动」失败的；手动启动失败的说法是「启动失败」（测试报告第五轮）。
 func TestFollowStartFailureNotedAndShown(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	old := startDelay
 	startDelay = 10 * time.Millisecond
@@ -411,6 +436,9 @@ func TestLastErrorTruncatesByRune(t *testing.T) {
 
 // frpc 跑起来时清掉上一次的失败原因；没报错就自己退出时，记一条「意外退出」（卡片上看得到，不用点开日志）。
 func TestUnexpectedExitShownAsLastError(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("frpc 结构检查只认 Windows PE 程序（Mac 版 frpc 见 D01）")
+	}
 	tempBase(t)
 	ping, err := exec.LookPath("ping") // 替 frpc：参数不对，马上退出
 	if err != nil {
@@ -452,6 +480,9 @@ func TestUnexpectedExitShownAsLastError(t *testing.T) {
 // 樱花同时给域名和节点 IP 两种地址时用域名（测试报告第五轮：IP 会随节点变），两行谁先谁后都一样；
 // 新的一次运行只给了 IP（换了节点）就用 IP，不卡在上次的域名上。
 func TestPublicAddrPrefersDomain(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	m := NewManager()
 	tt, err := m.Add(Tunnel{Provider: "natfrp", Name: "游戏", Credential: "k", ProxyID: "10"})
@@ -487,6 +518,9 @@ func TestPublicAddrPrefersDomain(t *testing.T) {
 // PublicAddr 跨次保存着：新一次运行连上之前 Online 为 false（界面据此不拿上次的地址盖住这次的报错），
 // 报了成功或拿到地址才算连上；停下以后不再 Online。
 func TestOnlineTracksThisRun(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	m := NewManager()
 	tt, err := m.Add(Tunnel{Provider: "natfrp", Name: "游戏", Credential: "k", ProxyID: "10"})
@@ -518,6 +552,9 @@ func TestOnlineTracksThisRun(t *testing.T) {
 // 樱花、OpenFrp 的隧道不存 frps 地址和端口（启动时只传隧道 ID，端口在服务商后台填，存着的数会误导）：
 // 新增时清掉；老数据加载时清掉并写回；自定义 frps 的照旧。
 func TestUnusedPortsNotStored(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	tempBase(t)
 	legacy := `{"seq":2,"tunnels":[
 {"id":"tun1","provider":"natfrp","name":"语音","credential":"","proxyId":"9","serverPort":7000,"remotePort":25566,"localPort":25565,"autoStart":true},

@@ -22,6 +22,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"minedeck/internal/linkmode"
 )
 
 // instanceMaxDepth 服务器文件夹往下最多找几层（0 是只看服务器根目录这一层）。
@@ -94,8 +96,7 @@ func (r *Result) add(o Result) { r.Files += o.Files; r.Bytes += o.Bytes }
 // plainDir p 是一个真的文件夹，不是链接、目录联接。
 // 是链接或联接的不清：里面的东西其实在别处（比如服主把 mods 联接到几台服共用的模组库），不归这台服务器管（2026-11-19 Codex 复审）。
 func plainDir(p string) bool {
-	st, err := os.Lstat(p)
-	return err == nil && st.IsDir() && st.Mode()&(fs.ModeSymlink|fs.ModeIrregular) == 0
+	return linkmode.IsPlainDir(p)
 }
 
 // Dir 只清 dir 这一层：名字是 MineDeck 的临时文件、最后一次改动在 minAge 以前的普通文件。dir 不在、读不了都不算错。
@@ -126,8 +127,8 @@ func Tree(root string, maxDepth int, minAge time.Duration) Result {
 		return res
 	}
 	for _, e := range ents {
-		if e.IsDir() { // 链接、目录联接不算文件夹（Type 里带着别的标记），不会走进去
-			if maxDepth > 0 && e.Type()&(fs.ModeSymlink|fs.ModeIrregular) == 0 {
+		if e.IsDir() { // 链接、目录联接不算真文件夹（IsLink 拦住），云同步真实文件夹放行
+			if maxDepth > 0 && !linkmode.IsLink(e.Type()) {
 				res.add(Tree(filepath.Join(root, e.Name()), maxDepth-1, minAge))
 			}
 			continue
@@ -159,7 +160,7 @@ func instanceTree(root string, maxDepth int, minAge time.Duration) Result {
 	}
 	for _, e := range ents {
 		if e.IsDir() {
-			if maxDepth > 0 && e.Type()&(fs.ModeSymlink|fs.ModeIrregular) == 0 {
+			if maxDepth > 0 && !linkmode.IsLink(e.Type()) {
 				sub := filepath.Join(root, e.Name())
 				if !isWorldDir(sub) {
 					res.add(instanceTree(sub, maxDepth-1, minAge))

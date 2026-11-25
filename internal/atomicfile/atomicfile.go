@@ -24,6 +24,9 @@ var Hook func(path string)
 // 用不同的名字以后，同时保存的两份各自完整，后改名的那一份留下。「后保存的盖掉先保存的改动」这件事它不管，
 // 要靠调用方把「读、改、写」串起来（见 inst.UpdateProps）。
 //
+// 原文件是硬链接（A11）：临时文件改名替换会直接解除目标路径的原硬链接绑定、把目标指向新写的文件，
+// 不会通过硬链接修改外面的另一份，因此即使目标硬链接数 > 1 也可以安全放行。
+//
 // 原文件是只读的：Windows 用忽略只读属性的扩展改名，不先改动原文件属性；文件系统不支持则报错并清理临时文件，绝不先删原文件。
 // 目标或临时文件被别的程序短暂打开着时（不论原文件可写走普通改名，还是只读走扩展改名退路）：隔一会儿再试几次，约半秒为限，见 replace_windows.go。
 func Write(path string, data []byte, perm fs.FileMode) error {
@@ -55,15 +58,18 @@ func WriteProtected(path string, data []byte, perm fs.FileMode) error {
 	return copyChecked(path, bytes.NewReader(data), perm, nil, nil, false)
 }
 
-func copyChecked(path string, r io.Reader, perm fs.FileMode, check func(string) error, wrap func(io.Writer) io.Writer, allowReadOnly bool) (err error) {
-	f, err := os.CreateTemp(filepath.Dir(path), ".minedeck-write-*.tmp")
+func writeTemp(dir string, r io.Reader, perm fs.FileMode, check func(string) error, wrap func(io.Writer) io.Writer) (_ string, err error) {
+	f, err := os.CreateTemp(dir, ".minedeck-write-*.tmp")
 	if err != nil {
-		return err
+		return "", err
 	}
 	tmp := f.Name()
+	cleanup := true
 	defer func() {
-		if e := os.Remove(tmp); e != nil && !errors.Is(e, fs.ErrNotExist) {
-			err = errors.Join(err, fmt.Errorf("清理临时文件失败：%w", e))
+		if cleanup {
+			if e := os.Remove(tmp); e != nil && !errors.Is(e, fs.ErrNotExist) {
+				err = errors.Join(err, fmt.Errorf("清理临时文件失败：%w", e))
+			}
 		}
 	}()
 	var w io.Writer = f
@@ -78,14 +84,40 @@ func copyChecked(path string, r io.Reader, perm fs.FileMode, check func(string) 
 		err = cerr
 	}
 	if err != nil {
-		return err
+		return "", err
 	}
 	if check != nil {
 		if err := check(tmp); err != nil {
-			return err
+			return "", err
 		}
 	}
-	return replacePrepared(context.Background(), tmp, path, allowReadOnly)
+	cleanup = false
+	return tmp, nil
+}
+
+func removeTempIfLeft(tmp string, err error) error {
+	if e := os.Remove(tmp); e != nil && !errors.Is(e, fs.ErrNotExist) {
+		return errors.Join(err, fmt.Errorf("清理临时文件失败：%w", e))
+	}
+	return err
+}
+
+func copyChecked(path string, r io.Reader, perm fs.FileMode, check func(string) error, wrap func(io.Writer) io.Writer, allowReadOnly bool) (err error) {
+	tmp, err := writeTemp(filepath.Dir(path), r, perm, check, wrap)
+	if err != nil {
+		return err
+	}
+	return removeTempIfLeft(tmp, replacePrepared(context.Background(), tmp, path, allowReadOnly))
+}
+
+// WriteNew 把 data 写进同一个文件夹的临时文件、刷盘后只在目标不存在时通过 PublishNew 一步发布；
+// 目标已存在时返回满足 errors.Is(err, fs.ErrExist) 的错误、不动目标，并在返回前清理临时文件。
+func WriteNew(path string, data []byte, perm fs.FileMode) error {
+	tmp, err := writeTemp(filepath.Dir(path), bytes.NewReader(data), perm, nil, nil)
+	if err != nil {
+		return err
+	}
+	return removeTempIfLeft(tmp, PublishNew(tmp, path))
 }
 
 // Replace 将已写完的同卷临时文件换到 path。失败时 tmp 留给调用方清理，绝不先删原文件。

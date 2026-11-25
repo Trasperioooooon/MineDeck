@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"minedeck/internal/app"
+	"minedeck/internal/linkmode"
 	"minedeck/internal/tasks"
 	"minedeck/internal/winname"
 )
@@ -28,7 +29,7 @@ var ErrCreatingConflict = errors.New("creating leftover conflict")
 // 不该因此进服务器列表。建成了由登记处记成扫描根（markCreated）。
 func WriteCreatingMarker(dir, name string) error {
 	app.RememberCreatingRoot(filepath.Dir(dir))
-	return os.WriteFile(filepath.Join(dir, CreatingMarker), []byte(strings.TrimSpace(name)+"\n"), 0o644)
+	return writeFileNoHardlink(filepath.Join(dir, CreatingMarker), []byte(strings.TrimSpace(name)+"\n"), 0o644)
 }
 
 // markCreated 登记的收尾，instance.json 写好以后调（completeCreate、FinalizeCreate）：先把所在的存放位置记成扫描根，再去掉创建记号。
@@ -146,6 +147,8 @@ func leftoverID(root, name string) string {
 	return leftoverRootKey(root) + "/" + name
 }
 
+// leftoverRootKey 返回位置规范路径（经 foldRoot 处理后）的 FNV-32a 短哈希，用来稳定标识位置，
+// 避免增删服务器根目录或「正在建的位置」时序号变化导致指错文件夹（A38）。
 func leftoverRootKey(root string) string {
 	h := fnv.New32a()
 	h.Write([]byte(foldRoot(root)))
@@ -200,7 +203,7 @@ func creatingChildren(root string) (names []string, readable bool) {
 	if err != nil {
 		return nil, false
 	}
-	if !st.IsDir() || st.Mode()&(fs.ModeSymlink|fs.ModeIrregular) != 0 {
+	if !linkmode.IsPlainDirInfo(st) {
 		return nil, true
 	}
 	ents, err := os.ReadDir(root)
@@ -208,7 +211,7 @@ func creatingChildren(root string) (names []string, readable bool) {
 		return nil, false
 	}
 	for _, e := range ents {
-		if e.IsDir() && e.Type()&(fs.ModeSymlink|fs.ModeIrregular) == 0 && winname.OK(e.Name()) &&
+		if linkmode.IsPlainDirEntry(e) && winname.OK(e.Name()) &&
 			creatingMarkerOwned(filepath.Join(root, e.Name())) {
 			names = append(names, e.Name())
 		}
@@ -226,7 +229,7 @@ func ClearCreatingMarker(dir string) error {
 }
 
 // CreatingLeftover 一次创建没走完、进程重启以后还留在磁盘上的目录。
-// 只包括「在某个服务器根目录的直接子目录里、有创建记号、没有 instance.json（及 .bak/.tmp）」的真文件夹。
+// 包括在某个服务器根目录或曾记录的「正在建的位置」的直接子目录里、有创建记号、没有 instance.json（及 .bak/.tmp）的真文件夹。
 // 接管进来的目录、用户自己放的目录没有这个记号，不会出现在这里。
 type CreatingLeftover struct {
 	ID       string `json:"id"`   // 交给删除接口的编号，不是任意路径
@@ -310,7 +313,7 @@ func (m *Manager) DiscardCreatingLeftover(id string, confirm bool) error {
 		}
 		return fmt.Errorf("检查这个文件夹失败：%w", err)
 	}
-	if !st.IsDir() || st.Mode()&(fs.ModeSymlink|fs.ModeIrregular) != 0 {
+	if !linkmode.IsPlainDirInfo(st) {
 		return fmt.Errorf("这个文件夹是指向别处的链接，没有删除")
 	}
 	if !creatingMarkerOwned(dir) {
@@ -359,8 +362,7 @@ func (m *Manager) leftoverDir(id string) (string, error) {
 }
 
 func plainCreatingDir(p string) bool {
-	st, err := os.Lstat(p)
-	return err == nil && st.IsDir() && st.Mode()&(fs.ModeSymlink|fs.ModeIrregular) == 0
+	return linkmode.IsPlainDir(p)
 }
 
 // creatingMarkerOwned 记号是普通文件，目录本身是真文件夹（不是符号链接或目录联接）。
@@ -399,7 +401,7 @@ func hasNestedCreatingLink(root string) bool {
 			found = true
 			return fs.SkipAll
 		}
-		if p != root && d.Type()&(fs.ModeSymlink|fs.ModeIrregular) != 0 {
+		if p != root && linkmode.IsLink(d.Type()) {
 			found = true
 			return fs.SkipAll
 		}

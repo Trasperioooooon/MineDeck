@@ -225,7 +225,7 @@ var bundleKinds = []struct {
 }
 
 // 各个入口加什么参数：导入现成服务端（applyImportLog4j）、新建和接管（applyLog4jMitigation）、交接包（ApplyLog4jMitigation）、
-// 保存参数时强制保留的（log4jFlags）。自带的 log4j 修过了的不套 Mojang 的配置、也不下载；没修过的、判断不了的照旧。
+// 保存参数时强制保留的（log4jFlagsFor）。自带的 log4j 修过了的不套 Mojang 的配置、也不下载；没修过的、判断不了的照旧。
 func TestLog4jEntryPointsFollowBundled(t *testing.T) {
 	for _, era := range []struct{ mc, xml string }{{"1.8.9", log4jXML17}, {"1.11.2", log4jXML17}, {"1.12.2", log4jXML}, {"1.16.5", log4jXML}} {
 		for _, k := range bundleKinds {
@@ -284,8 +284,8 @@ func TestLog4jEntryPointsFollowBundled(t *testing.T) {
 				for _, f := range []string{log4jXML, log4jXML17} { // 两份官方配置文件都在：加不加只看该不该套
 					officialLog4jXMLFile(t, i.Dir, f)
 				}
-				if got := log4jFlags(i); !slices.Equal(got, want) {
-					t.Fatalf("log4jFlags = %q，应为 %q", got, want)
+				if got, _ := log4jFlagsFor(i.Settings, i.Dir); !slices.Equal(got, want) {
+					t.Fatalf("log4jFlagsFor = %q，应为 %q", got, want)
 				}
 			})
 		}
@@ -349,7 +349,7 @@ func TestUpdateSettingsFollowsBundledLog4j(t *testing.T) {
 			i := &Instance{Settings: Settings{Name: "存参数", Core: mcsrc.CorePaper, MC: "1.16.5", JavaPath: `jdk\bin\java.exe`, XmxMB: 1024, XmsMB: 512,
 				LaunchTarget: "jar:server.jar", ExtraJVM: c.start}, Dir: dir, Console: newConsole()}
 			m := &Manager{insts: map[string]*Instance{i.Name: i}, creating: map[string]bool{}}
-			if err := m.UpdateSettings(i.Name, 0, 0, "", &preset); err != nil {
+			if _, err := m.UpdateSettingsWithResult(i.Name, 0, 0, "", &preset); err != nil {
 				t.Fatal(err)
 			}
 			if !slices.Equal(i.ExtraJVM, c.want) {

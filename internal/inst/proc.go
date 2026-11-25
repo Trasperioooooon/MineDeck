@@ -16,6 +16,7 @@ import (
 
 	"minedeck/internal/atomicfile"
 	"minedeck/internal/events"
+	"minedeck/internal/linkmode"
 	"minedeck/internal/mclog"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/procutil"
@@ -85,14 +86,7 @@ func (m *Manager) startInstance(i *Instance) error {
 		preResolved = resolveBindTarget(preTarget)
 	}
 	i.procMu.Lock()
-	locked := true
-	unlock := func() {
-		if locked {
-			locked = false
-			i.procMu.Unlock()
-		}
-	}
-	defer unlock()
+	defer i.procMu.Unlock()
 	checkReadyLocked := func() error {
 		if i.state != "" && i.state != "stopped" {
 			return errors.New(startBusyMsg(i.state))
@@ -105,7 +99,7 @@ func (m *Manager) startInstance(i *Instance) error {
 			return fmt.Errorf("这台服务器正在打包交接包，等打包完成后再启动")
 		}
 		// 从这里往下的失败是「这台服务器起不来」，不是「现在不能启动」（已经在运行、正在打包、正在换地图）：
-		// 原因写进控制台，并记成「上次启动没成功」，卡片和详情页头常驻显示，下次进程起来或用户关掉提示才清掉（可用性走查 R03、阶段 04 A07）。
+		// 原因写进控制台，并记成「上次启动没成功」，卡片和详情页头常驻显示，下次进程起来或用户关掉提示才清掉（可用性走查 R03、A07）。
 		// 右上角的提示一会儿就没了，回来的人只看到一个没反应的「启动」按钮
 		if _, err := os.Stat(i.JavaPath); err != nil {
 			// 路径不放进报错：界面上的提示遇到路径只写结论，这句「去哪里改」就看不到了。路径记在控制台里，「设置 → 启动与内存」页也看得到
@@ -119,44 +113,8 @@ func (m *Manager) startInstance(i *Instance) error {
 	}
 	// 端口被占着就直接报错，不先起 Java、等它自己报 BindException（检查报告 D-5）。按服务器真正要绑的地址查
 	//（server-ip、server-port）；代理端的端口在它自己的配置文件里，不查（见 startPort）
-	if t, ok := startPort(i, i.ExtraJVM); ok { // 拿着 procMu，直接读 ExtraJVM
-		r := preResolved
-		if !preOK || r.target.host != t.host || r.target.network != t.network {
-			// 极少见：拿锁前那一下配置刚被改过，放开锁解析完再重新进锁检查，不在 procMu 里解析域名
-			unlock()
-			r = resolveBindTarget(t)
-			i.procMu.Lock()
-			locked = true
-			if err := checkReadyLocked(); err != nil {
-				return err
-			}
-		}
-		r.target.port = t.port
-		if err := probeResolvedBindPort(r); err != nil {
-			failGen := i.runGen
-			// 放开 procMu 再查保留段（netsh 无缓存时最多 6 秒）或试绑建议端口，不挡 Status() 等读操作（阶段 04 返工 R2、R5.3）
-			unlock()
-			var busy *portBusyError
-			if errors.As(err, &busy) {
-				for _, p := range peers {
-					if p.live && p.port == t.port {
-						busy.owner = p.name
-						break
-					}
-				}
-				if busy.owner != "" {
-					busy.suggest = freePortFromResolved(r, peers)
-				} else if busy.reserved && isTargetPortReserved(t) {
-					busy.sysReserved = true
-				}
-			}
-			i.procMu.Lock()
-			locked = true
-			if i.runGen == failGen && (i.state == "" || i.state == "stopped") {
-				return i.startFailed(err, true)
-			}
-			return err
-		}
+	if err := m.checkStartPort(i, peers, preOK, preResolved, checkReadyLocked); err != nil {
+		return err
 	}
 	// log4shell 防护和现在的做法对不上的（程序启动时那一遍没做成，或者之后才看得出来）：该摘的引用当场摘掉，
 	// 要下载的说一声、后台再试，做成了下次启动生效（见 log4j_migrate.go）
@@ -267,6 +225,61 @@ func (m *Manager) startInstance(i *Instance) error {
 	return nil
 }
 
+// checkStartPort 进来时拿着 i.procMu、出去时还拿着 i.procMu，中间解析域名或查保留段、试绑建议端口时会临时放开再重拿。
+func (m *Manager) checkStartPort(i *Instance, peers []portPeer, preOK bool, preResolved resolvedBindTarget, checkReadyLocked func() error) error {
+	t, ok := startPort(i, i.ExtraJVM) // 拿着 procMu，直接读 ExtraJVM
+	if !ok {
+		return nil
+	}
+	withUnlocked := func(fn func()) {
+		i.procMu.Unlock()
+		relocked := false
+		defer func() {
+			if !relocked {
+				i.procMu.Lock()
+			}
+		}()
+		fn()
+		i.procMu.Lock()
+		relocked = true
+	}
+	r := preResolved
+	if !preOK || r.target.host != t.host || r.target.network != t.network {
+		// 极少见：拿锁前那一下配置刚被改过，放开锁解析完再重新进锁检查，不在 procMu 里解析域名
+		withUnlocked(func() { r = resolveBindTarget(t) })
+		if err := checkReadyLocked(); err != nil {
+			return err
+		}
+	}
+	r.target.port = t.port
+	err := probeResolvedBindPort(r)
+	if err == nil {
+		return nil
+	}
+	failGen := i.runGen
+	// 放开 procMu 再查保留段（netsh 无缓存时最多 6 秒）或试绑建议端口，不挡 Status() 等读操作（A05、A07）
+	withUnlocked(func() {
+		var busy *portBusyError
+		if errors.As(err, &busy) {
+			for _, p := range peers {
+				if p.live && p.port == t.port {
+					busy.owner = p.name
+					break
+				}
+			}
+			if busy.owner != "" {
+				busy.suggest = freePortFromResolved(r, peers)
+			} else if busy.reserved && isTargetPortReserved(t) {
+				busy.sysReserved = true
+			}
+		}
+	})
+	if i.runGen == failGen && (i.state == "" || i.state == "stopped") {
+		return i.startFailed(err, true)
+	}
+	return err
+}
+
 const startFailFileName = "start-fail.json"
 
 type persistedStartFail struct {
@@ -275,8 +288,7 @@ type persistedStartFail struct {
 }
 
 func plainInstDir(p string) bool {
-	st, err := os.Lstat(p)
-	return err == nil && st.IsDir() && st.Mode()&(os.ModeSymlink|os.ModeIrregular) == 0
+	return linkmode.IsPlainDir(p)
 }
 
 func saveStartFail(dir, errMsg string, pb *PortBusy) {
@@ -285,7 +297,7 @@ func saveStartFail(dir, errMsg string, pb *PortBusy) {
 	}
 	mdDir := filepath.Join(dir, ".minedeck")
 	if st, err := os.Lstat(mdDir); err == nil {
-		if !st.IsDir() || st.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
+		if !linkmode.IsPlainDirInfo(st) {
 			return
 		}
 	} else if os.IsNotExist(err) {
@@ -303,6 +315,7 @@ func saveStartFail(dir, errMsg string, pb *PortBusy) {
 	if err != nil {
 		return
 	}
+	// atomicfile.Write 写临时文件并改名覆盖：即使 target 先前是硬链接也会安全断开、不写穿到外面（A11）。
 	_ = atomicfile.Write(target, b, 0o644)
 }
 

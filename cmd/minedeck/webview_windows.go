@@ -50,7 +50,10 @@ func openWebView(url string, sig chan os.Signal, minimized bool) (ok bool) {
 		log.Println("关闭 WebView2 链接状态栏失败:", err)
 	}
 	hwnd := uintptr(w.Window())
-	hostdlg.SetOwner(hwnd)  // 「选择文件夹」挂在主窗口上：开着的时候主窗口点不动，也不会盖住它
+	hostdlg.SetOwner(hwnd) // 「选择文件夹」挂在主窗口上：开着的时候主窗口点不动，也不会盖住它
+	defer hostdlg.SetOwner(0)
+	clearPickerDispatch := hostdlg.SetDispatcher(currentUIThreadID(), w.Dispatch)
+	defer clearPickerDispatch()
 	applyDarkTitleBar(hwnd) // DWM 边框深色化，匹配深色主题
 	applyWindowIcon(hwnd)   // 任务栏 / Alt-Tab / 托盘图标
 	setupTray(hwnd)         // 子类化窗口过程（含去标题栏）+ 挂托盘图标（关窗最小化 / 右键菜单）
@@ -78,6 +81,16 @@ func openWebView(url string, sig chan os.Signal, minimized bool) (ok bool) {
 	w.Bind("hostOpenURL", func(raw string) error {
 		return openExternalURL(raw, func(err error) { w.Dispatch(func() { w.Eval(openURLFailedJS(err)) }) })
 	})
+	// 主窗口导航兜底（A89）：页面绕开上面的外链拦截、让主窗口自己跳走时（脚本改 location、file:// 之类），在 NavigationStarting 里取消，
+	// 外部 http/https 交给默认浏览器，别的协议只取消。挡的是主窗口换成别的页面，挡不住请求：取消以后那一笔 GET 照样发到了对方（实测），
+	// 所以走到这里的外部地址会被请求两次。iframe 不归它管，新开的窗口也不归它管（读代码得出）；拖进来的文件管不管没验证过。
+	if removeNavGuard, err := installWebViewNavGuard(w, url, func(err error) {
+		w.Dispatch(func() { w.Eval(openURLFailedJS(err)) })
+	}); err != nil {
+		log.Println("安装 WebView2 主窗口导航拦截失败:", err)
+	} else {
+		defer removeNavGuard()
+	}
 	// 页面画出头两帧（index.html 调 hostReady）：正常启动就现身；静默启动先收进托盘、再撤掉隐身，
 	// WebView 已经画过，之后从托盘恢复不白屏。托盘图标没登记上时窗口上面已经最小化到任务栏，不收。
 	// 页面没调（加载失败、脚本出错）也不能一直隐身，3 秒兜底。只做一次：以后刷新页面也会调 hostReady。

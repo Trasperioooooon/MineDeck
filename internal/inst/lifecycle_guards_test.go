@@ -58,7 +58,7 @@ func TestCreatePublishesOnlyAfterModpackFinishes(t *testing.T) {
 	}
 	for name, run := range map[string]func() error{
 		"启动": func() error { return m.Start(req.Name) },
-		"设置": func() error { return m.UpdateSettings(req.Name, 1024, 512, "", nil) },
+		"设置": func() error { _, err := m.UpdateSettingsWithResult(req.Name, 1024, 512, "", nil); return err },
 		"换图": func() error {
 			release, err := m.BeginWorldChange(req.Name, "换图")
 			if err == nil {

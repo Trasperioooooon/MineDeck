@@ -230,7 +230,7 @@ func writePlayerRaw(path string, items []map[string]any) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o644)
+	return writeFileNoHardlink(path, b, 0o644)
 }
 
 func upsertPlayerFile(path, player string, entry map[string]any) error {

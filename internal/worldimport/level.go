@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode"
 
+	"minedeck/internal/linkmode"
 	"minedeck/internal/worldimport/nbt"
 )
 
@@ -310,8 +311,7 @@ func ReadServerGameRules(worldDir string) map[string]string {
 }
 
 func plainLocalDir(p string) bool {
-	st, err := os.Lstat(p)
-	return err == nil && st.IsDir() && st.Mode()&(os.ModeSymlink|os.ModeIrregular) == 0
+	return linkmode.IsPlainDir(p)
 }
 
 func readSubNBT(base string, elems ...string) (nbt.Compound, bool) {

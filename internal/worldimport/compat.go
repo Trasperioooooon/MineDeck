@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"minedeck/internal/inst"
+	"minedeck/internal/linkmode"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/zipguard"
 )
@@ -460,7 +461,7 @@ func worldRootChecks(t *Target) []Issue {
 			st, err := statFn(p)
 			if err != nil && !errors.Is(err, os.ErrNotExist) {
 				is = append(is, Issue{Sev: SevBlock, Code: "world-unreadable", Msg: "看不了世界路径，没法确认它是否为链接，没有替换任何文件", Detail: noPath(err)})
-			} else if err == nil && st.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
+			} else if err == nil && linkmode.IsLink(st.Mode()) {
 				is = append(is, Issue{Sev: SevBlock, Code: "world-is-link",
 					Msg:    "这台服务器的世界文件夹是一个链接（符号链接或目录联接），首版导入不支持",
 					Detail: p})

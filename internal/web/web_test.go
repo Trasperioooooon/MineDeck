@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -146,6 +147,9 @@ func TestConfigChromeColor(t *testing.T) {
 // CurseForge API Key 只能写、不能读：保存后任何响应都不含 Key，改由 cfKeySet 告知是否已设置；
 // config.json 里也没有明文（加密存在 secrets.json）。传空串仍是清除。
 func TestConfigResponsesHideCFKey(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	app.Base = t.TempDir()
 	h := bareServer()
 	call := func(method, path, body string) string {

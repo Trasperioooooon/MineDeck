@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -153,6 +154,9 @@ func sakuraCreateServer(t *testing.T, token string, create func(w http.ResponseW
 // 平台拒绝（HTTP 400、2xx 里写着错误码）、公开服用错节点、账户没有 frpc 密钥（这两种都不发 POST）不带。
 // 写不进磁盘的那一种见 save_test.go。
 func TestSakuraCreateFailuresAndPlatformCreated(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("钥匙串还没做（D01）")
+	}
 	createdOK := func(w http.ResponseWriter) {
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": 42, "name": "mc"})

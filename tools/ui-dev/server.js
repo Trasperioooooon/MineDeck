@@ -2955,7 +2955,7 @@ function handler(state, ui, portOf) {
       if ("onboarded" in b) { state.config.onboarded = !!b.onboarded; state.config.tosAccepted = !!b.onboarded; }
       if ("taskStage" in b) state.taskStage = b.taskStage;
       if ("taskList" in b) { state.taskList = b.taskList; state.instPending = {}; }
-      // restart: true 模拟程序重开（beta.3 R09、阶段 04 A07）：任务记录没了；服务器文件夹里的「没装上的文件」清单和「上次启动失败原因」都在
+      // restart: true 模拟程序重开（可用性走查 R09、A07）：任务记录没了；服务器文件夹里的「没装上的文件」清单和「上次启动失败原因」都在
       //（还没按服务器取过的，先按导入任务生成一份再清任务）
       if (b.restart) {
         for (const t of state.taskList) if (t.result && (t.pending || []).length) instPendingOf(state, t.result);

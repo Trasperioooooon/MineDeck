@@ -143,8 +143,8 @@ func (c *cat) mcOps() {
 				for _, i := range c.Mgr.List() {
 					_, cfgPath := i.JavaSnapshot()
 					runPath := i.RunningJavaPath()
-					cfgMatch := javaPathInside(cfgPath, dir)
-					runMatch := javaPathInside(runPath, dir)
+					cfgMatch := inst.JavaPathInside(cfgPath, dir)
+					runMatch := inst.JavaPathInside(runPath, dir)
 					if cfgMatch {
 						configured = append(configured, i.Name)
 					}
@@ -213,28 +213,11 @@ func knownJava(major int, path string) (string, bool) {
 	return "", false
 }
 
-// javaPathInside path 是不是 dir 里面的文件（便携 Java 的 java.exe）。不把目录本身或外面的路径算进去。
-// 优先按真实路径比对，兼容 8.3 短名和目录联接；路径现在打不开时退回规范化后的词法相对路径。
-func javaPathInside(path, dir string) bool {
-	path, dir = strings.TrimSpace(path), strings.TrimSpace(dir)
-	if path == "" || dir == "" {
-		return false
-	}
-	if rp, err1 := inst.RealPathStrict(path); err1 == nil {
-		if rd, err2 := inst.RealPathStrict(dir); err2 == nil {
-			return rp != rd && inst.InsideReal(rd, rp)
-		}
-	}
-	path, dir = filepath.Clean(path), filepath.Clean(dir)
-	rel, err := filepath.Rel(dir, path)
-	return err == nil && rel != "." && filepath.IsLocal(rel)
-}
-
 // setJava 给服务器换上 jp。jp 是 MineDeck 的便携 Java 时和卸载互斥（A34）：这套 Java 正在卸载时换不上（409），
 // 换的途中卸载报忙。本机装的 Java 不经 MineDeck 卸载，直接换。
 func (c *cat) setJava(name string, major int, jp string) error {
 	set := func() error { return c.Mgr.SetJava(name, major, jp) }
-	if !javaPathInside(jp, java.Dir(major)) {
+	if !inst.JavaPathInside(jp, java.Dir(major)) {
 		return set()
 	}
 	err := java.UsePortable(major, set)

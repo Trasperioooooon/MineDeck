@@ -669,6 +669,9 @@ func backupDir(i *inst.Instance) string { return filepath.Join(i.Dir, ".minedeck
 
 var unsafeName = regexp.MustCompile(`[^\w.\-]+`)
 
+// configBackupNow 备份名里的时间，测试里换成固定的，好预先在那个名字上放东西。
+var configBackupNow = time.Now
+
 // backupConfig 备份一份配置文件：<实例>/.minedeck/config-backups/<路径>~<时间>，同一个文件最多留 20 份。返回备份的相对路径。
 func backupConfig(i *inst.Instance, rel string, content []byte) (string, error) {
 	dir := backupDir(i)
@@ -676,16 +679,18 @@ func backupConfig(i *inst.Instance, rel string, content []byte) (string, error) 
 		return "", err
 	}
 	key := unsafeName.ReplaceAllString(strings.ReplaceAll(rel, "/", "__"), "_")
-	name := key + "~" + time.Now().Format("20060102-150405.000")
-	if err := os.WriteFile(filepath.Join(dir, name), content, 0o644); err != nil {
-		return "", err
+	name := key + "~" + configBackupNow().Format("20060102-150405.000")
+	// 名字带到毫秒，但不保证是新文件：已有同名的（比如外面某个文件的硬链接）时，原地写会改到外面那份，
+	// 所以用替换写（A11）。Windows 上只读的照旧报错不覆盖，和以前的 os.WriteFile 一样（别的平台的替换就是改名，只读的也会被换掉）。
+	r, _ := filepath.Rel(i.Dir, filepath.Join(dir, name))
+	if err := atomicfile.WriteProtected(filepath.Join(dir, name), content, 0o644); err != nil {
+		return "", fmt.Errorf("写 %s 失败：%w", filepath.ToSlash(r), err)
 	}
 	if all := backupsOf(i, rel); len(all) > 20 {
 		for _, old := range all[:len(all)-20] {
 			_ = os.Remove(old)
 		}
 	}
-	r, _ := filepath.Rel(i.Dir, filepath.Join(dir, name))
 	return filepath.ToSlash(r), nil
 }
 

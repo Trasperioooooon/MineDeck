@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"minedeck/internal/inst"
 	"minedeck/internal/ops"
+	"minedeck/internal/portprobe"
 )
 
 // portOwner 占着端口的一个进程。
@@ -58,8 +57,8 @@ func (c *cat) portOps() {
 				var st portState
 				// 先查谁在监听：Windows 上只占了 0.0.0.0 的端口，再绑一次 :端口（IPv6 双栈）照样成功，
 				// 光靠「试着绑」会把被占说成空闲（测试报告 E-09）
-				for _, pid := range portOwners(p.Port, udp) {
-					st.Owners = append(st.Owners, portOwner{PID: pid, Process: processName(pid), Instance: pids[pid], MineDeck: pid == os.Getpid()})
+				for _, pid := range portprobe.PortOwners(p.Port, udp) {
+					st.Owners = append(st.Owners, portOwner{PID: pid, Process: portprobe.ProcessName(pid), Instance: pids[pid], MineDeck: pid == os.Getpid()})
 				}
 				if len(st.Owners) > 0 {
 					return st
@@ -136,7 +135,7 @@ func (c *cat) portSuggestOps() {
 			// from 被别的程序占着（本软件那台开着的服务器自己也在监听表里，那种 usedBy 已经说了，不再算别的程序）
 			if pid, ok := listen[from]; ok && by == "" {
 				out["fromBusy"] = true
-				if name := processName(pid); name != "" {
+				if name := portprobe.ProcessName(pid); name != "" {
 					out["fromProcess"] = name
 				}
 			}
@@ -149,5 +148,4 @@ func (c *cat) portSuggestOps() {
 // 推荐端口的用例不该跟着变。
 var listenPorts = tcpListeners
 
-// baseExe 取路径里的程序名。
-func baseExe(p string) string { return filepath.Base(strings.ReplaceAll(p, `\`, "/")) }
+func tcpListeners() map[int]int { return portprobe.TCPListeners() }

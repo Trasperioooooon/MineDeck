@@ -2,11 +2,11 @@ package web
 
 import (
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"minedeck/internal/inst"
+	"minedeck/internal/linkmode"
 	"minedeck/internal/mcsrc"
 	"minedeck/internal/ops"
 	"minedeck/internal/worldimport"
@@ -60,8 +60,7 @@ func (s *Server) readInstanceGameRules(name string) map[string]string {
 }
 
 func isPlainDir(p string) bool {
-	st, err := os.Lstat(p)
-	return err == nil && st.IsDir() && st.Mode()&(os.ModeSymlink|os.ModeIrregular) == 0
+	return linkmode.IsPlainDir(p)
 }
 
 func (s *Server) handleSetProps(w http.ResponseWriter, r *http.Request) {
