@@ -9352,7 +9352,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     }
   });
 
-  await run("阶段04 A01：常用设置的游戏规则开关优先按世界存档显示；世界未生成时退回 server.properties；运行中切换后立即更新且不等存档落盘", async () => {
+  await run("A01：常用设置的游戏规则开关优先按世界存档显示；世界未生成时退回 server.properties；运行中切换后立即更新且不等存档落盘", async () => {
     const aState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
     const VAN = "原版快照测试", enc = encodeURIComponent(VAN);
     try {
@@ -9444,7 +9444,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     }
   });
 
-  await run("阶段04 A04：端口预查识别系统保留段；自动换出的端口改后再填回不再免查；新建与导入提交时端口被占或保留会回传改端口提示且不建服", async () => {
+  await run("A04：端口预查识别系统保留段；自动换出的端口改后再填回不再免查；新建与导入提交时端口被占或保留会回传改端口提示且不建服", async () => {
     const pState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
     const toWizardFinal = async () => {
       await page.goto(url("#/create/new")); await page.waitForSelector('.core-card[data-id="paper"]');
@@ -9524,7 +9524,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     }
   });
 
-  await run("阶段04 A07：上次启动失败原因在程序重开后仍在卡片和详情页头显示；点「关闭提示」后立即清除", async () => {
+  await run("A07：上次启动失败原因在程序重开后仍在卡片和详情页头显示；点「关闭提示」后立即清除", async () => {
     const sState = b => page.evaluate(x => fetch("/__mock/state", { method: "POST", body: JSON.stringify(x) }).then(r => r.json()).then(j => j.data), b);
     const PACK0 = "机械动力整合包", enc = encodeURIComponent(PACK0);
     const why = "端口 25566 被别的程序占着，换个端口或关掉占用它的程序";

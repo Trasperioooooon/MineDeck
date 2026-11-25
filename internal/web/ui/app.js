@@ -1877,7 +1877,7 @@ function wirePortField(input, note, sug, { base = 25565, keep = false, extra = n
   // 手填的端口有没有被别的程序占着或被系统保留：问后端（port.suggest 带 from，回 fromBusy、fromProcess、fromReserved），
   // 停手 300 毫秒再问，回来的不是现在框里的就不要。不用 port.check：端口空着时它会在所有网卡上试绑一次，
   // 打开表单就可能让防火墙弹窗问要不要放行（Codex 复审 beta.3 之后第一轮）。
-  // 默认端口（包括自动换出来的那个）只在刚打开表单那一次免查；之后改过再填回来、以及提交表单时，都照常查（阶段 04 A04）
+  // 默认端口（包括自动换出来的那个）只在刚打开表单那一次免查；之后改过再填回来、以及提交表单时，都照常查（A04）
   let other = { v: 0, text: "", suggest: 0 }, seq = 0, timer = 0;
   const busyText = (v, { proc = "", reserved = false, ownerName = "", suggest = 0 } = {}) => {
     if (ownerName) return `端口 ${v} 已被你的服务器「${ownerName}」使用（它现在开着），两台不能同时开。` +

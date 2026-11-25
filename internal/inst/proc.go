@@ -106,7 +106,7 @@ func (m *Manager) startInstance(i *Instance) error {
 			return fmt.Errorf("这台服务器正在打包交接包，等打包完成后再启动")
 		}
 		// 从这里往下的失败是「这台服务器起不来」，不是「现在不能启动」（已经在运行、正在打包、正在换地图）：
-		// 原因写进控制台，并记成「上次启动没成功」，卡片和详情页头常驻显示，下次进程起来或用户关掉提示才清掉（可用性走查 R03、阶段 04 A07）。
+		// 原因写进控制台，并记成「上次启动没成功」，卡片和详情页头常驻显示，下次进程起来或用户关掉提示才清掉（可用性走查 R03、A07）。
 		// 右上角的提示一会儿就没了，回来的人只看到一个没反应的「启动」按钮
 		if _, err := os.Stat(i.JavaPath); err != nil {
 			// 路径不放进报错：界面上的提示遇到路径只写结论，这句「去哪里改」就看不到了。路径记在控制台里，「设置 → 启动与内存」页也看得到
@@ -135,7 +135,7 @@ func (m *Manager) startInstance(i *Instance) error {
 		r.target.port = t.port
 		if err := probeResolvedBindPort(r); err != nil {
 			failGen := i.runGen
-			// 放开 procMu 再查保留段（netsh 无缓存时最多 6 秒）或试绑建议端口，不挡 Status() 等读操作（阶段 04 返工 R2、R5.3）
+			// 放开 procMu 再查保留段（netsh 无缓存时最多 6 秒）或试绑建议端口，不挡 Status() 等读操作（A05、A07）
 			unlock()
 			var busy *portBusyError
 			if errors.As(err, &busy) {

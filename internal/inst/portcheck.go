@@ -54,7 +54,7 @@ type portRange struct {
 
 // parseExcludedPortRanges 解析 netsh interface ipv4/ipv6 show excludedportrange protocol=tcp 的输出。
 // 输出的标题和脚注随系统语言变化，这里只认「起止两个端口号」的两列数字行；
-// 第三列带 * 的「管理的端口排除」在 Windows 上照常能绑定，不算系统保留段（阶段 04 返工 R1）。
+// 第三列带 * 的「管理的端口排除」在 Windows 上照常能绑定，不算系统保留段（A04）。
 func parseExcludedPortRanges(out string) []portRange {
 	var res []portRange
 	for _, line := range strings.Split(out, "\n") {
