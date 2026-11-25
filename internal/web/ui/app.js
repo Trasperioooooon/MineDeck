@@ -6740,6 +6740,21 @@ const syncUpdateDot = info => {
   if (navDot) navDot.hidden = !show;
   if (aboutDot) aboutDot.hidden = !show;
 };
+// 启动时的后台检查最多要 30 秒，窗口往往先打开、读 /api/app 时还没查完：开着「启动时静默检查更新」又还没查到时，
+// 界面打开后隔一阵再读几次，查到就亮圆点（不弹窗）；35 秒以后不再读。
+const watchStartupUpdate = info => {
+  if (!info || !info.config || !info.config.checkUpdateOnStart || info.startupUpdate) return;
+  const at = [2000, 5000, 10000, 18000, 35000], t0 = Date.now(); // 距界面打开的毫秒数
+  const poll = i => {
+    if (i >= at.length) return;
+    setTimeout(async () => {
+      const a = await api("/api/app").catch(() => null);
+      if (a && a.startupUpdate) syncUpdateDot(a);
+      else poll(i + 1);
+    }, Math.max(0, at[i] - (Date.now() - t0)));
+  };
+  poll(0);
+};
 const updateChName = ch => (UPDATE_CH[ch] || UPDATE_CH.stable).name;
 const updateChSub = (eff, raw) => "检查更新和启动时的检查都按这里选的来。" +
   (raw ? "" : `还没选过，按正在用的版本定成「${updateChName(eff)}」。`);
@@ -6934,6 +6949,7 @@ async function applyBackground() {
     info = await api("/api/app");
     $("#app-ver").textContent = info.version;
     syncUpdateDot(info);
+    watchStartupUpdate(info);
     const cores = await api("/api/cores").catch(() => []);
     cores.forEach(c => CORES[c.id] = c);
   } catch (e) {
