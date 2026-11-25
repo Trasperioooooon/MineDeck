@@ -173,10 +173,7 @@ func TestOpenfrpJunctionFolderNotTouched(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, user).CombinedOutput(); err != nil {
-		t.Fatalf("建不了目录联接：%v %s", err, out)
-	}
-	t.Cleanup(func() { _ = os.Remove(link) }) // 只删联接本身
+	junction(t, link, user)
 	got, err := (openfrpProvider{}).EnsureFrpc(procutil.NewConsole())
 	if got != "" || err == nil || !strings.Contains(err.Error(), "MineDeck 没有动它") {
 		t.Fatalf("联接文件夹里坏的 frpc 应报出来、不动：%q %v", got, err)

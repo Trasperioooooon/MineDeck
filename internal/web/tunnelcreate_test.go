@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // platformRoundTrip 把发往 host 的请求改写到本机的假平台，别的地址一律不连。
@@ -54,10 +55,21 @@ func TestPlatformCreateRouteReportsCreated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 平台账户的 http.Client 没设 Transport，用的是 http.DefaultTransport：这条用例里把樱花的域名改写到假平台
-	old := http.DefaultTransport
-	http.DefaultTransport = platformRoundTrip{host: "api.natfrp.com", target: target, next: old}
-	t.Cleanup(func() { http.DefaultTransport = old })
+	// 为账户层的独立 *http.Client 注入仅本次用例生效的 Transport，不再改动全局 http.DefaultTransport，
+	// 并保留与真实客户端相同的超时与禁止自动跟随重定向策略。
+	next := fake.Client().Transport
+	if next == nil {
+		next = http.DefaultTransport
+	}
+	client := &http.Client{
+		Timeout:   20 * time.Second,
+		Transport: platformRoundTrip{host: "api.natfrp.com", target: target, next: next},
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	prevClient := e.acc.SetHTTPClientForTest(client)
+	t.Cleanup(func() { e.acc.SetHTTPClientForTest(prevClient) })
 
 	e.call(t, "POST", "/api/tunnel-accounts/natfrp/connect", `{"token":"fake-sakura-access-key"}`, 200)
 	rec := e.call(t, "POST", "/api/tunnel-accounts/natfrp/tunnels", `{"name":"mc","nodeId":1,"type":"tcp","localPort":25565}`, 400)

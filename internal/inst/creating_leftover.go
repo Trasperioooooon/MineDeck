@@ -147,6 +147,8 @@ func leftoverID(root, name string) string {
 	return leftoverRootKey(root) + "/" + name
 }
 
+// leftoverRootKey 返回位置规范路径（经 foldRoot 处理后）的 FNV-32a 短哈希，用来稳定标识位置，
+// 避免增删服务器根目录或「正在建的位置」时序号变化导致指错文件夹（A38）。
 func leftoverRootKey(root string) string {
 	h := fnv.New32a()
 	h.Write([]byte(foldRoot(root)))
@@ -227,7 +229,7 @@ func ClearCreatingMarker(dir string) error {
 }
 
 // CreatingLeftover 一次创建没走完、进程重启以后还留在磁盘上的目录。
-// 只包括「在某个服务器根目录的直接子目录里、有创建记号、没有 instance.json（及 .bak/.tmp）」的真文件夹。
+// 包括在某个服务器根目录或曾记录的「正在建的位置」的直接子目录里、有创建记号、没有 instance.json（及 .bak/.tmp）的真文件夹。
 // 接管进来的目录、用户自己放的目录没有这个记号，不会出现在这里。
 type CreatingLeftover struct {
 	ID       string `json:"id"`   // 交给删除接口的编号，不是任意路径
