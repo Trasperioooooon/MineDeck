@@ -681,16 +681,16 @@ func backupConfig(i *inst.Instance, rel string, content []byte) (string, error) 
 	key := unsafeName.ReplaceAllString(strings.ReplaceAll(rel, "/", "__"), "_")
 	name := key + "~" + configBackupNow().Format("20060102-150405.000")
 	// 名字带到毫秒，但不保证是新文件：已有同名的（比如外面某个文件的硬链接）时，原地写会改到外面那份，
-	// 所以用替换写（A11）。只读的照旧报错不覆盖，和以前的 os.WriteFile 一样。
+	// 所以用替换写（A11）。Windows 上只读的照旧报错不覆盖，和以前的 os.WriteFile 一样（别的平台的替换就是改名，只读的也会被换掉）。
+	r, _ := filepath.Rel(i.Dir, filepath.Join(dir, name))
 	if err := atomicfile.WriteProtected(filepath.Join(dir, name), content, 0o644); err != nil {
-		return "", err
+		return "", fmt.Errorf("写 %s 失败：%w", filepath.ToSlash(r), err)
 	}
 	if all := backupsOf(i, rel); len(all) > 20 {
 		for _, old := range all[:len(all)-20] {
 			_ = os.Remove(old)
 		}
 	}
-	r, _ := filepath.Rel(i.Dir, filepath.Join(dir, name))
 	return filepath.ToSlash(r), nil
 }
 

@@ -1,12 +1,17 @@
 package inst
 
 import (
+	"archive/zip"
+	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"minedeck/internal/app"
+	"minedeck/internal/diskguard"
 )
 
 // tempInstance 把程序目录与内置根换成临时的一份（测试结束后还原），备份目录恢复默认，
@@ -229,5 +234,53 @@ func TestBackupFileStaysInsideRoots(t *testing.T) {
 	}
 	if got := readLevel(t, dir); got != "safe" {
 		t.Fatalf("世界不应被改动：%q", got)
+	}
+}
+
+// 还原时目标本身是服务器文件夹里一个指到外面文件的符号链接：上一级查链接那段不看目标本身，
+// 只剩 RealPathStrict + InsideReal 这一道拦它。还原要被拒，外面那份不动。
+func TestBackupRestoreRefusesTargetSymlinkOutside(t *testing.T) {
+	base := t.TempDir()
+	outside := filepath.Join(base, "outside.dat")
+	const keep = "outside, do not touch"
+	if err := os.WriteFile(outside, []byte(keep), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(base, "server")
+	if err := os.MkdirAll(filepath.Join(dest, "world"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dest, "world", "level.dat")); err != nil {
+		if os.Getenv("CI") == "" {
+			t.Skipf("建不了符号链接（多半是账户没有这个权限），跳过：%v", err)
+		}
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	fw, err := zw.Create("world/level.dat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = fw.Write([]byte("escaped"))
+	_ = zw.Close()
+	zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkBackupPaths(zr.File, dest); err == nil || !strings.Contains(err.Error(), "「world/level.dat」指到了服务器文件夹外面") {
+		t.Fatalf("目标本身是指到外面的符号链接，应被拦住并说清是哪一个：%v", err)
+	}
+	lease, err := diskguard.Acquire(context.Background(), dest, diskguard.Options{AllowUnknown: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Close()
+	if err := unzipReaderTo(zr, dest, lease); err == nil {
+		t.Fatal("解压也应被拦住")
+	}
+	if b, err := os.ReadFile(outside); err != nil || string(b) != keep {
+		t.Fatalf("服务器文件夹外的文件被改了：%q %v", b, err)
 	}
 }
