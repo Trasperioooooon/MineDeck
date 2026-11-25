@@ -120,10 +120,9 @@ window.EXTRA_ICONS = {
   .stbr.warm { color: var(--warning-text); } .stbr.warm i { background: var(--warning); box-shadow: 0 0 0 3px var(--warning-subtle); }
   .stbr.off { color: var(--faint); } .stbr.off i { background: var(--faint); }
 
-  /* 星标（置顶）：钉住的一直亮着，没钉的悬停才出现 */
-  .pin { width: 28px; height: 28px; border-radius: var(--r-full); border: 0; background: none; display: grid; place-items: center; color: var(--faint); cursor: pointer; opacity: 0; flex: none; }
-  .pin.on { opacity: 1; color: var(--warning); }
-  .lc:hover .pin, .rc:hover .pin { opacity: 1; }
+  /* 星标（置顶）：一直显示，没钉的是空心灰星，钉住的是实心黄星（第六版：作者不要悬停才出现） */
+  .pin { width: 28px; height: 28px; border-radius: var(--r-full); border: 0; background: none; display: grid; place-items: center; color: var(--faint); cursor: pointer; flex: none; }
+  .pin.on { color: var(--warning); }
   .pin:hover { background: var(--hover); color: var(--warning); }
 
   /* 其余的小块 */
@@ -251,7 +250,7 @@ function big(s, i) {
     acts = `<span class="btn"><i data-ic="console"></i>控制台</span><span class="btn stop"><i data-ic="stop"></i>停止</span>${link}`;
     st = `<span class="stbr warm"><i></i>启动中 · 12 秒</span>`;
   } else {
-    body = `<div class="stats"><div><div class="k">上次玩</div><div class="v">${s.last}</div></div><div><div class="k">一共开过</div><div class="v">${s.hours}<small> 小时</small></div></div></div>`;
+    body = `<div class="stats"><div><div class="k">上次玩</div><div class="v">${s.last}</div></div><div><div class="k">时长总计</div><div class="v">${s.hours}<small> 小时</small></div></div></div>`;
     acts = `<span class="btn go"><i data-ic="play"></i>启动</span>${link}`;
     st = `<span class="stbr off"><i></i>已停止</span>`;
   }

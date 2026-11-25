@@ -136,7 +136,7 @@ const A = {
     <div class="stats"><div><div class="k">在线</div><div class="v">${s.players.length}<small>/${s.max}</small></div></div><div><div class="k">已运行</div><div class="v">${s.upShort}</div></div><div><div class="k">端口</div><div class="v">${s.port}</div></div></div>
     <div class="acts"><span class="btn">${I("console")}控制台</span><span class="btn ghost">${I("stop")}停止</span><span class="sp"></span><span class="btn ghost ic">${I("more")}</span></div></div></div>`,
   stop: s => `<div class="card"><div class="pad"><div class="top">${av(s)}<div style="min-width:0"><div class="nm">${s.name}</div><span class="chip">${s.label} ${s.mc}</span></div><span class="pill off"><span class="d"></span>已停止</span></div>
-    <div class="stats"><div><div class="k">上次玩</div><div class="v" style="font-size:17px">${s.lastShort}</div></div><div><div class="k">一共开过</div><div class="v">${s.hours}<small>h</small></div></div><div><div class="k">端口</div><div class="v">${s.port}</div></div></div>
+    <div class="stats"><div><div class="k">上次玩</div><div class="v" style="font-size:17px">${s.lastShort}</div></div><div><div class="k">时长总计</div><div class="v">${s.hours}<small>h</small></div></div><div><div class="k">端口</div><div class="v">${s.port}</div></div></div>
     <div class="acts"><span class="btn go">${I("play")}启动</span><span class="sp"></span><span class="btn ghost ic">${I("more")}</span></div></div></div>`,
   boot: s => `<div class="card"><div class="pad"><div class="top">${av(s)}<div style="min-width:0"><div class="nm">${s.name}</div><span class="chip">${s.label} ${s.mc}</span></div><span class="pill warm"><span class="d"></span>启动中</span></div>
     <div style="display:flex;flex-direction:column;gap:8px;padding-top:6px"><div class="bar"><i></i></div><div class="steps"><span>准备 Java ✓</span><span>·</span><b>加载世界</b><span>·</span><span>就绪</span></div></div>
@@ -185,7 +185,7 @@ const D = {
     `<div class="stats"><div><div class="k">在线</div><div class="v">${s.players.length}<small>/${s.max}</small></div></div><div><div class="k">已运行</div><div class="v">${s.upShort}</div></div>${port(s)}</div>`,
     `<span class="btn">${I("console")}控制台</span><span class="btn ghost">${I("stop")}停止</span><span class="sp"></span><span class="btn ghost ic">${I("more")}</span>`),
   stop: s => dCard(s, `<span class="pill off"><span class="d"></span>已停止</span>`,
-    `<div class="stats"><div><div class="k">上次玩</div><div class="v" style="font-size:17px">${s.lastShort}</div></div><div><div class="k">一共开过</div><div class="v">${s.hours}<small>h</small></div></div>${port(s)}</div>`,
+    `<div class="stats"><div><div class="k">上次玩</div><div class="v" style="font-size:17px">${s.lastShort}</div></div><div><div class="k">时长总计</div><div class="v">${s.hours}<small>h</small></div></div>${port(s)}</div>`,
     `<span class="btn go">${I("play")}启动</span><span class="sp"></span><span class="btn ghost ic">${I("more")}</span>`),
   boot: s => dCard(s, `<span class="pill warm"><span class="d"></span>启动中</span>`,
     `<div style="display:flex;flex-direction:column;gap:8px;padding:6px 0 18px"><div class="bar"><i></i></div><div class="steps"><span>准备 Java ✓</span><span>·</span><b>加载世界</b><span>·</span><span>就绪</span></div></div>`,
