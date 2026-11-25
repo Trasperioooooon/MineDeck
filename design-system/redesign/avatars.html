@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>草图 · 服务器头像的几种做法</title>
+<script src="kit.js"></script>
+<script src="../../internal/web/ui/pixel.js"></script>
+<link rel="stylesheet" href="kit.css">
+<style>
+  body { background: var(--bg); }
+  .page { max-width: 1160px; margin: 0 auto; padding: 28px 40px 60px; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+  .d { font-size: 12.5px; color: var(--muted); margin: 0 0 24px; }
+  .row-h { display: flex; align-items: baseline; gap: 10px; margin: 26px 0 10px; }
+  .row-h h2 { margin: 0; font-size: 15px; font-weight: 600; }
+  .row-h span { font-size: 12.5px; color: var(--muted); }
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .card { --R: 26px; --p: 8px; --ri: 18px; background: var(--surface); border-radius: var(--R); padding: var(--p); box-shadow: var(--elev-1); }
+  .cover { height: 60px; padding: 8px; display: flex; align-items: center; gap: 12px; border-radius: var(--ri); position: relative; overflow: hidden;
+           background: color-mix(in srgb, var(--c) 30%, var(--surface)); }
+  .cover::after { content: ""; position: absolute; inset: 0; opacity: .16; pointer-events: none;
+    background-image: linear-gradient(45deg, rgb(0 0 0 / .5) 25%, transparent 25%, transparent 75%, rgb(0 0 0 / .5) 75%), linear-gradient(45deg, rgb(0 0 0 / .5) 25%, transparent 25%, transparent 75%, rgb(0 0 0 / .5) 75%);
+    background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+  .cover > * { position: relative; z-index: 1; }
+  .nm { font-size: 15px; font-weight: 600; line-height: 22px; }
+  .meta { font-size: 12px; color: color-mix(in srgb, var(--text) 70%, transparent); }
+  .av { width: 44px; height: 44px; border-radius: 10px; flex: none; display: grid; place-items: center; overflow: hidden; }
+  .av svg { width: 30px; height: 30px; }
+  .px-avatar { --c: #7a8aa0; width: 44px; height: 44px; flex: none; display: grid; place-items: center; border-radius: 10px;
+               background: color-mix(in srgb, var(--c) 26%, var(--surface)); box-shadow: inset 0 1px 0 rgb(255 255 255 / .08); }
+  .px-avatar svg { width: 30px; height: 30px; display: block; }
+  /* 名字首字：核心色的底 + 名字第一个字，所有服务器同一个画法 */
+  .letter { background: color-mix(in srgb, var(--c) 72%, #000); color: #fff; font-size: 20px; font-weight: 600; box-shadow: inset 0 1px 0 rgb(255 255 255 / .18), inset 0 -2px 0 rgb(0 0 0 / .18); }
+  /* 服务器自己的图标（server-icon.png，64×64）：原样放大，不做平滑 */
+  .icon { background: #000; }
+  .icon svg { width: 44px; height: 44px; shape-rendering: crispEdges; }
+  .menu { margin-top: 10px; width: 230px; background: var(--overlay); border-radius: var(--r-lg); box-shadow: var(--elev-3); padding: 6px; border: 1px solid var(--border); }
+  .menu div { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border-radius: var(--r-sm); font-size: 13px; color: var(--text); }
+  .menu div.hl { background: var(--accent-subtle); color: var(--accent-text); }
+  .menu .h { height: 24px; font-size: 11.5px; color: var(--faint); }
+  .menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 6px; }
+  .menu .dz { color: var(--danger-text); }
+  .note { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 19px; }
+</style>
+</head>
+<body>
+<main class="page">
+  <h1>服务器头像 · 几种做法</h1>
+  <p class="d">都放在大卡的封面条里看。第一行是现在手画的像素图；第二行是名字的第一个字；第三行是服务器自己的图标（server-icon.png），没有图标的那台用第二行的样子。</p>
+  <div id="rows"></div>
+</main>
+<script>
+const S = [
+  { name: "生存服 · 朋友", core: "paper", label: "Paper · 1.21.4" },
+  { name: "机械动力整合包", core: "forge", label: "Forge · 1.20.1" },
+  { name: "原版快照测试", core: "vanilla", label: "原版 · 26.2" },
+];
+// 两张假的 server-icon.png（16 格放大到 64）：只为看效果，代表服主自己做的图
+const PAL = { k: "#1b1f2a", s: "#5fa8e8", S: "#9fd0ff", y: "#ffd35a", g: "#5bb03a", G: "#88d45a", d: "#3f7a2a", w: "#f4f1e8", r: "#d9573f", b: "#6b4a2e", o: "#ff9a3c", p: "#b06ad9", n: "#2d3550" };
+const ICONS = [
+  ["SSSSSSSSSSSSSSSS","SSSSSSSSSSSSyySS","SSSSSSSSSSSyyyyS","SSSSSSSSSSSyyyyS","SSSSSSSSSSSSyySS","SSSSwwwSSSSSSSSS","SSSwwwwwSSSSSSSS","SSSSSSSSSSSSSSSS","SSSSSSSSSSSSSSSS","SSSSSSSSSSGGSSSS","SSGGSSSSSGGGGSSS","SGGGGSSSGGGGGGSS","GGGGGGGGGGGGGGGG","gggggggggggggggg","dddddddddddddddd","bbbbbbbbbbbbbbbb"],
+  ["nnnnnnnnnnnnnnnn","nnnnnnnnnnnnnnnn","nnnnnnnkknnnnnnn","nnnnnnkookknnnnn","nnnnnkoooookknnn","nnnnkooyyooookn n".replace(" ", ""),"nnnkooyyyyooookn","nnnkooyyyyooookn","nnnkoooyyoooookn","nnnnkoooooooknnn","nnnnnkkooookknnn","nnnnnnnkkkknnnnn","nnnnnnnnnnnnnnnn","nnnnnnnnnnnnnnnn","nnnnnnnnnnnnnnnn","nnnnnnnnnnnnnnnn"],
+];
+const pix = rows => `<svg viewBox="0 0 16 16">${rows.map((r, y) => [...r].map((c, x) => `<rect x="${x}" y="${y}" width="1" height="1" fill="${PAL[c] || PAL.n}"/>`).join("")).join("")}</svg>`;
+const cover = (s, avHTML) => `<div class="card"><div class="cover" style="--c:${MDPixel.CORE_COLORS[s.core]}">${avHTML}<div style="min-width:0"><div class="nm">${s.name}</div><div class="meta">${s.label}</div></div></div></div>`;
+const letter = s => `<span class="av letter" style="--c:${MDPixel.CORE_COLORS[s.core]}">${[...s.name.trim()][0]}</span>`;
+const row = (t, d, cards) => `<div class="row-h"><h2>${t}</h2><span>${d}</span></div><div class="grid">${cards.join("")}</div>`;
+KIT_READY.then(() => {
+  document.getElementById("rows").innerHTML =
+    row("现在 · 手画的像素图", "每个核心一张，画法不统一。", S.map(s => cover(s, MDPixel.avatar(s.core)))) +
+    row("名字的第一个字", "核心色的底，所有服务器一个画法；不用任何外面的素材。", S.map(s => cover(s, letter(s)))) +
+    row("服务器自己的图标", "有 server-icon.png 就用它（游戏里多人列表看到的也是这张）；第三台没有，退回名字首字。",
+      [cover(S[0], `<span class="av icon">${pix(ICONS[0])}</span>`), cover(S[1], `<span class="av icon">${pix(ICONS[1])}</span>`), cover(S[2], letter(S[2]))]) +
+    `<div class="row-h"><h2>在哪儿换图标</h2><span>大卡「···」菜单里加一项；详情页头的「···」也一样。</span></div>
+     <div class="menu"><div class="hl"><i data-ic="camera"></i>更换服务器图标…</div><hr><div class="h">打开文件夹</div><div><i data-ic="folder"></i>服务器文件夹</div><div><i data-ic="package"></i>模组</div><div><i data-ic="globe"></i>世界</div><hr><div><i data-ic="share"></i>导出交接包…</div><hr><div class="dz"><i data-ic="trash"></i>删除服务器…</div></div>
+     <p class="note">选一张图 → 裁成正方形 → 缩到 64×64 → 存成服务器文件夹里的 server-icon.png。MineDeck 里马上换上；游戏的多人列表要等服务器下次启动才换（服务端只在启动时读这张图）。</p>`;
+  KIT.hydrate(document.getElementById("rows"));
+});
+</script>
+</body>
+</html>
