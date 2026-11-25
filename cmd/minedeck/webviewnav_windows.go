@@ -5,9 +5,11 @@ package main
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -26,21 +28,22 @@ const (
 	navCancel
 )
 
-// classifyMainFrameNavigation 裁决主窗口顶层导航：
-// 同源（与 MineDeck 本地界面同 scheme/host/port、无嵌 userinfo）放行，同源但带 userinfo 的直接取消；
-// 其余合法 http/https 外部链接拦下并转交系统默认浏览器；其它协议或畸形地址只拦不开。
+// classifyMainFrameNavigation 裁决主窗口顶层导航（A89）。
+//
+// 同源（协议、主机、端口都和 MineDeck 的本机界面一样）只在放行和取消里选：带 userinfo 的取消，别的放行，
+// 绝不交给默认浏览器。同源只看 scheme://authority，路径、查询、# 后面写成什么样都不影响：WebView2 交来的是
+// 原样地址，里面可能有反斜杠、零散的 %，整串 url.Parse 会拒收，不能拿整串解析的结果判同源。
+// 连 scheme://authority 都取不出来的取消。不同源的：合法 http/https 交给默认浏览器，别的取消。
 func classifyMainFrameNavigation(raw, baseURL string) navAction {
-	if raw == "" {
+	origin, ok := navOrigin(raw)
+	if !ok {
 		return navCancel
 	}
-	base, err := url.Parse(baseURL)
-	if err == nil {
-		if matched, hasUser := matchHTTPOrigin(raw, base); matched {
-			if hasUser {
-				return navCancel
-			}
-			return navAllow
+	if base, err := url.Parse(baseURL); err == nil && sameHTTPOrigin(origin, base) {
+		if origin.User != nil {
+			return navCancel
 		}
+		return navAllow
 	}
 	if _, err := checkExternalURL(raw); err == nil {
 		return navOpenExternal
@@ -48,36 +51,51 @@ func classifyMainFrameNavigation(raw, baseURL string) navAction {
 	return navCancel
 }
 
-func matchHTTPOrigin(raw string, base *url.URL) (matched, hasUser bool) {
-	if base == nil || (!strings.EqualFold(base.Scheme, "http") && !strings.EqualFold(base.Scheme, "https")) {
-		return false, false
+// navOrigin 只切出 raw 开头的「协议://authority」来解析，取不出来时 ok 为 false。
+// 协议是第一个「:」前面那段，后面必须紧跟「//」（blob:http://… 这种不算）；authority 到「/」「?」「#」「\」为止，
+// 「\」也算是因为浏览器对 http/https 把它当「/」。主机名里带「:」的只认方括号里的 IPv6，别的（端口写了两段之类）算取不出来。
+func navOrigin(raw string) (origin *url.URL, ok bool) {
+	colon := strings.IndexByte(raw, ':')
+	if colon <= 0 || !strings.HasPrefix(raw[colon+1:], "//") {
+		return nil, false
 	}
-	if base.Hostname() == "" || strings.ContainsAny(raw, " \t\r\n\\\"<>") {
-		return false, false
+	authority := raw[colon+3:]
+	if end := strings.IndexAny(authority, `/?#\`); end >= 0 {
+		authority = authority[:end]
 	}
-	for _, r := range raw {
-		if r < 0x20 || r == 0x7f {
-			return false, false
-		}
+	u, err := url.Parse(raw[:colon+3] + authority)
+	if err != nil || u.Scheme == "" || u.Hostname() == "" {
+		return nil, false
 	}
-	u, err := url.Parse(raw)
-	if err != nil {
-		return false, false
+	if strings.Contains(u.Hostname(), ":") && !strings.HasPrefix(u.Host, "[") {
+		return nil, false
 	}
-	same := strings.EqualFold(u.Scheme, base.Scheme) &&
-		strings.EqualFold(u.Hostname(), base.Hostname()) &&
-		effectiveURLPort(u) == effectiveURLPort(base)
-	return same, u.User != nil
+	return u, true
 }
 
+// sameHTTPOrigin 判断 u 和 base 是不是同一个 http/https 源：协议、主机名（不分大小写）、端口（没写的按协议默认）都一样。
+func sameHTTPOrigin(u, base *url.URL) bool {
+	if base.Hostname() == "" || (!strings.EqualFold(base.Scheme, "http") && !strings.EqualFold(base.Scheme, "https")) {
+		return false
+	}
+	return strings.EqualFold(u.Scheme, base.Scheme) &&
+		strings.EqualFold(u.Hostname(), base.Hostname()) &&
+		effectiveURLPort(u) == effectiveURLPort(base)
+}
+
+// effectiveURLPort 返回地址实际用的端口：没写的按协议默认（https 443，别的 80），写了的按数值比（027333 和 27333 是同一个）。
 func effectiveURLPort(u *url.URL) string {
-	if p := u.Port(); p != "" {
-		return p
+	p := u.Port()
+	if p == "" {
+		if strings.EqualFold(u.Scheme, "https") {
+			return "443"
+		}
+		return "80"
 	}
-	if strings.EqualFold(u.Scheme, "https") {
-		return "443"
+	if n, err := strconv.Atoi(p); err == nil {
+		return strconv.Itoa(n)
 	}
-	return "80"
+	return p
 }
 
 func currentUIThreadID() uint32 { return windows.GetCurrentThreadId() }
@@ -193,7 +211,13 @@ func navHandlerRelease(this *navStartingHandler) uintptr {
 }
 
 func navHandlerInvoke(this *navStartingHandler, _ unsafe.Pointer, args *navStartingEventArgs) uintptr {
-	defer func() { _ = recover() }()
+	defer func() {
+		if r := recover(); r != nil {
+			// panic 不能穿过 COM 边界，也不能当成放行：拦截悄悄失效比多拦一次更糟。日志里不写地址，同源地址带着令牌
+			log.Printf("主窗口导航拦截的回调出错，这次导航按取消处理：%v", r)
+			cancelNavAfterPanic(args)
+		}
+	}()
 	if this == nil || args == nil {
 		return comSOK
 	}
@@ -224,6 +248,16 @@ func cancelNav(args *navStartingEventArgs) {
 		return
 	}
 	_, _, _ = args.vtbl.PutCancel.Call(uintptr(unsafe.Pointer(args)), 1)
+}
+
+// cancelNavAfterPanic 在回调出错以后补一次取消；这一下自己再出错也只记日志，不再往外抛。
+func cancelNavAfterPanic(args *navStartingEventArgs) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("主窗口导航拦截：出错后取消这次导航也没成功：%v", r)
+		}
+	}()
+	cancelNav(args)
 }
 
 func extractCoreWebView2(w webview2.WebView) (coreObj uintptr, addProc, remProc edge.ComProc, err error) {
