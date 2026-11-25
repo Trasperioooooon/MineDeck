@@ -31,8 +31,8 @@ const (
 // classifyMainFrameNavigation 裁决主窗口顶层导航（A89）。
 //
 // 同源（协议、主机、端口都和 MineDeck 的本机界面一样）只在放行和取消里选：带 userinfo 的取消，别的放行，
-// 绝不交给默认浏览器。同源只看 scheme://authority，路径、查询、# 后面写成什么样都不影响：WebView2 交来的是
-// 原样地址，里面可能有反斜杠、零散的 %，整串 url.Parse 会拒收，不能拿整串解析的结果判同源。
+// 绝不交给默认浏览器。同源只看 scheme://authority，路径、查询、# 后面写成什么样都不影响：WebView2 交来的地址
+// 协议、主机、端口和路径分隔符是规范化过的，查询和 # 后面却原样留着反斜杠、零散的 %，整串 url.Parse 会拒收，不能拿整串解析的结果判同源。
 // 连 scheme://authority 都取不出来的取消。不同源的：合法 http/https 交给默认浏览器，别的取消。
 func classifyMainFrameNavigation(raw, baseURL string) navAction {
 	origin, ok := navOrigin(raw)

@@ -41,6 +41,8 @@ func TestClassifyMainFrameNavigation(t *testing.T) {
 		`http://127.0.0.1:27333/a b"c`,
 		"http://127.0.0.1:27333?x=1",
 		"http://127.0.0.1:27333#top",
+		// authority 在「\」处截断，和浏览器对 http/https 的读法一样（「\」当「/」）：这是本机地址加路径 /@evil.com/。
+		`http://127.0.0.1:27333\@evil.com/`,
 	} {
 		if got := classifyMainFrameNavigation(allow, base); got != navAllow {
 			t.Errorf("%q 应当同源放行，实际 %v", allow, got)
@@ -174,7 +176,7 @@ func TestNavHandlerInvokeCancelsWhenCallbackPanics(t *testing.T) {
 //  2. 页面内脚本 location.href 跳到外部本地服务 extSrv 时，主窗口取消提交并留在 APP_HOME，
 //     外跳 URL 转交 launchURL 且打开失败时回调 onFail；
 //  3. 非 http(s) 地址（file:///）被拦下留在原页且不交给 launchURL；
-//  4. 随后同源 location.href = '/next' 仍能正常加载；退出消息循环前 removeGuard 幂等清理不崩溃。
+//  4. 同源跳转（查询带反斜杠、# 后带零散 % 和反斜杠再刷新）照常加载、不交外部浏览器；退出消息循环前 removeGuard 幂等清理不崩溃。
 func TestWebViewNavInterceptorLive(t *testing.T) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
