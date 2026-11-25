@@ -272,7 +272,7 @@ window.EXTRA_ICONS = {
   .car .live { margin-bottom: 0; }
   .car.scroll .live { display: flex; gap: 16px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
     scroll-behavior: smooth;
-    margin: -8px -40px -14px; padding: 8px 40px 14px; cursor: grab;
+    margin: -8px -40px -14px; padding: 8px 40px 14px;
     -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
     mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
     transition: --fl .2s ease, --fr .2s ease; }
@@ -280,6 +280,8 @@ window.EXTRA_ICONS = {
   .car.scroll .live > .lc { flex: 0 0 calc((100% - 32px) / 3); }
   /* 无极滑动（作者 11-26：不要吸附）：拖动和松手后的惯性都是一像素一像素地走，不对齐到整张卡 */
   .car.scroll .live.dragging { scroll-behavior: auto; cursor: grabbing; user-select: none; }
+  /* 悬停时不换成手形（作者 11-26：鼠标移上去就是拖动的手、还没按住，像是和点卡片冲突）：平时是普通箭头，按住真拖起来（移动超过 4 像素）才变成抓住的手 */
+  .car.scroll .live.dragging * { cursor: grabbing !important; }
   .car.can-left .live { --fl: 40px; } .car.can-right .live { --fr: 40px; }
   .car-nav { position: absolute; top: 50%; z-index: 3; width: 36px; height: 36px; border-radius: 50%; display: none; place-items: center; padding: 0;
     transform: translateY(-50%); color: var(--text); cursor: pointer; opacity: 0; transition: opacity .15s;
@@ -458,7 +460,7 @@ function edges() {
 live.addEventListener("scroll", () => requestAnimationFrame(edges), { passive: true });
 addEventListener("resize", edges);
 car.addEventListener("click", e => { const b = e.target.closest(".car-nav"); if (b) stopGlide(), live.scrollBy({ left: +b.dataset.dir * (live.querySelector(".lc").offsetWidth + 16) }); });
-let drag = null, glide = 0;
+let drag = null, glide = 0, justDragged = false;
 const stopGlide = () => { cancelAnimationFrame(glide); glide = 0; live.classList.remove("dragging"); };
 live.addEventListener("pointerdown", e => {
   stopGlide();
@@ -481,6 +483,7 @@ function endDrag(e) {
   let v = e && e.type === "pointerup" && e.timeStamp - lastT < 80 ? drag.v : 0; // 停住一会儿再松手就不甩
   drag = null;
   if (!moved) return;
+  justDragged = true; setTimeout(() => { justDragged = false; }, 0);
   if (Math.abs(v) < 0.05) { live.classList.remove("dragging"); return; }
   let t0 = performance.now();
   const step = now => {
@@ -494,6 +497,8 @@ function endDrag(e) {
   glide = requestAnimationFrame(step);
 }
 live.addEventListener("pointerup", endDrag); live.addEventListener("pointercancel", endDrag);
+// 拖过以后松手那一下不算点击：真程序里点卡片会进详情页，拖完不该跳走
+live.addEventListener("click", e => { if (justDragged) { e.stopPropagation(); e.preventDefault(); justDragged = false; } }, true);
 live.addEventListener("wheel", stopGlide, { passive: true });
 KIT_READY.then(render);
 </script>
