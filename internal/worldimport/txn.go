@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"minedeck/internal/atomicfile"
 	"minedeck/internal/inst"
 	"minedeck/internal/linkmode"
 	"minedeck/internal/winname"
@@ -63,7 +64,7 @@ func saveJournal(dir string, j *Journal) error {
 		return err
 	}
 	tmp := p + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	f, err := openJournalTmp(tmp)
 	if err != nil {
 		return err
 	}
@@ -79,6 +80,33 @@ func saveJournal(dir string, j *Journal) error {
 		return err
 	}
 	return moveFile(tmp, p, true)
+}
+
+// openJournalTmp 打开记录的临时文件准备从头写。上次写到一半留下的那个要是服务器文件夹外某个文件的硬链接（A11），
+// 带 O_TRUNC 打开会改到外面那份：先不截断打开，在同一个句柄上查硬链接数，大于 1 就只删掉这里的目录项、另建一个新的。
+// 先打开再删，是为了只读的照旧打不开、报错：Windows 上 os.Remove 删只读文件时会先去掉只读属性，硬链接另一端也跟着变成可写。
+func openJournalTmp(tmp string) (*os.File, error) {
+	f, err := os.OpenFile(tmp, os.O_RDWR|os.O_CREATE, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	n, err := atomicfile.HardlinkCount(f)
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	if n > 1 {
+		f.Close()
+		if err := os.Remove(tmp); err != nil {
+			return nil, err
+		}
+		return os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	}
+	if err := f.Truncate(0); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return f, nil
 }
 
 // maxJournalBytes 一份记录最多多大。正常的只有几 KB；大得离谱的不读进内存，按读不出来算。

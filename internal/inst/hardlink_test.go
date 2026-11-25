@@ -108,3 +108,51 @@ func newTestManagerWithInstance(t *testing.T, name, dir string) *Manager {
 	m.insts[name] = inst
 	return m
 }
+
+// 接管已有服务器时补写 eula.txt（A11）：文件夹是现成的，eula.txt 要是服务器文件夹外某个文件的硬链接，不写、外面那份不动。
+func TestAdoptEULARejectsHardlink(t *testing.T) {
+	base := t.TempDir()
+	dir := filepath.Join(base, "server")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(base, "outside-eula.txt")
+	const keep = "eula=false\n"
+	if err := os.WriteFile(outside, []byte(keep), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(outside, filepath.Join(dir, "eula.txt")); err != nil {
+		t.Fatalf("建硬链接失败（要在允许建硬链接的盘上跑）：%v", err)
+	}
+	task, _ := tasks.NewManager().New("接管", adoptSteps)
+	if err := ensureAdoptedEULA(task, dir, true); !errors.Is(err, ErrHardlinkEscape) {
+		t.Fatalf("eula.txt 是硬链接时应拒绝写入，实际 %v", err)
+	}
+	if b, err := os.ReadFile(outside); err != nil || string(b) != keep {
+		t.Fatalf("服务器文件夹外的文件被改了：%q %v", b, err)
+	}
+}
+
+// 存 instance.json 先写 instance.json.tmp（A11）：上次留下的 .tmp 要是服务器文件夹外某个文件的硬链接，不写、外面那份不动。
+func TestSaveInstanceLeftoverTmpHardlinkRejected(t *testing.T) {
+	base := t.TempDir()
+	dir := filepath.Join(base, "server")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(base, "outside.json")
+	const keep = `{"keep":"outside"}`
+	if err := os.WriteFile(outside, []byte(keep), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(outside, filepath.Join(dir, "instance.json.tmp")); err != nil {
+		t.Fatalf("建硬链接失败（要在允许建硬链接的盘上跑）：%v", err)
+	}
+	m := newTestManagerWithInstance(t, "s1", dir)
+	if err := m.saveInstance(m.insts["s1"]); !errors.Is(err, ErrHardlinkEscape) {
+		t.Fatalf("instance.json.tmp 是硬链接时应拒绝写入，实际 %v", err)
+	}
+	if b, err := os.ReadFile(outside); err != nil || string(b) != keep {
+		t.Fatalf("服务器文件夹外的文件被改了：%q %v", b, err)
+	}
+}
