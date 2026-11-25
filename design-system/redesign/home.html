@@ -158,7 +158,10 @@ window.EXTRA_ICONS = {
                       background: color-mix(in srgb, var(--surface) 55%, transparent); }
   .lc .cover .tools .pin, .lc .cover .tools .mini { width: 30px; height: 30px; background: none; }
   .lc .inner { padding-top: var(--p); }
-  .lc .acts .sp { flex: 1; }
+  /* 第九版：中间不留空，控制台、状态、停止（启动）三个等宽铺满，链接固定 36 的圆贴在右下角 */
+  .lc .acts .sp { display: none; }
+  .lc .acts > :not(.ic) { flex: 1 1 0; min-width: 0; justify-content: center; margin-left: 0; }
+  .lc .acts .stbr { border: 1px solid transparent; }
   .bar { background: color-mix(in srgb, var(--text) 14%, transparent); }
 
   /* 辅助线：把贴边元素的圆角补成整圆，看是不是和卡片的圆角同心 */
