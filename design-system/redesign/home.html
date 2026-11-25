@@ -256,9 +256,12 @@ window.EXTRA_ICONS = {
                            color: var(--faint); font-size: 12.5px; }
   body.head-c .page { padding-top: 12px; }
   /* D（作者 11-26 的主意）：上半截一个块状的像素字标 MineDeck，下面紧跟 B 的概览条；标题栏里的 MineDeck 字就不要了，只留小图标 */
-  .hd { flex-direction: column; align-items: center; gap: 18px; margin: 4px 0 28px; }
+  /* 第二版（作者：概览条不用那么长、字再大一点、上面多留白）：字每格 7 像素，上面留 40；概览条不再铺满，跟着内容的宽度、在字底下居中 */
+  .hd { flex-direction: column; align-items: center; gap: 24px; margin: 40px 0 32px; }
   .hd .mark svg { display: block; }
-  .hd .hb { display: flex; width: 100%; margin: 0; }
+  .hd .hb { display: flex; width: auto; margin: 0; }
+  .hd .hb .sp { flex: 0 0 4px; }
+  .hd .hb .find { width: 240px; }
   body.head-d .tb .brand { font-size: 0; }
   body.head-d.mark-left .hd { align-items: flex-start; }
   /* 对比页里嵌着看时不要胶囊和角落的说明 */
@@ -404,7 +407,7 @@ function render() {
     <span class="sp"></span><div class="find"><i data-ic="search"></i>搜索服务器<kbd>Ctrl F</kbd></div>`;
   document.getElementById("hb").innerHTML = strip;
   document.getElementById("hd-strip").innerHTML = strip;
-  document.getElementById("hd-mark").innerHTML = MDWordmark.svg({ cell: +(QS.get("cell") || 5), tone: QS.get("tone") === "mono" ? "mono" : "duo" });
+  document.getElementById("hd-mark").innerHTML = MDWordmark.svg({ cell: +(QS.get("cell") || 7), tone: QS.get("tone") === "mono" ? "mono" : "duo" });
   document.getElementById("tb-stats").innerHTML = `<span><span class="dot"></span><b>${run.length}</b> 台运行中</span><span><b>${ppl}</b> 人在线</span><span>共 <b>${SERVERS.length}</b> 台</span>`;
   KIT.hydrate(document.querySelector(".tb"));
   for (const b of document.querySelectorAll(".seg button")) { b.classList.toggle("on", b.dataset.mode === mode); b.setAttribute("aria-checked", b.dataset.mode === mode); }
