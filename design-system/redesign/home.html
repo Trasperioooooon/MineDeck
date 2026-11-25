@@ -14,7 +14,7 @@ window.EXTRA_ICONS = {
 };
 </script>
 <script src="kit.js"></script>
-<script src="../../internal/web/ui/pixel.js"></script>
+<script src="pixel16.js"></script>
 <link rel="stylesheet" href="kit.css">
 <style>
   body { background: var(--bg); overflow-x: hidden; }
@@ -144,6 +144,7 @@ window.EXTRA_ICONS = {
   /* 小块也同心：外圆角 20、内边距 8，头像和按钮圆角 12 */
   .rc { --R: 20px; --p: 8px; border-radius: var(--R); padding: var(--p) 10px var(--p) var(--p); gap: 12px; }
   .rc .px-avatar.sm { width: 38px; height: 38px; border-radius: calc(var(--R) - var(--p)); }
+  .rc .px-avatar.sm svg { width: 32px; height: 32px; }
   .rc .play { width: 38px; height: 38px; border-radius: calc(var(--R) - var(--p)); margin-right: -2px; }
 
   /* 第八版：头像和名字放进封面条（封面高 60，头像 44 离封面边 8，圆角 18 − 8 = 10，和封面同心；右边星标和「···」
@@ -151,7 +152,9 @@ window.EXTRA_ICONS = {
   .lc .cover { height: 60px; padding: 8px; display: flex; align-items: center; gap: 12px; }
   .lc .cover > * { position: relative; z-index: 1; }
   .lc .cover .px-avatar { width: 44px; height: 44px; border-radius: calc(var(--ri) - 8px); box-shadow: inset 0 1px 0 rgb(255 255 255 / .08); }
-  .lc .cover .px-avatar svg { width: 30px; height: 30px; }
+  .lc .cover .px-avatar svg { width: 32px; height: 32px; }
+  /* 服务器自己的图标（server-icon.png，64×64）铺满瓦片，不要核心色底；16 格的核心头像按 32 显示才锐利（11-26 定） */
+  .px-avatar.icon { background: #000; overflow: hidden; } .px-avatar.icon svg { width: 100% !important; height: 100% !important; }
   .lc .cover .title { min-width: 0; flex: 1; }
   .lc .cover .title .meta { color: color-mix(in srgb, var(--text) 70%, transparent); }
   .lc .cover .tools { position: relative; top: auto; right: auto; height: 44px; padding: 0 6px; gap: 0; align-items: center; border-radius: calc(var(--ri) - 8px);
@@ -272,14 +275,14 @@ if (QS.get("guides")) document.body.classList.add("guides");
 <div class="tip">草图 · 胶囊在下面 <a href="?nav=top">放进标题栏</a> · <a href="?">放回下面</a> · 配色 <a href="?scheme=craft&theme=light">方块浅色</a> <a href="?">Nord 深色</a> · 圆角 <a href="?">连续曲率</a> <a href="?corner=round">普通圆弧</a> · <a href="?guides=1">辅助线</a></div>
 
 <script>
-// 假数据：recent 越小越近（正在开着的算「现在」），hours 是一共开过的小时数，pin 是置顶
+// 假数据：recent 越小越近（正在开着的算「现在」），hours 是一共开过的小时数，pin 是置顶，icon 是服务器自己的 server-icon.png（这里用 16 格的假图代替）
 const SERVERS = [
   { name: "原版快照测试", core: "vanilla", label: "原版", mc: "26.2", st: "starting", port: 25567, last: "现在", hours: 3, recent: 0, pin: false },
-  { name: "生存服 · 朋友", core: "paper", label: "Paper", mc: "1.21.4", st: "running", players: 3, max: 20, up: "2:13", port: 25565, tunnel: "frp-hk.openfrp.net:31234", last: "现在", hours: 128, recent: 1, pin: true },
+  { name: "生存服 · 朋友", core: "paper", label: "Paper", mc: "1.21.4", st: "running", players: 3, max: 20, up: "2:13", port: 25565, tunnel: "frp-hk.openfrp.net:31234", last: "现在", hours: 128, recent: 1, pin: true, icon: "sunset" },
   { name: "机械动力整合包", core: "forge", label: "Forge", mc: "1.20.1", st: "stopped", port: 25566, last: "昨天", hours: 36, recent: 2, pin: false },
   { name: "空岛生存", core: "purpur", label: "Purpur", mc: "1.21.4", st: "running", players: 7, max: 30, up: "5:02", port: 25570, last: "现在", hours: 212, recent: 3, pin: true },
   { name: "红石科技服", core: "leaves", label: "Leaves", mc: "1.21.4", st: "stopped", port: 25571, last: "3 天前", hours: 54, recent: 4, pin: false },
-  { name: "匠魂与暮色", core: "neoforge", label: "NeoForge", mc: "1.21.1", st: "stopped", port: 25574, last: "上周", hours: 90, recent: 5, pin: true },
+  { name: "匠魂与暮色", core: "neoforge", label: "NeoForge", mc: "1.21.1", st: "stopped", port: 25574, last: "上周", hours: 90, recent: 5, pin: true, icon: "gem" },
   { name: "模组加插件", core: "mohist", label: "Mohist", mc: "1.20.1", st: "stopped", port: 25575, last: "两周前", hours: 8, recent: 6, pin: false },
   { name: "群组代理", core: "velocity", label: "Velocity", mc: "3.4.0", st: "stopped", port: 25577, last: "上个月", hours: 2, recent: 7, pin: false },
 ];
@@ -289,7 +292,14 @@ const MODES = {
   pin: { title: "收藏", by: (a, b) => (b.pin - a.pin) || (a.recent - b.recent) },
 };
 let mode = "recent";
-const av = (s, sz) => MDPixel.avatar(s.core, sz);
+// 有 server-icon.png 用它，没有用核心头像（作者 11-26 定）
+const FAKE_ICON_PAL = { k: "#1b1f2a", s: "#5fa8e8", S: "#9fd0ff", y: "#ffd35a", g: "#5bb03a", G: "#88d45a", d: "#3f7a2a", b: "#6b4a2e", o: "#ff9a3c", w: "#f4f1e8", n: "#2d3550" };
+const FAKE_ICONS = {
+  sunset: ["SSSSSSSSSSSSSSSS","SSSSSSSSSSSSyySS","SSSSSSSSSSSyyyyS","SSSSSSSSSSSyyyyS","SSSSSSSSSSSSyySS","SSSSwwwSSSSSSSSS","SSSwwwwwSSSSSSSS","SSSSSSSSSSSSSSSS","SSSSSSSSSSSSSSSS","SSSSSSSSSSGGSSSS","SSGGSSSSSGGGGSSS","SGGGGSSSGGGGGGSS","GGGGGGGGGGGGGGGG","gggggggggggggggg","dddddddddddddddd","bbbbbbbbbbbbbbbb"],
+  gem: ["nnnnnnnnnnnnnnnn","nnnnnnnnnnnnnnnn","nnnnnnnkknnnnnnn","nnnnnnkookknnnnn","nnnnnkoooookknnn","nnnnkooyyooookn n".replace(" ", ""),"nnnkooyyyyooookn","nnnkooyyyyooookn","nnnkoooyyoooookn","nnnnkoooooooknnn","nnnnnkkooookknnn","nnnnnnnkkkknnnnn","nnnnnnnnnnnnnnnn","nnnnnnnnnnnnnnnn","nnnnnnnnnnnnnnnn","nnnnnnnnnnnnnnnn"],
+};
+const fakeIcon = rows => `<svg viewBox="0 0 16 16" shape-rendering="crispEdges">${rows.map((r, y) => [...r].map((c, x) => `<rect x="${x}" y="${y}" width="1" height="1" fill="${FAKE_ICON_PAL[c] || FAKE_ICON_PAL.n}"/>`).join("")).join("")}</svg>`;
+const av = (s, sz) => s.icon ? `<span class="px-avatar icon${sz ? " " + sz : ""}" aria-hidden="true">${fakeIcon(FAKE_ICONS[s.icon])}</span>` : MDPixel16.avatar(s.core, sz || "", 32);
 const star = (s, i) => `<button class="pin${s.pin ? " on" : ""}" data-i="${i}" title="${s.pin ? "取消收藏" : "收藏"}"><i data-ic="${s.pin ? "starOn" : "star"}"></i></button>`;
 const status = s => s.st === "running" ? `<span class="st"><i></i>运行中</span>` : s.st === "starting" ? `<span class="st warm"><i></i>启动中</span>` : `<span class="st off"><i></i>已停止</span>`;
 
@@ -310,7 +320,7 @@ function big(s, i) {
     st = `<span class="stbr off"><i></i>已停止</span>`;
     acts = `${console_}${st}<span class="sp"></span><span class="btn go"><i data-ic="play"></i>启动</span>${link}`;
   }
-  return `<div class="lc" style="--c:${MDPixel.CORE_COLORS[s.core]}">
+  return `<div class="lc" style="--c:${MDPixel16.CORE_COLORS[s.core]}">
     <div class="cover">${av(s)}<div class="title"><div class="nm">${s.name}</div><div class="meta">${s.label} · ${s.mc}</div></div><span class="tools">${star(s, i)}<span class="mini" title="更多"><i data-ic="more"></i></span></span></div>
     <div class="inner">${body}<div class="acts">${acts}</div></div></div>`;
 }

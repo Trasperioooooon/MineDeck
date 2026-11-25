@@ -12,7 +12,7 @@ window.EXTRA_ICONS = {
 };
 </script>
 <script src="kit.js"></script>
-<script src="../../internal/web/ui/pixel.js"></script>
+<script src="pixel12-old.js"></script>
 <link rel="stylesheet" href="kit.css">
 <style>
   body { background: var(--bg); }
@@ -110,7 +110,7 @@ const S = {
   boot: { name: "原版快照测试", core: "vanilla", label: "原版", mc: "26.2", motd: "A Minecraft Server", sec: 12, lan: "192.168.1.5:25567", port: 25567 },
 };
 const I = (n) => `<i data-ic="${n}"></i>`;
-const av = (s, sz = "lg") => MDPixel.avatar(s.core, sz);
+const av = (s, sz = "lg") => MDPixelOld.avatar(s.core, sz);
 
 // 按名字生成一张 8×8 的像素脸（离线也能有头像；正版服以后可以换成真皮肤）
 function face(name) {
@@ -164,7 +164,7 @@ const B = {
 };
 
 // —— C：封面 ——
-const cCard = (s, pill, body, acts) => `<div class="card c" style="--c:${MDPixel.CORE_COLORS[s.core]}"><div class="cover">${pill}<span class="pin">${I("starOn")}</span></div><span class="avwrap">${av(s)}</span>
+const cCard = (s, pill, body, acts) => `<div class="card c" style="--c:${MDPixelOld.CORE_COLORS[s.core]}"><div class="cover">${pill}<span class="pin">${I("starOn")}</span></div><span class="avwrap">${av(s)}</span>
   <div class="pad"><div style="min-width:0"><div class="nm">${s.name}</div><div class="motd">${motd(s.motd)}</div></div>${body}<div class="acts">${acts}</div></div></div>`;
 const C = {
   run: s => cCard(s, `<span class="pill ok"><span class="d"></span>运行中</span>`, `<div class="sub" style="gap:14px"><span>${I("user")} ${s.players.length}/${s.max}</span><span>${I("clock")} ${s.upShort}</span><span class="mono">:${s.port}</span></div>`,
@@ -176,7 +176,7 @@ const C = {
 };
 
 // —— D：A 的内容 + C 的封面 ——
-const dCard = (s, pill, body, acts) => `<div class="card d" style="--c:${MDPixel.CORE_COLORS[s.core]}"><div class="cover">${pill}<span class="pin">${I("starOn")}</span></div>
+const dCard = (s, pill, body, acts) => `<div class="card d" style="--c:${MDPixelOld.CORE_COLORS[s.core]}"><div class="cover">${pill}<span class="pin">${I("starOn")}</span></div>
   <div class="dhead"><span class="avwrap">${av(s)}</span><div style="min-width:0"><div class="nm">${s.name}</div><div class="sub">${s.label} · ${s.mc}</div></div></div>
   <div class="pad">${body}<div class="acts">${acts}</div></div></div>`;
 const port = s => `<div><div class="k">端口</div><div class="v" style="display:flex;align-items:center;gap:6px">${s.port}<span style="color:var(--faint)">${I("copy")}</span></div></div>`;

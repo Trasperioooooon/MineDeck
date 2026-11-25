@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>草图 · 核心头像重画</title>
 <script src="kit.js"></script>
-<script src="../../internal/web/ui/pixel.js"></script>
+<script src="pixel12-old.js"></script>
 <script src="pixel16.js"></script>
 <link rel="stylesheet" href="kit.css">
 <style>
@@ -87,7 +87,7 @@ const SHORT = { banner: "Taiyitist", unknown: "认不出" };
 document.getElementById("sheet").innerHTML = C.map(k => `<figure>${MDPixel16.avatar(k, "", 32)}<figcaption>${SHORT[k] || NAMES[k][0]}</figcaption></figure>`).join("");
 document.getElementById("cmp").innerHTML = C.map(k => `<tr>
   <td class="nm">${NAMES[k][0]}<small>${NAMES[k][1]}</small></td>
-  <td class="old">${MDPixel.avatar(k === "unknown" ? "zzz" : k)}</td>
+  <td class="old">${MDPixelOld.avatar(k === "unknown" ? "zzz" : k)}</td>
   <td>${MDPixel16.avatar(k, "", 32)}</td>
   <td><span class="raw">${MDPixel16.svg(k, 16)}</span></td>
   <td><span class="raw">${MDPixel16.svg(k, 48)}</span></td>

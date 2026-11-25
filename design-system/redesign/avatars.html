@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>草图 · 服务器头像的几种做法</title>
 <script src="kit.js"></script>
-<script src="../../internal/web/ui/pixel.js"></script>
+<script src="pixel12-old.js"></script>
 <link rel="stylesheet" href="kit.css">
 <style>
   body { background: var(--bg); }
@@ -62,12 +62,12 @@ const ICONS = [
   ["nnnnnnnnnnnnnnnn","nnnnnnnnnnnnnnnn","nnnnnnnkknnnnnnn","nnnnnnkookknnnnn","nnnnnkoooookknnn","nnnnkooyyooookn n".replace(" ", ""),"nnnkooyyyyooookn","nnnkooyyyyooookn","nnnkoooyyoooookn","nnnnkoooooooknnn","nnnnnkkooookknnn","nnnnnnnkkkknnnnn","nnnnnnnnnnnnnnnn","nnnnnnnnnnnnnnnn","nnnnnnnnnnnnnnnn","nnnnnnnnnnnnnnnn"],
 ];
 const pix = rows => `<svg viewBox="0 0 16 16">${rows.map((r, y) => [...r].map((c, x) => `<rect x="${x}" y="${y}" width="1" height="1" fill="${PAL[c] || PAL.n}"/>`).join("")).join("")}</svg>`;
-const cover = (s, avHTML) => `<div class="card"><div class="cover" style="--c:${MDPixel.CORE_COLORS[s.core]}">${avHTML}<div style="min-width:0"><div class="nm">${s.name}</div><div class="meta">${s.label}</div></div></div></div>`;
-const letter = s => `<span class="av letter" style="--c:${MDPixel.CORE_COLORS[s.core]}">${[...s.name.trim()][0]}</span>`;
+const cover = (s, avHTML) => `<div class="card"><div class="cover" style="--c:${MDPixelOld.CORE_COLORS[s.core]}">${avHTML}<div style="min-width:0"><div class="nm">${s.name}</div><div class="meta">${s.label}</div></div></div></div>`;
+const letter = s => `<span class="av letter" style="--c:${MDPixelOld.CORE_COLORS[s.core]}">${[...s.name.trim()][0]}</span>`;
 const row = (t, d, cards) => `<div class="row-h"><h2>${t}</h2><span>${d}</span></div><div class="grid">${cards.join("")}</div>`;
 KIT_READY.then(() => {
   document.getElementById("rows").innerHTML =
-    row("现在 · 手画的像素图", "每个核心一张，画法不统一。", S.map(s => cover(s, MDPixel.avatar(s.core)))) +
+    row("现在 · 手画的像素图", "每个核心一张，画法不统一。", S.map(s => cover(s, MDPixelOld.avatar(s.core)))) +
     row("名字的第一个字", "核心色的底，所有服务器一个画法；不用任何外面的素材。", S.map(s => cover(s, letter(s)))) +
     row("服务器自己的图标", "有 server-icon.png 就用它（游戏里多人列表看到的也是这张）；第三台没有，退回名字首字。",
       [cover(S[0], `<span class="av icon">${pix(ICONS[0])}</span>`), cover(S[1], `<span class="av icon">${pix(ICONS[1])}</span>`), cover(S[2], letter(S[2]))]) +
