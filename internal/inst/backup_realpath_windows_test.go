@@ -58,3 +58,40 @@ func TestBackupRestoreRefusesJunctionEscape(t *testing.T) {
 		t.Fatalf("绝不能在外部目录里建出 escape.txt：%v", err)
 	}
 }
+
+// 还原时只查目标上面的文件夹是不是链接，不查目标本身（A12）：OneDrive 这类云同步的文件在 Go 里也只报 ModeIrregular，
+// 和目录联接分不开，查目标本身会让现有的世界文件挡住整次还原。云同步文件在测试里造不出来，这里用一个占在目标位置上、
+// 指回服务器文件夹里面的目录联接代替（Lstat 一样只报 ModeIrregular）：真实落点在服务器文件夹里，应当放行。
+func TestBackupRestoreDoesNotLinkCheckTargetItself(t *testing.T) {
+	dest := filepath.Join(t.TempDir(), "server")
+	inner := filepath.Join(dest, "world", "real-region")
+	if err := os.MkdirAll(inner, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	junc := filepath.Join(dest, "world", "region")
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", junc, inner).CombinedOutput(); err != nil {
+		t.Fatalf("建目录联接失败（%v）：%s", err, string(out))
+	}
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	if _, err := zw.Create("world/region/"); err != nil {
+		t.Fatal(err)
+	}
+	_ = zw.Close()
+	zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkBackupPaths(zr.File, dest); err != nil {
+		t.Fatalf("目标本身占着、真实落点在服务器文件夹里的，不该挡住还原：%v", err)
+	}
+	lease, err := diskguard.Acquire(context.Background(), dest, diskguard.Options{AllowUnknown: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Close()
+	if err := unzipReaderTo(zr, dest, lease); err != nil {
+		t.Fatalf("解压也不该被挡住：%v", err)
+	}
+}

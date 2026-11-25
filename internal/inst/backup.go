@@ -644,11 +644,14 @@ func checkBackupTargetPath(cleanDest, realDest string, f *zip.File) (string, err
 	if target == cleanDest || !strings.HasPrefix(target, cleanDest+string(os.PathSeparator)) {
 		return "", fmt.Errorf("备份内含非法路径: %s", f.Name)
 	}
-	// 逐级检查目标路径里已存在的部分，防止任何中间符号链接/目录联接或真实落点逃出 destDir。
-	for cur := target; cur != cleanDest; {
+	// 从上一级文件夹查起，逐级看已存在的部分是不是符号链接、目录联接。不查目标本身：OneDrive 这类云同步的文件
+	// 在 Go 里可能也只报 ModeIrregular，和联接分不开，查它会让现有的世界文件挡住整次还原；目标本身指到外面的，
+	// 由下面的 RealPathStrict + InsideReal 拦住。
+	for cur := filepath.Dir(target); cur != cleanDest; {
 		if st, err := os.Lstat(cur); err == nil {
 			if linkmode.IsLink(st.Mode()) {
-				return "", fmt.Errorf("备份内含指向别处的链接路径: %s", f.Name)
+				rel, _ := filepath.Rel(cleanDest, cur)
+				return "", fmt.Errorf("服务器文件夹里的「%s」是指向别处的链接，没有还原", filepath.ToSlash(rel))
 			}
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return "", fmt.Errorf("检查备份落点失败: %s（%w）", f.Name, err)

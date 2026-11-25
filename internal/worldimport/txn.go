@@ -63,7 +63,12 @@ func saveJournal(dir string, j *Journal) error {
 		return err
 	}
 	tmp := p + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	// 上次写到一半留下的临时文件先删掉，再新建一个（A11）：它要是服务器文件夹外某个文件的硬链接，带 O_TRUNC 打开会改到外面那份；
+	// 删掉只去掉这里的目录项，外面那份不动；删完用 O_EXCL 新建，不会再打开到别人放的文件。
+	if err := os.Remove(tmp); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return err
 	}

@@ -463,9 +463,11 @@ func (s *Service) syncVoiceHost(name string, starting bool) {
 }
 
 // writeVoiceHost 只改 voice_host 这一行，其余原样保留；改之前把原文件备份成 voicechat-server.properties.bak。
+// 备份的名字固定、每次覆盖，所以用替换写（A11）：.bak 要是服务器文件夹外某个文件的硬链接，原地写会改到外面那份，
+// 替换只换掉这台服务器自己的目录项。只读的 .bak 照旧报错不覆盖，和以前的 os.WriteFile 一样。
 func writeVoiceHost(path string, p *bridge.Props, value string) error {
 	if orig, err := os.ReadFile(path); err == nil {
-		if err := os.WriteFile(path+".bak", orig, 0o644); err != nil {
+		if err := atomicfile.WriteProtected(path+".bak", orig, 0o644); err != nil {
 			return fmt.Errorf("备份原配置失败：%w", err)
 		}
 	}

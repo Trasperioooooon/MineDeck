@@ -20,9 +20,12 @@ func IsPlainDirInfo(st fs.FileInfo) bool {
 	return st != nil && st.IsDir() && !IsLink(st.Mode())
 }
 
+// lstat 测试里换成返回假 FileInfo 的函数：云同步文件夹（ModeDir|ModeIrregular）在测试里造不出来。
+var lstat = os.Lstat
+
 // IsPlainDir 判断路径 p 是否存在且为真实文件夹（不跟随符号链接或目录联接）。
 func IsPlainDir(p string) bool {
-	st, err := os.Lstat(p)
+	st, err := lstat(p)
 	return err == nil && IsPlainDirInfo(st)
 }
 

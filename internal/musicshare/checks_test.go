@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"minedeck/internal/atomicfile"
 	"minedeck/internal/bridge"
 	"minedeck/internal/events"
 	"minedeck/internal/mcsrc"
@@ -233,6 +234,50 @@ func TestVoiceHostSync(t *testing.T) {
 	e.tun.set(voice)
 	if _, err := e.s.SetVoiceHost(instName, "", true); codeOf(err) != 400 {
 		t.Errorf("隧道还没地址时改用隧道地址：%v", err)
+	}
+}
+
+// voice_host 的备份 .bak 名字固定、每次覆盖（A11）：它要是服务器文件夹外某个文件的硬链接，写备份不能改到外面那份，
+// 服务器里的 .bak 换成独立的新文件。
+func TestVoiceHostBackupDoesNotWriteThroughHardlink(t *testing.T) {
+	base := t.TempDir()
+	cfg := filepath.Join(base, "server", "config", "voicechat", "voicechat-server.properties")
+	if err := os.MkdirAll(filepath.Dir(cfg), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const orig = "port=24454\nvoice_host=\n"
+	if err := os.WriteFile(cfg, []byte(orig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(base, "outside.txt")
+	const keep = "outside, do not touch\n"
+	if err := os.WriteFile(outside, []byte(keep), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(outside, cfg+".bak"); err != nil {
+		t.Fatalf("建硬链接失败（要在允许建硬链接的盘上跑）：%v", err)
+	}
+	p, err := bridge.LoadProps(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeVoiceHost(cfg, p, "a.example.com"); err != nil {
+		t.Fatalf("写 voice_host：%v", err)
+	}
+	if b, err := os.ReadFile(outside); err != nil || string(b) != keep {
+		t.Fatalf("服务器文件夹外的文件被改了：%q %v", b, err)
+	}
+	if b, err := os.ReadFile(cfg + ".bak"); err != nil || string(b) != orig {
+		t.Fatalf("备份应是改之前的配置：%q %v", b, err)
+	}
+	f, err := os.Open(cfg + ".bak")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := atomicfile.HardlinkCount(f)
+	f.Close()
+	if err != nil || n != 1 {
+		t.Fatalf("服务器里的 .bak 应是独立的文件（硬链接数 1）：n=%d err=%v", n, err)
 	}
 }
 

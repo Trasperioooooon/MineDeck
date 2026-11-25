@@ -310,3 +310,31 @@ func TestJournalValidate(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// 上次写到一半留下的 journal.json.tmp 要是服务器文件夹外某个文件的硬链接（A11），再写记录时不能改到外面那份。
+func TestSaveJournalLeftoverTmpHardlinkUntouched(t *testing.T) {
+	dir, j := setup(t)
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	const keep = "outside, do not touch\n"
+	if err := os.WriteFile(outside, []byte(keep), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tmp := journalPath(dir, j.ID) + ".tmp"
+	if err := os.Link(outside, tmp); err != nil {
+		t.Fatalf("建硬链接失败（要在允许建硬链接的盘上跑）：%v", err)
+	}
+	j.State = TxCommitting
+	if err := saveJournal(dir, j); err != nil {
+		t.Fatalf("写记录：%v", err)
+	}
+	if got := read(t, outside); got != keep {
+		t.Fatalf("服务器文件夹外的文件被改了：%q", got)
+	}
+	j2, err := loadJournal(dir, j.ID)
+	if err != nil || j2.State != TxCommitting {
+		t.Fatalf("记录应写成新的状态：%+v %v", j2, err)
+	}
+	if _, err := os.Lstat(tmp); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("临时文件应已改名成 journal.json：%v", err)
+	}
+}
