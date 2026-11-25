@@ -99,6 +99,27 @@ window.EXTRA_ICONS = {
   .steps { display: flex; gap: 6px; font-size: 11.5px; color: var(--faint); }
   .steps b { color: var(--warning-text); font-weight: 500; }
 
+  /* 第五版（作者 11-25 的意见）：三种状态一样高；状态挪到右下角；只留两格数字，在线人数绿色；
+     卡上一个复制连接地址的图标；停止用危险色，醒目一点；「···」和星标一起放在封面右上角 */
+  .lc { height: 228px; min-height: 0; }
+  .lc .cover .tools { position: absolute; top: 6px; right: 8px; z-index: 1; display: flex; gap: 2px; }
+  .lc .cover .tools .pin, .lc .cover .tools .mini { position: static; }
+  .mini { width: 28px; height: 28px; border-radius: var(--r-full); display: grid; place-items: center; color: var(--muted);
+          background: color-mix(in srgb, var(--surface) 55%, transparent); }
+  .mini:hover { color: var(--text); }
+  .lc .cover .pin:not(.on) { background: color-mix(in srgb, var(--surface) 55%, transparent); }
+  .stats { grid-template-columns: repeat(2, 1fr); height: 62px; }
+  .stats .v.ok { color: var(--success-text); }
+  .boot { height: 62px; padding: 9px 12px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+  .lc .acts { margin-top: 0; }
+  .btn.stop { background: var(--danger-subtle); color: var(--danger-text); border-color: transparent; }
+  .btn.ic { width: 32px; padding: 0; justify-content: center; }
+  .lc .stbr { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; white-space: nowrap; }
+  .lc .stbr i { width: 7px; height: 7px; border-radius: 2px; }
+  .stbr.ok { color: var(--success-text); } .stbr.ok i { background: var(--success); box-shadow: 0 0 0 3px var(--success-subtle); }
+  .stbr.warm { color: var(--warning-text); } .stbr.warm i { background: var(--warning); box-shadow: 0 0 0 3px var(--warning-subtle); }
+  .stbr.off { color: var(--faint); } .stbr.off i { background: var(--faint); }
+
   /* 星标（置顶）：钉住的一直亮着，没钉的悬停才出现 */
   .pin { width: 28px; height: 28px; border-radius: var(--r-full); border: 0; background: none; display: grid; place-items: center; color: var(--faint); cursor: pointer; opacity: 0; flex: none; }
   .pin.on { opacity: 1; color: var(--warning); }
@@ -200,7 +221,7 @@ window.EXTRA_ICONS = {
 // 假数据：recent 越小越近（正在开着的算「现在」），hours 是一共开过的小时数，pin 是置顶
 const SERVERS = [
   { name: "原版快照测试", core: "vanilla", label: "原版", mc: "26.2", st: "starting", port: 25567, last: "现在", hours: 3, recent: 0, pin: false },
-  { name: "生存服 · 朋友", core: "paper", label: "Paper", mc: "1.21.4", st: "running", players: 3, max: 20, up: "2:13", port: 25565, last: "现在", hours: 128, recent: 1, pin: true },
+  { name: "生存服 · 朋友", core: "paper", label: "Paper", mc: "1.21.4", st: "running", players: 3, max: 20, up: "2:13", port: 25565, tunnel: "frp-hk.openfrp.net:31234", last: "现在", hours: 128, recent: 1, pin: true },
   { name: "机械动力整合包", core: "forge", label: "Forge", mc: "1.20.1", st: "stopped", port: 25566, last: "昨天", hours: 36, recent: 2, pin: false },
   { name: "空岛生存", core: "purpur", label: "Purpur", mc: "1.21.4", st: "running", players: 7, max: 30, up: "5:02", port: 25570, last: "现在", hours: 212, recent: 3, pin: true },
   { name: "红石科技服", core: "leaves", label: "Leaves", mc: "1.21.4", st: "stopped", port: 25571, last: "3 天前", hours: 54, recent: 4, pin: false },
@@ -219,21 +240,24 @@ const star = (s, i) => `<button class="pin${s.pin ? " on" : ""}" data-i="${i}" t
 const status = s => s.st === "running" ? `<span class="st"><i></i>运行中</span>` : s.st === "starting" ? `<span class="st warm"><i></i>启动中</span>` : `<span class="st off"><i></i>已停止</span>`;
 
 function big(s, i) {
-  const port = `<div><div class="k">端口</div><div class="v" title="点一下复制连接地址">${s.port}<i data-ic="copy"></i></div></div>`;
-  let body, acts;
+  const link = `<span class="btn ghost ic" title="${s.tunnel ? "复制内网穿透地址 " + s.tunnel : "复制连接地址 192.168.1.5:" + s.port}"><i data-ic="${s.tunnel ? "globe" : "link"}"></i></span>`;
+  let body, acts, st;
   if (s.st === "running") {
-    body = `<div class="stats"><div><div class="k">在线</div><div class="v">${s.players}<small>/${s.max}</small></div></div><div><div class="k">已运行</div><div class="v">${s.up}</div></div>${port}</div>`;
-    acts = `<span class="btn"><i data-ic="console"></i>控制台</span><span class="btn ghost"><i data-ic="stop"></i>停止</span>`;
+    body = `<div class="stats"><div><div class="k">在线人数</div><div class="v ok">${s.players}<small>/${s.max}</small></div></div><div><div class="k">运行时间</div><div class="v">${s.up}</div></div></div>`;
+    acts = `<span class="btn"><i data-ic="console"></i>控制台</span><span class="btn stop"><i data-ic="stop"></i>停止</span>${link}`;
+    st = `<span class="stbr ok"><i></i>运行中</span>`;
   } else if (s.st === "starting") {
-    body = `<div style="display:flex;flex-direction:column;gap:8px;padding:8px 0 20px"><div class="bar"><i></i></div><div class="steps"><span>准备 Java ✓</span><span>·</span><b>加载世界</b><span>·</span><span>就绪</span></div></div>`;
-    acts = `<span class="btn"><i data-ic="console"></i>控制台</span><span class="btn ghost"><i data-ic="stop"></i>停止</span>`;
+    body = `<div class="boot"><div class="bar"><i></i></div><div class="steps"><span>准备 Java ✓</span><span>·</span><b>加载世界</b><span>·</span><span>就绪</span></div></div>`;
+    acts = `<span class="btn"><i data-ic="console"></i>控制台</span><span class="btn stop"><i data-ic="stop"></i>停止</span>${link}`;
+    st = `<span class="stbr warm"><i></i>启动中 · 12 秒</span>`;
   } else {
-    body = `<div class="stats"><div><div class="k">上次玩</div><div class="v" style="font-size:17px">${s.last}</div></div><div><div class="k">一共开过</div><div class="v">${s.hours}<small>h</small></div></div>${port}</div>`;
-    acts = `<span class="btn go"><i data-ic="play"></i>启动</span>`;
+    body = `<div class="stats"><div><div class="k">上次玩</div><div class="v">${s.last}</div></div><div><div class="k">一共开过</div><div class="v">${s.hours}<small> 小时</small></div></div></div>`;
+    acts = `<span class="btn go"><i data-ic="play"></i>启动</span>${link}`;
+    st = `<span class="stbr off"><i></i>已停止</span>`;
   }
-  return `<div class="lc" style="--c:${MDPixel.CORE_COLORS[s.core]}"><div class="cover">${status(s)}${star(s, i)}</div>
+  return `<div class="lc" style="--c:${MDPixel.CORE_COLORS[s.core]}"><div class="cover"><span class="tools">${star(s, i)}<span class="mini" title="更多"><i data-ic="more"></i></span></span></div>
     <div class="dhead">${av(s, "lg")}<div style="min-width:0"><div class="nm">${s.name}</div><div class="meta">${s.label} · ${s.mc}</div></div></div>
-    <div class="inner">${body}<div class="acts">${acts}<span class="btn ghost more"><i data-ic="more"></i></span></div></div></div>`;
+    <div class="inner">${body}<div class="acts">${acts}${st}</div></div></div>`;
 }
 function tile(s, i) {
   const meta = s.st === "running" ? `<div class="meta on"><i></i>${s.players} 人在线</div>` : `<div class="meta">${s.label} · ${s.mc}</div>`;

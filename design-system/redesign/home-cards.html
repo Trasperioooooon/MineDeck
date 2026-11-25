@@ -198,7 +198,7 @@ const row = (title, desc, cards, rec, labels = ["开着", "停着", "启动中"]
 
 KIT_READY.then(() => {
   document.getElementById("rows").innerHTML =
-    row("D · A 的内容 + C 的封面", "作者选的方向：封面窄一点，状态和星标放在封面上，头像压在封面下沿，下面是 A 的三格数字。", [D.run(S.run), D.stop(S.stop), D.boot(S.boot)], false) +
+    row("D · A 的内容 + C 的封面", "作者选的方向。这一行是第一次合起来的样子，后来又照作者的意见改过（状态挪到右下角、两格数字、复制地址、停止用危险色），最新的看 home.html。", [D.run(S.run), D.stop(S.stop), D.boot(S.boot)], false) +
     row("A · 数据为主", "三格数字一样大，状态是右上角的胶囊。整齐，但哪一格都不比别的重要。", [A.run(S.run), A.stop(S.stop), A.boot(S.boot)]) +
     row("B · 人和连接为主", "状态并进名字下面那一行；中间是谁在玩；底下是朋友要的连接地址，点一下复制。按钮只剩图标。", [B.run(S.run), B.stop(S.stop), B.boot(S.boot)], true) +
     row("B 的另外几种样子", "绑了内网穿透时地址换成公网的；没能启动时原因和修法直接在卡上；停止中。", [B.run(S.run, true), B.fail(S.stop), B.stopping(S.run)], false, ["开着、绑了内网穿透", "没能启动", "正在停止"]) +
