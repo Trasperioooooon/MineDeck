@@ -4,11 +4,13 @@
 <meta charset="utf-8">
 <title>草图 · 首页（服务器）</title>
 <script>
-// 程序里没有的图标：工具箱、窗口三键（照 index.html 里内联的那几个）
+// 程序里没有的图标：工具箱（照 index.html 里内联的）、窗口三键、星标、控制台
+const STAR = "M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z";
 window.EXTRA_ICONS = {
   toolbox: '<path d="M5.5 4V2.8A.8.8 0 016.3 2h3.4a.8.8 0 01.8.8V4"/><rect x="2" y="4" width="12" height="9.5" rx="1.6"/><path d="M2 8h12M6.5 8v1.6h3V8"/>',
   winMin: '<path d="M4 8h8"/>', winMax: '<rect x="4" y="4" width="8" height="8" rx="1"/>', winClose: '<path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/>',
-  sort: '<path d="M4 3v10M2 11l2 2 2-2M9 4h5M9 8h3.5M9 12h2"/>', console: '<rect x="2" y="3" width="12" height="10" rx="1.6"/><path d="M4.8 6.5l1.8 1.5-1.8 1.5M8 10h3"/>',
+  console: '<rect x="2" y="3" width="12" height="10" rx="1.6"/><path d="M4.8 6.5l1.8 1.5-1.8 1.5M8 10h3"/>',
+  star: `<path d="${STAR}"/>`, starOn: `<path d="${STAR}" fill="currentColor"/>`,
 };
 </script>
 <script src="kit.js"></script>
@@ -23,8 +25,6 @@ window.EXTRA_ICONS = {
   .tb .brand { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
   .tb .brand img { width: 16px; height: 16px; image-rendering: pixelated; }
   .tb .sp { flex: 1; }
-  .tb .ai { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: var(--r-full); color: var(--muted); font-size: 13px; font-weight: 500; }
-  .tb .ai:hover { background: var(--hover); color: var(--text); }
   .tb .win { display: flex; height: 44px; }
   .tb .win span { width: 46px; display: grid; place-items: center; color: var(--muted); }
 
@@ -38,53 +38,68 @@ window.EXTRA_ICONS = {
   .head .sp { flex: 1; }
   .search { display: flex; align-items: center; gap: 8px; width: 240px; height: 36px; padding: 0 12px; border-radius: var(--r-full);
             background: var(--field); border: 1px solid var(--border); color: var(--faint); font-size: 13px; }
-  .iconbtn { width: 36px; height: 36px; display: grid; place-items: center; border-radius: var(--r-full); color: var(--muted); border: 1px solid var(--border); }
 
-  .sec { display: flex; align-items: baseline; gap: 8px; margin: 0 0 12px; font-size: 13px; font-weight: 600; color: var(--muted); }
-  .sec .n { font-family: var(--mono); font-weight: 400; color: var(--faint); }
+  .sec { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; min-height: 32px; }
+  .sec h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0; }
+  .sec .n { font-family: var(--mono); font-size: 13px; color: var(--faint); }
+  .sec .hint { font-size: 12px; color: var(--faint); }
+  .sec .sp { flex: 1; }
 
-  /* 正在运行的：大卡，是这一页的主角 */
-  .live { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 16px; margin-bottom: 36px; }
-  .lc { background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--elev-1); padding: 18px; display: flex; flex-direction: column; gap: 16px; }
+  /* 分段控件：凹陷轨道 + 凸起的当前项（同 MASTER 的 .seg） */
+  .seg { display: flex; gap: 2px; padding: 3px; border-radius: var(--r-full); background: color-mix(in srgb, var(--text) 6%, var(--bg)); }
+  .seg button { border: 0; background: none; height: 26px; padding: 0 12px; border-radius: var(--r-full); font-size: 12.5px; font-weight: 500; color: var(--muted); cursor: pointer; display: flex; align-items: center; gap: 5px; }
+  .seg button:hover { color: var(--text); }
+  .seg button.on { background: var(--surface); color: var(--text); box-shadow: var(--elev-1); }
+  .seg .ico { width: 14px; height: 14px; }
+
+  /* 上面三张大卡 */
+  .live { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 36px; }
+  .lc { background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--elev-1); padding: 18px; display: flex; flex-direction: column; gap: 16px; min-height: 196px; }
   .lc .top { display: flex; align-items: center; gap: 12px; }
   .lc .nm { font-size: 15px; font-weight: 600; line-height: 22px; }
-  .lc .meta { font-size: 12px; color: var(--muted); }
-  .lc .st { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--success-text); }
-  .lc .st i { width: 8px; height: 8px; border-radius: 2px; background: var(--success); box-shadow: 0 0 0 3px var(--success-subtle); }
-  .lc .st.warm { color: var(--warning-text); } .lc .st.warm i { background: var(--warning); box-shadow: 0 0 0 3px var(--warning-subtle); }
+  .meta { font-size: 12px; color: var(--muted); }
+  .st { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--success-text); white-space: nowrap; }
+  .st i { width: 8px; height: 8px; border-radius: 2px; background: var(--success); box-shadow: 0 0 0 3px var(--success-subtle); }
+  .st.warm { color: var(--warning-text); } .st.warm i { background: var(--warning); box-shadow: 0 0 0 3px var(--warning-subtle); }
+  .st.off { color: var(--faint); } .st.off i { background: var(--faint); box-shadow: none; }
   .lc .big { display: flex; align-items: baseline; gap: 22px; }
   .lc .big .v { font-size: 22px; font-weight: 600; font-family: var(--mono); letter-spacing: -.02em; }
   .lc .big .v small { font-size: 13px; color: var(--faint); font-weight: 400; }
   .lc .big .k { font-size: 12px; color: var(--muted); }
-  .lc .addr { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 13px; color: var(--text); padding: 4px 10px; border-radius: var(--r-full); background: var(--surface-2); }
-  .lc .addr .ico { color: var(--faint); width: 14px; height: 14px; }
+  .addr { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 13px; color: var(--text); padding: 4px 10px; border-radius: var(--r-full); background: var(--surface-2); }
+  .addr .ico { color: var(--faint); width: 14px; height: 14px; }
   .bar { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
   .bar i { display: block; height: 100%; width: 62%; background: var(--warning); border-radius: 3px; }
-  .lc .acts { display: flex; gap: 8px; align-items: center; }
+  .lc .acts { display: flex; gap: 8px; align-items: center; margin-top: auto; }
   .btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px; border-radius: var(--r-full); font-size: 13px; font-weight: 500;
          background: var(--control); color: var(--text); border: 1px solid var(--border); }
   .btn.ghost { background: none; border-color: transparent; color: var(--muted); }
+  .btn.go { background: var(--accent-subtle); color: var(--accent-text); border-color: transparent; }
   .lc .acts .more { margin-left: auto; }
 
-  /* 没在运行的：小块，一行四个 */
+  /* 星标（置顶）：钉住的一直亮着，没钉的悬停才出现 */
+  .pin { width: 28px; height: 28px; border-radius: var(--r-full); border: 0; background: none; display: grid; place-items: center; color: var(--faint); cursor: pointer; opacity: 0; flex: none; }
+  .pin.on { opacity: 1; color: var(--warning); }
+  .lc:hover .pin, .rc:hover .pin { opacity: 1; }
+  .pin:hover { background: var(--hover); color: var(--warning); }
+
+  /* 其余的小块 */
   .rest { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
-  .rc { display: flex; align-items: center; gap: 12px; padding: 12px 12px 12px 14px; border-radius: var(--r-md); background: color-mix(in srgb, var(--surface) 55%, var(--bg)); }
+  .rc { display: flex; align-items: center; gap: 10px; padding: 12px 12px 12px 14px; border-radius: var(--r-md); background: color-mix(in srgb, var(--surface) 55%, var(--bg)); }
   .rc:hover { background: var(--surface); box-shadow: var(--elev-1); }
   .rc .nm { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .rc .meta { font-size: 12px; color: var(--faint); }
-  .rc .play { margin-left: auto; width: 32px; height: 32px; border-radius: var(--r-full); display: grid; place-items: center; color: var(--accent-text); background: var(--accent-subtle); flex: none; }
-  .rc > div { min-width: 0; }
+  .rc .meta { color: var(--faint); }
   .rc .meta.on { color: var(--success-text); display: flex; align-items: center; gap: 6px; }
   .rc .meta.on i { width: 6px; height: 6px; border-radius: 2px; background: var(--success); }
+  .rc > div { min-width: 0; flex: 1; }
+  .rc .play { width: 32px; height: 32px; border-radius: var(--r-full); display: grid; place-items: center; color: var(--accent-text); background: var(--accent-subtle); flex: none; }
   .rc .play.stop { color: var(--muted); background: var(--surface-2); }
-  .lc .st.off { color: var(--faint); } .lc .st.off i { background: var(--faint); box-shadow: none; }
-  .btn.go { background: var(--accent-subtle); color: var(--accent-text); border-color: transparent; }
 
   /* 像素头像（照 app.css 的 .px-avatar） */
   .px-avatar { --c: #7a8aa0; width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: var(--r-md);
                background: color-mix(in srgb, var(--c) 26%, var(--surface)); box-shadow: inset 0 1px 0 rgb(255 255 255 / .06), 0 0 0 1px color-mix(in srgb, var(--c) 30%, transparent); }
   .px-avatar svg { width: 24px; height: 24px; display: block; }
-  .px-avatar.lg { width: 48px; height: 48px; border-radius: var(--r-md); } .px-avatar.lg svg { width: 32px; height: 32px; }
+  .px-avatar.lg { width: 48px; height: 48px; } .px-avatar.lg svg { width: 32px; height: 32px; }
   .px-avatar.sm { width: 34px; height: 34px; border-radius: var(--r-sm); } .px-avatar.sm svg { width: 22px; height: 22px; }
 
   /* 悬浮胶囊导航 */
@@ -104,11 +119,10 @@ window.EXTRA_ICONS = {
   .cap a.new:hover { background: var(--accent-solid-hov); }
 
   /* ?nav=top：胶囊放进标题栏正中 */
-  body.nav-top .cap { position: fixed; top: 4px; bottom: auto; padding: 3px; box-shadow: var(--elev-1); }
+  body.nav-top .cap { top: 4px; bottom: auto; padding: 3px; box-shadow: var(--elev-1); }
   body.nav-top .cap a { height: 30px; padding: 0 12px; font-size: 12.5px; }
   body.nav-top .cap a.home img { width: 16px; height: 16px; }
   body.nav-top .page { padding-bottom: 60px; }
-  body.nav-top .tb { height: 44px; }
 
   .tip { position: fixed; left: 12px; bottom: 12px; font-size: 11.5px; color: var(--faint); }
   .tip a { color: var(--accent-text); }
@@ -127,40 +141,25 @@ window.EXTRA_ICONS = {
   <div class="head">
     <div>
       <h1>服务器</h1>
-      <div class="sum"><span><span class="dot"></span><b>2</b> 台运行中</span><span><b>10</b> 人在线</span><span>共 <b>8</b> 台</span></div>
+      <div class="sum" id="sum"></div>
     </div>
     <div class="sp"></div>
     <div class="search"><i data-ic="search"></i>搜索</div>
-    <span class="iconbtn" title="排序：最近创建"><i data-ic="sort"></i></span>
   </div>
 
-  <div class="sec">最近玩的</div>
-  <div class="live">
-    <div class="lc">
-      <div class="top"><span data-av="paper" data-sz="lg"></span><div><div class="nm">生存服 · 朋友</div><div class="meta">Paper · 1.21.4</div></div><span class="st"><i></i>运行中</span></div>
-      <div class="big"><div><div class="v">3<small>/20</small></div><div class="k">在线</div></div><div><div class="v">2:13</div><div class="k">已运行</div></div><div style="margin-left:auto;align-self:center"><span class="addr">:25565<i data-ic="copy"></i></span></div></div>
-      <div class="acts"><span class="btn"><i data-ic="console"></i>控制台</span><span class="btn ghost"><i data-ic="stop"></i>停止</span><span class="btn ghost more"><i data-ic="more"></i></span></div>
-    </div>
-    <div class="lc">
-      <div class="top"><span data-av="forge" data-sz="lg"></span><div><div class="nm">机械动力整合包</div><div class="meta">Forge · 1.20.1</div></div><span class="st off"><i></i>已停止</span></div>
-      <div class="big"><div><div class="v">昨天</div><div class="k">上次玩</div></div><div><div class="v">36<small> 小时</small></div><div class="k">一共开过</div></div><div style="margin-left:auto;align-self:center"><span class="addr">:25566<i data-ic="copy"></i></span></div></div>
-      <div class="acts"><span class="btn go"><i data-ic="play"></i>启动</span><span class="btn ghost"><i data-ic="console"></i>控制台</span><span class="btn ghost more"><i data-ic="more"></i></span></div>
-    </div>
-    <div class="lc">
-      <div class="top"><span data-av="vanilla" data-sz="lg"></span><div><div class="nm">原版快照测试</div><div class="meta">原版 · 26.2</div></div><span class="st warm"><i></i>启动中</span></div>
-      <div style="display:flex;flex-direction:column;gap:8px;padding:6px 0 2px"><div class="bar"><i></i></div><div class="meta" style="font-size:12px;color:var(--muted)">正在加载世界 · 12 秒</div></div>
-      <div class="acts"><span class="btn"><i data-ic="console"></i>控制台</span><span class="btn ghost"><i data-ic="stop"></i>停止</span><span class="btn ghost more"><i data-ic="more"></i></span></div>
+  <div class="sec">
+    <h2 id="top-title"></h2><span class="hint" id="top-hint"></span>
+    <span class="sp"></span>
+    <div class="seg" role="radiogroup" aria-label="上面三张大卡按什么挑">
+      <button data-mode="recent" role="radio"><i data-ic="clock"></i>最近启动</button>
+      <button data-mode="hours" role="radio"><i data-ic="bolt"></i>游玩时长</button>
+      <button data-mode="pin" role="radio"><i data-ic="star"></i>置顶</button>
     </div>
   </div>
+  <div class="live" id="live"></div>
 
-  <div class="sec">其他 <span class="n">5</span></div>
-  <div class="rest">
-    <div class="rc"><span data-av="purpur" data-sz="sm"></span><div><div class="nm">空岛生存</div><div class="meta on"><i></i>7 人在线</div></div><span class="play stop" title="停止"><i data-ic="stop"></i></span></div>
-    <div class="rc"><span data-av="leaves" data-sz="sm"></span><div><div class="nm">红石科技服</div><div class="meta">Leaves · 1.21.4</div></div><span class="play" title="启动"><i data-ic="play"></i></span></div>
-    <div class="rc"><span data-av="neoforge" data-sz="sm"></span><div><div class="nm">匠魂与暮色</div><div class="meta">NeoForge · 1.21.1</div></div><span class="play" title="启动"><i data-ic="play"></i></span></div>
-    <div class="rc"><span data-av="mohist" data-sz="sm"></span><div><div class="nm">模组加插件</div><div class="meta">Mohist · 1.20.1</div></div><span class="play" title="启动"><i data-ic="play"></i></span></div>
-    <div class="rc"><span data-av="velocity" data-sz="sm"></span><div><div class="nm">群组代理</div><div class="meta">Velocity · 3.4.0</div></div><span class="play" title="启动"><i data-ic="play"></i></span></div>
-  </div>
+  <div class="sec"><h2>其他</h2><span class="n" id="rest-n"></span></div>
+  <div class="rest" id="rest"></div>
 </main>
 
 <nav class="cap" aria-label="导航">
@@ -176,7 +175,64 @@ window.EXTRA_ICONS = {
 <div class="tip">草图 · 胶囊在下面 <a href="?nav=top">放进标题栏</a> · <a href="?">放回下面</a> · 配色 <a href="?scheme=craft&theme=light">方块浅色</a> <a href="?">Nord 深色</a></div>
 
 <script>
-for (const el of document.querySelectorAll("[data-av]")) el.outerHTML = MDPixel.avatar(el.dataset.av, el.dataset.sz || "");
+// 假数据：recent 越小越近（正在开着的算「现在」），hours 是一共开过的小时数，pin 是置顶
+const SERVERS = [
+  { name: "原版快照测试", core: "vanilla", label: "原版", mc: "26.2", st: "starting", port: 25567, last: "现在", hours: 3, recent: 0, pin: false },
+  { name: "生存服 · 朋友", core: "paper", label: "Paper", mc: "1.21.4", st: "running", players: 3, max: 20, up: "2:13", port: 25565, last: "现在", hours: 128, recent: 1, pin: true },
+  { name: "机械动力整合包", core: "forge", label: "Forge", mc: "1.20.1", st: "stopped", port: 25566, last: "昨天", hours: 36, recent: 2, pin: false },
+  { name: "空岛生存", core: "purpur", label: "Purpur", mc: "1.21.4", st: "running", players: 7, max: 30, up: "5:02", port: 25570, last: "现在", hours: 212, recent: 3, pin: true },
+  { name: "红石科技服", core: "leaves", label: "Leaves", mc: "1.21.4", st: "stopped", port: 25571, last: "3 天前", hours: 54, recent: 4, pin: false },
+  { name: "匠魂与暮色", core: "neoforge", label: "NeoForge", mc: "1.21.1", st: "stopped", port: 25574, last: "上周", hours: 90, recent: 5, pin: true },
+  { name: "模组加插件", core: "mohist", label: "Mohist", mc: "1.20.1", st: "stopped", port: 25575, last: "两周前", hours: 8, recent: 6, pin: false },
+  { name: "群组代理", core: "velocity", label: "Velocity", mc: "3.4.0", st: "stopped", port: 25577, last: "上个月", hours: 2, recent: 7, pin: false },
+];
+const MODES = {
+  recent: { title: "最近玩的", by: (a, b) => a.recent - b.recent },
+  hours: { title: "玩得最多", by: (a, b) => b.hours - a.hours },
+  pin: { title: "置顶", by: (a, b) => (b.pin - a.pin) || (a.recent - b.recent) },
+};
+let mode = "recent";
+const av = (s, sz) => MDPixel.avatar(s.core, sz);
+const star = (s, i) => `<button class="pin${s.pin ? " on" : ""}" data-i="${i}" title="${s.pin ? "取消置顶" : "置顶"}"><i data-ic="${s.pin ? "starOn" : "star"}"></i></button>`;
+const status = s => s.st === "running" ? `<span class="st"><i></i>运行中</span>` : s.st === "starting" ? `<span class="st warm"><i></i>启动中</span>` : `<span class="st off"><i></i>已停止</span>`;
+
+function big(s, i) {
+  const addr = `<div style="margin-left:auto;align-self:center"><span class="addr">:${s.port}<i data-ic="copy"></i></span></div>`;
+  let body, acts;
+  if (s.st === "running") {
+    body = `<div class="big"><div><div class="v">${s.players}<small>/${s.max}</small></div><div class="k">在线</div></div><div><div class="v">${s.up}</div><div class="k">已运行</div></div>${addr}</div>`;
+    acts = `<span class="btn"><i data-ic="console"></i>控制台</span><span class="btn ghost"><i data-ic="stop"></i>停止</span>`;
+  } else if (s.st === "starting") {
+    body = `<div style="display:flex;flex-direction:column;gap:8px;padding:6px 0 2px"><div class="bar"><i></i></div><div class="meta">正在加载世界 · 12 秒</div></div>`;
+    acts = `<span class="btn"><i data-ic="console"></i>控制台</span><span class="btn ghost"><i data-ic="stop"></i>停止</span>`;
+  } else {
+    body = `<div class="big"><div><div class="v">${s.last}</div><div class="k">上次玩</div></div><div><div class="v">${s.hours}<small> 小时</small></div><div class="k">一共开过</div></div>${addr}</div>`;
+    acts = `<span class="btn go"><i data-ic="play"></i>启动</span><span class="btn ghost"><i data-ic="console"></i>控制台</span>`;
+  }
+  return `<div class="lc"><div class="top">${av(s, "lg")}<div style="min-width:0"><div class="nm">${s.name}</div><div class="meta">${s.label} · ${s.mc}</div></div><span style="margin-left:auto"></span>${star(s, i)}${status(s)}</div>${body}<div class="acts">${acts}<span class="btn ghost more"><i data-ic="more"></i></span></div></div>`;
+}
+function tile(s, i) {
+  const meta = s.st === "running" ? `<div class="meta on"><i></i>${s.players} 人在线</div>` : `<div class="meta">${s.label} · ${s.mc}</div>`;
+  const act = s.st === "stopped" ? `<span class="play" title="启动"><i data-ic="play"></i></span>` : `<span class="play stop" title="停止"><i data-ic="stop"></i></span>`;
+  return `<div class="rc">${av(s, "sm")}<div><div class="nm">${s.name}</div>${meta}</div>${star(s, i)}${act}</div>`;
+}
+function render() {
+  const sorted = SERVERS.map((s, i) => [s, i]).sort((x, y) => MODES[mode].by(x[0], y[0]));
+  const top = sorted.slice(0, 3), rest = sorted.slice(3);
+  document.getElementById("top-title").textContent = MODES[mode].title;
+  const pins = SERVERS.filter(s => s.pin).length;
+  document.getElementById("top-hint").textContent = mode === "pin" && pins < 3 ? (pins ? "空出来的位置按最近启动补上" : "点卡片上的星标，把常用的钉在这里") : "";
+  document.getElementById("live").innerHTML = top.map(([s, i]) => big(s, i)).join("");
+  document.getElementById("rest").innerHTML = rest.map(([s, i]) => tile(s, i)).join("");
+  document.getElementById("rest-n").textContent = rest.length;
+  const run = SERVERS.filter(s => s.st === "running"), ppl = run.reduce((n, s) => n + s.players, 0);
+  document.getElementById("sum").innerHTML = `<span><span class="dot"></span><b>${run.length}</b> 台运行中</span><span><b>${ppl}</b> 人在线</span><span>共 <b>${SERVERS.length}</b> 台</span>`;
+  for (const b of document.querySelectorAll(".seg button")) { b.classList.toggle("on", b.dataset.mode === mode); b.setAttribute("aria-checked", b.dataset.mode === mode); }
+  KIT.hydrate(document.querySelector(".page"));
+}
+document.querySelector(".seg").addEventListener("click", e => { const b = e.target.closest("button"); if (b) { mode = b.dataset.mode; render(); } });
+document.querySelector(".page").addEventListener("click", e => { const p = e.target.closest(".pin"); if (p) { const s = SERVERS[+p.dataset.i]; s.pin = !s.pin; render(); } });
+KIT_READY.then(render);
 </script>
 </body>
 </html>
