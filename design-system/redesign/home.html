@@ -146,6 +146,21 @@ window.EXTRA_ICONS = {
   .rc .px-avatar.sm { width: 38px; height: 38px; border-radius: calc(var(--R) - var(--p)); }
   .rc .play { width: 38px; height: 38px; border-radius: calc(var(--R) - var(--p)); margin-right: -2px; }
 
+  /* 第八版：头像和名字放进封面条（封面高 60，头像 44 离封面边 8，圆角 18 − 8 = 10，和封面同心；右边星标和「···」
+     合成一块同样 44 高、圆角 10 的工具块）；底下一排改成 控制台、状态 | 停止或启动、链接；进度条的轨道看得见 */
+  .lc .cover { height: 60px; padding: 8px; display: flex; align-items: center; gap: 12px; }
+  .lc .cover > * { position: relative; z-index: 1; }
+  .lc .cover .px-avatar { width: 44px; height: 44px; border-radius: calc(var(--ri) - 8px); box-shadow: inset 0 1px 0 rgb(255 255 255 / .08); }
+  .lc .cover .px-avatar svg { width: 30px; height: 30px; }
+  .lc .cover .title { min-width: 0; flex: 1; }
+  .lc .cover .title .meta { color: color-mix(in srgb, var(--text) 70%, transparent); }
+  .lc .cover .tools { position: relative; top: auto; right: auto; height: 44px; padding: 0 6px; gap: 0; align-items: center; border-radius: calc(var(--ri) - 8px);
+                      background: color-mix(in srgb, var(--surface) 55%, transparent); }
+  .lc .cover .tools .pin, .lc .cover .tools .mini { width: 30px; height: 30px; background: none; }
+  .lc .inner { padding-top: var(--p); }
+  .lc .acts .sp { flex: 1; }
+  .bar { background: color-mix(in srgb, var(--text) 14%, transparent); }
+
   /* 辅助线：把贴边元素的圆角补成整圆，看是不是和卡片的圆角同心 */
   body.guides .lc { outline: 1px dashed color-mix(in srgb, var(--accent) 50%, transparent); }
   body.guides .lc .cover, body.guides .stats, body.guides .boot, body.guides .lc .btn, body.guides .lc .stbr { outline: 1px dashed var(--accent); outline-offset: 0; }
@@ -278,22 +293,23 @@ const status = s => s.st === "running" ? `<span class="st"><i></i>运行中</spa
 function big(s, i) {
   const link = `<span class="btn ghost ic" title="${s.tunnel ? "复制内网穿透地址 " + s.tunnel : "复制连接地址 192.168.1.5:" + s.port}"><i data-ic="${s.tunnel ? "globe" : "link"}"></i></span>`;
   let body, acts, st;
+  const console_ = `<span class="btn"><i data-ic="console"></i>控制台</span>`, stopBtn = `<span class="btn stop"><i data-ic="stop"></i>停止</span>`;
   if (s.st === "running") {
     body = `<div class="stats"><div><div class="k">在线人数</div><div class="v ok">${s.players}<small>/${s.max}</small></div></div><div><div class="k">运行时间</div><div class="v">${s.up}</div></div></div>`;
-    acts = `<span class="btn"><i data-ic="console"></i>控制台</span><span class="btn stop"><i data-ic="stop"></i>停止</span>${link}`;
     st = `<span class="stbr ok"><i></i>运行中</span>`;
+    acts = `${console_}${st}<span class="sp"></span>${stopBtn}${link}`;
   } else if (s.st === "starting") {
     body = `<div class="boot"><div class="bar"><i></i></div><div class="steps"><span>准备 Java ✓</span><span>·</span><b>加载世界</b><span>·</span><span>就绪</span><span style="margin-left:auto">12 秒</span></div></div>`;
-    acts = `<span class="btn"><i data-ic="console"></i>控制台</span><span class="btn stop"><i data-ic="stop"></i>停止</span>${link}`;
     st = `<span class="stbr warm"><i></i>启动中</span>`;
+    acts = `${console_}${st}<span class="sp"></span>${stopBtn}${link}`;
   } else {
     body = `<div class="stats"><div><div class="k">上次玩</div><div class="v">${s.last}</div></div><div><div class="k">时长总计</div><div class="v">${s.hours}<small> 小时</small></div></div></div>`;
-    acts = `<span class="btn go"><i data-ic="play"></i>启动</span>${link}`;
     st = `<span class="stbr off"><i></i>已停止</span>`;
+    acts = `${console_}${st}<span class="sp"></span><span class="btn go"><i data-ic="play"></i>启动</span>${link}`;
   }
-  return `<div class="lc" style="--c:${MDPixel.CORE_COLORS[s.core]}"><div class="cover"><span class="tools">${star(s, i)}<span class="mini" title="更多"><i data-ic="more"></i></span></span></div>
-    <div class="dhead">${av(s, "lg")}<div style="min-width:0"><div class="nm">${s.name}</div><div class="meta">${s.label} · ${s.mc}</div></div></div>
-    <div class="inner">${body}<div class="acts">${acts}${st}</div></div></div>`;
+  return `<div class="lc" style="--c:${MDPixel.CORE_COLORS[s.core]}">
+    <div class="cover">${av(s)}<div class="title"><div class="nm">${s.name}</div><div class="meta">${s.label} · ${s.mc}</div></div><span class="tools">${star(s, i)}<span class="mini" title="更多"><i data-ic="more"></i></span></span></div>
+    <div class="inner">${body}<div class="acts">${acts}</div></div></div>`;
 }
 function tile(s, i) {
   const meta = s.st === "running" ? `<div class="meta on"><i></i>${s.players} 人在线</div>` : `<div class="meta">${s.label} · ${s.mc}</div>`;
