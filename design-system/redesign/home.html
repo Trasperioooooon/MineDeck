@@ -271,14 +271,15 @@ window.EXTRA_ICONS = {
   .car { position: relative; margin-bottom: 36px; }
   .car .live { margin-bottom: 0; }
   .car.scroll .live { display: flex; gap: 16px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
-    scroll-snap-type: x mandatory; scroll-padding-inline: 40px; scroll-behavior: smooth;
+    scroll-behavior: smooth;
     margin: -8px -40px -14px; padding: 8px 40px 14px; cursor: grab;
     -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
     mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
     transition: --fl .2s ease, --fr .2s ease; }
   .car.scroll .live::-webkit-scrollbar { display: none; }
-  .car.scroll .live > .lc { flex: 0 0 calc((100% - 32px) / 3); scroll-snap-align: start; }
-  .car.scroll .live.dragging { scroll-snap-type: none; scroll-behavior: auto; cursor: grabbing; user-select: none; }
+  .car.scroll .live > .lc { flex: 0 0 calc((100% - 32px) / 3); }
+  /* 无极滑动（作者 11-26：不要吸附）：拖动和松手后的惯性都是一像素一像素地走，不对齐到整张卡 */
+  .car.scroll .live.dragging { scroll-behavior: auto; cursor: grabbing; user-select: none; }
   .car.can-left .live { --fl: 40px; } .car.can-right .live { --fr: 40px; }
   .car-nav { position: absolute; top: 50%; z-index: 3; width: 36px; height: 36px; border-radius: 50%; display: none; place-items: center; padding: 0;
     transform: translateY(-50%); color: var(--text); cursor: pointer; opacity: 0; transition: opacity .15s;
@@ -446,7 +447,8 @@ function render() {
 }
 document.querySelector(".seg").addEventListener("click", e => { const b = e.target.closest("button"); if (b && b.dataset.mode !== mode) { mode = b.dataset.mode; live.scrollTo({ left: 0, behavior: "instant" }); render(); } });
 document.querySelector(".page").addEventListener("click", e => { const p = e.target.closest(".pin"); if (p) { const s = SERVERS[+p.dataset.i]; s.pin = !s.pin; render(); } });
-// 左右滑：两边有没看到的卡才显示那一边的渐隐和箭头；箭头一次挪一张；按住拖也能滑（松手吸到最近的一张）；Shift+滚轮、触控板横扫是浏览器自带的
+// 左右滑：两边有没看到的卡才显示那一边的渐隐和箭头；箭头一次挪一张卡的宽度；按住拖也能滑，松手顺着甩的速度再滑一段、慢慢停下，
+// 停在哪儿就是哪儿，不吸附到整张（作者 11-26 要无极滑动）；Shift+滚轮、触控板横扫是浏览器自带的
 const car = document.getElementById("car"), live = document.getElementById("live");
 function edges() {
   const on = car.classList.contains("scroll");
@@ -455,20 +457,44 @@ function edges() {
 }
 live.addEventListener("scroll", () => requestAnimationFrame(edges), { passive: true });
 addEventListener("resize", edges);
-car.addEventListener("click", e => { const b = e.target.closest(".car-nav"); if (b) live.scrollBy({ left: +b.dataset.dir * (live.querySelector(".lc").offsetWidth + 16) }); });
-let drag = null;
+car.addEventListener("click", e => { const b = e.target.closest(".car-nav"); if (b) stopGlide(), live.scrollBy({ left: +b.dataset.dir * (live.querySelector(".lc").offsetWidth + 16) }); });
+let drag = null, glide = 0;
+const stopGlide = () => { cancelAnimationFrame(glide); glide = 0; live.classList.remove("dragging"); };
 live.addEventListener("pointerdown", e => {
+  stopGlide();
   if (!car.classList.contains("scroll") || e.button !== 0 || e.target.closest("button, .btn, .pin, .mini")) return;
-  drag = { x: e.clientX, left: live.scrollLeft, moved: false, id: e.pointerId };
+  drag = { x: e.clientX, left: live.scrollLeft, moved: false, id: e.pointerId, lastX: e.clientX, lastT: e.timeStamp, v: 0 };
 });
 live.addEventListener("pointermove", e => {
   if (!drag) return;
   const dx = e.clientX - drag.x;
-  if (!drag.moved && Math.abs(dx) > 4) { drag.moved = true; live.setPointerCapture(drag.id); live.classList.add("dragging"); }
-  if (drag.moved) live.scrollLeft = drag.left - dx;
+  if (!drag.moved && Math.abs(dx) > 4) { drag.moved = true; live.classList.add("dragging"); try { live.setPointerCapture(drag.id); } catch { /* 指针已经不在了 */ } }
+  if (!drag.moved) return;
+  live.scrollLeft = drag.left - dx;
+  const dt = e.timeStamp - drag.lastT;
+  if (dt > 0) drag.v = 0.8 * ((e.clientX - drag.lastX) / dt) + 0.2 * drag.v; // 像素/毫秒，平滑一下免得最后一下抖动
+  drag.lastX = e.clientX; drag.lastT = e.timeStamp;
 });
-const endDrag = () => { if (drag && drag.moved) live.classList.remove("dragging"); drag = null; };
+function endDrag(e) {
+  if (!drag) return;
+  const { moved, lastT } = drag;
+  let v = e && e.type === "pointerup" && e.timeStamp - lastT < 80 ? drag.v : 0; // 停住一会儿再松手就不甩
+  drag = null;
+  if (!moved) return;
+  if (Math.abs(v) < 0.05) { live.classList.remove("dragging"); return; }
+  let t0 = performance.now();
+  const step = now => {
+    const dt = Math.min(32, now - t0); t0 = now;
+    const before = live.scrollLeft;
+    live.scrollLeft -= v * dt;
+    v *= Math.pow(0.94, dt / 16); // 摩擦：每帧掉 6%
+    if (Math.abs(v) < 0.02 || live.scrollLeft === before) return stopGlide();
+    glide = requestAnimationFrame(step);
+  };
+  glide = requestAnimationFrame(step);
+}
 live.addEventListener("pointerup", endDrag); live.addEventListener("pointercancel", endDrag);
+live.addEventListener("wheel", stopGlide, { passive: true });
 KIT_READY.then(render);
 </script>
 </body>
