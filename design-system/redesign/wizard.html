@@ -45,7 +45,7 @@
   .col { border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); padding: 14px; display: flex; flex-direction: column; min-height: 0; }
   .col h3 { margin: 0 0 10px; font-size: 12px; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 8px; }
   .col h3 .sp { flex: 1; }
-  /* 介绍：选中的核心，图标、名字、两三句话，再列两项「适合」「能装」 */
+  /* 介绍：选中的核心，图标、名字、副标题、正文，左下角三行「适用场景」「支持扩展」「联机要求」 */
   .intro .head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
   .intro .head .cover { width: 56px; height: 56px; border-radius: 12px; flex: none; }
   .intro .head .cover svg { width: 32px; height: 32px; }
@@ -119,25 +119,37 @@
 <script>
 // 玩法四块（问题 U05 定的方向）：每块下面只列这一类的核心，推荐的预先选好
 const PLAYS = [
-  { id: "vanilla", t: "原版", s: "什么都不加，和单人一样", ico: "vanilla", cores: ["vanilla"], rec: "vanilla" },
-  { id: "plugin", t: "插件", s: "领地、经济、小游戏", ico: "paper", cores: ["paper", "purpur", "leaves", "folia"], rec: "paper" },
-  { id: "mod", t: "模组", s: "科技、魔法、整合包", ico: "neoforge", cores: ["neoforge", "fabric", "forge"], rec: "neoforge" },
-  { id: "other", t: "其他", s: "混合服、群组代理", ico: "velocity", cores: ["mohist", "banner", "velocity", "waterfall"], rec: "" },
+  { id: "vanilla", t: "原版", s: "官方原版核心，无插件与模组", ico: "vanilla", cores: ["vanilla"], rec: "vanilla" },
+  { id: "plugin", t: "插件", s: "插件与优化，原版直连", ico: "paper", cores: ["paper", "purpur", "leaves", "folia"], rec: "paper" },
+  { id: "mod", t: "模组", s: "模组扩展，各类整合包", ico: "neoforge", cores: ["neoforge", "fabric", "forge"], rec: "neoforge" },
+  { id: "other", t: "其他", s: "混合核心、群组代理", ico: "velocity", cores: ["mohist", "banner", "velocity", "waterfall"], rec: "" },
 ];
-// 介绍：名字、一句话、两三句说明、适合、能装（草图里的说法，定稿前再核一遍）
+// 介绍：名字、副标题、正文、适用场景、支持扩展、联机要求（作者 11-26 写的定稿文案）
 const CORE = {
-  vanilla: ["原版", "Mojang 官方服务端", "和单人游戏一模一样，什么都不改。不能装插件和模组，只能放数据包。", "纯净生存，和朋友一起玩原版", "数据包"],
-  paper: ["Paper", "最常用的插件服", "比原版跑得快，修了不少漏洞。Bukkit、Spigot 的插件基本都能装，插件也最多。", "生存服、小游戏、几十人的多人服", "插件、数据包"],
-  purpur: ["Purpur", "Paper 加更多玩法开关", "在 Paper 上面多了一大堆能调的开关，比如骑乘更多生物、改刷怪。Paper 的插件都能用。", "想细调玩法的生存服", "插件、数据包"],
-  leaves: ["Leaves", "保留生电特性的 Paper", "Paper 修掉的一些原版机制它留着，刷物品机、生电机器照样能用。", "红石、生电玩家", "插件、数据包"],
-  folia: ["Folia", "多核分区的 Paper", "把世界分成几块交给不同的 CPU 核心，人特别多才用得上；很多插件不兼容。", "几十上百人同时在线的大服", "支持 Folia 的插件"],
-  fabric: ["Fabric", "轻量的模组加载器", "启动快，跟新版本快，优化类、小工具类的模组多。", "轻量模组服、新版本", "Fabric 模组"],
-  forge: ["Forge", "老牌模组加载器", "1.20.1 以前的大型整合包多用它，老模组最全。", "老版本整合包", "Forge 模组"],
-  neoforge: ["NeoForge", "新一代模组加载器", "从 Forge 分出来的，1.20.2 以后的新整合包多用它。", "新版本整合包", "NeoForge 模组"],
-  mohist: ["Mohist", "混合服：Forge 模组加插件", "模组和插件能同时装。两边都改了游戏，有些组合会出问题，装之前先试。", "模组服又想用插件管理", "Forge 模组、插件"],
-  banner: ["Taiyitist", "混合服：Fabric 模组加插件", "原名 Banner。和 Mohist 一样能同时装模组和插件，走的是 Fabric 这边。", "Fabric 模组服又想用插件管理", "Fabric 模组、插件"],
-  velocity: ["Velocity", "群组代理", "自己不跑游戏，把几台服务器连成一个入口，玩家在里面来回切换。", "大厅加几个小游戏服", "代理插件"],
-  waterfall: ["Waterfall", "老的群组代理", "BungeeCord 一系，老服务器在用；新开的建议用 Velocity。", "接老的群组服", "BungeeCord 插件"],
+  vanilla: ["原版", "Mojang 官方服务端", "由 Mojang 官方发布，完整保留原版游戏机制与红石特性，新版本与快照上线后可第一时间开服。未包含第三方性能优化，更适合小规模联机。",
+    "小规模纯净生存、抢先体验新版本快照", "仅数据包", "原版客户端直连"],
+  paper: ["Paper", "主流高性能插件端", "在 Spigot 基础上大幅优化性能并修复多项漏洞，全面兼容 Bukkit 与 Spigot 插件生态，稳定且社区支持最为成熟。",
+    "常规生存、小游戏、中大型多人服", "插件、数据包", "原版客户端直连"],
+  purpur: ["Purpur", "高度可定制的 Paper 分支", "基于 Paper 构建，额外内置大量游戏机制与玩法配置项，可自由调整生物骑乘、刷怪规则等细节，完整兼容 Paper 插件。",
+    "偏好细调玩法规则的生存服", "插件、数据包", "原版客户端直连"],
+  leaves: ["Leaves", "保留生电特性的 Paper 分支", "基于 Paper 开发，还原了被上游修复的常见红石与生电特性，在兼顾性能与插件的同时，保障刷物品机及各类生电机器正常运行。",
+    "红石玩家、生电生存服", "插件、数据包", "原版客户端直连"],
+  folia: ["Folia", "多核区域并发服务端", "将世界按独立区域分配至不同 CPU 核心并行运算，专为高并发场景设计。因底层多线程架构变更，常规插件无法直接运行。",
+    "百人级高并发大型多人服", "Folia 专用插件、数据包", "原版客户端直连"],
+  neoforge: ["NeoForge", "新一代主流模组加载器", "自 Forge 分支独立发展，已成为 1.20.2 及以上版本的主流模组平台，新版本大型整合包与热门模组多已转向该生态。",
+    "1.20.2+ 模组服、新版本整合包", "NeoForge 模组、数据包", "客户端需同步对应模组"],
+  fabric: ["Fabric", "轻量级模组加载器", "架构精简、启动迅速，跟进官方新版本与快照速度极快。社区拥有大量性能优化、原版增强与生电辅助类模组。",
+    "轻量模组服、原版增强、新版本开服", "Fabric 模组、数据包", "需同步对应模组（纯服务端除外）"],
+  forge: ["Forge", "经典老牌模组加载器", "历史最悠久的模组平台，老版本生态积累最为齐全。1.20.1 及之前的经典科技、魔法类大型整合包大多基于此构建。",
+    "1.20.1 及更早版本的模组与整合包", "Forge 模组、数据包", "客户端需同步对应模组"],
+  mohist: ["Mohist", "Forge + 插件混合服务端", "支持同时加载 Forge 模组与 Bukkit/Spigot 插件。因双端同时修改底层逻辑，部分组合易产生冲突，正式开服前建议充分测试。",
+    "需配合插件管理的 Forge 模组服", "Forge 模组、插件、数据包", "客户端需同步对应模组"],
+  banner: ["Taiyitist", "Fabric + 插件混合服务端", "原名 Banner，支持同时加载 Fabric 模组与 Bukkit/Spigot 插件。混合架构存在一定的兼容性风险，正式启用前建议先行测试。",
+    "需配合插件管理的 Fabric 模组服", "Fabric 模组、插件、数据包", "客户端需同步对应模组"],
+  velocity: ["Velocity", "现代高性能群组代理", "本身不运行游戏世界，仅作为统一入口串联多台后端服务器，供玩家跨服切换。性能、扩展性与安全性均优于传统代理。",
+    "大厅服、多子服跨服群组", "Velocity 代理插件", "取决于后端子服配置"],
+  waterfall: ["Waterfall", "传统 BungeeCord 分支代理", "基于 BungeeCord 优化的传统群组代理，现已停止更新，仅用于维护依赖旧插件的老群组服。新建群组建议直接使用 Velocity。",
+    "维护旧版群组、兼容老代理插件", "BungeeCord 代理插件", "取决于后端子服配置"],
 };
 const VERS = {
   vanilla: ["26.3-snapshot-2", "26.3-snapshot-1", "26.2", "26.1", "1.21.4", "1.21.1", "1.20.6", "1.20.4", "1.20.1", "1.19.4", "1.18.2", "1.16.5", "1.12.2"],
@@ -149,13 +161,13 @@ const VERS = {
 const versOf = k => k === "vanilla" ? VERS.vanilla : k === "forge" ? VERS.forge : (k === "mohist" || k === "banner") ? VERS.hybrid : k === "velocity" ? VERS.velocity : k === "waterfall" ? VERS.waterfall : VERS.mc;
 const DEF = { vanilla: "26.2", paper: "26.2", purpur: "26.2", leaves: "26.1", folia: "26.1", fabric: "26.2", forge: "1.20.1", neoforge: "26.1", mohist: "1.20.1", banner: "1.20.1", velocity: "3.4.0", waterfall: "1.21" };
 let step = 0, play = 1, core = "paper", ver = DEF.paper;
-const STEPS = () => play === 0 ? ["想玩哪个？", "最后设置一下", "让朋友连进来"] : ["想玩哪个？", play === 2 ? "装点模组？" : "装点插件？", "最后设置一下", "让朋友连进来"];
+const STEPS = () => play === 0 ? ["选择核心以进行下一步", "最后设置一下", "让朋友连进来"] : ["选择核心以进行下一步", play === 2 ? "装点模组？" : "装点插件？", "最后设置一下", "让朋友连进来"];
 const cover = (k, size) => `<div class="cover" style="--c:${MDPixel16.CORE_COLORS[k] || "#7a8aa0"}">${MDPixel16.svg(k, size)}</div>`;
 function step1() {
   const p = PLAYS[play], c = CORE[core], proxy = core === "velocity" || core === "waterfall", vs = versOf(core);
   const plays = `<div class="plays">${PLAYS.map((x, i) => `<div class="play${i === play ? " on" : ""}" data-play="${i}" style="--c:${MDPixel16.CORE_COLORS[x.ico]}">${cover(x.ico, 48)}<div class="t">${x.t}</div><div class="s">${x.s}</div></div>`).join("")}</div>`;
   const intro = `<div class="col intro"><div class="head">${cover(core, 32)}<div><div class="nm">${c[0]}${core === p.rec && p.cores.length > 1 ? `<span class="rec">推荐</span>` : ""}</div><div class="sub">${c[1]}</div></div></div>
-    <p>${c[2]}</p><dl><dt>适合</dt><dd>${c[3]}</dd><dt>能装</dt><dd>${c[4]}</dd></dl></div>`;
+    <p>${c[2]}</p><dl><dt>适用场景</dt><dd>${c[3]}</dd><dt>支持扩展</dt><dd>${c[4]}</dd><dt>联机要求</dt><dd>${c[5]}</dd></dl></div>`;
   const ordered = [p.rec, ...p.cores.filter(k => k !== p.rec)].filter(Boolean);
   const cores = p.cores.length < 2 ? "" : `<div class="col"><h3>核心</h3><div class="lwrap"><div class="list">${ordered.map(k => `<div class="row${k === core ? " on" : ""}" data-core="${k}">${MDPixel16.svg(k, 32)}${CORE[k][0]}<span class="sp"></span>${k === p.rec && p.cores.length > 1 ? `<span class="tag">推荐</span>` : ""}</div>`).join("")}</div><i class="thumb"></i></div></div>`;
   const versions = `<div class="col"><h3>${proxy ? "版本" : "游戏版本"}<span class="sp"></span><span class="find"><i data-ic="search"></i>搜索</span></h3>
