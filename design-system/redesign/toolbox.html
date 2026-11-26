@@ -1,0 +1,1610 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>草图 · 工具箱</title>
+<!--
+  工具箱草图（11-26 子代理照《界面重构临时规范》和首页、向导两页的做法画的第一稿，作者还没逐处看过）。
+  一个文件三页，?tool=home|skin|mrpack 切；入口页点卡片也能进，页内换页不刷新（地址跟着改）。
+
+  外壳：标题栏、底部胶囊照 home.html 抄（胶囊里「工具箱」那项是选中的样子），版心 1080，底边留 86。
+    三页都留着胶囊（任务说明定的外壳）；工具页的「上一步」「下一步」照向导的样子（44 高胶囊、中线和胶囊对齐、左右贴版心），
+    分在胶囊两边。向导里钉在正中的第几步小点这里放不下（正中是胶囊），没画，第几步靠标题换。
+    回入口：左下「上一步」（同向导第一步的「上一步」回首页），或点胶囊里选中的「工具箱」（MASTER 11.6：点当前项回这一页的起点）。
+
+  入口页：一句标题「工具箱」，下面两张卡（照向导第一步玩法大卡：外 26、内边距 8、封面 18 带棋盘格），整组在胶囊上面的空间里居中再往上提一点
+    （同首页空状态的做法）。只有两个工具，卡片不撑满 1080；卡上只写名字和程序里原有的标签（「客户端资源包」「.mrpack 分享包」），
+    程序里那两句长说明进悬停。封面色借核心头像的固定色：皮肤包用原版色，整合包用 NeoForge 色（同向导「原版」「模组」两张玩法卡）。
+
+  离线皮肤包（?tool=skin）：一屏，不分步。理由：版本、分配方式一改，每个人落到哪个默认皮肤马上跟着变，分成几步就看不到这层联动。
+    程序里三段（版本与分配、皮肤列表、槽位预演与生成）收成一个大面板：左栏「资源包设置」，右栏「皮肤列表」，底下一条「存到本机文件夹 / 生成结果」。
+    程序里预演是一张单独的表，把每行的槽位、UUID 又列一遍（一个值说了两次）；这里并进皮肤列表的每一行：行右边就是这个人落到的默认皮肤，
+    路径和离线 UUID 在悬停里；撞进同一个默认皮肤的几行直接在行上标红、点「保留」二选一（程序是表格上面一张警告卡里的一排按钮）。
+    槽位是照 internal/toolbox/skinpack.go 真算的（MD5「OfflinePlayer:玩家名」→ UUID v3 → Java UUID.hashCode → floorMod 18 或 2），
+    示例名 lisi 和 xiaohong 是真撞在 Makena · 经典上的，不是硬标的。
+  导出 Modrinth 整合包（?tool=mrpack）：分步，照向导。理由：「自己挑模组」那块要向导第二步那样整个面板宽（左逛右清单），和设置、预览挤不进一屏。
+    第 1 步「配置整合包信息」：左栏名称、版本号、简介；右栏顶上两段选来源（自己挑模组 / 从已有服务器导出），下面跟着换：加载器、游戏版本、加载器版本，
+      或者模组服务器列表加「一并打包 config/」。第 2 步「挑选要放进整合包的模组」照向导第二步（只有自己挑模组时有）。
+    最后一步「确认导出清单」：进来自动预览（程序要点「预览导出清单」），左边在线下载的，右边打进 overrides 的和打包提醒，底下一条存到文件夹 / 生成结果。
+    从已有服务器导出时没有挑模组那步，两步，同向导原版少一步的做法。
+
+  皮肤包这一页里各块：
+    左栏：游戏版本（输入框 + 4 个快捷预设；标签右边「18 个默认槽位」，1.19.2 以前是 2 个，整句说明和 pack_format 在悬停里；读了服务器以后框下面一句「已改成「X」的版本」）、
+      分配方式（40 高两段：按玩家名 / 按顺序替换）、资源包名称、资源包描述（选填；淡字「留空自动生成」，程序留空时写的那句在悬停里）。
+    右栏：皮肤列表（「n / 18」、从服务器读取、加一行；每行：脸、玩家名（平时是字，点进去才是框）、文件名和尺寸（64×32 写「自动扩成 64×64」）、落到的默认皮肤；
+      按顺序替换时那块能点，弹出 2 × 9 的格子挑位置，上面一排「自动」三选一，代替程序的「手臂模型」「目标槽位」两个下拉）；底下拖放区。
+    底下一条：同时存到本机文件夹（远程打开时灰着、悬停说原因；程序是整个藏起来）；生成以后换成结果：文件名、大小、贴图数、pack_format、resource-pack-sha1 和复制。
+  整合包每一步：
+    第 1 步左栏名称、版本号、简介；右栏「模组来源」两段，下面跟着逐项换：加载器（三段）、游戏版本（输入框 + 4 个预设）、加载器版本（选填），
+      或者模组服务器（一行一个，选中框滑过去；Mohist、Taiyitist 右下角一句「按 Forge 导出，不含插件」，整句在悬停里）和「一并打包 config/」。
+      没有模组服务器时「从已有服务器导出」那段灰着、悬停说原因；读不出存好的草稿时左栏顶上一条危险色，右边「重新读取」（程序的长说明进悬停）。
+    第 2 步照向导第二步：卡片只标例外，口径是朋友的客户端（照程序 envTag）：「仅客户端」「仅服务端」；清单底下「自动带出必装前置」开关。
+      清单空着点「下一步」会拦下（后端导出空清单本来就报错「没有可打包进去的模组或配置文件」）。清单的名字照程序和 MASTER 叫「待装清单」。
+    最后一步：封面条写名称、版本号，下面一行是游戏版本和加载器（或者从哪台服务器导出）；左边在线下载的，每行右边是装在哪一边（仅客户端、客户端+服务端、客户端可选……，
+      说明在悬停里）；右边打进 overrides 的（本地 jar、config 文件），下面「打包提醒」照程序的原话、两行截断、整句在悬停里。程序第二行是包里的路径（mods/文件名.jar），
+      草图不知道 Modrinth 上真的文件名，放的是简介。
+  第几步的小点没画（胶囊占着正中）。点了卡片进来，「上一步」「下一步」从下面浮上来；回入口时沉下去。
+
+  和程序现在不一样的（改程序时要动的）：
+    · 所有系统控件换成自己画的：版本的 datalist 换成输入框加一排快捷预设（程序 12 个预设，这里各挑了 4 个）；服务器、手臂、槽位、加载器的 select
+      分别换成带头像的行、弹出的格子、三段的分段选；勾选式开关换成开关在字左边；预演和预览的 table 换成列表行。
+    · 拦下一步照规范：生成键一直能点，点了把出问题的那一行标红、晃一下、光标落过去、底下那条说一句；程序是把生成键灰掉、旁边一行小字。
+    · 皮肤缩略图只画脸（从 PNG 里裁出 8×8 的脸放大）；程序是把整张 64×64 的皮肤贴图缩成 40 见方，看不出是谁。
+    · 皮肤列表底下的拖放区能一次拖进好几张 PNG，一张一行；程序是每行自己点「选择皮肤 PNG」。
+    · 生成以后再改任何东西，底下那条回到「存到本机文件夹」、右下回到「生成」；程序是旧结果一直挂着，直到下一次生成。
+    · 整合包：前置照向导第二步，加一个就把它要的前置放进清单、标「前置」；程序是导出时才按「自动带出必装前置」补，清单里看不到。
+      所以「自动带出必装前置」挪到清单那一栏，开关一动，清单里的前置跟着进出。
+    · 整合包的预览进最后一步就自动做（程序要点「预览导出清单」）。
+    · 结果里的长说明（皮肤包的 notice、朋友怎么导入整合包）收进「下载」的悬停。
+  要后端补的：没有。用到的都是现有接口（/api/toolbox/*、/api/instances、/api/instances/{name}/players、/api/app 的 local、/api/pickdir）。
+
+  草图里的数据：服务器列表抄 home.html；读进来的玩家名、服务器里的模组、config 文件名、生成结果的大小和 SHA-1 都是编的示例；
+    模组卡片用 modrinth-sample.js（向导第二步那份：NeoForge 26.1、筛掉了只在客户端用的），程序里工具箱这份清单会把只在客户端用的也列出来
+    （接口带 ClientOK），排位会不一样；草稿当作读回来是 NeoForge 26.1（程序第一次打开是 Fabric 1.20.1），这样卡片和标题对得上。
+    换成别的加载器、版本，卡片不跟着换（同向导第二步换核心时的做法）。加载器的推荐版本号草图里不知道，照实写「官方推荐」。
+  标题栏左边「草图」那一排是草图专用的状态切换，定了就删（地址参数也行：?tool=skin&state=demo|clash|empty|many|done，
+    ?tool=mrpack&step=1|2|3、&state=inst|nomods|drafterr|done，&local=0 看远程打开）。草图里选文件、选文件夹、下载都不真弹窗：
+    点空着的皮肤格子给一张示例脸，拖放区点一下加两行，存到文件夹点一下换成示例文件夹，整合包的拖放区点一下加一个示例 jar。
+-->
+
+
+<script>
+// 程序图标里没有的：工具箱、窗口三键（照 home.html），减号（照 wizard.html）；画法同程序图标（16 格、1.3 粗、圆头）
+window.EXTRA_ICONS = {
+  toolbox: '<path d="M5.5 4V2.8A.8.8 0 016.3 2h3.4a.8.8 0 01.8.8V4"/><rect x="2" y="4" width="12" height="9.5" rx="1.6"/><path d="M2 8h12M6.5 8v1.6h3V8"/>',
+  winMin: '<path d="M4 8h8"/>', winMax: '<rect x="4" y="4" width="8" height="8" rx="1"/>', winClose: '<path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/>',
+  minus: '<path d="M3.5 8h9"/>',
+  // 程序和别的草图里都没有的（子代理补的，照程序 download 那个倒过来画）：上传，用在皮肤缩略图空着时和拖放区
+  upload: '<path d="M8 10.5V3M4.7 6.2L8 3l3.3 3.2M3 13h10"/>',
+};
+</script>
+<script src="kit.js"></script>
+<script src="pixel16.js"></script>
+<script src="modrinth-sample.js"></script>
+<link rel="stylesheet" href="kit.css">
+<style>
+  body { background: var(--bg); overflow-x: hidden; }
+  /* 标题栏：照 home.html（字标那版，标题栏里只留小图标）和 wizard.html */
+  .tb { height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 0 0 16px; position: sticky; top: 0; z-index: 5;
+        background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(12px); }
+  .tb img { width: 16px; height: 16px; image-rendering: pixelated; }
+  .tb .sp { flex: 1; }
+  .tb .win { display: flex; height: 40px; }
+  .tb .win span { width: 46px; display: grid; place-items: center; color: var(--muted); }
+
+  /* 版心 1080、居中；底边留 86 给胶囊（同首页、向导） */
+  .page { max-width: 1160px; margin: 0 auto; padding: 0 40px 86px; min-height: calc(100vh - 40px); box-sizing: border-box;
+          display: flex; flex-direction: column; align-items: center; }
+  /* 一句陈述式标题，居中（照向导 .q） */
+  .q { margin: 44px 0 48px; font-size: 30px; line-height: 38px; font-weight: 600; letter-spacing: -.01em; text-align: center; }
+
+  /* ---- 入口页 ---- */
+  /* 只有两个工具：标题和两张卡整组在胶囊上面的空间里居中，再往上提 7vh（同首页空状态 .hero 往上提的做法），上面留白大、下面不空出一大截 */
+  .page.v-home { justify-content: center; padding-bottom: calc(86px + 7vh); }
+  .page.v-home .q { margin: 0 0 40px; }
+  /* 两张卡照向导第一步的玩法大卡：外圆角 26、内边距 8，封面圆角 18（同心）带棋盘格；卡宽 340，不撑满 1080（梯形：标题窄、卡片一排宽） */
+  .tools { display: grid; grid-template-columns: repeat(2, 340px); gap: 16px; }
+  .tool { --R: 26px; --p: 8px; border-radius: var(--R); padding: var(--p); background: var(--surface); box-shadow: var(--elev-1); cursor: pointer;
+          transition: transform .15s, box-shadow .15s; color: inherit; text-decoration: none; display: block; }
+  .tool:hover { transform: translateY(-2px); box-shadow: var(--elev-2); }
+  .cover { border-radius: 18px; display: grid; place-items: center; position: relative; overflow: hidden; background: color-mix(in srgb, var(--c) 30%, var(--surface)); }
+  .cover::after { content: ""; position: absolute; inset: 0; opacity: .16; pointer-events: none;
+    background-image: linear-gradient(45deg, rgb(0 0 0 / .5) 25%, transparent 25%, transparent 75%, rgb(0 0 0 / .5) 75%), linear-gradient(45deg, rgb(0 0 0 / .5) 25%, transparent 25%, transparent 75%, rgb(0 0 0 / .5) 75%);
+    background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+  .cover > * { position: relative; z-index: 1; }
+  .tool .cover { height: 112px; }
+  .tool .cover svg { display: block; }
+  /* 封面里的图标用程序图标放大到 44（线宽跟着放大成约 3.6，和像素图标的粗细接近），颜色往正文色靠 */
+  .tool .cover .ico.big { width: 44px; height: 44px; color: color-mix(in srgb, var(--text) 88%, var(--c)); }
+  .tool .t { margin: 12px 0 2px; font-size: 16px; font-weight: 600; text-align: center; }
+  .tool .s { margin: 0 0 10px; font-size: 12.5px; color: var(--muted); text-align: center; }
+
+  /* ---- 底部胶囊：照 home.html（只放图标，40 的圆，悬停提示在上方） ---- */
+  .cap { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 10; display: flex; align-items: center; gap: 4px; padding: 5px;
+         border-radius: var(--r-full); background: color-mix(in srgb, var(--overlay) 86%, transparent); backdrop-filter: blur(16px) saturate(1.2);
+         border: 1px solid var(--border); box-shadow: var(--elev-3); transition: transform .32s cubic-bezier(.4, 0, .2, 1), opacity .32s; }
+  .cap a { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; border-radius: var(--r-full); color: var(--muted);
+           text-decoration: none; position: relative; }
+  .cap a .ico { width: 18px; height: 18px; }
+  .cap a:hover { color: var(--text); background: var(--hover); }
+  .cap a.on { color: var(--accent-text); background: var(--accent-subtle); }
+  .cap a.home img { width: 20px; height: 20px; image-rendering: pixelated; }
+  .cap a.ai { color: var(--text); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border); }
+  .cap a.ai .ico { color: var(--accent-text); }
+  .cap a.ai:hover { background: var(--control-hov); }
+  .cap a.new { background: var(--accent-solid); color: var(--on-accent); }
+  .cap a.new:hover { background: var(--accent-solid-hov); }
+  .cap a[data-tip]::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%) translateY(4px);
+    padding: 5px 10px; border-radius: var(--r-sm); background: var(--overlay); border: 1px solid var(--border); box-shadow: var(--elev-2);
+    color: var(--text); font-size: 12px; font-weight: 500; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s, transform .12s; }
+  .cap a[data-tip]:hover::after, .cap a[data-tip]:focus-visible::after { opacity: 1; transform: translateX(-50%) translateY(0); }
+  body.leaving .cap { transform: translate(-50%, 160%); opacity: 0; }
+
+  /* ---- 工具页底部的「上一步」「下一步」：照 wizard.html 的 .wnav / .wbtn，分在胶囊两边（胶囊不沉） ---- */
+  .wnav { position: fixed; left: 0; right: 0; bottom: 18px; z-index: 9; pointer-events: none; }
+  .wnav .in { max-width: 1160px; margin: 0 auto; padding: 0 40px; height: 52px; display: flex; align-items: center; }
+  .wnav .sp { flex: 1; }
+  .wbtn { pointer-events: auto; height: 44px; padding: 0 18px; border-radius: var(--r-full); display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+          font: inherit; font-size: 13px; font-weight: 600; box-shadow: var(--elev-3); transition: transform .32s cubic-bezier(.4, 0, .2, 1), opacity .32s; }
+  .wbtn .ico { width: 16px; height: 16px; }
+  .wbtn.next { justify-content: center; overflow: hidden; white-space: nowrap; padding-right: 14px; border: 0; color: var(--on-accent); background: var(--accent-solid); }
+  .wbtn.next:hover { background: var(--accent-solid-hov); }
+  .wbtn.next.plain { padding-right: 18px; }
+  .wbtn .lbl { display: inline-flex; align-items: center; gap: 6px; }
+  .wbtn.next.busy { cursor: default; }
+  .wbtn.back { padding-left: 14px; color: var(--text); border: 1px solid var(--border);
+               background: color-mix(in srgb, var(--overlay) 86%, transparent); backdrop-filter: blur(16px) saturate(1.2); }
+  .wbtn.back:hover { background: color-mix(in srgb, var(--overlay) 86%, var(--text) 6%); }
+  .wbtn.back .ico { transform: rotate(180deg); }
+  body.hidden-nav .wbtn { transform: translateY(180%); opacity: 0; pointer-events: none; }
+
+  /* ---- 两个工具共用的件，照 wizard.html ---- */
+  /* 大面板：外圆角 26、内边距 8；里面的栏圆角 18（26 − 8，同心），栏之间 8 */
+  .panel { width: 100%; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-1); box-sizing: border-box; display: grid; gap: 8px; }
+  .col { border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); padding: 14px; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+  .col h3 { margin: 0 0 10px; font-size: 12px; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 8px; min-height: 28px; flex: none; }
+  .col h3 .sp { flex: 1; }
+  .col h3 .cnt { font-family: var(--mono); color: var(--faint); font-weight: 500; }
+  /* 细滚动条（照 wizard.html 的 .lwrap / .list / .thumb 和脚本里的 scrollbar()）：系统滚动条藏掉，右边 4 像素的细条，悬停或在滚才出来，能拖；上下还有没露出来的那一头淡出 28 */
+  .lwrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .list { position: relative; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; overflow-x: hidden; min-height: 0; flex: 1; scrollbar-width: none;
+          --ft: 0px; --fb: 0px; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%);
+          mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%); }
+  .list::-webkit-scrollbar { display: none; }
+  .lwrap.can-up .list { --ft: 28px; } .lwrap.can-down .list { --fb: 28px; }
+  .thumb { position: absolute; right: -6px; width: 4px; border-radius: 2px; background: color-mix(in srgb, var(--text) 38%, transparent);
+           opacity: 0; transition: opacity .2s, width .15s, right .15s; cursor: pointer; }
+  .lwrap:hover .thumb, .lwrap.scrolling .thumb, .thumb.drag { opacity: 1; }
+  .thumb:hover, .thumb.drag { width: 6px; right: -7px; background: color-mix(in srgb, var(--text) 55%, transparent); }
+  .lwrap.fits .thumb { display: none; }
+  /* 表单一行：字 18 + 间距 6 + 框 40 */
+  .fld { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .fld > .lb { font-size: 12.5px; line-height: 18px; color: var(--muted); font-weight: 500; display: flex; align-items: baseline; gap: 8px; }
+  .fld > .lb .sp { flex: 1; }
+  .fld > .lb .aside { font-size: 12px; font-weight: 400; color: var(--faint); cursor: default; }
+  .inp { height: 40px; border-radius: 10px; background: var(--field); border: 1px solid var(--border); padding: 0 12px; box-sizing: border-box; width: 100%;
+         font: inherit; font-size: 14px; color: var(--text); outline: none; transition: border-color .2s, box-shadow .2s; }
+  .inp.mono { font-family: var(--mono); font-size: 13.5px; }
+  .inp::placeholder { color: var(--faint); }
+  .inp:focus { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+  .inp.bad { border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
+  .fnote { font-size: 12px; line-height: 18px; color: var(--faint); display: flex; align-items: center; gap: 5px; min-height: 18px; }
+  .fnote:empty { display: none; }
+  .fnote .ico { width: 13px; height: 13px; flex: none; }
+  .fnote.bad { color: var(--danger-text); }
+  /* 快捷预设：28 高胶囊（照向导第三步内存那排） */
+  .mpre { display: flex; gap: 6px; flex-wrap: wrap; }
+  .mp { height: 28px; padding: 0 11px; border-radius: 14px; border: 1px solid var(--border); background: none; color: var(--muted); font: inherit; font-family: var(--mono); font-size: 12px; font-weight: 500;
+        cursor: pointer; transition: background .15s, color .15s, border-color .15s; }
+  .mp:hover:not(.on) { color: var(--text); background: var(--hover); }
+  .mp.on { background: var(--accent-subtle); color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+  /* 分段选：表单里取值的 40 高、圆角 10，选中块离外框 4、圆角 6，滑过去（照向导） */
+  .seg { position: relative; display: flex; padding: 3px; border-radius: 10px; background: var(--field); border: 1px solid var(--border); box-sizing: border-box; height: 40px; flex: none; }
+  .seg span { flex: 1; position: relative; z-index: 1; display: grid; place-items: center; font-size: 13px; color: var(--muted); border-radius: 6px; cursor: pointer; transition: color .2s, opacity .2s; white-space: nowrap; }
+  .seg span:hover { color: var(--text); }
+  .seg span.on { color: var(--accent-text); font-weight: 500; }
+  .seg span.off { opacity: .45; cursor: default; }
+  .seg span.off:hover { color: var(--muted); }
+  .seg .sgl { position: absolute; left: 0; top: 3px; bottom: 3px; border-radius: 6px; background: var(--accent-subtle); z-index: 0; pointer-events: none;
+              box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+              transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
+  /* 32 高的分段（弹出的格子里换着看什么）：胶囊 */
+  .seg.sm { height: 32px; border-radius: 16px; }
+  .seg.sm span { flex: none; padding: 0 12px; font-size: 12.5px; border-radius: 12px; }
+  .seg.sm .sgl { border-radius: 12px; }
+  /* 开关：36 × 20，在字的左边 */
+  .tg { display: flex; align-items: center; gap: 10px; cursor: pointer; width: fit-content; }
+  .tg .t { font-size: 13px; font-weight: 600; white-space: nowrap; }
+  .sw { order: -1; width: 36px; height: 20px; border-radius: 10px; flex: none; position: relative; background: color-mix(in srgb, var(--text) 18%, transparent); transition: background .2s; }
+  .sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 8px; background: var(--text); transition: transform .26s cubic-bezier(.3, .7, .2, 1); }
+  .tg.on .sw { background: var(--accent-solid); }
+  .tg.on .sw::after { transform: translateX(16px); background: var(--on-accent); }
+  /* 图标按钮 28 见方、圆角 4 */
+  .ib { width: 28px; height: 28px; border-radius: 4px; border: 0; background: none; color: var(--muted); display: grid; place-items: center; cursor: pointer; padding: 0; flex: none; transition: background .2s, color .2s; }
+  .ib:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+  .ib:disabled { opacity: .35; cursor: default; }
+  .ib .ico { width: 15px; height: 15px; }
+  .ib.done { color: var(--accent-text); }
+  .ib.spinning .ico, .ico.spin { animation: spin .9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  /* 栏标题右边的小文字按钮（「从服务器读取」这种）：28 高胶囊，悬停出底色 */
+  .tbtn { height: 28px; padding: 0 10px; border-radius: 14px; border: 0; background: none; color: var(--muted); font: inherit; font-size: 12.5px; font-weight: 500;
+          display: inline-flex; align-items: center; gap: 6px; cursor: pointer; transition: background .2s, color .2s; }
+  .tbtn:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+  .tbtn:disabled { opacity: .4; cursor: default; }
+  .tbtn .ico { width: 14px; height: 14px; }
+  /* 拖放区：虚线框 44 高、圆角 10（照向导第二步） */
+  .drop { flex: none; margin-top: 8px; height: 44px; border-radius: 10px; border: 1px dashed var(--border); display: flex; align-items: center; justify-content: center;
+          gap: 8px; font-size: 12.5px; color: var(--muted); cursor: pointer; transition: color .2s, border-color .2s, opacity .2s; }
+  .drop:hover { color: var(--text); border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+  .drop .ico { width: 15px; height: 15px; }
+  .drop.off { opacity: .45; cursor: default; }
+  .drop.off:hover { color: var(--muted); border-color: var(--border); }
+  /* 吸在面板底部的一条：52 高、圆角 18（同向导第三步 EULA、第四步「谁能进」）；里面离边 6 的框 40 高、圆角 12（18 − 6） */
+  .ostrip { grid-column: 1 / -1; height: 52px; border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); padding: 0 20px 0 6px;
+            display: flex; align-items: center; gap: 12px; min-width: 0; transition: box-shadow .2s; }
+  .ostrip > * { flex: none; }
+  .ostrip .sp { flex: 1; }
+  .ostrip .msg { font-size: 12px; color: var(--danger-text); opacity: 0; transition: opacity .2s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 0; }
+  .ostrip .msg.show { opacity: 1; }
+  .ostrip.bad { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger-text) 60%, transparent); }
+  /* 存到本机文件夹：同向导的路径框，点了选文件夹（草图里不真弹窗）；空着时只写一句，选了以后右边一个 × 清掉 */
+  .pathf { height: 40px; width: 440px; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 6px 0 12px; border-radius: 12px; box-sizing: border-box; cursor: pointer;
+           background: var(--field); border: 1px solid var(--border); transition: border-color .2s; }
+  .pathf:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+  .pathf > .ico { width: 15px; height: 15px; flex: none; color: var(--muted); }
+  .pathf .ph { flex: 1; font-size: 13px; color: var(--faint); white-space: nowrap; }
+  .pathf b { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12.5px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* 生成结果（换掉存到文件夹那块）：勾、文件名、几样事实、SHA-1 和复制 */
+  .res { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 auto !important; padding-left: 8px; }
+  .res .ok { width: 28px; height: 28px; border-radius: 14px; display: grid; place-items: center; background: var(--success-subtle); color: var(--success-text); flex: none; }
+  .res .ok .ico { width: 15px; height: 15px; }
+  .res .fn { font-family: var(--mono); font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+  .res .facts { font-size: 12px; color: var(--muted); white-space: nowrap; flex: none; }
+  .res .sp { flex: 1; }
+  .res .hk { font-size: 12px; color: var(--faint); white-space: nowrap; flex: none; }
+  .res .hv { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; flex: none; }
+  /* 弹出的小面板（版本、服务器、槽位这些原来是 select 的）：浮层底、细边、--elev-3，圆角 16、内边距 6，里面的行圆角 10（16 − 6，同心） */
+  .pop { position: fixed; z-index: 60; background: var(--overlay); border: 1px solid var(--border); box-shadow: var(--elev-3); border-radius: 16px; padding: 6px; box-sizing: border-box;
+         display: flex; flex-direction: column; opacity: 0; transform: translateY(-4px); transition: opacity .12s, transform .12s; }
+  .pop.up { transform: translateY(4px); }
+  .pop.on { opacity: 1; transform: none; }
+  .pop .ph { padding: 6px 10px 8px; font-size: 12px; font-weight: 600; color: var(--muted); }
+  .prow { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 10px 0 6px; border-radius: 10px; cursor: pointer; flex: none; font-size: 13.5px; font-weight: 500; }
+  .prow:hover { background: var(--hover); }
+  .prow .m { flex: 1; min-width: 0; }
+  .prow .n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prow .k { font-size: 12px; color: var(--muted); font-weight: 400; font-family: var(--mono); white-space: nowrap; }
+  .prow svg.px { width: 32px; height: 32px; flex: none; display: block; }
+  /* 小标签：16 高胶囊 */
+  .tag { flex: none; height: 16px; padding: 0 6px; border-radius: 8px; font-size: 10.5px; font-weight: 500; line-height: 16px; white-space: nowrap; }
+  .tag.plain { background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--muted); }
+  .tag.warn { background: color-mix(in srgb, var(--warning) 16%, transparent); color: var(--warning-text); }
+  .tag.acc { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent-text); }
+
+  /* ---- 离线皮肤包：面板 520 高（同向导第二步，170 到 690），左栏设置 344 宽，右栏皮肤列表，底下一条 ---- */
+  .skp { height: 520px; grid-template-columns: 344px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 52px; }
+  .skp .set { padding: 18px 20px; gap: 16px; }
+  .skp .set h3 { margin: 0 0 -4px; }
+  /* 右栏照向导第二步的栏：左右和底边内边距 8，行贴着栏边 8、圆角 10（18 − 8，同心）；标题往里缩 12，字离栏边 20，和左栏一样 */
+  .skp .lst { padding: 14px 8px 8px; }
+  .skp .lst h3 { padding: 0 4px 0 12px; margin-bottom: 6px; }
+  .skp .lst .thumb { right: -6px; }
+  /* 皮肤一行：52 高；缩略图 40 离行边 6、圆角 4（10 − 6，同心）；名字平时是字、悬停出底色、点进去才出框（同向导第三步的名称）；右边是落到的默认皮肤 */
+  .srow { position: relative; display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 6px; border-radius: 10px; flex: none; transition: opacity .2s, background .15s; }
+  .srow:hover { background: var(--hover); }
+  .srow.skip > :not(.slotw):not(.x) { opacity: .45; }
+  .sth { width: 40px; height: 40px; border-radius: 4px; flex: none; display: grid; place-items: center; cursor: pointer; overflow: hidden; position: relative;
+         background: color-mix(in srgb, var(--text) 7%, transparent); color: var(--faint); transition: box-shadow .2s, color .2s; }
+  .sth svg.face { width: 40px; height: 40px; display: block; }
+  .sth.empty { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 22%, transparent); }
+  .sth.empty:hover { color: var(--text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent); }
+  .sth.bad { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--danger-text) 75%, transparent); color: var(--danger-text); }
+  .sth .ov { position: absolute; inset: 0; display: grid; place-items: center; background: rgb(0 0 0 / .55); color: #fff; opacity: 0; transition: opacity .2s; }
+  .sth:not(.empty):hover .ov { opacity: 1; }
+  .sth .ico { width: 16px; height: 16px; }
+  .stx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .pn { height: 26px; width: 100%; max-width: 260px; margin-left: -7px; padding: 0 6px; border-radius: 6px; border: 1px solid transparent; background: transparent; outline: none; box-sizing: border-box;
+        font: inherit; font-size: 13.5px; font-weight: 600; color: var(--text); transition: background .15s, border-color .15s, box-shadow .15s; }
+  .pn::placeholder { color: var(--faint); font-weight: 500; }
+  .pn:hover { background: var(--hover); }
+  .pn:focus { background: var(--field); border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+  .pn.bad { background: var(--field); border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
+  .fm { font-size: 12px; line-height: 16px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--mono); }
+  .fm.bad { color: var(--danger-text); font-family: var(--font); }
+  .fm .lg { font-family: var(--font); color: var(--muted); }
+  /* 落到的默认皮肤：28 高胶囊；撞进同一个的标危险色（会拦生成），旁边「保留」二选一 */
+  .slotw { display: flex; align-items: center; gap: 6px; flex: none; }
+  .slot { height: 28px; padding: 0 11px; border-radius: 14px; display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; white-space: nowrap;
+          background: color-mix(in srgb, var(--text) 7%, transparent); color: var(--text); cursor: default; }
+  .slot small { font-size: 11.5px; font-weight: 400; color: var(--muted); }
+  .slot.none { background: none; color: var(--faint); font-weight: 400; padding: 0 4px; }
+  .slot.clash { background: var(--danger-subtle); color: var(--danger-text); }
+  .slot.clash small { color: inherit; opacity: .8; }
+  .slot.skipped { background: none; color: var(--faint); box-shadow: inset 0 0 0 1px var(--border); font-weight: 400; }
+  .slot.pick { cursor: pointer; padding-right: 7px; }
+  .slot.pick:hover { background: color-mix(in srgb, var(--text) 11%, transparent); }
+  .slot.pick.clash:hover { background: color-mix(in srgb, var(--danger-text) 18%, transparent); }
+  .slot .ico { width: 13px; height: 13px; opacity: .7; }
+  .slot .au { color: var(--faint); font-weight: 400; }
+  .keep { height: 28px; padding: 0 11px; border-radius: 14px; border: 1px solid var(--border); background: none; color: var(--text); font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer;
+          transition: background .15s; }
+  .keep:hover { background: var(--hover); }
+  .srow .x { width: 26px; height: 26px; border-radius: 13px; display: grid; place-items: center; color: var(--faint); cursor: pointer; opacity: 0; flex: none; border: 0; background: none; padding: 0; }
+  .srow:hover .x { opacity: 1; }
+  .srow .x:hover:not(:disabled) { color: var(--text); background: var(--hover); }
+  .srow .x:disabled { cursor: default; }
+  .srow .x .ico { width: 13px; height: 13px; }
+  /* 按顺序替换时挑槽位的弹出格子：上面一排「自动」三选一（手臂不限 / 经典 / 纤细），下面两排九个角色；格子 28 高胶囊 */
+  .sgrid { display: grid; grid-template-columns: 40px repeat(9, auto); gap: 4px; align-items: center; padding: 2px 4px 4px; }
+  .sgrid .rl { font-size: 12px; color: var(--faint); }
+  .sgrid .auto { grid-column: 2 / -1; display: flex; gap: 4px; }
+  .sc { height: 28px; padding: 0 10px; border-radius: 14px; border: 0; background: color-mix(in srgb, var(--text) 6%, transparent); color: var(--text); font: inherit; font-size: 12px; font-weight: 500;
+        cursor: pointer; position: relative; white-space: nowrap; transition: background .15s, color .15s; }
+  .sc:hover { background: var(--hover); }
+  .sc.on { background: var(--accent-subtle); color: var(--accent-text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
+  .sc.used::after { content: ""; position: absolute; right: 4px; top: 4px; width: 5px; height: 5px; border-radius: 2px; background: var(--faint); }
+
+  /* ---- 导出 Modrinth 整合包 ---- */
+  /* 第 1 步：两栏，左「整合包信息」，右「模组来源」（顶上两段选，下面跟着换）。面板定高 372，换来源时不跳 */
+  .mp1 { height: 372px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); }
+  .mp1 .col { padding: 18px 20px; gap: 16px; }
+  .mp1 .col h3 { margin: 0 0 -4px; }
+  .mp1 .det { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 16px; }
+  .g2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 14px; }
+  /* 读不出草稿：一块危险色的底，右边「重新读取」 */
+  .dnote { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 6px 0 12px; border-radius: 10px; background: var(--danger-subtle); color: var(--danger-text); font-size: 12.5px; flex: none; }
+  .dnote > .ico { width: 15px; height: 15px; flex: none; }
+  .dnote span { flex: 1; min-width: 0; }
+  .dnote .ib { color: var(--danger-text); }
+  /* 模组服务器：一行一个，同向导第一步核心那列（44 高、圆角 10、选中框单独一块滑过去） */
+  .srvw { flex: 1; }
+  .row { position: relative; z-index: 1; display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px 0 6px; border-radius: 10px; cursor: pointer; flex: none; font-size: 14px; font-weight: 500; }
+  .row:hover:not(.on) { background: var(--hover); }
+  .row.on { color: var(--accent-text); font-weight: 600; }
+  .row svg { width: 32px; height: 32px; display: block; flex: none; }
+  .row .sp { flex: 1; }
+  .row .k { font-size: 12px; color: var(--faint); font-weight: 400; font-family: var(--mono); }
+  .row.on .k { color: var(--accent-text); }
+  .hl { position: absolute; left: 0; right: 0; top: 0; height: 44px; border-radius: 10px; background: var(--accent-subtle); z-index: 0; pointer-events: none;
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+        transition: transform .32s cubic-bezier(.3, .7, .2, 1), height .32s cubic-bezier(.3, .7, .2, 1); }
+  .srvw .list { padding-right: 10px; margin-right: -4px; }
+  .srvw .hl { right: 10px; } /* 和行一样宽：右边那 10 像素留给细滚动条 */
+  .cfgrow { display: flex; align-items: center; gap: 12px; min-height: 28px; flex: none; }
+  .cfgrow .fnote { margin-left: auto; color: var(--warning-text); }
+  .nomods { flex: 1; display: grid; place-items: center; border-radius: 10px; border: 1px dashed color-mix(in srgb, var(--text) 18%, transparent); font-size: 12.5px; color: var(--faint); text-align: center; padding: 0 24px; }
+  /* 第 2 步：照 wizard.html 第二步（左边逛、右边清单），面板 520 高 */
+  .addon { display: flex; gap: 8px; height: 520px; }
+  .addon > .col { min-width: 0; padding: 14px 8px 8px; }
+  .addon .col h3 { padding: 0 6px; }
+  .addon .list { margin: 0; padding: 0; overflow-x: hidden; }
+  .addon .thumb { right: -6px; }
+  .addon .browse { flex: 2.6 1 0; }
+  .addon .cart { flex: 1 1 0; }
+  .findin { height: 32px; border-radius: 16px; padding: 0 10px; display: flex; align-items: center; gap: 6px; background: var(--field); border: 1px solid var(--border);
+            width: 170px; box-sizing: border-box; font-weight: 400; }
+  .findin input { all: unset; flex: 1; min-width: 0; font-size: 12px; color: var(--text); }
+  .findin input::placeholder { color: var(--faint); }
+  .findin .ico { width: 13px; height: 13px; color: var(--faint); flex: none; }
+  .chips { position: relative; display: flex; gap: 5px; margin: 0 0 12px; padding: 0 6px; overflow-x: auto; scrollbar-width: none; flex: none; --fl: 0px; --fr: 0px;
+           -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
+           mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%); }
+  .chips::-webkit-scrollbar { display: none; }
+  .chips.can-l { --fl: 28px; } .chips.can-r { --fr: 28px; }
+  .chip { position: relative; z-index: 1; height: 28px; padding: 0 10px; border-radius: 14px; display: inline-flex; align-items: center; font-size: 12.5px; font-weight: 500; color: var(--muted); cursor: pointer;
+          white-space: nowrap; flex: none; box-shadow: inset 0 0 0 1px var(--border); transition: color .2s, background .2s, box-shadow .2s; }
+  .chip:hover { color: var(--text); }
+  .chip.on { color: var(--accent-text); box-shadow: none; }
+  .chl { position: absolute; left: 0; top: 0; height: 28px; border-radius: 14px; background: var(--accent-subtle); z-index: 0; pointer-events: none;
+         box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+         transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
+  .list.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-content: start; }
+  .mod { display: flex; align-items: center; gap: 12px; height: 74px; padding: 0 12px; border-radius: 10px; box-sizing: border-box; min-width: 0; cursor: pointer;
+         background: color-mix(in srgb, var(--surface) 55%, transparent); transition: background .2s, box-shadow .2s; }
+  .mod:hover { background: var(--hover); }
+  .mod.in { background: var(--accent-subtle); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
+  .mt { width: 40px; height: 40px; border-radius: 8px; flex: none; display: grid; place-items: center; font-weight: 700; font-size: 16px; color: rgb(255 255 255 / .92);
+        background: var(--c); font-family: var(--mono); position: relative; overflow: hidden; }
+  .mt img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .mt.img { background: color-mix(in srgb, var(--text) 8%, transparent); color: transparent; }
+  .mt.jar { background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--muted); }
+  .mt.jar .ico { width: 15px; height: 15px; }
+  .mod .m, .crow .m, .frow .m { flex: 1; min-width: 0; }
+  .mod .n { font-size: 13.5px; font-weight: 600; line-height: 18px; white-space: nowrap; display: flex; align-items: center; gap: 3px; min-width: 0; }
+  .mod .n .nm { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .ext { flex: none; width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; color: var(--faint); opacity: .75; transition: opacity .2s, color .2s, background .2s; }
+  .mod:hover .ext { opacity: 1; }
+  .ext:hover { color: var(--accent-text); background: var(--hover); }
+  .ext .ico { width: 12px; height: 12px; }
+  .mod .d { font-size: 12px; line-height: 16px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  .mod .meta { font-size: 11px; line-height: 14px; color: var(--faint); display: flex; align-items: center; gap: 5px; margin-top: 3px; white-space: nowrap; }
+  .mod .meta .ico { width: 11px; height: 11px; }
+  .ftag { font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 6px; color: var(--muted); background: color-mix(in srgb, var(--text) 8%, transparent); }
+  .add { width: 30px; height: 30px; border-radius: 15px; flex: none; display: grid; place-items: center; color: var(--text); box-shadow: inset 0 0 0 1px var(--border); transition: background .2s, color .2s, box-shadow .2s; }
+  .mod:hover .add { background: var(--hover); }
+  .mod.in .add { background: var(--accent-solid); color: var(--on-accent); box-shadow: none; }
+  .add .ico { width: 15px; height: 15px; }
+  .mod.skel { cursor: default; animation: skel 1.1s ease-in-out infinite alternate; }
+  .mod.skel:hover { background: color-mix(in srgb, var(--surface) 55%, transparent); }
+  .mod.skel .mt, .frow.skel .mt { background: color-mix(in srgb, var(--text) 10%, transparent); }
+  .mod.skel .m i, .frow.skel .m i { display: block; height: 9px; border-radius: 5px; background: color-mix(in srgb, var(--text) 10%, transparent); margin: 5px 0; }
+  .mod.skel .m i:nth-child(1) { width: 46%; height: 11px; } .mod.skel .m i:nth-child(2) { width: 78%; } .mod.skel .m i:nth-child(3) { width: 30%; }
+  @keyframes skel { from { opacity: .55; } to { opacity: 1; } }
+  .gend { grid-column: 1 / -1; text-align: center; font-size: 12px; color: var(--faint); padding: 10px 0 6px; }
+  .cart h3 .cnt { font-family: var(--mono); color: var(--accent-text); }
+  .cart h3 .clr { font-weight: 500; color: var(--faint); cursor: pointer; padding: 3px 8px; border-radius: 10px; opacity: 0; pointer-events: none; transition: opacity .2s, color .2s; }
+  .cart.has h3 .clr { opacity: 1; pointer-events: auto; }
+  .cart h3 .clr:hover { color: var(--text); background: var(--hover); }
+  .crow, .frow { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 6px; border-radius: 10px; flex: none; overflow: hidden; }
+  .crow:hover, .frow:hover { background: var(--hover); }
+  .crow .mt, .frow .mt { width: 28px; height: 28px; border-radius: 6px; font-size: 12px; }
+  .crow .n, .frow .n { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; }
+  .crow .why, .frow .why { font-size: 11.5px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+  .crow .x { width: 26px; height: 26px; border-radius: 13px; display: grid; place-items: center; color: var(--faint); cursor: pointer; opacity: 0; flex: none; }
+  .crow:hover .x { opacity: 1; }
+  .crow .x:hover { color: var(--text); background: var(--hover); }
+  .crow .x .ico { width: 13px; height: 13px; }
+  .cempty { margin: auto 0; text-align: center; color: var(--faint); font-size: 12px; line-height: 20px; padding: 0 18px; }
+  .cempty b { display: block; margin-bottom: 4px; font-size: 13.5px; font-weight: 600; color: var(--muted); }
+  .list:has(.crow) .cempty { display: none; }
+  .cempty { animation: cempty-in .26s cubic-bezier(.2, .7, .2, 1); }
+  @keyframes cempty-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  #atitle { display: flex; align-items: baseline; gap: 8px; min-width: 0; white-space: nowrap; }
+  #atitle .asub { font-weight: 400; color: var(--faint); overflow: hidden; text-overflow: ellipsis; }
+  /* 清单那栏底下：「自动带出必装前置」开关（程序在第一段，挪到这里：开关一动，清单里的前置跟着进出），拦下一步时的那句话 */
+  .cdeps { flex: none; margin-top: 10px; padding: 0 6px; display: flex; align-items: center; gap: 8px; min-height: 20px; }
+  .cdeps .msg { margin-left: auto; font-size: 12px; color: var(--danger-text); opacity: 0; transition: opacity .2s; white-space: nowrap; }
+  .cdeps .msg.show { opacity: 1; }
+  /* 最后一步「确认导出清单」：封面条（核心色 30% 加棋盘格，同首页卡片、向导第三步）、左边在线下载、右边 overrides 和提醒、底下一条 */
+  .mp3 { height: 520px; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); grid-template-rows: 72px minmax(0, 1fr) 52px; }
+  .mcov { grid-column: 1 / -1; border-radius: 18px; padding: 8px 20px 8px 8px; display: flex; align-items: center; gap: 14px; position: relative; overflow: hidden;
+          background: color-mix(in srgb, var(--c) 30%, var(--surface)); }
+  .mcov::after { content: ""; position: absolute; inset: 0; opacity: .16; pointer-events: none;
+    background-image: linear-gradient(45deg, rgb(0 0 0 / .5) 25%, transparent 25%, transparent 75%, rgb(0 0 0 / .5) 75%), linear-gradient(45deg, rgb(0 0 0 / .5) 25%, transparent 25%, transparent 75%, rgb(0 0 0 / .5) 75%);
+    background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+  .mcov > * { position: relative; z-index: 1; }
+  /* 头像 56 离封面边 8、圆角 10（18 − 8，同心） */
+  .mcov .av { width: 56px; height: 56px; border-radius: 10px; flex: none; display: grid; place-items: center; background: color-mix(in srgb, var(--c) 26%, var(--surface));
+              box-shadow: inset 0 1px 0 rgb(255 255 255 / .08), 0 0 0 1px color-mix(in srgb, var(--c) 30%, transparent); }
+  .mcov .av svg { width: 32px; height: 32px; display: block; }
+  .mcov .tt { flex: 1; min-width: 0; }
+  .mcov .nm { font-size: 17px; font-weight: 600; display: flex; align-items: baseline; gap: 8px; white-space: nowrap; }
+  .mcov .nm .v { font-family: var(--mono); font-size: 13px; font-weight: 500; color: color-mix(in srgb, var(--muted) 60%, var(--text)); }
+  .mcov .sb { font-size: 12.5px; color: color-mix(in srgb, var(--muted) 60%, var(--text)); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mp3 .col { padding: 14px 8px 8px; }
+  .mp3 .col h3 { padding: 0 6px 0 12px; margin-bottom: 6px; }
+  .mp3 .col h3 .sub { font-weight: 400; color: var(--faint); }
+  .mp3 .thumb { right: -6px; }
+  .frow .env { font-size: 12px; color: var(--muted); white-space: nowrap; flex: none; }
+  .frow .env.co { color: var(--accent-text); }
+  .frow.skel { animation: skel 1.1s ease-in-out infinite alternate; }
+  .frow.skel:hover { background: none; }
+  .frow.skel .m i:nth-child(1) { width: 40%; height: 11px; } .frow.skel .m i:nth-child(2) { width: 64%; }
+  .wrow { display: flex; gap: 8px; padding: 6px 12px; font-size: 12px; line-height: 18px; color: var(--muted); flex: none; }
+  .wrow .ico { width: 14px; height: 14px; flex: none; margin-top: 2px; color: var(--warning-text); }
+  .wrow span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .lh3 { padding: 10px 12px 4px; font-size: 12px; font-weight: 600; color: var(--muted); flex: none; display: flex; gap: 8px; }
+  .lh3 .cnt { font-family: var(--mono); color: var(--faint); font-weight: 500; }
+  .rnone { padding: 4px 12px 6px; font-size: 12px; color: var(--faint); flex: none; }
+
+  /* 草图专用（不是界面的一部分，定了就删）：右上角切状态，同 wizard.html 的「本机内存」 */
+  /* 放在标题栏左边空着的地方（标题栏里只有小图标和窗口三键），不压住页面内容 */
+  .sim { position: fixed; top: 4px; left: 44px; z-index: 20; display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 12px; font-size: 12px; line-height: 18px;
+         background: var(--overlay); border: 1px solid var(--border); box-shadow: var(--elev-2); white-space: nowrap; }
+  .sim span[data-sim] { padding: 4px 9px !important; }
+  .sim:empty { display: none; }
+  .sim .k { color: var(--faint); padding: 0 6px 0 8px; }
+  .sim span[data-sim] { padding: 5px 9px; border-radius: 8px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+  .sim span[data-sim]:hover { color: var(--text); }
+  .sim span[data-sim].on { background: var(--accent-subtle); color: var(--accent-text); }
+  .sim .sep { width: 1px; height: 16px; background: var(--border); margin: 0 3px; }
+</style>
+</head>
+<body class="hidden-nav">
+<header class="tb"><img src="../../internal/web/ui/img/logo-16.png" alt=""><div class="sp"></div>
+  <div class="win"><span><i data-ic="winMin"></i></span><span><i data-ic="winMax"></i></span><span><i data-ic="winClose"></i></span></div></header>
+<main class="page" id="page"></main>
+<div class="wnav"><div class="in">
+  <button class="wbtn back" id="back"><i data-ic="chevronRight"></i>上一步</button>
+  <span class="sp"></span>
+  <button class="wbtn next" id="next"></button>
+</div></div>
+<nav class="cap" aria-label="导航">
+  <a class="home" href="home.html" aria-label="服务器（主页）" data-tip="服务器"><img src="../../internal/web/ui/img/logo-20.png" alt=""></a>
+  <a class="on" href="?tool=home" data-nav="toolbox" aria-label="工具箱" data-tip="工具箱"><i data-ic="toolbox"></i></a>
+  <a href="#" aria-label="设置" data-tip="设置"><i data-ic="gear"></i></a>
+  <a class="ai" href="#" aria-label="AI 助手" data-tip="AI 助手"><i data-ic="sparkle"></i></a>
+  <a class="new" href="wizard.html" aria-label="新建服务器" data-tip="新建服务器"><i data-ic="plus"></i></a>
+</nav>
+<div class="sim" id="sim" aria-label="草图里切状态"></div>
+<script>
+const QS = new URLSearchParams(location.search);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+let view = ["home", "skin", "mrpack"].includes(QS.get("tool")) ? QS.get("tool") : "home";
+
+// ---- 入口页 ----
+// 名字、标签、悬停里的整句都照程序 toolbox.js 的 TOOLS
+const TOOLS = [
+  { id: "skin", title: "离线皮肤包生成", tag: "客户端资源包", ico: "player", c: "vanilla",
+    desc: "把离线服里朋友们的皮肤 PNG 打包成客户端资源包，按玩家名离线 UUID 命中各自默认皮肤，或者按顺序替换。" },
+  { id: "mrpack", title: "导出 Modrinth 整合包", tag: ".mrpack 分享包", ico: "package", c: "neoforge",
+    desc: "把模组和配置打包成标准 .mrpack 发给朋友，可以从已有的模组服务器直接导出，也可以自己现挑模组，前置由 MineDeck 找齐。" },
+];
+function homeView() {
+  return `<h1 class="q">工具箱</h1><div class="tools">${TOOLS.map(t =>
+    `<a class="tool" href="?tool=${t.id}" data-tool="${t.id}" style="--c:${MDPixel16.CORE_COLORS[t.c]}" title="${esc(t.desc)}">`
+    + `<div class="cover">${KIT.icon(t.ico, "big")}</div><div class="t">${esc(t.title)}</div><div class="s">${esc(t.tag)}</div></a>`).join("")}</div>`;
+}
+
+// ---- 换页 ----
+function render() {
+  const page = document.getElementById("page");
+  page.className = "page v-" + view;
+  page.innerHTML = view === "home" ? homeView() : view === "skin" ? skinView() : mrpackView();
+  KIT.hydrate(page);
+  document.getElementById("next").title = ""; // 生成以后「下载」上的悬停，换页先清掉，生成过的页面自己再设
+  after();
+  paintSim();
+  navLabel();
+  document.body.classList.toggle("hidden-nav", view === "home");
+}
+function after() {
+  if (view === "skin") afterSkin?.();
+  if (view === "mrpack") afterMrpack?.();
+}
+// 页内换页：整页往走的方向挪 16 像素淡掉（0.14 秒），新的从另一边挪进来（0.26 秒），同向导换步
+let stepping = false;
+function swapPage(fn, dir) {
+  if (stepping) return;
+  stepping = true;
+  const page = document.getElementById("page");
+  const out = page.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: `translateX(${-16 * dir}px)` }], { duration: 140, easing: "cubic-bezier(.4, 0, 1, 1)", fill: "forwards" });
+  out.onfinish = () => {
+    fn(); render(); out.cancel();
+    page.animate([{ opacity: 0, transform: `translateX(${16 * dir}px)` }, { opacity: 1, transform: "none" }], { duration: 260, easing: "cubic-bezier(.2, .7, .2, 1)" })
+      .onfinish = () => { stepping = false; };
+  };
+}
+function goView(v) {
+  if (v === view) { if (v !== "home") return; }
+  const dir = v === "home" ? -1 : 1;
+  swapPage(() => {
+    view = v;
+    const q = new URLSearchParams(location.search); q.set("tool", v); ["step", "state"].forEach(k => q.delete(k));
+    history.replaceState(null, "", "?" + q.toString());
+  }, dir);
+}
+// 右下主按钮的字和宽度：换字时旧字 0.09 秒淡掉，按钮宽度按整像素走到新的，新字淡进来（照 wizard.html 的 navLabel）
+function bezier(x1, y1, x2, y2) {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx, cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const X = t => ((ax * t + bx) * t + cx) * t, Y = t => ((ay * t + by) * t + cy) * t, dX = t => (3 * ax * t + 2 * bx) * t + cx;
+  return x => { let t = x; for (let i = 0; i < 8; i++) { const d = dX(t); if (Math.abs(d) < 1e-6) break; t -= (X(t) - x) / d; } return Y(Math.min(1, Math.max(0, t))); };
+}
+const EASE_SLIDE = bezier(.3, .7, .2, 1);
+const tweens = {};
+function tweenPx(key, dur, ease, frame, done) {
+  const id = tweens[key] = (tweens[key] || 0) + 1, t0 = performance.now();
+  const tick = now => { if (tweens[key] !== id) return; const p = Math.min(1, (now - t0) / dur); frame(ease(p)); if (p < 1) requestAnimationFrame(tick); else done?.(); };
+  requestAnimationFrame(tick);
+}
+let navTok = 0;
+function nextLabel() {
+  if (view === "skin") return skinNext();
+  if (view === "mrpack") return mrpackNext();
+  return "";
+}
+function navLabel() {
+  const b = document.getElementById("next"), want = nextLabel();
+  if (b.dataset.label === want) return;
+  const first = !b.dataset.label, tok = ++navTok;
+  b.dataset.label = want;
+  const swap = () => {
+    if (tok !== navTok) return;
+    const w0 = b.offsetWidth;
+    b.style.width = ""; b.classList.toggle("plain", !want.includes("data-ic=\"chevronRight\"")); b.innerHTML = `<span class="lbl">${want}</span>`; KIT.hydrate(b);
+    if (first || document.body.classList.contains("hidden-nav")) return;
+    const w1 = b.offsetWidth;
+    b.querySelector(".lbl").animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, delay: 60, easing: "cubic-bezier(.2, .7, .2, 1)", fill: "backwards" });
+    if (w0 === w1) return;
+    b.style.width = w0 + "px";
+    tweenPx("nextw", 320, EASE_SLIDE, e => { b.style.width = Math.round(w0 + (w1 - w0) * e) + "px"; }, () => { if (tok === navTok) b.style.width = ""; });
+  };
+  const old = b.querySelector(".lbl");
+  if (first || !old || document.body.classList.contains("hidden-nav")) return swap();
+  old.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 90, easing: "cubic-bezier(.4, 0, 1, 1)", fill: "forwards" }).onfinish = swap;
+}
+
+// ---- 草图专用：右上角切状态 ----
+function paintSim() {
+  const box = document.getElementById("sim");
+  const items = view === "skin" ? skinSim?.() : view === "mrpack" ? mrpackSim?.() : [];
+  box.innerHTML = items && items.length ? `<span class="k">草图</span>` + items.map(x => x === "|" ? `<i class="sep"></i>` : `<span data-sim="${x[0]}"${x[2] ? ` class="on"` : ""}>${x[1]}</span>`).join("") : "";
+}
+document.getElementById("sim").addEventListener("click", e => { const x = e.target.closest("[data-sim]"); if (x) simPick(x.dataset.sim); });
+function simPick(k) { if (view === "skin") skinSimPick?.(k); else if (view === "mrpack") mrpackSimPick?.(k); }
+
+// ---- 事件 ----
+document.getElementById("page").addEventListener("click", e => {
+  const t = e.target.closest("[data-tool]");
+  if (t) { e.preventDefault(); goView(t.dataset.tool); return; }
+  if (view === "skin") skinClick?.(e);
+  else if (view === "mrpack") mrpackClick?.(e);
+});
+document.querySelector('.cap [data-nav="toolbox"]').addEventListener("click", e => { e.preventDefault(); if (view !== "home") goView("home"); });
+document.querySelector(".cap a.new").addEventListener("click", e => { e.preventDefault(); document.body.classList.add("leaving"); setTimeout(() => { location.href = "wizard.html"; }, 320); });
+document.querySelector(".cap a.home").addEventListener("click", e => { e.preventDefault(); location.href = "home.html"; });
+document.getElementById("back").addEventListener("click", () => { if (view === "skin") goView("home"); else if (view === "mrpack") mrpackBack(); });
+document.getElementById("next").addEventListener("click", () => { if (view === "skin") skinGo(); else if (view === "mrpack") mrpackGo(); });
+
+// ---- 两个工具共用的小件（照 wizard.html） ----
+const EASE_IN = "cubic-bezier(.4, 0, 1, 1)", EASE_OUT = "cubic-bezier(.2, .7, .2, 1)";
+// 拦下一步时晃一下（0.36 秒，−6、5、−3 像素）
+const shakeEl = el => el?.animate([{ transform: "none" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "none" }],
+  { duration: 360, easing: "cubic-bezier(.3, .7, .2, 1)" });
+// 细滚动条：跟着列表算长短和位置，能拖；上下有没看到的就渐隐（照 wizard.html 的 scrollbar）
+function scrollbar(w) {
+  if (!w) return;
+  const l = w.querySelector(".list"), t = w.querySelector(".thumb");
+  const paint = () => {
+    const ch = l.clientHeight, sh = l.scrollHeight, st = l.scrollTop;
+    w.classList.toggle("fits", sh <= ch + 1);
+    w.classList.toggle("can-up", st > 2);
+    w.classList.toggle("can-down", st + ch < sh - 2);
+    const h = Math.max(28, ch * ch / sh);
+    t.style.height = h + "px";
+    t.style.top = (sh > ch ? st / (sh - ch) * (ch - h) : 0) + "px";
+  };
+  if (w._paint) { w._paint(); return; }
+  w._paint = paint;
+  let idle = 0;
+  l.addEventListener("scroll", () => { paint(); w.classList.add("scrolling"); clearTimeout(idle); idle = setTimeout(() => w.classList.remove("scrolling"), 700); }, { passive: true });
+  t.addEventListener("pointerdown", e => {
+    e.preventDefault(); t.setPointerCapture(e.pointerId); t.classList.add("drag");
+    const y0 = e.clientY, s0 = l.scrollTop, ratio = (l.scrollHeight - l.clientHeight) / (l.clientHeight - t.offsetHeight);
+    const move = ev => { l.scrollTop = s0 + (ev.clientY - y0) * ratio; };
+    const up = () => { t.classList.remove("drag"); t.removeEventListener("pointermove", move); t.removeEventListener("pointerup", up); };
+    t.addEventListener("pointermove", move); t.addEventListener("pointerup", up);
+  });
+  paint();
+}
+// 分段选的选中块挪到选中的那一格（照 wizard.html 的 placeSeg）
+function placeSeg(el, animate) {
+  const hl = el.querySelector(".sgl"), on = el.querySelector("span.on"); if (!hl || !on) return;
+  if (!animate) hl.style.transition = "none";
+  hl.style.transform = `translateX(${on.offsetLeft}px)`; hl.style.width = on.offsetWidth + "px";
+  if (!animate) { void hl.offsetWidth; hl.style.transition = ""; }
+}
+// 逐项换（照 wizard.html 的 swapItems）：旧的几样一样一样淡出（0.09 秒，反着挪 5），新的一样一样淡进来（0.22 秒，从方向那侧挪 5），错开 22 毫秒
+function swapItems(box, html, dir, axis, after) {
+  if (!box) return;
+  const d = 5 * dir, tf = v => axis === "X" ? `translateX(${v}px)` : `translateY(${v}px)`;
+  const tok = box._tok = (box._tok || 0) + 1, olds = [...box.children];
+  olds.forEach((x, i) => x.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: tf(-d) }], { duration: 90, delay: i * 22, easing: EASE_IN, fill: "forwards" }));
+  setTimeout(() => {
+    if (box._tok !== tok) return;
+    box.innerHTML = html; KIT.hydrate(box); after?.();
+    [...box.children].forEach((x, i) => x.animate([{ opacity: 0, transform: tf(d) }, { opacity: 1, transform: "none" }], { duration: 220, delay: i * 22, easing: EASE_OUT, fill: "backwards" }));
+  }, 90 + Math.max(0, olds.length - 1) * 22);
+}
+// 列表里看得见的那几行（一批换时只给看得见的做淡入）
+const inView = (list, els) => { const top = list.scrollTop, bot = top + list.clientHeight; return els.filter(x => x.offsetTop < bot && x.offsetTop + x.offsetHeight > top); };
+// 一批换（照向导第一步换核心那一列）：旧的整块一起往反方向挪 5 淡掉（0.09 秒），新的从点的那一侧挪 5、一行一行淡进来（每行 0.22 秒、错开 22 毫秒，只做看得见的）；
+// 没有左右之分的 dir 是 0，从下往上浮 5
+function regridList(list, html, dir, after) {
+  list.getAnimations({ subtree: true }).forEach(a => a.cancel());
+  const tok = list._tok = (list._tok || 0) + 1;
+  const a = list.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: dir ? `translateX(${-5 * dir}px)` : "none" }], { duration: 90, easing: EASE_IN, fill: "forwards" });
+  a.onfinish = () => {
+    if (list._tok !== tok) return;
+    list.scrollTop = 0; list.innerHTML = html; KIT.hydrate(list); a.cancel(); after?.();
+    const from = dir ? `translateX(${5 * dir}px)` : "translateY(5px)";
+    inView(list, [...list.children].filter(x => !x.classList.contains("hl"))).forEach((c, i) =>
+      c.animate([{ opacity: 0, transform: from }, { opacity: 1, transform: "none" }], { duration: 220, delay: i * 22, easing: EASE_OUT, fill: "backwards" }));
+    list.closest(".lwrap")?._paint?.();
+  };
+}
+// 弹出的小面板：挂在按钮下面（放不下就到上面），点外面、Esc、滚动就收
+let popEl = null;
+function closePop() { if (!popEl) return; const p = popEl; popEl = null; p.classList.remove("on"); setTimeout(() => p.remove(), 130); }
+function openPop(anchor, html, { width, align = "left", onPick } = {}) {
+  closePop();
+  const p = document.createElement("div"); p.className = "pop"; p.innerHTML = html; if (width) p.style.width = width + "px";
+  document.body.appendChild(p); KIT.hydrate(p);
+  const r = anchor.getBoundingClientRect(), h = p.offsetHeight, w = p.offsetWidth, up = r.bottom + 6 + h > innerHeight - 12;
+  p.classList.toggle("up", up);
+  p.style.top = Math.round(up ? r.top - 6 - h : r.bottom + 6) + "px";
+  p.style.left = Math.round(Math.min(Math.max(12, align === "right" ? r.right - w : r.left), innerWidth - w - 12)) + "px";
+  p.addEventListener("click", e => { e.stopPropagation(); onPick?.(e); });
+  popEl = p; p._anchor = anchor;
+  p.querySelectorAll(".lwrap").forEach(scrollbar);
+  requestAnimationFrame(() => p.classList.add("on"));
+  return p;
+}
+document.addEventListener("pointerdown", e => { if (popEl && !popEl.contains(e.target) && !popEl._anchor.contains(e.target)) closePop(); }, true);
+document.addEventListener("keydown", e => { if (e.key === "Escape") closePop(); });
+addEventListener("resize", closePop);
+// 复制：图标换成勾 1.2 秒（照向导）
+function copyFlash(b) {
+  navigator.clipboard?.writeText(b.dataset.copy || "").catch(() => {});
+  b.classList.add("done"); b.innerHTML = KIT.icon("check");
+  clearTimeout(b._t); b._t = setTimeout(() => { b.classList.remove("done"); b.innerHTML = KIT.icon("copy"); }, 1200);
+}
+// 文件名里的时间（同程序：20260102-150405）
+const stamp = () => { const d = new Date(), p = n => String(n).padStart(2, "0"); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; };
+// 存到本机文件夹：草图里点了不真弹窗，换成一个示例文件夹
+const DEMO_DIR = "D:\\分享给朋友";
+// 本机打开才能存到文件夹（程序看 /api/app 的 local）；草图里 ?local=0 看远程打开的样子
+let LOCAL = QS.get("local") !== "0";
+function pathBox(dest) {
+  if (!LOCAL) return `<div class="pathf off" style="opacity:.45;cursor:default" title="在浏览器里远程打开时只能下载；在这台电脑上打开 MineDeck 才能直接存到文件夹"><i data-ic="folder"></i><span class="ph">同时存到本机文件夹（选填）</span></div>`;
+  return `<div class="pathf" data-act="pickdir" title="${dest ? "生成后同时存一份到这个文件夹；点一下换别的文件夹" : "留空只在浏览器里下载；选一个文件夹，生成后同时存一份进去"}"><i data-ic="folder"></i>`
+    + (dest ? `<b>${esc(dest)}</b><button class="ib" data-act="cleardir" title="不存到文件夹"><i data-ic="x"></i></button>` : `<span class="ph">同时存到本机文件夹（选填）</span>`) + `</div>`;
+}
+
+// 后面两个工具的代码接在这里
+var skinView, afterSkin, skinNext, skinSim, skinSimPick, skinClick, skinGo;
+var mrpackView, afterMrpack, mrpackNext, mrpackSim, mrpackSimPick, mrpackClick, mrpackBack, mrpackGo;
+</script>
+<script>
+// ======================================================================
+// 离线皮肤包生成（?tool=skin）
+// ======================================================================
+(() => {
+// MD5（RFC 1321），只给离线 UUID 用。离线 UUID、hashCode、槽位照 internal/toolbox/skinpack.go：
+// MD5("OfflinePlayer:" + 玩家名) → 改成 UUID v3 → Java UUID.hashCode()（高低 64 位异或，再高低 32 位异或）→ floorMod(槽位数)
+function md5(bytes) {
+  const S = [7, 12, 17, 22, 5, 9, 14, 20, 4, 11, 16, 23, 6, 10, 15, 21], K = [];
+  for (let i = 0; i < 64; i++) K[i] = Math.floor(Math.abs(Math.sin(i + 1)) * 4294967296) | 0;
+  const len = bytes.length, n = ((len + 8) >> 6) + 1, M = new Int32Array(n * 16);
+  for (let i = 0; i < len; i++) M[i >> 2] |= bytes[i] << ((i % 4) * 8);
+  M[len >> 2] |= 0x80 << ((len % 4) * 8);
+  M[n * 16 - 2] = len * 8;
+  let a0 = 0x67452301, b0 = 0xefcdab89 | 0, c0 = 0x98badcfe | 0, d0 = 0x10325476;
+  for (let o = 0; o < M.length; o += 16) {
+    let A = a0, B = b0, C = c0, D = d0;
+    for (let i = 0; i < 64; i++) {
+      let F, g;
+      if (i < 16) { F = (B & C) | (~B & D); g = i; }
+      else if (i < 32) { F = (D & B) | (~D & C); g = (5 * i + 1) % 16; }
+      else if (i < 48) { F = B ^ C ^ D; g = (3 * i + 5) % 16; }
+      else { F = C ^ (B | ~D); g = (7 * i) % 16; }
+      F = (F + A + K[i] + M[o + g]) | 0; A = D; D = C; C = B;
+      const s = S[(i >> 4) * 4 + (i % 4)];
+      B = (B + ((F << s) | (F >>> (32 - s)))) | 0;
+    }
+    a0 = (a0 + A) | 0; b0 = (b0 + B) | 0; c0 = (c0 + C) | 0; d0 = (d0 + D) | 0;
+  }
+  const out = new Uint8Array(16);
+  [a0, b0, c0, d0].forEach((v, i) => { for (let j = 0; j < 4; j++) out[i * 4 + j] = (v >>> (j * 8)) & 255; });
+  return out;
+}
+const enc = new TextEncoder();
+function offline(name) {
+  const h = md5(enc.encode("OfflinePlayer:" + name));
+  h[6] = (h[6] & 0x0f) | 0x30; h[8] = (h[8] & 0x3f) | 0x80;
+  const w = i => (h[i] << 24) | (h[i + 1] << 16) | (h[i + 2] << 8) | h[i + 3];
+  const hc = (w(0) ^ w(8)) ^ (w(4) ^ w(12));
+  const x = [...h].map(b => b.toString(16).padStart(2, "0")).join("");
+  return { uuid: `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20)}`, hc };
+}
+window.__offline = offline; // 草图自查用：和 node 算的对一遍
+// 版本号：照 parseMCVersion（只认前面的数字，-pre1 这种尾巴不管；两到三段）
+function parseMC(mc) {
+  mc = mc.trim(); if (!mc) return [1, 21, 4];
+  const i = mc.search(/[-+ ]/); if (i >= 0) mc = mc.slice(0, i);
+  const p = mc.split("."); if (p.length < 2 || p.length > 3 || p.some(x => !/^\d+$/.test(x))) return null;
+  return [+p[0], +p[1], +(p[2] || 0)];
+}
+const cmp = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+// 默认皮肤槽位：1.19.3 起 18 个（前 9 个细手臂、后 9 个经典手臂，各按字母序），以前只有 Steve、Alex 两个（照 SlotsForMC）
+const CH = ["alex", "ari", "efe", "kai", "makena", "noor", "steve", "sunny", "zuri"], cap1 = c => c[0].toUpperCase() + c.slice(1);
+const MODEL = { slim: "纤细", wide: "经典" }, MODEL_TIP = { slim: "纤细（3px）", wide: "经典（4px）" };
+function slotsFor(v) {
+  if (cmp(v, [1, 19, 3]) < 0) return [
+    { i: 0, id: "steve", ch: "Steve", model: "wide", path: "assets/minecraft/textures/entity/steve.png" },
+    { i: 1, id: "alex", ch: "Alex", model: "slim", path: "assets/minecraft/textures/entity/alex.png" }];
+  return ["slim", "wide"].flatMap((m, k) => CH.map((c, j) => ({ i: k * 9 + j, id: `${m}/${c}`, ch: cap1(c), model: m, path: `assets/minecraft/textures/entity/player/${m}/${c}.png` })));
+}
+// pack_format：照 PackFormatForMC 的表
+const PF = [[[26, 3, 0], 97], [[26, 2, 0], 88], [[26, 1, 0], 84], [[1, 21, 11], 75], [[1, 21, 9], 69], [[1, 21, 7], 64], [[1, 21, 6], 63], [[1, 21, 5], 55], [[1, 21, 4], 46],
+  [[1, 21, 2], 42], [[1, 21, 0], 34], [[1, 20, 5], 32], [[1, 20, 3], 22], [[1, 20, 2], 18], [[1, 20, 0], 15], [[1, 19, 4], 13], [[1, 19, 3], 12], [[1, 19, 0], 9], [[1, 18, 0], 8],
+  [[1, 17, 0], 7], [[1, 16, 2], 6], [[1, 15, 0], 5], [[1, 13, 0], 4], [[1, 11, 0], 3], [[1, 9, 0], 2], [[1, 6, 1], 1]];
+const packFormat = v => (PF.find(([r]) => cmp(v, r) >= 0) || [0, 1])[1];
+const MAX = 18; // 一次最多 18 张（MaxSkins）
+
+// 示例皮肤（假的）：只画脸，8×8 放大到 40。颜色按文件名挑，一眼看得出是示例
+const FACE_T = [
+  ["hhhhhhhh", "hhhhhhhh", "hssssssh", "ssssssss", "swessews", "sssnnsss", "ssmmmmss", "ssssssss"],
+  ["hhhhhhhh", "hhhhhhhh", "hhsshhss", "ssssssss", "sewsswes", "ssssssss", "sssmmsss", "ssssssss"],
+  ["hhhhhhhh", "hhhhhhhh", "hhhhhhhh", "hssssssh", "swessews", "sssnnsss", "shmmmmhs", "hhhhhhhh"],
+];
+const HAIR = ["#3b2a1f", "#6b4a2e", "#c9a25a", "#4a3a5a", "#8a3b2a", "#d8d0c0", "#2c4a7a"], SKIN = ["#c99a77", "#b78463", "#e5c3a1", "#a8744f", "#f0d2b4"], EYE = ["#3c5fa8", "#5a3a22", "#2f7d4f", "#6a4aa0"];
+const seedOf = s => [...s].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
+const darken = (hex, k) => "#" + [1, 3, 5].map(i => Math.round(parseInt(hex.slice(i, i + 2), 16) * k).toString(16).padStart(2, "0")).join("");
+function faceSVG(seed) {
+  const t = FACE_T[seed % 3], sk = SKIN[(seed >>> 3) % SKIN.length];
+  const pal = { h: HAIR[(seed >>> 6) % HAIR.length], s: sk, n: darken(sk, .8), w: "#f4f1e8", e: EYE[(seed >>> 9) % EYE.length], m: "#5a2f25" };
+  return `<svg class="face" viewBox="0 0 8 8" shape-rendering="crispEdges" aria-hidden="true">${t.map((r, y) => [...r].map((c, x) => `<rect x="${x}" y="${y}" width="1" height="1" fill="${pal[c]}"/>`).join("")).join("")}</svg>`;
+}
+let uid = 0;
+const fileOf = (name, w = 64, h = 64, err = "") => ({ name, w, h, err, seed: seedOf(name) });
+const rowOf = (player = "", file = null) => ({ id: ++uid, player, model: "", slot: -1, keep: false, skip: false, file });
+// 从服务器读玩家名：服务器列表抄 home.html（代理端不列）；读进来的名字是编的
+const SERVERS = [
+  ["原版快照测试", "vanilla", "原版", "26.2"], ["生存服 · 朋友", "paper", "Paper", "1.21.4"], ["机械动力整合包", "forge", "Forge", "1.20.1"], ["空岛生存", "purpur", "Purpur", "1.21.4"],
+  ["红石科技服", "leaves", "Leaves", "1.21.4"], ["匠魂与暮色", "neoforge", "NeoForge", "1.21.1"], ["模组加插件", "mohist", "Mohist", "1.20.1"], ["建筑创意服", "paper", "Paper", "1.21.4"],
+  ["末地速通练习", "fabric", "Fabric", "1.21.1"], ["空岛·第二季", "purpur", "Purpur", "1.21.4"], ["怀旧 1.12.2", "forge", "Forge", "1.12.2"], ["红石教学", "leaves", "Leaves", "1.21.4"],
+  ["小游戏大厅", "folia", "Folia", "1.21.4"], ["暮色森林探险", "neoforge", "NeoForge", "1.21.1"],
+];
+const ROSTER = ["steve", "alex", "lihua", "xiaoming", "zhangsan", "lisi", "wangwu", "xiaohong", "zhaoliu", "xiaoli"];
+const playersOf = i => i === 1 ? ROSTER.slice(0, 5) : ROSTER.slice(i % 6, i % 6 + 3 + (i % 3));
+// 草图的几种样子（右上角切）
+const STATES = {
+  demo: () => [rowOf("steve", fileOf("steve.png")), rowOf("alex", fileOf("alex.png")), rowOf("lihua", fileOf("lihua.png")), rowOf("xiaoming", fileOf("xiaoming.png", 64, 32))],
+  // lisi 和 xiaohong 算出来都落在 Makena · 经典（wide/makena），是真撞的；第 6 行的 PNG 尺寸不对
+  clash: () => [...STATES.demo(), rowOf("lisi", fileOf("lisi.png")), rowOf("xiaohong", fileOf("xiaohong.png")), rowOf("zhangsan", fileOf("zhangsan-hd.png", 128, 128, "尺寸不对：128×128"))],
+  empty: () => [rowOf()],
+  many: () => ["steve", "alex", "lihua", "xiaoming", "zhangsan", "lisi", "wangwu", "zhaoliu", "xiaohong", "xiaoli", "dawei", "laowang", "meimei", "xiaoqiang", "ahua", "xiaogang", "xiaomei", "a_very_long_name"]
+    .map(n => rowOf(n, fileOf(n + ".png"))),
+};
+const SK = { mc: "1.21.4", mode: "player", name: "朋友皮肤包", desc: "", dest: "", rows: STATES.demo(), result: null, verNote: "", state: "demo", busy: false };
+const st0 = QS.get("state"); if (STATES[st0]) { SK.state = st0; SK.rows = STATES[st0](); }
+if (st0 === "done") SK.result = true; // 真正的结果在第一次画完以后生成
+
+// 预演：照 PreviewSkinPack。按玩家名：每行按名字算；按顺序：先占手动挑的，再给「自动」的挑空着的（同手臂的优先）
+function preview() {
+  const v = parseMC(SK.mc);
+  if (!v) return { err: "版本号认不出来", tip: "Minecraft 版本格式认不出来，请填类似 1.20.1 或 1.21.4 的版本号" };
+  if (cmp(v, [1, 8, 0]) < 0) return { err: "1.8 以前的版本不支持", tip: "1.8 以前只有 Steve 一个默认皮肤，皮肤格式也不一样" };
+  const slots = slotsFor(v), n = slots.length, items = SK.rows.map(() => null), used = {};
+  if (SK.mode === "player") {
+    SK.rows.forEach((r, i) => {
+      const name = r.player.trim(); if (!name) return;
+      const o = offline(name), s = slots[((o.hc % n) + n) % n];
+      items[i] = { slot: s, uuid: o.uuid };
+      if (!r.skip) (used[s.i] ||= []).push(i);
+    });
+  } else {
+    const tg = SK.rows.map(r => r.slot >= 0 && r.slot < n ? r.slot : -1);
+    SK.rows.forEach((r, i) => { if (tg[i] >= 0 && !r.skip) (used[tg[i]] ||= []).push(i); });
+    SK.rows.forEach((r, i) => {
+      if (tg[i] >= 0 || r.skip) return;
+      const free = slots.find(s => !used[s.i] && (!r.model || s.model === r.model)) || slots.find(s => !used[s.i]);
+      if (!free) { items[i] = { full: true }; return; }
+      tg[i] = free.i; (used[free.i] ||= []).push(i);
+    });
+    SK.rows.forEach((r, i) => { if (!items[i]) items[i] = { slot: tg[i] >= 0 ? slots[tg[i]] : null, auto: r.slot < 0 }; });
+  }
+  const conflicts = Object.entries(used).filter(([, a]) => a.length > 1).map(([s, a]) => ({ slot: slots[+s], rows: a }));
+  conflicts.forEach(c => c.rows.forEach(i => { items[i].clash = c; }));
+  return { v, slots, modern: n === 18, items, conflicts, pf: packFormat(v) };
+}
+let PV = preview();
+
+// ---- 画 ----
+const slotTxt = s => `${s.ch}<small>${MODEL[s.model]}</small>`;
+// 这一行右边那块的样子由哪几样决定：变了才换（没变的不动）
+const slotKey = (r, i) => { const it = PV.items?.[i]; return [PV.err ? "e" : "", SK.mode, r.skip ? "s" : "", r.slot, it?.slot?.i ?? "-", it?.clash ? "c" : "", it?.full ? "f" : "", it?.uuid || ""].join("|"); };
+function slotHTML(r, i) {
+  const it = PV.items?.[i];
+  if (PV.err) return `<span class="slot none">—</span>`;
+  if (r.skip) return `<span class="slot skipped" title="已跳过，不写进资源包；改玩家名就会重新算">已跳过</span>`;
+  if (SK.mode === "player") {
+    if (!it) return `<span class="slot none">填玩家名后显示</span>`;
+    const tip = `${it.slot.path}\n离线 UUID ${it.uuid}` + (it.clash ? `\n和别人撞进了同一个默认皮肤，一个资源包里同一个只能放一张` : "");
+    return `<span class="slot${it.clash ? " clash" : ""}" title="${esc(tip)}">${slotTxt(it.slot)}</span>` + (it.clash ? `<button class="keep" data-keep="${i}" title="保留这一张，同一个默认皮肤里的其他几张跳过">保留</button>` : "");
+  }
+  if (it.full) return `<span class="slot pick clash" data-pick="${i}" title="Minecraft ${esc(SK.mc)} 只有 ${PV.slots.length} 个默认皮肤，放不下这一张">放不下${KIT.icon("chevronDown")}</span>`;
+  const au = r.slot < 0 ? `<span class="au">自动</span>` : "";
+  return `<span class="slot pick${it.clash ? " clash" : ""}" data-pick="${i}" title="${esc(it.slot.path + (it.clash ? "\n两张挑了同一个默认皮肤，换一个或者保留其中一张" : "\n点一下换一个"))}">${au}${slotTxt(it.slot)}${KIT.icon("chevronDown")}</span>`
+    + (it.clash ? `<button class="keep" data-keep="${i}" title="保留这一张，挑了同一个的其他几张跳过">保留</button>` : "");
+}
+function fileMeta(r) {
+  if (!r.file) return `<div class="fm">未选择 PNG</div>`;
+  if (r.file.err) return `<div class="fm bad" title="皮肤尺寸必须是 64×64 或旧版 64×32">${esc(r.file.name)} · ${esc(r.file.err)}</div>`;
+  return `<div class="fm">${esc(r.file.name)} · ${r.file.w}×${r.file.h}` + (r.file.h === 32 ? ` <span class="lg" title="旧版 64×32：打包时照客户端的规则镜像扩成 64×64">· 自动扩成 64×64</span>` : "") + `</div>`;
+}
+function rowHTML(r, i) {
+  const th = !r.file ? `<span class="sth empty" data-file="${i}" title="选择皮肤 PNG（64×64 或旧版 64×32，不超过 2 MB）"><i data-ic="upload"></i></span>`
+    : r.file.err ? `<span class="sth bad" data-file="${i}" title="换一张皮肤 PNG"><i data-ic="warn"></i></span>`
+    : `<span class="sth" data-file="${i}" title="更换皮肤 PNG">${faceSVG(r.file.seed)}<span class="ov"><i data-ic="refresh"></i></span></span>`;
+  const ph = SK.mode === "player" ? "玩家名（区分大小写）" : "备注（选填）";
+  return `<div class="srow${r.skip ? " skip" : ""}" data-row="${r.id}">${th}<div class="stx"><input class="pn" data-name="${i}" value="${esc(r.player)}" placeholder="${ph}" maxlength="32" spellcheck="false" autocomplete="off">${fileMeta(r)}</div>`
+    + `<span class="slotw" data-k="${esc(slotKey(r, i))}">${slotHTML(r, i)}</span><button class="x" data-del="${i}" title="${SK.rows.length > 1 ? "拿掉这一行" : "至少留一行"}"${SK.rows.length > 1 ? "" : " disabled"}><i data-ic="x"></i></button></div>`;
+}
+const slotAside = () => PV.err ? "" : `<span class="aside" title="${esc((PV.modern ? "1.19.3 起，离线玩家用细手臂还是经典手臂也由玩家名对应的 UUID 决定，资源包只能换贴图，不能把细手臂的改成经典的。"
+  : "1.19.2 及更早只有 Steve 和 Alex 两个默认皮肤，超过 2 个人一定会撞；只配最常用的两位，或者换成按顺序替换。") + `\npack_format ${PV.pf}`)}">${PV.slots.length} 个默认槽位</span>`;
+const MC_CHIPS = ["26.2", "1.21.4", "1.20.1", "1.12.2"]; // 程序的 MC_PRESETS 有 12 个，这里挑 4 个放成快捷预设（一行放得下），别的直接填；1.12.2 是只有两个默认皮肤的老版本
+// 描述留空时程序写的那句（照 finishBuildSkinPack），放在悬停里；框里的淡字只写「留空自动生成」，整句放不下
+const descDefault = () => `${SK.name.trim() || "MineDeck 离线皮肤包"}（适配 Minecraft ${SK.mc.trim() || "1.21.4"}，共 ${SK.rows.filter(r => !r.skip && r.file && !r.file.err).length} 个默认皮肤）`;
+const descPH = () => "留空自动生成";
+const descTip = () => `写进 pack.mcmeta，游戏里资源包列表上显示\n留空就写：${descDefault()}`;
+function verNote() {
+  if (PV.err) return `<i data-ic="warn"></i><span title="${esc(PV.tip)}">${PV.err}</span>`;
+  return SK.verNote ? `<i data-ic="info"></i>${esc(SK.verNote)}` : "";
+}
+skinView = () => {
+  PV = preview();
+  const set = `<div class="col set"><h3>资源包设置</h3>
+      <div class="fld"><span class="lb">游戏版本<span class="sp"></span><span id="slotaside">${slotAside()}</span></span>
+        <input class="inp mono${PV.err ? " bad" : ""}" id="spmc" value="${esc(SK.mc)}" maxlength="40" placeholder="1.21.4" spellcheck="false" autocomplete="off">
+        <div class="mpre" id="mcchips">${MC_CHIPS.map(v => `<button class="mp${SK.mc.trim() === v ? " on" : ""}" data-mc="${v}">${v}</button>`).join("")}</div>
+        <div class="fnote${PV.err ? " bad" : ""}" id="mcnote">${verNote()}</div></div>
+      <div class="fld"><span class="lb">分配方式</span><div class="seg" id="spmode"><i class="sgl"></i>`
+    + `<span data-mode="player"${SK.mode === "player" ? ` class="on"` : ""} title="按玩家名的离线 UUID 算出客户端会用哪个默认皮肤，每人一张">按玩家名</span>`
+    + `<span data-mode="sequential"${SK.mode === "sequential" ? ` class="on"` : ""} title="不看玩家名，按顺序或者自己挑默认皮肤的位置放进去；适合给某个默认角色整体换皮">按顺序替换</span></div></div>
+      <div class="fld"><span class="lb">资源包名称</span><input class="inp" id="spname" value="${esc(SK.name)}" maxlength="100" placeholder="MineDeck 离线皮肤包"></div>
+      <div class="fld"><span class="lb">资源包描述（选填）</span><input class="inp" id="spdesc" value="${esc(SK.desc)}" maxlength="200" placeholder="${esc(descPH())}" title="${esc(descTip())}"></div>
+    </div>`;
+  const full = SK.rows.length >= MAX;
+  const lst = `<div class="col lst"><h3>皮肤列表<span class="cnt" id="spcnt">${SK.rows.length} / ${MAX}</span><span class="sp"></span>`
+    + `<button class="tbtn" data-act="fromsrv" title="把一台服务器的在线、白名单、管理员玩家名填进来，游戏版本也改成那台的"><i data-ic="server"></i>从服务器读取</button>`
+    + `<button class="ib" data-act="addrow" title="${full ? "一次最多 18 张" : "加一行"}"${full ? " disabled" : ""}><i data-ic="plus"></i></button></h3>`
+    + `<div class="lwrap"><div class="list" id="sprows">${SK.rows.map(rowHTML).join("")}</div><i class="thumb"></i></div>`
+    + `<div class="drop${full ? " off" : ""}" data-act="drop" title="${full ? "一次最多 18 张" : "可以一次拖进好几张，一张一行；64×64 或旧版 64×32，每张不超过 2 MB"}"><i data-ic="upload"></i>拖入皮肤 PNG，或点击选择</div></div>`;
+  return `<h1 class="q">离线皮肤包生成</h1><div class="panel skp">${set}${lst}<div class="ostrip" id="spstrip">${stripIdle()}</div></div>`;
+};
+const stripIdle = () => `${pathBox(SK.dest)}<span class="sp"></span><span class="msg" id="spmsg"></span>`;
+function stripDone() {
+  const r = SK.result;
+  return `<div class="res"><span class="ok"><i data-ic="check"></i></span><span class="fn" title="${esc(r.fileName + (r.saved ? "\n已存到 " + r.saved : ""))}">${esc(r.fileName)}</span>`
+    + `<span class="facts">${r.size} · ${r.textures} 张贴图 · pack_format ${r.pf}${r.saved ? ` · 已存到文件夹` : ""}</span><span class="sp"></span>`
+    + `<span class="hk" title="服务器 server.properties 里 resource-pack-sha1 填这个">resource-pack-sha1</span><span class="hv">${r.sha1}</span>`
+    + `<button class="ib" data-act="copy" data-copy="${r.sha1}" title="复制"><i data-ic="copy"></i></button></div><span class="msg" id="spmsg"></span>`;
+}
+afterSkin = () => {
+  scrollbar(document.querySelector(".skp .lwrap"));
+  placeSeg(document.getElementById("spmode"), false);
+  if (SK.result === true) makeResult(false);
+};
+skinNext = () => SK.busy ? `<i data-ic="spinner" class="spin"></i>生成中` : SK.result ? `<i data-ic="download"></i>下载皮肤包` : "生成皮肤包";
+
+// ---- 改了东西以后：只换变了的那几样 ----
+let pvTimer = 0;
+function repaint(delay = 0) {
+  clearTimeout(pvTimer);
+  const run = () => {
+    PV = preview();
+    document.querySelectorAll("#sprows .srow:not(.out)").forEach((row, i) => {
+      const r = SK.rows[i]; if (!r) return;
+      const w = row.querySelector(".slotw"), key = slotKey(r, i);
+      row.classList.toggle("skip", r.skip);
+      if (w.dataset.k === key) return;
+      w.dataset.k = key;
+      const html = slotHTML(r, i);
+      w.getAnimations().forEach(a => a.cancel());
+      w.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 90, easing: EASE_IN, fill: "forwards" }).onfinish = () => {
+        if (w.dataset.k !== key) return;
+        w.innerHTML = html; KIT.hydrate(w); w.getAnimations().forEach(a => a.cancel());
+        w.animate([{ opacity: 0, transform: "translateX(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: EASE_OUT });
+      };
+    });
+    const mc = document.getElementById("spmc"); mc?.classList.toggle("bad", !!PV.err);
+    const note = document.getElementById("mcnote"); if (note) { note.className = "fnote" + (PV.err ? " bad" : ""); note.innerHTML = verNote(); KIT.hydrate(note); }
+    const as = document.getElementById("slotaside"); if (as && as.innerHTML !== slotAside()) as.innerHTML = slotAside();
+    document.querySelectorAll("#mcchips .mp").forEach(b => b.classList.toggle("on", b.dataset.mc === SK.mc.trim()));
+    const d = document.getElementById("spdesc"); if (d) d.title = descTip();
+  };
+  if (delay) pvTimer = setTimeout(run, delay); else run();
+}
+// 生成以后再改任何东西：结果作废，底下那条回到「存到本机文件夹」，右下回到「生成皮肤包」
+function dirty() {
+  clearMsg();
+  if (!SK.result) return;
+  SK.result = null;
+  swapItems(document.getElementById("spstrip"), stripIdle(), -1, "X");
+  document.getElementById("next").title = "";
+  navLabel();
+}
+function clearMsg() {
+  const m = document.getElementById("spmsg"); if (m) m.classList.remove("show");
+  document.querySelectorAll(".skp .pn.bad, .skp .sth.empty.bad").forEach(x => x.classList.remove("bad")); // 拦下来时临时标的红；坏图那行的红不动
+}
+function addRows(rows, focus) {
+  const list = document.getElementById("sprows");
+  rows.forEach(r => {
+    SK.rows.push(r);
+    list.insertAdjacentHTML("beforeend", rowHTML(r, SK.rows.length - 1));
+    const el = list.lastElementChild; KIT.hydrate(el);
+    el.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, delay: 0, easing: EASE_OUT, fill: "backwards" });
+  });
+  list.lastElementChild?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  afterRowsChanged();
+  if (focus) list.lastElementChild?.querySelector(".pn")?.focus({ preventScroll: true });
+  dirty();
+}
+// 行数变了：编号、计数、删除键、加一行和拖放区的可用跟着变；落到的默认皮肤重算
+function afterRowsChanged() {
+  const list = document.getElementById("sprows");
+  [...list.querySelectorAll(".srow:not(.out)")].forEach((row, i) => {
+    row.querySelector(".pn").dataset.name = i; row.querySelector(".sth").dataset.file = i; const x = row.querySelector(".x");
+    x.dataset.del = i; x.disabled = SK.rows.length <= 1; x.title = SK.rows.length > 1 ? "拿掉这一行" : "至少留一行";
+    row.querySelectorAll("[data-keep],[data-pick]").forEach(b => { if (b.dataset.keep != null) b.dataset.keep = i; if (b.dataset.pick != null) b.dataset.pick = i; });
+  });
+  document.getElementById("spcnt").textContent = `${SK.rows.length} / ${MAX}`;
+  const full = SK.rows.length >= MAX, add = document.querySelector('[data-act="addrow"]'), drop = document.querySelector('[data-act="drop"]');
+  add.disabled = full; add.title = full ? "一次最多 18 张" : "加一行"; drop.classList.toggle("off", full);
+  drop.title = full ? "一次最多 18 张" : "可以一次拖进好几张，一张一行；64×64 或旧版 64×32，每张不超过 2 MB";
+  repaint(); document.querySelector(".skp .lwrap")._paint?.();
+}
+// 拿掉一行：往右划 32 像素淡掉再收起（同向导清单）
+function delRow(i) {
+  if (SK.rows.length <= 1) return;
+  const row = [...document.querySelectorAll("#sprows .srow:not(.out)")][i]; SK.rows.splice(i, 1);
+  row.classList.add("out"); const h = row.offsetHeight + "px";
+  row.animate([{ opacity: 1, transform: "none", height: h, marginBottom: "0px", easing: EASE_IN }, { opacity: 0, transform: "translateX(32px)", height: h, marginBottom: "0px", offset: .55, easing: EASE_OUT },
+    { opacity: 0, transform: "translateX(32px)", height: "0px", marginBottom: "-4px" }], { duration: 320, fill: "forwards" }).onfinish = () => { row.remove(); document.querySelector(".skp .lwrap")._paint?.(); };
+  afterRowsChanged(); dirty();
+}
+// 换分配方式：程序会把「保留 / 跳过」清掉，每行重新算；行的样子变了，列表一批换（往右点从左往右）
+function setMode(m, seg, sp) {
+  if (m === SK.mode) return;
+  const dir = m === "sequential" ? 1 : -1;
+  SK.mode = m; SK.rows.forEach(r => { r.keep = false; r.skip = false; });
+  seg.querySelectorAll("span").forEach(x => x.classList.toggle("on", x === sp)); placeSeg(seg, true);
+  PV = preview();
+  regridList(document.getElementById("sprows"), SK.rows.map(rowHTML).join(""), dir, () => repaint());
+  dirty();
+}
+function setVersion(v, note = "") {
+  SK.mc = v; SK.verNote = note;
+  const mc = document.getElementById("spmc"); if (mc && mc.value !== v) mc.value = v;
+  repaint(); dirty();
+}
+// 撞进同一个默认皮肤：点「保留」，这一张留下，同一组的其他几张跳过（照程序的 keep / skip）
+function keepRow(i) {
+  const c = PV.items[i]?.clash; if (!c) return;
+  c.rows.forEach(k => { SK.rows[k].keep = k === i; SK.rows[k].skip = k !== i; });
+  repaint(); dirty();
+}
+// 按顺序替换时挑槽位：弹出格子
+function pickSlot(i, anchor) {
+  const r = SK.rows[i], taken = {};
+  PV.items.forEach((it, k) => { if (k !== i && it?.slot && !SK.rows[k].skip) taken[it.slot.i] = k + 1; });
+  const cell = s => `<button class="sc${r.slot === s.i ? " on" : ""}${taken[s.i] ? " used" : ""}" data-slot="${s.i}" title="${esc(s.path + (taken[s.i] ? `\n第 ${taken[s.i]} 行在用` : ""))}">${s.ch}</button>`;
+  const auto = [["", "手臂不限"], ["wide", "经典"], ["slim", "纤细"]].map(([m, t]) => `<button class="sc${r.slot < 0 && r.model === m ? " on" : ""}" data-auto="${m}" title="挑一个还空着的${m ? MODEL_TIP[m] + "手臂的" : ""}默认皮肤">${t}</button>`).join("");
+  const rows = PV.modern ? ["slim", "wide"].map(m => `<span class="rl">${MODEL[m]}</span>${PV.slots.filter(s => s.model === m).map(cell).join("")}`).join("")
+    : `<span class="rl">默认</span>${PV.slots.map(cell).join("")}<span style="grid-column: span 7"></span>`;
+  openPop(anchor, `<div class="ph">放进哪个默认皮肤</div><div class="sgrid"><span class="rl">自动</span><span class="auto">${auto}</span>${rows}</div>`, {
+    align: "right", onPick: e => {
+      const s = e.target.closest("[data-slot]"), a = e.target.closest("[data-auto]");
+      if (s) { r.slot = +s.dataset.slot; r.model = ""; } else if (a) { r.slot = -1; r.model = a.dataset.auto; } else return;
+      r.keep = false; r.skip = false; closePop(); repaint(); dirty();
+    } });
+}
+// 从服务器读取：弹出服务器列表，挑一台把玩家名填进来（先填空着的行，不够再往下加，最多 18 行），版本改成那台的（照程序 importBtn）
+function fromServer(anchor) {
+  const rows = SERVERS.map(([n, core, label, mc], i) => `<div class="prow" data-srv="${i}">${MDPixel16.svg(core, 32).replace("<svg", '<svg class="px"')}<div class="m"><div class="n">${esc(n)}</div></div><span class="k">${label} ${mc}</span></div>`).join("");
+  openPop(anchor, `<div class="ph">读取哪台服务器的玩家</div><div class="lwrap" style="height:288px;flex:none"><div class="list" style="gap:2px">${rows}</div><i class="thumb" style="right:-4px"></i></div>`, {
+    width: 320, align: "right", onPick: e => {
+      const x = e.target.closest("[data-srv]"); if (!x) return; closePop();
+      const [name, , , mc] = SERVERS[+x.dataset.srv], have = new Set(SK.rows.map(r => r.player.trim()).filter(Boolean)), add = [];
+      for (const p of playersOf(+x.dataset.srv)) {
+        if (have.has(p)) continue;
+        const empty = SK.rows.find(r => !r.player.trim() && !r.file);
+        if (empty) { empty.player = p; const inp = document.querySelector(`#sprows .srow[data-row="${empty.id}"] .pn`); if (inp) inp.value = p; }
+        else if (SK.rows.length + add.length < MAX) add.push(rowOf(p)); else break;
+        have.add(p);
+      }
+      if (add.length) addRows(add);
+      setVersion(mc, mc === SK.mc.trim() ? "" : `已改成「${name}」的版本`);
+    } });
+}
+// 底下那条说一句、晃一下
+function block(msg, el, focus) {
+  const m = document.getElementById("spmsg"); if (m) { m.textContent = msg; m.title = msg; m.classList.add("show"); }
+  if (el) { el.classList.add("bad"); shakeEl(el); }
+  if (focus) focus.focus();
+}
+// 点「生成皮肤包」：照程序 refreshBuildButton 的顺序查（版本、撞槽、坏图、没填名字、没选图），不对就拦下来
+skinGo = () => {
+  if (SK.busy) return;
+  if (SK.result) return; // 「下载皮肤包」：草图里不真下载
+  PV = preview();
+  const rowEl = i => [...document.querySelectorAll("#sprows .srow:not(.out)")][i];
+  const see = i => rowEl(i)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  if (PV.err) { const mc = document.getElementById("spmc"); mc.classList.add("bad"); shakeEl(mc); mc.focus(); return; } // 那句话已经在框下面了，底下那条不再说一遍
+  const live = SK.rows.map((r, i) => [r, i]).filter(([r]) => !r.skip);
+  if (!live.length) { block("至少放一张皮肤"); return; }
+  if (PV.conflicts.length) {
+    const c = PV.conflicts[0], who = c.rows.map(i => SK.rows[i].player.trim() || `第 ${i + 1} 行`).join("、");
+    see(c.rows[0]); c.rows.forEach(i => shakeEl(rowEl(i)?.querySelector(".slot")));
+    block(`${who} 撞进了同一个默认皮肤，先选保留谁`); return;
+  }
+  const full = live.find(([, i]) => PV.items[i]?.full);
+  if (full) { see(full[1]); shakeEl(rowEl(full[1]).querySelector(".slot")); block(`第 ${full[1] + 1} 行放不下了`); return; }
+  const badf = live.find(([r]) => r.file?.err);
+  if (badf) { see(badf[1]); block(`第 ${badf[1] + 1} 行的 PNG 不能用`, rowEl(badf[1]).querySelector(".sth")); return; }
+  const noname = SK.mode === "player" && live.find(([r]) => !r.player.trim());
+  if (noname) { const inp = rowEl(noname[1]).querySelector(".pn"); see(noname[1]); block(`第 ${noname[1] + 1} 行还没填玩家名`, inp, inp); return; }
+  const nofile = live.find(([r]) => !r.file);
+  if (nofile) { see(nofile[1]); block(`第 ${nofile[1] + 1} 行还没选皮肤 PNG`, rowEl(nofile[1]).querySelector(".sth")); return; }
+  clearMsg();
+  SK.busy = true; navLabel();
+  setTimeout(() => { SK.busy = false; makeResult(true); }, 800);
+};
+// 生成结果（假的）：文件名照程序（名称-MC版本-时间.zip），大小和 SHA-1 是编的
+function makeResult(animate) {
+  const n = SK.rows.filter(r => !r.skip && r.file && !r.file.err).length, stem = (SK.name.trim() || "MineDeck 离线皮肤包").replace(/[\\/:*?"<>|\s]+/g, "_");
+  const sha = [...offline(stem + stamp()).uuid.replace(/-/g, ""), ...offline(stamp() + stem).uuid.replace(/-/g, "")].slice(0, 40).join("");
+  SK.result = { fileName: `${stem}-MC${SK.mc.trim() || "1.21.4"}-${stamp()}.zip`, size: (2.1 * n + 1.3).toFixed(1) + " KB", textures: n, pf: PV.pf || 46, sha1: sha, saved: LOCAL && SK.dest ? SK.dest : "" };
+  const strip = document.getElementById("spstrip");
+  if (animate) swapItems(strip, stripDone(), 1, "X"); else { strip.innerHTML = stripDone(); KIT.hydrate(strip); }
+  navLabel();
+  const b = document.getElementById("next");
+  b.title = "资源包要每位朋友放进各自客户端的 resourcepacks 文件夹并启用才生效；有正版皮肤的在线账号不会被默认皮肤盖掉。";
+}
+skinClick = e => {
+  const t = e.target;
+  const sg = t.closest("#spmode span"); if (sg) { setMode(sg.dataset.mode, sg.parentElement, sg); return; }
+  const mp = t.closest("[data-mc]"); if (mp) { setVersion(mp.dataset.mc); return; }
+  const k = t.closest("[data-keep]"); if (k) { keepRow(+k.dataset.keep); return; }
+  const pk = t.closest("[data-pick]"); if (pk) { pickSlot(+pk.dataset.pick, pk); return; }
+  const d = t.closest("[data-del]"); if (d) { delRow(+d.dataset.del); return; }
+  const f = t.closest("[data-file]");
+  if (f) { // 草图里不弹选文件的窗口：空着的给一张示例图，有图的换一张
+    const r = SK.rows[+f.dataset.file], base = r.player.trim() || `skin-${r.id}`;
+    r.file = fileOf(r.file && !r.file.err ? base + "-2.png" : base + ".png");
+    const row = f.closest(".srow"), nr = document.createElement("div"); nr.innerHTML = rowHTML(r, +f.dataset.file); KIT.hydrate(nr);
+    const th = nr.querySelector(".sth"), fm = nr.querySelector(".fm");
+    f.replaceWith(th); row.querySelector(".fm").replaceWith(fm);
+    th.animate([{ opacity: 0, transform: "scale(.92)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: EASE_OUT });
+    repaint(); dirty(); return;
+  }
+  const a = t.closest("[data-act]"); if (!a) return;
+  if (a.dataset.act === "addrow") { if (!a.disabled) addRows([rowOf()], true); }
+  else if (a.dataset.act === "drop") { if (!a.classList.contains("off")) { const n = Math.min(2, MAX - SK.rows.length); addRows(Array.from({ length: n }, () => { const r = rowOf(); r.file = fileOf(`skin-${r.id}.png`); return r; }), true); } }
+  else if (a.dataset.act === "fromsrv") fromServer(a);
+  else if (a.dataset.act === "cleardir") { e.stopPropagation(); SK.dest = ""; const p = a.closest(".pathf"); p.outerHTML = pathBox(""); KIT.hydrate(document.getElementById("spstrip")); dirty(); }
+  else if (a.dataset.act === "pickdir") { SK.dest = DEMO_DIR; a.outerHTML = pathBox(SK.dest); KIT.hydrate(document.getElementById("spstrip")); dirty(); }
+  else if (a.dataset.act === "copy") copyFlash(a);
+};
+document.getElementById("page").addEventListener("input", e => {
+  if (view !== "skin") return;
+  const t = e.target;
+  if (t.id === "spmc") { SK.mc = t.value; SK.verNote = ""; t.classList.remove("bad"); repaint(180); dirty(); }
+  else if (t.id === "spname") { SK.name = t.value; repaint(); dirty(); }
+  else if (t.id === "spdesc") { SK.desc = t.value; dirty(); }
+  else if (t.dataset.name != null) { const r = SK.rows[+t.dataset.name]; if (!r) return; r.player = t.value; r.keep = false; r.skip = false; t.classList.remove("bad"); repaint(180); dirty(); }
+});
+skinSim = () => [["demo", "示例", SK.state === "demo"], ["clash", "撞槽", SK.state === "clash"], ["empty", "空的", SK.state === "empty"], ["many", "18 张", SK.state === "many"], "|",
+  ["done", "已生成", !!SK.result], ["remote", "远程打开", !LOCAL]];
+skinSimPick = k => {
+  if (k === "remote") { LOCAL = !LOCAL; render(); return; }
+  if (k === "done") { if (SK.result) dirty(); else { PV = preview(); if (!PV.err && !PV.conflicts.length) makeResult(true); else skinGo(); } paintSim(); return; }
+  SK.state = k; SK.rows = STATES[k](); SK.result = null; SK.verNote = ""; SK.mode = "player";
+  render();
+};
+})();
+</script>
+<script>
+// ======================================================================
+// 导出 Modrinth 整合包（?tool=mrpack）
+// ======================================================================
+(() => {
+const parseMC = mc => { mc = mc.trim(); if (!mc) return null; const i = mc.search(/[-+ ]/); if (i >= 0) mc = mc.slice(0, i);
+  const p = mc.split("."); return p.length < 2 || p.length > 3 || p.some(x => !/^\d+$/.test(x)) ? null : p.map(Number); };
+const CORE_NAME = { fabric: "Fabric", forge: "Forge", neoforge: "NeoForge", mohist: "Mohist", banner: "Taiyitist" };
+// 模组服务器（照程序 MOD_CORES：Fabric、Forge、NeoForge、Mohist、Taiyitist），抄 home.html 里那几台
+const MODSRV = [["机械动力整合包", "forge", "1.20.1"], ["匠魂与暮色", "neoforge", "1.21.1"], ["模组加插件", "mohist", "1.20.1"], ["末地速通练习", "fabric", "1.21.1"], ["怀旧 1.12.2", "forge", "1.12.2"], ["暮色森林探险", "neoforge", "1.21.1"]];
+// Mohist、Taiyitist 按 Forge、Fabric 导出（照 mrpackCoreSpec），提醒原文进悬停，页面上留一句短的（会改变结果）
+const EXPORT_AS = { mohist: "forge", banner: "fabric" };
+const CORE_NOTE = { mohist: "这台是 Mohist（混端），整合包将按 Forge 模组端导出，仅含 mods 里的模组，不含服务端插件。", banner: "这台是 Banner（混端），整合包将按 Fabric 模组端导出，仅含 mods 里的模组，不含服务端插件。" };
+const MP_CHIPS = ["26.2", "26.1", "1.21.4", "1.20.1"]; // 程序 MC_PRESETS 里挑的 4 个
+const MP = { step: 0, src: "draft", name: "我的整合包", ver: "1.0.0", sum: "", core: "neoforge", mc: "26.1", lv: "", deps: true, inst: 1, cfg: false, dest: "",
+  busy: false, result: null, draftErr: false, noMods: false, nameTouched: false, loaded: false };
+// 草图的几种样子（地址参数，右上角也能切）
+{ const s = QS.get("state"), n = +QS.get("step");
+  if (QS.get("src") === "instance" || s === "inst") MP.src = "instance";
+  if (s === "nomods") MP.noMods = true;
+  if (s === "drafterr") MP.draftErr = true;
+  if (n >= 1 && n <= 3) MP.step = Math.min(n - 1, MP.src === "draft" ? 2 : 1);
+  if (s === "done") { MP.step = MP.src === "draft" ? 2 : 1; MP.result = true; }
+  if (MP.src === "instance") MP.name = MODSRV[MP.inst][0]; } // 从服务器导出时名称跟着服务器（照程序）
+const STEPS = () => MP.src === "draft" ? ["配置整合包信息", "挑选要放进整合包的模组", "确认导出清单"] : ["配置整合包信息", "确认导出清单"];
+const isLast = () => MP.step === STEPS().length - 1;
+const exportCore = () => MP.src === "draft" ? MP.core : (EXPORT_AS[MODSRV[MP.inst][1]] || MODSRV[MP.inst][1]);
+
+// ---- 第 1 步：配置整合包信息 ----
+const srcTip = { draft: "在 Modrinth 上挑模组放进一张清单，只在客户端用的（小地图、光影加载器之类）也能放；清单只用来导出，不会装进任何服务器，下次打开还在",
+  instance: "把一台模组服务器 mods 文件夹里的模组导出来；Modrinth 上认得出的让朋友的启动器去下载，认不出的整个打进包里" };
+function step1() {
+  const err = MP.draftErr && MP.src === "draft" ? `<div class="dnote"><i data-ic="warn"></i><span>读不出上次存好的信息，这次改的不会自动保存</span>`
+    + `<button class="ib" data-act="retry" title="重新读取：读出来以后，表单换成存好的那份，现在改的不保留"><i data-ic="refresh"></i></button></div>` : "";
+  const info = `<div class="col"><h3>整合包信息</h3>${err}
+      <div class="fld"><span class="lb">整合包名称</span><input class="inp" id="mpname" value="${esc(MP.name)}" maxlength="100" placeholder="朋友联机整合包"></div>
+      <div class="fld"><span class="lb">版本号</span><input class="inp mono" id="mpver" value="${esc(MP.ver)}" maxlength="50" placeholder="1.0.0" title="整合包自己的版本号；改了内容再发一次时往上加，朋友的启动器靠它分新旧"></div>
+      <div class="fld"><span class="lb">简介（选填）</span><input class="inp" id="mpsum" value="${esc(MP.sum)}" maxlength="300" placeholder="给朋友看的一句话"></div></div>`;
+  const off = MP.noMods ? ` class="off" title="还没有模组服务器（Fabric、Forge、NeoForge、Mohist、Taiyitist），先用「自己挑模组」"` : ` title="${esc(srcTip.instance)}"`;
+  const src = `<div class="col"><h3>模组来源</h3><div class="seg" id="mpsrc"><i class="sgl"></i><span data-src="draft"${MP.src === "draft" ? ` class="on"` : ""} title="${esc(srcTip.draft)}">自己挑模组</span>`
+    + `<span data-src="instance"${MP.src === "instance" ? ` class="on"` : off}>从已有服务器导出</span></div><div class="det" id="mpdet">${detHTML()}</div></div>`;
+  return `<div class="panel mp1">${info}${src}</div>`;
+}
+function mcNote() { return parseMC(MP.mc) ? "" : `<i data-ic="warn"></i>版本号认不出来`; }
+function detHTML() {
+  if (MP.src === "draft") return `<div class="fld"><span class="lb">加载器</span><div class="seg" id="mpcore"><i class="sgl"></i>${["fabric", "neoforge", "forge"].map(c =>
+      `<span data-core="${c}"${MP.core === c ? ` class="on"` : ""}>${CORE_NAME[c]}</span>`).join("")}</div></div>
+    <div class="g2"><div class="fld"><span class="lb">游戏版本</span><input class="inp mono${parseMC(MP.mc) ? "" : " bad"}" id="mpmc" value="${esc(MP.mc)}" maxlength="40" placeholder="1.20.1" spellcheck="false" autocomplete="off">
+        <div class="mpre" id="mpchips">${MP_CHIPS.map(v => `<button class="mp${MP.mc.trim() === v ? " on" : ""}" data-mc="${v}">${v}</button>`).join("")}</div><div class="fnote bad" id="mpmcnote">${mcNote()}</div></div>
+      <div class="fld"><span class="lb">加载器版本（选填）</span><input class="inp mono" id="mplv" value="${esc(MP.lv)}" maxlength="80" placeholder="留空用官方推荐" spellcheck="false" autocomplete="off"
+        title="写进整合包的加载器版本；留空的话，导出时向官方取这个游戏版本推荐的那一个"></div></div>`;
+  const s = MODSRV[MP.inst];
+  return `<div class="lwrap srvw"><div class="list" id="mpsrv"><i class="hl"></i>${MODSRV.map(([n, core, mc], i) =>
+      `<div class="row${i === MP.inst ? " on" : ""}" data-srv="${i}">${MDPixel16.svg(core, 32)}${esc(n)}<span class="sp"></span><span class="k">${CORE_NAME[core]} ${mc}</span></div>`).join("")}</div><i class="thumb"></i></div>
+    <div class="cfgrow"><div class="tg${MP.cfg ? " on" : ""}" data-act="cfg" title="把 config 文件夹放进 overrides/config/。看起来带密码、令牌、密钥的配置文件会尽量挑出来不打进去，但难免有认不出的，发之前看一眼下一步列出的配置文件"><span class="sw"></span><span class="t">一并打包 config/</span></div>`
+    + `<span class="fnote" id="mpcnote">${coreNote(s)}</span></div>`;
+}
+const coreNote = s => CORE_NOTE[s[1]] ? `<span title="${esc(CORE_NOTE[s[1]])}" style="display:flex;align-items:center;gap:5px"><i data-ic="info"></i>按 ${CORE_NAME[EXPORT_AS[s[1]]]} 导出，不含插件</span>` : "";
+function placeHL(list, animate) {
+  const hl = list?.querySelector(".hl"), on = list?.querySelector(".row.on"); if (!hl) return;
+  hl.style.opacity = on ? 1 : 0; if (!on) return;
+  if (!animate) hl.style.transition = "none";
+  hl.style.transform = `translateY(${on.offsetTop}px)`; hl.style.height = on.offsetHeight + "px";
+  if (!animate) { void hl.offsetWidth; hl.style.transition = ""; }
+}
+function pickSrc(v, seg, sp) {
+  if (v === MP.src || sp.classList.contains("off")) return;
+  const dir = v === "instance" ? 1 : -1;
+  MP.src = v;
+  seg.querySelectorAll("span").forEach(x => x.classList.toggle("on", x === sp)); placeSeg(seg, true);
+  // 名称跟着服务器走（照程序：没改过名字才换）
+  if (v === "instance" && !MP.nameTouched) setName(MODSRV[MP.inst][0]); else if (v === "draft" && !MP.nameTouched) setName("我的整合包");
+  swapItems(document.getElementById("mpdet"), detHTML(), dir, "X", afterDet);
+  // 读不出草稿的那条只在「自己挑模组」时出现（照程序 applySourceUI）
+  const info = document.querySelector(".mp1 .col"), dn = info.querySelector(".dnote");
+  if (MP.draftErr && v === "instance" && dn) dn.remove();
+  if (MP.draftErr && v === "draft" && !dn) { info.querySelector("h3").insertAdjacentHTML("afterend", step1().match(/<div class="dnote">[\s\S]*?<\/div>/)[0]); KIT.hydrate(info); }
+}
+function setName(n) { MP.name = n; const el = document.getElementById("mpname"); if (el) el.value = n; }
+function afterDet() {
+  document.querySelectorAll("#mpdet .seg").forEach(s => placeSeg(s, false));
+  const l = document.getElementById("mpsrv"); if (l) { placeHL(l, false); scrollbar(l.closest(".lwrap")); }
+}
+function pickSrv(i) {
+  if (i === MP.inst) return;
+  MP.inst = i; if (!MP.nameTouched) setName(MODSRV[i][0]);
+  const l = document.getElementById("mpsrv"); l.querySelectorAll(".row").forEach((r, k) => r.classList.toggle("on", k === i)); placeHL(l, true);
+  const n = document.getElementById("mpcnote"), html = coreNote(MODSRV[i]);
+  if (n.innerHTML !== html) swapItems(n, html, 1, "X");
+}
+
+// ---- 第 2 步：挑选要放进整合包的模组（照 wizard.html 第二步） ----
+// 卡片：modrinth-sample.js 的「模组」那份（NeoForge 26.1），名字、简介（作者原文）、下载量、图标、client_side / server_side 都是原样
+const ACATS = [["optimization", "优化"], ["utility", "实用"], ["management", "管理"], ["worldgen", "世界生成"], ["adventure", "冒险"], ["technology", "科技"],
+  ["magic", "魔法"], ["mobs", "生物"], ["equipment", "装备"], ["storage", "存储"], ["library", "前置库"]];
+const PAGE = 20, CAP = 100, LIB_ONLY = x => x.cats.length === 1 && x.cats[0] === "library";
+const ALL = () => window.MR_SAMPLE["模组"].items, byId = id => ALL().find(x => x.id === id);
+// 清单（工具箱自己那份，下次打开还在）：草图里当作上次挑好的几个，前置照样本里查出来的
+let picked = [["jei"], ["jade"], ["appleskin"], ["zoomify"], ["better-combat"], ["cloth-config", "better-combat"], ["sophisticated-backpacks"], ["sophisticated-core", "sophisticated-backpacks"]].map(([id, by]) => ({ id, by: by || null }));
+let locals = [], acat = "", aq = "", aqTimer = 0, shown = 0, loadingMore = false;
+const fmtDl = n => n >= 1e8 ? `${+(n / 1e8).toFixed(1)} 亿` : n >= 1e4 ? `${Math.round(n / 1e4)} 万` : `${n}`;
+const HUES = [18, 42, 88, 140, 172, 200, 222, 262, 300, 330];
+const tile = x => { const letter = esc((x.n.replace(/^[^A-Za-z]*\s?/, "")[0] || x.n[0]).toUpperCase()), hue = HUES[[...x.id].reduce((a, c) => a + c.charCodeAt(0), 0) % HUES.length];
+  return `<span class="mt${x.icon ? " img" : ""}" style="--c:hsl(${hue} 32% 46%)">${letter}${x.icon ? `<img src="${esc(x.icon)}" alt="" loading="lazy" onerror="this.parentNode.classList.remove('img');this.remove()">` : ""}</span>`; };
+// 卡片上只标例外，口径是朋友的客户端（照程序 envTag）：只在客户端用的标「仅客户端」，客户端不装的标「仅服务端」
+const envTag = x => x.ss === "unsupported" ? "仅客户端" : x.cs === "unsupported" ? "仅服务端" : "";
+function extLink(x) {
+  if (!/^(mod|plugin)$/.test(x.type) || !/^[A-Za-z0-9._-]+$/.test(x.id)) return "";
+  return `<a class="ext" href="https://modrinth.com/${x.type}/${x.id}" target="_blank" rel="noopener noreferrer" title="在 Modrinth 查看介绍" aria-label="在 Modrinth 查看 ${esc(x.n)} 的介绍"><i data-ic="share"></i></a>`;
+}
+function cardHTML(x, has) {
+  return `<div class="mod${has.has(x.id) ? " in" : ""}" data-addon="${x.id}">${tile(x)}
+    <div class="m"><div class="n"><span class="nm">${esc(x.n)}</span>${extLink(x)}</div><div class="d" title="${esc(x.d)}">${esc(x.d)}</div><div class="meta"><i data-ic="download"></i>${fmtDl(x.dl)}${envTag(x) ? ` · ${envTag(x)}` : ""}</div></div>
+    <span class="add"><i data-ic="${has.has(x.id) ? "check" : "plus"}"></i></span></div>`;
+}
+function atitle() {
+  const cat = ACATS.find(c => c[0] === acat), main = aq ? `搜索「${esc(aq)}」` : cat ? (acat === "library" ? cat[1] : `${cat[1]}类模组`) : "热门模组";
+  return `${main}<span class="asub">适配 ${CORE_NAME[MP.core]} ${esc(MP.mc)} · Modrinth</span>`;
+}
+function gridItems() { const q = aq.toLowerCase(); return ALL().filter(x => (acat ? x.cats.includes(acat) : !LIB_ONLY(x)) && (!q || (x.n + x.d).toLowerCase().includes(q))).sort((a, b) => b.dl - a.dl); }
+function gridEnd(total) { return `<div class="gend">${!acat && !aq && window.MR_SAMPLE["模组"].total > CAP ? `仅展示热门前 ${CAP} 项，更多内容可通过搜索或分类查找` : `已显示全部 ${total} 个。`}</div>`; }
+function gridHTML() {
+  const items = gridItems(), has = new Set(picked.map(p => p.id));
+  if (!items.length) return `<div class="cempty" style="grid-column: 1 / -1; margin-top: 60px">未找到匹配的模组，请换个关键词或分类。</div>`;
+  shown = Math.min(PAGE, items.length); loadingMore = false;
+  return items.slice(0, shown).map(x => cardHTML(x, has)).join("") + (shown >= Math.min(items.length, CAP) ? gridEnd(Math.min(items.length, CAP)) : "");
+}
+// 滚到离底 160 自动取下一批，先出骨架卡（照向导）
+function moreCards() {
+  const g = document.getElementById("agrid"); if (!g || loadingMore) return;
+  const items = gridItems(), total = Math.min(items.length, CAP);
+  if (shown >= total || g.scrollTop + g.clientHeight < g.scrollHeight - 160) return;
+  loadingMore = true;
+  const key = acat + "|" + aq;
+  g.insertAdjacentHTML("beforeend", `<div class="mod skel"><span class="mt"></span><div class="m"><i></i><i></i><i></i></div></div>`.repeat(4));
+  g.closest(".lwrap")._paint?.();
+  setTimeout(() => {
+    if (acat + "|" + aq !== key || !document.getElementById("agrid")) return;
+    g.querySelectorAll(".skel").forEach(x => x.remove());
+    const has = new Set(picked.map(p => p.id)), next = items.slice(shown, Math.min(shown + PAGE, total));
+    g.insertAdjacentHTML("beforeend", next.map(x => cardHTML(x, has)).join(""));
+    const added = [...g.querySelectorAll(".mod")].slice(shown); KIT.hydrate(g);
+    added.forEach((c, i) => c.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, delay: Math.min(i, 9) * 22, easing: EASE_OUT, fill: "backwards" }));
+    shown += next.length;
+    if (shown >= total) g.insertAdjacentHTML("beforeend", gridEnd(total));
+    loadingMore = false; g.closest(".lwrap")._paint?.(); moreCards();
+  }, 600);
+}
+const LOCAL_NOTE = "自己添加的本地文件，整个打进 overrides/mods";
+function crowHTML(p) {
+  if (p.local) return `<div class="crow" data-id="local:${esc(p.local)}"><span class="mt jar">${KIT.icon("package")}</span><div class="m"><div class="n">${esc(p.local)}</div><div class="why" title="${LOCAL_NOTE}">本地文件</div></div>`
+    + `<span class="x" data-unlocal="${esc(p.local)}" aria-label="从清单里拿掉 ${esc(p.local)}"><i data-ic="x"></i></span></div>`;
+  const x = byId(p.id), by = p.by && byId(p.by);
+  const why = by ? `${esc(by.n)} 的前置依赖` : x.ss === "unsupported" ? "仅客户端" : x.cs === "unsupported" ? "仅服务端，朋友那边不装" : esc(x.d);
+  return `<div class="crow" data-id="${x.id}">${tile(x)}<div class="m"><div class="n">${esc(x.n)}${by ? `<span class="ftag">前置</span>` : ""}</div><div class="why">${why}</div></div>
+    <span class="x" data-unpick="${x.id}" aria-label="从清单里拿掉 ${esc(x.n)}"><i data-ic="x"></i></span></div>`;
+}
+const cartAll = () => [...picked, ...locals.map(l => ({ local: l }))];
+function step2() {
+  const chips = [["", "全部"], ...ACATS];
+  return `<div class="panel addon">
+    <div class="col browse"><h3><span id="atitle">${atitle()}</span><span class="sp"></span><label class="findin"><i data-ic="search"></i><input id="aq" placeholder="搜索模组（建议英文名）" value="${esc(aq)}" autocomplete="off"></label></h3>
+      <div class="chips"><i class="chl"></i>${chips.map(([k, t]) => `<span class="chip${k === acat ? " on" : ""}" data-cat="${k}">${t}</span>`).join("")}</div>
+      <div class="lwrap"><div class="list grid" id="agrid">${gridHTML()}</div><i class="thumb"></i></div></div>
+    <div class="col cart"><h3><span title="清单会自动保存，下次打开还在；只用来导出整合包，不会装进任何服务器">待装清单</span><span class="cnt" id="acnt"></span><span class="sp"></span><span class="clr" data-clear>清空</span></h3>
+      <div class="lwrap"><div class="list" id="alist"><div class="cempty"><b>暂未选择任何模组</b><span id="cehint">${cemptyHint()}</span></div>${cartAll().map(crowHTML).join("")}</div><i class="thumb"></i></div>
+      <div class="cdeps"><div class="tg${MP.deps ? " on" : ""}" data-act="deps" title="加一个模组时，把它必装的前置一起放进清单，省得朋友装完启动报错"><span class="sw"></span><span class="t">自动带出必装前置</span></div><span class="msg" id="cmsg"></span></div>
+      <div class="drop" data-act="localjar" title="自己下载的 jar；Modrinth 上认不出的会整个打进 overrides/mods"><i data-ic="folder"></i>拖入 .jar 文件，或点击选择本地文件</div></div>
+  </div>`;
+}
+const cemptyHint = () => `点击左侧 ＋ 添加${MP.deps ? "，前置依赖将自动补全" : ""}。`;
+function cartMeta() {
+  const n = picked.length + locals.length, c = document.getElementById("acnt"); if (c) c.textContent = n ? `· ${n}` : "";
+  document.querySelector(".cart")?.classList.toggle("has", n > 0);
+  const m = document.getElementById("cmsg"); if (m && n) m.classList.remove("show");
+}
+// 挑一个 / 拿掉一个：开着「自动带出必装前置」时，把它要的前置一起放进来（标「前置」），拿掉时只因为它才进来的前置一起拿掉（照向导）
+function toggleAddon(id) {
+  const at = picked.findIndex(p => p.id === id);
+  if (at >= 0) { picked.splice(at, 1); picked = picked.filter(p => p.by !== id || picked.some(q => q.by === null && (byId(q.id).deps || []).includes(p.id))); }
+  else { picked.push({ id, by: null }); if (MP.deps) for (const d of byId(id).deps || []) if (!picked.some(p => p.id === d)) picked.push({ id: d, by: id }); }
+  syncAddons();
+}
+// 开关一动：关掉时自动带进来的前置拿掉，打开时补上
+function toggleDeps(el) {
+  MP.deps = !MP.deps; el.classList.toggle("on", MP.deps);
+  if (MP.deps) picked.filter(p => p.by === null).forEach(p => (byId(p.id).deps || []).forEach(d => { if (!picked.some(q => q.id === d)) picked.push({ id: d, by: p.id }); }));
+  else picked = picked.filter(p => p.by === null);
+  const h = document.getElementById("cehint"); if (h) h.textContent = cemptyHint();
+  syncAddons();
+}
+// 清单只动变了的那几行：新加的从下面淡进来，拿掉的往右划 32 像素淡掉再收起；「清空」从上往下一行接一行划出（照向导 syncAddons）
+function syncAddons(clear = false) {
+  const has = new Set(picked.map(p => p.id)), keys = new Set([...picked.map(p => p.id), ...locals.map(l => "local:" + l)]);
+  document.querySelectorAll("#agrid .mod").forEach(m => {
+    const on = has.has(m.dataset.addon);
+    if (m.classList.contains("in") !== on) { m.classList.toggle("in", on); m.querySelector(".add").innerHTML = KIT.icon(on ? "check" : "plus"); }
+  });
+  const list = document.getElementById("alist"); if (!list) return;
+  const gone = [...list.querySelectorAll(".crow:not(.out)")].filter(r => !keys.has(r.dataset.id));
+  if (clear && gone.length) {
+    let delay = 0, gap = 90;
+    gone.forEach((r, i) => {
+      r.classList.add("out");
+      const a = r.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "translateX(40px)" }], { duration: 220, delay, easing: EASE_IN, fill: "forwards" });
+      delay += gap; gap = Math.max(16, Math.round(gap * 0.75));
+      if (i === gone.length - 1) a.onfinish = () => { gone.forEach(x => x.remove()); list.closest(".lwrap")._paint?.(); };
+    });
+  } else gone.forEach((r, i) => {
+    r.classList.add("out"); const h = r.offsetHeight + "px";
+    r.animate([{ opacity: 1, transform: "none", height: h, marginBottom: "0px", easing: EASE_IN }, { opacity: 0, transform: "translateX(32px)", height: h, marginBottom: "0px", offset: .55, easing: EASE_OUT },
+      { opacity: 0, transform: "translateX(32px)", height: "0px", marginBottom: "-4px" }], { duration: 320, delay: i * 40, fill: "forwards" }).onfinish = () => { r.remove(); list.closest(".lwrap")._paint?.(); };
+  });
+  cartAll().forEach(p => {
+    const key = p.local ? "local:" + p.local : p.id;
+    if ([...list.querySelectorAll(".crow:not(.out)")].some(r => r.dataset.id === key)) return;
+    list.insertAdjacentHTML("beforeend", crowHTML(p)); KIT.hydrate(list);
+    const r = list.lastElementChild;
+    r.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, delay: p.by ? 60 : 0, easing: EASE_OUT, fill: "backwards" });
+    r.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  });
+  cartMeta(); list.closest(".lwrap")._paint?.();
+}
+// 换类别、搜索：卡片一批换（照向导 regrid）
+function regrid(dir = 0) {
+  document.getElementById("atitle").innerHTML = atitle();
+  document.querySelectorAll(".chip").forEach(c => c.classList.toggle("on", c.dataset.cat === acat));
+  placeChipHL(true);
+  regridList(document.getElementById("agrid"), gridHTML(), dir);
+}
+function placeChipHL(animate) {
+  const hl = document.querySelector(".chl"), on = document.querySelector(".chip.on"); if (!hl || !on) return;
+  if (!animate) hl.style.transition = "none";
+  hl.style.transform = `translateX(${on.offsetLeft}px)`; hl.style.width = on.offsetWidth + "px";
+  if (!animate) { void hl.offsetWidth; hl.style.transition = ""; }
+}
+function chipScroll(c) {
+  const paint = () => { c.classList.toggle("can-l", c.scrollLeft > 2); c.classList.toggle("can-r", c.scrollLeft + c.clientWidth < c.scrollWidth - 2); };
+  c.addEventListener("scroll", paint, { passive: true });
+  c.addEventListener("wheel", e => { if (c.scrollWidth <= c.clientWidth || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return; e.preventDefault(); c.scrollLeft += e.deltaY; }, { passive: false });
+  paint();
+}
+
+// ---- 最后一步：确认导出清单 ----
+// 服务器里 mods 文件夹的模组（编的：挑样本里的几个）；一个 Modrinth 上认不出的 jar 打进 overrides；config 文件名也是编的
+const INST_MODS = ["jei", "jade", "appleskin", "geckolib", "architectury-api", "terrablender", "clumps", "simple-voice-chat", "ferrite-core", "modernfix", "worldedit"];
+const INST_CFG = ["config/jei/jei-client.ini", "config/jade/jade.json", "config/appleskin-client.toml", "config/voicechat/voicechat-server.properties", "config/modernfix-mixins.properties"];
+const ENV_CN = { required: "要装", optional: "可选", unsupported: "不装" };
+// 环境：照程序 envTag 的口径（ss / cs 是 Modrinth 的 server_side / client_side）
+function envOf(x) {
+  if (x.ss === "unsupported") return ["仅客户端", "co", "服务端标成 unsupported，朋友的客户端装、服务器不装"];
+  if (x.cs === "unsupported") return ["仅服务端", "", "客户端不装：朋友的启动器会跳过它"];
+  if (x.cs === "required" && x.ss === "required") return ["客户端+服务端", "", "两边都要装"];
+  return [`客户端${ENV_CN[x.cs] || "要装"}`, "", `Modrinth 上标的：客户端${ENV_CN[x.cs] || "要装"}，服务端${ENV_CN[x.ss] || "要装"}。启动器装整合包时，可选的会问朋友要不要装`];
+}
+function previewData() {
+  if (MP.src === "draft") return {
+    files: picked.map(p => ({ x: byId(p.id), by: p.by && byId(p.by) })),
+    ov: locals.map(n => ({ n, path: "overrides/mods/" + n, note: LOCAL_NOTE })),
+    warn: locals.length ? ["提示：放进 overrides/mods 的本地模组会完整打进压缩包，分享给多人前请留意原模组作者的分发许可协议。"] : [],
+  };
+  const s = MODSRV[MP.inst];
+  const ov = [{ n: "custom-recipes-1.0.jar", path: "overrides/mods/custom-recipes-1.0.jar", note: "Modrinth 未收录（自定义、修改版或仅发布于其它平台），整包放进 overrides/mods" },
+    ...(MP.cfg ? INST_CFG.map(p => ({ n: p, path: "overrides/" + p, note: "服务端 config 配置文件", cfg: true })) : [])];
+  return { files: INST_MODS.map(id => ({ x: byId(id) })), ov, warn: [CORE_NOTE[s[1]],
+    MP.cfg ? "这些配置文件看起来带着密码、令牌、密钥、数据库，或者是备份副本，没有打进包：config/discord-integration.toml。它们是服主自己的，发给朋友的包里不该有；确实要的话，请自己检查过内容再单独发。这只是尽量挑出来，打进包的配置文件都列在下面，发之前请看一眼" : "",
+    "提示：放进 overrides/mods 的本地模组会完整打进压缩包，分享给多人前请留意原模组作者的分发许可协议。"].filter(Boolean) };
+}
+const frowHTML = f => { const [t, cls, tip] = envOf(f.x);
+  return `<div class="frow">${tile(f.x)}<div class="m"><div class="n">${esc(f.x.n)}${f.by ? `<span class="ftag" title="${esc(f.by.n)} 的前置依赖">前置</span>` : ""}</div>`
+    + `<div class="why" title="${esc(f.x.d)}">${esc(f.x.d)}</div></div><span class="env ${cls}" title="${esc(tip)}">${t}</span></div>`; }; // 程序这里第二行是包里的路径（mods/文件名.jar），草图不知道真的文件名，放简介
+const orowHTML = o => `<div class="frow"><span class="mt jar">${KIT.icon(o.cfg ? "doc" : "package")}</span><div class="m"><div class="n">${esc(o.n.split("/").pop())}</div><div class="why" title="${esc(o.note)}">${esc(o.path)}</div></div></div>`;
+const wrowHTML = w => `<div class="wrow" title="${esc(w)}"><i data-ic="warn"></i><span>${esc(w)}</span></div>`;
+const skelRows = n => `<div class="frow skel"><span class="mt"></span><div class="m"><i></i><i></i></div></div>`.repeat(n);
+function step3() {
+  const core = exportCore(), mc = MP.src === "draft" ? MP.mc : MODSRV[MP.inst][2], lv = MP.src === "draft" && MP.lv.trim() ? MP.lv.trim() : "官方推荐版本";
+  const sub = MP.sum.trim() || (MP.src === "draft" ? `Minecraft ${mc} · ${CORE_NAME[core]} ${lv}` : `从「${MODSRV[MP.inst][0]}」导出 · Minecraft ${mc} · ${CORE_NAME[core]}`);
+  const cov = `<div class="mcov" style="--c:${MDPixel16.CORE_COLORS[core]}"><span class="av">${MDPixel16.svg(core, 32)}</span><div class="tt"><div class="nm">${esc(MP.name.trim() || "整合包")}<span class="v">${esc(MP.ver.trim() || "1.0.0")}</span></div>`
+    + `<div class="sb" title="${esc(`写进 modrinth.index.json 的依赖：minecraft ${mc} · ${core === "fabric" ? "fabric-loader" : core} ${lv}`)}">${esc(sub)}</div></div></div>`;
+  const left = `<div class="col"><h3><span title="写进 modrinth.index.json，朋友的启动器从 Modrinth 官方下载">在线下载</span><span class="cnt" id="fcnt"></span></h3>`
+    + `<div class="lwrap"><div class="list" id="flist" style="gap:2px">${skelRows(6)}</div><i class="thumb"></i></div></div>`;
+  const right = `<div class="col rcol"><h3><span title="整个打进压缩包，不用朋友另外下载">打进 overrides</span><span class="cnt" id="ocnt"></span></h3>`
+    + `<div class="lwrap"><div class="list" id="olist" style="gap:2px">${skelRows(2)}</div><i class="thumb"></i></div></div>`;
+  return `<div class="panel mp3">${cov}${left}${right}<div class="ostrip" id="mpstrip">${MP.result && MP.result !== true ? mStripDone() : mStripIdle()}</div></div>`;
+}
+const mStripIdle = () => `${pathBox(MP.dest)}<span class="sp"></span><span class="msg" id="mpmsg"></span>`;
+function mStripDone() {
+  const r = MP.result;
+  return `<div class="res"><span class="ok"><i data-ic="check"></i></span><span class="fn" title="${esc(r.fileName + (r.saved ? "\n已存到 " + r.saved : ""))}">${esc(r.fileName)}</span>`
+    + `<span class="facts">${r.size} · 在线下载 ${r.dl} 项 · overrides ${r.ov} 项${r.saved ? " · 已存到文件夹" : ""}</span><span class="sp"></span>`
+    + `<span class="hk">SHA-1</span><span class="hv">${r.sha1}</span><button class="ib" data-act="copy" data-copy="${r.sha1}" title="复制"><i data-ic="copy"></i></button></div><span class="msg" id="mpmsg"></span>`;
+}
+// 进最后一步就预览（程序要点「预览导出清单」）：先出骨架行（程序那句「正在整理导出清单与 Modrinth 校验信息…」进悬停），0.6 秒后一行一行淡进来
+function loadPreview(animate) {
+  const f = document.getElementById("flist"), o = document.getElementById("olist"); if (!f) return;
+  f.title = o.title = "正在整理导出清单与 Modrinth 校验信息…";
+  const fill = () => {
+    if (!document.getElementById("flist")) return;
+    const d = previewData();
+    f.removeAttribute("title"); o.removeAttribute("title");
+    f.innerHTML = d.files.map(frowHTML).join(""); KIT.hydrate(f);
+    o.innerHTML = (d.ov.length ? d.ov.map(orowHTML).join("") : `<div class="rnone">没有</div>`)
+      + (d.warn.length ? `<div class="lh3">打包提醒<span class="cnt">· ${d.warn.length}</span></div>` + d.warn.map(wrowHTML).join("") : ""); KIT.hydrate(o);
+    document.getElementById("fcnt").textContent = `· ${d.files.length}`; document.getElementById("ocnt").textContent = `· ${d.ov.length}`;
+    if (animate) [f, o].forEach(l => inView(l, [...l.children]).forEach((c, i) => c.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, delay: i * 22, easing: EASE_OUT, fill: "backwards" })));
+    scrollbar(f.closest(".lwrap")); scrollbar(o.closest(".lwrap"));
+    MP.loaded = true; MP.prev = d;
+  };
+  if (animate) setTimeout(fill, 600); else fill();
+}
+// 生成结果（假的）：文件名照程序（名称-版本号-时间.mrpack），大小和 SHA-1 是编的
+function makeResult(animate) {
+  const d = MP.prev || previewData(), stem = (MP.name.trim() || "整合包").replace(/[\\/:*?"<>|\s]+/g, "_"), ver = (MP.ver.trim() || "1.0.0").replace(/[\\/:*?"<>|\s]+/g, "_");
+  const hex = [...(stem + ver + stamp())].reduce((a, c) => (a * 33 + c.charCodeAt(0)) >>> 0, 5381);
+  let sha = ""; for (let i = 0, h = hex; i < 40; i++) { h = (h * 1103515245 + 12345) >>> 0; sha += (h >>> 27 & 15).toString(16); }
+  MP.result = { fileName: `${stem}-${ver}-${stamp()}.mrpack`, size: (3.2 + d.files.length * 0.6 + d.ov.length * 41.5).toFixed(1) + " KB", dl: d.files.length, ov: d.ov.length, sha1: sha, saved: LOCAL && MP.dest ? MP.dest : "" };
+  const strip = document.getElementById("mpstrip");
+  if (animate) swapItems(strip, mStripDone(), 1, "X"); else { strip.innerHTML = mStripDone(); KIT.hydrate(strip); }
+  navLabel();
+  document.getElementById("next").title = "朋友拿到以后：在启动器里选「导入整合包」（Modrinth App、Prism、HMCL、PCL2 都有），选这个 .mrpack，启动器会建好对应版本和加载器、下载里面的模组。";
+}
+
+// ---- 接到外壳上 ----
+mrpackView = () => {
+  const t = STEPS()[MP.step];
+  return `<h1 class="q">${t}</h1>` + (MP.step === 0 ? step1() : t === "挑选要放进整合包的模组" ? step2() : step3());
+};
+afterMrpack = () => {
+  document.querySelectorAll(".mp1 .seg, #mpdet .seg").forEach(s => placeSeg(s, false));
+  afterDet();
+  const chips = document.querySelector(".chips"); if (chips) { chipScroll(chips); placeChipHL(false); }
+  document.querySelectorAll(".addon .lwrap").forEach(scrollbar);
+  document.getElementById("agrid")?.addEventListener("scroll", moreCards, { passive: true });
+  cartMeta();
+  if (document.getElementById("flist")) { loadPreview(!MP.result); if (MP.result) makeResult(false); }
+};
+mrpackNext = () => MP.busy ? `<i data-ic="spinner" class="spin"></i>生成中` : !isLast() ? `下一步<i data-ic="chevronRight"></i>` : MP.result ? `<i data-ic="download"></i>下载整合包` : "生成整合包";
+function goStep(n) {
+  const dir = n > MP.step ? 1 : -1;
+  swapPage(() => { MP.step = n; if (!isLast()) MP.result = null; MP.loaded = false; }, dir);
+}
+mrpackBack = () => { closePop(); if (MP.step === 0) { MP.result = null; goView("home"); } else { MP.result = null; goStep(MP.step - 1); } };
+mrpackGo = () => {
+  if (MP.busy) return;
+  if (MP.step === 0) {
+    if (MP.src === "draft" && !parseMC(MP.mc)) { const i = document.getElementById("mpmc"); i.classList.add("bad"); shakeEl(i); i.focus(); return; }
+    goStep(1); return;
+  }
+  if (!isLast()) { // 挑模组：清单空着导出不了（后端：没有可打包进去的模组或配置文件），拦下来
+    if (!picked.length && !locals.length) { const m = document.getElementById("cmsg"); m.textContent = "清单里还没有模组"; m.classList.add("show"); shakeEl(document.querySelector(".cart .lwrap")); return; }
+    goStep(MP.step + 1); return;
+  }
+  if (MP.result) return; // 「下载整合包」：草图里不真下载
+  if (!MP.loaded) return; // 还在预览
+  MP.busy = true; navLabel();
+  setTimeout(() => { MP.busy = false; makeResult(true); }, 900);
+};
+mrpackClick = e => {
+  const t = e.target;
+  if (t.closest("a.ext")) return;
+  const sp = t.closest("#mpsrc span"); if (sp) { pickSrc(sp.dataset.src, sp.parentElement, sp); return; }
+  const co = t.closest("#mpcore span");
+  if (co) { if (co.classList.contains("on")) return; MP.core = co.dataset.core; co.parentElement.querySelectorAll("span").forEach(x => x.classList.toggle("on", x === co)); placeSeg(co.parentElement, true); return; }
+  const mc = t.closest("[data-mc]"); if (mc) { setMC(mc.dataset.mc); return; }
+  const sv = t.closest("[data-srv]"); if (sv) { pickSrv(+sv.dataset.srv); return; }
+  const ad = t.closest("[data-addon]"), un = t.closest("[data-unpick]"), ul = t.closest("[data-unlocal]"), ch = t.closest("[data-cat]");
+  if (ad && !ad.classList.contains("skel")) { toggleAddon(ad.dataset.addon); return; }
+  if (un) { toggleAddon(un.dataset.unpick); return; }
+  if (ul) { locals = locals.filter(x => x !== ul.dataset.unlocal); syncAddons(); return; }
+  if (ch && ch.dataset.cat !== acat) {
+    const chips = [...document.querySelectorAll(".chip")], at = k => chips.findIndex(c => c.dataset.cat === k), dir = at(ch.dataset.cat) > at(acat) ? 1 : -1;
+    acat = ch.dataset.cat; regrid(dir); ch.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "smooth" }); return;
+  }
+  if (t.closest("[data-clear]")) { picked = []; locals = []; syncAddons(true); return; }
+  const a = t.closest("[data-act]"); if (!a) return;
+  const act = a.dataset.act;
+  if (act === "cfg") { MP.cfg = !MP.cfg; a.classList.toggle("on", MP.cfg); }
+  else if (act === "deps") toggleDeps(a);
+  else if (act === "localjar") { locals.push(`example-mod-${locals.length + 1}.0.jar`); syncAddons(); } // 草图里不弹选文件的窗口，假装选了一个
+  else if (act === "retry") { // 重新读取：转 0.6 秒，读出来了，表单换成存好的那份（假的），那条淡掉
+    if (a.classList.contains("spinning")) return; a.classList.add("spinning");
+    setTimeout(() => {
+      MP.draftErr = false; MP.name = "周末联机包"; MP.ver = "1.2.0"; MP.sum = ""; MP.nameTouched = false;
+      ["mpname", "mpver", "mpsum"].forEach((id, i) => { const el = document.getElementById(id); if (el) el.value = [MP.name, MP.ver, MP.sum][i]; });
+      const dn = a.closest(".dnote"), h = dn.offsetHeight;
+      dn.animate([{ opacity: 1, height: h + "px", marginBottom: "0px" }, { opacity: 0, height: "0px", marginBottom: "-16px" }], { duration: 260, easing: EASE_OUT, fill: "forwards" }).onfinish = () => dn.remove();
+      paintSim();
+    }, 600);
+  }
+  else if (act === "cleardir") { MP.dest = ""; a.closest(".pathf").outerHTML = pathBox(""); KIT.hydrate(document.getElementById("mpstrip")); }
+  else if (act === "pickdir") { MP.dest = DEMO_DIR; a.outerHTML = pathBox(MP.dest); KIT.hydrate(document.getElementById("mpstrip")); }
+  else if (act === "copy") copyFlash(a);
+};
+function setMC(v) {
+  MP.mc = v; const i = document.getElementById("mpmc"); if (i && i.value !== v) i.value = v;
+  i?.classList.toggle("bad", !parseMC(v));
+  const n = document.getElementById("mpmcnote"); if (n) { n.innerHTML = mcNote(); KIT.hydrate(n); }
+  document.querySelectorAll("#mpchips .mp").forEach(b => b.classList.toggle("on", b.dataset.mc === v.trim()));
+}
+document.getElementById("page").addEventListener("input", e => {
+  if (view !== "mrpack") return;
+  const t = e.target;
+  if (t.id === "mpname") { MP.name = t.value; MP.nameTouched = true; }
+  else if (t.id === "mpver") MP.ver = t.value;
+  else if (t.id === "mpsum") MP.sum = t.value;
+  else if (t.id === "mplv") MP.lv = t.value;
+  else if (t.id === "mpmc") setMC(t.value);
+  else if (t.id === "aq") { clearTimeout(aqTimer); aqTimer = setTimeout(() => { aq = t.value.trim(); regrid(); }, 180); }
+});
+mrpackSim = () => {
+  const n = STEPS().length;
+  return [...STEPS().map((t, i) => [`s${i}`, `第 ${i + 1} 步`, MP.step === i && !MP.result]), ["done", "已生成", !!MP.result], "|",
+    ["inst", "从服务器导出", MP.src === "instance"], ["nomods", "没有模组服", MP.noMods], ["drafterr", "草稿读不出", MP.draftErr], ["remote", "远程打开", !LOCAL]];
+};
+mrpackSimPick = k => {
+  if (k === "remote") LOCAL = !LOCAL;
+  else if (k === "inst") { MP.src = MP.src === "instance" ? "draft" : "instance"; if (MP.src === "instance") MP.noMods = false; MP.step = 0; MP.result = null; if (!MP.nameTouched) MP.name = MP.src === "instance" ? MODSRV[MP.inst][0] : "我的整合包"; }
+  else if (k === "nomods") { MP.noMods = !MP.noMods; if (MP.noMods) { MP.src = "draft"; if (!MP.nameTouched) MP.name = "我的整合包"; } MP.step = 0; MP.result = null; }
+  else if (k === "drafterr") { MP.draftErr = !MP.draftErr; MP.step = 0; MP.result = null; }
+  else if (k === "done") { MP.step = STEPS().length - 1; MP.result = MP.result ? null : true; }
+  else if (k[0] === "s") { MP.step = +k.slice(1); MP.result = null; }
+  render();
+};
+})();
+</script>
+<script>
+KIT_READY.then(() => { render(); requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.toggle("hidden-nav", view === "home"))); });
+</script>
+</body>
+</html>
