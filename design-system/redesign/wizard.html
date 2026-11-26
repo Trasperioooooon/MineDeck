@@ -401,7 +401,7 @@
   .eula.bad { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger-text) 60%, transparent); }
   .eula.bad .msg { opacity: 1; }
   .placeholder { margin-top: 24px; width: 100%; height: 360px; border-radius: 26px; border: 1px dashed var(--border); display: grid; place-items: center; color: var(--faint); font-size: 13px; }
-  /* 第四步「让朋友连进来」第三稿（11-26）。
+  /* 第四步「配置联机与访问」第三稿（11-26）。
      第二稿（作者：节点「不自动挑选，要做一个像官网那样的节点面板」）是左宽右窄两栏，右边「谁能进」；第三稿照作者：
        「谁能进」挪到底部一条，像第三步的 EULA 那样：正版验证一块在左，白名单一块在右、占得更宽（1 : 2），开关都在字的左边（同 EULA）；
        节点面板照两家官网的样子排，能从平台接口拿到的都画上（见脚本里第四步那段注释）。
@@ -415,9 +415,13 @@
          樱花（没连上）：粘访问密钥，「记住密钥」默认开，下面虚线框占着节点面板的位置；
          自己的 frps：四个框。
      底部「谁能进」两块，52 高、圆角 18（同两栏）；白名单打开后右边那块里出名单框（40 高，离块的边 6，圆角 12 = 18 − 6；名字块离框的边 6，圆角 6 = 12 − 6），
-       名单多了在框里横着滚，不把这一条撑高。提醒照第一稿的条件，挪到各自那块的右边：白名单那块说「谁拿到地址都能进」「名单是空的」，正版验证那块说「白名单只认名字」 */
+       名单多了在框里横着滚，不把这一条撑高。提醒照第一稿的条件，挪到各自那块的右边：白名单那块说「谁拿到地址都能进」「名单是空的」，正版验证那块说「白名单只认名字」。
+     11-26 作者又改了一轮：标题「让朋友连进来」→「配置联机与访问」，拿掉「朋友怎么连」（四张卡贴到块的顶上，下面的节点多露一截），
+       「用已有的」→「已有隧道」，「自己的 frps」→「自建 frps」、「自建服务器」→「连接自有服务端」，「搜节点」→「搜索节点」；
+       底部拿掉 online-mode、white-list 两个代码名，正版验证那块缩到只包住开关和字，「白名单只认名字」那句拿掉；名单框的提示只在一个名字都没有时出现，
+       名单多了框两头淡出，鼠标移到两头自动往那边滑。上面写的「朋友怎么连」「自己的 frps」「正版验证那块说……」都是改之前的样子 */
   .setp.link { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; height: 540px; }
-  .setp.link .col { padding: 18px 20px; gap: 14px; min-height: 0; }
+  .setp.link .col { padding: 18px 20px; gap: 12px; min-height: 0; } /* 11-26 拿掉了「朋友怎么连」，四张卡贴到块的顶上，间距 14 收成 12，下面的节点多露一截 */
   /* 叠三层：最下面四块底色（.vslot），中间滑动的高亮框（.vhl），最上面卡片的字（.vcard，本身透明）。
      原来底色画在卡片上、卡片又压在高亮框上面，框滑过别的卡时被那张卡的底色挡住一截（作者 11-26 截图指出）。底色和卡片用同一格（grid-column）叠在一起 */
   .vias { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; flex: none; }
@@ -425,7 +429,7 @@
   .vias .vhl { position: absolute; z-index: 1; left: 0; top: 0; bottom: 0; border-radius: 12px; background: var(--accent-subtle); pointer-events: none;
                box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
                transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
-  .vcard { grid-row: 1; position: relative; z-index: 2; padding: 9px 12px; border-radius: 12px; cursor: pointer; min-width: 0; background: transparent; transition: background .2s, opacity .2s; }
+  .vcard { grid-row: 1; position: relative; z-index: 2; padding: 8px 12px; border-radius: 12px; cursor: pointer; min-width: 0; background: transparent; transition: background .2s, opacity .2s; }
   .vcard:hover:not(.on):not(.off) { background: var(--hover); }
   .vcard.off { opacity: .45; cursor: default; }
   .vcard .n { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -524,21 +528,29 @@
   .frps { display: grid; grid-template-columns: minmax(0, 1fr) 132px; gap: 10px; }
   .frps .inp { min-width: 0; font-size: 13px; }
   /* 底部「谁能进」 */
-  .who { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 8px; }
+  /* 11-26 作者：拿掉 online-mode、white-list 两个代码名，正版验证那块缩到只包住开关和字，「白名单只认名字」那句不要了 */
+  .who { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; }
   .wt { height: 52px; box-sizing: border-box; border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); padding: 0 6px 0 20px;
         display: flex; align-items: center; gap: 14px; min-width: 0; }
   .wt.one { grid-column: 1 / -1; color: var(--muted); font-size: 13px; padding-right: 20px; }
+  .wt-on { padding-right: 20px; }
   .who .tg { flex: none; gap: 12px; }
   .who .tg .m { flex: none; }
   .who .tg .sw { order: -1; }
   .who .tg .t { font-size: 13.5px; font-weight: 600; white-space: nowrap; }
-  .wnames { flex: 1; min-width: 0; height: 40px; box-sizing: border-box; display: flex; align-items: center; gap: 5px; padding: 5px; border-radius: 12px; overflow-x: auto; scrollbar-width: none;
-            background: var(--field); border: 1px solid var(--border); cursor: text; transition: opacity .2s, border-color .2s; }
-  .wnames::-webkit-scrollbar { display: none; }
+  /* 名单框：外面一层画框，里面一层（.wscroll）横着滚。名单多了，框的两头淡出一截表示那边还有；鼠标移到框的左右两头，名单自动往那边滑（越靠边越快，
+     作者 11-26 提的），滚轮也能横着滚；输入框的提示只在一个名字都没有时出现 */
+  .wnames { flex: 1; min-width: 0; height: 40px; box-sizing: border-box; padding: 5px; border-radius: 12px;
+            background: var(--field); border: 1px solid var(--border); cursor: text; transition: opacity .2s, border-color .2s; --fl: 0px; --fr: 0px; }
+  .wscroll { height: 100%; display: flex; align-items: center; gap: 5px; overflow-x: auto; scrollbar-width: none;
+             -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
+             mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%); }
+  .wscroll::-webkit-scrollbar { display: none; }
+  .wnames.can-left { --fl: 28px; } .wnames.can-right { --fr: 28px; }
   .wt-wl:not(.open) .wnames { opacity: 0; pointer-events: none; }
   .wnames:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
   .wnames.bad { border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
-  .wnames input { flex: 1; min-width: 150px; height: 28px; border: 0; background: none; outline: none; padding: 0 6px; font: inherit; font-size: 13px; color: var(--text); }
+  .wnames input { flex: 1; min-width: 96px; height: 28px; border: 0; background: none; outline: none; padding: 0 6px; font: inherit; font-size: 13px; color: var(--text); }
   .wnames input::placeholder { color: var(--faint); }
   .nchip { flex: none; display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 0 4px 0 10px; border-radius: 6px; background: var(--accent-subtle); color: var(--accent-text);
            font-size: 12.5px; font-weight: 500; }
@@ -549,7 +561,6 @@
   .whint.none { display: none; }
   .whint .ico { width: 14px; height: 14px; flex: none; }
   .whint.warn { color: var(--warning-text); }
-  .whint.info { color: var(--muted); }
   .wt-wl.open .whint { margin-left: 0; }
   #wlnote { flex: none; font-size: 12px; color: var(--danger-text); padding-right: 14px; }
   #wlnote:empty { display: none; }
@@ -651,7 +662,7 @@ let step = 0, play = 1, core = "paper", ver = DEF.paper;
 // 第二步装的是插件还是模组跟着核心走（同程序 modcart.js：Paper 一系和两种代理端装插件，其余装模组）
 const PLUGIN_CORES = ["paper", "purpur", "leaves", "folia", "velocity", "waterfall"];
 const nounOfCore = k => PLUGIN_CORES.includes(k) ? "插件" : "模组";
-const STEPS = () => play === 0 ? ["选择核心以进行下一步", "配置服务器参数", "让朋友连进来"] : ["选择核心以进行下一步", `选择预装${nounOfCore(core)}`, "配置服务器参数", "让朋友连进来"];
+const STEPS = () => play === 0 ? ["选择核心以进行下一步", "配置服务器参数", "配置联机与访问"] : ["选择核心以进行下一步", `选择预装${nounOfCore(core)}`, "配置服务器参数", "配置联机与访问"];
 const cover = (k, size) => `<div class="cover" style="--c:${MDPixel16.CORE_COLORS[k] || "#7a8aa0"}">${MDPixel16.svg(k, size)}</div>`;
 function introInner(k = core, pl = play) {
   const p = PLAYS[pl], c = CORE[k];
@@ -1058,7 +1069,7 @@ function checkSettings() {
   }
   return ok;
 }
-// ---- 第四步：让朋友连进来 ----
+// ---- 第四步：配置联机与访问 ----
 // 作者 11-26 问：第三步和这一步，「联机开不开」到底怎么接。主会话的想法：服务器建好本来就能联机，同一个 Wi-Fi 的朋友填局域网地址就进得来，
 // 所以这一步问的不是「开不开」，是两件事：朋友从哪儿连（局域网或某个穿透平台，默认局域网，同 tunnels.html 定的），和谁能进（正版验证、白名单）。
 // 谁能进原来在第三步，可它该不该开要看前一件——放到外网、谁拿到地址都能进，才更该开白名单；朋友用离线启动器，就不能开正版验证——
@@ -1079,7 +1090,7 @@ const LINK = { via: "lan", sakura: false, connecting: false, key: "", saveKey: t
   show: { full: false, off: false, perm: false }, node: { openfrp: "", sakura: "" }, use: { openfrp: "", sakura: "" },
   frps: { host: "", port: "7000", token: "", remote: "" }, names: [] };
 const LAN_IP = "192.168.1.5";
-const VIAS = [["lan", "局域网"], ["openfrp", "OpenFrp"], ["sakura", "樱花穿透"], ["frps", "自己的 frps"]];
+const VIAS = [["lan", "局域网"], ["openfrp", "OpenFrp"], ["sakura", "樱花穿透"], ["frps", "自建 frps"]];
 const VIA_TIP = {
   lan: "和你连同一个 Wi-Fi、同一个路由器的朋友能进",
   openfrp: "用 OpenFrp 的内网穿透，外地的朋友也能进；MineDeck 在平台上建一条隧道，跟着服务器一起启动",
@@ -1147,7 +1158,7 @@ function viaMeta(k) {
   if (k === "lan") return "同一 Wi-Fi";
   if (k === "openfrp") return `<i class="dot ok"></i>${OF_USER.name} · ${TIER_NAME[OF_USER.tier] || "普通用户"}`;
   if (k === "sakura") return LINK.sakura ? `<i class="dot ok"></i>${SK_USER.name}` : `<i class="dot"></i>未连接`;
-  return "自建服务器";
+  return "连接自有服务端";
 }
 // 这个节点为什么用不了：[哪一类, 悬停的话]，用得了返回 null。满载、离线、无权限三类照「满载 / 离线 / 无权限」三个勾决定藏不藏；公开招人那类不藏、灰着
 function nodeWhy(k, x) {
@@ -1220,8 +1231,8 @@ function nodePanel(k) {
     : `MineDeck 替你在樱花上建一条隧道：本地端口 ${SET.port}，公网端口由樱花分配，其余设置用平台默认，跟着服务器一起启动`;
   const on = v => tabOf(k) === v ? ` class="on"` : "";
   return `<div class="nbar"><div class="seg sm" data-lseg="tab"><i class="sgl"></i><span data-v="new"${on("new")} title="${esc(tip)}">新建隧道</span>`
-    + `<span data-v="use"${on("use")} title="平台上已经建好的隧道，挑一条拿来用">用已有的</span></div><span class="nmsg" id="nmsg"></span>`
-    + `<label class="nsearch"><i data-ic="search"></i><input id="nq" placeholder="搜节点" value="${esc(LINK.q)}" autocomplete="off" spellcheck="false"></label>`
+    + `<span data-v="use"${on("use")} title="平台上已经建好的隧道，挑一条拿来用">已有隧道</span></div><span class="nmsg" id="nmsg"></span>`
+    + `<label class="nsearch"><i data-ic="search"></i><input id="nq" placeholder="搜索节点" value="${esc(LINK.q)}" autocomplete="off" spellcheck="false"></label>`
     + `<button class="ib" data-act="nrefresh" title="刷新节点列表"><i data-ic="refresh"></i></button></div>`
     + `<div class="nbody">${nodeBody(k)}</div>`;
 }
@@ -1251,23 +1262,27 @@ function viaDetail() {
     + `<input class="inp" id="ftoken" type="password" placeholder="令牌（可空）" value="${esc(LINK.frps.token)}">`
     + `<input class="inp" id="fremote" placeholder="公网端口" value="${esc(LINK.frps.remote)}" inputmode="numeric" title="朋友连的端口；空着就和本地端口一样（${esc(SET.port)}）"></div>`;
 }
-// 两块提醒：[样子, 看得见的短话, 悬停的整句]。样子 warn 黄字、info 灰字、none 不出现（没什么要提醒的时候不写字）
+// 白名单那块右边的提醒：[样子, 看得见的短话, 悬停的整句]。样子 warn 黄字、none 不出现（没什么要提醒的时候不写字）。
+// 原来正版验证那块还有一句「白名单只认名字」，11-26 作者说不要了
 function whoHints() {
   const tun = viaOf() !== "lan";
   const wl = SET.wl && !LINK.names.length ? ["warn", "名单是空的", "白名单开着、名单还是空的，建好后朋友进不来；先把他们的游戏名加进来，也可以建好后在「玩家」里加"]
     : tun && !SET.wl ? ["warn", "谁拿到地址都能进", "开了内网穿透，拿到地址的人都能进；只想让熟人进，就把白名单打开"] : ["none", "", ""];
-  const on = tun && SET.wl && !SET.online ? ["info", "白名单只认名字", "没开正版验证时，别人把名字改成一样也能进；朋友都用正版的话，可以把正版验证也打开"] : ["none", "", ""];
-  return { on, wl };
+  return { wl };
 }
-const hintHTML = ([cls, txt]) => cls === "none" ? "" : `<i data-ic="${cls === "warn" ? "warn" : "info"}"></i><span>${txt}</span>`;
+const hintHTML = ([cls, txt]) => cls === "none" ? "" : `<i data-ic="warn"></i><span>${txt}</span>`;
+const WL_PH = "输入玩家名，回车添加";
+// 底部两块的开关：只有字（不写 online-mode、white-list），开关在字的左边
+const wtg = (key, t, tip) => `<div class="tg${isOn(SET[key]) ? " on" : ""}" data-tg="${key}" title="${esc(tip)}"><div class="m"><div class="t">${t}</div></div><span class="sw"></span></div>`;
 const hintEl = (id, h) => `<div class="whint ${h[0]}" id="${id}" data-txt="${esc(h[1])}" title="${esc(h[2])}">${hintHTML(h)}</div>`;
 // 底部「谁能进」：正版验证一块在左，白名单一块在右（宽一倍），开关在字的左边（同第三步的 EULA）
 function whoStrip() {
   if (isProxyCore()) return `<div class="who"><div class="wt one" title="正版验证在代理端自己的配置文件里改，白名单在后面接的各台服务器上开">谁能进：代理端在自己的配置里设</div></div>`;
   const h = whoHints();
-  return `<div class="who"><div class="wt wt-on">${tg("online", "正版验证", "online-mode", "", "开着只有正版账号能进；关着时离线账号也能进，但不用正版 UUID，也不显示正版皮肤")}${hintEl("onhint", h.on)}</div>`
-    + `<div class="wt wt-wl${SET.wl ? " open" : ""}">${tg("wl", "白名单", "white-list", "", "开着只有名单里的玩家能进；关着时知道地址的人都能进")}`
-    + `<div class="wnames" id="names">${LINK.names.map(nchip).join("")}<input id="wlname" maxlength="16" placeholder="输入玩家名，回车添加" autocomplete="off" spellcheck="false"></div>`
+  return `<div class="who"><div class="wt wt-on">${wtg("online", "正版验证", "开着只有正版账号能进；关着时离线账号也能进，但不用正版 UUID，也不显示正版皮肤")}</div>`
+    + `<div class="wt wt-wl${SET.wl ? " open" : ""}">${wtg("wl", "白名单", "开着只有名单里的玩家能进；关着时知道地址的人都能进")}`
+    + `<div class="wnames" id="names"><div class="wscroll" id="wlscroll">${LINK.names.map(nchip).join("")}`
+    + `<input id="wlname" maxlength="16" placeholder="${LINK.names.length ? "" : WL_PH}" autocomplete="off" spellcheck="false"></div></div>`
     + `<span id="wlnote"></span>${hintEl("wlhint", h.wl)}</div></div>`;
 }
 function step4() {
@@ -1278,7 +1293,7 @@ function step4() {
       + `<div class="n">${n}</div><div class="m">${off ? "启动后再开" : viaMeta(k)}</div></div>`;
   };
   const slots = VIAS.map((_, i) => `<i class="vslot" style="grid-column:${i + 1}"></i>`).join(""); // 底色一层，和卡片同一格
-  return `<div class="setp link"><div class="col lcol"><h3>朋友怎么连</h3><div class="vias">${slots}<i class="vhl"></i>${VIAS.map(card).join("")}</div>`
+  return `<div class="setp link"><div class="col lcol"><div class="vias">${slots}<i class="vhl"></i>${VIAS.map(card).join("")}</div>`
     + `<div class="vdet">${viaDetail()}</div></div>${whoStrip()}</div>`;
 }
 // 选中的底色挪到选中的那一项
@@ -1317,13 +1332,30 @@ function paintHintEl(id, h) {
   el.dataset.txt = h[1];
   el.getAnimations().forEach(a => a.cancel());
   el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 90, easing: "cubic-bezier(.4, 0, 1, 1)", fill: "forwards" }).onfinish = () => {
-    const now = whoHints()[id === "onhint" ? "on" : "wl"];
+    const now = whoHints().wl;
     el.className = `whint ${now[0]}`; el.innerHTML = hintHTML(now); el.title = now[2]; el.dataset.txt = now[1]; KIT.hydrate(el);
     el.getAnimations().forEach(x => x.cancel());
     el.animate([{ opacity: 0, transform: "translateX(4px)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: "cubic-bezier(.2, .7, .2, 1)" });
   };
 }
-function paintHint() { const h = whoHints(); paintHintEl("onhint", h.on); paintHintEl("wlhint", h.wl); }
+function paintHint() { paintHintEl("wlhint", whoHints().wl); }
+// 名单框：两头淡出（那边还有名字时）、鼠标移到两头自动往那边滑、滚轮横着滚。滑的速度按离边多近算，每帧整像素
+function wlScroll(sc) {
+  if (!sc || sc._wl) return; sc._wl = true;
+  const box = sc.parentElement, EDGE = 44;
+  let v = 0, raf = 0;
+  const paint = () => { const max = sc.scrollWidth - sc.clientWidth; box.classList.toggle("can-left", sc.scrollLeft > 1); box.classList.toggle("can-right", sc.scrollLeft < max - 1); };
+  const tick = () => { if (!v) { raf = 0; return; } sc.scrollLeft += v; paint(); raf = requestAnimationFrame(tick); };
+  sc.addEventListener("pointermove", e => {
+    const r = sc.getBoundingClientRect(), x = e.clientX - r.left, max = sc.scrollWidth - sc.clientWidth;
+    v = x < EDGE && sc.scrollLeft > 0 ? -Math.ceil((EDGE - x) / 5) : x > r.width - EDGE && sc.scrollLeft < max ? Math.ceil((x - r.width + EDGE) / 5) : 0;
+    if (v && !raf) raf = requestAnimationFrame(tick);
+  });
+  sc.addEventListener("pointerleave", () => { v = 0; });
+  sc.addEventListener("wheel", e => { if (sc.scrollWidth <= sc.clientWidth) return; e.preventDefault(); sc.scrollLeft += Math.round(e.deltaY || e.deltaX); paint(); }, { passive: false });
+  sc.addEventListener("scroll", paint, { passive: true });
+  sc._paint = paint; paint();
+}
 function pickVia(k) {
   const order = VIAS.map(x => x[0]), dir = order.indexOf(k) > order.indexOf(LINK.via) ? 1 : -1;
   LINK.via = k;
@@ -1408,13 +1440,15 @@ function addName(v) {
   LINK.names.push(n);
   inp.insertAdjacentHTML("beforebegin", nchip(n)); const c = inp.previousElementSibling; KIT.hydrate(c);
   c.animate([{ opacity: 0, transform: "scale(.85)" }, { opacity: 1, transform: "none" }], { duration: 200, easing: "cubic-bezier(.2, .7, .2, 1)" });
-  box.scrollLeft = box.scrollWidth; // 名单在框里横着排，加了新名字滚到最右
+  inp.placeholder = ""; // 有名字了就不再写提示
+  const sc = document.getElementById("wlscroll"); sc.scrollLeft = sc.scrollWidth; sc._paint?.(); // 名单在框里横着排，加了新名字滚到最右
   paintHint();
 }
 function removeName(n) {
   LINK.names = LINK.names.filter(x => x !== n);
   const c = [...document.querySelectorAll(".nchip")].find(x => x.dataset.name === n && !x.classList.contains("out"));
-  if (c) { c.classList.add("out"); c.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(.85)" }], { duration: 140, easing: "cubic-bezier(.4, 0, 1, 1)", fill: "forwards" }).onfinish = () => c.remove(); }
+  if (c) { c.classList.add("out"); c.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(.85)" }], { duration: 140, easing: "cubic-bezier(.4, 0, 1, 1)", fill: "forwards" }).onfinish = () => { c.remove(); document.getElementById("wlscroll")?._paint?.(); }; }
+  if (!LINK.names.length) { const inp = document.getElementById("wlname"); if (inp) inp.placeholder = WL_PH; } // 名字拿光了，提示再出来
   paintHint();
 }
 // 白名单开关、正版验证开关一动，名单框出现收起、提醒跟着变
@@ -1442,7 +1476,7 @@ function checkLink() {
 }
 function render() {
   const names = STEPS();
-  const body = step === 0 ? step1() : play !== 0 && step === 1 ? step2() : names[step] === "配置服务器参数" ? step3() : names[step] === "让朋友连进来" ? step4() : `<div class="placeholder">这一步的内容还没画</div>`;
+  const body = step === 0 ? step1() : play !== 0 && step === 1 ? step2() : names[step] === "配置服务器参数" ? step3() : names[step] === "配置联机与访问" ? step4() : `<div class="placeholder">这一步的内容还没画</div>`;
   const sub = play !== 0 && step === 1 ? "暂不预装可直接进入下一步" : "";
   document.getElementById("page").innerHTML = `<h1 class="q${sub ? " has-sub" : ""}">${names[step]}</h1>${sub ? `<p class="qsub">${sub}</p>` : ""}` + body;
   // 小点：个数对得上就只挪「当前」那个（宽的那个平滑挪过去），对不上（第一次画）才整排重画
@@ -1454,7 +1488,7 @@ function render() {
   document.querySelectorAll(".addon .lwrap").forEach(scrollbar);
   const chips = document.querySelector(".chips"); if (chips) { chipScroll(chips); placeChipHL(false); }
   document.querySelectorAll(".seg").forEach(el => placeSeg(el, false));
-  placeVias(false); document.querySelectorAll(".nwrap").forEach(scrollbar); paintMem();
+  placeVias(false); document.querySelectorAll(".nwrap").forEach(scrollbar); wlScroll(document.getElementById("wlscroll")); paintMem();
   document.body.classList.toggle("on-s3", names[step] === "配置服务器参数");
   document.querySelectorAll(".sim [data-ram]").forEach(x => x.classList.toggle("on", +x.dataset.ram === RAMK));
   document.getElementById("agrid")?.addEventListener("scroll", moreCards, { passive: true });
@@ -1845,7 +1879,7 @@ function goStep(n) {
 }
 document.getElementById("next").addEventListener("click", () => {
   if (STEPS()[step] === "配置服务器参数" && !checkSettings()) return;
-  if (STEPS()[step] === "让朋友连进来" && !checkLink()) return;
+  if (STEPS()[step] === "配置联机与访问" && !checkLink()) return;
   if (step < STEPS().length - 1) goStep(step + 1);
 });
 document.getElementById("back").addEventListener("click", () => {
