@@ -254,7 +254,16 @@
      EULA 是面板下面的一个勾选框，左边和栏里的内容对齐；没勾时点「下一步」不往下走，勾选框标红、后面出一句「开服前需要同意 EULA」 */
   .setp.s3 { grid-template-rows: auto auto; }
   .setp.s3 .col { padding: 18px 20px; } /* 三块的内边距左右都是 20，图标、栏里的字、下面的 EULA 左边在一条线上 */
-  .setp.s3 .idcol { grid-column: 1 / -1; padding: 20px; }
+  /* 顶上那块用首页卡片的封面条（作者 11-26：「顶部能不能再利用一下我们前面设计的封面条」），照 home.html 的规矩：
+     核心色 30% 的底，上面一层 16 像素的淡棋盘格；头像离封面边 8、圆角 10（18 − 8，同心）。所以头像的左边不在下面那条 128 的线上，和首页卡片一样 */
+  .setp.s3 .idcol { grid-column: 1 / -1; padding: 8px; position: relative; overflow: hidden; background: color-mix(in srgb, var(--c) 30%, var(--surface)); }
+  .setp.s3 .idcol::after { content: ""; position: absolute; inset: 0; opacity: .16; pointer-events: none;
+    background-image: linear-gradient(45deg, rgb(0 0 0 / .5) 25%, transparent 25%, transparent 75%, rgb(0 0 0 / .5) 75%), linear-gradient(45deg, rgb(0 0 0 / .5) 25%, transparent 25%, transparent 75%, rgb(0 0 0 / .5) 75%);
+    background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+  .setp.s3 .idcol > * { position: relative; z-index: 1; }
+  .idcol .avbtn, .idcol .sav, .idcol .avov { border-radius: 10px; }
+  .idcol .sav { box-shadow: inset 0 1px 0 rgb(255 255 255 / .08); }
+  .idcol .ie.sub { color: color-mix(in srgb, var(--muted) 60%, var(--text)); } /* 封面底比面板深一点，介绍字往正文色靠，浅色主题下对比度才够 4.5 */
   .idrow { display: flex; gap: 14px; align-items: center; }
   .idtext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
   .ie { height: 32px; min-width: 0; margin-left: -9px; padding: 0 8px; border-radius: 8px; border: 1px solid transparent; background: transparent; outline: none; box-sizing: border-box;
@@ -264,9 +273,9 @@
   .ie.bad { background: var(--field); border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
   .ie.title { font-size: 17px; font-weight: 600; }
   .ie.sub { height: 28px; font-size: 13px; color: var(--muted); }
-  .lgrid { display: grid; grid-template-columns: minmax(0, 1fr) 132px; column-gap: 14px; row-gap: 16px; }
-  .lgrid .g-mem { grid-column: 1 / 3; }
-  .lgrid .g-pre, .lgrid .g-path { grid-column: 1; }
+  .lgrid { display: grid; grid-template-columns: minmax(0, 1fr) 132px; column-gap: 14px; row-gap: 24px; }
+  .lgrid .g-mem { grid-column: 1 / 3; gap: 6px; } /* 字和格子之间 6，和右边「难度」那一行的框对齐 */
+  .lgrid .g-path { grid-column: 1; }
   .lgrid .g-port { grid-column: 2; }
   .proxy .lgrid .g-path { grid-column: 1 / 3; }
   .g-fly .seg { width: 50%; } /* 两段，宽度取上面四段的一半，右边和上面四段的正中（第二、三段之间）对齐 */
@@ -293,12 +302,13 @@
   .mleg i.used { background: color-mix(in srgb, var(--text) 30%, transparent); }
   .mleg i.alloc { background: var(--accent); }
   .mleg i.free { background: color-mix(in srgb, var(--text) 9%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 14%, transparent); }
-  .mleg i.over { background: var(--danger); }
-  .mleg .bad, .mleg .bad b { color: var(--danger-text); }
-  /* 快捷预设：分段选的样子；分配不在任何一档上时选中块淡掉 */
-  .seg.mpseg .sgl { transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1), opacity .2s; }
-  .seg.mpseg.none .sgl { opacity: 0; }
-  .seg.mpseg span.dis { opacity: .4; cursor: default; }
+  /* 快捷预设：内存那一块里，格子下面一排小胶囊（圆角 = 高的一半）；分配正好是哪一档就亮哪一档，超过上限的灰掉 */
+  .mpre { display: flex; gap: 6px; margin-top: 2px; } /* 格子到快捷预设一共 8，比块到「存放位置」的 24 紧 */
+  .mp { height: 26px; padding: 0 12px; border-radius: 13px; border: 1px solid var(--border); background: none; color: var(--muted); font: inherit; font-size: 12px; font-weight: 500;
+        cursor: pointer; transition: background .15s, color .15s, border-color .15s; }
+  .mp:hover:not(:disabled):not(.on) { color: var(--text); background: var(--hover); }
+  .mp.on { background: var(--accent-subtle); color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+  .mp:disabled { opacity: .35; cursor: default; }
   .eulac { display: flex; align-items: center; gap: 10px; width: fit-content; align-self: flex-start; margin: 16px 0 0 28px; font-size: 13px; cursor: pointer; }
   .eulac a { color: var(--accent-text); }
   .eulac .cb { width: 18px; height: 18px; flex: none; box-sizing: border-box; border-radius: 5px; display: grid; place-items: center; color: transparent;
@@ -324,41 +334,41 @@
   .avx .ico { width: 11px; height: 11px; }
   .avbtn:hover .avx { opacity: 1; }
   .avx:hover { color: var(--text); }
-  /* 内存（作者 11-26 先要了程序原来的控件，又说「这么一个模块有好几处地方在告诉用户内存分配可多少」）：
-     留程序那排经验条式的格子（颜色、先后照程序：灰的其他程序已用、接着强调色的本服分配、淡的空着；1 格 = 512 MB，内存大时放大到最多约 48 格），
-     格子本身就是滑条——点、拖、方向键都能改，竖着的小把手停在本服那一截的末端；右边一个 MB 数字框，是这一块里唯一写着数的地方。
-     原来的大号 GB 数、系统滑条、统计和推荐两行都拿掉：统计和推荐收进格子的悬停提示。超过可用内存会改变结果（可能卡、可能起不来），
-     所以本服那一截变红、标题那行右边写「超出可用 …」、数字框标红；超过 16 GB 只是提醒，数字框里一个黄色警告图标，悬停看原因 */
-  /* 格子装进一个和输入框一样的框（40 高、圆角 10），格子 28 高、离框外沿 6，两头的格子圆角 4（10 − 6），中间的 1.5 */
+  /* 运行内存（11-26 第二轮）：格子还是程序那排经验条（灰的系统已占在前、强调色本服分配、淡的剩余），格子本身是滑条。
+     单位改成 0.5 GB（作者提的）：拖、方向键、步进、快捷预设都按 0.5 GB 走。格子的大小按本机内存挑 0.5 / 1 / 2 / 4 GB 里最小、又能让格子不超过 40 个的那档，
+     一格只占一部分时按比例涂（比如 1 GB 一格、分 4.5 GB，第五格涂一半），所以 0.5 GB 的差别在格子上也看得出来（内存很大、一格 4 GB 时就只差一两个像素了）。
+     上限：当前可用的内存按 0.5 GB 往下取整（作者提的），把手拖不过去，步进加不上去，超过的快捷预设灰掉。原来的「超过可用」红色提醒就用不上了。
+     右边原来的 MB 数字框换成一个步进：减号、「4 GB」、加号，是这一块里唯一写着数的地方；图例里「分配」只留颜色不写数。超过 16 GB 照程序提醒一下（数字变黄，悬停看原因） */
   .memx { display: flex; align-items: center; gap: 14px; }
   .mbar { position: relative; flex: 1; min-width: 0; height: 40px; padding: 0 5px; display: flex; align-items: center; cursor: pointer; touch-action: none; outline: none;
           border-radius: 10px; box-sizing: border-box; background: var(--field); border: 1px solid var(--border); transition: border-color .2s, box-shadow .2s; }
   .mbar:focus-visible { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
   .mbar .cells { position: relative; display: flex; gap: 2px; width: 100%; height: 28px; }
-  .mbar .cells i { flex: 1; border-radius: 1.5px; background: color-mix(in srgb, var(--text) 9%, transparent); transition: background .12s; }
+  .mbar .cells i { flex: 1; border-radius: 1.5px; background: color-mix(in srgb, var(--text) 9%, transparent); }
   .mbar .cells i:first-child { border-radius: 4px 1.5px 1.5px 4px; }
   .mbar .cells i:last-of-type { border-radius: 1.5px 4px 4px 1.5px; }
-  .mbar .cells i.used { background: color-mix(in srgb, var(--text) 30%, transparent); }
-  .mbar .cells i.alloc { background: var(--accent); box-shadow: inset 0 2px 0 rgb(255 255 255 / .3), inset 0 -2px 0 rgb(0 0 0 / .16); }
-  .mbar .cells i.over { background: var(--danger); box-shadow: inset 0 2px 0 rgb(255 255 255 / .3), inset 0 -2px 0 rgb(0 0 0 / .16); }
+  .mbar .cells i.alloc { box-shadow: inset 0 2px 0 rgb(255 255 255 / .3), inset 0 -2px 0 rgb(0 0 0 / .16); }
   /* 把手：4 × 34 的竖胶囊（圆角 = 宽的一半），一圈框底色把它和格子隔开 */
   .mbar .knob { position: absolute; top: -3px; bottom: -3px; left: 0; width: 4px; margin-left: -2px; border-radius: 2px; background: var(--text); pointer-events: none;
                 box-shadow: 0 0 0 2px var(--field); }
   .mbar:not(.drag) .knob { transition: left .16s cubic-bezier(.3, .7, .2, 1); }
   .mbar.drag { cursor: grabbing; }
-  .unit { flex: none; width: 132px; height: 40px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 10px; box-sizing: border-box; cursor: text;
-          background: var(--field); border: 1px solid var(--border); font-size: 12.5px; color: var(--faint); transition: border-color .2s, box-shadow .2s; }
-  .unit:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
-  .unit input { flex: 1; min-width: 0; width: 100%; padding: 0; border: 0; background: none; outline: none; font: inherit; font-size: 14px; color: var(--text);
-                text-align: right; font-variant-numeric: tabular-nums; appearance: textfield; -moz-appearance: textfield; }
-  .unit input::-webkit-inner-spin-button, .unit input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-  .unit .mw { display: grid; flex: none; }
-  .unit .mw:empty { display: none; }
-  .unit .mw .ico { width: 14px; height: 14px; }
-  .unit.bad { border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
-  .unit.bad .mw { color: var(--danger-text); }
-  .unit.warn .mw { color: var(--warning-text); }
-  .fld > .lb .over { margin-left: auto; color: var(--danger-text); }
+  /* 步进：和输入框一样 40 高、圆角 10；两个按钮 28 见方，离框外沿 6，圆角 4（10 − 6） */
+  .step { flex: none; width: 132px; height: 40px; display: flex; align-items: center; justify-content: space-between; padding: 0 5px; border-radius: 10px; box-sizing: border-box;
+          background: var(--field); border: 1px solid var(--border); }
+  .step .sb { width: 28px; height: 28px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--muted); display: grid; place-items: center; cursor: pointer; transition: background .15s, color .15s; }
+  .step .sb:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+  .step .sb:disabled { opacity: .3; cursor: default; }
+  .step .sb .ico { width: 14px; height: 14px; }
+  .step .sv { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .step.warn .sv { color: var(--warning-text); }
+  /* 草图里看不同内存的机器用的（不是界面的一部分）：右上角「本机内存」，只在第三步出现 */
+  .sim { position: fixed; top: 52px; right: 16px; z-index: 20; display: none; align-items: center; gap: 2px; padding: 3px; border-radius: 12px; font-size: 12px;
+         background: var(--overlay); border: 1px solid var(--border); box-shadow: var(--elev-2); }
+  body.on-s3 .sim { display: flex; }
+  .sim .k { color: var(--faint); padding: 0 6px 0 8px; }
+  .sim span[data-ram] { padding: 5px 9px; border-radius: 8px; color: var(--muted); cursor: pointer; }
+  .sim span[data-ram].on { background: var(--accent-subtle); color: var(--accent-text); }
   /* 分段选：和输入框一样 40 高、圆角 10；选中的底色离外框 4（边框 1 加内边距 3）、圆角 6（10 − 4，同心），换选择时滑过去 */
   .seg { position: relative; display: flex; padding: 3px; border-radius: 10px; background: var(--field); border: 1px solid var(--border); box-sizing: border-box; height: 40px; }
   .seg span { flex: 1; position: relative; z-index: 1; display: grid; place-items: center; font-size: 13px; color: var(--muted); border-radius: 6px; cursor: pointer; transition: color .2s; }
@@ -507,6 +517,7 @@
 <header class="tb"><img src="../../internal/web/ui/img/logo-16.png" alt=""><div class="sp"></div>
   <div class="win"><span><i data-ic="winMin"></i></span><span><i data-ic="winMax"></i></span><span><i data-ic="winClose"></i></span></div></header>
 <main class="page" id="page"></main>
+<div class="sim" aria-label="草图里换本机内存"><span class="k">本机内存</span><span data-ram="8">8G</span><span data-ram="16">16G</span><span data-ram="32">32G</span><span data-ram="48">48G</span><span data-ram="64">64G</span><span data-ram="128">128G</span></div>
 <div class="wnav"><div class="in">
   <button class="wbtn back" id="back"><i data-ic="chevronRight"></i>上一步</button>
   <span class="sp"></span><span class="dots" id="dots"></span><span class="sp"></span>
@@ -519,6 +530,7 @@ window.EXTRA_ICONS = {
   archiveRestore: '<rect x="1.8" y="2.4" width="12.4" height="3.2" rx=".7"/><path d="M3 5.6v7a1.2 1.2 0 001.2 1.2h1.2M13 5.6v7a1.2 1.2 0 01-1.2 1.2h-1.2"/><path d="M6 10l2-2 2 2M8 8v5.8"/>',
   folderInput: '<path d="M2.4 7.2V4.6h3.4l1.4 1.6h6.4v6.4H2.4v-1.4"/><path d="M1 9.4h6.2M5.2 7.4l2 2-2 2"/>',
   // 第四步「只在局域网」（主会话补的，同样的画法）
+  minus: '<path d="M3.5 8h9"/>',
   wifi: '<path d="M1.6 6.2a9 9 0 0112.8 0M3.8 8.6a5.8 5.8 0 018.4 0M6 11a2.7 2.7 0 014 0"/><circle cx="8" cy="13.3" r=".9" fill="currentColor" stroke="none"/>',
 };
 // 玩法四块（问题 U05 定的方向）：每块下面只列这一类的核心，推荐的预先选好
@@ -819,14 +831,22 @@ function chipScroll(c) {
 }
 addEventListener("resize", () => document.querySelector(".chips")?._paint?.());
 // ---- 第三步：最后设置一下 ----
-// 设置填过就记着（回上一步再回来、换核心以后名字跟着核心名变，除非自己改过名字）。本机内存是假的，照作者截图那台：共 31.8 GB，其他程序已用 15.2 GB。
-// 内存上限、默认值照程序：上限 = 总量 − 2 GB（最少 2 GB），默认 4 GB（代理端 1 GB）。icon 是自己挑的服务器图标（草图里是本地图片的临时地址），空着就用核心头像
+// 设置填过就记着（回上一步再回来、换核心以后名字跟着核心名变，除非自己改过名字）。
+// 默认 4 GB（代理端 1 GB），超过上限就取上限。icon 是自己挑的服务器图标（草图里是本地图片的临时地址），空着就用核心头像
 const SET = { name: "", nameTouched: false, port: "25565", mem: 4096, motd: "MineDeck 开服 · 一起来玩", diff: "easy", mode: "survival",
   online: false, flight: "1", wl: false, eula: false, icon: "" }; // flight 用分段选（"1" 开 / "0" 关）
-const RAM = { total: 32563, avail: 32563 - 15565 }, MEM_MAX = Math.max(2048, RAM.total - 2048);
-// 经验条的格子：1 格 = 512 MB，内存大时放大到最多约 48 格（同程序）；USED_N 是前面灰的那几格（其他程序已用）
-const CELL_MB = Math.max(512, Math.ceil(RAM.total / 48 / 512) * 512), CELLS = Math.max(8, Math.round(RAM.total / CELL_MB));
-const USED_N = Math.min(CELLS, Math.round((RAM.total - RAM.avail) / CELL_MB));
+// 本机内存是假的：右上角「本机内存」能换成几种机器看格子怎么画。[总量, 其他程序已占]，单位 MB；32 是作者截图那台（共 31.8 GB，占 15.2 GB），
+// 8 是一台很紧的（只剩 1.5 GB），看上限比默认的 4 GB 还小时会怎样
+const MACHINES = { 8: [8192, 6656], 16: [16384, 7578], 32: [32563, 15565], 48: [49152, 16691], 64: [65536, 19149], 128: [131072, 23450] };
+let RAMK = 32, RAM, MEM_CAP, CELL, CELLS;
+function setMachine(k) {
+  RAMK = k; const [total, used] = MACHINES[k]; RAM = { total, avail: total - used };
+  // 上限：当前可用的内存按 0.5 GB 往下取整（作者提的），最少 0.5 GB。程序里现在是「总量 − 2 GB」、超过可用只提醒，改成硬上限要后端跟着改
+  MEM_CAP = Math.max(512, Math.floor(RAM.avail / 512) * 512);
+  // 一格多大：0.5 / 1 / 2 / 4 GB 里挑最小、又能让格子不超过 40 个的那档
+  CELL = [512, 1024, 2048, 4096].find(c => RAM.total / c <= 40) || 4096; CELLS = Math.ceil(RAM.total / CELL);
+}
+setMachine(32);
 const isProxyCore = () => core === "velocity" || core === "waterfall";
 const slugOf = n => { let o = ""; for (const c of n) { if (/[0-9A-Za-z_-]/.test(c)) o += c; else if (c === " " || c === ".") o += "-"; } return o.replace(/^[-_]+|[-_]+$/g, ""); };
 // 存放位置那行：文件夹名取名称里的英文字母和数字（同程序），一个都没有就按创建那一刻的日期时间起名（同程序 inst/install.go，比如 server-20261126-153012）。
@@ -845,53 +865,48 @@ function pathTip() {
 const portOk = () => { const v = Number(SET.port); return Number.isInteger(v) && v >= 1 && v <= 65535; };
 const portState = () => portOk() ? `<span class="st" title="端口可用"><i data-ic="check"></i></span>` : `<span class="st bad" title="端口需为 1 ~ 65535 的整数">1~65535</span>`;
 const g1 = mb => (mb / 1024).toFixed(1);
-const memClamp = v => Math.min(MEM_MAX, Math.max(512, Math.round(+v || 512)));
-// 运行内存：标题右边图例，下面一排格子（也是滑条）加一个 MB 数字框；推荐分配在格子的悬停提示里
+const memClamp = v => Math.min(MEM_CAP, Math.max(512, Math.round((+v || 512) / 512) * 512)); // 按 0.5 GB 取整，夹在 0.5 GB 和上限之间
+// 内存的数：整数不带 .0（4 GB、4.5 GB、15.2 GB）
+const gs = mb => { const x = Math.round(mb / 1024 * 10) / 10; return (Number.isInteger(x) ? x : x.toFixed(1)) + "G"; };
+const gbTxt = mb => gs(mb).replace("G", " GB");
+// 运行内存一块：标题和图例；格子（也是滑条）加步进；格子下面一排快捷预设。推荐分配、本机总量、一格多大在格子的悬停提示里
+const PRESETS = [2048, 4096, 8192, 16384], PRESETS_PROXY = [512, 1024, 2048]; // 代理端推荐 1 GB，预设跟着小
 function memCtl(proxy) {
-  const tip = `共 ${g1(RAM.total)} GB · 1 格 = ${CELL_MB} MB\n` + (proxy ? "推荐 1 GB；代理端只做转发，占用很低" : "推荐：模组服 4 GB 以上；无模组的小型服务器 2~4 GB");
+  const tip = `本机 ${gbTxt(RAM.total)} · 1 格 = ${gbTxt(CELL)} · 最多能分 ${gbTxt(MEM_CAP)}（当前可用的）\n` + (proxy ? "推荐 1 GB；代理端只做转发，占用很低" : "推荐：模组服 4 GB 以上；无模组的小型服务器 2~4 GB");
   return `<div class="fld g-mem"><span class="lb">运行内存<span class="mleg" id="smleg"></span></span>
-      <div class="memx"><div class="mbar" id="smbar" tabindex="0" role="slider" aria-label="运行内存" aria-valuemin="512" aria-valuemax="${MEM_MAX}" title="${esc(tip)}">
+      <div class="memx"><div class="mbar" id="smbar" tabindex="0" role="slider" aria-label="运行内存" aria-valuemin="512" aria-valuemax="${MEM_CAP}" title="${esc(tip)}">
           <div class="cells">${"<i></i>".repeat(CELLS)}<span class="knob"></span></div></div>
-        <label class="unit" id="smemf"><span class="mw"></span><input type="number" id="smemn" min="512" max="${MEM_MAX}" step="256" value="${SET.mem}" aria-label="运行内存（MB）">MB</label></div></div>`;
+        <div class="step" id="smemf"><button class="sb" data-mstep="-1" title="少 0.5 GB"><i data-ic="minus"></i></button><span class="sv" id="smemv"></span><button class="sb" data-mstep="1" title="多 0.5 GB"><i data-ic="plus"></i></button></div></div>
+      <div class="mpre">${(proxy ? PRESETS_PROXY : PRESETS).map(v => `<button class="mp" data-mp="${v}"${v > MEM_CAP ? " disabled" : ""}>${gs(v)}</button>`).join("")}</div></div>`;
 }
-// 快捷预设：分段选的样子（data-mpseg，和别的分段选分开处理：点了改分配，不存别的状态）
-const PRESETS = [2048, 4096, 8192, 16384];
-const presets = () => `<div class="fld g-pre"><span class="lb">快捷预设</span><div class="seg mpseg" data-mpseg><i class="sgl"></i>${
-  PRESETS.map(v => `<span data-mp="${v}"${v > MEM_MAX ? ` class="dis"` : ""}>${v / 1024}G</span>`).join("")}</div></div>`;
-// 格子：前面灰的是其他程序已用，接着强调色的是本服分配（超过可用时这一截变红），后面淡的空着；把手停在本服那一截的末端，正好在两格之间的缝上
+// 格子：从左往右，灰的是系统已占，接着强调色的是本服分配，后面淡的是剩余；一格只占一部分时按比例涂。把手停在本服那一截的末端
+const C_USED = "color-mix(in srgb, var(--text) 30%, transparent)", C_ALLOC = "var(--accent)", C_FREE = "color-mix(in srgb, var(--text) 9%, transparent)";
 function paintMem() {
   const bar = document.getElementById("smbar"); if (!bar) return;
-  const v = SET.mem, over = v > RAM.avail, allocN = Math.min(CELLS - USED_N, Math.max(1, Math.round(v / CELL_MB)));
-  bar.querySelectorAll(".cells i").forEach((c, i) => { c.className = i < USED_N ? "used" : i < USED_N + allocN ? (over ? "over" : "alloc") : ""; });
-  const W = bar.querySelector(".cells").clientWidth, pitch = (W - (CELLS - 1) * 2) / CELLS + 2;
-  bar.querySelector(".knob").style.left = Math.round(Math.min(W, (USED_N + allocN) * pitch - 1)) + "px";
-  bar.setAttribute("aria-valuenow", v); bar.setAttribute("aria-valuetext", `${g1(v)} GB`);
-  const f = document.getElementById("smemf"), num = document.getElementById("smemn"), big = !over && v > 16384;
-  f.classList.toggle("bad", over); f.classList.toggle("warn", big);
-  f.title = over ? `超过当前可用 ${g1(RAM.avail)} GB，可能会卡，或者内存分配失败` : big ? "分配内存过大可能加剧 Java 垃圾回收（GC）停顿，导致游戏周期性掉帧。" : "";
-  const mw = f.querySelector(".mw"), want = over || big ? "warn" : "";
-  if (mw.dataset.k !== want) { mw.dataset.k = want; mw.innerHTML = want ? `<i data-ic="warn"></i>` : ""; KIT.hydrate(mw); }
-  if (document.activeElement !== num) num.value = v;
-  // 图例：系统已占、分配、剩余（剩余 = 可用 − 分配；分配超过可用时这一项变成红的「超出」）
+  const v = SET.mem, used = RAM.total - RAM.avail, end = used + v;
+  bar.querySelectorAll(".cells i").forEach((c, i) => {
+    const a = i * CELL, pct = x => Math.max(0, Math.min(100, (x - a) / CELL * 100)), u = pct(used), e = pct(end);
+    c.className = u <= 0 && e >= 100 ? "alloc" : "";
+    c.style.background = `linear-gradient(to right, ${C_USED} 0 ${u}%, ${C_ALLOC} ${u}% ${e}%, ${C_FREE} ${e}% 100%)`;
+  });
+  const W = bar.querySelector(".cells").clientWidth, cw = (W - (CELLS - 1) * 2) / CELLS, t = end / CELL, k = Math.floor(t), f = t - k;
+  bar.querySelector(".knob").style.left = Math.round(Math.min(W, f === 0 && k > 0 ? k * (cw + 2) - 1 : k * (cw + 2) + f * cw)) + "px";
+  bar.setAttribute("aria-valuenow", v); bar.setAttribute("aria-valuetext", gbTxt(v));
+  // 步进：唯一写着数的地方；到 0.5 GB、到上限时那一边的按钮灰掉；超过 16 GB 数字变黄（照程序的提醒）
+  const st = document.getElementById("smemf"), big = v > 16384;
+  document.getElementById("smemv").textContent = gbTxt(v);
+  st.querySelector('[data-mstep="-1"]').disabled = v <= 512; st.querySelector('[data-mstep="1"]').disabled = v >= MEM_CAP;
+  st.classList.toggle("warn", big); st.title = big ? "分配内存过大可能加剧 Java 垃圾回收（GC）停顿，导致游戏周期性掉帧。" : "";
+  // 图例：系统已占、分配（只有颜色，数在步进里）、剩余（= 可用 − 分配，和格子上淡的那一截一样长）
   const lg = document.getElementById("smleg");
-  if (lg) lg.innerHTML = `<span><i class="used"></i>系统已占 <b>${gs(RAM.total - RAM.avail)}</b></span><span${over ? ` class="bad"` : ""}><i class="${over ? "over" : "alloc"}"></i>分配 <b>${gs(v)}</b></span>`
-    + (over ? `<span class="bad"><i class="over"></i>超出 <b>${gs(v - RAM.avail)}</b></span>` : `<span><i class="free"></i>剩余 <b>${gs(RAM.avail - v)}</b></span>`);
-  // 快捷预设：分配正好是哪一档就亮哪一档，选中块滑过去；都不是就淡掉
-  const ps = document.querySelector("[data-mpseg]");
-  if (ps) {
-    let any = false;
-    ps.querySelectorAll("[data-mp]").forEach(b => { const on = +b.dataset.mp === v; b.classList.toggle("on", on); any = any || on; });
-    ps.classList.toggle("none", !any);
-    if (any) placeSeg(ps, ps.dataset.ready === "1");
-    ps.dataset.ready = "1";
-  }
+  if (lg) lg.innerHTML = `<span><i class="used"></i>系统已占 <b>${gs(used)}</b></span><span><i class="alloc"></i>分配</span><span><i class="free"></i>剩余 <b>${gs(RAM.avail - v)}</b></span>`;
+  document.querySelectorAll("[data-mp]").forEach(b => b.classList.toggle("on", +b.dataset.mp === v));
 }
-// 图例里的数：一位小数，整数不带 .0（4G、15.2G）
-const gs = mb => { const x = Math.round(mb / 1024 * 10) / 10; return (Number.isInteger(x) ? x : x.toFixed(1)) + "G"; };
-// 在格子上点、拖：落在第几格就分几格（按整格走，最少 512 MB）；方向键一次一格，Home、End 到头
+// 在格子上点、拖：落在哪儿就分到哪儿，按 0.5 GB 取整，拖不过上限
 function memAt(bar, x) {
-  const b = bar.querySelector(".cells").getBoundingClientRect(), pitch = (b.width - (CELLS - 1) * 2) / CELLS + 2;
-  return memClamp((Math.round((x - b.left + 1) / pitch) - USED_N) * CELL_MB);
+  const b = bar.querySelector(".cells").getBoundingClientRect(), cw = (b.width - (CELLS - 1) * 2) / CELLS, d = Math.max(0, x - b.left);
+  const k = Math.floor(d / (cw + 2)), f = Math.min(1, (d - k * (cw + 2)) / cw);
+  return memClamp((k + f) * CELL - (RAM.total - RAM.avail));
 }
 function setMem(v) { if (v === SET.mem) return; SET.mem = v; SET.memTouched = true; paintMem(); }
 // 服务器头像：和首页卡片上的同一个（16×16 的核心头像，带核心色的底）；挑过图标就用图标
@@ -908,14 +923,14 @@ const tg = (key, t, code, d, tip) => `<div class="tg${isOn(SET[key]) ? " on" : "
 function step3() {
   if (!SET.nameTouched) SET.name = `我的 ${CORE[core][0]} 服务器`;
   const proxy = isProxyCore();
-  if (!SET.memTouched) SET.mem = proxy ? 1024 : Math.min(4096, MEM_MAX);
+  if (!SET.memTouched) SET.mem = Math.min(proxy ? 1024 : 4096, MEM_CAP);
   // 顶上一块：图标跨两行，名称、服务器介绍（点了就能改）
-  const id = `<div class="col idcol"><div class="idrow">${avatarBtn()}<div class="idtext">
+  const id = `<div class="col idcol" style="--c:${MDPixel16.CORE_COLORS[core] || "#7a8aa0"}"><div class="idrow">${avatarBtn()}<div class="idtext">
       <input class="ie title" id="sname" maxlength="40" value="${esc(SET.name)}" aria-label="名称" placeholder="服务器名称">
       ${proxy ? "" : `<input class="ie sub" id="smotd" maxlength="59" value="${esc(SET.motd)}" aria-label="服务器介绍" placeholder="服务器介绍" title="服务器介绍（MOTD），显示在多人游戏的服务器列表里">`}
     </div></div></div>`;
   // 左栏：运行内存、快捷预设、存放位置和端口
-  const left = `<div class="col"><h3>服务器</h3><div class="lgrid">${memCtl(proxy)}${presets()}
+  const left = `<div class="col"><h3>服务器</h3><div class="lgrid">${memCtl(proxy)}
       <div class="fld g-path"><span class="lb">存放位置</span><div class="pathf" id="spath" data-act="root" title="${esc(pathTip())}">${pathNote()}</div></div>
       ${proxy ? "" : `<div class="fld g-port"><span class="lb">端口</span><div class="iwrap${portOk() ? "" : " bad"}" id="pwrap">`
         + `<input class="inp${portOk() ? "" : " bad"}" id="sport" inputmode="numeric" value="${esc(SET.port)}"><span id="pst">${portState()}</span></div></div>`}
@@ -1147,6 +1162,8 @@ function render() {
   const chips = document.querySelector(".chips"); if (chips) { chipScroll(chips); placeChipHL(false); }
   document.querySelectorAll(".seg").forEach(el => placeSeg(el, false));
   placeVia(false); placePlat(false); paintMem();
+  document.body.classList.toggle("on-s3", names[step] === "最后设置一下");
+  document.querySelectorAll(".sim [data-ram]").forEach(x => x.classList.toggle("on", +x.dataset.ram === RAMK));
   const wh = document.getElementById("whint"); if (wh) wh.dataset.txt = whoHint()[1];
   document.getElementById("agrid")?.addEventListener("scroll", moreCards, { passive: true });
   cartMeta();
@@ -1413,7 +1430,7 @@ function scrollbar(w) {
 }
 document.getElementById("page").addEventListener("click", e => {
   if (e.target.closest("a.ext")) return; // 卡片上的「去 Modrinth 看介绍」：照常新开页面，不算点了卡片
-  const sg = e.target.closest(".seg:not([data-mpseg]) span"), tgl = e.target.closest("[data-tg]"), eu = e.target.closest("[data-eula]");
+  const sg = e.target.closest(".seg span"), tgl = e.target.closest("[data-tg]"), eu = e.target.closest("[data-eula]");
   if (sg) { const box = sg.parentElement; if (sg.classList.contains("on")) return; SET[box.dataset.seg] = sg.dataset.v;
     box.querySelectorAll("span").forEach(x => x.classList.toggle("on", x === sg)); placeSeg(box, true); return; }
   if (tgl) { const k = tgl.dataset.tg; SET[k] = typeof SET[k] === "string" ? (SET[k] === "1" ? "0" : "1") : !SET[k]; tgl.classList.toggle("on", isOn(SET[k])); afterWho(k); return; }
@@ -1432,7 +1449,8 @@ document.getElementById("page").addEventListener("click", e => {
   }
   if (e.target.closest(".names")) { document.getElementById("wlname")?.focus(); return; }
   if (eu && !e.target.closest("a")) { SET.eula = !SET.eula; eu.classList.toggle("on", SET.eula); eu.querySelector(".tg")?.classList.toggle("on", SET.eula); if (SET.eula) eu.classList.remove("bad"); return; }
-  const mp = e.target.closest("[data-mp]"); if (mp) { if (!mp.classList.contains("dis")) setMem(+mp.dataset.mp); return; }
+  const mp = e.target.closest("[data-mp]"); if (mp) { if (!mp.disabled) setMem(+mp.dataset.mp); return; }
+  const ms = e.target.closest("[data-mstep]"); if (ms) { if (!ms.disabled) setMem(memClamp(SET.mem + 512 * +ms.dataset.mstep)); return; }
   if (e.target.closest('[data-act="root"]')) return; // 草图里不真弹选文件夹的窗口
   if (e.target.closest('[data-act="unicon"]')) { SET.icon = ""; repaintAvatar(); return; }
   if (e.target.closest('[data-act="icon"]')) { pickIcon(); return; }
@@ -1459,7 +1477,6 @@ document.getElementById("page").addEventListener("input", e => {
     SET.port = t.value.trim(); t.classList.toggle("bad", !portOk()); document.getElementById("pwrap").classList.toggle("bad", !portOk());
     const st = document.getElementById("pst"); st.innerHTML = portState(); KIT.hydrate(st);
   }
-  else if (t.id === "smemn") { if (t.value !== "") setMem(memClamp(t.value)); }
   else if (t.id === "smotd") SET.motd = t.value;
   else if (t.id === "fhost" || t.id === "fport" || t.id === "ftoken") { LINK.frps[{ fhost: "host", fport: "port", ftoken: "token" }[t.id]] = t.value; t.classList.remove("bad"); }
   else if (t.id === "wlname") {
@@ -1473,8 +1490,11 @@ document.getElementById("page").addEventListener("keydown", e => {
   if (e.key === "Enter" || e.key === " " || e.key === ",") { e.preventDefault(); addName(t.value); }
   else if (e.key === "Backspace" && !t.value && LINK.names.length) removeName(LINK.names[LINK.names.length - 1]);
 });
-// 数字框改完（失焦、回车）：照程序把数字框也收进上下限
-document.getElementById("page").addEventListener("change", e => { if (e.target.id === "smemn") e.target.value = SET.mem; });
+// 草图里换「本机内存」：换一台机器，分配回到默认，重画这一页
+document.querySelector(".sim").addEventListener("click", e => {
+  const x = e.target.closest("[data-ram]"); if (!x || +x.dataset.ram === RAMK) return;
+  setMachine(+x.dataset.ram); SET.memTouched = false; render();
+});
 // 内存那排格子：点、拖
 document.getElementById("page").addEventListener("pointerdown", e => {
   const bar = e.target.closest("#smbar"); if (!bar || e.button !== 0) return;
@@ -1486,8 +1506,8 @@ document.getElementById("page").addEventListener("pointerdown", e => {
 // 方向键一次一格，Home 最少、End 最多
 document.getElementById("page").addEventListener("keydown", e => {
   if (e.target.id !== "smbar") return;
-  const up = (Math.floor(SET.mem / CELL_MB) + 1) * CELL_MB, down = (Math.ceil(SET.mem / CELL_MB) - 1) * CELL_MB; // 不在整格上（比如 512、5000）时先走到相邻的整格
-  const map = { ArrowRight: up, ArrowUp: up, ArrowLeft: down, ArrowDown: down, Home: 512, End: MEM_MAX };
+  const up = SET.mem + 512, down = SET.mem - 512; // 一次 0.5 GB
+  const map = { ArrowRight: up, ArrowUp: up, ArrowLeft: down, ArrowDown: down, Home: 512, End: MEM_CAP };
   if (!(e.key in map)) return;
   e.preventDefault(); setMem(memClamp(map[e.key]));
 });
