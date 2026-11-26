@@ -119,7 +119,9 @@ func shellOpenURL(target string) error {
 var procShellExecuteExW = windows.NewLazySystemDLL("shell32.dll").NewProc("ShellExecuteExW")
 
 // shellExecuteInfo 对应 Windows 的 SHELLEXECUTEINFOW（x/sys 里没有）。字段的顺序和类型照 C 的定义写，
-// 中间的对齐 Go 会照样补上；hIcon 和 hMonitor 在 C 里共用一个位置。
+// 中间的对齐 Go 会照样补上；hIcon 和 hMonitor 在 C 里共用一个位置。64 位下 112 字节、hProcess 在第 104 字节，
+// 32 位下 60 字节（openurl_windows_test.go 的 TestShellExecuteInfoLayout 核对）。
+// 这里用到的 fMask 都放在下面这一组：打开网址用 NOASYNC | FLAG_NO_UI，以管理员身份跑 PowerShell（defender_windows.go）再加 NOCLOSEPROCESS。
 type shellExecuteInfo struct {
 	cbSize       uint32
 	fMask        uint32
@@ -139,10 +141,12 @@ type shellExecuteInfo struct {
 }
 
 const (
-	// seeMaskNoAsync 等交给外壳扩展的活儿（DDE、COM 激活）做完再返回。我们在后台线程上调、调完就撤掉 COM，
+	// seeMaskNoCloseProcess（SEE_MASK_NOCLOSEPROCESS）交回新进程的句柄（hProcess），好等它结束、取退出码。
+	seeMaskNoCloseProcess = 0x00000040
+	// seeMaskNoAsync（SEE_MASK_NOASYNC）等交给外壳扩展的活儿（DDE、COM 激活）做完再返回。我们在后台线程上调、调完就撤掉 COM，
 	// 不带它的话，异步的那一半可能还没走完就断了，浏览器没打开，返回的却是成功（微软的文档就是这么要求的）。
 	seeMaskNoAsync = 0x00000100
-	// seeMaskFlagNoUI 出错时不弹系统的对话框（没有主窗口，它会跑到别的窗口后面去），由页面上的报错提示来说。
+	// seeMaskFlagNoUI（SEE_MASK_FLAG_NO_UI）出错时不弹系统的对话框（没有主窗口，它会跑到别的窗口后面去），由页面上的报错提示来说。
 	seeMaskFlagNoUI = 0x00000400
 )
 

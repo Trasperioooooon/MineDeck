@@ -40,19 +40,35 @@ func TestDefenderExclusionReadOnlyOverAPI(t *testing.T) {
 		t.Fatalf("设置页应从 /api/app 读到记录和程序数据文件夹：%+v，base %q", r, got.Data.Base)
 	}
 
+	intact := func(what string) {
+		t.Helper()
+		if r := app.GetConfig().DefenderExclusion; r == nil || r.Path != app.Base || !r.At.Equal(at) {
+			t.Fatalf("%s 以后排除项的记录变了：%+v", what, r)
+		}
+	}
+	// 设置页别的保存只发改过的那几个键（app.config.set 的 configPatch 全是指针字段，在 UpdateConfig 的锁里改当前配置的副本），
+	// 没带这个键时记录原样留着，不会被写成空（写成空的话，已经加进系统的排除项界面上就再也撤销不了）
+	for _, body := range []string{`{"backupKeep":7}`, `{"chromeColor":"#112233"}`, `{"minimizeToTray":true}`, `{"source":"mirror"}`} {
+		e.call(t, "PUT", "/api/config", body, 200)
+		intact("PUT /api/config " + body)
+	}
+	if app.GetConfig().BackupKeep != 7 || app.GetConfig().ChromeColor != "#112233" {
+		t.Fatalf("别的设置应照常存上：%+v", app.GetConfig())
+	}
+	// 带着这个键也改不了它（伪造「已加入」、清空都不行）；局域网登录的手机走的是同一个接口
 	for _, body := range []string{
 		`{"defenderExclusion":null}`,
 		`{"defenderExclusion":{"path":"C:\\","at":"2026-01-01T00:00:00Z"}}`,
-		`{"backupKeep":7,"defenderExclusion":{"path":"D:\\x"}}`,
+		`{"backupKeep":8,"defenderExclusion":{"path":"D:\\x"}}`,
 	} {
 		req := httptest.NewRequest("PUT", "/api/config", strings.NewReader(body))
 		req.Host = "127.0.0.1"
 		req.RemoteAddr = "127.0.0.1:52000"
 		req.Header.Set("X-Token", Token)
-		e.h.ServeHTTP(httptest.NewRecorder(), req)
-		if r := app.GetConfig().DefenderExclusion; r == nil || r.Path != app.Base || !r.At.Equal(at) {
-			t.Fatalf("PUT /api/config %s 改动了排除项的记录：%+v", body, r)
-		}
+		rec := httptest.NewRecorder()
+		e.h.ServeHTTP(rec, req)
+		t.Logf("PUT /api/config %s → HTTP %d", body, rec.Code)
+		intact("PUT /api/config " + body)
 	}
 
 	// 撤销以后（宿主清掉记录）配置里就没有这个键：设置页据此显示「没加入」

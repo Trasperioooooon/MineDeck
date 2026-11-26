@@ -83,8 +83,8 @@ func openWebView(url string, sig chan os.Signal, minimized bool) (ok bool) {
 	})
 	// 「设置 → 存储位置」把程序数据文件夹加进 / 撤出 Windows 安全中心的排除项（见 defender_windows.go）。只有这里的页面调得到，
 	// 没登记进操作层：AI 助手、MCP 碰不到。页面只给 add / remove，路径由宿主自己定；UAC 等用户点完要一会儿，在后台做，
-	// 做完切回界面线程把结果交给页面（window.__mdDefenderDone）
-	w.Bind("hostDefenderExclusion", func(action string) error {
+	// 马上回一句 started 或 busy（上一次还没做完），做完切回界面线程把结果交给页面（window.__mdDefenderDone）
+	w.Bind("hostDefenderExclusion", func(action string) (string, error) {
 		return startDefenderExclusion(action, hwnd, func(r defenderResult) { w.Dispatch(func() { w.Eval(defenderDoneJS(r)) }) })
 	})
 	// 主窗口导航兜底（A89）：页面绕开上面的外链拦截、让主窗口自己跳走时（脚本改 location、file:// 之类），在 NavigationStarting 里取消，
