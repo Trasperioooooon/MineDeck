@@ -4259,7 +4259,7 @@ async function renderDetail(name, path = "console") {
           title="命令最短 5 分钟，备份最短 30 分钟，重启最短 60 分钟；最长 12 小时">
         <select id="sc-unit" style="width:80px" aria-label="间隔的单位" hidden><option value="60">小时</option><option value="1">分钟</option></select>
         <input type="text" id="sc-args" placeholder="命令内容（仅定时命令需要），如 say 大家好" style="flex:1;min-width:200px">
-        <input type="text" id="sc-group" list="sc-groups" maxlength="32" placeholder="文件夹（可不填）" aria-label="放进哪个文件夹（可不填）" style="width:140px">
+        <input type="text" id="sc-group" list="sc-groups" maxlength="32" placeholder="文件夹（可不填）" aria-label="放进哪个文件夹（可不填）" style="width:170px">
         <datalist id="sc-groups"></datalist>
         <button class="btn" id="sc-add">${icon("plus")} 添加</button>
       </div>
