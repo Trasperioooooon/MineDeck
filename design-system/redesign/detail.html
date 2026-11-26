@@ -26,15 +26,17 @@
   怎么回首页：胶囊里「主页」亮着，点它回首页（同 MASTER 11.6：点当前项回到这一块的起点）；页上不另放返回键。这是主会话选的，等作者说。
 
   控制台（11-27 第一稿）：程序里有的都画上（app.js 约 3888 行起、assistant.js 的报错横幅），摆法重排了。
-  面板最上面一排 36 高：左边过滤框（边打边筛，筛不到时终端正中一行淡字）和「自动滚动」开关；右边「字号和编码」（Aa）、复制全部、导出为 txt，
+  面板最上面一排 32 高（搜索框 32 高胶囊、图标按钮 28 见方圆角 4，同临时规范）：左边过滤框（边打边筛，筛不到时终端正中一行淡字）和「自动滚动」开关；右边「字号和编码」（Aa）、复制全部、导出为 txt，
   竖线后面是这一页的两个文件夹（崩溃报告、日志；代理端只有日志），原来贴在终端右上角，现在有了工具栏就放进来。
-  程序里字号的 A− A+ 和编码下拉都摆在工具栏上；这里收进 Aa 点开的小浮层（字号 9 到 22、一下 1；编码 自动 / UTF-8 / GBK，存进这台服务器的设置），
+  程序里字号的 A− A+ 和编码下拉都摆在工具栏上；这里收进 Aa 点开的小浮层（用新建向导第三步那套 40 高的步进和分段选：字号 9 到 22、一下 1；编码 自动 / UTF-8 / GBK，存进这台服务器的设置），
   因为都不常动。等作者定。
   下面是终端（双主题恒深，圆角 18）：日志从下往上排，多了在里面滚（细滚动条，同首页）；最底下命令行 40 高，补全浮在它上面
   （照程序：常用命令、白名单子命令、要玩家名的命令补在线玩家，最多 8 条；Tab 补全、↑↓ 选、Esc 关掉、回车发送），↑↓ 翻历史，在别处按 T 或 / 跳到这里。
   报错横幅（本地规则认出的问题）在程序里压在终端外面、上面，出来时整个终端往下挤；这里放进终端里、日志上面：终端本身一像素不动，
-  日志从下往上排，最新的几行和命令行也不动，只是上面露得少一点。一行 44 高：结论、「看详情和怎么修」、「让 AI 分析」（配了 AI 才有）、×；
-  展开是每个问题的详情、怎么修、日志里的原句，最多 236 高、在里面滚。左下角的切换条看几种横幅（都是 Forge，字照 internal/diag 的规则原话）。
+  日志从下往上排，最新的几行和命令行也不动，只是上面露得少一点。一行 44 高：结论、两个以上时一个「+1」、「怎么修」、「让 AI 分析」（配了 AI 才有）、×；
+  展开是每个问题的详情、怎么修、日志里的原句，最多 236 高、在里面滚；展开时标题行里的结论淡掉，全文写在下面第一条里（一句话只说一次）。
+  按键说明、「本地规则的分析，没有联网」、编码对之后的输出生效这几句只放悬停里。左下角的切换条看几种横幅（字照 internal/diag 的规则原话）；
+  「和页头重复」是开服没起来时程序现在的样子：横幅最前面多一条「上次没能启动」，和页头胶囊说同一件事，等作者定要不要去掉。
 -->
 <script>
 const STAR = "M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z";
@@ -190,29 +192,29 @@ window.EXTRA_ICONS = {
   .snav .subs button.on { color: var(--text); font-weight: 600; }
   .snav .subs button.on::before { content: ""; position: absolute; left: 22px; top: 13px; width: 6px; height: 6px; border-radius: 2px; background: var(--accent); }
 
-  /* ---- 控制台（11-27 第一稿）：面板里上面一排 36 高的工具（36 的一半 18，和面板上角同心），下面终端一栏（双主题恒深，圆角 18） ---- */
+  /* ---- 控制台（11-27 第一稿）：面板里上面一排 32 高的工具（搜索框 32 高胶囊、图标按钮 28 见方圆角 4，同临时规范），下面终端一栏（双主题恒深，圆角 18） ---- */
   .con { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
-  .ctb { flex: none; height: 36px; display: flex; align-items: center; gap: 4px; }
+  .ctb { flex: none; height: 32px; display: flex; align-items: center; gap: 4px; }
   .ctb .sp { flex: 1; }
-  .cs { display: flex; align-items: center; gap: 8px; width: 260px; height: 36px; box-sizing: border-box; padding: 0 4px 0 14px; margin-right: 6px; border-radius: 18px; flex: none;
+  .cs { display: flex; align-items: center; gap: 8px; width: 260px; height: 32px; box-sizing: border-box; padding: 0 4px 0 12px; margin-right: 6px; border-radius: 16px; flex: none;
         background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); color: var(--muted); cursor: text; }
   .cs:focus-within { box-shadow: inset 0 0 0 1.5px var(--accent); }
   .cs > .ico { width: 15px; height: 15px; flex: none; }
   .cs input { flex: 1; min-width: 0; border: 0; outline: 0; padding: 0; background: none; font: inherit; font-size: 13px; color: var(--text); }
   .cs input::placeholder { color: var(--faint); }
-  .cs .cx { width: 28px; height: 28px; border-radius: 14px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer; visibility: hidden; }
+  .cs .cx { width: 24px; height: 24px; border-radius: 12px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer; visibility: hidden; }
   .cs.has .cx { visibility: visible; }
   .cs .cx:hover { background: var(--hover); color: var(--text); }
   .cs .cx .ico { width: 14px; height: 14px; }
   /* 开关：同新建向导那颗（36 × 20，滑块 16） */
-  .tg { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px 0 8px; border: 0; border-radius: 18px; background: none; flex: none;
+  .tg { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px 0 8px; border: 0; border-radius: 16px; background: none; flex: none;
         font: inherit; font-size: 13px; color: var(--muted); cursor: pointer; }
   .tg:hover { color: var(--text); background: var(--hover); }
   .tg .sw { position: relative; width: 36px; height: 20px; border-radius: 10px; flex: none; background: color-mix(in srgb, var(--text) 18%, transparent); transition: background .2s; }
   .tg .sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 8px; background: var(--text); transition: transform .26s cubic-bezier(.3, .7, .2, 1); }
   .tg.on .sw { background: var(--accent-solid); }
   .tg.on .sw::after { transform: translateX(16px); background: var(--on-accent); }
-  .ctb .ib { width: 36px; height: 36px; border-radius: 18px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;
+  .ctb .ib { width: 28px; height: 28px; border-radius: 4px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;
              transition: background .15s, color .15s; }
   .ctb .ib:hover, .ctb .ib.open { background: var(--hover); color: var(--text); }
   .ctb .ib.done { color: var(--success-text); }
@@ -274,7 +276,13 @@ window.EXTRA_ICONS = {
   .dgf .fx { margin-top: 6px; font-weight: 600; color: var(--term-fg); }
   .dgf pre { margin: 6px 0 0; padding: 6px 10px; border-radius: 8px; background: color-mix(in srgb, #000 32%, transparent); font: 11.5px/18px var(--mono);
              white-space: pre-wrap; word-break: break-all; color: color-mix(in srgb, var(--term-fg) 70%, transparent); }
-  .dgn { font-size: 11.5px; color: color-mix(in srgb, var(--term-fg) 45%, transparent); }
+  /* 展开时标题行的结论淡掉，全文在下面第一条里（一句话只说一次） */
+  .dgt span { transition: opacity .2s; }
+  .dg.open .dgt span { opacity: 0; }
+  /* 两个以上的问题：同页头提示胶囊的「+1」 */
+  .dgk { height: 28px; min-width: 28px; padding: 0 9px; border: 0; border-radius: 14px; flex: none; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
+         background: color-mix(in srgb, var(--dc) 22%, transparent); color: var(--dc); }
+  .dgk:hover, .dg.open .dgk { background: color-mix(in srgb, var(--dc) 34%, transparent); }
 
   /* 命令行：40 高、圆角 10（离栏边 8，同心）；发送键 28、离边 6、圆角 4（10 − 6） */
   .cin { flex: none; height: 40px; border-radius: 10px; display: flex; align-items: center; gap: 8px; padding: 0 6px 0 12px; box-sizing: border-box;
@@ -294,29 +302,31 @@ window.EXTRA_ICONS = {
   .term .sg .si { height: 32px; display: flex; align-items: center; padding: 0 10px; border-radius: 10px; font: 12.5px var(--mono); color: var(--term-fg); cursor: pointer; }
   .term .sg .si:hover { background: color-mix(in srgb, var(--term-fg) 10%, transparent); }
   .term .sg .si.sel { background: color-mix(in srgb, var(--term-cmd) 20%, transparent); color: var(--term-cmd); }
-  .term .sg .sh { padding: 4px 10px 3px; font-size: 11px; color: color-mix(in srgb, var(--term-fg) 42%, transparent); }
 
-  /* 字号和编码：工具栏「Aa」点开的小浮层，样子同「···」菜单 */
-  .cpop { position: fixed; z-index: 50; width: 300px; padding: 5px; box-sizing: border-box; display: flex; flex-direction: column; gap: 1px;
+  /* 字号和编码：工具栏「Aa」点开的小浮层。外圆角 16、内边距 6，里面是表单那套 40 高、圆角 10 的步进和分段选（16 − 6，贴角的同心） */
+  .cpop { position: fixed; z-index: 50; width: 288px; padding: 6px; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px;
           border-radius: 16px; border: 1px solid var(--border); background: var(--overlay); box-shadow: var(--elev-3); }
   .cpop.enter { animation: dm-in .22s cubic-bezier(.2, .7, .2, 1) both; }
   .cpop.leave { animation: dm-out .09s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
-  .cpop .r { display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 5px 0 10px; border-radius: 10px; font-size: 13px; }
+  .cpop .r { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 40px; padding-left: 10px; font-size: 13px; }
   .cpop .r > span { color: var(--muted); }
-  .stp { display: flex; align-items: center; gap: 2px; }
-  .stp button { width: 30px; height: 30px; border-radius: 15px; border: 0; padding: 0; display: grid; place-items: center; background: var(--control); color: var(--text); cursor: pointer; }
-  .stp button:hover { background: var(--control-hov); }
-  .stp button:disabled { opacity: .4; cursor: not-allowed; }
-  .stp button:disabled:hover { background: var(--control); }
+  /* 步进：同新建向导第三步（两个按钮 28 见方、离框外沿 6、圆角 4） */
+  .stp { width: 196px; height: 40px; display: flex; align-items: center; justify-content: space-between; padding: 0 5px; border-radius: 10px; box-sizing: border-box;
+         background: var(--field); border: 1px solid var(--border); }
+  .stp button { width: 28px; height: 28px; border-radius: 4px; border: 0; padding: 0; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;
+                transition: background .15s, color .15s; }
+  .stp button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+  .stp button:disabled { opacity: .3; cursor: default; }
   .stp button .ico { width: 14px; height: 14px; }
-  .stp b { min-width: 46px; text-align: center; font: 600 13px var(--mono); }
-  .eseg { position: relative; display: flex; padding: 2px; border-radius: 15px; background: var(--control); }
-  .eseg .sgl { position: absolute; left: 0; top: 2px; height: 26px; border-radius: 13px; background: var(--accent-subtle);
+  .stp b { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  /* 分段选：同新建向导第三步（选中块离外框 4、圆角 6，滑过去） */
+  .eseg { position: relative; display: flex; width: 196px; height: 40px; padding: 3px; box-sizing: border-box; border-radius: 10px; background: var(--field); border: 1px solid var(--border); }
+  .eseg .sgl { position: absolute; left: 0; top: 3px; bottom: 3px; border-radius: 6px; background: var(--accent-subtle); pointer-events: none;
+               box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
                transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
-  .eseg button { position: relative; z-index: 1; height: 26px; padding: 0 11px; border: 0; border-radius: 13px; background: none; font: inherit; font-size: 12.5px; color: var(--muted); cursor: pointer; }
+  .eseg button { flex: 1; position: relative; z-index: 1; padding: 0; border: 0; border-radius: 6px; background: none; font: inherit; font-size: 13px; color: var(--muted); cursor: pointer; transition: color .2s; }
   .eseg button:hover { color: var(--text); }
   .eseg button.on { color: var(--accent-text); font-weight: 500; }
-  .cpop .nt { padding: 2px 10px 6px; font-size: 11.5px; line-height: 17px; color: var(--faint); }
 
   /* 草图专用：控制台横幅的几种样子（左下角，定了就删） */
   .sk2 { position: fixed; left: 16px; bottom: 30px; z-index: 6; }
@@ -426,7 +436,7 @@ if (QS.get("sub") && subsOf(tab)?.some(x => x[0] === QS.get("sub"))) subPick[tab
 function skBar() {
   const q4 = new URLSearchParams(location.search); q4.set("notice", "4"); q4.set("kind", "forge"); q4.delete("tab"); q4.delete("sub"); q4.delete("diag");
   const four = `<a href="?${q4}" class="${nNotice === 4 ? "on" : ""}" title="四种一起出来（整合包装的模组服才会有后两种），看浮层怎么滚">四条</a>`;
-  const link = (k, v, label, on) => { const q = new URLSearchParams(location.search); if (v === null) q.delete(k); else q.set(k, v); if (k === "kind") { q.delete("tab"); q.delete("sub"); q.delete("diag"); } return `<a href="?${q}" class="${on ? "on" : ""}">${label}</a>`; };
+  const link = (k, v, label, on) => { const q = new URLSearchParams(location.search); if (v === null) q.delete(k); else q.set(k, v); if (k === "kind" || k === "notice") q.delete("diag"); if (k === "kind") { q.delete("tab"); q.delete("sub"); } return `<a href="?${q}" class="${on ? "on" : ""}">${label}</a>`; };
   $("#sk").innerHTML = `<b>草图</b><b>核心</b>${link("kind", null, "Paper", kind === "paper")}${link("kind", "forge", "Forge", kind === "forge")}${link("kind", "vanilla", "原版", kind === "vanilla")}${link("kind", "proxy", "代理端", kind === "proxy")}<i></i>`
     + `<b>状态</b>${link("st", null, "运行中", st === "running" && !nNotice)}${link("st", "starting", "启动中", st === "starting")}${link("st", "stopped", "已停止", st === "stopped" && !nNotice)}<i></i>`
     + `<b>常驻提示</b>${link("notice", null, "无", !nNotice)}${link("notice", "1", "一条", nNotice === 1)}${link("notice", "2", "两条", nNotice === 2)}${four}<i></i>`
@@ -434,13 +444,15 @@ function skBar() {
   // 左下角：控制台报错横幅的几种（都切到 Forge；没开起来、崩了的几种是已停止）
   const dl = (v, label, title) => {
     const q = new URLSearchParams(location.search);
-    if (v) { q.set("diag", v); q.set("kind", "forge"); q.delete("notice"); q.set("tab", "console"); q.delete("sub"); if (v === "warn") q.delete("st"); else q.set("st", "stopped"); }
+    if (v === "dup") { q.set("diag", v); q.set("notice", "1"); q.set("tab", "console"); q.delete("sub"); q.delete("st"); }
+    else if (v) { q.set("diag", v); q.set("kind", "forge"); q.delete("notice"); q.set("tab", "console"); q.delete("sub"); if (v === "warn") q.delete("st"); else q.set("st", "stopped"); }
     else q.delete("diag");
     return `<a href="?${q}" class="${DIAG === v ? "on" : ""}"${title ? ` title="${title}"` : ""}>${label}</a>`;
   };
   const qa = new URLSearchParams(location.search); if (AI_ON) qa.set("ai", "0"); else qa.delete("ai");
   $("#sk2").innerHTML = `<b>控制台横幅</b>${dl("", "无")}${dl("err", "报错", "缺前置模组，没开起来")}${dl("multi", "两个问题", "同一次开服里：好友的模组对不上进不来，后来卡死被看门狗关掉")}`
-    + `${dl("warn", "提醒", "还开着，好友的模组对不上进不来")}${dl("crash", "没认出", "异常退出了，本地规则没认出是什么原因")}<i></i>`
+    + `${dl("warn", "提醒", "还开着，好友的模组对不上进不来")}${dl("crash", "没认出", "异常退出了，本地规则没认出是什么原因")}`
+    + `${dl("dup", "和页头重复", "开服没起来时程序现在的样子：横幅最前面多一条「上次没能启动」，和页头的提示胶囊说同一件事")}<i></i>`
     + `<a href="?${qa}" class="${AI_ON ? "" : "on"}" title="没配 AI 时横幅上没有「让 AI 分析」">没配 AI</a>`;
 }
 
@@ -559,7 +571,8 @@ function folders() {
 // 程序里的控制台（app.js 约 3888 行起）有：过滤、自动滚动、编码、字号、复制全部、导出 txt，报错横幅（assistant.js，本地规则的结论；配了 AI 才有「让 AI 分析」），
 // 命令行（补全、翻历史、回车发送）。功能照着画全；改了做法的写在开头注释和计划书里，等作者定。
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-const DIAG = ["err", "multi", "warn", "crash"].includes(QS.get("diag")) ? QS.get("diag") : "";
+const DIAG = ["err", "multi", "warn", "crash", "dup"].includes(QS.get("diag")) ? QS.get("diag") : "";
+const FAIL_LINE = `[MineDeck] 没能启动：端口 ${S.port} 被你的服务器「空岛生存」占着，先停掉它，或者给这台换个端口`; // inst/portcheck.go 的原话
 const AI_ON = QS.get("ai") !== "0";
 const CON = { auto: true, fs: 12.5, enc: "auto", q: "", hist: [], hi: -1, draft: "", sugg: [], si: -1, extra: [], dgOpen: false, dgClosed: false };
 // 示例日志都取自仓库里 internal/diag/testdata 的真日志（去掉了几行专门用来考规则的玩家聊天；端口、版本号换成这台服务器的）；代理端那几行照 Velocity 的格式
@@ -625,6 +638,7 @@ function consoleLog() {
   L = port(L);
   if (st === "starting") L = L.slice(0, Math.max(1, done(L)));
   if (st === "stopped") L = [...L, ...STOP];
+  if (nNotice) L = [...L, FAIL_LINE]; // 页头有「上次没能启动」时，控制台最后一行是这次没起来的原因（进程没起来，所以没有「启动:」那行）
   return L;
 }
 // 本地规则的结论：标题、结论、详情、怎么修都照 internal/diag/rules.go、diag.go 的原话，证据是上面日志里的行
@@ -639,22 +653,25 @@ const F_CRASH = { title: "服务器异常退出", summary: "服务器自己退�
 const F_WATCHDOG = { title: "卡死被看门狗关掉", summary: "服务器的一次 tick 卡了 60.00 秒，看门狗认为它死机了，把服务器强制关掉了",
   fixes: ["看崩溃报告里「Server thread」的堆栈，找出卡住主线程的模组，更新或禁用它", "生成新地形太重时，可以先预生成区块，或减小视距（view-distance）",
     "最后的办法：在 server.properties 里把 max-tick-time 设成 -1（关掉看门狗；卡住时不会自动重启）"], evidence: [WATCHDOG[1], WATCHDOG[2]] };
-const FINDINGS = { err: [F_MISSING], multi: [F_WATCHDOG, F_MISMATCH], warn: [F_MISMATCH], crash: [F_CRASH] }[DIAG] || [];
+const F_STARTFAIL = { title: "上次没能启动", summary: FAIL_LINE.replace("[MineDeck] 没能启动：", ""),
+  fixes: ["按这句说的原因处理好，再点「启动」", "启动成功以后这条就不再出现"] };
+const FINDINGS = { err: [F_MISSING], multi: [F_WATCHDOG, F_MISMATCH], warn: [F_MISMATCH], crash: [F_CRASH], dup: [F_STARTFAIL] }[DIAG] || [];
 const lineCls = l => l.startsWith(">") || l.startsWith("[MineDeck]") ? "cmd-echo" : /ERROR|SEVERE|FATAL|Exception|^\tat |^Caused by/.test(l) ? "lv-err" : /WARN/.test(l) ? "lv-warn" : "";
 const lineHTML = l => `<div class="${lineCls(l)}">${esc(l)}</div>`;
 function bannerHTML() {
   if (!FINDINGS.length || CON.dgClosed) return "";
   const top = FINDINGS[0], warn = FINDINGS.every(f => f.warn), n = FINDINGS.length;
-  const body = FINDINGS.map(f => `<div class="dgf"><div class="ft">${esc(f.title)}${f.warn ? `<span class="tag">提醒</span>` : ""}</div><div>${esc(f.summary)}</div>`
+  const body = FINDINGS.map((f, i) => `<div class="dgf">${i ? `<div class="ft">${esc(f.title)}${f.warn ? `<span class="tag">提醒</span>` : ""}</div>` : ""}<div>${esc(f.summary)}</div>`
     + (f.details?.length ? `<ul>${f.details.map(d => `<li>${esc(d)}</li>`).join("")}</ul>` : "")
     + `<div class="fx">怎么修</div><ol>${f.fixes.map(d => `<li>${esc(d)}</li>`).join("")}</ol>`
     + (f.evidence?.length ? `<pre>${esc(f.evidence.join("\n"))}</pre>` : "") + `</div>`).join("");
   return `<div class="dg${warn ? " warn" : ""}${CON.dgOpen ? " open" : ""}" id="dg" role="status"><div class="dgh"><span class="dgi" title="MineDeck 本地规则的分析，没有联网"><i data-ic="warn"></i></span>`
     + `<div class="dgt"><b>${esc(top.title)}</b><span>${esc(top.summary)}</span></div>`
-    + `<button class="dgm" aria-expanded="${CON.dgOpen}">${n > 1 ? `一共认出 ${n} 个问题 · ` : ""}看详情和怎么修<i data-ic="chevronDown"></i></button>`
+    + (n > 1 ? `<button class="dgk" title="一共认出 ${n} 个问题">+${n - 1}</button>` : "")
+    + `<button class="dgm" aria-expanded="${CON.dgOpen}" title="看详情和怎么修">怎么修<i data-ic="chevronDown"></i></button>`
     + (AI_ON ? `<button class="dga"><i data-ic="sparkle"></i>让 AI 分析</button>` : "")
     + `<button class="dgx" title="不再提示这一次的问题"><i data-ic="x"></i></button></div>`
-    + `<div class="dgc"><div class="dgb lwrap" id="dgb"><div class="list">${body}<div class="dgn">以上是 MineDeck 本地规则的分析，没有联网。</div></div><span class="thumb"></span></div></div></div>`;
+    + `<div class="dgc"><div class="dgb lwrap" id="dgb"><div class="list">${body}</div><span class="thumb"></span></div></div></div>`;
 }
 function consoleHTML() {
   const F = folderList();
@@ -725,7 +742,7 @@ function renderSugg() {
   if (!CON.sugg.length) { sg?.remove(); return; }
   if (!sg) { sg = Object.assign(document.createElement("div"), { className: "sg" }); sg.setAttribute("role", "listbox"); $(".term").appendChild(sg); }
   sg.innerHTML = CON.sugg.map((s, i) => `<div class="si${i === CON.si ? " sel" : ""}" data-si="${i}" role="option">${esc(s.label)}</div>`).join("")
-    + `<div class="sh">Tab 补全 · ↑↓ 选 · Esc 关掉</div>`;
+;
 }
 const closeSugg = () => { CON.sugg = []; CON.si = -1; renderSugg(); };
 const updateSugg = () => { CON.sugg = computeSugg($("#cin").value); CON.si = -1; renderSugg(); };
@@ -767,8 +784,7 @@ function toggleCpop(btn) {
   if (cpop) return closeCpop();
   cpop = Object.assign(document.createElement("div"), { className: "cpop enter" }); cpop.setAttribute("role", "dialog"); cpop.setAttribute("aria-label", "字号和编码");
   cpop.innerHTML = `<div class="r"><span>字号</span><div class="stp"><button data-fs="-1" title="缩小字号"><i data-ic="minus"></i></button><b id="cfs">${CON.fs}</b><button data-fs="1" title="放大字号"><i data-ic="plus"></i></button></div></div>`
-    + `<div class="r"><span>编码</span><div class="eseg" id="eseg"><span class="sgl"></span>${[["auto", "自动"], ["utf-8", "UTF-8"], ["gbk", "GBK"]].map(([v, l]) => `<button data-enc="${v}" class="${CON.enc === v ? "on" : ""}">${l}</button>`).join("")}</div></div>`
-    + `<div class="nt">编码存进这台服务器的设置，对之后的新输出生效；中文乱码时换成 GBK 试试</div>`;
+    + `<div class="r"><span>编码</span><div class="eseg" id="eseg" title="存进这台服务器的设置，对之后的新输出生效；中文乱码时换成 GBK 试试"><span class="sgl"></span>${[["auto", "自动"], ["utf-8", "UTF-8"], ["gbk", "GBK"]].map(([v, l]) => `<button data-enc="${v}" class="${CON.enc === v ? "on" : ""}">${l}</button>`).join("")}</div></div>`;
   document.body.appendChild(cpop); KIT.hydrate(cpop);
   const r = btn.getBoundingClientRect();
   cpop.style.left = Math.round(r.right - cpop.offsetWidth) + "px"; cpop.style.top = Math.round(r.bottom + 6) + "px";
@@ -794,7 +810,7 @@ document.addEventListener("click", e => {
   const cp = e.target.closest("#ccopy");
   if (cp) { cp.classList.add("done"); cp.innerHTML = KIT.icon("check"); setTimeout(() => { cp.classList.remove("done"); cp.innerHTML = KIT.icon("copy"); }, 1200); return; } // 复制后换成勾 1.2 秒
   if (e.target.closest(".snd")) { sendCmd(); $("#cin").focus(); return; }
-  if (e.target.closest(".dgm")) { CON.dgOpen = !CON.dgOpen; const d = $("#dg"); d.classList.toggle("open", CON.dgOpen); $(".dgm", d).setAttribute("aria-expanded", CON.dgOpen); if (CON.dgOpen) thinBar($("#dgb")); return; }
+  if (e.target.closest(".dgm, .dgk")) { CON.dgOpen = !CON.dgOpen; const d = $("#dg"); d.classList.toggle("open", CON.dgOpen); $(".dgm", d).setAttribute("aria-expanded", CON.dgOpen); if (CON.dgOpen) thinBar($("#dgb")); return; }
   if (e.target.closest(".dgx")) { CON.dgClosed = true; const d = $("#dg"); d.classList.add("gone"); setTimeout(() => d.remove(), 140); return; }
 });
 function content() {
