@@ -1350,7 +1350,7 @@ function lanPage() {
   return lan + frp;
 }
 // 自建 frps 那块的大字：服务器地址加公网端口（空着用本地端口），边填边拼；地址没填时用淡字占着位置，复制灰着。
-// 服务器地址在上面大字和下面框里各出现一次，作者 11-26 看过这个取舍，要拼好的这一串（朋友要的是整串，不是两个框）
+// 服务器地址在上面大字和下面框里各出现一次，和「一个值只说一次」有出入：作者 11-26 说「加上」，但这个出入当时没向作者提过，留不留等作者定（朋友要的是整串，不是两个框）
 function frpsAddr() {
   const h = LINK.frps.host.trim(), port = LINK.frps.remote.trim() || (isProxyCore() ? "" : SET.port); // 代理端的本地端口启动后才知道，只写到冒号（同局域网那行）
   return (h ? `<span class="mono" title="${esc(h)}:${esc(port)}">${esc(h)}:${esc(port)}</span>` : `<span class="ph">服务器地址</span><span class="mono">:${esc(port)}</span>`)
