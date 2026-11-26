@@ -145,7 +145,14 @@
   .chip { height: 28px; padding: 0 10px; border-radius: 14px; display: inline-flex; align-items: center; font-size: 12.5px; color: var(--muted); cursor: pointer;
           white-space: nowrap; flex: none; box-shadow: inset 0 0 0 1px var(--border); transition: color .2s, background .2s, box-shadow .2s; }
   .chip:hover { color: var(--text); }
-  .chip.on { color: var(--accent-text); background: var(--accent-subtle); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); font-weight: 600; }
+  /* 选中的分类：底色和细框是单独的一块，换分类时平滑滑过去、宽度跟着变（作者 11-26，同第一步核心、版本的高亮框）。
+     选中的那个只换字色、去掉自己的灰框，字重不变（变粗会把后面的分类挤开，选中框量出来的宽度就不对了） */
+  .chips { position: relative; }
+  .chip { position: relative; z-index: 1; font-weight: 500; }
+  .chip.on { color: var(--accent-text); box-shadow: none; }
+  .chl { position: absolute; left: 0; top: 0; height: 28px; border-radius: 14px; background: var(--accent-subtle); z-index: 0; pointer-events: none;
+         box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+         transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
   /* 卡片：图标 40、名字和下载量一行、一句话一行，右边一个圆的 ＋；加进清单以后卡片底色换强调色、＋ 变 ✓（和第一步选中的高亮框同一个样子） */
   .list.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-content: start; }
   .mod { display: flex; align-items: center; gap: 12px; height: 74px; padding: 0 12px; border-radius: 10px; box-sizing: border-box; min-width: 0; cursor: pointer;
@@ -421,7 +428,7 @@ function step2() {
   const chips = [["", "全部"], ...ACATS[noun]];
   return `<div class="addon">
     <div class="col browse"><h3><span id="atitle">${atitle()}</span><span class="sp"></span><label class="findin"><i data-ic="search"></i><input id="aq" placeholder="搜索${noun}（建议英文名）" value="${esc(aq)}" autocomplete="off"></label></h3>
-      <div class="chips">${chips.map(([k, t]) => `<span class="chip${k === acat ? " on" : ""}" data-cat="${k}">${t}</span>`).join("")}</div>
+      <div class="chips"><i class="chl"></i>${chips.map(([k, t]) => `<span class="chip${k === acat ? " on" : ""}" data-cat="${k}">${t}</span>`).join("")}</div>
       <div class="lwrap"><div class="list grid" id="agrid">${gridHTML()}</div><i class="thumb"></i></div></div>
     <div class="col cart"><h3>待装清单<span class="cnt" id="acnt"></span><span class="sp"></span><span class="clr" data-clear>清空</span></h3>
       <div class="lwrap"><div class="list" id="alist"><div class="cempty"><b>暂未选择任何${noun}</b>点击左侧 ＋ 添加，前置依赖将自动补全。<br>可跳过，建服后随时管理。</div>${picked.map(crowHTML).join("")}</div><i class="thumb"></i></div>
@@ -479,6 +486,7 @@ function regrid(dir = 0) {
   const g = document.getElementById("agrid"), easeIn = "cubic-bezier(.4, 0, 1, 1)", easeOut = "cubic-bezier(.2, .7, .2, 1)";
   document.getElementById("atitle").innerHTML = atitle();
   document.querySelectorAll(".chip").forEach(c => c.classList.toggle("on", c.dataset.cat === acat));
+  placeChipHL(true);
   g.getAnimations({ subtree: true }).forEach(a => a.cancel());
   const a = g.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: dir ? `translateX(${-8 * dir}px)` : "none" }], { duration: 90, easing: easeIn, fill: "forwards" });
   a.onfinish = () => {
@@ -495,6 +503,14 @@ function navLabel(force) {
   const want = step === names.length - 1 ? `<i data-ic="check"></i>创建服务器` : `下一步<i data-ic="chevronRight"></i>`;
   if (!force && b.dataset.label === want) return;
   b.dataset.label = want; b.innerHTML = want; KIT.hydrate(b);
+}
+// 分类的选中框挪到选中的那个上：animate 为 false 时直接放过去（刚画出来的时候）
+function placeChipHL(animate) {
+  const hl = document.querySelector(".chl"), on = document.querySelector(".chip.on");
+  if (!hl || !on) return;
+  if (!animate) hl.style.transition = "none";
+  hl.style.transform = `translateX(${on.offsetLeft}px)`; hl.style.width = on.offsetWidth + "px";
+  if (!animate) { void hl.offsetWidth; hl.style.transition = ""; }
 }
 // 分类片放不下时：滚轮竖着滚也让它横着走，哪头还有就在哪头渐隐
 function chipScroll(c) {
@@ -516,7 +532,7 @@ function render() {
   navLabel(true);
   KIT.hydrate(document.body);
   document.querySelectorAll(".addon .lwrap").forEach(scrollbar);
-  const chips = document.querySelector(".chips"); if (chips) chipScroll(chips);
+  const chips = document.querySelector(".chips"); if (chips) { chipScroll(chips); placeChipHL(false); }
   document.getElementById("agrid")?.addEventListener("scroll", moreCards, { passive: true });
   cartMeta();
   settleVersions();
