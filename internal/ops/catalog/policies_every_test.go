@@ -10,6 +10,20 @@ import (
 	"minedeck/internal/ops"
 )
 
+// 预览里写的任务按实际怎么跑的写（同调度用的 inst.Schedule.Interval）：手改配置留下时刻、间隔都有的按时刻跑，
+// 就写时刻；间隔越界的按最短、最长跑，就写兜底以后的间隔。
+func TestSchedTextUsesInterval(t *testing.T) {
+	got := schedText([]inst.Schedule{
+		{Type: "backup", At: "04:00", Every: 60},
+		{Type: "backup", Every: 1, Group: "存档"},
+		{Type: "command", Every: 1440, Args: "say hi"},
+		{Type: "restart", At: "05:00"},
+	})
+	if want := "04:00 backup；「存档」每隔 30 分钟 backup；每隔 720 分钟 command：say hi；05:00 restart"; got != want {
+		t.Errorf("预览文字：%s，应为 %s", got, want)
+	}
+}
+
 // 定时任务加了每隔多久（every）和文件夹（group）以后（2026-11-27）：AI、MCP 经 instance.policies.set 能加、能挪文件夹、能删，
 // 预览里写出间隔和文件夹；老的 {type, at, args} 照旧能用；不合格的直接 400，连提案都不生成。
 func TestPoliciesEveryAndGroup(t *testing.T) {

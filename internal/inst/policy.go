@@ -103,6 +103,8 @@ func checkSchedules(in []Schedule) ([]Schedule, error) {
 		switch {
 		case s.Every != 0 && strings.TrimSpace(s.At) != "":
 			return nil, fmt.Errorf("每天几点（at）和每隔多久（every）只能填一样")
+		case s.Every == 0 && strings.TrimSpace(s.At) == "": // AI、MCP 两样都漏填时，说清楚要填什么，而不是「时间格式应为 HH:MM: 」
+			return nil, fmt.Errorf("每天几点（at）和每隔多久（every）要填一样")
 		case s.Every < 0:
 			return nil, fmt.Errorf("间隔应为正整数（分钟）: %d", s.Every)
 		case s.Every > 0:
@@ -150,9 +152,10 @@ func sameSchedule(r, s Schedule) bool {
 	return ok && rt == st
 }
 
-// everyOf 调度认的间隔（分钟），0 表示按每天的时刻。存着的任务不再检查（手改过的也原样留着，见 PolicyPatch.Apply），
+// Interval 调度实际用的间隔（分钟），0 表示按每天的时刻。存着的任务不再检查（手改过的也原样留着，见 PolicyPatch.Apply），
 // 所以这里兜底：时刻和间隔都有的，照老写法按时刻算；间隔越界的，按最短、最长算，不让手改出来的「每 1 分钟备份」把备份全挤掉。
-func everyOf(s Schedule) int {
+// 调度、操作记录、AI 预览里写的任务都用它，写出来的就是实际怎么跑的。
+func (s Schedule) Interval() int {
 	if s.Every <= 0 || strings.TrimSpace(s.At) != "" {
 		return 0
 	}
@@ -162,7 +165,7 @@ func everyOf(s Schedule) int {
 // dueAt 这条任务在 now 这一分钟该不该执行。每天定时的：时刻对得上。每隔多久的：从当天 0 点起过了的分钟数是间隔的整数倍
 // （每隔 60 分钟就是每个整点，每隔 90 分钟是 0:00、1:30、3:00……；除不尽一天的，到 0 点重新数，最后一段短一些）。
 func dueAt(s Schedule, now time.Time) bool {
-	if every := everyOf(s); every > 0 {
+	if every := s.Interval(); every > 0 {
 		return (now.Hour()*60+now.Minute())%every == 0
 	}
 	at, _ := normHHMM(s.At) // 老配置里可能存着没补零的「9:05」
@@ -319,26 +322,40 @@ func (m *Manager) startScheduler() {
 	}()
 }
 
-// schedState 调度循环自己记的东西。fired、seen 只有调度那一个 goroutine 读写；busy 执行完的 goroutine 也要改，单独上锁。
-// 都按任务的内容认（实例、类型、时刻、间隔、命令，再加上第几条一样的），不按第几条：删掉前面一条，后面的序号全变了，
-// 原来会把刚执行过的当成没执行过、或者反过来。文件夹不算进去：这一分钟里把任务挪个文件夹，不该再执行一次。
+// schedState 调度循环自己记的东西。minute、fired、seen 只有调度那一个 goroutine 读写；busy 执行完的 goroutine 也要改，单独上锁。
 type schedState struct {
-	fired map[string]string         // 任务 → 上次执行在哪一分钟（"2006-01-02 15:04"）：20 秒看一次，同一分钟只执行一次
-	seen  map[string]*backupSeen    // 每隔多久的备份 → 服务器开没开过，见 schedTick
-	run   func(*Instance, Schedule) // 执行一条任务；测试里换成假的
+	minute string                    // 上一轮看的是哪一分钟（"2006-01-02 15:04"）
+	fired  map[string]string         // 交出去过的任务、「服务器 + 类型」→ 在哪一分钟；只留这一分钟和上一分钟的，见 schedTick
+	seen   map[*Instance]*backupSeen // 有每隔多久备份的服务器 → 世界自上次定时备份以后变没变过，见 schedTick
+	run    func(*Instance, Schedule) // 执行一条任务；测试里换成假的
 
 	busyMu sync.Mutex
-	busy   map[string]bool // 还没做完的任务（见 schedTick）
+	busy   map[string]bool // 还没做完的：备份、重启按「服务器 + 类型」，命令按任务（见 schedTick）
 }
 
-// backupSeen 每隔多久的备份上一次到点时服务器的运行代际，以及那以后看到过它开着没有。
+// backupSeen 一台服务器上一次交出定时备份时的运行代际，以及那以后看到过它开着没有。
 type backupSeen struct {
 	gen    int64
 	active bool
 }
 
 func newSchedState(run func(*Instance, Schedule)) *schedState {
-	return &schedState{fired: map[string]string{}, seen: map[string]*backupSeen{}, busy: map[string]bool{}, run: run}
+	return &schedState{fired: map[string]string{}, seen: map[*Instance]*backupSeen{}, busy: map[string]bool{}, run: run}
+}
+
+// schedID 调度认任务用的内容：实例、类型、时刻、间隔、命令（schedTick 再加上第几条一样的）。不按第几条认：删掉前面一条，
+// 后面的序号全变了，原来会把刚执行过的当成没执行过、或者反过来。时刻、间隔都按实际怎么跑的写（补零的时刻、Interval），
+// 手改的「9:05」在这一分钟里被界面整表保存规整成「09:05」，也还认得出是同一条。文件夹不算：这一分钟里挪个文件夹，不该再执行一次。
+func schedID(name string, s Schedule) string {
+	at, ok := normHHMM(s.At)
+	if !ok {
+		at = strings.TrimSpace(s.At)
+	}
+	every := s.Interval()
+	if every > 0 {
+		at = ""
+	}
+	return fmt.Sprintf("%s|%s|%s|%d|%s", name, s.Type, at, every, s.Args)
 }
 
 // claim 登记这条任务开始执行；上一次还没做完就返回 false。
@@ -360,53 +377,82 @@ func (st *schedState) done(key string) {
 
 // schedTick 看一遍所有服务器的任务，把 now 这一分钟到点的交出去执行。
 //
-// 上一次还没做完的这次跳过：定时备份撞上启动、停止要等服务器稳定下来，最多能等十几分钟、再试两次，
-// 每隔 30 分钟的备份就可能叠上下一次，同一份世界接连压两遍。
+// 同一台服务器同一时刻只做一个备份、一个重启（按「服务器 + 类型」占位，不看时刻、间隔、命令）：
+//   - 这一分钟里已经交出去一个备份（比如每天 04:00 的和每小时的同时到点），别的备份这一分钟不再做，也不说什么——
+//     同一份世界接连压两遍没有用，还按保留份数多挤掉一份旧的；重启同理，两个重启叠在一起会停两次、起两次。
+//   - 上一次的还没做完就跳过这一次，在控制台说一声：定时备份撞上启动、停止要等服务器稳定下来，
+//     最多能等十几分钟、再试两次，每隔 30 分钟的备份就可能叠上下一次。
 //
 // 每隔多久的备份，服务器停着时不备份：世界没变，备出来的和上一份一样，还按保留份数把更早的（手动备份也算）挤掉，
-// 停一晚上就只剩一样的十份了。只在这几种情况备份：到点时开着；上次到点以后开过（这一段的改动还没备过，停下以后补一份）；
-// 上次到点以后又启动过（两次查看之间开了又停的，运行代际变了）。每天定时的备份照旧，停着也备。
-// 第一次看到这条任务（刚保存、程序刚启动）时从那一刻的样子算起：程序启动以后一直停着的服务器不备份。
+// 停一晚上就只剩一样的十份了。按服务器记（seen），不按任务记：说的是「世界自上次定时备份以后变没变过」，
+// 改间隔、删了再加、两条每隔多久的备份都共用这一份。只在这几种情况备份：到点时开着；上次定时备份以后开过
+// （这一段的改动还没备过，停下以后补一份）；上次定时备份以后又启动过（两次查看之间开了又停的，运行代际变了）。
+// 真把备份交出去了才算「备过了」：跳过的（上一次还没做完）不算，不然那一份要补的就丢了。每天定时的备份照旧，停着也备，
+// 它交出去了也算备过。第一次看到（刚加上每隔多久的备份、程序刚启动）时从那一刻的样子算起：程序启动以后一直停着的服务器不备份。
 func (m *Manager) schedTick(st *schedState, now time.Time) {
 	stamp := now.Format("2006-01-02 15:04")
+	if stamp != st.minute {
+		// fired 不一直攒着：只留这一分钟和上一分钟的（时钟往回拨一点，刚执行过的也还认得出来）
+		floor := min(stamp, st.minute)
+		for k, v := range st.fired {
+			if v < floor {
+				delete(st.fired, k)
+			}
+		}
+		st.minute = stamp
+	}
+	keepSeen := map[*Instance]bool{}
 	for _, i := range m.List() {
 		i.procMu.Lock()
 		scheds := slices.Clone(i.Policies.Schedules)
 		gen, state := i.runGen, i.state
 		i.procMu.Unlock()
 		on := state != "" && state != "stopped" // 运行中、启动中、停止中都算开着：世界可能在变
+		bs := st.seen[i]
+		if slices.ContainsFunc(scheds, func(s Schedule) bool { return s.Type == "backup" && s.Interval() > 0 }) {
+			keepSeen[i] = true
+			if bs == nil {
+				bs = &backupSeen{gen: gen}
+				st.seen[i] = bs
+			}
+			bs.active = bs.active || on
+		}
 		nth := map[string]int{}
 		for _, s := range scheds {
-			id := fmt.Sprintf("%s|%s|%s|%d|%s", i.Name, s.Type, strings.TrimSpace(s.At), s.Every, s.Args)
+			id := schedID(i.Name, s)
 			nth[id]++
 			key := fmt.Sprintf("%s#%d", id, nth[id])
-			var bs *backupSeen
-			if s.Type == "backup" && everyOf(s) > 0 {
-				if bs = st.seen[key]; bs == nil {
-					bs = &backupSeen{gen: gen}
-					st.seen[key] = bs
-				}
-				bs.active = bs.active || on
-			}
 			if !dueAt(s, now) || st.fired[key] == stamp {
 				continue
 			}
 			st.fired[key] = stamp
-			if bs != nil {
-				changed := on || bs.active || bs.gen != gen
-				bs.gen, bs.active = gen, on
-				if !changed {
-					continue
-				}
+			if s.Type == "backup" && s.Interval() > 0 && !bs.active && bs.gen == gen && !on {
+				continue // 停着，上次定时备份以后也没开过
 			}
-			if !st.claim(key) {
+			lock := key
+			if s.Type == "backup" || s.Type == "restart" {
+				lock = i.Name + "|" + s.Type
+				if st.fired[lock] == stamp {
+					continue // 这一分钟这台服务器已经有一个了
+				}
+				st.fired[lock] = stamp
+			}
+			if !st.claim(lock) {
 				i.Console.Append(fmt.Sprintf("[MineDeck] 上一次%s还没做完，这一次跳过", typeTitles[s.Type]))
 				continue
 			}
+			if s.Type == "backup" && bs != nil {
+				bs.gen, bs.active = gen, on
+			}
 			go func() {
-				defer st.done(key)
+				defer st.done(lock)
 				st.run(i, s)
 			}()
+		}
+	}
+	for i := range st.seen { // 已经没有每隔多久备份的服务器（包括删掉的）不再记
+		if !keepSeen[i] {
+			delete(st.seen, i)
 		}
 	}
 }
@@ -463,7 +509,7 @@ func (m *Manager) execSchedule(i *Instance, s Schedule) {
 	start := time.Now()
 	note := func(op string, args map[string]any, err error) {
 		args["inst"] = i.Name
-		if every := everyOf(s); every > 0 { // 操作记录里写清是哪一条：每天几点的，还是每隔多久的
+		if every := s.Interval(); every > 0 { // 操作记录里写清是哪一条：每天几点的，还是每隔多久的
 			args["every"] = every
 		} else {
 			args["at"] = s.At

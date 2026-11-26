@@ -3704,6 +3704,7 @@ function handler(state, ui, portOf) {
                 if (!["restart", "command", "backup"].includes(s.type)) return `未知任务类型: ${s.type}`;
                 const every = +s.every || 0;
                 if (every && String(s.at || "").trim()) return "每天几点（at）和每隔多久（every）只能填一样";
+                if (!every && !String(s.at || "").trim()) return "每天几点（at）和每隔多久（every）要填一样";
                 if (every < 0) return `间隔应为正整数（分钟）: ${every}`;
                 if (every && every < LO[s.type]) return `${TITLE[s.type]}最短每隔 ${LO[s.type]} 分钟一次: ${every}`;
                 if (every > 720) return `间隔最长 720 分钟（12 小时），更长的请用每天定时: ${every}`;

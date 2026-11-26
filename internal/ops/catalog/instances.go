@@ -905,8 +905,8 @@ func schedText(ss []inst.Schedule) string {
 	var parts []string
 	for _, s := range ss {
 		when := s.At
-		if s.Every > 0 { // 每隔多久的没有时刻
-			when = fmt.Sprintf("每隔 %d 分钟", s.Every)
+		if every := s.Interval(); every > 0 { // 按实际怎么跑的写：手改的时刻、间隔都有的按时刻跑，间隔越界的按最短、最长跑
+			when = fmt.Sprintf("每隔 %d 分钟", every)
 		}
 		t := when + " " + s.Type
 		if s.Args != "" {

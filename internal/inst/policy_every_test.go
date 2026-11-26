@@ -66,8 +66,11 @@ func newTickEnv(t *testing.T, scheds ...Schedule) *tickEnv {
 	m, i := policyEnv(t)
 	i.Policies.Schedules = scheds
 	e := &tickEnv{m: m, i: i, hold: map[string]chan struct{}{}}
-	e.st = newSchedState(func(_ *Instance, s Schedule) {
+	e.st = newSchedState(func(in *Instance, s Schedule) {
 		d := describe(s)
+		if in.Name != "t" { // 别的服务器上的，前面带上服务器名
+			d = in.Name + ":" + d
+		}
 		e.mu.Lock()
 		e.ran = append(e.ran, d)
 		h := e.hold[d]
@@ -135,6 +138,42 @@ func (e *tickEnv) settle(t *testing.T, now time.Time) {
 	}
 }
 
+// unhold 放行卡着的 d，等它做完。
+func (e *tickEnv) unhold(t *testing.T, d string) {
+	t.Helper()
+	e.mu.Lock()
+	h := e.hold[d]
+	e.hold[d] = nil
+	was := e.blocked
+	e.mu.Unlock()
+	close(h)
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
+		e.st.busyMu.Lock()
+		n := len(e.st.busy)
+		e.st.busyMu.Unlock()
+		e.mu.Lock()
+		b := e.blocked
+		e.mu.Unlock()
+		if b < was && n == b { // 放行的那个醒了，也从 busy 里撤掉了
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("放行以后 %s 一直没做完", d)
+		}
+	}
+}
+
+// addInst 再加一台停着的服务器。
+func (e *tickEnv) addInst(t *testing.T, name string, scheds ...Schedule) *Instance {
+	t.Helper()
+	i := &Instance{Settings: Settings{Name: name}, Dir: t.TempDir(), Console: newConsole()}
+	i.Policies.Schedules = scheds
+	e.m.mu.Lock()
+	e.m.insts[name] = i
+	e.m.mu.Unlock()
+	return i
+}
+
 func (e *tickEnv) expect(t *testing.T, now time.Time, want ...string) {
 	t.Helper()
 	got := e.tick(t, now)
@@ -145,6 +184,7 @@ func (e *tickEnv) expect(t *testing.T, now time.Time, want ...string) {
 }
 
 // 每天定时的和每隔多久的放在一起、放在同一个文件夹里，各按各的点执行；20 秒看一次，同一分钟只执行一次。
+// 每天 04:00 的备份和每小时的备份在 04:00 同时到点：同一台服务器这一分钟只做一个备份，另一个不做、也不说「还没做完」。
 func TestSchedTickMixed(t *testing.T) {
 	e := newTickEnv(t,
 		Schedule{Type: "backup", At: "04:00", Group: "存档"},
@@ -154,14 +194,148 @@ func TestSchedTickMixed(t *testing.T) {
 	)
 	setState(e.i, "running")
 	e.expect(t, at(3, 59, 40))
-	e.expect(t, at(4, 0, 0), "backup 04:00", "backup 每1h0m0s", "command 每5m0s kill @e[type=item]")
+	e.expect(t, at(4, 0, 0), "backup 04:00", "command 每5m0s kill @e[type=item]")
 	e.expect(t, at(4, 0, 20)) // 同一分钟再看：不再执行
 	e.expect(t, at(4, 0, 40))
 	e.expect(t, at(4, 5, 0), "command 每5m0s kill @e[type=item]")
 	e.expect(t, at(5, 0, 0), "backup 每1h0m0s", "command 每5m0s kill @e[type=item]")
 	e.expect(t, at(20, 0, 0), "backup 每1h0m0s", "command 每5m0s kill @e[type=item]", "command 20:00 say hi")
 	// 第二天同一时刻照样执行
-	e.expect(t, at(4, 0, 0).AddDate(0, 0, 1), "backup 04:00", "backup 每1h0m0s", "command 每5m0s kill @e[type=item]")
+	e.expect(t, at(4, 0, 0).AddDate(0, 0, 1), "backup 04:00", "command 每5m0s kill @e[type=item]")
+	if consoleHas(e.i, "还没做完") {
+		t.Errorf("同一分钟里另一个备份不做，不该说「还没做完」：\n%s", strings.Join(e.i.Console.Lines(), "\n"))
+	}
+}
+
+// 同一台服务器同一时刻只做一个备份、一个重启（按「服务器 + 类型」占位）：两条每隔多久的备份同时到点只做一个；
+// 上一个备份还卡着时，别的备份（哪一条都一样）跳过，同一分钟里只说一次；两个重启同时到点只做一个；
+// 命令按条各做各的；另一台服务器的备份不受影响。
+func TestSchedTickOneBackupPerServer(t *testing.T) {
+	e := newTickEnv(t,
+		Schedule{Type: "backup", Every: 60},
+		Schedule{Type: "backup", Every: 30, Group: "存档"},
+		Schedule{Type: "restart", At: "05:00"},
+		Schedule{Type: "restart", Every: 60},
+		Schedule{Type: "command", Every: 60, Args: "say a"},
+		Schedule{Type: "command", Every: 60, Args: "say b"},
+	)
+	e.addInst(t, "u", Schedule{Type: "backup", Every: 60})
+	setState(e.i, "running")
+	u, _ := e.m.Get("u")
+	setState(u, "running")
+	e.hold["backup 每1h0m0s"] = make(chan struct{})
+	e.expect(t, at(4, 0, 0), "backup 每1h0m0s", "restart 每1h0m0s", "command 每1h0m0s say a", "command 每1h0m0s say b", "u:backup 每1h0m0s")
+	e.expect(t, at(4, 30, 0)) // 每 30 分钟的那条到点，可这台服务器 4:00 的备份还卡着
+	if n := strings.Count(strings.Join(e.i.Console.Lines(), "\n"), "上一次定时备份还没做完，这一次跳过"); n != 1 {
+		t.Errorf("4:30 应说一次「还没做完」：%d 次", n)
+	}
+	e.expect(t, at(5, 0, 0), "restart 05:00", "command 每1h0m0s say a", "command 每1h0m0s say b", "u:backup 每1h0m0s") // 两条备份都到点、都在等：只说一次
+	if n := strings.Count(strings.Join(e.i.Console.Lines(), "\n"), "上一次定时备份还没做完，这一次跳过"); n != 2 {
+		t.Errorf("5:00 两条备份同时到点，只该再说一次：一共 %d 次", n)
+	}
+	e.unhold(t, "backup 每1h0m0s")
+	e.expect(t, at(5, 30, 0), "backup 每30m0s")
+}
+
+// 上一次还没做完、这一次跳过时，不能把「上次定时备份以后开过服」抹掉：跳过的那一次没有备，服务器之后一直停着，
+// 也要等那个备份做完以后的下一次补上这一份。
+func TestSchedTickSkippedBackupKeepsPending(t *testing.T) {
+	e := newTickEnv(t, Schedule{Type: "backup", Every: 30})
+	setState(e.i, "running")
+	e.hold["backup 每30m0s"] = make(chan struct{})
+	e.expect(t, at(12, 0, 0), "backup 每30m0s") // 开着：备，卡住
+	setState(e.i, "stopped")
+	e.expect(t, at(12, 10, 0))
+	e.expect(t, at(12, 30, 0)) // 还卡着：跳过
+	e.unhold(t, "backup 每30m0s")
+	e.expect(t, at(13, 0, 0), "backup 每30m0s") // 12:00 以后开过（12:00 到 12:10），停了：补一份
+	e.expect(t, at(13, 30, 0))                 // 那以后一直停着：不备
+}
+
+// 「世界自上次定时备份以后变没变过」按服务器记：开着时备过一次、停了以后把每小时改成每 30 分钟（任务变了），
+// 要补的那一份照样补；每天定时的备份交出去了也算备过。
+func TestSchedTickPendingFollowsServer(t *testing.T) {
+	e := newTickEnv(t, Schedule{Type: "backup", Every: 60, Group: "存档"})
+	setState(e.i, "running")
+	e.expect(t, at(6, 0, 0), "backup 每1h0m0s")
+	setState(e.i, "stopped")
+	e.expect(t, at(6, 20, 0))
+	if _, err := e.m.PatchPolicies("t", PolicyPatch{
+		Remove: []Schedule{{Type: "backup", Every: 60, Group: "存档"}},
+		Add:    []Schedule{{Type: "backup", At: "08:00"}, {Type: "backup", Every: 30, Group: "备份"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e.expect(t, at(6, 25, 0))
+	e.expect(t, at(6, 30, 0), "backup 每30m0s") // 6:00 以后开过：改了间隔也照样补
+	e.expect(t, at(7, 0, 0))                   // 补过了，一直停着：不备
+	setState(e.i, "running")
+	e.expect(t, at(7, 50, 0))
+	setState(e.i, "stopped")
+	e.expect(t, at(7, 55, 0))
+	e.expect(t, at(8, 0, 0), "backup 08:00") // 每天 08:00 的排在前面、和每 30 分钟的同时到点：只做它，也算备过了
+	e.expect(t, at(8, 30, 0))                // 8:00 那一份已经包括了 7:50 开着时的改动
+}
+
+// fired、seen 不一直攒着：fired 只留这一分钟和上一分钟的；时钟往回拨一点，刚执行过的不再执行一次。
+// seen 只留还有每隔多久备份的服务器：挪文件夹、改间隔以后还在；删光了、服务器删掉了就不再记。
+func TestSchedTickForgets(t *testing.T) {
+	e := newTickEnv(t, Schedule{Type: "backup", Every: 60, Group: "存档"}, Schedule{Type: "command", Every: 5, Args: "say hi"})
+	u := e.addInst(t, "u", Schedule{Type: "backup", Every: 60})
+	setState(e.i, "running")
+	for mi := 0; mi < 120; mi++ {
+		e.tick(t, at(4, 0, 0).Add(time.Duration(mi)*time.Minute))
+	}
+	for k, v := range e.st.fired {
+		if v < "2026-11-27 05:58" {
+			t.Errorf("fired 留着早就过去的：%s → %s", k, v)
+		}
+	}
+	e.expect(t, at(6, 0, 0), "backup 每1h0m0s", "command 每5m0s say hi")
+	e.expect(t, at(6, 1, 0))
+	e.expect(t, at(6, 0, 50)) // 时钟往回拨了十几秒：6:00 的已经执行过
+	if e.st.seen[e.i] == nil || e.st.seen[u] == nil {
+		t.Fatal("两台都有每隔多久的备份，seen 应都在")
+	}
+	// 挪文件夹、改间隔：还有每隔多久的备份，seen 留着
+	if _, err := e.m.PatchPolicies("t", PolicyPatch{Remove: []Schedule{{Type: "backup", Every: 60, Group: "存档"}}, Add: []Schedule{{Type: "backup", Every: 30, Group: "备份"}}}); err != nil {
+		t.Fatal(err)
+	}
+	before := e.st.seen[e.i]
+	e.tick(t, at(6, 2, 0))
+	if e.st.seen[e.i] != before {
+		t.Error("挪文件夹、改间隔以后 seen 不该换掉")
+	}
+	// t 的每隔多久备份删光了；u 整台删掉
+	if _, err := e.m.PatchPolicies("t", PolicyPatch{Remove: []Schedule{{Type: "backup", Every: 30, Group: "备份"}}}); err != nil {
+		t.Fatal(err)
+	}
+	e.m.mu.Lock()
+	delete(e.m.insts, "u")
+	e.m.mu.Unlock()
+	e.tick(t, at(6, 3, 0))
+	if len(e.st.seen) != 0 {
+		t.Errorf("seen 应清空：%d 台", len(e.st.seen))
+	}
+}
+
+// 认任务按实际怎么跑的写：手改配置里没补零的「9:05」，这一分钟里被界面整表保存规整成「09:05」，不再执行一次；
+// 越界的间隔按兜底以后的算，时刻和间隔都有的按时刻算。
+func TestSchedIDUsesEffectiveTiming(t *testing.T) {
+	if schedID("t", Schedule{Type: "backup", At: "9:05"}) != schedID("t", Schedule{Type: "backup", At: "09:05"}) ||
+		schedID("t", Schedule{Type: "backup", Every: 1}) != schedID("t", Schedule{Type: "backup", Every: 30}) ||
+		schedID("t", Schedule{Type: "backup", At: "04:00", Every: 60}) != schedID("t", Schedule{Type: "backup", At: "04:00"}) {
+		t.Error("同样跑法的任务应认作同一条")
+	}
+	e := newTickEnv(t, Schedule{Type: "backup", At: "9:05"})
+	e.expect(t, at(9, 5, 0), "backup 9:05")
+	if err := e.m.UpdatePolicies("t", Policies{Schedules: []Schedule{{Type: "backup", At: "9:05"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if at := e.i.PoliciesSnapshot().Schedules[0].At; at != "09:05" {
+		t.Fatalf("存进去应是补零的：%q", at)
+	}
+	e.expect(t, at(9, 5, 30))
 }
 
 // 改了间隔：下一次就是新间隔对得上的下一个钟点（不用等旧的那一轮走完）；两条一模一样的任务各执行各的；
@@ -265,6 +439,16 @@ func TestPolicyPatchEveryChecks(t *testing.T) {
 			t.Errorf("%+v 应报「%s」：%v", s, want, err)
 		}
 	}
+	// 两样都没填（AI、MCP 漏填）：说清楚要填什么，不是「时间格式应为 HH:MM: 」；整张替换也一样查
+	for _, p := range []PolicyPatch{
+		{Add: []Schedule{{Type: "backup"}}},
+		{Add: []Schedule{{Type: "command", At: "  ", Args: "say hi"}}},
+		{Schedules: &[]Schedule{{Type: "restart"}}},
+	} {
+		if _, err := m.PatchPolicies("t", p); err == nil || err.Error() != "每天几点（at）和每隔多久（every）要填一样" {
+			t.Errorf("%+v 应报两样要填一样：%v", p, err)
+		}
+	}
 	if p := savedPolicies(t, i); !slices.Equal(p.Schedules, []Schedule{schedY}) {
 		t.Errorf("不合格的改动应整次不改：%+v", p.Schedules)
 	}
@@ -324,6 +508,27 @@ func TestPolicyPatchRemoveEveryGroup(t *testing.T) {
 		if !slices.Equal(got.Schedules, c.want) {
 			t.Errorf("%s：%+v，应为 %+v", c.name, got.Schedules, c.want)
 		}
+	}
+	// 手改配置留下的时刻、间隔都有的一条（实际按时刻跑）：按原样发来能删掉；只给时刻或只给间隔的删不掉它
+	both := Schedule{Type: "backup", At: "4:00", Every: 60}
+	withBoth := Policies{Schedules: []Schedule{both, daily}}
+	for _, c := range []struct {
+		name   string
+		remove Schedule
+		want   []Schedule
+	}{
+		{"原样删掉", Schedule{Type: "backup", At: "04:00", Every: 60}, []Schedule{daily}},
+		{"只给间隔的不算", Schedule{Type: "backup", Every: 60}, withBoth.Schedules},
+		{"只给时刻的删掉的是真正每天定时的那条", Schedule{Type: "backup", At: "04:00"}, []Schedule{both}},
+	} {
+		if got, err := (PolicyPatch{Remove: []Schedule{c.remove}}).Apply(withBoth); err != nil || !slices.Equal(got.Schedules, c.want) {
+			t.Errorf("%s：%+v %v，应为 %+v", c.name, got.Schedules, err, c.want)
+		}
+	}
+	// 整张替换和按条加一样规整：文件夹去掉首尾空白，填了间隔的把只有空白的时刻清掉
+	got, err := PolicyPatch{Schedules: &[]Schedule{{Type: "backup", Every: 60, At: " ", Group: " 存档 "}}}.Apply(Policies{})
+	if err != nil || !slices.Equal(got.Schedules, []Schedule{{Type: "backup", Every: 60, Group: "存档"}}) {
+		t.Errorf("整张替换的规整：%+v %v", got.Schedules, err)
 	}
 	// 两个窗口：A 把每小时存档挪进「备份」文件夹；B 还是旧的样子（在「存档」里），把它删掉——找不到不算错，A 挪过去的那条还在
 	m, i := policyEnv(t)
