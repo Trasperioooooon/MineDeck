@@ -221,6 +221,64 @@
           gap: 8px; font-size: 12.5px; color: var(--muted); cursor: pointer; transition: color .2s, border-color .2s; }
   .drop:hover { color: var(--text); border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
   .drop .ico { width: 15px; height: 15px; }
+  /* 第三步「最后设置一下」（11-26 主会话画的第一稿）：现在程序里「基本设置」那一页的东西都在，重新排成和前两步一样的大面板（外 26、内边距 8）：
+     左边「服务器」（名称，下面一行小字是存在哪个文件夹、可以改；端口和内存一行；服务器介绍），右边「游戏规则」（难度、默认游戏模式两排分段选，
+     选中的底色滑过去，同前两步；正版验证、允许飞行、白名单三个开关），最底下横跨两块的一条是 EULA（贴着面板的角，圆角 18 = 26 − 8）。
+     EULA 没勾时点「下一步」不往下走，那一条标红、左右晃一下。代理端没有端口、介绍、游戏规则和 EULA，右边换成一段说明 */
+  .setp { width: 100%; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-1); box-sizing: border-box; height: 520px;
+          display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: minmax(0, 1fr) auto; gap: 8px; }
+  .setp .col { padding: 14px 16px; gap: 16px; }
+  .setp .col h3 { margin: 0 0 -4px; }
+  .fld { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .fld > .lb { font-size: 12.5px; color: var(--muted); font-weight: 500; display: flex; align-items: baseline; gap: 8px; }
+  .fld > .lb .sp { flex: 1; }
+  .fld > .lb .val { font-family: var(--mono); color: var(--text); font-weight: 600; font-size: 13px; }
+  .inp { height: 40px; border-radius: 10px; background: var(--field); border: 1px solid var(--border); padding: 0 12px; box-sizing: border-box; width: 100%;
+         font: inherit; font-size: 14px; color: var(--text); outline: none; transition: border-color .2s, box-shadow .2s; }
+  .inp:focus { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+  .inp.bad { border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
+  .fnote { font-size: 12px; line-height: 18px; color: var(--faint); display: flex; align-items: center; gap: 5px; min-height: 18px; }
+  .fnote b { color: var(--muted); font-weight: 500; font-family: var(--mono); font-size: 11.5px; }
+  .fnote a { color: var(--accent-text); cursor: pointer; white-space: nowrap; }
+  .fnote .ico { width: 13px; height: 13px; flex: none; }
+  .fnote.ok .ico { color: var(--accent-text); }
+  .fnote.bad { color: var(--danger-text); }
+  .frow { display: flex; gap: 14px; }
+  .frow .port { width: 132px; flex: none; }
+  .frow .mem { flex: 1; }
+  /* 内存：自己画的细滑条，左边一截是强调色，圆的滑块 */
+  .range { -webkit-appearance: none; appearance: none; width: 100%; height: 40px; background: transparent; margin: 0; cursor: pointer; --p: 25%; }
+  .range::-webkit-slider-runnable-track { height: 4px; border-radius: 2px;
+    background: linear-gradient(to right, var(--accent) var(--p), color-mix(in srgb, var(--text) 14%, transparent) var(--p)); }
+  .range::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 8px; margin-top: -6px; background: var(--text);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 30%, transparent), 0 1px 3px rgb(0 0 0 / .35); }
+  /* 分段选：外框圆角 12、内边距 3，选中的底色圆角 9（同心），换选择时滑过去 */
+  .seg { position: relative; display: flex; padding: 3px; border-radius: 12px; background: var(--field); border: 1px solid var(--border); box-sizing: border-box; height: 38px; }
+  .seg span { flex: 1; position: relative; z-index: 1; display: grid; place-items: center; font-size: 13px; color: var(--muted); border-radius: 9px; cursor: pointer; transition: color .2s; }
+  .seg span:hover { color: var(--text); }
+  .seg span.on { color: var(--accent-text); font-weight: 500; }
+  .seg .sgl { position: absolute; left: 0; top: 3px; bottom: 3px; border-radius: 9px; background: var(--accent-subtle); z-index: 0; pointer-events: none;
+              box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+              transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
+  /* 开关：36 × 20，圆钮 16（离边 2，圆角 10 − 2 = 8） */
+  .tg { display: flex; align-items: center; gap: 14px; cursor: pointer; }
+  .tg .m { flex: 1; min-width: 0; }
+  .tg .t { font-size: 13.5px; font-weight: 600; }
+  .tg .t code { font-family: var(--mono); font-size: 11.5px; font-weight: 400; color: var(--faint); margin-left: 6px; }
+  .tg .d { font-size: 12px; line-height: 18px; color: var(--muted); margin-top: 2px; }
+  .sw { width: 36px; height: 20px; border-radius: 10px; flex: none; position: relative; background: color-mix(in srgb, var(--text) 18%, transparent); transition: background .2s; }
+  .sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 8px; background: var(--text);
+               transition: transform .26s cubic-bezier(.3, .7, .2, 1); }
+  .tg.on .sw { background: var(--accent-solid); }
+  .tg.on .sw::after { transform: translateX(16px); background: var(--on-accent); }
+  .shint { margin-top: auto; font-size: 12px; color: var(--faint); }
+  .pnote { margin: auto 0; text-align: center; font-size: 12.5px; line-height: 21px; color: var(--muted); padding: 0 24px; }
+  .eula { grid-column: 1 / -1; border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); height: 52px; padding: 0 18px;
+          display: flex; align-items: center; gap: 12px; font-size: 13px; cursor: pointer; transition: box-shadow .2s; }
+  .eula a { color: var(--accent-text); }
+  .eula .msg { margin-left: auto; font-size: 12px; color: var(--danger-text); opacity: 0; transition: opacity .2s; }
+  .eula.bad { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger-text) 60%, transparent); }
+  .eula.bad .msg { opacity: 1; }
   .placeholder { margin-top: 24px; width: 100%; height: 360px; border-radius: 26px; border: 1px dashed var(--border); display: grid; place-items: center; color: var(--faint); font-size: 13px; }
 
   /* 底部：胶囊沉下去以后，左下角「上一步」、右下角「下一步」，和版心的左右边对齐；中间一排小点是第几步（主会话加的，不要可以去掉）。
@@ -565,9 +623,80 @@ function chipScroll(c) {
   c._paint = paint; paint();
 }
 addEventListener("resize", () => document.querySelector(".chips")?._paint?.());
+// ---- 第三步：最后设置一下 ----
+// 设置填过就记着（回上一步再回来、换核心以后名字跟着核心名变，除非自己改过名字）。本机内存是假的：16 GB，可用 9.2 GB；
+// 内存那行小字原来照程序写「推荐分配：模组服 4 GB 以上；无模组的小型服务器 2~4 GB」加本机内存，放不下一行，缩成「本机可用 … · 模组服建议 4 GB 以上」
+const SET = { name: "", nameTouched: false, port: "25565", mem: 4096, motd: "MineDeck 开服 · 一起来玩", diff: "easy", mode: "survival",
+  online: false, flight: true, wl: false, eula: false };
+const RAM = { total: 16384, avail: 9420 }, MEM_MAX = RAM.total - 2048;
+const isProxyCore = () => core === "velocity" || core === "waterfall";
+const slugOf = n => { let o = ""; for (const c of n) { if (/[0-9A-Za-z_-]/.test(c)) o += c; else if (c === " " || c === ".") o += "-"; } return o.replace(/^[-_]+|[-_]+$/g, ""); };
+const gb = mb => `${+(mb / 1024).toFixed(1)} GB`;
+// 存放位置那行：文件夹名取名称里的英文字母和数字（同程序），一个都没有就按创建时间起名
+function pathNote() {
+  const slug = slugOf(SET.name);
+  return `<i data-ic="folder"></i>存放在 <b>MineDeck\\servers\\${esc(slug || "server-创建时间")}</b><a data-act="root">更改位置…</a>`;
+}
+function portNote() {
+  const v = Number(SET.port);
+  return Number.isInteger(v) && v >= 1 && v <= 65535
+    ? `<span class="fnote ok" id="pnote"><i data-ic="check"></i>端口可用</span>` : `<span class="fnote bad" id="pnote"><i data-ic="warn"></i>需为 1 ~ 65535 的整数</span>`;
+}
+const memPct = () => ((SET.mem - 512) / (MEM_MAX - 512) * 100).toFixed(1) + "%";
+const seg = (key, opts) => `<div class="seg" data-seg="${key}"><i class="sgl"></i>${opts.map(([v, t]) => `<span data-v="${v}"${SET[key] === v ? ` class="on"` : ""}>${t}</span>`).join("")}</div>`;
+const tg = (key, t, code, d) => `<div class="tg${SET[key] ? " on" : ""}" data-tg="${key}"><div class="m"><div class="t">${t}<code>${code}</code></div><div class="d">${d}</div></div><span class="sw"></span></div>`;
+function step3() {
+  if (!SET.nameTouched) SET.name = `我的 ${CORE[core][0]} 服务器`;
+  const proxy = isProxyCore();
+  const left = `<div class="col"><h3>服务器</h3>
+      <div class="fld"><span class="lb">名称</span><input class="inp" id="sname" maxlength="40" value="${esc(SET.name)}"><span class="fnote" id="spath">${pathNote()}</span></div>
+      <div class="frow">
+        ${proxy ? "" : `<div class="fld port"><span class="lb">端口</span><input class="inp" id="sport" inputmode="numeric" value="${esc(SET.port)}">${portNote()}</div>`}
+        <div class="fld mem"><span class="lb">内存<span class="sp"></span><span class="val" id="smemv">${gb(SET.mem)}</span></span>
+          <input class="range" id="smem" type="range" min="512" max="${MEM_MAX}" step="512" value="${SET.mem}" style="--p:${memPct()}">
+          <span class="fnote">${proxy ? "推荐 1 GB；代理端只做转发，占用很低" : `本机可用 ${gb(RAM.avail)} · 模组服建议 4 GB 以上`}</span></div>
+      </div>
+      ${proxy ? "" : `<div class="fld"><span class="lb">服务器介绍（MOTD）</span><input class="inp" id="smotd" maxlength="59" value="${esc(SET.motd)}"><span class="fnote">显示在多人游戏的服务器列表里</span></div>`}
+    </div>`;
+  const right = proxy
+    ? `<div class="col"><h3>游戏规则</h3><div class="pnote">代理端不跑游戏世界，没有难度、游戏模式这些规则，<br>也不用同意 Minecraft EULA。监听端口和转发规则在第一次启动、生成配置文件以后再设置。</div></div>`
+    : `<div class="col"><h3>游戏规则</h3>
+      <div class="fld"><span class="lb">难度</span>${seg("diff", [["peaceful", "和平"], ["easy", "简单"], ["normal", "普通"], ["hard", "困难"]])}</div>
+      <div class="fld"><span class="lb">默认游戏模式</span>${seg("mode", [["survival", "生存"], ["creative", "创造"], ["adventure", "冒险"], ["spectator", "旁观"]])}</div>
+      ${tg("online", "正版验证", "online-mode", "关着时离线账号也能进，但不用正版 UUID，也不显示正版皮肤")}
+      ${tg("flight", "允许飞行", "allow-flight", "开着可以防止骑乘、模组的移动被误当成飞行踢出去")}
+      ${tg("wl", "只允许白名单里的玩家进入", "white-list", "关着时知道地址的人都能进；只想让熟人进就打开，建好后在「玩家」里加名字")}
+      <div class="shint">PVP、视距等高级参数，建好后随时可以改。</div>
+    </div>`;
+  const eula = proxy ? "" : `<div class="eula${SET.eula ? "" : ""}" data-eula><div class="tg${SET.eula ? " on" : ""}" style="pointer-events:none"><span class="sw"></span></div>
+      <span>我已阅读并同意 <a href="https://aka.ms/MinecraftEULA" target="_blank" rel="noopener noreferrer">Minecraft 最终用户许可协议（EULA）</a></span><span class="msg">开服前需要同意 EULA</span></div>`;
+  return `<div class="setp${proxy ? " proxy" : ""}">${left}${right}${eula}</div>`;
+}
+// 分段选的选中底色挪到选中的那一格
+function placeSeg(el, animate) {
+  const hl = el.querySelector(".sgl"), on = el.querySelector("span.on"); if (!hl || !on) return;
+  if (!animate) hl.style.transition = "none";
+  hl.style.transform = `translateX(${on.offsetLeft}px)`; hl.style.width = on.offsetWidth + "px";
+  if (!animate) { void hl.offsetWidth; hl.style.transition = ""; }
+}
+// 这一步能不能往下走：名称不能空、端口要合法、EULA 要勾（代理端不用）；不行就把出错的那一处标出来
+function checkSettings() {
+  let ok = true;
+  const nm = document.getElementById("sname"); if (nm && !SET.name.trim()) { nm.classList.add("bad"); nm.focus(); ok = false; }
+  const v = Number(SET.port), pt = document.getElementById("sport");
+  if (pt && !(Number.isInteger(v) && v >= 1 && v <= 65535)) { pt.classList.add("bad"); if (ok) pt.focus(); ok = false; }
+  const eu = document.querySelector("[data-eula]");
+  if (eu && !SET.eula) {
+    eu.classList.add("bad");
+    eu.animate([{ transform: "none" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "none" }],
+      { duration: 360, easing: "cubic-bezier(.3, .7, .2, 1)" });
+    ok = false;
+  }
+  return ok;
+}
 function render() {
   const names = STEPS();
-  const body = step === 0 ? step1() : play !== 0 && step === 1 ? step2() : `<div class="placeholder">这一步的内容还没画</div>`;
+  const body = step === 0 ? step1() : play !== 0 && step === 1 ? step2() : names[step] === "最后设置一下" ? step3() : `<div class="placeholder">这一步的内容还没画</div>`;
   const sub = play !== 0 && step === 1 ? "暂不预装可直接进入下一步" : "";
   document.getElementById("page").innerHTML = `<h1 class="q${sub ? " has-sub" : ""}">${names[step]}</h1>${sub ? `<p class="qsub">${sub}</p>` : ""}` + body;
   // 小点：个数对得上就只挪「当前」那个（宽的那个平滑挪过去），对不上（第一次画）才整排重画
@@ -578,6 +707,7 @@ function render() {
   KIT.hydrate(document.body);
   document.querySelectorAll(".addon .lwrap").forEach(scrollbar);
   const chips = document.querySelector(".chips"); if (chips) { chipScroll(chips); placeChipHL(false); }
+  document.querySelectorAll(".seg").forEach(el => placeSeg(el, false));
   document.getElementById("agrid")?.addEventListener("scroll", moreCards, { passive: true });
   cartMeta();
   settleVersions();
@@ -843,6 +973,12 @@ function scrollbar(w) {
 }
 document.getElementById("page").addEventListener("click", e => {
   if (e.target.closest("a.ext")) return; // 卡片上的「去 Modrinth 看介绍」：照常新开页面，不算点了卡片
+  const sg = e.target.closest(".seg span"), tgl = e.target.closest("[data-tg]"), eu = e.target.closest("[data-eula]");
+  if (sg) { const box = sg.parentElement; if (sg.classList.contains("on")) return; SET[box.dataset.seg] = sg.dataset.v;
+    box.querySelectorAll("span").forEach(x => x.classList.toggle("on", x === sg)); placeSeg(box, true); return; }
+  if (tgl) { SET[tgl.dataset.tg] = !SET[tgl.dataset.tg]; tgl.classList.toggle("on", SET[tgl.dataset.tg]); return; }
+  if (eu && !e.target.closest("a")) { SET.eula = !SET.eula; eu.querySelector(".tg").classList.toggle("on", SET.eula); if (SET.eula) eu.classList.remove("bad"); return; }
+  if (e.target.closest('[data-act="root"]')) return; // 草图里不真弹选文件夹的窗口
   const pl = e.target.closest("[data-play]"), co = e.target.closest("[data-core]"), ve = e.target.closest("[data-ver]");
   const ad = e.target.closest("[data-addon]"), un = e.target.closest("[data-unpick]"), ch = e.target.closest("[data-cat]");
   if (pl) selectPlay(+pl.dataset.play);
@@ -857,6 +993,14 @@ document.getElementById("page").addEventListener("click", e => {
     ch.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "smooth" }); // 分类放不下、点到半露在边上的那个时，把它滑进来
   }
   else if (e.target.closest("[data-clear]")) { picked = []; syncAddons(true); }
+});
+// 第三步的输入框和滑条：边输边记，名称跟着改存放位置那行，端口跟着改「可用 / 不对」，内存跟着改数字和滑条左边那截
+document.getElementById("page").addEventListener("input", e => {
+  const t = e.target;
+  if (t.id === "sname") { SET.name = t.value; SET.nameTouched = true; t.classList.remove("bad"); const p = document.getElementById("spath"); p.innerHTML = pathNote(); KIT.hydrate(p); }
+  else if (t.id === "sport") { SET.port = t.value.trim(); t.classList.remove("bad"); const n = document.getElementById("pnote"); n.outerHTML = portNote(); KIT.hydrate(document.querySelector(".port")); }
+  else if (t.id === "smem") { SET.mem = +t.value; t.style.setProperty("--p", memPct()); document.getElementById("smemv").textContent = gb(SET.mem); }
+  else if (t.id === "smotd") SET.motd = t.value;
 });
 // 搜索框：停手 0.18 秒再筛
 document.getElementById("page").addEventListener("input", e => {
@@ -876,7 +1020,10 @@ function goStep(n) {
       .onfinish = () => { stepping = false; };
   };
 }
-document.getElementById("next").addEventListener("click", () => { if (step < STEPS().length - 1) goStep(step + 1); });
+document.getElementById("next").addEventListener("click", () => {
+  if (STEPS()[step] === "最后设置一下" && !checkSettings()) return;
+  if (step < STEPS().length - 1) goStep(step + 1);
+});
 document.getElementById("back").addEventListener("click", () => {
   if (step > 0) { goStep(step - 1); return; }
   // 第一步再往回：按钮沉下去，回首页，胶囊从下面浮上来
