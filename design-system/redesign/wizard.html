@@ -246,13 +246,14 @@
      之前画过三种给作者比——A 两栏对齐、B 一栏三行、C 照作者自己的线框（一整块三段）——作者从里面挑着拼成这一版，那三种已经拿掉。
      顶上一块横跨两栏（贴着面板的角，圆角 18）：像游戏里多人列表的那一条，图标跨两行（64），右边名称（大字）、服务器介绍（灰字），
        都是点了就能改的字：平时不画框，悬停出底色，点进去出框（32 / 28 高，圆角 8）。块的内边距 20，图标离块的角 20，不小于块的圆角 18，图标圆角不受同心限制。
-     下面左右两栏，每栏三行，每行都是「字 18 + 6 + 框 40」= 64、行距 16，左右三行一样高：
-       左「服务器」：运行内存（标题右边图例：系统已占 / 分配 / 剩余，圆点就是格子的颜色；格子加 MB 数字框）；
-         快捷预设（2G 4G 8G 16G，和右边一样的分段选，分配正好是其中一档时那一档亮，不是就都不亮；超过内存上限的那档灰掉）；
-         存放位置和端口（存放位置是一个点了就换位置的框，端口 132 宽，和上面的数字框对齐）。
+     下面左右两栏（11-26 后来又改过：快捷预设挪进内存一块，数字框换成步进，见下面「运行内存」那段注释）：
+       左「服务器配置」：内存分配（标题右边图例：系统已占 / 分配 / 剩余；格子或两块、步进、快捷预设）；存储路径和端口配置（端口 132 宽，和上面的步进对齐）。
        右「游戏规则」：难度、默认游戏模式、允许飞行（两段，宽是上面四段的一半）。
-     EULA 是面板下面的一个勾选框，左边和栏里的内容对齐；没勾时点「下一步」不往下走，勾选框标红、后面出一句「开服前需要同意 EULA」 */
-  .setp.s3 { grid-template-rows: auto auto; }
+     11-26 作者改了文案：标题「最后设置一下」→「配置服务器参数」，「服务器」→「服务器配置」，「运行内存」→「内存分配」，「存放位置」→「存储路径」，「端口」→「端口配置」。
+     EULA 照第一稿放回面板里（作者 11-26：「还是按照最开始，放在框内比较好」）：横跨两栏的一条，52 高、圆角 18，左边开关和栏里的字对齐；
+       没开时点「下一步」不往下走，整条描红、晃一下，右边出一句「开服前需要同意 EULA」 */
+  .setp.s3 { grid-template-rows: auto auto auto; }
+  .setp.s3 .eula { padding: 0 20px; } /* 开关的左边和栏里的字一样在 128 */
   .setp.s3 .col { padding: 18px 20px; } /* 三块的内边距左右都是 20，图标、栏里的字、下面的 EULA 左边在一条线上 */
   /* 顶上那块用首页卡片的封面条（作者 11-26：「顶部能不能再利用一下我们前面设计的封面条」），照 home.html 的规矩：
      核心色 30% 的底，上面一层 16 像素的淡棋盘格；头像离封面边 8、圆角 10（18 − 8，同心）。所以头像的左边不在下面那条 128 的线上，和首页卡片一样 */
@@ -266,6 +267,11 @@
   .idcol .ie.sub { color: color-mix(in srgb, var(--muted) 60%, var(--text)); } /* 封面底比面板深一点，介绍字往正文色靠，浅色主题下对比度才够 4.5 */
   .idrow { display: flex; gap: 14px; align-items: center; }
   .idtext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  /* 右下角的提示（作者 11-26：「封面条右侧右下角位置加一句『单击以修改服务器名称/简介』」）：和介绍那行一样高、底对齐，右边离封面边 20（8 + 12），和栏里的字同一条右边线；
+     它占着自己的位置，名称、介绍的框到它左边为止，介绍写长了也不会压到它 */
+  .idhint { flex: none; align-self: flex-end; height: 28px; line-height: 28px; padding-right: 12px; font-size: 12px; white-space: nowrap; cursor: pointer;
+            color: color-mix(in srgb, var(--muted) 60%, var(--text)); }
+  .idhint:hover { color: var(--text); }
   .ie { height: 32px; min-width: 0; margin-left: -9px; padding: 0 8px; border-radius: 8px; border: 1px solid transparent; background: transparent; outline: none; box-sizing: border-box;
         font: inherit; color: var(--text); transition: background .15s, border-color .15s, box-shadow .15s; }
   .ie:hover { background: var(--hover); }
@@ -311,16 +317,6 @@
   .mp:disabled { opacity: .35; cursor: default; }
   .mlow { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--warning-text); cursor: default; }
   .mlow .ico { width: 14px; height: 14px; }
-  .eulac { display: flex; align-items: center; gap: 10px; width: fit-content; align-self: flex-start; margin: 16px 0 0 28px; font-size: 13px; cursor: pointer; }
-  .eulac a { color: var(--accent-text); }
-  .eulac .cb { width: 18px; height: 18px; flex: none; box-sizing: border-box; border-radius: 5px; display: grid; place-items: center; color: transparent;
-               border: 1.5px solid color-mix(in srgb, var(--text) 35%, transparent); transition: background .15s, border-color .15s, color .15s; }
-  .eulac .cb .ico { width: 12px; height: 12px; }
-  .eulac:hover .cb { border-color: color-mix(in srgb, var(--text) 55%, transparent); }
-  .eulac.on .cb { background: var(--accent-solid); border-color: var(--accent-solid); color: var(--on-accent); }
-  .eulac .msg { margin-left: 8px; font-size: 12px; color: var(--danger-text); opacity: 0; transition: opacity .2s; }
-  .eulac.bad .msg { opacity: 1; }
-  .eulac.bad .cb { border-color: var(--danger-text); }
   .avbtn { position: relative; flex: none; width: 64px; height: 64px; border-radius: 14px; cursor: pointer; }
   .sav { --c: #7a8aa0; width: 64px; height: 64px; border-radius: 14px; display: grid; place-items: center; overflow: hidden;
          background: color-mix(in srgb, var(--c) 26%, var(--surface)); box-shadow: inset 0 1px 0 rgb(255 255 255 / .06), 0 0 0 1px color-mix(in srgb, var(--c) 30%, transparent); }
@@ -589,7 +585,7 @@ let step = 0, play = 1, core = "paper", ver = DEF.paper;
 // 第二步装的是插件还是模组跟着核心走（同程序 modcart.js：Paper 一系和两种代理端装插件，其余装模组）
 const PLUGIN_CORES = ["paper", "purpur", "leaves", "folia", "velocity", "waterfall"];
 const nounOfCore = k => PLUGIN_CORES.includes(k) ? "插件" : "模组";
-const STEPS = () => play === 0 ? ["选择核心以进行下一步", "最后设置一下", "让朋友连进来"] : ["选择核心以进行下一步", `选择预装${nounOfCore(core)}`, "最后设置一下", "让朋友连进来"];
+const STEPS = () => play === 0 ? ["选择核心以进行下一步", "配置服务器参数", "让朋友连进来"] : ["选择核心以进行下一步", `选择预装${nounOfCore(core)}`, "配置服务器参数", "让朋友连进来"];
 const cover = (k, size) => `<div class="cover" style="--c:${MDPixel16.CORE_COLORS[k] || "#7a8aa0"}">${MDPixel16.svg(k, size)}</div>`;
 function introInner(k = core, pl = play) {
   const p = PLAYS[pl], c = CORE[k];
@@ -839,7 +835,7 @@ function chipScroll(c) {
   c._paint = paint; paint();
 }
 addEventListener("resize", () => document.querySelector(".chips")?._paint?.());
-// ---- 第三步：最后设置一下 ----
+// ---- 第三步：配置服务器参数 ----
 // 设置填过就记着（回上一步再回来、换核心以后名字跟着核心名变，除非自己改过名字）。
 // 默认 4 GB（代理端 1 GB），超过上限就取上限。icon 是自己挑的服务器图标（草图里是本地图片的临时地址），空着就用核心头像
 const SET = { name: "", nameTouched: false, port: "25565", mem: 4096, motd: "MineDeck 开服 · 一起来玩", diff: "easy", mode: "survival",
@@ -871,7 +867,7 @@ function pathNote() {
 }
 function pathTip() {
   const slug = slugOf(SET.name);
-  return `存放在 ${ROOT}\\${pathDir()}` + (slug ? "" : "（名称里没有英文字母或数字，文件夹就按创建时间起名）") + "\n点一下更改存放位置…";
+  return `存放在 ${ROOT}\\${pathDir()}` + (slug ? "" : "（名称里没有英文字母或数字，文件夹就按创建时间起名）") + "\n点一下更改存储路径…";
 }
 const portOk = () => { const v = Number(SET.port); return Number.isInteger(v) && v >= 1 && v <= 65535; };
 const portState = () => portOk() ? `<span class="st" title="端口可用"><i data-ic="check"></i></span>` : `<span class="st bad" title="端口需为 1 ~ 65535 的整数">1~65535</span>`;
@@ -886,8 +882,8 @@ function memCtl(proxy) {
   const tip = `本机 ${gbTxt(RAM.total)}${BLOCKS ? "" : ` · 1 格 = ${gbTxt(CELL)}`} · 最多能分 ${gbTxt(MEM_CAP)}（当前可用的）\n` + (proxy ? "推荐 1 GB；代理端只做转发，占用很低" : "推荐：模组服 4 GB 以上；无模组的小型服务器 2~4 GB");
   const used = RAM.total - RAM.avail;
   const body = BLOCKS ? `<i class="bu" style="--w:${used}"></i><i class="ba" style="--w:${RAM.avail}"><b></b></i>` : "<i></i>".repeat(CELLS);
-  return `<div class="fld g-mem"><span class="lb">运行内存<span class="mleg" id="smleg"></span></span>
-      <div class="memx"><div class="mbar" id="smbar" tabindex="0" role="slider" aria-label="运行内存" aria-valuemin="512" aria-valuemax="${MEM_CAP}" title="${esc(tip)}">
+  return `<div class="fld g-mem"><span class="lb">内存分配<span class="mleg" id="smleg"></span></span>
+      <div class="memx"><div class="mbar" id="smbar" tabindex="0" role="slider" aria-label="内存分配" aria-valuemin="512" aria-valuemax="${MEM_CAP}" title="${esc(tip)}">
           <div class="cells${BLOCKS ? " blk" : ""}">${body}<span class="knob"></span></div></div>
         <div class="step" id="smemf"><button class="sb" data-mstep="-1" title="少 0.5 GB"><i data-ic="minus"></i></button><span class="sv" id="smemv"></span><button class="sb" data-mstep="1" title="多 0.5 GB"><i data-ic="plus"></i></button></div></div>
       <div class="mpre">${(proxy ? PRESETS_PROXY : PRESETS).map(v => `<button class="mp" data-mp="${v}"${v > MEM_CAP ? " disabled" : ""}>${gs(v)}</button>`).join("")}${memLow(proxy)}</div></div>`;
@@ -951,15 +947,15 @@ function step3() {
   if (!SET.nameTouched) SET.name = `我的 ${CORE[core][0]} 服务器`;
   const proxy = isProxyCore();
   if (!SET.memTouched) SET.mem = Math.min(proxy ? 1024 : 4096, MEM_CAP);
-  // 顶上一块：图标跨两行，名称、服务器介绍（点了就能改）
+  // 顶上一块：图标跨两行，名称、服务器介绍（点了就能改）；右下角一句提示（作者 11-26 要的），点它也是改名称
   const id = `<div class="col idcol" style="--c:${MDPixel16.CORE_COLORS[core] || "#7a8aa0"}"><div class="idrow">${avatarBtn()}<div class="idtext">
       <input class="ie title" id="sname" maxlength="40" value="${esc(SET.name)}" aria-label="名称" placeholder="服务器名称">
       ${proxy ? "" : `<input class="ie sub" id="smotd" maxlength="59" value="${esc(SET.motd)}" aria-label="服务器介绍" placeholder="服务器介绍" title="服务器介绍（MOTD），显示在多人游戏的服务器列表里">`}
-    </div></div></div>`;
-  // 左栏：运行内存、快捷预设、存放位置和端口
-  const left = `<div class="col"><h3>服务器</h3><div class="lgrid">${memCtl(proxy)}
-      <div class="fld g-path"><span class="lb">存放位置</span><div class="pathf" id="spath" data-act="root" title="${esc(pathTip())}">${pathNote()}</div></div>
-      ${proxy ? "" : `<div class="fld g-port"><span class="lb">端口</span><div class="iwrap${portOk() ? "" : " bad"}" id="pwrap">`
+    </div><span class="idhint" data-act="editname">${proxy ? "单击以修改服务器名称" : "单击以修改服务器名称/简介"}</span></div></div>`;
+  // 左栏：内存分配（带快捷预设）、存储路径和端口配置
+  const left = `<div class="col"><h3>服务器配置</h3><div class="lgrid">${memCtl(proxy)}
+      <div class="fld g-path"><span class="lb">存储路径</span><div class="pathf" id="spath" data-act="root" title="${esc(pathTip())}">${pathNote()}</div></div>
+      ${proxy ? "" : `<div class="fld g-port"><span class="lb">端口配置</span><div class="iwrap${portOk() ? "" : " bad"}" id="pwrap">`
         + `<input class="inp${portOk() ? "" : " bad"}" id="sport" inputmode="numeric" value="${esc(SET.port)}"><span id="pst">${portState()}</span></div></div>`}
     </div></div>`;
   // 右栏：游戏规则（代理端换成一句话）
@@ -969,9 +965,10 @@ function step3() {
       <div class="fld"><span class="lb">难度</span>${seg("diff", [["peaceful", "和平"], ["easy", "简单"], ["normal", "普通"], ["hard", "困难"]])}</div>
       <div class="fld"><span class="lb">默认游戏模式</span>${seg("mode", [["survival", "生存"], ["creative", "创造"], ["adventure", "冒险"], ["spectator", "旁观"]])}</div>
       <div class="fld g-fly" title="开着可以防止骑乘、模组的移动被误当成飞行踢出去"><span class="lb">允许飞行</span>${seg("flight", [["1", "开"], ["0", "关"]])}</div></div>`;
-  const eula = proxy ? "" : `<div class="eulac${SET.eula ? " on" : ""}" data-eula><span class="cb"><i data-ic="check"></i></span>
+  // EULA 照第一稿放回面板里（作者 11-26：「还是按照最开始，放在框内比较好」）：横跨两栏的一条，左边开关，没开时点「下一步」整条标红、右边出一句
+  const eula = proxy ? "" : `<div class="eula" data-eula><div class="tg${SET.eula ? " on" : ""}" style="pointer-events:none"><span class="sw"></span></div>
       <span>我已阅读并同意 <a href="https://aka.ms/MinecraftEULA" target="_blank" rel="noopener noreferrer">Minecraft 最终用户许可协议（EULA）</a></span><span class="msg">开服前需要同意 EULA</span></div>`;
-  return `<div class="setp s3${proxy ? " proxy" : ""}">${id}${left}${right}</div>${eula}`;
+  return `<div class="setp s3${proxy ? " proxy" : ""}">${id}${left}${right}${eula}</div>`;
 }
 // 分段选的选中底色挪到选中的那一格
 function placeSeg(el, animate) {
@@ -1176,7 +1173,7 @@ function checkLink() {
 }
 function render() {
   const names = STEPS();
-  const body = step === 0 ? step1() : play !== 0 && step === 1 ? step2() : names[step] === "最后设置一下" ? step3() : names[step] === "让朋友连进来" ? step4() : `<div class="placeholder">这一步的内容还没画</div>`;
+  const body = step === 0 ? step1() : play !== 0 && step === 1 ? step2() : names[step] === "配置服务器参数" ? step3() : names[step] === "让朋友连进来" ? step4() : `<div class="placeholder">这一步的内容还没画</div>`;
   const sub = play !== 0 && step === 1 ? "暂不预装可直接进入下一步" : "";
   document.getElementById("page").innerHTML = `<h1 class="q${sub ? " has-sub" : ""}">${names[step]}</h1>${sub ? `<p class="qsub">${sub}</p>` : ""}` + body;
   // 小点：个数对得上就只挪「当前」那个（宽的那个平滑挪过去），对不上（第一次画）才整排重画
@@ -1189,7 +1186,7 @@ function render() {
   const chips = document.querySelector(".chips"); if (chips) { chipScroll(chips); placeChipHL(false); }
   document.querySelectorAll(".seg").forEach(el => placeSeg(el, false));
   placeVia(false); placePlat(false); paintMem();
-  document.body.classList.toggle("on-s3", names[step] === "最后设置一下");
+  document.body.classList.toggle("on-s3", names[step] === "配置服务器参数");
   document.querySelectorAll(".sim [data-ram]").forEach(x => x.classList.toggle("on", +x.dataset.ram === RAMK));
   const wh = document.getElementById("whint"); if (wh) wh.dataset.txt = whoHint()[1];
   document.getElementById("agrid")?.addEventListener("scroll", moreCards, { passive: true });
@@ -1479,6 +1476,7 @@ document.getElementById("page").addEventListener("click", e => {
   const mp = e.target.closest("[data-mp]"); if (mp) { if (!mp.disabled) setMem(+mp.dataset.mp); return; }
   const ms = e.target.closest("[data-mstep]"); if (ms) { if (!ms.disabled) setMem(memClamp(SET.mem + 512 * +ms.dataset.mstep)); return; }
   if (e.target.closest('[data-act="root"]')) return; // 草图里不真弹选文件夹的窗口
+  if (e.target.closest('[data-act="editname"]')) { const n = document.getElementById("sname"); n.focus(); n.select(); return; } // 封面右下角那句提示：点了就改名称
   if (e.target.closest('[data-act="unicon"]')) { SET.icon = ""; repaintAvatar(); return; }
   if (e.target.closest('[data-act="icon"]')) { pickIcon(); return; }
   const pl = e.target.closest("[data-play]"), co = e.target.closest("[data-core]"), ve = e.target.closest("[data-ver]");
@@ -1569,7 +1567,7 @@ function goStep(n) {
   };
 }
 document.getElementById("next").addEventListener("click", () => {
-  if (STEPS()[step] === "最后设置一下" && !checkSettings()) return;
+  if (STEPS()[step] === "配置服务器参数" && !checkSettings()) return;
   if (STEPS()[step] === "让朋友连进来" && !checkLink()) return;
   if (step < STEPS().length - 1) goStep(step + 1);
 });
