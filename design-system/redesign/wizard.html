@@ -112,27 +112,25 @@
   .placeholder { margin-top: 24px; width: 100%; height: 360px; border-radius: 26px; border: 1px dashed var(--border); display: grid; place-items: center; color: var(--faint); font-size: 13px; }
 
   /* 底部：胶囊沉下去以后，左下角「上一步」、右下角「下一步」，和版心的左右边对齐；中间一排小点是第几步（主会话加的，不要可以去掉）。
-     两个按钮照首页胶囊的做法（作者 11-26 问是不是比首页的导航条大：外框一样高，但原来整块 52 高都是实心的，看着更大更重）：
-     外面一层半透明的小胶囊（52 高、内边距 5、细边、同样的阴影、离底 18），按钮本身 40 高、13 号字，和胶囊里的「+」一样大；
-     「下一步」只有里面这 40 高的一块是强调色 */
+     两个按钮各是一颗单独的胶囊，44 高、13 号字（作者 11-26：原来 52 高整块实心，看着比首页导航条大；
+     改成外壳里套 40 高的按钮以后，「下一步」外面多一圈壳又很怪，所以壳去掉，按钮本身做小）。
+     中线和首页胶囊对齐（离底 18、52 高的那条中线）；「上一步」用胶囊那样的半透明底和细边，「下一步」实心强调色 */
   .wnav { position: fixed; left: 0; right: 0; bottom: 18px; z-index: 10; pointer-events: none; }
-  .wnav .in { max-width: 1160px; margin: 0 auto; padding: 0 40px; display: flex; align-items: center; }
+  .wnav .in { max-width: 1160px; margin: 0 auto; padding: 0 40px; height: 52px; display: flex; align-items: center; }
   .wnav .sp { flex: 1; }
-  .wcap { pointer-events: auto; display: inline-flex; padding: 5px; border-radius: var(--r-full); border: 1px solid var(--border);
-          background: color-mix(in srgb, var(--overlay) 86%, transparent); backdrop-filter: blur(16px) saturate(1.2); box-shadow: var(--elev-3);
-          transition: transform .32s cubic-bezier(.4, 0, .2, 1), opacity .32s; }
-  .wbtn { height: 40px; padding: 0 16px; border: 0; border-radius: var(--r-full); display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
-          font: inherit; font-size: 13px; font-weight: 600; color: var(--text); background: transparent; }
+  .wbtn { pointer-events: auto; height: 44px; padding: 0 18px; border-radius: var(--r-full); display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+          font: inherit; font-size: 13px; font-weight: 600; box-shadow: var(--elev-3); transition: transform .32s cubic-bezier(.4, 0, .2, 1), opacity .32s; }
   .wbtn .ico { width: 16px; height: 16px; }
-  .wbtn.back { padding-left: 12px; }
-  .wbtn.back:hover { background: var(--hover); }
+  .wbtn.back { padding-left: 14px; color: var(--text); border: 1px solid var(--border);
+               background: color-mix(in srgb, var(--overlay) 86%, transparent); backdrop-filter: blur(16px) saturate(1.2); }
+  .wbtn.back:hover { background: color-mix(in srgb, var(--overlay) 86%, var(--text) 6%); }
   .wbtn.back .ico { transform: rotate(180deg); }
-  .wbtn.next { padding-right: 12px; color: var(--on-accent); background: var(--accent-solid); }
+  .wbtn.next { padding-right: 14px; border: 0; color: var(--on-accent); background: var(--accent-solid); }
   .wbtn.next:hover { background: var(--accent-solid-hov); }
   .dots { display: flex; gap: 8px; pointer-events: auto; transition: opacity .32s; }
   .dots i { width: 8px; height: 8px; border-radius: 3px; background: color-mix(in srgb, var(--text) 18%, transparent); }
   .dots i.on { width: 22px; background: var(--accent); }
-  body.hidden-nav .wcap { transform: translateY(160%); opacity: 0; }
+  body.hidden-nav .wbtn { transform: translateY(180%); opacity: 0; }
   body.hidden-nav .dots { opacity: 0; }
 </style>
 </head>
@@ -141,9 +139,9 @@
   <div class="win"><span><i data-ic="winMin"></i></span><span><i data-ic="winMax"></i></span><span><i data-ic="winClose"></i></span></div></header>
 <main class="page" id="page"></main>
 <div class="wnav"><div class="in">
-  <span class="wcap"><button class="wbtn back" id="back"><i data-ic="chevronRight"></i>上一步</button></span>
+  <button class="wbtn back" id="back"><i data-ic="chevronRight"></i>上一步</button>
   <span class="sp"></span><span class="dots" id="dots"></span><span class="sp"></span>
-  <span class="wcap"><button class="wbtn next" id="next">下一步<i data-ic="chevronRight"></i></button></span>
+  <button class="wbtn next" id="next">下一步<i data-ic="chevronRight"></i></button>
 </div></div>
 <script>
 // 程序图标里还没有的三个（作者 11-26 照 Lucide 挑的 map、archive-restore、folder-input），照程序图标的画法重画：16 格、1.3 粗、直角折线
