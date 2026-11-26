@@ -169,13 +169,16 @@ func defenderScript(action, path, outFile string) string {
 		"$m=[string]$e.Exception.Message; $m+=' | '+[string]$e.FullyQualifiedErrorId; $m+=' | HResult=0x'+('{0:X8}' -f $e.Exception.HResult); Save-Result $m; " +
 		"if ($e.FullyQualifiedErrorId -eq 'CommandNotFoundException' -or $m -match '0x8004100e' -or [string]$e.Exception.NativeErrorCode -eq 'InvalidNamespace') { exit " + code(psExitNoCmdlet) + " }; " +
 		"exit " + code(psExitCmdletErr) + " }; ")
-	b.WriteString("$ErrorActionPreference='SilentlyContinue'; $l=@((Get-MpPreference).ExclusionPath | Where-Object { $_ }); $w=$p.TrimEnd('\\'); " +
-		"$seen=@($l | Where-Object { -not ([string]$_).StartsWith('N/A') }).Count -gt 0; " +
+	// 改完回读核对。读不到列表（Get-MpPreference 报错，或者策略对本地管理员藏起了排除项、读出来是一句「N/A…」）时不核对；
+	// 读得到的空列表照样核对：大多数电脑原本一条排除项都没有，加完还是空的，正说明没加进去（复审第二轮指出的）
+	b.WriteString("$ErrorActionPreference='SilentlyContinue'; $mp=$null; try { $mp=Get-MpPreference -ErrorAction Stop } catch {}; " +
+		"$l=@($mp.ExclusionPath | Where-Object { $_ }); $w=$p.TrimEnd('\\'); " +
+		"$hidden=(-not $mp) -or (@($l | Where-Object { ([string]$_).StartsWith('N/A') }).Count -gt 0); " +
 		"$has=@($l | Where-Object { ([string]$_).TrimEnd('\\') -ieq $w }).Count -gt 0; ")
 	if action == defenderAdd {
-		b.WriteString("if ($seen -and -not $has) { Save-Result ('verify: ' + $p + ' is not in ExclusionPath after Add-MpPreference'); exit " + code(psExitVerify) + " }; ")
+		b.WriteString("if (-not $hidden -and -not $has) { Save-Result ('verify: ' + $p + ' is not in ExclusionPath after Add-MpPreference'); exit " + code(psExitVerify) + " }; ")
 	} else {
-		b.WriteString("if ($seen -and $has) { Save-Result ('verify: ' + $p + ' is still in ExclusionPath after Remove-MpPreference'); exit " + code(psExitVerify) + " }; ")
+		b.WriteString("if ($has) { Save-Result ('verify: ' + $p + ' is still in ExclusionPath after Remove-MpPreference'); exit " + code(psExitVerify) + " }; ")
 	}
 	b.WriteString("exit 0")
 	return b.String()
@@ -256,19 +259,15 @@ func pathForms(p string, resolve func(string) string) []string {
 	return []string{c, r}
 }
 
-// samePath 是不是同一个文件夹：两边各自的原样写法和真实路径，有一对一样就算（不分大小写、末尾的反斜杠不算）。
-func samePath(a, b string, resolve func(string) string) bool {
+// samePath 记着的排除项和现在的程序数据文件夹是不是同一条：只比整理过的原样写法（不分大小写、末尾的反斜杠和 \\?\ 前缀不算），
+// 不解开联接、短名、subst。Defender 的排除项存的就是这串字，换了写法（比如以前从 subst 盘符 M:\MineDeck 加的，现在从真实路径启动）
+// 在 Defender 那边是两条：要先撤掉旧写法的那条再加新的，不然旧的那条留在系统里、MineDeck 也不再记得它。页面上 sameDir 也是这样比的。
+// 「太大的文件夹不加」那边（broadReason）照旧解开真实路径再比，防的是用别名绕过去。
+func samePath(a, b string) bool {
 	if a == "" || b == "" {
 		return false
 	}
-	for _, x := range pathForms(a, resolve) {
-		for _, y := range pathForms(b, resolve) {
-			if x == y {
-				return true
-			}
-		}
-	}
-	return false
+	return strings.EqualFold(filepath.Clean(stripVerbatim(a)), filepath.Clean(stripVerbatim(b)))
 }
 
 // isVolumeRoot 是不是磁盘根目录（D:\、\\server\share\）。
@@ -460,7 +459,7 @@ func doDefenderAction(action string, env defenderEnv) (res defenderResult, rec *
 		res.Path = target
 		// 界面上记着别的位置时只给「撤销」，不会走到这里；页面里的脚本直接调过来时也不替它加：
 		// 新的一记，旧的那条就没人记得了，留在系统里一直不扫。路径是空的记录（手改坏的配置）当没记过
-		if env.record != nil && env.record.Path != "" && !samePath(env.record.Path, target, resolve) {
+		if env.record != nil && env.record.Path != "" && !samePath(env.record.Path, target) {
 			res.Kind, res.Msg = dfRefused, "以前加入的是另一个位置，先撤销那一条"
 			res.Detail = "以前加入的：" + env.record.Path + "\n现在的程序数据文件夹：" + target
 			return res, env.record, false

@@ -166,8 +166,8 @@ func TestDefenderParamsRoundTrip(t *testing.T) {
 				cmdlet + " -ExclusionPath $p -Force -ErrorAction Stop }",     // 命令上再写一遍 -ErrorAction Stop
 				"catch { $ErrorActionPreference='SilentlyContinue'; $e=$_; ", // catch 里先改回 SilentlyContinue 再拼报错
 				"Get-Command " + cmdlet + " -ErrorAction SilentlyContinue",   // 先查有没有 Defender 的命令
-				"0x8004100e",                       // WMI 命名空间不在也算没有 Defender
-				"(Get-MpPreference).ExclusionPath", // 改完回读核对
+				"0x8004100e",                             // WMI 命名空间不在也算没有 Defender
+				"$mp=Get-MpPreference -ErrorAction Stop", // 改完回读核对
 				"exit " + fmt.Sprint(psExitVerify),
 				"Out-File -LiteralPath $o",
 			} {
@@ -343,7 +343,8 @@ func TestDefenderScriptBehavior(t *testing.T) {
 	scens := []scen{
 		{"加入：做成了，回读列表里有（末尾反斜杠、大小写不同也算）", defenderAdd, "Running", true, normal, "", psList(`C:\Other`, `d:\tom’s ‘mc’ 世界`), 0, "", true},
 		{"加入：列表读不到（一句 N/A）不当失败", defenderAdd, "Running", true, normal, "", `@('N/A: Must be an administrator to view exclusions')`, 0, "", true},
-		{"加入：列表是空的不当失败", defenderAdd, "Running", true, normal, "", `$null`, 0, "", true},
+		{"加入：列表读得到、加完还是空的（没加进去）", defenderAdd, "Running", true, normal, "", `$null`, psExitVerify, "is not in ExclusionPath", true},
+		{"加入：Get-MpPreference 报错、读不到列表，不当失败", defenderAdd, "Running", true, normal, "", "throw", 0, "", true},
 		{"加入：回读读得到、却没有这一条", defenderAdd, "Running", true, normal, "", `@('C:\Other')`, psExitVerify, "is not in ExclusionPath", true},
 		{"加入：WinDefend 没装", defenderAdd, "none", true, normal, "", `$null`, psExitNoService, "WinDefend service not installed", false},
 		{"加入：WinDefend 停着", defenderAdd, "Stopped", true, normal, "", `$null`, psExitNoService, "WinDefend service status: Stopped", false},
@@ -394,7 +395,7 @@ func TestDefenderScriptBehavior(t *testing.T) {
 				`function Get-MpComputerStatus { [CmdletBinding()] param() ` + status + ` }; ` +
 				`function Add-MpPreference { [CmdletBinding()] param($ExclusionPath, [switch]$Force) ` + mpBody("ADD") + ` }; ` +
 				`function Remove-MpPreference { [CmdletBinding()] param($ExclusionPath, [switch]$Force) ` + mpBody("REMOVE") + ` }; ` +
-				`function Get-MpPreference { [CmdletBinding()] param() return [pscustomobject]@{ ExclusionPath = ` + s.list + ` } }; ` +
+				`function Get-MpPreference { [CmdletBinding()] param() ` + map[bool]string{true: `throw '读不到'`, false: `return [pscustomobject]@{ ExclusionPath = ` + s.list + ` }`}[s.list == "throw"] + ` }; ` +
 				`function Set-MpPreference { exit 96 }; `
 			for _, name := range mpCmdlets {
 				if !strings.Contains(prefix, "function "+name+" ") {
@@ -546,15 +547,16 @@ func TestBroadReasonFollowsJunctionsAndShortNames(t *testing.T) {
 	if why := broadReason(filepath.Join(link, "MineDeck"), []string{real}, canonicalDir); why != "" {
 		t.Errorf("系统文件夹里单独建的文件夹（经联接访问）应该能加：%s", why)
 	}
-	if !samePath(link, real+`\`, canonicalDir) || samePath(link, filepath.Join(real, "MineDeck"), canonicalDir) {
-		t.Error("samePath 应认出联接和它指向的文件夹是同一个，子文件夹不是")
+	// samePath 只比原样写法（Defender 存的就是这串字）：联接和它指向的文件夹在 Defender 那边是两条，不算同一条
+	if samePath(link, real) || !samePath(real+`\`, strings.ToUpper(real)) {
+		t.Error("samePath 只比整理过的原样写法：联接和真实路径不算同一条，大小写、末尾反斜杠不同的算")
 	}
 	if short, ok := shortPathOf(real); ok && !strings.EqualFold(short, real) {
 		if broadReason(short, []string{real}, canonicalDir) == "" {
 			t.Errorf("8.3 短名 %q 不该绕过", short)
 		}
-		if !samePath(short, real, canonicalDir) {
-			t.Errorf("samePath 应认出短名 %q 和长名是同一个", short)
+		if samePath(short, real) {
+			t.Errorf("samePath 不解开短名：%q 和长名在 Defender 那边是两条", short)
 		}
 	} else {
 		t.Log("这个卷上没有 8.3 短名，短名那一段没测")
@@ -562,7 +564,7 @@ func TestBroadReasonFollowsJunctionsAndShortNames(t *testing.T) {
 	if got := stripVerbatim(`\\?\UNC\server\share\x`); got != `\\server\share\x` {
 		t.Errorf("\\\\?\\UNC\\ 前缀应写回 \\\\server：%q", got)
 	}
-	if !samePath(`\\?\C:\Users\x\`, `c:\users\X`, cleanOnly) {
+	if !samePath(`\\?\C:\Users\x\`, `c:\users\X`) {
 		t.Error("带 \\\\?\\ 前缀的和普通写法应算同一个")
 	}
 }
