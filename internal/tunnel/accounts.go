@@ -369,7 +369,9 @@ func (a *Accounts) PollOpenFrpLogin(ctx context.Context, id string) (OpenFrpLogi
 	a.mu.Unlock()
 	defer clear(privateKey[:])
 
-	data, headers, status, err := a.request(ctx, http.MethodGet, a.openLogin, "/argoAccess/pollLogin", "", map[string]string{"request_uuid": state.requestUUID}, true)
+	// request_uuid 放在查询参数里（OpenFrp 2026-11-24 改过的文档如此）。原来照旧文档放在 GET 的请求体里，
+	// 平台现在读不到，回 400「request_uuid参数不能为空」，授权在官网显示成功、MineDeck 却连不上
+	data, headers, status, err := a.request(ctx, http.MethodGet, a.openLogin, "/argoAccess/pollLogin?request_uuid="+url.QueryEscape(state.requestUUID), "", nil, true)
 	if err != nil {
 		return OpenFrpLoginPoll{}, err
 	}

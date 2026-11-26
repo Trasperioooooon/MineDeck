@@ -152,6 +152,15 @@ func newOpenFrpServer(t *testing.T) *openFrpServer {
 		if f.onRequest != nil {
 			f.onRequest(r.URL.Path)
 		}
+		// 照 OpenFrp 2026-11-24 改过的文档：request_uuid 放在查询参数里。只放在 GET 的请求体里，平台回 400「request_uuid参数不能为空」（用户反馈过）
+		if r.Method != http.MethodGet || r.ContentLength != 0 { // != 0：分块发的请求体 ContentLength 是 -1，也算带了
+			t.Errorf("pollLogin 应是不带请求体的 GET: method=%s ContentLength=%d", r.Method, r.ContentLength)
+		}
+		if got := r.URL.Query().Get("request_uuid"); got != "req-1" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 400, "msg": "request_uuid参数不能为空"})
+			return
+		}
 		if f.clientPub == nil {
 			w.WriteHeader(http.StatusNoContent)
 			return
