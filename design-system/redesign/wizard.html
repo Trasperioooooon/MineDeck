@@ -60,6 +60,7 @@
   .col h3 .sp { flex: 1; }
   /* 介绍：选中的核心，图标、名字、副标题、正文，左下角三行「适用场景」「支持扩展」「联机要求」 */
   /* 换核心时介绍这一块的过渡「逐项换」（作者 11-26 从四种里挑的）：动画在脚本 swapIntro 里 */
+  .intro { overflow: hidden; }
   .intro .body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
   .intro .head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
   .intro .head .cover { width: 56px; height: 56px; border-radius: 12px; flex: none; }
@@ -67,7 +68,8 @@
   .intro .nm { font-size: 18px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
   .intro .sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
   .intro p { margin: 0 0 12px; font-size: 13px; line-height: 21px; color: var(--text); }
-  .intro dl { margin: auto 0 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; font-size: 12.5px; }
+  /* 右边那列用 minmax(0, 1fr)：列宽在变、旧的内容钉着原来的宽度时，它只往外伸出去，不把左边的小标题挤成竖排 */
+  .intro dl { margin: auto 0 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 12px; font-size: 12.5px; }
   .intro dt { color: var(--faint); } .intro dd { margin: 0; color: var(--muted); }
   .rec { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 8px; background: var(--accent-subtle); color: var(--accent-text); }
   /* 核心、版本：竖着的一列，一行一个，选中的底色变强调色；版本多了在列里自己滚 */
@@ -241,7 +243,7 @@ function selectPlay(i) {
   play = i; core = PLAYS[i].rec || PLAYS[i].cores[0]; ver = DEF[core];
   document.querySelectorAll(".play").forEach((c, j) => c.classList.toggle("on", j === i));
   placeFrame(true);
-  swapIntro(from, dir, "X", fromPlay);
+  swapIntro(from, dir, "X", fromPlay, hasCores(fromPlay) !== hasCores(i) ? introContentW(!hasCores(i)) : 0);
   swapCores(fromPlay, dir);
   swapVersions(from, fromVer, dir, "X");
   updateDots();
@@ -371,23 +373,44 @@ function swapVersions(from, fromVer, dir, axis = "Y") {
 // 突兀的根子是旧字一帧就没了，而且三个小标题、各块的位置每个核心都一样，整块换等于把没变的也闪一遍。
 // 所以框架不动，只把变了的七样（图标、名字、副标题、正文、三行内容）一样一样换：每样先淡出（0.09 秒）再淡入（0.22 秒），
 // 挪 5 像素，顺着高亮框走的方向错开 22 毫秒（dir：往下点 1，从上往下换；往上点 -1，从下往上换），整套 0.42 秒左右
-let swapUntil = 0;
-// axis：换核心时竖着挪（"Y"），换玩法时横着挪（"X"）；fromPlay：换玩法时旧的那个玩法
-function swapIntro(from, dir, axis = "Y", fromPlay = play) {
+let swapUntil = 0, pinUntil = 0, pinW = 0, pinTimer = 0;
+// 介绍这一列变完以后正文能排多宽：和 CSS 里 .pick 的排法对着算（.pick 内边距 8，列间隔 8，每列内边距 14；
+// 三列按 1.25 : 1 : 1 分，原版两列按 3 : 2 分，核心那列收成零宽、没有内边距）。改了那边的数这里要跟着改
+function introContentW(two) {
+  const free = document.querySelector(".pick").clientWidth - 16 - (two ? 8 : 16) - (two ? 56 : 84);
+  return free * (two ? 3 / 5 : 1.25 / 3.25);
+}
+// axis：换核心时竖着挪（"Y"），换玩法时横着挪（"X"）；fromPlay：换玩法时旧的那个玩法；
+// finalW：原版和别的玩法之间换、这一列要变宽变窄时，变完以后正文的宽度
+function swapIntro(from, dir, axis = "Y", fromPlay = play, finalW = 0) {
   const intro = document.getElementById("intro");
-  const easeIn = "cubic-bezier(.4, 0, 1, 1)", easeOut = "cubic-bezier(.2, .7, .2, 1)";
+  const easeIn = "cubic-bezier(.4, 0, 1, 1)", easeOut = "cubic-bezier(.2, .7, .2, 1)", now = performance.now();
   intro.getAnimations({ subtree: true }).forEach(a => a.cancel());
   // 上一次还没换完又点了别的：先把上一次的结果摆好，再从它往新的换
-  if (performance.now() < swapUntil) intro.innerHTML = introInner(from, fromPlay);
+  if (now < swapUntil) intro.innerHTML = introInner(from, fromPlay);
   const next = document.createElement("div"); next.innerHTML = introInner();
   const parts = root => [root.querySelector(".cover"), root.querySelector(".nm"), root.querySelector(".sub"), root.querySelector("p"), ...root.querySelectorAll("dd")];
   const olds = parts(intro), news = parts(next), n = olds.length, dy = 5 * dir, gap = 22;
+  // 列宽在变的时候文字不跟着重排换行（作者 11-26：原版两列、介绍宽，换到别的玩法时文字会跟着列宽一路重新换行）：
+  // 旧的几样钉在现在的宽度上淡出，新的直接按变完的宽度排好再淡进来；多出列外的部分被这一列裁掉。列变完了再松开
+  // 这时旧的几样一起很快淡掉（不错开），免得被裁掉半截的旧字留得太久；错开只留给新的淡进来
+  if (finalW) { pinW = finalW; pinUntil = now + 360; }
+  const morph = now < pinUntil;
+  if (morph) {
+    const body = intro.querySelector(".body");
+    olds.forEach(o => { o.style.width = o.getBoundingClientRect().width + "px"; });
+    body.style.width = pinW + "px";
+    clearTimeout(pinTimer);
+    pinTimer = setTimeout(() => { const b = intro.querySelector(".body"); if (b) b.removeAttribute("style"); }, pinUntil - now);
+  }
   swapUntil = performance.now() + (n - 1) * gap + 90 + 220;
   olds.forEach((o, i) => {
+    const order = (axis === "X" || dir > 0 ? i : n - 1 - i) * gap;
     o.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: `translate${axis}(${-dy}px)` }],
-      { duration: 90, delay: (axis === "X" || dir > 0 ? i : n - 1 - i) * gap, easing: easeIn, fill: "forwards" }).onfinish = () => {
+      { duration: 90, delay: morph ? 0 : order, easing: easeIn, fill: "forwards" }).onfinish = () => {
       o.replaceWith(news[i]);
-      news[i].animate([{ opacity: 0, transform: `translate${axis}(${dy}px)` }, { opacity: 1, transform: "none" }], { duration: 220, easing: easeOut });
+      news[i].animate([{ opacity: 0, transform: `translate${axis}(${dy}px)` }, { opacity: 1, transform: "none" }],
+        { duration: 220, delay: morph ? order : 0, easing: easeOut, fill: "backwards" });
     };
   });
 }
