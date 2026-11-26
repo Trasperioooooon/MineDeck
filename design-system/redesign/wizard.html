@@ -231,6 +231,7 @@
   .wbtn .ico { width: 16px; height: 16px; }
   .wbtn.next { justify-content: center; overflow: hidden; white-space: nowrap; }
   .wbtn .lbl { display: inline-flex; align-items: center; gap: 6px; }
+  .wbtn.next.plain { padding-right: 18px; }
   .wbtn.back { padding-left: 14px; color: var(--text); border: 1px solid var(--border);
                background: color-mix(in srgb, var(--overlay) 86%, transparent); backdrop-filter: blur(16px) saturate(1.2); }
   .wbtn.back:hover { background: color-mix(in srgb, var(--overlay) 86%, var(--text) 6%); }
@@ -507,14 +508,15 @@ function regrid(dir = 0) {
 let navTok = 0;
 function navLabel() {
   const names = STEPS(), b = document.getElementById("next");
-  const want = step === names.length - 1 ? `<i data-ic="check"></i>创建服务器` : `下一步<i data-ic="chevronRight"></i>`;
+  // 最后一步只写「创建服务器」，不带勾（作者 11-26）；没有图标时左右留白一样（plain）
+  const last = step === names.length - 1, want = last ? `创建服务器` : `下一步<i data-ic="chevronRight"></i>`;
   if (b.dataset.label === want) return;
   const first = !b.dataset.label, tok = ++navTok;
   b.dataset.label = want;
   const swap = () => {
     if (tok !== navTok) return;
     const w0 = b.offsetWidth;
-    b.style.width = ""; b.innerHTML = `<span class="lbl">${want}</span>`; KIT.hydrate(b);
+    b.style.width = ""; b.classList.toggle("plain", last); b.innerHTML = `<span class="lbl">${want}</span>`; KIT.hydrate(b);
     if (first) return;
     const w1 = b.offsetWidth;
     b.querySelector(".lbl").animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, delay: 60, easing: "cubic-bezier(.2, .7, .2, 1)", fill: "backwards" });
