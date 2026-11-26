@@ -126,7 +126,7 @@
      卡片和清单列表不再左右各缩 4、右边也不再留 12 的滚动条槽：细滚动条放在面板右边那 8 像素里 */
   .addon > .col { min-width: 0; padding: 14px 8px 8px; }
   .addon .col h3 { padding: 0 6px; }
-  .addon .list { margin: 0; padding: 0; }
+  .addon .list { margin: 0; padding: 0; overflow-x: hidden; }
   .addon .thumb { right: -6px; }
   /* 左右大约 72 : 28（Gemini 复审 11-26 提的，作者让看着采纳）：左边两列卡片宽一些，名字放得下；清单一行一个，窄一点也够 */
   .addon .browse { flex: 2.6 1 0; }
@@ -467,17 +467,34 @@ function toggleAddon(id) {
   syncAddons();
 }
 // 卡片的选中样子和清单跟着 picked 走：清单只动变了的那几行，新加的从下面淡进来，拿掉的淡出、收起
-function syncAddons() {
+// 拿掉清单里的东西（作者 11-26：改成向右划出淡出）：
+//   拿掉一个（点卡片、点 ×、连带拿掉的前置）：那一行往右划 32 像素淡掉，然后收起，下面的行顺着补上来；
+//   「清空」（clear 为 true）：从上往下一行接一行往右划出，间隔从 90 毫秒开始每次缩成四分之三（由慢到快），行不收起、位置不动，
+//   最后一行划完一起拿掉，空清单那段话再淡进来
+function syncAddons(clear = false) {
   const has = new Set(picked.map(p => p.id));
   document.querySelectorAll("#agrid .mod").forEach(m => {
     const on = has.has(m.dataset.addon);
     if (m.classList.contains("in") !== on) { m.classList.toggle("in", on); m.querySelector(".add").innerHTML = KIT.icon(on ? "check" : "plus"); }
   });
   const list = document.getElementById("alist"), easeIn = "cubic-bezier(.4, 0, 1, 1)", easeOut = "cubic-bezier(.2, .7, .2, 1)";
-  list.querySelectorAll(".crow:not(.out)").forEach(r => {
-    if (has.has(r.dataset.id)) return;
+  const gone = [...list.querySelectorAll(".crow:not(.out)")].filter(r => !has.has(r.dataset.id));
+  if (clear && gone.length) {
+    let delay = 0, gap = 90;
+    gone.forEach((r, i) => {
+      r.classList.add("out");
+      const a = r.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "translateX(40px)" }], { duration: 220, delay, easing: easeIn, fill: "forwards" });
+      delay += gap; gap = Math.max(16, Math.round(gap * 0.75));
+      if (i === gone.length - 1) a.onfinish = () => { gone.forEach(x => x.remove()); list.closest(".lwrap")._paint?.(); };
+    });
+  } else gone.forEach((r, i) => {
     r.classList.add("out");
-    r.animate([{ opacity: 1, height: r.offsetHeight + "px" }, { opacity: 0, height: "0px", marginBottom: "-4px" }], { duration: 180, easing: easeIn, fill: "forwards" }).onfinish = () => { r.remove(); list.closest(".lwrap")._paint?.(); };
+    const h = r.offsetHeight + "px";
+    r.animate([
+      { opacity: 1, transform: "none", height: h, marginBottom: "0px", easing: easeIn },
+      { opacity: 0, transform: "translateX(32px)", height: h, marginBottom: "0px", offset: .55, easing: easeOut },
+      { opacity: 0, transform: "translateX(32px)", height: "0px", marginBottom: "-4px" },
+    ], { duration: 320, delay: i * 40, fill: "forwards" }).onfinish = () => { r.remove(); list.closest(".lwrap")._paint?.(); };
   });
   picked.forEach((p, i) => {
     if (list.querySelector(`.crow[data-id="${p.id}"]:not(.out)`)) return;
@@ -839,7 +856,7 @@ document.getElementById("page").addEventListener("click", e => {
     acat = ch.dataset.cat; regrid(dir);
     ch.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "smooth" }); // 分类放不下、点到半露在边上的那个时，把它滑进来
   }
-  else if (e.target.closest("[data-clear]")) { picked = []; syncAddons(); }
+  else if (e.target.closest("[data-clear]")) { picked = []; syncAddons(true); }
 });
 // 搜索框：停手 0.18 秒再筛
 document.getElementById("page").addEventListener("input", e => {
