@@ -222,10 +222,14 @@
   .drop:hover { color: var(--text); border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
   .drop .ico { width: 15px; height: 15px; }
   /* 第三步「最后设置一下」（11-26 主会话画的第一稿）：现在程序里「基本设置」那一页的东西都在，重新排成和前两步一样的大面板（外 26、内边距 8）：
-     左边「服务器」（头像、名称、端口一行，名称下面一行小字是存在哪个文件夹、可以改；内存用程序原来那个控件；服务器介绍），右边「游戏规则」（难度、默认游戏模式两排分段选，
+     左边「服务器」（头像、名称、端口一行，名称下面是存放路径；内存；服务器介绍），右边「游戏规则」（难度、默认游戏模式两排分段选，
      选中的底色滑过去，同前两步；允许飞行一个开关），最底下横跨两块的一条是 EULA（贴着面板的角，圆角 18 = 26 − 8）。
+     11-26 作者指出这一页忘了计划书开头的规矩（少字让图标说话、一个值只说一次、同心圆角、连续曲率），照着改过一遍：
+     说明字收进悬停（端口可用、存放位置、服务器介绍、允许飞行、推荐内存），一样高的控件一律 40 高、圆角 10，不用系统自带的滑条和数字框箭头。
      第一稿右边还有正版验证、白名单两个开关，作者问「联机开不开」这两步怎么接以后挪到了第四步「谁能进」（见第四步的注释）。
-     EULA 没勾时点「下一步」不往下走，那一条标红、左右晃一下。代理端没有端口、介绍、游戏规则和 EULA，右边换成一段说明 */
+     EULA 没勾时点「下一步」不往下走，那一条标红、左右晃一下。代理端没有端口、介绍、游戏规则和 EULA，右边换成一句话。
+     说明字收掉以后内容矮了一截，第三步的面板改成按内容的高度，不再撑满 520、底下空一大块（第四步内容会随选择变高变矮，仍固定 520） */
+  .setp:not(.link) { height: auto; }
   .setp { width: 100%; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-1); box-sizing: border-box; height: 520px;
           display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; gap: 8px; } /* minmax(0, …)：存放路径不换行，长了不许把这一列撑宽 */
   .setp .col { padding: 14px 16px; gap: 16px; }
@@ -241,57 +245,77 @@
   .fnote b { color: var(--muted); font-weight: 500; font-family: var(--mono); font-size: 11.5px; }
   .fnote a { color: var(--accent-text); cursor: pointer; white-space: nowrap; }
   .fnote .ico { width: 13px; height: 13px; flex: none; }
-  .fnote.ok .ico { color: var(--accent-text); }
   .fnote.bad { color: var(--danger-text); }
   /* 头像、名称、端口一行（作者 11-26：名称和端口放同一行；头像和首页卡片上的统一）。头像 64 = 「名称」两个字那行 18 + 间距 6 + 输入框 40，
      顶上和「名称」对齐、底下和输入框对齐；不在栏的角上，圆角不受同心的限制，取 14 */
   .nrow { display: flex; gap: 14px; align-items: flex-start; min-width: 0; } /* min-width 0：路径不换行，不加的话整行会被撑宽 */
   .nrow .nm { flex: 1; }
   .nrow .port { width: 132px; flex: none; }
-  .nrow .fnote { min-width: 0; white-space: nowrap; }
-  .nrow .fnote b { min-width: 0; display: flex; white-space: nowrap; }
-  .nrow .fnote b .hd, .nrow .fnote b .tl { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .nrow .fnote b .hd { flex-shrink: 1000; min-width: 1.6ch; } /* 先省上级目录（至少留一个省略号），省完了文件夹名太长才省文件夹名 */
+  /* 存放路径：文件夹图标加路径，整行就是「更改位置」的按钮（悬停变强调色、提示「更改存放位置…」），不再另写「更改位置…」几个字 */
+  .fpath { display: flex; align-items: center; gap: 5px; min-width: 0; height: 18px; font-size: 12px; color: var(--faint); cursor: pointer; white-space: nowrap; transition: color .2s; }
+  .fpath .ico { width: 13px; height: 13px; flex: none; }
+  .fpath b { display: flex; min-width: 0; font-family: var(--mono); font-size: 11.5px; font-weight: 500; color: var(--muted); transition: color .2s; }
+  .fpath b .hd, .fpath b .tl { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .fpath b .hd { flex-shrink: 1000; min-width: 1.6ch; } /* 先省上级目录（至少留一个省略号），省完了文件夹名太长才省文件夹名 */
+  .fpath:hover, .fpath:hover b { color: var(--accent-text); }
+  /* 端口：对不对只用输入框里右边一个图标表示（对是勾、悬停「端口可用」）；不对会拦下一步，所以框标红、下面再写一句短的 */
+  .iwrap { position: relative; }
+  .iwrap .inp { padding-right: 36px; }
+  .iwrap .st { position: absolute; right: 12px; top: 0; bottom: 0; display: flex; align-items: center; color: var(--accent-text); }
+  .iwrap .st.bad { color: var(--danger-text); }
+  .iwrap .st .ico { width: 15px; height: 15px; }
   .avbtn { position: relative; flex: none; width: 64px; height: 64px; border-radius: 14px; cursor: pointer; }
   .sav { --c: #7a8aa0; width: 64px; height: 64px; border-radius: 14px; display: grid; place-items: center; overflow: hidden;
          background: color-mix(in srgb, var(--c) 26%, var(--surface)); box-shadow: inset 0 1px 0 rgb(255 255 255 / .06), 0 0 0 1px color-mix(in srgb, var(--c) 30%, transparent); }
   .sav svg { width: 48px; height: 48px; display: block; }
   .sav.icon { background: #000; }
   .sav.icon img { width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; display: block; }
-  .avov { position: absolute; inset: 0; border-radius: 14px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-          background: rgb(0 0 0 / .55); color: #fff; font-size: 11.5px; font-weight: 600; opacity: 0; transition: opacity .2s; pointer-events: none; }
-  .avov .ico { width: 16px; height: 16px; }
+  .avov { position: absolute; inset: 0; border-radius: 14px; display: grid; place-items: center;
+          background: rgb(0 0 0 / .55); color: #fff; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .avov .ico { width: 20px; height: 20px; }
   .avbtn:hover .avov { opacity: 1; }
   .avx { position: absolute; right: -6px; top: -6px; width: 20px; height: 20px; border-radius: 10px; display: grid; place-items: center; cursor: pointer;
          background: var(--overlay); color: var(--muted); box-shadow: 0 0 0 1px var(--border), var(--elev-1); opacity: 0; transition: opacity .2s; }
   .avx .ico { width: 11px; height: 11px; }
   .avbtn:hover .avx { opacity: 1; }
   .avx:hover { color: var(--text); }
-  /* 内存（作者 11-26：「我还是很喜欢原来这个配置内存的 UI 设计」）：照搬程序里的 renderMemoryControl 和 app.css 的 .mem-*——
-     「最大内存 -Xmx」加大号 GB 数，右边一个 MB 的数字框；系统自己的滑条（强调色）；下面一排经验条式的格子
-     （其他程序已用 / 本服分配 / 超出可用，1 格 = 512 MB，内存大时放大到最多约 48 格）；再下面一行统计、一行推荐。只改了字号像素和数字框的样子，让它跟这一页的输入框一致 */
-  .mem-head { display: flex; align-items: baseline; gap: 10px; font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
-  .mem-head .mem-gb { font-size: 15px; }
-  .mem-head .mem-mb { margin-left: auto; display: flex; align-items: center; gap: 6px; color: var(--muted); font-weight: 400; font-size: 12.5px; }
-  .mem-num { width: 96px; height: 30px; border-radius: 8px; background: var(--field); border: 1px solid var(--border); box-sizing: border-box; padding: 0 8px;
-             font: inherit; font-size: 13px; color: var(--text); text-align: right; outline: none; transition: border-color .2s; }
-  .mem-num:focus { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
-  .mem-range { width: 100%; margin: 0; accent-color: var(--accent-solid); cursor: pointer; }
-  .mem-xp { display: flex; gap: 2px; height: 14px; margin: 10px 0 8px; }
-  .mem-xp i { flex: 1; border-radius: 1px; background: color-mix(in srgb, var(--text) 9%, transparent); }
-  .mem-xp i.used { background: color-mix(in srgb, var(--text) 30%, transparent); }
-  .mem-xp i.alloc { background: var(--accent); box-shadow: inset 0 2px 0 rgb(255 255 255 / .3), inset 0 -2px 0 rgb(0 0 0 / .16); }
-  .mem-xp i.over { background: var(--danger); box-shadow: inset 0 2px 0 rgb(255 255 255 / .3), inset 0 -2px 0 rgb(0 0 0 / .16); }
-  .mem-stat, .mem-hint { font-size: 12px; line-height: 19px; color: var(--muted); }
-  .mem-stat b { color: var(--text); font-weight: 600; }
-  .mem-warn { color: var(--danger-text); font-weight: 600; }
-  .mem-warn .ico { width: 13px; height: 13px; vertical-align: -2px; }
-  /* 分段选：外框圆角 12、内边距 3，选中的底色圆角 9（同心），换选择时滑过去 */
-  .seg { position: relative; display: flex; padding: 3px; border-radius: 12px; background: var(--field); border: 1px solid var(--border); box-sizing: border-box; height: 38px; }
-  .seg span { flex: 1; position: relative; z-index: 1; display: grid; place-items: center; font-size: 13px; color: var(--muted); border-radius: 9px; cursor: pointer; transition: color .2s; }
+  /* 内存（作者 11-26 先要了程序原来的控件，又说「这么一个模块有好几处地方在告诉用户内存分配可多少」）：
+     留程序那排经验条式的格子（颜色、先后照程序：灰的其他程序已用、接着强调色的本服分配、淡的空着；1 格 = 512 MB，内存大时放大到最多约 48 格），
+     格子本身就是滑条——点、拖、方向键都能改，竖着的小把手停在本服那一截的末端；右边一个 MB 数字框，是这一块里唯一写着数的地方。
+     原来的大号 GB 数、系统滑条、统计和推荐两行都拿掉：统计和推荐收进格子的悬停提示。超过可用内存会改变结果（可能卡、可能起不来），
+     所以本服那一截变红、标题那行右边写「超出可用 …」、数字框标红；超过 16 GB 只是提醒，数字框里一个黄色警告图标，悬停看原因 */
+  .memx { display: flex; align-items: center; gap: 12px; }
+  .mbar { position: relative; flex: 1; min-width: 0; height: 40px; display: flex; align-items: center; cursor: pointer; touch-action: none; outline: none; }
+  .mbar .cells { display: flex; gap: 2px; width: 100%; height: 14px; }
+  .mbar .cells i { flex: 1; border-radius: 1px; background: color-mix(in srgb, var(--text) 9%, transparent); transition: background .12s; }
+  .mbar .cells i.used { background: color-mix(in srgb, var(--text) 30%, transparent); }
+  .mbar .cells i.alloc { background: var(--accent); box-shadow: inset 0 2px 0 rgb(255 255 255 / .3), inset 0 -2px 0 rgb(0 0 0 / .16); }
+  .mbar .cells i.over { background: var(--danger); box-shadow: inset 0 2px 0 rgb(255 255 255 / .3), inset 0 -2px 0 rgb(0 0 0 / .16); }
+  /* 把手：6 × 24 的竖胶囊（圆角 = 宽的一半） */
+  .mbar .knob { position: absolute; top: 50%; left: 0; width: 6px; height: 24px; margin: -12px 0 0 -3px; border-radius: 3px; background: var(--text); pointer-events: none;
+                 box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent), 0 1px 3px rgb(0 0 0 / .35); }
+  .mbar:not(.drag) .knob { transition: left .16s cubic-bezier(.3, .7, .2, 1); }
+  .mbar:focus-visible .knob { box-shadow: 0 0 0 3px var(--accent), 0 1px 3px rgb(0 0 0 / .35); }
+  .mbar.drag { cursor: grabbing; }
+  .unit { flex: none; width: 116px; height: 40px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 10px; box-sizing: border-box; cursor: text;
+          background: var(--field); border: 1px solid var(--border); font-size: 12.5px; color: var(--faint); transition: border-color .2s, box-shadow .2s; }
+  .unit:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+  .unit input { flex: 1; min-width: 0; width: 100%; padding: 0; border: 0; background: none; outline: none; font: inherit; font-size: 14px; color: var(--text);
+                text-align: right; font-variant-numeric: tabular-nums; appearance: textfield; -moz-appearance: textfield; }
+  .unit input::-webkit-inner-spin-button, .unit input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .unit .mw { display: grid; flex: none; }
+  .unit .mw:empty { display: none; }
+  .unit .mw .ico { width: 14px; height: 14px; }
+  .unit.bad { border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
+  .unit.bad .mw { color: var(--danger-text); }
+  .unit.warn .mw { color: var(--warning-text); }
+  .fld > .lb .over { margin-left: auto; color: var(--danger-text); }
+  /* 分段选：和输入框一样 40 高、圆角 10；选中的底色离外框 4（边框 1 加内边距 3）、圆角 6（10 − 4，同心），换选择时滑过去 */
+  .seg { position: relative; display: flex; padding: 3px; border-radius: 10px; background: var(--field); border: 1px solid var(--border); box-sizing: border-box; height: 40px; }
+  .seg span { flex: 1; position: relative; z-index: 1; display: grid; place-items: center; font-size: 13px; color: var(--muted); border-radius: 6px; cursor: pointer; transition: color .2s; }
   .seg span:hover { color: var(--text); }
   .seg span.on { color: var(--accent-text); font-weight: 500; }
-  .seg .sgl { position: absolute; left: 0; top: 3px; bottom: 3px; border-radius: 9px; background: var(--accent-subtle); z-index: 0; pointer-events: none;
+  .seg .sgl { position: absolute; left: 0; top: 3px; bottom: 3px; border-radius: 6px; background: var(--accent-subtle); z-index: 0; pointer-events: none;
               box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
               transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
   /* 开关：36 × 20，圆钮 16（离边 2，圆角 10 − 2 = 8） */
@@ -305,7 +329,6 @@
                transition: transform .26s cubic-bezier(.3, .7, .2, 1); }
   .tg.on .sw { background: var(--accent-solid); }
   .tg.on .sw::after { transform: translateX(16px); background: var(--on-accent); }
-  .shint { margin-top: auto; font-size: 12px; color: var(--faint); }
   .pnote { margin: auto 0; text-align: center; font-size: 12.5px; line-height: 21px; color: var(--muted); padding: 0 24px; }
   .eula { grid-column: 1 / -1; border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); height: 52px; padding: 0 18px;
           display: flex; align-items: center; gap: 12px; font-size: 13px; cursor: pointer; transition: box-shadow .2s; }
@@ -743,80 +766,87 @@ addEventListener("resize", () => document.querySelector(".chips")?._paint?.());
 const SET = { name: "", nameTouched: false, port: "25565", mem: 4096, motd: "MineDeck 开服 · 一起来玩", diff: "easy", mode: "survival",
   online: false, flight: true, wl: false, eula: false, icon: "" };
 const RAM = { total: 32563, avail: 32563 - 15565 }, MEM_MAX = Math.max(2048, RAM.total - 2048);
-// 经验条的格子：1 格 = 512 MB，内存大时放大到最多约 48 格（同程序）
+// 经验条的格子：1 格 = 512 MB，内存大时放大到最多约 48 格（同程序）；USED_N 是前面灰的那几格（其他程序已用）
 const CELL_MB = Math.max(512, Math.ceil(RAM.total / 48 / 512) * 512), CELLS = Math.max(8, Math.round(RAM.total / CELL_MB));
+const USED_N = Math.min(CELLS, Math.round((RAM.total - RAM.avail) / CELL_MB));
 const isProxyCore = () => core === "velocity" || core === "waterfall";
 const slugOf = n => { let o = ""; for (const c of n) { if (/[0-9A-Za-z_-]/.test(c)) o += c; else if (c === " " || c === ".") o += "-"; } return o.replace(/^[-_]+|[-_]+$/g, ""); };
 // 存放位置那行：文件夹名取名称里的英文字母和数字（同程序），一个都没有就按创建那一刻的日期时间起名（同程序 inst/install.go，比如 server-20261126-153012）。
-// 名称和端口并成一行以后名称那栏窄了：「存放在」三个字去掉（文件夹图标就是这个意思，悬停能看到整句）；
+// 名称和端口并成一行以后名称那栏窄了：「存放在」「更改位置…」都不写，文件夹图标加路径，整行点了就是更改位置，悬停看整句；
 // 放不下时省掉的是前面的上级目录，文件夹名留着（程序里前面是完整的盘符路径，更长）
 const ROOT = "MineDeck\\servers";
 const stamp = () => { const d = new Date(), p = n => String(n).padStart(2, "0"); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; };
+const pathDir = () => slugOf(SET.name) || `server-${stamp()}`;
 function pathNote() {
-  const slug = slugOf(SET.name), dir = slug || `server-${stamp()}`;
-  const tip = slug ? `存放在 ${ROOT}\\${slug}` : `存放在 ${ROOT}\\${dir}：名称里没有英文字母或数字，文件夹就按创建时间起名；服务器在 MineDeck 里照样叫你起的名字`;
-  return `<i data-ic="folder"></i><b title="${esc(tip)}"><span class="hd">${esc(ROOT)}</span><span class="tl">\\${esc(dir)}</span></b><a data-act="root">更改位置…</a>`;
+  return `<i data-ic="folder"></i><b><span class="hd">${esc(ROOT)}</span><span class="tl">\\${esc(pathDir())}</span></b>`;
 }
-function portNote() {
-  const v = Number(SET.port);
-  return Number.isInteger(v) && v >= 1 && v <= 65535
-    ? `<span class="fnote ok" id="pnote"><i data-ic="check"></i>端口可用</span>` : `<span class="fnote bad" id="pnote"><i data-ic="warn"></i>需为 1 ~ 65535 的整数</span>`;
+function pathTip() {
+  const slug = slugOf(SET.name);
+  return `存放在 ${ROOT}\\${pathDir()}` + (slug ? "" : "（名称里没有英文字母或数字，文件夹就按创建时间起名）") + "\n点一下更改存放位置…";
 }
+const portOk = () => { const v = Number(SET.port); return Number.isInteger(v) && v >= 1 && v <= 65535; };
+const portState = () => portOk() ? `<span class="st" title="端口可用"><i data-ic="check"></i></span>` : `<span class="st bad" title="端口需为 1 ~ 65535 的整数"><i data-ic="warn"></i></span>`;
 const g1 = mb => (mb / 1024).toFixed(1);
 const memClamp = v => Math.min(MEM_MAX, Math.max(512, Math.round(+v || 512)));
-// 内存控件（照程序 renderMemoryControl）：数字框、滑条、格子、统计、推荐
+// 内存：一排格子（也是滑条）加一个 MB 数字框。统计和推荐只在格子的悬停提示里
 function memCtl(proxy) {
-  return `<div class="memc">
-      <div class="mem-head"><span>最大内存 -Xmx</span><b class="mem-gb" id="smemv"></b>
-        <span class="mem-mb"><input type="number" class="mem-num" id="smemn" min="512" max="${MEM_MAX}" step="256" value="${SET.mem}" aria-label="最大内存（MB）"> MB</span></div>
-      <input type="range" class="mem-range" id="smem" min="512" max="${MEM_MAX}" step="512" value="${SET.mem}" aria-label="最大内存">
-      <div class="mem-xp" id="smemx" title="1 格 = ${CELL_MB} MB" aria-hidden="true">${"<i></i>".repeat(CELLS)}</div>
-      <div class="mem-stat" id="smems"></div>
-      <div class="mem-hint">${proxy ? "推荐 1 GB；代理端只做转发，占用很低" : "推荐分配：模组服 4 GB 以上；无模组的小型服务器 2~4 GB。"}</div></div>`;
+  const tip = `其他程序已用 ${g1(RAM.total - RAM.avail)} GB · 共 ${g1(RAM.total)} GB · 1 格 = ${CELL_MB} MB\n`
+    + (proxy ? "推荐 1 GB；代理端只做转发，占用很低" : "推荐：模组服 4 GB 以上；无模组的小型服务器 2~4 GB");
+  return `<div class="fld"><span class="lb">内存<span class="over" id="smemo"></span></span>
+      <div class="memx"><div class="mbar" id="smbar" tabindex="0" role="slider" aria-label="内存" aria-valuemin="512" aria-valuemax="${MEM_MAX}" title="${esc(tip)}">
+          <div class="cells">${"<i></i>".repeat(CELLS)}</div><i class="knob"></i></div>
+        <label class="unit" id="smemf"><span class="mw"></span><input type="number" id="smemn" min="512" max="${MEM_MAX}" step="256" value="${SET.mem}" aria-label="内存（MB）">MB</label></div></div>`;
 }
-// 格子和统计：前面一截灰的是其他程序已用，接着强调色的是本服分配，超出可用的那几格红的（同程序的 paint）
+// 格子：前面灰的是其他程序已用，接着强调色的是本服分配（超过可用时这一截变红），后面淡的空着；把手停在本服那一截的末端，正好在两格之间的缝上
 function paintMem() {
-  const bar = document.getElementById("smemx"); if (!bar) return;
-  const v = SET.mem, used = RAM.total - RAM.avail;
-  document.getElementById("smemv").textContent = g1(v) + " GB";
-  const usedN = Math.min(CELLS, Math.round(used / CELL_MB)), allocN = Math.max(1, Math.round(v / CELL_MB)), availN = Math.max(0, CELLS - usedN);
-  const okN = Math.min(allocN, Math.round(Math.min(RAM.avail, v) / CELL_MB));
-  [...bar.children].forEach((c, i) => { c.className = i < usedN ? "used" : i < usedN + okN ? "alloc" : i < usedN + Math.min(allocN, availN) ? "over" : ""; });
-  let note = "";
-  if (v > RAM.avail) note = ` <span class="mem-warn"><i data-ic="warn"></i> 超过当前可用 ${g1(RAM.avail)} GB，可能会卡，或者内存分配失败</span>`;
-  else if (v > 16384) note = ` <span class="mem-warn"><i data-ic="warn"></i> 分配内存过大可能加剧 Java 垃圾回收（GC）停顿，导致游戏周期性掉帧。</span>`;
-  const st = document.getElementById("smems");
-  st.innerHTML = `其他程序已用 ${g1(used)} GB · 本服分配 <b>${g1(v)} GB</b> / 共 ${g1(RAM.total)} GB · 1 格 = ${CELL_MB} MB${note}`;
-  KIT.hydrate(st);
+  const bar = document.getElementById("smbar"); if (!bar) return;
+  const v = SET.mem, over = v > RAM.avail, allocN = Math.min(CELLS - USED_N, Math.max(1, Math.round(v / CELL_MB)));
+  bar.querySelectorAll(".cells i").forEach((c, i) => { c.className = i < USED_N ? "used" : i < USED_N + allocN ? (over ? "over" : "alloc") : ""; });
+  const W = bar.clientWidth, pitch = (W - (CELLS - 1) * 2) / CELLS + 2;
+  bar.querySelector(".knob").style.left = Math.round(Math.min(W, (USED_N + allocN) * pitch - 1)) + "px";
+  bar.setAttribute("aria-valuenow", v); bar.setAttribute("aria-valuetext", `${g1(v)} GB`);
+  const f = document.getElementById("smemf"), num = document.getElementById("smemn"), big = !over && v > 16384;
+  f.classList.toggle("bad", over); f.classList.toggle("warn", big);
+  f.title = over ? `超过当前可用 ${g1(RAM.avail)} GB，可能会卡，或者内存分配失败` : big ? "分配内存过大可能加剧 Java 垃圾回收（GC）停顿，导致游戏周期性掉帧。" : "";
+  const mw = f.querySelector(".mw"), want = over || big ? "warn" : "";
+  if (mw.dataset.k !== want) { mw.dataset.k = want; mw.innerHTML = want ? `<i data-ic="warn"></i>` : ""; KIT.hydrate(mw); }
+  if (document.activeElement !== num) num.value = v;
+  document.getElementById("smemo").textContent = over ? `超出可用 ${g1(RAM.avail)} GB` : "";
 }
+// 在格子上点、拖：落在第几格就分几格（按整格走，最少 512 MB）；方向键一次一格，Home、End 到头
+function memAt(bar, x) {
+  const b = bar.getBoundingClientRect(), pitch = (b.width - (CELLS - 1) * 2) / CELLS + 2;
+  return memClamp((Math.round((x - b.left + 1) / pitch) - USED_N) * CELL_MB);
+}
+function setMem(v) { if (v === SET.mem) return; SET.mem = v; SET.memTouched = true; paintMem(); }
 // 服务器头像：和首页卡片上的同一个（16×16 的核心头像，带核心色的底）；挑过图标就用图标
 const avatarTile = () => SET.icon ? `<span class="sav icon"><img src="${SET.icon}" alt=""></span>`
   : `<span class="sav" style="--c:${MDPixel16.CORE_COLORS[core] || "#7a8aa0"}">${MDPixel16.svg(core, 48)}</span>`;
 function avatarBtn() {
-  return `<div class="avbtn" data-act="icon" title="更换服务器图标…（多人游戏列表里显示的那张；MineDeck 缩成 64×64，存成 server-icon.png）">${avatarTile()}
-      <span class="avov"><i data-ic="camera"></i>更换</span>${SET.icon ? `<span class="avx" data-act="unicon" title="换回核心头像"><i data-ic="x"></i></span>` : ""}</div>`;
+  return `<div class="avbtn" data-act="icon" title="更换服务器图标…">${avatarTile()}
+      <span class="avov"><i data-ic="camera"></i></span>${SET.icon ? `<span class="avx" data-act="unicon" title="换回核心头像"><i data-ic="x"></i></span>` : ""}</div>`;
 }
 const seg = (key, opts) => `<div class="seg" data-seg="${key}"><i class="sgl"></i>${opts.map(([v, t]) => `<span data-v="${v}"${SET[key] === v ? ` class="on"` : ""}>${t}</span>`).join("")}</div>`;
-const tg = (key, t, code, d) => `<div class="tg${SET[key] ? " on" : ""}" data-tg="${key}"><div class="m"><div class="t">${t}<code>${code}</code></div><div class="d">${d}</div></div><span class="sw"></span></div>`;
+// 开关：说明 d 写在名字下面；只想放悬停里的写在 tip（第三步的「允许飞行」）
+const tg = (key, t, code, d, tip) => `<div class="tg${SET[key] ? " on" : ""}" data-tg="${key}"${tip ? ` title="${esc(tip)}"` : ""}><div class="m"><div class="t">${t}<code>${code}</code></div>${d ? `<div class="d">${d}</div>` : ""}</div><span class="sw"></span></div>`;
 function step3() {
   if (!SET.nameTouched) SET.name = `我的 ${CORE[core][0]} 服务器`;
   const proxy = isProxyCore();
   if (!SET.memTouched) SET.mem = proxy ? 1024 : Math.min(4096, MEM_MAX);
   const left = `<div class="col"><h3>服务器</h3>
       <div class="nrow">${avatarBtn()}
-        <div class="fld nm"><span class="lb">名称</span><input class="inp" id="sname" maxlength="40" value="${esc(SET.name)}"><span class="fnote" id="spath">${pathNote()}</span></div>
-        ${proxy ? "" : `<div class="fld port"><span class="lb">端口</span><input class="inp" id="sport" inputmode="numeric" value="${esc(SET.port)}">${portNote()}</div>`}
+        <div class="fld nm"><span class="lb">名称</span><input class="inp" id="sname" maxlength="40" value="${esc(SET.name)}"><span class="fpath" id="spath" data-act="root" title="${esc(pathTip())}">${pathNote()}</span></div>
+        ${proxy ? "" : `<div class="fld port"><span class="lb">端口</span><div class="iwrap"><input class="inp${portOk() ? "" : " bad"}" id="sport" inputmode="numeric" value="${esc(SET.port)}"><span id="pst">${portState()}</span></div><span class="fnote bad" id="perr">${portOk() ? "" : "需 1~65535"}</span></div>`}
       </div>
       ${memCtl(proxy)}
-      ${proxy ? "" : `<div class="fld"><span class="lb">服务器介绍（MOTD）</span><input class="inp" id="smotd" maxlength="59" value="${esc(SET.motd)}"><span class="fnote">显示在多人游戏的服务器列表里</span></div>`}
+      ${proxy ? "" : `<div class="fld" title="显示在多人游戏的服务器列表里（MOTD）"><span class="lb">服务器介绍</span><input class="inp" id="smotd" maxlength="59" value="${esc(SET.motd)}"></div>`}
     </div>`;
   const right = proxy
-    ? `<div class="col"><h3>游戏规则</h3><div class="pnote">代理端不跑游戏世界，没有难度、游戏模式这些规则，<br>也不用同意 Minecraft EULA。监听端口和转发规则在第一次启动、生成配置文件以后再设置。</div></div>`
+    ? `<div class="col"><h3>游戏规则</h3><div class="pnote" title="代理端不跑游戏世界，没有难度、游戏模式这些规则，也不用同意 Minecraft EULA；监听端口和转发规则在第一次启动、生成配置文件以后再设置">代理端只做转发，没有游戏规则</div></div>`
     : `<div class="col"><h3>游戏规则</h3>
       <div class="fld"><span class="lb">难度</span>${seg("diff", [["peaceful", "和平"], ["easy", "简单"], ["normal", "普通"], ["hard", "困难"]])}</div>
       <div class="fld"><span class="lb">默认游戏模式</span>${seg("mode", [["survival", "生存"], ["creative", "创造"], ["adventure", "冒险"], ["spectator", "旁观"]])}</div>
-      ${tg("flight", "允许飞行", "allow-flight", "开着可以防止骑乘、模组的移动被误当成飞行踢出去")}
-      <div class="shint">PVP、视距等高级参数，建好后随时可以改。</div>
+      ${tg("flight", "允许飞行", "allow-flight", "", "开着可以防止骑乘、模组的移动被误当成飞行踢出去")}
     </div>`;
   const eula = proxy ? "" : `<div class="eula${SET.eula ? "" : ""}" data-eula><div class="tg${SET.eula ? " on" : ""}" style="pointer-events:none"><span class="sw"></span></div>
       <span>我已阅读并同意 <a href="https://aka.ms/MinecraftEULA" target="_blank" rel="noopener noreferrer">Minecraft 最终用户许可协议（EULA）</a></span><span class="msg">开服前需要同意 EULA</span></div>`;
@@ -1345,10 +1375,13 @@ document.getElementById("page").addEventListener("click", e => {
 // 第三步的输入框和滑条：边输边记，名称跟着改存放位置那行，端口跟着改「可用 / 不对」，内存跟着改数字和滑条左边那截
 document.getElementById("page").addEventListener("input", e => {
   const t = e.target;
-  if (t.id === "sname") { SET.name = t.value; SET.nameTouched = true; t.classList.remove("bad"); const p = document.getElementById("spath"); p.innerHTML = pathNote(); KIT.hydrate(p); }
-  else if (t.id === "sport") { SET.port = t.value.trim(); t.classList.remove("bad"); const n = document.getElementById("pnote"); n.outerHTML = portNote(); KIT.hydrate(document.querySelector(".port")); }
-  else if (t.id === "smem") { SET.mem = +t.value; SET.memTouched = true; document.getElementById("smemn").value = SET.mem; paintMem(); }
-  else if (t.id === "smemn") { SET.mem = memClamp(t.value); SET.memTouched = true; document.getElementById("smem").value = SET.mem; paintMem(); }
+  if (t.id === "sname") { SET.name = t.value; SET.nameTouched = true; t.classList.remove("bad"); const p = document.getElementById("spath"); p.innerHTML = pathNote(); p.title = pathTip(); KIT.hydrate(p); }
+  else if (t.id === "sport") {
+    SET.port = t.value.trim(); t.classList.toggle("bad", !portOk());
+    const st = document.getElementById("pst"); st.innerHTML = portState(); KIT.hydrate(st);
+    document.getElementById("perr").textContent = portOk() ? "" : "需 1~65535";
+  }
+  else if (t.id === "smemn") { if (t.value !== "") setMem(memClamp(t.value)); }
   else if (t.id === "smotd") SET.motd = t.value;
   else if (t.id === "fhost" || t.id === "fport" || t.id === "ftoken") { LINK.frps[{ fhost: "host", fport: "port", ftoken: "token" }[t.id]] = t.value; t.classList.remove("bad"); }
   else if (t.id === "wlname") {
@@ -1364,6 +1397,23 @@ document.getElementById("page").addEventListener("keydown", e => {
 });
 // 数字框改完（失焦、回车）：照程序把数字框也收进上下限
 document.getElementById("page").addEventListener("change", e => { if (e.target.id === "smemn") e.target.value = SET.mem; });
+// 内存那排格子：点、拖
+document.getElementById("page").addEventListener("pointerdown", e => {
+  const bar = e.target.closest("#smbar"); if (!bar || e.button !== 0) return;
+  e.preventDefault(); bar.focus({ preventScroll: true }); bar.setPointerCapture(e.pointerId); bar.classList.add("drag");
+  const move = ev => setMem(memAt(bar, ev.clientX));
+  const up = () => { bar.classList.remove("drag"); bar.removeEventListener("pointermove", move); bar.removeEventListener("pointerup", up); bar.removeEventListener("pointercancel", up); };
+  move(e); bar.addEventListener("pointermove", move); bar.addEventListener("pointerup", up); bar.addEventListener("pointercancel", up);
+});
+// 方向键一次一格，Home 最少、End 最多
+document.getElementById("page").addEventListener("keydown", e => {
+  if (e.target.id !== "smbar") return;
+  const up = (Math.floor(SET.mem / CELL_MB) + 1) * CELL_MB, down = (Math.ceil(SET.mem / CELL_MB) - 1) * CELL_MB; // 不在整格上（比如 512、5000）时先走到相邻的整格
+  const map = { ArrowRight: up, ArrowUp: up, ArrowLeft: down, ArrowDown: down, Home: 512, End: MEM_MAX };
+  if (!(e.key in map)) return;
+  e.preventDefault(); setMem(memClamp(map[e.key]));
+});
+addEventListener("resize", () => paintMem());
 // 选服务器图标：草图里用浏览器自己的选文件框，挑的图只在这一页显示，不存
 function pickIcon() {
   const f = document.createElement("input"); f.type = "file"; f.accept = "image/png,image/jpeg,image/webp";
