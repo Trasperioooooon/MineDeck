@@ -1,0 +1,165 @@
+/* 第一次打开：引导和用户协议（11-27 夜里第一稿，子代理照临时规范画的，等作者看）。说明写在 welcome.html 开头的注释里。
+   选择器都带 .wl- 前缀；外壳的 .tb、.sk 照 settings.html 写在 welcome.html 里。
+
+   尺寸（1280×800）：标题栏 40；版面 760 宽、水平居中（协议是要读的长文，1080 一行七十多个字，太长）；
+   页头 48 高（离标题栏 36），离面板 28；面板 152–714（底边留 86 给底下的按钮），外 26 / 内边距 8；
+   面板里的栏圆角 18（26 − 8），栏之间 8；同意那一条 52 高、圆角 18，开关 36 × 20 在字的左边（同向导第三步 EULA）；
+   下载源的分段、存放文件夹的框都是 40 高、圆角 10；底下的按钮 44 高胶囊，中线离底 44（同向导），左右和面板的边对齐。 */
+
+.wl-page { width: 760px; margin: 0 auto; height: calc(100vh - 40px); box-sizing: border-box; padding: 36px 0 86px; display: flex; flex-direction: column; }
+.wl-page [hidden] { display: none !important; }
+
+/* ---- 页头：程序的 brand-head（图标 + 「欢迎使用 MineDeck」+「Minecraft 开服工具」），居中 ---- */
+.wl-head { flex: none; height: 48px; margin-bottom: 28px; display: flex; align-items: center; justify-content: center; gap: 14px; }
+.wl-logo { width: 48px; height: 48px; flex: none; image-rendering: pixelated; display: block; }
+.wl-ht h1, .wl-q { margin: 0; font-size: 24px; line-height: 30px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; }
+.wl-ht p { margin: 0; font-size: 13px; line-height: 18px; color: var(--muted); }
+.wl-q { text-align: center; }
+
+/* ---- 面板和栏 ---- */
+.wl-pnl { flex: 1; min-height: 0; box-sizing: border-box; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-1);
+          display: flex; flex-direction: column; gap: 8px; }
+.wl-pnl.fit { flex: none; }
+.wl-col { box-sizing: border-box; min-width: 0; border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+
+/* 协议：栏的标题（块标题 13.5 / 600）+ 能滚的正文；正文的细滚动条在栏右边那 20 的内边距里 */
+.wl-terms { flex: 1; min-height: 0; padding: 16px 20px 0; display: flex; flex-direction: column; gap: 8px; }
+.wl-h { flex: none; margin: 0; font-size: 13.5px; line-height: 22px; font-weight: 600; }
+.wl-lw { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.wl-lw .list { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; outline: none; padding-bottom: 16px;
+               --ft: 0px; --fb: 0px; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%);
+               mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%); }
+.wl-lw .list::-webkit-scrollbar { display: none; }
+.wl-lw.can-up .list { --ft: 28px; } .wl-lw.can-down .list { --fb: 28px; }
+.wl-lw .thumb { position: absolute; right: -12px; width: 4px; border-radius: 2px; background: color-mix(in srgb, var(--text) 38%, transparent);
+                opacity: 0; transition: opacity .2s, width .15s, right .15s; cursor: pointer; }
+.wl-lw:hover .thumb, .wl-lw.scrolling .thumb, .wl-lw .thumb.drag { opacity: 1; }
+.wl-lw .thumb:hover, .wl-lw .thumb.drag { width: 6px; right: -13px; background: color-mix(in srgb, var(--text) 55%, transparent); }
+.wl-lw.fits .thumb { display: none; }
+
+/* 正文：程序原文一字不改，只排版。加粗的是正文色，其余淡一档；条目前的序号是等宽淡字 */
+.wl-tx { font-size: 13px; line-height: 22px; color: var(--muted); }
+.wl-tx b { color: var(--text); font-weight: 600; }
+.wl-tx p { margin: 0 0 12px; }
+.wl-tx ol { margin: 0; padding: 0; list-style: none; counter-reset: wl; display: flex; flex-direction: column; gap: 10px; }
+.wl-tx li { counter-increment: wl; position: relative; padding-left: 22px; }
+.wl-tx li::before { content: counter(wl) "."; position: absolute; left: 0; top: 0; font-family: var(--mono); font-size: 12px; color: var(--faint); }
+
+/* 下载源 ｜ 服务器存放文件夹：一栏两列，一项「字 18 + 6 + 控件 40」（同向导第三步、设置） */
+.wl-fields { flex: none; padding: 16px 20px 20px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; }
+.wl-f { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.wl-lb { height: 18px; display: flex; align-items: center; font-size: 12.5px; line-height: 18px; font-weight: 500; color: var(--muted); white-space: nowrap; }
+.wl-lb span { cursor: default; }
+
+/* 分段（同「设置 → 下载与网络」的三段：40 高、圆角 10，选中块离外框 4、圆角 6，滑过去） */
+.wl-seg { position: relative; display: flex; height: 40px; padding: 3px; border-radius: 10px; box-sizing: border-box; min-width: 0; background: var(--field); border: 1px solid var(--border); }
+.wl-sgl { position: absolute; left: 0; top: 3px; bottom: 3px; border-radius: 6px; background: var(--accent-subtle); pointer-events: none;
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+          transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
+.wl-seg button { flex: 1; position: relative; z-index: 1; min-width: 0; padding: 0 4px; border: 0; border-radius: 6px; background: none; font: inherit; font-size: 13px; color: var(--muted);
+                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; transition: color .2s; }
+.wl-seg button:hover { color: var(--text); }
+.wl-seg button.on { color: var(--accent-text); font-weight: 500; }
+
+/* 存放文件夹：只读的路径框（程序这里只给看、不给改；改在「设置 → 存储位置」），样子同设置的路径框，悬停不变色 */
+.wl-pb { height: 40px; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 10px; box-sizing: border-box; cursor: default;
+         background: var(--field); border: 1px solid var(--border); }
+.wl-pb .ico { width: 15px; height: 15px; flex: none; color: var(--muted); }
+.wl-pt { flex: 1; display: flex; min-width: 0; font-family: var(--mono); font-size: 12.5px; font-weight: 500; color: var(--text); white-space: nowrap; }
+.wl-pt .hd { min-width: 0; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1000; color: var(--muted); }
+.wl-pt .tl { flex-shrink: 0; }
+
+/* ---- 同意：吸在面板底部的一条（同向导第三步 EULA：52 高、圆角 18、开关在字的左边）；没同意就点主键时整条描红、晃一下、右边一句话 ---- */
+.wl-agree { flex: none; height: 52px; border-radius: 18px; padding: 0 20px; box-sizing: border-box; display: flex; align-items: center; gap: 12px; font-size: 13px; line-height: 20px;
+            cursor: pointer; user-select: none; outline: none; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); transition: box-shadow .2s; }
+.wl-agree:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent); }
+.wl-agree a { color: var(--accent-text); text-decoration: none; }
+.wl-agree a:hover { text-decoration: underline; }
+.wl-at { min-width: 0; }
+.wl-msg { margin-left: auto; flex: none; font-size: 12px; color: var(--danger-text); opacity: 0; transition: opacity .2s; white-space: nowrap; }
+.wl-agree.bad { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger-text) 60%, transparent); }
+.wl-agree.bad .wl-msg { opacity: 1; }
+/* 开关：36 × 20，圆钮 16（离边 2），同向导 */
+.wl-sw { width: 36px; height: 20px; border-radius: 10px; flex: none; position: relative; background: color-mix(in srgb, var(--text) 18%, transparent); transition: background .2s; }
+.wl-sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 8px; background: var(--text);
+                transition: transform .26s cubic-bezier(.3, .7, .2, 1), background .2s; }
+.wl-agree.on .wl-sw { background: var(--accent-solid); }
+.wl-agree.on .wl-sw::after { transform: translateX(16px); background: var(--on-accent); }
+
+/* ---- 底下的按钮：同向导（44 高胶囊，中线离底 44）；这页没有胶囊导航，按钮的左右和面板的边对齐（760） ---- */
+.wl-nav { position: fixed; left: 0; right: 0; bottom: 18px; z-index: 10; pointer-events: none; }
+.wl-in { width: 760px; margin: 0 auto; height: 52px; display: flex; align-items: center; position: relative; }
+.wl-in .wl-sp { flex: 1; }
+.wl-b { pointer-events: auto; height: 44px; padding: 0 18px; border-radius: var(--r-full); display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; box-sizing: border-box;
+        font: inherit; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; box-shadow: var(--elev-3); outline: none;
+        transition: transform .32s cubic-bezier(.4, 0, .2, 1), opacity .32s, background .2s, color .2s, box-shadow .2s, border-color .2s; }
+.wl-b .ico { width: 16px; height: 16px; }
+.wl-b .lbl { display: inline-flex; align-items: center; gap: 6px; }
+.wl-b:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wl-b.back { padding-left: 14px; color: var(--text); border: 1px solid var(--border); background: color-mix(in srgb, var(--overlay) 86%, transparent); backdrop-filter: blur(16px) saturate(1.2); }
+.wl-b.back:hover { background: color-mix(in srgb, var(--overlay) 86%, var(--text) 6%); }
+.wl-b.back .ico { transform: rotate(180deg); }
+.wl-b.next { border: 1px solid transparent; color: var(--on-accent); background: var(--accent-solid); }
+.wl-b.next.arrow { padding-right: 14px; }
+.wl-b.next:hover:not([aria-disabled="true"]) { background: var(--accent-solid-hov); }
+/* 没同意时主键灰着（同程序 .btn.primary:disabled：次要按钮的灰底、淡字，不再是一颗点不了的绿按钮），悬停说原因 */
+.wl-b.next[aria-disabled="true"] { background: var(--control); color: var(--muted); border-color: var(--border); box-shadow: none; opacity: .6; cursor: not-allowed; }
+.wl-b.next.busy { cursor: progress; }
+.wl-spin { animation: wl-spin .9s linear infinite; }
+@keyframes wl-spin { to { transform: rotate(360deg); } }
+/* 只在第二步出现的「上一步」、进出场：往下沉出屏幕（同向导） */
+.wl-b.back.off, body.wl-hide .wl-b { transform: translateY(180%); opacity: 0; pointer-events: none; }
+/* 第几步的小点（只有「分两步」有），钉在正中，同向导 */
+.wl-dots { display: flex; gap: 8px; position: absolute; left: 50%; transform: translateX(-50%); transition: opacity .32s; }
+.wl-dots i { width: 8px; height: 8px; border-radius: 3px; background: color-mix(in srgb, var(--text) 18%, transparent); transition: background .32s; }
+.wl-dots i.on { width: 22px; background: var(--accent); }
+body.wl-hide .wl-dots { opacity: 0; }
+
+/* ================= 右上角的提示（保存失败时那一条）：同共用件页 commons.html 的报错提示 =================
+   标题栏下面 12、离右边 16、360 宽；外 18、边 1 + 内边距 7，状态块 28 见方圆角 10；「详情」是 28 高胶囊，排在字下面一行 */
+#wl-toasts { position: fixed; right: 16px; top: 52px; z-index: 60; width: 360px; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.wl-tst { pointer-events: auto; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; column-gap: 10px; row-gap: 6px; padding: 7px; border-radius: 18px; box-sizing: border-box;
+          background: var(--overlay); border: 1px solid var(--border); box-shadow: var(--elev-3); cursor: pointer; }
+.wl-tst .ti { width: 28px; height: 28px; border-radius: 10px; display: grid; place-items: center; background: var(--danger-subtle); color: var(--danger-text); }
+.wl-tst .ti .ico { width: 15px; height: 15px; }
+.wl-tst .tm { padding: 4px 0; font-size: 13px; line-height: 20px; color: var(--text); overflow-wrap: anywhere; }
+.wl-ib { width: 28px; height: 28px; border-radius: 10px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;
+         transition: background .15s, color .15s; }
+.wl-ib:hover { background: var(--hover); color: var(--text); }
+.wl-ib .ico { width: 15px; height: 15px; }
+.wl-tst .ta { grid-column: 2 / 4; display: flex; gap: 6px; margin-bottom: 1px; }
+.wl-sb { height: 28px; padding: 0 12px; border-radius: 14px; border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; }
+.wl-sb:hover { background: var(--control-hov); }
+.wl-tst.enter { animation: wl-ts-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.wl-tst.leave { animation: wl-ts-out .14s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+@keyframes wl-ts-in { from { opacity: 0; transform: translateY(-8px); } }
+@keyframes wl-ts-out { to { opacity: 0; transform: translateX(16px); } }
+
+/* ================= 报错信息（提示上的「详情」）：照 detail-world.css 的 .wd-mask 那一套 =================
+   外 26 / 内边距 8、里面的栏 18，底下一排 36 高胶囊等宽铺满；遮罩从标题栏下面开始。--scrim、--elev-4 外壳里没有，深浅两套定在这里 */
+.wl-mask { --wl-scrim: rgb(var(--shadow-rgb) / .32); --wl-elev4: 0 28px 64px -16px rgb(var(--shadow-rgb) / .32), 0 8px 20px -4px rgb(var(--shadow-rgb) / .10);
+           position: fixed; left: 0; right: 0; top: 40px; bottom: 0; z-index: 40; display: grid; place-items: center; background: var(--wl-scrim); backdrop-filter: blur(2px); }
+[data-theme="dark"] .wl-mask { --wl-scrim: rgb(0 0 0 / .56); --wl-elev4: 0 32px 72px -16px rgb(0 0 0 / .72), 0 8px 24px -4px rgb(0 0 0 / .40); }
+.wl-mask.enter { animation: wl-mk-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.wl-mask.enter > .wl-md { animation: wl-md-in .26s cubic-bezier(.2, .7, .2, 1) both; }
+.wl-mask.leave { animation: wl-mk-out .14s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+.wl-mask.leave > .wl-md { animation: wl-md-out .14s cubic-bezier(.4, 0, 1, 1) both; }
+@keyframes wl-mk-in { from { opacity: 0; } } @keyframes wl-mk-out { to { opacity: 0; } }
+@keyframes wl-md-in { from { opacity: 0; transform: translateY(10px); } } @keyframes wl-md-out { to { opacity: 0; transform: translateY(6px); } }
+.wl-md { width: 520px; box-sizing: border-box; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--wl-elev4); display: flex; flex-direction: column; gap: 8px; }
+.wl-mc { border-radius: 18px; padding: 18px 20px 20px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); display: flex; flex-direction: column; gap: 12px; }
+.wl-md h3 { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 16px; line-height: 22px; font-weight: 600; }
+.wl-md h3 span { flex: 1; }
+.wl-md h3 .wl-ib { margin: -4px -8px -4px 0; border-radius: 4px; }
+.wl-raw { border-radius: 10px; background: var(--field); border: 1px solid var(--border); padding: 10px 12px; font-family: var(--mono); font-size: 12px; line-height: 18px; color: var(--text);
+          white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.wl-ma { display: flex; gap: 8px; }
+.wl-mb { flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center; height: 36px; padding: 0 14px; border-radius: 18px; box-sizing: border-box;
+         border: 1px solid transparent; background: var(--accent-solid); color: var(--on-accent); font: inherit; font-size: 13px; font-weight: 600; white-space: nowrap; cursor: pointer;
+         transition: background-color .2s; outline: none; }
+.wl-mb:hover { background: var(--accent-solid-hov); }
+.wl-mb.fk { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 保存失败时照程序：引导照样收起，落到首页（草图里把空首页叠一层进来，右上角的报错提示留在它上面） */
+.wl-home { position: fixed; inset: 0; z-index: 30; width: 100%; height: 100%; border: 0; display: block; background: var(--bg); opacity: 0; transition: opacity .26s cubic-bezier(.2, .7, .2, 1); }
+.wl-home.on { opacity: 1; }

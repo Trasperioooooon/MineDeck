@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>草图 · 第一次打开（引导和用户协议）</title>
+<!--
+  第一次打开：引导和用户协议（11-27 夜里第一稿，子代理照临时规范画的；计划书把这页归在「要作者一页一页看的」，第一印象）。
+  样式在 welcome.css（选择器都带 .wl-），脚本在 welcome.js。
+
+  程序现在的样子（internal/web/ui/app.js showOnboarding，约 6905 行；启动时 boot 约 6981 行判断要不要弹）：
+    首页画出来以后，在上面叠一张 560 宽的弹窗（不能 Esc、不能点遮罩关），从上往下：图标 +「欢迎使用 MineDeck」+「Minecraft 开服工具」；
+    「用户协议与免责声明」一块能滚的正文（一段引言 + 五条）和勾选框「我已阅读并同意上述《用户协议与免责声明》及 Minecraft EULA」；
+    「下载源（之后可在「设置」里随时更改）」三行单选（初值跟着配置）；「你的服务器将存放在」一块等宽路径和一句说明；
+    底下「同意并开始使用」，没勾时灰着。点了写 config 的 source、onboarded、tosAccepted，写失败弹「无法保存首次使用的设置」，弹窗照样关掉（下次打开还会弹）。
+    老用户（onboarded 了、没同意过协议）弹的是同一张，三块都在。
+
+  这里（1280×800，页面本身不滚，正文在块里滚）：
+    · 一整页，不是叠在首页上的弹窗；底部胶囊不出现（程序是模态的，没同意哪儿都去不了，胶囊能点就等于「不同意也能进设置」），
+      标题栏和窗口三键留着（不想同意的人靠它关掉程序）。版面 760 宽、居中：页头（图标 48 + 两行字）→ 一块大面板 → 底下 44 高的主键（同向导）。
+    · 面板（外 26 / 内边距 8）里从上到下：协议一栏（标题 +能滚的正文，细滚动条）、下载源 ｜ 服务器存放文件夹一栏（两列）、同意那一条（52 高，开关在字左边，同向导第三步 EULA）。
+    · 同意以后：主键沉下去、页面淡掉，跳到首页的空状态（home.html?empty=1&enter=1，胶囊从下面浮上来）；老用户跳到有服务器的首页（home.html?enter=1）。
+    · 协议正文、同意那句一字不改，只排版（段落、五条带序号）；程序里的说明进悬停：下载源三段各自的说明、「之后可在「设置」里随时更改」、存放位置那句。
+
+  草图参数（左上角的切换条能点前四种；都能写进地址）：
+    ?theme=light        浅色（kit.js；默认深色）
+    &flow=steps         分两步：① 协议 + 同意 → ② 下载源 + 存放文件夹 → 进首页（默认 flow=one：一页放完，主会话推荐这种）
+    &user=old           老用户：只有协议和同意，主键直接是「同意并开始使用」，落到有服务器的首页
+    &save=fail          点主键时保存失败：照程序，引导照样收起、落到首页，右上角一条报错提示（「详情」里是原文，原文是编的）
+    &agree=1            一打开就已经同意（看主键亮着的样子）
+    &src=mirror|official 配置里原来存的下载源（同「设置 → 下载与网络」的参数）
+    &step=2             分两步时直接停在第二步（等于已经同意）
+  主会话和作者看时：拨同意开关、点灰着的主键（同意那条描红、晃一下）、换下载源、滚正文、分两步时上一步下一步，都只动变了的那一处。
+-->
+<script>
+// 窗口三键（程序图标里没有，照 home.html、settings.html）
+window.EXTRA_ICONS = {
+  winMin: '<path d="M4 8h8"/>', winMax: '<rect x="4" y="4" width="8" height="8" rx="1"/>', winClose: '<path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/>',
+};
+</script>
+<script src="kit.js"></script>
+<link rel="stylesheet" href="kit.css">
+<link rel="stylesheet" href="welcome.css">
+<style>
+  body { background: var(--bg); overflow: hidden; }
+  /* 标题栏：同首页、设置（左边只有小图标，右边窗口三键）；引导期间照样在，能拖窗口、能关 */
+  .tb { height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 0 0 16px; position: relative; z-index: 5; }
+  .tb .brand img { width: 16px; height: 16px; image-rendering: pixelated; display: block; }
+  .tb .sp { flex: 1; }
+  .tb .win { display: flex; height: 40px; }
+  .tb .win span { width: 46px; display: grid; place-items: center; color: var(--muted); }
+  /* 草图专用的切换条（定了就删），同 settings.html */
+  .sk { display: flex; align-items: center; gap: 4px; height: 26px; padding: 0 6px; border-radius: 13px; background: color-mix(in srgb, var(--surface) 70%, transparent);
+        border: 1px solid var(--border); font-size: 11.5px; color: var(--faint); white-space: nowrap; }
+  .sk b { font-weight: 500; color: var(--muted); margin: 0 2px 0 6px; }
+  .sk b:first-child { margin-left: 2px; }
+  .sk a { color: var(--muted); text-decoration: none; padding: 2px 6px; border-radius: 8px; }
+  .sk a:hover { color: var(--text); background: var(--hover); }
+  .sk a.on { color: var(--accent-text); background: var(--accent-subtle); }
+  .sk i { width: 1px; height: 12px; background: var(--border); margin: 0 4px; }
+</style>
+</head>
+<body class="wl-hide">
+<header class="tb">
+  <span class="brand"><img src="../../internal/web/ui/img/logo-16.png" alt=""></span>
+  <div class="sk" id="sk"></div>
+  <span class="sp"></span>
+  <div class="win"><span><i data-ic="winMin"></i></span><span><i data-ic="winMax"></i></span><span><i data-ic="winClose"></i></span></div>
+</header>
+<main class="wl-page" id="wl-page"></main>
+<div class="wl-nav"><div class="wl-in">
+  <button type="button" class="wl-b back off" id="wl-back"><i data-ic="chevronRight"></i>上一步</button>
+  <span class="wl-sp"></span><span class="wl-dots" id="wl-dots"></span><span class="wl-sp"></span>
+  <button type="button" class="wl-b next" id="wl-next"></button>
+</div></div>
+<div id="wl-toasts" aria-live="polite"></div>
+<script src="welcome.js"></script>
+</body>
+</html>
