@@ -472,16 +472,19 @@ function syncAddons() {
   });
   cartMeta(); list.closest(".lwrap")._paint?.();
 }
-// 换类别、搜索：卡片那一块逐项换（一起淡掉，再一张一张淡进来）
-function regrid() {
+// 换类别、搜索：卡片那一块逐项换（一起淡掉，再一张一张淡进来）。
+// dir：换类别时是往右点（1）还是往左点（-1）的，卡片跟着左右滑（作者 11-26：分类是左右排的，卡片别再由下往上）——
+// 旧的往反方向挪 8 像素淡掉，新的从点的那一侧挪 12 像素一张一张进来；搜索没有左右之分，dir 是 0，照旧从下往上浮一点
+function regrid(dir = 0) {
   const g = document.getElementById("agrid"), easeIn = "cubic-bezier(.4, 0, 1, 1)", easeOut = "cubic-bezier(.2, .7, .2, 1)";
   document.getElementById("atitle").innerHTML = atitle();
   document.querySelectorAll(".chip").forEach(c => c.classList.toggle("on", c.dataset.cat === acat));
   g.getAnimations({ subtree: true }).forEach(a => a.cancel());
-  const a = g.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 90, easing: easeIn, fill: "forwards" });
+  const a = g.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: dir ? `translateX(${-8 * dir}px)` : "none" }], { duration: 90, easing: easeIn, fill: "forwards" });
   a.onfinish = () => {
     g.scrollTop = 0; g.innerHTML = gridHTML(); KIT.hydrate(g); a.cancel();
-    [...g.children].slice(0, 12).forEach((c, i) => c.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, delay: i * 18, easing: easeOut, fill: "backwards" }));
+    const from = dir ? `translateX(${12 * dir}px)` : "translateY(5px)";
+    [...g.children].slice(0, 12).forEach((c, i) => c.animate([{ opacity: 0, transform: from }, { opacity: 1, transform: "none" }], { duration: 240, delay: i * 18, easing: easeOut, fill: "backwards" }));
     g.closest(".lwrap")._paint?.();
   };
 }
@@ -754,7 +757,12 @@ document.getElementById("page").addEventListener("click", e => {
   else if (ve) selectVer(ve.dataset.ver);
   else if (ad) toggleAddon(ad.dataset.addon);
   else if (un) toggleAddon(un.dataset.unpick);
-  else if (ch && ch.dataset.cat !== acat) { acat = ch.dataset.cat; regrid(); }
+  else if (ch && ch.dataset.cat !== acat) {
+    const chips = [...document.querySelectorAll(".chip")], at = k => chips.findIndex(c => c.dataset.cat === k);
+    const dir = at(ch.dataset.cat) > at(acat) ? 1 : -1;
+    acat = ch.dataset.cat; regrid(dir);
+    ch.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "smooth" }); // 分类放不下、点到半露在边上的那个时，把它滑进来
+  }
   else if (e.target.closest("[data-clear]")) { picked = []; syncAddons(); }
 });
 // 搜索框：停手 0.18 秒再筛
