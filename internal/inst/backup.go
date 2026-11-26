@@ -657,9 +657,11 @@ func unzipTo(src, destDir string) error {
 
 // restoreEntry 备份里要解出来的一项，以及它落到服务器文件夹里的哪儿（相对路径，斜杠分隔）。
 // 整包解压时 name 就是条目自己的名字；还原备份时是换成现在的世界名以后的路径，见 planWorldRestore。
+// checkSelf 落点本身也查是不是链接（见 checkBackupTargetPath）：还原备份时的目录条目。
 type restoreEntry struct {
-	f    *zip.File
-	name string
+	f         *zip.File
+	name      string
+	checkSelf bool
 }
 
 func allEntries(files []*zip.File) []restoreEntry {
@@ -691,8 +693,14 @@ type backupEntry struct {
 // 同一个包里既有 world/ 又有 World/ 的，也就一起落进同一个文件夹，不会只解一半、另一半当成「不是世界的文件」跳过。
 func foldPath(p string) string { return strings.ToLower(p) }
 
-// backupEntryPath 备份里一项的路径：统一成斜杠分隔，去掉「./」和重复的斜杠。含 ..、绝对路径、盘符的，还有符号链接，报错，
-// 整包都不还原（同 checkBackupPaths）。不用 path.Clean：other/../world/level.dat 洗完就成了 world/level.dat，
+// backupEntryPath 备份里一项的路径：统一成斜杠分隔，去掉「./」和重复的斜杠。下面这几种报错，整包都不还原（同 checkBackupPaths）：
+//   - 符号链接；
+//   - 含 ..、斜杠开头（绝对路径、\\服务器\共享）；
+//   - 哪一段带冒号：第一段的是盘符（C:、C:相对路径），后面的在 Windows 上要么不是合法文件名（删了旧世界以后才解不出来），
+//     要么写进 NTFS 的数据流（level.dat:x）。存档里正常的路径没有冒号；
+//   - 哪一段以点或空格结尾：Windows 会悄悄去掉，包里的 world./x 落到磁盘上就是 world/x，和认世界时比的对不上。
+//
+// 不用 path.Clean：other/../world/level.dat 洗完就成了 world/level.dat，
 // 这种绕过来的条目既不能当成世界里的文件解出去，也不能当成「不是世界的文件」悄悄跳过。
 func backupEntryPath(f *zip.File) (string, error) {
 	if f.Mode()&fs.ModeSymlink != 0 {
@@ -702,11 +710,11 @@ func backupEntryPath(f *zip.File) (string, error) {
 	var segs []string
 	for k, s := range strings.Split(n, "/") {
 		switch {
-		case k == 0 && s == "" && n != "": // 斜杠开头：绝对路径，或者 \\服务器\共享
+		case k == 0 && s == "" && n != "":
 			return "", fmt.Errorf("备份内含非法路径: %s", f.Name)
 		case s == "" || s == ".":
 			continue
-		case s == "..", len(segs) == 0 && strings.Contains(s, ":"): // 第一段带冒号的是盘符（C:、C:相对路径）
+		case s == "..", strings.Contains(s, ":"), strings.HasSuffix(s, "."), strings.HasSuffix(s, " "):
 			return "", fmt.Errorf("备份内含非法路径: %s", f.Name)
 		}
 		segs = append(segs, s)
@@ -727,6 +735,7 @@ func planWorldRestore(files []*zip.File, level string) (*worldRestorePlan, error
 	ents := make([]backupEntry, 0, len(files))
 	has := map[string]bool{}         // 包里出现过的文件夹（foldPath 的写法；每一级都记，目录条目自己也记）
 	levelDirs := map[string]string{} // 直接装着 level.dat 的文件夹：foldPath 的写法 → 包里的写法
+	var caseDup []string             // 只差大小写、又都装着 level.dat 的文件夹
 	var props *zip.File
 	for _, f := range files {
 		p, err := backupEntryPath(f)
@@ -745,10 +754,21 @@ func planWorldRestore(files []*zip.File, level string) (*worldRestorePlan, error
 		switch {
 		case isDir:
 		case strings.EqualFold(path.Base(p), "level.dat") && path.Dir(p) != ".":
-			levelDirs[foldPath(path.Dir(p))] = path.Dir(p)
+			d := path.Dir(p)
+			if prev, ok := levelDirs[foldPath(d)]; ok && prev != d {
+				caseDup = append(caseDup, prev, d)
+			}
+			levelDirs[foldPath(d)] = d
 		case strings.EqualFold(p, "server.properties"):
 			props = f
 		}
+	}
+	// World/level.dat 和 world/level.dat 都在（Linux 上打的包，可能真是两个世界）：落到 Windows、Mac 上是同一个文件夹，
+	// 合起来解会把两个世界的文件混在一起，挑一个又说不清挑的是哪个，不还原。普通文件大小写混用的照旧合并（见 foldPath）
+	if len(caseDup) > 0 {
+		slices.Sort(caseDup)
+		caseDup = slices.Compact(caseDup)
+		return nil, fmt.Errorf("这份备份里有好几个世界（%s），认不出该还原哪一个，没有还原，什么都没动", strings.Join(caseDup, "、"))
 	}
 	from, err := pickBackupWorld(levelDirs, has, props, level)
 	if err != nil {
@@ -765,27 +785,43 @@ func planWorldRestore(files []*zip.File, level string) (*worldRestorePlan, error
 	return plan, nil
 }
 
-// pickBackupWorld 认出备份里的世界叫什么（返回包里的写法），依次看：
+// pickBackupWorld 认出备份里的世界叫什么（返回包里的写法）。先按带 level.dat 的文件夹认出包里有哪几个世界（见 worldCandidates：
+// 下界、末地并进主世界，套在别的世界里面的不算），再依次看：
 //  1. 包根上带着 server.properties（自己打的整包、别的工具做的备份），读得出 level-name（只读，不写回去，见 propsLevelName），
-//     包里又有这个世界的：那才是打包时在用的世界；
-//  2. 包里有现在这个世界名的（MineDeck 自己做的备份，备份以后没改过 level-name，最常见）；
-//  3. 按带 level.dat 的文件夹认（见 worldCandidates），正好认出一个才用，没有或者不止一个就不还原；
+//     认出来的世界里有它的：那才是打包时在用的世界；
+//  2. 认出来的世界里有现在这个世界名的（MineDeck 自己做的备份，备份以后没改过 level-name，最常见）；
+//  3. 只认出一个世界的用它；认出好几个、上面两步又定不下来的不还原；
 //  4. 一个世界都认不出、但包里有现在这个世界名的文件夹（世界从没存过盘，还没有 level.dat）：照现在的世界名还原。
 //
-// 主世界的文件夹必须在包里：只有 world_nether、world_the_end 的包不还原。不然还原会删掉现在的三个文件夹，
+// 第 1、2 步也只在认出来的世界里找：level-name 写成 world_nether、world/sub 这种，在包里其实是 world 的下界、
+// 套在 world 里面的文件夹，不能当主世界；主世界只有 region、level.dat 只在 world_nether 里的，也照样认得出 world。
+// 例外是名字正好是一个单独的维度文件夹（包里没有它的主世界，见 worldCandidates 的 dimsOnly）：明写着世界就叫这个，
+// 是原版世界起了 xxx_nether 这样的名字，照用。
+//
+// 主世界的文件夹必须在包里：只有 world_nether、world_the_end 的包（名字又没明写）不还原。不然还原会删掉现在的三个文件夹，
 // 再把下界当成主世界解进去。比较都不分大小写（见 foldPath）。
 func pickBackupWorld(levelDirs map[string]string, has map[string]bool, props *zip.File, level string) (string, error) {
+	cands, dimsOnly := worldCandidates(levelDirs, has)
+	find := func(name string) (string, bool) {
+		for _, list := range [][]string{cands, dimsOnly} {
+			for _, c := range list {
+				if foldPath(c) == foldPath(name) {
+					return c, true
+				}
+			}
+		}
+		return "", false
+	}
 	if props != nil {
 		if packed := propsLevelName(props); packed != "" {
-			if d, ok := levelDirs[foldPath(packed)]; ok {
+			if d, ok := find(packed); ok {
 				return d, nil
 			}
 		}
 	}
-	if _, ok := levelDirs[foldPath(level)]; ok {
-		return level, nil
+	if d, ok := find(level); ok {
+		return d, nil
 	}
-	cands, dimsOnly := worldCandidates(levelDirs, has)
 	switch {
 	case len(cands) == 1:
 		return cands[0], nil
@@ -825,7 +861,7 @@ func worldEntries(ents []backupEntry, from, level string) *worldRestorePlan {
 		}
 		switch {
 		case target != "":
-			plan.entries = append(plan.entries, restoreEntry{f: e.f, name: target})
+			plan.entries = append(plan.entries, restoreEntry{f: e.f, name: target, checkSelf: isDir})
 		case !isDir:
 			plan.skipped = append(plan.skipped, e.path)
 		}
@@ -851,7 +887,7 @@ func cutWorldPrefix(segs, fromSegs []string, suffix string, isDir bool) (string,
 	return strings.Join(segs[n:], "/"), true
 }
 
-// propsLevelName 包里那份 server.properties 写的世界名，只读不写。没写这一项是服务端默认的 world；
+// propsLevelName 包里那份 server.properties 写的世界名，只读不写。没写这一项、写了却留空的，和 LevelNameStrict 一样按 world 算；
 // 写了却不能用（见 SafeLevelName）、读不出来、大过 1 MB 的（正常的只有几 KB）返回空串，调用方当它没有。
 func propsLevelName(f *zip.File) string {
 	const limit = 1 << 20
@@ -869,7 +905,7 @@ func propsLevelName(f *zip.File) string {
 	}
 	v, ok := JavaProps(b)["level-name"]
 	switch {
-	case !ok:
+	case !ok || strings.TrimSpace(v) == "":
 		return "world"
 	case !SafeLevelName(v):
 		return ""
@@ -926,16 +962,21 @@ func nestedInWorld(k string, levelDirs map[string]string) bool {
 	return false
 }
 
-// checkWorldFolders 要解进去的世界文件夹（还有它上面几级，worlds/main 的 worlds），服务器文件夹里已经有同名的普通文件挡着的，
-// 删旧世界之前就停下：旧世界只认文件夹、删的也只是文件夹，删完了才发现这里建不了文件夹，世界就没了。
-// 世界文件夹本身已经是文件夹的不用管：那是旧世界，下面整个删掉重来。
+// checkWorldFolders 要解进去的世界文件夹（还有它上面几级，worlds/main 的 worlds），删旧世界之前先看一遍，这几种就停下：
+//   - 是指向别处的符号链接、目录联接（A12）。用 Lstat 不跟过去：悬空的链接用 Stat 看是「不存在」，放过去以后
+//     旧世界删了、建文件夹时才失败；指到别处的链接，删旧世界时删的是链接、外面那份不动，可也不该往那边解；
+//   - 是普通文件：旧世界只认文件夹、删的也只是文件夹，删完了才发现这里建不了文件夹，世界就没了。
+//
+// 世界文件夹本身是真文件夹的不用管：那是旧世界，下面整个删掉重来。云同步的真文件夹（OneDrive）不算链接，见 linkmode.IsLink。
 func checkWorldFolders(dir string, folders []string) error {
 	for _, w := range folders {
 		segs := strings.Split(w, "/")
 		for k := range segs {
 			rel := strings.Join(segs[:k+1], "/")
-			st, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel)))
+			st, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(rel)))
 			switch {
+			case err == nil && linkmode.IsLink(st.Mode()):
+				return fmt.Errorf("服务器文件夹里的「%s」是指向别处的链接，没有还原", rel)
 			case err == nil && !st.IsDir():
 				return fmt.Errorf("服务器文件夹里的「%s」是一个文件，不是文件夹，备份里的世界放不进去，没有还原，什么都没动", rel)
 			case err != nil && !errors.Is(err, fs.ErrNotExist):
@@ -1001,7 +1042,15 @@ func checkBackupTargetPath(cleanDest, realDest string, e restoreEntry) (string, 
 	// 从上一级文件夹查起，逐级看已存在的部分是不是符号链接、目录联接。不查目标本身：OneDrive 这类云同步的文件
 	// 在 Go 里可能也只报 ModeIrregular，和联接分不开，查它会让现有的世界文件挡住整次还原；目标本身指到外面的，
 	// 由下面的 RealPathStrict + InsideReal 拦住。
-	for cur := filepath.Dir(target); cur != cleanDest; {
+	// 还原备份时的目录条目（e.checkSelf）从目标本身查起：解的时候对它只 MkdirAll、不先删，落点本身是指到别处的链接时
+	// MkdirAll 看它「在」就什么都不做，这个链接就原样留在还原出来的世界里；文件夹也没有上面说的云同步文件那种误报
+	// （云同步的真文件夹带 ModeDir，不算链接，见 linkmode.IsLink）。整包解压（unzipReaderTo）照旧只从上一级查：
+	// TestBackupRestoreDoesNotLinkCheckTargetItself 定的就是那边的行为。
+	cur := filepath.Dir(target)
+	if e.checkSelf {
+		cur = target
+	}
+	for cur != cleanDest {
 		if st, err := os.Lstat(cur); err == nil {
 			if linkmode.IsLink(st.Mode()) {
 				rel, _ := filepath.Rel(cleanDest, cur)

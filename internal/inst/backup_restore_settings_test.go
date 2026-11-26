@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -266,6 +267,10 @@ func TestRestoreRefusesWhenWorldUnclear(t *testing.T) {
 		{name: "绝对路径", entries: map[string]string{"world/level.dat": "backup", "/etc/evil": "x"}, msg: "非法路径"},
 		{name: "盘符", entries: map[string]string{"world/level.dat": "backup", "C:/evil": "x"}, msg: "非法路径"},
 		{name: "世界外面的符号链接", entries: map[string]string{"world/level.dat": "backup"}, link: "plugins/evil", msg: "符号链接"},
+		{name: "中间一段带冒号（NTFS 数据流）", entries: map[string]string{"world/level.dat": "backup", "world/level.dat:evil": "x"}, msg: "非法路径"},
+		{name: "一段以点结尾", entries: map[string]string{"world/level.dat": "backup", "world./region/r.0.0.mca": "x"}, msg: "非法路径"},
+		{name: "一段以空格结尾", entries: map[string]string{"world/level.dat": "backup", "world /region/r.0.0.mca": "x"}, msg: "非法路径"},
+		{name: "两个只差大小写的世界", entries: map[string]string{"World/level.dat": "a", "world/level.dat": "b"}, msg: "好几个世界"},
 		{name: "末地文件夹的位置上是个文件", entries: map[string]string{"world/level.dat": "backup", "world_the_end/level.dat": "backup end"},
 			files: map[string]string{"world_the_end": "一个普通文件"}, msg: "是一个文件"},
 	} {
@@ -373,6 +378,7 @@ func TestPropsLevelName(t *testing.T) {
 		{"指到外面的不能用", "level-name=../evil\n", ""},
 		{"控制目录不能用", "level-name=.minedeck/x\n", ""},
 		{"大过 1 MB 的不读", "level-name=lobby\n#" + strings.Repeat("x", 1<<20) + "\n", ""},
+		{"留空的：同 LevelNameStrict，按 world 算", "level-name=\n", "world"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var buf bytes.Buffer
@@ -499,5 +505,138 @@ func TestPlanWorldRestoreBoundaries(t *testing.T) {
 				t.Errorf("认成 %q，解出 %q；应为 %q，%q（跳过的 %q）", plan.from, got, tc.from, tc.want, plan.skipped)
 			}
 		})
+	}
+}
+
+// zipFiles 在内存里打一个包（entries 是「路径 → 内容」，按路径排序），返回里面的条目。
+func zipFiles(t *testing.T, entries map[string]string) []*zip.File {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, k := range slices.Sorted(maps.Keys(entries)) {
+		w, err := zw.Create(k)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = w.Write([]byte(entries[k]))
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return zr.File
+}
+
+// 包里 server.properties 写的世界、现在的世界名，都只在认出来的世界里找（worldCandidates：下界末地并进主世界、
+// 套在里面的不算）；认出来的名字用包里的写法。名字正好是一个单独的维度文件夹的，是原版世界起了这个名字，照用。
+func TestPickBackupWorldFromCandidates(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		level   string
+		entries map[string]string
+		from    string
+	}{
+		{"主世界只有 region、level.dat 只在下界里，包里还有别的世界", "world",
+			map[string]string{"world/region/r.0.0.mca": "r", "world_nether/level.dat": "n", "lobby/level.dat": "l"}, "world"},
+		{"包里 server.properties 写的是下界：不当主世界", "lobby",
+			map[string]string{"server.properties": "level-name=world_nether\n", "world/level.dat": "w", "world_nether/level.dat": "n", "lobby/level.dat": "l"}, "lobby"},
+		{"现在的世界名是包里的下界：不当主世界", "world_nether",
+			map[string]string{"world/level.dat": "w", "world_nether/level.dat": "n"}, "world"},
+		{"返回包里的写法", "world", map[string]string{"World/level.dat": "w"}, "World"},
+		{"原版世界就叫 xxx_nether", "foo_nether", map[string]string{"foo_nether/level.dat": "f"}, "foo_nether"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			plan, err := planWorldRestore(zipFiles(t, tc.entries), tc.level)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if plan.from != tc.from {
+				t.Errorf("认成 %q，应为 %q", plan.from, tc.from)
+			}
+		})
+	}
+}
+
+// linkDirForTest 建一个指向 target 的文件夹链接：Windows 上用目录联接（不用管理员权限），别处用符号链接。建不了就跳过。
+func linkDirForTest(t *testing.T, link, target string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		cmd := exec.Command("cmd", "/c", "mklink", "/J", link, target)
+		hideWindow(cmd)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Skipf("建不了目录联接（%v）：%s", err, out)
+		}
+		return
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("建不了符号链接：%v", err)
+	}
+}
+
+// 某个世界维度在包里只有空的目录条目，服务器文件夹里同名的那个又是指到外面的链接：删旧世界之前就停下（A12），
+// 外面那份、现在的世界都不动，也不先做「还原前自动」。
+func TestRestoreRefusesLinkedWorldFolder(t *testing.T) {
+	m, dir := tempInstance(t)
+	writeTree(t, dir, map[string]string{"server.properties": propsNow})
+	outside := t.TempDir()
+	writeTree(t, outside, map[string]string{"keep.dat": "外面的东西"})
+	linkDirForTest(t, filepath.Join(dir, "world_the_end"), outside)
+	file := putBackup(t, "20200101-000000.zip", map[string]string{"world/level.dat": "backup", "world_the_end/": ""})
+	list := backupFiles(t, m)
+	err := m.RestoreBackup("s", file)
+	if err == nil || !strings.Contains(err.Error(), "「world_the_end」是指向别处的链接") {
+		t.Fatalf("落点是指到外面的链接，应当不还原并说清是哪一个：%v", err)
+	}
+	if got := readLevel(t, dir); got != "current" {
+		t.Errorf("没还原，世界不该动：%q", got)
+	}
+	if ents, _ := os.ReadDir(outside); len(ents) != 1 || readRel(t, outside, "keep.dat") != "外面的东西" {
+		t.Errorf("外面的文件夹被动了：%v", ents)
+	}
+	if got := backupFiles(t, m); !slices.Equal(got, list) {
+		t.Errorf("没还原，也不该先做一份「还原前自动」：%v → %v", list, got)
+	}
+}
+
+// checkWorldFolders 用 Lstat 看世界文件夹本身：指到别处的、悬空的链接都拦下（用 Stat 的话，悬空的看着像「不存在」）。
+func TestCheckWorldFoldersRefusesLinks(t *testing.T) {
+	for _, dangling := range []bool{false, true} {
+		dest := t.TempDir()
+		target := filepath.Join(t.TempDir(), "elsewhere")
+		if err := os.MkdirAll(target, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		linkDirForTest(t, filepath.Join(dest, "world_the_end"), target)
+		if dangling {
+			if err := os.RemoveAll(target); err != nil {
+				t.Fatal(err)
+			}
+		}
+		err := checkWorldFolders(dest, []string{"world", "world_the_end"})
+		if err == nil || !strings.Contains(err.Error(), "「world_the_end」是指向别处的链接") {
+			t.Errorf("悬空=%v：世界文件夹是链接，应当拦下：%v", dangling, err)
+		}
+	}
+}
+
+// 还原备份时的目录条目从落点本身查起：落点是链接就不还原，哪怕它指回服务器文件夹里面。
+// 整包解压（checkBackupPaths）照旧只从上一级查，同 TestBackupRestoreDoesNotLinkCheckTargetItself。
+func TestRestoreDirEntryChecksTargetItself(t *testing.T) {
+	dest := t.TempDir()
+	writeTree(t, dest, map[string]string{"world/level.dat": "current", "config/a.toml": "a"})
+	linkDirForTest(t, filepath.Join(dest, "world_the_end"), filepath.Join(dest, "config"))
+	files := zipFiles(t, map[string]string{"world/level.dat": "backup", "world_the_end/": ""})
+	plan, err := planWorldRestore(files, "world")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkEntryPaths(plan.entries, dest); err == nil || !strings.Contains(err.Error(), "「world_the_end」是指向别处的链接") {
+		t.Errorf("还原时目录条目的落点本身是链接，应当拦下：%v", err)
+	}
+	if err := checkBackupPaths(files, dest); err != nil {
+		t.Errorf("整包解压照旧不查落点本身：%v", err)
 	}
 }
