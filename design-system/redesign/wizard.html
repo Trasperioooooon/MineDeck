@@ -144,7 +144,13 @@
         background: var(--c); font-family: var(--mono); }
   .mod .m, .crow .m { flex: 1; min-width: 0; }
   /* 三行（Gemini 复审 11-26 提的）：名字独占一行不再被挤断；一句话；下载量和「需客户端 / 仅服务端」收进第三行淡字 */
-  .mod .n { font-size: 13.5px; font-weight: 600; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mod .n { font-size: 13.5px; font-weight: 600; line-height: 18px; white-space: nowrap; display: flex; align-items: center; gap: 3px; min-width: 0; }
+  .mod .n .nm { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  /* 名字后面一个小的「去 Modrinth 看介绍」（作者 11-26 要的）：平时淡，悬停卡片时亮一点，点它新开页面，不会把这张卡加进清单 */
+  .ext { flex: none; width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; color: var(--faint); opacity: .75; transition: opacity .2s, color .2s, background .2s; }
+  .mod:hover .ext { opacity: 1; }
+  .ext:hover { color: var(--accent-text); background: var(--hover); }
+  .ext .ico { width: 12px; height: 12px; }
   .mod .d { font-size: 12px; line-height: 16px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
   .mod .meta { font-size: 11px; line-height: 14px; color: var(--faint); display: flex; align-items: center; gap: 5px; margin-top: 3px; white-space: nowrap; }
   .mod .meta .ico { width: 11px; height: 11px; }
@@ -421,9 +427,17 @@ function gridItems() {
 }
 // 卡片上只标例外：插件一般客户端不用装，要装的标「需客户端」；模组一般两边都要装，只装服务器的标「仅服务端」（文案作者 11-26 定）
 const ftag = x => addonNoun === "插件" ? (x.friend ? "需客户端" : "") : (!x.friend ? "仅服务端" : "");
+// 去 Modrinth 看介绍：真程序用接口给的 project_type 和 slug 拼项目页（modcart.js 的 pageURL，现在是每行一个「项目页」按钮）；
+// 草图里没有真 slug，先链到 Modrinth 上按英文名搜，免得编出打不开的地址。占位的那些不给链接
+function extLink(x) {
+  if (x.id.startsWith("ph")) return "";
+  const en = x.n.replace(/^[^A-Za-z]*\s?/, "") || x.n;
+  const href = `https://modrinth.com/${addonNoun === "插件" ? "plugins" : "mods"}?q=${encodeURIComponent(en)}`;
+  return `<a class="ext" href="${href}" target="_blank" rel="noopener noreferrer" title="在 Modrinth 查看介绍" aria-label="在 Modrinth 查看 ${esc(x.n)} 的介绍"><i data-ic="share"></i></a>`;
+}
 function cardHTML(x, has) {
   return `<div class="mod${has.has(x.id) ? " in" : ""}" data-addon="${x.id}">${tile(x)}
-    <div class="m"><div class="n">${esc(x.n)}</div><div class="d">${esc(x.d)}</div><div class="meta"><i data-ic="download"></i>${fmtDl(x.dl)}${ftag(x) ? ` · ${ftag(x)}` : ""}</div></div>
+    <div class="m"><div class="n"><span class="nm">${esc(x.n)}</span>${extLink(x)}</div><div class="d">${esc(x.d)}</div><div class="meta"><i data-ic="download"></i>${fmtDl(x.dl)}${ftag(x) ? ` · ${ftag(x)}` : ""}</div></div>
     <span class="add"><i data-ic="${has.has(x.id) ? "check" : "plus"}"></i></span></div>`;
 }
 // 翻到头时最后一行的字：到了 100 个是「只列出最热门的 100 个」，不到 100 就是全部了
@@ -796,6 +810,7 @@ function scrollbar(w) {
   paint();
 }
 document.getElementById("page").addEventListener("click", e => {
+  if (e.target.closest("a.ext")) return; // 卡片上的「去 Modrinth 看介绍」：照常新开页面，不算点了卡片
   const pl = e.target.closest("[data-play]"), co = e.target.closest("[data-core]"), ve = e.target.closest("[data-ver]");
   const ad = e.target.closest("[data-addon]"), un = e.target.closest("[data-unpick]"), ch = e.target.closest("[data-cat]");
   if (pl) selectPlay(+pl.dataset.play);
