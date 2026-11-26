@@ -8,7 +8,8 @@
   只画了控制台撑版面的样子（控制台是作者要单独审的一页，这里不算定稿），别的标签内容是空的面板。
 
   页头和首页大卡对上（规范第三节）：一块大面板（26 / 8），上面是封面条（核心色 30% 底、16 像素淡棋盘格、圆角 18），里面头像 44、名字、核心和版本，
-  右边是数字块和星标、「···」（同大卡）；封面条下面一排 36 高的胶囊：状态、联机地址、重启、停止或启动（同大卡底下那排，36 的一半 18 和面板下角同心）。
+  右边是数字块和星标、「···」（同大卡）；封面条下面一排 36 高的胶囊：状态、重启、停止或启动、联机地址、常驻提示（36 的一半 18 和面板下角同心）。
+  重启和启动 / 停止原来在这一排的最右边，作者 11-27 说挪到状态和地址中间，看着整齐。
   首页大卡上的「控制台」按钮这里不要（控制台就是一个标签）；重启只有详情页有。
   「···」只放管整台服务器的三样：打开服务器文件夹、导出交接包…、删除服务器…（11-27 作者同意）。原来那组「打开文件夹」里对着某个标签的几个文件夹
   挪进了各自那一页的右上角：控制台是日志、崩溃报告，世界与备份是备份（「备份」子页）和世界（「换地图」子页），插件 / 模组是插件或模组文件夹。
@@ -143,6 +144,18 @@ window.EXTRA_ICONS = {
   .ntp .row .t { flex: 1; min-width: 0; font-size: 13px; line-height: 20px; padding-top: 4px; }
   .ntp .row .t .mono { font-family: var(--mono); font-size: 12px; }
   .ntp .row .a { display: flex; align-items: center; gap: 4px; flex: none; }
+  /* 最多露两条半（作者 11-27：不能无限往下长，超过两条在里面上下滑）；细滚动条放在浮层右边那 5 像素里，同首页提示浮层 */
+  .ntp .lwrap { position: relative; display: flex; flex-direction: column; min-height: 0; }
+  .ntp .list { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; min-height: 0; scrollbar-width: none;
+               --ft: 0px; --fb: 0px; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%);
+               mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%); }
+  .ntp .list::-webkit-scrollbar { display: none; }
+  .ntp .lwrap.can-up .list { --ft: 28px; } .ntp .lwrap.can-down .list { --fb: 28px; }
+  .ntp .thumb { position: absolute; right: -5px; width: 4px; border-radius: 2px; background: color-mix(in srgb, var(--text) 38%, transparent);
+                opacity: 0; transition: opacity .2s, width .15s, right .15s; cursor: pointer; }
+  .ntp .lwrap:hover .thumb, .ntp .lwrap.scrolling .thumb, .ntp .thumb.drag { opacity: 1; }
+  .ntp .thumb:hover, .ntp .thumb.drag { width: 6px; right: -6px; background: color-mix(in srgb, var(--text) 55%, transparent); }
+  .ntp .lwrap.fits .thumb { display: none; }
 
   /* ---- 下半部分：标签和内容 ---- */
   .body { flex: 1; min-height: 0; display: flex; gap: 12px; }
@@ -247,7 +260,7 @@ const KINDS = {
   proxy: { name: "群组代理", core: "velocity", label: "Velocity", mc: "3.4.0", port: 25577, players: 9, max: 100, up: "6:30", last: "现在", hours: 410, pin: false, proxy: true },
 };
 const kind = KINDS[QS.get("kind")] ? QS.get("kind") : "paper", S = KINDS[kind];
-const nNotice = Math.max(0, Math.min(2, +QS.get("notice") || 0));
+const nNotice = Math.max(0, Math.min(4, +QS.get("notice") || 0));
 // 两条常驻提示都只在停着时出现（程序里「上次没能启动」只在已停止时显示；找不到 Java 时也开不起来）
 const st = nNotice ? "stopped" : (["running", "starting", "stopped"].includes(QS.get("st")) ? QS.get("st") : "running");
 
@@ -277,10 +290,12 @@ if (QS.get("sub") && subsOf(tab)?.some(x => x[0] === QS.get("sub"))) subPick[tab
 
 // ---- 草图切换条 ----
 function skBar() {
+  const q4 = new URLSearchParams(location.search); q4.set("notice", "4"); q4.set("kind", "forge"); q4.delete("tab"); q4.delete("sub");
+  const four = `<a href="?${q4}" class="${nNotice === 4 ? "on" : ""}" title="四种一起出来（整合包装的模组服才会有后两种），看浮层怎么滚">四条</a>`;
   const link = (k, v, label, on) => { const q = new URLSearchParams(location.search); if (v === null) q.delete(k); else q.set(k, v); if (k === "kind") { q.delete("tab"); q.delete("sub"); } return `<a href="?${q}" class="${on ? "on" : ""}">${label}</a>`; };
   $("#sk").innerHTML = `<b>草图</b><b>核心</b>${link("kind", null, "Paper", kind === "paper")}${link("kind", "forge", "Forge", kind === "forge")}${link("kind", "vanilla", "原版", kind === "vanilla")}${link("kind", "proxy", "代理端", kind === "proxy")}<i></i>`
     + `<b>状态</b>${link("st", null, "运行中", st === "running" && !nNotice)}${link("st", "starting", "启动中", st === "starting")}${link("st", "stopped", "已停止", st === "stopped" && !nNotice)}<i></i>`
-    + `<b>常驻提示</b>${link("notice", null, "无", !nNotice)}${link("notice", "1", "一条", nNotice === 1)}${link("notice", "2", "两条", nNotice === 2)}<i></i>`
+    + `<b>常驻提示</b>${link("notice", null, "无", !nNotice)}${link("notice", "1", "一条", nNotice === 1)}${link("notice", "2", "两条", nNotice === 2)}${four}<i></i>`
     + `<span title="控制台只画了撑版面的样子，别的标签里面是空的，后面一页一页画">只画了控制台</span>`;
 }
 
@@ -290,6 +305,10 @@ const NOTICES = [
     full: `上次没能启动：端口 ${S.port} 被你的服务器「空岛生存」占着，两台不能同时开` },
   { id: "java", short: "找不到这台服务器配的 Java", fix: "去换 Java",
     full: `找不到这台服务器配的 Java（<span class="mono">C:\\Program Files\\Java\\jdk-21\\bin\\java.exe</span>），现在启动会失败。可能是那个 Java 被卸载或挪走了` },
+  { id: "pending", short: "有 3 个整合包文件没装上", fix: "处理",
+    full: "这台服务器有 3 个整合包文件没装上，缺了它们服务器可能启动不了，或者玩家进不去。" },
+  { id: "need", short: "有模组要求 Java 21，现在是 Java 17", fix: "去换 Java",
+    full: "有模组要求 Java 21，这台服务器现在是 Java 17，启动可能失败。可在「设置 → 启动与内存」里换 Java。" },
 ];
 let shown = NOTICES.slice(0, nNotice);
 function ntcPill() {
@@ -299,14 +318,43 @@ function ntcPill() {
     + (more ? `<button class="more-n" data-ntp title="还有 ${more} 条提示">+${more}</button>` : "")
     + (n.close ? `<button class="rb" data-close="${n.id}" title="关闭提示"><i data-ic="x"></i></button>` : "") + `</span>`;
 }
+const ntpBody = () => `<div class="lwrap"><div class="list">${ntpRows()}</div><span class="thumb"></span></div>`;
+// 浮层的高：三条以上时只露前两条加第三条的一半，一眼看得出下面还有；行高按各条的字数不一样，所以量出来再定
+function fitNtp() {
+  const l = $(".ntp .list"), rows = $$(".ntp .row"); if (!l) return;
+  l.style.maxHeight = rows.length > 2 ? Math.round(rows[0].offsetHeight + rows[1].offsetHeight + 8 + rows[2].offsetHeight / 2) + "px" : "";
+  thinBar($(".ntp .lwrap"));
+}
+// 细滚动条（同首页 home.html 的 thinBar）：系统滚动条藏掉，右边一根细条，移上去或正在滚时才出来，能拖；上下还有没露出来的，那一头淡出
+function thinBar(w) {
+  const l = w.querySelector(".list"), t = w.querySelector(".thumb");
+  const paint = () => {
+    const ch = l.clientHeight, sh = l.scrollHeight, st = l.scrollTop;
+    w.classList.toggle("fits", sh <= ch + 1); w.classList.toggle("can-up", st > 2); w.classList.toggle("can-down", st + ch < sh - 2);
+    const h = Math.max(28, ch * ch / sh);
+    t.style.height = h + "px"; t.style.top = (sh > ch ? st / (sh - ch) * (ch - h) : 0) + "px";
+  };
+  if (w._paint) { w._paint(); return; }
+  w._paint = paint;
+  let idle = 0;
+  l.addEventListener("scroll", () => { paint(); w.classList.add("scrolling"); clearTimeout(idle); idle = setTimeout(() => w.classList.remove("scrolling"), 700); }, { passive: true });
+  t.addEventListener("pointerdown", e => {
+    e.preventDefault(); t.setPointerCapture(e.pointerId); t.classList.add("drag");
+    const y0 = e.clientY, s0 = l.scrollTop, ratio = (l.scrollHeight - l.clientHeight) / (l.clientHeight - t.offsetHeight);
+    const move = ev => { l.scrollTop = s0 + (ev.clientY - y0) * ratio; };
+    const up = () => { t.classList.remove("drag"); t.removeEventListener("pointermove", move); t.removeEventListener("pointerup", up); };
+    t.addEventListener("pointermove", move); t.addEventListener("pointerup", up);
+  });
+  paint();
+}
 const ntpRows = () => shown.map(n => `<div class="row"><i data-ic="warn"></i><div class="t">${n.full}</div><div class="a">${n.fix ? `<button class="btn">${n.fix}</button>` : ""}`
   + (n.copy ? `<button class="rb" title="复制报错信息"><i data-ic="copy"></i></button>` : "") + (n.close ? `<button class="rb" data-close="${n.id}" title="关闭提示"><i data-ic="x"></i></button>` : "") + `</div></div>`).join("");
 let ntp = null;
 function openNtp() {
   if (ntp) return closeNtp();
   const pill = $(".ntc"); if (!pill) return;
-  ntp = Object.assign(document.createElement("div"), { className: "ntp enter", innerHTML: ntpRows() }); ntp.setAttribute("role", "dialog"); ntp.setAttribute("aria-label", "常驻提示");
-  document.body.appendChild(ntp); KIT.hydrate(ntp);
+  ntp = Object.assign(document.createElement("div"), { className: "ntp enter", innerHTML: ntpBody() }); ntp.setAttribute("role", "dialog"); ntp.setAttribute("aria-label", "常驻提示");
+  document.body.appendChild(ntp); KIT.hydrate(ntp); fitNtp();
   const r = pill.getBoundingClientRect();
   ntp.style.left = Math.round(Math.min(r.left, innerWidth - ntp.offsetWidth - 16)) + "px"; ntp.style.top = Math.round(r.bottom + 6) + "px";
   $$(".ntc [data-ntp]").forEach(b => b.classList.add("open"));
@@ -319,7 +367,7 @@ function closeNtp() {
 // 关掉一条：胶囊里换成下一条（旧的往上淡掉、新的浮上来），只有胶囊自己变宽变窄，别的都不动；浮层开着就跟着少一行，空了就收
 function dismiss(id) {
   shown = shown.filter(n => n.id !== id);
-  if (ntp) { if (shown.length) { ntp.innerHTML = ntpRows(); KIT.hydrate(ntp); } else closeNtp(); }
+  if (ntp) { if (shown.length) { const top = $(".ntp .list").scrollTop; ntp.innerHTML = ntpBody(); KIT.hydrate(ntp); fitNtp(); $(".ntp .list").scrollTop = top; } else closeNtp(); }
   const old = $(".ntc"); if (!old) return;
   old.classList.add("out");
   setTimeout(() => { $("#ntc-slot").innerHTML = ntcPill(); KIT.hydrate($("#ntc-slot")); $(".ntc")?.classList.add("in"); if (ntp) $$(".ntc [data-ntp]").forEach(b => b.classList.add("open")); }, 90);
@@ -342,7 +390,7 @@ function head() {
   const restart = `<button class="btn"${st === "running" ? "" : ` aria-disabled="true" title="服务器开着时才能重启"`}><i data-ic="refresh"></i>重启</button>`;
   const main = st === "stopped" ? `<button class="btn go"><i data-ic="play"></i>启动</button>` : `<button class="btn stop"><i data-ic="stop"></i>停止</button>`;
   $("#dh").innerHTML = `<div class="cover" style="--c:${MDPixel16.CORE_COLORS[S.core]}">${av}<div class="title"><div class="nm">${S.name}</div><div class="meta">${S.label} · ${S.mc}</div></div>${blocks}${tools}</div>`
-    + `<div class="acts">${stb}${addr}<span id="ntc-slot" style="display:contents">${ntcPill()}</span><span class="sp"></span>${restart}${main}</div>`;
+    + `<div class="acts">${stb}${restart}${main}${addr}<span id="ntc-slot" style="display:contents">${ntcPill()}</span><span class="sp"></span></div>`;
   KIT.hydrate($("#dh"));
 }
 
