@@ -309,6 +309,8 @@
   .mp:hover:not(:disabled):not(.on) { color: var(--text); background: var(--hover); }
   .mp.on { background: var(--accent-subtle); color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
   .mp:disabled { opacity: .35; cursor: default; }
+  .mlow { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--warning-text); cursor: default; }
+  .mlow .ico { width: 14px; height: 14px; }
   .eulac { display: flex; align-items: center; gap: 10px; width: fit-content; align-self: flex-start; margin: 16px 0 0 28px; font-size: 13px; cursor: pointer; }
   .eulac a { color: var(--accent-text); }
   .eulac .cb { width: 18px; height: 18px; flex: none; box-sizing: border-box; border-radius: 5px; display: grid; place-items: center; color: transparent;
@@ -877,7 +879,14 @@ function memCtl(proxy) {
       <div class="memx"><div class="mbar" id="smbar" tabindex="0" role="slider" aria-label="运行内存" aria-valuemin="512" aria-valuemax="${MEM_CAP}" title="${esc(tip)}">
           <div class="cells">${"<i></i>".repeat(CELLS)}<span class="knob"></span></div></div>
         <div class="step" id="smemf"><button class="sb" data-mstep="-1" title="少 0.5 GB"><i data-ic="minus"></i></button><span class="sv" id="smemv"></span><button class="sb" data-mstep="1" title="多 0.5 GB"><i data-ic="plus"></i></button></div></div>
-      <div class="mpre">${(proxy ? PRESETS_PROXY : PRESETS).map(v => `<button class="mp" data-mp="${v}"${v > MEM_CAP ? " disabled" : ""}>${gs(v)}</button>`).join("")}</div></div>`;
+      <div class="mpre">${(proxy ? PRESETS_PROXY : PRESETS).map(v => `<button class="mp" data-mp="${v}"${v > MEM_CAP ? " disabled" : ""}>${gs(v)}</button>`).join("")}${memLow(proxy)}</div></div>`;
+}
+// 上限压低了默认分配时（比如 8G 的电脑只剩 1.5 GB 可用），结果变了，原因要看得见：预设那排右边一句短话，整句在悬停里
+function memLow(proxy) {
+  const want = proxy ? 1024 : 4096;
+  if (MEM_CAP >= want) return "";
+  const tip = `本机现在只剩 ${gbTxt(RAM.avail)} 可用，最多能分 ${gbTxt(MEM_CAP)}，少于推荐的 ${gbTxt(want)}。\n关掉别的程序或服务器，再打开向导就能分得更多。`;
+  return `<span class="mlow" title="${esc(tip)}"><i data-ic="warn"></i>可用内存不足</span>`;
 }
 // 格子：从左往右，灰的是系统已占，接着强调色的是本服分配，后面淡的是剩余；一格只占一部分时按比例涂。把手停在本服那一截的末端
 const C_USED = "color-mix(in srgb, var(--text) 30%, transparent)", C_ALLOC = "var(--accent)", C_FREE = "color-mix(in srgb, var(--text) 9%, transparent)";
