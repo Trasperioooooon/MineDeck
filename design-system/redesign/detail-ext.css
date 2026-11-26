@@ -1,0 +1,473 @@
+/* 服务器详情页 →「扩展」：游戏内 AI、AI 伙伴、音乐共享（11-27 第一稿，子代理照临时规范画的，等作者整体扫一眼）。说明写在 detail-ext.js 开头。
+   选择器都带 .ex 前缀，不碰外壳和别的页（外壳用了 .btn .rb .sp .go .dm .ntc .con .term .cs .tg .ib .empty .fd .list .thumb .lwrap 等）；
+   .list、.thumb 只在自己的 .ex-lw 里用（外壳的细滚动条 thinBar 认这两个名字）。
+
+   内容面板（.cp，868 × 526、内边距 8、圆角 26）里：
+     游戏内 AI、AI 伙伴：最上面一排 32 高（左边开关和状态，右边 32 高胶囊分段），下面并排两三栏（圆角 18 = 26 − 8，内边距 8，栏间 8），各栏自己滚；
+     音乐共享：左一栏「广播」，右边上「检查清单」、下「听众」。
+   栏里贴边 8 的块、行、输入框、步进、40 高的按钮圆角 10（18 − 8）；行里的图标按钮 28 见方、圆角 6；框里的按钮离框外沿 6、圆角 4（10 − 6）；
+   栏右上角的图标按钮贴着栏角 8、圆角 10（同外壳各页右上角的文件夹按钮）。胶囊（分段、开关、小按钮、标签、状态）不按同心算。 */
+
+.ex { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.ex .ex-mono, .ex-md .ex-mono, .ex-dd .ex-mono, .ex-pop .ex-mono { font-family: var(--mono); }
+.ex .faint, .ex-md .faint { color: var(--faint); }
+.ex-sp { flex: 1; }
+.ex-grow { flex: 1; }
+
+/* ---- 最上面一排：32 高，左边离面板内沿 14（开关的左边和下面栏里的标题对齐，离面板外沿都是 22） ---- */
+.ex-top { flex: none; height: 32px; display: flex; align-items: center; gap: 10px; padding-left: 14px; min-width: 0; }
+.ex-pslot, .ex-gslot, .ex-hslot { display: flex; align-items: center; min-width: 0; }
+.ex-pane { flex: 1; min-height: 0; display: flex; gap: 8px; }
+.ex-pane > * { min-width: 0; min-height: 0; }
+.ex-pane.g3 { display: grid; grid-template-columns: minmax(0, 32fr) minmax(0, 34fr) minmax(0, 34fr); }
+.ex-pane.g2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.ex-pane.g2.wide { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+.ex-pane.one > .ex-col { flex: 1; }
+.ex-pane.stack { flex-direction: column; }
+.ex-pane.stack > .ex-testc { flex: 1; }
+.ex-pane.stack > .ex-advc { flex: none; }
+
+/* ---- 栏：圆角 18、内边距 8，底色同「玩家」「插件」各栏 ---- */
+.ex-col { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 8px; box-sizing: border-box; border-radius: 18px;
+          background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+.ex-hd { flex: none; height: 28px; display: flex; align-items: center; gap: 8px; padding-left: 6px; min-width: 0; }
+.ex-t { font-size: 13.5px; font-weight: 600; line-height: 20px; white-space: nowrap; }
+.ex-n { font-family: var(--mono); font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ex-corner { margin-left: auto; border-radius: 10px !important; }
+.ex-hd .ex-ib.ex-corner { flex: none; }
+.ex-hd2 { margin-top: 4px; }
+
+/* ---- 开关：36 × 20、滑块 16（同向导、控制台、「玩家」页），在字的左边 ---- */
+.ex-tg { display: inline-flex; align-items: center; gap: 10px; min-height: 28px; min-width: 0; padding: 0; border: 0; background: none; font: inherit; font-size: 13px; color: var(--text);
+         cursor: pointer; text-align: left; flex: none; }
+.ex-sw { position: relative; width: 36px; height: 20px; border-radius: 10px; flex: none; background: color-mix(in srgb, var(--text) 18%, transparent); transition: background .2s; }
+.ex-sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 8px; background: var(--text); transition: transform .26s cubic-bezier(.3, .7, .2, 1); }
+.ex-tg.on .ex-sw { background: var(--accent-solid); }
+.ex-tg.on .ex-sw::after { transform: translateX(16px); background: var(--on-accent); }
+.ex-tg[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.ex-tl { min-width: 0; display: flex; align-items: center; }
+.ex-tg.big .ex-tl { font-size: 13.5px; font-weight: 600; }
+
+/* ---- 分段：32 高胶囊（换着看什么，同插件页、联机页）；big 是表单里取值的 40 高、圆角 10，选中块离外框 4、圆角 6（同向导第三步） ---- */
+.ex-seg { position: relative; display: flex; padding: 3px; height: 32px; border-radius: 16px; background: var(--field); border: 1px solid var(--border); box-sizing: border-box; flex: none; }
+.ex-seg > span { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 14px; font-size: 12.5px; color: var(--muted);
+                 border-radius: 12px; cursor: pointer; white-space: nowrap; transition: color .2s; }
+.ex-seg > span:hover { color: var(--text); }
+.ex-seg > span.on { color: var(--accent-text); font-weight: 500; }
+.ex-sgl { position: absolute; left: 0; top: 3px; bottom: 3px; border-radius: 12px; background: var(--accent-subtle); z-index: 0; pointer-events: none;
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+          transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
+.ex-seg.big { height: 40px; border-radius: 10px; width: 236px; }
+.ex-seg.big > span { flex: 1; padding: 0 8px; border-radius: 6px; font-size: 13px; }
+.ex-seg.big .ex-sgl { border-radius: 6px; }
+.ex-seg[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.ex-seg[aria-disabled="true"] > span { pointer-events: none; }
+/* 「安装」后面的小点：有要装、要换的模组 */
+.ex-sdot { width: 6px; height: 6px; border-radius: 2px; background: var(--warning); flex: none; }
+.ex-sdot[hidden] { display: none; }
+
+/* ---- 小零件 ---- */
+.ex-ib { width: 28px; height: 28px; border-radius: 6px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;
+         transition: background .15s, color .15s, opacity .15s; }
+.ex-ib:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.ex-ib .ico { width: 15px; height: 15px; }
+.ex-ib.r4 { border-radius: 4px; }
+.ex-ib.sm { width: 24px; height: 24px; border-radius: 4px; }
+.ex-ib.sm .ico { width: 14px; height: 14px; }
+.ex-ib.done, .ex-ib.done:hover { color: var(--success-text); }
+.ex-ib.open { background: var(--hover); color: var(--text); }
+.ex-ib[hidden] { display: none; }
+.ex-spin1 .ico { animation: ex-spin .6s cubic-bezier(.3, .7, .2, 1); }
+@keyframes ex-spin { to { transform: rotate(360deg); } }
+/* 按钮：28 高的小胶囊；big 是栏底的 40 高、圆角 10（离栏边 8，同心；同「世界与备份」的「立即备份世界」） */
+.ex-btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 28px; padding: 0 12px; border-radius: 14px; box-sizing: border-box; flex: none;
+          border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 12.5px; font-weight: 500; white-space: nowrap; cursor: pointer;
+          transition: background .15s, opacity .15s; }
+.ex-btn:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--control-hov); }
+.ex-btn .ico { width: 14px; height: 14px; }
+.ex-btn.big { height: 40px; border-radius: 10px; padding: 0 16px; font-size: 13px; gap: 6px; }
+.ex-btn.big .ico { width: 15px; height: 15px; }
+.ex-btn.pri { background: var(--accent-solid); color: var(--on-accent); border-color: transparent; font-weight: 600; }
+.ex-btn.pri:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--accent-solid-hov); }
+.ex-btn.stop { background: var(--danger-subtle); color: var(--danger-text); border-color: transparent; }
+.ex-btn.stop:hover { background: color-mix(in srgb, var(--danger) 22%, transparent) !important; }
+.ex-btn:disabled, .ex-btn[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+/* 小标签（18 高）、状态胶囊（24 高，最上面一排 28 高；行里 20 高） */
+.ex-tag { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 9px; font-size: 11px; font-weight: 500; line-height: 18px; white-space: nowrap;
+          background: color-mix(in srgb, var(--text) 9%, transparent); color: var(--muted); }
+.ex-tag.ok { background: var(--success-subtle); color: var(--success-text); }
+.ex-tag.warn { background: var(--warning-subtle); color: var(--warning-text); }
+.ex-tag.acc { background: var(--accent-subtle); color: var(--accent-text); }
+.ex-tag.faint { background: none; color: var(--faint); padding: 0 2px; }
+.ex-tag.mono { font-family: var(--mono); font-size: 11px; }
+.ex-pill { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 12px; font-size: 12px; font-weight: 500; white-space: nowrap; flex: none;
+           background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); color: var(--faint); }
+.ex-pill > i { width: 7px; height: 7px; border-radius: 2px; background: currentColor; flex: none; }
+.ex-pill.ok { background: var(--success-subtle); color: var(--success-text); } .ex-pill.ok > i { background: var(--success); }
+.ex-pill.warm { background: var(--warning-subtle); color: var(--warning-text); } .ex-pill.warm > i { background: var(--warning); }
+.ex-pill.bad { background: var(--danger-subtle); color: var(--danger-text); } .ex-pill.bad > i { background: var(--danger); }
+.ex-pill.off > i { background: var(--faint); }
+.ex-top .ex-pill { height: 28px; border-radius: 14px; padding: 0 12px; font-size: 12.5px; background: color-mix(in srgb, var(--text) 6%, transparent); }
+.ex-top .ex-pill.ok { background: var(--success-subtle); } .ex-top .ex-pill.warm { background: var(--warning-subtle); } .ex-top .ex-pill.bad { background: var(--danger-subtle); }
+/* 最上面一排的提示胶囊（AI 还没配置、游戏内 AI 没开）：32 高，里面 24 高的小胶囊按钮（同页头常驻提示的做法，小一号） */
+.ex-gate { display: inline-flex; align-items: center; gap: 8px; height: 32px; min-width: 0; padding: 0 4px 0 12px; border-radius: 16px; box-sizing: border-box; font-size: 12.5px; white-space: nowrap;
+           background: var(--warning-subtle); color: var(--text); cursor: default; }
+.ex-gate > .ico { width: 15px; height: 15px; color: var(--warning-text); flex: none; }
+.ex-gate.info { background: var(--accent-subtle); } .ex-gate.info > .ico { color: var(--accent-text); }
+.ex-gbtn { height: 24px; padding: 0 10px; border: 0; border-radius: 12px; flex: none; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; white-space: nowrap;
+           background: color-mix(in srgb, var(--warning) 22%, transparent); color: var(--warning-text); }
+.ex-gbtn:hover { background: color-mix(in srgb, var(--warning) 34%, transparent); }
+.ex-gate.info .ex-gbtn { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent-text); }
+.ex-gate.info .ex-gbtn:hover { background: color-mix(in srgb, var(--accent) 32%, transparent); }
+/* 栏里的警告条：36 高、圆角 10（离栏边 8，同心）；整机录音那条是两行高的 */
+.ex-warn { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 4px 0 10px; border-radius: 10px; box-sizing: border-box; font-size: 12.5px; line-height: 18px;
+           background: var(--warning-subtle); color: var(--text); flex: none; }
+.ex-warn > .ico { width: 15px; height: 15px; color: var(--warning-text); flex: none; }
+.ex-warn > span { flex: 1; min-width: 0; }
+.ex-warn .ex-gbtn { height: 28px; border-radius: 14px; padding: 0 12px; }
+.ex-warn.tall { min-height: 44px; padding: 8px 12px 8px 10px; }
+.ex-wslot:empty { display: none; }
+.ex-wslot { flex: none; }
+
+/* ---- 表单：字 12.5 号淡色 500、间距 6、框 40（规范第五节） ---- */
+.ex-fld { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: none; }
+.ex-lb { display: flex; align-items: center; gap: 6px; height: 18px; padding-left: 6px; font-size: 12.5px; line-height: 18px; font-weight: 500; color: var(--muted); white-space: nowrap; }
+.ex-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; flex: none; }
+/* 单字段的框：40 高、圆角 10，没有上下箭头；框里右边一颗 28 见方的按钮离框外沿 6（边框 1 + 内边距 5）、圆角 4 */
+.ex-in { position: relative; display: flex; align-items: center; gap: 4px; height: 40px; min-width: 0; padding: 0 5px 0 12px; border-radius: 10px; box-sizing: border-box; cursor: text;
+         background: var(--field); border: 1px solid var(--border); transition: border-color .2s, box-shadow .2s; flex: none; }
+.ex-in:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.ex-in input { flex: 1; min-width: 0; height: 28px; border: 0; outline: 0; padding: 0; background: none; font: inherit; font-size: 13px; color: var(--text); }
+.ex-in input::placeholder { color: var(--faint); }
+.ex-in.mono input { font-family: var(--mono); font-size: 12.5px; }
+.ex-in .ex-save, .ex-in .ex-plus { color: var(--faint); }
+.ex-in .ex-save:disabled { opacity: .55; cursor: default; }
+.ex-in .ex-save:disabled:hover { background: none; }
+.ex-in.dirty .ex-save, .ex-in.has .ex-plus { color: var(--accent-text); opacity: 1; }
+.ex-in .ex-save.done { color: var(--success-text); opacity: 1; }
+.ex-msg { display: none; flex: none; padding-right: 7px; font-size: 12px; color: var(--danger-text); white-space: nowrap; cursor: default; }
+.ex-in.bad { border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
+.ex-in.bad:focus-within { box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger-text) 14%, transparent); }
+.ex-in.bad .ex-msg:not(:empty) { display: block; }
+.ex-in.bad .ex-msg:not(:empty) ~ .ex-plus, .ex-in.bad .ex-msg:not(:empty) ~ .ex-save { display: none; }
+/* 点了去别处的框（提问会发给）：同向导第三步「存储路径」的框 */
+.ex-box { display: flex; align-items: center; gap: 8px; height: 40px; width: 100%; padding: 0 10px 0 12px; border-radius: 10px; box-sizing: border-box; cursor: pointer; text-align: left;
+          background: var(--field); border: 1px solid var(--border); font: inherit; font-size: 13px; color: var(--text); transition: border-color .2s; }
+.ex-box:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.ex-box > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ex-box .ico { width: 15px; height: 15px; color: var(--muted); }
+/* 自己画的下拉（代替 select）：40 高、圆角 10，右边 ▾ */
+.ex-ddf { display: flex; align-items: center; gap: 8px; height: 40px; width: 100%; padding: 0 10px 0 12px; border-radius: 10px; box-sizing: border-box; cursor: pointer; text-align: left;
+          background: var(--field); border: 1px solid var(--border); font: inherit; font-size: 13px; color: var(--text); transition: border-color .2s, box-shadow .2s; }
+.ex-ddf > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ex-ddf .ico { width: 15px; height: 15px; color: var(--muted); transition: transform .26s cubic-bezier(.3, .7, .2, 1); }
+.ex-ddf:hover, .ex-ddf.open { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
+.ex-ddf.open .ico { transform: rotate(180deg); }
+/* 一行：左边名字（下面可以一行淡字），右边步进、值、按钮；40 高 */
+.ex-lim { display: flex; align-items: center; gap: 8px; min-height: 40px; min-width: 0; flex: none; }
+.ex-lim + .ex-lim { margin-top: -6px; }
+.ex-ll { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; padding-left: 6px; }
+.ex-ll b { font-size: 13px; font-weight: 500; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; align-self: flex-start; max-width: 100%; }
+.ex-ll small { font-size: 11.5px; line-height: 15px; color: var(--faint); white-space: nowrap; align-self: flex-start; }
+.ex-val { font-family: var(--mono); font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+/* 步进：40 高、圆角 10，两颗 28 见方、圆角 4 的按钮离框外沿 6（同向导第三步、控制台「Aa」） */
+.ex-stp { width: 120px; height: 40px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 5px; border-radius: 10px; box-sizing: border-box;
+          background: var(--field); border: 1px solid var(--border); }
+.ex-stp button { width: 28px; height: 28px; border-radius: 4px; border: 0; padding: 0; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;
+                 transition: background .15s, color .15s; }
+.ex-stp button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.ex-stp button:disabled { opacity: .3; cursor: default; }
+.ex-stp button .ico { width: 14px; height: 14px; }
+.ex-stp b { display: block; font-size: 13.5px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ---- 列表：细滚动条（同「玩家」、向导那套）——系统滚动条藏掉，右边 4 像素的细条，移上去或在滚时才出来、能拖；上下还有没露出来的，那一头淡出 28 ---- */
+.ex-lw { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ex-lw > .list { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; position: relative;
+                 --ft: 0px; --fb: 0px; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%);
+                 mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%); }
+.ex-lw > .list::-webkit-scrollbar { display: none; }
+.ex-lw.can-up > .list { --ft: 28px; } .ex-lw.can-down > .list { --fb: 28px; }
+.ex-lw > .thumb { position: absolute; right: -6px; width: 4px; border-radius: 2px; background: color-mix(in srgb, var(--text) 38%, transparent);
+                  opacity: 0; transition: opacity .2s, width .15s, right .15s; cursor: pointer; z-index: 3; }
+.ex-lw:hover > .thumb, .ex-lw.scrolling > .thumb, .ex-lw > .thumb.drag { opacity: 1; }
+.ex-lw > .thumb:hover, .ex-lw > .thumb.drag { width: 6px; right: -7px; background: color-mix(in srgb, var(--text) 55%, transparent); }
+.ex-lw.fits > .thumb { display: none; }
+/* 空的时候：正中一行淡字（程序的原话），说明进悬停 */
+.ex-none { position: absolute; inset: 0; display: grid; place-items: center; font-size: 12.5px; color: var(--faint); text-align: center; padding: 0 16px; transition: opacity .22s cubic-bezier(.2, .7, .2, 1); }
+.ex-lw:not(.is-none) > .ex-none { opacity: 0; visibility: hidden; pointer-events: none; }
+.ex-fill > .list.ex-form { gap: 10px; }
+.ex-out { pointer-events: none; overflow: hidden; }
+.ex-flash { animation: ex-flash .9s cubic-bezier(.2, .7, .2, 1); }
+@keyframes ex-flash { 0%, 30% { background: var(--accent-subtle); } 100% { background: transparent; } }
+
+/* ================= 游戏内 AI ================= */
+/* 能执行命令的玩家：一行 36 高、圆角 10；开关在名字左边，在线的名字后面一个成功色小方点，管理员一个王冠 */
+.ex-pr { flex: none; display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 8px 0 6px; border-radius: 10px; box-sizing: border-box; min-width: 0; transition: background .15s; }
+.ex-pr:hover { background: var(--hover); }
+.ex-prt { flex: 0 1 auto; }
+.ex-nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.ex-dotok { width: 6px; height: 6px; border-radius: 2px; background: var(--success); flex: none; }
+.ex-op { display: grid; color: var(--accent-text); flex: none; } .ex-op .ico { width: 13px; height: 13px; }
+.ex-tags { display: flex; align-items: center; gap: 4px; flex: none; }
+/* 命令模板：整行是开关，44 高；第二行等宽字是命令的写法 */
+.ex-tr { flex: none; display: flex; align-items: center; gap: 10px; height: 44px; width: 100%; padding: 0 10px 0 6px; border-radius: 10px; box-sizing: border-box; transition: background .15s; }
+.ex-tr:hover { background: var(--hover); }
+.ex-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ex-tx b { font-size: 13px; font-weight: 500; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ex-tx span { font-family: var(--mono); font-size: 11px; line-height: 16px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ex-tr:not(.on) .ex-tx b { color: var(--muted); }
+/* 问答记录：记录之间分隔线；一条里谁、类型、选项一行，问、答、命令往下排，全文不截 */
+.ex-recs { gap: 0 !important; }
+.ex-rec { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 10px 10px 12px 6px; }
+.ex-rec + .ex-rec { border-top: 1px solid var(--border); }
+.ex-rh { display: flex; align-items: center; gap: 6px; min-height: 22px; min-width: 0; }
+.ex-who { font-size: 13.5px; font-weight: 600; white-space: nowrap; }
+.ex-use, .ex-when { font-family: var(--mono); font-size: 11.5px; color: var(--faint); white-space: nowrap; }
+.ex-use { margin-right: 6px; }
+.ex-rec p { margin: 0; display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 4px; font-size: 13px; line-height: 20px; }
+.ex-rec p > b { font-size: 12px; font-weight: 600; color: var(--muted); }
+.ex-rec em { font-style: normal; color: var(--faint); margin-left: 4px; }
+.ex-rec .ex-cmd { display: flex; align-items: center; gap: 6px; padding-left: 26px; font-size: 12.5px; }
+.ex-cmd code { font-family: var(--mono); font-size: 12px; }
+.ex-cmd .ico { width: 14px; height: 14px; }
+.ex-cmd.ok { color: var(--success-text); } .ex-cmd.ok code { color: var(--text); }
+.ex-cmd.bad { color: var(--danger-text); } .ex-cmd.bad code { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--danger-text) 50%, transparent); }
+.ex-cmd span { color: var(--danger-text); }
+.ex-cout { margin: 0 0 0 26px; padding: 6px 10px; border-radius: 8px; font: 11.5px/18px var(--mono); white-space: pre-wrap; word-break: break-all; color: var(--muted);
+          background: color-mix(in srgb, var(--text) 6%, transparent); pointer-events: auto; overflow: visible; }
+.ex-rec .ex-err { display: flex; align-items: center; gap: 6px; padding-left: 26px; color: var(--warning-text); font-size: 12.5px; }
+.ex-rec .ex-err .ico { width: 14px; height: 14px; flex: none; }
+/* 识别测试 */
+.ex-trow { display: flex; gap: 8px; flex: none; }
+.ex-trow .ex-in { flex: 1; }
+.ex-lw > .list.ex-res { padding: 2px 6px 0; gap: 10px; }
+.ex-kv { margin: 0; display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 4px 12px; font-size: 13px; line-height: 20px; flex: none; }
+.ex-kv dt { color: var(--muted); font-size: 12.5px; }
+.ex-kv dd { margin: 0; min-width: 0; word-break: break-all; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ex-verdict { flex: none; display: flex; align-items: flex-start; gap: 8px; padding: 9px 12px 9px 10px; border-radius: 10px; font-size: 13px; line-height: 20px; margin: 0 -6px; }
+.ex-verdict .ico { width: 15px; height: 15px; flex: none; margin-top: 2.5px; }
+.ex-verdict.hit { background: var(--success-subtle); } .ex-verdict.hit .ico { color: var(--success-text); }
+.ex-verdict.miss { background: color-mix(in srgb, var(--text) 6%, transparent); } .ex-verdict.miss .ico { color: var(--muted); }
+.ex-advrow { display: flex; align-items: center; gap: 24px; padding-right: 6px; flex: none; }
+.ex-advc { gap: 10px; }
+
+/* ================= AI 伙伴 ================= */
+.ex-av { width: 32px; height: 32px; border-radius: 10px; flex: none; display: grid; place-items: center; background: var(--accent-subtle); color: var(--accent-text); }
+.ex-av .ico { width: 17px; height: 17px; }
+.ex-av.sm { width: 28px; height: 28px; border-radius: 8px; background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--muted); }
+.ex-av.sm .ico { width: 15px; height: 15px; }
+.ex-av.big { width: 56px; height: 56px; border-radius: 14px; } .ex-av.big .ico { width: 26px; height: 26px; }
+.ex-cm { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ex-c1 { display: flex; align-items: center; gap: 8px; min-height: 22px; min-width: 0; }
+.ex-c1 > b { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ex-c1 .ex-pill { height: 20px; border-radius: 10px; padding: 0 8px; font-size: 11.5px; gap: 5px; }
+.ex-c1 .ex-pill > i { width: 6px; height: 6px; }
+.ex-own { font-size: 12px; color: var(--faint); white-space: nowrap; }
+.ex-c2 { display: flex; align-items: center; gap: 5px; font-size: 12px; line-height: 18px; color: var(--muted); white-space: nowrap; min-width: 0; overflow: hidden; }
+.ex-c2 .ico { width: 12px; height: 12px; color: var(--danger-text); }
+.ex-c2 .ex-mono { font-size: 11.5px; }
+.ex-c3 { font-size: 12.5px; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ex-c3 em { font-style: normal; color: var(--faint); }
+/* 伙伴：一行一个，名字和状态、血量和坐标、在做什么三行 */
+.ex-cr { flex: none; display: flex; align-items: center; gap: 10px; padding: 9px 8px 9px 6px; border-radius: 10px; min-width: 0; transition: background .15s; }
+.ex-cr:hover { background: var(--hover); }
+.ex-ca { display: flex; align-items: center; gap: 4px; flex: none; }
+.ex-ca [data-k=cstop] { display: flex; }
+.ex-acts { display: flex; gap: 8px; flex: none; }
+.ex-acts .ex-btn.big { flex: 1; }
+.ex-ev { flex: none; display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 8px; align-items: start; padding: 7px 8px 7px 6px; border-radius: 10px; font-size: 12.5px; line-height: 18px; }
+.ex-ev .ico { width: 14px; height: 14px; color: var(--faint); margin-top: 2px; }
+.ex-ev.warn .ico { color: var(--warning-text); }
+.ex-ev .ex-when { line-height: 18px; }
+/* 设置：伙伴上限、不许打的生物（小胶囊）、每日额度；改了以后标题旁转 2 秒 */
+.ex-pend { display: grid; color: var(--faint); } .ex-pend[hidden] { display: none; }
+.ex-pend .ico { width: 14px; height: 14px; animation: ex-spin .9s linear infinite; }
+.ex-denyf { flex: 1; min-height: 0; }
+.ex-denyf .ex-lb { justify-content: space-between; padding-right: 0; height: 24px; }
+.ex-chipw { min-height: 40px; }
+.ex-chipw > .list.ex-chips { flex-direction: row; flex-wrap: wrap; align-content: flex-start; gap: 6px; padding: 2px 0; }
+.ex-chips { display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; }
+.ex-chip { display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 0 4px 0 12px; border-radius: 14px; box-sizing: border-box; flex: none; font-size: 12.5px; white-space: nowrap;
+           background: var(--field); border: 1px solid var(--border); color: var(--text); }
+.ex-chip.ro { padding: 0 12px; }
+.ex-chip.ok { background: var(--success-subtle); border-color: transparent; color: var(--success-text); }
+.ex-chip.warn { background: var(--warning-subtle); border-color: transparent; color: var(--warning-text); }
+.ex-cx { width: 20px; height: 20px; border-radius: 10px; border: 0; padding: 0; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer; opacity: 0; transition: opacity .15s, background .15s; }
+.ex-cx .ico { width: 12px; height: 12px; }
+.ex-chip:hover .ex-cx, .ex-cx:focus-visible { opacity: 1; }
+.ex-cx:hover { background: var(--hover); color: var(--text); }
+/* 禁挖区域：一行 48 高，点行编辑，× 悬停才出来 */
+.ex-zr { flex: none; display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 6px 0 6px; border-radius: 10px; box-sizing: border-box; cursor: pointer; transition: background .15s; outline: none; }
+.ex-zr:hover, .ex-zr:focus-visible { background: var(--hover); }
+.ex-zr .ex-c1 > b { font-size: 13px; }
+.ex-dim { font-size: 12px; color: var(--faint); white-space: nowrap; }
+.ex-zr .ex-c2 { color: var(--muted); font-size: 11.5px; }
+.ex-rx { opacity: 0; } .ex-zr:hover .ex-rx, .ex-rx:focus-visible { opacity: 1; }
+/* 安装：一个模组一行 52 高；底下一行说现在该做什么，按钮贴栏的右下角（40 高、圆角 10，同心） */
+.ex-mods { display: flex; flex-direction: column; gap: 2px; flex: none; }
+.ex-mr { display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 0 0 6px; border-radius: 10px; box-sizing: border-box; min-width: 0; }
+.ex-mr.sm { height: 40px; }
+.ex-ver { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.ex-mr .ex-c2 { font-family: var(--mono); font-size: 11.5px; }
+.ex-strip-slot { flex: none; }
+.ex-strip { display: flex; align-items: center; gap: 10px; min-height: 40px; padding-left: 6px; }
+.ex-si { display: grid; color: var(--muted); flex: none; } .ex-si .ico { width: 16px; height: 16px; }
+.ex-si.spin .ico { animation: ex-spin .9s linear infinite; }
+.ex-strip.ok .ex-si { color: var(--success-text); } .ex-strip.warn .ex-si { color: var(--warning-text); }
+.ex-stx { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ex-stx b { font-size: 13px; font-weight: 600; line-height: 18px; white-space: nowrap; }
+.ex-stx small { font-size: 12px; line-height: 16px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ex-strip.warn .ex-stx b { color: var(--warning-text); }
+.ex-note { display: flex; align-items: flex-start; gap: 6px; padding: 0 6px 4px; font-size: 12px; line-height: 18px; color: var(--muted); flex: none; }
+.ex-note .ico { width: 14px; height: 14px; flex: none; margin-top: 2px; color: var(--accent-text); }
+
+/* ================= 音乐共享 ================= */
+.ex.ex-mus { display: grid; grid-template-columns: minmax(0, 1fr) 396px; gap: 8px; }
+.ex-cast { gap: 8px; }
+.ex-side { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.ex-side > [data-ex-col=check] { flex: none; }
+.ex-side > [data-ex-col=lis] { flex: 1; }
+.ex-last { flex: 1; min-width: 0; font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ex-mid { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* 音源：一行 48 高，选中框单独一块滑过去（规范第七节）；电平原地跳 */
+.ex-srcs { position: relative; }
+.ex-shl { position: absolute; left: 0; right: 0; top: 0; height: 48px; border-radius: 10px; background: var(--accent-subtle); pointer-events: none; z-index: 0;
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+          transition: transform .32s cubic-bezier(.3, .7, .2, 1), height .32s cubic-bezier(.3, .7, .2, 1); }
+.ex-src { position: relative; z-index: 1; flex: none; display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 12px 0 8px; border-radius: 10px; box-sizing: border-box;
+          cursor: pointer; outline: none; transition: background .15s; }
+.ex-src:not(.on):hover { background: var(--hover); }
+.ex-src:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 50%, transparent); }
+.ex-src .ex-av { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--muted); }
+.ex-src.on .ex-av { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--accent-text); }
+.ex-src .ex-cm b { font-size: 13px; font-weight: 500; line-height: 18px; }
+.ex-src.on .ex-cm b { color: var(--accent-text); }
+.ex-src .ex-c2 { color: var(--faint); }
+.ex-meter { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.ex-meter i { width: 3px; height: 12px; border-radius: 1.5px; background: color-mix(in srgb, var(--text) 14%, transparent); transition: background .08s; }
+.ex-meter i.on { background: var(--success); }
+.ex-meter.big { gap: 3px; } .ex-meter.big i { width: 5px; height: 20px; border-radius: 2.5px; }
+.ex-sys { display: flex; flex-direction: column; gap: 14px; padding-top: 2px; }
+/* 正在广播 */
+.ex-live { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; padding-bottom: 8px; }
+.ex-lvt { display: flex; flex-direction: column; gap: 2px; }
+.ex-lvt b { font-size: 15px; font-weight: 600; line-height: 22px; }
+.ex-lvt span { font-size: 12.5px; color: var(--muted); }
+.ex-lvl { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.ex-lvl .ico { width: 15px; height: 15px; color: var(--muted); }
+.ex-lvn { font-size: 11.5px; color: var(--faint); }
+.ex-live .ex-warn { align-self: stretch; }
+/* 音量：自己画的条，把手是竖着的小胶囊（规范第九节），100% 那里一道刻度 */
+.ex-sl { position: relative; width: 196px; height: 40px; display: flex; align-items: center; flex: none; cursor: pointer; outline: none; touch-action: none; }
+.ex-slt { position: relative; flex: 1; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--text) 14%, transparent); }
+.ex-slf { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--accent); }
+.ex-slm { position: absolute; left: 50%; top: -4px; width: 1px; height: 14px; background: color-mix(in srgb, var(--text) 30%, transparent); }
+.ex-slh { position: absolute; top: 50%; width: 8px; height: 20px; margin: -10px 0 0 -4px; border-radius: 4px; background: var(--accent-solid); box-shadow: 0 0 0 2px var(--surface), 0 1px 3px rgb(0 0 0 / .25); transition: transform .15s; }
+.ex-sl:hover .ex-slh, .ex-sl.drag .ex-slh, .ex-sl:focus-visible .ex-slh { transform: scaleY(1.1); }
+.ex-sl:focus-visible .ex-slh { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px color-mix(in srgb, var(--accent) 50%, transparent); }
+.ex-slv { width: 42px; text-align: right; font-size: 12.5px; font-weight: 500; flex: none; font-variant-numeric: tabular-nums; }
+/* 最底下一行：左边为什么点不了（会拦住下一步，看得见），右边开始 / 停止广播 */
+.ex-act { display: flex; align-items: center; gap: 8px; height: 40px; flex: none; }
+.ex-why { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding-left: 6px; font-size: 12.5px; color: var(--warning-text); white-space: nowrap; overflow: hidden; }
+.ex-why .ico { width: 14px; height: 14px; flex: none; }
+.ex-why span { overflow: hidden; text-overflow: ellipsis; }
+/* 检查清单：一行 36 高 */
+.ex-cks2 { display: flex; flex-direction: column; gap: 2px; }
+.ex-ck2 { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 4px 0 6px; border-radius: 10px; box-sizing: border-box; min-width: 0; transition: background .15s; }
+.ex-ck2:hover { background: var(--hover); }
+.ex-cki { display: grid; color: var(--muted); flex: none; } .ex-cki .ico { width: 15px; height: 15px; }
+.ex-cki.ok { color: var(--success-text); } .ex-cki.bad { color: var(--warning-text); }
+.ex-ckl { width: 118px; flex: none; font-size: 13px; font-weight: 500; white-space: nowrap; }
+.ex-ckv { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; font-size: 12.5px; white-space: nowrap; overflow: hidden; }
+.ex-ckv .ex-mono { font-size: 12px; }
+.ex-host { overflow: hidden; text-overflow: ellipsis; }
+.ex-cka { display: flex; align-items: center; gap: 2px; flex: none; }
+.ex-busy { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); padding-right: 6px; }
+.ex-busy .ico { width: 14px; height: 14px; animation: ex-spin .9s linear infinite; }
+/* 听众：一组一行字加一排小胶囊 */
+.ex-grp { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 2px 6px 6px; }
+.ex-gl { font-size: 12px; font-weight: 500; color: var(--muted); }
+.ex-gl.warn { color: var(--warning-text); }
+
+/* ================= 确认框、表单弹窗：同共用件页、「世界与备份」的 .wd-mask（深浅两套遮罩和投影照抄） ================= */
+.ex-mask { --ex-scrim: rgb(var(--shadow-rgb) / .32); --ex-elev4: 0 28px 64px -16px rgb(var(--shadow-rgb) / .32), 0 8px 20px -4px rgb(var(--shadow-rgb) / .10);
+           position: fixed; left: 0; right: 0; top: 40px; bottom: 0; z-index: 40; display: grid; place-items: center; background: var(--ex-scrim); backdrop-filter: blur(2px); }
+[data-theme="dark"] .ex-mask { --ex-scrim: rgb(0 0 0 / .56); --ex-elev4: 0 32px 72px -16px rgb(0 0 0 / .72), 0 8px 24px -4px rgb(0 0 0 / .40); }
+.ex-mask.enter { animation: ex-mk-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.ex-mask.enter > .ex-md { animation: ex-md-in .26s cubic-bezier(.2, .7, .2, 1) both; }
+.ex-mask.leave { animation: ex-mk-out .14s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+.ex-mask.leave > .ex-md { animation: ex-md-out .14s cubic-bezier(.4, 0, 1, 1) both; }
+@keyframes ex-mk-in { from { opacity: 0; } } @keyframes ex-mk-out { to { opacity: 0; } }
+@keyframes ex-md-in { from { opacity: 0; transform: translateY(10px); } } @keyframes ex-md-out { to { opacity: 0; transform: translateY(6px); } }
+.ex-md { width: var(--w, 400px); box-sizing: border-box; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--ex-elev4); display: flex; flex-direction: column; gap: 8px; }
+.ex-mc { border-radius: 18px; padding: 18px 20px 20px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); display: flex; flex-direction: column; gap: 12px; }
+.ex-mh { display: flex; align-items: center; gap: 12px; margin: -10px 0 0 -12px; }
+.ex-mi { width: 40px; height: 40px; border-radius: 10px; flex: none; display: grid; place-items: center; background: var(--danger-subtle); color: var(--danger-text); }
+.ex-mi.acc { background: var(--accent-subtle); color: var(--accent-text); }
+.ex-mi .ico { width: 20px; height: 20px; }
+.ex-md h3 { flex: 1; min-width: 0; margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; }
+.ex-info { display: grid; color: var(--faint); flex: none; cursor: default; } .ex-info .ico { width: 16px; height: 16px; }
+.ex-mb { font-size: 13px; line-height: 21px; color: var(--muted); }
+.ex-mb.faint { color: var(--faint); font-size: 12.5px; }
+.ex-mb.warn { display: flex; gap: 6px; color: var(--warning-text); font-size: 12.5px; } .ex-mb.warn .ico { width: 14px; height: 14px; flex: none; margin-top: 3px; }
+.ex-mrow { padding-top: 2px; }
+.ex-ferr { display: none; font-size: 12.5px; line-height: 18px; color: var(--danger-text); }
+.ex-ferr.on { display: block; }
+.ex-ma { display: flex; gap: 8px; }
+.ex-b { flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center; height: 36px; padding: 0 14px; border-radius: 18px; box-sizing: border-box;
+        border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer;
+        transition: background-color .2s; outline: none; }
+.ex-b:hover { background: var(--control-hov); }
+.ex-b.dgr { background: var(--danger-solid); color: var(--on-danger); border-color: transparent; font-weight: 600; }
+.ex-b.dgr:hover { background: var(--danger-solid-hov); }
+.ex-b.acc { background: var(--accent-solid); color: var(--on-accent); border-color: transparent; font-weight: 600; }
+.ex-b.acc:hover { background: var(--accent-solid-hov); }
+.ex-b.fk { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* 弹窗里的表单：字 + 6 + 框 40，两栏时栏间 10、行间 12 */
+.ex-fgrid { display: grid; gap: 12px; }
+.ex-fgrid.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 10px; }
+.ex-fgrid .ex-lb { padding-left: 0; }
+.ex-full { grid-column: 1 / -1; }
+.ex-dimid { grid-column: 1 / -1; display: none; } .ex-dimid.on { display: block; }
+.ex-xyz { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.ex-xyz .ex-in { padding-left: 10px; gap: 8px; }
+.ex-ax { font-family: var(--mono); font-size: 12px; color: var(--faint); flex: none; }
+.ex-xyz .ex-in input { font-family: var(--mono); font-size: 12.5px; }
+.ex-picks { display: flex; flex-wrap: wrap; gap: 6px; }
+/* 「主人」底下的在线玩家：28 高的筛选片，点一下填进去（代替程序的 datalist） */
+.ex-pk { height: 28px; padding: 0 12px; border-radius: 14px; border: 1px solid var(--border); background: none; color: var(--muted); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer;
+         transition: background .15s, color .15s; }
+.ex-pk:hover { background: var(--hover); color: var(--text); }
+/* 开启白名单：自己画的勾（14 见方、圆角 4，同向导），一行 36 高 */
+.ex-cks { display: flex; flex-direction: column; gap: 2px; margin: 0 -8px; }
+.ex-ck { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 8px; border: 0; border-radius: 10px; background: none; font: inherit; font-size: 13px; color: var(--text);
+         cursor: pointer; text-align: left; }
+.ex-ck:hover { background: var(--hover); }
+.ex-bx { width: 16px; height: 16px; border-radius: 4px; box-sizing: border-box; border: 1.5px solid color-mix(in srgb, var(--text) 35%, transparent); display: grid; place-items: center; flex: none;
+         color: transparent; transition: background .15s, border-color .15s; }
+.ex-bx .ico { width: 11px; height: 11px; stroke-width: 2; }
+.ex-ck.on .ex-bx { background: var(--accent-solid); border-color: var(--accent-solid); color: var(--on-accent); }
+.ex-cn { font-weight: 500; }
+
+/* ================= 菜单（代替 select、datalist、「···」）：同共用件页，外圆角 16、内边距 5，一项 36 高、圆角 10 ================= */
+.ex-dd { position: fixed; z-index: 60; padding: 5px; box-sizing: border-box; display: flex; flex-direction: column; gap: 1px; max-width: 360px;
+         border-radius: 16px; border: 1px solid var(--border); background: var(--overlay); box-shadow: var(--elev-3); }
+.ex-dd.enter { animation: ex-dd-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.ex-dd.enter.up { animation-name: ex-dd-in-up; }
+.ex-dd.leave { animation: ex-dd-out .09s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+@keyframes ex-dd-in { from { opacity: 0; transform: translateY(-5px); } } @keyframes ex-dd-in-up { from { opacity: 0; transform: translateY(5px); } }
+@keyframes ex-dd-out { to { opacity: 0; transform: translateY(-5px); } }
+.ex-di { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: 10px; font-size: 13px; color: var(--text); cursor: pointer; white-space: nowrap; }
+.ex-di > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ex-di .ico { width: 16px; height: 16px; color: var(--muted); }
+.ex-di:hover { background: var(--hover); }
+.ex-di.on { color: var(--accent-text); }
+.ex-di .ex-dck { color: var(--accent-text); width: 15px; height: 15px; }
+.ex-di[aria-disabled="true"] { opacity: .45; cursor: not-allowed; } .ex-di[aria-disabled="true"]:hover { background: none; }
+.ex-dsep { height: 1px; margin: 4px 6px; background: var(--border); }
+/* 小浮层（手动填 voice_host）：同控制台「Aa」，外圆角 16、内边距 6，里面 40 高的框圆角 10（16 − 6） */
+.ex-pop { position: fixed; z-index: 55; width: 360px; padding: 6px; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px;
+          border-radius: 16px; border: 1px solid var(--border); background: var(--overlay); box-shadow: var(--elev-3); }
+.ex-pop.enter { animation: ex-dd-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.ex-pop.leave { animation: ex-dd-out .09s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+.ex-ph { padding: 4px 6px 0; font-family: var(--mono); font-size: 12px; font-weight: 500; color: var(--muted); align-self: flex-start; }
