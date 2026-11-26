@@ -237,7 +237,7 @@
   .wbtn.next:hover { background: var(--accent-solid-hov); }
   .dots { display: flex; gap: 8px; pointer-events: auto; transition: opacity .32s; }
   .dots i { width: 8px; height: 8px; border-radius: 3px; background: color-mix(in srgb, var(--text) 18%, transparent);
-            transition: width .32s cubic-bezier(.3, .7, .2, 1), background .32s; }
+            transition: background .32s; } /* 宽度不用 CSS 过渡，见脚本里的 stepDots：按整像素走，收尾不抖 */
   .dots i.on { width: 22px; background: var(--accent); }
   body.hidden-nav .wbtn { transform: translateY(180%); opacity: 0; }
   body.hidden-nav .dots { opacity: 0; }
@@ -528,7 +528,7 @@ function render() {
   // 小点：个数对得上就只挪「当前」那个（宽的那个平滑挪过去），对不上（第一次画）才整排重画
   const d = document.getElementById("dots"), live = [...d.querySelectorAll("i:not(.out)")];
   if (live.length !== names.length) d.innerHTML = names.map(() => "<i></i>").join("");
-  [...d.querySelectorAll("i:not(.out)")].forEach((x, i) => x.classList.toggle("on", i === step));
+  stepDots();
   navLabel(true);
   KIT.hydrate(document.body);
   document.querySelectorAll(".addon .lwrap").forEach(scrollbar);
@@ -594,16 +594,48 @@ function swapCores(fromPlay, dir) {
     };
   });
 }
-// 底下的小点：原版三步、别的四步，多出来的那个点从零宽长出来，少掉的缩回去
+// 和 CSS 同一条 cubic-bezier 曲线，给要按整像素走的动画用
+function bezier(x1, y1, x2, y2) {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx, cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const X = t => ((ax * t + bx) * t + cx) * t, Y = t => ((ay * t + by) * t + cy) * t, dX = t => (3 * ax * t + 2 * bx) * t + cx;
+  return x => { let t = x; for (let i = 0; i < 8; i++) { const d = dX(t); if (Math.abs(d) < 1e-6) break; t -= (X(t) - x) / d; } return Y(Math.min(1, Math.max(0, t))); };
+}
+const EASE_SLIDE = bezier(.3, .7, .2, 1), EASE_IN = bezier(.4, 0, 1, 1);
+// 按帧走的补间：frame(进度) 里自己取整再设。拿 key 认人：同一个 key 再开一次，旧的那次就停
+const tweens = {};
+function tweenPx(key, dur, ease, frame, done) {
+  const id = tweens[key] = (tweens[key] || 0) + 1, t0 = performance.now();
+  const tick = now => { if (tweens[key] !== id) return; const p = Math.min(1, (now - t0) / dur); frame(ease(p)); if (p < 1) requestAnimationFrame(tick); else done?.(); };
+  requestAnimationFrame(tick);
+}
+// 换步时小点（作者 11-26：停稳后还会抖一下）：原来用 CSS 过渡宽度，曲线尾巴长，最后一百来毫秒两个点的宽度和位置一直在零点几像素地挪，
+// 小数像素的边是糊的，停下那一帧突然变清楚，看着像抖。现在宽的那个 22 → 8、下一个 8 → 22 按整像素一格一格走（两个加起来一直是 30，
+// 别的点不动），曲线还是那条，走完就是停住，没有尾巴
+function stepDots() {
+  const live = [...document.querySelectorAll("#dots i:not(.out)")], from = live.find(x => x.classList.contains("on")), to = live[step];
+  live.forEach((x, i) => x.classList.toggle("on", i === step));
+  if (!from || !to || from === to) { live.forEach(x => x.style.width = ""); return; }
+  const a = parseFloat(from.style.width) || 22, b = parseFloat(to.style.width) || 8; // 上一次还没走完又换步：从当前的宽度接着走
+  tweenPx("dots", 320, EASE_SLIDE, e => {
+    const k = Math.round((22 - b) * e);
+    to.style.width = (b + k) + "px"; from.style.width = (a - Math.round((a - 8) * e)) + "px";
+  }, () => live.forEach(x => x.style.width = ""));
+}
+// 底下的小点：原版三步、别的四步，多出来的那个点从零宽长出来，少掉的缩回去（宽度、左边距都按整像素走，同上）
 function updateDots() {
   const d = document.getElementById("dots"), want = STEPS().length;
-  const easeIn = "cubic-bezier(.4, 0, 1, 1)", easeOut = "cubic-bezier(.2, .7, .2, 1)";
-  const grow = [{ width: "0px", marginLeft: "-8px", opacity: 0 }, { width: "8px", marginLeft: "0px", opacity: 1 }];
-  [...d.querySelectorAll("i.out")].forEach(x => { x.getAnimations().forEach(a => a.cancel()); x.classList.remove("out"); });
-  let live = [...d.querySelectorAll("i")];
-  for (let i = live.length; i < want; i++) { d.insertAdjacentHTML("beforeend", "<i></i>"); d.lastElementChild.animate(grow, { duration: 220, easing: easeOut }); }
-  for (let i = live.length - 1; i >= want; i--) { const x = live[i]; x.classList.add("out");
-    x.animate([...grow].reverse(), { duration: 160, easing: easeIn, fill: "forwards" }).onfinish = () => x.remove(); }
+  Object.keys(tweens).forEach(k => { if (k.startsWith("dotn")) tweens[k]++; }); // 上一次增减还没走完：停掉，没删的点救回来
+  [...d.querySelectorAll("i.out")].forEach(x => { x.classList.remove("out"); x.style.cssText = ""; });
+  const live = [...d.querySelectorAll("i")];
+  const set = (x, w) => { x.style.width = w + "px"; x.style.marginLeft = (w - 8) + "px"; x.style.opacity = w / 8; };
+  for (let i = live.length; i < want; i++) {
+    d.insertAdjacentHTML("beforeend", "<i></i>"); const x = d.lastElementChild; set(x, 0);
+    tweenPx("dotn" + i, 220, EASE_SLIDE, e => set(x, Math.round(8 * e)), () => { x.style.cssText = ""; });
+  }
+  for (let i = live.length - 1; i >= want; i--) {
+    const x = live[i]; x.classList.add("out");
+    tweenPx("dotn" + i, 160, EASE_IN, e => set(x, 8 - Math.round(8 * e)), () => { if (x.classList.contains("out")) x.remove(); });
+  }
 }
 // 高亮框挪到选中的那一行：animate 为 false 时直接放过去（刚画出来、换了一整列的时候）
 function placeHL(list, animate) {
