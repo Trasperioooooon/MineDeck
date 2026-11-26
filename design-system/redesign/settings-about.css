@@ -1,1 +1,149 @@
-/* 设置 · about：还没画（占位） */
+/* 全局设置 →「更新与关于」（11-27 夜里第一稿，子代理照临时规范画的，等作者整体扫一眼）。说明写在 settings-about.js 开头。
+   选择器、动画名都带 sab 前缀，不碰外壳和别的分类。
+
+   内容面板（.cp，868 × 658、内边距 8、圆角 26）里左右两栏，圆角 18（26 − 8），左栏占其余（504）、右栏 340。
+   左栏内边距 16 / 20，照向导第三步「字 18 + 6 + 控件」，块和块隔 24：Logo 48；版本块 64 高、圆角 10（栏里的块一律 10），右边的键 36 高胶囊；
+   分段、输入框 40 高、圆角 10（分段的选中块离外框 4、圆角 6；框里的保存 28 见方、离框外沿 6、圆角 4）；开关一行 36 高，开关 36 × 20 在字的左边；
+   最下面「退出 MineDeck」36 高胶囊。右栏贴边 8 放可滚的一块（细滚动条），里面一条一块，外链图标 28 见方、圆角 4。 */
+
+.sab { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 8px; }
+.sab-col { min-width: 0; min-height: 0; box-sizing: border-box; border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+.sab-main { padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 24px; }
+.sab-f { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.sab-lb { height: 18px; display: flex; align-items: center; min-width: 0; font-size: 12.5px; line-height: 18px; font-weight: 500; color: var(--muted); }
+.sab-lb > span { white-space: nowrap; cursor: default; }
+
+/* Logo 和名字 */
+.sab-brand { display: flex; align-items: center; gap: 14px; height: 48px; }
+.sab-brand img { width: 48px; height: 48px; image-rendering: pixelated; flex: none; }
+.sab-name { font-size: 18px; line-height: 24px; font-weight: 600; letter-spacing: -.01em; }
+.sab-tag { font-size: 12.5px; line-height: 18px; color: var(--muted); }
+
+/* 版本块：64 高、圆角 10；左边版本号（等宽）和一行状态，右边那一步；下载时块底一条细进度条 */
+.sab-up { position: relative; display: flex; align-items: center; gap: 12px; height: 64px; padding: 0 12px 0 16px; border-radius: 10px; box-sizing: border-box; background: var(--surface); }
+.sab-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sab-v { font-family: var(--mono); font-size: 15px; line-height: 20px; font-weight: 600; }
+.sab-s { height: 18px; display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12.5px; line-height: 18px; color: var(--muted); white-space: nowrap; }
+.sab-sx { display: inline-flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+.sab-sx .ico { width: 14px; height: 14px; flex: none; }
+.sab-sx.ok { color: var(--success-text); }
+.sab-sx.new { color: var(--accent-text); font-weight: 500; }
+.sab-mb { font-family: var(--mono); font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.sab-mb b { font-weight: 500; color: var(--muted); }
+.sab-act { flex: none; display: flex; }
+.sab-bar { position: absolute; left: 16px; right: 16px; bottom: 8px; height: 3px; border-radius: 2px; overflow: hidden; background: color-mix(in srgb, var(--text) 10%, transparent);
+           opacity: 0; transition: opacity .22s; }
+.sab-bar.on { opacity: 1; }
+.sab-bar i { display: block; height: 100%; width: 0; border-radius: 2px; background: var(--accent); }
+.sab-spin { animation: sab-spin .9s linear infinite; }
+@keyframes sab-spin { to { transform: rotate(360deg); } }
+
+/* 36 高胶囊键：普通、主键（实心强调色）、危险（浅底红字，同首页大卡的停止） */
+.sab-btn { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 16px 0 13px; border-radius: 18px; box-sizing: border-box; flex: none; white-space: nowrap;
+           border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; transition: background .15s, opacity .15s; }
+.sab-btn:hover:not(:disabled) { background: var(--control-hov); }
+.sab-btn:disabled { opacity: .6; cursor: default; }
+.sab-btn .ico { width: 15px; height: 15px; }
+.sab-btn.pri { background: var(--accent-solid); color: var(--on-accent); border-color: transparent; font-weight: 600; }
+.sab-btn.pri:hover { background: var(--accent-solid-hov); }
+.sab-btn.dgr { background: var(--danger-subtle); color: var(--danger-text); border-color: transparent; }
+.sab-btn.dgr:hover { background: color-mix(in srgb, var(--danger-text) 18%, var(--danger-subtle)); }
+.sab-quit { margin-top: auto; align-self: flex-start; }
+
+/* 分段：40 高、圆角 10；选中块离外框 4（边 1 + 内边距 3）、圆角 6，滑过去 */
+.sab-seg { position: relative; display: flex; height: 40px; padding: 3px; border-radius: 10px; box-sizing: border-box; background: var(--field); border: 1px solid var(--border); }
+.sab-sgl { position: absolute; left: 0; top: 3px; bottom: 3px; border-radius: 6px; background: var(--accent-subtle); pointer-events: none;
+           box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
+.sab-seg button { flex: 1; position: relative; z-index: 1; min-width: 0; padding: 0 4px; border: 0; border-radius: 6px; background: none; font: inherit; font-size: 13px; color: var(--muted);
+                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; transition: color .2s; }
+.sab-seg button:hover { color: var(--text); }
+.sab-seg button.on { color: var(--accent-text); font-weight: 500; }
+
+/* 输入框：40 高、圆角 10，等宽；框里右边一颗保存（同「通知与集成」） */
+.sab-in { display: flex; align-items: center; gap: 4px; height: 40px; min-width: 0; padding: 0 5px 0 12px; border-radius: 10px; box-sizing: border-box; cursor: text;
+          background: var(--field); border: 1px solid var(--border); transition: border-color .2s, box-shadow .2s; }
+.sab-in:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.sab-in input { flex: 1; min-width: 0; height: 28px; border: 0; outline: 0; padding: 0; background: none; font-family: var(--mono); font-size: 12.5px; color: var(--text); }
+.sab-in input::placeholder { color: var(--faint); font-family: var(--font); font-size: 13px; }
+.sab-ib { width: 28px; height: 28px; border-radius: 4px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--faint); cursor: pointer;
+          transition: background .15s, color .15s, opacity .15s; }
+.sab-ib .ico { width: 15px; height: 15px; }
+.sab-ib:disabled { opacity: .55; cursor: default; }
+.sab-ib:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.sab-in.dirty .sab-ib { color: var(--accent-text); }
+.sab-ib.done, .sab-ib.done:disabled { color: var(--success-text); opacity: 1; }
+
+/* 开关一行：36 高，悬停的底往两边各伸 8（字和上面的字对齐） */
+.sab-swr { display: flex; align-items: center; gap: 10px; height: 36px; margin: -12px -8px 0; padding: 0 8px; border: 0; border-radius: 10px; background: none; text-align: left;
+           font: inherit; font-size: 13px; color: var(--text); cursor: pointer; transition: background .15s; }
+.sab-swr:hover { background: var(--hover); }
+.sab-sw { position: relative; width: 36px; height: 20px; border-radius: 10px; flex: none; background: color-mix(in srgb, var(--text) 18%, transparent); transition: background .2s; }
+.sab-sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 8px; background: var(--text); transition: transform .26s cubic-bezier(.3, .7, .2, 1), background .2s; }
+.sab-swr.on .sab-sw { background: var(--accent-solid); }
+.sab-swr.on .sab-sw::after { transform: translateX(16px); background: var(--on-accent); }
+
+/* 右栏「关于」：顶上一行字（离栏边 20），下面贴边 8 一块可滚的（细滚动条同首页、详情页） */
+.sab-ab { padding: 16px 8px 8px; display: flex; flex-direction: column; gap: 8px; }
+.sab-ab > .sab-lb { padding-left: 12px; }
+.sab-lw { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.sab-lw .list { position: relative; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; display: flex; flex-direction: column; gap: 4px;
+  --ft: 0px; --fb: 0px; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%); }
+.sab-lw .list::-webkit-scrollbar { display: none; }
+.sab-lw.can-up .list { --ft: 28px; }
+.sab-lw.can-down .list { --fb: 28px; }
+.sab-lw .thumb { position: absolute; right: -6px; width: 4px; border-radius: 2px; background: color-mix(in srgb, var(--text) 38%, transparent); opacity: 0; transition: opacity .2s, width .15s, right .15s; cursor: pointer; }
+.sab-lw:hover .thumb, .sab-lw.scrolling .thumb, .sab-lw .thumb.drag { opacity: 1; }
+.sab-lw .thumb:hover, .sab-lw .thumb.drag { width: 6px; right: -7px; background: color-mix(in srgb, var(--text) 55%, transparent); }
+.sab-lw.fits .thumb { display: none; }
+/* 一条一块：圆角 10（离栏边 8，18 − 8），字 12.5、行高 20；外链图标在右上，离块边 6 */
+.sab-it { flex: none; display: flex; align-items: flex-start; gap: 6px; padding: 10px 6px 10px 12px; border-radius: 10px; background: var(--surface); }
+.sab-it p { flex: 1; min-width: 0; margin: 0; padding: 4px 0; font-size: 12.5px; line-height: 20px; color: var(--muted); }
+.sab-it p b { color: var(--text); font-weight: 600; }
+.sab-tx { font-family: var(--mono); font-size: 12px; color: var(--accent-text); text-decoration: none; }
+.sab-tx:hover { text-decoration: underline; }
+.sab-lk { width: 28px; height: 28px; border-radius: 4px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;
+          transition: background .15s, color .15s; }
+.sab-lk:hover { background: var(--hover); color: var(--text); }
+.sab-lk .ico { width: 15px; height: 15px; }
+.sab-dis { flex-direction: column; gap: 0; background: none; }
+.sab-dis p { padding: 0; color: var(--faint); font-size: 12px; }
+.sab-dis p.en { margin-top: 6px; font-size: 11px; line-height: 17px; letter-spacing: .02em; }
+
+/* 确认框：同共用件页的危险确认框（外 26 / 内边距 8，里面一栏 18；标题前危险色图标块 40 见方、圆角 10；底下一排 36 高胶囊等宽铺满；默认聚焦「取消」）。
+   遮罩从标题栏下面开始；--scrim、--elev-4 外壳里没有，照共用件页的深浅两套定在这里 */
+.sab-mask { --sab-scrim: rgb(var(--shadow-rgb) / .32); --sab-elev4: 0 28px 64px -16px rgb(var(--shadow-rgb) / .32), 0 8px 20px -4px rgb(var(--shadow-rgb) / .10);
+            position: fixed; left: 0; right: 0; top: 40px; bottom: 0; z-index: 40; display: grid; place-items: center; background: var(--sab-scrim); backdrop-filter: blur(2px); }
+[data-theme="dark"] .sab-mask { --sab-scrim: rgb(0 0 0 / .56); --sab-elev4: 0 32px 72px -16px rgb(0 0 0 / .72), 0 8px 24px -4px rgb(0 0 0 / .40); }
+.sab-mask.enter { animation: sab-mk-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.sab-mask.enter > .sab-md { animation: sab-md-in .26s cubic-bezier(.2, .7, .2, 1) both; }
+.sab-mask.leave { animation: sab-mk-out .14s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+.sab-mask.leave > .sab-md { animation: sab-md-out .14s cubic-bezier(.4, 0, 1, 1) both; }
+@keyframes sab-mk-in { from { opacity: 0; } } @keyframes sab-mk-out { to { opacity: 0; } }
+@keyframes sab-md-in { from { opacity: 0; transform: translateY(10px); } } @keyframes sab-md-out { to { opacity: 0; transform: translateY(6px); } }
+.sab-md { width: 400px; box-sizing: border-box; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--sab-elev4); display: flex; flex-direction: column; gap: 8px; }
+.sab-mc { border-radius: 18px; padding: 18px 20px 20px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); display: flex; flex-direction: column; gap: 12px; }
+.sab-mh { display: flex; align-items: center; gap: 12px; margin: -10px 0 0 -12px; }
+.sab-mi { width: 40px; height: 40px; border-radius: 10px; flex: none; display: grid; place-items: center; background: var(--danger-subtle); color: var(--danger-text); }
+.sab-mi .ico { width: 20px; height: 20px; }
+.sab-md h3 { flex: 1; min-width: 0; margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; }
+.sab-mbd { font-size: 13px; line-height: 21px; color: var(--muted); }
+.sab-mbd b { color: var(--text); font-weight: 600; }
+.sab-ma { display: flex; gap: 8px; }
+.sab-b { flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center; height: 36px; padding: 0 14px; border-radius: 18px; box-sizing: border-box;
+         border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer;
+         transition: background-color .2s; outline: none; }
+.sab-b:hover { background: var(--control-hov); }
+.sab-b.dgr { background: var(--danger-solid); color: var(--on-danger); border-color: transparent; font-weight: 600; }
+.sab-b.dgr:hover { background: var(--danger-solid-hov); }
+.sab-b.fk { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 整窗口一层：正在更新 / 正在退出（同共用件页的整页状态：标题栏留着，字摆在正中） */
+.sab-ov { position: fixed; left: 0; right: 0; top: 40px; bottom: 0; z-index: 45; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center;
+          gap: 14px; padding-bottom: 72px; box-sizing: border-box; }
+.sab-ov.enter { animation: sab-mk-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.sab-ov.leave { animation: sab-mk-out .2s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+.sab-ov img { width: 64px; height: 64px; image-rendering: pixelated; margin-bottom: 6px; }
+.sab-o1 { font-size: 20px; line-height: 28px; font-weight: 600; letter-spacing: -.01em; }
+.sab-o2 { margin-top: -6px; font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.sab-o2 .ico { width: 15px; height: 15px; color: var(--accent-text); }

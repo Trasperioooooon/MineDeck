@@ -1,1 +1,274 @@
-/* 设置 · ai：还没画（占位） */
+/* 全局设置 →「AI（可选）」（11-27 夜里第一稿，子代理照临时规范画的，等作者整体扫一眼）。说明写在 settings-ai.js 开头。
+   选择器、动画名都带 sai 前缀，不碰外壳和别的分类。
+
+   内容面板（.cp，868 × 658、内边距 8、圆角 26）里：左边 484 宽一栏（服务商表单）加它下面的保存条，右边 360 宽一块（其余的，在块里滚），都是圆角 18（26 − 8），隔 8。
+     左栏内边距 14 / 20：顶上一行 28 高（右上角的两颗图标按钮 28 见方，最右那颗贴栏的右上角 8、圆角 10 = 18 − 8，旁边那颗一样）；
+       表单两列、列距 14，一格「字 18 + 6 + 框 40」，行距 16（同向导第三步）；框、分段、下拉 40 高、圆角 10，框里的图标按钮 28 见方、离框外沿 6、圆角 4；
+       分段的选中块离外框 4、圆角 6。最下面「测试连接」一块贴栏边 8、圆角 10（18 − 8），里面的键 36 高胶囊。
+     保存条 52 高、圆角 18（同「全部配置」「定时任务」），里面的键 36 高胶囊。
+     右边一块内边距 8，里面可滚的一块（细滚动条），各段字离块边 20（8 + 12）：段名 36 高；额度一格「字 18 + 6 + 框 40」；
+       自填单价一行 32 高、圆角 10；开关一行 36 高（开关 36 × 20 在字的左边）；小键 28 高胶囊。
+   菜单同共用件页（外圆角 16、细边加内边距 5，项 36 高、圆角 10）；弹窗同共用件页（外 26 / 8、栏 18、底下 36 高胶囊等宽铺满）。 */
+
+.sai { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 360px; grid-template-rows: minmax(0, 1fr) 52px; gap: 8px; }
+.sai [hidden] { display: none !important; }
+.sai-sp { flex: 1; }
+.sai-col, .sai-bar { min-width: 0; min-height: 0; box-sizing: border-box; border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+.sai-pv { grid-area: 1 / 1; padding: 14px 20px 8px; display: flex; flex-direction: column; gap: 16px; }
+.sai-bar { grid-area: 2 / 1; }
+.sai-rt { grid-area: 1 / 2 / 3 / 3; padding: 8px; display: flex; flex-direction: column; }
+.sai-spin { animation: sai-spin .9s linear infinite; }
+@keyframes sai-spin { to { transform: rotate(360deg); } }
+
+/* ---- 左栏顶上一行 ---- */
+.sai-hd { flex: none; height: 28px; display: flex; align-items: center; gap: 10px; margin: -6px -12px 0 0; }
+.sai-t { font-size: 13.5px; font-weight: 600; white-space: nowrap; cursor: default; }
+.sai-stat { display: flex; min-width: 0; }
+.sai-pill2 { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px 0 9px; border-radius: 12px; box-sizing: border-box; min-width: 0;
+             font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+.sai-pill2 i { width: 6px; height: 6px; border-radius: 2px; flex: none; }
+.sai-pill2.ok { background: var(--success-subtle, color-mix(in srgb, var(--success-text) 14%, transparent)); color: var(--success-text); }
+.sai-pill2.ok i { background: var(--success-text); }
+.sai-pill2.warn { background: color-mix(in srgb, var(--warning-text) 14%, transparent); color: var(--warning-text); }
+.sai-pill2.warn i { background: var(--warning-text); }
+.sai-hi { width: 28px; height: 28px; flex: none; display: grid; place-items: center; color: var(--faint); cursor: default; }
+.sai-hi .ico { width: 15px; height: 15px; }
+.sai-hb { width: 28px; height: 28px; border-radius: 10px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;
+          transition: background .15s, color .15s, opacity .15s; }
+.sai-hb:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.sai-hb:disabled { opacity: .35; cursor: default; }
+.sai-hb .ico { width: 16px; height: 16px; }
+.sai-hb.sm { border-radius: 4px; }
+.sai-hb.sm .ico { width: 15px; height: 15px; }
+
+/* ---- 表单：两列，一格「字 18 + 6 + 框 40」，行距 16 ---- */
+.sai-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; row-gap: 16px; }
+.sai-f { display: flex; flex-direction: column; gap: 6px; min-width: 0; transition: opacity .2s; }
+.sai-lb { height: 18px; display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12.5px; line-height: 18px; font-weight: 500; color: var(--muted); }
+.sai-lb > span:first-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+.sai-dot { width: 6px; height: 6px; border-radius: 2px; flex: none; background: var(--accent); opacity: 0; transition: opacity .2s; }
+.sai-f.mod .sai-dot { opacity: 1; }
+/* 用不上（不是「自定义」时的协议、鉴权、思考回传，不是 Claude 协议时的思考深度）：整格淡下去，悬停说原因 */
+.sai-f.off { opacity: .45; cursor: not-allowed; }
+.sai-f.off .sai-seg, .sai-f.off .sai-sel { pointer-events: none; }
+
+/* 输入框：40 高、圆角 10，没有上下箭头；框里的图标按钮 28 见方、离框外沿 6、圆角 4 */
+.sai-in { position: relative; display: flex; align-items: center; gap: 4px; height: 40px; min-width: 0; padding: 0 5px 0 12px; border-radius: 10px; box-sizing: border-box; cursor: text;
+          background: var(--field); border: 1px solid var(--border); transition: border-color .2s, box-shadow .2s; }
+.sai-in:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.sai-in input { flex: 1; min-width: 0; height: 28px; border: 0; outline: 0; padding: 0; background: none; font: inherit; font-size: 14px; color: var(--text); }
+.sai-in.mono input { font-family: var(--mono); font-size: 12.5px; }
+.sai-in input::placeholder { color: var(--faint); font-family: var(--font); font-size: 13px; }
+.sai-in input:disabled { cursor: not-allowed; }
+.sai-in input::-ms-reveal, .sai-in input::-ms-clear { display: none; } /* WebView2 的密码框自带「显示密码」的眼睛，藏掉 */
+.sai-in.bad { border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
+.sai-in.bad:focus-within { box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger-text) 14%, transparent); }
+.sai-unit { flex: none; padding-right: 4px; font-size: 12px; color: var(--faint); white-space: nowrap; }
+.sai-msg { display: none; flex: none; padding-right: 7px; font-size: 12px; color: var(--danger-text); white-space: nowrap; cursor: default; }
+.sai-in.bad .sai-msg:not(:empty) { display: block; }
+.sai-in.bad .sai-msg:not(:empty) ~ .sai-ib, .sai-in.bad .sai-unit { display: none; }
+.sai-ib { width: 28px; height: 28px; border-radius: 4px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;
+          transition: background .15s, color .15s, opacity .15s; }
+.sai-ib .ico { width: 15px; height: 15px; }
+.sai-ib:hover:not(:disabled), .sai-ib.open { background: var(--hover); color: var(--text); }
+.sai-ib.open .ico { transform: rotate(180deg); }
+.sai-ib .ico { transition: transform .32s cubic-bezier(.3, .7, .2, 1); }
+.sai-ib.sv { color: var(--faint); }
+.sai-ib:disabled { opacity: .55; cursor: default; }
+.sai-in.dirty .sai-ib.sv { color: var(--accent-text); }
+.sai-ib.done, .sai-ib.done:disabled { color: var(--success-text); opacity: 1; }
+/* Key 前缀和地址对不上：框里一个黄色警告（不拦，同程序） */
+.sai-kw { width: 28px; height: 28px; flex: none; display: grid; place-items: center; color: var(--warning-text); cursor: default; }
+.sai-kw .ico { width: 15px; height: 15px; }
+
+/* 下拉：框同输入框，点开是菜单 */
+.sai-sel { display: flex; align-items: center; gap: 8px; width: 100%; height: 40px; padding: 0 10px 0 12px; border-radius: 10px; box-sizing: border-box; min-width: 0; text-align: left;
+           background: var(--field); border: 1px solid var(--border); font: inherit; font-size: 14px; color: var(--text); cursor: pointer; transition: border-color .2s; }
+.sai-sel:hover, .sai-sel.open { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.sai-selv { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sai-ph { color: var(--faint); font-size: 13px; }
+.sai-chev { width: 15px; height: 15px; flex: none; color: var(--muted); transition: transform .32s cubic-bezier(.3, .7, .2, 1); }
+.sai-sel.open .sai-chev { transform: rotate(180deg); }
+.sai-f.bad .sai-sel { border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
+
+/* 分段：40 高、圆角 10；选中块离外框 4（边 1 + 内边距 3）、圆角 6，滑过去 */
+.sai-seg { position: relative; display: flex; height: 40px; padding: 3px; border-radius: 10px; box-sizing: border-box; min-width: 0; background: var(--field); border: 1px solid var(--border); }
+.sai-sgl { position: absolute; left: 0; top: 3px; bottom: 3px; border-radius: 6px; background: var(--accent-subtle); pointer-events: none;
+           box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
+.sai-seg button { flex: 1; position: relative; z-index: 1; min-width: 0; padding: 0 2px; border: 0; border-radius: 6px; background: none; font: inherit; font-size: 13px; color: var(--muted);
+                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; transition: color .2s; }
+.sai-seg button:hover { color: var(--text); }
+.sai-seg button.on { color: var(--accent-text); font-weight: 500; }
+
+/* ---- 测试连接：贴栏边 8、圆角 10 的一块，键 36 高胶囊，结果写在键的右边（最多两行） ---- */
+.sai-test { margin: auto -12px 0; min-height: 52px; display: flex; align-items: center; gap: 12px; padding: 8px 14px 8px 8px; border-radius: 10px; box-sizing: border-box; background: var(--surface); }
+.sai-btn { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 16px 0 13px; border-radius: 18px; box-sizing: border-box; flex: none; white-space: nowrap;
+           border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; transition: background .15s, opacity .15s; }
+.sai-btn:hover:not(:disabled) { background: var(--control-hov); }
+.sai-btn:disabled { opacity: .5; cursor: not-allowed; }
+.sai-btn .ico { width: 15px; height: 15px; color: var(--accent-text); }
+.sai-tr { flex: 1; min-width: 0; font-size: 12.5px; line-height: 18px; color: var(--muted); }
+.sai-tr > span { display: block; }
+.sai-tok .ico { width: 14px; height: 14px; margin: 0 4px -2px 0; color: var(--success-text); }
+.sai-tf { color: var(--faint); }
+
+/* ---- 保存条：52 高、圆角 18（同「全部配置」「定时任务」） ---- */
+.sai-bar { display: flex; align-items: center; gap: 8px; padding: 0 8px 0 20px; }
+.sai-note { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12.5px; color: var(--warning-text); white-space: nowrap; }
+.sai-note > .ico { width: 15px; height: 15px; flex: none; }
+.sai-note > span { cursor: default; overflow: hidden; text-overflow: ellipsis; }
+.sai-n { display: inline-flex; align-items: center; gap: 7px; margin-right: 4px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.sai-n > i { width: 7px; height: 7px; border-radius: 2px; background: var(--accent); }
+.sai-n, .sai-discard { opacity: 0; visibility: hidden; transform: translateY(5px);
+                       transition: opacity .09s cubic-bezier(.4, 0, 1, 1), transform .09s cubic-bezier(.4, 0, 1, 1), visibility 0s .09s, background .15s, color .15s; }
+.sai-n.on, .sai-discard.on { opacity: 1; visibility: visible; transform: none;
+                             transition: opacity .22s cubic-bezier(.2, .7, .2, 1), transform .22s cubic-bezier(.2, .7, .2, 1), background .15s, color .15s; }
+.sai-discard { height: 36px; padding: 0 14px; border-radius: 18px; border: 0; background: none; flex: none; font: inherit; font-size: 13px; font-weight: 500; color: var(--muted); cursor: pointer; }
+.sai-discard:hover { background: var(--hover); color: var(--text); }
+.sai-save { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; min-width: 84px; padding: 0 18px; border-radius: 18px; box-sizing: border-box; flex: none;
+            border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+            transition: background .2s, color .2s, border-color .2s, opacity .2s; }
+.sai-save[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.sai-save.on { background: var(--accent-solid); color: var(--on-accent); border-color: transparent; }
+.sai-save.on:hover { background: var(--accent-solid-hov); }
+.sai-save .ico { width: 15px; height: 15px; }
+
+/* ---- 右边一块：可滚（细滚动条同首页、详情页；系统的藏掉，上下还有没露出来的，那一头淡出 28） ---- */
+.sai-lw { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.sai-lw .list { position: relative; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
+  --ft: 0px; --fb: 0px; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%); }
+.sai-lw .list::-webkit-scrollbar { display: none; }
+.sai-lw.can-up .list { --ft: 28px; }
+.sai-lw.can-down .list { --fb: 28px; }
+.sai-lw .thumb { position: absolute; right: -6px; width: 4px; border-radius: 2px; background: color-mix(in srgb, var(--text) 38%, transparent); opacity: 0; transition: opacity .2s, width .15s, right .15s; cursor: pointer; }
+.sai-lw:hover .thumb, .sai-lw.scrolling .thumb, .sai-lw .thumb.drag { opacity: 1; }
+.sai-lw .thumb:hover, .sai-lw .thumb.drag { width: 6px; right: -7px; background: color-mix(in srgb, var(--text) 55%, transparent); }
+.sai-lw.fits .thumb { display: none; }
+/* 一段：段名 36 高，段和段之间一道细线（离块边 12） */
+.sai-sec { padding: 0 12px 16px; }
+.sai-sec + .sai-sec::before { content: ""; display: block; height: 1px; margin-bottom: 4px; background: var(--border); }
+.sai-sh { height: 36px; display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; }
+.sai-sh > span:first-child { cursor: default; }
+.sai-qs { display: flex; flex-direction: column; gap: 14px; }
+.sai-use { margin-left: auto; flex: none; font-size: 12px; font-weight: 400; color: var(--faint); font-variant-numeric: tabular-nums; cursor: default; }
+.sai-line { display: flex; align-items: center; min-height: 28px; font-size: 12.5px; line-height: 18px; color: var(--muted); }
+.sai-line > span { cursor: default; }
+/* 自填单价：一行 32 高、圆角 10；模型名等宽，后面单价（放不下截断，全文进悬停）；正在用的那个模型标「当前」；× 悬停那一行才出来 */
+.sai-pl { display: flex; flex-direction: column; gap: 2px; margin: 4px -8px 0; }
+.sai-pr { position: relative; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 34px 0 8px; border-radius: 10px; box-sizing: border-box; min-width: 0; overflow: hidden; transition: background .15s; }
+.sai-pr:hover { background: var(--hover); }
+.sai-pm { flex: none; max-width: 150px; font-family: var(--mono); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sai-ptag { display: none; flex: none; height: 18px; padding: 0 6px; border-radius: 5px; font-size: 11px; line-height: 18px; color: var(--accent-text); background: var(--accent-subtle); }
+.sai-pr.cur .sai-ptag { display: block; }
+.sai-pp { flex: 1; min-width: 0; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sai-px { position: absolute; right: 4px; top: 4px; width: 24px; height: 24px; border-radius: 6px; border: 0; padding: 0; display: grid; place-items: center; background: var(--hover); color: var(--muted);
+          cursor: pointer; opacity: 0; transition: opacity .15s, color .15s; }
+.sai-px .ico { width: 13px; height: 13px; }
+.sai-pr:hover .sai-px, .sai-px:focus-visible { opacity: 1; }
+.sai-px:hover { color: var(--text); }
+.sai-add { display: flex; align-items: center; gap: 6px; width: calc(100% + 16px); height: 32px; margin: 4px -8px 0; padding: 0 8px; border-radius: 10px; box-sizing: border-box;
+           border: 1px dashed var(--border); background: none; font: inherit; font-size: 12.5px; color: var(--muted); cursor: pointer; transition: background .15s, color .15s; }
+.sai-add:hover { background: var(--hover); color: var(--text); }
+.sai-add .ico { width: 14px; height: 14px; }
+/* 开关一行：36 高，开关在字的左边；悬停的底往两边各伸 8 */
+.sai-swr { display: flex; align-items: center; gap: 10px; width: calc(100% + 16px); height: 36px; margin: 0 -8px; padding: 0 8px; border: 0; border-radius: 10px; box-sizing: border-box; background: none;
+           text-align: left; font: inherit; font-size: 13px; color: var(--text); cursor: pointer; transition: background .15s; }
+.sai-swr:hover { background: var(--hover); }
+.sai-sw { position: relative; width: 36px; height: 20px; border-radius: 10px; flex: none; background: color-mix(in srgb, var(--text) 18%, transparent); transition: background .2s; }
+.sai-sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 8px; background: var(--text); transition: transform .26s cubic-bezier(.3, .7, .2, 1), background .2s; }
+.sai-swr.on .sai-sw { background: var(--accent-solid); }
+.sai-swr.on .sai-sw::after { transform: translateX(16px); background: var(--on-accent); }
+/* 一行：名字左、值和键右（36 高） */
+.sai-kv { display: flex; align-items: center; gap: 6px; height: 36px; min-width: 0; font-size: 13px; }
+.sai-kv > span:first-child { white-space: nowrap; cursor: default; }
+.sai-mono { min-width: 0; font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sai-mono.faint { color: var(--faint); letter-spacing: .08em; }
+.sai-pill { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 12px; border-radius: 14px; box-sizing: border-box; flex: none; border: 1px solid var(--border); background: none;
+            font: inherit; font-size: 12.5px; font-weight: 500; color: var(--muted); white-space: nowrap; cursor: pointer; transition: background .15s, color .15s, opacity .15s; }
+.sai-pill:hover:not(:disabled), .sai-pill.open { background: var(--hover); color: var(--text); }
+.sai-pill .ico { width: 14px; height: 14px; }
+.sai-pill.dgr { color: var(--danger-text); }
+.sai-pill.dgr:hover:not(:disabled) { background: var(--danger-subtle); color: var(--danger-text); }
+.sai-pill:disabled { opacity: .4; cursor: default; }
+.sai-pill.done { color: var(--success-text); }
+.sai-sub { height: 28px; display: flex; align-items: flex-end; padding-bottom: 4px; box-sizing: border-box; font-size: 12px; font-weight: 500; color: var(--faint); }
+.sai-cl { display: flex; align-items: center; gap: 8px; height: 32px; min-width: 0; font-size: 12.5px; }
+.sai-cl > .ico { width: 15px; height: 15px; flex: none; color: var(--muted); }
+.sai-cn { flex: none; font-weight: 500; }
+.sai-cm { min-width: 0; font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- 菜单：同共用件页（外圆角 16、细边 1 加内边距 5，项 36 高、圆角 10 = 16 − 6）；挂在 body 上 ---- */
+.sai-dm { position: fixed; z-index: 50; max-width: 440px; padding: 5px; box-sizing: border-box; display: flex; flex-direction: column; gap: 1px;
+          border-radius: 16px; border: 1px solid var(--border); background: var(--overlay); box-shadow: var(--elev-3); }
+.sai-dm.enter, .sai-pop.enter { animation: sai-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.sai-dm.leave, .sai-pop.leave { animation: sai-out .09s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+.sai-dm.up.enter, .sai-pop.up.enter { animation-name: sai-in-up; } .sai-dm.up.leave, .sai-pop.up.leave { animation-name: sai-out-up; }
+@keyframes sai-in { from { opacity: 0; transform: translateY(-5px); } } @keyframes sai-out { to { opacity: 0; transform: translateY(-5px); } }
+@keyframes sai-in-up { from { opacity: 0; transform: translateY(5px); } } @keyframes sai-out-up { to { opacity: 0; transform: translateY(5px); } }
+.sai-dh { padding: 6px 10px 4px; font-size: 12px; font-weight: 500; color: var(--faint); }
+.sai-it { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: 10px; box-sizing: border-box; font-size: 13px; color: var(--text); cursor: pointer;
+          white-space: nowrap; transition: background .15s; }
+.sai-it:hover { background: var(--hover); }
+.sai-it.here { cursor: default; }
+.sai-it.here:hover { background: none; }
+.sai-it > .ico { width: 15px; height: 15px; flex: none; color: var(--muted); }
+.sai-it > .sai-ck { color: var(--accent-text); margin-left: auto; }
+.sai-im { flex: none; }
+.sai-is { flex: 1; min-width: 0; font-family: var(--mono); font-size: 11.5px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- 模型列表浮层：外圆角 16、细边加内边距 6；顶上搜索框 32 高胶囊 + 重新获取；下面一行一个 32 高、圆角 10，多了在里面滚 ---- */
+.sai-pop { position: fixed; z-index: 50; padding: 6px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px;
+           border-radius: 16px; border: 1px solid var(--border); background: var(--overlay); box-shadow: var(--elev-3); }
+.sai-ph2 { display: flex; align-items: center; gap: 4px; }
+.sai-qq { flex: 1; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border-radius: 16px; box-sizing: border-box; color: var(--muted); cursor: text;
+          background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+.sai-qq:focus-within { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.sai-qq .ico { width: 14px; height: 14px; flex: none; }
+.sai-qq input { flex: 1; min-width: 0; border: 0; outline: 0; padding: 0; background: none; font: inherit; font-size: 13px; color: var(--text); }
+.sai-qq input::placeholder { color: var(--faint); }
+.sai-ml { display: flex; flex-direction: column; gap: 1px; max-height: 220px; overflow-y: auto; scrollbar-width: none; }
+.sai-mo { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border: 0; border-radius: 10px; flex: none; background: none; text-align: left; cursor: pointer;
+          font-family: var(--mono); font-size: 12.5px; color: var(--text); transition: background .15s; }
+.sai-mo:hover { background: var(--hover); }
+.sai-mo .ico { width: 14px; height: 14px; flex: none; color: var(--accent-text); opacity: 0; }
+.sai-mo.on .ico { opacity: 1; }
+.sai-mmsg { padding: 2px 10px 4px; font-size: 12px; color: var(--faint); }
+.sai-mmsg:empty { display: none; }
+
+/* ---- 弹窗：同共用件页（危险的标题前一个危险色图标块 40 见方、圆角 10；默认聚焦的键一圈细框）。--scrim、--elev-4 外壳里没有，照共用件页定在这里 ---- */
+.sai-mask { --sai-scrim: rgb(var(--shadow-rgb) / .32); --sai-elev4: 0 28px 64px -16px rgb(var(--shadow-rgb) / .32), 0 8px 20px -4px rgb(var(--shadow-rgb) / .10);
+            position: fixed; left: 0; right: 0; top: 40px; bottom: 0; z-index: 40; display: grid; place-items: center; background: var(--sai-scrim); backdrop-filter: blur(2px); }
+[data-theme="dark"] .sai-mask { --sai-scrim: rgb(0 0 0 / .56); --sai-elev4: 0 32px 72px -16px rgb(0 0 0 / .72), 0 8px 24px -4px rgb(0 0 0 / .40); }
+.sai-mask.enter { animation: sai-mk-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.sai-mask.enter > .sai-md { animation: sai-md-in .26s cubic-bezier(.2, .7, .2, 1) both; }
+.sai-mask.leave { animation: sai-mk-out .14s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+.sai-mask.leave > .sai-md { animation: sai-md-out .14s cubic-bezier(.4, 0, 1, 1) both; }
+@keyframes sai-mk-in { from { opacity: 0; } } @keyframes sai-mk-out { to { opacity: 0; } }
+@keyframes sai-md-in { from { opacity: 0; transform: translateY(10px); } } @keyframes sai-md-out { to { opacity: 0; transform: translateY(6px); } }
+.sai-md { box-sizing: border-box; max-width: calc(100vw - 32px); border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--sai-elev4); display: flex; flex-direction: column; gap: 8px; }
+.sai-mc { border-radius: 18px; padding: 18px 20px 20px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.sai-mh { display: flex; align-items: center; gap: 12px; margin: -10px 0 0 -12px; }
+.sai-mh.plain { margin: 0; }
+.sai-mi { width: 40px; height: 40px; border-radius: 10px; flex: none; display: grid; place-items: center; background: var(--danger-subtle); color: var(--danger-text); }
+.sai-mi .ico { width: 20px; height: 20px; }
+.sai-md h3 { flex: 1; min-width: 0; margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; }
+.sai-mbd { font-size: 13px; line-height: 21px; color: var(--muted); min-width: 0; }
+.sai-ma { display: flex; gap: 8px; }
+.sai-b { flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center; height: 36px; padding: 0 14px; border-radius: 18px; box-sizing: border-box;
+         border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer;
+         transition: background-color .2s; outline: none; }
+.sai-b:hover { background: var(--control-hov); }
+.sai-b.dgr { background: var(--danger-solid); color: var(--on-danger); border-color: transparent; font-weight: 600; }
+.sai-b.dgr:hover { background: var(--danger-solid-hov); }
+.sai-b.pri { background: var(--accent-solid); color: var(--on-accent); border-color: transparent; font-weight: 600; }
+.sai-b.pri:hover { background: var(--accent-solid-hov); }
+.sai-b.fk { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* MCP 配置预览：恒深底等宽（同控制台），长了在里面滚 */
+.sai-pre { margin: 12px 0 0; max-height: 240px; overflow: auto; scrollbar-width: none; padding: 12px 14px; border-radius: 10px; background: var(--term-bg); color: var(--term-fg);
+           font-family: var(--mono); font-size: 12px; line-height: 18px; white-space: pre; user-select: text; }
+.sai-pre::-webkit-scrollbar { display: none; }
+/* 自填单价的表单：模型名、币种、三个单价一排 */
+.sai-pform { display: flex; flex-direction: column; gap: 16px; padding-top: 2px; }
+.sai-p3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.sai-pform .sai-lb { color: var(--muted); }
