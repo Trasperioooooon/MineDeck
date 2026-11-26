@@ -235,7 +235,9 @@
   .wbtn.back .ico { transform: rotate(180deg); }
   .wbtn.next { padding-right: 14px; border: 0; color: var(--on-accent); background: var(--accent-solid); }
   .wbtn.next:hover { background: var(--accent-solid-hov); }
-  .dots { display: flex; gap: 8px; pointer-events: auto; transition: opacity .32s; }
+  /* 小点钉在窗口正中，不夹在两个按钮中间（作者 11-26：到最后一步右边按钮变成「创建服务器」、宽了 26，小点跟着往左挪了 13） */
+  .wnav .in { position: relative; }
+  .dots { display: flex; gap: 8px; pointer-events: auto; transition: opacity .32s; position: absolute; left: 50%; transform: translateX(-50%); }
   .dots i { width: 8px; height: 8px; border-radius: 3px; background: color-mix(in srgb, var(--text) 18%, transparent);
             transition: background .32s; } /* 宽度不用 CSS 过渡，见脚本里的 stepDots：按整像素走，收尾不抖 */
   .dots i.on { width: 22px; background: var(--accent); }
