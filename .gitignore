@@ -35,6 +35,9 @@ __pycache__/
 .mimocode/
 .mimocode-project-id
 
+# 作者本人的赞赏收款码：首页草图点爱心弹出的浮层要用，只放在本机，不进公开仓库
+/design-system/redesign/QR_code/
+
 # 宣传图的输出（tools/promo/shoot.js）
 /tools/promo/out/
 

@@ -315,6 +315,64 @@ window.EXTRA_ICONS = {
   .tipline.gone { opacity: 0; }
   /* 字标上面那颗提示胶囊（?notices=1）点开的浮层盖住了心，虚线会从浮层右边漏出一截：浮层开着时标签和虚线先淡掉，收起再出来 */
   body:has(.ntc.open) .tipcall, body:has(.ntc.open) .tipline { opacity: 0; pointer-events: none; }
+  body:has(.spm:not([hidden])) .tipcall, body:has(.spm:not([hidden])) .tipline { opacity: 0; pointer-events: none; }
+  /* ---- 点爱心（或「点击赞赏」那个标签）弹出的赞赏浮层（作者 11-26）----
+     照共用件 commons.html 的弹窗：遮罩从标题栏下面盖到底，面板在剩下那块的正中；大面板 26 / 8 加两栏（18），栏里的格子 10、离栏边 8，缩略图 4、离格子边 6（同心）。
+     第一行是支付宝、微信两张收款码，图一样高（支付宝 2:3 竖图，微信是方的）；第二行是支付宝的固定金额码，按金额从小到大，左右无极滑动（同首页大卡那一排：拖、甩、两头渐隐、箭头）。
+     码都缩小放，点一下再弹一层看大图（按窗口放到最大），图从缩略图那里放大出来、关掉时缩回去；Esc 一次关一层。每格下面写「支付宝」「微信」或金额（缩小以后码上的字看不清）。
+     图是作者本人的收款码，只放在本机（QR_code/，.gitignore 了）；别的机器上打开没有图，格子里换成文件名占位 */
+  :root { --elev-4: 0 28px 64px -16px rgb(var(--shadow-rgb) / .32), 0 8px 20px -4px rgb(var(--shadow-rgb) / .10); --scrim: rgb(var(--shadow-rgb) / .32); }
+  [data-theme="dark"] { --elev-4: 0 32px 72px -16px rgb(0 0 0 / .72), 0 8px 24px -4px rgb(0 0 0 / .40); --scrim: rgb(0 0 0 / .56); }
+  .spm, .spz { position: fixed; left: 0; right: 0; top: 40px; bottom: 0; z-index: 40; display: grid; place-items: center; background: var(--scrim); }
+  .spm { backdrop-filter: blur(2px); }
+  .spm[hidden] { display: none; }
+  .spm.enter { animation: sp-fade-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+  .spm.enter > .spp { animation: sp-rise .26s cubic-bezier(.2, .7, .2, 1) both; }
+  .spm.leave { animation: sp-fade-out .14s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+  .spm.leave > .spp { animation: sp-sink .14s cubic-bezier(.4, 0, 1, 1) both; }
+  @keyframes sp-fade-in { from { opacity: 0; } }
+  @keyframes sp-fade-out { to { opacity: 0; } }
+  @keyframes sp-rise { from { opacity: 0; transform: translateY(10px); } }
+  @keyframes sp-sink { to { opacity: 0; transform: translateY(6px); } }
+  .spp { width: 560px; box-sizing: border-box; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-4); display: flex; flex-direction: column; gap: 8px; }
+  .spp .spc { border-radius: 18px; padding: 8px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+  .spp .sph { display: flex; align-items: center; height: 28px; padding-left: 10px; }
+  .spp .sph h3 { flex: 1; margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; }
+  .spp .sph .x { width: 28px; height: 28px; border-radius: 10px; border: 0; padding: 0; background: none; color: var(--muted); display: grid; place-items: center; cursor: pointer; transition: background .15s, color .15s; }
+  .spp .sph .x:hover { background: var(--hover); color: var(--text); }
+  .spp .sph .x .ico { width: 14px; height: 14px; }
+  .spp .row1 { display: flex; justify-content: center; gap: 8px; margin-top: 4px; }
+  .qt { flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 6px 4px; border-radius: 10px; cursor: pointer; outline: none; transition: background .15s; }
+  .qt:hover { background: var(--hover); }
+  .qt:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+  .qt img, .qt .qph { display: block; height: var(--qh); width: calc(var(--qh) * var(--ar)); border-radius: 4px; -webkit-user-drag: none; user-select: none; }
+  .qt img.lift { visibility: hidden; } /* 放大的时候缩略图那张先藏起来，像是被拿起来了 */
+  .qph { box-sizing: border-box; border: 1px dashed var(--border); display: grid; place-items: center; padding: 6px; font: 11px/1.5 var(--mono); color: var(--faint); text-align: center; word-break: break-all; }
+  .qt .qph { display: grid; }
+  .qt span { font-size: 12.5px; line-height: 20px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .row1 .qt { --qh: 192px; }
+  .spcar { position: relative; margin: 0 -8px; } /* 滑的那一排铺满整栏宽，两头渐隐到栏边；格子照样离栏边 8 */
+  .spcar .qt { --qh: 168px; }
+  .sptrack { display: flex; gap: 8px; padding: 0 8px; overflow-x: auto; scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
+    transition: --fl .2s ease, --fr .2s ease; }
+  .sptrack::-webkit-scrollbar { display: none; }
+  .sptrack.dragging { cursor: grabbing; user-select: none; }
+  .sptrack.dragging * { cursor: grabbing !important; }
+  .spcar.can-left .sptrack { --fl: 32px; } .spcar.can-right .sptrack { --fr: 32px; }
+  .spcar .car-nav.prev { left: 4px; } .spcar .car-nav.next { right: 4px; }
+  .spcar .car-nav { top: calc(50% - 10px); } /* 对着图的中线，不算下面那行字 */
+  .spcar.can-left .car-nav.prev, .spcar.can-right .car-nav.next { display: grid; }
+  .spcar:hover .car-nav { opacity: 1; }
+  /* 看大图那一层：叠在浮层上面，再盖一层遮罩；点哪儿都关（或者 Esc、右上角 ×） */
+  .spz { z-index: 50; cursor: zoom-out; }
+  .spz.leave { pointer-events: none; }
+  .spz img, .spz .qph { display: block; border-radius: 18px; box-shadow: var(--elev-4); transform-origin: 0 0; -webkit-user-drag: none; user-select: none; }
+  .spz .x { position: absolute; top: 16px; right: 16px; width: 36px; height: 36px; border-radius: 18px; padding: 0; display: grid; place-items: center; cursor: pointer;
+    color: var(--text); background: color-mix(in srgb, var(--overlay) 88%, transparent); backdrop-filter: blur(8px); border: 1px solid var(--border); box-shadow: var(--elev-3); }
+  .spz .x .ico { width: 16px; height: 16px; }
+  .tipcall { cursor: pointer; } /* 标签本身也能点开赞赏（× 除外） */
   .hd .hb { display: flex; width: auto; margin: 0; }
   .hd .hb .sp { flex: 0 0 4px; }
   .hd .hb .find { width: 240px; }
@@ -888,6 +946,94 @@ if (document.body.classList.contains("notices")) KIT_READY.then(() => {
       location.href = "commons.html?" + q.toString();
     }
   });
+});
+</script>
+<script>
+// ---- 点爱心弹出的赞赏浮层（作者 11-26）：样式那段的注释写了怎么排 ----
+// 程序里是读收款码那个文件夹：alipay、wechatpay 放第一行，其余的文件名就是金额，按数值从小到大放第二行（按字符串排 299 会排到 33 前面）
+const QR_DIR = "QR_code/";
+const QR_MAIN = [{ f: "alipay.jpg", t: "支付宝", ar: 2 / 3 }, { f: "wechatpay.png", t: "微信", ar: 1 }];
+const QR_AMT = ["520", "33", "9.9", "299", "99"].sort((a, b) => a - b).map(n => ({ f: n + ".jpg", t: "¥" + n, ar: 2 / 3 }));
+const qrTile = q => `<div class="qt" role="button" tabindex="0" title="点击放大" style="--ar:${q.ar}" data-ar="${q.ar}">`
+  + `<img src="${QR_DIR + q.f}" alt="${q.t}收款码" draggable="false" onerror="qrMissing(this)"><span>${q.t}</span></div>`;
+// 别的机器上没有这些图（只在作者本机，.gitignore 了）：换成文件名占位，不显示破图
+function qrMissing(img) {
+  const ph = Object.assign(document.createElement("div"), { className: "qph", textContent: img.getAttribute("src") });
+  img.replaceWith(ph);
+}
+let spm = null, spS = null, spz = null;
+const spReduce = matchMedia("(prefers-reduced-motion: reduce)");
+function openSponsor() {
+  if (!spm) {
+    spm = Object.assign(document.createElement("div"), { className: "spm" });
+    spm.hidden = true;
+    spm.innerHTML = `<div class="spp" role="dialog" aria-label="赞赏">`
+      + `<div class="spc"><div class="sph"><h3>赞赏</h3><button class="x" title="关闭"><i data-ic="x"></i></button></div>`
+      + `<div class="row1">${QR_MAIN.map(qrTile).join("")}</div></div>`
+      + `<div class="spc"><div class="spcar scroll">`
+      + `<button class="car-nav prev" data-dir="-1" aria-label="往左看"><i data-ic="chevronRight"></i></button>`
+      + `<div class="sptrack">${QR_AMT.map(qrTile).join("")}</div>`
+      + `<button class="car-nav next" data-dir="1" aria-label="往右看"><i data-ic="chevronRight"></i></button></div></div></div>`;
+    document.body.appendChild(spm); KIT.hydrate(spm);
+    // 第二行左右滑：和首页大卡那一排同一套（格子不是 <button>，因为 hscroll 在按钮上按下不开始拖）
+    const tr = spm.querySelector(".sptrack");
+    spS = hscroll(spm.querySelector(".spcar"), tr, () => tr.querySelector(".qt").offsetWidth + 8);
+    spm.addEventListener("click", e => {
+      if (e.target === spm || e.target.closest(".sph .x")) return closeSponsor();
+      const t = e.target.closest(".qt"); if (t) zoomQR(t);
+    });
+    spm.addEventListener("keydown", e => { const t = e.target.closest?.(".qt"); if (t && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); zoomQR(t); } });
+  }
+  if (!spm.hidden && !spm.classList.contains("leave")) return;
+  clearTimeout(spm._t); spm.classList.remove("leave"); spm.hidden = false;
+  spm.classList.remove("enter"); void spm.offsetWidth; spm.classList.add("enter");
+  spS.reset(); requestAnimationFrame(spS.edges);
+}
+function closeSponsor() {
+  if (!spm || spm.hidden || spm.classList.contains("leave")) return;
+  spm.classList.remove("enter"); spm.classList.add("leave");
+  spm._t = setTimeout(() => { spm.hidden = true; spm.classList.remove("leave"); }, 140);
+}
+// 看大图：按窗口放到最大（上下各留 24，最高 680），从缩略图的位置放大出来；关的时候缩回去
+function zoomQR(tile) {
+  const thumb = tile.querySelector("img"); if (!thumb || spz) return; // 占位的格子没有图可放大
+  const ar = +tile.dataset.ar;
+  let h = Math.min(680, innerHeight - 40 - 48), w = h * ar;
+  if (w > innerWidth - 96) { w = innerWidth - 96; h = w / ar; }
+  spz = Object.assign(document.createElement("div"), { className: "spz" });
+  spz.innerHTML = `<img src="${thumb.src}" alt="${thumb.alt}" draggable="false" style="width:${Math.round(w)}px;height:${Math.round(h)}px">`
+    + `<button class="x" title="关闭"><i data-ic="x"></i></button>`;
+  document.body.appendChild(spz); KIT.hydrate(spz);
+  const big = spz.querySelector("img"), a = thumb.getBoundingClientRect(), b = big.getBoundingClientRect();
+  const from = `translate(${a.left - b.left}px, ${a.top - b.top}px) scale(${a.width / b.width})`;
+  spz._back = () => { const r = thumb.getBoundingClientRect(); return `translate(${r.left - b.left}px, ${r.top - b.top}px) scale(${r.width / b.width})`; };
+  spz._thumb = thumb;
+  if (!spReduce.matches) {
+    thumb.classList.add("lift");
+    const bg = getComputedStyle(spz).backgroundColor; // 只淡入遮罩，图本身不透明地从缩略图那里放大
+    spz.animate([{ backgroundColor: "transparent" }, { backgroundColor: bg }], { duration: 220, easing: "cubic-bezier(.2, .7, .2, 1)" });
+    big.animate([{ transform: from, borderRadius: "4px" }, { transform: "none", borderRadius: "18px" }], { duration: 320, easing: "cubic-bezier(.3, .7, .2, 1)" });
+  }
+  spz.addEventListener("click", closeZoom);
+}
+function closeZoom() {
+  const z = spz; if (!z || z.classList.contains("leave")) return;
+  z.classList.add("leave");
+  const done = () => { z._thumb.classList.remove("lift"); z.remove(); if (spz === z) spz = null; };
+  if (spReduce.matches) return done();
+  z.animate([{ backgroundColor: getComputedStyle(z).backgroundColor }, { backgroundColor: "transparent" }], { duration: 220, easing: "cubic-bezier(.4, 0, .2, 1)", fill: "forwards" });
+  z.querySelector(".x").animate([{ opacity: 1 }, { opacity: 0 }], { duration: 120, fill: "forwards" });
+  z.querySelector("img").animate([{ transform: "none", borderRadius: "18px" }, { transform: z._back(), borderRadius: "4px" }], { duration: 220, easing: "cubic-bezier(.4, 0, .2, 1)", fill: "forwards" }).onfinish = done;
+}
+// 点心、或者点「点击赞赏」那个标签（× 除外）都打开
+document.addEventListener("click", e => {
+  if (e.target.closest(".tipcall .x")) return;
+  if (e.target.closest(".hd .mark .tipme, .tipcall")) openSponsor();
+});
+// Esc 一次关一层：先关大图，再关浮层
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  if (spz) closeZoom(); else closeSponsor();
 });
 </script>
 </body>
