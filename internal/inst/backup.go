@@ -400,10 +400,12 @@ func (m *Manager) RestoreBackup(name, file string) error {
 	if err != nil {
 		return err
 	}
-	if err := checkEntryPaths(plan.entries, i.Dir); err != nil {
+	// 先查世界文件夹本身（是普通文件、是链接），再逐条查落点：世界文件夹的位置上是个普通文件时，
+	// Mac 上解真实路径会先报「查不清实际在哪里」，盖住更准的「是一个文件，不是文件夹」（11-27 Mac 的 CI 上看到的）
+	if err := checkWorldFolders(i.Dir, plan.folders); err != nil {
 		return err
 	}
-	if err := checkWorldFolders(i.Dir, plan.folders); err != nil {
+	if err := checkEntryPaths(plan.entries, i.Dir); err != nil {
 		return err
 	}
 	if len(worlds) > 0 {
