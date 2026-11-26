@@ -223,7 +223,8 @@
   .drop .ico { width: 15px; height: 15px; }
   /* 第三步「最后设置一下」（11-26 主会话画的第一稿）：现在程序里「基本设置」那一页的东西都在，重新排成和前两步一样的大面板（外 26、内边距 8）：
      左边「服务器」（名称，下面一行小字是存在哪个文件夹、可以改；端口和内存一行；服务器介绍），右边「游戏规则」（难度、默认游戏模式两排分段选，
-     选中的底色滑过去，同前两步；正版验证、允许飞行、白名单三个开关），最底下横跨两块的一条是 EULA（贴着面板的角，圆角 18 = 26 − 8）。
+     选中的底色滑过去，同前两步；允许飞行一个开关），最底下横跨两块的一条是 EULA（贴着面板的角，圆角 18 = 26 − 8）。
+     第一稿右边还有正版验证、白名单两个开关，作者问「联机开不开」这两步怎么接以后挪到了第四步「谁能进」（见第四步的注释）。
      EULA 没勾时点「下一步」不往下走，那一条标红、左右晃一下。代理端没有端口、介绍、游戏规则和 EULA，右边换成一段说明 */
   .setp { width: 100%; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-1); box-sizing: border-box; height: 520px;
           display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: minmax(0, 1fr) auto; gap: 8px; }
@@ -280,6 +281,84 @@
   .eula.bad { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger-text) 60%, transparent); }
   .eula.bad .msg { opacity: 1; }
   .placeholder { margin-top: 24px; width: 100%; height: 360px; border-radius: 26px; border: 1px dashed var(--border); display: grid; place-items: center; color: var(--faint); font-size: 13px; }
+  /* 第四步「让朋友连进来」（11-26 主会话画的第一稿）：和第三步一样大的面板，两块。
+     左边「朋友怎么连」：只在局域网 / 开内网穿透，二选一，默认局域网；选中的底色上下滑（同前几步的选中框）。底下跟着选的那样逐项换（竖着挪）：
+     局域网是朋友要填的地址，内网穿透是挑平台（三张小卡，选中的底色左右滑；底下一段跟着平台横着逐项换）。
+     右边「谁能进」：正版验证、白名单（从第三步挪过来）；白名单打开时底下展开一栏，可以先把朋友的游戏名加进来；
+     最底下一句跟着两边的选择变，该提醒的时候是黄底。行、卡片离边都有 16，圆角不受同心的限制；输入框里贴边 5 的小块圆角 5（10 − 5） */
+  .setp.link { grid-template-rows: minmax(0, 1fr); }
+  .via { position: relative; display: flex; flex-direction: column; gap: 4px; }
+  .via .vhl, .plats .phl { position: absolute; left: 0; top: 0; border-radius: 12px; background: var(--accent-subtle); pointer-events: none;
+                           box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+                           transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1), height .32s cubic-bezier(.3, .7, .2, 1); }
+  .via .vhl { right: 0; }
+  .plats .phl { bottom: 0; }
+  .opt { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 12px; cursor: pointer; transition: background .2s, opacity .2s; }
+  .opt:hover:not(.on):not(.off) { background: var(--hover); }
+  .opt .oi { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--surface); color: var(--muted); flex: none; transition: color .2s; }
+  .opt .oi .ico { width: 18px; height: 18px; }
+  .opt.on .oi { color: var(--accent-text); }
+  .opt .m { min-width: 0; }
+  .opt .t { font-size: 14px; font-weight: 600; }
+  .opt.on .t { color: var(--accent-text); }
+  .opt .d { font-size: 12px; line-height: 18px; color: var(--muted); margin-top: 1px; }
+  .opt.off { opacity: .5; cursor: default; }
+  .vdet, .pdet { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .vdet { margin-top: 2px; }
+  .pdet { margin-top: 4px; }
+  .vdet > .lb { font-size: 12.5px; color: var(--muted); font-weight: 500; }
+  .addr { display: flex; align-items: center; height: 40px; padding: 0 6px 0 12px; border-radius: 10px; background: var(--field); border: 1px solid var(--border); box-sizing: border-box; }
+  .addr .mono { font-size: 14px; }
+  .addr .unk { margin-left: 2px; font-size: 12.5px; color: var(--faint); }
+  .addr .sp { flex: 1; }
+  .ib { width: 28px; height: 28px; border-radius: 4px; border: 0; background: none; color: var(--muted); display: grid; place-items: center; cursor: pointer; padding: 0; transition: background .2s, color .2s; }
+  .ib:hover { background: var(--hover); color: var(--text); }
+  .ib .ico { width: 15px; height: 15px; }
+  .ib.done { color: var(--accent-text); }
+  .plats { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .plat { position: relative; z-index: 1; padding: 9px 12px; border-radius: 12px; cursor: pointer; background: color-mix(in srgb, var(--surface) 70%, transparent); transition: background .2s; min-width: 0; }
+  .plat:hover:not(.on) { background: var(--hover); }
+  .plat.on { background: transparent; }
+  .plat .n { font-size: 13.5px; font-weight: 600; white-space: nowrap; }
+  .plat.on .n { color: var(--accent-text); }
+  .plat .m { font-size: 12px; color: var(--muted); margin-top: 1px; display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .dot { width: 7px; height: 7px; border-radius: 2px; background: var(--faint); flex: none; }
+  .dot.ok { background: var(--success); }
+  .fnote a + a { margin-left: 12px; }
+  .fnote.p { display: block; } /* 一段话里夹着端口号这种 <b> 的：照段落排，不按 flex 拆成几块 */
+  .conn { display: flex; align-items: center; gap: 10px; min-height: 34px; font-size: 13px; color: var(--muted); transition: color .2s; }
+  .conn.bad { color: var(--danger-text); }
+  .conn .ico { width: 15px; height: 15px; }
+  .spin { animation: spin .9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .sbtn { height: 30px; padding: 0 14px; border-radius: var(--r-full); border: 0; background: var(--accent-subtle); color: var(--accent-text); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+  .sbtn:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+  .frps { display: flex; gap: 6px; }
+  .frps .inp { flex: 1; min-width: 0; font-size: 13px; }
+  .frps .fport { flex: none; width: 76px; }
+  .tg.sm .t { font-size: 13px; }
+  .tg.sm { margin-top: 4px; }
+  /* 白名单名单：开关打开时从零高展开（grid 0fr → 1fr），关上时收回去；列里的间距 16 跟着收成负的，不留空 */
+  .wlx { display: grid; grid-template-rows: 0fr; margin-top: -16px; opacity: 0;
+         transition: grid-template-rows .32s cubic-bezier(.3, .7, .2, 1), margin-top .32s cubic-bezier(.3, .7, .2, 1), opacity .2s; }
+  .wlx.open { grid-template-rows: 1fr; margin-top: -4px; opacity: 1; }
+  .wlin { min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 6px; }
+  .names { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-height: 40px; padding: 5px; box-sizing: border-box; border-radius: 10px;
+           background: var(--field); border: 1px solid var(--border); cursor: text; transition: border-color .2s; }
+  .names:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
+  .names.bad { border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
+  .names input { flex: 1; min-width: 180px; height: 28px; border: 0; background: none; outline: none; padding: 0 6px; font: inherit; font-size: 13px; color: var(--text); }
+  .names input::placeholder { color: var(--faint); }
+  .nchip { display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 0 3px 0 10px; border-radius: 5px; background: var(--accent-subtle); color: var(--accent-text);
+           font-size: 12.5px; font-weight: 500; }
+  .nchip .nx { width: 20px; height: 20px; border-radius: 4px; display: grid; place-items: center; cursor: pointer; opacity: .7; }
+  .nchip .nx:hover { opacity: 1; background: color-mix(in srgb, var(--accent) 18%, transparent); }
+  .nchip .nx .ico { width: 12px; height: 12px; }
+  .whint { margin-top: auto; display: flex; gap: 8px; align-items: flex-start; font-size: 12px; line-height: 18px; color: var(--faint); padding: 10px 12px;
+           border-radius: 12px; transition: background .2s, color .2s; }
+  .whint .ico { width: 14px; height: 14px; flex: none; margin-top: 2px; }
+  .whint.warn { background: color-mix(in srgb, var(--warning) 12%, transparent); color: var(--warning-text); }
+  .whint.info { background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--muted); }
 
   /* 底部：胶囊沉下去以后，左下角「上一步」、右下角「下一步」，和版心的左右边对齐；中间一排小点是第几步（主会话加的，不要可以去掉）。
      两个按钮各是一颗单独的胶囊，44 高、13 号字（作者 11-26：原来 52 高整块实心，看着比首页导航条大；
@@ -325,6 +404,8 @@ window.EXTRA_ICONS = {
   map: '<path d="M2.4 4.2L6 2.6l4 1.6 3.6-1.6v9.2L10 13.4l-4-1.6-3.6 1.6z"/><path d="M6 2.6v9.2M10 4.2v9.2"/>',
   archiveRestore: '<rect x="1.8" y="2.4" width="12.4" height="3.2" rx=".7"/><path d="M3 5.6v7a1.2 1.2 0 001.2 1.2h1.2M13 5.6v7a1.2 1.2 0 01-1.2 1.2h-1.2"/><path d="M6 10l2-2 2 2M8 8v5.8"/>',
   folderInput: '<path d="M2.4 7.2V4.6h3.4l1.4 1.6h6.4v6.4H2.4v-1.4"/><path d="M1 9.4h6.2M5.2 7.4l2 2-2 2"/>',
+  // 第四步「只在局域网」（主会话补的，同样的画法）
+  wifi: '<path d="M1.6 6.2a9 9 0 0112.8 0M3.8 8.6a5.8 5.8 0 018.4 0M6 11a2.7 2.7 0 014 0"/><circle cx="8" cy="13.3" r=".9" fill="currentColor" stroke="none"/>',
 };
 // 玩法四块（问题 U05 定的方向）：每块下面只列这一类的核心，推荐的预先选好
 const PLAYS = [
@@ -663,9 +744,7 @@ function step3() {
     : `<div class="col"><h3>游戏规则</h3>
       <div class="fld"><span class="lb">难度</span>${seg("diff", [["peaceful", "和平"], ["easy", "简单"], ["normal", "普通"], ["hard", "困难"]])}</div>
       <div class="fld"><span class="lb">默认游戏模式</span>${seg("mode", [["survival", "生存"], ["creative", "创造"], ["adventure", "冒险"], ["spectator", "旁观"]])}</div>
-      ${tg("online", "正版验证", "online-mode", "关着时离线账号也能进，但不用正版 UUID，也不显示正版皮肤")}
       ${tg("flight", "允许飞行", "allow-flight", "开着可以防止骑乘、模组的移动被误当成飞行踢出去")}
-      ${tg("wl", "只允许白名单里的玩家进入", "white-list", "关着时知道地址的人都能进；只想让熟人进就打开，建好后在「玩家」里加名字")}
       <div class="shint">PVP、视距等高级参数，建好后随时可以改。</div>
     </div>`;
   const eula = proxy ? "" : `<div class="eula${SET.eula ? "" : ""}" data-eula><div class="tg${SET.eula ? " on" : ""}" style="pointer-events:none"><span class="sw"></span></div>
@@ -694,9 +773,189 @@ function checkSettings() {
   }
   return ok;
 }
+// ---- 第四步：让朋友连进来 ----
+// 作者 11-26 问：第三步和这一步，「联机开不开」到底怎么接。主会话的想法：服务器建好本来就能联机，同一个 Wi-Fi 的朋友填局域网地址就进得来，
+// 所以这一步问的不是「开不开」，是两件事：朋友从哪儿连（只在局域网 / 开内网穿透，默认局域网，同 tunnels.html 定的），和谁能进（正版验证、白名单）。
+// 谁能进原来在第三步，可它该不该开要看前一件——放到外网、谁拿到地址都能进，才更该开白名单；朋友用离线启动器，就不能开正版验证——
+// 所以挪到这一步，和「怎么连」放在一页。最底下一句跟着两边的选择说该注意什么，只提醒、不替人开关。
+// 端口取第三步填的，回去改了这里跟着变；这一步选的东西来回翻步也记着。
+// 平台账户、节点都是假的：OpenFrp 已连接（账户 steve），樱花没连（点「连接账户」假装在浏览器里登录 1.2 秒），本机局域网 IP 192.168.1.5。
+// 代理端（Velocity、Waterfall）的端口写在它自己的配置文件里，第一次启动才生成，程序不拿猜的数冒充（inst.ConnectPort），
+// 所以地址那里照程序说「端口第一次启动以后才知道」，内网穿透也要等那之后在「联机」里开；右边换成一段说明
+const LINK = { via: "lan", plat: "openfrp", sakura: false, connecting: false, pub: false, frps: { host: "", port: "7000", token: "" }, names: [] };
+const LAN_IP = "192.168.1.5";
+const PLATS = [["openfrp", "OpenFrp"], ["sakura", "樱花穿透"], ["frps", "自己的 frps"]];
+const viaOf = () => isProxyCore() ? "lan" : LINK.via;
+const ltg = (key, t, d) => `<div class="tg sm${LINK[key] ? " on" : ""}" data-ltg="${key}"><div class="m"><div class="t">${t}</div><div class="d">${d}</div></div><span class="sw"></span></div>`;
+const nchip = n => `<span class="nchip" data-name="${esc(n)}">${esc(n)}<span class="nx" data-unname="${esc(n)}" title="拿掉"><i data-ic="x"></i></span></span>`;
+function platMeta(k) {
+  if (k === "openfrp") return `<i class="dot ok"></i>已连接 · steve`;
+  if (k === "sakura") return LINK.sakura ? `<i class="dot ok"></i>已连接 · steve` : `<i class="dot"></i>未连接`;
+  return "填地址和令牌";
+}
+// 选了哪个平台，底下那段说什么
+function platDetail() {
+  const k = LINK.plat;
+  const auto = name => `<span class="fnote p">MineDeck 替你在${name}上建隧道：本地端口 <b>${esc(SET.port)}</b>，节点自动挑了香港 2 号。</span>
+    <span class="fnote"><a>换节点</a><a>用平台上已有的隧道</a></span>`;
+  if (k === "openfrp") return auto(" OpenFrp ");
+  if (k === "sakura" && LINK.sakura) return auto("樱花穿透") + ltg("pub", "这是公开服务器", "发到论坛、QQ 大群里招人的才打开；樱花规定这种只能用公开服专用节点");
+  if (k === "sakura") return `<div class="conn">${LINK.connecting ? `<i data-ic="spinner" class="spin"></i>等你在浏览器里登录…`
+      : `<span>还没连接樱花穿透的账户</span><button class="sbtn" data-act="connect">连接账户</button>`}</div>
+    <span class="fnote">会打开浏览器登录一次，以后这台电脑上不用再连。</span>`;
+  return `<div class="frps"><input class="inp" id="fhost" placeholder="服务器地址" value="${esc(LINK.frps.host)}" autocomplete="off"><input class="inp fport" id="fport" placeholder="端口" value="${esc(LINK.frps.port)}" inputmode="numeric"><input class="inp" id="ftoken" type="password" placeholder="令牌（没设就空着）" value="${esc(LINK.frps.token)}"></div>
+    <span class="fnote p">有自己的 frp 服务器才用这个；本地端口 <b>${esc(SET.port)}</b>。</span>`;
+}
+// 「朋友怎么连」底下那一段
+function viaDetail() {
+  if (viaOf() === "lan") {
+    const proxy = isProxyCore();
+    return `<span class="lb">同一局域网的朋友在游戏里添加服务器时填这个</span>
+    <div class="addr"><span class="mono">${LAN_IP}:${proxy ? "" : esc(SET.port)}</span>${proxy ? `<span class="unk">端口第一次启动以后才知道</span>`
+      : `<span class="sp"></span><button class="ib" data-act="copy" title="复制"><i data-ic="copy"></i></button>`}</div>
+    <span class="fnote">以后想让外地的朋友也进来，随时能在服务器的「联机」里开内网穿透。</span>`;
+  }
+  return `<span class="lb">用哪个平台</span>
+    <div class="plats"><i class="phl"></i>${PLATS.map(([k, n]) => `<div class="plat${LINK.plat === k ? " on" : ""}" data-plat="${k}"><div class="n">${n}</div><div class="m">${platMeta(k)}</div></div>`).join("")}</div>
+    <div class="pdet">${platDetail()}</div>`;
+}
+// 「谁能进」最底下那一句：[样子, 话]。样子 warn 是黄底、info 是灰底、空的就是一行淡字
+function whoHint() {
+  const tun = viaOf() === "tunnel";
+  if (SET.wl && !LINK.names.length) return ["warn", "白名单开着、名单还是空的，建好后朋友进不来。先把他们的游戏名加进来，也可以建好后在「玩家」里加。"];
+  if (tun && !SET.wl) return ["warn", "开了内网穿透，拿到地址的人都能进。只想让熟人进，就把白名单打开。"];
+  if (tun && !SET.online) return ["info", "没开正版验证时，白名单只认名字，别人把名字改成一样也能进。朋友都用正版的话，可以把正版验证也打开。"];
+  return ["", "这两样建好后都能改：正版验证在服务器的「设置」里，白名单在「玩家」里。"];
+}
+const hintHTML = ([cls, txt]) => `${cls ? `<i data-ic="${cls === "warn" ? "warn" : "info"}"></i>` : ""}<span>${txt}</span>`;
+function step4() {
+  const proxy = isProxyCore(), via = viaOf();
+  const opt = (k, ico, t, d, off) => `<div class="opt${via === k ? " on" : ""}${off ? " off" : ""}" data-via="${k}"><span class="oi"><i data-ic="${ico}"></i></span><div class="m"><div class="t">${t}</div><div class="d">${d}</div></div></div>`;
+  const left = `<div class="col"><h3>朋友怎么连</h3>
+    <div class="via"><i class="vhl"></i>
+      ${opt("lan", "wifi", "只在局域网", "和你连同一个 Wi-Fi、同一个路由器的朋友能进")}
+      ${opt("tunnel", "globe", "开内网穿透", proxy ? "代理端的端口第一次启动以后才知道，启动过以后在「联机」里开" : "不在同一个网络的朋友也能进，隧道跟着服务器一起启动", proxy)}
+    </div>
+    <div class="vdet">${viaDetail()}</div></div>`;
+  const h = whoHint();
+  const right = proxy
+    ? `<div class="col"><h3>谁能进</h3><div class="pnote">代理端只做转发：正版验证在它自己的配置文件里改，<br>白名单在后面接的各台服务器上开。</div></div>`
+    : `<div class="col"><h3>谁能进</h3>
+      ${tg("online", "正版验证", "online-mode", "关着时离线账号也能进，但不用正版 UUID，也不显示正版皮肤")}
+      ${tg("wl", "只允许白名单里的玩家进入", "white-list", "关着时知道地址的人都能进；只想让熟人进，就打开它")}
+      <div class="wlx${SET.wl ? " open" : ""}"><div class="wlin">
+        <div class="names" id="names">${LINK.names.map(nchip).join("")}<input id="wlname" maxlength="16" placeholder="输入朋友的游戏名，回车加进来" autocomplete="off" spellcheck="false"></div>
+        <span class="fnote" id="wlnote">建好后在「玩家」里也能加减</span></div></div>
+      <div class="whint ${h[0]}" id="whint">${hintHTML(h)}</div></div>`;
+  return `<div class="setp link">${left}${right}</div>`;
+}
+// 选中的底色挪到选中的那一项（竖着的「怎么连」、横着的平台）
+function placeHLOf(boxSel, hlSel, onSel, axis, animate) {
+  const box = document.querySelector(boxSel); if (!box) return;
+  const hl = box.querySelector(hlSel), on = box.querySelector(onSel); if (!hl || !on) return;
+  if (!animate) hl.style.transition = "none";
+  const bb = box.getBoundingClientRect(), ob = on.getBoundingClientRect(); // 平台三张卡是三等分，宽度带小数，用 offsetLeft 会差零点几像素
+  if (axis === "Y") { hl.style.transform = `translateY(${ob.top - bb.top}px)`; hl.style.height = ob.height + "px"; }
+  else { hl.style.transform = `translateX(${ob.left - bb.left}px)`; hl.style.width = ob.width + "px"; }
+  if (!animate) { void hl.offsetWidth; hl.style.transition = ""; }
+}
+const placeVia = a => placeHLOf(".via", ".vhl", ".opt.on", "Y", a);
+const placePlat = a => placeHLOf(".plats", ".phl", ".plat.on", "X", a);
+addEventListener("resize", () => { placeVia(false); placePlat(false); });
+// 逐项换（同第一步的介绍）：旧的几样一样一样淡出，换上新的，新的再一样一样淡进来；axis 是挪的方向，dir 是往哪边
+function swapItems(box, html, dir, axis, after) {
+  if (!box) return;
+  const easeIn = "cubic-bezier(.4, 0, 1, 1)", easeOut = "cubic-bezier(.2, .7, .2, 1)", d = 5 * dir;
+  const tf = v => axis === "X" ? `translateX(${v}px)` : `translateY(${v}px)`;
+  const tok = box._tok = (box._tok || 0) + 1, olds = [...box.children];
+  olds.forEach((x, i) => x.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: tf(-d) }], { duration: 90, delay: i * 22, easing: easeIn, fill: "forwards" }));
+  setTimeout(() => {
+    if (box._tok !== tok) return;
+    box.innerHTML = html; KIT.hydrate(box); after?.();
+    [...box.children].forEach((x, i) => x.animate([{ opacity: 0, transform: tf(d) }, { opacity: 1, transform: "none" }], { duration: 220, delay: i * 22, easing: easeOut, fill: "backwards" }));
+  }, 90 + Math.max(0, olds.length - 1) * 22);
+}
+// 最底下那一句换了才换：旧的淡掉，新的（连同底色）淡进来
+function paintHint() {
+  const el = document.getElementById("whint"); if (!el) return;
+  const [cls, txt] = whoHint();
+  if (el.dataset.txt === txt) return;
+  el.dataset.txt = txt;
+  el.getAnimations().forEach(a => a.cancel());
+  el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 90, easing: "cubic-bezier(.4, 0, 1, 1)", fill: "forwards" }).onfinish = a => {
+    const now = whoHint(); el.className = `whint ${now[0]}`; el.innerHTML = hintHTML(now); el.dataset.txt = now[1]; KIT.hydrate(el);
+    el.getAnimations().forEach(x => x.cancel());
+    el.animate([{ opacity: 0, transform: "translateY(4px)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: "cubic-bezier(.2, .7, .2, 1)" });
+  };
+}
+function pickVia(k) {
+  const dir = k === "tunnel" ? 1 : -1;
+  LINK.via = k;
+  document.querySelectorAll(".opt").forEach(o => o.classList.toggle("on", o.dataset.via === k));
+  placeVia(true);
+  swapItems(document.querySelector(".vdet"), viaDetail(), dir, "Y", () => placePlat(false));
+  paintHint();
+}
+function pickPlat(k) {
+  const order = PLATS.map(x => x[0]), dir = order.indexOf(k) > order.indexOf(LINK.plat) ? 1 : -1;
+  LINK.plat = k;
+  document.querySelectorAll(".plat").forEach(x => x.classList.toggle("on", x.dataset.plat === k));
+  placePlat(true);
+  swapItems(document.querySelector(".pdet"), platDetail(), dir, "X");
+}
+// 连接樱花的账户：草图里不真开浏览器，转 1.2 秒就算连上
+function connectSakura() {
+  if (LINK.connecting || LINK.sakura) return;
+  LINK.connecting = true;
+  swapItems(document.querySelector(".pdet"), platDetail(), 1, "Y");
+  setTimeout(() => {
+    LINK.connecting = false; LINK.sakura = true;
+    const m = document.querySelector('[data-plat="sakura"] .m'); if (m) m.innerHTML = platMeta("sakura");
+    if (viaOf() === "tunnel" && LINK.plat === "sakura") swapItems(document.querySelector(".pdet"), platDetail(), 1, "Y");
+  }, 1200);
+}
+// 白名单的名字：回车、空格、逗号加一个，输入框空着按退格拿掉最后一个；游戏名是 3 到 16 个英文字母、数字或下划线
+function addName(v) {
+  const n = v.trim(), inp = document.getElementById("wlname"), box = document.getElementById("names"), note = document.getElementById("wlnote");
+  if (!n) return;
+  if (!/^[A-Za-z0-9_]{3,16}$/.test(n)) {
+    box.classList.add("bad"); note.classList.add("bad"); note.textContent = "游戏名是 3 到 16 个英文字母、数字或下划线";
+    box.animate([{ transform: "none" }, { transform: "translateX(-5px)" }, { transform: "translateX(4px)" }, { transform: "none" }], { duration: 300, easing: "cubic-bezier(.3, .7, .2, 1)" });
+    return;
+  }
+  inp.value = "";
+  if (LINK.names.some(x => x.toLowerCase() === n.toLowerCase())) return;
+  LINK.names.push(n);
+  inp.insertAdjacentHTML("beforebegin", nchip(n)); const c = inp.previousElementSibling; KIT.hydrate(c);
+  c.animate([{ opacity: 0, transform: "scale(.85)" }, { opacity: 1, transform: "none" }], { duration: 200, easing: "cubic-bezier(.2, .7, .2, 1)" });
+  paintHint();
+}
+function removeName(n) {
+  LINK.names = LINK.names.filter(x => x !== n);
+  const c = [...document.querySelectorAll(".nchip")].find(x => x.dataset.name === n && !x.classList.contains("out"));
+  if (c) { c.classList.add("out"); c.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(.85)" }], { duration: 140, easing: "cubic-bezier(.4, 0, 1, 1)", fill: "forwards" }).onfinish = () => c.remove(); }
+  paintHint();
+}
+// 白名单开关、正版验证开关一动，名单那栏展开收起、最底下那句跟着变
+function afterWho(k) {
+  if (k === "wl") {
+    document.querySelector(".wlx")?.classList.toggle("open", SET.wl);
+    if (SET.wl) setTimeout(() => document.getElementById("wlname")?.focus({ preventScroll: true }), 220);
+  }
+  paintHint();
+}
+// 点「创建服务器」前：开了内网穿透的话，平台要能用（樱花得先连上，自己的 frps 得填地址）
+function checkLink() {
+  if (viaOf() !== "tunnel") return true;
+  const pd = document.querySelector(".pdet"), shake = el => el.animate([{ transform: "none" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "none" }],
+    { duration: 360, easing: "cubic-bezier(.3, .7, .2, 1)" });
+  if (LINK.plat === "sakura" && !LINK.sakura) { const c = pd.querySelector(".conn"); if (c) { c.classList.add("bad"); shake(c); } return false; }
+  if (LINK.plat === "frps" && !LINK.frps.host.trim()) { const h = document.getElementById("fhost"); h.classList.add("bad"); h.focus(); shake(h); return false; }
+  return true;
+}
 function render() {
   const names = STEPS();
-  const body = step === 0 ? step1() : play !== 0 && step === 1 ? step2() : names[step] === "最后设置一下" ? step3() : `<div class="placeholder">这一步的内容还没画</div>`;
+  const body = step === 0 ? step1() : play !== 0 && step === 1 ? step2() : names[step] === "最后设置一下" ? step3() : names[step] === "让朋友连进来" ? step4() : `<div class="placeholder">这一步的内容还没画</div>`;
   const sub = play !== 0 && step === 1 ? "暂不预装可直接进入下一步" : "";
   document.getElementById("page").innerHTML = `<h1 class="q${sub ? " has-sub" : ""}">${names[step]}</h1>${sub ? `<p class="qsub">${sub}</p>` : ""}` + body;
   // 小点：个数对得上就只挪「当前」那个（宽的那个平滑挪过去），对不上（第一次画）才整排重画
@@ -708,6 +967,8 @@ function render() {
   document.querySelectorAll(".addon .lwrap").forEach(scrollbar);
   const chips = document.querySelector(".chips"); if (chips) { chipScroll(chips); placeChipHL(false); }
   document.querySelectorAll(".seg").forEach(el => placeSeg(el, false));
+  placeVia(false); placePlat(false);
+  const wh = document.getElementById("whint"); if (wh) wh.dataset.txt = whoHint()[1];
   document.getElementById("agrid")?.addEventListener("scroll", moreCards, { passive: true });
   cartMeta();
   settleVersions();
@@ -976,7 +1237,21 @@ document.getElementById("page").addEventListener("click", e => {
   const sg = e.target.closest(".seg span"), tgl = e.target.closest("[data-tg]"), eu = e.target.closest("[data-eula]");
   if (sg) { const box = sg.parentElement; if (sg.classList.contains("on")) return; SET[box.dataset.seg] = sg.dataset.v;
     box.querySelectorAll("span").forEach(x => x.classList.toggle("on", x === sg)); placeSeg(box, true); return; }
-  if (tgl) { SET[tgl.dataset.tg] = !SET[tgl.dataset.tg]; tgl.classList.toggle("on", SET[tgl.dataset.tg]); return; }
+  if (tgl) { SET[tgl.dataset.tg] = !SET[tgl.dataset.tg]; tgl.classList.toggle("on", SET[tgl.dataset.tg]); afterWho(tgl.dataset.tg); return; }
+  const vo = e.target.closest("[data-via]"), pf = e.target.closest("[data-plat]"), lt = e.target.closest("[data-ltg]"), rn = e.target.closest("[data-unname]");
+  if (vo) { if (!vo.classList.contains("on") && !vo.classList.contains("off")) pickVia(vo.dataset.via); return; }
+  if (pf) { if (!pf.classList.contains("on")) pickPlat(pf.dataset.plat); return; }
+  if (lt) { LINK[lt.dataset.ltg] = !LINK[lt.dataset.ltg]; lt.classList.toggle("on", LINK[lt.dataset.ltg]); return; }
+  if (rn) { removeName(rn.dataset.unname); return; }
+  if (e.target.closest('[data-act="connect"]')) { connectSakura(); return; }
+  const cp = e.target.closest('[data-act="copy"]');
+  if (cp) { // 复制地址：图标换成勾 1.2 秒
+    navigator.clipboard?.writeText(`${LAN_IP}:${SET.port}`).catch(() => {});
+    cp.classList.add("done"); cp.innerHTML = `<i data-ic="check"></i>`; KIT.hydrate(cp);
+    clearTimeout(cp._t); cp._t = setTimeout(() => { cp.classList.remove("done"); cp.innerHTML = `<i data-ic="copy"></i>`; KIT.hydrate(cp); }, 1200);
+    return;
+  }
+  if (e.target.closest(".names")) { document.getElementById("wlname")?.focus(); return; }
   if (eu && !e.target.closest("a")) { SET.eula = !SET.eula; eu.querySelector(".tg").classList.toggle("on", SET.eula); if (SET.eula) eu.classList.remove("bad"); return; }
   if (e.target.closest('[data-act="root"]')) return; // 草图里不真弹选文件夹的窗口
   const pl = e.target.closest("[data-play]"), co = e.target.closest("[data-core]"), ve = e.target.closest("[data-ver]");
@@ -1001,6 +1276,17 @@ document.getElementById("page").addEventListener("input", e => {
   else if (t.id === "sport") { SET.port = t.value.trim(); t.classList.remove("bad"); const n = document.getElementById("pnote"); n.outerHTML = portNote(); KIT.hydrate(document.querySelector(".port")); }
   else if (t.id === "smem") { SET.mem = +t.value; t.style.setProperty("--p", memPct()); document.getElementById("smemv").textContent = gb(SET.mem); }
   else if (t.id === "smotd") SET.motd = t.value;
+  else if (t.id === "fhost" || t.id === "fport" || t.id === "ftoken") { LINK.frps[{ fhost: "host", fport: "port", ftoken: "token" }[t.id]] = t.value; t.classList.remove("bad"); }
+  else if (t.id === "wlname") {
+    const box = document.getElementById("names"), note = document.getElementById("wlnote");
+    if (box.classList.contains("bad")) { box.classList.remove("bad"); note.classList.remove("bad"); note.textContent = "建好后在「玩家」里也能加减"; }
+  }
+});
+document.getElementById("page").addEventListener("keydown", e => {
+  if (e.target.id !== "wlname" || e.isComposing) return;
+  const t = e.target;
+  if (e.key === "Enter" || e.key === " " || e.key === ",") { e.preventDefault(); addName(t.value); }
+  else if (e.key === "Backspace" && !t.value && LINK.names.length) removeName(LINK.names[LINK.names.length - 1]);
 });
 // 搜索框：停手 0.18 秒再筛
 document.getElementById("page").addEventListener("input", e => {
@@ -1022,6 +1308,7 @@ function goStep(n) {
 }
 document.getElementById("next").addEventListener("click", () => {
   if (STEPS()[step] === "最后设置一下" && !checkSettings()) return;
+  if (STEPS()[step] === "让朋友连进来" && !checkLink()) return;
   if (step < STEPS().length - 1) goStep(step + 1);
 });
 document.getElementById("back").addEventListener("click", () => {
