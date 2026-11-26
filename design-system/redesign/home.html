@@ -7,9 +7,6 @@
 // 程序里没有的图标：工具箱（照 index.html 里内联的）、窗口三键、星标、控制台
 const STAR = "M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z";
 window.EXTRA_ICONS = {
-  // 赞赏：咖啡杯，杯口冒一颗小心（实心）；小心单独一组，好让它动
-  sponsor: '<path d="M3 7.2h8v2.4a3.2 3.2 0 01-3.2 3.2H6.2A3.2 3.2 0 013 9.6z"/><path d="M11 8h.9a1.5 1.5 0 010 3H11"/>'
-    + '<g class="tmh"><path d="M7 5.9C4.9 4.7 4.3 3.4 4.8 2.6c.5-.8 1.6-.8 2.2 0 .6-.8 1.7-.8 2.2 0 .5.8-.1 2.1-2.2 3.3z" fill="currentColor" stroke="none"/></g>',
   toolbox: '<path d="M5.5 4V2.8A.8.8 0 016.3 2h3.4a.8.8 0 01.8.8V4"/><rect x="2" y="4" width="12" height="9.5" rx="1.6"/><path d="M2 8h12M6.5 8v1.6h3V8"/>',
   winMin: '<path d="M4 8h8"/>', winMax: '<rect x="4" y="4" width="8" height="8" rx="1"/>', winClose: '<path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/>',
   console: '<rect x="2" y="3" width="12" height="10" rx="1.6"/><path d="M4.8 6.5l1.8 1.5-1.8 1.5M8 10h3"/>',
@@ -283,43 +280,39 @@ window.EXTRA_ICONS = {
   /* 第二版（作者：概览条不用那么长、字再大一点、上面多留白）：字每格 7 像素，上面留 40；概览条不再铺满，跟着内容的宽度、在字底下居中 */
   .hd { flex-direction: column; align-items: center; gap: 36px; margin: 32px 0 24px; } /* 基准 1280×800 下排得下的上限：字上面 84（含标题栏 40），字和概览条之间 36 */
   .hd .mark svg { display: block; }
-  /* 赞赏（作者 11-26）：字标右边一颗胶囊按钮「赞赏」，图标用最常见的赞助图标——咖啡杯，杯口冒一颗小心（和设置里 Java 的咖啡杯分开）。
-     第一版是一颗和字标同画法的像素心、隔几秒跳一下，作者说看着不明显、不要爱心，不用和字标一个画法，换成这个。
-     32 高胶囊（同搜索框），强调色浅底、强调色字；绝对定位，不占字标的位置，字标照旧居中；竖着对齐字面的中线（字面 10 格、往下挤出 2 格，中线在第 6 格）。
-     吸引眼球的动画有三种，草图左下角能切（草图专用，定了就删）：摇一摇（默认：每 5 秒图标左右摇几下，像响铃）、冒爱心（杯口的小心一直慢慢往上飘、淡掉，再冒一颗）、
-     光圈（每 3 秒从按钮边上扩出一圈淡掉）。鼠标移上去都停下；「减少动态」时都不动。点了以后打开什么还没定 */
+  /* 赞赏（作者 11-26：「minedeck 的右边能不能加一个间隔几秒钟跳动一下的赞赏 Icon」）：一颗和字标同样画法的像素心（wordmark.js 的「♥」），
+     贴在字标右边、隔两格；绝对定位，不占字标的位置，字标照旧居中。每 4.2 秒跳一下：先高跳 9 像素、落地再小跳 3 像素，快起慢停；
+     悬停不跳、往上抬 2 像素，悬停提示「赞赏」。点了打开什么还没定。「减少动态」时不跳 */
   .hd .mark { position: relative; }
-  .hd .mark .tipme { position: absolute; left: 100%; margin-left: 16px; height: 32px; padding: 0 14px 0 11px; border: 0; border-radius: 16px;
-                     display: flex; align-items: center; gap: 6px; white-space: nowrap; background: var(--accent-subtle); color: var(--accent-text);
-                     font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: background .2s; }
-  .hd .mark .tipme:hover { background: color-mix(in srgb, var(--accent) 26%, transparent); }
-  .hd .mark .tipme .ico { width: 16px; height: 16px; overflow: visible; }
-  .tipme .tmh { transform-box: fill-box; transform-origin: 50% 100%; }
-  .tipme.fx-wiggle .ico { transform-origin: 50% 85%; animation: tm-wiggle 5s infinite; }
-  @keyframes tm-wiggle {
-    0%, 86% { transform: none; }
-    88% { transform: rotate(-14deg); }
-    90.5% { transform: rotate(12deg); }
-    93% { transform: rotate(-8deg); }
-    95.5% { transform: rotate(5deg); }
+  .hd .mark .tipme { position: absolute; left: 100%; top: 0; margin-left: 10px; padding: 0; border: 0; background: none; cursor: pointer;
+                     animation: tipme-hop 4.2s infinite; transition: transform .2s cubic-bezier(.3, .7, .2, 1); }
+  .hd .mark .tipme:hover { animation: none; transform: translateY(-2px); }
+  @keyframes tipme-hop {
+    0%, 84% { transform: none; animation-timing-function: cubic-bezier(.2, .7, .2, 1); }
+    88% { transform: translateY(-9px); animation-timing-function: cubic-bezier(.5, 0, .8, .3); }
+    92% { transform: none; animation-timing-function: cubic-bezier(.2, .7, .2, 1); }
+    95% { transform: translateY(-3px); animation-timing-function: cubic-bezier(.5, 0, .8, .3); }
     98%, 100% { transform: none; }
   }
-  .tipme.fx-steam .tmh { animation: tm-steam 3.2s cubic-bezier(.3, .7, .2, 1) infinite; }
-  @keyframes tm-steam {
-    0% { opacity: 0; transform: translateY(2px) scale(.6); }
-    22% { opacity: 1; transform: none; }
-    70% { opacity: 1; transform: translateY(-2.5px); }
-    100% { opacity: 0; transform: translateY(-5px) scale(.9); }
-  }
-  .tipme.fx-ping::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: 0 0 0 1.5px var(--accent); opacity: 0; pointer-events: none;
-                          animation: tm-ping 3s cubic-bezier(.2, .7, .2, 1) infinite; }
-  @keyframes tm-ping {
-    0%, 55% { opacity: 0; transform: none; }
-    58% { opacity: .75; transform: none; }
-    100% { opacity: 0; transform: scale(1.3, 1.6); }
-  }
-  .hd .mark .tipme:hover .ico, .hd .mark .tipme:hover .tmh, .hd .mark .tipme:hover::after { animation: none; }
-  @media (prefers-reduced-motion: reduce) { .tipme .ico, .tipme .tmh, .tipme::after { animation: none !important; } }
+  @media (prefers-reduced-motion: reduce) { .hd .mark .tipme { animation: none; } }
+  /* 设置里关掉「爱心跳动」时（作者 11-26：设置里能让爱心不再跳）：草图用 ?hop=0 看 */
+  body.no-hop .hd .mark .tipme { animation: none; }
+  /* 赞赏的外挂标签（作者 11-26：像素心看着不明显，画个标签、用弯曲的虚线指向爱心，提示点击赞赏，带个 × 方便关掉）：
+     心的右上方一个「点击赞赏」的小标签，一条弯的虚线带箭头指向心的右上；标签 28 高胶囊，× 是 20 的圆、离标签外沿 4（14 − 4 = 10，同心）。
+     虚线和箭头用 SVG 画，位置按心和标签量出来，心跳的时候箭头指着心落地的位置。点 × 标签和虚线一起淡掉；
+     程序里关了就记住、以后不再出（草图刷新又会出来）。标签自己不动，动的只有心 */
+  .tipcall { position: absolute; z-index: 1; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 3px 0 12px; border-radius: 14px;
+             background: var(--overlay); border: 1px solid var(--border); box-shadow: var(--elev-2); color: var(--text); font-size: 12.5px; font-weight: 500;
+             white-space: nowrap; transition: opacity .16s, transform .16s; }
+  .tipcall .x { width: 20px; height: 20px; border-radius: 10px; border: 0; padding: 0; background: none; color: var(--muted); display: grid; place-items: center;
+                cursor: pointer; transition: background .15s, color .15s; }
+  .tipcall .x:hover { background: var(--hover); color: var(--text); }
+  .tipcall .x .ico { width: 12px; height: 12px; }
+  .tipline { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; color: var(--muted); transition: opacity .16s; }
+  .tipline path { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .tipline .tl { stroke-dasharray: 3.5 4.5; }
+  .tipcall.gone { opacity: 0; transform: translateY(-4px); pointer-events: none; }
+  .tipline.gone { opacity: 0; }
   .hd .hb { display: flex; width: auto; margin: 0; }
   .hd .hb .sp { flex: 0 0 4px; }
   .hd .hb .find { width: 240px; }
@@ -377,7 +370,35 @@ window.EXTRA_ICONS = {
 <body>
 <script>
 const QS = new URLSearchParams(location.search);
-const TIPFX = ["wiggle", "steam", "ping"].includes(QS.get("tip")) ? QS.get("tip") : "wiggle"; // 赞赏按钮吸引眼球的动画（草图专用的切换）
+if (QS.get("hop") === "0") document.body.classList.add("no-hop"); // 设置里关掉「爱心跳动」的样子（草图专用）
+// 赞赏的外挂标签：心的右上方「点击赞赏」，一条弯的虚线带箭头指向心；× 关掉（程序里关了就记住、不再出；草图刷新又会出来）
+let tipClosed = false;
+const tipCallHTML = () => tipClosed ? "" : `<svg class="tipline" aria-hidden="true"><path class="tl"/><path class="ta"/></svg>`
+  + `<div class="tipcall" role="note">点击赞赏<button class="x" title="不再提示"><i data-ic="x"></i></button></div>`;
+// 量出心和标签的位置，画虚线：从标签左边中间出发，往左下弯过去，箭头落在心右上那一瓣旁边
+function placeTipCall() {
+  const mk = document.getElementById("hd-mark"), heart = mk.querySelector(".tipme"), call = mk.querySelector(".tipcall"), svg = mk.querySelector(".tipline");
+  if (!heart || !call || !svg) return;
+  const m = mk.getBoundingClientRect(), h = heart.getBoundingClientRect();
+  const ht = h.top - m.top, hr = h.right - m.left;
+  const cl = Math.round(hr + 64), ct = Math.round(ht - 18);
+  call.style.left = cl + "px"; call.style.top = ct + "px";
+  const cw = call.offsetWidth, ch = call.offsetHeight;
+  const x0 = cl - 6, y0 = ct + ch / 2, x1 = Math.round(hr + 2), y1 = Math.round(ht + h.height * 0.36);
+  svg.setAttribute("width", cl + cw); svg.setAttribute("height", Math.ceil(Math.max(ht + h.height, ct + ch)));
+  const c2x = x1 + 30, c2y = y1 - 26;
+  svg.querySelector(".tl").setAttribute("d", `M${x0} ${y0} C${x0 - 26} ${y0 + 2} ${c2x} ${c2y} ${x1} ${y1}`);
+  // 箭头顺着曲线末端的方向，左右各一笔
+  const L = Math.hypot(x1 - c2x, y1 - c2y), ux = (x1 - c2x) / L, uy = (y1 - c2y) / L, len = 7;
+  const wing = a => [x1 - len * (ux * Math.cos(a) - uy * Math.sin(a)), y1 - len * (uy * Math.cos(a) + ux * Math.sin(a))].map(v => v.toFixed(1));
+  const [l1, l2] = [wing(.5), wing(-.5)];
+  svg.querySelector(".ta").setAttribute("d", `M${l1[0]} ${l1[1]} L${x1} ${y1} L${l2[0]} ${l2[1]}`);
+}
+document.addEventListener("click", e => {
+  if (!e.target.closest(".tipcall .x")) return;
+  tipClosed = true;
+  document.querySelectorAll(".tipcall, .tipline").forEach(el => { el.classList.add("gone"); setTimeout(() => el.remove(), 200); });
+});
 if (QS.get("nav") === "top") document.body.classList.add("nav-top");
 if (QS.get("guides")) document.body.classList.add("guides");
 document.body.classList.add("head-" + (["0", "a", "b", "c", "d"].includes(QS.get("head")) ? QS.get("head") : "d"));
@@ -447,7 +468,7 @@ if (QS.get("embed")) document.body.classList.add("embed");
   <a class="new" href="#" aria-label="新建服务器" data-tip="新建服务器"><i data-ic="plus"></i></a>
 </nav>
 
-<div class="tip">草图 · 基准窗口 1280×800 · <a href="?empty=1">第一次打开（空）</a> · <a href="?ai=0">关掉 AI 按钮</a> · 点胶囊最右的 + 进向导 · 字标 <a href="?cell=7">大</a> <a href="?cell=6">中</a> <a href="?">小</a> · <a href="?mode=pin">收藏超过 3 台</a> · 页头 <a href="?head=0">原来</a> <a href="?head=a">A</a> <a href="?head=b">B</a> <a href="?head=c">C</a> <a href="?">D（定了）</a>（<a href="head-options.html">对比</a>）· 胶囊在下面 <a href="?nav=top">放进标题栏</a> · <a href="?">放回下面</a> · 配色 <a href="?scheme=craft&theme=light">方块浅色</a> <a href="?">Nord 深色</a> · 圆角 <a href="?">连续曲率</a> <a href="?corner=round">普通圆弧</a> · <a href="?guides=1">辅助线</a> · 赞赏 <a href="?">摇一摇</a> <a href="?tip=steam">冒爱心</a> <a href="?tip=ping">光圈</a></div>
+<div class="tip">草图 · 基准窗口 1280×800 · <a href="?empty=1">第一次打开（空）</a> · <a href="?ai=0">关掉 AI 按钮</a> · 点胶囊最右的 + 进向导 · 字标 <a href="?cell=7">大</a> <a href="?cell=6">中</a> <a href="?">小</a> · <a href="?mode=pin">收藏超过 3 台</a> · 页头 <a href="?head=0">原来</a> <a href="?head=a">A</a> <a href="?head=b">B</a> <a href="?head=c">C</a> <a href="?">D（定了）</a>（<a href="head-options.html">对比</a>）· 胶囊在下面 <a href="?nav=top">放进标题栏</a> · <a href="?">放回下面</a> · 配色 <a href="?scheme=craft&theme=light">方块浅色</a> <a href="?">Nord 深色</a> · 圆角 <a href="?">连续曲率</a> <a href="?corner=round">普通圆弧</a> · <a href="?guides=1">辅助线</a> · 爱心 <a href="?">跳</a> <a href="?hop=0">不跳（设置里关掉）</a></div>
 
 <script>
 // 假数据：recent 越小越近（正在开着的算「现在」），hours 是一共开过的小时数，pin 是置顶，icon 是服务器自己的 server-icon.png（这里用 16 格的假图代替）
@@ -536,7 +557,9 @@ function render() {
   // 字和概览条之间回到作者要的 40；整页总高不变，基准 1280×800 下照样不滚动
   const cell = [5, 6, 7].includes(+QS.get("cell")) ? +QS.get("cell") : 5, freed = (7 - cell) * 14;
   document.getElementById("hd-mark").innerHTML = MDWordmark.svg({ cell, tone: QS.get("tone") === "mono" ? "mono" : "duo" })
-    + `<button class="tipme fx-${TIPFX}" style="top:${6 * cell - 16}px"><i data-ic="sponsor"></i>赞赏</button>`; // 字标右边的赞赏，竖着对齐字面中线
+    + `<button class="tipme" title="赞赏">${MDWordmark.svg({ text: "♥", cell, label: "赞赏" })}</button>` // 字标右边的赞赏
+    + tipCallHTML(); // 和它的外挂标签
+  placeTipCall();
   const hd = document.querySelector(".hd");
   hd.style.gap = (cell < 7 ? 40 : 36) + "px";
   hd.style.marginTop = 32 + freed - (cell < 7 ? 4 : 0) + "px";
