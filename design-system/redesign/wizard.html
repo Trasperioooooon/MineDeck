@@ -844,7 +844,7 @@ function step4() {
       ${tg("online", "正版验证", "online-mode", "关着时离线账号也能进，但不用正版 UUID，也不显示正版皮肤")}
       ${tg("wl", "只允许白名单里的玩家进入", "white-list", "关着时知道地址的人都能进；只想让熟人进，就打开它")}
       <div class="wlx${SET.wl ? " open" : ""}"><div class="wlin">
-        <div class="names" id="names">${LINK.names.map(nchip).join("")}<input id="wlname" maxlength="16" placeholder="输入朋友的游戏名，回车加进来" autocomplete="off" spellcheck="false"></div>
+        <div class="names" id="names">${LINK.names.map(nchip).join("")}<input id="wlname" maxlength="16" placeholder="输入玩家名，回车添加" autocomplete="off" spellcheck="false"></div>
         <span class="fnote" id="wlnote">建好后在「玩家」里也能加减</span></div></div>
       <div class="whint ${h[0]}" id="whint">${hintHTML(h)}</div></div>`;
   return `<div class="setp link">${left}${right}</div>`;
@@ -914,12 +914,12 @@ function connectSakura() {
     if (viaOf() === "tunnel" && LINK.plat === "sakura") swapItems(document.querySelector(".pdet"), platDetail(), 1, "Y");
   }, 1200);
 }
-// 白名单的名字：回车、空格、逗号加一个，输入框空着按退格拿掉最后一个；游戏名是 3 到 16 个英文字母、数字或下划线
+// 白名单的名字：回车、空格、逗号加一个，输入框空着按退格拿掉最后一个；名字照程序「玩家」页的规矩（mclog.ValidName）：1~16 位字母、数字、下划线
 function addName(v) {
   const n = v.trim(), inp = document.getElementById("wlname"), box = document.getElementById("names"), note = document.getElementById("wlnote");
   if (!n) return;
-  if (!/^[A-Za-z0-9_]{3,16}$/.test(n)) {
-    box.classList.add("bad"); note.classList.add("bad"); note.textContent = "游戏名是 3 到 16 个英文字母、数字或下划线";
+  if (!/^[A-Za-z0-9_]{1,16}$/.test(n)) {
+    box.classList.add("bad"); note.classList.add("bad"); note.textContent = "玩家名不合法（1~16 位字母数字下划线）";
     box.animate([{ transform: "none" }, { transform: "translateX(-5px)" }, { transform: "translateX(4px)" }, { transform: "none" }], { duration: 300, easing: "cubic-bezier(.3, .7, .2, 1)" });
     return;
   }
