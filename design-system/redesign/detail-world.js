@@ -68,11 +68,11 @@
         bk("20261122-150210-还原前自动.zip", 771.8), bk("20261120-221903-开荒第一周.zip", 640.1), bk("20261115-120400-刚建服.zip", 212.5, "E:\\旧备份\\生存服 · 朋友")],
       wf: { backup: "20261120-221903-开荒第一周.zip", at: "2026-11-22 15:02" }, points: [] },
     // Forge：没有定时备份；11-23 换过一张测试图，又换回来了（恢复点里留着那张导入的地图）
-    forge: { dir: "D:\\MineDeck\\backups\\机械动力整合包", sched: "", worldMb: 2410, worlds: ["world"], props: { difficulty: "normal", gamemode: "survival" },
+    forge: { dir: "D:\\MineDeck\\backups\\机械动力整合包", sched: "", worldMb: 2410, worlds: ["world"], props: { difficulty: "easy", gamemode: "survival" },
       backups: [bk("20261126-224012-更新模组前.zip", 2366.4), bk("20261125-193000.zip", 2291.7), bk("20261123-201533-火车站建好.zip", 2150.2), bk("20261121-180210.zip", 1662.9)],
       wf: null, points: [{ id: "f1", name: "机械动力 · 测试图", state: "restored", created: "2026-11-23 18:40", source: "create_test_world.zip", keptMb: 402.6, oldMb: 0, hasOld: true }] },
     // 原版：11-20 用 SkyCity 换了地图（导入前的世界留在恢复点里，能换回）
-    vanilla: { dir: "D:\\MineDeck\\backups\\原版快照测试", sched: "", worldMb: 1204, worlds: ["world"], props: { difficulty: "normal", gamemode: "survival" },
+    vanilla: { dir: "D:\\MineDeck\\backups\\原版快照测试", sched: "", worldMb: 1204, worlds: ["world"], props: { difficulty: "easy", gamemode: "survival" },
       backups: [bk("20261126-220130.zip", 1190.6), bk("20261120-201005-换地图前.zip", 88.7)],
       wf: null, points: [{ id: "v1", name: "天空之城 SkyCity", state: "committed", created: "2026-11-20 20:14", source: "SkyCity_v2.1.zip", oldMb: 88.4, hasOld: true, canReturn: true }] },
   };
@@ -100,7 +100,7 @@
   const dat = () => {
     const k = C.kind;
     if (!W[k]) {
-      const s = SEED[k] || { dir: "", sched: "", worldMb: 0, worlds: ["world"], props: { difficulty: "normal", gamemode: "survival" }, backups: [], wf: null, points: [] };
+      const s = SEED[k] || { dir: "", sched: "", worldMb: 0, worlds: ["world"], props: { difficulty: "easy", gamemode: "survival" }, backups: [], wf: null, points: [] };
       W[k] = JSON.parse(JSON.stringify(s));
       W[k].level = "world"; W[k].src = k === "forge" ? CREATE : SKY;
       W[k].flow = freshFlow();

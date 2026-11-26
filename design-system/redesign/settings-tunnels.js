@@ -23,8 +23,8 @@
 //       绑定了服务器的是一个「›」，整行点了跳到那台服务器的「联机」（detail.html?kind=…&tab=net）；没绑定的是「绑定到…」（菜单列四台服务器，
 //       已经有同一种隧道的那台灰着，悬停说原因）和删除（确认框，同联机页那个：「同时删掉 X 上的这条隧道」默认开，自建 frps 的没有这个开关）。
 //       绑定以后只换那一行（名字、下面那行字、最右边），右上角一条提示带「撤销」；删除是那一行往右划 32 像素淡掉再收起。
-// 数据都是假的：Paper 那台（生存服 · 朋友）有一条 OpenFrp 的游戏隧道（mc_survival，#2 香港-2，frp-hk.openfrp.net:31234，同详情页页头）和一条语音隧道
-// （mc_survival_voice，名字和端口照联机页建语音隧道时的规矩：游戏隧道名加 _voice、端口加 7）；另有两条没绑定的老隧道：樱花的「我的隧道」（隧道 778899，同第一稿）、
+// 数据都是假的：Paper 那台（生存服 · 朋友）有一条 OpenFrp 的游戏隧道（mc_survival，#2 香港-2，frp-hk.openfrp.net:31234，同详情页页头）；
+// 语音隧道还没建（和联机页对齐：那页演示的就是「新建语音隧道」，主会话 11-27 改）；另有两条没绑定的老隧道：樱花的「我的隧道」（隧道 778899，同第一稿）、
 // OpenFrp 的 old_server（联机页「已有隧道」里那条，#29 香港-4，上次出了错）。账户照向导和联机页：OpenFrp 已连接（steve · VIP），樱花没连。
 // 令牌、密钥一律不显示真值（框是密码框，存过的只写「已设置」），不读本机配置里的任何东西。
 // 草图专用（地址参数，定了就删）：
@@ -89,7 +89,6 @@
     const live = !!(paper && paper.running);
     const tuns = [
       { id: "t1", name: "mc_survival", plat: "openfrp", node: "#2 香港-2", kind: "game", server: "paper", addr: (paper && paper.tunnel) || "frp-hk.openfrp.net:31234", on: live },
-      { id: "t2", name: "mc_survival_voice", plat: "openfrp", node: "#2 香港-2", kind: "voice", server: "paper", addr: "frp-hk.openfrp.net:31241", on: live },
       { id: "t3", name: "我的隧道", plat: "sakura", pid: "778899", kind: "game", server: "", addr: "sk-7.natfrp.cloud:41522", last: true, on: false, broken: tun === "lost" },
       { id: "t4", name: "old_server", plat: "openfrp", pid: "204518", node: "#29 香港-4", kind: "game", server: "", addr: "frp-hk.openfrp.net:30512", last: true, on: false,
         err: "frpc 报错：proxy name [old_server] is already in use（同一条隧道已经在别的电脑上连着）" },
@@ -108,7 +107,7 @@
       openfrp: { st: acc === "none" || acc === "lost" ? "off" : "on", lost: acc === "lost", t: 0 },
       sakura: { st: acc === "both" ? "on" : "off", key: "", busy: false, bad: false, replacing: false, t: 0 },
       frps: q.get("frps") === "set" ? { host: "frp.example.com", port: "7000", tokenSet: true } : { host: "", port: "7000", tokenSet: false },
-      ofUsed: 3, ofLimit: 10,
+      ofUsed: 2, ofLimit: 10,
       tuns: tun === "none" ? [] : tuns,
       loadErr: tun === "err", retrying: false,
     };
