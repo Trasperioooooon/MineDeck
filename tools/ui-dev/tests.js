@@ -8843,6 +8843,105 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     } finally { await mockSet({ instReset: true }); }
   });
 
+  await run("定时任务：命令框只对定时命令可用（换成备份不带上命令文字）；文件夹名中间有控制字符、超过 32 个字，添加时就地拦下；一样的任务（不管在哪个文件夹）不能再加；每隔 8 小时的悬停列全三次、不加省略号", async () => {
+    await mockSet({ instReset: true });
+    try {
+      await page.goto(url(`#/inst/${inst}/tasks`)); await settle();
+      assert(await page.$eval("#sc-args", e => e.disabled), "默认是定时重启，命令框应灰掉");
+      await page.selectOption("#sc-type", "command");
+      assert(!(await page.$eval("#sc-args", e => e.disabled)), "定时命令时命令框能填");
+      await page.fill("#sc-args", "say 不该带上");
+      await page.selectOption("#sc-type", "backup");
+      assert(await page.$eval("#sc-args", e => e.disabled), "换成备份，命令框又灰掉");
+      await page.selectOption("#sc-mode", "every");
+      const bar0 = (await schedView(page)).bar;
+      await page.fill("#sc-group", "存\t档"); await page.click("#sc-add");
+      assert((await page.textContent("#sc-err")).includes("文件夹名不能有换行之类的控制字符") && await page.$("#sc-group.invalid"), "中间的 Tab：" + await page.textContent("#sc-err"));
+      await page.$eval("#sc-group", e => { e.value = "档".repeat(33); e.dispatchEvent(new Event("input", { bubbles: true })); }); // 绕过 maxlength（粘贴、脚本）
+      assert(!(await page.$("#sc-group.invalid")), "改了文件夹名，红框先去掉");
+      await page.click("#sc-add");
+      assert((await page.textContent("#sc-err")).includes("文件夹名最多 32 个字"), "超过 32 个字：" + await page.textContent("#sc-err"));
+      assert((await schedView(page)).bar === bar0, "不合格的文件夹名不该加进去");
+      await page.fill("#sc-group", "存档"); await page.click("#sc-add");
+      let v = await schedView(page);
+      assert(jstr(v.folders) === jstr({ "文件夹 存档": ["每隔 1 小时 未保存"] }), "备份不带命令文字：" + jstr(v));
+      // 一样的任务：手动再加（换个文件夹也不行）、一键添加都不加
+      await page.fill("#sc-group", "别的"); await page.click("#sc-add");
+      assert((await page.textContent("#sc-err")).includes("已经有一样的定时任务了（在「存档」文件夹里）"), "手动再加一样的：" + await page.textContent("#sc-err"));
+      await page.click("#sc-pre-backup");
+      assert(await toastIn(page, "已经有每小时存档了（在「存档」文件夹里）"), "手动加的也算已经有了");
+      assert((await schedView(page)).bar === "1 项修改未保存", "一样的都没加进去");
+      // 每隔 8 小时：一天就三次，悬停里列全、不加省略号；每隔 1 小时的照旧有省略号
+      await page.selectOption("#sc-type", "restart"); await page.fill("#sc-every", "8"); await page.fill("#sc-group", ""); await page.click("#sc-add");
+      const tip8 = await page.evaluate(() => [...document.querySelectorAll("#sched-list > .java-row")].pop().querySelector(".jv").title);
+      assert(tip8 === "从每天 0 点起算：00:00、08:00、16:00；服务器没开时不执行", "每隔 8 小时的悬停：" + tip8);
+      const tip1 = await page.$eval('#sched-list [aria-label="文件夹 存档"] .jv', e => e.title);
+      assert(tip1.includes("00:00、01:00、02:00……"), "每隔 1 小时的悬停：" + tip1);
+      const since = reqs.length;
+      await saveIn(page);
+      assert(jstr(lastPut(since, "/policies")) === jstr({ addSchedules: [{ type: "backup", every: 60, args: "", group: "存档" }, { type: "restart", every: 480, args: "" }] }), "发的：" + jstr(lastPut(since, "/policies")));
+    } finally { await mockSet({ instReset: true }); }
+  });
+
+  await run("定时任务：新文件夹的名字就地检查（空的、中间有控制字符、超过 32 个字都不关弹窗）；文件夹名和命令里的 < & \" 原样显示（菜单、弹窗、列表都不当成 HTML）", async () => {
+    await mockSet({ instReset: true });
+    try {
+      await page.goto(url(`#/inst/${inst}/tasks`)); await settle();
+      await page.selectOption("#sc-type", "command"); await page.fill("#sc-at", "21:00"); await page.fill("#sc-args", `say <b>&"hi"`); await page.click("#sc-add");
+      const label = `定时命令 每天 21:00 say <b>&"hi"`; // 带双引号，写不进属性选择器：按无障碍名字找
+      await page.getByRole("button", { name: "移到文件夹 " + label, exact: true }).click();
+      await page.click('.dropmenu button:has-text("新文件夹…")');
+      await page.waitForSelector(".modal #sc-new-group");
+      const bodyText = await page.$eval(".modal .m-body", e => e.textContent);
+      assert(bodyText === label, "弹窗里原样显示任务（不该是 &amp;）：" + bodyText);
+      const tryName = async (val, want) => {
+        await page.$eval(".modal #sc-new-group", (e, x) => { e.value = x; e.dispatchEvent(new Event("input", { bubbles: true })); }, val);
+        await page.click('.modal [data-x="ok"]'); await settle(150);
+        const err = await page.$eval(".modal #sc-new-group-err", e => e.textContent).catch(() => "（弹窗已关）");
+        assert(err.includes(want) && await page.$(".modal #sc-new-group.invalid"), `「${val}」应就地报「${want}」：${err}`);
+      };
+      await tryName("", "写个文件夹名");
+      await tryName("a\u0001b", "控制字符");
+      await tryName("档".repeat(33), "最多 32 个字");
+      const evil = `<img src=x onerror=__xss=1>&"夹`; // 28 个字，放得进 32 个字的框
+      await page.fill(".modal #sc-new-group", evil);
+      assert(!(await page.$(".modal #sc-new-group.invalid")), "改了名字，红框先去掉");
+      await page.press(".modal #sc-new-group", "Enter"); await settle(250);
+      assert(!(await page.$(".modal")), "合格的名字回车就放进去");
+      const v = await schedView(page);
+      assert(jstr(v.folders) === jstr({ ["文件夹 " + evil]: [`每天 21:00 say <b>&"hi" 未保存`] }), "列表里原样显示：" + jstr(v));
+      assert(await page.$eval("#sched-list", e => !e.querySelector("img") && [...e.querySelectorAll(".jp")].every(x => !x.children.length)), "列表里不该冒出 img，命令里的 <b> 也不该成了元素");
+      await page.click('[aria-label="移到文件夹 定时重启 每天 04:00"]'); await settle(150);
+      const items = await page.$$eval(".dropmenu button", bs => bs.map(b => b.textContent));
+      assert(items.includes(evil) && await page.$eval(".dropmenu", m => !m.querySelector("img")), "菜单里原样显示文件夹名：" + jstr(items));
+      await page.keyboard.press("Escape"); await settle(150);
+      assert(!(await page.evaluate(() => window.__xss)), "文件夹名不该被当成 HTML 执行");
+      await page.click('[data-sb="discard"]'); await settle(300);
+    } finally { await mockSet({ instReset: true }); }
+  });
+
+  await run("定时任务：已经有两条一样的在不同文件夹（AI、老配置留下的），删掉一条只算一项、另一条不标未保存、保存只删那一条；删了又原样加回来不算修改", async () => {
+    await mockSet({ instReset: true });
+    try {
+      assert(await schedPut({ addSchedules: [{ type: "backup", every: 60, group: "存档" }, { type: "backup", every: 60, group: "备份" }] }), "先摆两条一样的");
+      await page.goto(url(`#/inst/${inst}/tasks`)); await settle();
+      await page.click('[aria-label="移除 定时备份 每隔 1 小时（存档）"]'); await settle(100);
+      let v = await schedView(page);
+      assert(v.bar === "1 项修改未保存" && jstr(v.folders) === jstr({ "文件夹 备份": ["每隔 1 小时"] }), "删一条只算一项，另一条没动：" + jstr(v));
+      const since = reqs.length;
+      await saveIn(page);
+      assert(jstr(lastPut(since, "/policies")) === jstr({ removeSchedules: [{ type: "backup", every: 60, args: "", group: "存档" }] }), "只删那一条：" + jstr(lastPut(since, "/policies")));
+      const pol = await apiGet(SCHED_API);
+      assert(jstr(pol.schedules.filter(s => s.every).map(s => s.group)) === jstr(["备份"]), "后端只剩「备份」里那条：" + jstr(pol.schedules));
+      // 删掉定时重启 04:00、又原样加回来：不算修改
+      await page.click('[aria-label="移除 定时重启 每天 04:00"]');
+      assert((await schedView(page)).bar === "1 项修改未保存", "删了算一项");
+      await page.fill("#sc-at", "04:00"); await page.click("#sc-add"); await settle(100);
+      v = await schedView(page);
+      assert(v.bar === "所有修改已保存" && v.loose.includes("每天 04:00"), "原样加回来不算修改：" + jstr(v));
+    } finally { await mockSet({ instReset: true }); }
+  });
+
   await run("两个窗口：AI 服务商——一边存了新模型，另一边（还是旧设置）再存时被拦下、请它重新读取；读回来是另一边存的，再存就能存", async () => {
     await aiState({ reset: true, ...AI_DEEPSEEK, key: "sk-two-win" });
     try {

@@ -4221,209 +4221,7 @@ async function renderDetail(name, path = "console") {
     await draw();
 
   } else if (view === "tasks") {
-    let pol;
-    try { pol = await api(`/api/instances/${encodeURIComponent(name)}/policies`); }
-    catch (e) { if (!stale(gen)) body.innerHTML = errBox("无法读取定时任务", e); return; }
-    if (stale(gen)) return;
-    let scheds = pol.schedules || [];
-    const TYPE_NAMES = { restart: "定时重启", command: "定时命令", backup: "定时备份" };
-    // 每隔多久（2026-11-27 用户反馈：想要每小时自动存档、每小时扫地）：同后端 inst.Schedule.Every，单位分钟，按钟点对齐——
-    // 从每天 0 点起，0 点、N 分钟、2N 分钟……到点执行（每隔 1 小时就是每个整点）。最短、最长同后端 everyMin、everyMax
-    const EVERY_MIN = { command: 5, backup: 30, restart: 60 }, EVERY_MAX = 720;
-    const pad2 = n => String(n).padStart(2, "0");
-    const fmtEvery = m => (m % 60 === 0 ? `${m / 60} 小时` : `${m} 分钟`);
-    const when = s => (s.every && !s.at ? `每隔 ${fmtEvery(s.every)}` : `每天 ${s.at}`);
-    const slots = m => [0, m, 2 * m].filter(x => x < 1440).map(x => pad2(Math.floor(x / 60)) + ":" + pad2(x % 60)).join("、") + "……";
-    // 一键添加的两样（同一条已经有了就不再加，文件夹不算）。扫地 = 清掉地上的掉落物
-    const PRESETS = {
-      backup: { label: "每小时存档", s: { type: "backup", every: 60, args: "", group: "存档" } },
-      sweep: { label: "每小时扫地", s: { type: "command", every: 60, args: "kill @e[type=item]", group: "扫地" } },
-    };
-    // 增删定时任务、切换崩溃重启都只是改了草稿：吸底保存条显示未保存项数，离开前会被拦下确认
-    body.innerHTML = `<div style="max-width:640px">
-      <div class="prop-item" style="margin-bottom:18px">
-        <div><div class="pl">崩溃自动重启</div><div class="pd">异常退出后，会隔 10 秒、30 秒、60 秒再启动。连续崩溃 3 次就不再自动启动，并给出提示。</div></div>
-        <label class="switch"><input type="checkbox" id="pol-crash" ${pol.crashRestart ? "checked" : ""} aria-label="崩溃自动重启"><span class="sw"></span></label>
-      </div>
-      <h3 style="margin-bottom:8px">定时任务</h3>
-      <div class="sc-quick" role="group" aria-label="一键添加" style="margin:0 0 12px">
-        <span class="hint">一键添加</span>
-        <button type="button" class="btn sm" id="sc-pre-backup" data-preset="backup">${PRESETS.backup.label}</button><button type="button" class="btn sm" id="sc-pre-sweep" data-preset="sweep">${PRESETS.sweep.label}</button>
-      </div>
-      <div id="sched-list"></div>
-      <div class="row" style="margin:12px 0 4px;flex-wrap:wrap">
-        <select id="sc-type" style="width:130px" aria-label="任务类型"><option value="restart">定时重启</option><option value="command">定时命令</option><option value="backup">定时备份</option></select>
-        <select id="sc-mode" style="width:88px" aria-label="多久执行一次"><option value="at">每天</option><option value="every">每隔</option></select>
-        <input type="text" id="sc-at" class="num" value="04:00" inputmode="numeric" maxlength="5" placeholder="时:分" aria-label="每天几点执行（时:分）" aria-describedby="sc-hint" style="width:88px">
-        <input type="text" id="sc-every" class="num" value="1" inputmode="numeric" maxlength="3" aria-label="每隔多久（数字）" aria-describedby="sc-hint" style="width:64px" hidden
-          title="命令最短 5 分钟，备份最短 30 分钟，重启最短 60 分钟；最长 12 小时">
-        <select id="sc-unit" style="width:80px" aria-label="间隔的单位" hidden><option value="60">小时</option><option value="1">分钟</option></select>
-        <input type="text" id="sc-args" placeholder="命令内容（仅定时命令需要），如 say 大家好" style="flex:1;min-width:200px">
-        <input type="text" id="sc-group" list="sc-groups" maxlength="32" placeholder="文件夹（可不填）" aria-label="放进哪个文件夹（可不填）" style="width:170px">
-        <datalist id="sc-groups"></datalist>
-        <button class="btn" id="sc-add">${icon("plus")} 添加</button>
-      </div>
-      <div class="sc-quick" role="group" aria-label="快捷时间">
-        <button type="button" class="btn sm" data-later="5">5 分钟后</button><button type="button" class="btn sm" data-later="10">10 分钟后</button><button type="button" class="btn sm" data-later="30">30 分钟后</button>
-        <span class="hint" id="sc-hint">每天到这个时间执行一次（24 小时制，如 04:00、21:30）。</span>
-      </div>
-      <div class="field-err" id="sc-err"></div>
-      ${saveBar("保存策略")}</div>`;
-    let paintBar = () => {};
-    // 备份留几份是全局设置（同「世界与备份 → 备份」页）：每小时一份会越积越多，预设和提示里写清只留几份、旧的会删掉
-    let keep = 10;
-    // 每一条定时任务在保存条里算一项（可用性走查 R16）：键是「类型、时间、间隔、命令」再加上第几条一样的，加两条就是两项修改；
-    // 值是它在哪个文件夹（前面带 g:，空的也不是空串）。挪个文件夹只是值变了，算一项；保存时删掉原处那条、在新文件夹里加一条
-    const schedKeys = list => { const n = {}; return list.map(s => { const k = JSON.stringify([s.type, s.at || "", +s.every || 0, s.args || ""]); n[k] = (n[k] || 0) + 1; return "s:" + k + "#" + n[k]; }); };
-    const fromKey = (k, v) => { const [type, at, every, args] = JSON.parse(k.slice(2, k.lastIndexOf("#"))); return { type, at, every, args, group: String(v || "").slice(2) }; };
-    // 发给后端的一条：没有的字段不带（老的每天定时、不放文件夹的照旧是 {type, at, args}）
-    const wire = s => { const o = { type: s.type }; if (s.at) o.at = s.at; if (+s.every) o.every = +s.every; o.args = s.args || ""; if (s.group) o.group = s.group; return o; };
-    const groupOf = s => s.group || "";
-    let saved = new Map(schedKeys(scheds).map((k, i) => [k, groupOf(scheds[i])])); // 已经保存的那些：点「添加」加进来的是草稿，标「未保存」，保存以后才算数
-    const groupsNow = () => [...new Set(scheds.map(groupOf).filter(Boolean))];
-    const moveTo = (i, g) => { if (g) scheds[i].group = g; else delete scheds[i].group; drawScheds(); paintBar(); };
-    // 挪进新文件夹：起个名字（文件夹空了自然就没了，不用单独建、删）
-    const newFolder = async (i, desc) => {
-      const p = confirmModal({ title: "放进新文件夹", body: esc(desc), okText: "放进去", icon: "folder",
-        extra: `<div class="form-grid" style="margin-top:12px"><label class="field full"><span>文件夹名</span><input type="text" id="sc-new-group" maxlength="32" placeholder="如 存档、扫地、活动提醒"></label></div>` });
-      const input = p.el.querySelector("#sc-new-group");
-      input.focus();
-      input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); p.el.querySelector('[data-x="ok"]').click(); } });
-      const r = await p;
-      const g = input.value.trim(); // 弹窗关掉以后这一层已经摘下来了，但框里的值还在
-      if (!r || !g || stale(gen) || !scheds[i]) return;
-      moveTo(i, g);
-    };
-    const drawScheds = () => {
-      const keys = schedKeys(scheds), idx = scheds.map((_, i) => i);
-      const row = i => {
-        const s = scheds[i], g = groupOf(s), draft = !saved.has(keys[i]) || saved.get(keys[i]) !== g;
-        const desc = `${TYPE_NAMES[s.type] || s.type} ${when(s)}${s.args ? " " + s.args : ""}${g ? `（${g}）` : ""}`;
-        const tip = s.every && !s.at ? `从每天 0 点起算：${slots(+s.every)}${s.type === "backup" ? "；服务器停着时不备份" : s.type === "command" || s.type === "restart" ? "；服务器没开时不执行" : ""}` : "";
-        return `
-        <div class="java-row${draft ? " draft" : ""}"><span class="badge core">${esc(TYPE_NAMES[s.type] || s.type)}</span>
-          <span class="jv"${tip ? ` title="${esc(tip)}"` : ""}>${esc(when(s))}</span>
-          <span class="jp">${esc(s.args || "")}</span>
-          ${draft ? `<span class="tag warn">未保存</span>` : ""}
-          <span class="grow"></span>
-          <button type="button" class="btn sm ghost" data-mv="${i}" data-desc="${esc(desc)}" aria-label="移到文件夹 ${esc(desc)}">${icon("folder")} 移到…</button>
-          <button class="btn sm danger" data-i="${i}" aria-label="移除 ${esc(desc)}">移除</button></div>`;
-      };
-      // 不放文件夹的在上面（和以前一样），文件夹按出现的先后排在下面；文件夹里的任务删光了，这个文件夹也就没了
-      const folders = groupsNow().map(g => {
-        const ids = idx.filter(i => groupOf(scheds[i]) === g);
-        return `<div role="group" aria-label="文件夹 ${esc(g)}"><div class="row" style="margin:14px 0 8px">${icon("folder")}<b>${esc(g)}</b><span class="tag neutral">${ids.length} 条</span></div>${ids.map(row).join("")}</div>`;
-      });
-      $("#sched-list").innerHTML = (idx.filter(i => !groupOf(scheds[i])).map(row).join("") + folders.join("")) ||
-        `<div class="sub">暂无定时任务</div>`;
-      $("#sc-groups").innerHTML = groupsNow().map(g => `<option value="${esc(g)}">`).join("");
-      $("#sched-list").querySelectorAll("[data-i]").forEach(b => b.onclick = () => { scheds.splice(+b.dataset.i, 1); drawScheds(); paintBar(); });
-      $("#sched-list").querySelectorAll("[data-mv]").forEach(b => b.onclick = () => {
-        const i = +b.dataset.mv, cur = groupOf(scheds[i]), others = groupsNow().filter(g => g !== cur);
-        const items = [{ header: "移到文件夹" }, ...others.map(g => ({ label: g, icon: "folder", onClick: () => moveTo(i, g) }))];
-        if (cur) items.push({ label: "不放文件夹", icon: "arrowUp", onClick: () => moveTo(i, "") });
-        if (items.length > 1) items.push({ sep: true });
-        items.push({ label: "新文件夹…", icon: "plus", onClick: () => newFolder(i, b.dataset.desc) });
-        dropMenu(b, items);
-      });
-    };
-    drawScheds();
-    const scErr = (msg, bad = "") => { $("#sc-err").innerHTML = msg ? icon("warn") + " " + esc(msg) : ""; ["#sc-at", "#sc-every"].forEach(s => $(s).classList.toggle("invalid", s === bad)); };
-    // 时间：「时:分」文本框（原来的 input[type=time] 两个小格太难点、太难改，见测试报告观察 1）。
-    // 认 4:00、04:00、0400、21：30 这几种写法，一律补齐成 HH:MM——后端按 HH:MM 逐字比对当前时刻，9:05 不补零就永远不会触发
-    const parseHM = v => {
-      const m = String(v).trim().match(/^(\d{1,2})[:：.](\d{1,2})$/) || String(v).trim().match(/^(\d{1,2})(\d{2})$/);
-      if (!m || +m[1] > 23 || +m[2] > 59) return "";
-      return pad2(+m[1]) + ":" + pad2(+m[2]);
-    };
-    const HINT = $("#sc-hint").textContent;
-    const everyMode = () => $("#sc-mode").value === "every";
-    const everyHint = () => `从每天 0 点起算，每隔 1 小时就是每个整点执行。${$("#sc-type").value === "backup" ? `备份只留最近 ${keep} 份，更早的会删掉。` : ""}`;
-    // 每天 / 每隔：换一种就换一组输入框；快捷时间只对「每天」有用
-    const paintMode = () => {
-      const ev = everyMode();
-      $("#sc-at").hidden = ev;
-      $("#sc-every").hidden = $("#sc-unit").hidden = !ev;
-      body.querySelectorAll("[data-later]").forEach(b => { b.hidden = ev; });
-      $("#sc-hint").textContent = ev ? everyHint() : HINT;
-      scErr("");
-    };
-    $("#sc-mode").addEventListener("change", paintMode);
-    $("#sc-type").addEventListener("change", () => { if (everyMode()) $("#sc-hint").textContent = everyHint(); });
-    const presetTip = {
-      backup: () => `每隔 1 小时备份一次世界，放进「存档」文件夹；服务器停着时不备份。保留最近 ${keep} 份（所有服务器共用），超过保留份数时删掉最旧的，手动备份也算在内。`,
-      sweep: () => "每隔 1 小时执行 kill @e[type=item]，清掉地上的掉落物，放进「扫地」文件夹；服务器没开时不执行。",
-    };
-    const paintKeep = () => { body.querySelectorAll("[data-preset]").forEach(b => { b.title = presetTip[b.dataset.preset](); }); if (everyMode()) $("#sc-hint").textContent = everyHint(); };
-    paintKeep();
-    appInfo.then(a => { keep = (a && a.config && a.config.backupKeep) || 10; if (!stale(gen) && body.isConnected) paintKeep(); });
-    // 一键添加：和「添加」一样先进草稿，保存以后生效；同一条（类型、间隔、命令一样，不管在哪个文件夹）已经有了就不再加
-    body.querySelectorAll("[data-preset]").forEach(b => b.onclick = () => {
-      const p = PRESETS[b.dataset.preset];
-      const had = scheds.find(s => s.type === p.s.type && +s.every === p.s.every && !s.at && (s.args || "") === p.s.args);
-      if (had) { toast(`已经有${p.label}了${had.group ? `（在「${had.group}」文件夹里）` : ""}`); return; }
-      scheds.push({ ...p.s });
-      drawScheds();
-      paintBar();
-    });
-    $("#sc-every").addEventListener("input", () => { if ($("#sc-every").classList.contains("invalid")) scErr(""); });
-    $("#sc-at").addEventListener("input", () => { $("#sc-hint").textContent = HINT; if ($("#sc-at").classList.contains("invalid")) scErr(""); });
-    $("#sc-at").addEventListener("blur", () => { const hm = parseHM($("#sc-at").value); if (hm) $("#sc-at").value = hm; });
-    // 快捷项：填成几分钟后的时刻（只是填时间，还要点「添加」、再保存策略）
-    body.querySelectorAll("[data-later]").forEach(b => b.onclick = () => {
-      const d = new Date(Date.now() + b.dataset.later * 60000), hm = pad2(d.getHours()) + ":" + pad2(d.getMinutes());
-      const day = d.toDateString() === new Date().toDateString() ? "今天" : "明天";
-      $("#sc-at").value = hm;
-      scErr("");
-      $("#sc-hint").textContent = `已设为 ${hm}。${day} ${hm} 执行第一次，之后每天该时间执行（若只需执行一次，触发后移除即可）。点「添加」并保存后生效。`;
-    });
-    ["#sc-at", "#sc-every", "#sc-args", "#sc-group"].forEach(s => $(s).addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("#sc-add").click(); } }));
-    $("#sc-add").onclick = () => {
-      // 字段的先后照老样子（type、at、args），后面才是每隔多久、文件夹
-      const s = { type: $("#sc-type").value };
-      if (everyMode()) {
-        const v = $("#sc-every").value.trim(), lo = EVERY_MIN[s.type] || 5;
-        if (!/^\d{1,3}$/.test(v) || +v === 0) { scErr("间隔写成整数，如 每隔 1 小时、每隔 30 分钟", "#sc-every"); $("#sc-every").focus(); return; }
-        const m = +v * +$("#sc-unit").value;
-        if (m < lo) { scErr(`${TYPE_NAMES[s.type]}最短每隔 ${fmtEvery(lo)}一次`, "#sc-every"); $("#sc-every").focus(); return; }
-        if (m > EVERY_MAX) { scErr("间隔最长 12 小时，更长的请选「每天」", "#sc-every"); $("#sc-every").focus(); return; }
-        s.every = m;
-      } else {
-        s.at = parseHM($("#sc-at").value);
-        if (!s.at) { scErr("时间写成 时:分，如 04:00 或 21:30（24 小时制）", "#sc-at"); $("#sc-at").focus(); return; }
-        $("#sc-at").value = s.at;
-      }
-      s.args = $("#sc-args").value.trim();
-      if (s.type === "command" && !s.args) { scErr("定时命令需要填写命令内容，如 say 大家好"); $("#sc-args").focus(); return; }
-      const g = $("#sc-group").value.trim();
-      if (g) s.group = g;
-      scErr("");
-      scheds.push(s);
-      $("#sc-args").value = "";
-      drawScheds();
-      paintBar();
-    };
-    paintBar = wireSaveBar(body, gen,
-      () => Object.fromEntries([["crash", String($("#pol-crash").checked)], ...schedKeys(scheds).map((k, i) => [k, "g:" + groupOf(scheds[i])])]),
-      async (sent, base) => {
-        // 发出去的是点「保存」这一刻的那份：请求途中又加、又删的不算已保存，照旧标「未保存」（Codex 复审 beta.3）。
-        // 只发这一页改了什么：崩溃重启拨过才带；定时任务按条加、删（和保存条数的是同一份键，键里带着「第几条一样的」，
-        // 两条一样的删掉一条也算得出来）。不再整张表发过去：两个窗口同时开着这一页时，另一边刚加的任务这一页没有，
-        // 整张发就把它删了（Codex 复审 v3.2.0 第二轮。后端按条删找不到的不算错，所以另一边已经删掉的再删一次也没事）。
-        // 挪了文件夹的（键一样、值变了）：删掉原来文件夹里那条、在新文件夹里加一条（后端按条删认文件夹）
-        const now = scheds.map(s => ({ ...s })), keys = schedKeys(now);
-        const had = Object.keys(base).filter(k => k.startsWith("s:")), have = new Set(keys);
-        const req = {};
-        if (sent.crash !== base.crash) req.crashRestart = sent.crash === "true";
-        const add = now.filter((_, i) => base[keys[i]] !== sent[keys[i]]).map(wire);
-        const remove = had.filter(k => !have.has(k) || base[k] !== sent[k]).map(k => wire(fromKey(k, base[k])));
-        if (add.length) req.addSchedules = add;
-        if (remove.length) req.removeSchedules = remove;
-        if (Object.keys(req).length) await api(`/api/instances/${encodeURIComponent(name)}/policies`, { method: "PUT", body: req });
-        saved = new Map(keys.map((k, i) => [k, groupOf(now[i])]));
-        if (!stale(gen)) drawScheds();
-        toast("定时任务已保存，马上生效");
-      });
+    await renderPolicyTab(body, name, gen, appInfo); // 整块在下面的 renderPolicyTab
 
   } else if (view === "addons") {
     // 插件 / 模组（可用性走查 R10）：原来的「资源」和「待装清单」合成这一页。上面是服务器里已经装了的（停用、启用、删除，要先停服），
@@ -4908,6 +4706,262 @@ async function renderDetail(name, path = "console") {
       if (fix.length) toast("已清空（保留 log4shell 漏洞缓解参数）");
     };
   }
+}
+
+/* ---------- 详情页 → 定时任务：崩溃自动重启、定时任务表 ---------- */
+/* 2026-11-27 从 renderDetail 里拆出来：加了每隔多久、文件夹、一键添加（用户反馈：想每小时存档、每小时扫地，扫地和存档各放一个文件夹）
+   以后，这一块长了一倍。增删定时任务、切换崩溃重启都只是改了草稿：吸底保存条显示未保存项数，离开前会被拦下确认 */
+async function renderPolicyTab(body, name, gen, appInfo) {
+  let pol;
+  try { pol = await api(`/api/instances/${encodeURIComponent(name)}/policies`); }
+  catch (e) { if (!stale(gen)) body.innerHTML = errBox("无法读取定时任务", e); return; }
+  if (stale(gen)) return;
+  let scheds = pol.schedules || [];
+  const TYPE_NAMES = { restart: "定时重启", command: "定时命令", backup: "定时备份" };
+  // 每隔多久：同后端 inst.Schedule.Every，单位分钟，按钟点对齐——从每天 0 点起，0 点、N 分钟、2N 分钟……到点执行
+  // （每隔 1 小时就是每个整点）。最短、最长同后端 everyMin、everyMax；文件夹名最多几个字同后端 maxGroupLen
+  const EVERY_MIN = { command: 5, backup: 30, restart: 60 }, EVERY_MAX = 720, GROUP_MAX = 32;
+  const pad2 = n => String(n).padStart(2, "0");
+  const fmtEvery = m => (m % 60 === 0 ? `${m / 60} 小时` : `${m} 分钟`);
+  const when = s => (s.every && !s.at ? `每隔 ${fmtEvery(s.every)}` : `每天 ${s.at}`);
+  // 一天里头几次执行的时刻；一天不止三次的才加省略号（每隔 8 小时、12 小时的就是全部）
+  const slots = m => [0, m, 2 * m].filter(x => x < 1440).map(x => pad2(Math.floor(x / 60)) + ":" + pad2(x % 60)).join("、") + (3 * m < 1440 ? "……" : "");
+  // 一键添加的两样。扫地 = 清掉地上的掉落物
+  const PRESETS = {
+    backup: { label: "每小时存档", s: { type: "backup", every: 60, args: "", group: "存档" } },
+    sweep: { label: "每小时扫地", s: { type: "command", every: 60, args: "kill @e[type=item]", group: "扫地" } },
+  };
+  body.innerHTML = `<div style="max-width:640px">
+      <div class="prop-item" style="margin-bottom:18px">
+        <div><div class="pl">崩溃自动重启</div><div class="pd">异常退出后，会隔 10 秒、30 秒、60 秒再启动。连续崩溃 3 次就不再自动启动，并给出提示。</div></div>
+        <label class="switch"><input type="checkbox" id="pol-crash" ${pol.crashRestart ? "checked" : ""} aria-label="崩溃自动重启"><span class="sw"></span></label>
+      </div>
+      <h3 style="margin-bottom:8px">定时任务</h3>
+      <div class="sc-quick" role="group" aria-label="一键添加" style="margin:0 0 12px">
+        <span class="hint">一键添加</span>
+        <button type="button" class="btn sm" id="sc-pre-backup" data-preset="backup">${PRESETS.backup.label}</button><button type="button" class="btn sm" id="sc-pre-sweep" data-preset="sweep">${PRESETS.sweep.label}</button>
+      </div>
+      <div id="sched-list"></div>
+      <div class="row" style="margin:12px 0 4px;flex-wrap:wrap">
+        <select id="sc-type" style="width:130px" aria-label="任务类型"><option value="restart">定时重启</option><option value="command">定时命令</option><option value="backup">定时备份</option></select>
+        <select id="sc-mode" style="width:88px" aria-label="多久执行一次"><option value="at">每天</option><option value="every">每隔</option></select>
+        <input type="text" id="sc-at" class="num" value="04:00" inputmode="numeric" maxlength="5" placeholder="时:分" aria-label="每天几点执行（时:分）" aria-describedby="sc-hint" style="width:88px">
+        <input type="text" id="sc-every" class="num" value="1" inputmode="numeric" maxlength="3" aria-label="每隔多久（数字）" aria-describedby="sc-hint" style="width:64px" hidden
+          title="命令最短 5 分钟，备份最短 30 分钟，重启最短 60 分钟；最长 12 小时">
+        <select id="sc-unit" style="width:80px" aria-label="间隔的单位" hidden><option value="60">小时</option><option value="1">分钟</option></select>
+        <input type="text" id="sc-args" placeholder="命令内容（仅定时命令需要），如 say 大家好" style="flex:1;min-width:200px" disabled>
+        <input type="text" id="sc-group" list="sc-groups" maxlength="${GROUP_MAX}" placeholder="文件夹（可不填）" aria-label="放进哪个文件夹（可不填）" style="width:170px">
+        <datalist id="sc-groups"></datalist>
+        <button class="btn" id="sc-add">${icon("plus")} 添加</button>
+      </div>
+      <div class="sc-quick" id="sc-later-box" role="group" aria-label="快捷时间">
+        <button type="button" class="btn sm" data-later="5">5 分钟后</button><button type="button" class="btn sm" data-later="10">10 分钟后</button><button type="button" class="btn sm" data-later="30">30 分钟后</button>
+        <span class="hint" id="sc-hint">每天到这个时间执行一次（24 小时制，如 04:00、21:30）。</span>
+      </div>
+      <div class="field-err" id="sc-err"></div>
+      ${saveBar("保存策略")}</div>`;
+  let paintBar = () => {};
+  // 备份留几份是全局设置（同「世界与备份 → 备份」页）：每小时一份会越积越多，预设和提示里写清只留几份、旧的会删掉
+  let keep = 10;
+
+  // 时间：「时:分」文本框（原来的 input[type=time] 两个小格太难点、太难改，见测试报告观察 1）。
+  // 认 4:00、04:00、0400、21：30 这几种写法，一律补齐成 HH:MM——后端按 HH:MM 逐字比对当前时刻，9:05 不补零就永远不会触发
+  const parseHM = v => {
+    const m = String(v).trim().match(/^(\d{1,2})[:：.](\d{1,2})$/) || String(v).trim().match(/^(\d{1,2})(\d{2})$/);
+    if (!m || +m[1] > 23 || +m[2] > 59) return "";
+    return pad2(+m[1]) + ":" + pad2(+m[2]);
+  };
+  const groupOf = s => s.group || "";
+  // 同一条任务：类型、时刻、间隔、命令一样，不管在哪个文件夹（老配置里没补零的「9:05」也认作 09:05）。
+  // 界面上不让加出两条一样的：添加、一键添加都先查这个
+  const sameTask = (a, b) => a.type === b.type && (parseHM(a.at || "") || a.at || "") === (parseHM(b.at || "") || b.at || "") &&
+    (+a.every || 0) === (+b.every || 0) && (a.args || "") === (b.args || "");
+  // 文件夹名的检查同后端 checkSchedules：按字算（[...g]，一个汉字一个字），不许有控制字符（粘贴进来的 Tab、换行之类）。
+  // 添加、新文件夹都在这里就地拦下，不等到点「保存策略」才被后端拒
+  const groupProblem = g => ([...g].length > GROUP_MAX ? `文件夹名最多 ${GROUP_MAX} 个字` : /[\u0000-\u001f\u007f-\u009f]/.test(g) ? "文件夹名不能有换行之类的控制字符" : "");
+  // 发给后端的一条：没有的字段不带（老的每天定时、不放文件夹的照旧是 {type, at, args}）
+  const toPayload = s => {
+    const o = { type: s.type };
+    if (s.at) o.at = s.at;
+    if (+s.every) o.every = +s.every;
+    o.args = s.args || "";
+    if (s.group) o.group = s.group;
+    return o;
+  };
+  // 每一条任务在这一页里有自己的编号（taskId），保存条里算一项（可用性走查 R16），值是要发给后端的那一条（含文件夹）：
+  // 加一条、删一条各算一项，挪个文件夹是值变了，也算一项。不按「类型、时间、命令 + 第几条一样的」认：一样的两条在不同文件夹时，
+  // 删掉前一条，后一条就顶了它的号，没动过的也标成未保存、多算一项、保存时多删一条
+  const taskIds = new WeakMap();
+  let lastId = 0;
+  const taskId = s => { if (!taskIds.has(s)) taskIds.set(s, "s:" + ++lastId); return taskIds.get(s); };
+  const valueOf = s => JSON.stringify(toPayload(s));
+  let saved = new Map(scheds.map(s => [taskId(s), valueOf(s)])); // 已经保存的那些：点「添加」加进来的是草稿，标「未保存」，保存以后才算数
+  // 加进草稿。这一页删掉过、还没保存的那条又加回来（一样的任务，先认同一个文件夹的），就还用它原来的编号：
+  // 删了又加回原样的不算修改，加回到别的文件夹算挪了文件夹
+  const addDraft = s => {
+    const here = new Set(scheds.map(taskId)), gone = [...saved].filter(([id]) => !here.has(id)).map(([id, v]) => [id, JSON.parse(v)]);
+    const back = gone.find(([, t]) => sameTask(t, s) && (t.group || "") === groupOf(s)) || gone.find(([, t]) => sameTask(t, s));
+    if (back) taskIds.set(s, back[0]);
+    scheds.push(s);
+    drawScheds();
+    paintBar();
+  };
+  const groupsNow = () => [...new Set(scheds.map(groupOf).filter(Boolean))];
+  const moveTo = (i, g) => { if (g) scheds[i].group = g; else delete scheds[i].group; drawScheds(); paintBar(); };
+  // 挪进新文件夹：起个名字（文件夹空了自然就没了，不用单独建、删）。名字不合格就在框下面说，不关弹窗
+  const newFolder = async (i, desc) => {
+    const p = confirmModal({ title: "放进新文件夹", body: esc(desc), okText: "放进去", icon: "folder",
+      extra: `<div class="form-grid" style="margin-top:12px"><label class="field full"><span>文件夹名</span><input type="text" id="sc-new-group" maxlength="${GROUP_MAX}" placeholder="如 存档、扫地、活动提醒"></label></div>
+        <div class="field-err" id="sc-new-group-err"></div>` });
+    const input = p.el.querySelector("#sc-new-group"), err = p.el.querySelector("#sc-new-group-err");
+    input.focus();
+    input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); p.el.querySelector('[data-x="ok"]').click(); } });
+    input.addEventListener("input", () => { err.innerHTML = ""; input.classList.remove("invalid"); });
+    // 在遮罩这一层先截住「放进去」的点击（捕获阶段，比按钮自己的 onclick 早）：不合格就不让弹窗关掉
+    p.el.addEventListener("click", e => {
+      if (!e.target.closest('[data-x="ok"]')) return;
+      const g = input.value.trim(), why = g ? groupProblem(g) : "写个文件夹名，如 存档";
+      if (!why) return;
+      e.stopPropagation();
+      err.innerHTML = icon("warn") + " " + esc(why);
+      input.classList.add("invalid");
+      input.focus();
+    }, true);
+    const r = await p;
+    const g = input.value.trim(); // 弹窗关掉以后这一层已经摘下来了，但框里的值还在
+    if (!r || stale(gen) || !scheds[i]) return;
+    moveTo(i, g);
+  };
+  const drawScheds = () => {
+    const idx = scheds.map((_, i) => i);
+    const row = i => {
+      const s = scheds[i], g = groupOf(s), draft = saved.get(taskId(s)) !== valueOf(s);
+      const desc = `${TYPE_NAMES[s.type] || s.type} ${when(s)}${s.args ? " " + s.args : ""}${g ? `（${g}）` : ""}`;
+      const tip = s.every && !s.at ? `从每天 0 点起算：${slots(+s.every)}${s.type === "backup" ? "；服务器停着时不备份" : s.type === "command" || s.type === "restart" ? "；服务器没开时不执行" : ""}` : "";
+      return `
+        <div class="java-row${draft ? " draft" : ""}"><span class="badge core">${esc(TYPE_NAMES[s.type] || s.type)}</span>
+          <span class="jv"${tip ? ` title="${esc(tip)}"` : ""}>${esc(when(s))}</span>
+          <span class="jp">${esc(s.args || "")}</span>
+          ${draft ? `<span class="tag warn">未保存</span>` : ""}
+          <span class="grow"></span>
+          <button type="button" class="btn sm ghost" data-mv="${i}" data-desc="${esc(desc)}" aria-label="移到文件夹 ${esc(desc)}">${icon("folder")} 移到…</button>
+          <button class="btn sm danger" data-i="${i}" aria-label="移除 ${esc(desc)}">移除</button></div>`;
+    };
+    // 不放文件夹的在上面（和以前一样），文件夹按出现的先后排在下面；文件夹里的任务删光了，这个文件夹也就没了
+    const folders = groupsNow().map(g => {
+      const ids = idx.filter(i => groupOf(scheds[i]) === g);
+      return `<div role="group" aria-label="文件夹 ${esc(g)}"><div class="row" style="margin:14px 0 8px">${icon("folder")}<b>${esc(g)}</b><span class="tag neutral">${ids.length} 条</span></div>${ids.map(row).join("")}</div>`;
+    });
+    $("#sched-list").innerHTML = (idx.filter(i => !groupOf(scheds[i])).map(row).join("") + folders.join("")) ||
+      `<div class="sub">暂无定时任务</div>`;
+    $("#sc-groups").innerHTML = groupsNow().map(g => `<option value="${esc(g)}">`).join("");
+    $("#sched-list").querySelectorAll("[data-i]").forEach(b => b.onclick = () => { scheds.splice(+b.dataset.i, 1); drawScheds(); paintBar(); });
+    $("#sched-list").querySelectorAll("[data-mv]").forEach(b => b.onclick = () => {
+      // 菜单项的文字由 dropMenu 转义（文件夹名是用户填的，可能带 < >）
+      const i = +b.dataset.mv, cur = groupOf(scheds[i]), others = groupsNow().filter(g => g !== cur);
+      const items = [{ header: "移到文件夹" }, ...others.map(g => ({ label: g, icon: "folder", onClick: () => moveTo(i, g) }))];
+      if (cur) items.push({ label: "不放文件夹", icon: "arrowUp", onClick: () => moveTo(i, "") });
+      if (items.length > 1) items.push({ sep: true });
+      items.push({ label: "新文件夹…", icon: "plus", onClick: () => newFolder(i, b.dataset.desc) });
+      dropMenu(b, items);
+    });
+  };
+  drawScheds();
+
+  const scErr = (msg, bad = "") => {
+    $("#sc-err").innerHTML = msg ? icon("warn") + " " + esc(msg) : "";
+    ["#sc-at", "#sc-every", "#sc-group"].forEach(s => $(s).classList.toggle("invalid", s === bad));
+  };
+  const HINT = $("#sc-hint").textContent;
+  const everyMode = () => $("#sc-mode").value === "every";
+  const everyHint = () => `从每天 0 点起算，每隔 1 小时就是每个整点执行。${$("#sc-type").value === "backup" ? `备份只留最近 ${keep} 份，更早的会删掉。` : ""}`;
+  // 每天 / 每隔：换一种就换一组输入框。快捷时间只对「每天」有用：「每隔」时收起那几个按钮，这一行只剩说明，
+  // 也就不再是一组「快捷时间」
+  const paintMode = () => {
+    const ev = everyMode(), box = $("#sc-later-box");
+    $("#sc-at").hidden = ev;
+    $("#sc-every").hidden = $("#sc-unit").hidden = !ev;
+    body.querySelectorAll("[data-later]").forEach(b => { b.hidden = ev; });
+    if (ev) { box.removeAttribute("role"); box.removeAttribute("aria-label"); } else { box.setAttribute("role", "group"); box.setAttribute("aria-label", "快捷时间"); }
+    $("#sc-hint").textContent = ev ? everyHint() : HINT;
+    scErr("");
+  };
+  $("#sc-mode").addEventListener("change", paintMode);
+  // 命令框只对定时命令有用：别的类型灰掉，添加时也不带上框里的字
+  $("#sc-type").addEventListener("change", () => {
+    $("#sc-args").disabled = $("#sc-type").value !== "command";
+    if (everyMode()) $("#sc-hint").textContent = everyHint();
+  });
+  const presetTip = {
+    backup: () => `每隔 1 小时备份一次世界，放进「存档」文件夹；服务器停着时不备份。保留最近 ${keep} 份（所有服务器共用），超过保留份数时删掉最旧的，手动备份也算在内。`,
+    sweep: () => "每隔 1 小时执行 kill @e[type=item]，清掉地上的掉落物，放进「扫地」文件夹；服务器没开时不执行。",
+  };
+  const paintKeep = () => { body.querySelectorAll("[data-preset]").forEach(b => { b.title = presetTip[b.dataset.preset](); }); if (everyMode()) $("#sc-hint").textContent = everyHint(); };
+  paintKeep();
+  appInfo.then(a => { keep = (a && a.config && a.config.backupKeep) || 10; if (!stale(gen) && body.isConnected) paintKeep(); });
+  // 一键添加：和「添加」一样先进草稿，保存以后生效；同一条已经有了就不再加
+  body.querySelectorAll("[data-preset]").forEach(b => b.onclick = () => {
+    const p = PRESETS[b.dataset.preset], had = scheds.find(s => sameTask(s, p.s));
+    if (had) { toast(`已经有${p.label}了${had.group ? `（在「${had.group}」文件夹里）` : ""}`); return; }
+    addDraft({ ...p.s });
+  });
+  ["#sc-every", "#sc-group"].forEach(s => $(s).addEventListener("input", () => { if ($(s).classList.contains("invalid")) scErr(""); }));
+  $("#sc-at").addEventListener("input", () => { $("#sc-hint").textContent = HINT; if ($("#sc-at").classList.contains("invalid")) scErr(""); });
+  $("#sc-at").addEventListener("blur", () => { const hm = parseHM($("#sc-at").value); if (hm) $("#sc-at").value = hm; });
+  // 快捷项：填成几分钟后的时刻（只是填时间，还要点「添加」、再保存策略）
+  body.querySelectorAll("[data-later]").forEach(b => b.onclick = () => {
+    const d = new Date(Date.now() + b.dataset.later * 60000), hm = pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+    const day = d.toDateString() === new Date().toDateString() ? "今天" : "明天";
+    $("#sc-at").value = hm;
+    scErr("");
+    $("#sc-hint").textContent = `已设为 ${hm}。${day} ${hm} 执行第一次，之后每天该时间执行（若只需执行一次，触发后移除即可）。点「添加」并保存后生效。`;
+  });
+  ["#sc-at", "#sc-every", "#sc-args", "#sc-group"].forEach(s => $(s).addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("#sc-add").click(); } }));
+  $("#sc-add").onclick = () => {
+    // 先后照后端 JSON 的字段顺序填：type、at 或 every、args、group（发出去的那一条由 toPayload 按这个顺序重新拼）
+    const s = { type: $("#sc-type").value };
+    if (everyMode()) {
+      const v = $("#sc-every").value.trim(), lo = EVERY_MIN[s.type] || 5;
+      if (!/^\d{1,3}$/.test(v) || +v === 0) { scErr("间隔写成整数，如 每隔 1 小时、每隔 30 分钟", "#sc-every"); $("#sc-every").focus(); return; }
+      const m = +v * +$("#sc-unit").value;
+      if (m < lo) { scErr(`${TYPE_NAMES[s.type]}最短每隔 ${fmtEvery(lo)}一次`, "#sc-every"); $("#sc-every").focus(); return; }
+      if (m > EVERY_MAX) { scErr("间隔最长 12 小时，更长的请选「每天」", "#sc-every"); $("#sc-every").focus(); return; }
+      s.every = m;
+    } else {
+      s.at = parseHM($("#sc-at").value);
+      if (!s.at) { scErr("时间写成 时:分，如 04:00 或 21:30（24 小时制）", "#sc-at"); $("#sc-at").focus(); return; }
+      $("#sc-at").value = s.at;
+    }
+    s.args = s.type === "command" ? $("#sc-args").value.trim() : ""; // 先选了定时命令填了字、再换成备份的，不带上
+    if (s.type === "command" && !s.args) { scErr("定时命令需要填写命令内容，如 say 大家好"); $("#sc-args").focus(); return; }
+    const g = $("#sc-group").value.trim(), why = groupProblem(g);
+    if (why) { scErr(why, "#sc-group"); $("#sc-group").focus(); return; }
+    if (g) s.group = g;
+    const had = scheds.find(t => sameTask(t, s));
+    if (had) { scErr(`已经有一样的定时任务了${had.group ? `（在「${had.group}」文件夹里）` : ""}，要换文件夹就点它的「移到…」`); return; }
+    scErr("");
+    if (s.type === "command") $("#sc-args").value = "";
+    addDraft(s);
+  };
+  paintBar = wireSaveBar(body, gen,
+    () => Object.fromEntries([["crash", String($("#pol-crash").checked)], ...scheds.map(s => [taskId(s), valueOf(s)])]),
+    async (sent, base) => {
+      // 发出去的是点「保存」这一刻的那份（sent），加什么、删什么都只拿 sent 和 base 这两份快照算：请求途中又加、又删的不算已保存，
+      // 照旧标「未保存」（Codex 复审 beta.3）。只发这一页改了什么：崩溃重启拨过才带；定时任务按条加、删。不再整张表发过去：
+      // 两个窗口同时开着这一页时，另一边刚加的任务这一页没有，整张发就把它删了（Codex 复审 v3.2.0 第二轮。后端按条删找不到的不算错，
+      // 所以另一边已经删掉的再删一次也没事）。挪了文件夹的（编号一样、值变了）：删掉原来文件夹里那条、在新文件夹里加一条（后端按条删认文件夹）
+      const tasks = snap => Object.keys(snap).filter(k => k.startsWith("s:"));
+      const req = {};
+      if (sent.crash !== base.crash) req.crashRestart = sent.crash === "true";
+      const add = tasks(sent).filter(k => base[k] !== sent[k]).map(k => JSON.parse(sent[k]));
+      const remove = tasks(base).filter(k => base[k] !== sent[k]).map(k => JSON.parse(base[k]));
+      if (add.length) req.addSchedules = add;
+      if (remove.length) req.removeSchedules = remove;
+      if (Object.keys(req).length) await api(`/api/instances/${encodeURIComponent(name)}/policies`, { method: "PUT", body: req });
+      saved = new Map(tasks(sent).map(k => [k, sent[k]]));
+      if (!stale(gen)) drawScheds();
+      toast("定时任务已保存，马上生效");
+    });
 }
 
 /* ---------- 视图：联机穿透 ---------- */
