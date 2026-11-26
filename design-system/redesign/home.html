@@ -332,6 +332,86 @@ window.EXTRA_ICONS = {
 
   .tip { position: fixed; left: 12px; bottom: 12px; max-width: 230px; font-size: 11.5px; line-height: 18px; color: var(--faint); }
   .tip a { color: var(--accent-text); }
+
+  /* ---- ?notices=1（11-26 补画，作者还没看）：程序里列表上方那三块提示，和配置读不出来的服务器那张只读卡片 ----
+     程序（app.js renderInstances）在卡片上面摞三块：#dup-dirs「因重名没列出的文件夹」、#task-list「后台任务」、#creating-left「没建完的文件夹」，
+     各是一整张黄卡片或一段列表，有就把服务器卡片往下推。新首页在 1280×800 下已经一行不剩（「其他」底边 714，胶囊顶 730），推不下去。
+     所以收成一颗胶囊，放在字标上面那片留白里（标题栏底 40 到字标顶 108 之间，正中 58–90）：比字标的 350 窄，「从上往下一层比一层宽」接着往上长一层；
+     它脱离文档流（绝对定位），字标、概览条、大卡、「其他」、底部胶囊的位置一像素都不动。没有这些事时胶囊不出现，页面和定稿一模一样。
+     点胶囊在它下面展开一块浮层（大面板的做法：外圆角 26、内边距 8，里面每类一栏，圆角 18；栏里每行圆角 10，离栏边 8，同心），
+     进出场和 commons.html 的菜单同一套（0.22 秒从上面 5 像素落下、ease-out；收起 0.09 秒、ease-in）；内容高过窗口时在浮层里滚，细滚动条同向导，底边不压进胶囊的 86。
+     只加在这个参数后面：不带参数时这段样式一条都不生效，脚本一个节点都不插。 */
+  body.notices .hd { position: relative; }
+  .ntc { position: absolute; top: -50px; left: 50%; transform: translateX(-50%); z-index: 2; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 12px;
+         border: 0; border-radius: var(--r-full); background: var(--surface); box-shadow: var(--elev-1); color: var(--muted); font-size: 12.5px; font-weight: 500; white-space: nowrap; cursor: pointer;
+         transition: color .15s, background .15s; }
+  .ntc:hover, .ntc.open { color: var(--text); background: linear-gradient(var(--hover), var(--hover)), var(--surface); }
+  .ntc .seg1 { display: flex; align-items: center; gap: 6px; }
+  .ntc .ico { width: 14px; height: 14px; }
+  .ntc .run .ico { color: var(--accent-text); animation: ntc-spin .9s linear infinite; }
+  .ntc .need .ico { color: var(--warning-text); }
+  .ntc .div { width: 1px; height: 14px; background: var(--border); }
+  .ntc .chev { color: var(--faint); transition: transform .32s cubic-bezier(.3, .7, .2, 1); }
+  .ntc.open .chev { transform: rotate(180deg); }
+  @keyframes ntc-spin { to { transform: rotate(360deg); } }
+  .npanel { position: fixed; z-index: 20; width: 560px; display: flex; flex-direction: column; border-radius: 26px; padding: 8px; background: var(--surface);
+            box-shadow: var(--elev-3), 0 0 0 1px var(--border); }
+  .npanel.enter { animation: np-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+  .npanel.leave { animation: np-out .09s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+  @keyframes np-in { from { opacity: 0; transform: translateY(-5px); } }
+  @keyframes np-out { to { opacity: 0; transform: translateY(-5px); } }
+  /* 细滚动条：同 wizard.html 的 .lwrap / .list / .thumb，细条放在浮层右边那 8 像素里 */
+  .npanel .lwrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .npanel .list { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0; flex: 1; scrollbar-width: none;
+                  --ft: 0px; --fb: 0px; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%);
+                  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%); }
+  .npanel .list::-webkit-scrollbar { display: none; }
+  .npanel .lwrap.can-up .list { --ft: 28px; } .npanel .lwrap.can-down .list { --fb: 28px; }
+  .npanel .thumb { position: absolute; right: -6px; width: 4px; border-radius: 2px; background: color-mix(in srgb, var(--text) 38%, transparent);
+                   opacity: 0; transition: opacity .2s, width .15s, right .15s; cursor: pointer; }
+  .npanel .lwrap:hover .thumb, .npanel .lwrap.scrolling .thumb, .npanel .thumb.drag { opacity: 1; }
+  .npanel .thumb:hover, .npanel .thumb.drag { width: 6px; right: -7px; background: color-mix(in srgb, var(--text) 55%, transparent); }
+  .npanel .lwrap.fits .thumb { display: none; }
+  /* 栏：同向导第二步的两块（顶上留 14 给标题，左右下 8，标题往里缩 6，字离边 14） */
+  .ncol { flex: none; border-radius: 18px; padding: 12px 8px 8px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); display: flex; flex-direction: column; gap: 6px; }
+  .ncol h3 { margin: 0 0 2px; padding: 0 6px; height: 20px; display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
+  .ncol h3 .n { font-family: var(--mono); font-weight: 500; color: var(--faint); }
+  .ncol h3 .ib { width: 20px; height: 20px; border-radius: 4px; color: var(--faint); cursor: default; }
+  .ncol h3 .ib .ico { width: 14px; height: 14px; }
+  .nrow { display: flex; align-items: center; gap: 8px; min-height: 52px; padding: 7px 8px 7px 12px; border-radius: 10px; box-sizing: border-box;
+          background: color-mix(in srgb, var(--surface) 55%, transparent); }
+  .nrow .m { flex: 1; min-width: 0; }
+  .nrow .t { font-size: 13px; font-weight: 600; line-height: 19px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nrow .t.mono, .nrow .s .mono { font-family: var(--mono); font-weight: 500; }
+  .nrow .s { font-size: 12px; line-height: 18px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nrow .s.warn { color: var(--warning-text); } .nrow .s.bad { color: var(--danger-text); } .nrow .s.run { color: var(--accent-text); }
+  .nrow .s i { display: inline-block; width: 6px; height: 6px; margin-right: 6px; vertical-align: 1px; border-radius: 2px; background: currentColor; }
+  /* 行上的按钮：去处理一类是 28 高胶囊（同向导第三步的快捷预设），收起、删除这类通用动作只放 28 见方的图标（规范第九、十节） */
+  .nbtn { flex: none; height: 28px; padding: 0 12px; border-radius: 14px; border: 1px solid var(--border); background: none; color: var(--muted); font-size: 12px; font-weight: 500; cursor: pointer;
+          transition: background .15s, color .15s; }
+  .nbtn:hover { color: var(--text); background: var(--hover); }
+  .nbtn.go { color: var(--accent-text); background: var(--accent-subtle); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+  .npanel .ib { flex: none; width: 28px; height: 28px; border-radius: 4px; border: 0; padding: 0; background: none; color: var(--muted); display: grid; place-items: center; cursor: pointer; transition: background .15s, color .15s; }
+  .npanel .ib:hover { background: var(--hover); color: var(--text); }
+  .npanel .ib.del:hover { color: var(--danger-text); }
+  .npanel .ib .ico { width: 15px; height: 15px; }
+  .nfold { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 6px; border: 0; background: none; border-radius: 10px; font-size: 12px; color: var(--faint); cursor: pointer; text-align: left; }
+  .nfold:hover { color: var(--text); background: var(--hover); }
+  .nfold .ico { width: 13px; height: 13px; transition: transform .32s cubic-bezier(.3, .7, .2, 1); }
+  .nfold.open .ico { transform: rotate(180deg); }
+  /* 配置读不出来的服务器（程序 instanceBrokenCardHTML）：放进「其他」，和别的小块一样大（261 × 54）。头像的位置换成黄色的警告块（38 见方、圆角 12，同「小块也同心」），
+     名字是文件夹名（等宽），第二行黄字「设置文件无法读取」，原因在整块的悬停里；右边一个「打开文件夹」（同启动键的位置和大小）。
+     不能点进详情、不能启动，所以悬停不浮起。程序里排在正常卡片后面，这里放到「其他」最前面，不然要滑到最后才看得见 */
+  .rc.broken { cursor: default; }
+  .rc.broken:hover { background: color-mix(in srgb, var(--surface) 55%, var(--bg)); box-shadow: none; }
+  .rc .bk-ico { width: 38px; height: 38px; border-radius: 12px; flex: none; display: grid; place-items: center; background: var(--warning-subtle); color: var(--warning-text); }
+  .rc .bk-ico .ico { width: 18px; height: 18px; }
+  .rc .nm.mono { font-family: var(--mono); font-size: 13.5px; }
+  .rc .meta.bad { color: var(--warning-text); display: flex; align-items: center; gap: 6px; }
+  .rc .meta.bad i { width: 6px; height: 6px; border-radius: 2px; background: var(--warning); }
+  .rc button.play { border: 0; padding: 0; cursor: pointer; }
+  .rc .play.open { color: var(--muted); background: var(--surface-2); }
+  .rc .play.open:hover { color: var(--text); }
 </style>
 </head>
 <body>
@@ -345,6 +425,7 @@ if (QS.get("ai") === "0") document.body.classList.add("no-ai");
 if (QS.get("empty")) document.body.classList.add("empty");
 if (QS.get("enter")) document.body.classList.add("entering");
 if (QS.get("embed")) document.body.classList.add("embed");
+if (QS.get("notices")) document.body.classList.add("notices"); // 列表上方的提示和读不出配置的只读小块，见页面最后那段
 </script>
 
 <header class="tb">
@@ -481,7 +562,7 @@ function render() {
   const pins = SERVERS.filter(s => s.pin).length;
   document.getElementById("top-hint").textContent = mode === "pin" && pins < 3 ? (pins ? "空出来的位置按最近启动补上" : "点卡片上的星标，把常用的收藏在这里") : "";
   document.getElementById("live").innerHTML = top.map(([s, i]) => big(s, i)).join("");
-  document.getElementById("rest").innerHTML = rest.map(([s, i]) => tile(s, i)).join("");
+  document.getElementById("rest").innerHTML = (document.body.classList.contains("notices") ? brokenTiles() : "") + rest.map(([s, i]) => tile(s, i)).join("");
   const run = SERVERS.filter(s => s.st === "running"), ppl = run.reduce((n, s) => n + s.players, 0);
   document.getElementById("sum").innerHTML = `<span><span class="dot"></span><b>${run.length}</b> 台运行中</span><span><b>${ppl}</b> 人在线</span><span>共 <b>${SERVERS.length}</b> 台</span>`;
   const idle = SERVERS.length - run.length - SERVERS.filter(s => s.st === "starting").length;
@@ -581,6 +662,166 @@ document.getElementById("hero-plus").addEventListener("click", toWizard);
 if (document.body.classList.contains("entering")) requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove("entering")));
 document.getElementById("hero-mark").innerHTML = MDWordmark.svg({ cell: 7, tone: QS.get("tone") === "mono" ? "mono" : "duo" });
 KIT_READY.then(render);
+</script>
+<script>
+// ---- ?notices=1（11-26 补画）：列表上方的提示收成字标上面的一颗胶囊，点开是一块浮层；读不出配置的服务器进「其他」。样式和排法的理由见样式最后那段。
+// 每样东西在程序里的来历（数据都是假的；存放位置写成 MineDeck\servers，程序里是完整的盘符路径，更长，同向导第三步）：
+//   后台任务 = app.js refreshTaskList（/api/tasks）：进行中的、有没装上的文件的、失败或带提示还没收起的逐行列出；顺利完成的、取消的、点过「收起」的
+//     折成一行「另外 N 个已结束的任务」，点开才列。行上的按钮照程序：进行中「查看进度」、有待处理的文件「去处理」、结束了「查看结果」；
+//     结束了、又不用再处理的，右边一个 ×「收起这条记录」（只记在这次打开的窗口里）。任务名照 Go 里 Tasks.New 拼的（「导入整合包 名字（核心 版本）」，
+//     核心是小写的编号），进行中那行的第二行是任务的 label（ProgressFn 给的「下载整合包文件」）。程序里叫「后台任务」的那个小标题照用。
+//   没建完的文件夹 = paintLeftovers（/api/creating-leftovers）：每行文件夹名、有没有世界、在哪个存放位置。程序每行一个「删除这个文件夹」按钮，
+//     这里照规范第十节换成垃圾桶图标加悬停；点了是危险确认框，草图里跳到 commons.html 看那个框（首页草图里不再画一份弹窗）。
+//     黄卡片上那句「这里只列出创建中途停下、还没建好的文件夹……不会自动删除」收进小标题旁的悬停。
+//   因重名没列出 = renderDupDirsCard（/api/instances 的 duplicates）：哪个文件夹、和列表里哪一台重名。底下那段怎么改名的长说明收进小标题旁的悬停。
+//   读不出配置 = instanceBrokenCardHTML（/api/instances 的 broken）：原因的句子照 Go 的 brokenSettingsReason。局域网里打开时程序不给「打开文件夹」、
+//     改成一句「请到主机上打开这个文件夹」，草图只画了本机的样子。
+//   程序在页头合计里另写「配置无法读取 N 个」；概览条定稿了不动，这一项没画（只读小块本身在「其他」最前面，看得见）。
+const NT = {
+  run: [{ id: "t5", title: "导入整合包 机械动力：齿轮之城（forge 1.20.1）", state: "下载整合包文件", go: "查看进度" }],
+  look: [
+    { id: "t4", title: "导入整合包 匠魂整合（neoforge 1.21.1）", state: "已完成，3 个文件待处理", tone: "warn", go: "去处理" },
+    { id: "t3", title: "创建服务器 测试服（paper 1.21.4）", state: "失败", tone: "bad", go: "查看结果", kind: "失败" },
+  ],
+  done: [
+    { id: "t2", title: "创建服务器 空岛·第二季（purpur 1.21.4）", state: "已完成", go: "查看结果", kind: "已完成" },
+    { id: "t1", title: "导出交接包 生存服 · 朋友（paper 1.21.4）", state: "已完成", go: "查看结果", kind: "已完成" },
+    { id: "t0", title: "创建服务器 红石教学（leaves 1.21.4）", state: "已取消", go: "查看结果", kind: "已取消" },
+  ],
+  left: [{ name: "survival-2", world: true, root: "MineDeck\\servers" }, { name: "modpack-test", world: false, root: "MineDeck\\servers" }],
+  dups: [{ dir: "MineDeck\\servers\\survival-copy", name: "生存服 · 朋友", kept: "MineDeck\\servers\\survival" }],
+  broken: [{ folder: "old-survival", reason: "设置文件 JSON 格式有误（可能是括号、引号或逗号没写对）" }],
+};
+const ntEsc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+// 「其他」里的只读小块（render() 在带参数时把它放在最前面）
+function brokenTiles() {
+  return NT.broken.map(b => `<div class="rc broken" title="${ntEsc(`这台服务器的设置文件读不出来：${b.reason}\n修好或删掉以后重开 MineDeck，它才回到列表`)}">`
+    + `<span class="bk-ico"><i data-ic="warn"></i></span><div><div class="nm mono">${ntEsc(b.folder)}</div><div class="meta bad"><i></i>设置文件无法读取</div></div>`
+    + `<button class="play open" title="打开文件夹"><i data-ic="folder"></i></button></div>`).join("");
+}
+// 胶囊上的字：进行中的任务转着圈，要人看一眼的（有待处理文件的、失败的、没建完的文件夹、重名的）一个数；只剩已结束的任务时只写一句淡的
+function pillHTML() {
+  const need = NT.look.length + NT.left.length + NT.dups.length, parts = [];
+  if (NT.run.length) parts.push(`<span class="seg1 run"><i data-ic="spinner"></i>${NT.run.length} 个任务进行中</span>`);
+  if (need) parts.push(`<span class="seg1 need"><i data-ic="warn"></i>${need} 项要处理</span>`);
+  if (!parts.length && NT.done.length) parts.push(`<span class="seg1">${NT.done.length} 个已结束的任务</span>`);
+  return parts.join(`<i class="div"></i>`) + `<i data-ic="chevronDown" class="chev"></i>`;
+}
+const taskRow = t => `<div class="nrow" data-task="${t.id}"><div class="m"><div class="t" title="${ntEsc(t.title)}">${ntEsc(t.title)}</div>`
+  + `<div class="s${t.tone ? " " + t.tone : !t.kind ? " run" : ""}">${t.tone || !t.kind ? "<i></i>" : ""}${ntEsc(t.state)}</div></div>`
+  + `<button class="nbtn${t.go === "去处理" ? " go" : ""}">${t.go}</button>`
+  + (t.kind && !NT.done.includes(t) ? `<button class="ib" data-hide="${t.id}" title="收起这条记录"><i data-ic="x"></i></button>` : "") + `</div>`;
+// 折起来那一行的字，拼法同程序：只有一种时「N 个已完成的任务」，几种时「N 个已结束的任务（…）」；上面还有行时前面加「另外」
+function foldText() {
+  const kinds = ["已完成", "已取消", "失败"].map(k => [k, NT.done.filter(t => t.kind === k).length]).filter(x => x[1]);
+  const parts = kinds.map(([k, n]) => `${n} 个${k}`), lead = NT.run.length + NT.look.length ? "另外 " : "";
+  return lead + (parts.length === 1 ? parts[0] + "的任务" : `${NT.done.length} 个已结束的任务（${parts.join("，")}）`);
+}
+function panelHTML() {
+  const tasks = `<div class="ncol" id="nt-tasks"><h3>后台任务</h3>${[...NT.run, ...NT.look].map(taskRow).join("")}`
+    + (NT.done.length ? `<button class="nfold" id="nt-fold"><span>${foldText()}</span><i data-ic="chevronDown"></i></button>` : "") + `</div>`;
+  const left = NT.left.length ? `<div class="ncol"><h3>没建完的文件夹<span class="n">${NT.left.length}</span><span class="ib" title="创建中途停下、还没建好的文件夹（程序被关掉、崩溃、断电，或者失败后没清干净）。\n接管进来的和你自己放进来的不会列在这里，也不会自动删除。"><i data-ic="info"></i></span></h3>`
+    + NT.left.map(l => `<div class="nrow"><div class="m"><div class="t mono">${ntEsc(l.name)}</div><div class="s">${l.world ? "含世界文件 · " : ""}<span class="mono">${ntEsc(l.root)}</span></div></div>`
+      + `<button class="ib del" data-left="${ntEsc(l.name)}" title="删除这个文件夹…"><i data-ic="trash"></i></button></div>`).join("") + `</div>` : "";
+  const dups = NT.dups.length ? `<div class="ncol"><h3>因重名没有列出来<span class="n">${NT.dups.length}</span><span class="ib" title="要两台都显示出来，改掉其中一台的名字：打开没列出来的那个文件夹里的 instance.json，把 &quot;name&quot; 改成别的名字后重开 MineDeck；\n或者先把列表里这台移出列表，再用别的名字接管回来，然后重开 MineDeck。"><i data-ic="info"></i></span></h3>`
+    + NT.dups.map(d => `<div class="nrow"><div class="m"><div class="t mono">${ntEsc(d.dir)}</div><div class="s">和「${ntEsc(d.name)}」重名（<span class="mono">${ntEsc(d.kept)}</span>）</div></div></div>`).join("") + `</div>` : "";
+  return `<div class="lwrap"><div class="list">${tasks}${left}${dups}</div><i class="thumb"></i></div>`;
+}
+// 细滚动条：照 wizard.html 的 scrollbar()（跟着列表算长短和位置，能拖；上下有没看到的就渐隐）
+function thinBar(w) {
+  const l = w.querySelector(".list"), t = w.querySelector(".thumb");
+  const paint = () => {
+    const ch = l.clientHeight, sh = l.scrollHeight, st = l.scrollTop;
+    w.classList.toggle("fits", sh <= ch + 1); w.classList.toggle("can-up", st > 2); w.classList.toggle("can-down", st + ch < sh - 2);
+    const h = Math.max(28, ch * ch / sh);
+    t.style.height = h + "px"; t.style.top = (sh > ch ? st / (sh - ch) * (ch - h) : 0) + "px";
+  };
+  if (w._paint) { w._paint(); return; }
+  w._paint = paint;
+  let idle = 0;
+  l.addEventListener("scroll", () => { paint(); w.classList.add("scrolling"); clearTimeout(idle); idle = setTimeout(() => w.classList.remove("scrolling"), 700); }, { passive: true });
+  t.addEventListener("pointerdown", e => {
+    e.preventDefault(); t.setPointerCapture(e.pointerId); t.classList.add("drag");
+    const y0 = e.clientY, s0 = l.scrollTop, ratio = (l.scrollHeight - l.clientHeight) / (l.clientHeight - t.offsetHeight);
+    const move = ev => { l.scrollTop = s0 + (ev.clientY - y0) * ratio; };
+    const up = () => { t.classList.remove("drag"); t.removeEventListener("pointermove", move); t.removeEventListener("pointerup", up); };
+    t.addEventListener("pointermove", move); t.addEventListener("pointerup", up);
+  });
+  paint();
+}
+let ntPill = null, ntPanel = null;
+function placePanel() {
+  if (!ntPanel || !ntPill) return;
+  const r = ntPill.getBoundingClientRect(), top = Math.round(r.bottom + 8);
+  ntPanel.style.left = Math.round(r.left + r.width / 2 - ntPanel.offsetWidth / 2) + "px";
+  ntPanel.style.top = top + "px";
+  ntPanel.style.maxHeight = (innerHeight - top - 86) + "px"; // 底边不压进胶囊（胶囊 52 + 离底 18 + 间隔 16）
+  ntPanel.querySelector(".lwrap")._paint?.();
+}
+function openPanel() {
+  if (ntPanel) return closePanel();
+  ntPanel = Object.assign(document.createElement("div"), { className: "npanel enter", innerHTML: panelHTML() });
+  ntPanel.setAttribute("role", "dialog"); ntPanel.setAttribute("aria-label", "后台任务和要处理的文件夹");
+  document.body.appendChild(ntPanel); KIT.hydrate(ntPanel);
+  ntPill.classList.add("open"); ntPill.setAttribute("aria-expanded", "true");
+  placePanel(); thinBar(ntPanel.querySelector(".lwrap"));
+}
+function closePanel() {
+  const p = ntPanel; if (!p) return;
+  ntPanel = null; ntPill.classList.remove("open"); ntPill.setAttribute("aria-expanded", "false");
+  p.classList.remove("enter"); p.classList.add("leave"); setTimeout(() => p.remove(), 90);
+}
+// 收起一条任务（同向导待装清单拿掉一个：往右划 32 像素淡掉，再收起）；它挪进折起来的那一行，那一行的字跟着换
+function hideTask(id) {
+  const row = ntPanel?.querySelector(`.nrow[data-task="${id}"]`), t = NT.look.find(x => x.id === id); if (!row || !t || row.classList.contains("out")) return;
+  row.classList.add("out");
+  const h = row.offsetHeight + "px";
+  row.animate([
+    { opacity: 1, transform: "none", height: h, marginBottom: "0px", easing: "cubic-bezier(.4, 0, 1, 1)" },
+    { opacity: 0, transform: "translateX(32px)", height: h, marginBottom: "0px", offset: .55, easing: "cubic-bezier(.2, .7, .2, 1)" },
+    { opacity: 0, transform: "translateX(32px)", height: "0px", marginBottom: "-6px", minHeight: "0px", paddingTop: "0px", paddingBottom: "0px" },
+  ], { duration: 320, fill: "forwards" }).onfinish = () => { row.remove(); ntPanel?.querySelector(".lwrap")._paint?.(); };
+  NT.look = NT.look.filter(x => x !== t); NT.done.unshift({ ...t, tone: "" });
+  const f = ntPanel.querySelector("#nt-fold span"), open = ntPanel.querySelector("#nt-fold.open");
+  if (f) f.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 90, easing: "cubic-bezier(.4, 0, 1, 1)", fill: "forwards" }).onfinish = () => {
+    f.textContent = foldText(); f.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, easing: "cubic-bezier(.2, .7, .2, 1)" }).finished.then(() => f.getAnimations().forEach(a => a.cancel()));
+  };
+  if (open) { const r = Object.assign(document.createElement("div"), { innerHTML: taskRow(NT.done[0]) }).firstElementChild; ntPanel.querySelector("#nt-fold").after(r); KIT.hydrate(r); }
+  ntPill.innerHTML = pillHTML(); KIT.hydrate(ntPill);
+}
+// 折起来的已结束任务：点开一行一行从下面淡进来（规范第七节「清单加减」），再点收起
+function toggleFold(btn) {
+  const open = btn.classList.toggle("open"), col = btn.parentElement;
+  if (open) {
+    const rows = NT.done.map(t => Object.assign(document.createElement("div"), { innerHTML: taskRow(t) }).firstElementChild);
+    rows.reverse().forEach(r => btn.after(r)); rows.reverse();
+    KIT.hydrate(col);
+    rows.forEach((r, i) => {
+      r.classList.add("folded");
+      r.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, delay: i * 22, easing: "cubic-bezier(.2, .7, .2, 1)", fill: "backwards" });
+    });
+  } else col.querySelectorAll(".nrow.folded").forEach(r => r.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 90, easing: "cubic-bezier(.4, 0, 1, 1)", fill: "forwards" }).onfinish = () => { r.remove(); ntPanel?.querySelector(".lwrap")._paint?.(); });
+  setTimeout(() => ntPanel?.querySelector(".lwrap")._paint?.(), 0);
+}
+if (document.body.classList.contains("notices")) KIT_READY.then(() => {
+  ntPill = Object.assign(document.createElement("button"), { className: "ntc", innerHTML: pillHTML() });
+  ntPill.setAttribute("aria-haspopup", "dialog"); ntPill.setAttribute("aria-expanded", "false");
+  document.querySelector(".hd").appendChild(ntPill); KIT.hydrate(ntPill);
+  ntPill.addEventListener("click", openPanel);
+  document.addEventListener("pointerdown", e => { if (ntPanel && !ntPanel.contains(e.target) && !ntPill.contains(e.target)) closePanel(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") closePanel(); });
+  addEventListener("resize", placePanel);
+  document.addEventListener("click", e => {
+    if (!ntPanel || !ntPanel.contains(e.target)) return;
+    const hd = e.target.closest("[data-hide]"), fold = e.target.closest("#nt-fold"), del = e.target.closest("[data-left]");
+    if (hd) hideTask(hd.dataset.hide);
+    else if (fold) toggleFold(fold);
+    else if (del) { // 草图里不再画一份弹窗：跳到 commons.html 看这个危险确认框（配色这些参数带过去）
+      const q = new URLSearchParams(location.search); ["notices", "mode", "enter"].forEach(k => q.delete(k)); q.set("part", "confirm"); q.set("open", "leftover");
+      location.href = "commons.html?" + q.toString();
+    }
+  });
+});
 </script>
 </body>
 </html>
