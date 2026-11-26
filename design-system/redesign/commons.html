@@ -1,0 +1,1055 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>草图 · 共用件（弹窗、提示、菜单、三态、整页状态）</title>
+<script>
+// 程序图标里没有的：窗口三键、工具箱、星标、控制台，都照 home.html 的 EXTRA_ICONS 抄过来（home.html 里写了来历）；这一页没有新画的图标
+const STAR = "M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z";
+window.EXTRA_ICONS = {
+  toolbox: '<path d="M5.5 4V2.8A.8.8 0 016.3 2h3.4a.8.8 0 01.8.8V4"/><rect x="2" y="4" width="12" height="9.5" rx="1.6"/><path d="M2 8h12M6.5 8v1.6h3V8"/>',
+  winMin: '<path d="M4 8h8"/>', winMax: '<rect x="4" y="4" width="8" height="8" rx="1"/>', winClose: '<path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/>',
+  console: '<rect x="2" y="3" width="12" height="10" rx="1.6"/><path d="M4.8 6.5l1.8 1.5-1.8 1.5M8 10h3"/>',
+  star: `<path d="${STAR}"/>`, starOn: `<path d="${STAR}" fill="currentColor"/>`,
+};
+</script>
+<script src="kit.js"></script>
+<script src="pixel16.js"></script>
+<link rel="stylesheet" href="kit.css">
+<style>
+/* 共用件对照页（11-26 第一稿，主会话派子代理照临时规范和首页、向导的做法画的，作者还没逐处看）：
+   各页都会用到的弹窗、右上角的提示、下拉菜单、加载 / 空 / 错误三态、整页状态画在一页上。顶上一排分段切七块（也能用 ?part=confirm|form|ask|toast|menu|states|pages 直达），
+   每块一屏，1280×800 不滚动。内容、文案、能做的事都照程序现在的（internal/web/ui/app.js，函数名和大约的行号写在各段注释里），只按临时规范重新排、重新画；
+   程序里原有的长说明收进悬停（写在元素的 title 上，kit.js 换成自己画的浮层）。
+   怎么看：
+     · 三块弹窗（确认框、表单弹窗、报错与询问）底下是一块遮罩色的托盘，弹窗按真实宽度摆在上面，里面的开关、输入、分段都能点；点「取消」这类会关掉弹窗的按钮，
+       托盘上的那个退场再进场一遍。每个弹窗上面那行小字右边的 ▶ 在整个窗口里真弹一次，看遮罩和弹窗的进出场。
+     · ?open=<名字> 一打开就弹那一个（normal、backup、leftover、delete、delete-adopted、export、pending、errd、closeask、quit），
+       ?page=<名字> 一打开就是那一种整页状态（offline、updating、quitting、missing、login、login-phone）。这两个和小字右边的 ▶、顶上的分段都是草图专用，定了就删。
+   弹窗的做法（规范第三、四节）：
+     · 弹窗是一块大面板（外圆角 26、内边距 8），字和要填的东西都在里面一栏（圆角 18 = 26 − 8，底色同向导的栏），按钮是底下一排 36 高的胶囊，
+       左右贴着面板的内边距、等宽铺满（36 / 2 = 18 = 26 − 8：又是胶囊、又和面板的两个下角同心，同首页大卡底下那排）。
+       为什么挑 36：给的三种里，40 高圆角 10 是表单控件（输入框、分段选）的样子，放在面板角上不同心；44 高是向导浮在页面上的上一步、下一步，弹窗里显大；
+       36 是唯一一种既是胶囊、贴着面板的角又同心的。等宽铺满：按钮写出后果以后字长短不一，等宽才整齐，字换了宽度也不变（删除服务器那个开关一拨，按钮的字就换）。
+     · 危险确认框标题前的图标块 40 见方，离栏的角 8、圆角 10（18 − 8），同向导第一步介绍里的核心图标。栏里的输入框、分段、路径框同向导第三步（40 高、圆角 10）。
+     · 面板用 --surface 底（同首页大卡、向导面板），不用 MASTER 写的 --overlay：栏的底色是照 --surface 调的，换成 overlay 底时栏比面板暗，层次反过来。
+       投影用 MASTER 的第四档 --elev-4，遮罩用 MASTER 的 --scrim 加 2 像素模糊（kit.css 里没有这两个，下面照 app.css 抄了深浅两套）。
+     · 遮罩从标题栏下面开始，标题栏不盖：程序里遮罩盖住整个窗口，弹窗开着时拖不动窗口、点不了窗口三键，和 MASTER 红线 3「始终可用」不合。
+     · 默认聚焦：危险确认框落在「取消」，别的落在主键（同程序 confirmModal）。用鼠标点开时浏览器不画焦点框，回车却照样按到它，
+       所以落了焦点的那颗键画一圈 2 像素的强调色细框（离键 2 像素），一动别的就收（草图里托盘上的弹窗也画着，标出默认落在哪颗）。
+   进出场（规范第七节没写到，照「快起慢停、离场比进场短」定了一套，曲线都用第七节已有的几条：进场 ease-out .2,.7,.2,1，离场 ease-in .4,0,1,1，补位 .3,.7,.2,1）：
+     · 弹窗：遮罩 0.22 秒淡进，面板 0.26 秒从下面 10 像素浮上来（时长同换步的进场）；关掉时面板 0.14 秒往下 6 像素淡掉，遮罩 0.14 秒淡掉（同换步的离场）。只挪不缩放，同第七节别处。
+     · 菜单（首页提示的浮层同一套）：0.22 秒从锚点那一侧 5 像素进来，收起 0.09 秒往回 5 像素淡掉（同逐项换）。
+     · 右上角的提示：0.22 秒从上面 8 像素落下；走的时候 0.14 秒往右 16 像素淡掉（方向同程序）；下面的几条 0.32 秒补上去（选中框滑动那条曲线）。
+     · 弹窗里一样一样变的（删除服务器的开关一拨，标题、说明、按钮的字和颜色跟着变）：同逐项换，旧的 0.09 秒淡掉，新的 0.22 秒从下面 5 像素浮上来；不重画整个弹窗。
+     · 「减少动态」打开时都该关掉，草图没做。
+   和程序现在不一样的地方（逐条写在各段注释里，汇总）：
+     · 系统控件全换掉：程序弹窗里的单选（这个包给谁、没装上的文件怎么处理）、勾选框、<details> 折叠、浏览器自带滚动条，换成自己画的分段、开关、勾、细滚动条（规范第一节）。
+     · 程序弹窗里的长说明收进悬停（每一处写在下面各段）；只留会拦住下一步或者会改变结果的那句（「无法恢复」「包里有密码」「信任这个站点的下载」）。
+     · 危险确认框标题点名对象：程序「删除备份？」→「删除备份「更新模组前」？」，按钮「删除」→「删除备份」（MASTER 第 6 节「标题点名对象、按钮写出后果」）。
+     · 「复制报错信息」：报错详情里原文框右上角一个复制图标（规范第九节「复制：值后面一个复制图标」），不再是一颗写着字的按钮。
+     · 菜单里暂时不能点的项（服务器开着时的导出、删除）：程序是在项下面写一行「需先停止服务器」，这里照规范第九节灰掉、原因进悬停。
+     · 右上角提示的停留：程序里报错的和带按钮的停 20 秒（app.js TOAST_LINGER_MS，可用性走查 R03 从 8 秒改的），任务单和 MASTER 第 11 节第 11 条写的是 8 秒；这里照程序画。
+     · 整页状态：程序是把整个 body 换成一行字（标题栏也没了，原生窗口里拖不动、关不掉）；这里留着标题栏和窗口三键（MASTER 红线 3），字摆在正中。
+   要后端补的：没有。这一页画的东西程序现在都有，只是换了排法；「服务器不存在」那页多了一颗「回到主页」（等同底部胶囊的主页），见那段注释。 */
+:root { --elev-4: 0 28px 64px -16px rgb(var(--shadow-rgb) / .32), 0 8px 20px -4px rgb(var(--shadow-rgb) / .10); --scrim: rgb(var(--shadow-rgb) / .32); }
+[data-theme="dark"] { --elev-4: 0 32px 72px -16px rgb(0 0 0 / .72), 0 8px 24px -4px rgb(0 0 0 / .40); --scrim: rgb(0 0 0 / .56); }
+body { background: var(--bg); overflow: hidden; }
+
+/* 标题栏：照 home.html（和内容同一张底，左边小图标，右边窗口三键） */
+.tb { height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 0 0 16px; position: relative; z-index: 45; background: var(--bg); }
+.tb img { width: 16px; height: 16px; image-rendering: pixelated; }
+.tb .sp { flex: 1; }
+.tb .win { display: flex; height: 40px; }
+.tb .win span { width: 46px; display: grid; place-items: center; color: var(--muted); }
+
+/* 顶上一排：正中切换七块的分段（草图专用，定了就删），左右两段淡字说明 */
+.hdr { position: absolute; top: 40px; left: 0; right: 0; height: 60px; display: flex; align-items: center; justify-content: center; }
+.hdr .note { position: absolute; left: 24px; font-size: 12px; color: var(--faint); }
+.hdr .note.r { left: auto; right: 24px; }
+.hdr a { color: var(--accent-text); text-decoration: none; }
+/* 分段：照 wizard.html 的 .seg（表单里取值的 40 高、圆角 10）和 .seg.sm（换着看什么的 32 高胶囊），选中的底色单独一块滑过去 */
+.seg { position: relative; display: flex; padding: 3px; border-radius: 10px; background: var(--field); border: 1px solid var(--border); box-sizing: border-box; height: 40px; }
+.seg span { flex: 1; position: relative; z-index: 1; display: grid; place-items: center; font-size: 13px; color: var(--muted); border-radius: 6px; cursor: pointer; transition: color .2s; white-space: nowrap; }
+.seg span:hover { color: var(--text); }
+.seg span.on { color: var(--accent-text); font-weight: 500; }
+.seg .sgl { position: absolute; left: 0; top: 3px; bottom: 3px; border-radius: 6px; background: var(--accent-subtle); z-index: 0; pointer-events: none;
+            box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+            transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
+.seg.sm { height: 32px; border-radius: 16px; flex: none; }
+.seg.sm span { flex: none; padding: 0 14px; font-size: 12.5px; border-radius: 12px; }
+.seg.sm .sgl { border-radius: 12px; }
+.seg.xs { height: 28px; border-radius: 14px; padding: 2px; } /* 小字那行里的草图开关：28 高胶囊，同筛选片 */
+.seg.xs span { flex: none; padding: 0 10px; font-size: 12px; border-radius: 12px; }
+.seg.xs .sgl { top: 2px; bottom: 2px; border-radius: 12px; }
+
+/* 舞台：顶上那排下面的一大块。弹窗那三块是遮罩色的托盘（页面底叠一层 --scrim），弹窗摆在上面；别的几块是普通页面底 */
+.stage { position: absolute; top: 100px; left: 16px; right: 16px; bottom: 16px; border-radius: 26px; }
+.stage::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--scrim); opacity: 0; transition: opacity .22s cubic-bezier(.2, .7, .2, 1); }
+.stage.dim::before { opacity: 1; }
+.stage > .in { position: relative; z-index: 1; height: 100%; display: flex; flex-direction: column; align-items: center; padding-top: 14px; box-sizing: border-box; }
+.rowx { display: flex; gap: 24px; align-items: flex-start; justify-content: center; }
+.rowx + .rowx { margin-top: 14px; }
+.colx { display: flex; flex-direction: column; gap: 14px; }
+.cell { display: flex; flex-direction: column; gap: 4px; }
+/* 每样东西上面一行小字（草图里的说明，不是界面）：是什么、右边 ▶ 在窗口里真弹一次；有的还带一个草图开关切状态 */
+.cap { height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 2px 0 4px; font-size: 12px; color: var(--faint); white-space: nowrap; }
+.stage.dim .cap { color: color-mix(in srgb, var(--text) 62%, transparent); }
+.cap .sp { flex: 1; }
+.ib { flex: none; width: 28px; height: 28px; border-radius: 4px; border: 0; padding: 0; background: none; color: var(--muted); display: grid; place-items: center; cursor: pointer; transition: background .2s, color .2s; }
+.ib:hover { background: var(--hover); color: var(--text); }
+.ib .ico { width: 15px; height: 15px; }
+.ib.done { color: var(--accent-text); }
+.stage.dim .cap .ib { color: color-mix(in srgb, var(--text) 70%, transparent); }
+
+/* ---------- 弹窗（.md）：大面板 + 一栏 + 底下一排 36 高胶囊，理由见开头 ---------- */
+.md { --R: 26px; --p: 8px; width: var(--w, 344px); box-sizing: border-box; border-radius: var(--R); padding: var(--p); background: var(--surface); box-shadow: var(--elev-4);
+      display: flex; flex-direction: column; gap: 8px; text-align: left; }
+.md .mc { border-radius: 18px; padding: 18px 20px 20px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+.md .mh { display: flex; align-items: center; gap: 12px; min-height: 22px; }
+.md .mh.has-ico { margin: -10px 0 0 -12px; } /* 图标块离栏的角 8：栏的内边距上 18、左 20，往上挪 10、往左挪 12 */
+.md .mi { width: 40px; height: 40px; border-radius: 10px; flex: none; display: grid; place-items: center; background: var(--danger-subtle); color: var(--danger-text); }
+.md .mi .ico { width: 20px; height: 20px; }
+.md h3 { flex: 1; min-width: 0; margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; letter-spacing: -.005em; display: flex; align-items: center; gap: 6px; }
+.md h3 .sp { flex: 1; }
+.md h3 > .ib { margin: -3px -8px -3px 0; } /* 报错信息标题这一行最右边的复制：离栏的右边 12 */
+.md .mb { font-size: 13px; line-height: 21px; color: var(--muted); }
+.md .mb b { color: var(--text); font-weight: 600; }
+.md .mb .dg, .md .dg { color: var(--danger-text); font-weight: 600; }
+.md .mono { font-family: var(--mono); font-size: 12.5px; }
+.md h3 { flex-wrap: wrap; column-gap: 0; } .md h3 .nw { white-space: nowrap; } .md h3 .tipi { margin-left: 4px; } /* 标题里点名的对象不从中间断开 */
+.tipi { display: inline-grid; place-items: center; width: 18px; height: 18px; vertical-align: -3px; color: var(--faint); cursor: default; }
+.tipi .ico { width: 14px; height: 14px; }
+.md .ma { display: flex; gap: 8px; }
+/* 按钮：36 高胶囊（同首页大卡底下那排的 .btn：次要键 --control 底加细边，主键实心强调色，危险键实心危险色，危险而不是最终的那颗用浅危险底，同大卡的「停止」） */
+.b { flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; padding: 0 14px; border-radius: 18px; box-sizing: border-box;
+     border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer;
+     transition: background-color .2s, color .2s, border-color .2s, opacity .2s; }
+.b:hover { background: var(--control-hov); }
+.b .ico { width: 15px; height: 15px; }
+.b.pri { background: var(--accent-solid); color: var(--on-accent); border-color: transparent; font-weight: 600; }
+.b.pri:hover { background: var(--accent-solid-hov); }
+.b.dgr { background: var(--danger-solid); color: var(--on-danger); border-color: transparent; font-weight: 600; }
+.b.dgr:hover { background: var(--danger-solid-hov); }
+.b.sdg { background: var(--danger-subtle); color: var(--danger-text); border-color: transparent; }
+.b.sdg:hover { background: color-mix(in srgb, var(--danger-text) 18%, transparent); }
+.b[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.b.dgr[aria-disabled="true"]:hover { background: var(--danger-solid); }
+.b.fk { outline: 2px solid var(--accent); outline-offset: 2px; }
+.b.auto { flex: none; }
+.b.sm { flex: none; height: 28px; padding: 0 12px; border-radius: 14px; font-size: 12px; } /* 28 高胶囊：同向导的快捷预设、筛选片 */
+.b .lbl { display: inline-flex; align-items: center; gap: 6px; }
+/* 栏里的表单件：照 wizard.html 第三步（.fld / .lb / .inp / .pathf / .fnote），开关、勾照 wizard.html 的 .tg / .ck */
+.fld { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.fld > .lb { font-size: 12.5px; line-height: 18px; color: var(--muted); font-weight: 500; display: flex; align-items: baseline; gap: 8px; }
+.fld > .lb .msg { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--danger-text); opacity: 0; transition: opacity .2s; }
+.fld > .lb .msg.show { opacity: 1; }
+.inp { height: 40px; border-radius: 10px; background: var(--field); border: 1px solid var(--border); padding: 0 12px; box-sizing: border-box; width: 100%;
+       font: inherit; font-size: 14px; color: var(--text); outline: none; transition: border-color .2s, box-shadow .2s, opacity .2s; }
+.inp::placeholder { color: var(--faint); }
+.inp:focus { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.inp.bad { border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
+.inp.mono { font-family: var(--mono); font-size: 13px; }
+.iwrap { position: relative; }
+.iwrap .inp { padding-right: 40px; }
+.iwrap .ib { position: absolute; right: 6px; top: 6px; } /* 40 高框里离边 6 的小按钮 28 见方、圆角 4（10 − 6，规范第四节） */
+.pathf { height: 40px; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 10px; box-sizing: border-box;
+         background: var(--field); border: 1px solid var(--border); }
+.pathf .ico { width: 15px; height: 15px; flex: none; color: var(--muted); }
+.pathf b { display: flex; min-width: 0; font-family: var(--mono); font-size: 12.5px; font-weight: 500; color: var(--text); white-space: nowrap; user-select: all; }
+.pathf b .hd, .pathf b .tl { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pathf b .hd { flex-shrink: 1000; min-width: 1.6ch; color: var(--muted); }
+.fnote { font-size: 12px; line-height: 18px; color: var(--faint); display: flex; align-items: center; gap: 8px; min-height: 18px; }
+.fnote.bad { color: var(--danger-text); }
+.fnote a { color: var(--accent-text); cursor: pointer; white-space: nowrap; font-weight: 500; } /* 同 wizard.html 的 .fnote a：一行字里的动作是链接的样子，这一行不变高 */
+.fnote .ico { width: 13px; height: 13px; flex: none; }
+.mnote { font-size: 12.5px; line-height: 18px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.mnote .ico { width: 14px; height: 14px; flex: none; color: var(--faint); }
+.mnote.warn { color: var(--warning-text); } .mnote.warn .ico { color: var(--warning-text); }
+.tg { display: flex; align-items: center; gap: 12px; cursor: pointer; width: fit-content; }
+.tg .m { flex: none; }
+.tg .t { font-size: 13.5px; font-weight: 600; }
+.sw { order: -1; width: 36px; height: 20px; border-radius: 10px; flex: none; position: relative; background: color-mix(in srgb, var(--text) 18%, transparent); transition: background .2s; }
+.sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 8px; background: var(--text); transition: transform .26s cubic-bezier(.3, .7, .2, 1); }
+.tg.on .sw { background: var(--accent-solid); }
+.tg.on .sw::after { transform: translateX(16px); background: var(--on-accent); }
+.ck { display: inline-flex; align-items: center; gap: 8px; min-height: 26px; font-size: 12.5px; color: var(--muted); cursor: pointer; transition: color .2s; }
+.ck:hover { color: var(--text); }
+.ck .bx { width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; border: 1.5px solid color-mix(in srgb, var(--text) 35%, transparent); display: grid; place-items: center; flex: none;
+          color: transparent; transition: background .15s, border-color .15s, color .15s; }
+.ck .bx .ico { width: 10px; height: 10px; }
+.ck.on .bx { background: var(--accent-solid); border-color: var(--accent-solid); color: var(--on-accent); }
+.dconf { transition: opacity .2s; }
+.dconf.off { opacity: .45; } /* 暂时用不了的整块 0.45（规范第六节）：开关关着时输名字那一块先给人看见，打开才能填 */
+/* 提醒块（导出交接包「包里有玩家数据和密码」）、弹窗里提交出错（程序 .m-err）：栏里的块圆角 10，警告色、危险色的浅底 */
+.wn, .merr { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 9px 12px; border-radius: 10px; box-sizing: border-box; font-size: 12.5px; line-height: 19px; }
+.wn { background: var(--warning-subtle); color: var(--text); }
+.wn .ico { color: var(--warning-text); width: 15px; height: 15px; flex: none; }
+.merr { background: var(--danger-subtle); color: var(--danger-text); padding-right: 6px; }
+.merr .ico { width: 15px; height: 15px; flex: none; }
+.merr span { flex: 1; min-width: 0; }
+/* 细滚动条：照 wizard.html 的 .lwrap / .list / .thumb 和 scrollbar()（系统滚动条藏掉，右边 4 像素的细条，悬停或在滚时出来，能拖；上下还有时那一头淡出 28） */
+.lwrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.list { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0; flex: 1; scrollbar-width: none;
+        --ft: 0px; --fb: 0px; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%);
+        mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%); }
+.list::-webkit-scrollbar { display: none; }
+.lwrap.can-up .list { --ft: 28px; } .lwrap.can-down .list { --fb: 28px; }
+.thumb { position: absolute; right: -6px; width: 4px; border-radius: 2px; background: color-mix(in srgb, var(--text) 38%, transparent);
+         opacity: 0; transition: opacity .2s, width .15s, right .15s; cursor: pointer; }
+.lwrap:hover .thumb, .lwrap.scrolling .thumb, .thumb.drag { opacity: 1; }
+.thumb:hover, .thumb.drag { width: 6px; right: -7px; background: color-mix(in srgb, var(--text) 55%, transparent); }
+.lwrap.fits .thumb { display: none; }
+
+/* 报错原文（程序 showErrDetail 约 247 行的 .err-detail）：等宽、可选中，像输入框那样的底和细边、圆角 10；多了在框里滚（细滚动条）。
+   复制在标题那一行的最右边（原文框里放不下：细滚动条在框的右边，复制图标放框角上会和它叠在一起） */
+.raw { position: relative; border-radius: 10px; background: var(--field); border: 1px solid var(--border); display: flex; min-height: 40px; }
+.raw .lwrap { padding: 10px 14px 10px 12px; }
+.raw .list { display: block; font-family: var(--mono); font-size: 12px; line-height: 18px; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; outline: none; }
+.raw .thumb { right: 4px; }
+
+/* 没装上的文件（程序 pendingModal 约 3268 行、pendingPanel 约 3100 行）：一个文件一块（圆角 10），在栏里滚 */
+.pnd { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 10px; background: color-mix(in srgb, var(--surface) 55%, transparent); flex: none; }
+.pnd .r1 { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.pnd .p { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pnd .why { font-size: 12px; line-height: 18px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.pnd .why .host { font-family: var(--mono); color: var(--faint); }
+.pnd .ib { width: 24px; height: 24px; }
+.pnd .ib .ico { width: 13px; height: 13px; }
+.pnd .more { transition: opacity .2s; }
+.pnd.out { pointer-events: none; }
+.pbar { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.pbar .sp { flex: 1; }
+.pfold { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 6px; border: 0; background: none; border-radius: 10px; font: inherit; font-size: 12px; color: var(--faint); cursor: pointer; flex: none; }
+.pfold:hover { color: var(--text); background: var(--hover); }
+.pfold .ico { width: 13px; height: 13px; transition: transform .32s cubic-bezier(.3, .7, .2, 1); }
+.pfold.open .ico { transform: rotate(180deg); }
+.pdone { margin: auto; display: flex; flex-direction: column; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
+.pdone .ico { width: 22px; height: 22px; color: var(--success-text); }
+
+/* 弹窗真弹出来时：遮罩从标题栏下面盖到底（标题栏不盖，理由见开头），面板在剩下那块的正中 */
+.mask { position: fixed; left: 0; right: 0; top: 40px; bottom: 0; z-index: 40; display: grid; place-items: center; background: var(--scrim); backdrop-filter: blur(2px); }
+.mask.enter { animation: mk-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.mask.enter > .md { animation: md-in .26s cubic-bezier(.2, .7, .2, 1) both; }
+.mask.leave { animation: mk-out .14s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+.mask.leave > .md { animation: md-out .14s cubic-bezier(.4, 0, 1, 1) both; }
+.md.out { animation: md-out .14s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+.md.in { animation: md-in .26s cubic-bezier(.2, .7, .2, 1) both; }
+@keyframes mk-in { from { opacity: 0; } }
+@keyframes mk-out { to { opacity: 0; } }
+@keyframes md-in { from { opacity: 0; transform: translateY(10px); } }
+@keyframes md-out { to { opacity: 0; transform: translateY(6px); } }
+
+/* ---------- 右上角的提示（程序 toast 约 123 行、placeToasts 约 200 行）----------
+   位置同程序：标题栏下面 12、离窗口右边 16，360 宽，一条接一条往下排，间隔 8。
+   外圆角 18、细边 1 加内边距 7（同心按外沿量，边也算：1 + 7 = 8），左上角的状态块 28 见方、圆角 10（18 − 8），右上角的关闭也是 28 见方、圆角 10；
+   一行字的提示正好 44 高。按钮（详情、撤销、打开文件夹、改端口）是 28 高胶囊，排在字下面一行（程序里挤在字的右边，字长了会被挤成很窄一条）。 */
+#toasts { position: fixed; right: 16px; top: 52px; z-index: 60; width: 360px; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.tst { pointer-events: auto; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; column-gap: 10px; row-gap: 6px; padding: 7px; border-radius: 18px; box-sizing: border-box;
+       background: var(--overlay); border: 1px solid var(--border); box-shadow: var(--elev-3); cursor: pointer; }
+.tst .ti { width: 28px; height: 28px; border-radius: 10px; display: grid; place-items: center; background: var(--success-subtle); color: var(--success-text); }
+.tst.err .ti { background: var(--danger-subtle); color: var(--danger-text); }
+.tst .ti .ico { width: 15px; height: 15px; }
+.tst .tm { padding: 4px 0; font-size: 13px; line-height: 20px; color: var(--text); overflow-wrap: anywhere; }
+.tst .tm .mono { font-family: var(--mono); font-size: 12.5px; }
+.tst .tx { width: 28px; height: 28px; border-radius: 10px; }
+.tst .ta { grid-column: 2 / 4; display: flex; gap: 6px; margin-bottom: 1px; }
+.tst .ta .b { background: var(--control); }
+.tst .ta .b:hover { background: var(--control-hov); }
+.tst.enter { animation: ts-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.tst.leave { animation: ts-out .14s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+@keyframes ts-in { from { opacity: 0; transform: translateY(-8px); } }
+@keyframes ts-out { to { opacity: 0; transform: translateX(16px); } }
+
+/* ---------- 下拉菜单（程序 dropMenu 约 1168 行；服务器卡片「···」的项是 folderItems 约 1392 行 + instMoreItems 约 3613 行）----------
+   外圆角 16、细边 1 加内边距 5（1 + 5 = 6），项 36 高、圆角 10（16 − 6，同心）；36 同向导版本那一列的行。
+   分组标题同栏的小标题（12 号 600、淡色）；分隔线左右各缩 6；危险项危险色的字和图标；暂时不能点的灰掉 0.45、原因进悬停（规范第九节；程序是在项下面写一行字）。 */
+.dm { position: absolute; z-index: 50; min-width: 208px; padding: 5px; box-sizing: border-box; display: flex; flex-direction: column; gap: 1px;
+      border-radius: 16px; border: 1px solid var(--border); background: var(--overlay); box-shadow: var(--elev-3); }
+.dm.enter { animation: dm-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.dm.leave { animation: dm-out .09s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+.dm.up.enter { animation-name: dm-in-up; } .dm.up.leave { animation-name: dm-out-up; }
+@keyframes dm-in { from { opacity: 0; transform: translateY(-5px); } }
+@keyframes dm-out { to { opacity: 0; transform: translateY(-5px); } }
+@keyframes dm-in-up { from { opacity: 0; transform: translateY(5px); } }
+@keyframes dm-out-up { to { opacity: 0; transform: translateY(5px); } }
+.dm .it { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: 10px; font-size: 13px; color: var(--text); cursor: pointer; white-space: nowrap; transition: background .15s; }
+.dm .it .ico { width: 16px; height: 16px; color: var(--muted); }
+.dm .it:hover { background: var(--hover); }
+.dm .it.dgr, .dm .it.dgr .ico { color: var(--danger-text); }
+.dm .it[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.dm .it[aria-disabled="true"]:hover { background: none; }
+.dm .hd { padding: 8px 10px 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.dm .sep { height: 1px; margin: 4px 6px; background: var(--border); }
+
+/* ---------- 首页的大卡：照 home.html（第九版的最终样子；home.html 里是几版样式叠出来的，这里合成一份，数值不变）---------- */
+.lcs { display: grid; grid-template-columns: repeat(3, 349px); gap: 16px; width: 1079px; position: relative; }
+.lc { position: relative; display: flex; flex-direction: column; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-1); box-sizing: border-box; }
+.lc .cover { position: relative; height: 60px; border-radius: 18px; padding: 8px; display: flex; align-items: center; gap: 12px; overflow: hidden; box-sizing: border-box;
+             background: color-mix(in srgb, var(--c) 30%, var(--surface)); }
+.lc .cover::after { content: ""; position: absolute; inset: 0; opacity: .16; pointer-events: none;
+  background-image: linear-gradient(45deg, rgb(0 0 0 / .5) 25%, transparent 25%, transparent 75%, rgb(0 0 0 / .5) 75%), linear-gradient(45deg, rgb(0 0 0 / .5) 25%, transparent 25%, transparent 75%, rgb(0 0 0 / .5) 75%);
+  background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+.lc .cover > * { position: relative; z-index: 1; }
+.px-avatar { --c: #7a8aa0; width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: var(--r-md);
+             background: color-mix(in srgb, var(--c) 26%, var(--surface)); box-shadow: inset 0 1px 0 rgb(255 255 255 / .06), 0 0 0 1px color-mix(in srgb, var(--c) 30%, transparent); }
+.px-avatar svg { width: 24px; height: 24px; display: block; }
+.lc .cover .px-avatar { width: 44px; height: 44px; border-radius: 10px; box-shadow: inset 0 1px 0 rgb(255 255 255 / .08); }
+.lc .cover .px-avatar svg { width: 32px; height: 32px; }
+.lc .title { flex: 1; min-width: 0; }
+.lc .nm { font-size: 15px; font-weight: 600; line-height: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lc .meta { font-size: 12px; color: color-mix(in srgb, var(--text) 70%, transparent); }
+.lc .tools { height: 44px; padding: 0 6px; display: flex; align-items: center; border-radius: 10px; background: color-mix(in srgb, var(--surface) 55%, transparent); }
+.lc .tools button { width: 30px; height: 30px; border-radius: var(--r-full); border: 0; padding: 0; background: none; display: grid; place-items: center; color: var(--muted); cursor: pointer; }
+.lc .tools .pin { color: var(--faint); } .lc .tools .pin.on { color: var(--warning); }
+.lc .tools button:hover, .lc .tools .mini.open { color: var(--text); background: var(--hover); }
+.lc .inner { padding-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+.stats { display: grid; grid-template-columns: repeat(2, 1fr); height: 60px; border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+.stats > div { padding: 9px 14px; } .stats > div + div { border-left: 1px solid var(--border); }
+.stats .k { font-size: 11.5px; color: var(--muted); }
+.stats .v { font-family: var(--mono); font-size: 20px; font-weight: 600; letter-spacing: -.02em; line-height: 28px; }
+.stats .v small { font-size: 12px; color: var(--faint); font-weight: 400; } .stats .v.ok { color: var(--success-text); }
+.lc .acts { display: flex; gap: 8px; align-items: center; }
+.lc .acts > span { flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; padding: 0 14px; border-radius: 18px; box-sizing: border-box;
+                   font-size: 13px; font-weight: 500; white-space: nowrap; background: var(--control); color: var(--text); border: 1px solid var(--border); }
+.lc .acts > span.ic { flex: none; width: 36px; padding: 0; background: none; border-color: transparent; color: var(--muted); }
+.lc .acts > span.stop { background: var(--danger-subtle); color: var(--danger-text); border-color: transparent; }
+.lc .acts > span.go { background: var(--accent-subtle); color: var(--accent-text); border-color: transparent; }
+.lc .acts > span.ok { background: var(--success-subtle); color: var(--success-text); border-color: transparent; }
+.lc .acts > span.off { background: var(--surface-2); color: var(--faint); border-color: transparent; }
+.lc .acts > span i.d { width: 7px; height: 7px; border-radius: 2px; background: currentColor; }
+.lc .acts .ico { width: 15px; height: 15px; }
+
+/* ---------- 三态（程序 MASTER 第 8 节；骨架 skeletonCards 约 1523 行、skeletonRows 约 1532 行，错误 errBox 约 440 行）----------
+   骨架照新首页的尺寸画（大卡 349 × 188、列表的行 36 高），不照程序的旧卡片；呼吸照 wizard.html 第二步的骨架卡（透明度 .55 ↔ 1，1.1 秒来回），不用程序的扫光。
+   空、错误：一块大面板里一栏（外 26 / 内边距 8 / 栏 18），中间一个图标块、一句话、一个主行动（MASTER 第 11 节第 8 条：空态只给一个主行动）。 */
+.sk { background: color-mix(in srgb, var(--text) 9%, transparent); border-radius: 6px; }
+.skel { animation: skel 1.1s ease-in-out infinite alternate; }
+@keyframes skel { from { opacity: .55; } to { opacity: 1; } }
+.lc.skc .cover { background: color-mix(in srgb, var(--text) 6%, var(--surface)); }
+.lc.skc .cover::after { display: none; }
+.lc.skc .cover .sk.av { width: 44px; height: 44px; border-radius: 10px; flex: none; }
+.lc.skc .stats { background: color-mix(in srgb, var(--text) 5%, var(--surface)); }
+.lc.skc .acts > span { background: color-mix(in srgb, var(--text) 7%, transparent); border-color: transparent; }
+.pnl { width: 349px; box-sizing: border-box; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-1); }
+.pnl .col { border-radius: 18px; padding: 12px 8px 8px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); display: flex; flex-direction: column; gap: 4px; }
+.pnl .col h3 { margin: 0 0 6px; padding: 0 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.vrow { height: 36px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-radius: 10px; font-family: var(--mono); font-size: 13.5px; font-weight: 500; }
+.vrow .tag { margin-left: auto; font-family: var(--font); font-size: 11.5px; color: var(--faint); font-weight: 400; }
+.vrow.on { background: var(--accent-subtle); color: var(--accent-text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
+.vrow.sk { background: none; } .vrow .sk { height: 11px; }
+.state { height: 214px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 0 20px; text-align: center; }
+.state .si { width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; background: var(--surface); color: var(--muted); box-shadow: var(--elev-1); }
+.state .si .ico { width: 22px; height: 22px; }
+.state .si.bad { background: var(--danger-subtle); color: var(--danger-text); box-shadow: none; }
+.state .st1 { font-size: 14px; font-weight: 600; line-height: 21px; }
+.state .st2 { font-size: 12.5px; color: var(--muted); margin-top: -6px; }
+.state .ra { display: flex; gap: 8px; align-items: center; }
+.state .b.c { flex: none; width: 36px; padding: 0; } /* 复制报错信息：只放图标的 36 圆，同首页大卡右下角的链接 */
+.state .b.pri, .state .b.auto { flex: none; }
+
+/* ---------- 整页状态（程序约 670、6791、6970、3675 行，showLogin 约 31 行）：每种画成一整个 1280×800 的窗口，缩到 0.27 排成两行六格，点一格看原大 ---------- */
+.thumbs { display: grid; grid-template-columns: repeat(3, 346px); gap: 14px 21px; }
+.thc { display: flex; flex-direction: column; gap: 4px; }
+.th { position: relative; width: 346px; height: 216px; border-radius: 10px; overflow: hidden; cursor: pointer; box-shadow: var(--elev-1), 0 0 0 1px var(--border); transition: box-shadow .2s, transform .2s; }
+.th:hover { box-shadow: var(--elev-2), 0 0 0 1px color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.th > .pg { transform: scale(.27); transform-origin: 0 0; pointer-events: none; }
+.th.phone { background: color-mix(in srgb, var(--text) 6%, var(--bg)); }
+.th.phone > .pg { position: absolute; left: 123px; top: 0; transform: scale(.2559); }
+.pg { position: relative; width: 1280px; height: 800px; overflow: hidden; background: var(--bg); color: var(--text); font: 400 14px/22px var(--font); }
+.pg.phone { width: 390px; height: 844px; }
+.pg > .tb { position: absolute; top: 0; left: 0; right: 0; }
+.pg .ctr { position: absolute; left: 0; right: 0; top: 40px; bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding-bottom: 72px; box-sizing: border-box; }
+.pg .ctr .logo { width: 64px; height: 64px; image-rendering: pixelated; margin-bottom: 6px; }
+.pg .ctr .t1 { font-size: 20px; line-height: 28px; font-weight: 600; letter-spacing: -.01em; }
+.pg .ctr .t2 { margin-top: -6px; font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.pg .ctr .t2 .ico { width: 15px; height: 15px; color: var(--accent-text); animation: spin .9s linear infinite; }
+.pg .ctr .si { width: 56px; height: 56px; border-radius: 16px; display: grid; place-items: center; background: var(--surface); color: var(--muted); box-shadow: var(--elev-1); margin-bottom: 4px; }
+.pg .ctr .si .ico { width: 24px; height: 24px; }
+.pg .ctr .b { flex: none; margin-top: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+/* 底部胶囊：照 home.html（只放图标的 40 圆、间距 4，新建实心强调色在最右） */
+.pg .cap2 { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; align-items: center; gap: 4px; padding: 5px; border-radius: var(--r-full);
+            background: color-mix(in srgb, var(--overlay) 86%, transparent); backdrop-filter: blur(16px) saturate(1.2); border: 1px solid var(--border); box-shadow: var(--elev-3); }
+.pg .cap2 a { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border-radius: var(--r-full); color: var(--muted); }
+.pg .cap2 a .ico { width: 18px; height: 18px; }
+.pg .cap2 a.on { color: var(--accent-text); background: var(--accent-subtle); }
+.pg .cap2 a.home img { width: 20px; height: 20px; image-rendering: pixelated; }
+.pg .cap2 a.ai { color: var(--text); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border); } .pg .cap2 a.ai .ico { color: var(--accent-text); }
+.pg .cap2 a.new { background: var(--accent-solid); color: var(--on-accent); }
+/* 手机远程管理的登录框：局域网里的浏览器打开，没有标题栏和窗口三键；一块大面板，宽 360（手机上左右各留 16） */
+.pg .login { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -58%); }
+.pg.phone .login { top: 46%; }
+.pg.phone .login .md { width: 358px; }
+.login .brand { display: flex; align-items: center; gap: 12px; margin: -10px 0 4px -12px; }
+.login .brand img { width: 48px; height: 48px; image-rendering: pixelated; }
+.login .brand .t { font-size: 16px; font-weight: 600; line-height: 22px; }
+.login .brand .s { font-size: 12px; color: var(--muted); }
+/* 看原大：盖住整个窗口；左下角一颗「回到对照页」（草图专用） */
+.pview { position: fixed; inset: 0; z-index: 90; background: var(--bg); display: grid; place-items: center; overflow: hidden; }
+.pview.enter { animation: mk-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.pview.leave { animation: mk-out .14s cubic-bezier(.4, 0, 1, 1) both; }
+.pback { position: fixed; left: 12px; bottom: 12px; z-index: 91; height: 28px; padding: 0 12px; border-radius: 14px; border: 1px dashed var(--border); background: var(--overlay);
+         color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+.pback:hover { color: var(--text); }
+
+/* 提示那一块里的草图面板（不是界面）：点一下出一条真的提示 */
+.demo { width: 520px; }
+.demo .col { padding: 16px 20px 20px; gap: 12px; }
+.demo .btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.demo .btns .b { flex: none; }
+.demo .note { font-size: 12.5px; line-height: 20px; color: var(--muted); }
+.demo .note b { color: var(--text); font-weight: 600; }
+.ghostpage { position: absolute; inset: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+<header class="tb"><img src="../../internal/web/ui/img/logo-16.png" alt=""><div class="sp"></div>
+  <div class="win"><span><i data-ic="winMin"></i></span><span><i data-ic="winMax"></i></span><span><i data-ic="winClose"></i></span></div></header>
+<div class="hdr">
+  <span class="note" title="小字右边的 ▶ 在整个窗口里真弹一次，看进出场">草图 · 共用件对照 · 配色 <a href="?theme=light" id="lk-light">浅色</a> <a href="?theme=dark" id="lk-dark">深色</a></span>
+  <div class="seg sm" id="parts" role="tablist" aria-label="切换哪一块（草图专用）"><i class="sgl"></i></div>
+</div>
+<section class="stage" id="stage"><div class="in" id="stage-in"></div></section>
+<div id="toasts" aria-live="polite"></div>
+<script>
+"use strict";
+const QS = new URLSearchParams(location.search);
+const $ = (s, el = document) => el.querySelector(s), $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const IN = "cubic-bezier(.4, 0, 1, 1)", OUT = "cubic-bezier(.2, .7, .2, 1)", SLIDE = "cubic-bezier(.3, .7, .2, 1)";
+const wait = ms => new Promise(ok => setTimeout(ok, ms));
+// 照 wizard.html 的 shakeEl：拦下一步时晃一下（0.36 秒，−6、5、−3 像素）
+const shakeEl = el => el?.animate([{ transform: "none" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "none" }],
+  { duration: 360, easing: "cubic-bezier(.3, .7, .2, 1)" });
+// 照 wizard.html 的 placeSeg：分段的选中底色挪到选中的那一格
+function placeSeg(el, animate) {
+  const hl = el.querySelector(".sgl"), on = el.querySelector("span.on"); if (!hl || !on) return;
+  if (!animate) hl.style.transition = "none";
+  hl.style.transform = `translateX(${on.offsetLeft}px)`; hl.style.width = on.offsetWidth + "px";
+  if (!animate) { void hl.offsetWidth; hl.style.transition = ""; }
+}
+// 照 wizard.html 的 scrollbar()：细滚动条跟着列表算长短和位置，能拖；上下有没看到的就渐隐
+function scrollbar(w) {
+  const l = w.querySelector(".list"), t = w.querySelector(".thumb");
+  const paint = () => {
+    const ch = l.clientHeight, sh = l.scrollHeight, st = l.scrollTop;
+    w.classList.toggle("fits", sh <= ch + 1); w.classList.toggle("can-up", st > 2); w.classList.toggle("can-down", st + ch < sh - 2);
+    const h = Math.max(28, ch * ch / sh);
+    t.style.height = h + "px"; t.style.top = (sh > ch ? st / (sh - ch) * (ch - h) : 0) + (w.classList.contains("raw-w") ? 10 : 0) + "px";
+  };
+  if (w._paint) { w._paint(); return; }
+  w._paint = paint;
+  let idle = 0;
+  l.addEventListener("scroll", () => { paint(); w.classList.add("scrolling"); clearTimeout(idle); idle = setTimeout(() => w.classList.remove("scrolling"), 700); }, { passive: true });
+  t.addEventListener("pointerdown", e => {
+    e.preventDefault(); t.setPointerCapture(e.pointerId); t.classList.add("drag");
+    const y0 = e.clientY, s0 = l.scrollTop, ratio = (l.scrollHeight - l.clientHeight) / (l.clientHeight - t.offsetHeight);
+    const move = ev => { l.scrollTop = s0 + (ev.clientY - y0) * ratio; };
+    const up = () => { t.classList.remove("drag"); t.removeEventListener("pointermove", move); t.removeEventListener("pointerup", up); };
+    t.addEventListener("pointermove", move); t.addEventListener("pointerup", up);
+  });
+  paint();
+}
+// 逐项换（规范第七节）：旧的 0.09 秒淡掉，换上新的，0.22 秒从下面 5 像素浮上来；连着点时上一次没换完的作废
+function swapHTML(el, html, cls) {
+  if (!el) return;
+  const tok = el._tok = (el._tok || 0) + 1;
+  el.getAnimations().forEach(a => a.cancel());
+  el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 90, easing: IN, fill: "forwards" }).onfinish = () => {
+    if (el._tok !== tok) return;
+    el.innerHTML = html; if (cls != null) el.className = cls; KIT.hydrate(el);
+    el.getAnimations().forEach(a => a.cancel());
+    el.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: OUT });
+  };
+}
+const segHTML = (key, opts, cur, cls = "") => `<div class="seg${cls ? " " + cls : ""}" data-seg="${key}"><i class="sgl"></i>${opts.map(([v, t, tip]) => `<span data-v="${v}"${v === cur ? ` class="on"` : ""}${tip ? ` title="${esc(tip)}"` : ""}>${t}</span>`).join("")}</div>`;
+const tipi = t => `<span class="tipi" title="${esc(t)}"><i data-ic="info"></i></span>`;
+const btn = (label, cls = "", attrs = "") => `<button class="b${cls ? " " + cls : ""}" ${attrs}><span class="lbl">${label}</span></button>`;
+
+/* ================= 弹窗 =================
+   md() 拼一个弹窗：标题、可选的危险图标块、说明、栏里另外的东西（extra）、底下一排按钮。程序里所有对话框（confirmModal、transferExportModal、pendingModal、
+   showErrDetail、closeAskModal、showLogin）都是一个样子的 .modal，这里也一样，宽度按内容分几档：短的确认 344、删除服务器和关窗询问 440 / 460、表单 500 以上 */
+function md({ id, w = 344, icon = "", title, body = "", extra = "", acts }) {
+  return `<div class="md" data-md="${id}" style="--w:${w}px" role="dialog" aria-modal="true">
+    <div class="mc"><div class="mh${icon ? " has-ico" : ""}">${icon ? `<span class="mi"><i data-ic="${icon}"></i></span>` : ""}<h3 data-k="title">${title}</h3></div>
+      ${body ? `<div class="mb" data-k="body">${body}</div>` : ""}${extra}</div>
+    <div class="ma">${acts}</div></div>`;
+}
+// ---- 确认框（程序 confirmModal 约 468 行）。按钮写出后果；危险的默认聚焦「取消」、最终键实底红，标题前一个危险色图标块 ----
+// 普通的：例子取自 modcart.js 约 648 行（装待装清单前，清单里的东西还要几个必装前置）。任务单举的「还原备份？」程序里是危险框（danger: true，图标 restore），
+// 照程序就不拿它当普通的例子；要不要把还原改成普通框写在汇报的建议里
+const M_normal = () => md({ id: "normal", title: "另外会自动装上 2 项必装前置",
+  body: `清单里的模组需要它们，安装时会一起下载：<b>Fabric API</b>、<b>Cloth Config API</b>`,
+  acts: btn("先不装", "", 'data-x="close"') + btn("一起安装", "pri fk", 'data-x="close"') });
+// 危险的：删除备份（程序约 4212 行，标题「删除备份？」、正文「删除后无法恢复：文件名」、按钮「删除」）。标题点名是哪一份（有标签写标签，没有写时间），
+// 时间和大小在正文里只写一次；文件名很长（20261126-213005.000000000-更新模组前.zip），收进悬停
+const M_backup = () => md({ id: "backup", icon: "trash", title: "删除备份「更新模组前」？",
+  body: `<span class="mono" title="20261126-213005.000000000-更新模组前.zip">2026-11-26 21:30 · 128.4 MB</span><br>删除后<b class="dg">无法恢复</b>。`,
+  acts: btn("取消", "fk", 'data-x="close"') + btn("删除备份", "dgr", 'data-x="close"') });
+// 删除没建完的文件夹（程序 paintLeftovers 里，约 1628 行）。程序正文最后一句「已建好的服务器和其他文件夹不会受影响」收进悬停
+const M_leftover = () => md({ id: "leftover", icon: "trash", title: `删除没建完的文件夹<span class="nw">「survival-2」？</span>`,
+  body: `位于 <span class="mono">MineDeck\\servers</span>。里面的世界文件会一起删掉，<b class="dg">无法恢复</b>${tipi("已建好的服务器和其他文件夹不会受影响。")}`,
+  acts: btn("取消", "fk", 'data-x="close"') + btn("删除文件夹", "dgr", 'data-x="close"') });
+// 退出 MineDeck（程序 quitApp 约 667 行）：按钮「退出」写成「退出 MineDeck」
+const M_quit = () => md({ id: "quit", icon: "power", title: "退出 MineDeck？", body: "会先保存世界，停掉正在运行的服务器，然后退出程序。",
+  acts: btn("取消", "fk", 'data-x="close"') + btn("退出 MineDeck", "dgr", 'data-x="close"') });
+
+// ---- 删除服务器（程序 deleteInstance 约 1424 行）----
+// 默认只移出列表：「同时删除服务器文件夹」默认关，关着时主键「移出列表」（不是红的），文件全留着；打开才是删除，主键「删除服务器和文件夹」实底红，
+// 还要输一遍服务器名，对上了才能点。程序是打开开关时才把输名字那一栏露出来（弹窗跟着变高）；这里一直摆着、关着时整块 0.45 淡着（同向导第四步自建 frps 关着时的框），
+// 弹窗高度不跳。名字没对上时点主键：框标红、晃一下、光标落过去、栏右边一句「服务器名对不上」（规范第七节「反馈」），程序是键灰着点不动。
+// 程序里的长说明：「以后可以用「新建服务器 → 接管已有服务器」把它加回来」「已有的世界备份不受影响」「不打开时只从列表移出……」收进说明后面的悬停；
+// 「（含世界，无法恢复）」从开关的字里挪到打开以后的说明里（开关的字只写名字，规范第九节）。
+// 接管来的：程序写出是哪个文件夹、移出后里面会留下哪些 MineDeck 写的文件（info.mdFiles）。这里一行写「会留下 3 个文件」，清单和怎么换回原来的启动脚本进悬停；
+// 打开开关以后这一行换成黄字「删掉的是你原来的那个文件夹」。文件夹路径单独一行等宽、可选中（程序 .del-dir），放不下先省上级目录（同向导第三步的存储路径）
+const DEL = {
+  delete: { name: "生存服 · 朋友", root: "MineDeck\\servers", dir: "survival" },
+  "delete-adopted": { name: "怀旧 1.12.2", root: "我的世界", dir: "1.12.2 服务端", adopted: true, left: ["instance.json.bak", "run.bat", "run.before-minedeck.bat"] },
+};
+const delTitle = (s, on) => on ? `删除「${esc(s.name)}」和它的文件夹？` : `把「${esc(s.name)}」移出列表？`;
+const delBody = (s, on) => on ? `文件夹和里面的世界会一起删掉，<b class="dg">无法恢复</b>${tipi("已有的世界备份在备份文件夹里，不受影响。")}`
+  : `只从列表拿掉，${s.adopted ? "你原来的" : ""}文件夹和世界都留在原处${tipi("以后可以用「新建 → 接管本地服」把它加回来。\n已有的世界备份在备份文件夹里，不受影响。")}`;
+const delNote = (s, on) => on ? `<i data-ic="warn"></i>这台是接管进来的，删掉的是你原来的那个文件夹`
+  : `<i data-ic="info"></i><span title="${esc(`移出后，原文件夹里会留下 MineDeck 写的这些文件：${s.left.join("、")}（instance.json.bak 是 MineDeck 的设置，以后接管时会读回来）。\n原来的启动脚本在 run.before-minedeck.bat 里，想换回去就删掉 run.bat、把它改回这个名字。不想要的可以自己删掉。`)}">原文件夹里会留下 MineDeck 写的 ${s.left.length} 个文件</span>`;
+function M_delete(id, st) {
+  const s = DEL[id], on = !!st.on;
+  return md({ id, w: 440, icon: "trash", title: delTitle(s, on), body: delBody(s, on),
+    extra: `<div class="pathf" title="${esc(s.root + "\\" + s.dir)}"><i data-ic="folder"></i><b><span class="hd">${esc(s.root)}</span><span class="tl">\\${esc(s.dir)}</span></b></div>`
+      + (s.adopted ? `<div class="mnote${on ? " warn" : ""}" data-k="note">${delNote(s, on)}</div>` : "")
+      + `<div class="tg${on ? " on" : ""}" data-act="files" role="switch" aria-checked="${on}" style="margin-top:4px"><span class="sw"></span><div class="m"><div class="t">同时删除服务器文件夹</div></div></div>`
+      + `<div class="fld dconf${on ? "" : " off"}"><span class="lb">输入服务器名以确认删除<span class="msg" data-k="nmsg">服务器名对不上</span></span>`
+      + `<input class="inp" data-k="name" autocomplete="off" spellcheck="false" aria-label="输入服务器名确认删除" value="${esc(st.typed || "")}"${on ? "" : " disabled"}></div>`,
+    acts: btn("取消", "fk", 'data-x="close"') + (on ? btn("删除服务器和文件夹", "dgr", `data-x="ok" aria-disabled="${(st.typed || "").trim() !== s.name}"`) : btn("移出列表", "pri", 'data-x="ok"')) });
+}
+function delToggle(m) {
+  const st = m._st, s = DEL[m.dataset.md]; st.on = !st.on;
+  const tg = $('[data-act="files"]', m); tg.classList.toggle("on", st.on); tg.setAttribute("aria-checked", st.on);
+  swapHTML($('[data-k="title"]', m), delTitle(s, st.on));
+  swapHTML($('[data-k="body"]', m), delBody(s, st.on));
+  if (s.adopted) swapHTML($('[data-k="note"]', m), delNote(s, st.on), "mnote" + (st.on ? " warn" : ""));
+  const ok = $('[data-x="ok"]', m);
+  ok.classList.toggle("pri", !st.on); ok.classList.toggle("dgr", st.on);
+  swapHTML($(".lbl", ok), st.on ? "删除服务器和文件夹" : "移出列表");
+  $(".dconf", m).classList.toggle("off", !st.on);
+  const inp = $('[data-k="name"]', m); inp.disabled = !st.on;
+  if (st.on) inp.focus({ preventScroll: true }); else { inp.classList.remove("bad"); $('[data-k="nmsg"]', m).classList.remove("show"); }
+  delCheck(m);
+}
+function delCheck(m) {
+  const st = m._st, s = DEL[m.dataset.md], ok = $('[data-x="ok"]', m), inp = $('[data-k="name"]', m);
+  st.typed = inp.value;
+  const bad = st.on && inp.value.trim() !== s.name;
+  ok.setAttribute("aria-disabled", bad); ok.title = bad ? "输入的服务器名对上了才能删" : "";
+}
+// 主键：开着开关、名字没对上，拦下来（框标红、晃一下、光标落过去、看得见的一句话）
+function delOk(m) {
+  const st = m._st, inp = $('[data-k="name"]', m);
+  if (st.on && inp.value.trim() !== DEL[m.dataset.md].name) { inp.classList.add("bad"); $('[data-k="nmsg"]', m).classList.add("show"); inp.focus({ preventScroll: true }); shakeEl(inp); return false; }
+  return true;
+}
+
+// ---- 导出交接包（程序 transferExportModal 约 2255 行）----
+// 程序正文开头那段（打包成 .mdpack 发给接手的人……都在包里）和最底下的「世界较大时交接包可能达数 GB……」收进标题后面的悬停。
+// 「含玩家数据」那张黄卡片：页面上留一句（会改变结果：配置文件里的密码会原样打包），整段进悬停。
+// 「这个包给谁」：程序是两颗系统单选、各带一段说明，换成两段的分段选（表单里取值，40 高、圆角 10，同向导第三步），两段说明各进各自的悬停，
+// 底下那句「两种包里的东西完全一样……拿不准就用默认的」进小标题的悬停。「完整模式」是开关，说明进悬停（开关在字的左边，规范第九节）。
+// 导出到哪个文件夹：程序是输入框加一颗「浏览…」按钮，换成框里右边一个 28 见方的文件夹图标（40 高框里离边 6，规范第四节）；能打字这一点不变（打了不存在的文件夹才有「新建并导出」）。
+// 出错（小字右边的草图开关切）：找不到这个文件夹，写在那一栏下面一行，后面跟一个「新建并导出」（链接的样子，同向导第三步 .fnote a，这一行一直占着 18 高、出错时不变高）；
+// 别的原因在栏的最下面一条危险色的块，带「详情」（叠一层报错信息），弹窗会高出这一条。
+// 程序还同时在右上角出一条「无法导出交接包」的报错提示；弹窗里已经写了，草图里不再画那条，要不要拿掉写在建议里
+const EXP_RAW = "open MineDeck\\cache\\transfer\\survival-20261126-2131.mdpack.part: There is not enough space on the disk.";
+function M_export(id, st) {
+  const err = st.err || "";
+  return md({ id, w: 500, title: `导出交接包「生存服 · 朋友」${tipi("打包成 .mdpack 文件发给接手的人，对方在「新建 → 导入交接包」里导入：世界、配置、模组、插件和白名单都在包里。\n世界较大时交接包可能有几个 GB，可以在任务页看打包进度，中断了可以重新导出。")}`,
+    extra: `<div class="wn" title="${esc("每个玩家的进度都在世界里；不含运行日志。\n配置文件里的密码会原样打包（如 server.properties 的 RCON 密码、插件配置里的数据库密码和机器人令牌），在别处复用的密码请先改掉再交接。")}"><i data-ic="warn"></i><span>包里有世界、白名单、OP 名单，还有配置文件里的密码</span></div>`
+      + `<div class="fld"><span class="lb">这个包给谁${tipi("两种包里的东西完全一样，选哪个只改对方导入时看到的那一句。拿不准就用默认的。")}</span>`
+      + segHTML("mode", [["handover", "交给下一任服主", "你不再开这台服务器，交给对方接着开。对方导入时，包用途写的是「服主交接（整台交给你）」"],
+                          ["dist", "发给朋友照着开", "你自己的照样开着，对方照着开一台一样的。对方导入时，包用途写的是「发给朋友，照着开一台」"]], st.mode || "handover") + `</div>`
+      + `<div class="tg${st.full ? " on" : ""}" data-act="full" role="switch" aria-checked="${!!st.full}" title="把服务端核心也一起打包；不开时对方导入时自动重新下载（包更小）"><span class="sw"></span><div class="m"><div class="t">完整模式</div></div></div>`
+      + `<div class="fld"><span class="lb">导出到</span><div class="iwrap"><input class="inp mono${err === "dir" ? " bad" : ""}" data-k="dest" spellcheck="false" autocomplete="off" aria-label="导出文件夹" placeholder="默认：程序数据文件夹\\cache\\transfer" value="${err === "dir" ? "MineDeck\\exports\\给阿强" : ""}">`
+      + `<button class="ib" data-act="browse" title="选一个文件夹…"><i data-ic="folder"></i></button></div>`
+      + `<div class="fnote${err === "dir" ? " bad" : ""}" data-k="dnote">${err === "dir" ? `<i data-ic="warn"></i><span title="由 MineDeck 建好它再导出（只建最后一级，上一级文件夹要已经在）；或者点右边的文件夹图标选一个已有的。">找不到这个文件夹</span><a data-x="close">新建并导出</a>` : ""}</div></div>`
+      + (err === "other" ? `<div class="merr"><i data-ic="warn"></i><span>无法导出交接包</span><button class="b sm" data-act="detail">详情</button></div>` : ""),
+    acts: btn("取消", "", 'data-x="close"') + btn(`<i data-ic="share"></i>导出交接包`, "pri", 'data-x="close"') });
+}
+
+// ---- 整合包里没装上的文件（程序 pendingModal 约 3268 行，里面是 pendingPanel 约 3100 行）----
+// 每个文件一块：路径（等宽）、一句短原因（长句照 Go 的 PendingNote / CurseForge 那几句，进悬停）、下载地址（外链只放图标，规范第十节）；
+// 处理方式程序是一排系统单选（跳过 / 用本地文件代替 / 信任站点并下载，按这一项能用的列），换成分段选；
+// 选「用本地文件代替」下面出路径框，选「信任站点并下载」下面出一个勾「信任 某某站点 的下载」（会改变结果，留在页面上），程序那段长的风险说明进悬停。
+// 上面一行：几个待处理，右边「全选可下载项」「确认这些站点的风险」（程序有可信任下载的项时才出，说明进悬停）。已跳过的折在最后一行，点开才列（程序是 <details>）。
+// 「应用所选的处理」程序是在面板里面一颗主键，底下另有一颗「关闭」；这里两颗并到底下一排。点了：选了处理方式的那几块往右划 32 像素淡掉再收起（规范第七节「清单加减」），
+// 选了跳过的挪进折起来那一行；没给路径的「用本地文件代替」拦下来（框标红、晃一下）。程序在面板上方另有一块写这次处理的结果，草图里没画
+const PND = [
+  { p: "mods/toughasnails-neoforge-1.21.1-10.0.0.jar", why: "没有 CurseForge API Key", note: "「Tough As Nails」：没有填 CurseForge API Key，不能自动下载。保留本地已有的文件，或者手动放一份", opts: ["skip", "local"], url: "https://www.curseforge.com/minecraft/mc-mods/tough-as-nails", act: "local" },
+  { p: "mods/sophisticatedbackpacks-1.21.1-3.23.4.jar", why: "站点不在允许列表里", host: "mediafilez.forgecdn.net", note: "下载地址不在 MineDeck 允许的站点列表里（只允许 Modrinth、GitHub、GitLab），确认站点可信后才能下载", opts: ["skip", "local", "trust"], url: "https://mediafilez.forgecdn.net/files/5/8/sophisticatedbackpacks-1.21.1-3.23.4.jar", act: "trust" },
+  { p: "mods/custom-tweaks-1.0.jar", why: "整合包没给校验值", note: "整合包没有提供这个文件的校验值，自动下载没法核对，不能用下载替代你手里的文件", opts: ["skip", "local"], act: "" },
+];
+const PND_SKIPPED = [{ p: "mods/jei-1.21.1-neoforge-19.21.0.247.jar", why: "已跳过" }];
+const PND_ACT = { skip: "跳过", local: "用本地文件代替", trust: "信任站点并下载" };
+function pndItem(x, i) {
+  return `<div class="pnd" data-i="${i}"><div class="r1"><span class="p" title="${esc(x.p)}">${esc(x.p)}</span>${x.url ? `<button class="ib" data-act="ext" title="在浏览器里打开下载地址"><i data-ic="share"></i></button>` : ""}</div>`
+    + `<div class="why" title="${esc(x.note)}">${esc(x.why)}${x.host ? ` · <span class="host">${esc(x.host)}</span>` : ""}</div>`
+    + segHTML("pnd", x.opts.map(o => [o, PND_ACT[o]]), x.act)
+    + `<div class="more">${pndMore(x)}</div></div>`;
+}
+const pndMore = x => x.act === "local" ? `<input class="inp mono" data-k="lpath" placeholder="本地文件或文件夹的完整路径" title="填文件夹时按文件名匹配" spellcheck="false" autocomplete="off">`
+  : x.act === "trust" ? `<span class="ck${x.ack ? " on" : ""}" data-act="ack" title="${esc(`我已知晓风险，信任来自「${x.host}」的下载。该站点不在默认允许列表里；下载后仍按整合包里的校验值核对，对不上就不装。\n下载成功后按域名记住（不含端口），以后同站点不再重复确认。`)}"><span class="bx"><i data-ic="check"></i></span>信任 ${esc(x.host)} 的下载</span>` : "";
+function M_pending(id, st) {
+  st.items = st.items || PND.map(x => ({ ...x })); st.skipped = st.skipped || PND_SKIPPED.map(x => ({ ...x }));
+  const live = st.items.filter(x => !x.gone);
+  return md({ id, w: 556, title: `「匠魂整合」里没装上的文件${tipi("导入整合包时没能自动装上、要你来处理的文件。处理方式选好了点「应用所选的处理」，没选的先不动；跳过的也还能再改，\n以后在这台服务器的「模组」页里也找得到。")}`,
+    extra: `<div class="pbar"><span data-k="pcount">${live.length} 个待处理</span><span class="sp"></span>`
+      + `<button class="b sm" data-act="trustall" title="只选上面还没选处理方式、可从外部站点下载的文件；已跳过的、缺校验值的、已经选了别的处理方式的不动，也不会自动勾选风险确认">全选可下载项</button>`
+      + `<button class="b sm" data-act="ackall" title="给选了「信任站点并下载」的都勾上风险确认。下载成功后才按域名记住，不会把外部站点放进默认允许列表">确认这些站点的风险</button></div>`
+      + `<div class="lwrap" style="height:318px;flex:none"><div class="list" data-k="plist">${st.items.map((x, i) => x.gone ? "" : pndItem(x, i)).join("")}`
+      + `<button class="pfold" data-act="pfold"><span>已跳过的 ${st.skipped.length} 个</span><i data-ic="chevronDown"></i></button></div><i class="thumb"></i></div>`,
+    acts: btn("关闭", "fk", 'data-x="close"') + btn("应用所选的处理", "pri", 'data-act="apply"') });
+}
+function pndPick(m, item, v) {
+  const x = m._st.items[+item.dataset.i]; x.act = v;
+  const more = $(".more", item); more.innerHTML = pndMore(x); KIT.hydrate(more);
+  if (more.firstElementChild) more.firstElementChild.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: OUT });
+  $(".lwrap", m)._paint?.();
+}
+function pndApply(m) {
+  const st = m._st, items = $$(".pnd", m).filter(el => !el.classList.contains("out"));
+  const bad = items.find(el => { const x = st.items[+el.dataset.i]; return x.act === "local" && !$('[data-k="lpath"]', el).value.trim(); });
+  if (bad) { const inp = $('[data-k="lpath"]', bad); inp.classList.add("bad"); inp.focus({ preventScroll: true }); shakeEl(inp); inp.title = "选了「用本地文件代替」，要填本地文件的路径"; return; }
+  const go = items.filter(el => st.items[+el.dataset.i].act);
+  if (!go.length) { // 一个都没选：拦下来，上面那行换成一句话、列表晃一下
+    const c = $('[data-k="pcount"]', m); c.textContent = "先给文件选处理方式"; c.style.color = "var(--danger-text)"; shakeEl($(".lwrap", m));
+    clearTimeout(c._t); c._t = setTimeout(() => { c.style.color = ""; pndAfter(m); }, 1600); return;
+  }
+  go.forEach((el, i) => {
+    const x = st.items[+el.dataset.i]; x.gone = true; if (x.act === "skip") st.skipped.push({ p: x.p, why: "已跳过" });
+    el.classList.add("out");
+    const h = el.offsetHeight + "px";
+    el.animate([
+      { opacity: 1, transform: "none", height: h, easing: IN },
+      { opacity: 0, transform: "translateX(32px)", height: h, offset: .55, easing: OUT },
+      { opacity: 0, transform: "translateX(32px)", height: "0px", marginBottom: "-8px", paddingTop: "0px", paddingBottom: "0px" },
+    ], { duration: 320, delay: i * 40, fill: "forwards" }).onfinish = () => { el.remove(); pndAfter(m); };
+  });
+}
+function pndAfter(m) {
+  const st = m._st, live = st.items.filter(x => !x.gone).length;
+  const c = $('[data-k="pcount"]', m); if (c) c.textContent = live ? `${live} 个待处理` : "都处理完了";
+  const f = $('[data-act="pfold"] span', m); if (f) f.textContent = `已跳过的 ${st.skipped.length} 个`;
+  const l = $('[data-k="plist"]', m);
+  if (!live && !$(".pdone", l)) { l.insertAdjacentHTML("afterbegin", `<div class="pdone"><i data-ic="check"></i>没装上的文件都处理完了</div>`); KIT.hydrate(l); $(".pdone", l).animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: OUT }); }
+  $(".lwrap", m)._paint?.();
+}
+function pndFold(m, b) {
+  const open = b.classList.toggle("open"), l = $('[data-k="plist"]', m);
+  if (open) m._st.skipped.forEach((x, i) => {
+    b.insertAdjacentHTML("afterend", `<div class="pnd skipped"><div class="r1"><span class="p">${esc(x.p)}</span></div><div class="why">已跳过，没有装上</div>${segHTML("pnd", [["skip", "跳过"], ["local", "用本地文件代替"]], "skip")}<div class="more"></div></div>`);
+    const el = b.nextElementSibling; KIT.hydrate(el); placeSeg($(".seg", el), false);
+    el.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, delay: i * 22, easing: OUT, fill: "backwards" });
+  });
+  else $$(".pnd.skipped", l).forEach(el => el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 90, easing: IN, fill: "forwards" }).onfinish = () => { el.remove(); $(".lwrap", m)._paint?.(); });
+  setTimeout(() => { $(".lwrap", m)._paint?.(); if (open) l.scrollTo({ top: l.scrollHeight, behavior: "smooth" }); }, 30);
+}
+
+// ---- 报错信息（程序 showErrDetail 约 247 行）----
+// 程序：标题「报错信息」、等宽原文框、底下一排「修复的去处（去换 Java、改端口……）」「复制报错信息」「关闭」。这里复制挪到原文框右上角的图标（复制后换成勾 1.2 秒），
+// 底下只剩修复的去处和「关闭」（默认聚焦「关闭」，同程序）。原文长了在框里滚，细滚动条。小字右边的草图开关切短的、长的两份原文。
+// 两份原文都是编的示例：短的是找不到 Java 时 Go 的 fork/exec 原话的样子；长的是为了看滚动，照下载失败时几个源各报一句的样子拼的，不是程序真会拼出的那一段
+const RAW_SHORT = "fork/exec MineDeck\\runtimes\\java\\jdk-21.0.5+11\\bin\\java.exe: The system cannot find the file specified.";
+const RAW_LONG = `所有下载源都没有取到版本清单（试了 3 轮）：
+第 1 轮
+  BMCLAPI：Get "https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json": dial tcp: lookup bmclapi2.bangbang93.com: no such host
+  Mojang：Get "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+第 2 轮（等 2 秒）
+  BMCLAPI：Get "https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json": dial tcp: lookup bmclapi2.bangbang93.com: no such host
+  Mojang：Get "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json": read tcp 192.168.1.5:52114->13.107.246.40:443: wsarecv: An existing connection was forcibly closed by the remote host.
+第 3 轮（等 4 秒）
+  BMCLAPI：Get "https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json": dial tcp: lookup bmclapi2.bangbang93.com: no such host
+  Mojang：Get "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json": context deadline exceeded (Client.Timeout exceeded while awaiting headers)`;
+function M_errd(id, st) {
+  const raw = st.raw || (st.long ? RAW_LONG : RAW_SHORT), fix = st.fix ?? (st.long ? "" : "去换 Java");
+  return md({ id, w: 520, title: `报错信息<span class="sp"></span><button class="ib" data-act="copy" title="复制报错信息"><i data-ic="copy"></i></button>`,
+    extra: `<div class="raw"><div class="lwrap raw-w"><div class="list" tabindex="0" style="max-height:${st.long ? 232 : 300}px">${esc(raw)}</div><i class="thumb"></i></div></div>`,
+    acts: (fix ? btn(fix, "", 'data-x="close"') : "") + btn("关闭", "pri fk", 'data-x="close"') });
+}
+
+// ---- 关窗时的询问（程序 closeAskModal 约 787 行）：点 ×、Alt+F4 时有服务器在运行、又没开「关窗缩到托盘」才问 ----
+// 三选一：取消 / 停止服务器并退出（浅危险底，不是最终的那种实底红，同程序 .btn.danger）/ 最小化到托盘（主键，默认聚焦，不丢数据）。
+// 「选择最小化到托盘时，服务器继续运行，点托盘图标恢复窗口」进那颗键的悬停；「以后关闭窗口都最小化到托盘（可在「设置 → 启动与托盘」修改）」开关只写名字，括号里那句进悬停。
+// 托盘图标不可用时（小字右边的草图开关切）：只剩取消和停止服务器并退出，正文多一句「托盘图标不可用，这次只能停止服务器并退出」（会改变结果，留在页面上），默认聚焦取消
+function M_closeask(id, st) {
+  const tray = st.tray !== false;
+  return md({ id, w: 460, title: "有 2 台服务器正在运行",
+    body: `退出 MineDeck 会先停止它们并保存世界。${tray ? "" : "<br>托盘图标不可用，这次只能停止服务器并退出。"}`,
+    extra: tray ? `<div class="tg${st.remember ? " on" : ""}" data-act="remember" role="switch" aria-checked="${!!st.remember}" title="可在「设置 → 启动与托盘」修改"><span class="sw"></span><div class="m"><div class="t">以后关窗都最小化到托盘</div></div></div>` : "",
+    acts: btn("取消", tray ? "" : "fk", 'data-x="close"') + btn("停止服务器并退出", "sdg", 'data-x="close"')
+      + (tray ? btn("最小化到托盘", "pri fk", 'data-x="close" title="服务器继续运行，点托盘图标恢复窗口"') : "") });
+}
+
+const BUILD = { normal: M_normal, backup: M_backup, leftover: M_leftover, quit: M_quit, delete: M_delete, "delete-adopted": M_delete, export: M_export, pending: M_pending, errd: M_errd, closeask: M_closeask };
+const DEF_ST = { "delete-adopted": { on: true, typed: "怀旧 1.1" } };
+// 把一个弹窗放进容器里（托盘上的格子，或者真弹出来的遮罩里）：画出来、接上分段和细滚动条
+function mount(box, kind, st) {
+  st = st || JSON.parse(JSON.stringify(DEF_ST[kind] || {}));
+  box.innerHTML = BUILD[kind](kind, st);
+  const m = box.querySelector(".md"); m._st = st; KIT.hydrate(m);
+  $$(".seg", m).forEach(s => placeSeg(s, false));
+  $$(".lwrap", m).forEach(scrollbar);
+  if (kind.startsWith("delete")) delCheck(m);
+  return m;
+}
+// 真弹出来：遮罩从标题栏下面盖到底，面板在正中；默认聚焦的那颗键拿到焦点
+let layers = [];
+function openLayer(kind, st) {
+  const mask = document.createElement("div"); mask.className = "mask enter";
+  document.body.appendChild(mask);
+  const m = mount(mask, kind, st);
+  const prev = document.activeElement;
+  mask._prev = prev; layers.push(mask);
+  setTimeout(() => $(".fk", m)?.focus({ preventScroll: true }), 0);
+  mask.addEventListener("pointerdown", e => { if (e.target === mask && !m.querySelector("input, .seg")) closeLayer(mask); }); // 有要填、要选的东西时点空了不关（同程序 hasFields）
+  return m;
+}
+function closeLayer(mask) {
+  if (!mask || mask.classList.contains("leave")) return;
+  layers = layers.filter(x => x !== mask);
+  mask.classList.remove("enter"); mask.classList.add("leave");
+  setTimeout(() => mask.remove(), 140);
+  if (mask._prev?.isConnected) mask._prev.focus({ preventScroll: true });
+}
+// 托盘上的弹窗点了关掉它的键：退场，停一下，再进场（看动效用）
+function replay(m) {
+  if (m.classList.contains("out")) return;
+  m.classList.remove("in"); m.classList.add("out");
+  setTimeout(() => { m.classList.remove("out"); void m.offsetWidth; m.classList.add("in"); }, 520);
+}
+// 默认聚焦那颗键的细框：真弹出来时，一动别的就收；托盘上的一直画着（标出默认落在哪颗）
+document.addEventListener("pointerdown", e => { const mk = e.target.closest?.(".mask"); if (mk) $$(".fk", mk).forEach(x => x.classList.remove("fk")); }, true);
+document.addEventListener("focusin", e => { const mk = e.target.closest?.(".mask"); if (mk) $$(".fk", mk).forEach(x => { if (x !== e.target) x.classList.remove("fk"); }); });
+
+// 弹窗里的点击（托盘上的、真弹出来的都走这里）
+document.addEventListener("click", e => {
+  const m = e.target.closest(".md"); if (!m) return;
+  const kind = m.dataset.md, mask = m.closest(".mask");
+  const closeIt = () => mask ? closeLayer(mask) : replay(m);
+  const sg = e.target.closest(".seg span");
+  if (sg && !sg.classList.contains("on")) {
+    const box = sg.parentElement; $$("span", box).forEach(x => x.classList.toggle("on", x === sg)); placeSeg(box, true);
+    if (box.dataset.seg === "mode") m._st.mode = sg.dataset.v;
+    if (box.dataset.seg === "pnd" && sg.closest(".pnd:not(.skipped)")) pndPick(m, sg.closest(".pnd"), sg.dataset.v);
+    return;
+  }
+  const act = e.target.closest("[data-act]")?.dataset.act, x = e.target.closest("[data-x]")?.dataset.x;
+  if (act === "files") return delToggle(m);
+  if (act === "full" || act === "remember") { m._st[act] = !m._st[act]; const t = e.target.closest("[data-act]"); t.classList.toggle("on", m._st[act]); t.setAttribute("aria-checked", m._st[act]); return; }
+  if (act === "ack") { const it = m._st.items[+e.target.closest(".pnd").dataset.i]; it.ack = !it.ack; e.target.closest(".ck").classList.toggle("on", it.ack); return; }
+  if (act === "trustall") { $$(".pnd:not(.out):not(.skipped)", m).forEach(el => { const it = m._st.items[+el.dataset.i]; if (it.opts.includes("trust") && !it.act) { const s = $('.seg span[data-v="trust"]', el); s?.click(); } }); return; }
+  if (act === "ackall") { $$('.pnd [data-act="ack"]:not(.on)', m).forEach(c => c.click()); return; }
+  if (act === "apply") return pndApply(m);
+  if (act === "pfold") return pndFold(m, e.target.closest("[data-act]"));
+  if (act === "detail") return openLayer("errd", { raw: EXP_RAW, fix: "" });
+  if (act === "browse") { const i = $('[data-k="dest"]', m); i.value = "MineDeck\\exports"; i.classList.remove("bad"); const n = $('[data-k="dnote"]', m); n.innerHTML = ""; n.className = "fnote"; return; }
+  if (act === "copy") { const b = e.target.closest("[data-act]"); b.classList.add("done"); b.innerHTML = KIT.icon("check"); clearTimeout(b._t); b._t = setTimeout(() => { b.classList.remove("done"); b.innerHTML = KIT.icon("copy"); }, 1200); return; }
+  if (act === "ext") return;
+  if (x === "ok" && kind.startsWith("delete")) { if (delOk(m)) closeIt(); return; }
+  if (x === "close" || x === "ok") closeIt();
+});
+document.addEventListener("input", e => {
+  const m = e.target.closest(".md"); if (!m) return;
+  if (e.target.dataset.k === "name") { e.target.classList.remove("bad"); $('[data-k="nmsg"]', m).classList.remove("show"); delCheck(m); }
+  if (e.target.dataset.k === "lpath" || e.target.dataset.k === "dest") e.target.classList.remove("bad");
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Enter" && e.target.dataset?.k === "name") { const m = e.target.closest(".md"); $('[data-x="ok"]', m)?.click(); }
+});
+
+/* ================= 右上角的提示 =================
+   普通的 3.5 秒自己走、点一下就关；报错的和带按钮的停 20 秒（程序现在的数），鼠标停在上面、或者它的「详情」开着时不走，移开以后至少再留 4 秒；
+   报错的点一下是看「详情」（叠一层报错信息），右上角 × 关掉。提示里的按钮点了不关提示（「撤销」这种点完自己收，同程序） */
+const TOAST = {
+  ok: { msg: "「生存服 · 朋友」正在启动" },
+  err: { msg: "无法启动服务器", err: true, raw: RAW_SHORT, acts: [["去换 Java", true]] },
+  undo: { msg: "已更改服务器存放文件夹，马上生效", acts: [["撤销", "undo"]] },
+  open: { msg: `已把「红石教学」移出列表。文件夹还在：<span class="mono">MineDeck\\servers\\redstone-class</span>`, acts: [["打开文件夹", false]] },
+};
+function toast(kind, { pinned = false } = {}) {
+  const t = TOAST[kind], box = $("#toasts"), d = document.createElement("div"), linger = !!(t.err || t.acts);
+  d.className = "tst enter" + (t.err ? " err" : "");
+  d.title = t.err ? "点击查看详情" : linger ? "" : "点击关闭";
+  d.innerHTML = `<span class="ti"><i data-ic="${t.err ? "warn" : "check"}"></i></span><span class="tm">${t.msg}</span>`
+    + (linger ? `<button class="ib tx" data-tx aria-label="关闭这条提示"><i data-ic="x"></i></button>` : "<span></span>")
+    + (t.err || t.acts ? `<span class="ta">${t.err ? `<button class="b sm" data-td>详情</button>` : ""}${(t.acts || []).map(([l, how], i) => `<button class="b sm" data-ta="${i}">${l}</button>`).join("")}</span>` : "");
+  KIT.hydrate(d); box.appendChild(d); d._pinned = pinned;
+  let left = linger ? 20000 : 3500, timer = 0, since = 0, holds = 0, gone = false;
+  const kill = () => { if (gone) return; gone = true; clearTimeout(timer); leaveToast(d); };
+  const run = () => { if (gone || holds || d._pinned) return; since = Date.now(); timer = setTimeout(kill, left); };
+  const hold = () => { holds++; if (timer) { clearTimeout(timer); timer = 0; left = Math.max(0, left - (Date.now() - since)); } };
+  const release = () => { holds = Math.max(0, holds - 1); if (!holds && !gone) { left = Math.max(left, 4000); run(); } };
+  d.dismiss = kill; d.unpin = () => { d._pinned = false; run(); };
+  d.addEventListener("click", e => {
+    if (e.target.closest("[data-tx]")) return kill();
+    const a = e.target.closest("[data-ta]");
+    if (a) { const [, how] = t.acts[+a.dataset.ta]; if (how === "undo") { kill(); toast("undone"); } else if (how) kill(); return; }
+    if (t.err) { hold(); const m = openLayer("errd", { raw: t.raw, fix: t.acts?.[0]?.[0] || "" }); const mk = m.closest(".mask"); const iv = setInterval(() => { if (!mk.isConnected || mk.classList.contains("leave")) { clearInterval(iv); release(); } }, 100); return; }
+    if (!linger) kill();
+  });
+  if (linger) { d.addEventListener("mouseenter", hold); d.addEventListener("mouseleave", release); }
+  run();
+  return d;
+}
+TOAST.undone = { msg: "已换回原来的服务器存放文件夹" };
+// 走的时候往右 16 像素淡掉（0.14 秒），下面的几条补上去（0.32 秒，选中框滑动那条曲线；同程序的 flipList）
+function leaveToast(d) {
+  if (d.classList.contains("leave")) return;
+  d.classList.remove("enter"); d.classList.add("leave");
+  setTimeout(() => {
+    const box = $("#toasts"), sibs = [...box.children].filter(x => x !== d), before = new Map(sibs.map(x => [x, x.getBoundingClientRect().top]));
+    d.remove();
+    sibs.forEach(x => { const dy = before.get(x) - x.getBoundingClientRect().top; if (Math.abs(dy) > .5) x.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }], { duration: 320, easing: SLIDE }); });
+  }, 140);
+}
+
+/* ================= 下拉菜单 =================
+   服务器卡片「···」：分组标题「打开文件夹」、按核心列的几个文件夹（folderItems）、分隔线、导出交接包…、分隔线、删除服务器…（危险）。服务器开着时后两项灰掉、悬停说「需先停止服务器」。
+   位置同程序：右边和「···」对齐，在它下面 4；下面放不下就往上开。点外面、按 Esc 收；点一项先收菜单再做那件事（导出、删除在这页里接着弹对应的弹窗） */
+const FOLDERS = core => {
+  const proxy = core === "velocity" || core === "waterfall", mods = ["fabric", "forge", "neoforge", "mohist", "banner"].includes(core),
+    plugins = ["paper", "purpur", "leaves", "folia", "mohist", "banner", "velocity", "waterfall"].includes(core);
+  const d = [["folder", "服务器文件夹"]];
+  if (mods) d.push(["package", "模组"]); if (plugins) d.push(["plug", "插件"]);
+  if (!proxy) d.push(["globe", "世界"], ["doc", "日志"], ["warn", "崩溃报告"], ["camera", "备份"]); else d.push(["doc", "日志"]);
+  return d;
+};
+function menuHTML(s) {
+  const busy = s.st !== "stopped", dis = busy ? ` aria-disabled="true" title="需先停止服务器"` : "";
+  return `<div class="hd">打开文件夹</div>` + FOLDERS(s.core).map(([i, l]) => `<div class="it" role="menuitem" data-mi="dir"><i data-ic="${i}"></i>${l}</div>`).join("")
+    + `<div class="sep"></div><div class="it" role="menuitem" data-mi="export"${dis}><i data-ic="share"></i>导出交接包…</div>`
+    + `<div class="sep"></div><div class="it dgr" role="menuitem" data-mi="delete"${dis}><i data-ic="trash"></i>删除服务器…</div>`;
+}
+function openMenu(anchor, s, host, instant) {
+  const old = $(`.dm[data-for="${anchor.dataset.card}"]:not(.leave)`, host);
+  if (old) return closeMenu(old);
+  if (!instant) $$(".dm:not(.leave)").forEach(closeMenu); // 同程序：开一个先收掉别的
+  const m = document.createElement("div"); m.className = "dm" + (instant ? "" : " enter"); m.dataset.for = anchor.dataset.card; m.setAttribute("role", "menu");
+  m.innerHTML = menuHTML(s); KIT.hydrate(m); host.appendChild(m);
+  const hr = host.getBoundingClientRect(), r = anchor.getBoundingClientRect(), h = m.offsetHeight, up = r.bottom + 4 + h > innerHeight - 8;
+  m.classList.toggle("up", up);
+  m.style.left = Math.round(r.right - hr.left - m.offsetWidth) + "px";
+  m.style.top = Math.round((up ? r.top - h - 4 : r.bottom + 4) - hr.top) + "px";
+  m.style.transformOrigin = `${up ? "bottom" : "top"} right`;
+  anchor.classList.add("open"); m._anchor = anchor; m._srv = s;
+  return m;
+}
+function closeMenu(m) {
+  if (!m || m.classList.contains("leave")) return;
+  m._anchor?.classList.remove("open");
+  m.classList.remove("enter"); m.classList.add("leave"); setTimeout(() => m.remove(), 90);
+}
+document.addEventListener("click", e => {
+  const more = e.target.closest(".lc .mini");
+  if (more) { const host = more.closest(".in"); openMenu(more, CARDS[+more.dataset.card], host); return; }
+  const it = e.target.closest(".dm .it");
+  if (it) {
+    if (it.getAttribute("aria-disabled") === "true") return;
+    const m = it.closest(".dm"); closeMenu(m);
+    if (it.dataset.mi === "export") setTimeout(() => openLayer("export"), 90);
+    if (it.dataset.mi === "delete") setTimeout(() => openLayer("delete"), 90);
+    return;
+  }
+  if (!e.target.closest(".dm, #parts")) $$(".dm:not(.leave)").forEach(closeMenu);
+});
+
+/* ================= 首页大卡（菜单那块、三态里加载完的样子用）：照 home.html 的 big() ================= */
+const CARDS = [
+  { name: "机械动力整合包", core: "forge", label: "Forge", mc: "1.20.1", st: "stopped", last: "昨天", hours: 36 },
+  { name: "生存服 · 朋友", core: "paper", label: "Paper", mc: "1.21.4", st: "running", players: 3, max: 20, up: "2:13", pin: true },
+  { name: "群组代理", core: "velocity", label: "Velocity", mc: "3.4.0", st: "stopped", last: "上个月", hours: 2 },
+];
+function bigCard(s, i) {
+  const run = s.st === "running";
+  const body = run ? `<div class="stats"><div><div class="k">在线人数</div><div class="v ok">${s.players}<small>/${s.max}</small></div></div><div><div class="k">运行时间</div><div class="v">${s.up}</div></div></div>`
+    : `<div class="stats"><div><div class="k">上次玩</div><div class="v">${s.last}</div></div><div><div class="k">时长总计</div><div class="v">${s.hours}<small> 小时</small></div></div></div>`;
+  const acts = `<span><i data-ic="console"></i>控制台</span>` + (run ? `<span class="ok"><i class="d"></i>运行中</span><span class="stop"><i data-ic="stop"></i>停止</span>`
+    : `<span class="off"><i class="d"></i>已停止</span><span class="go"><i data-ic="play"></i>启动</span>`) + `<span class="ic"><i data-ic="link"></i></span>`;
+  return `<div class="lc" style="--c:${MDPixel16.CORE_COLORS[s.core]}"><div class="cover">${MDPixel16.avatar(s.core, "", 32)}<div class="title"><div class="nm">${esc(s.name)}</div><div class="meta">${s.label} · ${s.mc}</div></div>`
+    + `<span class="tools"><button class="pin${s.pin ? " on" : ""}" title="${s.pin ? "取消收藏" : "收藏"}"><i data-ic="${s.pin ? "starOn" : "star"}"></i></button><button class="mini" data-card="${i}" title="更多" aria-haspopup="menu"><i data-ic="more"></i></button></span></div>`
+    + `<div class="inner">${body}<div class="acts">${acts}</div></div></div>`;
+}
+const skelCard = () => `<div class="lc skc skel"><div class="cover"><span class="sk av"></span><div class="title"><div class="sk" style="width:56%;height:13px;margin-bottom:8px"></div><div class="sk" style="width:32%;height:10px"></div></div></div>`
+  + `<div class="inner"><div class="stats"><div><div class="sk" style="width:48%;height:10px;margin:2px 0 10px"></div><div class="sk" style="width:36%;height:16px"></div></div><div><div class="sk" style="width:48%;height:10px;margin:2px 0 10px"></div><div class="sk" style="width:40%;height:16px"></div></div></div>`
+  + `<div class="acts"><span></span><span></span><span></span><span class="ic"></span></div></div></div>`;
+
+/* ================= 整页状态 =================
+   程序的这几种都是把整个页面换成一句话（标题栏也没了）。这里留着标题栏和窗口三键（MASTER 红线 3：拖动和三键始终可用），字摆在窗口正中、比正中略高（同空首页），
+   上面是应用图标（16 格的图标按每格 4 像素放大，同空首页的做法，小一号）。
+   · 连不上 MineDeck（boot 约 6970 行）：「无法连接 MineDeck 后端。请通过程序窗口打开本页面。」拆成标题和一句下一步。程序没有重试，草图也不加（建议里写了）。
+   · 正在更新（约 6791 行）：「正在更新，程序将自动重启…」，下一步那行前面一个转圈。
+   · 正在退出（quitApp 约 670 行）：「MineDeck 正在停止服务器并退出，可以关闭此页面了。」
+   · 服务器不存在（renderDetail 约 3675 行）：程序是一个红框「服务器不存在」，在详情页里，侧栏还在。这里是一个图标块、一句「找不到服务器「旧生存服」」，
+     下面一颗「回到主页」（等同底部胶囊的主页：MASTER 第 8 节错误要给下一步，第 11 节第 8 条只给一个主行动），底部胶囊照常在。名字照地址里的写。
+   · 手机远程管理的登录框（showLogin 约 31 行）：局域网里的浏览器打开，没有标题栏；一块大面板，应用图标 48、「MineDeck 手机远程管理」，
+     输入框上面写「访问密码」，程序那句「请输入访问密码（在主机的「设置 → 手机远程管理」里设置）」拆成框的名字和框下面一行淡字；按钮「登录」铺满（同弹窗底下那排）。
+     另画了一份 390 宽的（手机上主要是这个）。登录失败程序是右上角一条报错提示，草图没画 */
+const LOGO = "../../internal/web/ui/img/logo-16.png";
+const tbHTML = () => `<header class="tb"><img src="${LOGO}" alt=""><div class="sp"></div><div class="win"><span><i data-ic="winMin"></i></span><span><i data-ic="winMax"></i></span><span><i data-ic="winClose"></i></span></div></header>`;
+const capHTML = () => `<nav class="cap2"><a class="home on"><img src="../../internal/web/ui/img/logo-20.png" alt=""></a><a><i data-ic="toolbox"></i></a><a><i data-ic="gear"></i></a><a class="ai"><i data-ic="sparkle"></i></a><a class="new"><i data-ic="plus"></i></a></nav>`;
+const loginHTML = () => `<div class="login">${md({ id: "login", w: 360, title: "", extra: "", acts: btn("登录", "pri", 'data-x="login"') })}</div>`;
+const PAGES = {
+  offline: { t: "连不上 MineDeck", html: () => tbHTML() + `<div class="ctr"><img class="logo" src="${LOGO}" alt=""><div class="t1">连不上 MineDeck</div><div class="t2">请通过程序窗口打开本页面</div></div>` },
+  updating: { t: "正在更新", html: () => tbHTML() + `<div class="ctr"><img class="logo" src="${LOGO}" alt=""><div class="t1">正在更新</div><div class="t2"><i data-ic="spinner"></i>程序将自动重启</div></div>` },
+  quitting: { t: "正在退出", html: () => tbHTML() + `<div class="ctr"><img class="logo" src="${LOGO}" alt=""><div class="t1">正在停止服务器并退出</div><div class="t2">可以关闭此页面了</div></div>` },
+  missing: { t: "服务器不存在", html: () => tbHTML() + `<div class="ctr"><span class="si"><i data-ic="server"></i></span><div class="t1">找不到服务器「旧生存服」</div>${btn("回到主页", "pri auto")}</div>` + capHTML() },
+  login: { t: "手机远程管理的登录框", html: () => loginHTML() },
+  "login-phone": { t: "登录框 · 手机宽 390", phone: true, html: () => loginHTML() },
+};
+// 登录框的栏里：应用图标 48 和名字一行（图标离栏的角 8、圆角不受限：图片本身是像素画，四角透明），下面「访问密码」和输入框，再下面一行淡字
+function fillLogin(root) {
+  $$(".md[data-md=login] .mc", root).forEach(c => {
+    c.innerHTML = `<div class="brand"><img src="../../internal/web/ui/img/logo-48.png" alt=""><div class="t">MineDeck 手机远程管理</div></div>`
+      + `<div class="fld"><span class="lb">访问密码</span><input class="inp" type="password" aria-label="访问密码" autocomplete="current-password"></div>`
+      + `<div class="fnote" style="margin-top:-6px">在主机的「设置 → 手机远程管理」里设置</div>`;
+  });
+}
+function pageEl(id) {
+  const p = PAGES[id], el = document.createElement("div");
+  el.className = "pg" + (p.phone ? " phone" : ""); el.innerHTML = p.html(); fillLogin(el); KIT.hydrate(el);
+  return el;
+}
+function openPage(id) {
+  const v = document.createElement("div"); v.className = "pview enter";
+  const pg = pageEl(id); v.appendChild(pg);
+  if (PAGES[id].phone) pg.style.transform = `scale(${Math.min(1, (innerHeight - 40) / 844)})`;
+  const back = Object.assign(document.createElement("button"), { className: "pback", textContent: "← 回到对照页（Esc，草图专用）" });
+  document.body.append(v, back);
+  const close = () => { v.classList.remove("enter"); v.classList.add("leave"); back.remove(); setTimeout(() => v.remove(), 140); document.removeEventListener("keydown", onKey); };
+  const onKey = e => { if (e.key === "Escape") close(); };
+  back.onclick = close; document.addEventListener("keydown", onKey);
+  setTimeout(() => $("input", v)?.focus({ preventScroll: true }), 50);
+}
+
+/* ================= 七块的内容 ================= */
+const cap = (text, open, extra = "") => `<div class="cap"><span>${text}</span><span class="sp"></span>${extra}${open ? `<button class="ib" data-open="${open}" title="在窗口里弹出，看进出场"><i data-ic="play"></i></button>` : ""}</div>`;
+const cellM = (kind, text, extra = "") => `<div class="cell" data-cell="${kind}">${cap(text, kind, extra)}<div class="slot" data-slot="${kind}"></div></div>`;
+const PARTS = [
+  { id: "confirm", t: "确认框", dim: true, html: () => `<div class="rowx">${cellM("normal", "普通 · 装上前置（默认聚焦主键）")}${cellM("backup", "危险 · 删除备份（默认聚焦取消）")}${cellM("leftover", "危险 · 删除没建完的文件夹")}</div>`
+      + `<div class="rowx">${cellM("delete", "删除服务器 · 自己建的（开关默认关）")}${cellM("delete-adopted", "删除服务器 · 接管来的（开关打开、名字没输完）")}</div>` },
+  { id: "form", t: "表单弹窗", dim: true, html: () => `<div class="rowx">${cellM("export", "导出交接包", segHTML("exp", [["", "正常"], ["dir", "找不到文件夹"], ["other", "别的报错"]], "", "xs"))}${cellM("pending", "整合包里没装上的文件")}</div>` },
+  { id: "ask", t: "报错与询问", dim: true, html: () => `<div class="rowx">${cellM("errd", "报错信息（右上角报错提示的「详情」）", segHTML("raw", [["short", "短"], ["long", "长"]], "short", "xs"))}`
+      + `<div class="colx">${cellM("closeask", "关窗时有服务器在运行", segHTML("tray", [["1", "有托盘"], ["0", "没有托盘"]], "1", "xs"))}${cellM("quit", "退出 MineDeck（侧栏底部、关于页）")}</div></div>` },
+  { id: "toast", t: "提示", html: () => `<div class="rowx" style="width:1080px;justify-content:flex-start;margin-top:10px"><div class="pnl demo"><div class="col">`
+      + `<h3>点一下出一条真的提示（草图专用）</h3><div class="btns">${btn("普通提示", "auto", 'data-toast="ok"')}${btn("报错提示", "auto", 'data-toast="err"')}${btn("带「撤销」", "auto", 'data-toast="undo"')}${btn("带「打开文件夹」", "auto", 'data-toast="open"')}${btn("连着来三条", "auto", 'data-toast="three"')}</div>`
+      + `<div class="tg on" data-act="pin" style="margin-top:4px"><span class="sw"></span><div class="m"><div class="t">右上角那四条钉住不走（草图专用）</div></div></div>`
+      + `<div class="note">普通的 <b>3.5 秒</b>自己走，点一下就关。报错的、带按钮的停 <b>20 秒</b>（程序现在的数；MASTER 第 11 节写的是 8 秒），鼠标停在上面、或者「详情」开着时不走，移开以后至少再留 4 秒；`
+      + `报错的点一下是看「详情」。进来 0.22 秒从上面落下 8 像素，走 0.14 秒往右 16 像素淡掉，下面的 0.32 秒补上去。</div></div></div></div>` },
+  { id: "menu", t: "菜单", html: () => `<div class="cap" style="width:1079px"><span>服务器卡片的「···」：停着的、开着的（导出、删除灰掉，悬停看原因）两张的菜单开着；点「···」收起再打开看进出场，点「导出交接包…」「删除服务器…」接着弹对应的弹窗</span></div>`
+      + `<div class="lcs" style="margin-top:4px">${CARDS.map(bigCard).join("")}</div>` },
+  { id: "states", t: "三态", html: () => `<div class="rowx" style="gap:16px">`
+      + `<div class="colx" style="gap:10px">${cap("加载 · 首页大卡和列表行的骨架", "", `<button class="ib" data-act="reload" title="再加载一次：骨架 0.9 秒后换成内容"><i data-ic="refresh"></i></button>`)}<div data-k="ld1">${skelCard()}</div>`
+      + `<div class="pnl"><div class="col"><h3>游戏版本</h3><div data-k="ld2">${skelRows()}</div></div></div></div>`
+      + `<div class="colx" style="gap:10px">${cap("空 · 只给一个主行动")}<div class="pnl"><div class="col"><div class="state"><span class="si"><i data-ic="camera"></i></span><div class="st1">还没有备份</div>${btn(`<i data-ic="camera"></i>立即备份世界`, "pri")}</div></div></div>`
+      + `<div class="pnl"><div class="col"><div class="state"><span class="si"><i data-ic="clock"></i></span><div class="st1">还没有定时任务</div>${btn(`<i data-ic="plus"></i>添加定时任务`, "pri")}</div></div></div></div>`
+      + `<div class="colx" style="gap:10px">${cap("错误 · 一句结论 + 下一步，原文在复制里")}<div class="pnl"><div class="col"><div class="state"><span class="si bad"><i data-ic="warn"></i></span><div class="st1">无法获取服务器列表：连不上 MineDeck</div><div class="st2">正在自动重试</div>`
+      + `<div class="ra">${btn(`<i data-ic="copy"></i>`, "c", 'data-act="copy2" title="复制报错信息"')}</div></div></div></div>`
+      + `<div class="pnl"><div class="col"><div class="state"><span class="si bad"><i data-ic="warn"></i></span><div class="st1">无法读取这台服务器的地图信息</div>`
+      + `<div class="ra">${btn(`<i data-ic="refresh"></i>重试`, "auto", 'data-act="retry"')}${btn(`<i data-ic="copy"></i>`, "c", 'data-act="copy2" title="复制报错信息"')}</div></div></div></div></div></div>` },
+  { id: "pages", t: "整页状态", html: () => `<div class="thumbs">${Object.entries(PAGES).map(([id, p]) => `<div class="thc"><div class="cap" style="height:22px"><span>${p.t}</span><span class="sp"></span><span style="color:var(--faint)">点开看原大</span></div><div class="th${p.phone ? " phone" : ""}" data-page="${id}"></div></div>`).join("")}</div>` },
+];
+// 列表行的骨架（程序 skeletonRows 约 1532 行），行高照向导的版本列表 36；加载完换成版本行
+const skelRows = () => [62, 44, 52, 40, 48, 44].map(w => `<div class="vrow sk skel"><span class="sk" style="width:${w}%"></span><span class="sk" style="width:28px;margin-left:auto"></span></div>`).join("");
+const verRows = () => [["26.2", "最新"], ["26.1", ""], ["1.21.4", ""], ["1.21.1", ""], ["1.20.6", ""], ["1.20.1", "常用"]].map(([v, t], i) => `<div class="vrow${i === 0 ? " on" : ""}">${v}${t ? `<span class="tag">${t}</span>` : ""}</div>`).join("");
+// 三态：加载完的样子——骨架一起淡掉（0.09 秒），内容一张一张、一行一行淡进来（0.22 秒、从下面 5 像素、错开 22 毫秒；同规范第七节「卡片、行一批换」）
+let reloadTok = 0;
+async function reload(stage) {
+  const tok = ++reloadTok, a = $('[data-k="ld1"]', stage), b = $('[data-k="ld2"]', stage);
+  const swap = async (el, html) => { await el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 90, easing: IN, fill: "forwards" }).finished; el.getAnimations().forEach(x => x.cancel()); el.innerHTML = html; KIT.hydrate(el); };
+  await Promise.all([swap(a, skelCard()), swap(b, skelRows())]);
+  await wait(900); if (tok !== reloadTok) return;
+  await Promise.all([swap(a, bigCard(CARDS[1], 1)), swap(b, verRows())]);
+  [a.firstElementChild, ...b.children].forEach((x, i) => x.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, delay: i * 22, easing: OUT, fill: "backwards" }));
+}
+
+let cur = "", stageTok = 0;
+const pinned = [];
+function enterPart(id) {
+  const p = PARTS.find(x => x.id === id), inEl = $("#stage-in");
+  inEl.innerHTML = p.html();
+  $$("[data-slot]", inEl).forEach(s => mount(s, s.dataset.slot));
+  $$(".cap .seg", inEl).forEach(s => placeSeg(s, false));
+  $$(".th", inEl).forEach(t => t.appendChild(pageEl(t.dataset.page)));
+  KIT.hydrate(inEl);
+  if (id === "menu") [0, 1].forEach(i => openMenu($(`.mini[data-card="${i}"]`, inEl), CARDS[i], inEl, true)); // 一进来两张卡的菜单都开着，作者一眼看全
+  if (id === "toast") spawnPinned();
+  return inEl;
+}
+// 提示那一块：右上角先钉上四条（一条接一条落下来）；草图开关关掉以后它们照真的计时走
+function spawnPinned() { ["ok", "err", "undo", "open"].forEach((k, i) => setTimeout(() => { if (cur === "toast") pinned.push(toast(k, { pinned: true })); }, 120 + i * 60)); }
+// 换一块（同规范第七节「卡片、行一批换」）：旧的一起往反方向挪 5 像素淡掉（0.09 秒），新的从点的那一侧挪 5 像素、一块一块淡进来（0.22 秒、错开 22 毫秒）；托盘的遮罩色 0.22 秒淡进淡出
+function showPart(id, animate = true) {
+  if (id === cur) return;
+  const order = PARTS.map(x => x.id), dir = order.indexOf(id) > order.indexOf(cur) ? 1 : -1, tok = ++stageTok;
+  $$("#parts span").forEach(s => s.classList.toggle("on", s.dataset.v === id)); placeSeg($("#parts"), animate);
+  const prev = cur; cur = id;
+  // 地址跟着换（作者照着地址就能回到这一块）；一打开就弹的 open、page 只在第一次进来时留着，换一块时去掉
+  const q = new URLSearchParams(location.search); q.set("part", id); if (prev) { q.delete("open"); q.delete("page"); } history.replaceState(null, "", "?" + q.toString());
+  $("#stage").classList.toggle("dim", !!PARTS.find(x => x.id === id).dim);
+  if (prev === "toast") { pinned.splice(0).forEach(t => t.dismiss()); }
+  $$(".dm").forEach(m => m.remove());
+  const inEl = $("#stage-in");
+  const go = () => {
+    if (tok !== stageTok) return;
+    inEl.getAnimations().forEach(a => a.cancel());
+    enterPart(id);
+    if (!animate) return;
+    [...inEl.querySelectorAll(":scope > .rowx > *, :scope > .lcs > *, :scope > .thumbs > *, :scope > .cap")].forEach((x, i) =>
+      x.animate([{ opacity: 0, transform: `translateX(${5 * dir}px)` }, { opacity: 1, transform: "none" }], { duration: 220, delay: i * 22, easing: OUT, fill: "backwards" }));
+  };
+  if (!animate || !prev) return go();
+  inEl.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: `translateX(${-5 * dir}px)` }], { duration: 90, easing: IN, fill: "forwards" }).onfinish = go;
+}
+$("#parts").insertAdjacentHTML("beforeend", PARTS.map(p => `<span data-v="${p.id}" role="tab">${p.t}</span>`).join(""));
+$("#parts").addEventListener("click", e => { const s = e.target.closest("span"); if (s) showPart(s.dataset.v); });
+// 舞台里的点击：▶ 真弹、小字右边的草图开关、提示的按钮、三态的重新加载、整页状态的缩略图
+$("#stage").addEventListener("click", e => {
+  const op = e.target.closest("[data-open]");
+  if (op) { const slot = $(`[data-slot="${op.dataset.open}"] .md`); return openLayer(op.dataset.open, slot ? JSON.parse(JSON.stringify(slot._st, (k, v) => k === "items" || k === "skipped" ? undefined : v)) : undefined); }
+  const sg = e.target.closest(".cap .seg span");
+  if (sg && !sg.classList.contains("on")) {
+    const box = sg.parentElement; $$("span", box).forEach(x => x.classList.toggle("on", x === sg)); placeSeg(box, true);
+    const cell = box.closest(".cell"), kind = cell.dataset.cell, slot = $(".slot", cell), m = $(".md", slot);
+    const st = { ...m._st }; if (box.dataset.seg === "exp") st.err = sg.dataset.v; if (box.dataset.seg === "raw") { st.long = sg.dataset.v === "long"; delete st.raw; delete st.fix; } if (box.dataset.seg === "tray") st.tray = sg.dataset.v === "1";
+    m.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 90, easing: IN, fill: "forwards" }).onfinish = () => {
+      const n = mount(slot, kind, st); n.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: OUT });
+    };
+    return;
+  }
+  const tb = e.target.closest("[data-toast]");
+  if (tb) { if (tb.dataset.toast === "three") ["ok", "undo", "ok"].forEach((k, i) => setTimeout(() => toast(k), i * 260)); else toast(tb.dataset.toast); return; }
+  const pin = e.target.closest('[data-act="pin"]');
+  if (pin) { const on = pin.classList.toggle("on"); if (on) { pinned.splice(0).forEach(t => t.dismiss()); spawnPinned(); } else pinned.forEach(t => t.unpin()); return; }
+  if (e.target.closest('[data-act="reload"]')) return reload($("#stage"));
+  const cp = e.target.closest('[data-act="copy2"]');
+  if (cp) { const old = cp.innerHTML; cp.innerHTML = `<span class="lbl">${KIT.icon("check")}</span>`; cp.style.color = "var(--accent-text)"; setTimeout(() => { cp.innerHTML = old; cp.style.color = ""; }, 1200); return; }
+  if (e.target.closest('[data-act="retry"]')) { const i = $(".ico", e.target.closest('[data-act="retry"]')); i?.animate([{ transform: "none" }, { transform: "rotate(360deg)" }], { duration: 600, easing: "cubic-bezier(.3, .7, .2, 1)" }); return; }
+  const th = e.target.closest("[data-page]");
+  if (th) return openPage(th.dataset.page);
+});
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  const top = layers[layers.length - 1]; if (top) return closeLayer(top);
+  const m = $(".dm:not(.leave)"); if (m) closeMenu(m);
+});
+// 配色链接带上眼下这一块
+for (const [id, th] of [["lk-light", "light"], ["lk-dark", "dark"]]) { const q = new URLSearchParams(location.search); q.set("theme", th); $("#" + id).href = "?" + q.toString(); }
+
+KIT_READY.then(() => {
+  const part = PARTS.some(p => p.id === QS.get("part")) ? QS.get("part") : "confirm";
+  showPart(part, false);
+  placeSeg($("#parts"), false);
+  // 首页 ?notices=1 浮层里点「删除这个文件夹…」跳过来时带着 part=confirm&open=leftover
+  const open = QS.get("open"); if (BUILD[open]) setTimeout(() => openLayer(open), 60);
+  const page = QS.get("page"); if (PAGES[page]) setTimeout(() => openPage(page), 60);
+});
+</script>
+</body>
+</html>
