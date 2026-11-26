@@ -62,6 +62,14 @@
   @keyframes sheen { 0% { opacity: 0; transform: translateX(-50%) skewX(-14deg); }
                      6% { opacity: 1; animation-timing-function: linear; } 55% { opacity: 1; }
                      100% { opacity: 0; transform: translateX(140%) skewX(-14deg); } }
+  /* 作者 11-26：加了扫光，切换时文字还是「突然切换」，问有没有别的过渡。上面的扫光留作 D，另做 A、B、C 三种，
+     右上角的小条一点就换着试（地址栏 ?fx=a|b|c|d 也行）。小条是草图专用，定下来以后它和没选上的都删掉 */
+  .fxbar { position: fixed; top: 46px; right: 20px; z-index: 50; display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 10px;
+           background: var(--surface-2); border: 1px solid var(--border); font-size: 11.5px; color: var(--faint); }
+  .fxbar span { padding: 0 6px 0 8px; }
+  .fxbar a { padding: 4px 9px; border-radius: 7px; color: var(--muted); cursor: pointer; }
+  .fxbar a:hover { background: var(--hover); }
+  .fxbar a.on { background: var(--accent-subtle); color: var(--accent-text); }
   .intro .head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
   .intro .head .cover { width: 56px; height: 56px; border-radius: 12px; flex: none; }
   .intro .head .cover svg { width: 32px; height: 32px; }
@@ -183,9 +191,9 @@ const DEF = { vanilla: "26.2", paper: "26.2", purpur: "26.2", leaves: "26.1", fo
 let step = 0, play = 1, core = "paper", ver = DEF.paper;
 const STEPS = () => play === 0 ? ["选择核心以进行下一步", "最后设置一下", "让朋友连进来"] : ["选择核心以进行下一步", play === 2 ? "装点模组？" : "装点插件？", "最后设置一下", "让朋友连进来"];
 const cover = (k, size) => `<div class="cover" style="--c:${MDPixel16.CORE_COLORS[k] || "#7a8aa0"}">${MDPixel16.svg(k, size)}</div>`;
-function introInner() {
-  const p = PLAYS[play], c = CORE[core];
-  return `<div class="body"><div class="head">${cover(core, 32)}<div><div class="nm">${c[0]}${core === p.rec && p.cores.length > 1 ? `<span class="rec">推荐</span>` : ""}</div><div class="sub">${c[1]}</div></div></div>
+function introInner(k = core) {
+  const p = PLAYS[play], c = CORE[k];
+  return `<div class="body"><div class="head">${cover(k, 32)}<div><div class="nm">${c[0]}${k === p.rec && p.cores.length > 1 ? `<span class="rec">推荐</span>` : ""}</div><div class="sub">${c[1]}</div></div></div>
     <p>${c[2]}</p><dl><dt>适用场景</dt><dd>${c[3]}</dd><dt>支持扩展</dt><dd>${c[4]}</dd><dt>联机要求</dt><dd>${c[5]}</dd></dl></div>`;
 }
 function versionsInner() {
@@ -235,15 +243,63 @@ function settleVersions() {
 }
 function selectCore(k) {
   if (k === core) return;
+  const from = core;
   core = k; ver = DEF[k];
-  const list = document.querySelector("#corecol .list");
-  list.querySelectorAll(".row").forEach(r => r.classList.toggle("on", r.dataset.core === k));
+  const list = document.querySelector("#corecol .list"), rows = [...list.querySelectorAll(".row")];
+  const at = x => rows.findIndex(r => r.dataset.core === x), dir = at(k) > at(from) ? 1 : -1;
+  rows.forEach(r => r.classList.toggle("on", r.dataset.core === k));
   placeHL(list, true);
-  const intro = document.getElementById("intro");
-  intro.innerHTML = introInner();
-  intro.classList.remove("swap"); void intro.offsetWidth; intro.classList.add("swap");
+  swapIntro(from, dir);
   const vc = document.getElementById("vercol");
   vc.innerHTML = versionsInner(); KIT.hydrate(vc); settleVersions();
+}
+// 介绍换内容的几种过渡（作者 11-26 要比一比）。dir 是高亮框走的方向：往下 1、往上 -1
+//   A 淡出再淡入：旧的一整块很快淡掉，新的一整块再淡进来，不动位置
+//   B 顺着方向滑：同 A，但旧的往高亮框走的反方向挪 8 像素淡掉，新的从同一侧挪回来，像列表跟着翻了一格
+//   C 逐项换：框架不动（三个小标题、各块的位置都不变），图标、名字、副标题、正文、三行内容一样一样换，
+//     顺着高亮框走的方向错开一点点（往下点就从上往下换，往上点就从下往上换），每样只挪 5 像素
+//   D 扫光：前面那版，亮带扫过、文字淡入
+const FX_LIST = [["a", "A 淡出再淡入"], ["b", "B 顺着方向滑"], ["c", "C 逐项换"], ["d", "D 扫光"]];
+let fx = new URLSearchParams(location.search).get("fx") || "c", swapUntil = 0;
+function swapIntro(from, dir) {
+  const intro = document.getElementById("intro");
+  const easeIn = "cubic-bezier(.4, 0, 1, 1)", easeOut = "cubic-bezier(.2, .7, .2, 1)";
+  intro.getAnimations({ subtree: true }).forEach(a => a.cancel());
+  intro.classList.remove("swap");
+  // 上一次还没换完又点了别的：先把上一次的结果摆好，再从它往新的换
+  if (performance.now() < swapUntil) intro.innerHTML = introInner(from);
+  if (fx === "d") { intro.innerHTML = introInner(); void intro.offsetWidth; intro.classList.add("swap"); return; }
+  if (fx === "a" || fx === "b") {
+    const dy = fx === "b" ? 8 * dir : 0;
+    swapUntil = performance.now() + 120 + 260;
+    intro.querySelector(".body").animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: `translateY(${-dy}px)` }],
+      { duration: 120, easing: easeIn, fill: "forwards" }).onfinish = () => {
+      intro.innerHTML = introInner();
+      intro.querySelector(".body").animate([{ opacity: 0, transform: `translateY(${dy}px)` }, { opacity: 1, transform: "none" }], { duration: 260, easing: easeOut });
+    };
+    return;
+  }
+  const next = document.createElement("div"); next.innerHTML = introInner();
+  const parts = root => [root.querySelector(".cover"), root.querySelector(".nm"), root.querySelector(".sub"), root.querySelector("p"), ...root.querySelectorAll("dd")];
+  const olds = parts(intro), news = parts(next), n = olds.length, dy = 5 * dir, gap = 22;
+  swapUntil = performance.now() + (n - 1) * gap + 90 + 220;
+  olds.forEach((o, i) => {
+    o.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: `translateY(${-dy}px)` }],
+      { duration: 90, delay: (dir > 0 ? i : n - 1 - i) * gap, easing: easeIn, fill: "forwards" }).onfinish = () => {
+      o.replaceWith(news[i]);
+      news[i].animate([{ opacity: 0, transform: `translateY(${dy}px)` }, { opacity: 1, transform: "none" }], { duration: 220, easing: easeOut });
+    };
+  });
+}
+function fxbar() {
+  const b = document.createElement("div"); b.className = "fxbar";
+  const paint = () => { b.innerHTML = `<span>切换过渡</span>` + FX_LIST.map(([k, t]) => `<a data-fx="${k}"${k === fx ? ` class="on"` : ""}>${t}</a>`).join(""); };
+  b.addEventListener("click", e => {
+    const a = e.target.closest("[data-fx]"); if (!a) return;
+    fx = a.dataset.fx; paint();
+    const q = new URLSearchParams(location.search); q.set("fx", fx); history.replaceState(null, "", "?" + q);
+  });
+  paint(); document.body.appendChild(b);
 }
 function selectVer(v) {
   if (v === ver) return;
@@ -289,7 +345,7 @@ document.getElementById("back").addEventListener("click", () => {
   const q = new URLSearchParams(location.search); q.set("enter", "1");
   setTimeout(() => { location.href = "home.html?" + q.toString(); }, 320);
 });
-KIT_READY.then(() => { render(); requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove("hidden-nav"))); });
+KIT_READY.then(() => { render(); fxbar(); requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove("hidden-nav"))); });
 </script>
 </body>
 </html>
