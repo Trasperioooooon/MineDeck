@@ -297,6 +297,9 @@ func TestPlanWorldRestoreBoundaries(t *testing.T) {
 		{"没存过盘的世界：照现在的世界名", "world",
 			[]string{"world/region/r.0.0.mca", "ops.json"},
 			"world", []string{"world/region/r.0.0.mca"}},
+		{"整个服务器文件夹连外面一层一起打的包", "world",
+			[]string{"MyServer/server.properties", "MyServer/world/level.dat", "MyServer/world_nether/level.dat", "MyServer/mods/a.jar"},
+			"MyServer/world", []string{"world/level.dat", "world_nether/level.dat"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var buf bytes.Buffer
