@@ -457,20 +457,24 @@
   .lanp .lh .tg { flex: none; gap: 10px; margin: 0; }
   .lanp .lh .tg .m { flex: none; }
   .lanp .lh .tg .sw { order: -1; }
-  .lanp .lbody { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+  .lanp .lbody { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: flex-start; gap: 8px; padding-top: 56px; }
   .lanp .lb { font-size: 12.5px; color: var(--muted); font-weight: 500; }
   .bigaddr { display: flex; align-items: center; gap: 6px; min-width: 0; }
   .bigaddr .mono { font-size: 24px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .bigaddr .unk { font-size: 12.5px; color: var(--faint); margin-left: 4px; white-space: nowrap; }
+  .bigaddr .ph { font-size: 20px; color: var(--faint); white-space: nowrap; }
+  .bigaddr .ib:disabled { opacity: .35; cursor: default; background: none; }
   /* 虚拟局域网（11-26 作者要的）：大字下面隔一道线，一行一个，名字在左、地址和复制在右。每个地址只出现一次，不用选 */
-  .vlan { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px; }
+  .vlan, .lanp .frps { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+  .vlan { display: flex; flex-direction: column; gap: 2px; }
   .vlan .lb { margin-bottom: 4px; width: fit-content; }
   .netrow { display: flex; align-items: center; height: 32px; gap: 6px; min-width: 0; }
   .netrow .nn { width: 96px; flex: none; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .netrow .mono { font-size: 14px; white-space: nowrap; }
-  .frpp .frps { transition: opacity .2s; }
+  .frpp .lbody { transition: opacity .2s; }
   .frpp:not(.on) { cursor: pointer; }
-  .frpp:not(.on) .frps { opacity: .7; pointer-events: none; }
+  /* 关着时拼好的地址和四个框一起淡（11-26 作者要了拼好的地址：打开以后边填边拼出朋友要填的那串） */
+  .frpp:not(.on) .lbody { opacity: .7; pointer-events: none; }
   .frpp.off { cursor: default; }
   .frpp.off .lh .tg { pointer-events: none; opacity: .45; }
   .ib { width: 28px; height: 28px; border-radius: 4px; border: 0; background: none; color: var(--muted); display: grid; place-items: center; cursor: pointer; padding: 0; transition: background .2s, color .2s; }
@@ -1300,13 +1304,23 @@ function lanPage() {
     + `</div></div>`;
   const frp = `<div class="lanp frpp${on ? " on" : ""}${proxy ? " off" : ""}" title="${esc(proxy ? "代理端的端口第一次启动以后才知道，启动过以后在服务器的「联机」里开" : on ? "" : "有自己的 frp 服务器才用这个，点一下打开")}">`
     + `<div class="lh">${ltg("frpsOn", "自建 frps", "MineDeck 带着 frpc 连你自己的 frps，外地的朋友也能进", on)}</div>`
-    + `<div class="lbody"><div class="frps" title="本地端口 ${esc(SET.port)}">`
+    + `<div class="lbody"><span class="lb" title="外地的朋友在游戏里添加服务器时填这个：服务器地址加公网端口，公网端口空着就是本地端口">朋友填这个地址</span>`
+    + `<div class="bigaddr" id="faddr">${frpsAddr()}</div>`
+    + `<div class="frps" title="本地端口 ${esc(SET.port)}">`
     + `<input class="inp" id="fhost" placeholder="服务器地址" value="${esc(LINK.frps.host)}" autocomplete="off" spellcheck="false"${fd}>`
     + `<input class="inp" id="fport" placeholder="端口" value="${esc(LINK.frps.port)}" inputmode="numeric"${fd}>`
     + `<input class="inp" id="ftoken" type="password" placeholder="令牌（可空）" value="${esc(LINK.frps.token)}"${fd}>`
     + `<input class="inp" id="fremote" placeholder="公网端口" value="${esc(LINK.frps.remote)}" inputmode="numeric" title="朋友连的端口；空着就和本地端口一样（${esc(SET.port)}）"${fd}></div></div></div>`;
   return lan + frp;
 }
+// 自建 frps 那块的大字：服务器地址加公网端口（空着用本地端口），边填边拼；地址没填时用淡字占着位置，复制灰着。
+// 服务器地址在上面大字和下面框里各出现一次，作者 11-26 看过这个取舍，要拼好的这一串（朋友要的是整串，不是两个框）
+function frpsAddr() {
+  const h = LINK.frps.host.trim(), port = LINK.frps.remote.trim() || (isProxyCore() ? "" : SET.port); // 代理端的本地端口启动后才知道，只写到冒号（同局域网那行）
+  return (h ? `<span class="mono" title="${esc(h)}:${esc(port)}">${esc(h)}:${esc(port)}</span>` : `<span class="ph">服务器地址</span><span class="mono">:${esc(port)}</span>`)
+    + `<button class="ib" data-act="copy" data-copy="${esc(h)}:${esc(port)}" title="复制"${h && port ? "" : " disabled"}><i data-ic="copy"></i></button>`;
+}
+function paintFrpsAddr() { const el = document.getElementById("faddr"); if (el) { el.innerHTML = frpsAddr(); KIT.hydrate(el); } }
 // 自建 frps 开关一动：四个框淡进淡出，打开时光标落在服务器地址
 function afterFrps() {
   const p = document.querySelector(".frpp"); if (!p) return;
@@ -1860,7 +1874,7 @@ document.getElementById("page").addEventListener("input", e => {
     const st = document.getElementById("pst"); st.innerHTML = portState(); KIT.hydrate(st);
   }
   else if (t.id === "smotd") SET.motd = t.value;
-  else if (t.id === "fhost" || t.id === "fport" || t.id === "ftoken" || t.id === "fremote") { LINK.frps[{ fhost: "host", fport: "port", ftoken: "token", fremote: "remote" }[t.id]] = t.value; t.classList.remove("bad"); }
+  else if (t.id === "fhost" || t.id === "fport" || t.id === "ftoken" || t.id === "fremote") { LINK.frps[{ fhost: "host", fport: "port", ftoken: "token", fremote: "remote" }[t.id]] = t.value; t.classList.remove("bad"); if (t.id === "fhost" || t.id === "fremote") paintFrpsAddr(); }
   else if (t.id === "skey") { LINK.key = t.value; t.classList.remove("bad"); }
   else if (t.id === "nq") { LINK.q = t.value; clearTimeout(nqTimer); nqTimer = setTimeout(() => regridNodes(0), 180); }
   else if (t.id === "wlname") {
