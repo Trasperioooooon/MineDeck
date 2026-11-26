@@ -290,6 +290,67 @@
   .cmp .k { color: var(--faint); padding: 0 6px 0 8px; }
   .cmp span[data-s3] { padding: 5px 10px; border-radius: 8px; color: var(--muted); cursor: pointer; }
   .cmp span[data-s3].on { background: var(--accent-subtle); color: var(--accent-text); }
+  /* C 照作者的草图（11-26 作者贴的线框）：一整块，三段，中间细线隔开——
+     ① 身份：图标跨两行（64），右边第一行名称（大字）、第二行服务器介绍（灰字），像游戏里多人列表的那一条；名称行右边是文件夹名和「:端口 ✓」。
+        名称、介绍、端口都是「点了就能改」的字：平时不画框，悬停出底色，点进去出框（32 / 28 高，圆角 8）。
+     ② 运行内存：标题右边一排图例（系统已占 / 分配 / 剩余，圆点就是格子的颜色），格子加 MB 数字框，下面「快捷预设」2G 4G 8G 16G（胶囊，圆角 = 高的一半）。
+     ③ 游戏规则：难度、默认游戏模式两个分段选并排，下面允许飞行一行（说明照草图写在名字下面），开关在右边。
+     EULA 挪到面板下面，一个勾选框，左边和栏里的内容对齐。栏的内边距 20：图标离栏的角 20，不小于栏的圆角 18，圆角不受同心的限制 */
+  .setp.s3c { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; }
+  .s3c .col { padding: 0 20px; gap: 0; }
+  .s3c .sec { padding: 20px 0; display: flex; flex-direction: column; gap: 12px; }
+  .s3c .col h3 { margin: 0; }
+  .s3c .hr { height: 1px; margin: 0 -20px; background: color-mix(in srgb, var(--text) 8%, transparent); }
+  .idrow { display: flex; gap: 14px; align-items: center; }
+  .idtext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .idl1 { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .ie { height: 32px; min-width: 0; margin-left: -9px; padding: 0 8px; border-radius: 8px; border: 1px solid transparent; background: transparent; outline: none; box-sizing: border-box;
+        font: inherit; color: var(--text); transition: background .15s, border-color .15s, box-shadow .15s; }
+  .ie:hover { background: var(--hover); }
+  .ie:focus { background: var(--field); border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+  .ie.bad { background: var(--field); border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
+  .ie.title { flex: 1; font-size: 17px; font-weight: 600; }
+  .ie.sub { height: 28px; font-size: 13px; color: var(--muted); }
+  .fchip { flex: none; display: flex; align-items: center; gap: 5px; height: 28px; max-width: 220px; padding: 0 10px; border-radius: 8px; cursor: pointer; box-sizing: border-box;
+           background: color-mix(in srgb, var(--text) 6%, transparent); color: var(--muted); font-family: var(--mono); font-size: 12px; white-space: nowrap; transition: color .2s, background .2s; }
+  .fchip:hover { color: var(--accent-text); background: var(--accent-subtle); }
+  .fchip .ico { width: 13px; height: 13px; flex: none; }
+  .fchip b { font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .pin { flex: none; display: flex; align-items: center; font-family: var(--mono); color: var(--faint); }
+  .pin .colon { font-size: 15px; }
+  .pin .ie { margin-left: 0; width: 66px; padding: 0 6px; font-family: var(--mono); font-size: 15px; }
+  .pin .st { display: flex; align-items: center; margin-left: 2px; color: var(--accent-text); font-family: var(--font); font-size: 12px; }
+  .pin .st.bad { color: var(--danger-text); }
+  .pin .st .ico { width: 15px; height: 15px; }
+  .mhead { display: flex; align-items: center; gap: 16px; }
+  .mleg { margin-left: auto; display: flex; gap: 16px; font-size: 12px; color: var(--muted); }
+  .mleg span { display: flex; align-items: center; gap: 6px; }
+  .mleg b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .mleg i { width: 8px; height: 8px; border-radius: 2px; }
+  .mleg i.used { background: color-mix(in srgb, var(--text) 30%, transparent); }
+  .mleg i.alloc { background: var(--accent); }
+  .mleg i.free { background: color-mix(in srgb, var(--text) 9%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 14%, transparent); }
+  .mleg i.over { background: var(--danger); }
+  .mleg .bad, .mleg .bad b { color: var(--danger-text); }
+  .mpre { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--faint); }
+  .mpre .k { margin-right: 4px; }
+  .mp { height: 28px; padding: 0 12px; border-radius: 14px; border: 1px solid var(--border); background: none; color: var(--muted); font: inherit; font-size: 12.5px; font-weight: 500;
+        cursor: pointer; transition: background .15s, color .15s, border-color .15s; }
+  .mp:hover:not(:disabled):not(.on) { color: var(--text); background: var(--hover); }
+  .mp.on { background: var(--accent-subtle); color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+  .mp:disabled { opacity: .4; cursor: default; }
+  .rgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 24px; }
+  .s3c .tg { margin-top: 4px; }
+  .eulac { display: flex; align-items: center; gap: 10px; width: fit-content; align-self: flex-start; margin: 16px 0 0 28px; font-size: 13px; cursor: pointer; }
+  .eulac a { color: var(--accent-text); }
+  .eulac .cb { width: 18px; height: 18px; flex: none; box-sizing: border-box; border-radius: 5px; display: grid; place-items: center; color: transparent;
+               border: 1.5px solid color-mix(in srgb, var(--text) 35%, transparent); transition: background .15s, border-color .15s, color .15s; }
+  .eulac .cb .ico { width: 12px; height: 12px; }
+  .eulac:hover .cb { border-color: color-mix(in srgb, var(--text) 55%, transparent); }
+  .eulac.on .cb { background: var(--accent-solid); border-color: var(--accent-solid); color: var(--on-accent); }
+  .eulac .msg { margin-left: 8px; font-size: 12px; color: var(--danger-text); opacity: 0; transition: opacity .2s; }
+  .eulac.bad .msg { opacity: 1; }
+  .eulac.bad .cb { border-color: var(--danger-text); }
   .avbtn { position: relative; flex: none; width: 64px; height: 64px; border-radius: 14px; cursor: pointer; }
   .sav { --c: #7a8aa0; width: 64px; height: 64px; border-radius: 14px; display: grid; place-items: center; overflow: hidden;
          background: color-mix(in srgb, var(--c) 26%, var(--surface)); box-shadow: inset 0 1px 0 rgb(255 255 255 / .06), 0 0 0 1px color-mix(in srgb, var(--c) 30%, transparent); }
@@ -488,7 +549,7 @@
 <header class="tb"><img src="../../internal/web/ui/img/logo-16.png" alt=""><div class="sp"></div>
   <div class="win"><span><i data-ic="winMin"></i></span><span><i data-ic="winMax"></i></span><span><i data-ic="winClose"></i></span></div></header>
 <main class="page" id="page"></main>
-<div class="cmp" aria-label="比较第三步的排法"><span class="k">排法</span><span data-s3="a">A 两栏对齐</span><span data-s3="b">B 一栏三行</span></div>
+<div class="cmp" aria-label="比较第三步的排法"><span class="k">排法</span><span data-s3="c">C 照草图</span><span data-s3="a">A 两栏对齐</span><span data-s3="b">B 一栏三行</span></div>
 <div class="wnav"><div class="in">
   <button class="wbtn back" id="back"><i data-ic="chevronRight"></i>上一步</button>
   <span class="sp"></span><span class="dots" id="dots"></span><span class="sp"></span>
@@ -823,7 +884,7 @@ function pathNote() {
 // 名称框右边那块文件夹名多宽，名称的字就让出多宽
 function syncSfx() {
   const s = document.getElementById("spath"), i = document.getElementById("sname");
-  if (s && i) i.style.paddingRight = (s.offsetWidth + 18) + "px";
+  if (s && i && s.closest(".namef")) i.style.paddingRight = (s.offsetWidth + 18) + "px"; // C 里文件夹名不在框里，不用让
 }
 function pathTip() {
   const slug = slugOf(SET.name);
@@ -832,7 +893,9 @@ function pathTip() {
 const portOk = () => { const v = Number(SET.port); return Number.isInteger(v) && v >= 1 && v <= 65535; };
 const portState = () => portOk() ? `<span class="st" title="端口可用"><i data-ic="check"></i></span>` : `<span class="st bad" title="端口需为 1 ~ 65535 的整数">1~65535</span>`;
 // 第三步的排法：A 两栏对齐、B 一栏三行（见 CSS 那段注释）；右上角的小开关切换，地址里 ?s3=b 直接打开 B
-let S3 = new URLSearchParams(location.search).get("s3") === "b" ? "b" : "a";
+// C 是照作者 11-26 贴的线框画的，默认打开它
+const S3Q = new URLSearchParams(location.search).get("s3");
+let S3 = S3Q === "a" || S3Q === "b" ? S3Q : "c";
 const g1 = mb => (mb / 1024).toFixed(1);
 const memClamp = v => Math.min(MEM_MAX, Math.max(512, Math.round(+v || 512)));
 // 内存：一排格子（也是滑条）加一个 MB 数字框。统计和推荐只在格子的悬停提示里
@@ -858,7 +921,23 @@ function paintMem() {
   const mw = f.querySelector(".mw"), want = over || big ? "warn" : "";
   if (mw.dataset.k !== want) { mw.dataset.k = want; mw.innerHTML = want ? `<i data-ic="warn"></i>` : ""; KIT.hydrate(mw); }
   if (document.activeElement !== num) num.value = v;
-  document.getElementById("smemo").textContent = over ? `超出可用 ${g1(RAM.avail)} GB` : "";
+  const o = document.getElementById("smemo"); if (o) o.textContent = over ? `超出可用 ${g1(RAM.avail)} GB` : "";
+  // C 的图例：系统已占、分配、剩余（剩余 = 可用 − 分配；分配超过可用时这一项变成红的「超出」）
+  const lg = document.getElementById("smleg");
+  if (lg) lg.innerHTML = `<span><i class="used"></i>系统已占 <b>${gs(RAM.total - RAM.avail)}</b></span><span${over ? ` class="bad"` : ""}><i class="${over ? "over" : "alloc"}"></i>分配 <b>${gs(v)}</b></span>`
+    + (over ? `<span class="bad"><i class="over"></i>超出 <b>${gs(v - RAM.avail)}</b></span>` : `<span><i class="free"></i>剩余 <b>${gs(RAM.avail - v)}</b></span>`);
+  document.querySelectorAll("[data-mp]").forEach(b => b.classList.toggle("on", +b.dataset.mp === v));
+}
+// 图例里的数：一位小数，整数不带 .0（4G、15.2G）
+const gs = mb => { const x = Math.round(mb / 1024 * 10) / 10; return (Number.isInteger(x) ? x : x.toFixed(1)) + "G"; };
+// C 的内存：标题加图例、格子加数字框、快捷预设
+function memCtlC(proxy) {
+  const tip = `1 格 = ${CELL_MB} MB\n` + (proxy ? "推荐 1 GB；代理端只做转发，占用很低" : "推荐：模组服 4 GB 以上；无模组的小型服务器 2~4 GB");
+  return `<div class="mhead"><h3>运行内存</h3><span class="mleg" id="smleg"></span></div>
+      <div class="memx"><div class="mbar" id="smbar" tabindex="0" role="slider" aria-label="运行内存" aria-valuemin="512" aria-valuemax="${MEM_MAX}" title="${esc(tip)}">
+          <div class="cells">${"<i></i>".repeat(CELLS)}<span class="knob"></span></div></div>
+        <label class="unit" id="smemf"><span class="mw"></span><input type="number" id="smemn" min="512" max="${MEM_MAX}" step="256" value="${SET.mem}" aria-label="运行内存（MB）">MB</label></div>
+      <div class="mpre"><span class="k">快捷预设：</span>${[2048, 4096, 8192, 16384].map(v => `<button class="mp" data-mp="${v}"${v > MEM_MAX ? " disabled" : ""}>${v / 1024}G</button>`).join("")}</div>`;
 }
 // 在格子上点、拖：落在第几格就分几格（按整格走，最少 512 MB）；方向键一次一格，Home、End 到头
 function memAt(bar, x) {
@@ -875,7 +954,8 @@ function avatarBtn() {
 }
 const seg = (key, opts) => `<div class="seg" data-seg="${key}"><i class="sgl"></i>${opts.map(([v, t]) => `<span data-v="${v}"${SET[key] === v ? ` class="on"` : ""}>${t}</span>`).join("")}</div>`;
 // 开关：说明 d 写在名字下面；只想放悬停里的写在 tip（第三步的「允许飞行」）
-const tg = (key, t, code, d, tip) => `<div class="tg${SET[key] ? " on" : ""}" data-tg="${key}"${tip ? ` title="${esc(tip)}"` : ""}><div class="m"><div class="t">${t}<code>${code}</code></div>${d ? `<div class="d">${d}</div>` : ""}</div><span class="sw"></span></div>`;
+const isOn = v => v === true || v === "1"; // 允许飞行在 A、B 里是分段选（"1" / "0"），在 C 里是开关，两种都认
+const tg = (key, t, code, d, tip) => `<div class="tg${isOn(SET[key]) ? " on" : ""}" data-tg="${key}"${tip ? ` title="${esc(tip)}"` : ""}><div class="m"><div class="t">${t}<code>${code}</code></div>${d ? `<div class="d">${d}</div>` : ""}</div><span class="sw"></span></div>`;
 function step3() {
   if (!SET.nameTouched) SET.name = `我的 ${CORE[core][0]} 服务器`;
   const proxy = isProxyCore();
@@ -893,6 +973,19 @@ function step3() {
     fly: `<div class="fld g-fly" title="开着可以防止骑乘、模组的移动被误当成飞行踢出去"><span class="lb">允许飞行</span>${seg("flight", [["1", "开"], ["0", "关"]])}</div>`,
   };
   const pnote = `<div class="pnote" title="代理端不跑游戏世界，没有难度、游戏模式这些规则，也不用同意 Minecraft EULA；监听端口和转发规则在第一次启动、生成配置文件以后再设置">代理端只做转发，没有游戏规则</div>`;
+  if (S3 === "c") {
+    const id = `<div class="idrow">${avatarBtn()}<div class="idtext">
+        <div class="idl1"><input class="ie title" id="sname" maxlength="40" value="${esc(SET.name)}" aria-label="名称" placeholder="服务器名称">
+          <span class="fchip" id="spath" data-act="root" title="${esc(pathTip())}">${pathNote()}</span>
+          ${proxy ? "" : `<span class="pin${portOk() ? "" : " bad"}" id="pwrap" title="端口"><span class="colon">:</span><input class="ie${portOk() ? "" : " bad"}" id="sport" inputmode="numeric" value="${esc(SET.port)}" aria-label="端口"><span id="pst">${portState()}</span></span>`}</div>
+        ${proxy ? "" : `<input class="ie sub" id="smotd" maxlength="59" value="${esc(SET.motd)}" aria-label="服务器介绍" placeholder="服务器介绍" title="服务器介绍（MOTD），显示在多人游戏的服务器列表里">`}
+      </div></div>`;
+    const rules = proxy ? pnote : `<div class="rgrid">${F.diff}${F.mode}</div>${tg("flight", "允许飞行", "", "避免玩家使用模组飞行或高延迟时被服务端误踢")}`;
+    const eulaC = proxy ? "" : `<div class="eulac${SET.eula ? " on" : ""}" data-eula><span class="cb"><i data-ic="check"></i></span>
+      <span>我已阅读并同意 <a href="https://aka.ms/MinecraftEULA" target="_blank" rel="noopener noreferrer">Minecraft 最终用户许可协议（EULA）</a></span><span class="msg">开服前需要同意 EULA</span></div>`;
+    return `<div class="setp s3c${proxy ? " proxy" : ""}"><div class="col"><div class="sec">${id}</div><div class="hr"></div>
+      <div class="sec">${memCtlC(proxy)}</div><div class="hr"></div><div class="sec"><h3>游戏规则</h3>${rules}</div></div></div>${eulaC}`;
+  }
   const body = S3 === "b"
     ? `<div class="col"><h3>服务器</h3><div class="sgrid">${F.av}${F.name}${F.motd}${F.port}${F.mem}</div>
         <div class="hr"></div><h3>游戏规则</h3>${proxy ? pnote : `<div class="sgrid">${F.diff}${F.mode}${F.fly}</div>`}</div>`
@@ -1389,7 +1482,7 @@ document.getElementById("page").addEventListener("click", e => {
   const sg = e.target.closest(".seg span"), tgl = e.target.closest("[data-tg]"), eu = e.target.closest("[data-eula]");
   if (sg) { const box = sg.parentElement; if (sg.classList.contains("on")) return; SET[box.dataset.seg] = sg.dataset.v;
     box.querySelectorAll("span").forEach(x => x.classList.toggle("on", x === sg)); placeSeg(box, true); return; }
-  if (tgl) { SET[tgl.dataset.tg] = !SET[tgl.dataset.tg]; tgl.classList.toggle("on", SET[tgl.dataset.tg]); afterWho(tgl.dataset.tg); return; }
+  if (tgl) { const k = tgl.dataset.tg; SET[k] = typeof SET[k] === "string" ? (SET[k] === "1" ? "0" : "1") : !SET[k]; tgl.classList.toggle("on", isOn(SET[k])); afterWho(k); return; }
   const vo = e.target.closest("[data-via]"), pf = e.target.closest("[data-plat]"), lt = e.target.closest("[data-ltg]"), rn = e.target.closest("[data-unname]");
   if (vo) { if (!vo.classList.contains("on") && !vo.classList.contains("off")) pickVia(vo.dataset.via); return; }
   if (pf) { if (!pf.classList.contains("on")) pickPlat(pf.dataset.plat); return; }
@@ -1404,7 +1497,8 @@ document.getElementById("page").addEventListener("click", e => {
     return;
   }
   if (e.target.closest(".names")) { document.getElementById("wlname")?.focus(); return; }
-  if (eu && !e.target.closest("a")) { SET.eula = !SET.eula; eu.querySelector(".tg").classList.toggle("on", SET.eula); if (SET.eula) eu.classList.remove("bad"); return; }
+  if (eu && !e.target.closest("a")) { SET.eula = !SET.eula; eu.classList.toggle("on", SET.eula); eu.querySelector(".tg")?.classList.toggle("on", SET.eula); if (SET.eula) eu.classList.remove("bad"); return; }
+  const mp = e.target.closest("[data-mp]"); if (mp) { if (!mp.disabled) setMem(+mp.dataset.mp); return; }
   if (e.target.closest('[data-act="root"]')) return; // 草图里不真弹选文件夹的窗口
   if (e.target.closest('[data-act="unicon"]')) { SET.icon = ""; repaintAvatar(); return; }
   if (e.target.closest('[data-act="icon"]')) { pickIcon(); return; }
