@@ -757,11 +757,14 @@ func (c *cat) instanceOps() {
 
 	// 两个窗口同时开着「定时任务」时，界面只发改了的：拨开关发 crashRestart，加一条发 addSchedules，删一条发 removeSchedules，
 	// 不再整页发回来把另一边刚存的改回去（2026-11-17）。schedules 整张替换是老写法，照旧能用。
+	// 2026-11-27 加了每隔多久（every）和文件夹（group），都可以不给：老的 {type, at, args} 照旧是每天定时、不放文件夹
 	schedItem := func() *ops.Schema {
 		return ops.Object(map[string]*ops.Schema{
-			"type": ops.String("restart（重启）、command（执行命令）、backup（备份）"),
-			"at":   ops.String("每天几点，HH:MM"),
-			"args": ops.String("type 为 command 时要执行的命令"),
+			"type":  ops.String("restart（重启）、command（执行命令）、backup（备份）"),
+			"at":    ops.String("每天几点，HH:MM（和 every 二选一）"),
+			"every": ops.Integer("每隔多少分钟执行一次（和 at 二选一），按钟点对齐：从每天 0 点起算，60 就是每个整点。命令最短 5、备份最短 30、重启最短 60，最长 720"),
+			"args":  ops.String("type 为 command 时要执行的命令"),
+			"group": ops.String("放进哪个文件夹（只影响界面上怎么分组），不给就不放文件夹"),
 		})
 	}
 	type policiesArgs struct {
@@ -771,7 +774,10 @@ func (c *cat) instanceOps() {
 	c.reg.Register(&ops.Op{
 		Name: "instance.policies.set", Title: "修改崩溃重启与定时任务", Level: ops.Write,
 		Desc: "只改传了的：crashRestart 给了才改；schedules 给了就整张替换定时任务（重启、命令、备份）；" +
-			"removeSchedules、addSchedules 按条删、加（删的是类型、时刻、命令都一样的那一条，找不到不算错）。先整张替换，再删，再加。",
+			"removeSchedules、addSchedules 按条删、加（删的是类型、时刻或间隔、命令、文件夹都一样的那一条，找不到不算错；" +
+			"挪文件夹就是删掉原来那条、加一条换了 group 的）。先整张替换，再删，再加。" +
+			"每条任务填 at（每天几点）或 every（每隔多少分钟）其中一个；每隔多久的备份在服务器停着时不做。" +
+			"例：每小时备份 {type:backup, every:60, group:存档}；每小时清掉落物 {type:command, every:60, args:kill @e[type=item], group:扫地}。",
 		Params: withInst(map[string]*ops.Schema{
 			"crashRestart":    ops.Boolean("崩溃后自动重启（10 / 30 / 60 秒退避，连续 3 次放弃）"),
 			"schedules":       ops.Array("定时任务（给了就整张替换）", schedItem()),
@@ -898,9 +904,16 @@ func schedText(ss []inst.Schedule) string {
 	}
 	var parts []string
 	for _, s := range ss {
-		t := s.At + " " + s.Type
+		when := s.At
+		if s.Every > 0 { // 每隔多久的没有时刻
+			when = fmt.Sprintf("每隔 %d 分钟", s.Every)
+		}
+		t := when + " " + s.Type
 		if s.Args != "" {
 			t += "：" + s.Args
+		}
+		if s.Group != "" {
+			t = "「" + s.Group + "」" + t
 		}
 		parts = append(parts, t)
 	}
