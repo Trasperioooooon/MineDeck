@@ -229,6 +229,8 @@
   .wbtn { pointer-events: auto; height: 44px; padding: 0 18px; border-radius: var(--r-full); display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
           font: inherit; font-size: 13px; font-weight: 600; box-shadow: var(--elev-3); transition: transform .32s cubic-bezier(.4, 0, .2, 1), opacity .32s; }
   .wbtn .ico { width: 16px; height: 16px; }
+  .wbtn.next { justify-content: center; overflow: hidden; white-space: nowrap; }
+  .wbtn .lbl { display: inline-flex; align-items: center; gap: 6px; }
   .wbtn.back { padding-left: 14px; color: var(--text); border: 1px solid var(--border);
                background: color-mix(in srgb, var(--overlay) 86%, transparent); backdrop-filter: blur(16px) saturate(1.2); }
   .wbtn.back:hover { background: color-mix(in srgb, var(--overlay) 86%, var(--text) 6%); }
@@ -252,7 +254,7 @@
 <div class="wnav"><div class="in">
   <button class="wbtn back" id="back"><i data-ic="chevronRight"></i>上一步</button>
   <span class="sp"></span><span class="dots" id="dots"></span><span class="sp"></span>
-  <button class="wbtn next" id="next">下一步<i data-ic="chevronRight"></i></button>
+  <button class="wbtn next" id="next"></button>
 </div></div>
 <script>
 // 程序图标里还没有的三个（作者 11-26 照 Lucide 挑的 map、archive-restore、folder-input），照程序图标的画法重画：16 格、1.3 粗、直角折线
@@ -500,11 +502,29 @@ function regrid(dir = 0) {
 }
 // 右下角主按钮的字：最后一步「创建服务器」，其余都是「下一步」。挑插件 / 模组那一步清单空着时叫过「跳过此步」，作者 11-26 改回「下一步」，
 // 改成在问话下面加一行小字说可以不装
-function navLabel(force) {
+// 字换了时按钮宽度平滑变（作者 11-26：到最后一步「下一步」变「创建服务器」，按钮一下子宽了 26）：旧字 0.09 秒淡掉，
+// 按钮宽度从原来的按整像素走到新的（同小点的做法，收尾不抖），新字跟着淡进来；字在按钮里居中，变宽变窄时两边一起露出、收进
+let navTok = 0;
+function navLabel() {
   const names = STEPS(), b = document.getElementById("next");
   const want = step === names.length - 1 ? `<i data-ic="check"></i>创建服务器` : `下一步<i data-ic="chevronRight"></i>`;
-  if (!force && b.dataset.label === want) return;
-  b.dataset.label = want; b.innerHTML = want; KIT.hydrate(b);
+  if (b.dataset.label === want) return;
+  const first = !b.dataset.label, tok = ++navTok;
+  b.dataset.label = want;
+  const swap = () => {
+    if (tok !== navTok) return;
+    const w0 = b.offsetWidth;
+    b.style.width = ""; b.innerHTML = `<span class="lbl">${want}</span>`; KIT.hydrate(b);
+    if (first) return;
+    const w1 = b.offsetWidth;
+    b.querySelector(".lbl").animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, delay: 60, easing: "cubic-bezier(.2, .7, .2, 1)", fill: "backwards" });
+    if (w0 === w1) return;
+    b.style.width = w0 + "px";
+    tweenPx("nextw", 320, EASE_SLIDE, e => { b.style.width = Math.round(w0 + (w1 - w0) * e) + "px"; }, () => { if (tok === navTok) b.style.width = ""; });
+  };
+  const old = b.querySelector(".lbl");
+  if (first || !old) return swap();
+  old.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 90, easing: "cubic-bezier(.4, 0, 1, 1)", fill: "forwards" }).onfinish = swap;
 }
 // 分类的选中框挪到选中的那个上：animate 为 false 时直接放过去（刚画出来的时候）
 function placeChipHL(animate) {
