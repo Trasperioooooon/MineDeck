@@ -22,11 +22,14 @@
   .q { margin: 44px 0 28px; font-size: 30px; line-height: 38px; font-weight: 600; letter-spacing: -.01em; text-align: center; }
 
   /* 玩法：四张大卡，照首页大卡的做法（外圆角 26、内边距 8，核心色封面圆角 18 带方格暗纹，同心），图标 48 放在封面正中 */
-  .plays { width: 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
-  .play { --R: 26px; --p: 8px; border-radius: var(--R); padding: var(--p); background: var(--surface); box-shadow: var(--elev-1); cursor: pointer;
-          outline: 2px solid transparent; outline-offset: -2px; transition: outline-color .15s, transform .15s; }
+  .plays { width: 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; position: relative; }
+  .play { --R: 26px; --p: 8px; border-radius: var(--R); padding: var(--p); background: var(--surface); box-shadow: var(--elev-1); cursor: pointer; transition: transform .15s; }
   .play:hover { transform: translateY(-2px); }
-  .play.on { outline-color: var(--accent); }
+  /* 选中的玩法：强调色的框是单独的一块，换玩法时和核心、版本的高亮框一样平滑滑过去（作者 11-26）；
+     选中的那张卡悬停上浮时框跟着浮 */
+  .pframe { position: absolute; left: 0; top: 0; border-radius: 26px; box-shadow: inset 0 0 0 2px var(--accent); pointer-events: none; z-index: 2;
+            transition: transform .32s cubic-bezier(.3, .7, .2, 1), translate .15s; }
+  .plays:has(.play.on:hover) .pframe { translate: 0 -2px; }
   .cover { height: 80px; border-radius: 18px; display: grid; place-items: center; position: relative; overflow: hidden;
            background: color-mix(in srgb, var(--c) 30%, var(--surface)); }
   .cover::after { content: ""; position: absolute; inset: 0; opacity: .16; pointer-events: none;
@@ -39,9 +42,19 @@
   /* 选好玩法以后，下面一块三列（作者 11-26 的主意，先做出来看效果）：一列介绍、一列选核心、一列选游戏版本。
      外面一块同首页大卡（外 26、内边距 8），三列是里面三块圆角 18 的面板，同心 */
   .pick { margin-top: 20px; width: 100%; --R: 26px; --p: 8px; border-radius: var(--R); padding: var(--p); background: var(--surface); box-shadow: var(--elev-1);
-          display: grid; grid-template-columns: 1.25fr 1fr 1fr; gap: 8px; height: 296px; box-sizing: border-box; }
-  /* 原版只有一个核心（作者 11-26）：两列，介绍宽一些、版本在右 */
-  .pick.two { grid-template-columns: 3fr 2fr; }
+          display: flex; height: 296px; box-sizing: border-box; }
+  /* 三列按 1.25 : 1 : 1 分，中间隔 8。用 flex 而不用 grid，是为了换玩法时两列、三列之间能平滑变过去 */
+  .pick > .col { flex: 1 1 0; min-width: 0; margin-left: 8px;
+                 transition: flex-grow .32s cubic-bezier(.3, .7, .2, 1), margin-left .32s cubic-bezier(.3, .7, .2, 1), padding .32s cubic-bezier(.3, .7, .2, 1); }
+  .pick > .intro { flex-grow: 1.25; margin-left: 0; }
+  /* 原版只有一个核心（作者 11-26）：两列，介绍宽一些、版本在右（3 : 2）。核心那列不拿掉，收成零宽、里面的东西淡掉；
+     换回别的玩法时它再展开、东西淡回来 */
+  .pick.two > .intro { flex-grow: 3; }
+  .pick.two > #vercol { flex-grow: 2; }
+  #corecol { overflow: hidden; }
+  #corecol > * { min-width: 170px; transition: opacity .2s .12s; }
+  .pick.two > #corecol { flex-grow: 0; margin-left: 0; padding-left: 0; padding-right: 0; }
+  .pick.two > #corecol > * { opacity: 0; transition: opacity .1s; }
   .col { border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); padding: 14px; display: flex; flex-direction: column; min-height: 0; }
   .col h3 { margin: 0 0 10px; font-size: 12px; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 8px; }
   .col h3 .sp { flex: 1; }
@@ -169,8 +182,8 @@ const DEF = { vanilla: "26.2", paper: "26.2", purpur: "26.2", leaves: "26.1", fo
 let step = 0, play = 1, core = "paper", ver = DEF.paper;
 const STEPS = () => play === 0 ? ["选择核心以进行下一步", "最后设置一下", "让朋友连进来"] : ["选择核心以进行下一步", play === 2 ? "装点模组？" : "装点插件？", "最后设置一下", "让朋友连进来"];
 const cover = (k, size) => `<div class="cover" style="--c:${MDPixel16.CORE_COLORS[k] || "#7a8aa0"}">${MDPixel16.svg(k, size)}</div>`;
-function introInner(k = core) {
-  const p = PLAYS[play], c = CORE[k];
+function introInner(k = core, pl = play) {
+  const p = PLAYS[pl], c = CORE[k];
   return `<div class="body"><div class="head">${cover(k, 32)}<div><div class="nm">${c[0]}${k === p.rec && p.cores.length > 1 ? `<span class="rec">推荐</span>` : ""}</div><div class="sub">${c[1]}</div></div></div>
     <p>${c[2]}</p><dl><dt>适用场景</dt><dd>${c[3]}</dd><dt>支持扩展</dt><dd>${c[4]}</dd><dt>联机要求</dt><dd>${c[5]}</dd></dl></div>`;
 }
@@ -184,15 +197,18 @@ function versionsInner() {
   return `<h3><span class="vt">${verTitle(core)}</span><span class="sp"></span><span class="find"><i data-ic="search"></i>搜索</span></h3>
     <div class="lwrap"><div class="list"><i class="hl"></i>${verRows(core, ver)}</div><i class="thumb"></i></div>`;
 }
+// 核心那列的行：推荐的排第一、带「推荐」；原版只有一个核心，这列是空的（收成零宽）
+const hasCores = pl => PLAYS[pl].cores.length > 1;
+const coreRows = pl => { const p = PLAYS[pl]; if (!hasCores(pl)) return "";
+  return [p.rec, ...p.cores.filter(k => k !== p.rec)].filter(Boolean).map(k =>
+    `<div class="row${k === core ? " on" : ""}" data-core="${k}">${MDPixel16.svg(k, 32)}${CORE[k][0]}<span class="sp"></span>${k === p.rec ? `<span class="tag">推荐</span>` : ""}</div>`).join(""); };
 function step1() {
-  const p = PLAYS[play];
-  const plays = `<div class="plays">${PLAYS.map((x, i) => `<div class="play${i === play ? " on" : ""}" data-play="${i}" style="--c:${MDPixel16.CORE_COLORS[x.ico]}">${cover(x.ico, 48)}<div class="t">${x.t}</div><div class="s">${x.s}</div></div>`).join("")}</div>`;
+  const plays = `<div class="plays">${PLAYS.map((x, i) => `<div class="play${i === play ? " on" : ""}" data-play="${i}" style="--c:${MDPixel16.CORE_COLORS[x.ico]}">${cover(x.ico, 48)}<div class="t">${x.t}</div><div class="s">${x.s}</div></div>`).join("")}<i class="pframe"></i></div>`;
   const intro = `<div class="col intro" id="intro">${introInner()}</div>`;
-  const ordered = [p.rec, ...p.cores.filter(k => k !== p.rec)].filter(Boolean);
-  const cores = p.cores.length < 2 ? "" : `<div class="col" id="corecol"><h3>核心</h3><div class="lwrap"><div class="list"><i class="hl"></i>${ordered.map(k => `<div class="row${k === core ? " on" : ""}" data-core="${k}">${MDPixel16.svg(k, 32)}${CORE[k][0]}<span class="sp"></span>${k === p.rec && p.cores.length > 1 ? `<span class="tag">推荐</span>` : ""}</div>`).join("")}</div><i class="thumb"></i></div></div>`;
+  const cores = `<div class="col" id="corecol"><h3>核心</h3><div class="lwrap"><div class="list"><i class="hl"></i>${coreRows(play)}</div><i class="thumb"></i></div></div>`;
   const versions = `<div class="col" id="vercol">${versionsInner()}</div>`;
   const alt = `<div class="alt">手上有现成的？` + [["package", "导入整合包"], ["globe", "用已有地图"], ["share", "导入交接包"], ["folder", "接管已有服务器"]].map(([i, t]) => `<span class="b"><i data-ic="${i}"></i>${t}</span>`).join("") + `</div>`;
-  return plays + `<div class="pick${cores ? "" : " two"}">${intro}${cores}${versions}</div>` + alt;
+  return plays + `<div class="pick${hasCores(play) ? "" : " two"}">${intro}${cores}${versions}</div>` + alt;
 }
 function render() {
   const names = STEPS();
@@ -203,6 +219,72 @@ function render() {
   settleVersions();
   document.querySelectorAll("#corecol .list").forEach(l => placeHL(l, false));
   const cl = document.querySelector("#corecol .lwrap"); if (cl) scrollbar(cl);
+  placeFrame(false);
+}
+// 玩法的选中框挪到选中的那张卡上
+function placeFrame(animate) {
+  const f = document.querySelector(".pframe"), on = document.querySelector(".play.on");
+  if (!f || !on) return;
+  if (!animate) f.style.transition = "none";
+  f.style.width = on.offsetWidth + "px"; f.style.height = on.offsetHeight + "px";
+  f.style.transform = `translateX(${on.offsetLeft}px)`;
+  if (!animate) { void f.offsetWidth; f.style.transition = ""; }
+}
+addEventListener("resize", () => placeFrame(false));
+// 换玩法（作者 11-26：四类切换时中间那块整块重画，太生硬）：不再整页重画，和换核心是同一套动作——
+// 玩法的选中框滑到新卡上；介绍逐项换；核心那列的行逐项换、高亮框滑到新玩法推荐的那个核心；
+// 版本那列照换核心的办法（同一串版本只挪高亮框，比如插件换模组都是 26.x 那一串）；
+// 原版和别的之间，两列、三列平滑变过去（核心那列收起或展开）。左右换玩法，所以逐项换的那几样是横着挪的
+function selectPlay(i) {
+  if (i === play) return;
+  const fromPlay = play, from = core, fromVer = ver, dir = i > play ? 1 : -1;
+  play = i; core = PLAYS[i].rec || PLAYS[i].cores[0]; ver = DEF[core];
+  document.querySelectorAll(".play").forEach((c, j) => c.classList.toggle("on", j === i));
+  placeFrame(true);
+  swapIntro(from, dir, "X", fromPlay);
+  swapCores(fromPlay, dir);
+  swapVersions(from, fromVer, dir, "X");
+  updateDots();
+}
+let coreSwapUntil = 0;
+function swapCores(fromPlay, dir) {
+  const col = document.getElementById("corecol"), l = col.querySelector(".list"), w = l.closest(".lwrap"), hl = l.querySelector(".hl");
+  const easeIn = "cubic-bezier(.4, 0, 1, 1)", easeOut = "cubic-bezier(.2, .7, .2, 1)", now = performance.now();
+  col.getAnimations({ subtree: true }).filter(a => !(a instanceof CSSTransition)).forEach(a => a.cancel());
+  const put = () => { l.querySelectorAll(".row").forEach(r => r.remove()); l.insertAdjacentHTML("beforeend", coreRows(play)); };
+  if (now < coreSwapUntil) { l.querySelectorAll(".row").forEach(r => r.remove()); l.insertAdjacentHTML("beforeend", coreRows(fromPlay)); }
+  document.querySelector(".pick").classList.toggle("two", !hasCores(play));
+  // 收起（换到原版）：里面的东西随这列一起淡掉，收完了再把行清掉
+  if (!hasCores(play)) { coreSwapUntil = 0; const pl = play;
+    setTimeout(() => { if (play === pl) { l.querySelectorAll(".row").forEach(r => r.remove()); placeHL(l, false); } }, 360); return; }
+  // 展开（从原版换过来）：这列本来是空的、看不见，直接放好行和高亮框，随这列展开淡出来
+  if (!hasCores(fromPlay)) { put(); placeHL(l, false); w._paint && w._paint(); coreSwapUntil = 0; return; }
+  // 都有核心：旧的行一起淡出，新的行一行一行淡进来；高亮框滑到新的那一行（推荐的排第一，一般是第一行）
+  const olds = [...l.querySelectorAll(".row")], top0 = olds[0].offsetTop, rowH = olds[0].offsetHeight, step = olds[1].offsetTop - top0;
+  const dx = 5 * dir, gap = 22, n = PLAYS[play].cores.length;
+  hl.style.opacity = 1; hl.style.height = rowH + "px"; hl.style.transform = `translateY(${top0}px)`;
+  coreSwapUntil = now + 90 + n * gap + 220;
+  olds.forEach((r, i) => { const a = r.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: `translateX(${-dx}px)` }], { duration: 90, easing: easeIn, fill: "forwards" });
+    if (i > 0) return;
+    a.onfinish = () => {
+      put();
+      const rows = [...l.querySelectorAll(".row")];
+      rows.forEach((x, j) => x.animate([{ opacity: 0, transform: `translateX(${dx}px)` }, { opacity: 1, transform: "none" }],
+        { duration: 220, delay: j * gap, easing: easeOut, fill: "backwards" }));
+      placeHL(l, true); w._paint && w._paint();
+    };
+  });
+}
+// 底下的小点：原版三步、别的四步，多出来的那个点从零宽长出来，少掉的缩回去
+function updateDots() {
+  const d = document.getElementById("dots"), want = STEPS().length;
+  const easeIn = "cubic-bezier(.4, 0, 1, 1)", easeOut = "cubic-bezier(.2, .7, .2, 1)";
+  const grow = [{ width: "0px", marginLeft: "-8px", opacity: 0 }, { width: "8px", marginLeft: "0px", opacity: 1 }];
+  [...d.querySelectorAll("i.out")].forEach(x => { x.getAnimations().forEach(a => a.cancel()); x.classList.remove("out"); });
+  let live = [...d.querySelectorAll("i")];
+  for (let i = live.length; i < want; i++) { d.insertAdjacentHTML("beforeend", "<i></i>"); d.lastElementChild.animate(grow, { duration: 220, easing: easeOut }); }
+  for (let i = live.length - 1; i >= want; i--) { const x = live[i]; x.classList.add("out");
+    x.animate([...grow].reverse(), { duration: 160, easing: easeIn, fill: "forwards" }).onfinish = () => x.remove(); }
 }
 // 高亮框挪到选中的那一行：animate 为 false 时直接放过去（刚画出来、换了一整列的时候）
 function placeHL(list, animate) {
@@ -240,7 +322,7 @@ function selectCore(k) {
 // 列表不一样（比如 NeoForge 换 Forge）就像介绍那样逐项换：旧的行一起淡出，新的行顺着方向一行一行淡进来，
 // 高亮框照样从原来的位置滑过去。选中的那一行不在眼前时，列表顺滑地滚过去，不跳
 let verSwapUntil = 0;
-function swapVersions(from, fromVer, dir) {
+function swapVersions(from, fromVer, dir, axis = "Y") {
   const vc = document.getElementById("vercol"), l = vc.querySelector(".list"), w = l.closest(".lwrap"), hl = l.querySelector(".hl"), vt = vc.querySelector(".vt");
   const easeIn = "cubic-bezier(.4, 0, 1, 1)", easeOut = "cubic-bezier(.2, .7, .2, 1)", now = performance.now();
   vc.getAnimations({ subtree: true }).filter(a => !(a instanceof CSSTransition)).forEach(a => a.cancel());
@@ -272,15 +354,15 @@ function swapVersions(from, fromVer, dir) {
   }
   const shown = Math.ceil(ch / step) + 1, gap = 22, dy = 5 * dir;
   verSwapUntil = now + 90 + shown * gap + 220;
-  olds.forEach((r, i) => { const a = r.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: `translateY(${-dy}px)` }], { duration: 90, easing: easeIn, fill: "forwards" });
+  olds.forEach((r, i) => { const a = r.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: `translate${axis}(${-dy}px)` }], { duration: 90, easing: easeIn, fill: "forwards" });
     if (i > 0) return;
     a.onfinish = () => {
       olds.forEach(o => o.remove());
       l.insertAdjacentHTML("beforeend", verRows(core, ver));
       const rows = [...l.querySelectorAll(".vrow")];
       const vis = rows.filter(x => x.offsetTop + x.offsetHeight > goal && x.offsetTop < goal + ch);
-      vis.forEach((x, j) => x.animate([{ opacity: 0, transform: `translateY(${dy}px)` }, { opacity: 1, transform: "none" }],
-        { duration: 220, delay: (dir > 0 ? j : vis.length - 1 - j) * gap, easing: easeOut, fill: "backwards" }));
+      vis.forEach((x, j) => x.animate([{ opacity: 0, transform: `translate${axis}(${dy}px)` }, { opacity: 1, transform: "none" }],
+        { duration: 220, delay: (axis === "X" || dir > 0 ? j : vis.length - 1 - j) * gap, easing: easeOut, fill: "backwards" }));
       w._paint && w._paint();
     };
   });
@@ -290,21 +372,22 @@ function swapVersions(from, fromVer, dir) {
 // 所以框架不动，只把变了的七样（图标、名字、副标题、正文、三行内容）一样一样换：每样先淡出（0.09 秒）再淡入（0.22 秒），
 // 挪 5 像素，顺着高亮框走的方向错开 22 毫秒（dir：往下点 1，从上往下换；往上点 -1，从下往上换），整套 0.42 秒左右
 let swapUntil = 0;
-function swapIntro(from, dir) {
+// axis：换核心时竖着挪（"Y"），换玩法时横着挪（"X"）；fromPlay：换玩法时旧的那个玩法
+function swapIntro(from, dir, axis = "Y", fromPlay = play) {
   const intro = document.getElementById("intro");
   const easeIn = "cubic-bezier(.4, 0, 1, 1)", easeOut = "cubic-bezier(.2, .7, .2, 1)";
   intro.getAnimations({ subtree: true }).forEach(a => a.cancel());
   // 上一次还没换完又点了别的：先把上一次的结果摆好，再从它往新的换
-  if (performance.now() < swapUntil) intro.innerHTML = introInner(from);
+  if (performance.now() < swapUntil) intro.innerHTML = introInner(from, fromPlay);
   const next = document.createElement("div"); next.innerHTML = introInner();
   const parts = root => [root.querySelector(".cover"), root.querySelector(".nm"), root.querySelector(".sub"), root.querySelector("p"), ...root.querySelectorAll("dd")];
   const olds = parts(intro), news = parts(next), n = olds.length, dy = 5 * dir, gap = 22;
   swapUntil = performance.now() + (n - 1) * gap + 90 + 220;
   olds.forEach((o, i) => {
-    o.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: `translateY(${-dy}px)` }],
-      { duration: 90, delay: (dir > 0 ? i : n - 1 - i) * gap, easing: easeIn, fill: "forwards" }).onfinish = () => {
+    o.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: `translate${axis}(${-dy}px)` }],
+      { duration: 90, delay: (axis === "X" || dir > 0 ? i : n - 1 - i) * gap, easing: easeIn, fill: "forwards" }).onfinish = () => {
       o.replaceWith(news[i]);
-      news[i].animate([{ opacity: 0, transform: `translateY(${dy}px)` }, { opacity: 1, transform: "none" }], { duration: 220, easing: easeOut });
+      news[i].animate([{ opacity: 0, transform: `translate${axis}(${dy}px)` }, { opacity: 1, transform: "none" }], { duration: 220, easing: easeOut });
     };
   });
 }
@@ -343,7 +426,7 @@ function scrollbar(w) {
 }
 document.getElementById("page").addEventListener("click", e => {
   const pl = e.target.closest("[data-play]"), co = e.target.closest("[data-core]"), ve = e.target.closest("[data-ver]");
-  if (pl) { play = +pl.dataset.play; core = PLAYS[play].rec || PLAYS[play].cores[0]; ver = DEF[core]; render(); }
+  if (pl) selectPlay(+pl.dataset.play);
   else if (co) selectCore(co.dataset.core);
   else if (ve) selectVer(ve.dataset.ver);
 });
