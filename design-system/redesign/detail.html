@@ -469,7 +469,7 @@ function skBar() {
   $("#sk").innerHTML = `<b>草图</b><b>核心</b>${link("kind", null, "Paper", kind === "paper")}${link("kind", "forge", "Forge", kind === "forge")}${link("kind", "vanilla", "原版", kind === "vanilla")}${link("kind", "proxy", "代理端", kind === "proxy")}<i></i>`
     + `<b>状态</b>${link("st", null, "运行中", st === "running" && !nNotice)}${link("st", "starting", "启动中", st === "starting")}${link("st", "stopped", "已停止", st === "stopped" && !nNotice)}<i></i>`
     + `<b>常驻提示</b>${link("notice", null, "无", !nNotice)}${link("notice", "1", "一条", nNotice === 1)}${link("notice", "2", "两条", nNotice === 2)}${four}<i></i>`
-    + `<span title="控制台定了几处，玩家、联机是第一稿（各在 detail-players.*、detail-net.*）；别的标签里面是空的，后面一页一页画">控制台 · 玩家 · 联机</span>`;
+    + `<span title="控制台定了几处；别的标签 11-27 夜里都画了第一稿（各在 detail-<标签>.js / .css），要作者敲定的记在 docs/计划/2026-11-27-界面重构-待作者审.md">各标签第一稿</span>`;
   // 左下角：控制台报错横幅的几种（都切到 Forge；没开起来、崩了的几种是已停止）
   const dl = (v, label, title) => {
     const q = new URLSearchParams(location.search);
