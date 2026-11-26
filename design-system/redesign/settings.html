@@ -168,7 +168,7 @@ function skBar() {
   const th = document.documentElement.dataset.theme;
   $("#sk").innerHTML = `<b>草图</b><b>主题</b>${link("theme", null, "深", th === "dark")}${link("theme", "light", "浅", th === "light")}<i></i>`
     + `<b>更新</b>${link("update", null, "没有", !UPDATE)}${link("update", "1", "有新版本", UPDATE)}<i></i>`
-    + `<span title="设置页的外壳（分类在左边，同详情页）；各分类的内容各在 settings-<分类>.js / .css">设置 · 外壳</span>`;
+    + `<span title="分类在左边（同详情页）；十个分类 11-27 夜里都画了第一稿（各在 settings-<分类>.js / .css），要作者敲定的记在 docs/计划/2026-11-27-界面重构-待作者审.md">各分类第一稿</span>`;
 }
 
 // 各分类的内容在各自的文件里，登记在 window.SETTINGS_SECS[分类] = { html(ctx), mount(ctx) }。
