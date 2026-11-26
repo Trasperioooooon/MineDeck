@@ -174,11 +174,15 @@ function introInner(k = core) {
   return `<div class="body"><div class="head">${cover(k, 32)}<div><div class="nm">${c[0]}${k === p.rec && p.cores.length > 1 ? `<span class="rec">推荐</span>` : ""}</div><div class="sub">${c[1]}</div></div></div>
     <p>${c[2]}</p><dl><dt>适用场景</dt><dd>${c[3]}</dd><dt>支持扩展</dt><dd>${c[4]}</dd><dt>联机要求</dt><dd>${c[5]}</dd></dl></div>`;
 }
+// 版本列表：快照标「快照」，最新的正式版标「最新」，这个核心默认用的标「常用」
+const verTitle = k => k === "velocity" || k === "waterfall" ? "版本" : "游戏版本";
+const verTag = (v, vs, k) => v.includes("snapshot") ? `<span class="tag">快照</span>`
+  : v === vs.find(x => !x.includes("snapshot")) ? `<span class="tag">最新</span>` : v === DEF[k] ? `<span class="tag">常用</span>` : "";
+const verRows = (k, sel) => { const vs = versOf(k);
+  return vs.map(v => `<div class="row vrow${v === sel ? " on" : ""}${v.includes("snapshot") ? " snap" : ""}" data-ver="${v}">${v}<span class="sp"></span>${verTag(v, vs, k)}</div>`).join(""); };
 function versionsInner() {
-  const proxy = core === "velocity" || core === "waterfall", vs = versOf(core);
-  return `<h3>${proxy ? "版本" : "游戏版本"}<span class="sp"></span><span class="find"><i data-ic="search"></i>搜索</span></h3>
-    <div class="lwrap"><div class="list"><i class="hl"></i>${vs.map(v => { const snap = v.includes("snapshot"), latest = !snap && v === vs.find(x => !x.includes("snapshot"));
-      return `<div class="row vrow${v === ver ? " on" : ""}${snap ? " snap" : ""}" data-ver="${v}">${v}<span class="sp"></span>${snap ? `<span class="tag">快照</span>` : latest ? `<span class="tag">最新</span>` : v === DEF[core] ? `<span class="tag">常用</span>` : ""}</div>`; }).join("")}</div><i class="thumb"></i></div>`;
+  return `<h3><span class="vt">${verTitle(core)}</span><span class="sp"></span><span class="find"><i data-ic="search"></i>搜索</span></h3>
+    <div class="lwrap"><div class="list"><i class="hl"></i>${verRows(core, ver)}</div><i class="thumb"></i></div>`;
 }
 function step1() {
   const p = PLAYS[play];
@@ -221,15 +225,65 @@ function settleVersions() {
 }
 function selectCore(k) {
   if (k === core) return;
-  const from = core;
+  const from = core, fromVer = ver;
   core = k; ver = DEF[k];
   const list = document.querySelector("#corecol .list"), rows = [...list.querySelectorAll(".row")];
   const at = x => rows.findIndex(r => r.dataset.core === x), dir = at(k) > at(from) ? 1 : -1;
   rows.forEach(r => r.classList.toggle("on", r.dataset.core === k));
   placeHL(list, true);
   swapIntro(from, dir);
-  const vc = document.getElementById("vercol");
-  vc.innerHTML = versionsInner(); KIT.hydrate(vc); settleVersions();
+  swapVersions(from, fromVer, dir);
+}
+// 换核心时版本这一列不再整列重画（作者 11-26：从 Purpur 换到 Leaves，版本的高亮框从第一行跳到第二行，
+// 要和核心那列的高亮框联动着平移）。高亮框和核心那列同时起步、同一条曲线滑到新的默认版本上；
+// 列表一样（插件那几个都是同一串版本）就只挪高亮框、换掉变了的标签（「常用」挪到新的那一行），行不动；
+// 列表不一样（比如 NeoForge 换 Forge）就像介绍那样逐项换：旧的行一起淡出，新的行顺着方向一行一行淡进来，
+// 高亮框照样从原来的位置滑过去。选中的那一行不在眼前时，列表顺滑地滚过去，不跳
+let verSwapUntil = 0;
+function swapVersions(from, fromVer, dir) {
+  const vc = document.getElementById("vercol"), l = vc.querySelector(".list"), w = l.closest(".lwrap"), hl = l.querySelector(".hl"), vt = vc.querySelector(".vt");
+  const easeIn = "cubic-bezier(.4, 0, 1, 1)", easeOut = "cubic-bezier(.2, .7, .2, 1)", now = performance.now();
+  vc.getAnimations({ subtree: true }).filter(a => !(a instanceof CSSTransition)).forEach(a => a.cancel());
+  // 上一次还没换完又点了别的：先把上一次的结果摆好（高亮框不动，它自己接着滑）
+  if (now < verSwapUntil) { l.querySelectorAll(".vrow").forEach(r => r.remove()); l.insertAdjacentHTML("beforeend", verRows(from, fromVer)); vt.textContent = verTitle(from); }
+  const fade = (el, out, opts) => el.animate(out ? [{ opacity: 1 }, { opacity: 0 }] : [{ opacity: 0 }, { opacity: 1 }],
+    { duration: out ? 90 : 220, easing: out ? easeIn : easeOut, fill: out ? "forwards" : "backwards", ...opts });
+  if (vt.textContent !== verTitle(core)) { const a = fade(vt, true); a.onfinish = () => { a.cancel(); vt.textContent = verTitle(core); fade(vt, false); }; }
+  const olds = [...l.querySelectorAll(".vrow")], vs = versOf(core);
+  const top0 = olds[0].offsetTop, rowH = olds[0].offsetHeight, step = olds[1] ? olds[1].offsetTop - top0 : rowH + 4;
+  const y = top0 + vs.indexOf(ver) * step, ch = l.clientHeight;
+  // 高亮框：从现在的位置滑到新的那一行（行的高度、间距每个列表都一样，新行还没放进来也算得出位置）
+  hl.style.opacity = 1; hl.style.height = rowH + "px"; hl.style.transform = `translateY(${y}px)`;
+  // 选中的那一行不在眼前，或者新列表短了、现在滚的位置超出去了：顺滑地滚过去
+  const maxTop = Math.max(0, top0 + vs.length * step - (step - rowH) - ch);
+  const seen = y >= l.scrollTop && y + rowH <= l.scrollTop + ch;
+  const goal = Math.min(maxTop, Math.max(0, seen ? l.scrollTop : y - ch / 2 + rowH / 2));
+  if (Math.abs(goal - l.scrollTop) > 1) l.scrollTo({ top: goal, behavior: "smooth" });
+  if (versOf(from) === vs) {
+    verSwapUntil = now + 90 + 220;
+    olds.forEach(r => {
+      r.classList.toggle("on", r.dataset.ver === ver);
+      const cur = r.querySelector(".tag"), want = verTag(r.dataset.ver, vs, core);
+      if ((cur ? cur.outerHTML : "") === want) return;
+      const put = () => { if (cur) cur.remove(); if (want) { r.insertAdjacentHTML("beforeend", want); fade(r.lastElementChild, false); } };
+      if (cur) fade(cur, true).onfinish = put; else put();
+    });
+    return;
+  }
+  const shown = Math.ceil(ch / step) + 1, gap = 22, dy = 5 * dir;
+  verSwapUntil = now + 90 + shown * gap + 220;
+  olds.forEach((r, i) => { const a = r.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: `translateY(${-dy}px)` }], { duration: 90, easing: easeIn, fill: "forwards" });
+    if (i > 0) return;
+    a.onfinish = () => {
+      olds.forEach(o => o.remove());
+      l.insertAdjacentHTML("beforeend", verRows(core, ver));
+      const rows = [...l.querySelectorAll(".vrow")];
+      const vis = rows.filter(x => x.offsetTop + x.offsetHeight > goal && x.offsetTop < goal + ch);
+      vis.forEach((x, j) => x.animate([{ opacity: 0, transform: `translateY(${dy}px)` }, { opacity: 1, transform: "none" }],
+        { duration: 220, delay: (dir > 0 ? j : vis.length - 1 - j) * gap, easing: easeOut, fill: "backwards" }));
+      w._paint && w._paint();
+    };
+  });
 }
 // 介绍换内容的过渡「逐项换」（作者 11-26 从 淡出再淡入 / 顺着方向滑 / 逐项换 / 扫光 四种里挑的）：
 // 突兀的根子是旧字一帧就没了，而且三个小标题、各块的位置每个核心都一样，整块换等于把没变的也闪一遍。
@@ -273,6 +327,9 @@ function scrollbar(w) {
     t.style.height = h + "px";
     t.style.top = (sh > ch ? st / (sh - ch) * (ch - h) : 0) + "px";
   };
+  // 同一个列表只接一次；行换了以后调 w._paint() 重新算细条的长短
+  if (w._paint) { w._paint(); return; }
+  w._paint = paint;
   let idle = 0;
   l.addEventListener("scroll", () => { paint(); w.classList.add("scrolling"); clearTimeout(idle); idle = setTimeout(() => w.classList.remove("scrolling"), 700); }, { passive: true });
   t.addEventListener("pointerdown", e => {
