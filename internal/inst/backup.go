@@ -8,8 +8,10 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -108,9 +110,16 @@ func (i *Instance) worldDirs() []string {
 // worldDirsStrict 同 worldDirs，但读不了 server.properties、看不了某个世界目录在不在时返回错误，不当成「没有」。
 // 备份和还原用它：还原会按这份清单删旧世界再解压，清单错了删掉的就不是该删的，没删掉的又会和备份里的混在一起。
 func (i *Instance) worldDirsStrict() ([]string, error) {
+	_, out, err := i.levelAndWorldDirsStrict()
+	return out, err
+}
+
+// levelAndWorldDirsStrict 同 worldDirsStrict，另外返回世界名（level-name）：还原要照它把备份里的世界放回去，
+// 现在一个世界文件夹都还没有时也要知道放到哪。
+func (i *Instance) levelAndWorldDirsStrict() (string, []string, error) {
 	level, err := LevelNameStrict(i.Dir)
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	var out []string
 	for _, d := range []string{level, level + "_nether", level + "_the_end"} {
@@ -122,10 +131,10 @@ func (i *Instance) worldDirsStrict() ([]string, error) {
 			}
 		case errors.Is(err, fs.ErrNotExist):
 		default:
-			return nil, fmt.Errorf("看不了世界文件夹「%s」在不在：%w", d, err)
+			return "", nil, fmt.Errorf("看不了世界文件夹「%s」在不在：%w", d, err)
 		}
 	}
-	return out, nil
+	return level, out, nil
 }
 
 // ListBackups 列出实例在全部已知备份根下的备份（新在前）；同名文件只列一份（当前根优先）。
@@ -339,6 +348,11 @@ func (m *Manager) createBackupWith(i *Instance, label, spare string, lease *disk
 }
 
 // RestoreBackup 还原备份（仅停止状态；还原前自动再备份一次当前世界）。
+//
+// 只换世界：从备份里认出世界的那几个文件夹（见 planWorldRestore），放进现在的世界名下面；包里别的文件
+// （server.properties、ops.json、模组、配置……）一概不解。MineDeck 自己做的备份里本来只有世界，可备份列表
+// 认得任何放进备份文件夹的 zip（自己把整个服务器文件夹打的包、别的工具做的备份），以前这里把整个包解进服务器文件夹，
+// 这种包一还原，正版验证、视距这些设置就回到了打包那时候。2026-11-27 有用户反馈还原以后设置被重置，改成只解世界。
 func (m *Manager) RestoreBackup(name, file string) error {
 	i, err := m.Get(name)
 	if err != nil {
@@ -361,17 +375,13 @@ func (m *Manager) RestoreBackup(name, file string) error {
 		return err
 	}
 	src := copies[0]
-	// 先按「看不了就停下」的读法定下现在的世界目录：这份清单决定下面删哪些文件夹
-	worlds, err := i.worldDirsStrict()
+	// 先按「看不了就停下」的读法定下现在的世界名和世界目录：目录清单决定下面删哪些文件夹，世界名决定备份里的世界放到哪
+	level, worlds, err := i.levelAndWorldDirsStrict()
 	if err != nil {
 		return fmt.Errorf("没有还原，什么都没动：%w", err)
 	}
-	if len(worlds) > 0 {
-		if _, err := m.createBackup(name, "还原前自动", filepath.Base(src)); err != nil {
-			return fmt.Errorf("还原前自动备份失败，已中止: %w", err)
-		}
-	}
-	// 预检和空间租约都必须先于删旧世界，拒绝损坏或过大的包时旧世界仍在。
+	// 打开备份、认出里面的世界、查落点，都放在还原前自动备份之前：包坏了、认不出世界的，什么都不动就停下，
+	// 也不多做一份「还原前自动」（份数满了时多这一份会挤掉一份最旧的备份）。
 	zr, err := zipguard.Open(src, zipguard.Default)
 	if err != nil {
 		wrapErr := fmt.Errorf("备份打不开，没有还原：%w", err)
@@ -381,9 +391,20 @@ func (m *Manager) RestoreBackup(name, file string) error {
 		return wrapErr
 	}
 	defer zr.Close()
-	if err := checkBackupPaths(zr.File, i.Dir); err != nil {
+	plan, err := planWorldRestore(zr.File, level)
+	if err != nil {
 		return err
 	}
+	if err := checkEntryPaths(plan.entries, i.Dir); err != nil {
+		return err
+	}
+	if len(worlds) > 0 {
+		if _, err := m.createBackup(name, "还原前自动", filepath.Base(src)); err != nil {
+			return fmt.Errorf("还原前自动备份失败，已中止: %w", err)
+		}
+	}
+	// 空间租约必须先于删旧世界，拒绝过大的包时旧世界仍在；要排在还原前自动备份后面：两边多半在同一个盘上，
+	// 先拿着这一份再去做备份，备份就排在自己后面等不到名额了。
 	lease, err := diskguard.Acquire(context.Background(), i.Dir, diskguard.Options{AllowUnknown: true})
 	if err != nil {
 		return err
@@ -394,7 +415,7 @@ func (m *Manager) RestoreBackup(name, file string) error {
 			return fmt.Errorf("清理旧世界失败: %w", err)
 		}
 	}
-	if err := unzipReaderTo(zr.Reader, i.Dir, lease); err != nil {
+	if err := unzipEntriesTo(plan.entries, i.Dir, lease); err != nil {
 		wrapErr := fmt.Errorf("解压备份失败: %w", err)
 		if errors.Is(err, zip.ErrFormat) || errors.Is(err, zip.ErrChecksum) || errors.Is(err, zip.ErrAlgorithm) || errors.Is(err, io.ErrUnexpectedEOF) {
 			return errhint.Wrap(wrapErr, "这份备份可能损坏或没写完整，请检查备份文件")
@@ -402,6 +423,12 @@ func (m *Manager) RestoreBackup(name, file string) error {
 		return wrapErr
 	}
 	i.Console.Append("[MineDeck] 世界已还原至备份 " + filepath.Base(file))
+	if plan.from != level {
+		i.Console.Append(fmt.Sprintf("[MineDeck] 备份里的世界叫「%s」，照现在的世界名放进了「%s」（server.properties 没改）", plan.from, level))
+	}
+	if len(plan.skipped) > 0 {
+		i.Console.Append(fmt.Sprintf("[MineDeck] 备份里另有 %d 个不是世界的文件（%s），没有还原，服务器设置保持原样", len(plan.skipped), skippedSample(plan.skipped)))
+	}
 	// 记下现在的世界是从哪份备份来的（R11）：详情页「世界与备份」页顶照着写，重开程序后仍在
 	wf := &WorldFrom{Backup: filepath.Base(src), At: time.Now().Format("2006-01-02 15:04:05")}
 	if t, label, ok := parseBackupName(wf.Backup); ok {
@@ -620,29 +647,223 @@ func unzipTo(src, destDir string) error {
 	return unzipReaderTo(zr.Reader, destDir, lease)
 }
 
+// restoreEntry 备份里要解出来的一项，以及它落到服务器文件夹里的哪儿（相对路径，斜杠分隔）。
+// 整包解压时 name 就是条目自己的名字；还原备份时是换成现在的世界名以后的路径，见 planWorldRestore。
+type restoreEntry struct {
+	f    *zip.File
+	name string
+}
+
+func allEntries(files []*zip.File) []restoreEntry {
+	out := make([]restoreEntry, len(files))
+	for k, f := range files {
+		out[k] = restoreEntry{f: f, name: f.Name}
+	}
+	return out
+}
+
+// worldRestorePlan 还原备份时从包里解哪些、放到哪：from 是备份里世界的名字（打包那时候的 level-name），
+// entries 是这个世界的三个文件夹（from、from_nether、from_the_end）里的文件，已经换成现在的世界名下面的路径；
+// skipped 是包里不是世界、不还原的文件（只用来在控制台说一声）。
+type worldRestorePlan struct {
+	from    string
+	entries []restoreEntry
+	skipped []string
+}
+
+// worldSuffixes 一个世界的三个文件夹：Paper、Spigot 把下界和末地放在世界名后面加这两个后缀的文件夹里，原版放在世界里面。
+var worldSuffixes = []string{"", "_nether", "_the_end"}
+
+// planWorldRestore 从备份里认出世界、算出放到哪（level 是现在的世界名）。只读不写，认不出就报错，调用方这时还什么都没动。
+//
+// 世界在包里叫什么，依次看：
+//  1. 包里有现在这个世界名、带着 level.dat 的：备份时和现在世界名一样，最常见；
+//  2. 包里根上带着 server.properties 的（自己打的整包、别的工具做的备份）：只读出它的 level-name（读法同 LevelNameStrict），
+//     那个世界在包里就用它——不写回去，现在的设置不动；
+//  3. 都不是：按带 level.dat 的文件夹认（Paper 的 world_nether、world_the_end 里也有 level.dat，算 world 的一部分；
+//     世界里面再套着的 level.dat 不算另一个世界），正好认出一个才用，没有或者不止一个就不还原；
+//  4. 包里一个 level.dat 都没有（世界从没存过盘）、但有现在这个世界名的文件夹：照现在的世界名还原。
+//
+// 世界名不一样时（备份以后改过 level-name），备份里的世界放进现在的世界名下面：server.properties 不改，
+// 开服读的就是还原出来的这一份。原来照包里的名字解，现在的世界删了、备份里的那个服务器又不读，开服就生成一张新地图。
+func planWorldRestore(files []*zip.File, level string) (*worldRestorePlan, error) {
+	names := make([]string, len(files)) // 条目统一成斜杠分隔、去掉 ./ 和 ..（world/../server.properties 就是 server.properties）
+	has := map[string]bool{}            // 包里出现过的文件夹（每一级都记）
+	levelDirs := map[string]bool{}      // 直接装着 level.dat 的文件夹
+	var props *zip.File
+	for k, f := range files {
+		n := path.Clean(strings.ReplaceAll(f.Name, "\\", "/"))
+		names[k] = n
+		if f.FileInfo().IsDir() || !fs.ValidPath(n) || n == "." {
+			continue
+		}
+		for d := path.Dir(n); d != "."; d = path.Dir(d) {
+			has[d] = true
+		}
+		switch {
+		case path.Base(n) == "level.dat" && path.Dir(n) != ".":
+			levelDirs[path.Dir(n)] = true
+		case strings.EqualFold(n, "server.properties"):
+			props = f
+		}
+	}
+	packed := "" // 包里 server.properties 写的世界名；没带这个文件、读不出来时为空
+	if props != nil {
+		packed = propsLevelName(props)
+	}
+	from := ""
+	switch {
+	case levelDirs[level]:
+		from = level
+	case packed != "" && levelDirs[packed]:
+		from = packed
+	default:
+		cands := worldCandidates(levelDirs, has)
+		switch {
+		case len(cands) == 1:
+			from = cands[0]
+		case len(cands) > 1:
+			if len(cands) > 5 {
+				cands = append(cands[:5], "……")
+			}
+			return nil, fmt.Errorf("这份备份里有好几个世界（%s），认不出该还原哪一个，没有还原，什么都没动", strings.Join(cands, "、"))
+		case has[level] || has[level+"_nether"] || has[level+"_the_end"]:
+			from = level
+		default:
+			return nil, fmt.Errorf("这份备份里没找到世界（没有装着 level.dat 的文件夹），没有还原，什么都没动")
+		}
+	}
+	// 从包里认出来的名字也要过一遍：指到外面、指回服务器文件夹自己、落进 .minedeck 的都不要
+	if !SafeLevelName(from) {
+		return nil, fmt.Errorf("这份备份里的世界文件夹「%s」不能用，没有还原，什么都没动", from)
+	}
+	plan := &worldRestorePlan{from: from}
+	for k, f := range files {
+		n := names[k]
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		target, ok := "", false
+		for _, s := range worldSuffixes {
+			if rest, cut := strings.CutPrefix(n, from+s+"/"); cut && rest != "" {
+				target, ok = level+s+"/"+rest, true
+				break
+			}
+		}
+		if ok {
+			plan.entries = append(plan.entries, restoreEntry{f: f, name: target})
+		} else {
+			plan.skipped = append(plan.skipped, f.Name)
+		}
+	}
+	if len(plan.entries) == 0 {
+		return nil, fmt.Errorf("这份备份里的世界「%s」是空的，没有还原，什么都没动", from)
+	}
+	return plan, nil
+}
+
+// propsLevelName 包里那份 server.properties 写的世界名（读法同 LevelNameStrict：没写、不能用的按 world 算）。只读不写；
+// 读不出来返回空串，调用方当它没有。太大的不读：正常的 server.properties 只有几 KB。
+func propsLevelName(f *zip.File) string {
+	if f.UncompressedSize64 > 1<<20 {
+		return ""
+	}
+	rc, err := f.Open()
+	if err != nil {
+		return ""
+	}
+	defer rc.Close()
+	b, err := io.ReadAll(io.LimitReader(rc, 1<<20))
+	if err != nil {
+		return ""
+	}
+	if v, ok := JavaProps(b)["level-name"]; ok && SafeLevelName(v) {
+		return filepath.ToSlash(filepath.Clean(filepath.FromSlash(strings.TrimSpace(v))))
+	}
+	return "world"
+}
+
+// worldCandidates 按带 level.dat 的文件夹认出包里的世界（排好序）。X_nether、X_the_end 在 X 也在包里时算 X 的一部分；
+// 套在另一个世界里面的（模组在世界里放的副本这类）不算另一个世界。
+func worldCandidates(levelDirs, has map[string]bool) []string {
+	set := map[string]bool{}
+	for d := range levelDirs {
+		for _, s := range worldSuffixes[1:] {
+			if base, ok := strings.CutSuffix(d, s); ok && base != "" && (levelDirs[base] || has[base]) {
+				d = base
+				break
+			}
+		}
+		set[d] = true
+	}
+	var out []string
+	for d := range set {
+		nested := false
+		for e := range set {
+			if e != d && strings.HasPrefix(d, e+"/") {
+				nested = true
+				break
+			}
+		}
+		if !nested {
+			out = append(out, d)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// skippedSample 控制台里举几个没还原的文件当例子：server.properties 在的话排第一个，用户关心的就是它。
+func skippedSample(skipped []string) string {
+	var out []string
+	for _, s := range skipped {
+		if strings.EqualFold(path.Clean(strings.ReplaceAll(s, "\\", "/")), "server.properties") {
+			out = append(out, s)
+			break
+		}
+	}
+	for _, s := range skipped {
+		if len(out) >= 3 {
+			break
+		}
+		if !slices.Contains(out, s) {
+			out = append(out, s)
+		}
+	}
+	if len(skipped) > len(out) {
+		return strings.Join(out, "、") + " 等"
+	}
+	return strings.Join(out, "、")
+}
+
 func checkBackupPaths(files []*zip.File, destDir string) error {
+	return checkEntryPaths(allEntries(files), destDir)
+}
+
+// checkEntryPaths 同 checkBackupPaths，按每一项要落到的路径查（还原备份时是换成现在的世界名以后的路径）。
+func checkEntryPaths(ents []restoreEntry, destDir string) error {
 	cleanDest := filepath.Clean(destDir)
 	realDest, err := RealPathStrict(cleanDest)
 	if err != nil {
 		return fmt.Errorf("备份还原目标文件夹不可用: %w", err)
 	}
-	for _, f := range files {
-		if _, err := checkBackupTargetPath(cleanDest, realDest, f); err != nil {
+	for _, e := range ents {
+		if _, err := checkBackupTargetPath(cleanDest, realDest, e); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// checkBackupTargetPath 校验备份条目不会借由 ..、符号链接或目录联接落到 destDir 之外（A12）。
-func checkBackupTargetPath(cleanDest, realDest string, f *zip.File) (string, error) {
-	if f.Mode()&fs.ModeSymlink != 0 {
-		return "", fmt.Errorf("备份内含符号链接: %s", f.Name)
+// checkBackupTargetPath 校验备份条目不会借由 ..、符号链接或目录联接落到 destDir 之外（A12）。落点按 e.name 算。
+func checkBackupTargetPath(cleanDest, realDest string, e restoreEntry) (string, error) {
+	if e.f.Mode()&fs.ModeSymlink != 0 {
+		return "", fmt.Errorf("备份内含符号链接: %s", e.f.Name)
 	}
-	rel := filepath.FromSlash(strings.ReplaceAll(f.Name, "\\", "/"))
+	rel := filepath.FromSlash(strings.ReplaceAll(e.name, "\\", "/"))
 	target := filepath.Join(cleanDest, rel)
 	if target == cleanDest || !strings.HasPrefix(target, cleanDest+string(os.PathSeparator)) {
-		return "", fmt.Errorf("备份内含非法路径: %s", f.Name)
+		return "", fmt.Errorf("备份内含非法路径: %s", e.f.Name)
 	}
 	// 从上一级文件夹查起，逐级看已存在的部分是不是符号链接、目录联接。不查目标本身：OneDrive 这类云同步的文件
 	// 在 Go 里可能也只报 ModeIrregular，和联接分不开，查它会让现有的世界文件挡住整次还原；目标本身指到外面的，
@@ -654,7 +875,7 @@ func checkBackupTargetPath(cleanDest, realDest string, f *zip.File) (string, err
 				return "", fmt.Errorf("服务器文件夹里的「%s」是指向别处的链接，没有还原", filepath.ToSlash(rel))
 			}
 		} else if !errors.Is(err, fs.ErrNotExist) {
-			return "", fmt.Errorf("检查备份落点失败: %s（%w）", f.Name, err)
+			return "", fmt.Errorf("检查备份落点失败: %s（%w）", e.f.Name, err)
 		}
 		parent := filepath.Dir(cur)
 		if parent == cur {
@@ -672,18 +893,24 @@ func checkBackupTargetPath(cleanDest, realDest string, f *zip.File) (string, err
 }
 
 func unzipReaderTo(zr *zip.Reader, destDir string, lease *diskguard.Lease) error {
+	return unzipEntriesTo(allEntries(zr.File), destDir, lease)
+}
+
+// unzipEntriesTo 同 unzipReaderTo，只解 ents 里的这几项，各自落到 e.name。
+func unzipEntriesTo(ents []restoreEntry, destDir string, lease *diskguard.Lease) error {
 	cleanDest := filepath.Clean(destDir)
 	realDest, err := RealPathStrict(cleanDest)
 	if err != nil {
 		return fmt.Errorf("备份还原目标文件夹不可用: %w", err)
 	}
-	for _, f := range zr.File {
+	for _, e := range ents {
+		f := e.f
 		if lease != nil {
 			if err := lease.Check(0); err != nil {
 				return err
 			}
 		}
-		target, err := checkBackupTargetPath(cleanDest, realDest, f)
+		target, err := checkBackupTargetPath(cleanDest, realDest, e)
 		if err != nil {
 			return err
 		}
