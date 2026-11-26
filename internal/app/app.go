@@ -68,6 +68,19 @@ type Config struct {
 	// TrustedHosts 用户逐个确认过「可以下载」的自定义站点（整合包里白名单外的魔改模组直链）。
 	// 只由处置流程在用户确认后写入（host 校验过 https、公网），PUT /api/config 不收这个键。
 	TrustedHosts []TrustedHost `json:"trustedHosts,omitempty"`
+
+	// DefenderExclusion MineDeck 替用户加进 Windows 安全中心（Microsoft Defender）排除项的文件夹和时间，
+	// 窗口版「设置 → 存储位置」里点的（见 cmd/minedeck/defender_windows.go）。只记 MineDeck 自己做成的结果：
+	// 不提权读不到系统里真实的排除项，用户在 Windows 安全中心里手动删了，这里也看不出来。撤销成功后清空。
+	// 只由窗口宿主写，PUT /api/config 不收这个键（AI 助手和 MCP 也就改不了它）。
+	DefenderExclusion *DefenderExclusion `json:"defenderExclusion,omitempty"`
+}
+
+// DefenderExclusion 一条 MineDeck 加进 Windows 安全中心排除项的文件夹。Path 是加的时候的程序数据文件夹（文件夹搬走以后
+// 和现在的 Base 对不上，撤销时删的是这个旧路径），At 是加成功的时间。
+type DefenderExclusion struct {
+	Path string    `json:"path"`
+	At   time.Time `json:"at"`
 }
 
 // TrustedHost 一条已确认的自定义下载站点。Host 是小写主机名（不带协议和端口：协议永远 https，不进配置放松；
