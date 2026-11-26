@@ -324,7 +324,8 @@ window.EXTRA_ICONS = {
   /* ---- 点爱心（或「点击赞赏」那个标签）弹出的赞赏浮层（作者 11-26）----
      照共用件 commons.html 的弹窗：遮罩从标题栏下面盖到底，面板在剩下那块的正中；大面板 26 / 8 加两栏（18），栏里的按钮圆角 10、离栏边 8（同心）。
      第一版把收款码缩小了直接摆着，作者看了说太丑，改成按钮加两家的线条图标：上面一行两个圆角正方形（支付宝、微信），大图标加名字；
-     下面一行是支付宝的固定金额，40 高圆角矩形，支付宝小图标加金额，按金额从小到大，放不下就左右无极滑动（同首页大卡那一排：拖、甩、两头渐隐、箭头）。
+     下面一行是支付宝的固定金额，圆角矩形，支付宝小图标加金额，按金额从小到大。第二版上面两个铺满、各 190 见方，下面一排 40 高、放不下要左右滑，
+     作者说上面太大、下面太小，弹窗放宽一点让五个都放得下、不用滑：现在面板 544 宽，上面两个 136 见方、居中，下面五个等分一排、52 高（同规范里 52 高的条）。
      点哪个都弹一层看那张收款码的原图（按窗口放到最大），从按钮那里放大出来、关掉时缩回去；Esc 一次关一层。
      图是作者本人的收款码，只放在本机（QR_code/，.gitignore 了）；别的机器上打开没有图，大图那层换成文件名占位 */
   :root { --elev-4: 0 28px 64px -16px rgb(var(--shadow-rgb) / .32), 0 8px 20px -4px rgb(var(--shadow-rgb) / .10); --scrim: rgb(var(--shadow-rgb) / .32); }
@@ -340,43 +341,30 @@ window.EXTRA_ICONS = {
   @keyframes sp-fade-out { to { opacity: 0; } }
   @keyframes sp-rise { from { opacity: 0; transform: translateY(10px); } }
   @keyframes sp-sink { to { opacity: 0; transform: translateY(6px); } }
-  .spp { width: 420px; box-sizing: border-box; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-4); display: flex; flex-direction: column; gap: 8px; }
+  .spp { width: 544px; box-sizing: border-box; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-4); display: flex; flex-direction: column; gap: 8px; }
   .spp .spc { border-radius: 18px; padding: 8px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
   .spp .sph { display: flex; align-items: center; height: 28px; padding-left: 10px; }
   .spp .sph h3 { flex: 1; margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; }
   .spp .sph .x { width: 28px; height: 28px; border-radius: 10px; border: 0; padding: 0; background: none; color: var(--muted); display: grid; place-items: center; cursor: pointer; transition: background .15s, color .15s; }
   .spp .sph .x:hover { background: var(--hover); color: var(--text); }
   .spp .sph .x .ico { width: 14px; height: 14px; }
-  .spp .row1 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+  .spp .row1 { display: flex; justify-content: center; gap: 8px; margin-top: 4px; }
   /* 按钮的底和提示浮层里的行一样：半透明的面板底，圆角 10（离栏边 8，18 − 8） */
   .qb, .qa { border: 0; padding: 0; border-radius: 10px; font: inherit; color: var(--text); cursor: pointer; outline: none;
              background: color-mix(in srgb, var(--surface) 55%, transparent); transition: background .15s; }
   .qb:hover, .qa:hover { background: linear-gradient(var(--hover), var(--hover)), color-mix(in srgb, var(--surface) 55%, transparent); }
   .qb:focus-visible, .qa:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
-  /* 上面两个：圆角正方形，正中一个大的线条图标（48；线宽按 16 的图标折算，看上去和小图标差不多细）加名字 */
-  .qb { aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; font-size: 14px; font-weight: 600; }
-  .qb .ico { width: 48px; height: 48px; stroke-width: .5; }
-  /* 下面一排：40 高圆角矩形（同表单控件），支付宝小图标加金额 */
-  .qa { flex: 1 0 84px; height: 40px; display: flex; align-items: center; justify-content: center; gap: 6px;
-        font-size: 13.5px; font-weight: 600; font-variant-numeric: tabular-nums; user-select: none; }
+  /* 上面两个：136 见方的圆角正方形，正中一个大的线条图标（40；线宽按 16 的图标折算，看上去和小图标差不多细）加名字 */
+  .qb { width: 136px; height: 136px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; font-size: 14px; font-weight: 600; }
+  .qb .ico { width: 40px; height: 40px; stroke-width: .6; }
+  /* 下面一排：52 高的圆角矩形（同规范里 52 高的条），支付宝小图标加金额，几个就等分几份 */
+  .sprow { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; }
+  .qa { height: 52px; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .qa .ico { width: 18px; height: 18px; stroke-width: 1.15; }
   /* 两家的图标用各自的品牌色（同核心头像的固定色，不跟主题走），一眼认得出是哪家 */
   .ic-ali { color: #1677ff; } .ic-wx { color: #07c160; }
   .qph { box-sizing: border-box; border: 1px dashed var(--border); display: grid; place-items: center; padding: 6px; font: 12px/1.5 var(--mono); color: var(--faint); text-align: center; word-break: break-all;
          background: var(--surface); }
-  .spcar { position: relative; margin: 0 -8px; } /* 滑的那一排铺满整栏宽，两头渐隐到栏边；按钮照样离栏边 8 */
-  .sptrack { display: flex; gap: 8px; padding: 0 8px; overflow-x: auto; scrollbar-width: none;
-    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
-    mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
-    transition: --fl .2s ease, --fr .2s ease; }
-  .sptrack::-webkit-scrollbar { display: none; }
-  .sptrack.dragging { cursor: grabbing; user-select: none; }
-  .sptrack.dragging * { cursor: grabbing !important; }
-  .spcar.can-left .sptrack { --fl: 32px; } .spcar.can-right .sptrack { --fr: 32px; }
-  .spcar .car-nav { width: 28px; height: 28px; } /* 这一排只有 40 高，箭头用小的 28 */
-  .spcar .car-nav .ico { width: 14px; height: 14px; }
-  .spcar .car-nav.prev { left: 4px; } .spcar .car-nav.next { right: 4px; }
-  .spcar.can-left .car-nav.prev, .spcar.can-right .car-nav.next { display: grid; }
-  .spcar:hover .car-nav { opacity: 1; }
   /* 看大图那一层：叠在浮层上面，再盖一层遮罩；点哪儿都关（或者 Esc、右上角 ×） */
   .spz { z-index: 50; cursor: zoom-out; }
   .spz.leave { pointer-events: none; }
@@ -967,9 +955,8 @@ const QR_DIR = "QR_code/";
 const QR_MAIN = [{ f: "alipay.jpg", t: "支付宝", ic: "alipay", cls: "ic-ali", ar: 2 / 3 }, { f: "wechatpay.png", t: "微信", ic: "wechat", cls: "ic-wx", ar: 1 }];
 const QR_AMT = ["520", "33", "9.9", "299", "99"].sort((a, b) => a - b).map(n => ({ f: n + ".jpg", t: n, ar: 2 / 3 }));
 const qrBig = q => `<button class="qb" data-qr="${q.f}" data-ar="${q.ar}" title="显示收款码"><i data-ic="${q.ic}" class="${q.cls}"></i>${q.t}</button>`;
-// 下面一排不用 <button>：首页那套左右滑在按钮上按下不开始拖，一排全是按钮就拖不动了
-const qrAmt = q => `<div class="qa" role="button" tabindex="0" data-qr="${q.f}" data-ar="${q.ar}" title="显示收款码"><i data-ic="alipay" class="ic-ali"></i>${q.t}</div>`;
-let spm = null, spS = null, spz = null;
+const qrAmt = q => `<button class="qa" data-qr="${q.f}" data-ar="${q.ar}" title="显示收款码"><i data-ic="alipay" class="ic-ali"></i>${q.t}</button>`;
+let spm = null, spz = null;
 const spReduce = matchMedia("(prefers-reduced-motion: reduce)");
 function openSponsor() {
   if (!spm) {
@@ -978,23 +965,18 @@ function openSponsor() {
     spm.innerHTML = `<div class="spp" role="dialog" aria-label="赞赏">`
       + `<div class="spc"><div class="sph"><h3>赞赏</h3><button class="x" title="关闭"><i data-ic="x"></i></button></div>`
       + `<div class="row1">${QR_MAIN.map(qrBig).join("")}</div></div>`
-      + `<div class="spc"><div class="spcar scroll">`
-      + `<button class="car-nav prev" data-dir="-1" aria-label="往左看"><i data-ic="chevronRight"></i></button>`
-      + `<div class="sptrack">${QR_AMT.map(qrAmt).join("")}</div>`
-      + `<button class="car-nav next" data-dir="1" aria-label="往右看"><i data-ic="chevronRight"></i></button></div></div></div>`;
+      + `<div class="spc"><div class="sprow">${QR_AMT.map(qrAmt).join("")}</div></div></div>`;
     document.body.appendChild(spm); KIT.hydrate(spm);
-    const tr = spm.querySelector(".sptrack");
-    spS = hscroll(spm.querySelector(".spcar"), tr, () => tr.querySelector(".qa").offsetWidth + 8);
     spm.addEventListener("click", e => {
       if (e.target === spm || e.target.closest(".sph .x")) return closeSponsor();
-      const t = e.target.closest("[data-qr]"); if (t) zoomQR(t);
+      const t = e.target.closest("[data-qr]"); if (!t) return;
+      if (e.detail > 0) t.blur(); // 鼠标点的不留焦点框（不然按 Esc 关掉大图以后，那个按钮会像被选中了一样亮一圈）；用键盘按的照样留着
+      zoomQR(t);
     });
-    spm.addEventListener("keydown", e => { const t = e.target.closest?.(".qa"); if (t && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); zoomQR(t); } });
   }
   if (!spm.hidden && !spm.classList.contains("leave")) return;
   clearTimeout(spm._t); spm.classList.remove("leave"); spm.hidden = false;
   spm.classList.remove("enter"); void spm.offsetWidth; spm.classList.add("enter");
-  spS.reset(); requestAnimationFrame(spS.edges);
 }
 function closeSponsor() {
   if (!spm || spm.hidden || spm.classList.contains("leave")) return;
