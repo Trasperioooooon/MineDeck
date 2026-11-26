@@ -338,7 +338,7 @@
   .avx:hover { color: var(--text); }
   /* 运行内存（11-26 第二轮）：格子还是程序那排经验条（灰的系统已占在前、强调色本服分配、淡的剩余），格子本身是滑条。
      单位改成 0.5 GB（作者提的）：拖、方向键、步进、快捷预设都按 0.5 GB 走。格子的大小按本机内存挑 0.5 / 1 / 2 / 4 GB 里最小、又能让格子不超过 40 个的那档，
-     一格只占一部分时按比例涂（比如 1 GB 一格、分 4.5 GB，第五格涂一半），所以 0.5 GB 的差别在格子上也看得出来（内存很大、一格 4 GB 时就只差一两个像素了）。
+     一格只占一部分时按比例涂（比如 1 GB 一格、分 4.5 GB，第五格涂一半），所以 0.5 GB 的差别在格子上也看得出来。本机超过 32 GB 时不画格子，改画两块（见下面 .blk）。
      上限：当前可用的内存按 0.5 GB 往下取整（作者提的），把手拖不过去，步进加不上去，超过的快捷预设灰掉。原来的「超过可用」红色提醒就用不上了。
      右边原来的 MB 数字框换成一个步进：减号、「4 GB」、加号，是这一块里唯一写着数的地方；图例里「分配」只留颜色不写数。超过 16 GB 照程序提醒一下（数字变黄，悬停看原因） */
   .memx { display: flex; align-items: center; gap: 14px; }
@@ -350,6 +350,13 @@
   .mbar .cells i:first-child { border-radius: 4px 1.5px 1.5px 4px; }
   .mbar .cells i:last-of-type { border-radius: 1.5px 4px 4px 1.5px; }
   .mbar .cells i.alloc { box-shadow: inset 0 2px 0 rgb(255 255 255 / .3), inset 0 -2px 0 rgb(0 0 0 / .16); }
+  /* 本机超过 32 GB 不画格子（作者 11-26：「凡是超过 32G 的，就不用格子呈现了，系统占用为一块圆角矩形，分配的和剩余的为一个圆角矩形」）：
+     前一块系统已占，后一块是可用（本服分配从它的左边涂起，余下是剩余）；两块按内存多少分宽度，中间隔 2，四角圆角都是 4（离框 6，10 − 6） */
+  .mbar .cells.blk i { border-radius: 4px; flex: var(--w) 1 0; min-width: 4px; }
+  .mbar .cells.blk .bu { background: color-mix(in srgb, var(--text) 30%, transparent); }
+  .mbar .cells.blk .ba { position: relative; overflow: hidden; background: color-mix(in srgb, var(--text) 9%, transparent); }
+  .mbar .cells.blk .ba b { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--accent); box-shadow: inset 0 2px 0 rgb(255 255 255 / .3), inset 0 -2px 0 rgb(0 0 0 / .16); }
+  .mbar:not(.drag) .cells.blk .ba b { transition: width .16s cubic-bezier(.3, .7, .2, 1); }
   /* 把手：4 × 34 的竖胶囊（圆角 = 宽的一半），一圈框底色把它和格子隔开 */
   .mbar .knob { position: absolute; top: -3px; bottom: -3px; left: 0; width: 4px; margin-left: -2px; border-radius: 2px; background: var(--text); pointer-events: none;
                 box-shadow: 0 0 0 2px var(--field); }
@@ -840,9 +847,11 @@ const SET = { name: "", nameTouched: false, port: "25565", mem: 4096, motd: "Min
 // 本机内存是假的：右上角「本机内存」能换成几种机器看格子怎么画。[总量, 其他程序已占]，单位 MB；32 是作者截图那台（共 31.8 GB，占 15.2 GB），
 // 8 是一台很紧的（只剩 1.5 GB），看上限比默认的 4 GB 还小时会怎样
 const MACHINES = { 8: [8192, 6656], 16: [16384, 7578], 32: [32563, 15565], 48: [49152, 16691], 64: [65536, 19149], 128: [131072, 23450] };
-let RAMK = 32, RAM, MEM_CAP, CELL, CELLS;
+let RAMK = 32, RAM, MEM_CAP, CELL, CELLS, BLOCKS;
 function setMachine(k) {
   RAMK = k; const [total, used] = MACHINES[k]; RAM = { total, avail: total - used };
+  // 超过 32 GB 不画格子，画两块：系统已占一块，可用一块（作者 11-26 定的）。32G 那台实际 31.8 GB，还是格子
+  BLOCKS = total > 32768;
   // 上限：当前可用的内存按 0.5 GB 往下取整（作者提的），最少 0.5 GB。程序里现在是「总量 − 2 GB」、超过可用只提醒，改成硬上限要后端跟着改
   MEM_CAP = Math.max(512, Math.floor(RAM.avail / 512) * 512);
   // 一格多大：0.5 / 1 / 2 / 4 GB 里挑最小、又能让格子不超过 40 个的那档
@@ -874,10 +883,12 @@ const gbTxt = mb => gs(mb).replace("G", " GB");
 // 运行内存一块：标题和图例；格子（也是滑条）加步进；格子下面一排快捷预设。推荐分配、本机总量、一格多大在格子的悬停提示里
 const PRESETS = [2048, 4096, 8192, 16384], PRESETS_PROXY = [512, 1024, 2048]; // 代理端推荐 1 GB，预设跟着小
 function memCtl(proxy) {
-  const tip = `本机 ${gbTxt(RAM.total)} · 1 格 = ${gbTxt(CELL)} · 最多能分 ${gbTxt(MEM_CAP)}（当前可用的）\n` + (proxy ? "推荐 1 GB；代理端只做转发，占用很低" : "推荐：模组服 4 GB 以上；无模组的小型服务器 2~4 GB");
+  const tip = `本机 ${gbTxt(RAM.total)}${BLOCKS ? "" : ` · 1 格 = ${gbTxt(CELL)}`} · 最多能分 ${gbTxt(MEM_CAP)}（当前可用的）\n` + (proxy ? "推荐 1 GB；代理端只做转发，占用很低" : "推荐：模组服 4 GB 以上；无模组的小型服务器 2~4 GB");
+  const used = RAM.total - RAM.avail;
+  const body = BLOCKS ? `<i class="bu" style="--w:${used}"></i><i class="ba" style="--w:${RAM.avail}"><b></b></i>` : "<i></i>".repeat(CELLS);
   return `<div class="fld g-mem"><span class="lb">运行内存<span class="mleg" id="smleg"></span></span>
       <div class="memx"><div class="mbar" id="smbar" tabindex="0" role="slider" aria-label="运行内存" aria-valuemin="512" aria-valuemax="${MEM_CAP}" title="${esc(tip)}">
-          <div class="cells">${"<i></i>".repeat(CELLS)}<span class="knob"></span></div></div>
+          <div class="cells${BLOCKS ? " blk" : ""}">${body}<span class="knob"></span></div></div>
         <div class="step" id="smemf"><button class="sb" data-mstep="-1" title="少 0.5 GB"><i data-ic="minus"></i></button><span class="sv" id="smemv"></span><button class="sb" data-mstep="1" title="多 0.5 GB"><i data-ic="plus"></i></button></div></div>
       <div class="mpre">${(proxy ? PRESETS_PROXY : PRESETS).map(v => `<button class="mp" data-mp="${v}"${v > MEM_CAP ? " disabled" : ""}>${gs(v)}</button>`).join("")}${memLow(proxy)}</div></div>`;
 }
@@ -893,13 +904,19 @@ const C_USED = "color-mix(in srgb, var(--text) 30%, transparent)", C_ALLOC = "va
 function paintMem() {
   const bar = document.getElementById("smbar"); if (!bar) return;
   const v = SET.mem, used = RAM.total - RAM.avail, end = used + v;
-  bar.querySelectorAll(".cells i").forEach((c, i) => {
-    const a = i * CELL, pct = x => Math.max(0, Math.min(100, (x - a) / CELL * 100)), u = pct(used), e = pct(end);
-    c.className = u <= 0 && e >= 100 ? "alloc" : "";
-    c.style.background = `linear-gradient(to right, ${C_USED} 0 ${u}%, ${C_ALLOC} ${u}% ${e}%, ${C_FREE} ${e}% 100%)`;
-  });
-  const W = bar.querySelector(".cells").clientWidth, cw = (W - (CELLS - 1) * 2) / CELLS, t = end / CELL, k = Math.floor(t), f = t - k;
-  bar.querySelector(".knob").style.left = Math.round(Math.min(W, f === 0 && k > 0 ? k * (cw + 2) - 1 : k * (cw + 2) + f * cw)) + "px";
+  if (BLOCKS) { // 两块：本服分配从可用那块的左边涂起，把手停在涂到的地方
+    const ba = bar.querySelector(".ba"), w = Math.round(ba.clientWidth * v / RAM.avail);
+    ba.querySelector("b").style.width = w + "px";
+    bar.querySelector(".knob").style.left = (ba.offsetLeft + w) + "px";
+  } else {
+    bar.querySelectorAll(".cells i").forEach((c, i) => {
+      const a = i * CELL, pct = x => Math.max(0, Math.min(100, (x - a) / CELL * 100)), u = pct(used), e = pct(end);
+      c.className = u <= 0 && e >= 100 ? "alloc" : "";
+      c.style.background = `linear-gradient(to right, ${C_USED} 0 ${u}%, ${C_ALLOC} ${u}% ${e}%, ${C_FREE} ${e}% 100%)`;
+    });
+    const W = bar.querySelector(".cells").clientWidth, cw = (W - (CELLS - 1) * 2) / CELLS, t = end / CELL, k = Math.floor(t), f = t - k;
+    bar.querySelector(".knob").style.left = Math.round(Math.min(W, f === 0 && k > 0 ? k * (cw + 2) - 1 : k * (cw + 2) + f * cw)) + "px";
+  }
   bar.setAttribute("aria-valuenow", v); bar.setAttribute("aria-valuetext", gbTxt(v));
   // 步进：唯一写着数的地方；到 0.5 GB、到上限时那一边的按钮灰掉；超过 16 GB 数字变黄（照程序的提醒）
   const st = document.getElementById("smemf"), big = v > 16384;
@@ -913,6 +930,7 @@ function paintMem() {
 }
 // 在格子上点、拖：落在哪儿就分到哪儿，按 0.5 GB 取整，拖不过上限
 function memAt(bar, x) {
+  if (BLOCKS) { const a = bar.querySelector(".ba").getBoundingClientRect(); return memClamp((x - a.left) / a.width * RAM.avail); } // 两块：按落在可用那块的哪儿算
   const b = bar.querySelector(".cells").getBoundingClientRect(), cw = (b.width - (CELLS - 1) * 2) / CELLS, d = Math.max(0, x - b.left);
   const k = Math.floor(d / (cw + 2)), f = Math.min(1, (d - k * (cw + 2)) / cw);
   return memClamp((k + f) * CELL - (RAM.total - RAM.avail));
