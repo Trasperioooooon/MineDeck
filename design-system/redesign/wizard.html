@@ -462,6 +462,12 @@
   .bigaddr { display: flex; align-items: center; gap: 6px; min-width: 0; }
   .bigaddr .mono { font-size: 24px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .bigaddr .unk { font-size: 12.5px; color: var(--faint); margin-left: 4px; white-space: nowrap; }
+  /* 虚拟局域网（11-26 作者要的）：大字下面隔一道线，一行一个，名字在左、地址和复制在右。每个地址只出现一次，不用选 */
+  .vlan { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px; }
+  .vlan .lb { margin-bottom: 4px; width: fit-content; }
+  .netrow { display: flex; align-items: center; height: 32px; gap: 6px; min-width: 0; }
+  .netrow .nn { width: 96px; flex: none; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .netrow .mono { font-size: 14px; white-space: nowrap; }
   .frpp .frps { transition: opacity .2s; }
   .frpp:not(.on) { cursor: pointer; }
   .frpp:not(.on) .frps { opacity: .7; pointer-events: none; }
@@ -1115,6 +1121,10 @@ const LINK = { via: "lan", sakura: false, connecting: false, key: "", saveKey: t
   show: { full: false, off: false, perm: false }, node: { openfrp: "", sakura: "" }, use: { openfrp: "", sakura: "" },
   frpsOn: false, frps: { host: "", port: "7000", token: "", remote: "" }, names: [] };
 const LAN_IP = "192.168.1.5";
+// 本机的虚拟局域网地址（假的）：Radmin VPN 的网段是 26.x，ZeroTier 常见 10.147.x。程序的 /api/app 已经把本机所有 IPv4 都给了（localIPs），
+// 前端按网段排（lanIPRank）；要画成这样还差两样：网卡名（Go 的 net.Interfaces 有），认出哪块是 Radmin、ZeroTier、Tailscale、蒲公英这类软件的网卡，
+// 再把对朋友没用的去掉（WSL、Hyper-V、VMware、VirtualBox 的虚拟网卡，169.254 开头的自动地址）。MineDeck 不装也不管这些软件，只是把地址列出来
+const LAN_NETS = [["Radmin VPN", "26.18.4.77"], ["ZeroTier", "10.147.20.3"]];
 // 11-26 作者：局域网和自建 frps 两页都太空，并成一张卡（下面一页左右两块），自建 frps 在那一页里用开关打开
 const VIAS = [["lan", "局域网 / 自建 frps"], ["openfrp", "OpenFrp"], ["sakura", "樱花穿透"]];
 const VIA_TIP = {
@@ -1283,7 +1293,11 @@ function lanPage() {
     + `<div class="lbody"><span class="lb" title="同一局域网的朋友在游戏里添加服务器时填这个">朋友填这个地址</span>`
     + `<div class="bigaddr"><span class="mono">${LAN_IP}:${proxy ? "" : esc(SET.port)}</span>`
     + (proxy ? `<span class="unk" title="代理端的端口写在它自己的配置文件里，第一次启动才生成">端口启动后才知道</span>`
-      : `<button class="ib" data-act="copy" title="复制"><i data-ic="copy"></i></button>`) + `</div></div></div>`;
+      : `<button class="ib" data-act="copy" data-copy="${LAN_IP}:${esc(SET.port)}" title="复制"><i data-ic="copy"></i></button>`) + `</div>`
+    + (LAN_NETS.length ? `<div class="vlan"><span class="lb" title="你和朋友装了同一款虚拟局域网软件（Radmin VPN、ZeroTier 这类）、进了同一个网络时，朋友填对应那一行；MineDeck 只把这台电脑上的地址列出来，不替你装、不替你建网络">虚拟局域网</span>`
+      + LAN_NETS.map(([n, ip]) => `<div class="netrow" title="朋友也在你的 ${esc(n)} 网络里时填这个"><span class="nn">${esc(n)}</span><span class="mono">${ip}:${proxy ? "" : esc(SET.port)}</span>`
+        + (proxy ? "" : `<button class="ib" data-act="copy" data-copy="${ip}:${esc(SET.port)}" title="复制"><i data-ic="copy"></i></button>`) + `</div>`).join("") + `</div>` : "")
+    + `</div></div>`;
   const frp = `<div class="lanp frpp${on ? " on" : ""}${proxy ? " off" : ""}" title="${esc(proxy ? "代理端的端口第一次启动以后才知道，启动过以后在服务器的「联机」里开" : on ? "" : "有自己的 frp 服务器才用这个，点一下打开")}">`
     + `<div class="lh">${ltg("frpsOn", "自建 frps", "MineDeck 带着 frpc 连你自己的 frps，外地的朋友也能进", on)}</div>`
     + `<div class="lbody"><div class="frps" title="本地端口 ${esc(SET.port)}">`
@@ -1809,7 +1823,7 @@ document.getElementById("page").addEventListener("click", e => {
   if (e.target.closest('[data-act="sakurakey"]')) return; // 草图里不真开樱花官网
   const cp = e.target.closest('[data-act="copy"]');
   if (cp) { // 复制地址：图标换成勾 1.2 秒
-    navigator.clipboard?.writeText(`${LAN_IP}:${SET.port}`).catch(() => {});
+    navigator.clipboard?.writeText(cp.dataset.copy || `${LAN_IP}:${SET.port}`).catch(() => {});
     cp.classList.add("done"); cp.innerHTML = `<i data-ic="check"></i>`; KIT.hydrate(cp);
     clearTimeout(cp._t); cp._t = setTimeout(() => { cp.classList.remove("done"); cp.innerHTML = `<i data-ic="copy"></i>`; KIT.hydrate(cp); }, 1200);
     return;
