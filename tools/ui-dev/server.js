@@ -3690,28 +3690,45 @@ function handler(state, ui, portOf) {
         if (sub === "backups" && m === "GET") return ok(res, backupsOf(i).map(b => ({ dir: i.backupDir ?? "D:\\MineDeck\\backups\\" + i.name, ...b })));
         // 崩溃重启与定时任务（同 instance.policies.get / set）：存在这台服务器上（instReset 时回到这两条）。
         // 改的时候同真后端 inst.PolicyPatch：crashRestart 给了才改；schedules 给了整张替换；removeSchedules 每项删一条完全一样的
-        // （时间规整成 HH:MM 再比，找不到不算错）；addSchedules 按条加
+        // （时间规整成 HH:MM 再比，间隔、命令、文件夹也要一样，找不到不算错）；addSchedules 按条加。
+        // 每条任务填 at（每天几点）或 every（每隔多少分钟，命令最短 5、备份 30、重启 60，最长 720）；group 是文件夹名（2026-11-27）
         if (sub === "policies") {
           const pol = i.policies || (i.policies = { crashRestart: true, schedules: [{ type: "restart", at: "04:00", args: "" }, { type: "command", at: "20:00", args: "say 今晚 8 点打龙集合！" }] });
           if (m === "GET") return ok(res, { crashRestart: pol.crashRestart, schedules: pol.schedules.map(s => ({ ...s })) });
           if (m === "PUT") {
             const b = await readBody(req);
             const hm = s => { const x = String(s || "").trim().match(/^(\d{1,2}):(\d{1,2})$/); return x && +x[1] < 24 && +x[2] < 60 ? String(+x[1]).padStart(2, "0") + ":" + String(+x[2]).padStart(2, "0") : ""; };
+            const TITLE = { restart: "定时重启", command: "定时命令", backup: "定时备份" }, LO = { command: 5, backup: 30, restart: 60 };
             const check = list => {
               for (const s of list) {
                 if (!["restart", "command", "backup"].includes(s.type)) return `未知任务类型: ${s.type}`;
-                if (!hm(s.at)) return `时间格式应为 HH:MM: ${s.at}`;
+                const every = +s.every || 0;
+                if (every && String(s.at || "").trim()) return "每天几点（at）和每隔多久（every）只能填一样";
+                if (every < 0) return `间隔应为正整数（分钟）: ${every}`;
+                if (every && every < LO[s.type]) return `${TITLE[s.type]}最短每隔 ${LO[s.type]} 分钟一次: ${every}`;
+                if (every > 720) return `间隔最长 720 分钟（12 小时），更长的请用每天定时: ${every}`;
+                if (!every && !hm(s.at)) return `时间格式应为 HH:MM: ${s.at}`;
                 if (s.type === "command" && !s.args) return "定时命令不能为空";
+                if ([...String(s.group || "").trim()].length > 32) return `文件夹名最多 32 个字: ${String(s.group).trim()}`;
               }
               return "";
             };
             const why = check([...(Array.isArray(b.schedules) ? b.schedules : []), ...(b.addSchedules || [])]);
             if (why) return err(res, 400, why);
-            const norm = s => ({ type: s.type, at: hm(s.at), args: s.args || "" });
+            // 存成真后端 JSON 的样子：每隔多久的没有 at，不放文件夹的没有 group
+            const norm = s => {
+              const o = { type: s.type }, g = String(s.group || "").trim();
+              if (+s.every) o.every = +s.every; else o.at = hm(s.at);
+              o.args = s.args || "";
+              if (g) o.group = g;
+              return o;
+            };
+            const same = (r, s) => r.type === s.type && (+r.every || 0) === (+s.every || 0) && (r.args || "") === (s.args || "") &&
+              String(r.group || "").trim() === String(s.group || "").trim() &&
+              (+r.every && !String(r.at || "").trim() ? !String(s.at || "").trim() : !!hm(r.at) && hm(r.at) === hm(s.at));
             let next = Array.isArray(b.schedules) ? b.schedules.map(norm) : pol.schedules.map(s => ({ ...s }));
             for (const r of b.removeSchedules || []) {
-              const rt = hm(r.at);
-              const k = rt ? next.findIndex(s => s.type === r.type && hm(s.at) === rt && (s.args || "") === (r.args || "")) : -1;
+              const k = next.findIndex(s => same(r, s));
               if (k >= 0) next.splice(k, 1);
             }
             next = next.concat((b.addSchedules || []).map(norm));
