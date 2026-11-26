@@ -466,18 +466,21 @@
   .bigaddr .ib:disabled { opacity: .35; cursor: default; background: none; }
   /* 虚拟局域网（11-26 作者要的）：大字下面隔一道线，一行一个，名字在左、地址和复制在右。每个地址只出现一次，不用选 */
   .vlan, .lanp .frps { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
-  .vlan { display: flex; flex-direction: column; gap: 2px; }
+  .vlan { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 2px; }
   /* 「虚拟局域网」右边一个刷新（作者 11-26 要的）；一个都没检测到时，块的左下角一句提示（作者给的原话，在作者框出来的位置），检测到了就淡掉 */
   .vlh { display: flex; align-items: center; gap: 2px; height: 24px; margin-bottom: 2px; }
   .vlh .lb { width: fit-content; }
   .vlh .ib { width: 24px; height: 24px; }
   .vlh .ib .ico { width: 13px; height: 13px; }
   .vlh .ib.spinning .ico { animation: spin .9s linear infinite; }
-  .vrows { display: flex; flex-direction: column; gap: 2px; }
-  .vnone { margin-top: auto; display: flex; align-items: flex-start; gap: 6px; font-size: 12px; line-height: 18px; color: var(--faint); transition: opacity .2s; }
+  /* 网络多了在这块里上下滚（作者 11-26：滚动条不能用浏览器自带的）：用和核心、版本那两列同一套——.lwrap/.list 藏掉系统滚动条，
+     右边 4 像素的细条（.thumb），悬停或滚的时候才出来，能拖；上下还有没露出来的行时那一头淡出 */
+  .vrows.list { gap: 2px; }
+  .lanp { position: relative; }
+  .vnone { position: absolute; left: 20px; right: 20px; bottom: 20px; display: flex; align-items: flex-start; gap: 6px; font-size: 12px; line-height: 18px; color: var(--faint); transition: opacity .2s; }
   .vnone .ico { width: 14px; height: 14px; flex: none; margin-top: 2px; }
   .vnone.gone { opacity: 0; pointer-events: none; }
-  .netrow { display: flex; align-items: center; height: 32px; gap: 6px; min-width: 0; }
+  .netrow { display: flex; align-items: center; height: 32px; gap: 6px; min-width: 0; flex: none; }
   .netrow .nn { width: 96px; flex: none; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .netrow .mono { font-size: 14px; white-space: nowrap; }
   .frpp .lbody { transition: opacity .2s; }
@@ -1137,11 +1140,12 @@ const LAN_IP = "192.168.1.5";
 // 本机的虚拟局域网地址（假的）：Radmin VPN 的网段是 26.x，ZeroTier 常见 10.147.x。程序的 /api/app 已经把本机所有 IPv4 都给了（localIPs），
 // 前端按网段排（lanIPRank）；要画成这样还差两样：网卡名（Go 的 net.Interfaces 有），认出哪块是 Radmin、ZeroTier、Tailscale、蒲公英这类软件的网卡，
 // 再把对朋友没用的去掉（WSL、Hyper-V、VMware、VirtualBox 的虚拟网卡，169.254 开头的自动地址）。MineDeck 不装也不管这些软件，只是把地址列出来
-const LAN_NETS = [["Radmin VPN", "26.18.4.77"], ["ZeroTier", "10.147.20.3"]];
-// 这些软件要开着、进了网络，这台电脑才有那块网卡的地址（作者 11-26 问到）。草图一开始当作都没开：左下角出提示；点「虚拟局域网」旁边的刷新，假装检测到上面两个。
+const LAN_NETS = [["Radmin VPN", "26.18.4.77"], ["ZeroTier", "10.147.20.3"], ["Tailscale", "100.88.12.5"], ["Hamachi", "25.61.140.9"], ["蒲公英", "172.16.3.21"]];
+// 这些软件要开着、进了网络，这台电脑才有那块网卡的地址（作者 11-26 问到）。草图一开始当作都没开：左下角出提示；点「虚拟局域网」旁边的刷新，假装检测到前两个，
+// 再点一次假装五个都开了（多出来的在块里上下滚，看自己画的细滚动条）
 // 程序里「自动识别」的做法：这一页开着时，窗口拿回焦点就重新取一次 /api/app 的 ips，另外每几秒取一次（本机接口，很便宜）；只认已经连上的网卡，断开的不列
-let vlanFound = false;
-const vlanNets = () => vlanFound ? LAN_NETS : [];
+let vlanFound = 0;
+const vlanNets = () => LAN_NETS.slice(0, [0, 2, 5][vlanFound]);
 function vlanRows() {
   const proxy = isProxyCore();
   return vlanNets().map(([n, ip]) => `<div class="netrow" title="朋友也在你的 ${esc(n)} 网络里时填这个"><span class="nn">${esc(n)}</span><span class="mono">${ip}:${proxy ? "" : esc(SET.port)}</span>`
@@ -1152,12 +1156,13 @@ function refreshVlan(b) {
   if (b.classList.contains("spinning")) return;
   b.classList.add("spinning");
   setTimeout(() => {
-    b.classList.remove("spinning"); vlanFound = true;
+    b.classList.remove("spinning"); vlanFound = Math.min(2, vlanFound + 1);
     const box = document.getElementById("vrows"); if (!box) return;
     box.innerHTML = vlanRows(); KIT.hydrate(box);
     [...box.children].forEach((c, i) => c.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }],
       { duration: 240, delay: i * 18, easing: "cubic-bezier(.2, .7, .2, 1)", fill: "backwards" }));
     document.getElementById("vnone")?.classList.toggle("gone", vlanNets().length > 0);
+    box.scrollTop = 0; scrollbar(box.closest(".lwrap"));
   }, 600);
 }
 // 11-26 作者：局域网和自建 frps 两页都太空，并成一张卡（下面一页左右两块），自建 frps 在那一页里用开关打开
@@ -1330,7 +1335,7 @@ function lanPage() {
     + (proxy ? `<span class="unk" title="代理端的端口写在它自己的配置文件里，第一次启动才生成">端口启动后才知道</span>`
       : `<button class="ib" data-act="copy" data-copy="${LAN_IP}:${esc(SET.port)}" title="复制"><i data-ic="copy"></i></button>`) + `</div>`
     + `<div class="vlan"><div class="vlh"><span class="lb" title="你和朋友装了同一款虚拟局域网软件（Radmin VPN、ZeroTier 这类）、开着、进了同一个网络时，朋友填对应那一行；MineDeck 只把这台电脑上的地址列出来，不替你装、不替你建网络">虚拟局域网</span>`
-      + `<button class="ib" data-act="vrefresh" title="重新检测"><i data-ic="refresh"></i></button></div><div class="vrows" id="vrows">${vlanRows()}</div></div>`
+      + `<button class="ib" data-act="vrefresh" title="重新检测"><i data-ic="refresh"></i></button></div><div class="lwrap vwrap"><div class="list vrows" id="vrows">${vlanRows()}</div><i class="thumb"></i></div></div>`
     + `<div class="vnone${vlanNets().length ? " gone" : ""}" id="vnone"><i data-ic="info"></i><span>未检测到虚拟局域网，启动 Radmin、ZeroTier 等组网工具后将自动识别</span></div>`
     + `</div></div>`;
   const frp = `<div class="lanp frpp${on ? " on" : ""}${proxy ? " off" : ""}" title="${esc(proxy ? "代理端的端口第一次启动以后才知道，启动过以后在服务器的「联机」里开" : on ? "" : "有自己的 frp 服务器才用这个，点一下打开")}">`
@@ -1411,7 +1416,7 @@ function swapItems(box, html, dir, axis, after) {
 // 换进来的节点面板：分段选的选中块、细滚动条就位
 function afterDetail() {
   document.querySelectorAll(".vdet .seg").forEach(el => placeSeg(el, false));
-  document.querySelectorAll(".nwrap").forEach(scrollbar);
+  document.querySelectorAll(".nwrap, .vwrap").forEach(scrollbar);
   placeNfil(false);
 }
 // 筛选的选中底色挪到选中的那个上：animate 为 false 时直接放过去（刚画出来的时候）
@@ -1580,7 +1585,7 @@ function render() {
   document.querySelectorAll(".addon .lwrap").forEach(scrollbar);
   const chips = document.querySelector(".chips"); if (chips) { chipScroll(chips); placeChipHL(false); }
   document.querySelectorAll(".seg").forEach(el => placeSeg(el, false));
-  placeVias(false); document.querySelectorAll(".nwrap").forEach(scrollbar); wlScroll(document.getElementById("wlscroll")); placeNfil(false); paintMem();
+  placeVias(false); document.querySelectorAll(".nwrap, .vwrap").forEach(scrollbar); wlScroll(document.getElementById("wlscroll")); placeNfil(false); paintMem();
   document.body.classList.toggle("on-s3", names[step] === "配置服务器参数");
   document.querySelectorAll(".sim [data-ram]").forEach(x => x.classList.toggle("on", +x.dataset.ram === RAMK));
   document.getElementById("agrid")?.addEventListener("scroll", moreCards, { passive: true });
