@@ -40,6 +40,8 @@
      外面一块同首页大卡（外 26、内边距 8），三列是里面三块圆角 18 的面板，同心 */
   .pick { margin-top: 20px; width: 100%; --R: 26px; --p: 8px; border-radius: var(--R); padding: var(--p); background: var(--surface); box-shadow: var(--elev-1);
           display: grid; grid-template-columns: 1.25fr 1fr 1fr; gap: 8px; height: 296px; box-sizing: border-box; }
+  /* 原版只有一个核心（作者 11-26）：两列，介绍宽一些、版本在右 */
+  .pick.two { grid-template-columns: 3fr 2fr; }
   .col { border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); padding: 14px; display: flex; flex-direction: column; min-height: 0; }
   .col h3 { margin: 0 0 10px; font-size: 12px; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 8px; }
   .col h3 .sp { flex: 1; }
@@ -54,7 +56,17 @@
   .intro dt { color: var(--faint); } .intro dd { margin: 0; color: var(--muted); }
   .rec { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 8px; background: var(--accent-subtle); color: var(--accent-text); }
   /* 核心、版本：竖着的一列，一行一个，选中的底色变强调色；版本多了在列里自己滚 */
-  .list { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; min-height: 0; scrollbar-width: thin; margin: 0 -4px; padding: 0 4px; }
+  .lwrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .list { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; min-height: 0; flex: 1; scrollbar-width: none; margin: 0 -4px; padding: 0 12px 0 4px;
+          --ft: 0px; --fb: 0px; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%);
+          mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%); }
+  .list::-webkit-scrollbar { display: none; }
+  .lwrap.can-up .list { --ft: 28px; } .lwrap.can-down .list { --fb: 28px; }
+  .thumb { position: absolute; right: -6px; width: 4px; border-radius: 2px; background: color-mix(in srgb, var(--text) 38%, transparent);
+           opacity: 0; transition: opacity .2s, width .15s, right .15s; cursor: pointer; }
+  .lwrap:hover .thumb, .lwrap.scrolling .thumb, .thumb.drag { opacity: 1; }
+  .thumb:hover, .thumb.drag { width: 6px; right: -7px; background: color-mix(in srgb, var(--text) 55%, transparent); }
+  .lwrap.fits .thumb { display: none; }
   .row { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px 0 6px; border-radius: 12px; cursor: pointer; flex: none; font-size: 14px; font-weight: 500; }
   .row:hover { background: var(--hover); }
   .row.on { background: var(--accent-subtle); color: var(--accent-text); font-weight: 600; }
@@ -63,11 +75,10 @@
   .row .tag { font-size: 11.5px; color: var(--faint); font-weight: 400; }
   .row.on .tag { color: var(--accent-text); }
   .vrow { height: 36px; padding: 0 12px; font-family: var(--mono); font-size: 13.5px; }
+  .vrow.snap:not(.on) { color: var(--muted); }
   .find { height: 30px; border-radius: 15px; padding: 0 10px; display: flex; align-items: center; gap: 6px; background: var(--field); border: 1px solid var(--border);
           color: var(--faint); font-size: 12px; font-weight: 400; width: 120px; }
   .find .ico { width: 13px; height: 13px; }
-  .snap { font-size: 12px; font-weight: 400; color: var(--muted); display: flex; align-items: center; gap: 6px; }
-  .snap i.box { width: 14px; height: 14px; border-radius: 4px; border: 1px solid var(--border); background: var(--field); }
   .build { margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); }
   .build a { color: var(--accent-text); }
 
@@ -110,7 +121,7 @@
 const PLAYS = [
   { id: "vanilla", t: "原版", s: "什么都不加，和单人一样", ico: "vanilla", cores: ["vanilla"], rec: "vanilla" },
   { id: "plugin", t: "插件", s: "领地、经济、小游戏", ico: "paper", cores: ["paper", "purpur", "leaves", "folia"], rec: "paper" },
-  { id: "mod", t: "模组", s: "科技、魔法、整合包", ico: "neoforge", cores: ["fabric", "forge", "neoforge"], rec: "neoforge" },
+  { id: "mod", t: "模组", s: "科技、魔法、整合包", ico: "neoforge", cores: ["neoforge", "fabric", "forge"], rec: "neoforge" },
   { id: "other", t: "其他", s: "混合服、群组代理", ico: "velocity", cores: ["mohist", "banner", "velocity", "waterfall"], rec: "" },
 ];
 // 介绍：名字、一句话、两三句说明、适合、能装（草图里的说法，定稿前再核一遍）
@@ -129,13 +140,14 @@ const CORE = {
   waterfall: ["Waterfall", "老的群组代理", "BungeeCord 一系，老服务器在用；新开的建议用 Velocity。", "接老的群组服", "BungeeCord 插件"],
 };
 const VERS = {
-  mc: ["1.21.4", "1.21.3", "1.21.1", "1.21", "1.20.6", "1.20.4", "1.20.1", "1.19.4", "1.18.2", "1.16.5", "1.12.2"],
+  vanilla: ["26.3-snapshot-2", "26.3-snapshot-1", "26.2", "26.1", "1.21.4", "1.21.1", "1.20.6", "1.20.4", "1.20.1", "1.19.4", "1.18.2", "1.16.5", "1.12.2"],
+  mc: ["26.2", "26.1", "1.21.4", "1.21.1", "1.20.6", "1.20.4", "1.20.1", "1.19.4", "1.18.2", "1.16.5", "1.12.2"],
   forge: ["1.21.1", "1.20.1", "1.19.2", "1.18.2", "1.16.5", "1.12.2"],
   hybrid: ["1.20.1", "1.19.2", "1.18.2", "1.16.5", "1.12.2"],
   velocity: ["3.4.0", "3.3.0", "3.2.0"], waterfall: ["1.21", "1.20"],
 };
-const versOf = k => k === "forge" ? VERS.forge : (k === "mohist" || k === "banner") ? VERS.hybrid : k === "velocity" ? VERS.velocity : k === "waterfall" ? VERS.waterfall : VERS.mc;
-const DEF = { vanilla: "1.21.4", paper: "1.21.4", purpur: "1.21.4", leaves: "1.21.4", folia: "1.21.4", fabric: "1.21.1", forge: "1.20.1", neoforge: "1.21.1", mohist: "1.20.1", banner: "1.20.1", velocity: "3.4.0", waterfall: "1.21" };
+const versOf = k => k === "vanilla" ? VERS.vanilla : k === "forge" ? VERS.forge : (k === "mohist" || k === "banner") ? VERS.hybrid : k === "velocity" ? VERS.velocity : k === "waterfall" ? VERS.waterfall : VERS.mc;
+const DEF = { vanilla: "26.2", paper: "26.2", purpur: "26.2", leaves: "26.1", folia: "26.1", fabric: "26.2", forge: "1.20.1", neoforge: "26.1", mohist: "1.20.1", banner: "1.20.1", velocity: "3.4.0", waterfall: "1.21" };
 let step = 0, play = 1, core = "paper", ver = DEF.paper;
 const STEPS = () => play === 0 ? ["想玩哪个？", "最后设置一下", "让朋友连进来"] : ["想玩哪个？", play === 2 ? "装点模组？" : "装点插件？", "最后设置一下", "让朋友连进来"];
 const cover = (k, size) => `<div class="cover" style="--c:${MDPixel16.CORE_COLORS[k] || "#7a8aa0"}">${MDPixel16.svg(k, size)}</div>`;
@@ -144,12 +156,14 @@ function step1() {
   const plays = `<div class="plays">${PLAYS.map((x, i) => `<div class="play${i === play ? " on" : ""}" data-play="${i}" style="--c:${MDPixel16.CORE_COLORS[x.ico]}">${cover(x.ico, 48)}<div class="t">${x.t}</div><div class="s">${x.s}</div></div>`).join("")}</div>`;
   const intro = `<div class="col intro"><div class="head">${cover(core, 32)}<div><div class="nm">${c[0]}${core === p.rec && p.cores.length > 1 ? `<span class="rec">推荐</span>` : ""}</div><div class="sub">${c[1]}</div></div></div>
     <p>${c[2]}</p><dl><dt>适合</dt><dd>${c[3]}</dd><dt>能装</dt><dd>${c[4]}</dd></dl></div>`;
-  const cores = `<div class="col"><h3>核心</h3><div class="list">${p.cores.map(k => `<div class="row${k === core ? " on" : ""}" data-core="${k}">${MDPixel16.svg(k, 32)}${CORE[k][0]}<span class="sp"></span>${k === p.rec && p.cores.length > 1 ? `<span class="tag">推荐</span>` : ""}</div>`).join("")}</div></div>`;
-  const versions = `<div class="col"><h3>${proxy ? "版本" : "游戏版本"}<span class="sp"></span>${core === "vanilla" ? `<span class="snap"><i class="box"></i>快照</span>` : ""}<span class="find"><i data-ic="search"></i>搜索</span></h3>
-    <div class="list">${vs.map((v, i) => `<div class="row vrow${v === ver ? " on" : ""}" data-ver="${v}">${v}<span class="sp"></span>${i === 0 ? `<span class="tag">最新</span>` : v === DEF[core] && i > 0 ? `<span class="tag">常用</span>` : ""}</div>`).join("")}</div>
+  const ordered = [p.rec, ...p.cores.filter(k => k !== p.rec)].filter(Boolean);
+  const cores = p.cores.length < 2 ? "" : `<div class="col"><h3>核心</h3><div class="lwrap"><div class="list">${ordered.map(k => `<div class="row${k === core ? " on" : ""}" data-core="${k}">${MDPixel16.svg(k, 32)}${CORE[k][0]}<span class="sp"></span>${k === p.rec && p.cores.length > 1 ? `<span class="tag">推荐</span>` : ""}</div>`).join("")}</div><i class="thumb"></i></div></div>`;
+  const versions = `<div class="col"><h3>${proxy ? "版本" : "游戏版本"}<span class="sp"></span><span class="find"><i data-ic="search"></i>搜索</span></h3>
+    <div class="lwrap"><div class="list">${vs.map(v => { const snap = v.includes("snapshot"), latest = !snap && v === vs.find(x => !x.includes("snapshot"));
+      return `<div class="row vrow${v === ver ? " on" : ""}${snap ? " snap" : ""}" data-ver="${v}">${v}<span class="sp"></span>${snap ? `<span class="tag">快照</span>` : latest ? `<span class="tag">最新</span>` : v === DEF[core] ? `<span class="tag">常用</span>` : ""}</div>`; }).join("")}</div><i class="thumb"></i></div>
     ${core === "vanilla" ? "" : `<div class="build">构建用最新稳定版 · <a>换一个</a></div>`}</div>`;
   const alt = `<div class="alt">手上有现成的？` + [["package", "导入整合包"], ["globe", "用已有地图"], ["share", "导入交接包"], ["folder", "接管已有服务器"]].map(([i, t]) => `<span class="b"><i data-ic="${i}"></i>${t}</span>`).join("") + `</div>`;
-  return plays + `<div class="pick">${intro}${cores}${versions}</div>` + alt;
+  return plays + `<div class="pick${cores ? "" : " two"}">${intro}${cores}${versions}</div>` + alt;
 }
 function render() {
   const names = STEPS();
@@ -157,7 +171,32 @@ function render() {
   document.getElementById("dots").innerHTML = names.map((_, i) => `<i class="${i === step ? "on" : ""}"></i>`).join("");
   document.getElementById("next").innerHTML = step === names.length - 1 ? `<i data-ic="check"></i>创建服务器` : `下一步<i data-ic="chevronRight"></i>`;
   KIT.hydrate(document.body);
-  const on = document.querySelector(".vrow.on"); if (on) on.scrollIntoView({ block: "nearest" });
+  const on = document.querySelector(".vrow.on");
+  if (on) { const l = on.parentElement; l.scrollTop = on.offsetTop - l.clientHeight / 2 + on.offsetHeight / 2; }
+  document.querySelectorAll(".lwrap").forEach(scrollbar);
+}
+// 细滚动条：跟着列表算长短和位置，能拖；上下有没看到的就渐隐
+function scrollbar(w) {
+  const l = w.querySelector(".list"), t = w.querySelector(".thumb");
+  const paint = () => {
+    const ch = l.clientHeight, sh = l.scrollHeight, st = l.scrollTop;
+    w.classList.toggle("fits", sh <= ch + 1);
+    w.classList.toggle("can-up", st > 2);
+    w.classList.toggle("can-down", st + ch < sh - 2);
+    const h = Math.max(28, ch * ch / sh);
+    t.style.height = h + "px";
+    t.style.top = (sh > ch ? st / (sh - ch) * (ch - h) : 0) + "px";
+  };
+  let idle = 0;
+  l.addEventListener("scroll", () => { paint(); w.classList.add("scrolling"); clearTimeout(idle); idle = setTimeout(() => w.classList.remove("scrolling"), 700); }, { passive: true });
+  t.addEventListener("pointerdown", e => {
+    e.preventDefault(); t.setPointerCapture(e.pointerId); t.classList.add("drag");
+    const y0 = e.clientY, s0 = l.scrollTop, ratio = (l.scrollHeight - l.clientHeight) / (l.clientHeight - t.offsetHeight);
+    const move = ev => { l.scrollTop = s0 + (ev.clientY - y0) * ratio; };
+    const up = () => { t.classList.remove("drag"); t.removeEventListener("pointermove", move); t.removeEventListener("pointerup", up); };
+    t.addEventListener("pointermove", move); t.addEventListener("pointerup", up);
+  });
+  paint();
 }
 document.getElementById("page").addEventListener("click", e => {
   const pl = e.target.closest("[data-play]"), co = e.target.closest("[data-core]"), ve = e.target.closest("[data-ver]");
