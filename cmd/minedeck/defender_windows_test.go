@@ -141,8 +141,8 @@ func TestDefenderParamsRoundTrip(t *testing.T) {
 			if got != p {
 				t.Errorf("%s：-ExclusionPath 读回来是 %q，应为 %q", action, got, p)
 			}
-			if !strings.HasPrefix(rest, " -Force; exit 0 }") {
-				t.Errorf("%s %q：路径后面应紧跟 -Force，实际 %.40q", action, p, rest)
+			if !strings.HasPrefix(rest, " -Force -ErrorAction Stop; exit 0 }") {
+				t.Errorf("%s %q：路径后面应紧跟 -Force -ErrorAction Stop，实际 %.40q", action, p, rest)
 			}
 			j := strings.Index(script, "$o=")
 			if gotOut, rest := psLiteralAt(t, script[j+3:]); gotOut != out || !strings.HasPrefix(rest, "; ") {
@@ -169,7 +169,8 @@ func TestDefenderScriptRealPowerShell(t *testing.T) {
 	}
 	out := `C:\Users\张三 O’Neil\AppData\Local\Temp\minedeck-defender-1.txt`
 
-	// 1. 只解析：脚本从环境变量交过去，原样一个字节不差；结果转成 JSON 再 Base64，不受控制台代码页影响
+	// 1. 只解析：脚本写成 JSON、转 Base64 从标准输入交过去（原样一个字节不差，也没有环境变量 32K 字符的上限）；
+	//    结果同样转成 JSON 再 Base64，不受控制台代码页影响
 	type check struct {
 		Errors   int      `json:"errors"`
 		Commands []string `json:"commands"`
@@ -185,7 +186,7 @@ func TestDefenderScriptRealPowerShell(t *testing.T) {
 		}
 	}
 	js, _ := json.Marshal(scripts)
-	parser := `$ErrorActionPreference='Stop'; $all = ConvertFrom-Json $env:MINEDECK_TEST_SCRIPTS; ` +
+	parser := `$ErrorActionPreference='Stop'; $all = ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([Console]::In.ReadToEnd()))); ` +
 		`$res = foreach ($src in $all) { $tk=$null; $er=$null; ` +
 		`$ast=[System.Management.Automation.Language.Parser]::ParseInput($src,[ref]$tk,[ref]$er); ` +
 		`$cmds=@($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true)); ` +
@@ -196,7 +197,7 @@ func TestDefenderScriptRealPowerShell(t *testing.T) {
 		`[Console]::Out.Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject @($res) -Depth 4 -Compress))))`
 	cmd := exec.Command(exe)
 	cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: syscall.EscapeArg(exe) + " " + psCommandParams(parser), CreationFlags: windows.CREATE_NO_WINDOW}
-	cmd.Env = append(os.Environ(), "MINEDECK_TEST_SCRIPTS="+string(js))
+	cmd.Stdin = strings.NewReader(base64.StdEncoding.EncodeToString(js))
 	var so, se bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &so, &se
 	if err := cmd.Run(); err != nil {
@@ -409,6 +410,8 @@ func TestDoDefenderAction(t *testing.T) {
 		{name: "加入：等太久", action: defenderAdd, base: base, err: errDefenderTimeout, kind: dfFailed, target: base, ran: true, inDetail: []string{"两分钟"}},
 		{name: "加入：记着的是另一个位置，不替它加", action: defenderAdd, base: base, record: old, kind: dfRefused, target: base,
 			inDetail: []string{old.Path, base}},
+		{name: "加入：路径是空的记录（手改坏的配置）当没记过，照样加", action: defenderAdd, base: base, record: &app.DefenderExclusion{At: t0}, kind: dfOK,
+			target: base, ran: true, changed: true, rec: &app.DefenderExclusion{Path: base, At: t0}},
 		{name: "加入：磁盘根目录不加", action: defenderAdd, base: `D:\`, kind: dfRefused, target: `D:\`, inDetail: []string{"磁盘根目录"}},
 		{name: "加入：程序就放在下载文件夹里，不加", action: defenderAdd, base: `C:\Users\张三\Downloads`, kind: dfRefused, target: `C:\Users\张三\Downloads`,
 			inDetail: []string{"系统文件夹"}},
@@ -447,7 +450,7 @@ func TestDoDefenderAction(t *testing.T) {
 				if len(f.calls) != 1 {
 					t.Fatalf("应只提权一次，实际 %d 次", len(f.calls))
 				}
-				if !strings.Contains(f.calls[0], " -ExclusionPath "+psQuote(c.target)+" -Force") {
+				if !strings.Contains(f.calls[0], " -ExclusionPath "+psQuote(c.target)+" -Force -ErrorAction Stop;") {
 					t.Errorf("参数里应带着 %s：%s", psQuote(c.target), f.calls[0])
 				}
 				cmdlet := map[string]string{defenderAdd: "Add-MpPreference", defenderRemove: "Remove-MpPreference"}[c.action]

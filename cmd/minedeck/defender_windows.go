@@ -110,7 +110,7 @@ func psQuote(s string) string {
 // isPSSingleQuote PowerShell 认作单引号的字符（和它的 CodeGeneration.EscapeSingleQuotedStringContent 一致）。
 func isPSSingleQuote(r rune) bool {
 	switch r {
-	case '\'', '‘', '’', '‚', '‛':
+	case '\'', '\u2018', '\u2019', '\u201A', '\u201B':
 		return true
 	}
 	return false
@@ -118,6 +118,8 @@ func isPSSingleQuote(r rune) bool {
 
 // defenderScript 拼出要以管理员身份跑的那段 PowerShell。先看 WinDefend 服务在不在跑（不在跑的话 Add-MpPreference 反正会失败，
 // 而且报的是一串十六进制的错误码，看不出是 Defender 没开）；再加或删；出错时把原文写进 outFile。
+// Add / Remove-MpPreference 失败时给的是不终止的错误：除了开头的 $ErrorActionPreference，命令上再写一遍 -ErrorAction Stop，
+// 不然万一没进 catch，脚本照样 exit 0，这边就把没加上的记成了「已加入」。
 // 结果文件出错写不进去也不改退出码（-ErrorAction SilentlyContinue），界面照样分得清是哪种失败，只是「详情」里少了原文。
 // 整段不含双引号：交给 windows.EscapeArg 包成一个参数时不用再转义里面的东西。
 func defenderScript(action, path, outFile string) string {
@@ -130,7 +132,7 @@ func defenderScript(action, path, outFile string) string {
 		"$s=Get-Service -Name WinDefend -ErrorAction SilentlyContinue; " +
 		"if (-not $s) { " + save + "'WinDefend service not installed'; exit " + fmt.Sprint(psExitNoService) + " }; " +
 		"if ($s.Status -ne 'Running') { " + save + "('WinDefend service status: ' + $s.Status); exit " + fmt.Sprint(psExitNoService) + " }; " +
-		"try { " + cmdlet + " -ExclusionPath " + psQuote(path) + " -Force; exit 0 } " +
+		"try { " + cmdlet + " -ExclusionPath " + psQuote(path) + " -Force -ErrorAction Stop; exit 0 } " +
 		"catch { $e=$_; " + save + "($e.Exception.Message + ' | ' + $e.FullyQualifiedErrorId + ' | HResult=0x' + ('{0:X8}' -f $e.Exception.HResult)); " +
 		"if ($e.FullyQualifiedErrorId -eq 'CommandNotFoundException') { exit " + fmt.Sprint(psExitNoCmdlet) + " }; exit " + fmt.Sprint(psExitCmdletErr) + " }"
 }
@@ -291,7 +293,7 @@ func doDefenderAction(action string, env defenderEnv) (res defenderResult, rec *
 		res.Path = target
 		// 界面上记着别的位置时只给「撤销」，不会走到这里；页面里的脚本直接调过来时也不替它加：
 		// 新的一记，旧的那条就没人记得了，留在系统里一直不扫
-		if env.record != nil && !samePath(env.record.Path, target) {
+		if env.record != nil && env.record.Path != "" && !samePath(env.record.Path, target) { // 路径是空的记录（手改坏的配置）当没记过
 			res.Kind, res.Msg = dfRefused, "以前加入的是另一个位置，先撤销那一条"
 			res.Detail = "以前加入的：" + env.record.Path + "\n现在的程序数据文件夹：" + target
 			return res, env.record, false
