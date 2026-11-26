@@ -62,6 +62,11 @@ window.EXTRA_ICONS = {
 <link rel="stylesheet" href="detail-players.css">
 <script src="detail-net.js"></script>
 <link rel="stylesheet" href="detail-net.css">
+<!-- 11-27 夜里派子代理画的几页（各自一份；还没画的是占位） -->
+<script src="detail-world.js"></script>
+<link rel="stylesheet" href="detail-world.css">
+<script src="detail-addons.js"></script>
+<link rel="stylesheet" href="detail-addons.css">
 <style>
   body { background: var(--bg); overflow: hidden; }
   /* 标题栏：同首页 */
@@ -853,11 +858,13 @@ window.DETAIL_TABS = window.DETAIL_TABS || {};
 const tabCtx = () => ({ S, kind, st, tab, sub: subPick[tab], QS, $, $$, esc, thinBar, KIT, online: ONLINE(), setOnline, folders: folderList(), goTab });
 function content() {
   if (tab === "console") return consoleHTML();
-  const v = DETAIL_TABS[tab];
+  const v = tabView();
   if (v) return v.html(tabCtx());
   return `<div class="empty">${folders()}</div>`;
 }
-function mountTab() { mountConsole(); if (tab !== "console") DETAIL_TABS[tab]?.mount?.(tabCtx()); }
+// 有子页的标签可以每个子页一份（登记成「标签/子页」，如 settings/common），没有就用整个标签的那份
+const tabView = () => DETAIL_TABS[tab + "/" + subPick[tab]] || DETAIL_TABS[tab];
+function mountTab() { mountConsole(); if (tab !== "console") tabView()?.mount?.(tabCtx()); }
 function body() {
   $("#body").innerHTML = `<aside class="snav" id="snav"><span class="hl"></span>${sideItems()}</aside><div class="cp" id="cp">${content()}</div>`;
   placeSide(true);
