@@ -19,7 +19,8 @@
      基准 1280×800 下不滚动，底边留白 86 给底下的按钮 */
   .page { max-width: 1160px; margin: 0 auto; padding: 0 40px 86px; min-height: calc(100vh - 40px); box-sizing: border-box;
           display: flex; flex-direction: column; align-items: center; }
-  .q { margin: 44px 0 28px; font-size: 30px; line-height: 38px; font-weight: 600; letter-spacing: -.01em; text-align: center; }
+  /* 问话和下面大卡的间隔 28 → 48（作者 11-26：大卡和面板往下挪一点，离问话远一点） */
+  .q { margin: 44px 0 48px; font-size: 30px; line-height: 38px; font-weight: 600; letter-spacing: -.01em; text-align: center; }
 
   /* 玩法：四张大卡，照首页大卡的做法（外圆角 26、内边距 8，核心色封面圆角 18 带方格暗纹，同心），图标 48 放在封面正中 */
   .plays { width: 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; position: relative; }
@@ -103,28 +104,35 @@
           color: var(--faint); font-size: 12px; font-weight: 400; width: 120px; }
   .find .ico { width: 13px; height: 13px; }
 
-  /* 别的四种开服方式：页面最下面一行淡字，不抢眼（原来是一整页五张卡） */
+  /* 别的四种开服方式：页面最下面一行淡字，不抢眼（原来是一整页五张卡）。打头的「手上有现成的？」作者 11-26 删了，只留四个 */
   .alt { margin-top: auto; padding-top: 16px; display: flex; gap: 4px; align-items: center; font-size: 12.5px; color: var(--faint); }
   .alt span.b { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border-radius: 14px; color: var(--muted); cursor: pointer; }
   .alt span.b:hover { color: var(--text); background: var(--hover); }
   .alt .ico { width: 14px; height: 14px; }
   .placeholder { margin-top: 24px; width: 100%; height: 360px; border-radius: 26px; border: 1px dashed var(--border); display: grid; place-items: center; color: var(--faint); font-size: 13px; }
 
-  /* 底部：胶囊沉下去以后，左下角「上一步」、右下角「下一步」，和版心的左右边对齐，高度和离底跟胶囊一样（52、18）；
-     中间一排小点是第几步（主会话加的，不要可以去掉） */
+  /* 底部：胶囊沉下去以后，左下角「上一步」、右下角「下一步」，和版心的左右边对齐；中间一排小点是第几步（主会话加的，不要可以去掉）。
+     两个按钮照首页胶囊的做法（作者 11-26 问是不是比首页的导航条大：外框一样高，但原来整块 52 高都是实心的，看着更大更重）：
+     外面一层半透明的小胶囊（52 高、内边距 5、细边、同样的阴影、离底 18），按钮本身 40 高、13 号字，和胶囊里的「+」一样大；
+     「下一步」只有里面这 40 高的一块是强调色 */
   .wnav { position: fixed; left: 0; right: 0; bottom: 18px; z-index: 10; pointer-events: none; }
   .wnav .in { max-width: 1160px; margin: 0 auto; padding: 0 40px; display: flex; align-items: center; }
   .wnav .sp { flex: 1; }
-  .wbtn { pointer-events: auto; height: 52px; padding: 0 22px; border-radius: 26px; display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
-          border: 1px solid var(--border); box-shadow: var(--elev-3); transition: transform .32s cubic-bezier(.4, 0, .2, 1), opacity .32s; }
-  .wbtn.back { color: var(--text); background: color-mix(in srgb, var(--overlay) 86%, transparent); backdrop-filter: blur(16px) saturate(1.2); }
+  .wcap { pointer-events: auto; display: inline-flex; padding: 5px; border-radius: var(--r-full); border: 1px solid var(--border);
+          background: color-mix(in srgb, var(--overlay) 86%, transparent); backdrop-filter: blur(16px) saturate(1.2); box-shadow: var(--elev-3);
+          transition: transform .32s cubic-bezier(.4, 0, .2, 1), opacity .32s; }
+  .wbtn { height: 40px; padding: 0 16px; border: 0; border-radius: var(--r-full); display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+          font: inherit; font-size: 13px; font-weight: 600; color: var(--text); background: transparent; }
+  .wbtn .ico { width: 16px; height: 16px; }
+  .wbtn.back { padding-left: 12px; }
+  .wbtn.back:hover { background: var(--hover); }
   .wbtn.back .ico { transform: rotate(180deg); }
-  .wbtn.next { color: var(--on-accent); background: var(--accent-solid); border-color: transparent; }
+  .wbtn.next { padding-right: 12px; color: var(--on-accent); background: var(--accent-solid); }
   .wbtn.next:hover { background: var(--accent-solid-hov); }
   .dots { display: flex; gap: 8px; pointer-events: auto; transition: opacity .32s; }
   .dots i { width: 8px; height: 8px; border-radius: 3px; background: color-mix(in srgb, var(--text) 18%, transparent); }
   .dots i.on { width: 22px; background: var(--accent); }
-  body.hidden-nav .wbtn { transform: translateY(160%); opacity: 0; }
+  body.hidden-nav .wcap { transform: translateY(160%); opacity: 0; }
   body.hidden-nav .dots { opacity: 0; }
 </style>
 </head>
@@ -133,9 +141,9 @@
   <div class="win"><span><i data-ic="winMin"></i></span><span><i data-ic="winMax"></i></span><span><i data-ic="winClose"></i></span></div></header>
 <main class="page" id="page"></main>
 <div class="wnav"><div class="in">
-  <button class="wbtn back" id="back"><i data-ic="chevronRight"></i>上一步</button>
+  <span class="wcap"><button class="wbtn back" id="back"><i data-ic="chevronRight"></i>上一步</button></span>
   <span class="sp"></span><span class="dots" id="dots"></span><span class="sp"></span>
-  <button class="wbtn next" id="next">下一步<i data-ic="chevronRight"></i></button>
+  <span class="wcap"><button class="wbtn next" id="next">下一步<i data-ic="chevronRight"></i></button></span>
 </div></div>
 <script>
 // 玩法四块（问题 U05 定的方向）：每块下面只列这一类的核心，推荐的预先选好
@@ -209,7 +217,7 @@ function step1() {
   const intro = `<div class="col intro" id="intro">${introInner()}</div>`;
   const cores = `<div class="col" id="corecol"><h3>核心</h3><div class="lwrap"><div class="list"><i class="hl"></i>${coreRows(play)}</div><i class="thumb"></i></div></div>`;
   const versions = `<div class="col" id="vercol">${versionsInner()}</div>`;
-  const alt = `<div class="alt">手上有现成的？` + [["package", "导入整合包"], ["globe", "用已有地图"], ["share", "导入交接包"], ["folder", "接管已有服务器"]].map(([i, t]) => `<span class="b"><i data-ic="${i}"></i>${t}</span>`).join("") + `</div>`;
+  const alt = `<div class="alt">` + [["package", "导入整合包"], ["globe", "用已有地图"], ["share", "导入交接包"], ["folder", "接管已有服务器"]].map(([i, t]) => `<span class="b"><i data-ic="${i}"></i>${t}</span>`).join("") + `</div>`;
   return plays + `<div class="pick${hasCores(play) ? "" : " two"}">${intro}${cores}${versions}</div>` + alt;
 }
 function render() {
