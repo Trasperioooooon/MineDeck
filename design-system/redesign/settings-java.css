@@ -1,1 +1,127 @@
-/* 设置 · java：还没画（占位） */
+/* 全局设置 →「Java 运行时」（11-27 夜里第一稿，子代理照临时规范画的，等作者整体扫一眼）。说明写在 settings-java.js 开头。
+   选择器、动画名都带 sj 前缀，不碰外壳和别的分类（外壳用了 .tb .sk .page .cp .snav .hl .empty .cap .fade-in .fade-out）；
+   .list、.thumb 只在自己的 .sj-lw 里用（外壳的细滚动条 thinBar 认这两个名字）。
+
+   内容面板（.cp，868 × 658、内边距 8、圆角 26）里并排两栏（圆角 18 = 26 − 8，内边距 8，栏间 8）：
+     左「MineDeck 下载的」、右「本机装的」，各 422 宽。顶上一行 28 高（字离栏边 14，同「玩家」「备份」各栏）；
+     右栏右上角「重新扫描」贴栏角 8，28 见方、圆角 10（18 − 8，同各页右上角的文件夹按钮）。
+     中间是列表，一行 52 高（两行字：名字和版本、路径）、圆角 10（离栏边 8，18 − 8），多了在栏里滚（细滚动条）；
+     右栏最下面手动添加的框 40 高、圆角 10，框里的 ＋ 28 见方、离框外沿 6、圆角 4（10 − 6）。 */
+
+.sj { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.sj [hidden] { display: none !important; }
+.sj .mono, .sj-md .mono { font-family: var(--mono); }
+
+/* 栏：底色同「玩家」「备份」各栏 */
+.sj-col { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px; box-sizing: border-box; border-radius: 18px;
+          background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+.sj-hd { flex: none; height: 28px; display: flex; align-items: center; gap: 6px; padding-left: 6px; min-width: 0; }
+.sj-hd.fdpad { padding-right: 36px; }
+.sj-t { font-size: 13.5px; font-weight: 600; line-height: 20px; white-space: nowrap; cursor: default; }
+
+/* 右上角的「重新扫描本机 Java」：贴栏角 8，圆角 10；扫描中图标一直转、点不了 */
+.sj-corner { position: absolute; top: 8px; right: 8px; z-index: 2; width: 28px; height: 28px; border-radius: 10px; border: 0; padding: 0; display: grid; place-items: center;
+             background: none; color: var(--muted); cursor: pointer; transition: background .15s, color .15s; }
+.sj-corner:hover { background: var(--hover); color: var(--text); }
+.sj-corner .ico { width: 16px; height: 16px; }
+.sj-corner.busy { cursor: default; color: var(--text); }
+.sj-corner.busy:hover { background: none; }
+.sj-corner.busy .ico { animation: sj-spin .9s linear infinite; }
+@keyframes sj-spin { to { transform: rotate(360deg); } }
+
+/* 列表：细滚动条（同「玩家」、向导那套：系统的藏掉，右边 4 像素的细条在栏右边那 8 像素里，移上去或在滚时才出来、能拖；上下还有没露出来的那一头淡出 28） */
+.sj-lw { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.sj-lw .list { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; position: relative;
+               --ft: 0px; --fb: 0px; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%);
+               mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%); }
+.sj-lw .list::-webkit-scrollbar { display: none; }
+.sj-lw.can-up .list { --ft: 28px; } .sj-lw.can-down .list { --fb: 28px; }
+.sj-lw .thumb { position: absolute; right: -6px; width: 4px; border-radius: 2px; background: color-mix(in srgb, var(--text) 38%, transparent);
+                opacity: 0; transition: opacity .2s, width .15s, right .15s; cursor: pointer; }
+.sj-lw:hover .thumb, .sj-lw.scrolling .thumb, .sj-lw .thumb.drag { opacity: 1; }
+.sj-lw .thumb:hover, .sj-lw .thumb.drag { width: 6px; right: -7px; background: color-mix(in srgb, var(--text) 55%, transparent); }
+.sj-lw.fits .thumb { display: none; }
+/* 空的时候：列表正中一行淡字（最后一行真被拿掉以后才淡进来） */
+.sj-none { position: absolute; inset: 0; display: grid; place-items: center; font-size: 12.5px; color: var(--faint); pointer-events: none; opacity: 0;
+           transition: opacity .22s cubic-bezier(.2, .7, .2, 1); }
+.sj-lw.is-none .sj-none { opacity: 1; }
+.sj-out { pointer-events: none; }
+
+/* 一个 Java 一行：52 高、圆角 10。左边两行字（名字和版本、路径），右边谁在用（小胶囊）和卸载（残留那一行是清理） */
+.sj-row { flex: none; display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 12px; border-radius: 10px; box-sizing: border-box; min-width: 0; transition: background .15s; }
+.sj-row:hover { background: var(--hover); }
+.sj-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.sj-l1 { display: flex; align-items: center; gap: 8px; height: 20px; min-width: 0; }
+.sj-nm { flex: none; font-size: 13.5px; font-weight: 600; line-height: 20px; white-space: nowrap; }
+.sj-ver { min-width: 0; font-family: var(--mono); font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 路径：等宽，放不下时先省前面的上级目录，后面的 Java 文件夹名和 bin\java.exe 留着（同「启动与内存」的服务器文件夹框） */
+.sj-path { display: flex; min-width: 0; font-family: var(--mono); font-size: 11.5px; line-height: 17px; color: var(--faint); white-space: nowrap; }
+.sj-path .hd, .sj-path .tl { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sj-path .tl { flex-shrink: 0; max-width: 100%; }
+.sj-path .hd { flex-shrink: 1000; min-width: 1.6ch; }
+/* 标记：18 高的小胶囊（同「备份」） */
+.sj-tg { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 9px; font-size: 11px; font-weight: 500; line-height: 18px; white-space: nowrap;
+         background: color-mix(in srgb, var(--text) 9%, transparent); color: var(--muted); cursor: default; }
+.sj-tg.warn { background: var(--warning-subtle); color: var(--warning-text); }
+/* 谁在用：一台服务器一颗 20 高的小胶囊，开着的前面一个成功色小方点；点了去那台服务器的「设置 → 启动与内存」换 Java */
+.sj-use { flex: none; display: flex; gap: 4px; max-width: 58%; min-width: 0; overflow: hidden; }
+.sj-sv { flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px; border-radius: 10px; border: 0; font: inherit; font-size: 11.5px;
+         font-weight: 500; white-space: nowrap; background: color-mix(in srgb, var(--text) 9%, transparent); color: var(--muted); cursor: pointer; text-decoration: none;
+         transition: background .15s, color .15s; }
+.sj-sv > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sj-sv:hover { color: var(--text); background: color-mix(in srgb, var(--text) 14%, transparent); }
+.sj-sv > i { width: 6px; height: 6px; border-radius: 2px; flex: none; background: var(--success-text); }
+/* 图标按钮：28 见方，行里离行的右边 12，圆角 6（同「备份」行里的按钮） */
+.sj-ib { width: 28px; height: 28px; border-radius: 6px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;
+         transition: background .15s, color .15s, opacity .15s; }
+.sj-ib:hover { background: var(--hover); color: var(--text); }
+.sj-ib .ico { width: 15px; height: 15px; }
+/* 卸载一直露着（行少，规范第九节「暂时不能用的：灰掉、悬停说原因，不藏起来」）；有服务器在用的灰着 */
+.sj-row .sj-rm { margin-right: -6px; }
+.sj-rm[aria-disabled="true"] { opacity: .35; cursor: not-allowed; }
+.sj-rm[aria-disabled="true"]:hover { background: none; color: var(--muted); }
+.sj-row.sj-flash { animation: sj-flash .9s cubic-bezier(.2, .7, .2, 1); }
+@keyframes sj-flash { 0%, 30% { background: var(--accent-subtle); } 100% { background: transparent; } }
+
+/* 手动添加：40 高、圆角 10（离栏边 8，同心），路径用等宽字；回车或点框里的 ＋；不对时框标红、晃一下，＋ 的位置换成一句短的红字（全文进悬停） */
+.sj-add { flex: none; position: relative; display: flex; align-items: center; gap: 4px; height: 40px; min-width: 0; padding: 0 5px 0 12px; border-radius: 10px; box-sizing: border-box; cursor: text;
+          background: var(--field); border: 1px solid var(--border); transition: border-color .2s, box-shadow .2s; margin-top: 2px; }
+.sj-add:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.sj-add input { flex: 1; min-width: 0; height: 28px; border: 0; outline: 0; padding: 0; background: none; font-family: var(--mono); font-size: 12.5px; color: var(--text); }
+.sj-add input::placeholder { color: var(--faint); font-family: var(--font); font-size: 13px; }
+.sj-add .sj-plus { border-radius: 4px; color: var(--faint); }
+.sj-add.has .sj-plus { color: var(--accent-text); }
+.sj-msg { display: none; flex: none; padding-right: 7px; font-size: 12px; color: var(--danger-text); white-space: nowrap; cursor: default; }
+.sj-add.bad { border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
+.sj-add.bad:focus-within { box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger-text) 14%, transparent); }
+.sj-add.bad .sj-msg:not(:empty) { display: block; }
+.sj-add.bad .sj-msg:not(:empty) ~ .sj-plus { display: none; }
+
+/* ================= 确认框：同共用件页（commons.html）、「世界与备份」的危险确认框 =================
+   外 26 / 内边距 8、里面的栏 18，标题前一个危险色图标块（40 见方、离栏的角 8、圆角 10），底下一排 36 高胶囊等宽铺满；默认聚焦「取消」，画一圈细框。
+   遮罩从标题栏下面开始。--scrim、--elev-4 外壳里没有，照共用件页的深浅两套定在这里 */
+.sj-mask { --sj-scrim: rgb(var(--shadow-rgb) / .32); --sj-elev4: 0 28px 64px -16px rgb(var(--shadow-rgb) / .32), 0 8px 20px -4px rgb(var(--shadow-rgb) / .10);
+           position: fixed; left: 0; right: 0; top: 40px; bottom: 0; z-index: 40; display: grid; place-items: center; background: var(--sj-scrim); backdrop-filter: blur(2px); }
+[data-theme="dark"] .sj-mask { --sj-scrim: rgb(0 0 0 / .56); --sj-elev4: 0 32px 72px -16px rgb(0 0 0 / .72), 0 8px 24px -4px rgb(0 0 0 / .40); }
+.sj-mask.enter { animation: sj-mk-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.sj-mask.enter > .sj-md { animation: sj-md-in .26s cubic-bezier(.2, .7, .2, 1) both; }
+.sj-mask.leave { animation: sj-mk-out .14s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+.sj-mask.leave > .sj-md { animation: sj-md-out .14s cubic-bezier(.4, 0, 1, 1) both; }
+@keyframes sj-mk-in { from { opacity: 0; } } @keyframes sj-mk-out { to { opacity: 0; } }
+@keyframes sj-md-in { from { opacity: 0; transform: translateY(10px); } } @keyframes sj-md-out { to { opacity: 0; transform: translateY(6px); } }
+.sj-md { width: 380px; box-sizing: border-box; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--sj-elev4); display: flex; flex-direction: column; gap: 8px; }
+.sj-mc { border-radius: 18px; padding: 18px 20px 20px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); display: flex; flex-direction: column; gap: 12px; }
+.sj-mh { display: flex; align-items: center; gap: 12px; margin: -10px 0 0 -12px; }
+.sj-mi { width: 40px; height: 40px; border-radius: 10px; flex: none; display: grid; place-items: center; background: var(--danger-subtle); color: var(--danger-text); }
+.sj-mi .ico { width: 20px; height: 20px; }
+.sj-md h3 { flex: 1; min-width: 0; margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; }
+.sj-mb { font-size: 13px; line-height: 21px; color: var(--muted); }
+.sj-mb b { color: var(--text); font-weight: 600; }
+.sj-ma { display: flex; gap: 8px; }
+.sj-b { flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center; height: 36px; padding: 0 14px; border-radius: 18px; box-sizing: border-box;
+        border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer;
+        transition: background-color .2s; outline: none; }
+.sj-b:hover { background: var(--control-hov); }
+.sj-b.dgr { background: var(--danger-solid); color: var(--on-danger); border-color: transparent; font-weight: 600; }
+.sj-b.dgr:hover { background: var(--danger-solid-hov); }
+.sj-b.fk { outline: 2px solid var(--accent); outline-offset: 2px; }

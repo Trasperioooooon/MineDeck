@@ -1,1 +1,96 @@
-/* 设置 · remote：还没画（占位） */
+/* 全局设置 →「手机远程管理」（11-27 夜里第一稿，子代理照临时规范画的，等作者整体扫一眼）。说明写在 settings-remote.js 开头。
+   选择器、动画名都带 sr 前缀，不碰外壳和别的分类。
+
+   内容面板（.cp，868 × 658、内边距 8、圆角 26）里并排两栏，圆角 18（26 − 8）、内边距 16 / 20（同设置里「外观」「下载与网络」「存储位置」的栏），栏间 8：
+     左栏 360 宽：最上面总开关一行（36 高、圆角 10，开关 36 × 20 在字的左边，悬停的底往两边各伸 12，同「外观」的开关）；
+       下面「访问密码」一格（字 18 + 6 + 框 40，同向导第三步，块和块隔 24），框 40 高、圆角 10，框里的保存 28 见方、离框外沿 6、圆角 4；
+       最下面「放行防火墙」：一块等宽的命令（圆角 10），右上角复制（离框外沿 6、圆角 4）。
+     右栏「手机扫码访问」：正中二维码 200 见方、圆角 10（码区恒白，同程序 --qr-light / --qr-dark，不随主题反色），
+       下面一行地址：24 号等宽 600（规范第五节「要人照着填的地址」），后面复制、换地址两颗 28 见方、圆角 4 的图标按钮（同向导第四步的局域网地址）。 */
+
+.sr { --sr-qr-dark: #18181b; --sr-qr-light: #ffffff; /* 同 app.css 的 --qr-dark / --qr-light：二维码恒深码浅底，扫得出来 */
+      flex: 1; min-height: 0; display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 8px; }
+.sr [hidden] { display: none !important; }
+.sr .mono, .sr-dm .mono { font-family: var(--mono); }
+
+.sr-col { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 24px; padding: 16px 20px 20px; box-sizing: border-box; border-radius: 18px;
+          background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+
+/* 总开关：一行 36 高、圆角 10，开关 36 × 20、滑块 16 在字的左边（同「外观」、向导、「玩家」页）；字只写名字，说明进悬停 */
+.sr-tg { flex: none; display: flex; align-items: center; gap: 10px; height: 36px; margin: -6px -12px 0; padding: 0 12px; min-width: 0; border: 0; border-radius: 10px; background: none;
+         font: inherit; font-size: 13px; color: var(--text); cursor: pointer; text-align: left; transition: background .15s; }
+.sr-tg:hover { background: var(--hover); }
+.sr-sw { position: relative; width: 36px; height: 20px; border-radius: 10px; flex: none; background: color-mix(in srgb, var(--text) 18%, transparent); transition: background .2s; }
+.sr-sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 8px; background: var(--text); transition: transform .26s cubic-bezier(.3, .7, .2, 1); }
+.sr-tg.on .sr-sw { background: var(--accent-solid); }
+.sr-tg.on .sr-sw::after { transform: translateX(16px); background: var(--on-accent); }
+.sr-tl { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 一格：字 18 + 6 + 框 40（同向导第三步、设置里别的分类） */
+.sr-fld { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: none; }
+.sr-set .sr-fw { margin-top: auto; }
+.sr-lb { height: 18px; display: flex; align-items: center; font-size: 12.5px; line-height: 18px; font-weight: 500; color: var(--muted); white-space: nowrap; }
+.sr-lb > span { cursor: default; }
+
+/* 密码框：40 高、圆角 10，框里右边一颗保存（28 见方、离框外沿 6 = 边 1 + 内边距 5、圆角 4）；框里有字时保存亮起来，空着也能点（点了就地拦下，同程序） */
+.sr-in { position: relative; display: flex; align-items: center; gap: 4px; height: 40px; min-width: 0; padding: 0 5px 0 12px; border-radius: 10px; box-sizing: border-box; cursor: text;
+         background: var(--field); border: 1px solid var(--border); transition: border-color .2s, box-shadow .2s; }
+.sr-in:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.sr-in input { flex: 1; min-width: 0; height: 28px; border: 0; outline: 0; padding: 0; background: none; font: inherit; font-size: 14px; letter-spacing: .08em; color: var(--text); }
+.sr-in input::placeholder { color: var(--faint); font-size: 13px; letter-spacing: 0; }
+.sr-in .sr-save { color: var(--faint); }
+.sr-in.dirty .sr-save { color: var(--accent-text); }
+.sr-in .sr-save.done { color: var(--success-text); }
+.sr-msg { display: none; flex: none; padding-right: 7px; font-size: 12px; color: var(--danger-text); white-space: nowrap; cursor: default; }
+.sr-in.bad { border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
+.sr-in.bad:focus-within { box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger-text) 14%, transparent); }
+.sr-in.bad .sr-msg:not(:empty) { display: block; }
+.sr-in.bad .sr-msg:not(:empty) ~ .sr-save { display: none; }
+
+/* 图标按钮：28 见方、圆角 4（框里离框外沿 6；地址后面的同向导第四步） */
+.sr-ib { width: 28px; height: 28px; border-radius: 4px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;
+         transition: background .15s, color .15s; }
+.sr-ib:hover, .sr-ib.open { background: var(--hover); color: var(--text); }
+.sr-ib .ico { width: 15px; height: 15px; }
+.sr-ib.done, .sr-ib.done:hover { color: var(--success-text); }
+.sr-ib .sr-chev { transition: transform .32s cubic-bezier(.3, .7, .2, 1); }
+.sr-ib.open .sr-chev { transform: rotate(180deg); }
+
+/* 放行防火墙：一块等宽的命令（折行），右上角复制 */
+.sr-cmd { position: relative; min-width: 0; padding: 9px 40px 9px 12px; border-radius: 10px; box-sizing: border-box; background: var(--field); border: 1px solid var(--border);
+          font-family: var(--mono); font-size: 12px; line-height: 19px; color: var(--text); overflow-wrap: anywhere; -webkit-user-select: all; user-select: all; }
+.sr-cmd .sr-ib { position: absolute; top: 5px; right: 5px; -webkit-user-select: none; user-select: none; }
+
+/* ================= 右栏：手机扫码访问 ================= */
+.sr-qrw { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding-bottom: 42px; } /* 让出顶上那行字（18 + 24），码在栏的正中 */
+/* 二维码：200 见方、圆角 10。没开、开了还没重启、没有局域网 IP 时是一块糊掉的淡码（不是能扫的码），开着生效时清楚起来 */
+.sr-qr { position: relative; flex: none; width: 200px; height: 200px; border-radius: 10px; box-sizing: border-box; overflow: hidden; background: var(--sr-qr-light);
+         border: 1px solid var(--border); transition: opacity .32s cubic-bezier(.3, .7, .2, 1); }
+.sr-qr svg { display: block; width: 100%; height: 100%; transition: filter .32s cubic-bezier(.3, .7, .2, 1); }
+.sr-qbg { fill: var(--sr-qr-light); }
+.sr-qfg { fill: var(--sr-qr-dark); }
+.sr-qr.dim { opacity: .28; }
+.sr-qr.dim svg { filter: blur(4px); }
+/* 码下面那一行：固定 36 高，换状态时只换这一行里的东西 */
+.sr-under { flex: none; height: 36px; display: flex; align-items: center; justify-content: center; min-width: 0; max-width: 100%; }
+.sr-url { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.sr-u { min-width: 0; margin-right: 6px; font-family: var(--mono); font-size: 24px; font-weight: 600; line-height: 32px; letter-spacing: -.01em; white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis; -webkit-user-select: all; user-select: all; }
+.sr-note { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--warning-text); white-space: nowrap; }
+.sr-note > .ico { width: 15px; height: 15px; flex: none; }
+.sr-note > span { cursor: default; }
+
+/* ================= 换地址的菜单：同共用件页（外圆角 16、细边 1 加内边距 5，项 36 高、圆角 10 = 16 − 6）；挂在 body 上 ================= */
+.sr-dm { position: fixed; z-index: 50; min-width: 180px; padding: 5px; box-sizing: border-box; display: flex; flex-direction: column; gap: 1px;
+         border-radius: 16px; border: 1px solid var(--border); background: var(--overlay); box-shadow: var(--elev-3); }
+.sr-dm.enter { animation: sr-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.sr-dm.leave { animation: sr-out .09s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+@keyframes sr-in { from { opacity: 0; transform: translateY(-5px); } }
+@keyframes sr-out { to { opacity: 0; transform: translateY(-5px); } }
+.sr-it { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: 10px; box-sizing: border-box; font-family: var(--mono); font-size: 13px; color: var(--text);
+         cursor: pointer; white-space: nowrap; transition: background .15s; }
+.sr-it:hover { background: var(--hover); }
+.sr-it > span { flex: 1; }
+.sr-it.here { cursor: default; }
+.sr-it.here:hover { background: none; }
+.sr-it .ico { width: 15px; height: 15px; flex: none; color: var(--accent-text); }
