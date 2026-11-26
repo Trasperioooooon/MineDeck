@@ -228,9 +228,9 @@
      说明字收进悬停（端口可用、存放位置、服务器介绍、允许飞行、推荐内存），一样高的控件一律 40 高、圆角 10，不用系统自带的滑条和数字框箭头。
      第一稿右边还有正版验证、白名单两个开关，作者问「联机开不开」这两步怎么接以后挪到了第四步「谁能进」（见第四步的注释）。
      EULA 没勾时点「下一步」不往下走，那一条标红、左右晃一下。代理端没有端口、介绍、游戏规则和 EULA，右边换成一句话。
-     说明字收掉以后内容矮了一截，第三步的面板改成按内容的高度，不再撑满 520、底下空一大块（第四步内容会随选择变高变矮，仍固定 520） */
+     说明字收掉以后内容矮了一截，第三步的面板改成按内容的高度，不再撑满、底下空一大块。第四步内容会随选择变高变矮，固定 420（最高的是樱花连上以后多一行「这是公开服务器」，到 387，名单换成三行也放得下），换选择时面板不跳 */
   .setp:not(.link) { height: auto; }
-  .setp { width: 100%; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-1); box-sizing: border-box; height: 520px;
+  .setp { width: 100%; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-1); box-sizing: border-box; height: 420px;
           display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; gap: 8px; } /* minmax(0, …)：存放路径不换行，长了不许把这一列撑宽 */
   .setp .col { padding: 14px 16px; gap: 16px; }
   .setp .col h3 { margin: 0 0 -4px; }
@@ -341,7 +341,9 @@
      左边「朋友怎么连」：只在局域网 / 开内网穿透，二选一，默认局域网；选中的底色上下滑（同前几步的选中框）。底下跟着选的那样逐项换（竖着挪）：
      局域网是朋友要填的地址，内网穿透是挑平台（三张小卡，选中的底色左右滑；底下一段跟着平台横着逐项换）。
      右边「谁能进」：正版验证、白名单（从第三步挪过来）；白名单打开时底下展开一栏，可以先把朋友的游戏名加进来；
-     最底下一句跟着两边的选择变，该提醒的时候是黄底。行、卡片离边都有 16，圆角不受同心的限制；输入框里贴边 5 的小块圆角 5（10 − 5） */
+     白名单底下一句跟着两边的选择变，只在该提醒的时候出现。
+     11-26 照计划书开头的规矩过了一遍：看得见的说明都压到八个字以内，长的进悬停；提醒那句不再贴在栏的下角（那里要按同心算），挪到白名单下面；
+     名单框里的名字块离框外沿 6（边框 1 加内边距 5），圆角 4（10 − 6）；名字块里的 × 只变颜色，不画底 */
   .setp.link { grid-template-rows: minmax(0, 1fr); }
   .via { position: relative; display: flex; flex-direction: column; gap: 4px; }
   .via .vhl, .plats .phl { position: absolute; left: 0; top: 0; border-radius: 12px; background: var(--accent-subtle); pointer-events: none;
@@ -349,7 +351,7 @@
                            transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1), height .32s cubic-bezier(.3, .7, .2, 1); }
   .via .vhl { right: 0; }
   .plats .phl { bottom: 0; }
-  .opt { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 12px; cursor: pointer; transition: background .2s, opacity .2s; }
+  .opt { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 12px; cursor: pointer; transition: background .2s, opacity .2s; }
   .opt:hover:not(.on):not(.off) { background: var(--hover); }
   .opt .oi { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--surface); color: var(--muted); flex: none; transition: color .2s; }
   .opt .oi .ico { width: 18px; height: 18px; }
@@ -377,13 +379,19 @@
   .plat.on { background: transparent; }
   .plat .n { font-size: 13.5px; font-weight: 600; white-space: nowrap; }
   .plat.on .n { color: var(--accent-text); }
-  .plat .m { font-size: 12px; color: var(--muted); margin-top: 1px; display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .plat .m { font-size: 12px; color: var(--muted); margin-top: 1px; display: flex; align-items: center; gap: 5px; white-space: nowrap; min-height: 18px; }
   .dot { width: 7px; height: 7px; border-radius: 2px; background: var(--faint); flex: none; }
   .dot.ok { background: var(--success); }
-  .fnote a + a { margin-left: 12px; }
-  .fnote.p { display: block; } /* 一段话里夹着端口号这种 <b> 的：照段落排，不按 flex 拆成几块 */
-  .conn { display: flex; align-items: center; gap: 10px; min-height: 34px; font-size: 13px; color: var(--muted); transition: color .2s; }
-  .conn.bad { color: var(--danger-text); }
+  /* 节点：和输入框一样 40 高、圆角 10 的一块，点了换节点；旁边「用已有隧道」是个文字按钮 */
+  .nrow2 { display: flex; align-items: center; gap: 12px; }
+  .node { height: 40px; flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 10px; box-sizing: border-box; cursor: pointer;
+          background: var(--field); border: 1px solid var(--border); font-size: 13.5px; transition: border-color .2s; }
+  .node:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+  .node .ico { width: 15px; height: 15px; color: var(--muted); }
+  .node .sp { flex: 1; }
+  .tlink { flex: none; font-size: 12.5px; color: var(--accent-text); cursor: pointer; white-space: nowrap; }
+  .conn { display: flex; align-items: center; gap: 10px; min-height: 40px; font-size: 13px; color: var(--muted); transition: color .2s; }
+  .conn.bad .sbtn { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger-text) 70%, transparent); color: var(--danger-text); }
   .conn .ico { width: 15px; height: 15px; }
   .spin { animation: spin .9s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -405,14 +413,15 @@
   .names.bad { border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
   .names input { flex: 1; min-width: 180px; height: 28px; border: 0; background: none; outline: none; padding: 0 6px; font: inherit; font-size: 13px; color: var(--text); }
   .names input::placeholder { color: var(--faint); }
-  .nchip { display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 0 3px 0 10px; border-radius: 5px; background: var(--accent-subtle); color: var(--accent-text);
+  .nchip { display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 0 4px 0 10px; border-radius: 4px; background: var(--accent-subtle); color: var(--accent-text);
            font-size: 12.5px; font-weight: 500; }
-  .nchip .nx { width: 20px; height: 20px; border-radius: 4px; display: grid; place-items: center; cursor: pointer; opacity: .7; }
-  .nchip .nx:hover { opacity: 1; background: color-mix(in srgb, var(--accent) 18%, transparent); }
+  .nchip .nx { width: 18px; height: 20px; display: grid; place-items: center; cursor: pointer; opacity: .6; transition: opacity .15s; }
+  .nchip .nx:hover { opacity: 1; }
   .nchip .nx .ico { width: 12px; height: 12px; }
-  .whint { margin-top: auto; display: flex; gap: 8px; align-items: flex-start; font-size: 12px; line-height: 18px; color: var(--faint); padding: 10px 12px;
-           border-radius: 12px; transition: background .2s, color .2s; }
-  .whint .ico { width: 14px; height: 14px; flex: none; margin-top: 2px; }
+  .whint { display: flex; gap: 8px; align-items: center; font-size: 12.5px; line-height: 18px; color: var(--faint); padding: 8px 12px; margin-top: -4px;
+           border-radius: 10px; transition: background .2s, color .2s; cursor: default; }
+  .whint.none, #wlnote:empty { display: none; }
+  .whint .ico { width: 14px; height: 14px; flex: none; }
   .whint.warn { background: color-mix(in srgb, var(--warning) 12%, transparent); color: var(--warning-text); }
   .whint.info { background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--muted); }
 
@@ -887,67 +896,66 @@ const LINK = { via: "lan", plat: "openfrp", sakura: false, connecting: false, pu
 const LAN_IP = "192.168.1.5";
 const PLATS = [["openfrp", "OpenFrp"], ["sakura", "樱花穿透"], ["frps", "自己的 frps"]];
 const viaOf = () => isProxyCore() ? "lan" : LINK.via;
-const ltg = (key, t, d) => `<div class="tg sm${LINK[key] ? " on" : ""}" data-ltg="${key}"><div class="m"><div class="t">${t}</div><div class="d">${d}</div></div><span class="sw"></span></div>`;
+const ltg = (key, t, tip) => `<div class="tg sm${LINK[key] ? " on" : ""}" data-ltg="${key}" title="${esc(tip)}"><div class="m"><div class="t">${t}</div></div><span class="sw"></span></div>`;
 const nchip = n => `<span class="nchip" data-name="${esc(n)}">${esc(n)}<span class="nx" data-unname="${esc(n)}" title="拿掉"><i data-ic="x"></i></span></span>`;
 function platMeta(k) {
-  if (k === "openfrp") return `<i class="dot ok"></i>已连接 · steve`;
-  if (k === "sakura") return LINK.sakura ? `<i class="dot ok"></i>已连接 · steve` : `<i class="dot"></i>未连接`;
-  return "填地址和令牌";
+  if (k === "openfrp") return `<i class="dot ok"></i>steve`;
+  if (k === "sakura") return LINK.sakura ? `<i class="dot ok"></i>steve` : `<i class="dot"></i>未连接`;
+  return "";
 }
 // 选了哪个平台，底下那段说什么
 function platDetail() {
   const k = LINK.plat;
-  const auto = name => `<span class="fnote p">MineDeck 替你在${name}上建隧道：本地端口 <b>${esc(SET.port)}</b>，节点自动挑了香港 2 号。</span>
-    <span class="fnote"><a>换节点</a><a>用平台上已有的隧道</a></span>`;
+  // 连上的平台：一块写着节点（自动挑的，点了换），旁边「用已有隧道」；建隧道、本地端口这些说明收进悬停
+  const auto = name => `<div class="nrow2"><div class="node" title="MineDeck 替你在${name}上建一条隧道，本地端口 ${esc(SET.port)}；节点自动挑了一个能用的，点了换">
+      <i data-ic="globe"></i>香港 2 号<span class="sp"></span><i data-ic="chevronDown"></i></div><a class="tlink" title="平台上已经建好的隧道，挑一条拿来用">用已有隧道</a></div>`;
   if (k === "openfrp") return auto(" OpenFrp ");
   if (k === "sakura" && LINK.sakura) return auto("樱花穿透") + ltg("pub", "这是公开服务器", "发到论坛、QQ 大群里招人的才打开；樱花规定这种只能用公开服专用节点");
-  if (k === "sakura") return `<div class="conn">${LINK.connecting ? `<i data-ic="spinner" class="spin"></i>等你在浏览器里登录…`
-      : `<span>还没连接樱花穿透的账户</span><button class="sbtn" data-act="connect">连接账户</button>`}</div>
-    <span class="fnote">会打开浏览器登录一次，以后这台电脑上不用再连。</span>`;
-  return `<div class="frps"><input class="inp" id="fhost" placeholder="服务器地址" value="${esc(LINK.frps.host)}" autocomplete="off"><input class="inp fport" id="fport" placeholder="端口" value="${esc(LINK.frps.port)}" inputmode="numeric"><input class="inp" id="ftoken" type="password" placeholder="令牌（没设就空着）" value="${esc(LINK.frps.token)}"></div>
-    <span class="fnote p">有自己的 frp 服务器才用这个；本地端口 <b>${esc(SET.port)}</b>。</span>`;
+  if (k === "sakura") return `<div class="conn">${LINK.connecting ? `<i data-ic="spinner" class="spin"></i>等你登录…`
+      : `<button class="sbtn" data-act="connect" title="会打开浏览器登录一次，以后这台电脑上不用再连">连接樱花穿透</button>`}</div>`;
+  return `<div class="frps" title="有自己的 frp 服务器才用这个；本地端口 ${esc(SET.port)}"><input class="inp" id="fhost" placeholder="服务器地址" value="${esc(LINK.frps.host)}" autocomplete="off"><input class="inp fport" id="fport" placeholder="端口" value="${esc(LINK.frps.port)}" inputmode="numeric"><input class="inp" id="ftoken" type="password" placeholder="令牌（可空）" value="${esc(LINK.frps.token)}"></div>`;
 }
 // 「朋友怎么连」底下那一段
 function viaDetail() {
   if (viaOf() === "lan") {
     const proxy = isProxyCore();
-    return `<span class="lb">同一局域网的朋友在游戏里添加服务器时填这个</span>
-    <div class="addr"><span class="mono">${LAN_IP}:${proxy ? "" : esc(SET.port)}</span>${proxy ? `<span class="unk">端口第一次启动以后才知道</span>`
-      : `<span class="sp"></span><button class="ib" data-act="copy" title="复制"><i data-ic="copy"></i></button>`}</div>
-    <span class="fnote">以后想让外地的朋友也进来，随时能在服务器的「联机」里开内网穿透。</span>`;
+    return `<span class="lb" title="同一局域网的朋友在游戏里添加服务器时填这个">朋友填这个地址</span>
+    <div class="addr"><span class="mono">${LAN_IP}:${proxy ? "" : esc(SET.port)}</span>${proxy ? `<span class="unk" title="代理端的端口写在它自己的配置文件里，第一次启动才生成">端口启动后才知道</span>`
+      : `<span class="sp"></span><button class="ib" data-act="copy" title="复制"><i data-ic="copy"></i></button>`}</div>`;
   }
-  return `<span class="lb">用哪个平台</span>
+  return `<span class="lb">平台</span>
     <div class="plats"><i class="phl"></i>${PLATS.map(([k, n]) => `<div class="plat${LINK.plat === k ? " on" : ""}" data-plat="${k}"><div class="n">${n}</div><div class="m">${platMeta(k)}</div></div>`).join("")}</div>
     <div class="pdet">${platDetail()}</div>`;
 }
-// 「谁能进」最底下那一句：[样子, 话]。样子 warn 是黄底、info 是灰底、空的就是一行淡字
+// 白名单下面那一句：[样子, 看得见的短话, 悬停的整句]。样子 warn 是黄底、info 是灰底、none 不出现（没什么要提醒的时候不写字）
 function whoHint() {
   const tun = viaOf() === "tunnel";
-  if (SET.wl && !LINK.names.length) return ["warn", "白名单开着、名单还是空的，建好后朋友进不来。先把他们的游戏名加进来，也可以建好后在「玩家」里加。"];
-  if (tun && !SET.wl) return ["warn", "开了内网穿透，拿到地址的人都能进。只想让熟人进，就把白名单打开。"];
-  if (tun && !SET.online) return ["info", "没开正版验证时，白名单只认名字，别人把名字改成一样也能进。朋友都用正版的话，可以把正版验证也打开。"];
-  return ["", "这两样建好后都能改：正版验证在服务器的「设置」里，白名单在「玩家」里。"];
+  if (SET.wl && !LINK.names.length) return ["warn", "名单是空的，朋友进不来", "白名单开着、名单还是空的，建好后朋友进不来；先把他们的游戏名加进来，也可以建好后在「玩家」里加"];
+  if (tun && !SET.wl) return ["warn", "谁拿到地址都能进", "开了内网穿透，拿到地址的人都能进；只想让熟人进，就把白名单打开"];
+  if (tun && !SET.online) return ["info", "白名单只认名字", "没开正版验证时，别人把名字改成一样也能进；朋友都用正版的话，可以把正版验证也打开"];
+  return ["none", "", ""];
 }
-const hintHTML = ([cls, txt]) => `${cls ? `<i data-ic="${cls === "warn" ? "warn" : "info"}"></i>` : ""}<span>${txt}</span>`;
+const hintHTML = ([cls, txt]) => cls === "none" ? "" : `<i data-ic="${cls === "warn" ? "warn" : "info"}"></i><span>${txt}</span>`;
 function step4() {
   const proxy = isProxyCore(), via = viaOf();
-  const opt = (k, ico, t, d, off) => `<div class="opt${via === k ? " on" : ""}${off ? " off" : ""}" data-via="${k}"><span class="oi"><i data-ic="${ico}"></i></span><div class="m"><div class="t">${t}</div><div class="d">${d}</div></div></div>`;
+  const opt = (k, ico, t, d, off, tip) => `<div class="opt${via === k ? " on" : ""}${off ? " off" : ""}" data-via="${k}" title="${esc(tip)}"><span class="oi"><i data-ic="${ico}"></i></span><div class="m"><div class="t">${t}</div><div class="d">${d}</div></div></div>`;
   const left = `<div class="col"><h3>朋友怎么连</h3>
     <div class="via"><i class="vhl"></i>
-      ${opt("lan", "wifi", "只在局域网", "和你连同一个 Wi-Fi、同一个路由器的朋友能进")}
-      ${opt("tunnel", "globe", "开内网穿透", proxy ? "代理端的端口第一次启动以后才知道，启动过以后在「联机」里开" : "不在同一个网络的朋友也能进，隧道跟着服务器一起启动", proxy)}
+      ${opt("lan", "wifi", "只在局域网", "同一 Wi-Fi 的朋友", false, "和你连同一个 Wi-Fi、同一个路由器的朋友能进")}
+      ${opt("tunnel", "globe", "开内网穿透", proxy ? "启动过以后再开" : "外地的朋友也能进", proxy,
+        proxy ? "代理端的端口第一次启动以后才知道，启动过以后在服务器的「联机」里开" : "不在同一个网络的朋友也能进；MineDeck 在平台上建一条隧道，跟着服务器一起启动")}
     </div>
     <div class="vdet">${viaDetail()}</div></div>`;
   const h = whoHint();
   const right = proxy
-    ? `<div class="col"><h3>谁能进</h3><div class="pnote">代理端只做转发：正版验证在它自己的配置文件里改，<br>白名单在后面接的各台服务器上开。</div></div>`
+    ? `<div class="col"><h3>谁能进</h3><div class="pnote" title="正版验证在代理端自己的配置文件里改，白名单在后面接的各台服务器上开">代理端在自己的配置里设</div></div>`
     : `<div class="col"><h3>谁能进</h3>
-      ${tg("online", "正版验证", "online-mode", "关着时离线账号也能进，但不用正版 UUID，也不显示正版皮肤")}
-      ${tg("wl", "只允许白名单里的玩家进入", "white-list", "关着时知道地址的人都能进；只想让熟人进，就打开它")}
+      ${tg("online", "正版验证", "online-mode", "", "开着只有正版账号能进；关着时离线账号也能进，但不用正版 UUID，也不显示正版皮肤")}
+      ${tg("wl", "白名单", "white-list", "", "开着只有名单里的玩家能进；关着时知道地址的人都能进")}
       <div class="wlx${SET.wl ? " open" : ""}"><div class="wlin">
         <div class="names" id="names">${LINK.names.map(nchip).join("")}<input id="wlname" maxlength="16" placeholder="输入玩家名，回车添加" autocomplete="off" spellcheck="false"></div>
-        <span class="fnote" id="wlnote">建好后在「玩家」里也能加减</span></div></div>
-      <div class="whint ${h[0]}" id="whint">${hintHTML(h)}</div></div>`;
+        <span class="fnote bad" id="wlnote"></span></div></div>
+      <div class="whint ${h[0]}" id="whint" title="${esc(h[2])}">${hintHTML(h)}</div></div>`;
   return `<div class="setp link">${left}${right}</div>`;
 }
 // 选中的底色挪到选中的那一项（竖着的「怎么连」、横着的平台）
@@ -984,7 +992,7 @@ function paintHint() {
   el.dataset.txt = txt;
   el.getAnimations().forEach(a => a.cancel());
   el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 90, easing: "cubic-bezier(.4, 0, 1, 1)", fill: "forwards" }).onfinish = a => {
-    const now = whoHint(); el.className = `whint ${now[0]}`; el.innerHTML = hintHTML(now); el.dataset.txt = now[1]; KIT.hydrate(el);
+    const now = whoHint(); el.className = `whint ${now[0]}`; el.innerHTML = hintHTML(now); el.title = now[2]; el.dataset.txt = now[1]; KIT.hydrate(el);
     el.getAnimations().forEach(x => x.cancel());
     el.animate([{ opacity: 0, transform: "translateY(4px)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: "cubic-bezier(.2, .7, .2, 1)" });
   };
@@ -1020,7 +1028,7 @@ function addName(v) {
   const n = v.trim(), inp = document.getElementById("wlname"), box = document.getElementById("names"), note = document.getElementById("wlnote");
   if (!n) return;
   if (!/^[A-Za-z0-9_]{1,16}$/.test(n)) {
-    box.classList.add("bad"); note.classList.add("bad"); note.textContent = "玩家名不合法（1~16 位字母数字下划线）";
+    box.classList.add("bad"); note.textContent = "玩家名不合法"; note.title = "1~16 位字母、数字或下划线";
     box.animate([{ transform: "none" }, { transform: "translateX(-5px)" }, { transform: "translateX(4px)" }, { transform: "none" }], { duration: 300, easing: "cubic-bezier(.3, .7, .2, 1)" });
     return;
   }
@@ -1386,7 +1394,7 @@ document.getElementById("page").addEventListener("input", e => {
   else if (t.id === "fhost" || t.id === "fport" || t.id === "ftoken") { LINK.frps[{ fhost: "host", fport: "port", ftoken: "token" }[t.id]] = t.value; t.classList.remove("bad"); }
   else if (t.id === "wlname") {
     const box = document.getElementById("names"), note = document.getElementById("wlnote");
-    if (box.classList.contains("bad")) { box.classList.remove("bad"); note.classList.remove("bad"); note.textContent = "建好后在「玩家」里也能加减"; }
+    if (box.classList.contains("bad")) { box.classList.remove("bad"); note.textContent = ""; note.title = ""; }
   }
 });
 document.getElementById("page").addEventListener("keydown", e => {
