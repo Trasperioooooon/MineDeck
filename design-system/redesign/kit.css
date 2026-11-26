@@ -34,3 +34,9 @@ button { font: inherit; color: inherit; }
 .mono { font-family: var(--mono); }
 .muted { color: var(--muted); }
 .faint { color: var(--faint); }
+/* 悬停提示（kit.js 第 4 条）：样子同首页胶囊上的提示，字多时折行 */
+.kit-tip { position: fixed; z-index: 1000; max-width: 280px; padding: 5px 10px; border-radius: var(--r-sm); background: var(--overlay); border: 1px solid var(--border);
+  box-shadow: var(--elev-2); color: var(--text); font-size: 12px; font-weight: 500; line-height: 18px; white-space: pre-line; pointer-events: none;
+  opacity: 0; transform: translateY(4px); transition: opacity .12s, transform .12s; }
+.kit-tip.below { transform: translateY(-4px); }
+.kit-tip.on { opacity: 1; transform: none; }

@@ -91,13 +91,13 @@
   .lwrap:hover .thumb, .lwrap.scrolling .thumb, .thumb.drag { opacity: 1; }
   .thumb:hover, .thumb.drag { width: 6px; right: -7px; background: color-mix(in srgb, var(--text) 55%, transparent); }
   .lwrap.fits .thumb { display: none; }
-  .row { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px 0 6px; border-radius: 12px; cursor: pointer; flex: none; font-size: 14px; font-weight: 500; }
+  .row { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px 0 6px; border-radius: 10px; cursor: pointer; flex: none; font-size: 14px; font-weight: 500; }
   .row { position: relative; z-index: 1; }
   .row:hover:not(.on) { background: var(--hover); }
   .row.on { color: var(--accent-text); font-weight: 600; }
   /* 选中的高亮框是列表里单独的一块，换选择时平滑滑到新的那一行（作者 11-26）；核心和版本两列都这样 */
   .list { position: relative; }
-  .hl { position: absolute; left: 4px; right: 12px; top: 0; height: 44px; border-radius: 12px; background: var(--accent-subtle); z-index: 0; pointer-events: none;
+  .hl { position: absolute; left: 4px; right: 12px; top: 0; height: 44px; border-radius: 10px; background: var(--accent-subtle); z-index: 0; pointer-events: none;
         box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
         transition: transform .32s cubic-bezier(.3, .7, .2, 1), height .32s cubic-bezier(.3, .7, .2, 1); }
   .row svg { width: 32px; height: 32px; display: block; flex: none; }
@@ -106,7 +106,7 @@
   .row.on .tag { color: var(--accent-text); }
   .vrow { height: 36px; padding: 0 12px; font-family: var(--mono); font-size: 13.5px; }
   .vrow.snap:not(.on) { color: var(--muted); }
-  .find { height: 30px; border-radius: 15px; padding: 0 10px; display: flex; align-items: center; gap: 6px; background: var(--field); border: 1px solid var(--border);
+  .find { height: 32px; border-radius: 16px; padding: 0 10px; display: flex; align-items: center; gap: 6px; background: var(--field); border: 1px solid var(--border);
           color: var(--faint); font-size: 12px; font-weight: 400; width: 120px; }
   .find .ico { width: 13px; height: 13px; }
 
@@ -131,7 +131,7 @@
   /* 左右大约 72 : 28（Gemini 复审 11-26 提的，作者让看着采纳）：左边两列卡片宽一些，名字放得下；清单一行一个，窄一点也够 */
   .addon .browse { flex: 2.6 1 0; }
   .addon .cart { flex: 1 1 0; }
-  .findin { height: 30px; border-radius: 15px; padding: 0 10px; display: flex; align-items: center; gap: 6px; background: var(--field); border: 1px solid var(--border);
+  .findin { height: 32px; border-radius: 16px; padding: 0 10px; display: flex; align-items: center; gap: 6px; background: var(--field); border: 1px solid var(--border);
             width: 170px; box-sizing: border-box; font-weight: 400; }
   .findin input { all: unset; flex: 1; min-width: 0; font-size: 12px; color: var(--text); }
   .findin input::placeholder { color: var(--faint); }
@@ -310,7 +310,7 @@
   .mleg i.free { background: color-mix(in srgb, var(--text) 9%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 14%, transparent); }
   /* 快捷预设：内存那一块里，格子下面一排小胶囊（圆角 = 高的一半）；分配正好是哪一档就亮哪一档，超过上限的灰掉 */
   .mpre { display: flex; gap: 6px; margin-top: 2px; } /* 格子到快捷预设一共 8，比块到「存放位置」的 24 紧 */
-  .mp { height: 26px; padding: 0 12px; border-radius: 13px; border: 1px solid var(--border); background: none; color: var(--muted); font: inherit; font-size: 12px; font-weight: 500;
+  .mp { height: 28px; padding: 0 12px; border-radius: 14px; border: 1px solid var(--border); background: none; color: var(--muted); font: inherit; font-size: 12px; font-weight: 500;
         cursor: pointer; transition: background .15s, color .15s, border-color .15s; }
   .mp:hover:not(:disabled):not(.on) { color: var(--text); background: var(--hover); }
   .mp.on { background: var(--accent-subtle); color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
@@ -427,11 +427,11 @@
      原来底色画在卡片上、卡片又压在高亮框上面，框滑过别的卡时被那张卡的底色挡住一截（作者 11-26 截图指出）。底色和卡片用同一格（grid-column）叠在一起 */
   /* 11-26 作者：局域网和自建 frps 两页都太空，并成一张卡、一页两块，四张卡变三张 */
   .vias { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; flex: none; }
-  .vslot { grid-row: 1; position: relative; z-index: 0; border-radius: 12px; background: color-mix(in srgb, var(--surface) 70%, transparent); }
-  .vias .vhl { position: absolute; z-index: 1; left: 0; top: 0; bottom: 0; border-radius: 12px; background: var(--accent-subtle); pointer-events: none;
+  .vslot { grid-row: 1; position: relative; z-index: 0; border-radius: 10px; background: color-mix(in srgb, var(--surface) 70%, transparent); }
+  .vias .vhl { position: absolute; z-index: 1; left: 0; top: 0; bottom: 0; border-radius: 10px; background: var(--accent-subtle); pointer-events: none;
                box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
                transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
-  .vcard { grid-row: 1; position: relative; z-index: 2; padding: 8px 12px; border-radius: 12px; cursor: pointer; min-width: 0; background: transparent; transition: background .2s, opacity .2s; }
+  .vcard { grid-row: 1; position: relative; z-index: 2; padding: 8px 12px; border-radius: 10px; cursor: pointer; min-width: 0; background: transparent; transition: background .2s, opacity .2s; }
   .vcard:hover:not(.on):not(.off) { background: var(--hover); }
   .vcard.off { opacity: .45; cursor: default; }
   .vcard .n { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -449,14 +449,13 @@
   /* 「局域网 / 自建 frps」那一页：左右两块一样高，占满卡片下面的地方。左边局域网（地址大字、能复制），右边自建 frps（开关在字的左边，关着时四个框淡着、点哪儿都是打开）。
      两块直接放在 .vdet 里，换卡时同别的页一样逐项换；圆角同上面卡片的底色（12，离外框够远，不受同心圆角的限制） */
   .vdet:has(> .lanp) { flex-direction: row; gap: 10px; }
-  .lanp { flex: 1; min-width: 0; border-radius: 12px; background: color-mix(in srgb, var(--surface) 70%, transparent); padding: 16px 20px 20px; box-sizing: border-box;
+  .lanp { flex: 1; min-width: 0; border-radius: 10px; background: color-mix(in srgb, var(--surface) 70%, transparent); padding: 16px 20px 20px; box-sizing: border-box;
           display: flex; flex-direction: column; }
   .lanp .lh { display: flex; align-items: center; gap: 10px; height: 24px; flex: none; }
   .lanp .lh > .ico { width: 16px; height: 16px; color: var(--muted); }
   .lanp .lh .t { font-size: 13.5px; font-weight: 600; }
   .lanp .lh .tg { flex: none; gap: 10px; margin: 0; }
   .lanp .lh .tg .m { flex: none; }
-  .lanp .lh .tg .sw { order: -1; }
   .lanp .lbody { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: flex-start; gap: 8px; padding-top: 56px; }
   .lanp .lb { font-size: 12.5px; color: var(--muted); font-weight: 500; }
   .bigaddr { display: flex; align-items: center; gap: 6px; min-width: 0; }
@@ -468,10 +467,8 @@
   .vlan, .lanp .frps { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
   .vlan { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 2px; }
   /* 「虚拟局域网」右边一个刷新（作者 11-26 要的）；一个都没检测到时，块的左下角一句提示（作者给的原话，在作者框出来的位置），检测到了就淡掉 */
-  .vlh { display: flex; align-items: center; gap: 2px; height: 24px; margin-bottom: 2px; }
+  .vlh { display: flex; align-items: center; gap: 2px; height: 28px; margin-bottom: 0; }
   .vlh .lb { width: fit-content; }
-  .vlh .ib { width: 24px; height: 24px; }
-  .vlh .ib .ico { width: 13px; height: 13px; }
   .vlh .ib.spinning .ico { animation: spin .9s linear infinite; }
   /* 网络多了在这块里上下滚（作者 11-26：滚动条不能用浏览器自带的）：用和核心、版本那两列同一套——.lwrap/.list 藏掉系统滚动条，
      右边 4 像素的细条（.thumb），悬停或滚的时候才出来，能拖；上下还有没露出来的行时那一头淡出 */
@@ -495,12 +492,13 @@
   .ib.done { color: var(--accent-text); }
   /* 节点面板 */
   .nbar { display: flex; align-items: center; gap: 12px; flex: none; }
-  .seg.sm { height: 32px; border-radius: 8px; flex: none; }
-  .seg.sm span { flex: none; padding: 0 14px; font-size: 12.5px; border-radius: 4px; }
-  .seg.sm .sgl { border-radius: 4px; }
+  /* 32 高的分段（换着看什么，不是表单里取值）：胶囊，同首页「最近启动 / 游玩时长 / 收藏」（11-26 作者定：没统一的都统一，胶囊不按同心） */
+  .seg.sm { height: 32px; border-radius: 16px; flex: none; }
+  .seg.sm span { flex: none; padding: 0 14px; font-size: 12.5px; border-radius: 12px; }
+  .seg.sm .sgl { border-radius: 12px; }
   .nmsg { font-size: 12px; color: var(--danger-text); opacity: 0; transition: opacity .2s; white-space: nowrap; }
   .nmsg.show { opacity: 1; }
-  .nsearch { margin-left: auto; width: 240px; height: 32px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 8px; box-sizing: border-box;
+  .nsearch { margin-left: auto; width: 240px; height: 32px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 16px; box-sizing: border-box;
              background: var(--field); border: 1px solid var(--border); cursor: text; transition: border-color .2s; }
   .nsearch:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
   .nsearch .ico { width: 14px; height: 14px; color: var(--faint); flex: none; }
@@ -574,7 +572,7 @@
   .kbtn .ico { width: 14px; height: 14px; }
   .kbtn:disabled { opacity: .7; cursor: default; }
   .tlink { flex: none; font-size: 12.5px; color: var(--accent-text); cursor: pointer; white-space: nowrap; }
-  .nph { flex: 1; min-height: 0; margin-top: 6px; border-radius: 12px; border: 1px dashed color-mix(in srgb, var(--text) 18%, transparent); display: grid; place-items: center; font-size: 12.5px; color: var(--faint); }
+  .nph { flex: 1; min-height: 0; margin-top: 6px; border-radius: 10px; border: 1px dashed color-mix(in srgb, var(--text) 18%, transparent); display: grid; place-items: center; font-size: 12.5px; color: var(--faint); }
   .spin { animation: spin .9s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .frps { display: grid; grid-template-columns: minmax(0, 1fr) 132px; gap: 10px; }
@@ -588,7 +586,6 @@
   .wt-on { padding-right: 20px; }
   .who .tg { flex: none; gap: 12px; }
   .who .tg .m { flex: none; }
-  .who .tg .sw { order: -1; }
   .who .tg .t { font-size: 13.5px; font-weight: 600; white-space: nowrap; }
   /* 名单框：外面一层画框，里面一层（.wscroll）横着滚。名单多了，框的两头淡出一截表示那边还有；鼠标移到框的左右两头，名单自动往那边滑（越靠边越快，
      作者 11-26 提的），滚轮也能横着滚；输入框的提示只在一个名字都没有时出现 */
@@ -611,6 +608,7 @@
   .nchip .nx .ico { width: 12px; height: 12px; }
   #wlnote { flex: none; font-size: 12px; color: var(--danger-text); padding-right: 14px; }
   #wlnote:empty { display: none; }
+  .tg .sw { order: -1; } /* 开关一律在字的左边（11-26 作者定统一，同第三步 EULA） */
   .tg.sm .t { font-size: 13px; }
   .tg.sm { margin-top: 4px; }
   /* 底部：胶囊沉下去以后，左下角「上一步」、右下角「下一步」，和版心的左右边对齐；中间一排小点是第几步（主会话加的，不要可以去掉）。
@@ -811,7 +809,7 @@ function moreCards() {
     g.insertAdjacentHTML("beforeend", next.map(x => cardHTML(x, has)).join(""));
     const added = [...g.querySelectorAll(".mod")].slice(shown); KIT.hydrate(g);
     added.forEach((c, i) => c.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }],
-      { duration: 220, delay: Math.min(i, 9) * 18, easing: "cubic-bezier(.2, .7, .2, 1)", fill: "backwards" }));
+      { duration: 220, delay: Math.min(i, 9) * 22, easing: "cubic-bezier(.2, .7, .2, 1)", fill: "backwards" }));
     shown += next.length;
     if (shown >= total) g.insertAdjacentHTML("beforeend", gridEnd(total));
     loadingMore = false;
@@ -902,17 +900,20 @@ function syncAddons(clear = false) {
 // 换类别、搜索：卡片那一块逐项换（一起淡掉，再一张一张淡进来）。
 // dir：换类别时是往右点（1）还是往左点（-1）的，卡片跟着左右滑（作者 11-26：分类是左右排的，卡片别再由下往上）——
 // 旧的往反方向挪 8 像素淡掉，新的从点的那一侧挪 12 像素一张一张进来；搜索没有左右之分，dir 是 0，照旧从下往上浮一点
+// 只给列表里看得见的那些做淡入（同第一步版本那一列），下面没露出来的直接放好
+const inView = (list, els) => { const top = list.scrollTop, bot = top + list.clientHeight; return els.filter(x => x.offsetTop < bot && x.offsetTop + x.offsetHeight > top); };
 function regrid(dir = 0) {
   const g = document.getElementById("agrid"), easeIn = "cubic-bezier(.4, 0, 1, 1)", easeOut = "cubic-bezier(.2, .7, .2, 1)";
   document.getElementById("atitle").innerHTML = atitle();
   document.querySelectorAll(".chip").forEach(c => c.classList.toggle("on", c.dataset.cat === acat));
   placeChipHL(true);
   g.getAnimations({ subtree: true }).forEach(a => a.cancel());
-  const a = g.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: dir ? `translateX(${-8 * dir}px)` : "none" }], { duration: 90, easing: easeIn, fill: "forwards" });
+  // 换法同第一步换核心那一列（11-26 作者定：没统一的都统一，后面的对齐前面的）：旧的一起往反方向挪 5 像素淡掉，新的从点的那一侧挪 5 像素、一张一张淡进来
+  const a = g.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: dir ? `translateX(${-5 * dir}px)` : "none" }], { duration: 90, easing: easeIn, fill: "forwards" });
   a.onfinish = () => {
     g.scrollTop = 0; g.innerHTML = gridHTML(); KIT.hydrate(g); a.cancel();
-    const from = dir ? `translateX(${12 * dir}px)` : "translateY(5px)";
-    [...g.children].slice(0, 12).forEach((c, i) => c.animate([{ opacity: 0, transform: from }, { opacity: 1, transform: "none" }], { duration: 240, delay: i * 18, easing: easeOut, fill: "backwards" }));
+    const from = dir ? `translateX(${5 * dir}px)` : "translateY(5px)";
+    inView(g, [...g.children]).forEach((c, i) => c.animate([{ opacity: 0, transform: from }, { opacity: 1, transform: "none" }], { duration: 220, delay: i * 22, easing: easeOut, fill: "backwards" }));
     g.closest(".lwrap")._paint?.();
   };
 }
@@ -1160,7 +1161,7 @@ function refreshVlan(b) {
     const box = document.getElementById("vrows"); if (!box) return;
     box.innerHTML = vlanRows(); KIT.hydrate(box);
     [...box.children].forEach((c, i) => c.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }],
-      { duration: 240, delay: i * 18, easing: "cubic-bezier(.2, .7, .2, 1)", fill: "backwards" }));
+      { duration: 220, delay: i * 22, easing: "cubic-bezier(.2, .7, .2, 1)", fill: "backwards" }));
     document.getElementById("vnone")?.classList.toggle("gone", vlanNets().length > 0);
     box.scrollTop = 0; scrollbar(box.closest(".lwrap"));
   }, 600);
@@ -1350,7 +1351,7 @@ function lanPage() {
   return lan + frp;
 }
 // 自建 frps 那块的大字：服务器地址加公网端口（空着用本地端口），边填边拼；地址没填时用淡字占着位置，复制灰着。
-// 服务器地址在上面大字和下面框里各出现一次，和「一个值只说一次」有出入：作者 11-26 说「加上」，但这个出入当时没向作者提过，留不留等作者定（朋友要的是整串，不是两个框）
+// 服务器地址在上面大字和下面框里各出现一次，和「一个值只说一次」有出入，作者 11-26 定保持：这一行是为了把朋友要填的整串地址呈现出来、给人复制
 function frpsAddr() {
   const h = LINK.frps.host.trim(), port = LINK.frps.remote.trim() || (isProxyCore() ? "" : SET.port); // 代理端的本地端口启动后才知道，只写到冒号（同局域网那行）
   return (h ? `<span class="mono" title="${esc(h)}:${esc(port)}">${esc(h)}:${esc(port)}</span>` : `<span class="ph">服务器地址</span><span class="mono">:${esc(port)}</span>`)
@@ -1464,13 +1465,13 @@ function regridNodes(dir = 0) {
   const k = viaOf(), easeIn = "cubic-bezier(.4, 0, 1, 1)", easeOut = "cubic-bezier(.2, .7, .2, 1)";
   l.getAnimations({ subtree: true }).forEach(a => a.cancel()); // 连着点：上一次还没换完的作废，从眼下的样子接着换
   const tok = l._tok = (l._tok || 0) + 1;
-  const a = l.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: dir ? `translateX(${-8 * dir}px)` : "none" }], { duration: 90, easing: easeIn, fill: "forwards" });
+  const a = l.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: dir ? `translateX(${-5 * dir}px)` : "none" }], { duration: 90, easing: easeIn, fill: "forwards" });
   a.onfinish = () => {
     if (l._tok !== tok) return;
     l.scrollTop = 0; l.innerHTML = tabOf(k) === "new" ? nodeCards(k) : tunRows(k); KIT.hydrate(l); a.cancel();
-    const from = dir ? `translateX(${12 * dir}px)` : "translateY(5px)";
-    [...l.querySelectorAll(".ngh, .nd, .trow, .nempty")].slice(0, 18).forEach((c, i) =>
-      c.animate([{ opacity: 0, transform: from }, { opacity: 1, transform: "none" }], { duration: 240, delay: i * 18, easing: easeOut, fill: "backwards" }));
+    const from = dir ? `translateX(${5 * dir}px)` : "translateY(5px)";
+    inView(l, [...l.querySelectorAll(".ngh, .nd, .trow, .nempty")]).forEach((c, i) =>
+      c.animate([{ opacity: 0, transform: from }, { opacity: 1, transform: "none" }], { duration: 220, delay: i * 22, easing: easeOut, fill: "backwards" }));
     l.closest(".lwrap")?._paint?.();
   };
 }
@@ -1530,7 +1531,7 @@ function addName(v) {
   if (!n) return;
   if (!/^[A-Za-z0-9_]{1,16}$/.test(n)) {
     box.classList.add("bad"); note.textContent = "玩家名不合法"; note.title = "1~16 位字母、数字或下划线";
-    box.animate([{ transform: "none" }, { transform: "translateX(-5px)" }, { transform: "translateX(4px)" }, { transform: "none" }], { duration: 300, easing: "cubic-bezier(.3, .7, .2, 1)" });
+    shakeEl(box); // 同别处拦下一步的那一下
     return;
   }
   inp.value = "";

@@ -47,11 +47,14 @@ window.EXTRA_ICONS = {
   .sec .hint { font-size: 12px; color: var(--faint); }
   .sec .sp { flex: 1; }
 
-  /* 分段控件：凹陷轨道 + 凸起的当前项（同 MASTER 的 .seg） */
-  .seg { display: flex; gap: 2px; padding: 3px; border-radius: var(--r-full); background: color-mix(in srgb, var(--text) 6%, var(--bg)); }
-  .seg button { border: 0; background: none; height: 26px; padding: 0 12px; border-radius: var(--r-full); font-size: 12.5px; font-weight: 500; color: var(--muted); cursor: pointer; display: flex; align-items: center; gap: 5px; }
+  /* 分段控件（32 高胶囊，换着看什么）：底槽同向导的分段（输入框的底和细边），选中的强调色底单独一块滑过去。
+     原来是凹陷轨道加凸起的当前项、一下跳过去（同 MASTER 的 .seg）；11-26 作者定「没统一的都统一」，改成和向导一样（选中框一律滑） */
+  .seg { position: relative; display: flex; gap: 2px; padding: 3px; height: 32px; box-sizing: border-box; border-radius: var(--r-full); background: var(--field); border: 1px solid var(--border); }
+  .seg .sgl { position: absolute; left: 0; top: 3px; bottom: 3px; border-radius: var(--r-full); background: var(--accent-subtle); pointer-events: none;
+              transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
+  .seg button { position: relative; z-index: 1; border: 0; background: none; height: 24px; padding: 0 12px; border-radius: var(--r-full); font-size: 12.5px; font-weight: 500; color: var(--muted); cursor: pointer; display: flex; align-items: center; gap: 5px; }
   .seg button:hover { color: var(--text); }
-  .seg button.on { background: var(--surface); color: var(--text); box-shadow: var(--elev-1); }
+  .seg button.on { color: var(--accent-text); }
   .seg .ico { width: 14px; height: 14px; }
 
   /* 上面三张大卡 */
@@ -375,7 +378,7 @@ if (QS.get("embed")) document.body.classList.add("embed");
   <div class="sec">
     <h2 id="top-title"></h2><span class="hint" id="top-hint"></span>
     <span class="sp"></span>
-    <div class="seg" role="radiogroup" aria-label="上面三张大卡按什么挑">
+    <div class="seg" role="radiogroup" aria-label="上面三张大卡按什么挑"><i class="sgl"></i>
       <button data-mode="recent" role="radio"><i data-ic="clock"></i>最近启动</button>
       <button data-mode="hours" role="radio"><i data-ic="bolt"></i>游玩时长</button>
       <button data-mode="pin" role="radio"><i data-ic="star"></i>收藏</button>
@@ -498,8 +501,17 @@ function render() {
   document.getElementById("tb-stats").innerHTML = `<span><span class="dot"></span><b>${run.length}</b> 台运行中</span><span><b>${ppl}</b> 人在线</span><span>共 <b>${SERVERS.length}</b> 台</span>`;
   KIT.hydrate(document.querySelector(".tb"));
   for (const b of document.querySelectorAll(".seg button")) { b.classList.toggle("on", b.dataset.mode === mode); b.setAttribute("aria-checked", b.dataset.mode === mode); }
+  placeSegHL();
   KIT.hydrate(document.querySelector(".page"));
   carS.edges(); restS.edges();
+}
+// 分段的选中底色挪到选中的那一个：第一次画时直接放过去，以后滑过去（同向导）
+let segPlaced = false;
+function placeSegHL() {
+  const hl = document.querySelector(".seg .sgl"), on = document.querySelector(".seg button.on"); if (!hl || !on) return;
+  if (!segPlaced) hl.style.transition = "none";
+  hl.style.transform = `translateX(${on.offsetLeft}px)`; hl.style.width = on.offsetWidth + "px";
+  if (!segPlaced) { void hl.offsetWidth; hl.style.transition = ""; segPlaced = true; }
 }
 document.querySelector(".seg").addEventListener("click", e => { const b = e.target.closest("button"); if (b && b.dataset.mode !== mode) { mode = b.dataset.mode; carS.reset(); restS.reset(); render(); } });
 document.querySelector(".page").addEventListener("click", e => { const p = e.target.closest(".pin"); if (p) { const s = SERVERS[+p.dataset.i]; s.pin = !s.pin; render(); } });
