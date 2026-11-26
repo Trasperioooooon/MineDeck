@@ -340,7 +340,7 @@ window.EXTRA_ICONS = {
      它脱离文档流（绝对定位），字标、概览条、大卡、「其他」、底部胶囊的位置一像素都不动。没有这些事时胶囊不出现，页面和定稿一模一样。
      点胶囊在它下面展开一块浮层（大面板的做法：外圆角 26、内边距 8，里面每类一栏，圆角 18；栏里每行圆角 10，离栏边 8，同心），
      进出场和 commons.html 的菜单同一套（0.22 秒从上面 5 像素落下、ease-out；收起 0.09 秒、ease-in）；内容高过窗口时在浮层里滚，细滚动条同向导，底边不压进胶囊的 86。
-     只加在这个参数后面：不带参数时这段样式一条都不生效，脚本一个节点都不插。 */
+     只加在这个参数后面：不带参数时这段样式一条都不生效，脚本一个节点都不插。?notices=1 这个开关草图专用，定了就删（程序里有没有这些提示看后端的数据）。 */
   body.notices .hd { position: relative; }
   .ntc { position: absolute; top: -50px; left: 50%; transform: translateX(-50%); z-index: 2; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 12px;
          border: 0; border-radius: var(--r-full); background: var(--surface); box-shadow: var(--elev-1); color: var(--muted); font-size: 12.5px; font-weight: 500; white-space: nowrap; cursor: pointer;
@@ -425,7 +425,7 @@ if (QS.get("ai") === "0") document.body.classList.add("no-ai");
 if (QS.get("empty")) document.body.classList.add("empty");
 if (QS.get("enter")) document.body.classList.add("entering");
 if (QS.get("embed")) document.body.classList.add("embed");
-if (QS.get("notices")) document.body.classList.add("notices"); // 列表上方的提示和读不出配置的只读小块，见页面最后那段
+if (QS.get("notices")) document.body.classList.add("notices"); // 列表上方的提示和读不出配置的只读小块，见页面最后那段（这个参数草图专用，定了就删）
 </script>
 
 <header class="tb">

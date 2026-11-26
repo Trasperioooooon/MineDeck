@@ -51,7 +51,10 @@ window.EXTRA_ICONS = {
      · 菜单里暂时不能点的项（服务器开着时的导出、删除）：程序是在项下面写一行「需先停止服务器」，这里照规范第九节灰掉、原因进悬停。
      · 右上角提示的停留：程序里报错的和带按钮的停 20 秒（app.js TOAST_LINGER_MS，可用性走查 R03 从 8 秒改的），任务单和 MASTER 第 11 节第 11 条写的是 8 秒；这里照程序画。
      · 整页状态：程序是把整个 body 换成一行字（标题栏也没了，原生窗口里拖不动、关不掉）；这里留着标题栏和窗口三键（MASTER 红线 3），字摆在正中。
-   要后端补的：没有。这一页画的东西程序现在都有，只是换了排法；「服务器不存在」那页多了一颗「回到主页」（等同底部胶囊的主页），见那段注释。 */
+     · 删除服务器：输名字那一栏一直摆着（关着时淡着），程序是打开开关才出来；名字没对上时主键能点、点了拦下来晃一下，程序是键灰着点不动。
+     · 没装上的文件：程序在一个都没选、或者选了「用本地文件代替」没给路径时，是在右上角出一条报错提示（「先给至少一个文件选处理方式」「… 选了「用本地文件代替」但没给路径」）；
+       这里改成就地拦下（框标红、晃一下；一个都没选时上面那行换成那句话、列表晃一下），照 MASTER 第 11 节第 3 条「表单校验不用 toast」。
+   要后端补的：没有。这一页画的东西程序现在都有，只是换了排法、换了几处字。 */
 :root { --elev-4: 0 28px 64px -16px rgb(var(--shadow-rgb) / .32), 0 8px 20px -4px rgb(var(--shadow-rgb) / .10); --scrim: rgb(var(--shadow-rgb) / .32); }
 [data-theme="dark"] { --elev-4: 0 32px 72px -16px rgb(0 0 0 / .72), 0 8px 24px -4px rgb(0 0 0 / .40); --scrim: rgb(0 0 0 / .56); }
 body { background: var(--bg); overflow: hidden; }
@@ -387,6 +390,7 @@ body { background: var(--bg); overflow: hidden; }
 .login .brand .s { font-size: 12px; color: var(--muted); }
 /* 看原大：盖住整个窗口；左下角一颗「回到对照页」（草图专用） */
 .pview { position: fixed; inset: 0; z-index: 90; background: var(--bg); display: grid; place-items: center; overflow: hidden; }
+.pview > .pg.phone { border-radius: 18px; box-shadow: 0 0 0 1px var(--border), var(--elev-2); } /* 手机宽那份描一圈，看得出屏幕边在哪（草图专用） */
 .pview.enter { animation: mk-in .22s cubic-bezier(.2, .7, .2, 1) both; }
 .pview.leave { animation: mk-out .14s cubic-bezier(.4, 0, 1, 1) both; }
 .pback { position: fixed; left: 12px; bottom: 12px; z-index: 91; height: 28px; padding: 0 12px; border-radius: 14px; border: 1px dashed var(--border); background: var(--overlay);
@@ -580,7 +584,8 @@ function M_export(id, st) {
 // 选「用本地文件代替」下面出路径框，选「信任站点并下载」下面出一个勾「信任 某某站点 的下载」（会改变结果，留在页面上），程序那段长的风险说明进悬停。
 // 上面一行：几个待处理，右边「全选可下载项」「确认这些站点的风险」（程序有可信任下载的项时才出，说明进悬停）。已跳过的折在最后一行，点开才列（程序是 <details>）。
 // 「应用所选的处理」程序是在面板里面一颗主键，底下另有一颗「关闭」；这里两颗并到底下一排。点了：选了处理方式的那几块往右划 32 像素淡掉再收起（规范第七节「清单加减」），
-// 选了跳过的挪进折起来那一行；没给路径的「用本地文件代替」拦下来（框标红、晃一下）。程序在面板上方另有一块写这次处理的结果，草图里没画
+// 选了跳过的挪进折起来那一行；没给路径的「用本地文件代替」拦下来（框标红、晃一下；程序是右上角一条报错提示，见开头「和程序不一样」）。
+// 程序在面板上方另有一块写这次处理的结果（已处理 / 处理失败：路径），草图里没画
 const PND = [
   { p: "mods/toughasnails-neoforge-1.21.1-10.0.0.jar", why: "没有 CurseForge API Key", note: "「Tough As Nails」：没有填 CurseForge API Key，不能自动下载。保留本地已有的文件，或者手动放一份", opts: ["skip", "local"], url: "https://www.curseforge.com/minecraft/mc-mods/tough-as-nails", act: "local" },
   { p: "mods/sophisticatedbackpacks-1.21.1-3.23.4.jar", why: "站点不在允许列表里", host: "mediafilez.forgecdn.net", note: "下载地址不在 MineDeck 允许的站点列表里（只允许 Modrinth、GitHub、GitLab），确认站点可信后才能下载", opts: ["skip", "local", "trust"], url: "https://mediafilez.forgecdn.net/files/5/8/sophisticatedbackpacks-1.21.1-3.23.4.jar", act: "trust" },
@@ -619,7 +624,7 @@ function pndApply(m) {
   if (bad) { const inp = $('[data-k="lpath"]', bad); inp.classList.add("bad"); inp.focus({ preventScroll: true }); shakeEl(inp); inp.title = "选了「用本地文件代替」，要填本地文件的路径"; return; }
   const go = items.filter(el => st.items[+el.dataset.i].act);
   if (!go.length) { // 一个都没选：拦下来，上面那行换成一句话、列表晃一下
-    const c = $('[data-k="pcount"]', m); c.textContent = "先给文件选处理方式"; c.style.color = "var(--danger-text)"; shakeEl($(".lwrap", m));
+    const c = $('[data-k="pcount"]', m); c.textContent = "先给至少一个文件选处理方式"; c.style.color = "var(--danger-text)"; shakeEl($(".lwrap", m));
     clearTimeout(c._t); c._t = setTimeout(() => { c.style.color = ""; pndAfter(m); }, 1600); return;
   }
   go.forEach((el, i) => {
@@ -886,8 +891,8 @@ const skelCard = () => `<div class="lc skc skel"><div class="cover"><span class=
    · 连不上 MineDeck（boot 约 6970 行）：「无法连接 MineDeck 后端。请通过程序窗口打开本页面。」拆成标题和一句下一步。程序没有重试，草图也不加（建议里写了）。
    · 正在更新（约 6791 行）：「正在更新，程序将自动重启…」，下一步那行前面一个转圈。
    · 正在退出（quitApp 约 670 行）：「MineDeck 正在停止服务器并退出，可以关闭此页面了。」
-   · 服务器不存在（renderDetail 约 3675 行）：程序是一个红框「服务器不存在」，在详情页里，侧栏还在。这里是一个图标块、一句「找不到服务器「旧生存服」」，
-     下面一颗「回到主页」（等同底部胶囊的主页：MASTER 第 8 节错误要给下一步，第 11 节第 8 条只给一个主行动），底部胶囊照常在。名字照地址里的写。
+   · 服务器不存在（renderDetail 约 3675 行）：程序是一个红框「服务器不存在」，在详情页里，侧栏还在。这里是一个图标块、一句「找不到服务器「旧生存服」」（名字照地址里的写），
+     底部胶囊照常在，下一步就是胶囊上的主页。程序里没有别的按钮，草图也不加（要不要加一颗「回到主页」写在建议里）。
    · 手机远程管理的登录框（showLogin 约 31 行）：局域网里的浏览器打开，没有标题栏；一块大面板，应用图标 48、「MineDeck 手机远程管理」，
      输入框上面写「访问密码」，程序那句「请输入访问密码（在主机的「设置 → 手机远程管理」里设置）」拆成框的名字和框下面一行淡字；按钮「登录」铺满（同弹窗底下那排）。
      另画了一份 390 宽的（手机上主要是这个）。登录失败程序是右上角一条报错提示，草图没画 */
@@ -899,7 +904,7 @@ const PAGES = {
   offline: { t: "连不上 MineDeck", html: () => tbHTML() + `<div class="ctr"><img class="logo" src="${LOGO}" alt=""><div class="t1">连不上 MineDeck</div><div class="t2">请通过程序窗口打开本页面</div></div>` },
   updating: { t: "正在更新", html: () => tbHTML() + `<div class="ctr"><img class="logo" src="${LOGO}" alt=""><div class="t1">正在更新</div><div class="t2"><i data-ic="spinner"></i>程序将自动重启</div></div>` },
   quitting: { t: "正在退出", html: () => tbHTML() + `<div class="ctr"><img class="logo" src="${LOGO}" alt=""><div class="t1">正在停止服务器并退出</div><div class="t2">可以关闭此页面了</div></div>` },
-  missing: { t: "服务器不存在", html: () => tbHTML() + `<div class="ctr"><span class="si"><i data-ic="server"></i></span><div class="t1">找不到服务器「旧生存服」</div>${btn("回到主页", "pri auto")}</div>` + capHTML() },
+  missing: { t: "服务器不存在", html: () => tbHTML() + `<div class="ctr"><span class="si"><i data-ic="server"></i></span><div class="t1">找不到服务器「旧生存服」</div></div>` + capHTML() },
   login: { t: "手机远程管理的登录框", html: () => loginHTML() },
   "login-phone": { t: "登录框 · 手机宽 390", phone: true, html: () => loginHTML() },
 };
@@ -919,7 +924,7 @@ function pageEl(id) {
 function openPage(id) {
   const v = document.createElement("div"); v.className = "pview enter";
   const pg = pageEl(id); v.appendChild(pg);
-  if (PAGES[id].phone) pg.style.transform = `scale(${Math.min(1, (innerHeight - 40) / 844)})`;
+  if (PAGES[id].phone) { v.style.placeItems = "start center"; pg.style.transformOrigin = "50% 0"; pg.style.marginTop = "20px"; pg.style.transform = `scale(${Math.min(1, (innerHeight - 40) / 844)})`; } // 844 高放不下：缩到窗口高减 40，上下各留 20
   const back = Object.assign(document.createElement("button"), { className: "pback", textContent: "← 回到对照页（Esc，草图专用）" });
   document.body.append(v, back);
   const close = () => { v.classList.remove("enter"); v.classList.add("leave"); back.remove(); setTimeout(() => v.remove(), 140); document.removeEventListener("keydown", onKey); };
