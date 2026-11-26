@@ -109,7 +109,7 @@
   .alt span.b { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border-radius: 14px; color: var(--muted); cursor: pointer; }
   .alt span.b:hover { color: var(--text); background: var(--hover); }
   .alt .ico { width: 14px; height: 14px; }
-  /* 第二步「装点插件？」「装点模组？」（11-26 主会话画的第一稿）：和第一步同样的大面板（外 26、内边距 8，里面两块圆角 18），
+  /* 第二步「选择预装插件」「选择预装模组」（11-26 主会话画的第一稿，文案作者改过）：和第一步同样的大面板（外 26、内边距 8，里面两块圆角 18），
      左边逛（标题 + 搜索、类别、两列卡片，卡片多了在这一块里自己滚，细滚动条和上下渐隐同第一步），右边是待装清单和「从电脑添加」。
      现在程序里这一步的东西都在（Modrinth 热门、搜索、类别、待装清单、从电脑添加、检查前置），这里重新排了一遍；
      前置不再要人点「检查前置」再勾，加一个就把它要的前置一起放进清单、标「前置」。基准 1280×800 下面板 170–690，不滚动 */
@@ -159,7 +159,10 @@
   .crow:hover .x { opacity: 1; }
   .crow .x:hover { color: var(--text); background: var(--hover); }
   .crow .x .ico { width: 13px; height: 13px; }
-  .cempty { margin: auto 0; text-align: center; color: var(--faint); font-size: 12.5px; line-height: 21px; padding: 0 18px; }
+  .cempty { margin: auto 0; text-align: center; color: var(--faint); font-size: 12px; line-height: 20px; padding: 0 18px; }
+  .cempty b { display: block; margin-bottom: 4px; font-size: 13.5px; font-weight: 600; color: var(--muted); }
+  #atitle { display: flex; align-items: baseline; gap: 8px; min-width: 0; white-space: nowrap; }
+  #atitle .asub { font-weight: 400; color: var(--faint); overflow: hidden; text-overflow: ellipsis; }
   .list:has(.crow:not(.out)) .cempty { display: none; }
   .cnote { flex: none; font-size: 12px; color: var(--muted); margin-top: 10px; display: flex; gap: 6px; align-items: center; }
   .cnote:empty { display: none; }
@@ -257,7 +260,7 @@ let step = 0, play = 1, core = "paper", ver = DEF.paper;
 // 第二步装的是插件还是模组跟着核心走（同程序 modcart.js：Paper 一系和两种代理端装插件，其余装模组）
 const PLUGIN_CORES = ["paper", "purpur", "leaves", "folia", "velocity", "waterfall"];
 const nounOfCore = k => PLUGIN_CORES.includes(k) ? "插件" : "模组";
-const STEPS = () => play === 0 ? ["选择核心以进行下一步", "最后设置一下", "让朋友连进来"] : ["选择核心以进行下一步", `装点${nounOfCore(core)}？`, "最后设置一下", "让朋友连进来"];
+const STEPS = () => play === 0 ? ["选择核心以进行下一步", "最后设置一下", "让朋友连进来"] : ["选择核心以进行下一步", `选择预装${nounOfCore(core)}`, "最后设置一下", "让朋友连进来"];
 const cover = (k, size) => `<div class="cover" style="--c:${MDPixel16.CORE_COLORS[k] || "#7a8aa0"}">${MDPixel16.svg(k, size)}</div>`;
 function introInner(k = core, pl = play) {
   const p = PLAYS[pl], c = CORE[k];
@@ -289,9 +292,9 @@ function step1() {
   return plays + `<div class="pick${hasCores(play) ? "" : " two"}">${intro}${cores}${versions}</div>` + alt;
 }
 
-// ---- 第二步：装点插件 / 模组 ----
+// ---- 第二步：选择预装插件 / 模组 ----
 // 假数据：名字、一句话（主会话自己写的）、下载量（万，编的）、类别（程序里的 Modrinth 类别）、图标底色；
-// friend：朋友那边也要装（客户端也得有）；deps：要的前置；lib：前置库，「全部」里不列，只在「支持库」和被拉进清单时出现
+// friend：朋友那边也要装（客户端也得有）；deps：要的前置；lib：前置库，「全部」里不列，只在「前置库」和被拉进清单时出现
 const ADDONS = {
   插件: [
     { id: "luckperms", n: "LuckPerms", d: "权限管理：给玩家分组，各组能用的指令分开管", dl: 210, cats: ["management"], c: "#4f8a6e" },
@@ -332,9 +335,9 @@ const ADDONS = {
 // 类别筛选片：同程序 modcart.js 的 CATS
 const ACATS = {
   模组: [["optimization", "优化"], ["utility", "实用"], ["management", "管理"], ["worldgen", "世界生成"], ["adventure", "冒险"], ["technology", "科技"],
-    ["magic", "魔法"], ["mobs", "生物"], ["equipment", "装备"], ["storage", "存储"], ["library", "支持库"]],
+    ["magic", "魔法"], ["mobs", "生物"], ["equipment", "装备"], ["storage", "存储"], ["library", "前置库"]],  // 程序里叫「支持库」，作者 11-26 改叫「前置库」
   插件: [["management", "管理"], ["utility", "实用"], ["optimization", "优化"], ["economy", "经济"], ["social", "聊天社交"], ["minigame", "小游戏"],
-    ["game-mechanics", "游戏机制"], ["worldgen", "世界生成"], ["library", "支持库"]],
+    ["game-mechanics", "游戏机制"], ["worldgen", "世界生成"], ["library", "前置库"]],
 };
 // picked：待装清单，[{ id, by }]，by 是「谁要的这个前置」（自己挑的是 null）。回第一步换成另一类（插件 ↔ 模组）时清空
 let picked = [], addonNoun = "", acat = "", aq = "", aqTimer = 0;
@@ -344,14 +347,15 @@ const fmtDl = w => w >= 10000 ? `${+(w / 10000).toFixed(1)} 亿` : `${w} 万`;
 const tile = x =>`<span class="mt" style="--c:${x.c}">${esc(x.n.replace(/^[^A-Za-z]*\s?/, "")[0] || x.n[0])}</span>`;
 function atitle() {
   const cat = ACATS[addonNoun].find(c => c[0] === acat);
-  return aq ? `搜索「${esc(aq)}」` : cat ? `${cat[1]}类${addonNoun} · 按下载量` : `Modrinth 热门${addonNoun} · 按下载量`;
+  const main = aq ? `搜索「${esc(aq)}」` : cat ? (acat === "library" ? cat[1] : `${cat[1]}类${addonNoun}`) : `热门${addonNoun}`;
+  return `${main}<span class="asub">适配 ${esc(CORE[core][0])} ${esc(ver)} · Modrinth</span>`;
 }
 function gridItems() {
   const q = aq.toLowerCase();
   return ADDONS[addonNoun].filter(x => (acat ? x.cats.includes(acat) : !x.lib) && (!q || (x.n + x.d).toLowerCase().includes(q))).sort((a, b) => b.dl - a.dl);
 }
-// 卡片上只标例外：插件一般朋友不用装，要装的标「朋友也要装」；模组一般两边都要装，只装服务器的标「仅服务器」
-const ftag = x => addonNoun === "插件" ? (x.friend ? `<span class="ftag">朋友也要装</span>` : "") : (!x.friend ? `<span class="ftag">仅服务器</span>` : "");
+// 卡片上只标例外：插件一般客户端不用装，要装的标「需客户端」；模组一般两边都要装，只装服务器的标「仅服务端」（文案作者 11-26 定）
+const ftag = x => addonNoun === "插件" ? (x.friend ? `<span class="ftag">需客户端</span>` : "") : (!x.friend ? `<span class="ftag">仅服务端</span>` : "");
 function gridHTML() {
   const items = gridItems(), has = new Set(picked.map(p => p.id));
   if (!items.length) return `<div class="cempty" style="grid-column: 1 / -1; margin-top: 60px">没找到合适的${addonNoun}。换个关键词或类别试试。</div>`;
@@ -361,7 +365,7 @@ function gridHTML() {
 }
 function crowHTML(p) {
   const x = addonOf(p.id), by = p.by && addonOf(p.by);
-  const why = by ? `${esc(by.n)} 要用` : addonNoun === "插件" && x.friend ? "朋友那边也要装" : addonNoun === "模组" && !x.friend ? "只装在服务器上，朋友不用装" : esc(x.d);
+  const why = by ? `${esc(by.n)} 要用` : addonNoun === "插件" && x.friend ? "需客户端同步安装" : addonNoun === "模组" && !x.friend ? "仅服务端，客户端不用装" : esc(x.d);
   return `<div class="crow" data-id="${x.id}">${tile(x)}<div class="m"><div class="n">${esc(x.n)}${by ? `<span class="ftag">前置</span>` : ""}</div><div class="why">${why}</div></div>
     <span class="x" data-unpick="${x.id}" aria-label="从清单里拿掉 ${esc(x.n)}"><i data-ic="x"></i></span></div>`;
 }
@@ -370,21 +374,21 @@ function step2() {
   if (addonNoun !== noun) { picked = []; addonNoun = noun; acat = ""; aq = ""; }
   const chips = [["", "全部"], ...ACATS[noun]];
   return `<div class="addon">
-    <div class="col browse"><h3><span id="atitle">${atitle()}</span><span class="sp"></span><label class="findin"><i data-ic="search"></i><input id="aq" placeholder="搜索${noun}（英文名更准）" value="${esc(aq)}" autocomplete="off"></label></h3>
+    <div class="col browse"><h3><span id="atitle">${atitle()}</span><span class="sp"></span><label class="findin"><i data-ic="search"></i><input id="aq" placeholder="搜索${noun}（建议英文名）" value="${esc(aq)}" autocomplete="off"></label></h3>
       <div class="chips">${chips.map(([k, t]) => `<span class="chip${k === acat ? " on" : ""}" data-cat="${k}">${t}</span>`).join("")}</div>
       <div class="lwrap"><div class="list grid" id="agrid">${gridHTML()}</div><i class="thumb"></i></div></div>
     <div class="col cart"><h3>待装清单<span class="cnt" id="acnt"></span></h3>
-      <div class="lwrap"><div class="list" id="alist"><div class="cempty">还没挑。左边点 ＋ 加进来，要的前置会一起放进来。<br>不装也行，建好以后在服务器里随时能装。</div>${picked.map(crowHTML).join("")}</div><i class="thumb"></i></div>
+      <div class="lwrap"><div class="list" id="alist"><div class="cempty"><b>暂未选择任何${noun}</b>点击左侧 ＋ 添加，前置依赖将自动补全。<br>可跳过，建服后随时管理。</div>${picked.map(crowHTML).join("")}</div><i class="thumb"></i></div>
       <div class="cnote" id="anote"></div>
-      <div class="drop" data-drop><i data-ic="folder"></i>从电脑添加 jar，或者拖到这里</div></div>
+      <div class="drop" data-drop><i data-ic="folder"></i>拖入 .jar 文件，或点击选择本地文件</div></div>
   </div>`;
 }
-// 清单数字和底下那行「朋友那边也要装」
+// 清单数字和底下那行「其中几个需客户端同步安装」
 function cartMeta() {
   const n = picked.length, friends = picked.filter(p => addonOf(p.id).friend).length;
   const c = document.getElementById("acnt"); if (c) c.textContent = n ? n : "";
   const note = document.getElementById("anote");
-  if (note) note.innerHTML = friends ? `${KIT.icon("info")}其中 ${friends} 个朋友那边也要装` : "";
+  if (note) note.innerHTML = friends ? `${KIT.icon("info")}其中 ${friends} 个需客户端同步安装` : "";
 }
 // 挑一个 / 拿掉一个。挑的时候把它要的前置一起放进来（标「前置」）；拿掉的时候，只因为它才进来的前置一起拿掉
 function toggleAddon(id) {
@@ -435,7 +439,7 @@ function regrid() {
 }
 function render() {
   const names = STEPS();
-  const body = step === 0 ? step1() : names[step].startsWith("装点") ? step2() : `<div class="placeholder">这一步的内容还没画</div>`;
+  const body = step === 0 ? step1() : play !== 0 && step === 1 ? step2() : `<div class="placeholder">这一步的内容还没画</div>`;
   document.getElementById("page").innerHTML = `<h1 class="q">${names[step]}</h1>` + body;
   // 小点：个数对得上就只挪「当前」那个（宽的那个平滑挪过去），对不上（第一次画）才整排重画
   const d = document.getElementById("dots"), live = [...d.querySelectorAll("i:not(.out)")];
