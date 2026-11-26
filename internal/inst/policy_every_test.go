@@ -327,9 +327,11 @@ func TestSchedIDUsesEffectiveTiming(t *testing.T) {
 		schedID("t", Schedule{Type: "backup", At: "04:00", Every: 60}) != schedID("t", Schedule{Type: "backup", At: "04:00"}) {
 		t.Error("同样跑法的任务应认作同一条")
 	}
-	e := newTickEnv(t, Schedule{Type: "backup", At: "9:05"})
-	e.expect(t, at(9, 5, 0), "backup 9:05")
-	if err := e.m.UpdatePolicies("t", Policies{Schedules: []Schedule{{Type: "backup", At: "9:05"}}}); err != nil {
+	// 用命令：命令按条占位，备份、重启另有「这一分钟这台服务器已经有一个了」挡着，看不出认没认对
+	e := newTickEnv(t, Schedule{Type: "command", At: "9:05", Args: "say hi"})
+	setState(e.i, "running")
+	e.expect(t, at(9, 5, 0), "command 9:05 say hi")
+	if err := e.m.UpdatePolicies("t", Policies{Schedules: []Schedule{{Type: "command", At: "9:05", Args: "say hi"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if at := e.i.PoliciesSnapshot().Schedules[0].At; at != "09:05" {
