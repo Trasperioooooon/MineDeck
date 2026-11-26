@@ -56,11 +56,14 @@
       所以「自动带出必装前置」挪到清单那一栏，开关一动，清单里的前置跟着进出。
     · 整合包的预览进最后一步就自动做（程序要点「预览导出清单」）。
     · 结果里的长说明（皮肤包的 notice、朋友怎么导入整合包）收进「下载」的悬停。
-  要后端补的：没有。用到的都是现有接口（/api/toolbox/*、/api/instances、/api/instances/{name}/players、/api/app 的 local、/api/pickdir）。
+  要后端补的：一样。整合包卡片上的「仅服务端」要看 Modrinth 的 client_side，可 internal/modcart/modrinth.go 的搜索结果 Hit 只带了 server_side
+    （Modrinth 的 /search 本身返回 client_side，加一个字段就行；向导第二步卡片上的「需客户端」「仅服务端」也靠它）。清单里的项（ServerSide、ClientSide）两个都有。
+    别的都是现有接口：/api/toolbox/*、/api/instances、/api/instances/{name}/players、/api/app 的 local、/api/pickdir、/api/modcart（cart=toolbox）和 /api/modcart/deps
+    （加一个就把前置放进清单，前端加完调一次 deps，同向导第二步的做法）。
 
   草图里的数据：服务器列表抄 home.html；读进来的玩家名、服务器里的模组、config 文件名、生成结果的大小和 SHA-1 都是编的示例；
-    模组卡片用 modrinth-sample.js（向导第二步那份：NeoForge 26.1、筛掉了只在客户端用的），程序里工具箱这份清单会把只在客户端用的也列出来
-    （接口带 ClientOK），排位会不一样；草稿当作读回来是 NeoForge 26.1（程序第一次打开是 Fabric 1.20.1），这样卡片和标题对得上。
+    模组卡片用 modrinth-sample.js（向导第二步那份：NeoForge 26.1，取的时候带了 server_side!=unsupported，可样本里还是有 2 个服务端标 unsupported 的，
+    Zoomify 和 Pick Up Notifier，照实标「仅客户端」）；程序里工具箱这份清单会把只在客户端用的也列出来（接口带 ClientOK），排位会不一样；草稿当作读回来是 NeoForge 26.1（程序第一次打开是 Fabric 1.20.1），这样卡片和标题对得上。
     换成别的加载器、版本，卡片不跟着换（同向导第二步换核心时的做法）。加载器的推荐版本号草图里不知道，照实写「官方推荐」。
   标题栏左边「草图」那一排是草图专用的状态切换，定了就删（地址参数也行：?tool=skin&state=demo|clash|empty|many|done，
     ?tool=mrpack&step=1|2|3、&state=inst|nomods|drafterr|done，&local=0 看远程打开）。草图里选文件、选文件夹、下载都不真弹窗：
@@ -208,10 +211,6 @@ window.EXTRA_ICONS = {
   .seg .sgl { position: absolute; left: 0; top: 3px; bottom: 3px; border-radius: 6px; background: var(--accent-subtle); z-index: 0; pointer-events: none;
               box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
               transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
-  /* 32 高的分段（弹出的格子里换着看什么）：胶囊 */
-  .seg.sm { height: 32px; border-radius: 16px; }
-  .seg.sm span { flex: none; padding: 0 12px; font-size: 12.5px; border-radius: 12px; }
-  .seg.sm .sgl { border-radius: 12px; }
   /* 开关：36 × 20，在字的左边 */
   .tg { display: flex; align-items: center; gap: 10px; cursor: pointer; width: fit-content; }
   .tg .t { font-size: 13px; font-weight: 600; white-space: nowrap; }
@@ -249,8 +248,9 @@ window.EXTRA_ICONS = {
   .ostrip .msg.show { opacity: 1; }
   .ostrip.bad { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger-text) 60%, transparent); }
   /* 存到本机文件夹：同向导的路径框，点了选文件夹（草图里不真弹窗）；空着时只写一句，选了以后右边一个 × 清掉 */
-  .pathf { height: 40px; width: 440px; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 6px 0 12px; border-radius: 12px; box-sizing: border-box; cursor: pointer;
+  .pathf { height: 40px; width: 440px; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 5px 0 12px; border-radius: 12px; box-sizing: border-box; cursor: pointer;
            background: var(--field); border: 1px solid var(--border); transition: border-color .2s; }
+  .pathf .ib { border-radius: 6px; } /* 右边的 × 离框外沿 6（边框 1 加内边距 5），圆角 12 − 6 = 6，同心 */
   .pathf:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
   .pathf > .ico { width: 15px; height: 15px; flex: none; color: var(--muted); }
   .pathf .ph { flex: 1; font-size: 13px; color: var(--faint); white-space: nowrap; }
@@ -276,11 +276,6 @@ window.EXTRA_ICONS = {
   .prow .n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .prow .k { font-size: 12px; color: var(--muted); font-weight: 400; font-family: var(--mono); white-space: nowrap; }
   .prow svg.px { width: 32px; height: 32px; flex: none; display: block; }
-  /* 小标签：16 高胶囊 */
-  .tag { flex: none; height: 16px; padding: 0 6px; border-radius: 8px; font-size: 10.5px; font-weight: 500; line-height: 16px; white-space: nowrap; }
-  .tag.plain { background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--muted); }
-  .tag.warn { background: color-mix(in srgb, var(--warning) 16%, transparent); color: var(--warning-text); }
-  .tag.acc { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent-text); }
 
   /* ---- 离线皮肤包：面板 520 高（同向导第二步，170 到 690），左栏设置 344 宽，右栏皮肤列表，底下一条 ---- */
   .skp { height: 520px; grid-template-columns: 344px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 52px; }
@@ -373,7 +368,6 @@ window.EXTRA_ICONS = {
   .srvw .hl { right: 10px; } /* 和行一样宽：右边那 10 像素留给细滚动条 */
   .cfgrow { display: flex; align-items: center; gap: 12px; min-height: 28px; flex: none; }
   .cfgrow .fnote { margin-left: auto; color: var(--warning-text); }
-  .nomods { flex: 1; display: grid; place-items: center; border-radius: 10px; border: 1px dashed color-mix(in srgb, var(--text) 18%, transparent); font-size: 12.5px; color: var(--faint); text-align: center; padding: 0 24px; }
   /* 第 2 步：照 wizard.html 第二步（左边逛、右边清单），面板 520 高 */
   .addon { display: flex; gap: 8px; height: 520px; }
   .addon > .col { min-width: 0; padding: 14px 8px 8px; }
@@ -723,6 +717,7 @@ function openPop(anchor, html, { width, align = "left", onPick } = {}) {
 }
 document.addEventListener("pointerdown", e => { if (popEl && !popEl.contains(e.target) && !popEl._anchor.contains(e.target)) closePop(); }, true);
 document.addEventListener("keydown", e => { if (e.key === "Escape") closePop(); });
+document.addEventListener("scroll", e => { if (popEl && !popEl.contains(e.target)) closePop(); }, true); // 弹出面板自己里面的列表滚动不收
 addEventListener("resize", closePop);
 // 复制：图标换成勾 1.2 秒（照向导）
 function copyFlash(b) {
@@ -842,7 +837,7 @@ const playersOf = i => i === 1 ? ROSTER.slice(0, 5) : ROSTER.slice(i % 6, i % 6 
 // 草图的几种样子（右上角切）
 const STATES = {
   demo: () => [rowOf("steve", fileOf("steve.png")), rowOf("alex", fileOf("alex.png")), rowOf("lihua", fileOf("lihua.png")), rowOf("xiaoming", fileOf("xiaoming.png", 64, 32))],
-  // lisi 和 xiaohong 算出来都落在 Makena · 经典（wide/makena），是真撞的；第 6 行的 PNG 尺寸不对
+  // lisi 和 xiaohong 算出来都落在 Makena · 经典（wide/makena），是真撞的；第 7 行（zhangsan）的 PNG 尺寸不对
   clash: () => [...STATES.demo(), rowOf("lisi", fileOf("lisi.png")), rowOf("xiaohong", fileOf("xiaohong.png")), rowOf("zhangsan", fileOf("zhangsan-hd.png", 128, 128, "尺寸不对：128×128"))],
   empty: () => [rowOf()],
   many: () => ["steve", "alex", "lihua", "xiaoming", "zhangsan", "lisi", "wangwu", "zhaoliu", "xiaohong", "xiaoli", "dawei", "laowang", "meimei", "xiaoqiang", "ahua", "xiaogang", "xiaomei", "a_very_long_name"]
@@ -1209,9 +1204,10 @@ const exportCore = () => MP.src === "draft" ? MP.core : (EXPORT_AS[MODSRV[MP.ins
 // ---- 第 1 步：配置整合包信息 ----
 const srcTip = { draft: "在 Modrinth 上挑模组放进一张清单，只在客户端用的（小地图、光影加载器之类）也能放；清单只用来导出，不会装进任何服务器，下次打开还在",
   instance: "把一台模组服务器 mods 文件夹里的模组导出来；Modrinth 上认得出的让朋友的启动器去下载，认不出的整个打进包里" };
+const dnoteHTML = () => `<div class="dnote"><i data-ic="warn"></i><span>读不出上次存好的信息，这次改的不会自动保存</span>`
+  + `<button class="ib" data-act="retry" title="重新读取：读出来以后，表单换成存好的那份，现在改的不保留"><i data-ic="refresh"></i></button></div>`;
 function step1() {
-  const err = MP.draftErr && MP.src === "draft" ? `<div class="dnote"><i data-ic="warn"></i><span>读不出上次存好的信息，这次改的不会自动保存</span>`
-    + `<button class="ib" data-act="retry" title="重新读取：读出来以后，表单换成存好的那份，现在改的不保留"><i data-ic="refresh"></i></button></div>` : "";
+  const err = MP.draftErr && MP.src === "draft" ? dnoteHTML() : "";
   const info = `<div class="col"><h3>整合包信息</h3>${err}
       <div class="fld"><span class="lb">整合包名称</span><input class="inp" id="mpname" value="${esc(MP.name)}" maxlength="100" placeholder="朋友联机整合包"></div>
       <div class="fld"><span class="lb">版本号</span><input class="inp mono" id="mpver" value="${esc(MP.ver)}" maxlength="50" placeholder="1.0.0" title="整合包自己的版本号；改了内容再发一次时往上加，朋友的启动器靠它分新旧"></div>
@@ -1254,7 +1250,7 @@ function pickSrc(v, seg, sp) {
   // 读不出草稿的那条只在「自己挑模组」时出现（照程序 applySourceUI）
   const info = document.querySelector(".mp1 .col"), dn = info.querySelector(".dnote");
   if (MP.draftErr && v === "instance" && dn) dn.remove();
-  if (MP.draftErr && v === "draft" && !dn) { info.querySelector("h3").insertAdjacentHTML("afterend", step1().match(/<div class="dnote">[\s\S]*?<\/div>/)[0]); KIT.hydrate(info); }
+  if (MP.draftErr && v === "draft" && !dn) { info.querySelector("h3").insertAdjacentHTML("afterend", dnoteHTML()); KIT.hydrate(info); }
 }
 function setName(n) { MP.name = n; const el = document.getElementById("mpname"); if (el) el.value = n; }
 function afterDet() {
@@ -1467,7 +1463,7 @@ const mStripIdle = () => `${pathBox(MP.dest)}<span class="sp"></span><span class
 function mStripDone() {
   const r = MP.result;
   return `<div class="res"><span class="ok"><i data-ic="check"></i></span><span class="fn" title="${esc(r.fileName + (r.saved ? "\n已存到 " + r.saved : ""))}">${esc(r.fileName)}</span>`
-    + `<span class="facts">${r.size} · 在线下载 ${r.dl} 项 · overrides ${r.ov} 项${r.saved ? " · 已存到文件夹" : ""}</span><span class="sp"></span>`
+    + `<span class="facts">${r.size}${r.saved ? " · 已存到文件夹" : ""}</span><span class="sp"></span>` // 在线下载、overrides 各几项上面两栏标题里写着，这里不再说
     + `<span class="hk">SHA-1</span><span class="hv">${r.sha1}</span><button class="ib" data-act="copy" data-copy="${r.sha1}" title="复制"><i data-ic="copy"></i></button></div><span class="msg" id="mpmsg"></span>`;
 }
 // 进最后一步就预览（程序要点「预览导出清单」）：先出骨架行（程序那句「正在整理导出清单与 Modrinth 校验信息…」进悬停），0.6 秒后一行一行淡进来
@@ -1588,7 +1584,6 @@ document.getElementById("page").addEventListener("input", e => {
   else if (t.id === "aq") { clearTimeout(aqTimer); aqTimer = setTimeout(() => { aq = t.value.trim(); regrid(); }, 180); }
 });
 mrpackSim = () => {
-  const n = STEPS().length;
   return [...STEPS().map((t, i) => [`s${i}`, `第 ${i + 1} 步`, MP.step === i && !MP.result]), ["done", "已生成", !!MP.result], "|",
     ["inst", "从服务器导出", MP.src === "instance"], ["nomods", "没有模组服", MP.noMods], ["drafterr", "草稿读不出", MP.draftErr], ["remote", "远程打开", !LOCAL]];
 };
