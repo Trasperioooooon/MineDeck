@@ -1,1 +1,76 @@
-/* 设置 · download：还没画（占位） */
+/* 全局设置 →「下载与网络」（11-27 夜里第一稿，子代理照临时规范画的，等作者整体扫一眼）。说明写在 settings-download.js 开头。
+   选择器都带 .sd 前缀，不碰外壳和别的分类（外壳用了 .tb .sk .page .cp .snav .hl .empty .cap .fade-in .fade-out）。
+
+   内容面板（.cp，868 × 658、内边距 8、圆角 26）里一栏占满（圆角 18 = 26 − 8，内边距 16 / 20），两项并排在最上面：两列各 398 宽、列距 16，
+   一项是「字 18 + 6 + 控件 40」（同向导第三步）。分段 40 高、圆角 10（选中块离外框 4、圆角 6）；框 40 高、圆角 10，框里的按钮 28 见方、离框外沿 6、圆角 4。 */
+
+.sd { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.sd [hidden] { display: none !important; }
+.sd-col { flex: 1; min-width: 0; min-height: 0; box-sizing: border-box; border-radius: 18px; padding: 16px 20px 20px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+.sd-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; row-gap: 24px; }
+.sd-f { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.sd-lb { height: 18px; display: flex; align-items: center; gap: 4px; min-width: 0; font-size: 12.5px; line-height: 18px; font-weight: 500; color: var(--muted); }
+.sd-lb > span:first-child { white-space: nowrap; cursor: default; }
+.sd-sp { flex: 1; }
+/* 名字后面的外链（免费申请）：图标按钮缩成 24 见方、圆角 4，不撑高这一行 */
+.sd-lk { width: 24px; height: 24px; margin: -3px 0; border-radius: 4px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;
+         transition: background .15s, color .15s; }
+.sd-lk:hover { background: var(--hover); color: var(--accent-text); }
+.sd-lk .ico { width: 14px; height: 14px; }
+/* 解不开：名字那一行右边一句黄字（全文在悬停），框一圈黄边 */
+.sd-warn { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 400; color: var(--warning-text); white-space: nowrap; cursor: default; }
+.sd-warn .ico { width: 14px; height: 14px; }
+
+/* ---- 下载源：40 高分段（同向导第三步） ---- */
+.sd-seg { position: relative; display: flex; height: 40px; padding: 3px; border-radius: 10px; box-sizing: border-box; min-width: 0; background: var(--field); border: 1px solid var(--border); }
+.sd-sgl { position: absolute; left: 0; top: 3px; bottom: 3px; border-radius: 6px; background: var(--accent-subtle); pointer-events: none;
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+          transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
+.sd-seg button { flex: 1; position: relative; z-index: 1; min-width: 0; padding: 0 4px; border: 0; border-radius: 6px; background: none; font: inherit; font-size: 13px; color: var(--muted);
+                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; transition: color .2s; }
+.sd-seg button:hover { color: var(--text); }
+.sd-seg button.on { color: var(--accent-text); font-weight: 500; }
+
+/* ---- API Key 的框：40 高、圆角 10；框里的按钮离框外沿 6（边 1 + 5） ---- */
+.sd-iw { display: flex; align-items: center; gap: 2px; height: 40px; padding: 0 5px 0 12px; border-radius: 10px; box-sizing: border-box; min-width: 0; cursor: text;
+         background: var(--field); border: 1px solid var(--border); transition: border-color .2s, box-shadow .2s; }
+.sd-iw:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.sd-iw.warn { border-color: color-mix(in srgb, var(--warning-text) 60%, var(--border)); }
+.sd-in { flex: 1; min-width: 0; height: 28px; margin-right: 4px; border: 0; outline: 0; padding: 0; background: none; font-family: var(--mono); font-size: 13px; color: var(--text); letter-spacing: 1px; }
+.sd-in::placeholder { font-family: var(--font); font-size: 13px; color: var(--faint); letter-spacing: 0; }
+.sd-in::-ms-reveal { display: none; } /* 窗口版（WebView2）密码框自带的「显示密码」眼睛：系统控件，不要 */
+.sd-ib { width: 28px; height: 28px; border-radius: 4px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;
+         transition: background .15s, color .15s, opacity .15s; }
+.sd-ib:hover:not([aria-disabled="true"]) { background: var(--hover); color: var(--text); }
+.sd-ib[aria-disabled="true"] { opacity: .35; cursor: default; }
+.sd-ib .ico { width: 15px; height: 15px; }
+.sd-spin { animation: sd-spin .9s linear infinite; }
+@keyframes sd-spin { to { transform: rotate(360deg); } }
+
+/* ================= 确认框：同共用件页的危险确认框（照 detail-world.css 的 .wd-mask） =================
+   外 26 / 内边距 8、里面的栏 18，标题前一个危险色图标块（40 见方、离栏的角 8、圆角 10），底下一排 36 高胶囊等宽铺满；默认聚焦「取消」，画一圈细框。
+   遮罩从标题栏下面开始（标题栏不盖，弹窗开着也能拖窗口）。--scrim、--elev-4 外壳里没有，照共用件页的深浅两套定在这里 */
+.sd-mask { --sd-scrim: rgb(var(--shadow-rgb) / .32); --sd-elev4: 0 28px 64px -16px rgb(var(--shadow-rgb) / .32), 0 8px 20px -4px rgb(var(--shadow-rgb) / .10);
+           position: fixed; left: 0; right: 0; top: 40px; bottom: 0; z-index: 40; display: grid; place-items: center; background: var(--sd-scrim); backdrop-filter: blur(2px); }
+[data-theme="dark"] .sd-mask { --sd-scrim: rgb(0 0 0 / .56); --sd-elev4: 0 32px 72px -16px rgb(0 0 0 / .72), 0 8px 24px -4px rgb(0 0 0 / .40); }
+.sd-mask.enter { animation: sd-mk-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.sd-mask.enter > .sd-md { animation: sd-md-in .26s cubic-bezier(.2, .7, .2, 1) both; }
+.sd-mask.leave { animation: sd-mk-out .14s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+.sd-mask.leave > .sd-md { animation: sd-md-out .14s cubic-bezier(.4, 0, 1, 1) both; }
+@keyframes sd-mk-in { from { opacity: 0; } } @keyframes sd-mk-out { to { opacity: 0; } }
+@keyframes sd-md-in { from { opacity: 0; transform: translateY(10px); } } @keyframes sd-md-out { to { opacity: 0; transform: translateY(6px); } }
+.sd-md { width: 380px; box-sizing: border-box; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--sd-elev4); display: flex; flex-direction: column; gap: 8px; }
+.sd-mc { border-radius: 18px; padding: 18px 20px 20px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); display: flex; flex-direction: column; gap: 12px; }
+.sd-mh { display: flex; align-items: center; gap: 12px; margin: -10px 0 0 -12px; }
+.sd-mi { width: 40px; height: 40px; border-radius: 10px; flex: none; display: grid; place-items: center; background: var(--danger-subtle); color: var(--danger-text); }
+.sd-mi .ico { width: 20px; height: 20px; }
+.sd-md h3 { flex: 1; min-width: 0; margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; }
+.sd-mb { font-size: 13px; line-height: 21px; color: var(--muted); }
+.sd-ma { display: flex; gap: 8px; }
+.sd-b { flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center; height: 36px; padding: 0 14px; border-radius: 18px; box-sizing: border-box;
+        border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer;
+        transition: background-color .2s; outline: none; }
+.sd-b:hover { background: var(--control-hov); }
+.sd-b.dgr { background: var(--danger-solid); color: var(--on-danger); border-color: transparent; font-weight: 600; }
+.sd-b.dgr:hover { background: var(--danger-solid-hov); }
+.sd-b.fk { outline: 2px solid var(--accent); outline-offset: 2px; }

@@ -1,1 +1,104 @@
-/* 设置 · appearance：还没画（占位） */
+/* 全局设置 →「外观」（11-27 夜里第一稿，子代理照临时规范画的，等作者整体扫一眼）。说明写在 settings-appearance.js 开头。
+   选择器都带 .sa 前缀，不碰外壳和别的分类（外壳用了 .tb .sk .page .cp .snav .hl .empty .cap .fade-in .fade-out）。
+
+   内容面板（.cp，868 × 658、内边距 8、圆角 26）里左右两栏，都是圆角 18（26 − 8）、内边距 16 / 20，左栏 544 宽、右栏 300 宽。
+   栏里照向导第三步：字 18 + 6 + 控件，块和块隔 24。分段 40 高、圆角 10（选中块离外框 4、圆角 6）；配色方案的卡和选中框圆角 10，卡里的缩略界面离卡边 4、圆角 6；
+   强调色是 28 的圆，选中环 36 高（离色块 2、环宽 2，胶囊的 14 + 4 = 18，同心）；背景图的框圆角 10，框里的 × 28 见方、离框边 6、圆角 4；
+   开关一行 36 高、圆角 10，悬停的底往两边各伸 12，离栏边 8（18 − 8）。 */
+
+.sa { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 8px; }
+.sa [hidden] { display: none !important; }
+.sa-col { min-width: 0; min-height: 0; box-sizing: border-box; border-radius: 18px; padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 24px;
+          background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+.sa-f { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.sa-lb { height: 18px; display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12.5px; line-height: 18px; font-weight: 500; color: var(--muted); }
+.sa-lb > span { white-space: nowrap; cursor: default; }
+
+/* 换外观的那一下整页停掉过渡，两帧后恢复（同程序的 no-transition）；滑动的选中块照常滑 */
+html.sa-swap *:not(.sa-glide), html.sa-swap *::before, html.sa-swap *::after { transition: none !important; }
+
+/* ---- 主题模式：40 高分段（同向导第三步），图标加字 ---- */
+.sa-seg { position: relative; display: flex; height: 40px; padding: 3px; border-radius: 10px; box-sizing: border-box; min-width: 0; background: var(--field); border: 1px solid var(--border); }
+.sa-sgl { position: absolute; left: 0; top: 3px; bottom: 3px; border-radius: 6px; background: var(--accent-subtle); pointer-events: none;
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+          transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
+.sa-seg button { flex: 1; position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-width: 0; padding: 0 4px; border: 0;
+                 border-radius: 6px; background: none; font: inherit; font-size: 13px; color: var(--muted); white-space: nowrap; cursor: pointer; transition: color .2s; }
+.sa-seg button .ico { width: 15px; height: 15px; }
+.sa-seg button:hover { color: var(--text); }
+.sa-seg button.on { color: var(--accent-text); font-weight: 500; }
+
+/* ---- 配色方案：一排四张，选中框单独一块、横竖都能滑 ---- */
+.sa-schemes { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.sa-shl { position: absolute; left: 0; top: 0; border-radius: 10px; background: var(--accent-subtle); pointer-events: none;
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+          transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1), height .32s cubic-bezier(.3, .7, .2, 1); }
+.sa-sc { position: relative; z-index: 1; display: flex; flex-direction: column; min-width: 0; padding: 4px 4px 0; border: 0; border-radius: 10px; background: none;
+         font: inherit; text-align: left; cursor: pointer; transition: background .15s; }
+.sa-sc:hover:not(.on) { background: var(--hover); }
+.sa-sn { height: 28px; display: flex; align-items: center; padding: 0 6px; font-size: 13px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+         transition: color .2s; }
+.sa-sc.on .sa-sn { color: var(--accent-text); }
+/* 缩略界面：用那个方案自己的令牌（data-scheme / data-theme / data-accent 挂在这一块上）；16:10 */
+.sa-pv { position: relative; display: block; aspect-ratio: 16 / 10; border-radius: 6px; overflow: hidden; background: var(--bg); box-shadow: inset 0 0 0 1px var(--border); }
+.sa-pv > span { position: absolute; display: block; }
+.sa-pp { left: 13%; right: 13%; top: 15%; height: 47%; border-radius: 4px; background: var(--surface); box-shadow: 0 1px 2px rgb(0 0 0 / .12), 0 0 0 1px var(--border); }
+.sa-pp > span { position: absolute; display: block; }
+.sa-pl { left: 9%; top: 18%; width: 52%; height: 4px; border-radius: 2px; background: var(--text); opacity: .55; }
+.sa-pl.s { top: 38%; width: 34%; opacity: .3; }
+.sa-pb { right: 8%; bottom: 14%; width: 26%; height: 8px; border-radius: 4px; background: var(--accent-solid); }
+.sa-pv > .sa-pc { left: 50%; bottom: 8%; height: 11px; transform: translateX(-50%); display: flex; gap: 2px; padding: 2px; box-sizing: border-box; border-radius: 6px;
+         background: var(--overlay); box-shadow: 0 0 0 1px var(--border); }
+.sa-pc > span { width: 7px; height: 7px; border-radius: 4px; background: color-mix(in srgb, var(--text) 28%, transparent); }
+.sa-pc > span:last-child { background: var(--accent-solid); }
+
+/* ---- 强调色：「跟随方案」胶囊 + 八个 28 的圆；选中环单独一块滑过去 ---- */
+.sa-acc { position: relative; display: flex; align-items: center; gap: 10px; height: 40px; padding-left: 4px; }
+.sa-ring { position: absolute; left: 0; top: 2px; height: 36px; border-radius: 18px; pointer-events: none; box-shadow: inset 0 0 0 2px var(--accent);
+           transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
+.sa-auto { height: 28px; padding: 0 12px; border-radius: 14px; border: 1px solid var(--border); background: none; flex: none; font: inherit; font-size: 12.5px; font-weight: 500;
+           color: var(--muted); white-space: nowrap; cursor: pointer; transition: color .2s, background .15s; }
+.sa-auto:hover { color: var(--text); background: var(--hover); }
+.sa-auto.on { color: var(--accent-text); }
+.sa-sw { width: 28px; height: 28px; border-radius: 14px; border: 0; padding: 0; flex: none; background: var(--sw); cursor: pointer;
+         box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 14%, transparent); transition: transform .15s; }
+.sa-sw:hover:not(.on) { transform: scale(1.08); }
+
+/* ---- 右栏：背景图 ---- */
+.sa-bg { position: relative; aspect-ratio: 16 / 10; border-radius: 10px; box-sizing: border-box; cursor: pointer; outline: none; transition: border-color .2s, background .15s, box-shadow .2s; }
+.sa-bg:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent); }
+/* 没选：虚线占位框（同向导的虚线占位框，圆角 10），正中图标和「选择背景图…」 */
+.sa-bg.none { display: grid; place-items: center; border: 1.5px dashed color-mix(in srgb, var(--text) 22%, transparent); }
+.sa-bg.none:hover { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--hover); }
+.sa-bge { display: flex; flex-direction: column; align-items: center; gap: 12px; color: var(--muted); }
+.sa-bge > .ico { width: 24px; height: 24px; }
+.sa-bgb { display: inline-flex; align-items: center; height: 36px; padding: 0 16px; border-radius: 18px; box-sizing: border-box; border: 1px solid var(--border); background: var(--control);
+          color: var(--text); font-size: 13px; font-weight: 500; white-space: nowrap; transition: background .15s; }
+.sa-bg.none:hover .sa-bgb { background: var(--control-hov); }
+/* 选了：框里是那张图。草图里没有真图，这是 CSS 画的一张替身（天、太阳、远山、近山），颜色是画里的，不是界面令牌 */
+.sa-bgi { position: absolute; inset: 0; border-radius: 10px; overflow: hidden; box-shadow: inset 0 0 0 1px rgb(0 0 0 / .12);
+          background: radial-gradient(circle at 70% 30%, #fff7dc 0 6%, rgb(255 247 220 / .35) 6.5% 10%, rgb(255 247 220 / 0) 14%),
+                      linear-gradient(to bottom, #6fa3d4 0%, #b9d3ea 52%, #efe0c9 100%); }
+.sa-bgi::before, .sa-bgi::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; }
+.sa-bgi::before { top: 34%; background: linear-gradient(to bottom, #f4f7fb 0 14%, #8ea3bb 30%, #6f8299 100%);
+                  clip-path: polygon(0 62%, 14% 40%, 24% 52%, 40% 8%, 52% 34%, 60% 26%, 78% 58%, 90% 44%, 100% 56%, 100% 100%, 0 100%); }
+.sa-bgi::after { top: 66%; background: linear-gradient(to bottom, #557a63, #3c5a49);
+                 clip-path: polygon(0 40%, 18% 18%, 36% 36%, 58% 8%, 76% 30%, 100% 14%, 100% 100%, 0 100%); }
+.sa-bg:not(.none):hover .sa-bgi { box-shadow: inset 0 0 0 1px rgb(0 0 0 / .12), inset 0 0 0 999px rgb(255 255 255 / .06); }
+.sa-bgx { position: absolute; z-index: 1; right: 6px; top: 6px; width: 28px; height: 28px; border-radius: 4px; border: 0; padding: 0; display: grid; place-items: center; cursor: pointer;
+          background: color-mix(in srgb, var(--overlay) 84%, transparent); backdrop-filter: blur(8px); color: var(--muted); box-shadow: 0 0 0 1px var(--border);
+          transition: color .15s, background .15s; }
+.sa-bgx:hover { color: var(--text); background: var(--overlay); }
+.sa-bgx .ico { width: 14px; height: 14px; }
+
+/* ---- 右栏：开关（36 × 20、滑块 16，在字的左边；一行 36 高，悬停的底往两边各伸 12） ---- */
+.sa-tgs { display: flex; flex-direction: column; gap: 2px; margin: -6px -12px 0; }
+.sa-tg { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; min-width: 0; border: 0; border-radius: 10px; background: none; text-align: left;
+         font: inherit; font-size: 13px; color: var(--text); cursor: pointer; transition: background .15s; }
+.sa-tg:hover { background: var(--hover); }
+.sa-swc { position: relative; width: 36px; height: 20px; border-radius: 10px; flex: none; background: color-mix(in srgb, var(--text) 18%, transparent); transition: background .2s; }
+.sa-swc::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 8px; background: var(--text); transition: transform .26s cubic-bezier(.3, .7, .2, 1); }
+.sa-tg.on .sa-swc { background: var(--accent-solid); }
+.sa-tg.on .sa-swc::after { transform: translateX(16px); background: var(--on-accent); }
+.sa-tl { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sa-hr { display: block; height: 1px; margin: 6px 12px; background: var(--border); }

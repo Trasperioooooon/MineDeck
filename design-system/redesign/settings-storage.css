@@ -1,1 +1,94 @@
-/* 设置 · storage：还没画（占位） */
+/* 全局设置 →「存储位置」（11-27 夜里第一稿，子代理照临时规范画的，等作者整体扫一眼）。说明写在 settings-storage.js 开头。
+   选择器都带 .ss 前缀（右上角的提示挂在 body 上，叫 #ss-toasts / .ss-tst），不碰外壳和别的分类（外壳用了 .tb .sk .page .cp .snav .hl .empty .cap .fade-in .fade-out）。
+
+   内容面板（.cp，868 × 658、内边距 8、圆角 26）里一栏占满（圆角 18 = 26 − 8，内边距 16 / 20），表单两列各 398 宽、列距 16，一项「字 18 + 6 + 控件 40」，行距 24。
+   路径框、排除项的框、步进都是 40 高、圆角 10；框里的图标按钮 28 见方、离框外沿 6、圆角 4，排除项框里的「加入…」是 28 高胶囊（胶囊不按同心算）；
+   「保存」36 高胶囊（同保存条那颗），跟在步进后面隔 14。 */
+
+.ss { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ss [hidden] { display: none !important; }
+.ss-col { flex: 1; min-width: 0; min-height: 0; box-sizing: border-box; border-radius: 18px; padding: 16px 20px 20px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+.ss-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; row-gap: 24px; }
+.ss-f { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ss-lb { height: 18px; display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12.5px; line-height: 18px; font-weight: 500; color: var(--muted); }
+.ss-lb > span:first-child { white-space: nowrap; cursor: default; }
+.ss-sp { flex: 1; }
+.ss-hr { grid-column: 1 / -1; display: block; height: 1px; margin: -6px 0; background: var(--border); }
+/* 名字那一行右边：同一个文件夹（黄字）、放在别处的不在排除项里（淡字），全文在悬停 */
+.ss-same, .ss-out { display: inline-flex; align-items: center; gap: 5px; min-width: 0; font-size: 12px; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+.ss-same { color: var(--warning-text); }
+.ss-same .ico { width: 14px; height: 14px; }
+.ss-out { color: var(--faint); }
+.ss-dot { width: 6px; height: 6px; border-radius: 2px; flex: none; background: var(--accent); opacity: 0; transition: opacity .2s; }
+.ss-keep.mod .ss-dot { opacity: 1; }
+
+/* ---- 路径框：同向导「存储路径」（文件夹图标加等宽路径，放不下先省上级目录）；能改的整个框点了就是「更改…」 ---- */
+.ss-pb { height: 40px; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 5px 0 12px; border-radius: 10px; box-sizing: border-box;
+         background: var(--field); border: 1px solid var(--border); outline: none; transition: border-color .2s, box-shadow .2s; }
+.ss-pb.pick { cursor: pointer; }
+.ss-pb.pick:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.ss-pb.pick:focus-visible { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.ss-pb > .ico { width: 15px; height: 15px; flex: none; color: var(--muted); }
+.ss-pt { flex: 1; display: flex; min-width: 0; font-family: var(--mono); font-size: 12.5px; font-weight: 500; color: var(--text); white-space: nowrap; }
+.ss-pt .hd, .ss-pt .tl { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ss-pt .tl { flex-shrink: 0; max-width: 100%; } /* 文件夹名先留全，省的是前面的上级目录 */
+.ss-pt .hd { flex-shrink: 1000; color: var(--muted); }
+.ss-pt .hd:not(:empty) { min-width: 1.6ch; }
+.ss-ib { width: 28px; height: 28px; border-radius: 4px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;
+         transition: background .15s, color .15s, opacity .15s; }
+.ss-ib:hover:not([aria-disabled="true"]) { background: var(--hover); color: var(--text); }
+.ss-ib[aria-disabled="true"] { opacity: .35; cursor: default; }
+.ss-ib .ico { width: 15px; height: 15px; }
+.ss-pb .ss-ib + .ss-ib { margin-left: -6px; } /* 两颗挨着：框里的 gap 8 收成 2 */
+
+/* ---- 排除项：和路径框一样的框，里面状态和一颗 28 高胶囊 ---- */
+.ss-db { height: 40px; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 5px 0 12px; border-radius: 10px; box-sizing: border-box;
+         background: var(--field); border: 1px solid var(--border); }
+.ss-db > .ico { width: 15px; height: 15px; flex: none; color: var(--muted); }
+.ss-ds { flex: 1; min-width: 0; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; cursor: default; }
+.ss-ds.warn { color: var(--warning-text); }
+.ss-btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: 14px; box-sizing: border-box; flex: none; border: 1px solid var(--border);
+          background: var(--control); color: var(--text); font: inherit; font-size: 12.5px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: background .15s, opacity .15s; }
+.ss-btn:hover:not([aria-disabled="true"]) { background: var(--control-hov); }
+.ss-btn[aria-disabled="true"] { opacity: .45; cursor: default; }
+.ss-btn .ico { width: 14px; height: 14px; margin-left: -2px; }
+.ss-spin { animation: ss-spin .9s linear infinite; }
+@keyframes ss-spin { to { transform: rotate(360deg); } }
+
+/* ---- 保留份数：步进（132 宽，同向导内存的步进）、保存 ---- */
+.ss-kr { display: flex; align-items: center; gap: 14px; height: 40px; }
+.ss-stp { width: 132px; flex: none; display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 5px; border-radius: 10px; box-sizing: border-box;
+          background: var(--field); border: 1px solid var(--border); }
+.ss-stp button { width: 28px; height: 28px; padding: 0; border: 0; border-radius: 4px; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;
+                 transition: background .15s, color .15s, opacity .15s; }
+.ss-stp button:hover:not([aria-disabled="true"]) { background: var(--hover); color: var(--text); }
+.ss-stp button[aria-disabled="true"] { opacity: .3; cursor: default; }
+.ss-stp .ico { width: 14px; height: 14px; }
+.ss-sv { min-width: 0; font-size: 14px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ss-save { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; min-width: 84px; padding: 0 18px; border-radius: 18px; box-sizing: border-box; flex: none;
+           border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+           transition: background .2s, color .2s, border-color .2s, opacity .2s; }
+.ss-save[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.ss-save.on { background: var(--accent-solid); color: var(--on-accent); border-color: transparent; }
+.ss-save.on:hover { background: var(--accent-solid-hov); }
+.ss-save .ico { width: 15px; height: 15px; }
+
+/* ================= 右上角的提示：同共用件页（commons.html 的 .tst） =================
+   标题栏下面 12、离窗口右边 16，360 宽；外圆角 18、细边 1 加内边距 7，左上角状态块 28 见方、圆角 10，右上角关闭也是；按钮 28 高胶囊排在字下面一行 */
+#ss-toasts { position: fixed; right: 16px; top: 52px; z-index: 60; width: 360px; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.ss-tst { pointer-events: auto; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; column-gap: 10px; row-gap: 6px; padding: 7px; border-radius: 18px; box-sizing: border-box;
+          background: var(--overlay); border: 1px solid var(--border); box-shadow: var(--elev-3); }
+.ss-ti { width: 28px; height: 28px; border-radius: 10px; display: grid; place-items: center; background: var(--success-subtle); color: var(--success-text); }
+.ss-ti .ico { width: 15px; height: 15px; }
+.ss-tm { padding: 4px 0; font-size: 13px; line-height: 20px; color: var(--text); overflow-wrap: anywhere; }
+.ss-tx { width: 28px; height: 28px; border-radius: 10px; border: 0; padding: 0; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer; transition: background .15s, color .15s; }
+.ss-tx:hover { background: var(--hover); color: var(--text); }
+.ss-tx .ico { width: 14px; height: 14px; }
+.ss-ta { grid-column: 2 / 4; display: flex; gap: 6px; margin-bottom: 1px; }
+.ss-tb { height: 28px; padding: 0 12px; border-radius: 14px; box-sizing: border-box; border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 12.5px;
+         font-weight: 500; cursor: pointer; transition: background .15s; }
+.ss-tb:hover { background: var(--control-hov); }
+.ss-tst.enter { animation: ss-ts-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.ss-tst.leave { animation: ss-ts-out .14s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+@keyframes ss-ts-in { from { opacity: 0; transform: translateY(-8px); } }
+@keyframes ss-ts-out { to { opacity: 0; transform: translateX(16px); } }
