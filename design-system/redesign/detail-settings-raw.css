@@ -1,0 +1,93 @@
+/* 服务器详情页 →「设置 → 全部配置」（11-27 第一稿，子代理照临时规范画的，等作者整体扫一眼）。说明写在 detail-settings-raw.js 开头。
+   选择器都带 .rw 前缀，不碰外壳和别的标签（外壳用了 .cs .cx .btn .list .thumb 等，见 detail.html）。
+
+   内容面板（.cp，868 × 526、内边距 8、圆角 26）里从上到下：
+     工具一排 32 高（同控制台）：文件名和项数的字离面板边 20（和下面键名的左边对齐：栏边 8 + 行的内边距 12）；搜索框 260 × 32 胶囊贴右边。
+     全部键值一栏，圆角 18（26 − 8），贴边 8 放行：一行 40 高、圆角 10（18 − 8）；键名 300 宽（等宽，26.2 最长的 39 个字符放得下），中文名 112 宽，
+       值的框 32 高，上下离行的边 4，圆角 6（10 − 4），平时是字、悬停出底色、点进去出框。
+     保存条 52 高、圆角 18（同「定时任务」），里面的按钮 36 高胶囊、离条的上下边 8。 */
+
+.rw { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.rw-sp { flex: 1; }
+
+/* ---- 工具一排 ---- */
+.rw-tb { flex: none; height: 32px; display: flex; align-items: center; gap: 10px; padding-left: 20px; }
+.rw-f { font-family: var(--mono); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.rw-c { font-size: 12px; color: var(--faint); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* 搜索框：同控制台过滤框（32 高胶囊，面板底上一层浅底，聚焦时一圈强调色细框） */
+.rw-cs { display: flex; align-items: center; gap: 8px; width: 260px; height: 32px; box-sizing: border-box; padding: 0 4px 0 12px; border-radius: 16px; flex: none; cursor: text;
+         background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); color: var(--muted); }
+.rw-cs:focus-within { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.rw-cs > .ico { width: 15px; height: 15px; flex: none; }
+.rw-cs input { flex: 1; min-width: 0; border: 0; outline: 0; padding: 0; background: none; font: inherit; font-size: 13px; color: var(--text); }
+.rw-cs input::placeholder { color: var(--faint); }
+.rw-cx { width: 24px; height: 24px; border-radius: 12px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer; visibility: hidden; }
+.rw-cs.has .rw-cx { visibility: visible; }
+.rw-cx:hover { background: var(--hover); color: var(--text); }
+.rw-cx .ico { width: 14px; height: 14px; }
+.rw-cs.off { opacity: .45; cursor: not-allowed; }
+
+/* ---- 全部键值 ---- */
+.rw-box { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 8px; border-radius: 18px; box-sizing: border-box;
+          background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+/* 细滚动条：同首页、向导、「玩家」那套（系统的藏掉，右边 4 像素的细条在栏右边那 8 像素里；上下还有没露出来的，那一头淡出 28） */
+.rw-lw { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.rw-lw .list { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
+               --ft: 0px; --fb: 0px; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%);
+               mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%); }
+.rw-lw .list::-webkit-scrollbar { display: none; }
+.rw-lw.can-up .list { --ft: 28px; } .rw-lw.can-down .list { --fb: 28px; }
+.rw-lw .thumb { position: absolute; right: -6px; width: 4px; border-radius: 2px; background: color-mix(in srgb, var(--text) 38%, transparent);
+                opacity: 0; transition: opacity .2s, width .15s, right .15s; cursor: pointer; }
+.rw-lw:hover .thumb, .rw-lw.scrolling .thumb, .rw-lw .thumb.drag { opacity: 1; }
+.rw-lw .thumb:hover, .rw-lw .thumb.drag { width: 6px; right: -7px; background: color-mix(in srgb, var(--text) 55%, transparent); }
+.rw-lw.fits .thumb { display: none; }
+/* 筛不到：正中一行淡字；配置文件还没生成（草图 &raw=none）、目录还没读到：同样位置 */
+.rw-none, .rw-empty { position: absolute; inset: 0; display: grid; place-items: center; font-size: 12.5px; color: var(--faint); pointer-events: none; }
+.rw-none { opacity: 0; transition: opacity .22s cubic-bezier(.2, .7, .2, 1); }
+.rw-lw.is-none .rw-none { opacity: 1; }
+.rw-empty { pointer-events: auto; }
+
+/* 一行：键名（等宽）、中文名（淡色；说明和默认值进悬停）、值、改过的小点 */
+.rw-row { flex: none; display: flex; align-items: center; gap: 12px; height: 40px; padding: 0 6px 0 12px; border-radius: 10px; box-sizing: border-box; min-width: 0; }
+.rw-row[hidden] { display: none; }
+.rw-k { flex: none; width: 300px; font-family: var(--mono); font-size: 12.5px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rw-cn { flex: none; width: 112px; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 值：平时是字，悬停出底色，点进去出框（规范第九节，同向导第三步的名称、介绍）；32 高、上下离行的边 4、圆角 6 */
+.rw-v { flex: 1; min-width: 0; height: 32px; margin-left: -10px; padding: 0 9px; border-radius: 6px; box-sizing: border-box; border: 1px solid transparent; background: transparent; outline: none;
+        font-family: var(--mono); font-size: 12.5px; color: var(--text); transition: background .15s, border-color .15s, box-shadow .15s; }
+.rw-v::placeholder { color: var(--faint); font-family: var(--font); }
+.rw-v:focus::placeholder { color: transparent; } /* 点进去要打字了，「空」就不用写了 */
+.rw-v:hover { background: var(--hover); }
+.rw-v:focus { background: var(--field); border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+/* 改过、还没保存的：右边一个强调色小点（同「定时任务」） */
+.rw-dot { width: 6px; height: 6px; border-radius: 2px; flex: none; margin: 0 4px; background: var(--accent); opacity: 0; transition: opacity .2s; }
+.rw-row.mod .rw-dot { opacity: 1; }
+
+/* ---- 保存条：52 高、圆角 18（同「定时任务」）；左边那句只在开着、有改动或存过待重启时出现，右边同「定时任务」 ---- */
+.rw-bar { flex: none; height: 52px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 20px; border-radius: 18px; box-sizing: border-box;
+          background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+.rw-note { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12.5px; color: var(--warning-text); white-space: nowrap; }
+.rw-note > .ico { width: 15px; height: 15px; flex: none; }
+.rw-btn { display: inline-flex; align-items: center; gap: 6px; height: 36px; margin-left: 4px; padding: 0 14px 0 12px; border-radius: 18px; box-sizing: border-box; flex: none;
+          border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; transition: background .15s; }
+.rw-btn:hover:not(:disabled) { background: var(--control-hov); }
+.rw-btn:disabled { opacity: .7; cursor: default; }
+.rw-btn .ico { width: 15px; height: 15px; }
+.rw-n { display: inline-flex; align-items: center; gap: 7px; margin-right: 4px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.rw-n > i { width: 7px; height: 7px; border-radius: 2px; background: var(--accent); }
+.rw-n, .rw-discard { opacity: 0; visibility: hidden; transform: translateY(5px);
+                     transition: opacity .09s cubic-bezier(.4, 0, 1, 1), transform .09s cubic-bezier(.4, 0, 1, 1), visibility 0s .09s, background .15s, color .15s; }
+.rw-n.on, .rw-discard.on { opacity: 1; visibility: visible; transform: none;
+                           transition: opacity .22s cubic-bezier(.2, .7, .2, 1), transform .22s cubic-bezier(.2, .7, .2, 1), background .15s, color .15s; }
+.rw-discard { height: 36px; padding: 0 14px; border-radius: 18px; border: 0; background: none; flex: none; font: inherit; font-size: 13px; font-weight: 500; color: var(--muted); cursor: pointer; }
+.rw-discard:hover { background: var(--hover); color: var(--text); }
+.rw-save { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; min-width: 84px; padding: 0 18px; border-radius: 18px; box-sizing: border-box; flex: none;
+           border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+           transition: background .2s, color .2s, border-color .2s, opacity .2s; }
+.rw-save[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.rw-save.on { background: var(--accent-solid); color: var(--on-accent); border-color: transparent; }
+.rw-save.on:hover { background: var(--accent-solid-hov); }
+.rw-save .ico { width: 15px; height: 15px; }
+.rw-spin { animation: rw-spin .9s linear infinite; }
+@keyframes rw-spin { to { transform: rotate(360deg); } }

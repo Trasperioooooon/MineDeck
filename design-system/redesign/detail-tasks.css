@@ -1,0 +1,191 @@
+/* 服务器详情页 →「定时任务」（11-27 第一稿，子代理照临时规范画的，等作者整体扫一眼）。说明写在 detail-tasks.js 开头。
+   选择器都带 .tk 前缀，不碰外壳和别的标签（外壳用了 .btn .rb .go .tg .ib .empty .list .thumb .dm 等，见 detail.html）。
+
+   内容面板（.cp，868 × 526、内边距 8、圆角 26）里：左边任务列表一栏、右边 300 宽的添加任务一栏，最下面横跨两栏一条 52 高的保存条；
+   三块都是圆角 18（26 − 8）、间隔 8，底色同「玩家」各栏。
+     列表栏贴边 8 放行：一行 40 高、圆角 10（18 − 8）；行里的「···」28 见方，离行的边 4，圆角 6（10 − 4，同心）。文件夹那一行 36 高。
+     添加任务一栏内边距 16 / 20：两颗预设（28 高胶囊），一道线，四个表单项（字 18 + 6 + 框 40，同向导第三步），右下「添加」（36 高胶囊）。
+     保存条里的按钮 36 高胶囊，离条的上下边 8（胶囊不按同心算）。 */
+
+.tk { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 300px; grid-template-rows: minmax(0, 1fr) 52px; gap: 8px; }
+.tk-box, .tk-add, .tk-bar { min-width: 0; min-height: 0; box-sizing: border-box; border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+
+/* ---- 列表 ---- */
+.tk-box { position: relative; display: flex; flex-direction: column; padding: 8px; }
+/* 细滚动条：同首页、向导、「玩家」那套（系统的藏掉，右边 4 像素的细条，在栏右边那 8 像素里；上下还有没露出来的，那一头淡出 28） */
+.tk-lw { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.tk-lw .list { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
+               --ft: 0px; --fb: 0px; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%);
+               mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%); }
+.tk-lw .list::-webkit-scrollbar { display: none; }
+.tk-lw.can-up .list { --ft: 28px; } .tk-lw.can-down .list { --fb: 28px; }
+.tk-lw .thumb { position: absolute; right: -6px; width: 4px; border-radius: 2px; background: color-mix(in srgb, var(--text) 38%, transparent);
+                opacity: 0; transition: opacity .2s, width .15s, right .15s; cursor: pointer; }
+.tk-lw:hover .thumb, .tk-lw.scrolling .thumb, .tk-lw .thumb.drag { opacity: 1; }
+.tk-lw .thumb:hover, .tk-lw .thumb.drag { width: 6px; right: -7px; background: color-mix(in srgb, var(--text) 55%, transparent); }
+.tk-lw.fits .thumb { display: none; }
+/* 空的时候：正中一行淡字（程序的原话「暂无定时任务」）；最后一行划掉以后才淡进来 */
+.tk-none { position: absolute; inset: 0; display: grid; place-items: center; font-size: 12.5px; color: var(--faint); pointer-events: none; opacity: 0; transition: opacity .22s cubic-bezier(.2, .7, .2, 1); }
+.tk-lw.is-none .tk-none { opacity: 1; }
+
+/* 一行：类型图标、什么时候、做什么（命令是等宽原文，放不下截断、全文进悬停）、未保存的小点、「···」 */
+.tk-row { flex: none; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 4px 0 12px; border-radius: 10px; box-sizing: border-box; min-width: 0; overflow: hidden;
+          transition: background .15s; }
+.tk-row:hover { background: var(--hover); }
+.tk-row.in { padding-left: 38px; } /* 文件夹里的：缩进到和文件夹名对齐（12 + 图标 16 + 10） */
+.tk-ti { width: 16px; height: 16px; flex: none; color: var(--muted); }
+.tk-when { flex: none; width: 96px; font-size: 13px; font-weight: 500; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tk-what { flex: 1; min-width: 0; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tk-what.mono { font-family: var(--mono); font-size: 12.5px; color: var(--text); }
+/* 服务器停着时到点不会执行的：字和图标淡下去，原因在悬停里 */
+.tk-row.idle .tk-ti, .tk-row.idle .tk-when, .tk-row.idle .tk-what { opacity: .45; }
+.tk-dot { width: 6px; height: 6px; border-radius: 2px; flex: none; background: var(--accent); opacity: 0; transition: opacity .2s; }
+.tk-row.draft .tk-dot { opacity: 1; }
+.tk-more { width: 28px; height: 28px; border-radius: 6px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;
+           opacity: 0; transition: background .15s, color .15s, opacity .15s; }
+.tk-more .ico { width: 15px; height: 15px; }
+.tk-more:hover, .tk-more.open { background: color-mix(in srgb, var(--text) 9%, transparent); color: var(--text); }
+.tk-row:hover .tk-more, .tk-more.open, .tk-more:focus-visible { opacity: 1; }
+.tk-row.tk-out { pointer-events: none; }
+/* 加的那条已经有了：那一行闪一下强调色的底（同「玩家」） */
+.tk-row.tk-flash { animation: tk-flash .9s cubic-bezier(.2, .7, .2, 1); }
+@keyframes tk-flash { 0%, 30% { background: var(--accent-subtle); } 100% { background: transparent; } }
+/* 文件夹那一行：图标、名字、条数（不另画底，里面的任务缩进） */
+.tk-fd { flex: none; display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; box-sizing: border-box; min-width: 0; overflow: hidden; }
+.tk-fi { width: 16px; height: 16px; flex: none; color: var(--muted); }
+.tk-fn { min-width: 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tk-fc { flex: none; font-family: var(--mono); font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.tk-fd.tk-out { pointer-events: none; }
+
+/* ---- 添加任务 ---- */
+.tk-add { display: flex; flex-direction: column; gap: 12px; padding: 16px 20px; }
+.tk-pre { display: flex; gap: 6px; flex: none; }
+/* 预设：28 高胶囊（同规范「筛选片和预设」）；已经有了的 ＋ 换成勾、淡下去，点了是那一行闪一下 */
+.tk-chip { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 12px 0 9px; border-radius: 14px; box-sizing: border-box; border: 1px solid var(--border);
+           background: var(--control); color: var(--text); font: inherit; font-size: 12.5px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: background .15s, color .15s; }
+.tk-chip:hover { background: var(--control-hov); }
+.tk-chip .ico { width: 14px; height: 14px; color: var(--accent-text); }
+.tk-chip.has { background: none; color: var(--muted); }
+.tk-chip.has .ico { color: var(--muted); }
+.tk-chip.has:hover { background: var(--hover); }
+.tk-chip[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.tk-chip[aria-disabled="true"]:hover { background: var(--control); }
+.tk-hr { flex: none; height: 1px; margin: 2px 0; background: var(--border); }
+.tk-fld { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: none; }
+.tk-lb { font-size: 12.5px; line-height: 18px; color: var(--muted); font-weight: 500; }
+
+/* 分段选：同向导第三步（40 高、圆角 10；选中块离外框 4 = 边 1 + 内边距 3，圆角 6，滑过去） */
+.tk-seg { position: relative; display: flex; height: 40px; padding: 3px; border-radius: 10px; box-sizing: border-box; background: var(--field); border: 1px solid var(--border); flex: none; }
+.tk-sgl { position: absolute; left: 0; top: 3px; bottom: 3px; border-radius: 6px; background: var(--accent-subtle); pointer-events: none;
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+          transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
+.tk-seg button { flex: 1; position: relative; z-index: 1; min-width: 0; padding: 0; border: 0; border-radius: 6px; background: none; font: inherit; font-size: 13px; color: var(--muted);
+                 white-space: nowrap; cursor: pointer; transition: color .2s; }
+.tk-seg button:hover { color: var(--text); }
+.tk-seg button.on { color: var(--accent-text); font-weight: 500; }
+.tk-seg button[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.tk-seg button[aria-disabled="true"]:hover { color: var(--muted); }
+/* 时间一行：每天 / 每隔的分段，后面是时刻框或步进 */
+.tk-wrow { display: flex; gap: 8px; min-width: 0; }
+.tk-wrow .tk-seg { width: 112px; }
+.tk-whenv { flex: 1; min-width: 0; display: flex; }
+.tk-whenv > * { flex: 1; min-width: 0; }
+
+/* 输入框：40 高、圆角 10（同向导）；不对时框标红、晃一下，右边一句红字（全文进悬停） */
+.tk-iw { position: relative; display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 12px; border-radius: 10px; box-sizing: border-box; min-width: 0; cursor: text;
+         background: var(--field); border: 1px solid var(--border); transition: border-color .2s, box-shadow .2s, opacity .2s; }
+.tk-iw:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.tk-in { flex: 1; min-width: 0; height: 28px; border: 0; outline: 0; padding: 0; background: none; font: inherit; font-size: 14px; color: var(--text); }
+.tk-in.mono { font-family: var(--mono); font-size: 12.5px; }
+.tk-in::placeholder { color: var(--faint); }
+.tk-at .tk-in { font-variant-numeric: tabular-nums; }
+.tk-msg { display: none; flex: none; font-size: 12px; color: var(--danger-text); white-space: nowrap; cursor: default; }
+.tk-iw.bad { border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
+.tk-iw.bad:focus-within { box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger-text) 14%, transparent); }
+.tk-iw.bad .tk-msg { display: block; }
+/* 不是「命令」类型时命令框灰着（规范：暂时不能用的灰掉、悬停说原因，不藏），打过的字留着 */
+.tk-iw.off { opacity: .45; cursor: not-allowed; }
+.tk-iw.off .tk-in { pointer-events: none; }
+
+/* 步进：同向导第三步（两个按钮 28 见方，离框外沿 6，圆角 4 = 10 − 6；到头那边灰掉） */
+.tk-stp { display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 5px; border-radius: 10px; box-sizing: border-box;
+          background: var(--field); border: 1px solid var(--border); }
+.tk-stp button { width: 28px; height: 28px; padding: 0; border: 0; border-radius: 4px; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;
+                 transition: background .15s, color .15s, opacity .15s; }
+.tk-stp button:hover:not([aria-disabled="true"]) { background: var(--hover); color: var(--text); }
+.tk-stp button[aria-disabled="true"] { opacity: .3; cursor: default; }
+.tk-stp .ico { width: 14px; height: 14px; }
+.tk-sv { font-size: 14px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* 文件夹：自己画的下拉（框同输入框，点开是下面那张菜单，和框一样宽） */
+.tk-sel { display: flex; align-items: center; gap: 8px; width: 100%; height: 40px; padding: 0 10px 0 12px; border-radius: 10px; box-sizing: border-box; text-align: left;
+          background: var(--field); border: 1px solid var(--border); font: inherit; font-size: 14px; color: var(--text); cursor: pointer; transition: border-color .2s; }
+.tk-sel:hover, .tk-sel.open { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.tk-sel > .ico { width: 15px; height: 15px; flex: none; color: var(--muted); }
+.tk-selv { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tk-selv.ph { color: var(--faint); }
+.tk-sel .tk-chev { transition: transform .32s cubic-bezier(.3, .7, .2, 1); }
+.tk-sel.open .tk-chev { transform: rotate(180deg); }
+
+.tk-foot { margin-top: auto; display: flex; justify-content: flex-end; flex: none; }
+.tk-addb { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 16px 0 13px; border-radius: 18px; border: 0; box-sizing: border-box;
+           background: var(--accent-subtle); color: var(--accent-text); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; transition: background .15s; }
+.tk-addb:hover { background: color-mix(in srgb, var(--accent) 22%, var(--accent-subtle)); }
+.tk-addb .ico { width: 15px; height: 15px; }
+
+/* ---- 保存条：52 高、圆角 18（同向导第三步 EULA 那条），左边开关、右边保存；大小干净和有改动时一样 ---- */
+.tk-bar { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 20px; }
+.tk-sp { flex: 1; }
+/* 开关：36 × 20、滑块 16，在字的左边（同向导、控制台那颗）；开关的左边和列表里的图标对齐（8 + 12） */
+.tk-tg { display: inline-flex; align-items: center; gap: 10px; height: 36px; padding: 0; border: 0; background: none; flex: none; font: inherit; font-size: 13px; color: var(--text); cursor: pointer; }
+.tk-sw { position: relative; width: 36px; height: 20px; border-radius: 10px; flex: none; background: color-mix(in srgb, var(--text) 18%, transparent); transition: background .2s; }
+.tk-sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 8px; background: var(--text); transition: transform .26s cubic-bezier(.3, .7, .2, 1); }
+.tk-tg.on .tk-sw { background: var(--accent-solid); }
+.tk-tg.on .tk-sw::after { transform: translateX(16px); background: var(--on-accent); }
+/* 有改动时：「N 项修改未保存」和「放弃修改」淡进来（0.22 秒、从下 5 像素），没了淡掉（0.09 秒）；位置一直占着，「保存」不挪 */
+.tk-n { display: inline-flex; align-items: center; gap: 7px; margin-right: 4px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.tk-n > i { width: 7px; height: 7px; border-radius: 2px; background: var(--accent); }
+.tk-n, .tk-discard { opacity: 0; visibility: hidden; transform: translateY(5px);
+                     transition: opacity .09s cubic-bezier(.4, 0, 1, 1), transform .09s cubic-bezier(.4, 0, 1, 1), visibility 0s .09s, background .15s, color .15s; }
+.tk-n.on, .tk-discard.on { opacity: 1; visibility: visible; transform: none;
+                           transition: opacity .22s cubic-bezier(.2, .7, .2, 1), transform .22s cubic-bezier(.2, .7, .2, 1), background .15s, color .15s; }
+.tk-discard { height: 36px; padding: 0 14px; border-radius: 18px; border: 0; background: none; flex: none; font: inherit; font-size: 13px; font-weight: 500; color: var(--muted); cursor: pointer; }
+.tk-discard:hover { background: var(--hover); color: var(--text); }
+.tk-save { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; min-width: 84px; padding: 0 18px; border-radius: 18px; box-sizing: border-box; flex: none;
+           border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+           transition: background .2s, color .2s, border-color .2s, opacity .2s; }
+.tk-save[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.tk-save.on { background: var(--accent-solid); color: var(--on-accent); border-color: transparent; }
+.tk-save.on:hover { background: var(--accent-solid-hov); }
+.tk-save .ico { width: 15px; height: 15px; }
+.tk-spin { animation: tk-spin .9s linear infinite; }
+@keyframes tk-spin { to { transform: rotate(360deg); } }
+
+/* ---- 菜单：同共用件页那张（外圆角 16、细边 1 加内边距 5，项 36 高、圆角 10 = 16 − 6）；挂在 body 上 ---- */
+.tk-dm { position: fixed; z-index: 50; min-width: 208px; max-width: 300px; padding: 5px; box-sizing: border-box; display: flex; flex-direction: column; gap: 1px;
+         border-radius: 16px; border: 1px solid var(--border); background: var(--overlay); box-shadow: var(--elev-3); }
+.tk-dm.enter { animation: tk-dm-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.tk-dm.leave { animation: tk-dm-out .09s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+.tk-dm.up.enter { animation-name: tk-dm-in-up; } .tk-dm.up.leave { animation-name: tk-dm-out-up; }
+@keyframes tk-dm-in { from { opacity: 0; transform: translateY(-5px); } }
+@keyframes tk-dm-out { to { opacity: 0; transform: translateY(-5px); } }
+@keyframes tk-dm-in-up { from { opacity: 0; transform: translateY(5px); } }
+@keyframes tk-dm-out-up { to { opacity: 0; transform: translateY(5px); } }
+.tk-it { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: 10px; box-sizing: border-box; font-size: 13px; color: var(--text); cursor: pointer;
+         white-space: nowrap; transition: background .15s; }
+.tk-it > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tk-it .ico { width: 16px; height: 16px; flex: none; color: var(--muted); }
+.tk-it:hover { background: var(--hover); }
+.tk-it.here { cursor: default; }
+.tk-it.here:hover { background: none; }
+.tk-it .tk-ck { color: var(--accent-text); }
+.tk-it.tk-dgr, .tk-it.tk-dgr .ico { color: var(--danger-text); }
+.tk-hd { padding: 8px 10px 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.tk-sep { height: 1px; margin: 4px 6px; background: var(--border); }
+/* 「新文件夹…」就地变成的输入框：同一项的大小（36 高、圆角 10），强调色细边 */
+.tk-nf { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: 10px; box-sizing: border-box; cursor: text; background: var(--field);
+         box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 60%, var(--border)); }
+.tk-nf .ico { width: 16px; height: 16px; flex: none; color: var(--muted); }
+.tk-nf input { flex: 1; min-width: 0; border: 0; outline: 0; padding: 0; background: none; font: inherit; font-size: 13px; color: var(--text); }
+.tk-nf input::placeholder { color: var(--faint); }
+.tk-nf.bad { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
