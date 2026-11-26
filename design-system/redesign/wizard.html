@@ -1316,7 +1316,7 @@ function sakuraKey() {
       <div class="keyrow"><input class="inp" id="skey" type="password" placeholder="粘贴访问密钥" value="${esc(LINK.key)}" autocomplete="off" spellcheck="false">`
     + `<button class="kbtn" data-act="connect"${LINK.connecting ? " disabled" : ""}>${LINK.connecting ? `<i data-ic="spinner" class="spin"></i>连接中` : "连接"}</button></div>
       ${ltg("saveKey", "记住密钥", "用 Windows 加密存在这台电脑上，以后建别的服务器不用再粘；设置 → 内网穿透里可以换或删。\n不记住的话，这条隧道照样能用（它自己存着一份），下次建服务器要再粘一次")}</div>
-    <div class="nph">连上后选节点</div>`;
+    <div class="nph">请先连接账号，以加载并选择可用节点</div>`;
 }
 // 卡片下面那一块
 function viaDetail() {
