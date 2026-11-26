@@ -222,7 +222,7 @@
   .drop:hover { color: var(--text); border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
   .drop .ico { width: 15px; height: 15px; }
   /* 第三步、第四步共用的大面板（外 26、内边距 8，里面的栏圆角 18 = 26 − 8）。第三步的排法见下面「第三步定稿的排法」那段。
-     第三步面板按内容的高度；第四步内容会随选择变高变矮，固定 420（最高的是樱花连上以后多一行「这是公开服务器」，到 387，名单换成三行也放得下），换选择时面板不跳。
+     第三步面板按内容的高度；第四步内容会随选择变高变矮，固定高度、换选择时面板不跳（第三稿是 540，见第四步那段注释）。
      第一稿第三步右边还有正版验证、白名单两个开关，作者问「联机开不开」这两步怎么接以后挪到了第四步「谁能进」（见第四步的注释） */
   .setp:not(.link) { height: auto; }
   .setp { width: 100%; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-1); box-sizing: border-box; height: 420px;
@@ -401,22 +401,22 @@
   .eula.bad { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger-text) 60%, transparent); }
   .eula.bad .msg { opacity: 1; }
   .placeholder { margin-top: 24px; width: 100%; height: 360px; border-radius: 26px; border: 1px dashed var(--border); display: grid; place-items: center; color: var(--faint); font-size: 13px; }
-  /* 第四步「让朋友连进来」第二稿（11-26，作者：「不自动挑选，要做一个像官网那样的节点面板。这样的话，这一页的布局你要好好设计一下了」）。
-     面板 500 高，换选择时不跳；左宽右窄两栏，左「朋友怎么连」，右「谁能进」（320 宽，内容同第一稿）。三块内边距同第三步（18 / 20）。
-     左栏最上面一排四张卡，四选一：局域网、OpenFrp、樱花穿透、自己的 frps，选中的底色左右滑。第一稿是「只在局域网 / 开内网穿透」再挑平台两层，并成了这一层。
-     卡片下面一块跟着选的那张逐项换（横着挪）：
-       局域网：朋友要填的地址。
-       OpenFrp、樱花（连上了）：节点面板。第一行「新建隧道 / 用已有的」小分段选（32 高、圆角 8，选中块离外沿 4、圆角 4）和搜索框；
-         第二行筛选（全部、公开游戏、支持 UDP，小胶囊）和樱花的「公开招人」开关；下面按地区分组的节点卡片，三列，在栏里自己滚（同第一步的细滚动条）。
-         不替人挑节点：没选就点「创建服务器」会拦下，第一行出「先选一个节点」。
-         节点卡片：名字一行（右边小标签：公开游戏、无 UDP、满载、BETA），说明一行（放不下的进悬停）；选中的描强调色的边。
-         满载的、开了「公开招人」以后不是公开游戏节点的，灰掉点不了，悬停说原因。
-         「用已有的」：平台上已经建好的隧道，本地端口和这台服务器对得上的 TCP 隧道才能选，对不上的灰着、悬停说要先去平台改端口。
-       樱花（没连上）：樱花不是授权登录，是到官网用户信息页复制一把访问密钥粘进来；「记住密钥」默认开（作者 11-26：让用户选要不要保存，方便以后建别的服务器），
-         悬停说存在哪儿、不记会怎样。下面一块虚线框占着节点面板的位置。
-       自己的 frps：服务器地址、端口、令牌、公网端口四个框。
-     OpenFrp 的公网端口不让人填，MineDeck 在节点允许的范围里替人挑（作者 11-26 同意），写在「新建隧道」的悬停里 */
-  .setp.link { grid-template-columns: minmax(0, 1fr) 320px; grid-template-rows: minmax(0, 1fr); height: 500px; }
+  /* 第四步「让朋友连进来」第三稿（11-26）。
+     第二稿（作者：节点「不自动挑选，要做一个像官网那样的节点面板」）是左宽右窄两栏，右边「谁能进」；第三稿照作者：
+       「谁能进」挪到底部一条，像第三步的 EULA 那样：正版验证一块在左，白名单一块在右、占得更宽（1 : 2），开关都在字的左边（同 EULA）；
+       节点面板照两家官网的样子排，能从平台接口拿到的都画上（见脚本里第四步那段注释）。
+     面板 540 高（170 到 710，1280×800 下不滚动），换选择时不跳。上面一块「朋友怎么连」占满宽：
+       最上面四张卡四选一：局域网、OpenFrp、樱花穿透、自己的 frps，选中的底色左右滑。
+       卡片下面一块跟着选的那张横着逐项换：
+         局域网：朋友要填的地址；
+         OpenFrp、樱花（连上了）：节点面板。第一行「新建隧道 / 用已有的」小分段选（32 高、圆角 8，选中块离外沿 4、圆角 4）、搜索框、刷新；
+           第二行筛选小胶囊、「满载 / 离线 / 无权限」三个勾（同樱花官网：默认不勾，用不了的节点藏起来，勾上才列出来、灰着），樱花还有「公开招人」开关；
+           下面按官网的分组列节点卡片，四列，在栏里自己滚，每组标题右边写「N 个可用」。卡片一样高（76）。
+         樱花（没连上）：粘访问密钥，「记住密钥」默认开，下面虚线框占着节点面板的位置；
+         自己的 frps：四个框。
+     底部「谁能进」两块，52 高、圆角 18（同两栏）；白名单打开后右边那块里出名单框（40 高，离块的边 6，圆角 12 = 18 − 6；名字块离框的边 6，圆角 6 = 12 − 6），
+       名单多了在框里横着滚，不把这一条撑高。提醒照第一稿的条件，挪到各自那块的右边：白名单那块说「谁拿到地址都能进」「名单是空的」，正版验证那块说「白名单只认名字」 */
+  .setp.link { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; height: 540px; }
   .setp.link .col { padding: 18px 20px; gap: 14px; min-height: 0; }
   .vias { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; flex: none; }
   .vias .vhl { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 12px; background: var(--accent-subtle); pointer-events: none;
@@ -434,6 +434,7 @@
   .dot.ok { background: var(--success); }
   .vdet { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
   .vdet > .lb, .keyb .lb { font-size: 12.5px; color: var(--muted); font-weight: 500; }
+  .vdet > .addr, .keyb, .frps { width: 100%; max-width: 560px; }
   .addr { display: flex; align-items: center; height: 40px; padding: 0 6px 0 12px; border-radius: 10px; background: var(--field); border: 1px solid var(--border); box-sizing: border-box; }
   .addr .mono { font-size: 14px; }
   .addr .unk { margin-left: 2px; font-size: 12.5px; color: var(--faint); }
@@ -450,33 +451,52 @@
   .seg.sm .sgl { border-radius: 4px; }
   .nmsg { font-size: 12px; color: var(--danger-text); opacity: 0; transition: opacity .2s; white-space: nowrap; }
   .nmsg.show { opacity: 1; }
-  .nsearch { margin-left: auto; width: 200px; height: 32px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 8px; box-sizing: border-box;
+  .nsearch { margin-left: auto; width: 240px; height: 32px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 8px; box-sizing: border-box;
              background: var(--field); border: 1px solid var(--border); cursor: text; transition: border-color .2s; }
   .nsearch:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
   .nsearch .ico { width: 14px; height: 14px; color: var(--faint); flex: none; }
   .nsearch input { flex: 1; min-width: 0; border: 0; background: none; outline: none; padding: 0; font: inherit; font-size: 12.5px; color: var(--text); }
   .nsearch input::placeholder { color: var(--faint); }
+  .nbar .ib.spinning .ico { animation: spin .9s linear infinite; }
   .nbody { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
   .nfil { display: flex; align-items: center; gap: 6px; flex: none; }
+  .nfil .sp { flex: 1; }
   .nfil .tg.sm, .keyb .tg.sm { width: fit-content; gap: 10px; margin: 0; }
-  .nfil .tg.sm { margin-left: auto; }
-  .nlist { gap: 10px; }
+  .nfil .tg.sm { margin-left: 8px; }
+  /* 勾：14 见方、圆角 4，不用系统的勾选框 */
+  .ck { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 6px; font-size: 12.5px; color: var(--muted); cursor: pointer; border-radius: 6px; transition: color .2s; }
+  .ck:hover { color: var(--text); }
+  .ck .bx { width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; border: 1.5px solid color-mix(in srgb, var(--text) 35%, transparent); display: grid; place-items: center;
+            color: transparent; transition: background .15s, border-color .15s, color .15s; }
+  .ck .bx .ico { width: 10px; height: 10px; }
+  .ck.on .bx { background: var(--accent-solid); border-color: var(--accent-solid); color: var(--on-accent); }
+  .nlist { gap: 12px; }
   .ngrp { display: flex; flex-direction: column; gap: 6px; flex: none; }
-  .ngrp h4 { margin: 0; font-size: 12px; font-weight: 500; color: var(--faint); }
-  .ncards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-  .nd { padding: 8px 11px; border-radius: 10px; border: 1px solid transparent; cursor: pointer; min-width: 0;
+  .ngh { display: flex; align-items: baseline; gap: 8px; }
+  .ngh h4 { margin: 0; font-size: 12.5px; font-weight: 600; color: var(--text); }
+  .ngh .s { font-size: 11.5px; color: var(--faint); }
+  .ngh .c { margin-left: auto; font-size: 11.5px; color: var(--faint); }
+  .ncards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .nd { height: 76px; box-sizing: border-box; display: flex; flex-direction: column; padding: 9px 12px; border-radius: 10px; border: 1px solid transparent; cursor: pointer; min-width: 0;
         background: color-mix(in srgb, var(--surface) 70%, transparent); transition: background .2s, border-color .2s, opacity .2s; }
   .nd:hover:not(.on):not(.off) { background: var(--hover); }
   .nd.on { background: var(--accent-subtle); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
   .nd.off { opacity: .4; cursor: default; }
-  .nd .r1 { display: flex; align-items: center; gap: 4px; min-width: 0; height: 18px; }
+  .nd .r1 { display: flex; align-items: center; gap: 5px; min-width: 0; height: 18px; flex: none; }
   .nd .n { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nd .n .id { color: var(--faint); font-weight: 500; margin-right: 3px; }
   .nd.on .n { color: var(--accent-text); }
-  .nd .d { font-size: 11.5px; line-height: 16px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nd .d { font-size: 11.5px; line-height: 16px; color: var(--muted); margin-top: 3px; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+  .nd .d.one { -webkit-line-clamp: 1; }
+  .nd .r3 { display: flex; align-items: center; gap: 4px; margin-top: auto; min-width: 0; overflow: hidden; }
   .tag { flex: none; height: 16px; padding: 0 6px; border-radius: 8px; font-size: 10.5px; font-weight: 500; line-height: 16px; white-space: nowrap; }
   .tag.pub { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent-text); }
-  .tag.noudp { background: color-mix(in srgb, var(--danger-text) 14%, transparent); color: var(--danger-text); }
+  .tag.bad { background: color-mix(in srgb, var(--danger-text) 14%, transparent); color: var(--danger-text); }
+  .tag.warn { background: color-mix(in srgb, var(--warning) 16%, transparent); color: var(--warning-text); }
+  .tag.good { background: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success); }
   .tag.plain { background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--muted); }
+  .tag.svip { background: color-mix(in srgb, var(--danger-text) 16%, transparent); color: var(--danger-text); font-weight: 600; }
+  .tag.vip { background: color-mix(in srgb, var(--warning) 18%, transparent); color: var(--warning-text); font-weight: 600; }
   .nempty { padding: 24px 0; text-align: center; font-size: 12.5px; color: var(--faint); }
   .trow { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid transparent; cursor: pointer; flex: none;
           background: color-mix(in srgb, var(--surface) 70%, transparent); transition: background .2s, border-color .2s, opacity .2s; }
@@ -502,31 +522,38 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   .frps { display: grid; grid-template-columns: minmax(0, 1fr) 132px; gap: 10px; }
   .frps .inp { min-width: 0; font-size: 13px; }
-  .tg.sm .t { font-size: 13px; }
-  .tg.sm { margin-top: 4px; }
-  /* 白名单名单：开关打开时从零高展开（grid 0fr → 1fr），关上时收回去；列里的间距 16 跟着收成负的，不留空 */
-  .wlx { display: grid; grid-template-rows: 0fr; margin-top: -16px; opacity: 0;
-         transition: grid-template-rows .32s cubic-bezier(.3, .7, .2, 1), margin-top .32s cubic-bezier(.3, .7, .2, 1), opacity .2s; }
-  .wlx.open { grid-template-rows: 1fr; margin-top: -4px; opacity: 1; }
-  .wlin { min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 6px; }
-  .names { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-height: 40px; padding: 5px; box-sizing: border-box; border-radius: 10px;
-           background: var(--field); border: 1px solid var(--border); cursor: text; transition: border-color .2s; }
-  .names:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
-  .names.bad { border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
-  .names input { flex: 1; min-width: 180px; height: 28px; border: 0; background: none; outline: none; padding: 0 6px; font: inherit; font-size: 13px; color: var(--text); }
-  .names input::placeholder { color: var(--faint); }
-  .nchip { display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 0 4px 0 10px; border-radius: 4px; background: var(--accent-subtle); color: var(--accent-text);
+  /* 底部「谁能进」 */
+  .who { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 8px; }
+  .wt { height: 52px; box-sizing: border-box; border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); padding: 0 6px 0 20px;
+        display: flex; align-items: center; gap: 14px; min-width: 0; }
+  .wt.one { grid-column: 1 / -1; color: var(--muted); font-size: 13px; padding-right: 20px; }
+  .who .tg { flex: none; gap: 12px; }
+  .who .tg .m { flex: none; }
+  .who .tg .sw { order: -1; }
+  .who .tg .t { font-size: 13.5px; font-weight: 600; white-space: nowrap; }
+  .wnames { flex: 1; min-width: 0; height: 40px; box-sizing: border-box; display: flex; align-items: center; gap: 5px; padding: 5px; border-radius: 12px; overflow-x: auto; scrollbar-width: none;
+            background: var(--field); border: 1px solid var(--border); cursor: text; transition: opacity .2s, border-color .2s; }
+  .wnames::-webkit-scrollbar { display: none; }
+  .wt-wl:not(.open) .wnames { opacity: 0; pointer-events: none; }
+  .wnames:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
+  .wnames.bad { border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
+  .wnames input { flex: 1; min-width: 150px; height: 28px; border: 0; background: none; outline: none; padding: 0 6px; font: inherit; font-size: 13px; color: var(--text); }
+  .wnames input::placeholder { color: var(--faint); }
+  .nchip { flex: none; display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 0 4px 0 10px; border-radius: 6px; background: var(--accent-subtle); color: var(--accent-text);
            font-size: 12.5px; font-weight: 500; }
   .nchip .nx { width: 18px; height: 20px; display: grid; place-items: center; cursor: pointer; opacity: .6; transition: opacity .15s; }
   .nchip .nx:hover { opacity: 1; }
   .nchip .nx .ico { width: 12px; height: 12px; }
-  .whint { display: flex; gap: 8px; align-items: center; font-size: 12.5px; line-height: 18px; color: var(--faint); padding: 8px 12px; margin-top: -4px;
-           border-radius: 10px; transition: background .2s, color .2s; cursor: default; }
-  .whint.none, #wlnote:empty { display: none; }
+  .whint { flex: none; margin-left: auto; display: flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--faint); padding-right: 14px; white-space: nowrap; cursor: default; }
+  .whint.none { display: none; }
   .whint .ico { width: 14px; height: 14px; flex: none; }
-  .whint.warn { background: color-mix(in srgb, var(--warning) 12%, transparent); color: var(--warning-text); }
-  .whint.info { background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--muted); }
-
+  .whint.warn { color: var(--warning-text); }
+  .whint.info { color: var(--muted); }
+  .wt-wl.open .whint { margin-left: 0; }
+  #wlnote { flex: none; font-size: 12px; color: var(--danger-text); padding-right: 14px; }
+  #wlnote:empty { display: none; }
+  .tg.sm .t { font-size: 13px; }
+  .tg.sm { margin-top: 4px; }
   /* 底部：胶囊沉下去以后，左下角「上一步」、右下角「下一步」，和版心的左右边对齐；中间一排小点是第几步（主会话加的，不要可以去掉）。
      两个按钮各是一颗单独的胶囊，44 高、13 号字（作者 11-26：原来 52 高整块实心，看着比首页导航条大；
      改成外壳里套 40 高的按钮以后，「下一步」外面多一圈壳又很怪，所以壳去掉，按钮本身做小）。
@@ -1034,14 +1061,22 @@ function checkSettings() {
 // 作者 11-26 问：第三步和这一步，「联机开不开」到底怎么接。主会话的想法：服务器建好本来就能联机，同一个 Wi-Fi 的朋友填局域网地址就进得来，
 // 所以这一步问的不是「开不开」，是两件事：朋友从哪儿连（局域网或某个穿透平台，默认局域网，同 tunnels.html 定的），和谁能进（正版验证、白名单）。
 // 谁能进原来在第三步，可它该不该开要看前一件——放到外网、谁拿到地址都能进，才更该开白名单；朋友用离线启动器，就不能开正版验证——
-// 所以挪到这一步，和「怎么连」放在一页。最底下一句跟着两边的选择说该注意什么，只提醒、不替人开关。
+// 所以挪到这一步，和「怎么连」放在一页。提醒跟着两边的选择说该注意什么，只提醒、不替人开关。
 // 端口取第三步填的，回去改了这里跟着变；这一步选的东西来回翻步也记着。
-// 第二稿（11-26）：作者要「不自动挑选，要做一个像官网那样的节点面板」，排法见样式里第四步那段注释。
-// 平台账户、节点、平台上的隧道都是假的：OpenFrp 已连接（账户 steve），樱花没连（粘任意一串字点「连接」，假装 1.2 秒连上），本机局域网 IP 192.168.1.5。
+// 第二稿（11-26）：作者要「不自动挑选，要做一个像官网那样的节点面板」。第三稿（11-26）：节点面板照两家官网的样子排，「谁能进」挪到底部一条。排法见样式里第四步那段注释。
+// 隧道的具体配置（名字、类型 TCP、本地地址 127.0.0.1、本地端口取第三步的、公网端口、加密压缩这些高级设置）不让人填，MineDeck 替人配好：
+//   公网端口 OpenFrp 在节点允许的范围里挑（作者 11-26 同意），樱花由平台分配；高级设置一律用平台的默认（关），Minecraft 用不上，开错了反而连不上（比如 Proxy Protocol）。
+// 节点卡片上画的东西都是两家的接口给得出来的：
+//   OpenFrp（getNodeList）：classify 分地区、group 哪些用户组能用（对上用户自己的 group 就知道有没有权限，卡片左上角 VIP / SVIP）、bandwidth 和 bandwidthMagnification（「30 Mbps × 0.8」）、
+//     description、needRealname（实名）、fullyLoaded（满载）、status（离线）、protocolSupport（UDP、HTTPS）、hostnameExt（扩展地址）。classify 的几个数各是哪个地区、group 的写法，要拿真实账号对一遍。
+//   樱花（/nodes）：vip（节点要的 VIP 等级，对上用户的 group.level 就知道有没有权限）、flag 的位：可以建（满载时为 0）、内地、UDP、离线、BETA、公开游戏；description。
+//     官网的分组「普通节点（内地）」「普通节点（其他）」就是 vip 等级加内地那一位；「建站」标签对开服没用，不画。
+// 平台账户、节点、平台上的隧道都是假的：OpenFrp 已连接（账户 steve，VIP 用户，已实名），樱花没连（粘任意一串字点「连接」，假装 1.2 秒连上），本机局域网 IP 192.168.1.5。
 // 代理端（Velocity、Waterfall）的端口写在它自己的配置文件里，第一次启动才生成，程序不拿猜的数冒充（inst.ConnectPort），
-// 所以地址那里照程序说「端口启动后才知道」，三个穿透选项灰掉，要等那之后在「联机」里开；右边换成一句说明
+// 所以地址那里照程序说「端口启动后才知道」，三个穿透选项灰掉，要等那之后在「联机」里开；「谁能进」换成一句说明
 const LINK = { via: "lan", sakura: false, connecting: false, key: "", saveKey: true, pub: false, tab: { openfrp: "new", sakura: "new" }, filter: "all", q: "",
-  node: { openfrp: "", sakura: "" }, use: { openfrp: "", sakura: "" }, frps: { host: "", port: "7000", token: "", remote: "" }, names: [] };
+  show: { full: false, off: false, perm: false }, node: { openfrp: "", sakura: "" }, use: { openfrp: "", sakura: "" },
+  frps: { host: "", port: "7000", token: "", remote: "" }, names: [] };
 const LAN_IP = "192.168.1.5";
 const VIAS = [["lan", "局域网"], ["openfrp", "OpenFrp"], ["sakura", "樱花穿透"], ["frps", "自己的 frps"]];
 const VIA_TIP = {
@@ -1053,60 +1088,111 @@ const VIA_TIP = {
 const isTun = k => k === "openfrp" || k === "sakura";
 const tabOf = k => LINK.tab[k] || "new"; // 「新建隧道 / 用已有的」两个平台各记各的
 const viaOf = () => isProxyCore() ? "lan" : LINK.via;
-// 节点（假的）。樱花「内地」那 26 个照樱花官网 11-26 选节点那张截图抄的名字、说明和标签，「其他」组后三个是编的；OpenFrp 的全是编的。
-// 标记：p 公开游戏（樱花：官方标了公开游戏，或名字带「多线」，同程序 sakuraPublicGameNode）、u 不支持 UDP、f 满载、b BETA
-const ND = (n, d, f = "") => ({ n, d, pub: f.includes("p"), noudp: f.includes("u"), full: f.includes("f"), beta: f.includes("b") });
-const D_DNS = "三网 DNS 分流，请通过节点域名连接", D_GEN = "通用穿透节点", D_LT = "非联通宽带谨慎使用，如遇问题建议换三线节点",
-  D_ZZ = "游戏专用，高位端口 HTTPS、远程桌面只能用 IP 连接，不能用域名", D_CQ = "推荐西南地区用户使用 | 三网 DNS 分流，请通过节点域名连接";
-const NODES = {
-  sakura: [
-    ["内地", [ND("江苏镇江多线PLUS-扩容1", "游戏专用", "pu"), ND("济南三线PLUS4", D_DNS), ND("枣庄多线PLUS-扩容2", D_ZZ, "p"), ND("长沙三线PLUS4", D_DNS),
-      ND("石家庄联通PLUS1", D_LT), ND("合肥电信PLUS2", D_GEN), ND("浙江移动PLUS1", D_GEN), ND("济南三线PLUS6", D_DNS, "b"), ND("浙江电信PLUS5", D_GEN),
-      ND("济南三线PLUS3", D_DNS), ND("济南联通PLUS-扩容1", D_LT), ND("枣庄多线PLUS-扩容1", D_ZZ, "p"), ND("宁波多线PLUS-扩容1", "屏蔽海外 | 游戏专用", "pu"),
-      ND("浙江三线PLUS7", D_DNS), ND("长沙电信PLUS4", D_GEN), ND("长沙电信PLUS2", D_GEN), ND("天津联通PLUS1", D_LT), ND("江苏徐州三线PLUS1", D_DNS),
-      ND("福建三线PLUS1", D_DNS), ND("长沙三线PLUS6", D_DNS), ND("重庆三线PLUS5", D_CQ), ND("东莞双线PLUS2", "双线 DNS 分流，请通过节点域名连接"),
-      ND("江苏镇江多线PLUS-扩容2", "游戏专用", "p"), ND("浙江电信PLUS6", D_GEN), ND("重庆三线PLUS4", D_CQ), ND("成都移动2", "非成都移动宽带谨慎使用")]],
-    ["其他", [ND("日本1", D_GEN), ND("越南1", D_GEN), ND("韩国1", D_GEN), ND("香港1", D_GEN), ND("新加坡1", D_GEN), ND("美国1", D_GEN)]],
-  ],
-  openfrp: [
-    ["国内", [ND("镇江多线 1", "多线 BGP，游戏推荐"), ND("宁波电信 2", "电信宽带推荐"), ND("成都移动 1", "移动宽带推荐", "f"), ND("广州联通 3", "联通宽带推荐"),
-      ND("上海 BGP 1", "多线 BGP"), ND("济南三线 2", "三线，仅 TCP", "u"), ND("杭州电信 4", "电信宽带推荐"), ND("北京多线 1", "多线 BGP", "f"), ND("武汉电信 1", "电信宽带推荐")]],
-    ["海外", [ND("香港 1", "免备案，延迟较低"), ND("日本 2", "免备案"), ND("美国 1", "免备案，延迟较高")]],
-  ],
-};
+// OpenFrp 的节点：照作者 11-26 截的 OpenFrp 控制台「创建隧道」页抄的（编号、名字、说明、带宽、标签、满载离线；说明里的表情去掉了，个别字可能抄得不准）。
+// 标记：u UDP、h HTTPS、e 扩展地址、r 要实名、f 满载、o 离线。分组 sec：0 中国大陆（整组都要实名，卡片上不再一个个标）、1 港澳台、2 海外
+const OF_USER = { name: "steve", tier: "vip", realname: true };
+const TIERS = ["", "vip", "svip"], TIER_NAME = { vip: "VIP", svip: "SVIP" };
+const OF_SECS = [["中国大陆", "均需实名"], ["中国香港 / 中国台湾 / 中国澳门", "免备建站"], ["海外", "不建议中国大陆使用"]];
+const OF = (id, n, d, sec, tier, bw, f = "") => ({ key: "#" + id, id, n, d, sec, tier, bw, udp: f.includes("u"), https: f.includes("h"), ext: f.includes("e"),
+  real: sec === 0 || f.includes("r"), full: f.includes("f"), off: f.includes("o") });
+const OF_NODES = [
+  OF(6, "厦门多线", "限时开放 | 封 UDP", 0, "svip", "100 Mbps"), OF(7, "台州多线", "建站需人工过白", 0, "svip", "100 Mbps", "uhe"),
+  OF(8, "镇江多线", "无防", 0, "vip", "50 Mbps", "u"), OF(9, "义乌电信家宽", "周一周五早四点重拨换 IP，注意防失联（高负载）", 0, "", "100 Mbps", "u"),
+  OF(10, "芜湖联通", "[限量]", 0, "vip", "50 Mbps", "u"), OF(11, "广州移动", "[限量] 跨网优秀", 0, "svip", "100 Mbps", "uf"),
+  OF(12, "绍兴多线", "大水管 BGP 全国优秀", 0, "svip", "100 Mbps", "uf"), OF(13, "枣庄多线", "111", 0, "svip", "50 Mbps", "u"),
+  OF(14, "温州多线", "大水管推荐", 0, "svip", "100 Mbps", "u"), OF(15, "九江电信", "[限量]", 0, "vip", "50 Mbps", "u"),
+  OF(16, "扬州多线", "扬州 BGP 高防", 0, "svip", "50 Mbps"), OF(17, "宁波电信", "主地址已封禁 UDP，如需连接 UDP 隧道，连接方需使用扩展地址连接（隧道详情查看）", 0, "vip", "100 Mbps", "ue"),
+  OF(18, "泉州电信", "端口限制 5w-6w", 0, "", "30 Mbps × 0.8", "uf"), OF(19, "西安电信", "西南 F3", 0, "vip", "50 Mbps", "uh"),
+  OF(20, "广州多线", "封海外，禁止建站", 0, "svip", "100 Mbps", "u"), OF(21, "重庆联通", "西南 F3", 0, "svip", "50 Mbps", "uh"),
+  OF(22, "常州电信", "已调整线路", 0, "vip", "100 Mbps", "u"), OF(24, "昆明电信", "西南 +1", 0, "vip", "50 Mbps", "u"),
+  OF(27, "唐山双线", "端口限制 5w-6w", 0, "vip", "50 Mbps × 0.8", "u"), OF(28, "郴州电信", "端口限制 5w-6w", 0, "", "50 Mbps", "u"),
+  OF(31, "苏州多线", "封海外，禁止建站", 0, "svip", "100 Mbps", "u"), OF(32, "宁德电信", "端口限制 5w-6w", 0, "", "30 Mbps × 0.5", "uf"),
+  OF(33, "襄阳电信", "", 0, "svip", "100 Mbps", "u"), OF(34, "上海电信", "复活赛打赢了", 0, "svip", "100 Mbps", "uh"),
+  OF(36, "济南联通", "", 0, "vip", "100 Mbps", "u"), OF(38, "济南移动", "", 0, "vip", "100 Mbps", "u"),
+  OF(40, "南充联通", "端口限制 5w-6w", 0, "", "30 Mbps × 0.8", "uf"), OF(43, "廊坊电信", "端口限制 5w-6w", 0, "", "50 Mbps", "uf"),
+  OF(45, "北京移动", "端口限制 5w-6w", 0, "", "100 Mbps", "uo"),
+  OF(1, "香港-1", "极致三网优化", 1, "svip", "30 Mbps", "uhr"), OF(2, "香港-2", "尽力优化", 1, "vip", "30 Mbps", "ur"),
+  OF(3, "香港-3", "尽力优化", 1, "vip", "30 Mbps", "uhrf"), OF(29, "香港-4", "无优化，大陆最好别用", 1, "", "1 Gbps", "uh"), OF(30, "香港-5", "线路看运气", 1, "", "30 Mbps", "uhr"),
+  OF(4, "韩国-首尔", "拔线喽", 2, "", "4 Gbps × 5", "uh"), OF(5, "韩国-春川", "移动还行", 2, "", "4 Gbps × 10", "uh"), OF(42, "日本-东京", "", 2, "", "1 Gbps", "uh"),
+];
+// 樱花的节点：照作者 11-26 截的樱花官网「选择节点」抄的名字、说明和标签（顺序同截图）。标记：p 公开游戏（同程序 sakuraPublicGameNode）、u 不支持 UDP、b BETA、i 内地
+const SK_USER = { name: "steve", level: 0 };
+const SK_SECS = [["普通节点（内地）", true], ["普通节点（其他）", false]];
+const SK = (n, d, f = "") => ({ key: n, n, d, vip: 0, pub: f.includes("p"), noudp: f.includes("u"), beta: f.includes("b"), inland: f.includes("i"), full: false, off: false });
+const D_DNS = "三网 DNS 分流，请通过节点域名连接", D_GEN = "通用穿透节点", D_LT = "非联通宽带谨慎使用，如遇问题建议换三线节点", D_SEA = "只推荐海外用户使用",
+  D_ZZ = "游戏专用，高位端口 HTTPS、远程桌面只能用 IP 连接，不能用域名；子域绑定功能不可用于 HTTPS 应用（如 MCBE 用不了）", D_CQ = "推荐西南地区用户使用 | 三网 DNS 分流，请通过节点域名连接";
+const SK_NODES = [
+  SK("江苏镇江多线PLUS-扩容1", "游戏专用", "pui"), SK("济南三线PLUS4", D_DNS, "i"), SK("宁波多线PLUS-扩容1", "屏蔽海外 | 游戏专用", "pui"), SK("合肥电信PLUS2", D_GEN, "i"),
+  SK("济南联通PLUS-扩容1", D_LT, "i"), SK("石家庄联通PLUS1", D_LT, "i"), SK("枣庄多线PLUS-扩容2", D_ZZ, "pi"), SK("长沙电信PLUS4", D_GEN, "i"),
+  SK("济南三线PLUS6", D_DNS, "bi"), SK("长沙三线PLUS6", D_DNS, "i"), SK("济南三线PLUS3", D_DNS, "i"), SK("长沙三线PLUS4", D_DNS, "i"),
+  SK("浙江移动PLUS1", D_GEN, "i"), SK("枣庄多线PLUS-扩容1", D_ZZ, "pi"), SK("浙江电信PLUS5", D_GEN, "i"), SK("浙江三线PLUS7", D_DNS, "i"),
+  SK("天津联通PLUS1", D_LT, "i"), SK("福建三线PLUS1", D_DNS, "i"), SK("重庆三线PLUS5", D_CQ, "i"), SK("长沙电信PLUS2", D_GEN, "i"),
+  SK("东莞双线PLUS2", "双线 DNS 分流，请通过节点域名连接", "i"), SK("重庆三线PLUS4", D_CQ, "i"), SK("江苏徐州三线PLUS1", D_DNS, "i"), SK("江苏镇江多线PLUS-扩容2", "游戏专用", "pi"),
+  SK("浙江电信PLUS6", D_GEN, "i"), SK("成都移动2", "非成都移动宽带谨慎使用", "i"),
+  SK("越南1", D_SEA), SK("日本1", D_SEA), SK("日本2", D_SEA + " | 可能比 1 线路好一点，请自行测试"), SK("韩国1", D_SEA), SK("新加坡1", D_SEA),
+  SK("中国台湾CHT1", "动态 IP，请通过节点域名连接 | 线路无优化，只推荐非内地用户使用", "b"),
+];
 // 平台上已经建好的隧道（假的）：本地端口对得上第三步端口的 TCP 隧道才能选
 const PLAT_TUNS = {
-  openfrp: [{ n: "mc_survival", t: "TCP", node: "宁波电信 2", lp: 25565 }, { n: "old_server", t: "TCP", node: "香港 1", lp: 25566 }],
+  openfrp: [{ n: "mc_survival", t: "TCP", node: "#22 常州电信", lp: 25565 }, { n: "old_server", t: "TCP", node: "#29 香港-4", lp: 25566 }],
   sakura: [{ n: "survival_01", t: "TCP", node: "浙江移动PLUS1", lp: 25565 }, { n: "voice_01", t: "UDP", node: "浙江移动PLUS1", lp: 24454 }],
 };
+const nodesOf = k => k === "openfrp" ? OF_NODES : SK_NODES;
 const ltg = (key, t, tip) => `<div class="tg sm${LINK[key] ? " on" : ""}" data-ltg="${key}" title="${esc(tip)}"><div class="m"><div class="t">${t}</div></div><span class="sw"></span></div>`;
 const nchip = n => `<span class="nchip" data-name="${esc(n)}">${esc(n)}<span class="nx" data-unname="${esc(n)}" title="拿掉"><i data-ic="x"></i></span></span>`;
 const shakeEl = el => el?.animate([{ transform: "none" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "none" }],
   { duration: 360, easing: "cubic-bezier(.3, .7, .2, 1)" });
 function viaMeta(k) {
   if (k === "lan") return "同一 Wi-Fi";
-  if (k === "openfrp") return `<i class="dot ok"></i>steve`;
-  if (k === "sakura") return LINK.sakura ? `<i class="dot ok"></i>steve` : `<i class="dot"></i>未连接`;
+  if (k === "openfrp") return `<i class="dot ok"></i>${OF_USER.name} · ${TIER_NAME[OF_USER.tier] || "普通用户"}`;
+  if (k === "sakura") return LINK.sakura ? `<i class="dot ok"></i>${SK_USER.name}` : `<i class="dot"></i>未连接`;
   return "自建服务器";
 }
-// 节点卡片：灰掉的原因（满载、公开招人时不是公开游戏节点），筛选、搜索
-const nodeOff = (k, x) => x.full ? "满载，暂时建不了隧道" : (k === "sakura" && LINK.pub && !x.pub) ? "公开招人只能用公开游戏节点" : "";
-function nodeShown(x) {
-  if (LINK.filter === "pub" && !x.pub) return false;
-  if (LINK.filter === "udp" && x.noudp) return false;
-  const q = LINK.q.trim().toLowerCase();
-  return !q || (x.n + " " + x.d).toLowerCase().includes(q);
+// 这个节点为什么用不了：[哪一类, 悬停的话]，用得了返回 null。满载、离线、无权限三类照「满载 / 离线 / 无权限」三个勾决定藏不藏；公开招人那类不藏、灰着
+function nodeWhy(k, x) {
+  if (x.off) return ["off", "离线"];
+  if (x.full) return ["full", "满载，暂时建不了隧道"];
+  if (k === "openfrp") {
+    if (TIERS.indexOf(x.tier) > TIERS.indexOf(OF_USER.tier)) return ["perm", `${TIER_NAME[x.tier]} 用户才能用`];
+    if (x.real && !OF_USER.realname) return ["perm", "要先在 OpenFrp 实名"];
+  } else {
+    if (x.vip > SK_USER.level) return ["perm", "VIP 等级不够"];
+    if (LINK.pub && !x.pub) return ["pub", "公开招人只能用公开游戏节点"];
+  }
+  return null;
 }
-const tagsOf = (k, x) => (k === "sakura" && x.pub ? `<span class="tag pub">公开游戏</span>` : "") + (x.noudp ? `<span class="tag noudp">无 UDP</span>` : "")
-  + (x.full ? `<span class="tag plain">满载</span>` : "") + (x.beta ? `<span class="tag plain">BETA</span>` : "");
+function nodeShown(k, x) {
+  if (LINK.filter === "udp" && !(k === "openfrp" ? x.udp : !x.noudp)) return false;
+  if (LINK.filter === "pub" && !x.pub) return false;
+  const why = nodeWhy(k, x);
+  if (why && why[0] !== "pub" && !LINK.show[why[0]]) return false;
+  const q = LINK.q.trim().toLowerCase();
+  return !q || `${x.key} ${x.n} ${x.d}`.toLowerCase().includes(q);
+}
+function nodeCard(k, x) {
+  const why = nodeWhy(k, x), on = LINK.node[k] === x.key;
+  const st = x.off ? `<span class="tag bad">离线</span>` : x.full ? `<span class="tag plain">满载</span>` : "";
+  const cls = `nd${on ? " on" : ""}${why ? " off" : ""}`, tip = why ? why[1] : `${x.key.startsWith("#") ? x.key + " " : ""}${x.n}${x.d ? "\n" + x.d : ""}`;
+  if (k === "openfrp") {
+    const tags = `<span class="tag good">${x.bw}</span>` + (x.udp ? `<span class="tag plain">UDP</span>` : "") + (x.https ? `<span class="tag plain">HTTPS</span>` : "")
+      + (x.real && x.sec !== 0 ? `<span class="tag warn">实名</span>` : "") + (x.ext ? `<span class="tag warn" title="主地址有限制时，朋友要用扩展地址连">扩展地址</span>` : "");
+    return `<div class="${cls}" data-node="${esc(x.key)}" title="${esc(tip)}"><div class="r1">${x.tier ? `<span class="tag ${x.tier}">${TIER_NAME[x.tier]}</span>` : ""}`
+      + `<span class="n"><span class="id">#${x.id}</span>${esc(x.n)}</span>${st}</div><div class="d one">${esc(x.d) || "&nbsp;"}</div><div class="r3">${tags}</div></div>`;
+  }
+  const tags = (x.pub ? `<span class="tag pub">公开游戏</span>` : "") + (x.noudp ? `<span class="tag bad">无 UDP</span>` : "") + (x.beta ? `<span class="tag warn">BETA</span>` : "") + st;
+  return `<div class="${cls}" data-node="${esc(x.key)}" title="${esc(tip)}"><div class="r1"><span class="n">${esc(x.n)}</span>${tags}</div><div class="d">${esc(x.d)}</div></div>`;
+}
+// 照官网分组：OpenFrp 按地区（中国大陆、港澳台、海外），樱花按 VIP 等级加内地（普通节点 内地 / 其他）；每组标题右边「N 个可用」
 function nodeCards(k) {
-  const groups = NODES[k].map(([g, list]) => [g, list.filter(nodeShown)]).filter(([, l]) => l.length);
-  if (!groups.length) return `<div class="nempty">没有对得上的节点</div>`;
-  return groups.map(([g, list]) => `<div class="ngrp"><h4>${g} · ${list.length}</h4><div class="ncards">${list.map(x => {
-    const off = nodeOff(k, x);
-    return `<div class="nd${LINK.node[k] === x.n ? " on" : ""}${off ? " off" : ""}" data-node="${esc(x.n)}" title="${esc(off || x.n + "\n" + x.d)}">`
-      + `<div class="r1"><span class="n">${esc(x.n)}</span>${tagsOf(k, x)}</div><div class="d">${esc(x.d)}</div></div>`;
-  }).join("")}</div></div>`).join("");
+  const secs = k === "openfrp" ? OF_SECS.map(([t, s], i) => [t, s, OF_NODES.filter(x => x.sec === i)])
+    : SK_SECS.map(([t, inland]) => [t, "", SK_NODES.filter(x => x.inland === inland)]);
+  const out = secs.map(([t, sub, all]) => {
+    const list = all.filter(x => nodeShown(k, x)); if (!list.length) return "";
+    const n = all.filter(x => !nodeWhy(k, x)).length;
+    return `<div class="ngrp"><div class="ngh"><h4>${t}</h4>${sub ? `<span class="s">${sub}</span>` : ""}<span class="c">${n} 个可用</span></div>`
+      + `<div class="ncards">${list.map(x => nodeCard(k, x)).join("")}</div></div>`;
+  }).join("");
+  return out || `<div class="nempty">没有对得上的节点</div>`;
 }
 // 「用已有的」：平台上已经建好的隧道
 function tunRows(k) {
@@ -1119,20 +1205,23 @@ function tunRows(k) {
       + `<span class="n">${esc(t.n)}</span><span class="tag plain">${t.t}</span><span class="sp"></span><span class="k">${esc(t.node)} · 本地 ${t.lp}</span></div>`;
   }).join("");
 }
+const ckBox = (k, t) => `<span class="ck${LINK.show[k] ? " on" : ""}" data-ck="${k}" title="把${t}的节点也列出来（灰着，点不了）"><span class="bx"><i data-ic="check"></i></span>${t}</span>`;
 // 节点面板第一行以下（切「新建隧道 / 用已有的」时整段换）
 function nodeBody(k) {
-  const fil = [["all", "全部"], ...(k === "sakura" ? [["pub", "公开游戏"]] : []), ["udp", "支持 UDP"]];
-  const top = tabOf(k) === "new" ? `<div class="nfil">${fil.map(([v, t]) => `<button class="mp${LINK.filter === v ? " on" : ""}" data-nfil="${v}">${t}</button>`).join("")}`
+  const fil = [["all", "全部"], ["udp", "支持 UDP"], ...(k === "sakura" ? [["pub", "公开游戏"]] : [])];
+  const top = tabOf(k) === "new" ? `<div class="nfil">${fil.map(([v, t]) => `<button class="mp${LINK.filter === v ? " on" : ""}" data-nfil="${v}">${t}</button>`).join("")}<span class="sp"></span>`
+    + ckBox("full", "满载") + ckBox("off", "离线") + ckBox("perm", "无权限")
     + (k === "sakura" ? ltg("pub", "公开招人", "发到论坛、服务器列表、QQ 大群，或在 B 站、抖音上宣传招人的服务器要打开；樱花规定这种只能用公开游戏节点，用错会被封号。只和熟人玩不用开") : "") + `</div>` : "";
   return top + `<div class="lwrap nwrap"><div class="list nlist" id="nlist">${tabOf(k) === "new" ? nodeCards(k) : tunRows(k)}</div><i class="thumb"></i></div>`;
 }
 function nodePanel(k) {
-  const tip = k === "openfrp" ? `MineDeck 替你在 OpenFrp 上建一条隧道：本地端口 ${SET.port}，公网端口在节点允许的范围里自动挑，跟着服务器一起启动`
-    : `MineDeck 替你在樱花上建一条隧道：本地端口 ${SET.port}，公网端口由樱花分配，跟着服务器一起启动`;
+  const tip = k === "openfrp" ? `MineDeck 替你在 OpenFrp 上建一条隧道：本地端口 ${SET.port}，公网端口在节点允许的范围里自动挑，其余设置用平台默认，跟着服务器一起启动`
+    : `MineDeck 替你在樱花上建一条隧道：本地端口 ${SET.port}，公网端口由樱花分配，其余设置用平台默认，跟着服务器一起启动`;
   const on = v => tabOf(k) === v ? ` class="on"` : "";
   return `<div class="nbar"><div class="seg sm" data-lseg="tab"><i class="sgl"></i><span data-v="new"${on("new")} title="${esc(tip)}">新建隧道</span>`
     + `<span data-v="use"${on("use")} title="平台上已经建好的隧道，挑一条拿来用">用已有的</span></div><span class="nmsg" id="nmsg"></span>`
-    + `<label class="nsearch"><i data-ic="search"></i><input id="nq" placeholder="搜节点" value="${esc(LINK.q)}" autocomplete="off" spellcheck="false"></label></div>`
+    + `<label class="nsearch"><i data-ic="search"></i><input id="nq" placeholder="搜节点" value="${esc(LINK.q)}" autocomplete="off" spellcheck="false"></label>`
+    + `<button class="ib" data-act="nrefresh" title="刷新节点列表"><i data-ic="refresh"></i></button></div>`
     + `<div class="nbody">${nodeBody(k)}</div>`;
 }
 // 樱花没连上：粘访问密钥
@@ -1161,15 +1250,25 @@ function viaDetail() {
     + `<input class="inp" id="ftoken" type="password" placeholder="令牌（可空）" value="${esc(LINK.frps.token)}">`
     + `<input class="inp" id="fremote" placeholder="公网端口" value="${esc(LINK.frps.remote)}" inputmode="numeric" title="朋友连的端口；空着就和本地端口一样（${esc(SET.port)}）"></div>`;
 }
-// 白名单下面那一句：[样子, 看得见的短话, 悬停的整句]。样子 warn 是黄底、info 是灰底、none 不出现（没什么要提醒的时候不写字）
-function whoHint() {
+// 两块提醒：[样子, 看得见的短话, 悬停的整句]。样子 warn 黄字、info 灰字、none 不出现（没什么要提醒的时候不写字）
+function whoHints() {
   const tun = viaOf() !== "lan";
-  if (SET.wl && !LINK.names.length) return ["warn", "名单是空的，朋友进不来", "白名单开着、名单还是空的，建好后朋友进不来；先把他们的游戏名加进来，也可以建好后在「玩家」里加"];
-  if (tun && !SET.wl) return ["warn", "谁拿到地址都能进", "开了内网穿透，拿到地址的人都能进；只想让熟人进，就把白名单打开"];
-  if (tun && !SET.online) return ["info", "白名单只认名字", "没开正版验证时，别人把名字改成一样也能进；朋友都用正版的话，可以把正版验证也打开"];
-  return ["none", "", ""];
+  const wl = SET.wl && !LINK.names.length ? ["warn", "名单是空的", "白名单开着、名单还是空的，建好后朋友进不来；先把他们的游戏名加进来，也可以建好后在「玩家」里加"]
+    : tun && !SET.wl ? ["warn", "谁拿到地址都能进", "开了内网穿透，拿到地址的人都能进；只想让熟人进，就把白名单打开"] : ["none", "", ""];
+  const on = tun && SET.wl && !SET.online ? ["info", "白名单只认名字", "没开正版验证时，别人把名字改成一样也能进；朋友都用正版的话，可以把正版验证也打开"] : ["none", "", ""];
+  return { on, wl };
 }
 const hintHTML = ([cls, txt]) => cls === "none" ? "" : `<i data-ic="${cls === "warn" ? "warn" : "info"}"></i><span>${txt}</span>`;
+const hintEl = (id, h) => `<div class="whint ${h[0]}" id="${id}" data-txt="${esc(h[1])}" title="${esc(h[2])}">${hintHTML(h)}</div>`;
+// 底部「谁能进」：正版验证一块在左，白名单一块在右（宽一倍），开关在字的左边（同第三步的 EULA）
+function whoStrip() {
+  if (isProxyCore()) return `<div class="who"><div class="wt one" title="正版验证在代理端自己的配置文件里改，白名单在后面接的各台服务器上开">谁能进：代理端在自己的配置里设</div></div>`;
+  const h = whoHints();
+  return `<div class="who"><div class="wt wt-on">${tg("online", "正版验证", "online-mode", "", "开着只有正版账号能进；关着时离线账号也能进，但不用正版 UUID，也不显示正版皮肤")}${hintEl("onhint", h.on)}</div>`
+    + `<div class="wt wt-wl${SET.wl ? " open" : ""}">${tg("wl", "白名单", "white-list", "", "开着只有名单里的玩家能进；关着时知道地址的人都能进")}`
+    + `<div class="wnames" id="names">${LINK.names.map(nchip).join("")}<input id="wlname" maxlength="16" placeholder="输入玩家名，回车添加" autocomplete="off" spellcheck="false"></div>`
+    + `<span id="wlnote"></span>${hintEl("wlhint", h.wl)}</div></div>`;
+}
 function step4() {
   const proxy = isProxyCore(), v = viaOf();
   const card = ([k, n]) => {
@@ -1177,18 +1276,8 @@ function step4() {
     return `<div class="vcard${v === k ? " on" : ""}${off ? " off" : ""}" data-via="${k}" title="${esc(off ? "代理端的端口第一次启动以后才知道，启动过以后在服务器的「联机」里开" : VIA_TIP[k])}">`
       + `<div class="n">${n}</div><div class="m">${off ? "启动后再开" : viaMeta(k)}</div></div>`;
   };
-  const left = `<div class="col lcol"><h3>朋友怎么连</h3><div class="vias"><i class="vhl"></i>${VIAS.map(card).join("")}</div><div class="vdet">${viaDetail()}</div></div>`;
-  const h = whoHint();
-  const right = proxy
-    ? `<div class="col"><h3>谁能进</h3><div class="pnote" title="正版验证在代理端自己的配置文件里改，白名单在后面接的各台服务器上开">代理端在自己的配置里设</div></div>`
-    : `<div class="col"><h3>谁能进</h3>
-      ${tg("online", "正版验证", "online-mode", "", "开着只有正版账号能进；关着时离线账号也能进，但不用正版 UUID，也不显示正版皮肤")}
-      ${tg("wl", "白名单", "white-list", "", "开着只有名单里的玩家能进；关着时知道地址的人都能进")}
-      <div class="wlx${SET.wl ? " open" : ""}"><div class="wlin">
-        <div class="names" id="names">${LINK.names.map(nchip).join("")}<input id="wlname" maxlength="16" placeholder="输入玩家名，回车添加" autocomplete="off" spellcheck="false"></div>
-        <span class="fnote bad" id="wlnote"></span></div></div>
-      <div class="whint ${h[0]}" id="whint" title="${esc(h[2])}">${hintHTML(h)}</div></div>`;
-  return `<div class="setp link">${left}${right}</div>`;
+  return `<div class="setp link"><div class="col lcol"><h3>朋友怎么连</h3><div class="vias"><i class="vhl"></i>${VIAS.map(card).join("")}</div>`
+    + `<div class="vdet">${viaDetail()}</div></div>${whoStrip()}</div>`;
 }
 // 选中的底色挪到选中的那一项
 function placeHLOf(boxSel, hlSel, onSel, axis, animate) {
@@ -1220,19 +1309,19 @@ function afterDetail() {
   document.querySelectorAll(".vdet .seg").forEach(el => placeSeg(el, false));
   document.querySelectorAll(".nwrap").forEach(scrollbar);
 }
-// 最底下那一句换了才换：旧的淡掉，新的（连同底色）淡进来
-function paintHint() {
-  const el = document.getElementById("whint"); if (!el) return;
-  const [cls, txt] = whoHint();
-  if (el.dataset.txt === txt) return;
-  el.dataset.txt = txt;
+// 两块提醒换了才换：旧的淡掉，新的淡进来
+function paintHintEl(id, h) {
+  const el = document.getElementById(id); if (!el || el.dataset.txt === h[1]) return;
+  el.dataset.txt = h[1];
   el.getAnimations().forEach(a => a.cancel());
-  el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 90, easing: "cubic-bezier(.4, 0, 1, 1)", fill: "forwards" }).onfinish = a => {
-    const now = whoHint(); el.className = `whint ${now[0]}`; el.innerHTML = hintHTML(now); el.title = now[2]; el.dataset.txt = now[1]; KIT.hydrate(el);
+  el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 90, easing: "cubic-bezier(.4, 0, 1, 1)", fill: "forwards" }).onfinish = () => {
+    const now = whoHints()[id === "onhint" ? "on" : "wl"];
+    el.className = `whint ${now[0]}`; el.innerHTML = hintHTML(now); el.title = now[2]; el.dataset.txt = now[1]; KIT.hydrate(el);
     el.getAnimations().forEach(x => x.cancel());
-    el.animate([{ opacity: 0, transform: "translateY(4px)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: "cubic-bezier(.2, .7, .2, 1)" });
+    el.animate([{ opacity: 0, transform: "translateX(4px)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: "cubic-bezier(.2, .7, .2, 1)" });
   };
 }
+function paintHint() { const h = whoHints(); paintHintEl("onhint", h.on); paintHintEl("wlhint", h.wl); }
 function pickVia(k) {
   const order = VIAS.map(x => x[0]), dir = order.indexOf(k) > order.indexOf(LINK.via) ? 1 : -1;
   LINK.via = k;
@@ -1248,7 +1337,7 @@ function pickTab(v, box, sp) {
   document.getElementById("nmsg")?.classList.remove("show");
   swapItems(document.querySelector(".nbody"), nodeBody(LINK.via), v === "use" ? 1 : -1, "X", afterDetail);
 }
-// 筛选、搜索、公开招人一动，节点重画（不动面板别处）；选中的节点被灰掉的话取消选中
+// 筛选、搜索、三个勾、公开招人一动，节点重画（不动面板别处）
 function paintNodes(fade) {
   const l = document.getElementById("nlist"); if (!l) return;
   const k = viaOf();
@@ -1262,12 +1351,20 @@ function pickFilter(v) {
   document.querySelectorAll("[data-nfil]").forEach(b => b.classList.toggle("on", b.dataset.nfil === v));
   paintNodes(true);
 }
-function afterPub() {
-  if (LINK.pub) {
-    const cur = NODES.sakura.flatMap(g => g[1]).find(x => x.n === LINK.node.sakura);
-    if (cur && !cur.pub) LINK.node.sakura = "";
-  }
+function toggleShow(el) {
+  const k = el.dataset.ck; LINK.show[k] = !LINK.show[k]; el.classList.toggle("on", LINK.show[k]);
   paintNodes(true);
+}
+// 公开招人打开：原来选着的不是公开游戏节点的话取消选中
+function afterPub() {
+  if (LINK.pub) { const cur = SK_NODES.find(x => x.key === LINK.node.sakura); if (cur && !cur.pub) LINK.node.sakura = ""; }
+  paintNodes(true);
+}
+// 刷新：草图里转一下、重画一遍（真程序重新拉节点列表和平台隧道）
+function refreshNodes(b) {
+  if (b.classList.contains("spinning")) return;
+  b.classList.add("spinning");
+  setTimeout(() => { b.classList.remove("spinning"); paintNodes(true); }, 600);
 }
 function pickNode(el) {
   if (el.classList.contains("off")) return;
@@ -1309,6 +1406,7 @@ function addName(v) {
   LINK.names.push(n);
   inp.insertAdjacentHTML("beforebegin", nchip(n)); const c = inp.previousElementSibling; KIT.hydrate(c);
   c.animate([{ opacity: 0, transform: "scale(.85)" }, { opacity: 1, transform: "none" }], { duration: 200, easing: "cubic-bezier(.2, .7, .2, 1)" });
+  box.scrollLeft = box.scrollWidth; // 名单在框里横着排，加了新名字滚到最右
   paintHint();
 }
 function removeName(n) {
@@ -1317,10 +1415,10 @@ function removeName(n) {
   if (c) { c.classList.add("out"); c.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(.85)" }], { duration: 140, easing: "cubic-bezier(.4, 0, 1, 1)", fill: "forwards" }).onfinish = () => c.remove(); }
   paintHint();
 }
-// 白名单开关、正版验证开关一动，名单那栏展开收起、最底下那句跟着变
+// 白名单开关、正版验证开关一动，名单框出现收起、提醒跟着变
 function afterWho(k) {
   if (k === "wl") {
-    document.querySelector(".wlx")?.classList.toggle("open", SET.wl);
+    document.querySelector(".wt-wl")?.classList.toggle("open", SET.wl);
     if (SET.wl) setTimeout(() => document.getElementById("wlname")?.focus({ preventScroll: true }), 220);
   }
   paintHint();
@@ -1357,7 +1455,6 @@ function render() {
   placeVias(false); document.querySelectorAll(".nwrap").forEach(scrollbar); paintMem();
   document.body.classList.toggle("on-s3", names[step] === "配置服务器参数");
   document.querySelectorAll(".sim [data-ram]").forEach(x => x.classList.toggle("on", +x.dataset.ram === RAMK));
-  const wh = document.getElementById("whint"); if (wh) wh.dataset.txt = whoHint()[1];
   document.getElementById("agrid")?.addEventListener("scroll", moreCards, { passive: true });
   cartMeta();
   settleVersions();
@@ -1635,6 +1732,8 @@ document.getElementById("page").addEventListener("click", e => {
   if (nd) { pickNode(nd); return; }
   if (us) { pickUse(us); return; }
   if (nf) { pickFilter(nf.dataset.nfil); return; }
+  const ckx = e.target.closest("[data-ck]"); if (ckx) { toggleShow(ckx); return; }
+  const rf = e.target.closest('[data-act="nrefresh"]'); if (rf) { refreshNodes(rf); return; }
   if (e.target.closest('[data-act="connect"]')) { connectSakura(); return; }
   if (e.target.closest('[data-act="sakurakey"]')) return; // 草图里不真开樱花官网
   const cp = e.target.closest('[data-act="copy"]');
@@ -1644,7 +1743,7 @@ document.getElementById("page").addEventListener("click", e => {
     clearTimeout(cp._t); cp._t = setTimeout(() => { cp.classList.remove("done"); cp.innerHTML = `<i data-ic="copy"></i>`; KIT.hydrate(cp); }, 1200);
     return;
   }
-  if (e.target.closest(".names")) { document.getElementById("wlname")?.focus(); return; }
+  if (e.target.closest(".wnames")) { document.getElementById("wlname")?.focus(); return; }
   if (eu && !e.target.closest("a")) { SET.eula = !SET.eula; eu.classList.toggle("on", SET.eula); eu.querySelector(".tg")?.classList.toggle("on", SET.eula); if (SET.eula) eu.classList.remove("bad"); return; }
   const mp = e.target.closest("[data-mp]"); if (mp) { if (!mp.disabled) setMem(+mp.dataset.mp); return; }
   const ms = e.target.closest("[data-mstep]"); if (ms) { if (!ms.disabled) setMem(memClamp(SET.mem + 512 * +ms.dataset.mstep)); return; }
