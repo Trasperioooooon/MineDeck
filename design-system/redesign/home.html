@@ -327,7 +327,7 @@ window.EXTRA_ICONS = {
      下面一行是支付宝的固定金额，圆角矩形，支付宝小图标加金额，按金额从小到大。第二版上面两个铺满、各 190 见方，下面一排 40 高、放不下要左右滑，
      作者说上面太大、下面太小，弹窗放宽一点让五个都放得下、不用滑：现在面板 544 宽，上面两个 136 见方、居中，下面五个等分一排、52 高（同规范里 52 高的条）。
      点哪个都弹一层看那张收款码的原图（按窗口放到最大），从按钮那里放大出来、关掉时缩回去；Esc 一次关一层。
-     图是作者本人的收款码，只放在本机（QR_code/，.gitignore 了）；别的机器上打开没有图，大图那层换成文件名占位 */
+     图是作者本人的收款码，在 QR_code/（11-27 作者定了进仓库、打进程序，改程序时挪进界面文件夹）；读不到图时大图那层换成文件名占位 */
   :root { --elev-4: 0 28px 64px -16px rgb(var(--shadow-rgb) / .32), 0 8px 20px -4px rgb(var(--shadow-rgb) / .10); --scrim: rgb(var(--shadow-rgb) / .32); }
   [data-theme="dark"] { --elev-4: 0 32px 72px -16px rgb(0 0 0 / .72), 0 8px 24px -4px rgb(0 0 0 / .40); --scrim: rgb(0 0 0 / .56); }
   .spm, .spz { position: fixed; left: 0; right: 0; top: 40px; bottom: 0; z-index: 40; display: grid; place-items: center; background: var(--scrim); }
@@ -992,7 +992,7 @@ function zoomQR(btn) {
   spz = Object.assign(document.createElement("div"), { className: "spz" });
   spz.innerHTML = `<img class="zimg" src="${src}" alt="收款码" draggable="false" style="width:${Math.round(w)}px;height:${Math.round(h)}px">`
     + `<button class="x" title="关闭"><i data-ic="x"></i></button>`;
-  // 别的机器上没有这些图（只在作者本机，.gitignore 了）：换成同样大小的文件名占位，不显示破图
+  // 读不到图（文件被挪走、改了名）：换成同样大小的文件名占位，不显示破图
   spz.querySelector("img").onerror = e => {
     const ph = Object.assign(document.createElement("div"), { className: "qph zimg", textContent: src });
     ph.style.cssText = e.target.style.cssText; e.target.replaceWith(ph);
