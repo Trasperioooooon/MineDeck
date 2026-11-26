@@ -46,30 +46,8 @@
   .col h3 { margin: 0 0 10px; font-size: 12px; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 8px; }
   .col h3 .sp { flex: 1; }
   /* 介绍：选中的核心，图标、名字、副标题、正文，左下角三行「适用场景」「支持扩展」「联机要求」 */
-  /* 换核心时介绍这一块的过渡（作者 11-26）：一道斜的、很淡很糊的亮带从左往右扫过去（扫光），新内容只淡入、不动不糊。
-     三样东西要像一个动作（作者嫌高亮框先到、扫光晚一秒、文字自己弹出来）：都在点下去那一下同时起步，
-     曲线都是起步快、尾巴长（不是匀速）；亮带一开始中心就在面板左边缘、0.1 秒时已经进来了，
-     高亮框落定（0.32 秒）时亮带正好扫到面板中间，文字也差不多出齐；之后亮带慢慢滑过右半边、边走边淡，1.6 秒走完 */
-  .intro { position: relative; overflow: hidden; }
+  /* 换核心时介绍这一块的过渡「逐项换」（作者 11-26 从四种里挑的）：动画在脚本 swapIntro 里 */
   .intro .body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-  .intro.swap .body { animation: intro-in .45s cubic-bezier(.3, .7, .2, 1); }
-  @keyframes intro-in { from { opacity: 0; } to { opacity: 1; } }
-  .intro::after { content: ""; position: absolute; top: -20%; bottom: -20%; left: 0; width: 55%; pointer-events: none; opacity: 0; z-index: 2;
-    background: linear-gradient(100deg, transparent 0%, var(--sheen) 50%, transparent 100%); filter: blur(18px); transform: translateX(-50%) skewX(-14deg); }
-  :root { --sheen: rgb(255 255 255 / .07); } :root[data-theme="light"] { --sheen: color-mix(in srgb, var(--accent) 12%, transparent); }
-  .intro.swap::after { animation: sheen 1.6s cubic-bezier(.3, .5, .25, 1); }
-  /* 位置只写在头尾两帧，整段只走一条曲线；亮度单独几帧：很快亮起来、中途开始慢慢淡掉 */
-  @keyframes sheen { 0% { opacity: 0; transform: translateX(-50%) skewX(-14deg); }
-                     6% { opacity: 1; animation-timing-function: linear; } 55% { opacity: 1; }
-                     100% { opacity: 0; transform: translateX(140%) skewX(-14deg); } }
-  /* 作者 11-26：加了扫光，切换时文字还是「突然切换」，问有没有别的过渡。上面的扫光留作 D，另做 A、B、C 三种，
-     右上角的小条一点就换着试（地址栏 ?fx=a|b|c|d 也行）。小条是草图专用，定下来以后它和没选上的都删掉 */
-  .fxbar { position: fixed; top: 46px; right: 20px; z-index: 50; display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 10px;
-           background: var(--surface-2); border: 1px solid var(--border); font-size: 11.5px; color: var(--faint); }
-  .fxbar span { padding: 0 6px 0 8px; }
-  .fxbar a { padding: 4px 9px; border-radius: 7px; color: var(--muted); cursor: pointer; }
-  .fxbar a:hover { background: var(--hover); }
-  .fxbar a.on { background: var(--accent-subtle); color: var(--accent-text); }
   .intro .head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
   .intro .head .cover { width: 56px; height: 56px; border-radius: 12px; flex: none; }
   .intro .head .cover svg { width: 32px; height: 32px; }
@@ -253,32 +231,17 @@ function selectCore(k) {
   const vc = document.getElementById("vercol");
   vc.innerHTML = versionsInner(); KIT.hydrate(vc); settleVersions();
 }
-// 介绍换内容的几种过渡（作者 11-26 要比一比）。dir 是高亮框走的方向：往下 1、往上 -1
-//   A 淡出再淡入：旧的一整块很快淡掉，新的一整块再淡进来，不动位置
-//   B 顺着方向滑：同 A，但旧的往高亮框走的反方向挪 8 像素淡掉，新的从同一侧挪回来，像列表跟着翻了一格
-//   C 逐项换：框架不动（三个小标题、各块的位置都不变），图标、名字、副标题、正文、三行内容一样一样换，
-//     顺着高亮框走的方向错开一点点（往下点就从上往下换，往上点就从下往上换），每样只挪 5 像素
-//   D 扫光：前面那版，亮带扫过、文字淡入
-const FX_LIST = [["a", "A 淡出再淡入"], ["b", "B 顺着方向滑"], ["c", "C 逐项换"], ["d", "D 扫光"]];
-let fx = new URLSearchParams(location.search).get("fx") || "c", swapUntil = 0;
+// 介绍换内容的过渡「逐项换」（作者 11-26 从 淡出再淡入 / 顺着方向滑 / 逐项换 / 扫光 四种里挑的）：
+// 突兀的根子是旧字一帧就没了，而且三个小标题、各块的位置每个核心都一样，整块换等于把没变的也闪一遍。
+// 所以框架不动，只把变了的七样（图标、名字、副标题、正文、三行内容）一样一样换：每样先淡出（0.09 秒）再淡入（0.22 秒），
+// 挪 5 像素，顺着高亮框走的方向错开 22 毫秒（dir：往下点 1，从上往下换；往上点 -1，从下往上换），整套 0.42 秒左右
+let swapUntil = 0;
 function swapIntro(from, dir) {
   const intro = document.getElementById("intro");
   const easeIn = "cubic-bezier(.4, 0, 1, 1)", easeOut = "cubic-bezier(.2, .7, .2, 1)";
   intro.getAnimations({ subtree: true }).forEach(a => a.cancel());
-  intro.classList.remove("swap");
   // 上一次还没换完又点了别的：先把上一次的结果摆好，再从它往新的换
   if (performance.now() < swapUntil) intro.innerHTML = introInner(from);
-  if (fx === "d") { intro.innerHTML = introInner(); void intro.offsetWidth; intro.classList.add("swap"); return; }
-  if (fx === "a" || fx === "b") {
-    const dy = fx === "b" ? 8 * dir : 0;
-    swapUntil = performance.now() + 120 + 260;
-    intro.querySelector(".body").animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: `translateY(${-dy}px)` }],
-      { duration: 120, easing: easeIn, fill: "forwards" }).onfinish = () => {
-      intro.innerHTML = introInner();
-      intro.querySelector(".body").animate([{ opacity: 0, transform: `translateY(${dy}px)` }, { opacity: 1, transform: "none" }], { duration: 260, easing: easeOut });
-    };
-    return;
-  }
   const next = document.createElement("div"); next.innerHTML = introInner();
   const parts = root => [root.querySelector(".cover"), root.querySelector(".nm"), root.querySelector(".sub"), root.querySelector("p"), ...root.querySelectorAll("dd")];
   const olds = parts(intro), news = parts(next), n = olds.length, dy = 5 * dir, gap = 22;
@@ -290,16 +253,6 @@ function swapIntro(from, dir) {
       news[i].animate([{ opacity: 0, transform: `translateY(${dy}px)` }, { opacity: 1, transform: "none" }], { duration: 220, easing: easeOut });
     };
   });
-}
-function fxbar() {
-  const b = document.createElement("div"); b.className = "fxbar";
-  const paint = () => { b.innerHTML = `<span>切换过渡</span>` + FX_LIST.map(([k, t]) => `<a data-fx="${k}"${k === fx ? ` class="on"` : ""}>${t}</a>`).join(""); };
-  b.addEventListener("click", e => {
-    const a = e.target.closest("[data-fx]"); if (!a) return;
-    fx = a.dataset.fx; paint();
-    const q = new URLSearchParams(location.search); q.set("fx", fx); history.replaceState(null, "", "?" + q);
-  });
-  paint(); document.body.appendChild(b);
 }
 function selectVer(v) {
   if (v === ver) return;
@@ -345,7 +298,7 @@ document.getElementById("back").addEventListener("click", () => {
   const q = new URLSearchParams(location.search); q.set("enter", "1");
   setTimeout(() => { location.href = "home.html?" + q.toString(); }, 320);
 });
-KIT_READY.then(() => { render(); fxbar(); requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove("hidden-nav"))); });
+KIT_READY.then(() => { render(); requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove("hidden-nav"))); });
 </script>
 </body>
 </html>
