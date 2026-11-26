@@ -1,0 +1,349 @@
+/* 服务器详情页 →「设置 → 常用」「设置 → 启动与内存」（11-27 夜里第一稿，子代理照临时规范画的，等作者一页一页看）。说明写在 detail-settings.js 开头。
+   选择器都带 .st 前缀，不碰外壳和别的标签（外壳用了 .btn .rb .go .tg .ib .cs .stp .empty .list .thumb .dm 等，见 detail.html）。
+
+   内容面板（.cp，868 × 526、内边距 8、圆角 26）里：
+     常用：上面一排 32 高（分组片 28 高胶囊、搜索框 32 高胶囊），中间一栏（圆角 18 = 26 − 8）是全部的项，下面保存条 52 高、圆角 18。
+       栏里贴边 8 放列表：「谁能进」两块 44 高、圆角 10（18 − 8）；各组的格子离列表边 12（字离栏边 20，和上面分组片里的字对齐），四列、列距 16，
+       一格「字 18 + 6 + 框 40」，行距 16（同向导第三步）；开关一格 36 高，四个一行。框都是 40 高、圆角 10，框里的图标按钮 28 见方、离框边 6、圆角 4。
+     启动与内存：左栏 476 宽、右栏占其余，都是圆角 18；下面横跨两栏的保存条。左栏照向导第三步「服务器配置」：内存一块，下面两行，右边一列 132 宽和步进对齐。
+       右栏贴边 8 放：顶上一行 28 高（右上角的图标按钮贴栏角 8，圆角 10，同各页右上角的文件夹按钮），参数一行 32 高、圆角 10，最下面加参数的框 40 高、圆角 10。 */
+
+.st-cm, .st-jv { flex: 1; min-height: 0; }
+.st-cm [hidden], .st-jv [hidden] { display: none !important; }
+.st-sp { flex: 1; }
+.st-dot { width: 6px; height: 6px; border-radius: 2px; flex: none; background: var(--accent); opacity: 0; transition: opacity .2s; }
+.st-box, .st-bar, .st-col, .st-jcol { min-width: 0; min-height: 0; box-sizing: border-box; border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+.st-wait { flex: 1; display: grid; place-items: center; font-size: 12.5px; color: var(--faint); }
+
+/* ================= 常用 ================= */
+.st-cm { display: flex; flex-direction: column; gap: 8px; }
+/* 上面一排：分组片的左边离面板内沿 10，片里的字（片的内边距 10）和下面组名、格子里的字在同一条竖线上（栏 8 + 列表 12） */
+.st-tb { flex: none; height: 32px; display: flex; align-items: center; gap: 8px; padding-left: 10px; }
+/* 分组片：28 高胶囊，一圈细边；选中块单独一块，滑过去（同「插件 / 模组」的类别片） */
+.st-chips { position: relative; flex: none; display: flex; gap: 5px; }
+.st-chl { position: absolute; left: 0; top: 0; height: 28px; border-radius: 14px; background: var(--accent-subtle); pointer-events: none;
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+          transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
+.st-chips .st-chip { position: relative; z-index: 1; height: 28px; padding: 0 10px; border: 0; border-radius: 14px; background: none; flex: none; font: inherit; font-size: 12.5px; font-weight: 500;
+                     color: var(--muted); white-space: nowrap; cursor: pointer; box-shadow: inset 0 0 0 1px var(--border); transition: color .2s, box-shadow .2s, opacity .2s; }
+.st-chips .st-chip:hover { color: var(--text); }
+.st-chips .st-chip.on { color: var(--accent-text); box-shadow: none; }
+.st-chips .st-chip.off { opacity: .35; cursor: default; } /* 搜索时这一组一项都没有 */
+.st-chips .st-chip.off:hover { color: var(--muted); }
+/* 搜索框：同控制台过滤框、「全部配置」（32 高胶囊，聚焦时一圈强调色细框） */
+.st-cs { display: flex; align-items: center; gap: 8px; width: 220px; height: 32px; box-sizing: border-box; padding: 0 4px 0 12px; border-radius: 16px; flex: none; cursor: text;
+         background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); color: var(--muted); }
+.st-cs:focus-within { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.st-cs > .ico { width: 15px; height: 15px; flex: none; }
+.st-cs input { flex: 1; min-width: 0; border: 0; outline: 0; padding: 0; background: none; font: inherit; font-size: 13px; color: var(--text); }
+.st-cs input::placeholder { color: var(--faint); }
+.st-cx { width: 24px; height: 24px; border-radius: 12px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer; visibility: hidden; }
+.st-cs.has .st-cx { visibility: visible; }
+.st-cx:hover { background: var(--hover); color: var(--text); }
+.st-cx .ico { width: 14px; height: 14px; }
+
+/* 中间一栏：细滚动条同首页、向导、「全部配置」（系统的藏掉，右边 4 像素的细条在栏右边那 8 像素里；上下还有没露出来的，那一头淡出 28） */
+.st-box { flex: 1; display: flex; flex-direction: column; padding: 8px; }
+.st-lw, .st-jlw { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.st-lw .list, .st-jlw .list, .st-pvw .list { position: relative; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
+  --ft: 0px; --fb: 0px; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%); }
+.st-lw .list::-webkit-scrollbar, .st-jlw .list::-webkit-scrollbar, .st-pvw .list::-webkit-scrollbar { display: none; }
+.st-lw.can-up .list, .st-jlw.can-up .list, .st-pvw.can-up .list { --ft: 28px; }
+.st-lw.can-down .list, .st-jlw.can-down .list, .st-pvw.can-down .list { --fb: 28px; }
+.st-lw .thumb, .st-jlw .thumb, .st-pvw .thumb { position: absolute; right: -6px; width: 4px; border-radius: 2px; background: color-mix(in srgb, var(--text) 38%, transparent);
+  opacity: 0; transition: opacity .2s, width .15s, right .15s; cursor: pointer; }
+.st-lw:hover .thumb, .st-lw.scrolling .thumb, .st-lw .thumb.drag, .st-jlw:hover .thumb, .st-jlw.scrolling .thumb, .st-jlw .thumb.drag,
+.st-pvw:hover .thumb, .st-pvw.scrolling .thumb, .st-pvw .thumb.drag { opacity: 1; }
+.st-lw .thumb:hover, .st-lw .thumb.drag, .st-jlw .thumb:hover, .st-jlw .thumb.drag, .st-pvw .thumb:hover, .st-pvw .thumb.drag { width: 6px; right: -7px; background: color-mix(in srgb, var(--text) 55%, transparent); }
+.st-lw.fits .thumb, .st-jlw.fits .thumb, .st-pvw.fits .thumb { display: none; }
+/* 筛不到：正中一行淡字 */
+.st-none, .st-jnone { position: absolute; inset: 0; display: grid; place-items: center; font-size: 12.5px; color: var(--faint); pointer-events: none; opacity: 0;
+                      transition: opacity .22s cubic-bezier(.2, .7, .2, 1); }
+.st-lw.is-none .st-none, .st-jlw.is-none .st-jnone { opacity: 1; }
+
+/* 「谁能进」：同向导第四步那条（开关在字的左边，正版验证一块只包住开关和字，白名单一块占其余的宽）；贴栏边 8，44 高、圆角 10（18 − 8） */
+.st-who { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; margin-bottom: 4px; }
+.st-wb { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 8px 0 12px; border-radius: 10px; box-sizing: border-box; min-width: 0; background: var(--surface); }
+.st-wb .st-b { height: 44px; margin: 0; padding: 0 8px 0 0; flex: 1; }
+.st-wb .st-b:hover { background: none; }
+.st-wb .st-bl { font-size: 13.5px; font-weight: 600; }
+/* 去「玩家」：圆的（胶囊不按同心算），和块的右边离 8 */
+.st-ib.st-go { border-radius: 14px; }
+
+/* 一组：组名和项数，下面四列的格子，再下面开关；组和组之间一道细线（离列表两边 12） */
+.st-g { padding: 4px 12px 20px; }
+.st-g:not([hidden]) ~ .st-g:not([hidden])::before { content: ""; display: block; height: 1px; margin-bottom: 4px; background: var(--border); }
+.st-gh { height: 36px; display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; }
+.st-gn { font-family: var(--mono); font-size: 12px; font-weight: 400; color: var(--faint); font-variant-numeric: tabular-nums; }
+.st-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-flow: row dense; gap: 16px; }
+.st-bgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: 16px; row-gap: 2px; margin-top: 16px; }
+.st-gh + .st-bgrid { margin-top: 0; }
+.st-grh { display: flex; align-items: center; gap: 6px; height: 24px; margin-top: 12px; font-size: 12px; font-weight: 500; color: var(--muted); width: max-content; cursor: default; }
+.st-grh .ico { width: 13px; height: 13px; color: var(--accent-text); }
+.st-grh + .st-bgrid { margin-top: 2px; }
+
+/* 一格：字 18 + 6 + 框 40（同向导第三步）；中文名后面一个改过没存的小点 */
+.st-f { display: flex; flex-direction: column; gap: 6px; min-width: 0; border-radius: 10px; }
+.st-lb, .st-lb2 { height: 18px; display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12.5px; line-height: 18px; font-weight: 500; color: var(--muted); }
+.st-lt { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+.st-lb2 > span:first-child { cursor: default; white-space: nowrap; }
+.st-f.mod > .st-lb .st-dot, .st-b.mod .st-dot, .st-fld.mod > .st-lb2 .st-dot, .st-jh.mod > .st-lb2 .st-dot, .st-jr.mod .st-dot { opacity: 1; }
+/* 从「启动与内存」的端口点过来：这一格的框一圈强调色亮一下 */
+.st-f.st-flash .st-iw { animation: st-ring 1.6s cubic-bezier(.2, .7, .2, 1); }
+@keyframes st-ring { 0%, 40% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent); } }
+
+/* 输入框：40 高、圆角 10（同向导），没有上下箭头；单位写在框里右边；不对时框标红、右边一句红字（全文进悬停） */
+.st-iw { position: relative; display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 12px; border-radius: 10px; box-sizing: border-box; min-width: 0; cursor: text;
+         background: var(--field); border: 1px solid var(--border); transition: border-color .2s, box-shadow .2s; }
+.st-iw:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.st-in { flex: 1; min-width: 0; height: 28px; border: 0; outline: 0; padding: 0; background: none; font: inherit; font-size: 14px; color: var(--text); }
+.st-iw.mono .st-in { font-family: var(--mono); font-size: 12.5px; }
+.st-in::placeholder { color: var(--faint); font-family: var(--font); font-size: 13px; }
+.st-unit { flex: none; font-size: 12px; color: var(--faint); white-space: nowrap; }
+.st-msg { display: none; flex: none; font-size: 12px; color: var(--danger-text); white-space: nowrap; cursor: default; }
+.st-iw.bad { border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
+.st-iw.bad:focus-within { box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger-text) 14%, transparent); }
+.st-iw.bad .st-msg { display: block; }
+.st-iw.bad .st-unit { display: none; }
+.st-iw:has(.st-ib) { padding-right: 5px; } /* 框里的按钮离框外沿 6（边 1 + 5） */
+/* 图标按钮：28 见方、圆角 4（框里离边 6：10 − 6） */
+.st-ib { width: 28px; height: 28px; border-radius: 4px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;
+         transition: background .15s, color .15s; }
+.st-ib:hover, .st-ib.open { background: var(--hover); color: var(--text); }
+.st-ib.done { color: var(--success-text); }
+.st-ib .ico { width: 15px; height: 15px; }
+
+/* 步进：同向导第三步（两个按钮 28 见方、离框外沿 6、圆角 4；到头那边灰掉） */
+.st-stp, .st-mstp { display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 5px; border-radius: 10px; box-sizing: border-box; min-width: 0;
+                    background: var(--field); border: 1px solid var(--border); }
+.st-stp button, .st-mstp button { width: 28px; height: 28px; padding: 0; border: 0; border-radius: 4px; flex: none; display: grid; place-items: center; background: none; color: var(--muted);
+                                  cursor: pointer; transition: background .15s, color .15s, opacity .15s; }
+.st-stp button:hover:not([aria-disabled="true"]), .st-mstp button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.st-stp button[aria-disabled="true"], .st-mstp button:disabled { opacity: .3; cursor: default; }
+.st-stp .ico, .st-mstp .ico { width: 14px; height: 14px; }
+.st-sv, .st-msv { min-width: 0; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+
+/* 分段选：同向导第三步（40 高、圆角 10；选中块离外框 4 = 边 1 + 内边距 3，圆角 6，滑过去） */
+.st-seg { position: relative; display: flex; height: 40px; padding: 3px; border-radius: 10px; box-sizing: border-box; min-width: 0; background: var(--field); border: 1px solid var(--border); }
+.st-sgl { position: absolute; left: 0; top: 3px; bottom: 3px; border-radius: 6px; background: var(--accent-subtle); pointer-events: none;
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+          transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
+.st-seg button { flex: 1; position: relative; z-index: 1; min-width: 0; padding: 0 2px; border: 0; border-radius: 6px; background: none; font: inherit; font-size: 13px; color: var(--muted);
+                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; transition: color .2s; }
+.st-seg button:hover { color: var(--text); }
+.st-seg button.on { color: var(--accent-text); font-weight: 500; }
+
+/* 下拉：框同输入框，点开是下面那张菜单（同「定时任务」的文件夹下拉） */
+.st-sel { display: flex; align-items: center; gap: 8px; width: 100%; height: 40px; padding: 0 10px 0 12px; border-radius: 10px; box-sizing: border-box; min-width: 0; text-align: left;
+          background: var(--field); border: 1px solid var(--border); font: inherit; font-size: 14px; color: var(--text); cursor: pointer; transition: border-color .2s; }
+.st-sel:hover, .st-sel.open { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.st-sel > .ico { width: 15px; height: 15px; flex: none; color: var(--muted); }
+.st-selv { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; white-space: nowrap; overflow: hidden; }
+.st-selv > span { flex: none; }
+.st-selv .mono { font-family: var(--mono); font-size: 13px; }
+.st-selv .st-sub { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; color: var(--faint); }
+.st-selv .ico { width: 14px; height: 14px; flex: none; color: var(--muted); }
+.st-sel .st-chev { transition: transform .32s cubic-bezier(.3, .7, .2, 1); }
+.st-sel.open .st-chev { transform: rotate(180deg); }
+/* 现在用的 Java 找不到：会拦住开服，框标红、字说「找不到」（同程序 R21） */
+.st-sel.bad { border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
+.st-sel.bad .st-sub { color: var(--danger-text); }
+
+/* 开关一格：36 高；开关 36 × 20、滑块 16，在字的左边（同向导、控制台、「定时任务」）；悬停的底往两边各伸 8，字和上面格子里的字对齐 */
+.st-b { display: flex; align-items: center; gap: 10px; height: 36px; margin: 0 -8px; padding: 0 8px; min-width: 0; border: 0; border-radius: 10px; background: none; text-align: left;
+        font: inherit; font-size: 13px; color: var(--text); cursor: pointer; transition: background .15s, opacity .2s; }
+.st-b:hover { background: var(--hover); }
+.st-sw { position: relative; width: 36px; height: 20px; border-radius: 10px; flex: none; background: color-mix(in srgb, var(--text) 18%, transparent); transition: background .2s; }
+.st-sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 8px; background: var(--text); transition: transform .26s cubic-bezier(.3, .7, .2, 1); }
+.st-b.on .st-sw { background: var(--accent-solid); }
+.st-b.on .st-sw::after { transform: translateX(16px); background: var(--on-accent); }
+.st-bl { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 游戏规则开关：停着、启动中时灰掉，悬停说原因（同程序「服务器启动后可切换」） */
+.st-b[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.st-b[aria-disabled="true"]:hover { background: none; }
+
+/* MOTD：左边输入框（调色板按钮在框里），右边预览（恒深底，同程序 motd-preview；左右各占两列） */
+.st-motd { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.st-mdp { height: 40px; padding: 0 14px; border-radius: 10px; box-sizing: border-box; background: var(--term-bg); font-size: 13.5px; line-height: 40px;
+         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--term-fg) 10%, transparent); }
+.st-mpe { color: #666; }
+
+/* ================= 启动与内存 ================= */
+.st-jv { display: grid; grid-template-columns: 476px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 52px; gap: 8px; }
+.st-jv .st-bar { grid-column: 1 / -1; }
+/* 左栏：照向导第三步「服务器配置」（字在 20，一块和一块隔 24）；上边距 13，字和右栏顶上那行的字在同一条中线上 */
+.st-col { padding: 13px 20px 18px; display: flex; flex-direction: column; gap: 24px; }
+.st-fld { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.st-r2 { display: grid; grid-template-columns: minmax(0, 1fr) 132px; column-gap: 14px; }
+.st-r2.one { grid-template-columns: minmax(0, 1fr); }
+/* 内存分配：同向导（图例在字的右边；格子也是滑条，右边步进 132 宽；下面快捷预设） */
+.st-mleg { margin-left: auto; display: flex; gap: 14px; font-size: 12px; font-weight: 400; color: var(--muted); white-space: nowrap; }
+.st-mleg span { display: flex; align-items: center; gap: 6px; }
+.st-mleg b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.st-mleg i { width: 8px; height: 8px; border-radius: 2px; }
+.st-mleg i.used { background: color-mix(in srgb, var(--text) 30%, transparent); }
+.st-mleg i.alloc { background: var(--accent); }
+.st-mleg i.free { background: color-mix(in srgb, var(--text) 9%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 14%, transparent); }
+.st-memx { display: flex; align-items: center; gap: 14px; }
+.st-mbar { position: relative; flex: 1; min-width: 0; height: 40px; padding: 0 5px; display: flex; align-items: center; cursor: pointer; touch-action: none; outline: none;
+           border-radius: 10px; box-sizing: border-box; background: var(--field); border: 1px solid var(--border); transition: border-color .2s, box-shadow .2s; }
+.st-mbar:focus-visible { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.st-cells { position: relative; display: flex; gap: 2px; width: 100%; height: 28px; }
+.st-cells i { flex: 1; border-radius: 1.5px; background: color-mix(in srgb, var(--text) 9%, transparent); }
+.st-cells i:first-child { border-radius: 4px 1.5px 1.5px 4px; }
+.st-cells i:last-of-type { border-radius: 1.5px 4px 4px 1.5px; }
+.st-cells i.alloc { box-shadow: inset 0 2px 0 rgb(255 255 255 / .3), inset 0 -2px 0 rgb(0 0 0 / .16); }
+/* 本机超过 32 GB：不画格子，系统已占一块、可用一块（同向导），四角圆角 4（离框 6，10 − 6） */
+.st-cells.blk i { border-radius: 4px; flex: var(--w) 1 0; min-width: 4px; }
+.st-cells.blk .st-bu { background: color-mix(in srgb, var(--text) 30%, transparent); }
+.st-cells.blk .st-ba { position: relative; overflow: hidden; background: color-mix(in srgb, var(--text) 9%, transparent); }
+.st-cells.blk .st-ba b { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--accent); box-shadow: inset 0 2px 0 rgb(255 255 255 / .3), inset 0 -2px 0 rgb(0 0 0 / .16); }
+.st-mbar:not(.drag) .st-cells.blk .st-ba b { transition: width .16s cubic-bezier(.3, .7, .2, 1); }
+/* 把手：4 × 34 的竖胶囊，一圈框底色把它和格子隔开 */
+.st-knob { position: absolute; top: -3px; bottom: -3px; left: 0; width: 4px; margin-left: -2px; border-radius: 2px; background: var(--text); pointer-events: none; box-shadow: 0 0 0 2px var(--field); }
+.st-mbar:not(.drag) .st-knob { transition: left .16s cubic-bezier(.3, .7, .2, 1); }
+.st-mbar.drag { cursor: grabbing; }
+.st-mstp { width: 132px; flex: none; }
+.st-mstp.warn .st-msv { color: var(--warning-text); }
+.st-mpre { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.st-mp { height: 28px; padding: 0 12px; border-radius: 14px; border: 1px solid var(--border); background: none; color: var(--muted); font: inherit; font-size: 12px; font-weight: 500;
+         cursor: pointer; transition: background .15s, color .15s, border-color .15s; }
+.st-mp:hover:not(:disabled):not(.on) { color: var(--text); background: var(--hover); }
+.st-mp.on { background: var(--accent-subtle); color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.st-mp:disabled { opacity: .35; cursor: default; }
+.st-mlow { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--warning-text); cursor: default; white-space: nowrap; }
+.st-mlow .ico { width: 14px; height: 14px; }
+/* 服务器文件夹：同向导的存储路径框（放不下时先省上级目录，文件夹名留着），后面复制图标；端口：只读的框，点了去「常用」 */
+.st-path { height: 40px; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 5px 0 12px; border-radius: 10px; box-sizing: border-box;
+           background: var(--field); border: 1px solid var(--border); }
+.st-path > .ico { width: 15px; height: 15px; flex: none; color: var(--muted); }
+.st-path b { flex: 1; display: flex; min-width: 0; font-family: var(--mono); font-size: 12.5px; font-weight: 500; color: var(--text); white-space: nowrap; }
+.st-path b .hd, .st-path b .tl { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.st-path b .tl { flex-shrink: 0; max-width: 100%; } /* 文件夹名先留全，省的是前面的上级目录 */
+.st-path b .hd { flex-shrink: 1000; min-width: 1.6ch; color: var(--muted); }
+.st-port { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; height: 40px; padding: 0 10px 0 12px; border-radius: 10px; box-sizing: border-box;
+           background: var(--field); border: 1px solid var(--border); font: inherit; color: var(--text); cursor: pointer; transition: border-color .2s; }
+.st-port b { font-family: var(--mono); font-size: 13px; font-weight: 500; }
+.st-port .ico { width: 14px; height: 14px; color: var(--muted); transition: transform .2s, color .2s; }
+.st-port:hover:not(.off) { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.st-port:hover:not(.off) .ico { color: var(--text); transform: translateX(2px); }
+.st-port.off { cursor: default; }
+.st-port.off b { color: var(--muted); }
+
+/* 右栏：自定义 JVM 参数（贴边 8） */
+.st-jcol { padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.st-jh { flex: none; height: 28px; display: flex; align-items: center; gap: 4px; padding-left: 12px; }
+/* Aikar's Flags：28 高胶囊（同「定时任务」的预设）；已经是这一套时 ＋ 换成勾、淡下去 */
+.st-aik { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 12px 0 9px; margin-right: 4px; border-radius: 14px; box-sizing: border-box; border: 1px solid var(--border);
+          background: var(--control); color: var(--text); font: inherit; font-size: 12.5px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: background .15s, color .15s; }
+.st-aik:hover { background: var(--control-hov); }
+.st-aik .ico { width: 14px; height: 14px; color: var(--accent-text); }
+.st-aik.has { background: none; color: var(--muted); cursor: default; }
+.st-aik.has .ico { color: var(--muted); }
+/* 顶上一行的图标按钮：28 见方，最右边那颗贴栏的右上角 8，圆角 10（18 − 8，同各页右上角的文件夹按钮），旁边那颗一样高、一样圆 */
+.st-hb { width: 28px; height: 28px; border-radius: 10px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;
+         transition: background .15s, color .15s, opacity .15s; }
+.st-hb:hover, .st-hb.open { background: var(--hover); color: var(--text); }
+.st-hb .ico { width: 16px; height: 16px; }
+.st-hb[aria-disabled="true"] { opacity: .35; cursor: default; }
+.st-hb[aria-disabled="true"]:hover { background: none; color: var(--muted); }
+.st-jlw .list { display: flex; flex-direction: column; gap: 2px; }
+/* 一行：32 高、圆角 10（离栏边 8）；参数是等宽原文，放不下截断、全文进悬停；× 悬停那一行才出来（24 见方，离行的边 4，圆角 6 = 10 − 4） */
+.st-jr { position: relative; flex: none; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 4px 0 12px; border-radius: 10px; box-sizing: border-box; min-width: 0;
+         transition: background .15s, box-shadow .15s; }
+.st-jr:hover { background: var(--hover); }
+.st-jt { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: text; }
+.st-jr .st-dot { margin-right: 9px; }
+.st-jx { position: absolute; right: 4px; top: 4px; width: 24px; height: 24px; border-radius: 6px; border: 0; padding: 0; display: grid; place-items: center; background: var(--hover);
+         color: var(--muted); cursor: pointer; opacity: 0; transition: opacity .15s, color .15s, background .15s; }
+.st-jx .ico { width: 13px; height: 13px; }
+.st-jr:hover .st-jx, .st-jx:focus-visible { opacity: 1; }
+.st-jx:hover { color: var(--text); background: color-mix(in srgb, var(--text) 12%, transparent); }
+.st-jr.st-out { pointer-events: none; }
+/* 点一行就地改：那一行变成框（框底、强调色细边）；不对时描红、晃一下 */
+.st-jr.edit { background: var(--field); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 60%, var(--border)); }
+.st-jr.edit .st-jx, .st-jr.edit .st-dot { display: none; }
+.st-jr.bad { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
+.st-jin { flex: 1; min-width: 0; height: 28px; border: 0; outline: 0; padding: 0; background: none; font-family: var(--mono); font-size: 12.5px; color: var(--text); }
+.st-jr.st-flash { animation: st-flash .9s cubic-bezier(.2, .7, .2, 1); }
+@keyframes st-flash { 0%, 30% { background: var(--accent-subtle); } 100% { background: transparent; } }
+.st-jadd { flex: none; }
+
+/* ================= 保存条：52 高、圆角 18（同「全部配置」「定时任务」）；左边那句只在开着、有改动或存过待重启时出现 ================= */
+.st-bar { flex: none; height: 52px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 20px; }
+.st-note { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12.5px; color: var(--warning-text); white-space: nowrap; }
+.st-note > .ico { width: 15px; height: 15px; flex: none; }
+.st-note > span { cursor: default; }
+.st-btn { display: inline-flex; align-items: center; gap: 6px; height: 36px; margin-left: 4px; padding: 0 14px 0 12px; border-radius: 18px; box-sizing: border-box; flex: none;
+          border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; transition: background .15s; }
+.st-btn:hover:not(:disabled) { background: var(--control-hov); }
+.st-btn:disabled { opacity: .7; cursor: default; }
+.st-btn .ico { width: 15px; height: 15px; }
+.st-n { display: inline-flex; align-items: center; gap: 7px; margin-right: 4px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.st-n > i { width: 7px; height: 7px; border-radius: 2px; background: var(--accent); }
+/* 有改动时：「N 项修改未保存」「放弃修改」淡进来（0.22 秒、从下 5 像素），没了淡掉（0.09 秒）；位置一直占着，「保存」不挪 */
+.st-n, .st-discard { opacity: 0; visibility: hidden; transform: translateY(5px);
+                     transition: opacity .09s cubic-bezier(.4, 0, 1, 1), transform .09s cubic-bezier(.4, 0, 1, 1), visibility 0s .09s, background .15s, color .15s; }
+.st-n.on, .st-discard.on { opacity: 1; visibility: visible; transform: none;
+                           transition: opacity .22s cubic-bezier(.2, .7, .2, 1), transform .22s cubic-bezier(.2, .7, .2, 1), background .15s, color .15s; }
+.st-discard { height: 36px; padding: 0 14px; border-radius: 18px; border: 0; background: none; flex: none; font: inherit; font-size: 13px; font-weight: 500; color: var(--muted); cursor: pointer; }
+.st-discard:hover { background: var(--hover); color: var(--text); }
+.st-save { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; min-width: 84px; padding: 0 18px; border-radius: 18px; box-sizing: border-box; flex: none;
+           border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+           transition: background .2s, color .2s, border-color .2s, opacity .2s; }
+.st-save[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.st-save.on { background: var(--accent-solid); color: var(--on-accent); border-color: transparent; }
+.st-save.on:hover { background: var(--accent-solid-hov); }
+.st-save .ico { width: 15px; height: 15px; }
+.st-spin { animation: st-spin .9s linear infinite; }
+@keyframes st-spin { to { transform: rotate(360deg); } }
+
+/* ================= 菜单（下拉）：同共用件页那张（外圆角 16、细边 1 加内边距 5，项 36 高、圆角 10 = 16 − 6）；挂在 body 上 ================= */
+.st-dm { position: fixed; z-index: 50; max-width: 420px; padding: 5px; box-sizing: border-box; display: flex; flex-direction: column; gap: 1px;
+         border-radius: 16px; border: 1px solid var(--border); background: var(--overlay); box-shadow: var(--elev-3); }
+.st-dm.enter { animation: st-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.st-dm.leave { animation: st-out .09s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+.st-dm.up.enter, .st-pop.up.enter { animation-name: st-in-up; } .st-dm.up.leave, .st-pop.up.leave { animation-name: st-out-up; }
+@keyframes st-in { from { opacity: 0; transform: translateY(-5px); } }
+@keyframes st-out { to { opacity: 0; transform: translateY(-5px); } }
+@keyframes st-in-up { from { opacity: 0; transform: translateY(5px); } }
+@keyframes st-out-up { to { opacity: 0; transform: translateY(5px); } }
+.st-it { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: 10px; box-sizing: border-box; font-size: 13px; color: var(--text); cursor: pointer;
+         white-space: nowrap; transition: background .15s; }
+.st-it:hover { background: var(--hover); }
+.st-it.here { cursor: default; }
+.st-it.here:hover { background: none; }
+.st-im { flex: none; }
+.st-im.mono, .st-is.mono { font-family: var(--mono); }
+.st-is { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--faint); }
+.st-it .ico { width: 15px; height: 15px; flex: none; }
+.st-it .st-ck { color: var(--accent-text); }
+.st-it .st-dl { color: var(--muted); }
+.st-it.miss { cursor: default; }
+.st-it.miss:hover { background: none; }
+.st-it.miss .st-is { color: var(--danger-text); }
+
+/* ================= 浮层：调色板、实际启动参数（外圆角 16、细边加内边距 6，同控制台「Aa」那块） ================= */
+.st-pop { position: fixed; z-index: 50; padding: 6px; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px;
+          border-radius: 16px; border: 1px solid var(--border); background: var(--overlay); box-shadow: var(--elev-3); }
+.st-pop.enter { animation: st-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.st-pop.leave { animation: st-out .09s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+/* 调色板：16 色一格一格（圆角 6），下面五种样式（28 高胶囊，字照样式画） */
+.st-palp { width: 264px; }
+.st-pal { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; padding: 4px; }
+.st-pc { aspect-ratio: 1; border: 0; padding: 0; border-radius: 6px; background: var(--c); cursor: pointer; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 16%, transparent);
+         transition: transform .15s, box-shadow .15s; }
+.st-pc:hover { transform: scale(1.08); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 16%, transparent), 0 0 0 2px var(--overlay), 0 0 0 3.5px var(--accent); }
+.st-pst { display: flex; gap: 4px; padding: 0 4px 4px; }
+.st-ps { flex: 1; height: 28px; padding: 0; border-radius: 14px; border: 1px solid var(--border); background: none; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer;
+         transition: background .15s, color .15s; }
+.st-ps:hover { background: var(--hover); color: var(--text); }
+.st-ps-l { font-weight: 600; } .st-ps-o { font-style: italic; } .st-ps-n { text-decoration: underline; } .st-ps-m { text-decoration: line-through; }
+/* 实际启动参数：一整行等宽字，折行；长了在里面滚（细滚动条） */
+.st-pvp { width: 460px; }
+.st-pvh { padding: 4px 8px 0; font-size: 12.5px; line-height: 18px; font-weight: 500; color: var(--muted); width: max-content; cursor: default; }
+.st-pvw { position: relative; display: flex; flex-direction: column; }
+.st-pvw .list { max-height: 236px; padding: 4px 12px 8px 8px; font-family: var(--mono); font-size: 12px; line-height: 19px; color: var(--text); user-select: text; }
+.st-pvt .st-a { display: inline-block; max-width: 100%; overflow-wrap: anywhere; } /* 只在参数之间折行；一个参数比一行还长时才在里面断 */
+.st-pvw .thumb { right: -3px; } .st-pvw .thumb:hover, .st-pvw .thumb.drag { right: -4px; }
