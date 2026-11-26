@@ -22,6 +22,9 @@
           display: flex; flex-direction: column; align-items: center; }
   /* 问话和下面大卡的间隔 28 → 48（作者 11-26：大卡和面板往下挪一点，离问话远一点） */
   .q { margin: 44px 0 48px; font-size: 30px; line-height: 38px; font-weight: 600; letter-spacing: -.01em; text-align: center; }
+  /* 问话下面一行小字（作者 11-26，第二步「暂不预装可直接进入下一步」）：占在问话和面板原来那 48 的间隔里（8 + 20 + 20），面板不往下挪 */
+  .q.has-sub { margin-bottom: 8px; }
+  .qsub { margin: 0 0 20px; font-size: 13px; line-height: 20px; color: var(--muted); text-align: center; }
 
   /* 玩法：四张大卡，照首页大卡的做法（外圆角 26、内边距 8，核心色封面圆角 18 带方格暗纹，同心），图标 48 放在封面正中 */
   .plays { width: 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; position: relative; }
@@ -482,10 +485,11 @@ function regrid() {
     g.closest(".lwrap")._paint?.();
   };
 }
-// 右下角主按钮的字：最后一步「创建服务器」；挑插件 / 模组这一步清单空着时「跳过此步」（Gemini 复审 11-26 提的，比在空清单里写「可以跳过」直接），挑了东西变回「下一步」
+// 右下角主按钮的字：最后一步「创建服务器」，其余都是「下一步」。挑插件 / 模组那一步清单空着时叫过「跳过此步」，作者 11-26 改回「下一步」，
+// 改成在问话下面加一行小字说可以不装
 function navLabel(force) {
   const names = STEPS(), b = document.getElementById("next");
-  const want = step === names.length - 1 ? `<i data-ic="check"></i>创建服务器` : play !== 0 && step === 1 && !picked.length ? `跳过此步<i data-ic="chevronRight"></i>` : `下一步<i data-ic="chevronRight"></i>`;
+  const want = step === names.length - 1 ? `<i data-ic="check"></i>创建服务器` : `下一步<i data-ic="chevronRight"></i>`;
   if (!force && b.dataset.label === want) return;
   b.dataset.label = want; b.innerHTML = want; KIT.hydrate(b);
 }
@@ -500,7 +504,8 @@ addEventListener("resize", () => document.querySelector(".chips")?._paint?.());
 function render() {
   const names = STEPS();
   const body = step === 0 ? step1() : play !== 0 && step === 1 ? step2() : `<div class="placeholder">这一步的内容还没画</div>`;
-  document.getElementById("page").innerHTML = `<h1 class="q">${names[step]}</h1>` + body;
+  const sub = play !== 0 && step === 1 ? "暂不预装可直接进入下一步" : "";
+  document.getElementById("page").innerHTML = `<h1 class="q${sub ? " has-sub" : ""}">${names[step]}</h1>${sub ? `<p class="qsub">${sub}</p>` : ""}` + body;
   // 小点：个数对得上就只挪「当前」那个（宽的那个平滑挪过去），对不上（第一次画）才整排重画
   const d = document.getElementById("dots"), live = [...d.querySelectorAll("i:not(.out)")];
   if (live.length !== names.length) d.innerHTML = names.map(() => "<i></i>").join("");
