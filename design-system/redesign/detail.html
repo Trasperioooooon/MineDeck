@@ -13,7 +13,10 @@
   「···」只放管整台服务器的三样：打开服务器文件夹、导出交接包…、删除服务器…（11-27 作者同意）。原来那组「打开文件夹」里对着某个标签的几个文件夹
   挪进了各自那一页的右上角：控制台是日志、崩溃报告，世界与备份是备份（「备份」子页）和世界（「换地图」子页），插件 / 模组是插件或模组文件夹。
   首页大卡的「···」照旧是全的（首页没有标签）。页头的在线人数点了去「玩家」，联机地址点了去「联机」（复制照旧是右边的图标）。
-  常驻提示（上次没能启动、找不到 Java、模组要更高的 Java、整合包里有文件没装上）放在页头面板的最下面，一条 44 高、圆角 18（贴面板下角，同心）。
+  常驻提示（上次没能启动、找不到 Java、模组要更高的 Java、整合包里有文件没装上）不另起一行（11-27 作者同意）：第一稿是页头面板最下面一条一条的，
+  每多一条页头长 52、下面的标签栏和内容整块往下挤，启动失败、请求回来时都会跳一下。现在放进页头第二行中间那段空处（联机地址后面），一颗 36 高的警告色胶囊：
+  结论、修复的按钮、×；字长了截断。同时有几条时只露第一条，后面跟「+1」；点结论或「+1」弹一块浮层，列全部提示的全文和所有按钮（复制报错信息在这里）。
+  页头永远 120 高，下面一像素不动（同首页把列表上方的提示收成一颗胶囊的做法）。
 
   标签放在左边（11-27 作者定；第一稿还画过放在顶上的一排胶囊分段，没选）：页头下面左边一块 200 宽的面板，一行一个标签（36 高、图标加字），
   选中块上下滑；有子页的，子页缩进列在它下面，只展开选中的那一个。设置页的九个分类也照这个做（规范：两处的二级导航一种做法）。
@@ -90,6 +93,7 @@ window.EXTRA_ICONS = {
   /* 封面条下面一排：36 高胶囊（同大卡底下那排） */
   .acts { display: flex; align-items: center; gap: 8px; height: 36px; }
   .acts .sp { flex: 1; }
+  .acts > .stbr, .acts > .addr, .acts > .btn { flex: none; } /* 地址、状态、按钮都不让位，放不下时只截断提示的结论 */
   .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; padding: 0 16px; border-radius: 18px; font: inherit; font-size: 13px; font-weight: 500;
          background: var(--control); color: var(--text); border: 1px solid var(--border); cursor: pointer; white-space: nowrap; box-sizing: border-box; }
   .btn:hover { background: var(--control-hov); }
@@ -105,7 +109,7 @@ window.EXTRA_ICONS = {
   .stbr.off { background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); color: var(--faint); } .stbr.off i { background: var(--faint); }
   .addr { display: inline-flex; align-items: center; gap: 2px; height: 36px; padding: 0 4px 0 6px; border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
   .addr > .ico { width: 14px; height: 14px; color: var(--muted); }
-  .addr .v { font-family: var(--mono); font-size: 13px; font-weight: 500; }
+  .addr .v { font-family: var(--mono); font-size: 13px; font-weight: 500; white-space: nowrap; }
   .addr.off .v { color: var(--faint); }
   .addr .rb { width: 28px; height: 28px; border-radius: 14px; }
   .addr .rb .ico { width: 14px; height: 14px; }
@@ -115,14 +119,30 @@ window.EXTRA_ICONS = {
   .addr .go { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-radius: 14px; }
   .addr .go:hover { background: var(--hover); }
 
-  /* 常驻提示：页头面板最下面，一条 44 高、圆角 18（贴面板下角，同心）；会拦住启动的用警告色 */
-  .ntc { display: flex; align-items: center; gap: 10px; height: 44px; box-sizing: border-box; padding: 0 8px 0 14px; border-radius: 18px;
-         background: var(--warning-subtle); color: var(--text); font-size: 13px; }
+  /* 常驻提示：页头第二行地址后面的一颗 36 高警告色胶囊，里面的按钮 28 高胶囊；放不下时结论截断（全文在浮层里） */
+  .ntc { display: inline-flex; align-items: center; gap: 8px; height: 36px; min-width: 0; flex: 0 1 auto; box-sizing: border-box; padding: 0 4px 0 12px; border-radius: 18px;
+         background: var(--warning-subtle); font-size: 13px; }
   .ntc > .ico { width: 16px; height: 16px; color: var(--warning-text); flex: none; }
-  .ntc .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .ntc .btn { height: 28px; padding: 0 12px; border-radius: 14px; font-size: 12.5px; }
-  .ntc .rb { width: 28px; height: 28px; border-radius: 14px; flex: none; }
-  .ntc .rb .ico { width: 14px; height: 14px; }
+  .ntc .t { min-width: 0; border: 0; padding: 0; background: none; font: inherit; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+  .ntc .t:hover { color: var(--warning-text); }
+  .ntc .btn, .ntp .btn { height: 28px; padding: 0 12px; border-radius: 14px; font-size: 12.5px; flex: none; }
+  .ntc .more-n { height: 28px; min-width: 28px; padding: 0 9px; border: 0; border-radius: 14px; flex: none; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
+                 background: color-mix(in srgb, var(--warning) 22%, transparent); color: var(--warning-text); }
+  .ntc .more-n:hover, .ntc .more-n.open { background: color-mix(in srgb, var(--warning) 34%, transparent); }
+  .ntc .rb, .ntp .rb { width: 28px; height: 28px; border-radius: 14px; flex: none; }
+  .ntc .rb .ico, .ntp .rb .ico { width: 14px; height: 14px; }
+  .ntc.out { animation: sw-out .09s cubic-bezier(.4, 0, 1, 1) both; }
+  .ntc.in { animation: cp-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+  /* 点结论或「+1」弹出的浮层：外圆角 18、细边 1 加内边距 5，里面一条提示一行、圆角 12（18 − 6，同心），全文折行，按钮都在 */
+  .ntp { position: fixed; z-index: 50; width: 460px; box-sizing: border-box; padding: 5px; display: flex; flex-direction: column; gap: 4px;
+         border-radius: 18px; border: 1px solid var(--border); background: var(--overlay); box-shadow: var(--elev-3); }
+  .ntp.enter { animation: dm-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+  .ntp.leave { animation: dm-out .09s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+  .ntp .row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 8px 9px 12px; border-radius: 12px; background: color-mix(in srgb, var(--warning-subtle) 70%, transparent); }
+  .ntp .row > .ico { width: 16px; height: 16px; color: var(--warning-text); flex: none; margin-top: 6px; }
+  .ntp .row .t { flex: 1; min-width: 0; font-size: 13px; line-height: 20px; padding-top: 4px; }
+  .ntp .row .t .mono { font-family: var(--mono); font-size: 12px; }
+  .ntp .row .a { display: flex; align-items: center; gap: 4px; flex: none; }
 
   /* ---- 下半部分：标签和内容 ---- */
   .body { flex: 1; min-height: 0; display: flex; gap: 12px; }
@@ -264,6 +284,47 @@ function skBar() {
     + `<span title="控制台只画了撑版面的样子，别的标签里面是空的，后面一页一页画">只画了控制台</span>`;
 }
 
+// ---- 常驻提示（程序里的原话；结论是胶囊上露的，全文在浮层里） ----
+const NOTICES = [
+  { id: "fail", short: `上次没能启动：端口 ${S.port} 被「空岛生存」占着`, fix: `改成 ${S.port + 1} 并启动`, copy: true, close: true,
+    full: `上次没能启动：端口 ${S.port} 被你的服务器「空岛生存」占着，两台不能同时开` },
+  { id: "java", short: "找不到这台服务器配的 Java", fix: "去换 Java",
+    full: `找不到这台服务器配的 Java（<span class="mono">C:\\Program Files\\Java\\jdk-21\\bin\\java.exe</span>），现在启动会失败。可能是那个 Java 被卸载或挪走了` },
+];
+let shown = NOTICES.slice(0, nNotice);
+function ntcPill() {
+  if (!shown.length) return "";
+  const n = shown[0], more = shown.length - 1;
+  return `<span class="ntc"><i data-ic="warn"></i><button class="t" data-ntp title="查看全文">${n.short}</button>${n.fix ? `<button class="btn">${n.fix}</button>` : ""}`
+    + (more ? `<button class="more-n" data-ntp title="还有 ${more} 条提示">+${more}</button>` : "")
+    + (n.close ? `<button class="rb" data-close="${n.id}" title="关闭提示"><i data-ic="x"></i></button>` : "") + `</span>`;
+}
+const ntpRows = () => shown.map(n => `<div class="row"><i data-ic="warn"></i><div class="t">${n.full}</div><div class="a">${n.fix ? `<button class="btn">${n.fix}</button>` : ""}`
+  + (n.copy ? `<button class="rb" title="复制报错信息"><i data-ic="copy"></i></button>` : "") + (n.close ? `<button class="rb" data-close="${n.id}" title="关闭提示"><i data-ic="x"></i></button>` : "") + `</div></div>`).join("");
+let ntp = null;
+function openNtp() {
+  if (ntp) return closeNtp();
+  const pill = $(".ntc"); if (!pill) return;
+  ntp = Object.assign(document.createElement("div"), { className: "ntp enter", innerHTML: ntpRows() }); ntp.setAttribute("role", "dialog"); ntp.setAttribute("aria-label", "常驻提示");
+  document.body.appendChild(ntp); KIT.hydrate(ntp);
+  const r = pill.getBoundingClientRect();
+  ntp.style.left = Math.round(Math.min(r.left, innerWidth - ntp.offsetWidth - 16)) + "px"; ntp.style.top = Math.round(r.bottom + 6) + "px";
+  $$(".ntc [data-ntp]").forEach(b => b.classList.add("open"));
+}
+function closeNtp() {
+  if (!ntp) return; const m = ntp; ntp = null;
+  $$(".ntc [data-ntp]").forEach(b => b.classList.remove("open"));
+  m.classList.remove("enter"); m.classList.add("leave"); setTimeout(() => m.remove(), 90);
+}
+// 关掉一条：胶囊里换成下一条（旧的往上淡掉、新的浮上来），只有胶囊自己变宽变窄，别的都不动；浮层开着就跟着少一行，空了就收
+function dismiss(id) {
+  shown = shown.filter(n => n.id !== id);
+  if (ntp) { if (shown.length) { ntp.innerHTML = ntpRows(); KIT.hydrate(ntp); } else closeNtp(); }
+  const old = $(".ntc"); if (!old) return;
+  old.classList.add("out");
+  setTimeout(() => { $("#ntc-slot").innerHTML = ntcPill(); KIT.hydrate($("#ntc-slot")); $(".ntc")?.classList.add("in"); if (ntp) $$(".ntc [data-ntp]").forEach(b => b.classList.add("open")); }, 90);
+}
+
 // ---- 页头 ----
 function head() {
   const av = S.icon ? `<span class="px-avatar icon" aria-hidden="true">${fakeIcon(S.icon)}</span>` : MDPixel16.avatar(S.core, "", 32).replace('class="px-avatar', 'class="px-avatar');
@@ -280,12 +341,8 @@ function head() {
     + `<button class="rb" title="复制"><i data-ic="copy"></i></button></span>`;
   const restart = `<button class="btn"${st === "running" ? "" : ` aria-disabled="true" title="服务器开着时才能重启"`}><i data-ic="refresh"></i>重启</button>`;
   const main = st === "stopped" ? `<button class="btn go"><i data-ic="play"></i>启动</button>` : `<button class="btn stop"><i data-ic="stop"></i>停止</button>`;
-  const notices = [
-    `<div class="ntc"><i data-ic="warn"></i><span class="t">上次没能启动：端口 ${S.port} 被你的服务器「空岛生存」占着，两台不能同时开</span><button class="btn">改成 ${S.port + 1} 并启动</button><button class="rb" title="复制报错信息"><i data-ic="copy"></i></button><button class="rb" title="关闭提示"><i data-ic="x"></i></button></div>`,
-    `<div class="ntc"><i data-ic="warn"></i><span class="t" title="C:\\Program Files\\Java\\jdk-21\\bin\\java.exe。可能是那个 Java 被卸载或挪走了">找不到这台服务器配的 Java，现在启动会失败</span><button class="btn">去换 Java</button></div>`,
-  ].slice(0, nNotice).join("");
   $("#dh").innerHTML = `<div class="cover" style="--c:${MDPixel16.CORE_COLORS[S.core]}">${av}<div class="title"><div class="nm">${S.name}</div><div class="meta">${S.label} · ${S.mc}</div></div>${blocks}${tools}</div>`
-    + `<div class="acts">${stb}${addr}<span class="sp"></span>${restart}${main}</div>${notices}`;
+    + `<div class="acts">${stb}${addr}<span id="ntc-slot" style="display:contents">${ntcPill()}</span><span class="sp"></span>${restart}${main}</div>`;
   KIT.hydrate($("#dh"));
 }
 
@@ -358,6 +415,9 @@ document.addEventListener("click", e => {
     const box = s.parentElement; $$("button", box).forEach(b => b.classList.toggle("on", b.dataset.s === id));
     swapContent(); return;
   }
+  const cl = e.target.closest("[data-close]"); if (cl) { dismiss(cl.dataset.close); return; }
+  if (e.target.closest("[data-ntp]")) { openNtp(); return; }
+  if (ntp && !e.target.closest(".ntp")) closeNtp();
   const more = e.target.closest(".cover .more");
   if (more) { toggleMenu(more); return; }
   if (!e.target.closest(".dm")) closeMenu();
@@ -376,7 +436,7 @@ function toggleMenu(anchor) {
   anchor.classList.add("open"); menu._a = anchor;
 }
 function closeMenu() { if (!menu) return; const m = menu; menu = null; m._a.classList.remove("open"); m.classList.remove("enter"); m.classList.add("leave"); setTimeout(() => m.remove(), 90); }
-document.addEventListener("keydown", e => { if (e.key === "Escape") closeMenu(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape") { closeMenu(); closeNtp(); } });
 
 KIT_READY.then(() => { skBar(); head(); body(); KIT.hydrate(); });
 </script>
