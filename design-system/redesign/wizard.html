@@ -209,7 +209,11 @@
   .cempty b { display: block; margin-bottom: 4px; font-size: 13.5px; font-weight: 600; color: var(--muted); }
   #atitle { display: flex; align-items: baseline; gap: 8px; min-width: 0; white-space: nowrap; }
   #atitle .asub { font-weight: 400; color: var(--faint); overflow: hidden; text-overflow: ellipsis; }
-  .list:has(.crow:not(.out)) .cempty { display: none; }
+  /* 空清单那段话：最后一行真被拿掉以后才出来，淡进来（作者 11-26：拿掉最后一个时，这段话一出来就上下居中、把还在淡出的那一行挤到了清单底下）。
+     所以藏它的条件是「还有行」，正在淡出的也算 */
+  .list:has(.crow) .cempty { display: none; }
+  .cempty { animation: cempty-in .26s cubic-bezier(.2, .7, .2, 1); }
+  @keyframes cempty-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
   .cnote { flex: none; font-size: 12px; color: var(--muted); margin-top: 10px; padding: 0 6px; display: flex; gap: 6px; align-items: center; }
   .cnote:empty { display: none; }
   .cnote .ico { width: 14px; height: 14px; color: var(--faint); }
