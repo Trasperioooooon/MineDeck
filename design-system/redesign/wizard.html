@@ -116,32 +116,38 @@
   .addon { width: 100%; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-1);
            display: flex; gap: 8px; height: 520px; box-sizing: border-box; }
   .addon > .col { min-width: 0; }
-  .addon .browse { flex: 1.9 1 0; }
+  /* 左右大约 72 : 28（Gemini 复审 11-26 提的，作者让看着采纳）：左边两列卡片宽一些，名字放得下；清单一行一个，窄一点也够 */
+  .addon .browse { flex: 2.6 1 0; }
   .addon .cart { flex: 1 1 0; }
   .findin { height: 30px; border-radius: 15px; padding: 0 10px; display: flex; align-items: center; gap: 6px; background: var(--field); border: 1px solid var(--border);
             width: 170px; box-sizing: border-box; font-weight: 400; }
   .findin input { all: unset; flex: 1; min-width: 0; font-size: 12px; color: var(--text); }
   .findin input::placeholder { color: var(--faint); }
   .findin .ico { width: 13px; height: 13px; color: var(--faint); flex: none; }
-  .chips { display: flex; gap: 5px; margin: 0 0 12px; overflow-x: auto; scrollbar-width: none; flex: none; }
+  /* 放不下时横着滑（滚轮也能滑），哪头还有就在哪头渐隐，同首页左右滑的做法 */
+  .chips { display: flex; gap: 5px; margin: 0 0 12px; overflow-x: auto; scrollbar-width: none; flex: none; --fl: 0px; --fr: 0px;
+           -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
+           mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%); }
+  .chips::-webkit-scrollbar { display: none; }
+  .chips.can-l { --fl: 28px; } .chips.can-r { --fr: 28px; }
   .chip { height: 28px; padding: 0 10px; border-radius: 14px; display: inline-flex; align-items: center; font-size: 12.5px; color: var(--muted); cursor: pointer;
           white-space: nowrap; flex: none; box-shadow: inset 0 0 0 1px var(--border); transition: color .2s, background .2s, box-shadow .2s; }
   .chip:hover { color: var(--text); }
   .chip.on { color: var(--accent-text); background: var(--accent-subtle); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); font-weight: 600; }
   /* 卡片：图标 40、名字和下载量一行、一句话一行，右边一个圆的 ＋；加进清单以后卡片底色换强调色、＋ 变 ✓（和第一步选中的高亮框同一个样子） */
   .list.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-content: start; }
-  .mod { display: flex; align-items: center; gap: 12px; height: 64px; padding: 0 12px; border-radius: 14px; box-sizing: border-box; min-width: 0; cursor: pointer;
+  .mod { display: flex; align-items: center; gap: 12px; height: 74px; padding: 0 12px; border-radius: 14px; box-sizing: border-box; min-width: 0; cursor: pointer;
          background: color-mix(in srgb, var(--surface) 55%, transparent); transition: background .2s, box-shadow .2s; }
   .mod:hover { background: var(--hover); }
   .mod.in { background: var(--accent-subtle); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
   .mt { width: 40px; height: 40px; border-radius: 10px; flex: none; display: grid; place-items: center; font-weight: 700; font-size: 16px; color: rgb(255 255 255 / .92);
         background: var(--c); font-family: var(--mono); }
   .mod .m, .crow .m { flex: 1; min-width: 0; }
-  .mod .n { font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
-  .mod .n .nm { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  .mod .n .ftag { flex: none; }
-  .mod .n .dl { margin-left: auto; padding-left: 4px; flex: none; font-size: 11.5px; font-weight: 400; color: var(--faint); }
-  .mod .d { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px; }
+  /* 三行（Gemini 复审 11-26 提的）：名字独占一行不再被挤断；一句话；下载量和「需客户端 / 仅服务端」收进第三行淡字 */
+  .mod .n { font-size: 13.5px; font-weight: 600; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mod .d { font-size: 12px; line-height: 16px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  .mod .meta { font-size: 11px; line-height: 14px; color: var(--faint); display: flex; align-items: center; gap: 5px; margin-top: 3px; white-space: nowrap; }
+  .mod .meta .ico { width: 11px; height: 11px; }
   .ftag { font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 6px; color: var(--muted); background: color-mix(in srgb, var(--text) 8%, transparent); }
   .add { width: 30px; height: 30px; border-radius: 15px; flex: none; display: grid; place-items: center; color: var(--text); box-shadow: inset 0 0 0 1px var(--border);
          transition: background .2s, color .2s, box-shadow .2s; }
@@ -150,6 +156,10 @@
   .add .ico { width: 15px; height: 15px; }
   /* 待装清单：一行一个，图标 28、名字、第二行小字（前置是谁要的、朋友那边要不要装），悬停出 ×；空的时候一段说明 */
   .cart h3 .cnt { font-family: var(--mono); color: var(--accent-text); }
+  /* 清单里有东西时右上角出一个淡的「清空」（Gemini 复审 11-26 提的） */
+  .cart h3 .clr { font-weight: 500; color: var(--faint); cursor: pointer; padding: 3px 8px; border-radius: 10px; opacity: 0; pointer-events: none; transition: opacity .2s, color .2s; }
+  .cart.has h3 .clr { opacity: 1; pointer-events: auto; }
+  .cart h3 .clr:hover { color: var(--text); background: var(--hover); }
   .crow { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 6px; border-radius: 12px; flex: none; overflow: hidden; }
   .crow:hover { background: var(--hover); }
   .crow .mt { width: 28px; height: 28px; border-radius: 8px; font-size: 12px; }
@@ -344,7 +354,7 @@ let picked = [], addonNoun = "", acat = "", aq = "", aqTimer = 0;
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const addonOf = id => ADDONS[addonNoun].find(x => x.id === id);
 const fmtDl = w => w >= 10000 ? `${+(w / 10000).toFixed(1)} 亿` : `${w} 万`;
-const tile = x =>`<span class="mt" style="--c:${x.c}">${esc(x.n.replace(/^[^A-Za-z]*\s?/, "")[0] || x.n[0])}</span>`;
+const tile = x =>`<span class="mt" style="--c:${x.c}">${esc((x.n.replace(/^[^A-Za-z]*\s?/, "")[0] || x.n[0]).toUpperCase())}</span>`;
 function atitle() {
   const cat = ACATS[addonNoun].find(c => c[0] === acat);
   const main = aq ? `搜索「${esc(aq)}」` : cat ? (acat === "library" ? cat[1] : `${cat[1]}类${addonNoun}`) : `热门${addonNoun}`;
@@ -355,17 +365,17 @@ function gridItems() {
   return ADDONS[addonNoun].filter(x => (acat ? x.cats.includes(acat) : !x.lib) && (!q || (x.n + x.d).toLowerCase().includes(q))).sort((a, b) => b.dl - a.dl);
 }
 // 卡片上只标例外：插件一般客户端不用装，要装的标「需客户端」；模组一般两边都要装，只装服务器的标「仅服务端」（文案作者 11-26 定）
-const ftag = x => addonNoun === "插件" ? (x.friend ? `<span class="ftag">需客户端</span>` : "") : (!x.friend ? `<span class="ftag">仅服务端</span>` : "");
+const ftag = x => addonNoun === "插件" ? (x.friend ? "需客户端" : "") : (!x.friend ? "仅服务端" : "");
 function gridHTML() {
   const items = gridItems(), has = new Set(picked.map(p => p.id));
-  if (!items.length) return `<div class="cempty" style="grid-column: 1 / -1; margin-top: 60px">没找到合适的${addonNoun}。换个关键词或类别试试。</div>`;
+  if (!items.length) return `<div class="cempty" style="grid-column: 1 / -1; margin-top: 60px">未找到匹配的${addonNoun}，请换个关键词或分类。</div>`;
   return items.map(x => `<div class="mod${has.has(x.id) ? " in" : ""}" data-addon="${x.id}">${tile(x)}
-    <div class="m"><div class="n"><span class="nm">${esc(x.n)}</span>${ftag(x)}<span class="dl">${fmtDl(x.dl)}</span></div><div class="d">${esc(x.d)}</div></div>
+    <div class="m"><div class="n">${esc(x.n)}</div><div class="d">${esc(x.d)}</div><div class="meta"><i data-ic="download"></i>${fmtDl(x.dl)}${ftag(x) ? ` · ${ftag(x)}` : ""}</div></div>
     <span class="add"><i data-ic="${has.has(x.id) ? "check" : "plus"}"></i></span></div>`).join("");
 }
 function crowHTML(p) {
   const x = addonOf(p.id), by = p.by && addonOf(p.by);
-  const why = by ? `${esc(by.n)} 要用` : addonNoun === "插件" && x.friend ? "需客户端同步安装" : addonNoun === "模组" && !x.friend ? "仅服务端，客户端不用装" : esc(x.d);
+  const why = by ? `${esc(by.n)} 的前置依赖` : addonNoun === "插件" && x.friend ? "需客户端同步安装" : addonNoun === "模组" && !x.friend ? "仅服务端，客户端不用装" : esc(x.d);
   return `<div class="crow" data-id="${x.id}">${tile(x)}<div class="m"><div class="n">${esc(x.n)}${by ? `<span class="ftag">前置</span>` : ""}</div><div class="why">${why}</div></div>
     <span class="x" data-unpick="${x.id}" aria-label="从清单里拿掉 ${esc(x.n)}"><i data-ic="x"></i></span></div>`;
 }
@@ -377,7 +387,7 @@ function step2() {
     <div class="col browse"><h3><span id="atitle">${atitle()}</span><span class="sp"></span><label class="findin"><i data-ic="search"></i><input id="aq" placeholder="搜索${noun}（建议英文名）" value="${esc(aq)}" autocomplete="off"></label></h3>
       <div class="chips">${chips.map(([k, t]) => `<span class="chip${k === acat ? " on" : ""}" data-cat="${k}">${t}</span>`).join("")}</div>
       <div class="lwrap"><div class="list grid" id="agrid">${gridHTML()}</div><i class="thumb"></i></div></div>
-    <div class="col cart"><h3>待装清单<span class="cnt" id="acnt"></span></h3>
+    <div class="col cart"><h3>待装清单<span class="cnt" id="acnt"></span><span class="sp"></span><span class="clr" data-clear>清空</span></h3>
       <div class="lwrap"><div class="list" id="alist"><div class="cempty"><b>暂未选择任何${noun}</b>点击左侧 ＋ 添加，前置依赖将自动补全。<br>可跳过，建服后随时管理。</div>${picked.map(crowHTML).join("")}</div><i class="thumb"></i></div>
       <div class="cnote" id="anote"></div>
       <div class="drop" data-drop><i data-ic="folder"></i>拖入 .jar 文件，或点击选择本地文件</div></div>
@@ -386,7 +396,9 @@ function step2() {
 // 清单数字和底下那行「其中几个需客户端同步安装」
 function cartMeta() {
   const n = picked.length, friends = picked.filter(p => addonOf(p.id).friend).length;
-  const c = document.getElementById("acnt"); if (c) c.textContent = n ? n : "";
+  const c = document.getElementById("acnt"); if (c) c.textContent = n ? `· ${n}` : "";
+  document.querySelector(".cart")?.classList.toggle("has", n > 0);
+  navLabel();
   const note = document.getElementById("anote");
   if (note) note.innerHTML = friends ? `${KIT.icon("info")}其中 ${friends} 个需客户端同步安装` : "";
 }
@@ -437,6 +449,21 @@ function regrid() {
     g.closest(".lwrap")._paint?.();
   };
 }
+// 右下角主按钮的字：最后一步「创建服务器」；挑插件 / 模组这一步清单空着时「跳过此步」（Gemini 复审 11-26 提的，比在空清单里写「可以跳过」直接），挑了东西变回「下一步」
+function navLabel(force) {
+  const names = STEPS(), b = document.getElementById("next");
+  const want = step === names.length - 1 ? `<i data-ic="check"></i>创建服务器` : play !== 0 && step === 1 && !picked.length ? `跳过此步<i data-ic="chevronRight"></i>` : `下一步<i data-ic="chevronRight"></i>`;
+  if (!force && b.dataset.label === want) return;
+  b.dataset.label = want; b.innerHTML = want; KIT.hydrate(b);
+}
+// 分类片放不下时：滚轮竖着滚也让它横着走，哪头还有就在哪头渐隐
+function chipScroll(c) {
+  const paint = () => { c.classList.toggle("can-l", c.scrollLeft > 2); c.classList.toggle("can-r", c.scrollLeft + c.clientWidth < c.scrollWidth - 2); };
+  c.addEventListener("scroll", paint, { passive: true });
+  c.addEventListener("wheel", e => { if (c.scrollWidth <= c.clientWidth || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return; e.preventDefault(); c.scrollLeft += e.deltaY; }, { passive: false });
+  c._paint = paint; paint();
+}
+addEventListener("resize", () => document.querySelector(".chips")?._paint?.());
 function render() {
   const names = STEPS();
   const body = step === 0 ? step1() : play !== 0 && step === 1 ? step2() : `<div class="placeholder">这一步的内容还没画</div>`;
@@ -445,9 +472,10 @@ function render() {
   const d = document.getElementById("dots"), live = [...d.querySelectorAll("i:not(.out)")];
   if (live.length !== names.length) d.innerHTML = names.map(() => "<i></i>").join("");
   [...d.querySelectorAll("i:not(.out)")].forEach((x, i) => x.classList.toggle("on", i === step));
-  document.getElementById("next").innerHTML = step === names.length - 1 ? `<i data-ic="check"></i>创建服务器` : `下一步<i data-ic="chevronRight"></i>`;
+  navLabel(true);
   KIT.hydrate(document.body);
   document.querySelectorAll(".addon .lwrap").forEach(scrollbar);
+  const chips = document.querySelector(".chips"); if (chips) chipScroll(chips);
   cartMeta();
   settleVersions();
   document.querySelectorAll("#corecol .list").forEach(l => placeHL(l, false));
@@ -687,6 +715,7 @@ document.getElementById("page").addEventListener("click", e => {
   else if (ad) toggleAddon(ad.dataset.addon);
   else if (un) toggleAddon(un.dataset.unpick);
   else if (ch && ch.dataset.cat !== acat) { acat = ch.dataset.cat; regrid(); }
+  else if (e.target.closest("[data-clear]")) { picked = []; syncAddons(); }
 });
 // 搜索框：停手 0.18 秒再筛
 document.getElementById("page").addEventListener("input", e => {
