@@ -396,7 +396,15 @@
     const note = $(".ad-cnote", r), nh = cartNote(); if (note.innerHTML !== nh) note.innerHTML = nh;
     const slot = $(".ad-insslot", r); slot.innerHTML = insBtn(); hy(slot);
   }
+  // 点「全部安装」：跳后台任务进度页 task.html?kind=cart 从头放一遍（地址里只带配色参数）；清单空着时（按钮灰着）不跳
+  function toCartTask() {
+    if (!dat().picked.length) return;
+    const q = new URLSearchParams({ kind: "cart", play: "1" });
+    ["theme", "scheme", "accent"].forEach(k => C.QS.get(k) && q.set(k, C.QS.get(k)));
+    location.href = "task.html?" + q;
+  }
   // 全部安装：草图里假装装 1.4 秒；装完清单一行行划掉，左边已安装里多出这几行（在「已安装」那边时从下面长出来），「添加」里的卡片换成「已安装」
+  // （「全部安装」改成跳进度页以后没人调它了。装好以后的这个样子没有地址参数能看到，先留着没删；定了不要就整段删掉）
   function install() {
     const D = dat(); if (D.installing || !D.picked.length) return;
     D.installing = true; cartMeta();
@@ -506,7 +514,7 @@
     else if (act === "refresh") { if (a.classList.contains("spinning")) return; a.classList.add("spinning"); setTimeout(() => { a.classList.remove("spinning"); regrid(0); }, 600); }
     else if (act === "clear") { if (!D.picked.length) return; D.picked = []; syncCart(true); }
     else if (act === "local") addLocal(null); // 草图里不真弹选文件的窗口：当作选了一个示例 jar
-    else if (act === "install") install();
+    else if (act === "install") toCartTask();
     else if (act === "pend") a.animate([{ opacity: 1 }, { opacity: .55 }, { opacity: 1 }], { duration: 300 }); // 程序打开「没装上的文件」弹窗（共用件页画过），草图里没接
   }
   let qT = 0;

@@ -605,7 +605,7 @@ if (QS.get("notices")) document.body.classList.add("notices"); // 列表上方�
   <a class="home on" href="#" aria-label="服务器（主页）" data-tip="服务器"><img src="../../internal/web/ui/img/logo-20.png" alt=""></a>
   <a href="#" aria-label="工具箱" data-tip="工具箱"><i data-ic="toolbox"></i></a>
   <a href="settings.html" aria-label="设置" data-tip="设置"><i data-ic="gear"></i></a>
-  <a class="ai" href="#" aria-label="AI 助手" data-tip="AI 助手"><i data-ic="sparkle"></i></a>
+  <a class="ai" href="assistant.html" onclick="this.search = new URLSearchParams([...new URLSearchParams(location.search)].filter(([k]) => ['theme', 'scheme', 'accent'].includes(k)))" aria-label="AI 助手" data-tip="AI 助手"><i data-ic="sparkle"></i></a>
   <a class="new" href="#" aria-label="新建服务器" data-tip="新建服务器"><i data-ic="plus"></i></a>
 </nav>
 
@@ -817,6 +817,11 @@ const NT = {
   dups: [{ dir: "MineDeck\\servers\\survival-copy", name: "生存服 · 朋友", kept: "MineDeck\\servers\\survival" }],
   broken: [{ folder: "old-survival", reason: "设置文件 JSON 格式有误（可能是括号、引号或逗号没写对）" }],
 };
+// 每行任务的按钮跳到 task.html 的哪一帧（从这里点进去没有向导的草稿，失败、取消的两条带 draft=0：没有「返回修改」「重试」）
+const NT_TASK = {
+  t5: "kind=pack&st=running", t4: "kind=pack&st=partial", t3: "kind=create&st=failed&draft=0",
+  t2: "kind=create&st=done", t1: "kind=export&st=done", t0: "kind=create&st=cancelled&draft=0",
+};
 const ntEsc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 // 「其他」里的只读小块（render() 在带参数时把它放在最前面）
 function brokenTiles() {
@@ -938,9 +943,14 @@ if (document.body.classList.contains("notices")) KIT_READY.then(() => {
   addEventListener("resize", placePanel);
   document.addEventListener("click", e => {
     if (!ntPanel || !ntPanel.contains(e.target)) return;
-    const hd = e.target.closest("[data-hide]"), fold = e.target.closest("#nt-fold"), del = e.target.closest("[data-left]");
+    const hd = e.target.closest("[data-hide]"), fold = e.target.closest("#nt-fold"), del = e.target.closest("[data-left]"), go = e.target.closest(".nrow[data-task] .nbtn");
     if (hd) hideTask(hd.dataset.hide);
     else if (fold) toggleFold(fold);
+    else if (go) { // 行上的「查看进度」「去处理」「查看结果」：跳后台任务进度页 task.html 的对应那一帧（地址里只带配色参数）
+      const q = new URLSearchParams(NT_TASK[go.closest(".nrow").dataset.task]);
+      ["theme", "scheme", "accent"].forEach(k => QS.get(k) && q.set(k, QS.get(k)));
+      location.href = "task.html?" + q;
+    }
     else if (del) { // 草图里不再画一份弹窗：跳到 commons.html 看这个危险确认框（配色这些参数带过去）
       const q = new URLSearchParams(location.search); ["notices", "mode", "enter"].forEach(k => q.delete(k)); q.set("part", "confirm"); q.set("open", "leftover");
       location.href = "commons.html?" + q.toString();

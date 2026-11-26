@@ -13,7 +13,7 @@
      向导第一步最下面那行「导入整合包」「导入地图存档」「导入交接包」「接管本地服」点了以后的流程，用 ?flow=modpack|map|transfer|adopt 切。
 
      外壳照 wizard.html：居中一句陈述式标题、1080 宽的大面板、底部左「上一步」右「下一步 / 最后一步的动作名」、小点钉在窗口正中、换步整页横移。
-     第一步的「上一步」回到向导第一步（wizard.html）。最后一步点了程序会跳「后台任务进度页」，那页不在这次范围，草图里停在原页、右上角出一条提示。
+     第一步的「上一步」回到向导第一步（wizard.html）。最后一步点了跳「后台任务进度页」（task.html，整合包 kind=pack、地图 create、交接包 import、接管 adopt）。
 
      各走几步（「少一步是一步」，只留接口真收、识别真给得出的东西）：
        导入整合包　选择整合包 → 配置服务器参数 → 配置联机与访问（3 步，最后「导入并创建」）
@@ -880,7 +880,7 @@
   .jcol .jwrap .thumb { right: -10px; }
   .jrow .tag { font-family: var(--font); }
 
-  /* 最后一步点了以后：程序会跳后台任务进度页（不在这次范围），草图里右上角出一条提示（照 MASTER 的 toast：360 宽、--r-lg、--elev-3，左边 24 的图标块） */
+  /* 右上角的提示（照 MASTER 的 toast：360 宽、--r-lg、--elev-3，左边 24 的图标块）；最后一步现在跳进度页，这条只剩「去设置绑 CurseForge Key」在用 */
   .toast { position: fixed; top: 52px; right: 16px; z-index: 30; width: 360px; box-sizing: border-box; display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px;
            border-radius: var(--r-lg); background: var(--overlay); border: 1px solid var(--border); box-shadow: var(--elev-3); font-size: 13px; line-height: 20px;
            opacity: 0; transform: translateY(-6px); pointer-events: none; transition: opacity .2s, transform .2s; }
@@ -2784,8 +2784,14 @@ document.getElementById("next").addEventListener("click", () => {
     goStep(step + 1);
     return;
   }
-  // 最后一步：程序这里跳后台任务进度页（不在这次范围），草图里出一条提示
-  showToast({ modpack: "已开始导入整合包", map: "已开始创建服务器", transfer: "已开始导入交接包", adopt: "已开始接管" }[FLOW], "程序里接着跳到后台任务进度页（这次草图不画）");
+  // 最后一步：跳后台任务进度页（task.html），离场同向导「创建服务器」（按钮沉下去、内容往左淡掉；那边 ?enter=1 内容从右边挪进来、胶囊浮上来）。
+  // 现成服务端压缩包（task.html?kind=server）这里没画那一种识别结果（见开头「没画的状态」），整合包这条路一律当整合包。地址里只带配色参数
+  if (document.body.classList.contains("hidden-nav")) return;
+  const q = new URLSearchParams({ kind: { modpack: "pack", map: "create", transfer: "import", adopt: "adopt" }[FLOW], play: "1", enter: "1" });
+  ["theme", "scheme", "accent"].forEach(k => QS.get(k) && q.set(k, QS.get(k)));
+  document.body.classList.add("hidden-nav");
+  document.getElementById("page").animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "translateX(-16px)" }], { duration: 140, easing: "cubic-bezier(.4, 0, 1, 1)", fill: "forwards" });
+  setTimeout(() => { location.href = "task.html?" + q; }, 320);
 });
 document.getElementById("back").addEventListener("click", () => {
   if (stepping) return;

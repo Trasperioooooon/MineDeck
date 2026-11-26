@@ -104,7 +104,7 @@ window.EXTRA_ICONS = {
   <a class="home" href="home.html" aria-label="服务器（主页）" data-tip="服务器"><img src="../../internal/web/ui/img/logo-20.png" alt=""></a>
   <a href="toolbox.html" aria-label="工具箱" data-tip="工具箱"><i data-ic="toolbox"></i></a>
   <a class="on" href="settings.html" aria-label="设置" data-tip="设置"><i data-ic="gear"></i></a>
-  <a class="ai" href="#" aria-label="AI 助手" data-tip="AI 助手" id="cap-ai"><i data-ic="sparkle"></i></a>
+  <a class="ai" href="assistant.html" onclick="this.search = new URLSearchParams([...new URLSearchParams(location.search)].filter(([k]) => ['theme', 'scheme', 'accent'].includes(k)))" aria-label="AI 助手" data-tip="AI 助手" id="cap-ai"><i data-ic="sparkle"></i></a>
   <a class="new" href="wizard.html" aria-label="新建服务器" data-tip="新建服务器"><i data-ic="plus"></i></a>
 </nav>
 <script>

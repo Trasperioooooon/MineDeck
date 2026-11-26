@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>草图 · AI 助手</title>
+<!--
+  AI 助手面板（11-27 夜里第一稿，子代理画的，作者醒来逐页看）。程序现在的样子在 internal/web/ui/assistant.js（面板、会话列表、对话、确认卡片、发送预览）、
+  mcp.js（外部 AI 经 MCP 提出的写操作）、md.js（回答里的 Markdown，这一页直接引程序的 md.js 来渲染）。逐条对照、替作者定的、要作者拍板的写在 assistant.js 开头。
+
+  怎么打开：点胶囊里 AI 助手那一颗。画了两种形态，用左上角切换条的「样子」换着看：
+    · 抽屉（默认，推荐）：浮在页面右边的一块面板（右 16、上 56、下 86，默认 440 宽，拖左边 320–720），不是模态的：底下的页面（这里拿首页草图 home.html 当底）照常能点，
+      胶囊照常在、AI 助手那颗亮着；Esc、面板右上角的 ×、再点胶囊里那颗都收起。收着时有等你确认的，胶囊里那颗右上角一个小方点。
+    · 整页（?v=page）：AI 助手像「设置」一样是一页，左边会话列表、右边对话；胶囊里只有 AI 助手那颗亮。
+  页面本身不滚，对话在栏里滚（自己画的细滚动条）；1280 × 800 下量过。
+
+  草图参数（都可以和 theme=light、v=page 一起用）：
+    ?st=       md（默认：回答里有代码块和表格）· stream（正在回答，流式，打开就放）· card（等你确认的写操作）· danger（危险操作，多一步开关）· eula（要同意条款的）
+               mcp（外部 AI 的两个请求，面板顶上）· mcp-closed（面板收着时来了一个请求：右上角提示 + 胶囊小方点）
+               sent（实际发给 AI 的内容）· pv（发送预览：控制台报错横幅上点「让 AI 分析」以后那一步）
+               empty（空会话）· list（会话列表）· nolist（一个会话都没有）
+               quota（今天的额度用完）· retry（出错重试，打开就放：重试两次、失败、那句话撤回）· stale（AI 设置改过了，会话不能接着用）· long（会话已经很长）
+               attach（「让 AI 分析」发送失败以后，输入框上面那颗「发送时附上排错资料」）
+               off（没配 AI）· lan-none、lan-closed（从局域网打开时的两种门页）· down（连不上 MineDeck）
+    ?ext=1     在任何状态上面叠两个外部 AI 的请求（比如 st=off&ext=1 看没配 AI 时外部请求照样在面板顶上，st=card&ext=1 看最挤的时候）。
+    ?w=        抽屉宽度（320–720），不给就用上次拖到的宽度（记在这台浏览器里），再没有就是 440。
+  左上角「状态」那颗点开是上面这些状态的菜单。草图里的数据都在 assistant.js 里，假的标在那边。
+-->
+<script>
+// 程序图标里没有的：工具箱、窗口三键（同 settings.html）；改名用的笔（新画的，16 格、1.3 粗）
+window.EXTRA_ICONS = {
+  toolbox: '<path d="M5.5 4V2.8A.8.8 0 016.3 2h3.4a.8.8 0 01.8.8V4"/><rect x="2" y="4" width="12" height="9.5" rx="1.6"/><path d="M2 8h12M6.5 8v1.6h3V8"/>',
+  winMin: '<path d="M4 8h8"/>', winMax: '<rect x="4" y="4" width="8" height="8" rx="1"/>', winClose: '<path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/>',
+  pencil: '<path d="M3 13l.5-2.6 7.7-7.7a1.2 1.2 0 011.7 0l.4.4a1.2 1.2 0 010 1.7L5.6 12.5z"/><path d="M9.9 4l2.1 2.1"/>',
+};
+</script>
+<script src="kit.js"></script>
+<script src="../../internal/web/ui/md.js"></script>
+<link rel="stylesheet" href="kit.css">
+<link rel="stylesheet" href="assistant.css">
+<style>
+  /* 外壳：标题栏、草图切换条、底部胶囊，照 settings.html 抄（同一套样子） */
+  body { background: var(--bg); overflow: hidden; }
+  .tb { height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 0 0 16px; position: relative; z-index: 5; background: var(--bg); }
+  .tb .brand img { width: 16px; height: 16px; image-rendering: pixelated; display: block; }
+  .tb .sp { flex: 1; }
+  .tb .win { display: flex; height: 40px; }
+  .tb .win span { width: 46px; display: grid; place-items: center; color: var(--muted); }
+  /* 草图专用的切换条（定了就删） */
+  .sk { display: flex; align-items: center; gap: 4px; height: 26px; padding: 0 6px; border-radius: 13px; background: color-mix(in srgb, var(--surface) 70%, transparent);
+        border: 1px solid var(--border); font-size: 11.5px; color: var(--faint); white-space: nowrap; }
+  .sk b { font-weight: 500; color: var(--muted); margin: 0 2px 0 6px; }
+  .sk b:first-child { margin-left: 2px; }
+  .sk a { color: var(--muted); text-decoration: none; padding: 2px 6px; border-radius: 8px; }
+  .sk a:hover { color: var(--text); background: var(--hover); }
+  .sk a.on { color: var(--accent-text); background: var(--accent-subtle); }
+  .sk i { width: 1px; height: 12px; background: var(--border); margin: 0 4px; }
+
+  /* 底部胶囊：同首页、设置页 */
+  .cap { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 10; display: flex; align-items: center; gap: 4px; padding: 5px;
+         border-radius: var(--r-full); background: color-mix(in srgb, var(--overlay) 86%, transparent); backdrop-filter: blur(16px) saturate(1.2);
+         border: 1px solid var(--border); box-shadow: var(--elev-3); }
+  .cap a { position: relative; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--r-full); color: var(--muted); text-decoration: none; }
+  .cap a:hover { color: var(--text); background: var(--hover); }
+  .cap a.on { color: var(--accent-text); background: var(--accent-subtle); }
+  .cap a .ico { width: 18px; height: 18px; }
+  .cap a.home img { width: 20px; height: 20px; image-rendering: pixelated; }
+  .cap a.ai { color: var(--text); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border); }
+  .cap a.ai .ico { color: var(--accent-text); }
+  .cap a.new { background: var(--accent-solid); color: var(--on-accent); }
+  .cap a[hidden] { display: none; }
+  /* 胶囊上的悬停提示：同 home.html（kit.js 的浮层跳过胶囊） */
+  .cap a[data-tip]::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%) translateY(4px);
+    padding: 5px 10px; border-radius: var(--r-sm); background: var(--overlay); border: 1px solid var(--border); box-shadow: var(--elev-2);
+    color: var(--text); font-size: 12px; font-weight: 500; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s, transform .12s; }
+  .cap a[data-tip]:hover::after, .cap a[data-tip]:focus-visible::after { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<header class="tb">
+  <span class="brand"><img src="../../internal/web/ui/img/logo-16.png" alt=""></span>
+  <div class="sk" id="sk"></div>
+  <span class="sp"></span>
+  <div class="win"><span><i data-ic="winMin"></i></span><span><i data-ic="winMax"></i></span><span><i data-ic="winClose"></i></span></div>
+</header>
+<div id="as-root"></div>
+<nav class="cap" id="cap" aria-label="导航">
+  <a class="home" href="home.html" aria-label="服务器（主页）" data-tip="服务器"><img src="../../internal/web/ui/img/logo-20.png" alt=""></a>
+  <a href="toolbox.html" aria-label="工具箱" data-tip="工具箱"><i data-ic="toolbox"></i></a>
+  <a href="settings.html" aria-label="设置" data-tip="设置"><i data-ic="gear"></i></a>
+  <a class="ai" href="#" aria-label="AI 助手" data-tip="AI 助手" id="cap-ai" aria-expanded="false"><i data-ic="sparkle"></i></a>
+  <a class="new" href="wizard.html" aria-label="新建服务器" data-tip="新建服务器"><i data-ic="plus"></i></a>
+</nav>
+<div class="as-toasts" id="as-toasts" aria-live="polite"></div>
+<script src="assistant.js"></script>
+</body>
+</html>

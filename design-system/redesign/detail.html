@@ -416,7 +416,7 @@ window.EXTRA_ICONS = {
   <a class="home on" href="home.html" aria-label="服务器（主页）" data-tip="服务器"><img src="../../internal/web/ui/img/logo-20.png" alt=""></a>
   <a href="toolbox.html" aria-label="工具箱" data-tip="工具箱"><i data-ic="toolbox"></i></a>
   <a href="settings.html" aria-label="设置" data-tip="设置"><i data-ic="gear"></i></a>
-  <a class="ai" href="#" aria-label="AI 助手" data-tip="AI 助手"><i data-ic="sparkle"></i></a>
+  <a class="ai" href="assistant.html" onclick="this.search = new URLSearchParams([...new URLSearchParams(location.search)].filter(([k]) => ['theme', 'scheme', 'accent'].includes(k)))" aria-label="AI 助手" data-tip="AI 助手"><i data-ic="sparkle"></i></a>
   <a class="new" href="wizard.html" aria-label="新建服务器" data-tip="新建服务器"><i data-ic="plus"></i></a>
 </nav>
 <script>
@@ -917,6 +917,13 @@ document.addEventListener("click", e => {
   if (ntp && !e.target.closest(".ntp")) closeNtp();
   const more = e.target.closest(".cover .more");
   if (more) { toggleMenu(more); return; }
+  const ex = e.target.closest(".dm [data-m=export]"); // 导出交接包…：跳后台任务进度页 task.html 从头放一遍（地址里只带配色参数）；开着时灰掉的不跳
+  if (ex) {
+    if (ex.getAttribute("aria-disabled") === "true") return;
+    const q = new URLSearchParams({ kind: "export", play: "1" });
+    ["theme", "scheme", "accent"].forEach(k => QS.get(k) && q.set(k, QS.get(k)));
+    closeMenu(); location.href = "task.html?" + q; return;
+  }
   if (!e.target.closest(".dm")) closeMenu();
 });
 // 「···」：只放管整台服务器的三样（11-27 作者同意）；样子同共用件页那张菜单，服务器开着时导出、删除灰掉
@@ -926,7 +933,7 @@ function toggleMenu(anchor) {
   const dis = st !== "stopped" ? ` aria-disabled="true" title="需先停止服务器"` : "";
   menu = Object.assign(document.createElement("div"), { className: "dm enter" }); menu.setAttribute("role", "menu");
   menu.innerHTML = `<div class="it" role="menuitem"><i data-ic="folder"></i>打开服务器文件夹</div>`
-    + `<div class="it" role="menuitem"${dis}><i data-ic="share"></i>导出交接包…</div><div class="sep"></div><div class="it dgr" role="menuitem"${dis}><i data-ic="trash"></i>删除服务器…</div>`;
+    + `<div class="it" role="menuitem" data-m="export"${dis}><i data-ic="share"></i>导出交接包…</div><div class="sep"></div><div class="it dgr" role="menuitem"${dis}><i data-ic="trash"></i>删除服务器…</div>`;
   document.body.appendChild(menu); KIT.hydrate(menu);
   const r = anchor.getBoundingClientRect();
   menu.style.left = Math.round(r.right - menu.offsetWidth) + "px"; menu.style.top = Math.round(r.bottom + 4) + "px";

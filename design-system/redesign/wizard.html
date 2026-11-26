@@ -1984,7 +1984,19 @@ document.getElementById("next").addEventListener("click", () => {
   if (STEPS()[step] === "配置服务器参数" && !checkSettings()) return;
   if (STEPS()[step] === "配置联机与访问" && !checkLink()) return;
   if (step < STEPS().length - 1) goStep(step + 1);
+  else toTask();
 });
+// 最后一步「创建服务器」过了检查：去后台任务进度页（task.html；?enter=1 那边内容从右边挪进来、胶囊浮上来），这边按钮沉下去、内容照「下一步」往左淡掉。
+// 第二步挑过插件 / 模组的，建好以后接着装待装清单（&cart=1）。地址里只带配色参数（theme、scheme、accent），别的不带
+function toTask() {
+  if (stepping || document.body.classList.contains("hidden-nav")) return;
+  const q = new URLSearchParams({ kind: "create", play: "1", enter: "1" }), cur = new URLSearchParams(location.search);
+  if (play !== 0 && picked.length) q.set("cart", "1");
+  ["theme", "scheme", "accent"].forEach(k => cur.get(k) && q.set(k, cur.get(k)));
+  document.body.classList.add("hidden-nav");
+  document.getElementById("page").animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "translateX(-16px)" }], { duration: 140, easing: "cubic-bezier(.4, 0, 1, 1)", fill: "forwards" });
+  setTimeout(() => { location.href = "task.html?" + q; }, 320);
+}
 document.getElementById("back").addEventListener("click", () => {
   if (step > 0) { goStep(step - 1); return; }
   // 第一步再往回：按钮沉下去，回首页，胶囊从下面浮上来

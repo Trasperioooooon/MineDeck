@@ -664,14 +664,15 @@
       const r = jvRoot(); if (!r) return;
       r.querySelectorAll(".mod").forEach(el => el.classList.remove("mod"));
       paintArgsMod(D);
-      if (dl) downloadJava(D); else paintJava(D);
+      if (dl) downloadJava(); else paintJava(D);
       paintBuild(D);
     },
   };
-  // 选的 Java 本机没有：程序保存以后去任务页看下载进度、下好了自动换上。草图里就地装作下了一会儿
-  function downloadJava(D) {
-    const o = D.javas[D.java]; D.dl = true; paintJava(D);
-    setTimeout(() => { o.download = false; o.portable = true; D.dl = false; paintJava(D); }, 1600);
+  // 选的 Java 本机没有：程序保存以后去任务页看下载进度、下好了自动换上。草图里跳后台任务进度页 task.html 从头放一遍（地址里只带配色参数）
+  function downloadJava() {
+    const q = new URLSearchParams({ kind: "java", play: "1" });
+    ["theme", "scheme", "accent"].forEach(k => C.QS.get(k) && q.set(k, C.QS.get(k)));
+    location.href = "task.html?" + q;
   }
   const buildName = b => (C.kind === "forge" ? b : `#${b}`);
   const javaSub = (D, o, i) => (o.missing ? "找不到" : o.download ? "本机没有，下载一份，约 50 MB" : o.portable ? "MineDeck 下载的" : `本机装的 ${o.version}`) + (i === D.base.java && !o.missing ? " · 现在用的" : "");
