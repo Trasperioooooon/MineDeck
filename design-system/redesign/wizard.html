@@ -46,17 +46,22 @@
   .col h3 { margin: 0 0 10px; font-size: 12px; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 8px; }
   .col h3 .sp { flex: 1; }
   /* 介绍：选中的核心，图标、名字、副标题、正文，左下角三行「适用场景」「支持扩展」「联机要求」 */
-  /* 换核心时介绍这一块的过渡（作者 11-26）：新内容从模糊里浮出来，同时一道斜的、模糊的亮带从左往右扫过去（扫光）。
-     作者要低调：1.6 秒、两头慢中间快（不是匀速）、亮带很淡很糊 */
+  /* 换核心时介绍这一块的过渡（作者 11-26）：一道斜的、很淡很糊的亮带从左往右扫过去（扫光），新内容只淡入、不动不糊。
+     三样东西要像一个动作（作者嫌高亮框先到、扫光晚一秒、文字自己弹出来）：都在点下去那一下同时起步，
+     曲线都是起步快、尾巴长（不是匀速）；亮带一开始中心就在面板左边缘、0.1 秒时已经进来了，
+     高亮框落定（0.32 秒）时亮带正好扫到面板中间，文字也差不多出齐；之后亮带慢慢滑过右半边、边走边淡，1.6 秒走完 */
   .intro { position: relative; overflow: hidden; }
   .intro .body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-  .intro.swap .body { animation: intro-in .5s cubic-bezier(.25, .8, .25, 1); }
-  @keyframes intro-in { from { opacity: 0; filter: blur(6px); transform: translateY(6px); } to { opacity: 1; filter: none; transform: none; } }
+  .intro.swap .body { animation: intro-in .45s cubic-bezier(.3, .7, .2, 1); }
+  @keyframes intro-in { from { opacity: 0; } to { opacity: 1; } }
   .intro::after { content: ""; position: absolute; top: -20%; bottom: -20%; left: 0; width: 55%; pointer-events: none; opacity: 0; z-index: 2;
-    background: linear-gradient(100deg, transparent 0%, var(--sheen) 50%, transparent 100%); filter: blur(18px); transform: translateX(-140%) skewX(-14deg); }
+    background: linear-gradient(100deg, transparent 0%, var(--sheen) 50%, transparent 100%); filter: blur(18px); transform: translateX(-50%) skewX(-14deg); }
   :root { --sheen: rgb(255 255 255 / .07); } :root[data-theme="light"] { --sheen: color-mix(in srgb, var(--accent) 12%, transparent); }
-  .intro.swap::after { animation: sheen 1.6s cubic-bezier(.45, 0, .25, 1); }
-  @keyframes sheen { 0% { opacity: 0; transform: translateX(-140%) skewX(-14deg); } 35% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; transform: translateX(240%) skewX(-14deg); } }
+  .intro.swap::after { animation: sheen 1.6s cubic-bezier(.3, .5, .25, 1); }
+  /* 位置只写在头尾两帧，整段只走一条曲线；亮度单独几帧：很快亮起来、中途开始慢慢淡掉 */
+  @keyframes sheen { 0% { opacity: 0; transform: translateX(-50%) skewX(-14deg); }
+                     6% { opacity: 1; animation-timing-function: linear; } 55% { opacity: 1; }
+                     100% { opacity: 0; transform: translateX(140%) skewX(-14deg); } }
   .intro .head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
   .intro .head .cover { width: 56px; height: 56px; border-radius: 12px; flex: none; }
   .intro .head .cover svg { width: 32px; height: 32px; }
