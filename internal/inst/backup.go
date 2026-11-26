@@ -91,6 +91,9 @@ func backupCopies(name, file string) ([]string, error) {
 	return out, nil
 }
 
+// worldSuffixes 一个世界的三个文件夹：Paper、Spigot 把下界和末地放在世界名后面加这两个后缀的文件夹里，原版放在世界里面。
+var worldSuffixes = []string{"", "_nether", "_the_end"}
+
 // worldDirs 返回实例的世界存档目录（vanilla 单目录 / bukkit 三目录）。
 // level-name 指到实例目录外面、或者指回实例目录自己的不认，按 world 算：备份会把这些目录打包，
 // 还原之前还会把它们删掉，而 server.properties 可以是别人给的（交接包、整合包的覆盖目录），也可以是手改的。
@@ -98,7 +101,8 @@ func backupCopies(name, file string) ([]string, error) {
 func (i *Instance) worldDirs() []string {
 	level := LevelName(i.Dir)
 	var out []string
-	for _, d := range []string{level, level + "_nether", level + "_the_end"} {
+	for _, s := range worldSuffixes {
+		d := level + s
 		full := filepath.Join(i.Dir, d)
 		if st, err := os.Stat(full); err == nil && st.IsDir() {
 			out = append(out, d)
@@ -122,7 +126,8 @@ func (i *Instance) levelAndWorldDirsStrict() (string, []string, error) {
 		return "", nil, err
 	}
 	var out []string
-	for _, d := range []string{level, level + "_nether", level + "_the_end"} {
+	for _, s := range worldSuffixes {
+		d := level + s
 		st, err := os.Stat(filepath.Join(i.Dir, d))
 		switch {
 		case err == nil:
@@ -398,6 +403,9 @@ func (m *Manager) RestoreBackup(name, file string) error {
 	if err := checkEntryPaths(plan.entries, i.Dir); err != nil {
 		return err
 	}
+	if err := checkWorldFolders(i.Dir, plan.folders); err != nil {
+		return err
+	}
 	if len(worlds) > 0 {
 		if _, err := m.createBackup(name, "还原前自动", filepath.Base(src)); err != nil {
 			return fmt.Errorf("还原前自动备份失败，已中止: %w", err)
@@ -423,7 +431,7 @@ func (m *Manager) RestoreBackup(name, file string) error {
 		return wrapErr
 	}
 	i.Console.Append("[MineDeck] 世界已还原至备份 " + filepath.Base(file))
-	if plan.from != level {
+	if !strings.EqualFold(plan.from, level) {
 		i.Console.Append(fmt.Sprintf("[MineDeck] 备份里的世界叫「%s」，照现在的世界名放进了「%s」（server.properties 没改）", plan.from, level))
 	}
 	if len(plan.skipped) > 0 {
@@ -662,110 +670,192 @@ func allEntries(files []*zip.File) []restoreEntry {
 	return out
 }
 
-// worldRestorePlan 还原备份时从包里解哪些、放到哪：from 是备份里世界的名字（打包那时候的 level-name），
-// entries 是这个世界的三个文件夹（from、from_nether、from_the_end）里的文件，已经换成现在的世界名下面的路径；
+// worldRestorePlan 还原备份时从包里解哪些、放到哪：from 是备份里世界的名字（打包那时候的 level-name，包里的写法），
+// entries 是这个世界的三个文件夹（from、from_nether、from_the_end）里的文件和空文件夹，已经换成现在的世界名下面的路径；
+// folders 是要解进去的那几个世界文件夹（现在的世界名加后缀，见 checkWorldFolders）；
 // skipped 是包里不是世界、不还原的文件（只用来在控制台说一声）。
 type worldRestorePlan struct {
 	from    string
 	entries []restoreEntry
+	folders []string
 	skipped []string
 }
 
-// worldSuffixes 一个世界的三个文件夹：Paper、Spigot 把下界和末地放在世界名后面加这两个后缀的文件夹里，原版放在世界里面。
-var worldSuffixes = []string{"", "_nether", "_the_end"}
+// backupEntry 备份里的一项和它规范以后的路径（见 backupEntryPath）。
+type backupEntry struct {
+	f    *zip.File
+	path string
+}
 
-// planWorldRestore 从备份里认出世界、算出放到哪（level 是现在的世界名）。只读不写，认不出就报错，调用方这时还什么都没动。
-//
-// 世界在包里叫什么，依次看：
-//  1. 包里有现在这个世界名、带着 level.dat 的：备份时和现在世界名一样，最常见；
-//  2. 包里根上带着 server.properties 的（自己打的整包、别的工具做的备份）：只读出它的 level-name（读法同 LevelNameStrict），
-//     那个世界在包里就用它——不写回去，现在的设置不动；
-//  3. 都不是：按带 level.dat 的文件夹认（Paper 的 world_nether、world_the_end 里也有 level.dat，算 world 的一部分；
-//     世界里面再套着的 level.dat 不算另一个世界），正好认出一个才用，没有或者不止一个就不还原；
-//  4. 包里一个 level.dat 都没有（世界从没存过盘）、但有现在这个世界名的文件夹：照现在的世界名还原。
+// foldPath 比较路径时用的写法：不分大小写。Windows 和 Mac 默认的磁盘都不分，包里的 World/ 和现在的 world 是同一个文件夹；
+// 同一个包里既有 world/ 又有 World/ 的，也就一起落进同一个文件夹，不会只解一半、另一半当成「不是世界的文件」跳过。
+func foldPath(p string) string { return strings.ToLower(p) }
+
+// backupEntryPath 备份里一项的路径：统一成斜杠分隔，去掉「./」和重复的斜杠。含 ..、绝对路径、盘符的，还有符号链接，报错，
+// 整包都不还原（同 checkBackupPaths）。不用 path.Clean：other/../world/level.dat 洗完就成了 world/level.dat，
+// 这种绕过来的条目既不能当成世界里的文件解出去，也不能当成「不是世界的文件」悄悄跳过。
+func backupEntryPath(f *zip.File) (string, error) {
+	if f.Mode()&fs.ModeSymlink != 0 {
+		return "", fmt.Errorf("备份内含符号链接: %s", f.Name)
+	}
+	n := strings.ReplaceAll(f.Name, "\\", "/")
+	var segs []string
+	for k, s := range strings.Split(n, "/") {
+		switch {
+		case k == 0 && s == "" && n != "": // 斜杠开头：绝对路径，或者 \\服务器\共享
+			return "", fmt.Errorf("备份内含非法路径: %s", f.Name)
+		case s == "" || s == ".":
+			continue
+		case s == "..", len(segs) == 0 && strings.Contains(s, ":"): // 第一段带冒号的是盘符（C:、C:相对路径）
+			return "", fmt.Errorf("备份内含非法路径: %s", f.Name)
+		}
+		segs = append(segs, s)
+	}
+	if len(segs) == 0 {
+		return "", fmt.Errorf("备份内含非法路径: %s", f.Name)
+	}
+	return strings.Join(segs, "/"), nil
+}
+
+// planWorldRestore 从备份里认出世界（见 pickBackupWorld），列出要解的条目（见 worldEntries）。level 是现在的世界名
+// （LevelNameStrict 给的，斜杠分隔）。只读不写，有问题就报错，调用方这时还什么都没动。
+// 包里只要有一条非法路径（..、绝对路径、盘符、符号链接，见 backupEntryPath），整包都不还原，哪怕它不在世界里。
 //
 // 世界名不一样时（备份以后改过 level-name），备份里的世界放进现在的世界名下面：server.properties 不改，
 // 开服读的就是还原出来的这一份。原来照包里的名字解，现在的世界删了、备份里的那个服务器又不读，开服就生成一张新地图。
 func planWorldRestore(files []*zip.File, level string) (*worldRestorePlan, error) {
-	names := make([]string, len(files)) // 条目统一成斜杠分隔、去掉 ./ 和 ..（world/../server.properties 就是 server.properties）
-	has := map[string]bool{}            // 包里出现过的文件夹（每一级都记）
-	levelDirs := map[string]bool{}      // 直接装着 level.dat 的文件夹
+	ents := make([]backupEntry, 0, len(files))
+	has := map[string]bool{}         // 包里出现过的文件夹（foldPath 的写法；每一级都记，目录条目自己也记）
+	levelDirs := map[string]string{} // 直接装着 level.dat 的文件夹：foldPath 的写法 → 包里的写法
 	var props *zip.File
-	for k, f := range files {
-		n := path.Clean(strings.ReplaceAll(f.Name, "\\", "/"))
-		names[k] = n
-		if f.FileInfo().IsDir() || !fs.ValidPath(n) || n == "." {
-			continue
+	for _, f := range files {
+		p, err := backupEntryPath(f)
+		if err != nil {
+			return nil, err
 		}
-		for d := path.Dir(n); d != "."; d = path.Dir(d) {
-			has[d] = true
+		ents = append(ents, backupEntry{f: f, path: p})
+		isDir := f.FileInfo().IsDir()
+		d := path.Dir(p)
+		if isDir {
+			d = p
+		}
+		for ; d != "."; d = path.Dir(d) {
+			has[foldPath(d)] = true
 		}
 		switch {
-		case path.Base(n) == "level.dat" && path.Dir(n) != ".":
-			levelDirs[path.Dir(n)] = true
-		case strings.EqualFold(n, "server.properties"):
+		case isDir:
+		case strings.EqualFold(path.Base(p), "level.dat") && path.Dir(p) != ".":
+			levelDirs[foldPath(path.Dir(p))] = path.Dir(p)
+		case strings.EqualFold(p, "server.properties"):
 			props = f
 		}
 	}
-	packed := "" // 包里 server.properties 写的世界名；没带这个文件、读不出来时为空
-	if props != nil {
-		packed = propsLevelName(props)
-	}
-	from := ""
-	switch {
-	case levelDirs[level]:
-		from = level
-	case packed != "" && levelDirs[packed]:
-		from = packed
-	default:
-		cands := worldCandidates(levelDirs, has)
-		switch {
-		case len(cands) == 1:
-			from = cands[0]
-		case len(cands) > 1:
-			if len(cands) > 5 {
-				cands = append(cands[:5], "……")
-			}
-			return nil, fmt.Errorf("这份备份里有好几个世界（%s），认不出该还原哪一个，没有还原，什么都没动", strings.Join(cands, "、"))
-		case has[level] || has[level+"_nether"] || has[level+"_the_end"]:
-			from = level
-		default:
-			return nil, fmt.Errorf("这份备份里没找到世界（没有装着 level.dat 的文件夹），没有还原，什么都没动")
-		}
+	from, err := pickBackupWorld(levelDirs, has, props, level)
+	if err != nil {
+		return nil, err
 	}
 	// 从包里认出来的名字也要过一遍：指到外面、指回服务器文件夹自己、落进 .minedeck 的都不要
 	if !SafeLevelName(from) {
 		return nil, fmt.Errorf("这份备份里的世界文件夹「%s」不能用，没有还原，什么都没动", from)
 	}
-	plan := &worldRestorePlan{from: from}
-	for k, f := range files {
-		n := names[k]
-		if f.FileInfo().IsDir() {
-			continue
-		}
-		target, ok := "", false
-		for _, s := range worldSuffixes {
-			if rest, cut := strings.CutPrefix(n, from+s+"/"); cut && rest != "" {
-				target, ok = level+s+"/"+rest, true
-				break
-			}
-		}
-		if ok {
-			plan.entries = append(plan.entries, restoreEntry{f: f, name: target})
-		} else {
-			plan.skipped = append(plan.skipped, f.Name)
-		}
-	}
+	plan := worldEntries(ents, from, level)
 	if len(plan.entries) == 0 {
 		return nil, fmt.Errorf("这份备份里的世界「%s」是空的，没有还原，什么都没动", from)
 	}
 	return plan, nil
 }
 
-// propsLevelName 包里那份 server.properties 写的世界名（读法同 LevelNameStrict：没写、不能用的按 world 算）。只读不写；
-// 读不出来返回空串，调用方当它没有。太大的不读：正常的 server.properties 只有几 KB。
+// pickBackupWorld 认出备份里的世界叫什么（返回包里的写法），依次看：
+//  1. 包根上带着 server.properties（自己打的整包、别的工具做的备份），读得出 level-name（只读，不写回去，见 propsLevelName），
+//     包里又有这个世界的：那才是打包时在用的世界；
+//  2. 包里有现在这个世界名的（MineDeck 自己做的备份，备份以后没改过 level-name，最常见）；
+//  3. 按带 level.dat 的文件夹认（见 worldCandidates），正好认出一个才用，没有或者不止一个就不还原；
+//  4. 一个世界都认不出、但包里有现在这个世界名的文件夹（世界从没存过盘，还没有 level.dat）：照现在的世界名还原。
+//
+// 主世界的文件夹必须在包里：只有 world_nether、world_the_end 的包不还原。不然还原会删掉现在的三个文件夹，
+// 再把下界当成主世界解进去。比较都不分大小写（见 foldPath）。
+func pickBackupWorld(levelDirs map[string]string, has map[string]bool, props *zip.File, level string) (string, error) {
+	if props != nil {
+		if packed := propsLevelName(props); packed != "" {
+			if d, ok := levelDirs[foldPath(packed)]; ok {
+				return d, nil
+			}
+		}
+	}
+	if _, ok := levelDirs[foldPath(level)]; ok {
+		return level, nil
+	}
+	cands, dimsOnly := worldCandidates(levelDirs, has)
+	switch {
+	case len(cands) == 1:
+		return cands[0], nil
+	case len(cands) > 1:
+		if len(cands) > 5 {
+			cands = append(cands[:5], "……")
+		}
+		return "", fmt.Errorf("这份备份里有好几个世界（%s），认不出该还原哪一个，没有还原，什么都没动", strings.Join(cands, "、"))
+	case len(dimsOnly) > 0:
+		return "", fmt.Errorf("这份备份里只有「%s」，没有主世界的文件夹，没有还原，什么都没动", strings.Join(dimsOnly, "、"))
+	case has[foldPath(level)]:
+		return level, nil
+	}
+	return "", fmt.Errorf("这份备份里没找到世界（没有装着 level.dat 的文件夹），没有还原，什么都没动")
+}
+
+// worldEntries 列出包里世界 from 的三个文件夹（from、from_nether、from_the_end）里的条目，换成现在的世界名 level 下面的路径；
+// 别的文件记进 skipped。比较不分大小写；空文件夹（目录条目，比如 world/datapacks/）也照样换名，解的时候建出来。
+func worldEntries(ents []backupEntry, from, level string) *worldRestorePlan {
+	plan := &worldRestorePlan{from: from}
+	fromSegs := strings.Split(foldPath(from), "/")
+	used := map[string]bool{}
+	for _, e := range ents {
+		isDir := e.f.FileInfo().IsDir()
+		segs := strings.Split(e.path, "/")
+		target := ""
+		for _, s := range worldSuffixes {
+			if rest, ok := cutWorldPrefix(segs, fromSegs, s, isDir); ok {
+				folder := level + s
+				target = path.Join(folder, rest)
+				if !used[folder] {
+					used[folder] = true
+					plan.folders = append(plan.folders, folder)
+				}
+				break
+			}
+		}
+		switch {
+		case target != "":
+			plan.entries = append(plan.entries, restoreEntry{f: e.f, name: target})
+		case !isDir:
+			plan.skipped = append(plan.skipped, e.path)
+		}
+	}
+	return plan
+}
+
+// cutWorldPrefix segs（一项的路径，分好段）在世界文件夹 fromSegs（foldPath 过、分好段）加后缀 suffix 下面时，返回下面那一截。
+// 文件必须在世界文件夹里面；目录条目可以就是世界文件夹自己（返回空串）。按段比，不分大小写。
+func cutWorldPrefix(segs, fromSegs []string, suffix string, isDir bool) (string, bool) {
+	n := len(fromSegs)
+	if len(segs) < n || (len(segs) == n && !isDir) {
+		return "", false
+	}
+	for k, want := range fromSegs {
+		if k == n-1 {
+			want += suffix
+		}
+		if foldPath(segs[k]) != want {
+			return "", false
+		}
+	}
+	return strings.Join(segs[n:], "/"), true
+}
+
+// propsLevelName 包里那份 server.properties 写的世界名，只读不写。没写这一项是服务端默认的 world；
+// 写了却不能用（见 SafeLevelName）、读不出来、大过 1 MB 的（正常的只有几 KB）返回空串，调用方当它没有。
 func propsLevelName(f *zip.File) string {
-	if f.UncompressedSize64 > 1<<20 {
+	const limit = 1 << 20
+	if f.UncompressedSize64 > limit {
 		return ""
 	}
 	rc, err := f.Open()
@@ -773,51 +863,94 @@ func propsLevelName(f *zip.File) string {
 		return ""
 	}
 	defer rc.Close()
-	b, err := io.ReadAll(io.LimitReader(rc, 1<<20))
-	if err != nil {
+	b, err := io.ReadAll(io.LimitReader(rc, limit+1)) // 多读一个字节：目录里写的大小可以是假的
+	if err != nil || len(b) > limit {
 		return ""
 	}
-	if v, ok := JavaProps(b)["level-name"]; ok && SafeLevelName(v) {
-		return filepath.ToSlash(filepath.Clean(filepath.FromSlash(strings.TrimSpace(v))))
+	v, ok := JavaProps(b)["level-name"]
+	switch {
+	case !ok:
+		return "world"
+	case !SafeLevelName(v):
+		return ""
 	}
-	return "world"
+	// 统一的写法同 LevelNameStrict
+	return filepath.ToSlash(filepath.Clean(filepath.FromSlash(strings.TrimSpace(v))))
 }
 
-// worldCandidates 按带 level.dat 的文件夹认出包里的世界（排好序）。X_nether、X_the_end 在 X 也在包里时算 X 的一部分；
-// 套在另一个世界里面的（模组在世界里放的副本这类）不算另一个世界。
-func worldCandidates(levelDirs, has map[string]bool) []string {
-	set := map[string]bool{}
-	for d := range levelDirs {
+// worldCandidates 按带 level.dat 的文件夹认出包里的世界（排好序，包里的写法）。levelDirs、has 见 planWorldRestore。
+// 先去掉套在别的世界（或者它的下界、末地文件夹）里面的——模组在世界里放的副本这类，不算另一个世界；
+// 再把 X_nether、X_the_end 并进 X。X 的文件夹不在包里的，是单独的下界、末地，不算世界，放进 dimsOnly 报给人看。
+// 顺序不能反：先并的话 world_nether 已经成了 world，world_nether/sub 就查不出是套在里面的，会被当成第二个世界。
+func worldCandidates(levelDirs map[string]string, has map[string]bool) (cands, dimsOnly []string) {
+	set := map[string]string{}
+	for k, orig := range levelDirs {
+		if nestedInWorld(k, levelDirs) {
+			continue
+		}
+		base, dim := k, ""
 		for _, s := range worldSuffixes[1:] {
-			if base, ok := strings.CutSuffix(d, s); ok && base != "" && (levelDirs[base] || has[base]) {
-				d = base
+			if b, ok := strings.CutSuffix(k, s); ok && b != "" {
+				base, dim = b, s
 				break
 			}
 		}
-		set[d] = true
+		switch {
+		case dim == "":
+			set[k] = orig
+		case has[base]:
+			if _, ok := set[base]; !ok {
+				set[base] = orig[:len(orig)-len(dim)] // 后缀是 ASCII，不分大小写前后一样长
+			}
+		default:
+			dimsOnly = append(dimsOnly, orig)
+		}
 	}
-	var out []string
-	for d := range set {
-		nested := false
-		for e := range set {
-			if e != d && strings.HasPrefix(d, e+"/") {
-				nested = true
-				break
+	for _, orig := range set {
+		cands = append(cands, orig)
+	}
+	sort.Strings(cands)
+	sort.Strings(dimsOnly)
+	return cands, dimsOnly
+}
+
+// nestedInWorld k 套在包里另一个装着 level.dat 的文件夹（或者它的下界、末地文件夹）里面。都是 foldPath 的写法。
+func nestedInWorld(k string, levelDirs map[string]string) bool {
+	for e := range levelDirs {
+		for _, s := range worldSuffixes {
+			if strings.HasPrefix(k, e+s+"/") {
+				return true
 			}
 		}
-		if !nested {
-			out = append(out, d)
+	}
+	return false
+}
+
+// checkWorldFolders 要解进去的世界文件夹（还有它上面几级，worlds/main 的 worlds），服务器文件夹里已经有同名的普通文件挡着的，
+// 删旧世界之前就停下：旧世界只认文件夹、删的也只是文件夹，删完了才发现这里建不了文件夹，世界就没了。
+// 世界文件夹本身已经是文件夹的不用管：那是旧世界，下面整个删掉重来。
+func checkWorldFolders(dir string, folders []string) error {
+	for _, w := range folders {
+		segs := strings.Split(w, "/")
+		for k := range segs {
+			rel := strings.Join(segs[:k+1], "/")
+			st, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel)))
+			switch {
+			case err == nil && !st.IsDir():
+				return fmt.Errorf("服务器文件夹里的「%s」是一个文件，不是文件夹，备份里的世界放不进去，没有还原，什么都没动", rel)
+			case err != nil && !errors.Is(err, fs.ErrNotExist):
+				return fmt.Errorf("看不了服务器文件夹里的「%s」，没有还原，什么都没动：%w", rel, err)
+			}
 		}
 	}
-	sort.Strings(out)
-	return out
+	return nil
 }
 
 // skippedSample 控制台里举几个没还原的文件当例子：server.properties 在的话排第一个，用户关心的就是它。
 func skippedSample(skipped []string) string {
 	var out []string
 	for _, s := range skipped {
-		if strings.EqualFold(path.Clean(strings.ReplaceAll(s, "\\", "/")), "server.properties") {
+		if strings.EqualFold(s, "server.properties") {
 			out = append(out, s)
 			break
 		}
@@ -875,7 +1008,13 @@ func checkBackupTargetPath(cleanDest, realDest string, e restoreEntry) (string, 
 				return "", fmt.Errorf("服务器文件夹里的「%s」是指向别处的链接，没有还原", filepath.ToSlash(rel))
 			}
 		} else if !errors.Is(err, fs.ErrNotExist) {
-			return "", fmt.Errorf("检查备份落点失败: %s（%w）", e.f.Name, err)
+			// 写落到服务器文件夹里的哪一级（和上面一样）；还原备份换了世界名的，再写备份里原来叫什么
+			rel, _ := filepath.Rel(cleanDest, cur)
+			from := ""
+			if e.name != e.f.Name {
+				from = "，备份里是 " + e.f.Name
+			}
+			return "", fmt.Errorf("检查备份落点失败：服务器文件夹里的「%s」（%w%s）", filepath.ToSlash(rel), err, from)
 		}
 		parent := filepath.Dir(cur)
 		if parent == cur {
@@ -915,6 +1054,10 @@ func unzipEntriesTo(ents []restoreEntry, destDir string, lease *diskguard.Lease)
 			return err
 		}
 		if f.FileInfo().IsDir() {
+			// 空文件夹（世界里的 datapacks/ 这类）也建出来；有文件的文件夹下面写文件时反正也会建
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return err
+			}
 			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {

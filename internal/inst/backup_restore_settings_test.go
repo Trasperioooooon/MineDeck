@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -218,6 +219,10 @@ func TestRestorePicksWorldAmongSeveral(t *testing.T) {
 			"server.properties": "level-name=lobby\nonline-mode=true\n",
 			"lobby/level.dat":   "backup", "minigame/level.dat": "另一个世界",
 		}},
+		{"包里 server.properties 的世界名优先于现在的世界名", map[string]string{
+			"server.properties": "level-name=lobby\n",
+			"lobby/level.dat":   "backup", "world/level.dat": "打包时没在用的世界",
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m, dir := tempInstance(t)
@@ -241,20 +246,37 @@ func TestRestorePicksWorldAmongSeveral(t *testing.T) {
 	}
 }
 
-// 认不出该还原哪个世界（包里没有世界、有好几个又定不下来）：不还原，世界、设置、备份列表都不动。
+// 不能还原的几种：认不出该还原哪个世界（包里没有世界、只有下界末地没有主世界、有好几个又定不下来），
+// 包里有一条非法路径（哪怕不在世界里），世界文件夹的位置上是一个普通文件。都是一开始就停下：
+// 世界（三个维度）、设置、备份列表都不动，也不先做「还原前自动」。
 func TestRestoreRefusesWhenWorldUnclear(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		entries map[string]string
+		files   map[string]string // 服务器文件夹里另外放的
+		link    string            // 包里另加一项这个名字的符号链接
 		msg     string
 	}{
-		{"包里没有世界", map[string]string{"server.properties": "online-mode=true\n", "ops.json": "[]"}, "没找到世界"},
-		{"好几个世界定不下来", map[string]string{"a/level.dat": "a", "b/level.dat": "b"}, "好几个世界"},
+		{name: "包里没有世界", entries: map[string]string{"server.properties": "online-mode=true\n", "ops.json": "[]"}, msg: "没找到世界"},
+		{name: "好几个世界定不下来", entries: map[string]string{"a/level.dat": "a", "b/level.dat": "b"}, msg: "好几个世界"},
+		{name: "只有下界和末地、没有主世界", entries: map[string]string{"world_nether/level.dat": "n", "world_the_end/level.dat": "e"}, msg: "没有主世界"},
+		{name: "只有下界、没有主世界", entries: map[string]string{"world_nether/level.dat": "n", "world_nether/DIM-1/r.0.0.mca": "x"}, msg: "没有主世界"},
+		{name: "只有下界、没存过盘", entries: map[string]string{"world_nether/DIM-1/r.0.0.mca": "n"}, msg: "没找到世界"},
+		{name: "绕回上一级的路径", entries: map[string]string{"world/level.dat": "backup", "other/../world/region/r.0.0.mca": "x"}, msg: "非法路径"},
+		{name: "绝对路径", entries: map[string]string{"world/level.dat": "backup", "/etc/evil": "x"}, msg: "非法路径"},
+		{name: "盘符", entries: map[string]string{"world/level.dat": "backup", "C:/evil": "x"}, msg: "非法路径"},
+		{name: "世界外面的符号链接", entries: map[string]string{"world/level.dat": "backup"}, link: "plugins/evil", msg: "符号链接"},
+		{name: "末地文件夹的位置上是个文件", entries: map[string]string{"world/level.dat": "backup", "world_the_end/level.dat": "backup end"},
+			files: map[string]string{"world_the_end": "一个普通文件"}, msg: "是一个文件"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m, dir := tempInstance(t)
-			writeTree(t, dir, map[string]string{"server.properties": propsNow})
+			writeTree(t, dir, map[string]string{"server.properties": propsNow, "world_nether/level.dat": "current nether"})
+			writeTree(t, dir, tc.files)
 			file := putBackup(t, "20200101-000000.zip", tc.entries)
+			if tc.link != "" {
+				addZipSymlink(t, filepath.Join(backupDirOf("s"), file), tc.link)
+			}
 			list := backupFiles(t, m)
 			before := nonWorldFiles(t, dir)
 			err := m.RestoreBackup("s", file)
@@ -274,9 +296,138 @@ func TestRestoreRefusesWhenWorldUnclear(t *testing.T) {
 	}
 }
 
-// 认世界、换名字时的几处边界：前缀要到斜杠为止（world2 不是 world）；绕回上一级的条目
-// （world/../server.properties）就是根上的文件，不算世界；Paper 只有下界里有 level.dat 时，那还是 world；
-// 世界里面再套着的 level.dat 不算另一个世界。
+// addZipSymlink 往 zip 文件末尾再加一项符号链接（重写整个包）。
+func addZipSymlink(t *testing.T, zipPath, name string) {
+	t.Helper()
+	zr, err := zip.OpenReader(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, f := range zr.File {
+		if err := zw.Copy(f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	zr.Close()
+	h := &zip.FileHeader{Name: name, Method: zip.Store}
+	h.SetMode(fs.ModeSymlink | 0o777)
+	w, err := zw.CreateHeader(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = w.Write([]byte("../../outside"))
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(zipPath, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// 空文件夹（世界里的 datapacks/ 这类目录条目）照样换名、建出来。
+func TestRestoreCreatesEmptyWorldFolders(t *testing.T) {
+	m, dir := tempInstance(t)
+	writeTree(t, dir, map[string]string{"server.properties": "level-name=survival\n", "survival/level.dat": "current"})
+	file := putBackup(t, "20200101-000000.zip", map[string]string{"world/level.dat": "backup", "world/datapacks/": "", "world_nether/": ""})
+	if err := m.RestoreBackup("s", file); err != nil {
+		t.Fatal(err)
+	}
+	if got := readRel(t, dir, "survival/level.dat"); got != "backup" {
+		t.Errorf("世界应还原成备份里的，实际 %q", got)
+	}
+	for _, d := range []string{"survival/datapacks", "survival_nether"} {
+		if st, err := os.Stat(filepath.Join(dir, filepath.FromSlash(d))); err != nil || !st.IsDir() {
+			t.Errorf("空文件夹 %s 应建出来：%v", d, err)
+		}
+	}
+}
+
+// 世界名用反斜杠写的（worlds\main）：Windows 上 LevelNameStrict 已经统一成斜杠，planWorldRestore 拿到的就是 worlds/main，
+// 不用再转一遍。
+func TestRestoreBackslashLevelNameOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("只有 Windows 把反斜杠当路径分隔符")
+	}
+	m, dir := tempInstance(t)
+	writeTree(t, dir, map[string]string{"server.properties": "level-name=worlds\\\\main\n", "worlds/main/level.dat": "current"})
+	if level, err := LevelNameStrict(dir); err != nil || level != "worlds/main" {
+		t.Fatalf("LevelNameStrict = %q %v，应为 worlds/main", level, err)
+	}
+	file := putBackup(t, "20200101-000000.zip", map[string]string{"world/level.dat": "backup"})
+	if err := m.RestoreBackup("s", file); err != nil {
+		t.Fatal(err)
+	}
+	if got := readRel(t, dir, "worlds/main/level.dat"); got != "backup" {
+		t.Errorf("世界应还原进 worlds/main，实际 %q", got)
+	}
+}
+
+// 包里 server.properties 的世界名只读不写；写了却不能用的当它没有，不当成 world。
+func TestPropsLevelName(t *testing.T) {
+	for _, tc := range []struct{ name, content, want string }{
+		{"写了世界名", "level-name=lobby\n", "lobby"},
+		{"带子目录", "level-name=worlds/main\n", "worlds/main"},
+		{"没写这一项：服务端默认的 world", "motd=x\n", "world"},
+		{"指到外面的不能用", "level-name=../evil\n", ""},
+		{"控制目录不能用", "level-name=.minedeck/x\n", ""},
+		{"大过 1 MB 的不读", "level-name=lobby\n#" + strings.Repeat("x", 1<<20) + "\n", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			zw := zip.NewWriter(&buf)
+			w, err := zw.Create("server.properties")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _ = w.Write([]byte(tc.content))
+			if err := zw.Close(); err != nil {
+				t.Fatal(err)
+			}
+			zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := propsLevelName(zr.File[0]); got != tc.want {
+				t.Errorf("propsLevelName = %q，应为 %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// 「检查备份落点失败」写的是落到服务器文件夹里的哪一级（换过世界名以后的），再写备份里原来叫什么。
+// 用 Windows 上不能当文件名的字符让 Lstat 报「不是不存在」的那种错。
+func TestBackupTargetCheckErrorNamesTarget(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("靠 Windows 上的非法文件名让 Lstat 出错")
+	}
+	dest := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dest, "survival"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	if _, err := zw.Create("world/a<b/level.dat"); err != nil {
+		t.Fatal(err)
+	}
+	_ = zw.Close()
+	zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	realDest, err := RealPathStrict(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = checkBackupTargetPath(filepath.Clean(dest), realDest, restoreEntry{f: zr.File[0], name: "survival/a<b/level.dat"})
+	if err == nil || !strings.Contains(err.Error(), "survival/a<b") || !strings.Contains(err.Error(), "world/a<b/level.dat") {
+		t.Fatalf("报错应写落点 survival/a<b 和备份里的原名：%v", err)
+	}
+}
+
+// 认世界、换名字时的几处边界：前缀要到斜杠为止（world2 不是 world）；Paper 只有下界里有 level.dat 时，那还是 world；
+// 世界（或者它的下界、末地）里面再套着的 level.dat 不算另一个世界；不分大小写；空文件夹也换名。
 func TestPlanWorldRestoreBoundaries(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -285,9 +436,27 @@ func TestPlanWorldRestoreBoundaries(t *testing.T) {
 		from    string
 		want    []string // 解出来落到哪
 	}{
-		{"前缀到斜杠为止、绕回上一级的不算", "world",
-			[]string{"world/level.dat", "world2/level.dat", "world2/region/r.0.0.mca", "world/../server.properties", "world_nether/DIM-1/r.mca", "worldX_nether/a"},
+		{"前缀到斜杠为止", "world",
+			[]string{"world/level.dat", "world2/level.dat", "world2/region/r.0.0.mca", "world_nether/DIM-1/r.mca", "worldX_nether/a"},
 			"world", []string{"world/level.dat", "world_nether/DIM-1/r.mca"}},
+		{"下界里面套着的 level.dat", "survival",
+			[]string{"world/level.dat", "world_nether/level.dat", "world_nether/sub/level.dat"},
+			"world", []string{"survival/level.dat", "survival_nether/level.dat", "survival_nether/sub/level.dat"}},
+		{"下界里面套着的 level.dat、下界自己没有", "survival",
+			[]string{"world/level.dat", "world_nether/sub/level.dat"},
+			"world", []string{"survival/level.dat", "survival_nether/sub/level.dat"}},
+		{"不分大小写：World 和 world 落进同一个文件夹", "world",
+			[]string{"World/level.dat", "world/region/r.0.0.mca", "WORLD_NETHER/DIM-1/r.mca"},
+			"world", []string{"world/level.dat", "world/region/r.0.0.mca", "world_nether/DIM-1/r.mca"}},
+		{"不分大小写：换世界名", "survival",
+			[]string{"World/level.dat", "world/region/r.0.0.mca"},
+			"world", []string{"survival/level.dat", "survival/region/r.0.0.mca"}},
+		{"空文件夹也换名", "survival",
+			[]string{"world/level.dat", "world/datapacks/", "world_the_end/"},
+			"world", []string{"survival/level.dat", "survival/datapacks", "survival_the_end"}},
+		{"刚建还没存过盘、只有文件夹的世界", "world",
+			[]string{"world/", "world/datapacks/"},
+			"world", []string{"world", "world/datapacks"}},
 		{"只有下界里有 level.dat", "survival",
 			[]string{"world/region/r.0.0.mca", "world_nether/level.dat", "server.properties"},
 			"world", []string{"survival/region/r.0.0.mca", "survival_nether/level.dat"}},
@@ -326,7 +495,7 @@ func TestPlanWorldRestoreBoundaries(t *testing.T) {
 			}
 			slices.Sort(got)
 			slices.Sort(tc.want)
-			if plan.from != tc.from || !slices.Equal(got, tc.want) {
+			if !strings.EqualFold(plan.from, tc.from) || !slices.Equal(got, tc.want) {
 				t.Errorf("认成 %q，解出 %q；应为 %q，%q（跳过的 %q）", plan.from, got, tc.from, tc.want, plan.skipped)
 			}
 		})
