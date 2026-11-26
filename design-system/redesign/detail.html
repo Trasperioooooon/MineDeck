@@ -12,10 +12,8 @@
   首页大卡上的「控制台」按钮这里不要（控制台就是一个标签）；重启只有详情页有。「打开文件夹 ▾」和「···」并成一个「···」，菜单同共用件页那张（commons.html）。
   常驻提示（上次没能启动、找不到 Java、模组要更高的 Java、整合包里有文件没装上）放在页头面板的最下面，一条 44 高、圆角 18（贴面板下角，同心）。
 
-  标签放哪（草图顶上的开关切，作者挑）：
-  A 顶上：页头下面一排 32 高胶囊分段（同首页「最近启动 / 游玩时长 / 收藏」），选中块滑过去；有子页的标签，子页的分段接在同一行的右边，中间一个「›」。
-  B 左边：页头下面左边一块 200 宽的面板，一行一个标签（36 高、图标加字），选中块上下滑；有子页的，子页缩进列在它下面。
-  选哪种，设置页的九个分类也跟着用（规范：两处的二级导航一种做法）。
+  标签放在左边（11-27 作者定；第一稿还画过放在顶上的一排胶囊分段，没选）：页头下面左边一块 200 宽的面板，一行一个标签（36 高、图标加字），
+  选中块上下滑；有子页的，子页缩进列在它下面，只展开选中的那一个。设置页的九个分类也照这个做（规范：两处的二级导航一种做法）。
   标签编号（console、players、world……）是程序地址的一部分，AI 助手和书签都在引用；这里加了「联机」（net），别的编号没动。
 
   怎么回首页：胶囊里「主页」亮着，点它回首页（同 MASTER 11.6：点当前项回到这一块的起点）；页上不另放返回键。这是主会话选的，等作者说。
@@ -119,27 +117,12 @@ window.EXTRA_ICONS = {
   .ntc .rb .ico { width: 14px; height: 14px; }
 
   /* ---- 下半部分：标签和内容 ---- */
-  .body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
-  body.nav-side .body { flex-direction: row; }
+  .body { flex: 1; min-height: 0; display: flex; gap: 12px; }
   .cp { flex: 1; min-width: 0; min-height: 0; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-1); display: flex; flex-direction: column; gap: 8px; box-sizing: border-box; }
 
-  /* A 顶上：32 高胶囊分段（同首页），选中块滑过去；子页的分段接在同一行右边 */
-  .navrow { flex: none; display: flex; align-items: center; gap: 8px; height: 32px; }
-  .seg { position: relative; display: flex; gap: 2px; padding: 3px; height: 32px; box-sizing: border-box; border-radius: 16px; background: var(--field); border: 1px solid var(--border); }
-  .seg .sgl { position: absolute; left: 0; top: 3px; bottom: 3px; border-radius: 13px; background: var(--accent-subtle); pointer-events: none;
-              transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
-  .seg button { position: relative; z-index: 1; border: 0; background: none; height: 24px; padding: 0 12px; border-radius: 12px; font: inherit; font-size: 12.5px; font-weight: 500;
-                color: var(--muted); cursor: pointer; white-space: nowrap; transition: color .2s; }
-  .seg button:hover { color: var(--text); }
-  .seg button.on { color: var(--accent-text); }
-  .navrow .chev { width: 14px; height: 14px; color: var(--faint); flex: none; }
-  .navrow .subwrap { display: flex; align-items: center; gap: 8px; }
-  .navrow .subwrap.out { animation: sw-out .09s cubic-bezier(.4, 0, 1, 1) both; }
-  .navrow .subwrap.in { animation: sw-in .22s cubic-bezier(.2, .7, .2, 1) both; }
-  @keyframes sw-out { to { opacity: 0; transform: translateX(-5px); } }
-  @keyframes sw-in { from { opacity: 0; transform: translateX(5px); } }
+  @keyframes sw-out { to { opacity: 0; transform: translateY(-5px); } }
 
-  /* B 左边：200 宽的面板（26 / 8），一行一个标签 36 高胶囊（18，和面板同心），选中块上下滑；子页缩进列在下面，32 高 */
+  /* 标签在左边：200 宽的面板（26 / 8），一行一个标签 36 高胶囊（18，和面板同心），选中块上下滑；子页缩进列在下面，32 高 */
   .snav { flex: none; width: 200px; position: relative; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-1); box-sizing: border-box;
           display: flex; flex-direction: column; gap: 2px; }
   .snav .hl { position: absolute; left: 8px; right: 8px; top: 0; height: 36px; border-radius: 18px; background: var(--accent-subtle); pointer-events: none;
@@ -228,11 +211,9 @@ const KINDS = {
   proxy: { name: "群组代理", core: "velocity", label: "Velocity", mc: "3.4.0", port: 25577, players: 9, max: 100, up: "6:30", last: "现在", hours: 410, pin: false, proxy: true },
 };
 const kind = KINDS[QS.get("kind")] ? QS.get("kind") : "paper", S = KINDS[kind];
-const nav = QS.get("nav") === "side" ? "side" : "top";
 const nNotice = Math.max(0, Math.min(2, +QS.get("notice") || 0));
 // 两条常驻提示都只在停着时出现（程序里「上次没能启动」只在已停止时显示；找不到 Java 时也开不起来）
 const st = nNotice ? "stopped" : (["running", "starting", "stopped"].includes(QS.get("st")) ? QS.get("st") : "running");
-document.body.classList.add("nav-" + nav);
 
 // 标签和子页：照程序 detailTabs（app.js），这台服务器用不上的不列；加了「联机」（net），放在玩家后面
 function tabsOf(s) {
@@ -261,8 +242,7 @@ if (QS.get("sub") && subsOf(tab)?.some(x => x[0] === QS.get("sub"))) subPick[tab
 // ---- 草图切换条 ----
 function skBar() {
   const link = (k, v, label, on) => { const q = new URLSearchParams(location.search); if (v === null) q.delete(k); else q.set(k, v); if (k === "kind") { q.delete("tab"); q.delete("sub"); } return `<a href="?${q}" class="${on ? "on" : ""}">${label}</a>`; };
-  $("#sk").innerHTML = `<b>草图</b><b>标签</b>${link("nav", null, "顶上", nav === "top")}${link("nav", "side", "左边", nav === "side")}<i></i>`
-    + `<b>核心</b>${link("kind", null, "Paper", kind === "paper")}${link("kind", "forge", "Forge", kind === "forge")}${link("kind", "vanilla", "原版", kind === "vanilla")}${link("kind", "proxy", "代理端", kind === "proxy")}<i></i>`
+  $("#sk").innerHTML = `<b>草图</b><b>核心</b>${link("kind", null, "Paper", kind === "paper")}${link("kind", "forge", "Forge", kind === "forge")}${link("kind", "vanilla", "原版", kind === "vanilla")}${link("kind", "proxy", "代理端", kind === "proxy")}<i></i>`
     + `<b>状态</b>${link("st", null, "运行中", st === "running" && !nNotice)}${link("st", "starting", "启动中", st === "starting")}${link("st", "stopped", "已停止", st === "stopped" && !nNotice)}<i></i>`
     + `<b>常驻提示</b>${link("notice", null, "无", !nNotice)}${link("notice", "1", "一条", nNotice === 1)}${link("notice", "2", "两条", nNotice === 2)}<i></i>`
     + `<span title="控制台只画了撑版面的样子，别的标签里面是空的，后面一页一页画">只画了控制台</span>`;
@@ -311,26 +291,12 @@ function content() {
   return `<div class="term"><div class="out">${L.map(([t, c]) => `<div${c ? ` class="${c}"` : ""}>${t.replace(/</g, "&lt;")}</div>`).join("")}</div><div class="in"><b>&gt;</b>输入命令</div></div>`;
 }
 function body() {
-  if (nav === "top") {
-    $("#body").innerHTML = `<div class="navrow"><div class="seg" id="tabs"><span class="sgl"></span>${TABS.map(t => `<button data-t="${t.id}" class="${t.id === tab ? "on" : ""}">${t.label}</button>`).join("")}</div>`
-      + `<span class="subwrap" id="subwrap">${subRow()}</span></div><div class="cp" id="cp">${content()}</div>`;
-    placeSeg($("#tabs"), true); placeSub(true);
-  } else {
-    $("#body").innerHTML = `<aside class="snav" id="snav"><span class="hl"></span>${sideItems()}</aside><div class="cp" id="cp">${content()}</div>`;
-    placeSide(true);
-  }
+  $("#body").innerHTML = `<aside class="snav" id="snav"><span class="hl"></span>${sideItems()}</aside><div class="cp" id="cp">${content()}</div>`;
+  placeSide(true);
   KIT.hydrate($("#body"));
 }
-const subRow = () => { const s = subsOf(tab); return s ? `<i data-ic="chevronRight" class="chev"></i><div class="seg" id="subs"><span class="sgl"></span>${s.map(([id, l]) => `<button data-s="${id}" class="${subPick[tab] === id ? "on" : ""}">${l}</button>`).join("")}</div>` : ""; };
 const sideItems = () => TABS.map(t => `<button data-t="${t.id}" class="${t.id === tab ? "on" : ""}"><i data-ic="${t.ic}"></i>${t.label}</button>`
   + (t.id === tab && subsOf(t.id) ? `<div class="subs">${subsOf(t.id).map(([id, l]) => `<button data-s="${id}" class="${subPick[t.id] === id ? "on" : ""}">${l}</button>`).join("")}</div>` : "")).join("");
-function placeSeg(seg, instant) {
-  const hl = $(".sgl", seg), on = $("button.on", seg); if (!hl || !on) return;
-  if (instant) hl.style.transition = "none";
-  hl.style.transform = `translateX(${on.offsetLeft}px)`; hl.style.width = on.offsetWidth + "px";
-  if (instant) { void hl.offsetWidth; hl.style.transition = ""; }
-}
-const placeSub = instant => { const s = $("#subs"); if (s) placeSeg(s, instant); };
 function placeSide(instant) {
   const hl = $("#snav .hl"), on = $("#snav > button.on"); if (!hl || !on) return;
   if (instant) hl.style.transition = "none";
@@ -348,28 +314,17 @@ function syncURL() { const q = new URLSearchParams(location.search); q.set("tab"
 document.addEventListener("click", e => {
   const t = e.target.closest("[data-t]"), s = e.target.closest("[data-s]");
   if (t && t.dataset.t !== tab) {
-    const was = tab; tab = t.dataset.t; syncURL();
-    if (nav === "top") {
-      $$("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.t === tab)); placeSeg($("#tabs"));
-      // 子页那段：有变化才换（旧的往左淡掉，新的从右边进来）
-      const sw = $("#subwrap"), fresh = subRow();
-      if (subsOf(was) || subsOf(tab)) {
-        sw.classList.remove("in"); sw.classList.add("out");
-        clearTimeout(sw._t); sw._t = setTimeout(() => { sw.innerHTML = fresh; KIT.hydrate(sw); placeSub(true); sw.classList.remove("out"); void sw.offsetWidth; if (fresh) sw.classList.add("in"); }, 90);
-      }
-    } else {
-      // 左边：子页跟着展开到新的标签下面，选中块从原来那行滑到新的一行
-      const hl = $("#snav .hl"), from = $("#snav > button.on").offsetTop;
-      $("#snav").innerHTML = `<span class="hl"></span>${sideItems()}`; KIT.hydrate($("#snav"));
-      const nh = $("#snav .hl"); nh.style.transition = "none"; nh.style.transform = `translateY(${from}px)`; void nh.offsetWidth; nh.style.transition = ""; placeSide();
-    }
+    tab = t.dataset.t; syncURL();
+    // 子页跟着展开到新的标签下面，选中块从原来那行滑到新的一行
+    const from = $("#snav > button.on").offsetTop;
+    $("#snav").innerHTML = `<span class="hl"></span>${sideItems()}`; KIT.hydrate($("#snav"));
+    const nh = $("#snav .hl"); nh.style.transition = "none"; nh.style.transform = `translateY(${from}px)`; void nh.offsetWidth; nh.style.transition = ""; placeSide();
     swapContent(); return;
   }
   if (s) {
     const id = s.dataset.s; if (subPick[tab] === id) return;
     subPick[tab] = id; syncURL();
     const box = s.parentElement; $$("button", box).forEach(b => b.classList.toggle("on", b.dataset.s === id));
-    if (nav === "top") placeSeg(box);
     swapContent(); return;
   }
   const more = e.target.closest(".cover .more");
