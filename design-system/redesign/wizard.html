@@ -8,58 +8,61 @@
 <link rel="stylesheet" href="kit.css">
 <style>
   body { background: var(--bg); overflow-x: hidden; }
+  /* 标题栏正中一行小字「新建服务器」：页面上不再有眉标和左上角的大标题，在哪儿看这里，第几步看底下的点 */
   .tb { height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 0 0 16px; position: sticky; top: 0; z-index: 5;
         background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(12px); }
   .tb img { width: 16px; height: 16px; image-rendering: pixelated; }
   .tb .sp { flex: 1; }
+  .tb .where { position: absolute; left: 50%; transform: translateX(-50%); font-size: 12.5px; color: var(--muted); }
   .tb .win { display: flex; height: 40px; }
   .tb .win span { width: 46px; display: grid; place-items: center; color: var(--muted); }
-  /* 和首页同一套版心：1160 宽、两边 40；底边留白 86 给底下的按钮。基准 1280×800 下不滚动 */
-  .page { max-width: 1160px; margin: 0 auto; padding: 24px 40px 86px; }
-  .eyebrow { font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
-  h1 { margin: 0 0 22px; font-size: 26px; line-height: 34px; font-weight: 600; letter-spacing: -.01em; }
-  /* 新建页原来的另外四种方式（导入整合包、用已有地图开服、导入交接包、接管已有服务器）不再单独一页，缩成第一步标题右边一排小按钮（U05 的方向） */
-  .h1row { display: flex; align-items: flex-end; gap: 16px; margin: 0 0 22px; }
-  .h1row h1 { margin: 0; }
-  .h1row .sp { flex: 1; }
-  .alt { display: flex; gap: 6px; align-items: center; }
-  .alt .k { font-size: 12px; color: var(--faint); margin-right: 2px; }
-  .alt span.b { height: 32px; padding: 0 12px; border-radius: 16px; display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted);
-            background: var(--surface); border: 1px solid var(--border); cursor: pointer; }
-  .alt span.b:hover { color: var(--text); }
-  .alt .ico { width: 14px; height: 14px; }
-  .lab { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0 0 10px; display: flex; align-items: baseline; gap: 10px; }
-  .lab small { font-weight: 400; color: var(--faint); font-size: 12px; }
-  .sec { margin-bottom: 26px; }
 
-  /* 玩法：四块并排，图标在左、两行字在右；选中的描一圈强调色（同心：外 20、内边距 8、头像圆角 12） */
-  .plays { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-  .play { display: flex; align-items: center; gap: 12px; padding: 8px 12px 8px 8px; border-radius: 20px; background: var(--surface); box-shadow: var(--elev-1);
-          border: 2px solid transparent; cursor: pointer; }
-  .play.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
-  .play .t { font-size: 15px; font-weight: 600; }
-  .play .s { font-size: 12px; color: var(--muted); margin-top: 1px; }
-  .px-avatar { --c: #7a8aa0; width: 48px; height: 48px; flex: none; display: grid; place-items: center; border-radius: 12px;
-               background: color-mix(in srgb, var(--c) 26%, var(--surface)); }
-  .px-avatar svg { width: 32px; height: 32px; display: block; }
+  /* 照首页的样子（作者 11-26：首页留白很空，这里上面又是一排概览文字，要符合首页风格）：
+     全部居中，上面留白，一句问话当标题，下面一层一层往下排：玩法大卡 → 这一类的核心 → 版本，没有「怎么玩」「核心」「游戏版本」这些小标题。
+     基准 1280×800 下不滚动，底边留白 86 给底下的按钮 */
+  .page { max-width: 1160px; margin: 0 auto; padding: 0 40px 86px; min-height: calc(100vh - 40px); box-sizing: border-box;
+          display: flex; flex-direction: column; align-items: center; }
+  .q { margin: 64px 0 36px; font-size: 30px; line-height: 38px; font-weight: 600; letter-spacing: -.01em; text-align: center; }
 
-  /* 核心：只列选中的玩法下面那几个，推荐的预先选好 */
-  .cores { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-  .core { display: flex; align-items: center; gap: 12px; padding: 8px 12px 8px 8px; border-radius: 20px; background: color-mix(in srgb, var(--surface) 55%, var(--bg));
-          border: 2px solid transparent; cursor: pointer; }
-  .core.on { border-color: var(--accent); background: var(--surface); }
-  .core .px-avatar { width: 40px; height: 40px; }
-  .core .n { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
-  .core .s { font-size: 12px; color: var(--muted); }
+  /* 玩法：四张大卡，照首页大卡的做法（外圆角 26、内边距 8，核心色封面圆角 18 带方格暗纹，同心），图标 48 放在封面正中 */
+  .plays { width: 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+  .play { --R: 26px; --p: 8px; border-radius: var(--R); padding: var(--p); background: var(--surface); box-shadow: var(--elev-1); cursor: pointer;
+          outline: 2px solid transparent; outline-offset: -2px; transition: outline-color .15s, transform .15s; }
+  .play:hover { transform: translateY(-2px); }
+  .play.on { outline-color: var(--accent); }
+  .play .cover { height: 96px; border-radius: calc(var(--R) - var(--p)); display: grid; place-items: center; position: relative; overflow: hidden;
+                 background: color-mix(in srgb, var(--c) 30%, var(--surface)); }
+  .play .cover::after { content: ""; position: absolute; inset: 0; opacity: .16; pointer-events: none;
+    background-image: linear-gradient(45deg, rgb(0 0 0 / .5) 25%, transparent 25%, transparent 75%, rgb(0 0 0 / .5) 75%), linear-gradient(45deg, rgb(0 0 0 / .5) 25%, transparent 25%, transparent 75%, rgb(0 0 0 / .5) 75%);
+    background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+  .play .cover svg { position: relative; z-index: 1; width: 48px; height: 48px; display: block; }
+  .play .t { margin: 12px 0 2px; font-size: 16px; font-weight: 600; text-align: center; }
+  .play .s { margin: 0 0 10px; font-size: 12.5px; color: var(--muted); text-align: center; }
+
+  /* 核心：一排胶囊，跟着内容宽、居中，比上面一排窄；推荐的预先选好；选中的那个的一句话说明放在胶囊下面 */
+  .cores { margin-top: 28px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .core { height: 48px; padding: 0 18px 0 8px; border-radius: 24px; display: inline-flex; align-items: center; gap: 10px; cursor: pointer;
+          background: var(--surface); border: 1px solid var(--border); font-size: 14px; font-weight: 600; }
+  .core svg { width: 32px; height: 32px; display: block; }
+  .core.on { background: var(--accent-subtle); border-color: color-mix(in srgb, var(--accent) 60%, transparent); color: var(--accent-text); }
   .rec { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 8px; background: var(--accent-subtle); color: var(--accent-text); }
+  .core.on .rec { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+  .desc { margin-top: 12px; font-size: 13px; color: var(--muted); text-align: center; min-height: 20px; }
 
-  /* 版本：一个下拉加一行构建，构建默认最新稳定版，要换再点 */
-  .ver { display: flex; align-items: center; gap: 12px; }
-  .sel { height: 40px; padding: 0 12px 0 16px; border-radius: 20px; display: inline-flex; align-items: center; gap: 10px; background: var(--field); border: 1px solid var(--border); font-size: 14px; font-weight: 600; }
+  /* 版本：一个居中的小胶囊，旁边一行构建；最窄的一层 */
+  .ver { margin-top: 22px; display: flex; align-items: center; gap: 12px; }
+  .sel { height: 40px; padding: 0 12px 0 16px; border-radius: 20px; display: inline-flex; align-items: center; gap: 8px; background: var(--field); border: 1px solid var(--border); font-size: 14px; font-weight: 600; }
+  .sel .k { font-weight: 400; color: var(--muted); font-size: 12.5px; }
   .sel .ico { color: var(--faint); }
-  .ver .k { font-size: 12.5px; color: var(--muted); }
+  .ver .note { font-size: 12.5px; color: var(--muted); }
   .ver a { color: var(--accent-text); }
-  .placeholder { height: 360px; border-radius: 26px; border: 1px dashed var(--border); display: grid; place-items: center; color: var(--faint); font-size: 13px; }
+
+  /* 别的四种开服方式：页面最下面一行淡字，不抢眼（原来是一整页五张卡） */
+  .alt { margin-top: auto; padding-top: 24px; display: flex; gap: 4px; align-items: center; font-size: 12.5px; color: var(--faint); }
+  .alt span.b { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border-radius: 14px; color: var(--muted); cursor: pointer; }
+  .alt span.b:hover { color: var(--text); background: var(--hover); }
+  .alt .ico { width: 14px; height: 14px; }
+  .placeholder { margin-top: 24px; width: 100%; height: 360px; border-radius: 26px; border: 1px dashed var(--border); display: grid; place-items: center; color: var(--faint); font-size: 13px; }
 
   /* 底部：胶囊沉下去以后，左下角「上一步」、右下角「下一步」，和版心的左右边对齐，高度和离底跟胶囊一样（52、18）；
      中间一排小点是第几步（主会话加的，不要可以去掉） */
@@ -77,11 +80,10 @@
   .dots i.on { width: 22px; background: var(--accent); }
   body.hidden-nav .wbtn { transform: translateY(160%); opacity: 0; }
   body.hidden-nav .dots { opacity: 0; }
-  .tip { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); z-index: 6; font-size: 11.5px; color: var(--faint); }
 </style>
 </head>
 <body class="hidden-nav">
-<header class="tb"><img src="../../internal/web/ui/img/logo-16.png" alt=""><div class="sp"></div>
+<header class="tb"><img src="../../internal/web/ui/img/logo-16.png" alt=""><span class="where">新建服务器</span><div class="sp"></div>
   <div class="win"><span><i data-ic="winMin"></i></span><span><i data-ic="winMax"></i></span><span><i data-ic="winClose"></i></span></div></header>
 <main class="page" id="page"></main>
 <div class="wnav"><div class="in">
@@ -89,7 +91,6 @@
   <span class="sp"></span><span class="dots" id="dots"></span><span class="sp"></span>
   <button class="wbtn next" id="next">下一步<i data-ic="chevronRight"></i></button>
 </div></div>
-<div class="tip">草图 · 新建服务器第一步：玩法、核心、版本放在同一页</div>
 <script>
 // 玩法四块（问题 U05 定的方向）：每块下面只列这一类的核心，推荐的预先选好
 const PLAYS = [
@@ -99,27 +100,25 @@ const PLAYS = [
   { id: "other", t: "其他", s: "混合服、群组代理", ico: "velocity", cores: ["mohist", "banner", "velocity", "waterfall"], rec: "" },
 ];
 const CORE = {
-  vanilla: ["原版", "Mojang 官方服务端"], paper: ["Paper", "最常用，插件最多"], purpur: ["Purpur", "Paper 加更多可调的玩法"], leaves: ["Leaves", "保留生电特性"], folia: ["Folia", "多核分区，人多才用"],
-  fabric: ["Fabric", "轻，更新快"], forge: ["Forge", "老整合包多用它"], neoforge: ["NeoForge", "新版本整合包多用它"],
-  mohist: ["Mohist", "混合服：模组 + 插件"], banner: ["Taiyitist", "混合服：Fabric 模组 + 插件"], velocity: ["Velocity", "群组代理：几台连成一个入口"], waterfall: ["Waterfall", "群组代理（老）"],
+  vanilla: ["原版", "Mojang 官方服务端"], paper: ["Paper", "最常用，插件最多"], purpur: ["Purpur", "在 Paper 上多了好些能调的玩法"], leaves: ["Leaves", "保留生电特性，红石玩家用"], folia: ["Folia", "多核分区，几十上百人才用得上"],
+  fabric: ["Fabric", "轻，跟新版本快"], forge: ["Forge", "老整合包多用它"], neoforge: ["NeoForge", "新版本的整合包多用它"],
+  mohist: ["Mohist", "混合服：Forge 模组加插件"], banner: ["Taiyitist", "混合服：Fabric 模组加插件"], velocity: ["Velocity", "群组代理：几台服务器连成一个入口"], waterfall: ["Waterfall", "群组代理，老一些"],
 };
 const VER = { vanilla: "1.21.4", paper: "1.21.4", purpur: "1.21.4", leaves: "1.21.4", folia: "1.21.4", fabric: "1.21.1", forge: "1.20.1", neoforge: "1.21.1", mohist: "1.20.1", banner: "1.20.1", velocity: "3.4.0", waterfall: "1.21" };
 let step = 0, play = 1, core = "paper";
-const STEPS = () => play === 0 ? ["玩法、核心、版本", "设置", "让朋友连进来"] : ["玩法、核心、版本", play === 2 ? "选模组" : "选插件", "设置", "让朋友连进来"];
-const av = (k, cls = "") => `<span class="px-avatar ${cls}" style="--c:${MDPixel16.CORE_COLORS[k] || "#7a8aa0"}">${MDPixel16.svg(k, 32)}</span>`;
+const STEPS = () => play === 0 ? ["想怎么玩？", "最后设置一下", "让朋友连进来"] : ["想怎么玩？", play === 2 ? "装点模组？" : "装点插件？", "最后设置一下", "让朋友连进来"];
 function step1() {
   const p = PLAYS[play], proxy = core === "velocity" || core === "waterfall";
-  return `<div class="sec"><div class="lab">怎么玩</div><div class="plays">${PLAYS.map((x, i) => `<div class="play${i === play ? " on" : ""}" data-play="${i}">${av(x.ico)}<div><div class="t">${x.t}</div><div class="s">${x.s}</div></div></div>`).join("")}</div></div>` +
-    (p.cores.length > 1 ? `<div class="sec"><div class="lab">核心</div><div class="cores">${p.cores.map(k => `<div class="core${k === core ? " on" : ""}" data-core="${k}">${av(k)}<div><div class="n">${CORE[k][0]}${k === p.rec ? `<span class="rec">推荐</span>` : ""}</div><div class="s">${CORE[k][1]}</div></div></div>`).join("")}</div></div>` : "") +
-    `<div class="sec"><div class="lab">${proxy ? "版本" : "游戏版本"}</div><div class="ver"><span class="sel">${VER[core]}<i data-ic="chevronDown"></i></span>` +
-    (core === "vanilla" ? `<span class="k">正式版里最新的；要快照版点开下拉</span>` : `<span class="k">构建：最新稳定版 · <a>换一个</a></span>`) + `</div></div>`;
+  return `<div class="plays">${PLAYS.map((x, i) => `<div class="play${i === play ? " on" : ""}" data-play="${i}" style="--c:${MDPixel16.CORE_COLORS[x.ico]}"><div class="cover">${MDPixel16.svg(x.ico, 48)}</div><div class="t">${x.t}</div><div class="s">${x.s}</div></div>`).join("")}</div>` +
+    (p.cores.length > 1 ? `<div class="cores">${p.cores.map(k => `<span class="core${k === core ? " on" : ""}" data-core="${k}">${MDPixel16.svg(k, 32)}${CORE[k][0]}${k === p.rec ? `<span class="rec">推荐</span>` : ""}</span>`).join("")}</div>` : "") +
+    `<div class="desc">${CORE[core][1]}</div>` +
+    `<div class="ver"><span class="sel"><span class="k">${proxy ? "版本" : "游戏版本"}</span>${VER[core]}<i data-ic="chevronDown"></i></span>` +
+    (core === "vanilla" ? `<span class="note">正式版里最新的；要快照版点开下拉</span>` : `<span class="note">构建用最新稳定版 · <a>换一个</a></span>`) + `</div>` +
+    `<div class="alt">手上有现成的？` + [["package", "导入整合包"], ["globe", "用已有地图"], ["share", "导入交接包"], ["folder", "接管已有服务器"]].map(([i, t]) => `<span class="b"><i data-ic="${i}"></i>${t}</span>`).join("") + `</div>`;
 }
 function render() {
   const names = STEPS();
-  const alt = step === 0 ? `<span class="sp"></span><div class="alt"><span class="k">手上有现成的？</span>` +
-    [["package", "导入整合包"], ["globe", "用已有地图"], ["share", "导入交接包"], ["folder", "接管已有服务器"]].map(([i, t]) => `<span class="b"><i data-ic="${i}"></i>${t}</span>`).join("") + `</div>` : "";
-  document.getElementById("page").innerHTML = `<div class="eyebrow">新建服务器 · 第 ${step + 1} 步，共 ${names.length} 步</div><div class="h1row"><h1>${names[step]}</h1>${alt}</div>` +
-    (step === 0 ? step1() : `<div class="placeholder">这一步的内容还没画</div>`);
+  document.getElementById("page").innerHTML = `<h1 class="q">${names[step]}</h1>` + (step === 0 ? step1() : `<div class="placeholder">这一步的内容还没画</div>`);
   document.getElementById("dots").innerHTML = names.map((_, i) => `<i class="${i === step ? "on" : ""}"></i>`).join("");
   document.getElementById("next").innerHTML = step === names.length - 1 ? `<i data-ic="check"></i>创建服务器` : `下一步<i data-ic="chevronRight"></i>`;
   KIT.hydrate(document.body);
