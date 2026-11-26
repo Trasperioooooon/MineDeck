@@ -418,14 +418,15 @@
        名单多了在框里横着滚，不把这一条撑高。提醒照第一稿的条件，挪到各自那块的右边：白名单那块说「谁拿到地址都能进」「名单是空的」，正版验证那块说「白名单只认名字」 */
   .setp.link { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; height: 540px; }
   .setp.link .col { padding: 18px 20px; gap: 14px; min-height: 0; }
+  /* 叠三层：最下面四块底色（.vslot），中间滑动的高亮框（.vhl），最上面卡片的字（.vcard，本身透明）。
+     原来底色画在卡片上、卡片又压在高亮框上面，框滑过别的卡时被那张卡的底色挡住一截（作者 11-26 截图指出）。底色和卡片用同一格（grid-column）叠在一起 */
   .vias { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; flex: none; }
-  .vias .vhl { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 12px; background: var(--accent-subtle); pointer-events: none;
+  .vslot { grid-row: 1; position: relative; z-index: 0; border-radius: 12px; background: color-mix(in srgb, var(--surface) 70%, transparent); }
+  .vias .vhl { position: absolute; z-index: 1; left: 0; top: 0; bottom: 0; border-radius: 12px; background: var(--accent-subtle); pointer-events: none;
                box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
                transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
-  .vcard { position: relative; z-index: 1; padding: 9px 12px; border-radius: 12px; cursor: pointer; min-width: 0;
-           background: color-mix(in srgb, var(--surface) 70%, transparent); transition: background .2s, opacity .2s; }
+  .vcard { grid-row: 1; position: relative; z-index: 2; padding: 9px 12px; border-radius: 12px; cursor: pointer; min-width: 0; background: transparent; transition: background .2s, opacity .2s; }
   .vcard:hover:not(.on):not(.off) { background: var(--hover); }
-  .vcard.on { background: transparent; }
   .vcard.off { opacity: .45; cursor: default; }
   .vcard .n { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .vcard.on .n { color: var(--accent-text); }
@@ -1271,12 +1272,13 @@ function whoStrip() {
 }
 function step4() {
   const proxy = isProxyCore(), v = viaOf();
-  const card = ([k, n]) => {
+  const card = ([k, n], i) => {
     const off = proxy && k !== "lan";
-    return `<div class="vcard${v === k ? " on" : ""}${off ? " off" : ""}" data-via="${k}" title="${esc(off ? "代理端的端口第一次启动以后才知道，启动过以后在服务器的「联机」里开" : VIA_TIP[k])}">`
+    return `<div class="vcard${v === k ? " on" : ""}${off ? " off" : ""}" data-via="${k}" style="grid-column:${i + 1}" title="${esc(off ? "代理端的端口第一次启动以后才知道，启动过以后在服务器的「联机」里开" : VIA_TIP[k])}">`
       + `<div class="n">${n}</div><div class="m">${off ? "启动后再开" : viaMeta(k)}</div></div>`;
   };
-  return `<div class="setp link"><div class="col lcol"><h3>朋友怎么连</h3><div class="vias"><i class="vhl"></i>${VIAS.map(card).join("")}</div>`
+  const slots = VIAS.map((_, i) => `<i class="vslot" style="grid-column:${i + 1}"></i>`).join(""); // 底色一层，和卡片同一格
+  return `<div class="setp link"><div class="col lcol"><h3>朋友怎么连</h3><div class="vias">${slots}<i class="vhl"></i>${VIAS.map(card).join("")}</div>`
     + `<div class="vdet">${viaDetail()}</div></div>${whoStrip()}</div>`;
 }
 // 选中的底色挪到选中的那一项
