@@ -401,69 +401,107 @@
   .eula.bad { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger-text) 60%, transparent); }
   .eula.bad .msg { opacity: 1; }
   .placeholder { margin-top: 24px; width: 100%; height: 360px; border-radius: 26px; border: 1px dashed var(--border); display: grid; place-items: center; color: var(--faint); font-size: 13px; }
-  /* 第四步「让朋友连进来」（11-26 主会话画的第一稿）：和第三步一样大的面板，两块。
-     左边「朋友怎么连」：只在局域网 / 开内网穿透，二选一，默认局域网；选中的底色上下滑（同前几步的选中框）。底下跟着选的那样逐项换（竖着挪）：
-     局域网是朋友要填的地址，内网穿透是挑平台（三张小卡，选中的底色左右滑；底下一段跟着平台横着逐项换）。
-     右边「谁能进」：正版验证、白名单（从第三步挪过来）；白名单打开时底下展开一栏，可以先把朋友的游戏名加进来；
-     白名单底下一句跟着两边的选择变，只在该提醒的时候出现。
-     11-26 照计划书开头的规矩过了一遍：看得见的说明都压到八个字以内，长的进悬停；提醒那句不再贴在栏的下角（那里要按同心算），挪到白名单下面；
-     名单框里的名字块离框外沿 6（边框 1 加内边距 5），圆角 4（10 − 6）；名字块里的 × 只变颜色，不画底 */
-  .setp.link { grid-template-rows: minmax(0, 1fr); }
-  .via { position: relative; display: flex; flex-direction: column; gap: 4px; }
-  .via .vhl, .plats .phl { position: absolute; left: 0; top: 0; border-radius: 12px; background: var(--accent-subtle); pointer-events: none;
-                           box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
-                           transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1), height .32s cubic-bezier(.3, .7, .2, 1); }
-  .via .vhl { right: 0; }
-  .plats .phl { bottom: 0; }
-  .opt { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 12px; cursor: pointer; transition: background .2s, opacity .2s; }
-  .opt:hover:not(.on):not(.off) { background: var(--hover); }
-  .opt .oi { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--surface); color: var(--muted); flex: none; transition: color .2s; }
-  .opt .oi .ico { width: 18px; height: 18px; }
-  .opt.on .oi { color: var(--accent-text); }
-  .opt .m { min-width: 0; }
-  .opt .t { font-size: 14px; font-weight: 600; }
-  .opt.on .t { color: var(--accent-text); }
-  .opt .d { font-size: 12px; line-height: 18px; color: var(--muted); margin-top: 1px; }
-  .opt.off { opacity: .5; cursor: default; }
-  .vdet, .pdet { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-  .vdet { margin-top: 2px; }
-  .pdet { margin-top: 4px; }
-  .vdet > .lb { font-size: 12.5px; color: var(--muted); font-weight: 500; }
+  /* 第四步「让朋友连进来」第二稿（11-26，作者：「不自动挑选，要做一个像官网那样的节点面板。这样的话，这一页的布局你要好好设计一下了」）。
+     面板 500 高，换选择时不跳；左宽右窄两栏，左「朋友怎么连」，右「谁能进」（320 宽，内容同第一稿）。三块内边距同第三步（18 / 20）。
+     左栏最上面一排四张卡，四选一：局域网、OpenFrp、樱花穿透、自己的 frps，选中的底色左右滑。第一稿是「只在局域网 / 开内网穿透」再挑平台两层，并成了这一层。
+     卡片下面一块跟着选的那张逐项换（横着挪）：
+       局域网：朋友要填的地址。
+       OpenFrp、樱花（连上了）：节点面板。第一行「新建隧道 / 用已有的」小分段选（32 高、圆角 8，选中块离外沿 4、圆角 4）和搜索框；
+         第二行筛选（全部、公开游戏、支持 UDP，小胶囊）和樱花的「公开招人」开关；下面按地区分组的节点卡片，三列，在栏里自己滚（同第一步的细滚动条）。
+         不替人挑节点：没选就点「创建服务器」会拦下，第一行出「先选一个节点」。
+         节点卡片：名字一行（右边小标签：公开游戏、无 UDP、满载、BETA），说明一行（放不下的进悬停）；选中的描强调色的边。
+         满载的、开了「公开招人」以后不是公开游戏节点的，灰掉点不了，悬停说原因。
+         「用已有的」：平台上已经建好的隧道，本地端口和这台服务器对得上的 TCP 隧道才能选，对不上的灰着、悬停说要先去平台改端口。
+       樱花（没连上）：樱花不是授权登录，是到官网用户信息页复制一把访问密钥粘进来；「记住密钥」默认开（作者 11-26：让用户选要不要保存，方便以后建别的服务器），
+         悬停说存在哪儿、不记会怎样。下面一块虚线框占着节点面板的位置。
+       自己的 frps：服务器地址、端口、令牌、公网端口四个框。
+     OpenFrp 的公网端口不让人填，MineDeck 在节点允许的范围里替人挑（作者 11-26 同意），写在「新建隧道」的悬停里 */
+  .setp.link { grid-template-columns: minmax(0, 1fr) 320px; grid-template-rows: minmax(0, 1fr); height: 500px; }
+  .setp.link .col { padding: 18px 20px; gap: 14px; min-height: 0; }
+  .vias { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; flex: none; }
+  .vias .vhl { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 12px; background: var(--accent-subtle); pointer-events: none;
+               box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+               transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
+  .vcard { position: relative; z-index: 1; padding: 9px 12px; border-radius: 12px; cursor: pointer; min-width: 0;
+           background: color-mix(in srgb, var(--surface) 70%, transparent); transition: background .2s, opacity .2s; }
+  .vcard:hover:not(.on):not(.off) { background: var(--hover); }
+  .vcard.on { background: transparent; }
+  .vcard.off { opacity: .45; cursor: default; }
+  .vcard .n { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .vcard.on .n { color: var(--accent-text); }
+  .vcard .m { font-size: 12px; color: var(--muted); margin-top: 1px; display: flex; align-items: center; gap: 5px; white-space: nowrap; min-height: 18px; }
+  .dot { width: 7px; height: 7px; border-radius: 2px; background: var(--faint); flex: none; }
+  .dot.ok { background: var(--success); }
+  .vdet { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+  .vdet > .lb, .keyb .lb { font-size: 12.5px; color: var(--muted); font-weight: 500; }
   .addr { display: flex; align-items: center; height: 40px; padding: 0 6px 0 12px; border-radius: 10px; background: var(--field); border: 1px solid var(--border); box-sizing: border-box; }
   .addr .mono { font-size: 14px; }
   .addr .unk { margin-left: 2px; font-size: 12.5px; color: var(--faint); }
   .addr .sp { flex: 1; }
+  .lanhint { font-size: 12px; color: var(--faint); }
   .ib { width: 28px; height: 28px; border-radius: 4px; border: 0; background: none; color: var(--muted); display: grid; place-items: center; cursor: pointer; padding: 0; transition: background .2s, color .2s; }
   .ib:hover { background: var(--hover); color: var(--text); }
   .ib .ico { width: 15px; height: 15px; }
   .ib.done { color: var(--accent-text); }
-  .plats { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-  .plat { position: relative; z-index: 1; padding: 9px 12px; border-radius: 12px; cursor: pointer; background: color-mix(in srgb, var(--surface) 70%, transparent); transition: background .2s; min-width: 0; }
-  .plat:hover:not(.on) { background: var(--hover); }
-  .plat.on { background: transparent; }
-  .plat .n { font-size: 13.5px; font-weight: 600; white-space: nowrap; }
-  .plat.on .n { color: var(--accent-text); }
-  .plat .m { font-size: 12px; color: var(--muted); margin-top: 1px; display: flex; align-items: center; gap: 5px; white-space: nowrap; min-height: 18px; }
-  .dot { width: 7px; height: 7px; border-radius: 2px; background: var(--faint); flex: none; }
-  .dot.ok { background: var(--success); }
-  /* 节点：和输入框一样 40 高、圆角 10 的一块，点了换节点；旁边「用已有隧道」是个文字按钮 */
-  .nrow2 { display: flex; align-items: center; gap: 12px; }
-  .node { height: 40px; flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 10px; box-sizing: border-box; cursor: pointer;
-          background: var(--field); border: 1px solid var(--border); font-size: 13.5px; transition: border-color .2s; }
-  .node:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
-  .node .ico { width: 15px; height: 15px; color: var(--muted); }
-  .node .sp { flex: 1; }
+  /* 节点面板 */
+  .nbar { display: flex; align-items: center; gap: 12px; flex: none; }
+  .seg.sm { height: 32px; border-radius: 8px; flex: none; }
+  .seg.sm span { flex: none; padding: 0 14px; font-size: 12.5px; border-radius: 4px; }
+  .seg.sm .sgl { border-radius: 4px; }
+  .nmsg { font-size: 12px; color: var(--danger-text); opacity: 0; transition: opacity .2s; white-space: nowrap; }
+  .nmsg.show { opacity: 1; }
+  .nsearch { margin-left: auto; width: 200px; height: 32px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 8px; box-sizing: border-box;
+             background: var(--field); border: 1px solid var(--border); cursor: text; transition: border-color .2s; }
+  .nsearch:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
+  .nsearch .ico { width: 14px; height: 14px; color: var(--faint); flex: none; }
+  .nsearch input { flex: 1; min-width: 0; border: 0; background: none; outline: none; padding: 0; font: inherit; font-size: 12.5px; color: var(--text); }
+  .nsearch input::placeholder { color: var(--faint); }
+  .nbody { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+  .nfil { display: flex; align-items: center; gap: 6px; flex: none; }
+  .nfil .tg.sm, .keyb .tg.sm { width: fit-content; gap: 10px; margin: 0; }
+  .nfil .tg.sm { margin-left: auto; }
+  .nlist { gap: 10px; }
+  .ngrp { display: flex; flex-direction: column; gap: 6px; flex: none; }
+  .ngrp h4 { margin: 0; font-size: 12px; font-weight: 500; color: var(--faint); }
+  .ncards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .nd { padding: 8px 11px; border-radius: 10px; border: 1px solid transparent; cursor: pointer; min-width: 0;
+        background: color-mix(in srgb, var(--surface) 70%, transparent); transition: background .2s, border-color .2s, opacity .2s; }
+  .nd:hover:not(.on):not(.off) { background: var(--hover); }
+  .nd.on { background: var(--accent-subtle); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+  .nd.off { opacity: .4; cursor: default; }
+  .nd .r1 { display: flex; align-items: center; gap: 4px; min-width: 0; height: 18px; }
+  .nd .n { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nd.on .n { color: var(--accent-text); }
+  .nd .d { font-size: 11.5px; line-height: 16px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tag { flex: none; height: 16px; padding: 0 6px; border-radius: 8px; font-size: 10.5px; font-weight: 500; line-height: 16px; white-space: nowrap; }
+  .tag.pub { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent-text); }
+  .tag.noudp { background: color-mix(in srgb, var(--danger-text) 14%, transparent); color: var(--danger-text); }
+  .tag.plain { background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--muted); }
+  .nempty { padding: 24px 0; text-align: center; font-size: 12.5px; color: var(--faint); }
+  .trow { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid transparent; cursor: pointer; flex: none;
+          background: color-mix(in srgb, var(--surface) 70%, transparent); transition: background .2s, border-color .2s, opacity .2s; }
+  .trow:hover:not(.on):not(.off) { background: var(--hover); }
+  .trow.on { background: var(--accent-subtle); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+  .trow.off { opacity: .4; cursor: default; }
+  .trow .n { font-size: 13px; font-weight: 600; }
+  .trow.on .n { color: var(--accent-text); }
+  .trow .sp { flex: 1; }
+  .trow .k { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  /* 樱花没连上：粘访问密钥 */
+  .keyb { display: flex; flex-direction: column; gap: 8px; flex: none; }
+  .keyb .lrow { display: flex; align-items: center; justify-content: space-between; }
+  .keyrow { display: flex; gap: 10px; }
+  .keyrow .inp { flex: 1; min-width: 0; }
+  .kbtn { flex: none; height: 40px; min-width: 84px; padding: 0 18px; border-radius: 10px; border: 0; background: var(--accent-solid); color: var(--on-accent); font: inherit; font-size: 13px;
+          font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+  .kbtn .ico { width: 14px; height: 14px; }
+  .kbtn:disabled { opacity: .7; cursor: default; }
   .tlink { flex: none; font-size: 12.5px; color: var(--accent-text); cursor: pointer; white-space: nowrap; }
-  .conn { display: flex; align-items: center; gap: 10px; min-height: 40px; font-size: 13px; color: var(--muted); transition: color .2s; }
-  .conn.bad .sbtn { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger-text) 70%, transparent); color: var(--danger-text); }
-  .conn .ico { width: 15px; height: 15px; }
+  .nph { flex: 1; min-height: 0; margin-top: 6px; border-radius: 12px; border: 1px dashed color-mix(in srgb, var(--text) 18%, transparent); display: grid; place-items: center; font-size: 12.5px; color: var(--faint); }
   .spin { animation: spin .9s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .sbtn { height: 30px; padding: 0 14px; border-radius: var(--r-full); border: 0; background: var(--accent-subtle); color: var(--accent-text); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
-  .sbtn:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); }
-  .frps { display: flex; gap: 6px; }
-  .frps .inp { flex: 1; min-width: 0; font-size: 13px; }
-  .frps .fport { flex: none; width: 76px; }
+  .frps { display: grid; grid-template-columns: minmax(0, 1fr) 132px; gap: 10px; }
+  .frps .inp { min-width: 0; font-size: 13px; }
   .tg.sm .t { font-size: 13px; }
   .tg.sm { margin-top: 4px; }
   /* 白名单名单：开关打开时从零高展开（grid 0fr → 1fr），关上时收回去；列里的间距 16 跟着收成负的，不留空 */
@@ -994,51 +1032,138 @@ function checkSettings() {
 }
 // ---- 第四步：让朋友连进来 ----
 // 作者 11-26 问：第三步和这一步，「联机开不开」到底怎么接。主会话的想法：服务器建好本来就能联机，同一个 Wi-Fi 的朋友填局域网地址就进得来，
-// 所以这一步问的不是「开不开」，是两件事：朋友从哪儿连（只在局域网 / 开内网穿透，默认局域网，同 tunnels.html 定的），和谁能进（正版验证、白名单）。
+// 所以这一步问的不是「开不开」，是两件事：朋友从哪儿连（局域网或某个穿透平台，默认局域网，同 tunnels.html 定的），和谁能进（正版验证、白名单）。
 // 谁能进原来在第三步，可它该不该开要看前一件——放到外网、谁拿到地址都能进，才更该开白名单；朋友用离线启动器，就不能开正版验证——
 // 所以挪到这一步，和「怎么连」放在一页。最底下一句跟着两边的选择说该注意什么，只提醒、不替人开关。
 // 端口取第三步填的，回去改了这里跟着变；这一步选的东西来回翻步也记着。
-// 平台账户、节点都是假的：OpenFrp 已连接（账户 steve），樱花没连（点「连接账户」假装在浏览器里登录 1.2 秒），本机局域网 IP 192.168.1.5。
+// 第二稿（11-26）：作者要「不自动挑选，要做一个像官网那样的节点面板」，排法见样式里第四步那段注释。
+// 平台账户、节点、平台上的隧道都是假的：OpenFrp 已连接（账户 steve），樱花没连（粘任意一串字点「连接」，假装 1.2 秒连上），本机局域网 IP 192.168.1.5。
 // 代理端（Velocity、Waterfall）的端口写在它自己的配置文件里，第一次启动才生成，程序不拿猜的数冒充（inst.ConnectPort），
-// 所以地址那里照程序说「端口第一次启动以后才知道」，内网穿透也要等那之后在「联机」里开；右边换成一段说明
-const LINK = { via: "lan", plat: "openfrp", sakura: false, connecting: false, pub: false, frps: { host: "", port: "7000", token: "" }, names: [] };
+// 所以地址那里照程序说「端口启动后才知道」，三个穿透选项灰掉，要等那之后在「联机」里开；右边换成一句说明
+const LINK = { via: "lan", sakura: false, connecting: false, key: "", saveKey: true, pub: false, tab: { openfrp: "new", sakura: "new" }, filter: "all", q: "",
+  node: { openfrp: "", sakura: "" }, use: { openfrp: "", sakura: "" }, frps: { host: "", port: "7000", token: "", remote: "" }, names: [] };
 const LAN_IP = "192.168.1.5";
-const PLATS = [["openfrp", "OpenFrp"], ["sakura", "樱花穿透"], ["frps", "自己的 frps"]];
+const VIAS = [["lan", "局域网"], ["openfrp", "OpenFrp"], ["sakura", "樱花穿透"], ["frps", "自己的 frps"]];
+const VIA_TIP = {
+  lan: "和你连同一个 Wi-Fi、同一个路由器的朋友能进",
+  openfrp: "用 OpenFrp 的内网穿透，外地的朋友也能进；MineDeck 在平台上建一条隧道，跟着服务器一起启动",
+  sakura: "用樱花的内网穿透，外地的朋友也能进；MineDeck 在平台上建一条隧道，跟着服务器一起启动",
+  frps: "有自己的 frp 服务器才用这个",
+};
+const isTun = k => k === "openfrp" || k === "sakura";
+const tabOf = k => LINK.tab[k] || "new"; // 「新建隧道 / 用已有的」两个平台各记各的
 const viaOf = () => isProxyCore() ? "lan" : LINK.via;
+// 节点（假的）。樱花「内地」那 26 个照樱花官网 11-26 选节点那张截图抄的名字、说明和标签，「其他」组后三个是编的；OpenFrp 的全是编的。
+// 标记：p 公开游戏（樱花：官方标了公开游戏，或名字带「多线」，同程序 sakuraPublicGameNode）、u 不支持 UDP、f 满载、b BETA
+const ND = (n, d, f = "") => ({ n, d, pub: f.includes("p"), noudp: f.includes("u"), full: f.includes("f"), beta: f.includes("b") });
+const D_DNS = "三网 DNS 分流，请通过节点域名连接", D_GEN = "通用穿透节点", D_LT = "非联通宽带谨慎使用，如遇问题建议换三线节点",
+  D_ZZ = "游戏专用，高位端口 HTTPS、远程桌面只能用 IP 连接，不能用域名", D_CQ = "推荐西南地区用户使用 | 三网 DNS 分流，请通过节点域名连接";
+const NODES = {
+  sakura: [
+    ["内地", [ND("江苏镇江多线PLUS-扩容1", "游戏专用", "pu"), ND("济南三线PLUS4", D_DNS), ND("枣庄多线PLUS-扩容2", D_ZZ, "p"), ND("长沙三线PLUS4", D_DNS),
+      ND("石家庄联通PLUS1", D_LT), ND("合肥电信PLUS2", D_GEN), ND("浙江移动PLUS1", D_GEN), ND("济南三线PLUS6", D_DNS, "b"), ND("浙江电信PLUS5", D_GEN),
+      ND("济南三线PLUS3", D_DNS), ND("济南联通PLUS-扩容1", D_LT), ND("枣庄多线PLUS-扩容1", D_ZZ, "p"), ND("宁波多线PLUS-扩容1", "屏蔽海外 | 游戏专用", "pu"),
+      ND("浙江三线PLUS7", D_DNS), ND("长沙电信PLUS4", D_GEN), ND("长沙电信PLUS2", D_GEN), ND("天津联通PLUS1", D_LT), ND("江苏徐州三线PLUS1", D_DNS),
+      ND("福建三线PLUS1", D_DNS), ND("长沙三线PLUS6", D_DNS), ND("重庆三线PLUS5", D_CQ), ND("东莞双线PLUS2", "双线 DNS 分流，请通过节点域名连接"),
+      ND("江苏镇江多线PLUS-扩容2", "游戏专用", "p"), ND("浙江电信PLUS6", D_GEN), ND("重庆三线PLUS4", D_CQ), ND("成都移动2", "非成都移动宽带谨慎使用")]],
+    ["其他", [ND("日本1", D_GEN), ND("越南1", D_GEN), ND("韩国1", D_GEN), ND("香港1", D_GEN), ND("新加坡1", D_GEN), ND("美国1", D_GEN)]],
+  ],
+  openfrp: [
+    ["国内", [ND("镇江多线 1", "多线 BGP，游戏推荐"), ND("宁波电信 2", "电信宽带推荐"), ND("成都移动 1", "移动宽带推荐", "f"), ND("广州联通 3", "联通宽带推荐"),
+      ND("上海 BGP 1", "多线 BGP"), ND("济南三线 2", "三线，仅 TCP", "u"), ND("杭州电信 4", "电信宽带推荐"), ND("北京多线 1", "多线 BGP", "f"), ND("武汉电信 1", "电信宽带推荐")]],
+    ["海外", [ND("香港 1", "免备案，延迟较低"), ND("日本 2", "免备案"), ND("美国 1", "免备案，延迟较高")]],
+  ],
+};
+// 平台上已经建好的隧道（假的）：本地端口对得上第三步端口的 TCP 隧道才能选
+const PLAT_TUNS = {
+  openfrp: [{ n: "mc_survival", t: "TCP", node: "宁波电信 2", lp: 25565 }, { n: "old_server", t: "TCP", node: "香港 1", lp: 25566 }],
+  sakura: [{ n: "survival_01", t: "TCP", node: "浙江移动PLUS1", lp: 25565 }, { n: "voice_01", t: "UDP", node: "浙江移动PLUS1", lp: 24454 }],
+};
 const ltg = (key, t, tip) => `<div class="tg sm${LINK[key] ? " on" : ""}" data-ltg="${key}" title="${esc(tip)}"><div class="m"><div class="t">${t}</div></div><span class="sw"></span></div>`;
 const nchip = n => `<span class="nchip" data-name="${esc(n)}">${esc(n)}<span class="nx" data-unname="${esc(n)}" title="拿掉"><i data-ic="x"></i></span></span>`;
-function platMeta(k) {
+const shakeEl = el => el?.animate([{ transform: "none" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "none" }],
+  { duration: 360, easing: "cubic-bezier(.3, .7, .2, 1)" });
+function viaMeta(k) {
+  if (k === "lan") return "同一 Wi-Fi";
   if (k === "openfrp") return `<i class="dot ok"></i>steve`;
   if (k === "sakura") return LINK.sakura ? `<i class="dot ok"></i>steve` : `<i class="dot"></i>未连接`;
-  return "";
+  return "自建服务器";
 }
-// 选了哪个平台，底下那段说什么
-function platDetail() {
-  const k = LINK.plat;
-  // 连上的平台：一块写着节点（自动挑的，点了换），旁边「用已有隧道」；建隧道、本地端口这些说明收进悬停
-  const auto = name => `<div class="nrow2"><div class="node" title="MineDeck 替你在${name}上建一条隧道，本地端口 ${esc(SET.port)}；节点自动挑了一个能用的，点了换">
-      <i data-ic="globe"></i>香港 2 号<span class="sp"></span><i data-ic="chevronDown"></i></div><a class="tlink" title="平台上已经建好的隧道，挑一条拿来用">用已有隧道</a></div>`;
-  if (k === "openfrp") return auto(" OpenFrp ");
-  if (k === "sakura" && LINK.sakura) return auto("樱花穿透") + ltg("pub", "这是公开服务器", "发到论坛、QQ 大群里招人的才打开；樱花规定这种只能用公开服专用节点");
-  if (k === "sakura") return `<div class="conn">${LINK.connecting ? `<i data-ic="spinner" class="spin"></i>等你登录…`
-      : `<button class="sbtn" data-act="connect" title="会打开浏览器登录一次，以后这台电脑上不用再连">连接樱花穿透</button>`}</div>`;
-  return `<div class="frps" title="有自己的 frp 服务器才用这个；本地端口 ${esc(SET.port)}"><input class="inp" id="fhost" placeholder="服务器地址" value="${esc(LINK.frps.host)}" autocomplete="off"><input class="inp fport" id="fport" placeholder="端口" value="${esc(LINK.frps.port)}" inputmode="numeric"><input class="inp" id="ftoken" type="password" placeholder="令牌（可空）" value="${esc(LINK.frps.token)}"></div>`;
+// 节点卡片：灰掉的原因（满载、公开招人时不是公开游戏节点），筛选、搜索
+const nodeOff = (k, x) => x.full ? "满载，暂时建不了隧道" : (k === "sakura" && LINK.pub && !x.pub) ? "公开招人只能用公开游戏节点" : "";
+function nodeShown(x) {
+  if (LINK.filter === "pub" && !x.pub) return false;
+  if (LINK.filter === "udp" && x.noudp) return false;
+  const q = LINK.q.trim().toLowerCase();
+  return !q || (x.n + " " + x.d).toLowerCase().includes(q);
 }
-// 「朋友怎么连」底下那一段
+const tagsOf = (k, x) => (k === "sakura" && x.pub ? `<span class="tag pub">公开游戏</span>` : "") + (x.noudp ? `<span class="tag noudp">无 UDP</span>` : "")
+  + (x.full ? `<span class="tag plain">满载</span>` : "") + (x.beta ? `<span class="tag plain">BETA</span>` : "");
+function nodeCards(k) {
+  const groups = NODES[k].map(([g, list]) => [g, list.filter(nodeShown)]).filter(([, l]) => l.length);
+  if (!groups.length) return `<div class="nempty">没有对得上的节点</div>`;
+  return groups.map(([g, list]) => `<div class="ngrp"><h4>${g} · ${list.length}</h4><div class="ncards">${list.map(x => {
+    const off = nodeOff(k, x);
+    return `<div class="nd${LINK.node[k] === x.n ? " on" : ""}${off ? " off" : ""}" data-node="${esc(x.n)}" title="${esc(off || x.n + "\n" + x.d)}">`
+      + `<div class="r1"><span class="n">${esc(x.n)}</span>${tagsOf(k, x)}</div><div class="d">${esc(x.d)}</div></div>`;
+  }).join("")}</div></div>`).join("");
+}
+// 「用已有的」：平台上已经建好的隧道
+function tunRows(k) {
+  const q = LINK.q.trim().toLowerCase(), list = PLAT_TUNS[k].filter(t => !q || (t.n + " " + t.node).toLowerCase().includes(q));
+  if (!list.length) return `<div class="nempty">平台上没有对得上的隧道</div>`;
+  return list.map(t => {
+    const bad = t.t !== "TCP" ? "这是 UDP 隧道（多半是语音用的），游戏要用 TCP；语音隧道建好服务器后在「联机」里加"
+      : t.lp !== +SET.port ? `本地端口是 ${t.lp}，和这台服务器的 ${SET.port} 对不上；先到平台上把本地端口改成 ${SET.port}` : "";
+    return `<div class="trow${LINK.use[k] === t.n ? " on" : ""}${bad ? " off" : ""}" data-use="${esc(t.n)}" title="${esc(bad || "用这条隧道，跟着服务器一起启动")}">`
+      + `<span class="n">${esc(t.n)}</span><span class="tag plain">${t.t}</span><span class="sp"></span><span class="k">${esc(t.node)} · 本地 ${t.lp}</span></div>`;
+  }).join("");
+}
+// 节点面板第一行以下（切「新建隧道 / 用已有的」时整段换）
+function nodeBody(k) {
+  const fil = [["all", "全部"], ...(k === "sakura" ? [["pub", "公开游戏"]] : []), ["udp", "支持 UDP"]];
+  const top = tabOf(k) === "new" ? `<div class="nfil">${fil.map(([v, t]) => `<button class="mp${LINK.filter === v ? " on" : ""}" data-nfil="${v}">${t}</button>`).join("")}`
+    + (k === "sakura" ? ltg("pub", "公开招人", "发到论坛、服务器列表、QQ 大群，或在 B 站、抖音上宣传招人的服务器要打开；樱花规定这种只能用公开游戏节点，用错会被封号。只和熟人玩不用开") : "") + `</div>` : "";
+  return top + `<div class="lwrap nwrap"><div class="list nlist" id="nlist">${tabOf(k) === "new" ? nodeCards(k) : tunRows(k)}</div><i class="thumb"></i></div>`;
+}
+function nodePanel(k) {
+  const tip = k === "openfrp" ? `MineDeck 替你在 OpenFrp 上建一条隧道：本地端口 ${SET.port}，公网端口在节点允许的范围里自动挑，跟着服务器一起启动`
+    : `MineDeck 替你在樱花上建一条隧道：本地端口 ${SET.port}，公网端口由樱花分配，跟着服务器一起启动`;
+  const on = v => tabOf(k) === v ? ` class="on"` : "";
+  return `<div class="nbar"><div class="seg sm" data-lseg="tab"><i class="sgl"></i><span data-v="new"${on("new")} title="${esc(tip)}">新建隧道</span>`
+    + `<span data-v="use"${on("use")} title="平台上已经建好的隧道，挑一条拿来用">用已有的</span></div><span class="nmsg" id="nmsg"></span>`
+    + `<label class="nsearch"><i data-ic="search"></i><input id="nq" placeholder="搜节点" value="${esc(LINK.q)}" autocomplete="off" spellcheck="false"></label></div>`
+    + `<div class="nbody">${nodeBody(k)}</div>`;
+}
+// 樱花没连上：粘访问密钥
+function sakuraKey() {
+  return `<div class="keyb"><div class="lrow"><span class="lb">樱花访问密钥</span><a class="tlink" data-act="sakurakey" title="在浏览器里打开樱花官网的用户信息页，复制上面的「访问密钥」">去官网复制</a></div>
+      <div class="keyrow"><input class="inp" id="skey" type="password" placeholder="粘贴访问密钥" value="${esc(LINK.key)}" autocomplete="off" spellcheck="false">`
+    + `<button class="kbtn" data-act="connect"${LINK.connecting ? " disabled" : ""}>${LINK.connecting ? `<i data-ic="spinner" class="spin"></i>连接中` : "连接"}</button></div>
+      ${ltg("saveKey", "记住密钥", "用 Windows 加密存在这台电脑上，以后建别的服务器不用再粘；设置 → 内网穿透里可以换或删。\n不记住的话，这条隧道照样能用（它自己存着一份），下次建服务器要再粘一次")}</div>
+    <div class="nph">连上后选节点</div>`;
+}
+// 卡片下面那一块
 function viaDetail() {
-  if (viaOf() === "lan") {
+  const v = viaOf();
+  if (v === "lan") {
     const proxy = isProxyCore();
     return `<span class="lb" title="同一局域网的朋友在游戏里添加服务器时填这个">朋友填这个地址</span>
     <div class="addr"><span class="mono">${LAN_IP}:${proxy ? "" : esc(SET.port)}</span>${proxy ? `<span class="unk" title="代理端的端口写在它自己的配置文件里，第一次启动才生成">端口启动后才知道</span>`
-      : `<span class="sp"></span><button class="ib" data-act="copy" title="复制"><i data-ic="copy"></i></button>`}</div>`;
+      : `<span class="sp"></span><button class="ib" data-act="copy" title="复制"><i data-ic="copy"></i></button>`}</div>
+    ${proxy ? "" : `<span class="lanhint">外地朋友要用穿透</span>`}`; // 代理端三个穿透选项都灰着，这句不说
   }
-  return `<span class="lb">平台</span>
-    <div class="plats"><i class="phl"></i>${PLATS.map(([k, n]) => `<div class="plat${LINK.plat === k ? " on" : ""}" data-plat="${k}"><div class="n">${n}</div><div class="m">${platMeta(k)}</div></div>`).join("")}</div>
-    <div class="pdet">${platDetail()}</div>`;
+  if (v === "sakura" && !LINK.sakura) return sakuraKey();
+  if (isTun(v)) return nodePanel(v);
+  return `<div class="frps" title="有自己的 frp 服务器才用这个；本地端口 ${esc(SET.port)}">`
+    + `<input class="inp" id="fhost" placeholder="服务器地址" value="${esc(LINK.frps.host)}" autocomplete="off" spellcheck="false">`
+    + `<input class="inp" id="fport" placeholder="端口" value="${esc(LINK.frps.port)}" inputmode="numeric">`
+    + `<input class="inp" id="ftoken" type="password" placeholder="令牌（可空）" value="${esc(LINK.frps.token)}">`
+    + `<input class="inp" id="fremote" placeholder="公网端口" value="${esc(LINK.frps.remote)}" inputmode="numeric" title="朋友连的端口；空着就和本地端口一样（${esc(SET.port)}）"></div>`;
 }
 // 白名单下面那一句：[样子, 看得见的短话, 悬停的整句]。样子 warn 是黄底、info 是灰底、none 不出现（没什么要提醒的时候不写字）
 function whoHint() {
-  const tun = viaOf() === "tunnel";
+  const tun = viaOf() !== "lan";
   if (SET.wl && !LINK.names.length) return ["warn", "名单是空的，朋友进不来", "白名单开着、名单还是空的，建好后朋友进不来；先把他们的游戏名加进来，也可以建好后在「玩家」里加"];
   if (tun && !SET.wl) return ["warn", "谁拿到地址都能进", "开了内网穿透，拿到地址的人都能进；只想让熟人进，就把白名单打开"];
   if (tun && !SET.online) return ["info", "白名单只认名字", "没开正版验证时，别人把名字改成一样也能进；朋友都用正版的话，可以把正版验证也打开"];
@@ -1046,15 +1171,13 @@ function whoHint() {
 }
 const hintHTML = ([cls, txt]) => cls === "none" ? "" : `<i data-ic="${cls === "warn" ? "warn" : "info"}"></i><span>${txt}</span>`;
 function step4() {
-  const proxy = isProxyCore(), via = viaOf();
-  const opt = (k, ico, t, d, off, tip) => `<div class="opt${via === k ? " on" : ""}${off ? " off" : ""}" data-via="${k}" title="${esc(tip)}"><span class="oi"><i data-ic="${ico}"></i></span><div class="m"><div class="t">${t}</div><div class="d">${d}</div></div></div>`;
-  const left = `<div class="col"><h3>朋友怎么连</h3>
-    <div class="via"><i class="vhl"></i>
-      ${opt("lan", "wifi", "只在局域网", "同一 Wi-Fi 的朋友", false, "和你连同一个 Wi-Fi、同一个路由器的朋友能进")}
-      ${opt("tunnel", "globe", "开内网穿透", proxy ? "启动过以后再开" : "外地的朋友也能进", proxy,
-        proxy ? "代理端的端口第一次启动以后才知道，启动过以后在服务器的「联机」里开" : "不在同一个网络的朋友也能进；MineDeck 在平台上建一条隧道，跟着服务器一起启动")}
-    </div>
-    <div class="vdet">${viaDetail()}</div></div>`;
+  const proxy = isProxyCore(), v = viaOf();
+  const card = ([k, n]) => {
+    const off = proxy && k !== "lan";
+    return `<div class="vcard${v === k ? " on" : ""}${off ? " off" : ""}" data-via="${k}" title="${esc(off ? "代理端的端口第一次启动以后才知道，启动过以后在服务器的「联机」里开" : VIA_TIP[k])}">`
+      + `<div class="n">${n}</div><div class="m">${off ? "启动后再开" : viaMeta(k)}</div></div>`;
+  };
+  const left = `<div class="col lcol"><h3>朋友怎么连</h3><div class="vias"><i class="vhl"></i>${VIAS.map(card).join("")}</div><div class="vdet">${viaDetail()}</div></div>`;
   const h = whoHint();
   const right = proxy
     ? `<div class="col"><h3>谁能进</h3><div class="pnote" title="正版验证在代理端自己的配置文件里改，白名单在后面接的各台服务器上开">代理端在自己的配置里设</div></div>`
@@ -1067,19 +1190,18 @@ function step4() {
       <div class="whint ${h[0]}" id="whint" title="${esc(h[2])}">${hintHTML(h)}</div></div>`;
   return `<div class="setp link">${left}${right}</div>`;
 }
-// 选中的底色挪到选中的那一项（竖着的「怎么连」、横着的平台）
+// 选中的底色挪到选中的那一项
 function placeHLOf(boxSel, hlSel, onSel, axis, animate) {
   const box = document.querySelector(boxSel); if (!box) return;
   const hl = box.querySelector(hlSel), on = box.querySelector(onSel); if (!hl || !on) return;
   if (!animate) hl.style.transition = "none";
-  const bb = box.getBoundingClientRect(), ob = on.getBoundingClientRect(); // 平台三张卡是三等分，宽度带小数，用 offsetLeft 会差零点几像素
+  const bb = box.getBoundingClientRect(), ob = on.getBoundingClientRect(); // 四张卡是四等分，宽度带小数，用 offsetLeft 会差零点几像素
   if (axis === "Y") { hl.style.transform = `translateY(${ob.top - bb.top}px)`; hl.style.height = ob.height + "px"; }
   else { hl.style.transform = `translateX(${ob.left - bb.left}px)`; hl.style.width = ob.width + "px"; }
   if (!animate) { void hl.offsetWidth; hl.style.transition = ""; }
 }
-const placeVia = a => placeHLOf(".via", ".vhl", ".opt.on", "Y", a);
-const placePlat = a => placeHLOf(".plats", ".phl", ".plat.on", "X", a);
-addEventListener("resize", () => { placeVia(false); placePlat(false); });
+const placeVias = a => placeHLOf(".vias", ".vhl", ".vcard.on", "X", a);
+addEventListener("resize", () => placeVias(false));
 // 逐项换（同第一步的介绍）：旧的几样一样一样淡出，换上新的，新的再一样一样淡进来；axis 是挪的方向，dir 是往哪边
 function swapItems(box, html, dir, axis, after) {
   if (!box) return;
@@ -1092,6 +1214,11 @@ function swapItems(box, html, dir, axis, after) {
     box.innerHTML = html; KIT.hydrate(box); after?.();
     [...box.children].forEach((x, i) => x.animate([{ opacity: 0, transform: tf(d) }, { opacity: 1, transform: "none" }], { duration: 220, delay: i * 22, easing: easeOut, fill: "backwards" }));
   }, 90 + Math.max(0, olds.length - 1) * 22);
+}
+// 换进来的节点面板：分段选的选中块、细滚动条就位
+function afterDetail() {
+  document.querySelectorAll(".vdet .seg").forEach(el => placeSeg(el, false));
+  document.querySelectorAll(".nwrap").forEach(scrollbar);
 }
 // 最底下那一句换了才换：旧的淡掉，新的（连同底色）淡进来
 function paintHint() {
@@ -1107,29 +1234,65 @@ function paintHint() {
   };
 }
 function pickVia(k) {
-  const dir = k === "tunnel" ? 1 : -1;
+  const order = VIAS.map(x => x[0]), dir = order.indexOf(k) > order.indexOf(LINK.via) ? 1 : -1;
   LINK.via = k;
-  document.querySelectorAll(".opt").forEach(o => o.classList.toggle("on", o.dataset.via === k));
-  placeVia(true);
-  swapItems(document.querySelector(".vdet"), viaDetail(), dir, "Y", () => placePlat(false));
+  document.querySelectorAll(".vcard").forEach(c => c.classList.toggle("on", c.dataset.via === k));
+  placeVias(true);
+  swapItems(document.querySelector(".vdet"), viaDetail(), dir, "X", afterDetail);
   paintHint();
 }
-function pickPlat(k) {
-  const order = PLATS.map(x => x[0]), dir = order.indexOf(k) > order.indexOf(LINK.plat) ? 1 : -1;
-  LINK.plat = k;
-  document.querySelectorAll(".plat").forEach(x => x.classList.toggle("on", x.dataset.plat === k));
-  placePlat(true);
-  swapItems(document.querySelector(".pdet"), platDetail(), dir, "X");
+// 「新建隧道 / 用已有的」：选中块滑过去，下面整段横着换
+function pickTab(v, box, sp) {
+  LINK.tab[LINK.via] = v;
+  box.querySelectorAll("span").forEach(x => x.classList.toggle("on", x === sp)); placeSeg(box, true);
+  document.getElementById("nmsg")?.classList.remove("show");
+  swapItems(document.querySelector(".nbody"), nodeBody(LINK.via), v === "use" ? 1 : -1, "X", afterDetail);
 }
-// 连接樱花的账户：草图里不真开浏览器，转 1.2 秒就算连上
+// 筛选、搜索、公开招人一动，节点重画（不动面板别处）；选中的节点被灰掉的话取消选中
+function paintNodes(fade) {
+  const l = document.getElementById("nlist"); if (!l) return;
+  const k = viaOf();
+  l.innerHTML = tabOf(k) === "new" ? nodeCards(k) : tunRows(k); KIT.hydrate(l);
+  l.scrollTop = 0; l.closest(".lwrap")?._paint?.();
+  if (fade) l.animate([{ opacity: 0, transform: "translateY(4px)" }, { opacity: 1, transform: "none" }], { duration: 200, easing: "cubic-bezier(.2, .7, .2, 1)" });
+}
+function pickFilter(v) {
+  if (LINK.filter === v) return;
+  LINK.filter = v;
+  document.querySelectorAll("[data-nfil]").forEach(b => b.classList.toggle("on", b.dataset.nfil === v));
+  paintNodes(true);
+}
+function afterPub() {
+  if (LINK.pub) {
+    const cur = NODES.sakura.flatMap(g => g[1]).find(x => x.n === LINK.node.sakura);
+    if (cur && !cur.pub) LINK.node.sakura = "";
+  }
+  paintNodes(true);
+}
+function pickNode(el) {
+  if (el.classList.contains("off")) return;
+  LINK.node[viaOf()] = el.dataset.node;
+  document.querySelectorAll(".nd").forEach(x => x.classList.toggle("on", x === el));
+  document.getElementById("nmsg")?.classList.remove("show");
+}
+function pickUse(el) {
+  if (el.classList.contains("off")) return;
+  LINK.use[viaOf()] = el.dataset.use;
+  document.querySelectorAll(".trow").forEach(x => x.classList.toggle("on", x === el));
+  document.getElementById("nmsg")?.classList.remove("show");
+}
+// 连接樱花：草图里不真连，粘了东西点「连接」转 1.2 秒就算连上，换成节点面板
 function connectSakura() {
   if (LINK.connecting || LINK.sakura) return;
+  const inp = document.getElementById("skey");
+  if (!LINK.key.trim()) { inp?.classList.add("bad"); inp?.focus(); shakeEl(inp); return; }
   LINK.connecting = true;
-  swapItems(document.querySelector(".pdet"), platDetail(), 1, "Y");
+  const b = document.querySelector('[data-act="connect"]');
+  if (b) { b.disabled = true; b.innerHTML = `<i data-ic="spinner" class="spin"></i>连接中`; KIT.hydrate(b); }
   setTimeout(() => {
     LINK.connecting = false; LINK.sakura = true;
-    const m = document.querySelector('[data-plat="sakura"] .m'); if (m) m.innerHTML = platMeta("sakura");
-    if (viaOf() === "tunnel" && LINK.plat === "sakura") swapItems(document.querySelector(".pdet"), platDetail(), 1, "Y");
+    const m = document.querySelector('[data-via="sakura"] .m'); if (m) m.innerHTML = viaMeta("sakura");
+    if (viaOf() === "sakura") swapItems(document.querySelector(".vdet"), viaDetail(), 1, "Y", afterDetail);
   }, 1200);
 }
 // 白名单的名字：回车、空格、逗号加一个，输入框空着按退格拿掉最后一个；名字照程序「玩家」页的规矩（mclog.ValidName）：1~16 位字母、数字、下划线
@@ -1162,13 +1325,19 @@ function afterWho(k) {
   }
   paintHint();
 }
-// 点「创建服务器」前：开了内网穿透的话，平台要能用（樱花得先连上，自己的 frps 得填地址）
+// 点「创建服务器」前：穿透平台要能用——樱花得先连上；OpenFrp、樱花得选好节点（或挑好一条已有的隧道）；自己的 frps 得填地址
 function checkLink() {
-  if (viaOf() !== "tunnel") return true;
-  const pd = document.querySelector(".pdet"), shake = el => el.animate([{ transform: "none" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "none" }],
-    { duration: 360, easing: "cubic-bezier(.3, .7, .2, 1)" });
-  if (LINK.plat === "sakura" && !LINK.sakura) { const c = pd.querySelector(".conn"); if (c) { c.classList.add("bad"); shake(c); } return false; }
-  if (LINK.plat === "frps" && !LINK.frps.host.trim()) { const h = document.getElementById("fhost"); h.classList.add("bad"); h.focus(); shake(h); return false; }
+  const v = viaOf();
+  if (v === "lan") return true;
+  if (v === "sakura" && !LINK.sakura) { const inp = document.getElementById("skey"); inp?.classList.add("bad"); inp?.focus(); shakeEl(inp); return false; }
+  if (isTun(v)) {
+    const need = tabOf(v) === "new" ? (!LINK.node[v] && "先选一个节点") : (!LINK.use[v] && "先选一条隧道");
+    if (!need) return true;
+    const m = document.getElementById("nmsg"); if (m) { m.textContent = need; m.classList.add("show"); }
+    shakeEl(document.querySelector(".nwrap"));
+    return false;
+  }
+  if (!LINK.frps.host.trim()) { const h = document.getElementById("fhost"); h.classList.add("bad"); h.focus(); shakeEl(h); return false; }
   return true;
 }
 function render() {
@@ -1185,7 +1354,7 @@ function render() {
   document.querySelectorAll(".addon .lwrap").forEach(scrollbar);
   const chips = document.querySelector(".chips"); if (chips) { chipScroll(chips); placeChipHL(false); }
   document.querySelectorAll(".seg").forEach(el => placeSeg(el, false));
-  placeVia(false); placePlat(false); paintMem();
+  placeVias(false); document.querySelectorAll(".nwrap").forEach(scrollbar); paintMem();
   document.body.classList.toggle("on-s3", names[step] === "配置服务器参数");
   document.querySelectorAll(".sim [data-ram]").forEach(x => x.classList.toggle("on", +x.dataset.ram === RAMK));
   const wh = document.getElementById("whint"); if (wh) wh.dataset.txt = whoHint()[1];
@@ -1455,15 +1624,19 @@ function scrollbar(w) {
 document.getElementById("page").addEventListener("click", e => {
   if (e.target.closest("a.ext")) return; // 卡片上的「去 Modrinth 看介绍」：照常新开页面，不算点了卡片
   const sg = e.target.closest(".seg span"), tgl = e.target.closest("[data-tg]"), eu = e.target.closest("[data-eula]");
-  if (sg) { const box = sg.parentElement; if (sg.classList.contains("on")) return; SET[box.dataset.seg] = sg.dataset.v;
+  if (sg) { const box = sg.parentElement; if (sg.classList.contains("on")) return; if (box.dataset.lseg) { pickTab(sg.dataset.v, box, sg); return; } SET[box.dataset.seg] = sg.dataset.v;
     box.querySelectorAll("span").forEach(x => x.classList.toggle("on", x === sg)); placeSeg(box, true); return; }
   if (tgl) { const k = tgl.dataset.tg; SET[k] = typeof SET[k] === "string" ? (SET[k] === "1" ? "0" : "1") : !SET[k]; tgl.classList.toggle("on", isOn(SET[k])); afterWho(k); return; }
-  const vo = e.target.closest("[data-via]"), pf = e.target.closest("[data-plat]"), lt = e.target.closest("[data-ltg]"), rn = e.target.closest("[data-unname]");
+  const vo = e.target.closest("[data-via]"), lt = e.target.closest("[data-ltg]"), rn = e.target.closest("[data-unname]");
+  const nd = e.target.closest("[data-node]"), us = e.target.closest("[data-use]"), nf = e.target.closest("[data-nfil]");
   if (vo) { if (!vo.classList.contains("on") && !vo.classList.contains("off")) pickVia(vo.dataset.via); return; }
-  if (pf) { if (!pf.classList.contains("on")) pickPlat(pf.dataset.plat); return; }
-  if (lt) { LINK[lt.dataset.ltg] = !LINK[lt.dataset.ltg]; lt.classList.toggle("on", LINK[lt.dataset.ltg]); return; }
+  if (lt) { LINK[lt.dataset.ltg] = !LINK[lt.dataset.ltg]; lt.classList.toggle("on", LINK[lt.dataset.ltg]); if (lt.dataset.ltg === "pub") afterPub(); return; }
   if (rn) { removeName(rn.dataset.unname); return; }
+  if (nd) { pickNode(nd); return; }
+  if (us) { pickUse(us); return; }
+  if (nf) { pickFilter(nf.dataset.nfil); return; }
   if (e.target.closest('[data-act="connect"]')) { connectSakura(); return; }
+  if (e.target.closest('[data-act="sakurakey"]')) return; // 草图里不真开樱花官网
   const cp = e.target.closest('[data-act="copy"]');
   if (cp) { // 复制地址：图标换成勾 1.2 秒
     navigator.clipboard?.writeText(`${LAN_IP}:${SET.port}`).catch(() => {});
@@ -1503,13 +1676,16 @@ document.getElementById("page").addEventListener("input", e => {
     const st = document.getElementById("pst"); st.innerHTML = portState(); KIT.hydrate(st);
   }
   else if (t.id === "smotd") SET.motd = t.value;
-  else if (t.id === "fhost" || t.id === "fport" || t.id === "ftoken") { LINK.frps[{ fhost: "host", fport: "port", ftoken: "token" }[t.id]] = t.value; t.classList.remove("bad"); }
+  else if (t.id === "fhost" || t.id === "fport" || t.id === "ftoken" || t.id === "fremote") { LINK.frps[{ fhost: "host", fport: "port", ftoken: "token", fremote: "remote" }[t.id]] = t.value; t.classList.remove("bad"); }
+  else if (t.id === "skey") { LINK.key = t.value; t.classList.remove("bad"); }
+  else if (t.id === "nq") { LINK.q = t.value; paintNodes(false); }
   else if (t.id === "wlname") {
     const box = document.getElementById("names"), note = document.getElementById("wlnote");
     if (box.classList.contains("bad")) { box.classList.remove("bad"); note.textContent = ""; note.title = ""; }
   }
 });
 document.getElementById("page").addEventListener("keydown", e => {
+  if (e.target.id === "skey" && e.key === "Enter" && !e.isComposing) { connectSakura(); return; }
   if (e.target.id !== "wlname" || e.isComposing) return;
   const t = e.target;
   if (e.key === "Enter" || e.key === " " || e.key === ",") { e.preventDefault(); addName(t.value); }
