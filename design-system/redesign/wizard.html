@@ -467,7 +467,16 @@
   /* 虚拟局域网（11-26 作者要的）：大字下面隔一道线，一行一个，名字在左、地址和复制在右。每个地址只出现一次，不用选 */
   .vlan, .lanp .frps { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
   .vlan { display: flex; flex-direction: column; gap: 2px; }
-  .vlan .lb { margin-bottom: 4px; width: fit-content; }
+  /* 「虚拟局域网」右边一个刷新（作者 11-26 要的）；一个都没检测到时，块的左下角一句提示（作者给的原话，在作者框出来的位置），检测到了就淡掉 */
+  .vlh { display: flex; align-items: center; gap: 2px; height: 24px; margin-bottom: 2px; }
+  .vlh .lb { width: fit-content; }
+  .vlh .ib { width: 24px; height: 24px; }
+  .vlh .ib .ico { width: 13px; height: 13px; }
+  .vlh .ib.spinning .ico { animation: spin .9s linear infinite; }
+  .vrows { display: flex; flex-direction: column; gap: 2px; }
+  .vnone { margin-top: auto; display: flex; align-items: flex-start; gap: 6px; font-size: 12px; line-height: 18px; color: var(--faint); transition: opacity .2s; }
+  .vnone .ico { width: 14px; height: 14px; flex: none; margin-top: 2px; }
+  .vnone.gone { opacity: 0; pointer-events: none; }
   .netrow { display: flex; align-items: center; height: 32px; gap: 6px; min-width: 0; }
   .netrow .nn { width: 96px; flex: none; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .netrow .mono { font-size: 14px; white-space: nowrap; }
@@ -1129,6 +1138,28 @@ const LAN_IP = "192.168.1.5";
 // 前端按网段排（lanIPRank）；要画成这样还差两样：网卡名（Go 的 net.Interfaces 有），认出哪块是 Radmin、ZeroTier、Tailscale、蒲公英这类软件的网卡，
 // 再把对朋友没用的去掉（WSL、Hyper-V、VMware、VirtualBox 的虚拟网卡，169.254 开头的自动地址）。MineDeck 不装也不管这些软件，只是把地址列出来
 const LAN_NETS = [["Radmin VPN", "26.18.4.77"], ["ZeroTier", "10.147.20.3"]];
+// 这些软件要开着、进了网络，这台电脑才有那块网卡的地址（作者 11-26 问到）。草图一开始当作都没开：左下角出提示；点「虚拟局域网」旁边的刷新，假装检测到上面两个。
+// 程序里「自动识别」的做法：这一页开着时，窗口拿回焦点就重新取一次 /api/app 的 ips，另外每几秒取一次（本机接口，很便宜）；只认已经连上的网卡，断开的不列
+let vlanFound = false;
+const vlanNets = () => vlanFound ? LAN_NETS : [];
+function vlanRows() {
+  const proxy = isProxyCore();
+  return vlanNets().map(([n, ip]) => `<div class="netrow" title="朋友也在你的 ${esc(n)} 网络里时填这个"><span class="nn">${esc(n)}</span><span class="mono">${ip}:${proxy ? "" : esc(SET.port)}</span>`
+    + (proxy ? "" : `<button class="ib" data-act="copy" data-copy="${ip}:${esc(SET.port)}" title="复制"><i data-ic="copy"></i></button>`) + `</div>`).join("");
+}
+// 刷新：图标转 0.6 秒，检测到的一行一行浮进来（同节点面板的刷新），左下角的提示淡掉
+function refreshVlan(b) {
+  if (b.classList.contains("spinning")) return;
+  b.classList.add("spinning");
+  setTimeout(() => {
+    b.classList.remove("spinning"); vlanFound = true;
+    const box = document.getElementById("vrows"); if (!box) return;
+    box.innerHTML = vlanRows(); KIT.hydrate(box);
+    [...box.children].forEach((c, i) => c.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }],
+      { duration: 240, delay: i * 18, easing: "cubic-bezier(.2, .7, .2, 1)", fill: "backwards" }));
+    document.getElementById("vnone")?.classList.toggle("gone", vlanNets().length > 0);
+  }, 600);
+}
 // 11-26 作者：局域网和自建 frps 两页都太空，并成一张卡（下面一页左右两块），自建 frps 在那一页里用开关打开
 const VIAS = [["lan", "局域网 / 自建 frps"], ["openfrp", "OpenFrp"], ["sakura", "樱花穿透"]];
 const VIA_TIP = {
@@ -1294,22 +1325,22 @@ function viaDetail() {
 function lanPage() {
   const proxy = isProxyCore(), on = LINK.frpsOn && !proxy, fd = on ? "" : " tabindex=\"-1\"";
   const lan = `<div class="lanp"><div class="lh"><i data-ic="wifi"></i><span class="t">局域网</span></div>`
-    + `<div class="lbody"><span class="lb" title="同一局域网的朋友在游戏里添加服务器时填这个">朋友填这个地址</span>`
+    + `<div class="lbody"><span class="lb" title="同一局域网的朋友在游戏里添加服务器时填这个">局域网联机地址</span>`
     + `<div class="bigaddr"><span class="mono">${LAN_IP}:${proxy ? "" : esc(SET.port)}</span>`
     + (proxy ? `<span class="unk" title="代理端的端口写在它自己的配置文件里，第一次启动才生成">端口启动后才知道</span>`
       : `<button class="ib" data-act="copy" data-copy="${LAN_IP}:${esc(SET.port)}" title="复制"><i data-ic="copy"></i></button>`) + `</div>`
-    + (LAN_NETS.length ? `<div class="vlan"><span class="lb" title="你和朋友装了同一款虚拟局域网软件（Radmin VPN、ZeroTier 这类）、进了同一个网络时，朋友填对应那一行；MineDeck 只把这台电脑上的地址列出来，不替你装、不替你建网络">虚拟局域网</span>`
-      + LAN_NETS.map(([n, ip]) => `<div class="netrow" title="朋友也在你的 ${esc(n)} 网络里时填这个"><span class="nn">${esc(n)}</span><span class="mono">${ip}:${proxy ? "" : esc(SET.port)}</span>`
-        + (proxy ? "" : `<button class="ib" data-act="copy" data-copy="${ip}:${esc(SET.port)}" title="复制"><i data-ic="copy"></i></button>`) + `</div>`).join("") + `</div>` : "")
+    + `<div class="vlan"><div class="vlh"><span class="lb" title="你和朋友装了同一款虚拟局域网软件（Radmin VPN、ZeroTier 这类）、开着、进了同一个网络时，朋友填对应那一行；MineDeck 只把这台电脑上的地址列出来，不替你装、不替你建网络">虚拟局域网</span>`
+      + `<button class="ib" data-act="vrefresh" title="重新检测"><i data-ic="refresh"></i></button></div><div class="vrows" id="vrows">${vlanRows()}</div></div>`
+    + `<div class="vnone${vlanNets().length ? " gone" : ""}" id="vnone"><i data-ic="info"></i><span>未检测到虚拟局域网，启动 Radmin、ZeroTier 等组网工具后将自动识别</span></div>`
     + `</div></div>`;
   const frp = `<div class="lanp frpp${on ? " on" : ""}${proxy ? " off" : ""}" title="${esc(proxy ? "代理端的端口第一次启动以后才知道，启动过以后在服务器的「联机」里开" : on ? "" : "有自己的 frp 服务器才用这个，点一下打开")}">`
     + `<div class="lh">${ltg("frpsOn", "自建 frps", "MineDeck 带着 frpc 连你自己的 frps，外地的朋友也能进", on)}</div>`
-    + `<div class="lbody"><span class="lb" title="外地的朋友在游戏里添加服务器时填这个：服务器地址加公网端口，公网端口空着就是本地端口">朋友填这个地址</span>`
+    + `<div class="lbody"><span class="lb" title="外地的朋友在游戏里添加服务器时填这个：服务器地址加公网端口，公网端口空着就是本地端口">公网联机地址</span>`
     + `<div class="bigaddr" id="faddr">${frpsAddr()}</div>`
     + `<div class="frps" title="本地端口 ${esc(SET.port)}">`
     + `<input class="inp" id="fhost" placeholder="服务器地址" value="${esc(LINK.frps.host)}" autocomplete="off" spellcheck="false"${fd}>`
     + `<input class="inp" id="fport" placeholder="端口" value="${esc(LINK.frps.port)}" inputmode="numeric"${fd}>`
-    + `<input class="inp" id="ftoken" type="password" placeholder="令牌（可空）" value="${esc(LINK.frps.token)}"${fd}>`
+    + `<input class="inp" id="ftoken" type="password" placeholder="认证令牌（选填）" value="${esc(LINK.frps.token)}"${fd}>`
     + `<input class="inp" id="fremote" placeholder="公网端口" value="${esc(LINK.frps.remote)}" inputmode="numeric" title="朋友连的端口；空着就和本地端口一样（${esc(SET.port)}）"${fd}></div></div></div>`;
   return lan + frp;
 }
@@ -1833,6 +1864,7 @@ document.getElementById("page").addEventListener("click", e => {
   if (nf) { pickFilter(nf.dataset.nfil); return; }
   const ckx = e.target.closest("[data-ck]"); if (ckx) { toggleShow(ckx); return; }
   const rf = e.target.closest('[data-act="nrefresh"]'); if (rf) { refreshNodes(rf); return; }
+  const vr = e.target.closest('[data-act="vrefresh"]'); if (vr) { refreshVlan(vr); return; }
   if (e.target.closest('[data-act="connect"]')) { connectSakura(); return; }
   if (e.target.closest('[data-act="sakurakey"]')) return; // 草图里不真开樱花官网
   const cp = e.target.closest('[data-act="copy"]');
