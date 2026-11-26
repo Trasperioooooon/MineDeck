@@ -313,6 +313,8 @@ window.EXTRA_ICONS = {
   .tipline .tl { stroke-dasharray: 3.5 4.5; }
   .tipcall.gone { opacity: 0; transform: translateY(-4px); pointer-events: none; }
   .tipline.gone { opacity: 0; }
+  /* 字标上面那颗提示胶囊（?notices=1）点开的浮层盖住了心，虚线会从浮层右边漏出一截：浮层开着时标签和虚线先淡掉，收起再出来 */
+  body:has(.ntc.open) .tipcall, body:has(.ntc.open) .tipline { opacity: 0; pointer-events: none; }
   .hd .hb { display: flex; width: auto; margin: 0; }
   .hd .hb .sp { flex: 0 0 4px; }
   .hd .hb .find { width: 240px; }
