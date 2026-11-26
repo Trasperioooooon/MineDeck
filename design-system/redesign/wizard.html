@@ -64,8 +64,10 @@
   /* 换核心时介绍这一块的过渡「逐项换」（作者 11-26 从四种里挑的）：动画在脚本 swapIntro 里 */
   .intro { overflow: hidden; }
   .intro .body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-  .intro .head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
-  .intro .head .cover { width: 56px; height: 56px; border-radius: 12px; flex: none; }
+  /* 左上角的核心图标贴着面板的角：离边 8、圆角 10（18 − 8，同心圆角，作者 11-26 定）。面板内边距还是 14（三列宽度、正文位置都不变），
+     图标和名字这一行整体往左上挪 6；图标下沿到正文还是 12 */
+  .intro .head { display: flex; align-items: center; gap: 12px; margin: -6px 0 12px -6px; }
+  .intro .head .cover { width: 56px; height: 56px; border-radius: 10px; flex: none; }
   .intro .head .cover svg { width: 32px; height: 32px; }
   .intro .nm { font-size: 18px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
   .intro .sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
