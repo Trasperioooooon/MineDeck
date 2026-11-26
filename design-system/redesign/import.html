@@ -26,7 +26,7 @@
          后两条是把别处现成的一整台收进来（程序里在「搬过来」一组）：正版验证、白名单、难度这些沿用包里或文件夹里的 server.properties，接口也不收，
          所以不问「谁能进」，也不走第四步。联机方式（局域网、穿透）同样等建好以后在服务器的「联机」里开：为了它多一步不值（见汇报里的建议）。
 
-     第一步是这次真正新画的，四条路一个样子（面板 520 高定死，状态变了不跳，换内容一律逐项换，不整块重画）：
+     第一步是这次真正新画的，四条路一个样子（面板 460 高定死，地图右栏那张表长、500 高；同一条路里状态变了不跳，换内容一律逐项换，不整块重画）：
        空着：面板里一个栏，栏里一块虚线框（圆角 10，离栏边 8，同心 18 − 8）。整合包、交接包、地图压缩包可以拖进来或点了选文件；
          地图另有一行填这台电脑上的文件夹或 ZIP 路径（右边两个 28 见方的图标：选文件夹、检测）；接管只能选文件夹，框里不写「拖入」——
          浏览器拿不到拖进来的文件夹在哪，要宿主帮忙（见汇报的建议），所以框只是个大按钮，下面一行同样能填路径。
@@ -703,7 +703,7 @@
   /* ============ 以上照抄 wizard.html；以下是这一页自己的 ============ */
 
   /* ---- 第一步：选来源、识别（四条路共用）----
-     面板同向导各步（外 26、内边距 8），520 高定死，空着、上传中、识别好、出错都是这个高，不跳 */
+     面板同向导各步（外 26、内边距 8），460 高定死（地图 500），空着、上传中、识别好、出错都是这个高，不跳 */
   .srcp { width: 100%; height: 460px; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-1); box-sizing: border-box;
           display: flex; flex-direction: column; gap: 8px; }
   .srcp.tall { height: 500px; } /* 地图右栏那张表有九行，高 40 */
@@ -2394,7 +2394,8 @@ function mapDetInner(c = MAPC()) {
   return `<dl class="facts"><dt>保存于</dt>${dd("ver", m(c.ver))}<dt>布局</dt>${dd("lay", `<span title="${esc(c.layoutFull)}">${c.layout}</span>`)}`
     + `<dt>维度</dt>${dd("dim", dims)}<dt>数据包</dt>${dd("dp", c.dps.length ? c.dps.map(m).join("、") : `<span class="f">没有</span>`)}`
     + `<dt>资源包</dt>${dd("rp", c.rp ? `${m("resources.zip")}<span class="f">不会自动发给玩家</span>` : `<span class="f">没有</span>`)}`
-    + `<dt>核心线索</dt>${dd("clue", `<span title="地图里没有读到服务端、模组的线索，无法确认它是不是纯原版">没有，先按原版</span>`)}`
+    + `<dt>核心线索</dt>${dd("clue", (c.clues || []).length ? `${c.clues.map(m).join("、")}<span class="f">预选 ${CORE[c.core][0]}</span>`
+      : `<span title="地图里没有读到服务端、模组的线索，无法确认它是不是纯原版">没有，先按原版</span>`)}`
     + `<dt>玩家进度</dt>${dd("pl", c.players ? `${c.players} 个玩家的文件` : `<span class="f">没有</span>`)}`
     + `<dt>说明书</dt>${dd("rd", c.readme ? `${m(c.readme)}<button class="ib" data-src="readme" title="查看说明书（只当纯文字显示，里面的网址不要随手打开）"><i data-ic="doc"></i></button>` : `<span class="f">没有</span>`)}`
     + `<dt>不会导入</dt>${dd("hint", c.hints.length ? `<span title="来源里和地图放在一起的文件，不会导入">${c.hints.map(m).join("、")}</span>` : `<span class="f">没有</span>`)}</dl>`
