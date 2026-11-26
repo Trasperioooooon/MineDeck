@@ -419,12 +419,14 @@
      11-26 作者又改了一轮：标题「让朋友连进来」→「配置联机与访问」，拿掉「朋友怎么连」（四张卡贴到块的顶上，下面的节点多露一截），
        「用已有的」→「已有隧道」，「自己的 frps」→「自建 frps」、「自建服务器」→「连接自有服务端」，「搜节点」→「搜索节点」；
        底部拿掉 online-mode、white-list 两个代码名，正版验证那块缩到只包住开关和字，「白名单只认名字」那句拿掉；名单框的提示只在一个名字都没有时出现，
-       名单多了框两头淡出，鼠标移到两头自动往那边滑。上面写的「朋友怎么连」「自己的 frps」「正版验证那块说……」都是改之前的样子 */
+       名单多了框两头淡出，鼠标移到两头自动往那边滑。上面写的「朋友怎么连」「自己的 frps」「正版验证那块说……」都是改之前的样子。
+     11-26 作者又说局域网和自建 frps 两页都太空：并成一张卡「局域网 / 自建 frps」，四张卡变三张；那一页左右两块，左边局域网的地址，右边自建 frps，用开关打开（默认关） */
   .setp.link { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; height: 540px; }
   .setp.link .col { padding: 18px 20px; gap: 12px; min-height: 0; } /* 11-26 拿掉了「朋友怎么连」，四张卡贴到块的顶上，间距 14 收成 12，下面的节点多露一截 */
   /* 叠三层：最下面四块底色（.vslot），中间滑动的高亮框（.vhl），最上面卡片的字（.vcard，本身透明）。
      原来底色画在卡片上、卡片又压在高亮框上面，框滑过别的卡时被那张卡的底色挡住一截（作者 11-26 截图指出）。底色和卡片用同一格（grid-column）叠在一起 */
-  .vias { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; flex: none; }
+  /* 11-26 作者：局域网和自建 frps 两页都太空，并成一张卡、一页两块，四张卡变三张 */
+  .vias { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; flex: none; }
   .vslot { grid-row: 1; position: relative; z-index: 0; border-radius: 12px; background: color-mix(in srgb, var(--surface) 70%, transparent); }
   .vias .vhl { position: absolute; z-index: 1; left: 0; top: 0; bottom: 0; border-radius: 12px; background: var(--accent-subtle); pointer-events: none;
                box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
@@ -439,12 +441,32 @@
   .dot.ok { background: var(--success); }
   .vdet { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
   .vdet > .lb, .keyb .lb { font-size: 12.5px; color: var(--muted); font-weight: 500; }
-  .vdet > .addr, .keyb, .frps { width: 100%; max-width: 560px; }
+  .vdet > .addr, .keyb { width: 100%; max-width: 560px; }
   .addr { display: flex; align-items: center; height: 40px; padding: 0 6px 0 12px; border-radius: 10px; background: var(--field); border: 1px solid var(--border); box-sizing: border-box; }
   .addr .mono { font-size: 14px; }
   .addr .unk { margin-left: 2px; font-size: 12.5px; color: var(--faint); }
   .addr .sp { flex: 1; }
-  .lanhint { font-size: 12px; color: var(--faint); }
+  /* 「局域网 / 自建 frps」那一页：左右两块一样高，占满卡片下面的地方。左边局域网（地址大字、能复制），右边自建 frps（开关在字的左边，关着时四个框淡着、点哪儿都是打开）。
+     两块直接放在 .vdet 里，换卡时同别的页一样逐项换；圆角同上面卡片的底色（12，离外框够远，不受同心圆角的限制） */
+  .vdet:has(> .lanp) { flex-direction: row; gap: 10px; }
+  .lanp { flex: 1; min-width: 0; border-radius: 12px; background: color-mix(in srgb, var(--surface) 70%, transparent); padding: 16px 20px 20px; box-sizing: border-box;
+          display: flex; flex-direction: column; }
+  .lanp .lh { display: flex; align-items: center; gap: 10px; height: 24px; flex: none; }
+  .lanp .lh > .ico { width: 16px; height: 16px; color: var(--muted); }
+  .lanp .lh .t { font-size: 13.5px; font-weight: 600; }
+  .lanp .lh .tg { flex: none; gap: 10px; margin: 0; }
+  .lanp .lh .tg .m { flex: none; }
+  .lanp .lh .tg .sw { order: -1; }
+  .lanp .lbody { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+  .lanp .lb { font-size: 12.5px; color: var(--muted); font-weight: 500; }
+  .bigaddr { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .bigaddr .mono { font-size: 24px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bigaddr .unk { font-size: 12.5px; color: var(--faint); margin-left: 4px; white-space: nowrap; }
+  .frpp .frps { transition: opacity .2s; }
+  .frpp:not(.on) { cursor: pointer; }
+  .frpp:not(.on) .frps { opacity: .7; pointer-events: none; }
+  .frpp.off { cursor: default; }
+  .frpp.off .lh .tg { pointer-events: none; opacity: .45; }
   .ib { width: 28px; height: 28px; border-radius: 4px; border: 0; background: none; color: var(--muted); display: grid; place-items: center; cursor: pointer; padding: 0; transition: background .2s, color .2s; }
   .ib:hover { background: var(--hover); color: var(--text); }
   .ib .ico { width: 15px; height: 15px; }
@@ -1091,14 +1113,14 @@ function checkSettings() {
 // 所以地址那里照程序说「端口启动后才知道」，三个穿透选项灰掉，要等那之后在「联机」里开；「谁能进」换成一句说明
 const LINK = { via: "lan", sakura: false, connecting: false, key: "", saveKey: true, pub: false, tab: { openfrp: "new", sakura: "new" }, filter: "all", q: "",
   show: { full: false, off: false, perm: false }, node: { openfrp: "", sakura: "" }, use: { openfrp: "", sakura: "" },
-  frps: { host: "", port: "7000", token: "", remote: "" }, names: [] };
+  frpsOn: false, frps: { host: "", port: "7000", token: "", remote: "" }, names: [] };
 const LAN_IP = "192.168.1.5";
-const VIAS = [["lan", "局域网"], ["openfrp", "OpenFrp"], ["sakura", "樱花穿透"], ["frps", "自建 frps"]];
+// 11-26 作者：局域网和自建 frps 两页都太空，并成一张卡（下面一页左右两块），自建 frps 在那一页里用开关打开
+const VIAS = [["lan", "局域网 / 自建 frps"], ["openfrp", "OpenFrp"], ["sakura", "樱花穿透"]];
 const VIA_TIP = {
-  lan: "和你连同一个 Wi-Fi、同一个路由器的朋友能进",
+  lan: "和你连同一个 Wi-Fi、同一个路由器的朋友能进；有自己的 frp 服务器的，打开「自建 frps」，外地的朋友也能进",
   openfrp: "用 OpenFrp 的内网穿透，外地的朋友也能进；MineDeck 在平台上建一条隧道，跟着服务器一起启动",
   sakura: "用樱花的内网穿透，外地的朋友也能进；MineDeck 在平台上建一条隧道，跟着服务器一起启动",
-  frps: "有自己的 frp 服务器才用这个",
 };
 const isTun = k => k === "openfrp" || k === "sakura";
 const tabOf = k => LINK.tab[k] || "new"; // 「新建隧道 / 用已有的」两个平台各记各的
@@ -1153,15 +1175,14 @@ const PLAT_TUNS = {
   sakura: [{ n: "survival_01", t: "TCP", node: "浙江移动PLUS1", lp: 25565 }, { n: "voice_01", t: "UDP", node: "浙江移动PLUS1", lp: 24454 }],
 };
 const nodesOf = k => k === "openfrp" ? OF_NODES : SK_NODES;
-const ltg = (key, t, tip) => `<div class="tg sm${LINK[key] ? " on" : ""}" data-ltg="${key}" title="${esc(tip)}"><div class="m"><div class="t">${t}</div></div><span class="sw"></span></div>`;
+const ltg = (key, t, tip, on = LINK[key]) => `<div class="tg sm${on ? " on" : ""}" data-ltg="${key}" title="${esc(tip)}"><div class="m"><div class="t">${t}</div></div><span class="sw"></span></div>`;
 const nchip = n => `<span class="nchip" data-name="${esc(n)}">${esc(n)}<span class="nx" data-unname="${esc(n)}" title="拿掉"><i data-ic="x"></i></span></span>`;
 const shakeEl = el => el?.animate([{ transform: "none" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "none" }],
   { duration: 360, easing: "cubic-bezier(.3, .7, .2, 1)" });
 function viaMeta(k) {
-  if (k === "lan") return "同一 Wi-Fi";
+  if (k === "lan") return "同一 Wi-Fi / 连接自有服务端"; // 两句都是作者定过的（原来两张卡各自的第二行）
   if (k === "openfrp") return `<i class="dot ok"></i>${OF_USER.name} · ${TIER_NAME[OF_USER.tier] || "普通用户"}`;
   if (k === "sakura") return LINK.sakura ? `<i class="dot ok"></i>${SK_USER.name}` : `<i class="dot"></i>未连接`;
-  return "连接自有服务端";
 }
 // 这个节点为什么用不了：[哪一类, 悬停的话]，用得了返回 null。满载、离线、无权限三类照「满载 / 离线 / 无权限」三个勾决定藏不藏；公开招人那类不藏、灰着
 function nodeWhy(k, x) {
@@ -1250,20 +1271,34 @@ function sakuraKey() {
 // 卡片下面那一块
 function viaDetail() {
   const v = viaOf();
-  if (v === "lan") {
-    const proxy = isProxyCore();
-    return `<span class="lb" title="同一局域网的朋友在游戏里添加服务器时填这个">朋友填这个地址</span>
-    <div class="addr"><span class="mono">${LAN_IP}:${proxy ? "" : esc(SET.port)}</span>${proxy ? `<span class="unk" title="代理端的端口写在它自己的配置文件里，第一次启动才生成">端口启动后才知道</span>`
-      : `<span class="sp"></span><button class="ib" data-act="copy" title="复制"><i data-ic="copy"></i></button>`}</div>
-    ${proxy ? "" : `<span class="lanhint">外地朋友要用穿透</span>`}`; // 代理端三个穿透选项都灰着，这句不说
-  }
+  if (v === "lan") return lanPage();
   if (v === "sakura" && !LINK.sakura) return sakuraKey();
-  if (isTun(v)) return nodePanel(v);
-  return `<div class="frps" title="有自己的 frp 服务器才用这个；本地端口 ${esc(SET.port)}">`
-    + `<input class="inp" id="fhost" placeholder="服务器地址" value="${esc(LINK.frps.host)}" autocomplete="off" spellcheck="false">`
-    + `<input class="inp" id="fport" placeholder="端口" value="${esc(LINK.frps.port)}" inputmode="numeric">`
-    + `<input class="inp" id="ftoken" type="password" placeholder="令牌（可空）" value="${esc(LINK.frps.token)}">`
-    + `<input class="inp" id="fremote" placeholder="公网端口" value="${esc(LINK.frps.remote)}" inputmode="numeric" title="朋友连的端口；空着就和本地端口一样（${esc(SET.port)}）"></div>`;
+  return nodePanel(v);
+}
+// 「局域网 / 自建 frps」那一页：左边局域网的地址，右边自建 frps（开关打开才用）。原来是两张卡、两页，各自只有一行东西，太空（作者 11-26）。
+// 代理端的端口第一次启动才知道，自建 frps 同另外两个穿透一样灰着，等启动过以后在「联机」里开
+function lanPage() {
+  const proxy = isProxyCore(), on = LINK.frpsOn && !proxy, fd = on ? "" : " tabindex=\"-1\"";
+  const lan = `<div class="lanp"><div class="lh"><i data-ic="wifi"></i><span class="t">局域网</span></div>`
+    + `<div class="lbody"><span class="lb" title="同一局域网的朋友在游戏里添加服务器时填这个">朋友填这个地址</span>`
+    + `<div class="bigaddr"><span class="mono">${LAN_IP}:${proxy ? "" : esc(SET.port)}</span>`
+    + (proxy ? `<span class="unk" title="代理端的端口写在它自己的配置文件里，第一次启动才生成">端口启动后才知道</span>`
+      : `<button class="ib" data-act="copy" title="复制"><i data-ic="copy"></i></button>`) + `</div></div></div>`;
+  const frp = `<div class="lanp frpp${on ? " on" : ""}${proxy ? " off" : ""}" title="${esc(proxy ? "代理端的端口第一次启动以后才知道，启动过以后在服务器的「联机」里开" : on ? "" : "有自己的 frp 服务器才用这个，点一下打开")}">`
+    + `<div class="lh">${ltg("frpsOn", "自建 frps", "MineDeck 带着 frpc 连你自己的 frps，外地的朋友也能进", on)}</div>`
+    + `<div class="lbody"><div class="frps" title="本地端口 ${esc(SET.port)}">`
+    + `<input class="inp" id="fhost" placeholder="服务器地址" value="${esc(LINK.frps.host)}" autocomplete="off" spellcheck="false"${fd}>`
+    + `<input class="inp" id="fport" placeholder="端口" value="${esc(LINK.frps.port)}" inputmode="numeric"${fd}>`
+    + `<input class="inp" id="ftoken" type="password" placeholder="令牌（可空）" value="${esc(LINK.frps.token)}"${fd}>`
+    + `<input class="inp" id="fremote" placeholder="公网端口" value="${esc(LINK.frps.remote)}" inputmode="numeric" title="朋友连的端口；空着就和本地端口一样（${esc(SET.port)}）"${fd}></div></div></div>`;
+  return lan + frp;
+}
+// 自建 frps 开关一动：四个框淡进淡出，打开时光标落在服务器地址
+function afterFrps() {
+  const p = document.querySelector(".frpp"); if (!p) return;
+  p.classList.toggle("on", LINK.frpsOn); p.title = LINK.frpsOn ? "" : "有自己的 frp 服务器才用这个，点一下打开";
+  p.querySelectorAll(".frps .inp").forEach(i => { if (LINK.frpsOn) i.removeAttribute("tabindex"); else { i.tabIndex = -1; i.classList.remove("bad"); } });
+  if (LINK.frpsOn) document.getElementById("fhost")?.focus({ preventScroll: true });
 }
 const WL_PH = "输入玩家名，回车添加";
 // 底部两块的开关：只有字（不写 online-mode、white-list），开关在字的左边
@@ -1455,10 +1490,13 @@ function afterWho(k) {
     if (SET.wl) setTimeout(() => document.getElementById("wlname")?.focus({ preventScroll: true }), 220);
   }
 }
-// 点「创建服务器」前：穿透平台要能用——樱花得先连上；OpenFrp、樱花得选好节点（或挑好一条已有的隧道）；自己的 frps 得填地址
+// 点「创建服务器」前：穿透平台要能用——樱花得先连上；OpenFrp、樱花得选好节点（或挑好一条已有的隧道）；打开了自建 frps 就得填地址
 function checkLink() {
   const v = viaOf();
-  if (v === "lan") return true;
+  if (v === "lan") {
+    if (!LINK.frpsOn || isProxyCore() || LINK.frps.host.trim()) return true;
+    const h = document.getElementById("fhost"); h?.classList.add("bad"); h?.focus(); shakeEl(h); return false;
+  }
   if (v === "sakura" && !LINK.sakura) { const inp = document.getElementById("skey"); inp?.classList.add("bad"); inp?.focus(); shakeEl(inp); return false; }
   if (isTun(v)) {
     const need = tabOf(v) === "new" ? (!LINK.node[v] && "先选一个节点") : (!LINK.use[v] && "先选一条隧道");
@@ -1467,7 +1505,6 @@ function checkLink() {
     shakeEl(document.querySelector(".nwrap"));
     return false;
   }
-  if (!LINK.frps.host.trim()) { const h = document.getElementById("fhost"); h.classList.add("bad"); h.focus(); shakeEl(h); return false; }
   return true;
 }
 function render() {
@@ -1759,7 +1796,9 @@ document.getElementById("page").addEventListener("click", e => {
   const vo = e.target.closest("[data-via]"), lt = e.target.closest("[data-ltg]"), rn = e.target.closest("[data-unname]");
   const nd = e.target.closest("[data-node]"), us = e.target.closest("[data-use]"), nf = e.target.closest("[data-nfil]");
   if (vo) { if (!vo.classList.contains("on") && !vo.classList.contains("off")) pickVia(vo.dataset.via); return; }
-  if (lt) { LINK[lt.dataset.ltg] = !LINK[lt.dataset.ltg]; lt.classList.toggle("on", LINK[lt.dataset.ltg]); if (lt.dataset.ltg === "pub") afterPub(); return; }
+  if (lt) { LINK[lt.dataset.ltg] = !LINK[lt.dataset.ltg]; lt.classList.toggle("on", LINK[lt.dataset.ltg]); if (lt.dataset.ltg === "pub") afterPub(); if (lt.dataset.ltg === "frpsOn") afterFrps(); return; }
+  const fp = e.target.closest(".frpp:not(.on):not(.off)"); // 自建 frps 关着时点那一块哪儿都是打开
+  if (fp) { LINK.frpsOn = true; fp.querySelector("[data-ltg]")?.classList.add("on"); afterFrps(); return; }
   if (rn) { removeName(rn.dataset.unname); return; }
   if (nd) { pickNode(nd); return; }
   if (us) { pickUse(us); return; }
