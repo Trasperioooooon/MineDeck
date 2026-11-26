@@ -1,0 +1,930 @@
+// 后台任务 / 进度页草图的脚本（11-27 夜里第一稿）。怎么看、和程序哪里不一样都写在 task.html 开头。
+// 做法：每种任务一份「过程」（ops，照 Go 里 StartStep / Logf / ProgressFn 的先后排），草图参数 st 决定停在哪一帧：
+//   进行中、下载慢、连不上停在 m 标记那里；失败在 fail 标记那里出错；取消在 cancel 标记那里收下取消；完成、部分完成跑到底。
+//   ?play=1 不是直接画出来，而是从第一步起照这份过程一样一样往下走，走到这个 st 的结尾（失败就在那一步出错，下载慢就在那里卡一会儿再接着走）。
+// 页面骨架只建一次（build），之后每一处一个小函数（paintHead、paintSteps、paintProg……），只改变了的那一处。
+(() => {
+  const QS = new URLSearchParams(location.search);
+  const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const IN = "cubic-bezier(.4, 0, 1, 1)", OUT = "cubic-bezier(.2, .7, .2, 1)", SLIDE = "cubic-bezier(.3, .7, .2, 1)", SINK = "cubic-bezier(.4, 0, .2, 1)";
+  const icon = (n, c = "") => window.KIT.icon(n, c);
+  const hy = el => { window.KIT.hydrate(el); return el; };
+  const wait = ms => new Promise(ok => setTimeout(ok, ms));
+  const MB = 1048576, CELLS = 30;
+  // 同程序 fmtBytes
+  const fmtBytes = n => { if (n <= 0) return ""; const u = ["B", "KB", "MB", "GB"]; let i = 0; while (n >= 1024 && i < 3) { n /= 1024; i++; } return n.toFixed(i ? 1 : 0) + " " + u[i]; };
+  const shake = el => el?.animate([{ transform: "none" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "none" }],
+    { duration: 360, easing: SLIDE });
+  // 去别的草图：配色参数带过去
+  const link = (page, params = {}) => { const q = new URLSearchParams(); ["theme", "scheme", "accent"].forEach(k => QS.get(k) && q.set(k, QS.get(k))); Object.entries(params).forEach(([k, v]) => q.set(k, v)); const s = q.toString(); return page + (s ? "?" + s : ""); };
+
+  // ================= 示例数据（都是编的；名字、核心、版本和首页提示浮层、共用件页、详情页的示例对上） =================
+  const SRV = {
+    test: { name: "测试服", core: "paper", label: "Paper", mc: "1.21.4", detail: "paper" },              // 首页浮层 t3「创建服务器 测试服（paper 1.21.4）」
+    gear: { name: "机械动力：齿轮之城", core: "forge", label: "Forge", mc: "1.20.1", detail: "forge" },     // 首页浮层 t5（进行中，下载整合包文件）
+    tinker: { name: "匠魂整合", core: "neoforge", label: "NeoForge", mc: "1.21.1", detail: "forge" },      // 首页浮层 t4（3 个文件待处理），文件同 commons 的 PND
+    old: { name: "怀旧服", core: "paper", label: "Paper", mc: "1.16.5", detail: "paper", dir: "D:\\MC\\怀旧服" },
+    friend: { name: "生存服 · 朋友", core: "paper", label: "Paper", mc: "1.21.4", detail: "paper" },      // 详情页、设置页里的那台
+    handed: { name: "朋友的生存服", core: "paper", label: "Paper", mc: "1.21.4", detail: "paper", pack: "生存服-朋友-交接包-20261127-221530.mdpack" },
+    sky: { name: "空岛服", core: "purpur", label: "Purpur", mc: "1.21.4", detail: "paper", zip: "空岛服务端.zip" },
+  };
+  const JDK21 = "MineDeck\\runtimes\\java\\jdk-21.0.5+11\\bin\\java.exe";
+  const NET_HINT = "网络请求超时，请检查网络或代理后再试", DISK_HINT = "磁盘剩余空间不足，请清理磁盘空间或更换存放位置后再试";
+  const SLOW_TIP = "下载慢或在重试。可以检查网络或代理；网络恢复后会自动接着下载，不需要重新开始。"; // 程序原话，进悬停
+  // 程序 LEFTOVER_HINT；「服务器页」照重构以后的叫法改成「首页」（首页提示浮层里的「没建完的文件夹」）
+  const LEFTOVER_HINT = "文件夹没删干净：这次建了一半的会列在首页上方「没建完的文件夹」里，到那里处理。";
+  const EXPORT_PATH = "D:\\MC\\交接包\\生存服-朋友-交接包-20261127-221530.mdpack";
+  const CREATE_STEPS = ["解析版本信息", "准备 Java 运行时", "下载服务端核心", "安装服务端", "写入配置文件", "生成启动脚本"]; // inst/install.go createSteps
+
+  // 新建 / 导入整合包这两种是同一类任务（Go 里 kind 为空），说法同程序 TASK_KINDS[""]
+  const T_CREATE = { title: "正在创建服务器", sub: "正在下载 Java 和服务端。", done: "服务器已建好", doneSub: "Java、服务端与配置均已就绪",
+    fail: "服务器没有建好", cx: "已取消创建", cxBtn: "取消创建", failHint: "已下载的文件有缓存，再试一次很快。", go: "完成，进入控制台" };
+  const ASK_CREATE = { title: s => `取消创建<span class="nw">「${esc(s.name)}」？</span>`, body: "建了一半的文件夹会删掉，已经下载的文件留在缓存里。", keep: "继续创建" };
+
+  // Forge / NeoForge 的建服过程（下载安装器、预放原版服务端、跑官方安装器），导入整合包多两步
+  const forgeOps = o => [
+    { s: 0 }, { l: `MC ${o.mc} 需要 Java ${o.java}（来自官方元数据）` },
+    { s: 1 }, { l: `使用本机已安装的 Java ${o.java}（${o.jv}）: MineDeck\\runtimes\\java\\${o.jdk}\\bin\\java.exe` }, { l: `Java 就绪: MineDeck\\runtimes\\java\\${o.jdk}\\bin\\java.exe` },
+    { s: 2 }, { p: `下载 ${o.installer}`, b: o.insMb * MB }, { l: "预放置原版服务端（加速安装器）" }, { m: "cancel", f: .55 }, { p: "下载 server.jar", b: o.vanMb * MB },
+    { s: 3 }, { l: "运行官方安装器（将从网络下载依赖库，耗时视网络情况数分钟）..." },
+    { l: `[安装器] JVM info: Eclipse Adoptium - ${o.jv} - ${o.jv}+11` }, { l: "[安装器] Target Directory: ." }, { l: "[安装器] Extracting main jar:" },
+    { l: `[安装器] Considering library ${o.lib}` }, { l: "[安装器] Considering library net.minecraftforge:JarJarFileSystems:0.3.19" },
+    { l: "……（中间的 236 行太多，没有保留）……" },
+    { l: "[安装器] Processor: net.minecraftforge:binarypatcher:1.1.1:fatjar" }, { l: "[安装器] \tSplitting: done" }, { l: "[安装器] The server installed successfully" },
+    { l: `启动目标: args:@libraries/${o.libPath}/win_args.txt` },
+    { s: 4 }, { s: 5 },
+    { s: 6 }, { m: "run", f: .41 }, { m: "slow", f: .41 }, { m: "fail", f: .66 }, { p: "下载整合包文件", b: o.packMb * MB }, { l: `整合包文件下载完成（${o.files} 个）` },
+    ...(o.partial ? [{ l: "⚠ 1 个文件无法自动下载（没有填 API Key），记进了没装上的文件，导入完成后可以逐个处理" }] : []),
+    { s: 7 }, { l: "白名单：关（任何知道地址的人都能进）" }, { l: "服务器创建完成 ✔" },
+  ];
+
+  // 每种任务：说法（T，照 app.js TASK_KINDS 原话）、步骤名（照 Go 里各自的 steps）、过程（ops）和几种结尾
+  const KINDS = {
+    create: { label: "创建", from: "new", srv: SRV.test, cancel: true, edit: ["wizard.html"], T: T_CREATE, ask: ASK_CREATE,
+      steps: CREATE_STEPS, cxText: "已取消，没有创建服务器",
+      ops: () => [
+        { s: 0 }, { l: "MC 1.21.4 需要 Java 21（来自官方元数据）" },
+        { s: 1 }, { l: "需要 Java 21，开始下载便携式运行时（不影响系统环境）" }, { l: "按 Adoptium 公布的 SHA-256 从清华镜像下载 OpenJDK21U-jdk_x64_windows_hotspot_21.0.5_11.zip" },
+        { m: "cancel", f: .62 }, { p: "下载 Java 21", b: 195.6 * MB }, { l: `Java 就绪: ${JDK21}` },
+        { s: 2 }, { m: "run", f: .37 }, { m: "slow", f: .37 }, { m: "fail", f: .37 }, { p: "下载 paper-1.21.4-232.jar", b: 51.2 * MB },
+        { s: 3 }, { l: "该核心无需安装步骤，跳过" },
+        { s: 4 }, { l: "白名单：关（任何知道地址的人都能进）" },
+        { s: 5 }, { l: "服务器创建完成 ✔" },
+      ],
+      // 下载服务端核心走 fetchToInstance，出问题会报 NetRetry（主机名、什么问题、第几次）：「下载慢」有两种标题
+      slow: { net: { host: "api.papermc.io", what: "下载失败", count: 3 }, idle: 47,
+        pre: ["从 api.papermc.io 下载 paper-1.21.4-232.jar 没成功（读取超时），换下一个下载源或稍后重试", "从 api.papermc.io 下载 paper-1.21.4-232.jar 没成功（读取超时），换下一个下载源或稍后重试", "从 api.papermc.io 下载 paper-1.21.4-232.jar 没成功（读取超时），换下一个下载源或稍后重试"] },
+      fail: { pre: ["从 api.papermc.io 下载 paper-1.21.4-232.jar 没成功（读取超时），换下一个下载源或稍后重试", "从 fill-data.papermc.io 下载 paper-1.21.4-232.jar 没成功（HTTP 403），换下一个下载源或稍后重试"],
+        err: "多次尝试后仍下载失败（api.papermc.io: 读取超时；fill-data.papermc.io: HTTP 403（源站拒绝访问：可能是机器人防护、链接失效或没有权限））", hint: NET_HINT,
+        leftover: "remove MineDeck\\servers\\测试服\\cache\\paper-1.21.4-232.jar: The process cannot access the file because it is being used by another process." },
+      go: s => link("detail.html", { kind: s.detail }) },
+
+    pack: { label: "整合包", from: "new", srv: SRV.gear, cancel: true, edit: ["import.html", { flow: "modpack" }], T: T_CREATE, ask: ASK_CREATE,
+      cover: "导入整合包", steps: [...CREATE_STEPS, "下载整合包文件", "应用整合包覆盖"], cxText: "已取消，没有创建服务器",
+      ops: s => s === SRV.tinker
+        ? forgeOps({ mc: "1.21.1", java: 21, jv: "21.0.5", jdk: "jdk-21.0.5+11", installer: "neoforge-21.1.77-installer.jar", insMb: 5.9, vanMb: 51.6, lib: "net.neoforged:neoforge:21.1.77",
+            libPath: "net/neoforged/neoforge/21.1.77", packMb: 268.3, files: 214, partial: true })
+        : forgeOps({ mc: "1.20.1", java: 17, jv: "17.0.13", jdk: "jdk-17.0.13+11", installer: "forge-1.20.1-47.3.0-installer.jar", insMb: 7.1, vanMb: 47.4, lib: "net.minecraftforge:forge:1.20.1-47.3.0",
+            libPath: "net/minecraftforge/forge/1.20.1-47.3.0", packMb: 312.5, files: 186 }),
+      // 整合包文件的下载不报 NetRetry（dl.Fetch 没传 OnRetry），只会是「多久没有新进度」
+      slow: { idle: 47 },
+      fail: { pre: [], err: "下载整合包文件失败：create-1.20.1-0.5.1.j.jar：多次尝试后仍下载失败（cdn.modrinth.com: 读取超时）", hint: NET_HINT,
+        leftover: "remove MineDeck\\servers\\机械动力：齿轮之城\\mods: The process cannot access the file because it is being used by another process." },
+      // 有文件没装上（首页浮层 t4）：换成匠魂整合；文件和原因同共用件页「没装上的文件」那三个
+      partial: { srv: SRV.tinker,
+        warnings: [
+          { kind: "cf-unresolved", merged: true },
+          { kind: "import-pending", merged: true },
+          { kind: "import-skipped", title: "2 个文件没有装进来", note: "导入时跳过了这些文件，原因写在每一项后面。只给客户端用的本来就不该装在服务器上；要用别的，导入完成以后自己放进服务器文件夹。",
+            items: [{ name: "mods/oculus-mc1.21.1-1.8.0.jar（整合包清单里写明只给客户端用）", mono: true }, { name: "mods/sodiumextras-neoforge-1.0.7.jar（整合包清单里写明只给客户端用）", mono: true }] },
+          // 程序这条告警下面有一颗「去「设置 → 启动与内存」换 Java」；模组名是编的
+          { kind: "java-req", title: "有模组要求 Java 25，这台服务器现在是 Java 21",
+            note: "这只是提醒，不影响导入结果。装着这样的模组启动可能失败或部分功能不工作；要换的话到「设置 → 启动与内存」里选（MineDeck 可以自动下载便携版），也可以先保持现状。",
+            items: [{ name: "example-optimizer" }], act: ["gojava", "去换 Java", "去「设置 → 启动与内存」换 Java"] },
+        ],
+        pending: [
+          { id: "p1", p: "mods/toughasnails-neoforge-1.21.1-10.0.0.jar", why: "没有 CurseForge API Key", note: "「Tough As Nails」：没有填 CurseForge API Key，不能自动下载。保留本地已有的文件，或者手动放一份", opts: ["skip", "local"], url: "https://www.curseforge.com/minecraft/mc-mods/tough-as-nails" },
+          { id: "p2", p: "mods/sophisticatedbackpacks-1.21.1-3.23.4.jar", why: "站点不在允许列表里", host: "mediafilez.forgecdn.net", note: "下载地址不在 MineDeck 允许的站点列表里（只允许 Modrinth、GitHub、GitLab），确认站点可信后才能下载", opts: ["skip", "local", "trust"], url: "https://mediafilez.forgecdn.net/files/5/8/sophisticatedbackpacks-1.21.1-3.23.4.jar" },
+          { id: "p3", p: "mods/custom-tweaks-1.0.jar", why: "整合包没给校验值", note: "整合包没有提供这个文件的校验值，自动下载没法核对，不能用下载替代你手里的文件", opts: ["skip", "local"] },
+        ],
+        skipped: [{ id: "p0", p: "mods/jei-1.21.1-neoforge-19.21.0.247.jar", why: "整合包没给校验值", note: "整合包没有提供这个文件的校验值，自动下载没法核对，不能用下载替代你手里的文件", opts: ["skip", "local"] }],
+      },
+      go: s => link("detail.html", { kind: s.detail, tab: "addons" }) },
+
+    adopt: { label: "接管", from: "new", srv: SRV.old, edit: ["import.html", { flow: "adopt" }],
+      T: { title: "正在接管服务器", sub: "正在检查文件夹、准备 Java。世界和配置不会动（换了端口的只改端口这一项）。", done: "服务器已接管", doneSub: "已经收进 MineDeck，可以在这里启动和管理了",
+        fail: "服务器没有接管成", failHint: "服务器文件夹里的东西没有被删掉或改坏，可以再试一次。", go: "完成，进入控制台" },
+      steps: ["检查服务器文件夹", "准备 Java 运行时", "登记到 MineDeck"],
+      ops: (s, st) => [
+        { s: 0 }, { l: "服务器文件夹：D:\\MC\\怀旧服" }, { l: "启动方式：paper-1.16.5-794.jar" },
+        { s: 1 }, { l: "MC 1.16.5 需要 Java 8（来自官方元数据）" }, { l: "需要 Java 8，开始下载便携式运行时（不影响系统环境）" },
+        { l: "按 Adoptium 公布的 SHA-256 从清华镜像下载 OpenJDK8U-jdk_x64_windows_hotspot_8u432b06.zip" },
+        { m: "run", f: .58 }, { m: "slow", f: .58 }, { m: "fail", f: .58 }, { p: "下载 Java 8", b: 102.3 * MB }, { l: "Java 就绪: MineDeck\\runtimes\\java\\jdk8u432-b06\\bin\\java.exe" },
+        { s: 2 }, st === "partial" ? { l: "⚠ " + LOG4J_TITLE + "。" + LOG4J_NOTE } : { l: "已启用 log4shell 漏洞缓解（Mojang 官方方案，log4j2_112-116.xml）" },
+        { l: "已写入 eula.txt（你在上一步同意了 Minecraft EULA）" }, { l: "接管完成 ✔ 世界、模组、插件和配置文件都没有动" },
+      ],
+      slow: { idle: 47 }, // Java 的下载不报 NetRetry
+      fail: { pre: ["清华镜像这条路没走通（读取超时），切换 Adoptium 官方源"], err: "多次尝试后仍下载失败（github.com: 读取超时；objects.githubusercontent.com: 读取超时）", hint: NET_HINT },
+      partial: { warnings: [{ kind: "custom-log4j", title: "", note: "" }] }, // 标题、说明在下面补（LOG4J_*）
+      go: s => link("detail.html", { kind: s.detail }) },
+
+    java: { label: "Java", from: "inst", srv: SRV.friend,
+      T: { title: "正在更换 Java", sub: "本机没有这个版本的 Java，正在下载一份（不改系统里的 Java）。", done: "Java 已换好", doneSub: "下次启动这台服务器时生效",
+        fail: "Java 没有换成", failHint: "这台服务器还在用原来的 Java，可以返回重试。", go: "完成，回到服务器" },
+      cover: "Java 21", steps: ["准备 Java 运行时", "换上新的 Java"], showDoneSub: true,
+      ops: () => [
+        { s: 0 }, { l: "需要 Java 21，开始下载便携式运行时（不影响系统环境）" }, { l: "按 Adoptium 公布的 SHA-256 从清华镜像下载 OpenJDK21U-jdk_x64_windows_hotspot_21.0.5_11.zip" },
+        { m: "run", f: .52 }, { m: "slow", f: .52 }, { m: "fail", f: .52 }, { p: "下载 Java 21", b: 195.6 * MB },
+        { s: 1 }, { l: `已换成 Java 21：${JDK21}（下次启动生效）` },
+      ],
+      slow: { idle: 47 },
+      fail: { pre: ["清华镜像这条路没走通（读取超时），切换 Adoptium 官方源"], err: "多次尝试后仍下载失败（github.com: 读取超时；objects.githubusercontent.com: 读取超时）", hint: NET_HINT },
+      go: s => link("detail.html", { kind: s.detail, tab: "settings", sub: "jvm" }) },
+
+    export: { label: "导出", from: "inst", srv: SRV.friend,
+      T: { title: "正在导出交接包", sub: "正在把世界、配置、模组和插件打包成一个文件。服务器不会被改动。", done: "交接包已导出", doneSub: "交接包已生成，文件位置在这一页的日志里",
+        fail: "交接包没有导出成", failHint: "没有留下不完整的包，可以重试（包的特征见任务日志）。", go: "完成" },
+      steps: ["收集清单", "打包交接包", "收尾"],
+      ops: () => [
+        { s: 0 }, { l: "含世界、配置、模组与名单（logs、崩溃报告与锁定文件不进包）" }, { l: "插件 12 个" }, { l: "待打包 1834 个文件、486.2 MB" },
+        { s: 1 }, { m: "run", f: .44 }, { m: "slow", f: .44 }, { m: "fail", f: .81 }, { p: "打包交接包（已 {n} 个文件）", b: 486.2 * MB, files: 1834 },
+        { l: "交接包大小：402.7 MB（含世界 388.1 MB）" }, { l: "把整个文件发给接手的人，对方在「新建服务器」页选「交接包」导入即可" },
+        { s: 2 }, { l: `交接包已生成: ${EXPORT_PATH}` }, { fin: EXPORT_PATH },
+      ],
+      slow: { idle: 47 },
+      fail: { pre: [], err: `write ${EXPORT_PATH}.part: There is not enough space on the disk.`, hint: DISK_HINT },
+      go: () => link("home.html") },
+
+    import: { label: "导入", from: "new", srv: SRV.handed, edit: ["import.html", { flow: "transfer" }],
+      T: { title: "正在导入交接包", sub: "正在准备 Java、下载核心并解包。世界、配置、模组和插件都会保留。", done: "交接包已导入",
+        doneSub: "世界、配置、模组和插件都带过来了，可以启动了。没带过来的东西列在下面的日志里",
+        fail: "交接包没有导入成", failHint: "半成品的文件夹已经清理干净，可以重试。", go: "完成，进入控制台" },
+      steps: ["校验交接包", "准备 Java 运行时", "下载服务端核心", "安装服务端", "解包服务器文件", "生成启动脚本"],
+      showDoneSub: () => "没带过来的东西列在下面的日志里", // doneSub 的后半句（前半句和标题说的一样）
+      ops: () => [
+        { s: 0 }, { l: "交接包：生存服 · 朋友（paper 1.21.4，2026-11-27 22:15 导出，交接）" }, { l: "包内清单：世界 388.1 MB、模组 0 个、插件 12 个" }, { l: "包里没有：logs、崩溃报告" },
+        { s: 1 }, { l: "交接的那台用 Java 21（来自 A 的 instance.json）" }, { l: `使用本机已安装的 Java 21（21.0.5）: ${JDK21}` }, { l: `Java 就绪: ${JDK21}` },
+        { s: 2 }, { m: "run", f: .63 }, { m: "slow", f: .63 }, { p: "下载 paper-1.21.4-232.jar", b: 51.2 * MB },
+        { s: 3 },
+        { s: 4 }, { m: "fail", f: .7 }, { p: "解包交接包（已 {n} 个文件）", b: 402.7 * MB, files: 1834 }, { l: "解出 486.2 MB" },
+        { l: "原来的定时任务（2 条）和崩溃自动重启的设置没有带过来，需要的话在这台服务器的设置里重新加" },
+        { s: 5 }, { l: "交接完成 ✔ 世界、配置、模组和插件都带过来了（没带过来的东西见上面几行）" },
+      ],
+      // 下载核心经 inst.FetchArtifact → fetchToInstance，同新建，会报 NetRetry
+      slow: { net: { host: "api.papermc.io", what: "下载失败", count: 2 }, idle: 47,
+        pre: ["从 api.papermc.io 下载 paper-1.21.4-232.jar 没成功（读取超时），换下一个下载源或稍后重试", "从 api.papermc.io 下载 paper-1.21.4-232.jar 没成功（读取超时），换下一个下载源或稍后重试"] },
+      fail: { pre: [], err: "write MineDeck\\servers\\朋友的生存服\\world\\region\\r.0.0.mca: There is not enough space on the disk.", hint: DISK_HINT },
+      go: s => link("detail.html", { kind: s.detail }) },
+
+    server: { label: "服务端", from: "new", srv: SRV.sky, cancel: true, edit: ["import.html", { flow: "modpack" }],
+      T: { title: "正在导入服务端", sub: "正在解压服务端文件、准备 Java。世界、模组、插件和配置用压缩包里的。", done: "服务端已导入", doneSub: "世界、模组、插件和配置都是压缩包里的那份，可以启动了",
+        fail: "服务端没有导入成", cx: "已取消导入", cxBtn: "取消导入", failHint: "半成品的文件夹已经清理干净，可以重试。", go: "完成，进入控制台" },
+      ask: { title: s => `取消导入<span class="nw">「${esc(s.name)}」？</span>`, body: "解压了一半的文件夹会删掉。", keep: "继续导入" },
+      steps: ["解压服务端文件", "识别核心和版本", "准备 Java", "登记到 MineDeck"], cxText: "已取消，没有创建服务器",
+      ops: (s, st) => [
+        { s: 0 }, { l: "按现成服务端解压（文件在最外层）" }, { l: "解压了 2416 个文件" },
+        { s: 1 }, { l: "按接管已有服务器的办法认出：purpur 1.21.4，启动文件 purpur-1.21.4-2416.jar" },
+        ...(st === "partial" ? [{ l: "版本号 1.21.4 是从压缩包里的 logs/latest.log 认出来的（服务端 jar 里没写）" },
+          { l: "start.bat 里的这些 JVM 参数带到了「自定义 JVM 参数」：-XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Dusing.aikars.flags=https://mcflags.emc.gs" },
+          { l: "start.bat 里的这些 JVM 参数没带过来：-javaagent:authlib-injector.jar（能让 Java 另外加载程序）" }] : []),
+        { s: 2 }, { l: "使用 Java 21" }, { l: "需要 Java 21，开始下载便携式运行时（不影响系统环境）" },
+        { m: "cancel", f: .3 }, { m: "run", f: .46 }, { m: "slow", f: .46 }, { m: "fail", f: .46 }, { p: "下载 Java 21", b: 195.6 * MB }, { l: `Java 就绪: ${JDK21}` },
+        { s: 3 }, { l: "已写入 eula.txt" }, { l: "服务端导入完成 ✔ 世界、模组、插件和配置用的是压缩包里的那份，没有重新下载核心" },
+      ],
+      slow: { idle: 47 },
+      fail: { pre: ["清华镜像这条路没走通（读取超时），切换 Adoptium 官方源"], err: "多次尝试后仍下载失败（github.com: 读取超时；objects.githubusercontent.com: 读取超时）", hint: NET_HINT,
+        leftover: "remove MineDeck\\servers\\空岛服\\world\\session.lock: The process cannot access the file because it is being used by another process." },
+      partial: { warnings: [
+        { kind: "mc-from-log", title: "版本号是从日志里认出来的", note: "服务端 jar 里没写 Minecraft 版本，1.21.4 是从压缩包里的 logs/latest.log 认出来的，是这台服务器上一次开服时的版本。版本号决定用哪个 Java、要不要加 log4shell 防护；要是后来换过服务端，这里就不对了，可以先解压，用「新建服务器 → 接管已有服务器」自己填版本。" },
+        { kind: "script-jvm", title: "启动脚本里的 JVM 参数带过来 3 个，没带 1 个",
+          note: "带过来的在「设置 → 启动与内存」的自定义 JVM 参数里：-XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Dusing.aikars.flags=https://mcflags.emc.gs。它们是给原来那个 Java 写的，换了大版本以后有的可能不认（比如老的 -XX:+UseConcMarkSweepGC），开不了服就到那里删掉。只带调性能的几类（-XX: 的开关和数值、-Xss 这几样、-D 里不是 Java 自己的设置的）；内存按导入页上填的；能让 Java 另外加载程序、执行命令、往别处写文件、改代理的和日志配置一律不带，需要的话确认可信以后到「设置 → 启动与内存」里自己加。",
+          items: [{ name: "-javaagent:authlib-injector.jar（能让 Java 另外加载程序）", mono: true }] },
+      ] },
+      go: s => link("detail.html", { kind: s.detail }) },
+
+    cart: { label: "清单", from: "inst", srv: SRV.friend,
+      T: { title: "正在安装待装清单", sub: "正在下载清单里的内容和它们的前置，放进服务器的 mods 或 plugins 文件夹。", done: "待装清单已装好", doneSub: "新装的内容要重启服务器后才会生效",
+        fail: "待装清单没有装成", failHint: "可以回到这台服务器的「插件」或「模组」页，在待装清单里再装一次。已经下载的文件有缓存，重试很快。", go: "完成，进入控制台" },
+      cover: "待装清单 3 项", steps: ["挑版本、补前置", "下载文件", "放入本地文件", "核对本地依赖"], showDoneSub: true,
+      ops: (s, st) => [
+        { s: 0 }, { l: "待装清单里有 3 个 Modrinth 项目：LuckPerms、EssentialsX、Chunky" },
+        { s: 1 }, { m: "fail" }, { l: "[1/3] LuckPerms：LuckPerms-Bukkit-5.4.145.jar（1.9 MiB）" }, { p: "下载 LuckPerms-Bukkit-5.4.145.jar", b: 1.9 * MB },
+        { l: "[2/3] EssentialsX：EssentialsX-2.20.1.jar（3.1 MiB）" },
+        ...(st === "partial" ? [{ l: "  失败：多次尝试后仍下载失败（cdn.modrinth.com: 读取超时）" }]
+          : [{ m: "run", f: .58 }, { m: "slow", f: .58 }, { p: "下载 EssentialsX-2.20.1.jar", b: 3.1 * MB }]),
+        { l: "[3/3] Chunky：Chunky-Bukkit-1.4.28.jar（0.4 MiB）" }, { p: "下载 Chunky-Bukkit-1.4.28.jar", b: .4 * MB },
+        { s: 2 }, { s: 3 }, { l: "读了 3 个插件的依赖声明" }, { l: "服务器正在运行：重启后新装的才生效" }, { l: st === "partial" ? "装好了 2 个文件" : "装好了 3 个文件" },
+      ],
+      slow: { idle: 47 },
+      // 全部没下成才算失败（modcart.go：len(failed) == len(files)），一个没下成是「部分完成」
+      fail: { pre: ["[1/3] LuckPerms：LuckPerms-Bukkit-5.4.145.jar（1.9 MiB）", "  失败：多次尝试后仍下载失败（cdn.modrinth.com: 读取超时）", "[2/3] EssentialsX：EssentialsX-2.20.1.jar（3.1 MiB）",
+        "  失败：多次尝试后仍下载失败（cdn.modrinth.com: 读取超时）", "[3/3] Chunky：Chunky-Bukkit-1.4.28.jar（0.4 MiB）", "  失败：多次尝试后仍下载失败（cdn.modrinth.com: 读取超时）"],
+        err: "多次尝试后仍下载失败（cdn.modrinth.com: 读取超时）", hint: NET_HINT },
+      partial: { warnings: [{ kind: "download-failed", title: "1 个文件没下载成功", note: "待装清单先不动：检查网络或代理后再装一次，已经装上的会自动跳过，只补没装上的。",
+        items: [{ name: "EssentialsX-2.20.1.jar", mono: true }], act: ["retry", "再装一次"] }] },
+      go: s => link("detail.html", { kind: s.detail }) },
+
+    map: { label: "地图", from: "inst", srv: SRV.friend, mapName: "天空之城 SkyCity",
+      T: { title: "正在更换地图", sub: "导入地图，或者换回导入前的地图。出错时会自动退回原来的世界。", done: "地图已处理完", doneSub: "可以到这台服务器的「世界与备份 → 换地图」里查看",
+        fail: "地图没有处理完", cx: "已取消换地图", cxSub: "没有替换任何文件，原来的世界没动。", failHint: "所有文件都还在。到这台服务器的「世界与备份 → 换地图」里看现在用的是哪一份。",
+        go: "完成，回到这台服务器" },
+      cover: "天空之城 SkyCity", steps: ["核对地图和服务器", "复制地图到暂存区", "停服并占用这台服务器", "换上新地图", "完成"], cxText: "已取消，没有替换任何文件",
+      // 结果是一句给人看的话（worldimport service.go runImport 的返回值），做完放在标题下面
+      ops: () => [
+        { s: 0 }, { l: "开始导入：天空之城 SkyCity（SkyCity_v2.1.zip）" }, { l: "核对通过：地图和这台服务器对得上" },
+        { s: 1 }, { m: "cancel", f: .4 }, { m: "run", f: .46 }, { m: "slow", f: .46 }, { p: "复制地图", b: 1126 * MB }, { l: "地图已复制到暂存区（1.1 GB）" },
+        { s: 2 }, { l: "正在停止服务器（等它自己保存退出，不会强制结束）…" }, { l: "服务器已保存并退出，占用这台服务器" },
+        { s: 3 }, { m: "fail" }, { l: "原来的世界移进恢复点：world、world_nether、world_the_end" }, { l: "新地图已换上" },
+        { s: 4 }, { l: "导入前的世界留在恢复点里（2.3 GB），随时可以在「世界与备份 → 换地图」里换回来" },
+        { fin: "「生存服 · 朋友」的地图文件已导入，还没开服试过。服务器保持停止，启动后进服看看是不是这张地图" },
+      ],
+      slow: { idle: 47 },
+      fail: { pre: [], err: "导入中断，已恢复到导入前的世界：rename MineDeck\\servers\\生存服 · 朋友\\world: Access is denied.", hint: "没有读写权限，请检查文件夹权限或关闭占用它的程序" },
+      go: s => link("detail.html", { kind: s.detail, tab: "world", sub: "map" }) },
+  };
+  // 接管时文件夹里已经有一份不是官方的 log4j 配置（inst/install.go warnAdoptedCustomLog4j、log4j_migrate.go log4jXMLConflictParts 拼出来的原话）
+  var LOG4J_TITLE = "log4shell 防护：这台 1.16.5 的服务器没有套上 Mojang 的日志配置，等于没防";
+  var LOG4J_NOTE = "服务器文件夹里已经有一份 log4j2_112-116.xml，内容和官方的不一样（可能是自己改过的），MineDeck 没有覆盖它，也没有替它补上引用。要用官方的那份，把这个文件改名或挪走以后重开 MineDeck；要用自己的，在「设置 → 启动与内存」里加上 -Dlog4j.configurationFile=log4j2_112-116.xml";
+  Object.assign(KINDS.adopt.partial.warnings[0], { title: LOG4J_TITLE, note: LOG4J_NOTE });
+  // 并进「没装上的文件」那一块的两条告警（同一件事程序说了三遍：「N 个文件需手动补装」「N 个文件待处理」和处理面板），说明进那一格分段的悬停
+  const PEND_TIP = "这些文件没法自动下载。逐个处理导入才算补完整：用本地已有的文件代替、跳过，或（地址在别的站点的）确认站点后下载。跳过的以后还能在这台服务器的详情页里再处理。";
+  const ACT = { skip: "跳过", local: "用本地文件代替", trust: "信任站点并下载" };
+
+  // ================= 草图参数 =================
+  // 每种任务哪几种状态程序里真会出现：取消只有新建、导入整合包、导入服务端（程序里有取消键）和换地图（取消键在换地图那页，这页上只看得到结果）；
+  // 部分完成只有导入整合包（没装上的文件）、接管（log4j）、导入服务端（版本号、JVM 参数）、待装清单（没下载成的）。切不出来的组合在切换条上灰掉，硬写进地址时落到「进行中」
+  const CAN_CX = ["create", "pack", "server", "map"], CAN_PART = ["pack", "adopt", "server", "cart"];
+  const NET_SLOW = ["create", "import"]; // 只有下载服务端核心（inst.fetchToInstance，导入交接包经 FetchArtifact 也走它）和 Forge 安装器报 NetRetry；这两种的「慢」停在下核心那里，别的卡住只会是「多久没有新进度」
+  const STATES = { running: "进行中", slow: "慢", done: "完成", failed: "失败", cancelled: "取消", partial: "部分", lost: "连不上", gone: "不存在" };
+  const legal = (k, s) => s === "cancelled" ? CAN_CX.includes(k) : s === "partial" ? CAN_PART.includes(k) : true;
+  const KIND = Object.hasOwn(KINDS, QS.get("kind")) ? QS.get("kind") : "create";
+  let ST = Object.hasOwn(STATES, QS.get("st")) ? QS.get("st") : "running";
+  if (!legal(KIND, ST)) ST = "running";
+  const DOCK = QS.get("dock") === "sink" ? "sink" : "float";
+  const PLAY = QS.get("play") === "1", ENTER = QS.get("enter") === "1", CART = QS.get("cart") === "1";
+  const DRAFT = QS.get("draft") !== "0", LOCAL = QS.get("local") !== "0", LEFT = QS.get("leftover") === "1";
+  const WHY = QS.get("why") === "idle" || !NET_SLOW.includes(KIND) ? "idle" : "net";
+
+  // ================= 任务：照 Go 的 tasks.Task 走 =================
+  let T = null;          // 眼下这个任务
+  let playTok = 0;       // 自动往下走的那一轮，换了就作废
+  const fresh = (kindKey, srv) => { const K = KINDS[kindKey]; return { kind: kindKey, K, srv, steps: K.steps.map(n => ({ name: n, status: "pending" })), log: [], label: "", done: 0, total: 0,
+    ended: false, err: "", errHint: "", cancelled: false, cancelling: false, result: "", warnings: [], pending: [], skipped: [], net: null, idle: 0, leftover: false, last: null }; };
+  const opsOf = T => T.K.ops(T.srv, ST);
+  function startStep(i) { T.steps.forEach((s, j) => { if (j < i && s.status === "running") s.status = "done"; }); T.steps[i].status = "running"; T.label = ""; T.done = T.total = 0; T.net = null; T.idle = 0; }
+  const labelOf = (op, f) => op.p.replace("{n}", Math.round(f * (op.files || 0)));
+  function applyOp(op, f = 1) {
+    if ("s" in op) startStep(op.s);
+    else if ("l" in op) T.log.push(op.l);
+    else if ("p" in op) { T.label = labelOf(op, f); T.total = op.b; T.done = Math.round(op.b * f); T.net = null; T.idle = 0; T.last = { label: T.label, done: T.done, total: T.total }; }
+  }
+  function finish(result) { T.steps.forEach(s => { if (s.status !== "done") s.status = "done"; }); T.ended = true; T.result = result; }
+  function fail(err, hint) { T.steps.forEach(s => { if (s.status === "running") s.status = "error"; }); T.ended = true; T.err = err; T.errHint = hint || ""; T.log.push("❌ " + err); }
+  function endCancel() { T.steps.forEach(s => { if (s.status === "running") s.status = "cancelled"; }); T.ended = true; T.cancelled = true; T.cancelling = false; T.err = T.K.cxText; T.log.push(T.K.cxText); }
+  function endFail() {
+    const F = T.K.fail; F.pre.forEach(l => T.log.push(l));
+    T.leftover = LEFT && !!F.leftover;
+    fail(F.err + (T.leftover ? "；清理半成品失败：" + F.leftover : ""), F.hint);
+  }
+  function endPartial() {
+    const P = T.K.partial;
+    T.warnings = P.warnings.map(w => ({ ...w }));
+    T.pending = (P.pending || []).map(x => ({ ...x, act: "", path: "", ack: false, err: "" }));
+    T.skipped = (P.skipped || []).map(x => ({ ...x, act: "", path: "", ack: false, err: "" }));
+  }
+  const finOf = ops => (ops.find(o => "fin" in o) || {}).fin ?? T.srv.name;
+  // 直接画出某一帧
+  function snapshot(kindKey, st) {
+    const K = KINDS[kindKey];
+    T = fresh(kindKey, st === "partial" && K.partial?.srv || K.srv);
+    const ops = opsOf(T), target = { running: "run", lost: "run", slow: "slow", failed: "fail", cancelled: "cancel" }[st];
+    for (let i = 0; i < ops.length; i++) {
+      const op = ops[i];
+      if (op.m) {
+        if (op.m !== target) continue;
+        if (op.f != null) applyOp(ops.slice(i + 1).find(o => "p" in o), op.f);
+        return endAt(st, ops);
+      }
+      if (!("fin" in op)) applyOp(op);
+    }
+    return endAt(st, ops);
+  }
+  function endAt(st, ops) {
+    if (st === "slow") { const S = T.K.slow; if (WHY === "net" && S.net) { S.pre.forEach(l => T.log.push(l)); T.net = { ...S.net }; } else T.idle = S.idle; }
+    else if (st === "failed") endFail();
+    else if (st === "cancelled") endCancel();
+    else if (st === "done") finish(finOf(ops));
+    else if (st === "partial") { finish(finOf(ops)); endPartial(); }
+  }
+
+  // ================= 页面骨架：只建一次 =================
+  const V = {}; // 已经画在页面上的样子（每一处比较这个，变了才动）
+  const coverSub = (T) => {
+    const s = T.srv, K = T.K, base = `${esc(s.label)} · <span class="mono">${esc(s.mc)}</span>`;
+    if (T.kind === "adopt") return `${base} · <span class="mono">${esc(s.dir)}</span>`;
+    if (T.kind === "import") return `${base} · <span class="mono">${esc(s.pack)}</span>`;
+    if (T.kind === "server") return `${base} · <span class="mono">${esc(s.zip)}</span>`;
+    return K.cover ? `${base} · ${esc(K.cover)}` : base;
+  };
+  function build() {
+    const s = T.srv;
+    $("#tk2-page").innerHTML = `<h1 class="tk2-q" id="tk2-q"></h1><div class="tk2-qs" id="tk2-qs"></div>`
+      + `<section class="tk2-panel"><div class="tk2-cov" style="--c:${MDPixel16.CORE_COLORS[s.core]}"><span class="tk2-cava">${MDPixel16.svg(s.core, 32)}</span>`
+      + `<div class="tk2-ct"><div class="tk2-cn">${esc(s.name)}</div><div class="tk2-cs">${coverSub(T)}</div></div></div>`
+      + `<div class="tk2-col"><div class="tk2-steps" id="tk2-steps">${T.steps.map(x => `<div class="tk2-step"><span class="tk2-si"></span><span>${esc(x.name)}</span></div>`).join("")}</div>`
+      + `<div class="tk2-main"><div class="tk2-prog" id="tk2-prog"><div class="tk2-ph"><span class="tk2-lbl"></span><span class="tk2-sp"></span><span class="tk2-bytes"></span><span class="tk2-pct"></span></div>`
+      + `<div class="tk2-xp">${"<i></i>".repeat(CELLS)}</div></div>`
+      + `<div class="tk2-body"><div class="tk2-fold" id="tk2-note"><div></div></div><div class="tk2-fold" id="tk2-tabs"><div></div></div>`
+      + `<div class="tk2-views" id="tk2-views"><div class="tk2-view" data-v="log"><div class="tk2-lw tk2-log"><div class="list"></div><i class="thumb"></i></div></div></div></div></div></div></section>`;
+    Object.keys(V).forEach(k => delete V[k]);
+    V.steps = []; V.lit = 0; V.logN = 0; V.view = "log";
+    thinBar($(".tk2-log"));
+  }
+  function buildGone() {
+    $("#tk2-page").innerHTML = `<div class="tk2-gone"><span class="tk2-si2" title="后台任务只记在这一次运行里，MineDeck 重开以后就找不到了"><i data-ic="clock"></i></span><div class="tk2-t1">任务不存在</div></div>`;
+    hy($("#tk2-page"));
+  }
+
+  // ================= 每一处 =================
+  // 逐项换（规范第七节）：旧的 0.09 秒淡掉（往反方向挪 5），换上新的，0.22 秒从方向那一侧挪 5 像素淡进来；连着换时上一次没换完的作废
+  function swapIn(el, html, { dx = 0, dy = 5 } = {}) {
+    const tok = el._tok = (el._tok || 0) + 1;
+    el.getAnimations().forEach(a => a.cancel());
+    el.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: `translate(${-dx}px, ${-dy}px)` }], { duration: 90, easing: IN, fill: "forwards" }).onfinish = () => {
+      if (el._tok !== tok) return;
+      el.innerHTML = html; hy(el); el.getAnimations().forEach(a => a.cancel());
+      el.animate([{ opacity: 0, transform: `translate(${dx}px, ${dy}px)` }, { opacity: 1, transform: "none" }], { duration: 220, easing: OUT });
+    };
+  }
+  const setText = (el, t) => { if (el && el.textContent !== t) el.textContent = t; };
+
+  // ---- 标题和下面那行字 ----
+  function headModel() {
+    const K = T.K, tt = !T.ended ? K.T.title : T.cancelled ? (K.T.cx || "已取消") : T.err ? K.T.fail : K.T.done;
+    // 程序页头下面那一行说明（K.sub、做完的 doneSub）进标题的悬停；页面上那一行只留会改变结果、要人记住的
+    const tip = !T.ended ? K.T.sub : !T.err && !T.cancelled && !doneSubShown() ? K.T.doneSub : "";
+    return `<span${tip ? ` title="${esc(tip)}"` : ""}>${esc(tt)}</span>`;
+  }
+  const doneSubShown = () => T.kind === "export" || T.kind === "map" || !!T.K.showDoneSub;
+  function subModel() {
+    const K = T.K;
+    if (ST === "lost") return `<span class="tk2-warn" title="连不上 MineDeck（Failed to fetch）">${icon("warn")}无法刷新任务进度，正在自动重试</span>`
+      + `<button type="button" class="tk2-ib" data-act="copylost" title="复制报错信息">${icon("copy")}</button>`;
+    if (!T.ended) return esc(T.cancelling ? "正在取消，清理半成品，请勿关闭程序" : "请勿关闭程序");
+    if (T.cancelled) return esc((K.T.cxSub || "没有留下半成品。").replace(/。$/, ""));
+    if (T.err) return "";
+    if (T.kind === "export") return `<span><span class="mono">${esc(T.result)}</span><button type="button" class="tk2-ib" data-act="copypath" title="复制路径">${icon("copy")}</button>`
+      + (LOCAL ? `<button type="button" class="tk2-ib" data-act="opendir" title="打开所在文件夹">${icon("folder")}</button>` : "") + `</span>`;
+    if (T.kind === "map") return esc(T.result);
+    if (K.showDoneSub) return esc(typeof K.showDoneSub === "function" ? K.showDoneSub() : K.T.doneSub);
+    return "";
+  }
+  function paintHead(first) {
+    const h = headModel(), s = subModel(), q = $("#tk2-q"), qs = $("#tk2-qs");
+    if (V.h !== h) { if (first || V.h == null) { q.innerHTML = h; hy(q); } else swapIn(q, h); V.h = h; }
+    if (V.s !== s) { if (first || V.s == null) { qs.innerHTML = s; hy(qs); } else swapIn(qs, s); V.s = s; }
+  }
+
+  // ---- 步骤 ----
+  const stepIco = s => s === "done" ? icon("check") : s === "running" ? icon("spinner", "tk2-spin") : s === "error" ? icon("x") : s === "cancelled" ? `<i class="tk2-dash"></i>` : `<i class="tk2-px"></i>`;
+  function paintSteps(first) {
+    $$("#tk2-steps .tk2-step").forEach((row, i) => {
+      const s = T.steps[i].status; if (V.steps[i] === s) return;
+      const pop = !first && V.steps[i] !== undefined; V.steps[i] = s;
+      row.className = "tk2-step " + s;
+      const ic = $(".tk2-si", row); ic.innerHTML = stepIco(s);
+      if (pop) ic.animate([{ transform: "scale(.4)", opacity: 0 }, { transform: "scale(1.15)", opacity: 1, offset: .6 }, { transform: "none", opacity: 1 }], { duration: 260, easing: OUT });
+    });
+  }
+
+  // ---- 进度：这一项是什么、多少、百分比，30 格 ----
+  // 这一项的名字只在和步骤名说的不是一回事时才写（「下载 Java 21」写；「下载整合包文件」「复制地图」和步骤名重了就不写；「打包交接包（已 812 个文件）」只写括号里那半句）
+  function shownLabel(label) {
+    const cur = T.steps.find(s => s.status === "running" || s.status === "error" || s.status === "cancelled"), sn = cur ? cur.name : "";
+    if (!label) return "";
+    if (sn && sn.includes(label)) return "";
+    if (sn && label.startsWith(sn)) return label.slice(sn.length).replace(/^（|）$/g, "");
+    return label;
+  }
+  const keyOf = label => label.replace(/（[^）]*）$/, ""); // 换了下载项才清空重来（导出时括号里的文件数每个文件都变，不算换项）
+  function progModel() {
+    if (T.ended && !T.err && !T.cancelled) return { key: "∎", lbl: "", bytes: "", pct: "100%", n: CELLS, idle: false, done: true };
+    // 这一步没在下载（StartStep 把 label 清了）：停在上一项的样子、淡下去；结束了（失败、取消）也淡下去
+    const src = T.label ? T : T.last;
+    if (!src) return { key: "", lbl: "", bytes: "", pct: "", n: 0, idle: true };
+    const pct = src.total > 0 ? Math.min(100, src.done / src.total * 100) : 0;
+    return { key: keyOf(src.label), lbl: T.label ? shownLabel(src.label) : "", bytes: `${fmtBytes(src.done) || "0 B"}${src.total > 0 ? " / " + fmtBytes(src.total) : ""}`,
+      pct: Math.floor(pct) + "%", n: Math.floor(pct / 100 * CELLS + 1e-6), idle: !T.label || T.ended };
+  }
+  function paintProg(first) {
+    const m = progModel(), el = $("#tk2-prog"), cells = $$(".tk2-xp i", el);
+    el.classList.toggle("idle", m.idle);
+    setText($(".tk2-lbl", el), m.lbl); setText($(".tk2-bytes", el), m.bytes); setText($(".tk2-pct", el), m.pct);
+    if (m.key !== V.key) { if (V.key != null && !m.done && V.lit) { cells.forEach(c => { c.className = ""; c.style.animationDelay = ""; }); V.lit = 0; } V.key = m.key; }
+    if (m.n > V.lit) { for (let k = V.lit; k < m.n; k++) { cells[k].className = first ? "on" : "on lit"; cells[k].style.animationDelay = first ? "" : Math.min(k - V.lit, 12) * 24 + "ms"; } V.lit = m.n; }
+    else if (m.n < V.lit) { for (let k = m.n; k < V.lit; k++) cells[k].className = ""; V.lit = m.n; }
+    if (m.done && !first && !V.flashed) { const xp = $(".tk2-xp", el); xp.classList.remove("flash"); void xp.offsetWidth; xp.classList.add("flash"); }
+    V.flashed = m.done;
+  }
+
+  // ---- 提示条：下载慢、失败的原因 ----
+  const slowText = () => {
+    if (T.net) return `${T.net.host ? T.net.host + " " : ""}${T.net.what}，已重试 ${T.net.count} 次`;
+    const sec = T.idle; return `已经 ${sec < 10 ? sec + " 秒" : sec < 60 ? Math.floor(sec / 10) * 10 + " 多秒" : Math.floor(sec / 60) + " 分多钟"}没有新进度`;
+  };
+  function noteModel() {
+    if (!T.ended && !T.cancelling && ST !== "lost" && (T.net || T.idle >= 30)) return { key: "slow", text: slowText() };
+    if (T.ended && T.err && !T.cancelled) return { key: "fail", text: T.err + T.errHint + T.leftover };
+    return null;
+  }
+  function noteHTML(m) {
+    if (m.key === "slow") return `<div class="tk2-slow" title="${esc(SLOW_TIP)}">${icon("clock")}<span class="tk2-slt">${esc(m.text)}</span></div>`;
+    // 「创建失败：」这类前缀不写（标题已经说没建好）；failHint 进右下「重试」的悬停，没删干净时换成 LEFTOVER_HINT 写在这里（要人去处理）
+    return `<div class="tk2-fail"><div class="tk2-fr">${icon("warn")}${esc(T.err)}</div>${T.errHint ? `<div class="tk2-fh">${esc(T.errHint)}</div>` : ""}`
+      + (T.leftover ? `<div class="tk2-flo">${icon("folder")}<span>${esc(LEFTOVER_HINT)}</span></div>` : "")
+      + `<button type="button" class="tk2-ib" data-act="copyerr" title="复制报错信息">${icon("copy")}</button></div>`;
+  }
+  function paintNote(first) {
+    const m = noteModel(), box = $("#tk2-note"), inner = box.firstElementChild;
+    if (!m) { if (V.note) { box.classList.remove("open"); V.note = null; } return; }
+    if (V.note && V.note.key === m.key) { if (V.note.text !== m.text && m.key === "slow") { const t = $(".tk2-slt", inner); swapIn(t, esc(m.text), { dy: 3 }); } V.note = m; return; }
+    inner.innerHTML = noteHTML(m); hy(inner);
+    if (first) { box.style.transition = "none"; box.classList.add("open"); void box.offsetWidth; box.style.transition = ""; }
+    else box.classList.add("open");
+    V.note = m;
+  }
+
+  // ---- 分段：做完以后有要看的（没装上的文件、提示）才出来，和日志换着看 ----
+  const shownWarnings = () => T.warnings.filter(w => !w.merged);
+  function tabList() {
+    if (!T.ended || T.err || T.cancelled) return [];
+    const v = [];
+    if (T.pending.length || T.skipped.length || V.hadPend) { V.hadPend = true; v.push(["pend", "没装上的文件", T.pending.length ? String(T.pending.length) : "", PEND_TIP]); }
+    const w = shownWarnings(); if (w.length) v.push(["warn", "提示", String(w.length), ""]);
+    if (v.length) v.push(["log", "日志", "", ""]);
+    return v;
+  }
+  function paintTabs(first) {
+    const list = tabList(), box = $("#tk2-tabs"), inner = box.firstElementChild, ids = list.map(x => x[0]).join();
+    if (!list.length) { if (V.tabs) { box.classList.remove("open"); V.tabs = ""; showView("log", first); } return; }
+    if (V.tabs !== ids) {
+      if (!V.tabs || !list.some(x => x[0] === V.view)) V.view = list[0][0]; // 刚出来时停在第一格（没装上的文件 / 提示）
+      inner.innerHTML = `<div><div class="tk2-seg" id="tk2-seg"><i class="tk2-sgl"></i>${list.map(([id, t, n, tip]) => `<span data-tab="${id}"${tip ? ` title="${esc(tip)}"` : ""}>${t}<span class="tk2-n">${n}</span></span>`).join("")}</div></div>`;
+      V.tabs = ids;
+      if (first) { box.style.transition = "none"; box.classList.add("open"); void box.offsetWidth; box.style.transition = ""; } else box.classList.add("open");
+      $$("#tk2-seg > span[data-tab]").forEach(s => s.classList.toggle("on", s.dataset.tab === V.view));
+      requestAnimationFrame(() => placeSeg($("#tk2-seg"), false));
+      showView(V.view, first);
+      return;
+    }
+    list.forEach(([id, , n]) => setText($(`#tk2-seg [data-tab="${id}"] .tk2-n`), n)); // 只换数
+    placeSeg($("#tk2-seg"), true);
+  }
+  function placeSeg(el, animate) {
+    if (!el) return; const hl = $(".tk2-sgl", el), on = $(":scope > span.on", el);
+    if (!on) { hl.style.opacity = "0"; return; }
+    if (!animate || hl.style.opacity === "0") { hl.style.transition = "none"; }
+    hl.style.opacity = ""; hl.style.transform = `translateX(${on.offsetLeft}px)`; hl.style.width = on.offsetWidth + "px";
+    if (!animate) { void hl.offsetWidth; hl.style.transition = ""; } else requestAnimationFrame(() => { hl.style.transition = ""; });
+  }
+  function pickTab(id) {
+    if (id === V.view) return;
+    const ids = V.tabs.split(","), dir = ids.indexOf(id) > ids.indexOf(V.view) ? 1 : -1;
+    $$("#tk2-seg > span[data-tab]").forEach(s => s.classList.toggle("on", s.dataset.tab === id)); placeSeg($("#tk2-seg"), true);
+    showView(id, false, dir);
+  }
+  // 换着看：旧的一块往反方向挪 5 像素淡掉（0.09 秒），新的从方向那一侧挪 5 像素淡进来（0.22 秒）
+  function showView(id, instant, dir = 1) {
+    ensureView(id);
+    const views = $$("#tk2-views > .tk2-view"), next = views.find(v => v.dataset.v === id), cur = views.find(v => !v.hidden && v !== next);
+    V.view = id;
+    if (instant || !cur) { views.forEach(v => { v.hidden = v !== next; }); afterShow(next); return; }
+    const tok = V.vtok = (V.vtok || 0) + 1;
+    cur.getAnimations().forEach(a => a.cancel());
+    cur.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: `translateX(${-5 * dir}px)` }], { duration: 90, easing: IN, fill: "forwards" }).onfinish = () => {
+      if (V.vtok !== tok) return;
+      views.forEach(v => { v.hidden = v !== next; v.getAnimations().forEach(a => a.cancel()); });
+      afterShow(next);
+      next.animate([{ opacity: 0, transform: `translateX(${5 * dir}px)` }, { opacity: 1, transform: "none" }], { duration: 220, easing: OUT });
+    };
+  }
+  function afterShow(v) { $$(".tk2-lw", v).forEach(w => w._paint?.()); if (v.dataset.v === "log") { const l = $(".list", v); l.scrollTop = l.scrollHeight; $(".tk2-lw", v)._paint?.(); } $$(".tk2-seg.lg", v).forEach(s => placeSeg(s, false)); }
+  function ensureView(id) {
+    if ($(`#tk2-views > [data-v="${id}"]`)) return;
+    const v = Object.assign(document.createElement("div"), { className: "tk2-view", hidden: true }); v.dataset.v = id;
+    v.innerHTML = id === "pend" ? pendHTML() : warnHTML();
+    $("#tk2-views").appendChild(hy(v));
+    $$(".tk2-lw", v).forEach(thinBar);
+  }
+
+  // ---- 日志：只往后加 ----
+  const logCls = l => /^❌/.test(l) ? "e" : /^\s*⚠/.test(l) ? "w" : /^……（中间的/.test(l) ? "c" : "";
+  function paintLog(first) {
+    const w = $(".tk2-log"), l = $(".list", w);
+    if (T.log.length < V.logN) { l.innerHTML = ""; V.logN = 0; } // 换了一个任务（重试）
+    if (T.log.length === V.logN) return;
+    const atBottom = l.scrollTop + l.clientHeight >= l.scrollHeight - 6;
+    T.log.slice(V.logN).forEach(line => {
+      const d = document.createElement("div"); d.textContent = line; const c = logCls(line); if (c) d.className = c;
+      l.appendChild(d);
+      if (!first) d.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: OUT });
+    });
+    V.logN = T.log.length;
+    if (first || atBottom) l.scrollTop = l.scrollHeight; // 人往上翻着看的时候不把他拽回底下
+    w._paint?.();
+  }
+
+  // ---- 没装上的文件（照 commons 的 M_pending；程序 pendingPanel） ----
+  const hasTrust = () => [...T.pending, ...T.skipped].some(x => x.opts.includes("trust"));
+  function pbarHTML() {
+    return (hasTrust() ? `<button type="button" class="tk2-b sm" data-act="trustall" title="只选上面还没选处理方式、可从外部站点下载的文件；已跳过的、缺校验值的、已经选了别的处理方式的不动，也不会自动勾选风险确认">全选可下载项</button>`
+      + `<button type="button" class="tk2-b sm" data-act="ackall" title="给选了「信任站点并下载」的都勾上风险确认。下载成功后才按域名记住，不会把外部站点放进默认允许列表">确认这些站点的风险</button>` : "")
+      + `<span class="tk2-sp"></span>` + (LOCAL ? `<button type="button" class="tk2-ib" data-act="openinst" title="打开服务器文件夹：里面的「导入待决清单.txt」列着没装上的文件，处理时点了「跳过」的也在；CurseForge 上没法自动下载的另有一份「未解析模组清单.txt」">${icon("folder")}</button>` : "");
+  }
+  const segLg = x => `<div class="tk2-seg lg" data-pseg="${x.id}"><i class="tk2-sgl"></i>${x.opts.map(o => `<span data-v="${o}"${x.act === o ? ` class="on"` : ""}>${ACT[o]}</span>`).join("")}</div>`;
+  const moreHTML = x => x.act === "local" ? `<input class="tk2-inp" data-k="lpath" placeholder="本地文件或文件夹的完整路径" title="填文件夹时按文件名匹配" spellcheck="false" autocomplete="off" value="${esc(x.path)}">`
+    : x.act === "trust" ? `<span class="tk2-ck${x.ack ? " on" : ""}" data-act="ack" role="checkbox" aria-checked="${x.ack}" title="${esc(`我已知晓风险，信任来自「${x.host}」的下载。该站点不在默认允许列表里；下载后仍按整合包里的校验值核对，对不上就不装。\n下载成功后按域名记住（不含端口），以后同站点不再重复确认。`)}"><span class="tk2-bx">${icon("check")}</span>信任 <span class="mono">${esc(x.host)}</span> 的下载</span>` : "";
+  const pndHTML = (x, skipped) => `<div class="tk2-pnd${skipped ? " skipped" : ""}" data-pid="${x.id}"><div class="tk2-pr1"><span class="tk2-pp" title="${esc(x.p)}">${esc(x.p)}</span>`
+    + (skipped ? `<span class="tk2-tag">已跳过</span>` : "") + (x.url ? `<button type="button" class="tk2-ib" data-act="ext" title="在浏览器里打开下载地址">${icon("share")}</button>` : "") + `</div>`
+    + `<div class="tk2-pwhy" title="${esc(x.note)}">${esc(x.why)}${x.host ? ` · <span class="host">${esc(x.host)}</span>` : ""}</div>`
+    + segLg(x) + `<div class="tk2-pmore">${moreHTML(x)}</div>${x.err ? `<div class="tk2-perr">${icon("warn")}<span>${esc(x.err)}</span></div>` : ""}</div>`;
+  const foldHTML = () => T.skipped.length ? `<button type="button" class="tk2-pfold" data-act="pfold"><span>已跳过的 ${T.skipped.length} 个</span>${icon("chevronDown")}</button>` : "";
+  function pendHTML() {
+    return `<div class="tk2-pv"><div class="tk2-pbar" data-k="pbar">${pbarHTML()}</div>`
+      + `<div class="tk2-lw" data-k="plw"><div class="list" data-k="plist">${pendBody()}</div><i class="thumb"></i></div>`
+      + `<div class="tk2-pfoot"><span class="tk2-pmsg" data-k="pmsg"></span><span class="tk2-sp"></span><button type="button" class="tk2-b pri" data-act="apply"><span class="tk2-pl">应用所选的处理</span></button></div></div>`;
+  }
+  // 清单空了：都处理完（没有跳过的）或者只剩跳过的（程序：「跳过了 N 个文件，它们没有装上」，说明进悬停）
+  const doneLine = () => !T.pending.length ? (T.skipped.length
+    ? `<div class="tk2-pdone info" title="要的话在下面换成用本地文件代替${T.skipped.some(x => x.opts.includes("trust")) ? "或信任站点下载" : ""}；不要就不用管。">${icon("info")}跳过了 ${T.skipped.length} 个文件，它们没有装上</div>`
+    : `<div class="tk2-pdone">${icon("check")}没装上的文件都处理完了</div>`) : "";
+  const pendBody = () => doneLine() + T.pending.map(x => pndHTML(x, false)).join("") + foldHTML();
+  const pv = () => $('#tk2-views > [data-v="pend"]');
+  const itemOf = id => T.pending.find(x => x.id === id) || T.skipped.find(x => x.id === id);
+  function pndPick(seg, v) {
+    const x = itemOf(seg.dataset.pseg); if (!x || x.act === v) return;
+    x.act = v; x.err = "";
+    $$(":scope > span", seg).forEach(s => s.classList.toggle("on", s.dataset.v === v)); placeSeg(seg, true);
+    const row = seg.closest(".tk2-pnd"), more = $(".tk2-pmore", row); more.innerHTML = moreHTML(x); hy(more);
+    if (more.firstElementChild) more.firstElementChild.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: OUT });
+    $(".tk2-perr", row)?.remove();
+    $('[data-k="plw"]', pv())._paint?.();
+  }
+  function pmsg(text, soft) {
+    const m = $('[data-k="pmsg"]', pv()); if (!m) return;
+    m.textContent = text; m.classList.toggle("soft", !!soft); m.classList.add("show");
+    clearTimeout(m._t); m._t = setTimeout(() => m.classList.remove("show"), 1800);
+  }
+  function trustAll() {
+    let n = 0;
+    $$('.tk2-pnd:not(.skipped)', pv()).forEach(row => { const x = itemOf(row.dataset.pid); if (x && !x.act && x.opts.includes("trust")) { pndPick($("[data-pseg]", row), "trust"); n++; } });
+    if (!n) pmsg("没有可信任下载的项", true);
+  }
+  function ackAll() {
+    let n = 0;
+    $$(".tk2-pnd", pv()).forEach(row => { const x = itemOf(row.dataset.pid); if (x && x.act === "trust" && !x.ack) { x.ack = true; const ck = $('[data-act="ack"]', row); ck?.classList.add("on"); ck?.classList.remove("bad"); ck?.setAttribute("aria-checked", "true"); n++; } });
+    if (!n && !$$(".tk2-pnd", pv()).some(r => itemOf(r.dataset.pid)?.act === "trust")) pmsg("请先选「信任站点并下载」，再确认风险", true);
+  }
+  let applying = false, trustFailed = false;
+  async function applyPending() {
+    if (applying) return;
+    const root = pv(), rows = $$(".tk2-pnd", root).filter(r => !r.classList.contains("out"));
+    // 拦下来：选了「用本地文件代替」没给路径、选了「信任站点并下载」没勾风险（框或勾标红、晃一下，同 commons；程序是右上角一条报错提示）
+    for (const r of rows) {
+      const x = itemOf(r.dataset.pid); if (!x) continue;
+      if (x.act === "local" && !x.path.trim()) { const inp = $('[data-k="lpath"]', r); inp.classList.add("bad"); inp.focus({ preventScroll: true }); inp.scrollIntoView({ block: "nearest", behavior: "smooth" }); shake(inp); return; }
+      if (x.act === "trust" && !x.ack) { const ck = $('[data-act="ack"]', r); ck.classList.add("bad"); ck.scrollIntoView({ block: "nearest", behavior: "smooth" }); shake(ck); return; }
+    }
+    const go = rows.filter(r => itemOf(r.dataset.pid)?.act);
+    if (!go.length) { pmsg("先给至少一个文件选处理方式"); shake($('[data-k="plw"]', root)); return; }
+    applying = true;
+    const btn = $('[data-act="apply"]', root); btn.setAttribute("aria-disabled", "true"); $(".tk2-pl", btn).innerHTML = `${icon("spinner", "tk2-spin")}正在处理`;
+    go.forEach(r => r.classList.add("busy"));
+    await wait(800);
+    const done = [];
+    go.forEach(r => {
+      const x = itemOf(r.dataset.pid);
+      r.classList.remove("busy");
+      // 第一次信任下载演示「处理失败」（那一块留着，下面一行红字，还能再点一次）
+      if (x.act === "trust" && !trustFailed) {
+        trustFailed = true; x.err = "处理失败：多次尝试后仍下载失败（" + x.host + ": 读取超时）";
+        $(".tk2-perr", r)?.remove(); r.insertAdjacentHTML("beforeend", `<div class="tk2-perr">${icon("warn")}<span>${esc(x.err)}</span></div>`); hy(r);
+        r.lastElementChild.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: OUT });
+        return;
+      }
+      done.push([r, x]);
+    });
+    // 处理好的那几块往右划 32 像素淡掉再收起（规范第七节「清单加减」）；跳过的挪进最后那一行；结果记进日志（Go：处置结果记进任务日志）
+    done.forEach(([r, x], i) => {
+      T.pending = T.pending.filter(y => y !== x); T.skipped = T.skipped.filter(y => y !== x);
+      if (x.act === "skip") T.skipped.push({ ...x, act: "", ack: false, path: "", err: "" });
+      T.log.push(`已处理：${x.p}（${ACT[x.act]}）`);
+      r.classList.add("out");
+      const h = r.offsetHeight + "px";
+      r.animate([
+        { opacity: 1, transform: "none", height: h, easing: IN },
+        { opacity: 0, transform: "translateX(32px)", height: h, offset: .55, easing: OUT },
+        { opacity: 0, transform: "translateX(32px)", height: "0px", marginBottom: "-8px", paddingTop: "0px", paddingBottom: "0px" },
+      ], { duration: 320, delay: i * 40, fill: "forwards" }).onfinish = () => { r.remove(); afterApply(); };
+    });
+    if (!done.length) afterApply();
+    applying = false;
+    btn.removeAttribute("aria-disabled"); $(".tk2-pl", btn).textContent = "应用所选的处理";
+    paintLog(false); paintTabs(false);
+  }
+  // 处理以后：最后那一行的数、上面那排批量键（没有能信任下载的了就收起）、清单空了那一句
+  function afterApply() {
+    const root = pv(); if (!root) return;
+    const l = $('[data-k="plist"]', root), fold = $('[data-act="pfold"]', l), open = fold?.classList.contains("open");
+    if (T.skipped.length) {
+      if (fold) setText($("span", fold), `已跳过的 ${T.skipped.length} 个`);
+      else { l.insertAdjacentHTML("beforeend", foldHTML()); hy(l); }
+      // 展开着的：新跳过的那一个接在后面
+      if (open) T.skipped.forEach(x => { if (!$(`[data-pid="${x.id}"]`, l)) { l.insertAdjacentHTML("beforeend", pndHTML(x, true)); const el = l.lastElementChild; hy(el); placeSeg($("[data-pseg]", el), false); el.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: OUT }); } });
+    } else fold?.remove();
+    const want = doneLine(), have = $(".tk2-pdone", l);
+    if (want && (!have || have.outerHTML.replace(/<svg[\s\S]*?<\/svg>/, "") !== want.replace(/<svg[\s\S]*?<\/svg>/, ""))) {
+      have?.remove(); l.insertAdjacentHTML("afterbegin", want); const d = l.firstElementChild; hy(d);
+      d.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: OUT });
+    } else if (!want) have?.remove();
+    const pb = $('[data-k="pbar"]', root), nb = pbarHTML(); if (pb._h !== nb) { pb.innerHTML = nb; hy(pb); pb._h = nb; }
+    $('[data-act="apply"]', root).closest(".tk2-pfoot").hidden = !T.pending.length && !T.skipped.some(x => x.act);
+    $('[data-k="plw"]', root)._paint?.();
+  }
+  function pndFold(b) {
+    const open = b.classList.toggle("open"), l = b.parentElement;
+    if (open) T.skipped.forEach((x, i) => {
+      l.insertAdjacentHTML("beforeend", pndHTML(x, true)); const el = l.lastElementChild; hy(el); placeSeg($("[data-pseg]", el), false);
+      el.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, delay: i * 22, easing: OUT, fill: "backwards" });
+    });
+    else $$(".tk2-pnd.skipped", l).forEach(el => el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 90, easing: IN, fill: "forwards" }).onfinish = () => { el.remove(); $('[data-k="plw"]', pv())._paint?.(); });
+    $('[data-act="apply"]', pv()).closest(".tk2-pfoot").hidden = false;
+    setTimeout(() => { const w = $('[data-k="plw"]', pv()); w._paint?.(); if (open) $(".list", w).scrollTo({ top: $(".list", w).scrollHeight, behavior: "smooth" }); }, 30);
+  }
+
+  // ---- 提示（任务的结构化告警，程序 drawMsgs 里的 warn-card） ----
+  function warnHTML() {
+    return `<div class="tk2-wv"><div class="tk2-lw"><div class="list">${shownWarnings().map(w => `<div class="tk2-wb"><div class="tk2-wt" title="${esc(w.note)}">${icon("warn")}<span>${esc(w.title)}</span></div>`
+      + ((w.items || []).length ? `<ul class="tk2-wi">${w.items.map(it => `<li>${it.url ? `<a href="#" data-act="ext" title="${esc(it.url)}">${esc(it.name)}${icon("share")}</a>` : it.mono ? `<span class="mono">${esc(it.name)}</span>` : esc(it.name)}</li>`).join("")}</ul>` : "")
+      + (w.act ? `<div class="tk2-wa"><button type="button" class="tk2-b sm" data-act="${w.act[0]}" title="${esc(w.act[2] || "")}">${w.act[0] === "retry" ? icon("refresh") : ""}${w.act[1]}</button></div>` : "")
+      + `</div>`).join("")}</div><i class="thumb"></i></div></div>`;
+  }
+
+  // ================= 底部：胶囊和左右两颗按钮 =================
+  function pillSpecs() {
+    const K = T?.K;
+    const away = () => ({ k: "away", t: !K || K.from === "new" ? "回到主页" : "回到这台服务器", tip: "任务在后台接着做，首页上方能看到进度" });
+    if (ST === "gone") return [null, DOCK === "sink" ? away() : null];
+    let L = null, R = null;
+    const edit = tip => DRAFT && K.edit ? { k: "edit", t: "返回修改", back: true, tip } : null;
+    if (!T.ended) {
+      if (!T.cancelling && K.T.cxBtn && ST !== "lost") L = { k: "cancel", t: K.T.cxBtn };
+      if (DOCK === "sink") R = away();
+    } else if (T.cancelled) {
+      L = edit("之前填的都还在，点「返回修改」接着改。");
+      if (T.kind === "map") R = { k: "go", t: "回到这台服务器", pri: true };
+    } else if (T.err) {
+      L = edit("点「返回修改」回到刚才的表单，填过的都在。");
+      if (T.kind === "map") R = { k: "go", t: "回到这台服务器", pri: true, tip: K.T.failHint };
+      else if (DRAFT) R = { k: "retry", t: "重试", ic: "refresh", pri: true, tip: T.leftover ? "" : K.T.failHint };
+    } else R = { k: "go", t: K.T.go, ic: "check", pri: true };
+    if (DOCK === "sink" && !L && !R) R = away();
+    return [L, R];
+  }
+  const pillHTML = sp => `<span class="tk2-pl">${sp.back ? icon("chevronRight") : sp.ic ? icon(sp.ic) : ""}${esc(sp.t)}</span>`;
+  function makePill(sp) {
+    const b = Object.assign(document.createElement("button"), { type: "button", className: "tk2-pill" + (sp.pri ? " pri" : "") + (sp.back ? " back" : "") + (sp.ic && sp.pri ? " ic" : "") });
+    b.dataset.act = sp.k; if (sp.tip) b.title = sp.tip; b.innerHTML = pillHTML(sp); b._sig = JSON.stringify(sp); return b;
+  }
+  // 浮上来、沉下去：同向导的上一步、下一步（0.32 秒，cubic-bezier(.4, 0, .2, 1)）
+  const rise = b => b.animate([{ transform: "translateY(180%)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 320, easing: SINK });
+  function sinkPill(b) { b.classList.add("gone"); b.style.pointerEvents = "none"; b.animate([{ transform: "none", opacity: 1 }, { transform: "translateY(180%)", opacity: 0 }], { duration: 320, easing: SINK, fill: "forwards" }).onfinish = () => b.remove(); }
+  // 同一颗按钮换字：旧字 0.09 秒淡掉，按钮宽度按整像素平滑变，新字淡进来（同向导「下一步」变「创建服务器」）
+  function morphPill(b, sp) {
+    const sig = JSON.stringify(sp); b._sig = sig;
+    const lbl = $(".tk2-pl", b);
+    lbl.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 90, easing: IN, fill: "forwards" }).onfinish = () => {
+      if (b._sig !== sig) return;
+      const w0 = b.offsetWidth; b.style.width = "";
+      b.className = "tk2-pill" + (sp.pri ? " pri" : "") + (sp.back ? " back" : "") + (sp.ic && sp.pri ? " ic" : ""); b.dataset.act = sp.k;
+      if (sp.tip) b.title = sp.tip; else { b.removeAttribute("title"); delete b.dataset.tip; }
+      b.innerHTML = pillHTML(sp); const w1 = b.offsetWidth;
+      $(".tk2-pl", b).animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, delay: 60, easing: OUT, fill: "backwards" });
+      if (w0 === w1) return;
+      const t0 = performance.now();
+      const step = now => { if (b._sig !== sig) return; const p = Math.min(1, (now - t0) / 320), e = 1 - Math.pow(1 - p, 3); b.style.width = Math.round(w0 + (w1 - w0) * e) + "px"; if (p < 1) requestAnimationFrame(step); else b.style.width = ""; };
+      b.style.width = w0 + "px"; requestAnimationFrame(step);
+    };
+  }
+  function setPill(slot, sp, instant) {
+    const cur = [...slot.children].find(c => !c.classList.contains("gone")) || null, sig = sp ? JSON.stringify(sp) : "";
+    if ((cur?._sig || "") === sig) return;
+    if (!sp) { if (cur) sinkPill(cur); return; }
+    if (!cur) { const b = makePill(sp); slot.appendChild(b); if (!instant) rise(b); return; }
+    // 主键和普通的换来换去（颜色不一样）：沉下去一颗、浮上来一颗；同一种只换字
+    if (!!JSON.parse(cur._sig).pri !== !!sp.pri) { sinkPill(cur); const b = makePill(sp); slot.appendChild(b); rise(b); return; }
+    morphPill(cur, sp);
+  }
+  function paintPills(instant) { const [L, R] = pillSpecs(); setPill($("#tk2-pl"), L, instant); setPill($("#tk2-pr"), R, instant); }
+  function paintCap() {
+    // 胶囊里亮哪一颗：详情页发起的（换 Java、导出、待装清单、换地图，程序侧栏亮「服务器」）亮主页，同详情页；新建、导入、接管不亮（「新建」本来就是唯一实心的那颗）
+    const lit = T && T.K.from !== "new";
+    $(".tk2-cap a.home").classList.toggle("on", !!lit);
+  }
+
+  // ================= 一整轮画 =================
+  function paintAll(first, pillsInstant = first) {
+    paintHead(first); paintSteps(first); paintProg(first); paintNote(first); paintTabs(first); paintLog(first); paintPills(pillsInstant); paintCap();
+  }
+
+  // ================= 确认框（照 detail-world 的 ask，危险的默认落在「取消」那一侧） =================
+  let mask = null;
+  function ask({ icon: ic, title, body, ok, keep, onOk, w = 400 }) {
+    closeAsk(true);
+    const mk = mask = Object.assign(document.createElement("div"), { className: "tk2-mask enter" });
+    mk.innerHTML = `<div class="tk2-md" role="dialog" aria-modal="true" style="--w:${w}px"><div class="tk2-mc"><div class="tk2-mh"><span class="tk2-mi">${icon(ic)}</span><h3>${title}</h3></div>`
+      + `<div class="tk2-mb">${body}</div></div><div class="tk2-ma"><button type="button" class="tk2-b fk" data-x="no">${esc(keep)}</button><button type="button" class="tk2-b dgr" data-x="ok">${esc(ok)}</button></div></div>`;
+    document.body.appendChild(mk);
+    const no = $("[data-x=no]", mk); no.focus({ focusVisible: false });
+    mk.addEventListener("pointerdown", e => { if (!e.target.closest(".fk")) no.classList.remove("fk"); });
+    mk.addEventListener("keydown", e => { if (e.key === "Tab") no.classList.remove("fk"); });
+    mk.addEventListener("click", e => {
+      if (mask !== mk) return;
+      if (e.target.closest("[data-x=ok]")) { closeAsk(); onOk(); return; }
+      if (e.target.closest("[data-x=no]") || e.target === mk) closeAsk();
+    });
+  }
+  function closeAsk(now) {
+    if (!mask) return; const mk = mask; mask = null;
+    if (now) { mk.remove(); return; }
+    mk.classList.remove("enter"); mk.classList.add("leave"); setTimeout(() => mk.remove(), 140);
+  }
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && mask) closeAsk(); });
+
+  // ================= 动作 =================
+  function askCancel() {
+    if (!T || T.ended || T.cancelling) return;
+    const K = T.K;
+    ask({ icon: "stop", title: K.ask.title(T.srv), body: K.ask.body, ok: K.T.cxBtn, keep: K.ask.keep, onOk: () => {
+      if (T.ended) return;
+      T.cancelling = true; paintAll(false); // 程序：取消收下以后还在清理半成品，任务没结束；取消键没了，下面那行字换成「正在取消……」
+      const me = T; setTimeout(() => { if (T !== me || T.ended) return; endCancel(); paintAll(false); }, 1400);
+    } });
+  }
+  // 换页：整页往走的方向挪 16 像素淡掉（0.14 秒），新的从另一边挪进来（0.26 秒）（规范第七节「换步」；重试是一个新任务）
+  function turnPage(rebuild) {
+    const page = $("#tk2-page");
+    page.getAnimations().forEach(a => a.cancel());
+    page.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "translateX(-16px)" }], { duration: 140, easing: IN, fill: "forwards" }).onfinish = () => {
+      rebuild(); page.getAnimations().forEach(a => a.cancel());
+      page.animate([{ opacity: 0, transform: "translateX(16px)" }, { opacity: 1, transform: "none" }], { duration: 260, easing: OUT });
+    };
+  }
+  function retry(kindKey, srv) {
+    const k = kindKey || T.kind, s = srv || T.srv;
+    playTok++; closeAsk(true);
+    turnPage(() => { ST = "done"; T = fresh(k, s); build(); paintAll(true, false); play(); });
+  }
+  function nav(href) { location.href = href; }
+  function flashOk(btn) { // 复制以后图标换成勾 1.2 秒（规范第七节）
+    if (!btn || btn._ok) return; const old = btn.innerHTML; btn._ok = 1; btn.classList.add("ok"); btn.innerHTML = icon("check");
+    setTimeout(() => { btn.innerHTML = old; btn.classList.remove("ok"); btn._ok = 0; }, 1200);
+  }
+  const copyText = t => { try { navigator.clipboard?.writeText(t).catch(() => {}); } catch { /* 草图里复制不了也不要紧 */ } };
+  document.addEventListener("click", e => {
+    const tab = e.target.closest("#tk2-seg > span[data-tab]"); if (tab) { pickTab(tab.dataset.tab); return; }
+    const ps = e.target.closest("[data-pseg] > span[data-v]"); if (ps) { pndPick(ps.parentElement, ps.dataset.v); return; }
+    const a = e.target.closest("[data-act]"); if (!a) return;
+    const act = a.dataset.act;
+    if (a.getAttribute("aria-disabled") === "true") return;
+    if (act === "cancel") askCancel();
+    else if (act === "retry") retry();
+    else if (act === "edit") { const [page, p] = T.K.edit; nav(link(page, p)); }
+    else if (act === "go") nav(T.K.go(T.srv));
+    else if (act === "away") nav(!T || T.K.from === "new" ? link("home.html", { notices: "1" }) : link("detail.html", { kind: T.srv.detail }));
+    else if (act === "gojava") nav(link("detail.html", { kind: T.srv.detail, tab: "settings", sub: "jvm" }));
+    else if (act === "copyerr") { copyText(T.err); flashOk(a); }
+    else if (act === "copylost") { copyText("连不上 MineDeck（Failed to fetch）"); flashOk(a); }
+    else if (act === "copypath") { copyText(T.result); flashOk(a); }
+    else if (act === "opendir" || act === "openinst" || act === "ext") { e.preventDefault(); a.animate([{ opacity: 1 }, { opacity: .4 }, { opacity: 1 }], { duration: 300 }); } // 程序里打开文件夹、外链；草图里只闪一下
+    else if (act === "trustall") trustAll();
+    else if (act === "ackall") ackAll();
+    else if (act === "apply") applyPending();
+    else if (act === "pfold") pndFold(a);
+    else if (act === "ack") { const x = itemOf(a.closest(".tk2-pnd").dataset.pid); x.ack = !x.ack; a.classList.toggle("on", x.ack); a.classList.remove("bad"); a.setAttribute("aria-checked", String(x.ack)); }
+  });
+  document.addEventListener("input", e => {
+    if (e.target.dataset.k !== "lpath") return;
+    const x = itemOf(e.target.closest(".tk2-pnd").dataset.pid); x.path = e.target.value; e.target.classList.remove("bad");
+  });
+
+  // ================= 自动往下走（?play=1、重试） =================
+  // 照这一份过程一样一样走：一步一停、日志一行一行加、下载的那一项 0 到 100% 一格一格亮；走到这个 st 的结尾。
+  async function play() {
+    const tok = ++playTok, ops = opsOf(T), alive = () => tok === playTok && !T.ended && !T.cancelling;
+    const target = ST === "failed" ? "fail" : ST === "slow" ? "slow" : null;
+    for (let i = 0; i < ops.length; i++) {
+      const op = ops[i];
+      if (op.m) {
+        if (op.m !== target || !alive()) continue;
+        if (target === "fail") { await wait(op.f != null ? 0 : 400); if (!alive()) return; if (op.f != null) await download(ops.slice(i + 1).find(o => "p" in o), op.f, alive); if (!alive()) return; endFail(); paintAll(false); return; }
+        // 下载慢：卡在这里，程序的轮询每 0.8 秒一轮；net 的每次重试数加一，idle 的「已经 N 多秒」往上走
+        if (op.f != null) await download(ops.slice(i + 1).find(o => "p" in o), op.f, alive, true);
+        const S = T.K.slow;
+        if (WHY === "net" && S.net) for (let c = 1; c <= S.net.count && alive(); c++) { T.log.push(S.pre[c - 1] || S.pre[0]); T.net = { ...S.net, count: c }; paintAll(false); await wait(1300); }
+        else for (const sec of [30, 41, 52]) { if (!alive()) return; T.idle = sec; paintAll(false); await wait(1300); }
+        continue;
+      }
+      if (!alive()) return;
+      if ("fin" in op) continue;
+      if ("p" in op) { await download(op, 1, alive); continue; }
+      await wait("s" in op ? 380 : 240);
+      if (!alive()) return;
+      applyOp(op); paintAll(false);
+    }
+    if (!alive()) return;
+    await wait(300); if (!alive()) return;
+    finish(finOf(ops)); if (ST === "partial" && T.K.partial) endPartial();
+    paintAll(false);
+    // 新建时挑了插件 / 模组（?cart=1）：建好以后接着装待装清单（程序是留在向导等建服跑完，再跳到装清单的任务页）
+    if (CART && T.kind === "create" && !T.err) { await wait(1100); if (tok !== playTok) return; const s = T.srv; turnPage(() => { T = fresh("cart", s); build(); paintAll(true, false); play(); }); }
+  }
+  // 一项下载：从 from 走到 to（0..1），每 0.09 秒一格；中途被取消、换任务就停
+  async function download(op, to, alive, from0) {
+    const start = from0 ? 0 : (T.label && keyOf(T.label) === keyOf(op.p) ? T.done / op.b : 0);
+    const n = Math.max(6, Math.round(18 * (to - start)));
+    for (let k = 1; k <= n; k++) {
+      if (!alive()) return;
+      applyOp(op, start + (to - start) * k / n); paintAll(false);
+      await wait(90);
+    }
+  }
+
+  // ================= 草图切换条 =================
+  function skBar() {
+    const q0 = () => new URLSearchParams(location.search);
+    const href = mut => { const q = q0(); q.delete("play"); q.delete("enter"); mut(q); return "?" + q; };
+    const a = (h, label, on, cls = "", tip = "") => `<a href="${h}" class="${on ? "on" : ""}${cls ? " " + cls : ""}"${tip ? ` title="${esc(tip)}"` : ""}>${label}</a>`;
+    const th = document.documentElement.dataset.theme;
+    const kinds = Object.entries(KINDS).map(([k, K]) => a(href(q => { q.set("kind", k); if (!legal(k, ST)) q.delete("st"); }), K.label, k === KIND, "",
+      k === "pack" ? "导入整合包（Go 里和新建是同一类任务，多两步；有文件没装上的「部分」只在这一种）" : ""));
+    const naTip = s => s === "cancelled" ? "这类任务程序里不能取消（没有取消键），切过去会落到「进行中」" : s === "partial" ? (KIND === "create" ? "从零创建不会有没装上的文件；看「整合包」" : "这类任务没有要单独处理的结果（要留意的只写在日志里）") : "";
+    const sts = Object.entries(STATES).map(([s, label]) => a(href(q => q.set("st", s)), label, s === ST, legal(KIND, s) ? "" : "na", legal(KIND, s) ? "" : naTip(s)));
+    $("#tk2-sk").innerHTML = `<b>草图</b><b>主题</b>${a(href(q => q.delete("theme")), "深", th === "dark")}${a(href(q => q.set("theme", "light")), "浅", th === "light")}<i></i>`
+      + `<b>任务</b>${kinds.join("")}<i></i><b>状态</b>${sts.join("")}`;
+    // 右上角第二条：跟着状态变的几样
+    const ex = [];
+    ex.push(`<b>底部</b>${a(href(q => q.delete("dock")), "浮起", DOCK === "float", "", "胶囊浮起来，左右两颗按钮（推荐）")}${a(href(q => q.set("dock", "sink")), "沉下", DOCK === "sink", "", "胶囊沉着（同向导），进行中右下多一颗「回到主页」当出路")}`);
+    if (ST !== "gone" && ST !== "lost") ex.push(`<a href="${href(q => q.set("play", "1"))}" title="从第一步自动走到这个状态的结尾（失败就在出错那一步停下，慢就在那里卡一会儿再接着走）">▶ 跑一遍</a>`);
+    if (KIND === "create" && ["running", "done"].includes(ST)) ex.push(`<a href="${href(q => { q.set("play", "1"); q.set("cart", "1"); q.set("st", "done"); q.set("enter", "1"); })}" title="从向导的「创建服务器」进来，第二步挑过插件：建好以后接着装待装清单">从向导进来 · 带清单</a>`);
+    if (ST === "slow" && NET_SLOW.includes(KIND)) ex.push(`<b>慢</b>${a(href(q => q.delete("why")), "在重试", WHY === "net")}${a(href(q => q.set("why", "idle")), "没进度", WHY === "idle")}`);
+    if (ST === "failed" && KINDS[KIND].fail.leftover) ex.push(a(href(q => LEFT ? q.delete("leftover") : q.set("leftover", "1")), "没删干净", LEFT, "", "失败以后半成品没清干净（快照里 cleanupFailed）"));
+    if ((ST === "failed" && KIND !== "map") || (ST === "cancelled" && KINDS[KIND].edit)) ex.push(a(href(q => DRAFT ? q.set("draft", "0") : q.delete("draft")), "没有草稿", !DRAFT, "", "这一页刷新过，或者从首页浮层点进来的：记不得这个任务是拿什么发起的，没有「返回修改」「重试」"));
+    if ((KIND === "export" && ST === "done") || (KIND === "pack" && ST === "partial")) ex.push(a(href(q => LOCAL ? q.set("local", "0") : q.delete("local")), "别的设备", !LOCAL, "", "手机远程管理、浏览器打开：没有「打开文件夹」"));
+    $("#tk2-sk2").innerHTML = ex.join("<i></i>");
+  }
+
+  // 细滚动条（同 settings.html 的 thinBar）
+  function thinBar(w) {
+    const l = w.querySelector(".list"), t = w.querySelector(".thumb");
+    const paint = () => {
+      const ch = l.clientHeight, sh = l.scrollHeight, st = l.scrollTop;
+      w.classList.toggle("fits", sh <= ch + 1); w.classList.toggle("can-up", st > 2); w.classList.toggle("can-down", st + ch < sh - 2);
+      const h = Math.max(28, ch * ch / sh);
+      t.style.height = h + "px"; t.style.top = (sh > ch ? st / (sh - ch) * (ch - h) : 0) + "px";
+    };
+    if (w._paint) { w._paint(); return; }
+    w._paint = paint;
+    let idle = 0;
+    l.addEventListener("scroll", () => { paint(); w.classList.add("scrolling"); clearTimeout(idle); idle = setTimeout(() => w.classList.remove("scrolling"), 700); }, { passive: true });
+    t.addEventListener("pointerdown", e => {
+      e.preventDefault(); t.setPointerCapture(e.pointerId); t.classList.add("drag");
+      const y0 = e.clientY, s0 = l.scrollTop, ratio = (l.scrollHeight - l.clientHeight) / (l.clientHeight - t.offsetHeight);
+      const move = ev => { l.scrollTop = s0 + (ev.clientY - y0) * ratio; };
+      const up = () => { t.classList.remove("drag"); t.removeEventListener("pointermove", move); t.removeEventListener("pointerup", up); };
+      t.addEventListener("pointermove", move); t.addEventListener("pointerup", up);
+    });
+    new ResizeObserver(paint).observe(l);
+    paint();
+  }
+
+  // ================= 开始 =================
+  window.KIT_READY.then(() => {
+    skBar();
+    if (DOCK === "sink" || ENTER) document.body.classList.add("tk2-capdown");
+    if (ST === "gone") { buildGone(); paintPills(true); paintCap(); }
+    else {
+      if (PLAY) { T = fresh(KIND, ST === "partial" && KINDS[KIND].partial?.srv || KINDS[KIND].srv); build(); paintAll(true); }
+      else { snapshot(KIND, ST); build(); paintAll(true); }
+    }
+    // 从向导进来（?enter=1）：内容从右边挪进来（同向导换步的进场），胶囊从下面浮上来，左下的按钮浮上来
+    if (ENTER) {
+      $("#tk2-page").animate([{ opacity: 0, transform: "translateX(16px)" }, { opacity: 1, transform: "none" }], { duration: 260, easing: OUT });
+      $$(".tk2-pill").forEach(rise);
+      requestAnimationFrame(() => requestAnimationFrame(() => { if (DOCK === "float") document.body.classList.remove("tk2-capdown"); }));
+    }
+    if (PLAY && ST !== "gone") setTimeout(play, ENTER ? 420 : 300);
+    window.__tk2 = { get T() { return T; }, V, paintAll }; // 给量尺寸的脚本用
+  });
+})();

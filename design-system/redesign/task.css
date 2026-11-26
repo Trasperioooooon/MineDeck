@@ -1,0 +1,308 @@
+/* 后台任务 / 点「创建服务器」以后的进度页（11-27 夜里第一稿）。说明写在 task.html 开头，脚本在 task.js。
+   选择器、动画名都带 tk2 前缀（标题栏、切换条、胶囊也是照 settings.html 抄来再加前缀的，不和别的页共用类名）；data 属性（data-act、data-k、data-pid……）没带，只在这一页的元素上用。
+   胶囊的悬停提示用 data-tk2-tip 加 ::after（照 home.html）：kit.js 只跳过 .cap 里的，用 data-tip 的话 kit 的浮层会和 ::after 一起出来。
+
+   1280×800 下从上往下：标题栏 40；标题一句 30 号（离标题栏 44，同向导的问话）；下面一行 13 号淡字（20 高，空着也占着，换状态时面板不挪）；
+   间隔 20；大面板 1080 × 544（外 26 / 内边距 8，同首页大卡、向导面板）：封面条 60（圆角 18 = 26 − 8）+ 一栏（圆角 18），
+   栏里左边步骤 220、右边进度和日志（数值照 detail-world.css 换地图的进度：步骤行 32 高、图标 20、经验条 16 高格间距 2、日志等宽 12 / 20）。
+   面板底边 714，离窗口底 86：底部胶囊（52 高、离底 18）和左右两颗按钮（44 高，中线离底 44，同向导的上一步、下一步）放在这里。 */
+
+.tk2-root { background: var(--bg); overflow: hidden; }
+.tk2-sp { flex: 1; }
+.tk2-mono { font-family: var(--mono); }
+
+/* ---------- 标题栏、草图切换条：照 settings.html ---------- */
+.tk2-tb { height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 0 0 16px; position: relative; z-index: 45; }
+.tk2-tb .tk2-brand img { width: 16px; height: 16px; image-rendering: pixelated; display: block; }
+.tk2-tb .tk2-win { display: flex; height: 40px; margin-left: auto; }
+.tk2-tb .tk2-win span { width: 46px; display: grid; place-items: center; color: var(--muted); }
+.tk2-sk { display: flex; align-items: center; gap: 2px; height: 26px; padding: 0 6px; border-radius: 13px; background: color-mix(in srgb, var(--surface) 70%, transparent);
+          border: 1px solid var(--border); font-size: 11.5px; color: var(--faint); white-space: nowrap; min-width: 0; }
+.tk2-sk b { font-weight: 500; color: var(--muted); margin: 0 2px 0 6px; }
+.tk2-sk b:first-child { margin-left: 2px; }
+.tk2-sk a { color: var(--muted); text-decoration: none; padding: 2px 6px; border-radius: 8px; }
+.tk2-sk a:hover { color: var(--text); background: var(--hover); }
+.tk2-sk a.on { color: var(--accent-text); background: var(--accent-subtle); }
+.tk2-sk a.na { color: var(--faint); opacity: .5; } /* 这一类任务没有这种状态（程序里切不出来）：灰着，悬停说原因，点了也能看落到哪 */
+.tk2-sk i { width: 1px; height: 12px; background: var(--border); margin: 0 4px; flex: none; }
+/* 右上角第二条（照 wizard.html 的 .sim 放在标题栏下面右边）：跟着状态变的几样草图参数 */
+.tk2-sk.tk2-sk2 { position: fixed; top: 48px; right: 16px; z-index: 44; }
+.tk2-sk.tk2-sk2:empty { display: none; }
+
+/* ---------- 页面：标题一句、一行淡字、大面板 ---------- */
+.tk2-page { position: absolute; top: 40px; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; align-items: center; padding: 44px 0 86px; box-sizing: border-box; }
+.tk2-q { margin: 0; height: 38px; font-size: 30px; line-height: 38px; font-weight: 600; letter-spacing: -.01em; text-align: center; white-space: nowrap; }
+.tk2-q > span, .tk2-qs > span { display: inline-flex; align-items: center; gap: 6px; }
+.tk2-qs { margin: 8px 0 20px; height: 20px; font-size: 13px; line-height: 20px; color: var(--muted); text-align: center; white-space: nowrap; max-width: 1080px; }
+.tk2-qs .tk2-warn { color: var(--warning-text); }
+.tk2-qs .mono { font-family: var(--mono); font-size: 12.5px; color: var(--text); }
+.tk2-qs .tk2-ib { width: 24px; height: 24px; margin: -2px 0; } /* 一行字里的小图标按钮：不撑高这一行 */
+.tk2-qs .tk2-ib .ico { width: 14px; height: 14px; }
+
+.tk2-panel { width: 1080px; flex: 1; min-height: 0; box-sizing: border-box; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-1);
+             display: flex; flex-direction: column; gap: 8px; }
+
+/* 封面条：照 detail-world 的 .wd-cov（核心色 30% 底加 16 像素淡棋盘格，头像 44 离边 8、圆角 10 = 18 − 8） */
+.tk2-cov { --c: #7a8aa0; flex: none; height: 60px; border-radius: 18px; padding: 8px 14px 8px 8px; box-sizing: border-box; display: flex; align-items: center; gap: 12px;
+           position: relative; overflow: hidden; background: color-mix(in srgb, var(--c) 30%, var(--surface)); }
+.tk2-cov::after { content: ""; position: absolute; inset: 0; opacity: .16; pointer-events: none;
+  background-image: linear-gradient(45deg, rgb(0 0 0 / .5) 25%, transparent 25%, transparent 75%, rgb(0 0 0 / .5) 75%), linear-gradient(45deg, rgb(0 0 0 / .5) 25%, transparent 25%, transparent 75%, rgb(0 0 0 / .5) 75%);
+  background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+.tk2-cov > * { position: relative; z-index: 1; }
+.tk2-cava { flex: none; width: 44px; height: 44px; border-radius: 10px; display: grid; place-items: center; background: color-mix(in srgb, var(--c) 26%, var(--surface));
+            box-shadow: inset 0 1px 0 rgb(255 255 255 / .08); }
+.tk2-cava svg { width: 32px; height: 32px; display: block; }
+.tk2-ct { flex: 1; min-width: 0; }
+.tk2-cn { font-size: 16px; font-weight: 600; line-height: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 封面上压着棋盘格的淡字，浅色下灰字对比度不够，往正文色靠（规范第三节） */
+.tk2-cs { font-size: 12.5px; line-height: 18px; color: color-mix(in srgb, var(--muted) 60%, var(--text)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tk2-cs .mono { font-family: var(--mono); font-size: 12px; }
+
+/* 栏：左边步骤、右边进度和日志（照 detail-world 的 .wd-task） */
+.tk2-col { flex: 1; min-height: 0; border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface));
+           display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 0 24px; padding: 18px 20px 16px; box-sizing: border-box; }
+
+.tk2-steps { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.tk2-step { display: flex; align-items: center; gap: 10px; height: 32px; font-size: 13px; color: var(--faint); transition: color .2s; min-width: 0; }
+.tk2-step > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tk2-step .tk2-si { width: 20px; height: 20px; display: grid; place-items: center; flex: none; }
+.tk2-step .tk2-si .ico { width: 15px; height: 15px; }
+.tk2-step.done { color: var(--muted); } .tk2-step.done .tk2-si { color: var(--success-text); }
+.tk2-step.running { color: var(--text); font-weight: 600; } .tk2-step.running .tk2-si { color: var(--accent-text); }
+.tk2-step.error { color: var(--danger-text); font-weight: 600; } .tk2-step.error .tk2-si { color: var(--danger-text); }
+.tk2-step.cancelled { color: var(--muted); }
+.tk2-px { width: 6px; height: 6px; border-radius: 2px; background: color-mix(in srgb, var(--text) 22%, transparent); display: block; }
+.tk2-dash { width: 10px; height: 2px; border-radius: 1px; background: var(--muted); display: block; }
+.tk2-spin { animation: tk2-spin .9s linear infinite; }
+@keyframes tk2-spin { to { transform: rotate(360deg); } }
+
+.tk2-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+/* 进度：上面一行（这一项下的是什么、多少、百分比），下面 30 格；没在下载时整条淡下去，停在上一项的样子（同 detail-world 复制完以后淡下去） */
+.tk2-prog { flex: none; transition: opacity .3s; }
+.tk2-prog.idle { opacity: .45; }
+.tk2-ph { display: flex; align-items: center; gap: 10px; height: 32px; min-width: 0; }
+.tk2-lbl { font-size: 13px; font-weight: 600; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tk2-bytes { font-family: var(--mono); font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tk2-pct { font-family: var(--mono); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 4ch; text-align: right; }
+.tk2-xp { position: relative; height: 16px; margin-top: 10px; display: flex; gap: 2px; }
+.tk2-xp i { flex: 1; border-radius: 1.5px; background: color-mix(in srgb, var(--text) 9%, transparent); transition: background .12s; }
+.tk2-xp i:first-child { border-radius: 4px 1.5px 1.5px 4px; } .tk2-xp i:last-child { border-radius: 1.5px 4px 4px 1.5px; }
+.tk2-xp i.on { background: var(--accent); }
+/* 新点亮的格子从下往上弹一下，相邻错开 24 毫秒（同程序 .xp i.lit） */
+.tk2-xp i.lit { animation: tk2-cell .26s cubic-bezier(.2, .7, .2, 1) both; transform-origin: 50% 100%; }
+@keyframes tk2-cell { from { transform: scaleY(.35); opacity: .3; } }
+/* 做完：整条闪一下（同程序 .xp.flash） */
+.tk2-xp.flash::after { content: ""; position: absolute; inset: -2px; border-radius: 6px; background: var(--accent); opacity: 0; animation: tk2-flash .42s cubic-bezier(.4, 0, .6, 1) 1; pointer-events: none; }
+@keyframes tk2-flash { 40% { opacity: .35; } }
+
+/* 下面一块：提示条（下载慢 / 失败的原因）、分段（有东西要看时）、日志或别的几样 */
+.tk2-body { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+/* 提示条和分段出现、收起时高度平滑变（行高 0fr ↔ 1fr），里面的内容不重排 */
+.tk2-fold { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .32s cubic-bezier(.3, .7, .2, 1); flex: none; }
+.tk2-fold.open { grid-template-rows: 1fr; }
+.tk2-fold > div { min-height: 0; overflow: hidden; }
+.tk2-fold > div > * { margin-bottom: 12px; }
+
+/* 下载慢：一块 36 高、圆角 10（栏里的块），警告色浅底；那句说明进悬停 */
+.tk2-slow { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-radius: 10px; box-sizing: border-box; background: var(--warning-subtle);
+            font-size: 12.5px; color: var(--text); }
+.tk2-slow .ico { width: 15px; height: 15px; color: var(--warning-text); flex: none; }
+.tk2-slow .num { font-variant-numeric: tabular-nums; }
+/* 失败的原因：一块圆角 10、危险色浅底；右上角复制（28 见方、离块边 6、圆角 4 = 10 − 6） */
+.tk2-fail { position: relative; padding: 9px 42px 10px 12px; border-radius: 10px; box-sizing: border-box; background: var(--danger-subtle); }
+.tk2-fail .tk2-fr { font-size: 13px; line-height: 20px; color: var(--text); overflow-wrap: anywhere; }
+.tk2-fail .tk2-fr .ico { width: 15px; height: 15px; color: var(--danger-text); vertical-align: -3px; margin-right: 6px; }
+.tk2-fail .tk2-fh { margin-top: 4px; font-size: 12.5px; line-height: 18px; color: var(--muted); }
+.tk2-fail .tk2-flo { margin-top: 6px; display: flex; align-items: flex-start; gap: 6px; font-size: 12.5px; line-height: 18px; color: var(--warning-text); }
+.tk2-fail .tk2-flo .ico { width: 14px; height: 14px; flex: none; margin-top: 2px; }
+.tk2-fail > .tk2-ib { position: absolute; top: 6px; right: 6px; }
+
+/* 图标按钮：28 见方、圆角 4（规范第九节） */
+.tk2-ib { flex: none; width: 28px; height: 28px; border-radius: 4px; border: 0; padding: 0; background: none; color: var(--muted); display: inline-grid; place-items: center; cursor: pointer;
+          transition: background .2s, color .2s; }
+.tk2-ib:hover { background: var(--hover); color: var(--text); }
+.tk2-ib .ico { width: 15px; height: 15px; }
+.tk2-ib.ok { color: var(--success-text); }
+
+/* 分段：换着看什么的 32 高胶囊（规范第九节），选中块滑过去 */
+.tk2-seg { position: relative; display: inline-flex; padding: 3px; border-radius: 16px; background: var(--field); border: 1px solid var(--border); box-sizing: border-box; height: 32px; }
+.tk2-seg > span { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 6px; padding: 0 14px; font-size: 12.5px; color: var(--muted); border-radius: 12px; cursor: pointer;
+                  transition: color .2s; white-space: nowrap; }
+.tk2-seg > span:hover { color: var(--text); }
+.tk2-seg > span.on { color: var(--accent-text); font-weight: 500; }
+.tk2-seg .tk2-n { font-family: var(--mono); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.tk2-seg .tk2-n:empty { display: none; }
+.tk2-seg .tk2-sgl { position: absolute; left: 0; top: 3px; bottom: 3px; border-radius: 12px; background: var(--accent-subtle); z-index: 0; pointer-events: none;
+                    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+                    transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
+/* 表单里取值的分段：40 高、圆角 10（没装上的文件「跳过 / 用本地文件代替 / 信任站点并下载」，同 commons 的 .seg） */
+.tk2-seg.lg { height: 40px; border-radius: 10px; display: flex; }
+.tk2-seg.lg > span { flex: 1; justify-content: center; font-size: 13px; border-radius: 6px; padding: 0 10px; }
+.tk2-seg.lg .tk2-sgl { border-radius: 6px; }
+
+/* 几样东西换着看：同一块地方，逐项换（横着挪 5 像素） */
+.tk2-views { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
+.tk2-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.tk2-view[hidden] { display: none; }
+
+/* 细滚动条：同 detail-world 的 .wd-lw（系统的藏掉，右边 4 像素的细条，悬停或在滚时出来、能拖；上下有没露出来的那一头淡出 28） */
+.tk2-lw { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.tk2-lw .list { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; position: relative;
+                --ft: 0px; --fb: 0px; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%);
+                mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%); }
+.tk2-lw .list::-webkit-scrollbar { display: none; }
+.tk2-lw.can-up .list { --ft: 28px; } .tk2-lw.can-down .list { --fb: 28px; }
+.tk2-lw .thumb { position: absolute; right: -12px; width: 4px; border-radius: 2px; background: color-mix(in srgb, var(--text) 38%, transparent);
+                 opacity: 0; transition: opacity .2s, width .15s, right .15s; cursor: pointer; }
+.tk2-lw:hover .thumb, .tk2-lw.scrolling .thumb, .tk2-lw .thumb.drag { opacity: 1; }
+.tk2-lw .thumb:hover, .tk2-lw .thumb.drag { width: 6px; right: -13px; background: color-mix(in srgb, var(--text) 55%, transparent); }
+.tk2-lw.fits .thumb { display: none; }
+
+/* 日志：等宽 12 / 20，整行折行（不截，作者 11-27：输出要完整），行首的 tab 留着；⚠ 一行警告色、❌ 一行危险色，中间截掉的那一行淡 */
+.tk2-log .list { font-family: var(--mono); font-size: 12px; line-height: 20px; color: var(--muted); }
+.tk2-log .list > div { flex: none; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; }
+.tk2-log .list > .w { color: var(--warning-text); }
+.tk2-log .list > .e { color: var(--danger-text); }
+.tk2-log .list > .c { color: var(--faint); }
+
+/* 按钮：28 高胶囊（一排里的小动作），36 高胶囊（一块里的主键，同 commons 的 .b） */
+.tk2-b { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; padding: 0 16px; border-radius: 18px; box-sizing: border-box; flex: none;
+         border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer;
+         transition: background-color .2s, color .2s, opacity .2s; }
+.tk2-b:hover { background: var(--control-hov); }
+.tk2-b .ico { width: 15px; height: 15px; }
+.tk2-b.pri { background: var(--accent-solid); color: var(--on-accent); border-color: transparent; font-weight: 600; }
+.tk2-b.pri:hover { background: var(--accent-solid-hov); }
+.tk2-b.dgr { background: var(--danger-solid); color: var(--on-danger); border-color: transparent; font-weight: 600; }
+.tk2-b.dgr:hover { background: var(--danger-solid-hov); }
+.tk2-b.sm { height: 28px; padding: 0 12px; border-radius: 14px; font-size: 12px; }
+.tk2-b.sm .ico { width: 13px; height: 13px; }
+.tk2-b[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.tk2-b.fk { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- 没装上的文件：照 commons 的 .pnd（一个文件一块，圆角 10），在这一块里滚 ---------- */
+.tk2-pv { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.tk2-pbar { flex: none; display: flex; align-items: center; gap: 6px; min-height: 28px; }
+.tk2-pbar:empty { display: none; }
+.tk2-pv .tk2-lw .list { gap: 8px; }
+.tk2-pnd { flex: none; display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 10px; background: color-mix(in srgb, var(--surface) 55%, transparent);
+           transition: opacity .2s; }
+.tk2-pnd.busy { opacity: .6; pointer-events: none; }
+.tk2-pnd.out { pointer-events: none; }
+.tk2-pr1 { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 20px; }
+.tk2-pp { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tk2-pr1 .tk2-ib { width: 24px; height: 24px; margin: -2px -4px -2px 0; }
+.tk2-pr1 .tk2-ib .ico { width: 13px; height: 13px; }
+.tk2-pr1 .tk2-tag { flex: none; height: 18px; padding: 0 7px; border-radius: 9px; font-size: 11px; font-weight: 500; line-height: 18px; background: color-mix(in srgb, var(--text) 9%, transparent); color: var(--muted); }
+.tk2-pwhy { font-size: 12px; line-height: 18px; color: var(--muted); }
+.tk2-pwhy .host { font-family: var(--mono); color: var(--faint); }
+.tk2-pmore:empty { display: none; }
+/* 分段和路径框不铺满整栏（栏宽 760 时两三个选项拉得太开），同 commons 弹窗里的宽度 */
+.tk2-pnd > .tk2-seg.lg, .tk2-pmore .tk2-inp { max-width: 500px; }
+.tk2-perr { font-size: 12.5px; line-height: 18px; color: var(--danger-text); display: flex; align-items: center; gap: 6px; }
+.tk2-perr .ico { width: 14px; height: 14px; flex: none; }
+.tk2-inp { height: 40px; border-radius: 10px; background: var(--field); border: 1px solid var(--border); padding: 0 12px; box-sizing: border-box; width: 100%;
+           font: inherit; font-family: var(--mono); font-size: 13px; color: var(--text); outline: none; transition: border-color .2s, box-shadow .2s; }
+.tk2-inp::placeholder { color: var(--faint); font-family: var(--font); }
+.tk2-inp:focus { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.tk2-inp.bad { border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
+/* 勾：自己画的（同 commons 的 .ck） */
+.tk2-ck { display: inline-flex; align-items: center; gap: 8px; min-height: 26px; font-size: 12.5px; color: var(--muted); cursor: pointer; transition: color .2s; width: fit-content; }
+.tk2-ck:hover { color: var(--text); }
+.tk2-ck .tk2-bx { width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; border: 1.5px solid color-mix(in srgb, var(--text) 35%, transparent); display: grid; place-items: center; flex: none;
+                  color: transparent; transition: background .15s, border-color .15s, color .15s; }
+.tk2-ck .tk2-bx .ico { width: 10px; height: 10px; }
+.tk2-ck.on .tk2-bx { background: var(--accent-solid); border-color: var(--accent-solid); color: var(--on-accent); }
+.tk2-ck.bad, .tk2-ck.bad:hover { color: var(--danger-text); } .tk2-ck.bad .tk2-bx { border-color: var(--danger-text); }
+.tk2-ck .mono { font-family: var(--mono); font-size: 12px; }
+/* 已跳过的折在最后一行，点开才列（程序是 <details>） */
+.tk2-pfold { flex: none; display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 6px; border: 0; background: none; border-radius: 10px; font: inherit; font-size: 12px;
+             color: var(--faint); cursor: pointer; width: fit-content; }
+.tk2-pfold:hover { color: var(--text); background: var(--hover); }
+.tk2-pfold .ico { width: 13px; height: 13px; transition: transform .32s cubic-bezier(.3, .7, .2, 1); }
+.tk2-pfold.open .ico { transform: rotate(180deg); }
+.tk2-pnd.skipped .tk2-pp { color: var(--muted); }
+/* 都处理完了：这一块正中一句 */
+.tk2-pdone { margin: auto; display: flex; flex-direction: column; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; padding: 24px 0; }
+.tk2-pdone .ico { width: 22px; height: 22px; color: var(--success-text); }
+.tk2-pdone.info .ico { color: var(--faint); }
+.tk2-pfoot { flex: none; display: flex; align-items: center; gap: 10px; }
+.tk2-pfoot[hidden] { display: none; }
+.tk2-pmsg { font-size: 12.5px; color: var(--danger-text); opacity: 0; transition: opacity .2s; }
+.tk2-pmsg.show { opacity: 1; }
+.tk2-pmsg.soft { color: var(--faint); }
+
+/* ---------- 提示（任务的结构化告警）：一条一块，圆角 10；长说明进标题的悬停 ---------- */
+.tk2-wv { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.tk2-wv .tk2-lw .list { gap: 8px; }
+.tk2-wb { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 10px; background: color-mix(in srgb, var(--surface) 55%, transparent); }
+.tk2-wt { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 20px; font-weight: 600; }
+.tk2-wt .ico { width: 15px; height: 15px; color: var(--warning-text); flex: none; margin-top: 2.5px; }
+.tk2-wt span { min-width: 0; }
+.tk2-wi { margin: 0; padding: 0 0 0 23px; list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; line-height: 19px; color: var(--muted); }
+.tk2-wi li { overflow-wrap: anywhere; }
+.tk2-wi .mono { font-family: var(--mono); font-size: 12px; }
+.tk2-wi a { color: var(--accent-text); text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+.tk2-wi a .ico { width: 12px; height: 12px; }
+.tk2-wa { padding-left: 23px; display: flex; gap: 6px; }
+
+/* ---------- 整页状态：任务不存在（同 commons 的「服务器不存在」） ---------- */
+.tk2-gone { position: absolute; left: 0; right: 0; top: 0; bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding-bottom: 72px; }
+.tk2-gone .tk2-si2 { width: 56px; height: 56px; border-radius: 16px; display: grid; place-items: center; background: var(--surface); color: var(--muted); box-shadow: var(--elev-1); margin-bottom: 4px; }
+.tk2-gone .tk2-si2 .ico { width: 24px; height: 24px; }
+.tk2-gone .tk2-t1 { font-size: 20px; line-height: 28px; font-weight: 600; letter-spacing: -.01em; }
+
+/* ---------- 底部：胶囊（照 settings.html，提示照 home.html 的 ::after）和左右两颗按钮（照 wizard.html 的 .wbtn） ---------- */
+.tk2-cap { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 10; display: flex; align-items: center; gap: 4px; padding: 5px;
+           border-radius: var(--r-full); background: color-mix(in srgb, var(--overlay) 86%, transparent); backdrop-filter: blur(16px) saturate(1.2);
+           border: 1px solid var(--border); box-shadow: var(--elev-3); transition: transform .32s cubic-bezier(.4, 0, .2, 1), opacity .32s; }
+.tk2-cap a { position: relative; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--r-full); color: var(--muted); text-decoration: none; }
+.tk2-cap a:hover { color: var(--text); background: var(--hover); }
+.tk2-cap a.on { color: var(--accent-text); background: var(--accent-subtle); }
+.tk2-cap a .ico { width: 18px; height: 18px; }
+.tk2-cap a.home img { width: 20px; height: 20px; image-rendering: pixelated; }
+.tk2-cap a.ai { color: var(--text); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border); }
+.tk2-cap a.ai .ico { color: var(--accent-text); }
+.tk2-cap a.new { background: var(--accent-solid); color: var(--on-accent); }
+.tk2-cap a[data-tk2-tip]::after { content: attr(data-tk2-tip); position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%) translateY(4px);
+  padding: 5px 10px; border-radius: var(--r-sm); background: var(--overlay); border: 1px solid var(--border); box-shadow: var(--elev-2);
+  color: var(--text); font-size: 12px; font-weight: 500; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s, transform .12s; }
+.tk2-cap a[data-tk2-tip]:hover::after { opacity: 1; transform: translateX(-50%) translateY(0); }
+body.tk2-capdown .tk2-cap { transform: translate(-50%, 160%); opacity: 0; pointer-events: none; }
+
+.tk2-wnav { position: fixed; left: 0; right: 0; bottom: 18px; z-index: 10; pointer-events: none; }
+.tk2-wnav .tk2-win2 { width: 1080px; margin: 0 auto; height: 52px; display: flex; align-items: center; }
+.tk2-slot { display: flex; align-items: center; height: 52px; }
+.tk2-pill { pointer-events: auto; height: 44px; padding: 0 18px; border-radius: var(--r-full); display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer;
+            font: inherit; font-size: 13px; font-weight: 600; box-shadow: var(--elev-3); white-space: nowrap; overflow: hidden; box-sizing: border-box;
+            color: var(--text); border: 1px solid var(--border); background: color-mix(in srgb, var(--overlay) 86%, transparent); backdrop-filter: blur(16px) saturate(1.2); }
+.tk2-pill:hover { background: color-mix(in srgb, var(--overlay) 86%, var(--text) 6%); }
+.tk2-pill .ico { width: 16px; height: 16px; }
+.tk2-pill .tk2-pl { display: inline-flex; align-items: center; gap: 6px; }
+.tk2-pill.back { padding-left: 14px; }
+.tk2-pill.back .tk2-pl > .ico:first-child { transform: rotate(180deg); }
+.tk2-pill.pri { border: 0; color: var(--on-accent); background: var(--accent-solid); backdrop-filter: none; }
+.tk2-pill.pri:hover { background: var(--accent-solid-hov); }
+.tk2-pill.pri.ic { padding-left: 16px; }
+.tk2-pill[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+
+/* ---------- 确认框：照 detail-world 的 .wd-mask（深浅两套遮罩和投影，外壳里没有 --scrim、--elev-4） ---------- */
+.tk2-mask { --tk2-scrim: rgb(var(--shadow-rgb) / .32); --tk2-elev4: 0 28px 64px -16px rgb(var(--shadow-rgb) / .32), 0 8px 20px -4px rgb(var(--shadow-rgb) / .10);
+            position: fixed; left: 0; right: 0; top: 40px; bottom: 0; z-index: 40; display: grid; place-items: center; background: var(--tk2-scrim); backdrop-filter: blur(2px); }
+[data-theme="dark"] .tk2-mask { --tk2-scrim: rgb(0 0 0 / .56); --tk2-elev4: 0 32px 72px -16px rgb(0 0 0 / .72), 0 8px 24px -4px rgb(0 0 0 / .40); }
+.tk2-mask.enter { animation: tk2-mk-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.tk2-mask.enter > .tk2-md { animation: tk2-md-in .26s cubic-bezier(.2, .7, .2, 1) both; }
+.tk2-mask.leave { animation: tk2-mk-out .14s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+.tk2-mask.leave > .tk2-md { animation: tk2-md-out .14s cubic-bezier(.4, 0, 1, 1) both; }
+@keyframes tk2-mk-in { from { opacity: 0; } } @keyframes tk2-mk-out { to { opacity: 0; } }
+@keyframes tk2-md-in { from { opacity: 0; transform: translateY(10px); } } @keyframes tk2-md-out { to { opacity: 0; transform: translateY(6px); } }
+.tk2-md { width: var(--w, 380px); box-sizing: border-box; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--tk2-elev4); display: flex; flex-direction: column; gap: 8px; }
+.tk2-mc { border-radius: 18px; padding: 18px 20px 20px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); display: flex; flex-direction: column; gap: 12px; }
+.tk2-mh { display: flex; align-items: center; gap: 12px; margin: -10px 0 0 -12px; }
+.tk2-mi { width: 40px; height: 40px; border-radius: 10px; flex: none; display: grid; place-items: center; background: var(--danger-subtle); color: var(--danger-text); }
+.tk2-mi .ico { width: 20px; height: 20px; }
+.tk2-md h3 { flex: 1; min-width: 0; margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; display: flex; flex-wrap: wrap; }
+.tk2-md h3 .nw { white-space: nowrap; }
+.tk2-mb { font-size: 13px; line-height: 21px; color: var(--muted); }
+.tk2-ma { display: flex; gap: 8px; }
+.tk2-ma .tk2-b { flex: 1 1 0; min-width: 0; padding: 0 14px; }
