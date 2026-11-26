@@ -5,7 +5,7 @@
 <title>草图 · 服务器详情页</title>
 <!--
   服务器详情页第一稿（11-27，作者：「下一页画服务器详情页」）。这一稿只定结构：页头和标签放哪；各标签里面的内容后面一页一页画。
-  控制台画了第一稿（11-27，见最后「控制台」一段，等作者看），别的标签内容还是空的面板。
+  控制台画了第一稿（11-27，见最后「控制台」一段），玩家、联机也画了第一稿（11-27，说明写在 detail-players.js、detail-net.js 开头），别的标签内容还是空的面板。
 
   页头和首页大卡对上（规范第三节）：一块大面板（26 / 8），上面是封面条（核心色 30% 底、16 像素淡棋盘格、圆角 18），里面头像 44、名字、核心和版本，
   右边是数字块和星标、「···」（同大卡）；封面条下面一排 36 高的胶囊：状态、重启、停止或启动、联机地址、常驻提示（36 的一半 18 和面板下角同心）。
@@ -26,17 +26,22 @@
   怎么回首页：胶囊里「主页」亮着，点它回首页（同 MASTER 11.6：点当前项回到这一块的起点）；页上不另放返回键。这是主会话选的，等作者说。
 
   控制台（11-27 第一稿）：程序里有的都画上（app.js 约 3888 行起、assistant.js 的报错横幅），摆法重排了。
-  面板最上面一排 32 高（搜索框 32 高胶囊、图标按钮 28 见方圆角 4，同临时规范）：左边过滤框（边打边筛，筛不到时终端正中一行淡字）和「自动滚动」开关；右边「字号和编码」（Aa）、复制全部、导出为 txt，
-  竖线后面是这一页的两个文件夹（崩溃报告、日志；代理端只有日志），原来贴在终端右上角，现在有了工具栏就放进来。
+  面板最上面一排 32 高（搜索框 32 高胶囊、图标按钮 28 见方圆角 4，同临时规范）。11-27 作者定的顺序：最左边「字号和编码」（Aa）、复制全部、导出为 txt，
+  竖线后面是这一页的两个文件夹（崩溃报告、日志；代理端只有日志；原来贴在终端右上角），「自动滚动」开关跟在后面；过滤框放最右边（边打边筛，筛不到时终端正中一行淡字）。
   程序里字号的 A− A+ 和编码下拉都摆在工具栏上；这里收进 Aa 点开的小浮层（用新建向导第三步那套 40 高的步进和分段选：字号 9 到 22、一下 1；编码 自动 / UTF-8 / GBK，存进这台服务器的设置），
-  因为都不常动。等作者定。
+  因为都不常动（作者 11-27 同意）。
   下面是终端（双主题恒深，圆角 18）：日志从下往上排，多了在里面滚（细滚动条，同首页）；最底下命令行 40 高，补全浮在它上面
   （照程序：常用命令、白名单子命令、要玩家名的命令补在线玩家，最多 8 条；Tab 补全、↑↓ 选、Esc 关掉、回车发送），↑↓ 翻历史，在别处按 T 或 / 跳到这里。
-  报错横幅（本地规则认出的问题）在程序里压在终端外面、上面，出来时整个终端往下挤；这里放进终端里、日志上面：终端本身一像素不动，
+  报错横幅（本地规则认出的问题）在程序里压在终端外面、上面，出来时整个终端往下挤；这里放进终端里、日志上面（作者 11-27 同意）：终端本身一像素不动，
   日志从下往上排，最新的几行和命令行也不动，只是上面露得少一点。一行 44 高：结论、两个以上时一个「+1」、「怎么修」、「让 AI 分析」（配了 AI 才有）、×；
   展开是每个问题的详情、怎么修、日志里的原句，最多 236 高、在里面滚；展开时标题行里的结论淡掉，全文写在下面第一条里（一句话只说一次）。
   按键说明、「本地规则的分析，没有联网」、编码对之后的输出生效这几句只放悬停里。左下角的切换条看几种横幅（字照 internal/diag 的规则原话）；
-  「和页头重复」是开服没起来时程序现在的样子：横幅最前面多一条「上次没能启动」，和页头胶囊说同一件事，等作者定要不要去掉。
+  开服没起来时（端口被占、找不到 Java），程序的横幅最前面会多一条「上次没能启动」，和页头的提示胶囊说同一件事；作者 11-27 同意页头有这条时横幅不再列它
+  （改程序时：详情页的横幅滤掉 start-failed；诊断接口照旧带着它给 AI 助手用）。这时控制台最后一行是 MineDeck 记的原因。
+  服务器停着时命令行整条灰掉、不能打字，占位字换成「开服后才能发命令」（作者 11-27 同意；程序现在能打字，发出去才弹「无法发送命令」）。
+  输出要完整（作者 11-27）：控制台里、复制的、导出的、交给 AI 的代码行都不能缩略。Java 堆栈里 Caused by 段末尾的「... N more」是 JVM / log4j 自己的写法，
+  意思是「同外层最后 N 帧」；MineDeck 读输出时照外层补全（草图里 Paper 那段插件报错就是补全后的样子，补出来的几行淡一点、悬停说原文）。
+  MineDeck 自己截掉的（3000 行缓冲、AI 打包每段只留 15 帧……）也要放开，清单在计划书详情页那一节，改程序要等作者说。
 -->
 <script>
 const STAR = "M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z";
@@ -52,6 +57,11 @@ window.EXTRA_ICONS = {
 <script src="kit.js"></script>
 <script src="pixel16.js"></script>
 <link rel="stylesheet" href="kit.css">
+<!-- 控制台写在这个文件里；别的标签各一份（11-27 起）：往 window.DETAIL_TABS 里登记 { html(ctx), mount(ctx) }，见下面 content() -->
+<script src="detail-players.js"></script>
+<link rel="stylesheet" href="detail-players.css">
+<script src="detail-net.js"></script>
+<link rel="stylesheet" href="detail-net.css">
 <style>
   body { background: var(--bg); overflow: hidden; }
   /* 标题栏：同首页 */
@@ -196,7 +206,7 @@ window.EXTRA_ICONS = {
   .con { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
   .ctb { flex: none; height: 32px; display: flex; align-items: center; gap: 4px; }
   .ctb .sp { flex: 1; }
-  .cs { display: flex; align-items: center; gap: 8px; width: 260px; height: 32px; box-sizing: border-box; padding: 0 4px 0 12px; margin-right: 6px; border-radius: 16px; flex: none;
+  .cs { display: flex; align-items: center; gap: 8px; width: 260px; height: 32px; box-sizing: border-box; padding: 0 4px 0 12px; border-radius: 16px; flex: none;
         background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); color: var(--muted); cursor: text; }
   .cs:focus-within { box-shadow: inset 0 0 0 1.5px var(--accent); }
   .cs > .ico { width: 15px; height: 15px; flex: none; }
@@ -207,7 +217,7 @@ window.EXTRA_ICONS = {
   .cs .cx:hover { background: var(--hover); color: var(--text); }
   .cs .cx .ico { width: 14px; height: 14px; }
   /* 开关：同新建向导那颗（36 × 20，滑块 16） */
-  .tg { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px 0 8px; border: 0; border-radius: 16px; background: none; flex: none;
+  .tg { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px 0 8px; margin-left: 8px; border: 0; border-radius: 16px; background: none; flex: none;
         font: inherit; font-size: 13px; color: var(--muted); cursor: pointer; }
   .tg:hover { color: var(--text); background: var(--hover); }
   .tg .sw { position: relative; width: 36px; height: 20px; border-radius: 10px; flex: none; background: color-mix(in srgb, var(--text) 18%, transparent); transition: background .2s; }
@@ -228,6 +238,7 @@ window.EXTRA_ICONS = {
                white-space: pre-wrap; word-break: break-all; tab-size: 4; }
   .term .out > .ofill { flex: 1 0 0; }
   .term .out > div { flex: none; }
+  .term .out .xp { opacity: .62; } /* 补全出来的堆栈行（原文是「... N more」） */
   .term .out .cmd-echo { color: var(--term-cmd); } .term .out .lv-warn { color: var(--term-warn); } .term .out .lv-err { color: var(--term-err); }
   .olw .nomatch { position: absolute; inset: 0; display: grid; place-items: center; font-size: 13px; color: color-mix(in srgb, var(--term-fg) 45%, transparent); pointer-events: none; }
   /* 细滚动条（同首页那套），颜色用终端的字色；上下还有没露出来的，那一头淡出 */
@@ -295,6 +306,11 @@ window.EXTRA_ICONS = {
          background: color-mix(in srgb, var(--term-cmd) 20%, transparent); color: var(--term-cmd); }
   .snd:hover { background: color-mix(in srgb, var(--term-cmd) 32%, transparent); }
   .snd .ico { width: 15px; height: 15px; }
+  /* 停着时：命令行整条淡下去，不能打字（作者 11-27 同意） */
+  .cin.off { background: color-mix(in srgb, var(--term-fg) 4%, transparent); cursor: not-allowed; }
+  .cin.off b, .cin.off .snd { opacity: .35; }
+  .cin.off input { cursor: not-allowed; } .cin.off input::placeholder { color: color-mix(in srgb, var(--term-fg) 45%, transparent); }
+  .cin.off .snd { cursor: not-allowed; background: color-mix(in srgb, var(--term-fg) 10%, transparent); color: var(--term-fg); }
   /* 补全：浮在命令行上面，终端配色；外圆角 16、内边距 5，一项 32 高、圆角 10（16 − 6） */
   .term .sg { position: absolute; left: 8px; bottom: 54px; z-index: 3; min-width: 240px; padding: 5px; box-sizing: border-box; display: flex; flex-direction: column; gap: 1px;
               border-radius: 16px; background: color-mix(in srgb, var(--term-fg) 9%, var(--term-bg)); border: 1px solid color-mix(in srgb, var(--term-fg) 16%, transparent);
@@ -440,19 +456,17 @@ function skBar() {
   $("#sk").innerHTML = `<b>草图</b><b>核心</b>${link("kind", null, "Paper", kind === "paper")}${link("kind", "forge", "Forge", kind === "forge")}${link("kind", "vanilla", "原版", kind === "vanilla")}${link("kind", "proxy", "代理端", kind === "proxy")}<i></i>`
     + `<b>状态</b>${link("st", null, "运行中", st === "running" && !nNotice)}${link("st", "starting", "启动中", st === "starting")}${link("st", "stopped", "已停止", st === "stopped" && !nNotice)}<i></i>`
     + `<b>常驻提示</b>${link("notice", null, "无", !nNotice)}${link("notice", "1", "一条", nNotice === 1)}${link("notice", "2", "两条", nNotice === 2)}${four}<i></i>`
-    + `<span title="控制台是第一稿，等作者看；别的标签里面是空的，后面一页一页画">控制台第一稿</span>`;
+    + `<span title="控制台定了几处，玩家、联机是第一稿（各在 detail-players.*、detail-net.*）；别的标签里面是空的，后面一页一页画">控制台 · 玩家 · 联机</span>`;
   // 左下角：控制台报错横幅的几种（都切到 Forge；没开起来、崩了的几种是已停止）
   const dl = (v, label, title) => {
     const q = new URLSearchParams(location.search);
-    if (v === "dup") { q.set("diag", v); q.set("notice", "1"); q.set("tab", "console"); q.delete("sub"); q.delete("st"); }
-    else if (v) { q.set("diag", v); q.set("kind", "forge"); q.delete("notice"); q.set("tab", "console"); q.delete("sub"); if (v === "warn") q.delete("st"); else q.set("st", "stopped"); }
+    if (v) { q.set("diag", v); q.set("kind", "forge"); q.delete("notice"); q.set("tab", "console"); q.delete("sub"); if (v === "warn") q.delete("st"); else q.set("st", "stopped"); }
     else q.delete("diag");
     return `<a href="?${q}" class="${DIAG === v ? "on" : ""}"${title ? ` title="${title}"` : ""}>${label}</a>`;
   };
   const qa = new URLSearchParams(location.search); if (AI_ON) qa.set("ai", "0"); else qa.delete("ai");
   $("#sk2").innerHTML = `<b>控制台横幅</b>${dl("", "无")}${dl("err", "报错", "缺前置模组，没开起来")}${dl("multi", "两个问题", "同一次开服里：好友的模组对不上进不来，后来卡死被看门狗关掉")}`
-    + `${dl("warn", "提醒", "还开着，好友的模组对不上进不来")}${dl("crash", "没认出", "异常退出了，本地规则没认出是什么原因")}`
-    + `${dl("dup", "和页头重复", "开服没起来时程序现在的样子：横幅最前面多一条「上次没能启动」，和页头的提示胶囊说同一件事")}<i></i>`
+    + `${dl("warn", "提醒", "还开着，好友的模组对不上进不来")}${dl("crash", "没认出", "异常退出了，本地规则没认出是什么原因")}<i></i>`
     + `<a href="?${qa}" class="${AI_ON ? "" : "on"}" title="没配 AI 时横幅上没有「让 AI 分析」">没配 AI</a>`;
 }
 
@@ -571,7 +585,7 @@ function folders() {
 // 程序里的控制台（app.js 约 3888 行起）有：过滤、自动滚动、编码、字号、复制全部、导出 txt，报错横幅（assistant.js，本地规则的结论；配了 AI 才有「让 AI 分析」），
 // 命令行（补全、翻历史、回车发送）。功能照着画全；改了做法的写在开头注释和计划书里，等作者定。
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-const DIAG = ["err", "multi", "warn", "crash", "dup"].includes(QS.get("diag")) ? QS.get("diag") : "";
+const DIAG = ["err", "multi", "warn", "crash"].includes(QS.get("diag")) ? QS.get("diag") : "";
 const FAIL_LINE = `[MineDeck] 没能启动：端口 ${S.port} 被你的服务器「空岛生存」占着，先停掉它，或者给这台换个端口`; // inst/portcheck.go 的原话
 const AI_ON = QS.get("ai") !== "0";
 const CON = { auto: true, fs: 12.5, enc: "auto", q: "", hist: [], hi: -1, draft: "", sugg: [], si: -1, extra: [], dgOpen: false, dgClosed: false };
@@ -633,7 +647,7 @@ function consoleLog() {
     "[21:30:02 INFO]: Loading properties", "[21:30:03 INFO]: This server is running Paper version 1.21.4-232-main@a1b2c3d (2026-10-01T12:00:00Z)",
     "[21:30:04 WARN]: Using offline mode! Players will not be authenticated.", "[21:30:05 INFO]: Preparing level \"world\"", "[21:30:09 INFO]: Done (6.812s)! For help, type \"help\"",
     "[21:42:17 INFO]: Steve joined the game", "[21:50:12 ERROR]: Could not pass event PlayerInteractEvent to ExamplePlugin v1.0",
-    "java.lang.NullPointerException: Cannot invoke \"String.length()\" because \"s\" is null", "\tat com.example.Plugin.onInteract(Plugin.java:42) ~[ExamplePlugin-1.0.jar:?]",
+    ...PAPER_TRACE,
     "[22:01:40 INFO]: Notch_CN joined the game", "[22:03:05 INFO]: Alex joined the game"]; // 三个人在线，和页头对得上
   L = port(L);
   if (st === "starting") L = L.slice(0, Math.max(1, done(L)));
@@ -653,11 +667,23 @@ const F_CRASH = { title: "服务器异常退出", summary: "服务器自己退�
 const F_WATCHDOG = { title: "卡死被看门狗关掉", summary: "服务器的一次 tick 卡了 60.00 秒，看门狗认为它死机了，把服务器强制关掉了",
   fixes: ["看崩溃报告里「Server thread」的堆栈，找出卡住主线程的模组，更新或禁用它", "生成新地形太重时，可以先预生成区块，或减小视距（view-distance）",
     "最后的办法：在 server.properties 里把 max-tick-time 设成 -1（关掉看门狗；卡住时不会自动重启）"], evidence: [WATCHDOG[1], WATCHDOG[2]] };
-const F_STARTFAIL = { title: "上次没能启动", summary: FAIL_LINE.replace("[MineDeck] 没能启动：", ""),
-  fixes: ["按这句说的原因处理好，再点「启动」", "启动成功以后这条就不再出现"] };
-const FINDINGS = { err: [F_MISSING], multi: [F_WATCHDOG, F_MISMATCH], warn: [F_MISMATCH], crash: [F_CRASH], dup: [F_STARTFAIL] }[DIAG] || [];
+const FINDINGS = { err: [F_MISSING], multi: [F_WATCHDOG, F_MISMATCH], warn: [F_MISMATCH], crash: [F_CRASH] }[DIAG] || [];
+// 一段完整的插件报错（照 Paper 的格式编的示例，类名是真的、行号是编的）：外层 EventException 五帧，里面 Caused by 的最后「... 4 more」
+// 照作者 11-27 的要求展开成外层最后四帧（规则：Caused by 段的「... N more」就是它外面那个异常完整帧列表的最后 N 帧）。展开出来的几行淡一点，悬停说原文是什么
+const PAPER_OUTER = ["\tat co.aikar.timings.TimedEventExecutor.execute(TimedEventExecutor.java:80) ~[paper-api-1.21.4-R0.1-SNAPSHOT.jar:?]",
+  "\tat org.bukkit.plugin.RegisteredListener.callEvent(RegisteredListener.java:70) ~[paper-api-1.21.4-R0.1-SNAPSHOT.jar:?]",
+  "\tat io.papermc.paper.plugin.manager.PaperEventManager.callEvent(PaperEventManager.java:54) ~[paper-1.21.4.jar:1.21.4-232-a1b2c3d]",
+  "\tat net.minecraft.server.level.ServerPlayerGameMode.useItemOn(ServerPlayerGameMode.java:512) ~[paper-1.21.4.jar:1.21.4-232-a1b2c3d]"];
+const PAPER_TRACE = ["org.bukkit.event.EventException: null",
+  "\tat org.bukkit.plugin.java.JavaPluginLoader$1.execute(JavaPluginLoader.java:325) ~[paper-api-1.21.4-R0.1-SNAPSHOT.jar:?]", ...PAPER_OUTER,
+  "Caused by: java.lang.NullPointerException: Cannot invoke \"String.length()\" because \"s\" is null",
+  "\tat com.example.Plugin.onInteract(Plugin.java:42) ~[ExamplePlugin-1.0.jar:?]",
+  "\tat java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103) ~[?:?]",
+  "\tat java.base/java.lang.reflect.Method.invoke(Method.java:580) ~[?:?]",
+  "\tat org.bukkit.plugin.java.JavaPluginLoader$1.execute(JavaPluginLoader.java:321) ~[paper-api-1.21.4-R0.1-SNAPSHOT.jar:?]",
+  ...PAPER_OUTER.map(l => "\u0001" + l)]; // 开头带 \u0001 的是 MineDeck 补出来的行
 const lineCls = l => l.startsWith(">") || l.startsWith("[MineDeck]") ? "cmd-echo" : /ERROR|SEVERE|FATAL|Exception|^\tat |^Caused by/.test(l) ? "lv-err" : /WARN/.test(l) ? "lv-warn" : "";
-const lineHTML = l => `<div class="${lineCls(l)}">${esc(l)}</div>`;
+const lineHTML = l => l[0] === "\u0001" ? `<div class="lv-err xp" title="原文这里是「... 4 more」，MineDeck 照上面外层的最后 4 行补全">${esc(l.slice(1))}</div>` : `<div class="${lineCls(l)}">${esc(l)}</div>`;
 function bannerHTML() {
   if (!FINDINGS.length || CON.dgClosed) return "";
   const top = FINDINGS[0], warn = FINDINGS.every(f => f.warn), n = FINDINGS.length;
@@ -676,15 +702,17 @@ function bannerHTML() {
 function consoleHTML() {
   const F = folderList();
   return `<div class="con"><div class="ctb">`
-    + `<label class="cs${CON.q ? " has" : ""}" title="如 ERROR / 玩家名"><i data-ic="search"></i><input id="cq" placeholder="过滤日志" value="${esc(CON.q)}" autocomplete="off" spellcheck="false"><button class="cx" title="清空"><i data-ic="x"></i></button></label>`
-    + `<button class="tg${CON.auto ? " on" : ""}" id="cauto" role="switch" aria-checked="${CON.auto}"><span class="sw"></span>自动滚动</button><span class="sp"></span>`
     + `<button class="ib" id="caa" title="字号和编码"><i data-ic="textSize"></i></button><button class="ib" id="ccopy" title="复制全部"><i data-ic="copy"></i></button>`
     + `<button class="ib" id="cexp" title="导出为 txt"><i data-ic="download"></i></button><span class="vsep"></span>`
-    + F.map(([i, t]) => `<button class="ib" title="${t}"><i data-ic="${i}"></i></button>`).join("") + `</div>`
+    + F.map(([i, t]) => `<button class="ib" title="${t}"><i data-ic="${i}"></i></button>`).join("")
+    + `<button class="tg${CON.auto ? " on" : ""}" id="cauto" role="switch" aria-checked="${CON.auto}"><span class="sw"></span>自动滚动</button><span class="sp"></span>`
+    + `<label class="cs${CON.q ? " has" : ""}" title="如 ERROR / 玩家名"><i data-ic="search"></i><input id="cq" placeholder="过滤日志" value="${esc(CON.q)}" autocomplete="off" spellcheck="false"><button class="cx" title="清空"><i data-ic="x"></i></button></label></div>`
     + `<div class="term">` + bannerHTML()
     + `<div class="olw lwrap" id="colw"><div class="list out" id="cout"><span class="ofill"></span>${[...consoleLog(), ...CON.extra].map(lineHTML).join("")}</div><span class="thumb"></span></div>`
-    + `<div class="cin" title="回车发送 · Tab 补全 · ↑↓ 翻历史 · Esc 关掉补全 · 在别处按 T 或 / 跳到这里"><b>&gt;</b><input id="cin" placeholder="如 op 玩家名 / say 大家好" autocomplete="off" spellcheck="false">`
-    + `<button class="snd" title="发送"><i data-ic="arrowRight"></i></button></div></div></div>`;
+    + (st === "stopped"
+      ? `<div class="cin off"><b>&gt;</b><input id="cin" placeholder="开服后才能发命令" disabled><button class="snd" disabled aria-label="发送"><i data-ic="arrowRight"></i></button></div></div></div>`
+      : `<div class="cin" title="回车发送 · Tab 补全 · ↑↓ 翻历史 · Esc 关掉补全 · 在别处按 T 或 / 跳到这里"><b>&gt;</b><input id="cin" placeholder="如 op 玩家名 / say 大家好" autocomplete="off" spellcheck="false">`
+      + `<button class="snd" title="发送"><i data-ic="arrowRight"></i></button></div></div></div>`);
 }
 function mountConsole() {
   const out = $("#cout"); if (!out) return;
@@ -719,7 +747,13 @@ const COMMON_CMDS = ["say ", "tell ", "op ", "deop ", "kick ", "ban ", "ban-ip "
   "weather clear", "weather rain", "whitelist ", "gamerule ", "kill ", "xp ", "effect ", "title ", "setworldspawn", "list", "save-all", "save-off", "save-on", "seed", "reload", "stop"];
 const PLAYER_CMDS = new Set(["op", "deop", "kick", "ban", "ban-ip", "pardon", "tp", "kill", "give", "gamemode", "xp", "effect", "tell", "title"]);
 const WL_SUB = ["add", "remove", "on", "off", "list", "reload"];
-const ONLINE = () => st === "running" && !S.proxy ? ["Steve", "Alex", "Notch_CN"].slice(0, Math.min(3, S.players)) : [];
+// 在线名单：一开始照页头的人数；玩家页踢掉、封掉在线的人以后用 setOnline 换掉（页头的人数、控制台的补全一起跟着变）
+let onlineNow = null;
+const ONLINE = () => onlineNow ? [...onlineNow] : st === "running" && !S.proxy ? ["Steve", "Alex", "Notch_CN"].slice(0, Math.min(3, S.players)) : [];
+function setOnline(list) {
+  onlineNow = [...list];
+  const v = $("#dh .kv.go .v"); if (v?.firstChild?.nodeType === 3) v.firstChild.nodeValue = String(onlineNow.length); // 只换数字，不重画页头
+}
 function computeSugg(val) {
   if (!val) return [];
   const words = val.split(/\s+/).filter(Boolean), trailingSpace = /\s$/.test(val), first = (words[0] || "").toLowerCase();
@@ -765,7 +799,7 @@ document.addEventListener("keydown", e => {
   const inCin = e.target.id === "cin";
   if (!inCin) {
     const typing = e.target.closest?.("input, textarea, [contenteditable]");
-    if (!typing && tab === "console" && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === "t" || e.key === "T" || e.key === "/") && $("#cin")) { e.preventDefault(); $("#cin").focus(); }
+    if (!typing && tab === "console" && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === "t" || e.key === "T" || e.key === "/") && $("#cin") && !$("#cin").disabled) { e.preventDefault(); $("#cin").focus(); }
     return;
   }
   const open = CON.sugg.length > 0, inp = e.target;
@@ -813,14 +847,21 @@ document.addEventListener("click", e => {
   if (e.target.closest(".dgm, .dgk")) { CON.dgOpen = !CON.dgOpen; const d = $("#dg"); d.classList.toggle("open", CON.dgOpen); $(".dgm", d).setAttribute("aria-expanded", CON.dgOpen); if (CON.dgOpen) thinBar($("#dgb")); return; }
   if (e.target.closest(".dgx")) { CON.dgClosed = true; const d = $("#dg"); d.classList.add("gone"); setTimeout(() => d.remove(), 140); return; }
 });
+// 别的标签的内容在各自的文件里（detail-players.js、detail-net.js……），登记在 window.DETAIL_TABS[标签编号] = { html(ctx), mount(ctx) }。
+// html 返回内容面板里的那一块（外层自己定，通常是 flex: 1 的一栏）；mount 在内容换上去、图标换好以后跑一次。ctx 里是这台服务器的样子和几个共用的小工具。
+window.DETAIL_TABS = window.DETAIL_TABS || {};
+const tabCtx = () => ({ S, kind, st, tab, sub: subPick[tab], QS, $, $$, esc, thinBar, KIT, online: ONLINE(), setOnline, folders: folderList(), goTab });
 function content() {
   if (tab === "console") return consoleHTML();
+  const v = DETAIL_TABS[tab];
+  if (v) return v.html(tabCtx());
   return `<div class="empty">${folders()}</div>`;
 }
+function mountTab() { mountConsole(); if (tab !== "console") DETAIL_TABS[tab]?.mount?.(tabCtx()); }
 function body() {
   $("#body").innerHTML = `<aside class="snav" id="snav"><span class="hl"></span>${sideItems()}</aside><div class="cp" id="cp">${content()}</div>`;
   placeSide(true);
-  KIT.hydrate($("#body")); mountConsole();
+  KIT.hydrate($("#body")); mountTab();
 }
 const sideItems = () => TABS.map(t => `<button data-t="${t.id}" class="${t.id === tab ? "on" : ""}"><i data-ic="${t.ic}"></i>${t.label}</button>`
   + (t.id === tab && subsOf(t.id) ? `<div class="subs">${subsOf(t.id).map(([id, l]) => `<button data-s="${id}" class="${subPick[t.id] === id ? "on" : ""}">${l}</button>`).join("")}</div>` : "")).join("");
@@ -835,7 +876,7 @@ let swapT = 0;
 function swapContent() {
   const cp = $("#cp"); clearTimeout(swapT);
   [...cp.children].forEach(c => c.classList.add("fade-out"));
-  swapT = setTimeout(() => { cp.innerHTML = content(); KIT.hydrate(cp); mountConsole(); [...cp.children].forEach(c => c.classList.add("fade-in")); }, 90);
+  swapT = setTimeout(() => { cp.innerHTML = content(); KIT.hydrate(cp); mountTab(); [...cp.children].forEach(c => c.classList.add("fade-in")); }, 90);
 }
 function syncURL() { const q = new URLSearchParams(location.search); q.set("tab", tab); if (subsOf(tab)) q.set("sub", subPick[tab]); else q.delete("sub"); history.replaceState(null, "", "?" + q); }
 function goTab(id) {

@@ -1,0 +1,226 @@
+/* 服务器详情页 · 联机（11-27 第一稿）。样子照新建向导第四步「配置联机与访问」（wizard.html），数值同那里；
+   这里只多了隧道建好以后的那一页（游戏隧道、语音隧道）、换节点、删除确认。选择器都挂在 .netv 下面，免得和外壳、控制台的类名撞上 */
+
+/* 整页一栏：离内容面板边 8、圆角 18（26 − 8），内边距同向导第四步的栏 */
+.netv { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 18px 20px; border-radius: 18px; box-sizing: border-box;
+        background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+.netv .nsp { flex: 1; }
+.netv .mono { font-family: var(--mono); }
+
+/* 三张卡：底色一层、滑动的选中框一层、卡片的字一层（同向导：选中框滑过别的卡时不被那张卡的底色挡住） */
+.netv .vias { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; flex: none; }
+.netv .vslot { grid-row: 1; position: relative; z-index: 0; border-radius: 10px; background: color-mix(in srgb, var(--surface) 70%, transparent); }
+.netv .vhl { position: absolute; z-index: 1; left: 0; top: 0; bottom: 0; border-radius: 10px; background: var(--accent-subtle); pointer-events: none;
+             box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+             transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
+.netv .vcard { grid-row: 1; position: relative; z-index: 2; padding: 8px 12px; border-radius: 10px; cursor: pointer; min-width: 0; transition: background .2s; }
+.netv .vcard:hover:not(.on) { background: var(--hover); }
+.netv .vcard .n { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.netv .vcard.on .n { color: var(--accent-text); }
+.netv .vcard .m { font-size: 12px; color: var(--muted); margin-top: 1px; display: flex; align-items: center; gap: 5px; white-space: nowrap; min-height: 18px; }
+.netv .dot { width: 7px; height: 7px; border-radius: 2px; background: var(--faint); flex: none; display: inline-block; }
+.netv .dot.ok { background: var(--success); } .netv .dot.warm { background: var(--warning); }
+.netv .vdet { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.netv .vdet:has(> .lanp), .netv .vdet:has(> .tunp) { flex-direction: row; gap: 10px; }
+
+/* 小零件：图标按钮 28 见方圆角 4、36 高胶囊按钮、开关 36 × 20 在字的左边、输入框 40 高圆角 10 */
+.netv .nib, .nmd .nib { width: 28px; height: 28px; border-radius: 4px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;
+                        transition: background .2s, color .2s; }
+.netv .nib:hover:not(:disabled), .netv .nib.open { background: var(--hover); color: var(--text); }
+.netv .nib:disabled { opacity: .35; cursor: default; }
+.netv .nib .ico { width: 15px; height: 15px; }
+.netv .nib.done { color: var(--accent-text); }
+.netv .nib.spinning .ico { animation: n-spin .9s linear infinite; }
+.netv .spin { animation: n-spin .9s linear infinite; }
+@keyframes n-spin { to { transform: rotate(360deg); } }
+.netv .nb, .nmd .nb { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; padding: 0 16px; border-radius: 18px; box-sizing: border-box; flex: none;
+                      border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer;
+                      transition: background .2s, opacity .2s; }
+.netv .nb:hover:not(:disabled), .nmd .nb:hover { background: var(--control-hov); }
+.netv .nb .ico, .nmd .nb .ico { width: 15px; height: 15px; }
+.netv .nb.pri { background: var(--accent-solid); color: var(--on-accent); border-color: transparent; font-weight: 600; }
+.netv .nb.pri:hover:not(:disabled) { background: var(--accent-solid-hov); }
+.netv .nb.stop { background: var(--danger-subtle); color: var(--danger-text); border-color: transparent; }
+.netv .nb.go { background: var(--accent-subtle); color: var(--accent-text); border-color: transparent; }
+.netv .nb:disabled { opacity: .45; cursor: default; }
+.netv .nb.sm { height: 28px; padding: 0 12px; border-radius: 14px; font-size: 12px; }
+.netv .ntg, .nmd .ntg { display: inline-flex; align-items: center; gap: 10px; border: 0; padding: 0; background: none; font: inherit; font-size: 13px; color: var(--text); cursor: pointer; flex: none; }
+.netv .ntg .sw, .nmd .ntg .sw { position: relative; width: 36px; height: 20px; border-radius: 10px; flex: none; background: color-mix(in srgb, var(--text) 18%, transparent); transition: background .2s; }
+.netv .ntg .sw::after, .nmd .ntg .sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 8px; background: var(--text);
+                                              transition: transform .26s cubic-bezier(.3, .7, .2, 1); }
+.netv .ntg.on .sw, .nmd .ntg.on .sw { background: var(--accent-solid); }
+.netv .ntg.on .sw::after, .nmd .ntg.on .sw::after { transform: translateX(16px); background: var(--on-accent); }
+.netv .ntg.b { font-size: 13.5px; font-weight: 600; }
+.netv .inp { height: 40px; border-radius: 10px; background: var(--field); border: 1px solid var(--border); padding: 0 12px; box-sizing: border-box; width: 100%; min-width: 0;
+             font: inherit; font-size: 13px; color: var(--text); outline: none; transition: border-color .2s, box-shadow .2s; }
+.netv .inp:focus { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.netv .inp::placeholder { color: var(--faint); }
+.netv .lb { font-size: 12.5px; color: var(--muted); font-weight: 500; width: fit-content; }
+/* 状态：24 高的小胶囊（同页头状态的配色） */
+.netv .npill { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 12px; font-size: 12px; font-weight: 500; white-space: nowrap; flex: none; }
+.netv .npill i { width: 6px; height: 6px; border-radius: 2px; background: currentColor; }
+.netv .npill.ok { background: var(--success-subtle); color: var(--success-text); }
+.netv .npill.warm { background: var(--warning-subtle); color: var(--warning-text); }
+.netv .npill.off { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--faint); }
+
+/* 细滚动条：同首页、向导（.lwrap / .list / .thumb，系统的藏掉，右边 4 像素的细条） */
+.netv .lwrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.netv .list { display: flex; flex-direction: column; overflow-y: auto; min-height: 0; flex: 1; scrollbar-width: none; margin: 0 -4px; padding: 0 12px 0 4px;
+              --ft: 0px; --fb: 0px; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%);
+              mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%); }
+.netv .list::-webkit-scrollbar { display: none; }
+.netv .lwrap.can-up .list { --ft: 28px; } .netv .lwrap.can-down .list { --fb: 28px; }
+.netv .thumb { position: absolute; right: -6px; width: 4px; border-radius: 2px; background: color-mix(in srgb, var(--text) 38%, transparent);
+               opacity: 0; transition: opacity .2s, width .15s, right .15s; cursor: pointer; }
+.netv .lwrap:hover .thumb, .netv .lwrap.scrolling .thumb, .netv .thumb.drag { opacity: 1; }
+.netv .thumb:hover, .netv .thumb.drag { width: 6px; right: -7px; background: color-mix(in srgb, var(--text) 55%, transparent); }
+.netv .lwrap.fits .thumb { display: none; }
+
+/* 「局域网 / 自建 frps」那一页：左右两块（同向导） */
+.netv .lanp, .netv .tunp { position: relative; flex: 1; min-width: 0; border-radius: 10px; background: color-mix(in srgb, var(--surface) 70%, transparent); padding: 16px 20px 20px;
+                          box-sizing: border-box; display: flex; flex-direction: column; }
+.netv .lh { display: flex; align-items: center; gap: 10px; height: 28px; flex: none; }
+.netv .lh > .ico { width: 16px; height: 16px; color: var(--muted); }
+.netv .lh .t { font-size: 13.5px; font-weight: 600; }
+.netv .lh .sub { font-size: 12px; color: var(--faint); }
+.netv .lbody { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding-top: 44px; }
+.netv .bigaddr { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.netv .bigaddr .mono { font-size: 24px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.netv .bigaddr .ph { font-size: 20px; color: var(--faint); white-space: nowrap; }
+.netv .vlan, .netv .frps { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.netv .vlan { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 2px; }
+.netv .vlh { display: flex; align-items: center; gap: 2px; height: 28px; }
+.netv .vrows.list { gap: 2px; }
+.netv .netrow { display: flex; align-items: center; height: 32px; gap: 6px; min-width: 0; flex: none; }
+.netv .netrow .nn { width: 96px; flex: none; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.netv .netrow .mono { font-size: 14px; white-space: nowrap; }
+.netv .vnone { position: absolute; left: 20px; right: 20px; bottom: 20px; display: flex; align-items: flex-start; gap: 6px; font-size: 12px; line-height: 18px; color: var(--faint); transition: opacity .2s; }
+.netv .vnone .ico { width: 14px; height: 14px; flex: none; margin-top: 2px; }
+.netv .vnone.gone { opacity: 0; pointer-events: none; }
+.netv .frps { display: grid; grid-template-columns: minmax(0, 1fr) 132px; gap: 10px; }
+.netv .frpp .lbody { transition: opacity .2s; }
+.netv .frpp:not(.on) { cursor: pointer; }
+.netv .frpp:not(.on) .lbody { opacity: .7; pointer-events: none; }
+.netv .frpp .lfoot { display: flex; justify-content: flex-end; margin-top: auto; padding-top: 12px; }
+
+/* 隧道建好以后：游戏隧道一块；装了 Simple Voice Chat 的服务器旁边再一块语音隧道。排法同「局域网 / 自建 frps」那一页：
+   标题一行（图标、名字、状态，右边「···」），往下是朋友要填的地址（大字、能复制），一道线下面是节点，最下面一行跟随启动的开关和开停 */
+.netv .tunp .lbody { padding-top: 36px; }
+/* 游戏隧道那块宽一些（公网地址大字要放得下），语音隧道窄一些 */
+.netv .tunp[data-tun="game"] { flex: 3; } .netv .tunp.voice { flex: 2; }
+.netv .tkv { display: flex; align-items: center; gap: 6px; height: 28px; margin-top: 4px; font-size: 13px; min-width: 0; }
+.netv .tkv .k { font-size: 12.5px; color: var(--muted); font-weight: 500; margin-right: 6px; flex: none; }
+.netv .tkv .mono { font-size: 13px; }
+.netv .tnode { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 6px; min-width: 0; height: 28px; box-sizing: content-box; }
+.netv .tnode .k { font-size: 12.5px; color: var(--muted); font-weight: 500; margin-right: 6px; flex: none; }
+.netv .tnode .nn { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.netv .tnode .nn .id { color: var(--faint); font-weight: 500; margin-right: 3px; }
+.netv .tfoot { display: flex; align-items: center; gap: 10px; margin-top: auto; }
+.netv .tunp.voice .bigaddr .mono { font-size: 16px; }
+.nmd .mb { font-size: 13px; line-height: 21px; color: var(--muted); }
+.nmd .mb b { color: var(--text); font-weight: 600; }
+/* 语音隧道还没建：块里只有一个按钮（为什么要单独一条、建好以后会怎样写在悬停里） */
+.netv .tunp.empty .vadd { flex: 1; display: grid; place-items: center; margin-top: 12px; border-radius: 10px; border: 1px dashed color-mix(in srgb, var(--text) 18%, transparent); }
+
+/* 节点面板：同向导第四步 */
+.netv .nbar { display: flex; align-items: center; gap: 12px; flex: none; }
+.netv .nbar .nt { font-size: 13.5px; font-weight: 600; margin-left: -4px; }
+.netv .seg { position: relative; display: flex; padding: 3px; height: 32px; border-radius: 16px; background: var(--field); border: 1px solid var(--border); box-sizing: border-box; flex: none; }
+.netv .seg span { position: relative; z-index: 1; display: grid; place-items: center; padding: 0 14px; font-size: 12.5px; color: var(--muted); border-radius: 12px; cursor: pointer; transition: color .2s; }
+.netv .seg span:hover { color: var(--text); }
+.netv .seg span.on { color: var(--accent-text); font-weight: 500; }
+.netv .seg .sgl { position: absolute; left: 0; top: 3px; bottom: 3px; border-radius: 12px; background: var(--accent-subtle); z-index: 0; pointer-events: none;
+                  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+                  transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
+.netv .nsearch { margin-left: auto; width: 220px; height: 32px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 16px; box-sizing: border-box;
+                 background: var(--field); border: 1px solid var(--border); cursor: text; transition: border-color .2s; }
+.netv .nsearch:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
+.netv .nsearch .ico { width: 14px; height: 14px; color: var(--faint); flex: none; }
+.netv .nsearch input { flex: 1; min-width: 0; border: 0; background: none; outline: none; padding: 0; font: inherit; font-size: 12.5px; color: var(--text); }
+.netv .nsearch input::placeholder { color: var(--faint); }
+.netv .nbar .nb { margin-left: 4px; }
+.netv .nbody { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.netv .nfil { display: flex; align-items: center; gap: 6px; flex: none; }
+.netv .nfils { position: relative; display: flex; gap: 2px; }
+.netv .nfhl { position: absolute; left: 0; top: 0; height: 28px; border-radius: 14px; background: var(--accent-subtle); pointer-events: none;
+              transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
+.netv .nf { position: relative; z-index: 1; height: 28px; padding: 0 12px; border-radius: 14px; border: 0; background: none; font: inherit; font-size: 12.5px; color: var(--muted); cursor: pointer; transition: color .2s; }
+.netv .nf:hover:not(.on) { color: var(--text); }
+.netv .nf.on { color: var(--accent-text); font-weight: 500; }
+.netv .nfil .ntg { margin-left: 8px; }
+.netv .ck { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 6px; font-size: 12.5px; color: var(--muted); cursor: pointer; border-radius: 6px; transition: color .2s; }
+.netv .ck:hover { color: var(--text); }
+.netv .ck .bx { width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; border: 1.5px solid color-mix(in srgb, var(--text) 35%, transparent); display: grid; place-items: center;
+                color: transparent; transition: background .15s, border-color .15s, color .15s; }
+.netv .ck .bx .ico { width: 10px; height: 10px; }
+.netv .ck.on .bx { background: var(--accent-solid); border-color: var(--accent-solid); color: var(--on-accent); }
+.netv .nlist { gap: 12px; }
+.netv .ngrp { display: flex; flex-direction: column; gap: 6px; flex: none; }
+.netv .ngh { display: flex; align-items: baseline; gap: 8px; }
+.netv .ngh h4 { margin: 0; font-size: 12.5px; font-weight: 600; color: var(--text); }
+.netv .ngh .s, .netv .ngh .c { font-size: 11.5px; color: var(--faint); }
+.netv .ngh .c { margin-left: auto; }
+.netv .ncards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.netv .nd { height: 76px; box-sizing: border-box; display: flex; flex-direction: column; padding: 9px 12px; border-radius: 10px; border: 1px solid transparent; cursor: pointer; min-width: 0;
+            background: color-mix(in srgb, var(--surface) 70%, transparent); transition: background .2s, border-color .2s, opacity .2s; }
+.netv .nd:hover:not(.on):not(.off):not(.cur) { background: var(--hover); }
+.netv .nd.on { background: var(--accent-subtle); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.netv .nd.off { opacity: .4; cursor: default; }
+.netv .nd.cur { cursor: default; border-color: color-mix(in srgb, var(--text) 18%, transparent); }
+.netv .nd .r1 { display: flex; align-items: center; gap: 5px; min-width: 0; height: 18px; flex: none; }
+.netv .nd .n { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.netv .nd .n .id { color: var(--faint); font-weight: 500; margin-right: 3px; }
+.netv .nd.on .n { color: var(--accent-text); }
+.netv .nd .d { font-size: 11.5px; line-height: 16px; color: var(--muted); margin-top: 3px; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.netv .nd .d.one { -webkit-line-clamp: 1; }
+.netv .nd .r3 { display: flex; align-items: center; gap: 4px; margin-top: auto; min-width: 0; overflow: hidden; }
+.netv .tag { flex: none; height: 16px; padding: 0 6px; border-radius: 8px; font-size: 10.5px; font-weight: 500; line-height: 16px; white-space: nowrap; }
+.netv .tag.pub { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent-text); }
+.netv .tag.bad { background: color-mix(in srgb, var(--danger-text) 14%, transparent); color: var(--danger-text); }
+.netv .tag.warn { background: color-mix(in srgb, var(--warning) 16%, transparent); color: var(--warning-text); }
+.netv .tag.good { background: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success); }
+.netv .tag.plain { background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--muted); }
+.netv .tag.svip { background: color-mix(in srgb, var(--danger-text) 16%, transparent); color: var(--danger-text); font-weight: 600; }
+.netv .tag.vip { background: color-mix(in srgb, var(--warning) 18%, transparent); color: var(--warning-text); font-weight: 600; }
+.netv .nempty { padding: 24px 0; text-align: center; font-size: 12.5px; color: var(--faint); }
+.netv .trow { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid transparent; cursor: pointer; flex: none;
+              background: color-mix(in srgb, var(--surface) 70%, transparent); transition: background .2s, border-color .2s, opacity .2s; }
+.netv .trow:hover:not(.on):not(.off) { background: var(--hover); }
+.netv .trow.on { background: var(--accent-subtle); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.netv .trow.off { opacity: .4; cursor: default; }
+.netv .trow .n { font-size: 13px; font-weight: 600; }
+.netv .trow.on .n { color: var(--accent-text); }
+.netv .trow .k { margin-left: auto; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.netv .nlist .trow + .trow { margin-top: -6px; }
+
+/* 樱花没连上：粘访问密钥（同向导） */
+.netv .keyb { display: flex; flex-direction: column; gap: 8px; flex: none; }
+.netv .keyb .lrow { display: flex; align-items: center; justify-content: space-between; }
+.netv .keyrow { display: flex; gap: 10px; }
+.netv .kbtn { flex: none; height: 40px; min-width: 84px; padding: 0 18px; border-radius: 10px; border: 0; background: var(--accent-solid); color: var(--on-accent); font: inherit; font-size: 13px;
+              font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.netv .kbtn .ico { width: 14px; height: 14px; }
+.netv .kbtn:disabled { opacity: .7; cursor: default; }
+.netv .keyb .ntg { margin-top: 4px; }
+.netv .tlink { flex: none; font-size: 12.5px; color: var(--accent-text); cursor: pointer; white-space: nowrap; }
+.netv .nph { flex: 1; min-height: 0; margin-top: 6px; border-radius: 10px; border: 1px dashed color-mix(in srgb, var(--text) 18%, transparent); display: grid; place-items: center;
+             font-size: 12.5px; color: var(--faint); }
+
+/* 删除隧道的确认框：同共用件页（commons.html）的危险确认框——外 26 / 8、里面的栏 18，标题前一个危险色图标块，默认聚焦「取消」 */
+.nmask { position: fixed; left: 0; right: 0; top: 40px; bottom: 0; z-index: 40; display: grid; place-items: center; background: var(--scrim); backdrop-filter: blur(2px); }
+.nmask.enter { animation: n-mk-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.nmask.enter > .nmd { animation: n-md-in .26s cubic-bezier(.2, .7, .2, 1) both; }
+.nmask.leave { animation: n-mk-out .14s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+.nmask.leave > .nmd { animation: n-md-out .14s cubic-bezier(.4, 0, 1, 1) both; }
+@keyframes n-mk-in { from { opacity: 0; } } @keyframes n-mk-out { to { opacity: 0; } }
+@keyframes n-md-in { from { opacity: 0; transform: translateY(10px); } } @keyframes n-md-out { to { opacity: 0; transform: translateY(6px); } }
+.nmd { width: 400px; box-sizing: border-box; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-4); display: flex; flex-direction: column; gap: 8px; }
+.nmd .mc { border-radius: 18px; padding: 18px 20px 20px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); display: flex; flex-direction: column; gap: 12px; }
+.nmd .mh { display: flex; align-items: center; gap: 12px; margin: -10px 0 0 -12px; }
+.nmd .mi { width: 40px; height: 40px; border-radius: 10px; flex: none; display: grid; place-items: center; background: var(--danger-subtle); color: var(--danger-text); }
+.nmd .mi .ico { width: 20px; height: 20px; }
+.nmd h3 { margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; }
+.nmd .ma { display: flex; gap: 8px; }
+.nmd .ma .nb { flex: 1 1 0; }
+.nmd .nb.dgr { background: var(--danger-solid); color: var(--on-danger); border-color: transparent; font-weight: 600; }
+.nmd .nb.dgr:hover { background: var(--danger-solid-hov); }
