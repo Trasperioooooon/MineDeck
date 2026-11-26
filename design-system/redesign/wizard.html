@@ -373,10 +373,10 @@ function cardHTML(x, has) {
     <div class="m"><div class="n"><span class="nm">${esc(x.n)}</span>${extLink(x)}</div><div class="d" title="${esc(x.d)}">${esc(x.d)}</div><div class="meta"><i data-ic="download"></i>${fmtDl(x.dl)}${ftag(x) ? ` · ${ftag(x)}` : ""}</div></div>
     <span class="add"><i data-ic="${has.has(x.id) ? "check" : "plus"}"></i></span></div>`;
 }
-// 翻到头时最后一行的字：到了 100 个是「只列出最热门的 100 个」，不到 100 就是全部了
-// 样本只有总榜前 100（「全部」里藏掉纯前置库以后不到 100）：「全部」到头了照真程序说「只列出最热门的 100 个」；按类别、搜索筛的是这 100 个里的，就说「已显示全部」
+// 翻到头时最后一行的字：到了 100 个是「仅展示热门前 100 项，更多内容可通过搜索或分类查找」（文案作者 11-26 定），不到 100 就是全部了
+// 样本只有总榜前 100（「全部」里藏掉纯前置库以后不到 100）：「全部」到头了说「仅展示热门前 100 项」；按类别、搜索筛的是这 100 个里的，就说「已显示全部」
 function gridEnd(total) {
-  return `<div class="gend">${!acat && !aq && window.MR_SAMPLE[addonNoun].total > CAP ? `只列出最热门的 ${CAP} 个。想找别的，请用搜索或分类。` : `已显示全部 ${total} 个。`}</div>`;
+  return `<div class="gend">${!acat && !aq && window.MR_SAMPLE[addonNoun].total > CAP ? `仅展示热门前 ${CAP} 项，更多内容可通过搜索或分类查找` : `已显示全部 ${total} 个。`}</div>`;
 }
 function gridHTML() {
   const items = gridItems(), has = new Set(picked.map(p => p.id));
