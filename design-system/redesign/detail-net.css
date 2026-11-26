@@ -207,14 +207,17 @@
              font-size: 12.5px; color: var(--faint); }
 
 /* 删除隧道的确认框：同共用件页（commons.html）的危险确认框——外 26 / 8、里面的栏 18，标题前一个危险色图标块，默认聚焦「取消」 */
-.nmask { position: fixed; left: 0; right: 0; top: 40px; bottom: 0; z-index: 40; display: grid; place-items: center; background: var(--scrim); backdrop-filter: blur(2px); }
+/* --scrim、--elev-4 外壳里没有，照共用件页的深浅两套定在遮罩上 */
+.nmask { --n-scrim: rgb(var(--shadow-rgb) / .32); --n-elev4: 0 28px 64px -16px rgb(var(--shadow-rgb) / .32), 0 8px 20px -4px rgb(var(--shadow-rgb) / .10);
+         position: fixed; left: 0; right: 0; top: 40px; bottom: 0; z-index: 40; display: grid; place-items: center; background: var(--n-scrim); backdrop-filter: blur(2px); }
+[data-theme="dark"] .nmask { --n-scrim: rgb(0 0 0 / .56); --n-elev4: 0 32px 72px -16px rgb(0 0 0 / .72), 0 8px 24px -4px rgb(0 0 0 / .40); }
 .nmask.enter { animation: n-mk-in .22s cubic-bezier(.2, .7, .2, 1) both; }
 .nmask.enter > .nmd { animation: n-md-in .26s cubic-bezier(.2, .7, .2, 1) both; }
 .nmask.leave { animation: n-mk-out .14s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
 .nmask.leave > .nmd { animation: n-md-out .14s cubic-bezier(.4, 0, 1, 1) both; }
 @keyframes n-mk-in { from { opacity: 0; } } @keyframes n-mk-out { to { opacity: 0; } }
 @keyframes n-md-in { from { opacity: 0; transform: translateY(10px); } } @keyframes n-md-out { to { opacity: 0; transform: translateY(6px); } }
-.nmd { width: 400px; box-sizing: border-box; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-4); display: flex; flex-direction: column; gap: 8px; }
+.nmd { width: 400px; box-sizing: border-box; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--n-elev4); display: flex; flex-direction: column; gap: 8px; }
 .nmd .mc { border-radius: 18px; padding: 18px 20px 20px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); display: flex; flex-direction: column; gap: 12px; }
 .nmd .mh { display: flex; align-items: center; gap: 12px; margin: -10px 0 0 -12px; }
 .nmd .mi { width: 40px; height: 40px; border-radius: 10px; flex: none; display: grid; place-items: center; background: var(--danger-subtle); color: var(--danger-text); }

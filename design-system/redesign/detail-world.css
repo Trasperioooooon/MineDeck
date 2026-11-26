@@ -1,1 +1,333 @@
-/* 占位：内容还没画（11-27） */
+/* 服务器详情页 →「世界与备份」：备份、换地图（11-27 第一稿，子代理照临时规范画的，等作者整体扫一眼）。说明写在 detail-world.js 开头。
+   选择器、data 属性都带 wd 前缀，不碰外壳和别的页（外壳用了 .btn .rb .sp .go .dm .ntc .con .term .cs .tg .ib .empty .fd .list .thumb .lwrap 等）。
+
+   内容面板（.cp，868 × 526、内边距 8、圆角 26）里：
+     备份：一栏（圆角 18 = 26 − 8、内边距 8），顶上一行 28 高（同「玩家」各栏），中间列表一行 40 高、圆角 10（离栏边 8，18 − 8），
+       底下标签框和「立即备份世界」各 40 高、圆角 10（同向导第三步的输入框、联机页樱花那行的「连接」）。
+     换地图：打开时左右两栏；选了来源以后封面条（60 高、圆角 18，同 import.html）+ 两栏 + 底下一排 36 高胶囊（18 = 26 − 8，同共用件页弹窗底下那排）。
+   栏右上角的「打开 X 文件夹」照外壳的 .fd：28 见方、贴栏的右上角 8、圆角 10（18 − 8）。 */
+
+.wd-bk, .wd-map { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.wd-sp { flex: 1; }
+.wd-bk .mono, .wd-map .mono, .wd-md .mono { font-family: var(--mono); }
+
+/* 栏：同「玩家」的栏（圆角 18、内边距 8，底色同向导的栏） */
+.wd-col { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px; box-sizing: border-box; border-radius: 18px;
+          background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+.wd-bk > .wd-col { flex: 1; }
+/* 顶上一行：28 高，字离栏边 14；右上角有文件夹按钮的那一栏给它让出 36 */
+.wd-hd { flex: none; height: 28px; display: flex; align-items: center; gap: 6px; padding-left: 6px; min-width: 0; }
+.wd-hd.fdpad { padding-right: 36px; }
+.wd-t { font-size: 13.5px; font-weight: 600; line-height: 20px; white-space: nowrap; }
+.wd-n { font-family: var(--mono); font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wd-n small { font-size: 12px; color: color-mix(in srgb, var(--faint) 70%, transparent); }
+.wd-lv { font-family: var(--mono); font-size: 12px; color: var(--faint); margin-left: 2px; }
+
+/* 各页右上角的「打开 X 文件夹」：同外壳的 .fd */
+.wd-fd { position: absolute; top: 8px; right: 8px; z-index: 2; display: flex; gap: 4px; }
+.wd-fd button { width: 28px; height: 28px; border-radius: 10px; border: 0; padding: 0; display: grid; place-items: center; cursor: pointer; background: none; color: var(--muted);
+                transition: background .15s, color .15s; }
+.wd-fd button:hover { background: var(--hover); color: var(--text); }
+.wd-fd button .ico { width: 16px; height: 16px; }
+
+/* 小零件：图标按钮 28 见方（行里离边 4，圆角 6 = 10 − 4；框里离边 6，圆角 4）、28 高的小胶囊按钮、36 高胶囊、开关 36 × 20 在字的左边 */
+.wd-ib { width: 28px; height: 28px; border-radius: 6px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;
+         transition: background .15s, color .15s, opacity .15s; }
+.wd-ib:hover { background: var(--hover); color: var(--text); }
+.wd-ib .ico { width: 15px; height: 15px; }
+.wd-ib.sm { width: 22px; height: 20px; border-radius: 4px; } /* 小表一行里的「查看」：和一行字一样高，不撑高这一行 */
+.wd-ib.sm .ico { width: 14px; height: 14px; }
+.wd-ib[aria-disabled="true"], .wd-btn[aria-disabled="true"], .wd-nb[aria-disabled="true"], .wd-go[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.wd-ib[aria-disabled="true"]:hover { background: none; color: var(--muted); }
+.wd-btn { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 11px 0 9px; border-radius: 14px; box-sizing: border-box; flex: none;
+          border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 12.5px; font-weight: 500; white-space: nowrap; cursor: pointer;
+          transition: background .15s, opacity .15s; }
+.wd-btn:hover:not([aria-disabled="true"]) { background: var(--control-hov); }
+.wd-btn .ico { width: 14px; height: 14px; }
+.wd-spin { animation: wd-spin .9s linear infinite; }
+@keyframes wd-spin { to { transform: rotate(360deg); } }
+/* 标记：18 高的小胶囊 */
+.wd-tag { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 9px; border: 0; font: inherit; font-size: 11px; font-weight: 500; line-height: 18px;
+          white-space: nowrap; background: color-mix(in srgb, var(--text) 9%, transparent); color: var(--muted); }
+.wd-tag.acc { background: var(--accent-subtle); color: var(--accent-text); }
+.wd-tag.ok { background: var(--success-subtle); color: var(--success-text); }
+.wd-tag.warn { background: var(--warning-subtle); color: var(--warning-text); }
+.wd-tag.bad { background: var(--danger-subtle); color: var(--danger-text); }
+button.wd-tag { cursor: pointer; } button.wd-tag:hover { color: var(--text); background: color-mix(in srgb, var(--text) 14%, transparent); }
+
+/* 列表：细滚动条（同「玩家」、向导那套：系统的藏掉，右边 4 像素的细条，移上去或在滚时才出来、能拖；上下还有没露出来的那一头淡出 28）
+   细条放在栏右边那 8 像素里 */
+.wd-lw { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.wd-lw .list { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; position: relative;
+               --ft: 0px; --fb: 0px; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%);
+               mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%); }
+.wd-lw .list::-webkit-scrollbar { display: none; }
+.wd-lw.can-up .list { --ft: 28px; } .wd-lw.can-down .list { --fb: 28px; }
+.wd-lw .thumb { position: absolute; right: -6px; width: 4px; border-radius: 2px; background: color-mix(in srgb, var(--text) 38%, transparent);
+                opacity: 0; transition: opacity .2s, width .15s, right .15s; cursor: pointer; }
+.wd-lw:hover .thumb, .wd-lw.scrolling .thumb, .wd-lw .thumb.drag { opacity: 1; }
+.wd-lw .thumb:hover, .wd-lw .thumb.drag { width: 6px; right: -7px; background: color-mix(in srgb, var(--text) 55%, transparent); }
+.wd-lw.fits .thumb { display: none; }
+/* 空的时候：列表正中一行淡字；最后一行真被拿掉以后才淡进来 */
+.wd-none { position: absolute; inset: 0; display: grid; place-items: center; font-size: 12.5px; color: var(--faint); pointer-events: none; opacity: 0;
+           transition: opacity .22s cubic-bezier(.2, .7, .2, 1); }
+.wd-lw.is-none .wd-none { opacity: 1; }
+.wd-out { pointer-events: none; }
+
+/* ================= 备份 ================= */
+/* 顶上一行右边：当前世界那句（只在现在的世界不是列表里某一份时出来）、定时备份的胶囊 */
+.wd-nowslot { display: flex; min-width: 0; }
+.wd-now { display: inline-flex; align-items: center; gap: 6px; height: 28px; min-width: 0; padding: 0 10px; border: 0; border-radius: 14px; background: none; font: inherit; font-size: 12.5px;
+          color: var(--muted); cursor: pointer; }
+.wd-now span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wd-now .ico { width: 14px; height: 14px; color: var(--faint); }
+.wd-now:hover { background: var(--hover); color: var(--text); }
+.wd-chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px 0 10px; border-radius: 14px; flex: none; font: inherit; font-size: 12.5px; font-weight: 500;
+           border: 0; box-shadow: inset 0 0 0 1px var(--border); background: none; color: var(--text); cursor: pointer; transition: background .15s, color .15s; }
+.wd-chip .ico { width: 14px; height: 14px; color: var(--muted); }
+.wd-chip:hover { background: var(--hover); }
+.wd-chip.none { color: var(--faint); }
+.wd-bk .wd-lw { margin-top: 2px; }
+
+/* 一份备份一行：40 高、圆角 10。时间等宽、标签（程序自己打的「定时」「还原前自动」淡一点）、标记、大小；「还原」「删除」悬停这一行才出来 */
+.wd-row { flex: none; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px 0 12px; border-radius: 10px; box-sizing: border-box; min-width: 0; transition: background .15s; }
+.wd-row:hover { background: var(--hover); }
+.wd-time { flex: none; font-family: var(--mono); font-size: 13px; font-weight: 400; font-variant-numeric: tabular-nums; }
+.wd-lab { flex: 0 1 auto; min-width: 0; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wd-lab.sys { color: var(--faint); font-weight: 400; }
+.wd-lab:empty { display: none; }
+.wd-tags { display: flex; gap: 4px; flex: none; }
+.wd-tags:empty { display: none; }
+/* 大小贴着行的右边；「还原」「删除」在它左边，悬停这一行才出来 */
+.wd-size { flex: none; width: 70px; text-align: right; font-family: var(--mono); font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.wd-row .wd-act { opacity: 0; pointer-events: none; }
+.wd-row:hover .wd-act, .wd-row:focus-within .wd-act, .wd-row.busy .wd-act[data-wd-act="restore"] { opacity: 1; pointer-events: auto; }
+.wd-row.busy .wd-act[data-wd-act="del"] { visibility: hidden; }
+.wd-row .wd-ib { margin-left: -6px; }
+
+/* 底下一行：标签框 + 立即备份世界（各 40 高、圆角 10，离栏边 8，18 − 8 同心） */
+.wd-mk { flex: none; display: flex; gap: 8px; margin-top: 2px; }
+.wd-inp { flex: 1; min-width: 0; height: 40px; border-radius: 10px; background: var(--field); border: 1px solid var(--border); padding: 0 12px; box-sizing: border-box;
+          font: inherit; font-size: 13px; color: var(--text); outline: none; transition: border-color .2s, box-shadow .2s, opacity .2s; }
+.wd-inp:focus { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.wd-inp::placeholder { color: var(--faint); }
+.wd-inp:disabled { opacity: .6; }
+.wd-goslot { display: contents; }
+.wd-go { flex: none; height: 40px; min-width: 132px; padding: 0 18px; border-radius: 10px; border: 0; background: var(--accent-solid); color: var(--on-accent); font: inherit; font-size: 13px;
+         font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 7px; transition: background .15s, opacity .15s; }
+.wd-go:hover:not([aria-disabled="true"]) { background: var(--accent-solid-hov); }
+.wd-go .ico { width: 15px; height: 15px; }
+
+/* ================= 换地图 ================= */
+.wd-home { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 8px; }
+/* 虚线框：栏里的块，离栏边 8、圆角 10（同 import.html 第一步）。拖着文件经过时整块换强调色 */
+.wd-dz { flex: 1; min-height: 0; border-radius: 10px; border: 1px dashed color-mix(in srgb, var(--text) 22%, transparent); display: grid; place-items: center;
+         cursor: pointer; transition: border-color .2s, background .2s; outline: none; }
+.wd-dz:hover, .wd-dz:focus-visible { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.wd-dz.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.wd-dz.busy { cursor: default; border-color: color-mix(in srgb, var(--text) 14%, transparent); }
+.wd-dz.bad { border-color: color-mix(in srgb, var(--danger-text) 60%, transparent); }
+.wd-dzc { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; max-width: 100%; padding: 0 20px; box-sizing: border-box; min-width: 0; }
+.wd-dzi { width: 48px; height: 48px; border-radius: 12px; display: grid; place-items: center; background: var(--accent-subtle); color: var(--accent-text); margin-bottom: 6px; }
+.wd-dzi .ico { width: 22px; height: 22px; }
+.wd-dzi.bad { background: var(--danger-subtle); color: var(--danger-text); }
+.wd-dzc b { font-size: 15px; font-weight: 600; line-height: 22px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wd-dzc b.mono { font-size: 14px; }
+.wd-dzs { font-size: 12.5px; color: var(--faint); line-height: 18px; min-height: 18px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wd-dzs .mono { font-size: 12px; }
+.wd-dzs.bad { color: var(--danger-text); }
+.wd-dzs .num { font-variant-numeric: tabular-nums; }
+/* 上传进度：30 格（同程序上传地图那条经验条），右边一个取消 */
+.wd-upr { display: flex; align-items: center; gap: 8px; margin: 4px 0 0 36px; }
+.wd-upbar { width: 230px; height: 12px; display: flex; gap: 2px; }
+.wd-upbar i, .wd-xp i { flex: 1; border-radius: 1.5px; background: color-mix(in srgb, var(--text) 9%, transparent); transition: background .12s; }
+.wd-upbar i:first-child, .wd-xp i:first-child { border-radius: 4px 1.5px 1.5px 4px; } .wd-upbar i:last-child, .wd-xp i:last-child { border-radius: 1.5px 4px 4px 1.5px; }
+.wd-upbar i.on, .wd-xp i.on { background: var(--accent); }
+.wd-upr .wd-ib { border-radius: 14px; }
+/* 填路径的一行：40 高、圆角 10（离栏边 8，同心）；右边的图标按钮 28 见方、离框外沿 6、圆角 4（同 import.html） */
+.wd-prow { flex: none; height: 40px; display: flex; align-items: center; gap: 4px; padding: 0 5px 0 12px; border-radius: 10px; box-sizing: border-box; cursor: text;
+           background: var(--field); border: 1px solid var(--border); transition: border-color .2s, box-shadow .2s; }
+.wd-prow:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.wd-prow.bad { border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
+.wd-prow input { flex: 1; min-width: 0; border: 0; background: none; outline: none; padding: 0; font: inherit; font-family: var(--mono); font-size: 12.5px; color: var(--text); }
+.wd-prow input::placeholder { font-family: var(--font); font-size: 13px; color: var(--faint); }
+.wd-prow .wd-ib { border-radius: 4px; }
+
+/* 恢复点：一条一块（圆角 10，离栏边 8）。第一行名字、状态标签、操作；第二行时间 · 来源 · 大小 */
+.wd-pts .wd-lw .list { gap: 6px; }
+.wd-pt { flex: none; display: flex; flex-direction: column; gap: 3px; padding: 8px 8px 9px 12px; border-radius: 10px; box-sizing: border-box; min-width: 0;
+         background: color-mix(in srgb, var(--surface) 55%, transparent); }
+.wd-pn { display: flex; align-items: center; gap: 8px; min-width: 0; height: 28px; }
+.wd-pn .nm { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.wd-pa { display: flex; align-items: center; gap: 4px; flex: none; }
+.wd-busy { width: 28px; height: 28px; display: grid; place-items: center; color: var(--warning-text); }
+.wd-busy .ico { width: 15px; height: 15px; }
+.wd-ps { font-size: 12px; line-height: 18px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wd-ps .mono { font-size: 11.5px; }
+
+/* 选了来源以后：封面条 + 两栏 + 底下一排 */
+.wd-flow { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+/* 封面条：同首页卡片、import.html（核心色 30% 的底，上面一层淡棋盘格，圆角 18 贴着面板的角；头像 44 离边 8、圆角 10，同心） */
+.wd-cov { --c: #7a8aa0; flex: none; height: 60px; border-radius: 18px; padding: 8px 14px 8px 8px; box-sizing: border-box; display: flex; align-items: center; gap: 12px;
+          position: relative; overflow: hidden; background: color-mix(in srgb, var(--c) 30%, var(--surface)); }
+.wd-cov::after { content: ""; position: absolute; inset: 0; opacity: .16; pointer-events: none;
+  background-image: linear-gradient(45deg, rgb(0 0 0 / .5) 25%, transparent 25%, transparent 75%, rgb(0 0 0 / .5) 75%), linear-gradient(45deg, rgb(0 0 0 / .5) 25%, transparent 25%, transparent 75%, rgb(0 0 0 / .5) 75%);
+  background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+.wd-cov > * { position: relative; z-index: 1; }
+.wd-cava { flex: none; width: 44px; height: 44px; border-radius: 10px; display: grid; place-items: center; background: color-mix(in srgb, var(--c) 26%, var(--surface));
+           box-shadow: inset 0 1px 0 rgb(255 255 255 / .08); }
+.wd-cava svg { width: 32px; height: 32px; display: block; }
+.wd-ct { flex: 1; min-width: 0; }
+.wd-cn { font-size: 16px; font-weight: 600; line-height: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wd-cn .mono { font-size: 15px; }
+/* 封面底比面板深一点：灰字往正文色靠，浅色主题下对比度才够（同 import.html） */
+.wd-cs { font-size: 12.5px; line-height: 18px; color: color-mix(in srgb, var(--muted) 60%, var(--text)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wd-cs .mono { font-size: 12px; }
+.wd-scols { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 8px; }
+.wd-scols.chk { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); }
+.wd-scols.chk.one { grid-template-columns: minmax(0, 1fr); }
+/* 候选地图：一行一个 52 高，选中框单独一块滑过去（同向导核心、版本那两列） */
+.wd-hl { position: absolute; left: 0; right: 0; top: 0; height: 52px; border-radius: 10px; background: var(--accent-subtle); pointer-events: none; z-index: 0;
+         box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+         transition: transform .32s cubic-bezier(.3, .7, .2, 1), height .32s cubic-bezier(.3, .7, .2, 1); }
+.wd-cand { position: relative; z-index: 1; display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 12px 0 10px; border-radius: 10px; cursor: pointer; flex: none; min-width: 0;
+           box-sizing: border-box; transition: background .15s; }
+.wd-cand:hover:not(.on):not(.off) { background: var(--hover); }
+.wd-ci { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; flex: none; color: var(--muted); background: color-mix(in srgb, var(--text) 7%, transparent); }
+.wd-ci .ico { width: 16px; height: 16px; }
+.wd-cm { flex: 1; min-width: 0; }
+.wd-cm .n { font-size: 13.5px; font-weight: 600; line-height: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wd-cm .s { font-size: 12px; line-height: 16px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wd-cm .s .mono { font-size: 11.5px; }
+.wd-cand.on .n { color: var(--accent-text); }
+.wd-cand.on .wd-ci { color: var(--accent-text); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.wd-cand.off { opacity: .45; cursor: default; }
+/* 地图里有什么：两列的小表（同 import.html 的 .facts），字 13，说明字淡 */
+.wd-det { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.wd-facts { margin: 0; padding: 4px 6px 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px 18px; font-size: 13px; line-height: 20px; align-content: start; }
+.wd-facts dt { color: var(--faint); font-size: 12.5px; white-space: nowrap; }
+.wd-facts dd { margin: 0; min-width: 0; color: var(--text); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.wd-facts dd .f, .wd-rdm .f { color: var(--faint); font-size: 12px; }
+.wd-facts .mono { font-size: 12.5px; }
+/* 要留意的：一行一条，图标加一句，长的进悬停；在栏的最下面 */
+.wd-notes { margin-top: auto; padding: 10px 6px 4px; display: flex; flex-direction: column; gap: 6px; flex: none; }
+.wd-notes:empty { display: none; }
+.wd-nt { display: flex; align-items: flex-start; gap: 6px; font-size: 12.5px; line-height: 18px; color: var(--muted); }
+.wd-nt .ico { width: 14px; height: 14px; flex: none; margin-top: 2px; color: var(--faint); }
+.wd-nt.warn, .wd-nt.warn .ico { color: var(--warning-text); }
+/* 说明书：点了在右栏里铺开（只当纯文字，同 import.html） */
+.wd-rdm { position: absolute; inset: 8px; z-index: 3; border-radius: 10px; background: var(--field); border: 1px solid var(--border); display: flex; flex-direction: column; }
+.wd-rh { flex: none; height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 5px 0 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--muted); }
+.wd-rh .mono { color: var(--text); }
+.wd-rh .wd-ib { border-radius: 4px; }
+.wd-rdm .wd-lw { margin: 10px 4px 10px 0; }
+.wd-rdm .wd-lw .list { padding: 0 14px; }
+.wd-rdm .wd-lw .thumb { right: 2px; }
+.wd-rdm pre { margin: 0; font-family: var(--mono); font-size: 12.5px; line-height: 20px; white-space: pre-wrap; color: var(--text); }
+
+/* 核对：版本关系一块（栏里的块，圆角 10），下面一张小表 */
+.wd-rel { flex: none; display: flex; align-items: center; gap: 14px; height: 60px; padding: 0 14px; border-radius: 10px; box-sizing: border-box; margin-bottom: 8px;
+          background: color-mix(in srgb, var(--surface) 55%, transparent); }
+.wd-rel > .ico { width: 16px; height: 16px; color: var(--faint); }
+.wd-rv { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.wd-rv .k { font-size: 11.5px; color: var(--faint); line-height: 16px; }
+.wd-rv .v { font-size: 16px; font-weight: 600; line-height: 22px; white-space: nowrap; }
+.wd-rv .v.mono, .wd-rv .v .mono { font-size: 15px; }
+/* 可以一起改的设置：一行一个开关（开关在字的左边），右边是改之前 → 改以后 */
+.wd-sets { display: flex; flex-direction: column; gap: 2px; }
+.wd-set { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px 0 6px; border-radius: 10px; border: 0; background: none; font: inherit; color: var(--text); cursor: pointer;
+          text-align: left; transition: background .15s; }
+.wd-set:hover { background: var(--hover); }
+.wd-set .nm { font-size: 13px; font-weight: 500; }
+.wd-set .v { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.wd-set .v .ico { width: 12px; height: 12px; color: var(--faint); }
+.wd-set .v b { font-weight: 500; color: var(--muted); transition: color .2s; }
+.wd-set.on .v b { color: var(--accent-text); }
+/* 开关：36 × 20、滑块 16，同向导、控制台那颗 */
+.wd-sw { position: relative; width: 36px; height: 20px; border-radius: 10px; flex: none; background: color-mix(in srgb, var(--text) 18%, transparent); transition: background .2s; }
+.wd-sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 8px; background: var(--text); transition: transform .26s cubic-bezier(.3, .7, .2, 1); }
+.on > .wd-sw { background: var(--accent-solid); }
+.on > .wd-sw::after { transform: translateX(16px); background: var(--on-accent); }
+/* 底下一条（同 EULA：52 高、圆角 18）：「我已了解」「停服并导入」；没开就往下走时描红、晃一下 */
+.wd-strip { flex: none; height: 52px; box-sizing: border-box; border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface));
+            padding: 0 20px; display: flex; align-items: center; gap: 32px; min-width: 0; transition: box-shadow .2s; }
+.wd-strip.bad { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger-text) 55%, transparent); }
+.wd-tg { display: inline-flex; align-items: center; gap: 12px; min-width: 0; height: 36px; padding: 0; border: 0; background: none; font: inherit; font-size: 13px; color: var(--text); cursor: pointer; }
+.wd-tg .t { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.wd-tg .t b { font-weight: 400; color: var(--warning-text); }
+.wd-tg.bad .t, .wd-tg.bad .t b { color: var(--danger-text); }
+.wd-sbad { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--danger-text); min-width: 0; }
+.wd-sbad .ico { width: 16px; height: 16px; flex: none; }
+
+/* 进度：左边五步，右边复制的进度和过程记录 */
+.wd-task { flex: 1; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 0 24px; padding: 18px 20px 16px; }
+.wd-steps { display: flex; flex-direction: column; gap: 4px; }
+.wd-step { display: flex; align-items: center; gap: 10px; height: 32px; font-size: 13px; color: var(--faint); }
+.wd-step .ic { width: 20px; height: 20px; display: grid; place-items: center; flex: none; }
+.wd-step .ic .ico { width: 15px; height: 15px; }
+.wd-step.done { color: var(--muted); } .wd-step.done .ic { color: var(--success-text); }
+.wd-step.run { color: var(--text); font-weight: 600; } .wd-step.run .ic { color: var(--accent-text); }
+.wd-step.cx { color: var(--muted); }
+.wd-px { width: 6px; height: 6px; border-radius: 2px; background: color-mix(in srgb, var(--text) 22%, transparent); display: block; }
+.wd-dash { width: 10px; height: 2px; border-radius: 1px; background: var(--muted); display: block; }
+.wd-prog { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+/* 复制的进度：上面一行已复制多少和百分比（是哪一步看左边，不再写一遍），下面 30 格；复制完了这条淡下去 */
+.wd-ph { display: flex; align-items: center; gap: 8px; height: 32px; }
+.wd-pct { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.wd-xp { height: 16px; display: flex; gap: 2px; transition: opacity .3s; }
+.wd-xp.done { opacity: .45; }
+.wd-pt2 { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.wd-log { margin-top: 6px; border-top: 1px solid var(--border); padding-top: 10px; }
+.wd-log .list { gap: 0; font-family: var(--mono); font-size: 12px; line-height: 20px; color: var(--muted); }
+.wd-log .list > div { flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wd-msg { flex: none; min-height: 22px; font-size: 13px; }
+.wd-msg span { display: inline-flex; align-items: center; gap: 8px; }
+.wd-msg .ico { width: 16px; height: 16px; }
+.wd-ok { color: var(--success-text); font-weight: 600; }
+.wd-mi2 { color: var(--muted); }
+
+/* 底下一排：36 高胶囊（36 的一半 18 = 26 − 8，又是胶囊、又和面板的下角同心，同共用件页弹窗底下那排） */
+.wd-foot { flex: none; height: 36px; display: flex; align-items: center; gap: 8px; }
+.wd-fl, .wd-fr { display: flex; gap: 8px; }
+.wd-nb { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; padding: 0 16px; border-radius: 18px; box-sizing: border-box; flex: none;
+         border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer;
+         transition: background .15s, opacity .15s; }
+.wd-nb:hover:not([aria-disabled="true"]) { background: var(--control-hov); }
+.wd-nb .ico { width: 15px; height: 15px; }
+.wd-nb.back { padding-left: 12px; }
+.wd-nb.back > .ico:first-child { transform: rotate(180deg); }
+.wd-nb.pri { background: var(--accent-solid); color: var(--on-accent); border-color: transparent; font-weight: 600; }
+.wd-nb.pri:hover:not([aria-disabled="true"]) { background: var(--accent-solid-hov); }
+.wd-nb.pri > .ico:last-child:not(:first-child) { margin-right: -4px; }
+
+/* ================= 确认框：同共用件页（commons.html）的危险确认框 =================
+   外 26 / 内边距 8、里面的栏 18，标题前一个危险色图标块（40 见方、离栏的角 8、圆角 10），底下一排 36 高胶囊等宽铺满；默认聚焦「取消」，画一圈细框。
+   遮罩从标题栏下面开始（标题栏不盖，弹窗开着也能拖窗口）。--scrim、--elev-4 外壳里没有，照共用件页的深浅两套定在这里 */
+.wd-mask { --wd-scrim: rgb(var(--shadow-rgb) / .32); --wd-elev4: 0 28px 64px -16px rgb(var(--shadow-rgb) / .32), 0 8px 20px -4px rgb(var(--shadow-rgb) / .10);
+           position: fixed; left: 0; right: 0; top: 40px; bottom: 0; z-index: 40; display: grid; place-items: center; background: var(--wd-scrim); backdrop-filter: blur(2px); }
+[data-theme="dark"] .wd-mask { --wd-scrim: rgb(0 0 0 / .56); --wd-elev4: 0 32px 72px -16px rgb(0 0 0 / .72), 0 8px 24px -4px rgb(0 0 0 / .40); }
+.wd-mask.enter { animation: wd-mk-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.wd-mask.enter > .wd-md { animation: wd-md-in .26s cubic-bezier(.2, .7, .2, 1) both; }
+.wd-mask.leave { animation: wd-mk-out .14s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+.wd-mask.leave > .wd-md { animation: wd-md-out .14s cubic-bezier(.4, 0, 1, 1) both; }
+@keyframes wd-mk-in { from { opacity: 0; } } @keyframes wd-mk-out { to { opacity: 0; } }
+@keyframes wd-md-in { from { opacity: 0; transform: translateY(10px); } } @keyframes wd-md-out { to { opacity: 0; transform: translateY(6px); } }
+.wd-md { width: var(--w, 380px); box-sizing: border-box; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--wd-elev4); display: flex; flex-direction: column; gap: 8px; }
+.wd-mc { border-radius: 18px; padding: 18px 20px 20px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); display: flex; flex-direction: column; gap: 12px; }
+.wd-mh { display: flex; align-items: center; gap: 12px; margin: -10px 0 0 -12px; }
+.wd-mi { width: 40px; height: 40px; border-radius: 10px; flex: none; display: grid; place-items: center; background: var(--danger-subtle); color: var(--danger-text); }
+.wd-mi .ico { width: 20px; height: 20px; }
+.wd-md h3 { flex: 1; min-width: 0; margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; display: flex; flex-wrap: wrap; }
+.wd-md h3 .nw { white-space: nowrap; }
+.wd-mb { font-size: 13px; line-height: 21px; color: var(--muted); }
+.wd-mb b { color: var(--text); font-weight: 600; }
+.wd-mb .dg { color: var(--danger-text); }
+.wd-mb .mono { font-size: 12.5px; color: var(--text); }
+.wd-ma { display: flex; gap: 8px; }
+.wd-b { flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center; height: 36px; padding: 0 14px; border-radius: 18px; box-sizing: border-box;
+        border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer;
+        transition: background-color .2s; outline: none; }
+.wd-b:hover { background: var(--control-hov); }
+.wd-b.dgr { background: var(--danger-solid); color: var(--on-danger); border-color: transparent; font-weight: 600; }
+.wd-b.dgr:hover { background: var(--danger-solid-hov); }
+.wd-b.fk { outline: 2px solid var(--accent); outline-offset: 2px; }

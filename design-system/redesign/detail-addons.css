@@ -1,1 +1,222 @@
-/* 占位：内容还没画（11-27） */
+/* 服务器详情页 →「插件」/「模组」（11-27 第一稿，子代理照临时规范画的，等作者整体扫一眼）。说明写在 detail-addons.js 开头。
+   选择器、data 属性都带 ad 前缀，不碰外壳和别的页（外壳用了 .btn .rb .sp .go .dm .ntc .con .term .cs .tg .ib .empty .fd .list .thumb .lwrap 等）。
+
+   内容面板（.cp，868 × 526、内边距 8、圆角 26）里左右两栏，同向导第二步（左边逛、右边待装清单，大约 70 : 30）：
+     两栏都是圆角 18（26 − 8）、内边距 8；栏里贴边的行、卡片、虚线框、按钮圆角 10（18 − 8）。
+     左栏顶上一行 32 高：分段「已安装 · 添加」（32 高胶囊，选中块也是胶囊、滑过去，同首页、联机页）、刷新（28 见方、圆角 4）、搜索框（32 高胶囊）。
+     右栏顶上一行 28 高（同「玩家」各栏），贴栏的右上角 8 是「打开插件文件夹」（照外壳的 .fd：28 见方、圆角 10）。 */
+
+.ad { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 2.4fr) minmax(0, 1fr); gap: 8px; }
+.ad .mono, .ad-md .mono { font-family: var(--mono); }
+.ad-sp { flex: 1; }
+.ad-col { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 8px; box-sizing: border-box; border-radius: 18px;
+          background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+.ad-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+
+/* ---- 左栏顶上一行 ---- */
+.ad-hd { flex: none; height: 32px; display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* 分段：32 高胶囊，选中块离外框 4（边框 1 加内边距 3），也是胶囊，滑过去（同联机页「新建隧道 / 已有隧道」） */
+.ad-seg { position: relative; display: flex; padding: 3px; height: 32px; border-radius: 16px; background: var(--field); border: 1px solid var(--border); box-sizing: border-box; flex: none; }
+.ad-seg > span { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 6px; padding: 0 14px; font-size: 12.5px; color: var(--muted); border-radius: 12px; cursor: pointer;
+                 white-space: nowrap; transition: color .2s; }
+.ad-seg > span:hover { color: var(--text); }
+.ad-seg > span.on { color: var(--accent-text); font-weight: 500; }
+.ad-sgl { position: absolute; left: 0; top: 3px; bottom: 3px; border-radius: 12px; background: var(--accent-subtle); z-index: 0; pointer-events: none;
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+          transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
+.ad-sn { font-family: var(--mono); font-size: 11.5px; font-weight: 400; color: var(--faint); font-variant-numeric: tabular-nums; }
+.ad-seg > span.on .ad-sn { color: color-mix(in srgb, var(--accent-text) 70%, transparent); }
+.ad-ctxslot { display: flex; min-width: 0; }
+.ad-ctx { font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 搜索框：32 高胶囊（同向导第二步、联机页节点搜索） */
+.ad-find { width: 210px; height: 32px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 16px; box-sizing: border-box; cursor: text;
+           background: var(--field); border: 1px solid var(--border); transition: border-color .2s; }
+.ad-find:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
+.ad-find .ico { width: 14px; height: 14px; color: var(--faint); flex: none; }
+.ad-find input { flex: 1; min-width: 0; border: 0; background: none; outline: none; padding: 0; font: inherit; font-size: 12.5px; color: var(--text); }
+.ad-find input::placeholder { color: var(--faint); }
+
+/* 小零件：图标按钮 28 见方（行里离边 8 时圆角 10 太圆，按位置：行里 6、工具一排 4）、28 高的小胶囊按钮、开关 36 × 20 */
+.ad-ib { width: 28px; height: 28px; border-radius: 6px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;
+         transition: background .15s, color .15s, opacity .15s; }
+.ad-ib.r4 { border-radius: 4px; }
+.ad-ib:hover:not([aria-disabled="true"]) { background: var(--hover); color: var(--text); }
+.ad-ib .ico { width: 15px; height: 15px; }
+.ad-ib.spinning .ico { animation: ad-spin .6s cubic-bezier(.3, .7, .2, 1); }
+.ad-spin { animation: ad-spin .9s linear infinite; }
+@keyframes ad-spin { to { transform: rotate(360deg); } }
+.ad-ib[aria-disabled="true"], .ad-tg[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.ad-btn { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 12px; border-radius: 14px; box-sizing: border-box; flex: none;
+          border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 12.5px; font-weight: 500; white-space: nowrap; cursor: pointer; }
+.ad-btn:hover { background: var(--control-hov); }
+.ad-tag { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 9px; border: 0; font: inherit; font-size: 11px; font-weight: 500; line-height: 18px;
+          white-space: nowrap; background: color-mix(in srgb, var(--text) 9%, transparent); color: var(--muted); }
+.ad-tag.warn { background: var(--warning-subtle); color: var(--warning-text); }
+button.ad-tag { cursor: pointer; } button.ad-tag.warn:hover { background: color-mix(in srgb, var(--warning) 26%, transparent); }
+
+/* ---- 列表：细滚动条（同「玩家」、向导那套），细条放在栏右边那 8 像素里 ---- */
+.ad-lw { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ad-lw .list { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; position: relative;
+               --ft: 0px; --fb: 0px; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%);
+               mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%); }
+.ad-lw .list::-webkit-scrollbar { display: none; }
+.ad-lw.can-up .list { --ft: 28px; } .ad-lw.can-down .list { --fb: 28px; }
+.ad-lw .thumb { position: absolute; right: -6px; width: 4px; border-radius: 2px; background: color-mix(in srgb, var(--text) 38%, transparent);
+                opacity: 0; transition: opacity .2s, width .15s, right .15s; cursor: pointer; }
+.ad-lw:hover .thumb, .ad-lw.scrolling .thumb, .ad-lw .thumb.drag { opacity: 1; }
+.ad-lw .thumb:hover, .ad-lw .thumb.drag { width: 6px; right: -7px; background: color-mix(in srgb, var(--text) 55%, transparent); }
+.ad-lw.fits .thumb { display: none; }
+.ad-empty { margin: auto 0; padding: 40px 0; text-align: center; font-size: 12.5px; color: var(--faint); }
+.ad-empty.grid { grid-column: 1 / -1; }
+.ad-out { pointer-events: none; }
+
+/* 图标块：同向导第二步的 .mt（首字母块；Modrinth 认得出的盖一张它的图标） */
+.ad-mt { position: relative; overflow: hidden; width: 28px; height: 28px; border-radius: 6px; flex: none; display: grid; place-items: center; font-weight: 700; font-size: 12px;
+         color: rgb(255 255 255 / .92); background: var(--c); font-family: var(--mono); }
+.ad-mt.lg { width: 40px; height: 40px; border-radius: 8px; font-size: 16px; }
+.ad-mt img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.ad-mt.img { background: color-mix(in srgb, var(--text) 8%, transparent); color: transparent; }
+
+/* ---- 已安装：一行 44 高、圆角 10。开关在字的左边；停用的那一行淡下去；删除悬停这一行才出来 ---- */
+.ad-row { flex: none; display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 6px 0 10px; border-radius: 10px; box-sizing: border-box; min-width: 0; transition: background .15s; }
+.ad-row:hover { background: var(--hover); }
+.ad-tg { display: grid; place-items: center; width: 36px; height: 28px; padding: 0; border: 0; background: none; cursor: pointer; flex: none; }
+.ad-sw { position: relative; width: 36px; height: 20px; border-radius: 10px; flex: none; background: color-mix(in srgb, var(--text) 18%, transparent); transition: background .2s; }
+.ad-sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 8px; background: var(--text); transition: transform .26s cubic-bezier(.3, .7, .2, 1); }
+.ad-tg.on .ad-sw { background: var(--accent-solid); }
+.ad-tg.on .ad-sw::after { transform: translateX(16px); background: var(--on-accent); }
+.ad-m { flex: 1; min-width: 0; }
+.ad-n { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; font-weight: 600; line-height: 18px; }
+.ad-n .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ad-n .nm.mono { font-size: 12.5px; font-weight: 500; }
+.ad-tags { display: flex; gap: 4px; flex: none; }
+.ad-f { font-family: var(--mono); font-size: 11.5px; line-height: 16px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+.ad-row > .ad-mt, .ad-row .ad-m { transition: opacity .2s; }
+.ad-row.off > .ad-mt, .ad-row.off .ad-m { opacity: .55; }
+.ad-row .ad-x { opacity: 0; }
+.ad-row:hover .ad-x, .ad-row .ad-x:focus-visible { opacity: 1; }
+.ad-row .ad-x[aria-disabled="true"] { opacity: 0; }
+.ad-row:hover .ad-x[aria-disabled="true"] { opacity: .45; }
+/* 整合包里没装上的：排在最上面，开关的位置是一个警告图标，右边「处理…」 */
+.ad-row.pend .ad-pw { width: 36px; display: grid; place-items: center; flex: none; color: var(--warning-text); }
+.ad-row.pend .ad-pw .ico { width: 16px; height: 16px; }
+.ad-row.pend .ad-f { font-family: var(--font); font-size: 12px; color: var(--warning-text); }
+.ad-row.pend + .ad-row:not(.pend) { margin-top: 6px; }
+
+/* ---- 添加：类别片 + 两列卡片（同向导第二步） ---- */
+.ad-chips { position: relative; flex: none; display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none; --fl: 0px; --fr: 0px;
+            -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
+            mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%); }
+.ad-chips::-webkit-scrollbar { display: none; }
+.ad-chips.can-l { --fl: 28px; } .ad-chips.can-r { --fr: 28px; }
+.ad-chip { position: relative; z-index: 1; height: 28px; padding: 0 10px; border-radius: 14px; display: inline-flex; align-items: center; font-size: 12.5px; font-weight: 500; color: var(--muted);
+           cursor: pointer; white-space: nowrap; flex: none; box-shadow: inset 0 0 0 1px var(--border); transition: color .2s, box-shadow .2s; }
+.ad-chip:hover { color: var(--text); }
+.ad-chip.on { color: var(--accent-text); box-shadow: none; }
+.ad-chl { position: absolute; left: 0; top: 0; height: 28px; border-radius: 14px; background: var(--accent-subtle); z-index: 0; pointer-events: none;
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+          transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
+.ad-grid.list { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; align-content: start; }
+.ad-mod { display: flex; align-items: center; gap: 12px; height: 74px; padding: 0 12px; border-radius: 10px; box-sizing: border-box; min-width: 0; cursor: pointer;
+          background: color-mix(in srgb, var(--surface) 55%, transparent); transition: background .2s, box-shadow .2s; }
+.ad-mod:hover { background: var(--hover); }
+.ad-mod.in { background: var(--accent-subtle); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
+.ad-mod.inst { cursor: default; }
+.ad-mod.inst:hover { background: color-mix(in srgb, var(--surface) 55%, transparent); }
+.ad-mm { flex: 1; min-width: 0; }
+.ad-mm .n { font-size: 13.5px; font-weight: 600; line-height: 18px; white-space: nowrap; display: flex; align-items: center; gap: 3px; min-width: 0; }
+.ad-mm .n .nm { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ad-ext { flex: none; width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; color: var(--faint); opacity: .75; transition: opacity .2s, color .2s, background .2s; }
+.ad-mod:hover .ad-ext { opacity: 1; }
+.ad-ext:hover { color: var(--accent-text); background: var(--hover); }
+.ad-ext .ico { width: 12px; height: 12px; }
+.ad-mm .d { font-size: 12px; line-height: 16px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.ad-mm .meta { font-size: 11px; line-height: 14px; color: var(--faint); display: flex; align-items: center; gap: 5px; margin-top: 3px; white-space: nowrap; }
+.ad-mm .meta .ico { width: 11px; height: 11px; }
+.ad-add { width: 30px; height: 30px; border-radius: 15px; flex: none; display: grid; place-items: center; color: var(--text); box-shadow: inset 0 0 0 1px var(--border);
+          transition: background .2s, color .2s, box-shadow .2s; }
+.ad-add .ico { width: 15px; height: 15px; }
+.ad-mod:hover .ad-add { background: var(--hover); }
+.ad-mod.in .ad-add { background: var(--accent-solid); color: var(--on-accent); box-shadow: none; }
+.ad-mod.inst .ad-add, .ad-mod.inst:hover .ad-add { background: none; color: var(--success-text); box-shadow: none; }
+.ad-mod.skel { cursor: default; animation: ad-skel 1.1s ease-in-out infinite alternate; }
+.ad-mod.skel:hover { background: color-mix(in srgb, var(--surface) 55%, transparent); }
+.ad-mod.skel .ad-mt { background: color-mix(in srgb, var(--text) 10%, transparent); }
+.ad-mod.skel .ad-mm i { display: block; height: 9px; border-radius: 5px; background: color-mix(in srgb, var(--text) 10%, transparent); margin: 5px 0; }
+.ad-mod.skel .ad-mm i:nth-child(1) { width: 46%; height: 11px; } .ad-mod.skel .ad-mm i:nth-child(2) { width: 78%; } .ad-mod.skel .ad-mm i:nth-child(3) { width: 30%; }
+@keyframes ad-skel { from { opacity: .55; } to { opacity: 1; } }
+.ad-gend { grid-column: 1 / -1; text-align: center; font-size: 12px; color: var(--faint); padding: 10px 0 6px; }
+
+/* ---- 右栏：待装清单（同向导第二步） ---- */
+.ad-cart { gap: 6px; }
+.ad-chd { flex: none; height: 28px; display: flex; align-items: center; gap: 6px; padding: 0 36px 0 6px; min-width: 0; }
+.ad-t { font-size: 13.5px; font-weight: 600; line-height: 20px; white-space: nowrap; }
+.ad-cnt { font-family: var(--mono); font-size: 12px; color: var(--accent-text); }
+.ad-clr { height: 24px; padding: 0 8px; border: 0; border-radius: 12px; background: none; font: inherit; font-size: 12px; font-weight: 500; color: var(--faint); cursor: pointer;
+          opacity: 0; pointer-events: none; transition: opacity .2s, color .2s; }
+.ad-cart.has .ad-clr { opacity: 1; pointer-events: auto; }
+.ad-clr:hover { color: var(--text); background: var(--hover); }
+/* 栏右上角的「打开插件文件夹」：同外壳的 .fd */
+.ad-fd { position: absolute; top: 8px; right: 8px; z-index: 2; display: flex; gap: 4px; }
+.ad-fd button { width: 28px; height: 28px; border-radius: 10px; border: 0; padding: 0; display: grid; place-items: center; cursor: pointer; background: none; color: var(--muted);
+                transition: background .15s, color .15s; }
+.ad-fd button:hover { background: var(--hover); color: var(--text); }
+.ad-fd button .ico { width: 16px; height: 16px; }
+.ad-crow { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 6px; border-radius: 10px; flex: none; overflow: hidden; box-sizing: border-box; }
+.ad-crow:hover { background: var(--hover); }
+.ad-crow .ad-n { font-size: 13px; }
+.ad-why { font-size: 11.5px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+.ad-ftag { flex: none; font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 6px; color: var(--muted); background: color-mix(in srgb, var(--text) 8%, transparent); line-height: 14px; }
+.ad-cx { width: 26px; height: 26px; border-radius: 13px; display: grid; place-items: center; color: var(--faint); cursor: pointer; opacity: 0; flex: none; }
+.ad-crow:hover .ad-cx { opacity: 1; }
+.ad-cx:hover { color: var(--text); background: var(--hover); }
+.ad-cx .ico { width: 13px; height: 13px; }
+.ad-crow.ad-flash { animation: ad-flash .9s cubic-bezier(.2, .7, .2, 1); }
+@keyframes ad-flash { 0%, 30% { background: var(--accent-subtle); } 100% { background: transparent; } }
+/* 空清单那段话：最后一行真被拿掉以后才淡进来（同向导） */
+.ad-cempty { margin: auto 0; text-align: center; color: var(--faint); font-size: 12px; line-height: 20px; padding: 0 14px; animation: ad-cempty .26s cubic-bezier(.2, .7, .2, 1); }
+.ad-cempty b { display: block; margin-bottom: 4px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.ad-clw .list:has(.ad-crow) .ad-cempty { display: none; }
+@keyframes ad-cempty { from { opacity: 0; transform: translateY(4px); } }
+.ad-cnote { flex: none; font-size: 12px; color: var(--muted); padding: 0 6px; display: flex; gap: 6px; align-items: center; }
+.ad-cnote:empty { display: none; }
+.ad-cnote .ico { width: 14px; height: 14px; color: var(--faint); }
+/* 拖入框（虚线，圆角 10）和「全部安装」（40 高、圆角 10，离栏边 8 同心；清单空着时灰掉） */
+.ad-drop { flex: none; height: 44px; border-radius: 10px; border: 1px dashed var(--border); display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 12.5px;
+           color: var(--muted); cursor: pointer; transition: color .2s, border-color .2s, background .2s; }
+.ad-drop:hover { color: var(--text); border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.ad-drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.ad-drop .ico { width: 15px; height: 15px; }
+.ad-insslot { display: contents; }
+.ad-ins { flex: none; height: 40px; border-radius: 10px; border: 0; background: var(--accent-solid); color: var(--on-accent); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+          display: inline-flex; align-items: center; justify-content: center; gap: 7px; transition: background .15s, opacity .2s; }
+.ad-ins:hover:not([aria-disabled="true"]) { background: var(--accent-solid-hov); }
+.ad-ins .ico { width: 15px; height: 15px; }
+.ad-ins[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+
+/* ---- 删除确认框：同共用件页的危险确认框（外 26 / 8、栏 18，图标块 40 见方离栏角 8、圆角 10；默认聚焦「取消」）。--scrim、--elev-4 外壳没有，照共用件页定在这里 ---- */
+.ad-mask { --ad-scrim: rgb(var(--shadow-rgb) / .32); --ad-elev4: 0 28px 64px -16px rgb(var(--shadow-rgb) / .32), 0 8px 20px -4px rgb(var(--shadow-rgb) / .10);
+           position: fixed; left: 0; right: 0; top: 40px; bottom: 0; z-index: 40; display: grid; place-items: center; background: var(--ad-scrim); backdrop-filter: blur(2px); }
+[data-theme="dark"] .ad-mask { --ad-scrim: rgb(0 0 0 / .56); --ad-elev4: 0 32px 72px -16px rgb(0 0 0 / .72), 0 8px 24px -4px rgb(0 0 0 / .40); }
+.ad-mask.enter { animation: ad-mk-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.ad-mask.enter > .ad-md { animation: ad-md-in .26s cubic-bezier(.2, .7, .2, 1) both; }
+.ad-mask.leave { animation: ad-mk-out .14s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+.ad-mask.leave > .ad-md { animation: ad-md-out .14s cubic-bezier(.4, 0, 1, 1) both; }
+@keyframes ad-mk-in { from { opacity: 0; } } @keyframes ad-mk-out { to { opacity: 0; } }
+@keyframes ad-md-in { from { opacity: 0; transform: translateY(10px); } } @keyframes ad-md-out { to { opacity: 0; transform: translateY(6px); } }
+.ad-md { width: 400px; box-sizing: border-box; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--ad-elev4); display: flex; flex-direction: column; gap: 8px; }
+.ad-mc { border-radius: 18px; padding: 18px 20px 20px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); display: flex; flex-direction: column; gap: 12px; }
+.ad-mh { display: flex; align-items: center; gap: 12px; margin: -10px 0 0 -12px; }
+.ad-mi { width: 40px; height: 40px; border-radius: 10px; flex: none; display: grid; place-items: center; background: var(--danger-subtle); color: var(--danger-text); }
+.ad-mi .ico { width: 20px; height: 20px; }
+.ad-md h3 { flex: 1; min-width: 0; margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; display: flex; flex-wrap: wrap; }
+.ad-md h3 .nw { white-space: nowrap; }
+.ad-mb { font-size: 13px; line-height: 21px; color: var(--muted); overflow-wrap: anywhere; }
+.ad-mb .mono { font-size: 12.5px; color: var(--text); }
+.ad-ma { display: flex; gap: 8px; }
+.ad-b { flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center; height: 36px; padding: 0 14px; border-radius: 18px; box-sizing: border-box;
+        border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer; outline: none; }
+.ad-b:hover { background: var(--control-hov); }
+.ad-b.dgr { background: var(--danger-solid); color: var(--on-danger); border-color: transparent; font-weight: 600; }
+.ad-b.dgr:hover { background: var(--danger-solid-hov); }
+.ad-b.fk { outline: 2px solid var(--accent); outline-offset: 2px; }
