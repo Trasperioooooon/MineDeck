@@ -9,7 +9,10 @@
 
   页头和首页大卡对上（规范第三节）：一块大面板（26 / 8），上面是封面条（核心色 30% 底、16 像素淡棋盘格、圆角 18），里面头像 44、名字、核心和版本，
   右边是数字块和星标、「···」（同大卡）；封面条下面一排 36 高的胶囊：状态、联机地址、重启、停止或启动（同大卡底下那排，36 的一半 18 和面板下角同心）。
-  首页大卡上的「控制台」按钮这里不要（控制台就是一个标签）；重启只有详情页有。「打开文件夹 ▾」和「···」并成一个「···」，菜单同共用件页那张（commons.html）。
+  首页大卡上的「控制台」按钮这里不要（控制台就是一个标签）；重启只有详情页有。
+  「···」只放管整台服务器的三样：打开服务器文件夹、导出交接包…、删除服务器…（11-27 作者同意）。原来那组「打开文件夹」里对着某个标签的几个文件夹
+  挪进了各自那一页的右上角：控制台是日志、崩溃报告，世界与备份是备份（「备份」子页）和世界（「换地图」子页），插件 / 模组是插件或模组文件夹。
+  首页大卡的「···」照旧是全的（首页没有标签）。页头的在线人数点了去「玩家」，联机地址点了去「联机」（复制照旧是右边的图标）。
   常驻提示（上次没能启动、找不到 Java、模组要更高的 Java、整合包里有文件没装上）放在页头面板的最下面，一条 44 高、圆角 18（贴面板下角，同心）。
 
   标签放在左边（11-27 作者定；第一稿还画过放在顶上的一排胶囊分段，没选）：页头下面左边一块 200 宽的面板，一行一个标签（36 高、图标加字），
@@ -100,12 +103,17 @@ window.EXTRA_ICONS = {
   .stbr.ok { background: var(--success-subtle); color: var(--success-text); } .stbr.ok i { background: var(--success); }
   .stbr.warm { background: var(--warning-subtle); color: var(--warning-text); } .stbr.warm i { background: var(--warning); }
   .stbr.off { background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); color: var(--faint); } .stbr.off i { background: var(--faint); }
-  .addr { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 4px 0 14px; border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+  .addr { display: inline-flex; align-items: center; gap: 2px; height: 36px; padding: 0 4px 0 6px; border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
   .addr > .ico { width: 14px; height: 14px; color: var(--muted); }
   .addr .v { font-family: var(--mono); font-size: 13px; font-weight: 500; }
   .addr.off .v { color: var(--faint); }
   .addr .rb { width: 28px; height: 28px; border-radius: 14px; }
   .addr .rb .ico { width: 14px; height: 14px; }
+  /* 页头里点了去对应标签的：在线人数去「玩家」，联机地址去「联机」；悬停出底色 */
+  .go { cursor: pointer; transition: background .15s; }
+  .kv.go:hover { background: color-mix(in srgb, var(--surface) 85%, transparent); }
+  .addr .go { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-radius: 14px; }
+  .addr .go:hover { background: var(--hover); }
 
   /* 常驻提示：页头面板最下面，一条 44 高、圆角 18（贴面板下角，同心）；会拦住启动的用警告色 */
   .ntc { display: flex; align-items: center; gap: 10px; height: 44px; box-sizing: border-box; padding: 0 8px 0 14px; border-radius: 18px;
@@ -144,6 +152,14 @@ window.EXTRA_ICONS = {
   .term .in { flex: none; height: 40px; border-radius: 10px; display: flex; align-items: center; gap: 8px; padding: 0 12px; box-sizing: border-box;
               background: color-mix(in srgb, var(--term-fg) 8%, transparent); font: 12.5px var(--mono); color: color-mix(in srgb, var(--term-fg) 45%, transparent); }
   .term .in b { color: var(--term-cmd); font-weight: 600; }
+  .term, .empty { position: relative; }
+  /* 各页右上角的「打开 X 文件夹」（原来在「···」里）：28 见方，贴栏的右上角 8，圆角 10（18 − 8，同心）；控制台在深色终端里，用终端的字色 */
+  .fd { position: absolute; top: 8px; right: 8px; z-index: 2; display: flex; gap: 4px; }
+  .fd button { width: 28px; height: 28px; border-radius: 10px; border: 0; padding: 0; display: grid; place-items: center; cursor: pointer; background: none; color: var(--muted); transition: background .15s, color .15s; }
+  .fd button:hover { background: var(--hover); color: var(--text); }
+  .fd button .ico { width: 16px; height: 16px; }
+  .term .fd button { color: color-mix(in srgb, var(--term-fg) 60%, transparent); }
+  .term .fd button:hover { background: color-mix(in srgb, var(--term-fg) 12%, transparent); color: var(--term-fg); }
   .empty { flex: 1; border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
   .cp > .fade-out { animation: sw-out .09s cubic-bezier(.4, 0, 1, 1) both; }
   .cp > .fade-in { animation: cp-in .22s cubic-bezier(.2, .7, .2, 1) both; }
@@ -252,14 +268,16 @@ function skBar() {
 function head() {
   const av = S.icon ? `<span class="px-avatar icon" aria-hidden="true">${fakeIcon(S.icon)}</span>` : MDPixel16.avatar(S.core, "", 32).replace('class="px-avatar', 'class="px-avatar');
   let blocks;
-  if (st === "running") blocks = `<div class="cb kv"><div class="k">在线人数</div><div class="v ok">${S.players}<small>/${S.max}</small></div></div><div class="cb kv"><div class="k">运行时间</div><div class="v">${S.up}</div></div>`;
+  const toPlayers = S.proxy ? "" : ` go" data-go="players" title="去「玩家」`; // 代理端没有「玩家」标签
+  if (st === "running") blocks = `<div class="cb kv${toPlayers}"><div class="k">在线人数</div><div class="v ok">${S.players}<small>/${S.max}</small></div></div><div class="cb kv"><div class="k">运行时间</div><div class="v">${S.up}</div></div>`;
   else if (st === "starting") blocks = `<div class="cb boot"><div class="bar"><i></i></div><div class="steps"><span>准备 Java ✓</span><span>·</span><b>加载世界</b><span>·</span><span>就绪</span><span style="margin-left:auto">12 秒</span></div></div>`;
   else blocks = `<div class="cb kv"><div class="k">上次玩</div><div class="v">${S.last === "现在" ? "昨天" : S.last}</div></div><div class="cb kv"><div class="k">时长总计</div><div class="v">${S.hours}<small> 小时</small></div></div>`;
   const tools = `<div class="cb tools"><button class="rb pin${S.pin ? " on" : ""}" title="${S.pin ? "取消收藏" : "收藏"}"><i data-ic="${S.pin ? "starOn" : "star"}"></i></button><button class="rb more" title="更多"><i data-ic="more"></i></button></div>`;
   const stb = st === "running" ? `<span class="stbr ok"><i></i>运行中</span>` : st === "starting" ? `<span class="stbr warm"><i></i>启动中</span>` : `<span class="stbr off"><i></i>已停止</span>`;
-  // 地址：同首页大卡，绑了隧道用隧道的，没绑用局域网的（要不要两个都列、怎么换，等作者说）
+  // 地址：同首页大卡，绑了隧道用隧道的，没绑用局域网的；只放一个，全部的列在「联机」里，点地址就去那里（11-27 作者同意）
   const a = S.tunnel || `192.168.1.5:${S.port}`, live = st === "running";
-  const addr = `<span class="addr${live ? "" : " off"}" title="${live ? (S.tunnel ? "内网穿透地址" : "局域网联机地址") : "开服后朋友连这个地址"}"><i data-ic="${S.tunnel ? "globe" : "link"}"></i><span class="v">${a}</span><button class="rb" title="复制"><i data-ic="copy"></i></button></span>`;
+  const addr = `<span class="addr${live ? "" : " off"}"><span class="go" data-go="net" title="${live ? "" : "开服后朋友连这个地址。"}去「联机」看全部地址"><i data-ic="${S.tunnel ? "globe" : "link"}"></i><span class="v">${a}</span></span>`
+    + `<button class="rb" title="复制"><i data-ic="copy"></i></button></span>`;
   const restart = `<button class="btn"${st === "running" ? "" : ` aria-disabled="true" title="服务器开着时才能重启"`}><i data-ic="refresh"></i>重启</button>`;
   const main = st === "stopped" ? `<button class="btn go"><i data-ic="play"></i>启动</button>` : `<button class="btn stop"><i data-ic="stop"></i>停止</button>`;
   const notices = [
@@ -272,8 +290,19 @@ function head() {
 }
 
 // ---- 标签 ----
+// 各页右上角的「打开 X 文件夹」：原来在「···」的「打开文件夹」那一组里，对着这一页的那几个（代理端只有日志，没有崩溃报告）
+function folders() {
+  const plug = ["paper", "purpur", "leaves", "folia", "velocity", "waterfall"].includes(S.core);
+  const key = tab + (subsOf(tab) ? "/" + subPick[tab] : "");
+  const F = {
+    console: S.proxy ? [["folder", "打开日志文件夹"]] : [["warn", "打开崩溃报告文件夹"], ["folder", "打开日志文件夹"]],
+    "world/backups": [["folder", "打开备份文件夹"]], "world/map": [["folder", "打开世界文件夹"]],
+    addons: [["folder", `打开${plug ? "插件" : "模组"}文件夹`]],
+  }[key];
+  return F ? `<div class="fd">${F.map(([i, t]) => `<button title="${t}"><i data-ic="${i}"></i></button>`).join("")}</div>` : "";
+}
 function content() {
-  if (tab !== "console") return `<div class="empty"></div>`;
+  if (tab !== "console") return `<div class="empty">${folders()}</div>`;
   const NAMES = ["steve", "alex", "lihua"].slice(0, S.players);
   // 几行示例日志，照各家核心自己的格式（Paper、原版、Forge、Velocity 的行头不一样）
   const P = { paper: t => `[${t} INFO]: `, vanilla: t => `[${t}] [Server thread/INFO]: `, forge: t => `[${t}] [Server thread/INFO] [minecraft/DedicatedServer]: ` }[S.proxy ? "paper" : kind];
@@ -288,7 +317,7 @@ function content() {
     [P("12:08:12") + `There are ${S.players} of a max of ${S.max} players online: ${NAMES.join(", ")}`], // 和页头的在线人数对得上
   ];
   if (st === "starting") L.splice(4); // 启动中：日志停在还没开好的地方
-  return `<div class="term"><div class="out">${L.map(([t, c]) => `<div${c ? ` class="${c}"` : ""}>${t.replace(/</g, "&lt;")}</div>`).join("")}</div><div class="in"><b>&gt;</b>输入命令</div></div>`;
+  return `<div class="term">${folders()}<div class="out">${L.map(([t, c]) => `<div${c ? ` class="${c}"` : ""}>${t.replace(/</g, "&lt;")}</div>`).join("")}</div><div class="in"><b>&gt;</b>输入命令</div></div>`;
 }
 function body() {
   $("#body").innerHTML = `<aside class="snav" id="snav"><span class="hl"></span>${sideItems()}</aside><div class="cp" id="cp">${content()}</div>`;
@@ -308,19 +337,21 @@ let swapT = 0;
 function swapContent() {
   const cp = $("#cp"); clearTimeout(swapT);
   [...cp.children].forEach(c => c.classList.add("fade-out"));
-  swapT = setTimeout(() => { cp.innerHTML = content(); [...cp.children].forEach(c => c.classList.add("fade-in")); }, 90);
+  swapT = setTimeout(() => { cp.innerHTML = content(); KIT.hydrate(cp); [...cp.children].forEach(c => c.classList.add("fade-in")); }, 90);
 }
 function syncURL() { const q = new URLSearchParams(location.search); q.set("tab", tab); if (subsOf(tab)) q.set("sub", subPick[tab]); else q.delete("sub"); history.replaceState(null, "", "?" + q); }
+function goTab(id) {
+  if (id === tab || !TABS.some(x => x.id === id)) return;
+  tab = id; syncURL();
+  // 子页跟着展开到新的标签下面，选中块从原来那行滑到新的一行
+  const from = $("#snav > button.on").offsetTop;
+  $("#snav").innerHTML = `<span class="hl"></span>${sideItems()}`; KIT.hydrate($("#snav"));
+  const nh = $("#snav .hl"); nh.style.transition = "none"; nh.style.transform = `translateY(${from}px)`; void nh.offsetWidth; nh.style.transition = ""; placeSide();
+  swapContent();
+}
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-t]"), s = e.target.closest("[data-s]");
-  if (t && t.dataset.t !== tab) {
-    tab = t.dataset.t; syncURL();
-    // 子页跟着展开到新的标签下面，选中块从原来那行滑到新的一行
-    const from = $("#snav > button.on").offsetTop;
-    $("#snav").innerHTML = `<span class="hl"></span>${sideItems()}`; KIT.hydrate($("#snav"));
-    const nh = $("#snav .hl"); nh.style.transition = "none"; nh.style.transform = `translateY(${from}px)`; void nh.offsetWidth; nh.style.transition = ""; placeSide();
-    swapContent(); return;
-  }
+  const t = e.target.closest("[data-t]"), s = e.target.closest("[data-s]"), g = e.target.closest("[data-go]");
+  if (t || g) { goTab((t || g).dataset.t || g.dataset.go); return; }
   if (s) {
     const id = s.dataset.s; if (subPick[tab] === id) return;
     subPick[tab] = id; syncURL();
@@ -331,17 +362,14 @@ document.addEventListener("click", e => {
   if (more) { toggleMenu(more); return; }
   if (!e.target.closest(".dm")) closeMenu();
 });
-// 「···」：同共用件页那张（打开文件夹那一组、导出交接包…、删除服务器…；开着时后两项灰掉）
+// 「···」：只放管整台服务器的三样（11-27 作者同意）；样子同共用件页那张菜单，服务器开着时导出、删除灰掉
 let menu = null;
 function toggleMenu(anchor) {
   if (menu) return closeMenu();
-  const core = S.core, mods = ["forge", "neoforge", "fabric", "mohist"].includes(core), plugins = ["paper", "purpur", "leaves", "folia", "velocity", "waterfall", "mohist"].includes(core);
-  const d = [["folder", "服务器文件夹"]]; if (mods) d.push(["package", "模组"]); if (plugins) d.push(["plug", "插件"]);
-  if (!S.proxy) d.push(["globe", "世界"], ["doc", "日志"], ["warn", "崩溃报告"], ["camera", "备份"]); else d.push(["doc", "日志"]);
   const dis = st !== "stopped" ? ` aria-disabled="true" title="需先停止服务器"` : "";
   menu = Object.assign(document.createElement("div"), { className: "dm enter" }); menu.setAttribute("role", "menu");
-  menu.innerHTML = `<div class="hd">打开文件夹</div>` + d.map(([i, l]) => `<div class="it" role="menuitem"><i data-ic="${i}"></i>${l}</div>`).join("")
-    + `<div class="sep"></div><div class="it" role="menuitem"${dis}><i data-ic="share"></i>导出交接包…</div><div class="sep"></div><div class="it dgr" role="menuitem"${dis}><i data-ic="trash"></i>删除服务器…</div>`;
+  menu.innerHTML = `<div class="it" role="menuitem"><i data-ic="folder"></i>打开服务器文件夹</div>`
+    + `<div class="it" role="menuitem"${dis}><i data-ic="share"></i>导出交接包…</div><div class="sep"></div><div class="it dgr" role="menuitem"${dis}><i data-ic="trash"></i>删除服务器…</div>`;
   document.body.appendChild(menu); KIT.hydrate(menu);
   const r = anchor.getBoundingClientRect();
   menu.style.left = Math.round(r.right - menu.offsetWidth) + "px"; menu.style.top = Math.round(r.bottom + 4) + "px";
