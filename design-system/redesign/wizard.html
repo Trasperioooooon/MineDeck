@@ -46,6 +46,16 @@
   .col h3 { margin: 0 0 10px; font-size: 12px; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 8px; }
   .col h3 .sp { flex: 1; }
   /* 介绍：选中的核心，图标、名字、副标题、正文，左下角三行「适用场景」「支持扩展」「联机要求」 */
+  /* 换核心时介绍这一块的过渡（作者 11-26）：新内容从模糊里浮出来，同时一道斜的、模糊的亮带从左往右扫过去（扫光） */
+  .intro { position: relative; overflow: hidden; }
+  .intro .body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .intro.swap .body { animation: intro-in .42s cubic-bezier(.2, .7, .2, 1); }
+  @keyframes intro-in { from { opacity: 0; filter: blur(6px); transform: translateY(6px); } to { opacity: 1; filter: none; transform: none; } }
+  .intro::after { content: ""; position: absolute; top: -20%; bottom: -20%; left: 0; width: 42%; pointer-events: none; opacity: 0; z-index: 2;
+    background: linear-gradient(100deg, transparent 0%, var(--sheen) 50%, transparent 100%); filter: blur(12px); transform: translateX(-130%) skewX(-14deg); }
+  :root { --sheen: rgb(255 255 255 / .16); } :root[data-theme="light"] { --sheen: color-mix(in srgb, var(--accent) 26%, transparent); }
+  .intro.swap::after { animation: sheen .75s cubic-bezier(.3, .6, .3, 1); }
+  @keyframes sheen { 0% { opacity: 0; transform: translateX(-130%) skewX(-14deg); } 18% { opacity: 1; } 100% { opacity: 0; transform: translateX(280%) skewX(-14deg); } }
   .intro .head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
   .intro .head .cover { width: 56px; height: 56px; border-radius: 12px; flex: none; }
   .intro .head .cover svg { width: 32px; height: 32px; }
@@ -68,8 +78,14 @@
   .thumb:hover, .thumb.drag { width: 6px; right: -7px; background: color-mix(in srgb, var(--text) 55%, transparent); }
   .lwrap.fits .thumb { display: none; }
   .row { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px 0 6px; border-radius: 12px; cursor: pointer; flex: none; font-size: 14px; font-weight: 500; }
-  .row:hover { background: var(--hover); }
-  .row.on { background: var(--accent-subtle); color: var(--accent-text); font-weight: 600; }
+  .row { position: relative; z-index: 1; }
+  .row:hover:not(.on) { background: var(--hover); }
+  .row.on { color: var(--accent-text); font-weight: 600; }
+  /* 选中的高亮框是列表里单独的一块，换选择时平滑滑到新的那一行（作者 11-26）；核心和版本两列都这样 */
+  .list { position: relative; }
+  .hl { position: absolute; left: 4px; right: 12px; top: 0; height: 44px; border-radius: 12px; background: var(--accent-subtle); z-index: 0; pointer-events: none;
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+        transition: transform .32s cubic-bezier(.3, .7, .2, 1), height .32s cubic-bezier(.3, .7, .2, 1); }
   .row svg { width: 32px; height: 32px; display: block; flex: none; }
   .row .sp { flex: 1; }
   .row .tag { font-size: 11.5px; color: var(--faint); font-weight: 400; }
@@ -163,17 +179,25 @@ const DEF = { vanilla: "26.2", paper: "26.2", purpur: "26.2", leaves: "26.1", fo
 let step = 0, play = 1, core = "paper", ver = DEF.paper;
 const STEPS = () => play === 0 ? ["选择核心以进行下一步", "最后设置一下", "让朋友连进来"] : ["选择核心以进行下一步", play === 2 ? "装点模组？" : "装点插件？", "最后设置一下", "让朋友连进来"];
 const cover = (k, size) => `<div class="cover" style="--c:${MDPixel16.CORE_COLORS[k] || "#7a8aa0"}">${MDPixel16.svg(k, size)}</div>`;
-function step1() {
-  const p = PLAYS[play], c = CORE[core], proxy = core === "velocity" || core === "waterfall", vs = versOf(core);
-  const plays = `<div class="plays">${PLAYS.map((x, i) => `<div class="play${i === play ? " on" : ""}" data-play="${i}" style="--c:${MDPixel16.CORE_COLORS[x.ico]}">${cover(x.ico, 48)}<div class="t">${x.t}</div><div class="s">${x.s}</div></div>`).join("")}</div>`;
-  const intro = `<div class="col intro"><div class="head">${cover(core, 32)}<div><div class="nm">${c[0]}${core === p.rec && p.cores.length > 1 ? `<span class="rec">推荐</span>` : ""}</div><div class="sub">${c[1]}</div></div></div>
+function introInner() {
+  const p = PLAYS[play], c = CORE[core];
+  return `<div class="body"><div class="head">${cover(core, 32)}<div><div class="nm">${c[0]}${core === p.rec && p.cores.length > 1 ? `<span class="rec">推荐</span>` : ""}</div><div class="sub">${c[1]}</div></div></div>
     <p>${c[2]}</p><dl><dt>适用场景</dt><dd>${c[3]}</dd><dt>支持扩展</dt><dd>${c[4]}</dd><dt>联机要求</dt><dd>${c[5]}</dd></dl></div>`;
-  const ordered = [p.rec, ...p.cores.filter(k => k !== p.rec)].filter(Boolean);
-  const cores = p.cores.length < 2 ? "" : `<div class="col"><h3>核心</h3><div class="lwrap"><div class="list">${ordered.map(k => `<div class="row${k === core ? " on" : ""}" data-core="${k}">${MDPixel16.svg(k, 32)}${CORE[k][0]}<span class="sp"></span>${k === p.rec && p.cores.length > 1 ? `<span class="tag">推荐</span>` : ""}</div>`).join("")}</div><i class="thumb"></i></div></div>`;
-  const versions = `<div class="col"><h3>${proxy ? "版本" : "游戏版本"}<span class="sp"></span><span class="find"><i data-ic="search"></i>搜索</span></h3>
-    <div class="lwrap"><div class="list">${vs.map(v => { const snap = v.includes("snapshot"), latest = !snap && v === vs.find(x => !x.includes("snapshot"));
+}
+function versionsInner() {
+  const proxy = core === "velocity" || core === "waterfall", vs = versOf(core);
+  return `<h3>${proxy ? "版本" : "游戏版本"}<span class="sp"></span><span class="find"><i data-ic="search"></i>搜索</span></h3>
+    <div class="lwrap"><div class="list"><i class="hl"></i>${vs.map(v => { const snap = v.includes("snapshot"), latest = !snap && v === vs.find(x => !x.includes("snapshot"));
       return `<div class="row vrow${v === ver ? " on" : ""}${snap ? " snap" : ""}" data-ver="${v}">${v}<span class="sp"></span>${snap ? `<span class="tag">快照</span>` : latest ? `<span class="tag">最新</span>` : v === DEF[core] ? `<span class="tag">常用</span>` : ""}</div>`; }).join("")}</div><i class="thumb"></i></div>
-    ${core === "vanilla" ? "" : `<div class="build">构建用最新稳定版 · <a>换一个</a></div>`}</div>`;
+    ${core === "vanilla" ? "" : `<div class="build">构建用最新稳定版 · <a>换一个</a></div>`}`;
+}
+function step1() {
+  const p = PLAYS[play];
+  const plays = `<div class="plays">${PLAYS.map((x, i) => `<div class="play${i === play ? " on" : ""}" data-play="${i}" style="--c:${MDPixel16.CORE_COLORS[x.ico]}">${cover(x.ico, 48)}<div class="t">${x.t}</div><div class="s">${x.s}</div></div>`).join("")}</div>`;
+  const intro = `<div class="col intro" id="intro">${introInner()}</div>`;
+  const ordered = [p.rec, ...p.cores.filter(k => k !== p.rec)].filter(Boolean);
+  const cores = p.cores.length < 2 ? "" : `<div class="col" id="corecol"><h3>核心</h3><div class="lwrap"><div class="list"><i class="hl"></i>${ordered.map(k => `<div class="row${k === core ? " on" : ""}" data-core="${k}">${MDPixel16.svg(k, 32)}${CORE[k][0]}<span class="sp"></span>${k === p.rec && p.cores.length > 1 ? `<span class="tag">推荐</span>` : ""}</div>`).join("")}</div><i class="thumb"></i></div></div>`;
+  const versions = `<div class="col" id="vercol">${versionsInner()}</div>`;
   const alt = `<div class="alt">手上有现成的？` + [["package", "导入整合包"], ["globe", "用已有地图"], ["share", "导入交接包"], ["folder", "接管已有服务器"]].map(([i, t]) => `<span class="b"><i data-ic="${i}"></i>${t}</span>`).join("") + `</div>`;
   return plays + `<div class="pick${cores ? "" : " two"}">${intro}${cores}${versions}</div>` + alt;
 }
@@ -183,9 +207,47 @@ function render() {
   document.getElementById("dots").innerHTML = names.map((_, i) => `<i class="${i === step ? "on" : ""}"></i>`).join("");
   document.getElementById("next").innerHTML = step === names.length - 1 ? `<i data-ic="check"></i>创建服务器` : `下一步<i data-ic="chevronRight"></i>`;
   KIT.hydrate(document.body);
-  const on = document.querySelector(".vrow.on");
-  if (on) { const l = on.parentElement; l.scrollTop = on.offsetTop - l.clientHeight / 2 + on.offsetHeight / 2; }
-  document.querySelectorAll(".lwrap").forEach(scrollbar);
+  settleVersions();
+  document.querySelectorAll("#corecol .list").forEach(l => placeHL(l, false));
+  const cl = document.querySelector("#corecol .lwrap"); if (cl) scrollbar(cl);
+}
+// 高亮框挪到选中的那一行：animate 为 false 时直接放过去（刚画出来、换了一整列的时候）
+function placeHL(list, animate) {
+  const hl = list.querySelector(".hl"), on = list.querySelector(".row.on");
+  if (!hl) return;
+  hl.style.opacity = on ? 1 : 0;
+  if (!on) return;
+  if (!animate) hl.style.transition = "none";
+  hl.style.transform = `translateY(${on.offsetTop}px)`;
+  hl.style.height = on.offsetHeight + "px";
+  if (!animate) { void hl.offsetWidth; hl.style.transition = ""; }
+}
+// 版本这一列重画以后：滚到选中的那一行、高亮框放过去、细滚动条接上
+function settleVersions() {
+  const l = document.querySelector("#vercol .list"); if (!l) return;
+  const on = l.querySelector(".row.on");
+  if (on) l.scrollTop = on.offsetTop - l.clientHeight / 2 + on.offsetHeight / 2;
+  placeHL(l, false);
+  scrollbar(l.closest(".lwrap"));
+}
+function selectCore(k) {
+  if (k === core) return;
+  core = k; ver = DEF[k];
+  const list = document.querySelector("#corecol .list");
+  list.querySelectorAll(".row").forEach(r => r.classList.toggle("on", r.dataset.core === k));
+  placeHL(list, true);
+  const intro = document.getElementById("intro");
+  intro.innerHTML = introInner();
+  intro.classList.remove("swap"); void intro.offsetWidth; intro.classList.add("swap");
+  const vc = document.getElementById("vercol");
+  vc.innerHTML = versionsInner(); KIT.hydrate(vc); settleVersions();
+}
+function selectVer(v) {
+  if (v === ver) return;
+  ver = v;
+  const list = document.querySelector("#vercol .list");
+  list.querySelectorAll(".row").forEach(r => r.classList.toggle("on", r.dataset.ver === v));
+  placeHL(list, true);
 }
 // 细滚动条：跟着列表算长短和位置，能拖；上下有没看到的就渐隐
 function scrollbar(w) {
@@ -213,8 +275,8 @@ function scrollbar(w) {
 document.getElementById("page").addEventListener("click", e => {
   const pl = e.target.closest("[data-play]"), co = e.target.closest("[data-core]"), ve = e.target.closest("[data-ver]");
   if (pl) { play = +pl.dataset.play; core = PLAYS[play].rec || PLAYS[play].cores[0]; ver = DEF[core]; render(); }
-  else if (co) { core = co.dataset.core; ver = DEF[core]; render(); }
-  else if (ve) { ver = ve.dataset.ver; render(); }
+  else if (co) selectCore(co.dataset.core);
+  else if (ve) selectVer(ve.dataset.ver);
 });
 document.getElementById("next").addEventListener("click", () => { if (step < STEPS().length - 1) { step++; render(); } });
 document.getElementById("back").addEventListener("click", () => {
