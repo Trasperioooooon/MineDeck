@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>草图 · 服务器详情页</title>
+<!--
+  服务器详情页第一稿（11-27，作者：「下一页画服务器详情页」）。这一稿只定结构：页头和标签放哪；各标签里面的内容后面一页一页画。
+  只画了控制台撑版面的样子（控制台是作者要单独审的一页，这里不算定稿），别的标签内容是空的面板。
+
+  页头和首页大卡对上（规范第三节）：一块大面板（26 / 8），上面是封面条（核心色 30% 底、16 像素淡棋盘格、圆角 18），里面头像 44、名字、核心和版本，
+  右边是数字块和星标、「···」（同大卡）；封面条下面一排 36 高的胶囊：状态、联机地址、重启、停止或启动（同大卡底下那排，36 的一半 18 和面板下角同心）。
+  首页大卡上的「控制台」按钮这里不要（控制台就是一个标签）；重启只有详情页有。「打开文件夹 ▾」和「···」并成一个「···」，菜单同共用件页那张（commons.html）。
+  常驻提示（上次没能启动、找不到 Java、模组要更高的 Java、整合包里有文件没装上）放在页头面板的最下面，一条 44 高、圆角 18（贴面板下角，同心）。
+
+  标签放哪（草图顶上的开关切，作者挑）：
+  A 顶上：页头下面一排 32 高胶囊分段（同首页「最近启动 / 游玩时长 / 收藏」），选中块滑过去；有子页的标签，子页的分段接在同一行的右边，中间一个「›」。
+  B 左边：页头下面左边一块 200 宽的面板，一行一个标签（36 高、图标加字），选中块上下滑；有子页的，子页缩进列在它下面。
+  选哪种，设置页的九个分类也跟着用（规范：两处的二级导航一种做法）。
+  标签编号（console、players、world……）是程序地址的一部分，AI 助手和书签都在引用；这里加了「联机」（net），别的编号没动。
+
+  怎么回首页：胶囊里「主页」亮着，点它回首页（同 MASTER 11.6：点当前项回到这一块的起点）；页上不另放返回键。这是主会话选的，等作者说。
+-->
+<script>
+const STAR = "M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z";
+window.EXTRA_ICONS = {
+  toolbox: '<path d="M5.5 4V2.8A.8.8 0 016.3 2h3.4a.8.8 0 01.8.8V4"/><rect x="2" y="4" width="12" height="9.5" rx="1.6"/><path d="M2 8h12M6.5 8v1.6h3V8"/>',
+  winMin: '<path d="M4 8h8"/>', winMax: '<rect x="4" y="4" width="8" height="8" rx="1"/>', winClose: '<path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/>',
+  console: '<rect x="2" y="3" width="12" height="10" rx="1.6"/><path d="M4.8 6.5l1.8 1.5-1.8 1.5M8 10h3"/>',
+  star: `<path d="${STAR}"/>`, starOn: `<path d="${STAR}" fill="currentColor"/>`,
+  map: '<path d="M2.4 4.2L6 2.6l4 1.6 3.6-1.6v9.2L10 13.4l-4-1.6-3.6 1.6z"/><path d="M6 2.6v9.2M10 4.2v9.2"/>',
+};
+</script>
+<script src="kit.js"></script>
+<script src="pixel16.js"></script>
+<link rel="stylesheet" href="kit.css">
+<style>
+  body { background: var(--bg); overflow: hidden; }
+  /* 标题栏：同首页 */
+  .tb { height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 0 0 16px; position: relative; z-index: 5; }
+  .tb .brand img { width: 16px; height: 16px; image-rendering: pixelated; display: block; }
+  .tb .sp { flex: 1; }
+  .tb .win { display: flex; height: 40px; }
+  .tb .win span { width: 46px; display: grid; place-items: center; color: var(--muted); }
+  /* 草图专用的切换条（定了就删） */
+  .sk { display: flex; align-items: center; gap: 4px; height: 26px; padding: 0 6px; border-radius: 13px; background: color-mix(in srgb, var(--surface) 70%, transparent);
+        border: 1px solid var(--border); font-size: 11.5px; color: var(--faint); white-space: nowrap; }
+  .sk b { font-weight: 500; color: var(--muted); margin: 0 2px 0 6px; }
+  .sk b:first-child { margin-left: 2px; }
+  .sk a { color: var(--muted); text-decoration: none; padding: 2px 6px; border-radius: 8px; }
+  .sk a:hover { color: var(--text); background: var(--hover); }
+  .sk a.on { color: var(--accent-text); background: var(--accent-subtle); }
+  .sk i { width: 1px; height: 12px; background: var(--border); margin: 0 4px; }
+
+  /* 版心 1080，底边留 86（胶囊 52 + 离底 18 + 16）；页面本身不滚 */
+  .page { width: 1080px; margin: 0 auto; height: calc(100vh - 40px); box-sizing: border-box; padding: 16px 0 86px; display: flex; flex-direction: column; gap: 12px; }
+
+  /* ---- 页头：大面板 26 / 8 ---- */
+  .dh { flex: none; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-1); display: flex; flex-direction: column; gap: 8px; }
+  .cover { --c: #7a8aa0; position: relative; height: 60px; box-sizing: border-box; padding: 8px; border-radius: 18px; display: flex; align-items: center; gap: 12px;
+           background: color-mix(in srgb, var(--c) 30%, var(--surface)); overflow: hidden; }
+  .cover::after { content: ""; position: absolute; inset: 0; opacity: .16; pointer-events: none;
+    background-image: linear-gradient(45deg, rgb(0 0 0 / .5) 25%, transparent 25%, transparent 75%, rgb(0 0 0 / .5) 75%), linear-gradient(45deg, rgb(0 0 0 / .5) 25%, transparent 25%, transparent 75%, rgb(0 0 0 / .5) 75%);
+    background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+  .cover > * { position: relative; z-index: 1; }
+  .px-avatar { --c: #7a8aa0; width: 44px; height: 44px; flex: none; display: grid; place-items: center; border-radius: 10px; overflow: hidden;
+               background: color-mix(in srgb, var(--c) 26%, var(--surface)); box-shadow: inset 0 1px 0 rgb(255 255 255 / .08), 0 0 0 1px color-mix(in srgb, var(--c) 30%, transparent); }
+  .px-avatar svg { width: 32px; height: 32px; display: block; }
+  .px-avatar.icon { background: #000; } .px-avatar.icon svg { width: 100%; height: 100%; }
+  .cover .title { flex: 1; min-width: 0; }
+  .cover .nm { font-size: 16px; font-weight: 600; line-height: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cover .meta { font-size: 12px; line-height: 18px; color: color-mix(in srgb, var(--text) 70%, transparent); }
+  /* 封面条右边的块：44 高、圆角 10（离封面边 8，18 − 8），半透明面板底，同大卡的工具块 */
+  .cb { height: 44px; box-sizing: border-box; border-radius: 10px; background: color-mix(in srgb, var(--surface) 55%, transparent); flex: none; }
+  .kv { padding: 0 14px; display: flex; flex-direction: column; justify-content: center; min-width: 84px; }
+  .kv .k { font-size: 11.5px; line-height: 16px; color: var(--muted); }
+  .kv .v { font-family: var(--mono); font-size: 15px; font-weight: 600; line-height: 20px; letter-spacing: -.01em; }
+  .kv .v small { font-size: 11.5px; font-weight: 400; color: var(--faint); }
+  .kv .v.ok { color: var(--success-text); }
+  .boot { width: 280px; padding: 0 14px; display: flex; flex-direction: column; justify-content: center; gap: 7px; }
+  .boot .bar { height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--text) 14%, transparent); overflow: hidden; }
+  .boot .bar i { display: block; height: 100%; width: 62%; border-radius: 3px; background: var(--warning); }
+  .boot .steps { display: flex; gap: 6px; font-size: 11.5px; color: var(--faint); }
+  .boot .steps b { color: var(--warning-text); font-weight: 500; }
+  .tools { display: flex; align-items: center; padding: 0 6px; }
+  .rb { width: 30px; height: 30px; border-radius: 15px; border: 0; padding: 0; background: none; display: grid; place-items: center; color: var(--muted); cursor: pointer; }
+  .rb:hover, .rb.open { background: var(--hover); color: var(--text); }
+  .rb.pin.on { color: var(--warning); }
+
+  /* 封面条下面一排：36 高胶囊（同大卡底下那排） */
+  .acts { display: flex; align-items: center; gap: 8px; height: 36px; }
+  .acts .sp { flex: 1; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; padding: 0 16px; border-radius: 18px; font: inherit; font-size: 13px; font-weight: 500;
+         background: var(--control); color: var(--text); border: 1px solid var(--border); cursor: pointer; white-space: nowrap; box-sizing: border-box; }
+  .btn:hover { background: var(--control-hov); }
+  .btn .ico { width: 15px; height: 15px; }
+  .btn.go { background: var(--accent-subtle); color: var(--accent-text); border-color: transparent; }
+  .btn.stop { background: var(--danger-subtle); color: var(--danger-text); border-color: transparent; }
+  .btn[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+  .btn[aria-disabled="true"]:hover { background: var(--control); }
+  .stbr { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 16px; border-radius: 18px; font-size: 13px; font-weight: 500; white-space: nowrap; }
+  .stbr i { width: 7px; height: 7px; border-radius: 2px; }
+  .stbr.ok { background: var(--success-subtle); color: var(--success-text); } .stbr.ok i { background: var(--success); }
+  .stbr.warm { background: var(--warning-subtle); color: var(--warning-text); } .stbr.warm i { background: var(--warning); }
+  .stbr.off { background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); color: var(--faint); } .stbr.off i { background: var(--faint); }
+  .addr { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 4px 0 14px; border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+  .addr > .ico { width: 14px; height: 14px; color: var(--muted); }
+  .addr .v { font-family: var(--mono); font-size: 13px; font-weight: 500; }
+  .addr.off .v { color: var(--faint); }
+  .addr .rb { width: 28px; height: 28px; border-radius: 14px; }
+  .addr .rb .ico { width: 14px; height: 14px; }
+
+  /* 常驻提示：页头面板最下面，一条 44 高、圆角 18（贴面板下角，同心）；会拦住启动的用警告色 */
+  .ntc { display: flex; align-items: center; gap: 10px; height: 44px; box-sizing: border-box; padding: 0 8px 0 14px; border-radius: 18px;
+         background: var(--warning-subtle); color: var(--text); font-size: 13px; }
+  .ntc > .ico { width: 16px; height: 16px; color: var(--warning-text); flex: none; }
+  .ntc .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ntc .btn { height: 28px; padding: 0 12px; border-radius: 14px; font-size: 12.5px; }
+  .ntc .rb { width: 28px; height: 28px; border-radius: 14px; flex: none; }
+  .ntc .rb .ico { width: 14px; height: 14px; }
+
+  /* ---- 下半部分：标签和内容 ---- */
+  .body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+  body.nav-side .body { flex-direction: row; }
+  .cp { flex: 1; min-width: 0; min-height: 0; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-1); display: flex; flex-direction: column; gap: 8px; box-sizing: border-box; }
+
+  /* A 顶上：32 高胶囊分段（同首页），选中块滑过去；子页的分段接在同一行右边 */
+  .navrow { flex: none; display: flex; align-items: center; gap: 8px; height: 32px; }
+  .seg { position: relative; display: flex; gap: 2px; padding: 3px; height: 32px; box-sizing: border-box; border-radius: 16px; background: var(--field); border: 1px solid var(--border); }
+  .seg .sgl { position: absolute; left: 0; top: 3px; bottom: 3px; border-radius: 13px; background: var(--accent-subtle); pointer-events: none;
+              transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1); }
+  .seg button { position: relative; z-index: 1; border: 0; background: none; height: 24px; padding: 0 12px; border-radius: 12px; font: inherit; font-size: 12.5px; font-weight: 500;
+                color: var(--muted); cursor: pointer; white-space: nowrap; transition: color .2s; }
+  .seg button:hover { color: var(--text); }
+  .seg button.on { color: var(--accent-text); }
+  .navrow .chev { width: 14px; height: 14px; color: var(--faint); flex: none; }
+  .navrow .subwrap { display: flex; align-items: center; gap: 8px; }
+  .navrow .subwrap.out { animation: sw-out .09s cubic-bezier(.4, 0, 1, 1) both; }
+  .navrow .subwrap.in { animation: sw-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+  @keyframes sw-out { to { opacity: 0; transform: translateX(-5px); } }
+  @keyframes sw-in { from { opacity: 0; transform: translateX(5px); } }
+
+  /* B 左边：200 宽的面板（26 / 8），一行一个标签 36 高胶囊（18，和面板同心），选中块上下滑；子页缩进列在下面，32 高 */
+  .snav { flex: none; width: 200px; position: relative; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-1); box-sizing: border-box;
+          display: flex; flex-direction: column; gap: 2px; }
+  .snav .hl { position: absolute; left: 8px; right: 8px; top: 0; height: 36px; border-radius: 18px; background: var(--accent-subtle); pointer-events: none;
+              transition: transform .32s cubic-bezier(.3, .7, .2, 1); }
+  .snav button { position: relative; z-index: 1; display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 14px; border: 0; border-radius: 18px; background: none;
+                 font: inherit; font-size: 13px; font-weight: 500; color: var(--muted); cursor: pointer; text-align: left; flex: none; }
+  .snav button:hover { color: var(--text); }
+  .snav button.on { color: var(--accent-text); }
+  .snav button .ico { width: 16px; height: 16px; }
+  .snav .subs { display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
+  .snav .subs button { height: 32px; padding-left: 40px; font-size: 12.5px; color: var(--faint); }
+  .snav .subs button.on { color: var(--text); font-weight: 600; }
+  .snav .subs button.on::before { content: ""; position: absolute; left: 22px; top: 13px; width: 6px; height: 6px; border-radius: 2px; background: var(--accent); }
+
+  /* 控制台（撑版面用，不是定稿）：终端一栏双主题恒深，圆角 18；命令行 40 高、圆角 10（离栏边 8，同心） */
+  .term { flex: 1; min-height: 0; border-radius: 18px; background: var(--term-bg); color: var(--term-fg); display: flex; flex-direction: column; padding: 8px; box-sizing: border-box; }
+  .term .out { flex: 1; min-height: 0; overflow: hidden; padding: 8px 10px; font: 12.5px/20px var(--mono); white-space: pre-wrap; word-break: break-all; display: flex; flex-direction: column; justify-content: flex-end; }
+  .term .out .w { color: var(--term-warn); } .term .out .c { color: var(--term-cmd); }
+  .term .in { flex: none; height: 40px; border-radius: 10px; display: flex; align-items: center; gap: 8px; padding: 0 12px; box-sizing: border-box;
+              background: color-mix(in srgb, var(--term-fg) 8%, transparent); font: 12.5px var(--mono); color: color-mix(in srgb, var(--term-fg) 45%, transparent); }
+  .term .in b { color: var(--term-cmd); font-weight: 600; }
+  .empty { flex: 1; border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+  .cp > .fade-out { animation: sw-out .09s cubic-bezier(.4, 0, 1, 1) both; }
+  .cp > .fade-in { animation: cp-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+  @keyframes cp-in { from { opacity: 0; transform: translateY(5px); } }
+
+  /* 「···」菜单：同共用件页（commons.html）那张 */
+  .dm { position: fixed; z-index: 50; min-width: 208px; padding: 5px; box-sizing: border-box; display: flex; flex-direction: column; gap: 1px;
+        border-radius: 16px; border: 1px solid var(--border); background: var(--overlay); box-shadow: var(--elev-3); }
+  .dm.enter { animation: dm-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+  .dm.leave { animation: dm-out .09s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+  @keyframes dm-in { from { opacity: 0; transform: translateY(-5px); } }
+  @keyframes dm-out { to { opacity: 0; transform: translateY(-5px); } }
+  .dm .it { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: 10px; font-size: 13px; color: var(--text); cursor: pointer; white-space: nowrap; }
+  .dm .it .ico { width: 16px; height: 16px; color: var(--muted); }
+  .dm .it:hover { background: var(--hover); }
+  .dm .it.dgr, .dm .it.dgr .ico { color: var(--danger-text); }
+  .dm .it[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+  .dm .it[aria-disabled="true"]:hover { background: none; }
+  .dm .hd { padding: 8px 10px 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+  .dm .sep { height: 1px; margin: 4px 6px; background: var(--border); }
+
+  /* 底部胶囊：同首页；详情页在「主页」底下，主页亮着 */
+  .cap { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 10; display: flex; align-items: center; gap: 4px; padding: 5px;
+         border-radius: var(--r-full); background: color-mix(in srgb, var(--overlay) 86%, transparent); backdrop-filter: blur(16px) saturate(1.2);
+         border: 1px solid var(--border); box-shadow: var(--elev-3); }
+  .cap a { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--r-full); color: var(--muted); text-decoration: none; }
+  .cap a:hover { color: var(--text); background: var(--hover); }
+  .cap a.on { color: var(--accent-text); background: var(--accent-subtle); }
+  .cap a .ico { width: 18px; height: 18px; }
+  .cap a.home img { width: 20px; height: 20px; image-rendering: pixelated; }
+  .cap a.ai { color: var(--text); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border); }
+  .cap a.ai .ico { color: var(--accent-text); }
+  .cap a.new { background: var(--accent-solid); color: var(--on-accent); }
+</style>
+</head>
+<body>
+<header class="tb">
+  <span class="brand"><img src="../../internal/web/ui/img/logo-16.png" alt=""></span>
+  <div class="sk" id="sk"></div>
+  <span class="sp"></span>
+  <div class="win"><span><i data-ic="winMin"></i></span><span><i data-ic="winMax"></i></span><span><i data-ic="winClose"></i></span></div>
+</header>
+<main class="page">
+  <section class="dh" id="dh"></section>
+  <div class="body" id="body"></div>
+</main>
+<nav class="cap" aria-label="导航">
+  <a class="home on" href="home.html" aria-label="服务器（主页）" data-tip="服务器"><img src="../../internal/web/ui/img/logo-20.png" alt=""></a>
+  <a href="toolbox.html" aria-label="工具箱" data-tip="工具箱"><i data-ic="toolbox"></i></a>
+  <a href="#" aria-label="设置" data-tip="设置"><i data-ic="gear"></i></a>
+  <a class="ai" href="#" aria-label="AI 助手" data-tip="AI 助手"><i data-ic="sparkle"></i></a>
+  <a class="new" href="wizard.html" aria-label="新建服务器" data-tip="新建服务器"><i data-ic="plus"></i></a>
+</nav>
+<script>
+const QS = new URLSearchParams(location.search);
+const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+// 草图里的几台服务器，同首页的示例（名字、核心、版本、端口、隧道都和 home.html 一样）
+const SUNSET = ["SSSSSSSSSSSSSSSS","SSSSSSSSSSSSyySS","SSSSSSSSSSSyyyyS","SSSSSSSSSSSyyyyS","SSSSSSSSSSSSyySS","SSSSwwwSSSSSSSSS","SSSwwwwwSSSSSSSS","SSSSSSSSSSSSSSSS","SSSSSSSSSSSSSSSS","SSSSSSSSSSGGSSSS","SSGGSSSSSGGGGSSS","SGGGGSSSGGGGGGSS","GGGGGGGGGGGGGGGG","gggggggggggggggg","dddddddddddddddd","bbbbbbbbbbbbbbbb"];
+const PAL = { S: "#9fd0ff", y: "#ffd35a", w: "#f4f1e8", G: "#88d45a", g: "#5bb03a", d: "#3f7a2a", b: "#6b4a2e" };
+const fakeIcon = rows => `<svg viewBox="0 0 16 16" shape-rendering="crispEdges">${rows.map((r, y) => [...r].map((c, x) => `<rect x="${x}" y="${y}" width="1" height="1" fill="${PAL[c]}"/>`).join("")).join("")}</svg>`;
+const KINDS = {
+  paper: { name: "生存服 · 朋友", core: "paper", label: "Paper", mc: "1.21.4", port: 25565, tunnel: "frp-hk.openfrp.net:31234", players: 3, max: 20, up: "2:13", last: "现在", hours: 128, pin: true, icon: SUNSET },
+  forge: { name: "机械动力整合包", core: "forge", label: "Forge", mc: "1.20.1", port: 25566, players: 2, max: 10, up: "0:41", last: "昨天", hours: 36, pin: false },
+  vanilla: { name: "原版快照测试", core: "vanilla", label: "原版", mc: "26.2", port: 25567, players: 1, max: 20, up: "0:08", last: "上周", hours: 3, pin: false },
+  proxy: { name: "群组代理", core: "velocity", label: "Velocity", mc: "3.4.0", port: 25577, players: 9, max: 100, up: "6:30", last: "现在", hours: 410, pin: false, proxy: true },
+};
+const kind = KINDS[QS.get("kind")] ? QS.get("kind") : "paper", S = KINDS[kind];
+const nav = QS.get("nav") === "side" ? "side" : "top";
+const nNotice = Math.max(0, Math.min(2, +QS.get("notice") || 0));
+// 两条常驻提示都只在停着时出现（程序里「上次没能启动」只在已停止时显示；找不到 Java 时也开不起来）
+const st = nNotice ? "stopped" : (["running", "starting", "stopped"].includes(QS.get("st")) ? QS.get("st") : "running");
+document.body.classList.add("nav-" + nav);
+
+// 标签和子页：照程序 detailTabs（app.js），这台服务器用不上的不列；加了「联机」（net），放在玩家后面
+function tabsOf(s) {
+  const plug = ["paper", "purpur", "leaves", "folia", "velocity", "waterfall"].includes(s.core);
+  const t = [{ id: "console", label: "控制台", ic: "console" }];
+  if (!s.proxy) t.push({ id: "players", label: "玩家", ic: "player" });
+  t.push({ id: "net", label: "联机", ic: "globe" });
+  if (!s.proxy) t.push({ id: "world", label: "世界与备份", ic: "map", subs: [["backups", "备份"], ["map", "换地图"]] });
+  if (s.core !== "vanilla") t.push({ id: "addons", label: plug ? "插件" : "模组", ic: plug ? "plug" : "package" });
+  t.push({ id: "tasks", label: "定时任务", ic: "clock" });
+  t.push({ id: "settings", label: "设置", ic: "gear", subs: s.proxy ? [["jvm", "启动与内存"]] : [["common", "常用"], ["jvm", "启动与内存"], ["raw", "全部配置"]] });
+  const ext = [];
+  if (!s.proxy) ext.push(["gameai", "游戏内 AI"]);
+  if (["forge", "neoforge"].includes(s.core)) ext.push(["companion", "AI 伙伴"]);
+  if (["forge", "neoforge", "mohist"].includes(s.core)) ext.push(["music", "音乐共享"]);
+  if (ext.length) t.push({ id: "ext", label: "扩展", ic: "sparkle", subs: ext });
+  return t;
+}
+const TABS = tabsOf(S);
+let tab = TABS.find(t => t.id === QS.get("tab")) ? QS.get("tab") : "console";
+const subsOf = id => { const t = TABS.find(x => x.id === id); return t.subs && t.subs.length > 1 ? t.subs : null; }; // 只有一个子页（代理端的设置）就不列子页
+const subPick = {};
+TABS.forEach(t => { if (t.subs) subPick[t.id] = t.subs[0][0]; });
+if (QS.get("sub") && subsOf(tab)?.some(x => x[0] === QS.get("sub"))) subPick[tab] = QS.get("sub");
+
+// ---- 草图切换条 ----
+function skBar() {
+  const link = (k, v, label, on) => { const q = new URLSearchParams(location.search); if (v === null) q.delete(k); else q.set(k, v); if (k === "kind") { q.delete("tab"); q.delete("sub"); } return `<a href="?${q}" class="${on ? "on" : ""}">${label}</a>`; };
+  $("#sk").innerHTML = `<b>草图</b><b>标签</b>${link("nav", null, "顶上", nav === "top")}${link("nav", "side", "左边", nav === "side")}<i></i>`
+    + `<b>核心</b>${link("kind", null, "Paper", kind === "paper")}${link("kind", "forge", "Forge", kind === "forge")}${link("kind", "vanilla", "原版", kind === "vanilla")}${link("kind", "proxy", "代理端", kind === "proxy")}<i></i>`
+    + `<b>状态</b>${link("st", null, "运行中", st === "running" && !nNotice)}${link("st", "starting", "启动中", st === "starting")}${link("st", "stopped", "已停止", st === "stopped" && !nNotice)}<i></i>`
+    + `<b>常驻提示</b>${link("notice", null, "无", !nNotice)}${link("notice", "1", "一条", nNotice === 1)}${link("notice", "2", "两条", nNotice === 2)}<i></i>`
+    + `<span title="控制台只画了撑版面的样子，别的标签里面是空的，后面一页一页画">只画了控制台</span>`;
+}
+
+// ---- 页头 ----
+function head() {
+  const av = S.icon ? `<span class="px-avatar icon" aria-hidden="true">${fakeIcon(S.icon)}</span>` : MDPixel16.avatar(S.core, "", 32).replace('class="px-avatar', 'class="px-avatar');
+  let blocks;
+  if (st === "running") blocks = `<div class="cb kv"><div class="k">在线人数</div><div class="v ok">${S.players}<small>/${S.max}</small></div></div><div class="cb kv"><div class="k">运行时间</div><div class="v">${S.up}</div></div>`;
+  else if (st === "starting") blocks = `<div class="cb boot"><div class="bar"><i></i></div><div class="steps"><span>准备 Java ✓</span><span>·</span><b>加载世界</b><span>·</span><span>就绪</span><span style="margin-left:auto">12 秒</span></div></div>`;
+  else blocks = `<div class="cb kv"><div class="k">上次玩</div><div class="v">${S.last === "现在" ? "昨天" : S.last}</div></div><div class="cb kv"><div class="k">时长总计</div><div class="v">${S.hours}<small> 小时</small></div></div>`;
+  const tools = `<div class="cb tools"><button class="rb pin${S.pin ? " on" : ""}" title="${S.pin ? "取消收藏" : "收藏"}"><i data-ic="${S.pin ? "starOn" : "star"}"></i></button><button class="rb more" title="更多"><i data-ic="more"></i></button></div>`;
+  const stb = st === "running" ? `<span class="stbr ok"><i></i>运行中</span>` : st === "starting" ? `<span class="stbr warm"><i></i>启动中</span>` : `<span class="stbr off"><i></i>已停止</span>`;
+  // 地址：同首页大卡，绑了隧道用隧道的，没绑用局域网的（要不要两个都列、怎么换，等作者说）
+  const a = S.tunnel || `192.168.1.5:${S.port}`, live = st === "running";
+  const addr = `<span class="addr${live ? "" : " off"}" title="${live ? (S.tunnel ? "内网穿透地址" : "局域网联机地址") : "开服后朋友连这个地址"}"><i data-ic="${S.tunnel ? "globe" : "link"}"></i><span class="v">${a}</span><button class="rb" title="复制"><i data-ic="copy"></i></button></span>`;
+  const restart = `<button class="btn"${st === "running" ? "" : ` aria-disabled="true" title="服务器开着时才能重启"`}><i data-ic="refresh"></i>重启</button>`;
+  const main = st === "stopped" ? `<button class="btn go"><i data-ic="play"></i>启动</button>` : `<button class="btn stop"><i data-ic="stop"></i>停止</button>`;
+  const notices = [
+    `<div class="ntc"><i data-ic="warn"></i><span class="t">上次没能启动：端口 ${S.port} 被你的服务器「空岛生存」占着，两台不能同时开</span><button class="btn">改成 ${S.port + 1} 并启动</button><button class="rb" title="复制报错信息"><i data-ic="copy"></i></button><button class="rb" title="关闭提示"><i data-ic="x"></i></button></div>`,
+    `<div class="ntc"><i data-ic="warn"></i><span class="t" title="C:\\Program Files\\Java\\jdk-21\\bin\\java.exe。可能是那个 Java 被卸载或挪走了">找不到这台服务器配的 Java，现在启动会失败</span><button class="btn">去换 Java</button></div>`,
+  ].slice(0, nNotice).join("");
+  $("#dh").innerHTML = `<div class="cover" style="--c:${MDPixel16.CORE_COLORS[S.core]}">${av}<div class="title"><div class="nm">${S.name}</div><div class="meta">${S.label} · ${S.mc}</div></div>${blocks}${tools}</div>`
+    + `<div class="acts">${stb}${addr}<span class="sp"></span>${restart}${main}</div>${notices}`;
+  KIT.hydrate($("#dh"));
+}
+
+// ---- 标签 ----
+function content() {
+  if (tab !== "console") return `<div class="empty"></div>`;
+  const NAMES = ["steve", "alex", "lihua"].slice(0, S.players);
+  // 几行示例日志，照各家核心自己的格式（Paper、原版、Forge、Velocity 的行头不一样）
+  const P = { paper: t => `[${t} INFO]: `, vanilla: t => `[${t}] [Server thread/INFO]: `, forge: t => `[${t}] [Server thread/INFO] [minecraft/DedicatedServer]: ` }[S.proxy ? "paper" : kind];
+  const L = S.proxy ? [
+    ["[12:01:03 INFO]: Booting up Velocity 3.4.0..."], ["[12:01:04 INFO]: Loading localizations..."], ["[12:01:05 INFO]: Done (1.86s)!"],
+    ["[12:03:21 INFO]: [connected player] steve (/192.168.1.20:52114) has connected"], ["[12:06:02 INFO]: [connected player] alex (/192.168.1.23:50871) has connected"],
+  ] : [
+    [P("12:01:03") + `Starting minecraft server version ${S.mc}`], [P("12:01:03") + "Loading properties"], [P("12:01:03") + "Default game type: SURVIVAL"],
+    [P("12:01:04") + "Preparing level \"world\""], [P("12:01:09") + "Done (5.412s)! For help, type \"help\""],
+    ...NAMES.map((n, i) => [P(`12:0${3 + i}:21`) + `${n} joined the game`]), [P("12:06:44") + "<steve> 晚上一起去下界？"],
+    [P("12:07:30").replace("INFO", "WARN") + "Can't keep up! Is the server overloaded? Running 2041ms or 40 ticks behind", "w"], ["> list", "c"],
+    [P("12:08:12") + `There are ${S.players} of a max of ${S.max} players online: ${NAMES.join(", ")}`], // 和页头的在线人数对得上
+  ];
+  if (st === "starting") L.splice(4); // 启动中：日志停在还没开好的地方
+  return `<div class="term"><div class="out">${L.map(([t, c]) => `<div${c ? ` class="${c}"` : ""}>${t.replace(/</g, "&lt;")}</div>`).join("")}</div><div class="in"><b>&gt;</b>输入命令</div></div>`;
+}
+function body() {
+  if (nav === "top") {
+    $("#body").innerHTML = `<div class="navrow"><div class="seg" id="tabs"><span class="sgl"></span>${TABS.map(t => `<button data-t="${t.id}" class="${t.id === tab ? "on" : ""}">${t.label}</button>`).join("")}</div>`
+      + `<span class="subwrap" id="subwrap">${subRow()}</span></div><div class="cp" id="cp">${content()}</div>`;
+    placeSeg($("#tabs"), true); placeSub(true);
+  } else {
+    $("#body").innerHTML = `<aside class="snav" id="snav"><span class="hl"></span>${sideItems()}</aside><div class="cp" id="cp">${content()}</div>`;
+    placeSide(true);
+  }
+  KIT.hydrate($("#body"));
+}
+const subRow = () => { const s = subsOf(tab); return s ? `<i data-ic="chevronRight" class="chev"></i><div class="seg" id="subs"><span class="sgl"></span>${s.map(([id, l]) => `<button data-s="${id}" class="${subPick[tab] === id ? "on" : ""}">${l}</button>`).join("")}</div>` : ""; };
+const sideItems = () => TABS.map(t => `<button data-t="${t.id}" class="${t.id === tab ? "on" : ""}"><i data-ic="${t.ic}"></i>${t.label}</button>`
+  + (t.id === tab && subsOf(t.id) ? `<div class="subs">${subsOf(t.id).map(([id, l]) => `<button data-s="${id}" class="${subPick[t.id] === id ? "on" : ""}">${l}</button>`).join("")}</div>` : "")).join("");
+function placeSeg(seg, instant) {
+  const hl = $(".sgl", seg), on = $("button.on", seg); if (!hl || !on) return;
+  if (instant) hl.style.transition = "none";
+  hl.style.transform = `translateX(${on.offsetLeft}px)`; hl.style.width = on.offsetWidth + "px";
+  if (instant) { void hl.offsetWidth; hl.style.transition = ""; }
+}
+const placeSub = instant => { const s = $("#subs"); if (s) placeSeg(s, instant); };
+function placeSide(instant) {
+  const hl = $("#snav .hl"), on = $("#snav > button.on"); if (!hl || !on) return;
+  if (instant) hl.style.transition = "none";
+  hl.style.transform = `translateY(${on.offsetTop}px)`;
+  if (instant) { void hl.offsetWidth; hl.style.transition = ""; }
+}
+// 换内容：旧的往上淡掉，新的从下面浮上来（同规范第七节的数值）；连着快点，上一次没换完的作废
+let swapT = 0;
+function swapContent() {
+  const cp = $("#cp"); clearTimeout(swapT);
+  [...cp.children].forEach(c => c.classList.add("fade-out"));
+  swapT = setTimeout(() => { cp.innerHTML = content(); [...cp.children].forEach(c => c.classList.add("fade-in")); }, 90);
+}
+function syncURL() { const q = new URLSearchParams(location.search); q.set("tab", tab); if (subsOf(tab)) q.set("sub", subPick[tab]); else q.delete("sub"); history.replaceState(null, "", "?" + q); }
+document.addEventListener("click", e => {
+  const t = e.target.closest("[data-t]"), s = e.target.closest("[data-s]");
+  if (t && t.dataset.t !== tab) {
+    const was = tab; tab = t.dataset.t; syncURL();
+    if (nav === "top") {
+      $$("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.t === tab)); placeSeg($("#tabs"));
+      // 子页那段：有变化才换（旧的往左淡掉，新的从右边进来）
+      const sw = $("#subwrap"), fresh = subRow();
+      if (subsOf(was) || subsOf(tab)) {
+        sw.classList.remove("in"); sw.classList.add("out");
+        clearTimeout(sw._t); sw._t = setTimeout(() => { sw.innerHTML = fresh; KIT.hydrate(sw); placeSub(true); sw.classList.remove("out"); void sw.offsetWidth; if (fresh) sw.classList.add("in"); }, 90);
+      }
+    } else {
+      // 左边：子页跟着展开到新的标签下面，选中块从原来那行滑到新的一行
+      const hl = $("#snav .hl"), from = $("#snav > button.on").offsetTop;
+      $("#snav").innerHTML = `<span class="hl"></span>${sideItems()}`; KIT.hydrate($("#snav"));
+      const nh = $("#snav .hl"); nh.style.transition = "none"; nh.style.transform = `translateY(${from}px)`; void nh.offsetWidth; nh.style.transition = ""; placeSide();
+    }
+    swapContent(); return;
+  }
+  if (s) {
+    const id = s.dataset.s; if (subPick[tab] === id) return;
+    subPick[tab] = id; syncURL();
+    const box = s.parentElement; $$("button", box).forEach(b => b.classList.toggle("on", b.dataset.s === id));
+    if (nav === "top") placeSeg(box);
+    swapContent(); return;
+  }
+  const more = e.target.closest(".cover .more");
+  if (more) { toggleMenu(more); return; }
+  if (!e.target.closest(".dm")) closeMenu();
+});
+// 「···」：同共用件页那张（打开文件夹那一组、导出交接包…、删除服务器…；开着时后两项灰掉）
+let menu = null;
+function toggleMenu(anchor) {
+  if (menu) return closeMenu();
+  const core = S.core, mods = ["forge", "neoforge", "fabric", "mohist"].includes(core), plugins = ["paper", "purpur", "leaves", "folia", "velocity", "waterfall", "mohist"].includes(core);
+  const d = [["folder", "服务器文件夹"]]; if (mods) d.push(["package", "模组"]); if (plugins) d.push(["plug", "插件"]);
+  if (!S.proxy) d.push(["globe", "世界"], ["doc", "日志"], ["warn", "崩溃报告"], ["camera", "备份"]); else d.push(["doc", "日志"]);
+  const dis = st !== "stopped" ? ` aria-disabled="true" title="需先停止服务器"` : "";
+  menu = Object.assign(document.createElement("div"), { className: "dm enter" }); menu.setAttribute("role", "menu");
+  menu.innerHTML = `<div class="hd">打开文件夹</div>` + d.map(([i, l]) => `<div class="it" role="menuitem"><i data-ic="${i}"></i>${l}</div>`).join("")
+    + `<div class="sep"></div><div class="it" role="menuitem"${dis}><i data-ic="share"></i>导出交接包…</div><div class="sep"></div><div class="it dgr" role="menuitem"${dis}><i data-ic="trash"></i>删除服务器…</div>`;
+  document.body.appendChild(menu); KIT.hydrate(menu);
+  const r = anchor.getBoundingClientRect();
+  menu.style.left = Math.round(r.right - menu.offsetWidth) + "px"; menu.style.top = Math.round(r.bottom + 4) + "px";
+  anchor.classList.add("open"); menu._a = anchor;
+}
+function closeMenu() { if (!menu) return; const m = menu; menu = null; m._a.classList.remove("open"); m.classList.remove("enter"); m.classList.add("leave"); setTimeout(() => m.remove(), 90); }
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeMenu(); });
+
+KIT_READY.then(() => { skBar(); head(); body(); KIT.hydrate(); });
+</script>
+</body>
+</html>
