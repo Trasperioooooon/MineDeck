@@ -5,6 +5,7 @@
 <title>草图 · 新建服务器</title>
 <script src="kit.js"></script>
 <script src="pixel16.js"></script>
+<script src="modrinth-sample.js"></script>
 <link rel="stylesheet" href="kit.css">
 <style>
   body { background: var(--bg); overflow-x: hidden; }
@@ -115,7 +116,13 @@
      前置不再要人点「检查前置」再勾，加一个就把它要的前置一起放进清单、标「前置」。基准 1280×800 下面板 170–690，不滚动 */
   .addon { width: 100%; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-1);
            display: flex; gap: 8px; height: 520px; box-sizing: border-box; }
-  .addon > .col { min-width: 0; }
+  /* 同心圆角（作者 11-26 问卡片合不合规范）：两块面板圆角 18，里面贴着角放的东西（最下面一排卡片、虚线框、清单的行）离边 8、圆角 10（18 − 8）。
+     所以两块面板左右和底边的内边距是 8，顶上留 14 给标题；标题、类别、底下那行小字再往里缩 6，字还是离边 14、和第一步一样。
+     卡片和清单列表不再左右各缩 4、右边也不再留 12 的滚动条槽：细滚动条放在面板右边那 8 像素里 */
+  .addon > .col { min-width: 0; padding: 14px 8px 8px; }
+  .addon .col h3 { padding: 0 6px; }
+  .addon .list { margin: 0; padding: 0; }
+  .addon .thumb { right: -6px; }
   /* 左右大约 72 : 28（Gemini 复审 11-26 提的，作者让看着采纳）：左边两列卡片宽一些，名字放得下；清单一行一个，窄一点也够 */
   .addon .browse { flex: 2.6 1 0; }
   .addon .cart { flex: 1 1 0; }
@@ -125,7 +132,7 @@
   .findin input::placeholder { color: var(--faint); }
   .findin .ico { width: 13px; height: 13px; color: var(--faint); flex: none; }
   /* 放不下时横着滑（滚轮也能滑），哪头还有就在哪头渐隐，同首页左右滑的做法 */
-  .chips { display: flex; gap: 5px; margin: 0 0 12px; overflow-x: auto; scrollbar-width: none; flex: none; --fl: 0px; --fr: 0px;
+  .chips { display: flex; gap: 5px; margin: 0 0 12px; padding: 0 6px; overflow-x: auto; scrollbar-width: none; flex: none; --fl: 0px; --fr: 0px;
            -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
            mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%); }
   .chips::-webkit-scrollbar { display: none; }
@@ -136,12 +143,15 @@
   .chip.on { color: var(--accent-text); background: var(--accent-subtle); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); font-weight: 600; }
   /* 卡片：图标 40、名字和下载量一行、一句话一行，右边一个圆的 ＋；加进清单以后卡片底色换强调色、＋ 变 ✓（和第一步选中的高亮框同一个样子） */
   .list.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-content: start; }
-  .mod { display: flex; align-items: center; gap: 12px; height: 74px; padding: 0 12px; border-radius: 14px; box-sizing: border-box; min-width: 0; cursor: pointer;
+  .mod { display: flex; align-items: center; gap: 12px; height: 74px; padding: 0 12px; border-radius: 10px; box-sizing: border-box; min-width: 0; cursor: pointer;
          background: color-mix(in srgb, var(--surface) 55%, transparent); transition: background .2s, box-shadow .2s; }
   .mod:hover { background: var(--hover); }
   .mod.in { background: var(--accent-subtle); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
-  .mt { width: 40px; height: 40px; border-radius: 10px; flex: none; display: grid; place-items: center; font-weight: 700; font-size: 16px; color: rgb(255 255 255 / .92);
+  .mt { width: 40px; height: 40px; border-radius: 8px; flex: none; display: grid; place-items: center; font-weight: 700; font-size: 16px; color: rgb(255 255 255 / .92);
         background: var(--c); font-family: var(--mono); }
+  .mt { position: relative; overflow: hidden; }
+  .mt img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .mt.img { background: color-mix(in srgb, var(--text) 8%, transparent); color: transparent; }
   .mod .m, .crow .m { flex: 1; min-width: 0; }
   /* 三行（Gemini 复审 11-26 提的）：名字独占一行不再被挤断；一句话；下载量和「需客户端 / 仅服务端」收进第三行淡字 */
   .mod .n { font-size: 13.5px; font-weight: 600; line-height: 18px; white-space: nowrap; display: flex; align-items: center; gap: 3px; min-width: 0; }
@@ -174,9 +184,9 @@
   .cart h3 .clr { font-weight: 500; color: var(--faint); cursor: pointer; padding: 3px 8px; border-radius: 10px; opacity: 0; pointer-events: none; transition: opacity .2s, color .2s; }
   .cart.has h3 .clr { opacity: 1; pointer-events: auto; }
   .cart h3 .clr:hover { color: var(--text); background: var(--hover); }
-  .crow { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 6px; border-radius: 12px; flex: none; overflow: hidden; }
+  .crow { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 6px; border-radius: 10px; flex: none; overflow: hidden; }
   .crow:hover { background: var(--hover); }
-  .crow .mt { width: 28px; height: 28px; border-radius: 8px; font-size: 12px; }
+  .crow .mt { width: 28px; height: 28px; border-radius: 6px; font-size: 12px; }
   .crow .n { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; }
   .crow .why { font-size: 11.5px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
   .crow .x { width: 26px; height: 26px; border-radius: 13px; display: grid; place-items: center; color: var(--faint); cursor: pointer; opacity: 0; flex: none; }
@@ -188,10 +198,10 @@
   #atitle { display: flex; align-items: baseline; gap: 8px; min-width: 0; white-space: nowrap; }
   #atitle .asub { font-weight: 400; color: var(--faint); overflow: hidden; text-overflow: ellipsis; }
   .list:has(.crow:not(.out)) .cempty { display: none; }
-  .cnote { flex: none; font-size: 12px; color: var(--muted); margin-top: 10px; display: flex; gap: 6px; align-items: center; }
+  .cnote { flex: none; font-size: 12px; color: var(--muted); margin-top: 10px; padding: 0 6px; display: flex; gap: 6px; align-items: center; }
   .cnote:empty { display: none; }
   .cnote .ico { width: 14px; height: 14px; color: var(--faint); }
-  .drop { flex: none; margin-top: 10px; height: 44px; border-radius: 12px; border: 1px dashed var(--border); display: flex; align-items: center; justify-content: center;
+  .drop { flex: none; margin-top: 10px; height: 44px; border-radius: 10px; border: 1px dashed var(--border); display: flex; align-items: center; justify-content: center;
           gap: 8px; font-size: 12.5px; color: var(--muted); cursor: pointer; transition: color .2s, border-color .2s; }
   .drop:hover { color: var(--text); border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
   .drop .ico { width: 15px; height: 15px; }
@@ -317,46 +327,8 @@ function step1() {
 }
 
 // ---- 第二步：选择预装插件 / 模组 ----
-// 假数据：名字、一句话（主会话自己写的）、下载量（万，编的）、类别（程序里的 Modrinth 类别）、图标底色；
-// friend：朋友那边也要装（客户端也得有）；deps：要的前置；lib：前置库，「全部」里不列，只在「前置库」和被拉进清单时出现
-const ADDONS = {
-  插件: [
-    { id: "luckperms", n: "LuckPerms", d: "权限管理：给玩家分组，各组能用的指令分开管", dl: 210, cats: ["management"], c: "#4f8a6e" },
-    { id: "essentialsx", n: "EssentialsX", d: "常用指令一大包：设家、传送、私聊、工具包", dl: 180, cats: ["management", "utility"], c: "#b5774a" },
-    { id: "viaversion", n: "ViaVersion", d: "更新版本的客户端也能进这个服", dl: 165, cats: ["utility"], c: "#5a7fb8" },
-    { id: "geyser", n: "Geyser", d: "手机、主机上的基岩版玩家也能进来", dl: 150, cats: ["utility", "social"], c: "#3f9aa3" },
-    { id: "chunky", n: "Chunky", d: "提前把地图生成好，跑进新区域不卡", dl: 132, cats: ["optimization", "worldgen"], c: "#8a6fb5" },
-    { id: "coreprotect", n: "CoreProtect", d: "记下谁动了哪块方块，被拆了能一键回滚", dl: 120, cats: ["management"], c: "#a35b5b" },
-    { id: "worldedit", n: "WorldEdit", d: "大块改地形，整栋建筑复制粘贴", dl: 118, cats: ["utility"], c: "#7a8a3e" },
-    { id: "voicechat", n: "Simple Voice Chat", d: "游戏里按距离说话，离得越远越小声", dl: 96, cats: ["social"], c: "#4a8fb0", friend: true },
-    { id: "bluemap", n: "BlueMap", d: "在网页上看整张地图的 3D 样子", dl: 74, cats: ["utility"], c: "#3d6fb5" },
-    { id: "chestshop", n: "ChestShop", d: "箱子商店：玩家之间摆摊买卖", dl: 52, cats: ["economy"], c: "#b59a3e", deps: ["vault"] },
-    { id: "multiverse", n: "Multiverse-Core", d: "一个服务器里开好几个世界", dl: 48, cats: ["management", "worldgen"], c: "#6a5fb5" },
-    { id: "tab", n: "TAB", d: "自定义 Tab 列表和头顶的名字", dl: 45, cats: ["social"], c: "#5f8f8a" },
-    { id: "minigames", n: "BedWars1058", d: "起床战争小游戏，自带大厅和地图", dl: 30, cats: ["minigame"], c: "#b5554a", deps: ["placeholderapi"] },
-    { id: "vault", n: "Vault", d: "经济、权限插件之间的桥", dl: 140, cats: ["library"], c: "#7d7d7d", lib: true },
-    { id: "placeholderapi", n: "PlaceholderAPI", d: "让各个插件能互相读变量", dl: 128, cats: ["library"], c: "#6d7d8f", lib: true },
-  ],
-  模组: [
-    { id: "create", n: "机械动力 Create", d: "齿轮、传送带、蒸汽机，搭会动的机器", dl: 980, cats: ["technology"], c: "#b5874a", friend: true },
-    { id: "lithium", n: "Lithium", d: "优化服务器运算，不改玩法", dl: 860, cats: ["optimization"], c: "#4f8a8a" },
-    { id: "ferritecore", n: "FerriteCore", d: "省内存，大整合包尤其明显", dl: 790, cats: ["optimization"], c: "#8a6f4f" },
-    { id: "modernfix", n: "ModernFix", d: "开服更快、更省内存", dl: 520, cats: ["optimization"], c: "#5a7fb8" },
-    { id: "farmers", n: "农夫乐事 Farmer's Delight", d: "更多作物、厨具和料理", dl: 610, cats: ["adventure"], c: "#7a9a3e", friend: true },
-    { id: "waystones", n: "传送石碑 Waystones", d: "找到的石碑之间可以互相传送", dl: 580, cats: ["adventure"], c: "#6a5fb5", friend: true, deps: ["balm"] },
-    { id: "backpacks", n: "精致背包", d: "能升级、能自动拾取的背包", dl: 450, cats: ["storage", "equipment"], c: "#a3704a", friend: true, deps: ["sophcore"] },
-    { id: "ironchests", n: "铁箱子 Iron Chests", d: "更大的箱子，铁、金、钻石一级一级升", dl: 400, cats: ["storage"], c: "#8a8f99", friend: true },
-    { id: "alexsmobs", n: "Alex's Mobs", d: "几十种新生物，动物和怪物都有", dl: 390, cats: ["mobs"], c: "#4f8a5a", friend: true, deps: ["citadel"] },
-    { id: "spark", n: "spark", d: "查卡顿：看是哪个模组在吃 CPU", dl: 370, cats: ["utility"], c: "#b5a33e" },
-    { id: "chunky-m", n: "Chunky", d: "提前把地图生成好，跑进新区域不卡", dl: 300, cats: ["worldgen", "utility"], c: "#8a6fb5" },
-    { id: "voicechat-m", n: "Simple Voice Chat", d: "游戏里按距离说话，离得越远越小声", dl: 280, cats: ["utility"], c: "#4a8fb0", friend: true },
-    { id: "ars", n: "新生魔艺 Ars Nouveau", d: "自己拼法术的魔法模组", dl: 210, cats: ["magic"], c: "#8a4fb5", friend: true },
-    { id: "balm", n: "Balm", d: "好几个模组共用的前置库", dl: 600, cats: ["library"], c: "#7d7d7d", lib: true, friend: true },
-    { id: "sophcore", n: "Sophisticated Core", d: "精致系列共用的前置", dl: 460, cats: ["library"], c: "#6d7d8f", lib: true, friend: true },
-    { id: "citadel", n: "Citadel", d: "Alex 系列模组的前置", dl: 420, cats: ["library"], c: "#6d7d8f", lib: true, friend: true },
-  ],
-};
-// 类别筛选片：同程序 modcart.js 的 CATS
+// 卡片用 Modrinth 上真的前 100 个（modrinth-sample.js，条件同程序）：名字、作者写的一句话简介（英文原文，作者 11-26 定了照登官方原文）、
+// 下载量、图标、client_side 都是原样。cs：client_side，required = 客户端也得装；deps：查出来的必装前置
 const ACATS = {
   模组: [["optimization", "优化"], ["utility", "实用"], ["management", "管理"], ["worldgen", "世界生成"], ["adventure", "冒险"], ["technology", "科技"],
     ["magic", "魔法"], ["mobs", "生物"], ["equipment", "装备"], ["storage", "存储"], ["library", "前置库"]],  // 程序里叫「支持库」，作者 11-26 改叫「前置库」
@@ -364,58 +336,16 @@ const ACATS = {
     ["game-mechanics", "游戏机制"], ["worldgen", "世界生成"], ["library", "前置库"]],
 };
 // picked：待装清单，[{ id, by }]，by 是「谁要的这个前置」（自己挑的是 null）。回第一步换成另一类（插件 ↔ 模组）时清空
-// 往后翻要用的假数据（主会话写的）：先是一批真名字（一句话是主会话自己写的、下载量是编的），
-// 不够 100 个的用「示例插件 40」这样的占位补齐，好演示滚到底接着加载、到 100 个为止。前置库照旧只在「前置库」里
-const EXTRA = {
-  插件: [
-    ["Dynmap", "网页上实时看地图和在线玩家", ["utility"]], ["GriefPrevention", "圈地保护，别人进不来也拆不动", ["management"]],
-    ["WorldGuard", "划出区域，单独定规则", ["management"], ["worldedit"]], ["Citizens", "放能说话、能交易的 NPC", ["utility"]],
-    ["mcMMO", "挖矿、砍树、打怪都能升级技能", ["game-mechanics"]], ["Jobs Reborn", "选个职业，干活就能赚钱", ["economy"]],
-    ["DiscordSRV", "游戏聊天和 Discord 频道互通", ["social"]], ["SkinsRestorer", "离线服也能显示正常皮肤", ["utility"]],
-    ["AuthMe Reloaded", "离线服进服先登录，防冒名", ["management"]], ["Graves", "死了东西存进墓碑，回去能拿", ["game-mechanics"]],
-    ["OpenInv", "管理员查看、整理玩家背包", ["management"]], ["PlayerPoints", "另一套点数货币", ["economy"]],
-    ["Lands", "领地、国家和战争", ["management"]], ["Shopkeepers", "让村民当店主卖东西", ["economy"]],
-    ["HuskHomes", "设家、传送、跨服传送", ["utility"]], ["Plan", "网页上看玩家在线和活跃统计", ["management"]],
-    ["FastAsyncWorldEdit", "更快的 WorldEdit，大工程不卡服", ["utility", "optimization"]], ["TreeAssist", "砍一下整棵树倒", ["game-mechanics"]],
-    ["SkyWars", "空岛战争小游戏", ["minigame"]], ["Parkour", "跑酷关卡和计时", ["minigame"]], ["Terra", "自己配地形生成", ["worldgen"]],
-    ["Clearlag", "定时清掉地上的掉落物", ["optimization"]], ["ProtocolLib", "很多插件要用的前置", ["library"], null, true],
-    ["LibsDisguises", "前置：让插件能伪装实体", ["library"], null, true],
-  ],
-  模组: [
-    ["JEI", "查物品配方和用途", ["utility"]], ["Jade", "准星指着方块就显示信息", ["utility"]],
-    ["应用能源 2 Applied Energistics 2", "把物品存进网络，一个终端全找到", ["technology", "storage"]],
-    ["通用机械 Mekanism", "矿物翻倍、发电、管道", ["technology"]], ["植物魔法 Botania", "用花来施法的魔法模组", ["magic"]],
-    ["匠魂 Tinkers' Construct", "自己拼工具和武器", ["equipment"]], ["暮色森林 Twilight Forest", "一个有首领和迷宫的新维度", ["adventure", "worldgen"]],
-    ["Biomes O' Plenty", "几十种新生物群系", ["worldgen"]], ["Terralith", "更好看的原版风格地形", ["worldgen"], null, false, false],
-    ["Supplementaries", "一堆原版风格的装饰小物件", ["utility"]], ["Quark", "原版风格的各种小改进", ["utility"]],
-    ["沉浸工程 Immersive Engineering", "多方块的工业机器", ["technology"]], ["FTB Chunks", "领地和小地图", ["management"]],
-    ["FTB Quests", "任务书，整合包常用", ["management"]], ["Storage Drawers", "抽屉式存储", ["storage"]],
-    ["Comforts", "睡袋和吊床", ["equipment"]], ["YUNG's Better Dungeons", "重做的地牢", ["worldgen", "adventure"], ["yungsapi"]],
-    ["Clumps", "经验球合并，少卡", ["optimization"], null, false, false], ["Corail Tombstone", "死亡掉落进墓碑", ["utility"]],
-    ["Cloth Config", "很多模组的设置界面前置", ["library"], null, true], ["Architectury", "跨加载器模组的前置", ["library"], null, true],
-    ["Curios API", "饰品栏前置", ["library"], null, true], ["GeckoLib", "动画前置", ["library"], null, true],
-    ["YUNG's API", "YUNG 系列的前置", ["library"], null, true, true, "yungsapi"],
-  ],
-};
 const PAGE = 20, CAP = 100; // 同程序：一次取 20 个，热门、某一类、某次搜索都最多翻到前 100 个
-const FULL = {};
-function fullList(noun) {
-  if (FULL[noun]) return FULL[noun];
-  const cats = ACATS[noun].map(c => c[0]).filter(c => c !== "library"), hues = [18, 42, 88, 140, 172, 200, 222, 262, 300, 330];
-  const color = i => `hsl(${hues[i % hues.length]} 32% 46%)`;
-  const list = ADDONS[noun].slice();
-  EXTRA[noun].forEach(([n, d, cs, deps, lib, friend, id], i) => list.push({ id: id || "x" + noun + i, n, d, cats: cs, deps: deps || undefined, lib: !!lib,
-    friend: friend === undefined ? noun === "模组" : friend, dl: Math.max(3, Math.round((noun === "模组" ? 360 : 90) * Math.pow(0.9, i))), c: color(i) }));
-  for (let i = list.filter(x => !x.lib).length + 1, k = 0; i <= CAP; i++, k++)
-    list.push({ id: `ph${noun}${i}`, n: `示例${noun} ${i}`, d: "草图占位：正式程序里是 Modrinth 上真实的项目", cats: [cats[k % cats.length]],
-      friend: noun === "模组" && k % 3 !== 0, dl: Math.max(1, 40 - k), c: color(k + 3) });
-  return FULL[noun] = list;
-}
+const LIB_ONLY = x => x.cats.length === 1 && x.cats[0] === "library";
+const fullList = noun => window.MR_SAMPLE[noun].items;
 let picked = [], addonNoun = "", acat = "", aq = "", aqTimer = 0, shown = 0, loadingMore = false;
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const addonOf = id => fullList(addonNoun).find(x => x.id === id);
-const fmtDl = w => w >= 10000 ? `${+(w / 10000).toFixed(1)} 亿` : `${w} 万`;
-const tile = x =>`<span class="mt" style="--c:${x.c}">${esc((x.n.replace(/^[^A-Za-z]*\s?/, "")[0] || x.n[0]).toUpperCase())}</span>`;
+const fmtDl = n => n >= 1e8 ? `${+(n / 1e8).toFixed(1)} 亿` : n >= 1e4 ? `${Math.round(n / 1e4)} 万` : `${n}`;
+const HUES = [18, 42, 88, 140, 172, 200, 222, 262, 300, 330];
+const tile = x => { const letter = esc((x.n.replace(/^[^A-Za-z]*\s?/, "")[0] || x.n[0]).toUpperCase()), hue = HUES[[...x.id].reduce((a, c) => a + c.charCodeAt(0), 0) % HUES.length];
+  return `<span class="mt${x.icon ? " img" : ""}" style="--c:hsl(${hue} 32% 46%)">${letter}${x.icon ? `<img src="${esc(x.icon)}" alt="" loading="lazy" onerror="this.parentNode.classList.remove('img');this.remove()">` : ""}</span>`; };
 function atitle() {
   const cat = ACATS[addonNoun].find(c => c[0] === acat);
   const main = aq ? `搜索「${esc(aq)}」` : cat ? (acat === "library" ? cat[1] : `${cat[1]}类${addonNoun}`) : `热门${addonNoun}`;
@@ -423,26 +353,25 @@ function atitle() {
 }
 function gridItems() {
   const q = aq.toLowerCase();
-  return fullList(addonNoun).filter(x => (acat ? x.cats.includes(acat) : !x.lib) && (!q || (x.n + x.d).toLowerCase().includes(q))).sort((a, b) => b.dl - a.dl);
+  // 「全部」里只藏类别只有「前置库」的（Cloth Config、Puzzles Lib 这种）；Modrinth 上 WorldEdit、CoreProtect 这类正经插件也挂着 library，不能按有没有 library 藏
+  return fullList(addonNoun).filter(x => (acat ? x.cats.includes(acat) : !LIB_ONLY(x)) && (!q || (x.n + x.d).toLowerCase().includes(q))).sort((a, b) => b.dl - a.dl);
 }
 // 卡片上只标例外：插件一般客户端不用装，要装的标「需客户端」；模组一般两边都要装，只装服务器的标「仅服务端」（文案作者 11-26 定）
-const ftag = x => addonNoun === "插件" ? (x.friend ? "需客户端" : "") : (!x.friend ? "仅服务端" : "");
-// 去 Modrinth 看介绍：真程序用接口给的 project_type 和 slug 拼项目页（modcart.js 的 pageURL，现在是每行一个「项目页」按钮）；
-// 草图里没有真 slug，先链到 Modrinth 上按英文名搜，免得编出打不开的地址。占位的那些不给链接
+const ftag = x => addonNoun === "插件" ? (x.cs === "required" ? "需客户端" : "") : (x.cs !== "required" ? "仅服务端" : "");
+// 去 Modrinth 看介绍：用接口给的 project_type 和 slug 拼项目页，同程序 modcart.js 的 pageURL（程序里现在是每行一个「项目页」按钮）
 function extLink(x) {
-  if (x.id.startsWith("ph")) return "";
-  const en = x.n.replace(/^[^A-Za-z]*\s?/, "") || x.n;
-  const href = `https://modrinth.com/${addonNoun === "插件" ? "plugins" : "mods"}?q=${encodeURIComponent(en)}`;
-  return `<a class="ext" href="${href}" target="_blank" rel="noopener noreferrer" title="在 Modrinth 查看介绍" aria-label="在 Modrinth 查看 ${esc(x.n)} 的介绍"><i data-ic="share"></i></a>`;
+  if (!/^(mod|plugin)$/.test(x.type) || !/^[A-Za-z0-9._-]+$/.test(x.id)) return "";
+  return `<a class="ext" href="https://modrinth.com/${x.type}/${x.id}" target="_blank" rel="noopener noreferrer" title="在 Modrinth 查看介绍" aria-label="在 Modrinth 查看 ${esc(x.n)} 的介绍"><i data-ic="share"></i></a>`;
 }
 function cardHTML(x, has) {
   return `<div class="mod${has.has(x.id) ? " in" : ""}" data-addon="${x.id}">${tile(x)}
-    <div class="m"><div class="n"><span class="nm">${esc(x.n)}</span>${extLink(x)}</div><div class="d">${esc(x.d)}</div><div class="meta"><i data-ic="download"></i>${fmtDl(x.dl)}${ftag(x) ? ` · ${ftag(x)}` : ""}</div></div>
+    <div class="m"><div class="n"><span class="nm">${esc(x.n)}</span>${extLink(x)}</div><div class="d" title="${esc(x.d)}">${esc(x.d)}</div><div class="meta"><i data-ic="download"></i>${fmtDl(x.dl)}${ftag(x) ? ` · ${ftag(x)}` : ""}</div></div>
     <span class="add"><i data-ic="${has.has(x.id) ? "check" : "plus"}"></i></span></div>`;
 }
 // 翻到头时最后一行的字：到了 100 个是「只列出最热门的 100 个」，不到 100 就是全部了
+// 样本只有总榜前 100（「全部」里藏掉纯前置库以后不到 100）：「全部」到头了照真程序说「只列出最热门的 100 个」；按类别、搜索筛的是这 100 个里的，就说「已显示全部」
 function gridEnd(total) {
-  return `<div class="gend">${total >= CAP ? `只列出最热门的 ${CAP} 个。想找别的，请用搜索或分类。` : `已显示全部 ${total} 个。`}</div>`;
+  return `<div class="gend">${!acat && !aq && window.MR_SAMPLE[addonNoun].total > CAP ? `只列出最热门的 ${CAP} 个。想找别的，请用搜索或分类。` : `已显示全部 ${total} 个。`}</div>`;
 }
 function gridHTML() {
   const items = gridItems(), has = new Set(picked.map(p => p.id));
@@ -477,7 +406,7 @@ function moreCards() {
 }
 function crowHTML(p) {
   const x = addonOf(p.id), by = p.by && addonOf(p.by);
-  const why = by ? `${esc(by.n)} 的前置依赖` : addonNoun === "插件" && x.friend ? "需客户端同步安装" : addonNoun === "模组" && !x.friend ? "仅服务端，客户端不用装" : esc(x.d);
+  const why = by ? `${esc(by.n)} 的前置依赖` : addonNoun === "插件" && x.cs === "required" ? "需客户端同步安装" : addonNoun === "模组" && x.cs !== "required" ? "仅服务端，客户端不用装" : esc(x.d);
   return `<div class="crow" data-id="${x.id}">${tile(x)}<div class="m"><div class="n">${esc(x.n)}${by ? `<span class="ftag">前置</span>` : ""}</div><div class="why">${why}</div></div>
     <span class="x" data-unpick="${x.id}" aria-label="从清单里拿掉 ${esc(x.n)}"><i data-ic="x"></i></span></div>`;
 }
@@ -497,7 +426,7 @@ function step2() {
 }
 // 清单数字和底下那行「其中几个需客户端同步安装」
 function cartMeta() {
-  const n = picked.length, friends = picked.filter(p => addonOf(p.id).friend).length;
+  const n = picked.length, friends = picked.filter(p => addonOf(p.id).cs === "required").length;
   const c = document.getElementById("acnt"); if (c) c.textContent = n ? `· ${n}` : "";
   document.querySelector(".cart")?.classList.toggle("has", n > 0);
   navLabel();
