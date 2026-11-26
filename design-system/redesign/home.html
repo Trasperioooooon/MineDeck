@@ -280,6 +280,21 @@ window.EXTRA_ICONS = {
   /* 第二版（作者：概览条不用那么长、字再大一点、上面多留白）：字每格 7 像素，上面留 40；概览条不再铺满，跟着内容的宽度、在字底下居中 */
   .hd { flex-direction: column; align-items: center; gap: 36px; margin: 32px 0 24px; } /* 基准 1280×800 下排得下的上限：字上面 84（含标题栏 40），字和概览条之间 36 */
   .hd .mark svg { display: block; }
+  /* 赞赏（作者 11-26：「minedeck 的右边能不能加一个间隔几秒钟跳动一下的赞赏 Icon」）：一颗和字标同样画法的像素心（wordmark.js 的「♥」），
+     贴在字标右边、隔两格；绝对定位，不占字标的位置，字标照旧居中。每 4.2 秒跳一下：先高跳 9 像素、落地再小跳 3 像素，快起慢停；
+     悬停不跳、往上抬 2 像素，悬停提示「赞赏」。点了打开什么还没定。「减少动态」时不跳 */
+  .hd .mark { position: relative; }
+  .hd .mark .tipme { position: absolute; left: 100%; top: 0; margin-left: 10px; padding: 0; border: 0; background: none; cursor: pointer;
+                     animation: tipme-hop 4.2s infinite; transition: transform .2s cubic-bezier(.3, .7, .2, 1); }
+  .hd .mark .tipme:hover { animation: none; transform: translateY(-2px); }
+  @keyframes tipme-hop {
+    0%, 84% { transform: none; animation-timing-function: cubic-bezier(.2, .7, .2, 1); }
+    88% { transform: translateY(-9px); animation-timing-function: cubic-bezier(.5, 0, .8, .3); }
+    92% { transform: none; animation-timing-function: cubic-bezier(.2, .7, .2, 1); }
+    95% { transform: translateY(-3px); animation-timing-function: cubic-bezier(.5, 0, .8, .3); }
+    98%, 100% { transform: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { .hd .mark .tipme { animation: none; } }
   .hd .hb { display: flex; width: auto; margin: 0; }
   .hd .hb .sp { flex: 0 0 4px; }
   .hd .hb .find { width: 240px; }
@@ -494,7 +509,8 @@ function render() {
   // 字标每格几像素（作者 11-26：缩小一两档，让页面从上往下一层比一层宽，像个梯形）。字矮下来省出的高度还给上面的留白，
   // 字和概览条之间回到作者要的 40；整页总高不变，基准 1280×800 下照样不滚动
   const cell = [5, 6, 7].includes(+QS.get("cell")) ? +QS.get("cell") : 5, freed = (7 - cell) * 14;
-  document.getElementById("hd-mark").innerHTML = MDWordmark.svg({ cell, tone: QS.get("tone") === "mono" ? "mono" : "duo" });
+  document.getElementById("hd-mark").innerHTML = MDWordmark.svg({ cell, tone: QS.get("tone") === "mono" ? "mono" : "duo" })
+    + `<button class="tipme" title="赞赏">${MDWordmark.svg({ text: "♥", cell, label: "赞赏" })}</button>`; // 字标右边的赞赏
   const hd = document.querySelector(".hd");
   hd.style.gap = (cell < 7 ? 40 : 36) + "px";
   hd.style.marginTop = 32 + freed - (cell < 7 ? 4 : 0) + "px";
