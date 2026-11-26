@@ -38,13 +38,15 @@
            CurseForge 包没配 API Key 时那一条说清要 Key、给「去设置」（会改变结果：不配的话文件要自己补）。
          地图：封面条写来源（压缩包或文件夹）；左栏「找到几张地图」挑一张（选中框滑，不能用的灰掉、悬停说原因）；右栏这张地图里有什么，最下面是要留意的。
          交接包：封面条写原名、核心、版本、文件；左栏包里的情况，右栏模组清单；底部一条「只导入信得过的人给的包」（短句，全文进悬停）。
-         接管：封面条写建议的名称和文件夹；左栏「启动文件」挑一个（同程序「启动文件」下拉，换了核心跟着换）；右栏世界、EULA、白名单和识别时注意到的。
-           认不出核心或版本时右栏顶上换成核心片（同第二步分类片，选中框滑）和版本框，没填不让往下走。
+         接管：封面条写建议的名称和文件夹；左栏「启动文件」挑一个（同程序「启动文件」下拉，换了文件核心和版本跟着换）；
+           右栏顶上核心片（同第二步分类片，选中框滑）和版本框，一直能改（同程序的「服务端类型」「Minecraft 版本」），认出来的预先选好、填好；
+           下面世界、EULA、白名单和识别时注意到的。认不出核心或版本时那一样空着，没选没填不让往下走（描红、晃一下）。
        「一个值只说一次」：后面第三步能改的（内存、端口）第一步不写；同一块里列表的行和封面条不写同一样东西。
 
      「选择核心」（只在地图那条路）：照抄向导第一步，改三处：
        版本列表里地图保存的那个版本标「地图」；比地图旧的版本灰掉、点不了（地图比服务器新时程序会拦，挪到这里直接不让选，悬停说原因）；
-       代理端（Velocity、Waterfall）灰掉——没有世界，程序也不让用地图开代理端；
+       代理端（Velocity、Waterfall）灰掉——没有世界，程序也不让用地图开代理端；版本列表里最新的都比地图旧的核心也灰掉（比如 1.20.4 的地图，
+       Mohist、Taiyitist 最新只到 1.20.1），一类里一个都用不了时那张玩法卡也灰掉（这张示例地图的「其他」），悬停说原因；
        原来那行四条路的入口换成「核对地图」：版本一致就空着；选了更新的版本、快照时出一个开关「我已了解：地图会升级到 X…」（全文进悬停），
        不开不让往下走（描红、晃一下，同 EULA）。换核心时版本先挑地图那个版本，列表里没有就挑比它新的里面最旧的那个，开关照样要开。
 
@@ -52,6 +54,7 @@
        整合包：名称用包名；内存默认 6 GB（程序的推荐）；右栏「游戏规则」里难度、默认游戏模式灰着（导入接口不收这两项，悬停说按服务端默认），只有允许飞行能改，默认开。
        地图：名称用地图名；难度、默认游戏模式照地图里的填（程序是保留表单的值、另给一个「按地图的填」）。
        交接包：名称、内存、端口用包里的；没有服务器介绍那一行（包里有，摘要不给，不编）；右栏换成「Java」列表（默认「跟原来一样」）。
+       交接包、接管的头像不能点：接口不收图标，沿用包里、文件夹里自己的 server-icon.png（要后端在摘要、识别结果里给出来；草图里先用核心头像）。
        接管：名称用建议的；内存用原启动脚本里的；存储路径就是那个文件夹，不能改（灰底，悬停说接管只写哪几个文件）；
          端口改得和原来不一样时右边的勾换成黄色的笔（会改 server.properties，悬停说清）；右栏「Java」（默认「自动」）。EULA 原来同意过就没有那一条。
      第四步「配置联机与访问」：整合包、地图两条照抄向导第四步，一点没改。
@@ -64,6 +67,11 @@
        4. Java 列表上的「本机已有 / 要下载」：接管页已经在用 /api/javas，交接包页没用，要接上。
        5. 服务器图标、白名单名单、联机方式这几样是向导第三、四步本来就要后端补的，这里照用，跟着向导一起补；导入整合包还要把这些参数加进接口。
        6. 拖文件进来：程序现在只有选文件的框，拖放要前端加（文件照样走原来的上传）；拖文件夹进来要宿主把路径交给前端，没有画。
+       7. 地图：版本表里没有地图那个版本时，程序不替人选、要人自己挑；草图先挑比它新的里面最旧的那个，再用「核对地图」那个开关要人确认。程序是在表单上留着自己的
+          难度、模式、另给「按地图的填」；草图直接按地图的填。这两处是改了程序的做法，作者不同意就改回去。
+       8. 接管：程序里核心和版本是下拉加输入框，这里换成核心片加版本框（作用一样）；程序提交时才查的几项（名称、核心、版本、端口、EULA）分到了两步里拦。
+     没画的状态：现成服务端格式的整合包（正版验证、允许飞行沿用包里的，第四步那两项该灰掉）、代理端核心（接管、交接包）、从别的设备打开（地图只能传 ZIP、接管不能用）、
+       MineDeck 管过的文件夹（接管时原来的名称、内存恢复）、极限模式的地图、端口被占的提示、1024×576 的最小窗口。
 
      草图专用，定了就删：左上角的切换条（流程、第一步的状态），网址参数 ?flow=、?state=empty|busy|done|error、?v=cf（整合包：CurseForge 没配 Key）|unknown（接管：认不出核心）、?step=（直接到第几步，0 起），
      还有给量尺寸的脚本用的 window.SKETCH.jump(flow, step, state, v)。数据全是假的：包名、地图名、文件名、路径是示例，玩家名用 steve、alex。
@@ -835,7 +843,11 @@
   .rdm { position: absolute; inset: 8px; z-index: 3; border-radius: 10px; background: var(--sunken, var(--field)); border: 1px solid var(--border); display: flex; flex-direction: column; }
   .rdm .rh { flex: none; height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 5px 0 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--muted); }
   .rdm .rh .mono { flex: 1; color: var(--text); }
-  .rdm pre { flex: 1; min-height: 0; margin: 0; padding: 12px 14px; overflow: auto; font-family: var(--mono); font-size: 12.5px; line-height: 20px; white-space: pre-wrap; color: var(--text); scrollbar-width: thin; }
+  /* 说明书长了在框里滚：同一套细滚动条（.lwrap/.list/.thumb），不用浏览器自带的 */
+  .rdm .lwrap { flex: 1; min-height: 0; margin: 10px 4px 10px 0; }
+  .rdm .list { margin: 0; padding: 0 14px 0 14px; }
+  .rdm .thumb { right: 2px; }
+  .rdm pre { margin: 0; font-family: var(--mono); font-size: 12.5px; line-height: 20px; white-space: pre-wrap; color: var(--text); }
   /* 接管认不出核心时：核心片（同第二步分类片，选中框滑过去）和版本框 */
   .pickc { display: flex; flex-direction: column; gap: 8px; padding: 0 6px; margin-bottom: 14px; }
   .pickc .lb { font-size: 12.5px; color: var(--muted); font-weight: 500; line-height: 18px; display: flex; gap: 8px; }
@@ -2270,7 +2282,7 @@ const MAPSRC = { file: "SkyCity_v2.1.zip", bytes: 1.3 * 1024 ** 3, path: "D:\\Ma
   { id: "c", name: "SkyCity", root: "SkyCity_v2.1/old/SkyCity", ver: "", size: "1.0 GB", block: "只有备份用的 level.dat_old",
     blockFull: "这个世界只有备份用的 level.dat_old，没有 level.dat。可以先把 level.dat_old 复制一份改名成 level.dat，确认能在单人游戏里打开，再来导入" },
 ] };
-const README = "天空之城 SkyCity v2.1\n作者：steve\n\n建议难度：普通　游戏模式：冒险\n从出生点的告示牌开始，一路往上爬到城顶的灯塔。\n地图自带数据包 skycity_core，别删。\n\n资源包 resources.zip 放在世界文件夹里，进服前自己装上。\n\n更新记录、反馈：https://example.com/skycity\n请勿二次发布。";
+const README = "天空之城 SkyCity v2.1\n作者：steve　测试：alex\n\n建议难度：普通　游戏模式：冒险\n建议人数：1～4 人\n\n【玩法】\n从出生点的告示牌开始，一路往上爬到城顶的灯塔。\n一共五层，每层有一个钥匙，拿齐五把才能开灯塔的门。\n掉下去会回到这一层的存档点，不扣东西。\n\n【注意】\n地图自带数据包 skycity_core，别删，删了机关不动。\n不要改游戏规则 commandBlockOutput，会刷屏。\n多人玩时建议关掉 PVP。\n\n【资源包】\n资源包 resources.zip 放在世界文件夹里，进服前自己装上。\n不装也能玩，只是钥匙和门的样子是原版的。\n\n【更新记录】\nv2.1　修了第三层的门卡住\nv2.0　加了第五层\nv1.0　第一版\n\n更新记录、反馈：https://example.com/skycity\n请勿二次发布。";
 // 交接包：alex 交过来的 Fabric 服（瘦身包，不带核心）。字段照 transfer.Summary；模组清单、有没有同意过 EULA 摘要里现在没有（见开头「要后端补」2）
 const TP = { file: "alex-survival.mdpack", bytes: 2.6 * 1024 ** 3, name: "alex 的生存服", mode: "handover", core: "fabric", build: "0.16.9", mc: "1.21.1", full: false,
   world: "2.4 GB", xmx: 6144, java: 21, port: 25565, from: "3.2.4", at: "2026-11-20 21:14", eula: false,
@@ -2425,16 +2437,17 @@ function adoptDone() {
   const rows = A.targets.map((x, i) => `<div class="row cand tgt${i === SRC.tgt ? " on" : ""}" data-tgt="${i}"><span class="ci"><i data-ic="doc"></i></span>`
     + `<div class="m"><div class="n">${esc(x.file)}</div>`
     + (x.core ? `<div class="s">${CORE[x.core][0]} ${m(x.mc)}${x.build ? ` · 构建 ${m(x.build)}` : ""}</div>` : `<div class="s warn">没认出是哪种服务端</div>`) + `</div></div>`).join("");
-  const pick = t.core ? "" : `<div class="pickc"><span class="lb">核心</span><div class="chips" id="achips"><i class="chl"></i>`
+  // 核心和版本一直能改（同程序的「服务端类型」下拉和「Minecraft 版本」框）：认出来的预先选好、填好；换启动文件时跟着换；认不出的空着，没选没填不让往下走
+  const pick = `<div class="pickc"><span class="lb">核心</span><div class="chips" id="achips"><i class="chl"></i>`
     + ALL_CORES.map(k => `<span class="chip${SRC.acore === k ? " on" : ""}" data-acore="${k}">${CORE[k][0]}</span>`).join("") + `</div>`
-    + `<span class="lb">版本</span><input class="inp" id="amc" maxlength="40" spellcheck="false" placeholder="如 1.20.1" value="${esc(SRC.amc)}" aria-label="Minecraft 版本"></div>`;
+    + `<span class="lb" id="amclb">${SRC.acore === "velocity" || SRC.acore === "waterfall" ? "代理端版本" : "版本"}</span><input class="inp" id="amc" maxlength="40" spellcheck="false" placeholder="如 1.20.1" value="${esc(SRC.amc)}" aria-label="版本"></div>`;
   const wl = A.wl === true ? ["开（沿用原来的）", "沿用原来的设置：只有名单里的玩家能进。接管后可以在这台服务器的「玩家」里加名字、或者关掉"]
     : A.wl === false ? ["关（沿用原来的）", "沿用原来的设置：任何知道地址的人都能进。只想让熟人进，接管后到「玩家」里打开它"]
     : ["没写，按服务端默认", "原来的 server.properties 里没写这一项，服务端按自己的默认值：26.3 起是开（名单是空的话谁都进不来），更早的版本是关。接管后在「玩家」里能直接开关"];
   const facts = `<dl class="facts"><dt>世界</dt><dd>${A.worlds.length ? A.worlds.map(m).join("、") : `<span class="nt warn" title="这个文件夹里没看到世界（world），启动后会生成一个新世界。世界放在别处的话，先确认选对了文件夹">没有，启动后生成新的</span>`}</dd>`
     + `<dt>EULA</dt><dd>${A.eula ? "已同意" : `<span class="f">没同意过</span>`}</dd><dt>白名单</dt><dd title="${esc(wl[1])}">${wl[0]}</dd></dl>`;
   const notes = A.notes.map(([k, s, full]) => `<div class="nt ${k}" title="${esc(full)}"><i data-ic="${k === "warn" ? "warn" : "info"}"></i><span>${s}</span></div>`).join("");
-  const k = t.core || SRC.acore || "unknown";
+  const k = SRC.acore || "unknown";
   return covHTML(k, esc(A.name), `<span title="文件留在原地。接管前先停掉原来的服务器，不然启动时端口会冲突">${m(A.dir)}</span>`, "换一个文件夹")
     + `<div class="scols c2a"><div class="col"><h3>启动文件<span class="cnt" style="font-family:var(--mono);color:var(--accent-text)">· ${A.targets.length}</span></h3>`
     + `<div class="lwrap"><div class="list" id="tlist"><i class="hl"></i>${rows}</div><i class="thumb"></i></div></div>`
@@ -2509,7 +2522,8 @@ function applyRecognized() {
   const mem = mb => Math.min(mb, MEM_CAP);
   if (FLOW === "modpack") { core = PACK.core; play = playOf(core); Object.assign(SET, { name: PACK.name, nameTouched: true, mem: mem(6144), memTouched: true, port: "25565", flight: "1", diff: "easy", mode: "survival", eula: false }); }
   if (FLOW === "transfer") { core = TP.core; play = playOf(core); Object.assign(SET, { name: TP.name, nameTouched: true, mem: mem(TP.xmx), memTouched: true, port: String(TP.port), eula: false }); }
-  if (FLOW === "adopt") { const A = AD(); core = A.targets[0].core || "unknown"; play = playOf(core); Object.assign(SET, { name: A.name, nameTouched: true, mem: mem(A.xmx), memTouched: true, port: String(A.port), eula: false }); }
+  if (FLOW === "adopt") { const A = AD(), t = A.targets[0]; core = t.core || "unknown"; play = playOf(core); SRC.acore = t.core; SRC.amc = t.mc;
+    Object.assign(SET, { name: A.name, nameTouched: true, mem: mem(A.xmx), memTouched: true, port: String(A.port), eula: false }); }
   if (FLOW === "map") { SET.nameTouched = false; core = MAPC().core; play = playOf(core); ver = mapVerFor(core); } // 小点的个数先跟着第一张的预选走
 }
 // 地图：挑定的那一张按线索预选核心（这张没有线索，先按原版，同程序 suggestCore）、版本用地图保存的；名称用地图名（自己改过就不动）；难度、模式照地图里的
@@ -2641,7 +2655,9 @@ function step3i() {
   if (FLOW === "map") return step3(); // 地图那条路就是向导，第三步一点不改（值在 applyMapPick 里填好了）
   const mp = FLOW === "modpack", ad = FLOW === "adopt";
   if (!SET.memTouched) SET.mem = Math.min(defMem(false), MEM_CAP); // 右上角换了本机内存：回到默认
-  const id = `<div class="col idcol" style="--c:${MDPixel16.CORE_COLORS[core] || "#7a8aa0"}"><div class="idrow">${avatarBtn()}<div class="idtext">
+  // 头像：整合包照向导（点了换图标，向导本来就要后端补这一项）；交接包、接管沿用包里、文件夹里自己的 server-icon.png，接口不收图标，不能点
+  const ava = mp ? avatarBtn() : `<div class="avbtn" style="cursor:default" title="沿用${FLOW === "transfer" ? "包里" : "文件夹里"}的服务器图标（server-icon.png），没有就用核心头像">${avatarTile()}</div>`;
+  const id = `<div class="col idcol" style="--c:${MDPixel16.CORE_COLORS[core] || "#7a8aa0"}"><div class="idrow">${ava}<div class="idtext">
       <input class="ie title" id="sname" maxlength="40" value="${esc(SET.name)}" aria-label="名称" placeholder="服务器名称">
       ${mp ? `<input class="ie sub" id="smotd" maxlength="59" value="${esc(SET.motd)}" aria-label="服务器介绍" placeholder="服务器介绍" title="服务器介绍（MOTD），显示在多人游戏的服务器列表里">` : ""}
     </div><span class="idhint" data-act="editname">${mp ? "单击以修改服务器名称/简介" : "单击以修改服务器名称"}</span></div></div>`;
@@ -2742,7 +2758,7 @@ function goStep(n) {
 // 第一步能不能往下走：要识别好；接管认不出核心时要选了核心、填了版本。不行就标出来、晃一下、写一句
 function checkSrc() {
   if (SRC.phase === "done") {
-    if (FLOW !== "adopt" || AD().targets[SRC.tgt].core) return true;
+    if (FLOW !== "adopt" || (SRC.acore && SRC.amc.trim())) return true;
     let ok = true;
     const ch = document.getElementById("achips"), inp = document.getElementById("amc");
     if (!SRC.acore) { ch?.classList.add("bad"); shakeEl(ch); ok = false; }
@@ -2821,8 +2837,9 @@ function repaintLsrc() {
 }
 function openReadme() {
   const col = document.getElementById("mcol"); if (!col || col.querySelector(".rdm")) return;
-  col.insertAdjacentHTML("beforeend", `<div class="rdm"><div class="rh"><span class="mono">${esc(MAPC().readme)}</span><span>地图作者写的，只当纯文字看</span><button class="ib" data-src="rdclose" title="收起"><i data-ic="x"></i></button></div><pre></pre></div>`);
-  const r = col.querySelector(".rdm"); r.querySelector("pre").textContent = README; KIT.hydrate(r);
+  col.insertAdjacentHTML("beforeend", `<div class="rdm"><div class="rh"><span class="mono">${esc(MAPC().readme)}</span><span>地图作者写的，只当纯文字看</span><button class="ib" data-src="rdclose" title="收起"><i data-ic="x"></i></button></div>`
+    + `<div class="lwrap"><div class="list"><pre></pre></div><i class="thumb"></i></div></div>`);
+  const r = col.querySelector(".rdm"); r.querySelector("pre").textContent = README; KIT.hydrate(r); scrollbar(r.querySelector(".lwrap"));
   r.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: "cubic-bezier(.2, .7, .2, 1)" });
 }
 // 挑一张地图：选中框滑过去，右栏只换变了的那几格；不能用的那张点不了（悬停说原因）
@@ -2840,11 +2857,13 @@ function pickCand(i) {
 function pickTarget(i) {
   const A = AD(); if (i === SRC.tgt) return;
   const dir = i > SRC.tgt ? 1 : -1; SRC.tgt = i;
-  const t = A.targets[i]; core = t.core || SRC.acore || "unknown"; play = playOf(core);
+  const t = A.targets[i];
   const list = document.getElementById("tlist");
   list.querySelectorAll(".cand").forEach(r => r.classList.toggle("on", +r.dataset.tgt === i));
   placeHL(list, true);
-  repaintCover(dir);
+  // 同程序：换了启动文件，核心和版本换成那个文件认出来的（认不出的那一项不动）
+  if (t.mc) { SRC.amc = t.mc; const inp = document.getElementById("amc"); if (inp) { inp.value = t.mc; inp.classList.remove("bad"); inp.animate([{ opacity: .3 }, { opacity: 1 }], { duration: 220 }); } }
+  if (t.core) pickACore(t.core, dir); else repaintCover(dir);
 }
 function repaintCover(dir) {
   const cov = document.querySelector(".cov"); if (!cov) return;
@@ -2852,13 +2871,15 @@ function repaintCover(dir) {
   cov.style.setProperty("--c", n.style.getPropertyValue("--c"));
   swapKeyed(cov, n.innerHTML, dir);
 }
-function pickACore(k) {
+function pickACore(k, dir = 1) {
   if (SRC.acore === k) return;
   SRC.acore = k; core = k; play = playOf(k);
   document.querySelectorAll("#achips .chip").forEach(c => c.classList.toggle("on", c.dataset.acore === k));
-  document.getElementById("achips").classList.remove("bad");
+  const ch = document.getElementById("achips"); ch.classList.remove("bad");
   placeChipHL(true);
-  repaintCover(1);
+  document.querySelector(`#achips [data-acore="${k}"]`)?.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "smooth" });
+  const lb = document.getElementById("amclb"); if (lb) lb.textContent = k === "velocity" || k === "waterfall" ? "代理端版本" : "版本";
+  repaintCover(dir);
 }
 function pickJava(v) {
   if (SRC.java === v) return; SRC.java = v;
