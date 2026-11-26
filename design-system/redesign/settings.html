@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>草图 · 设置</title>
+<!--
+  全局设置页（11-27 夜里起，作者睡前要的「详情页画完就接着画下一页」）。
+
+  结构照详情页 11-27 定的那种（标签放左边，作者：两处的二级导航一种做法）：版心 1080，左边 200 宽的分类面板（26 / 8，一行 36 高胶囊、选中块上下滑），
+  右边内容面板（26 / 8）。没有页头：底部胶囊里「设置」亮着、左边分类亮着，已经说清在哪了（计划书 U03：「你在哪」被说了四遍），不再写大标题「设置」和「设置 / 外观」。
+
+  分类照程序 SETTINGS_SECTIONS（app.js 约 5769 行）的九个，加「内网穿透」（平台账户、全部隧道，11-26 作者定从胶囊挪进设置，tunnels.html 有第一稿），
+  放在 Java 运行时后面（和联网、开服有关的几样挨着）。
+
+  各分类的内容各一份文件：settings-<分类>.js / .css，往 window.SETTINGS_SECS[分类] 里登记 { html(ctx), mount(ctx) }，同详情页的 DETAIL_TABS。
+  还没画的分类是一行占位，这里显示一块空面板。
+-->
+<script>
+// 程序里还没有的图标（同详情页那几个）；各分类要用新图标，在自己的 js 里往 window.EXTRA_ICONS 里加（要在 kit.js 换图标之前，也就是文件一加载就加）
+window.EXTRA_ICONS = {
+  toolbox: '<path d="M5.5 4V2.8A.8.8 0 016.3 2h3.4a.8.8 0 01.8.8V4"/><rect x="2" y="4" width="12" height="9.5" rx="1.6"/><path d="M2 8h12M6.5 8v1.6h3V8"/>',
+  winMin: '<path d="M4 8h8"/>', winMax: '<rect x="4" y="4" width="8" height="8" rx="1"/>', winClose: '<path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/>',
+  minus: '<path d="M4 8h8"/>',
+};
+</script>
+<script src="kit.js"></script>
+<link rel="stylesheet" href="kit.css">
+<script src="settings-appearance.js"></script><link rel="stylesheet" href="settings-appearance.css">
+<script src="settings-download.js"></script><link rel="stylesheet" href="settings-download.css">
+<script src="settings-storage.js"></script><link rel="stylesheet" href="settings-storage.css">
+<script src="settings-java.js"></script><link rel="stylesheet" href="settings-java.css">
+<script src="settings-tunnels.js"></script><link rel="stylesheet" href="settings-tunnels.css">
+<script src="settings-remote.js"></script><link rel="stylesheet" href="settings-remote.css">
+<script src="settings-notify.js"></script><link rel="stylesheet" href="settings-notify.css">
+<script src="settings-ai.js"></script><link rel="stylesheet" href="settings-ai.css">
+<script src="settings-startup.js"></script><link rel="stylesheet" href="settings-startup.css">
+<script src="settings-about.js"></script><link rel="stylesheet" href="settings-about.css">
+<style>
+  body { background: var(--bg); overflow: hidden; }
+  /* 标题栏：同首页、详情页 */
+  .tb { height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 0 0 16px; position: relative; z-index: 5; }
+  .tb .brand img { width: 16px; height: 16px; image-rendering: pixelated; display: block; }
+  .tb .sp { flex: 1; }
+  .tb .win { display: flex; height: 40px; }
+  .tb .win span { width: 46px; display: grid; place-items: center; color: var(--muted); }
+  /* 草图专用的切换条（定了就删） */
+  .sk { display: flex; align-items: center; gap: 4px; height: 26px; padding: 0 6px; border-radius: 13px; background: color-mix(in srgb, var(--surface) 70%, transparent);
+        border: 1px solid var(--border); font-size: 11.5px; color: var(--faint); white-space: nowrap; }
+  .sk b { font-weight: 500; color: var(--muted); margin: 0 2px 0 6px; }
+  .sk b:first-child { margin-left: 2px; }
+  .sk a { color: var(--muted); text-decoration: none; padding: 2px 6px; border-radius: 8px; }
+  .sk a:hover { color: var(--text); background: var(--hover); }
+  .sk a.on { color: var(--accent-text); background: var(--accent-subtle); }
+  .sk i { width: 1px; height: 12px; background: var(--border); margin: 0 4px; }
+
+  /* 版心 1080，底边留 86（胶囊 52 + 离底 18 + 16）；页面本身不滚 */
+  .page { width: 1080px; margin: 0 auto; height: calc(100vh - 40px); box-sizing: border-box; padding: 16px 0 86px; display: flex; gap: 12px; }
+  .cp { flex: 1; min-width: 0; min-height: 0; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-1); display: flex; flex-direction: column; gap: 8px; box-sizing: border-box; }
+
+  /* 分类在左边：同详情页的标签（200 宽、26 / 8，一行 36 高胶囊，选中块上下滑） */
+  .snav { flex: none; width: 200px; position: relative; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--elev-1); box-sizing: border-box;
+          display: flex; flex-direction: column; gap: 2px; }
+  .snav .hl { position: absolute; left: 8px; right: 8px; top: 0; height: 36px; border-radius: 18px; background: var(--accent-subtle); pointer-events: none;
+              transition: transform .32s cubic-bezier(.3, .7, .2, 1); }
+  .snav button { position: relative; z-index: 1; display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 14px; border: 0; border-radius: 18px; background: none;
+                 font: inherit; font-size: 13px; font-weight: 500; color: var(--muted); cursor: pointer; text-align: left; flex: none; }
+  .snav button:hover { color: var(--text); }
+  .snav button.on { color: var(--accent-text); }
+  .snav button .ico { width: 16px; height: 16px; }
+  /* 有新版本时「更新与关于」后面一个小点（程序的 nav-dot） */
+  .snav button .dot { width: 6px; height: 6px; border-radius: 3px; background: var(--accent); margin-left: auto; }
+
+  /* 换分类：旧的往上淡掉，新的从下面浮上来（同规范第七节、详情页） */
+  @keyframes sw-out { to { opacity: 0; transform: translateY(-5px); } }
+  @keyframes cp-in { from { opacity: 0; transform: translateY(5px); } }
+  .cp > .fade-out { animation: sw-out .09s cubic-bezier(.4, 0, 1, 1) both; }
+  .cp > .fade-in { animation: cp-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+  .empty { flex: 1; border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+
+  /* 底部胶囊：同首页；设置亮着 */
+  .cap { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 10; display: flex; align-items: center; gap: 4px; padding: 5px;
+         border-radius: var(--r-full); background: color-mix(in srgb, var(--overlay) 86%, transparent); backdrop-filter: blur(16px) saturate(1.2);
+         border: 1px solid var(--border); box-shadow: var(--elev-3); }
+  .cap a { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--r-full); color: var(--muted); text-decoration: none; }
+  .cap a:hover { color: var(--text); background: var(--hover); }
+  .cap a.on { color: var(--accent-text); background: var(--accent-subtle); }
+  .cap a .ico { width: 18px; height: 18px; }
+  .cap a.home img { width: 20px; height: 20px; image-rendering: pixelated; }
+  .cap a.ai { color: var(--text); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border); }
+  .cap a.ai .ico { color: var(--accent-text); }
+  .cap a.new { background: var(--accent-solid); color: var(--on-accent); }
+  .cap[hidden] { display: none; }
+</style>
+</head>
+<body>
+<header class="tb">
+  <span class="brand"><img src="../../internal/web/ui/img/logo-16.png" alt=""></span>
+  <div class="sk" id="sk"></div>
+  <span class="sp"></span>
+  <div class="win"><span><i data-ic="winMin"></i></span><span><i data-ic="winMax"></i></span><span><i data-ic="winClose"></i></span></div>
+</header>
+<main class="page"><aside class="snav" id="snav"></aside><div class="cp" id="cp"></div></main>
+<nav class="cap" id="cap" aria-label="导航">
+  <a class="home" href="home.html" aria-label="服务器（主页）" data-tip="服务器"><img src="../../internal/web/ui/img/logo-20.png" alt=""></a>
+  <a href="toolbox.html" aria-label="工具箱" data-tip="工具箱"><i data-ic="toolbox"></i></a>
+  <a class="on" href="settings.html" aria-label="设置" data-tip="设置"><i data-ic="gear"></i></a>
+  <a class="ai" href="#" aria-label="AI 助手" data-tip="AI 助手" id="cap-ai"><i data-ic="sparkle"></i></a>
+  <a class="new" href="wizard.html" aria-label="新建服务器" data-tip="新建服务器"><i data-ic="plus"></i></a>
+</nav>
+<script>
+const QS = new URLSearchParams(location.search);
+const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+// 分类：照程序 SETTINGS_SECTIONS，加「内网穿透」
+const SECS = [
+  { id: "appearance", label: "外观", ic: "palette" },
+  { id: "download", label: "下载与网络", ic: "globe" },
+  { id: "storage", label: "存储位置", ic: "folder" },
+  { id: "java", label: "Java 运行时", ic: "coffee" },
+  { id: "tunnels", label: "内网穿透", ic: "link" },
+  { id: "remote", label: "手机远程管理", ic: "phone" },
+  { id: "notify", label: "通知与集成", ic: "bell" },
+  { id: "ai", label: "AI（可选）", ic: "sparkle" },
+  { id: "startup", label: "启动与托盘", ic: "monitor" },
+  { id: "about", label: "更新与关于", ic: "info" },
+];
+let sec = SECS.some(s => s.id === QS.get("sec")) ? QS.get("sec") : "appearance";
+// 草图里的几台服务器（同首页、详情页的示例），内网穿透的「全部隧道」、存储位置里「放在别处的服务器」要用
+const SERVERS = [
+  { id: "paper", name: "生存服 · 朋友", core: "Paper", mc: "1.21.4", port: 25565, tunnel: "frp-hk.openfrp.net:31234", voice: true, running: true },
+  { id: "forge", name: "机械动力整合包", core: "Forge", mc: "1.20.1", port: 25566, running: true },
+  { id: "vanilla", name: "原版快照测试", core: "原版", mc: "26.2", port: 25567, running: false, elsewhere: "D:\\MC\\原版快照测试" },
+  { id: "proxy", name: "群组代理", core: "Velocity", mc: "3.4.0", port: 25577, running: true },
+];
+const UPDATE = QS.get("update") === "1"; // 草图：有新版本时「更新与关于」后面的小点
+
+// 细滚动条（同首页、详情页的 thinBar）：wrapper 里要有 .list 和 .thumb，CSS 各页自己写
+function thinBar(w) {
+  const l = w.querySelector(".list"), t = w.querySelector(".thumb");
+  const paint = () => {
+    const ch = l.clientHeight, sh = l.scrollHeight, st = l.scrollTop;
+    w.classList.toggle("fits", sh <= ch + 1); w.classList.toggle("can-up", st > 2); w.classList.toggle("can-down", st + ch < sh - 2);
+    const h = Math.max(28, ch * ch / sh);
+    t.style.height = h + "px"; t.style.top = (sh > ch ? st / (sh - ch) * (ch - h) : 0) + "px";
+  };
+  if (w._paint) { w._paint(); return; }
+  w._paint = paint;
+  let idle = 0;
+  l.addEventListener("scroll", () => { paint(); w.classList.add("scrolling"); clearTimeout(idle); idle = setTimeout(() => w.classList.remove("scrolling"), 700); }, { passive: true });
+  t.addEventListener("pointerdown", e => {
+    e.preventDefault(); t.setPointerCapture(e.pointerId); t.classList.add("drag");
+    const y0 = e.clientY, s0 = l.scrollTop, ratio = (l.scrollHeight - l.clientHeight) / (l.clientHeight - t.offsetHeight);
+    const move = ev => { l.scrollTop = s0 + (ev.clientY - y0) * ratio; };
+    const up = () => { t.classList.remove("drag"); t.removeEventListener("pointermove", move); t.removeEventListener("pointerup", up); };
+    t.addEventListener("pointermove", move); t.addEventListener("pointerup", up);
+  });
+  paint();
+}
+
+// 外观里能改的、会影响外壳的几样：主题（深 / 浅 / 跟随系统）、胶囊里的 AI 助手。各页改了就调这两个，外壳跟着变
+function setTheme(t) { document.documentElement.dataset.theme = t; const q = new URLSearchParams(location.search); if (t === "dark") q.delete("theme"); else q.set("theme", t); history.replaceState(null, "", "?" + q); skBar(); }
+function setCapAI(on) { $("#cap-ai").hidden = !on; }
+
+// ---- 草图切换条 ----
+function skBar() {
+  const link = (k, v, label, on, title) => { const q = new URLSearchParams(location.search); if (v === null) q.delete(k); else q.set(k, v); return `<a href="?${q}" class="${on ? "on" : ""}"${title ? ` title="${title}"` : ""}>${label}</a>`; };
+  const th = document.documentElement.dataset.theme;
+  $("#sk").innerHTML = `<b>草图</b><b>主题</b>${link("theme", null, "深", th === "dark")}${link("theme", "light", "浅", th === "light")}<i></i>`
+    + `<b>更新</b>${link("update", null, "没有", !UPDATE)}${link("update", "1", "有新版本", UPDATE)}<i></i>`
+    + `<span title="设置页的外壳（分类在左边，同详情页）；各分类的内容各在 settings-<分类>.js / .css">设置 · 外壳</span>`;
+}
+
+// 各分类的内容在各自的文件里，登记在 window.SETTINGS_SECS[分类] = { html(ctx), mount(ctx) }。
+// html 返回内容面板里的那一块（外层自己定，通常是 flex: 1 的一栏）；mount 在内容换上去、图标换好以后跑一次。
+window.SETTINGS_SECS = window.SETTINGS_SECS || {};
+const secCtx = () => ({ sec, QS, $, $$, esc, thinBar, KIT, servers: SERVERS, update: UPDATE, setTheme, setCapAI, goSec });
+function content() {
+  const v = SETTINGS_SECS[sec];
+  return v ? v.html(secCtx()) : `<div class="empty"></div>`;
+}
+function mountSec() { SETTINGS_SECS[sec]?.mount?.(secCtx()); }
+const navItems = () => SECS.map(s => `<button data-sec="${s.id}" class="${s.id === sec ? "on" : ""}"><i data-ic="${s.ic}"></i>${s.label}${s.id === "about" && UPDATE ? `<span class="dot" title="有新版本"></span>` : ""}</button>`).join("");
+function placeNav(instant) {
+  const hl = $("#snav .hl"), on = $("#snav > button.on"); if (!hl || !on) return;
+  if (instant) hl.style.transition = "none";
+  hl.style.transform = `translateY(${on.offsetTop}px)`;
+  if (instant) { void hl.offsetWidth; hl.style.transition = ""; }
+}
+let swapT = 0;
+function swapContent() {
+  const cp = $("#cp"); clearTimeout(swapT);
+  [...cp.children].forEach(c => c.classList.add("fade-out"));
+  swapT = setTimeout(() => { cp.innerHTML = content(); KIT.hydrate(cp); mountSec(); [...cp.children].forEach(c => c.classList.add("fade-in")); }, 90);
+}
+function goSec(id) {
+  if (id === sec || !SECS.some(s => s.id === id)) return;
+  sec = id;
+  const q = new URLSearchParams(location.search); q.set("sec", sec); history.replaceState(null, "", "?" + q);
+  $$("#snav > button").forEach(b => b.classList.toggle("on", b.dataset.sec === id)); placeNav();
+  swapContent();
+}
+document.addEventListener("click", e => { const b = e.target.closest("#snav [data-sec]"); if (b) goSec(b.dataset.sec); });
+
+KIT_READY.then(() => {
+  skBar();
+  $("#snav").innerHTML = `<span class="hl"></span>${navItems()}`;
+  $("#cp").innerHTML = content();
+  KIT.hydrate(); placeNav(true); mountSec();
+});
+</script>
+</body>
+</html>
