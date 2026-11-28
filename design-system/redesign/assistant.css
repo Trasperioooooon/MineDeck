@@ -318,8 +318,9 @@
 .as-att > .ico { width: 13px; height: 13px; }
 .as-att .as-ib { width: 24px; height: 24px; border-radius: 12px; color: var(--accent-text); }
 .as-att .as-ib .ico { width: 13px; height: 13px; }
-/* 输入框：40 起（一行），最多长到 160；发送键 28 见方、离框边 6、圆角 4（10 − 6，同心），强调色实心；有确认卡片没处理时不是主键 */
-.as-cb { position: relative; display: flex; align-items: flex-end; gap: 6px; min-height: 40px; padding: 5px 5px 5px 12px; border-radius: 10px; box-sizing: border-box;
+/* 输入框：40 起（一行），最多长到 160；发送键 28 见方、离框边 6、圆角 4（10 − 6，同心），强调色实心；有确认卡片没处理时不是主键。
+   11-29 加：左边一颗回形针（同发送键 28 见方、离框边 6、圆角 4），所以左内边距从 12 改成 5，字从离框外沿 40 处起 */
+.as-cb { position: relative; display: flex; align-items: flex-end; gap: 6px; min-height: 40px; padding: 5px; border-radius: 10px; box-sizing: border-box;
          background: var(--field); border: 1px solid var(--border); transition: border-color .2s, box-shadow .2s, opacity .2s; }
 .as-cb:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
 .as-cb.off { opacity: .55; }
@@ -338,7 +339,68 @@
 .as-snd[aria-disabled="true"] { opacity: .4; cursor: not-allowed; }
 .as-snd[aria-disabled="true"]:hover { background: var(--accent-solid); }
 .as-snd.plain[aria-disabled="true"]:hover { background: var(--control); }
+/* 回形针（11-29 加）：同框里的图标键，点开是「上传图片」「上传文件」的小菜单；输入框不能用时灰着、点了弹出原因 */
+.as-clip { width: 28px; height: 28px; border-radius: 4px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--muted);
+           cursor: pointer; transition: background .15s, color .15s, opacity .15s; }
+.as-clip:hover, .as-clip.open { background: var(--hover); color: var(--text); }
+.as-clip .ico { width: 16px; height: 16px; }
+.as-clip[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.as-clip[aria-disabled="true"]:hover { background: none; color: var(--muted); }
 .as-meta { display: flex; align-items: center; gap: 8px; height: 18px; padding: 0 6px; font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+
+/* ================= 附件（11-29 加） =================
+   输入框上面一排卡片，48 高、圆角 10（栏里的块），隔 8；多了横着滚（细滚动条不出，两头淡出，普通滚轮也横滚）。
+   图片：48 见方的缩略图。文件：图标块 36 见方、离卡片边 6、圆角 4（10 − 6，同心），右边名字（12.5 号、中间省略）和大小（等宽淡字）。
+   被拦下的：危险色细框、图标块换危险色的警告，第二行写短句（整句在悬停）。右上角一颗 18 的圆 ×（胶囊不按同心），压在卡片角上，所以这一排上、右各留 6。
+   发出去的在你那句话上面（小一号：40 高，图标块 28，没有 ×），点了看实际发给 AI 的内容 */
+.as-fl { flex: none; display: flex; gap: 8px; padding: 6px 6px 0 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior: contain; }
+.as-fl::-webkit-scrollbar { display: none; }
+.as-fc { position: relative; flex: none; display: flex; align-items: center; gap: 8px; height: 48px; min-width: 0; max-width: 184px; padding: 6px 12px 6px 6px; border: 0; border-radius: 10px;
+         box-sizing: border-box; background: var(--surface); box-shadow: inset 0 0 0 1px var(--border); font: inherit; color: var(--text); text-align: left; cursor: default; }
+.as-fc.img { width: 48px; padding: 0; }
+.as-fc.img img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+.as-fc.img::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px var(--border); pointer-events: none; }
+.as-fci { width: 36px; height: 36px; border-radius: 4px; flex: none; display: grid; place-items: center; background: color-mix(in srgb, var(--text) 6%, transparent); color: var(--muted); }
+.as-fci .ico { width: 18px; height: 18px; }
+.as-fct { min-width: 0; display: flex; flex-direction: column; }
+.as-fcn { font-size: 12.5px; line-height: 18px; font-weight: 500; white-space: nowrap; }
+.as-fcs { font: 11.5px/16px var(--mono); color: var(--faint); white-space: nowrap; }
+.as-fc.bad { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger-text) 55%, var(--border)); }
+.as-fc.bad .as-fci { background: var(--danger-subtle); color: var(--danger-text); }
+.as-fc.bad .as-fcs { font-family: var(--font); color: var(--danger-text); }
+.as-fcx { position: absolute; z-index: 1; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 9px; border: 0; padding: 0; display: grid; place-items: center;
+          background: var(--overlay); color: var(--muted); box-shadow: 0 0 0 1px var(--border), var(--elev-1); cursor: pointer; transition: background .15s, color .15s; }
+.as-fcx:hover { background: var(--control-hov); color: var(--text); }
+.as-fcx .ico { width: 11px; height: 11px; }
+/* 发出去的：小一号、能点 */
+.as-ufs { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 100%; }
+.as-fc.sm { height: 40px; max-width: 168px; gap: 6px; padding: 6px 10px 6px 6px; cursor: pointer; transition: box-shadow .15s; }
+.as-fc.sm:hover { box-shadow: inset 0 0 0 1px var(--border-strong); }
+.as-fc.sm:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.as-fc.sm.img { width: 40px; padding: 0; }
+.as-fc.sm.img:hover::after { box-shadow: inset 0 0 0 1px var(--border-strong); }
+.as-fc.sm .as-fci { width: 28px; height: 28px; }
+.as-fc.sm .as-fci .ico { width: 15px; height: 15px; }
+.as-fc.sm .as-fcn { font-size: 12px; line-height: 15px; }
+.as-fc.sm .as-fcs { font-size: 11px; line-height: 13px; }
+/* 拖进面板：对话那一栏上盖一层（同栏圆角 18），里面离边 8 一圈虚线框（圆角 10 = 18 − 8），正中图标块和一句「松开以添加附件」 */
+.as-mn { position: relative; }
+.as-drop { position: absolute; inset: 0; z-index: 6; padding: 8px; border-radius: 18px; box-sizing: border-box; pointer-events: none;
+           background: color-mix(in srgb, var(--surface) 82%, transparent); backdrop-filter: blur(3px); }
+.as-dropb { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; border-radius: 10px;
+            border: 1.5px dashed color-mix(in srgb, var(--accent) 70%, transparent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.as-dropt { font-size: 14px; line-height: 21px; font-weight: 600; }
+
+/* ================= 读本机文件的请求（11-29 加）：卡片同确认卡片；路径整段等宽、折行不截；「原因」是 AI 自己说的 =================
+   三颗键放不下（抽屉拖到 320 宽）时折到下一行。处理完收成一行工具调用；设置里是「不允许」时那一行下面一句「可在「设置 → AI」更改」 */
+.as-rdp { display: flex; flex-direction: column; gap: 1px; padding: 7px 10px; border-radius: 6px; background: color-mix(in srgb, var(--text) 4%, transparent); }
+.as-rdf { font: 12px/19px var(--mono); overflow-wrap: anywhere; user-select: text; }
+.as-rdm { font: 11.5px/16px var(--mono); color: var(--faint); }
+.as-why { margin-right: 8px; font-size: 12px; color: var(--muted); }
+.as-acts.as-rf { flex-wrap: wrap; gap: 6px; }
+.as-rf .as-pill { padding: 0 12px; } /* 三颗在 320 宽的抽屉里也排得下一行（卡片里 252） */
+.as-rdn { padding: 0 10px 8px 32px; margin-top: -4px; font-size: 12px; line-height: 18px; }
+.as-tr:is(.rejected, .blocked, .canceled) .as-trh > .ico:first-child { color: var(--muted); }
 .as-meta > span { cursor: default; }
 .as-meta .warn { color: var(--warning-text); }
 
@@ -391,6 +453,8 @@
 .as-it .ico { width: 16px; height: 16px; flex: none; color: var(--muted); }
 .as-it:hover { background: var(--hover); }
 .as-it.dgr, .as-it.dgr .ico { color: var(--danger-text); }
+.as-it[aria-disabled="true"] { opacity: .45; cursor: not-allowed; } /* 11-29：条件没满足的项（当前模型不支持图片时的「上传图片」），点了在旁边弹出原因 */
+.as-it[aria-disabled="true"]:hover { background: none; }
 .as-it.here { color: var(--accent-text); }
 .as-it.here .ico { color: var(--accent-text); }
 .as-it > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }

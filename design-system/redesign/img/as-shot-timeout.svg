@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" width="320" height="200">
+  <!-- 草图用的假截图（AI 助手 st=files 里那张「朋友那边的截图」）：照 Minecraft 客户端「连接失败」那一屏的样子画的，不是真截图 -->
+  <defs>
+    <pattern id="dirt" width="16" height="16" patternUnits="userSpaceOnUse">
+      <rect width="16" height="16" fill="#3a2a1e"/>
+      <rect x="0" y="0" width="4" height="4" fill="#4a3626"/>
+      <rect x="8" y="4" width="4" height="4" fill="#2f2218"/>
+      <rect x="4" y="10" width="4" height="4" fill="#4a3626"/>
+      <rect x="12" y="12" width="4" height="4" fill="#2f2218"/>
+      <rect x="12" y="0" width="2" height="2" fill="#56402d"/>
+      <rect x="2" y="6" width="2" height="2" fill="#2a1e15"/>
+    </pattern>
+  </defs>
+  <rect width="320" height="200" fill="url(#dirt)"/>
+  <rect width="320" height="200" fill="#000" opacity=".42"/>
+  <g font-family="Consolas, 'Courier New', monospace" text-anchor="middle">
+    <text x="160" y="76" font-size="13" fill="#a8a8a8">Failed to connect to the server</text>
+    <text x="160" y="100" font-size="11" fill="#ffffff">Connection timed out: getsockopt</text>
+  </g>
+  <rect x="80" y="136" width="160" height="22" fill="#6f6f6f" stroke="#000" stroke-width="1.5"/>
+  <rect x="81.5" y="137.5" width="157" height="2" fill="#9a9a9a"/>
+  <text x="160" y="151" font-family="Consolas, 'Courier New', monospace" font-size="10" fill="#e8e8e8" text-anchor="middle">Back to server list</text>
+</svg>

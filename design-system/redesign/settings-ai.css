@@ -178,6 +178,8 @@
 .sai-sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 8px; background: var(--text); transition: transform .26s cubic-bezier(.3, .7, .2, 1), background .2s; }
 .sai-swr.on .sai-sw { background: var(--accent-solid); }
 .sai-swr.on .sai-sw::after { transform: translateX(16px); background: var(--on-accent); }
+/* 读取本机其他文件（11-29 加）：表单一格「字 18 + 6 + 分段 40」（同额度那几格），夹在开关和「会话记录」之间，上下各留 8 */
+.sai-rd { margin: 8px 0; }
 /* 一行：名字左、值和键右（36 高） */
 .sai-kv { display: flex; align-items: center; gap: 6px; height: 36px; min-width: 0; font-size: 13px; }
 .sai-kv > span:first-child { white-space: nowrap; cursor: default; }

@@ -33,6 +33,9 @@
 // 停用 AI 以后胶囊里的 AI 助手跟着藏起来，重新配好又出来（作者 11-29 定；外观里「在底部导航显示 AI 助手」关着时照旧不显示，外壳 setAIOff 管）。
 // 程序里停用是把服务商配置清掉，和「从来没配过」看起来一样，要另记一个「停用过」，下次打开才知道还要藏着；从来没配过的照旧显示，点了是助手面板里引着去设置的那一页。
 // 草图专用：&ai=off 看还没配置（服务商「未选择」、停用和测试灰着）。没画的：从局域网打开（只能看）、读取失败、测试连接失败。
+// 11-29 加（作者要 AI 助手能读用户别的文件，要用户允许或配置成总是允许）：右边「AI 助手」一段多一项「读取本机其他文件」，三档分段「每次询问 / 总是允许 / 不允许」，
+//   默认每次询问（子代理替作者定的）；同这一块别的开关点了就生效，选「总是允许」先确认一次（共用确认框，默认落在「取消」），取消了选中块不动。
+//   草图专用：&read=always|deny 看初始在那一档。助手面板里这几档的样子：assistant.html?st=read&read=…（说明在 assistant.js 的 NOTES 末尾）。
 (() => {
   window.SETTINGS_SECS = window.SETTINGS_SECS || {};
   const EASE_IN = "cubic-bezier(.4, 0, 1, 1)", EASE_OUT = "cubic-bezier(.2, .7, .2, 1)", SLIDE = "cubic-bezier(.3, .7, .2, 1)";
@@ -95,6 +98,10 @@
       { id: "stdio", name: "其他（stdio）", t: "stdio", where: "其他支持 stdio 的客户端：命令填写 MineDeck.exe 完整路径，参数填写 -mcp。", text: `命令：${EXE}\n参数：-mcp` },
     ];
   })();
+  // 读取本机其他文件（11-29 加）：三档，悬停说清每一档；名字的悬停说这一项管什么、不管什么
+  const READS = [["ask", "每次询问", "每次读取前在对话中询问，可选择允许本次、总是允许或拒绝"], ["always", "总是允许", "AI 可直接读取本机任何文件，不再询问"],
+    ["deny", "不允许", "AI 不读取 MineDeck 文件夹以外的文件，需要时会在回答中说明"]];
+  const READ_TIP = "AI 回答时需要读取 MineDeck 文件夹以外的文件（如客户端日志）时如何处理。MineDeck 文件夹里的服务器日志与配置不受此项限制；读取的内容发送前同样会替换 Windows 用户名、局域网 IP、API Key 与令牌。";
   const mcpTip = () => (V.mcp ? "已开启。写操作与危险操作需在 MineDeck 中确认后执行。" : "关闭时外部 AI 无法连接 MineDeck；开启时将自动生成访问令牌。"); // 程序还写着工具数，这里没画（不编数）
   const snipLabel = s => /（(HTTP|stdio)）$/.test(s.name) ? s.name : s.name + (s.t === "stdio" ? "（stdio）" : "（HTTP）"); // 同 mcp.js menuLabel
 
@@ -109,7 +116,7 @@
       quota: { assistant: "5", gamechat: "", companion: "" }, qd: {},
       use: { assistant: ["1.3 万", "28.6 万", "约 ¥0.02", "约 ¥0.41"], gamechat: ["4,210", "9.8 万", "约 ¥0.01", "约 ¥0.14"], companion: ["0", "0", "", ""] },
       prices: [{ model: "deepseek-v4-flash", cur: "CNY", in: 1, out: 2, cache: 0.2 }], priceAt: "2026-11-20", priceN: 1862, priceBusy: false,
-      lan: true, sess: 7, mcp: true, clients: [{ name: "Claude Desktop", t: "stdio", proto: "2025-06-18", calls: 12, last: "10:42" }, { name: "Cherry Studio", t: "http", proto: "2025-06-18", calls: 3, last: "09:15" }] };
+      lan: true, sess: 7, mcp: true, read: ["always", "deny"].includes(ctx.QS.get("read")) ? ctx.QS.get("read") : "ask", clients: [{ name: "Claude Desktop", t: "stdio", proto: "2025-06-18", calls: 12, last: "10:42" }, { name: "Cherry Studio", t: "http", proto: "2025-06-18", calls: 3, last: "09:15" }] };
   }
   const pre = id => PRE[id ?? V.cur.preset];
   const isCustom = () => V.cur.preset === "custom";
@@ -194,6 +201,9 @@
       + `<button type="button" class="sai-add" data-sai="addprice" title="为指定模型设置每百万 token 单价（人民币或美元），优先级高于公开价格，也可用于补充未收录模型"><i data-ic="plus"></i>自填单价</button></div>`
       + `<div class="sai-sec"><div class="sai-sh"><span title="AI 助手会先查询日志与配置再作答；涉及修改操作时会先弹出确认卡片，经确认后执行。">AI 助手</span></div>`
       + swHTML(V.lan, "lan", "局域网可用 AI 助手", "允许局域网登录的设备（如手机）使用 AI 助手，与本机共用每日额度；确认卡片由对应设备用户自行确认。关闭后，局域网界面不显示 AI 助手入口。")
+      + `<div class="sai-f sai-rd"><div class="sai-lb"><span class="sai-lt" title="${esc(READ_TIP)}">读取本机其他文件</span></div>`
+      + `<div class="sai-seg" data-seg="rd" role="radiogroup" aria-label="读取本机其他文件"><i class="sai-sgl"></i>`
+      + READS.map(([v, l, t]) => `<button type="button" role="radio" data-v="${v}" class="${v === V.read ? "on" : ""}" aria-checked="${v === V.read}" title="${esc(t)}">${l}</button>`).join("") + `</div></div>`
       + `<div class="sai-kv"><span title="本机保留最近 20 个会话记录；清空后无法恢复。">会话记录</span><span class="sai-sp"></span><button type="button" class="sai-pill dgr" data-sai="sess"${V.sess ? "" : ' disabled title="暂无会话记录"'}>清空</button></div></div>`
       + `<div class="sai-sec"><div class="sai-sh"><span title="${esc(MCP_HEAD)}">MCP 接口</span></div>`
       + swHTML(V.mcp, "mcp", "开启 MCP 接口", mcpTip())
@@ -540,6 +550,19 @@
     if (V.mcp) { box.hidden = false; [...box.children].forEach((x, i) => rise(x, i)); lw._paint?.(); }
     else box.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "translateY(-5px)" }], { duration: 90, easing: EASE_IN }).onfinish = () => { if (!V.mcp) { box.hidden = true; lw._paint?.(); } };
   }
+  // 读取本机其他文件：点了就生效（同这一块的开关）；选「总是允许」先确认，点了「总是允许」才把选中块滑过去
+  async function pickRead(v) {
+    if (v === V.read) return;
+    if (v === "always") {
+      const k = await C.KIT.confirm({ ic: "lock", tone: "dgr", title: "总是允许 AI 读取本机文件？", body: "以后 AI 读取本机任何文件都不再询问。可在此处改回「每次询问」。",
+        btns: [{ k: "cancel", label: "取消" }, { k: "ok", label: "总是允许", tone: "dgr" }] });
+      if (k !== "ok") return;
+    }
+    V.read = v;
+    const box = root()?.querySelector('[data-seg="rd"]'); if (!box) return;
+    box.querySelectorAll("button").forEach(b => { const on = b.dataset.v === v; b.classList.toggle("on", on); b.setAttribute("aria-checked", String(on)); });
+    placeSeg(box, true);
+  }
   function snips(b) {
     openMenu(b, SNIPS.map(s => ({ v: s.id, l: snipLabel(s), ic: s.t === "stdio" ? "monitor" : "globe" })), id => {
       const s = SNIPS.find(x => x.id === id);
@@ -559,6 +582,8 @@
     if (V.top) r.querySelector(".sai-lw .list").scrollTop = V.top;
     r.querySelector(".sai-lw .list").addEventListener("scroll", e => { V.top = e.target.scrollTop; closeMenu(); closePop(); }, { passive: true });
     r.addEventListener("click", e => {
+      const rb = e.target.closest('[data-seg="rd"] button'); // 读取本机其他文件：先接住，下面那条通用的分段处理是给左栏表单的（会写进 V.cur）
+      if (rb) { pickRead(rb.dataset.v); return; }
       const sb = e.target.closest(".sai-f:not(.off) .sai-seg button");
       if (sb && !sb.classList.contains("on")) { const k = sb.closest(".sai-seg").dataset.seg; V.cur[k] = sb.dataset.v; paintField(k); if (k === "proto") { paintField("auth"); paintField("effort"); } paintBar(); return; }
       const b = e.target.closest("[data-sai]"); if (!b || b.disabled || b.getAttribute("aria-disabled") === "true" || b.closest(".sai-f.off")) return;
