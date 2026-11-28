@@ -805,7 +805,7 @@ KIT_READY.then(render);
 const NT = {
   run: [{ id: "t5", title: "导入整合包 机械动力：齿轮之城（forge 1.20.1）", state: "下载整合包文件", go: "查看进度" }],
   look: [
-    { id: "t4", title: "导入整合包 匠魂整合（neoforge 1.21.1）", state: "已完成，3 个文件待处理", tone: "warn", go: "去处理" },
+    { id: "t4", title: "导入整合包 匠魂整合（neoforge 1.21.1）", state: "已完成，3 个文件待处理", tone: "warn", go: "前往处理" },
     { id: "t3", title: "创建服务器 测试服（paper 1.21.4）", state: "失败", tone: "bad", go: "查看结果", kind: "失败" },
   ],
   done: [
@@ -815,7 +815,7 @@ const NT = {
   ],
   left: [{ name: "survival-2", world: true, root: "MineDeck\\servers" }, { name: "modpack-test", world: false, root: "MineDeck\\servers" }],
   dups: [{ dir: "MineDeck\\servers\\survival-copy", name: "生存服 · 朋友", kept: "MineDeck\\servers\\survival" }],
-  broken: [{ folder: "old-survival", reason: "设置文件 JSON 格式有误（可能是括号、引号或逗号没写对）" }],
+  broken: [{ folder: "old-survival", reason: "设置文件 JSON 格式有误（可能存在括号、引号或逗号错误）" }],
 };
 // 每行任务的按钮跳到 task.html 的哪一帧（从这里点进去没有向导的草稿，失败、取消的两条带 draft=0：没有「返回修改」「重试」）
 const NT_TASK = {
@@ -839,8 +839,8 @@ function pillHTML() {
 }
 const taskRow = t => `<div class="nrow" data-task="${t.id}"><div class="m"><div class="t" title="${ntEsc(t.title)}">${ntEsc(t.title)}</div>`
   + `<div class="s${t.tone ? " " + t.tone : !t.kind ? " run" : ""}">${t.tone || !t.kind ? "<i></i>" : ""}${ntEsc(t.state)}</div></div>`
-  + `<button class="nbtn${t.go === "去处理" ? " go" : ""}">${t.go}</button>`
-  + (t.kind && !NT.done.includes(t) ? `<button class="ib" data-hide="${t.id}" title="收起这条记录"><i data-ic="x"></i></button>` : "") + `</div>`;
+  + `<button class="nbtn${t.go === "前往处理" ? " go" : ""}">${t.go}</button>`
+  + (t.kind && !NT.done.includes(t) ? `<button class="ib" data-hide="${t.id}" title="收起此记录"><i data-ic="x"></i></button>` : "") + `</div>`;
 // 折起来那一行的字，拼法同程序：只有一种时「N 个已完成的任务」，几种时「N 个已结束的任务（…）」；上面还有行时前面加「另外」
 function foldText() {
   const kinds = ["已完成", "已取消", "失败"].map(k => [k, NT.done.filter(t => t.kind === k).length]).filter(x => x[1]);
@@ -854,7 +854,7 @@ function panelHTML() {
     + NT.left.map(l => `<div class="nrow"><div class="m"><div class="t mono">${ntEsc(l.name)}</div><div class="s">${l.world ? "含存档文件 · " : ""}<span class="mono">${ntEsc(l.root)}</span></div></div>`
       + `<button class="ib del" data-left="${ntEsc(l.name)}" title="删除文件夹"><i data-ic="trash"></i></button></div>`).join("") + `</div>` : "";
   const dups = NT.dups.length ? `<div class="ncol"><h3>因重名未列出的文件夹<span class="n">${NT.dups.length}</span><span class="ib" title="如需同时显示两台服务器，请修改其中一台的名称：打开未列出文件夹中的 instance.json，修改 &quot;name&quot; 后重启 MineDeck；\n或先将列表中的服务器移出列表，再以新名称重新接管并重启 MineDeck。"><i data-ic="info"></i></span></h3>`
-    + NT.dups.map(d => `<div class="nrow"><div class="m"><div class="t mono">${ntEsc(d.dir)}</div><div class="s">和「${ntEsc(d.name)}」重名（<span class="mono">${ntEsc(d.kept)}</span>）</div></div></div>`).join("") + `</div>` : "";
+    + NT.dups.map(d => `<div class="nrow"><div class="m"><div class="t mono">${ntEsc(d.dir)}</div><div class="s">与「${ntEsc(d.name)}」重名（<span class="mono">${ntEsc(d.kept)}</span>）</div></div></div>`).join("") + `</div>` : "";
   return `<div class="lwrap"><div class="list">${tasks}${left}${dups}</div><i class="thumb"></i></div>`;
 }
 // 细滚动条：照 wizard.html 的 scrollbar()（跟着列表算长短和位置，能拖；上下有没看到的就渐隐）

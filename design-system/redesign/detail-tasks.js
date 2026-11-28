@@ -65,7 +65,7 @@
     proxy: { crash: true, list: [{ type: "restart", at: "05:00" }] },
   };
   const CRASH_TIP = "异常退出后依次间隔 10 秒、30 秒、60 秒自动重启；连续崩溃 3 次后停止重试并提示";
-  const AT_TIP = "每天到这个时刻执行一次（24 小时制）";
+  const AT_TIP = "每天在指定时间执行一次（24 小时制）";
   const EVERY_TIP = "从每日 00:00 起对齐周期（如每隔 1 小时即整点执行）\n最短间隔：命令 5 分钟、备份 30 分钟、重启 1 小时；最长 12 小时，更长周期请选「每天」";
 
   // ---- 小工具 ----
@@ -430,7 +430,7 @@
   // 整个删除：连同里面的任务。先问一句（危险，默认落在「取消」）；删了也只是进草稿，点保存才生效、「放弃修改」能找回来
   async function removeFolder(D, g) {
     const n = D.list.filter(t => t.group === g).length;
-    const k = await C.KIT.confirm({ ic: "trash", tone: "dgr", title: `删除文件夹「${esc(g)}」`, body: `将删除该文件夹及其中的 ${n} 项任务，保存后生效。`,
+    const k = await C.KIT.confirm({ ic: "trash", tone: "dgr", title: `删除文件夹「${esc(g)}」？`, body: `将删除该文件夹及其中的 ${n} 项任务，保存后生效。`,
       btns: [{ k: "cancel", label: "取消" }, { k: "del", label: "删除", tone: "dgr" }] });
     if (k !== "del") return;
     D.list = D.list.filter(t => t.group !== g); changed(D);

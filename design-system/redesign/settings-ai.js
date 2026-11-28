@@ -59,7 +59,7 @@
         { l: "Token Plan · 欧洲（Claude）", u: "https://token-plan-ams.xiaomimimo.com/anthropic", p: "anthropic" }],
       hints: [{ px: ["sk-"], hosts: ["api.xiaomimimo.com"], note: "sk- 前缀为按量付费 Key，仅适用于 api.xiaomimimo.com，无法用于 Token Plan 地址。" },
         { px: ["ttp-", "tp-"], hosts: ["token-plan-cn.xiaomimimo.com", "token-plan-sgp.xiaomimimo.com", "token-plan-ams.xiaomimimo.com"], note: "tp- / ttp- 前缀为 Token Plan Key，仅适用于 token-plan 系列地址，无法用于按量付费地址。" }],
-      note: "按量 Key（sk-）需配 api.xiaomimimo.com，Token Plan Key（tp- / ttp-）需配 token-plan-cn / -sgp / -ams，二者不可混用。默认同时发送 Bearer 与 api-key 鉴权并总是回传思考内容（多轮对话不回传 reasoning_content 会返回 400 错误）；Token Plan 域名的文档中没有 /models 接口，可直接输入模型名或从建议中选择。" },
+      note: "按量 Key（sk-）需搭配 api.xiaomimimo.com，Token Plan Key（tp- / ttp-）需搭配 token-plan-cn / -sgp / -ams，二者不可混用。默认同时发送 Bearer 与 api-key 鉴权并总是回传思考内容（多轮对话不回传 reasoning_content 会返回 400 错误）；Token Plan 域名的文档中没有 /models 接口，可直接输入模型名或从建议中选择。" },
     { id: "openai", name: "OpenAI", url: "https://api.openai.com/v1", note: "中国大陆网络环境通常需通过代理访问；MineDeck 支持读取系统环境变量 HTTPS_PROXY 中的代理设置。" },
     { id: "ollama", name: "Ollama（本机）", url: "http://localhost:11434/v1/", noKey: true, local: true, note: "无需 API Key，数据仅在本机处理且不计费；可从本机已下载的模型中选择。" },
     { id: "claude", name: "Claude", proto: "anthropic", url: "https://api.anthropic.com", model: "claude-opus-5-5", models: ["claude-opus-5-5"],
@@ -75,9 +75,9 @@
   const FEATS = [
     { id: "assistant", name: "AI 助手", tip: "底部导航中的「AI 助手」：查询日志与配置后解答 MineDeck 相关问题；涉及修改操作时会先生成确认卡片，经确认后执行。本机与局域网登录设备共用此额度。" },
     { id: "gamechat", name: "游戏内 AI", tip: "各服务器的「扩展 → 游戏内 AI」：玩家在游戏聊天中触发后，由 AI 在聊天栏回复。代理端不支持。" },
-    { id: "companion", name: "AI 伙伴", tip: "NeoForge、Forge 服务器的「扩展 → AI 伙伴」：游戏内可交互的陪玩角色，玩家可通过对话与其交流并协助操作。" },
+    { id: "companion", name: "AI 伙伴", tip: "NeoForge、Forge 服务器的「扩展 → AI 伙伴」：游戏内可交互的陪玩角色，可与玩家对话并协助操作。" },
   ];
-  const MCP_URL = "http://127.0.0.1:27333/mcp", MASK = "<令牌，复制时自动带上>", EXE = "D:\\MineDeck\\MineDeck.exe"; // 路径是编的
+  const MCP_URL = "http://127.0.0.1:27333/mcp", MASK = "<令牌，复制时自动附带>", EXE = "D:\\MineDeck\\MineDeck.exe"; // 路径是编的
   const MCP_HEAD = "允许本机其他 AI 工具（Claude Desktop、Cherry Studio、Cursor、VS Code）通过 MCP 接入 MineDeck：可直接查询服务器、日志与配置；涉及修改操作时将在 MineDeck 中弹出确认卡片，确认后执行。默认关闭，仅接受本机连接。"
     + "\n发送至外部 AI 的内容会先脱敏：路径中的 Windows 用户名与程序文件夹、局域网 IP、计算机名及 API Key 均会被替换，玩家名保留。删除服务器与修改设置不会开放给外部 AI。访问令牌仅供本机程序使用，请勿泄露。";
   const PRIVACY = "隐私说明：使用 AI 时，提问内容与查询结果（服务器信息、配置、日志片段等）会发送至所选服务商，各服务商的数据保留策略不同；如有顾虑可使用本机 Ollama。"
@@ -85,7 +85,7 @@
   const SNIPS = (() => { // 同 internal/mcp/config.go：名字、粘贴到哪儿、配置原文（令牌换成占位）
     const auth = { Authorization: "Bearer " + MASK }, j = (k, v) => JSON.stringify({ [k]: { minedeck: v } }, null, 2);
     return [
-      { id: "claude", name: "Claude Desktop", t: "stdio", where: "Claude Desktop：「设置 → 开发者 → 编辑配置」打开 claude_desktop_config.json，把 minedeck 这一项合并进 mcpServers，保存后完全退出并重启 Claude Desktop。stdio 方式无需填写令牌，也不受 MineDeck 端口变更影响。", text: j("mcpServers", { command: EXE, args: ["-mcp"] }) },
+      { id: "claude", name: "Claude Desktop", t: "stdio", where: "Claude Desktop：「设置 → 开发者 → 编辑配置」打开 claude_desktop_config.json，将 minedeck 合并至 mcpServers，保存后完全退出并重启 Claude Desktop。stdio 方式无需填写令牌，也不受 MineDeck 端口变更影响。", text: j("mcpServers", { command: EXE, args: ["-mcp"] }) },
       { id: "cherry", name: "Cherry Studio", t: "http", where: "Cherry Studio：「设置 → MCP 服务器 → 添加 → 从 JSON 导入」，粘贴后确定。", text: j("mcpServers", { type: "streamableHttp", url: MCP_URL, headers: auth }) },
       { id: "cursor", name: "Cursor", t: "http", where: "Cursor：在 Cursor 设置中打开 MCP，添加服务器后将打开 mcp.json（全局配置位于用户文件夹下的 .cursor\\mcp.json），将 minedeck 合并至 mcpServers。", text: j("mcpServers", { url: MCP_URL, headers: auth }) },
       { id: "vscode", name: "VS Code", t: "http", where: "VS Code：在命令面板中运行「MCP: Open User Configuration」打开 mcp.json，将 minedeck 合并至 servers。", text: j("servers", { type: "http", url: MCP_URL, headers: auth }) },
@@ -168,7 +168,7 @@
   }
   function quotaHTML(f) {
     const u = V.use[f.id], d = V.qd[f.id], v = d ?? V.quota[f.id], dirty = d !== undefined && d !== V.quota[f.id];
-    return `<div class="sai-f" data-q="${f.id}"><div class="sai-lb"><span class="sai-lt" title="${esc(f.tip)}">${f.name}</span><span class="sai-use" title="${esc(`今天已用 ${u[0]} token${u[2] ? `（${u[2]}）` : ""} · 本月 ${u[1]} token${u[3] ? `（${u[3]}）` : ""}`)}">今天 ${u[0]} · 本月 ${u[1]}</span></div>`
+    return `<div class="sai-f" data-q="${f.id}"><div class="sai-lb"><span class="sai-lt" title="${esc(f.tip)}">${f.name}</span><span class="sai-use" title="${esc(`今日已用 ${u[0]} token${u[2] ? `（${u[2]}）` : ""} · 本月 ${u[1]} token${u[3] ? `（${u[3]}）` : ""}`)}">今日 ${u[0]} · 本月 ${u[1]}</span></div>`
       + `<label class="sai-in${dirty ? " dirty" : ""}"><input data-in="q" value="${esc(v)}" placeholder="不限" inputmode="decimal" autocomplete="off" aria-label="${f.name} 每日额度（万 token）">`
       + `<span class="sai-unit">万 token / 天</span><span class="sai-msg"></span><button type="button" class="sai-ib sv" data-sai="q" title="保存"${dirty ? "" : " disabled"}><i data-ic="save"></i></button></label></div>`;
   }
@@ -288,9 +288,9 @@
   }
   function paintPrices() {
     const r = root(); if (!r) return; const p = PRE[V.saved.preset], need = !!p && !p.local;
-    const src = !need ? (p ? "本机模型不计费，不下载公开价格" : "配置付费服务商后自动下载公开价格（仅配 Ollama 时不下载）")
+    const src = !need ? (p ? "本机模型不计费，不下载公开价格" : "配置付费服务商后自动下载公开价格（仅配置 Ollama 时不下载）")
       : V.priceBusy ? "正在下载公开价格…" : `公开价格 · ${V.priceAt} 更新 · ${V.priceN.toLocaleString("en-US")} 个模型`;
-    const el = r.querySelector(".sai-psrc"); if (setHTML(el, `<span title="${need ? "按公开价格估算，7 天自动刷新一次" : ""}">${esc(src)}</span>`)) {}
+    const el = r.querySelector(".sai-psrc"); if (setHTML(el, `<span title="${need ? "按公开价格估算，每 7 天自动刷新一次" : ""}">${esc(src)}</span>`)) {}
     const b = r.querySelector('[data-sai="prices"]'); b.disabled = !need || V.priceBusy; b.querySelector(".ico").classList.toggle("sai-spin", V.priceBusy);
     // 当前模型：有自填单价时就在下面那一行标「当前」（一个值只说一次），这里不写
     const m = V.saved.model, has = V.prices.some(x => x.model === m);
@@ -432,7 +432,7 @@
     });
     if (V.keySet && keyGone() && !V.cur.key.trim() && !pre().noKey) { // 会清掉已存的 Key：先说清楚，确认了才存（同程序）。用共用的确认框，点了取消能告诉外壳没存成
       closeMenu(); closePop();
-      return C.KIT.confirm({ ic: "key", tone: "dgr", title: "清除旧 API Key 并保存",
+      return C.KIT.confirm({ ic: "key", tone: "dgr", title: "清除旧 API Key 并保存？",
         body: V.cur.preset !== V.saved.preset ? `服务商已切换为「${esc(pre().name)}」，原有 API Key 不会迁移，保存后将被清除。可先在上方输入新 API Key 后再保存。`
           : "接口地址已切换至新域名，原有 API Key 不会发送至新地址，保存后将被清除。可先在上方输入新 API Key 后再保存。",
         btns: [{ k: "cancel", label: "取消" }, { k: "ok", label: "清除 API Key 并保存", tone: "dgr" }] }).then(k => (k === "ok" ? commit(true) : false));
@@ -494,7 +494,7 @@
     const ib = (k, ph, v = "", mono) => `<label class="sai-in${mono ? " mono" : ""}" data-pf="${k}"><input value="${esc(v)}" placeholder="${ph}" autocomplete="off" spellcheck="false"${k === "model" ? "" : ' inputmode="decimal"'}><span class="sai-msg"></span></label>`;
     modal({ title: "自填单价", ok: "添加", w: 460,
       body: `<div class="sai-pform"><div class="sai-f"><div class="sai-lb"><span>模型名</span></div>${ib("model", "模型名", V.saved.model, 1)}</div>`
-        + `<div class="sai-f"><div class="sai-lb"><span title="不做汇率换算，人民币和美元分开合计">币种</span></div>${segHTML("pcur", [["CNY", "人民币（¥）"], ["USD", "美元（$）"]])}</div>`
+        + `<div class="sai-f"><div class="sai-lb"><span title="不做汇率换算，人民币与美元分别合计">币种</span></div>${segHTML("pcur", [["CNY", "人民币（¥）"], ["USD", "美元（$）"]])}</div>`
         + `<div class="sai-p3"><div class="sai-f"><div class="sai-lb"><span title="每百万 token">输入</span></div>${ib("in", "每百万 token")}</div><div class="sai-f"><div class="sai-lb"><span title="每百万 token">输出</span></div>${ib("out", "每百万 token")}</div>`
         + `<div class="sai-f"><div class="sai-lb"><span title="每百万 token；选填">缓存命中</span></div>${ib("cache", "选填")}</div></div></div>`,
       wire: mk => {
@@ -530,7 +530,7 @@
   function snips(b) {
     openMenu(b, SNIPS.map(s => ({ v: s.id, l: snipLabel(s), ic: s.t === "stdio" ? "monitor" : "globe" })), id => {
       const s = SNIPS.find(x => x.id === id);
-      modal({ title: `${esc(s.name)} 的配置`, ok: "复制这段配置", cancel: "关闭", w: 520, body: `${esc(s.where)}<pre class="sai-pre">${esc(s.text)}</pre>`, onOk: () => done(b) });
+      modal({ title: `${esc(s.name)}${s.name.endsWith("）") ? "" : " "}配置`, ok: "复制配置", cancel: "关闭", w: 520, body: `${esc(s.where)}<pre class="sai-pre">${esc(s.text)}</pre>`, onOk: () => done(b) });
     }, { header: "选择目标 AI 工具", right: true });
   }
 

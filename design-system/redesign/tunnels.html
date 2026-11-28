@@ -108,15 +108,15 @@
   <h2>① 新建向导 · 最后一步「让朋友连进来」<small>默认只在局域网；选了内网穿透才往下展开</small></h2>
   <div class="panel">
     <div class="wiz">
-      <div class="choice"><div class="t"><i data-ic="server"></i>只在局域网</div><div class="s">和你连同一个 Wi-Fi 的朋友能进。以后随时能在服务器的「联机」里再开内网穿透。</div></div>
-      <div class="choice on"><div class="t"><i data-ic="globe"></i>开内网穿透</div><div class="s">外地的朋友也能进。MineDeck 用你的平台账户建一条隧道，跟着服务器一起启动。</div></div>
+      <div class="choice"><div class="t"><i data-ic="server"></i>仅限局域网</div><div class="s">同一局域网内的玩家可直接联机，后续可随时在服务器的「联机」页开启内网穿透。</div></div>
+      <div class="choice on"><div class="t"><i data-ic="globe"></i>开启内网穿透</div><div class="s">支持公网联机。MineDeck 将通过平台账号创建隧道，并跟随服务器启动。</div></div>
     </div>
     <div class="plats">
-      <div class="plat on"><div class="row"><span class="n">OpenFrp</span><span class="sp"></span><span class="pill ok"><i class="dot"></i>已连接</span></div><div class="m">账户 steve · 直接新建，不用去官网</div></div>
-      <div class="plat"><div class="row"><span class="n">樱花穿透</span><span class="sp"></span><span class="pill off">未连接</span></div><div class="m">点一下连接账户，在浏览器里登录一次</div></div>
-      <div class="plat"><div class="row"><span class="n">自己的 frps</span><span class="sp"></span></div><div class="m">有自己的服务器才用：填地址、端口、令牌</div></div>
+      <div class="plat on"><div class="row"><span class="n">OpenFrp</span><span class="sp"></span><span class="pill ok"><i class="dot"></i>已连接</span></div><div class="m">账号 steve · 可直接创建隧道</div></div>
+      <div class="plat"><div class="row"><span class="n">樱花穿透</span><span class="sp"></span><span class="pill off">未连接</span></div><div class="m">连接账号：前往官网复制访问密钥</div></div>
+      <div class="plat"><div class="row"><span class="n">自建 frps</span><span class="sp"></span></div><div class="m">自有 frps：填写 frps 地址、端口与认证令牌</div></div>
     </div>
-    <div class="wizfoot"><span class="hint">MineDeck 直接在 OpenFrp 上新建一条隧道：名字、节点（自动挑一个能用的，香港 2 号）、本地端口 25565 都替你填好，服务器启动时一起连上。想自己挑节点点 <a style="color:var(--accent-text)">换节点</a>；平台上已经建过的，点 <a style="color:var(--accent-text)">用已有的</a>。</span><span class="sp"></span>
+    <div class="wizfoot"><span class="hint">将在 OpenFrp 上创建新隧道（节点：香港 2 号，本地端口 25565）并跟随服务器启动。如需自选节点可点击<a style="color:var(--accent-text)">更换节点</a>，或使用<a style="color:var(--accent-text)">已有隧道</a>。</span><span class="sp"></span>
       <span class="btn ghost">上一步</span><span class="btn pri"><i data-ic="check"></i>创建服务器</span></div>
   </div>
 
@@ -126,21 +126,21 @@
       <div class="dhead"><span id="av1"></span><h3>生存服 · 朋友</h3><span class="pill ok"><i class="dot"></i>运行中</span></div>
       <div class="tabs"><span class="tab">控制台</span><span class="tab">玩家</span><span class="tab">世界与备份</span><span class="tab">插件</span><span class="tab on">联机</span><span class="tab">定时任务</span><span class="tab">设置</span></div>
       <div class="addr2">
-        <div class="inner row"><div><div class="k">局域网 · 同一个 Wi-Fi 的朋友</div><div class="v mono">192.168.1.5:25565</div></div><span class="sp"></span><span class="btn ic" title="复制"><i data-ic="copy"></i></span></div>
-        <div class="inner row"><div><div class="k">公网 · 外地的朋友</div><div class="v mono">frp-hk.openfrp.net:31234</div></div><span class="sp"></span><span class="btn ic" title="复制"><i data-ic="copy"></i></span></div>
+        <div class="inner row"><div><div class="k">局域网联机地址</div><div class="v mono">192.168.1.5:25565</div></div><span class="sp"></span><span class="btn ic" title="复制"><i data-ic="copy"></i></span></div>
+        <div class="inner row"><div><div class="k">公网联机地址</div><div class="v mono">frp-hk.openfrp.net:31234</div></div><span class="sp"></span><span class="btn ic" title="复制"><i data-ic="copy"></i></span></div>
       </div>
       <div class="tlist">
         <div class="trow"><span class="ico-b"><i data-ic="globe"></i></span><div><div class="v" style="font-size:14px">游戏隧道</div><div class="k">OpenFrp · 香港节点 · 隧道 123456</div></div><span class="sp"></span>
-          <span class="pill ok"><i class="dot"></i>已连上</span><span class="k" style="margin-left:8px">跟着服务器启动</span><span class="sw"></span><span class="btn ghost ic" title="更多"><i data-ic="more"></i></span></div>
-        <div class="trow add"><i data-ic="plus"></i>加一条语音隧道 <span class="k">（这台装了 Simple Voice Chat 才出现这一行）</span></div>
+          <span class="pill ok"><i class="dot"></i>运行中</span><span class="k" style="margin-left:8px">跟随服务器启动</span><span class="sw"></span><span class="btn ghost ic" title="更多"><i data-ic="more"></i></span></div>
+        <div class="trow add"><i data-ic="plus"></i>新建语音隧道 <span class="k">（这台装了 Simple Voice Chat 才出现这一行）</span></div>
       </div>
     </div>
     <div class="panel">
       <div class="dhead"><span id="av2"></span><h3>机械动力整合包</h3><span class="pill off"><i class="dot"></i>已停止</span></div>
       <div class="tabs"><span class="tab">控制台</span><span class="tab">玩家</span><span class="tab">世界与备份</span><span class="tab">模组</span><span class="tab on">联机</span><span class="tab">定时任务</span><span class="tab">设置</span></div>
       <div class="addr2">
-        <div class="inner row"><div><div class="k">局域网 · 同一个 Wi-Fi 的朋友</div><div class="v mono">192.168.1.5:25566</div></div><span class="sp"></span><span class="btn ic" title="复制"><i data-ic="copy"></i></span></div>
-        <div class="inner empty"><div class="k">公网 · 外地的朋友</div><div class="v">还没开内网穿透</div><div class="k" style="margin-bottom:12px">外地的朋友现在连不进来</div><span class="btn soft"><i data-ic="globe"></i>开内网穿透</span></div>
+        <div class="inner row"><div><div class="k">局域网联机地址</div><div class="v mono">192.168.1.5:25566</div></div><span class="sp"></span><span class="btn ic" title="复制"><i data-ic="copy"></i></span></div>
+        <div class="inner empty"><div class="k">公网联机地址</div><div class="v">未开启内网穿透</div><div class="k" style="margin-bottom:12px">当前仅支持局域网内联机</div><span class="btn soft"><i data-ic="globe"></i>开启内网穿透</span></div>
       </div>
     </div>
   </div>
@@ -148,15 +148,15 @@
   <div class="panel">
     <div class="inner">
       <div class="row" style="margin-bottom:12px"><span class="k" style="width:56px">平台</span>
-        <span class="pill ok" style="height:32px;padding:0 14px;border-radius:16px">OpenFrp · 已连接</span><span class="pill off" style="height:32px;padding:0 14px;border-radius:16px">樱花穿透 · 去连接</span><span class="pill off" style="height:32px;padding:0 14px;border-radius:16px">自己的 frps</span></div>
+        <span class="pill ok" style="height:32px;padding:0 14px;border-radius:16px">OpenFrp · 已连接</span><span class="pill off" style="height:32px;padding:0 14px;border-radius:16px">樱花穿透 · 未连接</span><span class="pill off" style="height:32px;padding:0 14px;border-radius:16px">自建 frps</span></div>
       <div class="row"><span class="k" style="width:56px">节点</span><span class="btn">自动 · 香港 2 号（延迟最低）<i data-ic="chevronDown"></i></span><span class="sp"></span>
         <span class="btn pri"><i data-ic="plus"></i>新建隧道</span></div>
-      <p class="note" style="margin:10px 0 0">本地端口填这台服务器的 25566，隧道名用服务器名的拼音，跟着服务器启动。樱花还要勾一下「这是公开服务器」（樱花的规矩）。</p>
+      <p class="note" style="margin:10px 0 0">本地端口为当前服务器的 25566，隧道名称取服务器名的拼音，并跟随服务器启动；使用樱花穿透公开招人时，需按平台规范勾选公开服务器选项。</p>
     </div>
-    <div class="sub">或者用平台上已有的 · 2</div>
+    <div class="sub">已有隧道 · 2</div>
     <div class="tlist" style="margin:0">
-      <div class="trow"><span class="ico-b"><i data-ic="globe"></i></span><div><div class="v" style="font-size:14px">create_mod</div><div class="k">OpenFrp · 上海 1 号 · 本地端口 25566，和这台服务器对得上</div></div><span class="sp"></span><span class="btn soft">用这条</span></div>
-      <div class="trow" style="opacity:.55"><span class="ico-b"><i data-ic="globe"></i></span><div><div class="v" style="font-size:14px">old_server</div><div class="k">OpenFrp · 香港 2 号 · 本地端口 25565，对不上（要先在平台上改端口）</div></div><span class="sp"></span><span class="btn ghost">对不上</span></div>
+      <div class="trow"><span class="ico-b"><i data-ic="globe"></i></span><div><div class="v" style="font-size:14px">create_mod</div><div class="k">OpenFrp · 上海 1 号 · 本地端口 25566</div></div><span class="sp"></span><span class="btn soft">使用此隧道</span></div>
+      <div class="trow" style="opacity:.55"><span class="ico-b"><i data-ic="globe"></i></span><div><div class="v" style="font-size:14px">old_server</div><div class="k">OpenFrp · 香港 2 号 · 本地端口 25565（与当前服务器端口不一致，需先在平台修改）</div></div><span class="sp"></span><span class="btn ghost">端口不匹配</span></div>
     </div>
   </div>
   <p class="note" style="margin-top:12px">首页卡片右下角那个圆钮跟着变：有隧道是地球、复制公网地址；没有是链接、复制局域网地址。卡片「···」里加一项「开内网穿透…」，直接跳到这个标签。</p>
@@ -165,18 +165,18 @@
   <div class="panel">
     <div class="accs">
       <div class="acc"><div class="row"><span class="n">OpenFrp</span><span class="sp"></span><span class="pill ok"><i class="dot"></i>已连接</span></div>
-        <div class="meta">账户 steve · 今天已签到<br>剩余流量 18.4 GB · 用着 2 条隧道</div><div class="acts"><span class="btn">打开控制台</span><span class="btn ghost">断开</span></div></div>
+        <div class="meta">账号 steve · 今日已签到<br>剩余流量 18.4 GB · 已用 2 条隧道</div><div class="acts"><span class="btn">打开控制台</span><span class="btn ghost">断开</span></div></div>
       <div class="acc"><div class="row"><span class="n">樱花穿透</span><span class="sp"></span><span class="pill off">未连接</span></div>
-        <div class="meta">连上以后，新建服务器和「联机」里就能直接用它建隧道。</div><div class="acts"><span class="btn soft">连接账户</span></div></div>
-      <div class="acc"><div class="row"><span class="n">自己的 frps</span><span class="sp"></span></div>
-        <div class="meta">不需要账户：在某台服务器的「联机」里填地址、端口和令牌就行。</div><div class="acts"><span class="btn ghost">怎么用</span></div></div>
+        <div class="meta">连接后，可在新建向导与服务器「联机」页直接创建隧道。</div><div class="acts"><span class="btn soft">连接账号</span></div></div>
+      <div class="acc"><div class="row"><span class="n">自建 frps</span><span class="sp"></span></div>
+        <div class="meta">无需账号，在对应服务器的「联机」页填写 frps 地址、端口与认证令牌即可。</div><div class="acts"><span class="btn ghost">使用说明</span></div></div>
     </div>
-    <div class="sub">全部隧道 · 4　<span class="k" style="font-weight:400">平时在各台服务器的「联机」里管，这里只是总览；点一行跳到那台服务器</span></div>
+    <div class="sub">全部隧道 · 4　<span class="k" style="font-weight:400">此处为全部隧道总览，日常管理请前往各服务器的「联机」页；点击列表项可前往对应服务器</span></div>
     <div class="tlist" style="margin:0">
-      <div class="trow"><span id="t1"></span><div><div class="v" style="font-size:14px">生存服 · 朋友</div><div class="k">游戏 · OpenFrp · 香港 2 号 · frp-hk.openfrp.net:31234</div></div><span class="sp"></span><span class="pill ok"><i class="dot"></i>已连上</span><span class="btn ghost ic" title="到这台服务器"><i data-ic="chevronRight"></i></span></div>
-      <div class="trow"><span id="t2"></span><div><div class="v" style="font-size:14px">空岛生存</div><div class="k">游戏 · OpenFrp · 上海 1 号 · 服务器开着，隧道没连上</div></div><span class="sp"></span><span class="pill" style="background:var(--danger-subtle);color:var(--danger-text)"><i class="dot"></i>连不上</span><span class="btn ghost ic" title="到这台服务器"><i data-ic="chevronRight"></i></span></div>
-      <div class="trow"><span id="t3"></span><div><div class="v" style="font-size:14px">空岛生存</div><div class="k">语音 · 樱花穿透 · 隧道 556677</div></div><span class="sp"></span><span class="pill off"><i class="dot"></i>没开</span><span class="btn ghost ic" title="到这台服务器"><i data-ic="chevronRight"></i></span></div>
-      <div class="trow"><span class="ico-b"><i data-ic="globe"></i></span><div><div class="v" style="font-size:14px">我的隧道 <span class="k">· 没绑定服务器</span></div><div class="k">樱花穿透 · 隧道 778899 · 以前在「内网穿透」页加的</div></div><span class="sp"></span>
+      <div class="trow"><span id="t1"></span><div><div class="v" style="font-size:14px">生存服 · 朋友</div><div class="k">游戏 · OpenFrp · 香港 2 号 · frp-hk.openfrp.net:31234</div></div><span class="sp"></span><span class="pill ok"><i class="dot"></i>运行中</span><span class="btn ghost ic" title="前往该服务器"><i data-ic="chevronRight"></i></span></div>
+      <div class="trow"><span id="t2"></span><div><div class="v" style="font-size:14px">空岛生存</div><div class="k">游戏 · OpenFrp · 上海 1 号 · 服务器运行中，隧道连接失败</div></div><span class="sp"></span><span class="pill" style="background:var(--danger-subtle);color:var(--danger-text)"><i class="dot"></i>连接失败</span><span class="btn ghost ic" title="前往该服务器"><i data-ic="chevronRight"></i></span></div>
+      <div class="trow"><span id="t3"></span><div><div class="v" style="font-size:14px">空岛生存</div><div class="k">语音 · 樱花穿透 · 隧道 556677</div></div><span class="sp"></span><span class="pill off"><i class="dot"></i>已停止</span><span class="btn ghost ic" title="前往该服务器"><i data-ic="chevronRight"></i></span></div>
+      <div class="trow"><span class="ico-b"><i data-ic="globe"></i></span><div><div class="v" style="font-size:14px">我的隧道 <span class="k">· 未绑定服务器</span></div><div class="k">樱花穿透 · 隧道 778899</div></div><span class="sp"></span>
         <span class="btn soft">绑定到…</span><span class="btn ghost ic" title="删除"><i data-ic="trash"></i></span></div>
     </div>
   </div>

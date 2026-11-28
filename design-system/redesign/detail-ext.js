@@ -448,7 +448,7 @@
     pattern: G => {
       const v = G.adv.pattern.trim(); if (!v) return null;
       try { new RegExp(v.replace(/\(\?P</g, "(?<")); } catch (err) { return ["语法有误", "自定义正则语法有误：" + err.message]; }
-      return /\(\?P?<name>/.test(v) && /\(\?P?<msg>/.test(v) ? null : ["缺少命名分组", "自定义正则须包含两个命名分组：(?P<name>…) 表示玩家名，(?P<msg>…) 表示聊天内容"];
+      return /\(\?P?<name>/.test(v) && /\(\?P?<msg>/.test(v) ? null : ["缺少命名分组", "自定义正则需包含两个命名分组：(?P<name>…) 表示玩家名，(?P<msg>…) 表示聊天内容"];
     },
   };
   // 这一页的草稿（见「草稿和保存条」）。项名：prefix、alias、pattern、adv:loose、adv:thread、lim:<哪一项>、tpl:<模板>、allow:<玩家名小写>（授了权的才有这一项）
@@ -465,17 +465,17 @@
       vanilla: ["Steve", "SnapshotTester", "Alex", "Steve", "PixelCat"] }[k] || ["Steve", "Alex", "Alex", "Steve", "Alex"];
     return [
       { t: "21:42", who: a, kind: "ask", opts: ["私"], exec: true, q: "今晚怎么打末影龙", priv: true, tok: 1840, cost: "约 $0.0005",
-        a: "先带够方块、弓箭和几瓶缓降药水。到了末地先把黑曜石柱顶上的末影水晶射掉（有铁栏杆罩着的要爬上去敲掉），龙停到中间的基岩上时近战砍它。别盯着末影人看。" },
-      { t: "21:38", who: b, kind: "ask", exec: true, q: "天气改成晴天，下雨太吵了", tok: 1262, cost: "约 $0.0004", a: "好了，已经换成晴天。",
+        a: "建议携带充足方块、弓箭与缓降药水。进入末地后先破坏黑曜石柱顶部的末影水晶（带铁栏杆的需攀爬近战敲除），待末影龙停留在中央基岩上方时近战输出，并避免直视末影人。" },
+      { t: "21:38", who: b, kind: "ask", exec: true, q: "天气改成晴天，下雨太吵了", tok: 1262, cost: "约 $0.0004", a: "已将天气切换为晴天。",
         cmds: [{ ok: true, run: "weather clear 6000", out: "Set the weather to clear" }] },
       { t: "21:31", who: c, kind: "ask", q: "给我一把钻石剑", tok: 986, cost: "约 $0.0003",
-        a: "你还不能让我执行命令，可以找服主授权。钻石剑自己做也不难：工作台上竖着摆两颗钻石，下面一根木棍。" },
-      { t: "21:12", who: a, kind: "ask", exec: true, q: "切成创造模式，我要搭个桥", tok: 1318, cost: "约 $0.0004", a: "「切换自身游戏模式」这类命令服主没有打开，我做不了。",
-        cmds: [{ ok: false, run: `gamemode creative ${a}`, why: "「切换自身游戏模式」没有打开" }] },
-      { t: "21:05", who: d, kind: "cooldown", reply: "问得太快了，6 秒后再问", priv: true },
+        a: "你尚未获得命令执行权限，可联系服主授权。如需自行合成钻石剑，可在工作台中纵向放置两颗钻石，下方放置一根木棍。" },
+      { t: "21:12", who: a, kind: "ask", exec: true, q: "切成创造模式，我要搭个桥", tok: 1318, cost: "约 $0.0004", a: "服务器未启用「切换自身游戏模式」命令，无法执行该操作。",
+        cmds: [{ ok: false, run: `gamemode creative ${a}`, why: "「切换自身游戏模式」未启用" }] },
+      { t: "21:05", who: d, kind: "cooldown", reply: "提问过于频繁，请 6 秒后重试", priv: true },
       { t: "20:58", who: e, kind: "help", opts: ["帮助"], priv: true,
-        reply: "@AI 问题：全服都能看到回答；@AI /私 问题：只回你；@AI /问 问题：只回答、不执行命令；@AI /额度：看今天还能问几次" },
-      { t: "11 月 26 日 23:10", who: c, kind: "failed", q: "附近哪里有村庄", err: "AI 服务商没有回应（等了 60 秒）" },
+        reply: "@AI 问题：回复全服可见；@AI /私 问题：仅私聊回复你；@AI /问 问题：仅回复文本，不执行命令；@AI /额度：查询今日剩余提问次数" },
+      { t: "11 月 26 日 23:10", who: c, kind: "failed", q: "附近哪里有村庄", err: "AI 服务商响应超时（已等待 60 秒）" },
     ];
   }
   const whoAsked = G => { const top = G.today.top.filter(x => x[1] || x[2]); return top.length ? "今日提问统计：" + top.map(([n, c, cp]) => c ? `${n} ${c} 次${cp ? `（AI 伙伴 ${cp} 次）` : ""}` : `${n} AI 伙伴 ${cp} 次`).join("、") : "今日暂无提问记录"; };
@@ -490,7 +490,7 @@
     C = ctx; closeAll();
     const G = ga(), v = gaView(G);
     return `<div class="ex ex-gai"><div class="ex-top">${tgl({ key: "gaOn", on: G.on, label: "游戏内 AI", tip: swTip(G), cls: "big" })}`
-      + (AI_ON() ? "" : gateHTML("AI 未配置", "去设置", "aiset", "请先前往「设置 → AI」选择服务商并填写 Key 与模型。未配置时，玩家发送 @AI 仅会收到「主机还没配置 AI」提示。\n缺少：Key、模型"))
+      + (AI_ON() ? "" : gateHTML("AI 未配置", "去设置", "aiset", "请先前往「设置 → AI」选择服务商并填写 API Key 与模型。未配置时，玩家发送 @AI 仅会收到「主机尚未配置 AI」提示。\n缺少：API Key、模型"))
       + `<span class="ex-sp"></span>${segHTML("ga", [["set", "设置"], ["log", "问答记录"], ["test", "识别测试"]], G.seg)}</div>`
       + `<div class="ex-pane ${v.cls}">${v.html}</div>${barHTML(GA_PG)}</div>`;
   }
@@ -513,14 +513,14 @@
     const auth = `<section class="ex-col" data-ex-col="auth"><div class="ex-hd"><span class="ex-t" title="${esc(AUTH_TIP)}">能执行命令的玩家</span><span class="ex-n" data-k="nAllow">${G.allowed.length || ""}</span></div>`
       + `<div class="ex-wslot" data-k="wl">${wlWarn(G)}</div>`
       + `<div class="ex-lw" data-lw="auth"><div class="list">${G.players.map(p => authRow(G, p)).join("")}</div><span class="thumb"></span><div class="ex-none">暂无可授权的玩家</div></div>`
-      + addBox("allow", "玩家名，如 Steve", "授权", 16, "按名字授权") + `</section>`;
+      + addBox("allow", "玩家名，如 Steve", "授权", 16, "按名称授权") + `</section>`;
     const tpl = `<section class="ex-col" data-ex-col="tpl"><div class="ex-hd"><span class="ex-t" title="${esc(TPL_TIP)}">命令模板</span><span class="ex-n" data-k="nTpl">${nTpl(G)}</span></div>`
       + `<div class="ex-lw" data-lw="tpl"><div class="list">${TPL.map(t => tplRow(G, t)).join("")}</div><span class="thumb"></span></div></section>`;
     return ask + auth + tpl;
   }
   function limRow(G, l) {
     const v = G.lim[l.k], [lo, hi] = limEnds(l, v);
-    const today = l.k === "perServer" ? `<small title="${esc(whoAsked(G))}">今天 ${G.today.count} 次</small>` : l.k === "budget" ? `<small>今天 ${fmtTokens(G.today.tokens)}</small>` : "";
+    const today = l.k === "perServer" ? `<small title="${esc(whoAsked(G))}">今日 ${G.today.count} 次</small>` : l.k === "budget" ? `<small>今日 ${fmtTokens(G.today.tokens)}</small>` : "";
     return `<div class="ex-lim" data-lim="${l.k}" data-dk="lim:${l.k}"><span class="ex-ll"><b title="${esc(limTip(G, l))}">${l.title}${DOT}</b>${today}</span>${stpHTML("lim-" + l.k, limText(l, v), lo, hi)}</div>`;
   }
   const nTpl = G => `${TPL.filter(t => G.tpl[t.id]).length} / ${TPL.length}`;
@@ -534,7 +534,7 @@
       + `<span class="ex-sp"></span><span class="ex-tags">${p.wl ? "" : `<span class="ex-tag" data-k="nowl">非白名单</span>`}${!p.online && p.seen ? tag("最近来过", "faint") : ""}</span>${DOT}</div>`;
   }
   // 授了权却没开白名单：栏顶一条提醒（会改变结果：离线服谁都能冒名让 AI 执行命令），带「开启白名单」
-  const wlTip = G => `离线模式下，任何人使用 ${has(G.allowed, G.wlFirst) ? G.wlFirst : G.allowed[0]} 的名称进服均可让 AI 执行已启用的命令。开启白名单可拦截未知玩家，不开启亦可正常授权。`;
+  const wlTip = G => `离线模式下，任何人使用 ${has(G.allowed, G.wlFirst) ? G.wlFirst : G.allowed[0]} 的名称进服均可让 AI 执行已启用的命令。开启白名单可拦截未知玩家，不开启也可正常授权。`;
   function wlWarn(G) {
     if (G.wlOn || !G.allowed.length) return "";
     return `<div class="ex-warn" title="${esc(wlTip(G))}">`
@@ -577,7 +577,7 @@
     const kv = [["日志格式", esc(FORMAT[r.format] ?? r.format)]];
     if (r.thread) kv.push(["线程", esc(r.thread)]);
     if (r.chat) {
-      kv.push(["玩家", `<span class="ex-mono">${esc(r.player)}</span>${tag(r.online ? "在线" : "不在线", r.online ? "ok" : "")}${r.authorized ? tag("能执行命令") : ""}`]);
+      kv.push(["玩家", `<span class="ex-mono">${esc(r.player)}</span>${tag(r.online ? "在线" : "离线", r.online ? "ok" : "")}${r.authorized ? tag("可执行命令") : ""}`]);
       kv.push(["正文", esc(r.message)]);
     }
     if (r.ask) {
@@ -601,10 +601,10 @@
   }
   function validSender(n, loose) {
     if (!loose) return NAME_OK.test(n) ? "" : "仅支持 1～16 位字母、数字及下划线；若离线服玩家名包含其他字符，可开启「放宽名字规则」";
-    if (![...n].length || [...n].length > 16) return "玩家名长度须为 1～16 个字符";
+    if (![...n].length || [...n].length > 16) return "玩家名长度需为 1～16 个字符";
     if (n.startsWith("@")) return "不识别以 @ 开头的名称（写入命令会被解析为目标选择器）";
     if (/["\\]/.test(n)) return "不识别包含 \" 或 \\ 的名称（会破坏命令格式）";
-    if (/[^\x21-\x7e]|[<>]/.test(n)) return "名称包含中文、空格或其他非 ASCII 字符，无法安全写入命令，不予识别";
+    if (/[^\x21-\x7e]|[<>]/.test(n)) return "不识别包含中文、空格或其他非 ASCII 字符的名称（无法安全写入命令）";
     return "";
   }
   function parseAsk(msg, prefixes) {
@@ -710,7 +710,7 @@
   }
   // 每次画出新的一段（挂上去、换分段）都跑：细滚动条、截断的名字、步进接上就地打字、总开关关着时蒙上、未保存的小点。步进要先接好再蒙（蒙的时候把能点的都设成 inert）
   const gaPane = r => { bars(r); fitNames(r); gaNums(r); gaOff(r); paintDraft(GA_PG, r); };
-  const gaOff = r => { const G = ga(); paintOff(r, !G.on && G.seg === "set", "游戏内 AI 未开启，开启后方可修改"); };
+  const gaOff = r => { const G = ga(); paintOff(r, !G.on && G.seg === "set", "游戏内 AI 未开启，开启后才能修改"); };
   const paintCount = (r, k, text) => { const el = $(`[data-k=${k}]`, r); if (el && el.textContent !== text) swapIn(el, esc(text), 1); };
   // 限流的步进：只换中间的字、两头灰不灰（token 那一项的估价在悬停里，跟着换）
   function paintLim(r, G, l, dir) {
@@ -891,7 +891,7 @@
   const COMP_STATE = { starting: ["warm", "准备中"], idle: ["ok", "空闲"], busy: ["warm", "执行中"] };
   const taskTitle = t => !t ? "任务" : t.op === "collect" ? `采集 ${shortID(t.item)}${t.count != null ? " ×" + t.count : ""}` : t.op === "follow" ? (t.player ? `跟随 ${t.player}` : "跟随主人") : t.op;
   const mb = n => (n / 1048576).toFixed(1) + " MB";
-  const PACK_NOTE = "若服务器使用整合包，好友客户端须安装同一版本的整合包，仅安装上述模组无法进入。"; // 程序原话
+  const PACK_NOTE = "若服务器使用整合包，好友客户端需安装同一版本的整合包，仅安装上述模组无法进入。"; // 程序原话
   const CP = {};
   function cp() {
     const k = C.kind;
@@ -899,7 +899,7 @@
       const ready = MODS(), run = running();
       const evs = ready ? [
         ["21:43", "「小方」开始采集 oak_log ×32"], ["21:40", "「阿铁」已停止跟随 Alex"],
-        ["21:31", "「小方」卡住了：要拆或放禁挖区域里的方块，绕不过去", "warn"], ["21:20", "伙伴模组已读取新配置"], ["21:12", "「阿铁」开始跟随 Alex"],
+        ["21:31", "「小方」任务受阻：需破坏或放置禁挖区域内的方块，无法绕行", "warn"], ["21:20", "伙伴模组已读取新配置"], ["21:12", "「阿铁」开始跟随 Alex"],
         ["21:05", "已刷出伙伴「阿铁」"], ["20:58", "已连接伙伴模组 0.2.1（PlayerEngine 1.20.1-1.4.0），现有 1 个伙伴"]].map(([t, x, lv]) => ({ t, x, lv: lv || "info" })) : [];
       if (ready && !run) evs.unshift({ t: "21:50", x: "服务器已停止，与伙伴模组的连接已断开（伙伴保留在存档中，下次启动后自动接管）", lv: "info" });
       // max、deny、zones 是进草稿的设置（见 CP_PG），打开时的样子记成 base；区域带一个不变的 id，改了名字也认得出是同一个
@@ -926,15 +926,15 @@
   function linkOf(D) {
     if (!D.on) return ["off", "未开启", "关闭时伙伴模组不开放控制端口，MineDeck 无法指挥伙伴。"];
     if (C.st !== "running") return ["off", "等待启动", C.st === "stopped" ? "服务器启动完成（出现 Done）后伙伴模组将开放端口，MineDeck 会自动连接。" : "服务器正在启动，完成后将自动连接。"];
-    if (D.restart) return ["bad", "连接失败", "伙伴模组未开放控制端口：服务器运行期间安装的模组需重启服务器后方可加载。"]; // 草图写的说法，程序这里显示后端的报错
+    if (D.restart) return ["bad", "连接失败", "伙伴模组未开放控制端口：服务器运行期间安装的模组需重启服务器后才能加载。"]; // 草图写的说法，程序这里显示后端的报错
     if (D.linking) return ["warm", "连接中", ""];
     return ["ok", "已连接", "伙伴模组 0.2.1 · PlayerEngine 1.20.1-1.4.0 · 心跳 3 毫秒\n仅接受本机 MineDeck 连接，请勿外传连接令牌。"];
   }
   const isLive = D => linkOf(D)[0] === "ok";
   const cpSwTip = D => modMissing(D) && !D.on ? "请先安装伙伴模组后再开启。" : "伙伴是服务器中由 AI 驱动的类玩家角色：PlayerEngine 提供实体，MineDeck 提供决策。\n玩家可在聊天中使用「@伙伴名 指令」指挥（经游戏内 AI）。关闭后 MineDeck 不再指挥伙伴，伙伴仍保留在存档中。";
   function cpGate(D) {
-    if (!AI_ON()) return gateHTML("AI 未配置", "去设置", "aiset", "伙伴需依赖 AI 理解玩家指令，请先前往「设置 → AI」选择服务商并填写 Key 与模型。\n未配置时仍可刷出或移除伙伴，但无法在游戏内通过聊天指挥。");
-    if (D.on && !(GA[C.kind] ? GA[C.kind].on : true)) return gateHTML("游戏内 AI 未开启", "去开启", "togai", "玩家在游戏聊天中呼叫伙伴前，须先在「扩展 → 游戏内 AI」中开启该功能。", "info");
+    if (!AI_ON()) return gateHTML("AI 未配置", "去设置", "aiset", "伙伴需依赖 AI 理解玩家指令，请先前往「设置 → AI」选择服务商并填写 API Key 与模型。\n未配置时仍可刷出或移除伙伴，但无法在游戏内通过聊天指挥。");
+    if (D.on && !(GA[C.kind] ? GA[C.kind].on : true)) return gateHTML("游戏内 AI 未开启", "去开启", "togai", "玩家在游戏聊天中呼叫伙伴前，需先在「扩展 → 游戏内 AI」中开启该功能。", "info");
     return "";
   }
 
@@ -962,7 +962,7 @@
   function spawnBtn(D) {
     const live = isLive(D), full = D.comps.length >= D.base.max;
     const dis = !live ? "请先启动服务器、开启 AI 伙伴并等待连接模组。" : full ? `已达伙伴上限（${D.base.max} 个），请先移除现有伙伴或在「设置」中调高上限。` : "";
-    return `<button type="button" class="ex-btn big pri" data-ex-act="spawn"${dis ? ` aria-disabled="true" title="${esc(dis)}"` : ` title="伙伴不占用在线玩家名额，亦不显示在 Tab 列表中。"`}><i data-ic="plus"></i>刷出伙伴</button>`;
+    return `<button type="button" class="ex-btn big pri" data-ex-act="spawn"${dis ? ` aria-disabled="true" title="${esc(dis)}"` : ` title="伙伴不占用在线玩家名额，也不显示在 Tab 列表中。"`}><i data-ic="plus"></i>刷出伙伴</button>`;
   }
   const num1 = x => Number.isInteger(+x) ? String(+x) : (+x).toFixed(1);
   function compRow(c) {
@@ -983,12 +983,12 @@
       + `<span class="ex-pend" data-k="pend" hidden title="正在同步配置至伙伴模组（每 2 秒读取一次）">${ico("spinner")}</span></div>`
       + `<div class="ex-lim" data-dk="max"><span class="ex-ll"><b title="同时存在的最大伙伴数量（1～16）。调低上限不会移除现有伙伴，仅限制新增。">伙伴上限${DOT}</b></span>${stpHTML("max", `${D.max} 个`, D.max <= 1, D.max >= 16)}</div>`
       + `<div class="ex-fld ex-denyf"><span class="ex-lb" data-dkp="deny:"><span title="执行攻击（attack）任务时跳过以下生物 ID。\n玩家、伙伴及已驯服、已命名或拴绳的生物默认受保护，不受此列表影响。">禁止攻击的生物${DOT}</span>`
-      + `<button type="button" class="ex-ib sm" data-ex-act="denyDef" title="恢复默认：不打村民、流浪商人、铁傀儡、雪傀儡、悦灵"><i data-ic="restore"></i></button></span>`
+      + `<button type="button" class="ex-ib sm" data-ex-act="denyDef" title="恢复默认：禁止攻击村民、流浪商人、铁傀儡、雪傀儡、悦灵"><i data-ic="restore"></i></button></span>`
       + `<div class="ex-lw ex-chipw" data-lw="deny"><div class="list ex-chips" data-k="deny">${D.deny.map(denyChip).join("")}</div><span class="thumb"></span><div class="ex-none" title="清空表示无额外限制">暂无额外限制</div></div>`
       + addBox("deny", "生物 ID，如 minecraft:villager", "添加", 100, "添加禁止攻击的生物") + `</div>`
       + `<div class="ex-lim"><span class="ex-ll"><b title="玩家呼叫 AI 伙伴时消耗的额度统计；任务完成通知不调用 AI，不计入 token。\n点击右侧前往「设置 → AI」修改。">AI 伙伴每日额度</b><small>今日已用 / 每日上限</small></span>`
       + `<span class="ex-val">${fmtTokens(D.quota.used)} / ${D.quota.limit ? fmtTokens(D.quota.limit) : "不限"}</span><button type="button" class="ex-ib" data-ex-act="aiset" title="前往「设置 → AI」修改"><i data-ic="chevronRight"></i></button></div></section>`
-      + `<section class="ex-col" data-ex-col="zones"><div class="ex-hd" data-dkp="zone:"><span class="ex-t" title="伙伴不会破坏或放置该区域内的方块（倒水、点火、锄地同样不做）；伙伴可穿行，受阻时将报告「卡住了」。\n采用方块坐标（含端点），两角顺序不限。">禁挖区域${DOT}</span>`
+      + `<section class="ex-col" data-ex-col="zones"><div class="ex-hd" data-dkp="zone:"><span class="ex-t" title="伙伴不会破坏或放置该区域内的方块（倒水、点火、锄地同样不做）；伙伴可穿行，受阻时将报告「任务受阻」。\n采用方块坐标（含端点），两角顺序不限。">禁挖区域${DOT}</span>`
       + `<span class="ex-n" data-k="nZone">${D.zones.length || ""}</span><button type="button" class="ex-ib ex-corner" data-ex-act="zoneAdd" title="添加区域（最多 64 个）"><i data-ic="plus"></i></button></div>`
       + `<div class="ex-lw${D.zones.length ? "" : " is-none"}" data-lw="zones"><div class="list">${D.zones.map(zoneRow).join("")}</div><span class="thumb"></span>`
       + `<div class="ex-none" title="可将基地、农场等需保护区域设为禁挖；游戏内按 F3 可查看当前位置坐标。">暂无禁挖区域</div></div></section>`;
@@ -1002,8 +1002,8 @@
   function cpInst(D) {
     return `<section class="ex-col" data-ex-col="inst"><div class="ex-hd"><span class="ex-t" title="服务端需安装以下三个模组，其中 MineDeck Companion 由 MineDeck 内置。\nPlayerEngine 与 Architectury API 需点击「安装」从 Modrinth 下载已验证版本，不会自动升级。">安装</span></div>`
       + `<div class="ex-mods">${D.mods.map(modRow).join("")}</div><span class="ex-grow"></span><div class="ex-strip-slot" data-k="strip">${stripHTML(D)}</div></section>`
-      + `<section class="ex-col" data-ex-col="client"><div class="ex-hd"><span class="ex-t" title="AI 伙伴包含模组新增实体，好友客户端须安装标注「必需」的同版本模组至 mods 文件夹。">好友的客户端</span>`
-      + `<button type="button" class="ex-ib ex-corner" data-ex-act="copyGuide" title="${esc("复制给好友的说明：\n" + guideCP())}"><i data-ic="copy"></i></button></div>`
+      + `<section class="ex-col" data-ex-col="client"><div class="ex-hd"><span class="ex-t" title="AI 伙伴包含模组新增实体，好友客户端需安装标注「必需」的同版本模组至 mods 文件夹。">好友的客户端</span>`
+      + `<button type="button" class="ex-ib ex-corner" data-ex-act="copyGuide" title="${esc("复制发给好友的说明：\n" + guideCP())}"><i data-ic="copy"></i></button></div>`
       + `<div class="ex-mods">${clientRows()}</div><span class="ex-grow"></span><div class="ex-note">${ico("info")}<span>${PACK_NOTE}</span></div></section>`;
   }
   function modRow(m) {
@@ -1033,11 +1033,11 @@
       const need = m.kind === "companion";
       return `<div class="ex-mr sm"><div class="ex-cm"><div class="ex-c1"><b>${esc(m.name)}</b><span class="ex-mono ex-ver">${esc(m.want)}</span>${tag(need ? "必需" : "无需安装", need ? "acc" : "")}</div></div>`
         + (need ? `<button type="button" class="ex-ib" data-ex-act="modsDir" title="MineDeck 内置（未上架 Modrinth），请从服务器 mods 文件夹中复制此文件发送给好友\n${esc(m.file)}"><i data-ic="folder"></i></button>`
-          : `<button type="button" class="ex-ib" data-ex-act="ext" title="${esc(`${m.license} · 从 Modrinth 下载这个版本`)}"><i data-ic="share"></i></button>`) + `</div>`;
+          : `<button type="button" class="ex-ib" data-ex-act="ext" title="${esc(`${m.license} · 从 Modrinth 下载该版本`)}"><i data-ic="share"></i></button>`) + `</div>`;
     }).join("");
   }
-  const guideCP = () => `服务器「${C.S.name}」开了 MineDeck 的 AI 伙伴，客户端要装这几个模组（版本和服务器的一样），放进 .minecraft 的 mods 文件夹：\n`
-    + `1. MineDeck Companion 0.2.1：找房主要文件 minedeck-companion-forge-1.20.1-0.2.1.jar\n如果服务器是整合包：先装同一个整合包（版本要和服务器一致），再把上面的模组放进那个整合包的 mods 文件夹。\n进服后在聊天里说「@伙伴的名字 话」就能叫它。`;
+  const guideCP = () => `服务器「${C.S.name}」已开启 MineDeck AI 伙伴，客户端需安装以下同版本模组并放入 .minecraft 的 mods 文件夹：\n`
+    + `1. MineDeck Companion 0.2.1：请向服主获取 minedeck-companion-forge-1.20.1-0.2.1.jar\n若服务器使用整合包，请先安装同一版本的整合包，再将上述模组放入该整合包的 mods 文件夹。\n进服后在聊天中发送「@伙伴名 指令」即可呼叫伙伴。`;
 
   function cpMount(ctx) {
     C = ctx;
@@ -1072,7 +1072,7 @@
   }
   // 存好以后（CP_PG.saved）：「设置」标题旁转 2 秒的小圈（伙伴模组每 2 秒读一次设置）；「伙伴」那一段的上限、「刷出伙伴」灰不灰跟着新的上限
   function cpSaved(r) { pending(r); paintComps(r); }
-  const cpOff = r => { const D = cp(); paintOff(r, !D.on && D.seg === "set", modMissing(D) ? "需先安装伙伴模组并开启 AI 伙伴，方可修改" : "AI 伙伴未开启，开启后方可修改"); };
+  const cpOff = r => { const D = cp(); paintOff(r, !D.on && D.seg === "set", modMissing(D) ? "需先安装伙伴模组并开启 AI 伙伴后才能修改" : "AI 伙伴未开启，开启后才能修改"); };
   const addEv = (r, x, lv = "info") => {
     const D = cp(), e = { t: nowHM(), x, lv }; D.events.unshift(e);
     const w = $("[data-lw=events]", r); if (!w) return;
@@ -1198,7 +1198,7 @@
   }
   // 名字、主人的检查：同 companion.js 的 nameErr、playerOK
   const compNameErr = n => {
-    if (!n || [...n].length > 16) return ["需 1～16 个字符", "伙伴名称长度须为 1～16 个字符"];
+    if (!n || [...n].length > 16) return ["需 1～16 个字符", "伙伴名称长度需为 1～16 个字符"];
     if (/[\s@＠/／、:：,，<>"\\§]/.test(n) || /[\u0000-\u001f]/.test(n)) return ["含禁用字符", "名称不可包含空格、@、/、顿号、冒号、逗号、< > \" \\ §（聊天中需通过「@伙伴名」呼叫）"];
     return null;
   };
@@ -1210,7 +1210,7 @@
       + fld("主人", "选填。伙伴将默认出生在主人身旁（主人离线时出生在世界出生点）", `<label class="ex-in" data-ex-in="owner"><input maxlength="20" placeholder="玩家名（选填）" value="${on.length === 1 ? esc(on[0]) : ""}" spellcheck="false" autocomplete="off" aria-label="主人"><span class="ex-msg"></span></label>`
         + (on.length ? `<div class="ex-picks">${on.map(n => `<button type="button" class="ex-pk" data-pk="${esc(n)}" title="填入「主人」">${esc(n)}</button>`).join("")}</div>` : ""))
       + fld("出生位置", "也可指定出生在某位在线玩家身旁", ddField("near", "主人身旁", "出生位置")) + `</div>`;
-    ask({ ic: "exBot", tone: "acc", title: "刷出伙伴", tip: "伙伴默认出生在主人身旁（主人离线时出生在世界出生点），亦可指定出生在某位在线玩家身旁。\n伙伴不占用在线玩家名额，亦不显示在 Tab 列表中。", body, ok: "刷出", w: 420, focusInput: true,
+    ask({ ic: "exBot", tone: "acc", title: "刷出伙伴", tip: "伙伴默认出生在主人身旁（主人离线时出生在世界出生点），也可指定出生在某位在线玩家身旁。\n伙伴不占用在线玩家名额，也不显示在 Tab 列表中。", body, ok: "刷出", w: 420, focusInput: true,
       setup: mk => mk.addEventListener("click", e => {
         const pk = e.target.closest("[data-pk]"); if (pk) { const i = $("[data-ex-in=owner] input", mk); i.value = pk.dataset.pk; i.closest(".ex-in").classList.remove("bad"); i.focus(); return; }
         const f = e.target.closest("[data-ex-dd=near]");
@@ -1244,7 +1244,7 @@
   }
   // 禁挖区域：表单弹窗（同程序的字段：名字、维度、维度 ID、两个角的 x y z），字段就地拦下。
   // 加、改、删都只进草稿，跟保存条一起存；所以弹窗的主键叫「添加」「确定」，不叫「保存」（程序的弹窗是当场存，叫「保存」）
-  const coordErr = (k, s) => { if (!/^-?\d+$/.test(s.trim())) return "坐标须为整数"; const n = +s; if (k === "y") return n < -2048 || n > 2048 ? "y 坐标范围为 -2048 至 2048" : ""; return Math.abs(n) > 30000000 ? "x、z 坐标须在 ±30000000 以内" : ""; };
+  const coordErr = (k, s) => { if (!/^-?\d+$/.test(s.trim())) return "坐标需为整数"; const n = +s; if (k === "y") return n < -2048 || n > 2048 ? "y 坐标范围为 -2048 至 2048" : ""; return Math.abs(n) > 30000000 ? "x、z 坐标需在 ±30000000 以内" : ""; };
   function zoneDialog(r, z) {
     const D = cp(), cur = z || { name: "", dim: "minecraft:overworld", min: ["", "", ""], max: ["", "", ""] };
     let dim = DIMS.some(d => d[0] === cur.dim) ? cur.dim : "";
@@ -1253,7 +1253,7 @@
     const body = `<div class="ex-fgrid two">`
       + fld("名字", "1～32 个字母、数字、_、-", `<label class="ex-in" data-ex-in="zname"><input maxlength="32" value="${esc(cur.name)}" placeholder="如 base、farm" spellcheck="false" autocomplete="off" aria-label="名字"><span class="ex-msg"></span></label>`)
       + fld("维度", "", ddField("dim", dimLabel(dim), "维度"))
-      + `<div class="ex-dimid${dim ? "" : " on"}">${fld("维度 ID", "模组维度须填写完整 ID", `<label class="ex-in mono" data-ex-in="dimid"><input value="${dim ? "" : esc(cur.dim)}" placeholder="如 twilightforest:twilight_forest" spellcheck="false" autocomplete="off" aria-label="维度 ID"><span class="ex-msg"></span></label>`)}</div>`
+      + `<div class="ex-dimid${dim ? "" : " on"}">${fld("维度 ID", "模组维度需填写完整 ID", `<label class="ex-in mono" data-ex-in="dimid"><input value="${dim ? "" : esc(cur.dim)}" placeholder="如 twilightforest:twilight_forest" spellcheck="false" autocomplete="off" aria-label="维度 ID"><span class="ex-msg"></span></label>`)}</div>`
       + `<div class="ex-full">${fld("角 1", "", xyz("a", cur.min))}</div><div class="ex-full">${fld("角 2", "", xyz("b", cur.max))}</div></div>`;
     ask({ ic: "exPick", tone: "acc", title: z ? `编辑禁挖区域「${esc(z.name)}」` : "添加禁挖区域", ok: z ? "确定" : "添加", w: 460, focusInput: true,
       tip: "填写区域对角两端的方块坐标（含端点），例如基地东北角与西南角。若不确定 y 范围，可填 -64 至 320 覆盖全部高度。", body,
@@ -1269,7 +1269,7 @@
         if (!/^[A-Za-z0-9_-]{1,32}$/.test(n)) { bad(q("zname"), "格式无效", "名称仅支持 1～32 个字母、数字、_ 及 -"); return false; }
         if (D.zones.some(x => same(x.name, n) && (!z || x.name !== z.name))) { bad(q("zname"), "名称重复", `已存在名为「${n}」的区域`); return false; }
         const d = dim || $("input", q("dimid")).value.trim();
-        if (!(d.length <= 100 && /^[a-z0-9_.-]+:[a-z0-9_./-]+$/.test(d))) { bad(q("dimid"), "需填写完整 ID", "维度须填写完整 ID，如 minecraft:overworld"); return false; }
+        if (!(d.length <= 100 && /^[a-z0-9_.-]+:[a-z0-9_./-]+$/.test(d))) { bad(q("dimid"), "需填写完整 ID", "维度需填写完整 ID，如 minecraft:overworld"); return false; }
         const pts = [];
         for (const id of ["a", "b"]) {
           const c = [];
@@ -1330,7 +1330,7 @@
   ];
   const DEVS = [["", "系统默认（扬声器 (Realtek(R) Audio)）"], ["cable", "CABLE Input (VB-Audio Virtual Cable)"], ["hdmi", "DELL U2723QE (NVIDIA High Definition Audio)"]];
   const SVC_VER = "1.20.1-2.5.26", SVC_FILE = "voicechat-forge-1.20.1-2.5.26.jar", BRIDGE_VER = "0.2.0"; // 桥接模组的版本同 internal/bridge/jar.go
-  const SYS_WARN = "整机录音会采集本机全部输出音频（含游戏音效与好友语音），可能导致好友听到自己的回声。";
+  const SYS_WARN = "整机录音会广播本机全部声音（含游戏音效与好友语音），可能导致好友听到自己的回声。";
   const MU = {};
   function mu() {
     const k = C.kind;
@@ -1362,10 +1362,10 @@
     if (M.mode === "process" && !M.sel) out.push("请先在上方选择音频源程序");
     return out;
   }
-  const guideMU = M => "服务器开了「MineDeck 音乐共享」：房主电脑上放的歌，会通过 Simple Voice Chat（简单语音聊天）播给大家。\n"
-    + (M.svc.installed ? `1. 客户端装 Simple Voice Chat，和服务器同一个版本最稳妥：服务器装的是 ${SVC_VER}。\n` : "1. 客户端装 Simple Voice Chat，版本和服务器的一样（问房主要）。\n")
-    + "2. 进服后按 V 打开语音菜单，点「调整音量」，找到「MineDeck 音乐共享」：拉到 0 就只静音音乐，不影响别人说话。"
-    + (M.voice.host ? `\n3. 远程连服的朋友：语音走 ${M.voice.host}，不用另外设置；连不上语音时告诉房主。` : ""); // 同 musicshare/status.go 的 guide
+  const guideMU = M => "服务器已开启「MineDeck 音乐共享」，主机播放的音频将通过 Simple Voice Chat（简单语音聊天）广播给在线玩家。\n"
+    + (M.svc.installed ? `1. 客户端需安装 Simple Voice Chat（与服务器同版本最稳妥，当前服务端版本为 ${SVC_VER}）。\n` : "1. 客户端需安装 Simple Voice Chat（与服务器同版本最稳妥，具体版本请向服主确认）。\n")
+    + "2. 进服后按 V 打开语音菜单，点击「调整音量」，找到「MineDeck 音乐共享」即可单独调节或将其设为 0 静音，不影响其他玩家语音。"
+    + (M.voice.host ? `\n3. 远程联机玩家将自动通过 ${M.voice.host} 连接语音，无需额外设置；若无法连接请联系服主。` : ""); // 同 musicshare/status.go 的 guide
 
   function muHTML(ctx) {
     C = ctx; closeAll();
@@ -1378,7 +1378,7 @@
       + segHTML("mode", [["process", "单程序采集"], ["system", "整机录音"]], M.mode, true, M.live ? "广播进行中不可切换，请先停止广播" : "") + `</div>`
       + `<div class="ex-lim"><span class="ex-ll"><b title="100% 为原始音量，调整后即时生效。">音量</b></span>${slider(M.vol)}</div>`
       + `<div class="ex-act"><span class="ex-why" data-k="why">${whyHTML(M)}</span>${castBtn(M)}</div></section>`
-      + `<div class="ex-side"><section class="ex-col" data-ex-col="check"><div class="ex-hd"><span class="ex-t" title="所有必需项就绪后即可广播。已安装 Simple Voice Chat（SVC）的玩家均可收听，亦可在游戏内 SVC 菜单单独静音。">检查清单</span></div>`
+      + `<div class="ex-side"><section class="ex-col" data-ex-col="check"><div class="ex-hd"><span class="ex-t" title="所有必需项就绪后即可广播。已安装 Simple Voice Chat（SVC）的玩家均可收听，也可在游戏内 SVC 菜单单独静音。">检查清单</span></div>`
       + `<div class="ex-cks2">${checkRows(M)}</div></section>`
       + `<section class="ex-col" data-ex-col="lis"><div class="ex-hd"><span class="ex-t">听众</span>`
       + `<button type="button" class="ex-ib ex-corner" data-ex-act="copyGuide" title="${esc("复制发给好友的说明：\n" + guideMU(M))}"><i data-ic="copy"></i></button></div>`
@@ -1431,7 +1431,7 @@
     const svc = M.svc.installed
       ? row("svc", st(true), "Simple Voice Chat", `<span class="ex-mono">${SVC_VER}</span>${M.restart.includes("Simple Voice Chat") ? restartTag() : ""}`, "", `已安装 ${SVC_VER}。玩家客户端也需安装 SVC，与服务器同版本最稳妥。\n${SVC_FILE}`)
       : row("svc", st(false), "Simple Voice Chat", `<span class="faint">未安装</span>`, M.svc.busy ? `<span class="ex-busy">${ico("spinner")}下载中…</span>` : `<button type="button" class="ex-btn" data-ex-act="svcInstall">${ico("download")}安装</button>`,
-        `音乐通过此模组推送给玩家。点击「安装」从 Modrinth 下载适配 Forge ${C.S.mc} 的最新正式版至 mods 文件夹（需联网）。${runNote}玩家客户端亦须安装同一版本。`);
+        `音乐通过此模组推送给玩家。点击「安装」从 Modrinth 下载适配 Forge ${C.S.mc} 的最新正式版至 mods 文件夹（需联网）。${runNote}玩家客户端也需安装 SVC，与服务器同版本最稳妥。`);
     const br = M.bridge.installed
       ? row("bridge", st(true), "桥接模组", `<span class="ex-mono">${BRIDGE_VER}${M.bridge.variant === "javafml" ? "（备用）" : ""}</span>${M.restart.includes("桥接模组") ? restartTag() : ""}`,
         `<button type="button" class="ex-ib" data-ex-act="brMenu" title="更多"><i data-ic="more"></i></button>`, `已安装 MineDeck 桥接模组 ${BRIDGE_VER}${M.bridge.variant === "javafml" ? "（备用加载方式）" : ""}${running() && !M.restart.includes("桥接模组") ? "，SVC 已加载" : ""}。`)
@@ -1456,7 +1456,7 @@
     const L = listeners(M); if (!L) return "";
     const chips = (arr, tone = "") => `<div class="ex-chips">${arr.map(n => `<span class="ex-chip ro${tone ? " " + tone : ""}" data-n="${esc(n)}">${esc(n)}</span>`).join("")}</div>`;
     let h = `<div class="ex-grp" data-g="voice"><span class="ex-gl">${L.voice.length ? `可收听音乐 · ${L.voice.length} 人` : L.excluded.length ? "暂无其他听众" : "暂无玩家连接语音"}</span>${L.voice.length ? chips(L.voice, "ok") : ""}</div>`;
-    if (L.excluded.length) h += `<div class="ex-grp" data-g="ex"><span class="ex-gl" title="在「我在游戏里的名字」里：不再发给他">不再发给</span>${chips(L.excluded)}</div>`;
+    if (L.excluded.length) h += `<div class="ex-grp" data-g="ex"><span class="ex-gl" title="已填入「我在游戏里的名字」，将不向其推送音乐">不再发给</span>${chips(L.excluded)}</div>`;
     if (L.noVoice.length) h += `<div class="ex-grp" data-g="no"><span class="ex-gl warn" title="可能未安装 Simple Voice Chat，可点击右上角复制安装说明发送给对方。">在线未连语音 · ${L.noVoice.length} 人</span>${chips(L.noVoice, "warn")}</div>`;
     return h;
   }
@@ -1645,7 +1645,7 @@
       const inp = $("input", p); inp.focus(); inp.select();
       const save = () => {
         const box = $(".ex-in", p), v = inp.value.trim();
-        if (v && !/^[A-Za-z0-9.-]+(:\d{1,5})?$/.test(v)) return bad(box, "格式无效", "voice_host 须为「主机名」或「主机名:端口」格式");
+        if (v && !/^[A-Za-z0-9.-]+(:\d{1,5})?$/.test(v)) return bad(box, "格式无效", "voice_host 需为「主机名」或「主机名:端口」格式");
         M.voice.host = v; savedOK(box); paintCheck(r, "remote");
         setTip($("[data-ex-act=copyGuide]", r), "复制发给好友的说明：\n" + guideMU(M));
         setTimeout(closePop, 500);

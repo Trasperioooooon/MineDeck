@@ -66,7 +66,7 @@
   const IPS = ["192.168.1.5", "172.24.160.1", "26.18.4.77"]; // 照程序 lanIPRank 排：家用局域网段在前，172.16/12（多为 WSL / Hyper-V 虚拟网卡）在后，其他再后
   const FW = `netsh advfirewall firewall add rule name="MineDeck" dir=in action=allow protocol=TCP localport=${PORT}`;
   const TIP_ON = "通过局域网内手机、平板或其他电脑的浏览器打开 MineDeck 管理页，需设置访问密码；开启后重启程序生效。\n"
-    + "设备需与本机处于同一局域网（同一 Wi-Fi 或路由器）。\n玩家加入用的联机地址在各服务器的页头和卡片上，不在此处。";
+    + "设备需与本机处于同一局域网（同一 Wi-Fi 或路由器）。\n供玩家加入游戏的联机地址在各服务器的页头和卡片上，不在此处。";
   const TIP_QR = "使用手机相机或浏览器扫码，输入访问密码即可管理；手机需与本机处于同一局域网（同一 Wi-Fi 或路由器）。";
   const TIP_IPS = "切换局域网地址：若当前二维码无法访问，可切换其他网卡地址（家用路由器常见为 192.168.x.x）";
   const TIP_RESTART = "手机远程管理已开启，重启 MineDeck 后生效；重启后此处将显示扫码地址与二维码。";
@@ -200,7 +200,7 @@
   }
   function toggle() {
     const r = root(), box = $(".sr-in", r), v = $("input", box).value, turnOn = !S.on;
-    if (turnOn && !S.set && !v) { S.want = true; bad(box, "先设置访问密码", NEED_PW); return; } // 开关不动，等存密码时一起开
+    if (turnOn && !S.set && !v) { S.want = true; bad(box, "请先设置访问密码", NEED_PW); return; } // 开关不动，等存密码时一起开
     if (v) { // 框里有字：和开关一起存（没设过密码时必须带；设过的也带上，不然框清空了，人以为新密码生效了）
       if (tooLong(v)) { bad(box, "最长 72 字节", "密码不可用（最长 72 字节）"); return; }
       takePw(box);

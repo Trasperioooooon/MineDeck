@@ -19,7 +19,7 @@
 //               「已设置（留空不修改）」，框里右边一颗清除（垃圾桶，危险确认框），同「下载与网络」的 API Key。
 //   · 下面一栏「全部隧道」（圆角 18、内边距 14 / 20）：标题和条数，下面一行一条，44 高、圆角 10，在栏里自己滚（细滚动条）。每行从左到右：
 //       两行字（上：服务器名和「游戏 / 语音」标签；没绑定的是隧道名和「没绑定服务器」；下：平台 · 节点 · 隧道名或隧道 ID）、
-//       公网地址（等宽，停着的标「上次」，带复制）、状态胶囊（已连上 / 连接中 / 没开 / 上次出错 / 凭据解不开）、最右边：
+//       公网地址（等宽，停着的标「上次」，带复制）、状态胶囊（运行中 / 连接中 / 已停止 / 连接失败 / 凭据解不开）、最右边：
 //       绑定了服务器的是一个「›」，整行点了跳到那台服务器的「联机」（detail.html?kind=…&tab=net）；没绑定的是「绑定到…」（菜单列四台服务器，
 //       已经有同一种隧道的那台灰着，悬停说原因）和删除（确认框，同联机页那个：「同时删掉 X 上的这条隧道」默认开，自建 frps 的没有这个开关）。
 //       绑定以后只换那一行（名字、下面那行字、最右边），右上角一条提示带「撤销」；删除是那一行往右划 32 像素淡掉再收起。
@@ -54,7 +54,7 @@
     openfrp: "OpenFrp 部分基于 OpenFrp OPENAPI（github.com/ZGIT-Network/OPENFRP-APIDOC）。此项目由社区开发，OpenFrp 官方不负责除节点问题以外的技术支持，"
       + "MineDeck 本身的问题请到 GitHub Issues 反馈。\n签到与购买仅打开官方网页，MineDeck 不代签、不代下单。",
     sakura: "连接后，可在新建向导与各服务器的「联机」页中直接创建或选用平台已有隧道。访问密钥通过 Windows 加密保存在本机。\n签到与购买仅打开官方网页，MineDeck 不代签、不代下单。",
-    frps: "有自己的 frp 服务器才用这个。填好以后，各台服务器「联机」里打开「自建 frps」就连这一台，每台只要再定一个公网端口",
+    frps: "仅在已有自建 frps 服务端时使用。配置后，在各服务器「联机」页开启「自建 frps」即可连接该服务端，每台服务器只需再指定一个公网端口。",
     auth: "通过 OpenFrp 远程授权连接。MineDeck 不会接收或保存账号密码。",
     signOF: "OpenFrp 签到需在官方控制台完成人机验证，MineDeck 不代签。\n点击将在浏览器中打开 console.openfrp.net。",
     signSK: "樱花穿透（SakuraFrp）签到需在官网登录后完成，访问密钥无法用于签到。\n点击将在浏览器中打开 www.natfrp.com/user/。",
@@ -95,7 +95,7 @@
       { id: "t1", name: "mc_survival", plat: "openfrp", node: "#2 香港-2", kind: "game", server: "paper", addr: (paper && paper.tunnel) || "frp-hk.openfrp.net:31234", on: live },
       { id: "t3", name: "我的隧道", plat: "sakura", pid: "778899", kind: "game", server: "", addr: "sk-7.natfrp.cloud:41522", last: true, on: false, broken: tun === "lost" },
       { id: "t4", name: "old_server", plat: "openfrp", pid: "204518", node: "#29 香港-4", kind: "game", server: "", addr: "frp-hk.openfrp.net:30512", last: true, on: false,
-        err: "frpc 报错：proxy name [old_server] is already in use（同一条隧道已经在别的电脑上连着）" },
+        err: "frpc 报错：proxy name [old_server] is already in use（该隧道已在其他电脑上连接）" },
     ];
     if (tun === "many") {
       const P = ["openfrp", "sakura", "custom"];
@@ -210,7 +210,7 @@
     if (t.broken) return ["warn", "凭据无法解密", TIP.broken];
     if (t.on) return ["ok", "运行中", ""];
     if (t.wait) return ["warm", "连接中", ""];
-    if (t.err) return ["bad", "上次出错", t.err];
+    if (t.err) return ["bad", "连接失败", t.err];
     return ["off", "已停止", ""];
   }
   const detailHref = s => {
@@ -495,7 +495,7 @@
     const f = data().frps, bk = block("frps"); if (f.saving) return frpsP;
     const host = f.h.trim(), port = f.p.trim(), pn = +port;
     if (!host) { f.bad = "host"; f.msg = "请填写 frps 地址"; paintFrps(); const w = bk.querySelectorAll(".stn-fr .stn-iw")[0]; shake(w); w.querySelector("input").focus(); return false; }
-    if (!/^\d+$/.test(port) || pn < 1 || pn > 65535) { f.bad = "port"; f.msg = "端口需在 1–65535 之间"; paintFrps(); const w = bk.querySelectorAll(".stn-fr .stn-iw")[1]; shake(w); w.querySelector("input").focus(); return false; }
+    if (!/^\d+$/.test(port) || pn < 1 || pn > 65535) { f.bad = "port"; f.msg = "端口需在 1～65535 之间"; paintFrps(); const w = bk.querySelectorAll(".stn-fr .stn-iw")[1]; shake(w); w.querySelector("input").focus(); return false; }
     f.bad = ""; f.msg = ""; f.saving = true; paintFrps();
     return frpsP = new Promise(ok => setTimeout(() => {
       f.saving = false; f.host = host; f.port = port; f.h = host; f.p = port; if (f.tk) { f.tokenSet = true; f.tk = ""; } paintFrps(); ok(true);

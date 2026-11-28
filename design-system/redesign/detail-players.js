@@ -176,7 +176,7 @@
     const kick = action === "kick", on = running() && has(P.online, n);
     const body = kick ? `${esc(n)} 将被断开连接，之后仍可重新进入服务器。`
       : on ? `${esc(n)} 将被踢出服务器并加入封禁名单，解除封禁前无法进入。` : `${esc(n)} 将加入封禁名单，解除封禁前无法进入服务器。`;
-    KIT.confirm({ ic: kick ? "kick" : "ban", tone: "dgr", title: `${kick ? "踢出" : "封禁"} ${esc(n)}`, body,
+    KIT.confirm({ ic: kick ? "kick" : "ban", tone: "dgr", title: `${kick ? "踢出" : "封禁"} ${esc(n)}？`, body,
       btns: [{ k: "cancel", label: "取消" }, { k: "ok", label: kick ? "踢出" : "封禁", tone: "dgr" }] })
       .then(k => { if (k === "ok") act(action, n); });
   }

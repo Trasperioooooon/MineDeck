@@ -31,7 +31,7 @@
   };
   const JDK21 = "MineDeck\\runtimes\\java\\jdk-21.0.5+11\\bin\\java.exe";
   const NET_HINT = "网络请求超时，请检查网络或代理后再试", DISK_HINT = "磁盘剩余空间不足，请清理磁盘空间或更换存放位置后再试";
-  const SLOW_TIP = "下载慢或在重试。可以检查网络或代理；网络恢复后会自动接着下载，不需要重新开始。"; // 程序原话，进悬停
+  const SLOW_TIP = "下载较慢或正在重试。可检查网络或代理；网络恢复后将自动继续下载，无需重新开始。"; // 程序原话，进悬停
   // 程序 LEFTOVER_HINT；「服务器页」照重构以后的叫法改成「首页」（首页提示浮层里的「没建完的文件夹」）
   const LEFTOVER_HINT = "文件夹未能自动清理：会列在首页上方「未建完的文件夹」中，可前往处理。";
   const EXPORT_PATH = "D:\\MC\\交接包\\生存服-朋友-交接包-20261127-221530.mdpack";
@@ -39,49 +39,49 @@
 
   // 新建 / 导入整合包这两种是同一类任务（Go 里 kind 为空），说法同程序 TASK_KINDS[""]
   const T_CREATE = { title: "正在创建服务器", sub: "正在下载 Java 和服务端。", done: "服务器已建好", doneSub: "Java、服务端与配置均已就绪",
-    fail: "服务器创建失败", cx: "已取消创建", cxBtn: "取消创建", failHint: "已下载的文件有缓存，再试一次很快。", go: "完成，进入控制台" };
+    fail: "服务器创建失败", cx: "已取消创建", cxBtn: "取消创建", failHint: "已下载的文件有缓存，重试速度较快。", go: "完成，进入控制台" };
   const ASK_CREATE = { title: s => `取消创建<span class="nw">「${esc(s.name)}」？</span>`, body: "将删除未建完的文件夹，已下载的文件会保留在缓存中。", keep: "继续创建" };
 
   // Forge / NeoForge 的建服过程（下载安装器、预放原版服务端、跑官方安装器），导入整合包多两步
   const forgeOps = o => [
     { s: 0 }, { l: `MC ${o.mc} 需要 Java ${o.java}（来自官方元数据）` },
-    { s: 1 }, { l: `使用本机已安装的 Java ${o.java}（${o.jv}）: MineDeck\\runtimes\\java\\${o.jdk}\\bin\\java.exe` }, { l: `Java 就绪: MineDeck\\runtimes\\java\\${o.jdk}\\bin\\java.exe` },
+    { s: 1 }, { l: `使用本机已安装的 Java ${o.java}（${o.jv}）：MineDeck\\runtimes\\java\\${o.jdk}\\bin\\java.exe` }, { l: `Java 就绪：MineDeck\\runtimes\\java\\${o.jdk}\\bin\\java.exe` },
     { s: 2 }, { p: `下载 ${o.installer}`, b: o.insMb * MB }, { l: "预放置原版服务端（加速安装器）" }, { m: "cancel", f: .55 }, { p: "下载 server.jar", b: o.vanMb * MB },
-    { s: 3 }, { l: "运行官方安装器（将从网络下载依赖库，耗时视网络情况数分钟）..." },
+    { s: 3 }, { l: "运行官方安装器（将从网络下载依赖库，耗时视网络情况可能需数分钟）…" },
     { l: `[安装器] JVM info: Eclipse Adoptium - ${o.jv} - ${o.jv}+11` }, { l: "[安装器] Target Directory: ." }, { l: "[安装器] Extracting main jar:" },
     { l: `[安装器] Considering library ${o.lib}` }, { l: "[安装器] Considering library net.minecraftforge:JarJarFileSystems:0.3.19" },
-    { l: "……（中间的 236 行太多，没有保留）……" },
+    { l: "……（已省略中间 236 行）……" },
     { l: "[安装器] Processor: net.minecraftforge:binarypatcher:1.1.1:fatjar" }, { l: "[安装器] \tSplitting: done" }, { l: "[安装器] The server installed successfully" },
-    { l: `启动目标: args:@libraries/${o.libPath}/win_args.txt` },
+    { l: `启动目标：args:@libraries/${o.libPath}/win_args.txt` },
     { s: 4 }, { s: 5 },
     { s: 6 }, { m: "run", f: .41 }, { m: "slow", f: .41 }, { m: "fail", f: .66 }, { p: "下载整合包文件", b: o.packMb * MB }, { l: `整合包文件下载完成（${o.files} 个）` },
-    ...(o.partial ? [{ l: "⚠ 1 个文件无法自动下载（没有填 API Key），记进了没装上的文件，导入完成后可以逐个处理" }] : []),
-    { s: 7 }, { l: "白名单：关（任何知道地址的人都能进）" }, { l: "服务器创建完成 ✔" },
+    ...(o.partial ? [{ l: "⚠ 1 个文件无法自动下载（未配置 API Key），已计入「没装上的文件」，导入完成后可逐项处理" }] : []),
+    { s: 7 }, { l: "白名单：关闭（任何知道地址的玩家均可加入）" }, { l: "服务器创建完成 ✔" },
   ];
 
   // 每种任务：说法（T，照 app.js TASK_KINDS 原话）、步骤名（照 Go 里各自的 steps）、过程（ops）和几种结尾
   const KINDS = {
     create: { label: "创建", from: "new", srv: SRV.test, cancel: true, edit: ["wizard.html"], T: T_CREATE, ask: ASK_CREATE,
-      steps: CREATE_STEPS, cxText: "已取消，没有创建服务器",
+      steps: CREATE_STEPS, cxText: "已取消，未创建服务器",
       ops: () => [
         { s: 0 }, { l: "MC 1.21.4 需要 Java 21（来自官方元数据）" },
         { s: 1 }, { l: "需要 Java 21，开始下载便携式运行时（不影响系统环境）" }, { l: "按 Adoptium 公布的 SHA-256 从清华镜像下载 OpenJDK21U-jdk_x64_windows_hotspot_21.0.5_11.zip" },
-        { m: "cancel", f: .62 }, { p: "下载 Java 21", b: 195.6 * MB }, { l: `Java 就绪: ${JDK21}` },
+        { m: "cancel", f: .62 }, { p: "下载 Java 21", b: 195.6 * MB }, { l: `Java 就绪：${JDK21}` },
         { s: 2 }, { m: "run", f: .37 }, { m: "slow", f: .37 }, { m: "fail", f: .37 }, { p: "下载 paper-1.21.4-232.jar", b: 51.2 * MB },
         { s: 3 }, { l: "该核心无需安装步骤，跳过" },
-        { s: 4 }, { l: "白名单：关（任何知道地址的人都能进）" },
+        { s: 4 }, { l: "白名单：关闭（任何知道地址的玩家均可加入）" },
         { s: 5 }, { l: "服务器创建完成 ✔" },
       ],
       // 下载服务端核心走 fetchToInstance，出问题会报 NetRetry（主机名、什么问题、第几次）：「下载慢」有两种标题
       slow: { net: { host: "api.papermc.io", what: "下载失败", count: 3 }, idle: 47,
-        pre: ["从 api.papermc.io 下载 paper-1.21.4-232.jar 没成功（读取超时），换下一个下载源或稍后重试", "从 api.papermc.io 下载 paper-1.21.4-232.jar 没成功（读取超时），换下一个下载源或稍后重试", "从 api.papermc.io 下载 paper-1.21.4-232.jar 没成功（读取超时），换下一个下载源或稍后重试"] },
-      fail: { pre: ["从 api.papermc.io 下载 paper-1.21.4-232.jar 没成功（读取超时），换下一个下载源或稍后重试", "从 fill-data.papermc.io 下载 paper-1.21.4-232.jar 没成功（HTTP 403），换下一个下载源或稍后重试"],
-        err: "多次尝试后仍下载失败（api.papermc.io: 读取超时；fill-data.papermc.io: HTTP 403（源站拒绝访问：可能是机器人防护、链接失效或没有权限））", hint: NET_HINT,
+        pre: ["从 api.papermc.io 下载 paper-1.21.4-232.jar 失败（读取超时），将切换至下一个下载源或稍后重试", "从 api.papermc.io 下载 paper-1.21.4-232.jar 失败（读取超时），将切换至下一个下载源或稍后重试", "从 api.papermc.io 下载 paper-1.21.4-232.jar 失败（读取超时），将切换至下一个下载源或稍后重试"] },
+      fail: { pre: ["从 api.papermc.io 下载 paper-1.21.4-232.jar 失败（读取超时），将切换至下一个下载源或稍后重试", "从 fill-data.papermc.io 下载 paper-1.21.4-232.jar 失败（HTTP 403），将切换至下一个下载源或稍后重试"],
+        err: "多次尝试后仍下载失败（api.papermc.io: 读取超时；fill-data.papermc.io: HTTP 403（源站拒绝访问：可能是机器人防护、链接失效或无访问权限））", hint: NET_HINT,
         leftover: "remove MineDeck\\servers\\测试服\\cache\\paper-1.21.4-232.jar: The process cannot access the file because it is being used by another process." },
       go: s => link("detail.html", { kind: s.detail }) },
 
     pack: { label: "整合包", from: "new", srv: SRV.gear, cancel: true, edit: ["import.html", { flow: "modpack" }], T: T_CREATE, ask: ASK_CREATE,
-      cover: "导入整合包", steps: [...CREATE_STEPS, "下载整合包文件", "应用整合包覆盖"], cxText: "已取消，没有创建服务器",
+      cover: "导入整合包", steps: [...CREATE_STEPS, "下载整合包文件", "应用整合包覆盖"], cxText: "已取消，未创建服务器",
       ops: s => s === SRV.tinker
         ? forgeOps({ mc: "1.21.1", java: 21, jv: "21.0.5", jdk: "jdk-21.0.5+11", installer: "neoforge-21.1.77-installer.jar", insMb: 5.9, vanMb: 51.6, lib: "net.neoforged:neoforge:21.1.77",
             libPath: "net/neoforged/neoforge/21.1.77", packMb: 268.3, files: 214, partial: true })
@@ -97,15 +97,15 @@
           { kind: "cf-unresolved", merged: true },
           { kind: "import-pending", merged: true },
           { kind: "import-skipped", title: "2 个文件未安装", note: "导入时已跳过这些文件，原因见各项说明。仅客户端文件无需安装到服务端；其余文件可在导入完成后手动放入服务器文件夹。",
-            items: [{ name: "mods/oculus-mc1.21.1-1.8.0.jar（整合包清单里写明只给客户端用）", mono: true }, { name: "mods/sodiumextras-neoforge-1.0.7.jar（整合包清单里写明只给客户端用）", mono: true }] },
+            items: [{ name: "mods/oculus-mc1.21.1-1.8.0.jar（整合包清单标明仅客户端）", mono: true }, { name: "mods/sodiumextras-neoforge-1.0.7.jar（整合包清单标明仅客户端）", mono: true }] },
           // 程序这条告警下面有一颗「去「设置 → 启动与内存」换 Java」；模组名是编的
           { kind: "java-req", title: "有模组需要 Java 25，当前使用 Java 21",
             note: "此提示不影响本次导入。保留这些模组可能导致启动失败或功能异常；可在「设置 → 启动与内存」更换 Java（支持自动下载便携版），也可暂保持现状。",
             items: [{ name: "example-optimizer" }], act: ["gojava", "更换 Java", "前往「设置 → 启动与内存」更换 Java"] },
         ],
         pending: [
-          { id: "p1", p: "mods/toughasnails-neoforge-1.21.1-10.0.0.jar", why: "未配置 CurseForge API Key", note: "「Tough As Nails」：未填写 CurseForge API Key，无法自动下载。可保留本地已有文件，或手动放入后指定路径。", opts: ["skip", "local"], url: "https://www.curseforge.com/minecraft/mc-mods/tough-as-nails" },
-          { id: "p2", p: "mods/sophisticatedbackpacks-1.21.1-3.23.4.jar", why: "站点不在允许列表中", host: "mediafilez.forgecdn.net", note: "下载地址不在 MineDeck 允许列表中（仅允许 Modrinth、GitHub、GitLab），确认站点可信后方可下载。", opts: ["skip", "local", "trust"], url: "https://mediafilez.forgecdn.net/files/5/8/sophisticatedbackpacks-1.21.1-3.23.4.jar" },
+          { id: "p1", p: "mods/toughasnails-neoforge-1.21.1-10.0.0.jar", why: "未配置 CurseForge API Key", note: "「Tough As Nails」：未配置 CurseForge API Key，无法自动下载。可保留本地已有文件，或手动放入后指定路径。", opts: ["skip", "local"], url: "https://www.curseforge.com/minecraft/mc-mods/tough-as-nails" },
+          { id: "p2", p: "mods/sophisticatedbackpacks-1.21.1-3.23.4.jar", why: "站点不在允许列表中", host: "mediafilez.forgecdn.net", note: "下载地址不在 MineDeck 允许列表中（仅允许 Modrinth、GitHub、GitLab），确认站点可信后才能下载。", opts: ["skip", "local", "trust"], url: "https://mediafilez.forgecdn.net/files/5/8/sophisticatedbackpacks-1.21.1-3.23.4.jar" },
           { id: "p3", p: "mods/custom-tweaks-1.0.jar", why: "整合包未提供校验值", note: "整合包未提供该文件的校验值，无法核对下载内容，不可自动下载替代本地文件。", opts: ["skip", "local"] },
         ],
         skipped: [{ id: "p0", p: "mods/jei-1.21.1-neoforge-19.21.0.247.jar", why: "整合包未提供校验值", note: "整合包未提供该文件的校验值，无法核对下载内容，不可自动下载替代本地文件。", opts: ["skip", "local"] }],
@@ -120,37 +120,37 @@
         { s: 0 }, { l: "服务器文件夹：D:\\MC\\怀旧服" }, { l: "启动方式：paper-1.16.5-794.jar" },
         { s: 1 }, { l: "MC 1.16.5 需要 Java 8（来自官方元数据）" }, { l: "需要 Java 8，开始下载便携式运行时（不影响系统环境）" },
         { l: "按 Adoptium 公布的 SHA-256 从清华镜像下载 OpenJDK8U-jdk_x64_windows_hotspot_8u432b06.zip" },
-        { m: "run", f: .58 }, { m: "slow", f: .58 }, { m: "fail", f: .58 }, { p: "下载 Java 8", b: 102.3 * MB }, { l: "Java 就绪: MineDeck\\runtimes\\java\\jdk8u432-b06\\bin\\java.exe" },
+        { m: "run", f: .58 }, { m: "slow", f: .58 }, { m: "fail", f: .58 }, { p: "下载 Java 8", b: 102.3 * MB }, { l: "Java 就绪：MineDeck\\runtimes\\java\\jdk8u432-b06\\bin\\java.exe" },
         { s: 2 }, st === "partial" ? { l: "⚠ " + LOG4J_TITLE + "。" + LOG4J_NOTE } : { l: "已启用 log4shell 漏洞缓解（Mojang 官方方案，log4j2_112-116.xml）" },
-        { l: "已写入 eula.txt（你在上一步同意了 Minecraft EULA）" }, { l: "接管完成 ✔ 世界、模组、插件和配置文件都没有动" },
+        { l: "已写入 eula.txt（已在上一步同意 Minecraft EULA）" }, { l: "接管完成 ✔ 存档、模组、插件与配置文件均未改动" },
       ],
       slow: { idle: 47 }, // Java 的下载不报 NetRetry
-      fail: { pre: ["清华镜像这条路没走通（读取超时），切换 Adoptium 官方源"], err: "多次尝试后仍下载失败（github.com: 读取超时；objects.githubusercontent.com: 读取超时）", hint: NET_HINT },
+      fail: { pre: ["清华镜像下载失败（读取超时），切换至 Adoptium 官方源"], err: "多次尝试后仍下载失败（github.com: 读取超时；objects.githubusercontent.com: 读取超时）", hint: NET_HINT },
       partial: { warnings: [{ kind: "custom-log4j", title: "", note: "" }] }, // 标题、说明在下面补（LOG4J_*）
       go: s => link("detail.html", { kind: s.detail }) },
 
     java: { label: "Java", from: "inst", srv: SRV.friend,
-      T: { title: "正在更换 Java", sub: "本机未检测到该版本的 Java，正在下载便携版运行时（不影响系统 Java 环境）。", done: "Java 已更换", doneSub: "下次启动这台服务器时生效",
+      T: { title: "正在更换 Java", sub: "本机未检测到该版本的 Java，正在下载便携版运行时（不影响系统 Java 环境）。", done: "Java 已更换", doneSub: "下次启动该服务器时生效",
         fail: "Java 更换失败", failHint: "服务器仍使用原有 Java，可返回重试。", go: "完成，返回服务器" },
       cover: "Java 21", steps: ["准备 Java 运行时", "应用新 Java"], showDoneSub: true,
       ops: () => [
         { s: 0 }, { l: "需要 Java 21，开始下载便携式运行时（不影响系统环境）" }, { l: "按 Adoptium 公布的 SHA-256 从清华镜像下载 OpenJDK21U-jdk_x64_windows_hotspot_21.0.5_11.zip" },
         { m: "run", f: .52 }, { m: "slow", f: .52 }, { m: "fail", f: .52 }, { p: "下载 Java 21", b: 195.6 * MB },
-        { s: 1 }, { l: `已换成 Java 21：${JDK21}（下次启动生效）` },
+        { s: 1 }, { l: `已更换为 Java 21：${JDK21}（下次启动时生效）` },
       ],
       slow: { idle: 47 },
-      fail: { pre: ["清华镜像这条路没走通（读取超时），切换 Adoptium 官方源"], err: "多次尝试后仍下载失败（github.com: 读取超时；objects.githubusercontent.com: 读取超时）", hint: NET_HINT },
+      fail: { pre: ["清华镜像下载失败（读取超时），切换至 Adoptium 官方源"], err: "多次尝试后仍下载失败（github.com: 读取超时；objects.githubusercontent.com: 读取超时）", hint: NET_HINT },
       go: s => link("detail.html", { kind: s.detail, tab: "settings", sub: "jvm" }) },
 
     export: { label: "导出", from: "inst", srv: SRV.friend,
-      T: { title: "正在导出交接包", sub: "正在将存档、配置、模组和插件打包为单个文件，不会改动原服务器。", done: "交接包已导出", doneSub: "交接包已生成，文件位置在这一页的日志里",
+      T: { title: "正在导出交接包", sub: "正在将存档、配置、模组和插件打包为单个文件，不会改动原服务器。", done: "交接包已导出", doneSub: "交接包已生成，文件路径见下方日志",
         fail: "交接包导出失败", failHint: "未保留不完整的交接包，可重试（详情见任务日志）。", go: "完成" },
       steps: ["收集清单", "打包交接包", "收尾"],
       ops: () => [
-        { s: 0 }, { l: "含世界、配置、模组与名单（logs、崩溃报告与锁定文件不进包）" }, { l: "插件 12 个" }, { l: "待打包 1834 个文件、486.2 MB" },
-        { s: 1 }, { m: "run", f: .44 }, { m: "slow", f: .44 }, { m: "fail", f: .81 }, { p: "打包交接包（已 {n} 个文件）", b: 486.2 * MB, files: 1834 },
-        { l: "交接包大小：402.7 MB（含世界 388.1 MB）" }, { l: "把整个文件发给接手的人，对方在「新建服务器」页选「交接包」导入即可" },
-        { s: 2 }, { l: `交接包已生成: ${EXPORT_PATH}` }, { fin: EXPORT_PATH },
+        { s: 0 }, { l: "含存档、配置、模组与名单（不包含 logs、崩溃报告与锁定文件）" }, { l: "插件 12 个" }, { l: "待打包 1834 个文件、486.2 MB" },
+        { s: 1 }, { m: "run", f: .44 }, { m: "slow", f: .44 }, { m: "fail", f: .81 }, { p: "打包交接包（已打包 {n} 个文件）", b: 486.2 * MB, files: 1834 },
+        { l: "交接包大小：402.7 MB（含存档 388.1 MB）" }, { l: "将此文件发送给接收方，对方在「新建服务器」页选择「交接包」导入即可" },
+        { s: 2 }, { l: `交接包已生成：${EXPORT_PATH}` }, { fin: EXPORT_PATH },
       ],
       slow: { idle: 47 },
       fail: { pre: [], err: `write ${EXPORT_PATH}.part: There is not enough space on the disk.`, hint: DISK_HINT },
@@ -163,17 +163,17 @@
       steps: ["校验交接包", "准备 Java 运行时", "下载服务端核心", "安装服务端", "解包服务器文件", "生成启动脚本"],
       showDoneSub: () => "未随包导入的项目见下方日志", // doneSub 的后半句（前半句和标题说的一样）
       ops: () => [
-        { s: 0 }, { l: "交接包：生存服 · 朋友（paper 1.21.4，2026-11-27 22:15 导出，交接）" }, { l: "包内清单：世界 388.1 MB、模组 0 个、插件 12 个" }, { l: "包里没有：logs、崩溃报告" },
-        { s: 1 }, { l: "交接的那台用 Java 21（来自 A 的 instance.json）" }, { l: `使用本机已安装的 Java 21（21.0.5）: ${JDK21}` }, { l: `Java 就绪: ${JDK21}` },
+        { s: 0 }, { l: "交接包：生存服 · 朋友（paper 1.21.4，2026-11-27 22:15 导出，交接）" }, { l: "包内清单：存档 388.1 MB、模组 0 个、插件 12 个" }, { l: "未包含：logs、崩溃报告" },
+        { s: 1 }, { l: "原服务器使用 Java 21（读取自原 instance.json）" }, { l: `使用本机已安装的 Java 21（21.0.5）：${JDK21}` }, { l: `Java 就绪：${JDK21}` },
         { s: 2 }, { m: "run", f: .63 }, { m: "slow", f: .63 }, { p: "下载 paper-1.21.4-232.jar", b: 51.2 * MB },
         { s: 3 },
-        { s: 4 }, { m: "fail", f: .7 }, { p: "解包交接包（已 {n} 个文件）", b: 402.7 * MB, files: 1834 }, { l: "解出 486.2 MB" },
-        { l: "原来的定时任务（2 条）和崩溃自动重启的设置没有带过来，需要的话在这台服务器的设置里重新加" },
-        { s: 5 }, { l: "交接完成 ✔ 世界、配置、模组和插件都带过来了（没带过来的东西见上面几行）" },
+        { s: 4 }, { m: "fail", f: .7 }, { p: "解包交接包（已解压 {n} 个文件）", b: 402.7 * MB, files: 1834 }, { l: "已解压 486.2 MB" },
+        { l: "原有的定时任务（2 条）与崩溃自动重启设置未随包导入，如需使用请在该服务器设置中重新配置" },
+        { s: 5 }, { l: "导入完成 ✔ 存档、配置、模组与插件均已导入（未随包导入的项目见上方日志）" },
       ],
       // 下载核心经 inst.FetchArtifact → fetchToInstance，同新建，会报 NetRetry
       slow: { net: { host: "api.papermc.io", what: "下载失败", count: 2 }, idle: 47,
-        pre: ["从 api.papermc.io 下载 paper-1.21.4-232.jar 没成功（读取超时），换下一个下载源或稍后重试", "从 api.papermc.io 下载 paper-1.21.4-232.jar 没成功（读取超时），换下一个下载源或稍后重试"] },
+        pre: ["从 api.papermc.io 下载 paper-1.21.4-232.jar 失败（读取超时），将切换至下一个下载源或稍后重试", "从 api.papermc.io 下载 paper-1.21.4-232.jar 失败（读取超时），将切换至下一个下载源或稍后重试"] },
       fail: { pre: [], err: "write MineDeck\\servers\\朋友的生存服\\world\\region\\r.0.0.mca: There is not enough space on the disk.", hint: DISK_HINT },
       go: s => link("detail.html", { kind: s.detail }) },
 
@@ -181,25 +181,25 @@
       T: { title: "正在导入服务端", sub: "正在解压服务端文件并准备 Java，沿用压缩包中的存档、模组、插件和配置。", done: "服务端已导入", doneSub: "已沿用压缩包中的存档、模组、插件和配置，可以直接启动",
         fail: "服务端导入失败", cx: "已取消导入", cxBtn: "取消导入", failHint: "已清理未完成的文件夹，可重试。", go: "完成，进入控制台" },
       ask: { title: s => `取消导入<span class="nw">「${esc(s.name)}」？</span>`, body: "将删除未解压完的文件夹。", keep: "继续导入" },
-      steps: ["解压服务端文件", "识别核心和版本", "准备 Java 运行时", "登记到 MineDeck"], cxText: "已取消，没有创建服务器",
+      steps: ["解压服务端文件", "识别核心和版本", "准备 Java 运行时", "登记到 MineDeck"], cxText: "已取消，未创建服务器",
       ops: (s, st) => [
-        { s: 0 }, { l: "按现成服务端解压（文件在最外层）" }, { l: "解压了 2416 个文件" },
-        { s: 1 }, { l: "按接管已有服务器的办法认出：purpur 1.21.4，启动文件 purpur-1.21.4-2416.jar" },
-        ...(st === "partial" ? [{ l: "版本号 1.21.4 是从压缩包里的 logs/latest.log 认出来的（服务端 jar 里没写）" },
-          { l: "start.bat 里的这些 JVM 参数带到了「自定义 JVM 参数」：-XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Dusing.aikars.flags=https://mcflags.emc.gs" },
-          { l: "start.bat 里的这些 JVM 参数没带过来：-javaagent:authlib-injector.jar（能让 Java 另外加载程序）" }] : []),
+        { s: 0 }, { l: "按现有服务端解压（文件位于压缩包顶层）" }, { l: "已解压 2416 个文件" },
+        { s: 1 }, { l: "已按「接管本地服」的规则识别：purpur 1.21.4，启动文件 purpur-1.21.4-2416.jar" },
+        ...(st === "partial" ? [{ l: "版本号 1.21.4 识别自压缩包中的 logs/latest.log（服务端 jar 未标注版本）" },
+          { l: "已将 start.bat 中的以下 JVM 参数导入至「自定义 JVM 参数」：-XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Dusing.aikars.flags=https://mcflags.emc.gs" },
+          { l: "已忽略 start.bat 中的以下 JVM 参数：-javaagent:authlib-injector.jar（可使 Java 加载外部程序）" }] : []),
         { s: 2 }, { l: "使用 Java 21" }, { l: "需要 Java 21，开始下载便携式运行时（不影响系统环境）" },
-        { m: "cancel", f: .3 }, { m: "run", f: .46 }, { m: "slow", f: .46 }, { m: "fail", f: .46 }, { p: "下载 Java 21", b: 195.6 * MB }, { l: `Java 就绪: ${JDK21}` },
-        { s: 3 }, { l: "已写入 eula.txt" }, { l: "服务端导入完成 ✔ 世界、模组、插件和配置用的是压缩包里的那份，没有重新下载核心" },
+        { m: "cancel", f: .3 }, { m: "run", f: .46 }, { m: "slow", f: .46 }, { m: "fail", f: .46 }, { p: "下载 Java 21", b: 195.6 * MB }, { l: `Java 就绪：${JDK21}` },
+        { s: 3 }, { l: "已写入 eula.txt" }, { l: "服务端导入完成 ✔ 已沿用压缩包中的存档、模组、插件与配置，未重新下载核心" },
       ],
       slow: { idle: 47 },
-      fail: { pre: ["清华镜像这条路没走通（读取超时），切换 Adoptium 官方源"], err: "多次尝试后仍下载失败（github.com: 读取超时；objects.githubusercontent.com: 读取超时）", hint: NET_HINT,
+      fail: { pre: ["清华镜像下载失败（读取超时），切换至 Adoptium 官方源"], err: "多次尝试后仍下载失败（github.com: 读取超时；objects.githubusercontent.com: 读取超时）", hint: NET_HINT,
         leftover: "remove MineDeck\\servers\\空岛服\\world\\session.lock: The process cannot access the file because it is being used by another process." },
       partial: { warnings: [
         { kind: "mc-from-log", title: "版本号通过日志识别", note: "服务端 jar 未标注 Minecraft 版本，1.21.4 识别自压缩包中的 logs/latest.log（上次开服版本）。版本号决定所选 Java 及是否启用 log4shell 防护；若后续更换过服务端，建议先解压并通过「新建服务器 → 接管本地服」手动指定版本。" },
         { kind: "script-jvm", title: "已导入 3 项启动脚本 JVM 参数，忽略 1 项",
-          note: "已导入项可在「设置 → 启动与内存」的自定义 JVM 参数中查看：-XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Dusing.aikars.flags=https://mcflags.emc.gs。若更换 Java 大版本后不兼容可前往移除。仅自动导入性能调优参数，内存按导入页上填的；涉及加载外部程序、执行命令、改写代理或日志配置的参数默认忽略，确认可信后可手动添加。",
-          items: [{ name: "-javaagent:authlib-injector.jar（能让 Java 另外加载程序）", mono: true }] },
+          note: "已导入项可在「设置 → 启动与内存」的自定义 JVM 参数中查看：-XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Dusing.aikars.flags=https://mcflags.emc.gs。若更换 Java 大版本后不兼容可前往移除。仅自动导入性能调优参数，内存沿用导入页的设置；涉及加载外部程序、执行命令、改写代理或日志配置的参数默认忽略，确认可信后可手动添加。",
+          items: [{ name: "-javaagent:authlib-injector.jar（可使 Java 加载外部程序）", mono: true }] },
       ] },
       go: s => link("detail.html", { kind: s.detail }) },
 
@@ -219,13 +219,13 @@
         go: "完成，进入控制台" },
       cover: "待装清单 3 项", steps: ["匹配版本与前置", "下载文件", "放入本地文件", "核对本地依赖"], showDoneSub: true,
       ops: (s, st) => [
-        { s: 0 }, { l: "待装清单里有 3 个 Modrinth 项目：LuckPerms、EssentialsX、Chunky" },
+        { s: 0 }, { l: "待装清单共 3 个 Modrinth 项目：LuckPerms、EssentialsX、Chunky" },
         { s: 1 }, { m: "fail" }, { l: "[1/3] LuckPerms：LuckPerms-Bukkit-5.4.145.jar（1.9 MiB）" }, { p: "下载 LuckPerms-Bukkit-5.4.145.jar", b: 1.9 * MB },
         { l: "[2/3] EssentialsX：EssentialsX-2.20.1.jar（3.1 MiB）" },
         ...(st === "partial" ? [{ l: "  失败：多次尝试后仍下载失败（cdn.modrinth.com: 读取超时）" }]
           : [{ m: "run", f: .58 }, { m: "slow", f: .58 }, { p: "下载 EssentialsX-2.20.1.jar", b: 3.1 * MB }]),
         { l: "[3/3] Chunky：Chunky-Bukkit-1.4.28.jar（0.4 MiB）" }, { p: "下载 Chunky-Bukkit-1.4.28.jar", b: .4 * MB },
-        { s: 2 }, { s: 3 }, { l: "读了 3 个插件的依赖声明" }, { l: "服务器正在运行：重启后新装的才生效" }, { l: st === "partial" ? "装好了 2 个文件" : "装好了 3 个文件" },
+        { s: 2 }, { s: 3 }, { l: "已读取 3 个插件的依赖声明" }, { l: "服务器正在运行：新安装的内容需重启服务器后生效" }, { l: st === "partial" ? "已安装 2 个文件" : "已安装 3 个文件" },
       ],
       slow: { idle: 47 },
       // 全部没下成才算失败（modcart.go：len(failed) == len(files)），一个没下成是「部分完成」
@@ -240,15 +240,15 @@
       T: { title: "正在更换地图", sub: "导入地图或换回导入前的地图，出错时将自动退回原有存档。", done: "地图更换完成", doneSub: "可在「世界与备份 → 换地图」中查看",
         fail: "地图更换失败", cx: "已取消更换地图", cxSub: "未替换任何文件，原有存档保持不变。", failHint: "原有文件均未丢失，可在「世界与备份 → 换地图」查看当前使用的存档。",
         go: "完成，返回服务器" },
-      cover: "天空之城 SkyCity", steps: ["核对地图和服务器", "复制地图到暂存区", "停止并锁定服务器", "换上新地图"], cxText: "已取消，没有替换任何文件",
+      cover: "天空之城 SkyCity", steps: ["核对地图与服务器", "复制地图至暂存区", "停止并锁定服务器", "替换为新地图"], cxText: "已取消，未替换任何文件",
       // 结果是一句给人看的话（worldimport service.go runImport 的返回值），做完放在标题下面
       ops: () => [
         { s: 0 }, { l: "开始导入：天空之城 SkyCity（SkyCity_v2.1.zip）" }, { l: "核对通过：地图与当前服务器兼容" },
-        { s: 1 }, { m: "cancel", f: .4 }, { m: "run", f: .46 }, { m: "slow", f: .46 }, { p: "复制地图", b: 1126 * MB }, { l: "地图已复制到暂存区（1.1 GB）" },
-        { s: 2 }, { l: "正在停止服务器（等它自己保存退出，不会强制结束）…" }, { l: "服务器已保存并退出，已锁定当前服务器" },
+        { s: 1 }, { m: "cancel", f: .4 }, { m: "run", f: .46 }, { m: "slow", f: .46 }, { p: "复制地图", b: 1126 * MB }, { l: "地图已复制至暂存区（1.1 GB）" },
+        { s: 2 }, { l: "正在停止服务器（等待服务器保存并正常退出，不会强制终止）…" }, { l: "服务器已保存并退出，已锁定当前服务器" },
         { s: 3 }, { m: "fail" }, { l: "原存档已移入恢复点：world、world_nether、world_the_end" }, { l: "新地图已替换完成" },
-        { l: "导入前的存档留在恢复点里（2.3 GB），随时可以在「世界与备份 → 换地图」里换回来" },
-        { fin: "「生存服 · 朋友」的地图存档已导入。服务器当前已停止，启动后可进服确认" },
+        { l: "导入前的存档已保留在恢复点中（2.3 GB），后续可随时在「世界与备份 → 换地图」中换回" },
+        { fin: "「生存服 · 朋友」的地图存档已导入，尚未启动验证。服务器目前处于停止状态，启动后可进服确认是否为目标地图" },
       ],
       slow: { idle: 47 },
       fail: { pre: [], err: "导入中断，已退回导入前的存档：rename MineDeck\\servers\\生存服 · 朋友\\world: Access is denied.", hint: "没有读写权限，请检查文件夹权限或关闭占用它的程序" },
@@ -296,7 +296,7 @@
   function endFail() {
     const F = T.K.fail; F.pre.forEach(l => T.log.push(l));
     T.leftover = LEFT && !!F.leftover;
-    fail(F.err + (T.leftover ? "；清理半成品失败：" + F.leftover : ""), F.hint);
+    fail(F.err + (T.leftover ? "；清理未完成文件失败：" + F.leftover : ""), F.hint);
   }
   function endPartial() {
     const P = T.K.partial;
@@ -381,10 +381,10 @@
   const doneSubShown = () => T.kind === "export" || T.kind === "map" || !!T.K.showDoneSub;
   function subModel() {
     const K = T.K;
-    if (ST === "lost") return `<span class="tk2-warn" title="连不上 MineDeck（Failed to fetch）">${icon("warn")}无法刷新任务进度，正在自动重试</span>`
+    if (ST === "lost") return `<span class="tk2-warn" title="无法连接 MineDeck（Failed to fetch）">${icon("warn")}无法刷新任务进度，正在自动重试</span>`
       + `<button type="button" class="tk2-ib" data-act="copylost" title="复制报错信息">${icon("copy")}</button>`;
     if (!T.ended) return esc(T.cancelling ? "正在取消并清理未完成文件，请勿关闭程序" : "请勿关闭程序");
-    if (T.cancelled) return esc((K.T.cxSub || "没有留下未完成文件。").replace(/。$/, ""));
+    if (T.cancelled) return esc((K.T.cxSub || "未留下未完成文件。").replace(/。$/, ""));
     if (T.err) return "";
     if (T.kind === "export") return `<span><span class="mono">${esc(T.result)}</span><button type="button" class="tk2-ib" data-act="copypath" title="复制路径">${icon("copy")}</button>`
       + (LOCAL ? `<button type="button" class="tk2-ib" data-act="opendir" title="打开所在文件夹">${icon("folder")}</button>` : "") + `</span>`;
@@ -443,7 +443,7 @@
   // ---- 提示条：下载慢、失败的原因 ----
   const slowText = () => {
     if (T.net) return `${T.net.host ? T.net.host + " " : ""}${T.net.what}，已重试 ${T.net.count} 次`;
-    const sec = T.idle; return `已经 ${sec < 10 ? sec + " 秒" : sec < 60 ? Math.floor(sec / 10) * 10 + " 多秒" : Math.floor(sec / 60) + " 分多钟"}没有新进度`;
+    const sec = T.idle; return sec < 10 ? `已 ${sec} 秒无新进度` : sec < 60 ? `已超过 ${Math.floor(sec / 10) * 10} 秒无新进度` : `已超过 ${Math.floor(sec / 60)} 分钟无新进度`;
   };
   function noteModel() {
     if (!T.ended && !T.cancelling && ST !== "lost" && (T.net || T.idle >= 30)) return { key: "slow", text: slowText() };
@@ -531,7 +531,7 @@
   }
 
   // ---- 日志：只往后加 ----
-  const logCls = l => /^❌/.test(l) ? "e" : /^\s*⚠/.test(l) ? "w" : /^……（中间的/.test(l) ? "c" : "";
+  const logCls = l => /^❌/.test(l) ? "e" : /^\s*⚠/.test(l) ? "w" : /^……（已省略/.test(l) ? "c" : "";
   function paintLog(first) {
     const w = $(".tk2-log"), l = $(".list", w);
     if (T.log.length < V.logN) { l.innerHTML = ""; V.logN = 0; } // 换了一个任务（重试）
@@ -555,13 +555,13 @@
       + `<span class="tk2-sp"></span>` + (LOCAL ? `<button type="button" class="tk2-ib" data-act="openinst" title="打开服务器文件夹：其中「导入待决清单.txt」列出所有未安装文件（含已跳过项）；CurseForge 无法自动下载的项另存于「未解析模组清单.txt」。">${icon("folder")}</button>` : "");
   }
   const segLg = x => `<div class="tk2-seg lg" data-pseg="${x.id}"><i class="tk2-sgl"></i>${x.opts.map(o => `<span data-v="${o}"${x.act === o ? ` class="on"` : ""}>${ACT[o]}</span>`).join("")}</div>`;
-  const moreHTML = x => x.act === "local" ? `<input class="tk2-inp" data-k="lpath" placeholder="本地文件或文件夹的完整路径" title="填文件夹时按文件名匹配" spellcheck="false" autocomplete="off" value="${esc(x.path)}">`
+  const moreHTML = x => x.act === "local" ? `<input class="tk2-inp" data-k="lpath" placeholder="本地文件或文件夹的完整路径" title="填写文件夹路径时按文件名匹配" spellcheck="false" autocomplete="off" value="${esc(x.path)}">`
     : x.act === "trust" ? `<span class="tk2-ck${x.ack ? " on" : ""}" data-act="ack" role="checkbox" aria-checked="${x.ack}" title="${esc(`我已知晓风险，信任来自「${x.host}」的下载。该站点不在默认允许列表中，下载后仍按整合包校验值核对，校验不通过则不安装。\n下载成功后按域名（不含端口）记录，后续同站点不再重复确认。`)}"><span class="tk2-bx">${icon("check")}</span>信任 <span class="mono">${esc(x.host)}</span> 的下载</span>` : "";
   const pndHTML = (x, skipped) => `<div class="tk2-pnd${skipped ? " skipped" : ""}" data-pid="${x.id}"><div class="tk2-pr1"><span class="tk2-pp" title="${esc(x.p)}">${esc(x.p)}</span>`
     + (skipped ? `<span class="tk2-tag">已跳过</span>` : "") + (x.url ? `<button type="button" class="tk2-ib" data-act="ext" title="在浏览器中打开下载地址">${icon("share")}</button>` : "") + `</div>`
     + `<div class="tk2-pwhy" title="${esc(x.note)}">${esc(x.why)}${x.host ? ` · <span class="host">${esc(x.host)}</span>` : ""}</div>`
     + segLg(x) + `<div class="tk2-pmore">${moreHTML(x)}</div>${x.err ? `<div class="tk2-perr">${icon("warn")}<span>${esc(x.err)}</span></div>` : ""}</div>`;
-  const foldHTML = () => T.skipped.length ? `<button type="button" class="tk2-pfold" data-act="pfold"><span>已跳过的 ${T.skipped.length} 个</span>${icon("chevronDown")}</button>` : "";
+  const foldHTML = () => T.skipped.length ? `<button type="button" class="tk2-pfold" data-act="pfold"><span>已跳过 ${T.skipped.length} 个</span>${icon("chevronDown")}</button>` : "";
   function pendHTML() {
     return `<div class="tk2-pv"><div class="tk2-pbar" data-k="pbar">${pbarHTML()}</div>`
       + `<div class="tk2-lw" data-k="plw"><div class="list" data-k="plist">${pendBody()}</div><i class="thumb"></i></div>`
@@ -650,7 +650,7 @@
     const root = pv(); if (!root) return;
     const l = $('[data-k="plist"]', root), fold = $('[data-act="pfold"]', l), open = fold?.classList.contains("open");
     if (T.skipped.length) {
-      if (fold) setText($("span", fold), `已跳过的 ${T.skipped.length} 个`);
+      if (fold) setText($("span", fold), `已跳过 ${T.skipped.length} 个`);
       else { l.insertAdjacentHTML("beforeend", foldHTML()); hy(l); }
       // 展开着的：新跳过的那一个接在后面
       if (open) T.skipped.forEach(x => { if (!$(`[data-pid="${x.id}"]`, l)) { l.insertAdjacentHTML("beforeend", pndHTML(x, true)); const el = l.lastElementChild; hy(el); placeSeg($("[data-pseg]", el), false); el.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: OUT }); } });
@@ -818,7 +818,7 @@
     else if (act === "away") nav(!T || T.K.from === "new" ? link("home.html", { notices: "1" }) : link("detail.html", { kind: T.srv.detail }));
     else if (act === "gojava") nav(link("detail.html", { kind: T.srv.detail, tab: "settings", sub: "jvm" }));
     else if (act === "copyerr") { copyText(T.err); flashOk(a); }
-    else if (act === "copylost") { copyText("连不上 MineDeck（Failed to fetch）"); flashOk(a); }
+    else if (act === "copylost") { copyText("无法连接 MineDeck（Failed to fetch）"); flashOk(a); }
     else if (act === "copypath") { copyText(T.result); flashOk(a); }
     else if (act === "opendir" || act === "openinst" || act === "ext") { e.preventDefault(); a.animate([{ opacity: 1 }, { opacity: .4 }, { opacity: 1 }], { duration: 300 }); } // 程序里打开文件夹、外链；草图里只闪一下
     else if (act === "trustall") trustAll();

@@ -68,7 +68,7 @@
       I("CoreProtect", "CoreProtect-CE-23.1.jar", "coreprotect"), I("DiscordSRV", "DiscordSRV-Build-1.29.0.jar.disabled", "discordsrv", { off: true, up: ["1.29.0", "1.30.2"] }),
       I("EssentialsX", "EssentialsX-2.21.0.jar"), I("EssentialsXChat", "EssentialsXChat-2.21.0.jar"), I("Floodgate", "floodgate-spigot.jar"),
       I("Geyser", "Geyser-Spigot.jar", "geyser"), I("LuckPerms", "LuckPerms-Bukkit-5.4.145.jar", "luckperms", { up: ["5.4.145", "5.4.151"] }), I("Multiverse-Core", "multiverse-core-4.3.14.jar", "multiverse-core"),
-      I("MyCommand", "MyCommand-1.0.jar", "", { err: "压缩包损坏，读不出 plugin.yml" }), I("PlaceholderAPI", "PlaceholderAPI-2.11.6.jar", "placeholderapi"),
+      I("MyCommand", "MyCommand-1.0.jar", "", { err: "压缩包损坏，无法读取 plugin.yml" }), I("PlaceholderAPI", "PlaceholderAPI-2.11.6.jar", "placeholderapi"),
       I("Simple Voice Chat", "voicechat-bukkit-2.5.26.jar", "simple-voice-chat"), I("SkinsRestorer", "SkinsRestorer.jar", "skinsrestorer"), I("spark", "spark-1.10.119-bukkit.jar", "spark"),
       I("TAB", "TAB v5.0.3.jar", "tab-was-taken"), I("Vault", "Vault.jar"), I("ViaBackwards", "ViaBackwards-5.2.1.jar", "viabackwards", { need: ["viaversion", "ViaVersion"], up: ["5.2.1", "5.3.2"] }),
       I("ViaVersion", "ViaVersion-5.2.1.jar", "viaversion", { up: ["5.2.1", "5.3.2"] }),
@@ -93,7 +93,7 @@
   };
   // 整合包里没装上的（同共用件页「没装上的文件」那三个的说法，换成这台 Forge 1.20.1 的文件名）
   const PENDING = [
-    ["create_new_age-forge-1.20.1-1.1.2.jar", "站点不在允许列表中", "下载地址不在允许列表中（仅允许 Modrinth、GitHub、GitLab），确认站点可信后方可下载"],
+    ["create_new_age-forge-1.20.1-1.1.2.jar", "站点不在允许列表中", "下载地址不在允许列表中（仅允许 Modrinth、GitHub、GitLab），确认站点可信后才能下载"],
     ["createoreexcavation-1.20-1.4.3.jar", "未配置 CurseForge API Key", "未配置 CurseForge API Key，无法自动下载。可保留本地已有文件，或手动放入"],
     ["create-pack-tweaks-1.0.jar", "整合包未提供校验值", "整合包未提供此文件的校验值，自动下载无法校验完整性，无法替代本地文件"],
   ];
@@ -137,11 +137,11 @@
     const lv = +C.QS.get("draft") || 0; if (!lv) return null;
     const rows = DRAFT[noun()].map(id => ({ id })), sv = `${C.S.label} ${C.S.mc}`;
     if (lv >= 2) {
-      rows[1] = noun() === "插件" ? { id: "lithium", n: "Lithium", warn: ["为 Fabric 选择，核心不符", `此项是为 Fabric 选择的，与这台服务器的核心（${C.S.label}）不符，可能无法安装`] }
-        : { ...rows[1], warn: ["为 1.21.1 选择，版本不同", `此项是为 ${C.S.label} 1.21.1 选择的，这台服务器是 ${sv}，可能无法安装`] };
-      rows[2].warn = ["无法安装：无适用版本", `Modrinth 上没有适用于 ${sv} 的版本，安装时将跳过此项`];
+      rows[1] = noun() === "插件" ? { id: "lithium", n: "Lithium", warn: ["为 Fabric 选择，核心不符", `此项为 Fabric 选择，与当前服务器的核心（${C.S.label}）不符，可能无法安装`] }
+        : { ...rows[1], warn: ["为 1.21.1 选择，版本不同", `此项为 ${C.S.label} 1.21.1 选择，当前服务器为 ${sv}，可能无法安装`] };
+      rows[2].warn = ["无法安装：无适用版本", `Modrinth 上未找到适用于 ${sv} 的版本，安装时将跳过此项`];
       const [file, kb] = LOCAL[C.kind] || LOCAL.paper;
-      rows.push({ id: "local:" + file, local: true, file, kb, warn: ["适用于 Fabric，核心不符", `此文件适用于 Fabric，这台服务器是 ${C.S.label}，安装后很可能无法使用`] });
+      rows.push({ id: "local:" + file, local: true, file, kb, warn: ["适用于 Fabric，核心不符", `此文件适用于 Fabric，当前服务器为 ${C.S.label}，安装后很可能无法使用`] });
     }
     return rows.map(p => ({ ...p, k: "draft:" + p.id, fixed: true }));
   }
@@ -222,7 +222,7 @@
   function upAllBtn() {
     const list = upList(), n = list.length; if (!n) return "";
     if (list.some(m => m.upping)) return `<span class="ad-btn" aria-disabled="true"><i data-ic="spinner" class="ad-spin"></i>正在更新</span>`;
-    return `<button type="button" class="ad-btn" data-ad-act="upall"${live() ? ' aria-disabled="true"' : ""} title="${esc(live() ? STOP_WHY : `将这 ${n} 项全部更新至最新版本`)}"><i data-ic="arrowUp"></i>全部更新 · ${n}</button>`;
+    return `<button type="button" class="ad-btn" data-ad-act="upall"${live() ? ' aria-disabled="true"' : ""} title="${esc(live() ? STOP_WHY : `将全部 ${n} 项更新至最新版本`)}"><i data-ic="arrowUp"></i>全部更新 · ${n}</button>`;
   }
   const refreshTip = () => `刷新已安装的${noun()}并检查更新`;
   // 更新完的标记：自己点的是「已更新」，被带上的写跟着谁、悬停写为什么带上它
@@ -330,7 +330,7 @@
     if (p.warn) return p.warn;
     if (p.lost) return ["未找到可用版本", `${by.n} 所需的该版本在 Modrinth 上已不存在，安装时将跳过此前置；可前往 Modrinth 查找其他版本，下载后拖入清单`];
     const c = !p.opt && clashes().find(([a]) => a === p.id), o = c && addonOf(c[1]), m = c && !dat().picked.some(q => q.id === c[1]) && dat().mods.find(y => y.id === c[1]);
-    if (m) return [`与已安装的 ${m.n} 冲突`, `${x.n} 与服务器中已有的 ${m.file} 不兼容，同时存在可能导致服务器无法启动`];
+    if (m) return [`与已安装的 ${m.n} 冲突`, `${x.n} 与服务器中已安装的 ${m.file} 不兼容，同时存在可能导致服务器无法启动`];
     return c ? [`与 ${o.n} 冲突`, `${x.n} 与 ${o.n} 不兼容，同时安装可能导致服务器无法启动；请移出其中一项`] : null;
   }
   // 清单里的一行。除了挑的（连同自动补的前置、本地文件），还有：小标题（p.sub）、未找到的前置（p.lost，拿不掉）、可选前置（p.opt，行尾是 ＋）、草稿那块里的（p.fixed，拿不掉；p.n 是样本里没有的自带名字）
@@ -359,9 +359,9 @@
   // 新建时选择的尚未安装（A31）：待装清单最上面一块。程序那句解释（「建这台服务器时切到了别的页面，当时草稿清单里的内容还留着」）收进标题的悬停
   function draftHTML() {
     const d = dat().draft; if (!d) return "";
-    return `<div class="ad-draft"><div class="ad-dh" title="创建这台服务器时未完成安装，所选内容仍保留在草稿清单中"><i data-ic="package"></i><span>新建时选择的 ${d.length} 项尚未安装</span></div>${d.map(crowHTML).join("")}`
+    return `<div class="ad-draft"><div class="ad-dh" title="创建当前服务器时未完成安装，所选内容仍保留在草稿清单中"><i data-ic="package"></i><span>新建时选择的 ${d.length} 项尚未安装</span></div>${d.map(crowHTML).join("")}`
       + `<div class="ad-da"><button type="button" class="ad-btn pri" data-ad-act="draftins" title="连同待装清单一并安装${live() ? "；服务器运行中也可安装，重启后生效" : ""}">一并安装</button>`
-      + `<button type="button" class="ad-btn" data-ad-act="draftdrop" title="仅清除这 ${d.length} 项，待装清单不受影响">清除</button></div></div>`;
+      + `<button type="button" class="ad-btn" data-ad-act="draftdrop" title="仅清除以上 ${d.length} 项，待装清单不受影响">清除</button></div></div>`;
   }
   // 空着时只留一句淡字（向导里那句「点击左侧 ＋ 添加，前置依赖将自动补全。」作者 11-28 定详情页不要）
   const cartEmpty = () => `<div class="ad-cempty">暂未选择任何${noun()}</div>`;

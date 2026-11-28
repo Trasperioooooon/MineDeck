@@ -110,8 +110,8 @@
       diff: "normal", mode: "adventure", clues: [], notes: [] },
     { name: "天空之城（建造存档）", root: "SkyCity_v2.1/SkyCity_build", ver: "1.20.4", mb: 214, layout: "旧版布局", layoutFull: "旧版布局（26.1 以前的原版）",
       dims: [["主世界", 40]], missing: ["下界", "末地"], dps: [], rp: false, players: 1, readme: "", hints: [], diff: "peaceful", mode: "creative", clues: [],
-      notes: [["warn", "单人存档：原玩家背包与经验能否衔接取决于登录账号", "此为单人存档，地形、建筑与容器内容均完整保留；原玩家的背包与经验能否衔接取决于进入服务器使用的账号（开启正版验证并使用同一正版账号通常可衔接）。MineDeck 不会修改玩家数据文件"]] },
-    { name: "SkyCity", root: "SkyCity_v2.1/old/SkyCity", ver: "", mb: 1024, block: "只有备份用的 level.dat_old",
+      notes: [["warn", "单人存档：原玩家背包与经验能否衔接取决于进服账号", "此为单人存档，地形、建筑与容器内容均完整保留；原玩家的背包与经验能否衔接取决于进服使用的账号（开启正版验证并使用同一正版账号通常可衔接）。MineDeck 不会修改玩家数据文件"]] },
+    { name: "SkyCity", root: "SkyCity_v2.1/old/SkyCity", ver: "", mb: 1024, block: "仅含备份文件 level.dat_old",
       blockFull: "该存档仅含备份文件 level.dat_old，缺少 level.dat。请先将 level.dat_old 复制并重命名为 level.dat，确认可在单人游戏中打开后再导入" },
   ] };
   const CREATE = { file: "朋友的机械动力存档.zip", mb: 2087, path: "D:\\Maps\\create_s2", cands: [
@@ -283,7 +283,7 @@
   const countHTML = () => `${dat().backups.length}<small> / ${KEEP}</small>`;
   // 「自动备份」开关：有定时备份就是开着。开 = 照预设加一条，关 = 定时备份都拿掉（程序没有「停用」，只能增删）；说明进悬停
   const autoTip = n => n ? `关闭后移除${n > 1 ? `全部 ${n} 条` : ""}定时备份，已有的备份不受影响`
-    : `开启后${whenText(AUTO)}自动备份一次存档，服务器未运行时不执行；时刻可在「定时任务」中修改。每台服务器保留最近 ${KEEP} 份（含手动备份），超出时自动清理最旧的备份`;
+    : `开启后${whenText(AUTO)} 自动备份一次存档，服务器未运行时不执行；时刻可在「定时任务」中修改。每台服务器保留最近 ${KEEP} 份（含手动备份），超出时自动清理最旧的备份`;
   function autoSw() {
     const n = dat().scheds.length;
     return `<button type="button" class="wd-tg${n ? " on" : ""}" data-wd-act="auto" role="switch" aria-checked="${n > 0}" title="${esc(autoTip(n))}"><span class="wd-sw"></span><span class="t">自动备份</span></button>`;
@@ -414,7 +414,7 @@
     const D = dat(), on = !D.scheds.length;
     if (!on && (D.scheds.length > 1 || whenText(D.scheds[0]) !== whenText(AUTO))) {
       const L = D.scheds.map(whenText).join("、");
-      const k = await KIT.confirm({ ic: "clock", tone: "dgr", title: "关闭自动备份", body: `将移除「定时任务」中的 ${D.scheds.length} 条定时备份（${L}），已有的备份不受影响。`,
+      const k = await KIT.confirm({ ic: "clock", tone: "dgr", title: "关闭自动备份？", body: `将移除「定时任务」中的 ${D.scheds.length} 条定时备份（${L}），已有的备份不受影响。`,
         btns: [{ k: "cancel", label: "取消" }, { k: "ok", label: "关闭", tone: "dgr" }] });
       if (k !== "ok" || !D.scheds.length) return;
     }
@@ -480,7 +480,7 @@
       return ["acc", "已导入", "当前正在使用此地图。" + (pt.hasOld ? "当前无法换回导入前的存档" : noOld)];
     }
     return ({ restored: ["", "已换回", "已换回导入前的存档。曾导入的地图（含后续改动）仍另行保留，确认不再需要后可删除"],
-      restoring: ["warn", "正在换回", "正在换回导入前的存档"], "rolled-back": ["", "没有生效", "此次导入未生效，服务器仍使用原存档"],
+      restoring: ["warn", "正在换回", "正在换回导入前的存档"], "rolled-back": ["", "未生效", "此次导入未生效，服务器仍使用原存档"],
       // 没走完的几种（worldimport.js 的 POINT）。草图里走得到的只有「正在更换」「需手动处理」（地址参数 map=busy、map=stuck）
       staging: ["", "未完成", "此次导入停在复制阶段，原存档未变动"], staged: ["", "未完成", "地图已复制完成，尚未开始替换，原存档未变动"],
       committing: ["warn", "正在更换", "正在更换地图"], "rolling-back": ["warn", "正在退回", "正在退回原存档"],
@@ -492,7 +492,7 @@
   function ptRow(pt) {
     const [cls, tag, say0] = pointSay(pt), why = holdWhy() || (live() ? (pt.canReturn ? "请先停止服务器后再换回或删除" : "请先停止服务器后再删除恢复点") : "");
     const dis = why ? ' aria-disabled="true"' : "", busy = ["restoring", "committing", "rolling-back"].includes(pt.state);
-    const say = say0 + (pt.error ? `\n当时的原因：${pt.error}` : ""); // 出过错的那一次（没有生效、需手动处理）：原因跟在那句话后面
+    const say = say0 + (pt.error ? `\n失败原因：${pt.error}` : ""); // 出过错的那一次（没有生效、需手动处理）：原因跟在那句话后面
     const sizes = [pt.oldMb > 0 ? `原存档 ${size(pt.oldMb)}` : "", pt.keptMb > 0 ? `已保留地图 ${size(pt.keptMb)}` : ""].filter(Boolean).join(" · ");
     return `<div class="wd-pt" data-wd-pt="${pt.id}"><div class="wd-pn"><span class="nm">${esc(pt.name)}</span><span class="wd-tag ${cls}" data-wd-k="tag" title="${esc(say)}">${tag}</span><span class="wd-sp"></span>`
       + `<span class="wd-pa" data-wd-k="acts">${busy ? `<span class="wd-busy">${icon("spinner", "wd-spin")}</span>`
@@ -516,7 +516,7 @@
     return `<span class="wd-dzi warn"><i data-ic="warn"></i></span><b>换地图未完成，自动恢复失败</b><span class="wd-dzs">所有文件均未删除，服务器已暂停启动</span>`
       + (remote() ? `<span class="wd-dzs">需检查 2 个文件夹，请在运行 MineDeck 的设备上查看</span>`
         : `<span class="wd-stk mono" title="需检查的位置">${[tx + "\\old\\" + dat().level, tx + "\\new\\" + dat().level].map(p => esc(p).replace(/\\/g, "\\<wbr>")).join("<br>")}</span>`)
-      + `<span class="wd-dzs" title="例如在 MineDeck 之外手动启动的服务器、打开了此存档的地图工具">请先关闭占用存档文件夹的程序，再重试恢复</span><span class="wd-rty">${retryBtn(false)}</span>`;
+      + `<span class="wd-dzs" title="例如在 MineDeck 之外手动启动的服务器、打开此存档的地图工具">请先关闭占用存档文件夹的程序，再重试恢复</span><span class="wd-rty">${retryBtn(false)}</span>`;
   }
   const retryBtn = busy => busy ? `<button type="button" class="wd-btn" aria-disabled="true">${icon("spinner", "wd-spin")}正在恢复</button>`
     : `<button type="button" class="wd-btn" data-wd-act="retry"${live() ? ` aria-disabled="true" title="请先停止服务器"` : ""}><i data-ic="refresh"></i>重试恢复</button>`;
@@ -572,7 +572,7 @@
   // 右栏：一张固定的小表（每张地图都是这几行，没有的写「没有」），换地图时只换变了的那几格（同 import.html 的 mapDetInner）
   function factsHTML(c) {
     const dims = c.dims.map(([n, r]) => `<span title="${r} 个区域文件">${n}</span>`).join(" · ")
-      + (c.missing.length ? `<span class="f" title="地图未包含${c.missing.join("、")}（并非导入遗漏），服务器首次加载时将自动生成">${c.missing.join("、")}将自动生成</span>` : "");
+      + (c.missing.length ? `<span class="f" title="该地图未包含${c.missing.join("、")}，并非导入遗漏，服务器首次使用对应维度时将新生成">${c.missing.join("、")}将新生成</span>` : "");
       const dd = (k, v) => `<dd data-wd-k="${k}">${v}</dd>`, no = `<span class="f">无</span>`;
     const clue = c.clues.length ? `${c.clues.slice(0, 3).map(m).join("、")}${c.clues.length > 3 ? `<span class="f">等 ${c.clues.length} 个</span>` : ""}`
       : `<span title="未检测到服务端或模组线索，无法确认是否为纯原版">无（按原版处理）</span>`;
@@ -633,7 +633,7 @@
     return `<div class="wd-flow">${cover()}<div class="wd-scols chk${sets.length ? "" : " one"}">${left}${right}</div>${strip}${footHTML(backBtn(), go)}</div>`;
   }
   // 进度：四步（internal/worldimport/service.go importSteps 的前四步；它的第五步「完成」不画，四步都打勾就是做完了），复制那一步有 30 格的经验条
-  const STEPS = ["核对地图和服务器", "复制地图到暂存区", "停止并锁定服务器", "换上新地图"];
+  const STEPS = ["核对地图与服务器", "复制地图至暂存区", "停止并锁定服务器", "替换为新地图"];
   // 一步现在的样子：done 做完了、run 正在做、cx 取消时停在这一步、err 在这一步出的错、空串还没到。T.step 是正在做的那一步，都做完时等于步数
   const stepCls = i => { const T = dat().flow.task; return i < T.step ? "done" : i > T.step ? "" : !T.ended ? "run" : T.error ? "err" : "cx"; };
   const stepIco = i => ({ done: icon("check"), run: icon("spinner", "wd-spin"), err: icon("x"), cx: `<i class="wd-dash"></i>` })[stepCls(i)] || `<i class="wd-px"></i>`;
@@ -791,7 +791,7 @@
   }
   // 一次导入的任务。每一步做完时过程记录里添的话在 stepLogs 里，一步一组（直接画成出错结束的那一种也照它凑，见 failedTask）
   const newTask = () => { const F = dat().flow; return { step: 0, pct: 0, ended: false, cancelled: false, error: "", log: [`开始导入：${cand().name}（${F.fromPath ? F.path : F.fileName}）`] }; };
-  const stepLogs = () => [["核对通过：地图与当前服务器兼容"], [`已复制 ${size(cand().mb)} 到暂存区`], [live() ? "服务器已保存并退出，已锁定当前服务器" : "已锁定当前服务器，暂停启动"],
+  const stepLogs = () => [["核对通过：地图与当前服务器兼容"], [`已复制 ${size(cand().mb)} 至暂存区`], [live() ? "服务器已保存并退出，已锁定当前服务器" : "已锁定当前服务器，暂停启动"],
     [`原存档已移入恢复点：${dat().worlds.join("、")}`, "新地图已替换完成"]];
   const doneStep = T => { T.log.push(...stepLogs()[T.step]); T.step++; };
   const failStep = T => { T.error = failText(); T.log.push(T.error); T.ended = true; }; // 出错：停在正在做的那一步，报错记进过程记录

@@ -1078,7 +1078,7 @@ function setMem(v) { if (v === SET.mem) return; SET.mem = v; SET.memTouched = tr
 const avatarTile = () => SET.icon ? `<span class="sav icon"><img src="${SET.icon}" alt=""></span>`
   : `<span class="sav" style="--c:${MDPixel16.CORE_COLORS[core] || "#7a8aa0"}">${MDPixel16.svg(core, 48)}</span>`;
 function avatarBtn() {
-  return `<div class="avbtn" data-act="icon" title="更换服务器图标…">${avatarTile()}
+  return `<div class="avbtn" data-act="icon" title="更换服务器图标">${avatarTile()}
       <span class="avov"><i data-ic="camera"></i></span>${SET.icon ? `<span class="avx" data-act="unicon" title="改用核心头像"><i data-ic="x"></i></span>` : ""}</div>`;
 }
 const seg = (key, opts) => `<div class="seg" data-seg="${key}"><i class="sgl"></i>${opts.map(([v, t]) => `<span data-v="${v}"${SET[key] === v ? ` class="on"` : ""}>${t}</span>`).join("")}</div>`;
@@ -1307,7 +1307,7 @@ function tunRows(k) {
   if (!list.length) return `<div class="nempty">平台上没有匹配的隧道</div>`;
   return list.map(t => {
     const bad = t.t !== "TCP" ? "此为 UDP 隧道（通常用于语音），游戏联机需使用 TCP 隧道；语音隧道可在创建服务器后于「联机」页添加"
-      : t.lp !== +SET.port ? `本地端口为 ${t.lp}，与当前服务器端口 ${SET.port} 不一致；请先在平台将本地端口修改为 ${SET.port}` : "";
+      : t.lp !== +SET.port ? `本地端口为 ${t.lp}，与当前服务器端口 ${SET.port} 不一致；请先在平台将本地端口改为 ${SET.port}` : "";
     return `<div class="trow${LINK.use[k] === t.n ? " on" : ""}${bad ? " off" : ""}" data-use="${esc(t.n)}" title="${esc(bad || "使用此隧道")}">`
       + `<span class="n">${esc(t.n)}</span><span class="tag plain">${t.t}</span><span class="sp"></span><span class="k">${esc(t.node)} · 本地端口 ${t.lp}</span></div>`;
   }).join("");
@@ -1318,7 +1318,7 @@ function nodeBody(k) {
   const fil = [["all", "全部"], ["udp", "支持 UDP"], ...(k === "sakura" ? [["pub", "公开游戏"]] : [])];
   const top = tabOf(k) === "new" ? `<div class="nfil"><div class="nfils"><i class="nfhl"></i>${fil.map(([v, t]) => `<button class="nf${LINK.filter === v ? " on" : ""}" data-nfil="${v}">${t}</button>`).join("")}</div><span class="sp"></span>`
     + ckBox("full", "满载") + ckBox("off", "离线") + ckBox("perm", "无权限")
-    + (k === "sakura" ? ltg("pub", "公开招人", "发到论坛、服务器列表、QQ 大群，或在 B 站、抖音上宣传招人的服务器需开启；樱花穿透规定此类服务器只能用公开游戏节点，用错会被封号。仅熟人联机无需开启") : "") + `</div>` : "";
+    + (k === "sakura" ? ltg("pub", "公开招人", "发布到论坛、服务器列表、QQ 大群，或在 B 站、抖音宣传招人的服务器需开启；樱花穿透规定此类服务器仅限使用公开游戏节点，违规使用将被封号。仅熟人联机无需开启") : "") + `</div>` : "";
   return top + `<div class="lwrap nwrap"><div class="list nlist" id="nlist">${tabOf(k) === "new" ? nodeCards(k) : tunRows(k)}</div><i class="thumb"></i></div>`;
 }
 function nodePanel(k) {
@@ -1361,7 +1361,7 @@ function lanPage() {
     + `</div></div>`;
   const frp = `<div class="lanp frpp${on ? " on" : ""}${proxy ? " off" : ""}" title="${esc(proxy ? "代理端端口需在首次启动生成配置文件后确定，启动后可在服务器的「联机」页开启自建 frps" : on ? "" : "适用于自有 frps 服务端，点击开启")}">`
     + `<div class="lh">${ltg("frpsOn", "自建 frps", "由 MineDeck 启动 frpc 连接自有 frps，实现公网联机", on)}</div>`
-    + `<div class="lbody"><span class="lb" title="公网玩家在游戏多人联机中输入此地址：由 frps 地址与公网端口组成，公网端口留空时默认与本地端口一致">公网联机地址</span>`
+    + `<div class="lbody"><span class="lb" title="公网玩家连接时使用此地址，由 frps 地址与公网端口组成（公网端口留空时默认与本地端口一致）">公网联机地址</span>`
     + `<div class="bigaddr" id="faddr">${frpsAddr()}</div>`
     + `<div class="frps" title="本地端口 ${esc(SET.port)}">`
     + `<input class="inp" id="fhost" placeholder="frps 地址" value="${esc(LINK.frps.host)}" autocomplete="off" spellcheck="false"${fd}>`
@@ -1391,7 +1391,7 @@ const wtg = (key, t, tip) => `<div class="tg${isOn(SET[key]) ? " on" : ""}" data
 // 底部「谁能进」：正版验证一块在左（只包住开关和字），白名单一块占其余的宽，开关在字的左边（同第三步的 EULA）。
 // 原来两块右边各有一句提醒（「谁拿到地址都能进」「名单是空的」「白名单只认名字」），11-26 作者说开服的人都懂，「名单是空的」反倒让人以为非填不可，都拿掉了
 function whoStrip() {
-  if (isProxyCore()) return `<div class="who"><div class="wt one" title="正版验证需在代理端自身配置文件中修改，白名单需在各后端子服中分别开启">谁能进：代理端在自己的配置里设</div></div>`;
+  if (isProxyCore()) return `<div class="who"><div class="wt one" title="正版验证需在代理端自身配置文件中修改，白名单需在各后端子服中分别开启">谁能进：代理端需在自身配置中设置</div></div>`;
   return `<div class="who"><div class="wt wt-on">${wtg("online", "正版验证", "开启后仅允许正版账号加入；关闭后允许离线账号加入，但不会使用正版 UUID，也不显示正版皮肤")}</div>`
     + `<div class="wt wt-wl${SET.wl ? " open" : ""}">${wtg("wl", "白名单", "开启后仅允许名单内的玩家加入；关闭后知晓地址的任意玩家均可加入")}`
     + `<div class="wnames" id="names"><div class="wscroll" id="wlscroll">${LINK.names.map(nchip).join("")}`

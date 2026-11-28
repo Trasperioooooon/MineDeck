@@ -72,18 +72,18 @@
   const ctlLabel = (k, m) => `${esc(k)}${m ? "（" + esc(m.label) + "）" : ""}`;
   function boolHTML(k, m, val) {
     const v = String(val).toLowerCase(), odd = v !== "true" && v !== "false";
-    return `<div class="rw-seg${odd ? " odd" : ""}" role="radiogroup" aria-label="${ctlLabel(k, m)}"${odd ? ` title="${esc(`文件里写的是「${val}」，服务端会当作 false`)}"` : ""}>`
+    return `<div class="rw-seg${odd ? " odd" : ""}" role="radiogroup" aria-label="${ctlLabel(k, m)}"${odd ? ` title="${esc(`文件中当前值为「${val}」，服务端将按 false 处理`)}"` : ""}>`
       + `<i class="rw-sgl"></i>${["true", "false"].map(o => `<button type="button" role="radio" aria-checked="${v === o}" class="${v === o ? "on" : ""}" data-rw-b="${o}">${o}</button>`).join("")}</div>`;
   }
   function selHTML(k, m, val) {
     const odd = !m.opts.includes(val);
     return `<button type="button" class="rw-sel${odd ? " odd" : ""}" data-rw-sel aria-haspopup="menu" aria-expanded="false" aria-label="${ctlLabel(k, m)}"`
-      + `${odd ? ` title="${esc(`文件里写的是「${val}」，不在可选值里`)}"` : ""}><span class="rw-sv">${val === "" ? `<span class="ph">空</span>` : esc(val)}</span><i data-ic="chevronDown"></i></button>`;
+      + `${odd ? ` title="${esc(`文件中当前值为「${val}」，不在可选范围内`)}"` : ""}><span class="rw-sv">${val === "" ? `<span class="ph">空</span>` : esc(val)}</span><i data-ic="chevronDown"></i></button>`;
   }
   function row(D, k) {
-    const m = meta(k), tip = m ? `${m.desc}\n默认：${m.def === "" ? "留空" : m.def}` : "";
+    const m = meta(k), tip = m ? `${m.desc}\n默认：${m.def === "" ? "空" : m.def}` : "";
     const ctl = isBool(m) ? boolHTML(k, m, D.cur[k]) : m && m.type === "sel" ? selHTML(k, m, D.cur[k])
-      : `<input class="rw-v" value="${esc(D.cur[k])}" placeholder="留空" autocomplete="off" spellcheck="false" aria-label="${ctlLabel(k, m)}">`;
+      : `<input class="rw-v" value="${esc(D.cur[k])}" placeholder="空" autocomplete="off" spellcheck="false" aria-label="${ctlLabel(k, m)}">`;
     return `<div class="rw-row${D.cur[k] !== D.base[k] ? " mod" : ""}" data-k="${esc(k)}" data-search="${esc(k + " " + (m ? m.label : ""))}">`
       + `<span class="rw-k">${esc(k)}</span><span class="rw-cn"${tip ? ` title="${esc(tip)}"` : ""}>${m ? esc(m.label) : ""}</span>`
       + `${ctl}<span class="rw-dot" title="未保存"></span></div>`;
@@ -103,11 +103,11 @@
     if (seg) {
       const v = String(val).toLowerCase(), odd = v !== "true" && v !== "false";
       seg.querySelectorAll("button").forEach(b => { const on = b.dataset.rwB === v; b.classList.toggle("on", on); b.setAttribute("aria-checked", on); });
-      seg.classList.toggle("odd", odd); setTip(seg, odd ? `文件里写的是「${val}」，服务端会当作 false` : ""); placeSeg(seg);
+      seg.classList.toggle("odd", odd); setTip(seg, odd ? `文件中当前值为「${val}」，服务端将按 false 处理` : ""); placeSeg(seg);
     } else if (sel) {
       const odd = !meta(k).opts.includes(val);
       sel.querySelector(".rw-sv").innerHTML = val === "" ? `<span class="ph">空</span>` : esc(val); sel.classList.toggle("odd", odd);
-      setTip(sel, odd ? `文件里写的是「${val}」，不在可选值里` : "");
+      setTip(sel, odd ? `文件中当前值为「${val}」，不在可选范围内` : "");
     } else if (inp && inp.value !== val) inp.value = val;
   }
   // 下拉菜单（样子同「常用」的下拉：detail-settings.css 的 .st-dm、.st-it）：原文、后面淡淡的中文名，现在的值打勾

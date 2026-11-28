@@ -132,7 +132,7 @@ function lanPage() {
     + `<input class="inp" data-f="port" placeholder="frps 端口" value="${esc(N.frps.port)}" inputmode="numeric"${fd}>`
     + `<input class="inp" data-f="token" type="password" placeholder="认证令牌（选填）" value="${esc(N.frps.token)}"${fd}>`
     + `<input class="inp" data-f="remote" placeholder="公网端口" value="${esc(N.frps.remote)}" inputmode="numeric" title="公网联机使用的端口，留空时默认与本地端口一致（${PORT()}）"${fd}></div>`
-    + `<div class="lfoot"><button class="nb pri" data-act="frpsave"${N.frps.host.trim() ? "" : " disabled"} title="保存配置，并跟随服务器启动">${N.frpsSaved ? "保存" : "保存并连上"}</button></div></div></div>`;
+    + `<div class="lfoot"><button class="nb pri" data-act="frpsave"${N.frps.host.trim() ? "" : " disabled"} title="保存配置，并跟随服务器启动">${N.frpsSaved ? "保存" : "保存并连接"}</button></div></div></div>`;
   return lan + frp;
 }
 
@@ -143,14 +143,14 @@ function nodeLine(t) {
     ? (x.tier ? `<span class="tag ${x.tier}">${TIER_NAME[x.tier]}</span>` : "") + `<span class="nn"><span class="id">#${x.id}</span>${esc(x.n)}</span><span class="tag good">${x.bw}</span>` + (x.udp ? `<span class="tag plain">UDP</span>` : "")
     : `<span class="nn">${esc(x.n)}</span>` + (x.pub ? `<span class="tag pub">公开游戏</span>` : "");
   return `<div class="tnode" title="${esc(x.n + (x.d ? "\n" + x.d : ""))}"><span class="k">节点</span>${tags}<span class="nsp"></span>`
-    + (t.kind === "voice" ? "" : `<button class="nb sm" data-act="swapnode" title="换到别的节点：在新节点上建一条、连上以后，原来那条从平台上删掉">换节点</button>`) + `</div>`;
+    + (t.kind === "voice" ? "" : `<button class="nb sm" data-act="swapnode" title="更换到其他节点：将在新节点创建隧道并连接，完成后删除平台上的原隧道">更换节点</button>`) + `</div>`;
 }
 function tunBlock(t) {
   const [c, s] = tunState(t), voice = t.kind === "voice";
   return `<div class="tunp${voice ? " voice" : ""}" data-tun="${voice ? "voice" : "game"}"><div class="lh"><i data-ic="${voice ? "voice" : "globe"}"></i><span class="t">${voice ? "语音隧道" : "游戏隧道"}</span>`
     + `<span class="npill ${c}" data-pill><i></i>${s}</span><span class="nsp"></span>${ib("tmenu", "more", "更多")}</div>`
     + `<div class="lbody">`
-    + (voice ? `<span class="lb" title="MineDeck 已经把它写进 Simple Voice Chat 的 voice_host，朋友不用填">语音地址</span>`
+    + (voice ? `<span class="lb" title="MineDeck 已自动写入 Simple Voice Chat 的 voice_host，玩家无需手动填写">语音地址</span>`
       : `<span class="lb" title="公网玩家在多人游戏中添加服务器时使用此地址">公网联机地址</span>`)
     + `<div class="bigaddr"><span class="mono">${addrOf(t)}</span>${ib("copy", "copy", "复制", ` data-copy="${addrOf(t)}"`)}</div>${nodeLine(t)}`
     + `<div class="tkv" title="在${platIn(t.plat)}控制台中对应的隧道名称"><span class="k">隧道</span><span class="mono">${esc(t.name)}</span><span class="tag plain">${voice ? "UDP" : "TCP"}</span></div></div>`
@@ -162,7 +162,7 @@ function voiceBlock() {
   const N = net();
   if (N.voice) return tunBlock(N.voice);
   return `<div class="tunp empty voice"><div class="lh"><i data-ic="voice"></i><span class="t">语音隧道</span><span class="sub">Simple Voice Chat</span></div>`
-    + `<div class="vadd"><button class="nb pri" data-act="vadd"${N.busy ? " disabled" : ""} title="${esc(`Simple Voice Chat 的语音走 UDP，要单独一条隧道。MineDeck 在游戏隧道的同一个节点上建好，把地址写进 voice_host，朋友不用另外填`)}">`
+    + `<div class="vadd"><button class="nb pri" data-act="vadd"${N.busy ? " disabled" : ""} title="${esc(`Simple Voice Chat 语音使用 UDP 协议，需单独创建隧道。MineDeck 将在游戏隧道所在节点创建，并自动写入 voice_host，玩家无需手动填写`)}">`
     + (N.busy ? `<i data-ic="spinner" class="spin"></i>创建中` : `<i data-ic="plus"></i>新建语音隧道`) + `</button></div></div>`;
 }
 const tunPage = () => tunBlock(net().game) + (net().svc ? voiceBlock() : "");
@@ -232,8 +232,8 @@ function mainBtn(k) {
   const other = !N.swap && N.game && N.game.plat !== k;
   const label = N.busy ? `<i data-ic="spinner" class="spin"></i>${N.swap ? "更换中" : "创建中"}` : N.swap ? "确认更换" : other ? `切换至${platIn(k, " ", "")}` : newTab ? "新建隧道" : "使用此隧道";
   const tip = !ready ? (newTab ? "请先选择节点" : "请先选择隧道")
-    : N.swap ? "在新节点上建一条、连上以后，原来那条从平台上删掉；地址会变，记得告诉朋友"
-    : other ? `建好以后，${platIn(N.game.plat, "", " ")}上那条停掉、和这台服务器解绑，平台上的不删` : newTab ? `本地端口 ${PORT()}，公网端口${k === "openfrp" ? "在节点允许范围内自动分配" : "由樱花穿透自动分配"}，其余采用平台默认配置` : "";
+    : N.swap ? "将在新节点创建隧道并连接，完成后删除平台上的原隧道；公网联机地址将会变化"
+    : other ? `${newTab ? "创建" : "绑定"}后将停止并解绑当前${platIn(N.game.plat)}隧道，但保留平台上的原隧道` : newTab ? `本地端口 ${PORT()}，公网端口${k === "openfrp" ? "在节点允许范围内自动分配" : "由樱花穿透自动分配"}，其余采用平台默认配置` : "";
   return `<button class="nb pri" data-act="nmain"${ready && !N.busy ? "" : " disabled"}${tip ? ` title="${esc(tip)}"` : ""}>${label}</button>`;
 }
 function nodePanel(k) {
@@ -245,7 +245,7 @@ function nodePanel(k) {
 }
 function sakuraKey() {
   const N = net();
-  return `<div class="keyb"><div class="lrow"><span class="lb">樱花访问密钥</span><a class="tlink" title="在浏览器中打开樱花穿透官网用户信息页以获取「访问密钥」">去官网复制</a></div>`
+  return `<div class="keyb"><div class="lrow"><span class="lb">樱花访问密钥</span><a class="tlink" title="在浏览器中打开樱花穿透官网的用户信息页，复制「访问密钥」">去官网复制</a></div>`
     + `<div class="keyrow"><input class="inp" id="nskey" type="password" placeholder="粘贴访问密钥" value="${esc(N.key)}" autocomplete="off" spellcheck="false">`
     + `<button class="kbtn" data-act="connect"${N.connecting ? " disabled" : ""}>${N.connecting ? `<i data-ic="spinner" class="spin"></i>连接中` : "连接"}</button></div>`
     + ntg("saveKey", "记住密钥", N.saveKey, "使用 Windows 加密保存在本机，后续配置其他服务器时无需重复粘贴；可在「设置 → 内网穿透」中更换或删除") + `</div>`

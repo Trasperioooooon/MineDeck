@@ -53,7 +53,7 @@
       case "latest": return `<span class="sab-sx ok" title="${esc(`${head}已是最新版本（v${A.ver}，正式版）`)}"><i data-ic="check"></i>已是最新</span>`;
       case "found": return `<span class="sab-sx new" title="${esc(`${head}发现新版本 v${NEW}（正式版），当前版本 v${A.ver}`)}">发现新版本 v${NEW}（正式版）</span>`;
       case "downloading": return `<span class="sab-sx">正在下载 v${NEW}</span><span class="sab-mb"><b class="sab-got"></b> / ${SIZE} MB</span>`;
-      case "ready": return `<span class="sab-sx new" title="下载好了，也校验过了；重启 MineDeck 时换上新版本">v${NEW} 已下载，重启后完成更新</span>`;
+      case "ready": return `<span class="sab-sx new" title="已下载并通过校验，重启 MineDeck 时将应用新版本">v${NEW} 已下载，重启后完成更新</span>`;
       default: return `<span class="sab-sx">正式版</span>`;
     }
   }

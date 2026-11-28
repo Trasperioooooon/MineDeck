@@ -1263,7 +1263,7 @@ function pathTip() {
   return `存储路径：${ROOT}\\${pathDir()}` + (slug ? "" : "（名称不含英文字母或数字，将按创建时间命名文件夹）") + "\n点击更改存储路径";
 }
 const portOk = () => { const v = Number(SET.port); return Number.isInteger(v) && v >= 1 && v <= 65535; };
-let portState = () => portOk() ? `<span class="st" title="端口可用"><i data-ic="check"></i></span>` : `<span class="st bad" title="端口需为 1 ~ 65535 的整数">1~65535</span>`;
+let portState = () => portOk() ? `<span class="st" title="端口可用"><i data-ic="check"></i></span>` : `<span class="st bad" title="端口需为 1～65535 的整数">1～65535</span>`;
 const g1 = mb => (mb / 1024).toFixed(1);
 const memClamp = v => Math.min(MEM_CAP, Math.max(512, Math.round((+v || 512) / 512) * 512)); // 按 0.5 GB 取整，夹在 0.5 GB 和上限之间
 // 内存的数：整数不带 .0（4 GB、4.5 GB、15.2 GB）
@@ -1277,20 +1277,23 @@ const memStep = (v, d) => (d < 0 ? Math.max(512, Math.ceil(v / 512) * 512 - 512)
 // 运行内存一块：标题和图例；格子（也是滑条）加步进；格子下面一排快捷预设。推荐分配、本机总量、一格多大在格子的悬停提示里
 const PRESETS = [2048, 4096, 8192, 16384], PRESETS_PROXY = [512, 1024, 2048]; // 代理端推荐 1 GB，预设跟着小
 function memCtl(proxy) {
-  const tip = `本机 ${gbTxt(RAM.total)}${BLOCKS ? "" : ` · 1 格 = ${gbTxt(CELL)}`} · 最多能分 ${gbTxt(MEM_CAP)}（当前可用的）\n` + (proxy ? "推荐 1 GB；代理端只做转发，占用很低" : "推荐：模组服 4 GB 以上；无模组的小型服务器 2~4 GB");
+  const rec = proxy ? "建议 1 GB；代理端仅负责转发，内存占用低"
+    : ["neoforge", "fabric", "forge", "mohist", "banner"].includes(core) ? "建议 4 GB 及以上"
+    : "小型服务器建议 2～4 GB";
+  const tip = `本机 ${gbTxt(RAM.total)}${BLOCKS ? "" : ` · 1 格 = ${gbTxt(CELL)}`} · 最多可分配 ${gbTxt(MEM_CAP)}（当前可用内存）\n` + rec;
   const used = RAM.total - RAM.avail;
   const body = BLOCKS ? `<i class="bu" style="--w:${used}"></i><i class="ba" style="--w:${RAM.avail}"><b></b></i>` : "<i></i>".repeat(CELLS);
   return `<div class="fld g-mem"><span class="lb">内存分配<span class="mleg" id="smleg"></span></span>
       <div class="memx"><div class="mbar" id="smbar" tabindex="0" role="slider" aria-label="内存分配" aria-valuemin="512" aria-valuemax="${MEM_CAP}" title="${esc(tip)}">
           <div class="cells${BLOCKS ? " blk" : ""}">${body}<span class="knob"></span></div></div>
-        <div class="step" id="smemf"><button class="sb" data-mstep="-1" title="少 0.5 GB"><i data-ic="minus"></i></button><span class="sv" id="smemv"></span><button class="sb" data-mstep="1" title="多 0.5 GB"><i data-ic="plus"></i></button></div></div>
-      <div class="mpre">${(proxy ? PRESETS_PROXY : PRESETS).map(v => `<button class="mp" data-mp="${v}"${v > MEM_CAP ? " disabled" : ""}>${gs(v)}</button>`).join("")}${memLow(proxy)}</div></div>`;
+        <div class="step" id="smemf"><button class="sb" data-mstep="-1" title="减少 0.5 GB"><i data-ic="minus"></i></button><span class="sv" id="smemv"></span><button class="sb" data-mstep="1" title="增加 0.5 GB"><i data-ic="plus"></i></button></div></div>
+      <div class="mpre">${(proxy ? PRESETS_PROXY : PRESETS).map(v => `<button class="mp" data-mp="${v}"${v > MEM_CAP ? " disabled" : ""}>${gbTxt(v)}</button>`).join("")}${memLow(proxy)}</div></div>`;
 }
 // 上限压低了默认分配时（比如 8G 的电脑只剩 1.5 GB 可用），结果变了，原因要看得见：预设那排右边一句短话，整句在悬停里
 function memLow(proxy) {
   const want = proxy ? 1024 : 4096;
   if (MEM_CAP >= want) return "";
-  const tip = `本机现在只剩 ${gbTxt(RAM.avail)} 可用，最多能分 ${gbTxt(MEM_CAP)}，少于推荐的 ${gbTxt(want)}。\n关掉别的程序或服务器，再打开向导就能分得更多。`;
+  const tip = `当前可用内存 ${gbTxt(RAM.avail)}，可分配上限 ${gbTxt(MEM_CAP)}，低于建议的 ${gbTxt(want)}。\n关闭其他程序或服务器后重新打开向导，可分配更多内存。`;
   return `<span class="mlow" title="${esc(tip)}"><i data-ic="warn"></i>可用内存不足</span>`;
 }
 // 格子：从左往右，灰的是系统已占，接着强调色的是本服分配，后面淡的是剩余；一格只占一部分时按比例涂。把手停在本服那一截的末端
@@ -1340,7 +1343,7 @@ function setMem(v) { if (v === SET.mem) return; SET.mem = v; SET.memTouched = tr
 const avatarTile = () => SET.icon ? `<span class="sav icon"><img src="${SET.icon}" alt=""></span>`
   : `<span class="sav" style="--c:${MDPixel16.CORE_COLORS[core] || "#7a8aa0"}">${MDPixel16.svg(core, 48)}</span>`;
 function avatarBtn() {
-  return `<div class="avbtn" data-act="icon" title="更换服务器图标…">${avatarTile()}
+  return `<div class="avbtn" data-act="icon" title="更换服务器图标">${avatarTile()}
       <span class="avov"><i data-ic="camera"></i></span>${SET.icon ? `<span class="avx" data-act="unicon" title="改用核心头像"><i data-ic="x"></i></span>` : ""}</div>`;
 }
 const seg = (key, opts) => `<div class="seg" data-seg="${key}"><i class="sgl"></i>${opts.map(([v, t]) => `<span data-v="${v}"${SET[key] === v ? ` class="on"` : ""}>${t}</span>`).join("")}</div>`;
@@ -1569,7 +1572,7 @@ function tunRows(k) {
   if (!list.length) return `<div class="nempty">平台上没有匹配的隧道</div>`;
   return list.map(t => {
     const bad = t.t !== "TCP" ? "此为 UDP 隧道（通常用于语音），游戏联机需使用 TCP 隧道；语音隧道可在创建服务器后于「联机」页添加"
-      : t.lp !== +SET.port ? `本地端口为 ${t.lp}，与当前服务器端口 ${SET.port} 不一致；请先在平台将本地端口修改为 ${SET.port}` : "";
+      : t.lp !== +SET.port ? `本地端口为 ${t.lp}，与当前服务器端口 ${SET.port} 不一致；请先在平台将本地端口改为 ${SET.port}` : "";
     return `<div class="trow${LINK.use[k] === t.n ? " on" : ""}${bad ? " off" : ""}" data-use="${esc(t.n)}" title="${esc(bad || "使用此隧道")}">`
       + `<span class="n">${esc(t.n)}</span><span class="tag plain">${t.t}</span><span class="sp"></span><span class="k">${esc(t.node)} · 本地端口 ${t.lp}</span></div>`;
   }).join("");
@@ -1580,7 +1583,7 @@ function nodeBody(k) {
   const fil = [["all", "全部"], ["udp", "支持 UDP"], ...(k === "sakura" ? [["pub", "公开游戏"]] : [])];
   const top = tabOf(k) === "new" ? `<div class="nfil"><div class="nfils"><i class="nfhl"></i>${fil.map(([v, t]) => `<button class="nf${LINK.filter === v ? " on" : ""}" data-nfil="${v}">${t}</button>`).join("")}</div><span class="sp"></span>`
     + ckBox("full", "满载") + ckBox("off", "离线") + ckBox("perm", "无权限")
-    + (k === "sakura" ? ltg("pub", "公开招人", "发到论坛、服务器列表、QQ 大群，或在 B 站、抖音上宣传招人的服务器需开启；樱花穿透规定此类服务器只能用公开游戏节点，用错会被封号。仅熟人联机无需开启") : "") + `</div>` : "";
+    + (k === "sakura" ? ltg("pub", "公开招人", "发布到论坛、服务器列表、QQ 大群，或在 B 站、抖音宣传招人的服务器需开启；樱花穿透规定此类服务器仅限使用公开游戏节点，违规使用将被封号。仅熟人联机无需开启") : "") + `</div>` : "";
   return top + `<div class="lwrap nwrap"><div class="list nlist" id="nlist">${tabOf(k) === "new" ? nodeCards(k) : tunRows(k)}</div><i class="thumb"></i></div>`;
 }
 function nodePanel(k) {
@@ -1623,7 +1626,7 @@ function lanPage() {
     + `</div></div>`;
   const frp = `<div class="lanp frpp${on ? " on" : ""}${proxy ? " off" : ""}" title="${esc(proxy ? "代理端端口需在首次启动生成配置文件后确定，启动后可在服务器的「联机」页开启自建 frps" : on ? "" : "适用于自有 frps 服务端，点击开启")}">`
     + `<div class="lh">${ltg("frpsOn", "自建 frps", "由 MineDeck 启动 frpc 连接自有 frps，实现公网联机", on)}</div>`
-    + `<div class="lbody"><span class="lb" title="公网玩家在游戏多人联机中输入此地址：由 frps 地址与公网端口组成，公网端口留空时默认与本地端口一致">公网联机地址</span>`
+    + `<div class="lbody"><span class="lb" title="公网玩家连接时使用此地址，由 frps 地址与公网端口组成（公网端口留空时默认与本地端口一致）">公网联机地址</span>`
     + `<div class="bigaddr" id="faddr">${frpsAddr()}</div>`
     + `<div class="frps" title="本地端口 ${esc(SET.port)}">`
     + `<input class="inp" id="fhost" placeholder="frps 地址" value="${esc(LINK.frps.host)}" autocomplete="off" spellcheck="false"${fd}>`
@@ -1653,7 +1656,7 @@ const wtg = (key, t, tip) => `<div class="tg${isOn(SET[key]) ? " on" : ""}" data
 // 底部「谁能进」：正版验证一块在左（只包住开关和字），白名单一块占其余的宽，开关在字的左边（同第三步的 EULA）。
 // 原来两块右边各有一句提醒（「谁拿到地址都能进」「名单是空的」「白名单只认名字」），11-26 作者说开服的人都懂，「名单是空的」反倒让人以为非填不可，都拿掉了
 function whoStrip() {
-  if (isProxyCore()) return `<div class="who"><div class="wt one" title="正版验证需在代理端自身配置文件中修改，白名单需在各后端子服中分别开启">谁能进：代理端在自己的配置里设</div></div>`;
+  if (isProxyCore()) return `<div class="who"><div class="wt one" title="正版验证需在代理端自身配置文件中修改，白名单需在各后端子服中分别开启">谁能进：代理端需在自身配置中设置</div></div>`;
   return `<div class="who"><div class="wt wt-on">${wtg("online", "正版验证", "开启后仅允许正版账号加入；关闭后允许离线账号加入，但不会使用正版 UUID，也不显示正版皮肤")}</div>`
     + `<div class="wt wt-wl${SET.wl ? " open" : ""}">${wtg("wl", "白名单", "开启后仅允许名单内的玩家加入；关闭后知晓地址的任意玩家均可加入")}`
     + `<div class="wnames" id="names"><div class="wscroll" id="wlscroll">${LINK.names.map(nchip).join("")}`
@@ -2263,7 +2266,7 @@ const LAST = { modpack: "导入并创建", map: "创建服务器", transfer: "�
 // 第一步各条路的字。drop：框里的一句；fmt：收什么、多大（上限在上传之前就拦，同程序）；tip：程序原来写在页头的长说明，收进悬停；need：没选就点下一步时的那句
 const SRCF = {
   modpack: { title: "选择整合包以进行下一步", ico: "package", drop: "拖入整合包，或点击选择", fmt: ".mrpack · .zip · 最大 4 GB", need: "请先选择整合包",
-    tip: "支持 Modrinth（.mrpack）、CurseForge（.zip）或现成服务端压缩包。清单与服务端文件可在最外层，也可套在文件夹里（每层只有一个文件夹时，最多认三层）。核心与版本将自动识别" },
+    tip: "支持 Modrinth（.mrpack）、CurseForge（.zip）或现成服务端压缩包。清单与服务端文件可位于最外层，也可嵌套在文件夹内（每层仅含单个文件夹时，最多识别三层）。核心与版本将自动识别" },
   map: { title: "选择地图以进行下一步", ico: "map", drop: "拖入地图压缩包，或点击选择", fmt: ".zip · 最大 8 GB", need: "请先选择地图",
     tip: "支持下载的冒险、空岛、跑酷地图，以及单人存档或旧服存档。压缩包内存在多层嵌套或附带说明与资源包时均可识别；包含多张地图时将列出供选择" },
   transfer: { title: "选择交接包以进行下一步", ico: "archiveRestore", drop: "拖入交接包，或点击选择", fmt: ".mdpack · 最大 8 GB", need: "请先选择交接包",
@@ -2295,7 +2298,7 @@ const MAPSRC = { file: "SkyCity_v2.1.zip", bytes: 1.3 * 1024 ** 3, path: "D:\\Ma
     diff: "normal", mode: "adventure", core: "vanilla", notes: [] },
   { id: "b", name: "天空之城（建造存档）", root: "SkyCity_v2.1/SkyCity_build", ver: "1.20.4", size: "214 MB", layout: "旧版布局", layoutFull: "旧版布局（26.1 以前的原版）",
     dims: [["主世界", 40]], missing: ["下界", "末地"], dps: [], rp: false, players: 1, readme: "", hints: [], diff: "peaceful", mode: "creative", core: "vanilla",
-    notes: [["warn", "单人存档：原玩家背包与经验能否衔接取决于加入账号", "此为单人存档，地形、建筑与容器内容均完整保留；原玩家背包与经验能否衔接取决于加入账号（开启正版验证并使用同一正版账号通常可延续）。MineDeck 不会修改玩家数据文件"]] },
+    notes: [["warn", "单人存档：原玩家背包与经验能否衔接取决于进服账号", "此为单人存档，地形、建筑与容器内容均完整保留；原玩家的背包与经验能否衔接取决于进服使用的账号（开启正版验证并使用同一正版账号通常可衔接）。MineDeck 不会修改玩家数据文件"]] },
   { id: "c", name: "SkyCity", root: "SkyCity_v2.1/old/SkyCity", ver: "", size: "1.0 GB", block: "仅含备份文件 level.dat_old",
     blockFull: "该存档仅包含备份文件 level.dat_old，缺少 level.dat。可先将 level.dat_old 复制并重命名为 level.dat，确认可在单人游戏中正常打开后再导入" },
 ] };
@@ -2367,7 +2370,7 @@ const upText = () => `已上传 ${fmtB(srcBytes() * SRC.pct / 100)} / ${fmtB(src
 function prowHTML() {
   const bad = SRC.phase === "error" && FLOW === "adopt" ? " bad" : "";
   if (FLOW === "map") return `<label class="prow${bad}" id="prow"><input id="srcpath" spellcheck="false" autocomplete="off" value="${esc(SRC.path)}" aria-label="地图文件夹或 ZIP 文件的路径" placeholder="或输入本机文件夹或 ZIP 路径，如 D:\\Maps\\SkyCity">`
-    + `<button class="ib" data-src="browse" title="选择地图文件夹…（包含 level.dat 的存档文件夹或其上一级文件夹）"><i data-ic="folder"></i></button><button class="ib" data-src="scan" title="识别"><i data-ic="search"></i></button></label>`;
+    + `<button class="ib" data-src="browse" title="选择地图文件夹（包含 level.dat 的存档文件夹或其上一级文件夹）"><i data-ic="folder"></i></button><button class="ib" data-src="scan" title="识别"><i data-ic="search"></i></button></label>`;
   if (FLOW === "adopt") return `<label class="prow${bad}" id="prow"><input id="srcpath" spellcheck="false" autocomplete="off" value="${esc(SRC.path)}" aria-label="服务器文件夹路径" placeholder="或输入文件夹完整路径，如 D:\\MyServer">`
     + `<button class="ib" data-src="scan" title="识别"><i data-ic="search"></i></button></label>`;
   return "";
@@ -2389,7 +2392,7 @@ function modpackDone() {
   const grp = (t, n, rows, cls = "") => `<div class="fgh${cls}">${t}<span class="n">${n}</span></div>` + rows.join("");
   const row = (f, tag = "", skip = false) => `<div class="frow${skip ? " skip" : ""}"${skip ? ` title="清单标明仅客户端使用，服务端将跳过安装；导入结果中仍会列出"` : ""}>${m(f)}${tag}</div>`;
   const list = cf ? `<div class="nph">请先配置 CurseForge API Key，以加载文件清单</div>`
-    : grp("需处理", P.pending.length, P.pending.map(([f, h]) => row(f, `<span class="tag warn" title="下载地址 ${esc(h)} 不在允许的站点里">需处理</span>`)), " warn")
+    : grp("需处理", P.pending.length, P.pending.map(([f, h]) => row(f, `<span class="tag warn" title="下载地址 ${esc(h)} 不在允许的站点列表内">需处理</span>`)), " warn")
       + grp("模组", P.mods.length, P.mods.map(f => row(f)))
       + grp("仅客户端（不安装）", P.client.length, P.client.map(f => row(f, "", true)));
   const lsrc = `<div class="lsrc" data-src="lsrc" title="若该文件夹中存在与需处理项同名的文件，将直接使用本地文件替代（不做校验或线上匹配）；其余未自动安装的文件可在导入后于任务页或服务器详情页逐项处理">${KIT.icon("folder")}`
@@ -2417,7 +2420,7 @@ function mapDone() {
 // 右栏：一张固定的小表（每张地图都是这几行，没有的写「没有」），换地图时只换变了的那几格（逐项换）
 function mapDetInner(c = MAPC()) {
   const dims = c.dims.map(([n, r]) => `<span class="dim" title="${r} 个区域文件">${n}</span>`).join(" · ")
-    + (c.missing.length ? `<span class="f" title="该地图未包含${c.missing.join("、")}，并非导入遗漏，服务器第一次用到时会新生成">${c.missing.join("、")}会新生成</span>` : "");
+    + (c.missing.length ? `<span class="f" title="该地图未包含${c.missing.join("、")}，并非导入遗漏，服务器首次使用对应维度时将新生成">${c.missing.join("、")}将新生成</span>` : "");
   const dd = (k, v, cls = "") => `<dd data-k="${k}"${cls ? ` class="${cls}"` : ""}>${v}</dd>`;
   const notes = c.notes.map(([t, s, full]) => `<div class="nt ${t}" title="${esc(full)}"><i data-ic="${t === "warn" ? "warn" : "info"}"></i><span>${s}</span></div>`).join("");
   return `<dl class="facts"><dt>保存于</dt>${dd("ver", m(c.ver))}<dt>布局</dt>${dd("lay", `<span title="${esc(c.layoutFull)}">${c.layout}</span>`)}`
@@ -2576,7 +2579,7 @@ coreRows = pl => { const p = PLAYS[pl]; if (!hasCores(pl)) return "";
   const mc = FLOW === "map" ? MAPC() : null;
   return [p.rec, ...p.cores.filter(k => k !== p.rec)].filter(Boolean).map(k => {
     const dis = !coreOK(k);
-    const tag = mc && k === mc.core ? `<span class="tag" title="地图里有 ${CORE[k][0]} 的线索">地图</span>` : k === p.rec ? `<span class="tag">推荐</span>` : "";
+    const tag = mc && k === mc.core ? `<span class="tag" title="地图中检测到 ${CORE[k][0]} 线索">地图</span>` : k === p.rec ? `<span class="tag">推荐</span>` : "";
     return `<div class="row${k === core ? " on" : ""}${dis ? " dis" : ""}" data-core="${k}"${dis ? ` title="${esc(coreWhyNot(k))}"` : ""}>${MDPixel16.svg(k, 32)}${CORE[k][0]}<span class="sp"></span>${tag}</div>`; }).join(""); };
 // 照 wizard.html 的 step1，最下面那行换成「核对地图」
 function step1() {
@@ -2708,7 +2711,7 @@ function step3i() {
 // 这里照版本那一列画成列表，选中框滑过去；「本机已有 / 要下载」照接管页（/api/javas），本机有哪几个是假的（17、21）
 function javaCol() {
   const t = FLOW === "transfer", local = [17, 21];
-  const rows = [["0", t ? "跟原来一样" : "自动", t ? `Java ${TP.java}` : "按版本匹配"],
+  const rows = [["0", t ? "沿用原版本" : "自动", t ? `Java ${TP.java}` : "按版本匹配"],
     ...[8, 11, 16, 17, 21, 25].filter(x => !t || x !== TP.java).map(x => [String(x), `Java ${x}`, local.includes(x) ? "本机已有" : "需下载"])];
   return `<div class="col jcol"><h3 title="${t ? "默认沿用原服务器的 Java 大版本" : "默认按 Minecraft 版本自动匹配"}，本机缺失时将自动下载；${t ? "导入" : "接管"}后可在「设置 → 启动与内存」中更换">Java</h3>`
     + `<div class="lwrap jwrap"><div class="list" id="jlist"><i class="hl"></i>${rows.map(([v, n, tag]) => `<div class="row vrow jrow${SRC.java === v ? " on" : ""}" data-java="${v}"${tag === "需下载" ? ` title="本机未安装，${t ? "导入" : "接管"}时自动下载（约 50 MB）"` : ""}>${n}<span class="sp"></span><span class="tag">${tag}</span></div>`).join("")}</div><i class="thumb"></i></div></div>`;
@@ -2856,7 +2859,7 @@ function srcAct(k, el) {
   }
   if (k === "lsrc") { SRC.lsrc = "D:\\MyServer\\mods"; repaintLsrc(); return; } // 草图里不真弹选文件夹的窗口
   if (k === "lsrcx") { SRC.lsrc = ""; repaintLsrc(); return; }
-  if (k === "cfkey") { showToast("去「设置 → 下载与网络」", "程序里会打开设置页，绑好 CurseForge API Key 再回来（草图不跳）"); return; }
+  if (k === "cfkey") { showToast("前往「设置 → 下载与网络」", "实际运行时将打开设置页，配置 CurseForge API Key 后返回即可（草图不跳转）"); return; }
   if (k === "readme") { openReadme(); return; }
   if (k === "rdclose") { const r = document.querySelector(".rdm"); r?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 120, fill: "forwards" }).finished.then(() => r.remove()); }
 }

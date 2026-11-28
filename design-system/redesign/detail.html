@@ -304,6 +304,7 @@ window.EXTRA_ICONS = {
   /* 展开时标题行的结论淡掉，全文在下面第一条里（一句话只说一次） */
   .dgt span { transition: opacity .2s; }
   .dg.open .dgt span { opacity: 0; }
+  .dg.open .dgt { text-overflow: clip; } /* 结论淡掉时省略号也别留着（省略号是 .dgt 自己画的，不跟 span 一起淡） */
   /* 两个以上的问题：同页头提示胶囊的「+1」 */
   .dgk { height: 28px; min-width: 28px; padding: 0 9px; border: 0; border-radius: 14px; flex: none; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
          background: color-mix(in srgb, var(--dc) 22%, transparent); color: var(--dc); }
@@ -492,7 +493,7 @@ function skBar() {
 
 // ---- 常驻提示（原是程序里的原话，11-28 照 Gemini 改成书面口吻，程序跟着草图改；结论是胶囊上露的，全文在浮层里） ----
 const NOTICES = [
-  { id: "fail", short: `上次启动失败：端口 ${S.port} 被「空岛生存」占用`, fix: `改成 ${S.port + 1} 并启动`, copy: true, close: true,
+  { id: "fail", short: `上次启动失败：端口 ${S.port} 被「空岛生存」占用`, fix: `改为 ${S.port + 1} 并启动`, copy: true, close: true,
     full: `上次启动失败：端口 ${S.port} 被服务器「空岛生存」占用，两台服务器无法同时运行。` },
   { id: "java", short: "未找到该服务器配置的 Java", fix: "更换 Java",
     full: `未找到该服务器配置的 Java（<span class="mono">C:\\Program Files\\Java\\jdk-21\\bin\\java.exe</span>），当前无法启动。可能已被卸载或移动。` },
@@ -641,7 +642,7 @@ const FORGE_MISSING = [L_START,
   "\tat net.minecraftforge.server.loading.ServerModLoader.load(ServerModLoader.java:32) ~[forge-1.20.1-47.3.0-universal.jar%23105!/:?]",
   "[MineDeck] 服务器进程已退出（exit status 1）"];
 const MISMATCH = "[12:30:01] [Server thread/INFO] [minecraft/ServerLoginPacketListenerImpl]: com.mojang.authlib.GameProfile@29746d4f[id=<null>,name=TesterA,properties={},legacy=false] (/192.168.1.52:50111) lost connection: Connection closed - mismatched mod channel list";
-const STOP = ["[MineDeck] 正在保存世界并停止服务器...", "[MineDeck] 服务器已正常关闭"];
+const STOP = ["[MineDeck] 正在保存存档并停止服务器…", "[MineDeck] 服务器已正常关闭"];
 // 两个问题：同一次开服里先有好友因为模组对不上进不来，后来卡死被看门狗关掉（程序里新的一次「[MineDeck] 启动:」会清掉横幅，所以两条得在同一次里）
 const WATCHDOG = ["[13:09:44] [Server thread/WARN] [minecraft/MinecraftServer]: Can't keep up! Is the server overloaded? Running 5012ms or 100 ticks behind",
   "[13:10:44] [Server Watchdog/FATAL] [minecraft/ServerWatchdog]: A single server tick took 60.00 seconds (should be max 0.05)",
@@ -686,18 +687,18 @@ function consoleLog() {
 // 四条报错的字原是 internal/diag/rules.go 的原话，11-28 照 Gemini 清单的方向改成书面口吻（Gemini 只给了方向，句子主会话补的），程序跟着草图改
 const F_MISSING = { title: "缺少前置模组", summary: "缺少前置模组或版本不匹配：geckolib、create",
   details: ["mowziesmobs 需要 geckolib（版本 [4.2,)），但未安装", "createaddition 需要 create（版本 [0.5.1.f,0.5.2)），当前为 0.5.0.i，版本不匹配"],
-  fixes: ["按模组 ID 在 Modrinth 搜索该前置（选择与服务器相同的加载器和 Minecraft 版本），放入 mods 文件夹", "版本不匹配的，更换为满足版本范围的版本", "玩家的客户端也需安装相同的前置"],
+  fixes: ["按模组 ID 在 Modrinth 搜索该前置（选择与服务器相同的加载器和 Minecraft 版本），放入 mods 文件夹", "若版本不匹配，请更换为符合版本范围的版本", "玩家的客户端也需安装相同的前置"],
   evidence: [FORGE_MISSING[5].trim(), FORGE_MISSING[6].trim()] };
 const F_MISMATCH = { title: "玩家无法加入（模组不一致）", warn: true, summary: "TesterA 连接时因客户端与服务端的模组不一致被断开", details: ["客户端与服务端安装的模组不一致"],
-  fixes: ["请玩家将整合包（或模组）更新至与服务端一致，加载器也需相同（NeoForge / Forge）", "服务端近期新增了模组的，需将新模组一并发给玩家安装"], evidence: [MISMATCH] };
+  fixes: ["请玩家将整合包（或模组）更新至与服务端一致，加载器也需相同（NeoForge / Forge）", "若服务端近期新增了模组，请将新模组一并发送给玩家安装"], evidence: [MISMATCH] };
 const F_CRASH = { title: "服务器异常退出", summary: "服务器异常退出，本地规则未识别出具体原因",
   fixes: ["查看控制台退出前最后的 ERROR 及异常堆栈", "若已配置 AI，可让 AI 结合崩溃报告分析"], evidence: ["服务器进程已退出（exit status 1）"] };
 const F_WATCHDOG = { title: "主线程无响应，已被看门狗强制停止", summary: "服务器单次 tick 耗时 60.00 秒，看门狗判定其无响应，已强制停止服务器",
   fixes: ["查看崩溃报告中「Server thread」的堆栈，找出阻塞主线程的模组，更新或禁用该模组", "生成新地形负载过重时，可先预生成区块，或调低视距（view-distance）",
-    "最后手段：在 server.properties 中将 max-tick-time 设为 -1（关闭看门狗；服务器卡住时将不会自动重启）"], evidence: [WATCHDOG[1], WATCHDOG[2]] };
+    "最后手段：在 server.properties 中将 max-tick-time 设为 -1（关闭看门狗；服务器无响应时将不会自动重启）"], evidence: [WATCHDOG[1], WATCHDOG[2]] };
 // Java 起不来：规则是新加的（程序没有），字照全局设置 Java 那页和详情页「启动与内存」的说法；横幅上直接给「重新下载 Java 17」，怎么修里另有「换一个 Java」
-const F_JAVA = { title: "Java 无法启动", java: 17, summary: "Java 17（MineDeck 下载的）缺少 bin\\server\\jvm.dll，文件可能被杀毒软件删除或磁盘出错",
-  fixes: ["重新下载 Java 17：先下载到临时位置，检查通过后再替换，服务器设置不用改", "或在「设置 → 启动与内存」中换一个 Java"], evidence: [JAVA_BAD[1], JAVA_BAD[2]] };
+const F_JAVA = { title: "Java 无法启动", java: 17, summary: "MineDeck 下载的 Java 17 缺少 bin\\server\\jvm.dll，文件可能已被杀毒软件删除或磁盘异常",
+  fixes: ["重新下载 Java 17：先下载至临时位置，检查通过后再替换，服务器设置无需修改", "或在「设置 → 启动与内存」中更换其他 Java"], evidence: [JAVA_BAD[1], JAVA_BAD[2]] };
 const FINDINGS = { err: [F_MISSING], multi: [F_WATCHDOG, F_MISMATCH], warn: [F_MISMATCH], crash: [F_CRASH], java: [F_JAVA] }[DIAG] || [];
 // 一段完整的插件报错（照 Paper 的格式编的示例，类名是真的、行号是编的）：外层 EventException 五帧，里面 Caused by 的最后「... 4 more」
 // 照作者 11-27 的要求展开成外层最后四帧（规则：Caused by 段的「... N more」就是它外面那个异常完整帧列表的最后 N 帧）。展开出来的几行淡一点，悬停说原文是什么
@@ -720,13 +721,13 @@ function bannerHTML() {
   const top = FINDINGS[0], warn = FINDINGS.every(f => f.warn), n = FINDINGS.length;
   const body = FINDINGS.map((f, i) => `<div class="dgf">${i ? `<div class="ft">${esc(f.title)}${f.warn ? `<span class="tag">提醒</span>` : ""}</div>` : ""}<div>${esc(f.summary)}</div>`
     + (f.details?.length ? `<ul>${f.details.map(d => `<li>${esc(d)}</li>`).join("")}</ul>` : "")
-    + `<div class="fx">怎么修</div><ol>${f.fixes.map(d => `<li>${esc(d)}</li>`).join("")}</ol>`
+    + `<div class="fx">修复步骤</div><ol>${f.fixes.map(d => `<li>${esc(d)}</li>`).join("")}</ol>`
     + (f.evidence?.length ? `<pre>${esc(f.evidence.join("\n"))}</pre>` : "") + `</div>`).join("");
   return `<div class="dg${warn ? " warn" : ""}${CON.dgOpen ? " open" : ""}" id="dg" role="status"><div class="dgh"><span class="dgi" title="由本地规则离线分析，未联网"><i data-ic="warn"></i></span>`
     + `<div class="dgt"><b>${esc(top.title)}</b><span>${esc(top.summary)}</span></div>`
     + (n > 1 ? `<button class="dgk" title="共检测到 ${n} 个问题">+${n - 1}</button>` : "")
     + (top.java ? `<button class="dga dgj" data-java="${top.java}">${CON.jredl ? `<i data-ic="spinner" class="spin"></i>${CON.jredl === "check" ? "正在检查…" : "正在重新下载…"}` : `<i data-ic="download"></i>重新下载 Java ${top.java}`}</button>` : "")
-    + `<button class="dgm" aria-expanded="${CON.dgOpen}" title="看详情和怎么修">怎么修<i data-ic="chevronDown"></i></button>`
+    + `<button class="dgm" aria-expanded="${CON.dgOpen}" title="查看详情与修复建议">修复建议<i data-ic="chevronDown"></i></button>`
     + (AI_ON ? `<button class="dga"><i data-ic="sparkle"></i>让 AI 分析</button>` : "")
     + `<button class="dgx" title="忽略本次提示"><i data-ic="x"></i></button></div>`
     + `<div class="dgc"><div class="dgb lwrap" id="dgb"><div class="list">${body}</div><span class="thumb"></span></div></div></div>`;
@@ -886,7 +887,7 @@ document.addEventListener("click", e => {
     setTimeout(() => { CON.jredl = "check"; paint(); }, 1600);
     setTimeout(() => {
       CON.jredl = ""; CON.dgClosed = true; const d = $("#dg"); if (d) { d.classList.add("gone"); setTimeout(() => d.remove(), 140); }
-      const l = `[MineDeck] Java ${m} 已重新下载并通过检查，可以启动服务器了`; CON.extra.push(l); pushLine(l);
+      const l = `[MineDeck] Java ${m} 已重新下载并通过检查，现可启动服务器`; CON.extra.push(l); pushLine(l);
     }, 2200);
     return;
   }

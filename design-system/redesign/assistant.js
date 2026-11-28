@@ -43,11 +43,11 @@
     off: { ic: "sparkle", t: "尚未配置 AI", tip: "AI 为可选功能。在「设置 → AI」配置服务商、API Key 与模型后即可启用；不配置不影响其他功能，控制台报错提示仍会显示本地规则分析。", go: true },
     "lan-none": { ic: "sparkle", t: "主机尚未配置 AI", sub: "请在运行 MineDeck 的主机上前往「设置 → AI」完成配置。" },
     "lan-closed": { ic: "lock", t: "主机已关闭「局域网可用 AI 助手」", sub: "局域网设备当前无法使用 AI 助手，可在主机「设置 → AI」中开启。", muted: true },
-    down: { ic: "warn", t: "连不上 MineDeck", sub: "请刷新页面重试。", bad: true },
+    down: { ic: "warn", t: "无法连接 MineDeck", sub: "请刷新页面重试。", bad: true },
   };
 
   const MD_SLOW = L(
-    "从控制台看，最近半小时出现了 **14 次**「跟不上」的警告，最长一次落后 2.4 秒：",
+    "根据控制台日志，最近半小时出现 **14 次**服务端过载警告（Can't keep up），最长一次落后 2.4 秒：",
     "",
     "```log",
     "[10:31:07] [Server thread/WARN]: Can't keep up! Is the server overloaded? Running 2412ms or 48 ticks behind",
@@ -55,29 +55,29 @@
     "[10:40:19] [Server thread/WARN]: Can't keep up! Is the server overloaded? Running 2056ms or 41 ticks behind",
     "```",
     "",
-    "`server.properties` 里这两项最吃性能，内存也偏紧：",
+    "`server.properties` 中以下两项对性能消耗较大，内存也偏紧：",
     "",
-    "| 项 | 现在 | 建议 | 为什么 |",
+    "| 配置项 | 当前 | 建议 | 原因 |",
     "|---|---|---|---|",
-    "| view-distance | 12 | 8 | 每个玩家周围要加载的区块少一半多 |",
-    "| simulation-distance | 10 | 6 | 实体和红石只在近处运行 |",
-    "| 最大内存 | 4 GB | 6 GB | 本机 16 GB，还有余量 |",
+    "| view-distance | 12 | 8 | 每名玩家周围加载的区块减少一半以上 |",
+    "| simulation-distance | 10 | 6 | 实体与红石仅在较近范围内运行 |",
+    "| 最大内存 | 4 GB | 6 GB | 本机 16 GB，仍有余量 |",
     "",
     "### 建议",
-    "1. 先把视距和模拟距离降下来，在线的人基本感觉不到区别。",
-    "2. 内存在这台服务器的「设置 → 启动与内存」里调，改完要重启才生效。",
+    "1. 先调低视距与模拟距离，在线玩家通常不会察觉明显差异。",
+    "2. 最大内存可在当前服务器的「设置 → 启动与内存」中调整，修改后需重启服务器生效。",
     "",
-    "要我把 `view-distance` 和 `simulation-distance` 改掉吗？");
-  const THINK1 = "用户说服务器卡。先看本地规则有没有认出什么，再看控制台最近有没有 Can't keep up，最后看 server.properties 里的视距、模拟距离和启动参数里的内存。";
+    "是否需要我为你修改 `view-distance` 与 `simulation-distance`？");
+  const THINK1 = "用户反馈服务器卡顿。先查看本地规则排错结果，再检查控制台近期是否出现 Can't keep up 警告，最后核对 server.properties 中的视距、模拟距离与启动内存配置。";
   const MD_CREATE = L(
-    "崩溃前最后一句报错说得很清楚：**create 需要 flywheel**，但模组文件夹里没有。",
+    "崩溃前的最后一条报错已指明原因：**create 缺少前置模组 flywheel**，当前模组文件夹中未安装该模组。",
     "",
     "```log",
     "[21:14:02] [main/ERROR]: Missing or unsupported mandatory dependencies:",
     "\tMod ID: 'flywheel', Requested by: 'create', Expected range: '[0.6.10,0.6.11)', Actual version: '[MISSING]'",
     "```",
     "",
-    "把 Flywheel 0.6.10 放进 `mods` 文件夹再启动就行。要找的话，在这台服务器的「插件 / 模组 → 添加」里搜 flywheel，选 1.20.1 的版本。");
+    "将 Flywheel 0.6.10 放入 `mods` 文件夹后重新启动即可。你可以在当前服务器的「模组 → 添加」中搜索 flywheel，并选择适用于 1.20.1 的版本。");
   const PACK_CREATE = L(
     "请帮我分析这台服务器的问题。",
     "",
@@ -88,7 +88,7 @@
     "系统：Windows 11；MineDeck 3.2.9",
     "",
     "## MineDeck 本地规则的结论",
-    "1. 缺少前置模组：create 需要 flywheel，但没有装",
+    "1. 缺少前置模组：create 依赖 flywheel，但未安装",
     "   - 位置：<程序目录>\\servers\\机械动力整合包\\mods",
     "",
     "## 控制台（最近一次启动以来，只留 WARN / ERROR、异常和最后几行）",
@@ -118,7 +118,7 @@
     "系统：Windows 11；MineDeck 3.2.9",
     "",
     "## MineDeck 本地规则的结论",
-    "1. 端口被占用：25567 已经被别的程序占着，服务器绑不上",
+    "1. 端口被占用：25567 已被其他程序占用，服务器无法绑定该端口",
     "",
     "## 控制台（最近一次启动以来，只留 WARN / ERROR、异常和最后几行）",
     "[18:02:10] [Server thread/INFO]: Starting Minecraft server on *:25567",
@@ -128,46 +128,46 @@
     "[18:02:11] [Server thread/INFO]: Stopping server",
     "[18:02:12] [MineDeck] 服务器进程已退出（退出码 0）");
   const MD_PV = L(
-    "控制台里这一句说明了原因：",
+    "控制台中的以下日志说明了原因：",
     "",
     "```log",
     "[18:02:11] [Server thread/WARN]: **** FAILED TO BIND TO PORT!",
     "[18:02:11] [Server thread/WARN]: The exception was: java.net.BindException: Address already in use: bind",
     "```",
     "",
-    "端口 **25567** 被别的程序占着。常见的是上一次的服务器没退干净，或者别的程序也用了这个端口：",
+    "端口 **25567** 已被其他程序占用，常见原因包括上一次的服务器进程未完全退出，或其他程序正在使用该端口：",
     "",
     "| 服务器 | 端口 | 状态 |",
     "|---|---|---|",
     "| 生存服 · 朋友 | 25565 | 运行中 |",
     "| 机械动力整合包 | 25566 | 运行中 |",
-    "| 原版快照测试 | 25567 | 起不来 |",
+    "| 原版快照测试 | 25567 | 启动失败 |",
     "",
-    "可以把「原版快照测试」的端口改成 25568，要我改吗？");
+    "可以将「原版快照测试」的端口修改为 25568，是否需要我为你修改？");
   const MD_FRIENDS = L(
-    "先确认三件事：",
+    "建议先确认以下三项：",
     "",
-    "- [ ] 朋友填的是**公网联机地址**，不是 `192.168.` 开头的局域网地址。",
-    "- [ ] 隧道显示「已连接」，而且对的是 25565。",
-    "- [ ] 朋友的游戏版本和服务器一样，都是 1.21.4。",
+    "- [ ] 对方连接的是**公网联机地址**，而非 `192.168.` 开头的局域网地址。",
+    "- [ ] 隧道状态为「运行中」，且指向本地端口 25565。",
+    "- [ ] 客户端的游戏版本与服务器一致，均为 1.21.4。",
     "",
-    "这三样都对还进不来的话，把朋友看到的报错原话发给我。");
+    "若上述三项均无误仍无法进入，请将对方客户端显示的完整报错发给我。");
   const MD_PAPER = L(
-    "|  | Paper | Fabric |",
+    "| 对比项 | Paper | Fabric |",
     "|---|---|---|",
-    "| 装什么 | 插件（放进 plugins） | 模组（放进 mods） |",
-    "| 玩家要装东西吗 | 不用，原版客户端就能进 | 大多数模组要玩家也装 |",
-    "| 适合 | 生存服、小游戏、管理插件 | 想加新物品、新玩法 |",
+    "| 扩展类型 | 插件（plugins） | 模组（mods） |",
+    "| 联机要求 | 仅服务端安装，原版客户端即可加入 | 多数模组需客户端同步安装 |",
+    "| 适用场景 | 生存服、小游戏、管理插件 | 新增物品、机制与玩法 |",
     "",
-    "只想和朋友玩原版、加几个管理插件，选 Paper；想玩模组，选 Fabric 或 NeoForge。");
-  const MD_MEM = "142 个模组，6 GB 比较稳；本机 16 GB，给到 8 GB 也行，再多没用，反而让垃圾回收一次停得更久。配置文件没读到，不影响这个结论。";
+    "若以原版玩法为主并搭配管理插件，建议选择 Paper；若需游玩模组，建议选择 Fabric 或 NeoForge。");
+  const MD_MEM = "当前共 142 个模组，建议分配 6 GB 内存较为稳妥；本机内存 16 GB，也可分配至 8 GB。继续增加内存收益有限，反而可能延长单次垃圾回收停顿时间。未能读取模组配置文件不影响此建议。";
   const MD_CONNECT = L(
-    "每台服务器的「联机」页上有两种地址：",
+    "每台服务器的「联机」页提供两种联机地址：",
     "",
-    "- **局域网联机地址**：和你连同一个 Wi-Fi 的朋友用。",
-    "- **公网联机地址**：外地的朋友用，要先在「联机」里开一条内网穿透的隧道。",
+    "- **局域网联机地址**：供同一局域网内的玩家使用。",
+    "- **公网联机地址**：供公网玩家使用，需先在「联机」页创建一条内网穿透隧道。",
     "",
-    "开隧道要先连一个穿透平台的账户，");
+    "创建隧道前需先连接内网穿透平台账号，");
   const RAW_503 = "503 Service Unavailable: {\"error\":{\"message\":\"Server is busy, please try again later.\",\"type\":\"service_unavailable_error\"}}";
 
   const usage = (input, cache, output, cost, est) => ({ usage: { input, cacheRead: cache, output, estimated: !!est }, cost: cost ? { amount: cost, currency: "CNY", source: "public" } : null });
@@ -195,7 +195,7 @@
     consent: { text: "我已阅读并同意 Minecraft EULA", url: "https://aka.ms/MinecraftEULA" },
     args: { name: "空岛", core: "paper", mc: "1.21.4", port: 25568, xmxMb: 4096, onlineMode: true }, expires: Date.now() + 300000 });
   const P_CMD = () => ({ id: nid("x"), actor: "Claude Desktop", created: "10:44", title: "执行控制台命令", level: "D",
-    plan: { summary: `在「${SV}」的控制台执行：say 服务器 5 分钟后重启`, warning: "控制台命令可以做任何事，请确认命令无误" }, args: { inst: SV, cmd: "say 服务器 5 分钟后重启" }, expires: Date.now() + 252000 });
+    plan: { summary: `在「${SV}」的控制台执行：say 服务器 5 分钟后重启`, warning: "控制台命令可执行任意服务端操作，请确认命令无误" }, args: { inst: SV, cmd: "say 服务器 5 分钟后重启" }, expires: Date.now() + 252000 });
   const P_BACKUP = () => ({ id: nid("x"), actor: "Cherry Studio", created: "10:46", title: "立即备份", level: "W", plan: { summary: `立即备份「${SV}」的存档` }, args: { inst: SV }, expires: Date.now() + 48000 });
   const card = p => ({ id: nid("t"), name: "", title: p.title, status: p.outcome ? (p.outcome === "done" ? "confirmed" : p.outcome) : "pending", args: p.args, proposal: p });
   const sess = (id, title, inst, updated, items, o = {}) => ({ id, title, inst, updated, items, origin: "local", actor: "本机", busy: false, waiting: false, needReply: false, stale: "", long: false, attach: 0, ...o });
@@ -209,33 +209,33 @@
       ]),
       sess("s2", "分析「机械动力整合包」的问题", "机械动力整合包", "09:15", [
         U(PV_LEAD, { attach: PACK_CREATE.length - PV_LEAD.length - 2, masked: true, sent: PACK_CREATE }),
-        A({ think: "崩溃报告和控制台都指向缺前置：flywheel。", text: MD_CREATE, ...usage(3906, 0, 402, 0.0035) }),
+        A({ think: "崩溃报告与控制台日志均指向缺少前置模组 flywheel。", text: MD_CREATE, ...usage(3906, 0, 402, 0.0035) }),
       ]),
       sess("s3", "把人数上限改成 10", SV, "11-26 22:08", [
         U("把人数上限改成 10"),
-        A({ text: "好的，把「生存服 · 朋友」的 max-players 从 20 改成 10。", tools: [card({ id: nid("p"), title: "修改 server.properties", level: "W", outcome: "done", by: "192.168.1.23",
+        A({ text: "好的，将「生存服 · 朋友」的 max-players 从 20 修改为 10。", tools: [card({ id: nid("p"), title: "修改 server.properties", level: "W", outcome: "done", by: "192.168.1.23",
           plan: { summary: `修改「${SV}」的 server.properties`, changes: [{ what: "max-players", before: "20", after: "10" }] }, args: { inst: SV, pairs: [{ key: "max-players", value: "10" }] } })], ...usage(2210, 0, 96, 0.0009) }),
-        A({ text: "改好了。服务器正开着，重启以后生效。", ...usage(2388, 2048, 31, 0.0005) }),
+        A({ text: "已修改完成。服务器当前正在运行，重启后生效。", ...usage(2388, 2048, 31, 0.0005) }),
       ], { origin: "lan", actor: "192.168.1.23" }),
-      sess("s4", "朋友连不进来怎么办？", SV, "11-26 20:31", [U("朋友连不进来怎么办？"), A({ think: "先排除最常见的三种：填错地址、隧道没连上、版本不一样。", text: MD_FRIENDS, ...usage(3120, 0, 188, 0.0016) })]),
+      sess("s4", "朋友连不进来怎么办？", SV, "11-26 20:31", [U("朋友连不进来怎么办？"), A({ think: "先排查最常见的三类原因：地址填写错误、隧道未运行、客户端版本不一致。", text: MD_FRIENDS, ...usage(3120, 0, 188, 0.0016) })]),
       sess("s5", "Paper 和 Fabric 有什么区别？", "", "11-25 19:02", [U("Paper 和 Fabric 有什么区别？"), A({ text: MD_PAPER, ...usage(1702, 0, 233, 0.0011, true) })]),
       sess("s6", "内存设多少合适？", "机械动力整合包", "11-24 21:47", [
         U("内存设多少合适？"),
         A({ tools: [T("instance.mods.list", "查看模组清单", "done", { inst: "机械动力整合包" }, wrap('{"count":142,"disabled":0}')),
-          T("instance.config.read", "读取模组配置文件", "error", { inst: "机械动力整合包", path: "config/create-common.toml" }, "", { error: "找不到文件：config/create-common.toml" }),
+          T("instance.config.read", "读取模组配置文件", "error", { inst: "机械动力整合包", path: "config/create-common.toml" }, "", { error: "未找到文件：config/create-common.toml" }),
           T("instance.crashes", "查看崩溃报告", "skipped", { inst: "机械动力整合包" }, "")], ...usage(2640, 0, 120, 0.0012) }),
         A({ text: MD_MEM, ...usage(3010, 2048, 96, 0.0011) }),
         // 卡片的另外两种结果（已作废、执行失败）和文本文件的逐行改动，放在这个旧会话里看
         U("把机械动力的应力倍率调到 1.5"),
-        A({ text: "好的，改 `config/create-server.toml` 里的 stressMultiplier。", tools: [card({ id: nid("p"), title: "修改模组配置文件", level: "W", outcome: "invalid", error: "操作已作废：预览后 config/create-server.toml 已变更，请让 AI 重新预览",
+        A({ text: "好的，将修改 `config/create-server.toml` 中的 stressMultiplier。", tools: [card({ id: nid("p"), title: "修改模组配置文件", level: "W", outcome: "invalid", error: "操作已作废：预览后 config/create-server.toml 已变更，请让 AI 重新预览",
           plan: { summary: "修改「机械动力整合包」的 config/create-server.toml", diff: L("@@ 第 41 行 @@", "  [kinetics]", "-   stressMultiplier = 1.0", "+   stressMultiplier = 1.5", "    # 应力倍率") },
           args: { inst: "机械动力整合包", path: "config/create-server.toml", text: "…（共 2,184 字）" } })], ...usage(3220, 2048, 140, 0.0013) }),
         U("重新来一次"),
-        A({ text: "重新预览了，改动一样。", tools: [card({ id: nid("p"), title: "修改模组配置文件", level: "W", outcome: "failed", error: "无法写入 config/create-server.toml：另一个程序正在使用此文件",
+        A({ text: "已重新生成预览，改动内容与此前一致。", tools: [card({ id: nid("p"), title: "修改模组配置文件", level: "W", outcome: "failed", error: "无法写入 config/create-server.toml：另一个程序正在使用此文件",
           plan: { summary: "修改「机械动力整合包」的 config/create-server.toml", diff: L("@@ 第 41 行 @@", "  [kinetics]", "-   stressMultiplier = 1.0", "+   stressMultiplier = 1.5", "    # 应力倍率") },
           args: { inst: "机械动力整合包", path: "config/create-server.toml", text: "…（共 2,184 字）" } })], ...usage(3480, 2048, 96, 0.0011) }),
       ]),
-      sess("s7", "怎么让朋友连进我的服务器？", "", "11-22 18:10", [U("怎么让朋友连进我的服务器？"), A({ text: MD_CONNECT, partial: true }), N("info", "已停止")], { needReply: true, rest: "在「设置 → 内网穿透」里连就行。连好以后回到「联机」页点「新建隧道」，地址就出来了。" }),
+      sess("s7", "怎么让朋友连进我的服务器？", "", "11-22 18:10", [U("怎么让朋友连进我的服务器？"), A({ text: MD_CONNECT, partial: true }), N("info", "已停止")], { needReply: true, rest: "可在「设置 → 内网穿透」中完成连接。连接后返回「联机」页点击「新建隧道」，即可获取公网联机地址。" }),
     ];
   }
 
@@ -255,20 +255,20 @@
       case "card": case "danger": {
         s1.items.push(U("好，先把视距和模拟距离改了"));
         const p = P_PROPS();
-        s1.items.push(A({ text: "好的，下面两项改完写进 `server.properties`。服务器正开着，改完要重启才生效。", tools: [card(p)], ...usage(4012, 8192, 74, 0.0019) }));
+        s1.items.push(A({ text: "好的，将把以下两项修改写入 `server.properties`。服务器当前正在运行，修改后需重启生效。", tools: [card(p)], ...usage(4012, 8192, 74, 0.0019) }));
         s1.waiting = true;
         if (ST === "danger") {
           p.outcome = "done"; s1.items[s1.items.length - 1].tools[0].status = "confirmed";
-          s1.items.push(A({ text: "改好了。要重启才生效；在线的 3 个人会掉线，可以等他们下线再重启。", ...usage(4120, 8192, 41, 0.0012) }));
+          s1.items.push(A({ text: "已修改完成，需重启服务器生效。当前在线的 3 名玩家将在重启时断开连接，可等他们下线后再重启。", ...usage(4120, 8192, 41, 0.0012) }));
           s1.items.push(U("现在重启吧"));
-          s1.items.push(A({ text: "好的，重启前会先保存世界。", tools: [card(P_RESTART())], ...usage(4230, 8192, 38, 0.0012) }));
+          s1.items.push(A({ text: "好的，重启前会先保存存档。", tools: [card(P_RESTART())], ...usage(4230, 8192, 38, 0.0012) }));
         }
         s1.updated = "10:48";
         break;
       }
       case "eula": {
         const s = sess("s8", "帮我开一个空岛服，Paper 最新版", "", "10:51", [U("帮我开一个空岛服，Paper 最新版"),
-          A({ think: "Paper 最新的稳定版是 1.21.4。端口 25565–25567 都被占了，用 25568。", text: "好的，按下面的设置新建一台 Paper 服务器：Java 用 MineDeck 自带的 21，内存 4 GB，端口 25568。新建服务器要你先同意 Minecraft 的 EULA。",
+          A({ think: "Paper 最新稳定版为 1.21.4。端口 25565～25567 均已占用，选用 25568。", text: "好的，将按以下配置新建一台 Paper 服务器：使用 MineDeck 便携版 Java 21，内存 4 GB，端口 25568。新建服务器前需先同意 Minecraft EULA。",
             tools: [card(P_CREATE())], ...usage(3302, 0, 160, 0.0016) })], { waiting: true });
         S.sessions.unshift(s); S.sid = "s8";
         break;
@@ -553,7 +553,7 @@
     if (!p.outcome && status === "pending") {
       const what = esc(p.title), sw = [];
       if (p.consent) sw.push(`<div class="as-swr" role="switch" tabindex="0" aria-checked="false" data-a="sw" data-k="consent"><span class="as-sw"></span><span>${esc(p.consent.text)}（<a href="${esc(p.consent.url)}" target="_blank" rel="noopener noreferrer">条款原文</a>）</span></div>`);
-      if (p.level === "D") sw.push(`<div class="as-swr" role="switch" tabindex="0" aria-checked="false" data-a="sw" data-k="ack"><span class="as-sw"></span><span>我已确认上述操作内容，继续执行此危险操作</span></div>`);
+      if (p.level === "D") sw.push(`<div class="as-swr" role="switch" tabindex="0" aria-checked="false" data-a="sw" data-k="ack"><span class="as-sw"></span><span>我已查看上述改动，确认执行此危险操作</span></div>`);
       const disTip = p.consent && p.level !== "D" ? "请先同意条款" : "请先开启上方确认开关";
       return `${sw.join("")}<div class="as-rs" hidden><input type="text" maxlength="300" placeholder="说明拒绝理由（选填）" aria-label="拒绝「${what}」的理由"></div>`
         + `<div class="as-acts"><button type="button" class="as-pill ghost" data-a="reject" aria-label="拒绝 ${what}…">拒绝…</button>`
@@ -593,7 +593,7 @@
     const now = Date.now();
     $$("[data-exp]").forEach(el => {
       const left = Math.round((+el.dataset.exp - now) / 1000);
-      setText(el, left <= 0 ? "可能已过期" : left >= 60 ? `${Math.ceil(left / 60)} 分钟内有效` : `还剩 ${left} 秒`);
+      setText(el, left <= 0 ? "可能已过期" : left >= 60 ? `${Math.ceil(left / 60)} 分钟内有效` : `剩余 ${left} 秒`);
       el.classList.toggle("soon", left < 60);
       if (left <= -2 && !el._gone) { el._gone = true; expire(el.closest("[data-pid]").dataset.pid); }
     });
@@ -623,7 +623,7 @@
       P.back.hidden = !!S.gate || (S.view === "list" && !s);
       const want = toChat ? "arrowLeft" : "clock";
       if (P.back._ic !== want) { P.back._ic = want; P.back.innerHTML = ic(want); }
-      const t = toChat ? "回到会话" : "会话记录"; setTip(P.back, t); P.back.setAttribute("aria-label", t);
+      const t = toChat ? "返回会话" : "会话记录"; setTip(P.back, t); P.back.setAttribute("aria-label", t);
     }
     if (P.newb) P.newb.hidden = !!S.gate;
   }
@@ -637,7 +637,7 @@
     const lines = [];
     if (S.retry) lines.push(["warn", `${ic("refresh", "as-spin")}<span>${esc(S.retry)}</span>`]);
     if (s.stale) lines.push(["warn", `${ic("warn")}<span>${esc(s.stale)}</span><button type="button" class="as-pill sm" data-a="new">${ic("plus")}新会话</button>`]);
-    else if (over()) lines.push(["warn", `${ic("warn")}<span title="可在「设置 → AI」调整 AI 助手每日额度">今天的额度已用完，明天 0 点恢复</span><a class="as-pill sm" href="settings.html?sec=ai">${ic("gear")}调高额度</a>`]);
+    else if (over()) lines.push(["warn", `${ic("warn")}<span title="可在「设置 → AI」调整 AI 助手每日额度">今日额度已用完，次日 0 点恢复</span><a class="as-pill sm" href="settings.html?sec=ai">${ic("gear")}调高额度</a>`]);
     else if (s.waiting && !s.busy) lines.push(["", `${ic("pending")}<span>上方有待确认操作，直接发送新消息将使其作废</span>`]);
     else if (s.needReply && !s.busy) lines.push(["", `${ic("info")}<span>上次回复未完成</span><button type="button" class="as-pill sm" data-a="cont">${ic("refresh")}继续回复</button>`]);
     if (s.long && !s.stale) lines.push(["", `${ic("info")}<span title="每次发送都会附带整段对话记录，消耗更多 token 与费用">会话较长，继续发送将消耗更多 token</span><button type="button" class="as-pill sm" data-a="new">${ic("plus")}新会话</button>`]);
@@ -667,10 +667,10 @@
     const empty = !P.ta.value.trim() && !att;
     P.snd.classList.toggle("plain", !busy && !!s.waiting); // 有确认卡片时，卡片上的「确认」才是主键（同程序）
     P.snd.setAttribute("aria-disabled", !busy && (off || empty) ? "true" : "false");
-    const tip = busy ? "停止回复" : off ? (s.stale ? "当前会话不可继续使用" : "今天的额度已用完") : "发送（回车发送，Shift + 回车换行）";
+    const tip = busy ? "停止回复" : off ? (s.stale ? "当前会话不可继续使用" : "今日额度已用完") : "发送（回车发送，Shift + 回车换行）";
     setTip(P.snd, tip); P.snd.setAttribute("aria-label", busy ? "停止回复" : "发送");
     // 今天的用量（到 80% 变黄）
-    const mh = `<span class="${S.used >= S.limit * 0.8 ? "warn" : ""}" title="AI 助手每日额度，可在「设置 → AI」调整。执行修改操作前会先弹出确认卡片。">今天已用 ${fmtTokens(S.used)} / ${fmtTokens(S.limit)} token</span>`;
+    const mh = `<span class="${S.used >= S.limit * 0.8 ? "warn" : ""}" title="AI 助手每日额度，可在「设置 → AI」调整。执行修改操作前会先弹出确认卡片。">今日已用 ${fmtTokens(S.used)} / ${fmtTokens(S.limit)} token</span>`;
     if (P.meta._h !== mh) { P.meta._h = mh; P.meta.innerHTML = mh; }
   }
 
@@ -765,7 +765,7 @@
     let d = a.querySelector(".as-cdot");
     if (dot && !d) { d = document.createElement("span"); d.className = "as-cdot enter"; a.appendChild(d); }
     else if (!dot && d) d.remove();
-    const tip = n && !PAGE && !S.open ? `AI 助手（外部 AI 有 ${n} 个操作等你确认）` : "AI 助手"; // 同程序 paintBtn
+    const tip = n && !PAGE && !S.open ? `AI 助手（外部 AI 有 ${n} 个操作待确认）` : "AI 助手"; // 同程序 paintBtn
     a.dataset.tip = tip; a.setAttribute("aria-label", tip);
   }
 
@@ -952,7 +952,7 @@
   }
   function cont() {
     const s = cur(); if (!s || s.busy) return;
-    const rest = s._rest || s.rest || "（接着上面）";
+    const rest = s._rest || s.rest || "（继续上文）";
     s._rest = ""; s.rest = "";
     play(s, [{ text: rest }, { usage: usage(3410, 2048, 120, 0.0009) }]);
   }
@@ -964,8 +964,8 @@
     s.waiting = false;
   }
   const CANNED = s => s.inst
-    ? `好的。我又看了一下「${s.inst}」最近的控制台，这几分钟没有新的报错。还有问题的话，把出问题的时间点告诉我，我对一下那几分钟的日志。`
-    : "好的。可以说得具体一点吗？比如是哪台服务器、什么核心和版本，我好去查对应的日志和配置。";
+    ? `好的，已再次检查「${s.inst}」最近的控制台日志，近几分钟内未出现新的报错。如仍有异常，请告知发生时间点，我再核对对应时段的日志。`
+    : "好的，请补充更多信息（例如服务器名称、核心与版本），我再查阅对应的日志与配置。";
   function send(override) {
     const s = cur(); if (!s || S.gate) return;
     if (s.busy) return;
@@ -978,8 +978,8 @@
     pushItem(s, u);
     P.ta.value = ""; autosize(); S.attach = false;
     s.updated = nowHM();
-    if (att) play(s, [{ think: "端口被占用。看看别的服务器用的端口。" }, { text: MD_PV }, { usage: usage(3906, 0, 402, 0.0035) }]);
-    else play(s, [{ think: "看一下最近的控制台。" }, { text: CANNED(s) }, { usage: usage(3120, 4096, 96, 0.0011) }]);
+    if (att) play(s, [{ think: "端口被占用，检查其他服务器的端口分配。" }, { text: MD_PV }, { usage: usage(3906, 0, 402, 0.0035) }]);
+    else play(s, [{ think: "查看最近的控制台日志。" }, { text: CANNED(s) }, { usage: usage(3120, 4096, 96, 0.0011) }]);
   }
 
   // 卡片上点了确认 / 拒绝
@@ -1010,10 +1010,10 @@
     syncCard(cardEl, p, r.t.status);
     const s = r.s; s.waiting = hasPending(s); refresh(s);
     // AI 接着回复
-    const say = !ok ? (p.reason ? `好的，先不改。你说「${p.reason}」，那等合适的时候再跟我说一声。` : "好的，先不改。")
-      : p.title === "重启服务器" ? "已经重启好了。这几分钟控制台里没有再出现「跟不上」的警告，3 个人也都连回来了。"
-      : p.title === "新建服务器" ? "已经开始新建「空岛」了：下载核心、生成配置要一两分钟，进度在首页的后台任务里。"
-      : "改好了。要重启才生效；在线的 3 个人会掉线，可以等他们下线再重启。";
+    const say = !ok ? (p.reason ? `好的，暂不执行该修改。你提到「${p.reason}」，后续需要时再告知即可。` : "好的，暂不执行该修改。")
+      : p.title === "重启服务器" ? "服务器已重启完成。近几分钟控制台未再出现过载警告，3 名玩家也已重新连入。"
+      : p.title === "新建服务器" ? "已开始创建服务器「空岛」：下载核心与生成配置预计需要 1～2 分钟，可在首页的「后台任务」中查看进度。"
+      : "已修改完成，需重启服务器生效。当前在线的 3 名玩家将在重启时断开连接，可等他们下线后再重启。";
     setTimeout(() => play(s, [{ text: say }, { usage: usage(4120, 8192, 41, 0.0012) }]), 260);
   }
 
@@ -1131,7 +1131,7 @@
   // 实际发给 AI 的内容 / 交还给 AI 的内容（同程序 sentModal；那句脱敏说明照程序留在页上：它解释了原文里的 <用户名> 这些占位）
   function sentModal(text, tool) {
     return modal({ w: 600, tall: true, title: tool ? "返回给 AI 的内容" : "实际发给 AI 的内容",
-      body: `<div class="as-mb">${tool ? "工具返回结果中的 Windows 用户名、局域网 IP、API Key 与令牌已自动脱敏，超长内容已截断，并标注数据边界后再返回给 AI。玩家名予以保留。" : "发送前已自动脱敏路径中的 Windows 用户名、局域网 IP、API Key 与令牌，玩家名予以保留。"}</div>`
+      body: `<div class="as-mb">${tool ? "工具返回结果中的 Windows 用户名、局域网 IP、API Key 与令牌已自动脱敏，超长内容已截断，并标注数据边界后再返回给 AI。玩家名原样保留。" : "发送前已自动脱敏路径中的 Windows 用户名、局域网 IP、API Key 与令牌，玩家名原样保留。"}</div>`
         + `<div class="as-prw"><pre class="as-pre">${esc(text)}</pre><button type="button" class="as-ib" data-a="copypre" title="复制" aria-label="复制全部内容">${ic("copy")}</button></div>`,
       buttons: [{ x: "close", l: "关闭", cls: "pri", fk: true }] });
   }
@@ -1140,7 +1140,7 @@
     const full = PV_LEAD + "\n\n" + PV_DATA, chars = full.length, tokens = Math.round(chars / 1.6); // 草图：token 按字数粗估
     let q = PV_LEAD;
     const r = await modal({ w: 620, tall: true, title: "发送前预览",
-      body: `<div class="as-mb">将向 ${esc(PRESET + " · " + MODEL)} 发送约 <b>${chars.toLocaleString("en-US")}</b> 字（约 ${fmtTokens(tokens)} token），计入今日额度。路径中的 Windows 用户名、局域网 IP、API Key 与令牌已自动脱敏；为便于排错，玩家名予以保留。</div>`
+      body: `<div class="as-mb">将向 ${esc(PRESET + " · " + MODEL)} 发送约 <b>${chars.toLocaleString("en-US")}</b> 字（约 ${fmtTokens(tokens)} token），计入今日额度。路径中的 Windows 用户名、局域网 IP、API Key 与令牌已自动脱敏；为便于排错，玩家名原样保留。</div>`
         + `<label class="as-pvq"><span>提问内容</span><textarea rows="1" maxlength="20000">${esc(PV_LEAD)}</textarea></label>`
         + `<div class="as-pvd"><button type="button" class="as-dsc" data-a="pvmore" aria-expanded="false">${ic("chevronRight", "as-chev")}<span>查看待发送的排错资料</span></button><div class="as-prw"><pre class="as-pre">${esc(PV_DATA)}</pre></div></div>`,
       buttons: [{ x: "no", l: "取消" }, { x: "ok", l: `${ic("sparkle")}发送`, cls: "pri", fk: true }],
@@ -1152,7 +1152,7 @@
     else { if (S.view !== "chat") { S.view = "chat"; P.ss.hidden = true; P.msgs.hidden = false; } renderMsgs(); paintHead(); paintFoot(); openDrawer(); }
     const u = U(q.trim() || PV_LEAD, { attach: s.attach, masked: true, sent: (q.trim() || PV_LEAD) + "\n\n" + PV_DATA });
     pushItem(s, u);
-    play(s, [{ think: "本地规则说端口被占用，控制台也是 BindException。看看别的服务器用的端口。" }, { text: MD_PV }, { usage: usage(3906, 0, 402, 0.0035) }]);
+    play(s, [{ think: "本地规则提示端口被占用，控制台日志同样显示 BindException，检查其他服务器的端口分配。" }, { text: MD_PV }, { usage: usage(3906, 0, 402, 0.0035) }]);
   }
 
   function toast(msg, onClick) {
@@ -1255,7 +1255,7 @@
         setTimeout(() => play(s, [{ think: THINK1 }, { tool: T_DIAG(), ms: 600 }, { tool: T_TAIL(), ms: 900 }, { tool: T_PROPS(), ms: 500 }, { usage: usage(2912, 0, 214, 0.0012) }, { next: true }, { text: MD_SLOW }, { usage: usage(4288, 8192, 846, 0.0068) }]), 400);
         break;
       case "retry": setTimeout(() => { const u = U("隧道显示已连接，但朋友还是进不来"); pushItem(s, u);
-        play(s, [{ retry: "服务商出错，正在重试（第 1 次）：服务商暂时出了问题", ms: 1600 }, { retry: "服务商出错，正在重试（第 2 次）：服务商暂时出了问题", ms: 1600 }, { fail: { text: "请求 AI 失败：服务商暂时出了问题", detail: RAW_503 } }]); }, 300);
+        play(s, [{ retry: "服务商出错，正在重试（第 1 次）：服务商暂时不可用", ms: 1600 }, { retry: "服务商出错，正在重试（第 2 次）：服务商暂时不可用", ms: 1600 }, { fail: { text: "请求 AI 失败：服务商暂时不可用", detail: RAW_503 } }]); }, 300);
         break;
       case "mcp-closed": setTimeout(() => { // 提示的字同 mcp.js notify；面板（或整页）就摆在眼前时不弹提示，那一栏自己浮出来
         const p = P_CMD(); S.ext.push(p); paintExt(PAGE || S.open); paintCap();

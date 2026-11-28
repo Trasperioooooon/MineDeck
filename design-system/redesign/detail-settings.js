@@ -320,7 +320,7 @@
   // 悬停：说明、键名（程序在每一项下面写着）；没写进文件的照程序说一句
   function tipOf(D, p) {
     const out = [p.desc + (p.key === "motd" ? " 支持中文与 § 色码，最多两行。" : "")];
-    if (p.key === "white-list") out.push(`MineDeck 新建服务器时会按向导设置写入此项（默认关闭${verGte(C.S.mc, "26.3") ? "；该版本服务端自行生成配置时默认开启" : ""}）。白名单开关与名单亦可在「玩家」页管理。`);
+    if (p.key === "white-list") out.push(`MineDeck 新建服务器时会按向导设置写入此项（默认关闭${verGte(C.S.mc, "26.3") ? "；该版本服务端自行生成配置时默认开启" : ""}）。白名单开关与名单也可在「玩家」页管理。`);
     if (p.mode === "gamerule") out.push(live() ? "游戏规则：服务器运行时通过 /gamerule 即时生效，无需保存" : "游戏规则：服务器运行后可切换");
     if (D.missing.has(p.key) && p.mode !== "gamerule") out.push("server.properties 尚未写入此项，当前显示服务端默认值");
     out.push(p.mode === "gamerule" ? `/gamerule ${grRule(p)}` : p.key);
@@ -379,7 +379,7 @@
         + `<b class="st-sv">${esc(fmtStep(s, v))}</b><button type="button" data-st="inc" aria-label="${esc(p.label)} 增大" aria-disabled="${!up}" title="${up ? "增大" : `已达最大值（${esc(s.fmt(s.lad[s.lad.length - 1]))}）`}"><i data-ic="plus"></i></button></div>`;
     }
     const bad = badOf(p, v);
-    return `<label class="st-iw${s.ctl === "num" || s.mono ? " mono" : ""}${bad ? " bad" : ""}"><input class="st-in" value="${esc(v)}" placeholder="留空" autocomplete="off" spellcheck="false"${s.ctl === "num" ? ' inputmode="numeric"' : ""} ${al}>`
+    return `<label class="st-iw${s.ctl === "num" || s.mono ? " mono" : ""}${bad ? " bad" : ""}"><input class="st-in" value="${esc(v)}" placeholder="空" autocomplete="off" spellcheck="false"${s.ctl === "num" ? ' inputmode="numeric"' : ""} ${al}>`
       + (s.unit ? `<span class="st-unit">${s.unit}</span>` : "") + `<span class="st-msg"${bad ? ` title="${esc(bad[1])}"` : ""}>${bad ? esc(bad[0]) : ""}</span></label>`;
   }
   const fieldHTML = (D, p) => `<div class="st-f${D.cur[p.key] !== D.base[p.key] ? " mod" : ""}" data-k="${esc(p.key)}" data-search="${esc(p.label + " " + p.key)}" style="grid-column: span ${p.spec.span}">`
@@ -689,7 +689,7 @@
   const JAVAS = { portable: [21, 17, 25], scanned: [{ major: 8, version: "1.8.0_421", path: "C:\\Program Files\\Java\\jre1.8.0_421\\bin\\java.exe" }] };
   const JAVA_DOWNLOADABLE = [8, 11, 16, 17, 21, 25];
   const MISSING_JAVA = "C:\\Program Files\\Java\\jdk-21\\bin\\java.exe"; // 同页头「找不到这台服务器配的 Java」那条
-  const JAVA_BROKEN_WHY = "运行 java -version 失败：找不到 bin\\server\\jvm.dll（文件可能被杀毒软件删除或磁盘出错）"; // 编的，同全局设置 Java 那页
+  const JAVA_BROKEN_WHY = "运行 java -version 失败：缺少 bin\\server\\jvm.dll（文件可能已被杀毒软件删除或磁盘异常）"; // 编的，同全局设置 Java 那页
   // 每台的启动设置：内存同控制台第一行的启动命令（Paper、原版 4096，Forge 6144）；构建号是编的（程序里没有换构建，见开头）。
   // need 是这个版本至少要的 Java（同程序：游戏版本照官方元数据，缺字段时 mcsrc.staticJavaFor 兜底——26.1 起 25、1.20.5 起 21、1.18 起 17；
   // 代理端是 mcsrc 里写死的 FixedJava，Velocity 21）。比它低的在下拉里灰掉（作者 11-28 要的：程序现在换 Java 时不拦，选了起不来）
@@ -762,7 +762,7 @@
   const javaSub = (D, o, i) => (o.missing ? "未找到" : o.download ? "需下载（约 50 MB）" : o.portable ? "MineDeck 已下载" : `本机已安装 ${o.version}`)
     + (o.broken ? " · 无法启动" : "") + (i === D.base.java && !o.missing ? " · 当前使用" : "");
   const javaTip = (D, o) => o.missing ? `${o.path}\n未找到该 Java 路径（可能已被卸载或移动），当前无法启动服务器`
-    : o.broken ? `Java ${o.major} 检查未通过：${o.why}\n可点开下拉重新下载，或换一个 Java`
+    : o.broken ? `Java ${o.major} 检查未通过：${o.why}\n可在下拉菜单中重新下载，或更换其他 Java`
     : javaLow(D, o) ? `${D.needWho} 需要 Java ${D.need} 及以上` : o.path || "";
 
   // ---- 画 ----
@@ -782,9 +782,9 @@
     const port = C.S.proxy ? String(C.S.port) : (CM[C.kind]?.base["server-port"] ?? String(C.S.port));
     const hasBuild = D.builds.length > 0;
     const left = `<section class="st-col" aria-label="内存与 Java">${memHTML(D)}`
-      + `<div class="st-r2${hasBuild ? "" : " one"}"><div class="st-fld st-javaf"><span class="st-lb2"><span title="${C.S.proxy ? "如需更换运行所用的 Java 版本，保存后于下次启动生效；本地未安装的版本将在保存时自动下载。" : "新建时已按 Minecraft 版本自动匹配（1.20.1 用 Java 17，1.21 用 Java 21，26.1 起用 Java 25）。如需更换版本，保存后于下次启动生效；本地未安装的版本将在保存时自动下载。"}">Java</span><i class="st-dot"></i></span>`
+      + `<div class="st-r2${hasBuild ? "" : " one"}"><div class="st-fld st-javaf"><span class="st-lb2"><span title="${C.S.proxy ? "如需更换运行所用的 Java 版本，保存后下次启动生效；本地未安装的版本将在保存时自动下载。" : "新建时已按 Minecraft 版本自动匹配（1.20.1 用 Java 17，1.21 用 Java 21，26.1 起用 Java 25）。如需更换版本，保存后下次启动生效；本地未安装的版本将在保存时自动下载。"}">Java</span><i class="st-dot"></i></span>`
       + `<button type="button" class="st-sel st-java" data-st="java" aria-haspopup="menu" aria-expanded="false" aria-label="服务器 Java 版本"><i data-ic="coffee"></i>${javaFieldHTML(D)}</button></div>`
-      + (hasBuild ? `<div class="st-fld st-buildf"><span class="st-lb2"><span title="${C.S.proxy ? "同一版本的代理端可能发布多次构建更新" : "同一游戏版本的服务端可能发布多次构建更新"}，新建时默认使用最新稳定构建。若与某个${C.kind === "forge" ? "模组" : "插件"}不兼容，可在此切换旧版构建，保存后于下次启动生效。">构建</span><i class="st-dot"></i></span>`
+      + (hasBuild ? `<div class="st-fld st-buildf"><span class="st-lb2"><span title="${C.S.proxy ? "同一版本的代理端可能发布多次构建更新" : "同一游戏版本的服务端可能发布多次构建更新"}，新建时默认使用最新稳定构建。若与某个${C.kind === "forge" ? "模组" : "插件"}不兼容，可在此切换旧版构建，保存后下次启动生效。">构建</span><i class="st-dot"></i></span>`
         + `<button type="button" class="st-sel st-build" data-st="build" aria-haspopup="menu" aria-expanded="false" aria-label="构建"><span class="st-selv"></span><i data-ic="chevronDown" class="st-chev"></i></button></div>` : "")
       + `</div><div class="st-r2"><div class="st-fld"><span class="st-lb2"><span>服务器文件夹</span></span>`
       + `<div class="st-path" title="${esc(D.dir + "\n手动启动可双击该文件夹中的 run.bat，其参数与本页配置同步")}"><i data-ic="folder"></i><b><span class="hd">${esc(D.dir.slice(0, D.dir.lastIndexOf("\\")))}</span><span class="tl">${esc(D.dir.slice(D.dir.lastIndexOf("\\")))}</span></b>`

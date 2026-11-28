@@ -55,17 +55,17 @@
     base: "存放程序本体、已下载的 Java 及缓存文件，可整个文件夹直接复制迁移。",
   };
   const REMOTE = "仅限本机操作；通过手机远程管理时需在主机上更改";
-  const SAME_TIP = "虽可正常使用，但备份会与服务器文件混杂而不易区分；若磁盘损坏，服务器与备份将同时丢失。建议为备份另选独立文件夹，最好位于其他磁盘。";
+  const SAME_TIP = "可以设为同一位置，但备份会与服务器文件混在一起不易区分；磁盘损坏时两者会同时丢失。建议为备份另选独立文件夹，最好位于其他磁盘。";
   // 草图里「选文件夹」假装选到的（不弹系统的窗口）
   const PICKS = { servers: ["E:\\MC-Servers", "F:\\游戏\\开服"], backups: ["E:\\MineDeck-备份", "F:\\备份\\MineDeck"] };
   // 保留份数的档位（草图定的，见开头）
   const LAD = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20, 24, 30, 48, 72, 100, 168, 200, 300, 500, 1000];
 
   // 排除项的几句话（照 cmd/minedeck/defender_windows.go 和分支里 app.js 的原话）
-  const DEF_TIP = base => "实时防护会扫这个文件夹里读写的每个文件，开服、存档会慢一些，frpc 这类穿透程序还常被误报隔离。"
-    + `加入以后 Windows 安全中心不再扫描 ${base}，要管理员权限，会弹出 Windows PowerShell 的确认窗口。`
-    + "放在别处的服务器和备份不在里面。装了别的杀毒软件的话，要在那个软件里另外设置。"
-    + "MineDeck 只记得自己加过没有，在 Windows 安全中心里手动删掉的话，这里看不出来。";
+  const DEF_TIP = base => "实时防护会扫描该文件夹中读写的每个文件，影响服务器启动和保存存档的速度，frpc 等穿透程序也常被误报隔离。"
+    + `加入后，Windows 安全中心将不再扫描 ${base}。此操作需要管理员权限，会弹出 Windows PowerShell 确认窗口。`
+    + "存放在其他位置的服务器和备份不在排除项内。如果安装了其他杀毒软件，需在该软件中单独设置。"
+    + "MineDeck 仅记录自身是否添加过排除项，如果在 Windows 安全中心手动移除，此处无法检测到。";
   const manual = verb => `可在 Windows 安全中心手动${verb}：病毒和威胁防护 → 管理设置 → 排除项`;
   const RESULT = { // 点了以后没做成的几种：框里那句（短）、悬停（程序原话全文）
     cancelled: { warn: false, line: add => `${add ? "未加入" : "未撤销"}：在系统确认窗口中选择了「否」`, tip: () => "" },
@@ -125,8 +125,8 @@
       btip: s.rec ? "从排除项中移除（将弹出系统确认窗口）" : "以管理员身份加入（将弹出系统确认窗口）" };
     if (s.pending) return { ...v, line: "等待系统确认…", btn: s.pending === "add" ? "加入…" : "撤销…", busy: true, btip: "" };
     if (here) v.line = `已加入 · ${s.rec.at}`;
-    else if (s.rec) { v.line = "当前排除项为旧位置"; v.tip = `此前加入的是 ${s.rec.path}，撤销的是它。`; }
-    else if (s.broad) { v.line = "不能加入：程序数据文件夹是磁盘根目录"; v.warn = true; v.tip = BROAD_TIP; v.off = true; v.btip = BROAD_TIP; }
+    else if (s.rec) { v.line = "当前排除项为旧位置"; v.tip = `此前加入的是 ${s.rec.path}，撤销将移除该旧路径。`; }
+    else if (s.broad) { v.line = "无法加入：程序数据文件夹位于磁盘根目录"; v.warn = true; v.tip = BROAD_TIP; v.off = true; v.btip = BROAD_TIP; }
     if (s.result && !s.broad) { const R = RESULT[s.result.kind], add = s.result.action === "add"; v.line = R.line(add); v.warn = R.warn; v.tip = R.tip(add); }
     return v;
   }
@@ -146,8 +146,8 @@
   function keepHTML(s) {
     const dn = stepTo(s.keep, -1) !== undefined, up = stepTo(s.keep, 1) !== undefined, dirty = s.keep !== s.keepBase;
     return `<div class="ss-f ss-keep${dirty ? " mod" : ""}"><div class="ss-lb"><span title="${esc(keepTip(s.keep))}">每台服务器备份保留份数</span><i class="ss-dot"></i></div><div class="ss-kr">`
-      + `<div class="ss-stp"><button type="button" data-ss="dec" aria-label="少一档" aria-disabled="${!dn}" title="${dn ? "少一档" : "最少 1 份"}"><i data-ic="minus"></i></button>`
-      + `<b class="ss-sv" aria-live="polite">${kTxt(s.keep)}</b><button type="button" data-ss="inc" aria-label="多一档" aria-disabled="${!up}" title="${up ? "多一档" : "最多 1000 份"}"><i data-ic="plus"></i></button></div>`      + `<button type="button" class="ss-save${dirty ? " on" : ""}" data-ss="ksave" aria-disabled="${!dirty}"${dirty ? "" : ' title="暂无未保存的修改"'}>保存</button></div></div>`;
+      + `<div class="ss-stp"><button type="button" data-ss="dec" aria-label="减少" aria-disabled="${!dn}" title="${dn ? "减少" : "最少 1 份"}"><i data-ic="minus"></i></button>`
+      + `<b class="ss-sv" aria-live="polite">${kTxt(s.keep)}</b><button type="button" data-ss="inc" aria-label="增加" aria-disabled="${!up}" title="${up ? "增加" : "最多 1000 份"}"><i data-ic="plus"></i></button></div>`      + `<button type="button" class="ss-save${dirty ? " on" : ""}" data-ss="ksave" aria-disabled="${!dirty}"${dirty ? "" : ' title="暂无未保存的修改"'}>保存</button></div></div>`;
   }
 
   function html(ctx) {
@@ -158,7 +158,7 @@
       + `<span class="ss-same"${same ? "" : " hidden"} title="${esc(SAME_TIP)}"><i data-ic="warn"></i>服务器与备份共用同一文件夹</span></div>${pathBox(s, "backups")}</div>`
       + `<div class="ss-f"><div class="ss-lb"><span title="${esc(DESC.base)}">程序数据文件夹</span></div>${pathBox(s, "base")}</div>`
       + `<div class="ss-f ss-def"><div class="ss-lb"><span title="${esc(DEF_TIP(s.base))}">Windows 安全中心排除项</span><span class="ss-sp"></span>`
-      + `<span class="ss-out"${out.length ? "" : " hidden"} title="${esc(outTip(out))}">别处的服务器不在排除项内</span></div>${defBox(s)}</div>`
+      + `<span class="ss-out"${out.length ? "" : " hidden"} title="${esc(outTip(out))}">其他位置的服务器不在排除项内</span></div>${defBox(s)}</div>`
       + `<i class="ss-hr"></i>${keepHTML(s)}</div></section></div>`;
   }
 
@@ -204,8 +204,8 @@
     const r = root(); if (!r) return; const s = data(), f = r.querySelector(".ss-keep");
     const [mi, pl] = f.querySelectorAll(".ss-stp button"), dn = stepTo(s.keep, -1) !== undefined, up = stepTo(s.keep, 1) !== undefined, dirty = s.keep !== s.keepBase;
     const num = f.querySelector(".ss-sv"); if (!num.querySelector(".kit-num")) setText(num, kTxt(s.keep)); // 正在框里打字时不动它（打完由 numEdit 放回去，再重画）
-    setAttr(mi, "aria-disabled", !dn); setTip(mi, dn ? "少一档" : "最少 1 份");
-    setAttr(pl, "aria-disabled", !up); setTip(pl, up ? "多一档" : "最多 1000 份");
+    setAttr(mi, "aria-disabled", !dn); setTip(mi, dn ? "减少" : "最少 1 份");
+    setAttr(pl, "aria-disabled", !up); setTip(pl, up ? "增加" : "最多 1000 份");
     f.classList.toggle("mod", dirty);
     setTip(f.querySelector(".ss-lb > span"), keepTip(s.keep));
     const sv = f.querySelector(".ss-save");

@@ -41,15 +41,15 @@
   const RT = "D:\\MineDeck\\runtimes"; // 程序：exe 所在文件夹下的 runtimes\java-N（app.RuntimesDir）；草图里程序放在 D:\MineDeck（同详情页的服务器文件夹）
   const exeOf = m => `${RT}\\java-${m}\\bin\\java.exe`;
   const USES = { paper: 21, forge: 17, vanilla: 25, proxy: 21 }; // 每台服务器配的 Java，同 detail-settings.js
-  const TIP_P = "由 MineDeck 独立下载的 Java 运行时。新建服务器缺少合适版本时会自动下载，不影响系统已安装的 Java。\n打开此页时会检查每一套能否正常启动；无法启动的可重新下载，检查通过后才替换原文件，服务器设置不用改。\n卸载仅删除对应运行时；若有服务器正在运行或配置使用该版本，则无法卸载。";
+  const TIP_P = "由 MineDeck 独立下载的 Java 运行时。新建服务器缺少合适版本时会自动下载，不影响系统已安装的 Java。\n打开此页时会自动检查各项运行时能否正常启动；无法启动时可重新下载，检查通过后再替换原文件，服务器设置无需修改。\n卸载仅删除对应运行时；若有服务器正在运行或配置使用该版本，则无法卸载。";
   const TIP_S = "新建服务器时优先使用本机已安装的 Java；若无合适版本，则使用 MineDeck 已下载的运行时或自动下载。";
   const TIP_INC = "上次下载或卸载未完成而残留的文件夹，无法用于开服，可点击右侧按钮清理。";
   // 检查和重新下载（作者 11-28 要画的，做法照 v3.3.0-beta.1 下载与更新整改第四节）：打开这一页时把每一套都跑一次 java -version，
   // 看能不能起来、报出来的大版本对不对；检查不过的那一行标「无法启动」，MineDeck 下载的可以重新下载（先下到旁边、检查过再换上去，同一个路径，
   // 用着它的服务器设置不用改）。本机装的检查不过时新建服务器不用它，改用 MineDeck 下载的。左栏右上角「重新检查」再跑一次。
-  const JAVA_BROKEN_WHY = "运行 java -version 失败：找不到 bin\\server\\jvm.dll（文件可能被杀毒软件删除或磁盘出错）"; // 编的，同详情页「启动与内存」
-  const TIP_BAD_P = `检查未通过：${JAVA_BROKEN_WHY}\n可点击右侧按钮重新下载，用着它的服务器设置不用改`;
-  const TIP_BAD_S = `检查未通过：${JAVA_BROKEN_WHY}\n新建服务器时不会使用此 Java，改用 MineDeck 下载的`;
+  const JAVA_BROKEN_WHY = "运行 java -version 失败：缺少 bin\\server\\jvm.dll（文件可能已被杀毒软件删除或磁盘异常）"; // 编的，同详情页「启动与内存」
+  const TIP_BAD_P = `检查未通过：${JAVA_BROKEN_WHY}\n可点击右侧按钮重新下载，使用该版本的服务器设置无需修改`;
+  const TIP_BAD_S = `检查未通过：${JAVA_BROKEN_WHY}\n新建服务器时不会使用此 Java，将改用 MineDeck 下载的运行时`;
   const TIP_ADD = "粘贴 java.exe 或 JDK 文件夹的路径，如 C:\\Program Files\\Java\\jdk-21\\bin\\java.exe";
   let D = null;
   function seed(ctx) {
