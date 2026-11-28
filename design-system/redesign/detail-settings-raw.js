@@ -13,7 +13,8 @@
 //     程序那句说明不要了：文件名就在这一排；「已知项附中文名」一看就知道。搜索框的例子进悬停。
 //   · 中间一栏（圆角 18）是全部键值，一行 40 高、圆角 10（离栏边 8）：键名（等宽）、中文名（淡色，说明和默认值进悬停）、值。
 //     值是「平时是字、悬停出底色、点进去才出框」的框（规范第九节，同向导第三步的名称、介绍）：七十来行每行一个 40 高的框太重，
-//     这一页又是给要手改原文的人用的，所以值照原文、不换成开关和下拉（那是「常用」的事）。空的值写淡淡的「空」。
+//     这一页又是给要手改原文的人用的，所以值照原文写。空的值写淡淡的「空」。
+//     只能是 true / false 的换成「true | false」两段、只有几个取值的换成下拉（作者 11-28 要的：手打拼错了会报错），字仍是文件里的原文；做法见 row() 上面。
 //     改过的那一行右边一个强调色小点（同「定时任务」）。多了在栏里滚，细滚动条。
 //   · 最下面一条 52 高、圆角 18 的保存条（同「定时任务」，规范里吸在面板底部的那种）：右边有改动时「N 项修改未保存」「放弃修改」，「保存」亮起来；
 //     左边在服务器开着、又有改动时写「保存后要重启才生效」（警告色，页头已经写着运行中，前半句省了），存过以后换成「已保存，重启服务器以后生效」和「立即重启」。
@@ -60,13 +61,84 @@
   const running = () => C.st !== "stopped";
 
   // ---- 画 ----
+  // 值的控件（作者 11-28 要的：只能是 true / false 的别让人手打，拼错了服务端会报错或当成 false）：
+  //   目录里 type 是 bool（和老版本上还在文件里的 gamerule-bool）→ 两段「true | false」，写的就是文件里的原文；
+  //   type 是 sel（游戏难度、默认游戏模式、世界类型、区块压缩）→ 下拉，列原文、后面淡淡的中文名；
+  //   其余（数字、文字、目录里没有的键）照旧是「平时是字、点进去才出框」的框。
+  //   文件里写的不是这几个值（比如手改成了 yes、True）：两段一个都不选中 / 下拉照写原文，悬停说服务端会怎么当（Java 的 Boolean.parseBoolean：不是 true 就当 false）。
+  //   世界类型的可选值老版本不一样（1.12.2 全大写、1.16–1.18 驼峰，见目录 optsByVer），草图三台都是 1.19 以后的，改程序时按版本给。
+  const isBool = m => m && (m.type === "bool" || m.type === "gamerule-bool");
+  const ctlLabel = (k, m) => `${esc(k)}${m ? "（" + esc(m.label) + "）" : ""}`;
+  function boolHTML(k, m, val) {
+    const v = String(val).toLowerCase(), odd = v !== "true" && v !== "false";
+    return `<div class="rw-seg${odd ? " odd" : ""}" role="radiogroup" aria-label="${ctlLabel(k, m)}"${odd ? ` title="${esc(`文件里写的是「${val}」，服务端会当作 false`)}"` : ""}>`
+      + `<i class="rw-sgl"></i>${["true", "false"].map(o => `<button type="button" role="radio" aria-checked="${v === o}" class="${v === o ? "on" : ""}" data-rw-b="${o}">${o}</button>`).join("")}</div>`;
+  }
+  function selHTML(k, m, val) {
+    const odd = !m.opts.includes(val);
+    return `<button type="button" class="rw-sel${odd ? " odd" : ""}" data-rw-sel aria-haspopup="menu" aria-expanded="false" aria-label="${ctlLabel(k, m)}"`
+      + `${odd ? ` title="${esc(`文件里写的是「${val}」，不在可选值里`)}"` : ""}><span class="rw-sv">${val === "" ? `<span class="ph">空</span>` : esc(val)}</span><i data-ic="chevronDown"></i></button>`;
+  }
   function row(D, k) {
     const m = meta(k), tip = m ? `${m.desc}\n默认：${m.def === "" ? "留空" : m.def}` : "";
+    const ctl = isBool(m) ? boolHTML(k, m, D.cur[k]) : m && m.type === "sel" ? selHTML(k, m, D.cur[k])
+      : `<input class="rw-v" value="${esc(D.cur[k])}" placeholder="留空" autocomplete="off" spellcheck="false" aria-label="${ctlLabel(k, m)}">`;
     return `<div class="rw-row${D.cur[k] !== D.base[k] ? " mod" : ""}" data-k="${esc(k)}" data-search="${esc(k + " " + (m ? m.label : ""))}">`
       + `<span class="rw-k">${esc(k)}</span><span class="rw-cn"${tip ? ` title="${esc(tip)}"` : ""}>${m ? esc(m.label) : ""}</span>`
-      + `<input class="rw-v" value="${esc(D.cur[k])}" placeholder="留空" autocomplete="off" spellcheck="false" aria-label="${esc(k)}${m ? "（" + esc(m.label) + "）" : ""}">`
-      + `<span class="rw-dot" title="未保存"></span></div>`;
+      + `${ctl}<span class="rw-dot" title="未保存"></span></div>`;
   }
+  // 两段里的选中块：滑到选中的那一段（同规范第七节，0.32 秒）；第一次画出来时直接放好、不滑
+  function placeSeg(seg, instant) {
+    const sgl = seg.querySelector(".rw-sgl"), on = seg.querySelector("button.on");
+    if (!on) { sgl.style.opacity = "0"; return; }
+    if (instant) sgl.style.transition = "none";
+    sgl.style.opacity = ""; sgl.style.width = on.offsetWidth + "px"; sgl.style.transform = `translateX(${on.offsetLeft}px)`;
+    if (instant) { void sgl.offsetWidth; sgl.style.transition = ""; }
+  }
+  // 改一行的值（选了、放弃修改时）：控件跟着变，不重画这一行
+  function setVal(D, rowEl, k, val) {
+    D.cur[k] = val; rowEl.classList.toggle("mod", D.cur[k] !== D.base[k]);
+    const seg = rowEl.querySelector(".rw-seg"), sel = rowEl.querySelector(".rw-sel"), inp = rowEl.querySelector(".rw-v");
+    if (seg) {
+      const v = String(val).toLowerCase(), odd = v !== "true" && v !== "false";
+      seg.querySelectorAll("button").forEach(b => { const on = b.dataset.rwB === v; b.classList.toggle("on", on); b.setAttribute("aria-checked", on); });
+      seg.classList.toggle("odd", odd); setTip(seg, odd ? `文件里写的是「${val}」，服务端会当作 false` : ""); placeSeg(seg);
+    } else if (sel) {
+      const odd = !meta(k).opts.includes(val);
+      sel.querySelector(".rw-sv").innerHTML = val === "" ? `<span class="ph">空</span>` : esc(val); sel.classList.toggle("odd", odd);
+      setTip(sel, odd ? `文件里写的是「${val}」，不在可选值里` : "");
+    } else if (inp && inp.value !== val) inp.value = val;
+  }
+  // 下拉菜单（样子同「常用」的下拉：detail-settings.css 的 .st-dm、.st-it）：原文、后面淡淡的中文名，现在的值打勾
+  let menu = null;
+  function openMenu(D, btn) {
+    if (menu && menu._a === btn) { closeMenu(); return; }
+    closeMenu();
+    const rowEl = btn.closest(".rw-row"), k = rowEl.dataset.k, m = meta(k);
+    const el = document.createElement("div"); el.className = "st-dm enter"; el.setAttribute("role", "menu");
+    el.innerHTML = m.opts.map((o, i) => `<div class="st-it${o === D.cur[k] ? " here" : ""}" role="menuitemradio" aria-checked="${o === D.cur[k]}" data-v="${esc(o)}">`
+      + `<span class="st-im mono">${esc(o)}</span><span class="st-is">${esc(m.optNames?.[i] || "")}</span>${o === D.cur[k] ? `<i data-ic="check" class="st-ck"></i>` : ""}</div>`).join("");
+    document.body.appendChild(el); C.KIT.hydrate(el);
+    const r = btn.getBoundingClientRect(); el.style.minWidth = Math.max(r.width, 200) + "px";
+    const w = el.offsetWidth, h = el.offsetHeight, up = r.bottom + 4 + h > innerHeight - 8;
+    el.classList.toggle("up", up);
+    el.style.left = Math.round(Math.max(8, Math.min(r.left, innerWidth - w - 8))) + "px";
+    el.style.top = Math.round(up ? r.top - h - 4 : r.bottom + 4) + "px";
+    btn.classList.add("open"); btn.setAttribute("aria-expanded", "true"); el._a = btn;
+    el.addEventListener("click", e => {
+      const it = e.target.closest(".st-it"); if (!it) return;
+      closeMenu(); if (it.classList.contains("here")) return;
+      setVal(D, rowEl, k, it.dataset.v); paintBar(D);
+    });
+    menu = el;
+  }
+  function closeMenu() {
+    if (!menu) return; const el = menu; menu = null;
+    el._a.classList.remove("open"); el._a.setAttribute("aria-expanded", "false"); el.classList.remove("enter"); el.classList.add("leave"); setTimeout(() => el.remove(), 90);
+  }
+  document.addEventListener("click", e => { if (menu && !e.composedPath().some(n => n === menu || n === menu._a)) closeMenu(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && menu) closeMenu(); });
+  document.addEventListener("scroll", () => closeMenu(), true);
   const countText = (D, n) => (skey(D.q) ? `找到 ${n} 项` : `共 ${D.keys.length} 项`);
   function html(ctx) {
     C = ctx;
@@ -108,7 +180,8 @@
     const D = data();
     filter(D, false); paintNote(D, true);
     r.querySelectorAll(".rw-k").forEach(fitKey);
-    document.fonts?.ready.then(() => { if (r.isConnected) r.querySelectorAll(".rw-k").forEach(fitKey); });
+    r.querySelectorAll(".rw-seg").forEach(s => placeSeg(s, true));
+    document.fonts?.ready.then(() => { if (!r.isConnected) return; r.querySelectorAll(".rw-k").forEach(fitKey); r.querySelectorAll(".rw-seg").forEach(s => placeSeg(s, true)); });
   }
 
   // ---- 搜索：边打边筛（停手 0.18 秒再换）。只是把不匹配的行藏起来，改过的值都还在、保存时照样提交 ----
@@ -192,9 +265,8 @@
   function discard(D) {
     const r = root(); if (!r) return;
     dirtyKeys(D).forEach(k => {
-      D.cur[k] = D.base[k];
-      const el = r.querySelector(`.rw-row[data-k="${CSS.escape(k)}"]`); if (!el) return;
-      el.querySelector(".rw-v").value = D.base[k]; el.classList.remove("mod");
+      const el = r.querySelector(`.rw-row[data-k="${CSS.escape(k)}"]`);
+      if (el) setVal(D, el, k, D.base[k]); else D.cur[k] = D.base[k];
     });
     paintBar(D);
   }
@@ -210,6 +282,9 @@
   function onClick(e) {
     const D = !none() && CAT ? data() : null; if (!D) return;
     if (e.target.closest(".rw-cx")) { e.preventDefault(); const inp = root().querySelector(".rw-q"); clearQ(D, inp); inp.focus(); return; }
+    const sb = e.target.closest("[data-rw-b]");
+    if (sb) { if (!sb.classList.contains("on")) { const rowEl = sb.closest(".rw-row"); setVal(D, rowEl, rowEl.dataset.k, sb.dataset.rwB); paintBar(D); } return; }
+    const sel = e.target.closest("[data-rw-sel]"); if (sel) { openMenu(D, sel); return; }
     const b = e.target.closest("[data-rw]"); if (!b || b.getAttribute("aria-disabled") === "true" || b.disabled) return;
     if (b.dataset.rw === "save") save(D);
     else if (b.dataset.rw === "discard") discard(D);
