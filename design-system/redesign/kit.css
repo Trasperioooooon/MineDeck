@@ -71,6 +71,11 @@ button { font: inherit; color: inherit; }
 .kit-b.dgr:hover { background: var(--danger-solid-hov); }
 .kit-b:focus-visible, .kit-b.fk { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px color-mix(in srgb, var(--accent) 70%, transparent); }
 
+/* 开关只认开关本身（kit.js 第 8 条）：名字那一段指针是默认的，只有开关是手形；前面加 html 是为了压过各页自己给整颗按钮写的 cursor: pointer */
+html :is([role="switch"], .tg, [data-eula]):not([aria-disabled="true"]) { cursor: default; }
+html :is([role="switch"], .tg, [data-eula]):not([aria-disabled="true"]) [class$="sw"] { cursor: pointer; }
+html [data-eula] .tg { pointer-events: auto !important; } /* EULA 里的开关原来设了不接鼠标（整条都能点），现在只认开关，得让它接 */
+
 /* 步进中间的数字就地打字（kit.js 第 7 条）：平时悬停有一层淡底，表示点得进去；打字时整个步进框描一圈强调色，填错了描危险色（规范第六节） */
 .kit-numt { cursor: text; border-radius: 6px; transition: background-color .15s; }
 .kit-numt:hover { background: var(--hover); }

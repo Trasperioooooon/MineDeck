@@ -162,6 +162,22 @@
     el.addEventListener("keydown", e => { if ((e.key === "Enter" || e.key === " ") && e.target === el) { e.preventDefault(); open(); } });
   };
   Object.assign(window.KIT, { confirm: confirmBox, leave, guardPage, numEdit });
+
+  // 8. 开关只认开关本身（作者 11-28 定；规范第九节）。草图里开关和它的名字写在一起、整块都能点：详情页和设置页是 role="switch" 的按钮，
+  //    向导、导入、工具箱、联机页是 .tg，EULA 是整条 [data-eula]；里面类名是 sw 或「前缀-sw」的那一小块是开关。
+  //    点在开关以外（名字、说明）就在捕获阶段拦下，页面自己的点击处理收不到；按点的位置判断（开关四周放宽 4 像素），EULA 里开关设了不接鼠标也算得准。
+  //    只有开关、没有字的照旧；名字里的链接、按钮照常能点；键盘聚焦后按空格、回车照常切（键盘触发的 click 的 detail 是 0）
+  const SWITCH = '[role="switch"], .tg, [data-eula]';
+  const isKnob = el => [...el.classList].some(c => /^([a-z]+-)?sw$/.test(c));
+  document.addEventListener("click", e => {
+    if (!e.detail) return;
+    const b = e.target.closest?.(SWITCH); if (!b || !b.textContent.trim()) return;
+    const inner = e.target.closest("a, button, input, select, textarea"); if (inner && inner !== b && b.contains(inner)) return;
+    const k = [...b.querySelectorAll("span")].find(isKnob); if (!k) return;
+    const r = k.getBoundingClientRect();
+    if (e.clientX >= r.left - 4 && e.clientX <= r.right + 4 && e.clientY >= r.top - 4 && e.clientY <= r.bottom + 4) return;
+    e.stopImmediatePropagation(); e.preventDefault();
+  }, true);
   window.KIT_READY = (async () => {
     try {
       const src = await (await fetch("../../internal/web/ui/app.js")).text();
